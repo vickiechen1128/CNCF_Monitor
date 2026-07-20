@@ -1,0 +1,41 @@
+# MetricCenter Git Ignore
+
+# 自动下载的工具链
+.tools/
+
+# 构建产物
+platform/cmd/metric-center/metric-center
+upstream/prometheus/prometheus
+upstream/prometheus/promtool
+upstream/node_exporter/node_exporter
+*.exe
+
+# UI 构建产物
+ui-custom/web/node_modules/
+ui-custom/web/dist/
+ui-custom/web/.vite/
+ui-custom/web/coverage/
+
+# Go 构建缓存
+*.o
+*.a
+*.so
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+
+# 临时文件
+/tmp/
+*.tmp

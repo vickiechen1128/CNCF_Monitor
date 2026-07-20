@@ -1,0 +1,139 @@
+# MetricCenter 工程实现标准
+
+> **AI 编程助手必读**：本文档包含编码前必须了解的目录结构、技术栈、关键实现约定和避坑指南。
+> 文档类型：工程标准
+> 更新日期：2026-07-16
+
+---
+
+## 1. 项目目录结构
+
+```
+CNCF_Monitor/
+├── .trae/
+│   └── skills/
+│       └── codebase-architecture-explorer/     # Trae Skill（必须保留）
+│
+├── upstream/                                    # 上游开源源码（尽量不修改）
+│   ├── prometheus/
+│   └── node_exporter/
+│
+├── platform/                                    # MetricCenter 业务扩展代码
+│   ├── cmd/metric-center/                       # 主程序入口
+│   ├── gateway/                                 # API Gateway
+│   │   ├── auth/                                # 认证鉴权
+│   │   ├── tenant/                              # 多租户
+│   │   ├── proxy/                               # 查询代理
+│   │   └── router/                              # 路由注册
+│   ├── discovery/                               # 自定义服务发现
+│   │   ├── cmdb/
+│   │   ├── nacos/
+│   │   └── custom-http/
+│   ├── collector/                               # 自定义采集器
+│   ├── storage/                                 # 自定义存储适配
+│   ├── config/                                  # 平台配置
+│   ├── models/                                  # 领域模型
+│   └── api/                                     # 自定义 API
+│
+├── ui-custom/                                   # 独立前端门户
+│   └── web/
+│
+├── patches/                                     # 对上游源码的必要 patch
+│   └── prometheus/
+│       └── README.md
+│
+├── scripts/                                     # 构建与辅助脚本
+├── deploy/                                      # 部署配置
+│
+├── docs/                                        # 文档
+│   ├── 01-source-architecture/                  # 源码架构理解
+│   ├── 02-product-requirements/                 # 新产品需求文档
+│   └── 03-engineering-standards/                # 工程约束与标准
+│
+├── Makefile                                     # 统一构建入口
+├── .gitignore
+└── README.md
+```
+
+---
+
+## 2. 技术栈
+
+### 2.1 MVP 开发期选型
+
+| 层级 | 技术 | 说明 |
+|------|------|------|
+| 后端引擎 | Prometheus（Go） | 数据面核心，负责抓取、TSDB、PromQL、告警求值 |
+| 控制面后端 | Go 1.25+ | 轻量扩展层，优先保持简单 |
+| Gateway | Go + Gin | 统一入口、鉴权、查询代理、配置管理 API |
+| 前端 | React 18 + TypeScript | 门户化配置管理页面 |
+| UI 组件库 | Ant Design | 企业级后台组件库 |
+| 数据库（平台） | SQLite | 开发期零运维、单机可运行 |
+| 部署 | Docker / Docker Compose | 本地开发与测试 |
+
+### 2.2 未来演进选型
+
+| 层级 | MVP 选型 | 未来演进 | 切换条件 |
+|------|---------|---------|---------|
+| 元数据存储 | SQLite | PostgreSQL / MySQL | 生产部署、多实例、审计需求 |
+| 缓存 | 无 | Redis | 会话、配置缓存、采集状态缓存 |
+| 时序存储 | Prometheus TSDB | VictoriaMetrics / Mimir | 长期存储、集群查询 |
+| 采集端 | Prometheus Server | Prometheus Agent Mode / OpenTelemetry Collector | 大规模分布式采集 |
+| 告警 | Prometheus 原生告警 | 自建告警中心 + 通知网关 | 复杂告警编排、多渠道通知 |
+| 图表 | 无 | uPlot / ECharts | 高性能时序图表需求 |
+
+> **一致性要求**：本表与 [`docs/02-product-requirements/00_Global_Architecture.md`](../02-product-requirements/00_Global_Architecture.md) 保持同步。MVP 阶段优先使用轻量组合，生产级组件通过标准接口逐步替换。
+
+---
+
+## 3. 编码前必读
+
+### 3.1 绝不直接修改 upstream 源码
+
+- 所有业务代码写在 `platform/`
+- 必须修改 upstream 时，生成 patch 到 `patches/prometheus/`
+- patch 命名格式：`0001-<简短描述>.patch`
+
+### 3.2 入口程序独立
+
+不要直接运行 `upstream/prometheus/cmd/prometheus/main.go`，而是通过 `platform/cmd/metric-center/main.go` 包装：
+
+```go
+package main
+
+import (
+    prometheus "github.com/prometheus/prometheus/cmd/prometheus"
+    _ "your-platform/discovery/cmdb"   // 注册自定义发现
+)
+
+func main() {
+    prometheus.Main()
+}
+```
+
+### 3.3 文档驱动
+
+- 每个模块开发前，必须先补充或更新 `docs/02-product-requirements/Modules/`
+- 每个代码变更前，先确认是否符合 `docs/03-engineering-standards/`
+
+---
+
+## 4. AI Agent 协作规范
+
+1. **先读文档再写代码**：AI Agent 接到任务后，先读取相关 PRD 和工程标准
+2. **小步提交**：每个功能点独立 PR，便于 review
+3. **不编造接口**：所有 API 设计需参考现有 Prometheus 接口或已在 PRD 中定义
+4. **保留 Skill**：`.trae/skills/` 目录不得删除或移动
+5. **Patch 可追溯**：所有对 upstream 的修改必须有 patch 文件和说明
+
+---
+
+## 5. 关键参考文档
+
+| 文档 | 说明 |
+|------|------|
+| [01_Code_Isolation_Standard.md](01_Code_Isolation_Standard.md) | 源码与二次开发代码隔离细则 |
+| [02_Frontend_Standard.md](02_Frontend_Standard.md) | 前端开发规范 |
+| [03_API_Standard.md](03_API_Standard.md) | API 设计规范 |
+| [04_Testing_Standard.md](04_Testing_Standard.md) | 测试规范 |
+| [05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md) | AI Agent 协作细则 |

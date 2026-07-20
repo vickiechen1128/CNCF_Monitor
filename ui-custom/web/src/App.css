@@ -1,0 +1,24 @@
+.app-layout {
+  min-height: 100vh;
+}
+
+.app-header {
+  background-color: #1677ff;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+}
+
+.app-title {
+  color: #fff !important;
+  margin: 0 !important;
+}
+
+.app-content {
+  padding: 24px;
+}
+
+.status-card {
+  max-width: 600px;
+  margin: 0 auto;
+}

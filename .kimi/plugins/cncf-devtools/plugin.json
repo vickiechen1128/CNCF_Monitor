@@ -1,0 +1,66 @@
+{
+  "name": "cncf-devtools",
+  "version": "1.0.0",
+  "description": "CNCF_Monitor / MetricCenter development utilities: test, vet, build, lint",
+  "tools": [
+    {
+      "name": "run_backend_tests",
+      "description": "Run Go tests for platform packages",
+      "command": ["bash", "scripts/run_cmd.sh", "test"],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Optional package path to test, e.g. ./platform/config"
+          }
+        }
+      }
+    },
+    {
+      "name": "run_backend_vet",
+      "description": "Run go vet for platform packages",
+      "command": ["bash", "scripts/run_cmd.sh", "vet"],
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "run_build_prometheus",
+      "description": "Build the metric-center binary",
+      "command": ["bash", "scripts/run_cmd.sh", "build"],
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "run_frontend_lint",
+      "description": "Run pnpm lint in ui-custom/web",
+      "command": ["bash", "scripts/run_cmd.sh", "lint"],
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "run_frontend_test",
+      "description": "Run pnpm test in ui-custom/web",
+      "command": ["bash", "scripts/run_cmd.sh", "frontend-test"],
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "apply_patches",
+      "description": "Apply patches to upstream/prometheus",
+      "command": ["bash", "scripts/run_cmd.sh", "apply-patches"],
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  ]
+}

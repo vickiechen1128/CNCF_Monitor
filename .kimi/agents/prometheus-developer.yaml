@@ -1,0 +1,5 @@
+version: 1
+agent:
+  name: prometheus-developer
+  extend: default
+  system_prompt_path: ./prometheus-developer.md
