@@ -108,9 +108,9 @@ Orchestrator（主 Agent）
 ## 标准工作流
 
 1. **Orchestrator 接收需求**
-2. **调用 planner** 输出实现计划
-3. **创建 git worktree**
+2. **调用 planner** 输出实现计划，明确当前功能子模块与对应 `feature/module-XX-<功能名>` 分支
+3. **复用单一 git worktree**，内部切换到当前模块的 feature 分支
 4. **调用 developer agent** 在 worktree 中 TDD 开发
 5. **调用 reviewer agent** 进行代码审查
 6. 如有问题，返回 developer 修复
-7. **合并分支并清理 worktree**
+7. **将当前 feature 分支以 `--no-ff` 合并到 `develop`**，worktree 保留供下一模块复用
