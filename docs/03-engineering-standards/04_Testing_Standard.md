@@ -2,7 +2,7 @@
 
 > 文档类型：工程标准
 > 目标：建立后端与前端的测试规范，确保改造后的 Prometheus 稳定可靠。
-> 更新日期：2026-07-16
+> 更新日期：2026-07-21
 
 ---
 
@@ -51,11 +51,34 @@
 
 ---
 
-## 4. CI 检查
+## 4. 提交前验证清单
 
-提交代码前必须：
+提交代码前必须完成以下检查：
+
+### 4.1 静态检查
 
 - [ ] 通过 `go test ./platform/...`
 - [ ] 通过 `go vet ./platform/...`
 - [ ] 前端通过 `pnpm test`
 - [ ] 前端通过 `pnpm lint`
+
+### 4.2 服务启动验证
+
+- [ ] 后端服务能正常启动，且关键接口返回 200
+  ```bash
+  GOPROXY=off go run ./platform/cmd/metric-center/main.go
+  curl -s http://localhost:8080/api/v1/health
+  curl -s http://localhost:8080/api/v1/health/db
+  curl -s http://localhost:8080/api/v1/status
+  ```
+- [ ] 前端 dev server 能正常启动，且首页返回 200
+  ```bash
+  cd ui-custom/web
+  exec ./node_modules/.bin/vite --host
+  curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
+  ```
+- [ ] 验证完成后已停止服务并释放端口
+
+### 4.3 develop 合并后验证
+
+- [ ] feature 分支以 `--no-ff` 合并到 `develop` 后，在主仓库重复执行 4.1 和 4.2

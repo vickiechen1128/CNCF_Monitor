@@ -2,7 +2,7 @@
 
 > **AI 编程助手必读**：本文档包含编码前必须了解的目录结构、技术栈、关键实现约定和避坑指南。
 > 文档类型：工程标准
-> 更新日期：2026-07-16
+> 更新日期：2026-07-21
 
 ---
 
@@ -10,9 +10,18 @@
 
 ```
 CNCF_Monitor/
-├── .trae/
-│   └── skills/
-│       └── codebase-architecture-explorer/     # Trae Skill（必须保留）
+├── .kimi/                                       # Kimi Agent 与 Skill 定义
+│   ├── agents/                                  # Agent 角色定义
+│   │   ├── backend-developer.md
+│   │   ├── frontend-developer.md
+│   │   ├── planner.md
+│   │   ├── golang-reviewer.md
+│   │   ├── frontend-reviewer.md
+│   │   ├── prometheus-developer.md
+│   │   ├── build-resolver.md
+│   │   └── security-reviewer.md
+│   ├── AGENTS.md                                # Agent 团队速查
+│   └── skills/                                  # 可选 Skill
 │
 ├── upstream/                                    # 上游开源源码（尽量不修改）
 │   ├── prometheus/
@@ -120,11 +129,21 @@ func main() {
 
 ## 4. AI Agent 协作规范
 
+本项目使用 `.kimi/agents/` 中定义的 Agent 团队进行协作。详细流程见：
+
+- [`.kimi/AGENTS.md`](../../.kimi/AGENTS.md)：Agent 角色、标准工作流、汇报模板
+- [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md)：协作细则
+- [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)：分支策略、worktree 使用、回退机制
+
+### 4.1 核心原则
+
 1. **先读文档再写代码**：AI Agent 接到任务后，先读取相关 PRD 和工程标准
-2. **小步提交**：每个功能点独立 PR，便于 review
-3. **不编造接口**：所有 API 设计需参考现有 Prometheus 接口或已在 PRD 中定义
-4. **保留 Skill**：`.trae/skills/` 目录不得删除或移动
-5. **Patch 可追溯**：所有对 upstream 的修改必须有 patch 文件和说明
+2. **按功能子模块开发**：每个功能子模块一个 `feature/module-XX-<功能名>` 分支，避免代码混杂
+3. **单一 worktree 复用**：所有 Agent 在固定 worktree `../CNCF_Monitor-worktree` 内切换分支开发
+4. **不编造接口**：所有 API 设计需符合 `03_API_Standard.md` 或已在 PRD 中定义
+5. **提交前必须验证**：除测试/lint 外，必须启动服务并验证关键接口/页面可正常访问
+6. **Patch 可追溯**：所有对 upstream 的修改必须有 patch 文件和说明
+7. **执行记录关联**：每次 commit 必须能对应到 `docs/04-execution-records/module-XX-<功能名>/` 中的执行记录
 
 ---
 
@@ -137,3 +156,4 @@ func main() {
 | [03_API_Standard.md](03_API_Standard.md) | API 设计规范 |
 | [04_Testing_Standard.md](04_Testing_Standard.md) | 测试规范 |
 | [05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md) | AI Agent 协作细则 |
+| [06_Gitflow_Branch_and_Rollback_Guide.md](06_Gitflow_Branch_and_Rollback_Guide.md) | Gitflow 分支策略与回退指南 |

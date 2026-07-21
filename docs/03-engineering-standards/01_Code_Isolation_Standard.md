@@ -2,7 +2,7 @@
 
 > 文档类型：工程标准
 > 目标：明确 Prometheus 源码与 MetricCenter 二次开发代码的边界，确保 upstream 可升级、业务代码可维护。
-> 更新日期：2026-07-16
+> 更新日期：2026-07-21
 
 ---
 
@@ -90,6 +90,10 @@ done
 - [ ] patch 文件是否有对应的说明文档？
 - [ ] 是否可以通过 `make build` 成功编译？
 - [ ] 是否可以通过 `make apply-patches` 正确应用 patch？
+- [ ] 后端是否通过 `go test ./platform/...` 和 `go vet ./platform/...`？
+- [ ] 前端是否通过 `pnpm test` 和 `pnpm lint`？
+- [ ] 是否启动服务验证了关键接口/页面可正常访问？
+- [ ] 验证完成后是否已停止服务并释放端口？
 
 ---
 
