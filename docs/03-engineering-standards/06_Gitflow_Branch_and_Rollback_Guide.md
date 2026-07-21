@@ -181,8 +181,23 @@ Orchestrator（你）
     │
     ├──► 调用 frontend-reviewer 审查
     │
-    └──► 将 feature/module-XX-<功能名> 以 --no-ff 合并到 develop
-         （worktree 保留，切换到下一个模块分支继续复用）
+    ├──► 在 worktree 中验证运行状态
+    │         │
+    │         ▼
+    │    后端：go test/vet + 启动服务验证接口
+    │    前端：pnpm test/lint + 启动 dev server 验证页面
+    │
+    ├──► 将 feature/module-XX-<功能名> 以 --no-ff 合并到 develop
+    │         │
+    │         ▼
+    │    由 Orchestrator 在主仓库执行合并
+    │
+    ├──► 在 develop 环境中再次验证运行状态
+    │         │
+    │         ▼
+    │    如验证失败，回退或修复；如通过，继续下一模块
+    │
+    └──► worktree 保留，切换到下一个模块分支继续复用
 ```
 
 ### 5.2 Commit 规范

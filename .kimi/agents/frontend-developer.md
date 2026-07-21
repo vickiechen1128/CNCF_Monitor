@@ -113,6 +113,26 @@ pnpm approve-builds esbuild
 - 类型定义必须与后端模型严格对齐：实现前先阅读 `platform/models/*.go`，字段名使用 snake_case 匹配后端 JSON
 - 范围控制：仅修改当前任务要求的文件和目录。不要借机新增 ESLint/Vitest/测试配置等基础设施，除非任务明确要求或当前项目完全缺失且无法运行 `pnpm lint`/`pnpm test`
 
+## 提交前验证（必须在 commit 前执行）
+
+除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问：
+
+```bash
+# 1. 启动前端 dev server（非阻塞，使用 exec 确保可被正常停止）
+cd ui-custom/web
+exec ./node_modules/.bin/vite --host
+
+# 2. 在另一个终端验证页面可访问
+sleep 3
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
+
+# 3. 验证通过后停止服务，确保端口释放
+```
+
+- 如果 dev server 无法启动或页面返回非 200，必须先修复，再提交
+- 如果模块新增/修改了页面，必须额外访问对应路由验证
+- 验证完成后必须停止服务，避免端口占用
+
 ## 目录规则
 
 - 页面组件：`src/pages/`

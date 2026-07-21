@@ -113,4 +113,10 @@ Orchestrator（主 Agent）
 4. **调用 developer agent** 在 worktree 中 TDD 开发
 5. **调用 reviewer agent** 进行代码审查
 6. 如有问题，返回 developer 修复
-7. **将当前 feature 分支以 `--no-ff` 合并到 `develop`**，worktree 保留供下一模块复用
+7. **在 worktree 中验证运行状态**：
+   - 后端：`go test ./platform/...`、`go vet ./platform/...`，并启动服务验证关键接口返回 200
+   - 前端：`pnpm test`、`pnpm lint`，并启动 dev server 验证页面可访问
+   - 验证通过后必须停止服务并释放端口
+8. **如验证通过，由 Orchestrator 在主仓库将当前 feature 分支以 `--no-ff` 合并到 `develop`**
+9. **在 develop 环境中再次验证运行状态**（步骤同 7）
+10. worktree 保留供下一模块复用

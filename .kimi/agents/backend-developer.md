@@ -151,6 +151,27 @@ go env GOROOT
 - 避免过度工程化：不要为测试问题引入复杂的生产代码包装（如 `safeResponseWriter`），优先简化测试或调整实现
 - URL 解析与反向代理必须校验 scheme（仅 `http`/`https`）和 host，防范 SSRF
 
+## 提交前验证（必须在 commit 前执行）
+
+除单元测试和 vet 外，必须验证服务能实际启动并响应：
+
+```bash
+# 1. 启动后端服务（非阻塞）
+GOPROXY=off go run ./platform/cmd/metric-center/main.go
+
+# 2. 在另一个终端验证关键接口
+sleep 2
+curl -s http://localhost:8080/api/v1/health
+curl -s http://localhost:8080/api/v1/health/db
+curl -s http://localhost:8080/api/v1/status
+
+# 3. 验证通过后停止服务，确保端口释放
+```
+
+- 如果服务无法启动或接口返回非 200，必须先修复，再提交
+- 如果模块新增/修改了 API，必须额外验证新增/修改的接口
+- 验证完成后必须停止服务，避免端口占用
+
 ## 完成后汇报
 
 返回给主 Agent：
