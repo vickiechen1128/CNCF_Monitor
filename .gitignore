@@ -36,6 +36,10 @@ Thumbs.db
 # 日志
 *.log
 
+# SQLite 运行时数据库
+metric_center.db
+*.db
+
 # 临时文件
 /tmp/
 *.tmp
