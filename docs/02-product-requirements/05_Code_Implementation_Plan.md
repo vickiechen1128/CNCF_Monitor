@@ -1,8 +1,8 @@
 # MetricCenter 代码实施计划
 
 > 文档类型：工程实施计划  
-> 依赖文档：[00_Global_Architecture.md](00_Global_Architecture.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)、[Modules/README.md](Modules/README.md)  
-> 更新日期：2026-07-20
+> 依赖文档：[00_Global_Architecture.md](00_Global_Architecture.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)、[Modules/README.md](Modules/README.md)、[../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)  
+> 更新日期：2026-07-21
 
 ---
 
@@ -34,23 +34,48 @@
 
 ### 2.2 模块优先级总览
 
+本计划按 **功能子模块** 组织开发，每个模块对应一个 `feature/module-XX-<功能名>` 分支，由 Orchestrator 按顺序切分并合并到 `develop`。
+
 ```
-Phase 0: 基础设施与数据模型
-    │
-Phase 1: 资源管理 + Excel 导入（Module 07）
-    │
-Phase 2: 标签模板 + 采集 Job + 拨测配置（Module 07 / Module 01）
-    │
-Phase 3: 配置生成与下发（Module 07）
-    │
-Phase 4: 采集状态与诊断（Module 01）
-    │
-Phase 5: 指标查询中心（Module 02）
-    │
-Phase 6: 告警状态查看（Module 08 MVP）
-    │
-Phase 7: 前端门户集成与 MVP 验收
+feature/module-00-infrastructure          Phase 0: 基础设施与数据模型
+        │
+        ▼
+feature/module-07-resource-management     Phase 1: 资源管理 + Excel 导入
+        │
+        ▼
+feature/module-07-label-template          Phase 2: 标签模板
+        │
+        ▼
+feature/module-07-scrape-job              Phase 2: 采集 Job
+        │
+        ▼
+feature/module-07-probe-config            Phase 2: 拨测配置
+        │
+        ▼
+feature/module-07-config-generator        Phase 3: 配置生成与下发
+        │
+        ├──► feature/module-01-collection-status   Phase 4: 采集状态与诊断
+        │
+        ├──► feature/module-02-query-center        Phase 5: 指标查询中心
+        │
+        ├──► feature/module-08-alerting            Phase 6: 告警状态查看
+        │
+        ▼
+feature/module-05-portal                  Phase 7: 前端门户集成与 MVP 验收
 ```
+
+| 模块分支 | 对应 Phase | 功能 | 前置依赖 |
+|----------|-----------|------|----------|
+| `feature/module-00-infrastructure` | Phase 0 | 基础设施与数据模型 | - |
+| `feature/module-07-resource-management` | Phase 1 | 资源管理 + Excel 导入 | Module 00 |
+| `feature/module-07-label-template` | Phase 2 | 标签模板 | Module 07a |
+| `feature/module-07-scrape-job` | Phase 2 | 采集 Job | Module 07a、07b |
+| `feature/module-07-probe-config` | Phase 2 | 拨测配置 | Module 07a |
+| `feature/module-07-config-generator` | Phase 3 | 配置生成与下发 | Module 07a~07d |
+| `feature/module-01-collection-status` | Phase 4 | 采集状态与诊断 | Module 07e |
+| `feature/module-02-query-center` | Phase 5 | 指标查询中心 | Module 07e |
+| `feature/module-08-alerting` | Phase 6 | 告警状态查看 | Module 07e |
+| `feature/module-05-portal` | Phase 7 | 前端门户集成与 MVP 验收 | 全部后端 API |
 
 ---
 
@@ -103,8 +128,23 @@ Orchestrator（你）
     │
     ├──► 调用 frontend-reviewer 审查
     │
-    └──► 将 feature/module-XX-<功能名> 以 --no-ff 合并到 develop
-         （worktree 保留，切换到下一个模块分支继续复用）
+    ├──► 在 worktree 中验证运行状态
+    │         │
+    │         ▼
+    │    后端：go test/vet + 启动服务验证接口
+    │    前端：pnpm test/lint + 启动 dev server 验证页面
+    │
+    ├──► 将 feature/module-XX-<功能名> 以 --no-ff 合并到 develop
+    │         │
+    │         ▼
+    │    由 Orchestrator 在主仓库执行合并
+    │
+    ├──► 在 develop 环境中再次验证运行状态
+    │         │
+    │         ▼
+    │    如验证失败，回退或修复；如通过，继续下一模块
+    │
+    └──► worktree 保留，切换到下一个模块分支继续复用
 ```
 
 #### Worktree 使用规范
@@ -238,6 +278,8 @@ Agent 进入 worktree 后必须先执行启动协议：
 
 ### Phase 0：基础设施与数据模型（第 1 周）
 
+**对应模块分支**：`feature/module-00-infrastructure`
+
 **目标**：建立后端项目结构、数据库访问、统一 API 响应、基础模型。
 
 **Agent 分工**：
@@ -262,6 +304,8 @@ Agent 进入 worktree 后必须先执行启动协议：
 
 ### Phase 1：资源管理 + Excel 导入（第 1 ~ 2 周）
 
+**对应模块分支**：`feature/module-07-resource-management`
+
 **目标**：实现三类资源的最小化 CRUD 与 Excel 导入。
 
 **Agent 分工**：
@@ -281,12 +325,12 @@ Agent 进入 worktree 后必须先执行启动协议：
 **接口预览**：
 
 ```http
-GET    /api/v1/resources?type=host
-POST   /api/v1/resources
-PUT    /api/v1/resources/:id
-DELETE /api/v1/resources/:id
-POST   /api/v1/resources/:type/import
-GET    /api/v1/resources/:type/template
+GET    /api/v2/platform/resources?type=host
+POST   /api/v2/platform/resources
+PUT    /api/v2/platform/resources/:id
+DELETE /api/v2/platform/resources/:id
+POST   /api/v2/platform/resources/:type/import
+GET    /api/v2/platform/resources/:type/template
 ```
 
 **依赖**：Phase 0
@@ -295,41 +339,102 @@ GET    /api/v1/resources/:type/template
 
 ### Phase 2：标签模板 + 采集 Job + 拨测配置（第 2 ~ 3 周）
 
-**目标**：实现指标管理相关配置的编辑能力。
+Phase 2 拆分为三个按顺序开发的模块分支，避免代码混杂：
+
+#### Phase 2a：标签模板
+
+**对应模块分支**：`feature/module-07-label-template`
+
+**目标**：实现按资源类型的字段 → Label 映射管理。
 
 **Agent 分工**：
-- `planner`：明确标签模板、Job、拨测配置的数据契约与 API 设计
-- `backend-developer`：实现标签模板、Job、拨测配置 API
-- `frontend-developer`：实现配置页面（标签/Job/拨测）
-- `golang-reviewer`：审查配置相关后端逻辑
-- `frontend-reviewer`：审查配置页面
+- `planner`：明确标签模板数据契约与 API 设计
+- `backend-developer`：实现标签模板 API
+- `frontend-developer`：实现标签模板页面
+- `golang-reviewer`：审查标签模板后端逻辑
+- `frontend-reviewer`：审查标签模板页面
 
 | 任务 | 目录/文件 | 说明 | 验收标准 |
 |------|-----------|------|----------|
 | 标签模板 API | `platform/config/label/` | 按资源类型管理字段 → Label 映射 | 增删改查可用 |
-| 采集 Job API | `platform/config/job/` | Job CRUD、筛选规则、标签模板关联 | 可创建 Job 并预览匹配资源 |
-| 目标筛选 | `platform/config/job/filter.go` | 按资源字段筛选，返回匹配目标 | 筛选结果与资源表一致 |
-| 拨测配置 API | `platform/config/probe/` | Blackbox 拨测目标与模块配置 | 可关联应用服务资源 |
-| 采集模板 | `platform/config/template/` | 预置模板数据初始化 | node-exporter、mysqld-exporter、simple-agent、blackbox 模板可展示 |
-| 前端配置页 | `ui-custom/web/src/pages/config/` | 标签模板、采集 Job、拨测配置页面 | 可完成配置 CRUD |
+| 前端标签模板页 | `ui-custom/web/src/pages/config/label-template/` | 标签模板 CRUD 页面 | 可完成标签模板 CRUD |
 
 **接口预览**：
 
 ```http
-GET/POST    /api/v1/label-templates
-PUT/DELETE  /api/v1/label-templates/:id
-GET/POST    /api/v1/scrape-jobs
-PUT/DELETE  /api/v1/scrape-jobs/:id
-POST        /api/v1/scrape-jobs/:id/preview-targets
-GET/POST    /api/v1/probe-configs
-GET/POST    /api/v1/scrape-templates
+GET/POST    /api/v2/platform/label-templates
+PUT/DELETE  /api/v2/platform/label-templates/:id
 ```
 
 **依赖**：Phase 1
 
 ---
 
+#### Phase 2b：采集 Job
+
+**对应模块分支**：`feature/module-07-scrape-job`
+
+**目标**：实现采集 Job CRUD、目标筛选与标签模板关联。
+
+**Agent 分工**：
+- `planner`：明确 Job 数据契约、筛选规则与 API 设计
+- `backend-developer`：实现采集 Job API 与目标筛选
+- `frontend-developer`：实现采集 Job 页面
+- `golang-reviewer`：审查 Job 与筛选逻辑
+- `frontend-reviewer`：审查 Job 页面
+
+| 任务 | 目录/文件 | 说明 | 验收标准 |
+|------|-----------|------|----------|
+| 采集 Job API | `platform/config/job/` | Job CRUD、筛选规则、标签模板关联 | 可创建 Job 并预览匹配资源 |
+| 目标筛选 | `platform/config/job/filter.go` | 按资源字段筛选，返回匹配目标 | 筛选结果与资源表一致 |
+| 采集模板 | `platform/config/template/` | 预置模板数据初始化 | node-exporter、mysqld-exporter、simple-agent、blackbox 模板可展示 |
+| 前端 Job 页 | `ui-custom/web/src/pages/config/scrape-job/` | Job CRUD 与目标预览页面 | 可完成 Job CRUD 并预览目标 |
+
+**接口预览**：
+
+```http
+GET/POST    /api/v2/platform/scrape-jobs
+PUT/DELETE  /api/v2/platform/scrape-jobs/:id
+POST        /api/v2/platform/scrape-jobs/:id/preview-targets
+GET/POST    /api/v2/platform/scrape-templates
+```
+
+**依赖**：Phase 2a
+
+---
+
+#### Phase 2c：拨测配置
+
+**对应模块分支**：`feature/module-07-probe-config`
+
+**目标**：实现 Blackbox 拨测目标与模块配置管理。
+
+**Agent 分工**：
+- `planner`：明确拨测配置数据契约与 API 设计
+- `backend-developer`：实现拨测配置 API
+- `frontend-developer`：实现拨测配置页面
+- `golang-reviewer`：审查拨测配置后端逻辑
+- `frontend-reviewer`：审查拨测配置页面
+
+| 任务 | 目录/文件 | 说明 | 验收标准 |
+|------|-----------|------|----------|
+| 拨测配置 API | `platform/config/probe/` | Blackbox 拨测目标与模块配置 | 可关联应用服务资源 |
+| 前端拨测配置页 | `ui-custom/web/src/pages/config/probe-config/` | 拨测配置 CRUD 页面 | 可完成拨测配置 CRUD |
+
+**接口预览**：
+
+```http
+GET/POST    /api/v2/platform/probe-configs
+PUT/DELETE  /api/v2/platform/probe-configs/:id
+```
+
+**依赖**：Phase 2a
+
+---
+
 ### Phase 3：配置生成与下发（第 3 ~ 4 周）
+
+**对应模块分支**：`feature/module-07-config-generator`
 
 **目标**：将资源配置转换为 `prometheus.yml` 并触发 Prometheus 重载。
 
@@ -353,9 +458,9 @@ GET/POST    /api/v1/scrape-templates
 **接口预览**：
 
 ```http
-POST /api/v1/config/preview
-POST /api/v1/config/apply
-GET  /api/v1/config/history
+POST /api/v2/platform/config/preview
+POST /api/v2/platform/config/apply
+GET  /api/v2/platform/config/history
 ```
 
 **依赖**：Phase 2、本地 Prometheus 进程可运行
@@ -367,6 +472,8 @@ GET  /api/v1/config/history
 ---
 
 ### Phase 4：采集状态与诊断（第 4 周）
+
+**对应模块分支**：`feature/module-01-collection-status`
 
 **目标**：展示 Prometheus 运行时采集状态与拨测结果。
 
@@ -397,6 +504,8 @@ GET /api/v1/collection/probe-results
 ---
 
 ### Phase 5：指标查询中心（第 4 ~ 5 周）
+
+**对应模块分支**：`feature/module-02-query-center`
 
 **目标**：提供 PromQL 查询入口与结果展示。
 
@@ -430,6 +539,8 @@ GET  /api/v1/series
 
 ### Phase 6：告警状态查看（第 5 周）
 
+**对应模块分支**：`feature/module-08-alerting`
+
 **目标**：MVP 阶段只展示当前告警。
 
 **Agent 分工**：
@@ -456,6 +567,8 @@ GET /api/v1/alerts
 ---
 
 ### Phase 7：前端门户集成与 MVP 验收（第 5 ~ 6 周）
+
+**对应模块分支**：`feature/module-05-portal`
 
 **目标**：把各页面串成完整门户，补齐导航、首页、错误处理。
 

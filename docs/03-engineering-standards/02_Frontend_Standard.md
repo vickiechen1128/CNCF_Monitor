@@ -2,7 +2,7 @@
 
 > 文档类型：工程标准
 > 目标：统一 Custom UI 的开发规范，确保前端代码可维护、可协作。
-> 更新日期：2026-07-16
+> 更新日期：2026-07-21
 
 ---
 
@@ -12,7 +12,7 @@
 |------|------|
 | 框架 | React 18 + TypeScript |
 | 构建工具 | Vite |
-| UI 组件库 | Ant Design 5 / Mantine（待定，建议尽快确定） |
+| UI 组件库 | Ant Design 5 |
 | 图表库 | ECharts |
 | 状态管理 | Zustand 或 React Query |
 | HTTP 客户端 | Axios |
@@ -78,14 +78,32 @@ ui-custom/web/
 ### 3.4 环境变量
 
 ```
-VITE_API_BASE_URL=http://localhost:9091/api
+VITE_API_BASE_URL=http://localhost:8080/api
 ```
 
-开发期 Gateway 监听端口建议为 9091，避免与 Prometheus 9090 冲突。
+开发期 MetricCenter Gateway 监听端口为 8080。
 
 ---
 
-## 4. 与 Prometheus UI 的关系
+## 4. 提交前验证
+
+除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问：
+
+```bash
+# 启动前端 dev server（非阻塞，使用 exec 确保可被正常停止）
+cd ui-custom/web
+exec ./node_modules/.bin/vite --host
+
+# 在另一个终端验证页面可访问
+sleep 3
+curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
+```
+
+- 如果 dev server 无法启动或页面返回非 200，必须先修复，再提交
+- 如果模块新增/修改了页面，必须额外访问对应路由验证
+- 验证完成后必须停止服务，避免端口占用
+
+## 5. 与 Prometheus UI 的关系
 
 | 场景 | 方案 |
 |------|------|

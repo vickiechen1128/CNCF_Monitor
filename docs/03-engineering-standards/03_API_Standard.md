@@ -2,7 +2,7 @@
 
 > 文档类型：工程标准
 > 目标：统一 Gateway 对外 API 的风格，保持与 Prometheus 原生 API 的兼容性。
-> 更新日期：2026-07-16
+> 更新日期：2026-07-21
 
 ---
 
@@ -52,6 +52,18 @@
   "error": "target instance is required"
 }
 ```
+
+### errorType 枚举
+
+| errorType | HTTP 状态码 | 使用场景 |
+|-----------|-------------|----------|
+| `bad_request` | 400 | 请求参数校验失败 |
+| `unauthorized` | 401 | 未认证或 Token 失效 |
+| `forbidden` | 403 | 无权限访问 |
+| `not_found` | 404 | 资源不存在 |
+| `conflict` | 409 | 资源冲突（如重复创建） |
+| `internal` | 500 | 服务器内部错误 |
+| `bad_gateway` | 502 | 代理到 Prometheus 失败 |
 
 ---
 
