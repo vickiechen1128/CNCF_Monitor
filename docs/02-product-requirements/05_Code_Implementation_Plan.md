@@ -76,14 +76,20 @@ Phase 7: 前端门户集成与 MVP 验收
 ```
 Orchestrator（你）
     │
-    ├──► 调用 planner 输出 Phase 任务规划
+    ├──► 调用 planner 输出模块任务规划
+    │         │
+    │         ▼
+    │    明确当前模块分支：feature/module-XX-<功能名>
     │
-    ├──► 创建 git worktree
+    ├──► 复用单一 git worktree
+    │         │
+    │         ▼
+    │    在 worktree 内切换到当前模块 feature 分支
     │
     ├──► 调用 backend-developer 在 worktree 中 TDD 开发
     │         │
     │         ▼
-    │    完成后提交，返回文件列表 + 测试结果
+    │    完成后提交到 feature/module-XX-<功能名>
     │
     ├──► 调用 golang-reviewer 审查
     │         │
@@ -93,23 +99,55 @@ Orchestrator（你）
     ├──► 调用 frontend-developer 开发前端页面（可并行）
     │         │
     │         ▼
-    │    完成后提交，返回测试结果
+    │    完成后提交到 feature/module-XX-<功能名>
     │
     ├──► 调用 frontend-reviewer 审查
     │
-    └──► 合并分支、清理 worktree
+    └──► 将 feature/module-XX-<功能名> 以 --no-ff 合并到 develop
+         （worktree 保留，切换到下一个模块分支继续复用）
 ```
 
 #### Worktree 使用规范
 
-每个 Agent 必须在独立 git worktree 中工作，避免互相污染：
+本项目采用**Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支**模式（适合单人/小团队，避免目录堆积，同时保证每个模块可独立回退）：
 
 ```bash
-# 由 Orchestrator 创建
-BRANCH="feature/phase1-resource-api"
-git worktree add "../CNCF_Monitor-$BRANCH" -b "$BRANCH"
-cd "../CNCF_Monitor-$BRANCH"
+# 由 Orchestrator 在主仓库执行（一次性初始化）
+cd "../CNCF_Monitor"
+git checkout develop
+
+# 创建单一 worktree，目录固定，不随模块变化
+git worktree add "../CNCF_Monitor-worktree" develop
+cd "../CNCF_Monitor-worktree"
+
+# 开始某个模块时，从 develop 切出对应 feature 分支
+git checkout -b feature/module-XX-<功能名> origin/develop
 ```
+
+##### Gitflow 分支约定
+
+| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 |
+|----------|----------|------|------|----------|
+| `main` | `main` | 稳定/生产版本 | - | - |
+| `develop` | `develop` | 集成/开发主线 | `main` | - |
+| feature | `feature/module-00-infrastructure` | 基础设施 | `develop` | `develop` |
+| feature | `feature/module-07-resource-management` | 资源管理 | `develop` | `develop` |
+| feature | `feature/module-07-label-template` | 标签模板 | `develop` | `develop` |
+| feature | `feature/module-07-scrape-job` | 采集 Job | `develop` | `develop` |
+| feature | `feature/module-07-probe-config` | 拨测配置 | `develop` | `develop` |
+| feature | `feature/module-07-config-generator` | 配置生成/下发 | `develop` | `develop` |
+| feature | `feature/module-01-collection-status` | 采集状态 | `develop` | `develop` |
+| feature | `feature/module-02-query-center` | 指标查询 | `develop` | `develop` |
+| feature | `feature/module-08-alerting` | 告警状态 | `develop` | `develop` |
+| feature | `feature/module-05-portal` | 前端门户 | `develop` | `develop` |
+| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` |
+| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` |
+
+- 每个功能子模块对应一个 feature 分支，分支内只包含该模块的改动
+- 模块完成后，Orchestrator 将当前 feature 分支以 `--no-ff` 合并回 `develop`
+- 严禁 feature 分支直接合入 `main`
+- worktree 目录固定复用，通过切换分支完成不同模块开发
+- 回退策略详见 [06_Gitflow_Branch_and_Rollback_Guide.md](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)
 
 Agent 进入 worktree 后必须先执行启动协议：
 
@@ -544,11 +582,11 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3
 | 本地 Prometheus 启动困难 | 阻塞 Phase 3 ~ 6 | 第 1 周就准备 `deploy/` 启动脚本和示例配置 |
 | Excel 字段后期变更 | 导致导入逻辑和模板返工 | Phase 1 冻结最小字段集，后续只增不改 |
 | 前端等待后端 API | 串行阻塞 | Planner 在规划中明确 API 契约，Frontend Developer 使用 mock 数据并行开发 |
-| 多 Agent 同时修改冲突 | 代码冲突、worktree 污染 | 每个 Agent 独立 worktree；Orchestrator 控制 Phase 边界 |
+| 多 Agent 同时修改冲突 | 代码冲突、worktree 污染 | 采用单一 worktree，Agent 顺序进入；前后端按 `platform/` 与 `ui-custom/` 目录天然隔离 |
 | Agent 误解需求 | 实现偏离 | 每个 Phase 开始前必须调用 `planner` 输出规划，并引用相关 PRD 文件 |
 | Reviewer 与 Developer 标准不一致 | 反复修改 | Orchestrator 在启动时统一注入 `.kimi/skills/golang-coding-style` 和 `web-development` 规范 |
 | Prometheus 源码被误改 | 未来升级困难 | 涉及源码时必须走 `prometheus-developer`，生成 patch 文件 |
-| Worktree 残留 | 磁盘占用、分支混乱 | 每个 Phase 合并后 Orchestrator 执行 `git worktree remove` 清理 |
+| Worktree 残留 | 磁盘占用、分支混乱 | 采用单一 worktree 复用，MVP 完成后再清理；禁止为每个 Phase 新建 worktree |
 
 ### 8.1 Orchestrator 执行一个 Phase 的 Checklist
 
@@ -556,12 +594,12 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3
 
 - [ ] 明确本 Phase 要交付的功能和验收标准
 - [ ] 调用 `planner`，提供相关 PRD 和上一 Phase 的输出
-- [ ] 根据 planner 输出创建 git worktree
+- [ ] 复用单一 git worktree（在 worktree 内切换到当前模块的 `feature/module-XX-<功能名>`）
 - [ ] 向 `backend-developer` / `frontend-developer` 分配任务，并注入相关 skill 上下文
 - [ ] 接收 Developer 完成汇报，检查测试与 lint 结果
 - [ ] 调用对应 `reviewer` 进行代码审查
 - [ ] 如审查不通过，返回 Developer 修复并重新审查
-- [ ] 合并到主分支并清理 worktree
+- [ ] 将当前 `feature/module-XX-<功能名>` 以 `--no-ff` 合并到 `develop`（保留 worktree 供下一模块复用）
 - [ ] 更新本文件中的 MVP 验收清单状态
 
 ---

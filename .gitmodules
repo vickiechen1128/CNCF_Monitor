@@ -1,0 +1,6 @@
+[submodule "upstream/prometheus"]
+	path = upstream/prometheus
+	url = https://github.com/prometheus/prometheus.git
+[submodule "upstream/node_exporter"]
+	path = upstream/node_exporter
+	url = https://github.com/prometheus/node_exporter.git
