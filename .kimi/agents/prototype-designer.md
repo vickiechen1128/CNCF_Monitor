@@ -147,4 +147,73 @@ pnpm approve-builds esbuild
 2. 展示流程说明（建议按用户故事组织）
 3. `pnpm lint` 结果
 4. 启动方式与访问地址
-5. 已知问题或下一步建议
+5. **GitHub Pages 部署说明**（见下方）
+6. 已知问题或下一步建议
+
+---
+
+## GitHub Pages 部署说明（原型完成后必须输出）
+
+原型分支 `feature/prototype-*` 不合并到 `develop`，但应部署到 GitHub Pages，方便业务方在线查看。
+
+### 部署原理
+
+- 仓库地址：`https://github.com/vickiechen1128/CNCF_Monitor`
+- GitHub Pages 源：`gh-pages` 分支
+- 原型访问路径：`https://vickiechen1128.github.io/CNCF_Monitor/<分支名>/`
+- Vite 构建时通过 `--base=/CNCF_Monitor/<分支名>/` 指定基础路径
+
+### 手动部署步骤
+
+```bash
+cd ui-custom/web
+
+# 1. 安装依赖
+pnpm install
+
+# 2. 生产构建，指定 GitHub Pages 基础路径
+pnpm build --base=/CNCF_Monitor/feature/prototype-mvp-demo/
+
+# 3. 部署到 gh-pages 分支的对应子目录
+git fetch origin
+
+# 如 gh-pages 分支不存在，先创建空分支
+git checkout --orphan gh-pages
+git rm -rf .
+git commit --allow-empty -m "init: gh-pages"
+git push origin gh-pages
+git checkout -
+
+# 使用临时 worktree 推送构建产物
+TMP_DIR=$(mktemp -d)
+git worktree add "$TMP_DIR" origin/gh-pages
+mkdir -p "$TMP_DIR/feature/prototype-mvp-demo"
+rsync -av --delete dist/ "$TMP_DIR/feature/prototype-mvp-demo/"
+cd "$TMP_DIR"
+git add .
+git commit -m "deploy: feature/prototype-mvp-demo"
+git push origin gh-pages
+cd -
+git worktree remove "$TMP_DIR"
+
+# 4. 启用 GitHub Pages（首次需要仓库管理员在 GitHub Web 上设置）
+#    Settings → Pages → Source → Deploy from a branch → gh-pages / root
+```
+
+### 自动部署（推荐后续原型迭代）
+
+仓库已配置 `.github/workflows/deploy-prototype.yml`。每次推送 `feature/prototype-*` 分支时，GitHub Actions 会自动构建并部署到 `gh-pages` 分支的对应子目录。
+
+### 访问地址
+
+部署完成后，业务方可通过以下链接访问：
+
+```
+https://vickiechen1128.github.io/CNCF_Monitor/feature/prototype-mvp-demo/
+```
+
+### 注意事项
+
+- 原型使用 mock 数据，不依赖后端服务。
+- 首次部署后，可能需要几分钟 GitHub Pages 才会生效。
+- 如果页面资源加载 404，请检查 `--base` 路径是否与仓库名和分支名一致。
