@@ -1,0 +1,5 @@
+version: 1
+agent:
+  name: prototype-designer
+  extend: default
+  system_prompt_path: ./prototype-designer.md

@@ -9,6 +9,7 @@
 Orchestrator（主 Agent）
    │
    ├──► Planner（只读规划）
+   ├──► Prototype Designer（快速原型）
    ├──► Backend Developer（Go + Prometheus）
    ├──► Frontend Developer（React + TS）
    ├──► Prometheus Developer（源码扩展 / Patch）
@@ -24,6 +25,7 @@ Orchestrator（主 Agent）
 | Agent | 职责 | 写权限 | 关键约束 |
 |-------|------|--------|----------|
 | `planner` | 输出实现计划、识别风险 | ❌ 只读 | 禁止 Write/Shell |
+| `prototype-designer` | 快速产出可点击前端原型 | ✅ | 使用 mock 数据，不强制 TDD，原型分支不合并到 develop |
 | `backend-developer` | Go 后端开发 | ✅ | 必须 TDD，必须在 worktree 中 |
 | `frontend-developer` | React 前端开发 | ✅ | 必须在 worktree 中 |
 | `prometheus-developer` | Prometheus 扩展 / Patch | ✅ | 优先扩展点，次选 patch |
@@ -64,6 +66,7 @@ Orchestrator（主 Agent）
 | Agent | 用途 |
 |-------|------|
 | `planner` | 只读规划 |
+| `prototype-designer` | 快速原型设计 |
 | `backend-developer` | Go 后端 TDD 开发 |
 | `frontend-developer` | React 前端开发 |
 | `prometheus-developer` | Prometheus 扩展 / Patch |
