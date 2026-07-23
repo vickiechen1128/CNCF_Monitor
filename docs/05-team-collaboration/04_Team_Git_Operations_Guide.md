@@ -19,7 +19,51 @@
 
 ---
 
-## 2. 仓库与工作目录约定
+## 2. 按角色流程速查
+
+```mermaid
+flowchart LR
+    subgraph chenrt["chenrt / 产品 Owner"]
+        C1[切 design/module-XX] --> C2[写 PRD + 原型]
+        C2 --> C3[发起 PR 到 develop]
+        C3 --> C4[guixm + zhaohy Approve 后 --no-ff 合并]
+        C4 --> C5[下开发任务单]
+        C5 --> C6[验收 feat PR 预览后 --no-ff 合并]
+    end
+
+    subgraph review["guixm + zhaohy / 业务方"]
+        R1[Review design PR] --> R2[Approve]
+        R3[点击 feat PR 预览链接验收] --> R4[Approve]
+    end
+
+    subgraph zhangwq["zhangwq / SRE 工程质量 Owner"]
+        Z1[切 feat/module-XX] --> Z2[读 PRD + 原型]
+        Z2 --> Z3[Agent 开发 platform/ + ui-custom-web/]
+        Z3 --> Z4[自测 + lint/test]
+        Z4 --> Z5[发起 PR 到 develop]
+        Z5 --> Z6[按反馈修改]
+        Z6 --> Z7[申请 chenrt 合并]
+    end
+
+    C3 -.-> R1
+    C5 -.-> Z1
+    Z5 -.-> R3
+```
+
+### 2.1 关键规则速查表
+
+| 分支 | 来源 | 合并目标 | 负责人 | Reviewer | 产出物 |
+|------|------|---------|--------|----------|--------|
+| `design/module-XX` | `develop` | `develop` | chenrt | guixm、zhaohy | PRD + 原型 |
+| `feat/module-XX` | `develop` | `develop` | zhangwq | zhangwq、zhaohy、guixm、chenrt | 生产代码 |
+| `release/*` | `develop` | `main` + `develop` | chenrt | - | 发布版本 |
+| `hotfix/*` | `main` | `main` + `develop` | zhangwq | chenrt | 紧急修复 |
+
+> **所有合并到 `develop` / `main` 的操作必须由 chenrt 在主仓库执行 `--no-ff`。**
+
+---
+
+## 3. 仓库与工作目录约定
 
 | 路径 | 用途 | 谁使用 |
 |------|------|--------|
@@ -28,7 +72,7 @@
 
 > 所有 Agent 开发都在固定 worktree 内进行，通过 `git checkout` 切换分支，不额外创建 worktree。
 
-### 2.1 一次性初始化 worktree
+### 3.1 一次性初始化 worktree
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
@@ -36,7 +80,7 @@ git checkout develop
 git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree" develop
 ```
 
-### 2.2 验证当前在 worktree 内
+### 3.2 验证当前在 worktree 内
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -48,7 +92,7 @@ git branch --show-current
 
 ---
 
-## 3. 通用操作：拉取最新内容
+## 4. 通用操作：拉取最新内容
 
 所有成员在本地操作前，先拉取远程最新状态：
 
@@ -68,11 +112,11 @@ git pull origin develop
 
 ---
 
-## 4. chenrt 操作：设计分支（design/module-XX）
+## 5. chenrt 操作：设计分支（design/module-XX）
 
 chenrt 负责 PRD + 原型的提交，以及所有分支向 `develop` 的合并。
 
-### 4.1 创建设计分支
+### 5.1 创建设计分支
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -81,14 +125,14 @@ git pull origin develop
 git checkout -b design/module-XX
 ```
 
-### 4.2 编写 PRD 与原型
+### 5.2 编写 PRD 与原型
 
 编辑以下两个位置：
 
 - `docs/02-product-requirements/Modules/Module_XX_*.md`
 - `docs/prototypes/module-XX/`
 
-### 4.3 提交并推送
+### 5.3 提交并推送
 
 ```bash
 git add docs/02-product-requirements/Modules/Module_XX_*.md
@@ -101,13 +145,13 @@ git commit -m "design(module-XX): 添加 XXX 模块 PRD 与原型
 git push origin design/module-XX
 ```
 
-### 4.4 发起 PR
+### 5.4 发起 PR
 
 1. 在 GitHub 上发起 `design/module-XX → develop` 的 Pull Request
 2. Reviewer 指定 guixm、zhaohy
 3. 合并前必须获得 guixm 和 zhaohy 的 Approve
 
-### 4.5 合并到 develop
+### 5.5 合并到 develop
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
@@ -119,11 +163,11 @@ git push origin develop
 
 ---
 
-## 5. zhangwq 操作：功能分支（feat/module-XX）
+## 6. zhangwq 操作：功能分支（feat/module-XX）
 
 zhangwq 负责基于已冻结的 PRD + 原型开发生产代码。
 
-### 5.1 创建功能分支
+### 6.1 创建功能分支
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -132,7 +176,7 @@ git pull origin develop
 git checkout -b feat/module-XX
 ```
 
-### 5.2 开发生产代码
+### 6.2 开发生产代码
 
 只允许修改以下目录：
 
@@ -145,7 +189,7 @@ git checkout -b feat/module-XX
 - `docs/prototypes/`
 - `upstream/`
 
-### 5.3 提交变更
+### 6.3 提交变更
 
 ```bash
 git add <具体文件>
@@ -157,7 +201,7 @@ git commit -m "feat(module-XX): <动作> - <简短描述>
 git push origin feat/module-XX
 ```
 
-### 5.4 发起 PR
+### 6.4 发起 PR
 
 1. 在 GitHub 上发起 `feat/module-XX → develop` 的 Pull Request
 2. PR 描述必须包含：
@@ -169,7 +213,7 @@ git push origin feat/module-XX
    - 预览链接（待 GitHub Actions Bot 自动回复）
 3. Reviewer 指定 chenrt、zhaohy、guixm
 
-### 5.5 处理 Review 意见
+### 6.5 处理 Review 意见
 
 收到 Review 意见后：
 
@@ -189,11 +233,11 @@ git push origin feat/module-XX
 
 ---
 
-## 6. guixm / zhaohy 操作：Review 与验收
+## 7. guixm / zhaohy 操作：Review 与验收
 
 guixm 和 zhaohy 主要参与 GitHub 上的 Review 和验收，不需要本地开发环境。
 
-### 6.1 查看 PRD + 原型 PR（design/module-XX）
+### 7.1 查看 PRD + 原型 PR（design/module-XX）
 
 1. 打开 GitHub 仓库
 2. 进入 `design/module-XX → develop` 的 Pull Request
@@ -212,7 +256,7 @@ git checkout develop
 
 5. 在 PR 中评论修改意见或点击 `Approve`
 
-### 6.2 验收功能 PR（feat/module-XX）
+### 7.2 验收功能 PR（feat/module-XX）
 
 1. 打开 `feat/module-XX → develop` 的 Pull Request
 2. 查看 Bot 自动回复的预览链接
@@ -221,7 +265,7 @@ git checkout develop
 
 ---
 
-## 7. chenrt 合并功能分支
+## 8. chenrt 合并功能分支
 
 所有 Reviewer Approve 后，chenrt 在主仓库执行合并：
 
@@ -252,7 +296,7 @@ exec ./node_modules/.bin/vite --host
 
 ---
 
-## 8. 多模块切换
+## 9. 多模块切换
 
 当需要暂停当前模块、处理其他模块时：
 
@@ -272,7 +316,7 @@ git stash pop
 
 ---
 
-## 9. 放弃当前分支重来
+## 10. 放弃当前分支重来
 
 如果当前分支改动混乱，可放弃后重建：
 
@@ -287,7 +331,7 @@ git checkout -b feat/module-XX origin/develop
 
 ---
 
-## 10. 禁止事项
+## 11. 禁止事项
 
 1. **禁止未经 chenrt 批准直接合并到 `develop`**。
 2. **禁止在 `feat/module-XX` 分支混入其他模块改动**。
@@ -298,7 +342,7 @@ git checkout -b feat/module-XX origin/develop
 
 ---
 
-## 11. 相关文档
+## 12. 相关文档
 
 - [`00_Team_Charter.md`](00_Team_Charter.md) — 团队守则
 - [`01_Role_Responsibilities.md`](01_Role_Responsibilities.md) — 角色职责速查表

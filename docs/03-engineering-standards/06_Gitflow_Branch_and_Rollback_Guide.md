@@ -29,8 +29,8 @@
 | `main` | `main` | 稳定/生产版本 | - | - | chenrt（项目整体负责人 / 产品 Owner） | - |
 | `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt（项目整体负责人 / 产品 Owner） | - |
 | `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt（项目整体负责人 / 产品 Owner） | guixm（业务架构师 / 管理视角）、zhaohy（业务需求提出方 / 一线视角） |
-| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | chenrt（项目整体负责人 / 产品 Owner）、zhaohy（业务需求提出方 / 验收者）、guixm（业务架构师 / 管理视角） |
-| `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt（项目整体负责人 / 产品 Owner） | guixm、zhaohy |
+| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | zhangwq、zhaohy、guixm、chenrt |
+| `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt | guixm、zhaohy |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt（项目整体负责人 / 产品 Owner） | - |
 | `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | chenrt（项目整体负责人 / 产品 Owner） |
 
@@ -114,9 +114,14 @@ CNCF_Monitor/
 |------|-----------|-----------|
 | `docs/02-product-requirements/` | chenrt / PM 的 AI | zhangwq / 开发的 AI |
 | `docs/prototypes/` | chenrt / PM 的 AI | zhangwq / 开发的 AI |
+| `docs/03-engineering-standards/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
+| `docs/05-team-collaboration/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
+| `.kimi/agents/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
 | `platform/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
 | `ui-custom/web/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
 | `upstream/` | 禁止直接修改 | 全员 |
+
+> 规范和 Agent 定义由项目负责人在设计分支、开发工程师在功能分支中按需维护，但禁止在对方核心目录（PRD/原型、生产代码）中修改。
 
 ---
 
@@ -304,6 +309,50 @@ zhangwq 提交的合并申请应包含：
 ## 8. 全链路 Vibe Coding 协作流程
 
 ### 8.1 标准流程
+
+#### 8.1.1 按角色视角流程图
+
+```mermaid
+flowchart TB
+    subgraph chenrt["chenrt / 产品 Owner"]
+        C1[从 develop 切出 design/module-XX] --> C2[编写 PRD + 生成原型]
+        C2 --> C3[发起 design/module-XX → develop PR]
+        C3 --> C4{guixm + zhaohy Approve?}
+        C4 -->|否| C2
+        C4 -->|是| C5[--no-ff 合并到 develop]
+        C5 --> C6[向 zhangwq 下达开发任务单]
+        C6 --> C14[收到 feat/module-XX PR]
+        C14 --> C15{预览验收通过?}
+        C15 -->|否| C16[提出修改意见]
+        C16 --> C14
+        C15 -->|是| C17[--no-ff 合并到 develop]
+    end
+
+    subgraph guixm_zhaohy["guixm + zhaohy / 业务方"]
+        R1[Review design PR 中的 PRD + 原型] --> R2[Approve]
+        R3[点击 feat PR 预览链接验收] --> R4[Approve]
+    end
+
+    subgraph zhangwq["zhangwq / SRE 工程质量 Owner"]
+        Z1[从 develop 切出 feat/module-XX] --> Z2[Prompt 读取 PRD + 原型]
+        Z2 --> Z3[调用 Agent 开发 platform/ + ui-custom/web/]
+        Z3 --> Z4[代码 Review + 测试补强]
+        Z4 --> Z5[执行提交前验证]
+        Z5 -->|失败| Z4
+        Z5 -->|通过| Z6[发起 feat/module-XX → develop PR]
+        Z6 --> Z7[等待验收反馈]
+        Z7 -->|修改意见| Z4
+        Z7 -->|通过| Z8[申请 chenrt 合并]
+    end
+
+    C3 -.-> R1
+    C6 -.-> Z1
+    Z6 -.-> R3
+    C14 -.-> Z7
+    C5 -.->|PRD + 原型冻结为 SSOT| Z2
+```
+
+#### 8.1.2 文字版流程
 
 ```
 chenrt（产品侧 Vibe Coding）

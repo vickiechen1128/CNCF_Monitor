@@ -1,10 +1,10 @@
 # MetricCenter 代码编写与提交环节详细流程
 
-> 文档类型：团队协作规范  
-> 目标读者：chenrt、zhangwq、guixm、zhaohy  
+> 文档类型：团队协作规范\
+> 目标读者：chenrt、zhangwq、guixm、zhaohy\
 > 更新日期：2026-07-23
 
----
+***
 
 ## 1. 目标
 
@@ -16,9 +16,11 @@
 - 代码质量由 AI 自检 + 人类 Review + 在线预览验收三重保障
 - 合并到 `develop` 的代码可随时回滚
 
----
+***
 
 ## 2. 流程总览
+
+### 2.1 按阶段视角
 
 ```
 Phase 1: 产品侧 Vibe Coding（chenrt）
@@ -46,7 +48,59 @@ Phase 3: develop 验证
 └── 再次执行提交前验证
 ```
 
----
+### 2.2 按角色视角流程图
+
+```mermaid
+flowchart TB
+    subgraph chenrt["chenrt / 产品 Owner"]
+        C1[从 develop 切出 design/module-XX] --> C2[编写 PRD + 生成原型]
+        C2 --> C3[发起 design/module-XX → develop PR]
+        C3 --> C4{guixm + zhaohy Approve?}
+        C4 -->|否| C2
+        C4 -->|是| C5[--no-ff 合并到 develop]
+        C5 --> C6[向 zhangwq 下达开发任务单]
+        C6 --> C14[收到 feat/module-XX PR]
+        C14 --> C15{预览验收通过?}
+        C15 -->|否| C16[提出修改意见]
+        C16 --> C14
+        C15 -->|是| C17[--no-ff 合并到 develop]
+    end
+
+    subgraph guixm_zhaohy["guixm + zhaohy / 业务方"]
+        R1[查看 design PR 中的 PRD + 原型] --> R2[评论或 Approve]
+        R3[点击 feat PR 的预览链接验收] --> R4[评论或 Approve]
+    end
+
+    subgraph zhangwq["zhangwq / SRE 工程质量 Owner"]
+        Z1[从 develop 切出 feat/module-XX] --> Z2[Prompt 读取 PRD + 原型]
+        Z2 --> Z3[调用 Agent 开发 platform/ + ui-custom/web/]
+        Z3 --> Z4[代码 Review + 测试补强]
+        Z4 --> Z5[执行提交前验证]
+        Z5 -->|失败| Z3
+        Z5 -->|通过| Z6[发起 feat/module-XX → develop PR]
+        Z6 --> Z7[等待验收反馈]
+        Z7 -->|修改意见| Z4
+        Z7 -->|通过| Z8[申请 chenrt 合并]
+    end
+
+    C3 -.-> R1
+    C6 -.-> Z1
+    Z6 -.-> R3
+    C14 -.-> Z7
+
+    C5 -.->|PRD + 原型冻结为 SSOT| Z2
+```
+
+### 2.3 关键合并规则
+
+| 分支                 | 合并目标               | 谁发起 PR  | 谁 Review                    | 谁合并               |
+| ------------------ | ------------------ | ------- | --------------------------- | ----------------- |
+| `design/module-XX` | `develop`          | chenrt  | guixm、zhaohy                | chenrt（`--no-ff`） |
+| `feat/module-XX`   | `develop`          | zhangwq | zhangwq、zhaohy、guixm、chenrt | chenrt（`--no-ff`） |
+| `release/*`        | `main` + `develop` | chenrt  | -                           | chenrt（`--no-ff`） |
+| `hotfix/*`         | `main` + `develop` | zhangwq | chenrt                      | chenrt（`--no-ff`） |
+
+***
 
 ## 3. Phase 1：产品侧 Vibe Coding
 
@@ -113,6 +167,7 @@ docs/prototypes/module-XX/
 ```
 
 原型代码要求：
+
 - 能独立运行或简单预览
 - 不依赖真实后端 API
 - 不与 `platform/` 或 `ui-custom/web/` 共享文件
@@ -134,11 +189,11 @@ git push origin design/module-XX
 
 ### 3.7 Review 关注点
 
-| Reviewer | 关注重点 |
-|----------|----------|
-| guixm | 业务战略价值、MVP 范围、管理视角 |
-| zhaohy | 一线业务逻辑、用户故事完整性、验收标准 |
-| zhangwq（可选） | 技术可行性、是否超出当前架构能力 |
+| Reviewer    | 关注重点                |
+| ----------- | ------------------- |
+| guixm       | 业务战略价值、MVP 范围、管理视角  |
+| zhaohy      | 一线业务逻辑、用户故事完整性、验收标准 |
+| zhangwq（可选） | 技术可行性、是否超出当前架构能力    |
 
 ### 3.8 合并到 develop
 
@@ -154,7 +209,7 @@ git push origin develop
 
 合并后，`develop` 上该模块的 PRD + 原型即冻结，成为开发 AI 的 SSOT。
 
----
+***
 
 ## 4. Phase 2：开发侧 Vibe Coding
 
@@ -340,14 +395,14 @@ curl -I http://localhost:5173/
 
 #### 通过标准
 
-| 检查项 | 通过标准 |
-|--------|----------|
-| `go test ./platform/...` | 全部通过 |
-| `go vet ./platform/...` | 无问题 |
-| `pnpm test` | 全部通过 |
-| `pnpm lint` | 0 errors / 0 warnings |
-| 后端服务启动 | 关键接口返回 200 |
-| 前端 dev server | 页面返回 200 |
+| 检查项                      | 通过标准                  |
+| ------------------------ | --------------------- |
+| `go test ./platform/...` | 全部通过                  |
+| `go vet ./platform/...`  | 无问题                   |
+| `pnpm test`              | 全部通过                  |
+| `pnpm lint`              | 0 errors / 0 warnings |
+| 后端服务启动                   | 关键接口返回 200            |
+| 前端 dev server            | 页面返回 200              |
 
 ### 4.9 提交代码
 
@@ -413,18 +468,18 @@ GitHub Actions 自动部署预览环境后，Bot 在 PR 评论区回复：
 🚀 预览链接：https://metric-center-git-feat-module-XX-chenrt.vercel.app
 ```
 
----
+***
 
 ## 5. Phase 3：业务验收与合并
 
 ### 5.1 验收方式
 
-| 角色 | 项目角色 | 验收动作 | 验收重点 |
-|------|----------|----------|----------|
-| zhangwq | SRE 工程师 / 工程质量 Owner | 代码 Review + 提交前验证 | 安全、正确性、可维护性、可测试性 |
-| zhaohy | 业务需求提出方 / 验收者 | 点击预览链接验收 | 业务逻辑、一线操作习惯、是否解决实际问题 |
-| guixm | 业务架构师 / 需求共创者 | 点击预览链接验收 | 管理价值、战略方向 |
-| chenrt | 项目整体负责人 / 产品 Owner | 点击预览链接 + 查看 diff | 产品符合度、架构一致性、合并决策 |
+| 角色      | 项目角色                 | 验收动作              | 验收重点                 |
+| ------- | -------------------- | ----------------- | -------------------- |
+| zhangwq | SRE 工程师 / 工程质量 Owner | 代码 Review + 提交前验证 | 安全、正确性、可维护性、可测试性     |
+| zhaohy  | 业务需求提出方 / 验收者        | 点击预览链接验收          | 业务逻辑、一线操作习惯、是否解决实际问题 |
+| guixm   | 业务架构师 / 需求共创者        | 点击预览链接验收          | 管理价值、战略方向            |
+| chenrt  | 项目整体负责人 / 产品 Owner   | 点击预览链接 + 查看 diff  | 产品符合度、架构一致性、合并决策     |
 
 ### 5.2 验收不通过处理
 
@@ -472,7 +527,7 @@ exec ./node_modules/.bin/vite --host
 - 在 develop 上修复或 `git revert` 回退合并
 - 修复后重新验证
 
----
+***
 
 ## 6. PR 模板
 
@@ -538,7 +593,7 @@ https://...
 - [ ] chenrt
 ```
 
----
+***
 
 ## 7. 执行记录
 
@@ -564,18 +619,18 @@ docs/04-execution-records/
 - 验收结论
 - develop 验证结果
 
----
+***
 
 ## 8. 禁止事项
 
-1. **禁止产品经理的 AI 修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**。
-2. **禁止开发的 AI 修改 `docs/02-product-requirements/`、`docs/prototypes/` 目录**。
-3. **禁止将 `docs/prototypes/` 中的原型代码直接复制到生产目录后原样合并**。
+1. **禁止产品经理的 AI 修改** **`platform/`、`ui-custom/web/`、`upstream/`** **目录**。
+2. **禁止开发的 AI 修改** **`docs/02-product-requirements/`、`docs/prototypes/`** **目录**。
+3. **禁止将** **`docs/prototypes/`** **中的原型代码直接复制到生产目录后原样合并**。
 4. **禁止绕过提交前验证直接申请合并**。
-5. **禁止在 `feat/module-XX` 分支混入其他模块改动**。
-6. **禁止未经 chenrt 批准直接合并到 `develop`**。
+5. **禁止在** **`feat/module-XX`** **分支混入其他模块改动**。
+6. **禁止未经 chenrt 批准直接合并到** **`develop`**。
 
----
+***
 
 ## 9. 相关文档
 
@@ -586,3 +641,4 @@ docs/04-execution-records/
 - [`../03-engineering-standards/04_Testing_Standard.md`](../03-engineering-standards/04_Testing_Standard.md) — 测试标准
 - [`../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md`](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md) — 分支策略与回退指南
 - [`05_Vibe_Coding_Playbook_for_Zhangwq.md`](05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
+
