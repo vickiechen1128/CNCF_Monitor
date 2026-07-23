@@ -1,225 +1,311 @@
 # MetricCenter 代码编写与提交环节详细流程
 
-> 文档类型：团队协作规范  
-> 目标读者：chenrt、zhangwq  
-> 更新日期：2026-07-21
+> 文档类型：团队协作规范\
+> 目标读者：chenrt、zhangwq、guixm、zhaohy\
+> 更新日期：2026-07-23
 
----
+***
 
 ## 1. 目标
 
-明确 MetricCenter 项目从"需求冻结"到"代码合并到 develop"的完整工程流程，确保：
+明确 MetricCenter 项目从**需求设计**到**代码合并到 develop** 的完整工程流程，确保：
 
+- 产品侧 Vibe Coding（PRD + 原型）与开发侧 Vibe Coding（生产代码）清晰分离
 - AI 代码生成在受控范围内执行
-- 每个 feature 分支都有清晰的边界和验收标准
-- 代码质量由 AI 自检 + 人类 Review 双重保障
+- 每个 `feat/module-XX` 分支都有清晰的边界和验收标准
+- 代码质量由 AI 自检 + 人类 Review + 在线预览验收三重保障
 - 合并到 `develop` 的代码可随时回滚
 
----
+***
 
 ## 2. 流程总览
 
+### 2.1 按阶段视角
+
 ```
-Step 1: 任务接收
-   chenrt 分配模块任务给 zhangwq
-        │
-        ▼
-Step 2: 环境准备
-   zhangwq 确认 worktree、切换 feature 分支
-        │
-        ▼
-Step 3: 方案确认
-   zhangwq 阅读 Module 文档，设计 prompt
-        │
-        ▼
-Step 4: AI 开发
-   zhangwq 调用 Agent 生成代码
-        │
-        ▼
-Step 5: 人工 Review
-   zhangwq 审查 AI 输出
-        │
-        ▼
-Step 6: 测试补强
-   zhangwq 补充异常路径和集成测试
-        │
-        ▼
-Step 7: 提交前验证
-   执行 go test/vet、pnpm test/lint、服务启动验证
-        │
-        ▼
-Step 8: 提交代码
-   在 feature 分支提交
-        │
-        ▼
-Step 9: 合并申请
-   zhangwq 向 chenrt 提交合并申请
-        │
-        ▼
-Step 10: develop 合并
-   chenrt 执行 --no-ff 合并
-        │
-        ▼
-Step 11: develop 验证
-   在 develop 环境中再次验证
+Phase 1: 产品侧 Vibe Coding（chenrt）
+├── 基于 develop 创建 design/module-XX
+├── 编写 PRD：docs/02-product-requirements/Modules/Module_XX_*.md
+├── 生成原型：docs/prototypes/module-XX/
+├── 发起 design/module-XX → develop 的 PR
+├── guixm + zhaohy review
+└── chenrt --no-ff 合并到 develop
+         │
+         ▼
+Phase 2: 开发侧 Vibe Coding（zhangwq）
+├── 基于 develop 创建 feat/module-XX
+├── Prompt 强制读取 PRD + 原型代码
+├── 调用 Agent 生成 platform/ 和 ui-custom/web/ 代码
+├── 人工 Review + 测试补强
+├── 执行提交前验证
+├── 发起 feat/module-XX → develop 的 PR
+├── GitHub Actions 自动部署预览环境
+├── chenrt + zhaohy + guixm 通过预览链接验收
+└── chenrt --no-ff 合并到 develop
+         │
+         ▼
+Phase 3: develop 验证
+└── 再次执行提交前验证
 ```
 
----
+### 2.2 按角色视角流程图
 
-## 3. Step 1：任务接收
+```mermaid
+flowchart TB
+    subgraph chenrt["chenrt / 产品 Owner"]
+        C1[从 develop 切出 design/module-XX] --> C2[编写 PRD + 生成原型]
+        C2 --> C3[发起 design/module-XX → develop PR]
+        C3 --> C4{guixm + zhaohy Approve?}
+        C4 -->|否| C2
+        C4 -->|是| C5[--no-ff 合并到 develop]
+        C5 --> C6[向 zhangwq 下达开发任务单]
+        C6 --> C14[收到 feat/module-XX PR]
+        C14 --> C15{预览验收通过?}
+        C15 -->|否| C16[提出修改意见]
+        C16 --> C14
+        C15 -->|是| C17[--no-ff 合并到 develop]
+    end
+
+    subgraph guixm_zhaohy["guixm + zhaohy / 业务方"]
+        R1[查看 design PR 中的 PRD + 原型] --> R2[评论或 Approve]
+        R3[点击 feat PR 的预览链接验收] --> R4[评论或 Approve]
+    end
+
+    subgraph zhangwq["zhangwq / SRE 工程质量 Owner"]
+        Z1[从 develop 切出 feat/module-XX] --> Z2[Prompt 读取 PRD + 原型]
+        Z2 --> Z3[调用 Agent 开发 platform/ + ui-custom/web/]
+        Z3 --> Z4[代码 Review + 测试补强]
+        Z4 --> Z5[执行提交前验证]
+        Z5 -->|失败| Z3
+        Z5 -->|通过| Z6[发起 feat/module-XX → develop PR]
+        Z6 --> Z7[等待验收反馈]
+        Z7 -->|修改意见| Z4
+        Z7 -->|通过| Z8[申请 chenrt 合并]
+    end
+
+    C3 -.-> R1
+    C6 -.-> Z1
+    Z6 -.-> R3
+    C14 -.-> Z7
+
+    C5 -.->|PRD + 原型冻结为 SSOT| Z2
+```
+
+### 2.3 关键合并规则
+
+| 分支                 | 合并目标               | 谁发起 PR  | 谁 Review                    | 谁合并               |
+| ------------------ | ------------------ | ------- | --------------------------- | ----------------- |
+| `design/module-XX` | `develop`          | chenrt  | guixm、zhaohy                | chenrt（`--no-ff`） |
+| `feat/module-XX`   | `develop`          | zhangwq | zhangwq、zhaohy、guixm、chenrt | chenrt（`--no-ff`） |
+| `release/*`        | `main` + `develop` | chenrt  | -                           | chenrt（`--no-ff`） |
+| `hotfix/*`         | `main` + `develop` | zhangwq | chenrt                      | chenrt（`--no-ff`） |
+
+***
+
+## 3. Phase 1：产品侧 Vibe Coding
 
 ### 3.1 触发条件
 
-- Module 文档已冻结
-- chenrt 决定进入开发阶段
+- 需求拆解会已明确模块范围
+- chenrt 决定进入设计阶段
 
 ### 3.2 负责人
 
-- **分配人**：chenrt
-- **执行人**：zhangwq
+- **设计分支 Owner**：chenrt（项目整体负责人 / 产品 Owner）
+- **Review 方**：
+  - guixm（业务架构师 / 管理视角）
+  - zhaohy（业务需求提出方 / 一线业务视角）
+- **技术可行性咨询**：zhangwq（SRE 工程师 / 工程质量 Owner）
 
-### 3.3 任务单内容
+> 各角色详细职责见 [`01_Role_Responsibilities.md`](01_Role_Responsibilities.md)。
 
-chenrt 向 zhangwq 分配任务时，应明确以下信息：
+### 3.3 创建设计分支
+
+```bash
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+git checkout develop
+git pull origin develop
+git checkout -b design/module-XX
+```
+
+### 3.4 生成 PRD
+
+在 `docs/02-product-requirements/Modules/Module_XX_*.md` 中编写结构化 PRD：
+
+```markdown
+# Module XX: XXX
+
+## 1. 背景与目标
+
+## 2. 用户故事
+
+## 3. 功能范围
+
+## 4. UI/UX 规范
+- Figma 链接：...
+- 原型路径：docs/prototypes/module-XX/
+
+## 5. 数据模型
+
+## 6. API 规范
+
+## 7. 验收标准（AC）
+1. ...
+2. ...
+```
+
+### 3.5 生成原型代码
+
+通过 AI 工具（如 v0.dev、Bolt.new、Cursor）生成原型代码，保存到：
+
+```text
+docs/prototypes/module-XX/
+├── index.html 或 App.tsx
+├── components/
+├── mocks/
+└── README.md
+```
+
+原型代码要求：
+
+- 能独立运行或简单预览
+- 不依赖真实后端 API
+- 不与 `platform/` 或 `ui-custom/web/` 共享文件
+
+### 3.6 提交并发起 PR
+
+```bash
+git add docs/02-product-requirements/Modules/Module_XX_*.md
+git add docs/prototypes/module-XX/
+git commit -m "design(module-XX): 添加 XXX 模块 PRD 与原型
+
+- 新增 PRD
+- 新增可点击原型代码
+"
+git push origin design/module-XX
+```
+
+在 GitHub 上发起 `design/module-XX → develop` 的 Pull Request，Reviewer 指定 guixm 和 zhaohy。
+
+### 3.7 Review 关注点
+
+| Reviewer    | 关注重点                |
+| ----------- | ------------------- |
+| guixm       | 业务战略价值、MVP 范围、管理视角  |
+| zhaohy      | 一线业务逻辑、用户故事完整性、验收标准 |
+| zhangwq（可选） | 技术可行性、是否超出当前架构能力    |
+
+### 3.8 合并到 develop
+
+Review 通过后，chenrt 在主仓库执行：
+
+```bash
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
+git checkout develop
+git pull origin develop
+git merge --no-ff design/module-XX
+git push origin develop
+```
+
+合并后，`develop` 上该模块的 PRD + 原型即冻结，成为开发 AI 的 SSOT。
+
+***
+
+## 4. Phase 2：开发侧 Vibe Coding
+
+### 4.1 触发条件
+
+- `design/module-XX` 已合并到 `develop`
+- chenrt 向 zhangwq 下达开发任务单
+
+### 4.2 任务单内容
 
 ```markdown
 ## 开发任务单
 
-**模块名称**：资源管理 + Excel 导入
-**分支名称**：feature/module-07-resource-management
-**来源 Module**：docs/02-product-requirements/Modules/Module_07_Config_Management.md
+**模块名称**：XXX
+**设计分支**：design/module-XX
+**功能分支**：feat/module-XX
+**来源 PRD**：docs/02-product-requirements/Modules/Module_XX_*.md
+**来源原型**：docs/prototypes/module-XX/
 **验收标准**：
-1. 三类资源 CRUD API 可用
-2. Excel 导入 100 条数据，错误行返回准确
-3. 前端资源管理页面可导入并展示资源
-**预计工期**：3 天
-**优先级**：高
-**风险提示**：Excel 字段与模型字段强耦合
+1. ...
+2. ...
+**预计工期**：X 天
+**优先级**：高/中/低
+**风险提示**：XXX
 ```
 
----
-
-## 4. Step 2：环境准备
-
-### 4.1 确认 worktree
-
-本项目采用 **单一 feature worktree 复用** 模式：
+### 4.3 创建功能分支
 
 ```bash
-# 进入 worktree
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-
-# 确认当前在 worktree 中
-git rev-parse --git-dir
-# 输出应包含 .git/worktrees/
+git checkout develop
+git pull origin develop
+git checkout -b feat/module-XX
 ```
 
-### 4.2 切换/创建 feature 分支
+### 4.4 Prompt 设计
 
-```bash
-# 方式 A：分支已存在
-git checkout feature/module-XX-<功能名>
-
-# 方式 B：从 develop 新建分支
-git fetch origin
-git checkout -b feature/module-XX-<功能名> origin/develop
-```
-
-### 4.3 环境检查
-
-- 后端：`go version`、`go env GOROOT`
-- 前端：`pnpm --version`、`node --version`
-- 工具链：`make install-tools`（如需要）
-
----
-
-## 5. Step 3：方案确认
-
-### 5.1 zhangwq 动作
-
-1. 仔细阅读 Module 文档
-2. 阅读相关工程标准：
-   - `03_API_Standard.md`
-   - `04_Testing_Standard.md`
-   - `01_Code_Isolation_Standard.md`
-3. 识别技术风险点（SSRF、SQL 注入、配置下发等）
-4. 设计给 AI 的 prompt
-
-### 5.2 Prompt 设计原则
-
-一个好的 prompt 应包含：
-
-- **背景**：当前模块目标、依赖模块
-- **输入**：需要阅读的文档路径
-- **输出**：需要修改/新增的文件列表
-- **约束**：API 路径、响应格式、测试要求、安全要求
-- **验收标准**：测试通过、服务启动验证
-
-### 5.3 Prompt 模板
+zhangwq 的 prompt 必须强制 AI 读取 PRD 和原型代码：
 
 ```markdown
-请作为 backend-developer，基于以下文档完成 Module 07 资源管理后端 API 开发：
+请作为 backend-developer 和 frontend-developer，基于以下输入实现 Module XX 的生产级代码：
 
 **必读文档**：
-- docs/02-product-requirements/Modules/Module_07_Config_Management.md
+- docs/02-product-requirements/Modules/Module_XX_*.md
+- docs/prototypes/module-XX/ 下的所有原型文件
 - docs/03-engineering-standards/03_API_Standard.md
 - docs/03-engineering-standards/04_Testing_Standard.md
+- docs/03-engineering-standards/01_Code_Isolation_Standard.md
 
 **任务**：
-1. 实现 Host / Middleware / Application 的 CRUD API
-2. 实现 Excel 导入功能
-3. 实现 Excel 模板下载功能
+1. 在 platform/ 下实现后端 API 与业务逻辑
+2. 在 ui-custom/web/ 下实现前端页面与交互
+3. 补充单元测试和集成测试
 
 **约束**：
+- 只能修改 platform/ 和 ui-custom/web/，禁止修改 docs/
+- 前端使用 React 18 + TypeScript + Vite + Ant Design 5
+- 后端使用 Gin + GORM + SQLite
 - 平台能力 API 使用 /api/v2/platform/* 前缀
-- 使用 GORM + SQLite
 - 所有导出函数必须有注释
 - URL 解析必须校验 scheme 和 host，防范 SSRF
 
 **验收标准**：
 1. go test ./platform/... 通过
 2. go vet ./platform/... 通过
-3. 启动服务后 /api/v2/platform/resources 返回正确 JSON
+3. pnpm test 通过
+4. pnpm lint 通过（0 errors / 0 warnings）
+5. 服务启动后关键接口/页面可访问
+
+关联执行记录：docs/04-execution-records/module-XX/
 ```
 
----
-
-## 6. Step 4：AI 开发
-
-### 6.1 zhangwq 调用 Agent
+### 4.5 AI 开发
 
 - 后端开发：调用 `backend-developer`
 - 前端开发：调用 `frontend-developer`
 - Prometheus 扩展：调用 `prometheus-developer`
 - 构建修复：调用 `build-resolver`
 
-### 6.2 过程监督
-
 zhangwq 在 AI 开发过程中应：
 
-- 确保 AI 在正确的 feature 分支上工作
-- 确保 AI 不修改无关文件
-- 及时纠正偏离需求的实现方向
-- 遇到阻塞（如网络、工具链）及时处理或升级给 chenrt
+- 确保 AI 在正确的 `feat/module-XX` 分支上工作
+- 确保 AI 只修改 `platform/` 和 `ui-custom/web/`
+- 及时纠正偏离需求或原型的实现方向
+- 遇到阻塞及时升级给 chenrt
 
-### 6.3 范围控制
+### 4.6 人工 Review
 
-- 一个 feature 分支只做一个模块
-- 不要在当前 feature 分支混入其他模块改动
-- 如需修改公共基础设施（如 response 封装），需先与 chenrt 确认
+#### Review 负责人
 
----
+- **第一责任人**：zhangwq（SRE 工程师 / 工程质量 Owner）
+- **第二责任人**：chenrt（项目整体负责人 / 产品 Owner，合并前最终 Review）
 
-## 7. Step 5：人工 Review
+#### Review 清单
 
-### 7.1 Review 负责人
-
-- **第一责任人**：zhangwq
-- **第二责任人**：chenrt（合并前最终 Review）
-
-### 7.2 Review 清单
-
-#### 7.2.1 安全性
+**安全性**
 
 - [ ] URL 解析是否校验 scheme（仅 `http`/`https`）和 host
 - [ ] 是否防范 SSRF
@@ -228,14 +314,15 @@ zhangwq 在 AI 开发过程中应：
 - [ ] 配置下发是否有权限控制
 - [ ] 是否有敏感信息泄露风险
 
-#### 7.2.2 正确性
+**正确性**
 
 - [ ] 实现是否符合 Module 文档
+- [ ] 是否符合 `docs/prototypes/module-XX/` 原型表达的业务意图
 - [ ] API 路径和响应格式是否符合 `03_API_Standard.md`
 - [ ] 数据模型是否与 Module 文档一致
 - [ ] 错误处理是否完善
 
-#### 7.2.3 可维护性
+**可维护性**
 
 - [ ] 函数长度是否小于 50 行
 - [ ] 文件长度是否小于 800 行
@@ -243,23 +330,13 @@ zhangwq 在 AI 开发过程中应：
 - [ ] 是否有重复代码
 - [ ] 是否有过度工程化
 
-#### 7.2.4 可测试性
+**可测试性**
 
 - [ ] 是否覆盖 happy path
 - [ ] 是否覆盖边界情况
 - [ ] 是否覆盖错误路径
 
-### 7.3 Review 不通过处理
-
-- zhangwq 记录问题
-- 返回对应 Agent 修复
-- 修复后重新 Review
-
----
-
-## 8. Step 6：测试补强
-
-### 8.1 AI 测试的局限性
+### 4.7 测试补强
 
 AI 通常能写出 happy path 测试，但容易遗漏：
 
@@ -268,27 +345,25 @@ AI 通常能写出 happy path 测试，但容易遗漏：
 - 权限边界
 - 集成依赖
 
-### 8.2 zhangwq 应补充的测试
+zhangwq 应补充：
 
-#### 后端
+**后端**
 
 - 空输入、超大值、特殊字符
 - 404、400、校验失败
 - 并发读写
 - 数据库迁移兼容性
 
-#### 前端
+**前端**
 
 - 空列表状态
 - 加载失败状态
 - 表单校验边界
 - 网络异常处理
 
----
+### 4.8 提交前验证
 
-## 9. Step 7：提交前验证
-
-### 9.1 后端验证
+#### 后端验证
 
 ```bash
 # 静态检查
@@ -304,10 +379,9 @@ curl http://localhost:8080/api/v1/health/db
 curl http://localhost:8080/api/v1/status
 ```
 
-### 9.2 前端验证
+#### 前端验证
 
 ```bash
-# 静态检查
 cd ui-custom/web
 pnpm test
 pnpm lint
@@ -319,154 +393,116 @@ exec ./node_modules/.bin/vite --host
 curl -I http://localhost:5173/
 ```
 
-### 9.3 验证通过标准
+#### 通过标准
 
-| 检查项 | 通过标准 |
-|--------|----------|
-| `go test ./platform/...` | 全部通过 |
-| `go vet ./platform/...` | 无问题 |
-| `pnpm test` | 全部通过 |
-| `pnpm lint` | 0 errors / 0 warnings |
-| 后端服务启动 | 关键接口返回 200 |
-| 前端 dev server | 页面返回 200 |
+| 检查项                      | 通过标准                  |
+| ------------------------ | --------------------- |
+| `go test ./platform/...` | 全部通过                  |
+| `go vet ./platform/...`  | 无问题                   |
+| `pnpm test`              | 全部通过                  |
+| `pnpm lint`              | 0 errors / 0 warnings |
+| 后端服务启动                   | 关键接口返回 200            |
+| 前端 dev server            | 页面返回 200              |
 
-### 9.4 验证后清理
-
-验证完成后必须停止服务，释放端口：
-
-```bash
-# 停止后端服务
-Ctrl+C
-
-# 停止前端服务
-Ctrl+C
-```
-
----
-
-## 10. Step 8：提交代码
-
-### 10.1 提交规范
+### 4.9 提交代码
 
 ```bash
 git add <具体文件>
-git commit -m "<类型>: <简要描述>
+git commit -m "feat(module-XX): <动作> - <简短描述>
 
 <详细说明>
 
-关联: <执行记录路径>"
+关联: docs/04-execution-records/module-XX/<agent>.md"
 ```
 
-### 10.2 Commit 类型
-
-| 类型 | 说明 |
-|------|------|
-| `feat` | 新功能 |
-| `fix` | 修复 |
-| `docs` | 文档 |
-| `test` | 测试 |
-| `refactor` | 重构 |
-| `chore` | 工程事务 |
-| `prototype` | 原型设计 |
-
-### 10.3 Commit 示例
+### 4.10 发起 PR 并部署预览
 
 ```bash
-git commit -m "feat: 实现资源管理 CRUD 与 Excel 导入
-
-- 新增 Host/Middleware/Application CRUD API
-- 新增 Excel 批量导入与错误行返回
-- 新增 Excel 模板下载
-
-关联: docs/04-execution-records/module-07-resource-management/backend-developer.md"
+git push origin feat/module-XX
 ```
 
-### 10.4 提交前确认
+在 GitHub 上发起 `feat/module-XX → develop` 的 Pull Request。
 
-- 当前在正确的 feature 分支
-- 提交只包含当前模块改动
-- commit message 符合规范
-
----
-
-## 11. Step 9：合并申请
-
-### 11.1 zhangwq 输出
-
-向 chenrt 提交合并申请，包含：
+PR 描述必须包含：
 
 ```markdown
-## 合并申请
+## 功能实现
 
-**分支**：feature/module-XX-<功能名>
-**来源 Module**：Module_XX_*.md
-**变更范围**：
-- 新增/修改文件列表
+**分支**：feat/module-XX
+**来源设计**：design/module-XX
+**来源 PRD**：docs/02-product-requirements/Modules/Module_XX_*.md
+**来源原型**：docs/prototypes/module-XX/
 
-**测试结果**：
-- go test ./platform/...：通过
-- go vet ./platform/...：通过
-- pnpm test：通过
-- pnpm lint：通过
+## 变更范围
 
-**服务验证**：
+- platform/...
+- ui-custom/web/...
+
+## 测试结果
+
+- [ ] go test ./platform/... 通过
+- [ ] go vet ./platform/... 通过
+- [ ] pnpm test 通过
+- [ ] pnpm lint 通过
+
+## 服务验证
+
 - 后端服务启动成功，/api/v1/health 返回 200
 - 前端 dev server 启动成功，/ 返回 200
 
-**Review 结论**：
-- 自查通过 / 发现 XX 问题已修复
+## 预览链接
 
-**风险点**：
-- XXX
+- 待 GitHub Actions 部署后 Bot 自动回复
 
-**建议下一步**：
-- 合并到 develop
+## Reviewer
+
+- [ ] zhangwq（代码 Review）
+- [ ] zhaohy（业务验收）
+- [ ] guixm（管理价值验收）
+- [ ] chenrt（最终审批）
 ```
 
-### 11.2 chenrt 审批
+GitHub Actions 自动部署预览环境后，Bot 在 PR 评论区回复：
 
-chenrt 收到申请后：
+```
+🚀 预览链接：https://metric-center-git-feat-module-XX-chenrt.vercel.app
+```
 
-1. 检查变更范围是否符合 Module 文档
-2. 检查测试和验证结果
-3. 检查 commit message 是否规范
-4. 必要时进行最终 Review
-5. 决定：批准合并 / 要求修复 / 暂缓
+***
 
----
+## 5. Phase 3：业务验收与合并
 
-## 12. Step 10：develop 合并
+### 5.1 验收方式
 
-### 12.1 合并条件
+| 角色      | 项目角色                 | 验收动作              | 验收重点                 |
+| ------- | -------------------- | ----------------- | -------------------- |
+| zhangwq | SRE 工程师 / 工程质量 Owner | 代码 Review + 提交前验证 | 安全、正确性、可维护性、可测试性     |
+| zhaohy  | 业务需求提出方 / 验收者        | 点击预览链接验收          | 业务逻辑、一线操作习惯、是否解决实际问题 |
+| guixm   | 业务架构师 / 需求共创者        | 点击预览链接验收          | 管理价值、战略方向            |
+| chenrt  | 项目整体负责人 / 产品 Owner   | 点击预览链接 + 查看 diff  | 产品符合度、架构一致性、合并决策     |
 
-- zhangwq Review 通过
-- 提交前验证通过
-- chenrt 审批通过
+### 5.2 验收不通过处理
 
-### 12.2 合并操作
+- 验收方在 PR 中评论具体问题
+- zhangwq 调用对应 Agent 修改
+- 修改后重新 push，`feat/module-XX` 预览链接自动更新
+- 验收方再次查看并确认
 
-在主仓库 `CNCF_Monitor` 中执行：
+### 5.3 合并到 develop
+
+所有 Reviewer Approve 后，chenrt 在主仓库执行：
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
 git pull origin develop
-git merge --no-ff feature/module-XX-<功能名>
-```
-
-### 12.3 合并后推送
-
-```bash
+git merge --no-ff feat/module-XX
 git push origin develop
 ```
 
----
+### 5.4 develop 验证
 
-## 13. Step 11：develop 验证
-
-### 13.1 验证要求
-
-合并到 develop 后，必须再次执行提交前验证：
+合并后必须再次执行提交前验证：
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
@@ -485,238 +521,88 @@ go run ./platform/cmd/metric-center/main.go
 exec ./node_modules/.bin/vite --host
 ```
 
-### 13.2 验证失败处理
+验证失败处理：
 
 - 立即停止后续模块开发
-- 在 develop 上修复或回退合并
+- 在 develop 上修复或 `git revert` 回退合并
 - 修复后重新验证
 
-### 13.3 回退命令
+***
 
-如 develop 验证失败，可回退：
+## 6. PR 模板
 
-```bash
-# 查看合并 commit
-git log --oneline -5
-
-# 方式 1：revert 合并（保留历史）
-git revert -m 1 <merge-commit-hash>
-
-# 方式 2：reset 到合并前（仅在未 push 时使用）
-git reset --hard <合并前的 commit>
-```
-
----
-
-## 14. 原型分支特殊流程
-
-### 14.1 原型开发
-
-- 由 chenrt 调用 `prototype-designer`
-- 分支名：`feature/prototype-<名称>`
-- 使用 mock 数据，不连接后端
-
-### 14.2 原型分支推送
-
-原型完成后推送到远程仓库，方便团队查看：
-
-```bash
-git push -u origin feature/prototype-<名称>
-```
-
-### 14.3 原型分支处理原则
-
-- **不合并到 `develop`**，避免污染正式开发主线。
-- 必须推送到远程仓库 `origin/feature/prototype-<名称>`，团队成员可通过 `git fetch` 拉取。
-- **推荐部署到 GitHub Pages**，方便 guixm、zhaohy 等非工程人员在线预览。
-- 原型中的有效设计需在正式模块分支重新实现后合并到 `develop`。
-- **原型分支只放 UI 原型代码**。PRD、团队协作文档、工程标准、Agent 定义必须在 `develop` 上维护，确保业务侧（guixm、zhaohy）和 SRE 工程师（zhangwq）看到的是同一份最新资料。
-
----
-
-## 15. 原型在线预览方案（GitHub Pages）
-
-### 15.1 为什么需要在线预览
-
-- guixm、zhaohy 不需要配置本地开发环境即可查看原型。
-- 原型用于需求汇报和确认，链接可直接分享。
-- 与 `develop` 中的正式代码隔离，不影响开发。
-- PRD、团队协作文档、工程标准统一放在 `develop`，GitHub Pages 只承载原型 UI，避免业务侧因文档分散而找不到最新资料。
-
-### 15.2 方案 A：手动部署到 GitHub Pages（推荐首次使用）
-
-#### 步骤 1：配置 Vite 基础路径
-
-在 `ui-custom/web/vite.config.ts` 中，为原型构建设置 `base`：
-
-```typescript
-export default defineConfig({
-  base: '/CNCF_Monitor/',
-  // ...
-})
-```
-
-> 仅原型构建时修改，正式开发保持默认 `/`。可通过环境变量区分。
-
-#### 步骤 2：构建原型
-
-```bash
-cd ui-custom/web
-pnpm install
-pnpm build
-```
-
-构建产物在 `ui-custom/web/dist/`。
-
-#### 步骤 3：推送到 `gh-pages` 分支
-
-```bash
-cd ui-custom/web/dist
-git init
-git remote add origin https://github.com/<your-org>/CNCF_Monitor.git
-git checkout -b gh-pages
-git add .
-git commit -m "deploy: prototype-mvp-demo"
-git push -f origin gh-pages
-```
-
-#### 步骤 4：启用 GitHub Pages
-
-1. 打开 GitHub 仓库 Settings → Pages
-2. Source 选择 `Deploy from a branch`
-3. Branch 选择 `gh-pages / root`
-4. 保存后访问：`https://<your-org>.github.io/CNCF_Monitor/`
-
-### 15.3 方案 B：GitHub Actions 自动部署（推荐后续迭代）
-
-在 `.github/workflows/deploy-prototype.yml` 中配置：
-
-```yaml
-name: Deploy Prototype to GitHub Pages
-
-on:
-  push:
-    branches:
-      - 'feature/prototype-*'
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 8
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
-          cache-dependency-path: ui-custom/web/pnpm-lock.yaml
-      - run: cd ui-custom/web && pnpm install && pnpm build
-      - uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./ui-custom/web/dist
-          destination_dir: ${{ github.ref_name }}
-```
-
-每个 `feature/prototype-*` 分支推送后，自动部署到：
-
-```
-https://<your-org>.github.io/CNCF_Monitor/feature/prototype-mvp-demo/
-```
-
-### 15.4 prototype-designer 是否需要实现自动发布？
-
-`prototype-designer` 的核心目标是快速产出可点击原型，**不要求**它直接发布到 GitHub Pages。但可以在原型完成后：
-
-- 由 `prototype-designer` 生成 `vite.config.ts` 的 `base` 配置注释说明
-- 由 `prototype-designer` 输出"如何构建和部署到 GitHub Pages"的步骤
-- 由 chenrt 或 zhangwq 手动/自动执行部署
-
-如需完全自动化，可在 `prototype-designer` 的完成汇报中增加：
+### 6.1 design/module-XX PR 模板
 
 ```markdown
-## GitHub Pages 部署说明
+## 设计说明
 
-1. 确认仓库已启用 GitHub Pages
-2. 设置 vite.config.ts base 为 '/CNCF_Monitor/'
-3. 运行 pnpm build
-4. 将 dist/ 推送到 gh-pages 分支
-5. 访问 https://<your-org>.github.io/CNCF_Monitor/
+**模块**：Module XX
+**分支**：design/module-XX
+
+## 变更内容
+
+- [ ] 新增/更新 PRD：docs/02-product-requirements/Modules/Module_XX_*.md
+- [ ] 新增/更新原型：docs/prototypes/module-XX/
+
+## 原型预览
+
+- [ ] 原型可在本地运行
+- [ ] 原型链接/截图：（如有）
+
+## Reviewer
+
+- [ ] guixm
+- [ ] zhaohy
 ```
 
----
+### 6.2 feat/module-XX PR 模板
 
-## 16. 业务侧验收路径
+```markdown
+## 功能实现
 
-业务侧（guixm、zhaohy）需要在两个阶段参与验收：
+**模块**：Module XX
+**分支**：feat/module-XX
+**来源设计**：design/module-XX
 
-### 16.1 第一阶段：原型验收（需求确认前）
+## 变更范围
 
-| 项目 | 说明 |
-|------|------|
-| **查看方式** | GitHub Pages 在线链接 |
-| **负责人** | chenrt 组织，guixm + zhaohy 评审 |
-| **目标** | 确认页面布局、流程、字段是否符合业务预期 |
-| **输出** | 原型评审会议纪要、修改意见 |
-| **是否影响 develop** | 否 |
+- platform/...
+- ui-custom/web/...
 
-### 16.2 第二阶段：功能验收（合并到 develop 后）
+## 测试结果
 
-| 项目 | 说明 |
-|------|------|
-| **查看方式** | 本地/测试环境启动正式服务 |
-| **负责人** | chenrt 组织，guixm + zhaohy 验收 |
-| **目标** | 确认真实功能是否解决一线问题 |
-| **输出** | 业务验收结论 |
-| **是否影响 develop** | 是，验收不通过需在 develop 修复或回退 |
+- [ ] go test ./platform/... 通过
+- [ ] go vet ./platform/... 通过
+- [ ] pnpm test 通过
+- [ ] pnpm lint 通过
 
-### 16.3 如何给业务侧提供功能验收环境
+## 服务验证
 
-#### 方式 1：本地演示（适合小范围、早期阶段）
+- 后端服务启动成功，/api/v1/health 返回 200
+- 前端 dev server 启动成功，/ 返回 200
 
-```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
-git checkout develop
-go run ./platform/cmd/metric-center/main.go
-cd ui-custom/web && exec ./node_modules/.bin/vite --host
+## 预览链接
+
+https://...
+
+## Reviewer
+
+- [ ] zhangwq
+- [ ] zhaohy
+- [ ] guixm
+- [ ] chenrt
 ```
 
-业务侧通过 chenrt 的电脑屏幕或远程桌面查看。
+***
 
-#### 方式 2：测试环境部署（推荐正式验收）
+## 7. 执行记录
 
-- 在 develop 合并后，由 zhangwq 部署到团队测试服务器。
-- 提供固定 URL，guixm/zhaohy 自行访问。
-- 可结合 CI/CD 自动部署 develop 分支到测试环境。
-
-#### 方式 3：GitHub Codespaces / Vercel 预览（可选）
-
-- GitHub Codespaces：业务方可直接在浏览器中打开开发环境。
-- Vercel：连接 GitHub 仓库，自动为每个 PR/分支生成预览链接。
-
-### 16.4 验收不通过的处理
-
-| 阶段 | 处理方式 |
-|------|----------|
-| 原型验收不通过 | 在 `feature/prototype-*` 分支迭代，不合并到 develop |
-| 功能验收不通过 | 在 develop 修复或 `git revert` 回退，重新开发 |
-
----
-
-## 17. 执行记录
-
-每个 feature 开发完成后，应在 `docs/04-execution-records/` 下创建执行记录：
+每个模块开发完成后，应在 `docs/04-execution-records/` 下创建执行记录：
 
 ```
 docs/04-execution-records/
-├── module-XX-<功能名>/
-│   ├── planner.md
+├── module-XX/
+│   ├── README.md
 │   ├── backend-developer.md
 │   ├── frontend-developer.md
 │   ├── golang-reviewer.md
@@ -724,9 +610,29 @@ docs/04-execution-records/
 │   └── merge-record.md
 ```
 
----
+`merge-record.md` 记录：
 
-## 18. 相关文档
+- 合并时间
+- 合并人
+- 来源设计分支
+- 预览链接
+- 验收结论
+- develop 验证结果
+
+***
+
+## 8. 禁止事项
+
+1. **禁止产品经理的 AI 修改** **`platform/`、`ui-custom/web/`、`upstream/`** **目录**。
+2. **禁止开发的 AI 修改** **`docs/02-product-requirements/`、`docs/prototypes/`** **目录**。
+3. **禁止将** **`docs/prototypes/`** **中的原型代码直接复制到生产目录后原样合并**。
+4. **禁止绕过提交前验证直接申请合并**。
+5. **禁止在** **`feat/module-XX`** **分支混入其他模块改动**。
+6. **禁止未经 chenrt 批准直接合并到** **`develop`**。
+
+***
+
+## 9. 相关文档
 
 - [`00_Team_Charter.md`](00_Team_Charter.md) — 团队守则
 - [`01_Role_Responsibilities.md`](01_Role_Responsibilities.md) — 角色职责速查表
@@ -734,3 +640,5 @@ docs/04-execution-records/
 - [`../03-engineering-standards/03_API_Standard.md`](../03-engineering-standards/03_API_Standard.md) — API 标准
 - [`../03-engineering-standards/04_Testing_Standard.md`](../03-engineering-standards/04_Testing_Standard.md) — 测试标准
 - [`../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md`](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md) — 分支策略与回退指南
+- [`05_Vibe_Coding_Playbook_for_Zhangwq.md`](05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
+

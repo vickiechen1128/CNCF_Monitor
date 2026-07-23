@@ -2,7 +2,7 @@
 
 > 文档类型：团队协作规范  
 > 目标读者：zhangwq（SRE 工程师 / Vibe Coding 执行者 / 工程质量 Owner）  
-> 更新日期：2026-07-22
+> 更新日期：2026-07-23
 
 ---
 
@@ -25,7 +25,7 @@
 接收 chenrt 任务单
         │
         ▼
-准备：worktree、feature 分支、必读文档
+准备：worktree、feat 分支、必读文档
         │
         ▼
 设计 prompt（背景 + 输入 + 输出 + 约束 + 验收）
@@ -58,7 +58,7 @@
 | 检查项 | 命令 | 期望结果 |
 |--------|------|----------|
 | 在固定 worktree 内 | `git rev-parse --git-dir` | 包含 `.git/worktrees/` |
-| 在正确 feature 分支 | `git branch --show-current` | `feature/module-XX-<功能名>` |
+| 在正确 feat 分支 | `git branch --show-current` | `feat/module-XX` |
 | 分支基于最新 develop | `git log --oneline -1` | 与 origin/develop 同步 |
 | 后端环境 | `go version` | 与 `go.mod` 一致 |
 | 前端环境 | `pnpm --version` / `node --version` | 符合项目要求 |
@@ -70,6 +70,7 @@
 | 文档 | 用途 |
 |------|------|
 | `docs/02-product-requirements/Modules/Module_XX_*.md` | 需求、业务规则、验收标准 |
+| `docs/prototypes/module-XX/` | 可点击原型，UI 流程与交互参考 |
 | `docs/03-engineering-standards/00_Engineering_Standard.md` | 目录结构、技术栈 |
 | `docs/03-engineering-standards/01_Code_Isolation_Standard.md` | 代码隔离边界 |
 | `docs/03-engineering-standards/03_API_Standard.md` | API 路径、响应格式 |
@@ -100,6 +101,7 @@
 
 **必读文档**：
 - docs/02-product-requirements/Modules/Module_XX_*.md
+- docs/prototypes/module-XX/ 下的所有原型文件
 - docs/03-engineering-standards/03_API_Standard.md
 - docs/03-engineering-standards/04_Testing_Standard.md
 - docs/03-engineering-standards/01_Code_Isolation_Standard.md
@@ -130,6 +132,7 @@
 
 **必读文档**：
 - docs/02-product-requirements/Modules/Module_XX_*.md
+- docs/prototypes/module-XX/ 下的所有原型文件
 - docs/03-engineering-standards/02_Frontend_Standard.md
 - docs/03-engineering-standards/03_API_Standard.md
 
@@ -154,10 +157,11 @@
 ### 4.4 Reviewer Prompt 模板
 
 ```markdown
-请作为 golang-reviewer / frontend-reviewer，Review 当前 feature 分支的代码变更。
+请作为 golang-reviewer / frontend-reviewer，Review 当前 feat 分支的代码变更。
 
 **必读文档**：
 - docs/02-product-requirements/Modules/Module_XX_*.md
+- docs/prototypes/module-XX/ 下的所有原型文件
 - docs/03-engineering-standards/03_API_Standard.md
 - docs/03-engineering-standards/04_Testing_Standard.md
 
@@ -210,6 +214,7 @@
 ### 6.2 正确性
 
 - [ ] 实现是否符合 Module 文档
+- [ ] 实现是否符合 `docs/prototypes/module-XX/` 原型表达的业务意图与交互流程
 - [ ] API 路径和响应格式是否符合 `03_API_Standard.md`
 - [ ] 数据模型是否与 Module 文档一致
 - [ ] 错误处理是否完善（错误码、错误信息、降级策略）
@@ -332,9 +337,9 @@ Ctrl+C
 ### 9.1 Commit 格式
 
 ```
-<模块>: <动作> - <简短描述>
+<type>(module-XX): <动作> - <简短描述>
 
-- 关联执行记录: docs/04-execution-records/module-XX-<功能名>/<agent>.md
+- 关联执行记录: docs/04-execution-records/module-XX/<agent>.md
 - 变更范围: platform/xxx, ui-custom/web/xxx
 ```
 
@@ -353,13 +358,13 @@ Ctrl+C
 ### 9.3 Commit 示例
 
 ```
-module-07-resource-management: 实现资源 CRUD 与 Excel 导入
+feat(module-07): 实现资源 CRUD 与 Excel 导入
 
 - 新增 Host/Middleware/Application CRUD API
 - 新增 Excel 批量导入与错误行返回
 - 新增 Excel 模板下载
 
-关联: docs/04-execution-records/module-07-resource-management/backend-developer.md
+关联: docs/04-execution-records/module-07/backend-developer.md
 ```
 
 ---
@@ -371,8 +376,9 @@ module-07-resource-management: 实现资源 CRUD 与 Excel 导入
 ```markdown
 ## 合并申请
 
-**分支**：feature/module-XX-<功能名>
-**来源 Module**：docs/02-product-requirements/Modules/Module_XX_*.md
+**分支**：feat/module-XX
+**来源 PRD**：docs/02-product-requirements/Modules/Module_XX_*.md
+**来源原型**：docs/prototypes/module-XX/
 
 **变更范围**：
 - platform/xxx/...
@@ -405,7 +411,7 @@ module-07-resource-management: 实现资源 CRUD 与 Excel 导入
 
 ## 11. 执行记录模板
 
-每个 Agent 调用结束后，在 `docs/04-execution-records/module-XX-<功能名>/` 下创建执行记录：
+每个 Agent 调用结束后，在 `docs/04-execution-records/module-XX/` 下创建执行记录：
 
 ```markdown
 # 执行记录：backend-developer / Module XX
@@ -467,13 +473,13 @@ module-07-resource-management: 实现资源 CRUD 与 Excel 导入
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 
 # 保存当前工作区
-git stash push -m "WIP: module-XX-xxx"
+git stash push -m "WIP: module-XX"
 
 # 切换到其他模块
-git checkout feature/module-YY-<功能名>
+git checkout feat/module-YY
 
 # 处理完切回来
-git checkout feature/module-XX-<功能名>
+git checkout feat/module-XX
 git stash pop
 ```
 

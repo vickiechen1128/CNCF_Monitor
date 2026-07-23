@@ -1,88 +1,137 @@
 # Gitflow 分支策略与回退指南
 
 > 文档类型：工程标准  
-> 目标读者：zhangwq（Vibe Coding 执行者）、chenrt（Orchestrator / 合并审批人）  
-> 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)  
-> 更新日期：2026-07-22
+> 目标读者：chenrt、zhangwq、guixm、zhaohy  
+> 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../05-team-collaboration/00_Team_Charter.md](../05-team-collaboration/00_Team_Charter.md)  
+> 更新日期：2026-07-23
 
 ---
 
 ## 1. 设计目标
 
-1. **按功能模块隔离开发**：每个功能子模块一个 feature 分支，避免不同模块代码混杂。
-2. **随时可回退**：模块不满意时，可放弃整个 feature 分支；已合并到 `develop` 后，可通过 revert 撤销。
-3. **保留历史可追溯**：每次 Agent 团队的执行记录与 commit 关联，能回溯到任意版本。
-4. **单人开发友好**：固定单一 worktree，通过切换分支完成不同模块，避免目录堆积。
+1. **按阶段隔离**：产品侧 Vibe Coding（`design/`）与开发侧 Vibe Coding（`feat/`）分离，避免上下文错乱。
+2. **需求即代码**：PRD 和原型代码合并到同一条 `design/module-XX` 分支，随合并进入 `develop`，成为 AI 读取的单一事实源。
+3. **保留 develop 作为 SSOT**：不引入 `staging/acceptance-XX` 等额外业务验收分支，`develop` 承担 PRD、原型与已验收代码的集成基线。
+4. **随时可回退**：模块不满意时，可放弃整个 `feat/` 分支；已合并到 `develop` 后，可通过 revert 撤销。
+5. **在线验收**：每个 `feat/module-XX` PR 自动部署预览环境，产品经理和业务方在 PR 阶段通过 URL 验收，再决定是否合并。
+6. **单人开发友好**：固定单一 worktree，通过切换分支完成不同模块，避免目录堆积。
 
 ---
 
 ## 2. 分支模型
 
-本项目采用 **Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支**。
+本项目采用 **Gitflow + 单一 worktree + 设计/实现分离分支**。
 
 ### 2.1 分支约定
 
-| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 | 合并权限 |
-|----------|----------|------|------|----------|----------|
-| `main` | `main` | 稳定/生产版本 | - | - | - |
-| `develop` | `develop` | 集成/开发主线 | `main` | - | - |
-| `feature/module-XX-<功能名>` | `feature/module-00-infrastructure` | 单个功能子模块开发 | `develop` | `develop` | 仅 chenrt |
-| `feature/prototype-<名称>` | `feature/prototype-mvp-demo` | 可点击原型 | `develop` | **不合并** | - |
-| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | 仅 chenrt |
-| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | 仅 chenrt |
+| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 | 负责人 | Reviewer |
+|----------|----------|------|------|----------|--------|----------|
+| `main` | `main` | 稳定/生产版本 | - | - | chenrt（项目整体负责人 / 产品 Owner） | - |
+| `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt（项目整体负责人 / 产品 Owner） | - |
+| `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt（项目整体负责人 / 产品 Owner） | guixm（业务架构师 / 管理视角）、zhaohy（业务需求提出方 / 一线视角） |
+| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | zhangwq、zhaohy、guixm、chenrt |
+| `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt | guixm、zhaohy |
+| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt（项目整体负责人 / 产品 Owner） | - |
+| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | chenrt（项目整体负责人 / 产品 Owner） |
 
-> **重要**：只有 chenrt 有权将 `feature/release/hotfix` 分支合并到 `develop` 或 `main`，且必须使用 `--no-ff`。zhangwq 完成开发后需提交合并申请，禁止自行合并。
+> **重要**：只有 chenrt 有权将 `design/`、`feat/`、`release/`、`hotfix/` 分支合并到 `develop` 或 `main`，且必须使用 `--no-ff`。
 
-### 2.2 原型分支特殊规则
+### 2.2 设计分支特殊规则
 
-- 原型分支命名固定为 `feature/prototype-<名称>`。
-- **严禁合并到 `develop`**，避免污染正式开发主线。
-- 必须推送到远程仓库 `origin/feature/prototype-<名称>`，供团队成员通过 `git fetch` 拉取。
-- 推荐部署到 GitHub Pages，方便 guixm、zhaohy 等非工程人员在线预览。
-- 原型中的有效设计必须通过正式模块分支（`feature/module-XX-<功能名>`）重新实现后，按标准流程合并到 `develop`。
-- **原型分支只放 UI 原型代码**（页面、组件、mock 数据、部署配置）。PRD、团队协作文档、工程标准、Agent 定义必须在 `develop` 上更新，确保全团队同步。
+- `design/module-XX` 必须同时包含：
+  - `docs/02-product-requirements/Modules/Module_XX_*.md`（PRD）
+  - `docs/prototypes/module-XX/`（AI 生成的可点击原型代码）
+- 原型代码**严禁合并到 `platform/` 或 `ui-custom/web/`**。
+- `design/module-XX` 合并到 `develop` 后，该模块 PRD + 原型即冻结，成为开发 AI 的输入源。
+- 如 PRD 在开发期间变更，必须重新走 `design/module-XX` 流程，zhangwq 基于新的 develop commit 重建或 rebase `feat/module-XX`。
 
-### 2.3 模块分支列表
+### 2.3 功能分支特殊规则
 
-| 模块编号 | 分支名 | 对应 Phase | 说明 |
-|----------|--------|------------|------|
-| Module 00 | `feature/module-00-infrastructure` | Phase 0 | 基础设施与数据模型 |
-| Module 07a | `feature/module-07-resource-management` | Phase 1 | 资源管理 + Excel 导入 |
-| Module 07b | `feature/module-07-label-template` | Phase 2 | 标签模板 |
-| Module 07c | `feature/module-07-scrape-job` | Phase 2 | 采集 Job |
-| Module 07d | `feature/module-07-probe-config` | Phase 2 | 拨测配置 |
-| Module 07e | `feature/module-07-config-generator` | Phase 3 | 配置生成与下发 |
-| Module 01 | `feature/module-01-collection-status` | Phase 4 | 采集状态与诊断 |
-| Module 02 | `feature/module-02-query-center` | Phase 5 | 指标查询中心 |
-| Module 08 | `feature/module-08-alerting` | Phase 6 | 告警状态查看 |
-| Module 05 | `feature/module-05-portal` | Phase 7 | 前端门户集成 |
+- 一个 `feat/module-XX` 只实现一个模块。
+- 必须从 `develop` 最新状态切出，确保读取到已冻结的 PRD + 原型。
+- 推送到远程后，GitHub Actions 自动部署预览环境。
+- 合并前必须完成：zhangwq Review + 提交前验证 + 产品经理/业务方预览验收。
 
-> 每个模块开发前，从最新 `develop` 切出对应 feature 分支；模块完成后，由 chenrt 以 `--no-ff` 合并回 `develop`。
+### 2.4 模块分支列表
 
----
+| 模块编号 | 设计分支 | 功能分支 | 说明 |
+|----------|----------|----------|------|
+| Module 00 | `design/module-00` | `feat/module-00` | 基础设施与数据模型 |
+| Module 07 | `design/module-07` | `feat/module-07` | 配置管理（含资源、标签、Job、拨测） |
+| Module 01 | `design/module-01` | `feat/module-01` | 采集状态与诊断 |
+| Module 02 | `design/module-02` | `feat/module-02` | 指标查询中心 |
+| Module 08 | `design/module-08` | `feat/module-08` | 告警状态查看 |
+| Module 05 | `design/module-05` | `feat/module-05` | 前端门户集成 |
 
-## 3. PRD 与团队文档的存放位置
-
-| 文档类型 | 存放分支 | 说明 |
-|----------|----------|------|
-| PRD / 产品需求文档 | `develop` | 项目负责人、业务经理、产品经理、SRE 共同查看 |
-| 团队协作文档 | `develop` | `docs/05-team-collaboration/` |
-| 工程标准 | `develop` | `docs/03-engineering-standards/` |
-| Agent 定义 | `develop` | `.kimi/agents/` |
-| 原型 UI 代码 | `feature/prototype-*` | 仅用于演示，不合并到 `develop` |
-| 原型部署配置 | `develop` + `feature/prototype-*` | `.github/workflows/deploy-prototype.yml` 等需在 `develop` 维护，原型分支可复用 |
-
-> **原则**：能被非工程人员（guixm、zhaohy）和 SRE 工程师共同依赖的文档/配置，必须统一在 `develop` 上维护，不能锁在某个原型分支里。
+> 模块可根据粒度进一步拆分，例如 `design/module-07a`、`feat/module-07a`，但需保持设计与实现分支一一对应。
 
 ---
 
-## 4. 工作目录与 worktree 约定
+## 3. `develop` 作为单一事实源（SSOT）
+
+### 3.1 develop 上必须包含的内容
+
+| 类型 | 路径/目录 | 说明 |
+|------|----------|------|
+| PRD | `docs/02-product-requirements/` | 已确认的产品需求文档 |
+| 原型 | `docs/prototypes/` | 已确认的可点击原型代码 |
+| 工程标准 | `docs/03-engineering-standards/` | 代码规范、API 标准、测试标准等 |
+| 团队规范 | `docs/05-team-collaboration/` | 团队守则、角色职责、协作流程 |
+| 生产代码 | `platform/`、`ui-custom/web/` | 已验收的后端/前端代码 |
+| Agent 定义 | `.kimi/agents/` | 团队统一的 Agent 定义 |
+
+### 3.2 develop 上不应出现的内容
+
+- 未确认的需求草稿
+- 仅用于演示、未按工程标准实现的原型代码（应留在 `docs/prototypes/`）
+- 直接修改的 `upstream/` 源码（必须走 patch 流程）
+
+---
+
+## 4. 目录隔离设计
+
+为支持全链路 Vibe Coding，目录按职责严格隔离：
+
+```text
+CNCF_Monitor/
+├── docs/
+│   ├── 02-product-requirements/     # PRD 存放处（产品经理的 AI 可写）
+│   │   └── Modules/
+│   │       └── Module_XX_*.md
+│   ├── prototypes/                  # 原型代码存放处（产品经理的 AI 可写）
+│   │   └── module-XX/
+│   ├── 03-engineering-standards/    # 工程标准
+│   └── 05-team-collaboration/       # 团队协作规范
+├── platform/                        # 后端生产代码（开发的 AI 可写）
+├── ui-custom/web/                   # 前端生产代码（开发的 AI 可写）
+├── upstream/                        # 上游源码（禁止直接修改）
+└── patches/prometheus/              # 上游 patch（zhangwq 维护）
+```
+
+### 4.1 目录修改权限
+
+| 目录 | 允许修改者 | 禁止修改者 |
+|------|-----------|-----------|
+| `docs/02-product-requirements/` | chenrt / PM 的 AI | zhangwq / 开发的 AI |
+| `docs/prototypes/` | chenrt / PM 的 AI | zhangwq / 开发的 AI |
+| `docs/03-engineering-standards/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
+| `docs/05-team-collaboration/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
+| `.kimi/agents/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
+| `platform/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
+| `ui-custom/web/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
+| `upstream/` | 禁止直接修改 | 全员 |
+
+> 规范和 Agent 定义由项目负责人在设计分支、开发工程师在功能分支中按需维护，但禁止在对方核心目录（PRD/原型、生产代码）中修改。
+
+---
+
+## 5. 工作目录与 worktree 约定
 
 - **主仓库**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor`
 - **固定 worktree**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
-- **规则**：所有 Agent 开发在固定 worktree 内进行，通过 `git checkout` 切换 feature 分支，不创建新 worktree。
+- **规则**：所有 Agent 开发在固定 worktree 内进行，通过 `git checkout` 切换分支，不创建新 worktree。
 
-### 4.1 worktree 初始化（一次性）
+### 5.1 worktree 初始化（一次性）
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
@@ -91,7 +140,7 @@ git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-work
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 ```
 
-### 4.2 验证当前在 worktree 内
+### 5.2 验证当前在 worktree 内
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -104,98 +153,101 @@ git rev-parse --git-dir
 git branch --show-current
 ```
 
-### 4.3 开始新模块
+### 5.3 创建设计分支
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git fetch origin
-git checkout -b feature/module-XX-<功能名> origin/develop
+git checkout develop
+git pull origin develop
+git checkout -b design/module-XX
 ```
 
-### 4.4 切换已有模块
+### 5.4 创建功能分支
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git checkout feature/module-XX-<功能名>
+git checkout develop
+git pull origin develop
+git checkout -b feat/module-XX
 ```
 
-### 4.5 多模块切换（stash 方式）
+### 5.5 多模块切换（stash 方式）
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 
 # 保存当前工作区
-git stash push -m "WIP: module-XX-xxx"
+git stash push -m "WIP: module-XX"
 
 # 切换到其他模块
-git checkout feature/module-YY-<功能名>
+git checkout feat/module-YY
 
 # 处理完切回来
-git checkout feature/module-XX-<功能名>
+git checkout feat/module-XX
 git stash pop
 ```
 
 ---
 
-## 5. 回退机制
+## 6. 回退机制
 
-### 5.1 模块开发中不满意：丢弃当前 feature 分支
+### 6.1 模块开发中不满意：丢弃当前 feat 分支
 
-如果 Agent 团队当前模块的代码不符合要求，且尚未合并到 `develop`，最简单的方式是删除该 feature 分支并重建。
+如果 Agent 当前模块的代码不符合要求，且尚未合并到 `develop`，最简单的方式是删除该 feat 分支并重建。
 
 ```bash
 # 1. 切回 develop，确保 worktree 不处于要删除的分支上
-cd "../CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git checkout develop
 
-# 2. 删除不满意的 feature 分支（本地）
-git branch -D feature/module-XX-<功能名>
+# 2. 删除不满意的 feat 分支（本地）
+git branch -D feat/module-XX
 
 # 3. 从 develop 最新状态重建分支
-git checkout -b feature/module-XX-<功能名> origin/develop
+git checkout -b feat/module-XX origin/develop
 ```
 
 > 此操作会丢失该分支上的所有 commit，但 `develop` 完全不受影响。适合模块尚未合并、且改动整体不可接受的情况。
 
-### 5.2 模块已合并到 develop：revert 整个模块
+### 6.2 设计分支已合并但想撤回 PRD
 
-如果模块已合并到 `develop`，才发现不符合要求，可以通过 revert 合并提交来撤销整个模块的改动。
+如果 `design/module-XX` 已合并到 `develop`，但发现 PRD 或原型存在重大问题：
+
+```bash
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
+git checkout develop
+
+# 找到 design/module-XX 的 merge commit
+git log --oneline --merges
+
+# revert 合并（保留历史）
+git revert -m 1 <merge-commit-hash>
+```
+
+> 同时需要在文档中标记该模块 PRD 已撤回，避免 zhangwq 基于此开发。
+
+### 6.3 模块已合并到 develop：revert 整个模块
+
+如果 `feat/module-XX` 已合并到 `develop`，才发现不符合要求，可以通过 revert 合并提交来撤销整个模块的改动。
 
 ```bash
 # 1. 找到模块合并到 develop 的 merge commit
-cd "../CNCF_Monitor"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
 git log --oneline --merges
 
 # 2. 对 merge commit 做 revert（保留历史，撤销变更）
-# 假设 merge commit 为 abc1234，且 develop 是当前主线
-git revert -m 1 abc1234
+git revert -m 1 <merge-commit-hash>
 ```
 
 > `-m 1` 表示保留 merge commit 的第一个父提交（即 `develop` 方向）作为主线。
 
-### 5.3 只想回退到模块内某个历史版本
-
-如果模块内部分提交有问题，可以回退到该模块的某个指定 commit。
-
-```bash
-# 查看模块分支历史
-cd "../CNCF_Monitor-worktree"
-git log --oneline feature/module-XX-<功能名>
-
-# 强制回退到指定 commit（会丢弃该 commit 之后的所有提交）
-git checkout feature/module-XX-<功能名>
-git reset --hard <commit-hash>
-```
-
-> 使用 `--hard` 会丢失工作区修改，执行前请确认。若想保留历史，可改用 `git revert <commit-hash>` 反向提交。
-
-### 5.4 develop 被污染：从 main 重置 develop
+### 6.4 develop 被污染：从 main 重置 develop
 
 如果 `develop` 被多次错误合并严重污染，且尚未发布到 `main`，可以从 `main` 重建 `develop`。
 
 ```bash
-cd "../CNCF_Monitor"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
 git reset --hard origin/main
 ```
@@ -204,38 +256,48 @@ git reset --hard origin/main
 
 ---
 
-## 6. 合并审批规则
+## 7. 合并审批规则
 
-### 6.1 合并条件
+### 7.1 design/module-XX 合并条件
 
-feature 分支合并到 `develop` 必须同时满足：
+1. PRD 和原型代码已按目录隔离要求放置
+2. guixm（业务架构师 / 管理视角）review 通过
+3. zhaohy（业务需求提出方 / 一线业务视角）review 通过
+4. chenrt（项目整体负责人 / 产品 Owner）做最终审批
 
-1. zhangwq 完成代码 Review 并确认通过
+### 7.2 feat/module-XX 合并条件
+
+1. zhangwq（SRE 工程师 / 工程质量 Owner）完成代码 Review 并确认通过
 2. 提交前验证全部通过（`go test` / `go vet` / `pnpm test` / `pnpm lint` / 服务启动）
-3. 变更范围符合 Module 文档，未混入其他模块改动
+3. 变更范围符合 Module 文档和 `docs/prototypes/module-XX/` 原型，未混入其他模块改动
 4. commit message 符合规范，并关联执行记录
-5. zhangwq 已向 chenrt 提交合并申请
+5. 预览环境部署成功，chenrt / zhaohy / guixm 通过预览链接验收
+6. zhangwq 已向 chenrt 提交合并申请
 
-### 6.2 合并权限
+### 7.3 合并权限
 
-- **唯一合并人**：chenrt
-- **合并方式**：`git merge --no-ff feature/module-XX-<功能名>`
+- **唯一合并人**：chenrt（项目整体负责人 / 产品 Owner）
+- **合并方式**：`git merge --no-ff design/module-XX` 或 `git merge --no-ff feat/module-XX`
 - **合并地点**：在主仓库 `CNCF_Monitor` 中执行
 - **合并后**：必须再次在 develop 环境执行提交前验证
 
-### 6.3 合并申请内容
+### 7.4 合并申请内容
 
 zhangwq 提交的合并申请应包含：
 
 ```markdown
 ## 合并申请
 
-**分支**：feature/module-XX-<功能名>
-**来源 Module**：docs/02-product-requirements/Modules/Module_XX_*.md
+**分支**：feat/module-XX
+**来源设计**：design/module-XX
+**来源 PRD**：docs/02-product-requirements/Modules/Module_XX_*.md
+**来源原型**：docs/prototypes/module-XX/
+**预览链接**：https://...
 **变更范围**：列出新增/修改文件
 **测试结果**：go test / go vet / pnpm test / pnpm lint 结果
 **服务验证**：后端/前端服务启动验证结果
 **Review 结论**：自查通过 / 问题已修复
+**业务验收**：zhaohy / guixm / chenrt 已 Approve
 **风险点**：XXX
 **建议下一步**：合并到 develop
 ```
@@ -244,66 +306,118 @@ zhangwq 提交的合并申请应包含：
 
 ---
 
-## 7. 与 Agent 团队的协作流程
+## 8. 全链路 Vibe Coding 协作流程
 
-### 7.1 标准流程
+### 8.1 标准流程
+
+#### 8.1.1 按角色视角流程图
+
+```mermaid
+flowchart TB
+    subgraph chenrt["chenrt / 产品 Owner"]
+        C1[从 develop 切出 design/module-XX] --> C2[编写 PRD + 生成原型]
+        C2 --> C3[发起 design/module-XX → develop PR]
+        C3 --> C4{guixm + zhaohy Approve?}
+        C4 -->|否| C2
+        C4 -->|是| C5[--no-ff 合并到 develop]
+        C5 --> C6[向 zhangwq 下达开发任务单]
+        C6 --> C14[收到 feat/module-XX PR]
+        C14 --> C15{预览验收通过?}
+        C15 -->|否| C16[提出修改意见]
+        C16 --> C14
+        C15 -->|是| C17[--no-ff 合并到 develop]
+    end
+
+    subgraph guixm_zhaohy["guixm + zhaohy / 业务方"]
+        R1[Review design PR 中的 PRD + 原型] --> R2[Approve]
+        R3[点击 feat PR 预览链接验收] --> R4[Approve]
+    end
+
+    subgraph zhangwq["zhangwq / SRE 工程质量 Owner"]
+        Z1[从 develop 切出 feat/module-XX] --> Z2[Prompt 读取 PRD + 原型]
+        Z2 --> Z3[调用 Agent 开发 platform/ + ui-custom/web/]
+        Z3 --> Z4[代码 Review + 测试补强]
+        Z4 --> Z5[执行提交前验证]
+        Z5 -->|失败| Z4
+        Z5 -->|通过| Z6[发起 feat/module-XX → develop PR]
+        Z6 --> Z7[等待验收反馈]
+        Z7 -->|修改意见| Z4
+        Z7 -->|通过| Z8[申请 chenrt 合并]
+    end
+
+    C3 -.-> R1
+    C6 -.-> Z1
+    Z6 -.-> R3
+    C14 -.-> Z7
+    C5 -.->|PRD + 原型冻结为 SSOT| Z2
+```
+
+#### 8.1.2 文字版流程
 
 ```
-chenrt（Orchestrator）
+chenrt（产品侧 Vibe Coding）
     │
-    ├──► 调用 planner 输出模块任务规划
+    ├──► 基于 develop 创建 design/module-XX
     │         │
     │         ▼
-    │    明确当前模块分支：feature/module-XX-<功能名>
-    │
-    └──► 向 zhangwq 下达开发任务单
+    │    编写 PRD：docs/02-product-requirements/Modules/Module_XX_*.md
+    │    生成原型：docs/prototypes/module-XX/
+    │         │
+    │         ▼
+    │    发起 design/module-XX → develop 的 PR
+    │    Reviewer：guixm、zhaohy
+    │         │
+    │         ▼
+    └──► chenrt 将 design/module-XX --no-ff 合并到 develop
               │
               ▼
-    zhangwq（Vibe Coding 执行者）
+    develop 上 PRD + 原型冻结，成为 SSOT
               │
-              ├──► 复用单一 git worktree
+              ▼
+    zhangwq（开发侧 Vibe Coding）
+              │
+              ├──► 基于 develop 创建 feat/module-XX
               │         │
               │         ▼
-              │    在 worktree 内切换到当前模块 feature 分支
-              │
-              ├──► 调用 backend-developer 在 worktree 中 TDD 开发
+              │    Prompt 强制读取 PRD + 原型代码
               │         │
               │         ▼
-              │    完成后提交到 feature/module-XX-<功能名>
-              │
-              ├──► 调用 golang-reviewer 审查
+              │    调用 backend-developer / frontend-developer 生成代码
               │         │
               │         ▼
-              │    如 REQUEST_CHANGES，返回 backend-developer 修复
+              │    提交到 feat/module-XX
               │
-              ├──► 调用 frontend-developer 开发前端页面（可并行）
-              │         │
-              │         ▼
-              │    完成后提交到 feature/module-XX-<功能名>
+              ├──► 调用 golang-reviewer / frontend-reviewer 审查
               │
-              ├──► 调用 frontend-reviewer 审查
-              │
-              ├──► 在 worktree 中验证运行状态
+              ├──► 执行提交前验证
               │         │
               │         ▼
               │    后端：go test/vet + 启动服务验证接口
               │    前端：pnpm test/lint + 启动 dev server 验证页面
               │
-              ├──► 向 chenrt 提交合并申请
-              │
-              └──► 等待 chenrt 审批
-                            │
-                            ▼
-    chenrt（合并审批人）
-              │
-              ├──► 审查合并申请与变更范围
-              │
-              ├──► 将 feature/module-XX-<功能名> 以 --no-ff 合并到 develop
+              ├──► 发起 feat/module-XX → develop 的 PR
               │         │
               │         ▼
-              │    在主仓库 CNCF_Monitor 中执行合并
+              │    PR 描述包含预览链接、测试结果、关联 PRD/原型
               │
-              └──► 在 develop 环境中再次验证运行状态
+              ├──► GitHub Actions 自动部署预览环境
+              │         │
+              │         ▼
+              │    Bot 在 PR 评论区回复预览链接
+              │
+              └──► 等待验收
+                            │
+                            ▼
+    chenrt + zhaohy + guixm（验收方）
+              │
+              ├──► 点击预览链接，对比 docs/prototypes/module-XX/ 原型
+              │
+              ├──► 在 GitHub PR 中评论反馈或 Approve
+              │
+              └──► 验收通过后，chenrt 将 feat/module-XX --no-ff 合并到 develop
+                            │
+                            ▼
+              在 develop 环境中再次验证
                             │
                             ▼
               如验证失败，回退或修复；如通过，继续下一模块
@@ -313,68 +427,135 @@ chenrt（Orchestrator）
 
 > zhangwq 的具体执行细节、prompt 模板、Review 清单、提交前验证清单见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
-### 7.2 Commit 规范
+### 8.2 Commit 规范
+
+#### design/module-XX 提交
+
+```
+design(module-XX): 添加 XXX 模块 PRD 与原型
+
+- 新增 docs/02-product-requirements/Modules/Module_XX_*.md
+- 新增 docs/prototypes/module-XX/ 可点击原型
+```
+
+#### feat/module-XX 提交
 
 每次 commit 必须能对应到某个 Agent 的一次执行记录：
 
 ```
-<模块>: <动作> - <简短描述>
+feat(module-XX): <动作> - <简短描述>
 
-- 关联执行记录: docs/04-execution-records/module-XX-<功能名>/<agent>.md
+- 关联执行记录: docs/04-execution-records/module-XX/<agent>.md
 - 变更范围: platform/xxx, ui-custom/web/xxx
 ```
 
 示例：
 
 ```
-module-00-infrastructure: 统一 API 响应格式为 status/data/error/errorType
+feat(module-07): 实现资源管理 CRUD 与 Excel 导入
 
-- 关联执行记录: docs/04-execution-records/module-00-infrastructure/backend-developer.md
-- 变更范围: platform/api/response/response.go, platform/cmd/metric-center/main.go
+- 新增 Host/Middleware/Application CRUD API
+- 新增 Excel 批量导入与错误行返回
+- 新增 Excel 模板下载
+
+关联: docs/04-execution-records/module-07/backend-developer.md
 ```
 
-### 7.3 执行记录目录结构
+### 8.3 执行记录目录结构
 
 ```
 docs/04-execution-records/
-├── module-00-infrastructure/
+├── module-XX/
 │   ├── README.md
 │   ├── planner.md
 │   ├── backend-developer.md
 │   ├── frontend-developer.md
-│   └── golang-reviewer.md
-├── module-07-resource-management/
-│   └── ...
-└── module-07-label-template/
-    └── ...
+│   ├── golang-reviewer.md
+│   └── frontend-reviewer.md
 ```
 
 每个模块的 `README.md` 记录目标、参与 Agent、关键决策、主要变更文件、验证结果和状态。
 
 ---
 
-## 8. 常见问题
+## 9. 预览环境（Preview Environments）
+
+### 9.1 目标
+
+- 产品经理和业务方无需本地配置开发环境即可验收功能。
+- 每个 `feat/module-XX` PR 自动生成独立预览链接。
+- 预览链接成为团队沟通的通用语言。
+
+### 9.2 推荐方案
+
+#### 方案 A：Vercel / Netlify（推荐，零配置）
+
+适用于 `ui-custom/web/` 前端项目。
+
+1. 在 Vercel/Netlify 中导入 GitHub 仓库
+2. 设置根目录为 `ui-custom/web/`
+3. 每次 `feat/module-XX` PR 自动生成预览链接，如：
+   ```
+   https://metric-center-git-feat-module-07-chenrt.vercel.app
+   ```
+4. Bot 自动在 PR 评论区回复链接
+
+#### 方案 B：GitHub Pages + Actions（低成本）
+
+适用于原型预览和早期阶段。
+
+每个 `feat/module-XX` 推送后，GitHub Actions 构建并部署到：
+
+```
+https://<org>.github.io/CNCF_Monitor/preview/feat-module-XX/
+```
+
+#### 方案 C：自建 Docker + Nginx（全栈预览）
+
+如需同时预览后端 API：
+
+1. GitHub Actions 构建 `platform/` 和 `ui-custom/web/` Docker 镜像
+2. 部署到测试服务器随机端口
+3. Nginx 动态路由分配临时域名
+4. PR 关闭时自动销毁容器
+
+### 9.3 验收动作
+
+- **chenrt**（项目整体负责人 / 产品 Owner）：判断产品符合度、架构一致性、是否可合并
+- **zhaohy**（业务需求提出方 / 验收者）：判断业务逻辑、一线操作习惯、是否解决真实问题
+- **guixm**（业务架构师 / 需求共创者）：判断管理价值与战略方向
+
+验收方在 PR 中：
+
+1. 打开 Bot 回复的预览链接
+2. 对比 `docs/prototypes/module-XX/` 原型
+3. 确认业务逻辑、页面流程、字段展示是否符合预期
+4. 在 GitHub PR 中评论修改意见或点击 `Approve`
+
+---
+
+## 10. 常见问题
 
 ### Q1: Agent 在当前模块改了一半，想临时切换到另一个模块怎么办？
 
-见 [4.5 多模块切换（stash 方式）](#45-多模块切换stash-方式)。
+见 [5.5 多模块切换（stash 方式）](#55-多模块切换stash-方式)。
 
 ### Q2: 如何确认某个模块是否已合并到 develop？
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
-git branch --merged develop | grep feature/module-XX-<功能名>
+git branch --merged develop | grep -E "design/module-XX|feat/module-XX"
 ```
 
-### Q3: 想比较当前模块分支和 develop 的差异？
+### Q3: 想比较当前 feat 分支和 develop 的差异？
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git diff develop..feature/module-XX-<功能名>
+git diff develop..feat/module-XX
 ```
 
-### Q4: 发现当前 feature 分支改动混乱，如何放弃重来？
+### Q4: 发现当前 feat 分支改动混乱，如何放弃重来？
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -382,32 +563,40 @@ cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 # 1. 切回 develop（确保不在要删除的分支上）
 git checkout develop
 
-# 2. 删除不满意的 feature 分支（本地）
-git branch -D feature/module-XX-<功能名>
+# 2. 删除不满意的 feat 分支（本地）
+git branch -D feat/module-XX
 
 # 3. 从 develop 最新状态重建分支
-git checkout -b feature/module-XX-<功能名> origin/develop
+git checkout -b feat/module-XX origin/develop
 ```
 
-> 此操作会丢失该分支上的所有 commit，但 `develop` 完全不受影响。适合模块尚未合并、且改动整体不可接受的情况。
+> 此操作会丢失该分支上的所有 commit，但 `develop` 完全不受影响。
+
+### Q5: 设计分支合并后，发现 PRD 需要小修改怎么办？
+
+- 如果 `feat/module-XX` 尚未创建：直接修改 `design/module-XX`，重新发起 PR 到 develop。
+- 如果 `feat/module-XX` 已在开发中：原则上冻结 PRD；如必须修改，重新走 `design/module-XX` 流程，zhangwq 基于新的 develop commit rebase `feat/module-XX`。
 
 ---
 
-## 9. 禁止事项
+## 11. 禁止事项
 
-1. **严禁 feature 分支直接合入 `main`**。
-2. **严禁在 feature 分支上混入其他模块改动**。
-3. **严禁将原型分支 `feature/prototype-*` 合并到 `develop`**。
-4. **严禁在 worktree 外直接开发并提交**（避免主仓库与 worktree 状态混乱）。
-5. **严禁 zhangwq 未经 chenrt 批准自行合并到 `develop`**。
-6. **严禁修改 `.git/worktrees/` 元数据**（除非明确知道如何修复）。
+1. **严禁 `design/` 或 `feat/` 分支直接合入 `main`**。
+2. **严禁在 `feat/module-XX` 分支混入其他模块改动**。
+3. **严禁将 `docs/prototypes/` 中的原型代码直接复制到 `platform/` 或 `ui-custom/web/` 后原样合并**。
+4. **严禁产品经理的 AI 修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**。
+5. **严禁开发的 AI 修改 `docs/02-product-requirements/`、`docs/prototypes/` 目录**。
+6. **严禁在 worktree 外直接开发并提交**（避免主仓库与 worktree 状态混乱）。
+7. **严禁 zhangwq 未经 chenrt 批准自行合并到 `develop`**。
+8. **严禁修改 `.git/worktrees/` 元数据**（除非明确知道如何修复）。
 
 ---
 
-## 10. 相关文档
+## 12. 相关文档
 
 - [`../05-team-collaboration/00_Team_Charter.md`](../05-team-collaboration/00_Team_Charter.md) — 团队守则
 - [`../05-team-collaboration/01_Role_Responsibilities.md`](../05-team-collaboration/01_Role_Responsibilities.md) — 角色职责速查表
+- [`../05-team-collaboration/02_Demand_Workflow.md`](../05-team-collaboration/02_Demand_Workflow.md) — 需求设计环节详细流程
 - [`../05-team-collaboration/03_Code_Collaboration_Workflow.md`](../05-team-collaboration/03_Code_Collaboration_Workflow.md) — 代码编写与提交环节详细流程
 - [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
 - [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) — AI Agent 协作细则
