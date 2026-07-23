@@ -16,6 +16,12 @@ ui-custom/web/dist/
 ui-custom/web/.vite/
 ui-custom/web/coverage/
 
+# 原型项目构建产物与依赖
+docs/prototypes/*/node_modules/
+docs/prototypes/*/dist/
+docs/prototypes/*/.vite/
+docs/prototypes/*/coverage/
+
 # Go 构建缓存
 *.o
 *.a
