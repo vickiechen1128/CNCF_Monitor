@@ -23,62 +23,75 @@ git rev-parse --git-dir
 如果还没有 worktree，在主仓库执行：
 
 ```bash
-cd "../CNCF_Monitor"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
-git worktree add "../CNCF_Monitor-worktree" -b "feature/module-00-infrastructure"
-cd "../CNCF_Monitor-worktree"
+git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree" develop
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 ```
 
 如果已有 worktree，直接进入并切换当前模块分支。
 
-### Step 3: 切换/创建当前模块的 feature 分支
+### Step 3: 切换/创建当前模块的 feat 分支
 
-本项目采用**Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支**模式：
+本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
 
-- 一个固定 worktree：`../CNCF_Monitor-worktree`
-- 每个功能子模块对应一个 feature 分支：`feature/module-XX-<功能名>`
-- worktree 内部通过 `git checkout -b` 切换分支，不创建新 worktree
+- 一个固定 worktree：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
+- 设计分支：`design/module-XX`（PRD + 原型，由 prototype-designer / chenrt 维护）
+- 功能分支：`feat/module-XX`（生产代码，由 backend-developer / frontend-developer / zhangwq 维护）
+- worktree 内部通过 `git checkout` 切换分支，不创建新 worktree
 
 进入 worktree 后，确认当前模块分支（由 Orchestrator 告知）：
 
 ```bash
-cd "../CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 
+# 确认 design/module-XX 已合并到 develop，PRD + 原型已冻结
 # 方式 A：Orchestrator 已创建分支，直接切换
-git checkout feature/module-XX-<功能名>
+git checkout feat/module-XX
 
 # 方式 B：需要新建分支（从 develop 最新状态）
-git fetch origin
-git checkout -b feature/module-XX-<功能名> origin/develop
+git checkout develop
+git pull origin develop
+git checkout -b feat/module-XX
 ```
 
 ### Gitflow 分支约定
 
-| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 |
-|----------|----------|------|------|----------|
-| `main` | `main` | 稳定/生产版本 | - | - |
-| `develop` | `develop` | 集成/开发主线 | `main` | - |
-| feature | `feature/module-00-infrastructure` | 基础设施 | `develop` | `develop` |
-| feature | `feature/module-07-resource-management` | 资源管理 | `develop` | `develop` |
-| feature | `feature/module-07-label-template` | 标签模板 | `develop` | `develop` |
-| feature | `feature/module-07-scrape-job` | 采集 Job | `develop` | `develop` |
-| feature | `feature/module-07-probe-config` | 拨测配置 | `develop` | `develop` |
-| feature | `feature/module-07-config-generator` | 配置生成/下发 | `develop` | `develop` |
-| feature | `feature/module-01-collection-status` | 采集状态 | `develop` | `develop` |
-| feature | `feature/module-02-query-center` | 指标查询 | `develop` | `develop` |
-| feature | `feature/module-08-alerting` | 告警状态 | `develop` | `develop` |
-| feature | `feature/module-05-portal` | 前端门户 | `develop` | `develop` |
-| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` |
-| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` |
+| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 | 负责人 |
+|----------|----------|------|------|----------|--------|
+| `main` | `main` | 稳定/生产版本 | - | - | chenrt |
+| `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt |
+| `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
+| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq |
+| `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt |
+| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt |
+| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq |
 
 ### 关键规则
 
-- 当前模块的所有 commit 必须落在对应的 `feature/module-XX-<功能名>` 分支上
-- 不要在当前 feature 分支上混入其他模块的改动
-- 模块完成后，由 Orchestrator 负责合并到 `develop`，Developer 不自行合并
-- 严禁 feature 直接合入 `main`
+- 当前模块的所有 commit 必须落在对应的 `feat/module-XX` 分支上
+- 不要在当前 `feat/module-XX` 分支上混入其他模块的改动
+- **禁止修改 `docs/02-product-requirements/`、`docs/prototypes/`、`upstream/` 目录**
+- 只能修改 `platform/` 和 `ui-custom/web/`
+- 模块完成后，由 zhangwq 发起 PR，最终由 chenrt 以 `--no-ff` 合并到 `develop`
+- 严禁 `feat/module-XX` 直接合入 `main`
+- 如需更新 PRD 或原型，必须先让 chenrt 重新走 `design/module-XX` 流程
 
-### Step 4: 安装依赖
+### Step 4: 强制读取 PRD + 原型代码
+
+在编写任何生产代码前，必须先读取以下输入：
+
+```markdown
+**必读文档**：
+- docs/02-product-requirements/Modules/Module_XX_*.md
+- docs/prototypes/module-XX/ 下的所有原型文件
+- docs/03-engineering-standards/02_Frontend_Standard.md
+- docs/03-engineering-standards/03_API_Standard.md
+```
+
+> 如果 `docs/prototypes/module-XX/` 不存在或为空，说明原型尚未就绪，必须停止并报告 Orchestrator。
+
+### Step 5: 安装依赖
 
 ```bash
 cd ui-custom/web
@@ -141,9 +154,22 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 - 状态管理：`src/stores/`
 - 类型定义：`src/types/`
 
+## 执行记录
+
+每次 Agent 调用结束后，必须在 `docs/04-execution-records/module-XX/frontend-developer.md` 中记录：
+
+- 输入文档（PRD、原型、工程标准路径）
+- 新增/修改的文件列表
+- 关键实现说明
+- 遇到的问题与解决方案
+- 验证结果（pnpm test、pnpm lint、dev server 启动）
+- 遗留风险与下一步
+
 ## 完成后汇报
 
 1. 修改的文件列表
 2. 新增/修改的测试
 3. `pnpm test` 和 `pnpm lint` 结果
-4. 是否需要后端 API 配合
+4. dev server 启动验证结果
+5. 执行记录路径：`docs/04-execution-records/module-XX/frontend-developer.md`
+6. 是否需要后端 API 配合

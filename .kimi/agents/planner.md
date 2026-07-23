@@ -15,6 +15,7 @@
    - `docs/02-product-requirements/00_Product_Vision.md`
    - `docs/02-product-requirements/00_Global_Architecture.md`
    - `docs/02-product-requirements/Modules/Module_XX_*.md`
+   - `docs/prototypes/module-XX/`（如已存在，用于判断交互复杂度）
 3. 阅读工程标准：
    - `docs/03-engineering-standards/00_Engineering_Standard.md`
    - `docs/03-engineering-standards/01_Code_Isolation_Standard.md`
@@ -62,36 +63,29 @@
 - 风险 1
 - 风险 2
 
-## 8. 建议的 worktree 名称
+## 8. 建议的分支
 
-本项目采用**Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支**模式：
+本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
 
-- worktree 目录：`../CNCF_Monitor-worktree`（固定复用，不随模块变化）
-- feature 分支命名：`feature/module-XX-<功能名>`
-- feature 分支来源：`develop`
+- worktree 目录：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`（固定复用，不随模块变化）
+- 设计分支：`design/module-XX`（PRD + 原型代码）
+- 功能分支：`feat/module-XX`（生产代码实现）
+- 分支来源：`develop`
 - 合并目标：`develop`
-- 每个功能子模块完成后，切换一次 feature 分支
 
 ### Gitflow 分支约定
 
-| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 |
-|----------|----------|------|------|----------|
-| `main` | `main` | 稳定/生产版本 | - | - |
-| `develop` | `develop` | 集成/开发主线 | `main` | - |
-| feature | `feature/module-00-infrastructure` | 基础设施 | `develop` | `develop` |
-| feature | `feature/module-07-resource-management` | 资源管理 | `develop` | `develop` |
-| feature | `feature/module-07-label-template` | 标签模板 | `develop` | `develop` |
-| feature | `feature/module-07-scrape-job` | 采集 Job | `develop` | `develop` |
-| feature | `feature/module-07-probe-config` | 拨测配置 | `develop` | `develop` |
-| feature | `feature/module-07-config-generator` | 配置生成/下发 | `develop` | `develop` |
-| feature | `feature/module-01-collection-status` | 采集状态 | `develop` | `develop` |
-| feature | `feature/module-02-query-center` | 指标查询 | `develop` | `develop` |
-| feature | `feature/module-08-alerting` | 告警状态 | `develop` | `develop` |
-| feature | `feature/module-05-portal` | 前端门户 | `develop` | `develop` |
-| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` |
-| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` |
+| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 | 负责人 |
+|----------|----------|------|------|----------|--------|
+| `main` | `main` | 稳定/生产版本 | - | - | chenrt |
+| `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt |
+| `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
+| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq |
+| `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt |
+| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt |
+| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq |
 
-### 模块开发顺序
+### 模块开发顺序（参考）
 
 ```
 module-00-infrastructure
@@ -121,10 +115,11 @@ module-05-portal
 
 ### 关键规则
 
-- 每个功能子模块开发前，从最新 `develop` 切出新 feature 分支
-- 所有开发工作只在当前 feature 分支上进行
-- 模块完成后，由 Orchestrator 将 feature 分支以 `--no-ff` 合并到 `develop`
-- 严禁 feature 直接合入 `main`
+- 产品侧：每个模块设计前，从最新 `develop` 切出 `design/module-XX`，输出 PRD + 原型后由 chenrt 合并到 `develop`
+- 开发侧：`design/module-XX` 合并并冻结后，从最新 `develop` 切出 `feat/module-XX` 进行生产代码实现
+- 所有开发工作只在当前 `feat/module-XX` 分支上进行
+- 模块完成后，由 zhangwq 发起 PR，最终由 chenrt 以 `--no-ff` 合并到 `develop`
+- 严禁 `feat/module-XX` 直接合入 `main`
 - MVP 完成后，从 `develop` 切 `release/v0.1.0`，测试通过后合并到 `main`
 
 ```

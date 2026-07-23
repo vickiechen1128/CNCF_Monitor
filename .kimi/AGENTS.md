@@ -24,15 +24,15 @@ Orchestrator（主 Agent）
 
 | Agent | 职责 | 写权限 | 关键约束 |
 |-------|------|--------|----------|
-| `planner` | 输出实现计划、识别风险 | ❌ 只读 | 禁止 Write/Shell |
-| `prototype-designer` | 快速产出可点击前端原型 | ✅ | 使用 mock 数据，不强制 TDD，原型分支不合并到 develop |
-| `backend-developer` | Go 后端开发 | ✅ | 必须 TDD，必须在 worktree 中 |
-| `frontend-developer` | React 前端开发 | ✅ | 必须在 worktree 中 |
-| `prometheus-developer` | Prometheus 扩展 / Patch | ✅ | 优先扩展点，次选 patch |
-| `build-resolver` | 修复构建/测试/lint 错误 | ✅ | 不引入新功能 |
-| `golang-reviewer` | Go 代码审查 | ❌ 只读 | 关注代码隔离和测试 |
-| `frontend-reviewer` | 前端代码审查 | ❌ 只读 | 关注组件质量和安全 |
-| `security-reviewer` | 安全审查 | ❌ 只读 | 关注配置下发安全 |
+| `planner` | 输出实现计划、识别风险 | ❌ 只读 | 禁止 Write/Shell；读取 PRD + 原型 |
+| `prototype-designer` | 产出 PRD + 可点击前端原型 | ✅ | 只能写 `docs/02-product-requirements/`、`docs/prototypes/`；分支 `design/module-XX` |
+| `backend-developer` | 基于 PRD + 原型开发 Go 后端 | ✅ | 只能写 `platform/`、`ui-custom/web/`；分支 `feat/module-XX`；必须 TDD；禁止改 `docs/` |
+| `frontend-developer` | 基于 PRD + 原型开发 React 前端 | ✅ | 只能写 `platform/`、`ui-custom/web/`；分支 `feat/module-XX`；禁止改 `docs/` |
+| `prometheus-developer` | Prometheus 扩展 / Patch | ✅ | 优先扩展点，次选 patch；分支 `feat/module-XX` |
+| `build-resolver` | 修复构建/测试/lint 错误 | ✅ | 不引入新功能；在 `feat/module-XX` 上修复 |
+| `golang-reviewer` | Go 代码审查 | ❌ 只读 | 必须读取 PRD + 原型；关注代码隔离、测试、SSRF |
+| `frontend-reviewer` | 前端代码审查 | ❌ 只读 | 必须读取 PRD + 原型；关注组件质量、安全 |
+| `security-reviewer` | 安全审查 | ❌ 只读 | 必须读取 PRD + 原型；关注配置下发、上传、鉴权 |
 
 ## Skills
 
@@ -110,16 +110,44 @@ Orchestrator（主 Agent）
 
 ## 标准工作流
 
-1. **Orchestrator 接收需求**
-2. **调用 planner** 输出实现计划，明确当前功能子模块与对应 `feature/module-XX-<功能名>` 分支
-3. **复用单一 git worktree**，内部切换到当前模块的 feature 分支
-4. **调用 developer agent** 在 worktree 中 TDD 开发
-5. **调用 reviewer agent** 进行代码审查
+1. **Orchestrator（chenrt）接收需求**
+2. **调用 planner** 输出实现计划，明确模块编号与对应分支：
+   - 设计分支：`design/module-XX`
+   - 功能分支：`feat/module-XX`
+3. **产品侧 Vibe Coding（prototype-designer）**
+   - 基于 `develop` 创建 `design/module-XX`
+   - 输出 `docs/02-product-requirements/Modules/Module_XX_*.md`（PRD）
+   - 输出 `docs/prototypes/module-XX/`（可点击原型代码，使用 mock 数据）
+   - chenrt 发起 `design/module-XX → develop` 的 PR，guixm、zhaohy review
+   - chenrt 以 `--no-ff` 合并到 `develop`
+4. **开发侧 Vibe Coding（backend-developer / frontend-developer）**
+   - 基于最新 `develop` 创建 `feat/module-XX`
+   - 强制读取 PRD + `docs/prototypes/module-XX/` 原型代码
+   - 在固定 worktree 中开发，只能修改 `platform/` 和 `ui-custom/web/`
+   - 后端必须 TDD，前后端均需通过 `go test`/`go vet`/`pnpm test`/`pnpm lint`
+5. **调用 reviewer agent 审查**
+   - reviewer 必须读取 PRD + 原型，检查代码隔离、安全、测试、API 规范
 6. 如有问题，返回 developer 修复
 7. **在 worktree 中验证运行状态**：
    - 后端：`go test ./platform/...`、`go vet ./platform/...`，并启动服务验证关键接口返回 200
    - 前端：`pnpm test`、`pnpm lint`，并启动 dev server 验证页面可访问
    - 验证通过后必须停止服务并释放端口
-8. **如验证通过，由 Orchestrator 在主仓库将当前 feature 分支以 `--no-ff` 合并到 `develop`**
-9. **在 develop 环境中再次验证运行状态**（步骤同 7）
-10. worktree 保留供下一模块复用
+8. **zhangwq 发起 `feat/module-XX → develop` 的 PR**
+   - PR 描述包含来源 PRD/原型路径、测试结果、服务验证结果
+   - GitHub Actions 自动部署预览环境，Bot 在 PR 评论区回复预览链接
+9. **产品经理/业务方在线验收**
+   - chenrt、zhaohy、guixm 点击预览链接，对照 `docs/prototypes/module-XX/` 原型验收
+   - 在 GitHub PR 中评论或 Approve
+10. **如验收通过，由 chenrt 在主仓库将 `feat/module-XX` 以 `--no-ff` 合并到 `develop`**
+11. **在 develop 环境中再次验证运行状态**（步骤同 7）
+12. worktree 保留供下一模块复用
+
+## 目录隔离铁律
+
+| 目录 | 允许修改者 | 禁止修改者 |
+|------|-----------|-----------|
+| `docs/02-product-requirements/` | `prototype-designer` / chenrt 的 AI | `backend-developer`、`frontend-developer`、zhangwq 的 AI |
+| `docs/prototypes/` | `prototype-designer` / chenrt 的 AI | `backend-developer`、`frontend-developer`、zhangwq 的 AI |
+| `platform/` | `backend-developer`、`frontend-developer`、zhangwq 的 AI | `prototype-designer`、chenrt 的 AI |
+| `ui-custom/web/` | `backend-developer`、`frontend-developer`、zhangwq 的 AI | `prototype-designer`、chenrt 的 AI |
+| `upstream/` | 禁止直接修改 | 全部 Agent |
