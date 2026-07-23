@@ -14,6 +14,7 @@ Orchestrator（主 Agent）
    ├──► Frontend Developer（React + TS）
    ├──► Prometheus Developer（源码扩展 / Patch）
    ├──► Build Resolver（修复构建错误）
+   ├──► Git Guardian（提交前守门员）
    └──► Reviewer（只读审查）
             ├── Golang Reviewer
             ├── Frontend Reviewer
@@ -33,6 +34,7 @@ Orchestrator（主 Agent）
 | `golang-reviewer` | Go 代码审查 | ❌ 只读 | 必须读取 PRD + 原型；关注代码隔离、测试、SSRF |
 | `frontend-reviewer` | 前端代码审查 | ❌ 只读 | 必须读取 PRD + 原型；关注组件质量、安全 |
 | `security-reviewer` | 安全审查 | ❌ 只读 | 必须读取 PRD + 原型；关注配置下发、上传、鉴权 |
+| `git-guardian` | 提交前 Git 合规审查 | ❌ 只读 | 检查分支名、变更目录、commit message、提交前验证；禁止直接执行 commit/push |
 
 ## Skills
 
@@ -71,6 +73,7 @@ Orchestrator（主 Agent）
 | `frontend-developer` | React 前端开发 |
 | `prometheus-developer` | Prometheus 扩展 / Patch |
 | `build-resolver` | 修复构建错误 |
+| `git-guardian` | 提交前 Git 合规审查 |
 | `golang-reviewer` / `frontend-reviewer` / `security-reviewer` | 代码审查 |
 
 ### 协同规则
