@@ -1,8 +1,9 @@
 # MetricCenter AI Agent 协作标准
 
-> 文档类型：工程标准
-> 目标：规范 AI Agent 在 MetricCenter 项目中的协作方式，确保代码质量和文档一致性。
-> 更新日期：2026-07-21
+> 文档类型：工程标准  
+> 目标读者：zhangwq（Vibe Coding 执行者）、chenrt（Orchestrator）、所有调用 AI Agent 的成员  
+> 目标：规范 AI Agent 在 MetricCenter 项目中的协作方式，确保代码质量和文档一致性。  
+> 更新日期：2026-07-22
 
 ---
 
@@ -47,6 +48,16 @@ Orchestrator 接收需求
 ```
 
 详细分支策略与回退机制见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。
+
+### 1.1 Orchestrator 与执行者分工
+
+| 角色 | 负责人 | 职责 |
+|------|--------|------|
+| Orchestrator | chenrt | 接收需求、调用 planner、确定 feature 分支、执行最终 `--no-ff` 合并 |
+| Vibe Coding 执行者 | zhangwq | 调用 backend/frontend/prometheus/build-resolver 等 Agent 生成代码、Review、测试补强、提交前验证、提交合并申请 |
+| Reviewer Agent | `golang-reviewer` / `frontend-reviewer` | 在 zhangwq 要求下对代码进行结构化审查 |
+
+> zhangwq 的具体执行 SOP 见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
 ---
 
@@ -118,7 +129,46 @@ module-07-resource-management: 实现资源 CRUD API
 
 ---
 
-## 4. 文档同步要求
+## 4. Agent 调用规范
+
+### 4.1 调用原则
+
+- **单一职责**：一次 Agent 调用聚焦一个任务（如一个 API 或一个页面）。
+- **范围控制**：在 prompt 中明确指定"不修改无关文件"，并在 AI 输出后检查 `git diff --stat`。
+- **可读文档优先**：在 prompt 中列出所有必读文档路径，要求 AI 先读后写。
+- **验收先行**：在 prompt 中明确列出验收标准（测试命令、服务启动验证）。
+
+### 4.2 各 Agent 适用场景与调用人
+
+| Agent | 调用人 | 适用场景 | 产出要求 |
+|-------|--------|----------|----------|
+| `planner` | chenrt | Module 开发前 | 任务拆分、依赖分析、分支建议 |
+| `prototype-designer` | chenrt | 需求确认前 | 可点击原型、mock 数据、GitHub Pages 部署说明 |
+| `backend-developer` | zhangwq | 后端 API / 业务逻辑开发 | Go 代码、单元测试、API 文档注释 |
+| `frontend-developer` | zhangwq | 前端页面 / 交互开发 | React + TS 代码、基础渲染测试 |
+| `prometheus-developer` | zhangwq | Prometheus 源码分析 / 扩展点 | 分析报告、patch 建议 |
+| `build-resolver` | zhangwq | 编译失败 / 测试失败 / 依赖问题 | 修复后的可编译可测试代码 |
+| `golang-reviewer` | zhangwq | 后端代码 Review | APPROVE / REQUEST_CHANGES + 结构化意见 |
+| `frontend-reviewer` | zhangwq | 前端代码 Review | APPROVE / REQUEST_CHANGES + 结构化意见 |
+| `security-reviewer` | zhangwq | 关键变更安全复核 | 安全风险清单 + 修复建议 |
+
+### 4.3 Prompt 设计五要素
+
+每个给 AI 的 prompt 必须包含：
+
+1. **背景**：当前模块目标、所处阶段、依赖关系
+2. **输入**：需要阅读的文档路径、已有代码路径
+3. **输出**：需要新增/修改的文件列表、预期行为
+4. **约束**：API 前缀、数据模型、安全要求、代码风格、不修改范围
+5. **验收标准**：测试命令、服务启动验证、人工检查点
+
+### 4.4 执行记录要求
+
+每次 Agent 调用结束后，zhangwq 必须在 `docs/04-execution-records/module-XX-<功能名>/` 下保存执行记录，记录模板见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
+
+---
+
+## 5. 文档同步要求
 
 代码变更后，AI Agent 必须同步更新以下文档：
 
@@ -133,8 +183,22 @@ module-07-resource-management: 实现资源 CRUD API
 
 ---
 
-## 5. Skill 使用
+## 6. Skill 使用
 
 当 AI Agent 需要理解源码架构时，应调用 `.trae/skills/codebase-architecture-explorer`。
 
-调用方式：在任务描述中说明
+调用方式：在任务描述中说明，例如：
+
+```
+请使用 codebase-architecture-explorer 分析 platform/api/ 目录的接口注册与路由组织方式，再基于分析结果完成 Module XX 的 API 开发。
+```
+
+---
+
+## 7. 相关文档
+
+- [`../05-team-collaboration/00_Team_Charter.md`](../05-team-collaboration/00_Team_Charter.md) — 团队守则
+- [`../05-team-collaboration/01_Role_Responsibilities.md`](../05-team-collaboration/01_Role_Responsibilities.md) — 角色职责速查表
+- [`../05-team-collaboration/03_Code_Collaboration_Workflow.md`](../05-team-collaboration/03_Code_Collaboration_Workflow.md) — 代码编写与提交环节详细流程
+- [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
+- [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md) — 分支策略与回退指南
