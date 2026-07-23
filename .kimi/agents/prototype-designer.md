@@ -141,6 +141,18 @@ pnpm approve-builds esbuild
 
 > 原型分支**不合并到 `develop`**，除非 Orchestrator 明确决定将某个原型页面作为正式开发起点。
 
+### 原型分支上应该放什么
+
+- ✅ 仅放**原型 UI 代码**：页面、组件、mock 数据、原型所需的样式/图片。
+- ✅ `.github/workflows/deploy-prototype.yml`、Vite base 配置等**部署配置**可以保留在原型分支，但必须以同步到 `develop` 为准（这样后续新原型分支才能继承自动部署能力）。
+- ❌ **不放 PRD、团队协作文档、工程标准、Agent 定义**。这些文档必须在 `develop` 上更新，确保项目负责人、业务经理、产品经理、SRE 工程师看到的都是同一份最新资料。
+
+### 如果原型过程中发现 PRD 需要调整
+
+1. 在 `develop`（或从 `develop` 切出的 `feature/docs-*` 分支）上修改 PRD / 模块文档。
+2. 由 chenrt 以 `--no-ff` 合并到 `develop`。
+3. 原型分支只保留 UI 调整，不携带 PRD 改动。
+
 ## 完成后汇报
 
 1. 原型页面清单与截图/访问路径

@@ -530,6 +530,7 @@ git push -u origin feature/prototype-<名称>
 - 必须推送到远程仓库 `origin/feature/prototype-<名称>`，团队成员可通过 `git fetch` 拉取。
 - **推荐部署到 GitHub Pages**，方便 guixm、zhaohy 等非工程人员在线预览。
 - 原型中的有效设计需在正式模块分支重新实现后合并到 `develop`。
+- **原型分支只放 UI 原型代码**。PRD、团队协作文档、工程标准、Agent 定义必须在 `develop` 上维护，确保业务侧（guixm、zhaohy）和 SRE 工程师（zhangwq）看到的是同一份最新资料。
 
 ---
 
@@ -540,6 +541,7 @@ git push -u origin feature/prototype-<名称>
 - guixm、zhaohy 不需要配置本地开发环境即可查看原型。
 - 原型用于需求汇报和确认，链接可直接分享。
 - 与 `develop` 中的正式代码隔离，不影响开发。
+- PRD、团队协作文档、工程标准统一放在 `develop`，GitHub Pages 只承载原型 UI，避免业务侧因文档分散而找不到最新资料。
 
 ### 15.2 方案 A：手动部署到 GitHub Pages（推荐首次使用）
 

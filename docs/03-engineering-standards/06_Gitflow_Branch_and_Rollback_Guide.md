@@ -37,9 +37,10 @@
 
 - 原型分支命名固定为 `feature/prototype-<名称>`。
 - **严禁合并到 `develop`**，避免污染正式开发主线。
-- 必须推送到远程仓库 `origin/feature/prototype-<名称>`，供团队成员通过 `git fetch` 查看。
+- 必须推送到远程仓库 `origin/feature/prototype-<名称>`，供团队成员通过 `git fetch` 拉取。
 - 推荐部署到 GitHub Pages，方便 guixm、zhaohy 等非工程人员在线预览。
 - 原型中的有效设计必须通过正式模块分支（`feature/module-XX-<功能名>`）重新实现后，按标准流程合并到 `develop`。
+- **原型分支只放 UI 原型代码**（页面、组件、mock 数据、部署配置）。PRD、团队协作文档、工程标准、Agent 定义必须在 `develop` 上更新，确保全团队同步。
 
 ### 2.3 模块分支列表
 
@@ -60,13 +61,28 @@
 
 ---
 
-## 3. 工作目录与 worktree 约定
+## 3. PRD 与团队文档的存放位置
+
+| 文档类型 | 存放分支 | 说明 |
+|----------|----------|------|
+| PRD / 产品需求文档 | `develop` | 项目负责人、业务经理、产品经理、SRE 共同查看 |
+| 团队协作文档 | `develop` | `docs/05-team-collaboration/` |
+| 工程标准 | `develop` | `docs/03-engineering-standards/` |
+| Agent 定义 | `develop` | `.kimi/agents/` |
+| 原型 UI 代码 | `feature/prototype-*` | 仅用于演示，不合并到 `develop` |
+| 原型部署配置 | `develop` + `feature/prototype-*` | `.github/workflows/deploy-prototype.yml` 等需在 `develop` 维护，原型分支可复用 |
+
+> **原则**：能被非工程人员（guixm、zhaohy）和 SRE 工程师共同依赖的文档/配置，必须统一在 `develop` 上维护，不能锁在某个原型分支里。
+
+---
+
+## 4. 工作目录与 worktree 约定
 
 - **主仓库**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor`
 - **固定 worktree**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
 - **规则**：所有 Agent 开发在固定 worktree 内进行，通过 `git checkout` 切换 feature 分支，不创建新 worktree。
 
-### 3.1 worktree 初始化（一次性）
+### 4.1 worktree 初始化（一次性）
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
@@ -75,7 +91,7 @@ git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-work
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 ```
 
-### 3.2 验证当前在 worktree 内
+### 4.2 验证当前在 worktree 内
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -88,7 +104,7 @@ git rev-parse --git-dir
 git branch --show-current
 ```
 
-### 3.3 开始新模块
+### 4.3 开始新模块
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -96,14 +112,14 @@ git fetch origin
 git checkout -b feature/module-XX-<功能名> origin/develop
 ```
 
-### 3.4 切换已有模块
+### 4.4 切换已有模块
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git checkout feature/module-XX-<功能名>
 ```
 
-### 3.5 多模块切换（stash 方式）
+### 4.5 多模块切换（stash 方式）
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -121,9 +137,9 @@ git stash pop
 
 ---
 
-## 4. 回退机制
+## 5. 回退机制
 
-### 4.1 模块开发中不满意：丢弃当前 feature 分支
+### 5.1 模块开发中不满意：丢弃当前 feature 分支
 
 如果 Agent 团队当前模块的代码不符合要求，且尚未合并到 `develop`，最简单的方式是删除该 feature 分支并重建。
 
@@ -141,7 +157,7 @@ git checkout -b feature/module-XX-<功能名> origin/develop
 
 > 此操作会丢失该分支上的所有 commit，但 `develop` 完全不受影响。适合模块尚未合并、且改动整体不可接受的情况。
 
-### 4.2 模块已合并到 develop：revert 整个模块
+### 5.2 模块已合并到 develop：revert 整个模块
 
 如果模块已合并到 `develop`，才发现不符合要求，可以通过 revert 合并提交来撤销整个模块的改动。
 
@@ -158,7 +174,7 @@ git revert -m 1 abc1234
 
 > `-m 1` 表示保留 merge commit 的第一个父提交（即 `develop` 方向）作为主线。
 
-### 4.3 只想回退到模块内某个历史版本
+### 5.3 只想回退到模块内某个历史版本
 
 如果模块内部分提交有问题，可以回退到该模块的某个指定 commit。
 
@@ -174,7 +190,7 @@ git reset --hard <commit-hash>
 
 > 使用 `--hard` 会丢失工作区修改，执行前请确认。若想保留历史，可改用 `git revert <commit-hash>` 反向提交。
 
-### 4.4 develop 被污染：从 main 重置 develop
+### 5.4 develop 被污染：从 main 重置 develop
 
 如果 `develop` 被多次错误合并严重污染，且尚未发布到 `main`，可以从 `main` 重建 `develop`。
 
@@ -188,9 +204,9 @@ git reset --hard origin/main
 
 ---
 
-## 5. 合并审批规则
+## 6. 合并审批规则
 
-### 5.1 合并条件
+### 6.1 合并条件
 
 feature 分支合并到 `develop` 必须同时满足：
 
@@ -200,14 +216,14 @@ feature 分支合并到 `develop` 必须同时满足：
 4. commit message 符合规范，并关联执行记录
 5. zhangwq 已向 chenrt 提交合并申请
 
-### 5.2 合并权限
+### 6.2 合并权限
 
 - **唯一合并人**：chenrt
 - **合并方式**：`git merge --no-ff feature/module-XX-<功能名>`
 - **合并地点**：在主仓库 `CNCF_Monitor` 中执行
 - **合并后**：必须再次在 develop 环境执行提交前验证
 
-### 5.3 合并申请内容
+### 6.3 合并申请内容
 
 zhangwq 提交的合并申请应包含：
 
@@ -228,9 +244,9 @@ zhangwq 提交的合并申请应包含：
 
 ---
 
-## 6. 与 Agent 团队的协作流程
+## 7. 与 Agent 团队的协作流程
 
-### 6.1 标准流程
+### 7.1 标准流程
 
 ```
 chenrt（Orchestrator）
@@ -297,7 +313,7 @@ chenrt（Orchestrator）
 
 > zhangwq 的具体执行细节、prompt 模板、Review 清单、提交前验证清单见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
-### 6.2 Commit 规范
+### 7.2 Commit 规范
 
 每次 commit 必须能对应到某个 Agent 的一次执行记录：
 
@@ -317,7 +333,7 @@ module-00-infrastructure: 统一 API 响应格式为 status/data/error/errorType
 - 变更范围: platform/api/response/response.go, platform/cmd/metric-center/main.go
 ```
 
-### 6.3 执行记录目录结构
+### 7.3 执行记录目录结构
 
 ```
 docs/04-execution-records/
@@ -337,11 +353,11 @@ docs/04-execution-records/
 
 ---
 
-## 7. 常见问题
+## 8. 常见问题
 
 ### Q1: Agent 在当前模块改了一半，想临时切换到另一个模块怎么办？
 
-见 [3.5 多模块切换（stash 方式）](#35-多模块切换stash-方式)。
+见 [4.5 多模块切换（stash 方式）](#45-多模块切换stash-方式)。
 
 ### Q2: 如何确认某个模块是否已合并到 develop？
 
@@ -377,7 +393,7 @@ git checkout -b feature/module-XX-<功能名> origin/develop
 
 ---
 
-## 8. 禁止事项
+## 9. 禁止事项
 
 1. **严禁 feature 分支直接合入 `main`**。
 2. **严禁在 feature 分支上混入其他模块改动**。
@@ -388,7 +404,7 @@ git checkout -b feature/module-XX-<功能名> origin/develop
 
 ---
 
-## 9. 相关文档
+## 10. 相关文档
 
 - [`../05-team-collaboration/00_Team_Charter.md`](../05-team-collaboration/00_Team_Charter.md) — 团队守则
 - [`../05-team-collaboration/01_Role_Responsibilities.md`](../05-team-collaboration/01_Role_Responsibilities.md) — 角色职责速查表
