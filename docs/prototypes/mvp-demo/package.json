@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:gh-pages": "VITE_BASE_PATH=/CNCF_Monitor/ pnpm build",
     "preview": "vite preview",
+    "preview:gh-pages": "VITE_BASE_PATH=/CNCF_Monitor/ pnpm build && VITE_BASE_PATH=/CNCF_Monitor/ vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "vitest run"
   },
@@ -21,6 +23,7 @@
     "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/node": "^26.1.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
