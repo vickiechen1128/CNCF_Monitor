@@ -2,8 +2,8 @@
 
 > 文档类型：团队协作规范  
 > 目标读者：项目全体成员（chenrt、guixm、zhaohy、zhangwq）  
-> 版本：v1.0  
-> 更新日期：2026-07-21
+> 版本：v1.2  
+> 更新日期：2026-07-23
 
 ---
 
@@ -27,10 +27,12 @@
 
 | 代号 | 身份 | 项目角色 | 核心职责 |
 |------|------|----------|----------|
-| **chenrt** | 项目整体负责人 + 产品经理 | Orchestrator / 产品 Owner | 产品方向、需求拆解、原型设计、模块排期、Agent 调度、最终合并决策、对外汇报 |
-| **guixm** | 高级运维总监 | 业务架构师 / 需求共创者 | 业务战略方向、重大需求决策、与 chenrt 共同拆解需求形成文档/原型、原型评审 |
-| **zhaohy** | 运维业务经理 | 业务需求提出方 / 验收者 | 一线运维场景输入、痛点描述、业务逻辑验收、确认功能是否解决实际问题 |
-| **zhangwq** | SRE 工程师 | Vibe Coding 执行者 / 工程质量 Owner | 实际调用 AI Agent 生成代码、代码 Review、测试补充、提交前验证、技术规范维护 |
+| **chenrt** | 项目整体负责人 + 产品经理 | Orchestrator / 产品 Owner | 定方向、拆需求、调 Agent、做决策、对外汇报 |
+| **guixm** | 高级运维总监 | 业务架构师 / 需求共创者 | 把业务战略转化为可落地需求，把关原型方向 |
+| **zhaohy** | 运维业务经理 | 业务需求提出方 / 验收者 | 提供一线运维场景，验证功能是否解决真实问题 |
+| **zhangwq** | SRE 工程师 | Vibe Coding 执行者 / 工程质量 Owner | 调用 AI 写代码，Review 质量，补充测试，保障可运维 |
+
+> 各角色详细职责、日常工作清单、决策权限与协作接口见 [`01_Role_Responsibilities.md`](01_Role_Responsibilities.md)。
 
 ---
 
@@ -55,12 +57,27 @@
 |------|-----------|-----------|
 | 模块实现计划 | `planner` | chenrt |
 | 可点击原型 | `prototype-designer` | chenrt |
+| PRD 与原型代码生成 | `prototype-designer` / 通用 AI 工具 | chenrt |
 | 后端代码开发 | `backend-developer` | zhangwq |
 | 前端代码开发 | `frontend-developer` | zhangwq |
 | Prometheus 扩展分析 | `prometheus-developer` | zhangwq |
 | 构建/测试修复 | `build-resolver` | zhangwq |
 | 代码审查 | `golang-reviewer` / `frontend-reviewer` | zhangwq |
 | 安全审查 | `security-reviewer` | zhangwq |
+
+### 3.3 目录隔离铁律
+
+为支持**全链路 Vibe Coding**（产品经理用 AI 生成原型，开发用 AI 生成生产代码），项目目录按职责严格隔离：
+
+| 目录 | 归属 | 允许修改者 | 说明 |
+|------|------|-----------|------|
+| `docs/02-product-requirements/` | 产品设计区 | chenrt / PM 的 AI | PRD Markdown 文件 |
+| `docs/prototypes/` | 产品设计区 | chenrt / PM 的 AI | AI 生成的可点击原型代码 |
+| `platform/` | 生产代码区 | zhangwq / 开发 AI | 后端生产代码 |
+| `ui-custom/web/` | 生产代码区 | zhangwq / 开发 AI | 前端生产代码 |
+| `upstream/` | 上游源码 | 禁止直接修改 | 必须走 patch 流程 |
+
+> **铁律**：产品经理的 AI 只能修改 `docs/` 下的内容；开发的 AI 只能读取 `docs/`、修改 `platform/` 和 `ui-custom/web/`。
 
 > AI Agent 是生产工具，不是责任主体。**最终代码质量、安全性和可运维性由 zhangwq 和 chenrt 共同负责。**
 
@@ -115,35 +132,31 @@ chenrt + guixm 需求拆解会
    - 确定优先级
         │
         ▼
-chenrt 输出/更新：
-   - docs/02-product-requirements/01_User_Stories.md
-   - docs/02-product-requirements/02_Product_Roadmap.md
-   - docs/02-product-requirements/Modules/Module_XX_*.md 需求框架
+chenrt 创建 design/module-XX 分支，输出：
+   - docs/02-product-requirements/Modules/Module_XX_*.md
+   - docs/prototypes/module-XX/ 下的可点击原型代码
         │
         ▼
-（如需可视化）chenrt 调用 prototype-designer 产出可点击原型
+chenrt 发起 design/module-XX → develop 的 PR
+   - Reviewer：guixm（战略/管理视角）、zhaohy（一线操作视角）
         │
         ▼
-guixm + zhaohy 原型评审会
-   - guixm：战略/管理视角
-   - zhaohy：一线操作视角
-        │
-        ▼
-评审通过后，chenrt 更新 Module 详细需求
+评审通过后，chenrt 将 PRD + 原型代码合并到 develop
         │
         ▼
 zhangwq 参与技术方案预评审
    - 补充 API 标准、数据模型、技术约束
+   - 确认 develop 上 PRD 与原型已冻结
 ```
 
 ### 5.2 关键约定
 
 - 任何进入开发队列的需求，必须落在某个 `Modules/Module_XX_*.md` 中。
-- 原型分支 `feature/prototype-*` **不合并到 `develop`**，避免污染正式开发主线。
-- 原型分支需**推送到远程仓库（GitHub）**，团队成员可通过 `git fetch` 拉取查看，chenrt 负责管理远程仓库权限。
-- 原型中的优秀设计需通过正式模块分支（`feature/module-XX-<功能名>`）重新实现后，按标准流程合并到 `develop`。
-- 推荐将原型部署到 GitHub Pages 等静态站点，方便 guixm、zhaohy 等非工程人员在线预览。
+- **PRD 与原型代码放在同一分支 `design/module-XX`**，统一由 chenrt 提交到 `develop`。
+- 原型代码存放在 `docs/prototypes/module-XX/`，**属于产品设计区**，不污染 `platform/` 和 `ui-custom/web/`。
+- `design/module-XX` 合并到 `develop` 后，PRD + 原型成为 `develop` 上的 SSOT，zhangwq 的 AI 从此读取。
 - 需求变更需 chenrt 确认；涉及业务方向调整需 guixm 同意。
+- 如 PRD 在 feature 开发期间变更，必须重新走 `design/module-XX` 分支流程，zhangwq 基于新的 develop commit 重建或 rebase `feat/module-XX`。
 - zhaohy 的需求输入应尽量使用"用户故事"格式：作为【角色】，我希望【功能】，以便于【价值】。
 
 ---
@@ -153,18 +166,21 @@ zhangwq 参与技术方案预评审
 ### 6.1 流程
 
 ```
-chenrt 根据 Module 文档，调用 planner 输出模块任务规划
+chenrt 确认 develop 上 PRD + 原型已冻结
         │
         ▼
-明确 feature/module-XX-<功能名> 分支
+chenrt 向 zhangwq 下达开发任务单，明确 feat/module-XX 分支
         │
         ▼
-zhangwq 接手，按 SOP 调用 AI Agent：
+zhangwq 基于 develop 创建 feat/module-XX 分支
+        │
+        ▼
+zhangwq 按 SOP 调用 AI Agent：
    - backend-developer / frontend-developer
    - 必要时调用 prometheus-developer / build-resolver
         │
         ▼
-AI 生成代码并提交到 feature 分支
+AI 生成代码并提交到 feat/module-XX 分支
         │
         ▼
 zhangwq 人工 Review：
@@ -182,10 +198,19 @@ zhangwq 执行提交前验证：
    - 启动服务验证关键接口/页面
         │
         ▼
-zhangwq 向 chenrt 提交合并申请
+zhangwq 发起 feat/module-XX → develop 的 Pull Request
+   - PR 描述包含预览链接、测试结果、关联 PRD/原型路径
         │
         ▼
-chenrt 最终审批并执行 --no-ff 合并到 develop
+GitHub Actions 自动部署预览环境
+   - Bot 在 PR 评论区回复预览链接
+        │
+        ▼
+产品经理（chenrt）+ 业务方（zhaohy/guixm）通过预览链接验收
+   - 对比 docs/prototypes/module-XX/ 原型与真实运行效果
+        │
+        ▼
+验收通过后，chenrt 执行 --no-ff 合并到 develop
         │
         ▼
 在 develop 环境中再次验证
@@ -193,7 +218,7 @@ chenrt 最终审批并执行 --no-ff 合并到 develop
 
 ### 6.2 zhangwq 在 Vibe Coding 中的关键动作
 
-1. **Prompt 设计**：把 Module 文档和工程标准转化为 AI 能执行的 prompt。
+1. **Prompt 设计**：把 Module 文档、原型代码和工程标准转化为 AI 能执行的 prompt。
 2. **过程监督**：确保 AI 在正确的 worktree、正确的分支、正确的范围内开发。
 3. **结果校验**：AI 输出后必须人工 Review，不盲目信任。
 4. **测试补强**：AI 写 happy path，SRE 补异常路径和集成场景。
@@ -201,34 +226,67 @@ chenrt 最终审批并执行 --no-ff 合并到 develop
 
 ### 6.3 分支与合并规则
 
-- 每个功能子模块对应一个 `feature/module-XX-<功能名>` 分支。
-- 原型使用 `feature/prototype-*` 分支，**不合并到 `develop`**，但需推送到远程仓库供团队查看。
-- 只有 chenrt 有权将 feature 分支 `--no-ff` 合并到 `develop`。
-- 合并前必须完成：zhangwq Review 通过 + 提交前验证通过。
+| 分支类型 | 命名示例 | 负责人 | 合并目标 | Reviewer | 说明 |
+|----------|----------|--------|----------|----------|------|
+| 设计分支 | `design/module-XX` | chenrt | `develop` | guixm、zhaohy | 包含 PRD + 原型代码 |
+| 功能分支 | `feat/module-XX` | zhangwq | `develop` | chenrt、zhaohy、guixm | 生产代码实现 |
+| 原型分支（旧） | `feature/prototype-*` | chenrt | **不合并** | guixm、zhaohy | 历史兼容，建议逐步迁移到 `design/module-XX` |
+| 热修复 | `hotfix/*` | zhangwq | `main` + `develop` | chenrt | 生产紧急修复 |
+
+- `design/module-XX` 合并到 `develop` 后，该模块 PRD + 原型即冻结。
+- 只有 chenrt 有权将分支 `--no-ff` 合并到 `develop`。
+- `feat/module-XX` 合并前必须完成：zhangwq Review 通过 + 提交前验证通过 + 产品经理/业务方通过预览链接验收。
 
 ---
 
 ## 7. 文档 Ownership
 
+### 7.1 产品需求与原型
+
 | 文档/目录 | 主负责人 | 协作人 | 更新时机 |
 |----------|---------|--------|----------|
-| `00_Product_Vision.md` | chenrt | guixm | 产品定位调整 |
-| `01_User_Stories.md` | chenrt | zhaohy | 需求新增/变更 |
-| `02_Product_Roadmap.md` | chenrt | guixm | 里程碑调整 |
-| `03_Functional_Architecture.md` | chenrt | zhangwq | 功能架构调整 |
-| `04_Implementation_Map.md` | chenrt | zhangwq | 技术方案调整 |
-| `Modules/Module_XX_*.md` | chenrt | zhangwq（技术约束） | 模块需求细化 |
-| `05_Code_Implementation_Plan.md` | chenrt | zhangwq | 实施计划调整 |
-| `00_Engineering_Standard.md` | zhangwq | chenrt | 工程规范调整 |
-| `01_Code_Isolation_Standard.md` | zhangwq | chenrt | 代码隔离规则调整 |
-| `02_Frontend_Standard.md` | zhangwq | chenrt | 前端规范调整 |
-| `03_API_Standard.md` | zhangwq | chenrt | API 规范调整 |
-| `04_Testing_Standard.md` | zhangwq | chenrt | 测试规范调整 |
-| `05_AI_Agent_Collaboration_Standard.md` | zhangwq | chenrt | Agent 协作方式调整 |
-| `06_Gitflow_Branch_and_Rollback_Guide.md` | zhangwq | chenrt | 分支策略调整 |
+| `docs/02-product-requirements/README.md` | chenrt | 全员 | PRD 目录结构或职责边界调整 |
+| `docs/02-product-requirements/00_Product_Vision.md` | chenrt | guixm | 产品定位调整 |
+| `docs/02-product-requirements/00_Global_Architecture.md` | chenrt | zhangwq | 总体架构调整 |
+| `docs/02-product-requirements/01_User_Stories.md` | chenrt | zhaohy | 需求新增/变更 |
+| `docs/02-product-requirements/02_Product_Roadmap.md` | chenrt | guixm、zhangwq | 里程碑/阶段调整 |
+| `docs/02-product-requirements/03_Functional_Architecture.md` | chenrt | zhangwq | 功能架构调整 |
+| `docs/02-product-requirements/04_Implementation_Map.md` | chenrt | zhangwq | 实施难度/技术方案调整 |
+| `docs/02-product-requirements/05_Code_Implementation_Plan.md` | chenrt | zhangwq | 开发顺序/依赖调整 |
+| `docs/02-product-requirements/Modules/Module_XX_*.md` | chenrt | zhangwq（技术约束）、zhaohy（业务验收） | 模块需求细化 |
+| `docs/prototypes/module-XX/` | chenrt | zhangwq（技术可行性）、zhaohy（业务验收） | AI 生成的可点击原型代码 |
+
+### 7.2 工程标准
+
+| 文档/目录 | 主负责人 | 协作人 | 更新时机 |
+|----------|---------|--------|----------|
+| `docs/03-engineering-standards/README.md` | zhangwq | chenrt | 工程标准目录或职责边界调整 |
+| `docs/03-engineering-standards/00_Engineering_Standard.md` | zhangwq | chenrt | 工程规范调整 |
+| `docs/03-engineering-standards/01_Code_Isolation_Standard.md` | zhangwq | chenrt | 代码隔离规则调整 |
+| `docs/03-engineering-standards/02_Frontend_Standard.md` | zhangwq | chenrt | 前端规范调整 |
+| `docs/03-engineering-standards/03_API_Standard.md` | zhangwq | chenrt | API 规范调整 |
+| `docs/03-engineering-standards/04_Testing_Standard.md` | zhangwq | chenrt | 测试规范调整 |
+| `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` | zhangwq | chenrt | Agent 协作方式调整 |
+| `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` | zhangwq | chenrt | 分支策略调整 |
+
+### 7.3 团队协作
+
+| 文档/目录 | 主负责人 | 协作人 | 更新时机 |
+|----------|---------|--------|----------|
+| `docs/05-team-collaboration/00_Team_Charter.md` | chenrt | 全员 | 团队目标、角色、决策权限调整 |
+| `docs/05-team-collaboration/01_Role_Responsibilities.md` | chenrt | 全员 | 角色职责调整 |
+| `docs/05-team-collaboration/02_Demand_Workflow.md` | chenrt | guixm、zhaohy | 需求流程调整 |
+| `docs/05-team-collaboration/03_Code_Collaboration_Workflow.md` | chenrt | zhangwq | 代码协作流程调整 |
+| `docs/05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md` | zhangwq | chenrt | zhangwq 执行 SOP 调整 |
+
+### 7.4 其他
+
+| 文档/目录 | 主负责人 | 协作人 | 更新时机 |
+|----------|---------|--------|----------|
+| `README.md`（项目根目录） | chenrt | zhangwq | 项目整体说明调整 |
 | `.kimi/agents/` | zhangwq | chenrt | Agent 定义优化 |
-| `04-execution-records/` | zhangwq / AI Agent | chenrt | 每次开发后 |
-| `05-team-collaboration/` | chenrt | 全员 | 协作规范调整 |
+| `docs/04-execution-records/` | zhangwq / AI Agent | chenrt | 每次开发后 |
+| `patches/prometheus/README.md` | zhangwq | chenrt | 新增/调整 patch |
 
 ---
 
@@ -240,10 +298,11 @@ chenrt 最终审批并执行 --no-ff 合并到 develop
 | MVP 范围变更 | chenrt | guixm、zhaohy | 需同步更新 Roadmap |
 | 需求优先级调整 | chenrt | guixm、zhaohy | 影响开发顺序 |
 | 新增/删除模块 | chenrt | guixm、zhangwq | 需更新功能架构 |
+| `design/module-XX` 合并到 develop | chenrt | guixm、zhaohy | PRD + 原型评审通过 |
+| `feat/module-XX` 合并到 develop | chenrt | zhangwq（Review 通过）、zhaohy（业务验收通过） | 必须完成提交前验证 + 预览验收 |
 | 技术选型变更 | chenrt | zhangwq | 需更新 Implementation Map |
 | API 路径/响应格式变更 | zhangwq | chenrt | 需更新 API Standard |
-| 分支合并到 develop | chenrt | zhangwq（Review 通过） | 必须完成提交前验证 |
-| 原型方向/汇报内容 | chenrt | guixm、zhaohy | 原型分支不合并 |
+| 目录隔离规则调整 | zhangwq | chenrt | 影响 AI 可读范围 |
 | 告警/拨测等业务逻辑 | zhaohy | guixm、chenrt | 需落到 Module 文档 |
 | 引入新的外部依赖 | zhangwq | chenrt | 需评估许可与安全 |
 | 模型/工具切换 | chenrt | zhangwq | 需试点验证 |
@@ -277,9 +336,17 @@ chenrt 最终审批并执行 --no-ff 合并到 develop
 
 ### 10.2 人类验收（必须）
 
+#### 设计阶段
+
+- **chenrt**：PRD 与原型完整性、产品方向正确性
+- **guixm**：业务战略价值、管理视角
+- **zhaohy**：一线业务逻辑正确性、用户故事完整性
+
+#### 开发阶段
+
 - **zhangwq**：代码 Review、安全、可运维性、测试完整性
 - **chenrt**：产品符合度、架构一致性、合并决策
-- **zhaohy**：业务场景正确性、是否解决一线问题
+- **zhaohy**：通过预览链接验收业务场景正确性
 - **guixm**：管理价值与战略方向
 
 ---
@@ -289,10 +356,12 @@ chenrt 最终审批并执行 --no-ff 合并到 develop
 1. **禁止私自修改 Agent 定义**（`.kimi/agents/`）。
 2. **禁止在未经批准的情况下切换 AI 模型或工具**。
 3. **禁止绕过提交前验证直接申请合并**。
-4. **禁止在 feature 分支混入其他模块改动**。
+4. **禁止在 `feat/module-XX` 分支混入其他模块改动**。
 5. **禁止直接修改 `upstream/` 源码**；必须走 patch 流程。
-6. **禁止将原型分支合并到 `develop`**（原型可推送远程供查看，但需通过正式模块分支重新实现后合并）。
-7. **禁止未经 chenrt 批准直接合并到 `develop`**。
+6. **禁止将 `design/module-XX` 中的原型代码复制到 `platform/` 或 `ui-custom/web/` 后原样合并**；必须在 `feat/module-XX` 中按工程标准重新实现。
+7. **禁止产品经理的 AI 修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**。
+8. **禁止开发的 AI 修改 `docs/02-product-requirements/`、`docs/prototypes/` 目录**。
+9. **禁止未经 chenrt 批准直接合并到 `develop`**。
 
 ---
 
