@@ -7,6 +7,7 @@ export interface LabelTemplate {
 
 export interface ScrapeJob {
   id: string
+  network_domain_id: string
   job_name: string
   resource_type: string
   scrape_interval: string
@@ -18,6 +19,7 @@ export interface ScrapeJob {
 
 export interface ProbeConfig {
   id: string
+  network_domain_id: string
   job_name: string
   module: string
   targets: string[]
@@ -53,19 +55,25 @@ export const labelTemplates: LabelTemplate[] = [
 ]
 
 export const scrapeJobs: ScrapeJob[] = [
-  { id: 'sj1', job_name: 'node-exporter-prod', resource_type: 'host', scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http', enabled: true },
-  { id: 'sj2', job_name: 'mysqld-exporter-prod', resource_type: 'middleware', scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http', enabled: true },
-  { id: 'sj3', job_name: 'simple-agent-staging', resource_type: 'application', scrape_interval: '30s', scrape_timeout: '15s', metrics_path: '/metrics', scheme: 'http', enabled: false },
+  { id: 'sj1', network_domain_id: 'default', job_name: 'node-exporter-prod', resource_type: 'host', scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http', enabled: true },
+  { id: 'sj2', network_domain_id: 'default', job_name: 'mysqld-exporter-prod', resource_type: 'middleware', scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http', enabled: true },
+  { id: 'sj3', network_domain_id: 'gov-cloud-a', job_name: 'simple-agent-staging', resource_type: 'application', scrape_interval: '30s', scrape_timeout: '15s', metrics_path: '/metrics', scheme: 'http', enabled: true },
+  { id: 'sj4', network_domain_id: 'finance-dmz', job_name: 'node-exporter-finance', resource_type: 'host', scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http', enabled: true },
 ]
 
 export const probeConfigs: ProbeConfig[] = [
-  { id: 'pc1', job_name: 'blackbox-http', module: 'http_2xx', targets: ['https://order.example.com/api/health', 'https://user.example.com/api/health'], scrape_interval: '60s', enabled: true },
-  { id: 'pc2', job_name: 'blackbox-tcp', module: 'tcp_connect', targets: ['10.0.1.50:3306', '10.0.1.51:6379'], scrape_interval: '60s', enabled: true },
+  { id: 'pc1', network_domain_id: 'default', job_name: 'blackbox-http', module: 'http_2xx', targets: ['https://order.example.com/api/health'], scrape_interval: '60s', enabled: true },
+  { id: 'pc2', network_domain_id: 'default', job_name: 'blackbox-tcp', module: 'tcp_connect', targets: ['10.0.1.50:3306', '10.0.1.51:6379'], scrape_interval: '60s', enabled: true },
+  { id: 'pc3', network_domain_id: 'gov-cloud-a', job_name: 'blackbox-http-gov', module: 'http_2xx', targets: ['https://user-gov.example.com/api/health'], scrape_interval: '60s', enabled: true },
 ]
 
-export const generatedConfig = `global:
+export const generatedConfig = `# 按网域生成配置示例（default 网域）
+global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    network_domain: 'default'
+    datacenter: 'default-dc'
 
 scrape_configs:
   - job_name: 'node-exporter-prod'
@@ -94,4 +102,33 @@ scrape_configs:
         target_label: __param_target
       - target_label: __address__
         replacement: blackbox-exporter:9115
+
+# 按网域生成配置示例（gov-cloud-a 网域）
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    network_domain: 'gov-cloud-a'
+    datacenter: 'gov-a-dc'
+
+scrape_configs:
+  - job_name: 'simple-agent-staging'
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+    scheme: 'http'
+    static_configs:
+      - targets:
+          - '10.0.2.30:8080'
+        labels:
+          app: 'user-service'
+          env: 'staging'
+          cluster: 'sh-01'
+
+  - job_name: 'blackbox-http-gov'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - 'https://user-gov.example.com/api/health'
 `

@@ -9,6 +9,8 @@ import {
   LineChartOutlined,
   CloudServerOutlined,
   BellOutlined,
+  GlobalOutlined,
+  NodeIndexOutlined,
 } from '@ant-design/icons'
 
 const { Header, Sider, Content } = Layout
@@ -26,6 +28,8 @@ const menuItems = [
   { key: '/query', icon: <LineChartOutlined />, label: '指标查询' },
   { key: '/collection', icon: <CloudServerOutlined />, label: '采集状态' },
   { key: '/alerts', icon: <BellOutlined />, label: '告警状态' },
+  { key: '/network-domains', icon: <GlobalOutlined />, label: '网域与边缘 Agent' },
+  { key: '/monitoring-sources', icon: <NodeIndexOutlined />, label: '监控源登记册' },
 ]
 
 export function MainLayout({ children }: MainLayoutProps) {

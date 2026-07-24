@@ -16,6 +16,8 @@ export function QueryPage() {
     { title: '指标名', dataIndex: ['metric', '__name__'], key: '__name__' },
     { title: '实例', dataIndex: ['metric', 'instance'], key: 'instance' },
     { title: '模式', dataIndex: ['metric', 'mode'], key: 'mode' },
+    { title: '网域', dataIndex: ['metric', 'network_domain'], key: 'network_domain' },
+    { title: '来源类型', dataIndex: ['metric', 'source_type'], key: 'source_type' },
     {
       title: '数值',
       key: 'value',

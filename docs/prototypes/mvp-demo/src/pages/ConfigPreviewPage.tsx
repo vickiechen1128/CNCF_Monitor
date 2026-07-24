@@ -25,7 +25,7 @@ export function ConfigPreviewPage() {
         />
         <Alert
           message="配置预览"
-          description="下方为根据当前资源、标签模板、采集 Job 和拨测配置自动生成的 prometheus.yml 内容。"
+          description="下方为根据当前资源、标签模板、采集 Job 和拨测配置按网域自动生成的 prometheus.yml 内容。每个网域独立配置包，自动注入 external_labels.network_domain。"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
@@ -43,7 +43,7 @@ export function ConfigPreviewPage() {
         </pre>
         <div style={{ marginTop: 16, textAlign: 'right' }}>
           <Button type="primary" onClick={handleApply}>
-            一键下发到 Prometheus
+            一键下发到 Prometheus / Edge Agent
           </Button>
         </div>
       </Card>

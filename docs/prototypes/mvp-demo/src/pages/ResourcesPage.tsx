@@ -36,6 +36,7 @@ export function ResourcesPage() {
                   size="small"
                   columns={[
                     { title: '主机名', dataIndex: 'hostname', key: 'hostname' },
+                    { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                     { title: 'IP', dataIndex: 'instance_ip', key: 'instance_ip' },
                     { title: 'OS', dataIndex: 'os_type', key: 'os_type' },
                     { title: '应用', dataIndex: 'app_name', key: 'app_name' },
@@ -61,6 +62,7 @@ export function ResourcesPage() {
                   size="small"
                   columns={[
                     { title: '类型', dataIndex: 'middleware_type', key: 'middleware_type' },
+                    { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                     { title: 'IP', dataIndex: 'instance_ip', key: 'instance_ip' },
                     { title: '端口', dataIndex: 'port', key: 'port' },
                     { title: '版本', dataIndex: 'version', key: 'version' },
@@ -86,6 +88,7 @@ export function ResourcesPage() {
                   size="small"
                   columns={[
                     { title: '服务名', dataIndex: 'service_name', key: 'service_name' },
+                    { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                     { title: '拨测 URL', dataIndex: 'health_check_url', key: 'health_check_url', ellipsis: true },
                     { title: '协议', dataIndex: 'protocol', key: 'protocol' },
                     { title: '指标端点', dataIndex: 'endpoint', key: 'endpoint' },

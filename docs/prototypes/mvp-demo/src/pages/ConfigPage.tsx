@@ -50,6 +50,7 @@ export function ConfigPage() {
                     size="small"
                     columns={[
                       { title: 'Job 名', dataIndex: 'job_name', key: 'job_name' },
+                      { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                       { title: '资源类型', dataIndex: 'resource_type', key: 'resource_type' },
                       { title: '抓取间隔', dataIndex: 'scrape_interval', key: 'scrape_interval' },
                       { title: '超时', dataIndex: 'scrape_timeout', key: 'scrape_timeout' },
@@ -80,6 +81,7 @@ export function ConfigPage() {
                     size="small"
                     columns={[
                       { title: 'Job 名', dataIndex: 'job_name', key: 'job_name' },
+                      { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                       { title: '模块', dataIndex: 'module', key: 'module' },
                       {
                         title: '目标',
