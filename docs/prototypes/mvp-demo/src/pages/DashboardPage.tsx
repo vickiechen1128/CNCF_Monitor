@@ -13,7 +13,7 @@ export function DashboardPage() {
         </Col>
         <Col span={6}>
           <Card>
-            <Statistic title="采集覆盖率" value={dashboardStats.collectionCoverage} suffix="%" />
+            <Statistic title="网域" value={dashboardStats.networkDomains.total} suffix={`在线 ${dashboardStats.networkDomains.online}`} />
           </Card>
         </Col>
         <Col span={6}>
@@ -23,13 +23,13 @@ export function DashboardPage() {
         </Col>
         <Col span={6}>
           <Card>
-            <Statistic title="采集 Job" value={dashboardStats.scrapeJobs} />
+            <Statistic title="监控源" value={dashboardStats.monitoringSources.total} suffix={`在线 ${dashboardStats.monitoringSources.online}`} />
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={12}>
+        <Col span={8}>
           <Card title="资源分布">
             <Row gutter={[16, 16]}>
               <Col span={8}>
@@ -44,6 +44,39 @@ export function DashboardPage() {
             </Row>
           </Card>
         </Col>
+        <Col span={8}>
+          <Card title="网域状态">
+            <Row gutter={[16, 16]}>
+              <Col span={8}>
+                <Statistic title="在线" value={dashboardStats.networkDomains.online} valueStyle={{ color: '#52c41a' }} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="离线" value={dashboardStats.networkDomains.offline} valueStyle={{ color: '#cf1322' }} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="已抑制告警" value={dashboardStats.inhibitedAlerts} valueStyle={{ color: '#fa8c16' }} />
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card title="监控源状态">
+            <Row gutter={[16, 16]}>
+              <Col span={8}>
+                <Statistic title="在线" value={dashboardStats.monitoringSources.online} valueStyle={{ color: '#52c41a' }} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="离线" value={dashboardStats.monitoringSources.offline} valueStyle={{ color: '#cf1322' }} />
+              </Col>
+              <Col span={8}>
+                <Statistic title="禁用" value={dashboardStats.monitoringSources.disabled} />
+              </Col>
+            </Row>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col span={12}>
           <Card title="最新告警">
             <Table
@@ -63,15 +96,13 @@ export function DashboardPage() {
                     </Tag>
                   ),
                 },
+                { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                 { title: '摘要', dataIndex: 'summary', key: 'summary', ellipsis: true },
               ]}
             />
           </Card>
         </Col>
-      </Row>
-
-      <Row style={{ marginTop: 16 }}>
-        <Col span={24}>
+        <Col span={12}>
           <Card title="最近活动">
             <Table
               dataSource={dashboardStats.recentActivities}

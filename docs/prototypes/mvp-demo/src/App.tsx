@@ -6,6 +6,8 @@ import ConfigPreviewPage from './pages/ConfigPreviewPage'
 import QueryPage from './pages/QueryPage'
 import CollectionPage from './pages/CollectionPage'
 import AlertsPage from './pages/AlertsPage'
+import NetworkDomainsPage from './pages/NetworkDomainsPage'
+import MonitoringSourcesPage from './pages/MonitoringSourcesPage'
 import './App.css'
 
 function App() {
@@ -19,6 +21,8 @@ function App() {
         <Route path="/query" element={<QueryPage />} />
         <Route path="/collection" element={<CollectionPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
+        <Route path="/network-domains" element={<NetworkDomainsPage />} />
+        <Route path="/monitoring-sources" element={<MonitoringSourcesPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>

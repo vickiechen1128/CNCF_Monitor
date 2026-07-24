@@ -24,6 +24,7 @@ export function CollectionPage() {
                   size="small"
                   columns={[
                     { title: 'Job', dataIndex: 'job', key: 'job' },
+                    { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                     { title: 'Instance', dataIndex: 'instance', key: 'instance' },
                     { title: '资源类型', dataIndex: 'resource_type', key: 'resource_type' },
                     { title: '应用', dataIndex: 'app', key: 'app' },
@@ -51,6 +52,7 @@ export function CollectionPage() {
                   size="small"
                   columns={[
                     { title: '目标', dataIndex: 'target', key: 'target', ellipsis: true },
+                    { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id' },
                     { title: 'Job', dataIndex: 'job', key: 'job' },
                     {
                       title: '拨测成功',
