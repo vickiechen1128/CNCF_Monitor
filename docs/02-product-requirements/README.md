@@ -63,10 +63,11 @@
 
 ## MVP 关键结论速查
 
-- **资源管理**：三类固定资源（Host / Middleware / Application），Excel 导入，字段固定
+- **资源管理**：三类固定资源（Host / Middleware / Application），Excel 导入，字段固定，必须归属网域（MVP 默认 `default`）
+- **网域模型**：MVP 预置默认网域 `default`，数据模型已为多网域物理隔离场景预留扩展
 - **告警规则**：MVP 不写 UI，直接编辑 `rules.yml`
 - **告警收敛/静默/通知**：MVP 借助 Alertmanager 原生能力
 - **拨测**：使用 Blackbox Exporter，MetricCenter 只生成配置
-- **时序存储**：MVP 用 Prometheus TSDB
+- **时序存储**：MVP 用 Prometheus TSDB；多网域场景演进为 VictoriaMetrics / Mimir
 - **平台元数据**：MVP 用 SQLite
 - **代码隔离**：所有业务代码在 `platform/` 和 `ui-custom/`，不修改 `upstream/`

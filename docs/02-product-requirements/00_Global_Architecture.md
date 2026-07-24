@@ -76,6 +76,79 @@
 
 ---
 
+## 2.2 Edge-Cloud 多网域架构（v0.2+）
+
+针对政务网、跨专网、多 DMZ、弱网或物理隔离场景，MetricCenter 采用 **边缘 Pull + 跨网 Push + 异构汇聚** 的 Edge-Cloud 架构：
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────┐
+│                         互联网区 / 统一管控中心（MetricCenter Central）                       │
+│                                                                                             │
+│   ┌─────────────────────┐   ┌─────────────────────────────┐   ┌─────────────────────────┐  │
+│   │ MetricCenter 门户/UI│   │  MetricCenter Gateway       │   │   Alertmanager          │  │
+│   └──────────┬──────────┘   └────────────▲────────────────┘   └───────────▲─────────────┘  │
+│              │                            │ (1. 配置拉取/心跳)              │                │
+│              ▼                            │                                 │                │
+│   ┌─────────────────────┐   ┌────────────┴────────────┐            ┌───────┴───────┐        │
+│   │ 平台控制面 / CMDB    │   │  统一数据面              │            │  告警抑制引擎  │        │
+│   │ · 网域/节点管理     │   │  · VictoriaMetrics      │            │  (Inhibition) │        │
+│   │ · 监控源登记册     │   │    (统一 Remote Write    │            │               │        │
+│   │ · 配置中心         │   │     接收点 / PromQL)     │            │               │        │
+│   └─────────────────────┘   └────────────▲────────────┘            └───────────────┘        │
+│                                          │                                                  │
+│         ═════════════════════════════════╪══════════════════════════════════════════════     │
+│                                          │                                                  │
+│   ┌──────────────────────────────────────┼──────────────────────────────────────────┐       │
+│   │         异构接入门户 / Ingestion Gateway（鉴权/限流/路由）                       │       │
+│   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │       │
+│   │  │ Edge Agent   │  │ External     │  │ Zabbix       │  │ Cloud Monitor        │ │       │
+│   │  │ Receiver     │  │ Prometheus   │  │ Adapter      │  │ Adapter              │ │       │
+│   │  │ (vmagent/    │  │ Receiver     │  │              │  │                      │ │       │
+│   │  │  prometheus-  │  │              │  │              │  │                      │ │       │
+│   │  │  agent)       │  │              │  │              │  │                      │ │       │
+│   │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────────────┘ │       │
+│   └──────────────────────────────────────┼──────────────────────────────────────────┘       │
+└──────────────────────────────────────────┼──────────────────────────────────────────────────┘
+                                           │
+                                  ═══ 防火墙 / 隔离网界 ═══
+                                           │
+┌──────────────────────────────────────────┼──────────────────────────────────────────────────┐
+│                                          │                                                  │
+│  ┌───────────────────────────────────────┴──┐  ┌─────────────────────┐  ┌────────────────┐  │
+│  │      隔离网域 A（政务网 / DMZ）          │  │ 网域 B（已有 Prometheus）│  │ 网域 C（Zabbix）│  │
+│  │                                          │  │                      │  │                │  │
+│  │  ┌───────────────────────────────────┐   │  │  ┌───────────────┐  │  │  ┌──────────┐  │  │
+│  │  │  Edge MetricCenter Agent          │   │  │  │ 客户原有      │  │  │  │ Zabbix   │  │  │
+│  │  │  · vmagent / Prometheus Agent     │   │  │  │ Prometheus    │  │  │  │ Server   │  │  │
+│  │  │  · 本地 Pull Targets              │   │  │  └──────┬──────┘  │  │  └────┬─────┘  │  │
+│  │  │  · WAL 断网缓存                   │   │  │         │         │  │       │        │  │
+│  │  │  · Remote Write Push ─────────────┼───┘  │         │         │  │       │        │  │
+│  │  └──────────────┬────────────────────┘        │         │         │  │       │        │  │
+│  │                 │ (局域网 Pull)               │         │         │  │       │        │  │
+│  │                 ▼                             │         ▼         │  │       ▼        │  │
+│  │  ┌─────────────────────────┐                  │  [网域 B Targets] │  │  [网域 C Targets]│  │
+│  │  │ 局域网 Exporters/主机    │                  │                   │  │                │  │
+│  │  └─────────────────────────┘                  └───────────────────┘  └────────────────┘  │
+│  │                                                                                             │
+│  │  可选：边缘 vmalert + 本地 Alertmanager（未来阶段，实现断网自治告警）                         │
+│  └─────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.2.1 关键设计点
+
+| 设计点 | 说明 |
+|--------|------|
+| **单向通信** | 隔离网域内的 Edge Agent 主动通过 HTTPS 出站，防火墙只需开通"内网 -> 互联网 443"单向策略 |
+| **弱网续传** | vmagent / Prometheus Agent 内置 WAL，断网时本地缓存，恢复后自动补发；建议配置 10GB~50GB WAL，支持断网 24 小时续传 |
+| **配置拉取** | Edge Sync Agent 定期轮询 MetricCenter OpenAPI，下载本域 `prometheus.yml` 并触发 reload |
+| **网域隔离** | 每份配置强制注入 `external_labels.network_domain`，中心存储通过标签区分数据来源 |
+| **采集器可切换** | 每个网域独立配置 `agent_type`，默认 `vmagent`，可选 `prometheus-agent` |
+| **异构汇聚** | 支持客户现有 Prometheus Remote Write、Zabbix Adapter、云监控 API 等多种接入方式 |
+| **中心存储** | **VictoriaMetrics 作为多网域阶段默认中心存储**，MetricCenter 查询代理代码无需改动；Mimir / Thanos 作为可选替代 |
+| **安全接入** | Ingestion Gateway 统一鉴权、限流、路由；Edge Agent 使用 Token 认证，高安全场景使用 mTLS |
+
+---
+
 ## 3. 模块划分
 
 | 模块 | 职责 | 对应目录 | 优先级 |
@@ -87,6 +160,8 @@
 | 网关与认证 | 统一入口、鉴权、多租户、审计 | `platform/gateway/` | P2 |
 | 自定义服务发现 | 对接腾讯蓝鲸、Nacos、K8s 等外部 CMDB | `platform/discovery/cmdb/` | P2 |
 | 自定义前端 | 门户化 UI、配置管理页面、查询页面 | `ui-custom/` | P0/P1 |
+| **网域与边缘 Agent 管理** | 网域注册、Token、Edge Sync Agent 心跳、边缘 Agent 状态监控、边缘诊断 | `platform/edge/` | **P0（v0.2 起）** |
+| **监控源登记册与异构接入** | 外部 Prometheus / Zabbix / 云监控接入；接入源健康状态 | `platform/ingestion/` | **P0（集成模式）** |
 | 系统与平台管理 | 多租户、权限、审计、数据存储管理、平台全局配置 | `platform/gateway/tenant/` | P2 |
 
 ---
@@ -199,6 +274,98 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
                                       长期存储 / 集群查询 / 数据湖
 ```
 
+### 4.7 多网域配置同步流（v0.2+）
+
+```
+用户 ──► Custom UI ──► API Gateway ──► platform/config/（配置生成器）
+                                              │
+                                              ▼
+                                      按 network_domain_id 分组生成配置
+                                      注入 external_labels.network_domain
+                                              │
+                                              ▼
+                                      存储为 prometheus.<network_domain_id>.yml
+                                              │
+                                              ▼
+                                      MetricCenter 暴露 /api/v2/platform/edge/config
+                                              │
+                 ═════════════════════════════╧══════════════════════════════
+                                              │ HTTPS 443（隔离网域主动出站）
+                                              ▼
+                              Edge Sync Agent（位于隔离网域）
+                                              │
+                                              ├──► 校验 Token + network_domain_id
+                                              ├──► 下载本域 prometheus.yml
+                                              └──► 调用本地 Agent /-/reload
+```
+
+### 4.8 多网域指标汇聚流（v0.2+）
+
+```
+隔离网域 A  Edge Agent
+       │
+       ├──► 本地 Pull Targets（Exporters）
+       │
+       ├──► WAL 本地缓存（断网时）
+       │
+       └──► Remote Write ──► HTTPS 443 ──► Ingestion Gateway ──► 中心存储
+                                               │
+                                               ▼
+                                    VictoriaMetrics / Mimir
+                                               │
+                       ┌───────────────────────┼───────────────────────┐
+                       ▼                       ▼                       ▼
+                  全局 PromQL 查询         中心告警求值            长期存储
+                       │                       │
+                       ▼                       ▼
+              MetricCenter 门户/UI        Alertmanager
+```
+
+### 4.9 外部 Prometheus Remote Write 汇聚流（集成模式）
+
+```
+客户网域 B（已有 Prometheus）
+       │
+       ├──► 继续原有 scrape 行为，不被替换
+       │
+       └──► 在 prometheus.yml 中追加 remote_write：
+             remote_write:
+               - url: https://metriccenter.example.com/api/v2/ingest/prometheus
+                 bearer_token: <MonitoringSource.token>
+                 headers:
+                   X-Network-Domain: business-net-b
+                 queue_config:
+                   max_samples_per_send: 2000
+                       │
+                       ▼
+            Ingestion Gateway（鉴权/限流/路由）
+                       │
+                       ▼
+            VictoriaMetrics / Mimir
+                       │
+                       ▼
+            全局 PromQL 查询（自动附带 external_labels.network_domain）
+```
+
+### 4.10 异构监控系统 Adapter 接入流（集成模式）
+
+```
+客户网域 C（已有 Zabbix / 云监控）
+       │
+       ├──► Zabbix Server / Cloud Monitor API
+       │         │
+       │         ▼
+       │   MetricCenter Adapter（部署在网域 C 或中心 DMZ）
+       │   · zabbix_exporter（将 Zabbix 指标转为 Prometheus 格式）
+       │   · 或 cloud-monitor-api-puller（定时拉取云监控指标）
+       │         │
+       │         ▼
+       └──► Remote Write ──► Ingestion Gateway ──► VictoriaMetrics
+                                                │
+                                                ▼
+                                         统一 PromQL 查询
+```
+
 ---
 
 ## 5. 技术栈
@@ -216,6 +383,7 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 | UI 组件库 | Ant Design | 企业级后台组件库 |
 | 数据库（平台数据） | SQLite | 开发期使用，零运维、单机可运行 |
 | 部署 | Docker / Docker Compose | 本地开发与测试 |
+| 网域模型 | `network_domain_id` | MVP 预置 `default` 网域，所有资源必须归属网域 |
 
 ### 5.2 未来演进选型
 
@@ -223,11 +391,15 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 |------|---------|---------|---------|
 | 元数据存储 | SQLite | PostgreSQL / MySQL | 生产部署、多实例、需要事务与审计 |
 | 缓存 | 无 | Redis | 会话管理、配置缓存、采集状态缓存 |
-| 时序存储 | Prometheus TSDB | VictoriaMetrics / Mimir | 长期存储、集群查询、高基数场景 |
-| 采集端 | Prometheus Server | Prometheus Agent Mode / OpenTelemetry Collector | 大规模分布式采集、多信号统一（Metrics/Logs/Traces） |
+| 时序存储 | Prometheus TSDB | **VictoriaMetrics（多网域默认）** / Mimir / Thanos | 长期存储、集群查询、高基数场景、多网域汇聚 |
+| 采集端 | Prometheus Server | **vmagent / Prometheus Agent Mode** + Edge Sync Agent | 多网域物理隔离、弱网场景 |
+| 异构接入 | 无 | **Ingestion Gateway + Adapter**（外部 Prometheus / Zabbix / 云监控） | 集成模式，不替换客户现有监控 |
+| 配置下发 | 中心 HTTP /-/reload | **Edge Sync Agent 拉取模式** | 隔离网域中心不可达 |
 | 告警收敛/通知 | Alertmanager 原生 | MetricCenter 生成 alertmanager.yml + 静默管理 UI | 需要统一配置告警路由、接收器、静默策略 |
 | 告警规则编辑 | 手写 rules.yml | MetricCenter 规则编辑器生成 rules.yml | 需要降低告警规则编写门槛 |
+| 告警抑制 | Alertmanager 原生 inhibit_rules | MetricCenter 自动生成网域离线抑制规则 | 断网时避免告警风暴 |
 | 图表 | 无 | uPlot / ECharts | 需要高性能时序图表时选型 |
+| 边缘自治告警 | 中心 Alertmanager | 边缘 vmalert + 本地 Alertmanager | 断网场景下仍需本域告警通知 |
 
 > **选型原则**：MVP 阶段优先使用最轻量、最易本地运行的组合，所有生产级组件通过标准接口（Remote Write、Service Discovery、HTTP API）逐步替换，不侵入现有控制面代码。
 

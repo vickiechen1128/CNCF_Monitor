@@ -37,6 +37,7 @@
 | 一级功能 | 二级功能 | Prometheus 原生支持 | MetricCenter 需做 | 后端难度 | 前端难度 | 实施层 |
 |----------|----------|---------------------|-------------------|----------|----------|--------|
 | 资源类型管理 | 主机/中间件/应用服务类型 | ❌ 无 | 自研类型枚举 + 差异化字段 | 中 | 低 | L4 |
+| 网域管理 | 网域 CRUD / Token 管理 | ❌ 无 | 自研表 + Token 生成 | 低 | 低 | L4 |
 | 主机资源管理 | CRUD / Excel 导入 | ❌ 无 | 自研表 + Excel 解析 | 中 | 低 | L4 |
 | 中间件资源管理 | CRUD / Excel 导入 | ❌ 无 | 自研表 + 类型差异化 | 中 | 中 | L4 |
 | 应用服务资源管理 | CRUD / 拨测 URL | ⚠️ Blackbox 做探测 | 自研表 + 生成 blackbox 配置 | 中 | 中 | L2/L4 |
@@ -55,6 +56,7 @@
 | 拨测配置管理 | Blackbox 配置生成 | ✅ Blackbox Exporter | 生成 blackbox scrape_config | 中 | 中 | L2 |
 | 采集目标管理 | 目标列表 / 状态 | ✅ `/api/v1/targets` | 代理 API + 前端展示 | 低 | 低 | L1 |
 | 指标元数据管理 | 指标名 / 类型 / HELP | ✅ `/api/v1/metadata` | 代理 + 缓存 + 前端 | 低 | 低 | L1/L3 |
+| 边缘采集器类型 | vmagent / prometheus-agent 配置 | ⚠️ 生态组件 | 按网域配置 agent_type，生成对应启动参数 | 中 | 低 | L2/L4 |
 
 > **关键判断**：采集 Job、标签模板、拨测配置都是 **L2 配置生成层**，Prometheus/Blackbox 后端已完全支持，MetricCenter 只需把 UI 操作翻译成配置。
 
@@ -62,9 +64,11 @@
 
 | 一级功能 | 二级功能 | Prometheus 原生支持 | MetricCenter 需做 | 后端难度 | 前端难度 | 实施层 |
 |----------|----------|---------------------|-------------------|----------|----------|--------|
-| 配置生成 | 生成 prometheus.yml | ⚠️ Prometheus 解析但不生成 | 组装全局配置 + scrape_configs | 中 | 中 | L2 |
+| 配置生成 | 生成 prometheus.yml | ⚠️ Prometheus 解析但不生成 | 按网域组装配置 + scrape_configs + external_labels | 中 | 中 | L2 |
+| 按网域生成配置 | 每个网域独立配置包 | ❌ 无 | 按 network_domain_id 分组生成 | 中 | 低 | L3 |
 | 配置校验 | YAML/语义校验 | ✅ `promtool check config` | 调用 promtool 或自行校验 | 低 | 低 | L1/L2 |
 | 配置下发 | SIGHUP / /-/reload | ✅ 原生支持热重载 | 写文件 + 触发 reload | 低 | 低 | L1 |
+| 配置拉取 | Edge Sync Agent 轮询拉取 | ❌ 无 | 配置包接口 + Token 鉴权 + 304 缓存 | 中 | 低 | L4 |
 | 配置版本 | 历史 / 对比 / 回滚 | ❌ 无 | 自研版本表 + Diff 逻辑 | 中 | 中 | L4 |
 | 配置审计 | 变更记录 | ❌ 无 | 审计日志表 | 低 | 低 | L4 |
 
@@ -113,6 +117,18 @@
 | 数据存储管理 | TSDB 状态 / Remote Write | ✅ status API / config | 代理 + 配置 | 低 | 低 | L1/L2 |
 | 审计日志 | 操作记录 | ❌ 无 | 自研审计表 | 中 | 低 | L4 |
 
+### 2.8 网域与边缘 Agent 管理
+
+| 一级功能 | 二级功能 | Prometheus 原生支持 | MetricCenter 需做 | 后端难度 | 前端难度 | 实施层 |
+|----------|----------|---------------------|-------------------|----------|----------|--------|
+| 网域管理 | 网域 CRUD / Token | ❌ 无 | 自研表 + Token 生成 | 低 | 低 | L4 |
+| 边缘 Agent 状态 | 在线/离线 / WAL 积压 | ❌ 无 | 心跳接收 + 状态计算 | 中 | 低 | L4 |
+| 配置拉取接口 | Edge Sync Agent 下载配置包 | ❌ 无 | 配置包生成 + Token 鉴权 | 中 | 低 | L4 |
+| 边缘 Agent 告警 | 失联告警 | ❌ 无 | 心跳超时判断 + 告警触发 | 低 | 低 | L4 |
+| mTLS 证书管理 | 证书下发与轮转 | ❌ 无 | 证书管理 + Agent 热加载协议 | 高 | 低 | L4 |
+
+> **关键判断**：网域与边缘 Agent 是 MetricCenter 支撑弱网/物理隔离场景的**完全自研域**，核心挑战在于配置拉取协议、Token 安全和边缘采集器选型适配。
+
 ---
 
 ## 3. 资源管理最小化设计
@@ -122,7 +138,7 @@
 ```go
 type CMDBProvider interface {
     Name() string
-    ListResources(ctx context.Context, filter Filter) ([]Resource, error)
+    ListResources(ctx context.Context, resourceType ResourceType, networkDomainID string, filter Filter) ([]Resource, error)
 }
 ```
 
