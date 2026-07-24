@@ -44,7 +44,7 @@ export function HomePage() {
 
   return (
     <MainLayout>
-      <Card title="系统状态" className="status-card">
+      <Card title="系统状态（PR 预览）" className="status-card">
         {loading && <Spin tip="加载中..." />}
         {error && <Alert message="请求失败" description={error} type="error" showIcon />}
         {status && (
