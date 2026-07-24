@@ -8,12 +8,24 @@ interface Status {
   mode: string
 }
 
+const STATUS_MOCK: Status = {
+  version: 'dev-preview',
+  mode: 'static-preview',
+}
+
 export function HomePage() {
   const [status, setStatus] = useState<Status | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // Vercel 静态预览环境没有后端，使用 mock 状态
+    if (import.meta.env.VITE_STATIC_PREVIEW === 'true') {
+      setStatus(STATUS_MOCK)
+      setLoading(false)
+      return
+    }
+
     apiClient
       .get<Status>('/api/v1/status')
       .then((res) => {
