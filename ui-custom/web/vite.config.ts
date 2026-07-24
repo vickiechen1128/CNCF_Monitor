@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  // GitHub Pages 仓库基础路径；分支子目录部署时可通过 --base 覆盖
-  base: '/CNCF_Monitor/',
+  // GitHub Pages 用 /CNCF_Monitor/，Vercel/本地开发用 /
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [react()],
   server: {
     port: 5173,
