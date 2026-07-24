@@ -77,8 +77,11 @@
 | **应用服务资源管理** | 应用服务列表、拨测 URL、协议、端点、Excel 导入 | P0 |
 | **展示字段控制** | 按资源类型固定展示列、默认排序 | P0 |
 | **资源状态管理** | online / offline / maintenance 状态维护 | P0 |
+| **网域管理** | 网域注册、Token 管理、边缘 Agent 关联、默认网域 `default` | P0 |
 | **CMDB 接入源** | Excel 接入（MVP）、HTTP API、Nacos、Kubernetes、腾讯蓝鲸（未来） | P1/P2 |
 | **资源关系** | 应用-实例-集群关系、依赖拓扑（未来） | P2 |
+
+> **网域化说明**：所有资源必须归属到一个网域。MVP 阶段系统预置 `default` 网域，多网域场景下按 `network_domain_id` 隔离资源视图与配置。
 
 ---
 
@@ -88,9 +91,10 @@
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **采集 Job 管理** | Job 创建/编辑、scrape_interval、scrape_timeout、metrics_path、scheme、启用/禁用 | P0 |
+| **采集 Job 管理** | Job 创建/编辑、所属网域、scrape_interval、scrape_timeout、metrics_path、scheme、启用/禁用 | P0 |
 | **标签模板管理** | CMDB 字段映射、Prometheus 内置字段、组合字段、transform 规则、按资源类型区分 | P0 |
-| **目标筛选规则** | 按资源类型、env、app、cluster 等字段筛选、多条件组合、预览匹配结果 | P0 |
+| **目标筛选规则** | 按网域、资源类型、env、app、cluster 等字段筛选、多条件组合、预览匹配结果 | P0 |
+| **边缘采集器类型** | 按网域配置 `vmagent`（默认）或 `prometheus-agent` | P1/P2 |
 | **采集模板管理** | 预置模板（node-exporter、mysqld-exporter、simple-agent、blackbox）、自定义模板 | P0/P1 |
 | **拨测配置管理** | Blackbox Exporter 配置生成、HTTP/TCP 拨测目标、probe 模板 | P0 |
 | **采集目标管理** | 目标列表、目标状态、目标详情、临时目标（用于验证） | P1 |
@@ -106,9 +110,11 @@
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **配置生成** | 根据资源+Job+标签模板自动生成 `prometheus.yml`、实时预览 | P0 |
+| **配置生成** | 根据网域+资源+Job+标签模板生成 `prometheus.yml`、实时预览 | P0 |
+| **按网域生成配置** | 每个网域生成独立配置包，自动注入 `external_labels.network_domain` | P1 |
 | **配置校验** | YAML 语法校验、Prometheus 语义校验（调用 `promtool`）、冲突检测 | P0/P1 |
-| **配置下发** | 手动下发、SIGHUP / `/-/reload` / 文件监听 | P0 |
+| **配置下发** | 单网域：手动下发、SIGHUP / `/-/reload` / 文件监听 | P0 |
+| **配置拉取** | 多网域：Edge Sync Agent 轮询拉取本域配置包并触发 reload | P1 |
 | **配置版本** | 下发历史、版本对比、一键回滚 | P1 |
 | **配置审计** | 变更记录、操作人、Diff 展示 | P2 |
 
@@ -166,9 +172,42 @@
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
 | **租户与权限** | 用户管理、角色、权限、资源隔离 | P2 |
-| **数据存储管理** | TSDB 状态、Retention、Remote Write 配置 | P2 |
+| **数据存储管理** | TSDB 状态、Retention、Remote Write 配置、中心时序存储（VictoriaMetrics） | P2 |
 | **审计日志** | 操作记录、变更追踪、登录日志 | P2 |
 | **平台配置** | 全局 scrape 默认值、通知默认配置 | P2 |
+
+---
+
+### 08 网域与边缘管理（Network Domain & Edge Agent）
+
+> 对应多网域物理隔离场景下的边缘节点生命周期管理，解决"隔离网域如何接入中心"的问题。v0.2 起提升为 P0。
+
+| 一级功能 | 二级功能 | MVP 范围 |
+|----------|----------|----------|
+| **网域管理** | 网域注册、编辑、删除、Token 生成与重置、默认网域 `default` | P0 |
+| **Token 鉴权** | Edge Sync Agent 使用 Token 拉取配置和推送心跳 | **P0（v0.2）** |
+| **边缘 Agent 管理** | 注册边缘 Agent、查看 Agent 类型（vmagent / prometheus-agent）、版本、状态 | **P0（v0.2）** |
+| **心跳与在线状态** | 接收 Edge Sync Agent 心跳，展示最后在线时间、配置拉取时间 | **P0（v0.2）** |
+| **配置同步状态** | 展示中心配置版本与边缘实际生效版本是否一致 | **P0（v0.2）** |
+| **边缘诊断看板** | 心跳 RTT、WAL 积压、Remote Write 队列状态、最近错误 | P1（v0.2） |
+| **边缘 Agent 告警** | 边缘 Agent 失联超过阈值时触发"采集端失联"告警 | **P0（v0.2）** |
+| **证书与安全管理** | mTLS 证书下发、Token 轮换、拉取接口鉴权 | P2 |
+| **边缘自治告警** | 边缘本地 vmalert + Alertmanager 规则下发（未来阶段） | P2 |
+
+---
+
+### 09 监控源管理（Monitoring Source Registry）
+
+> 对应异构监控汇聚场景，解决"客户现场已有 Prometheus / Zabbix / 云监控，如何不替换而统一汇聚"的问题。属于集成模式，通过特性开关控制。
+
+| 一级功能 | 二级功能 | MVP 范围 |
+|----------|----------|----------|
+| **监控源登记册** | 注册/编辑/删除监控源，指定类型、归属网域、接入方式 | P0（集成模式） |
+| **外部 Prometheus 接入** | 生成 Remote Write 配置片段，客户 Prometheus 借道汇聚 | P0（集成模式） |
+| **Ingestion Gateway** | 统一 Remote Write 接收点、Token 鉴权、标签注入、限流 | P0（集成模式） |
+| **接入源健康状态** | 最后推送时间、推送速率、错误率、离线告警 | P1（集成模式） |
+| **Zabbix Adapter 接入** | 通过 zabbix_exporter 转换接入 | P2（集成模式） |
+| **云监控 Adapter 接入** | 通过 cloud-monitor-puller 拉取接入 | P2（集成模式） |
 
 ---
 
@@ -176,13 +215,17 @@
 
 | 模块 | MVP 必须（P0/P1） | MVP 不做（P2/未来） |
 |------|-------------------|---------------------|
-| 资源管理 | 三类资源固定字段、Excel 导入 | 动态字段、腾讯蓝鲸接入 |
+| 资源管理 | 三类资源固定字段、Excel 导入、默认网域 `default` | 动态字段、腾讯蓝鲸接入 |
 | 指标管理 | 采集 Job、标签模板、目标筛选、采集模板、拨测配置 | 高级 Relabel、Exporter 市场 |
-| 配置中心 | 配置生成、预览、手动下发 | 自动下发、版本回滚 |
+| 配置中心 | 配置生成（兼容单网域）、预览、手动下发 | 自动下发、版本回滚、Edge Sync Agent 拉取 |
 | 指标查询 | 基础 PromQL 查询、结果展示 | 复杂 Dashboard、图表库 |
 | 告警规则 | 告警状态查看 | 规则 UI、Recording Rules UI、通知渠道 |
 | 采集诊断 | 目标状态列表、拨测结果 | 深度诊断、覆盖率分析 |
+| 网域与边缘管理 | 网域管理、默认网域 | 边缘 Agent 在线状态、Edge Sync Agent、边缘自治告警 |
+| 监控源管理 | 无（集成模式关闭） | 外部 Prometheus / Zabbix / 云监控接入（集成模式 P0） |
 | 平台管理 | 无 | 多租户、审计 |
+
+> **说明**：MVP 阶段网域与边缘管理、监控源管理的功能处于关闭或隐藏状态，数据模型已预留。v0.2 开启多站点模式后，网域与边缘管理功能激活；集成项目中开启集成模式后，监控源管理功能激活。
 
 ---
 
@@ -224,6 +267,8 @@
 | 配置中心 | [Module_07_Config_Management.md](Modules/Module_07_Config_Management.md) |
 | 告警规则管理 | [Module_08_Alerting_Rule_Management.md](Modules/Module_08_Alerting_Rule_Management.md) |
 | 采集状态与诊断 | [Module_01_Metric_Collection_Center.md](Modules/Module_01_Metric_Collection_Center.md) |
+| 网域与边缘管理 | [Module_09_Network_Domain_and_Edge_Agent.md](Modules/Module_09_Network_Domain_and_Edge_Agent.md) |
+| 监控源管理 | [Module_10_Monitoring_Source_Registry.md](Modules/Module_10_Monitoring_Source_Registry.md) |
 | 系统与平台管理 | [Module_06_Multi_Tenant.md](Modules/Module_06_Multi_Tenant.md) |
 
 > **说明**：MVP 阶段，Module 07 在实现资源管理与配置中心的同时，也承接了 Module 01 中指标管理相关配置（采集 Job、标签模板、拨测配置等）的编辑入口。

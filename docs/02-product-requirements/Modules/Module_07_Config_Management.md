@@ -47,6 +47,7 @@
 | **应用服务资源管理** | 应用服务列表、拨测 URL、CRUD、Excel 导入 | P0 |
 | **展示字段控制** | 按资源类型固定展示列、默认排序 | P0 |
 | **资源状态管理** | online / offline / maintenance 状态维护 | P0 |
+| **网域（Network Domain）管理** | 网域注册、Token 生成、边缘 Agent 心跳关联 | P0（MVP 至少一个默认网域） |
 | **CMDB 接入源** | Excel 接入（MVP）、HTTP API、Nacos、Kubernetes、腾讯蓝鲸（未来） | P1/P2 |
 | **资源关系** | 应用-实例-集群关系、依赖拓扑（未来） | P2 |
 
@@ -145,6 +146,7 @@ const (
 |------|------|------|------|
 | resource_id | string | ✅ | 唯一标识 |
 | resource_type | ResourceType | ✅ | host / middleware / application |
+| network_domain_id | string | ✅ | 所属网域 ID；MVP 默认值为 `default` |
 | app_name | string | ✅ | 应用名 → 映射为 `app` label |
 | env | string | ✅ | 环境 → 映射为 `env` label |
 | cluster | string | ✅ | 集群 → 映射为 `cluster` label |
@@ -153,7 +155,27 @@ const (
 | created_at | datetime | ✅ | 创建时间 |
 | updated_at | datetime | ✅ | 更新时间 |
 
-### 5.3 主机资源（Host）
+### 5.2.1 网域（NetworkDomain）
+
+网域是 MetricCenter 支持多网域物理隔离场景的核心维度。每个资源、Job、采集配置都必须归属到一个网域。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| id | string | ✅ | 网域唯一标识，如 `default`、`gov-cloud-a` |
+| name | string | ✅ | 网域展示名 |
+| description | string | ❌ | 网域描述 |
+| token | string | ✅ | Edge Sync Agent 拉取配置时的认证 Token |
+| agent_type | enum | ✅ | 边缘采集器类型：`vmagent`（默认）/ `prometheus-agent` |
+| remote_write_url | string | ✅ | 该网域 Agent Remote Write 目标地址 |
+| status | enum | ✅ | online / offline / unknown |
+| last_heartbeat | datetime | ❌ | 边缘 Agent 最后心跳时间 |
+| agent_version | string | ❌ | 边缘 Agent 版本 |
+| created_at | datetime | ✅ | 创建时间 |
+| updated_at | datetime | ✅ | 更新时间 |
+
+> **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。
+
+### 5.4 主机资源（Host）
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -329,19 +351,19 @@ MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 **主机导入模板列**
 
 ```
-hostname | instance_ip | os_type | app_name | env | cluster | owner | status
+network_domain | hostname | instance_ip | os_type | app_name | env | cluster | owner | status
 ```
 
 **中间件导入模板列**
 
 ```
-middleware_type | instance_ip | port | version | app_name | env | cluster | owner | status
+network_domain | middleware_type | instance_ip | port | version | app_name | env | cluster | owner | status
 ```
 
 **应用服务导入模板列**
 
 ```
-service_name | health_check_url | protocol | endpoint | port | app_name | env | cluster | owner | status
+network_domain | service_name | health_check_url | protocol | endpoint | port | app_name | env | cluster | owner | status
 ```
 
 ### 6.2 数据校验
@@ -349,6 +371,7 @@ service_name | health_check_url | protocol | endpoint | port | app_name | env | 
 | 校验项 | 规则 |
 |--------|------|
 | 必填项 | 检查资源类型对应的必填字段 |
+| 网域存在性 | `network_domain` 必须对应已存在的 `NetworkDomain.id`；为空时自动填充为 `default` |
 | IP 格式 | `instance_ip` 必须符合 IPv4 格式 |
 | 端口范围 | `port` 必须在 1 ~ 65535 |
 | URL 格式 | `health_check_url` 必须符合 HTTP/TCP URL 格式 |
@@ -389,6 +412,9 @@ service_name | health_check_url | protocol | endpoint | port | app_name | env | 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    network_domain: 'default'
+    datacenter: 'default-dc'
 
 scrape_configs:
   - job_name: 'node-exporter-prod'
@@ -430,11 +456,21 @@ scrape_configs:
 
 ### 7.3 生成规则
 
-1. 按 `job_name` 分组
-2. 每个 Job 下，根据筛选规则查询对应资源类型的资源
-3. 对每个资源，按标签模板生成 labels
-4. 将资源组合为 `static_configs`
-5. Blackbox 拨测配置单独生成，指向 Blackbox Exporter
+1. 按 `network_domain_id` 分组资源与 Job。
+2. 每个网域生成一份独立的 `prometheus.yml`，并注入该网域的 `external_labels`：
+   ```yaml
+   global:
+     external_labels:
+       network_domain: '<network_domain_id>'
+       datacenter: '<network_domain.datacenter 或默认值>'
+   ```
+3. 在每个网域配置内，按 `job_name` 分组。
+4. 每个 Job 下，根据筛选规则查询该网域内对应资源类型的资源。
+5. 对每个资源，按标签模板生成 labels。
+6. 将资源组合为 `static_configs`。
+7. Blackbox 拨测配置按网域分组生成，指向该网域部署的 Blackbox Exporter。
+
+> **单网域 MVP**：系统只有 `default` 网域时，生成逻辑退化为一份全局 `prometheus.yml`，与现有行为保持一致。
 
 ---
 
@@ -476,13 +512,15 @@ code_path: "platform/examples/simple-agent/"
 
 | 方式 | 说明 | 适用场景 |
 |------|------|----------|
-| SIGHUP | 向 Prometheus 进程发送 SIGHUP 信号 | Prometheus 与平台同进程管理 |
-| HTTP /-/reload | 调用 `POST /-/reload` | Prometheus 独立进程，需启用 `--web.enable-lifecycle` |
+| SIGHUP | 向 Prometheus 进程发送 SIGHUP 信号 | 单网域 MVP，Prometheus 与平台同进程管理 |
+| HTTP /-/reload | 调用 `POST /-/reload` | 单网域 MVP，Prometheus 独立进程，需启用 `--web.enable-lifecycle` |
+| Edge Sync Agent 拉取 | 边缘 Agent 定期向 MetricCenter 轮询本域配置包 | 多网域物理隔离场景 |
 | 文件监听 | Prometheus 配置由 ConfigMap/文件挂载管理 | K8s 环境 |
 
-MVP 推荐：**SIGHUP 或 HTTP /-/reload**
+- **MVP 推荐**：**SIGHUP 或 HTTP /-/reload**（默认网域 `default`，与现有行为一致）。
+- **多网域场景**：必须采用 **Edge Sync Agent 拉取** 模式，中心无法直接访问隔离网域内的 Agent。
 
-### 9.2 下发流程
+### 9.2 单网域下发流程（MVP）
 
 1. 生成新的 `prometheus.yml`
 2. 备份旧配置到 `prometheus.yml.bak`
@@ -490,6 +528,30 @@ MVP 推荐：**SIGHUP 或 HTTP /-/reload**
 4. 触发 reload
 5. 验证 reload 是否成功（调用 `/-/healthy` 或 `/-/ready`）
 6. 记录下发历史
+
+### 9.3 多网域配置拉取流程（v0.2+）
+
+1. 配置生成器按 `network_domain_id` 生成多份 `prometheus.<network_domain_id>.yml`。
+2. MetricCenter 暴露配置拉取接口：
+   ```
+   GET /api/v2/platform/edge/config?network_domain=<id>
+   Header: Authorization: Bearer <NetworkDomain.token>
+   ```
+3. Edge Sync Agent 定期（默认 30s）带上 Token 和 `network_domain_id` 轮询该接口。
+4. 若配置版本有更新，Edge Sync Agent 下载配置并写入本地 `prometheus.yml`。
+5. Edge Sync Agent 调用本地采集器的 `/-/reload`（vmagent 或 Prometheus Agent Mode 均支持）。
+6. 中心记录该网域的最后一次配置拉取时间，用于 Agent 在线状态判断。
+
+### 9.4 配置包内容
+
+每个网域的配置包至少包含：
+
+```
+edge-config-<network_domain_id>.zip
+├── prometheus.yml          # 本域 scrape_configs
+├── blackbox.yml            # 本域 Blackbox 探测模块（可选）
+└── metadata.json           # 配置版本、生成时间、agent_type 提示
+```
 
 ---
 
@@ -500,7 +562,7 @@ MVP 推荐：**SIGHUP 或 HTTP /-/reload**
 ```go
 type CMDBProvider interface {
     Name() string
-    ListResources(ctx context.Context, resourceType ResourceType, filter Filter) ([]Resource, error)
+    ListResources(ctx context.Context, resourceType ResourceType, networkDomainID string, filter Filter) ([]Resource, error)
 }
 ```
 
@@ -546,15 +608,19 @@ MVP 实现：
 ## 13. 验收标准
 
 - [ ] 可以维护主机、中间件、应用服务三类资源
-- [ ] 可以按资源类型下载固定列的 Excel 模板
-- [ ] 可以上传 Excel 并导入到对应资源类型
-- [ ] 导入时能够基于资源类型校验必填字段并返回错误报告
+- [ ] 系统初始化后存在默认网域 `default`，单网域场景下用户无感知
+- [ ] 可以按资源类型下载固定列的 Excel 模板，模板包含 `network_domain` 列
+- [ ] 可以上传 Excel 并导入到对应资源类型；未填写 `network_domain` 时自动归属到 `default`
+- [ ] 导入时能够基于资源类型校验必填字段，并校验 `network_domain` 存在性
 - [ ] 可以创建/编辑标签模板，且标签模板按资源类型区分
 - [ ] 标签模板字段来源包含 CMDB 字段、Prometheus 内置字段和组合字段
 - [ ] 可以查看预置采集模板（node-exporter、mysqld-exporter、simple-agent、blackbox）
 - [ ] 可以创建/编辑采集 Job 并设置筛选条件
 - [ ] 可以为应用服务配置 Blackbox 拨测
-- [ ] 可以预览生成的 `prometheus.yml`
-- [ ] 可以一键下发配置到 Prometheus
-- [ ] 下发后 Prometheus 的 targets 正确更新
+- [ ] 可以预览生成的 `prometheus.yml`，单网域 MVP 行为与现有逻辑一致
+- [ ] 多网域场景下，配置生成器按网域输出独立的 `prometheus.<network_domain_id>.yml`
+- [ ] 多网域场景下，生成的配置自动注入 `external_labels.network_domain`
+- [ ] 可以一键下发配置到默认网域的 Prometheus（MVP）
+- [ ] 多网域场景下，Edge Sync Agent 可通过 Token 拉取本域配置包并触发 reload
+- [ ] 下发后 Prometheus / vmagent 的 targets 正确更新
 - [ ] 生成的 labels 与资源字段及标签模板配置保持一致

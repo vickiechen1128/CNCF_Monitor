@@ -23,6 +23,8 @@
 - OPS-09：未来通过 UI 创建/编辑告警规则
 - OPS-10：未来配置告警静默与通知接收人
 - ARCH-06：统一管理告警规则版本与下发
+- ARCH-09：按网域配置告警规则（未来）
+- ARCH-10：配置中心/边缘告警规则求值范围（未来）
 
 ---
 
@@ -30,13 +32,17 @@
 
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
-| **告警状态查看** | 代理 Prometheus `/api/v1/alerts`，展示当前触发的告警列表 | P1 |
+| **告警状态查看** | 代理 Prometheus `/api/v1/alerts`，展示当前触发的告警列表，支持按网域筛选 | P1 |
 | **告警规则编辑** | UI 化编辑 Alerting Rules：PromQL 条件、`for` 持续时间、告警级别、labels、annotations | P2 |
+| **规则求值范围（Scope）** | 规则求值位置：`central`（中心）/ `edge`（边缘自治）/ `both`（中心+边缘） | P2 |
+| **按网域下发规则** | 规则按 `network_domain_id` 分组下发，边缘网域仅下发 `edge`/`both` 规则 | P2 |
 | **Recording Rules** | 预聚合规则 CRUD、启用/禁用 | P2 |
 | **规则组管理** | 分组（group）、评估间隔、规则排序 | P2 |
 | **静默管理** | 创建/删除静默规则（调用 Alertmanager API） | P2 |
 | **通知渠道** | 飞书/钉钉/邮件/企业微信 Webhook、通知模板、告警收敛 | P2 |
 | **告警升级** | 升级策略、值班组、告警降噪 | P2 |
+
+> **第一阶段决策**：MVP ~ v0.3 只实现 `scope=central` 的中心告警求值；`edge` / `both` 在边缘自治告警阶段实现。
 
 ---
 
@@ -95,10 +101,13 @@ receivers:
 |------|------|------|
 | id | string | 唯一标识 |
 | group_id | string | 所属规则组 |
+| network_domain_id | string | 所属网域 ID；`default` 表示默认网域，`*` 表示全局规则 |
 | alert_name | string | 告警名称 |
 | expr | string | PromQL 表达式 |
 | duration | duration | `for` 持续时间 |
 | severity | string | 告警级别：critical / warning / info |
+| scope | enum | 求值范围：`central` / `edge` / `both`；第一阶段默认 `central` |
+| inhibitable | bool | 是否可被网域离线抑制规则抑制；默认 `true`（针对 up/down、网络类告警），资源类告警建议 `false` |
 | labels | map | 附加标签 |
 | annotations | map | 告警标题与详情模板 |
 | enabled | bool | 是否启用 |
@@ -109,6 +118,7 @@ receivers:
 |------|------|------|
 | id | string | 唯一标识 |
 | name | string | 规则组名称 |
+| network_domain_id | string | 所属网域 ID；同组规则归属同一网域 |
 | interval | duration | 评估间隔 |
 | rules | []AlertingRule / []RecordingRule | 规则列表 |
 
@@ -142,6 +152,39 @@ receivers:
 | type | enum | feishu / dingtalk / email / wecom / webhook |
 | config | map | 渠道特定配置（Webhook URL、邮箱地址等） |
 
+### 5.6 告警抑制引擎（Alert Inhibition Engine）
+
+当某个网域整体离线时，该网域内数百台主机的 `up=0` 告警会瞬间形成告警风暴。MetricCenter 通过自动生成 Alertmanager `inhibit_rules` 来抑制此类次生告警。
+
+**抑制规则生成逻辑：**
+
+```yaml
+inhibit_rules:
+  - source_matchers:
+      - alertname = "EdgeSiteOffline"
+    target_matchers:
+      - network_domain = "gov-cloud-a"
+      - inhibitable = "true"
+    equal:
+      - network_domain
+```
+
+**规则说明：**
+
+- **源告警（Source）**：`EdgeSiteOffline`，由 Module_09 在边缘 Agent 失联时触发。
+- **目标告警（Target）**：同一 `network_domain` 下且 `inhibitable=true` 的告警。
+- **抑制条件**：`network_domain` 必须相同。
+- **抑制范围**：只抑制可达性/网络类告警，不抑制资源类告警（如 `disk_full`、`cpu_high`）。
+
+**设计原则：**
+
+| 告警类型 | `inhibitable` 建议 | 示例 |
+|----------|-------------------|------|
+| 目标不可达 / 服务宕机 | `true` | `up == 0`、`probe_success == 0` |
+| 网络连接失败 | `true` | `prometheus_target_scrape_exceeded_sample_limit` |
+| 资源使用率高 | `false` | `disk_full`、`cpu_high`、`memory_high` |
+| 业务自定义告警 | `false` | 应用层 SLA 告警 |
+
 ---
 
 ## 6. 与 Alertmanager 的边界
@@ -150,6 +193,7 @@ receivers:
 |------|-------------------|-------------------|
 | 告警规则求值 | 生成/编辑规则 | Prometheus Rule Manager 执行 |
 | 告警收敛 | 未来通过 UI 配置 | 原生 group、inhibit |
+| **告警抑制规则生成** | **自动生成 `inhibit_rules`（网域离线场景）** | 原生执行抑制 |
 | 静默 | 未来调用 Alertmanager API | 原生 silence 管理 |
 | 通知路由 | 未来生成 alertmanager.yml | 原生 route、receiver |
 | 通知发送 | 可扩展 Webhook 接收器 | 飞书/钉钉/邮件等实际发送 |
@@ -169,7 +213,12 @@ receivers:
 ## 8. 验收标准
 
 - [ ] MVP 阶段可通过查询中心查看当前告警状态
+- [ ] 告警状态列表支持按网域（`network_domain`）筛选
 - [ ] v1.0 阶段可通过 UI 创建/编辑 Alerting Rules 并生成 `rules.yml`
+- [ ] Alerting Rule 数据模型包含 `network_domain_id`、`scope` 与 `inhibitable` 字段
+- [ ] 生成的 `rules.yml` 按网域分组，第一阶段默认 `scope=central`
+- [ ] 网域离线时，自动生成 Alertmanager `inhibit_rules` 抑制该网域的 `inhibitable=true` 告警
+- [ ] 资源类告警（如 disk_full、cpu_high）默认 `inhibitable=false`，不被网域离线抑制
 - [ ] v1.0 阶段可通过 UI 创建/编辑 Recording Rules
 - [ ] v1.0 阶段可管理规则组与评估间隔
 - [ ] v1.0 阶段可通过 UI 创建/删除静默规则
