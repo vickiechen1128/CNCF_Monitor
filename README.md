@@ -162,7 +162,21 @@ make dev-ui
 
 > 注意：需先启动 MetricCenter 控制面，前端状态卡片才能正常显示。
 
-### 4.3 编译并运行 simple-agent 示例
+### 4.4 PR 预览环境（Vercel）
+
+本项目已接入 Vercel，每个 `feat/module-XX` PR 都会自动生成独立预览链接：
+
+1. 开发推送 `feat/module-XX` 分支并创建 PR 到 `develop`
+2. Vercel Bot 在 PR 评论区自动回复 Preview 链接
+3. 产品经理/业务方点击 `Preview` 链接即可在线验收
+
+Vercel 仅部署 `ui-custom/web/` 前端静态资源。预览环境下：
+- 默认启用 `VITE_STATIC_PREVIEW=true`，前端使用 mock 状态
+- 若需联调真实后端，可在 Vercel Environment Variables 中配置 `VITE_API_BASE_URL=https://your-test-api.example.com`
+
+> 详细配置见 `ui-custom/web/vercel.json` 和 [`docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md`](docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)。
+
+### 4.5 编译并运行 simple-agent 示例
 
 `simple-agent` 用于验证「CMDB 字段 → Prometheus Label → 配置下发」的完整链路。
 
@@ -174,7 +188,7 @@ cd platform/examples/simple-agent
 
 运行后访问 http://localhost:9100/metrics 查看指标。
 
-### 4.4 使用 Docker 启动 Prometheus（可选）
+### 4.6 使用 Docker 启动 Prometheus（可选）
 
 如果你只想查看 Prometheus 原生界面，可直接使用 Docker：
 

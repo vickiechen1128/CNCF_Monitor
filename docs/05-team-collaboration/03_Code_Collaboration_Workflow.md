@@ -462,11 +462,29 @@ PR 描述必须包含：
 - [ ] chenrt（最终审批）
 ```
 
-GitHub Actions 自动部署预览环境后，Bot 在 PR 评论区回复：
+推送后 Vercel 自动部署该分支的 Preview 环境，Vercel Bot 在 PR 评论区回复：
 
 ```
-🚀 预览链接：https://metric-center-git-feat-module-XX-chenrt.vercel.app
+Project        Deployment   Actions         Updated
+---            ---          ---             ---
+cncf-monitor   Ready        Preview Comment Jul 24, 2026
 ```
+
+点击 `Preview` 即可打开当前 PR 的独立预览链接，例如：
+
+```
+https://cncf-monitor-git-feat-module-XX-chenrt-team.vercel.app
+```
+
+> **Vercel 配置要点**（已在本项目配置完成）：
+> - Framework Preset: `Other`
+> - Root Directory: `ui-custom/web`
+> - Build Command: `tsc && vite build --base /`
+> - Output Directory: `dist`
+> - Install Command: `pnpm install`
+> - Environment Variables: `VITE_STATIC_PREVIEW=true`（Production + Preview）
+>
+> 相关配置见 `ui-custom/web/vercel.json`。
 
 ***
 
@@ -477,9 +495,9 @@ GitHub Actions 自动部署预览环境后，Bot 在 PR 评论区回复：
 | 角色      | 项目角色                 | 验收动作              | 验收重点                 |
 | ------- | -------------------- | ----------------- | -------------------- |
 | zhangwq | SRE 工程师 / 工程质量 Owner | 代码 Review + 提交前验证 | 安全、正确性、可维护性、可测试性     |
-| zhaohy  | 业务需求提出方 / 验收者        | 点击预览链接验收          | 业务逻辑、一线操作习惯、是否解决实际问题 |
-| guixm   | 业务架构师 / 需求共创者        | 点击预览链接验收          | 管理价值、战略方向            |
-| chenrt  | 项目整体负责人 / 产品 Owner   | 点击预览链接 + 查看 diff  | 产品符合度、架构一致性、合并决策     |
+| zhaohy  | 业务需求提出方 / 验收者        | 点击 Vercel Bot 的 `Preview` 链接验收 | 业务逻辑、一线操作习惯、是否解决实际问题 |
+| guixm   | 业务架构师 / 需求共创者        | 点击 Vercel Bot 的 `Preview` 链接验收 | 管理价值、战略方向            |
+| chenrt  | 项目整体负责人 / 产品 Owner   | 点击 Vercel Bot 的 `Preview` 链接 + 查看 diff | 产品符合度、架构一致性、合并决策     |
 
 ### 5.2 验收不通过处理
 

@@ -488,17 +488,35 @@ docs/04-execution-records/
 
 ### 9.2 推荐方案
 
-#### 方案 A：Vercel / Netlify（推荐，零配置）
+#### 方案 A：Vercel（推荐，已配置）
 
-适用于 `ui-custom/web/` 前端项目。
+适用于 `ui-custom/web/` 前端项目。本项目已接入 Vercel，每次 `feat/module-XX` PR 自动生成独立预览链接。
 
-1. 在 Vercel/Netlify 中导入 GitHub 仓库
-2. 设置根目录为 `ui-custom/web/`
-3. 每次 `feat/module-XX` PR 自动生成预览链接，如：
-   ```
-   https://metric-center-git-feat-module-07-chenrt.vercel.app
-   ```
-4. Bot 自动在 PR 评论区回复链接
+**Vercel 项目配置**（路径：`Project Settings → Build and Deployment`）：
+
+| 配置项 | 值 | 说明 |
+|--------|-----|------|
+| Framework Preset | `Other` | 避免 Vercel 自动覆盖自定义构建命令 |
+| Root Directory | `ui-custom/web` | 前端代码根目录 |
+| Build Command | `tsc && vite build --base /` | 覆盖 `vite.config.ts` 中的 GitHub Pages base |
+| Output Directory | `dist` | Vite 默认构建输出 |
+| Install Command | `pnpm install` | 使用 pnpm 安装依赖 |
+| Environment Variables | `VITE_STATIC_PREVIEW=true` | 预览环境无后端，使用 mock 状态 |
+
+**对应代码文件**：
+- `ui-custom/web/vercel.json`：Vercel 构建配置 + 环境变量
+- `ui-custom/web/vite.config.ts`：`base: process.env.VITE_BASE_PATH || '/'`
+- `ui-custom/web/src/pages/home/HomePage.tsx`：根据 `VITE_STATIC_PREVIEW` 切换 mock / 真实后端
+
+**预览链接生成规则**：
+
+```
+https://cncf-monitor-git-feat-module-XX-chenrt-team.vercel.app
+```
+
+Vercel Bot 自动在 PR 评论区回复，验收方点击 `Preview` 链接即可打开。
+
+> **注意**：Vercel 是纯前端静态托管，不运行后端服务。若需同时预览后端 API，请参考方案 C 或使用独立部署的测试后端并配置 `VITE_API_BASE_URL`。
 
 #### 方案 B：GitHub Pages + Actions（低成本）
 

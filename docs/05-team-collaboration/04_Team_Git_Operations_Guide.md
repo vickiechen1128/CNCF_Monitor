@@ -259,9 +259,12 @@ git checkout develop
 ### 7.2 验收功能 PR（feat/module-XX）
 
 1. 打开 `feat/module-XX → develop` 的 Pull Request
-2. 查看 Bot 自动回复的预览链接
-3. 点击预览链接，对照 `docs/prototypes/module-XX/` 原型进行验收
-4. 在 PR 中评论问题或点击 `Approve`
+2. 在 PR 评论区找到 **Vercel Bot** 自动回复的预览链接
+3. 点击 `Preview` 链接打开预览环境（注意：不要点击 Vercel Dashboard Overview 中的 `Visit`，那是 Production Deployment，可能不是当前 PR 的代码）
+4. 对照 `docs/prototypes/module-XX/` 原型进行验收
+5. 在 PR 中评论问题或点击 `Approve`
+
+> **注意**：Vercel 仅部署前端静态资源，不托管后端服务。若 PR 涉及后端接口，预览环境会自动使用 mock 状态或指向独立部署的测试后端。具体行为由 `ui-custom/web/vercel.json` 和 `VITE_STATIC_PREVIEW` / `VITE_API_BASE_URL` 环境变量控制。
 
 ---
 
