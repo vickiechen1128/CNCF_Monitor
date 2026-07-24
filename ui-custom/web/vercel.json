@@ -2,5 +2,8 @@
   "buildCommand": "tsc && vite build --base /",
   "outputDirectory": "dist",
   "installCommand": "pnpm install",
-  "framework": null
+  "framework": null,
+  "env": {
+    "VITE_STATIC_PREVIEW": "true"
+  }
 }
