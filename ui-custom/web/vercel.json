@@ -1,9 +1,11 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "tsc && vite build --base /",
   "outputDirectory": "dist",
   "installCommand": "pnpm install",
   "framework": null,
   "env": {
     "VITE_STATIC_PREVIEW": "true"
-  }
+  },
+  "ignoreCommand": "if [[ \"$VERCEL_GIT_COMMIT_REF\" == design/* ]] || [[ \"$VERCEL_GIT_COMMIT_REF\" == feature/prototype-* ]]; then echo \"Skipping Vercel build for prototype branch $VERCEL_GIT_COMMIT_REF\"; exit 0; else exit 1; fi"
 }

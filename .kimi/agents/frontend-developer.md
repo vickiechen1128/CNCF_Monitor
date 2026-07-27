@@ -76,6 +76,7 @@ git checkout -b feat/module-XX
 - 模块完成后，由 zhangwq 发起 PR，最终由 chenrt 以 `--no-ff` 合并到 `develop`
 - 严禁 `feat/module-XX` 直接合入 `main`
 - 如需更新 PRD 或原型，必须先让 chenrt 重新走 `design/module-XX` 流程
+- **部署渠道**：`feat/module-XX` 的预览由 Vercel 自动生成；`design/*` 和 `feature/prototype-*` 的预览由 GitHub Pages 提供。不要在 `feat/module-XX` 中调整 `vercel.json` 的 `ignoreCommand`，该配置已在工程标准中统一约定。
 
 ### Step 4: 强制读取 PRD + 原型代码
 

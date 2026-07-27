@@ -70,6 +70,7 @@ git checkout -b design/module-XX
 - **禁止修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**
 - 设计完成后，由 chenrt 发起 `design/module-XX → develop` 的 PR，guixm、zhaohy review
 - chenrt 以 `--no-ff` 合并到 `develop` 后，该模块 PRD + 原型即冻结
+- **部署渠道**：`design/module-XX` 的预览统一走 GitHub Pages（`https://vickiechen1128.github.io/CNCF_Monitor/`），由 `.github/workflows/deploy-pages.yml` 在合并到 `develop` 后触发；Vercel 仅用于 `feat/module-XX`。若调整原型目录的 `vercel.json`，必须同步设置 `ignoreCommand` 跳过 `design/*` 分支。
 
 ---
 
