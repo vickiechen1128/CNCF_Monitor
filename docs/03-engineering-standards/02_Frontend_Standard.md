@@ -123,7 +123,30 @@ only-built-dependencies=esbuild
 
 GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互式 `pnpm approve-builds`。因此必须在 `pnpm-workspace.yaml` 中静态声明 `allowBuilds`，否则 CI 会报 `ERR_PNPM_IGNORED_BUILDS`。
 
-## 5. 提交前验证
+## 5. 部署渠道分工
+
+前端存在两条预览/部署渠道，必须严格区分：
+
+| 渠道 | 触发分支 | 用途 | 入口 |
+|------|----------|------|------|
+| GitHub Pages | `design/*`、`feature/prototype-*` | 产品经理/设计师预览原型 | `.github/workflows/deploy-prototype.yml`、`deploy-pages.yml` |
+| Vercel | `feature/module-*`、`develop`、`main` | 开发工程师提交模块功能预览 | Vercel Git 集成 |
+
+### 5.1 Vercel 忽略原型分支
+
+为避免设计/原型分支触发 Vercel 构建，在 `vercel.json` 中配置 `ignoreCommand`：
+
+```json
+{
+  "ignoreCommand": "if [[ \"$VERCEL_GIT_COMMIT_REF\" == design/* ]] || [[ \"$VERCEL_GIT_COMMIT_REF\" == feature/prototype-* ]]; then echo 'Skip prototype branch'; exit 0; else exit 1; fi"
+}
+```
+
+规则：返回 `0` 跳过构建，返回 `1` 继续构建。`VERCEL_GIT_COMMIT_REF` 为当前分支名。
+
+**Agent 必须遵守**：任何涉及 `design/*` 或 `feature/prototype-*` 分支的提交，不得让 Vercel 产生预览链接；原型预览统一走 GitHub Pages。
+
+## 6. 提交前验证
 
 除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问：
 
@@ -141,7 +164,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 - 如果模块新增/修改了页面，必须额外访问对应路由验证
 - 验证完成后必须停止服务，避免端口占用
 
-## 6. 与 Prometheus UI 的关系
+## 7. 与 Prometheus UI 的关系
 
 | 场景 | 方案 |
 |------|------|
