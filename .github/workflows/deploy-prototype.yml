@@ -32,15 +32,17 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: cd ui-custom/web && pnpm install --frozen-lockfile
+        run: cd docs/prototypes/mvp-demo && pnpm install --frozen-lockfile
 
       - name: Build prototype
-        run: cd ui-custom/web && pnpm build --base=/CNCF_Monitor/${{ github.ref_name }}/
+        run: cd docs/prototypes/mvp-demo && pnpm build
+        env:
+          VITE_BASE_PATH: /CNCF_Monitor/${{ github.ref_name }}/
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./ui-custom/web/dist
+          publish_dir: ./docs/prototypes/mvp-demo/dist
           destination_dir: ${{ github.ref_name }}
           keep_files: true

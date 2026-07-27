@@ -85,7 +85,45 @@ VITE_API_BASE_URL=http://localhost:8080/api
 
 ---
 
-## 4. 提交前验证
+## 4. 包管理与 workspace 配置
+
+### 4.1 pnpm v11 配置约束
+
+本项目前端使用 **pnpm v11**。pnpm v11 要求：
+
+1. 若存在 `pnpm-workspace.yaml`，**必须包含 `packages` 字段**，否则 `pnpm install` 会报错 `packages field missing or empty`。
+2. pnpm v11 把构建脚本白名单从 `onlyBuiltDependencies` 数组改为 **`allowBuilds` 字典**，且 `.npmrc` 中除 auth/registry 外的大部分设置不再生效（详见 [pnpm 11.x settings](https://pnpm.io/11.x/settings)）。
+3. `esbuild` 等原生依赖需要显式授权 postinstall 脚本。
+
+单包项目（非 monorepo）的 `pnpm-workspace.yaml` 正确写法示例：
+
+```yaml
+packages:
+  - '.'
+allowBuilds:
+  esbuild: true
+```
+
+**禁止**使用以下已废弃或无效写法：
+
+```yaml
+# 错误：缺少 packages 字段
+allowBuilds:
+  esbuild: true
+
+# 错误：v11 已废弃 onlyBuiltDependencies
+onlyBuiltDependencies:
+  - esbuild
+
+# 错误：.npmrc 里的 only-built-dependencies 在 v11 中不被读取
+only-built-dependencies=esbuild
+```
+
+### 4.2 CI 环境
+
+GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互式 `pnpm approve-builds`。因此必须在 `pnpm-workspace.yaml` 中静态声明 `allowBuilds`，否则 CI 会报 `ERR_PNPM_IGNORED_BUILDS`。
+
+## 5. 提交前验证
 
 除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问：
 
@@ -103,7 +141,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 - 如果模块新增/修改了页面，必须额外访问对应路由验证
 - 验证完成后必须停止服务，避免端口占用
 
-## 5. 与 Prometheus UI 的关系
+## 6. 与 Prometheus UI 的关系
 
 | 场景 | 方案 |
 |------|------|

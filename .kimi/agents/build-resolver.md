@@ -118,7 +118,7 @@ make build-prometheus
 | `compile: version go1.x.x does not match go tool version go1.y.y` | `GOROOT` 指向了系统其他 Go 版本 | `unset GOROOT` 后重试，或让 Orchestrator 统一设置环境 |
 | `make build-prometheus` 因 `upstream/prometheus/` 不存在失败 | 子模块未初始化 | 由 Orchestrator 运行 `git submodule update --init` 或从主仓库复制 |
 | `go test`/`go vet` 长时间挂起 | 默认 GOPROXY 网络慢 | 尝试 `GOPROXY=off`（仅使用本地缓存） |
-| `pnpm install` 提示 `ignored builds` | pnpm 禁用了 postinstall 脚本 | 运行 `pnpm approve-builds esbuild` |
+| `pnpm install` 提示 `ignored builds` | pnpm v11 禁用了 postinstall 脚本 | 在 `pnpm-workspace.yaml` 中声明 `allowBuilds: { esbuild: true }`，并确保包含 `packages: ['.']`；禁止仅依赖交互式 `pnpm approve-builds` |
 
 ---
 

@@ -98,11 +98,16 @@ cd ui-custom/web
 pnpm install
 ```
 
-若提示 esbuild 等包的构建脚本被忽略（`ignored builds`），运行：
+若提示 esbuild 等包的构建脚本被忽略（`ignored builds`），说明 `pnpm-workspace.yaml` 中未正确声明 `allowBuilds`。应修改 `pnpm-workspace.yaml`：
 
-```bash
-pnpm approve-builds esbuild
+```yaml
+packages:
+  - '.'
+allowBuilds:
+  esbuild: true
 ```
+
+> 注意：pnpm v11 已废弃 `onlyBuiltDependencies` 数组，且 `.npmrc` 中的 `only-built-dependencies` 不再生效；CI 环境无法执行交互式 `pnpm approve-builds`，必须静态配置在 `pnpm-workspace.yaml` 中。详见 `docs/03-engineering-standards/02_Frontend_Standard.md`。
 
 ---
 
