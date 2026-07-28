@@ -171,7 +171,7 @@ inhibit_rules:
 
 **规则说明：**
 
-- **源告警（Source）**：`EdgeSiteOffline`，由 Module_09 在边缘 Agent 失联时触发。
+- **源告警（Source）**：`EdgeSiteOffline`，由 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 在边缘 Agent 失联超过阈值（默认 5 分钟）时触发。
 - **目标告警（Target）**：同一 `network_domain` 下且 `inhibitable=true` 的告警。
 - **抑制条件**：`network_domain` 必须相同。
 - **抑制范围**：只抑制可达性/网络类告警，不抑制资源类告警（如 `disk_full`、`cpu_high`）。

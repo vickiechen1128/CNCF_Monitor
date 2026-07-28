@@ -26,7 +26,7 @@
 - OPS-05：临时添加一个采集目标（用于验证）
 - OPS-06：查看应用服务的拨测结果
 - ARCH-07：按网域筛选采集目标与拨测结果
-- ARCH-08：查看边缘 Agent 在线状态与 WAL 积压（v0.2+）
+- ARCH-08：在采集诊断页面引用 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 提供的边缘 Agent 状态（v0.2+）
 
 ---
 
@@ -60,7 +60,7 @@
 | 目标详情 | 查看某个 target 的 labels、最后样本、错误信息 | P1 |
 | Job 健康度 | Job 维度成功率、目标覆盖率 | P1 |
 | 采集覆盖率 | 按网域/环境/应用统计已接入/未接入资源 | P1 |
-| 边缘 Agent 状态 | 展示各网域 Edge Agent 在线状态、最后心跳、WAL 积压、配置版本（v0.2+） | P1 |
+| 边缘 Agent 状态（引用） | 在采集诊断页面聚合展示 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 提供的 Edge Agent 在线状态、WAL 积压、配置版本（v0.2+）；本模块不持有该数据模型 | P1 |
 | 临时目标 | 支持手动添加临时采集目标（不持久化到 CMDB） | P2 |
 | Trace 级诊断 | 抓取请求详情、响应体预览 | P2 |
 
@@ -122,19 +122,9 @@
 | http_status | int | HTTP 状态码 |
 | error_msg | string | 错误信息 |
 
-### 5.3 边缘 Agent 状态（EdgeAgentStatus）（v0.2+）
+### 5.3 边缘 Agent 状态引用（v0.2+）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| network_domain_id | string | 所属网域 ID |
-| agent_type | enum | `vmagent` / `prometheus-agent` |
-| version | string | Agent 版本 |
-| status | enum | online / offline / unknown |
-| last_heartbeat | datetime | 最后心跳时间 |
-| last_config_pull | datetime | 最后配置拉取时间 |
-| config_version | string | 当前生效配置版本 |
-| wal_backlog_bytes | int | WAL 积压字节数（反映弱网/断网程度） |
-| remote_write_url | string | Agent 配置的 Remote Write 目标 |
+边缘 Agent 的数据模型、心跳接收、状态展示由 [Module_09: 网域与边缘 Agent 管理](Module_09_Network_Domain_and_Edge_Agent.md) 负责。本模块在采集诊断页面按需聚合展示，不持有 `EdgeAgent` 数据模型。
 
 ---
 
@@ -175,5 +165,5 @@
 - [ ] 可以看到应用服务的拨测结果（probe_success、probe_duration），支持按网域筛选
 - [ ] 采集失败时可以看到错误原因
 - [ ] 临时添加的目标可以立即生效（开发验证用途）
-- [ ] 多网域场景下，可以查看各网域 Edge Agent 在线状态、最后心跳、WAL 积压
-- [ ] 边缘 Agent 失联超过阈值时，触发"采集端失联"告警
+- [ ] 多网域场景下，可以在采集诊断页面引用并查看 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 提供的各网域 Edge Agent 在线状态、最后心跳、WAL 积压
+- [ ] 边缘 Agent 失联告警（`EdgeSiteOffline`）由 [Module_08](Module_08_Alerting_Rule_Management.md) 管理，触发条件由 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 定义
