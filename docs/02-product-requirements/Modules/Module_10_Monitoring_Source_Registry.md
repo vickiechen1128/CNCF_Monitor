@@ -16,7 +16,7 @@
 
 1. **监控源登记**：记录每个监控源的类型、归属网域、接入方式、认证信息、健康状态。
 2. **异构数据接入**：支持自部署 Edge Agent、外部 Prometheus Remote Write、Zabbix Adapter、云监控 API Pull 等多种接入方式。
-3. **统一接入网关（Ingestion Gateway）**：提供鉴权、限流、路由、标签注入能力。
+3. **统一接入网关（Ingestion Gateway）**：在 [Module_03](Module_03_Gateway_and_Auth.md) 统一网关框架下，实现异构接入的鉴权、限流、路由、标签注入业务逻辑。
 4. **接入源健康诊断**：监控每个监控源的在线状态、最后推送时间、积压量。
 
 > **产品化平衡**：本模块属于「集成模式」，通过 `feature_flags.heterogeneous_ingestion_enabled` 控制。单机模式下隐藏该功能，用户无感知。
@@ -120,10 +120,8 @@
 
 ```yaml
 remote_write:
-  - url: "https://metriccenter.example.com/api/v2/ingest/prometheus"
+  - url: "https://metriccenter.example.com/api/v2/ingest/prometheus/<monitoring_source_id>"
     bearer_token: "<MonitoringSource.token>"
-    headers:
-      X-MetricCenter-Source-ID: "business-prom-01"
     queue_config:
       capacity: 10000
       max_samples_per_send: 2000
@@ -132,8 +130,8 @@ remote_write:
 ```
 
 MetricCenter 收到数据后：
-1. 校验 Token 与 Source ID。
-2. 自动注入 `network_domain`、`source_type="external_prometheus"`、`source_id`。
+1. 从 URL path 提取 `source_id`，校验 Token 与 Source ID 是否匹配。
+2. 从 Token/Claims 推导 `network_domain`，自动注入 `network_domain`、`source_type="external_prometheus"`、`source_id`。
 3. 写入 VictoriaMetrics。
 
 ### 5.2 Zabbix 接入
@@ -189,8 +187,7 @@ cloud-monitor-puller（定时拉取，如 60s）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/v2/ingest/prometheus` | 通用 Prometheus Remote Write 接收点 |
-| POST | `/api/v2/ingest/prometheus/{source_id}` | 按 Source ID 路由的接收点 |
+| POST | `/api/v2/ingest/prometheus/{source_id}` | Prometheus Remote Write 接收点，从 URL path 识别监控源 |
 
 ---
 
@@ -203,7 +200,8 @@ cloud-monitor-puller（定时拉取，如 60s）
 | Edge Agent 心跳与状态 | ✅ | ❌ |
 | 外部 Prometheus 接入 | ❌ | ✅ |
 | Zabbix / 云监控 Adapter 接入 | ❌ | ✅ |
-| Ingestion Gateway | ❌ | ✅ |
+| Ingestion Gateway 业务逻辑 | ❌ | ✅ |
+| 网关框架/统一入口 | ✅（Module_03 提供框架） | ❌ |
 | 统一 Remote Write 接收点 | ❌ | ✅ |
 
 > 当 `source_type=edge_agent` 时，MonitoringSource 与 EdgeAgent 是一对一关系，由 Module_09 负责创建和维护，Module 10 只读展示。

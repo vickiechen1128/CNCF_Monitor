@@ -33,7 +33,7 @@ MVP 阶段聚焦基础 PromQL 查询与结果展示，**不引入复杂 Dashboar
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
 | PromQL 查询 | 支持 instant / range 查询 | P0 |
-| 告警状态查看 | 代理 Prometheus `/api/v1/alerts`，展示当前告警；功能 Owner 为 Module 08 | P1 |
+| 告警状态查询代理 | 代理 Prometheus `/api/v1/alerts`，作为查询通道；告警状态业务功能 Owner 为 Module 08 | P1 |
 | 查询辅助 | 指标名补全、标签建议、常用查询模板 | P1 |
 | 结果展示 | 表格视图、JSON 视图、简单折线图 | P1 |
 | Open API | 提供 RESTful API 供外部系统调用 | P1 |

@@ -91,15 +91,16 @@
 │              ▼                            │                                 │                │
 │   ┌─────────────────────┐   ┌────────────┴────────────┐            ┌───────┴───────┐        │
 │   │ 平台控制面 / CMDB    │   │  统一数据面              │            │  告警抑制引擎  │        │
-│   │ · 网域/节点管理     │   │  · VictoriaMetrics      │            │  (Inhibition) │        │
+│   │ · 配置中心         │   │  · VictoriaMetrics      │            │  (Inhibition) │        │
 │   │ · 监控源登记册     │   │    (统一 Remote Write    │            │               │        │
-│   │ · 配置中心         │   │     接收点 / PromQL)     │            │               │        │
+│   │ · 网域/节点管理     │   │     接收点 / PromQL)     │            │               │        │
+│   │   (Module_09)      │   │                         │            │               │        │
 │   └─────────────────────┘   └────────────▲────────────┘            └───────────────┘        │
 │                                          │                                                  │
 │         ═════════════════════════════════╪══════════════════════════════════════════════     │
 │                                          │                                                  │
 │   ┌──────────────────────────────────────┼──────────────────────────────────────────┐       │
-│   │         异构接入门户 / Ingestion Gateway（鉴权/限流/路由）                       │       │
+│   │         异构接入门户 / Ingestion Gateway（鉴权/限流/路由，业务逻辑 Module_10）   │       │
 │   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐ │       │
 │   │  │ Edge Agent   │  │ External     │  │ Zabbix       │  │ Cloud Monitor        │ │       │
 │   │  │ Receiver     │  │ Prometheus   │  │ Adapter      │  │ Adapter              │ │       │
@@ -153,16 +154,18 @@
 
 | 模块 | 职责 | 对应目录 | 优先级 |
 |------|------|----------|--------|
-| **配置管理** | 三类资源管理、Excel 导入、标签模板、拨测配置、配置生成与下发 | `platform/config/` | **P0 (MVP 核心)** |
-| 指标采集中心 | 展示采集目标、采集状态、采集诊断、拨测结果 | `platform/discovery/`, `platform/collector/` | P0 |
-| 查询中心 | 提供统一查询入口、查询代理、结果展示 | `platform/gateway/proxy/` | P0 |
-| 告警规则管理 | 告警状态查看（MVP）；未来生成 rules.yml / alertmanager.yml | `platform/config/rules/` | P1/P2 |
-| 网关与认证 | 统一入口、鉴权、多租户、审计 | `platform/gateway/` | P2 |
-| 自定义服务发现 | 对接腾讯蓝鲸、Nacos、K8s 等外部 CMDB | `platform/discovery/cmdb/` | P2 |
-| 自定义前端 | 门户化 UI、配置管理页面、查询页面 | `ui-custom/` | P0/P1 |
-| **网域与边缘 Agent 管理** | 网域注册、Token、Edge Sync Agent 心跳、边缘 Agent 状态监控、边缘诊断 | `platform/edge/` | **P0（v0.2 起）** |
-| **监控源登记册与异构接入** | 外部 Prometheus / Zabbix / 云监控接入；接入源健康状态 | `platform/ingestion/` | **P0（集成模式）** |
-| 系统与平台管理 | 多租户、权限、审计、数据存储管理、平台全局配置 | `platform/gateway/tenant/` | P2 |
+| **配置管理** | 三类资源管理、Excel 导入、标签模板、拨测配置、配置生成与下发；网域仅作为资源分组字段，网域生命周期由 Module_09 负责 | `platform/config/` | **P0 (MVP 核心)** |
+| 指标采集中心 | 展示采集目标、采集状态、采集诊断、拨测结果；边缘 Agent 状态由 Module_09 提供 | `platform/discovery/`, `platform/collector/` | P0 |
+| 查询中心 | 提供统一查询入口、查询代理、结果展示；告警状态查询代理到 Module_08 | `platform/gateway/proxy/` | P0 |
+| 告警规则管理 | 告警规则生命周期、告警状态查看（MVP）；未来生成 rules.yml / alertmanager.yml | `platform/config/rules/` | P1/P2 |
+| 网关与认证 | 统一入口、网关层鉴权、多租户路由、请求级审计；用户/角色/租户 CRUD 由 Module_06 负责 | `platform/gateway/` | P2 |
+| 自定义服务发现 | 未来对接腾讯蓝鲸、Nacos、K8s 等外部 CMDB；MVP Provider 实现由 Module_07 提供 | `platform/discovery/cmdb/` | P2 |
+| 自定义前端 | 门户化 UI、页面组织与交互设计；业务规则以后端模块 PRD 为准 | `ui-custom/` | P0/P1 |
+| **网域与边缘 Agent 管理** | 网域生命周期、Token、Edge Sync Agent 心跳、边缘 Agent 状态监控、边缘诊断 | `platform/edge/` | **P0（v0.2 起）** |
+| **监控源登记册与异构接入** | 外部 Prometheus / Zabbix / 云监控接入；Ingestion Gateway 业务逻辑；接入源健康状态 | `platform/ingestion/` | **P0（集成模式）** |
+| 系统与平台管理 | 租户/用户/角色生命周期、权限策略、审计日志展示与归档、平台全局策略、数据存储管理 | `platform/gateway/tenant/` | P2 |
+
+> 模块间详细职责边界与跨模块引用关系见 [Module_00_Integration_Map.md](Modules/Module_00_Integration_Map.md)。
 
 ---
 
@@ -330,15 +333,13 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
        │
        └──► 在 prometheus.yml 中追加 remote_write：
              remote_write:
-               - url: https://metriccenter.example.com/api/v2/ingest/prometheus
+               - url: https://metriccenter.example.com/api/v2/ingest/prometheus/<monitoring_source_id>
                  bearer_token: <MonitoringSource.token>
-                 headers:
-                   X-Network-Domain: business-net-b
                  queue_config:
                    max_samples_per_send: 2000
                        │
                        ▼
-            Ingestion Gateway（鉴权/限流/路由）
+            Ingestion Gateway（鉴权/限流/路由/标签注入）
                        │
                        ▼
             VictoriaMetrics / Mimir

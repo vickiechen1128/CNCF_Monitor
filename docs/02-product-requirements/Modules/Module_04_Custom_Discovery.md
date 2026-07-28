@@ -38,13 +38,13 @@
 
 ## 4. 接口抽象
 
-本模块的 Provider 接口与 [Module 07](Module_07_Config_Management.md) 中定义的 `CMDBProvider` 对齐：
+本模块的 Provider 接口与 [Module 07](Module_07_Config_Management.md) 中定义的 `CMDBProvider` 对齐，必须包含 `networkDomainID` 参数以适配多网域核心维度：
 
 ```go
 // platform/discovery/provider/provider.go
 type Provider interface {
     Name() string
-    ListResources(ctx context.Context, resourceType ResourceType, filter Filter) ([]Resource, error)
+    ListResources(ctx context.Context, resourceType ResourceType, networkDomainID string, filter Filter) ([]Resource, error)
 }
 ```
 
@@ -52,7 +52,7 @@ MVP 阶段由 Module 07 实现：
 - `ExcelProvider`：Excel 导入
 - `SQLiteProvider`：本地 SQLite 存储
 
-未来由本模块扩展：
+未来由本模块扩展（须遵循 Module 07 接口定义）：
 - `BlueKingProvider`：腾讯蓝鲸 CMDB
 - `HTTPProvider`：通用 HTTP CMDB
 - `NacosProvider`：Nacos 注册中心

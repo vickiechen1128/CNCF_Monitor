@@ -10,9 +10,9 @@
 
 ## 1. 模块目标
 
-作为 MetricCenter 的统一入口，提供 API 路由、查询代理、配置管理 API 转发能力。
+作为 MetricCenter 的统一入口与网关框架，提供 API 路由、查询代理、配置管理 API 转发能力，以及网关层的认证鉴权、多租户路由、请求级审计中间件。
 
-MVP 阶段**不实现完整认证鉴权与多租户隔离**，仅作为请求入口和代理层，便于快速验证业务链路。认证与多租户在 v1.0 阶段补齐。
+MVP 阶段**不实现完整认证鉴权与多租户隔离**，仅作为请求入口和代理层，便于快速验证业务链路。v1.0 阶段由本模块提供网关层鉴权与审计能力；用户/角色/租户/权限策略的生命周期管理由 [Module_06](Module_06_Multi_Tenant.md) 负责。
 
 > **与 Module 08 的边界**：告警状态查询 `/api/v1/alerts` 由 Gateway 代理到 Prometheus；功能 Owner 为 [Module 08: 告警规则管理](Module_08_Alerting_Rule_Management.md)。
 
@@ -34,13 +34,16 @@ MVP 阶段**不实现完整认证鉴权与多租户隔离**，仅作为请求入
 | 统一入口 | 所有请求通过 Gateway 进入 | P0 |
 | 查询代理 | 将查询请求转发到 Prometheus，统一返回格式 | P0 |
 | 配置管理 API 路由 | 将配置相关请求路由到 `platform/config/` | P0 |
-| 认证鉴权 | 支持 Token / Session / SSO | P2（MVP 不做） |
-| 多租户路由 | 根据租户身份路由或注入 tenant label | P2（MVP 不做） |
-| 审计日志 | 记录关键操作与查询 | P2（MVP 不做） |
+| 认证鉴权中间件 | 网关层 Token / Session / SSO 校验，用户/角色数据由 Module_06 维护 | P2（MVP 不做） |
+| 多租户路由 | 根据租户身份路由或注入 tenant label；租户数据由 Module_06 维护 | P2（MVP 不做） |
+| 请求级审计 | 记录关键请求、操作与查询事件；审计日志展示/归档由 Module_06 负责 | P2（MVP 不做） |
+| Ingestion Gateway 框架 | 为 Module_10 提供可挂载路由/中间件能力，具体 Remote Write 业务逻辑由 Module_10 实现 | P0/P1 |
 
 ---
 
 ## 4. 权限模型（v1.0 阶段）
+
+角色定义与权限策略由 [Module_06](Module_06_Multi_Tenant.md) 维护。本模块仅按角色策略执行网关层鉴权。
 
 | 角色 | 权限 |
 |------|------|

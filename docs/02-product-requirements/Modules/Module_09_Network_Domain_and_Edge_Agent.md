@@ -31,7 +31,7 @@
 - ARCH-11：注册一个新的隔离网域并生成 Edge Agent 接入 Token。
 - ARCH-12：查看所有网域列表及其边缘 Agent 在线状态。
 - OPS-11：查看某个网域 Edge Agent 的最后心跳、WAL 积压和配置版本。
-- OPS-12：当某个网域 Edge Agent 失联时，收到"采集端失联"告警。
+- OPS-12：当某个网域 Edge Agent 失联时，触发 `EdgeSiteOffline` 告警（告警规则由 Module_08 管理）。
 - OPS-13：重置某个网域的 Edge Agent Token。
 
 ---
@@ -124,7 +124,23 @@
 
 ### 4.1 网域（NetworkDomain）
 
-详见 [Module_07_Config_Management.md](Module_07_Config_Management.md) 5.2.1 节。本模块是网域实体的功能 Owner，负责其生命周期管理。
+本模块是 `NetworkDomain` 数据模型与生命周期的唯一 Owner。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| id | string | ✅ | 网域唯一标识，如 `default`、`gov-cloud-a` |
+| name | string | ✅ | 网域展示名 |
+| description | string | ❌ | 网域描述 |
+| token | string | ✅ | Edge Sync Agent 拉取配置时的认证 Token |
+| agent_type | enum | ✅ | 边缘采集器类型：`vmagent`（默认）/ `prometheus-agent` |
+| remote_write_url | string | ✅ | 该网域 Agent Remote Write 目标地址 |
+| status | enum | ✅ | online / offline / unknown |
+| last_heartbeat | datetime | ❌ | 边缘 Agent 最后心跳时间 |
+| agent_version | string | ❌ | 边缘 Agent 版本 |
+| created_at | datetime | ✅ | 创建时间 |
+| updated_at | datetime | ✅ | 更新时间 |
+
+> **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。
 
 ### 4.2 边缘 Agent（EdgeAgent）
 
@@ -231,7 +247,7 @@ edge-config-<network_domain_id>.zip
 
 | 职责 | Module_07（配置管理） | Module 09（网域与边缘 Agent） |
 |------|------------------------|-------------------------------|
-| NetworkDomain 数据模型定义 | ✅ 数据模型归属 | ❌ |
+| NetworkDomain 数据模型定义 | ❌ 仅引用 `id/name/status` | ✅ 数据模型归属 |
 | NetworkDomain 生命周期 UI/API | ❌ | ✅ 功能 Owner |
 | 按网域生成 `prometheus.yml` | ✅ 实现 | ❌ |
 | 配置包拉取接口 | ❌ | ✅ 实现 |
@@ -260,7 +276,7 @@ edge-config-<network_domain_id>.zip
 - [ ] v0.2 阶段，Edge Sync Agent 心跳可更新网域最后在线时间、配置版本、WAL 积压
 - [ ] v0.2 阶段，Web 门户可查看各网域 Edge Agent 在线状态、心跳 RTT、配置同步状态
 - [ ] 边缘诊断看板展示 WAL 积压、Remote Write 队列状态、最近错误
-- [ ] Edge Agent 失联超过阈值（默认 5 分钟）时，触发"采集端失联"告警
+- [ ] Edge Agent 失联超过阈值（默认 5 分钟）时，触发 `EdgeSiteOffline` 告警
 - [ ] 配置包包含 `prometheus.yml` 和 `metadata.json`，且已注入 `external_labels.network_domain`
 - [ ] 提供离线二进制包 + systemd 服务文件的交付方式
 - [ ] 不提供 `curl | bash` 一键部署脚本

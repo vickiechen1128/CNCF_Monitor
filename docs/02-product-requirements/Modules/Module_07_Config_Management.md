@@ -31,7 +31,7 @@
 - OPS-05：临时添加一个采集目标用于验证
 - OPS-06：配置应用服务的 HTTP/TCP 拨测
 - ARCH-03：查看平台整体采集覆盖率
-- ARCH-04：配置 Remote Write 转发（P2）
+- ARCH-04：配置生成器读取 Module_09 的 per-domain `remote_write_url` 与 Module_10 的 Ingestion Gateway 地址，注入到生成的配置中（P2）
 
 ---
 
@@ -47,7 +47,7 @@
 | **应用服务资源管理** | 应用服务列表、拨测 URL、CRUD、Excel 导入 | P0 |
 | **展示字段控制** | 按资源类型固定展示列、默认排序 | P0 |
 | **资源状态管理** | online / offline / maintenance 状态维护 | P0 |
-| **网域（Network Domain）管理** | 网域注册、Token 生成、边缘 Agent 心跳关联 | P0（MVP 至少一个默认网域） |
+| **网域归属** | 资源、Job、配置按 `network_domain_id` 分组；网域生命周期由 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 负责 | P0（MVP 至少一个默认网域） |
 | **CMDB 接入源** | Excel 接入（MVP）、HTTP API、Nacos、Kubernetes、腾讯蓝鲸（未来） | P1/P2 |
 | **资源关系** | 应用-实例-集群关系、依赖拓扑（未来） | P2 |
 
@@ -71,7 +71,7 @@
 | **配置校验** | YAML 语法校验、Prometheus 语义校验（调用 `promtool`）、冲突检测 | P0/P1 |
 | **配置下发** | 手动下发、SIGHUP / `/-/reload` / 文件监听 | P0 |
 | **配置版本** | 下发历史、版本对比、一键回滚 | P1 |
-| **配置审计** | 变更记录、操作人、Diff 展示 | P2 |
+| **配置变更事件** | 生成配置变更事件（操作人、Diff），供 [Module_06](Module_06_Multi_Tenant.md) 审计日志展示/归档 | P2 |
 
 ---
 
@@ -155,23 +155,19 @@ const (
 | created_at | datetime | ✅ | 创建时间 |
 | updated_at | datetime | ✅ | 更新时间 |
 
-### 5.2.1 网域（NetworkDomain）
+### 5.2.1 网域（NetworkDomain）引用
 
 网域是 MetricCenter 支持多网域物理隔离场景的核心维度。每个资源、Job、采集配置都必须归属到一个网域。
+
+`NetworkDomain` 数据模型、生命周期管理、Token 生成、Edge Agent 状态均由 [Module_09: 网域与边缘 Agent 管理](Module_09_Network_Domain_and_Edge_Agent.md) 负责。本模块仅读取 `network_domain_id` 作为资源/Job/配置分组的归属字段。
+
+本模块使用的最小字段：
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | id | string | ✅ | 网域唯一标识，如 `default`、`gov-cloud-a` |
 | name | string | ✅ | 网域展示名 |
-| description | string | ❌ | 网域描述 |
-| token | string | ✅ | Edge Sync Agent 拉取配置时的认证 Token |
-| agent_type | enum | ✅ | 边缘采集器类型：`vmagent`（默认）/ `prometheus-agent` |
-| remote_write_url | string | ✅ | 该网域 Agent Remote Write 目标地址 |
 | status | enum | ✅ | online / offline / unknown |
-| last_heartbeat | datetime | ❌ | 边缘 Agent 最后心跳时间 |
-| agent_version | string | ❌ | 边缘 Agent 版本 |
-| created_at | datetime | ✅ | 创建时间 |
-| updated_at | datetime | ✅ | 更新时间 |
 
 > **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。
 
@@ -514,7 +510,7 @@ code_path: "platform/examples/simple-agent/"
 |------|------|----------|
 | SIGHUP | 向 Prometheus 进程发送 SIGHUP 信号 | 单网域 MVP，Prometheus 与平台同进程管理 |
 | HTTP /-/reload | 调用 `POST /-/reload` | 单网域 MVP，Prometheus 独立进程，需启用 `--web.enable-lifecycle` |
-| Edge Sync Agent 拉取 | 边缘 Agent 定期向 MetricCenter 轮询本域配置包 | 多网域物理隔离场景 |
+| Edge Sync Agent 拉取 | 由 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 暴露配置拉取接口，本模块负责按网域生成配置包内容 | 多网域物理隔离场景 |
 | 文件监听 | Prometheus 配置由 ConfigMap/文件挂载管理 | K8s 环境 |
 
 - **MVP 推荐**：**SIGHUP 或 HTTP /-/reload**（默认网域 `default`，与现有行为一致）。
@@ -531,33 +527,17 @@ code_path: "platform/examples/simple-agent/"
 
 ### 9.3 多网域配置拉取流程（v0.2+）
 
+Edge Sync Agent 配置拉取接口、Token 鉴权、配置包下载协议由 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 负责。本模块仅负责：
+
 1. 配置生成器按 `network_domain_id` 生成多份 `prometheus.<network_domain_id>.yml`。
-2. MetricCenter 暴露配置拉取接口：
-   ```
-   GET /api/v2/platform/edge/config?network_domain=<id>
-   Header: Authorization: Bearer <NetworkDomain.token>
-   ```
-3. Edge Sync Agent 定期（默认 30s）带上 Token 和 `network_domain_id` 轮询该接口。
-4. 若配置版本有更新，Edge Sync Agent 下载配置并写入本地 `prometheus.yml`。
-5. Edge Sync Agent 调用本地采集器的 `/-/reload`（vmagent 或 Prometheus Agent Mode 均支持）。
-6. 中心记录该网域的最后一次配置拉取时间，用于 Agent 在线状态判断。
-
-### 9.4 配置包内容
-
-每个网域的配置包至少包含：
-
-```
-edge-config-<network_domain_id>.zip
-├── prometheus.yml          # 本域 scrape_configs
-├── blackbox.yml            # 本域 Blackbox 探测模块（可选）
-└── metadata.json           # 配置版本、生成时间、agent_type 提示
-```
+2. 在生成的配置中自动注入 `external_labels.network_domain`。
+3. 将配置包内容交付给 Module_09 的拉取接口，不直接暴露 HTTP 下载端点。
 
 ---
 
 ## 10. CMDB Provider 扩展设计
 
-为后续接入腾讯蓝鲸等外部 CMDB 预留统一接口：
+为后续接入腾讯蓝鲸等外部 CMDB 预留统一接口。MVP 实现由本模块提供；未来外部 Provider（腾讯蓝鲸、Nacos、K8s、HTTP）由 [Module_04](Module_04_Custom_Discovery.md) 扩展，须遵循本接口：
 
 ```go
 type CMDBProvider interface {
@@ -621,6 +601,6 @@ MVP 实现：
 - [ ] 多网域场景下，配置生成器按网域输出独立的 `prometheus.<network_domain_id>.yml`
 - [ ] 多网域场景下，生成的配置自动注入 `external_labels.network_domain`
 - [ ] 可以一键下发配置到默认网域的 Prometheus（MVP）
-- [ ] 多网域场景下，Edge Sync Agent 可通过 Token 拉取本域配置包并触发 reload
+- [ ] 多网域场景下，配置生成器按网域输出独立配置包内容，并交付给 Module_09 的 Edge Sync Agent 拉取接口
 - [ ] 下发后 Prometheus / vmagent 的 targets 正确更新
 - [ ] 生成的 labels 与资源字段及标签模板配置保持一致
