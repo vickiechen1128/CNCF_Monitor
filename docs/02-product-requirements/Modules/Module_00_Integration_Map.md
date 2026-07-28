@@ -29,11 +29,11 @@
 | **Module_03 网关与认证** | 统一入口、网关层认证鉴权、多租户路由、请求级审计 | 路由/中间件配置 | Module_03 | Module_06（用户/角色/租户数据） | Gateway、Auth 中间件 |
 | **Module_04 自定义服务发现** | 外部 CMDB/K8s/Nacos Provider 扩展 | Provider 接口实现（遵循 Module_07 接口） | Module_07（MVP Provider） | Module_07 | BlueKing/HTTP/Nacos Provider |
 | **Module_05 自定义前端门户** | UI 页面组织、交互设计 | 前端组件/页面 | Module_05 | Module_01/02/07/08/09/10 | Web 门户 |
-| **Module_06 系统与平台管理（含多租户）** | 租户/用户/角色生命周期、权限策略、审计日志展示与归档、平台全局策略 | `Tenant`、`User`、`Role`、审计记录 | Module_06 | Module_03 | 平台管理 API |
-| **Module_07 配置管理** | 三类资源管理、配置生成与下发、MVP 指标管理配置实现 | `Resource`、`ScrapeJob`、`LabelTemplate`、`BlackboxProbeConfig`、`CMDBProvider` | Module_07 | Module_09（NetworkDomain 引用） | `prometheus.yml`、配置包内容 |
+| **Module_06 系统与平台管理（含多租户）** | 租户/用户/角色生命周期、权限策略、审计日志展示与归档、平台全局策略 | `Tenant`、`User`、`Role`、审计记录、`NetworkDomain.tenant_id` 关系 | Module_06 | Module_03 | 平台管理 API |
+| **Module_07 配置管理** | 四类资源管理、配置生成与下发、MVP 指标管理配置实现 | `Resource`（含 `generic_target`）、`ScrapeJob`、`LabelTemplate`、`BlackboxProbeConfig`、`CMDBProvider` | Module_07 | Module_09（NetworkDomain 引用） | `prometheus.yml`、配置包内容 |
 | **Module_08 告警规则管理** | 告警规则生命周期、告警状态查看、抑制规则 | `AlertingRule`、`RuleGroup`、`Silence`、`Notifier` | MVP 手写 YML；未来 Module_08 | Module_02（告警代理）、Module_09（`EdgeSiteOffline` 触发条件） | `rules.yml`、`alertmanager.yml` |
-| **Module_09 网域与边缘 Agent 管理** | NetworkDomain 生命周期、Edge Agent 生命周期、配置拉取接口、Token 安全 | `NetworkDomain`、`EdgeAgent`、`EdgeHeartbeat` | Module_09 | Module_07（配置内容） | `/api/v2/platform/edge/*` |
-| **Module_10 监控源登记册与异构接入** | 监控源登记、外部 Prometheus/Zabbix/云监控接入、Ingestion Gateway 业务逻辑 | `MonitoringSource`、`IngestionStats` | Module_10 | Module_09（网域引用）、Module_03（网关框架） | `/api/v2/ingest/*`、Remote Write 配置片段 |
+| **Module_09 网域与边缘 Agent 管理** | NetworkDomain 生命周期、Edge Agent 生命周期、配置拉取接口、Token 安全 | `NetworkDomain`、`EdgeAgent`、`EdgeHeartbeat`、`Tenant-NetworkDomain` 关系 | Module_09 | Module_07（配置内容） | `/api/v2/platform/edge/*` |
+| **Module_10 监控源登记册与异构接入** | 监控源登记、外部 Prometheus/Zabbix/云监控接入、Ingestion Gateway 业务逻辑 | `MonitoringSource`、`IngestionStats`、`LabelNormalizationRule`、`MetricDropRule` | Module_10 | Module_09（网域引用）、Module_03（网关框架） | `/api/v2/ingest/*`、Remote Write 配置片段 |
 
 ---
 
@@ -90,6 +90,7 @@
 
 - **Edge Agent Remote Write 参数**: Module_09（per-domain `remote_write_url`、WAL 参数）
 - **Ingestion Gateway Remote Write 接收点 / 外部 Prometheus 接入**: Module_10
+- **Ingestion Gateway 在写入前执行标签归一化与 Metric Drop Rules**: Module_10
 - **平台级 TSDB 状态 / Retention / 转发开关**: Module_06
 - **配置生成器引用并注入**: Module_07
 
@@ -104,6 +105,26 @@
 - **统一方式**: URL path `/api/v2/ingest/prometheus/<monitoring_source_id>`
 - `network_domain` 从 Token/Claims 推导，不再依赖 `X-Network-Domain` 或 `X-MetricCenter-Source-ID` header
 - **权威定义**: [Module_10 5.1 节](Module_10_Monitoring_Source_Registry.md#51-%E5%A4%96%E9%83%A8-prometheus-remote-write-%E6%8E%A5%E5%85%A5)
+
+### 3.11 Tenant 与 NetworkDomain 关系
+
+- **Tenant 数据模型 Owner**: Module_06
+- **NetworkDomain 数据模型 Owner**: Module_09
+- **Tenant-NetworkDomain 关系 Owner**: Module_09
+- **引用方**: Module_07（资源只读引用 `network_domain_id`，不感知租户）
+- **权威定义**: [Module_09 4.1 节](Module_09_Network_Domain_and_Edge_Agent.md#41-%E7%BD%91%E5%9F%9Fnetworkdomain)、[Module_06 3.1 节](Module_06_Multi_Tenant.md#31-%E7%A7%9F%E6%88%B7%E4%B8%8E%E7%BD%91%E5%9F%9F%E5%85%B3%E7%B3%BB)
+
+### 3.12 标签归一化
+
+- **业务逻辑 Owner**: Module_10
+- **引用方**: Module_07（标签模板作为归一化前的预定义映射参考）
+- **权威定义**: [Module_10 3.4 节](Module_10_Monitoring_Source_Registry.md#34-%E6%A0%87%E7%AD%BE%E5%BD%92%E4%B8%80%E5%8C%96%E4%B8%8E%E6%B8%85%E6%B4%97%E7%AE%A1%E9%81%93)
+
+### 3.13 指标丢弃规则
+
+- **业务逻辑 Owner**: Module_10
+- **引用方**: 无
+- **权威定义**: [Module_10 3.5 节](Module_10_Monitoring_Source_Registry.md#35-%E6%8C%87%E6%A0%87%E4%B8%A2%E5%BC%83%E4%B8%8E%E4%B8%A2%E5%8C%85%E9%98%B2%E6%8A%A4)
 
 ---
 
@@ -125,3 +146,4 @@
 | 日期 | 变更内容 | 修改人 |
 |------|----------|--------|
 | 2026-07-27 | 初版：整合 Module_01 ~ Module_10 职责矩阵与跨模块引用关系 | chenrt |
+| 2026-07-28 | 根据产品优化建议更新：标签归一化、Generic Target、边缘自治告警、Metric Drop Rules、Tenant-NetworkDomain 关系 | chenrt |

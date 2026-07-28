@@ -61,6 +61,8 @@
 | **WAL 与 Remote Write 参数配置** | 按网域配置 WAL 大小、批量、压缩、回传限速 | P1 |
 | **WAL 积压监控** | 接收并展示 Agent WAL 积压字节数，反映弱网/断网程度 | P1 |
 | **版本管理** | 记录 Agent 版本，支持版本兼容性提示 | P2 |
+| **本地告警规则下发** | 将 `scope=edge`/`both` 的告警规则随配置包下发到边缘 | P2 |
+| **本地告警通知通道** | 边缘 Agent 支持配置本地飞书/钉钉 webhook，断网时独立通知 | P2 |
 
 ### 3.3 配置拉取服务
 
@@ -131,6 +133,7 @@
 | id | string | ✅ | 网域唯一标识，如 `default`、`gov-cloud-a` |
 | name | string | ✅ | 网域展示名 |
 | description | string | ❌ | 网域描述 |
+| tenant_id | string | ✅ | 所属租户 ID；`platform_admin` 表示平台全局网域 |
 | token | string | ✅ | Edge Sync Agent 拉取配置时的认证 Token |
 | agent_type | enum | ✅ | 边缘采集器类型：`vmagent`（默认）/ `prometheus-agent` |
 | remote_write_url | string | ✅ | 该网域 Agent Remote Write 目标地址 |
@@ -140,7 +143,7 @@
 | created_at | datetime | ✅ | 创建时间 |
 | updated_at | datetime | ✅ | 更新时间 |
 
-> **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。
+> **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。默认网域 `default` 归属于 `platform_admin` 租户，所有未指定租户的资源默认继承该归属。
 
 ### 4.2 边缘 Agent（EdgeAgent）
 
@@ -229,6 +232,8 @@ Content-Disposition: attachment; filename="edge-config-gov-cloud-a.zip"
 edge-config-<network_domain_id>.zip
 ├── prometheus.yml          # 本域 scrape_configs（已注入 external_labels.network_domain）
 ├── blackbox.yml            # 本域 Blackbox 探测模块（可选）
+├── rules.yml               # 本域 edge/both 告警规则（v0.4+）
+├── alertmanager.yml        # 本域通知路由（v0.4+）
 └── metadata.json           # 配置版本、生成时间、agent_type、checksum
 ```
 
@@ -240,6 +245,7 @@ edge-config-<network_domain_id>.zip
 4. 校验配置包 checksum，解压到本地目录。
 5. 调用本地采集器 `/-/reload`（vmagent 与 Prometheus Agent Mode 均支持）。
 6. 网络中断时保留最后一份有效配置，按原配置继续采集和 WAL 缓存。
+7. 当配置包包含 `rules.yml` 与 `alertmanager.yml` 时，边缘 Agent 启动本地 vmalert/Alertmanager 实例，负责网域内自治告警。
 
 ---
 
@@ -254,6 +260,13 @@ edge-config-<network_domain_id>.zip
 | Edge Sync Agent 协议 | ❌ | ✅ 定义 |
 | Edge Agent 心跳接收与状态展示 | ❌ | ✅ 实现 |
 | Edge Agent 告警（失联） | ❌ | ✅ 触发条件定义；告警规则写入 Module 08 |
+
+### 6.1 与 Module_06 的边界
+
+| 职责 | Module_06（系统与平台管理） | Module_09（网域与边缘 Agent） |
+|------|------------------------------|-------------------------------|
+| Tenant 数据模型定义 | ✅ | ❌ 仅引用 `tenant_id` |
+| NetworkDomain 与 Tenant 关系 | ❌ 仅展示 | ✅ 数据模型归属 |
 
 ---
 
