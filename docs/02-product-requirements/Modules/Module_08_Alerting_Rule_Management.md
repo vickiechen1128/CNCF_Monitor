@@ -34,7 +34,7 @@
 |------|------|--------|
 | **告警状态查看** | 代理 Prometheus `/api/v1/alerts`，展示当前触发的告警列表，支持按网域筛选 | P1 |
 | **告警规则编辑** | UI 化编辑 Alerting Rules：PromQL 条件、`for` 持续时间、告警级别、labels、annotations | P2 |
-| **规则求值范围（Scope）** | 规则求值位置：`central`（中心）/ `edge`（边缘自治）/ `both`（中心+边缘） | P2 |
+| **规则求值范围（Scope）** | 规则求值位置：`central`（中心，适用于跨网域、全局预聚合、复杂环比/同比告警）/ `edge`（边缘自治，适用于网域内死活告警，由边缘 Agent 本地评估，断网时独立存活）/ `both`（中心与边缘同时求值，中心负责全局视角，边缘负责断网自治） | P2 |
 | **按网域下发规则** | 规则按 `network_domain_id` 分组下发，边缘网域仅下发 `edge`/`both` 规则 | P2 |
 | **Recording Rules** | 预聚合规则 CRUD、启用/禁用 | P2 |
 | **规则组管理** | 分组（group）、评估间隔、规则排序 | P2 |
@@ -42,7 +42,16 @@
 | **通知渠道** | 飞书/钉钉/邮件/企业微信 Webhook、通知模板、告警收敛 | P2 |
 | **告警升级** | 升级策略、值班组、告警降噪 | P2 |
 
-> **第一阶段决策**：MVP ~ v0.3 只实现 `scope=central` 的中心告警求值；`edge` / `both` 在边缘自治告警阶段实现。
+### 3.1 中心/边缘告警灾备边界
+
+| 维度 | 中心告警（Central） | 边缘自治告警（Edge） |
+|------|---------------------|----------------------|
+| 适用场景 | 跨网域聚合、复杂环比、全局 SLA | 网域内死活、本地服务宕机 |
+| 求值组件 | 中心 Prometheus / vmalert | 边缘 vmagent 内置 rules / 边缘 vmalert |
+| 通知通道 | 中心 Alertmanager → 企业 webhook | 边缘本地 Alertmanager → 本地飞书/钉钉 webhook |
+| 断网行为 | 无法感知边缘本地指标 | 独立存活，继续告警 |
+
+> **第一阶段决策**：MVP ~ v0.3 只实现 `scope=central` 的中心告警求值；`edge` / `both` 在边缘 Agent 支持本地 rules 评估后实现（v0.4+）。
 
 ---
 
@@ -106,7 +115,7 @@ receivers:
 | expr | string | PromQL 表达式 |
 | duration | duration | `for` 持续时间 |
 | severity | string | 告警级别：critical / warning / info |
-| scope | enum | 求值范围：`central` / `edge` / `both`；第一阶段默认 `central` |
+| scope | enum | 求值范围：`central`（中心求值，适用于跨网域、全局预聚合、复杂环比/同比告警） / `edge`（边缘自治求值，适用于网域内死活告警，由边缘 vmagent 内置 rules / 边缘 vmalert 本地评估，断网时独立存活） / `both`（中心与边缘同时求值，中心负责全局视角，边缘负责断网自治）；第一阶段默认 `central` |
 | inhibitable | bool | 是否可被网域离线抑制规则抑制；默认 `true`（针对 up/down、网络类告警），资源类告警建议 `false` |
 | labels | map | 附加标签 |
 | annotations | map | 告警标题与详情模板 |
@@ -223,3 +232,5 @@ inhibit_rules:
 - [ ] v1.0 阶段可管理规则组与评估间隔
 - [ ] v1.0 阶段可通过 UI 创建/删除静默规则
 - [ ] v1.0 阶段可配置通知渠道并生成 `alertmanager.yml`
+- [ ] `AlertingRule` 数据模型对 `scope` 字段的说明包含 central/edge/both 三类定义
+- [ ] v0.4+ 阶段文档明确边缘自治告警的组件边界与通知通道

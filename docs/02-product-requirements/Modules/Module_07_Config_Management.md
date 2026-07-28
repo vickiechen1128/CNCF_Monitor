@@ -41,10 +41,11 @@
 
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
-| **资源类型管理** | 定义主机、中间件、应用服务三类资源，字段固定 | P0 |
+| **资源类型管理** | 定义主机、中间件、应用服务、通用指标目标四类资源，字段固定 | P0 |
 | **主机资源管理** | 主机列表、CRUD、Excel 导入 | P0 |
 | **中间件资源管理** | 中间件列表、类型选择、CRUD、Excel 导入 | P0 |
 | **应用服务资源管理** | 应用服务列表、拨测 URL、CRUD、Excel 导入 | P0 |
+| **通用指标目标管理** | 通用/自定义 Exporter 目标管理，支持自定义 IP、端口、metrics_path 与 Label | P0 |
 | **展示字段控制** | 按资源类型固定展示列、默认排序 | P0 |
 | **资源状态管理** | online / offline / maintenance 状态维护 | P0 |
 | **网域归属** | 资源、Job、配置按 `network_domain_id` 分组；网域生命周期由 [Module_09](Module_09_Network_Domain_and_Edge_Agent.md) 负责 | P0（MVP 至少一个默认网域） |
@@ -132,9 +133,10 @@ sequenceDiagram
 type ResourceType string
 
 const (
-    ResourceTypeHost         ResourceType = "host"
-    ResourceTypeMiddleware   ResourceType = "middleware"
-    ResourceTypeApplication  ResourceType = "application"
+    ResourceTypeHost          ResourceType = "host"
+    ResourceTypeMiddleware    ResourceType = "middleware"
+    ResourceTypeApplication   ResourceType = "application"
+    ResourceTypeGenericTarget ResourceType = "generic_target"
 )
 ```
 
@@ -145,8 +147,9 @@ const (
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | resource_id | string | ✅ | 唯一标识 |
-| resource_type | ResourceType | ✅ | host / middleware / application |
+| resource_type | ResourceType | ✅ | host / middleware / application / generic_target |
 | network_domain_id | string | ✅ | 所属网域 ID；MVP 默认值为 `default` |
+| instance_ip | string | ❌ | 目标 IP 或域名；通用指标目标必填 |
 | app_name | string | ✅ | 应用名 → 映射为 `app` label |
 | env | string | ✅ | 环境 → 映射为 `env` label |
 | cluster | string | ✅ | 集群 → 映射为 `cluster` label |
@@ -200,7 +203,21 @@ const (
 | endpoint | string | ❌ | 业务指标端点 |
 | port | int | ❌ | 服务端口 |
 
-### 5.6 标签模板（LabelTemplate）
+### 5.6 通用指标目标（GenericTarget）
+
+用于接入非标准 Exporter 设备（如 SNMP 交换机、GPU 服务器、Oracle 数据库、硬件光纤交换机等）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| target_name | string | ✅ | 目标名称/描述 |
+| instance_ip | string | ✅ | 目标 IP 或域名 |
+| port | int | ❌ | 服务端口，空时不拼接 `instance` |
+| metrics_path | string | ❌ | 默认 `/metrics` |
+| scheme | string | ❌ | `http` / `https`，默认 `http` |
+| custom_labels | map | ❌ | 自定义 Label，如 `device_type=snmp_switch`、`vendor=h3c` |
+| exporter_type | string | ❌ | 设备/Exporter 类型，如 `snmp_exporter`、`gpu_exporter`、`oracle_exporter` |
+
+### 5.7 标签模板（LabelTemplate）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -210,7 +227,7 @@ const (
 | job_id | string | 关联的 Job |
 | mappings | []Mapping | 字段映射列表 |
 
-### 5.7 字段映射（Mapping）
+### 5.8 字段映射（Mapping）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -220,7 +237,7 @@ const (
 | enabled | bool | 是否启用 |
 | transform | string | 转换规则（可选）：`lower`、`upper`、`prefix`、`replace` |
 
-### 5.8 标签模板字段来源
+### 5.9 标签模板字段来源
 
 #### A. CMDB 字段
 
@@ -250,7 +267,7 @@ const (
 |----------|----------|
 | `instance` | 主机/中间件：`instance_ip` + `:` + `port` |
 
-### 5.9 默认标签模板
+### 5.10 默认标签模板
 
 按资源类型的默认映射：
 
@@ -284,7 +301,18 @@ const (
 | cmdb | `cluster` | `cluster` |
 | cmdb | `health_check_url` | `health_check_url` |
 
-### 5.10 采集 Job（ScrapeJob）
+**通用指标目标默认标签模板**
+
+| 来源类型 | 来源字段 | 目标 Label |
+|----------|----------|------------|
+| composite | `instance_ip:port` | `instance` |
+| cmdb | `target_name` | `target_name` |
+| cmdb | `app_name` | `app` |
+| cmdb | `env` | `env` |
+| cmdb | `cluster` | `cluster` |
+| custom | `custom_labels.*` | 透传 |
+
+### 5.11 采集 Job（ScrapeJob）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -299,7 +327,7 @@ const (
 | label_template_id | string | 关联的标签模板 |
 | enabled | bool | 是否启用 |
 
-### 5.11 目标筛选规则（FilterRule）
+### 5.12 目标筛选规则（FilterRule）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -307,7 +335,7 @@ const (
 | operator | enum | `eq` / `neq` / `in` / `not_in` / `contains` |
 | value | string / []string | 筛选值 |
 
-### 5.12 拨测配置（BlackboxProbeConfig）
+### 5.13 拨测配置（BlackboxProbeConfig）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -318,7 +346,7 @@ const (
 | scrape_interval | duration | 默认 `60s` |
 | enabled | bool | 是否启用 |
 
-### 5.13 采集模板（ScrapeTemplate）
+### 5.14 采集模板（ScrapeTemplate）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -362,6 +390,14 @@ network_domain | middleware_type | instance_ip | port | version | app_name | env
 network_domain | service_name | health_check_url | protocol | endpoint | port | app_name | env | cluster | owner | status
 ```
 
+**通用指标目标导入模板列**
+
+```
+network_domain | target_name | instance_ip | port | metrics_path | scheme | exporter_type | custom_labels | app_name | env | cluster | owner | status
+```
+
+其中 `custom_labels` 列支持 `key1=value1;key2=value2` 格式。
+
 ### 6.2 数据校验
 
 | 校验项 | 规则 |
@@ -375,6 +411,9 @@ network_domain | service_name | health_check_url | protocol | endpoint | port | 
 | 协议枚举 | `protocol` 必须是 `http/https/tcp` 之一 |
 | 状态枚举 | `status` 必须是 `online/offline/maintenance` 之一 |
 | 重复检测 | 同一资源类型下，`instance_ip:port` 或 `service_name` 不可重复 |
+| 通用目标必填 | 通用目标 `instance_ip` 必填且符合 IPv4/域名格式 |
+| 协议枚举 | 通用目标 `scheme` 必须是 `http/https` 之一 |
+| 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式 |
 
 ### 6.3 导入结果
 
@@ -428,6 +467,25 @@ scrape_configs:
           hostname: 'host-01'
 ```
 
+### 7.1.1 通用指标目标采集配置示例
+
+```yaml
+scrape_configs:
+  - job_name: 'snmp-switches'
+    metrics_path: '/snmp'
+    scheme: 'http'
+    static_configs:
+      - targets:
+          - '10.0.1.20:9116'
+        labels:
+          app: 'network-infra'
+          env: 'prod'
+          cluster: 'bj-01'
+          device_type: 'snmp_switch'
+          vendor: 'h3c'
+          target_name: 'core-switch-01'
+```
+
 ### 7.2 Blackbox 拨测配置示例
 
 ```yaml
@@ -463,8 +521,9 @@ scrape_configs:
 3. 在每个网域配置内，按 `job_name` 分组。
 4. 每个 Job 下，根据筛选规则查询该网域内对应资源类型的资源。
 5. 对每个资源，按标签模板生成 labels。
-6. 将资源组合为 `static_configs`。
-7. Blackbox 拨测配置按网域分组生成，指向该网域部署的 Blackbox Exporter。
+6. 对 `generic_target` 资源，优先使用 `metrics_path`、`scheme`、`port` 字段生成 target，并将 `custom_labels` 注入 labels。
+7. 将资源组合为 `static_configs`。
+8. Blackbox 拨测配置按网域分组生成，指向该网域部署的 Blackbox Exporter。
 
 > **单网域 MVP**：系统只有 `default` 网域时，生成逻辑退化为一份全局 `prometheus.yml`，与现有行为保持一致。
 
@@ -566,6 +625,7 @@ MVP 实现：
 | 主机资源管理 | 主机列表、Excel 导入、编辑、删除 |
 | 中间件资源管理 | 中间件列表、类型选择、Excel 导入 |
 | 应用服务资源管理 | 应用服务列表、拨测 URL、Excel 导入 |
+| 通用指标目标资源管理页 | 通用指标目标 CRUD |
 | 标签模板 | 按资源类型创建/编辑标签模板 |
 | 采集模板 | 选择预置模板、查看示例代码 |
 | 采集 Job | 创建/编辑 Job、筛选条件、标签模板关联 |
@@ -604,3 +664,5 @@ MVP 实现：
 - [ ] 多网域场景下，配置生成器按网域输出独立配置包内容，并交付给 Module_09 的 Edge Sync Agent 拉取接口
 - [ ] 下发后 Prometheus / vmagent 的 targets 正确更新
 - [ ] 生成的 labels 与资源字段及标签模板配置保持一致
+- [ ] 可维护通用指标目标，配置自定义 `metrics_path` 与 `custom_labels`
+- [ ] 通用目标生成的 `prometheus.yml` 正确包含自定义标签与采集路径

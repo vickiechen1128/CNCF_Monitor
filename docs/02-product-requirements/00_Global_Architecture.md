@@ -108,6 +108,7 @@
 │   │  │  prometheus-  │  │              │  │              │  │                      │ │       │
 │   │  │  agent)       │  │              │  │              │  │                      │ │       │
 │   │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────────────┘ │       │
+│   │  标签归一化 / Metric Drop Rules                                                 │       │
 │   └──────────────────────────────────────┼──────────────────────────────────────────┘       │
 └──────────────────────────────────────────┼──────────────────────────────────────────────────┘
                                            │
@@ -131,7 +132,7 @@
 │  │  │ 局域网 Exporters/主机    │                  │                   │  │                │  │
 │  │  └─────────────────────────┘                  └───────────────────┘  └────────────────┘  │
 │  │                                                                                             │
-│  │  可选：边缘 vmalert + 本地 Alertmanager（未来阶段，实现断网自治告警）                         │
+│  │  可选：边缘 vmalert + 本地 Alertmanager（v0.4+ 断网自治告警）                                 │
 │  └─────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -147,6 +148,9 @@
 | **异构汇聚** | 支持客户现有 Prometheus Remote Write、Zabbix Adapter、云监控 API 等多种接入方式 |
 | **中心存储** | **VictoriaMetrics 作为多网域阶段默认中心存储**，MetricCenter 查询代理代码无需改动；Mimir / Thanos 作为可选替代 |
 | **安全接入** | Ingestion Gateway 统一鉴权、限流、路由；Edge Agent 使用 Token 认证，高安全场景使用 mTLS |
+| **标签归一化** | Ingestion Gateway 对外部 Prometheus/Zabbix 标签进行标准化，统一为 `instance`/`app`/`env`/`network_domain` |
+| **指标过滤** | 支持按 MonitoringSource 配置指标白名单/黑名单与高基数丢弃规则 |
+| **边缘自治告警** | v0.4+ 支持边缘 vmalert + 本地 Alertmanager，断网时仍可本地通知 |
 
 ---
 
@@ -386,6 +390,8 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 | 部署 | Docker / Docker Compose | 本地开发与测试 |
 | 网域模型 | `network_domain_id` | MVP 预置 `default` 网域，所有资源必须归属网域 |
 
+`network_domain_id` 归属于某个 `tenant_id`，默认网域 `default` 归属 `platform_admin`。
+
 ### 5.2 未来演进选型
 
 | 层级 | MVP 选型 | 未来演进 | 触发条件 |
@@ -394,7 +400,7 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 | 缓存 | 无 | Redis | 会话管理、配置缓存、采集状态缓存 |
 | 时序存储 | Prometheus TSDB | **VictoriaMetrics（多网域默认）** / Mimir / Thanos | 长期存储、集群查询、高基数场景、多网域汇聚 |
 | 采集端 | Prometheus Server | **vmagent / Prometheus Agent Mode** + Edge Sync Agent | 多网域物理隔离、弱网场景 |
-| 异构接入 | 无 | **Ingestion Gateway + Adapter**（外部 Prometheus / Zabbix / 云监控） | 集成模式，不替换客户现有监控 |
+| 异构接入 | 无 | **Ingestion Gateway + Adapter**（外部 Prometheus / Zabbix / 云监控）；标签归一化 / 指标丢弃规则 | 集成模式，不替换客户现有监控 |
 | 配置下发 | 中心 HTTP /-/reload | **Edge Sync Agent 拉取模式** | 隔离网域中心不可达 |
 | 告警收敛/通知 | Alertmanager 原生 | MetricCenter 生成 alertmanager.yml + 静默管理 UI | 需要统一配置告警路由、接收器、静默策略 |
 | 告警规则编辑 | 手写 rules.yml | MetricCenter 规则编辑器生成 rules.yml | 需要降低告警规则编写门槛 |

@@ -66,7 +66,52 @@
 | **写入路由** | 将不同监控源数据路由到不同 VictoriaMetrics 租户或存储实例 | P2 |
 | **mTLS 接入** | 高安全场景下使用双向 TLS 认证 | P2 |
 
-### 3.4 接入源健康诊断
+### 3.4 标签归一化与清洗管道（Label Normalization Pipeline）
+
+在 Remote Write 数据写入 VictoriaMetrics 前，网关执行标签归一化，将异构监控系统的常用标签统一为标准标签集。
+
+标准标签集：`instance`、`app`、`env`、`cluster`、`network_domain`。
+
+归一化映射示例：
+
+| 常见外部 Label | 归一化后 Label | 规则说明 |
+|----------------|----------------|----------|
+| `host`、`hostname`、`node` | `instance` | 若同时存在，优先级：`instance` > `hostname` > `host` > `node` |
+| `ip`、`ip_address` | `instance` | 若未携带端口，保留 IP；若原 `instance` 已存在则保留原值 |
+| `application`、`service`、`app_name` | `app` | 优先级：`app` > `app_name` > `application` > `service` |
+| `environment`、`stage` | `env` | 优先级：`env` > `environment` > `stage` |
+
+不可归一化标签默认保留。
+
+```mermaid
+flowchart LR
+    RW[Remote Write]
+    AUTH[鉴权]
+    INJ[标签注入]
+    NORM[标签归一化]
+    FILTER[指标过滤]
+    VM[VictoriaMetrics]
+    RW --> AUTH --> INJ --> NORM --> FILTER --> VM
+```
+
+### 3.5 指标丢弃与丢包防护（Metric Drop Rules）
+
+支持按 `MonitoringSource` 配置指标白名单/黑名单，防止单源高基数或无用指标打满中心存储。
+
+规则类型：
+
+| 规则类型 | 说明 |
+|----------|------|
+| `metric_name` | 精确匹配指标名 |
+| `metric_prefix` | 前缀匹配指标名 |
+| `label_match` | 按标签条件匹配 |
+| `cardinality_limit` | 单指标 series 基数限制 |
+
+动作：`keep` / `drop` / `sample`。
+
+高基数防护：当某指标在 1 分钟内 series 数超过阈值（默认 10000）时，自动采样或丢弃，并记录事件。
+
+### 3.6 接入源健康诊断
 
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
@@ -94,6 +139,10 @@
 | auth_config | JSON | 条件必填 | Token、证书、用户名密码等 |
 | remote_write_url | string | 条件必填 | 对于 Push 类型，中心提供的写入地址 |
 | labels | map | ❌ | 附加 external_labels |
+| normalization_enabled | bool | ✅ | 是否启用标签归一化，默认 `true` |
+| normalization_rules | JSON | ❌ | 自定义归一化规则（覆盖默认规则） |
+| metric_drop_rules | []MetricDropRule | ❌ | 指标丢弃/白名单规则 |
+| max_series_per_metric | int | ❌ | 单指标最大 series 数，默认 10000 |
 | last_heartbeat | datetime | ❌ | 最后活跃时间 |
 | last_error | string | ❌ | 最后错误信息 |
 | created_at | datetime | ✅ | 创建时间 |
@@ -109,6 +158,23 @@
 | requests_per_minute | int | 每分钟请求数 |
 | error_rate | float | 错误率 |
 | last_sample_timestamp | datetime | 最近样本时间戳 |
+
+### 4.3 MetricDropRule
+
+```go
+type MetricDropRule struct {
+    RuleID        string            // 规则唯一标识
+    SourceID      string            // 归属 MonitoringSource
+    RuleType      string            // metric_name / metric_prefix / label_match / cardinality_limit
+    MatchValue    string            // 匹配值或前缀
+    LabelMatchers map[string]string // label_match 时使用
+    Action        string            // keep / drop / sample
+    Priority      int               // 规则优先级，数值越小越优先
+    Enabled       bool
+    CreatedAt     datetime
+    UpdatedAt     datetime
+}
+```
 
 ---
 
@@ -133,6 +199,8 @@ MetricCenter 收到数据后：
 1. 从 URL path 提取 `source_id`，校验 Token 与 Source ID 是否匹配。
 2. 从 Token/Claims 推导 `network_domain`，自动注入 `network_domain`、`source_type="external_prometheus"`、`source_id`。
 3. 写入 VictoriaMetrics。
+4. 进入标签归一化管道，重写 `host/hostname/ip` 等标签。
+5. 经过 Metric Drop Rules 过滤后写入 VictoriaMetrics。
 
 ### 5.2 Zabbix 接入
 
@@ -228,5 +296,8 @@ cloud-monitor-puller（定时拉取，如 60s）
 - [ ] 可以查看各监控源的最后活跃时间、推送速率、错误率
 - [ ] 监控源离线超过阈值时触发告警
 - [ ] Ingestion Gateway 支持 Token 鉴权和按监控源限流
+- [ ] 外部 Prometheus 上报的 `hostname`/`host` 标签可被归一化为 `instance`
+- [ ] 支持按 MonitoringSource 配置指标白名单/黑名单
+- [ ] 高基数指标触发阈值后可被丢弃或采样，并记录事件
 - [ ] Zabbix Adapter 架构设计文档完成（v0.4 实现可选）
 - [ ] 云监控 Puller 架构设计文档完成（v0.4 实现可选）
