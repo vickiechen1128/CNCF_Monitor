@@ -1,7 +1,7 @@
 # Module 10: 监控源登记册与异构接入
 
 > **模块类型**：核心能力模块（集成模式）  
-> **依赖文档**： [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_09_Network_Domain_and_Edge_Agent.md](Module_09_Network_Domain_and_Edge_Agent.md)  
+> **依赖文档**： [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)  
 > **目标用户**：运维架构师、运维工程师、集成项目经理  
 > **版本**：v1.0  
 > **更新日期**：2026-07-24

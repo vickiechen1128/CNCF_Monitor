@@ -3,7 +3,7 @@
 > 日期：2026-07-21  
 > 分支：`feature/module-00-infrastructure`  
 > Worktree：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`  
-> 输入：[05_Code_Implementation_Plan.md](../../02-product-requirements/05_Code_Implementation_Plan.md)、[Module_07_Config_Management.md](../../02-product-requirements/Modules/Module_07_Config_Management.md)、[03_API_Standard.md](../../03-engineering-standards/03_API_Standard.md)、[04_Testing_Standard.md](../../03-engineering-standards/04_Testing_Standard.md)、[host_template.md](../../assets/templates/excel/host_template.md)
+> 输入：[05_Code_Implementation_Plan.md](../../02-product-requirements/05_Code_Implementation_Plan.md)、[Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md)、[03_API_Standard.md](../../03-engineering-standards/03_API_Standard.md)、[04_Testing_Standard.md](../../03-engineering-standards/04_Testing_Standard.md)、[host_template.md](../../assets/templates/excel/host_template.md)
 
 ## 需求理解
 

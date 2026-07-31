@@ -2,7 +2,7 @@
 
 > 文档类型：产品需求文档 / 全局架构  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)  
-> 更新日期：2026-07-20
+> 更新日期：2026-07-30
 
 ---
 
@@ -12,6 +12,7 @@
 2. **业务与源码隔离**：所有改造代码位于 `platform/`，上游源码保持可升级
 3. **可扩展**：通过插件化机制支持自定义发现、采集、存储、前端
 4. **可协作**：目录结构与文档体系适配 AI Agent 开发模式
+5. **以 CMDB 为唯一数据源 {v0.4+}**：监控对象（主机、中间件、应用服务）以 BlueKing CMDB 为权威来源，由 [Module_04](Modules/Module_04_Custom_Discovery.md) 负责同步与生命周期管理；租户映射到蓝鲸业务 {v0.2}，网域映射到蓝鲸云区域 {v0.4+}；ITSM 服务目录通过显式 CMDB 业务/模块路径与监控对象关联 {v1.0+}。
 
 ---
 
@@ -151,6 +152,27 @@
 | **标签归一化** | Ingestion Gateway 对外部 Prometheus/Zabbix 标签进行标准化，统一为 `instance`/`app`/`env`/`network_domain` |
 | **指标过滤** | 支持按 MonitoringSource 配置指标白名单/黑名单与高基数丢弃规则 |
 | **边缘自治告警** | v0.4+ 支持边缘 vmalert + 本地 Alertmanager，断网时仍可本地通知 |
+| **CMDB 为唯一数据源 {v0.4+}** | BlueKing CMDB 是监控对象权威来源；MetricCenter 本地资源为其只读/缓存镜像；同步策略、失败时保留旧快照 7 天、孤儿资源管理由 [Module_04](Modules/Module_04_Custom_Discovery.md) 负责 |
+| **Tenant/NetworkDomain 映射** | 租户 → 蓝鲸业务（Business）{v0.2 起数据模型，v0.4+ 同步}；网域 → 蓝鲸云区域（Cloud Area）{v0.4+}；`network_domain_id` 全局唯一并归属单一租户 {v0.2}，建议租户前缀 |
+| **ITIL 事件字段映射 {v1.0+}** | 告警转 ITIL 事件时，严重等级来自 Prometheus label，影响范围来自 CMDB 拓扑，接收人来自告警规则 receiver，负责人来自 CMDB 维护人 + ITSM 值班，服务目录来自 ITSM 与 CMDB 的显式映射；MVP 不做 ITSM 对接 |
+
+### 2.3 CMDB-ITIL 数据映射关系 {v1.0+}
+
+为保证监控对象与 ITSM/ITIL 事件的一致性，MetricCenter 在 v1.0+ 采用如下映射（MVP 不做 ITSM 对接）：
+
+```
+BlueKing CMDB                    MetricCenter              ITSM/ITIL
+├─ Business（业务）      <───>   Tenant                   服务目录/租户边界
+├─ Cloud Area（云区域）  <───>   NetworkDomain            影响范围/网络边界
+├─ Module（模块）        <───>   Resource.cmdb_module_path  影响范围/服务目录
+├─ Host/Service CI       <───>   Resource                 告警对象
+└─ Maintainer（维护人）  <───>   Resource.cmdb_maintainer  事件负责人
+```
+
+**核心原则**：
+- CMDB 是监控对象唯一数据源 {v0.4+}；MetricCenter 本地资源为其只读/缓存镜像，同步策略与生命周期由 [Module_04](Modules/Module_04_Custom_Discovery.md) 负责。
+- 告警转 ITIL 事件时，影响范围与负责人必须从 CMDB 拓扑/维护人派生，服务目录必须通过显式 CMDB 业务/模块路径映射 {v1.0+}。
+- 同步失败时继续使用旧对象快照，7 天后进入孤儿资源管理，避免监控中断 {v0.4+}。
 
 ---
 
@@ -158,16 +180,16 @@
 
 | 模块 | 职责 | 对应目录 | 优先级 |
 |------|------|----------|--------|
-| **配置管理** | 三类资源管理、Excel 导入、标签模板、拨测配置、配置生成与下发；网域仅作为资源分组字段，网域生命周期由 Module_09 负责 | `platform/config/` | **P0 (MVP 核心)** |
+| **配置管理** | 三类资源管理、Excel 导入、标签模板、拨测配置、配置生成与下发；为 BlueKing CMDB 预留统一 Provider 接口 {v0.4+ 由 Module_04 实现}；网域仅作为资源分组字段，网域生命周期由 Module_09 负责 | `platform/config/` | **P0 (MVP 核心)** |
 | 指标采集中心 | 展示采集目标、采集状态、采集诊断、拨测结果；边缘 Agent 状态由 Module_09 提供 | `platform/discovery/`, `platform/collector/` | P0 |
 | 查询中心 | 提供统一查询入口、查询代理、结果展示；告警状态查询代理到 Module_08 | `platform/gateway/proxy/` | P0 |
-| 告警规则管理 | 告警规则生命周期、告警状态查看（MVP）；未来生成 rules.yml / alertmanager.yml | `platform/config/rules/` | P1/P2 |
+| 告警规则管理 | 告警规则生命周期、告警状态查看（MVP）；v0.4+ 基于 CI/Exporter/指标模板自动生成规则；v1.0+ 提供规则编辑器、静默管理、通知路由，对接 ITSM/ITIL 事件字段映射 | `platform/config/rules/` | P1/P2 |
 | 网关与认证 | 统一入口、网关层鉴权、多租户路由、请求级审计；用户/角色/租户 CRUD 由 Module_06 负责 | `platform/gateway/` | P2 |
-| 自定义服务发现 | 未来对接腾讯蓝鲸、Nacos、K8s 等外部 CMDB；MVP Provider 实现由 Module_07 提供 | `platform/discovery/cmdb/` | P2 |
+| 自定义服务发现与外部 CMDB 生命周期管理 | v0.4+ 对接腾讯蓝鲸、Nacos、K8s 等外部 CMDB；承担外部数据源生命周期管理（同步策略、失败容错、7 天保留、孤儿虚拟 CI）；BlueKing CMDB 为唯一权威数据源 | `platform/discovery/cmdb/` | P2（v0.4+） |
 | 自定义前端 | 门户化 UI、页面组织与交互设计；业务规则以后端模块 PRD 为准 | `ui-custom/` | P0/P1 |
-| **网域与边缘 Agent 管理** | 网域生命周期、Token、Edge Sync Agent 心跳、边缘 Agent 状态监控、边缘诊断 | `platform/edge/` | **P0（v0.2 起）** |
+| **网域与边缘 Agent 管理** | 网域生命周期、Token、Edge Sync Agent 心跳、边缘 Agent 状态监控、边缘诊断；租户-网域关联 {v0.2}；网域映射到 BlueKing Cloud Area {v0.4+}；`network_domain_id` 全局唯一并归属单一租户 {v0.2} | `platform/edge/` | **P0（v0.2 起）** |
 | **监控源登记册与异构接入** | 外部 Prometheus / Zabbix / 云监控接入；Ingestion Gateway 业务逻辑；接入源健康状态 | `platform/ingestion/` | **P0（集成模式）** |
-| 系统与平台管理 | 租户/用户/角色生命周期、权限策略、审计日志展示与归档、平台全局策略、数据存储管理 | `platform/gateway/tenant/` | P2 |
+| 租户与平台管理 | 租户生命周期、租户-网域关联 {v0.2}、平台全局策略、数据存储管理；用户/角色/权限可能由外部 IAM/SSO 承接；租户映射到 BlueKing Business {v0.4+} | `platform/gateway/tenant/` | P2（租户/网域关联 v0.2，权限 UI P2） |
 
 > 模块间详细职责边界与跨模块引用关系见 [Module_00_Integration_Map.md](Modules/Module_00_Integration_Map.md)。
 
@@ -388,9 +410,9 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 | UI 组件库 | Ant Design | 企业级后台组件库 |
 | 数据库（平台数据） | SQLite | 开发期使用，零运维、单机可运行 |
 | 部署 | Docker / Docker Compose | 本地开发与测试 |
-| 网域模型 | `network_domain_id` | MVP 预置 `default` 网域，所有资源必须归属网域 |
+| 网域模型 | `network_domain_id` | MVP 预置 `default` 网域，所有资源必须归属网域；`network_domain_id` 全局唯一，建议租户前缀 |
 
-`network_domain_id` 归属于某个 `tenant_id`，默认网域 `default` 归属 `platform_admin`。
+`network_domain_id` 归属于某个 `tenant_id`，默认网域 `default` 归属 `platform_admin`。禁止跨租户共享网域。
 
 ### 5.2 未来演进选型
 

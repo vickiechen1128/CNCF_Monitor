@@ -57,7 +57,7 @@
 
 ### 2.5 典型任务
 
-- "根据 zhaohy 提出的资源导入痛点，更新 `01_User_Stories.md` 和 `Module_07_Config_Management.md`"
+- "根据 zhaohy 提出的资源导入痛点，更新 `01_User_Stories.md` 和 `Module_07_Monitoring_Object_Management.md`"
 - "调用 prototype-designer 制作 MVP 原型，用于下周向领导汇报"
 - "审查 zhangwq 提交的 `feature/module-07-resource-management` 合并申请"
 
