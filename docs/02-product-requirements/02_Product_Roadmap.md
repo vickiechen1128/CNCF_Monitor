@@ -2,7 +2,7 @@
 
 > 文档类型：产品需求文档  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
-> 更新日期：2026-07-17
+> 更新日期：2026-07-31
 
 ---
 
@@ -10,10 +10,10 @@
 
 | 里程碑 | 目标 | 核心交付 | 技术栈 | 时间（预估） |
 |--------|------|----------|--------|-------------|
-| **MVP** | 三类资源管理 + 网域模型预留 + 采集/拨测配置 + 配置下发 + 指标查询（单机模式） | 可运行的配置管理中心；网域模型（默认 `default`，单机模式隐藏）；主机/中间件/应用服务资源管理；标签模板；采集 Job；Blackbox 拨测；prometheus.yml 生成与下发；PromQL 查询代理 | SQLite + Prometheus TSDB + Prometheus Server + Blackbox Exporter | 3 ~ 4 周 |
-| **v0.2** | 多网域 Edge-Cloud 架构落地 + 异构接入验证 | Edge Sync Agent、按网域配置拉取、vmagent / Prometheus Agent Mode 接入、中心 VictoriaMetrics 汇聚、边缘 Agent 状态监控与诊断、外部 Prometheus Remote Write 接入、监控源登记册 | SQLite + VictoriaMetrics + vmagent/Prometheus Agent + Edge Sync Agent + Ingestion Gateway | 4 ~ 5 周 |
+| **MVP** | 三类资源管理 + 网域模型预留 + 采集/拨测配置 + 配置下发 + 指标查询（单机模式） | 可运行的配置管理中心；网域模型（默认 `default`，单机模式隐藏）；主机/中间件/应用服务资源管理（`resource_id` 稳定唯一键，`instance_name` / `hostname` 可读展示名）；`ResourceLabel` 标签体系（`system` / `user` 来源，CMDB 来源预留）；标签模板；采集 Job；Blackbox 拨测；prometheus.yml 生成与下发；PromQL 查询代理 | SQLite + Prometheus TSDB + Prometheus Server + Blackbox Exporter | 3 ~ 4 周 |
+| **v0.2** | 多网域 Edge-Cloud 架构落地 + 租户-网域关联 | 网域生命周期与 Token 管理；租户数据模型与租户-网域关联；Edge Sync Agent、按网域配置拉取、vmagent / Prometheus Agent Mode 接入；中心 VictoriaMetrics 汇聚；边缘 Agent 状态监控与诊断；外部 Prometheus Remote Write 接入；监控源登记册 | SQLite + VictoriaMetrics + vmagent/Prometheus Agent + Edge Sync Agent + Ingestion Gateway | 4 ~ 5 周 |
 | **v0.3** | 门户化查询与告警状态 | Custom UI 门户、PromQL 查询页、告警状态查看（代理 `/api/v1/alerts`）、按网域/监控源筛选、告警抑制引擎 | 保持 v0.2 技术栈 | 2 ~ 3 周 |
-| **v0.4** | Open API、外部集成与安全加固 | 指标 Open API、外部 CMDB 接入预研（腾讯蓝鲸）、Zabbix / 云监控 Adapter、mTLS、证书轮转、Token 轮换 | PostgreSQL / MySQL 预研 | 2 ~ 3 周 |
+| **v0.4** | 外部 CMDB 集成与异构监控接入 | 外部 CMDB 同步（BlueKing / HTTP / Nacos）：事件触发 + 15 分钟轮询、CI 类型映射表、待分类 CI 队列；`ResourceLabel.source=cmdb` 注入；异构监控源登记册；Zabbix / 云监控 Adapter；mTLS、证书轮转、Token 轮换 | PostgreSQL / MySQL 预研 | 3 ~ 4 周 |
 | **v1.0** | 企业级可用 | 告警规则 UI、Alertmanager 配置生成、多租户、权限、边缘自治告警（vmalert） | PostgreSQL / MySQL + VictoriaMetrics/Mimir + vmagent + vmalert | 4 ~ 6 周 |
 
 > 各功能落地难度、Prometheus 复用度、前后端工作量详见 [04_Implementation_Map.md](04_Implementation_Map.md)。
@@ -38,11 +38,13 @@ MVP 聚焦 **"三类资源管理 + 采集/拨测配置 + prometheus.yml 下发 +
 
 ### 2.3 交付物
 
-- **配置管理**（[Module 07](Modules/Module_07_Config_Management.md)）：
+- **配置管理**（[Module 07](Modules/Module_07_Monitoring_Object_Management.md)）：
   - 网域模型：预置默认网域 `default`，资源必须归属网域
-  - 主机 / 中间件 / 应用服务三类资源管理
-  - 按资源类型的固定列 Excel 导入（含 `network_domain` 列）
-  - 标签模板（按资源类型区分）
+  - 主机 / 中间件 / 应用服务三类资源管理；`resource_id` 为稳定唯一键，`instance_name` / `hostname` 作为可读展示名
+  - 按资源类型的固定列 Excel 导入（含可选 `network_domain_id` 列，留空默认 `default`；预留 `cmdb_*` 可选列）
+  - Excel 中文状态通过可配置字典映射到 `Resource.status`（`online` / `offline` / `maintenance`）
+  - `ResourceLabel` 标签体系：`system`（标签模板生成）、`user`（用户手动）、`cmdb`（v0.4+ 预留）；同 key 冲突优先级 `cmdb` > `user` > `system`
+  - 标签模板（按资源类型区分；字段来源支持 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}`）
   - 采集 Job 管理 + 目标筛选
   - 应用服务 Blackbox 拨测配置
   - 预置采集模板（node-exporter、mysqld-exporter、simple-agent、blackbox）
@@ -81,12 +83,14 @@ Phase 1: 基础底座
 
 Phase 2: MVP 核心 — 配置管理（Module 07）
 ├── 网域模型：预置默认网域 `default`，资源归属网域
-├── 三类资源模型（Host / Middleware / Application）
-├── 固定列 Excel 导入与校验（含 `network_domain` 列）
-├── 标签模板管理（按资源类型）
+├── 三类资源模型（Host / Middleware / Application）；`resource_id` 稳定唯一键，`instance_name` / `hostname` 可读展示名
+├── 固定列 Excel 导入与校验（含可选 `network_domain_id` 列；预留 `cmdb_*` 可选列）
+├── Excel 状态 → `Resource.status` 映射字典（默认 + 可配置）
+├── `ResourceLabel` 数据模型与 CRUD（`system` / `user` 来源；CMDB 来源预留）
+├── 标签模板管理（按资源类型；字段来源 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}`）
 ├── 采集 Job 管理 + 目标筛选
 ├── 拨测配置（Blackbox Exporter）
-├── prometheus.yml 生成（单网域行为）
+├── prometheus.yml 生成（单网域行为；合并所有来源 label，同 key 优先级 `cmdb` > `user` > `system`）
 ├── 配置下发与重载
 └── 平台元数据使用 SQLite
 
@@ -120,7 +124,7 @@ Phase 7: 告警状态与 Open API（v0.3 ~ v0.4）
 ├── 告警规则数据模型预留 `scope` 与 `inhibitable` 字段
 ├── 告警抑制引擎（网域离线时自动抑制次生告警）
 ├── 指标 Open API
-└── 外部 CMDB 接入预研
+└── 外部 CMDB 接入实现：BlueKing / HTTP / Nacos Provider、CI 类型映射表、待分类队列、事件触发 + 15 分钟轮询
 
 Phase 8: 企业级能力（v1.0）
 ├── 告警规则 UI + Alertmanager 配置生成
@@ -192,6 +196,15 @@ Phase 8: 企业级能力（v1.0）
 | MVP | **无** | 单机模式，不启用 |
 | v0.2 | **Monitoring Source Registry + Ingestion Gateway + 外部 Prometheus Remote Write** | 客户现有 Prometheus 借道汇聚 |
 | v0.4 ~ v1.0 | **Zabbix Adapter + 云监控 Puller** | Zabbix / 云监控统一接入 |
+
+### 4.8 资源模型与 CMDB 集成
+
+| 阶段 | 能力 | 说明 |
+|------|------|------|
+| **MVP** | 本地资源管理 + Excel 导入 | `resource_id` 稳定唯一键；`instance_name` / `hostname` 可读展示名；`ResourceLabel.source=system/user`；CMDB 字段仅预留，不生成 label |
+| **v0.2** | 租户-网域关联 | `network_domain_id` 按租户上下文填充；`default` 网域归属 `platform_admin` 租户；禁止跨租户共享网域 |
+| **v0.4** | 外部 CMDB 同步（BlueKing / HTTP / Nacos） | 事件触发 + 15 分钟轮询，轮询结果为准；CI 类型映射表；待分类队列；`ResourceLabel.source=cmdb` 注入；CMDB 是权威来源，本地资源为其只读/缓存镜像 |
+| **v1.0+** | CMDB-ITIL/ITSM 映射 | 服务目录、影响范围、负责人等字段映射到告警事件 |
 
 ---
 

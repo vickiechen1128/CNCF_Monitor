@@ -66,7 +66,8 @@
 - 告警规则编辑 UI（MVP 手写 `rules.yml`）
 - 告警收敛/静默/通知管理 UI（MVP 借助 Alertmanager 原生能力）
 - 复杂 Dashboard 编辑器
-- 多租户与权限控制
+- 多租户与权限控制 UI（租户/网域数据模型在 v0.2 预留，MVP 以 `default` 网域单租户运行）
+- 外部 CMDB 自动同步（MVP 通过 Excel 导入，v0.4+ 接入 BlueKing/HTTP/Nacos Provider）
 - 日志与链路追踪
 
 ### 4.3 产品化平衡
@@ -114,7 +115,7 @@ MetricCenter 在 Prometheus 生态之上构建控制面，详细架构见 [00_Gl
 
 详细里程碑与技术演进见 [02_Product_Roadmap.md](02_Product_Roadmap.md)，实施难度分析见 [04_Implementation_Map.md](04_Implementation_Map.md)。
 
-- **MVP**：三类资源管理 + 默认站点 + 标签模板 + 采集 Job + 拨测 + 配置下发 + 指标查询（单机模式无感知）
-- **v0.2**：多站点模式 + Edge Agent + Remote Write + VictoriaMetrics 中心汇聚 + 边缘 Agent 诊断
-- **v0.3 ~ v0.4**：异构监控源登记册、外部 Prometheus / Zabbix 接入、查询门户、告警状态查看、Open API
-- **v1.0 及以后**：告警规则 UI、Alertmanager 配置生成、边缘自治告警、多租户、长期存储
+- **MVP**：三类资源管理 + 默认站点 + 标签模板（`system` / `user` label）+ 采集 Job + 拨测 + 配置下发 + 指标查询（单机模式无感知）
+- **v0.2**：多站点模式 + Edge Agent + Remote Write + VictoriaMetrics 中心汇聚 + 边缘 Agent 诊断；租户数据模型与租户-网域关联落地
+- **v0.3 ~ v0.4**：异构监控源登记册、外部 Prometheus / Zabbix 接入、查询门户、告警状态查看、Open API；外部 CMDB 同步（BlueKing/HTTP/Nacos）与 `cmdb` 来源 label
+- **v1.0 及以后**：告警规则 UI、Alertmanager 配置生成、边缘自治告警、多租户权限 UI、长期存储、ITSM/ITIL 事件对接
