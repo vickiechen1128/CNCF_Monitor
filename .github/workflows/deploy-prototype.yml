@@ -34,10 +34,22 @@ jobs:
       - name: Build all module prototypes
         run: cd docs/prototypes && ./build-all.sh
 
+      - name: Prepare deployment directory
+        run: |
+          cd docs/prototypes
+          mkdir -p _site
+          cp index.html _site/
+          for module in module-*/; do
+            if [ -d "${module}dist" ]; then
+              mkdir -p "_site/${module}"
+              cp -r "${module}dist" "_site/${module}dist"
+            fi
+          done
+
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/prototypes
+          publish_dir: ./docs/prototypes/_site
           destination_dir: ${{ github.ref_name }}
           keep_files: true
