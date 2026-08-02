@@ -5,10 +5,15 @@ on:
     branches:
       - develop
       - main
-      - 'feature/prototype-*'
+    paths:
+      - 'docs/prototypes/**'
+      - '.github/workflows/deploy-prototype.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages
@@ -16,6 +21,9 @@ concurrency:
 
 jobs:
   deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,20 +54,14 @@ jobs:
             fi
           done
 
-      - name: Determine destination directory
-        id: dest
-        run: |
-          branch="${{ github.ref_name }}"
-          if [[ "$branch" == "develop" || "$branch" == "main" ]]; then
-            echo "dir=" >> "$GITHUB_OUTPUT"
-          else
-            echo "dir=$branch" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
 
-      - name: Deploy to gh-pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/prototypes/_site
-          destination_dir: ${{ steps.dest.outputs.dir }}
-          keep_files: true
+          path: docs/prototypes/_site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
