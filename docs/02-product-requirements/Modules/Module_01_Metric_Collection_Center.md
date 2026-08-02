@@ -1,10 +1,13 @@
 # Module 01: 监控策略与指标管理
 
-> **模块类型**: 核心能力模块  
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_07_Monitoring_Object_Management.md](Module_07_Monitoring_Object_Management.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)、[Module_08_Alerting_Rule_Management.md](Module_08_Alerting_Rule_Management.md)  
-> **目标用户**: 运维工程师  
-> **版本**: v3.0  
-> **更新日期**: 2026-07-31
+> **PRD 状态**: `ready`（已通过原型验证）
+> **PRD 版本**: v1.1
+> **更新日期**: 2026-08-02
+> **对应原型**: `docs/prototypes/module-01/`
+
+> **模块类型**: 核心能力模块
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_07_Monitoring_Object_Management.md](Module_07_Monitoring_Object_Management.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)、[Module_08_Alerting_Rule_Management.md](Module_08_Alerting_Rule_Management.md)
+> **目标用户**: 运维工程师
 
 ---
 
@@ -297,3 +300,10 @@
 - [ ] 策略配置写入 DB 后，[Module_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 能够轮询生成配置草稿，经人工确认后下发。
 - [ ] 运行时目标状态、拨测结果、采集诊断不再由本模块负责展示，相关验收标准已迁移至 [Module_02: 查询中心](Module_02_Query_Center.md) 与 [Module_08: 告警规则管理](Module_08_Alerting_Rule_Management.md)。
 - [ ] v0.4+ 支持基于外部 CMDB 自动发现实例并推荐监控策略；v1.0 支持与 ITIL 流程联动校验监控策略覆盖率。
+
+## Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |

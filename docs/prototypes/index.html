@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MetricCenter 模块原型总览 · Volcengine 风格</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        background: #F7F8FA;
+        color: #1D2129;
+      }
+      .header {
+        background: #0B1B2A;
+        padding: 24px 32px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: #fff;
+      }
+      .brand-dot {
+        color: #0ECDEB;
+        font-size: 24px;
+      }
+      .brand h1 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+      }
+      .badge {
+        background: #0ECDEB;
+        color: #0B1B2A;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 32px;
+      }
+      .intro {
+        margin-bottom: 24px;
+      }
+      .intro h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+      .intro p {
+        margin: 0;
+        color: #4E5969;
+        line-height: 1.6;
+      }
+      .mode-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 24px;
+        border-bottom: 1px solid #E5E6EB;
+        padding-bottom: 12px;
+      }
+      .mode-tab {
+        padding: 8px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        color: #4E5969;
+        background: #fff;
+        border: 1px solid #E5E6EB;
+        font-family: inherit;
+      }
+      .mode-tab.active {
+        background: #0ECDEB;
+        color: #0B1B2A;
+        border-color: #0ECDEB;
+        font-weight: 600;
+      }
+      .mode-panel { display: none; }
+      .mode-panel.active { display: block; }
+      .module-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 20px;
+      }
+      .module-card {
+        background: #fff;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        border: 1px solid #E5E6EB;
+        transition: box-shadow 0.2s, transform 0.2s;
+      }
+      .module-card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        transform: translateY(-2px);
+      }
+      .module-card h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        color: #1D2129;
+      }
+      .module-card .module-id {
+        display: inline-block;
+        background: #E6FAFD;
+        color: #0ABBD7;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-bottom: 12px;
+      }
+      .module-card p {
+        margin: 0 0 16px;
+        font-size: 13px;
+        color: #4E5969;
+        line-height: 1.5;
+        min-height: 40px;
+      }
+      .module-card a {
+        display: inline-block;
+        padding: 8px 16px;
+        border-radius: 6px;
+        background: #0ECDEB;
+        color: #0B1B2A;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .module-card a:hover { background: #0ABBD7; }
+      .module-card a.secondary {
+        background: #fff;
+        color: #0ABBD7;
+        border: 1px solid #0ECDEB;
+        margin-left: 8px;
+      }
+      .module-card a.secondary:hover { background: #E6FAFD; }
+      .code-block {
+        background: #0B1B2A;
+        color: #E8E9EA;
+        padding: 16px;
+        border-radius: 8px;
+        font-family: 'SFMono-Regular', Consolas, monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        overflow-x: auto;
+        margin-top: 12px;
+      }
+      .hint {
+        background: #E6F1FF;
+        border-left: 4px solid #1481FD;
+        padding: 12px 16px;
+        border-radius: 4px;
+        color: #1D2129;
+        font-size: 13px;
+        margin-bottom: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">
+        <span class="brand-dot">◆</span>
+        <h1>MetricCenter 模块原型总览</h1>
+      </div>
+      <span class="badge">Volcengine 风格</span>
+    </header>
+
+    <main class="container">
+      <section class="intro">
+        <h2>原型访问方式</h2>
+        <p>每个模块都是独立的 Vite + React 原型项目。下面提供两种访问模式：<strong>开发模式</strong>（各模块独立热更新）和<strong>构建模式</strong>（统一静态部署后一次性浏览）。</p>
+      </section>
+
+      <div class="mode-tabs">
+        <button type="button" class="mode-tab active" data-mode="dev">开发模式（独立端口）</button>
+        <button type="button" class="mode-tab" data-mode="build">构建模式（统一入口）</button>
+      </div>
+
+      <div id="dev-panel" class="mode-panel active">
+        <div class="hint">
+          开发模式下，每个模块需要单独启动一个 dev server。点击下方「打开模块」会访问默认端口，若端口冲突请手动修改对应模块的 <code>vite.config.ts</code>。
+        </div>
+        <div class="module-grid" id="dev-grid"></div>
+      </div>
+
+      <div id="build-panel" class="mode-panel">
+        <div class="hint">
+          构建模式下，先执行 <code>./build-all.sh</code> 构建全部模块，再用静态服务器托管 <code>docs/prototypes/</code> 目录，即可通过统一入口访问所有已构建模块。
+        </div>
+        <div class="code-block">
+# 构建全部模块
+cd docs/prototypes
+./build-all.sh
+
+# 方式 1：使用 Python 静态服务器
+python3 -m http.server 8080
+
+# 方式 2：使用 Node 静态服务器（需安装 serve）
+npx serve -l 8080
+
+# 访问统一入口
+open http://localhost:8080/
+        </div>
+        <div class="module-grid" id="build-grid" style="margin-top: 24px;"></div>
+      </div>
+    </main>
+
+    <script>
+      const modules = [
+        { id: 'module-05', name: 'Module 05：自定义前端门户', desc: 'Dashboard 首页与系统设置，作为产品门户入口。', devPort: 5173 },
+        { id: 'module-07', name: 'Module 07：监控对象管理', desc: '资源管理、标签模板、导入记录，MVP 核心对象数据层。', devPort: 5174 },
+        { id: 'module-01', name: 'Module 01：监控策略与指标', desc: 'CI-Exporter 映射、采集 Job、规则编辑、指标元数据、拨测。', devPort: 5175 },
+        { id: 'module-02', name: 'Module 02：查询中心', desc: 'PromQL 查询、目标状态、当前告警。', devPort: 5176 },
+        { id: 'module-08', name: 'Module 08：告警规则管理', desc: '告警规则、规则组、静默规则、通知渠道。', devPort: 5177 },
+        { id: 'module-09', name: 'Module 09：网域与边缘配置', desc: '网域管理、Agent 状态、配置生成、下发记录。', devPort: 5178 },
+        { id: 'module-10', name: 'Module 10：监控源登记册', desc: '监控源登记册、标签归一化、指标丢弃。', devPort: 5179 },
+        { id: 'module-03', name: 'Module 03：网关与认证', desc: '网关路由、认证配置、角色权限矩阵。', devPort: 5180 },
+        { id: 'module-04', name: 'Module 04：自定义服务发现', desc: 'Provider 配置、同步策略、待分类 CI、孤儿资源。', devPort: 5181 },
+        { id: 'module-06', name: 'Module 06：系统与平台管理', desc: '租户管理、用户权限、审计日志、平台配置。', devPort: 5182 },
+      ];
+
+      function render() {
+        const devGrid = document.getElementById('dev-grid');
+        const buildGrid = document.getElementById('build-grid');
+        devGrid.innerHTML = '';
+        buildGrid.innerHTML = '';
+        modules.forEach(m => {
+          // dev card
+          const devCard = document.createElement('div');
+          devCard.className = 'module-card';
+          devCard.innerHTML = `
+            <span class="module-id">${m.id}</span>
+            <h3>${m.name}</h3>
+            <p>${m.desc}</p>
+            <a href="http://localhost:${m.devPort}/" target="_blank">打开模块</a>
+          `;
+          devGrid.appendChild(devCard);
+
+          // build card
+          const buildCard = document.createElement('div');
+          buildCard.className = 'module-card';
+          buildCard.innerHTML = `
+            <span class="module-id">${m.id}</span>
+            <h3>${m.name}</h3>
+            <p>${m.desc}</p>
+            <a href="./${m.id}/dist/index.html" target="_blank">打开模块</a>
+          `;
+          buildGrid.appendChild(buildCard);
+        });
+      }
+
+      function switchMode(mode) {
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.mode-panel').forEach(p => p.classList.remove('active'));
+        const targetTab = document.querySelector('.mode-tab[data-mode="' + mode + '"]');
+        if (targetTab) targetTab.classList.add('active');
+        const targetPanel = document.getElementById(mode + '-panel');
+        if (targetPanel) targetPanel.classList.add('active');
+      }
+
+      document.querySelectorAll('.mode-tab').forEach(tab => {
+        tab.addEventListener('click', function () {
+          switchMode(this.dataset.mode);
+        });
+      });
+
+      render();
+    </script>
+  </body>
+</html>

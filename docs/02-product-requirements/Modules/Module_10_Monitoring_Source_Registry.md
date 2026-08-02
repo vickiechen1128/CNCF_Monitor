@@ -1,10 +1,13 @@
 # Module 10: 监控源登记册与异构接入
 
-> **模块类型**：核心能力模块（集成模式）  
-> **依赖文档**： [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)  
-> **目标用户**：运维架构师、运维工程师、集成项目经理  
-> **版本**：v1.0  
-> **更新日期**：2026-07-24
+> **PRD 状态**: `ready`（已通过原型验证）
+> **PRD 版本**: v1.1
+> **更新日期**: 2026-08-02
+> **对应原型**: `docs/prototypes/module-10/`
+
+> **模块类型**: 核心能力模块（集成模式）
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)
+> **目标用户**: 运维架构师、运维工程师、集成项目经理
 
 ---
 
@@ -301,3 +304,10 @@ cloud-monitor-puller（定时拉取，如 60s）
 - [ ] 高基数指标触发阈值后可被丢弃或采样，并记录事件
 - [ ] Zabbix Adapter 架构设计文档完成（v0.4 实现可选）
 - [ ] 云监控 Puller 架构设计文档完成（v0.4 实现可选）
+
+## Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |

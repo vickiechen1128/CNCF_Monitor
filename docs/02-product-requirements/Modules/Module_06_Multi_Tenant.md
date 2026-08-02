@@ -1,10 +1,13 @@
 # Module 06: 系统与平台管理（含多租户）
 
-> **模块类型**: 企业级能力模块  
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_03_Gateway_and_Auth.md](Module_03_Gateway_and_Auth.md)  
-> **目标用户**: 运维架构师、平台管理员  
-> **版本**: v2.1  
-> **更新日期**: 2026-07-31
+> **PRD 状态**: `ready`（已通过原型验证）
+> **PRD 版本**: v1.1
+> **更新日期**: 2026-08-02
+> **对应原型**: `docs/prototypes/module-06/`
+
+> **模块类型**: 企业级能力模块
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_03_Gateway_and_Auth.md](Module_03_Gateway_and_Auth.md)
+> **目标用户**: 运维架构师、平台管理员
 
 ---
 
@@ -155,3 +158,10 @@ MetricCenter 的租户模型必须与 BlueKing CMDB 业务（Business）模型�
 - [ ] {P2} 可维护平台全局 scrape 默认值
 - [ ] {v0.4+} 租户可维护 BlueKing CMDB 业务 ID 与业务路径映射
 - [ ] {P2} 不存在跨租户的全局管理员角色；`platform_admin` 租户管理员只能管理 `platform_admin` 租户及其拥有的网域
+
+## Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |

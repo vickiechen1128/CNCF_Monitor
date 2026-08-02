@@ -1,11 +1,14 @@
 # Module 02: 查询中心
 
-> **副标题**：带租户/网域上下文注入的 Prometheus Query API 代理  
-> **模块类型**: 核心能力模块  
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_06_Multi_Tenant.md](Module_06_Multi_Tenant.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)  
-> **目标用户**: 运维工程师、业务研发工程师、AI 应用开发工程师  
-> **版本**: v2.1  
-> **更新日期**: 2026-07-31
+> **PRD 状态**: `ready`（已通过原型验证）
+> **PRD 版本**: v1.1
+> **更新日期**: 2026-08-02
+> **对应原型**: `docs/prototypes/module-02/`
+> **副标题**: 带租户/网域上下文注入的 Prometheus Query API 代理
+
+> **模块类型**: 核心能力模块
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_06_Multi_Tenant.md](Module_06_Multi_Tenant.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)
+> **目标用户**: 运维工程师、业务研发工程师、AI 应用开发工程师
 
 ---
 
@@ -142,3 +145,10 @@ Module_02 将 Prometheus 原始响应包裹为统一 envelope，在不污染 Pro
 - [ ] UI/API 能够区分 `central_scrape` 与 `edge_remote_write` 数据，并明确提示边缘异步延迟
 - [ ] Open API 返回与 Prometheus 兼容的数据格式（原始数据位于 `data` 字段内）
 - [ ] 查询响应时间 P99 < 2s
+
+## Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |

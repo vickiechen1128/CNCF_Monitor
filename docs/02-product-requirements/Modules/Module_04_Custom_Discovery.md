@@ -1,10 +1,13 @@
 # Module 04: 自定义服务发现与外部 CMDB 生命周期管理
 
-> **模块类型**: 扩展能力模块（v0.4+）  
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_07_Monitoring_Object_Management.md](Module_07_Monitoring_Object_Management.md)  
-> **目标用户**: 运维工程师、运维架构师  
-> **版本**: v2.2  
-> **更新日期**: 2026-07-30
+> **PRD 状态**: `ready`（已通过原型验证）
+> **PRD 版本**: v1.1
+> **更新日期**: 2026-08-02
+> **对应原型**: `docs/prototypes/module-04/`
+
+> **模块类型**: 扩展能力模块（v0.4+）
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[Module_07_Monitoring_Object_Management.md](Module_07_Monitoring_Object_Management.md)
+> **目标用户**: 运维工程师、运维架构师
 
 ---
 
@@ -217,3 +220,10 @@ BlueKing CMDB 中的 CI 模型（`bk_obj_id`）需要映射到 MetricCenter 的 
 - [ ] BlueKing CMDB 字段正确映射到 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer`
 - [ ] 维护 CMDB CI 类型 → `resource_type` 映射表；未映射或禁用的 CI 类型进入待分类队列
 - [ ] 待分类 CI 队列支持查看原始数据、映射到现有类型、忽略；同步任务不被阻塞
+
+## Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |

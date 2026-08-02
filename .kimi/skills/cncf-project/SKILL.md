@@ -88,7 +88,7 @@ make apply-patches
 
 - [产品愿景](../../docs/02-product-requirements/00_Product_Vision.md)
 - [全局架构](../../docs/02-product-requirements/00_Global_Architecture.md)
-- [MVP 核心：配置管理模块](../../docs/02-product-requirements/Modules/Module_07_Config_Management.md)
+- [MVP 核心：监控对象管理模块](../../docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md)
 - [代码隔离标准](../../docs/03-engineering-standards/01_Code_Isolation_Standard.md)
 - [API 设计标准](../../docs/03-engineering-standards/03_API_Standard.md)
 - [Agent 协作速查](../AGENTS.md)

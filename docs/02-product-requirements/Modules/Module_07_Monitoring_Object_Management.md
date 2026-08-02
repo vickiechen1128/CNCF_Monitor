@@ -1,10 +1,13 @@
 # Module 07: 监控对象管理
 
-> **模块类型**: MVP 核心能力模块  
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[Module_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)、[Module_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)  
-> **目标用户**: 运维工程师、运维架构师  
-> **版本**: v3.0  
-> **更新日期**: 2026-07-31
+> **PRD 状态**: `ready`（已通过原型验证）
+> **PRD 版本**: v1.1
+> **更新日期**: 2026-08-02
+> **对应原型**: `docs/prototypes/module-07/`
+
+> **模块类型**: MVP 核心能力模块
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[Module_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)、[Module_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)
+> **目标用户**: 运维工程师、运维架构师
 
 ---
 
@@ -613,3 +616,10 @@ v0.4+ 实现（由 Module_04 负责）：
 - [ ] 模块边界清晰：Module_07 不生成 `prometheus.yml`，不配置 ScrapeJob，不下发配置
 - [ ] Module_01 与 Module_09 可通过只读接口稳定获取 Resource、LabelTemplate、ResourceLabel 数据
 - [ ] {v0.4+} 资源模型预留 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` 字段
+
+## Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |
