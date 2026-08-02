@@ -27,12 +27,17 @@ git rev-parse --git-dir
 
 ### Step 2: 创建可复用 worktree（仅在主工作区时）
 
+> 本项目固定使用 worktree：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
+>
+> 如果你当前已经在该 worktree 中，跳过本步骤。
+
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
-git checkout develop
-git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree" develop
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+git rev-parse --git-dir
+# 输出必须包含 .git/worktrees/
 ```
+
+如果不在固定 worktree 中，报告 Orchestrator 统一处理，不要自行创建新 worktree。
 
 ### Step 3: 切换到当前模块的 feat 分支
 
@@ -58,8 +63,18 @@ git log --oneline -5
 ### Step 4: 查看失败日志并确认修复范围
 
 - 读取 Orchestrator 提供的失败日志或 CI 输出
+- 读取 `docs/04-execution-records/module-XX/task-sequence.yaml`，明确当前失败属于哪一个 micro-task
 - 明确失败发生在后端、前端还是 patch 应用阶段
 - 确认需要修复的文件范围，优先限制在 `platform/`、`ui-custom/web/`、`patches/prometheus/`
+
+### Step 5: 判断失败类型
+
+| 失败类型 | 特征 | 处理方式 |
+|---|---|---|
+| 语法/类型/导入错误 | 编译失败、lint 报错 | 直接修复 |
+| 测试断言失败 | 单测、集成测试未通过 | 检查实现是否符合 PRD + L3；必要时报告 Orchestrator |
+| 规划顺序错误 | 当前 task 依赖的模型/API 还未实现 | 按 L3 sequence 回退到上一个通过验证的步骤，或报告 Orchestrator 调整 L3 |
+| 环境依赖问题 | 子模块缺失、GOROOT 错配、网络代理 | 报告 Orchestrator 统一处理 |
 
 ---
 
@@ -70,6 +85,8 @@ git log --oneline -5
 - 不改变原有业务逻辑
 - 如果失败是由于上游依赖变更导致，明确报告
 - 环境类问题优先由 Orchestrator 统一处理（如子模块缺失、GOROOT 错配、网络代理）
+- **按 L3 sequence 回退**：复杂失败时，回退到当前 task 的上一个 `depends_on` 步骤，确认该步骤是否仍通过验证
+- **规划错误上报**：如果失败暴露 L3 task-sequence 顺序错误（例如先写了 handler 但 model 还没实现），必须报告 Orchestrator 调整 L3，而不是硬修
 
 ---
 
@@ -142,8 +159,10 @@ make build-prometheus
 
 ## 完成后汇报
 
-1. 失败原因
-2. 修复的文件和位置
-3. 验证结果（命令输出关键摘要）
-4. 是否涉及 `docs/` 或 `upstream/` 的修改
-5. 是否需要 Orchestrator 介入环境配置
+1. 当前 micro-task（从 L3 task-sequence.yaml 中读取）
+2. 失败类型（语法错误 / 测试失败 / 规划顺序错误 / 环境问题）
+3. 失败原因
+4. 修复的文件和位置
+5. 验证结果（命令输出关键摘要）
+6. 是否涉及 `docs/` 或 `upstream/` 的修改
+7. 是否需要 Orchestrator 介入（环境配置 / 调整 L3 / 走 CR 流程）

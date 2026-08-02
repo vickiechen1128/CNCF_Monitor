@@ -1,10 +1,13 @@
 # Module 00: 模块职责矩阵与集成关系
 
-> **模块类型**: 全局索引文档  
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[00_Product_Vision.md](../00_Product_Vision.md)  
-> **目标用户**: 产品经理、技术架构师、AI 应用开发工程师、SRE  
-> **版本**: v1.3  
+> **PRD 状态**: `draft`
+> **PRD 版本**: v1.3
 > **更新日期**: 2026-07-31
+> **对应原型**: 暂无（待原型验证后补充）
+
+> **模块类型**: 全局索引文档
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[00_Product_Vision.md](../00_Product_Vision.md)
+> **目标用户**: 产品经理、技术架构师、AI 应用开发工程师、SRE
 
 ---
 
@@ -263,14 +266,14 @@
 
 ---
 
-## 5. 变更日志
+## Change Log
 
-| 日期 | 变更内容 | 修改人 |
-|------|----------|--------|
-| 2026-07-27 | 初版：整合 Module_01 ~ Module_10 职责矩阵与跨模块引用关系 | chenrt |
-| 2026-07-28 | 根据产品优化建议更新：标签归一化、Generic Target、边缘自治告警、Metric Drop Rules、Tenant-NetworkDomain 关系 | chenrt |
-| 2026-07-30 | 根据 CMDB-ITIL 映射优化：补充 CMDB 与 ITIL/ITSM 映射、Tenant/NetworkDomain 与 BlueKing CMDB 映射 | chenrt |
-| 2026-07-30 | 根据 grilling 收敛方案调整：CMDB 同步/孤儿生命周期迁到 Module_04；租户-网域关联提前到 v0.2；增加阶段标签约定 | chenrt |
-| 2026-07-30 | 根据 grilling（CMDB-Resource-Label）新增：Resource Label 生命周期、CI 类型映射、待分类队列、状态映射字典 | chenrt |
-| 2026-07-31 | 根据监控策略管理 grilling 调整：Module_01 改名为「监控策略与指标管理」并承接 CI↔Exporter 绑定、ScrapeJob、实例选择、规则编辑 UI、指标元数据；Module_07 改名为「监控对象管理」并移除 ScrapeJob / 配置生成 / 配置下发职责；Module_09 改名为「网域与边缘配置中心」并承担配置生成 / 预览 / 下发；Module_02 吸收运行时目标状态展示；Module_08 聚焦告警规则生命周期；新增 3.17 监控策略生命周期、3.18 运行时目标状态展示章节；更新禁区表 | chenrt |
-| 2026-07-31 | 根据查询中心 grilling 调整：Module_02 明确为「带租户/网域注入的 Prometheus Query API 代理」并增加 `/api/v1/alerts` 代理、响应 envelope 元数据；Module_09 增加 `external_labels` 注入、Agent 状态列表页 {MVP}、边缘诊断看板 {P1/P2}；Module_08 明确 Alertmanager 集成/通知状态、边缘本地告警心跳 {P2}；Module_06 明确不存在跨租户全局管理员；新增 3.19 查询中心、3.20 Edge Agent 状态、3.21 告警状态跨模块引用章节；更新禁区表 | chenrt |
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.0 | 2026-07-27 | 初始 | 整合 Module_01 ~ Module_10 职责矩阵与跨模块引用关系 | 全部 | ready |
+| v1.1 | 2026-07-28 | 修改 | 根据产品优化建议更新：标签归一化、Generic Target、边缘自治告警、Metric Drop Rules、Tenant-NetworkDomain 关系 | 全部 | ready |
+| v1.2 | 2026-07-30 | 修改 | 根据 CMDB-ITIL 映射优化：补充 CMDB 与 ITIL/ITSM 映射、Tenant/NetworkDomain 与 BlueKing CMDB 映射 | 全部 | ready |
+| v1.2 | 2026-07-30 | 修改 | 根据 grilling 收敛方案调整：CMDB 同步/孤儿生命周期迁到 Module_04；租户-网域关联提前到 v0.2；增加阶段标签约定 | 全部 | ready |
+| v1.2 | 2026-07-30 | 修改 | 根据 grilling（CMDB-Resource-Label）新增：Resource Label 生命周期、CI 类型映射、待分类队列、状态映射字典 | 全部 | ready |
+| v1.3 | 2026-07-31 | 修改 | 根据监控策略管理 grilling 调整：Module_01/07/09/02/08 职责重新划分；新增 3.17/3.18 章节；更新禁区表 | 全部 | ready |
+| v1.3 | 2026-07-31 | 修改 | 根据查询中心 grilling 调整：Module_02 明确 Query API 代理；Module_09/08/06 能力细化；新增 3.19/3.20/3.21 章节；更新禁区表 | 全部 | ready |

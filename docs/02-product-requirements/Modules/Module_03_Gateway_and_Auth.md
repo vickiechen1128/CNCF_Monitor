@@ -1,10 +1,13 @@
 # Module 03: 网关与认证
 
-> **模块类型**: 基础设施模块  
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)  
-> **目标用户**: 运维架构师、所有平台用户  
-> **版本**: v2.0  
-> **更新日期**: 2026-07-20
+> **PRD 状态**: `ready`（已通过原型验证）
+> **PRD 版本**: v1.1
+> **更新日期**: 2026-08-02
+> **对应原型**: `docs/prototypes/module-03/`
+
+> **模块类型**: 基础设施模块
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)
+> **目标用户**: 运维架构师、所有平台用户
 
 ---
 
@@ -67,3 +70,10 @@ MVP 阶段**不实现完整认证鉴权与多租户隔离**，仅作为请求入
 - [ ] 查询请求正确代理到 Prometheus
 - [ ] 配置管理 API 正确路由到 `platform/config/`
 - [ ] MVP 阶段允许无认证访问（开发期便利，生产环境需前置 Nginx/Basic Auth）
+
+## Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
+|------|------|----------|----------|----------|------|
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |

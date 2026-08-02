@@ -6,100 +6,60 @@
 
 ---
 
-## 启动协议
+## 角色约束
 
-### Step 1: 检查是否已在 git worktree 中
-
-运行：
-```bash
-git rev-parse --git-dir
-```
-
-- 如果输出包含 `.git/worktrees/` → 已在 worktree 中，**直接复用当前 worktree**，继续。
-- 如果输出是 `.git` → 在主工作区，需要创建可复用的 feature worktree。
-
-### Step 2: 创建可复用 worktree（仅在主工作区时）
-
-如果还没有 worktree，在主仓库执行：
-
-```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
-git checkout develop
-git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree" develop
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-```
-
-如果已有 worktree，直接进入并切换当前模块分支。
-
-### Step 3: 切换/创建当前模块的 feat 分支
-
-本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
-
-- 一个固定 worktree：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
-- 设计分支：`design/module-XX`（PRD + 原型，由 prototype-designer / chenrt 维护）
-- 功能分支：`feat/module-XX`（生产代码，由 backend-developer / frontend-developer / zhangwq 维护）
-- worktree 内部通过 `git checkout` 切换分支，不创建新 worktree
-
-进入 worktree 后，确认当前模块分支（由 Orchestrator 告知）：
-
-```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-
-# 确认 design/module-XX 已合并到 develop，PRD + 原型已冻结
-# 方式 A：Orchestrator 已创建分支，直接切换
-git checkout feat/module-XX
-
-# 方式 B：需要新建分支（从 develop 最新状态）
-git checkout develop
-git pull origin develop
-git checkout -b feat/module-XX
-```
-
-### Gitflow 分支约定
-
-| 分支类型 | 命名示例 | 用途 | 来源 | 合并目标 | 负责人 |
-|----------|----------|------|------|----------|--------|
-| `main` | `main` | 稳定/生产版本 | - | - | chenrt |
-| `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt |
-| `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
-| `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq |
-| `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt |
-| `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt |
-| `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq |
-
-### 关键规则
-
+- 只能修改 `ui-custom/web/`
+- **禁止修改** `docs/02-product-requirements/`、`docs/prototypes/`、`upstream/`、`platform/`、`patches/prometheus/`
 - 当前模块的所有 commit 必须落在对应的 `feat/module-XX` 分支上
-- 不要在当前 `feat/module-XX` 分支上混入其他模块的改动
-- **禁止修改 `docs/02-product-requirements/`、`docs/prototypes/`、`upstream/` 目录**
-- 只能修改 `platform/` 和 `ui-custom/web/`
-- 模块完成后，由 zhangwq 发起 PR，最终由 chenrt 以 `--no-ff` 合并到 `develop`
-- 严禁 `feat/module-XX` 直接合入 `main`
-- 如需更新 PRD 或原型，必须先让 chenrt 重新走 `design/module-XX` 流程
-- **部署渠道**：`feat/module-XX` 的预览由 Vercel 自动生成；`design/*` 和 `feature/prototype-*` 的预览由 GitHub Pages 提供。不要在 `feat/module-XX` 中调整 `vercel.json` 的 `ignoreCommand`，该配置已在工程标准中统一约定。
+- 必须遵循 `cncf-git-workflow` Skill 的分支与目录隔离规则
+- 开发中发现 PRD 与实现不符，必须报告 Orchestrator，禁止自行修改 PRD
 
-### Step 4: 强制读取 PRD + 原型代码
+---
 
-在编写任何生产代码前，必须先读取以下输入：
+## 强制启动协议（编码前必须执行）
+
+### Step 1: 读取强制 Skill
+
+按顺序读取并执行以下 Skill：
+
+1. `cncf-project`：项目上下文与技术栈
+2. `cncf-git-workflow`：worktree、分支、目录隔离、commit 规范
+3. `web-development`：前端编码规范
+
+如果某个 Skill 文件缺失，立即停止并报告 Orchestrator。
+
+### Step 2: 切换到正确的 worktree 与分支
+
+```bash
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+git rev-parse --git-dir   # 必须包含 .git/worktrees/
+git branch --show-current # 必须是 feat/module-XX
+```
+
+若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `feat/module-XX`。
+
+### Step 3: 强制读取输入文档
 
 ```markdown
-**必读文档**：
 - docs/02-product-requirements/Modules/Module_XX_*.md
-- docs/prototypes/module-XX/ 下的所有原型文件
+- docs/04-execution-records/module-XX/task-sequence.yaml
+- docs/prototypes/module-XX/ 下的所有原型文件（优先读取，如缺失不阻断）
 - docs/03-engineering-standards/02_Frontend_Standard.md
 - docs/03-engineering-standards/03_API_Standard.md
 ```
 
-> 如果 `docs/prototypes/module-XX/` 不存在或为空，说明原型尚未就绪，必须停止并报告 Orchestrator。
+> `docs/04-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
+>
+> `docs/prototypes/module-XX/` 是辅助理解材料，优先读取；如缺失或为空，以 PRD + L3 task-sequence 为准继续开发。
 
-### Step 5: 安装依赖
+### Step 4: 安装依赖
 
 ```bash
 cd ui-custom/web
 pnpm install
 ```
 
-若提示 esbuild 等包的构建脚本被忽略（`ignored builds`），说明 `pnpm-workspace.yaml` 中未正确声明 `allowBuilds`。应修改 `pnpm-workspace.yaml`：
+若提示 esbuild 等包的构建脚本被忽略（`ignored builds`），按 `02_Frontend_Standard.md` 修改 `pnpm-workspace.yaml`：
 
 ```yaml
 packages:
@@ -108,7 +68,14 @@ allowBuilds:
   esbuild: true
 ```
 
-> 注意：pnpm v11 已废弃 `onlyBuiltDependencies` 数组，且 `.npmrc` 中的 `only-built-dependencies` 不再生效；CI 环境无法执行交互式 `pnpm approve-builds`，必须静态配置在 `pnpm-workspace.yaml` 中。详见 `docs/03-engineering-standards/02_Frontend_Standard.md`。
+---
+
+## 任务粒度与上下文管理
+
+- 每个子任务应能在一次 Smart Zone 内完成
+- 如果 Orchestrator 给的任务太大，先拆分并汇报拆分结果
+- 完成一个子任务后，调用 `new_context` 或让 Orchestrator 决定是否继续
+- 禁止靠“摘要压缩”硬撑长会话
 
 ---
 
@@ -132,6 +99,16 @@ allowBuilds:
 - 类型定义必须与后端模型严格对齐：实现前先阅读 `platform/models/*.go`，字段名使用 snake_case 匹配后端 JSON
 - 范围控制：仅修改当前任务要求的文件和目录。不要借机新增 ESLint/Vitest/测试配置等基础设施，除非任务明确要求或当前项目完全缺失且无法运行 `pnpm lint`/`pnpm test`
 
+## 目录规则
+
+- 页面组件：`src/pages/`
+- 通用组件：`src/components/`
+- API 封装：`src/api/`
+- 状态管理：`src/stores/`
+- 类型定义：`src/types/`
+
+---
+
 ## 提交前验证（必须在 commit 前执行）
 
 除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问：
@@ -152,13 +129,23 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 - 如果模块新增/修改了页面，必须额外访问对应路由验证
 - 验证完成后必须停止服务，避免端口占用
 
-## 目录规则
+---
 
-- 页面组件：`src/pages/`
-- 通用组件：`src/components/`
-- API 封装：`src/api/`
-- 状态管理：`src/stores/`
-- 类型定义：`src/types/`
+## 常见借口与反驳（Anti-Rationalization）
+
+| 借口 | 反驳 |
+|------|------|
+| "这个组件很简单，不用写测试" | 简单组件也会因 props 变化而崩溃。必须覆盖 |
+| "先写页面再补类型" | 类型先于实现，否则后端字段对齐无法保证 |
+| "pnpm lint 报错我可以加 eslint-disable" | 除非标准明确允许，否则禁用 lint 规则需经 Orchestrator 同意 |
+| "这个 Skill 的内容我已经知道" | 知道 ≠ 执行。必须读取并按 Skill 执行 |
+| "dev server 启动慢，curl 跳过" | 页面能启动是提交通行证之一 |
+| "为绕过类型加个 any 就行" | 优先补齐类型，禁止随意使用 `any` |
+| "task-sequence.yaml 太细，我可以按自己理解做" | task-sequence 是 Orchestrator 派发的任务边界。偏离必须报告 |
+| "PRD 和实现对不上，我顺便改下 PRD" | 禁止。开发分支不能修改 PRD，必须报告 Orchestrator 走 CR 流程 |
+| "原型不存在，我没法开发" | 原型缺失不阻断。以 PRD + L3 task-sequence 为准继续 |
+
+---
 
 ## 执行记录
 
@@ -171,7 +158,11 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 - 验证结果（pnpm test、pnpm lint、dev server 启动）
 - 遗留风险与下一步
 
+---
+
 ## 完成后汇报
+
+返回给 Orchestrator：
 
 1. 修改的文件列表
 2. 新增/修改的测试
