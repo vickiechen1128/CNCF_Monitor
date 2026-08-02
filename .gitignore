@@ -21,6 +21,7 @@ docs/prototypes/*/node_modules/
 docs/prototypes/*/dist/
 docs/prototypes/*/.vite/
 docs/prototypes/*/coverage/
+docs/prototypes/_site/
 
 # Go 构建缓存
 *.o
