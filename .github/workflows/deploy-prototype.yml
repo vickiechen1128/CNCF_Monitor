@@ -3,12 +3,12 @@ name: Deploy Prototype to GitHub Pages
 on:
   push:
     branches:
+      - develop
+      - main
       - 'feature/prototype-*'
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -46,10 +46,20 @@ jobs:
             fi
           done
 
+      - name: Determine destination directory
+        id: dest
+        run: |
+          branch="${{ github.ref_name }}"
+          if [[ "$branch" == "develop" || "$branch" == "main" ]]; then
+            echo "dir=" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=$branch" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs/prototypes/_site
-          destination_dir: ${{ github.ref_name }}
+          destination_dir: ${{ steps.dest.outputs.dir }}
           keep_files: true
