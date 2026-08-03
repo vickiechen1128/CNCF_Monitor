@@ -16,47 +16,133 @@ import {
   Alert,
   Statistic,
   Tabs,
-  Badge,
+  App,
+  Tooltip,
+  Empty,
 } from 'antd'
-import { PlusOutlined, EditOutlined, PlayCircleOutlined, CodeOutlined } from '@ant-design/icons'
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  PlayCircleOutlined,
+  CodeOutlined,
+  MinusCircleOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
-import { mockMonitoringRules } from '../mocks/module-01'
-import { RESOURCE_TYPE_MAP } from '../mocks/module-01'
-import type { ResourceType } from '../mocks/module-01'
-import type { MonitoringRule } from '../mocks/module-01'
+import {
+  mockMonitoringRules,
+  mockExporterTemplates,
+  mockMetricLibrary,
+  CI_TYPES,
+  CI_TYPE_LABEL,
+  CI_TYPE_CATEGORY_MAP,
+  RULE_TYPE_MAP,
+  METRIC_TYPE_COLOR,
+  METRIC_TYPE_LABEL,
+} from '../mocks/module-01'
+import type { CiType, RuleType, MonitoringRule } from '../mocks/module-01'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
 const { Option } = Select
 const { TabPane } = Tabs
 
-const RESOURCE_TYPES: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+const now = () => new Date().toISOString()
+
+type ValidationResult =
+  | { status: 'success'; message: string }
+  | { status: 'error'; message: string }
+  | null
+
+// 从 PromQL 表达式中粗略解析出引用的指标名（去掉 label selector / 字符串字面量 / by/without 子句）
+const extractMetricNames = (expr: string): string[] => {
+  if (!expr) return []
+  const stripped = expr
+    .replace(/"[^"]*"/g, '""')
+    .replace(/\{[^}]*\}/g, '{}')
+    .replace(/\b(?:by|without)\s*\([^)]*\)/gi, '')
+  const matches = stripped.match(/[a-zA-Z_:][a-zA-Z0-9_:]*/g) ?? []
+  const functions = new Set([
+    'rate', 'irate', 'increase', 'sum', 'avg', 'min', 'max', 'count',
+    'and', 'or', 'unless', 'on', 'ignoring', 'group_left', 'group_right',
+    'offset', 'histogram_quantile', 'topk', 'bottomk', 'quantile',
+    'predict_linear', 'changes', 'delta', 'deriv', 'idelta', 'resets',
+    'absent', 'ceil', 'floor', 'round', 'abs', 'clamp_max', 'clamp_min',
+    'clamp', 'time', 'vector', 'scalar', 'sort', 'sort_desc', 'sqrt',
+    'ln', 'log2', 'log10', 'exp', 'sgn', 'deg', 'rad', 'pi', 'year',
+    'month', 'day_of_month', 'day_of_week', 'days_in_month', 'hour',
+    'minute', 'timestamp', 'label_replace', 'label_join', 'bool',
+    'aggr_over_time', 'avg_over_time', 'min_over_time', 'max_over_time',
+    'sum_over_time', 'count_over_time', 'quantile_over_time',
+    'stddev_over_time', 'stdvar_over_time', 'last_over_time',
+    'present_over_time', 'holt_winters', 'histogram_count', 'histogram_sum',
+    'histogram_avg', 'histogram_stddev', 'histogram_stdvar',
+    'histogram_fraction',
+  ])
+  return matches.filter((n) => !functions.has(n))
+}
 
 export default function RulesPage() {
+  const { modal, message } = App.useApp()
+  const [rules, setRules] = useState<MonitoringRule[]>(() => [...mockMonitoringRules])
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRule, setEditingRule] = useState<MonitoringRule | null>(null)
   const [validating, setValidating] = useState(false)
+  const [validationResult, setValidationResult] = useState<ValidationResult>(null)
   const [previewVisible, setPreviewVisible] = useState(false)
   const [form] = Form.useForm()
 
+  const watchRuleType = Form.useWatch('rule_type', form) as RuleType | undefined
+  const watchExporterTemplateId = Form.useWatch('exporter_template_id', form) as
+    | string
+    | undefined
+
+  const templateNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    mockExporterTemplates.forEach((t) => map.set(t.exporter_template_id, t.name))
+    return map
+  }, [])
+
   const alertingRules = useMemo(
-    () => mockMonitoringRules.filter((r) => r.rule_type === 'alerting'),
-    []
+    () => rules.filter((r) => r.rule_type === 'alerting'),
+    [rules]
   )
   const recordingRules = useMemo(
-    () => mockMonitoringRules.filter((r) => r.rule_type === 'recording'),
-    []
+    () => rules.filter((r) => r.rule_type === 'recording'),
+    [rules]
   )
 
+  // 指标预览：选 exporter_template_id 后从 mockMetricLibrary 过滤该 Exporter 启用的指标名
+  const previewMetrics = useMemo(() => {
+    if (!watchExporterTemplateId) return []
+    return mockMetricLibrary.filter(
+      (m) =>
+        m.exporter_template_id === watchExporterTemplateId &&
+        m.enabled
+    )
+  }, [watchExporterTemplateId])
+
+  // 将监控规则默认值打开 modal
   const handleOpenModal = (record?: MonitoringRule) => {
     setPreviewVisible(false)
     setValidating(false)
+    setValidationResult(null)
     if (record) {
       setEditingRule(record)
       form.setFieldsValue({
-        ...record,
-        labelsJson: JSON.stringify(record.labels, null, 2),
-        annotationsJson: JSON.stringify(record.annotations, null, 2),
+        name: record.name,
+        rule_type: record.rule_type,
+        resource_type: record.resource_type,
+        exporter_template_id: record.exporter_template_id,
+        duration: record.duration,
+        expr: record.expr,
+        enabled: record.enabled,
+        labels: Object.entries(record.labels).map(([key, value]) => ({ key, value })),
+        annotations: Object.entries(record.annotations).map(([key, value]) => ({
+          key,
+          value,
+        })),
       })
     } else {
       setEditingRule(null)
@@ -64,10 +150,10 @@ export default function RulesPage() {
       form.setFieldsValue({
         rule_type: 'alerting',
         resource_type: 'host',
-        enabled: true,
         duration: '5m',
-        labelsJson: '{}',
-        annotationsJson: '{}',
+        enabled: true,
+        labels: [],
+        annotations: [],
       })
     }
     setModalOpen(true)
@@ -78,11 +164,59 @@ export default function RulesPage() {
     setEditingRule(null)
     setPreviewVisible(false)
     setValidating(false)
+    setValidationResult(null)
   }
 
+  // 交互式 PromQL 校验：检查表达式中出现的指标名是否在所选 Exporter 指标库内
   const handleValidate = () => {
+    const expr = (form.getFieldValue('expr') as string) ?? ''
+    if (!expr.trim()) {
+      setValidationResult({ status: 'error', message: '表达式不能为空' })
+      return
+    }
     setValidating(true)
-    setTimeout(() => setValidating(false), 800)
+    setValidationResult(null)
+    setTimeout(() => {
+      setValidating(false)
+      const exporterTemplateId = form.getFieldValue('exporter_template_id') as string | undefined
+      const knownMetricNames = new Set(
+        mockMetricLibrary
+          .filter((m) => !exporterTemplateId || m.exporter_template_id === exporterTemplateId)
+          .map((m) => m.metric_name)
+      )
+      // 全库兜底（用户可在不同 exporter 间引用），只要任意启用指标命中即视为已知
+      const allKnown = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
+      const used = extractMetricNames(expr)
+      const unknown = used.filter((n) => !allKnown.has(n))
+      if (unknown.length > 0) {
+        setValidationResult({
+          status: 'error',
+          message: `校验失败：未知指标名 ${unknown.join(', ')}${
+            exporterTemplateId
+              ? `（不在 ${templateNameMap.get(exporterTemplateId) ?? exporterTemplateId} 指标库中）`
+              : ''
+          }`,
+        })
+        return
+      }
+      // 同 Exporter 校验：若选定 exporter，所有指标都应在该 exporter 内
+      if (exporterTemplateId) {
+        const notInExporter = used.filter((n) => !knownMetricNames.has(n))
+        if (notInExporter.length > 0) {
+          setValidationResult({
+            status: 'error',
+            message: `校验失败：指标 ${notInExporter.join(', ')} 不属于所选 Exporter「${
+              templateNameMap.get(exporterTemplateId) ?? exporterTemplateId
+            }」`,
+          })
+          return
+        }
+      }
+      setValidationResult({
+        status: 'success',
+        message: '语法校验通过：表达式引用的指标均存在，结构正确。',
+      })
+    }, 600)
   }
 
   const handlePreview = () => {
@@ -90,9 +224,72 @@ export default function RulesPage() {
   }
 
   const handleSave = () => {
-    form.validateFields().then(() => {
+    form.validateFields().then((values) => {
+      const labelsArr = (values.labels as { key: string; value: string }[]) ?? []
+      const annotationsArr = (values.annotations as { key: string; value: string }[]) ?? []
+      const labels: Record<string, string> = {}
+      labelsArr.forEach((it) => {
+        if (it.key) labels[it.key] = it.value
+      })
+      const annotations: Record<string, string> = {}
+      annotationsArr.forEach((it) => {
+        if (it.key) annotations[it.key] = it.value
+      })
+      const ruleType = values.rule_type as RuleType
+      const payload = {
+        name: values.name as string,
+        rule_type: ruleType,
+        expr: values.expr as string,
+        duration: ruleType === 'alerting' ? (values.duration as string) : '',
+        labels,
+        annotations: ruleType === 'alerting' ? annotations : {},
+        resource_type: values.resource_type as CiType,
+        exporter_template_id: values.exporter_template_id as string,
+        enabled: values.enabled as boolean,
+      }
+      if (editingRule) {
+        const updated: MonitoringRule = {
+          ...editingRule,
+          ...payload,
+          updated_at: now(),
+        }
+        setRules((prev) => prev.map((r) => (r.rule_id === editingRule.rule_id ? updated : r)))
+        message.success('规则已更新')
+      } else {
+        const newRule: MonitoringRule = {
+          rule_id: `rule-${Date.now()}`,
+          ...payload,
+          created_at: now(),
+          updated_at: now(),
+        }
+        setRules((prev) => [...prev, newRule])
+        message.success('规则已新增')
+      }
       handleCloseModal()
     })
+  }
+
+  const handleDelete = (record: MonitoringRule) => {
+    modal.confirm({
+      title: '确认删除',
+      content: `确定删除规则「${record.name}」？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => {
+        setRules((prev) => prev.filter((r) => r.rule_id !== record.rule_id))
+        message.success('已删除')
+      },
+    })
+  }
+
+  const handleToggleEnabled = (record: MonitoringRule, checked: boolean) => {
+    setRules((prev) =>
+      prev.map((r) =>
+        r.rule_id === record.rule_id ? { ...r, enabled: checked, updated_at: now() } : r
+      )
+    )
+    message.success(checked ? '已启用' : '已禁用')
   }
 
   const columns = [
@@ -103,8 +300,8 @@ export default function RulesPage() {
       render: (value: string, record: MonitoringRule) => (
         <Space>
           <Text strong>{value}</Text>
-          <Tag color={record.rule_type === 'alerting' ? '#FF4C3A' : '#1481FD'}>
-            {record.rule_type === 'alerting' ? '告警' : '记录'}
+          <Tag color={RULE_TYPE_MAP[record.rule_type].color}>
+            {RULE_TYPE_MAP[record.rule_type].text}
           </Tag>
         </Space>
       ),
@@ -113,7 +310,22 @@ export default function RulesPage() {
       title: '资源类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
-      render: (value: ResourceType) => <Tag color="blue">{RESOURCE_TYPE_MAP[value]}</Tag>,
+      render: (value: CiType) => (
+        <Space direction="vertical" size={0}>
+          <Tag color="blue">{CI_TYPE_LABEL[value]}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {CI_TYPE_CATEGORY_MAP[value]}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: '关联 Exporter',
+      dataIndex: 'exporter_template_id',
+      key: 'exporter_template_id',
+      render: (value: string) => (
+        <Tag color="cyan">{templateNameMap.get(value) ?? value}</Tag>
+      ),
     },
     {
       title: '表达式',
@@ -130,57 +342,129 @@ export default function RulesPage() {
       title: '持续时间',
       dataIndex: 'duration',
       key: 'duration',
-      render: (value: string) => value || '-',
+      render: (value: string, record: MonitoringRule) =>
+        record.rule_type === 'recording' ? <Text type="secondary">-</Text> : value || '-',
     },
     {
       title: '状态',
       dataIndex: 'enabled',
       key: 'enabled',
-      render: (value: boolean) =>
-        value ? <Badge status="success" text="启用" /> : <Badge status="default" text="禁用" />,
+      render: (value: boolean, record: MonitoringRule) => (
+        <Switch
+          checked={value}
+          size="small"
+          onChange={(checked) => handleToggleEnabled(record, checked)}
+        />
+      ),
     },
     {
       title: '操作',
       key: 'actions',
       render: (_: unknown, record: MonitoringRule) => (
-        <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
-          编辑
-        </Button>
+        <Space>
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
+            编辑
+          </Button>
+          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+            删除
+          </Button>
+        </Space>
       ),
     },
   ]
 
   const renderTable = (data: MonitoringRule[]) => (
-    <Table
-      rowKey="rule_id"
-      dataSource={data}
-      columns={columns}
-      pagination={{ pageSize: 5 }}
-    />
+    <Table rowKey="rule_id" dataSource={data} columns={columns} pagination={{ pageSize: 5 }} />
+  )
+
+  // 渲染 key-value 动态表单（Form.List）
+  const renderKeyValueList = (
+    name: 'labels' | 'annotations',
+    label: string,
+    placeholderKey: string,
+    placeholderValue: string
+  ) => (
+    <Form.List name={name}>
+      {(fields, { add, remove }) => (
+        <div style={{ marginBottom: 8 }}>
+          {fields.length === 0 && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              暂无{label}，点击下方按钮新增
+            </Text>
+          )}
+          {fields.map((field) => (
+            <Row gutter={8} key={field.key} style={{ marginBottom: 8 }} align="middle">
+              <Col span={10}>
+                <Form.Item name={[field.name, 'key']} noStyle>
+                  <Input placeholder={placeholderKey} />
+                </Form.Item>
+              </Col>
+              <Col span={10}>
+                <Form.Item name={[field.name, 'value']} noStyle>
+                  <Input placeholder={placeholderValue} />
+                </Form.Item>
+              </Col>
+              <Col span={4}>
+                <MinusCircleOutlined
+                  onClick={() => remove(field.name)}
+                  style={{ color: '#FF4C3A', fontSize: 16 }}
+                />
+              </Col>
+            </Row>
+          ))}
+          <Button
+            type="dashed"
+            onClick={() => add({ key: '', value: '' })}
+            icon={<PlusOutlined />}
+            size="small"
+            style={{ width: 160 }}
+          >
+            新增{label}行
+          </Button>
+        </div>
+      )}
+    </Form.List>
   )
 
   return (
     <MainLayout>
       <div className="page-header">
         <Title level={4}>规则编辑</Title>
-        <Text type="secondary">管理告警规则与记录规则</Text>
+        <Text type="secondary">
+          管理告警规则与记录规则；PromQL 校验依赖 Module_02 / Prometheus，规则生命周期由 Module_08 管理
+        </Text>
       </div>
       <Card className="page-card">
         <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
           <Col>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              style={{ backgroundColor: '#0ECDEB' }}
-              onClick={() => handleOpenModal()}
-            >
-              新增规则
-            </Button>
+            <Space>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                style={{ backgroundColor: '#0ECDEB' }}
+                onClick={() => handleOpenModal()}
+              >
+                新增规则
+              </Button>
+              <Tooltip title="P1：规则模板一键填充（待实现）">
+                <Button icon={<ThunderboltOutlined />} disabled>
+                  规则模板（P1）
+                </Button>
+              </Tooltip>
+            </Space>
           </Col>
           <Col>
             <Space size="large">
-              <Statistic title="告警规则" value={alertingRules.length} valueStyle={{ color: '#FF4C3A' }} />
-              <Statistic title="记录规则" value={recordingRules.length} valueStyle={{ color: '#1481FD' }} />
+              <Statistic
+                title="告警规则"
+                value={alertingRules.length}
+                valueStyle={{ color: RULE_TYPE_MAP.alerting.color }}
+              />
+              <Statistic
+                title="记录规则"
+                value={recordingRules.length}
+                valueStyle={{ color: RULE_TYPE_MAP.recording.color }}
+              />
             </Space>
           </Col>
         </Row>
@@ -199,17 +483,20 @@ export default function RulesPage() {
         title={editingRule ? '编辑规则' : '新增规则'}
         open={modalOpen}
         onCancel={handleCloseModal}
-        onOk={handleSave}
-        okButtonProps={{ style: { backgroundColor: '#0ECDEB' } }}
-        width={720}
+        width={760}
         footer={
           <Space>
             <Button onClick={handleCloseModal}>取消</Button>
+            <Tooltip title="P1：规则模板一键填充（待实现）">
+              <Button icon={<ThunderboltOutlined />} disabled>
+                规则模板（P1）
+              </Button>
+            </Tooltip>
             <Button icon={<CodeOutlined />} onClick={handlePreview}>
               指标预览
             </Button>
             <Button icon={<PlayCircleOutlined />} loading={validating} onClick={handleValidate}>
-              校验
+              校验 PromQL
             </Button>
             <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleSave}>
               保存
@@ -249,20 +536,40 @@ export default function RulesPage() {
                 rules={[{ required: true, message: '请选择资源类型' }]}
               >
                 <Select placeholder="请选择">
-                  {RESOURCE_TYPES.map((type) => (
+                  {CI_TYPES.map((type) => (
                     <Option key={type} value={type}>
-                      {RESOURCE_TYPE_MAP[type]}
+                      {CI_TYPE_LABEL[type]}（{CI_TYPE_CATEGORY_MAP[type]}）
                     </Option>
                   ))}
                 </Select>
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item label="持续时间 (for)" name="duration">
-                <Input placeholder="5m" />
+              <Form.Item
+                label="关联 Exporter 模板"
+                name="exporter_template_id"
+                rules={[{ required: true, message: '请选择 Exporter 模板' }]}
+                extra="用于指标预览与 PromQL 校验"
+              >
+                <Select placeholder="请选择" showSearch optionFilterProp="children">
+                  {mockExporterTemplates
+                    .filter((t) => t.supported_resource_types.length > 0)
+                    .map((t) => (
+                      <Option key={t.exporter_template_id} value={t.exporter_template_id}>
+                        {t.name} v{t.version}
+                      </Option>
+                    ))}
+                </Select>
               </Form.Item>
             </Col>
           </Row>
+
+          {watchRuleType === 'alerting' && (
+            <Form.Item label="持续时间 (for)" name="duration">
+              <Input placeholder="如 5m" />
+            </Form.Item>
+          )}
+
           <Form.Item
             label="PromQL 表达式"
             name="expr"
@@ -270,43 +577,102 @@ export default function RulesPage() {
           >
             <TextArea rows={4} placeholder="输入 PromQL 表达式" />
           </Form.Item>
+
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="Labels (JSON)" name="labelsJson">
-                <TextArea rows={4} placeholder='{"severity": "warning"}' />
+              <Form.Item label="Labels（key-value）" required={false}>
+                {renderKeyValueList('labels', 'Label', 'severity', 'warning')}
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item label="Annotations (JSON)" name="annotationsJson">
-                <TextArea rows={4} placeholder='{"summary": "..."}' />
-              </Form.Item>
+              {watchRuleType === 'alerting' ? (
+                <Form.Item label="Annotations（key-value）" required={false}>
+                  {renderKeyValueList('annotations', 'Annotation', 'summary', '主机 CPU 过高')}
+                </Form.Item>
+              ) : (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="记录规则不展示 annotations"
+                  description="recording 规则仅保留 expr 与 labels，duration / annotations 字段已隐藏（PRD 5.5）。"
+                  style={{ marginTop: 30 }}
+                />
+              )}
             </Col>
           </Row>
+
           <Form.Item label="启用状态" name="enabled" valuePropName="checked">
             <Switch />
           </Form.Item>
 
-          {validating && (
+          {validationResult && (
             <Alert
-              message="语法校验通过（演示）"
-              description="表达式结构正确，未发现明显语法错误。"
-              type="success"
+              type={validationResult.status === 'success' ? 'success' : 'error'}
               showIcon
+              message={validationResult.status === 'success' ? 'PromQL 校验通过' : 'PromQL 校验失败'}
+              description={validationResult.message}
               style={{ marginBottom: 16 }}
             />
           )}
 
-          {previewVisible && (
+          {previewVisible &&
+            (previewMetrics.length === 0 ? (
+              <Alert
+                type="info"
+                showIcon
+                message="指标预览"
+                description={
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      watchExporterTemplateId
+                        ? '该 Exporter 暂无启用指标'
+                        : '请先选择 Exporter 模板'
+                    }
+                  />
+                }
+                style={{ marginBottom: 16 }}
+              />
+            ) : (
+              <Alert
+                type="info"
+                showIcon
+                message={`指标预览：${templateNameMap.get(watchExporterTemplateId ?? '') ?? ''}（${
+                  previewMetrics.length
+                } 个启用指标）`}
+                description={
+                  <Space wrap size={[4, 4]}>
+                    {previewMetrics.map((m) => (
+                      <Tooltip
+                        key={m.metric_id}
+                        title={`${m.help}${m.unit ? ` · 单位 ${m.unit}` : ''} · ${METRIC_TYPE_LABEL[m.metric_type]}`}
+                      >
+                        <Tag color={METRIC_TYPE_COLOR[m.metric_type]} style={{ marginBottom: 4 }}>
+                          {m.metric_name}
+                        </Tag>
+                      </Tooltip>
+                    ))}
+                  </Space>
+                }
+                style={{ marginBottom: 16 }}
+              />
+            ))}
+
+          <Alert
+            type="warning"
+            showIcon
+            message="P1：规则模板一键填充"
+            description="按 CI 类型 / Exporter 预置常用规则模板并一键填充的能力在 P1 版本提供，当前为占位按钮。"
+            style={{ marginTop: 8 }}
+          />
+
+          {!watchExporterTemplateId && (
             <Alert
-              message="指标预览（演示数据）"
-              description={
-                <div>
-                  <div>node_cpu_seconds_total{'{cpu="0",mode="idle",instance="prod-web-01:9100"}'} = 823456.78</div>
-                  <div>node_cpu_seconds_total{'{cpu="1",mode="idle",instance="prod-web-01:9100"}'} = 823123.45</div>
-                </div>
-              }
               type="info"
               showIcon
+              message="提示"
+              description="选择「关联 Exporter 模板」后可获取指标预览，并辅助 PromQL 校验。"
+              style={{ marginTop: 12 }}
             />
           )}
         </Form>

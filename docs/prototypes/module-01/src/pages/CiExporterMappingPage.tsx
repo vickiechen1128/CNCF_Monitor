@@ -6,7 +6,6 @@ import {
   Tag,
   Modal,
   Form,
-  Input,
   Select,
   InputNumber,
   Space,
@@ -14,28 +13,57 @@ import {
   Row,
   Col,
   Badge,
+  App,
+  Tooltip,
 } from 'antd'
-import { PlusOutlined, EditOutlined, LinkOutlined } from '@ant-design/icons'
+import {
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  LinkOutlined,
+  LockOutlined,
+} from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
-import { mockCITypeExporterMappings, mockExporterTemplates } from '../mocks/module-01'
-import { RESOURCE_TYPE_MAP } from '../mocks/module-01'
-import type { ResourceType } from '../mocks/module-01'
-import type { CITypeExporterMapping } from '../mocks/module-01'
+import {
+  mockCITypeExporterMappings,
+  mockExporterTemplates,
+  mockLabelTemplates,
+  CI_TYPES,
+  CI_TYPE_LABEL,
+  CI_TYPE_CATEGORY_MAP,
+  SCHEMES,
+} from '../mocks/module-01'
+import type { CiType, Scheme, CITypeExporterMapping } from '../mocks/module-01'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
-const RESOURCE_TYPES: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
-const SCHEMES: Array<'http' | 'https'> = ['http', 'https']
+const now = () => new Date().toISOString()
 
 export default function CiExporterMappingPage() {
+  const { modal, message } = App.useApp()
+  const [mappings, setMappings] = useState<CITypeExporterMapping[]>(() => [
+    ...mockCITypeExporterMappings,
+  ])
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<CITypeExporterMapping | null>(null)
   const [form] = Form.useForm()
 
+  const templateMap = useMemo(() => {
+    const map = new Map<string, (typeof mockExporterTemplates)[number]>()
+    mockExporterTemplates.forEach((t) => map.set(t.exporter_template_id, t))
+    return map
+  }, [])
+
   const templateNameMap = useMemo(() => {
     const map = new Map<string, string>()
     mockExporterTemplates.forEach((t) => map.set(t.exporter_template_id, t.name))
+    return map
+  }, [])
+
+  const labelNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    mockLabelTemplates.forEach((t) => map.set(t.template_id, t.name))
     return map
   }, [])
 
@@ -56,9 +84,69 @@ export default function CiExporterMappingPage() {
     setEditingMapping(null)
   }
 
+  // 选择 Exporter 模板后自动填充 default_port / metrics_path / scheme
+  const handleTemplateChange = (templateId: string) => {
+    const tpl = templateMap.get(templateId)
+    if (tpl) {
+      form.setFieldsValue({
+        default_port: tpl.default_port,
+        metrics_path: tpl.metrics_path,
+        scheme: tpl.scheme,
+      })
+    }
+  }
+
   const handleSave = () => {
-    form.validateFields().then(() => {
+    form.validateFields().then((values) => {
+      if (editingMapping) {
+        const updated: CITypeExporterMapping = {
+          ...editingMapping,
+          ...values,
+          resource_type: values.resource_type as CiType,
+          scheme: values.scheme as Scheme,
+          updated_at: now(),
+        }
+        setMappings((prev) =>
+          prev.map((m) => (m.mapping_id === editingMapping.mapping_id ? updated : m))
+        )
+        message.success('映射已更新')
+      } else {
+        const newMapping: CITypeExporterMapping = {
+          mapping_id: `map-${Date.now()}`,
+          resource_type: values.resource_type as CiType,
+          exporter_template_id: values.exporter_template_id as string,
+          default_port: values.default_port as number,
+          metrics_path: values.metrics_path as string,
+          scheme: values.scheme as Scheme,
+          scrape_interval: values.scrape_interval as string,
+          scrape_timeout: values.scrape_timeout as string,
+          label_template_id: (values.label_template_id as string) || undefined,
+          is_builtin: false,
+          created_at: now(),
+          updated_at: now(),
+        }
+        setMappings((prev) => [...prev, newMapping])
+        message.success('映射已新增')
+      }
       handleCloseModal()
+    })
+  }
+
+  const handleDelete = (record: CITypeExporterMapping) => {
+    if (record.is_builtin) {
+      message.warning('内置绑定禁止删除')
+      return
+    }
+    modal.confirm({
+      title: '确认删除',
+      content: `确定删除「${CI_TYPE_LABEL[record.resource_type]} → ${templateNameMap.get(record.exporter_template_id)}」绑定？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => {
+        setMappings((prev) => prev.filter((m) => m.mapping_id !== record.mapping_id))
+        message.success('已删除')
+      },
     })
   }
 
@@ -67,7 +155,14 @@ export default function CiExporterMappingPage() {
       title: '资源类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
-      render: (value: ResourceType) => <Tag color="blue">{RESOURCE_TYPE_MAP[value]}</Tag>,
+      render: (value: CiType) => (
+        <Space>
+          <Tag color="blue">{CI_TYPE_LABEL[value]}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {CI_TYPE_CATEGORY_MAP[value]}
+          </Text>
+        </Space>
+      ),
     },
     {
       title: 'Exporter 模板',
@@ -105,15 +200,42 @@ export default function CiExporterMappingPage() {
       title: '标签模板',
       dataIndex: 'label_template_id',
       key: 'label_template_id',
-      render: (value?: string) => value ? <Badge status="success" text={value} /> : '-',
+      render: (value?: string) =>
+        value ? <Badge status="success" text={labelNameMap.get(value) ?? value} /> : '-',
+    },
+    {
+      title: '类型',
+      dataIndex: 'is_builtin',
+      key: 'is_builtin',
+      render: (value: boolean) =>
+        value ? (
+          <Tag color="gold" icon={<LockOutlined />}>
+            内置
+          </Tag>
+        ) : (
+          <Tag>自定义</Tag>
+        ),
     },
     {
       title: '操作',
       key: 'actions',
       render: (_: unknown, record: CITypeExporterMapping) => (
-        <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
-          编辑
-        </Button>
+        <Space>
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
+            编辑
+          </Button>
+          <Tooltip title={record.is_builtin ? '内置绑定禁止删除' : '删除'}>
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              disabled={record.is_builtin}
+              onClick={() => handleDelete(record)}
+            >
+              删除
+            </Button>
+          </Tooltip>
+        </Space>
       ),
     },
   ]
@@ -122,7 +244,9 @@ export default function CiExporterMappingPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>CI-Exporter 映射</Title>
-        <Text type="secondary">配置资源类型与 Exporter 模板的默认绑定关系</Text>
+        <Text type="secondary">
+          配置 CI 类型与 Exporter 模板的默认绑定关系；资源类型与 LabelTemplate 由 Module_07 提供
+        </Text>
       </div>
       <Card className="page-card">
         <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
@@ -137,13 +261,13 @@ export default function CiExporterMappingPage() {
             </Button>
           </Col>
           <Col>
-            <Text type="secondary">共 {mockCITypeExporterMappings.length} 条绑定</Text>
+            <Text type="secondary">共 {mappings.length} 条绑定</Text>
           </Col>
         </Row>
 
         <Table
           rowKey="mapping_id"
-          dataSource={mockCITypeExporterMappings}
+          dataSource={mappings}
           columns={columns}
           pagination={{ pageSize: 5 }}
         />
@@ -161,14 +285,14 @@ export default function CiExporterMappingPage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="资源类型"
+                label="CI 类型"
                 name="resource_type"
-                rules={[{ required: true, message: '请选择资源类型' }]}
+                rules={[{ required: true, message: '请选择 CI 类型' }]}
               >
                 <Select disabled={!!editingMapping} placeholder="请选择">
-                  {RESOURCE_TYPES.map((type) => (
+                  {CI_TYPES.map((type) => (
                     <Option key={type} value={type}>
-                      {RESOURCE_TYPE_MAP[type]}
+                      {CI_TYPE_LABEL[type]}（{CI_TYPE_CATEGORY_MAP[type]}）
                     </Option>
                   ))}
                 </Select>
@@ -179,13 +303,21 @@ export default function CiExporterMappingPage() {
                 label="Exporter 模板"
                 name="exporter_template_id"
                 rules={[{ required: true, message: '请选择 Exporter 模板' }]}
+                extra="选择后自动填充端口/路径/协议"
               >
-                <Select placeholder="请选择">
-                  {mockExporterTemplates.map((t) => (
-                    <Option key={t.exporter_template_id} value={t.exporter_template_id}>
-                      {t.name} v{t.version}
-                    </Option>
-                  ))}
+                <Select
+                  placeholder="请选择"
+                  onChange={(v) => handleTemplateChange(v as string)}
+                  showSearch
+                  optionFilterProp="children"
+                >
+                  {mockExporterTemplates
+                    .filter((t) => t.supported_resource_types.length > 0)
+                    .map((t) => (
+                      <Option key={t.exporter_template_id} value={t.exporter_template_id}>
+                        {t.name} v{t.version}
+                      </Option>
+                    ))}
                 </Select>
               </Form.Item>
             </Col>
@@ -221,7 +353,12 @@ export default function CiExporterMappingPage() {
                 name="metrics_path"
                 rules={[{ required: true, message: '请输入指标路径' }]}
               >
-                <Input placeholder="/metrics" />
+                <Select placeholder="/metrics" showSearch allowClear>
+                  <Option value="/metrics">/metrics</Option>
+                  <Option value="/actuator/prometheus">/actuator/prometheus</Option>
+                  <Option value="/snmp">/snmp</Option>
+                  <Option value="/probe">/probe</Option>
+                </Select>
               </Form.Item>
             </Col>
           </Row>
@@ -232,7 +369,11 @@ export default function CiExporterMappingPage() {
                 name="scrape_interval"
                 rules={[{ required: true, message: '请输入采集间隔' }]}
               >
-                <Input placeholder="15s" />
+                <Select placeholder="15s">
+                  <Option value="15s">15s</Option>
+                  <Option value="30s">30s</Option>
+                  <Option value="60s">60s</Option>
+                </Select>
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -241,12 +382,22 @@ export default function CiExporterMappingPage() {
                 name="scrape_timeout"
                 rules={[{ required: true, message: '请输入采集超时' }]}
               >
-                <Input placeholder="10s" />
+                <Select placeholder="10s">
+                  <Option value="5s">5s</Option>
+                  <Option value="10s">10s</Option>
+                  <Option value="30s">30s</Option>
+                </Select>
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item label="标签模板 ID" name="label_template_id">
-            <Input placeholder="可选" />
+          <Form.Item label="标签模板" name="label_template_id" extra="LabelTemplate 由 Module_07 维护">
+            <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
+              {mockLabelTemplates.map((t) => (
+                <Option key={t.template_id} value={t.template_id}>
+                  {t.name}（{t.resource_category}）
+                </Option>
+              ))}
+            </Select>
           </Form.Item>
         </Form>
       </Modal>
