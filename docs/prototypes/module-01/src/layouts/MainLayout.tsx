@@ -1,7 +1,14 @@
-import { Layout, Menu, Typography, Space, Badge, Tag } from 'antd'
+import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider } from 'antd'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { AppstoreOutlined } from '@ant-design/icons'
+import {
+  AppstoreOutlined,
+  DashboardOutlined,
+  CloudOutlined,
+  BellOutlined,
+  SettingOutlined,
+  SearchOutlined,
+} from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 
 const { Header, Sider, Content } = Layout
@@ -14,19 +21,50 @@ interface MainLayoutProps {
 type MenuItem = Required<MenuProps>['items'][number]
 
 function buildMenu(): MenuItem[] {
-  return [
+  const module01Items: MenuItem[] = [
     { key: '/ci-exporter-mapping', icon: <AppstoreOutlined />, label: 'CI-Exporter 映射' },
     { key: '/scrape-jobs', icon: <AppstoreOutlined />, label: '采集 Job' },
     { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' },
     { key: '/metric-library', icon: <AppstoreOutlined />, label: '指标元数据' },
     { key: '/probes', icon: <AppstoreOutlined />, label: '拨测配置' },
   ]
+
+  // 全局跨模块导航占位：当前模块高亮，其他模块以 disabled + Tooltip 提示
+  const globalItems: MenuItem[] = [
+    {
+      key: 'global-divider',
+      label: <Divider style={{ margin: '8px 0' }} />,
+      disabled: true,
+    },
+    {
+      key: 'global',
+      label: '全局导航',
+      icon: <DashboardOutlined />,
+      children: [
+        { key: '/global/resources', icon: <AppstoreOutlined />, label: <Tooltip title="Module 07 资源管理（由 Module_07 提供）">资源管理</Tooltip>, disabled: true },
+        { key: '/global/strategy', icon: <AppstoreOutlined />, label: <Tooltip title="当前模块：监控策略">监控策略</Tooltip>, disabled: true },
+        { key: '/global/config', icon: <CloudOutlined />, label: <Tooltip title="Module 09 配置中心（由 Module_09 负责）">配置中心</Tooltip>, disabled: true },
+        { key: '/global/query', icon: <SearchOutlined />, label: <Tooltip title="Module 02 指标查询">指标查询</Tooltip>, disabled: true },
+        { key: '/global/alerts', icon: <BellOutlined />, label: <Tooltip title="Module 08 告警状态">告警状态</Tooltip>, disabled: true },
+        { key: '/global/settings', icon: <SettingOutlined />, label: <Tooltip title="Module 06 系统设置">系统设置</Tooltip>, disabled: true },
+      ],
+    },
+  ]
+
+  return [...module01Items, ...globalItems]
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const menuItems = buildMenu()
+
+  const openKeys = menuItems
+    .filter((item): item is Exclude<typeof item, null> => {
+      if (!item || !('children' in item) || !Array.isArray(item.children)) return false
+      return item.children.some((c) => c && 'key' in c && c.key === location.pathname)
+    })
+    .map((item) => ('key' in item ? String(item.key) : ''))
 
   return (
     <Layout className="app-layout">
@@ -50,6 +88,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Menu
             mode="inline"
             selectedKeys={[location.pathname]}
+            defaultOpenKeys={openKeys}
             items={menuItems}
             onClick={(e) => navigate(e.key)}
             style={{ borderRight: 0, paddingTop: 8 }}
