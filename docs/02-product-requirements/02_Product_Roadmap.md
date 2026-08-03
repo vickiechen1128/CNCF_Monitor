@@ -1,8 +1,28 @@
 # MetricCenter 产品路线图
 
 > 文档类型：产品需求文档  
+> 版本：v1.1
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
-> 更新日期：2026-07-31
+> 更新日期：2026-08-03
+
+---
+
+## 0. 版本分层定义
+
+MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑混淆：
+
+| 层级 | 示例 | 含义 | 维护位置 |
+|------|------|------|----------|
+| **产品版本** | MVP、v0.2、v0.3、v0.4、v1.0 | 对外发布的里程碑，决定用户可见功能集合 | 本文档 |
+| **PRD 版本** | Module_09 v1.2 | 单个模块 PRD 的文档迭代号，记录需求变更历史 | `docs/02-product-requirements/Modules/Module_XX_*.md` |
+| **原型版本** | v1.2 | 验证某版 PRD 的可点击原型版本，**必须与 PRD 版本保持一致** | `docs/prototypes/module-XX/` |
+
+**关联规则**：
+
+- 每个模块 PRD 顶部必须标注：PRD 状态、PRD 版本、**产品版本覆盖**、**原型版本**、**对应原型路径**。
+- 原型 `README.md` / `package.json` 必须声明：验证的 PRD 版本、覆盖的产品版本。
+- 模块 PRD 的 Change Log 必须包含 **「产品版本影响」** 列。
+- 本文档的「功能-版本矩阵」是跨模块统一视图；各模块 PRD 仍保留 `{MVP}`、`{v0.2}`、`{v0.4+}` 等阶段标签作为细节标注。
 
 ---
 
@@ -20,6 +40,27 @@
 
 ---
 
+## 1.5 功能-版本矩阵
+
+> 跨模块统一视图：每个单元格列出该模块在对应产品版本下交付的核心能力。详细功能范围、UI/UX、API、数据模型以各模块 PRD 为准。
+
+| 模块 | MVP | v0.2 | v0.3 | v0.4 | v1.0 |
+|------|-----|------|------|------|------|
+| **Module_07 监控对象管理** | 四类资源 CRUD；Excel 导入；状态映射；标签模板；`ResourceLabel` 体系；`is_monitored` badge | - | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源 | CMDB-ITIL/ITSM 映射 |
+| **Module_01 监控策略与指标管理** | CI↔Exporter 模板绑定；ScrapeJob；实例选择；Blackbox 拨测；规则编辑 UI；静态指标库 | - | - | - | Recording Rules；指标库管理增强 |
+| **Module_09 网域与边缘配置中心** | 默认网域 `default`；单/多网域模式切换；配置生成/预览/Diff/下发；`external_labels` 注入 | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数 | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
+| **Module_02 查询中心** | PromQL 查询代理；目标状态展示；响应 envelope | 租户/网域上下文注入 | 告警状态代理；查询辅助；首页 Dashboard 数据 | - | - |
+| **Module_08 告警规则管理** | - | - | 规则分组；静默管理；Alertmanager 配置生成 | - | 完整告警规则 UI；通知渠道；边缘本地告警状态展示 |
+| **Module_06 系统与平台管理** | 单租户默认模式（`platform_admin`） | 租户数据模型；租户-网域关联；`Tenant.multi_site_enabled` | - | CMDB 业务/模块路径映射 | 用户/角色/权限；审计日志；平台配置；元数据迁移 PostgreSQL/MySQL |
+| **Module_10 监控源登记册** | - | 监控源 CRUD；外部 Prometheus Remote Write；Ingestion Gateway；标签注入 | - | Zabbix / 云监控 Adapter；标签归一化；Metric Drop Rules | 长期存储路由 VictoriaMetrics/Mimir |
+| **Module_04 自定义服务发现** | Excel Provider（由 Module_07 承载） | - | - | BlueKing / HTTP / Nacos Provider；CI 类型映射；待分类队列；孤儿资源 | - |
+| **Module_03 网关与认证** | - | 统一入口路由；Ingestion 路由 | - | - | 认证鉴权中间件；请求级审计；多租户路由 |
+| **Module_05 自定义前端门户** | - | - | Custom UI 门户；PromQL 查询页；告警状态页 | - | 复杂图表/看板编辑器 |
+
+> **P0/P1/P2 说明**：本矩阵只标注该版本是否包含某模块能力；模块内部的优先级（P0/P1/P2）详见各模块 PRD 功能范围表。
+
+---
+
 ## 2. MVP 范围
 
 ### 2.1 目标
@@ -30,9 +71,9 @@ MVP 聚焦 **"三类资源管理 + 采集/拨测配置 + prometheus.yml 下发 +
 
 | 模式 | 开启条件 | 用户感知 | 数据模型 |
 |---|---|---|---|
-| **单机模式（默认）** | `feature_flags.multi_site_enabled=false` | 无网域/站点概念 | 仅存在 `default` 网域 |
-| **多站点模式** | `feature_flags.multi_site_enabled=true` | 展示「采集站点」、Edge Agent、边缘诊断 | 多网域 |
-| **集成模式** | `feature_flags.heterogeneous_ingestion_enabled=true` | 展示「监控源登记册」、外部 Prometheus / Zabbix 接入 | 多网域 + MonitoringSource |
+| **单网域模式（默认）** | `Tenant.multi_site_enabled=false` | 无网域/站点概念；隐藏「网域管理」与「Agent 状态」入口 | 仅存在 `default` 管理域 |
+| **多网域模式** | `Tenant.multi_site_enabled=true` | 展示「网域管理」、Edge Agent、边缘诊断、按网域配置下发 | 多网域 |
+| **集成模式** | `Tenant.heterogeneous_ingestion_enabled=true` {v0.2} | 展示「监控源登记册」、外部 Prometheus / Zabbix 接入 | 多网域 + MonitoringSource |
 
 > 多站点模式与集成模式在 MVP 阶段默认关闭，数据模型已预留，避免对单机用户造成认知负担。
 
@@ -213,3 +254,12 @@ Phase 8: 企业级能力（v1.0）
 - **控制面与数据面严格分离**：无论底层存储和采集端如何演进，`platform/` 和 `ui-custom/` 保持稳定。
 - **标准接口替换**：所有演进通过 Prometheus 生态标准接口（HTTP API、Remote Write、Service Discovery）完成。
 - **MVP 不阻塞**：未来组件在 MVP 阶段只做架构预留，不影响当前开发节奏。
+
+---
+
+## 6. Change Log
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 |
+|------|------|----------|----------|----------|
+| v1.1 | 2026-08-03 | 修改 | 增加 0. 版本分层定义；新增 1.5 功能-版本矩阵；将多网域/集成模式开关从 `feature_flags.*` 调整为 `Tenant.*`；统一「单网域模式」表述 | 全文档、模块 PRD 模板 |
+| v1.0 | 2026-07-31 | 初始 | 产品路线图初始版本 | 全部 |

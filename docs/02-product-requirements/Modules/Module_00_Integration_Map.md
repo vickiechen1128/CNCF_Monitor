@@ -2,6 +2,8 @@
 
 > **PRD 状态**: `draft`
 > **PRD 版本**: v1.3
+> **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
+> **原型版本**: N/A（待原型验证后补充）
 > **更新日期**: 2026-07-31
 > **对应原型**: 暂无（待原型验证后补充）
 
@@ -268,12 +270,12 @@
 
 ## Change Log
 
-| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
-|------|------|----------|----------|----------|------|
-| v1.0 | 2026-07-27 | 初始 | 整合 Module_01 ~ Module_10 职责矩阵与跨模块引用关系 | 全部 | ready |
-| v1.1 | 2026-07-28 | 修改 | 根据产品优化建议更新：标签归一化、Generic Target、边缘自治告警、Metric Drop Rules、Tenant-NetworkDomain 关系 | 全部 | ready |
-| v1.2 | 2026-07-30 | 修改 | 根据 CMDB-ITIL 映射优化：补充 CMDB 与 ITIL/ITSM 映射、Tenant/NetworkDomain 与 BlueKing CMDB 映射 | 全部 | ready |
-| v1.2 | 2026-07-30 | 修改 | 根据 grilling 收敛方案调整：CMDB 同步/孤儿生命周期迁到 Module_04；租户-网域关联提前到 v0.2；增加阶段标签约定 | 全部 | ready |
-| v1.2 | 2026-07-30 | 修改 | 根据 grilling（CMDB-Resource-Label）新增：Resource Label 生命周期、CI 类型映射、待分类队列、状态映射字典 | 全部 | ready |
-| v1.3 | 2026-07-31 | 修改 | 根据监控策略管理 grilling 调整：Module_01/07/09/02/08 职责重新划分；新增 3.17/3.18 章节；更新禁区表 | 全部 | ready |
-| v1.3 | 2026-07-31 | 修改 | 根据查询中心 grilling 调整：Module_02 明确 Query API 代理；Module_09/08/06 能力细化；新增 3.19/3.20/3.21 章节；更新禁区表 | 全部 | ready |
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v1.0 | 2026-07-27 | 初始 | 整合 Module_01 ~ Module_10 职责矩阵与跨模块引用关系 | 全部 | MVP / v0.2 / v0.3 / v0.4 / v1.0 | ready |
+| v1.1 | 2026-07-28 | 修改 | 根据产品优化建议更新：标签归一化、Generic Target、边缘自治告警、Metric Drop Rules、Tenant-NetworkDomain 关系 | 全部 | v0.2 / v0.4 / v1.0 | ready |
+| v1.2 | 2026-07-30 | 修改 | 根据 CMDB-ITIL 映射优化：补充 CMDB 与 ITIL/ITSM 映射、Tenant/NetworkDomain 与 BlueKing CMDB 映射 | 全部 | v0.4 / v1.0 | ready |
+| v1.2 | 2026-07-30 | 修改 | 根据 grilling 收敛方案调整：CMDB 同步/孤儿生命周期迁到 Module_04；租户-网域关联提前到 v0.2；增加阶段标签约定 | 全部 | v0.2 / v0.4 | ready |
+| v1.2 | 2026-07-30 | 修改 | 根据 grilling（CMDB-Resource-Label）新增：Resource Label 生命周期、CI 类型映射、待分类队列、状态映射字典 | 全部 | v0.4 | ready |
+| v1.3 | 2026-07-31 | 修改 | 根据监控策略管理 grilling 调整：Module_01/07/09/02/08 职责重新划分；新增 3.17/3.18 章节；更新禁区表 | 全部 | MVP / v0.2 / v0.3 / v0.4 / v1.0 | ready |
+| v1.3 | 2026-07-31 | 修改 | 根据查询中心 grilling 调整：Module_02 明确 Query API 代理；Module_09/08/06 能力细化；新增 3.19/3.20/3.21 章节；更新禁区表 | 全部 | MVP / v0.2 / v0.3 / v0.4 / v1.0 | ready |
