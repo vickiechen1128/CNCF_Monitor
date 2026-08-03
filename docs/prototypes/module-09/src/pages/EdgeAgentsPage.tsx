@@ -16,6 +16,7 @@ const syncStatusColor: Record<ConfigSyncStatus, string> = {
   in_sync: 'success',
   out_of_sync: 'warning',
   unknown: 'default',
+  manual_override: 'error',
 }
 
 function formatBytes(bytes: number) {

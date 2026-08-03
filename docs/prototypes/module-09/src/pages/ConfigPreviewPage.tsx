@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Alert } from 'antd'
 import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
-import { configDrafts, configVersions, networkDomains, type ConfigDraftStatus } from '../mocks/module-09'
+import { configDrafts, configVersions, networkDomains, currentTenant, type ConfigDraftStatus } from '../mocks/module-09'
 
 const draftStatusColor: Record<ConfigDraftStatus, string> = {
   pending: 'warning',
@@ -52,7 +52,9 @@ function computeDiff(oldText: string, newText: string) {
 }
 
 export function ConfigPreviewPage() {
-  const [selectedDomain, setSelectedDomain] = useState<string>(networkDomains[0].id)
+  const multiSite = currentTenant.multi_site_enabled
+  const defaultDomainId = networkDomains[0].id
+  const [selectedDomain, setSelectedDomain] = useState<string>(defaultDomainId)
   const [viewMode, setViewMode] = useState<'preview' | 'diff'>('preview')
 
   const domainOptions = useMemo(
@@ -60,17 +62,19 @@ export function ConfigPreviewPage() {
     []
   )
 
+  const activeDomainId = multiSite ? selectedDomain : defaultDomainId
+
   const draft = useMemo(
-    () => configDrafts.find((d) => d.network_domain_id === selectedDomain),
-    [selectedDomain]
+    () => configDrafts.find((d) => d.network_domain_id === activeDomainId),
+    [activeDomainId]
   )
 
   const previousVersion = useMemo(
     () =>
       configVersions
-        .filter((v) => v.network_domain_id === selectedDomain)
+        .filter((v) => v.network_domain_id === activeDomainId)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))[1],
-    [selectedDomain]
+    [activeDomainId]
   )
 
   const diffRows = useMemo(() => {
@@ -92,17 +96,31 @@ export function ConfigPreviewPage() {
       <Card
         title="配置生成与预览"
         extra={
-          <Space>
-            <span className="text-secondary">选择网域：</span>
-            <Select
-              value={selectedDomain}
-              onChange={setSelectedDomain}
-              options={domainOptions}
-              style={{ width: 240 }}
-            />
-          </Space>
+          multiSite ? (
+            <Space>
+              <span className="text-secondary">选择网域：</span>
+              <Select
+                value={selectedDomain}
+                onChange={setSelectedDomain}
+                options={domainOptions}
+                style={{ width: 240 }}
+              />
+            </Space>
+          ) : (
+            <Tag color="blue">单网域模式：仅面向 default 管理域</Tag>
+          )
         }
       >
+        {!multiSite && (
+          <Alert
+            message="单网域模式说明"
+            description="当前租户未开启多网域能力，配置生成中心直接面向中心 Prometheus，不展示网域选择器。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
         {draft ? (
           <>
             <Descriptions bordered size="small" column={{ xs: 1, sm: 2, md: 3 }} style={{ marginBottom: 16 }}>

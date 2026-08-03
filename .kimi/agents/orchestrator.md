@@ -98,8 +98,9 @@ grep -A 20 "## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md
    ├──► 1. 需求对齐（grill-with-docs / AskUserQuestion）
    │
    ├──► 2. 原型验证（prototype-designer）
-   │      输出：ready 状态的 PRD + 原型 + Change Log
+   │      输出：经用户确认的 ready 状态的 PRD + 原型 + Change Log
    │      如遇 [待验证] 点，先派发 prometheus-developer 技术预研
+   │      prototype-designer 必须就 PRD 状态变更（draft / prototyping → ready）获得用户明确确认，禁止自行决定
    │
    ├──► 3. Plan 派生（planner Phase 1: plan-maintainer）
    │      输入：ready PRD
@@ -159,7 +160,7 @@ Orchestrator 发现 [待验证] 点
 PRD 更新，移除 [待验证] 标记，更新 Change Log
    │
    ▼
-PRD 状态变为 ready
+PRD 状态变为 ready（需用户 / Orchestrator 书面确认）
 ```
 
 ### 技术预研报告内容

@@ -1,8 +1,10 @@
 # Module 06: 系统与平台管理（含多租户）
 
-> **PRD 状态**: `ready`（已通过原型验证）
-> **PRD 版本**: v1.1
-> **更新日期**: 2026-08-02
+> **PRD 状态**: `设计中`（尚未经原型验证）
+> **PRD 版本**: v1.2
+> **产品版本覆盖**: MVP / v0.2 / v0.4 / v1.0
+> **原型版本**: v1.2
+> **更新日期**: 2026-08-03
 > **对应原型**: `docs/prototypes/module-06/`
 
 > **模块类型**: 企业级能力模块
@@ -53,6 +55,7 @@
 - **1 个租户（Tenant）可以拥有 N 个网域（NetworkDomain），禁止跨租户共享网域**。
 - `default` 等默认网域归属 `platform_admin` 租户，`platform_admin` 是系统预置租户，用于承载平台级默认配置与未显式分配租户的资源。`platform_admin` 租户本身仍遵循“1 网域 : 1 租户”的单一归属原则，不能作为多个租户的共享租户或共享网域。
 - `network_domain_id` 必须全局唯一，建议采用租户前缀（如 `<tenant_id>-<domain_code>`），避免不同租户下出现同名网域导致路由与数据混淆。
+- **租户级多网域开关**：`Tenant.multi_site_enabled` 控制该租户是否开启多网域能力。关闭时，租户内仅展示 `default` 管理域，隐藏「网域管理」与「Agent 状态」入口；开启时，可注册多个网域并接入 Edge Agent。MVP 阶段仅有 `platform_admin` 租户，v0.2+ 各租户独立配置。
 - 示例：租户“卫健委”拥有“医院 A 专网”和“医院 B 专网”。
 
 | 关系 | 说明 | 示例 |
@@ -127,6 +130,7 @@ MetricCenter 的租户模型必须与 BlueKing CMDB 业务（Business）模型�
 | id | string | ✅ | 租户唯一标识；v0.4+ 建议与 BlueKing Business 编码保持一致 |
 | name | string | ✅ | 租户展示名 |
 | network_domain_ids | []string | ❌ | {v0.2} 该租户拥有的网域 ID 列表 |
+| multi_site_enabled | bool | ✅ | 是否开启多网域能力；`false` 时租户内仅使用 `default` 管理域并隐藏网域/Agent 管理入口；`true` 时开放多网域与 Edge Agent 管理 |
 | cmdb_business_id | string | ❌ | {v0.4+} 对应 BlueKing CMDB 业务 ID（bk_biz_id） |
 | cmdb_business_path | string | ❌ | {v0.4+} 对应 BlueKing CMDB 业务路径，如 `政务云/卫健委` |
 | is_platform_admin | bool | ✅ | 标记该系统预置租户（默认租户），用于承载 `default` 网域与平台级默认配置。**该字段不表示跨租户的超级管理员权限**；`platform_admin` 租户的用户与其他租户用户一样，只能访问本租户内的资源 |
@@ -161,7 +165,9 @@ MetricCenter 的租户模型必须与 BlueKing CMDB 业务（Business）模型�
 
 ## Change Log
 
-| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
-|------|------|----------|----------|----------|------|
-| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
-| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-03 | 修改 | 新增 `Tenant.multi_site_enabled` 字段，明确多网域能力为租户级开关 | 数据模型、租户-网域关系 | MVP / v0.2 | 设计中 |
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.2 / v0.4 / v1.0 | draft |

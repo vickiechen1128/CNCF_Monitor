@@ -1,8 +1,10 @@
 # Module 07: 监控对象管理
 
-> **PRD 状态**: `ready`（已通过原型验证）
-> **PRD 版本**: v1.1
-> **更新日期**: 2026-08-02
+> **PRD 状态**: `设计中`（尚未经原型验证）
+> **PRD 版本**: v1.2
+> **产品版本覆盖**: MVP / v0.4 / v1.0
+> **原型版本**: v1.2
+> **更新日期**: 2026-08-03
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -60,7 +62,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | **展示字段控制** | 按资源类型固定展示列、默认排序 | P0 |
 | **资源状态管理** | online / offline / maintenance 状态维护 | P0 |
 | **已监控 / 未监控 badge** | 在 Resource 列表展示该资源是否被任意 ScrapeJob 选中；由 Module_01 写入关联关系，Module_07 只读展示 | P0 |
-| **网域归属** | 资源按 `network_domain_id` 分组；网域生命周期由 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责 | P0（MVP 至少一个默认网域） |
+| **网域归属** | 资源按 `network_domain_id` 分组；网域生命周期由 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
 | **CMDB 接入源** | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 `ExcelProvider` / `SQLiteProvider` 维护资源；v0.4+ 由 [Module_04](Module_04_Custom_Discovery.md) 实现外部 CMDB 同步 | P0 / P2 |
 | **资源关系** | 应用-实例-集群关系、依赖拓扑（未来） | P2 |
 
@@ -220,6 +222,8 @@ const (
 | status | enum | ✅ | online / offline / unknown |
 
 > **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。
+>
+> **网域列展示策略**：即使租户处于单网域模式（`Tenant.multi_site_enabled=false`），Resource 列表、详情页与 Excel 模板仍保留「网域」列。网域在此被视为云区域（Cloud Area）概念，是资源从 CMDB 或 Excel 导入时的必要属性，不随 UI 模式隐藏。
 
 ### 5.5 Excel 状态映射字典
 
@@ -619,7 +623,9 @@ v0.4+ 实现（由 Module_04 负责）：
 
 ## Change Log
 
-| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
-|------|------|----------|----------|----------|------|
-| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
-| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-03 | 修改 | 明确单网域模式下 Resource 列表仍展示「网域」列，网域作为云区域概念不可隐藏 | 功能范围、UI/UX、Excel 模板 | MVP | 设计中 |
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.4 / v1.0 | draft |
