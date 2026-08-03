@@ -67,8 +67,8 @@ export function DeploymentsPage() {
           status: 'success',
           error_message: '',
           triggered_by: 'admin',
-          started_at: now,
-          finished_at: now,
+          triggered_at: now,
+          completed_at: now,
           created_at: now,
         }
         setData((prev) =>
@@ -133,8 +133,8 @@ export function DeploymentsPage() {
                 ),
             },
             { title: '操作人', dataIndex: 'triggered_by', key: 'triggered_by' },
-            { title: '开始时间', dataIndex: 'started_at', key: 'started_at' },
-            { title: '结束时间', dataIndex: 'finished_at', key: 'finished_at' },
+            { title: '开始时间', dataIndex: 'triggered_at', key: 'triggered_at' },
+            { title: '结束时间', dataIndex: 'completed_at', key: 'completed_at' },
             {
               title: '操作',
               key: 'action',

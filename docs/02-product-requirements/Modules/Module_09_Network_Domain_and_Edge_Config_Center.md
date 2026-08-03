@@ -1,8 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
-> **PRD 状态**: `ready`（已通过原型验证）
-> **PRD 版本**: v1.1
-> **更新日期**: 2026-08-02
+> **PRD 状态**: `设计中`（尚未经原型验证）
+> **PRD 版本**: v1.2
+> **产品版本覆盖**: MVP / v0.2 / v1.0
+> **原型版本**: v1.2
+> **更新日期**: 2026-08-03
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -205,6 +207,36 @@ global:
 | `remote_write.queue.retry_on_rate_limit` | true | 触发限流时自动退避重试 |
 | `remote_write.compression` | snappy | 传输压缩算法 |
 
+### 3.11 单网域与多网域模式 {MVP / v0.2}
+
+MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种部署模式，以兼顾单机简单场景与政务网/专网多隔离域场景。MVP 阶段仅有 `platform_admin` 租户，该开关对该租户生效；v0.2+ 各租户可独立开启多网域能力。
+
+| 模式 | 开启条件 | 用户感知 | 数据模型 |
+|---|---|---|---|
+| **单网域模式（默认）** | `Tenant.multi_site_enabled=false` | 无网域/站点概念；不展示「网域管理」与「Agent 状态」菜单；配置下发中心直接面向中心 Prometheus | 仅存在 `default` 网域 |
+| **多网域模式** | `Tenant.multi_site_enabled=true` | 展示「网域管理」、「Agent 状态」、「按网域配置下发」 | 多网域，每个网域独立 Agent 与配置包 |
+
+#### 单网域模式行为
+
+- 系统初始化时自动创建 `default` 网域，所有资源默认归属 `default`。
+- Web 门户不展示「网域管理」菜单，用户看不到网域列表、Token、Agent 状态。
+- 配置下发中心不展示网域选择器；配置草稿生成后仅触发中心 Prometheus 的 `/-/reload`。
+- Edge Sync Agent 协议接口在 UI 中不暴露，但**后端保留协议能力**，便于用户后续从单网域扩展到多网域时无需重新部署 Agent。
+
+#### 多网域模式行为
+
+- 用户需先在「网域管理」注册网域，生成 Edge Agent 认证 Token。
+- 在隔离网域部署 Edge Sync Agent 后，心跳自动注册到对应网域。
+- 在 [Module_07](Module_07_Monitoring_Object_Management.md) 配置资源时，资源必须选择归属网域（`default` 作为中心管理域继续存在）。
+- 在 [Module_01](Module_01_Metric_Collection_Center.md) 配置 ScrapeJob 时，按网域筛选目标实例。
+- 配置中心按网域生成 `ConfigDraft`，经确认后生成 `ConfigVersion`；中心管理域（`default`）走 `/-/reload`，边缘域由 Edge Sync Agent 拉取配置包。
+
+#### 模式切换与数据兼容
+
+- 从单网域切换到多网域：已有资源与配置保持归属 `default` 网域，用户可继续在 `default` 网域下管理中心 Prometheus 采集，或逐步迁移到新网域。
+- 从多网域切换回单网域：系统仅展示 `default` 网域数据，其他网域数据不删除但隐藏；再次切回多网域后恢复显示。
+- `default` 网域类型为 `management`（管理域），**禁止删除**；允许用户修改其 `name` 和 `description` 以与云区域命名保持一致。其他网域类型默认为 `edge`（边缘域）。
+
 ---
 
 ## 4. 数据模型
@@ -216,8 +248,9 @@ global:
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | id | string | ✅ | 网域唯一标识，必须全局唯一；v0.2 起建议采用租户前缀，如 `<tenant_id>-gov-cloud-a`、`default` |
-| name | string | ✅ | 网域展示名 |
+| name | string | ✅ | 网域展示名；`default` 网域的 `name` / `description` 允许修改以匹配客户云区域命名 |
 | description | string | ❌ | 网域描述 |
+| domain_type | enum | ✅ | 网域类型：`management`（管理域，如 `default`）/ `edge`（边缘域）；`management` 类型网域禁止删除 |
 | tenant_id | string | ✅ | {v0.2} 所属租户 ID；`platform_admin` 表示平台默认租户，禁止跨租户共享网域 |
 | cmdb_cloud_area_id | string | ❌ | {v0.4+} 对应 BlueKing CMDB 云区域 ID（`bk_cloud_id`） |
 | cmdb_cloud_area_path | string | ❌ | {v0.4+} 对应 BlueKing CMDB 云区域路径 |
@@ -230,7 +263,7 @@ global:
 | created_at | datetime | ✅ | 创建时间 |
 | updated_at | datetime | ✅ | 更新时间 |
 
-> **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。默认网域 `default` 归属于 `platform_admin` 租户，所有未指定租户的资源默认继承该归属。
+> **MVP 处理**：系统初始化时自动创建一个 `id=default`、`domain_type=management` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。默认网域 `default` 归属于 `platform_admin` 租户，所有未指定租户的资源默认继承该归属。`default` 网域的 `name` / `description` 允许用户修改以匹配云区域命名，但禁止删除。
 >
 > **归属约束**：一个网域必须且只能归属一个租户（1 租户 : N 网域），禁止跨租户共享网域；`network_domain_id` 必须全局唯一，建议创建时校验租户前缀。
 
@@ -520,7 +553,9 @@ edge-config-<network_domain_id>.zip
 
 ## Change Log
 
-| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
-|------|------|----------|----------|----------|------|
-| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | ready |
-| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | draft |
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-03 | 修改 | 新增 3.11 节：明确单网域/多网域模式行为；将开关从平台级 feature flag 调整为租户级 `Tenant.multi_site_enabled`；`default` 网域新增 `domain_type=management` 且允许修改名称/描述、禁止删除；Edge Sync Agent 协议后端保留能力、UI 隐藏 | 功能范围、UI/UX、MVP 边界、数据模型 | MVP / v0.2 | 设计中 |
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.2 / v1.0 | draft |

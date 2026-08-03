@@ -14,7 +14,7 @@ function App() {
         <Route path="/edge-agents" element={<EdgeAgentsPage />} />
         <Route path="/config-preview" element={<ConfigPreviewPage />} />
         <Route path="/deployments" element={<DeploymentsPage />} />
-        <Route path="*" element={<Navigate to="/network-domains" replace />} />
+        <Route path="*" element={<Navigate to="/config-preview" replace />} />
       </Routes>
     </HashRouter>
   )
