@@ -85,13 +85,16 @@ git branch --show-current # 必须是 design/module-XX
 
 ### Phase 1：理解当前 PRD 状态
 
-1. **与 Orchestrator 确认设计范围**
+1. **与 Orchestrator / 用户确认设计范围与 PRD 状态目标**
    - 模块编号（如 Module 07）
    - 当前 PRD 状态：draft / prototyping / ready / frozen
+   - **目标 PRD 状态**：本次迭代要把 PRD 推进到哪个状态？（通常：draft → prototyping → ready）
+   - **产品版本覆盖**：本次原型要验证 MVP 还是同时演示 v0.2+ 占位？
    - 要展示哪些核心页面？
    - 要展示哪些用户流程？（如：资源导入 → 配置生成 → 下发 → 查询 → 告警）
    - 是否需要模拟数据？数据量多大？
    - 汇报场景是领导演示还是技术评审？
+   - **禁止行为**：prototype-designer 不得自行决定把 PRD 状态设为 `ready` 或 `frozen`；任何状态变更必须先向用户 / Orchestrator 汇报当前原型与 PRD的差异，获得明确书面确认后再写入 PRD。
 
 2. **识别 [待验证] 点**
    - 读取 PRD 时，必须标记所有 `[待验证]`、`TODO`、`FIXME` 位置
@@ -113,10 +116,12 @@ git branch --show-current # 必须是 design/module-XX
 - **必须同步更新 Change Log**（见下方 Change Log 规范）
 - 对 MVP 阶段不需要覆盖的未来功能，明确标注 `{v0.x+}` 或 `{v1.0+}`
 
-### Phase 4：设计信息架构与页面导航
+### Phase 4：设计全局信息架构与页面导航
 
-- 输出原型页面结构图
-- 确定核心页面：首页 Dashboard、资源管理、配置管理、指标查询、告警状态、采集状态等
+- **输出全产品页面结构图**：包含当前模块及其他相关模块的导航关系，避免模块原型成为孤岛。
+- **确定全局导航条目**：首页 Dashboard、资源管理、监控策略、配置中心、指标查询、告警状态、系统设置等。
+- **区分 MVP 页面与未来版本占位**：当前模块的 MVP 页面必须高保真可点击；v0.2+ 页面以低保真占位页或 disabled 菜单项形式呈现，标注 `{v0.2}`、`{v0.4+}` 等阶段标签。
+- **输出导航映射表**：每个菜单项 → 所属模块 → 产品版本 → 原型页面路径。
 
 ### Phase 5：生成可点击原型代码
 
@@ -136,7 +141,8 @@ git branch --show-current # 必须是 design/module-XX
   │   └── types/
   └── README.md
   ```
-- 所有 API 调用改为读取本地 mock 数据
+- `package.json` / `README.md` 必须声明：**验证的 PRD 版本**、**覆盖的产品版本**、**原型版本**（与 PRD 版本保持一致）。
+- 所有 API 调用改为读取本地 mock 数据；mock 数据中需包含 `Tenant.multi_site_enabled` 等开关，以便在原型中演示单网域/多网域模式切换。
 - 页面跳转使用 React Router
 - 使用 Ant Design 5 组件快速搭建布局、表格、表单、图表占位
 
@@ -144,8 +150,12 @@ git branch --show-current # 必须是 design/module-XX
 
 - 按钮点击、弹窗、抽屉、页面切换
 - 关键数据流转：导入资源 → 生成配置 → 下发 → 状态回显
+- **MVP 模式原型**：当前模块的 MVP 页面必须可完整交互。
+- **未来版本占位**：v0.2+ 页面可点击入口但内容用占位提示（如「v0.2 开放：网域生命周期管理」），保持全局导航完整性。
 
 ### Phase 7：运行并验证原型可访问
+
+#### 7.1 开发模式验证（独立端口）
 
 ```bash
 cd docs/prototypes/module-XX
@@ -153,20 +163,48 @@ pnpm install
 pnpm dev
 ```
 
-- 首页和关键页面可正常访问
-- 验证完成后停止服务
+- 访问 `vite.config.ts` 中声明的端口（如 http://localhost:5178/），确认首页和关键页面可正常访问。
+- 验证完成后停止服务。
+
+#### 7.2 构建模式验证（统一静态入口）
+
+```bash
+cd docs/prototypes/module-XX
+pnpm build
+
+# 方式 A：单独验证本模块 dist
+cd docs/prototypes/module-XX
+python3 -m http.server 8080 --directory dist
+# 访问 http://localhost:8080/
+
+# 方式 B：验证统一入口（推荐，与 GitHub Pages 部署一致）
+cd docs/prototypes
+python3 -m http.server 8080
+# 访问 http://localhost:8080/module-XX/dist/index.html
+```
+
+- 必须确认 `dist/index.html` 在 HTTP 服务下能正常渲染，而非直接双击用 `file://` 打开（`file://` 会因 ES Module 安全策略导致白屏）。
+- 如模块在统一入口下出现路径错误、空白页或资源 404，必须修正 `vite.config.ts` 的 `base` 配置或路由设置，直到统一视图可正常显示。
+- 验证完成后停止服务。
 
 ### Phase 8：原型评审与 PRD 定稿
 
 - 对比原型与 PRD，检查是否有遗漏、矛盾、不可实现的地方
-- 如有问题，返回 Phase 3 修正 PRD
-- 如原型与 PRD 一致，将 PRD 状态更新为 **ready**
-- 在 PRD 顶部增加状态标识：
+- 检查全局导航映射表是否覆盖所有相关模块入口
+- **版本一致性检查**：PRD 版本、原型版本、产品版本覆盖范围必须对齐；PRD 顶部字段必须包含：
   ```markdown
   > PRD 状态：ready（已通过原型验证）
-  > PRD 版本：v3.3
+  > PRD 版本：v1.2
+  > 产品版本覆盖：MVP / v0.2
+  > 原型版本：v1.2
   > 对应原型：docs/prototypes/module-XX/
   ```
+- 如有问题，返回 Phase 3 修正 PRD。
+- **如原型与 PRD 一致，禁止直接更新 PRD 状态为 ready**。必须：
+  1. 向用户 / Orchestrator 输出《原型验证结论》：包含 PRD 版本、原型版本、核心页面清单、已验证交互、未覆盖范围（如有）。
+  2. 明确询问用户是否同意将 PRD 状态推进到 `ready`。
+  3. 只有在获得用户明确确认后，才将 PRD 状态更新为 **ready**，并同步更新 Change Log。
+  4. 若用户未确认或要求继续修改，保持当前状态（`draft` 或 `prototyping`），记录原因到 `docs/04-execution-records/module-XX/design-decisions.md`。
 
 ---
 
@@ -177,10 +215,11 @@ pnpm dev
 ```markdown
 ## Change Log
 
-| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 状态 |
-|------|------|----------|----------|----------|------|
-| v3.3 | 2026-08-02 | 修改 | Resource 增加 maintenance_window 字段 | model、Excel 导入、API | ready |
-| v3.2 | 2026-07-31 | 新增 | 配置下发增加手动确认步骤 | draft API、前端页面 | ready |
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v1.2 | 2026-08-03 | 修改 | Resource 增加 maintenance_window 字段 | model、Excel 导入、API | MVP | ready |
+| v1.1 | 2026-08-02 | 新增 | 配置下发增加手动确认步骤 | draft API、前端页面 | MVP | ready |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.2 / v0.4 / v1.0 | draft |
 ```
 
 变更类型：新增 / 修改 / 删除 / 待验证 / 延迟
@@ -190,6 +229,7 @@ pnpm dev
 - 任何 PRD 正文的修改都必须同步更新 Change Log
 - 没有 Change Log 的修改，plan-maintainer 拒绝派生
 - `[待验证]` 类型的变更必须先由 `prometheus-developer` 完成技术预研，才能转为 ready
+- **新增「产品版本影响」列**：说明本次变更影响的产品版本（如 MVP、v0.2、v0.4+、v1.0+）；若仅影响文档自身，填「文档自身」
 
 ---
 
@@ -239,6 +279,8 @@ pnpm dev
 | "设计分支可以顺便改平台代码" | 禁止。设计分支只能改 PRD 和原型目录 |
 | "PRD 改一点不用写 Change Log" | 任何修改都可能影响 Implementation Plan。没有 Change Log 就不派生 |
 | "先把 PRD 写完美再出原型" | 完美 PRD 不存在。先出原型验证理解，再迭代 PRD 到 ready |
+| "原型和 PRD 一致了，我直接改状态为 ready" | PRD 状态变更必须由用户 / Orchestrator 书面确认，禁止 prototype-designer 自行决定 |
+| "统一入口的白屏不重要，dev 模式能看就行" | GitHub Pages 和统一入口是业务验收的主要方式，构建产物必须在统一视图下正常显示 |
 
 ---
 
@@ -259,11 +301,21 @@ pnpm dev
 1. PRD 文件路径：`docs/02-product-requirements/Modules/Module_XX_*.md`
 2. PRD 状态：draft / prototyping / ready / frozen
 3. PRD 版本号
-4. 原型目录：`docs/prototypes/module-XX/`
-5. 对齐决策记录：`docs/04-execution-records/module-XX/design-decisions.md`
-6. 技术缺口记录：`docs/04-execution-records/module-XX/tech-gaps.md`（如有）
-7. 原型页面清单与核心交互流程
-8. 本地启动方式与访问地址
-9. `pnpm dev` 验证结果
-10. 执行记录路径：`docs/04-execution-records/module-XX/prototype-designer.md`
-11. 已知问题或下一步建议
+4. **产品版本覆盖范围**（如 MVP / v0.2 / v0.4 / v1.0）
+5. **原型版本号**（必须与 PRD 版本号一致）
+6. 原型目录：`docs/prototypes/module-XX/`
+7. 对齐决策记录：`docs/04-execution-records/module-XX/design-decisions.md`
+8. 技术缺口记录：`docs/04-execution-records/module-XX/tech-gaps.md`（如有）
+9. 全局导航映射表与跨模块入口清单
+10. 原型页面清单与核心交互流程
+11. MVP 页面与未来版本占位页清单
+12. 本地启动方式与访问地址
+    - 开发模式地址：`http://localhost:<port>/`（端口以 `vite.config.ts` 为准）
+    - 统一静态入口地址：`http://localhost:8080/module-XX/dist/index.html`
+13. 验证结果
+    - `pnpm dev` 验证结果
+    - `pnpm build` 验证结果
+    - 统一静态入口下页面是否正常（非空白、无 404）
+14. PRD 状态变更确认记录：用户是否同意将 PRD 推进到 `ready`，以及确认时间/方式
+15. 执行记录路径：`docs/04-execution-records/module-XX/prototype-designer.md`
+16. 已知问题或下一步建议

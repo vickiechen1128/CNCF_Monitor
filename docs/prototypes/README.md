@@ -64,6 +64,10 @@ python3 -m http.server 8080
 
 然后访问 http://localhost:8080/ ，从统一入口点击进入任意模块。
 
+> **验证要求**：每个模块原型除了 `pnpm dev` 验证外，还必须在统一入口下验证 `http://localhost:8080/module-XX/dist/index.html` 能正常渲染，确保与 GitHub Pages 部署结构一致。
+>
+> **注意**：`dist/index.html` 必须通过 HTTP 服务访问，直接双击用 `file://` 协议打开会因 ES Module 安全策略导致白屏。
+
 ## 设计规范
 
 - 技术栈：React 18 + TypeScript + Vite + Ant Design 5
