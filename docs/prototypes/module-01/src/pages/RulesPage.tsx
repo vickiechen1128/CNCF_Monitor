@@ -33,15 +33,18 @@ import { MainLayout } from '../layouts/MainLayout'
 import {
   mockMonitoringRules,
   mockExporterTemplates,
-  mockMetricLibrary,
-  CI_TYPES,
+  mockCITypeExporterMappings,
+  metricLibraryStore,
   CI_TYPE_LABEL,
   CI_TYPE_CATEGORY_MAP,
+  CI_TYPES_BY_CATEGORY,
+  RESOURCE_CATEGORIES,
+  RESOURCE_CATEGORY_MAP,
   RULE_TYPE_MAP,
   METRIC_TYPE_COLOR,
   METRIC_TYPE_LABEL,
 } from '../mocks/module-01'
-import type { CiType, RuleType, MonitoringRule } from '../mocks/module-01'
+import type { CiType, RuleType, MonitoringRule, ResourceCategory } from '../mocks/module-01'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -61,6 +64,7 @@ const extractMetricNames = (expr: string): string[] => {
   const stripped = expr
     .replace(/"[^"]*"/g, '""')
     .replace(/\{[^}]*\}/g, '{}')
+    .replace(/\[[^\]]*\]/g, '[]')
     .replace(/\b(?:by|without)\s*\([^)]*\)/gi, '')
   const matches = stripped.match(/[a-zA-Z_:][a-zA-Z0-9_:]*/g) ?? []
   const functions = new Set([
@@ -97,6 +101,11 @@ export default function RulesPage() {
   const watchExporterTemplateId = Form.useWatch('exporter_template_id', form) as
     | string
     | undefined
+  const watchResourceCategory = Form.useWatch('resource_category', form)
+  const watchResourceType = Form.useWatch('resource_type', form)
+  const categoryCiTypes = (watchResourceCategory as ResourceCategory | undefined)
+    ? CI_TYPES_BY_CATEGORY[watchResourceCategory as ResourceCategory]
+    : []
 
   const templateNameMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -113,15 +122,12 @@ export default function RulesPage() {
     [rules]
   )
 
-  // 指标预览：选 exporter_template_id 后从 mockMetricLibrary 过滤该 Exporter 启用的指标名
-  const previewMetrics = useMemo(() => {
-    if (!watchExporterTemplateId) return []
-    return mockMetricLibrary.filter(
-      (m) =>
-        m.exporter_template_id === watchExporterTemplateId &&
-        m.enabled
-    )
-  }, [watchExporterTemplateId])
+  // 指标预览：选 exporter_template_id 后从当前指标库（共享 store，含用户新增/禁用）过滤该 Exporter 启用的指标名
+  const previewMetrics = metricLibraryStore.filter(
+    (m) =>
+      m.exporter_template_id === watchExporterTemplateId &&
+      m.enabled
+  )
 
   // 将监控规则默认值打开 modal
   const handleOpenModal = (record?: MonitoringRule) => {
@@ -133,6 +139,7 @@ export default function RulesPage() {
       form.setFieldsValue({
         name: record.name,
         rule_type: record.rule_type,
+        resource_category: CI_TYPE_CATEGORY_MAP[record.resource_type],
         resource_type: record.resource_type,
         exporter_template_id: record.exporter_template_id,
         duration: record.duration,
@@ -149,6 +156,7 @@ export default function RulesPage() {
       form.resetFields()
       form.setFieldsValue({
         rule_type: 'alerting',
+        resource_category: 'host',
         resource_type: 'host',
         duration: '5m',
         enabled: true,
@@ -167,50 +175,61 @@ export default function RulesPage() {
     setValidationResult(null)
   }
 
+  // 校验表达式引用的指标是否存在于指标库（基于共享指标库 store，含用户新增/禁用）
+  const validateMetrics = (
+    expr: string,
+    exporterTemplateId?: string
+  ): { ok: true } | { ok: false; message: string } => {
+    if (!expr.trim()) {
+      return { ok: false, message: '表达式不能为空' }
+    }
+    const knownMetricNames = new Set(
+      metricLibraryStore
+        .filter((m) => m.enabled)
+        .filter((m) => !exporterTemplateId || m.exporter_template_id === exporterTemplateId)
+        .map((m) => m.metric_name)
+    )
+    // 全库兜底（用户可在不同 exporter 间引用），只要任意启用指标命中即视为已知
+    const allKnown = new Set(metricLibraryStore.filter((m) => m.enabled).map((m) => m.metric_name))
+    const used = extractMetricNames(expr)
+    const unknown = used.filter((n) => !allKnown.has(n))
+    if (unknown.length > 0) {
+      return {
+        ok: false,
+        message: `未知指标名 ${unknown.join(', ')}${
+          exporterTemplateId
+            ? `（不在 ${templateNameMap.get(exporterTemplateId) ?? exporterTemplateId} 指标库中）`
+            : ''
+        }`,
+      }
+    }
+    // 同 Exporter 校验：若选定 exporter，所有指标都应在该 exporter 内
+    if (exporterTemplateId) {
+      const notInExporter = used.filter((n) => !knownMetricNames.has(n))
+      if (notInExporter.length > 0) {
+        return {
+          ok: false,
+          message: `指标 ${notInExporter.join(', ')} 不属于所选 Exporter「${
+            templateNameMap.get(exporterTemplateId) ?? exporterTemplateId
+          }」`,
+        }
+      }
+    }
+    return { ok: true }
+  }
+
   // 交互式 PromQL 校验：检查表达式中出现的指标名是否在所选 Exporter 指标库内
   const handleValidate = () => {
     const expr = (form.getFieldValue('expr') as string) ?? ''
-    if (!expr.trim()) {
-      setValidationResult({ status: 'error', message: '表达式不能为空' })
-      return
-    }
     setValidating(true)
     setValidationResult(null)
     setTimeout(() => {
       setValidating(false)
       const exporterTemplateId = form.getFieldValue('exporter_template_id') as string | undefined
-      const knownMetricNames = new Set(
-        mockMetricLibrary
-          .filter((m) => !exporterTemplateId || m.exporter_template_id === exporterTemplateId)
-          .map((m) => m.metric_name)
-      )
-      // 全库兜底（用户可在不同 exporter 间引用），只要任意启用指标命中即视为已知
-      const allKnown = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
-      const used = extractMetricNames(expr)
-      const unknown = used.filter((n) => !allKnown.has(n))
-      if (unknown.length > 0) {
-        setValidationResult({
-          status: 'error',
-          message: `校验失败：未知指标名 ${unknown.join(', ')}${
-            exporterTemplateId
-              ? `（不在 ${templateNameMap.get(exporterTemplateId) ?? exporterTemplateId} 指标库中）`
-              : ''
-          }`,
-        })
+      const result = validateMetrics(expr, exporterTemplateId)
+      if (!result.ok) {
+        setValidationResult({ status: 'error', message: `校验失败：${result.message}` })
         return
-      }
-      // 同 Exporter 校验：若选定 exporter，所有指标都应在该 exporter 内
-      if (exporterTemplateId) {
-        const notInExporter = used.filter((n) => !knownMetricNames.has(n))
-        if (notInExporter.length > 0) {
-          setValidationResult({
-            status: 'error',
-            message: `校验失败：指标 ${notInExporter.join(', ')} 不属于所选 Exporter「${
-              templateNameMap.get(exporterTemplateId) ?? exporterTemplateId
-            }」`,
-          })
-          return
-        }
       }
       setValidationResult({
         status: 'success',
@@ -225,6 +244,16 @@ export default function RulesPage() {
 
   const handleSave = () => {
     form.validateFields().then((values) => {
+      // 保存前强制校验：expr 引用的指标必须存在于指标库（PRD v1.9 决策 5）
+      const expr = (values.expr as string) ?? ''
+      const exporterTemplateId = values.exporter_template_id as string | undefined
+      const metricResult = validateMetrics(expr, exporterTemplateId)
+      if (!metricResult.ok) {
+        setValidationResult({ status: 'error', message: `保存失败：${metricResult.message}` })
+        message.error('保存失败：PromQL 引用了指标库中不存在的指标')
+        return
+      }
+
       const labelsArr = (values.labels as { key: string; value: string }[]) ?? []
       const annotationsArr = (values.annotations as { key: string; value: string }[]) ?? []
       const labels: Record<string, string> = {}
@@ -245,6 +274,8 @@ export default function RulesPage() {
         annotations: ruleType === 'alerting' ? annotations : {},
         resource_type: values.resource_type as CiType,
         exporter_template_id: values.exporter_template_id as string,
+        // MVP~v0.3 阶段 scope 固定 central（中心求值），不暴露给用户（PRD 5.5）
+        scope: 'central' as const,
         enabled: values.enabled as boolean,
       }
       if (editingRule) {
@@ -431,7 +462,7 @@ export default function RulesPage() {
       <div className="page-header">
         <Title level={4}>规则编辑</Title>
         <Text type="secondary">
-          管理告警规则与记录规则；PromQL 校验依赖 Module_02 / Prometheus，规则生命周期由 Module_08 管理
+          管理告警规则与记录规则；expr 引用的指标必须先存在于指标库，保存时强制校验；规则生命周期由 Module_08 管理
         </Text>
       </div>
       <Card className="page-card">
@@ -531,14 +562,17 @@ export default function RulesPage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="资源类型"
-                name="resource_type"
-                rules={[{ required: true, message: '请选择资源类型' }]}
+                label="资源类别"
+                name="resource_category"
+                rules={[{ required: true, message: '请选择资源类别' }]}
               >
-                <Select placeholder="请选择">
-                  {CI_TYPES.map((type) => (
-                    <Option key={type} value={type}>
-                      {CI_TYPE_LABEL[type]}（{CI_TYPE_CATEGORY_MAP[type]}）
+                <Select
+                  placeholder="请选择"
+                  onChange={() => form.setFieldsValue({ resource_type: undefined, exporter_template_id: undefined })}
+                >
+                  {RESOURCE_CATEGORIES.map((cat) => (
+                    <Option key={cat} value={cat}>
+                      {RESOURCE_CATEGORY_MAP[cat]}
                     </Option>
                   ))}
                 </Select>
@@ -546,14 +580,48 @@ export default function RulesPage() {
             </Col>
             <Col span={12}>
               <Form.Item
+                label="CI 类型"
+                name="resource_type"
+                rules={[{ required: true, message: '请选择 CI 类型' }]}
+                extra="选中后自动带出映射默认 Exporter 模板"
+              >
+                <Select
+                  placeholder={categoryCiTypes.length > 0 ? '请选择 CI 类型' : '请先选择资源类别'}
+                  disabled={categoryCiTypes.length === 0}
+                  onChange={(type) => {
+                    const mapping = mockCITypeExporterMappings.find(
+                      (m) => m.resource_type === (type as CiType)
+                    )
+                    form.setFieldsValue({
+                      exporter_template_id: mapping?.exporter_template_id,
+                    })
+                  }}
+                >
+                  {categoryCiTypes.map((type) => (
+                    <Option key={type} value={type}>
+                      {CI_TYPE_LABEL[type]}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={24}>
+              <Form.Item
                 label="关联 Exporter 模板"
                 name="exporter_template_id"
                 rules={[{ required: true, message: '请选择 Exporter 模板' }]}
-                extra="用于指标预览与 PromQL 校验"
+                extra="与所选 CI 类型联动：自动带出该类型映射默认模板，用于指标预览与 PromQL 校验，可按需覆盖"
               >
                 <Select placeholder="请选择" showSearch optionFilterProp="children">
                   {mockExporterTemplates
                     .filter((t) => t.supported_resource_types.length > 0)
+                    .filter((t) =>
+                      watchResourceType
+                        ? t.supported_resource_types.includes(watchResourceType as CiType)
+                        : true
+                    )
                     .map((t) => (
                       <Option key={t.exporter_template_id} value={t.exporter_template_id}>
                         {t.name} v{t.version}
@@ -577,6 +645,14 @@ export default function RulesPage() {
           >
             <TextArea rows={4} placeholder="输入 PromQL 表达式" />
           </Form.Item>
+
+          <Alert
+            type="info"
+            showIcon
+            message="规则不绑定网域"
+            description="告警/记录规则由中心侧对全网域聚合数据统一求值，因此无需（也不应）绑定单一网域；如需限定某网域，请在表达式 label selector 中按 network_domain 标签过滤（该标签由 Module_09 作为 external_labels 自动注入）。"
+            style={{ marginBottom: 16 }}
+          />
 
           <Row gutter={16}>
             <Col span={12}>

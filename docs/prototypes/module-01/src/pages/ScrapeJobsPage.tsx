@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Card,
   Table,
@@ -20,6 +20,8 @@ import {
   App,
   Tooltip,
   Modal,
+  List,
+  Radio,
 } from 'antd'
 import type { TransferItem } from 'antd/es/transfer'
 import {
@@ -27,6 +29,8 @@ import {
   EditOutlined,
   DeleteOutlined,
   EyeOutlined,
+  GlobalOutlined,
+  SyncOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
@@ -36,15 +40,21 @@ import {
   mockLabelTemplates,
   mockNetworkDomains,
   mockExporterInstallations,
-  CI_TYPES,
+  mockCITypeExporterMappings,
+  currentTenant,
   CI_TYPE_LABEL,
   CI_TYPE_CATEGORY_MAP,
+  CI_TYPES_BY_CATEGORY,
+  RESOURCE_CATEGORIES,
+  RESOURCE_CATEGORY_MAP,
   SCHEMES,
   ENV_VALUES,
   ENV_LABEL,
   INSTALL_STATUS_MAP,
   INSTALL_STATUS_CYCLE,
-  NETWORK_DOMAIN_IDS,
+  BLACKBOX_MODULES,
+  BLACKBOX_MODULE_LABEL,
+  BLACKBOX_PROTOCOL_BY_MODULE,
 } from '../mocks/module-01'
 import type {
   CiType,
@@ -52,12 +62,33 @@ import type {
   ScrapeJob,
   ExporterInstallStatus,
   ExporterInstallationConfirmation,
+  ScrapeJobType,
+  BlackboxModule,
+  BlackboxTarget,
+  ProbeProtocol,
+  ResourceCategory,
 } from '../mocks/module-01'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
 const now = () => new Date().toISOString()
+
+const PROTOCOL_COLOR: Record<ProbeProtocol, string> = {
+  http: '#00B578',
+  https: '#1481FD',
+  tcp: '#FA8C16',
+  icmp: '#0ECDEB',
+  dns: '#722ED1',
+}
+
+const PROTOCOL_LABEL: Record<ProbeProtocol, string> = {
+  http: 'HTTP',
+  https: 'HTTPS',
+  tcp: 'TCP',
+  icmp: 'ICMP',
+  dns: 'DNS',
+}
 
 export default function ScrapeJobsPage() {
   const { modal, message } = App.useApp()
@@ -68,11 +99,34 @@ export default function ScrapeJobsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editingJob, setEditingJob] = useState<ScrapeJob | null>(null)
   const [targetKeys, setTargetKeys] = useState<string[]>([])
-  const [filterDomain, setFilterDomain] = useState<string | undefined>(undefined)
   const [filterEnv, setFilterEnv] = useState<string | undefined>(undefined)
+  const [blackboxTargets, setBlackboxTargets] = useState<BlackboxTarget[]>([])
   const [confirmTarget, setConfirmTarget] = useState<ExporterInstallationConfirmation | null>(null)
+  const [detailJob, setDetailJob] = useState<ScrapeJob | null>(null)
   const [confirmForm] = Form.useForm()
   const [form] = Form.useForm()
+
+  // 租户级多网域开关（Header 切换）：单网域模式仅允许绑定 default 管理域
+  const isMultiSite = currentTenant.multi_site_enabled
+  const availableDomains = isMultiSite
+    ? mockNetworkDomains
+    : mockNetworkDomains.filter((d) => d.id === 'default')
+
+  // 监听 Header 单网域/多网域切换：切回单网域时强制网域为 default 并清空跨域实例（实例必须与 Job 同域）
+  useEffect(() => {
+    const onTenantModeChange = (e: Event) => {
+      const multiSiteEnabled = (e as CustomEvent).detail?.multiSiteEnabled
+      if (multiSiteEnabled === false) {
+        const current = form.getFieldValue('network_domain_id')
+        if (current && current !== 'default') {
+          form.setFieldsValue({ network_domain_id: 'default' })
+          setTargetKeys([])
+        }
+      }
+    }
+    window.addEventListener('tenant-mode-change', onTenantModeChange)
+    return () => window.removeEventListener('tenant-mode-change', onTenantModeChange)
+  }, [form])
 
   const templateMap = useMemo(() => {
     const map = new Map<string, (typeof mockExporterTemplates)[number]>()
@@ -92,36 +146,53 @@ export default function ScrapeJobsPage() {
     return map
   }, [])
 
+  const labelNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    mockLabelTemplates.forEach((t) => map.set(t.template_id, t.name))
+    return map
+  }, [])
+
+  const watchJobType = Form.useWatch('job_type', form) as ScrapeJobType | undefined
   const watchResourceType = Form.useWatch('resource_type', form)
+  const watchResourceCategory = Form.useWatch('resource_category', form)
+  const watchNetworkDomainId = Form.useWatch('network_domain_id', form)
   const watchMode = Form.useWatch('instance_selection_mode', form)
 
-  // Transfer 数据源：按当前 resource_type + 网域/环境筛选
+  // 资源类别 → 可选的细粒度 CI 类型（两级级联）
+  const categoryCiTypes = (watchResourceCategory as ResourceCategory | undefined)
+    ? CI_TYPES_BY_CATEGORY[watchResourceCategory as ResourceCategory]
+    : []
+
+  // Transfer 数据源：按当前 resource_type + Job 网域 + 环境筛选
   const transferData = useMemo<TransferItem[]>(() => {
     const rt = watchResourceType as CiType | undefined
     if (!rt) return []
     return mockResources
       .filter((r) => r.resource_type === rt)
-      .filter((r) => (filterDomain ? r.network_domain_id === filterDomain : true))
+      .filter((r) => r.network_domain_id === watchNetworkDomainId)
       .filter((r) => (filterEnv ? r.env === filterEnv : true))
       .map((r) => ({
         key: r.resource_id,
         title: `${r.instance_name} (${r.instance_ip})`,
         description: `${domainNameMap.get(r.network_domain_id) ?? r.network_domain_id} · ${ENV_LABEL[r.env]} · ${r.app_name}`,
       }))
-  }, [watchResourceType, filterDomain, filterEnv, domainNameMap])
+  }, [watchResourceType, watchNetworkDomainId, filterEnv, domainNameMap])
 
   const openCreate = () => {
     setEditingJob(null)
     form.resetFields()
     setTargetKeys([])
-    setFilterDomain(undefined)
+    setBlackboxTargets([])
     setFilterEnv(undefined)
     form.setFieldsValue({
+      job_type: 'standard',
       instance_selection_mode: 'manual',
       scheme: 'http',
       scrape_interval: '15s',
       scrape_timeout: '10s',
+      metrics_path: '/metrics',
       enabled: true,
+      network_domain_id: 'default',
     })
     setDrawerOpen(true)
   }
@@ -130,6 +201,8 @@ export default function ScrapeJobsPage() {
     setEditingJob(record)
     form.setFieldsValue({
       job_name: record.job_name,
+      job_type: record.job_type,
+      resource_category: CI_TYPE_CATEGORY_MAP[record.resource_type],
       resource_type: record.resource_type,
       exporter_template_id: record.exporter_template_id,
       network_domain_id: record.network_domain_id,
@@ -140,9 +213,10 @@ export default function ScrapeJobsPage() {
       scheme: record.scheme,
       label_template_id: record.label_template_id,
       enabled: record.enabled,
+      blackbox_module: record.blackbox_module,
     })
     setTargetKeys([...record.selected_instance_ids])
-    setFilterDomain(undefined)
+    setBlackboxTargets(record.blackbox_targets ? [...record.blackbox_targets] : [])
     setFilterEnv(undefined)
     setDrawerOpen(true)
   }
@@ -151,50 +225,151 @@ export default function ScrapeJobsPage() {
     setDrawerOpen(false)
     setEditingJob(null)
     setTargetKeys([])
+    setBlackboxTargets([])
   }
 
-  // 选择 Exporter 模板后自动填充采集参数
+  // 选择 Exporter 模板后自动填充采集参数（standard）：优先取映射默认值（决策 14：创建时快照）
   const handleTemplateChange = (templateId: string) => {
     const tpl = templateMap.get(templateId)
-    if (tpl) {
+    const rt = form.getFieldValue('resource_type') as CiType | undefined
+    const mapping = mockCITypeExporterMappings.find(
+      (m) => m.resource_type === rt && m.exporter_template_id === templateId
+    )
+    form.setFieldsValue({
+      metrics_path: tpl?.metrics_path ?? mapping?.metrics_path ?? '/metrics',
+      scheme: tpl?.scheme ?? mapping?.scheme ?? 'http',
+      scrape_interval: mapping?.scrape_interval ?? '15s',
+      scrape_timeout: mapping?.scrape_timeout ?? '10s',
+      label_template_id: mapping?.label_template_id,
+    })
+  }
+
+  // 决策 14：查找 Job 对应的映射（含网域覆盖场景 v0.2 预留）
+  const getMapping = (record: ScrapeJob) =>
+    mockCITypeExporterMappings.find(
+      (m) => m.resource_type === record.resource_type && m.exporter_template_id === record.exporter_template_id
+    )
+
+  // 决策 14：映射默认值是否已变更（映射 updated_at 晚于 Job 上次同步时间）
+  const isMappingChanged = (record: ScrapeJob): boolean => {
+    if (record.job_type !== 'standard') return false
+    const mapping = getMapping(record)
+    if (!mapping || !record.mapping_synced_at) return false
+    return new Date(mapping.updated_at).getTime() > new Date(record.mapping_synced_at).getTime()
+  }
+
+  // 决策 14：手动「同步映射默认值」——将 Job 参数刷新为映射当前默认值（含 v0.2 网域覆盖优先）
+  const syncFromMapping = (record: ScrapeJob) => {
+    const mapping = getMapping(record)
+    const tpl = templateMap.get(record.exporter_template_id)
+    if (!mapping) {
+      message.warning('未找到对应 CI-Exporter 映射，无法同步')
+      return
+    }
+    const patch: Partial<ScrapeJob> = {
+      scrape_interval: mapping.scrape_interval,
+      scrape_timeout: mapping.scrape_timeout,
+      metrics_path: tpl?.metrics_path ?? mapping.metrics_path,
+      scheme: tpl?.scheme ?? mapping.scheme,
+      label_template_id: mapping.label_template_id,
+      mapping_synced_at: now(),
+      updated_at: now(),
+    }
+    setJobs((prev) =>
+      prev.map((j) => (j.job_id === record.job_id ? { ...j, ...patch } : j))
+    )
+    // 同步当前编辑抽屉中的字段与编辑态
+    if (editingJob && editingJob.job_id === record.job_id) {
+      setEditingJob((prev) => (prev ? { ...prev, ...patch } : prev))
       form.setFieldsValue({
-        metrics_path: tpl.metrics_path,
-        scheme: tpl.scheme,
+        scrape_interval: patch.scrape_interval,
+        scrape_timeout: patch.scrape_timeout,
+        metrics_path: patch.metrics_path,
+        scheme: patch.scheme,
+        label_template_id: patch.label_template_id,
       })
     }
+    message.success('已同步映射默认值（含网域覆盖）')
+  }
+
+  // 切换 blackbox module 时自动填充默认协议与 metrics_path
+  const handleBlackboxModuleChange = (module: BlackboxModule) => {
+    form.setFieldsValue({
+      metrics_path: '/probe',
+      scheme: 'http',
+    })
+    setBlackboxTargets((prev) =>
+      prev.map((t) => ({ ...t, protocol: BLACKBOX_PROTOCOL_BY_MODULE[module] }))
+    )
+  }
+
+  const validateDomainConsistency = (
+    networkDomainId: string,
+    selectedIds: string[]
+  ): string | null => {
+    const mismatched = selectedIds
+      .map((id) => mockResources.find((r) => r.resource_id === id))
+      .filter((r): r is (typeof mockResources)[number] => !!r)
+      .filter((r) => r.network_domain_id !== networkDomainId)
+    if (mismatched.length > 0) {
+      return `实例 ${mismatched.map((r) => r.instance_name).join('、')} 不属于网域「${
+        domainNameMap.get(networkDomainId) ?? networkDomainId
+      }」，请移除或切换网域`
+    }
+    return null
   }
 
   const handleSave = () => {
     form.validateFields().then((values) => {
-      const exporterTemplateId = values.exporter_template_id as string
-      // 同步安装状态冗余字段
-      const exporterStatus: Record<string, ExporterInstallStatus> = {}
-      targetKeys.forEach((id) => {
-        const existing = installations.find(
-          (c) => c.resource_id === id && c.exporter_template_id === exporterTemplateId
-        )
-        exporterStatus[id] = existing?.status ?? 'unregistered'
-        // 为新选中的实例补建 pending 确认记录
-        if (!existing) {
-          const newConf: ExporterInstallationConfirmation = {
-            id: `eic-${Date.now()}-${id}`,
-            resource_id: id,
-            exporter_template_id: exporterTemplateId,
-            status: 'pending',
-            confirmed_by: '',
-            confirmed_at: '',
-            notes: '',
-          }
-          setInstallations((prev) => [...prev, newConf])
+      const jobType = values.job_type as ScrapeJobType
+      const networkDomainId = values.network_domain_id as string
+
+      if (jobType === 'blackbox') {
+        if (blackboxTargets.length === 0) {
+          message.error('请至少添加一个拨测目标')
+          return
         }
-      })
+      } else {
+        const domainErr = validateDomainConsistency(networkDomainId, targetKeys)
+        if (domainErr) {
+          message.error(domainErr)
+          return
+        }
+      }
+
+      const exporterTemplateId = values.exporter_template_id as string
+      // 同步安装状态冗余字段（仅 standard）
+      const exporterStatus: Record<string, ExporterInstallStatus> = {}
+      if (jobType === 'standard') {
+        targetKeys.forEach((id) => {
+          const existing = installations.find(
+            (c) => c.resource_id === id && c.exporter_template_id === exporterTemplateId
+          )
+          exporterStatus[id] = existing?.status ?? 'unregistered'
+          if (!existing) {
+            const newConf: ExporterInstallationConfirmation = {
+              id: `eic-${Date.now()}-${id}`,
+              resource_id: id,
+              exporter_template_id: exporterTemplateId,
+              status: 'pending',
+              confirmed_by: '',
+              confirmed_at: '',
+              notes: '',
+            }
+            setInstallations((prev) => [...prev, newConf])
+          }
+        })
+      }
+
       if (editingJob) {
         const updated: ScrapeJob = {
           ...editingJob,
           ...values,
           resource_type: values.resource_type as CiType,
           scheme: values.scheme as Scheme,
-          selected_instance_ids: targetKeys,
+          selected_instance_ids: jobType === 'standard' ? targetKeys : [],
+          blackbox_targets: jobType === 'blackbox' ? blackboxTargets : undefined,
+          blackbox_module: jobType === 'blackbox' ? (values.blackbox_module as BlackboxModule) : undefined,
           exporter_status: exporterStatus,
           updated_at: now(),
         }
@@ -204,11 +379,12 @@ export default function ScrapeJobsPage() {
         const newJob: ScrapeJob = {
           job_id: `job-${Date.now()}`,
           job_name: values.job_name as string,
+          job_type: jobType,
           resource_type: values.resource_type as CiType,
           exporter_template_id: exporterTemplateId,
-          network_domain_id: values.network_domain_id as string,
+          network_domain_id: networkDomainId,
           instance_selection_mode: values.instance_selection_mode as 'manual' | 'filter',
-          selected_instance_ids: targetKeys,
+          selected_instance_ids: jobType === 'standard' ? targetKeys : [],
           instance_filter: null,
           scrape_interval: values.scrape_interval as string,
           scrape_timeout: values.scrape_timeout as string,
@@ -216,8 +392,12 @@ export default function ScrapeJobsPage() {
           scheme: values.scheme as Scheme,
           label_template_id: (values.label_template_id as string) || undefined,
           relabel_configs: [],
+          blackbox_module: jobType === 'blackbox' ? (values.blackbox_module as BlackboxModule) : undefined,
+          blackbox_targets: jobType === 'blackbox' ? blackboxTargets : undefined,
           enabled: values.enabled as boolean,
           exporter_status: exporterStatus,
+          // 决策 14：创建时对映射默认值做快照，记录同步时间
+          mapping_synced_at: jobType === 'standard' ? now() : undefined,
           created_at: now(),
           updated_at: now(),
         }
@@ -294,24 +474,66 @@ export default function ScrapeJobsPage() {
     })
   }
 
+  const addBlackboxTarget = () => {
+    const module = (form.getFieldValue('blackbox_module') as BlackboxModule | undefined) ?? 'http_2xx'
+    setBlackboxTargets((prev) => [
+      ...prev,
+      { target: '', protocol: BLACKBOX_PROTOCOL_BY_MODULE[module] },
+    ])
+  }
+
+  const updateBlackboxTarget = (index: number, patch: Partial<BlackboxTarget>) => {
+    setBlackboxTargets((prev) =>
+      prev.map((t, i) => (i === index ? { ...t, ...patch } : t))
+    )
+  }
+
+  const removeBlackboxTarget = (index: number) => {
+    setBlackboxTargets((prev) => prev.filter((_, i) => i !== index))
+  }
+
   const columns = [
     {
       title: 'Job 名称',
       dataIndex: 'job_name',
       key: 'job_name',
-      render: (value: string) => <Text strong>{value}</Text>,
+      render: (value: string, record: ScrapeJob) => (
+        <Space>
+          <Text strong>{value}</Text>
+          {record.job_type === 'blackbox' && <Tag color="purple">blackbox</Tag>}
+        </Space>
+      ),
+    },
+    {
+      title: 'Job 类型',
+      dataIndex: 'job_type',
+      key: 'job_type',
+      render: (value: ScrapeJobType) => (
+        <Tag color={value === 'blackbox' ? 'purple' : 'blue'}>
+          {value === 'blackbox' ? '拨测' : '标准采集'}
+        </Tag>
+      ),
     },
     {
       title: 'CI 类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
-      render: (value: CiType) => <Tag color="blue">{CI_TYPE_LABEL[value]}</Tag>,
+      render: (value: CiType, record: ScrapeJob) =>
+        record.job_type === 'blackbox' ? (
+          <Text type="secondary">-</Text>
+        ) : (
+          <Tag color="blue">{CI_TYPE_LABEL[value]}</Tag>
+        ),
     },
     {
-      title: 'Exporter',
-      dataIndex: 'exporter_template_id',
-      key: 'exporter_template_id',
-      render: (value: string) => <Tag color="cyan">{templateNameMap.get(value) ?? value}</Tag>,
+      title: 'Exporter / Module',
+      key: 'exporter',
+      render: (_: unknown, record: ScrapeJob) =>
+        record.job_type === 'blackbox' ? (
+          <Tag color="cyan">{record.blackbox_module ?? '-'}</Tag>
+        ) : (
+          <Tag color="cyan">{templateNameMap.get(record.exporter_template_id) ?? record.exporter_template_id}</Tag>
+        ),
     },
     {
       title: '网域',
@@ -320,14 +542,30 @@ export default function ScrapeJobsPage() {
       render: (value: string) => <Tag>{domainNameMap.get(value) ?? value}</Tag>,
     },
     {
-      title: '实例选择',
-      dataIndex: 'instance_selection_mode',
-      key: 'instance_selection_mode',
-      render: (value: ScrapeJob['instance_selection_mode']) => (
-        <Tag color={value === 'manual' ? 'purple' : 'geekblue'}>
-          {value === 'manual' ? '手动' : '过滤'}
-        </Tag>
-      ),
+      title: '实例选择 / 拨测目标',
+      key: 'selection',
+      render: (_: unknown, record: ScrapeJob) =>
+        record.job_type === 'blackbox' ? (
+          <Text type="secondary">{record.blackbox_targets?.length ?? 0} 个目标</Text>
+        ) : (
+          <Tag color={record.instance_selection_mode === 'manual' ? 'purple' : 'geekblue'}>
+            {record.instance_selection_mode === 'manual' ? '手动' : '过滤'}
+          </Tag>
+        ),
+    },
+    {
+      title: '参数同步',
+      key: 'mappingSync',
+      render: (_: unknown, record: ScrapeJob) =>
+        record.job_type === 'blackbox' ? (
+          <Text type="secondary">-</Text>
+        ) : isMappingChanged(record) ? (
+          <Tooltip title="CI-Exporter 映射默认值已变更，请在编辑中手动同步">
+            <Tag color="warning">映射默认值已变更</Tag>
+          </Tooltip>
+        ) : (
+          <Tag color="success">已同步</Tag>
+        ),
     },
     {
       title: '启用',
@@ -349,7 +587,7 @@ export default function ScrapeJobsPage() {
           <Button type="link" icon={<EditOutlined />} onClick={() => openEdit(record)}>
             编辑
           </Button>
-          <Button type="link" icon={<EyeOutlined />} onClick={() => openEdit(record)}>
+          <Button type="link" icon={<EyeOutlined />} onClick={() => setDetailJob(record)}>
             详情
           </Button>
           <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
@@ -360,12 +598,14 @@ export default function ScrapeJobsPage() {
     },
   ]
 
+  const isBlackbox = watchJobType === 'blackbox'
+
   return (
     <MainLayout>
       <div className="page-header">
         <Title level={4}>采集 Job</Title>
         <Text type="secondary">
-          管理 Prometheus 采集任务与实例选择策略；网域由 Module_09 管理，配置下发由 Module_09 负责
+          管理 Prometheus 采集任务（standard）与 blackbox 拨测任务；所有 Job 必须绑定单一网域，配置下发由 Module_09 负责
         </Text>
       </div>
       <Card className="page-card">
@@ -381,7 +621,10 @@ export default function ScrapeJobsPage() {
             </Button>
           </Col>
           <Col>
-            <Text type="secondary">共 {jobs.length} 个采集任务</Text>
+            <Text type="secondary">
+              共 {jobs.length} 个任务（标准 {jobs.filter((j) => j.job_type === 'standard').length} / 拨测{' '}
+              {jobs.filter((j) => j.job_type === 'blackbox').length}）
+            </Text>
           </Col>
         </Row>
 
@@ -403,6 +646,31 @@ export default function ScrapeJobsPage() {
         }
       >
         <Form form={form} layout="vertical">
+          {editingJob && editingJob.job_type === 'standard' && isMappingChanged(editingJob) && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="映射默认值已变更"
+              description={
+                <Space direction="vertical" size={8}>
+                  <Text>
+                    对应 CI-Exporter 映射（{getMapping(editingJob)?.resource_type} →{' '}
+                    {templateNameMap.get(editingJob.exporter_template_id)}）默认采集参数已更新（v0.2 起可含网域覆盖）。
+                    保护存量策略：本 Job 参数保持不变，需手动同步后刷新。
+                  </Text>
+                  <Button
+                    size="small"
+                    icon={<SyncOutlined />}
+                    style={{ backgroundColor: '#0ECDEB', borderColor: '#0ECDEB', color: '#fff' }}
+                    onClick={() => syncFromMapping(editingJob)}
+                  >
+                    同步映射默认值
+                  </Button>
+                </Space>
+              }
+            />
+          )}
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
@@ -410,62 +678,73 @@ export default function ScrapeJobsPage() {
                 name="job_name"
                 rules={[{ required: true, message: '请输入 Job 名称' }]}
               >
-                <Input placeholder="如 prod-hosts" />
+                <Input placeholder="如 prod-hosts 或 blackbox-http" />
               </Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item
-                label="CI 类型"
-                name="resource_type"
-                rules={[{ required: true, message: '请选择 CI 类型' }]}
+                label="Job 类型"
+                name="job_type"
+                rules={[{ required: true, message: '请选择 Job 类型' }]}
+                extra="blackbox 拨测任务不再维护独立实体，内嵌为 ScrapeJob 的一种类型"
               >
-                <Select
-                  placeholder="请选择"
+                <Radio.Group
+                  optionType="button"
+                  buttonStyle="solid"
                   disabled={!!editingJob}
-                  onChange={() => setTargetKeys([])}
+                  onChange={(e) => {
+                    const next = e.target.value as ScrapeJobType
+                    if (next === 'blackbox') {
+                      form.setFieldsValue({
+                        resource_category: 'application',
+                        resource_type: 'application_http',
+                        exporter_template_id: 'et-blackbox',
+                        metrics_path: '/probe',
+                        scheme: 'http',
+                        blackbox_module: 'http_2xx',
+                      })
+                      setTargetKeys([])
+                    } else {
+                      form.setFieldsValue({
+                        resource_category: undefined,
+                        resource_type: undefined,
+                        exporter_template_id: undefined,
+                        metrics_path: '/metrics',
+                        scheme: 'http',
+                        blackbox_module: undefined,
+                      })
+                      setBlackboxTargets([])
+                    }
+                  }}
                 >
-                  {CI_TYPES.map((type) => (
-                    <Option key={type} value={type}>
-                      {CI_TYPE_LABEL[type]}（{CI_TYPE_CATEGORY_MAP[type]}）
-                    </Option>
-                  ))}
-                </Select>
+                  <Radio.Button value="standard">标准采集</Radio.Button>
+                  <Radio.Button value="blackbox">blackbox 拨测</Radio.Button>
+                </Radio.Group>
               </Form.Item>
             </Col>
           </Row>
+
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={isBlackbox ? 24 : 12}>
               <Form.Item
-                label="Exporter 模板"
-                name="exporter_template_id"
-                rules={[{ required: true, message: '请选择 Exporter 模板' }]}
-                extra="选择后自动填充采集参数"
+                label="归属网域"
+                name="network_domain_id"
+                rules={[{ required: true, message: '请选择网域' }]}
+                extra={
+                  isMultiSite
+                    ? '所有 ScrapeJob 必须绑定且仅绑定单一网域；网域由 Module_09 管理'
+                    : '单网域模式：仅支持 default 管理域（Header 可切换多网域模式）'
+                }
               >
                 <Select
                   placeholder="请选择"
-                  onChange={(v) => handleTemplateChange(v as string)}
-                  showSearch
-                  optionFilterProp="children"
+                  disabled={!!editingJob || !isMultiSite}
+                  onChange={() => {
+                    setTargetKeys([])
+                    message.info('切换网域后已选实例已清空，实例必须与 Job 同域')
+                  }}
                 >
-                  {mockExporterTemplates
-                    .filter((t) => t.supported_resource_types.length > 0)
-                    .map((t) => (
-                      <Option key={t.exporter_template_id} value={t.exporter_template_id}>
-                        {t.name} v{t.version}
-                      </Option>
-                    ))}
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="网域"
-                name="network_domain_id"
-                rules={[{ required: true, message: '请选择网域' }]}
-                extra="网域由 Module_09 管理"
-              >
-                <Select placeholder="请选择">
-                  {mockNetworkDomains.map((d) => (
+                  {availableDomains.map((d) => (
                     <Option key={d.id} value={d.id}>
                       {d.name}
                     </Option>
@@ -473,11 +752,143 @@ export default function ScrapeJobsPage() {
                 </Select>
               </Form.Item>
             </Col>
+            {!isBlackbox && (
+              <Col span={12}>
+                <Form.Item
+                  label="资源类别"
+                  name="resource_category"
+                  rules={[{ required: true, message: '请选择资源类别' }]}
+                  extra="先选类别（主机/中间件/应用/通用目标），再选具体 CI 类型"
+                >
+                  <Select
+                    placeholder="请选择"
+                    disabled={!!editingJob}
+                    onChange={() => {
+                      setTargetKeys([])
+                      form.setFieldsValue({ resource_type: undefined, exporter_template_id: undefined })
+                    }}
+                  >
+                    {RESOURCE_CATEGORIES.map((cat) => (
+                      <Option key={cat} value={cat}>
+                        {RESOURCE_CATEGORY_MAP[cat]}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            )}
           </Row>
+
+          {!isBlackbox && (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="CI 类型"
+                  name="resource_type"
+                  rules={[{ required: true, message: '请选择 CI 类型' }]}
+                >
+                  <Select
+                    placeholder={categoryCiTypes.length > 0 ? '请选择 CI 类型' : '请先选择资源类别'}
+                    disabled={!!editingJob || categoryCiTypes.length === 0}
+                    onChange={(type) => {
+                      setTargetKeys([])
+                      // 选中 CI 类型后自动匹配映射默认 Exporter 模板（决策 15 继承链）
+                      const mapping = mockCITypeExporterMappings.find(
+                        (m) => m.resource_type === (type as CiType)
+                      )
+                      form.setFieldsValue({
+                        exporter_template_id: mapping?.exporter_template_id,
+                      })
+                      if (mapping) handleTemplateChange(mapping.exporter_template_id)
+                    }}
+                  >
+                    {categoryCiTypes.map((type) => (
+                      <Option key={type} value={type}>
+                        {CI_TYPE_LABEL[type]}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="Exporter 模板"
+                  name="exporter_template_id"
+                  rules={[{ required: true, message: '请选择 Exporter 模板' }]}
+                  extra="选中 CI 类型后自动带出映射默认模板，可覆盖"
+                >
+                  <Select
+                    placeholder="请选择"
+                    onChange={(v) => handleTemplateChange(v as string)}
+                    showSearch
+                    optionFilterProp="children"
+                  >
+                    {mockExporterTemplates
+                      .filter((t) => t.supported_resource_types.length > 0)
+                      .filter((t) =>
+                        watchResourceType
+                          ? t.supported_resource_types.includes(watchResourceType as CiType)
+                          : true
+                      )
+                      .map((t) => (
+                        <Option key={t.exporter_template_id} value={t.exporter_template_id}>
+                          {t.name} v{t.version}
+                        </Option>
+                      ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
+          {isBlackbox ? (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="blackbox 模块"
+                  name="blackbox_module"
+                  rules={[{ required: true, message: '请选择 blackbox 模块' }]}
+                  extra="Module_09 会按模块生成 blackbox.yml 与 prometheus.yml 中的 scrape_config"
+                >
+                  <Select placeholder="请选择" onChange={(v) => handleBlackboxModuleChange(v as BlackboxModule)}>
+                    {BLACKBOX_MODULES.map((m) => (
+                      <Option key={m} value={m}>
+                        {BLACKBOX_MODULE_LABEL[m]}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="指标路径"
+                  name="metrics_path"
+                  rules={[{ required: true, message: '请输入指标路径' }]}
+                >
+                  <Input disabled placeholder="blackbox 固定为 /probe" />
+                </Form.Item>
+              </Col>
+            </Row>
+          ) : (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="标签模板" name="label_template_id" extra="LabelTemplate 由 Module_07 维护，创建时自动预填映射默认模板、可覆盖">
+                  <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
+                    {mockLabelTemplates.map((t) => (
+                      <Option key={t.template_id} value={t.template_id}>
+                        {t.name}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item label="选择模式" name="instance_selection_mode">
-                <Select>
+                <Select disabled={isBlackbox}>
                   <Option value="manual">手动选择</Option>
                   <Option value="filter" disabled>
                     过滤规则（v0.3+）
@@ -487,9 +898,9 @@ export default function ScrapeJobsPage() {
             </Col>
             <Col span={8}>
               <Form.Item
-                label="采集间隔"
+                label="采集/拨测间隔"
                 name="scrape_interval"
-                rules={[{ required: true, message: '请选择采集间隔' }]}
+                rules={[{ required: true, message: '请选择间隔' }]}
               >
                 <Select>
                   <Option value="15s">15s</Option>
@@ -500,9 +911,9 @@ export default function ScrapeJobsPage() {
             </Col>
             <Col span={8}>
               <Form.Item
-                label="采集超时"
+                label="超时"
                 name="scrape_timeout"
-                rules={[{ required: true, message: '请选择采集超时' }]}
+                rules={[{ required: true, message: '请选择超时' }]}
               >
                 <Select>
                   <Option value="5s">5s</Option>
@@ -512,48 +923,37 @@ export default function ScrapeJobsPage() {
               </Form.Item>
             </Col>
           </Row>
-          <Row gutter={16}>
-            <Col span={8}>
-              <Form.Item
-                label="协议"
-                name="scheme"
-                rules={[{ required: true, message: '请选择协议' }]}
-              >
-                <Select>
-                  {SCHEMES.map((s) => (
-                    <Option key={s} value={s}>
-                      {s}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item
-                label="指标路径"
-                name="metrics_path"
-                rules={[{ required: true, message: '请输入指标路径' }]}
-              >
-                <Input placeholder="/metrics" />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item label="标签模板" name="label_template_id" extra="由 Module_07 维护">
-                <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
-                  {mockLabelTemplates.map((t) => (
-                    <Option key={t.template_id} value={t.template_id}>
-                      {t.name}
-                    </Option>
-                  ))}
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
+
+          {!isBlackbox && (
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="协议" name="scheme" rules={[{ required: true, message: '请选择协议' }]}>
+                  <Select>
+                    {SCHEMES.map((s) => (
+                      <Option key={s} value={s}>
+                        {s}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="指标路径"
+                  name="metrics_path"
+                  rules={[{ required: true, message: '请输入指标路径' }]}
+                >
+                  <Input placeholder="/metrics" />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
           <Form.Item label="启用状态" name="enabled" valuePropName="checked">
             <Switch />
           </Form.Item>
 
-          {watchMode === 'filter' && (
+          {watchMode === 'filter' && !isBlackbox && (
             <Alert
               type="info"
               showIcon
@@ -562,63 +962,107 @@ export default function ScrapeJobsPage() {
               style={{ marginBottom: 16 }}
             />
           )}
-
-          <Alert
-            type="info"
-            showIcon
-            message="实例选择（MVP 仅手动勾选）"
-            description="v0.3+ 将开放按网域/环境/应用/标签筛选（instance_filter）。当前可通过下方过滤器缩小手动勾选范围。"
-            style={{ marginBottom: 12 }}
-          />
         </Form>
 
-        {watchResourceType && (
+        {isBlackbox ? (
           <>
-            <Row gutter={8} style={{ marginBottom: 8 }}>
-              <Col span={12}>
-                <Select
-                  placeholder="按网域筛选"
-                  allowClear
-                  style={{ width: '100%' }}
-                  value={filterDomain}
-                  onChange={(v) => setFilterDomain(v)}
-                >
-                  {NETWORK_DOMAIN_IDS.map((d) => (
-                    <Option key={d} value={d}>
-                      {domainNameMap.get(d) ?? d}
-                    </Option>
-                  ))}
-                </Select>
-              </Col>
-              <Col span={12}>
-                <Select
-                  placeholder="按环境筛选"
-                  allowClear
-                  style={{ width: '100%' }}
-                  value={filterEnv}
-                  onChange={(v) => setFilterEnv(v)}
-                >
-                  {ENV_VALUES.map((e) => (
-                    <Option key={e} value={e}>
-                      {ENV_LABEL[e]}
-                    </Option>
-                  ))}
-                </Select>
-              </Col>
-            </Row>
-            <Transfer
-              dataSource={transferData}
-              titles={['可选实例', '已选实例']}
-              targetKeys={targetKeys}
-              onChange={(next) => setTargetKeys(next as string[])}
-              render={(item) => String(item.title)}
-              listStyle={{ width: 300, height: 320 }}
-              style={{ marginBottom: 24 }}
+            <Alert
+              type="info"
+              showIcon
+              message="拨测目标"
+              description="blackbox 拨测目标内嵌在 ScrapeJob 中，Module_09 会生成 blackbox.yml 与对应 scrape_config。"
+              style={{ marginBottom: 12 }}
             />
+            <List
+              bordered
+              dataSource={blackboxTargets}
+              locale={{ emptyText: '暂无拨测目标，点击下方按钮添加' }}
+              renderItem={(item, index) => (
+                <List.Item
+                  actions={[
+                    <Button type="link" danger onClick={() => removeBlackboxTarget(index)}>
+                      删除
+                    </Button>,
+                  ]}
+                >
+                  <Row gutter={8} style={{ width: '100%' }} align="middle">
+                    <Col span={10}>
+                      <Input
+                        placeholder="如 api.example.com/health 或 10.0.1.11"
+                        value={item.target}
+                        onChange={(e) => updateBlackboxTarget(index, { target: e.target.value })}
+                        prefix={<GlobalOutlined style={{ color: PROTOCOL_COLOR[item.protocol] }} />}
+                      />
+                    </Col>
+                    <Col span={6}>
+                      <Select
+                        style={{ width: '100%' }}
+                        value={item.protocol}
+                        onChange={(v) => updateBlackboxTarget(index, { protocol: v as ProbeProtocol })}
+                      >
+                        {(['http', 'https', 'tcp', 'icmp', 'dns'] as ProbeProtocol[]).map((p) => (
+                          <Option key={p} value={p}>
+                            {PROTOCOL_LABEL[p]}
+                          </Option>
+                        ))}
+                      </Select>
+                    </Col>
+                    <Col span={8}>
+                      <Input
+                        placeholder="完整 URL（HTTP/HTTPS 可选）"
+                        value={item.url ?? ''}
+                        onChange={(e) => updateBlackboxTarget(index, { url: e.target.value })}
+                      />
+                    </Col>
+                  </Row>
+                </List.Item>
+              )}
+            />
+            <Button type="dashed" icon={<PlusOutlined />} onClick={addBlackboxTarget} style={{ marginTop: 12 }}>
+              新增拨测目标
+            </Button>
           </>
+        ) : (
+          watchResourceType && (
+            <>
+              <Alert
+                type="info"
+                showIcon
+                message="实例选择（MVP 仅手动勾选）"
+                description="已按 Job 归属网域过滤可选实例；跨网域实例不可被同一 Job 选中。v0.3+ 开放按环境/应用/标签筛选。"
+                style={{ marginBottom: 12 }}
+              />
+              <Row gutter={8} style={{ marginBottom: 8 }}>
+                <Col span={24}>
+                  <Select
+                    placeholder="按环境筛选"
+                    allowClear
+                    style={{ width: '100%' }}
+                    value={filterEnv}
+                    onChange={(v) => setFilterEnv(v)}
+                  >
+                    {ENV_VALUES.map((e) => (
+                      <Option key={e} value={e}>
+                        {ENV_LABEL[e]}
+                      </Option>
+                    ))}
+                  </Select>
+                </Col>
+              </Row>
+              <Transfer
+                dataSource={transferData}
+                titles={['同域可选实例', '已选实例']}
+                targetKeys={targetKeys}
+                onChange={(next) => setTargetKeys(next as string[])}
+                render={(item) => String(item.title)}
+                listStyle={{ width: 300, height: 320 }}
+                style={{ marginBottom: 24 }}
+              />
+            </>
+          )
         )}
 
-        {editingJob && editingJob.selected_instance_ids.length > 0 && (
+        {editingJob && editingJob.job_type === 'standard' && editingJob.selected_instance_ids.length > 0 && (
           <>
             <Title level={5}>Exporter 安装确认</Title>
             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -728,6 +1172,146 @@ export default function ScrapeJobsPage() {
               <Input.TextArea rows={2} placeholder="可选" />
             </Form.Item>
           </Form>
+        )}
+      </Modal>
+
+      <Modal
+        title="Job 详情"
+        open={!!detailJob}
+        onCancel={() => setDetailJob(null)}
+        footer={
+          <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={() => setDetailJob(null)}>
+            关闭
+          </Button>
+        }
+        width={680}
+      >
+        {detailJob && (
+          <>
+            <Descriptions column={2} size="small" bordered>
+              <Descriptions.Item label="Job 名称" span={2}>
+                <Text strong>{detailJob.job_name}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="Job 类型">
+                <Tag color={detailJob.job_type === 'blackbox' ? 'purple' : 'blue'}>
+                  {detailJob.job_type === 'blackbox' ? 'blackbox 拨测' : '标准采集'}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="归属网域">
+                <Tag>{domainNameMap.get(detailJob.network_domain_id) ?? detailJob.network_domain_id}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="CI 类型">
+                {detailJob.job_type === 'blackbox' ? (
+                  <Text type="secondary">-</Text>
+                ) : (
+                  <Tag color="blue">{CI_TYPE_LABEL[detailJob.resource_type]}</Tag>
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="Exporter / Module">
+                {detailJob.job_type === 'blackbox' ? (
+                  <Tag color="cyan">{detailJob.blackbox_module ?? '-'}</Tag>
+                ) : (
+                  <Tag color="cyan">
+                    {templateNameMap.get(detailJob.exporter_template_id) ?? detailJob.exporter_template_id}
+                  </Tag>
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="采集/拨测参数">
+                {detailJob.scrape_interval} 间隔 / {detailJob.scrape_timeout} 超时
+              </Descriptions.Item>
+              <Descriptions.Item label="指标路径">
+                <Text code>{detailJob.metrics_path}</Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="协议">
+                <Tag>{detailJob.scheme}</Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="选择模式">
+                {detailJob.job_type === 'blackbox' ? (
+                  <Text type="secondary">-</Text>
+                ) : detailJob.instance_selection_mode === 'manual' ? (
+                  '手动勾选'
+                ) : (
+                  '过滤规则（v0.3+）'
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="标签模板">
+                {detailJob.label_template_id ? (
+                  <Badge
+                    status="success"
+                    text={labelNameMap.get(detailJob.label_template_id) ?? detailJob.label_template_id}
+                  />
+                ) : (
+                  '-'
+                )}
+              </Descriptions.Item>
+              <Descriptions.Item label="启用状态">
+                <Switch checked={detailJob.enabled} size="small" disabled />
+              </Descriptions.Item>
+              <Descriptions.Item label="创建 / 更新时间">
+                {new Date(detailJob.created_at).toLocaleString()} / {new Date(detailJob.updated_at).toLocaleString()}
+              </Descriptions.Item>
+              <Descriptions.Item label="参数同步快照">
+                {detailJob.job_type === 'blackbox' ? (
+                  <Text type="secondary">-</Text>
+                ) : isMappingChanged(detailJob) ? (
+                  <Tag color="warning">映射默认值已变更</Tag>
+                ) : detailJob.mapping_synced_at ? (
+                  <Tag color="success">已同步 · {new Date(detailJob.mapping_synced_at).toLocaleString()}</Tag>
+                ) : (
+                  <Tag color="success">已同步</Tag>
+                )}
+              </Descriptions.Item>
+            </Descriptions>
+
+            {detailJob.job_type === 'blackbox' ? (
+              <>
+                <Title level={5} style={{ marginTop: 16 }}>
+                  拨测目标（{detailJob.blackbox_targets?.length ?? 0}）
+                </Title>
+                <List
+                  bordered
+                  size="small"
+                  dataSource={detailJob.blackbox_targets ?? []}
+                  renderItem={(item, index) => (
+                    <List.Item key={index}>
+                      <Space>
+                        <Tag color={PROTOCOL_COLOR[item.protocol]}>{PROTOCOL_LABEL[item.protocol]}</Tag>
+                        <Text code>{item.url || item.target}</Text>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </>
+            ) : (
+              detailJob.selected_instance_ids.length > 0 && (
+                <>
+                  <Title level={5} style={{ marginTop: 16 }}>
+                    已选实例（{detailJob.selected_instance_ids.length}）
+                  </Title>
+                  <List
+                    bordered
+                    size="small"
+                    dataSource={detailJob.selected_instance_ids}
+                    renderItem={(id) => {
+                      const r = mockResources.find((res) => res.resource_id === id)
+                      const meta = INSTALL_STATUS_MAP[detailJob.exporter_status[id] ?? 'unregistered']
+                      return (
+                        <List.Item key={id}>
+                          <Space>
+                            <Text strong>{r?.instance_name ?? id}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {r?.instance_ip}
+                            </Text>
+                            <Badge color={meta.color} text={meta.text} />
+                          </Space>
+                        </List.Item>
+                      )
+                    }}
+                  />
+                </>
+              )
+            )}
+          </>
         )}
       </Modal>
     </MainLayout>

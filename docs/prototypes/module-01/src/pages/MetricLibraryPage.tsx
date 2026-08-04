@@ -27,27 +27,55 @@ import {
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
-  mockMetricLibrary,
   mockExporterTemplates,
+  mockCITypeExporterMappings,
+  metricLibraryStore,
   METRIC_TYPES,
   METRIC_TYPE_COLOR,
   METRIC_TYPE_LABEL,
+  CI_TYPE_LABEL,
+  CI_TYPES_BY_CATEGORY,
+  RESOURCE_CATEGORIES,
+  RESOURCE_CATEGORY_MAP,
 } from '../mocks/module-01'
-import type { MetricLibraryItem, MetricType } from '../mocks/module-01'
+import type {
+  MetricLibraryItem,
+  MetricType,
+  CiType,
+  ResourceCategory,
+} from '../mocks/module-01'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
 export default function MetricLibraryPage() {
   const { modal, message } = App.useApp()
-  const [metrics, setMetrics] = useState<MetricLibraryItem[]>(() => [...mockMetricLibrary])
+  const [metrics, setMetrics] = useState<MetricLibraryItem[]>(() => [...metricLibraryStore])
   const [search, setSearch] = useState('')
   const [metricTypeFilter, setMetricTypeFilter] = useState<MetricType | undefined>(undefined)
+  const [categoryFilter, setCategoryFilter] = useState<ResourceCategory | undefined>(undefined)
+  const [ciTypeFilter, setCiTypeFilter] = useState<CiType | undefined>(undefined)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMetric, setEditingMetric] = useState<MetricLibraryItem | null>(null)
   const [form] = Form.useForm()
 
-  // 仅展示有指标的 Exporter 分组（受搜索与 metric_type 筛选影响）
+  // 指标库增删改同步到模块级共享 store，RulesPage 的校验/预览实时读取（决策 5：先有指标库才能写 PromQL）
+  const syncStore = (next: MetricLibraryItem[]) => {
+    metricLibraryStore.splice(0, metricLibraryStore.length, ...next)
+    setMetrics(next)
+  }
+
+  // 选中 CI 类型后，映射得到该类型可用的 Exporter 模板集合
+  const ciTypeExporterIds = useMemo(() => {
+    if (!ciTypeFilter) return null
+    return new Set(
+      mockCITypeExporterMappings
+        .filter((m) => m.resource_type === ciTypeFilter)
+        .map((m) => m.exporter_template_id)
+    )
+  }, [ciTypeFilter])
+
+  // 仅展示有指标的 Exporter 分组（受搜索、metric_type、CI 类型筛选影响）
   const groupedData = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     return mockExporterTemplates
@@ -58,6 +86,9 @@ export default function MetricLibraryPage() {
           .filter((m) =>
             !metricTypeFilter ? true : m.metric_type === metricTypeFilter
           )
+          .filter((m) =>
+            !ciTypeExporterIds ? true : ciTypeExporterIds.has(m.exporter_template_id)
+          )
           .filter(
             (m) =>
               !keyword ||
@@ -66,7 +97,7 @@ export default function MetricLibraryPage() {
           ),
       }))
       .filter((group) => group.metrics.length > 0)
-  }, [metrics, search, metricTypeFilter])
+  }, [metrics, search, metricTypeFilter, ciTypeExporterIds])
 
   const handleOpenModal = (record?: MetricLibraryItem) => {
     if (record) {
@@ -119,9 +150,7 @@ export default function MetricLibraryPage() {
           ...editingMetric,
           ...payload,
         }
-        setMetrics((prev) =>
-          prev.map((m) => (m.metric_id === editingMetric.metric_id ? updated : m))
-        )
+        syncStore(metrics.map((m) => (m.metric_id === editingMetric.metric_id ? updated : m)))
         message.success('指标已更新')
       } else {
         const newMetric: MetricLibraryItem = {
@@ -129,7 +158,7 @@ export default function MetricLibraryPage() {
           ...payload,
           is_builtin: false,
         }
-        setMetrics((prev) => [...prev, newMetric])
+        syncStore([...metrics, newMetric])
         message.success('指标已新增（用户扩展）')
       }
       handleCloseModal()
@@ -148,15 +177,15 @@ export default function MetricLibraryPage() {
       okButtonProps: { danger: true },
       cancelText: '取消',
       onOk: () => {
-        setMetrics((prev) => prev.filter((m) => m.metric_id !== record.metric_id))
+        syncStore(metrics.filter((m) => m.metric_id !== record.metric_id))
         message.success('已删除')
       },
     })
   }
 
   const handleToggleEnabled = (record: MetricLibraryItem, checked: boolean) => {
-    setMetrics((prev) =>
-      prev.map((m) =>
+    syncStore(
+      metrics.map((m) =>
         m.metric_id === record.metric_id ? { ...m, enabled: checked } : m
       )
     )
@@ -267,9 +296,9 @@ export default function MetricLibraryPage() {
   return (
     <MainLayout>
       <div className="page-header">
-        <Title level={4}>指标元数据</Title>
+        <Title level={4}>指标库</Title>
         <Text type="secondary">
-          按 Exporter 模板分组查看指标库；P1 支持用户扩展指标（is_builtin=false），禁用指标不参与规则编辑提示
+          按 Exporter 模板分组查看内置指标库；MVP 阶段内置库为只读静态数据，必须先存在指标库才能编写 PromQL；P1/P2 支持用户手动导入/更新/覆盖/禁用指标；禁用指标不参与规则编辑提示
         </Text>
       </div>
       <Card className="page-card">
@@ -284,6 +313,36 @@ export default function MetricLibraryPage() {
               >
                 新增指标
               </Button>
+              <Select
+                placeholder="按资源类别筛选"
+                allowClear
+                style={{ width: 150 }}
+                value={categoryFilter}
+                onChange={(v) => {
+                  setCategoryFilter(v as ResourceCategory | undefined)
+                  setCiTypeFilter(undefined)
+                }}
+              >
+                {RESOURCE_CATEGORIES.map((cat) => (
+                  <Option key={cat} value={cat}>
+                    {RESOURCE_CATEGORY_MAP[cat]}
+                  </Option>
+                ))}
+              </Select>
+              <Select
+                placeholder="按 CI 类型筛选"
+                allowClear
+                style={{ width: 160 }}
+                value={ciTypeFilter}
+                disabled={!categoryFilter}
+                onChange={(v) => setCiTypeFilter(v as CiType | undefined)}
+              >
+                {(categoryFilter ? CI_TYPES_BY_CATEGORY[categoryFilter] : []).map((type) => (
+                  <Option key={type} value={type}>
+                    {CI_TYPE_LABEL[type]}
+                  </Option>
+                ))}
+              </Select>
               <Select
                 placeholder="按类型筛选"
                 allowClear

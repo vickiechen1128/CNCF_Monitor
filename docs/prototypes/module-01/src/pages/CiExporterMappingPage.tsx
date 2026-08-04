@@ -28,12 +28,19 @@ import {
   mockCITypeExporterMappings,
   mockExporterTemplates,
   mockLabelTemplates,
-  CI_TYPES,
   CI_TYPE_LABEL,
   CI_TYPE_CATEGORY_MAP,
+  CI_TYPES_BY_CATEGORY,
+  RESOURCE_CATEGORIES,
+  RESOURCE_CATEGORY_MAP,
   SCHEMES,
 } from '../mocks/module-01'
-import type { CiType, Scheme, CITypeExporterMapping } from '../mocks/module-01'
+import type {
+  CiType,
+  Scheme,
+  CITypeExporterMapping,
+  ResourceCategory,
+} from '../mocks/module-01'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -48,6 +55,11 @@ export default function CiExporterMappingPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<CITypeExporterMapping | null>(null)
   const [form] = Form.useForm()
+
+  const watchResourceCategory = Form.useWatch('resource_category', form)
+  const categoryCiTypes = (watchResourceCategory as ResourceCategory | undefined)
+    ? CI_TYPES_BY_CATEGORY[watchResourceCategory as ResourceCategory]
+    : []
 
   const templateMap = useMemo(() => {
     const map = new Map<string, (typeof mockExporterTemplates)[number]>()
@@ -70,7 +82,10 @@ export default function CiExporterMappingPage() {
   const handleOpenModal = (record?: CITypeExporterMapping) => {
     if (record) {
       setEditingMapping(record)
-      form.setFieldsValue({ ...record })
+      form.setFieldsValue({
+        ...record,
+        resource_category: CI_TYPE_CATEGORY_MAP[record.resource_type],
+      })
     } else {
       setEditingMapping(null)
       form.resetFields()
@@ -243,9 +258,9 @@ export default function CiExporterMappingPage() {
   return (
     <MainLayout>
       <div className="page-header">
-        <Title level={4}>CI-Exporter 映射</Title>
+        <Title level={4}>CI-Exporter 模板映射</Title>
         <Text type="secondary">
-          配置 CI 类型与 Exporter 模板的默认绑定关系；资源类型与 LabelTemplate 由 Module_07 提供
+          模板层绑定：为各资源类别下的 CI 类型预设默认 Exporter 及采集参数（端口/路径/协议/间隔/超时）；创建采集 Job 时自动继承并可覆盖，与具体采集任务（实例层）职责不同
         </Text>
       </div>
       <Card className="page-card">
@@ -274,7 +289,7 @@ export default function CiExporterMappingPage() {
       </Card>
 
       <Modal
-        title={editingMapping ? '编辑 CI-Exporter 映射' : '新增 CI-Exporter 映射'}
+        title={editingMapping ? '编辑 CI-Exporter 模板映射' : '新增 CI-Exporter 模板映射'}
         open={modalOpen}
         onCancel={handleCloseModal}
         onOk={handleSave}
@@ -285,19 +300,44 @@ export default function CiExporterMappingPage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item
-                label="CI 类型"
-                name="resource_type"
-                rules={[{ required: true, message: '请选择 CI 类型' }]}
+                label="资源类别"
+                name="resource_category"
+                rules={[{ required: true, message: '请选择资源类别' }]}
               >
-                <Select disabled={!!editingMapping} placeholder="请选择">
-                  {CI_TYPES.map((type) => (
-                    <Option key={type} value={type}>
-                      {CI_TYPE_LABEL[type]}（{CI_TYPE_CATEGORY_MAP[type]}）
+                <Select
+                  disabled={!!editingMapping}
+                  placeholder="请选择"
+                  onChange={() => form.setFieldsValue({ resource_type: undefined, exporter_template_id: undefined })}
+                >
+                  {RESOURCE_CATEGORIES.map((cat) => (
+                    <Option key={cat} value={cat}>
+                      {RESOURCE_CATEGORY_MAP[cat]}
                     </Option>
                   ))}
                 </Select>
               </Form.Item>
             </Col>
+            <Col span={12}>
+              <Form.Item
+                label="CI 类型"
+                name="resource_type"
+                rules={[{ required: true, message: '请选择 CI 类型' }]}
+              >
+                <Select
+                  disabled={!!editingMapping || categoryCiTypes.length === 0}
+                  placeholder={categoryCiTypes.length > 0 ? '请选择 CI 类型' : '请先选择资源类别'}
+                  onChange={() => form.setFieldsValue({ exporter_template_id: undefined })}
+                >
+                  {categoryCiTypes.map((type) => (
+                    <Option key={type} value={type}>
+                      {CI_TYPE_LABEL[type]}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
             <Col span={12}>
               <Form.Item
                 label="Exporter 模板"
@@ -313,6 +353,11 @@ export default function CiExporterMappingPage() {
                 >
                   {mockExporterTemplates
                     .filter((t) => t.supported_resource_types.length > 0)
+                    .filter((t) =>
+                      watchResourceCategory
+                        ? t.supported_resource_types.some((rt) => CI_TYPE_CATEGORY_MAP[rt] === watchResourceCategory)
+                        : true
+                    )
                     .map((t) => (
                       <Option key={t.exporter_template_id} value={t.exporter_template_id}>
                         {t.name} v{t.version}
@@ -321,9 +366,7 @@ export default function CiExporterMappingPage() {
                 </Select>
               </Form.Item>
             </Col>
-          </Row>
-          <Row gutter={16}>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item
                 label="默认端口"
                 name="default_port"
@@ -332,7 +375,9 @@ export default function CiExporterMappingPage() {
                 <InputNumber min={1} max={65535} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col span={8}>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
               <Form.Item
                 label="协议"
                 name="scheme"
@@ -347,7 +392,7 @@ export default function CiExporterMappingPage() {
                 </Select>
               </Form.Item>
             </Col>
-            <Col span={8}>
+            <Col span={12}>
               <Form.Item
                 label="指标路径"
                 name="metrics_path"
