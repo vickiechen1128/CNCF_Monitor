@@ -1,5 +1,5 @@
-import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider } from 'antd'
-import type { ReactNode } from 'react'
+import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider, Alert, Switch, App } from 'antd'
+import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   AppstoreOutlined,
@@ -10,6 +10,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
+import { currentTenant } from '../mocks/module-01'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -22,11 +23,10 @@ type MenuItem = Required<MenuProps>['items'][number]
 
 function buildMenu(): MenuItem[] {
   const module01Items: MenuItem[] = [
-    { key: '/ci-exporter-mapping', icon: <AppstoreOutlined />, label: 'CI-Exporter 映射' },
+    { key: '/ci-exporter-mapping', icon: <AppstoreOutlined />, label: 'CI-Exporter 模板映射' },
     { key: '/scrape-jobs', icon: <AppstoreOutlined />, label: '采集 Job' },
+    { key: '/metric-library', icon: <AppstoreOutlined />, label: '指标库' },
     { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' },
-    { key: '/metric-library', icon: <AppstoreOutlined />, label: '指标元数据' },
-    { key: '/probes', icon: <AppstoreOutlined />, label: '拨测配置' },
   ]
 
   // 全局跨模块导航占位：当前模块高亮，其他模块以 disabled + Tooltip 提示
@@ -57,7 +57,20 @@ function buildMenu(): MenuItem[] {
 export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { message } = App.useApp()
+  const [showGlobalTip, setShowGlobalTip] = useState(true)
+  const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
   const menuItems = buildMenu()
+
+  // 租户级多网域开关：直接改写 currentTenant，供各页面读取（与 Module_09 原型一致）
+  const toggleMultiSite = (checked: boolean) => {
+    currentTenant.multi_site_enabled = checked
+    setMultiSite(checked)
+    window.dispatchEvent(
+      new CustomEvent('tenant-mode-change', { detail: { multiSiteEnabled: checked } })
+    )
+    message.info(checked ? '已切换为多网域模式：Job 可绑定 default 或边缘网域' : '已切换为单网域模式：Job 仅绑定 default 管理域')
+  }
 
   const openKeys = menuItems
     .filter((item): item is Exclude<typeof item, null> => {
@@ -70,7 +83,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     <Layout className="app-layout">
       <Header className="app-header">
         <Space size="large">
-          <Title level={4} className="app-title" style={{ margin: 0 }}>
+          <Title level={4} className="app-title" style={{ margin: 0, color: '#fff' }}>
             <span className="app-title-accent">◆</span>
             MetricCenter
           </Title>
@@ -79,7 +92,20 @@ export function MainLayout({ children }: MainLayoutProps) {
           </Tag>
         </Space>
         <Space size="middle">
-          <Badge status="success" text={<Text style={{ color: 'rgba(255,255,255,0.85)' }}>default 网域在线</Text>} />
+          <Switch
+            checked={multiSite}
+            checkedChildren="多网域"
+            unCheckedChildren="单网域"
+            onChange={toggleMultiSite}
+          />
+          <Badge
+            status={multiSite ? 'success' : 'processing'}
+            text={
+              <Text style={{ color: 'rgba(255,255,255,0.85)' }}>
+                {multiSite ? '多网域模式' : '单网域模式 · default 管理域'}
+              </Text>
+            }
+          />
           <Text style={{ color: 'rgba(255,255,255,0.65)' }}>运维工程师</Text>
         </Space>
       </Header>
@@ -94,7 +120,25 @@ export function MainLayout({ children }: MainLayoutProps) {
             style={{ borderRight: 0, paddingTop: 8 }}
           />
         </Sider>
-        <Content className="app-content">{children}</Content>
+        <Content className="app-content">
+          {showGlobalTip && (
+            <Alert
+              type="info"
+              showIcon
+              closable
+              message="Module_01 设计意图"
+              description={
+                <span>
+                  本模块负责监控策略与指标库维护；所有 ScrapeJob 必须绑定单一网域，实例选择已按网域过滤。
+                  配置变更由 Module_09 通过异步轮询（pull 模式）感知并生成对应网域的配置包，Module_01 不直接触发下发。
+                </span>
+              }
+              style={{ margin: 16 }}
+              onClose={() => setShowGlobalTip(false)}
+            />
+          )}
+          {children}
+        </Content>
       </Layout>
     </Layout>
   )

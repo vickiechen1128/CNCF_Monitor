@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Layout, Menu, Typography, Space, Badge, Tag, Switch, Tooltip, Divider } from 'antd'
+import { Layout, Menu, Typography, Space, Badge, Tag, Switch, Tooltip, Divider, Alert } from 'antd'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -65,6 +65,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
+  const [showDesignTip, setShowDesignTip] = useState(true)
   const menuItems = buildMenu(multiSite)
 
   const handleModeChange = (checked: boolean) => {
@@ -136,7 +137,29 @@ export function MainLayout({ children }: MainLayoutProps) {
             style={{ borderRight: 0, paddingTop: 8 }}
           />
         </Sider>
-        <Content className="app-content">{children}</Content>
+        <Content className="app-content">
+          {showDesignTip && (
+            <Alert
+              type="info"
+              showIcon
+              closable
+              message="Module_09 设计意图"
+              description={
+                <span>
+                  配置变更采用 <Text strong>pull 模式</Text>：Module_09 异步轮询（默认 30s）检测 Module_01/07 各源表{' '}
+                  <Text code>updated_at</Text> 变化触发配置重算，Module_01/07 不主动通知。
+                  变更检测采用「源数据版本触发预筛 + 生成后联合 checksum 裁决」，避免无谓轮询与草稿噪音。
+                  配置按网域生成（<Text code>prometheus.yml</Text> + <Text code>rules.yml</Text> +{' '}
+                  <Text code>blackbox.yml</Text> + <Text code>metadata.json</Text>）；规则按 scope 分发（中心
+                  central/both，边缘 edge/both v0.4+）。
+                </span>
+              }
+              style={{ margin: 16 }}
+              onClose={() => setShowDesignTip(false)}
+            />
+          )}
+          {children}
+        </Content>
       </Layout>
     </Layout>
   )

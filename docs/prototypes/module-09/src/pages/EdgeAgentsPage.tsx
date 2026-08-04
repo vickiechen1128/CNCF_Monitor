@@ -19,6 +19,20 @@ const syncStatusColor: Record<ConfigSyncStatus, string> = {
   manual_override: 'error',
 }
 
+const syncStatusLabel: Record<ConfigSyncStatus, string> = {
+  in_sync: '已同步',
+  out_of_sync: '未同步',
+  unknown: '未知',
+  manual_override: '手工覆盖',
+}
+
+const syncStatusTip: Record<ConfigSyncStatus, string> = {
+  in_sync: '中心配置版本与边缘实际生效版本一致',
+  out_of_sync: '中心有更新版本或拉取/校验失败，边缘仍生效旧配置',
+  unknown: '未上报配置版本（如 Agent 离线）',
+  manual_override: '本地手工修改配置（PRD 3.6 兜底），平台不强制 reconcile，需人工重新确认下发',
+}
+
 function formatBytes(bytes: number) {
   if (bytes === 0) return '0 B'
   const k = 1024
@@ -105,7 +119,11 @@ export function EdgeAgentsPage() {
               title: '配置同步',
               dataIndex: 'config_sync_status',
               key: 'config_sync_status',
-              render: (status: ConfigSyncStatus) => <Tag color={syncStatusColor[status]}>{status}</Tag>,
+              render: (status: ConfigSyncStatus) => (
+                <Tooltip title={syncStatusTip[status]}>
+                  <Tag color={syncStatusColor[status]}>{syncStatusLabel[status]}</Tag>
+                </Tooltip>
+              ),
             },
             {
               title: 'WAL 积压',
@@ -142,6 +160,14 @@ export function EdgeAgentsPage() {
             },
           ]}
         />
+        <div style={{ marginTop: 12 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            配置同步状态说明：<Text code>in_sync</Text>=已同步（中心与边缘版本一致）；
+            <Text code>out_of_sync</Text>=未同步（中心有更新版本，或边缘拉取配置包后 checksum 校验失败保留旧配置，PRD 6.3 第 4 条）；
+            <Text code>manual_override</Text>=本地手工覆盖（PRD 3.6 兜底，平台不强制 reconcile）；
+            <Text code>unknown</Text>=未知（未上报配置版本）。
+          </Text>
+        </div>
       </Card>
     </MainLayout>
   )
