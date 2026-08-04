@@ -1,6 +1,6 @@
 // ============================================================
 // Module_01 监控策略与指标管理 - 数据模型与 mock 数据
-// 对齐 PRD v1.9（Module_01_Metric_Collection_Center.md）
+// 对齐 PRD v2.0（Module_01_Metric_Collection_Center.md）
 // ============================================================
 
 // ---------- CI 类型与资源类别（PRD 5.1 / 与 Module_07 四大类别对齐） ----------
@@ -91,7 +91,7 @@ export type Env = 'dev' | 'test' | 'staging' | 'prod'
 export type ResourceStatus = 'online' | 'offline' | 'maintenance'
 export type ProbeProtocol = 'http' | 'https' | 'tcp' | 'icmp' | 'dns'
 
-/** ScrapeJob 类型：standard 标准采集 / blackbox 拨测（PRD v1.9 决策 4） */
+/** ScrapeJob 类型：standard 标准采集 / blackbox 拨测（PRD v2.0 决策 4） */
 export type ScrapeJobType = 'standard' | 'blackbox'
 
 /** blackbox_exporter 探测模块 */
@@ -530,7 +530,7 @@ export interface ScrapeJob {
   /** standard job 必须设置；blackbox job 使用 et-blackbox 作为占位 */
   exporter_template_id: string
   network_domain_id: string
-  /** Job 类型：standard 标准采集 / blackbox 拨测（PRD v1.9） */
+  /** Job 类型：standard 标准采集 / blackbox 拨测（PRD v2.0） */
   job_type: ScrapeJobType
   instance_selection_mode: InstanceSelectionMode
   selected_instance_ids: string[]
@@ -541,6 +541,8 @@ export interface ScrapeJob {
   metrics_path: string
   scheme: Scheme
   label_template_id?: string
+  /** 手动覆盖过映射默认值的参数字段名（PRD 5.4 决策 14）：「同步映射默认值」时跳过这些字段 */
+  mapping_overrides?: string[]
   /** 高级 relabel 规则（P2 预留，mock 为空数组） */
   relabel_configs: Record<string, unknown>[]
   /** blackbox job 必填：引用的 blackbox module */
@@ -575,6 +577,8 @@ export const mockScrapeJobs: ScrapeJob[] = [
     relabel_configs: [],
     enabled: true,
     exporter_status: { 'res-host-001': 'installed', 'res-host-002': 'installed' },
+    // 演示决策 14：metrics_path 被手动覆盖，同步映射默认值时该字段不刷新
+    mapping_overrides: ['metrics_path'],
     mapping_synced_at: '2026-07-05T10:10:00Z',
     created_at: '2026-07-05T10:10:00Z',
     updated_at: '2026-07-20T11:00:00Z',
@@ -639,6 +643,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     relabel_configs: [],
     enabled: false,
     exporter_status: { 'res-app-002': 'pending' },
+    mapping_overrides: ['scrape_interval'],
     mapping_synced_at: '2026-07-12T13:00:00Z',
     created_at: '2026-07-12T13:00:00Z',
     updated_at: '2026-07-12T13:00:00Z',
@@ -664,7 +669,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     created_at: '2026-07-10T14:20:00Z',
     updated_at: '2026-07-10T14:20:00Z',
   },
-  // blackbox 拨测 Job：由原先独立「拨测配置」合并而来（PRD v1.9 决策 4）
+  // blackbox 拨测 Job：由原先独立「拨测配置」合并而来（PRD v2.0 决策 4）
   {
     job_id: 'job-bb-001',
     job_name: 'blackbox-http-default',
@@ -864,7 +869,7 @@ export interface MetricLibraryItem {
   enabled: boolean
 }
 
-// MVP 指标库最小集：按 CI 类型 / Exporter 预置静态指标库（PRD v1.9 5.3）
+// MVP 指标库最小集：按 CI 类型 / Exporter 预置静态指标库（PRD v2.0 5.3）
 const nodeMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
   { metric_name: 'node_cpu_seconds_total', metric_type: 'counter', help: 'CPU 各模式累计耗时', unit: 's', labels: ['cpu', 'mode', 'instance'], exporter_template_id: 'et-node', is_builtin: true, enabled: true },
   { metric_name: 'node_cpu_guest_seconds_total', metric_type: 'counter', help: 'CPU guest 模式累计耗时', unit: 's', labels: ['cpu', 'mode', 'instance'], exporter_template_id: 'et-node', is_builtin: true, enabled: true },

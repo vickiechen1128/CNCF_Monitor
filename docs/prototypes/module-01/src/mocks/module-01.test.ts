@@ -18,7 +18,7 @@ import {
   mockScrapeJobs,
 } from './module-01'
 
-describe('module-01 mocks（对齐 PRD v1.9）', () => {
+describe('module-01 mocks（对齐 PRD v2.0）', () => {
   const templateIds = new Set(mockExporterTemplates.map((t) => t.exporter_template_id))
   const resourceIds = new Set(mockResources.map((r) => r.resource_id))
   const metricNames = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
@@ -44,7 +44,7 @@ describe('module-01 mocks（对齐 PRD v1.9）', () => {
     })
   })
 
-  it('ScrapeJob 必填 job_type 且仅允许 standard / blackbox（PRD v1.9）', () => {
+  it('ScrapeJob 必填 job_type 且仅允许 standard / blackbox（PRD v2.0）', () => {
     mockScrapeJobs.forEach((j) => {
       expect(['standard', 'blackbox']).toContain(j.job_type)
       if (j.job_type === 'blackbox') {
@@ -101,7 +101,7 @@ describe('module-01 mocks（对齐 PRD v1.9）', () => {
     })
   })
 
-  it('MonitoringRule 引用的指标名均存在于启用的指标库中（PRD v1.9 决策 5）', () => {
+  it('MonitoringRule 引用的指标名均存在于启用的指标库中（PRD v2.0 决策 5）', () => {
     const extractMetricNames = (expr: string): string[] => {
       if (!expr) return []
       const stripped = expr
@@ -220,7 +220,7 @@ describe('module-01 mocks（对齐 PRD v1.9）', () => {
     })
   })
 
-  it('blackbox ScrapeJob 的 blackbox_targets 为对象数组且 target/protocol 合法（PRD v1.9）', () => {
+  it('blackbox ScrapeJob 的 blackbox_targets 为对象数组且 target/protocol 合法（PRD v2.0）', () => {
     const protocols = ['http', 'https', 'tcp', 'icmp', 'dns']
     mockScrapeJobs
       .filter((j) => j.job_type === 'blackbox')
@@ -231,6 +231,17 @@ describe('module-01 mocks（对齐 PRD v1.9）', () => {
           expect(t.target.length).toBeGreaterThan(0)
           expect(protocols).toContain(t.protocol)
           if (t.url) expect(typeof t.url).toBe('string')
+        })
+      })
+  })
+
+  it('ScrapeJob 的 mapping_overrides 字段名在映射继承参数候选集内（PRD v2.0 决策 14）', () => {
+    const candidates = ['scrape_interval', 'scrape_timeout', 'metrics_path', 'scheme', 'label_template_id']
+    mockScrapeJobs
+      .filter((j) => j.job_type === 'standard')
+      .forEach((j) => {
+        (j.mapping_overrides ?? []).forEach((f) => {
+          expect(candidates).toContain(f)
         })
       })
   })

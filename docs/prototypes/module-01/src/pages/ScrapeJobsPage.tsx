@@ -90,6 +90,10 @@ const PROTOCOL_LABEL: Record<ProbeProtocol, string> = {
   dns: 'DNS',
 }
 
+/** 决策 14：可从 CI-Exporter 映射继承、且可被手动覆盖的参数字段（同步映射默认值时跳过被覆盖字段） */
+const MAPPING_OVERRIDE_FIELDS = ['scrape_interval', 'scrape_timeout', 'metrics_path', 'scheme', 'label_template_id'] as const
+type MappingOverrideField = (typeof MAPPING_OVERRIDE_FIELDS)[number]
+
 export default function ScrapeJobsPage() {
   const { modal, message } = App.useApp()
   const [jobs, setJobs] = useState<ScrapeJob[]>(() => [...mockScrapeJobs])
@@ -103,6 +107,8 @@ export default function ScrapeJobsPage() {
   const [blackboxTargets, setBlackboxTargets] = useState<BlackboxTarget[]>([])
   const [confirmTarget, setConfirmTarget] = useState<ExporterInstallationConfirmation | null>(null)
   const [detailJob, setDetailJob] = useState<ScrapeJob | null>(null)
+  // 决策 14：当前编辑表单中手动覆盖过映射默认值的字段（「同步映射默认值」时跳过）
+  const [overriddenFields, setOverriddenFields] = useState<MappingOverrideField[]>([])
   const [confirmForm] = Form.useForm()
   const [form] = Form.useForm()
 
@@ -184,6 +190,7 @@ export default function ScrapeJobsPage() {
     setTargetKeys([])
     setBlackboxTargets([])
     setFilterEnv(undefined)
+    setOverriddenFields([])
     form.setFieldsValue({
       job_type: 'standard',
       instance_selection_mode: 'manual',
@@ -218,6 +225,11 @@ export default function ScrapeJobsPage() {
     setTargetKeys([...record.selected_instance_ids])
     setBlackboxTargets(record.blackbox_targets ? [...record.blackbox_targets] : [])
     setFilterEnv(undefined)
+    setOverriddenFields(
+      (record.mapping_overrides ?? []).filter((f) =>
+        (MAPPING_OVERRIDE_FIELDS as readonly string[]).includes(f)
+      ) as MappingOverrideField[]
+    )
     setDrawerOpen(true)
   }
 
@@ -226,6 +238,7 @@ export default function ScrapeJobsPage() {
     setEditingJob(null)
     setTargetKeys([])
     setBlackboxTargets([])
+    setOverriddenFields([])
   }
 
   // 选择 Exporter 模板后自动填充采集参数（standard）：优先取映射默认值（决策 14：创建时快照）
@@ -258,7 +271,7 @@ export default function ScrapeJobsPage() {
     return new Date(mapping.updated_at).getTime() > new Date(record.mapping_synced_at).getTime()
   }
 
-  // 决策 14：手动「同步映射默认值」——将 Job 参数刷新为映射当前默认值（含 v0.2 网域覆盖优先）
+  // 决策 14：手动「同步映射默认值」——仅刷新未手动覆盖的字段（含 v0.2 网域覆盖优先），已覆盖字段保持用户值
   const syncFromMapping = (record: ScrapeJob) => {
     const mapping = getMapping(record)
     const tpl = templateMap.get(record.exporter_template_id)
@@ -266,15 +279,15 @@ export default function ScrapeJobsPage() {
       message.warning('未找到对应 CI-Exporter 映射，无法同步')
       return
     }
-    const patch: Partial<ScrapeJob> = {
-      scrape_interval: mapping.scrape_interval,
-      scrape_timeout: mapping.scrape_timeout,
-      metrics_path: tpl?.metrics_path ?? mapping.metrics_path,
-      scheme: tpl?.scheme ?? mapping.scheme,
-      label_template_id: mapping.label_template_id,
-      mapping_synced_at: now(),
-      updated_at: now(),
-    }
+    const nextOverrides = overriddenFields
+    const patch: Partial<ScrapeJob> = {}
+    if (!nextOverrides.includes('scrape_interval')) patch.scrape_interval = mapping.scrape_interval
+    if (!nextOverrides.includes('scrape_timeout')) patch.scrape_timeout = mapping.scrape_timeout
+    if (!nextOverrides.includes('metrics_path')) patch.metrics_path = tpl?.metrics_path ?? mapping.metrics_path
+    if (!nextOverrides.includes('scheme')) patch.scheme = tpl?.scheme ?? mapping.scheme
+    if (!nextOverrides.includes('label_template_id')) patch.label_template_id = mapping.label_template_id
+    patch.mapping_synced_at = now()
+    patch.updated_at = now()
     setJobs((prev) =>
       prev.map((j) => (j.job_id === record.job_id ? { ...j, ...patch } : j))
     )
@@ -282,14 +295,19 @@ export default function ScrapeJobsPage() {
     if (editingJob && editingJob.job_id === record.job_id) {
       setEditingJob((prev) => (prev ? { ...prev, ...patch } : prev))
       form.setFieldsValue({
-        scrape_interval: patch.scrape_interval,
-        scrape_timeout: patch.scrape_timeout,
-        metrics_path: patch.metrics_path,
-        scheme: patch.scheme,
-        label_template_id: patch.label_template_id,
+        scrape_interval: patch.scrape_interval ?? form.getFieldValue('scrape_interval'),
+        scrape_timeout: patch.scrape_timeout ?? form.getFieldValue('scrape_timeout'),
+        metrics_path: patch.metrics_path ?? form.getFieldValue('metrics_path'),
+        scheme: patch.scheme ?? form.getFieldValue('scheme'),
+        label_template_id: patch.label_template_id ?? form.getFieldValue('label_template_id'),
       })
     }
-    message.success('已同步映射默认值（含网域覆盖）')
+    const protectedFields = nextOverrides.filter((f) => MAPPING_OVERRIDE_FIELDS.includes(f))
+    message.success(
+      protectedFields.length > 0
+        ? `已同步映射默认值（已跳过手动覆盖字段：${protectedFields.join('、')}）`
+        : '已同步映射默认值（含网域覆盖）'
+    )
   }
 
   // 切换 blackbox module 时自动填充默认协议与 metrics_path
@@ -371,6 +389,8 @@ export default function ScrapeJobsPage() {
           blackbox_targets: jobType === 'blackbox' ? blackboxTargets : undefined,
           blackbox_module: jobType === 'blackbox' ? (values.blackbox_module as BlackboxModule) : undefined,
           exporter_status: exporterStatus,
+          // 决策 14：保存当前表单中手动覆盖过的字段标记
+          mapping_overrides: jobType === 'standard' ? overriddenFields : undefined,
           updated_at: now(),
         }
         setJobs((prev) => prev.map((j) => (j.job_id === editingJob.job_id ? updated : j)))
@@ -396,7 +416,8 @@ export default function ScrapeJobsPage() {
           blackbox_targets: jobType === 'blackbox' ? blackboxTargets : undefined,
           enabled: values.enabled as boolean,
           exporter_status: exporterStatus,
-          // 决策 14：创建时对映射默认值做快照，记录同步时间
+          // 决策 14：创建时对映射默认值做快照，记录同步时间；保存手动覆盖字段标记
+          mapping_overrides: jobType === 'standard' ? overriddenFields : [],
           mapping_synced_at: jobType === 'standard' ? now() : undefined,
           created_at: now(),
           updated_at: now(),
@@ -645,7 +666,24 @@ export default function ScrapeJobsPage() {
           </Space>
         }
       >
-        <Form form={form} layout="vertical">
+        <Form
+          form={form}
+          layout="vertical"
+          onFieldsChange={(changedFields) => {
+            // 决策 14：用户手动修改（touched）映射继承参数时记录覆盖标记，供「同步映射默认值」跳过
+            const touched = changedFields
+              .filter(
+                (f) =>
+                  f.touched &&
+                  f.name.length === 1 &&
+                  (MAPPING_OVERRIDE_FIELDS as readonly string[]).includes(String(f.name[0]))
+              )
+              .map((f) => String(f.name[0]) as MappingOverrideField)
+            if (touched.length > 0) {
+              setOverriddenFields((prev) => Array.from(new Set([...prev, ...touched])))
+            }
+          }}
+        >
           {editingJob && editingJob.job_type === 'standard' && isMappingChanged(editingJob) && (
             <Alert
               type="warning"
@@ -659,6 +697,11 @@ export default function ScrapeJobsPage() {
                     {templateNameMap.get(editingJob.exporter_template_id)}）默认采集参数已更新（v0.2 起可含网域覆盖）。
                     保护存量策略：本 Job 参数保持不变，需手动同步后刷新。
                   </Text>
+                  {overriddenFields.length > 0 && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      已手动覆盖字段（{overriddenFields.join('、')}）在同步时保持用户值，不会被映射默认值覆盖。
+                    </Text>
+                  )}
                   <Button
                     size="small"
                     icon={<SyncOutlined />}

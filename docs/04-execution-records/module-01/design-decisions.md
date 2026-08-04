@@ -385,3 +385,47 @@
 - `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v1.9）
 - `docs/04-execution-records/module-01/tech-feasibility.md`
 - `docs/prototypes/module-01/`
+
+---
+
+## 补充对齐：2026-08-04（第五轮）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户确认 Module_01 参数优先级语义（采集 Job 参数优先级高于模板；Job 参数更新不回写模板），并发现 PRD「优先级链」表述歧义与原型同步行为不一致
+
+### 关键决策
+
+#### 决策 27：参数优先级表述改为「两段式」，消除歧义
+
+- **问题**：PRD 5.1 原文「优先级链：网域覆盖 > 映射默认值 > Job 手动值」将「Job 手动值」排在链尾，字面上会被误读为「模板可覆盖 Job 手动值」，与「Job 快照为最终生效值」的设计矛盾。
+- **结论**：改为两段式表述：
+  - **创建预填来源优先级**：网域覆盖（v0.2）> 映射默认值 > Exporter 模板内置默认；
+  - **生效优先级**：Job 保存后参数快照即为该 Job 最终生效配置（最高），映射/网域覆盖后续变更**不自动覆盖**，仅提示后由用户手动「同步映射默认值」刷新。
+- **依据**：用户确认「采集 Job 参数优先级高于模板」；决策 14 保护存量原则。
+- **影响范围**：Module_01 PRD 5.1（v2.0）。
+
+#### 决策 28：同步映射默认值仅刷新未手动覆盖的字段，Job 记录 mapping_overrides
+
+- **问题**：决策 14 要求「手动覆盖过的字段不刷新」，但原型 `syncFromMapping` 为全量刷新；且需要数据结构记录覆盖标记。
+- **结论**：
+  1. `ScrapeJob` 新增 `mapping_overrides: []string` 字段（手动覆盖过的映射继承参数名：scrape_interval / scrape_timeout / metrics_path / scheme / label_template_id）；
+  2. 原型表单通过 `onFieldsChange` + `touched` 标记用户手动修改的字段，保存时写入 `mapping_overrides`；
+  3. `syncFromMapping` 仅刷新不在 `mapping_overrides` 中的字段，覆盖字段保持用户值，同步提示展示被保护字段；
+  4. **同步方向单向**：Job 参数更新（含手动覆盖）**不回写** CI-Exporter 模板映射（模板为平台级默认预设，Job 为独立快照）。
+- **依据**：用户确认「采集 Job 参数更新不会同步给 CI-Exporter」；决策 14。
+- **影响范围**：Module_01 PRD 5.4（v2.0）、原型 ScrapeJobsPage 与 mock（`mapping_overrides`）。
+
+### 已确认项（2026-08-04 第五轮）
+
+- [x] 参数优先级两段式表述（决策 27），PRD v2.0 落档。
+- [x] `mapping_overrides` 覆盖保护（决策 28），PRD v2.0 + 原型 + 测试同步（test 21/21、lint、build 通过）。
+- [x] Job 参数不回写模板（单向继承），无反向同步。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（用户 2026-08-04 确认暂不推进至 ready，待领导/业务评审）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.0）
+- `docs/prototypes/module-01/`
