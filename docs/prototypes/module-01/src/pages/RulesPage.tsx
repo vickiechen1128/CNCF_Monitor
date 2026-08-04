@@ -244,7 +244,7 @@ export default function RulesPage() {
 
   const handleSave = () => {
     form.validateFields().then((values) => {
-      // 保存前强制校验：expr 引用的指标必须存在于指标库（PRD v1.9 决策 5）
+      // 保存前强制校验：expr 引用的指标必须存在于指标库（PRD v2.0 决策 5）
       const expr = (values.expr as string) ?? ''
       const exporterTemplateId = values.exporter_template_id as string | undefined
       const metricResult = validateMetrics(expr, exporterTemplateId)
