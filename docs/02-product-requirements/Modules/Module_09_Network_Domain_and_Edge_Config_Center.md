@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.2
+> **PRD 版本**: v1.7
 > **产品版本覆盖**: MVP / v0.2 / v1.0
 > **原型版本**: v1.2
-> **更新日期**: 2026-08-03
+> **更新日期**: 2026-08-04
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -83,13 +83,14 @@
 
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
-| **轮询策略数据** | 定时轮询 Module_01（ScrapeJobs、Rules）与 Module_07（Resources、LabelTemplates） | **P0** |
-| **按网域生成配置** | 为每个网域生成 `prometheus.yml`（含 scrape_configs、external_labels）与 `rules.yml` | **P0** |
+| **轮询策略数据** | 定时轮询 Module_01（ScrapeJobs、Rules）与 Module_07（Resources、LabelTemplates）；读取各源表 `max(updated_at)` 作为「源数据版本」，仅当源数据版本变化时触发重算（预筛，避免无谓轮询） | **P0** |
+| **按网域生成配置** | 为每个网域生成 `prometheus.yml`（含 scrape_configs、external_labels）；`rules.yml` 按规则作用域生成：中心域（default）包含 `scope=central`/`both` 规则，边缘域仅当存在 `scope=edge`/`both` 规则时（v0.4+）随配置包生成，MVP 阶段中心统一求值 | **P0** |
 | **标签注入** | 自动注入 `external_labels.network_domain`、租户标签、由 LabelTemplate 展开的标签 | **P0** |
 | **实例过滤** | 根据 Job 中手动勾选的实例或筛选条件，从 Module_07 Resources 解析目标列表 | **P0** |
 | **草稿生成** | 生成后先写入 `ConfigDraft`，不直接覆盖生效版本 | **P0** |
-| **差异检测** | 对比 draft 与当前 `ConfigVersion` 内容，无变化时不生成新版本 | P1 |
+| **差异检测（版本触发 + checksum 裁决）** | 生成后计算配置内容联合 checksum，与当前生效 `ConfigVersion` 的 checksum 对比：内容一致则不生成新草稿 / 自动丢弃；不一致才进入待确认 | **P0** |
 | **规则作用域过滤** | 下发到边缘时仅包含 `scope=edge`/`both` 的规则；中心仅包含 `scope=central`/`both` | P1 |
+| **blackbox 配置生成** | 当网域存在 `job_type=blackbox` 的 ScrapeJob 时，生成并打包 `blackbox.yml` | **P0** |
 
 #### 3.3.1 `external_labels` 注入说明
 
@@ -115,6 +116,67 @@ global:
 
 > **与 Module_10 的边界**：Module_09 只负责为**内部 Edge Agent**（vmagent / prometheus-agent）生成配置时注入 `external_labels`；Module_10 负责**外部异构监控源**（第三方 Prometheus、Zabbix、云监控等）接入时的标签归一化。详见 [7.4 与 Module_10 的边界](#74-与-module-10-的边界)。
 
+#### 3.3.2 blackbox 配置生成说明
+
+当网域内存在 `job_type=blackbox` 的 `ScrapeJob` 时，Module_09 必须同时生成 `prometheus.yml` 中对应的 scrape_config 与同域 `blackbox.yml` 中的探测模块：
+
+- blackbox Job 的 scrape_config 必须设置 `metrics_path: /probe`，并通过 `params.module` 引用 `blackbox.yml` 中的模块名；
+- `static_configs.targets` 使用 `ScrapeJob.blackbox_targets`；
+- 通过 `relabel_configs` 将原 `__address__` 写入 `__param_target`，并把 `__address__` 替换为本地 blackbox exporter 地址，例如 `127.0.0.1:9115`；
+- `blackbox.yml` 仅写入本域 ScrapeJob 实际引用的模块，避免下发无关配置。
+
+示例生成逻辑：
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://api.example.com/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
+```
+
+#### 3.3.3 变更检测与草稿去重说明
+
+> **触发模式声明（pull 模式）**：变更检测采用 **pull 模式**——Module_09 异步轮询（默认 30s）检测 Module_01/07 各源表的 `updated_at` 变化，Module_01/07 **不主动通知、不感知 Module_09 的存在**，策略/资源写库即完成其职责。本文档（及设计决策 7）中「XX 变更触发 Module_09 重算」的表述，实际语义均为「Module_09 轮询时检测到 XX 的 `updated_at` 变化」，而非事件推送。
+
+Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」**的混合机制，避免两个问题：无谓轮询（版本未变化却重算）、草稿噪音（内容无变化却反复进入人工确认）。
+
+**第一层：版本触发预筛（决定"要不要算"）**
+
+- 配置中心定时（默认 30s）读取参与配置生成的各源表 `max(updated_at)`，聚合为「源数据版本」（`source_data_version`）；
+- 参与聚合的源表（与设计决策 7 一致）：
+  - `ScrapeJob`（含 blackbox 类型）、`MonitoringRule`（Module_01）；
+  - `CITypeExporterMapping`（Module_01）；
+  - `Resource`、`LabelTemplate`（Module_07）；
+  - `ExporterInstallationConfirmation`（Module_01）；
+- 仅当 `source_data_version` 大于「上次生成时间」时才触发该网域重新生成，否则跳过本轮。
+
+**第二层：checksum 裁决（决定"算出来要不要确认"）**
+
+- 生成完成后，对配置内容计算**联合 checksum**：`sha256(prometheus.yml + "\n" + rules_yml + blackbox_yml)`（按需拼接，缺失文件为空串）；
+- 与当前生效 `ConfigVersion.metadata.checksum` 对比：
+  - **一致**：内容无实际变化，不生成新草稿（或生成的草稿直接标记 `discarded`），仅更新 `source_data_version` 记录，不进入确认列表；
+  - **不一致**：生成 `status=pending` 的 `ConfigDraft`，`metadata` 记录 `trigger_summary`（触发来源：变更的 job / rule / 表 + 时间），进入人工确认。
+
+**Edge Agent 侧（场景 B）与中心侧职责划分**
+
+| 环节 | 机制 | 职责 |
+|------|------|------|
+| 中心：是否重新生成草稿 | `source_data_version` 触发预筛 + 联合 checksum 裁决 | 防无谓轮询、防草稿噪音 |
+| 边缘：是否重新拉取 | `config_version`（`ConfigVersion.id`）比对，心跳返回 304 | 拉取协议最简 |
+| 边缘：拉到的包是否正确 | `metadata.json.checksum` 完整性校验 | 防传输损坏 / 篡改 |
+
 ### 3.4 配置预览与确认 {v0.2+}
 
 | 功能 | 说明 | 优先级 |
@@ -137,6 +199,16 @@ global:
 | **配置包拉取接口** | `GET /api/v2/platform/edge/config?network_domain=<id>` | **P0** |
 | **配置版本比对** | Edge Sync Agent 上报当前版本，无更新时返回 304 | **P0** |
 | **配置包下载** | 返回包含 `prometheus.yml`、`blackbox.yml`、`metadata.json` 的压缩包 | **P0** |
+| **下发前校验** | 下发前调用 `promtool check config` 校验 `prometheus.yml`；存在 `blackbox.yml` 时调用 blackbox exporter `--config.check` 校验 | **P0** |
+| **blackbox 重载** | 配置包更新后，Edge Sync Agent 需触发 blackbox exporter 重载（SIGHUP 或对应 API） | **P0** |
+
+#### 3.5.1 下发前校验与 blackbox 重载说明
+
+- 配置包生成后、下发或允许拉取前，必须先通过校验：
+  - `promtool check config <prometheus.yml>` 确保 `prometheus.yml` 语法与引用合法；
+  - `blackbox_exporter --config.check --config.file=<blackbox.yml>` 确保 `blackbox.yml` 模块定义合法。
+- 校验失败时，当前 `ConfigDraft` / `ConfigVersion` 保持原状态，不进入下发流程，并记录错误原因。
+- Edge Sync Agent 解压配置包后，除触发采集器（vmagent / prometheus-agent）reload 外，还需同步通知同域 blackbox exporter 重新加载 `blackbox.yml`（推荐 `SIGHUP`；如 blackbox exporter 提供 reload API，也可调用 API）。
 
 ### 3.6 本地手工兜底声明
 
@@ -195,6 +267,8 @@ global:
 | **Helm Chart** | Kubernetes 环境 | 高 | P2 |
 
 > **不提供** `curl | bash` 一键部署脚本。所有交付物均提供校验和与签名验证说明。
+>
+> **离线二进制包补充说明**：当网域存在 blackbox 拨测 Job 时，离线二进制包必须同时包含 blackbox exporter 二进制；安装脚本/文档中需提供 capability 设置示例（如 `setcap cap_net_raw+ep ./blackbox_exporter`），并在 systemd 单元中声明 blackbox exporter 为采集器（vmagent / prometheus-agent）的启动依赖，确保采集器启动前 blackbox exporter 已监听 `127.0.0.1:9115`。
 
 ### 3.10 WAL 与 Remote Write 参数（按网域配置）
 
@@ -311,12 +385,14 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 | prometheus_yml | text | ✅ | 生成的 prometheus.yml 内容 |
 | rules_yml | text | ❌ | 生成的 rules.yml 内容（可选） |
 | blackbox_yml | text | ❌ | 生成的 blackbox.yml 内容（可选） |
-| metadata | json | ✅ | 生成时间、生成器版本、来源 job/rule 摘要、checksum |
+| metadata | json | ✅ | 生成时间、生成器版本、`source_data_version`、`trigger_summary`（触发来源 job/rule/表 + 时间）、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml)）、来源 job/rule 摘要 |
 | status | enum | ✅ | pending / confirmed / discarded |
 | created_at | datetime | ✅ | 创建时间 |
 | updated_at | datetime | ✅ | 更新时间 |
 | confirmed_by | string | ❌ | 确认人 |
 | confirmed_at | datetime | ❌ | 确认时间 |
+
+> `blackbox_yml` 在所属网域存在 `job_type=blackbox` 的 ScrapeJob 时必填，且必须随 `prometheus.yml` 一同下发。
 
 ### 4.5 配置版本（ConfigVersion）{v0.2+}
 
@@ -328,8 +404,10 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 | prometheus_yml | text | ✅ | 生效的 prometheus.yml 内容 |
 | rules_yml | text | ❌ | 生效的 rules.yml 内容 |
 | blackbox_yml | text | ❌ | 生效的 blackbox.yml 内容 |
-| metadata | json | ✅ | 版本号、生成时间、checksum、来源摘要 |
+| metadata | json | ✅ | 版本号、生成时间、联合 checksum（与草稿一致，供差异检测与边缘完整性校验）、来源摘要 |
 | created_at | datetime | ✅ | 创建时间 |
+
+> `blackbox_yml` 在所属网域存在 `job_type=blackbox` 的 ScrapeJob 时必填；下发记录需体现 `blackbox.yml` 是否参与本次下发及重载结果。
 
 ### 4.6 配置下发记录（ConfigDeployment）{v0.2+}
 
@@ -385,9 +463,43 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 
 ### 5.2 确认与下发时序
 
-1. **轮询触发**：配置中心定时（默认 30s）读取 Module_01 与 Module_07 的数据。
+> 以下为**变更检测与配置生成全链路时序**。除「人工确认」外，整条链路均为 **Module_09 异步轮询链路**（默认 30s 周期）；**人工确认是唯一同步环节**。
+
+```text
+┌───────────────────┐  写库并维护 updated_at   ┌────────────────────────────────────────────┐
+│  Module_01 / 07   │ ──────────────────────▶  │  Module_09 异步轮询链路（默认 30s）          │
+│ · ScrapeJobs      │  不主动通知 Module_09     │                                            │
+│ · Rules           │                          │ ① 定时轮询                                  │
+│ · Resources       │                          │    聚合各源表 max(updated_at)               │
+│ · LabelTemplates  │                          │    计算「源数据版本」                        │
+│ · ...            │                          │ ② 源数据版本聚合预筛（决定要不要算）           │
+└───────────────────┘                          │    · 版本无变化 → 跳过本轮，等待下一周期      │
+                                               │    · 版本有变化 → 进入生成                    │
+                                               │ ③ 按网域生成配置                             │
+                                               │    prometheus.yml / rules.yml /              │
+                                               │    blackbox.yml（按需）                      │
+                                               │ ④ 联合 checksum 裁决（决定要不要确认）        │
+                                               │    · 与生效 ConfigVersion 一致                │
+                                               │      → 丢弃，不产生新草稿（仅更新版本记录）    │
+                                               │    · 不一致                                   │
+                                               │      → 生成 status=pending 的 ConfigDraft     │
+                                               │ ⑤ 草稿进入确认列表（异步链路结束，等待确认）   │
+                                               └──────────────────────┬───────────────────────┘
+                                                                      │ ⑥ 人工确认（唯一同步环节）
+                                                                      │    UI 预览 / diff → confirmed
+                                                                      ▼
+                                               ┌────────────────────────────────────────────┐
+                                               │ ⑦ 生成 ConfigVersion                        │
+                                               │ ⑧ 下发                                      │
+                                               │    · 中心（default 域）：SIGHUP / POST /-/reload
+                                               │    · 边缘域：Edge Sync Agent 心跳拉取配置包   │
+                                               │ ⑨ 写入 ConfigDeployment 下发记录              │
+                                               └────────────────────────────────────────────┘
+```
+
+1. **轮询触发**：配置中心定时（默认 30s）读取 Module_01 与 Module_07 的数据；先聚合各源表 `max(updated_at)` 为「源数据版本」，仅当源数据版本变化时才进入生成（详见 [3.3.3](#333-变更检测与草稿去重说明)）。
 2. **草稿生成**：按网域聚合 ScrapeJobs、Rules、Resources、LabelTemplates，生成 `ConfigDraft`。
-3. **差异检测**：若 draft 与当前 `ConfigVersion` 一致，则标记为无需确认或自动丢弃；若不一致，则保持 `pending`。
+3. **差异检测**：计算草稿内容的联合 checksum，与当前生效 `ConfigVersion` 对比；一致则草稿标记 `discarded` 或丢弃（无实际变化），不一致则保持 `pending` 进入确认。
 4. **人工确认**：运维在 UI 预览 draft，查看 diff，确认后 draft 状态变为 `confirmed`，并生成新的 `ConfigVersion`。
 5. **下发执行**：
    - 中心 Prometheus：调用 `POST /-/reload` 或发送 `SIGHUP`；
@@ -449,7 +561,7 @@ edge-config-<network_domain_id>.zip
 ├── blackbox.yml            # 本域 Blackbox 探测模块（可选）
 ├── rules.yml               # 本域 edge/both 告警规则（v0.4+）
 ├── alertmanager.yml        # 本域通知路由（v0.4+）
-└── metadata.json           # 配置版本、生成时间、agent_type、checksum
+└── metadata.json           # config_version、生成时间、agent_type、联合 checksum（供拉取后完整性校验）
 ```
 
 ### 6.3 Edge Sync Agent 本地行为
@@ -457,10 +569,11 @@ edge-config-<network_domain_id>.zip
 1. 启动时从环境变量或配置文件读取 `NETWORK_DOMAIN_ID` 和 `TOKEN`。
 2. 每 30s 向 MetricCenter 发送心跳，上报当前配置版本和 WAL 积压。
 3. 若响应提示 `config_changed=true`，拉取最新配置包。
-4. 校验配置包 checksum，解压到本地目录。
+4. 校验配置包 checksum（`metadata.json` 中携带），失败则记录错误并保留最后一份有效配置，不进入解压步骤；通过后解压到本地目录。
 5. 调用本地采集器 `/-/reload`（vmagent 与 Prometheus Agent Mode 均支持）。
-6. 网络中断时保留最后一份有效配置，按原配置继续采集和 WAL 缓存。
-7. 当配置包包含 `rules.yml` 与 `alertmanager.yml` 时，边缘 Agent 启动本地 vmalert/Alertmanager 实例，负责网域内自治告警。
+6. 若配置包包含 `blackbox.yml`，触发同域 blackbox exporter 重载（`SIGHUP` 或对应 API）。
+7. 网络中断时保留最后一份有效配置，按原配置继续采集和 WAL 缓存。
+8. 当配置包包含 `rules.yml` 与 `alertmanager.yml` 时，边缘 Agent 启动本地 vmalert/Alertmanager 实例，负责网域内自治告警。
 
 ---
 
@@ -474,10 +587,11 @@ edge-config-<network_domain_id>.zip
 | 规则（Rule）数据模型定义 | ✅ | ❌ 仅读取 |
 | CI 类型 ↔ Exporter 模板绑定 | ✅ | ❌ 仅消费 |
 | 规则编辑 UI | ✅ | ❌ |
-| 按网域生成 `prometheus.yml` / `rules.yml` | ❌ | ✅ |
+| 按网域生成 `prometheus.yml` / `rules.yml` / `blackbox.yml` | ❌ | ✅ 读取 `ScrapeJob.job_type`、`blackbox_module`、`blackbox_targets` 生成 blackbox.yml 与对应 scrape_configs |
 | 配置草稿 / 预览 / Diff | ❌ | ✅ |
 | 配置下发 / Reload | ❌ | ✅ |
 | 策略定义与实例选择 | ✅ | ❌ |
+| 变更检测 / 配置生成触发 | ❌ 仅维护各源表 `updated_at`，不承担通知职责 | ✅ 异步轮询（pull 模式，默认 30s）消费 Module_01/07 各源表 `updated_at` 变化触发重算 |
 
 ### 7.2 与 Module_07 的边界 {v0.2+}
 
@@ -536,6 +650,12 @@ edge-config-<network_domain_id>.zip
 - [ ] 可以创建/编辑/删除网域，删除前校验无资源绑定
 - [ ] 可以为网域生成/重置 Edge Agent Token
 - [ ] v0.2 阶段，配置中心可轮询 Module_01 与 Module_07 数据并生成按网域的 `prometheus.yml` 草稿
+- [ ] Module_01/07 策略/资源写库后无需主动通知 Module_09，配置生成由 Module_09 异步轮询（pull 模式）检测 `updated_at` 变化触发
+- [ ] 策略变更到配置草稿生成（含确认前）的检测延迟不超过一个轮询周期（默认 30s）
+- [ ] 配置中心按源数据版本（各源表 `max(updated_at)` 聚合）触发重算；源数据未变化时不产生无谓轮询
+- [ ] 生成的草稿内容与当前生效 `ConfigVersion` 一致（联合 checksum 相同）时，不进入人工确认列表
+- [ ] `ConfigDraft.metadata` 记录 `source_data_version`、`trigger_summary` 与联合 checksum，可用于追溯变更来源
+- [ ] 边缘拉取配置包后按 `metadata.json` 中的 checksum 校验完整性，校验失败时保留旧配置并记录错误
 - [ ] v0.2 阶段，UI 可预览配置草稿并与当前生效版本做 diff
 - [ ] v0.2 阶段，人工确认后配置中心可生成 `ConfigVersion` 并触发下发
 - [ ] MVP 阶段，单网域场景下确认后的配置可通过 SIGHUP / HTTP reload 应用到中心 Prometheus
@@ -545,6 +665,10 @@ edge-config-<network_domain_id>.zip
 - [ ] P1/P2 阶段，边缘诊断看板可展示 WAL 积压趋势、Remote Write 队列状态、最近错误、24h 断网时长等图表
 - [ ] Edge Agent 失联超过阈值（默认 5 分钟）时，触发 `EdgeSiteOffline` 告警
 - [ ] 配置包包含 `prometheus.yml` 和 `metadata.json`，且 `prometheus.yml` 已注入 `external_labels.network_domain` 与 `external_labels.tenant_id`
+- [ ] 当网域存在 `job_type=blackbox` 的 ScrapeJob 时，配置包必须同时包含 `blackbox.yml`，且 `prometheus.yml` 中 blackbox job 的 `__address__` 指向本地 blackbox exporter（如 `127.0.0.1:9115`）
+- [ ] 下发前调用 `promtool check config` 校验 `prometheus.yml`；存在 `blackbox.yml` 时调用 blackbox exporter `--config.check` 校验
+- [ ] Edge Sync Agent 在配置包更新后触发同域 blackbox exporter 重载（SIGHUP 或对应 API）
+- [ ] 离线二进制包交付方式包含 blackbox exporter 二进制、capability 设置示例与 systemd 启动依赖
 - [ ] 下发记录 `ConfigDeployment` 可查询成功/失败历史，支持查看失败原因
 - [ ] 平台明确允许本地手工兜底，并在 UI 中展示 `manual_override` 状态
 - [ ] 提供离线二进制包 + systemd 服务文件的交付方式
@@ -555,6 +679,11 @@ edge-config-<network_domain_id>.zip
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.7 | 2026-08-04 | 修改 | 确认设计决策 12 规则作用域分层（scope）：3.3「按网域生成配置」中 `rules.yml` 按 `scope` 生成的语义已于 v1.6 澄清（中心域含 `central`/`both`，边缘域 v0.4+ 含 `edge`/`both`），与 Module_01 5.5 `MonitoringRule.scope` 字段及网域无关性说明一致；本轮仅记录确认、正文无需再调整 | 配置生成 | MVP / v0.2 | 设计中 |
+| v1.6 | 2026-08-04 | 修改 | 澄清 3.3「按网域生成配置」中 `rules.yml` 的生成语义：规则由中心统一求值，`rules.yml` 按规则作用域生成（中心域含 `central`/`both`，边缘域仅当存在 `edge`/`both` 规则时 v0.4+ 随包下发），避免与「规则不绑网域」设计冲突 | 配置生成 | MVP / v0.2 | 设计中 |
+| v1.5 | 2026-08-04 | 修改 | 澄清变更检测为 pull 模式：Module_09 异步轮询（默认 30s）检测 Module_01/07 各源表 `updated_at` 变化，Module_01/07 不主动通知、不感知 Module_09，写库即完成职责；补充 5.2 变更检测与配置生成全链路时序图（人工确认为唯一同步环节）；7.1 边界表新增「变更检测/配置生成触发」行；验收标准新增轮询触发与检测延迟约束 | 配置生成、模块边界、下发时序、验收标准 | MVP / v0.2 | 设计中 |
+| v1.4 | 2026-08-04 | 修改 | 明确变更检测采用「源数据版本触发预筛 + 生成后联合 checksum 裁决」混合机制，差异检测优先级从 P1 提升为 P0；新增 3.3.3 变更检测与草稿去重说明；细化 `ConfigDraft` / `ConfigVersion` metadata 字段（`source_data_version`、`trigger_summary`、联合 checksum）；明确 Edge Agent 拉取包 checksum 完整性校验行为 | 配置生成、数据模型、下发时序、验收标准 | MVP / v0.2 | 设计中 |
+| v1.3 | 2026-08-04 | 修改 | 明确 blackbox exporter 同域部署：配置包按需包含 `blackbox.yml`；blackbox job 生成 `metrics_path=/probe` 的 scrape_config 并将 `__address__` 指向本地 blackbox exporter；增加下发前 `promtool` / `--config.check` 校验与 Edge Sync Agent 触发 blackbox 重载要求；补充离线交付物中 blackbox 二进制、capability 与 systemd 依赖说明 | 配置生成、下发流程、交付物、数据模型、验收标准 | MVP / v0.2 | 设计中 |
 | v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.2 | 2026-08-03 | 修改 | 新增 3.11 节：明确单网域/多网域模式行为；将开关从平台级 feature flag 调整为租户级 `Tenant.multi_site_enabled`；`default` 网域新增 `domain_type=management` 且允许修改名称/描述、禁止删除；Edge Sync Agent 协议后端保留能力、UI 隐藏 | 功能范围、UI/UX、MVP 边界、数据模型 | MVP / v0.2 | 设计中 |
 | v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |

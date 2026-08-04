@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.2
+> **PRD 版本**: v1.4
 > **产品版本覆盖**: MVP / v0.4 / v1.0
 > **原型版本**: v1.2
-> **更新日期**: 2026-08-03
+> **更新日期**: 2026-08-04
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -149,6 +149,18 @@ const (
     ResourceTypeGenericTarget ResourceType = "generic_target"
 )
 ```
+
+> **资源类型粒度说明（决策 16：两套 CI 类型粒度体系）**：
+>
+> - `Resource.resource_type` 为**粗粒度四大类**分类；中间件以 `middleware_type`（mysql / redis / kafka / elasticsearch / ...）表达**细粒度子类型**（见 5.7）；
+> - 细粒度 CI 类型（host / mysql / redis / kafka / nginx / application\_http / snmp）的**映射与策略绑定落在 [Module\_01](Module_01_Metric_Collection_Center.md)（策略层）**的 `resource_type`，本模块不维护细粒度 CI 类型（映射表 `CI_TYPE_CATEGORY_MAP` 见 Module\_01 5.1）；
+> - **权威来源为 CMDB**：v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 同步后向本模块写入四大类 + middleware\_type，MetricCenter **只维护映射、不增删类型**。
+>
+> **CMDB 侧边界（v0.4+）**：
+>
+> - **CMDB 的 CI 类型本身是细粒度的**（如 BlueKing `bk_obj_id` 直接就是 mysql / redis / mongodb 等独立模型），CMDB **不存在**「中间件 → MySQL」的父子分类表达，也无需为 MetricCenter 引入 category 概念；
+> - MetricCenter 的**粗粒度四大类（category）仅是内部资源管理维度**（四类资源 CRUD 页面、标签模板归属、孤儿资源分组），不是 CMDB 的表达，也不是监控策略的表达；
+> - `middleware_type`（细粒度）来自 CMDB `bk_obj_id`（v0.4+）或 Excel 导入列（MVP）；`resource_type`（粗粒度）由 [Module\_04](Module_04_Custom_Discovery.md) 的「CMDB CI 类型映射表」将细粒度 CI 归类到四大类。
 
 ### 5.2 资源基础结构（Resource）
 
@@ -625,6 +637,8 @@ v0.4+ 实现（由 Module_04 负责）：
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.4 | 2026-08-04 | 修改 | 补充「CMDB 侧边界」说明：CMDB CI 类型本身是细粒度的（bk_obj_id 直接为 mysql/redis 等独立模型），CMDB 无需父子分类表达；MetricCenter 粗粒度四大类（category）仅是内部资源管理维度（CRUD 页面/标签模板/孤儿分组）；`middleware_type` 细粒度来源为 CMDB bk_obj_id（v0.4+）或 Excel 导入列（MVP），`resource_type` 粗粒度由 Module_04 CI 类型映射表归类 | 数据模型、模块边界、CMDB 集成 | MVP / v0.4 / v1.0 | 设计中 |
+| v1.3 | 2026-08-04 | 修改 | 落盘设计决策 16：明确两套 CI 类型粒度体系——`Resource.resource_type` 为粗粒度四大类（host/middleware/application/generic_target）+ `middleware_type` 细粒度子类型（mysql/redis/kafka/...），细粒度 CI 类型映射到 Module_01（策略层）的 resource_type（映射表 CI_TYPE_CATEGORY_MAP 见 Module_01 5.1）；v0.4+ CMDB 为唯一权威来源（Module_04 同步后写入四大类 + middleware_type，MetricCenter 只维护映射不增删类型） | 数据模型、模块边界 | MVP / v0.4 / v1.0 | 设计中 |
 | v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.2 | 2026-08-03 | 修改 | 明确单网域模式下 Resource 列表仍展示「网域」列，网域作为云区域概念不可隐藏 | 功能范围、UI/UX、Excel 模板 | MVP | 设计中 |
 | v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |

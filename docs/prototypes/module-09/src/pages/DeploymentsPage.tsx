@@ -2,7 +2,14 @@ import { useMemo, useState } from 'react'
 import { Card, Table, Tag, Button, Space, Modal, message, Tooltip, Typography } from 'antd'
 import { RollbackOutlined, EyeOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
-import { configDeployments, configVersions, networkDomains, type ConfigDeployment, type DeploymentStatus } from '../mocks/module-09'
+import {
+  configDeployments,
+  configVersions,
+  networkDomains,
+  type ConfigDeployment,
+  type DeploymentStatus,
+  type DeploymentValidationStatus,
+} from '../mocks/module-09'
 
 const { Text } = Typography
 
@@ -20,6 +27,18 @@ const statusLabel: Record<DeploymentStatus, string> = {
   success: '成功',
   failed: '失败',
   rolled_back: '已回滚',
+}
+
+const validationColor: Record<DeploymentValidationStatus, string> = {
+  passed: 'success',
+  failed: 'error',
+  pending: 'default',
+}
+
+const validationLabel: Record<DeploymentValidationStatus, string> = {
+  passed: '校验通过',
+  failed: '校验失败',
+  pending: '待校验',
 }
 
 export function DeploymentsPage() {
@@ -65,6 +84,9 @@ export function DeploymentsPage() {
           target_type: record.target_type,
           target_address: record.target_address,
           status: 'success',
+          validation_status: 'passed',
+          validation_error: '',
+          includes_blackbox: record.includes_blackbox,
           error_message: '',
           triggered_by: 'admin',
           triggered_at: now,
@@ -111,6 +133,23 @@ export function DeploymentsPage() {
               render: (type: string) => <Tag color="blue">{type}</Tag>,
             },
             { title: '目标地址', dataIndex: 'target_address', key: 'target_address' },
+            {
+              title: '下发前校验',
+              dataIndex: 'validation_status',
+              key: 'validation_status',
+              render: (validation: DeploymentValidationStatus, record) => (
+                <Tooltip title={record.validation_error || 'PRD 3.5.1：promtool check config / blackbox_exporter --config.check'}>
+                  <Tag color={validationColor[validation]}>{validationLabel[validation]}</Tag>
+                </Tooltip>
+              ),
+            },
+            {
+              title: '含 blackbox.yml',
+              dataIndex: 'includes_blackbox',
+              key: 'includes_blackbox',
+              render: (includes: boolean) =>
+                includes ? <Tag color="cyan">是</Tag> : <Text type="secondary">否</Text>,
+            },
             {
               title: '状态',
               dataIndex: 'status',

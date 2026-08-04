@@ -27,4 +27,34 @@ describe('module-09 mocks', () => {
     configVersions.forEach((version) => expect(domainIds.has(version.network_domain_id)).toBe(true))
     configDeployments.forEach((deployment) => expect(domainIds.has(deployment.network_domain_id)).toBe(true))
   })
+
+  it('should record PRD 4.4 metadata on every config draft', () => {
+    configDrafts.forEach((draft) => {
+      expect(draft.metadata.source_data_version).toBeTruthy()
+      expect(draft.metadata.trigger_summary).toBeTruthy()
+      expect(draft.metadata.checksum).toMatch(/^[0-9a-f]{64}$/)
+      expect(draft.metadata.generator_version).toBeTruthy()
+    })
+  })
+
+  it('should include a draft that fails pre-deploy validation (PRD 3.5.1 demo)', () => {
+    const failed = configDrafts.find((d) => d.validation_status === 'failed')
+    expect(failed).toBeDefined()
+    expect(failed?.validation_error).toContain('promtool')
+  })
+
+  it('should mark deployments with pre-deploy validation result and blackbox participation', () => {
+    configDeployments.forEach((deployment) => {
+      expect(['passed', 'failed', 'pending']).toContain(deployment.validation_status)
+      expect(typeof deployment.includes_blackbox).toBe('boolean')
+    })
+    const failedValidation = configDeployments.find((d) => d.validation_status === 'failed')
+    expect(failedValidation?.error_message).toBeTruthy()
+  })
+
+  it('should expose an agent demonstrating config package checksum failure', () => {
+    const agent = edgeAgents.find((a) => a.last_error.includes('checksum'))
+    expect(agent).toBeDefined()
+    expect(agent?.config_sync_status).toBe('out_of_sync')
+  })
 })
