@@ -149,9 +149,9 @@ export function MainLayout({ children }: MainLayoutProps) {
                   配置变更采用 <Text strong>pull 模式</Text>：Module_09 异步轮询（默认 30s）检测 Module_01/07 各源表{' '}
                   <Text code>updated_at</Text> 变化触发配置重算，Module_01/07 不主动通知。
                   变更检测采用「源数据版本触发预筛 + 生成后联合 checksum 裁决」，避免无谓轮询与草稿噪音。
-                  配置按网域生成（<Text code>prometheus.yml</Text> + <Text code>rules.yml</Text> +{' '}
-                  <Text code>blackbox.yml</Text> + <Text code>metadata.json</Text>）；规则按 scope 分发（中心
-                  central/both，边缘 edge/both v0.4+）。
+                  配置按网域生成（<Text code>prometheus.yml</Text> + <Text code>targets/*.json</Text> +{' '}
+                  <Text code>rules.yml</Text> + <Text code>blackbox.yml</Text> + <Text code>metadata.json</Text>）；
+                  规则按 scope 分发（中心 central/both，边缘 edge/both v0.4+）。
                 </span>
               }
               style={{ margin: 16 }}
