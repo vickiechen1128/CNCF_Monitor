@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Card, Table, Tag, Button, Space, Modal, Form, Input, Select, message, Tooltip, Typography } from 'antd'
-import { EditOutlined, ReloadOutlined, PlusOutlined, CopyOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Button, Space, Modal, Form, Input, Select, message, Tooltip, Typography, Steps, Descriptions, Alert, Dropdown } from 'antd'
+import { EditOutlined, ReloadOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, DownOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
-import { networkDomains, type NetworkDomain, type NetworkDomainStatus, type AgentType, type DomainType } from '../mocks/module-09'
+import { networkDomains, edgeAgentInstallGuide, TOKEN_MASK, type NetworkDomain, type NetworkDomainStatus, type AgentType, type DomainType } from '../mocks/module-09'
 
 const { Text } = Typography
 
@@ -27,15 +27,11 @@ const agentTypeLabel: Record<AgentType, string> = {
   'prometheus-agent': 'Prometheus Agent',
 }
 
-function maskToken(token: string) {
-  if (token.length <= 12) return '***'
-  return `${token.slice(0, 6)}...${token.slice(-6)}`
-}
-
 export function NetworkDomainsPage() {
   const [data, setData] = useState<NetworkDomain[]>(networkDomains)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingDomain, setEditingDomain] = useState<NetworkDomain | null>(null)
+  const [guideDomain, setGuideDomain] = useState<NetworkDomain | null>(null)
   const [form] = Form.useForm<Partial<NetworkDomain>>()
 
   const handleEdit = (record: NetworkDomain) => {
@@ -174,10 +170,11 @@ export function NetworkDomainsPage() {
               title: 'Token',
               dataIndex: 'token',
               key: 'token',
+              width: 140,
               render: (token: string) => (
                 <Space>
-                  <span>{maskToken(token)}</span>
-                  <Tooltip title="复制 Token">
+                  <Text type="secondary">{TOKEN_MASK}</Text>
+                  <Tooltip title="点击复制完整 Token">
                     <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => handleCopyToken(token)} />
                   </Tooltip>
                 </Space>
@@ -192,14 +189,34 @@ export function NetworkDomainsPage() {
             {
               title: '操作',
               key: 'action',
+              width: 210,
               render: (_: unknown, record: NetworkDomain) => (
-                <Space>
+                <Space size="small">
                   <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
                     编辑
                   </Button>
-                  <Button size="small" icon={<ReloadOutlined />} onClick={() => handleResetToken(record)}>
-                    重置 Token
-                  </Button>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        {
+                          key: 'install-guide',
+                          icon: <DownloadOutlined />,
+                          label: '安装指引',
+                          onClick: () => setGuideDomain(record),
+                        },
+                        {
+                          key: 'reset-token',
+                          icon: <ReloadOutlined />,
+                          label: '重置 Token',
+                          onClick: () => handleResetToken(record),
+                        },
+                      ],
+                    }}
+                  >
+                    <Button size="small">
+                      更多 <DownOutlined />
+                    </Button>
+                  </Dropdown>
                   <Button
                     size="small"
                     danger
@@ -249,6 +266,7 @@ export function NetworkDomainsPage() {
                 name="agent_type"
                 label="Agent 类型"
                 rules={[{ required: true, message: '请选择 Agent 类型' }]}
+                extra="该字段登记网域使用的采集器类型（vmagent / prometheus-agent）；Edge Sync Agent 为必装独立组件（负责心跳 / 配置拉取 / 控制采集器），无需在此登记"
               >
                 <Select
                   options={[
@@ -260,9 +278,89 @@ export function NetworkDomainsPage() {
               <Form.Item name="remote_write_url" label="Remote Write URL">
                 <Input placeholder="例如：https://metriccenter.example.com/api/v2/ingest/prometheus" />
               </Form.Item>
+              <Form.Item>
+                <Text type="secondary">
+                  注册为登记制：仅生成网域元数据（ID / 类型 / Remote Write 目标）与认证 Token；
+                  Agent IP / 主机名由 Edge Sync Agent 心跳上报自动补全（PRD 3.2 / 6.3），无需在此填写。
+                </Text>
+              </Form.Item>
             </>
           )}
         </Form>
+      </Modal>
+
+      <Modal
+        title={`安装指引：${guideDomain ? `${guideDomain.name}（${guideDomain.id}）` : ''}`}
+        open={guideDomain !== null}
+        onCancel={() => setGuideDomain(null)}
+        footer={null}
+        width={760}
+      >
+        {guideDomain && (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Edge Sync Agent 部署定位（决策 9）"
+              description={edgeAgentInstallGuide.deployment}
+            />
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="边缘节点组件构成"
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {edgeAgentInstallGuide.components.map((c) => (
+                    <li key={c.name} style={{ marginBottom: 4 }}>
+                      <Text strong>{c.name}</Text>（{c.required ? '必装' : '可选'}）：{c.role}
+                    </li>
+                  ))}
+                </ul>
+              }
+            />
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="一体化交付 + 职责边界（PRD v1.12）"
+              description={edgeAgentInstallGuide.integration_note}
+            />
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="登记制说明"
+              description="网域注册为登记制：仅生成网域元数据（ID / 类型 / Remote Write 目标）与认证 Token。Agent IP / 主机名由 Edge Sync Agent 心跳上报自动补全（PRD 3.2 / 6.3），无需在注册时填写。"
+            />
+            <Steps
+              size="small"
+              direction="vertical"
+              current={-1}
+              items={edgeAgentInstallGuide.steps.map((s) => ({ title: s.title, description: s.description }))}
+            />
+            <Card size="small" title="环境变量配置（PRD 6.3 第 2 条）" style={{ marginTop: 16 }}>
+              <Descriptions column={1} size="small" bordered>
+                <Descriptions.Item label="NETWORK_DOMAIN_ID">
+                  <Text code>{guideDomain.id}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="TOKEN">
+                  <Space>
+                    <Text code>{TOKEN_MASK}</Text>
+                    <Tooltip title="点击复制完整 Token">
+                      <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => handleCopyToken(guideDomain.token)} />
+                    </Tooltip>
+                  </Space>
+                </Descriptions.Item>
+              </Descriptions>
+              <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 4, fontSize: 13 }}>
+                交付方式：{edgeAgentInstallGuide.delivery}；校验和算法：{edgeAgentInstallGuide.checksum_algorithm}；
+                systemd 单元：{edgeAgentInstallGuide.systemd_unit}。
+              </Typography.Paragraph>
+            </Card>
+          </>
+        )}
       </Modal>
     </MainLayout>
   )
