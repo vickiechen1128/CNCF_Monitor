@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Layout, Menu, Typography, Space, Badge, Tag, Switch, Tooltip, Divider, Alert } from 'antd'
+import { Layout, Menu, Typography, Space, Badge, Tag, Switch, Tooltip, Divider, Alert, Collapse } from 'antd'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -28,11 +28,11 @@ function buildMenu(multiSite: boolean): MenuItem[] {
     ? [
         { key: '/network-domains', icon: <CloudOutlined />, label: '网域管理' },
         { key: '/edge-agents', icon: <ClusterOutlined />, label: 'Agent 状态' },
-        { key: '/config-preview', icon: <FileTextOutlined />, label: '配置生成' },
+        { key: '/config-preview', icon: <FileTextOutlined />, label: '配置变更确认' },
         { key: '/deployments', icon: <AppstoreOutlined />, label: '下发记录' },
       ]
     : [
-        { key: '/config-preview', icon: <FileTextOutlined />, label: '配置生成' },
+        { key: '/config-preview', icon: <FileTextOutlined />, label: '配置变更确认' },
         { key: '/deployments', icon: <AppstoreOutlined />, label: '下发记录' },
       ]
 
@@ -146,12 +146,11 @@ export function MainLayout({ children }: MainLayoutProps) {
               message="Module_09 设计意图"
               description={
                 <span>
-                  配置变更采用 <Text strong>pull 模式</Text>：Module_09 异步轮询（默认 30s）检测 Module_01/07 各源表{' '}
-                  <Text code>updated_at</Text> 变化触发配置重算，Module_01/07 不主动通知。
-                  变更检测采用「源数据版本触发预筛 + 生成后联合 checksum 裁决」，避免无谓轮询与草稿噪音。
-                  配置按网域生成（<Text code>prometheus.yml</Text> + <Text code>targets/*.json</Text> +{' '}
-                  <Text code>rules.yml</Text> + <Text code>blackbox.yml</Text> + <Text code>metadata.json</Text>）；
-                  规则按 scope 分发（中心 central/both，边缘 edge/both v0.4+）。
+                  监控对象、采集策略与告警规则变更后，配置会<Text strong>自动生成</Text>并汇总为待确认的变更；
+                  运维在「配置变更确认」页做<Text strong>发布审批（go/no-go）</Text>——平台保证生成内容与策略一致，
+                  运维确认变更影响后决定是否发布到监控。配置按网域生成（<Text code>prometheus.yml</Text> +{' '}
+                  <Text code>targets/*.json</Text> + <Text code>rules.yml</Text> + <Text code>blackbox.yml</Text>），
+                  中心管理域走本地文件集 / 边缘域走 zip 配置包。
                 </span>
               }
               style={{ margin: 16 }}
@@ -159,6 +158,37 @@ export function MainLayout({ children }: MainLayoutProps) {
             />
           )}
           {children}
+          {/* 提示分区规范（决策 21）：用户可见文案不含设计决策 / PRD 引用；本折叠区集中承载设计依据，供产品 / 技术评审与开发参考 */}
+          <Collapse
+            ghost
+            style={{ margin: '0 16px 16px' }}
+            items={[
+              {
+                key: 'review',
+                label: (
+                  <Space size={4}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      原型与实现说明（面向产品 / 技术评审，不影响功能体验）
+                    </Text>
+                  </Space>
+                ),
+                children: (
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+                    页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
+                    docs/04-execution-records/module-09/design-decisions.md 与 Module_09 PRD（对应原型目录上级）。
+                    决策清单：决策 6 配置产物形态按域类型分层；决策 7 targets 前端数据驱动；决策 8 rules 按作用域生成；
+                    决策 9 / 11 安装指引（Edge Sync Agent 部署定位 / 3 步人工步骤）；决策 12 MVP 固定 vmagent；
+                    决策 14 注册登记制闭环（Token 前置签发 / Remote Write 自动推导）；决策 15 Agent 状态页「网域为主 + 组件分类」；
+                    决策 16 字段语义对齐 / default 无 Agent / 组件类型筛选；决策 17 安装指引页面顶部提示区；
+                    决策 18 配置变更确认心智（自动生成 + 人工审批、变更摘要 / 清单）；决策 19 受影响文件高亮 / 风险与确认人 / 下发记录定位；
+                    决策 20 变更单号 / 抽屉式详情 / 检测状态引导性 / 确认人预置；决策 21 状态筛选 / 提示分区规范；
+                    决策 22 变更对象 = 源数据对象（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板）+「影响的配置文件」派生列 / 变更单级确认（不逐行）/ 全链路关联（change_no → 配置版本 → 下发记录，双向可追溯、回滚入口）。
+                    实现细节与数据契约见 PRD 对应章节与代码注释。
+                  </Typography.Paragraph>
+                ),
+              },
+            ]}
+          />
         </Content>
       </Layout>
     </Layout>

@@ -120,7 +120,7 @@ export default function LabelTemplatesPage() {
   // 删除模板：默认模板不可删除（PRD 6.1 模板规则）
   const handleDeleteTemplate = (tpl: LabelTemplate) => {
     if (tpl.is_default) {
-      message.warning('默认模板不可删除（PRD 6.1 模板规则：每类资源保留一个默认模板）')
+      message.warning('默认模板不可删除（每类资源保留一个默认模板）')
       return
     }
     modal.confirm({
@@ -199,7 +199,7 @@ export default function LabelTemplatesPage() {
       // PRD 5.3 / 3.3：保护 Prometheus 内置 label，不允许覆盖
       const targetLabel = values.target_label as string
       if (PROTECTED_PROMETHEUS_LABELS.includes(targetLabel)) {
-        message.warning(`「${targetLabel}」是 Prometheus 内置保护 label，不允许作为目标标签（PRD 5.3/3.3）`)
+        message.warning(`「${targetLabel}」是 Prometheus 内置保护 label，不允许作为目标标签`)
         return
       }
       const field = {
@@ -307,7 +307,7 @@ export default function LabelTemplatesPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>标签模板</Title>
-        <Text type="secondary">按资源类型管理字段到 Prometheus Label 的映射（模板级管理，PRD v1.2）</Text>
+        <Text type="secondary">按资源类型管理字段到 Prometheus Label 的映射（模板级管理）</Text>
       </div>
 
       {/* 模块边界说明 */}
@@ -319,16 +319,16 @@ export default function LabelTemplatesPage() {
         description={
           <Space direction="vertical" size={4}>
             <Text style={{ fontSize: 13 }}>
-              • 标签模板（LabelTemplate）只与资源类型绑定，不绑定 Job（PRD 5.10）；Job 级别的 label 覆盖由 Module_01 负责。
+              • 标签模板（LabelTemplate）只与资源类型绑定，不绑定 Job；Job 级别的 label 覆盖由 Module_01 负责。
             </Text>
             <Text style={{ fontSize: 13 }}>
-              • 字段来源支持：资源字段 / Prometheus 内置字段 / 组合字段（PRD 5.12）；CMDB 字段为 v0.4+ 预留，由 Module_04 接入后启用。
+              • 字段来源支持：资源字段 / Prometheus 内置字段 / 组合字段；CMDB 字段为 v0.4+ 预留，由 Module_04 接入后启用。
             </Text>
             <Text style={{ fontSize: 13 }}>
-              • 每类资源预置一个默认模板（PRD 5.13），默认模板不可删除（PRD 6.1）。
+              • 每类资源预置一个默认模板，默认模板不可删除。
             </Text>
             <Text style={{ fontSize: 13 }}>
-              • 状态映射（Excel 中文 → Resource.status）为可配置规则，详见导入记录页或下方说明（PRD 5.5.2/5.5.3）。
+              • 状态映射（Excel 中文 → Resource.status）为可配置规则，详见导入记录页或下方说明。
             </Text>
           </Space>
         }
@@ -339,7 +339,7 @@ export default function LabelTemplatesPage() {
         type="warning"
         showIcon
         style={{ marginBottom: 16 }}
-        message="状态映射可配置规则（PRD 5.5.2 / 5.5.3）"
+        message="状态映射可配置规则"
         description={
           <Space direction="vertical" size={4}>
             <Text style={{ fontSize: 13 }}>
@@ -356,7 +356,7 @@ export default function LabelTemplatesPage() {
             </Space>
             <Text style={{ fontSize: 12, color: '#86909C' }}>
               大小写敏感：{mockStatusMappingConfig.case_sensitive ? '是' : '否'} · 默认目标状态：{mockStatusMappingConfig.default_target} ·
-              映射优先级：精确资源类型规则 {'>'} 'all' 通用规则（PRD 5.5.4）· UI 配置入口为 P2（PRD 5.5.5）
+              映射优先级：精确资源类型规则 {'>'} 'all' 通用规则 · UI 配置入口为 P2
             </Text>
           </Space>
         }
@@ -467,10 +467,10 @@ export default function LabelTemplatesPage() {
                   message={
                     <Space direction="vertical" size={2}>
                       <Text style={{ fontSize: 13 }}>
-                        LabelTemplate 只与资源类型绑定，不绑定 Job（PRD 5.10）；字段来源支持资源字段 / Prometheus 内置字段 / 组合字段（PRD 5.12）。
+                        LabelTemplate 只与资源类型绑定，不绑定 Job；字段来源支持资源字段 / Prometheus 内置字段 / 组合字段。
                       </Text>
                       <Text style={{ fontSize: 12, color: '#86909C' }}>
-                        保护 label（不可作为目标标签）：{PROTECTED_PROMETHEUS_LABELS.join(', ')}（PRD 5.3/3.3）
+                        保护 label（不可作为目标标签）：{PROTECTED_PROMETHEUS_LABELS.join(', ')}
                       </Text>
                     </Space>
                   }
@@ -513,7 +513,7 @@ export default function LabelTemplatesPage() {
             label="模板名称"
             name="name"
             rules={[{ required: true, message: '请输入模板名称' }]}
-            extra="模板名称用于展示，同一资源类型下名称可重复（PRD 5.10）"
+            extra="模板名称用于展示，同一资源类型下名称可重复"
           >
             <Input placeholder="如 主机默认模板" />
           </Form.Item>
@@ -521,7 +521,7 @@ export default function LabelTemplatesPage() {
             label="资源类型"
             name="resource_type"
             rules={[{ required: true, message: '请选择资源类型' }]}
-            extra="模板与资源类型绑定，创建后不可修改（PRD 5.10）"
+            extra="模板与资源类型绑定，创建后不可修改"
           >
             <Select disabled={!!editingTemplate} placeholder="请选择">
               {RESOURCE_TYPES.map((type) => (
@@ -564,7 +564,7 @@ export default function LabelTemplatesPage() {
                 label="来源类型"
                 name="source_type"
                 rules={[{ required: true, message: '请选择来源类型' }]}
-                extra="cmdb_field 为 v0.4+ 预留，由 Module_04 接入后启用（PRD 5.11/5.12）"
+                extra="cmdb_field 为 v0.4+ 预留，由 Module_04 接入后启用"
               >
                 <Select placeholder="请选择">
                   {SOURCE_TYPE_OPTIONS.map((opt) => (
@@ -582,13 +582,13 @@ export default function LabelTemplatesPage() {
                 rules={[{ required: true, message: '请选择来源字段' }]}
                 extra={
                   watchedSourceType === 'resource_field'
-                    ? '从资源固定字段中选取（PRD 5.12 A）'
+                    ? '从资源固定字段中选取'
                     : watchedSourceType === 'prometheus_builtin'
-                    ? 'Prometheus 内置 label（PRD 5.12 B）'
+                    ? 'Prometheus 内置 label'
                     : watchedSourceType === 'composite'
-                    ? '组合字段，如 instance_ip:port（PRD 5.12 C）'
+                    ? '组合字段，如 instance_ip:port'
                     : watchedSourceType === 'cmdb_field'
-                    ? 'CMDB 字段，v0.4+ 由 Module_04 同步（PRD 5.12 A）'
+                    ? 'CMDB 字段，v0.4+ 由 Module_04 同步'
                     : undefined
                 }
               >
@@ -607,7 +607,7 @@ export default function LabelTemplatesPage() {
                 label="目标标签"
                 name="target_label"
                 rules={[{ required: true, message: '请输入目标标签' }]}
-                extra="映射为 Prometheus label；保护 label（instance/job 等）不允许使用（PRD 5.3/3.3）"
+                extra="映射为 Prometheus label；保护 label（instance/job 等）不允许使用"
               >
                 <Input placeholder="如 instance" />
               </Form.Item>
@@ -616,7 +616,7 @@ export default function LabelTemplatesPage() {
               <Form.Item
                 label="转换规则"
                 name="transform"
-                extra="可选：lower / upper / prefix / replace（PRD 5.11）"
+                extra="可选：lower / upper / prefix / replace"
               >
                 <Input placeholder="可选：lower / upper / prefix / replace" />
               </Form.Item>

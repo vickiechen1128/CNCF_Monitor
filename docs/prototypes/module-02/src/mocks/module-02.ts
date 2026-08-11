@@ -4,6 +4,27 @@ export type TargetStatus = 'up' | 'down' | 'unknown'
 export type AlertState = 'firing' | 'pending'
 export type AlertSeverity = 'critical' | 'warning' | 'info'
 
+/**
+ * 租户级模式开关（web-development 规范）
+ * multi_site_enabled=false 单网域模式（默认，仅 default 域）；true 多网域模式
+ */
+export interface TenantModel {
+  tenant_id: string
+  name: string
+  multi_site_enabled: boolean
+}
+
+export const tenant: TenantModel = {
+  tenant_id: 'tenant-a',
+  name: '政务云租户',
+  multi_site_enabled: false,
+}
+
+/**
+ * 查询响应 envelope（PRD 6.1）
+ * v1.2：meta.network_domain 单值 → network_domains 数组，适配多网域聚合查询
+ * v0.2：data_source 细化到网域维度（data_source_by_domain）
+ */
 export interface QueryEnvelope {
   status: 'success' | 'error'
   data: {
@@ -13,7 +34,8 @@ export interface QueryEnvelope {
   meta: {
     data_source: DataSourceType
     freshness_at: string
-    network_domain: string
+    network_domains: string[]
+    data_source_by_domain?: Record<string, DataSourceType>
   }
 }
 
@@ -21,29 +43,6 @@ export interface QueryRecord {
   metric: Record<string, string>
   values: [number, string][]
   value?: [number, string]
-}
-
-export interface ScrapeTarget {
-  id: string
-  job: string
-  instance: string
-  status: TargetStatus
-  last_scrape: string
-  last_error: string
-  network_domain: string
-  labels: Record<string, string>
-}
-
-export interface PrometheusAlert {
-  id: string
-  alertname: string
-  state: AlertState
-  severity: AlertSeverity
-  instance: string
-  active_since: string
-  network_domain: string
-  description: string
-  labels: Record<string, string>
 }
 
 export const queryEnvelope: QueryEnvelope = {
@@ -96,12 +95,14 @@ export const queryEnvelope: QueryEnvelope = {
     ],
   },
   meta: {
-    data_source: 'edge_remote_write',
-    freshness_at: '2026-08-02 14:30:00',
-    network_domain: 'default,gov-cloud-a',
+    data_source: 'central_scrape',
+    freshness_at: '2026-08-06 10:30:00',
+    network_domains: ['default', 'gov-cloud-a'],
+    data_source_by_domain: { default: 'central_scrape', 'gov-cloud-a': 'edge_remote_write' },
   },
 }
 
+/** 查询辅助（PRD 3.1，v0.3 交付）——常用查询模板 */
 export const queryTemplates = [
   { id: '1', name: 'CPU 使用率', expr: '100 - (avg by (instance, network_domain) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)' },
   { id: '2', name: '内存可用率', expr: 'node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100' },
@@ -111,13 +112,30 @@ export const queryTemplates = [
   { id: '6', name: '网络接收速率', expr: 'rate(node_network_receive_bytes_total[5m])' },
 ]
 
+export interface ScrapeTarget {
+  id: string
+  job: string
+  instance: string
+  status: TargetStatus
+  last_scrape: string
+  scrape_duration_seconds: number
+  last_error: string
+  network_domain: string
+  labels: Record<string, string>
+  /** 拨测结果（仅 blackbox Job，PRD 3.2） */
+  probe_success?: boolean
+  probe_duration_seconds?: number
+  probe_http_status_code?: number
+}
+
 export const scrapeTargets: ScrapeTarget[] = [
   {
     id: 'target-001',
     job: 'node-exporter',
     instance: '10.0.1.10:9100',
     status: 'up',
-    last_scrape: '2026-08-02 14:30:00',
+    last_scrape: '2026-08-06 10:29:58',
+    scrape_duration_seconds: 0.82,
     last_error: '',
     network_domain: 'default',
     labels: { env: 'production', app: '电商前台' },
@@ -127,7 +145,8 @@ export const scrapeTargets: ScrapeTarget[] = [
     job: 'node-exporter',
     instance: '10.0.1.11:9100',
     status: 'up',
-    last_scrape: '2026-08-02 14:29:55',
+    last_scrape: '2026-08-06 10:29:55',
+    scrape_duration_seconds: 0.61,
     last_error: '',
     network_domain: 'default',
     labels: { env: 'production', app: '订单服务' },
@@ -137,7 +156,8 @@ export const scrapeTargets: ScrapeTarget[] = [
     job: 'node-exporter',
     instance: '10.0.2.20:9100',
     status: 'up',
-    last_scrape: '2026-08-02 14:29:50',
+    last_scrape: '2026-08-06 10:29:50',
+    scrape_duration_seconds: 1.04,
     last_error: '',
     network_domain: 'gov-cloud-a',
     labels: { env: 'production', app: '政务网关' },
@@ -147,8 +167,9 @@ export const scrapeTargets: ScrapeTarget[] = [
     job: 'node-exporter',
     instance: '10.0.2.21:9100',
     status: 'down',
-    last_scrape: '2026-08-02 14:25:00',
-    last_error: 'connection refused',
+    last_scrape: '2026-08-06 10:25:00',
+    scrape_duration_seconds: 2.31,
+    last_error: 'connection refused: server returned HTTP status 403 Forbidden',
     network_domain: 'gov-cloud-a',
     labels: { env: 'production', app: '政务数据库' },
   },
@@ -157,22 +178,55 @@ export const scrapeTargets: ScrapeTarget[] = [
     job: 'blackbox-tcp',
     instance: '10.0.3.20:22',
     status: 'down',
-    last_scrape: '2026-08-02 14:28:00',
+    last_scrape: '2026-08-06 10:28:00',
+    scrape_duration_seconds: 5.02,
     last_error: 'dial tcp 10.0.3.20:22: i/o timeout',
     network_domain: 'finance-dmz',
     labels: { env: 'production', app: '金融核心' },
+    probe_success: false,
+    probe_duration_seconds: 5.02,
   },
   {
     id: 'target-006',
     job: 'blackbox-http',
     instance: 'https://api.example.com/health',
     status: 'up',
-    last_scrape: '2026-08-02 14:29:58',
+    last_scrape: '2026-08-06 10:29:58',
+    scrape_duration_seconds: 0.44,
     last_error: '',
     network_domain: 'default',
     labels: { env: 'production', app: 'API 网关' },
+    probe_success: true,
+    probe_duration_seconds: 0.44,
+    probe_http_status_code: 200,
   },
 ]
+
+/** 采集健康度/覆盖率（PRD 3.1，v0.2 交付，M07 三态 badge 联动） */
+export interface CoverageStat {
+  domain: string
+  monitored_up: number
+  monitored_down: number
+  unmonitored: number
+}
+
+export const coverageStats: CoverageStat[] = [
+  { domain: 'default', monitored_up: 3, monitored_down: 0, unmonitored: 2 },
+  { domain: 'gov-cloud-a', monitored_up: 1, monitored_down: 2, unmonitored: 4 },
+  { domain: 'finance-dmz', monitored_up: 0, monitored_down: 1, unmonitored: 1 },
+]
+
+export interface PrometheusAlert {
+  id: string
+  alertname: string
+  state: AlertState
+  severity: AlertSeverity
+  instance: string
+  active_since: string
+  network_domain: string
+  description: string
+  labels: Record<string, string>
+}
 
 export const prometheusAlerts: PrometheusAlert[] = [
   {
@@ -181,7 +235,7 @@ export const prometheusAlerts: PrometheusAlert[] = [
     state: 'firing',
     severity: 'warning',
     instance: '10.0.1.11:9100',
-    active_since: '2026-08-02 14:15:00',
+    active_since: '2026-08-06 10:15:00',
     network_domain: 'default',
     description: 'CPU 使用率超过 80% 持续 5 分钟',
     labels: { job: 'node-exporter', severity: 'warning' },
@@ -192,7 +246,7 @@ export const prometheusAlerts: PrometheusAlert[] = [
     state: 'firing',
     severity: 'critical',
     instance: '10.0.3.20:22',
-    active_since: '2026-08-02 14:20:00',
+    active_since: '2026-08-06 10:20:00',
     network_domain: 'finance-dmz',
     description: '目标实例持续不可达',
     labels: { job: 'blackbox-tcp', severity: 'critical' },
@@ -203,7 +257,7 @@ export const prometheusAlerts: PrometheusAlert[] = [
     state: 'pending',
     severity: 'warning',
     instance: '10.0.2.20:9100',
-    active_since: '2026-08-02 14:25:00',
+    active_since: '2026-08-06 10:25:00',
     network_domain: 'gov-cloud-a',
     description: '内存使用率接近阈值',
     labels: { job: 'node-exporter', severity: 'warning' },
@@ -214,7 +268,7 @@ export const prometheusAlerts: PrometheusAlert[] = [
     state: 'firing',
     severity: 'critical',
     instance: '10.0.1.10:9100',
-    active_since: '2026-08-02 14:10:00',
+    active_since: '2026-08-06 10:10:00',
     network_domain: 'default',
     description: '磁盘可用空间低于 10%',
     labels: { job: 'node-exporter', severity: 'critical' },
@@ -225,7 +279,7 @@ export const prometheusAlerts: PrometheusAlert[] = [
     state: 'pending',
     severity: 'info',
     instance: 'https://api.example.com/health',
-    active_since: '2026-08-02 14:28:00',
+    active_since: '2026-08-06 10:28:00',
     network_domain: 'default',
     description: '拨测探针失败一次',
     labels: { job: 'blackbox-http', severity: 'info' },

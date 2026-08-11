@@ -670,7 +670,7 @@ export default function RulesPage() {
                   type="info"
                   showIcon
                   message="记录规则不展示 annotations"
-                  description="recording 规则仅保留 expr 与 labels，duration / annotations 字段已隐藏（PRD 5.5）。"
+                  description="记录规则仅保留表达式与标签，时长 / 注解字段已隐藏。"
                   style={{ marginTop: 30 }}
                 />
               )}

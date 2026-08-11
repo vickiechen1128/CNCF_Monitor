@@ -58,12 +58,14 @@ frozen —— 切出 feat/module-XX 后
 
 ### 状态检查命令
 
-每次协调前，Orchestrator 必须读取 PRD 顶部的状态标识和 Change Log：
+每次协调前，Orchestrator 必须读取 PRD 顶部的状态标识和 Change Log（v1.24 起：PRD 章节级读取，禁止全文读取；Change Log 已精简为最近 3 版一句话摘要）：
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-head -n 20 docs/02-product-requirements/Modules/Module_XX_*.md
-grep -A 20 "## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md
+head -n 10 docs/02-product-requirements/Modules/Module_XX_*.md
+grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md   # 章节结构
+sed -n '起点,终点p' docs/02-product-requirements/Modules/Module_XX_*.md  # 按需读取指定章节（如 3 功能 / 4 数据模型 / 9 验收）
+grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  # 精简版 Change Log；完整历史见 docs/04-execution-records/module-XX/design-decisions.md
 ```
 
 ---
@@ -101,6 +103,9 @@ grep -A 20 "## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md
    │      输出：经用户确认的 ready 状态的 PRD + 原型 + Change Log
    │      如遇 [待验证] 点，先派发 prometheus-developer 技术预研
    │      prototype-designer 必须就 PRD 状态变更（draft / prototyping → ready）获得用户明确确认，禁止自行决定
+   │      **PRD 骨架质量要求**：PRD 数据模型字段表必须含「UI 展示名」列（后端术语 ↔ 用户语言）、验收标准分用户/技术两层并标注 P0/P1/P2、含术语映射章节、核心对象状态机集中定义（见 prototype-designer.md 3.1）
+   │      **用户故事编码要求**：模块级用户故事统一使用模块命名空间编码 `Mxx-ROLE-NN`（全局唯一，注册于 01_User_Stories.md §4），禁止复用产品级编码或跨模块同码异义；模块 PRD 第 2 章只引用编码 + 一句话摘要
+   │      **原型评审要求**：评审采用「双层设计 + 两段评审」——第一段用户走查（任务闭环 / 用户可理解），第二段技术核对（数据模型 / API / 状态机被原型覆盖）；技术核对段强制完整，技术信息只是分层摆放（折叠区 / 注释 / README）而非删除；每次评审产出评审记录（design-decisions.md）
    │
    ├──► 3. Plan 派生（planner Phase 1: plan-maintainer）
    │      输入：ready PRD

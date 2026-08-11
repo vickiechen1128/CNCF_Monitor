@@ -1,10 +1,10 @@
 # Module 08: 告警规则管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.1
+> **PRD 版本**: v1.2
 > **产品版本覆盖**: v0.3 / v1.0
-> **原型版本**: v1.1
-> **更新日期**: 2026-08-02
+> **原型版本**: v1.1（v1.2 修订后待升级对齐）
+> **更新日期**: 2026-08-06
 > **对应原型**: `docs/prototypes/module-08/`
 
 > **模块类型**: 扩展能力模块
@@ -17,15 +17,15 @@
 
 管理 Prometheus 告警规则（Alerting Rules / Recording Rules）的生命周期、规则分组与下发，以及 Alertmanager 的静默、抑制、通知路由能力。
 
-> **范围调整说明**：本模块保留「告警规则管理」名称，但规则编辑 UI 已移交 [Module_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)。Module_01 负责提供规则编辑 UI（类 YAML 表单 + PromQL 校验 + 指标实时预览）并产出规则记录；Module_08 负责消费规则记录，完成规则分组、启用/禁用、生命周期管理、`rules.yml` 生成、Alertmanager 配置生成及下发协同。
+> **范围调整说明**：本模块保留「告警规则管理」名称，但规则编辑 UI 已移交 [Module_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)。Module_01 负责提供规则编辑 UI（类 YAML 表单 + PromQL 校验 + 指标实时预览，v0.3 起）并产出规则记录；Module_08 负责消费规则记录，完成规则分组、启用/禁用、生命周期管理、`rules.yml` 生成、Alertmanager 配置生成及下发协同。
 >
 > **告警状态查询边界说明**：
-> - [Module_02: 查询中心](Module_02_Query_Center.md) 负责代理 **Prometheus `/api/v1/alerts`**，展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例，回答「当前触发了哪些规则、哪些对象有问题」。
+> - [Module_02: 查询中心](Module_02_Query_Center.md) 负责代理 **Prometheus `/api/v1/alerts`**（v0.3 起），展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例，回答「当前触发了哪些规则、哪些对象有问题」。
 > - **Module_08 负责 Alertmanager 集成**：通知路由、分组、静默、抑制、接收人及通知状态，回答「告警正在通知给谁、是否被静默/抑制」。
 > - Module_08 可暴露自身的 Alertmanager `/api/v1/alerts` 代理或通知状态 API，供 UI 展示「通知状态」。
 > - 多网域场景下，**边缘本地告警**（断网场景，P2）由边缘本地 Alertmanager 处理，其状态通过 [Module_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 的 EdgeHeartbeat 上报，并在 Module_09 Agent 状态页或 Module_08 边缘告警视图中展示，不归 Module_02 代理。
 >
-> **MVP 阶段**：告警规则优先通过 Module_01 的编辑 UI 生成并持久化，Module_08 按网域/规则组聚合后生成 `rules.yml`，同时允许高级工程师对生成的文件进行手工兜底修改；Alertmanager 配置直接维护 `alertmanager.yml`，Module_08 提供基于模板的生成能力。MetricCenter 通过 [Module_02](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts` 查看**当前触发告警状态**，Module_08 负责 Alertmanager 通知状态与静默/抑制配置。  
+> **v0.3 阶段（本模块首个交付版本）**：告警规则通过 Module_01 的规则编辑 UI（v0.3 起）生成并持久化，Module_08 按网域/规则组聚合后生成 `rules.yml`，同时允许高级工程师对生成的文件进行手工兜底修改；Alertmanager 配置直接维护 `alertmanager.yml`，Module_08 提供基于模板的生成能力。MetricCenter 通过 [Module_02](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（**v0.3 起，与 Module_08 对齐**）查看**当前触发告警状态**，Module_08 负责 Alertmanager 通知状态与静默/抑制配置。  
 > **v0.4+ 阶段**：支持边缘告警规则按 `scope=edge` / `scope=both` 下发到边缘 Agent，实现网域内自治告警。  
 > **v1.0 阶段**：提供静默管理 UI、通知渠道与接收人配置，生成 `alertmanager.yml`；对接 ITSM/ITIL 事件字段映射。
 
@@ -33,12 +33,12 @@
 
 ## 2. 用户故事
 
-- OPS-07：查看当前告警状态
-- OPS-09：通过 Module_01 创建/编辑告警规则，由 Module_08 完成分组、持久化与下发
-- OPS-10：未来配置告警静默与通知接收人
-- ARCH-06：统一管理告警规则版本与下发
-- ARCH-09：按网域配置告警规则（未来）
-- ARCH-10：配置中心/边缘告警规则求值范围（未来）
+- M08-OPS-07：查看当前告警状态（v0.3，经 Module_02 代理 Prometheus `/api/v1/alerts`）
+- M08-OPS-09：通过 Module_01 创建/编辑告警规则（v0.3 起，规则编辑 UI 随 Module_01 v2.2 调整至 v0.3 交付），由 Module_08 完成分组、持久化与下发
+- M08-OPS-10：未来配置告警静默与通知接收人
+- M08-ARCH-06：统一管理告警规则版本与下发
+- M08-ARCH-09：按网域配置告警规则（未来）
+- M08-ARCH-10：配置中心/边缘告警规则求值范围（未来）
 
 ---
 
@@ -46,7 +46,7 @@
 
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
-| **告警状态查看（Prometheus）** | 通过 [Module_02](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例，支持按网域筛选 | P1 |
+| **告警状态查看（Prometheus）** | 通过 [Module_02](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（v0.3 起），展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例，支持按网域筛选 | P1 |
 | **Alertmanager 通知状态** | Module_08 代理 Alertmanager `/api/v1/alerts` 或提供通知状态 API，展示告警经过路由、静默、抑制后的通知状态 | P1 |
 | **告警规则编辑 UI** | UI 由 [Module_01](Module_01_Metric_Collection_Center.md) 提供；Module_08 负责规则记录的持久化、分组与下发 | P1 |
 | **告警规则生命周期管理** | 规则分组（RuleGroup）、启用/禁用、版本管理、按网域聚合 | P1 |
@@ -102,11 +102,11 @@
 
 ---
 
-## 5. MVP 阶段实现方式
+## 5. 实现方式（v0.3 交付）
 
 ### 5.1 告警规则
 
-MVP 阶段告警规则优先由 [Module_01](Module_01_Metric_Collection_Center.md) 的规则编辑 UI 产出，Module_08 按规则组与网域聚合后生成 `upstream/prometheus/rules.yml`。
+v0.3 阶段告警规则优先由 [Module_01](Module_01_Metric_Collection_Center.md) 的规则编辑 UI（v0.3 起）产出，Module_08 按规则组与网域聚合后生成 `upstream/prometheus/rules.yml`。
 
 ```yaml
 groups:
@@ -126,7 +126,7 @@ groups:
 
 ### 5.2 Alertmanager 配置
 
-MVP 阶段直接维护 `upstream/prometheus/alertmanager.yml`，Module_08 提供基于通知渠道与接收人模板的生成辅助：
+v0.3 阶段直接维护 `upstream/prometheus/alertmanager.yml`，Module_08 提供基于通知渠道与接收人模板的生成辅助：
 
 ```yaml
 global:
@@ -147,7 +147,7 @@ receivers:
 
 ### 5.3 告警状态查看
 
-- **Prometheus 当前触发告警**：由 [Module 02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`，前端展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
+- **Prometheus 当前触发告警（v0.3 起）**：由 [Module 02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`，前端展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
 - **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。
 - **边缘本地告警状态**（P2）：通过 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 
@@ -283,7 +283,7 @@ inhibit_rules:
 ## 8. 依赖
 
 - [Module_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)（规则编辑 UI 与规则记录来源）
-- [Module_02: 查询中心](Module_02_Query_Center.md)（代理 Prometheus `/api/v1/alerts`，展示当前 firing/pending 告警实例）
+- [Module_02: 查询中心](Module_02_Query_Center.md)（v0.3 起代理 Prometheus `/api/v1/alerts`，展示当前 firing/pending 告警实例）
 - [Module_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)（配置生成 / 预览 / 下发；边缘 Agent 心跳上报边缘本地 Alertmanager 状态）
 - `upstream/prometheus/rules/`
 - `upstream/prometheus/promql/`
@@ -295,7 +295,7 @@ inhibit_rules:
 
 ## 9. 验收标准
 
-- [ ] MVP 阶段可通过 [Module_02](Module_02_Query_Center.md) 查看当前 Prometheus 触发告警状态
+- [ ] {v0.3} 可通过 [Module_02](Module_02_Query_Center.md) 查看当前 Prometheus 触发告警状态
 - [ ] Prometheus 告警状态列表支持按网域（`network_domain`）筛选
 - [ ] Module_08 提供 Alertmanager 通知状态查询能力（代理 `/api/v1/alerts` 或封装通知状态 API）
 - [ ] 告警规则编辑 UI 由 [Module_01](Module_01_Metric_Collection_Center.md) 提供，Module_08 负责规则记录的持久化、分组与下发
@@ -318,6 +318,7 @@ inhibit_rules:
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.2 | 2026-08-06 | 修改 | 版本对齐（与 [Module_02 v1.2](Module_02_Query_Center.md) / 路线图 Phase 7 对齐）：告警状态查看（Prometheus `/api/v1/alerts`）由 Module_02 代理的启用版本统一标注为 **v0.3**（M08 产品版本面为 v0.3/v1.0，原「MVP 阶段」表述不准确，予以修正）；「5. 实现方式」章节标题及 5.1/5.2/5.3 内「MVP 阶段」统一改为 v0.3 交付；范围调整说明、边界说明、OPS-07/OPS-09、3.1 功能表、8 依赖、9 验收标准第 1 条同步标注 v0.3（规则编辑 UI 依赖随 Module_01 v2.2 调整至 v0.3）；边缘本地告警（P2）不归 Module_02 代理、经 Module_09 EdgeHeartbeat 上报的边界保持不变 | 模块目标、功能范围、实现方式、依赖、验收标准 | v0.3 / v1.0 | 设计中 |
 | v1.1 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
 | v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | v0.3 / v1.0 | draft |

@@ -1,23 +1,23 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.4
+> **PRD 版本**: v1.6
 > **产品版本覆盖**: MVP / v0.4 / v1.0
 > **原型版本**: v1.2
-> **更新日期**: 2026-08-04
+> **更新日期**: 2026-08-07
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[Module_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)、[Module_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)
+> **依赖文档**: [00\_Global\_Architecture.md](../00_Global_Architecture.md)、[Module\_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)、[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)
 > **目标用户**: 运维工程师、运维架构师
 
----
+***
 
 ## 1. 模块目标
 
 Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**对象数据层**。本模块负责维护可被监控的实体（Resource）、定义资源字段到 Prometheus Label 的映射规则（LabelTemplate），以及管理资源上附加的标签（ResourceLabel）。
 
-> **核心定位**：Module 07 是 Module_01（监控策略与指标管理）和 Module_09（网域与边缘配置中心）的**被动数据提供方**。本模块不直接生成或下发 Prometheus 配置，也不负责 ScrapeJob、拨测、规则编辑等策略配置。
+> **核心定位**：Module 07 是 Module\_01（监控策略与指标管理）和 Module\_09（网域与边缘配置中心）的**被动数据提供方**。本模块不直接生成或下发 Prometheus 配置，也不负责 ScrapeJob、拨测、规则编辑等策略配置。
 
 具体职责：
 
@@ -25,67 +25,70 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 2. **标签模板管理**：按资源类型定义字段到 Prometheus Label 的映射规则，为策略模块生成 Job 提供稳定的标签契约。
 3. **资源标签管理**：维护 ResourceLabel 的多种来源（system / user / cmdb）及冲突合并规则。
 4. **Excel 导入**：提供固定列模板、状态映射字典与导入校验。
-5. **扩展性**：为后续接入外部 CMDB（腾讯蓝鲸）预留统一 `CMDBProvider` 接口；具体的 CMDB 同步策略、失败处理与孤儿资源生命周期由 [Module_04](Module_04_Custom_Discovery.md) 负责。MVP 阶段通过 `ExcelProvider` / `SQLiteProvider` 本地维护资源。
+5. **扩展性**：为后续接入外部 CMDB（腾讯蓝鲸）预留统一 `CMDBProvider` 接口；具体的 CMDB 同步策略、失败处理与孤儿资源生命周期由 [Module\_04](Module_04_Custom_Discovery.md) 负责。MVP 阶段通过 `ExcelProvider` / `SQLiteProvider` 本地维护资源。
 
 > **MVP 边界**：
+>
 > - 资源管理最小化，字段固定，不做动态资源模型。
 > - 本模块**不做** ScrapeJob 配置、Blackbox 拨测配置、配置生成、配置校验、配置下发、采集模板管理、目标筛选。
-> - 上述策略与下发职责分别由 [Module_01](Module_01_Metric_Collection_Center.md) 和 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 承担。
+> - 上述策略与下发职责分别由 [Module\_01](Module_01_Metric_Collection_Center.md) 和 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 承担。
 >
-> **与 Module_01 的边界**：Module_01 是监控策略 Owner，负责 ScrapeJob、Exporter 模板绑定、实例选择、规则编辑；Module_07 仅向 Module_01 提供 Resource、LabelTemplate 与 ResourceLabel 数据契约。
+> **与 Module\_01 的边界**：Module\_01 是监控策略 Owner，负责 ScrapeJob、Exporter 模板绑定、实例选择、规则编辑；Module\_07 仅向 Module\_01 提供 Resource、LabelTemplate 与 ResourceLabel 数据契约。
 >
-> **与 Module_09 的边界**：Module_09 负责配置生成、预览与下发；Module_07 不生成 `prometheus.yml`，仅保证对象数据准确、完整。
+> **与 Module\_09 的边界**：Module\_09 负责配置生成、预览与下发；Module\_07 不生成 `prometheus.yml`，仅保证对象数据准确、完整。
 
----
+***
 
 ## 2. 用户故事
 
-- OPS-02：从 Excel 批量导入主机、中间件、应用服务资源
-- OPS-05：临时添加一个资源用于验证（由策略模块决定是否纳入采集 Job）
-- ARCH-03：查看平台整体采集覆盖率（通过 Resource 列表的「已监控 / 未监控」badge）
+> {v1.6} 完整用户故事条目（角色 / 我希望 / 以便于）见**全局用户故事库** **[01\_User\_Stories.md](../01_User_Stories.md)** **4.7 节**；模块级用户故事使用模块命名空间编码（`M07-ROLE-NN`，全局唯一），产品级故事（ARCH-03）沿用全局库编码，仅在此列出编码与一句话摘要。
 
-> 已移除：OPS-06（Blackbox 拨测配置）、ARCH-04（配置生成器注入 remote_write），分别由 Module_01 与 Module_09 承接。
+- **M07-OPS-02**：从 Excel 批量导入主机、中间件、应用服务资源
+- **M07-OPS-05**：临时添加一个资源用于验证（由策略模块决定是否纳入采集 Job）
+- **ARCH-03**：查看平台整体采集覆盖率（通过 Resource 列表的「已监控 / 未监控」badge）（产品级故事，见全局库 §2.2）
 
----
+> 已移除：M07-OPS-06（Blackbox 拨测配置）、M07-ARCH-04（配置生成器注入 remote\_write），分别由 Module\_01 与 Module\_09 承接。
+
+***
 
 ## 3. 核心功能
 
 ### 3.1 资源管理
 
-| 功能 | 说明 | 优先级 |
-|------|------|--------|
-| **资源类型管理** | 定义主机、中间件、应用服务、通用指标目标四类资源，字段固定 | P0 |
-| **主机资源管理** | 主机列表、CRUD、Excel 导入 | P0 |
-| **中间件资源管理** | 中间件列表、类型选择、CRUD、Excel 导入 | P0 |
-| **应用服务资源管理** | 应用服务列表、CRUD、Excel 导入 | P0 |
-| **通用指标目标管理** | 通用/自定义 Exporter 目标管理，支持自定义 IP、端口、metrics_path 与 Label | P0 |
-| **展示字段控制** | 按资源类型固定展示列、默认排序 | P0 |
-| **资源状态管理** | online / offline / maintenance 状态维护 | P0 |
-| **已监控 / 未监控 badge** | 在 Resource 列表展示该资源是否被任意 ScrapeJob 选中；由 Module_01 写入关联关系，Module_07 只读展示 | P0 |
-| **网域归属** | 资源按 `network_domain_id` 分组；网域生命周期由 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
-| **CMDB 接入源** | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 `ExcelProvider` / `SQLiteProvider` 维护资源；v0.4+ 由 [Module_04](Module_04_Custom_Discovery.md) 实现外部 CMDB 同步 | P0 / P2 |
-| **资源关系** | 应用-实例-集群关系、依赖拓扑（未来） | P2 |
+| 功能                  | 说明                                                                                                                                                                  | 优先级              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| **资源类型管理**          | 定义主机、中间件、应用服务、通用指标目标四类资源，字段固定                                                                                                                                       | P0               |
+| **主机资源管理**          | 主机列表、CRUD、Excel 导入                                                                                                                                                  | P0               |
+| **中间件资源管理**         | 中间件列表、类型选择、CRUD、Excel 导入                                                                                                                                            | P0               |
+| **应用服务资源管理**        | 应用服务列表、CRUD、Excel 导入                                                                                                                                                | P0               |
+| **通用指标目标管理**        | 通用/自定义 Exporter 目标管理，支持自定义 IP、端口、metrics\_path 与 Label                                                                                                              | P0               |
+| **展示字段控制**          | 按资源类型固定展示列、默认排序                                                                                                                                                     | P0               |
+| **资源状态管理**          | online / offline / maintenance 状态维护                                                                                                                                 | P0               |
+| **已监控 / 未监控 badge** | 在 Resource 列表展示该资源是否被任意 ScrapeJob 选中；由 Module\_01 写入关联关系，Module\_07 只读展示                                                                                            | P0               |
+| **网域归属**            | 资源按 `network_domain_id` 分组；网域生命周期由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
+| **CMDB 接入源**        | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 `ExcelProvider` / `SQLiteProvider` 维护资源；v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 实现外部 CMDB 同步                 | P0 / P2          |
+| **资源关系**            | 应用-实例-集群关系、依赖拓扑（未来）                                                                                                                                                 | P2               |
 
 ### 3.2 标签模板管理
 
-| 功能 | 说明 | 优先级 |
-|------|------|--------|
-| **标签模板管理** | 按资源类型定义字段到 Prometheus Label 的映射 | P0 |
-| **字段来源配置** | 支持 Resource 字段、Prometheus 内置字段、组合字段、CMDB 字段（v0.4+） | P0 |
-| **默认标签模板** | 为四类资源预置默认模板 | P0 |
-| **模板版本/克隆** | 支持复制、基于现有模板创建新版本（P1） | P1 |
+| 功能          | 说明                                                 | 优先级 |
+| ----------- | -------------------------------------------------- | --- |
+| **标签模板管理**  | 按资源类型定义字段到 Prometheus Label 的映射                    | P0  |
+| **字段来源配置**  | 支持 Resource 字段、Prometheus 内置字段、组合字段、CMDB 字段（v0.4+） | P0  |
+| **默认标签模板**  | 为四类资源预置默认模板                                        | P0  |
+| **模板版本/克隆** | 支持复制、基于现有模板创建新版本（P1）                               | P1  |
 
 ### 3.3 资源标签管理
 
-| 功能 | 说明 | 优先级 |
-|------|------|--------|
-| **ResourceLabel CRUD** | 为单个资源添加、编辑、删除标签 | P0 |
-| **来源与合并规则** | 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，冲突优先级 `cmdb` > `user` > `system` | P0 |
-| **内置 label 保护** | 禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等） | P0 |
-| **CMDB 覆盖提示** | 当用户输入的 key 与 `source=cmdb` 的已有 label 冲突时，实时提示「该 key 将由 CMDB 覆盖，建议更换 key」 | P0 |
-| **批量标签编辑** | 按资源类型或筛选条件批量增删改标签（P1） | P1 |
+| 功能                     | 说明                                                                          | 优先级 |
+| ---------------------- | --------------------------------------------------------------------------- | --- |
+| **ResourceLabel CRUD** | 为单个资源添加、编辑、删除标签                                                             | P0  |
+| **来源与合并规则**            | 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，冲突优先级 `cmdb` > `user` > `system` | P0  |
+| **内置 label 保护**        | 禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等）         | P0  |
+| **CMDB 覆盖提示**          | 当用户输入的 key 与 `source=cmdb` 的已有 label 冲突时，实时提示「该 key 将由 CMDB 覆盖，建议更换 key」    | P0  |
+| **批量标签编辑**             | 按资源类型或筛选条件批量增删改标签（P1）                                                       | P1  |
 
----
+***
 
 ## 4. 核心流程
 
@@ -129,11 +132,12 @@ sequenceDiagram
 ```
 
 > **流程说明**：
-> - Module_07 的核心流程只到 Resource、LabelTemplate、ResourceLabel 的维护为止。
+>
+> - Module\_07 的核心流程只到 Resource、LabelTemplate、ResourceLabel 的维护为止。
 > - CMDB 存储、配置生成、配置下发均不在本模块职责范围内。
-> - Module_01 与 Module_09 通过只读接口消费本模块数据。
+> - Module\_01 与 Module\_09 通过只读接口消费本模块数据。
 
----
+***
 
 ## 5. 数据模型
 
@@ -153,7 +157,7 @@ const (
 > **资源类型粒度说明（决策 16：两套 CI 类型粒度体系）**：
 >
 > - `Resource.resource_type` 为**粗粒度四大类**分类；中间件以 `middleware_type`（mysql / redis / kafka / elasticsearch / ...）表达**细粒度子类型**（见 5.7）；
-> - 细粒度 CI 类型（host / mysql / redis / kafka / nginx / application\_http / snmp）的**映射与策略绑定落在 [Module\_01](Module_01_Metric_Collection_Center.md)（策略层）**的 `resource_type`，本模块不维护细粒度 CI 类型（映射表 `CI_TYPE_CATEGORY_MAP` 见 Module\_01 5.1）；
+> - 细粒度 CI 类型（host / mysql / redis / kafka / nginx / application\_http / snmp）的\*\*映射与策略绑定落在 [Module\_01](Module_01_Metric_Collection_Center.md)（策略层）\*\*的 `resource_type`，本模块不维护细粒度 CI 类型（映射表 `CI_TYPE_CATEGORY_MAP` 见 Module\_01 5.1）；
 > - **权威来源为 CMDB**：v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 同步后向本模块写入四大类 + middleware\_type，MetricCenter **只维护映射、不增删类型**。
 >
 > **CMDB 侧边界（v0.4+）**：
@@ -166,55 +170,58 @@ const (
 
 所有资源类型共享的基础字段：
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| resource_id | string | ✅ | 稳定唯一键，不用于展示；MVP 取自 `server_id` / `instance_name`；v0.4+ CMDB 接入时复用 `cmdb_ci_id` |
-| resource_type | ResourceType | ✅ | host / middleware / application / generic_target |
-| network_domain_id | string | ✅ | 所属网域 ID；MVP 默认值为 `default`；v0.2+ 按租户上下文填充 |
-| source_type | enum | ✅ | 数据来源：`manual` / `import` / `cmdb {v0.4+}`，MVP 默认 `manual` |
-| instance_name | string | ❌ | 可读实例名/展示名；host 模板中必填，对应 Excel `instance_name`，生成 `hostname` label |
-| hostname | string | ❌ | 主机名；host 场景下默认与 `instance_name` 一致；也可从 CMDB `bk_host_name` 等字段同步 |
-| instance_ip | string | ❌ | 目标 IP 或域名；host / generic_target 必填，作为 Prometheus scrape target 地址 |
-| os_type | string | ❌ | 操作系统类型，如 `Linux`、`Windows`；host 场景下从 Excel `image` 或 CMDB 同步 |
-| app_name | string | ✅ | 应用名 → 映射为 `app` label |
-| env | string | ✅ | 环境 → 映射为 `env` label |
-| cluster | string | ✅ | 集群/子应用 → 映射为 `cluster` label；host 场景下 `sub_app_code` 为空时取 `vpc` |
-| owner | string | ❌ | 负责人；MVP 可由用户填写；v0.4+ CMDB 接入时优先取自 `cmdb_maintainer` |
-| cmdb_ci_id | string | ❌ | {v0.4+} 对应 BlueKing CMDB 的 CI ID（`bk_inst_id`） |
-| cmdb_business_path | string | ❌ | {v1.0+} 对应 BlueKing CMDB 业务路径，用于 ITSM 服务目录映射 |
-| cmdb_module_path | string | ❌ | {v1.0+} 对应 BlueKing CMDB 模块路径，用于影响范围定位 |
-| cmdb_maintainer | string | ❌ | {v1.0+} 对应 BlueKing CMDB 维护人，告警负责人来源之一 |
-| status | string | ✅ | `online` / `offline` / `maintenance` / `orphan {v0.4+}`；导入时 Excel 中文状态需映射到该枚举 |
-| is_monitored | bool | ❌ | 是否已被至少一个 ScrapeJob 选中；由 Module_01 维护，Module_07 只读展示 |
-| created_at | datetime | ✅ | 创建时间 |
-| updated_at | datetime | ✅ | 更新时间 |
+| 字段                   | 类型           | 必填 | UI 展示名    | 说明                                                                             |
+| -------------------- | ------------ | -- | --------- | ------------------------------------------------------------------------------ |
+| resource\_id         | string       | ✅  | 资源 ID     | 稳定唯一键，不用于展示；MVP 取自 `server_id` / `instance_name`；v0.4+ CMDB 接入时复用 `cmdb_ci_id` |
+| resource\_type       | ResourceType | ✅  | 资源类型      | host / middleware / application / generic\_target                              |
+| network\_domain\_id  | string       | ✅  | 网域        | 所属网域 ID；MVP 默认值为 `default`；v0.2+ 按租户上下文填充                                      |
+| source\_type         | enum         | ✅  | 数据来源      | 数据来源：`manual` / `import` / `cmdb {v0.4+}`，MVP 默认 `manual`                      |
+| instance\_name       | string       | ❌  | 实例名       | 可读实例名/展示名；host 模板中必填，对应 Excel `instance_name`，生成 `hostname` label              |
+| hostname             | string       | ❌  | 主机名       | 主机名；host 场景下默认与 `instance_name` 一致；也可从 CMDB `bk_host_name` 等字段同步               |
+| instance\_ip         | string       | ❌  | 目标 IP     | 目标 IP 或域名；host / generic\_target 必填，作为 Prometheus scrape target 地址             |
+| os\_type             | string       | ❌  | 操作系统类型    | 操作系统类型，如 `Linux`、`Windows`；host 场景下从 Excel `image` 或 CMDB 同步                   |
+| app\_name            | string       | ✅  | 应用名       | 应用名 → 映射为 `app` label                                                          |
+| env                  | string       | ✅  | 环境        | 环境 → 映射为 `env` label                                                           |
+| cluster              | string       | ✅  | 集群        | 集群/子应用 → 映射为 `cluster` label；host 场景下 `sub_app_code` 为空时取 `vpc`                |
+| owner                | string       | ❌  | 负责人       | 负责人；MVP 可由用户填写；v0.4+ CMDB 接入时优先取自 `cmdb_maintainer`                            |
+| cmdb\_ci\_id         | string       | ❌  | 仅技术信息     | {v0.4+} 对应 BlueKing CMDB 的 CI ID（`bk_inst_id`）                                 |
+| cmdb\_business\_path | string       | ❌  | 仅技术信息     | {v1.0+} 对应 BlueKing CMDB 业务路径，用于 ITSM 服务目录映射                                   |
+| cmdb\_module\_path   | string       | ❌  | 仅技术信息     | {v1.0+} 对应 BlueKing CMDB 模块路径，用于影响范围定位                                         |
+| cmdb\_maintainer     | string       | ❌  | 仅技术信息     | {v1.0+} 对应 BlueKing CMDB 维护人，告警负责人来源之一                                         |
+| status               | string       | ✅  | 状态        | `online` / `offline` / `maintenance` / `orphan {v0.4+}`；导入时 Excel 中文状态需映射到该枚举  |
+| is\_monitored        | bool         | ❌  | 已监控 / 未监控 | 是否已被至少一个 ScrapeJob 选中；由 Module\_01 维护，Module\_07 只读展示                          |
+| created\_at          | datetime     | ✅  | 仅技术信息     | 创建时间                                                                           |
+| updated\_at          | datetime     | ✅  | 仅技术信息     | 更新时间                                                                           |
 
-> **`is_monitored` 字段说明**：
-> - 该字段由 Module_01 在创建/更新/删除 ScrapeJob 时同步计算并写入（或 Module_07 通过只读接口查询 Module_01 的关联关系后展示）。
-> - Module_07 不在本模块内维护 Job 与资源的关联关系，仅负责在 Resource 列表展示「已监控 / 未监控」badge。
+> **`is_monitored`** **字段说明**：
+>
+> - 该字段由 Module\_01 在创建/更新/删除 ScrapeJob 时同步计算并写入（或 Module\_07 通过只读接口查询 Module\_01 的关联关系后展示）。
+> - Module\_07 不在本模块内维护 Job 与资源的关联关系，仅负责在 Resource 列表展示「已监控 / 未监控」badge。
 
 ### 5.3 资源 Label（ResourceLabel）
 
 为支持 CMDB、用户、系统模板三类来源的 label 合并与冲突处理，每个资源关联的 label 单独维护：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | string | 唯一标识 |
-| resource_id | string | 关联的 `Resource.resource_id` |
-| key | string | Label key；强制小写、下划线连接；禁止以 `__` 开头；禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等） |
-| value | string | Label value |
-| source | enum | `system` / `user` / `cmdb {v0.4+}` |
-| created_at | datetime | 创建时间 |
-| updated_at | datetime | 更新时间 |
+| 字段           | 类型       | UI 展示名 | 说明                                                                                                   |
+| ------------ | -------- | ------ | ---------------------------------------------------------------------------------------------------- |
+| id           | string   | 仅技术信息  | 唯一标识                                                                                                 |
+| resource\_id | string   | 仅技术信息  | 关联的 `Resource.resource_id`                                                                           |
+| key          | string   | 标签 Key | Label key；强制小写、下划线连接；禁止以 `__` 开头；禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等） |
+| value        | string   | 标签值    | Label value                                                                                          |
+| source       | enum     | 标签来源   | `system` / `user` / `cmdb {v0.4+}`                                                                   |
+| created\_at  | datetime | 仅技术信息  | 创建时间                                                                                                 |
+| updated\_at  | datetime | 仅技术信息  | 更新时间                                                                                                 |
 
 **来源说明**：
+
 - `system`：由 [LabelTemplate](#54-标签模板-labeltemplate) 根据 Resource 字段自动生成的默认 label，如 `app`、`env`、`cluster`、`hostname`。
 - `user`：用户通过 UI 或 Excel 手动添加的 label。
-- `cmdb`：v0.4+ 由 Module_04 CMDB 同步写入的 label。
+- `cmdb`：v0.4+ 由 Module\_04 CMDB 同步写入的 label。
 
 **同 key 冲突优先级**：`cmdb` > `user` > `system`。即 CMDB 可覆盖用户和系统 label；用户可覆盖系统 label。
 
 **前端提示**：
+
 - 用户手动添加 label 时，输入框旁提示“禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等）”。
 - 当用户输入的 key 与 `source=cmdb` 的已有 label 冲突时，实时提示“该 key 将由 CMDB 覆盖，建议更换 key”。
 - key 校验规则：小写字母、数字、下划线；禁止以 `__` 开头；长度限制 128 字符。
@@ -223,15 +230,15 @@ const (
 
 网域是 MetricCenter 支持多网域物理隔离场景的核心维度。每个资源必须归属到一个网域。
 
-`NetworkDomain` 数据模型、生命周期管理、Token 生成、Edge Agent 状态均由 [Module_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**本模块仅读取 `network_domain_id` 作为资源分组的归属字段**。
+`NetworkDomain` 数据模型、生命周期管理、Token 生成、Edge Agent 状态均由 [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**本模块仅读取** **`network_domain_id`** **作为资源分组的归属字段**。
 
 本模块使用的最小字段：
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| id | string | ✅ | 网域唯一标识，如 `default`、`gov-cloud-a` |
-| name | string | ✅ | 网域展示名 |
-| status | enum | ✅ | online / offline / unknown |
+| 字段     | 类型     | 必填 | UI 展示名 | 说明                               |
+| ------ | ------ | -- | ------ | -------------------------------- |
+| id     | string | ✅  | 网域     | 网域唯一标识，如 `default`、`gov-cloud-a` |
+| name   | string | ✅  | 网域名称   | 网域展示名                            |
+| status | enum   | ✅  | 状态     | online / offline / unknown       |
 
 > **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。
 >
@@ -243,21 +250,21 @@ Excel/外部数据源中的状态值通常是业务语言（如 `运行中`、`�
 
 #### 5.5.1 默认映射
 
-| 来源状态值（不区分大小写） | 目标 `Resource.status` | 说明 |
-|----------------------------|------------------------|------|
-| `运行中`、`正常`、`online`、`active`、`running`、`up` | `online` | 正常运行 |
-| `已停止`、`停止`、`offline`、`stopped`、`down`、`关机` | `offline` | 已停止/不可用 |
-| `维护中`、`维修中`、`maintenance`、`maintaining` | `maintenance` | 维护中 |
+| 来源状态值（不区分大小写）                               | 目标 `Resource.status` | 说明      |
+| ------------------------------------------- | -------------------- | ------- |
+| `运行中`、`正常`、`online`、`active`、`running`、`up` | `online`             | 正常运行    |
+| `已停止`、`停止`、`offline`、`stopped`、`down`、`关机`  | `offline`            | 已停止/不可用 |
+| `维护中`、`维修中`、`maintenance`、`maintaining`     | `maintenance`        | 维护中     |
 
 #### 5.5.2 可配置映射
 
 默认映射无法满足所有客户时，支持通过配置扩展或覆盖：
 
-| 配置项 | 说明 |
-|--------|------|
-| `status_mapping.default_target` | 未匹配到任何规则时的 fallback 目标状态；默认 `offline` |
-| `status_mapping.rules` | 规则列表，每条规则包含 `source_status`（来源值，支持精确匹配或正则）、`target_status`、`resource_type`（可选，为空时适用于所有类型）、`priority`（同 source 冲突时优先级） |
-| `status_mapping.case_sensitive` | 是否区分大小写；默认 `false` |
+| 配置项                             | 说明                                                                                                                    |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `status_mapping.default_target` | 未匹配到任何规则时的 fallback 目标状态；默认 `offline`                                                                                 |
+| `status_mapping.rules`          | 规则列表，每条规则包含 `source_status`（来源值，支持精确匹配或正则）、`target_status`、`resource_type`（可选，为空时适用于所有类型）、`priority`（同 source 冲突时优先级） |
+| `status_mapping.case_sensitive` | 是否区分大小写；默认 `false`                                                                                                    |
 
 **配置示例**：
 
@@ -305,105 +312,105 @@ type ResourceStatusMapping struct {
 #### 5.5.5 UI 配置入口（P2）
 
 - MVP 阶段通过配置文件或初始化 SQL 管理映射字典。
-- v0.4+ 在 [Module_05: 自定义 UI](Module_05_Custom_UI.md) 的系统设置页面提供映射规则管理。
+- v0.4+ 在 [Module\_05: 自定义 UI](Module_05_Custom_UI.md) 的系统设置页面提供映射规则管理。
 
 ### 5.6 主机资源（Host）
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| hostname | string | ✅ | 主机名 |
-| instance_ip | string | ✅ | 管理 IP |
-| os_type | string | ❌ | linux / windows |
-| os_version | string | ❌ | 系统版本 |
+| 字段           | 类型     | 必填 | UI 展示名 | 说明              |
+| ------------ | ------ | -- | ------ | --------------- |
+| hostname     | string | ✅  | 主机名    | 主机名             |
+| instance\_ip | string | ✅  | 目标 IP  | 管理 IP           |
+| os\_type     | string | ❌  | 操作系统类型 | linux / windows |
+| os\_version  | string | ❌  | 系统版本   | 系统版本            |
 
 ### 5.7 中间件资源（Middleware）
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| middleware_type | string | ✅ | mysql / redis / kafka / elasticsearch / ... |
-| instance_ip | string | ✅ | 服务 IP |
-| port | int | ✅ | 服务端口 |
-| version | string | ❌ | 版本号 |
-| connection_string | string | ❌ | 连接串（敏感信息可加密存储） |
+| 字段                 | 类型     | 必填 | UI 展示名 | 说明                                          |
+| ------------------ | ------ | -- | ------ | ------------------------------------------- |
+| middleware\_type   | string | ✅  | 中间件类型  | mysql / redis / kafka / elasticsearch / ... |
+| instance\_ip       | string | ✅  | 目标 IP  | 服务 IP                                       |
+| port               | int    | ✅  | 端口     | 服务端口                                        |
+| version            | string | ❌  | 版本号    | 版本号                                         |
+| connection\_string | string | ❌  | 连接串    | 连接串（敏感信息可加密存储）                              |
 
 ### 5.8 应用服务资源（Application）
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| service_name | string | ✅ | 服务名 |
-| health_check_url | string | ❌ | 拨测 URL；作为资源字段由 Module_07 维护，Blackbox Job 配置由 Module_01 负责 |
-| protocol | string | ❌ | http / https / tcp |
-| endpoint | string | ❌ | 业务指标端点 |
-| port | int | ❌ | 服务端口 |
+| 字段                 | 类型     | 必填 | UI 展示名   | 说明                                                          |
+| ------------------ | ------ | -- | -------- | ----------------------------------------------------------- |
+| service\_name      | string | ✅  | 服务名      | 服务名                                                         |
+| health\_check\_url | string | ❌  | 健康检查 URL | 拨测 URL；作为资源字段由 Module\_07 维护，Blackbox Job 配置由 Module\_01 负责 |
+| protocol           | string | ❌  | 协议       | http / https / tcp                                          |
+| endpoint           | string | ❌  | 业务指标端点   | 业务指标端点                                                      |
+| port               | int    | ❌  | 端口       | 服务端口                                                        |
 
 ### 5.9 通用指标目标（GenericTarget）
 
 用于接入非标准 Exporter 设备（如 SNMP 交换机、GPU 服务器、Oracle 数据库、硬件光纤交换机等）。
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| target_name | string | ✅ | 目标名称/描述 |
-| instance_ip | string | ✅ | 目标 IP 或域名 |
-| port | int | ❌ | 服务端口，空时不拼接 `instance` |
-| metrics_path | string | ❌ | 默认 `/metrics` |
-| scheme | string | ❌ | `http` / `https`，默认 `http` |
-| custom_labels | map | ❌ | 自定义 Label，如 `device_type=snmp_switch`、`vendor=h3c` |
-| exporter_type | string | ❌ | 设备/Exporter 类型，如 `snmp_exporter`、`gpu_exporter`、`oracle_exporter` |
+| 字段             | 类型     | 必填 | UI 展示名      | 说明                                                                |
+| -------------- | ------ | -- | ----------- | ----------------------------------------------------------------- |
+| target\_name   | string | ✅  | 目标名称        | 目标名称/描述                                                           |
+| instance\_ip   | string | ✅  | 目标 IP       | 目标 IP 或域名                                                         |
+| port           | int    | ❌  | 端口          | 服务端口，空时不拼接 `instance`                                             |
+| metrics\_path  | string | ❌  | 采集路径        | 默认 `/metrics`                                                     |
+| scheme         | string | ❌  | 协议          | `http` / `https`，默认 `http`                                        |
+| custom\_labels | map    | ❌  | 自定义标签       | 自定义 Label，如 `device_type=snmp_switch`、`vendor=h3c`                |
+| exporter\_type | string | ❌  | Exporter 类型 | 设备/Exporter 类型，如 `snmp_exporter`、`gpu_exporter`、`oracle_exporter` |
 
 ### 5.10 标签模板（LabelTemplate）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | string | 唯一标识 |
-| name | string | 模板名称 |
-| resource_type | ResourceType | 适用的资源类型 |
-| mappings | []Mapping | 字段映射列表 |
+| 字段             | 类型           | UI 展示名 | 说明      |
+| -------------- | ------------ | ------ | ------- |
+| id             | string       | 仅技术信息  | 唯一标识    |
+| name           | string       | 模板名称   | 模板名称    |
+| resource\_type | ResourceType | 资源类型   | 适用的资源类型 |
+| mappings       | \[]Mapping   | 字段映射   | 字段映射列表  |
 
-> **变更说明**：原 `job_id` 字段已移除。LabelTemplate 只与资源类型绑定，ScrapeJob 在 Module_01 中引用 LabelTemplate。
+> **变更说明**：原 `job_id` 字段已移除。LabelTemplate 只与资源类型绑定，ScrapeJob 在 Module\_01 中引用 LabelTemplate。
 
 ### 5.11 字段映射（Mapping）
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| source_field | string | 来源字段名 |
-| source_type | enum | `resource_field` / `prometheus_builtin` / `composite` / `cmdb_field {v0.4+}` |
-| target_label | string | Prometheus Label 名 |
-| enabled | bool | 是否启用 |
-| transform | string | 转换规则（可选）：`lower`、`upper`、`prefix`、`replace` |
+| 字段            | 类型     | UI 展示名 | 说明                                                                           |
+| ------------- | ------ | ------ | ---------------------------------------------------------------------------- |
+| source\_field | string | 字段来源   | 来源字段名                                                                        |
+| source\_type  | enum   | 来源类型   | `resource_field` / `prometheus_builtin` / `composite` / `cmdb_field {v0.4+}` |
+| target\_label | string | 目标标签   | Prometheus Label 名                                                           |
+| enabled       | bool   | 是否启用   | 是否启用                                                                         |
+| transform     | string | 转换规则   | 转换规则（可选）：`lower`、`upper`、`prefix`、`replace`                                  |
 
 ### 5.12 标签模板字段来源
 
 #### A. Resource 字段
 
-| 资源类型 | 来源字段 | Prometheus Label | 说明 |
-|----------|-----------|------------------|------|
-| 通用 | `app_name` | `app` | Resource 基础字段 |
-| 通用 | `env` | `env` | Resource 基础字段 |
-| 通用 | `cluster` | `cluster` | Resource 基础字段；host 场景下 `sub_app_code` 为空时取 `vpc` |
-| 通用 | `instance_name` | `instance_name` | 可读实例名；host 模板中必填 |
-| 主机 | `hostname` | `hostname` | host 场景下默认与 `instance_name` 一致 |
-| 主机 | `instance_ip` | `instance_ip` | 采集目标地址 |
-| 主机 | `os_type` | `os_type` | 操作系统类型 |
-| 中间件 | `middleware_type` | `middleware_type` | 中间件类型 |
-| 应用服务 | `service_name` | `service_name` | 应用服务名 |
-| 通用 {v0.4+} | `cmdb_business_path` | `cmdb_business_path` | CMDB 接入后由 Module_04 同步 |
-| 通用 {v0.4+} | `cmdb_module_path` | `cmdb_module_path` | CMDB 接入后由 Module_04 同步 |
-| 通用 {v0.4+} | `cmdb_maintainer` | `cmdb_maintainer` | CMDB 接入后由 Module_04 同步 |
+| 资源类型       | 来源字段                 | Prometheus Label     | 说明                                               |
+| ---------- | -------------------- | -------------------- | ------------------------------------------------ |
+| 通用         | `app_name`           | `app`                | Resource 基础字段                                    |
+| 通用         | `env`                | `env`                | Resource 基础字段                                    |
+| 通用         | `cluster`            | `cluster`            | Resource 基础字段；host 场景下 `sub_app_code` 为空时取 `vpc` |
+| 通用         | `instance_name`      | `instance_name`      | 可读实例名；host 模板中必填                                 |
+| 主机         | `hostname`           | `hostname`           | host 场景下默认与 `instance_name` 一致                   |
+| 主机         | `instance_ip`        | `instance_ip`        | 采集目标地址                                           |
+| 主机         | `os_type`            | `os_type`            | 操作系统类型                                           |
+| 中间件        | `middleware_type`    | `middleware_type`    | 中间件类型                                            |
+| 应用服务       | `service_name`       | `service_name`       | 应用服务名                                            |
+| 通用 {v0.4+} | `cmdb_business_path` | `cmdb_business_path` | CMDB 接入后由 Module\_04 同步                          |
+| 通用 {v0.4+} | `cmdb_module_path`   | `cmdb_module_path`   | CMDB 接入后由 Module\_04 同步                          |
+| 通用 {v0.4+} | `cmdb_maintainer`    | `cmdb_maintainer`    | CMDB 接入后由 Module\_04 同步                          |
 
 #### B. Prometheus 内置字段
 
-| 内置字段 | 说明 |
-|----------|------|
-| `__address__` | 抓取地址 |
-| `__scheme__` | 协议 |
-| `__metrics_path__` | 采集路径 |
-| `job` | Job 名称 |
-| `instance` | 实例标识 |
+| 内置字段               | 说明     |
+| ------------------ | ------ |
+| `__address__`      | 抓取地址   |
+| `__scheme__`       | 协议     |
+| `__metrics_path__` | 采集路径   |
+| `job`              | Job 名称 |
+| `instance`         | 实例标识   |
 
 #### C. 组合字段
 
-| 组合字段 | 生成规则 |
-|----------|----------|
+| 组合字段       | 生成规则                                |
+| ---------- | ----------------------------------- |
 | `instance` | 主机/中间件：`instance_ip` + `:` + `port` |
 
 ### 5.13 默认标签模板
@@ -412,48 +419,85 @@ type ResourceStatusMapping struct {
 
 **主机默认标签模板**
 
-| 来源类型 | 来源字段 | 目标 Label |
-|----------|----------|------------|
-| composite | `instance_ip:port` | `instance` |
-| resource_field | `app_name` | `app` |
-| resource_field | `env` | `env` |
-| resource_field | `cluster` | `cluster` |
-| resource_field | `hostname` | `hostname` |
-| resource_field | `instance_name` | `instance_name` |
-| resource_field | `os_type` | `os_type` |
+| 来源类型            | 来源字段               | 目标 Label        |
+| --------------- | ------------------ | --------------- |
+| composite       | `instance_ip:port` | `instance`      |
+| resource\_field | `app_name`         | `app`           |
+| resource\_field | `env`              | `env`           |
+| resource\_field | `cluster`          | `cluster`       |
+| resource\_field | `hostname`         | `hostname`      |
+| resource\_field | `instance_name`    | `instance_name` |
+| resource\_field | `os_type`          | `os_type`       |
 
 **中间件默认标签模板**
 
-| 来源类型 | 来源字段 | 目标 Label |
-|----------|----------|------------|
-| composite | `instance_ip:port` | `instance` |
-| resource_field | `app_name` | `app` |
-| resource_field | `env` | `env` |
-| resource_field | `cluster` | `cluster` |
-| resource_field | `middleware_type` | `middleware_type` |
+| 来源类型            | 来源字段               | 目标 Label          |
+| --------------- | ------------------ | ----------------- |
+| composite       | `instance_ip:port` | `instance`        |
+| resource\_field | `app_name`         | `app`             |
+| resource\_field | `env`              | `env`             |
+| resource\_field | `cluster`          | `cluster`         |
+| resource\_field | `middleware_type`  | `middleware_type` |
 
 **应用服务默认标签模板**
 
-| 来源类型 | 来源字段 | 目标 Label |
-|----------|----------|------------|
-| resource_field | `service_name` | `service_name` |
-| resource_field | `app_name` | `app` |
-| resource_field | `env` | `env` |
-| resource_field | `cluster` | `cluster` |
-| resource_field | `health_check_url` | `health_check_url` |
+| 来源类型            | 来源字段               | 目标 Label           |
+| --------------- | ------------------ | ------------------ |
+| resource\_field | `service_name`     | `service_name`     |
+| resource\_field | `app_name`         | `app`              |
+| resource\_field | `env`              | `env`              |
+| resource\_field | `cluster`          | `cluster`          |
+| resource\_field | `health_check_url` | `health_check_url` |
 
 **通用指标目标默认标签模板**
 
-| 来源类型 | 来源字段 | 目标 Label |
-|----------|----------|------------|
-| composite | `instance_ip:port` | `instance` |
-| resource_field | `target_name` | `target_name` |
-| resource_field | `app_name` | `app` |
-| resource_field | `env` | `env` |
-| resource_field | `cluster` | `cluster` |
-| resource_field | `custom_labels.*` | 透传 |
+| 来源类型            | 来源字段               | 目标 Label      |
+| --------------- | ------------------ | ------------- |
+| composite       | `instance_ip:port` | `instance`    |
+| resource\_field | `target_name`      | `target_name` |
+| resource\_field | `app_name`         | `app`         |
+| resource\_field | `env`              | `env`         |
+| resource\_field | `cluster`          | `cluster`     |
+| resource\_field | `custom_labels.*`  | 透传            |
 
----
+### 5.14 数据模型状态机 {v1.6}
+
+> **说明（v1.6）**：集中定义本模块核心对象的状态流转（与 4.1 监控对象管理整体流程互为参照，供后端实现与前后端契约对齐）。
+
+**① Resource.status（资源状态）状态机**
+
+```text
+                    ┌──────────────────────────────────────────┐
+                    │ 来源：Excel 导入（中文状态映射）            │
+                    │       CMDB 同步（v0.4+，Module_04 写入）    │
+                    └──────────────────────────────────────────┘
+                                    │
+                                    ▼
+ online（运行中）◄───────────► offline（已停止）
+      │
+      └──► maintenance（维护中）──► 恢复 → online
+      
+ orphan（孤儿，v0.4+）：CMDB 同步失败后保留 7 天，超期清理（Module_04 生命周期管理）
+```
+
+| 状态          | 含义        | 进入条件                       | 后续流转                     |
+| ----------- | --------- | -------------------------- | ------------------------ |
+| online      | 运行中       | Excel 导入状态映射（运行中）/ CMDB 同步 | 可切 maintenance / offline |
+| offline     | 已停止       | Excel 状态映射（已停止）/ 探活失败      | 可恢复 online               |
+| maintenance | 维护中       | Excel 状态映射（维护中）            | 恢复 → online              |
+| orphan      | 孤儿（v0.4+） | CMDB 同步失败，资源保留 7 天         | 超期清理 / 同步恢复后转正常状态        |
+
+> **孤儿资源（v0.4+）**：CMDB 同步失败时按 `network_domain_id + resource_type` 归组保留 7 天，保证「CMDB 同步失败后仍保持监控不中断」（M04-OPS-10）；孤儿资源不参与新采集 Job 的实例选择，由 Module\_04 生命周期管理。
+
+**② 标签来源优先级（ResourceLabel.source）**
+
+```text
+cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生成）
+```
+
+同 key 冲突时：CMDB 来源**覆盖** user 来源；`system` 为系统保护标签不可被覆盖；Prometheus 内置 label（`__address__` / `instance` / `job` / `scheme`）禁止用户手动覆盖（决策 3.4，composite→instance 映射除外）。
+
+***
 
 ## 6. Excel 导入规范
 
@@ -489,20 +533,20 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 
 ### 6.2 数据校验
 
-| 校验项 | 规则 |
-|--------|------|
-| 必填项 | 检查资源类型对应的必填字段 |
-| 网域存在性 | `network_domain` 必须对应已存在的 `NetworkDomain.id`；为空时自动填充为 `default` |
-| IP 格式 | `instance_ip` 必须符合 IPv4 格式 |
-| 端口范围 | `port` 必须在 1 ~ 65535 |
-| URL 格式 | `health_check_url` 必须符合 HTTP/TCP URL 格式 |
-| 环境枚举 | `env` 必须是 `dev/test/staging/prod` 之一 |
-| 协议枚举 | `protocol` 必须是 `http/https/tcp` 之一 |
-| 状态枚举 | `status` 必须是 `online/offline/maintenance` 之一 |
-| 重复检测 | 同一资源类型下，`instance_ip:port` 或 `service_name` 不可重复 |
-| 通用目标必填 | 通用目标 `instance_ip` 必填且符合 IPv4/域名格式 |
-| 协议枚举 | 通用目标 `scheme` 必须是 `http/https` 之一 |
-| 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式 |
+| 校验项     | 规则                                                              |
+| ------- | --------------------------------------------------------------- |
+| 必填项     | 检查资源类型对应的必填字段                                                   |
+| 网域存在性   | `network_domain` 必须对应已存在的 `NetworkDomain.id`；为空时自动填充为 `default` |
+| IP 格式   | `instance_ip` 必须符合 IPv4 格式                                      |
+| 端口范围    | `port` 必须在 1 \~ 65535                                           |
+| URL 格式  | `health_check_url` 必须符合 HTTP/TCP URL 格式                         |
+| 环境枚举    | `env` 必须是 `dev/test/staging/prod` 之一                            |
+| 协议枚举    | `protocol` 必须是 `http/https/tcp` 之一                              |
+| 状态枚举    | `status` 必须是 `online/offline/maintenance` 之一                    |
+| 重复检测    | 同一资源类型下，`instance_ip:port` 或 `service_name` 不可重复                |
+| 通用目标必填  | 通用目标 `instance_ip` 必填且符合 IPv4/域名格式                              |
+| 协议枚举    | 通用目标 `scheme` 必须是 `http/https` 之一                               |
+| 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式                 |
 
 ### 6.3 导入结果
 
@@ -526,13 +570,13 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 }
 ```
 
----
+***
 
 ## 7. simple-agent 标准采集示例（资源示例）
 
 MetricCenter 内置 [`platform/examples/simple-agent/`](../../../platform/examples/simple-agent/main.go) 作为**应用服务资源**接入示例。
 
-> **说明**：simple-agent 的 ScrapeJob、Exporter 模板、采集参数等策略配置由 [Module_01](Module_01_Metric_Collection_Center.md) 负责；本模块仅演示如何将其作为一条 Application 类型 Resource 录入。
+> **说明**：simple-agent 的 ScrapeJob、Exporter 模板、采集参数等策略配置由 [Module\_01](Module_01_Metric_Collection_Center.md) 负责；本模块仅演示如何将其作为一条 Application 类型 Resource 录入。
 
 ### 7.1 启动示例
 
@@ -560,15 +604,15 @@ port: 9100
 status: "online"
 ```
 
-> 完整的采集模板（含 `default_scrape_interval`、`default_metrics_path`、`default_port` 等）已移至 [Module_01](Module_01_Metric_Collection_Center.md) 的 Exporter 模板管理章节。
+> 完整的采集模板（含 `default_scrape_interval`、`default_metrics_path`、`default_port` 等）已移至 [Module\_01](Module_01_Metric_Collection_Center.md) 的 Exporter 模板管理章节。
 
----
+***
 
 ## 8. CMDB Provider 扩展设计
 
-为后续接入腾讯蓝鲸等外部 CMDB 预留统一接口。MVP 实现由本模块提供本地录入能力；v0.4+ 外部 Provider（腾讯蓝鲸、Nacos、K8s、HTTP）由 [Module_04](Module_04_Custom_Discovery.md) 扩展，须遵循本接口。
+为后续接入腾讯蓝鲸等外部 CMDB 预留统一接口。MVP 实现由本模块提供本地录入能力；v0.4+ 外部 Provider（腾讯蓝鲸、Nacos、K8s、HTTP）由 [Module\_04](Module_04_Custom_Discovery.md) 扩展，须遵循本接口。
 
-> **边界说明**：CMDB 同步策略、失败处理、孤儿资源生命周期、CI 类型映射表、待分类队列等**外部数据源生命周期管理**均由 [Module_04](Module_04_Custom_Discovery.md) 负责；本模块只消费同步后的 `Resource` 数据并提供给 Module_01 / Module_09 使用。
+> **边界说明**：CMDB 同步策略、失败处理、孤儿资源生命周期、CI 类型映射表、待分类队列等**外部数据源生命周期管理**均由 [Module\_04](Module_04_Custom_Discovery.md) 负责；本模块只消费同步后的 `Resource` 数据并提供给 Module\_01 / Module\_09 使用。
 
 ```go
 type CMDBProvider interface {
@@ -578,68 +622,106 @@ type CMDBProvider interface {
 ```
 
 MVP 实现：
+
 - `ExcelProvider`：Excel 导入
 - `SQLiteProvider`：本地 SQLite 存储
 
-v0.4+ 实现（由 Module_04 负责）：
+v0.4+ 实现（由 Module\_04 负责）：
+
 - `BlueKingProvider`：腾讯蓝鲸 CMDB
 - `HTTPProvider`：通用 HTTP CMDB
 - `NacosProvider`：Nacos 注册中心
 - `KubernetesProvider`：K8s Endpoints/Service
 
----
+***
 
 ## 9. 前端页面
 
-| 页面 | 功能 |
-|------|------|
-| 资源类型选择 | 选择主机/中间件/应用服务/通用指标目标进行管理 |
-| 主机资源管理 | 主机列表、Excel 导入、编辑、删除 |
-| 中间件资源管理 | 中间件列表、类型选择、Excel 导入 |
-| 应用服务资源管理 | 应用服务列表、Excel 导入 |
-| 通用指标目标资源管理页 | 通用指标目标 CRUD |
-| 标签模板 | 按资源类型创建/编辑标签模板 |
-| 资源标签 | 为单个资源添加/编辑/删除 label，展示来源与冲突提示 |
-| 导入记录 | 查看 Excel 导入历史与校验报告 |
+| 页面          | 功能                            |
+| ----------- | ----------------------------- |
+| 资源类型选择      | 选择主机/中间件/应用服务/通用指标目标进行管理      |
+| 主机资源管理      | 主机列表、Excel 导入、编辑、删除           |
+| 中间件资源管理     | 中间件列表、类型选择、Excel 导入           |
+| 应用服务资源管理    | 应用服务列表、Excel 导入               |
+| 通用指标目标资源管理页 | 通用指标目标 CRUD                   |
+| 标签模板        | 按资源类型创建/编辑标签模板                |
+| 资源标签        | 为单个资源添加/编辑/删除 label，展示来源与冲突提示 |
+| 导入记录        | 查看 Excel 导入历史与校验报告            |
 
-> 已移除页面：采集 Job、拨测配置、配置预览、下发历史。这些功能分别迁移至 [Module_01](Module_01_Metric_Collection_Center.md) 与 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md)。
+> 已移除页面：采集 Job、拨测配置、配置预览、下发历史。这些功能分别迁移至 [Module\_01](Module_01_Metric_Collection_Center.md) 与 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md)。
 
----
+***
 
 ## 10. 依赖
 
 - `platform/models/`：Resource、LabelTemplate、ResourceLabel 模型定义
 - `platform/discovery/`：CMDB Provider 接口与 Excel/SQLite 实现
-- [Module_01](Module_01_Metric_Collection_Center.md)：消费 Resource、LabelTemplate、ResourceLabel 数据，维护 `is_monitored` 状态
-- [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md)：读取 Resource、LabelTemplate、ResourceLabel 数据生成并下发配置
+- [Module\_01](Module_01_Metric_Collection_Center.md)：消费 Resource、LabelTemplate、ResourceLabel 数据，维护 `is_monitored` 状态
+- [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md)：读取 Resource、LabelTemplate、ResourceLabel 数据生成并下发配置
 
----
+***
 
 ## 11. 验收标准
 
-- [ ] 可以维护主机、中间件、应用服务、通用指标目标四类资源
-- [ ] 系统初始化后存在默认网域 `default`，单网域场景下用户无感知
-- [ ] 可以按资源类型下载固定列的 Excel 模板，模板包含 `network_domain_id` 列
-- [ ] 可以上传 Excel 并导入到对应资源类型；未填写 `network_domain_id` 时自动归属到 `default`
-- [ ] 导入时能够基于资源类型校验必填字段，并校验 `network_domain_id` 存在性
-- [ ] 导入时 Excel 中文 `status` 能够映射到 `Resource.status` 枚举（如 `运行中` → `online`）
-- [ ] 可以创建/编辑标签模板，且标签模板按资源类型区分
-- [ ] 标签模板字段来源包含 Resource 字段、Prometheus 内置字段和组合字段
-- [ ] ResourceLabel 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，同 key 冲突优先级为 `cmdb` > `user` > `system`
-- [ ] 用户手动添加 label 时禁止覆盖 Prometheus 内置 label，冲突 key UI 提示“将被 CMDB 覆盖”
-- [ ] 可维护通用指标目标，配置自定义 `metrics_path` 与 `custom_labels`
-- [ ] Resource 列表展示「已监控 / 未监控」badge，标识该资源是否被任意 ScrapeJob 选中
-- [ ] 模块边界清晰：Module_07 不生成 `prometheus.yml`，不配置 ScrapeJob，不下发配置
-- [ ] Module_01 与 Module_09 可通过只读接口稳定获取 Resource、LabelTemplate、ResourceLabel 数据
-- [ ] {v0.4+} 资源模型预留 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` 字段
+### 11.1 用户验收（用户可在 UI 感知/操作）
+
+- [ ] {P0} 可以维护主机、中间件、应用服务、通用指标目标四类资源
+- [ ] {P0} 系统初始化后存在默认网域 `default`，单网域场景下用户无感知
+- [ ] {P0} 可以按资源类型下载固定列的 Excel 模板，模板包含 `network_domain_id` 列
+- [ ] {P0} 可以上传 Excel 并导入到对应资源类型；未填写 `network_domain_id` 时自动归属到 `default`
+- [ ] {P0} 可以创建/编辑标签模板，且标签模板按资源类型区分
+- [ ] {P0} 标签模板字段来源包含 Resource 字段、Prometheus 内置字段和组合字段
+- [ ] {P1} 可维护通用指标目标，配置自定义 `metrics_path` 与 `custom_labels`
+- [ ] {P0} Resource 列表展示「已监控 / 未监控」badge，标识该资源是否被任意 ScrapeJob 选中
+
+### 11.2 技术验收（后端/契约可验证）
+
+- [ ] {P0} 导入时能够基于资源类型校验必填字段，并校验 `network_domain_id` 存在性
+- [ ] {P0} 导入时 Excel 中文 `status` 能够映射到 `Resource.status` 枚举（如 `运行中` → `online`）
+- [ ] {P1} ResourceLabel 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，同 key 冲突优先级为 `cmdb` > `user` > `system`
+- [ ] {P1} 用户手动添加 label 时禁止覆盖 Prometheus 内置 label，冲突 key UI 提示“将被 CMDB 覆盖”
+- [ ] {P1} 模块边界清晰：Module\_07 不生成 `prometheus.yml`，不配置 ScrapeJob，不下发配置
+- [ ] {P1} Module\_01 与 Module\_09 可通过只读接口稳定获取 Resource、LabelTemplate、ResourceLabel 数据
+- [ ] {P1} {v0.4+} 资源模型预留 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` 字段
+
+## 提示分区规范
+
+原型 / 产品页面中的提示按受众分三类，避免相互干扰——
+
+1. **用户 UI 文案**：面向运维工程师，**不含「决策 X」「PRD X.X」等实现层引用**，讲人话；
+2. **产品 / 技术评审说明**：设计决策依据与 PRD 引用**集中折叠在页面底部「原型与实现说明（面向产品 / 技术评审）」区**，默认折叠，用户无感知，产品评审与开发可展开；
+3. **开发 / AI 注释**：代码注释与 PRD 数据模型 / 技术字段承载实现细节与决策引用，供后续代码开发（含 AI）理解。
+
+此规范使**用户看到干净的"未来原型雏形"**，同时**开发侧（含 AI）可从代码注释与 PRD 获取完整设计依据**。本规范由 `.kimi/agents/prototype-designer.md`「提示分区规范」强制执行，原型 MainLayout 提供全局折叠区承载本模块决策清单。
+
+## 术语映射（用户词汇表）
+
+> {v1.6} 后端术语 ↔ 用户语言的权威对照（与 5.x 数据模型「UI 展示名」列一致）。用户可见文案、前端页面、接口文档均以本表对齐；「仅技术信息」术语只出现在技术层（折叠区 / 代码注释 / 接口契约），不作为用户界面文案。
+
+| 后端术语                                  | 用户语言      | 说明                                                        |
+| ------------------------------------- | --------- | --------------------------------------------------------- |
+| `Resource`                            | 监控对象 / 资源 | 主机、中间件、应用、通用指标目标四类                                        |
+| `resource_type`                       | 资源类型      | host / middleware / application / generic\_target（粗粒度四大类） |
+| `middleware_type`                     | 中间件类型     | mysql / redis / kafka / elasticsearch 等（细粒度子类型）           |
+| `ResourceLabel`                       | 资源标签      | 附加到资源的键值标签（三来源：CMDB / 用户 / 系统）                            |
+| `LabelTemplate`                       | 标签模板      | 按资源类型管理「字段 → Prometheus Label」映射                          |
+| `ResourceLabel.source`                | 标签来源      | cmdb / user / system，优先级 cmdb > user > system             |
+| `is_monitored`                        | 已监控 / 未监控 | 资源是否被任一 ScrapeJob 选中（Module\_01 维护，本模块只读展示）               |
+| `status`                              | 状态        | 运行中 / 已停止 / 维护中（+ v0.4+ 孤儿）                               |
+| `orphan`                              | 孤儿资源      | 仅技术信息（v0.4+，CMDB 同步失败保留 7 天）                              |
+| Excel 状态映射                            | 仅技术信息     | Excel 中文状态（运行中/已停止/维护中）→ 枚举映射规则                           |
+| `cmdb_ci_id` / `cmdb_business_path` 等 | 仅技术信息     | CMDB 预留字段（v0.4+，Excel 模板保留列）                              |
+| `network_domain_id`                   | 网域        | 资源归属网域（对应 CMDB 云区域，v0.4+）                                 |
+| `PROTECTED_PROMETHEUS_LABELS`         | 仅技术信息     | 保护 label（instance / job 等），用户禁止覆盖                         |
+| `CMDBProvider`                        | 仅技术信息     | v0.4+ CMDB 同步接口（Module\_04 实现）                            |
 
 ## Change Log
 
-| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
-|------|------|----------|----------|----------|--------------|------|
-| v1.4 | 2026-08-04 | 修改 | 补充「CMDB 侧边界」说明：CMDB CI 类型本身是细粒度的（bk_obj_id 直接为 mysql/redis 等独立模型），CMDB 无需父子分类表达；MetricCenter 粗粒度四大类（category）仅是内部资源管理维度（CRUD 页面/标签模板/孤儿分组）；`middleware_type` 细粒度来源为 CMDB bk_obj_id（v0.4+）或 Excel 导入列（MVP），`resource_type` 粗粒度由 Module_04 CI 类型映射表归类 | 数据模型、模块边界、CMDB 集成 | MVP / v0.4 / v1.0 | 设计中 |
-| v1.3 | 2026-08-04 | 修改 | 落盘设计决策 16：明确两套 CI 类型粒度体系——`Resource.resource_type` 为粗粒度四大类（host/middleware/application/generic_target）+ `middleware_type` 细粒度子类型（mysql/redis/kafka/...），细粒度 CI 类型映射到 Module_01（策略层）的 resource_type（映射表 CI_TYPE_CATEGORY_MAP 见 Module_01 5.1）；v0.4+ CMDB 为唯一权威来源（Module_04 同步后写入四大类 + middleware_type，MetricCenter 只维护映射不增删类型） | 数据模型、模块边界 | MVP / v0.4 / v1.0 | 设计中 |
-| v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
-| v1.2 | 2026-08-03 | 修改 | 明确单网域模式下 Resource 列表仍展示「网域」列，网域作为云区域概念不可隐藏 | 功能范围、UI/UX、Excel 模板 | MVP | 设计中 |
-| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
-| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.4 / v1.0 | draft |
+> **Change Log 定位（v1.6）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.3 及以前逐版详情）已迁移至 `docs/04-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 5.14 状态机 / 11 验收标准）。
+
+| 版本   | 日期         | 变更类型 | 变更内容（一句话）                                                                                                                                              | 产品版本影响            | 状态  |
+| :--- | :--------- | :--- | :----------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------- | :-- |
+| v1.6 | 2026-08-07 | 新增   | 按 prototype-designer PRD 骨架规范补齐：5.x 字段表加「UI 展示名」列、新增 5.14 数据模型状态机、新增「术语映射」章节、验收标准分层（11.1 用户 / 11.2 技术）+ P0/P1 标注、第 2 章用户故事引用全局库（M07- 编码）、Change Log 精简 | MVP / v0.4 / v1.0 | 设计中 |
+| v1.5 | 2026-08-07 | 新增   | 补充「提示分区规范」章节 + 原型清理用户可见文案中决策/PRD 引用（46 处）+ MainLayout 全局折叠区                                                                                            | 文档自身            | 设计中 |
+| v1.4 | 2026-08-04 | 修改   | 补充「CMDB 侧边界」说明（CMDB 细粒度 CI 类型 vs MetricCenter 粗粒度四大类）                                                                                                  | MVP / v0.4 / v1.0 | 设计中 |
+

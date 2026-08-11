@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip } from 'antd'
+import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Collapse } from 'antd'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -148,7 +148,35 @@ export function MainLayout({ children }: MainLayoutProps) {
             </Tooltip>
           </div>
         </Sider>
-        <Content className="app-content">{children}</Content>
+        <Content className="app-content">
+          {children}
+          {/* 提示分区规范：用户可见文案不含设计决策 / PRD 引用；本折叠区集中承载设计依据，供产品 / 技术评审与开发参考 */}
+          <Collapse
+            ghost
+            style={{ margin: '0 16px 16px' }}
+            items={[
+              {
+                key: 'review',
+                label: (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    原型与实现说明（面向产品 / 技术评审，不影响功能体验）
+                  </Text>
+                ),
+                children: (
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+                    页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
+                    docs/04-execution-records/module-07/design-decisions.md 与 Module_07 PRD（对应原型目录上级）。
+                    决策清单：3.1 v0.4+ 预留字段处理策略（cmdb / orphan / cmdb_field 类型存在、MVP 不使用，UI 标注 {'v0.4+'}）；
+                    3.2 模块边界可视化（被动数据提供方、is_monitored 由 Module_01 维护只读展示、不生成下发 Prometheus 配置、CMDB 同步由 Module_04 负责）；
+                    3.3 状态映射可配置说明放置位置（标签模板页 + 导入记录页，UI 配置入口 P2）；3.4 保护 Prometheus label 校验（composite→instance 映射为例外允许）；
+                    3.5 跨模块导航占位（非本模块菜单 disabled + 版本标注）。
+                    实现细节与数据契约见 PRD 对应章节与代码注释。
+                  </Typography.Paragraph>
+                ),
+              },
+            ]}
+          />
+        </Content>
       </Layout>
     </Layout>
   )

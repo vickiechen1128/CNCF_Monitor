@@ -30,10 +30,10 @@
 
 ## 2. 用户故事
 
-- ARCH-13：客户业务专网已有一套 Prometheus，希望不替换它，只把数据汇聚到 MetricCenter 统一查询。
-- ARCH-14：客户政务网运行 Zabbix，希望通过 Adapter 将其指标接入 MetricCenter。
-- OPS-14：查看所有已接入监控源的状态，区分自部署 Agent、外部 Prometheus、Zabbix Adapter。
-- OPS-15：某个外部 Prometheus 停止推送时，收到监控源离线告警。
+- M10-ARCH-13：客户业务专网已有一套 Prometheus，希望不替换它，只把数据汇聚到 MetricCenter 统一查询。
+- M10-ARCH-14：客户政务网运行 Zabbix，希望通过 Adapter 将其指标接入 MetricCenter。
+- M10-OPS-14：查看所有已接入监控源的状态，区分自部署 Agent、外部 Prometheus、Zabbix Adapter。
+- M10-OPS-15：某个外部 Prometheus 停止推送时，收到监控源离线告警。
 - PM-01：在招投标材料中展示 MetricCenter 的异构监控汇聚能力。
 
 ---
