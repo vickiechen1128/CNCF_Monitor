@@ -12,8 +12,12 @@ import {
   changeDetectionStatus,
   domainArtifactShape,
   validationLayeringNote,
+  deriveRemoteWriteUrl,
+  MVP_AGENT_TYPE,
   TOKEN_MASK,
   type ConfigTargetsFiles,
+  type ConfigChangeTarget,
+  type AffectedConfigFile,
 } from './module-09'
 
 describe('module-09 mocks', () => {
@@ -122,7 +126,7 @@ describe('module-09 mocks', () => {
   })
 
   it('should expose the edge agent offline delivery install guide (PRD 3.9)', () => {
-    expect(edgeAgentInstallGuide.steps.length).toBe(2)
+    expect(edgeAgentInstallGuide.steps.length).toBe(3)
     expect(edgeAgentInstallGuide.env_vars.NETWORK_DOMAIN_ID).toBeTruthy()
     expect(edgeAgentInstallGuide.env_vars.TOKEN).toBeTruthy()
     expect(edgeAgentInstallGuide.checksum_algorithm).toBe('sha256')
@@ -156,23 +160,26 @@ describe('module-09 mocks', () => {
     expect(blackbox?.role).toContain('blackbox')
   })
 
-  it('should describe one-step integration install flow (一体化离线包 + Agent 自动部署采集器, v1.8)', () => {
-    // ① 安装一体化离线包（Edge Sync Agent + 采集器 vmagent/prometheus-agent 二选一 + blackbox exporter 可选），无需手动分别安装
-    expect(edgeAgentInstallGuide.steps[0].title).toContain('一体化离线包')
-    expect(edgeAgentInstallGuide.steps[0].description).toContain('systemd')
-    expect(edgeAgentInstallGuide.steps[0].description).toContain('NETWORK_DOMAIN_ID')
-    expect(edgeAgentInstallGuide.steps[0].description).toContain('TOKEN')
-    expect(edgeAgentInstallGuide.steps[0].description).toContain('agent_type')
+  it('should describe 3 manual install steps with auto deployment merged into step 3 (决策 11 安装指引 3 步人工步骤)', () => {
+    // ① 下载并校验一体化离线包（含 Agent + 采集器 + blackbox exporter 可选）
+    expect(edgeAgentInstallGuide.steps[0].title).toContain('下载')
+    expect(edgeAgentInstallGuide.steps[0].title).toContain('校验')
+    expect(edgeAgentInstallGuide.steps[0].description).toContain('一体化离线包')
+    expect(edgeAgentInstallGuide.steps[0].description).toContain('sha256')
     expect(edgeAgentInstallGuide.steps[0].description).toContain('vmagent')
-    expect(edgeAgentInstallGuide.steps[0].description).toContain('prometheus-agent')
-    expect(edgeAgentInstallGuide.steps[0].description).toContain('无需手动分别安装')
-    // ② Agent 自动部署采集器（非手动启动：启动顺序 blackbox → 采集器，异常自动重启并上报健康状态）
-    expect(edgeAgentInstallGuide.steps[1].title).toContain('自动部署')
-    expect(edgeAgentInstallGuide.steps[1].description).toContain('agent_type')
-    expect(edgeAgentInstallGuide.steps[1].description).toContain('vmagent')
-    expect(edgeAgentInstallGuide.steps[1].description).toContain('prometheus-agent')
-    expect(edgeAgentInstallGuide.steps[1].description).toContain('Edge Sync Agent')
-    expect(edgeAgentInstallGuide.steps[1].description).toContain('健康状态')
+    // ② 配置 NETWORK_DOMAIN_ID / TOKEN 环境变量
+    expect(edgeAgentInstallGuide.steps[1].title).toContain('NETWORK_DOMAIN_ID')
+    expect(edgeAgentInstallGuide.steps[1].title).toContain('TOKEN')
+    expect(edgeAgentInstallGuide.steps[1].description).toContain('NETWORK_DOMAIN_ID')
+    expect(edgeAgentInstallGuide.steps[1].description).toContain('TOKEN')
+    // ③ 启动 Edge Sync Agent（systemd）；采集器与 blackbox 自动部署并入第③步描述，不单列为人工步骤
+    expect(edgeAgentInstallGuide.steps[2].title).toContain('启动')
+    expect(edgeAgentInstallGuide.steps[2].title).toContain('systemd')
+    expect(edgeAgentInstallGuide.steps[2].description).toContain('自动部署')
+    expect(edgeAgentInstallGuide.steps[2].description).toContain('启动顺序')
+    expect(edgeAgentInstallGuide.steps[2].description).toContain('无需手动安装')
+    // 采集器/blackbox 自动部署不再单列为独立步骤（避免「需手动分步装采集器」误解）
+    expect(edgeAgentInstallGuide.steps.some((s) => s.title.includes('自动部署采集器'))).toBe(false)
   })
 
   it('should describe integrated delivery and responsibility boundary (一体化交付 + 职责边界, PRD v1.12)', () => {
@@ -280,6 +287,41 @@ describe('module-09 mocks', () => {
     })
   })
 
+  it('should fix collector type to vmagent in MVP (决策 12 MVP 固定 vmagent)', () => {
+    expect(MVP_AGENT_TYPE).toBe('vmagent')
+    // prometheus-agent 保留枚举（AgentType）、v0.2+ 开放为可选
+    expect(['vmagent', 'prometheus-agent']).toContain(MVP_AGENT_TYPE)
+    // default 管理域（MVP 单网域场景）采集器类型固定 vmagent
+    expect(networkDomains.find((d) => d.id === 'default')?.agent_type).toBe('vmagent')
+    // prometheus-agent 枚举保留用于 v0.2+ 演示（finance-dmz 域）
+    expect(networkDomains.some((d) => d.agent_type === 'prometheus-agent')).toBe(true)
+  })
+
+  it('should support per-domain filtering on edge agent status page (决策 13 网域筛选)', () => {
+    // 多网域模式：Agent 分布在多个网域，支撑「选择网域」筛选下拉（单网域模式固定 default）
+    const domainsWithAgents = new Set(edgeAgents.map((a) => a.network_domain_id))
+    expect(domainsWithAgents.size).toBeGreaterThan(1)
+    // 每个 Agent 均可归属到已声明的网域（筛选后按 network_domain_id 匹配）
+    const domainIds = new Set(networkDomains.map((d) => d.id))
+    edgeAgents.forEach((a) => {
+      expect(domainIds.has(a.network_domain_id)).toBe(true)
+    })
+  })
+
+  it('should expose dimension-grouped fields on every edge agent (决策 13 维度分组)', () => {
+    // Edge Sync Agent 维度：在线状态 / 最后心跳 / 配置同步状态 config_sync_status
+    // 采集器维度：采集器状态 / 采集器版本 / WAL 积压 / remote_write 错误（last_error）
+    edgeAgents.forEach((a) => {
+      expect(['online', 'offline', 'unknown']).toContain(a.status)
+      expect(a.last_heartbeat).toBeTruthy()
+      expect(['in_sync', 'out_of_sync', 'unknown', 'manual_override']).toContain(a.config_sync_status)
+      expect(['running', 'stopped', 'unknown']).toContain(a.collector_status)
+      expect(a.collector_version).toBeTruthy()
+      expect(typeof a.wal_backlog_bytes).toBe('number')
+      expect(typeof a.last_error).toBe('string')
+    })
+  })
+
   it('should map every draft to a network domain name (所属网域列, PRD 3.4)', () => {
     const domainNameMap = Object.fromEntries(networkDomains.map((d) => [d.id, d.name]))
     configDrafts.forEach((draft) => {
@@ -335,5 +377,177 @@ describe('module-09 mocks', () => {
     const checksumSame = changeDetectionStatus.find((s) => s.outcome === 'checksum_same')
     expect(checksumSame?.network_domain_id).toBe('default')
     expect(configDrafts.find((d) => d.id === 'draft-default-002')).toBeDefined()
+  })
+
+  it('should categorize edge node components by type on every edge agent (决策 15 / PRD 3.2 组件分类 / 4.2 components)', () => {
+    edgeAgents.forEach((agent) => {
+      // 每个边缘节点至少包含 Edge Sync Agent + 采集器两个必装组件
+      expect(agent.components.length).toBeGreaterThanOrEqual(2)
+      const types = agent.components.map((c) => c.type)
+      // Edge Sync Agent 必装（非中心平台内置，负责心跳 / 配置拉取 / 控制本节点组件）
+      expect(types).toContain('edge_sync_agent')
+      const syncAgent = agent.components.find((c) => c.type === 'edge_sync_agent')
+      expect(syncAgent?.version).toBe(agent.version)
+      // 采集器必装，组件版本与 collector_version 一致（PRD 4.2）
+      const collector = agent.components.find((c) => c.type === 'collector')
+      expect(collector).toBeDefined()
+      expect(collector?.version).toBe(agent.collector_version)
+      // 采集器组件状态与 collector_status 对齐（running / stopped / unknown）
+      expect(collector?.status).toBe(agent.collector_status)
+    })
+  })
+
+  it('should include blackbox exporter component only for domains with blackbox jobs (PRD 3.2 / 3.9 / 决策 15)', () => {
+    // 存在 job_type=blackbox 的 ScrapeJob 的网域（prometheus.yml 骨架含 blackbox job）部署拨测器：gov-cloud-a；
+    // default 管理域无 Agent 不涉及，finance / mfg 无 blackbox job 不部署
+    const blackboxDomains = new Set(['gov-cloud-a'])
+    edgeAgents.forEach((agent) => {
+      const hasBlackbox = agent.components.some((c) => c.type === 'blackbox_exporter')
+      expect(hasBlackbox).toBe(blackboxDomains.has(agent.network_domain_id))
+    })
+    // 拨测器状态均纳入组件清单展示
+    edgeAgents
+      .flatMap((a) => a.components)
+      .filter((c) => c.type === 'blackbox_exporter')
+      .forEach((c) => {
+        expect(['running', 'stopped', 'unknown']).toContain(c.status)
+        expect(c.version).toBeTruthy()
+      })
+  })
+
+  it('should expose collector component name matching agent_type (vmagent / prometheus-agent, PRD 4.2)', () => {
+    edgeAgents.forEach((agent) => {
+      const collector = agent.components.find((c) => c.type === 'collector')
+      if (agent.agent_type === 'vmagent') {
+        expect(collector?.name).toContain('vmagent')
+      } else {
+        expect(collector?.name).toContain('prometheus-agent')
+      }
+    })
+  })
+
+  it('should auto-derive remote write url for new domains (决策 14 注册远程目标自动推导)', () => {
+    expect(deriveRemoteWriteUrl('gov-cloud-b')).toBe(
+      'https://metriccenter.example.com/api/v2/ingest/gov-cloud-b/prometheus'
+    )
+    expect(deriveRemoteWriteUrl('default')).toBe(
+      'https://metriccenter.example.com/api/v2/ingest/default/prometheus'
+    )
+  })
+
+  it('should not deploy edge agents in default management domain (决策 16 / PRD 3.11)', () => {
+    // default 管理域由中心直接采集，不部署 Edge Agent → 不存在 network_domain_id='default' 的 EdgeAgent 实例
+    expect(edgeAgents.some((a) => a.network_domain_id === 'default')).toBe(false)
+    // 所有有 Agent 的网域均为 edge 类型（Agent 状态页仅展示有 Agent 的网域，default 管理域不出现）
+    const agentDomainIds = new Set(edgeAgents.map((a) => a.network_domain_id))
+    expect(agentDomainIds.size).toBeGreaterThan(1)
+    agentDomainIds.forEach((id) => {
+      const domain = networkDomains.find((d) => d.id === id)
+      expect(domain?.domain_type).toBe('edge')
+    })
+  })
+
+  it('should expose human-readable change summary and structured change items (决策 18 变更确认心智)', () => {
+    configDrafts.forEach((draft) => {
+      expect(draft.summary).toBeTruthy()
+      expect(Array.isArray(draft.change_items)).toBe(true)
+    })
+    // 进入待确认列表的草稿必须有实际变更项（内容无影响的已自动丢弃）
+    configDrafts
+      .filter((d) => d.status === 'pending')
+      .forEach((draft) => {
+        expect(draft.change_items.length).toBeGreaterThan(0)
+      })
+    // 新增采集目标 = low 风险（draft-gov-001）
+    const targetAdd = configDrafts.find((d) => d.id === 'draft-gov-001')
+    expect(targetAdd?.change_items[0].type).toBe('add')
+    expect(targetAdd?.change_items[0].risk).toBe('low')
+    expect(targetAdd?.summary).toContain('10.0.1.11')
+    // 告警规则变更 = high 风险，需醒目提示（draft-gov-002）
+    const ruleChange = configDrafts.find((d) => d.id === 'draft-gov-002')
+    expect(ruleChange?.status).toBe('pending')
+    expect(ruleChange?.change_items.some((i) => i.risk === 'high')).toBe(true)
+    expect(ruleChange?.change_items.some((i) => i.type === 'modify')).toBe(true)
+    expect(ruleChange?.summary).toContain('HighCPUUsage')
+    // 校验失败草稿（mfg）仍提供变更摘要（确认被下发前校验阻止，PRD 3.5.1）
+    const failed = configDrafts.find((d) => d.validation_status === 'failed')
+    expect(failed?.summary).toBeTruthy()
+    // 自动丢弃草稿无实际变更项
+    const autoDiscarded = configDrafts.find((d) => d.id === 'draft-default-002')
+    expect(autoDiscarded?.change_items.length).toBe(0)
+  })
+
+  it('should let affected config files be derivable from draft vs effective version (决策 19 受影响文件高亮)', () => {
+    // gov 目标新增草稿：prometheus.yml 骨架 / rules 不变（不受影响），targets 变化（受影响）
+    const baseline = configVersions.find((v) => v.id === 'cv-gov-001')
+    const draft = configDrafts.find((d) => d.id === 'draft-gov-001')
+    expect(draft?.prometheus_yml).toBe(baseline?.prometheus_yml)
+    expect(draft?.rules_yml).toBe(baseline?.rules_yml)
+    expect(draft?.targets_files).not.toEqual(baseline?.targets_files)
+    // 规则变更草稿：rules 变化（受影响），prometheus.yml / targets 不变（不受影响）
+    const ruleDraft = configDrafts.find((d) => d.id === 'draft-gov-002')
+    expect(ruleDraft?.rules_yml).not.toBe(baseline?.rules_yml)
+    expect(ruleDraft?.prometheus_yml).toBe(baseline?.prometheus_yml)
+    expect(ruleDraft?.targets_files).toEqual(draft?.targets_files)
+  })
+
+  it('should record confirmer on confirmed drafts for change audit (决策 19 确认人)', () => {
+    // 已确认草稿必须有确认人与确认时间（变更管理审计）；pending / discarded 不要求
+    configDrafts
+      .filter((d) => d.status === 'confirmed')
+      .forEach((d) => {
+        expect(d.confirmed_by).toBeTruthy()
+        expect(d.confirmed_at).toBeTruthy()
+      })
+    const confirmed = configDrafts.find((d) => d.status === 'confirmed')
+    expect(confirmed?.confirmed_by).toBeTruthy()
+  })
+
+  it('should expose unique human-readable change numbers (决策 20 变更单号)', () => {
+    const changeNos = configDrafts.map((d) => d.change_no)
+    // 变更单号为用户可读唯一标识，全局唯一
+    expect(new Set(changeNos).size).toBe(changeNos.length)
+    // 格式：CHG-YYYYMMDD-NNN
+    changeNos.forEach((no) => {
+      expect(no).toMatch(/^CHG-\d{8}-\d{3}$/)
+    })
+  })
+
+  it('should unify change object as source-data-object enum and derive affected config files (决策 22 变更对象与影响文件)', () => {
+    const validTargets: ConfigChangeTarget[] = ['scrape_job', 'scrape_target', 'alert_rule', 'blackbox_target', 'label_template']
+    const validFiles: AffectedConfigFile[] = ['prometheus.yml', 'targets', 'rules.yml', 'blackbox.yml']
+    // 所有变更项的变更对象均为统一枚举，且必须携带非空、合法的「影响的配置文件」
+    configDrafts.forEach((draft) => {
+      draft.change_items.forEach((item) => {
+        expect(validTargets).toContain(item.target)
+        expect(item.affected_files.length).toBeGreaterThan(0)
+        item.affected_files.forEach((f) => expect(validFiles).toContain(f))
+      })
+    })
+    // 语义映射：采集目标变化 → 仅 targets；告警规则变化 → 仅 rules.yml；新增采集 Job → prometheus.yml + targets
+    const targetAdd = configDrafts.find((d) => d.id === 'draft-gov-001')
+    expect(targetAdd?.change_items[0].target).toBe('scrape_target')
+    expect(targetAdd?.change_items[0].affected_files).toEqual(['targets'])
+    const ruleChange = configDrafts.find((d) => d.id === 'draft-gov-002')
+    expect(ruleChange?.change_items[0].target).toBe('alert_rule')
+    expect(ruleChange?.change_items[0].affected_files).toEqual(['rules.yml'])
+    const jobAdd = configDrafts.find((d) => d.id === 'draft-mfg-001')
+    expect(jobAdd?.change_items[0].target).toBe('scrape_job')
+    expect(jobAdd?.change_items[0].affected_files).toContain('prometheus.yml')
+    expect(jobAdd?.change_items[0].affected_files).toContain('targets')
+  })
+
+  it('should trace full chain: change_no → config version → deployment (决策 22 全链路关联)', () => {
+    // ConfigVersion 继承来源 draft 的变更单号（change_no → 配置版本 cv-xxx）
+    configVersions.forEach((v) => {
+      const draft = configDrafts.find((d) => d.id === v.draft_id)
+      expect(draft?.change_no).toBe(v.change_no)
+    })
+    // 每条下发记录的来源变更单号 = 其配置版本对应的变更单号（deploy → cv → change_no 链路一致）
+    const changeNoByVersion = Object.fromEntries(configVersions.map((v) => [v.id, v.change_no]))
+    configDeployments.forEach((d) => {
+      expect(d.source_change_no).toBe(changeNoByVersion[d.config_version_id])
+      expect(d.source_change_no).toMatch(/^CHG-\d{8}-\d{3}$/)
+    })
   })
 })

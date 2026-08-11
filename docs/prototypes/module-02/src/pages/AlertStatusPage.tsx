@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Card, Table, Tag, Select, Space, Typography, Tooltip } from 'antd'
+import { Card, Table, Tag, Select, Space, Typography, Tooltip, Alert } from 'antd'
 import { FireOutlined, WarningOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { prometheusAlerts, type AlertState, type AlertSeverity } from '../mocks/module-02'
@@ -36,7 +36,12 @@ export function AlertStatusPage() {
   return (
     <MainLayout>
       <Card
-        title="当前告警"
+        title={
+          <Space size={8}>
+            当前告警
+            <Tag color="orange">v0.3</Tag>
+          </Space>
+        }
         extra={
           <Space>
             <span className="text-secondary">状态：</span>
@@ -72,6 +77,13 @@ export function AlertStatusPage() {
           </Space>
         }
       >
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="告警状态查看（Prometheus /api/v1/alerts 代理）v0.3 交付"
+          description="该能力由 Module_02 代理 Prometheus /api/v1/alerts，展示当前 firing/pending 告警实例，与 Module_08（v0.3 规则分组/静默/Alertmanager 配置）对齐；MVP 阶段不提供，本页为 v0.3 能力占位。"
+        />
         <Table
           dataSource={filteredAlerts}
           rowKey="id"

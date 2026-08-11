@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Card, Table, Tag, Button, Space, Modal, message, Tooltip, Typography } from 'antd'
-import { RollbackOutlined, EyeOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Button, Space, Modal, message, Tooltip, Typography, Alert } from 'antd'
+import { RollbackOutlined, EyeOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
   configDeployments,
@@ -81,6 +81,7 @@ export function DeploymentsPage() {
           id: `deploy-${Date.now()}`,
           network_domain_id: record.network_domain_id,
           config_version_id: previous.id,
+          source_change_no: previous.change_no,
           target_type: record.target_type,
           target_address: record.target_address,
           status: 'success',
@@ -106,7 +107,14 @@ export function DeploymentsPage() {
 
   return (
     <MainLayout>
-      <Card title="配置下发记录">
+      <Alert
+        type="info"
+        showIcon
+        message="本页定位：回滚中心 + 配置变更执行台账"
+        description="每次「配置变更确认」发布到监控，以及每次回滚，都会在此自动留痕（谁 / 何时 / 发布或回滚了哪个配置版本 / 结果如何）。日常无需查看，但出问题时用于排查「配置最后一次生效时间与结果」，需要时可按历史版本一键回滚（回滚动作本身也是一条记录）。本页为 Module_09 的领域审计（配置版本执行历史）；平台级操作审计由 Module_06 统一负责，二者联动不重复。"
+        style={{ marginBottom: 16 }}
+      />
+      <Card title="配置发布与回滚记录">
         <Table
           dataSource={data}
           rowKey="id"
@@ -127,6 +135,19 @@ export function DeploymentsPage() {
               render: (id: string) => <Tag>{versionMap[id] ?? id}</Tag>,
             },
             {
+              title: (
+                <Tooltip title="来源变更单号（CHG-…）：该配置版本由哪个变更单确认后发布；业务出问题时据此从变更确认页回溯「为什么变了、谁确认的」">
+                  <Space size={4}>
+                    来源变更单号
+                    <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+                  </Space>
+                </Tooltip>
+              ),
+              dataIndex: 'source_change_no',
+              key: 'source_change_no',
+              render: (no: string) => <Text code>{no}</Text>,
+            },
+            {
               title: '目标类型',
               dataIndex: 'target_type',
               key: 'target_type',
@@ -138,7 +159,7 @@ export function DeploymentsPage() {
               dataIndex: 'validation_status',
               key: 'validation_status',
               render: (validation: DeploymentValidationStatus, record) => (
-                <Tooltip title={record.validation_error || 'PRD 3.5.1：promtool check config / blackbox_exporter --config.check'}>
+                <Tooltip title={record.validation_error || '下发前校验（配置文件语法与目标格式检查）'}>
                   <Tag color={validationColor[validation]}>{validationLabel[validation]}</Tag>
                 </Tooltip>
               ),
@@ -179,7 +200,7 @@ export function DeploymentsPage() {
               key: 'action',
               render: (_: unknown, record: ConfigDeployment) => (
                 <Space>
-                  <Tooltip title="查看详情（原型演示）">
+                  <Tooltip title="查看详情">
                     <Button size="small" icon={<EyeOutlined />} />
                   </Tooltip>
                   <Button

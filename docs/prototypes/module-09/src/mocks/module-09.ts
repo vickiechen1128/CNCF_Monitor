@@ -4,6 +4,36 @@ export type AgentType = 'vmagent' | 'prometheus-agent'
 export type ConfigSyncStatus = 'in_sync' | 'out_of_sync' | 'unknown' | 'manual_override'
 /** 采集器运行状态（PRD 3.2 采集器进程管理 / 6.3 第 1 条：Edge Sync Agent 部署守护本节点采集器，运行状态纳入心跳上报与 Agent 状态展示） */
 export type CollectorStatus = 'running' | 'stopped' | 'unknown'
+
+/**
+ * 边缘节点组件类型（PRD 3.2 组件分类 / 3.9 边缘节点组件构成 / 4.2 components，决策 15）：
+ * 一个边缘节点（EdgeAgent 部署实例）由多个组件构成，Agent 状态页按组件类型分类展示：
+ * - edge_sync_agent：Edge Sync Agent（必装独立组件，负责心跳 / 配置拉取 / 控制本节点组件，非中心平台内置）
+ * - collector：指标采集器（vmagent / prometheus-agent 二选一，由 NetworkDomain.agent_type 登记）
+ * - blackbox_exporter：拨测器（可选，网域存在 job_type=blackbox 的 ScrapeJob 时随一体化包附带）
+ * - vmalert / alertmanager：边缘自治告警组件（v0.4+，随 rules.yml / alertmanager.yml 下发后启用）
+ */
+export type EdgeComponentType = 'edge_sync_agent' | 'collector' | 'blackbox_exporter' | 'vmalert' | 'alertmanager'
+
+/**
+ * 边缘节点组件实例（PRD 4.2 EdgeAgent.components / 4.3 心跳附带组件清单，决策 15）：
+ * 由 Edge Sync Agent 心跳附带上报（组件类型 / 版本 / 运行状态 / 配置版本 / 最近错误），
+ * Agent 状态页「网域为主 + 组件分类」展开子表按组件类型分类展示。
+ */
+export interface EdgeComponent {
+  /** 组件类型（分类展示维度） */
+  type: EdgeComponentType
+  /** 组件实例名（如 edge-agent-gova-01 上的 vmagent / blackbox-exporter） */
+  name: string
+  /** 组件运行状态：Edge Sync Agent 用 online/offline/unknown，采集器与拨测器等进程组件用 running/stopped/unknown */
+  status: 'online' | 'offline' | 'running' | 'stopped' | 'unknown'
+  /** 组件版本（如 vmagent v1.102.0、blackbox exporter v0.25.0） */
+  version: string
+  /** 组件当前生效配置版本（与 EdgeAgent.config_version 对齐；无配置概念的可省略） */
+  config_version?: string
+  /** 组件最近错误（如配置 reload 失败 / 拉包校验失败 / 本地手工覆盖提示） */
+  last_error?: string
+}
 export type ConfigDraftStatus = 'pending' | 'confirmed' | 'discarded'
 export type DraftValidationStatus = 'passed' | 'failed' | 'pending'
 export type DeploymentStatus = 'pending' | 'running' | 'success' | 'failed' | 'rolled_back'
@@ -43,6 +73,39 @@ export interface ConfigDraftMetadata {
   trigger_summary: string
   checksum: string
   source_summary: string
+}
+
+/**
+ * 变更对象分类（决策 22「变更对象 = 源数据对象」）：用户在 Module_01 / 07 中操作的**根源对象**，
+ * 而非配置文件本身——新增实例（targets 变化）与修改抓取频率（prometheus.yml 变化）源头都在「采集 Job」功能，
+ * 但影响的配置文件不同，由 affected_files 派生区分。
+ */
+export type ConfigChangeTarget =
+  | 'scrape_job' // 采集 Job（含频率 / 路径 / relabel 等 job 骨架参数）
+  | 'scrape_target' // 采集目标（实例增删 / 标签变化，来自资源或 Job 实例选择）
+  | 'alert_rule' // 告警规则（MonitoringRule）
+  | 'blackbox_target' // 拨测目标（blackbox ScrapeJob 的 target）
+  | 'label_template' // 标签模板（LabelTemplate）
+
+/** 影响的配置文件（决策 22）：configgen 对比「当前生效版本」与「新草稿」产物差异派生的维度 */
+export type AffectedConfigFile = 'prometheus.yml' | 'targets' | 'rules.yml' | 'blackbox.yml'
+
+/**
+ * 结构化变更清单项（决策 18「变更确认心智」/ 22）：
+ * 由 configgen 对比「当前生效版本」与「新草稿」的**产物差异**生成（数据层 diff，非 YAML 文本 diff），
+ * 面向不了解 Prometheus 的运维工程师，回答「这次变更会带来什么影响」。
+ * - type：变更类型（新增 / 修改 / 移除）
+ * - target：变更对象 = 源数据对象（采集 job / 采集目标 / 告警规则 / 拨测目标 / 标签模板，决策 22 统一枚举）
+ * - description：人话描述（如「node-exporter 新增实例 10.0.1.11:9100」）
+ * - risk：风险等级（low=新增目标低风险；high=删除目标 / 告警规则变更，误报漏报风险）
+ * - affected_files：影响的配置文件（决策 22，configgen 派生），如仅 targets 变化 → ['targets']
+ */
+export interface ConfigChangeItem {
+  type: 'add' | 'modify' | 'remove'
+  target: ConfigChangeTarget
+  description: string
+  risk: 'low' | 'high'
+  affected_files: AffectedConfigFile[]
 }
 
 export interface Tenant {
@@ -94,12 +157,23 @@ export interface EdgeAgent {
   wal_backlog_bytes: number
   remote_write_url: string
   last_error: string
+  /**
+   * 边缘节点组件清单（PRD 4.2 / 决策 15）：Edge Sync Agent + 采集器（必装）+ blackbox exporter（可选，blackbox job 网域）
+   * + v0.4+ 边缘告警组件（vmalert / alertmanager）；由 Edge Sync Agent 心跳附带上报（PRD 4.3），
+   * Agent 状态页「网域为主 + 组件分类」展开子表按组件类型分类展示。
+   */
+  components: EdgeComponent[]
   created_at: string
   updated_at: string
 }
 
 export interface ConfigDraft {
   id: string
+  /**
+   * 变更单号（决策 20）：用户可读的唯一标识（如 CHG-20260803-001），类比工单号 / PR 号，
+   * 用于变更沟通、审计追溯（「回滚变更单 CHG-20260803-003」）；`id` 仍为内部技术键。
+   */
+  change_no: string
   network_domain_id: string
   source_version: string
   prometheus_yml: string
@@ -112,6 +186,13 @@ export interface ConfigDraft {
   /** 下发前校验结果（PRD 3.5.1：promtool check config / blackbox_exporter --config.check） */
   validation_status: DraftValidationStatus
   validation_error: string
+  /**
+   * 人话变更摘要（决策 18）：configgen 对比当前生效版本与草稿的**产物差异**生成，
+   * 面向不了解 Prometheus 的运维工程师回答「为什么发生了变更」，如「新增 1 台服务器（10.0.1.11）加入 node-exporter 采集」。
+   */
+  summary: string
+  /** 结构化变更清单（决策 18）：变更类型 / 对象 / 人话描述 / 风险等级，是「变更确认」页的核心决策信息 */
+  change_items: ConfigChangeItem[]
   created_at: string
   updated_at: string
   confirmed_by?: string
@@ -122,6 +203,8 @@ export interface ConfigVersion {
   id: string
   network_domain_id: string
   draft_id: string
+  /** 来源变更单号（决策 22）：draft 确认后生成 ConfigVersion 时继承，全链路追溯 change_no → cv → deploy */
+  change_no: string
   prometheus_yml: string
   rules_yml: string
   blackbox_yml: string
@@ -136,6 +219,8 @@ export interface ConfigDeployment {
   id: string
   network_domain_id: string
   config_version_id: string
+  /** 来源变更单号（决策 22）：经 config_version_id → ConfigVersion.change_no 透传，全链路可追溯「哪个变更发的、回滚它」 */
+  source_change_no: string
   target_type: DeploymentTargetType
   target_address: string
   status: DeploymentStatus
@@ -176,6 +261,12 @@ export interface ChangeDetectionStatus {
   /** 检测结果摘要（原型演示文字） */
   summary: string
 }
+
+/**
+ * MVP 采集器类型（决策 12）：MVP 阶段采集器类型固定仅 vmagent（网域注册时无需选择）；
+ * prometheus-agent 保留枚举（AgentType）、v0.2+ 开放为可选。
+ */
+export const MVP_AGENT_TYPE: AgentType = 'vmagent'
 
 // 当前租户上下文：通过切换 multi_site_enabled 演示单网域/多网域模式差异
 export const currentTenant: Tenant = {
@@ -242,6 +333,15 @@ export function computeJointChecksum(
 export const TOKEN_MASK = '••••••••'
 
 /**
+ * 网域 Remote Write URL 自动推导（决策 14）：中心平台已知自身 ingest ingress，
+ * 注册网域时默认按「中心 ingress 地址 + 网域路径」自动生成（可手动覆盖），减少人工填写项；
+ * 边缘 Agent 通过该地址回传本域指标（outbound HTTPS 443，PRD 3.1 / 6.x）。
+ */
+export function deriveRemoteWriteUrl(domainId: string): string {
+  return `https://metriccenter.example.com/api/v2/ingest/${domainId}/prometheus`
+}
+
+/**
  * 校验分层说明（PRD 6.4 决策 10「中心/边缘校验分层与衔接」，v1.9 同步 PRD v1.13）：
  * 中心侧控制（configgen 生成草稿 → 中心内容校验 → 预览/diff/确认 → ConfigVersion）与
  * 边缘侧消费（心跳拉 zip → 边缘传输校验 → 原子替换 → 回执 config_sync_status）由
@@ -249,13 +349,13 @@ export const TOKEN_MASK = '••••••••'
  */
 export const validationLayeringNote = {
   center:
-    '中心①内容校验（生成阶段）：promtool check config 校验 prometheus.yml、blackbox_exporter --config.check 校验 blackbox.yml、configgen 侧 targets schema 校验（JSON 结构 / host:port / labels 合法性）；结果以 validation_status 展示，失败阻止确认下发（防生成错误，PRD 3.5.1 / 6.4）',
+    '中心①内容校验（生成阶段）：promtool check config 校验 prometheus.yml、blackbox_exporter --config.check 校验 blackbox.yml、configgen 侧 targets schema 校验（JSON 结构 / host:port / labels 合法性）；结果以 validation_status 展示，失败阻止确认下发（防止生成错误进入上线流程）',
   edge:
-    '边缘②传输校验（Agent 拉包阶段）：拉包后按 metadata.json 联合 checksum 做完整性校验（PRD 6.3 第 5 条）+ 解压后 targets/*.json 解析校验（第 6 条）；结果体现于 Agent 状态页 config_sync_status 与最近错误（防传输损坏 / 篡改 / 半写文件）',
+    '边缘②传输校验（Agent 拉包阶段）：拉包后按 metadata.json 联合 checksum 做完整性校验，并对解压后的 targets/*.json 做解析校验；结果体现于 Agent 状态页 config_sync_status 与最近错误（防止传输损坏 / 篡改 / 半写文件）',
   agentDumbCheck:
-    'Agent 为「哑校验」（PRD 6.4 设计要点 1）：只做传输层机械校验（checksum 完整性 + targets JSON 解析），不做 promtool 级语法校验；产物合法性由中心内容校验保证——校验①失败会阻止确认下发，边缘侧拿到的必然是已通过中心校验的产物',
+    'Agent 为「哑校验」：只做传输层机械校验（checksum 完整性 + targets JSON 解析），不做 promtool 级语法校验；产物合法性由中心内容校验保证——校验①失败会阻止确认下发，边缘侧拿到的必然是已通过中心校验的产物',
   checksumDualUse:
-    '联合 checksum 双用途（PRD 6.4 设计要点 2）：同一份 sha256(prometheus.yml + rules_yml + blackbox_yml + targets 内容)，中心侧用于草稿去重裁决（3.3.3 内容是否变化），边缘侧用于拉包完整性校验（6.3 第 5 条传输字节是否完整）',
+    '联合校验值双用途：同一份 sha256(prometheus.yml + rules_yml + blackbox_yml + targets 内容)，中心侧用于草稿去重裁决（内容是否变化），边缘侧用于拉包完整性校验（传输字节是否完整）',
 }
 
 export const networkDomains: NetworkDomain[] = [
@@ -333,27 +433,8 @@ export function domainArtifactShape(domain: Pick<NetworkDomain, 'domain_type'>):
 }
 
 export const edgeAgents: EdgeAgent[] = [
-  {
-    id: 'ea-default',
-    network_domain_id: 'default',
-    agent_type: 'vmagent',
-    version: 'v1.2.0',
-    collector_version: 'v1.102.0',
-    collector_status: 'running',
-    hostname: 'metric-center-local',
-    agent_ip: '127.0.0.1',
-    status: 'online',
-    last_heartbeat: '2026-08-03 14:30:00',
-    heartbeat_rtt_ms: 2,
-    last_config_pull: '2026-08-03 14:25:00',
-    config_version: '20260803-142500',
-    config_sync_status: 'in_sync',
-    wal_backlog_bytes: 0,
-    remote_write_url: 'http://localhost:8428/api/v1/write',
-    last_error: '',
-    created_at: '2026-07-01 00:00:00',
-    updated_at: '2026-08-03 14:30:00',
-  },
+  // 注意：default 管理域不部署 Edge Agent（中心直接采集，PRD 3.11 / 决策 16），
+  // 因此不存在 network_domain_id='default' 的 EdgeAgent 实例；Agent 状态页仅展示有 Agent 的 edge 网域。
   {
     id: 'ea-gov-a-01',
     network_domain_id: 'gov-cloud-a',
@@ -372,6 +453,29 @@ export const edgeAgents: EdgeAgent[] = [
     wal_backlog_bytes: 1048576,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: '',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'running',
+        version: 'v1.102.0',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'blackbox_exporter',
+        name: 'blackbox-exporter',
+        status: 'running',
+        version: 'v0.25.0',
+        config_version: '20260803-141500',
+      },
+    ],
     created_at: '2026-07-10 00:00:00',
     updated_at: '2026-08-03 14:28:00',
   },
@@ -393,6 +497,31 @@ export const edgeAgents: EdgeAgent[] = [
     wal_backlog_bytes: 2097152,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: 'config reload: timeout waiting for response',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'stopped',
+        version: 'v1.102.0',
+        config_version: '20260803-141500',
+        last_error: 'config reload: timeout waiting for response',
+      },
+      {
+        type: 'blackbox_exporter',
+        name: 'blackbox-exporter',
+        status: 'stopped',
+        version: 'v0.25.0',
+        config_version: '20260803-141500',
+        last_error: 'config reload: timeout waiting for response',
+      },
+    ],
     created_at: '2026-07-15 00:00:00',
     updated_at: '2026-08-03 14:27:00',
   },
@@ -414,6 +543,23 @@ export const edgeAgents: EdgeAgent[] = [
     wal_backlog_bytes: 5368709120,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: 'remote write: connection reset by peer',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'offline',
+        version: 'v1.2.0',
+        config_version: '20260803-130000',
+        last_error: 'remote write: connection reset by peer',
+      },
+      {
+        type: 'collector',
+        name: 'prometheus-agent',
+        status: 'unknown',
+        version: 'v2.54.0',
+        config_version: '20260803-130000',
+      },
+    ],
     created_at: '2026-07-12 00:00:00',
     updated_at: '2026-08-03 13:50:00',
   },
@@ -435,6 +581,22 @@ export const edgeAgents: EdgeAgent[] = [
     wal_backlog_bytes: 268435456,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: '',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '20260803-140000',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'running',
+        version: 'v1.102.0',
+        config_version: '20260803-140000',
+      },
+    ],
     created_at: '2026-07-20 00:00:00',
     updated_at: '2026-08-03 14:25:00',
   },
@@ -456,7 +618,32 @@ export const edgeAgents: EdgeAgent[] = [
     wal_backlog_bytes: 524288,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error:
-      '配置包 checksum 校验失败：metadata.json 联合 checksum 不匹配（期望 f4d2… 实际 3c7a…），保留最后有效配置（PRD 6.3 第 5 条）',
+      '配置包 checksum 校验失败：metadata.json 联合 checksum 不匹配（期望 f4d2… 实际 3c7a…），已保留最后一份有效配置',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '20260803-141500',
+        last_error:
+          '配置包 checksum 校验失败：metadata.json 联合 checksum 不匹配（期望 f4d2… 实际 3c7a…），已保留最后一份有效配置',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'running',
+        version: 'v1.102.0',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'blackbox_exporter',
+        name: 'blackbox-exporter',
+        status: 'running',
+        version: 'v0.25.0',
+        config_version: '20260803-141500',
+      },
+    ],
     created_at: '2026-07-16 00:00:00',
     updated_at: '2026-08-03 14:29:00',
   },
@@ -478,7 +665,25 @@ export const edgeAgents: EdgeAgent[] = [
     wal_backlog_bytes: 134217728,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error:
-      '本地手工修改 prometheus.yml（PRD 3.6 兜底），平台不强制 reconcile，需人工重新确认下发恢复一致性',
+      '本地手工修改 prometheus.yml（平台不强制回拉覆盖），需人工重新确认下发以恢复一致性',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '20260803-140000',
+        last_error:
+          '本地手工修改 prometheus.yml（平台不强制回拉覆盖），需人工重新确认下发以恢复一致性',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'running',
+        version: 'v1.102.0',
+        config_version: '20260803-140000',
+      },
+    ],
     created_at: '2026-07-21 00:00:00',
     updated_at: '2026-08-03 14:24:00',
   },
@@ -686,6 +891,19 @@ const rulesYml = `groups:
           summary: 'High CPU usage on {{ $labels.instance }}'
 `
 
+// 规则变更草稿（draft-gov-002）用：HighCPUUsage 阈值 80 → 85（演示「告警规则变更 = high 风险」的确认场景）
+const rulesYmlChanged = `groups:
+  - name: node.rules
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'High CPU usage on {{ $labels.instance }}'
+`
+
 const blackboxYml = `modules:
   tcp_connect:
     prober: tcp
@@ -698,6 +916,7 @@ const blackboxYml = `modules:
 export const configDrafts: ConfigDraft[] = [
   {
     id: 'draft-default-001',
+    change_no: 'CHG-20260803-001',
     network_domain_id: 'default',
     source_version: '',
     prometheus_yml: prometheusYmlDefault,
@@ -716,6 +935,16 @@ export const configDrafts: ConfigDraft[] = [
     status: 'confirmed',
     validation_status: 'passed',
     validation_error: '',
+    summary: '初始生成采集配置（node-exporter 主机采集 + blackbox-tcp 拨测）',
+    change_items: [
+      {
+        type: 'add',
+        target: 'scrape_job',
+        description: '初始生成：node-exporter 主机采集与 blackbox-tcp 拨测',
+        risk: 'low',
+        affected_files: ['prometheus.yml', 'targets', 'blackbox.yml'],
+      },
+    ],
     created_at: '2026-08-03 14:00:00',
     updated_at: '2026-08-03 14:25:00',
     confirmed_by: 'system',
@@ -725,6 +954,7 @@ export const configDrafts: ConfigDraft[] = [
   // 与生效版本 cv-default-001 一致 → 草稿标记 discarded（自动丢弃），不进入人工确认列表
   {
     id: 'draft-default-002',
+    change_no: 'CHG-20260803-002',
     network_domain_id: 'default',
     source_version: 'cv-default-001',
     prometheus_yml: prometheusYmlDefault,
@@ -743,11 +973,14 @@ export const configDrafts: ConfigDraft[] = [
     status: 'discarded',
     validation_status: 'passed',
     validation_error: '',
+    summary: '内容无变化，自动丢弃，无需确认',
+    change_items: [],
     created_at: '2026-08-03 14:35:00',
     updated_at: '2026-08-03 14:35:00',
   },
   {
     id: 'draft-gov-001',
+    change_no: 'CHG-20260803-003',
     network_domain_id: 'gov-cloud-a',
     source_version: 'cv-gov-001',
     prometheus_yml: prometheusYmlGov,
@@ -766,11 +999,57 @@ export const configDrafts: ConfigDraft[] = [
     status: 'pending',
     validation_status: 'passed',
     validation_error: '',
+    summary: '新增 1 台服务器（10.0.1.11）加入 node-exporter 采集',
+    change_items: [
+      {
+        type: 'add',
+        target: 'scrape_target',
+        description: 'node-exporter 新增实例 10.0.1.11:9100（app-gov-db）',
+        risk: 'low',
+        affected_files: ['targets'],
+      },
+    ],
     created_at: '2026-08-03 14:10:00',
     updated_at: '2026-08-03 14:10:00',
   },
+  // 规则变更演示（决策 18）：HighCPUUsage 阈值 80 → 85，告警规则变更为 high 风险，进入待确认列表
+  {
+    id: 'draft-gov-002',
+    change_no: 'CHG-20260803-004',
+    network_domain_id: 'gov-cloud-a',
+    source_version: 'cv-gov-002',
+    prometheus_yml: prometheusYmlGov,
+    rules_yml: rulesYmlChanged,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsGovDraft,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: '规则阈值调整',
+      source_data_version: '2026-08-03 14:40:00',
+      trigger_summary: 'MonitoringRule#HighCPUUsage updated_at 变更（2026-08-03 14:40:00）触发重算',
+      checksum: computeJointChecksum(prometheusYmlGov, rulesYmlChanged, blackboxYml, targetsGovDraft),
+      source_summary: 'MonitoringRule#HighCPUUsage 阈值由 80 调整为 85（rules.yml 更新，prometheus.yml / targets 不变）',
+    },
+    status: 'pending',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: 'HighCPUUsage 告警规则阈值由 80 调整为 85',
+    change_items: [
+      {
+        type: 'modify',
+        target: 'alert_rule',
+        description: 'HighCPUUsage 阈值由 80 调整为 85（severity=warning）',
+        risk: 'high',
+        affected_files: ['rules.yml'],
+      },
+    ],
+    created_at: '2026-08-03 14:42:00',
+    updated_at: '2026-08-03 14:42:00',
+  },
   {
     id: 'draft-mfg-001',
+    change_no: 'CHG-20260803-005',
     network_domain_id: 'manufacturing-edge',
     source_version: '',
     prometheus_yml: prometheusYmlMfgInvalid,
@@ -789,12 +1068,23 @@ export const configDrafts: ConfigDraft[] = [
     status: 'pending',
     validation_status: 'failed',
     validation_error:
-      '中心内容校验失败（PRD 6.4）：configgen 侧 targets schema 校验失败：targets/plc-gateway.json 解析失败（JSON 数组未闭合，unexpected end of input）；prometheus.yml 骨架本身可过 promtool 校验（file_sd 仅查文件存在性），草稿保持 pending，不进入下发流程（PRD 3.5.1）',
+      '中心内容校验失败：configgen 侧 targets schema 校验失败：targets/plc-gateway.json 解析失败（JSON 数组未闭合，unexpected end of input）；prometheus.yml 骨架本身可过 promtool 校验（file_sd 仅查文件存在性），草稿保持待确认，不进入下发流程',
+    summary: '新增 plc-gateway 采集（校验未通过，待修复）',
+    change_items: [
+      {
+        type: 'add',
+        target: 'scrape_job',
+        description: '新增 plc-gateway 采集（192.168.10.30:9273）',
+        risk: 'low',
+        affected_files: ['prometheus.yml', 'targets'],
+      },
+    ],
     created_at: '2026-08-03 14:22:00',
     updated_at: '2026-08-03 14:22:00',
   },
   {
     id: 'draft-finance-001',
+    change_no: 'CHG-20260803-006',
     network_domain_id: 'finance-dmz',
     source_version: 'cv-finance-001',
     prometheus_yml: prometheusYmlFinance,
@@ -813,6 +1103,16 @@ export const configDrafts: ConfigDraft[] = [
     status: 'discarded',
     validation_status: 'passed',
     validation_error: '',
+    summary: 'HighCPUUsage 告警规则阈值调整（已废弃）',
+    change_items: [
+      {
+        type: 'modify',
+        target: 'alert_rule',
+        description: 'HighCPUUsage 阈值由 80 调整为 85（人工调整，后废弃）',
+        risk: 'high',
+        affected_files: ['rules.yml'],
+      },
+    ],
     created_at: '2026-08-03 13:30:00',
     updated_at: '2026-08-03 13:45:00',
   },
@@ -823,6 +1123,7 @@ export const configVersions: ConfigVersion[] = [
     id: 'cv-default-001',
     network_domain_id: 'default',
     draft_id: 'draft-default-001',
+    change_no: 'CHG-20260803-001',
     prometheus_yml: prometheusYmlDefault,
     rules_yml: rulesYml,
     blackbox_yml: blackboxYml,
@@ -839,6 +1140,7 @@ export const configVersions: ConfigVersion[] = [
     id: 'cv-gov-001',
     network_domain_id: 'gov-cloud-a',
     draft_id: 'draft-gov-001',
+    change_no: 'CHG-20260803-003',
     prometheus_yml: prometheusYmlGov,
     rules_yml: rulesYml,
     blackbox_yml: blackboxYml,
@@ -855,6 +1157,7 @@ export const configVersions: ConfigVersion[] = [
     id: 'cv-gov-002',
     network_domain_id: 'gov-cloud-a',
     draft_id: 'draft-gov-001',
+    change_no: 'CHG-20260803-003',
     prometheus_yml: prometheusYmlGov,
     rules_yml: rulesYml,
     blackbox_yml: blackboxYml,
@@ -871,6 +1174,7 @@ export const configVersions: ConfigVersion[] = [
     id: 'cv-finance-001',
     network_domain_id: 'finance-dmz',
     draft_id: 'draft-finance-001',
+    change_no: 'CHG-20260803-006',
     prometheus_yml: prometheusYmlFinance,
     rules_yml: rulesYml,
     blackbox_yml: blackboxYml,
@@ -890,6 +1194,7 @@ export const configDeployments: ConfigDeployment[] = [
     id: 'deploy-001',
     network_domain_id: 'default',
     config_version_id: 'cv-default-001',
+    source_change_no: 'CHG-20260803-001',
     target_type: 'central_prometheus',
     target_address: 'metric-center-local',
     status: 'success',
@@ -906,6 +1211,7 @@ export const configDeployments: ConfigDeployment[] = [
     id: 'deploy-002',
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-001',
+    source_change_no: 'CHG-20260803-003',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-01',
     status: 'success',
@@ -922,6 +1228,7 @@ export const configDeployments: ConfigDeployment[] = [
     id: 'deploy-003',
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-002',
+    source_change_no: 'CHG-20260803-003',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-02',
     status: 'failed',
@@ -938,6 +1245,7 @@ export const configDeployments: ConfigDeployment[] = [
     id: 'deploy-004',
     network_domain_id: 'finance-dmz',
     config_version_id: 'cv-finance-001',
+    source_change_no: 'CHG-20260803-006',
     target_type: 'edge_agent',
     target_address: 'edge-agent-finance-01',
     status: 'failed',
@@ -954,6 +1262,7 @@ export const configDeployments: ConfigDeployment[] = [
     id: 'deploy-005',
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-001',
+    source_change_no: 'CHG-20260803-003',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-02',
     status: 'rolled_back',
@@ -970,6 +1279,7 @@ export const configDeployments: ConfigDeployment[] = [
     id: 'deploy-006',
     network_domain_id: 'manufacturing-edge',
     config_version_id: 'cv-default-001',
+    source_change_no: 'CHG-20260803-001',
     target_type: 'edge_agent',
     target_address: 'edge-agent-mfg-01',
     status: 'success',
@@ -986,12 +1296,13 @@ export const configDeployments: ConfigDeployment[] = [
     id: 'deploy-007',
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-002',
+    source_change_no: 'CHG-20260803-003',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-01',
     status: 'failed',
     validation_status: 'failed',
     validation_error:
-      'promtool check config 校验失败：parse error: unexpected token "targets"（本地配置已被手工兜底修改，与期望态不一致，PRD 3.5.1/3.6）',
+      'promtool check config 校验失败：parse error: unexpected token "targets"（本地配置已被手工兜底修改，与期望态不一致）',
     includes_blackbox: false,
     error_message: 'promtool check config 校验失败：parse error: unexpected token "targets"',
     triggered_by: 'admin',
@@ -1106,14 +1417,19 @@ export const edgeAgentInstallGuide: EdgeAgentInstallGuide = {
   },
   steps: [
     {
-      title: '安装一体化离线包（一步安装）',
+      title: '下载并校验一体化离线包',
       description:
-        '离线二进制包为一体化包：Edge Sync Agent + 采集器（vmagent / prometheus-agent，按网域 agent_type 二选一）+ blackbox exporter（可选）；校验 sha256 校验和，配置 NETWORK_DOMAIN_ID / TOKEN 环境变量后启动 systemd 服务（PRD 6.3 第 2 条）；安装后无需手动分别安装采集器。',
+        '一体化离线包包含 Edge Sync Agent + 采集器（MVP 固定 vmagent；prometheus-agent v0.2+ 开放）+ blackbox exporter（可选，blackbox 拨测 Job 时附带）；下载后校验 sha256 校验和，确认包完整性。',
     },
     {
-      title: 'Agent 自动部署采集器',
+      title: '配置 NETWORK_DOMAIN_ID / TOKEN 环境变量',
       description:
-        'Edge Sync Agent 启动后自动部署并守护本节点采集器（按网域 agent_type 选择 vmagent 或 prometheus-agent，二选一）与 blackbox exporter（可选，blackbox 拨测 Job 时附带）进程：启动顺序 blackbox → 采集器，进程异常自动重启并上报健康状态，配置包更新自动触发 reload；无需手动启动采集器。',
+        '在边缘节点配置环境变量（或写入 systemd 环境文件）：NETWORK_DOMAIN_ID=本页注册的网域 ID，TOKEN=本页生成/重置的网域认证 Token。',
+    },
+    {
+      title: '启动 Edge Sync Agent（systemd）',
+      description:
+        '启动 systemd 服务（metric-center-edge-agent）。Agent 启动后自动部署并守护本节点采集器（vmagent）与 blackbox exporter（可选）进程：启动顺序 blackbox → 采集器，健康检查、配置包更新 reload、进程异常自动重启；无需手动安装采集器。',
     },
   ],
 }

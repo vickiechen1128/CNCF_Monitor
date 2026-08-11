@@ -51,6 +51,11 @@ git branch --show-current # 必须是 feat/module-XX
 - docs/03-engineering-standards/01_Code_Isolation_Standard.md
 ```
 
+> **PRD 章节级读取（v1.24 起，控制上下文）**：PRD 文档较长（含业务沟通决策记录），按章节选择性读取，**禁止全文一次性读取**：
+> - **必读**：3.x 核心功能（用户层语义）、4.x 数据模型（字段 / 类型 / 枚举契约）、5.x 流程、6.x 接口 / 协议、8.x 状态机（状态流转）、9 验收标准（技术验收部分）；
+> - **按需**：1 模块目标、10 术语映射（UI 展示名对照）、Change Log（业务沟通记录，非开发契约，完整历史在 `design-decisions.md`）。
+> - **章节定位命令示例**：`grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md` 先看章节结构，再用 `sed -n '起点,终点p'` 读取指定章节。
+
 > `docs/04-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
 >
 > `docs/prototypes/module-XX/` 是辅助理解材料，优先读取；如缺失或为空，以 PRD + L3 task-sequence 为准继续开发。

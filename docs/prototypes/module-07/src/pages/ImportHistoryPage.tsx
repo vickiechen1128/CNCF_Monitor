@@ -138,13 +138,13 @@ export default function ImportHistoryPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>导入记录</Title>
-        <Text type="secondary">查看 Excel 批量导入资源的历史记录与错误报告（PRD v1.2）</Text>
+        <Text type="secondary">查看 Excel 批量导入资源的历史记录与错误报告</Text>
       </div>
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="状态映射字典（PRD 5.5.1）：Excel 中文状态自动映射到 Resource.status 枚举"
+        message="状态映射字典：Excel 中文状态自动映射到 Resource.status 枚举"
         description={
           <Space wrap size={[8, 8]}>
             {STATUS_MAPPING_RULES.map((rule) => (

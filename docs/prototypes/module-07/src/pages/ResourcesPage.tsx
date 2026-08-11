@@ -88,7 +88,7 @@ const IMPORT_RESULT_DEMO: Record<ResourceType, { total: number; success: number;
     failed: 2,
     errors: [
       { row: 2, resource_type: 'host', field: 'instance_ip', value: '999.999.999.999', reason: 'IP 格式不正确' },
-      { row: 3, resource_type: 'host', field: 'instance_ip:port', value: '10.0.1.11:9100', reason: '重复检测：instance_ip:port 已存在（PRD 6.2 重复检测）' },
+      { row: 3, resource_type: 'host', field: 'instance_ip:port', value: '10.0.1.11:9100', reason: '重复检测：instance_ip:port 已存在' },
     ],
   },
   middleware: {
@@ -96,7 +96,7 @@ const IMPORT_RESULT_DEMO: Record<ResourceType, { total: number; success: number;
     success: 1,
     failed: 1,
     errors: [
-      { row: 2, resource_type: 'middleware', field: 'network_domain', value: 'unknown-domain', reason: '网域不存在：network_domain 必须对应已存在的 NetworkDomain.id（PRD 6.2 网域存在性校验）' },
+      { row: 2, resource_type: 'middleware', field: 'network_domain', value: 'unknown-domain', reason: '网域不存在：network_domain 必须对应已存在的 NetworkDomain.id' },
     ],
   },
   application: {
@@ -412,12 +412,12 @@ export default function ResourcesPage() {
           <>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="实例名" name="instance_name" rules={[{ required: true, message: '请输入实例名' }]} extra="host 模板必填，生成 hostname label（PRD 5.2/5.12）">
+                <Form.Item label="实例名" name="instance_name" rules={[{ required: true, message: '请输入实例名' }]} extra="host 模板必填，生成 hostname label">
                   <Input placeholder="如 prod-web-01" />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="主机名" name="hostname" rules={[{ required: true, message: '请输入主机名' }]} extra="host 场景下默认与 instance_name 一致（PRD 5.2）">
+                <Form.Item label="主机名" name="hostname" rules={[{ required: true, message: '请输入主机名' }]} extra="host 场景下默认与 instance_name 一致">
                   <Input placeholder="如 prod-web-01.volc" />
                 </Form.Item>
               </Col>
@@ -431,7 +431,7 @@ export default function ResourcesPage() {
                     { required: true, message: '请输入管理 IP' },
                     { pattern: IPV4_RE, message: 'IPv4 格式不正确' },
                   ]}
-                  extra="作为 Prometheus scrape target 地址（PRD 5.6）"
+                  extra="作为 Prometheus scrape target 地址"
                 >
                   <Input placeholder="如 10.0.1.11" />
                 </Form.Item>
@@ -501,7 +501,7 @@ export default function ResourcesPage() {
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="连接串" name="connection_string" extra="敏感信息可加密存储（PRD 5.7）">
+                <Form.Item label="连接串" name="connection_string" extra="敏感信息可加密存储">
                   <Input placeholder="敏感信息可加密存储" />
                 </Form.Item>
               </Col>
@@ -533,7 +533,7 @@ export default function ResourcesPage() {
               label="健康检查 URL"
               name="health_check_url"
               rules={[{ type: 'url', message: 'URL 格式不正确' }]}
-              extra="作为资源字段由 Module_07 维护，Blackbox Job 配置由 Module_01 负责（PRD 5.8）"
+              extra="作为资源字段由 Module_07 维护，Blackbox Job 配置由 Module_01 负责"
             >
               <Input placeholder="如 http://ip:9100/-/healthy" />
             </Form.Item>
@@ -565,19 +565,19 @@ export default function ResourcesPage() {
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="Exporter 类型" name="exporter_type" extra="如 snmp_exporter / gpu_exporter / oracle_exporter（PRD 5.9）">
+                <Form.Item label="Exporter 类型" name="exporter_type" extra="如 snmp_exporter / gpu_exporter / oracle_exporter">
                   <Input placeholder="如 snmp_exporter / gpu_exporter" />
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="目标 IP / 域名" name="instance_ip" rules={[{ required: true, message: '请输入目标 IP 或域名' }]} extra="必填且符合 IPv4/域名格式（PRD 6.2）">
+                <Form.Item label="目标 IP / 域名" name="instance_ip" rules={[{ required: true, message: '请输入目标 IP 或域名' }]} extra="必填且符合 IPv4/域名格式">
                   <Input placeholder="如 172.16.0.1" />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="端口" name="port" rules={[{ type: 'number', min: 1, max: 65535, message: '端口范围 1~65535' }]} extra="空时不拼接 instance（PRD 5.9）">
+                <Form.Item label="端口" name="port" rules={[{ type: 'number', min: 1, max: 65535, message: '端口范围 1~65535' }]} extra="空时不拼接 instance">
                   <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="如 9116" />
                 </Form.Item>
               </Col>
@@ -604,7 +604,7 @@ export default function ResourcesPage() {
               label="自定义标签"
               name="custom_labels"
               rules={[{ pattern: CUSTOM_LABELS_RE, message: '格式：key1=value1;key2=value2' }]}
-              extra="支持 key1=value1;key2=value2 格式（PRD 6.1）"
+              extra="支持 key1=value1;key2=value2 格式"
             >
               <Input placeholder="如 device_type=snmp_switch;vendor=h3c" />
             </Form.Item>
@@ -617,12 +617,12 @@ export default function ResourcesPage() {
     <>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]} extra="映射为 app label（PRD 5.2/5.12）">
+          <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]} extra="映射为 app label">
             <Input placeholder="如 订单服务" />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]} extra="映射为 env label（PRD 5.2/5.12）">
+          <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]} extra="映射为 env label">
             <Select placeholder="请选择">
               {ENV_VALUES.map((v) => (
                 <Option key={v} value={v}>
@@ -635,12 +635,12 @@ export default function ResourcesPage() {
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="集群" name="cluster" rules={[{ required: true, message: '请输入集群' }]} extra="映射为 cluster label；host 场景 sub_app_code 为空时取 vpc（PRD 5.2/5.12）">
+          <Form.Item label="集群" name="cluster" rules={[{ required: true, message: '请输入集群' }]} extra="映射为 cluster label；host 场景 sub_app_code 为空时取 vpc">
             <Input placeholder="如 k8s-prod" />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="负责人" name="owner" extra="MVP 用户填写；v0.4+ 优先取自 cmdb_maintainer（PRD 5.2）">
+          <Form.Item label="负责人" name="owner" extra="MVP 用户填写；v0.4+ 优先取自 cmdb_maintainer">
             <Input placeholder="负责人姓名" />
           </Form.Item>
         </Col>
@@ -651,7 +651,7 @@ export default function ResourcesPage() {
             label="网域"
             name="network_domain_id"
             rules={[{ required: true, message: '请选择网域' }]}
-            extra="单网域模式下网域列仍展示，不可隐藏（PRD 3.1/5.4）；网域生命周期由 Module_09 负责"
+            extra="单网域模式下网域列仍展示，不可隐藏；网域生命周期由 Module_09 负责"
           >
             <Select placeholder="请选择">
               {mockNetworkDomains.map((d) => (
@@ -663,7 +663,7 @@ export default function ResourcesPage() {
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="状态" name="status" rules={[{ required: true, message: '请选择状态' }]} extra="orphan 为 v0.4+ 预留，不在表单选项中（PRD 5.2）">
+          <Form.Item label="状态" name="status" rules={[{ required: true, message: '请选择状态' }]} extra="orphan 为 v0.4+ 预留，不在表单选项中">
             <Select placeholder="请选择">
               {STATUS_VALUES.map((s) => (
                 <Option key={s} value={s}>
@@ -699,7 +699,7 @@ export default function ResourcesPage() {
     }
     const monitoredColumn = {
       title: (
-        <Tooltip title="已监控 / 未监控由 Module_01 监控策略维护关联关系，Module_07 只读展示（PRD 3.1/5.2）。is_monitored 字段由 Module_01 在创建/更新/删除 ScrapeJob 时同步计算并写入。">
+        <Tooltip title="已监控 / 未监控由 Module_01 监控策略维护关联关系，Module_07 只读展示。is_monitored 字段由 Module_01 在创建/更新/删除 ScrapeJob 时同步计算并写入。">
           <Space size={4}>
             监控
             <InfoCircleOutlined style={{ color: '#86909C' }} />
@@ -971,7 +971,7 @@ export default function ResourcesPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>资源管理</Title>
-        <Text type="secondary">管理主机、中间件、应用及通用监控对象（Module_07，PRD v1.2）</Text>
+        <Text type="secondary">管理主机、中间件、应用及通用监控对象（Module_07）</Text>
       </div>
 
       {/* 模块边界说明（PRD 1/4.1） */}
@@ -1074,7 +1074,7 @@ export default function ResourcesPage() {
                 {
                   key: 'is_monitored',
                   label: (
-                    <Tooltip title="is_monitored 由 Module_01 维护，Module_07 只读展示（PRD 5.2）">
+                    <Tooltip title="is_monitored 由 Module_01 维护，Module_07 只读展示">
                       <Space size={4}>监控状态<InfoCircleOutlined style={{ color: '#86909C', fontSize: 12 }} /></Space>
                     </Tooltip>
                   ),
@@ -1249,8 +1249,8 @@ export default function ResourcesPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="固定列模板（PRD 6.1）"
-          description="按资源类型提供固定列模板（原型演示，不生成真实文件）；未填写 network_domain 时自动归属 default 网域。"
+          message="固定列模板"
+          description="按资源类型提供固定列模板（不生成真实文件）；未填写 network_domain 时自动归属 default 网域。"
         />
         <Table
           size="small"
@@ -1283,7 +1283,7 @@ export default function ResourcesPage() {
           type="warning"
           showIcon
           style={{ marginBottom: 12 }}
-          message="状态映射字典（PRD 5.5.1）"
+          message="状态映射字典"
           description={
             <Space wrap size={[8, 8]}>
               {STATUS_MAPPING_RULES.map((rule) => (
@@ -1298,7 +1298,7 @@ export default function ResourcesPage() {
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="导入校验项（PRD 6.2，mock 演示）"
+          message="导入校验项"
           description="必填字段 · 网域存在性（空时归属 default，不存在则报错） · IP 格式 · 端口范围 1~65535 · URL 格式 · env 枚举 dev/test/staging/prod · protocol 枚举 http/https/tcp · 状态枚举 · 重复检测（instance_ip:port / service_name 不可重复） · 通用目标 instance_ip 必填 · scheme 枚举 http/https · custom_labels 格式 key=value;key2=value2"
         />
         <Row gutter={16} style={{ marginBottom: 12 }}>

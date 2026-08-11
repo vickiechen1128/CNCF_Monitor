@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider, Alert, Switch, App } from 'antd'
+import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider, Alert, Switch, App, Collapse } from 'antd'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -138,6 +138,33 @@ export function MainLayout({ children }: MainLayoutProps) {
             />
           )}
           {children}
+          {/* 提示分区规范：用户可见文案不含设计决策 / PRD 引用；本折叠区集中承载设计依据，供产品 / 技术评审与开发参考 */}
+          <Collapse
+            ghost
+            style={{ margin: '0 16px 16px' }}
+            items={[
+              {
+                key: 'review',
+                label: (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    原型与实现说明（面向产品 / 技术评审，不影响功能体验）
+                  </Text>
+                ),
+                children: (
+                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+                    页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
+                    docs/04-execution-records/module-01/design-decisions.md 与 Module_01 PRD（对应原型目录上级）。
+                    决策清单：决策 4 拨测配置合并为 ScrapeJob 的 blackbox 类型（job_type=standard / blackbox，生成 blackbox.yml）；
+                    决策 5 先有指标库才能写 PromQL（规则保存时校验 expr 引用指标必须存在于指标库）；
+                    决策 6 保留「指标元数据」概念、内部实现为「指标库」；
+                    决策 14 采集参数可从 CI-Exporter 映射继承、且可被手动覆盖（「同步映射默认值」跳过已覆盖字段）；
+                    决策 15 选中 CI 类型后自动匹配映射默认 Exporter 模板（继承链）。
+                    实现细节与数据契约见 PRD 对应章节与代码注释。
+                  </Typography.Paragraph>
+                ),
+              },
+            ]}
+          />
         </Content>
       </Layout>
     </Layout>

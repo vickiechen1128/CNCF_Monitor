@@ -50,3 +50,8 @@ metric_center.db
 # 临时文件
 /tmp/
 *.tmp
+tmp_test/
+_gcc_make.zip
+
+# WorkBuddy 项目本地元数据（记忆/自动化等，不纳入版本控制）
+.workbuddy/

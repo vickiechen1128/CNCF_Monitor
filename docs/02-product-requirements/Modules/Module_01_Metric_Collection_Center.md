@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v2.1
+> **PRD 版本**: v2.4
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
 > **原型版本**: v2.0
-> **更新日期**: 2026-08-05
+> **更新日期**: 2026-08-07
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -19,7 +19,9 @@
 
 1. **监控策略配置（MVP）**：建立 CI 类型与 Exporter 模板的绑定关系，基于该绑定创建并维护 `ScrapeJob`，在隔离网域场景下手动勾选需要监控的实例，并确认 Exporter 已完成安装/注册。
 2. **指标库管理（P1）**：维护平台可识别的指标名、类型、HELP/UNIT，以及常见 Exporter 的内置指标库（静态库），为规则编辑提供指标提示与校验能力；必须先有指标库才能编写 PromQL。
-3. **规则编辑 UI（MVP）**：提供告警规则与记录规则的类 YAML 表单编辑器，支持 PromQL 校验与指标实时预览；规则的生命周期管理（分组、静默、Alertmanager 配置、告警状态展示）由 [Module\_08: 告警规则管理](Module_08_Alerting_Rule_Management.md) 负责。
+3. **规则编辑 UI（v0.3）**：提供告警规则与记录规则的类 YAML 表单编辑器，支持 PromQL 校验与指标实时预览；规则的生命周期管理（分组、静默、Alertmanager 配置、告警状态展示）由 [Module\_08: 告警规则管理](Module_08_Alerting_Rule_Management.md) 负责。
+
+> **版本调整（v2.2）**：规则编辑 UI 由 MVP 调整至 **v0.3**（与 [02_Product_Roadmap.md](../02_Product_Roadmap.md) 2.4「MVP 不做告警规则编辑 UI」及 [Module_08](Module_08_Alerting_Rule_Management.md) v0.3 落地对齐）；MVP 阶段告警/记录规则以手写 `rules.yml` + Alertmanager 方式使用。规则编辑 UI 依赖的 [Module_02](Module_02_Query_Center.md) PromQL 校验与指标实时预览接口（`validate` / `preview`）随之 v0.3 启用。
 
 > **边界说明**：
 >
@@ -31,15 +33,17 @@
 
 ## 2. 用户故事
 
-- OPS-01：为指定 CI 类型（如 host / mysql / redis）选择默认 Exporter 模板，建立 CI 类型 ↔ Exporter 模板绑定。
-- OPS-02：基于 CI 类型与 Exporter 模板创建一个 `ScrapeJob`，必须选择归属网域（`default` 或 edge 域），并配置 `scrape_interval`、`scrape_timeout`、`metrics_path`、`scheme` 等参数。
-- OPS-03：在 MVP 阶段手动勾选需要纳入该 `ScrapeJob` 监控的具体实例；后续版本支持按网域 / 环境 / 应用 / 标签等条件筛选实例。
-- OPS-04：确认目标实例上 Exporter 已安装/已注册，避免生成大量 down 目标。
-- OPS-05：查看并维护指标库（counter/gauge/histogram/summary、HELP、UNIT）以及 Exporter 内置指标库，为规则编写提供指标提示。
-- OPS-06：使用类 YAML 表单编辑告警/记录规则，编辑时获得 PromQL 校验与指标实时预览。
-- ARCH-01：在 [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource 列表上看到「已监控 / 未监控」badge，快速发现未被任何 `ScrapeJob` 选中的实例（v0.2+）。
-- ARCH-02：v0.4+ 基于外部 CMDB 自动发现实例并推荐监控策略（自动规则生成），但仍由工程师在策略模块确认后生效。
-- ARCH-03：v1.0 与 ITIL 流程结合，在变更/发布窗口中自动校验监控策略覆盖率。
+> {v2.4} 完整用户故事条目（角色 / 我希望 / 以便于）见**全局用户故事库 [01_User_Stories.md](../01_User_Stories.md) 4.1 节**；本模块用户故事使用模块命名空间编码（`M01-ROLE-NN`，全局唯一），仅在此列出编码与一句话摘要。
+
+- M01-OPS-01：为指定 CI 类型（如 host / mysql / redis）选择默认 Exporter 模板，建立 CI 类型 ↔ Exporter 模板绑定。
+- M01-OPS-02：基于 CI 类型与 Exporter 模板创建一个 `ScrapeJob`，必须选择归属网域（`default` 或 edge 域），并配置 `scrape_interval`、`scrape_timeout`、`metrics_path`、`scheme` 等参数。
+- M01-OPS-03：在 MVP 阶段手动勾选需要纳入该 `ScrapeJob` 监控的具体实例；后续版本支持按网域 / 环境 / 应用 / 标签等条件筛选实例。
+- M01-OPS-04：确认目标实例上 Exporter 已安装/已注册，避免生成大量 down 目标。
+- M01-OPS-05：查看并维护指标库（counter/gauge/histogram/summary、HELP、UNIT）以及 Exporter 内置指标库，为规则编写提供指标提示。
+- M01-OPS-06：使用类 YAML 表单编辑告警/记录规则，编辑时获得 PromQL 校验与指标实时预览（v0.3）。
+- M01-ARCH-01：在 [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource 列表上看到「已监控 / 未监控」badge，快速发现未被任何 `ScrapeJob` 选中的实例（v0.2+）。
+- M01-ARCH-02：v0.4+ 基于外部 CMDB 自动发现实例并推荐监控策略（自动规则生成），但仍由工程师在策略模块确认后生效。
+- M01-ARCH-03：v1.0 与 ITIL 流程结合，在变更/发布窗口中自动校验监控策略覆盖率。
 
 ***
 
@@ -59,16 +63,18 @@
 | 高级 Relabel 管理           | 标签丢弃/保留/重写、正则替换、hashmod（未来）                                                                                                             | P2         |
 | Exporter 市场             | Exporter 登记、版本管理、部署指南（未来）                                                                                                               | P2         |
 
-### 3.2 规则编辑 UI（MVP）
+### 3.2 规则编辑 UI（v0.3）
 
-| 功能        | 说明                                                                      | 优先级 |
+| 功能        | 说明                                                                      | 优先级 / 版本 |
 | --------- | ----------------------------------------------------------------------- | --- |
-| 类 YAML 表单 | 提供 expr / for / labels / annotations 字段，支持告警规则与记录规则编辑                   | P0  |
-| PromQL 校验 | 调用 [Module\_02: 查询中心](Module_02_Query_Center.md) 或 Prometheus 接口校验表达式语法 | P0  |
-| 指标实时预览    | 在编辑规则时展示指标名、标签键值提示与最近样本预览                                               | P0  |
-| 规则模板      | 按 CI 类型 / Exporter 预置常用规则模板，支持一键填充（P1）                                  | P1  |
-| 图形化规则构建器  | 拖拽式构建复杂规则（未来）                                                           | P2  |
+| 类 YAML 表单 | 提供 expr / for / labels / annotations 字段，支持告警规则与记录规则编辑                   | P0 / v0.3 |
+| PromQL 校验 | 调用 [Module\_02: 查询中心](Module_02_Query_Center.md) 或 Prometheus 接口校验表达式语法 | P0 / v0.3 |
+| 指标实时预览    | 在编辑规则时展示指标名、标签键值提示与最近样本预览                                               | P0 / v0.3 |
+| 规则模板      | 按 CI 类型 / Exporter 预置常用规则模板，支持一键填充（P1）                                  | P1 / v0.3 |
+| 图形化规则构建器  | 拖拽式构建复杂规则（未来）                                                           | P2 |
 
+> **版本调整（v2.2）**：规则编辑 UI 整体由 MVP 调整至 **v0.3**——MVP 阶段告警/记录规则手写 `rules.yml`（路线图 2.4），规则编辑 UI、PromQL 校验、指标实时预览及规则模板随 [Module_08](Module_08_Alerting_Rule_Management.md)（v0.3）一同交付；PromQL 校验与指标预览调用 [Module_02](Module_02_Query_Center.md) v0.3 提供的 `validate` / `preview` 接口。
+>
 > 规则编辑 UI 由本模块提供；规则保存后进入 [Module\_08: 告警规则管理](Module_08_Alerting_Rule_Management.md) 进行生命周期管理（启用/禁用、分组、静默、Alertmanager 路由、告警状态展示）。
 
 ### 3.3 运行时采集状态展示（已移出）
@@ -90,7 +96,7 @@
 
 1. [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 提供的 Resource、ResourceType、LabelTemplate 等对象数据。
 2. 本模块自身维护的策略配置：CITypeExporterMapping、ScrapeJob、MonitoringRule、ExporterMetricLibrary 等。
-3. Prometheus / Thanos / [Module\_02: 查询中心](Module_02_Query_Center.md) 提供的指标样本，用于 PromQL 校验与指标预览。
+3. Prometheus / Thanos / [Module\_02: 查询中心](Module_02_Query_Center.md) 提供的指标样本，用于 PromQL 校验与指标预览（v0.3，随规则编辑 UI 启用）。
 4. [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 返回的配置下发状态与版本信息。
 
 ```
@@ -123,19 +129,19 @@
 
 ### 5.1 CI 类型 ↔ Exporter 模板绑定（CITypeExporterMapping）
 
-| 字段                        | 类型       | 来源               | 说明                                  |
-| ------------------------- | -------- | ---------------- | ----------------------------------- |
-| id                        | string   | 平台生成             | 唯一标识                                |
-| resource\_type            | enum     | Module\_07       | host / mysql / redis / kafka / ...  |
-| exporter\_template\_id    | string   | 平台生成             | 关联的 ExporterTemplate ID             |
-| default\_port             | int      | ExporterTemplate | 默认监听端口，如 9100、9104                  |
-| metrics\_path             | string   | ExporterTemplate | 默认 `/metrics`，可覆盖                   |
-| scheme                    | string   | ExporterTemplate | http / https，默认 http                |
-| scrape\_interval          | duration | 策略配置             | 默认 15s / 30s / 60s                  |
-| scrape\_timeout           | duration | 策略配置             | 默认 scrape\_interval 的 80%           |
-| label\_template\_id       | string   | Module\_07       | 生成 target labels 时引用的 LabelTemplate |
-| is\_builtin               | bool     | 平台               | 是否平台内置绑定，用户可覆盖                      |
-| created\_at / updated\_at | datetime | 平台               | 创建/更新时间                             |
+| 字段                        | 类型       | 来源               | UI 展示名        | 说明                                  |
+| ------------------------- | -------- | ---------------- | -------------- | ----------------------------------- |
+| id                        | string   | 平台生成             | 映射 ID         | 唯一标识                                |
+| resource\_type            | enum     | Module\_07       | 资源类型         | host / mysql / redis / kafka / ...  |
+| exporter\_template\_id    | string   | 平台生成             | Exporter 模板   | 关联的 ExporterTemplate ID             |
+| default\_port             | int      | ExporterTemplate | 默认端口         | 默认监听端口，如 9100、9104                  |
+| metrics\_path             | string   | ExporterTemplate | 采集路径         | 默认 `/metrics`，可覆盖                   |
+| scheme                    | string   | ExporterTemplate | 协议            | http / https，默认 http                |
+| scrape\_interval          | duration | 策略配置             | 采集间隔         | 默认 15s / 30s / 60s                  |
+| scrape\_timeout           | duration | 策略配置             | 采集超时         | 默认 scrape\_interval 的 80%           |
+| label\_template\_id       | string   | Module\_07       | 标签模板         | 生成 target labels 时引用的 LabelTemplate |
+| is\_builtin               | bool     | 平台               | 内置映射         | 是否平台内置绑定，用户可覆盖                      |
+| created\_at / updated\_at | datetime | 平台               | 仅技术信息        | 创建/更新时间                             |
 
 > **模板层 vs 实例层**：CITypeExporterMapping 是**模板层（预设）**配置——为每种 CI 类型定义「默认用哪个 Exporter + 默认采集参数」，全局一份、由平台/管理员维护；ScrapeJob 是**实例层（运行态）**配置——基于该绑定继承默认值（`scrape_interval`、`scrape_timeout` 等）创建，再绑定具体网域与实例，允许覆盖。二者职责不同、**不重复**：映射被 Job 继承消费，Job 才是实际采集任务。
 >
@@ -182,31 +188,31 @@
 
 ### 5.2 Exporter 模板（ExporterTemplate）
 
-| 字段                         | 类型      | 说明                                   |
-| -------------------------- | ------- | ------------------------------------ |
-| id                         | string  | 唯一标识                                 |
-| name                       | string  | 模板名称，如 node-exporter、mysqld-exporter |
-| version                    | string  | 版本，如 1.6.1                           |
-| default\_port              | int     | 默认端口                                 |
-| metrics\_path              | string  | 默认 `/metrics`                        |
-| scheme                     | string  | http / https                         |
-| supported\_resource\_types | \[]enum | 可绑定的 resource\_type 列表               |
-| install\_guide             | text    | 离线/隔离网域安装说明                          |
-| is\_builtin                | bool    | 是否平台内置                               |
+| 字段                         | 类型      | UI 展示名        | 说明                                   |
+| -------------------------- | ------- | -------------- | ------------------------------------ |
+| id                         | string  | 模板 ID         | 唯一标识                                 |
+| name                       | string  | 模板名称         | 模板名称，如 node-exporter、mysqld-exporter |
+| version                    | string  | 版本            | 版本，如 1.6.1                           |
+| default\_port              | int     | 默认端口         | 默认端口                                 |
+| metrics\_path              | string  | 采集路径         | 默认 `/metrics`                        |
+| scheme                     | string  | 协议            | http / https                         |
+| supported\_resource\_types | \[]enum | 支持的资源类型     | 可绑定的 resource\_type 列表               |
+| install\_guide             | text    | 安装指南         | 离线/隔离网域安装说明                          |
+| is\_builtin                | bool    | 内置模板         | 是否平台内置                               |
 
 ### 5.3 Exporter 指标库（ExporterMetricLibrary）
 
-| 字段                     | 类型        | 说明                                              |
-| ---------------------- | --------- | ----------------------------------------------- |
-| id                     | string    | 唯一标识                                            |
-| exporter\_template\_id | string    | 归属的 ExporterTemplate                            |
-| metric\_name           | string    | 指标名                                             |
-| metric\_type           | enum      | counter / gauge / histogram / summary / unknown |
-| help                   | string    | 指标 HELP 文本                                      |
-| unit                   | string    | 单位，如 bytes、seconds、percent                      |
-| labels                 | \[]string | 常见标签键列表                                         |
-| is\_builtin            | bool      | 是否平台内置                                          |
-| enabled                | bool      | 是否启用（用户扩展时可禁用）                                  |
+| 字段                     | 类型        | UI 展示名        | 说明                                              |
+| ---------------------- | --------- | -------------- | ----------------------------------------------- |
+| id                     | string    | 指标 ID         | 唯一标识                                            |
+| exporter\_template\_id | string    | Exporter 模板   | 归属的 ExporterTemplate                            |
+| metric\_name           | string    | 指标名           | 指标名                                             |
+| metric\_type           | enum      | 指标类型         | counter / gauge / histogram / summary / unknown |
+| help                   | string    | 指标说明         | 指标 HELP 文本                                      |
+| unit                   | string    | 单位            | 单位，如 bytes、seconds、percent                      |
+| labels                 | \[]string | 常见标签         | 常见标签键列表                                         |
+| is\_builtin            | bool      | 内置指标         | 是否平台内置                                          |
+| enabled                | bool      | 启用状态         | 是否启用（用户扩展时可禁用）                                  |
 
 > **MVP 指标库最小集**：内置范围**跟随当前 CMDB 的 CI 类型**（`host` / `middleware` / `application` / `generic_target`），为各 CI 类型可绑定的常见 Exporter 预置静态指标库，最小集如下：
 >
@@ -226,28 +232,28 @@
 
 > 本数据模型由 Module\_01 持有并编辑；MVP 之前由 Module\_07 承载，现已迁移。
 
-| 字段                        | 类型        | 来源                    | 说明                                                                 |
-| ------------------------- | --------- | --------------------- | ------------------------------------------------------------------ |
-| id                        | string    | 平台生成                  | 唯一标识                                                               |
-| job\_name                 | string    | 用户输入                  | Prometheus job\_name                                               |
-| resource\_type            | enum      | Module\_07            | 关联 CI 类型                                                           |
-| exporter\_template\_id    | string    | CITypeExporterMapping | 关联 Exporter 模板                                                     |
-| network\_domain\_id       | string    | Module\_09            | 归属网域；**必填**，所有 ScrapeJob 必须绑定且仅绑定单一网域（见下方「网域约束」）                   |
-| instance\_selection\_mode | enum      | 策略配置                  | manual（MVP）/ filter（v0.3+）                                         |
-| selected\_instance\_ids   | \[]string | Module\_07            | 手动勾选模式下选中的 Resource ID 列表                                          |
-| instance\_filter          | object    | 策略配置                  | filter 模式下的筛选条件（v0.3+）                                             |
-| scrape\_interval          | duration  | 继承/覆盖                 | 默认来自 CITypeExporterMapping                                         |
-| scrape\_timeout           | duration  | 继承/覆盖                 | 默认来自 CITypeExporterMapping                                         |
-| metrics\_path             | string    | 继承/覆盖                 | 默认来自 ExporterTemplate                                              |
-| scheme                    | string    | 继承/覆盖                 | 默认来自 ExporterTemplate                                              |
-| label\_template\_id       | string    | Module\_07            | 生成 labels 时引用的 LabelTemplate                                       |
-| mapping\_overrides        | \[]string | 策略配置                  | 手动覆盖过映射默认值的参数字段名（scrape\_interval / scrape\_timeout / metrics\_path / scheme / label\_template\_id）；「同步映射默认值」时跳过这些字段（决策 14） |
-| relabel\_configs          | \[]object | 策略配置                  | 高级 relabel 规则（P2）                                                  |
-| job\_type                 | enum      | 策略配置                  | `standard` / `blackbox`，默认 `standard`                              |
-| blackbox\_module          | string    | 策略配置                  | `job_type=blackbox` 时必填，引用 `blackbox.yml` 模块名，如 `http_2xx`         |
-| blackbox\_targets         | \[]BlackboxTarget | 策略配置                  | `job_type=blackbox` 时必填；探测目标对象列表（含目标地址、协议、完整 URL），结构见下方「BlackboxTarget 结构」 |
-| enabled                   | bool      | 用户                    | 是否启用                                                               |
-| created\_at / updated\_at | datetime  | 平台                    | 创建/更新时间                                                            |
+| 字段                        | 类型        | 来源                    | UI 展示名          | 说明                                                                 |
+| ------------------------- | --------- | --------------------- | ---------------- | ------------------------------------------------------------------ |
+| id                        | string    | 平台生成                  | Job ID           | 唯一标识                                                               |
+| job\_name                 | string    | 用户输入                  | Job 名称          | Prometheus job\_name                                               |
+| resource\_type            | enum      | Module\_07            | 资源类型           | 关联 CI 类型                                                           |
+| exporter\_template\_id    | string    | CITypeExporterMapping | Exporter 模板     | 关联 Exporter 模板                                                     |
+| network\_domain\_id       | string    | Module\_09            | 网域              | 归属网域；**必填**，所有 ScrapeJob 必须绑定且仅绑定单一网域（见下方「网域约束」）                   |
+| instance\_selection\_mode | enum      | 策略配置                  | 实例选择方式        | manual（MVP）/ filter（v0.3+）                                         |
+| selected\_instance\_ids   | \[]string | Module\_07            | 已选实例           | 手动勾选模式下选中的 Resource ID 列表                                          |
+| instance\_filter          | object    | 策略配置                  | 实例筛选条件        | filter 模式下的筛选条件（v0.3+）                                             |
+| scrape\_interval          | duration  | 继承/覆盖                 | 采集间隔          | 默认来自 CITypeExporterMapping                                         |
+| scrape\_timeout           | duration  | 继承/覆盖                 | 采集超时          | 默认来自 CITypeExporterMapping                                         |
+| metrics\_path             | string    | 继承/覆盖                 | 采集路径          | 默认来自 ExporterTemplate                                              |
+| scheme                    | string    | 继承/覆盖                 | 协议             | 默认来自 ExporterTemplate                                              |
+| label\_template\_id       | string    | Module\_07            | 标签模板          | 生成 labels 时引用的 LabelTemplate                                       |
+| mapping\_overrides        | \[]string | 策略配置                  | 仅技术信息         | 手动覆盖过映射默认值的参数字段名（scrape\_interval / scrape\_timeout / metrics\_path / scheme / label\_template\_id）；「同步映射默认值」时跳过这些字段（决策 14） |
+| relabel\_configs          | \[]object | 策略配置                  | 仅技术信息         | 高级 relabel 规则（P2）                                                  |
+| job\_type                 | enum      | 策略配置                  | 采集 / 拨测       | `standard` / `blackbox`，默认 `standard`                              |
+| blackbox\_module          | string    | 策略配置                  | 拨测模块          | `job_type=blackbox` 时必填，引用 `blackbox.yml` 模块名，如 `http_2xx`         |
+| blackbox\_targets         | \[]BlackboxTarget | 策略配置                  | 拨测目标          | `job_type=blackbox` 时必填；探测目标对象列表（含目标地址、协议、完整 URL），结构见下方「BlackboxTarget 结构」 |
+| enabled                   | bool      | 用户                    | 启用状态          | 是否启用                                                               |
+| created\_at / updated\_at | datetime  | 平台                    | 仅技术信息         | 创建/更新时间                                                            |
 
 > **网域约束**：
 >
@@ -275,20 +281,22 @@
 
 ### 5.5 规则编辑模型（MonitoringRule）
 
-| 字段                        | 类型                  | 说明                            |
-| ------------------------- | ------------------- | ----------------------------- |
-| id                        | string              | 唯一标识                          |
-| name                      | string              | 规则名                           |
-| rule\_type                | enum                | alerting / recording          |
-| expr                      | string              | PromQL 表达式                    |
-| duration                  | duration            | `for` 字段，仅告警规则                |
-| labels                    | map\<string,string> | 规则 labels                     |
-| annotations               | map\<string,string> | 规则 annotations，仅告警规则          |
-| resource\_type            | enum                | 适用 CI 类型                      |
-| exporter\_template\_id    | string              | 关联 Exporter 模板，用于指标提示         |
-| scope                    | enum                | `central` / `edge` / `both`；MVP~v0.3 固定 `central`（中心求值），`edge`/`both` 由 Module\_08 在 v0.4+ 支持（P2 预留） |
-| enabled                   | bool                | 是否启用（由 Module\_08 管理生命周期时可覆盖） |
-| created\_at / updated\_at | datetime            | 创建/更新时间                       |
+> **MVP 预留说明（v2.2）**：规则编辑 UI 于 v0.3 交付（见 3.2），`MonitoringRule` 数据模型在 MVP 阶段**预留定义**——便于 Module_09 配置生成源表与 v0.3 规则编辑 UI 无缝衔接；MVP 阶段告警/记录规则以手写 `rules.yml` + Alertmanager 方式使用，不通过 UI 写入本模型。
+
+| 字段                        | 类型                  | UI 展示名      | 说明                            |
+| ------------------------- | ------------------- | ------------ | ----------------------------- |
+| id                        | string              | 规则 ID       | 唯一标识                          |
+| name                      | string              | 规则名称       | 规则名                           |
+| rule\_type                | enum                | 规则类型       | alerting / recording          |
+| expr                      | string              | 表达式        | PromQL 表达式                    |
+| duration                  | duration            | 持续时间       | `for` 字段，仅告警规则                |
+| labels                    | map\<string,string> | 规则标签       | 规则 labels                     |
+| annotations               | map\<string,string> | 告警说明       | 规则 annotations，仅告警规则          |
+| resource\_type            | enum                | 资源类型       | 适用 CI 类型                      |
+| exporter\_template\_id    | string              | Exporter 模板 | 关联 Exporter 模板，用于指标提示         |
+| scope                    | enum                | 求值范围       | `central` / `edge` / `both`；MVP~v0.3 固定 `central`（中心求值），`edge`/`both` 由 Module\_08 在 v0.4+ 支持（P2 预留） |
+| enabled                   | bool                | 启用状态       | 是否启用（由 Module\_08 管理生命周期时可覆盖） |
+| created\_at / updated\_at | datetime            | 仅技术信息      | 创建/更新时间                       |
 
 > **网域无关性说明**（与 ScrapeJob「采集绑域」对照）：
 >
@@ -307,15 +315,15 @@
 
 ### 5.6 Exporter 安装/注册确认（ExporterInstallationConfirmation）
 
-| 字段                     | 类型       | 说明                                                  |
-| ---------------------- | -------- | --------------------------------------------------- |
-| id                     | string   | 唯一标识                                                |
-| resource\_id           | string   | 关联 Resource ID                                      |
-| exporter\_template\_id | string   | 关联 Exporter 模板                                      |
-| status                 | enum     | pending / installed / not\_installed / unregistered |
-| confirmed\_by          | string   | 确认人                                                 |
-| confirmed\_at          | datetime | 确认时间                                                |
-| notes                  | string   | 备注（线下安装记录、工单号等）                                     |
+| 字段                     | 类型       | UI 展示名        | 说明                                                  |
+| ---------------------- | -------- | -------------- | --------------------------------------------------- |
+| id                     | string   | 确认记录 ID      | 唯一标识                                                |
+| resource\_id           | string   | 资源            | 关联 Resource ID                                      |
+| exporter\_template\_id | string   | Exporter 模板   | 关联 Exporter 模板                                      |
+| status                 | enum     | 安装状态         | pending / installed / not\_installed / unregistered |
+| confirmed\_by          | string   | 确认人           | 确认人                                                 |
+| confirmed\_at          | datetime | 确认时间         | 确认时间                                                |
+| notes                  | string   | 备注            | 备注（线下安装记录、工单号等）                                     |
 
 > 该状态可在 Resource 上冗余展示，也可作为独立表存在。MVP 至少支持工程师手动勾选「已安装」。
 >
@@ -323,33 +331,33 @@
 
 ### 5.7 采集目标（ScrapeTarget）【运行时数据，展示职责已移交】
 
-| 字段                  | 类型       | 来源                   | 说明                              |
-| ------------------- | -------- | -------------------- | ------------------------------- |
-| id                  | string   | 平台生成                 | 唯一标识                            |
-| resource\_id        | string   | CMDB                 | 关联的 CMDB 资源 ID                  |
-| resource\_type      | enum     | CMDB                 | host / middleware / application |
-| network\_domain\_id | string   | CMDB / NetworkDomain | 所属网域 ID                         |
-| job                 | string   | Job 配置               | Prometheus job\_name            |
-| instance            | string   | CMDB / 拨测 URL        | IP:Port 或健康检查 URL               |
-| labels              | map      | CMDB + 标签模板          | Prometheus labels               |
-| status              | enum     | Prometheus           | up / down / unknown             |
-| last\_scrape        | datetime | Prometheus           | 最近抓取时间                          |
-| last\_error         | string   | Prometheus           | 最近错误信息                          |
-| probe\_success      | float    | Blackbox             | 拨测成功标识（仅拨测目标）                   |
-| probe\_duration     | float    | Blackbox             | 拨测耗时（仅拨测目标）                     |
+| 字段                  | 类型       | 来源                   | UI 展示名        | 说明                              |
+| ------------------- | -------- | -------------------- | -------------- | ------------------------------- |
+| id                  | string   | 平台生成                 | 仅技术信息        | 唯一标识                            |
+| resource\_id        | string   | CMDB                 | 资源            | 关联的 CMDB 资源 ID                  |
+| resource\_type      | enum     | CMDB                 | 资源类型         | host / middleware / application |
+| network\_domain\_id | string   | CMDB / NetworkDomain | 网域            | 所属网域 ID                         |
+| job                 | string   | Job 配置               | Job            | Prometheus job\_name            |
+| instance            | string   | CMDB / 拨测 URL        | 实例            | IP:Port 或健康检查 URL               |
+| labels              | map      | CMDB + 标签模板          | 标签            | Prometheus labels               |
+| status              | enum     | Prometheus           | 状态            | up / down / unknown             |
+| last\_scrape        | datetime | Prometheus           | 最后抓取         | 最近抓取时间                          |
+| last\_error         | string   | Prometheus           | 最近错误         | 最近错误信息                          |
+| probe\_success      | float    | Blackbox             | 拨测成功         | 拨测成功标识（仅拨测目标）                   |
+| probe\_duration     | float    | Blackbox             | 拨测耗时         | 拨测耗时（仅拨测目标）                     |
 
 > **说明**：`ScrapeTarget` 由 Module\_01 的策略配置与 Module\_09 生成的配置共同决定，但**运行时状态展示**由 [Module\_02: 查询中心](Module_02_Query_Center.md) 负责。
 
 ### 5.8 采集日志（ScrapeLog）【运行时数据，展示职责已移交】
 
-| 字段           | 类型       | 说明              |
-| ------------ | -------- | --------------- |
-| target\_id   | string   | 目标 ID           |
-| timestamp    | datetime | 抓取时间            |
-| status       | enum     | success / error |
-| duration\_ms | int      | 抓取耗时            |
-| http\_status | int      | HTTP 状态码        |
-| error\_msg   | string   | 错误信息            |
+| 字段           | 类型       | UI 展示名   | 说明              |
+| ------------ | -------- | --------- | --------------- |
+| target\_id   | string   | 仅技术信息   | 目标 ID           |
+| timestamp    | datetime | 抓取时间     | 抓取时间            |
+| status       | enum     | 抓取状态     | success / error |
+| duration\_ms | int      | 抓取耗时     | 抓取耗时            |
+| http\_status | int      | HTTP 状态码 | HTTP 状态码        |
+| error\_msg   | string   | 错误信息     | 错误信息            |
 
 > **说明**：采集日志由 Prometheus 运行时产生，展示职责由 [Module\_02: 查询中心](Module_02_Query_Center.md) 承担。
 
@@ -385,45 +393,80 @@
 - `platform/gateway/proxy/`
 - [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource / ResourceType / LabelTemplate API
 - [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 的配置下发与状态反馈 API
-- [Module\_02: 查询中心](Module_02_Query_Center.md) 的 PromQL 校验与指标查询 API（规则编辑时调用）
+- [Module\_02: 查询中心](Module_02_Query_Center.md) 的 PromQL 校验与指标查询 API（v0.3 起，规则编辑时调用）
 
 ***
 
 ## 8. 验收标准
 
-- [ ] 模块名称与文档目录已更新为「监控策略与指标管理」。
-- [ ] 可以为常见 CI 类型（host / mysql / redis 等）建立/编辑 CI 类型 ↔ Exporter 模板绑定，包含默认端口、metrics\_path、scheme、scrape\_interval、scrape\_timeout。
-- [ ] 可以创建/编辑 `ScrapeJob`，指定 job\_name、resource\_type、exporter\_template\_id、网域、实例选择模式与标签模板引用。
-- [ ] MVP 支持手动勾选实例；勾选结果持久化到 `ScrapeJob.selected_instance_ids`。
-- [ ] 可以标记 Resource/Target 的 Exporter 安装/注册状态，未确认实例不生成 target。
-- [ ] 规则编辑 UI 支持类 YAML 表单（expr / for / labels / annotations），调用查询中心进行 PromQL 校验，并提供指标实时预览。
-- [ ] 指标库可注册/查看，包含 metric\_type、help、unit。
-- [ ] MVP 指标库最小集跟随当前 CMDB CI 类型（host / middleware / application / generic\_target）预置：node-exporter、mysqld-exporter、redis-exporter、kafka-exporter、blackbox-exporter 的内置指标，规则编辑时可提示指标名与标签。
-- [ ] MVP 内置 blackbox exporter 指标库，至少包含 `probe_success`、`probe_duration_seconds`、`probe_http_status_code`，规则编辑时可提示与校验。
-- [ ] P1 支持用户手动导入（JSON/CSV 或抓取 metrics 元数据）与更新/覆盖/禁用指标库条目，MVP 阶段内置库为只读静态数据。
-- [ ] [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource 列表可展示「已监控 / 未监控」badge，数据来源为本模块的 `ScrapeJob` 选中状态。
-- [ ] 策略配置写入 DB 后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 能够轮询生成配置草稿，经人工确认后下发。
-- [ ] 标准 ScrapeJob 与 blackbox ScrapeJob 均必须绑定单一 `network_domain_id`；`instance_selection_mode=manual` 保存时校验 `selected_instance_ids` 选中的 Resource 与 Job 同属一个网域。
-- [ ] 支持创建 `job_type=blackbox` 的 `ScrapeJob`，可配置 `blackbox_module` 与 `blackbox_targets`，并绑定单一 `network_domain_id`。
-- [ ] blackbox ScrapeJob 的创建/编辑/启停、模块或目标变更后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 在下一轮询周期内检测到 `updated_at` 变化并重新生成对应网域配置（pull 模式，Module\_01 不主动通知）。
-- [ ] 运行时目标状态、拨测结果、采集诊断不再由本模块负责展示，相关验收标准已迁移至 [Module\_02: 查询中心](Module_02_Query_Center.md) 与 [Module\_08: 告警规则管理](Module_08_Alerting_Rule_Management.md)。
-- [ ] v0.4+ 支持基于外部 CMDB 自动发现实例并推荐监控策略；v1.0 支持与 ITIL 流程联动校验监控策略覆盖率。
+### 8.1 用户验收（用户可在 UI 感知/操作）
+
+- [ ] {P0} 模块名称与文档目录已更新为「监控策略与指标管理」。
+- [ ] {P0} 可以为常见 CI 类型（host / mysql / redis 等）建立/编辑 CI 类型 ↔ Exporter 模板绑定，包含默认端口、metrics\_path、scheme、scrape\_interval、scrape\_timeout。
+- [ ] {P0} 可以创建/编辑 `ScrapeJob`，指定 job\_name、resource\_type、exporter\_template\_id、网域、实例选择模式与标签模板引用。
+- [ ] {P0} MVP 支持手动勾选实例；勾选结果持久化到 `ScrapeJob.selected_instance_ids`。
+- [ ] {P0} 可以标记 Resource/Target 的 Exporter 安装/注册状态，未确认实例不生成 target。
+- [ ] {P0} {v0.3} 规则编辑 UI 支持类 YAML 表单（expr / for / labels / annotations），调用查询中心进行 PromQL 校验，并提供指标实时预览。
+- [ ] {P0} 指标库可注册/查看，包含 metric\_type、help、unit。
+- [ ] {P0} MVP 指标库最小集跟随当前 CMDB CI 类型（host / middleware / application / generic\_target）预置：node-exporter、mysqld-exporter、redis-exporter、kafka-exporter、blackbox-exporter 的内置指标，规则编辑时可提示指标名与标签。
+- [ ] {P0} MVP 内置 blackbox exporter 指标库，至少包含 `probe_success`、`probe_duration_seconds`、`probe_http_status_code`，规则编辑时可提示与校验。
+- [ ] {P1} 支持用户手动导入（JSON/CSV 或抓取 metrics 元数据）与更新/覆盖/禁用指标库条目，MVP 阶段内置库为只读静态数据。
+- [ ] {P0} [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource 列表可展示「已监控 / 未监控」badge，数据来源为本模块的 `ScrapeJob` 选中状态。
+- [ ] {P0} 支持创建 `job_type=blackbox` 的 `ScrapeJob`，可配置 `blackbox_module` 与 `blackbox_targets`，并绑定单一 `network_domain_id`。
+
+### 8.2 技术验收（后端/契约可验证）
+
+- [ ] {P0} 策略配置写入 DB 后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 能够轮询生成配置草稿，经人工确认后下发。
+- [ ] {P0} 标准 ScrapeJob 与 blackbox ScrapeJob 均必须绑定单一 `network_domain_id`；`instance_selection_mode=manual` 保存时校验 `selected_instance_ids` 选中的 Resource 与 Job 同属一个网域。
+- [ ] {P0} blackbox ScrapeJob 的创建/编辑/启停、模块或目标变更后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 在下一轮询周期内检测到 `updated_at` 变化并重新生成对应网域配置（pull 模式，Module\_01 不主动通知）。
+- [ ] {P0} 运行时目标状态、拨测结果、采集诊断不再由本模块负责展示，相关验收标准已迁移至 [Module\_02: 查询中心](Module_02_Query_Center.md) 与 [Module\_08: 告警规则管理](Module_08_Alerting_Rule_Management.md)。
+- [ ] {P1} v0.4+ 支持基于外部 CMDB 自动发现实例并推荐监控策略；v1.0 支持与 ITIL 流程联动校验监控策略覆盖率。
+
+## 术语映射（用户词汇表）
+
+> {v2.4} 后端术语 ↔ 用户语言的权威对照（与 5.x 数据模型「UI 展示名」列一致）。用户可见文案、前端页面、接口文档均以本表对齐；「仅技术信息」术语只出现在技术层（折叠区 / 代码注释 / 接口契约），不作为用户界面文案。
+
+| 后端术语                                  | 用户语言             | 说明                                                           |
+| ------------------------------------- | ---------------- | ------------------------------------------------------------ |
+| `CITypeExporterMapping`               | CI-Exporter 模板映射 | 资源类型 ↔ Exporter 模板的绑定（模板层预设，全局一份、不绑网域）                    |
+| `CITypeExporterMappingOverride`       | 网域级覆盖           | {v0.2} 按网域覆盖映射默认值（端口 / 协议 / 采集路径等），优先级高于映射默认值                |
+| `resource_type`（细粒度）                | 资源类型 / CI 类型     | host / mysql / redis / kafka / nginx / application\_http / snmp |
+| `resource_type`（粗粒度）                | 资源类别             | host / middleware / application / generic\_target（Module\_07 四大类） |
+| `middleware_type`                     | 中间件类型            | mysql / redis / kafka / elasticsearch 等（细粒度子类型）              |
+| `ExporterTemplate`                    | Exporter 模板       | Exporter 的默认参数与安装指南模板                                      |
+| `ScrapeJob`                           | 采集 Job           | 实际采集任务（实例层），绑定单一网域                                        |
+| `job_type`                            | 采集 / 拨测           | `standard`=标准采集；`blackbox`=拨测                                |
+| `blackbox_module`                     | 拨测模块             | 引用 `blackbox.yml` 模块名，如 `http_2xx` / `icmp_ping`             |
+| `blackbox_targets`                    | 拨测目标             | 探测目标列表（地址 / 协议 / 完整 URL）                                  |
+| `instance_selection_mode`             | 实例选择方式           | manual（手动勾选）/ filter（条件筛选，v0.3+）                            |
+| `selected_instance_ids`               | 已选实例             | 手动勾选的 Resource ID 列表                                         |
+| `mapping_overrides`                   | 仅技术信息            | 手动覆盖过映射默认值的字段名列表（「同步映射默认值」时跳过）                          |
+| `ExporterMetricLibrary`               | 指标库 / 指标元数据      | 平台可识别的指标名、类型、HELP、UNIT 集合                                |
+| `metric_type`                         | 指标类型             | counter / gauge / histogram / summary / unknown               |
+| `MonitoringRule`                      | 告警 / 记录规则        | 规则编辑模型（v0.3 起 UI 写入，MVP 手写 `rules.yml`）                    |
+| `rule_type`                           | 规则类型             | alerting（告警规则）/ recording（记录规则）                            |
+| `scope`                               | 求值范围             | central（中心求值）/ edge / both（v0.4+，断网自治）                      |
+| `ExporterInstallationConfirmation`    | Exporter 安装确认    | 目标实例 Exporter 已安装/已注册的确认记录（仅标准 Exporter）                 |
+| `ScrapeTarget` / `ScrapeLog`          | 仅技术信息            | 运行时采集数据，展示职责由 Module\_02 承担                               |
+| `CI_TYPE_CATEGORY_MAP`                | 仅技术信息            | 粗粒度类别 → 细粒度 CI 类型映射表                                       |
+
+## 提示分区规范
+
+原型 / 产品页面中的提示按受众分三类，避免相互干扰——
+
+1. **用户 UI 文案**：面向运维工程师，**不含「决策 X」「PRD X.X」等实现层引用**，讲人话；
+2. **产品 / 技术评审说明**：设计决策依据与 PRD 引用**集中折叠在页面底部「原型与实现说明（面向产品 / 技术评审）」区**，默认折叠，用户无感知，产品评审与开发可展开；
+3. **开发 / AI 注释**：代码注释与 PRD 数据模型 / 技术字段承载实现细节与决策引用，供后续代码开发（含 AI）理解。
+
+此规范使**用户看到干净的"未来原型雏形"**，同时**开发侧（含 AI）可从代码注释与 PRD 获取完整设计依据**。本规范由 `.kimi/agents/prototype-designer.md`「提示分区规范」强制执行，原型 MainLayout 提供全局折叠区承载本模块决策清单。
 
 ## Change Log
 
-| 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                   | 影响范围                | 产品版本影响            | 状态    |
-| ---- | ---------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------------- | ----- |
-| v2.1 | 2026-08-05 | 修改   | 5.5 `scope` 字段补充业务场景说明：MVP~v0.3 固定 `central`（中心统一求值，用户无需配置 scope）；`edge`/`both` 为 v0.4+（P2，由 Module_08 支持）预留，核心场景为断网自治告警（边缘 vmalert 本地求值 + 本地通知通道，典型规则为主机存活/进程崩溃/磁盘满/本地服务不可用）；`both` 用于边缘快速响应 + 中心聚合（以标签区分求值域防重复告警）；`central` 用于引用跨网域数据或全局聚合的规则；补充不适合 edge 的规则类型（引用跨网域数据、需长历史窗口的复杂计算、全局业务 SLA） | 数据模型说明 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.0 | 2026-08-04 | 修改   | 参数优先级表述修正：5.1「优先级链：网域覆盖 > 映射默认值 > Job 手动值」改为**两段式**（创建预填来源优先级：网域覆盖 > 映射默认值 > Exporter 内置默认；生效优先级：Job 保存后快照即为最终生效配置，映射/网域覆盖不自动覆盖，仅手动同步刷新）；5.4 新增 `mapping_overrides` 字段（手动覆盖字段名列表，同步映射默认值时跳过，与决策 14 对齐）；原型同步行为改为「同步仅刷新未手动覆盖字段」 | 数据模型、功能范围、原型交互 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v1.9 | 2026-08-04 | 修改   | 数据模型对齐：5.4 `blackbox_targets` 类型由 `[]string`（探测目标字符串）调整为 `[]BlackboxTarget` 对象数组（含 `target` / `protocol` / `url` 字段），新增「BlackboxTarget 结构」说明，支持同一 blackbox Job 内不同协议探测目标；Module_09 生成 `blackbox.yml` 时按 `blackbox_module` 生成对应 module、targets 填充为 `blackbox_targets[].target`（HTTP/HTTPS 优先 `url`）；原型版本同步 v1.9（含多网域模式开关、规则校验/预览动态化、详情只读视图） | 数据模型、验收标准、原型交互 | MVP | 设计中 |
-| v1.8 | 2026-08-04 | 修改   | 统一 CI 类型选择交互为「资源类别 → 细粒度 CI 类型」两级级联（5.1 新增说明，覆盖 CI-Exporter 模板映射/采集 Job/规则编辑/指标库筛选四处，避免「MySQL（middleware）」拼接表述）；选中细粒度类型后自动带出映射默认 Exporter 模板（5.5 新增「CI 类型 ↔ Exporter 模板联动」）；指标库 5.3 新增按 CI 类型与 metric_type 筛选说明；UI 展示文案产品化（移除内部「决策 14」代号，功能名统一为「CI-Exporter 模板映射」） | 数据模型、功能范围、UI/UX | MVP / v0.2 / v0.3 / v1.0 | 设计中   |
-| v1.7 | 2026-08-04 | 修改   | 决策 13 确认：`CITypeExporterMappingOverride`（网域级覆盖表）落地版本由 v0.3+ 调整为 **v0.2**（跟随多网域能力与按网域配置生成一并交付）；决策 14 确认：原型需完整演示「同步映射默认值」交互（创建时继承标记 + 映射变更提示 + 手动同步刷新） | 数据模型、功能范围、原型交互 | MVP / v0.2 / v0.3 / v1.0 | 设计中   |
-| v1.6 | 2026-08-04 | 修改   | 落盘设计决策 13-16：5.1 明确模板层定位（全局一份、不绑定网域）并预留 v0.3+ 网域级覆盖表 `CITypeExporterMappingOverride`（按 `network_domain_id` 覆盖 `default_port`/scheme 等，优先级高于映射默认值，MVP 仅预留不实现）；补充参数继承与同步策略（创建时快照 + 显式覆盖 + 手动「同步映射默认值」，优先级链：网域覆盖 > 映射默认值 > Job 手动值，映射变更不影响存量 Job）；补充标签模板继承链（映射 `label_template_id` 为默认标签模板，创建 Job 自动预填、允许覆盖，LabelTemplate 由 Module_07 维护、本模块只读引用）；新增「CI 类型来源与映射」说明（两套粒度体系：Module_07 粗粒度四大类 + middleware_type，本模块细粒度 CI 类型 host/mysql/redis/kafka/nginx/application_http/snmp，映射表 CI_TYPE_CATEGORY_MAP；v0.4+ CMDB 为唯一权威来源，Module_04 同步后刷新映射，MetricCenter 只维护映射不增删类型）；5.4 补充参数快照与标签模板预填说明；确认决策 12 scope 规则作用域已完备（5.5 含 scope 字段与网域无关性说明，与 Module_09 v1.6 一致） | 数据模型、功能范围 | MVP / v0.3 / v1.0 | 设计中 |
-| v1.5 | 2026-08-04 | 修改   | 统一「指标元数据」为「指标库」命名；补充 5.1「模板层 vs 实例层」说明（映射为预设绑定、Job 为实例任务，不重复）；5.5 补充「网域无关性说明」（规则由中心对全网域统一求值、不绑网域，限域通过 `network_domain` 标签过滤）并新增 `scope` 字段（MVP 固定 central，v0.4+ 支持 edge/both）；用户故事调整为「先指标库后规则编辑」；去重 blackbox 指标库验收标准；原型版本升级至 v1.2 | 数据模型、用户故事、功能范围、验收标准 | MVP / v0.3 / v1.0 | 设计中   |
-| v1.4 | 2026-08-04 | 修改   | 明确 MVP 指标库最小集：内置范围跟随当前 CMDB CI 类型（host / middleware / application / generic\_target）预置 node-exporter / mysqld-exporter / redis-exporter / kafka-exporter / blackbox-exporter 指标（含数量范围）；P1 保留用户手动导入与更新/覆盖/禁用能力，MVP 阶段内置库只读 | 数据模型、验收标准 | MVP / P1 | 设计中   |
-| v1.3 | 2026-08-04 | 修改   | 明确所有 ScrapeJob（standard + blackbox）必须绑定且仅绑定单一 `network_domain_id`，禁止跨网域共享采集/拨测目标；实例选择模式下 `selected_instance_ids` 选中的 Resource 须与 Job 同域并保存时校验；OPS-02 补充创建 Job 必须选择归属网域 | 数据模型、用户故事、功能范围、验收标准 | MVP               | 设计中   |
-| v1.2 | 2026-08-04 | 修改   | 将 blackbox 拨测合并为 `ScrapeJob` 的 `job_type=blackbox` 类型，新增 `job_type`、`blackbox_module`、`blackbox_targets` 字段；明确 MVP 内置 blackbox exporter 指标库与 Module\_09 配置触发关系         | 数据模型、功能边界、验收标准      | MVP               | 设计中   |
-| v1.1 | 2026-08-03 | 修改   | PRD 状态从 ready 修正为 设计中：尚未完成原型验证                                                                                                                                         | PRD 状态              | 文档自身              | 设计中   |
-| v1.1 | 2026-08-02 | 新增   | 完成 Volcengine 风格原型验证，输出独立可点击原型                                                                                                                                         | PRD 状态、UI/UX、原型目录   | 文档自身              | 设计中   |
-| v1.0 | 2026-07-31 | 初始   | 模块 PRD 初始版本                                                                                                                                                            | 全部                  | MVP / v0.3 / v1.0 | draft |
+> **Change Log 定位（v2.4）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v2.1 及以前的逐版变更详情）已迁移至 `docs/04-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 8 验收标准 / 术语映射）。
+
+| 版本   | 日期         | 变更类型 | 变更内容（一句话）                                                                                                      | 产品版本影响            | 状态  |
+| :--- | :--------- | :--- | :---------------------------------------------------------------------------------------------------------------- | :---------------- | :-- |
+| v2.4 | 2026-08-07 | 修改   | 按 prototype-designer PRD 骨架规范补齐：第 2 章用户故事引用全局库（M01- 编码）、5.x 字段表加「UI 展示名」列、验收标准分层（8.1 用户 / 8.2 技术）+ P0/P1 标注、新增「术语映射」章节、Change Log 精简（完整历史迁移 design-decisions.md） | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v2.3 | 2026-08-07 | 新增   | 补充「提示分区规范」章节 + 原型清理用户可见文案中决策/PRD 引用 + MainLayout 全局折叠区                                                            | 文档自身            | 设计中 |
+| v2.2 | 2026-08-06 | 修改   | 规则编辑 UI 版本调整至 v0.3（与 Module_02 v1.2 / 路线图 2.4 对齐），5.5 新增 `MonitoringRule` MVP 预留说明                                        | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 

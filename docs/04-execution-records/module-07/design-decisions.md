@@ -139,3 +139,17 @@
 | is_monitored 只读 | ✅ 表头 Tooltip + 只读展示 |
 | 模块边界（不生成/下发配置） | ✅ 三页面 Alert + MainLayout 底部说明 |
 | v0.4+ 预留字段标注 | ✅ 全部 v0.4+ 字段/枚举/选项标注 `{v0.4+}` |
+
+---
+
+## Change Log（完整历史）
+
+> v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.3 及以前的逐版完整变更详情（业务沟通决策记录）。
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v1.3 | 2026-08-04 | 修改 | 落盘设计决策 16：明确两套 CI 类型粒度体系——`Resource.resource_type` 为粗粒度四大类（host/middleware/application/generic_target）+ `middleware_type` 细粒度子类型（mysql/redis/kafka/...），细粒度 CI 类型映射到 Module_01（策略层）的 resource_type（映射表 CI_TYPE_CATEGORY_MAP 见 Module_01 5.1）；v0.4+ CMDB 为唯一权威来源（Module_04 同步后写入四大类 + middleware_type，MetricCenter 只维护映射不增删类型） | 数据模型、模块边界 | MVP / v0.4 / v1.0 | 设计中 |
+| v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-03 | 修改 | 明确单网域模式下 Resource 列表仍展示「网域」列，网域作为云区域概念不可隐藏 | 功能范围、UI/UX、Excel 模板 | MVP | 设计中 |
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.4 / v1.0 | draft |

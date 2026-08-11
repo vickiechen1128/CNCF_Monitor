@@ -150,7 +150,7 @@
   - 网域隔离是产品核心约束（Module_09 归属约束：`network_domain_id` 全局唯一、1 租户 : N 网域）；
   - pull 轮询将 01/07 与 09 解耦，01/07 完全无需感知 09，符合弱网/政务网最终一致架构。
 - **影响范围**：
-  - Module_01 PRD 5.4 ScrapeJob 数据模型（网域约束统一）、用户故事 OPS-02、3.1 功能表、验收标准；
+  - Module_01 PRD 5.4 ScrapeJob 数据模型（网域约束统一）、用户故事 M01-OPS-02、3.1 功能表、验收标准；
   - Module_09 PRD 3.3.3（触发模式声明）、5.2（时序图）、7.1（边界表）、验收标准。
 
 #### 决策 11：MVP 指标库最小集范围与用户扩展机制
@@ -429,3 +429,71 @@
 
 - `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.0）
 - `docs/prototypes/module-01/`
+
+---
+
+## 补充对齐：2026-08-07（第六轮）
+
+- **参与 Agent**：orchestrator、prototype-designer
+- **触发原因**：用户要求核查 Module_01 PRD 的用户故事编码是否已统一为 `Mxx-ROLE-NN` 新格式、无旧编码遗留，并确认文档已按 prototype-designer PRD 骨架规范完成骨架调整；如有缺口则补齐
+
+### 关键决策
+
+#### 决策 29：用户故事编码统一为模块命名空间 `Mxx-ROLE-NN`
+
+- **问题**：Module_01 用户故事编码是否已全部更新为 `Mxx-ROLE-NN` 新格式，有无遗留旧编码（`OPS-XX` / `ARCH-XX`）？
+- **结论**：
+  - Module_01 第 2 章用户故事已全部使用 `M01-OPS-01~06` / `M01-ARCH-01~03` 模块命名空间编码（全局唯一），旧编码 `OPS-01~06` / `ARCH-01~03` 已全部替换，无正文遗留；
+  - 完整故事条目（角色 / 我希望 / 以便于）注册于全局用户故事库 `01_User_Stories.md` §4.1，模块 PRD 第 2 章仅列编码 + 一句话摘要（本轮补充引用说明）；
+  - 历史变更记录中的旧编码仅存在于已迁移至本文件的「Change Log（完整历史）」（v2.1 及以前版本当时使用的编码，属历史快照，不做追溯改写）。
+- **依据**：全局用户故事编码规则（`01_User_Stories.md` §4，v1.24 固化）：产品级故事由全局库统一维护，模块级故事使用 `Mxx-ROLE-NN`，禁止复用产品级编码但语义不同。
+- **影响范围**：Module_01 PRD 第 2 章、全局用户故事库 §4.1、Change Log。
+
+#### 决策 30：Module_01 PRD 按 prototype-designer 骨架规范补齐
+
+- **问题**：prototype-designer 要求 PRD 包含背景与目标、用户故事、功能范围、UI/UX 规范、数据模型、API 规范、验收标准等章节；Module_09（v1.24）/ Module_07（v1.6）已按新骨架规范落地（数据模型加「UI 展示名」列、术语映射章节、验收标准分层），Module_01 尚未对齐。
+- **结论**：Module_01 PRD 升版 v2.4，落地以下骨架调整：
+  1. 数据模型 5.1~5.8 字段表统一新增「UI 展示名」列（与技术字段 / 仅技术信息标注对齐，参照 Module_09 4.x / Module_07 5.x）；
+  2. 新增「术语映射（用户词汇表）」章节（后端术语 ↔ 用户语言权威对照，与「UI 展示名」列一致）；
+  3. 验收标准分层：8.1 用户验收（UI 可感知）/ 8.2 技术验收（后端/契约可验证），并补 P0/P1 标注；
+  4. 第 2 章用户故事补充全局用户故事库引用说明；
+  5. Change Log 精简为最近 3 版一句话摘要，完整历史（v2.1 及以前逐版详情）迁移至本文件「Change Log（完整历史）」小节。
+- **依据**：prototype-designer PRD 状态守护职责（Change Log 规范、骨架要求）；Module_09 design-decisions「第十三轮评审」遗留项：骨架规范（UI 展示名 / 术语映射 / 验收分层）需推广到 Module_01/02/07 等其他模块 PRD。
+- **影响范围**：Module_01 PRD v2.4 正文各章节、`docs/04-execution-records/module-01/design-decisions.md`。
+
+### 已确认项（2026-08-07 第六轮）
+
+- [x] 用户故事编码已全部统一为 `M01-ROLE-NN`，正文无旧编码遗留。
+- [x] Module_01 PRD 骨架调整落地（v2.4）：UI 展示名、术语映射、验收分层、用户故事引用全局库、Change Log 精简。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（尚未完成原型验证，待领导/业务评审）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.4）
+- `docs/02-product-requirements/01_User_Stories.md`（§4.1）
+- `docs/prototypes/module-01/`
+
+---
+
+## Change Log（完整历史）
+
+> v2.4 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v2.1 及以前的逐版完整变更详情（业务沟通决策记录）。
+
+| 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                   | 影响范围                | 产品版本影响            | 状态    |
+| ---- | ---------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------------- | ----- |
+| v2.1 | 2026-08-05 | 修改   | 5.5 `scope` 字段补充业务场景说明：MVP~v0.3 固定 `central`（中心统一求值，用户无需配置 scope）；`edge`/`both` 为 v0.4+（P2，由 Module_08 支持）预留，核心场景为断网自治告警（边缘 vmalert 本地求值 + 本地通知通道，典型规则为主机存活/进程崩溃/磁盘满/本地服务不可用）；`both` 用于边缘快速响应 + 中心聚合（以标签区分求值域防重复告警）；`central` 用于引用跨网域数据或全局聚合的规则；补充不适合 edge 的规则类型（引用跨网域数据、需长历史窗口的复杂计算、全局业务 SLA） | 数据模型说明 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v2.0 | 2026-08-04 | 修改   | 参数优先级表述修正：5.1「优先级链：网域覆盖 > 映射默认值 > Job 手动值」改为**两段式**（创建预填来源优先级：网域覆盖 > 映射默认值 > Exporter 内置默认；生效优先级：Job 保存后快照即为最终生效配置，映射/网域覆盖不自动覆盖，仅手动同步刷新）；5.4 新增 `mapping_overrides` 字段（手动覆盖字段名列表，同步映射默认值时跳过，与决策 14 对齐）；原型同步行为改为「同步仅刷新未手动覆盖字段」 | 数据模型、功能范围、原型交互 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v1.9 | 2026-08-04 | 修改   | 数据模型对齐：5.4 `blackbox_targets` 类型由 `[]string`（探测目标字符串）调整为 `[]BlackboxTarget` 对象数组（含 `target` / `protocol` / `url` 字段），新增「BlackboxTarget 结构」说明，支持同一 blackbox Job 内不同协议探测目标；Module_09 生成 `blackbox.yml` 时按 `blackbox_module` 生成对应 module、targets 填充为 `blackbox_targets[].target`（HTTP/HTTPS 优先 `url`）；原型版本同步 v1.9（含多网域模式开关、规则校验/预览动态化、详情只读视图） | 数据模型、验收标准、原型交互 | MVP | 设计中 |
+| v1.8 | 2026-08-04 | 修改   | 统一 CI 类型选择交互为「资源类别 → 细粒度 CI 类型」两级级联（5.1 新增说明，覆盖 CI-Exporter 模板映射/采集 Job/规则编辑/指标库筛选四处，避免「MySQL（middleware）」拼接表述）；选中细粒度类型后自动带出映射默认 Exporter 模板（5.5 新增「CI 类型 ↔ Exporter 模板联动」）；指标库 5.3 新增按 CI 类型与 metric_type 筛选说明；UI 展示文案产品化（移除内部「决策 14」代号，功能名统一为「CI-Exporter 模板映射」） | 数据模型、功能范围、UI/UX | MVP / v0.2 / v0.3 / v1.0 | 设计中   |
+| v1.7 | 2026-08-04 | 修改   | 决策 13 确认：`CITypeExporterMappingOverride`（网域级覆盖表）落地版本由 v0.3+ 调整为 **v0.2**（跟随多网域能力与按网域配置生成一并交付）；决策 14 确认：原型需完整演示「同步映射默认值」交互（创建时继承标记 + 映射变更提示 + 手动同步刷新） | 数据模型、功能范围、原型交互 | MVP / v0.2 / v0.3 / v1.0 | 设计中   |
+| v1.6 | 2026-08-04 | 修改   | 落盘设计决策 13-16：5.1 明确模板层定位（全局一份、不绑定网域）并预留 v0.3+ 网域级覆盖表 `CITypeExporterMappingOverride`（按 `network_domain_id` 覆盖 `default_port`/scheme 等，优先级高于映射默认值，MVP 仅预留不实现）；补充参数继承与同步策略（创建时快照 + 显式覆盖 + 手动「同步映射默认值」，优先级链：网域覆盖 > 映射默认值 > Job 手动值，映射变更不影响存量 Job）；补充标签模板继承链（映射 `label_template_id` 为默认标签模板，创建 Job 自动预填、允许覆盖，LabelTemplate 由 Module_07 维护、本模块只读引用）；新增「CI 类型来源与映射」说明（两套粒度体系：Module_07 粗粒度四大类 + middleware_type，本模块细粒度 CI 类型 host/mysql/redis/kafka/nginx/application_http/snmp，映射表 CI_TYPE_CATEGORY_MAP；v0.4+ CMDB 为唯一权威来源，Module_04 同步后刷新映射，MetricCenter 只维护映射不增删类型）；5.4 补充参数快照与标签模板预填说明；确认决策 12 scope 规则作用域已完备（5.5 含 scope 字段与网域无关性说明，与 Module_09 v1.6 一致） | 数据模型、功能范围 | MVP / v0.3 / v1.0 | 设计中 |
+| v1.5 | 2026-08-04 | 修改   | 统一「指标元数据」为「指标库」命名；补充 5.1「模板层 vs 实例层」说明（映射为预设绑定、Job 为实例任务，不重复）；5.5 补充「网域无关性说明」（规则由中心对全网域统一求值、不绑网域，限域通过 `network_domain` 标签过滤）并新增 `scope` 字段（MVP 固定 central，v0.4+ 支持 edge/both）；用户故事调整为「先指标库后规则编辑」；去重 blackbox 指标库验收标准；原型版本升级至 v1.2 | 数据模型、用户故事、功能范围、验收标准 | MVP / v0.3 / v1.0 | 设计中   |
+| v1.4 | 2026-08-04 | 修改   | 明确 MVP 指标库最小集：内置范围跟随当前 CMDB CI 类型（host / middleware / application / generic\_target）预置 node-exporter / mysqld-exporter / redis-exporter / kafka-exporter / blackbox-exporter 指标（含数量范围）；P1 保留用户手动导入与更新/覆盖/禁用能力，MVP 阶段内置库只读 | 数据模型、验收标准 | MVP / P1 | 设计中   |
+| v1.3 | 2026-08-04 | 修改   | 明确所有 ScrapeJob（standard + blackbox）必须绑定且仅绑定单一 `network_domain_id`，禁止跨网域共享采集/拨测目标；实例选择模式下 `selected_instance_ids` 选中的 Resource 须与 Job 同域并保存时校验；OPS-02 补充创建 Job 必须选择归属网域 | 数据模型、用户故事、功能范围、验收标准 | MVP               | 设计中   |
+| v1.2 | 2026-08-04 | 修改   | 将 blackbox 拨测合并为 `ScrapeJob` 的 `job_type=blackbox` 类型，新增 `job_type`、`blackbox_module`、`blackbox_targets` 字段；明确 MVP 内置 blackbox exporter 指标库与 Module\_09 配置触发关系         | 数据模型、功能边界、验收标准      | MVP               | 设计中   |
+| v1.1 | 2026-08-03 | 修改   | PRD 状态从 ready 修正为 设计中：尚未完成原型验证                                                                                                                                         | PRD 状态              | 文档自身              | 设计中   |
+| v1.1 | 2026-08-02 | 新增   | 完成 Volcengine 风格原型验证，输出独立可点击原型                                                                                                                                         | PRD 状态、UI/UX、原型目录   | 文档自身              | 设计中   |
+| v1.0 | 2026-07-31 | 初始   | 模块 PRD 初始版本                                                                                                                                                            | 全部                  | MVP / v0.3 / v1.0 | draft |
