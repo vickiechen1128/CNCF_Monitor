@@ -478,6 +478,316 @@
 
 ---
 
+## 补充对齐：2026-08-11（第七轮）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户基于 Module_07 标签模板需求分析确认「模板管理归属保持 Module_07 + UX 补齐」，本模块落地标签模板关联体验
+
+### 关键决策
+
+#### 决策 31：标签模板关联 UX 补齐（名称+ID 展示、内联只读预览、跨模块跳转；模板 ID 为跨模块唯一 FK）
+
+- **问题**：CI-Exporter 映射与 Job 表单关联标签模板后看不到模板信息，模板列表不展示 ID，用户无法确认关联的是哪个模板；是否应将标签模板管理整体迁至本模块？
+- **结论**：管理归属保持 Module_07（依据见 Module_07 决策 3.10），本模块落地：
+  1. 标签模板以「名称（类别 / 模板ID）」展示（映射列表列与表单下拉）；
+  2. 选择模板后**内联只读展示映射内容**（来源字段 → 目标标签）+ 「前往标签模板管理」跨模块跳转（统一静态入口生效；dev 独立端口下跳转不生效，属原型隔离的已知限制）；
+  3. `label_template_id` 明确为**跨模块唯一稳定 FK**（名称在同一资源类型下可重复，ID 为唯一关联键）。
+- **依据**：决策 15（标签模板继承链：映射默认 → Job 覆盖）；Module_07 决策 3.10。
+- **影响范围**：Module_01 PRD 5.1 / 5.4（v2.5）、8.1 验收标准；原型 CiExporterMappingPage / ScrapeJobsPage / mock（LabelTemplate 补 mappings 预览数据）/ 测试。
+
+### 已确认项（2026-08-11 第七轮）
+
+- [x] 模板管理归属保持 Module_07，本模块只读关联（用户选择「保持 Module_07 + UX 补齐」）。
+- [x] 标签模板关联 UX 落地（名称+ID、只读预览、跨模块跳转），验证通过（test 23/23、lint、build、dev server 200）。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（尚未完成完整两段评审，待领导/业务评审）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.5）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v1.7）
+- `docs/prototypes/module-01/`
+
+---
+
+## 补充对齐：2026-08-11（第八轮 UI/UX）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户指出 CI-Exporter 映射页标签模板展示样式不佳（状态徽标语义错位、表单内 Tag 堆砌不清晰），经 AskUserQuestion 确认方向后落地 PRD
+
+### 关键决策
+
+#### 决策 32：CI-Exporter 映射页标签模板展示改「两行卡片 + 预览抽屉 + 表单紧凑卡片」
+
+- **问题**：列表列用 `Badge status="success"` 标模板名（健康状态语义错位）、名称与 ID 挤一行可读性差；表单内选中模板后用 Alert + Tag 堆砌映射，长模板换行混乱无层级。
+- **结论**：
+  1. **列表列（两行卡片）**：第一行模板名称 + 「默认/自定义」标记，第二行「类别 · 模板ID」；不使用状态徽标；
+  2. **预览抽屉**：点击模板名称打开只读预览抽屉，展示模板映射明细（来源字段 → 目标标签 → 启用）；
+  3. **表单内紧凑卡片**：选中模板后以紧凑卡片展示头部（名称 + ID + 默认标记）与映射明细（小表格/列表），替代 Tag 堆砌，并保留「前往标签模板管理」跨模块跳转。
+- **依据**：与 Module_07 v1.8 的抽屉编辑/分组展示方向一致；用户视角设计规范（渐进式披露、信息层级）。
+- **影响范围**：Module_01 PRD 5.1 / 8.1（v2.6）；原型 CiExporterMappingPage / ScrapeJobsPage（待 v2.2 落地）。
+
+### 已确认项（2026-08-11 第八轮）
+
+- [x] 标签模板展示方向：两行卡片 + 预览抽屉 + 表单紧凑卡片（用户选择）。
+- [x] 与 Module_07 v1.8（抽屉编辑 / 映射分组展示）对齐。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 v2.2 落地与验证（用户确认后执行，原型需符合 PRD v2.6）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.6）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v1.8）
+- `docs/prototypes/module-01/`
+
+---
+
+## 补充对齐：2026-08-11（第九轮 端口一致性）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户基于 Module_07 组合字段讨论提出「映射 default_port 与实际监听端口不一致时 instance 标签会错，Module_01「Exporter 安装确认」功能是否具备端口编辑手段」，经讨论确认后合并落地 PRD
+
+### 关键决策
+
+#### 决策 33：端口一致性三层解法 + 安装确认登记实际端口（不承担端口编辑）
+
+- **问题**：映射 `default_port` 决定 instance 标签端口（Module_07 组合字段）；当与实例上 exporter 实际监听端口不一致时（映射 9100、实例实际 19100），instance 标签会错。Exporter 安装确认功能是否需要/能否承担端口编辑？
+- **结论**：
+  1. **三层解法**：映射层 `default_port` 可编辑（MVP 已有，解决"某 CI 类型统一非标端口"）→ 网域级覆盖 `CITypeExporterMappingOverride`（v0.2，已预留，解决"某网域统一非标"）→ **实例级端口覆盖（v0.2+ 建议新增**，解决"个别实例非标"，落地方式待评估：Resource 可选 `scrape_port` 或 Job 级 target 端口映射）；
+  2. **安装确认不承担端口编辑**：它是"状态登记 + 人工背书"，维度为 resource×exporter、不分 Job，塞入端口会在多 Job 场景互相覆盖；
+  3. **增量登记**：安装确认新增 `actual_port`（P1）登记实际监听端口，配置生成时与生效端口不一致**仅提示**、不自动改配置。
+- **依据**：职责边界（状态登记 vs 配置项）；用户选择「三层解法 + 确认登记提示」。
+- **影响范围**：Module_01 PRD 5.1（端口一致性说明）/ 5.6（actual_port）/ 8.1（v2.7）；Module_07 PRD 5.12 C 取值时序引用。
+
+### 已确认项（2026-08-11 第九轮）
+
+- [x] 端口不一致三层解法（映射层 MVP / 网域覆盖 v0.2 / 实例级覆盖 v0.2+）。
+- [x] 安装确认登记 actual_port（P1）仅提示不自动改；不承担端口编辑。
+- [x] 与 Module_07 v1.9（组合字段取值时序）对齐。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 v2.3 落地与验证（用户确认后执行，原型需符合 PRD v2.7）。
+- [ ] 实例级端口覆盖的落地方式（Resource `scrape_port` 或 Job 级 target 端口映射）待 v0.2 评估。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.7）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v1.9）
+- `docs/prototypes/module-01/`
+
+---
+
+## 评审记录
+
+### 2026-08-11（标签模板关联 UX 轮）
+
+- **评审时间 / 版本**：2026-08-11；PRD v2.5、原型 v2.1；参与方：用户（chenrt）+ prototype-designer。
+- **第一段用户走查结论**：用户确认关联模板时需能看到模板信息（映射内容）；模板 ID 应可追溯；模板管理归属保持 Module_07 后，本模块以只读预览 + 跳转补齐体验，用户可理解。
+- **第二段技术核对结论**：`label_template_id` 为跨模块唯一 FK；本模块 mock 的 LabelTemplate 契约（含 mappings 预览数据）与 Module_07 默认模板一致；跨模块跳转链接在统一静态入口生效（dev 独立端口下跳转 404，为原型隔离已知限制，已写入 README 已知限制）。可开发性结论：预览为前端只读展示，不引入后端变更。
+- **问题清单与处理结果**：已修复——模板 ID 展示（列表列 + 表单下拉）、选中模板只读预览映射内容、跨模块跳转入口。
+- **遗留项**：无。
+
+### 2026-08-11（UI/UX 优化轮）
+
+- **评审时间 / 版本**：2026-08-11；PRD v2.6、原型 v2.2（规划）；参与方：用户（chenrt）+ prototype-designer。
+- **第一段用户走查结论**：用户指出列表列 `Badge status="success"` 语义错位（模板名不是健康状态）、名称与 ID 挤一行不清晰、表单内 Tag 堆砌无法扫读；确认「两行卡片 + 预览抽屉 + 表单紧凑卡片」方向。
+- **第二段技术核对结论**：两行卡片 / 预览抽屉 / 紧凑卡片均为前端展示层改造，不涉及后端模型与 API；预览数据复用既有 LabelTemplate.mappings（v2.1 已引入）。可开发性结论：纯前端，原型可验证。
+- **问题清单与处理结果**：已修复（PRD 层面，决策 32）；原型 v2.2 待用户确认后落地。
+- **遗留项**：无。
+
+### 2026-08-11（端口一致性轮）
+
+- **评审时间 / 版本**：2026-08-11；PRD v2.7、原型 v2.3（规划）；参与方：用户（chenrt）+ prototype-designer。
+- **第一段用户走查结论**：用户确认「安装确认不承担端口编辑」的职责边界；接受三层解法（映射层 MVP / 网域覆盖 v0.2 / 实例级覆盖 v0.2+）；确认安装确认登记 actual_port 仅提示不自动改。
+- **第二段技术核对结论**：`actual_port` 为安装确认表新增可选字段（P1），不改变既有状态机与配置生成主链；端口一致性说明与 Module_07 5.12 C 取值时序互相引用，契约一致；实例级端口覆盖落地方式（Resource `scrape_port` 或 Job 级 target 端口映射）留待 v0.2 评估，MVP 不影响。
+- **问题清单与处理结果**：已修复（PRD 层面，决策 33）；原型 v2.3 待用户确认后落地。
+- **遗留项**：实例级端口覆盖落地方式评估（v0.2）；actual_port 一致性提示（P1，随原型落地）。
+
+---
+
+## 补充对齐：2026-08-11（第十轮 UI/UX 易用性）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户基于 Module_01 原型提出两个易用性问题——(1) 采集/拨测间隔的自定义值与模板默认值在 UI 上缺乏视觉区分，用户无法直观感知哪些参数已被覆盖；(2) 规则编辑中的 labels/annotations 与「标签模板」中的 labels 语义不同，需在 UI 上明确告知用户其差异与必要性，并从易用性角度考虑用户词汇表转义。
+
+### 关键决策
+
+#### 决策 34：采集/拨测间隔等参数增加「继承来源」视觉标记，区分模板默认值与用户自定义值
+
+- **问题**：采集 Job 编辑表单中，`scrape_interval`、`scrape_timeout`、`metrics_path`、`scheme` 等参数在创建时从 CI-Exporter 映射继承默认值并预填，用户可覆盖。但当前 UI 中所有字段外观一致，用户无法直观区分：
+  - 哪些字段当前使用的是**映射模板默认值**（未修改）；
+  - 哪些字段已被用户**手动覆盖**（自定义值）；
+  - 哪些字段因映射默认值已变更而**处于「待同步」状态**。
+
+  这导致用户在编辑存量 Job 时，不清楚自己的自定义配置是否被保护，也不清楚「同步映射默认值」操作会刷新哪些字段。
+
+- **结论**：在表单字段级别增加三层视觉区分体系：
+
+  1. **继承标记（未修改）**：字段值来自映射默认值且用户未触碰时，在标签（label）旁显示 `<Tag color="default">继承自映射</Tag>` 浅灰色标记，鼠标悬停显示 tooltip 说明来源（如「来自 CI-Exporter 映射 host → node_exporter 的默认值」）；
+
+  2. **覆盖标记（已自定义）**：用户手动修改过字段值后，标记自动切换为 `<Tag color="processing">已覆盖</Tag>` 蓝色标记，tooltip 显示「该字段已被手动覆盖，同步映射默认值时将跳过」；
+
+  3. **待同步标记（映射已变更）**：当映射默认值已变更（`mapping_synced_at < mapping.updated_at`）且该字段**未**被用户覆盖时，显示 `<Tag color="warning">待同步</Tag>` 橙色标记，提示用户执行「同步映射默认值」操作可刷新该字段。
+
+  具体 UI 方案：
+
+  - **表单字段标签行**：每个可继承参数（`scrape_interval`、`scrape_timeout`、`metrics_path`、`scheme`、`label_template_id`）的 label 右侧增加一个 inline Tag，状态自动跟随：
+    - 创建模式：所有字段初始显示「继承自映射」（因刚预填，用户尚未触碰）；
+    - 编辑模式：根据 `mapping_overrides` 和 `isMappingChanged()` 动态计算每个字段的状态标记；
+    - 用户修改字段后：通过 `onFieldsChange` 的 `touched` 标记，该字段标记立即切换为「已覆盖」；
+    - 执行「同步映射默认值」后：被刷新的字段标记切回「继承自映射」，被跳过的字段保持「已覆盖」。
+
+  - **列表列增强**：当前「参数同步」列仅显示 Job 级别的整体状态（已同步/映射默认值已变更），建议增加第二行小字展示覆盖字段数量概览，如「2 个字段已自定义」或「3 个字段待同步」，让用户在列表页即可感知自定义程度。
+
+  - **详情视图同步**：Job 详情 Modal 的 Descriptions 中，每个参数字段同样显示对应的继承/覆盖/待同步标记，与编辑表单一致。
+
+- **依据**：
+  - 用户反馈「不知道修改了/覆盖了哪些部分」——当前 UI 仅在保存时记录 `mapping_overrides`，但编辑态和列表态均无视觉反馈；
+  - 决策 14/28 已建立「创建时快照 + 显式覆盖 + 手动同步」的底层机制，UI 层需要将这一机制**可视化**，让用户感知到「保护存量」策略在起作用；
+  - 企业级产品中，参数继承链的透明度直接影响用户对「模板修改会不会影响我的 Job」的信任感。
+
+- **影响范围**：
+  - 原型 `ScrapeJobsPage.tsx`：表单字段标签行增加动态 Tag、列表「参数同步」列增强、详情视图同步；
+  - 原型 mock `module-01.ts`：无需新增字段，复用现有 `mapping_overrides` 和 `mapping_synced_at`；
+  - Module_01 PRD 5.4：补充「参数继承视觉标记」说明（v2.8）；
+  - 验收标准 8.1 新增：用户可在编辑表单中直观区分继承值与自定义值。
+
+- **交互细节**：
+  - 标记颜色语义：灰色=继承（默认/安全）、蓝色=已覆盖（用户主动行为）、橙色=待同步（需关注）；
+  - 标记不占用额外表单宽度，嵌入 label 行内，使用 `<Space size={4}>` 紧贴 label 文字；
+  - 创建模式下，用户修改字段后标记从「继承自映射」变为「已覆盖」，不可逆（即使改回原值也视为已覆盖，因为用户已主动介入）；
+  - 编辑模式下，若映射默认值已变更且该字段未覆盖，标记显示「待同步」，用户执行同步后变为「继承自映射」；
+  - `label_template_id` 字段同样适用此标记体系，但标记文案为「继承自映射默认模板」/「已覆盖」/「待同步」。
+
+#### 决策 35：规则编辑中 labels/annotations 与标签模板的语义区分及 UI 注释
+
+- **问题**：规则编辑表单中，`labels` 和 `annotations` 以简单的 key-value 动态表单呈现，placeholder 示例为 `severity`/`warning` 和 `summary`/`主机 CPU 过高`。但用户容易混淆：
+  1. **规则 labels**（`MonitoringRule.labels`）与 **标签模板 labels**（`LabelTemplate` 生成的 target labels）是**完全不同层级**的概念——前者是**告警元数据**（决定告警路由、严重等级、接收人），后者是**目标身份标签**（标识被监控资源的 instance/app/env 等身份信息）；
+  2. **annotations** 是 Prometheus 告警规则的**人类可读信息**（摘要、描述、故障处理手册链接），非机器消费的标签，但当前 UI 未说明其用途与必要性；
+  3. 用户不清楚哪些 labels 是 Prometheus 最佳实践推荐的（如 `severity`、`team`），哪些是可选扩展的。
+
+- **结论**：
+
+  1. **Labels 区域增加语义说明卡片**：
+     - 在 labels 表单区域上方增加一个 `Alert type="info"` 卡片，文案为：
+       > **规则 Labels 与标签模板的区别**：此处的 labels 是**告警元数据**（如 `severity=critical`、`team=sre`），用于告警分级、路由与接收人匹配；**不是**标签模板中生成的 target 身份标签（如 `instance`、`app`、`env`）。标签模板生成的 labels 由 Module_07 管理，在采集 Job 中配置，无需在此处重复设置。
+     - 在卡片中明确必填状态：
+       > **必填状态**：labels 整体为**选填**（推荐填写），每个 key 和 value 均为选填。但若填写，建议遵循 Prometheus 最佳实践使用推荐 key。
+     - 在 labels 表单下方增加 Prometheus 最佳实践提示：
+       > **推荐 labels**：`severity`（严重等级：critical/warning/info）、`team`（负责团队名）。更多 labels 可按需扩展。
+
+  2. **Annotations 区域增加必要性说明卡片**：
+     - 在 annotations 表单区域上方增加 `Alert type="info"` 卡片，文案为：
+       > **Annotations 的作用**：annotations 是告警触发时附带的**人类可读信息**，用于告警通知中的展示内容。推荐包含 `summary`（一句话摘要）、`description`（详细描述，可引用 `{{ $labels }}` 和 `{{ $value }}` 模板变量）、`runbook_url`（故障处理手册链接）。annotations **不参与告警路由判断**，仅用于通知展示。
+     - 在卡片中明确必填状态：
+       > **必填状态**：annotations 整体为**选填**（推荐填写），每个 key 和 value 均为选填。但若填写，建议遵循 Prometheus 最佳实践使用推荐 key。
+     - 在 annotations 表单下方增加模板变量提示：
+       > **模板变量**：description 中可使用 `{{ $labels.instance }}` 引用标签值、`{{ $value }}` 引用当前指标值，实现动态告警描述。
+
+  3. **用户词汇表转义**：
+     - 当前 PRD 术语映射表（§术语映射）中，`MonitoringRule.labels` 映射为「规则标签」，`MonitoringRule.annotations` 映射为「告警说明」；
+     - 建议在 UI 文案中进一步区分：
+       - 规则编辑页面的 labels 区域标题改为 **「告警标签（Alert Labels）」**，副标题小字「用于告警分级与路由」；
+       - 规则编辑页面的 annotations 区域标题改为 **「告警说明（Annotations）」**，副标题小字「用于通知展示，支持模板变量」；
+       - 标签模板（Module_07）中的 labels 保持 **「标签模板」** 命名，与规则 labels 形成语义区隔；
+     - 在 PRD 术语映射表中补充一行：
+
+       | 后端术语 | 用户语言 | 说明 |
+       |---|---|---|
+       | `MonitoringRule.labels` | 告警标签（Alert Labels） | 告警规则的元数据标签，用于分级/路由，**非** target 身份标签 |
+       | `MonitoringRule.annotations` | 告警说明（Annotations） | 告警触发时附带的**人类可读信息**，用于通知展示，不参与路由判断 |
+       | `LabelTemplate` 生成的 labels | 目标标签（Target Labels） | 标识被监控资源身份的标签（instance/app/env），由采集 Job 的标签模板生成 |
+
+  4. **记录规则的特殊处理**：
+     - 记录规则（`rule_type=recording`）的 labels 语义与告警规则不同——记录规则的 labels 是**新时间序列的附加标签**，用于标识计算结果的维度；
+     - 当前原型已隐藏记录规则的 annotations 和 duration 字段，但 labels 区域未做区分说明；
+     - 建议在记录规则的 labels 区域增加提示：
+       > **记录规则 Labels**：此处的 labels 将附加到记录规则生成的新时间序列上，用于标识计算结果的维度（如 `team`、`datacenter`）。与告警规则的 labels 语义不同，不参与告警路由。
+
+- **依据**：
+  - Prometheus 官方最佳实践：`severity` 是告警规则 labels 的**必需推荐项**，用于告警分级（critical/warning/info）；`team` 用于路由到对应接收人；
+  - Prometheus 官方文档：annotations 是「人类可读的信息」，典型键为 `summary`、`description`、`runbook_url`，**不参与告警路由判断**；
+  - 用户反馈「labels 和标签模板中的 labels 意义不一样」——当前 UI 未做任何语义区分，用户容易误将 target 身份标签填入规则 labels，或反之；
+  - 决策 15/31 已明确标签模板（LabelTemplate）是「目标身份标签」的生成契约，与规则 labels 是不同层级的概念，UI 层需要显式告知用户。
+
+- **影响范围**：
+  - 原型 `RulesPage.tsx`：labels 和 annotations 区域增加语义说明卡片、标题优化、记录规则特殊提示；
+  - 原型 mock `module-01.ts`：无需修改数据模型，纯 UI 展示层变更；
+  - Module_01 PRD §5.5（`MonitoringRule` 数据模型说明）：补充 labels/annotations 的语义说明与最佳实践推荐（v2.8）；
+  - Module_01 PRD §术语映射：补充规则 labels/annotations 与标签模板 labels 的区分对照（v2.8）；
+  - 验收标准 8.1 新增：用户可在规则编辑界面清晰理解 labels 和 annotations 的用途与区别。
+
+- **交互细节**：
+  - 语义说明卡片使用 `Alert type="info"` 风格，与当前原型中「规则不绑定网域」的说明卡片风格一致，保持 UI 一致性；
+  - 卡片默认展开，不折叠（因信息重要，用户首次接触规则编辑时必须看到）；
+  - 卡片文案遵循「提示分区规范」——面向运维工程师，不含「决策 X」「PRD X.X」等实现层引用；
+  - 记录规则的 labels 提示使用 `Alert type="warning"` 风格，与告警规则的 info 风格区分，强调语义差异。
+
+#### 决策 36：CI-Exporter 映射页与规则编辑页的新增/编辑表单由 Modal 改为 Drawer
+
+- **问题**：当前 CI-Exporter 映射页（`CiExporterMappingPage.tsx`）和规则编辑页（`RulesPage.tsx`）的新增/编辑操作均使用 `Modal` 弹窗承载表单。随着表单内容增加（CI-Exporter 映射表单含 8 个字段 + 标签模板预览卡片，规则编辑表单含 10+ 字段 + 指标预览 + PromQL 校验结果），Modal 的垂直空间不足，用户需要滚动才能看到完整表单，且 Modal 无法承载侧边辅助信息。
+
+- **结论**：将两个页面的新增/编辑表单容器从 `Modal` 改为 `Drawer`（抽屉），具体方案：
+
+ 1. **CI-Exporter 映射页**（`CiExporterMappingPage.tsx`）：
+    - 将 `<Modal>` 替换为 `<Drawer>`，宽度 640px，placement 为 `right`；
+    - 底部操作栏保留「取消」和「保存」按钮，通过 `extra` 属性放置在 Drawer 底部；
+    - 表单内容不变（资源类别、CI 类型、Exporter 模板、默认端口、协议、指标路径、采集间隔、采集超时、标签模板 + 只读预览卡片）；
+    - 标题文案：「新增 CI-Exporter 模板映射」/「编辑 CI-Exporter 模板映射」。
+
+ 2. **规则编辑页**（`RulesPage.tsx`）：
+    - 将 `<Modal>` 替换为 `<Drawer>`，宽度 760px，placement 为 `right`；
+    - 底部操作栏保留「取消」「规则模板（P1）」「指标预览」「校验 PromQL」「保存」五个按钮，通过 `extra` 或 `footer` 属性放置在 Drawer 底部；
+    - 表单内容不变（规则名称、规则类型、资源类别、CI 类型、Exporter 模板、持续时间、PromQL 表达式、labels、annotations、启用状态 + 指标预览 + 校验结果）；
+    - 标题文案：「新增规则」/「编辑规则」。
+
+ 3. **交互细节**：
+    - Drawer 打开时，背景遮罩不可点击关闭（`maskClosable={false}`），防止误操作丢失未保存数据；
+    - Drawer 关闭前，若表单有未保存修改，弹出确认提示「有未保存的修改，确定关闭吗？」；
+    - Drawer 宽度适配表单内容：CI-Exporter 映射 640px，规则编辑 760px（与当前 Modal 宽度一致）；
+    - 表单内部滚动而非 Drawer 整体滚动，保持底部操作栏始终可见。
+
+- **依据**：
+ - 用户反馈「新增模板/新增规则操作希望更便捷」——Modal 在表单内容较多时体验不佳，Drawer 提供更流畅的编辑体验，用户可在不离开列表页上下文的情况下完成编辑；
+ - 采集 Job 编辑已使用 Drawer（`ScrapeJobsPage.tsx`），CI-Exporter 映射和规则编辑改为 Drawer 后，Module_01 三个主要编辑表单的交互模式统一，降低用户学习成本；
+ - 规则编辑表单包含指标预览和 PromQL 校验结果等动态内容，Drawer 的侧边布局比 Modal 更适合承载这类辅助信息。
+
+- **影响范围**：
+ - 原型 `CiExporterMappingPage.tsx`：Modal → Drawer 改造；
+ - 原型 `RulesPage.tsx`：Modal → Drawer 改造；
+ - 原型 mock `module-01.ts`：无需修改数据模型，纯 UI 容器变更；
+ - Module_01 PRD：无需修改数据模型，可在 v2.8 的 UI/UX 说明中补充 Drawer 交互说明；
+ - 验收标准 8.1 新增：新增/编辑操作使用 Drawer 承载，底部操作栏始终可见，关闭前有未保存提示。
+
+### 已确认项（2026-08-11 第十轮）
+
+- [x] 采集/拨测间隔等参数增加「继承来源」视觉标记（决策 34）：三层标记体系（继承自映射/已覆盖/待同步），表单字段标签行 inline Tag + 列表列增强 + 详情视图同步。
+- [x] 规则编辑 labels/annotations 语义区分（决策 35）：labels 区域增加「与标签模板的区别」说明 + 必填状态说明 + 最佳实践推荐；annotations 区域增加必要性说明 + 必填状态说明 + 模板变量提示；用户词汇表转义区分「告警标签」「告警说明」「目标标签」三层概念；记录规则 labels 特殊提示。
+- [x] CI-Exporter 映射页与规则编辑页新增/编辑表单由 Modal 改为 Drawer（决策 36）：统一 Module_01 三个主要编辑表单的交互模式为 Drawer，底部操作栏始终可见，关闭前有未保存提示。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 v2.4 落地与验证（用户确认后执行，原型需符合 PRD v2.8）。
+- [ ] 决策 36 Drawer 改造的 UI 细节评审（关闭前未保存提示文案、Drawer 内部滚动 vs 整体滚动）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.8 待更新，含 Drawer 交互说明）
+- `docs/prototypes/module-01/src/pages/CiExporterMappingPage.tsx`（v2.4 待落地：Modal → Drawer）
+- `docs/prototypes/module-01/src/pages/RulesPage.tsx`（v2.4 待落地：Modal → Drawer + labels/annotations 语义卡片）
+- `docs/prototypes/module-01/src/pages/ScrapeJobsPage.tsx`（v2.4 待落地：继承来源视觉标记）
+- `docs/04-execution-records/module-01/design-decisions.md`（本轮决策 34/35/36）
+
+---
+
 ## Change Log（完整历史）
 
 > v2.4 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v2.1 及以前的逐版完整变更详情（业务沟通决策记录）。

@@ -11,6 +11,7 @@ import {
   mockCITypeExporterMappings,
   mockExporterInstallations,
   mockExporterTemplates,
+  mockLabelTemplates,
   mockMetricLibrary,
   mockMonitoringRules,
   mockNetworkDomains,
@@ -18,7 +19,7 @@ import {
   mockScrapeJobs,
 } from './module-01'
 
-describe('module-01 mocks（对齐 PRD v2.0）', () => {
+describe('module-01 mocks（对齐 PRD v2.3）', () => {
   const templateIds = new Set(mockExporterTemplates.map((t) => t.exporter_template_id))
   const resourceIds = new Set(mockResources.map((r) => r.resource_id))
   const metricNames = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
@@ -89,6 +90,28 @@ describe('module-01 mocks（对齐 PRD v2.0）', () => {
       expect(typeof m.is_builtin).toBe('boolean')
       expect(m.created_at).toBeTruthy()
       expect(m.updated_at).toBeTruthy()
+    })
+  })
+
+  it('CITypeExporterMapping 引用的 label_template_id 均指向已存在的标签模板（模板 ID 为跨模块唯一 FK）', () => {
+    const labelTemplateIds = new Set(mockLabelTemplates.map((t) => t.template_id))
+    mockCITypeExporterMappings
+      .filter((m) => m.label_template_id)
+      .forEach((m) => expect(labelTemplateIds.has(m.label_template_id!)).toBe(true))
+  })
+
+  it('标签模板提供 mappings 只读预览数据且 target_label 唯一、来源类型合法（Module_07 维护）', () => {
+    const validSources = ['resource_field', 'prometheus_builtin', 'composite', 'cmdb_field']
+    mockLabelTemplates.forEach((t) => {
+      expect(Array.isArray(t.mappings)).toBe(true)
+      expect(t.mappings.length).toBeGreaterThan(0)
+      t.mappings.forEach((m) => {
+        expect(validSources).toContain(m.source_type)
+        expect(m.source_field).toBeTruthy()
+        expect(m.target_label).toBeTruthy()
+      })
+      const labels = t.mappings.map((m) => m.target_label)
+      expect(new Set(labels).size).toBe(labels.length)
     })
   })
 
@@ -205,6 +228,15 @@ describe('module-01 mocks（对齐 PRD v2.0）', () => {
       expect(resourceIds.has(c.resource_id)).toBe(true)
       expect(templateIds.has(c.exporter_template_id)).toBe(true)
       expect(['pending', 'installed', 'not_installed', 'unregistered']).toContain(c.status)
+    })
+  })
+
+  it('actual_port 为可选字段，存在时为合法端口（P1，PRD 5.6 v2.7）', () => {
+    mockExporterInstallations.forEach((c) => {
+      if (c.actual_port !== undefined) {
+        expect(c.actual_port).toBeGreaterThanOrEqual(1)
+        expect(c.actual_port).toBeLessThanOrEqual(65535)
+      }
     })
   })
 

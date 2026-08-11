@@ -25,12 +25,12 @@ import {
 } from './module-07'
 import type { ResourceType } from './module-07'
 
-describe('module-07 mocks（对齐 PRD v1.2）', () => {
+describe('module-07 mocks（对齐 PRD v2.0）', () => {
   const domainIds = mockNetworkDomains.map((d) => d.id)
 
   // ========== 资源基础字段校验 ==========
 
-  it('资源 env 取值均在 dev/test/staging/prod 枚举内（PRD 6.2）', () => {
+  it('资源 env 取值均在 dev/test/staging/prod 枚举内（PRD 7.2）', () => {
     mockResources.forEach((r) => {
       if (r.env) expect(ENV_VALUES).toContain(r.env)
     })
@@ -162,6 +162,36 @@ describe('module-07 mocks（对齐 PRD v1.2）', () => {
     })
   })
 
+  it('同一标签模板内 target_label 不允许重复（模板校验规则）', () => {
+    mockLabelTemplates.forEach((tpl) => {
+      const labels = tpl.mappings.map((m) => m.target_label)
+      expect(new Set(labels).size).toBe(labels.length)
+    })
+  })
+
+  it('模板名称不含「示例」字样（清理内置字段/采集参数示例模板，模板是业务标签契约而非内置参数透传）', () => {
+    mockLabelTemplates.forEach((tpl) => {
+      expect(tpl.name).not.toContain('示例')
+    })
+  })
+
+  it('MVP 模板不映射 Prometheus 内置字段到自身（内置字段由 Prometheus 原生设置，无需模板透传）', () => {
+    mockLabelTemplates.forEach((tpl) => {
+      tpl.mappings.forEach((m) => {
+        expect(m.source_type).not.toBe('prometheus_builtin')
+      })
+    })
+  })
+
+  it('MVP 转换规则值仅允许 空/lower/upper（prefix/replace 为 P1 参数化，不出现于 mock）', () => {
+    const validTransforms = ['', 'lower', 'upper']
+    mockLabelTemplates.forEach((tpl) => {
+      tpl.mappings.forEach((m) => {
+        expect(validTransforms).toContain(m.transform ?? '')
+      })
+    })
+  })
+
   // ========== 保护 Prometheus label ==========
 
   it('PROTECTED_PROMETHEUS_LABELS 包含 instance / job / __address__ 等核心 label（PRD 5.3/3.3）', () => {
@@ -223,34 +253,34 @@ describe('module-07 mocks（对齐 PRD v1.2）', () => {
 
   // ========== 导入模板列 ==========
 
-  it('IMPORT_TEMPLATE_COLUMNS 四类资源均包含 network_domain 列（PRD 6.1）', () => {
+  it('IMPORT_TEMPLATE_COLUMNS 四类资源均包含 network_domain 列（PRD 7.1）', () => {
     const types: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
       expect(IMPORT_TEMPLATE_COLUMNS[t]).toContain('network_domain')
     })
   })
 
-  it('IMPORT_TEMPLATE_COLUMNS host 包含 hostname/instance_ip 必填列（PRD 6.1/5.6）', () => {
+  it('IMPORT_TEMPLATE_COLUMNS host 包含 hostname/instance_ip 必填列（PRD 7.1/5.6）', () => {
     expect(IMPORT_TEMPLATE_COLUMNS.host).toContain('hostname')
     expect(IMPORT_TEMPLATE_COLUMNS.host).toContain('instance_ip')
   })
 
-  it('IMPORT_TEMPLATE_COLUMNS middleware 包含 middleware_type/instance_ip/port 必填列（PRD 6.1/5.7）', () => {
+  it('IMPORT_TEMPLATE_COLUMNS middleware 包含 middleware_type/instance_ip/port 必填列（PRD 7.1/5.7）', () => {
     expect(IMPORT_TEMPLATE_COLUMNS.middleware).toContain('middleware_type')
     expect(IMPORT_TEMPLATE_COLUMNS.middleware).toContain('instance_ip')
     expect(IMPORT_TEMPLATE_COLUMNS.middleware).toContain('port')
   })
 
-  it('IMPORT_TEMPLATE_COLUMNS application 包含 service_name 必填列（PRD 6.1/5.8）', () => {
+  it('IMPORT_TEMPLATE_COLUMNS application 包含 service_name 必填列（PRD 7.1/5.8）', () => {
     expect(IMPORT_TEMPLATE_COLUMNS.application).toContain('service_name')
   })
 
-  it('IMPORT_TEMPLATE_COLUMNS generic_target 包含 target_name/instance_ip 必填列（PRD 6.1/5.9）', () => {
+  it('IMPORT_TEMPLATE_COLUMNS generic_target 包含 target_name/instance_ip 必填列（PRD 7.1/5.9）', () => {
     expect(IMPORT_TEMPLATE_COLUMNS.generic_target).toContain('target_name')
     expect(IMPORT_TEMPLATE_COLUMNS.generic_target).toContain('instance_ip')
   })
 
-  it('IMPORT_TEMPLATE_COLUMNS 四类资源均包含 status 列用于状态映射（PRD 6.1/5.5）', () => {
+  it('IMPORT_TEMPLATE_COLUMNS 四类资源均包含 status 列用于状态映射（PRD 7.1/5.5）', () => {
     const types: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
       expect(IMPORT_TEMPLATE_COLUMNS[t]).toContain('status')
@@ -259,20 +289,20 @@ describe('module-07 mocks（对齐 PRD v1.2）', () => {
 
   // ========== 导入记录 ==========
 
-  it('导入记录 total = success + failed（PRD 6.3）', () => {
+  it('导入记录 total = success + failed（PRD 7.3）', () => {
     mockImportHistory.forEach((record) => {
       expect(record.total).toBe(record.success + record.failed)
     })
   })
 
-  it('导入记录 failed > 0 时 errors 非空，success 时 errors 为空（PRD 6.3）', () => {
+  it('导入记录 failed > 0 时 errors 非空，success 时 errors 为空（PRD 7.3）', () => {
     mockImportHistory.forEach((record) => {
       if (record.failed > 0) expect(record.errors.length).toBeGreaterThan(0)
       else expect(record.errors.length).toBe(0)
     })
   })
 
-  it('导入记录 status 与 success/failed 一致（PRD 6.3）', () => {
+  it('导入记录 status 与 success/failed 一致（PRD 7.3）', () => {
     mockImportHistory.forEach((record) => {
       if (record.failed === 0 && record.success > 0) expect(record.status).toBe('success')
       else if (record.success === 0 && record.failed > 0) expect(record.status).toBe('failed')

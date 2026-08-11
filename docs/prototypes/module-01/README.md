@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v2.0
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v2.7
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v2.0
+> **原型版本**: v2.3
 > **本地启动命令**:
 >
 > ```bash
@@ -39,8 +39,8 @@ python3 -m http.server 8080
 
 验证 [Module 01: 监控策略与指标管理](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) 的核心交互：
 
-1. **CI 类型 ↔ Exporter 模板绑定（CI-Exporter 模板映射）**：维护 `CITypeExporterMapping`，含默认端口/路径/协议/采集参数；内置绑定禁止删除；CI 类型以「资源类别 → 细粒度类型」两级级联选择。
-2. **采集 Job 管理**：Job 增/改/删，关联 CI 类型、Exporter 模板、网域；CI 类型两级级联选择（先选资源类别，再选 MySQL/Redis 等细粒度类型，选中后自动带出映射默认 Exporter）；`job_type=standard/blackbox`，blackbox 拨测目标内嵌在 Job 中（`BlackboxTarget[]` 对象数组：target / protocol / url）；实例选择 MVP 手动勾选，v0.3+ 预留 `instance_filter`；Exporter 安装确认（点状态徽标循环 + 弹窗填确认人/备注）；**详情只读视图**（列表「详情」按钮打开只读 Descriptions，区分编辑抽屉）；**参数继承与同步演示**：创建 Job 时从 CI-Exporter 模板映射继承默认参数（间隔/超时/路径/协议/标签模板）并快照，用户手动修改过的字段记录到 `mapping_overrides`；映射默认值变更后 Job 列表显示「映射默认值已变更」Tag、编辑抽屉提供「同步映射默认值」按钮手动刷新（**仅刷新未手动覆盖字段，覆盖字段保持用户值**）。
+1. **CI 类型 ↔ Exporter 模板绑定（CI-Exporter 模板映射）**：维护 `CITypeExporterMapping`，含默认端口/路径/协议/采集参数；内置绑定禁止删除；CI 类型以「资源类别 → 细粒度类型」两级级联选择。**标签模板关联**：列表「标签模板」列以两行卡片展示（名称+默认/自定义标记 / 类别·模板ID），点击模板名打开只读预览抽屉查看映射明细；表单内选中模板后以紧凑卡片展示映射，并提供「前往标签模板管理」跨模块跳转（模板 CRUD 归属 Module_07）。
+2. **采集 Job 管理**：Job 增/改/删，关联 CI 类型、Exporter 模板、网域；CI 类型两级级联选择（先选资源类别，再选 MySQL/Redis 等细粒度类型，选中后自动带出映射默认 Exporter）；`job_type=standard/blackbox`，blackbox 拨测目标内嵌在 Job 中（`BlackboxTarget[]` 对象数组：target / protocol / url）；实例选择 MVP 手动勾选，v0.3+ 预留 `instance_filter`；Exporter 安装确认（点状态徽标循环 + 弹窗填确认人/备注/实际监听端口 `actual_port` {P1}）；**详情只读视图**（列表「详情」按钮打开只读 Descriptions，区分编辑抽屉）；**参数继承与同步演示**：创建 Job 时从 CI-Exporter 模板映射继承默认参数（间隔/超时/路径/协议/标签模板）并快照，用户手动修改过的字段记录到 `mapping_overrides`；映射默认值变更后 Job 列表显示「映射默认值已变更」Tag、编辑抽屉提供「同步映射默认值」按钮手动刷新（**仅刷新未手动覆盖字段，覆盖字段保持用户值**）。
 3. **规则编辑**：告警 / 记录规则编辑，`rule_type=recording` 时隐藏 `duration` 与 `annotations`；Labels/Annotations key-value 动态表单；资源类型两级级联选择，选中 CI 类型后自动带出映射默认 Exporter 模板（可覆盖）；PromQL 保存前强制校验，expr 引用的指标必须存在于指标库（失败给具体错误如「未知指标名 xxx」）；指标库数据基于**当前页面状态**（用户新增/禁用实时生效）；选 `exporter_template_id` 后从指标库过滤预览；P1「规则模板一键填充」占位按钮。
 4. **指标库**：按 Exporter 分组浏览；支持「资源类别 → CI 类型」两级筛选与 metric_type 筛选；新增/编辑用户扩展指标（`is_builtin=false`）；内置指标禁止编辑/删除；`enabled` 切换（禁用指标不参与规则提示）；MVP 内置指标库只读，必须先有指标库才能编写 PromQL。
 5. **单网域/多网域模式**：Header 提供 `Tenant.multi_site_enabled` 租户级开关（与 Module_09 一致）；多网域模式 Job 可绑定 default / 边缘网域，单网域模式仅允许 default 管理域（网域下拉禁用）。
@@ -82,3 +82,4 @@ python3 -m http.server 8080
 - PromQL 校验为本地启发式解析（剥除字符串字面量 / label selector / by/without 子句后识别标识符），仅校验指标名是否存在于所选 Exporter 指标库或全局启用指标库；不调用 Prometheus 真实语法校验。
 - 网络域隔离下「Exporter 安装确认」的工单号/安装记录字段仅作笔记，不联动 Module_09 的下发链路。
 - 单网域/多网域模式开关（`Tenant.multi_site_enabled`）为演示开关，通过修改内存 mock 生效，刷新页面后重置为默认多网域模式。
+- 标签模板的「前往标签模板管理」跨模块跳转链接指向 `../module-07/dist/index.html`，仅在统一静态入口 / GitHub Pages 部署结构下生效；dev 独立端口（5175）下该链接不可达（模块原型隔离所致）。

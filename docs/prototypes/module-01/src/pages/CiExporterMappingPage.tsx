@@ -4,7 +4,7 @@ import {
   Table,
   Button,
   Tag,
-  Modal,
+  Drawer,
   Form,
   Select,
   InputNumber,
@@ -15,6 +15,7 @@ import {
   Badge,
   App,
   Tooltip,
+  Alert,
 } from 'antd'
 import {
   PlusOutlined,
@@ -57,6 +58,7 @@ export default function CiExporterMappingPage() {
   const [form] = Form.useForm()
 
   const watchResourceCategory = Form.useWatch('resource_category', form)
+  const watchedLabelTemplateId = Form.useWatch('label_template_id', form)
   const categoryCiTypes = (watchResourceCategory as ResourceCategory | undefined)
     ? CI_TYPES_BY_CATEGORY[watchResourceCategory as ResourceCategory]
     : []
@@ -79,6 +81,35 @@ export default function CiExporterMappingPage() {
     return map
   }, [])
 
+  // 当前表单选中的标签模板（用于只读预览映射内容，模板由 Module_07 维护）
+  const selectedLabelTemplate = useMemo(
+    () => mockLabelTemplates.find((t) => t.template_id === watchedLabelTemplateId) ?? null,
+    [watchedLabelTemplateId]
+  )
+
+  // 列表列点击模板名打开的只读预览抽屉
+  const [previewTemplate, setPreviewTemplate] = useState<(typeof mockLabelTemplates)[number] | null>(null)
+
+  // 只读预览抽屉的映射明细列（来源字段 → 目标标签 → 启用）
+  const previewColumns = [
+    { title: '来源字段', dataIndex: 'source_field', key: 'source_field', render: (v: string) => <Text code style={{ fontSize: 12 }}>{v}</Text> },
+    {
+      title: '来源类型',
+      dataIndex: 'source_type',
+      key: 'source_type',
+      render: (v: string) => (
+        <Tag>{v === 'composite' ? '组合字段' : v === 'resource_field' ? '资源字段' : v}</Tag>
+      ),
+    },
+    { title: '目标标签', dataIndex: 'target_label', key: 'target_label', render: (v: string) => <Text strong style={{ color: '#0ECDEB' }}>{v}</Text> },
+    {
+      title: '启用',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      render: (v: boolean) => (v ? <Badge status="success" text="启用" /> : <Badge status="default" text="禁用" />),
+    },
+  ]
+
   const handleOpenModal = (record?: CITypeExporterMapping) => {
     if (record) {
       setEditingMapping(record)
@@ -95,8 +126,21 @@ export default function CiExporterMappingPage() {
   }
 
   const handleCloseModal = () => {
-    setModalOpen(false)
-    setEditingMapping(null)
+    if (form.isFieldsTouched()) {
+      modal.confirm({
+        title: '有未保存的修改',
+        content: '确定关闭吗？未保存的修改将丢失。',
+        onOk: () => {
+          setModalOpen(false)
+          setEditingMapping(null)
+          form.resetFields()
+        },
+      })
+    } else {
+      setModalOpen(false)
+      setEditingMapping(null)
+      form.resetFields()
+    }
   }
 
   // 选择 Exporter 模板后自动填充 default_port / metrics_path / scheme
@@ -215,8 +259,32 @@ export default function CiExporterMappingPage() {
       title: '标签模板',
       dataIndex: 'label_template_id',
       key: 'label_template_id',
-      render: (value?: string) =>
-        value ? <Badge status="success" text={labelNameMap.get(value) ?? value} /> : '-',
+      render: (value?: string) => {
+        if (!value) return '-'
+        const tpl = mockLabelTemplates.find((t) => t.template_id === value)
+        return (
+          <div
+            onClick={(e) => {
+              e.stopPropagation()
+              if (tpl) setPreviewTemplate(tpl)
+            }}
+            style={{ cursor: tpl ? 'pointer' : 'default' }}
+          >
+            <Space direction="vertical" size={0}>
+              <Space size={4}>
+                <Text strong>{labelNameMap.get(value) ?? value}</Text>
+                {tpl?.is_default ? <Tag color="gold">默认</Tag> : <Tag>自定义</Tag>}
+              </Space>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {tpl ? `${RESOURCE_CATEGORY_MAP[tpl.resource_category]} · ` : ''}
+                <Text code style={{ fontSize: 11 }}>
+                  {value}
+                </Text>
+              </Text>
+            </Space>
+          </div>
+        )
+      },
     },
     {
       title: '类型',
@@ -288,13 +356,20 @@ export default function CiExporterMappingPage() {
         />
       </Card>
 
-      <Modal
+      <Drawer
         title={editingMapping ? '编辑 CI-Exporter 模板映射' : '新增 CI-Exporter 模板映射'}
         open={modalOpen}
-        onCancel={handleCloseModal}
-        onOk={handleSave}
-        okButtonProps={{ style: { backgroundColor: '#0ECDEB' } }}
+        onClose={handleCloseModal}
         width={640}
+        maskClosable={false}
+        extra={
+          <Space>
+            <Button onClick={handleCloseModal}>取消</Button>
+            <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleSave}>
+              保存
+            </Button>
+          </Space>
+        }
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Row gutter={16}>
@@ -435,17 +510,93 @@ export default function CiExporterMappingPage() {
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item label="标签模板" name="label_template_id" extra="LabelTemplate 由 Module_07 维护">
+          <Form.Item
+            label="标签模板"
+            name="label_template_id"
+            extra={
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                由 Module_07 维护；创建 Job 时自动继承，可换用其他模板（引用级）；标签内容编辑唯一入口在 Module_07
+              </Text>
+            }
+          >
             <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
               {mockLabelTemplates.map((t) => (
                 <Option key={t.template_id} value={t.template_id}>
-                  {t.name}（{t.resource_category}）
+                  {t.name}（{RESOURCE_CATEGORY_MAP[t.resource_category]} / {t.template_id}）
                 </Option>
               ))}
             </Select>
           </Form.Item>
+          {/* 只读预览：选中模板后以紧凑卡片展示映射明细，并提供跨模块跳转（模板 CRUD 归属 Module_07） */}
+          {selectedLabelTemplate && (
+            <Card
+              size="small"
+              style={{ marginBottom: 0 }}
+              title={
+                <Space size={6}>
+                  <Text strong style={{ fontSize: 13 }}>
+                    {selectedLabelTemplate.name}
+                  </Text>
+                  {selectedLabelTemplate.is_default ? <Tag color="gold">默认</Tag> : <Tag>自定义</Tag>}
+                  <Text code style={{ fontSize: 11 }}>
+                    {selectedLabelTemplate.template_id}
+                  </Text>
+                </Space>
+              }
+            >
+              <Table
+                rowKey="target_label"
+                size="small"
+                pagination={false}
+                dataSource={selectedLabelTemplate.mappings}
+                columns={previewColumns}
+              />
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                该模板映射由 Module_07 维护，本页只读展示。
+                <Typography.Link href="../module-07/dist/index.html" style={{ marginLeft: 8 }}>
+                  前往标签模板管理 →
+                </Typography.Link>
+              </Text>
+            </Card>
+          )}
         </Form>
-      </Modal>
+      </Drawer>
+
+      {/* 标签模板只读预览抽屉（点击列表列模板名打开） */}
+      <Drawer
+        title="标签模板预览（只读）"
+        width={560}
+        open={!!previewTemplate}
+        onClose={() => setPreviewTemplate(null)}
+        extra={
+          <Typography.Link href="../module-07/dist/index.html" onClick={() => setPreviewTemplate(null)}>
+            前往标签模板管理 →
+          </Typography.Link>
+        }
+      >
+        {previewTemplate && (
+          <Space direction="vertical" style={{ width: '100%' }} size={16}>
+            <Space size={6} wrap>
+              <Text strong style={{ fontSize: 14 }}>{previewTemplate.name}</Text>
+              {previewTemplate.is_default ? <Tag color="gold">默认</Tag> : <Tag>自定义</Tag>}
+              <Tag color="blue">{RESOURCE_CATEGORY_MAP[previewTemplate.resource_category]}</Tag>
+              <Text code style={{ fontSize: 11 }}>{previewTemplate.template_id}</Text>
+            </Space>
+            <Alert
+              type="info"
+              showIcon
+              message="该模板由 Module_07 维护，本页只读展示；字段来源支持资源字段 / 组合字段。"
+            />
+            <Table
+              rowKey="target_label"
+              size="small"
+              pagination={false}
+              dataSource={previewTemplate.mappings}
+              columns={previewColumns}
+            />
+          </Space>
+        )}
+      </Drawer>
     </MainLayout>
   )
 }
