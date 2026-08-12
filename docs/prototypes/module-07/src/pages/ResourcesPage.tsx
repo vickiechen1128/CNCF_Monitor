@@ -1190,12 +1190,17 @@ export default function ResourcesPage() {
               ]}
             />
             <Divider />
-            <Title level={5}>标签管理</Title>
+            <Title level={5}>自定义标签（非必须）</Title>
             <Alert
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
-              message="标签冲突优先级：CMDB > 用户 > 系统。系统与 CMDB 来源标签只读，仅用户添加的标签可编辑与删除。"
+              message={
+                <Space direction="vertical" size={2}>
+                  <Text style={{ fontSize: 13 }}>大多数场景下，标签模板已自动生成所需标签；仅当个别实例需要额外标签时使用。</Text>
+                  <Text style={{ fontSize: 12, color: '#86909C' }}>{'标签冲突优先级：CMDB > 用户 > 系统。系统与 CMDB 来源标签只读，仅用户添加的标签可编辑与删除。'}</Text>
+                </Space>
+              }
             />
             {/* 批量标签编辑占位（后续版本开放） */}
             <Alert
@@ -1223,7 +1228,7 @@ export default function ResourcesPage() {
                 </Col>
                 <Col span={6}>
                   <Button type="primary" icon={<PlusOutlined />} block style={{ backgroundColor: '#0ECDEB' }} onClick={handleAddLabel}>
-                    添加
+                    添加自定义标签
                   </Button>
                 </Col>
               </Row>

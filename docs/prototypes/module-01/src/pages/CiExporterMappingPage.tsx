@@ -14,8 +14,10 @@ import {
   Col,
   Badge,
   App,
+  Modal,
   Tooltip,
   Alert,
+  Input,
 } from 'antd'
 import {
   PlusOutlined,
@@ -56,6 +58,13 @@ export default function CiExporterMappingPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<CITypeExporterMapping | null>(null)
   const [form] = Form.useForm()
+
+  // {v3.1} 标签模板创建引导状态
+  const [showLabelGuide, setShowLabelGuide] = useState(false)
+  const [labelGuideCiType, setLabelGuideCiType] = useState<CiType | null>(null)
+  const [labelGuideCategory, setLabelGuideCategory] = useState<ResourceCategory | null>(null)
+  const [labelCreateOpen, setLabelCreateOpen] = useState(false)
+  const [labelCreateForm] = Form.useForm()
 
   const watchResourceCategory = Form.useWatch('resource_category', form)
   const watchedLabelTemplateId = Form.useWatch('label_template_id', form)
@@ -155,6 +164,59 @@ export default function CiExporterMappingPage() {
     }
   }
 
+  // {v3.1} CI 类型变更时检测是否已有标签模板
+  const handleCiTypeChange = (ciType: CiType) => {
+    const existingMapping = mappings.find((m) => m.resource_type === ciType)
+    const hasTemplate = existingMapping?.has_label_template ?? false
+    if (!hasTemplate && !editingMapping) {
+      // 无标签模板，弹出创建引导
+      setLabelGuideCiType(ciType)
+      setLabelGuideCategory(CI_TYPE_CATEGORY_MAP[ciType] as ResourceCategory)
+      setShowLabelGuide(true)
+    }
+  }
+
+  // {v3.1} 打开标签模板创建抽屉（预填 CI 类型和资源类别）
+  const openLabelCreateDrawer = () => {
+    setShowLabelGuide(false)
+    labelCreateForm.setFieldsValue({
+      name: `${CI_TYPE_LABEL[labelGuideCiType!]}默认标签模板`,
+      resource_category: labelGuideCategory,
+      resource_type: labelGuideCiType,
+    })
+    setLabelCreateOpen(true)
+  }
+
+  // {v3.1} 保存标签模板创建
+  const handleLabelCreateSave = () => {
+    labelCreateForm.validateFields().then((values) => {
+      // 模拟创建标签模板
+      const newTemplate = {
+        template_id: `lt-${Date.now()}`,
+        name: values.name as string,
+        resource_category: values.resource_category as ResourceCategory,
+        is_default: false,
+        mappings: [
+          { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
+          { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+          { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
+        ],
+      }
+      // 更新映射的 has_label_template
+      setMappings((prev) =>
+        prev.map((m) =>
+          m.resource_type === labelGuideCiType
+            ? { ...m, has_label_template: true, label_template_id: newTemplate.template_id }
+            : m
+        )
+      )
+      // 更新表单选中新模板
+      form.setFieldsValue({ label_template_id: newTemplate.template_id })
+      setLabelCreateOpen(false)
+      message.success('标签模板已创建并自动关联')
+    })
+  }
+
   const handleSave = () => {
     form.validateFields().then((values) => {
       if (editingMapping) {
@@ -180,6 +242,7 @@ export default function CiExporterMappingPage() {
           scrape_interval: values.scrape_interval as string,
           scrape_timeout: values.scrape_timeout as string,
           label_template_id: (values.label_template_id as string) || undefined,
+          has_label_template: !!values.label_template_id,
           is_builtin: false,
           created_at: now(),
           updated_at: now(),
@@ -259,7 +322,11 @@ export default function CiExporterMappingPage() {
       title: '标签模板',
       dataIndex: 'label_template_id',
       key: 'label_template_id',
-      render: (value?: string) => {
+      render: (value: string | undefined, record: CITypeExporterMapping) => {
+        // {v3.1} 无标签模板时展示「待配置」Badge
+        if (!value && !record.has_label_template) {
+          return <Badge count="待配置" style={{ backgroundColor: '#faad14' }} />
+        }
         if (!value) return '-'
         const tpl = mockLabelTemplates.find((t) => t.template_id === value)
         return (
@@ -401,7 +468,10 @@ export default function CiExporterMappingPage() {
                 <Select
                   disabled={!!editingMapping || categoryCiTypes.length === 0}
                   placeholder={categoryCiTypes.length > 0 ? '请选择 CI 类型' : '请先选择资源类别'}
-                  onChange={() => form.setFieldsValue({ exporter_template_id: undefined })}
+                  onChange={(v) => {
+                    form.setFieldsValue({ exporter_template_id: undefined })
+                    if (v) handleCiTypeChange(v as CiType)
+                  }}
                 >
                   {categoryCiTypes.map((type) => (
                     <Option key={type} value={type}>
@@ -596,6 +666,105 @@ export default function CiExporterMappingPage() {
             />
           </Space>
         )}
+      </Drawer>
+
+      {/* {v3.1} 标签模板创建引导 Modal：首次选择 CI 类型时检测到无标签模板则弹出 */}
+      <Modal
+        title="为该 CI 类型创建标签模板？"
+        open={showLabelGuide}
+        onCancel={() => setShowLabelGuide(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setShowLabelGuide(false)}>稍后再说</Button>
+            <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={openLabelCreateDrawer}>
+              立即创建
+            </Button>
+          </Space>
+        }
+        width={480}
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message={
+              <Text style={{ fontSize: 13 }}>
+                系统检测到「{labelGuideCiType ? CI_TYPE_LABEL[labelGuideCiType] : ''}」类型尚未创建标签模板。
+              </Text>
+            }
+          />
+          <div>
+            <Text style={{ fontSize: 13 }}>
+              标签模板用于将 CMDB 资源字段映射为 Prometheus 标签，是采集数据标签化的基础。
+              建议在首次引入 CI 类型时完成模板创建，后续创建采集 Job 时将自动继承。
+            </Text>
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              点击「立即创建」将自动预填 CI 类型和资源类别，您只需确认标签映射规则即可。
+            </Text>
+          </div>
+        </Space>
+      </Modal>
+
+      {/* {v3.1} 标签模板创建抽屉（半自动化创建） */}
+      <Drawer
+        title="创建标签模板"
+        open={labelCreateOpen}
+        onClose={() => setLabelCreateOpen(false)}
+        width={520}
+        extra={
+          <Space>
+            <Button onClick={() => setLabelCreateOpen(false)}>取消</Button>
+            <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleLabelCreateSave}>
+              创建并关联
+            </Button>
+          </Space>
+        }
+      >
+        <Form form={labelCreateForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            label="模板名称"
+            name="name"
+            rules={[{ required: true, message: '请输入模板名称' }]}
+          >
+            <Input placeholder="例如：主机默认标签模板" />
+          </Form.Item>
+          <Form.Item
+            label="资源类别"
+            name="resource_category"
+            rules={[{ required: true, message: '请选择资源类别' }]}
+          >
+            <Select disabled placeholder="自动预填">
+              {RESOURCE_CATEGORIES.map((cat) => (
+                <Option key={cat} value={cat}>
+                  {RESOURCE_CATEGORY_MAP[cat]}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="CI 类型"
+            name="resource_type"
+            rules={[{ required: true, message: '请选择 CI 类型' }]}
+          >
+            <Select disabled placeholder="自动预填">
+              {labelGuideCiType && (
+                <Option value={labelGuideCiType}>{CI_TYPE_LABEL[labelGuideCiType]}</Option>
+              )}
+            </Select>
+          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={
+              <Text style={{ fontSize: 12 }}>
+                系统将自动生成默认标签映射（instance / app / env），创建后可在 Module_07 中调整。
+              </Text>
+            }
+          />
+        </Form>
       </Drawer>
     </MainLayout>
   )

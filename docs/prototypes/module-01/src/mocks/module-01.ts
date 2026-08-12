@@ -390,6 +390,8 @@ export interface CITypeExporterMapping {
   scrape_interval: string
   scrape_timeout: string
   label_template_id?: string
+  /** {v3.1} 该 CI 类型是否已有标签模板，供前端判断是否提示创建引导 */
+  has_label_template: boolean
   /** 是否平台内置绑定（PRD 5.1），内置绑定禁止删除 */
   is_builtin: boolean
   created_at: string
@@ -407,6 +409,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '15s',
     scrape_timeout: '10s',
     label_template_id: 'lt-h-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-20T10:30:00Z',
@@ -421,6 +424,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',
@@ -435,6 +439,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',
@@ -449,6 +454,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',
@@ -463,6 +469,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: false,
     created_at: '2026-07-22T14:00:00Z',
     updated_at: '2026-07-22T14:00:00Z',
@@ -477,6 +484,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '15s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: false,
     created_at: '2026-07-23T11:00:00Z',
     updated_at: '2026-07-23T11:00:00Z',
@@ -491,6 +499,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '15s',
     scrape_timeout: '10s',
     label_template_id: 'lt-app-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-15T09:00:00Z',
@@ -505,6 +514,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '60s',
     scrape_timeout: '30s',
     label_template_id: 'lt-gen-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',

@@ -672,6 +672,19 @@ export default function LabelTemplatesPage() {
                       label: `关联实例（${relatedResourcesOf(selectedTemplate).length}）`,
                       children: (
                         <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                          {/* {v2.5} 隐式关联说明：让用户理解模板通过 resource_type 自动关联，无需手动逐台配置 */}
+                          <Alert
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: 4 }}
+                            message={
+                              <Text style={{ fontSize: 13 }}>
+                                本模板适用于「{RESOURCE_TYPE_MAP[selectedTemplate.resource_type]}」类型，该类型下所有{' '}
+                                <Text strong>{relatedResourcesOf(selectedTemplate).length}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
+                                如需查看具体实例清单，请浏览下方列表。
+                              </Text>
+                            }
+                          />
                           <Row gutter={8}>
                             <Col span={14}>
                               <Input.Search

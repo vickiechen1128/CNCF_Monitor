@@ -32,6 +32,7 @@ import {
   EyeOutlined,
   GlobalOutlined,
   SyncOutlined,
+  SwapOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
@@ -983,7 +984,8 @@ export default function ScrapeJobsPage() {
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         由 Module_07 维护，创建时自动预填映射默认模板；可换用其他模板（引用级），标签内容编辑唯一入口在 Module_07
                       </Text>
-                      {selectedLabelTemplate && (
+                      {/* {v3.1} 卡片式选择器：展示模板名称 + 资源类别 + 映射条数 */}
+                      {selectedLabelTemplate ? (
                         <Card
                           size="small"
                           title={
@@ -997,6 +999,18 @@ export default function ScrapeJobsPage() {
                               </Text>
                             </Space>
                           }
+                          extra={
+                            editingJob ? (
+                              <Button
+                                type="link"
+                                size="small"
+                                icon={<SwapOutlined />}
+                                onClick={() => form.setFieldsValue({ label_template_id: undefined })}
+                              >
+                                更换
+                              </Button>
+                            ) : undefined
+                          }
                         >
                           <Space direction="vertical" size={6} style={{ width: '100%' }}>
                             <div>
@@ -1006,6 +1020,9 @@ export default function ScrapeJobsPage() {
                                 </Tag>
                               ))}
                             </div>
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              资源类别：{RESOURCE_CATEGORY_MAP[selectedLabelTemplate.resource_category]} · 共 {selectedLabelTemplate.mappings.length} 条映射
+                            </Text>
                             <Typography.Link
                               href="../module-07/dist/index.html"
                               style={{ fontSize: 12 }}
@@ -1014,14 +1031,37 @@ export default function ScrapeJobsPage() {
                             </Typography.Link>
                           </Space>
                         </Card>
+                      ) : (
+                        /* {v3.1} 无标签模板时展示创建引导 */
+                        <Alert
+                          type="info"
+                          showIcon
+                          style={{ marginTop: 4 }}
+                          message={
+                            <Space size={4}>
+                              <Text style={{ fontSize: 12 }}>暂未选择标签模板</Text>
+                              <Typography.Link
+                                href="../module-07/dist/index.html"
+                                style={{ fontSize: 12 }}
+                              >
+                                前往创建 →
+                              </Typography.Link>
+                            </Space>
+                          }
+                        />
                       )}
                     </Space>
                   }
                 >
-                  <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
+                  <Select
+                    placeholder="请选择标签模板"
+                    allowClear
+                    showSearch
+                    optionFilterProp="children"
+                  >
                     {mockLabelTemplates.map((t) => (
                       <Option key={t.template_id} value={t.template_id}>
-                        {t.name}（{RESOURCE_CATEGORY_MAP[t.resource_category]} / {t.template_id}）
+                        {t.name}（{RESOURCE_CATEGORY_MAP[t.resource_category]} · {t.mappings.length} 条映射）
                       </Option>
                     ))}
                   </Select>
