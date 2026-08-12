@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v2.4
+> **PRD 版本**: v3.0
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v2.0
-> **更新日期**: 2026-08-07
+> **原型版本**: v2.4
+> **更新日期**: 2026-08-11
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -55,7 +55,7 @@
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | CI 类型 ↔ Exporter 模板绑定   | 每种 `resource_type`（host / mysql / redis / kafka 等）映射到一个 ExporterTemplate，包含默认端口、metrics\_path、scheme、scrape\_interval、scrape\_timeout 等 | P0         |
 | ScrapeJob 管理            | Job 创建/编辑、命名、启用/禁用、关联 CI 类型与 ExporterTemplate、实例选择模式、标签模板引用；Job 必须绑定且仅绑定单一网域                                                            | P0         |
-| 实例选择                    | MVP 支持「手动勾选」；v0.3+ 支持按网域 / 环境 / 应用 / 标签等条件筛选并预览匹配结果                                                                                     | P0 / v0.3+ |
+| 实例选择                    | MVP 支持「按类型+网域自动收敛候选 + 手动勾选」（候选一键全选/反选、关键字筛选）；v0.3+ 支持按网域 / 环境 / 应用 / 标签等条件筛选并预览匹配结果                                                                                     | P0 / v0.3+ |
 | Exporter 安装/注册确认        | 在 Resource 或 Target 上标记 exporter 是否已安装/已注册，生成配置前必须确认                                                                                    | P0         |
 | ScrapeJob blackbox 类型支持 | Blackbox 拨测作为 `ScrapeJob` 的一种类型，通过 `job_type`、`blackbox_module`、`blackbox_targets` 配置；不再维护独立 `BlackboxTarget` 实体                        | P0         |
 | 指标库管理                 | 指标名注册、类型标记（counter/gauge/histogram/summary）、HELP/UNIT                                                                                   | P1         |
@@ -151,6 +151,15 @@
 > - **v0.2** 新增 **`CITypeExporterMappingOverride`（网域级覆盖表）**：按 `network_domain_id` 覆盖映射默认值（`default_port` / `scheme` / `metrics_path` 等），**优先级高于映射默认值**（同网域内生效）；覆盖表跟随多网域能力（v0.2）落地，支撑不同网域差异化默认采集参数（如政务云强制 HTTPS、专网特殊端口）；
 > - **MVP 仅预留上述说明、不实现覆盖表**（v0.2 落地，随网域管理/按网域配置生成一并交付）。
 >
+> **端口一致性说明（v2.7）**：
+>
+> - **问题**：映射 `default_port` 决定 `instance` 标签端口（Module\_07 组合字段，见 Module\_07 5.12 C）；当它与实例上 exporter 实际监听端口不一致时，instance 标签会错（如映射 9100、实例实际 19100）。
+> - **三层解决手段**：
+>   1. **映射层（MVP 已有）**：`CITypeExporterMapping.default_port` 在映射表单中可编辑（选 Exporter 后自动填充、可覆盖），解决"某 CI 类型普遍使用非标端口"；
+>   2. **网域级覆盖（v0.2，已预留）**：`CITypeExporterMappingOverride` 按网域覆盖 `default_port`，解决"某网域统一非标端口"；
+>   3. **实例级端口覆盖（v0.2+，建议新增）**：同一 CI 类型下个别实例端口不同（如 node\_exporter 一个 9100 一个 19100）时，支持按实例覆盖端口；MVP 不实现，v0.2+ 随多网域能力评估落地方式（Resource 增加可选 `scrape_port` 或 Job 级 target 端口映射）。
+> - **Exporter 安装确认的职责边界**：安装确认（5.6）是"状态登记 + 人工背书"，**不承担端口编辑**（维度为 resource×exporter、不分 Job，塞入端口会造成多 Job 场景互相覆盖）；可增量登记**实际监听端口**（仅记录，配置生成时若与生效端口不一致则提示，不自动改配置）。
+>
 > **参数继承与同步策略（决策 14：创建时快照 + 显式覆盖 + 手动同步）**：
 >
 > - **创建时快照**：创建 ScrapeJob 时加载映射默认值（存在网域覆盖则用覆盖值）预填参数，用户可显式覆盖，保存后 Job 持有**快照值**；
@@ -164,6 +173,13 @@
 >
 > - `CITypeExporterMapping.label_template_id` 为该 CI 类型的**默认标签模板**：创建 Job 时自动预填、**允许覆盖**；
 > - LabelTemplate 由 [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 维护，本模块**只读引用**、不维护其内容。
+>
+> **标签模板关联 UX（决策 15 补充）**：
+>
+> - 模板 ID（`label_template_id`）为**跨模块唯一稳定 FK**（名称在同一资源类型下可重复），保证用户可肉眼对应到 Module\_07 的具体模板；
+> - **列表展示（两行卡片）**：CI-Exporter 映射列表的「标签模板」列改为两行信息——第一行模板名称 + 「默认/自定义」标记，第二行「类别 · 模板ID」；不使用状态徽标（避免"健康状态"语义混淆）；
+> - **预览抽屉**：点击模板名称打开**只读预览抽屉**，展示模板映射明细（来源字段 → 目标标签 → 启用），无需进入编辑表单即可核对模板内容；
+> - **表单内预览（紧凑卡片）**：映射 / Job 表单选择标签模板后，以紧凑卡片展示模板头部（名称 + ID + 默认标记）与映射明细（小表格/列表），替代 Tag 堆砌；并提供「前往标签模板管理」跨模块跳转（Module\_07 为模板 CRUD 归属方，本模块不重复编辑）。
 >
 > **CI 类型来源与映射（决策 16：两套 CI 类型粒度体系 + CMDB 权威来源）**：
 >
@@ -260,6 +276,13 @@
 > - 所有 ScrapeJob（`job_type=standard` 与 `job_type=blackbox`）必须绑定且仅绑定一个 `network_domain_id`，禁止跨网域共享采集目标/拨测目标；
 > - `instance_selection_mode=manual` 实例选择模式下，`selected_instance_ids` 选中的 Resource 必须与 Job 同属一个网域，保存时校验。
 >
+> **实例候选自动收敛（{v3.0}，MVP）**：
+>
+> - Job 表单选定 `resource_type` 与 `network_domain_id` 后，实例候选**自动收敛为「同资源类型 + 同网域」的资源**（与网域约束天然一致，避免选到跨网域无效项）；
+> - 候选列表提供**一键全选 / 反选**与**关键字筛选**（实例名 / IP / 应用名），用户可在此基础上手动调整勾选；
+> - 勾选结果仍持久化到 `selected_instance_ids`（manual 语义不变），仅候选呈现更智能——比 v0.3+ 的 `filter` 条件表达式模式更轻，不引入动态筛选规则；
+> - 目的：**创建 Job 时少选实例、自动带出**，同时保证「模板 ↔ 实例」关联可见（模板按资源类型隐式关联，见 Module\_07 3.2 / 5.3）。
+>
 > **blackbox Job 说明**：
 >
 > - `selected_instance_ids` 在 `job_type=blackbox` 时可置空，或复用为 `blackbox_targets` 的扁平存储（其拨测目标同样受上文「网域约束」，须归属本网域）。
@@ -277,7 +300,22 @@
 > **参数快照与标签模板继承（决策 14 / 15）**：
 >
 > - `scrape_interval` / `scrape_timeout` / `metrics_path` / `scheme` 等参数在创建时**继承映射默认值（含网域覆盖）预填**，用户可覆盖，保存后 Job 持有**快照值**；映射后续变更不影响本 Job（保护存量），需用户手动「同步映射默认值」刷新（**仅刷新 `mapping_overrides` 之外的字段**，详见 5.1）；
-> - `label_template_id` 创建时**自动预填**为映射的默认标签模板，**允许覆盖**；LabelTemplate 由 Module\_07 维护，本模块只读引用。
+> - `label_template_id` 创建时**自动预填**为映射的默认标签模板，**允许覆盖（换用其他模板）**；LabelTemplate 由 Module\_07 维护，本模块只读引用。Job 表单中选择标签模板后**内联只读展示映射内容**并提供「前往标签模板管理」跳转（UX 说明见 5.1「标签模板关联 UX」）。
+>
+> **{v2.9} 标签模板引用语义澄清（对齐 Module\_07 v2.2 标签治理）**：
+>
+> - `label_template_id` 的「允许覆盖」= **允许 Job 换用其他已存在的模板（引用级）**，用于同一 CI 类型不同监控场景（如 mysql 主/从用不同标签集）；**不提供 Job 内手写标签键值**（ScrapeJob 无 labels 字段）；
+> - **标签内容编辑唯一入口在 Module\_07**：类型级改标签 → 编辑/新增模板；实例级差异 → 资源详情 `user` 标签；Job 仅引用模板，不编辑标签内容；
+> - **不引入实例级模板**（每实例选不同模板）：MVP 与 v0.2+ 均不引入，避免配置入口分散导致歧义与溯源困难（见 Module\_07 5.3「标签配置唯一入口原则」）。
+>
+> **参数继承来源视觉标记（v2.8，决策 34）**：
+>
+> - 编辑表单中，`scrape_interval`、`scrape_timeout`、`metrics_path`、`scheme`、`label_template_id` 五个继承字段的 label 旁增加 inline Tag，标记当前值的来源状态：
+>   - **继承自映射**（灰色 Tag）：当前值来自 CI-Exporter 映射默认值，用户未手动修改；
+>   - **已覆盖**（蓝色 Tag）：用户手动修改过该字段值，同步映射默认值时跳过；
+>   - **待同步**（橙色 Tag）：映射默认值已变更且该字段未被用户覆盖，需手动执行同步刷新；
+> - 列表页「参数同步」列增强：增加覆盖字段数量概览（如「2 个字段已自定义」）；
+> - 详情视图同步：Job 详情 Descriptions 中每个参数字段同样显示对应的继承/覆盖/待同步标记。
 
 ### 5.5 规则编辑模型（MonitoringRule）
 
@@ -290,13 +328,27 @@
 | rule\_type                | enum                | 规则类型       | alerting / recording          |
 | expr                      | string              | 表达式        | PromQL 表达式                    |
 | duration                  | duration            | 持续时间       | `for` 字段，仅告警规则                |
-| labels                    | map\<string,string> | 规则标签       | 规则 labels                     |
+| labels                    | map\<string,string> | 告警标签       | 规则 labels（v2.8 UI 展示名从「规则标签」改为「告警标签」，与标签模板的「目标标签」区分） |
 | annotations               | map\<string,string> | 告警说明       | 规则 annotations，仅告警规则          |
 | resource\_type            | enum                | 资源类型       | 适用 CI 类型                      |
 | exporter\_template\_id    | string              | Exporter 模板 | 关联 Exporter 模板，用于指标提示         |
 | scope                    | enum                | 求值范围       | `central` / `edge` / `both`；MVP~v0.3 固定 `central`（中心求值），`edge`/`both` 由 Module\_08 在 v0.4+ 支持（P2 预留） |
 | enabled                   | bool                | 启用状态       | 是否启用（由 Module\_08 管理生命周期时可覆盖） |
 | created\_at / updated\_at | datetime            | 仅技术信息      | 创建/更新时间                       |
+
+> **Labels/Annotations 语义说明与必填状态（v2.8，决策 35）**：
+>
+> - **Labels（告警标签）**：
+>   - **必填状态**：整体为**选填**（推荐填写），每个 key 和 value 均为选填。但若填写，建议遵循 Prometheus 最佳实践使用推荐 key；
+>   - **语义区分**：此处的 labels 是**告警元数据**（如 `severity=critical`、`team=sre`），用于告警分级、路由与接收人匹配；**不是**标签模板中生成的 target 身份标签（如 `instance`、`app`、`env`）。标签模板生成的 labels 由 Module_07 管理，在采集 Job 中配置，无需在规则中重复设置；
+>   - **推荐 key**：`severity`（严重等级：critical/warning/info）、`team`（负责团队名）。更多 labels 可按需扩展；
+>   - **记录规则特殊说明**：记录规则的 labels 语义与告警规则不同——记录规则的 labels 是**新时间序列的附加标签**，用于标识计算结果的维度（如 `team`、`datacenter`），不参与告警路由。
+>
+> - **Annotations（告警说明）**：
+>   - **必填状态**：整体为**选填**（推荐填写），每个 key 和 value 均为选填。但若填写，建议遵循 Prometheus 最佳实践使用推荐 key；
+>   - **作用**：annotations 是告警触发时附带的**人类可读信息**，用于告警通知中的展示内容。**不参与告警路由判断**，仅用于通知展示；
+>   - **推荐 key**：`summary`（一句话摘要）、`description`（详细描述）、`runbook_url`（故障处理手册链接）；
+>   - **模板变量**：description 中可使用 `{{ $labels.instance }}` 引用标签值、`{{ $value }}` 引用当前指标值，实现动态告警描述。
 
 > **网域无关性说明**（与 ScrapeJob「采集绑域」对照）：
 >
@@ -324,8 +376,11 @@
 | confirmed\_by          | string   | 确认人           | 确认人                                                 |
 | confirmed\_at          | datetime | 确认时间         | 确认时间                                                |
 | notes                  | string   | 备注            | 备注（线下安装记录、工单号等）                                     |
+| actual\_port           | int      | 实际监听端口       | {P1} 安装确认时登记的实例上 exporter 实际监听端口；配置生成时与生效端口（映射 default\_port / 网域覆盖）不一致则提示，不自动改配置 |
 
 > 该状态可在 Resource 上冗余展示，也可作为独立表存在。MVP 至少支持工程师手动勾选「已安装」。
+>
+> **职责边界（v2.7）**：安装确认是"状态登记 + 人工背书"，**不承担端口编辑**（维度为 resource×exporter、不分 Job）；实际监听端口仅作登记与一致性提示，端口不一致的解决手段见 5.1「端口一致性说明」（映射层 default\_port 可编辑 → 网域覆盖 v0.2 → 实例级端口覆盖 v0.2+）。
 >
 > 该确认仅针对**标准 Exporter**；`job_type=blackbox` 的拨测 Job 不涉及目标实例的安装确认。边缘 blackbox exporter 进程/容器实例的健康状态由 [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 的 EdgeAgent 维护。
 
@@ -404,8 +459,12 @@
 - [ ] {P0} 模块名称与文档目录已更新为「监控策略与指标管理」。
 - [ ] {P0} 可以为常见 CI 类型（host / mysql / redis 等）建立/编辑 CI 类型 ↔ Exporter 模板绑定，包含默认端口、metrics\_path、scheme、scrape\_interval、scrape\_timeout。
 - [ ] {P0} 可以创建/编辑 `ScrapeJob`，指定 job\_name、resource\_type、exporter\_template\_id、网域、实例选择模式与标签模板引用。
+- [ ] {P0} CI-Exporter 映射与 Job 表单中，标签模板以「名称（类别 / 模板ID）」展示；选择模板后内联只读展示其映射内容，并提供「前往标签模板管理」跨模块跳转（模板 CRUD 归属 Module\_07）。
+- [ ] {P0} CI-Exporter 映射列表的「标签模板」列采用两行卡片展示（名称 + 默认/自定义标记 / 类别·模板ID），点击模板名称打开只读预览抽屉展示映射明细。
 - [ ] {P0} MVP 支持手动勾选实例；勾选结果持久化到 `ScrapeJob.selected_instance_ids`。
+- [ ] {P0} {v3.0} 选定 `resource_type` 与 `network_domain_id` 后，实例候选自动收敛为「同类型 + 同网域」资源，支持一键全选/反选与关键字筛选（减少手动逐个勾选）
 - [ ] {P0} 可以标记 Resource/Target 的 Exporter 安装/注册状态，未确认实例不生成 target。
+- [ ] {P1} 安装确认时可登记实例上 exporter 实际监听端口（actual\_port）；配置生成时与生效端口不一致时提示，不自动改配置。
 - [ ] {P0} {v0.3} 规则编辑 UI 支持类 YAML 表单（expr / for / labels / annotations），调用查询中心进行 PromQL 校验，并提供指标实时预览。
 - [ ] {P0} 指标库可注册/查看，包含 metric\_type、help、unit。
 - [ ] {P0} MVP 指标库最小集跟随当前 CMDB CI 类型（host / middleware / application / generic\_target）预置：node-exporter、mysqld-exporter、redis-exporter、kafka-exporter、blackbox-exporter 的内置指标，规则编辑时可提示指标名与标签。
@@ -413,6 +472,14 @@
 - [ ] {P1} 支持用户手动导入（JSON/CSV 或抓取 metrics 元数据）与更新/覆盖/禁用指标库条目，MVP 阶段内置库为只读静态数据。
 - [ ] {P0} [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource 列表可展示「已监控 / 未监控」badge，数据来源为本模块的 `ScrapeJob` 选中状态。
 - [ ] {P0} 支持创建 `job_type=blackbox` 的 `ScrapeJob`，可配置 `blackbox_module` 与 `blackbox_targets`，并绑定单一 `network_domain_id`。
+- [ ] {P0} {v2.4} 采集 Job 编辑表单中，`scrape_interval`、`scrape_timeout`、`metrics_path`、`scheme`、`label_template_id` 五个继承字段的 label 旁显示来源状态 Tag（继承自映射/已覆盖/待同步），用户可直观感知哪些参数已自定义、哪些来自映射默认值。
+- [ ] {P0} {v2.4} 采集 Job 列表页「参数同步」列增强，显示覆盖字段数量概览（如「2 个字段已自定义」）。
+- [ ] {P0} {v2.4} 采集 Job 详情视图同步显示每个参数字段的继承/覆盖/待同步标记。
+- [ ] {P0} {v2.4} 规则编辑 UI 中，labels 区域上方显示语义说明卡片，明确区分「告警标签」与「目标标签」的差异，并标注必填状态（选填，推荐填写）与推荐 key。
+- [ ] {P0} {v2.4} 规则编辑 UI 中，annotations 区域上方显示必要性说明卡片，说明其作用（人类可读信息，不参与路由判断），并标注必填状态（选填，推荐填写）与推荐 key。
+- [ ] {P0} {v2.4} 规则编辑 UI 中，记录规则的 labels 区域显示特殊提示，说明记录规则 labels 的语义（附加到新时间序列的维度标签）。
+- [ ] {P0} {v2.4} CI-Exporter 映射页的新增/编辑表单使用 Drawer 抽屉承载，底部操作栏始终可见，关闭前有未保存提示。
+- [ ] {P0} {v2.4} 规则编辑页的新增/编辑表单使用 Drawer 抽屉承载，底部操作栏始终可见，关闭前有未保存提示。
 
 ### 8.2 技术验收（后端/契约可验证）
 
@@ -444,6 +511,9 @@
 | `ExporterMetricLibrary`               | 指标库 / 指标元数据      | 平台可识别的指标名、类型、HELP、UNIT 集合                                |
 | `metric_type`                         | 指标类型             | counter / gauge / histogram / summary / unknown               |
 | `MonitoringRule`                      | 告警 / 记录规则        | 规则编辑模型（v0.3 起 UI 写入，MVP 手写 `rules.yml`）                    |
+| `MonitoringRule.labels`               | 告警标签（Alert Labels） | 告警规则的元数据标签，用于分级/路由，**非** target 身份标签（v2.8 新增）              |
+| `MonitoringRule.annotations`          | 告警说明（Annotations） | 告警触发时附带的人类可读信息，用于通知展示，不参与路由判断（v2.8 新增）                    |
+| `LabelTemplate` 生成的 labels          | 目标标签（Target Labels） | 标识被监控资源身份的标签（instance/app/env），由采集 Job 的标签模板生成（v2.8 新增）      |
 | `rule_type`                           | 规则类型             | alerting（告警规则）/ recording（记录规则）                            |
 | `scope`                               | 求值范围             | central（中心求值）/ edge / both（v0.4+，断网自治）                      |
 | `ExporterInstallationConfirmation`    | Exporter 安装确认    | 目标实例 Exporter 已安装/已注册的确认记录（仅标准 Exporter）                 |
@@ -466,6 +536,12 @@
 
 | 版本   | 日期         | 变更类型 | 变更内容（一句话）                                                                                                      | 产品版本影响            | 状态  |
 | :--- | :--------- | :--- | :---------------------------------------------------------------------------------------------------------------- | :---------------- | :-- |
+| v3.0 | 2026-08-11 | 修改   | 实例选择增强（第七轮需求讨论，与 Module_07 v2.3 对齐）：5.2 补充「实例候选自动收敛」——选定类型+网域后候选收敛为同类型同网域资源，支持一键全选/反选与关键字筛选（MVP，比 v0.3+ filter 轻）；3.1 功能表与验收标准同步 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v2.9 | 2026-08-11 | 修改   | 标签模板引用语义澄清（与 Module_07 v2.2 标签治理对齐）：「允许覆盖」= 允许 Job 换用其他模板（引用级），不提供 Job 内标签编辑；标签内容编辑唯一入口在 Module_07；不引入实例级模板 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v2.8 | 2026-08-11 | 修改   | UI/UX 易用性优化（决策 34/35/36）：5.4 补充参数继承来源视觉标记说明（三层 Tag：继承自映射/已覆盖/待同步）；5.5 补充 labels/annotations 语义区分与必填状态说明（告警标签 vs 目标标签、推荐 key、模板变量）；术语映射新增 `MonitoringRule.labels`/`annotations`/`LabelTemplate` 标签三层区分；验收标准新增继承标记、语义卡片、Drawer 改造条目；原型待同步 v2.4 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v2.7 | 2026-08-11 | 修改   | 端口一致性说明（与 Module_07 v1.9 对齐）：映射 default_port 决定 instance 端口，三层解法（映射层可编辑 MVP / 网域覆盖 v0.2 / 实例级端口覆盖 v0.2+ 建议）；安装确认新增 actual_port 登记（P1）仅提示不自动改，明确不承担端口编辑；原型待同步 v2.3 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v2.6 | 2026-08-11 | 修改   | 标签模板展示样式落地（与 Module_07 v1.8 对齐）：映射列表「标签模板」列改两行卡片（名称+默认标记 / 类别·模板ID）、点击模板名打开只读预览抽屉、表单内预览改紧凑卡片替代 Tag 堆砌；原型待同步 v2.2 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v2.5 | 2026-08-11 | 修改   | 标签模板关联体验补齐（与 Module_07 v1.7 对齐）：模板以「名称（类别 / 模板ID）」展示，选择后内联只读预览映射内容 + 跨模块跳转；模板 ID 明确为跨模块唯一 FK | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v2.4 | 2026-08-07 | 修改   | 按 prototype-designer PRD 骨架规范补齐：第 2 章用户故事引用全局库（M01- 编码）、5.x 字段表加「UI 展示名」列、验收标准分层（8.1 用户 / 8.2 技术）+ P0/P1 标注、新增「术语映射」章节、Change Log 精简（完整历史迁移 design-decisions.md） | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v2.3 | 2026-08-07 | 新增   | 补充「提示分区规范」章节 + 原型清理用户可见文案中决策/PRD 引用 + MainLayout 全局折叠区                                                            | 文档自身            | 设计中 |
 | v2.2 | 2026-08-06 | 修改   | 规则编辑 UI 版本调整至 v0.3（与 Module_02 v1.2 / 路线图 2.4 对齐），5.5 新增 `MonitoringRule` MVP 预留说明                                        | MVP / v0.2 / v0.3 / v1.0 | 设计中 |

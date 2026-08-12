@@ -144,7 +144,7 @@ export default function ImportHistoryPage() {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="状态映射字典：Excel 中文状态自动映射到 Resource.status 枚举"
+        message="状态映射字典：Excel 中文状态自动映射为运行中 / 已停止 / 维护中"
         description={
           <Space wrap size={[8, 8]}>
             {STATUS_MAPPING_RULES.map((rule) => (
@@ -187,7 +187,7 @@ export default function ImportHistoryPage() {
         />
       </Card>
 
-      {/* 错误报告详情（PRD 6.3） */}
+      {/* 错误报告详情（PRD 7.3） */}
       <Modal
         title={`错误报告 - ${reportRecord?.filename ?? ''}`}
         open={reportOpen}

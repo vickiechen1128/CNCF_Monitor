@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.6
+> **PRD 版本**: v2.4
 > **产品版本覆盖**: MVP / v0.4 / v1.0
-> **原型版本**: v1.2
-> **更新日期**: 2026-08-07
+> **原型版本**: v2.0
+> **更新日期**: 2026-08-11
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -45,6 +45,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 
 - **M07-OPS-02**：从 Excel 批量导入主机、中间件、应用服务资源
 - **M07-OPS-05**：临时添加一个资源用于验证（由策略模块决定是否纳入采集 Job）
+- **M07-OPS-07**：为资源类型创建/编辑标签模板，定义字段到监控标签的映射（完整条目见全局库 §4.7）
 - **ARCH-03**：查看平台整体采集覆盖率（通过 Resource 列表的「已监控 / 未监控」badge）（产品级故事，见全局库 §2.2）
 
 > 已移除：M07-OPS-06（Blackbox 拨测配置）、M07-ARCH-04（配置生成器注入 remote\_write），分别由 Module\_01 与 Module\_09 承接。
@@ -63,11 +64,19 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | **应用服务资源管理**        | 应用服务列表、CRUD、Excel 导入                                                                                                                                                | P0               |
 | **通用指标目标管理**        | 通用/自定义 Exporter 目标管理，支持自定义 IP、端口、metrics\_path 与 Label                                                                                                              | P0               |
 | **展示字段控制**          | 按资源类型固定展示列、默认排序                                                                                                                                                     | P0               |
+| **列显隐配置**            | 资源列表支持用户勾选显示 / 隐藏列（含中间件类型、网域、来源等），满足不同用户查看不同字段的诉求                                                                                                                      | P1               |
 | **资源状态管理**          | online / offline / maintenance 状态维护                                                                                                                                 | P0               |
 | **已监控 / 未监控 badge** | 在 Resource 列表展示该资源是否被任意 ScrapeJob 选中；由 Module\_01 写入关联关系，Module\_07 只读展示                                                                                            | P0               |
+| **适用模板展示**        | 资源详情显示「适用模板」（该资源类型对应的默认标签模板名 + 模板 ID），与 system 标签来源标注呼应，让用户看见"此实例由哪个模板产生标签"；{v2.3}                                                                         | P0               |
 | **网域归属**            | 资源按 `network_domain_id` 分组；网域生命周期由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
 | **CMDB 接入源**        | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 `ExcelProvider` / `SQLiteProvider` 维护资源；v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 实现外部 CMDB 同步                 | P0 / P2          |
 | **资源关系**            | 应用-实例-集群关系、依赖拓扑（未来）                                                                                                                                                 | P2               |
+
+> **UI/UX 说明（v1.8）**：
+>
+> - **编辑方式**：资源新增 / 编辑使用**右侧抽屉（Drawer）**，与标签模板页的抽屉编辑方式一致——抽屉保留列表上下文，用户可同时对照列表与表单；
+> - **列表结构**：资源列表采用「资源类型 Tab + 表格 + 行点击详情抽屉（含标签管理）」结构，不做左右分栏（资源字段差异大，分栏信息密度失衡）；
+> - **列显隐配置（P1）**：列表工具栏提供「列设置」入口，用户可勾选显示 / 隐藏列；隐藏仅影响当前用户视图，不改变数据与默认列。「网域」列默认展示，隐藏需用户主动关闭。
 
 ### 3.2 标签模板管理
 
@@ -76,17 +85,43 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | **标签模板管理**  | 按资源类型定义字段到 Prometheus Label 的映射                    | P0  |
 | **字段来源配置**  | 支持 Resource 字段、Prometheus 内置字段、组合字段、CMDB 字段（v0.4+） | P0  |
 | **默认标签模板**  | 为四类资源预置默认模板                                        | P0  |
+| **模板创建工作流** | 选择资源类型 → 基于默认模板克隆/新建 → 编辑映射 → 保存前校验 → 保存（模板是业务标签契约，MVP 无需映射 Prometheus 内置采集参数） | P0  |
+| **映射校验规则**  | 目标标签不得为保护 label（`instance`/`job` 等，composite→`instance` 例外）；同一模板内目标标签必须唯一 | P0  |
+| **关联实例展示**  | 模板列表/详情展示「关联实例 N 个」（= 该资源类型下资源数），可展开查看实例清单（实例名 / IP / 状态）；{v2.3} | P0  |
 | **模板版本/克隆** | 支持复制、基于现有模板创建新版本（P1）                               | P1  |
+
+> **字段来源与模板类别说明**：字段来源（resource_field / prometheus_builtin / composite / cmdb_field）是**映射级**维度，不是**模板级**分类维度——同一模板内可混合多种来源（默认模板即混用 composite + resource_field）。模板列表不存在「默认模板 / 内置参数模板」的类别划分，只有「默认模板（is_default）」与「自定义模板」之分。
+>
+> **组合字段（用户语言）**：组合字段 = **由多个字段拼接生成的标签**，如实例标识 `instance` = 目标 IP + 端口（`instance_ip:port`），用于 Prometheus 识别唯一采集目标。用户在使用时**只需选择预设组合（当前为 `instance_ip:port`），无需填写数值**——标签数值由系统在生成采集配置时自动拼接（详见 5.12 C 取值时序），模板保存阶段不会、也不需要填值。
+>
+> **Prometheus 内置字段澄清**：`job` / `scheme` / `metrics_path` / `__address__` 等内置字段由 Prometheus 从 Job 配置与 scrape 配置**原生注入**，模板无需（也不应）将它们映射到自身，否则是空操作。`source_type=prometheus_builtin` 保留为 v0.2+ 服务发现 / relabel 场景预留。
+>
+> **模板与实例的关联关系（{v2.3}）**：模板与实例通过 `resource_type` **隐式关联**——模板挂在资源类型上，该类型下所有资源实例自动适用（system 标签实时计算，见 5.3 生成时机）。**不引入模板→实例显式绑定**（避免与 Job 选实例逻辑重复、破坏标签配置唯一入口原则）。本模块负责把该关联**显式展示**给用户：
+>
+> - 标签模板页每个模板显示「关联实例 N 个」，点击可展开实例清单（实例名 / 目标 IP / 状态），便于用户评估"改这个模板会影响哪些实例"；
+> - 资源详情新增「适用模板」行（见 3.1），显示该资源类型对应的默认模板名 + 模板 ID，与 system 标签来源标注（见 5.3 联动呈现）呼应。
+>
+> **UI/UX 说明（v1.8 / {v2.3} 布局重构）**：
+>
+> - **页面布局**：左右分栏——左侧「模板列表」（按资源类型 Tab 切换 + **搜索框** + **默认/自定义筛选**），右侧展示选中模板的详情；
+> - **左栏模板卡片（{v2.3}）**：卡片精简为「名称 + 默认/自定义 Tag + 映射数 + 关联实例数 badge」，不再内嵌弹窗/明细信息——点击选中模板后，明细在右侧 Tab 中查看；
+> - **右栏 Tab 化（{v2.3}）**：右侧详情用 `Tabs` 承载两个视图——**Tab1 映射明细**（按来源类型分组展示）、**Tab2 关联实例**（完整 Table：分页 pageSize=10、关键字搜索、状态筛选），实例量大时可扩展虚拟滚动；关联实例不再用弹窗（Popover）展示，避免大数据集无法承载；
+> - **编辑方式**：模板级（新增 / 改名 / 克隆 / 删除）与映射级（新增 / 编辑 / 删除）操作统一使用**右侧抽屉（Drawer）**，编辑时保留模板与映射上下文（Modal 会遮住映射表格，无法对照编辑）；
+> - **分页策略**：模板列表 MVP 不分页（搜索/筛选优先）；关联实例 Table 分页（pageSize=10，避免大列表长页滚动）。
 
 ### 3.3 资源标签管理
 
 | 功能                     | 说明                                                                          | 优先级 |
 | ---------------------- | --------------------------------------------------------------------------- | --- |
-| **ResourceLabel CRUD** | 为单个资源添加、编辑、删除标签                                                             | P0  |
-| **来源与合并规则**            | 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，冲突优先级 `cmdb` > `user` > `system` | P0  |
+| **ResourceLabel CRUD** | 为单个资源添加、编辑、删除标签（仅 `user` 来源可编辑）                                          | P0  |
+| **来源与合并规则**            | 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，冲突优先级 `cmdb` > `user`；`system` 为系统保护标签不可覆盖（{v2.2} 修正） | P0  |
 | **内置 label 保护**        | 禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等）         | P0  |
 | **CMDB 覆盖提示**          | 当用户输入的 key 与 `source=cmdb` 的已有 label 冲突时，实时提示「该 key 将由 CMDB 覆盖，建议更换 key」    | P0  |
+| **来源标注与模板联动**         | `system` 标签标注「来自 XX 模板 · app_name→app」并可跳转标签模板页；`user` 标注「手动添加」；{v2.2} | P0  |
+| **类型级变更引导**           | 用户添加的 key 与模板映射目标冲突时，提示「该标签由标签模板生成，如需修改请前往标签模板管理」（引导走模板而非实例级覆盖）{v2.2} | P0  |
 | **批量标签编辑**             | 按资源类型或筛选条件批量增删改标签（P1）                                                       | P1  |
+
+> **{v2.2} 定位说明**：资源详情标签管理展示全量标签（system / user / cmdb），操作仅针对 `user` 来源；`system` / `cmdb` 只读。标签编辑的唯一入口原则见 5.3「标签配置唯一入口原则」——类型级走模板，实例级走 user 标签，Job 仅引用模板。
 
 ***
 
@@ -218,13 +253,38 @@ const (
 - `user`：用户通过 UI 或 Excel 手动添加的 label。
 - `cmdb`：v0.4+ 由 Module\_04 CMDB 同步写入的 label。
 
-**同 key 冲突优先级**：`cmdb` > `user` > `system`。即 CMDB 可覆盖用户和系统 label；用户可覆盖系统 label。
+**同 key 冲突优先级**：`cmdb` > `user`；`system` 为系统保护标签**不可被覆盖**。即：
+
+- CMDB 可覆盖用户 label（v0.4+）；
+- 用户不可覆盖 system 标签（system 由模板生成，用户需改值应修改模板或使用不同 key 的新标签）；
+- 用户标签与 system 标签同 key 时，以用户标签为准展示（system 仅作为生成基线，不冲突场景下不重复展示）。
+
+> **{v2.2} 修正**：原表述「用户可覆盖系统 label（`cmdb` > `user` > `system`）」与 5.14 状态机「`system` 为系统保护标签不可被覆盖」矛盾，本版统一为 **system 不可被 user 覆盖**（与 5.14 一致）。
+
+**生成时机（{v2.2}）**：
+
+- `system` 标签**实时计算、不落库**：Module\_09 生成 `prometheus.yml` 时，按 Job 引用的 LabelTemplate 规则对 `selected_instance_ids` 逐个实例实时计算生成（见 5.12 C 取值时序）；
+- 模板映射修改后**立即生效**于下次配置生成（无需批量重算任务）；
+- 模板变更会**穿透**到引用它的 Job，使生成的配置产生 diff，纳入 Module\_09「配置变更确认 → 下发」流程（见 Module\_09 3.3.1）。
+
+**标签配置唯一入口原则（{v2.2}）**：
+
+- **类型级标签**：唯一编辑入口 = 标签模板（Module\_07 新增/编辑/克隆/删除）；
+- **实例级标签**：唯一编辑入口 = 资源详情的 `user` 标签（system / cmdb 只读）；
+- **策略层（Job）**：仅引用模板（`label_template_id` 允许换用其他模板，见 Module\_01 5.2），**不提供 Job 内标签编辑**；**不引入实例级模板**（MVP 与 v0.2+ 均不引入，避免配置入口分散导致歧义与溯源困难）；
+- **可溯源**：system 标签可追溯至「模板 + 映射 + 来源字段」，user 标签可追溯至「资源 + 添加时间」。
 
 **前端提示**：
 
 - 用户手动添加 label 时，输入框旁提示“禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等）”。
 - 当用户输入的 key 与 `source=cmdb` 的已有 label 冲突时，实时提示“该 key 将由 CMDB 覆盖，建议更换 key”。
 - key 校验规则：小写字母、数字、下划线；禁止以 `__` 开头；长度限制 128 字符。
+
+**联动呈现（{v2.2}）**：
+
+- 资源详情标签管理中，`system` 来源标签标注来源映射，如「来自 主机默认模板 · app_name→app」，并提供「前往标签模板管理」跳转入口（跳转至对应资源类型的模板页）；
+- `user` 来源标签标注「手动添加」；`cmdb` 来源标注「CMDB 同步（后续版本）」；
+- 用户添加标签时，若输入 key 与模板中已存在的映射目标一致（如输入 `app`），提示「该标签由标签模板生成，如需修改请前往标签模板管理」，引导用户通过模板进行类型级变更，而非实例级手工覆盖。
 
 ### 5.4 网域（NetworkDomain）引用
 
@@ -311,8 +371,14 @@ type ResourceStatusMapping struct {
 
 #### 5.5.5 UI 配置入口（P2）
 
-- MVP 阶段通过配置文件或初始化 SQL 管理映射字典。
+- MVP 阶段通过配置文件或初始化 SQL 管理映射字典，UI 仅**只读展示**（导入记录页 / 标签模板页说明区展示映射结果）。
 - v0.4+ 在 [Module\_05: 自定义 UI](Module_05_Custom_UI.md) 的系统设置页面提供映射规则管理。
+
+> **Excel 枚举一致性规则（v1.9 澄清）**：
+>
+> - `status` 列：**允许与线上枚举不一致**——Excel 可填业务语言（`运行中`/`已停止`/`维护中`），经映射字典转为线上枚举 `online / offline / maintenance`；映射字典本身 MVP 由配置/SQL 管理（不可 UI 编辑）；
+> - 其他枚举列（`env` / `protocol` / `scheme`）：**强制与线上枚举一致**，不一致在导入校验时报错（见 7.2）；
+> - 固定列结构：必须与 7.1 模板列一致，不支持动态列。
 
 ### 5.6 主机资源（Host）
 
@@ -376,7 +442,17 @@ type ResourceStatusMapping struct {
 | source\_type  | enum   | 来源类型   | `resource_field` / `prometheus_builtin` / `composite` / `cmdb_field {v0.4+}` |
 | target\_label | string | 目标标签   | Prometheus Label 名                                                           |
 | enabled       | bool   | 是否启用   | 是否启用                                                                         |
-| transform     | string | 转换规则   | 转换规则（可选）：`lower`、`upper`、`prefix`、`replace`                                  |
+| transform     | string | 转换规则   | 转换规则（可选，默认空=原样透传）：`lower`、`upper`、`prefix`、`replace`                  |
+
+> **转换规则说明（v1.9）**：
+>
+> - **语义**：对标签值做字符串变换，用于对齐 Resource 字段值与标签目标格式（如 `os_type` 混用 `Linux/linux` 时配 `lower` 统一小写）；
+> - **必填性**：**可留空**，留空 = 来源字段值原样透传（绝大多数映射不需要变换，不强制填写）；
+> - **交互**：UI 以下拉选择呈现，选项「无（默认）/ lower / upper / prefix {P1} / replace {P1}」；`prefix`/`replace` 需要参数（前缀值 / pattern+replacement），参数化编辑放 P1，MVP 置灰。
+
+> **目标标签默认值**：新增 `source_type=resource_field` 的映射时，目标标签**默认预填为来源字段名**（如来源字段 `env` → 目标标签 `env`），用户可修改（`app_name → app`、`instance_ip:port → instance` 等场景需手动调整）；`composite` 来源默认预填 `instance`，且**目标标签锁定为 `instance`、不可编辑**（组合字段是预置规则，标签名不应由用户改动，改动会破坏 Prometheus 标准 `instance` 语义）。
+>
+> **映射校验规则**：目标标签不得为保护 label（`PROTECTED_PROMETHEUS_LABELS`，`composite→instance` 例外）；同一模板内 `target_label` 必须唯一，保存时校验并阻止重复。
 
 ### 5.12 标签模板字段来源
 
@@ -407,11 +483,26 @@ type ResourceStatusMapping struct {
 | `job`              | Job 名称 |
 | `instance`         | 实例标识   |
 
+> **澄清**：以上内置字段由 Prometheus 从 Job 配置（`job_name` / `scheme` / `metrics_path`）与抓取过程**原生注入**，模板**不需要**（也不应）将其映射到自身——`job→job`、`__scheme__→__scheme__` 属于空操作。MVP 默认/自定义模板均不使用 `prometheus_builtin` 来源；该来源保留给 v0.2+ 服务发现 / relabel 场景（届时配合 `__meta_*` 标签使用）。
+>
+> **MVP 交互（v1.9）**：新增映射时**隐藏 `prometheus_builtin` 来源选项**（只保留 资源字段 / 组合字段，`cmdb_field` 以 v0.4+ disabled 呈现）；枚举值保留在数据模型中（`source_type` 枚举含 `prometheus_builtin`），待 v0.2+ 服务发现场景启用。
+
 #### C. 组合字段
 
 | 组合字段       | 生成规则                                |
 | ---------- | ----------------------------------- |
 | `instance` | 主机/中间件：`instance_ip` + `:` + `port` |
+
+> **说明**：组合字段表示资源上不存在单一字段、需由多个字段拼接/计算得到的标签。MVP 仅保留一个预设（`instance_ip:port → instance`，即 Prometheus 标准 `instance` 标识），`target_label` 固定为 `instance`。
+>
+> **跨层解析**：`port` 在 host 资源上不存在（见 5.6），`instance` 的端口实际取自 Module\_01 的 `CITypeExporterMapping.default_port`（如 node\_exporter 9100）或 Job 覆盖值——组合字段最终由 Module\_09 在生成配置时解析（`Resource.instance_ip` + 策略层端口）。v0.2+ 可扩展为表达式语法（如 `${instance_ip}:${port}`）或按资源类型的有限预设集。
+>
+> **取值时序（v1.9 澄清）**：
+>
+> - 模板定义时（Module\_07）只声明**规则**（`instance = instance_ip + port`），不取任何实例值——不需要先存在 Job / 实例 / Exporter；
+> - `port` 的取值来源是**映射层预设**（`CITypeExporterMapping.default_port`，创建映射时已填写），与"是否已创建采集 Job、是否已安装 Exporter"**无关**，因此不会因尚未配置而取不到值；
+> - 真正出值在 Module\_09 生成 `prometheus.yml` 时，对 `selected_instance_ids` 逐个实例拼接 `instance_ip:default_port`；
+> - 唯一风险是**配置正确性**：映射 `default_port` 与实例上 exporter 实际监听端口不一致时，instance 标签会错（该不一致的解决手段见 Module\_01 5.1 端口一致性说明）。
 
 ### 5.13 默认标签模板
 
@@ -499,9 +590,66 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 ***
 
-## 6. Excel 导入规范
+## 6. 接口设计
 
-### 6.1 模板规则
+> 技术层：MVP 最小 REST 契约。统一前缀 `/api/v1`；鉴权、租户上下文、网关透传与错误码规范见 [00\_Global\_Architecture.md](../00_Global_Architecture.md)；所有响应错误统一为 `{ "code": string, "message": string }`。
+
+### 6.1 资源管理 API（Resource）
+
+| 方法   | 路径                                              | 说明                                            |
+| ---- | ----------------------------------------------- | --------------------------------------------- |
+| GET  | `/api/v1/resources`                             | 资源列表，Query：`resource_type` / `network_domain_id` / `keyword` / `page` / `page_size`；返回含 `is_monitored`（Module\_01 计算） |
+| POST | `/api/v1/resources`                             | 创建资源（source\_type=manual）                          |
+| PUT  | `/api/v1/resources/{resource_id}`               | 更新资源                                          |
+| DELETE | `/api/v1/resources/{resource_id}`               | 删除资源（被 Job 引用时由 Module\_01 关联校验）                  |
+| POST | `/api/v1/resources/import`                      | Excel 导入（multipart，返回 7.3 导入结果结构）                 |
+| GET  | `/api/v1/resources/import-templates/{resource_type}` | 下载固定列模板（返回列定义 JSON，前端渲染为可下载模板）                 |
+
+### 6.2 资源标签 API（ResourceLabel）
+
+| 方法   | 路径                                             | 说明                       |
+| ---- | ---------------------------------------------- | ------------------------ |
+| GET  | `/api/v1/resources/{resource_id}/labels`       | 资源标签列表（按来源优先级排序展示）       |
+| POST | `/api/v1/resources/{resource_id}/labels`       | 添加 user 来源标签（校验 key 规则与保护 label） |
+| PUT  | `/api/v1/resources/{resource_id}/labels/{label_id}` | 编辑 user 来源标签值            |
+| DELETE | `/api/v1/resources/{resource_id}/labels/{label_id}` | 删除 user 来源标签            |
+
+> `system` / `cmdb` 来源标签**不提供写接口**（只读展示）；`cmdb` 来源 v0.4+ 由 Module\_04 同步写入。
+
+### 6.3 标签模板 API（LabelTemplate）
+
+| 方法   | 路径                                                        | 说明                                |
+| ---- | --------------------------------------------------------- | --------------------------------- |
+| GET  | `/api/v1/label-templates`                                | 模板列表，Query：`resource_type` / `is_default` / `keyword`；返回含 mappings |
+| POST | `/api/v1/label-templates`                                | 创建模板（非默认，mappings 为空）              |
+| PUT  | `/api/v1/label-templates/{template_id}`                  | 改名 / 改资源类型（资源类型创建后不可改，服务端校验）       |
+| DELETE | `/api/v1/label-templates/{template_id}`                  | 删除模板（默认模板禁止删除；被 Module\_01 引用时阻止）  |
+| POST | `/api/v1/label-templates/{template_id}/clone`            | 克隆模板（含全部 mappings，新模板 is\_default=false） |
+| GET  | `/api/v1/label-templates/{template_id}/resources`      | 关联实例查询（{v2.3}）：按模板 resource\_type 返回关联资源列表（含 count / 实例名 / IP / 状态），用于「关联实例 N 个」展示 |
+| POST | `/api/v1/label-templates/{template_id}/mappings`         | 新增映射（服务端校验：保护 label / 同模板 target\_label 唯一） |
+| PUT  | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | 编辑映射（编辑自身排除唯一性校验）               |
+| DELETE | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | 删除映射                             |
+
+> **组合字段接口语义**：模板 API 只保存映射规则（`source_field=instance_ip:port`、`source_type=composite`），**不保存任何实例值**；`instance` 标签出值由 Module\_09 生成配置时拼接（见 5.12 C 取值时序）。
+
+### 6.4 导入记录 API
+
+| 方法 | 路径                             | 说明                              |
+| ---- | ------------------------------ | ------------------------------- |
+| GET  | `/api/v1/imports`              | 导入记录列表，Query：`resource_type` / `status` |
+| GET  | `/api/v1/imports/{import_id}`  | 导入详情（含 errors 明细）                |
+
+### 6.5 只读消费契约（Module\_01 / Module\_09）
+
+- Module\_01 与 Module\_09 **仅通过上述 GET 接口只读消费** Resource、ResourceLabel、LabelTemplate 数据，不经过本模块写接口；
+- `is_monitored` 由 Module\_01 计算后在资源列表响应中返回（或本模块调用 Module\_01 只读接口查询关联关系后透出）；
+- 本模块不提供 `prometheus.yml` 生成 / 下发类接口（职责在 Module\_09）。
+
+***
+
+## 7. Excel 导入规范
+
+### 7.1 模板规则
 
 MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 
@@ -531,7 +679,7 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 
 其中 `custom_labels` 列支持 `key1=value1;key2=value2` 格式。
 
-### 6.2 数据校验
+### 7.2 数据校验
 
 | 校验项     | 规则                                                              |
 | ------- | --------------------------------------------------------------- |
@@ -548,7 +696,7 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 | 协议枚举    | 通用目标 `scheme` 必须是 `http/https` 之一                               |
 | 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式                 |
 
-### 6.3 导入结果
+### 7.3 导入结果
 
 ```json
 {
@@ -572,13 +720,13 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 
 ***
 
-## 7. simple-agent 标准采集示例（资源示例）
+## 8. simple-agent 标准采集示例（资源示例）
 
 MetricCenter 内置 [`platform/examples/simple-agent/`](../../../platform/examples/simple-agent/main.go) 作为**应用服务资源**接入示例。
 
 > **说明**：simple-agent 的 ScrapeJob、Exporter 模板、采集参数等策略配置由 [Module\_01](Module_01_Metric_Collection_Center.md) 负责；本模块仅演示如何将其作为一条 Application 类型 Resource 录入。
 
-### 7.1 启动示例
+### 8.1 启动示例
 
 ```bash
 cd platform/examples/simple-agent
@@ -586,7 +734,7 @@ go mod tidy
 go run main.go -listen-address ":9100" -app-name "order-service" -env "prod"
 ```
 
-### 7.2 对应的资源示例
+### 8.2 对应的资源示例
 
 ```yaml
 resource_id: "simple-agent-order-service-prod"
@@ -608,7 +756,7 @@ status: "online"
 
 ***
 
-## 8. CMDB Provider 扩展设计
+## 9. CMDB Provider 扩展设计
 
 为后续接入腾讯蓝鲸等外部 CMDB 预留统一接口。MVP 实现由本模块提供本地录入能力；v0.4+ 外部 Provider（腾讯蓝鲸、Nacos、K8s、HTTP）由 [Module\_04](Module_04_Custom_Discovery.md) 扩展，须遵循本接口。
 
@@ -635,24 +783,26 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 ***
 
-## 9. 前端页面
+## 10. 前端页面
 
 | 页面          | 功能                            |
 | ----------- | ----------------------------- |
 | 资源类型选择      | 选择主机/中间件/应用服务/通用指标目标进行管理      |
-| 主机资源管理      | 主机列表、Excel 导入、编辑、删除           |
+| 主机资源管理      | 主机列表、Excel 导入、抽屉编辑、删除           |
 | 中间件资源管理     | 中间件列表、类型选择、Excel 导入           |
 | 应用服务资源管理    | 应用服务列表、Excel 导入               |
 | 通用指标目标资源管理页 | 通用指标目标 CRUD                   |
-| 标签模板        | 按资源类型创建/编辑标签模板                |
+| 标签模板        | 按资源类型创建/编辑标签模板（左右分栏 + 搜索/筛选 + 抽屉编辑） |
 | 资源标签        | 为单个资源添加/编辑/删除 label，展示来源与冲突提示 |
 | 导入记录        | 查看 Excel 导入历史与校验报告            |
+
+> **页面交互统一原则（v1.8）**：资源管理、标签模板、资源标签等配置/编辑类操作统一使用**右侧抽屉（Drawer）**作为编辑容器，保留列表上下文；不采用分页（MVP 数据量小，搜索/筛选优先）。
 
 > 已移除页面：采集 Job、拨测配置、配置预览、下发历史。这些功能分别迁移至 [Module\_01](Module_01_Metric_Collection_Center.md) 与 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md)。
 
 ***
 
-## 10. 依赖
+## 11. 依赖
 
 - `platform/models/`：Resource、LabelTemplate、ResourceLabel 模型定义
 - `platform/discovery/`：CMDB Provider 接口与 Excel/SQLite 实现
@@ -661,24 +811,40 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 ***
 
-## 11. 验收标准
+## 12. 验收标准
 
-### 11.1 用户验收（用户可在 UI 感知/操作）
+### 12.1 用户验收（用户可在 UI 感知/操作）
 
 - [ ] {P0} 可以维护主机、中间件、应用服务、通用指标目标四类资源
 - [ ] {P0} 系统初始化后存在默认网域 `default`，单网域场景下用户无感知
 - [ ] {P0} 可以按资源类型下载固定列的 Excel 模板，模板包含 `network_domain_id` 列
 - [ ] {P0} 可以上传 Excel 并导入到对应资源类型；未填写 `network_domain_id` 时自动归属到 `default`
 - [ ] {P0} 可以创建/编辑标签模板，且标签模板按资源类型区分
-- [ ] {P0} 标签模板字段来源包含 Resource 字段、Prometheus 内置字段和组合字段
+- [ ] {P0} 标签模板字段来源包含 Resource 字段、组合字段（Prometheus 内置字段为 v0.2+ 服务发现场景预留，MVP 不展示）
+- [ ] {P0} 新增映射时目标标签默认预填为来源字段名（`resource_field` 来源），用户可修改
+- [ ] {P0} 选择「组合字段」来源时目标标签锁定为 `instance`、不可编辑，可直接保存（composite→`instance` 为例外，不被保护 label 校验拦截）
+- [ ] {P0} 同一模板内目标标签不允许重复，保存时提示并阻止；保护 label 作为目标标签时提示并阻止（composite→`instance` 例外）
+- [ ] {P0} 转换规则以下拉选择呈现（无 / lower / upper，prefix / replace 标 P1 置灰），可留空；留空时标签值原样透传
+- [ ] {P0} 新增映射时字段来源仅展示资源字段 / 组合字段（prometheus\_builtin 隐藏，cmdb\_field 以 v0.4+ disabled 呈现）
+- [ ] {P1} 模板列表展示模板 ID（可复制），便于与 Module\_01 的模板引用对应
+- [ ] {P0} 标签模板页左侧模板列表支持按资源类型 Tab 切换、搜索框与「默认/自定义」筛选
+- [ ] {P0} 模板与映射的新增/编辑使用右侧抽屉，编辑时保留模板与映射上下文；映射明细按来源类型分组展示
+- [ ] {P0} 资源新增/编辑使用右侧抽屉（与标签模板页编辑方式一致）
+- [ ] {P1} 资源列表支持「列设置」入口，可勾选显示/隐藏列（含中间件类型、网域、来源等），不影响默认列与数据
 - [ ] {P1} 可维护通用指标目标，配置自定义 `metrics_path` 与 `custom_labels`
 - [ ] {P0} Resource 列表展示「已监控 / 未监控」badge，标识该资源是否被任意 ScrapeJob 选中
+- [ ] {P0} 资源详情标签管理展示全量标签（system / user / cmdb），仅 `user` 来源可编辑/删除；`system` 标签标注「来自 XX 模板 · 来源字段→目标标签」并可跳转标签模板页（{v2.2}）
+- [ ] {P0} 标签模板页每个模板显示「关联实例 N 个」，可展开查看实例清单（实例名 / IP / 状态）（{v2.3}）
+- [ ] {P0} 资源详情显示「适用模板」（该资源类型默认模板名 + 模板 ID），与 system 标签来源标注呼应（{v2.3}）
+- [ ] {P0} 用户添加的标签 key 与模板映射目标冲突时，提示「该标签由标签模板生成，如需修改请前往标签模板管理」，引导类型级变更（{v2.2}）
 
-### 11.2 技术验收（后端/契约可验证）
+### 12.2 技术验收（后端/契约可验证）
 
 - [ ] {P0} 导入时能够基于资源类型校验必填字段，并校验 `network_domain_id` 存在性
 - [ ] {P0} 导入时 Excel 中文 `status` 能够映射到 `Resource.status` 枚举（如 `运行中` → `online`）
-- [ ] {P1} ResourceLabel 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，同 key 冲突优先级为 `cmdb` > `user` > `system`
+- [ ] {P1} {组合字段出值} 模板 API 保存 composite 映射（`instance_ip:port → instance`）时仅存规则、不存实例值；生成配置阶段 `instance` 标签 = `Resource.instance_ip` + 策略层 `default_port` 拼接（Module\_09 验证，契约见 5.12 C / 6.3）
+- [ ] {P1} {composite 例外} 保存映射时校验保护 label：`source_type=composite && target_label=instance` 跳过拦截（决策 3.4 例外），其余保护 label（`job`/`scheme`/`__address__` 等）一律阻止
+- [ ] {P1} ResourceLabel 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源；`system` 为系统保护标签不可被 `user` 覆盖，同 key 冲突优先级为 `cmdb` > `user`（{v2.2} 修正，与 5.14 一致）
 - [ ] {P1} 用户手动添加 label 时禁止覆盖 Prometheus 内置 label，冲突 key UI 提示“将被 CMDB 覆盖”
 - [ ] {P1} 模块边界清晰：Module\_07 不生成 `prometheus.yml`，不配置 ScrapeJob，不下发配置
 - [ ] {P1} Module\_01 与 Module\_09 可通过只读接口稳定获取 Resource、LabelTemplate、ResourceLabel 数据
@@ -717,10 +883,18 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 ## Change Log
 
-> **Change Log 定位（v1.6）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.3 及以前逐版详情）已迁移至 `docs/04-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 5.14 状态机 / 11 验收标准）。
+> **Change Log 定位（v1.6）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.3 及以前逐版详情）已迁移至 `docs/04-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 5.14 状态机 / 12 验收标准）。
 
 | 版本   | 日期         | 变更类型 | 变更内容（一句话）                                                                                                                                              | 产品版本影响            | 状态  |
 | :--- | :--------- | :--- | :----------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------- | :-- |
+| v2.4 | 2026-08-11 | 修改   | 标签模板页布局重构（第八轮需求讨论）：右栏 Tab 化（映射明细 / 关联实例 Table 含分页+搜索+状态筛选）；左栏模板卡片精简为名称+Tag+映射数+实例数 badge（去掉 Popover 弹窗，实例多时无法承载）；原型同步 | MVP / v0.4 / v1.0 | 设计中 |
+| v2.3 | 2026-08-11 | 新增   | 模板↔实例关联显式展示（第七轮需求讨论）：3.2 新增「关联实例展示」（模板页显示关联实例 N 个 + 可展开清单）；3.1 新增「适用模板展示」（资源详情显示默认模板名+ID）；6.3 新增模板关联实例查询接口；12.1 验收补充（模板与实例仍按 resource_type 隐式关联，不引入显式绑定） | MVP / v0.4 / v1.0 | 设计中 |
+| v2.2 | 2026-08-11 | 修改   | 标签治理收敛（第六轮需求讨论）：修正 5.3/5.14 矛盾（system 保护标签不可被 user 覆盖，冲突优先级 cmdb>user）；补充 system 标签实时计算生成时机（Module_09 生成配置时，模板变更穿透 Job 配置）；新增「标签配置唯一入口原则」（类型级走模板/实例级走 user 标签/Job 仅引用模板、不引入实例级模板）；3.3 补充来源标注与模板联动、类型级变更引导；12.1 验收补充（与 Module_01 v2.9 对齐） | MVP / v0.4 / v1.0 | 设计中 |
+| v2.1 | 2026-08-11 | 修改   | 组合字段交互契约澄清（原型修复同步）：5.11 composite 来源目标标签锁定为 instance 不可编辑（理由：预置规则，改动破坏 Prometheus 标准 instance 语义）；12.1 新增「组合字段目标标签锁定」用户验收；12.2 新增「composite→instance 例外校验」技术验收（决策 3.4） | MVP / v0.4 / v1.0 | 设计中 |
+| v2.0 | 2026-08-11 | 新增   | 需求闭环：新增第 6 章「接口设计」（Resource / ResourceLabel / LabelTemplate / 导入记录 REST 契约 + Module_01/09 只读消费契约，原 6~11 章顺延为 7~12）；3.2 组合字段补充用户语言说明；12.2 新增组合字段出值技术验收（instance = instance_ip + default_port）；用户故事新增 M07-OPS-07（标签模板管理，已回写全局库 §4.7）；原型版本对齐 v2.0 | MVP / v0.4 / v1.0 | 设计中 |
+| v1.9 | 2026-08-11 | 修改   | 需求澄清：Excel 状态映射保持 MVP 配置层+UI 只读并明确枚举一致性规则（仅 status 可映射，其他枚举列强制一致）；转换规则改为下拉可留空（prefix/replace P1 参数化）；组合字段补充取值时序（port 取映射 default_port，与 Job/Exporter 无关）；prometheus_builtin MVP 隐藏、枚举保留；原型待同步 v1.5 | MVP / v0.4 / v1.0 | 设计中 |
+| v1.8 | 2026-08-11 | 修改   | UI/UX 布局落地：标签模板页左右分栏 + 搜索/默认·自定义筛选 + 模板与映射抽屉编辑 + 映射按来源类型分组（MVP 不分页）；资源新增/编辑改抽屉；资源列表新增「列显隐配置」（P1）；原型待同步 v1.4 | MVP / v0.4 / v1.0 | 设计中 |
+| v1.7 | 2026-08-11 | 修改   | 标签模板需求澄清：明确「默认模板/内置参数模板」非设计类别（内置字段由 Prometheus 原生注入无需映射，示例模板清理）；新增映射时目标标签默认=来源字段、同模板目标标签唯一校验；模板列表展示模板 ID；组合字段补充跨层解析说明 | MVP / v0.4 / v1.0 | 设计中 |
 | v1.6 | 2026-08-07 | 新增   | 按 prototype-designer PRD 骨架规范补齐：5.x 字段表加「UI 展示名」列、新增 5.14 数据模型状态机、新增「术语映射」章节、验收标准分层（11.1 用户 / 11.2 技术）+ P0/P1 标注、第 2 章用户故事引用全局库（M07- 编码）、Change Log 精简 | MVP / v0.4 / v1.0 | 设计中 |
 | v1.5 | 2026-08-07 | 新增   | 补充「提示分区规范」章节 + 原型清理用户可见文案中决策/PRD 引用（46 处）+ MainLayout 全局折叠区                                                                                            | 文档自身            | 设计中 |
 | v1.4 | 2026-08-04 | 修改   | 补充「CMDB 侧边界」说明（CMDB 细粒度 CI 类型 vs MetricCenter 粗粒度四大类）                                                                                                  | MVP / v0.4 / v1.0 | 设计中 |

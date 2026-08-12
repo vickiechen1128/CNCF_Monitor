@@ -142,12 +142,478 @@
 
 ---
 
+## 补充对齐：2026-08-11（标签模板需求澄清轮）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户基于 Module_07 / Module_01 需求提出四组问题——①模板列表「默认模板 vs 采集参数/内置参数」划分与规定工作流；②「组合字段」含义；③模板列表不展示模板 ID、Module_01 如何关联；④标签模板管理是否应迁至 Module_01。经 AskUserQuestion 确认三项决定（归属保持 Module_07、删除示例模板、UX 改进一并落地）后落地。
+
+### 关键决策
+
+#### 决策 3.6：模板列表不存在「默认模板 / 采集参数·内置参数」类别划分；示例模板清理
+
+- **问题**：原型 mock 中「主机内置字段（示例）」「通用目标采集参数（示例）」等模板使模板列表呈现"默认模板 vs 采集参数/内置参数"两个类别，PRD 无此设计。
+- **结论**：字段来源（resource_field / prometheus_builtin / composite / cmdb_field）是**映射级**维度，不是**模板级**分类维度；模板列表只有「默认模板（is_default）」与「自定义模板」之分。删除 4 个示例模板，新增有业务语义的自定义模板「Redis 高可用标签模板」。
+- **影响范围**：Module_07 原型 mock（module-07.ts）、PRD 3.2（v1.7）。
+
+#### 决策 3.7：Prometheus 内置字段由 Prometheus 原生注入，MVP 模板不做内置字段透传映射
+
+- **问题**：把 `job` / `__scheme__` / `__metrics_path__` 映射到自身是否必要？
+- **结论**：内置字段由 Prometheus 从 Job 配置与 scrape 配置**原生注入**，模板映射到自身是空操作；`source_type=prometheus_builtin` 保留为 v0.2+ 服务发现 / relabel 场景预留。MVP 默认/自定义模板均不使用该来源。
+- **影响范围**：Module_07 PRD 3.2 / 5.12 B（v1.7）、原型 mock 与测试。
+
+#### 决策 3.8：新增映射时目标标签默认 = 来源字段（resource_field），composite 默认 instance
+
+- **问题**：多数 resource_field 映射目标标签与来源字段同名（env→env、cluster→cluster），逐个输入冗余。
+- **结论**：新增映射时 `target_label` 自动预填来源字段名（用户可修改，不覆盖手输值）；`composite` 来源固定预填 `instance`。
+- **影响范围**：Module_07 原型 LabelTemplatesPage、PRD 5.11（v1.7）、验收标准。
+
+#### 决策 3.9：同一模板内 target_label 必须唯一，保存时校验
+
+- **问题**：同一模板两个映射输出同一 label 会产生覆盖歧义。
+- **结论**：保存映射时校验 `target_label` 唯一（编辑自身排除）；与既有保护 label 校验（composite→instance 例外）共同构成模板校验规则。
+- **影响范围**：Module_07 原型 LabelTemplatesPage、PRD 3.2 / 5.11（v1.7）。
+
+#### 决策 3.10：模板管理归属保持 Module_07；模板列表展示模板 ID；Module_01 只读关联预览 + 跨模块跳转
+
+- **问题**：模板列表不展示 `template_id`（名称在同一资源类型下可重复），Module_01 关联模板后看不到模板信息；是否应将标签模板管理整体迁至 Module_01？
+- **结论**：
+  1. **管理归属保持 Module_07**——`ResourceLabel.source=system` 由 LabelTemplate 生成（标签数据与生成规则同层），模板字段词汇表同源于 Resource 数据模型；Module_01 已承载 CI 映射 / Job / 指标库 / 规则编辑，迁移会进一步加重且割裂对象层；
+  2. Module_07 模板列表与详情卡片展示 `template_id`（code 样式，可复制）；
+  3. Module_01 以「名称（类别 / 模板ID）」展示，选择模板后**内联只读预览映射内容** + 「前往标签模板管理」跨模块跳转（Module_01 只读引用，不重复编辑）。
+- **依据**：Module_01 决策 15（标签模板继承链）；对象层（标签契约）与策略层（标签引用）职责划分。
+- **影响范围**：Module_07 PRD 5.10 / 11 验收标准（v1.7）、Module_01 PRD 5.1/5.4（v2.5）、两模块原型。
+
+#### 决策 3.11：组合字段为跨层解析契约（Resource.instance_ip + 策略层 default_port）
+
+- **问题**：host 资源无 `port` 字段，`instance` 的端口从何而来？
+- **结论**：组合字段 `instance` = `Resource.instance_ip` + Module_01 `CITypeExporterMapping.default_port`（或 Job 覆盖值），最终由 Module_09 生成配置时解析。MVP 保留单一预设 `instance_ip:port → instance`；v0.2+ 可扩展为表达式语法（如 `${instance_ip}:${port}`）或按资源类型的有限预设集。
+- **影响范围**：Module_07 PRD 5.12 C（v1.7）。
+
+### 已确认项（2026-08-11）
+
+- [x] 模板管理归属保持 Module_07（用户选择「保持 Module_07 + UX 补齐」）。
+- [x] 删除示例模板（用户选择），MVP mock 仅保留四类默认模板 + 「Redis 高可用标签模板」。
+- [x] 目标标签默认值 + 映射校验一并落地 PRD 与原型（用户选择「一起落地」）。
+- [x] 验证通过：test 46/46、lint、build、dev server 200。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（尚未完成完整两段评审，待领导/业务评审反馈）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v1.7）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.5）
+- `docs/prototypes/module-07/`
+
+---
+
+## 补充对齐：2026-08-11（第二轮 UI/UX 优化）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户基于标签模板页与 CI-Exporter 映射页展示提出 UI/UX 优化诉求，经 AskUserQuestion 确认三项方向（M01 模板展示改两行卡片+预览抽屉、M07 分栏+搜索筛选+抽屉编辑、不做分页），并补充确认资源管理页布局与「列显隐配置」范围后落地 PRD
+
+### 关键决策
+
+#### 决策 3.12：标签模板页改为「左右分栏 + 搜索/筛选 + 抽屉编辑 + 映射分组展示」
+
+- **问题**：标签模板页左侧模板 List（无搜索/筛选）+ 右侧映射 Table（无分组），模板与映射编辑用 Modal 会遮住映射表格，无法对照编辑。
+- **结论**：
+  1. 左侧模板列表：按资源类型 Tab + **搜索框** + **默认/自定义筛选**；
+  2. 右侧映射明细：按**来源类型分组**（资源字段 / 组合字段）展示，来源与目标标签对照清晰；
+  3. 模板级（新增/改名/克隆/删除）与映射级（新增/编辑/删除）操作统一改为**右侧抽屉（Drawer）**，编辑时保留模板与映射上下文。
+- **依据**：用户视角设计规范（任务导向、编辑时保留上下文）；Modal 遮挡上下文是明确的反模式。
+- **影响范围**：Module_07 PRD 3.2 / 9 / 11（v1.8）；原型 LabelTemplatesPage（待 v1.4 落地）。
+
+#### 决策 3.13：MVP 不做分页（搜索/筛选优先）
+
+- **问题**：模板列表与映射表格是否需要分页？
+- **结论**：MVP 不做分页——每类资源模板通常 1~5 个、映射 5~15 条，分页收益低；模板规模化后（v0.2+）通过搜索/筛选而非分页解决。
+- **依据**：数据量分析；用户选择「不做分页」。
+- **影响范围**：Module_07 PRD 3.2（v1.8）。
+
+#### 决策 3.14：资源新增/编辑改为抽屉；资源列表保持「Tab + 表格 + 详情抽屉」结构
+
+- **问题**：Module_07 资源管理页布局是否要与标签模板页统一？
+- **结论**：任务不同（资源页是对象 CRUD + 标签，模板页是配置编辑），不强求同布局——资源列表保持「资源类型 Tab + 表格 + 行点击详情抽屉（含标签管理）」；但资源**新增/编辑改为右侧抽屉**，与模板页抽屉编辑方式统一。
+- **依据**：四类资源字段差异大，左右分栏信息密度失衡；编辑容器统一为抽屉即可保证交互一致性。
+- **影响范围**：Module_07 PRD 3.1 / 9 / 11（v1.8）；原型 ResourcesPage（待 v1.4 落地）。
+
+#### 决策 3.15：资源列表新增「列显隐配置」（P1）
+
+- **问题**：资源列表固定列无法满足不同用户查看不同字段的诉求（如中间件类型、网域、来源、CMDB 字段）。
+- **结论**：列表工具栏提供「列设置」入口，用户可勾选显示/隐藏列（含中间件类型、网域、来源等）；隐藏仅影响当前用户视图，不改变数据与默认列。「网域」列默认展示，隐藏需用户主动关闭（不推翻决策「单网域模式网域列不可隐藏」的默认展示要求）。
+- **依据**：用户确认「CI 的展示可以让用户选择是否在前端展示」即列显隐配置；企业产品列表列配置常见实践。
+- **影响范围**：Module_07 PRD 3.1 / 11（v1.8，P1）；原型 ResourcesPage（待 v1.4 落地，P1 可占位）。
+
+### 已确认项（2026-08-11 第二轮）
+
+- [x] M01 标签模板展示：两行卡片 + 预览抽屉（用户选择）。
+- [x] M07 标签模板页：分栏 + 搜索筛选 + 抽屉编辑（用户选择）。
+- [x] 不分页（用户选择）。
+- [x] 资源管理页：保留现布局 + 编辑改抽屉（用户选择）。
+- [x] 「CI 展示可配置」= 资源列表列显隐配置（P1）（用户选择）。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 v1.4 落地与验证（用户确认后执行，原型需符合 PRD v1.8）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v1.8）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.6）
+- `docs/prototypes/module-07/`
+
+---
+
+## 补充对齐：2026-08-11（第三轮 需求澄清）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户基于 Module_07 提出四组需求疑问（Excel 状态映射可配置规则的实现版本、转换规则含义与交互、组合字段跨层取值时序、Prometheus 内置字段来源），并追加讨论端口不一致的解决手段；经讨论与 AskUserQuestion 确认后合并落地 PRD
+
+### 关键决策
+
+#### 决策 3.16：Excel 状态映射保持 MVP 配置层 + UI 只读；明确 Excel 枚举一致性规则
+
+- **问题**：Excel 状态映射可配置规则前端是否要做？在哪个版本实现？MVP 是否规定 Excel 字段/枚举与线上一致？
+- **结论**：
+  1. 前端现状为**只读展示**（导入记录页 / 标签模板页说明区），MVP 无 UI 编辑入口——映射字典 MVP 由配置/SQL 管理，**v0.4+ 在 Module_05 系统设置提供映射规则管理**（P2）；
+  2. Excel 枚举一致性：`status` 列**允许**业务语言（运行中/已停止/维护中）经映射转线上枚举；其他枚举列（`env`/`protocol`/`scheme`）**强制与线上一致**，不一致导入报错；固定列结构必须与模板一致。
+- **依据**：MVP 范围控制；用户选择「保持 MVP 配置层 + UI 只读」。
+- **影响范围**：Module_07 PRD 5.5.5（v1.9）。
+
+#### 决策 3.17：转换规则（transform）交互改为下拉选择且可留空
+
+- **问题**：当前原型 transform 为自由 Input，用户手填不准确；transform 是否必填？
+- **结论**：**可留空**（留空 = 原样透传，绝大多数映射不需要变换）；UI 改为下拉「无（默认）/ lower / upper / prefix {P1} / replace {P1}」；`prefix`/`replace` 需要参数（前缀值 / pattern+replacement），参数化编辑 P1，MVP 置灰。
+- **依据**：transform 语义为对标签值做字符串变换（大小写/前缀/正则替换），用于对齐字段值与标签格式；用户确认「下拉+可留空，P1 参数化」。
+- **影响范围**：Module_07 PRD 5.11 / 11.1（v1.9）；原型 LabelTemplatesPage（待落地）。
+
+#### 决策 3.18：组合字段取值时序写入 PRD（port 取映射 default_port，与 Job/Exporter 无关）
+
+- **问题**：用户创建映射时尚未配置采集 Job / 安装 Exporter，组合字段取值是否有问题？
+- **结论**：**不会取不到值**——模板定义只声明规则；`port` 来自映射层预设 `default_port`（创建映射时已填），与 Job/Exporter 状态无关；真正出值在 Module_09 生成配置时逐个实例拼接。唯一风险是配置正确性（default_port 与实际监听端口不一致 → instance 错），解决手段见 Module_01 5.1「端口一致性说明」。PRD 5.12 C 补充「取值时序」。
+- **依据**：跨层契约（Resource.instance_ip + 策略层 default_port）；用户确认「PRD 明确时序语义」。
+- **影响范围**：Module_07 PRD 5.12 C（v1.9）。
+
+#### 决策 3.19：prometheus_builtin 在 MVP 新增映射时隐藏，枚举保留数据模型
+
+- **问题**：Prometheus 内置字段来源是静态还是动态？用户是否不需要手动映射？
+- **结论**：内置字段为**静态枚举**（`__address__`/`__scheme__`/`__metrics_path__`/`job`/`instance`），由 Prometheus **原生注入**，用户**不需要**手动映射；MVP 新增映射时**隐藏 `prometheus_builtin` 来源**（只保留资源字段/组合字段，cmdb_field v0.4+ disabled），枚举保留在数据模型供 v0.2+ 服务发现 / relabel 场景启用。
+- **依据**：用户确认「隐藏，数据模型保留」；与决策 3.7 一致。
+- **影响范围**：Module_07 PRD 5.12 B / 3.2 / 11.1（v1.9）；原型 LabelTemplatesPage（待落地）。
+
+### 已确认项（2026-08-11 第三轮）
+
+- [x] Excel 状态映射保持 MVP 配置层 + UI 只读（用户选择）。
+- [x] transform 下拉 + 可留空，prefix/replace P1 参数化（用户选择）。
+- [x] 组合字段取值时序写入 PRD（用户选择）。
+- [x] prometheus_builtin MVP 隐藏、数据模型保留（用户选择）。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 v1.5 落地与验证（用户确认后执行，原型需符合 PRD v1.9）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v1.9）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.7）
+- `docs/prototypes/module-07/`
+
+---
+
+## 补充对齐：2026-08-11（第四轮 合规闭环）
+
+- **参与 Agent**：prototype-designer（基于用户对 6 项优化建议的确认实施）
+- **触发原因**：用户要求将上一轮检查提出的 6 项优化建议全部落地（接口设计章节、原型版本对齐、原型文案技术术语清理、组合字段用户层说明、组合字段出值技术验收、标签模板用户故事回写），PRD 升版 v2.0、原型同步 v2.0。
+
+### 关键决策
+
+#### 决策 3.20：PRD 新增「6. 接口设计」章节（MVP 最小 REST 契约）
+
+- **问题**：PRD 骨架规范要求"内容至少包含…API 规范"，Module_07 仅有 6.x Excel 规范与 8 CMDBProvider Go 接口，无 Resource / LabelTemplate / ResourceLabel 的 REST 契约；对比 Module_02/10 均有独立接口章节。
+- **结论**：新增第 6 章「接口设计」，包含 6.1 资源管理 API（CRUD + Excel 导入 + 模板下载）、6.2 资源标签 API（user 来源可写，system/cmdb 只读）、6.3 标签模板 API（含映射子资源与克隆）、6.4 导入记录 API、6.5 Module_01/09 只读消费契约；原 6~11 章顺延为 7~12，正文引用（见 6.2 / 6.1 模板列）同步更新。
+- **影响范围**：Module_07 PRD 章节编号、原型注释中的 PRD 引用（6.x → 7.x）。
+
+#### 决策 3.21：原型版本号与 PRD 版本号对齐 v2.0
+
+- **问题**：完成后汇报要求"原型版本号必须与 PRD 版本号一致"；此前 PRD v1.9 vs 原型 v1.5，mock 头注释仍写「对齐 PRD v1.5」，design-decisions 中"原型 v1.5 落地与验证"长期待确认。
+- **结论**：本次 PRD 升版 v2.0 后，原型版本同步 v2.0；`module-07.ts` 头注释、`module-07.test.ts` describe、README 声明均更新为 v2.0；原型已实际包含 v1.8/v1.9 的 UI/UX（分栏 + 抽屉 + 分组 + transform 下拉 + prometheus_builtin 隐藏），本轮清理文案后重新验证 tsc/lint/build/test（47/47）通过。
+- **影响范围**：Module_07 原型 mock / README / test。
+
+#### 决策 3.22：原型用户可见文案按「提示分区规范」清理实现层引用
+
+- **问题**：LabelTemplatesPage / ResourcesPage / ImportHistoryPage 用户可见 Alert / extra / Tooltip 中残留 `LabelTemplate`、`Module_01/04/09`、`Resource.status`、`mock`、`{P1}`、`{v0.4+}` 等实现层引用，违反提示分区规范（用户 UI 文案讲人话、不含决策/PRD/模块引用）。
+- **结论**：页面主区 Alert 与表单 extra 全部改为用户语言（如「标签模板怎么用」「本页只维护监控对象数据」「组合字段 = 由多个字段拼接生成的标签，无需填写数值」）；技术细节与完整决策清单（3.1~3.19）集中在 MainLayout 全局折叠区「原型与实现说明」；版本标注由「{v0.4+} / {P1}」改为「后续版本开放」。
+- **影响范围**：Module_07 原型三页面 + MainLayout；PRD 提示分区规范（v1.5 已含，本轮在原型落地）。
+
+#### 决策 3.23：组合字段用户层说明 + 出值技术验收写入 PRD
+
+- **问题**：组合字段完整说明集中在技术层 5.12 C，用户层（3.2 功能表）只有「字段来源配置」一行；12.2 技术验收无组合字段出值验证项。
+- **结论**：3.2 增加组合字段用户语言说明（组合字段 = 由多个字段拼接生成的标签，如实例标识 instance = 目标 IP + 端口；用户只需选择预设组合，无需填写数值）；12.2 新增 {P1} 技术验收「组合字段出值」——模板 API 仅存规则不存实例值，生成配置阶段 instance = Resource.instance_ip + 策略层 default_port（契约见 5.12 C / 6.3）。
+- **影响范围**：Module_07 PRD 3.2 / 12.2（v2.0）。
+
+#### 决策 3.24：标签模板管理用户故事回写全局库（M07-OPS-07）
+
+- **问题**：标签模板管理为 P0 核心功能，但模块级用户故事仅三条（导入 / 临时添加 / 覆盖率），无对应故事条目，JTBD 对齐不完整。
+- **结论**：在 `01_User_Stories.md` §4.7 注册 `M07-OPS-07`（运维工程师：为资源类型创建/编辑标签模板，定义字段到监控标签的映射，以便监控数据带统一归属标签），PRD 第 2 章引用该编码（遵守「先回写全局库再引用」约束）。
+- **影响范围**：01_User_Stories.md §4.7、Module_07 PRD 第 2 章（v2.0）。
+
+### 已确认项（2026-08-11 第四轮）
+
+- [x] PRD 新增接口设计章节（决策 3.20）。
+- [x] 原型版本对齐 v2.0 + 重新验证通过（决策 3.21）。
+- [x] 原型用户可见文案技术术语下沉折叠区（决策 3.22）。
+- [x] 组合字段用户层说明 + 出值技术验收（决策 3.23）。
+- [x] 标签模板用户故事回写全局库 M07-OPS-07（决策 3.24）。
+- [x] 验证通过：test 47/47、lint、build、tsc。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 dist 统一入口访问验证（GitHub Pages 结构）待最终评审时确认。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.0）
+- `docs/02-product-requirements/01_User_Stories.md`（§4.7）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.7）
+- `docs/prototypes/module-07/`
+
+---
+
+## 补充对齐：2026-08-11（第五轮 组合字段交互修复）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户走查原型发现「组合字段」交互与 PRD 不一致——①目标标签是否默认不可改、直接代入；②port 非资源字段时组合字段枚举从何而来、是否按 CI 类型内置。经流程分析确认两处原型 Bug，用户确认落地修复。
+
+### 关键决策
+
+#### 决策 3.25：composite 来源时目标标签锁定为 instance（不可编辑）
+
+- **问题**：PRD 5.12 C 规定组合字段 `target_label` 固定为 `instance`，但原型映射抽屉中目标标签输入框未锁定，用户可改，与"固定"语义不符。
+- **结论**：选择 `source_type=composite` 时，目标标签输入框 `disabled` 锁定为 `instance`（表单 extra 提示「组合字段固定生成 instance 标签，无需修改」）；切回 `resource_field` 时恢复可编辑并预填来源字段。PRD 5.11 同步澄清「composite 来源目标标签锁定为 instance、不可编辑」（v2.1）。
+- **影响范围**：Module_07 原型 LabelTemplatesPage（mapping 抽屉）；PRD 5.11 / 12.1（v2.1）。
+
+#### 决策 3.26：保存校验补全 composite→instance 例外（修复拦截 Bug）
+
+- **问题**：`instance` 在 `PROTECTED_PROMETHEUS_LABELS` 保护列表中，原型保存校验未实现决策 3.4 的「composite→instance 例外」，导致选择组合字段后保存被拦截报错、映射无法创建——这是原型实际运行 Bug（用户在原型上无法新增 composite 映射）。
+- **结论**：`handleSaveMapping` 中，当 `source_type === 'composite' && target_label === 'instance'` 时跳过保护标签拦截（其余保护标签仍拦截）；与测试断言（module-07.test.ts 已有 composite→instance 例外用例）一致。PRD 12.2 新增「composite→instance 例外校验」技术验收（v2.1）。
+- **影响范围**：Module_07 原型 LabelTemplatesPage（保存校验逻辑）；PRD 12.2（v2.1）。
+
+### 已确认项（2026-08-11 第五轮）
+
+- [x] composite 来源目标标签锁定 instance（决策 3.25）。
+- [x] 保存校验补全 composite→instance 例外（决策 3.26）。
+- [x] 验证通过：test 47/47、lint、build、tsc。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 dist 统一入口访问验证（GitHub Pages 结构）待最终评审时确认。
+- [ ] 组合字段枚举是否按 CI 类型开放预设集（v0.2+ 决策，MVP 维持单一预设，不落地）。
+
+### 关联文档
+
+- `docs/04-execution-records/module-07/design-decisions.md`（本文件）
+- `docs/prototypes/module-07/src/pages/LabelTemplatesPage.tsx`
+- Module_07 PRD v2.0 5.12 C / 3.2
+
+---
+
+## 补充对齐：2026-08-11（第六轮 标签治理收敛）
+
+- **参与 Agent**：prototype-designer（基于用户对资源详情标签管理与标签模板断层问题的需求讨论）
+- **触发原因**：用户指出资源详情「标签管理」的来源分类（cmdb / 用户 / 系统）与标签模板的字段来源分类（组合字段 / 资源字段）对不上，要求澄清二者交互与联动；经心智模型差异识别与需求对齐确认四项决策后，落地文档层修改（PRD v2.2 + Module_01 v2.9），原型改动下轮执行。
+
+### 关键决策
+
+#### 决策 3.27：资源标签（实例层）与标签模板（规则层）是同一体系的「规则→实例」关系
+
+- **问题**：资源详情标签管理（来源：system/user/cmdb）与标签模板页（来源类型：resource_field/composite/cmdb_field）分类维度不同，用户无法对应。
+- **结论**：两者是**规则层 vs 实例层**的同一体系——模板中 resource_field/composite 映射实例化到每个资源 → 生成该资源 system 来源标签；cmdb_field → cmdb 来源（v0.4+）；user 标签为资源级手动附加（模板层无对应）。MVP 原型/PRD 未展示该联动，需补充标注与引导。
+- **影响范围**：Module_07 PRD 3.3 / 5.3（v2.2）、原型（下轮）。
+
+#### 决策 3.28：修正 5.3 与 5.14 矛盾——system 为系统保护标签，user 不可覆盖
+
+- **问题**：5.3 表述「冲突优先级 cmdb > user > system（用户可覆盖系统 label）」与 5.14「system 为系统保护标签不可被覆盖」矛盾；原型按 5.14 实现（system is_editable=false）。
+- **结论**：统一为 **system 不可被 user 覆盖**（与 5.14 一致）；冲突优先级表述改为 `cmdb` > `user`（对非 system 标签）。用户需改 system 标签值时应修改模板或使用不同 key 的新标签。
+- **影响范围**：Module_07 PRD 5.3 / 3.3 / 12.2（v2.2）。
+
+#### 决策 3.29：system 标签实时计算、不落库（生成配置时计算）
+
+- **问题**：system 标签的生成时机未明确——落库重算（模板变更需批量任务）还是实时计算？
+- **结论**：**实时计算、不落库**——Module_09 生成 `prometheus.yml` 时按 Job 引用的模板对 `selected_instance_ids` 逐个实例计算；模板变更立即生效于下次生成（无批量重算任务）；模板变更穿透引用它的 Job，使配置产生 diff，纳入 Module_09「配置变更确认→下发」流程。
+- **影响范围**：Module_07 PRD 5.3（v2.2）；与 Module_09 3.3.1 约定对齐。
+
+#### 决策 3.30：标签配置唯一入口原则——类型级走模板、实例级走 user 标签、Job 仅引用模板
+
+- **问题**：用户诉求——引导用户通过「新增/编辑模板」管理标签，而非实例级配置；避免配置入口过多引发歧义与溯源困难；标签管理集中在 Module_07。
+- **结论**：确立「标签配置唯一入口原则」：①类型级标签唯一编辑入口 = 标签模板（Module_07）；②实例级标签唯一编辑入口 = 资源详情 user 标签（system/cmdb 只读）；③策略层（Job）仅引用模板（允许换用其他模板，引用级），不提供 Job 内标签编辑；④**不引入实例级模板**（MVP 与 v0.2+ 均不引入）。
+- **依据**：单一事实来源 / 分层治理 / 防配置漂移最佳实践；用户确认「仅文档层落地」「保留 Job 换模板」。
+- **影响范围**：Module_07 PRD 5.3（v2.2）、Module_01 PRD 5.2 标签模板引用语义澄清（v2.9）。
+
+#### 决策 3.31：资源详情标签管理联动呈现——来源标注 + 模板跳转 + 类型级变更引导
+
+- **问题**：如何在 UI 上消除「系统/用户/CMDB」与「资源字段/组合字段」的断层，且引导用户走模板而非实例级覆盖？
+- **结论**：①system 标签标注「来自 XX 模板 · app_name→app」+「前往标签模板管理」跳转；②user 标注「手动添加」、cmdb 标注「CMDB 同步（后续版本）」；③用户添加标签 key 与模板映射目标冲突时提示「该标签由标签模板生成，如需修改请前往标签模板管理」，引导类型级变更。资源详情展示全量标签、仅 user 可编辑（12.1 验收补充）。
+- **影响范围**：Module_07 PRD 3.3 / 12.1（v2.2）；原型 ResourcesPage（下轮落地）。
+
+### 已确认项（2026-08-11 第六轮）
+
+- [x] 联动呈现：标注来源映射 + 跳转模板页（用户确认）。
+- [x] 生成时机：实时计算写入 PRD，同步 Module_09 约定（用户确认）。
+- [x] 标签管理收敛：引导新增模板、Module_07 集中管理、不引入实例级模板（用户确认）。
+- [x] Job 换模板：保留（引用级，不编辑内容）（用户确认）。
+- [x] 落地范围：仅文档层（PRD v2.2 + Module_01 v2.9 + 本记录）；原型改动下轮执行。
+- [x] 原型落地（2026-08-11 下午确认执行）：
+  - Module_07 ResourcesPage：新增 `findTemplateSource` / `isTemplateMappedLabel` 辅助（按资源类型+标签 key 查模板映射）；system 标签标注「来自 XX 模板 · source_field→target_label」+ 点击跳转 `/label-templates`；user 标注「手动添加」、cmdb 标注「CMDB 同步（后续版本）」；新增标签 key 与模板映射目标冲突时弹窗引导「前往标签模板管理」；
+  - Module_01 CiExporterMappingPage / ScrapeJobsPage：`label_template_id` extra 文案按 v2.9 澄清（可换用其他模板（引用级）、标签内容编辑唯一入口在 Module_07）；
+  - 验证：module-07 tsc/lint/test 47/47/build ✅；module-01 tsc/lint/test 24/24/build ✅。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 dist 统一入口访问验证（GitHub Pages 结构）待最终评审时确认。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.2）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v2.9）
+- `docs/prototypes/module-07/`
+
+---
+
+## 补充对齐：2026-08-11（第七轮 模板↔实例关联）
+
+- **参与 Agent**：prototype-designer（基于用户对「标签模板如何关联实例」的两个问题讨论）
+- **触发原因**：用户提出①Module_07 标签管理如何关联实例、批量修改如何批量关联；②Module_01 选完标签模板后如何自动关联实例而非手动选择，核心诉求「保证模板与实例的关联关系」。经讨论确认 A（显式展示）+ C（Job 层自动带出）组合，落地 PRD v2.3 / v3.0 与两模块原型。
+
+### 关键决策
+
+#### 决策 3.32：模板↔实例通过 resource_type 隐式关联，本模块负责显式展示
+
+- **问题**：模板与实例的关联关系目前是隐式的（模板挂在资源类型上，该类型所有实例自动适用），用户看不到"哪些实例用了哪个模板"。
+- **结论**：**不引入模板→实例显式绑定**（避免与 Job 选实例逻辑重复、破坏标签配置唯一入口原则）；Module_07 负责把关联**显式展示**：①标签模板页每个模板显示「关联实例 N 个」+ 可展开实例清单（实例名/IP/状态）；②资源详情新增「适用模板」行（默认模板名 + 模板 ID）。接口补充 `GET /label-templates/{id}/resources`。
+- **影响范围**：Module_07 PRD 3.1 / 3.2 / 6.3 / 12.1（v2.3）。
+
+#### 决策 3.33：Module_01 实例选择增强——候选自动收敛（MVP，比 filter 轻）
+
+- **问题**：用户希望"选完类型/模板后自动带出实例，而不是手动逐个选"。
+- **结论**：Job 表单选定 `resource_type` + `network_domain_id` 后，实例候选**自动收敛为「同类型 + 同网域」资源**，提供一键全选/反选与关键字筛选；勾选结果仍持久化到 `selected_instance_ids`（manual 语义不变）。比 v0.3+ 的 `filter` 条件表达式模式更轻，MVP 落地。
+- **影响范围**：Module_01 PRD 3.1 / 5.2 / 12（v3.0）。
+
+#### 决策 3.34：模板与实例关联的职责分层确认
+
+- **问题**：模板↔实例关联应在哪一层建立？选项：A 按类型隐式关联+显式展示；B 模板显式绑定实例；C Job 层自动带出。
+- **结论**：**A + C 组合**（用户确认）——模板层按 resource_type 隐式关联（A 展示可见性），Job 层自动收敛候选实例（C 减少手动操作）；不做 B（模板显式绑实例，与 Job 选实例重复、破坏唯一入口原则）。
+- **影响范围**：Module_07 PRD v2.3、Module_01 PRD v3.0、两模块原型。
+
+### 已确认项（2026-08-11 第七轮）
+
+- [x] A 展示粒度：模板页「关联实例 N 个」可展开清单 + 资源详情「适用模板」行（用户确认）。
+- [x] C 落地版本：MVP 落地（自动带出候选 + 全选/反选 + 关键字筛选）（用户确认）。
+- [x] 候选范围：同 resource_type + 同 network_domain_id 收敛（用户确认）。
+- [x] 原型落地：module-07 LabelTemplatesPage 关联实例 Popover、ResourcesPage 适用模板行；module-01 ScrapeJobsPage Transfer 加 showSearch + 候选文案更新。
+- [x] 验证通过：module-07 test 47/47、lint、build、tsc；module-01 test 24/24、lint、build、tsc。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 dist 统一入口访问验证（GitHub Pages 结构）待最终评审时确认。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.3）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.0）
+- `docs/prototypes/module-07/`、`docs/prototypes/module-01/`
+
+---
+
+## 补充对齐：2026-08-11（第八轮 标签模板页布局重构）
+
+- **参与 Agent**：prototype-designer（基于用户对标签模板页布局的反馈）
+- **触发原因**：用户反馈标签模板页左右两栏展示不清晰、关联实例用 Popover 弹窗无法承载大量实例，要求从最佳实践推荐布局。经讨论确认「右栏 Tab 化 + 左栏精简 + 关联实例 Table 化」三项方向后落地 PRD v2.4 与原型。
+
+### 关键决策
+
+#### 决策 3.35：右栏 Tab 化（映射明细 / 关联实例），关联实例用完整 Table 承载
+
+- **问题**：标签模板页右栏仅展示映射明细，关联实例以 Popover 弹窗内嵌在左栏模板卡片中——实例多时弹窗无法滚动/分页/筛选，且悬浮态不持久。
+- **结论**：右栏改为 `Tabs`：**Tab1 映射明细**（按来源类型分组）、**Tab2 关联实例**（完整 Table：分页 pageSize=10 + 关键字搜索 + 状态筛选，未来可扩展虚拟滚动）；关联实例从"列表项附属弹窗"提升为"选中模板后的主区内容"（master-detail 模式）。
+- **影响范围**：Module_07 PRD 3.2 UI/UX（v2.4）、原型 LabelTemplatesPage。
+
+#### 决策 3.36：左栏模板卡片精简（去掉 Popover，badge 化）
+
+- **问题**：左栏模板卡片堆叠模板名 + ID + 映射数 + 创建时间 + 关联实例 Popover，信息过载、层级不清。
+- **结论**：卡片精简为「名称 + 默认/自定义 Tag + 映射数 badge + 关联实例数 badge」；模板 ID / 创建时间等次要信息移除或下沉；关联实例明细统一在右侧 Tab 查看（信息分层：列表摘要 → 详情 Tab → 抽屉编辑）。
+- **影响范围**：Module_07 PRD 3.2 UI/UX（v2.4）、原型 LabelTemplatesPage。
+
+### 已确认项（2026-08-11 第八轮）
+
+- [x] 右栏 Tab 化（映射明细 / 关联实例）（用户确认）。
+- [x] 关联实例 Table 能力：分页 + 搜索 + 状态筛选（用户确认）。
+- [x] 左栏精简 + badge（用户确认）。
+- [x] 原型落地 + 验证通过：module-07 test 47/47、lint、build、tsc。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 关联实例 Table 虚拟滚动（实例量达千级时评估，v0.2+）。
+- [ ] 原型 dist 统一入口访问验证（GitHub Pages 结构）待最终评审时确认。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.4）
+- `docs/prototypes/module-07/src/pages/LabelTemplatesPage.tsx`
+
+---
+
+## 评审记录
+
+### 2026-08-11（标签模板需求澄清轮）
+
+- **评审时间 / 版本**：2026-08-11；PRD v1.7、原型 v1.3；参与方：用户（chenrt）+ prototype-designer。
+- **第一段用户走查结论**：用户指出模板列表「默认/内置参数」分类令人困惑（命名误导）；模板列表无 ID、Module_01 关联后看不到模板信息，无法追溯；确认目标标签默认=来源字段与映射校验是合理 UX 改进；确认模板管理归属保持 Module_07。问题均在本轮修复，无返工。
+- **第二段技术核对结论**：`template_id` 确认为跨模块唯一 FK（名称同一资源类型下可重复）；组合字段 `instance` 依赖 Module_01 `default_port`（host 无 port 字段）为跨层契约；原型 mock 契约与 PRD 字段（含 UI 展示名）一致；可开发性结论：模板校验规则（保护 label / target_label 唯一）与 target_label 默认预填均为前端表单逻辑，不涉及后端模型变更。
+- **问题清单与处理结果**：已修复——示例模板清理（决策 3.6/3.7）、模板 ID 展示（决策 3.10）、新增映射默认预填与重复校验（决策 3.8/3.9）、组合字段跨层说明（决策 3.11）。
+- **遗留项**：组合字段表达式语法扩展（v0.2+，P2）；`source_type=prometheus_builtin` 服务发现 / relabel 场景（v0.2+，预留不实现）。
+
+### 2026-08-11（UI/UX 优化轮）
+
+- **评审时间 / 版本**：2026-08-11；PRD v1.8、原型 v1.4（规划）；参与方：用户（chenrt）+ prototype-designer。
+- **第一段用户走查结论**：用户指出 M01 标签模板展示样式不佳（状态徽标语义错位、Tag 堆砌不清晰）、M07 模板页编辑用 Modal 遮挡上下文、是否分页存疑；确认「两行卡片 + 预览抽屉」「分栏 + 搜索筛选 + 抽屉编辑」「不做分页」；补充要求资源页布局一致性与「CI 展示可配置」经澄清后明确为列显隐配置（P1）。
+- **第二段技术核对结论**：抽屉编辑（Drawer）为前端交互改造，不涉及后端模型；列显隐配置为纯前端视图层能力（不影响默认列与数据契约）；映射按来源类型分组为展示层分组，不改数据模型。可开发性结论：均在原型可验证范围内。
+- **问题清单与处理结果**：已修复（PRD 层面，决策 3.12~3.15）；原型 v1.4 待用户确认后落地。
+- **遗留项**：列显隐配置（P1）原型占位；模板规模化后的分页/虚拟滚动评估（v0.2+）。
+
+### 2026-08-11（需求澄清轮）
+
+- **评审时间 / 版本**：2026-08-11；PRD v1.9、原型 v1.5（规划）；参与方：用户（chenrt）+ prototype-designer。
+- **第一段用户走查结论**：用户提出四组需求疑问（状态映射版本、转换规则交互、组合字段取值时序、内置字段来源），并追问端口不一致的解决手段；经解释后确认「状态映射保持配置层+UI 只读」「transform 下拉可留空」「组合字段时序写入 PRD」「内置字段 MVP 隐藏」。
+- **第二段技术核对结论**：transform 语义（字符串变换）与可空性（透传）不涉及数据模型变更；组合字段取值时序（port 来自映射 default_port、与 Job/Exporter 无关）已在 5.12 C 明确；prometheus_builtin 隐藏为 UI 层行为，枚举保留数据模型（向后兼容）；状态映射版本规划与 5.5.5 一致。
+- **问题清单与处理结果**：已修复（PRD 层面，决策 3.16~3.19）；原型 v1.5 待用户确认后落地。
+- **遗留项**：prefix/replace 参数化（P1）；v0.4+ 状态映射 UI 管理（P2）；实例级端口覆盖评估（v0.2+，随 Module_01 落地）。
+
+### 2026-08-11（合规闭环轮）
+
+- **评审时间 / 版本**：2026-08-11；PRD v2.0、原型 v2.0；参与方：用户（chenrt）+ prototype-designer。
+- **第一段用户走查结论**：用户确认实施 6 项优化建议（接口设计章节、原型版本对齐、原型文案技术术语清理、组合字段用户层说明、组合字段出值技术验收、标签模板用户故事回写）；本次走查为文档/原型合规性复核，无新增用户任务层面的返工。
+- **第二段技术核对结论**：新增接口设计章节为纯契约补充（不影响数据模型）；原型版本 v2.0 与 PRD v2.0 对齐，mock 头注释/README/test 描述同步；组合字段出值技术验收将跨层契约（instance = instance_ip + default_port，5.12 C / 6.3）固化为可验证项；M07-OPS-07 回写全局库 §4.7 且 PRD 引用编码一致。可开发性结论：均在原型可验证范围内，重新验证通过（test 47/47、lint、build、tsc）。
+- **问题清单与处理结果**：已修复（PRD / 原型 / 全局库，决策 3.20~3.24）。
+- **遗留项**：PRD 状态推进待领导/业务评审；原型 dist 统一入口访问验证（GitHub Pages 结构）待最终评审确认。
+
+---
+
 ## Change Log（完整历史）
 
 > v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.3 及以前的逐版完整变更详情（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v2.0+fix | 2026-08-11 | 修改 | 第五轮：组合字段交互修复——composite 来源目标标签锁定 instance（决策 3.25）；保存校验补全 composite→instance 例外（决策 3.26，修复原型 Bug） | 原型 LabelTemplatesPage | MVP | 设计中 |
 | v1.3 | 2026-08-04 | 修改 | 落盘设计决策 16：明确两套 CI 类型粒度体系——`Resource.resource_type` 为粗粒度四大类（host/middleware/application/generic_target）+ `middleware_type` 细粒度子类型（mysql/redis/kafka/...），细粒度 CI 类型映射到 Module_01（策略层）的 resource_type（映射表 CI_TYPE_CATEGORY_MAP 见 Module_01 5.1）；v0.4+ CMDB 为唯一权威来源（Module_04 同步后写入四大类 + middleware_type，MetricCenter 只维护映射不增删类型） | 数据模型、模块边界 | MVP / v0.4 / v1.0 | 设计中 |
 | v1.2 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.2 | 2026-08-03 | 修改 | 明确单网域模式下 Resource 列表仍展示「网域」列，网域作为云区域概念不可隐藏 | 功能范围、UI/UX、Excel 模板 | MVP | 设计中 |

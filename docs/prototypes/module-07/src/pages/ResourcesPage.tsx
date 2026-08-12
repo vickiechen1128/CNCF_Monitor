@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Alert,
   App,
@@ -30,12 +31,14 @@ import {
   InfoCircleOutlined,
   LockOutlined,
   PlusOutlined,
+  SettingOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
   ENV_VALUES,
   IMPORT_TEMPLATE_COLUMNS,
+  LABEL_SOURCE_MAP,
   LABEL_SOURCE_PRIORITY,
   MIDDLEWARE_TYPE_OPTIONS,
   PROTOCOL_OPTIONS,
@@ -50,6 +53,7 @@ import {
   isGenericTargetResource,
   isHostResource,
   isMiddlewareResource,
+  mockLabelTemplates,
   mockNetworkDomains,
   mockResourceLabels,
   mockResources,
@@ -80,7 +84,7 @@ const STATUS_COLOR: Record<ResourceStatus, string> = {
 const IPV4_RE = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/
 const CUSTOM_LABELS_RE = /^([A-Za-z_][A-Za-z0-9_]*=[^;]+)(;([A-Za-z_][A-Za-z0-9_]*=[^;]+))*$/
 
-/** Excel 导入结果 mock 演示（PRD 6.2 / 6.3，含重复检测与网域校验错误示例） */
+/** Excel 导入结果 mock 演示（PRD 7.2 / 7.3，含重复检测与网域校验错误示例） */
 const IMPORT_RESULT_DEMO: Record<ResourceType, { total: number; success: number; failed: number; errors: ImportError[] }> = {
   host: {
     total: 3,
@@ -127,8 +131,27 @@ function nowStr(): string {
   return new Date().toISOString().slice(0, 19).replace('T', ' ')
 }
 
+// {v2.2} 联动：按资源类型 + 标签 key 查找模板中对应的映射来源（用于 system 标签标注「来自 XX 模板 · app_name→app」）
+function findTemplateSource(resourceType: ResourceType, labelKey: string): { templateName: string; sourceField: string } | null {
+  const tpl =
+    mockLabelTemplates.find((t) => t.resource_type === resourceType && t.is_default) ??
+    mockLabelTemplates.find((t) => t.resource_type === resourceType)
+  if (!tpl) return null
+  const mapping = tpl.mappings.find((m) => m.target_label === labelKey)
+  if (!mapping) return null
+  return { templateName: tpl.name, sourceField: mapping.source_field }
+}
+
+// {v2.2} 联动：该标签 key 是否被当前资源类型的模板映射为生成目标（用于新增标签时引导走模板）
+function isTemplateMappedLabel(resourceType: ResourceType, labelKey: string): boolean {
+  return mockLabelTemplates.some(
+    (t) => t.resource_type === resourceType && t.mappings.some((m) => m.target_label === labelKey)
+  )
+}
+
 export default function ResourcesPage() {
   const { message, modal } = App.useApp()
+  const navigate = useNavigate()
   const [activeType, setActiveType] = useState<ResourceType>('host')
   const [search, setSearch] = useState('')
   const [resources, setResources] = useState<Resource[]>(mockResources)
@@ -206,9 +229,31 @@ export default function ResourcesPage() {
       message.error(keyError)
       return
     }
+    // {v2.2} 类型级变更引导：key 已被模板映射为生成目标时，引导走模板而非实例级手工覆盖
+    const templateMapped = isTemplateMappedLabel(selectedResource.resource_type, newLabelKey.trim())
+    if (templateMapped) {
+      modal.confirm({
+        title: '该标签由标签模板生成',
+        content: `「${newLabelKey.trim()}」由当前资源类型的标签模板映射生成（如需修改请前往标签模板管理），确认仍要手动添加吗？`,
+        okText: '仍要添加',
+        cancelText: '前往标签模板',
+        onCancel: () => {
+          navigate('/label-templates')
+        },
+        onOk: () => {
+          doAddUserLabel()
+        },
+      })
+      return
+    }
     if (cmdbConflict) {
       message.warning('该 key 将由 CMDB 覆盖，建议更换 key')
     }
+    doAddUserLabel()
+  }
+
+  const doAddUserLabel = () => {
+    if (!selectedResource) return
     const now = nowStr()
     const label: ResourceLabel = {
       label_id: `user-${Date.now()}`,
@@ -223,7 +268,7 @@ export default function ResourcesPage() {
     setLabels((prev) => [...prev, label])
     setNewLabelKey('')
     setNewLabelValue('')
-    message.success('标签已添加（source=user）')
+    message.success('标签已添加')
   }
 
   const handleDeleteLabel = (label: ResourceLabel) => {
@@ -412,12 +457,12 @@ export default function ResourcesPage() {
           <>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="实例名" name="instance_name" rules={[{ required: true, message: '请输入实例名' }]} extra="host 模板必填，生成 hostname label">
+                <Form.Item label="实例名" name="instance_name" rules={[{ required: true, message: '请输入实例名' }]} extra="主机模板必填，生成 hostname 标签">
                   <Input placeholder="如 prod-web-01" />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="主机名" name="hostname" rules={[{ required: true, message: '请输入主机名' }]} extra="host 场景下默认与 instance_name 一致">
+                <Form.Item label="主机名" name="hostname" rules={[{ required: true, message: '请输入主机名' }]} extra="主机场景下默认与实例名一致">
                   <Input placeholder="如 prod-web-01.volc" />
                 </Form.Item>
               </Col>
@@ -431,7 +476,7 @@ export default function ResourcesPage() {
                     { required: true, message: '请输入管理 IP' },
                     { pattern: IPV4_RE, message: 'IPv4 格式不正确' },
                   ]}
-                  extra="作为 Prometheus scrape target 地址"
+                  extra="作为采集目标地址"
                 >
                   <Input placeholder="如 10.0.1.11" />
                 </Form.Item>
@@ -533,7 +578,7 @@ export default function ResourcesPage() {
               label="健康检查 URL"
               name="health_check_url"
               rules={[{ type: 'url', message: 'URL 格式不正确' }]}
-              extra="作为资源字段由 Module_07 维护，Blackbox Job 配置由 Module_01 负责"
+              extra="作为资源字段由本模块维护；拨测任务的配置由「监控策略」模块负责"
             >
               <Input placeholder="如 http://ip:9100/-/healthy" />
             </Form.Item>
@@ -577,7 +622,12 @@ export default function ResourcesPage() {
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="端口" name="port" rules={[{ type: 'number', min: 1, max: 65535, message: '端口范围 1~65535' }]} extra="空时不拼接 instance">
+                <Form.Item
+                  label="端口"
+                  name="port"
+                  rules={[{ type: 'number', min: 1, max: 65535, message: '端口范围 1~65535' }]}
+                  extra="留空时不生成实例标识（instance）"
+                >
                   <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="如 9116" />
                 </Form.Item>
               </Col>
@@ -617,12 +667,12 @@ export default function ResourcesPage() {
     <>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]} extra="映射为 app label">
+          <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]} extra="映射为 app 标签">
             <Input placeholder="如 订单服务" />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]} extra="映射为 env label">
+          <Form.Item label="环境" name="env" rules={[{ required: true, message: '请选择环境' }]} extra="映射为 env 标签">
             <Select placeholder="请选择">
               {ENV_VALUES.map((v) => (
                 <Option key={v} value={v}>
@@ -635,12 +685,12 @@ export default function ResourcesPage() {
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="集群" name="cluster" rules={[{ required: true, message: '请输入集群' }]} extra="映射为 cluster label；host 场景 sub_app_code 为空时取 vpc">
+          <Form.Item label="集群" name="cluster" rules={[{ required: true, message: '请输入集群' }]} extra="映射为 cluster 标签；主机场景下子应用编码为空时取 VPC">
             <Input placeholder="如 k8s-prod" />
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="负责人" name="owner" extra="MVP 用户填写；v0.4+ 优先取自 cmdb_maintainer">
+          <Form.Item label="负责人" name="owner" extra="MVP 用户填写；后续版本优先取自 CMDB 维护人">
             <Input placeholder="负责人姓名" />
           </Form.Item>
         </Col>
@@ -651,7 +701,7 @@ export default function ResourcesPage() {
             label="网域"
             name="network_domain_id"
             rules={[{ required: true, message: '请选择网域' }]}
-            extra="单网域模式下网域列仍展示，不可隐藏；网域生命周期由 Module_09 负责"
+            extra="单网域模式下网域列仍展示，不可隐藏；网域生命周期由「配置中心」模块负责"
           >
             <Select placeholder="请选择">
               {mockNetworkDomains.map((d) => (
@@ -663,7 +713,7 @@ export default function ResourcesPage() {
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="状态" name="status" rules={[{ required: true, message: '请选择状态' }]} extra="orphan 为 v0.4+ 预留，不在表单选项中">
+          <Form.Item label="状态" name="status" rules={[{ required: true, message: '请选择状态' }]} extra="孤儿状态为后续版本预留，不在表单选项中">
             <Select placeholder="请选择">
               {STATUS_VALUES.map((s) => (
                 <Option key={s} value={s}>
@@ -699,7 +749,7 @@ export default function ResourcesPage() {
     }
     const monitoredColumn = {
       title: (
-        <Tooltip title="已监控 / 未监控由 Module_01 监控策略维护关联关系，Module_07 只读展示。is_monitored 字段由 Module_01 在创建/更新/删除 ScrapeJob 时同步计算并写入。">
+        <Tooltip title="「已监控 / 未监控」由监控策略模块维护关联关系，本页只读展示。">
           <Space size={4}>
             监控
             <InfoCircleOutlined style={{ color: '#86909C' }} />
@@ -971,20 +1021,20 @@ export default function ResourcesPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>资源管理</Title>
-        <Text type="secondary">管理主机、中间件、应用及通用监控对象（Module_07）</Text>
+        <Text type="secondary">管理主机、中间件、应用及通用监控对象（监控对象管理）</Text>
       </div>
 
-      {/* 模块边界说明（PRD 1/4.1） */}
+      {/* 模块边界说明（用户语言，技术细节见 MainLayout 全局折叠区） */}
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="模块边界：Module_07 是被动数据提供方"
+        message="本页只维护监控对象数据"
         description={
           <span>
-            本模块仅维护 Resource / LabelTemplate / ResourceLabel，<strong>不生成 prometheus.yml、不配置 ScrapeJob、不下发配置</strong>。
-            监控策略由 <Tag color="blue">Module_01</Tag> 负责，配置生成/下发由 <Tag color="blue">Module_09</Tag> 负责。
-            <code>is_monitored</code> 字段由 Module_01 维护，本模块只读展示。
+            本页维护监控对象（资源）、资源标签与标签模板的数据，<strong>不生成采集配置、不配置采集任务、不下发配置</strong>。
+            采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责。
+            「已监控 / 未监控」状态由监控策略模块计算，本页只读展示。
           </span>
         }
       />
@@ -1002,6 +1052,15 @@ export default function ResourcesPage() {
               <Button icon={<DownloadOutlined />} onClick={() => setTemplateModalOpen(true)}>
                 下载模板
               </Button>
+              {/* 列显隐配置占位（后续版本开放）：列表列显示/隐藏由用户勾选 */}
+              <Tooltip title="列显隐配置：可勾选显示/隐藏列表列（含中间件类型、网域、来源等），后续版本开放">
+                <Button
+                  icon={<SettingOutlined />}
+                  onClick={() => message.info('列显隐配置后续版本开放')}
+                >
+                  列设置
+                </Button>
+              </Tooltip>
             </Space>
           </Col>
           <Col>
@@ -1063,6 +1122,29 @@ export default function ResourcesPage() {
                 { key: 'hostname', label: '主机名', children: selectedResource.hostname || '-' },
                 { key: 'instance_ip', label: 'IP 地址', children: selectedResource.instance_ip || '-' },
                 { key: 'app_name', label: '应用', children: selectedResource.app_name || '-' },
+                // {v2.3} 适用模板：该资源类型默认模板（模板按 resource_type 隐式关联）
+                {
+                  key: 'apply_template',
+                  label: '适用模板',
+                  children: (() => {
+                    const tpl = mockLabelTemplates.find(
+                      (t) => t.resource_type === selectedResource.resource_type && t.is_default
+                    )
+                    return tpl ? (
+                      <Typography.Link
+                        style={{ fontSize: 12 }}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          navigate('/label-templates')
+                        }}
+                      >
+                        {tpl.name}（{tpl.template_id}）
+                      </Typography.Link>
+                    ) : (
+                      '-'
+                    )
+                  })(),
+                },
                 { key: 'env', label: '环境', children: selectedResource.env || '-' },
                 { key: 'cluster', label: '集群', children: selectedResource.cluster || '-' },
                 { key: 'owner', label: '负责人', children: selectedResource.owner || '-' },
@@ -1074,7 +1156,7 @@ export default function ResourcesPage() {
                 {
                   key: 'is_monitored',
                   label: (
-                    <Tooltip title="is_monitored 由 Module_01 维护，Module_07 只读展示">
+                    <Tooltip title="「已监控 / 未监控」由监控策略模块维护，本页只读展示">
                       <Space size={4}>监控状态<InfoCircleOutlined style={{ color: '#86909C', fontSize: 12 }} /></Space>
                     </Tooltip>
                   ),
@@ -1098,13 +1180,13 @@ export default function ResourcesPage() {
             <Descriptions
               column={2}
               size="small"
-              title="CMDB 字段（v0.4+ 预留，由 Module_04 同步）"
+              title="CMDB 字段（后续版本接入 CMDB 后同步）"
               style={{ marginTop: 16 }}
               items={[
-                { key: 'cmdb_ci_id', label: 'cmdb_ci_id（v0.4+）', children: selectedResource.cmdb_ci_id || '-' },
-                { key: 'cmdb_business_path', label: 'cmdb_business_path（v1.0+）', children: selectedResource.cmdb_business_path || '-' },
-                { key: 'cmdb_module_path', label: 'cmdb_module_path（v1.0+）', children: selectedResource.cmdb_module_path || '-' },
-                { key: 'cmdb_maintainer', label: 'cmdb_maintainer（v1.0+）', children: selectedResource.cmdb_maintainer || '-' },
+                { key: 'cmdb_ci_id', label: 'cmdb_ci_id（后续版本）', children: selectedResource.cmdb_ci_id || '-' },
+                { key: 'cmdb_business_path', label: 'cmdb_business_path（后续版本）', children: selectedResource.cmdb_business_path || '-' },
+                { key: 'cmdb_module_path', label: 'cmdb_module_path（后续版本）', children: selectedResource.cmdb_module_path || '-' },
+                { key: 'cmdb_maintainer', label: 'cmdb_maintainer（后续版本）', children: selectedResource.cmdb_maintainer || '-' },
               ]}
             />
             <Divider />
@@ -1113,14 +1195,14 @@ export default function ResourcesPage() {
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
-              message="标签冲突优先级：CMDB > 用户 > 系统。system / cmdb 来源标签只读，仅 user 来源标签可编辑与删除。"
+              message="标签冲突优先级：CMDB > 用户 > 系统。系统与 CMDB 来源标签只读，仅用户添加的标签可编辑与删除。"
             />
-            {/* P1 批量标签编辑占位（PRD 3.3） */}
+            {/* 批量标签编辑占位（后续版本开放） */}
             <Alert
               type="warning"
               showIcon
               style={{ marginBottom: 12 }}
-              message="批量标签编辑 {P1}：按资源类型或筛选条件批量增删改标签，当前版本暂未开放"
+              message="批量标签编辑：按资源类型或筛选条件批量增删改标签，后续版本开放"
             />
             <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
               <Row gutter={12} align="middle">
@@ -1146,7 +1228,7 @@ export default function ResourcesPage() {
                 </Col>
               </Row>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                key 规则：小写字母 / 数字 / 下划线；禁止以 __ 开头；长度 ≤128；禁止覆盖 Prometheus 内置 label（instance / job / scheme / __address__ 等）。
+                key 规则：小写字母 / 数字 / 下划线；禁止以 __ 开头；长度 ≤128；禁止覆盖 Prometheus 内置标签（instance / job / scheme / __address__ 等）。
               </Text>
               {(keyError || cmdbConflict) && (
                 <div>
@@ -1158,82 +1240,124 @@ export default function ResourcesPage() {
               )}
             </Space>
             <Space direction="vertical" style={{ width: '100%' }}>
-              {labels.map((label) => (
-                <Card
-                  key={label.label_id}
-                  size="small"
-                  bodyStyle={{ padding: 12 }}
-                  style={{
-                    borderLeft: `4px solid ${
-                      label.source === 'cmdb' ? '#1481FD' : label.source === 'user' ? '#0ECDEB' : '#86909C'
-                    }`,
-                  }}
-                >
-                  <Row gutter={16} align="middle">
-                    <Col span={6}>
-                      <Text strong>{label.label_key}</Text>
-                      <div>
-                        <Tag color={label.source === 'cmdb' ? 'blue' : label.source === 'user' ? 'cyan' : 'default'}>
-                          {label.source}
-                        </Tag>
-                        {!label.is_editable && <LockOutlined style={{ color: '#86909C', marginLeft: 4 }} />}
-                      </div>
-                    </Col>
-                    <Col span={12}>
-                      <Input
-                        value={label.label_value}
-                        disabled={!label.is_editable}
-                        onChange={(e) => handleLabelChange(label.label_id, e.target.value)}
-                        suffix={
-                          label.conflict_hint ? (
-                            <Tooltip title={label.conflict_hint}>
-                              <InfoCircleOutlined style={{ color: '#FA8C16' }} />
+              {labels.map((label) => {
+                const tplSource = label.source === 'system' ? findTemplateSource(selectedResource?.resource_type ?? 'host', label.label_key) : null
+                return (
+                  <Card
+                    key={label.label_id}
+                    size="small"
+                    bodyStyle={{ padding: 12 }}
+                    style={{
+                      borderLeft: `4px solid ${
+                        label.source === 'cmdb' ? '#1481FD' : label.source === 'user' ? '#0ECDEB' : '#86909C'
+                      }`,
+                    }}
+                  >
+                    <Row gutter={16} align="middle">
+                      <Col span={6}>
+                        <Text strong>{label.label_key}</Text>
+                        <div>
+                          <Tag color={label.source === 'cmdb' ? 'blue' : label.source === 'user' ? 'cyan' : 'default'}>
+                            {LABEL_SOURCE_MAP[label.source]}
+                          </Tag>
+                          {!label.is_editable && <LockOutlined style={{ color: '#86909C', marginLeft: 4 }} />}
+                        </div>
+                        {/* {v2.2} 联动标注：来源模板/映射 或 来源说明 */}
+                        {label.source === 'system' && tplSource && (
+                          <Text
+                            type="secondary"
+                            style={{ fontSize: 11, cursor: 'pointer' }}
+                            onClick={() => navigate('/label-templates')}
+                          >
+                            <Tooltip title="前往标签模板管理">
+                              来自 {tplSource.templateName} · {tplSource.sourceField}→{label.label_key}
                             </Tooltip>
-                          ) : null
-                        }
-                      />
-                    </Col>
-                    <Col span={6} style={{ textAlign: 'right' }}>
-                      {label.is_editable ? (
-                        <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => handleDeleteLabel(label)}>
-                          删除
-                        </Button>
-                      ) : (
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          只读
-                        </Text>
-                      )}
-                    </Col>
-                  </Row>
-                </Card>
-              ))}
+                          </Text>
+                        )}
+                        {label.source === 'system' && !tplSource && (
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            来自标签模板
+                          </Text>
+                        )}
+                        {label.source === 'user' && (
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            手动添加
+                          </Text>
+                        )}
+                        {label.source === 'cmdb' && (
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            CMDB 同步（后续版本）
+                          </Text>
+                        )}
+                      </Col>
+                      <Col span={12}>
+                        <Input
+                          value={label.label_value}
+                          disabled={!label.is_editable}
+                          onChange={(e) => handleLabelChange(label.label_id, e.target.value)}
+                          suffix={
+                            label.conflict_hint ? (
+                              <Tooltip title={label.conflict_hint}>
+                                <InfoCircleOutlined style={{ color: '#FA8C16' }} />
+                              </Tooltip>
+                            ) : null
+                          }
+                        />
+                      </Col>
+                      <Col span={6} style={{ textAlign: 'right' }}>
+                        {label.is_editable ? (
+                          <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => handleDeleteLabel(label)}>
+                            删除
+                          </Button>
+                        ) : (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            只读
+                          </Text>
+                        )}
+                      </Col>
+                    </Row>
+                  </Card>
+                )
+              })}
             </Space>
           </>
         )}
       </Drawer>
 
-      {/* 新增 / 编辑资源（PRD 5.6~5.9 按类型渲染字段） */}
-      <Modal
+      {/* 新增 / 编辑资源（PRD 5.6~5.9 按类型渲染字段，v1.8 起改为右侧抽屉编辑） */}
+      <Drawer
         title={`${editingResource ? '编辑资源' : '新增资源'} - ${RESOURCE_TYPE_MAP[editingResource?.resource_type ?? activeType]}`}
+        width={560}
         open={editOpen}
-        onCancel={() => {
+        onClose={() => {
           setEditOpen(false)
           setEditingResource(null)
           resourceForm.resetFields()
         }}
-        onOk={handleSaveResource}
-        okText="保存"
-        okButtonProps={{ style: { backgroundColor: '#0ECDEB' } }}
-        width={640}
-        destroyOnClose
+        extra={
+          <Space>
+            <Button
+              onClick={() => {
+                setEditOpen(false)
+                setEditingResource(null)
+                resourceForm.resetFields()
+              }}
+            >
+              取消
+            </Button>
+            <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleSaveResource}>
+              保存
+            </Button>
+          </Space>
+        }
       >
-        <Form form={resourceForm} layout="vertical" style={{ marginTop: 16 }}>
+        <Form form={resourceForm} layout="vertical" style={{ marginTop: 8 }}>
           {renderTypeFields(editingResource?.resource_type ?? activeType)}
           {renderCommonFields()}
         </Form>
-      </Modal>
+      </Drawer>
 
-      {/* 下载模板（PRD 6.1） */}
+      {/* 下载模板（PRD 7.1） */}
       <Modal
         title={`下载模板 - ${RESOURCE_TYPE_MAP[activeType]}`}
         open={templateModalOpen}
@@ -1250,7 +1374,7 @@ export default function ResourcesPage() {
           showIcon
           style={{ marginBottom: 16 }}
           message="固定列模板"
-          description="按资源类型提供固定列模板（不生成真实文件）；未填写 network_domain 时自动归属 default 网域。"
+          description="按资源类型提供固定列模板；未填写网域时自动归属默认网域。"
         />
         <Table
           size="small"
@@ -1267,7 +1391,7 @@ export default function ResourcesPage() {
         </Text>
       </Modal>
 
-      {/* Excel 导入结果（PRD 6.2 / 6.3） */}
+      {/* Excel 导入结果（PRD 7.2 / 7.3） */}
       <Modal
         title={`Excel 导入结果 - ${RESOURCE_TYPE_MAP[activeType]}`}
         open={importModalOpen}

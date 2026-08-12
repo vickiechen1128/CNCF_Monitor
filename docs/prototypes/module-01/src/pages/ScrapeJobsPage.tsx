@@ -9,6 +9,7 @@ import {
   Form,
   Select,
   Input,
+  InputNumber,
   Transfer,
   Space,
   Typography,
@@ -163,6 +164,13 @@ export default function ScrapeJobsPage() {
   const watchResourceCategory = Form.useWatch('resource_category', form)
   const watchNetworkDomainId = Form.useWatch('network_domain_id', form)
   const watchMode = Form.useWatch('instance_selection_mode', form)
+  const watchedLabelTemplateId = Form.useWatch('label_template_id', form)
+
+  // 当前表单选中的标签模板（用于只读预览映射内容，模板由 Module_07 维护）
+  const selectedLabelTemplate = useMemo(
+    () => mockLabelTemplates.find((t) => t.template_id === watchedLabelTemplateId) ?? null,
+    [watchedLabelTemplateId]
+  )
 
   // 资源类别 → 可选的细粒度 CI 类型（两级级联）
   const categoryCiTypes = (watchResourceCategory as ResourceCategory | undefined)
@@ -270,6 +278,46 @@ export default function ScrapeJobsPage() {
     if (!mapping || !record.mapping_synced_at) return false
     return new Date(mapping.updated_at).getTime() > new Date(record.mapping_synced_at).getTime()
   }
+
+  // === 决策 34：字段继承来源视觉标记 ===
+  type FieldStatus = 'inherited' | 'overridden' | 'pending_sync'
+
+  const getFieldStatus = (field: MappingOverrideField): FieldStatus => {
+    if (overriddenFields.includes(field)) return 'overridden'
+    if (editingJob && isMappingChanged(editingJob) && !editingJob.mapping_overrides?.includes(field))
+      return 'pending_sync'
+    return 'inherited'
+  }
+
+  const getFieldStatusForJob = (record: ScrapeJob, field: MappingOverrideField): FieldStatus => {
+    if (record.mapping_overrides?.includes(field)) return 'overridden'
+    if (isMappingChanged(record) && !record.mapping_overrides?.includes(field)) return 'pending_sync'
+    return 'inherited'
+  }
+
+  const renderFieldTag = (status: FieldStatus): React.ReactNode => {
+    const config: Record<FieldStatus, { color: string; text: string; tooltip: string }> = {
+      inherited: { color: 'default', text: '继承自映射', tooltip: '当前值来自 CI-Exporter 映射默认值，用户未手动修改' },
+      overridden: { color: 'processing', text: '已覆盖', tooltip: '该字段已被手动覆盖，同步映射默认值时将跳过' },
+      pending_sync: { color: 'warning', text: '待同步', tooltip: '映射默认值已变更，执行「同步映射默认值」可刷新该字段' },
+    }
+    const c = config[status]
+    return (
+      <Tooltip title={c.tooltip}>
+        <Tag color={c.color} style={{ fontSize: 11, lineHeight: '18px', marginInlineStart: 4 }}>
+          {c.text}
+        </Tag>
+      </Tooltip>
+    )
+  }
+
+  const renderFieldLabel = (field: MappingOverrideField, labelText: string): React.ReactNode => (
+    <Space size={4}>
+      {labelText}
+      {renderFieldTag(getFieldStatus(field))}
+    </Space>
+  )
+  // === 决策 34 结束 ===
 
   // 决策 14：手动「同步映射默认值」——仅刷新未手动覆盖的字段（含 v0.2 网域覆盖优先），已覆盖字段保持用户值
   const syncFromMapping = (record: ScrapeJob) => {
@@ -459,6 +507,7 @@ export default function ScrapeJobsPage() {
       status: conf.status,
       confirmed_by: conf.confirmed_by,
       notes: conf.notes,
+      actual_port: conf.actual_port,
     })
   }
 
@@ -476,6 +525,7 @@ export default function ScrapeJobsPage() {
         confirmed_by: values.confirmed_by as string,
         confirmed_at: now(),
         notes: values.notes as string,
+        actual_port: values.actual_port as number | undefined,
       }
       setInstallations((prev) => prev.map((c) => (c.id === confirmTarget.id ? next : c)))
       // 同步冗余 exporter_status
@@ -580,12 +630,22 @@ export default function ScrapeJobsPage() {
       render: (_: unknown, record: ScrapeJob) =>
         record.job_type === 'blackbox' ? (
           <Text type="secondary">-</Text>
-        ) : isMappingChanged(record) ? (
-          <Tooltip title="CI-Exporter 映射默认值已变更，请在编辑中手动同步">
-            <Tag color="warning">映射默认值已变更</Tag>
-          </Tooltip>
         ) : (
-          <Tag color="success">已同步</Tag>
+          <Space direction="vertical" size={2}>
+            {isMappingChanged(record) ? (
+              <Tooltip title="CI-Exporter 映射默认值已变更，请在编辑中手动同步">
+                <Tag color="warning">映射默认值已变更</Tag>
+              </Tooltip>
+            ) : (
+              <Tag color="success">已同步</Tag>
+            )}
+            {/* 决策 34：列表页展示覆盖字段数量概览 */}
+            {record.mapping_overrides && record.mapping_overrides.length > 0 && (
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {record.mapping_overrides.length} 个字段已自定义
+              </Text>
+            )}
+          </Space>
         ),
     },
     {
@@ -915,11 +975,53 @@ export default function ScrapeJobsPage() {
           ) : (
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="标签模板" name="label_template_id" extra="LabelTemplate 由 Module_07 维护，创建时自动预填映射默认模板、可覆盖">
+                <Form.Item
+                  label={renderFieldLabel('label_template_id', '标签模板')}
+                  name="label_template_id"
+                  extra={
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        由 Module_07 维护，创建时自动预填映射默认模板；可换用其他模板（引用级），标签内容编辑唯一入口在 Module_07
+                      </Text>
+                      {selectedLabelTemplate && (
+                        <Card
+                          size="small"
+                          title={
+                            <Space size={4}>
+                              <Text strong style={{ fontSize: 12 }}>
+                                {selectedLabelTemplate.name}
+                              </Text>
+                              {selectedLabelTemplate.is_default ? <Tag color="gold">默认</Tag> : <Tag>自定义</Tag>}
+                              <Text code style={{ fontSize: 10 }}>
+                                {selectedLabelTemplate.template_id}
+                              </Text>
+                            </Space>
+                          }
+                        >
+                          <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                            <div>
+                              {selectedLabelTemplate.mappings.map((m) => (
+                                <Tag key={m.target_label} style={{ fontSize: 11, marginBottom: 2 }}>
+                                  {m.source_field} → {m.target_label}
+                                </Tag>
+                              ))}
+                            </div>
+                            <Typography.Link
+                              href="../module-07/dist/index.html"
+                              style={{ fontSize: 12 }}
+                            >
+                              前往标签模板管理 →
+                            </Typography.Link>
+                          </Space>
+                        </Card>
+                      )}
+                    </Space>
+                  }
+                >
                   <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
                     {mockLabelTemplates.map((t) => (
                       <Option key={t.template_id} value={t.template_id}>
-                        {t.name}
+                        {t.name}（{RESOURCE_CATEGORY_MAP[t.resource_category]} / {t.template_id}）
                       </Option>
                     ))}
                   </Select>
@@ -941,7 +1043,7 @@ export default function ScrapeJobsPage() {
             </Col>
             <Col span={8}>
               <Form.Item
-                label="采集/拨测间隔"
+                label={renderFieldLabel('scrape_interval', '采集/拨测间隔')}
                 name="scrape_interval"
                 rules={[{ required: true, message: '请选择间隔' }]}
               >
@@ -954,7 +1056,7 @@ export default function ScrapeJobsPage() {
             </Col>
             <Col span={8}>
               <Form.Item
-                label="超时"
+                label={renderFieldLabel('scrape_timeout', '超时')}
                 name="scrape_timeout"
                 rules={[{ required: true, message: '请选择超时' }]}
               >
@@ -970,7 +1072,7 @@ export default function ScrapeJobsPage() {
           {!isBlackbox && (
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="协议" name="scheme" rules={[{ required: true, message: '请选择协议' }]}>
+                <Form.Item label={renderFieldLabel('scheme', '协议')} name="scheme" rules={[{ required: true, message: '请选择协议' }]}>
                   <Select>
                     {SCHEMES.map((s) => (
                       <Option key={s} value={s}>
@@ -982,7 +1084,7 @@ export default function ScrapeJobsPage() {
               </Col>
               <Col span={12}>
                 <Form.Item
-                  label="指标路径"
+                  label={renderFieldLabel('metrics_path', '指标路径')}
                   name="metrics_path"
                   rules={[{ required: true, message: '请输入指标路径' }]}
                 >
@@ -1071,8 +1173,8 @@ export default function ScrapeJobsPage() {
               <Alert
                 type="info"
                 showIcon
-                message="实例选择（MVP 仅手动勾选）"
-                description="已按 Job 归属网域过滤可选实例；跨网域实例不可被同一 Job 选中。v0.3+ 开放按环境/应用/标签筛选。"
+                message="实例选择（自动带出候选）"
+                description="已按「资源类型 + Job 归属网域」自动收敛可选实例（v3.0）；支持一键全选/反选与关键字搜索；跨网域实例不可被同一 Job 选中。v0.3+ 开放按环境/应用/标签条件筛选。"
                 style={{ marginBottom: 12 }}
               />
               <Row gutter={8} style={{ marginBottom: 8 }}>
@@ -1094,12 +1196,17 @@ export default function ScrapeJobsPage() {
               </Row>
               <Transfer
                 dataSource={transferData}
-                titles={['同域可选实例', '已选实例']}
+                titles={['同类型同域可选实例', '已选实例']}
                 targetKeys={targetKeys}
                 onChange={(next) => setTargetKeys(next as string[])}
                 render={(item) => String(item.title)}
                 listStyle={{ width: 300, height: 320 }}
                 style={{ marginBottom: 24 }}
+                showSearch
+                filterOption={(inputValue, item) =>
+                  String(item.title).toLowerCase().includes(inputValue.toLowerCase()) ||
+                  (item.description ?? '').toLowerCase().includes(inputValue.toLowerCase())
+                }
               />
             </>
           )
@@ -1214,6 +1321,13 @@ export default function ScrapeJobsPage() {
             <Form.Item label="备注（工单号/安装记录）" name="notes">
               <Input.TextArea rows={2} placeholder="可选" />
             </Form.Item>
+            <Form.Item
+              label="实际监听端口 {P1}"
+              name="actual_port"
+              extra="登记实例上 exporter 实际监听端口；生成配置时与生效端口不一致将提示（不自动改配置）"
+            >
+              <InputNumber min={1} max={65535} placeholder="如 9100" style={{ width: '100%' }} />
+            </Form.Item>
           </Form>
         )}
       </Modal>
@@ -1259,14 +1373,30 @@ export default function ScrapeJobsPage() {
                   </Tag>
                 )}
               </Descriptions.Item>
-              <Descriptions.Item label="采集/拨测参数">
-                {detailJob.scrape_interval} 间隔 / {detailJob.scrape_timeout} 超时
+              {/* 决策 34：详情视图每个参数字段显示继承/覆盖/待同步标记 */}
+              <Descriptions.Item label="采集间隔">
+                <Space size={4}>
+                  <Text>{detailJob.scrape_interval}</Text>
+                  {detailJob.job_type === 'standard' && renderFieldTag(getFieldStatusForJob(detailJob, 'scrape_interval'))}
+                </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label="超时">
+                <Space size={4}>
+                  <Text>{detailJob.scrape_timeout}</Text>
+                  {detailJob.job_type === 'standard' && renderFieldTag(getFieldStatusForJob(detailJob, 'scrape_timeout'))}
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label="指标路径">
-                <Text code>{detailJob.metrics_path}</Text>
+                <Space size={4}>
+                  <Text code>{detailJob.metrics_path}</Text>
+                  {detailJob.job_type === 'standard' && renderFieldTag(getFieldStatusForJob(detailJob, 'metrics_path'))}
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label="协议">
-                <Tag>{detailJob.scheme}</Tag>
+                <Space size={4}>
+                  <Tag>{detailJob.scheme}</Tag>
+                  {detailJob.job_type === 'standard' && renderFieldTag(getFieldStatusForJob(detailJob, 'scheme'))}
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label="选择模式">
                 {detailJob.job_type === 'blackbox' ? (
@@ -1279,10 +1409,13 @@ export default function ScrapeJobsPage() {
               </Descriptions.Item>
               <Descriptions.Item label="标签模板">
                 {detailJob.label_template_id ? (
-                  <Badge
-                    status="success"
-                    text={labelNameMap.get(detailJob.label_template_id) ?? detailJob.label_template_id}
-                  />
+                  <Space size={4}>
+                    <Badge
+                      status="success"
+                      text={labelNameMap.get(detailJob.label_template_id) ?? detailJob.label_template_id}
+                    />
+                    {detailJob.job_type === 'standard' && renderFieldTag(getFieldStatusForJob(detailJob, 'label_template_id'))}
+                  </Space>
                 ) : (
                   '-'
                 )}

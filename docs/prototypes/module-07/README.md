@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v1.6
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.0
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v1.2
+> **原型版本**: v2.0
 > **本地启动命令**:
 >
 > ```bash
@@ -40,7 +40,7 @@ python3 -m http.server 8080
 验证 [Module 07: 监控对象管理](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) 的核心交互：
 
 1. **资源管理（MVP）**：四类资源（主机 / 中间件 / 应用服务 / 通用指标目标）的固定列列表、新增 / 编辑 / 删除、网域归属、已监控 badge；`is_monitored` 由 Module_01 维护，Module_07 只读展示。
-2. **标签模板管理（MVP）**：按资源类型管理 LabelTemplate（模板 + 映射两级），字段来源支持资源字段 / Prometheus 内置字段 / 组合字段，`cmdb_field` 标为 v0.4+ 预留；四类资源预置默认模板。
+2. **标签模板管理（MVP）**：左右分栏——左侧模板列表（资源类型 Tab + 搜索框 + 默认/自定义筛选，展示模板 ID），右侧映射明细按来源类型分组（组合字段 / 资源字段）；模板与映射编辑统一使用右侧抽屉，保留上下文；字段来源 MVP 支持资源字段 / 组合字段（`cmdb_field` v0.4+ 预留，`prometheus_builtin` 由 Prometheus 原生注入、MVP 隐藏）；新增映射目标标签默认预填来源字段（composite 默认 instance）；转换规则下拉可留空（无/lower/upper，prefix/replace P1 置灰）；保存时校验保护 label 与同模板目标标签唯一；MVP 不做分页。
 3. **资源标签管理（MVP）**：为单个资源添加 / 编辑 / 删除 label，key 校验（小写字母数字下划线、禁止 `__` 开头、长度 ≤128、禁止覆盖 Prometheus 内置 label），CMDB 冲突琥珀色提示，冲突优先级 CMDB > 用户 > 系统。
 4. **Excel 导入（MVP）**：按资源类型展示固定列模板（含 `network_domain` 列），导入结果弹窗演示校验项与状态映射（运行中→online、已停止→offline、维护中→maintenance），导入记录页可查看错误报告明细。
 

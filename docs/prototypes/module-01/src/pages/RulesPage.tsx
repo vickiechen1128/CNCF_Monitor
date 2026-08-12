@@ -4,7 +4,7 @@ import {
   Table,
   Button,
   Tag,
-  Modal,
+  Drawer,
   Form,
   Input,
   Select,
@@ -168,11 +168,28 @@ export default function RulesPage() {
   }
 
   const handleCloseModal = () => {
-    setModalOpen(false)
-    setEditingRule(null)
-    setPreviewVisible(false)
-    setValidating(false)
-    setValidationResult(null)
+    // 决策 36：Drawer 关闭前检查未保存修改
+    if (form.isFieldsTouched()) {
+      modal.confirm({
+        title: '有未保存的修改',
+        content: '确定关闭吗？未保存的修改将丢失。',
+        onOk: () => {
+          setModalOpen(false)
+          setEditingRule(null)
+          setPreviewVisible(false)
+          setValidating(false)
+          setValidationResult(null)
+          form.resetFields()
+        },
+      })
+    } else {
+      setModalOpen(false)
+      setEditingRule(null)
+      setPreviewVisible(false)
+      setValidating(false)
+      setValidationResult(null)
+      form.resetFields()
+    }
   }
 
   // 校验表达式引用的指标是否存在于指标库（基于共享指标库 store，含用户新增/禁用）
@@ -510,12 +527,13 @@ export default function RulesPage() {
         </Tabs>
       </Card>
 
-      <Modal
+      <Drawer
         title={editingRule ? '编辑规则' : '新增规则'}
         open={modalOpen}
-        onCancel={handleCloseModal}
+        onClose={handleCloseModal}
         width={760}
-        footer={
+        maskClosable={false}
+        extra={
           <Space>
             <Button onClick={handleCloseModal}>取消</Button>
             <Tooltip title="P1：规则模板一键填充（待实现）">
@@ -656,23 +674,68 @@ export default function RulesPage() {
 
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="Labels（key-value）" required={false}>
+              {/* 决策 35：Labels 语义说明卡片 */}
+              <Alert
+                type="info"
+                showIcon
+                message="规则 Labels 与标签模板的区别"
+                description={
+                  <Space direction="vertical" size={4}>
+                    <Text>
+                      此处的 labels 是<Text strong>告警元数据</Text>（如 <Text code>severity=critical</Text>、<Text code>team=sre</Text>），用于告警分级、路由与接收人匹配；<Text strong>不是</Text>标签模板中生成的 target 身份标签（如 <Text code>instance</Text>、<Text code>app</Text>、<Text code>env</Text>）。
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      必填状态：整体为<Text strong>选填</Text>（推荐填写），每个 key 和 value 均为选填。推荐 key：<Text code>severity</Text>（critical/warning/info）、<Text code>team</Text>。
+                    </Text>
+                  </Space>
+                }
+                style={{ marginBottom: 8 }}
+              />
+              <Form.Item label="告警标签（Alert Labels）" required={false}>
                 {renderKeyValueList('labels', 'Label', 'severity', 'warning')}
               </Form.Item>
             </Col>
             <Col span={12}>
               {watchRuleType === 'alerting' ? (
-                <Form.Item label="Annotations（key-value）" required={false}>
-                  {renderKeyValueList('annotations', 'Annotation', 'summary', '主机 CPU 过高')}
-                </Form.Item>
+                <>
+                  {/* 决策 35：Annotations 必要性说明卡片 */}
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="Annotations 的作用"
+                    description={
+                      <Space direction="vertical" size={4}>
+                        <Text>
+                          annotations 是告警触发时附带的<Text strong>人类可读信息</Text>，用于告警通知中的展示内容。<Text strong>不参与告警路由判断</Text>，仅用于通知展示。
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          必填状态：整体为<Text strong>选填</Text>（推荐填写），每个 key 和 value 均为选填。推荐 key：<Text code>summary</Text>、<Text code>description</Text>、<Text code>runbook_url</Text>。
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          模板变量：<Text code>{'{{ $labels.instance }}'}</Text> 引用标签值、<Text code>{'{{ $value }}'}</Text> 引用当前指标值。
+                        </Text>
+                      </Space>
+                    }
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Form.Item label="告警说明（Annotations）" required={false}>
+                    {renderKeyValueList('annotations', 'Annotation', 'summary', '主机 CPU 过高')}
+                  </Form.Item>
+                </>
               ) : (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="记录规则不展示 annotations"
-                  description="记录规则仅保留表达式与标签，时长 / 注解字段已隐藏。"
-                  style={{ marginTop: 30 }}
-                />
+                <>
+                  {/* 决策 35：记录规则 labels 特殊提示 */}
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="记录规则 Labels 说明"
+                    description="记录规则的 labels 语义与告警规则不同——此处的 labels 将附加到记录规则生成的新时间序列上，用于标识计算结果的维度（如 team、datacenter）。不参与告警路由。"
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Form.Item label="记录标签（Recording Labels）" required={false}>
+                    {renderKeyValueList('labels', 'Label', 'team', 'sre')}
+                  </Form.Item>
+                </>
               )}
             </Col>
           </Row>
@@ -752,7 +815,7 @@ export default function RulesPage() {
             />
           )}
         </Form>
-      </Modal>
+      </Drawer>
     </MainLayout>
   )
 }

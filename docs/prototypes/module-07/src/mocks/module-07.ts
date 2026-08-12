@@ -1,6 +1,6 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v1.2（Module_07_Monitoring_Object_Management.md）
+// 对齐 PRD v2.0（Module_07_Monitoring_Object_Management.md）
 // ============================================================
 
 // ---------- 基础枚举 ----------
@@ -148,7 +148,7 @@ export interface LabelTemplate {
   updated_at: string
 }
 
-// ---------- Excel 导入（PRD 6.3） ----------
+// ---------- Excel 导入（PRD 7.3） ----------
 export interface ImportError {
   row: number
   resource_type: ResourceType
@@ -246,7 +246,7 @@ export const mockStatusMappingConfig: StatusMappingConfig = {
   ],
 }
 
-/** 四类资源固定列导入模板（PRD 6.1，含 network_domain 列） */
+/** 四类资源固定列导入模板（PRD 7.1，含 network_domain 列） */
 export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceType, string[]> = {
   host: ['network_domain', 'hostname', 'instance_ip', 'os_type', 'app_name', 'env', 'cluster', 'owner', 'status'],
   middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'app_name', 'env', 'cluster', 'owner', 'status'],
@@ -545,20 +545,6 @@ export const mockLabelTemplates: LabelTemplate[] = [
     created_at: '2026-07-20 10:00:00',
     updated_at: '2026-07-20 10:00:00',
   },
-  {
-    template_id: 'tpl-host-ext',
-    name: '主机内置字段（示例）',
-    resource_type: 'host',
-    is_default: false,
-    mappings: [
-      { mapping_id: 'mp-host-08', source_field: 'job', source_type: 'prometheus_builtin', target_label: 'job', enabled: true, transform: '' },
-      { mapping_id: 'mp-host-09', source_field: '__scheme__', source_type: 'prometheus_builtin', target_label: '__scheme__', enabled: true, transform: '' },
-      { mapping_id: 'mp-host-10', source_field: '__metrics_path__', source_type: 'prometheus_builtin', target_label: '__metrics_path__', enabled: true, transform: '' },
-      { mapping_id: 'mp-host-11', source_field: 'network_domain_id', source_type: 'resource_field', target_label: 'network_domain', enabled: false, transform: '' },
-    ],
-    created_at: '2026-07-21 09:00:00',
-    updated_at: '2026-07-21 09:00:00',
-  },
   // ----- middleware -----
   {
     template_id: 'tpl-mw-default',
@@ -576,16 +562,20 @@ export const mockLabelTemplates: LabelTemplate[] = [
     updated_at: '2026-07-20 10:10:00',
   },
   {
-    template_id: 'tpl-mw-ext',
-    name: '中间件端口版本（示例）',
+    template_id: 'tpl-mw-redis-ha',
+    name: 'Redis 高可用标签模板',
     resource_type: 'middleware',
     is_default: false,
     mappings: [
-      { mapping_id: 'mp-mw-06', source_field: 'port', source_type: 'resource_field', target_label: 'port', enabled: true, transform: '' },
-      { mapping_id: 'mp-mw-07', source_field: 'version', source_type: 'resource_field', target_label: 'version', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-06', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-07', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-08', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-09', source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-10', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-11', source_field: 'instance_name', source_type: 'resource_field', target_label: 'instance_name', enabled: true, transform: '' },
     ],
-    created_at: '2026-07-21 10:00:00',
-    updated_at: '2026-07-21 10:00:00',
+    created_at: '2026-07-22 09:30:00',
+    updated_at: '2026-07-22 09:30:00',
   },
   // ----- application -----
   {
@@ -603,18 +593,6 @@ export const mockLabelTemplates: LabelTemplate[] = [
     created_at: '2026-07-20 10:20:00',
     updated_at: '2026-07-20 10:20:00',
   },
-  {
-    template_id: 'tpl-app-ext',
-    name: '应用协议端点（示例）',
-    resource_type: 'application',
-    is_default: false,
-    mappings: [
-      { mapping_id: 'mp-app-06', source_field: 'protocol', source_type: 'resource_field', target_label: 'protocol', enabled: true, transform: '' },
-      { mapping_id: 'mp-app-07', source_field: 'endpoint', source_type: 'resource_field', target_label: 'endpoint', enabled: true, transform: '' },
-    ],
-    created_at: '2026-07-21 11:00:00',
-    updated_at: '2026-07-21 11:00:00',
-  },
   // ----- generic_target -----
   {
     template_id: 'tpl-gen-default',
@@ -627,27 +605,14 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-gen-03', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
-      { mapping_id: 'mp-gen-06', source_field: 'custom_labels.*', source_type: 'resource_field', target_label: 'custom_labels.*', enabled: true, transform: '透传' },
+      { mapping_id: 'mp-gen-06', source_field: 'custom_labels.*', source_type: 'resource_field', target_label: 'custom_labels.*', enabled: true, transform: '' },
     ],
     created_at: '2026-07-20 10:30:00',
     updated_at: '2026-07-20 10:30:00',
   },
-  {
-    template_id: 'tpl-gen-ext',
-    name: '通用目标采集参数（示例）',
-    resource_type: 'generic_target',
-    is_default: false,
-    mappings: [
-      { mapping_id: 'mp-gen-07', source_field: 'metrics_path', source_type: 'resource_field', target_label: 'metrics_path', enabled: true, transform: '' },
-      { mapping_id: 'mp-gen-08', source_field: 'scheme', source_type: 'resource_field', target_label: 'scheme', enabled: true, transform: '' },
-      { mapping_id: 'mp-gen-09', source_field: 'exporter_type', source_type: 'resource_field', target_label: 'exporter_type', enabled: true, transform: '' },
-    ],
-    created_at: '2026-07-21 12:00:00',
-    updated_at: '2026-07-21 12:00:00',
-  },
 ]
 
-// ---------- mock 导入记录（PRD 6.3） ----------
+// ---------- mock 导入记录（PRD 7.3） ----------
 export const mockImportHistory: ImportHistory[] = [
   {
     import_id: 'imp-001',

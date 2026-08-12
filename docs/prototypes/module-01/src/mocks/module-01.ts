@@ -1,6 +1,6 @@
 // ============================================================
 // Module_01 监控策略与指标管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.0（Module_01_Metric_Collection_Center.md）
+// 对齐 PRD v2.3（Module_01_Metric_Collection_Center.md）
 // ============================================================
 
 // ---------- CI 类型与资源类别（PRD 5.1 / 与 Module_07 四大类别对齐） ----------
@@ -155,20 +155,93 @@ export const mockNetworkDomains: NetworkDomain[] = [
 
 export const NETWORK_DOMAIN_IDS: string[] = mockNetworkDomains.map((d) => d.id)
 
-// ---------- 标签模板（引用 Module_07，本模块只读选择） ----------
+// ---------- 标签模板（引用 Module_07，本模块只读选择 + 只读预览映射内容） ----------
+export interface LabelTemplateMapping {
+  source_field: string
+  source_type: 'resource_field' | 'composite' | 'prometheus_builtin' | 'cmdb_field'
+  target_label: string
+  enabled: boolean
+}
+
 export interface LabelTemplate {
   template_id: string
   name: string
   resource_category: ResourceCategory
   is_default: boolean
+  /** 只读预览用：模板映射内容（Module_07 维护，本模块展示） */
+  mappings: LabelTemplateMapping[]
 }
 
 export const mockLabelTemplates: LabelTemplate[] = [
-  { template_id: 'lt-h-001', name: '主机默认标签模板', resource_category: 'host', is_default: true },
-  { template_id: 'lt-mw-001', name: '中间件默认标签模板', resource_category: 'middleware', is_default: true },
-  { template_id: 'lt-app-001', name: '应用默认标签模板', resource_category: 'application', is_default: true },
-  { template_id: 'lt-gen-001', name: '通用目标默认标签模板', resource_category: 'generic_target', is_default: true },
-  { template_id: 'lt-mw-002', name: 'Redis 自定义标签模板', resource_category: 'middleware', is_default: false },
+  {
+    template_id: 'lt-h-001',
+    name: '主机默认标签模板',
+    resource_category: 'host',
+    is_default: true,
+    mappings: [
+      { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
+      { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+      { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
+      { source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true },
+      { source_field: 'hostname', source_type: 'resource_field', target_label: 'hostname', enabled: true },
+      { source_field: 'instance_name', source_type: 'resource_field', target_label: 'instance_name', enabled: true },
+      { source_field: 'os_type', source_type: 'resource_field', target_label: 'os_type', enabled: true },
+    ],
+  },
+  {
+    template_id: 'lt-mw-001',
+    name: '中间件默认标签模板',
+    resource_category: 'middleware',
+    is_default: true,
+    mappings: [
+      { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
+      { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+      { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
+      { source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true },
+      { source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true },
+    ],
+  },
+  {
+    template_id: 'lt-app-001',
+    name: '应用默认标签模板',
+    resource_category: 'application',
+    is_default: true,
+    mappings: [
+      { source_field: 'service_name', source_type: 'resource_field', target_label: 'service_name', enabled: true },
+      { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+      { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
+      { source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true },
+      { source_field: 'health_check_url', source_type: 'resource_field', target_label: 'health_check_url', enabled: true },
+    ],
+  },
+  {
+    template_id: 'lt-gen-001',
+    name: '通用目标默认标签模板',
+    resource_category: 'generic_target',
+    is_default: true,
+    mappings: [
+      { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
+      { source_field: 'target_name', source_type: 'resource_field', target_label: 'target_name', enabled: true },
+      { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+      { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
+      { source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true },
+      { source_field: 'custom_labels.*', source_type: 'resource_field', target_label: 'custom_labels.*', enabled: true },
+    ],
+  },
+  {
+    template_id: 'lt-mw-002',
+    name: 'Redis 高可用标签模板',
+    resource_category: 'middleware',
+    is_default: false,
+    mappings: [
+      { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
+      { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+      { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
+      { source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true },
+      { source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true },
+      { source_field: 'instance_name', source_type: 'resource_field', target_label: 'instance_name', enabled: true },
+    ],
+  },
 ]
 
 // ---------- Exporter 模板（PRD 5.2） ----------
@@ -447,6 +520,8 @@ export interface ExporterInstallationConfirmation {
   confirmed_by: string
   confirmed_at: string
   notes: string
+  /** {P1} 实例上 exporter 实际监听端口；配置生成时与生效端口（映射 default_port / 网域覆盖）不一致则提示，不自动改配置（PRD 5.6 v2.7） */
+  actual_port?: number
 }
 
 export const mockExporterInstallations: ExporterInstallationConfirmation[] = [
@@ -458,6 +533,7 @@ export const mockExporterInstallations: ExporterInstallationConfirmation[] = [
     confirmed_by: 'alice',
     confirmed_at: '2026-07-05T10:00:00Z',
     notes: '已通过内网镜像离线安装 node_exporter 1.8.2',
+    actual_port: 9100,
   },
   {
     id: 'eic-002',
