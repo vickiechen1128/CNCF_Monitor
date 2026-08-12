@@ -479,6 +479,9 @@ export default function LabelTemplatesPage() {
               • 每类资源预置一个默认模板，默认模板不可删除。
             </Text>
             <Text style={{ fontSize: 13 }}>
+              • 标签来源口径：模板映射生成的标签 = 资源详情中的「系统」标签；用户手工添加的标签 = 「用户」标签（在资源详情添加，不在此配置）；CMDB 字段 v0.4+ 开放后对应「CMDB」标签。
+            </Text>
+            <Text style={{ fontSize: 13 }}>
               • 状态映射（Excel 中文 → 运行中/已停止/维护中）为系统规则，本页只读展示，详见导入记录页。
             </Text>
           </Space>
@@ -802,7 +805,7 @@ export default function LabelTemplatesPage() {
                 label="来源类型"
                 name="source_type"
                 rules={[{ required: true, message: '请选择来源类型' }]}
-                extra="CMDB 字段为后续版本预留，接入后启用"
+                extra="字段来源决定标签取值：「资源字段 / 组合字段」生成的标签在资源详情中显示为「系统」来源；用户自定义标签在资源详情直接添加，不在此配置；CMDB 字段为后续版本预留，接入后启用"
               >
                 <Select placeholder="请选择" onChange={(v) => handleSourceTypeChange(v as LabelTemplateSource)}>
                   {SOURCE_TYPE_OPTIONS.map((opt) => (

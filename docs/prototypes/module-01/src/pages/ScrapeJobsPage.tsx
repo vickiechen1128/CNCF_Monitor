@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Card,
   Table,
@@ -98,6 +99,7 @@ type MappingOverrideField = (typeof MAPPING_OVERRIDE_FIELDS)[number]
 
 export default function ScrapeJobsPage() {
   const { modal, message } = App.useApp()
+  const navigate = useNavigate()
   const [jobs, setJobs] = useState<ScrapeJob[]>(() => [...mockScrapeJobs])
   const [installations, setInstallations] = useState<ExporterInstallationConfirmation[]>(() => [
     ...mockExporterInstallations,
@@ -172,6 +174,13 @@ export default function ScrapeJobsPage() {
     () => mockLabelTemplates.find((t) => t.template_id === watchedLabelTemplateId) ?? null,
     [watchedLabelTemplateId]
   )
+
+  // {v3.2} 当前表单选中 CI 类型的映射是否未配置标签模板（Job 表单「标签待配置」引导：先补配 CI-Exporter 映射，Job 自动继承）
+  const mappingMissingTemplate = useMemo(() => {
+    if (!watchResourceType) return false
+    const mapping = mockCITypeExporterMappings.find((m) => m.resource_type === watchResourceType)
+    return !!mapping && !mapping.has_label_template
+  }, [watchResourceType])
 
   // 资源类别 → 可选的细粒度 CI 类型（两级级联）
   const categoryCiTypes = (watchResourceCategory as ResourceCategory | undefined)
@@ -649,6 +658,33 @@ export default function ScrapeJobsPage() {
           </Space>
         ),
     },
+    // {v3.2} 标签模板列：展示继承模板名 / 「标签待配置」提示（引导先补配 CI-Exporter 映射）
+    {
+      title: '标签模板',
+      key: 'labelTemplate',
+      render: (_: unknown, record: ScrapeJob) => {
+        if (record.job_type === 'blackbox') return <Text type="secondary">-</Text>
+        if (record.label_template_id) {
+          return (
+            <Space size={4}>
+              <Badge status="success" text={labelNameMap.get(record.label_template_id) ?? record.label_template_id} />
+              {renderFieldTag(getFieldStatusForJob(record, 'label_template_id'))}
+            </Space>
+          )
+        }
+        const mapping = getMapping(record)
+        if (mapping && !mapping.has_label_template) {
+          return (
+            <Tooltip title="该 CI 类型尚未创建标签模板，请前往 CI-Exporter 映射页补配，补配后本 Job 将自动继承">
+              <Tag color="warning" style={{ cursor: 'pointer' }} onClick={() => navigate('/ci-exporter-mapping')}>
+                标签待配置
+              </Tag>
+            </Tooltip>
+          )
+        }
+        return <Text type="secondary">未关联</Text>
+      },
+    },
     {
       title: '启用',
       dataIndex: 'enabled',
@@ -1032,21 +1068,45 @@ export default function ScrapeJobsPage() {
                           </Space>
                         </Card>
                       ) : (
-                        /* {v3.1} 无标签模板时展示创建引导 */
+                        /* {v3.1} 无标签模板时展示创建引导；{v3.2} 区分「映射未配置模板（引导先补配 CI-Exporter 映射，Job 自动继承）」与「用户未选择模板」 */
                         <Alert
-                          type="info"
+                          type={mappingMissingTemplate ? 'warning' : 'info'}
                           showIcon
                           style={{ marginTop: 4 }}
                           message={
-                            <Space size={4}>
-                              <Text style={{ fontSize: 12 }}>暂未选择标签模板</Text>
-                              <Typography.Link
-                                href="../module-07/dist/index.html"
-                                style={{ fontSize: 12 }}
-                              >
-                                前往创建 →
-                              </Typography.Link>
-                            </Space>
+                            mappingMissingTemplate ? (
+                              <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                <Text style={{ fontSize: 12 }}>
+                                  该 CI 类型尚未配置标签模板，监控数据将缺少归属标签（instance / app / env 等）。
+                                </Text>
+                                <Space size={12} wrap>
+                                  <Button
+                                    size="small"
+                                    type="primary"
+                                    style={{ backgroundColor: '#0ECDEB', borderColor: '#0ECDEB', color: '#fff' }}
+                                    onClick={() => navigate('/ci-exporter-mapping')}
+                                  >
+                                    前往 CI-Exporter 映射补配（Job 将自动继承）
+                                  </Button>
+                                  <Typography.Link
+                                    href="../module-07/dist/index.html"
+                                    style={{ fontSize: 12 }}
+                                  >
+                                    前往标签模板管理 →
+                                  </Typography.Link>
+                                </Space>
+                              </Space>
+                            ) : (
+                              <Space size={4}>
+                                <Text style={{ fontSize: 12 }}>暂未选择标签模板</Text>
+                                <Typography.Link
+                                  href="../module-07/dist/index.html"
+                                  style={{ fontSize: 12 }}
+                                >
+                                  前往标签模板管理 →
+                                </Typography.Link>
+                              </Space>
+                            )
                           }
                         />
                       )}
@@ -1456,6 +1516,13 @@ export default function ScrapeJobsPage() {
                     />
                     {detailJob.job_type === 'standard' && renderFieldTag(getFieldStatusForJob(detailJob, 'label_template_id'))}
                   </Space>
+                ) : detailJob.job_type === 'standard' &&
+                  getMapping(detailJob) &&
+                  !getMapping(detailJob)!.has_label_template ? (
+                  /* {v3.2} 引用无标签模板映射的 Job：详情提示待配置 */
+                  <Tooltip title="该 CI 类型尚未创建标签模板，请前往 CI-Exporter 映射页补配">
+                    <Tag color="warning">标签待配置</Tag>
+                  </Tooltip>
                 ) : (
                   '-'
                 )}

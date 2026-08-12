@@ -764,6 +764,46 @@ system 标签（由标签模板自动生成）：
 
 ---
 
+## 补充对齐：2026-08-12（第十轮 标签口径统一）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户指出资源详情标签来源（CMDB / user / 系统）与「标签管理」（标签模板映射）的字段类型（资源字段 / 组合字段 / CMDB 字段）口径脱节、容易引发歧义，需统一清晰定义（系统 = 默认模板产物、MVP 不从 CMDB 导入而用平台资源管理字段、用户 = 自定义），并追问「标签管理是否也应有用户自定义字段」。经分析确认方向后落地。
+
+### 关键决策
+
+#### 决策 3.43：标签来源 vs 映射字段来源统一口径；模板映射不新增「用户自定义字段」
+
+- **问题**：资源详情标签卡的「来源」（`ResourceLabel.source`：system / user / cmdb）与标签模板映射的「来源类型」（`Mapping.source_type`：resource_field / composite / cmdb_field）叫法相近、看不出对应关系，用户误以为同一概念；且 MVP mock 中 cmdb 来源标签在跑，易误以为 MVP 已接入 CMDB。
+- **结论**：
+  1. **统一定义**：
+     - `system` = 标签模板映射产物（MVP 字段来源 = 平台资源字段 `resource_field` + 组合字段 `composite`，即「MVP 不从 CMDB 导入、使用平台资源管理字段」）；
+     - `user` = 实例级自定义标签（资源详情手加 + 通用目标 `custom_labels` 透传），**不进入模板映射**；
+     - `cmdb` = v0.4+ CMDB 同步，对应 `cmdb_field`；MVP mock 中 cmdb 来源标签统一以「v0.4+ 预留」占位样式展示（数据模型与冲突优先级保留）。
+  2. **模板映射不新增 `user_field` 来源枚举**：Resource 字段固定（MVP 无资源级自定义字段）+ 用户标签已有唯一入口（详情手加 / custom_labels 透传），新增会破坏「标签配置唯一入口原则」（类型级走模板、实例级走 user）；类型级用户标签诉求走 P1 批量标签编辑（按资源类型批量打 user 标签）。
+  3. **UI 落地**：资源详情「自定义标签」区新增「标签口径说明」图例（三来源与字段来源的对应）；cmdb 标签 Tag 改为「CMDB · v0.4+ 预留」灰色占位 + 副文案「CMDB 同步（v0.4+ 接入后生效）」；user 副文案「手动添加」→「资源自定义（实例级）」；模板页「标签模板怎么用」与映射抽屉「来源类型」extra 补充口径文案。
+- **依据**：PRD 5.3 来源说明与「标签配置唯一入口原则」；Module_01 决策 15（继承链）；用户提出的口径提案（系统 = 默认模板、MVP 用平台资源字段、用户 = 自定义）。
+- **影响范围**：Module_07 PRD 3.3 / 5.3 / 术语映射 / Change Log（v2.6）；原型 `ResourcesPage.tsx`、`LabelTemplatesPage.tsx`；与 Module_01 决策 37（引导文案口径）对齐。
+
+### 已确认项（2026-08-12 第十轮）
+
+- [x] 统一口径：系统 = 模板产物（字段来源：资源字段/组合字段）、用户 = 实例级自定义（不走模板）、CMDB = v0.4+ 预留（占位展示）。
+- [x] 模板映射不新增「用户自定义字段」来源枚举；类型级自定义走 P1 批量标签编辑。
+- [x] 原型 UI 落地：口径图例 + cmdb 标签 v0.4+ 占位 + user 文案「资源自定义」+ 模板页口径文案。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 v2.2 构建验证与统一入口验证（随本轮一并执行）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.6）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.2）
+- `docs/prototypes/module-07/`（v2.2）
+- `docs/05-execution-records/module-01/design-decisions.md`（决策 37）
+
+---
+
 ## Change Log（完整历史）
 
 > v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.3 及以前的逐版完整变更详情（业务沟通决策记录）。

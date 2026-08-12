@@ -323,9 +323,23 @@ export default function CiExporterMappingPage() {
       dataIndex: 'label_template_id',
       key: 'label_template_id',
       render: (value: string | undefined, record: CITypeExporterMapping) => {
-        // {v3.1} 无标签模板时展示「待配置」Badge
+        // {v3.1} 无标签模板时展示「待配置」Badge；{v3.2} 点击 Badge 重新触发补配引导
         if (!value && !record.has_label_template) {
-          return <Badge count="待配置" style={{ backgroundColor: '#faad14' }} />
+          return (
+            <Tooltip title="该 CI 类型尚未创建标签模板，点击补配">
+              <span
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setLabelGuideCiType(record.resource_type)
+                  setLabelGuideCategory(CI_TYPE_CATEGORY_MAP[record.resource_type] as ResourceCategory)
+                  setShowLabelGuide(true)
+                }}
+              >
+                <Badge count="待配置" style={{ backgroundColor: '#faad14' }} />
+              </span>
+            </Tooltip>
+          )
         }
         if (!value) return '-'
         const tpl = mockLabelTemplates.find((t) => t.template_id === value)
@@ -371,6 +385,20 @@ export default function CiExporterMappingPage() {
       key: 'actions',
       render: (_: unknown, record: CITypeExporterMapping) => (
         <Space>
+          {/* {v3.2} 无标签模板的映射提供「补配」入口，点击重新触发创建引导 */}
+          {!record.has_label_template && (
+            <Button
+              type="link"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setLabelGuideCiType(record.resource_type)
+                setLabelGuideCategory(CI_TYPE_CATEGORY_MAP[record.resource_type] as ResourceCategory)
+                setShowLabelGuide(true)
+              }}
+            >
+              补配标签模板
+            </Button>
+          )}
           <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
             编辑
           </Button>
@@ -695,7 +723,7 @@ export default function CiExporterMappingPage() {
           />
           <div>
             <Text style={{ fontSize: 13 }}>
-              标签模板用于将 CMDB 资源字段映射为 Prometheus 标签，是采集数据标签化的基础。
+              标签模板用于将平台资源字段（如 app_name / env / cluster）映射为 Prometheus 标签，是采集数据标签化的基础。
               建议在首次引入 CI 类型时完成模板创建，后续创建采集 Job 时将自动继承。
             </Text>
           </div>
