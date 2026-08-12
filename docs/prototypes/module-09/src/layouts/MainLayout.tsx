@@ -175,7 +175,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 children: (
                   <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
                     页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
-                    docs/04-execution-records/module-09/design-decisions.md 与 Module_09 PRD（对应原型目录上级）。
+                    docs/05-execution-records/module-09/design-decisions.md 与 Module_09 PRD（对应原型目录上级）。
                     决策清单：决策 6 配置产物形态按域类型分层；决策 7 targets 前端数据驱动；决策 8 rules 按作用域生成；
                     决策 9 / 11 安装指引（Edge Sync Agent 部署定位 / 3 步人工步骤）；决策 12 MVP 固定 vmagent；
                     决策 14 注册登记制闭环（Token 前置签发 / Remote Write 自动推导）；决策 15 Agent 状态页「网域为主 + 组件分类」；

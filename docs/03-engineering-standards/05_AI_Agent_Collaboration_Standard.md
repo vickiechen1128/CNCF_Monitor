@@ -1,53 +1,32 @@
 # MetricCenter AI Agent 协作标准
 
 > 文档类型：工程标准  
-> 目标读者：zhangwq（Vibe Coding 执行者）、chenrt（Orchestrator）、所有调用 AI Agent 的成员  
+> **目标读者**：chenrt（Orchestrator / 产品 Owner）、zhangwq（Vibe Coding 执行者）、评审（guixm / zhaohy）——**人视角**的 Agent 协作流程概览；Agent 行为规则权威在 `.kimi/agents/*.md`  
 > 目标：规范 AI Agent 在 MetricCenter 项目中的协作方式，确保代码质量和文档一致性。  
-> 更新日期：2026-07-22
+> 更新日期：2026-07-22（v1.25 去重）
 
 ---
 
 ## 1. AI Agent 工作流
+
+> **v1.25 起去重**：工作流每一步的**详细执行要求（每个 Agent 何时被调、读什么、产出什么、如何验收）的权威定义在 `.kimi/agents/orchestrator.md`「标准工作流」**；本文件仅保留人视角的流程概览，不再重复细节。
 
 本项目采用 **Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支** 的协作模式。
 
 ```
 Orchestrator 接收需求
     │
-    ├──► Planner 输出模块任务规划
-    │         │
-    │         ▼
-    │    明确 feature/module-XX-<功能名> 分支
-    │
+    ├──► Planner 输出模块任务规划（明确 feature/module-XX-<功能名> 分支）
     ├──► 复用单一 git worktree，切换到当前模块 feature 分支
-    │
-    ├──► Backend Developer / Frontend Developer TDD 开发
-    │         │
-    │         ▼
-    │    提交到 feature/module-XX-<功能名>
-    │
-    ├──► Reviewer 代码审查
-    │         │
-    │         ▼
-    │    如 REQUEST_CHANGES，返回 Developer 修复
-    │
-    ├──► 在 worktree 中验证运行状态
-    │         │
-    │         ▼
-    │    后端：go test/vet + 启动服务验证接口
-    │    前端：pnpm test/lint + 启动 dev server 验证页面
-    │
+    ├──► Backend Developer / Frontend Developer TDD 开发（提交到 feature/module-XX-<功能名>）
+    ├──► Reviewer 代码审查（如 REQUEST_CHANGES，返回 Developer 修复）
+    ├──► 在 worktree 中验证运行状态（后端 go test/vet+接口；前端 pnpm test/lint+dev server）
     ├──► Orchestrator 在主仓库将 feature 分支 --no-ff 合并到 develop
-    │
-    ├──► 在 develop 环境中再次验证运行状态
-    │         │
-    │         ▼
-    │    如失败，回退或修复；如通过，继续下一模块
-    │
+    ├──► 在 develop 环境中再次验证运行状态（如失败回退或修复）
     └──► worktree 保留，切换到下一模块分支
 ```
 
-详细分支策略与回退机制见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。
+> 各环节的**任务卡格式与子 Agent 只读规则见 `.kimi/agents/orchestrator.md`**；详细分支策略与回退机制见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。
 
 ### 1.1 Orchestrator 与执行者分工
 
@@ -57,23 +36,25 @@ Orchestrator 接收需求
 | Vibe Coding 执行者 | zhangwq | 调用 backend/frontend/prometheus/build-resolver 等 Agent 生成代码、Review、测试补强、提交前验证、提交合并申请 |
 | Reviewer Agent | `golang-reviewer` / `frontend-reviewer` | 在 zhangwq 要求下对代码进行结构化审查 |
 
-> zhangwq 的具体执行 SOP 见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
+> zhangwq 的具体执行 SOP 见 [`../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
 ---
 
-## 2. 任务开始前必读
+## 2. 项目文档导航（人视角参考）
 
-AI Agent 接到任何开发任务前，必须读取以下文档：
+> **v1.25 起去重**：子 Agent 启动时**无需读取以下清单**——其强制读取内容由各 `.kimi/agents/<agent>.md` 定义 + Orchestrator 任务卡指定（见 `.kimi/agents/orchestrator.md`）。本表仅供**人（chenrt / zhangwq / 评审）**快速定位项目文档：
 
 | 文档 | 用途 |
 |------|------|
-| `docs/02-product-requirements/Modules/Module_XX_*.md` | 理解模块需求 |
-| `docs/03-engineering-standards/00_Engineering_Standard.md` | 了解目录结构和技术栈 |
-| `docs/03-engineering-standards/01_Code_Isolation_Standard.md` | 明确代码隔离边界 |
-| `docs/03-engineering-standards/03_API_Standard.md` | 了解 API 规范 |
-| `docs/03-engineering-standards/04_Testing_Standard.md` | 了解测试与服务启动验证要求 |
-| `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` | 了解分支策略与回退机制 |
-| `.kimi/AGENTS.md` | 了解 Agent 角色与标准工作流 |
+| `.kimi/agents/*.md` | **Agent 行为规则唯一权威**（工作流 / 调用规范 / 验收要求） |
+| `.kimi/AGENTS.md` | Agent 角色与标准工作流总览 |
+| `docs/02-product-requirements/Modules/Module_XX_*.md` | 模块需求（PRD） |
+| `docs/03-engineering-standards/00_Engineering_Standard.md` | 目录结构和技术栈 |
+| `docs/03-engineering-standards/01_Code_Isolation_Standard.md` | 代码隔离边界 |
+| `docs/03-engineering-standards/03_API_Standard.md` | API 规范 |
+| `docs/03-engineering-standards/04_Testing_Standard.md` | 测试与服务启动验证要求 |
+| `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` | 分支策略与回退机制 |
+| `docs/01-team-collaboration/` | 团队协作指引（角色职责 / 需求流程 / zhangwq 手册） |
 | `.trae/skills/codebase-architecture-explorer/SKILL.md` | 源码分析 Skill（如存在） |
 
 ---
@@ -114,7 +95,7 @@ AI Agent 接到任何开发任务前，必须读取以下文档：
 ```
 <模块>: <动作> - <简短描述>
 
-- 关联执行记录: docs/04-execution-records/module-XX-<功能名>/<agent>.md
+- 关联执行记录: docs/05-execution-records/module-XX-<功能名>/<agent>.md
 - 变更范围: platform/xxx, ui-custom/web/xxx
 ```
 
@@ -123,7 +104,7 @@ AI Agent 接到任何开发任务前，必须读取以下文档：
 ```
 module-07-resource-management: 实现资源 CRUD API
 
-- 关联执行记录: docs/04-execution-records/module-07-resource-management/backend-developer.md
+- 关联执行记录: docs/05-execution-records/module-07-resource-management/backend-developer.md
 - 变更范围: platform/config/resource/
 ```
 
@@ -131,11 +112,13 @@ module-07-resource-management: 实现资源 CRUD API
 
 ## 4. Agent 调用规范
 
+> **v1.25 起去重**：Prompt 设计与任务卡格式的**权威定义在 `.kimi/agents/orchestrator.md`「子 Agent 调用规范」**（机器执行标准）；本节仅保留人视角的调用原则与适用场景速查，详细任务卡格式不再重复维护。
+
 ### 4.1 调用原则
 
 - **单一职责**：一次 Agent 调用聚焦一个任务（如一个 API 或一个页面）。
 - **范围控制**：在 prompt 中明确指定"不修改无关文件"，并在 AI 输出后检查 `git diff --stat`。
-- **可读文档优先**：在 prompt 中列出所有必读文档路径，要求 AI 先读后写。
+- **任务卡驱动**：给子 Agent 的输入使用统一任务卡格式（输入路径+章节 / 输出 / 验收 / 不修改范围），见 `.kimi/agents/orchestrator.md`；子 Agent 只读任务卡指定的输入，无需读取本文件或团队手册（其行为规范已固化在自身定义中）。
 - **验收先行**：在 prompt 中明确列出验收标准（测试命令、服务启动验证）。
 
 ### 4.2 各 Agent 适用场景与调用人
@@ -152,19 +135,9 @@ module-07-resource-management: 实现资源 CRUD API
 | `frontend-reviewer` | zhangwq | 前端代码 Review | APPROVE / REQUEST_CHANGES + 结构化意见 |
 | `security-reviewer` | zhangwq | 关键变更安全复核 | 安全风险清单 + 修复建议 |
 
-### 4.3 Prompt 设计五要素
+### 4.3 执行记录要求
 
-每个给 AI 的 prompt 必须包含：
-
-1. **背景**：当前模块目标、所处阶段、依赖关系
-2. **输入**：需要阅读的文档路径、已有代码路径
-3. **输出**：需要新增/修改的文件列表、预期行为
-4. **约束**：API 前缀、数据模型、安全要求、代码风格、不修改范围
-5. **验收标准**：测试命令、服务启动验证、人工检查点
-
-### 4.4 执行记录要求
-
-每次 Agent 调用结束后，zhangwq 必须在 `docs/04-execution-records/module-XX-<功能名>/` 下保存执行记录，记录模板见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
+每次 Agent 调用结束后，zhangwq 必须在 `docs/05-execution-records/module-XX-<功能名>/` 下保存执行记录，记录模板见 [`../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
 ---
 
@@ -179,15 +152,16 @@ module-07-resource-management: 实现资源 CRUD API
 | 修改目录结构 | `docs/03-engineering-standards/00_Engineering_Standard.md` |
 | 修改代码隔离规则 | `docs/03-engineering-standards/01_Code_Isolation_Standard.md` |
 | 修改前端规范 | `docs/03-engineering-standards/02_Frontend_Standard.md` |
+| **修改用户可见文案 / 页面布局** | **同步更新对应模块 PRD 的 UI/UX 规范章节（v1.25 起：防止原型/前端改完 UI 而 PRD 没跟上，导致后续开发断层）** |
 | 新增 patch | `patches/prometheus/README.md` |
 
 ---
 
 ## 6. Skill 使用
 
-当 AI Agent 需要理解源码架构时，应调用 `.trae/skills/codebase-architecture-explorer`。
+> **v1.25 起去重**：各 Agent 强制加载的 Skill 清单**以各 `.kimi/agents/<agent>.md` 定义为权威**（随 Agent 加载生效）；本文件不再重复维护。此处仅保留人视角的提示：
 
-调用方式：在任务描述中说明，例如：
+当 AI Agent 需要理解源码架构时，应在任务描述中说明调用 `.trae/skills/codebase-architecture-explorer`，例如：
 
 ```
 请使用 codebase-architecture-explorer 分析 platform/api/ 目录的接口注册与路由组织方式，再基于分析结果完成 Module XX 的 API 开发。
@@ -197,8 +171,8 @@ module-07-resource-management: 实现资源 CRUD API
 
 ## 7. 相关文档
 
-- [`../05-team-collaboration/00_Team_Charter.md`](../05-team-collaboration/00_Team_Charter.md) — 团队守则
-- [`../05-team-collaboration/01_Role_Responsibilities.md`](../05-team-collaboration/01_Role_Responsibilities.md) — 角色职责速查表
-- [`../05-team-collaboration/03_Code_Collaboration_Workflow.md`](../05-team-collaboration/03_Code_Collaboration_Workflow.md) — 代码编写与提交环节详细流程
-- [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
+- [`../01-team-collaboration/00_Team_Charter.md`](../01-team-collaboration/00_Team_Charter.md) — 团队守则
+- [`../01-team-collaboration/01_Role_Responsibilities.md`](../01-team-collaboration/01_Role_Responsibilities.md) — 角色职责速查表
+- [`../01-team-collaboration/03_Code_Collaboration_Workflow.md`](../01-team-collaboration/03_Code_Collaboration_Workflow.md) — 代码编写与提交环节详细流程
+- [`../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
 - [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md) — 分支策略与回退指南

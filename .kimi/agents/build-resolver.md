@@ -63,7 +63,7 @@ git log --oneline -5
 ### Step 4: 查看失败日志并确认修复范围
 
 - 读取 Orchestrator 提供的失败日志或 CI 输出
-- 读取 `docs/04-execution-records/module-XX/task-sequence.yaml`，明确当前失败属于哪一个 micro-task
+- 读取 `docs/05-execution-records/module-XX/task-sequence.yaml`，明确当前失败属于哪一个 micro-task
 - 明确失败发生在后端、前端还是 patch 应用阶段
 - 确认需要修复的文件范围，优先限制在 `platform/`、`ui-custom/web/`、`patches/prometheus/`
 

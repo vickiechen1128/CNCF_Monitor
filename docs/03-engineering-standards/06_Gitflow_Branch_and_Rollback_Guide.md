@@ -1,9 +1,9 @@
 # Gitflow 分支策略与回退指南
 
 > 文档类型：工程标准  
-> 目标读者：chenrt、zhangwq、guixm、zhaohy  
-> 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../05-team-collaboration/00_Team_Charter.md](../05-team-collaboration/00_Team_Charter.md)  
-> 更新日期：2026-07-23
+> **目标读者**：技术架构师（分支模型设计）、chenrt（合并 / 回退操作执行人）、zhangwq（分支创建 / 合并申请）  
+> 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)  
+> 更新日期：2026-07-23（v1.25 去重）
 
 ---
 
@@ -54,6 +54,8 @@
 
 ### 2.4 模块分支列表
 
+> **维护提示（v1.25）**：本表为当前已规划模块的快照，**新增模块时需同步更新本表**（design/ 与 feat/ 分支一一对应）。已冻结/已交付模块可保留作历史参考。
+
 | 模块编号 | 设计分支 | 功能分支 | 说明 |
 |----------|----------|----------|------|
 | Module 00 | `design/module-00` | `feat/module-00` | 基础设施与数据模型 |
@@ -76,7 +78,7 @@
 | PRD | `docs/02-product-requirements/` | 已确认的产品需求文档 |
 | 原型 | `docs/prototypes/` | 已确认的可点击原型代码 |
 | 工程标准 | `docs/03-engineering-standards/` | 代码规范、API 标准、测试标准等 |
-| 团队规范 | `docs/05-team-collaboration/` | 团队守则、角色职责、协作流程 |
+| 团队规范 | `docs/01-team-collaboration/` | 团队守则、角色职责、协作流程 |
 | 生产代码 | `platform/`、`ui-custom/web/` | 已验收的后端/前端代码 |
 | Agent 定义 | `.kimi/agents/` | 团队统一的 Agent 定义 |
 
@@ -101,7 +103,7 @@ CNCF_Monitor/
 │   ├── prototypes/                  # 原型代码存放处（产品经理的 AI 可写）
 │   │   └── module-XX/
 │   ├── 03-engineering-standards/    # 工程标准
-│   └── 05-team-collaboration/       # 团队协作规范
+│   └── 01-team-collaboration/       # 团队协作规范
 ├── platform/                        # 后端生产代码（开发的 AI 可写）
 ├── ui-custom/web/                   # 前端生产代码（开发的 AI 可写）
 ├── upstream/                        # 上游源码（禁止直接修改）
@@ -115,7 +117,7 @@ CNCF_Monitor/
 | `docs/02-product-requirements/` | chenrt / PM 的 AI | zhangwq / 开发的 AI |
 | `docs/prototypes/` | chenrt / PM 的 AI | zhangwq / 开发的 AI |
 | `docs/03-engineering-standards/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
-| `docs/05-team-collaboration/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
+| `docs/01-team-collaboration/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
 | `.kimi/agents/` | chenrt（design 分支）、zhangwq（feat 分支） | - |
 | `platform/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
 | `ui-custom/web/` | zhangwq / 开发的 AI | chenrt / PM 的 AI |
@@ -302,7 +304,7 @@ zhangwq 提交的合并申请应包含：
 **建议下一步**：合并到 develop
 ```
 
-详细模板见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
+详细模板见 [`../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
 ---
 
@@ -310,161 +312,20 @@ zhangwq 提交的合并申请应包含：
 
 ### 8.1 标准流程
 
-#### 8.1.1 按角色视角流程图
+> **v1.25 去重**：全链路协作流程（角色流程图 + 文字版步骤）的**权威定义在 `.kimi/agents/orchestrator.md`「标准工作流」**（Agent 执行视角）与 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §1（人视角概览）。本文件只承载**分支 / 回退 / 审批**等 git 操作层面规则，不再重复流程图。
 
-```mermaid
-flowchart TB
-    subgraph chenrt["chenrt / 产品 Owner"]
-        C1[从 develop 切出 design/module-XX] --> C2[编写 PRD + 生成原型]
-        C2 --> C3[发起 design/module-XX → develop PR]
-        C3 --> C4{guixm + zhaohy Approve?}
-        C4 -->|否| C2
-        C4 -->|是| C5[--no-ff 合并到 develop]
-        C5 --> C6[向 zhangwq 下达开发任务单]
-        C6 --> C14[收到 feat/module-XX PR]
-        C14 --> C15{预览验收通过?}
-        C15 -->|否| C16[提出修改意见]
-        C16 --> C14
-        C15 -->|是| C17[--no-ff 合并到 develop]
-    end
-
-    subgraph guixm_zhaohy["guixm + zhaohy / 业务方"]
-        R1[Review design PR 中的 PRD + 原型] --> R2[Approve]
-        R3[点击 feat PR 预览链接验收] --> R4[Approve]
-    end
-
-    subgraph zhangwq["zhangwq / SRE 工程质量 Owner"]
-        Z1[从 develop 切出 feat/module-XX] --> Z2[Prompt 读取 PRD + 原型]
-        Z2 --> Z3[调用 Agent 开发 platform/ + ui-custom/web/]
-        Z3 --> Z4[代码 Review + 测试补强]
-        Z4 --> Z5[执行提交前验证]
-        Z5 -->|失败| Z4
-        Z5 -->|通过| Z6[发起 feat/module-XX → develop PR]
-        Z6 --> Z7[等待验收反馈]
-        Z7 -->|修改意见| Z4
-        Z7 -->|通过| Z8[申请 chenrt 合并]
-    end
-
-    C3 -.-> R1
-    C6 -.-> Z1
-    Z6 -.-> R3
-    C14 -.-> Z7
-    C5 -.->|PRD + 原型冻结为 SSOT| Z2
-```
-
-#### 8.1.2 文字版流程
-
-```
-chenrt（产品侧 Vibe Coding）
-    │
-    ├──► 基于 develop 创建 design/module-XX
-    │         │
-    │         ▼
-    │    编写 PRD：docs/02-product-requirements/Modules/Module_XX_*.md
-    │    生成原型：docs/prototypes/module-XX/
-    │         │
-    │         ▼
-    │    发起 design/module-XX → develop 的 PR
-    │    Reviewer：guixm、zhaohy
-    │         │
-    │         ▼
-    └──► chenrt 将 design/module-XX --no-ff 合并到 develop
-              │
-              ▼
-    develop 上 PRD + 原型冻结，成为 SSOT
-              │
-              ▼
-    zhangwq（开发侧 Vibe Coding）
-              │
-              ├──► 基于 develop 创建 feat/module-XX
-              │         │
-              │         ▼
-              │    Prompt 强制读取 PRD + 原型代码
-              │         │
-              │         ▼
-              │    调用 backend-developer / frontend-developer 生成代码
-              │         │
-              │         ▼
-              │    提交到 feat/module-XX
-              │
-              ├──► 调用 golang-reviewer / frontend-reviewer 审查
-              │
-              ├──► 执行提交前验证
-              │         │
-              │         ▼
-              │    后端：go test/vet + 启动服务验证接口
-              │    前端：pnpm test/lint + 启动 dev server 验证页面
-              │
-              ├──► 发起 feat/module-XX → develop 的 PR
-              │         │
-              │         ▼
-              │    PR 描述包含预览链接、测试结果、关联 PRD/原型
-              │
-              ├──► GitHub Actions 自动部署预览环境
-              │         │
-              │         ▼
-              │    Bot 在 PR 评论区回复预览链接
-              │
-              └──► 等待验收
-                            │
-                            ▼
-    chenrt + zhaohy + guixm（验收方）
-              │
-              ├──► 点击预览链接，对比 docs/prototypes/module-XX/ 原型
-              │
-              ├──► 在 GitHub PR 中评论反馈或 Approve
-              │
-              └──► 验收通过后，chenrt 将 feat/module-XX --no-ff 合并到 develop
-                            │
-                            ▼
-              在 develop 环境中再次验证
-                            │
-                            ▼
-              如验证失败，回退或修复；如通过，继续下一模块
-
-    worktree 保留，切换到下一个模块分支继续复用
-```
-
-> zhangwq 的具体执行细节、prompt 模板、Review 清单、提交前验证清单见 [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
+一句话概览：`design/module-XX`（PRD+原型）→ chenrt 合并到 `develop` 冻结 → zhangwq 切 `feat/module-XX` 开发 → 预览验收 → chenrt `--no-ff` 合并回 `develop`。
 
 ### 8.2 Commit 规范
 
-#### design/module-XX 提交
+> **v1.25 去重**：Commit 规范的**唯一权威定义在 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §3.6**（design/ 与 feat/ 提交格式、示例）。本文件不再重复，提交时以 05 §3.6 为准。
 
-```
-design(module-XX): 添加 XXX 模块 PRD 与原型
-
-- 新增 docs/02-product-requirements/Modules/Module_XX_*.md
-- 新增 docs/prototypes/module-XX/ 可点击原型
-```
-
-#### feat/module-XX 提交
-
-每次 commit 必须能对应到某个 Agent 的一次执行记录：
-
-```
-feat(module-XX): <动作> - <简短描述>
-
-- 关联执行记录: docs/04-execution-records/module-XX/<agent>.md
-- 变更范围: platform/xxx, ui-custom/web/xxx
-```
-
-示例：
-
-```
-feat(module-07): 实现资源管理 CRUD 与 Excel 导入
-
-- 新增 Host/Middleware/Application CRUD API
-- 新增 Excel 批量导入与错误行返回
-- 新增 Excel 模板下载
-
-关联: docs/04-execution-records/module-07/backend-developer.md
-```
+关键要求速查：每个 feat 提交必须对应到某个 Agent 的一次执行记录（`docs/05-execution-records/module-XX/<agent>.md`），格式 `feat(module-XX): <动作> - <简短描述>`。
 
 ### 8.3 执行记录目录结构
 
 ```
-docs/04-execution-records/
+docs/05-execution-records/
 ├── module-XX/
 │   ├── README.md
 │   ├── planner.md
@@ -612,9 +473,9 @@ git checkout -b feat/module-XX origin/develop
 
 ## 12. 相关文档
 
-- [`../05-team-collaboration/00_Team_Charter.md`](../05-team-collaboration/00_Team_Charter.md) — 团队守则
-- [`../05-team-collaboration/01_Role_Responsibilities.md`](../05-team-collaboration/01_Role_Responsibilities.md) — 角色职责速查表
-- [`../05-team-collaboration/02_Demand_Workflow.md`](../05-team-collaboration/02_Demand_Workflow.md) — 需求设计环节详细流程
-- [`../05-team-collaboration/03_Code_Collaboration_Workflow.md`](../05-team-collaboration/03_Code_Collaboration_Workflow.md) — 代码编写与提交环节详细流程
-- [`../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../05-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
+- [`../01-team-collaboration/00_Team_Charter.md`](../01-team-collaboration/00_Team_Charter.md) — 团队守则
+- [`../01-team-collaboration/01_Role_Responsibilities.md`](../01-team-collaboration/01_Role_Responsibilities.md) — 角色职责速查表
+- [`../01-team-collaboration/02_Demand_Workflow.md`](../01-team-collaboration/02_Demand_Workflow.md) — 需求设计环节详细流程
+- [`../01-team-collaboration/03_Code_Collaboration_Workflow.md`](../01-team-collaboration/03_Code_Collaboration_Workflow.md) — 代码编写与提交环节详细流程
+- [`../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md) — zhangwq Vibe Coding 执行手册
 - [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) — AI Agent 协作细则

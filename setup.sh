@@ -4,6 +4,17 @@
 # 工具链（Go / Node.js / pnpm / MinGW-w64）统一安装到仓库内的 .tools/ 目录，
 # 不写入系统 PATH —— 项目级、可复现、不污染本机环境。
 # Windows 用户请在 Git Bash 中运行本脚本（脚本会自动检测并安装缺失的 make）。
+#
+# 可覆盖环境变量（按需设置，无需修改脚本本身）：
+#   REPO_DIR      仓库根目录（默认取脚本所在目录，无需设置；仅当脚本被复制到
+#                 .tools/ 等子目录外运行时才需要显式指定）
+#   GIT_MAKE_DIR  Git 安装的 mingw32-make 所在目录（如 "C:/Program Files/Git/mingw64/bin"）
+#                 —— 当 Git 装在非标准路径且自动探测失败时使用
+#   DL_PARALLEL   并行下载分片数（Windows 受限网络，默认 4）
+#   DL_MAX_TIME   单分片单次超时秒数（默认 1800）
+#   DL_RETRY      单分片最大尝试次数（默认 30）
+#   GCC_MIRROR    首选下载镜像主机（默认自动选择 ghproxy 系列）
+# 例：GIT_MAKE_DIR="D:/Git/mingw64/bin" bash setup.sh
 
 set -e
 
@@ -14,7 +25,7 @@ UNAME_S="$(uname -s 2>/dev/null || echo UNKNOWN)"
 if [ "$UNAME_S" = "UNKNOWN" ]; then
   echo ">>> ERROR: 无法检测操作系统，当前 shell 不是 POSIX shell。"
   echo "    Windows 用户请在 Git Bash 中运行："
-  echo "      cd F:/code-program/CNCF_Monitor-worktree"
+  echo "      cd <你的仓库路径，如 D:/code/CNCF_Monitor-worktree>"
   echo "      bash setup.sh"
   echo "    不要直接在 PowerShell / CMD 中双击或执行 setup.sh。"
   exit 1
@@ -46,17 +57,25 @@ if ! command -v make >/dev/null 2>&1; then
     #   下载统一走 scripts/dl-windows.sh（镜像感知：直连 GitHub -> ghproxy 国内镜像），以绕过
     #   github release 资源主机在国内网络常被拦截/TLS 重置的问题。
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    TOOLS_BIN="$SCRIPT_DIR/.tools/bin"
-    GCC_DIR="$SCRIPT_DIR/.tools/gcc"
+    # 仓库根目录自适应：脚本所在目录即仓库根；若被复制到子目录运行，可用 REPO_DIR 覆盖
+    REPO_DIR="${REPO_DIR:-$SCRIPT_DIR}"
+    TOOLS_BIN="$REPO_DIR/.tools/bin"
+    GCC_DIR="$REPO_DIR/.tools/gcc"
     GCC_VERSION="16.2.0"
     GCC_URL="https://github.com/brechtsanders/winlibs_mingw/releases/download/${GCC_VERSION}posix-14.0.0-ucrt-r1/winlibs-x86_64-posix-seh-gcc-${GCC_VERSION}-mingw-w64ucrt-14.0.0-r1.zip"
-    DL="$SCRIPT_DIR/scripts/dl-windows.sh"
-    DL_P="$SCRIPT_DIR/scripts/dl-parallel-windows.sh"
+    DL="$REPO_DIR/scripts/dl-windows.sh"
+    DL_P="$REPO_DIR/scripts/dl-parallel-windows.sh"
     mkdir -p "$TOOLS_BIN"
 
     # 1) 探测 Git for Windows 自带的 make（git.exe 可能在 bin/ 或 mingw64/bin/ 两种布局）
     locate_git_make() {
       local c g gd
+      # 环境变量优先：GIT_MAKE_DIR 显式指定 mingw32-make 所在目录（Git 装在非标准路径时用）
+      if [ -n "${GIT_MAKE_DIR:-}" ]; then
+        if [ -f "$GIT_MAKE_DIR/mingw32-make.exe" ]; then echo "$GIT_MAKE_DIR/mingw32-make.exe"; return 0; fi
+        if [ -f "$GIT_MAKE_DIR/make.exe" ]; then echo "$GIT_MAKE_DIR/make.exe"; return 0; fi
+        echo ">>> WARN: GIT_MAKE_DIR=$GIT_MAKE_DIR 下未找到 mingw32-make.exe / make.exe，继续自动探测。" >&2
+      fi
       if command -v mingw32-make >/dev/null 2>&1; then command -v mingw32-make; return 0; fi
       if command -v make >/dev/null 2>&1; then command -v make; return 0; fi
       for c in \
@@ -94,7 +113,7 @@ if ! command -v make >/dev/null 2>&1; then
       # 回退：下载 WinLibs MinGW-w64（CGO 也需要，仅下载一次，install-gcc 幂等复用）
       if [ ! -f "$GCC_DIR/bin/mingw32-make.exe" ] && [ ! -f "$GCC_DIR/bin/gcc.exe" ]; then
         echo ">>> 'make' not bundled with Git. Downloading WinLibs MinGW-w64 (includes mingw32-make) -> $GCC_DIR ..."
-        TMPZ="$SCRIPT_DIR/.tools/_gcc_make.zip"
+        TMPZ="$REPO_DIR/.tools/_gcc_make.zip"
         if command -v bash >/dev/null 2>&1 && [ -f "$DL_P" ]; then
           echo ">>> (parallel, range-supported mirror) "
           if bash "$DL_P" "$TMPZ" "$GCC_URL"; then

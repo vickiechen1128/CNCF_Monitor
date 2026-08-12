@@ -36,8 +36,6 @@ CNCF_Monitor/
 ├── .kimi/                            # Kimi Agent 团队配置
 │   ├── agents/                       # Agent 定义（Planner/Developer/Reviewer）
 │   ├── skills/                       # 共享知识库
-│   ├── hooks/                        # 自动化流水线
-│   ├── plugins/                      # 自定义工具
 │   └── AGENTS.md                     # Agent 使用速查
 ├── upstream/                         # 上游开源源码（尽量不修改）
 │   ├── prometheus/
@@ -57,12 +55,16 @@ CNCF_Monitor/
 ├── patches/prometheus/               # 对上游源码的必要 patch
 ├── scripts/                          # 构建与辅助脚本
 ├── deploy/                           # 部署配置
-├── docs/                             # 文档
-│   ├── 01-source-architecture/       # 源码架构理解
-│   ├── 02-product-requirements/      # 新产品需求文档
-│   └── 03-engineering-standards/     # 工程约束与标准
+├── docs/                             # 文档（按读者/使用场景排号）
+│   ├── 01-team-collaboration/        # 团队协作指引（角色 / 流程 / Agent 使用）
+│   ├── 02-product-requirements/      # 产品需求（PRD / 用户故事 / 路线图）
+│   ├── 03-engineering-standards/     # 工程标准（API / 测试 / 分支 / 隔离）
+│   ├── 04-source-architecture/       # 源码架构理解
+│   ├── 05-execution-records/         # 执行记录（Agent 留痕）
+│   └── prototypes/                   # 可点击原型（分模块）
 ├── Makefile                          # 统一构建入口
-├── setup.sh                          # 一键初始化脚本
+├── setup.sh                          # 一键初始化脚本（跨平台）
+├── SETUP_WINDOWS.md                  # Windows 环境初始化指南
 ├── install-hooks.sh                  # 安装 Kimi hooks
 ├── .gitignore
 └── README.md
@@ -72,11 +74,13 @@ CNCF_Monitor/
 
 ## 3. 环境要求与依赖安装
 
+> **Windows 用户请先阅读 [SETUP_WINDOWS.md](SETUP_WINDOWS.md)**：必须使用 **Git Bash** 执行（PowerShell/CMD 不兼容 Makefile 的 POSIX 语法），且工具链下载自动走国内镜像，无需手动配置代理。
+
 本项目使用 Makefile 统一管理工具链，所有依赖默认安装到项目内的 `.tools/` 目录，不污染系统环境。协作者只需确保以下前置条件：
 
 | 前置依赖 | 用途 | 检查命令 |
 |----------|------|----------|
-| `make` | 统一构建入口 | `make --version` |
+| `make` | 统一构建入口 | `make --version`（Windows 缺失时 setup.sh 自动获取，见 SETUP_WINDOWS.md） |
 | `curl` | 下载 Go / Node.js 二进制包 | `curl --version` |
 | `git` | 克隆上游源码 | `git --version` |
 | Docker（可选） | 容器化运行 Prometheus / node_exporter | `docker --version` |
@@ -86,8 +90,8 @@ CNCF_Monitor/
 ### 3.1 安装工具链（Go + Node.js + pnpm）
 
 ```bash
-# 进入项目目录
-cd /Users/chenrt/S-03Python/03\ AIopsAgent-study/CNCF_Monitor
+# 进入项目目录（Windows 用户在 Git Bash 中执行，路径替换为你的本地仓库路径）
+cd <你的仓库路径，如 /Users/<name>/CNCF_Monitor 或 F:/code-program/CNCF_Monitor-worktree>
 
 # 一键安装 Go 1.26.1、Node.js 22.14.0、pnpm 9.x 到 .tools/
 make install-tools
@@ -126,15 +130,20 @@ Makefile 会自动将 `.tools/go/bin`、`.tools/node/bin`、`.tools/pnpm/bin` �
 
 ### 3.3 一键初始化脚本
 
-协作者可执行：
+协作者可执行（**Windows 用户在 Git Bash 中运行**）：
 
 ```bash
 bash setup.sh
 ```
 
-该脚本会依次完成：安装工具链 → 编译后端 → 安装前端依赖 → 运行 platform 测试 → 安装 Kimi hooks。
+该脚本**跨平台**（macOS / Linux / Windows-Git Bash），会自动：
+1. 检测并获取 `make`（Windows 下优先复用 Git 自带 make，否则下载 MinGW-w64 取其中的 mingw32-make，全程不污染系统）；
+2. 安装工具链（Go / Node / pnpm）到 `.tools/`（Windows 额外装 MinGW-w64 供 CGO）；
+3. 初始化 git 子模块 → 应用 patch → 编译后端 → 构建前端 → 运行测试 → 安装 Kimi hooks。
 
 > 注意：`setup.sh` 中的 `go test ./platform/...` 使用系统 PATH 中的 `go`。如果系统未安装 Go，可改为 `make test-platform` 使用 `.tools/go/bin/go`。
+>
+> **Windows 专属细节**（Git Bash 前提、国内镜像下载、CGO 编译器、常见排错）见 [SETUP_WINDOWS.md](SETUP_WINDOWS.md)。
 
 ---
 
@@ -202,9 +211,9 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 ## 5. 协作者 Setup 检查清单
 
-每位新协作者进入项目后，建议按以下顺序确认：
+每位新协作者进入项目后，建议按以下顺序确认（**Windows 用户全程在 Git Bash 中操作**）：
 
-- [ ] 已安装 `make`、`curl`、`git`
+- [ ] 已安装 `make`、`curl`、`git`（Windows 缺失的 `make` 由 setup.sh 自动获取）
 - [ ] 已执行 `make install-tools` 且 `.tools/` 目录生成成功
 - [ ] 已阅读 [`00_Product_Vision.md`](docs/02-product-requirements/00_Product_Vision.md) 和 [`00_Global_Architecture.md`](docs/02-product-requirements/00_Global_Architecture.md)
 - [ ] 已执行 `make build-metric-center`，确认控制面后端可编译
@@ -215,28 +224,49 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 ## 6. 文档索引
 
-### 6.1 源码架构理解
+> docs/ 按读者/使用场景分 6 个目录，每个目录的 README 提供导航：团队协作 / 产品需求 / 工程标准 / 源码架构 / 执行记录 / 原型。
 
-- [Prometheus 整体架构分析](docs/01-source-architecture/prometheus/2026-07-15_prometheus-architecture-overview.md)
+### 6.1 团队协作（docs/01-team-collaboration/）
 
-### 6.2 产品需求
+- [目录导航（按角色索引 + 各角色怎么用 Agent）](docs/01-team-collaboration/README.md)
+- [团队守则](docs/01-team-collaboration/00_Team_Charter.md)
+- [角色职责速查表](docs/01-team-collaboration/01_Role_Responsibilities.md)
+- [需求设计流程](docs/01-team-collaboration/02_Demand_Workflow.md)
+- [代码协作流程](docs/01-team-collaboration/03_Code_Collaboration_Workflow.md)
+- [团队 Git 操作指南](docs/01-team-collaboration/04_Team_Git_Operations_Guide.md)
+- [zhangwq Vibe Coding 执行手册](docs/01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)
 
+### 6.2 产品需求（docs/02-product-requirements/）
+
+- [产品需求目录导航](docs/02-product-requirements/README.md)
 - [产品愿景](docs/02-product-requirements/00_Product_Vision.md)
 - [全局架构](docs/02-product-requirements/00_Global_Architecture.md)
 - [用户故事](docs/02-product-requirements/01_User_Stories.md)
 - [产品路线图](docs/02-product-requirements/02_Product_Roadmap.md)
-- [模块需求](docs/02-product-requirements/Modules/)
-  - [Module 01: 指标采集中心](docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md)
-  - [Module 07: 配置管理](docs/02-product-requirements/Modules/Module_07_Config_Management.md) ⭐ MVP 核心
+- [模块需求](docs/02-product-requirements/Modules/)（11 个模块，MVP 核心见下）
 
-### 6.3 工程标准
+### 6.3 工程标准（docs/03-engineering-standards/）
 
+- [工程标准目录导航（含按角色阅读顺序）](docs/03-engineering-standards/README.md)
 - [工程实现标准](docs/03-engineering-standards/00_Engineering_Standard.md)
 - [代码隔离标准](docs/03-engineering-standards/01_Code_Isolation_Standard.md)
 - [前端开发标准](docs/03-engineering-standards/02_Frontend_Standard.md)
 - [API 设计标准](docs/03-engineering-standards/03_API_Standard.md)
 - [测试标准](docs/03-engineering-standards/04_Testing_Standard.md)
 - [AI Agent 协作标准](docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md)
+- [Gitflow 分支与回退指南](docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)
+
+### 6.4 源码架构（docs/04-source-architecture/）
+
+- [Prometheus 整体架构分析](docs/04-source-architecture/prometheus/2026-07-15_prometheus-architecture-overview.md)
+
+### 6.5 执行记录（docs/05-execution-records/）
+
+- 各模块的 Agent 执行记录与设计决策（module-XX/design-decisions.md、<agent>.md）
+
+### 6.6 原型（docs/prototypes/）
+
+- 分模块可点击原型（module-XX/），GitHub Pages 部署说明见各模块 README
 
 ---
 
@@ -244,7 +274,7 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 1. **不直接修改 `upstream/` 源码**，所有业务代码放在 `platform/` 或 `ui-custom/`
 2. **必须修改 upstream 时**，生成 patch 到 `patches/prometheus/`
-3. 开发前阅读对应的 PRD 和工程标准
+3. 开发前阅读对应的 PRD 和工程标准（见 [§6 文档索引](#6-文档索引)）
 4. 代码变更同步更新相关文档
 5. `.trae/skills/` 目录不得删除或移动
 

@@ -1,8 +1,9 @@
 # MetricCenter 代码隔离标准
 
 > 文档类型：工程标准
+> **目标读者**：技术架构师（隔离边界设计）、后端开发工程师（编码前必读）、zhangwq（patch 维护者）
 > 目标：明确 Prometheus 源码与 MetricCenter 二次开发代码的边界，确保 upstream 可升级、业务代码可维护。
-> 更新日期：2026-07-21
+> 更新日期：2026-07-21（v1.25 去重）
 
 ---
 
@@ -82,6 +83,8 @@ done
 
 ## 5. 代码审查清单
 
+> **v1.25 去重**：测试 / lint / 服务启动验证项统一见 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4；本节只保留**代码隔离相关**检查项。
+
 提交代码前检查：
 
 - [ ] 新增业务代码是否都在 `platform/` 或 `ui-custom/` 下？
@@ -90,10 +93,7 @@ done
 - [ ] patch 文件是否有对应的说明文档？
 - [ ] 是否可以通过 `make build` 成功编译？
 - [ ] 是否可以通过 `make apply-patches` 正确应用 patch？
-- [ ] 后端是否通过 `go test ./platform/...` 和 `go vet ./platform/...`？
-- [ ] 前端是否通过 `pnpm test` 和 `pnpm lint`？
-- [ ] 是否启动服务验证了关键接口/页面可正常访问？
-- [ ] 验证完成后是否已停止服务并释放端口？
+- [ ] 测试 / 静态检查 / 服务启动验证 → 见 `04_Testing_Standard.md` §4
 
 ---
 

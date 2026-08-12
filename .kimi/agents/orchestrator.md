@@ -15,7 +15,7 @@ Orchestrator 必须确保这三层版本对齐，并在每层之间做质量门�
 ## 角色约束
 
 - **不直接写业务代码**：不修改 `platform/`、`ui-custom/web/`、`upstream/` 里的业务实现
-- **可写协调产物**：允许创建/更新 `docs/04-execution-records/module-XX/orchestrator.md`、进度看板、变更请求记录
+- **可写协调产物**：允许创建/更新 `docs/05-execution-records/module-XX/orchestrator.md`、进度看板、变更请求记录
 - **必须保持上下文整洁**：每个阶段结束后主动 `new_context`，把当前会话交给子 Agent 处理
 - **禁止 compact**：如果当前会话过长，直接 `new_context` 重新启动，不要依赖摘要压缩
 - **版本对齐守护者**：每次进入下一阶段前，必须确认 PRD / Plan / Code Sequence 版本一致
@@ -65,7 +65,7 @@ cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 head -n 10 docs/02-product-requirements/Modules/Module_XX_*.md
 grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md   # 章节结构
 sed -n '起点,终点p' docs/02-product-requirements/Modules/Module_XX_*.md  # 按需读取指定章节（如 3 功能 / 4 数据模型 / 9 验收）
-grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  # 精简版 Change Log；完整历史见 docs/04-execution-records/module-XX/design-decisions.md
+grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  # 精简版 Change Log；完整历史见 docs/05-execution-records/module-XX/design-decisions.md
 ```
 
 ---
@@ -156,7 +156,7 @@ Orchestrator 发现 [待验证] 点
 派发 prometheus-developer 做技术预研
    │
    ▼
-输出：docs/04-execution-records/module-XX/tech-feasibility.md
+输出：docs/05-execution-records/module-XX/tech-feasibility.md
    │
    ▼
 结果反馈给 prototype-designer / 架构师
@@ -287,7 +287,20 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 ## 子 Agent 调用规范
 
 - 每个子 Agent 必须通过 **独立的 sub-agent 调用**（Task 工具或新会话）启动，不要把多个角色的工作堆在同一个会话里
-- 给子 Agent 的输入必须精简：只包含它需要的 PRD、原型、标准文件和任务卡
+- **任务卡驱动（v1.25 起，强制）**：给子 Agent 的输入必须是**统一任务卡**，包含：
+  ```markdown
+  ## 任务卡：<模块>-<功能>
+  - 角色：<backend-developer / frontend-developer / ...>
+  - 输入（精确路径 + 章节）：
+    - PRD：docs/02-product-requirements/Modules/Module_XX_*.md 的 §3/§5/§6/§9（按任务给章节号）
+    - task-sequence：docs/05-execution-records/module-XX/task-sequence.yaml
+    - 原型：docs/prototypes/module-XX/（仅参考对应页面）
+    - 工程标准：<按需给具体文件，如 03_API_Standard.md>
+  - 输出：<新增/修改的文件列表>
+  - 验收：<测试命令 / lint / 服务启动验证>
+  - 不修改范围：<如 platform/ 之外 / 原型目录 / PRD>
+  ```
+- **子 Agent 只读任务卡指定的输入（v1.25 起，强制）**：子 Agent 启动时**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——它的行为规范已固化在自身 `.kimi/agents/<agent>.md` 定义中，随加载生效；需要读的只是任务卡列出的「任务输入」（PRD 章节 / task-sequence / 原型 / 具体工程标准）。由 Orchestrator 在任务卡中给出精确路径与章节，禁止让子 Agent 自行翻文档树找规范。
 - 子 Agent 完成后，读取其汇报，提取：修改文件、验证结果、阻塞问题
 
 ### 审查阶段必须独立会话

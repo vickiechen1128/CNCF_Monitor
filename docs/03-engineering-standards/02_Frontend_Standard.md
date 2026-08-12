@@ -1,8 +1,9 @@
 # MetricCenter 前端开发标准
 
 > 文档类型：工程标准
+> **目标读者**：前端开发工程师（编码前必读）、技术架构师（前端技术选型 / 部署渠道）
 > 目标：统一 Custom UI 的开发规范，确保前端代码可维护、可协作。
-> 更新日期：2026-07-21
+> 更新日期：2026-07-21（v1.25 去重）
 
 ---
 
@@ -148,21 +149,12 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 
 ## 6. 提交前验证
 
-除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问：
+> **v1.25 去重**：测试 / lint / dev server 启动验证的完整命令与流程见 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4（前端部分）；本节仅保留要点提醒。
 
-```bash
-# 启动前端 dev server（非阻塞，使用 exec 确保可被正常停止）
-cd ui-custom/web
-exec ./node_modules/.bin/vite --host
-
-# 在另一个终端验证页面可访问
-sleep 3
-curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
-```
-
-- 如果 dev server 无法启动或页面返回非 200，必须先修复，再提交
-- 如果模块新增/修改了页面，必须额外访问对应路由验证
-- 验证完成后必须停止服务，避免端口占用
+- 除 `pnpm test` 和 `pnpm lint` 外，必须验证前端 dev server 能实际启动并访问（`curl` 首页返回 200）；
+- 如果模块新增/修改了页面，必须额外访问对应路由验证；
+- 验证完成后必须停止服务，避免端口占用；
+- 完整命令见 [`04_Testing_Standard.md`](04_Testing_Standard.md) §4.2。
 
 ## 7. 与 Prometheus UI 的关系
 

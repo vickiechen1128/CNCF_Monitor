@@ -21,12 +21,9 @@
 
 ### Step 1: 读取强制 Skill
 
-按顺序读取并执行以下 Skill：
+按顺序读取并执行以下 Skill（**v1.25 起精简**：cncf-project 必读；其余 Skill 由 Orchestrator 在任务卡中按需指定，不再固定全读）：
 
-1. `cncf-project`：项目上下文与技术栈
-2. `cncf-git-workflow`：worktree、分支、目录隔离、commit 规范
-3. `golang-coding-style`：Go 编码规范
-4. `testing-tdd`：TDD 流程
+1. `cncf-project`：项目上下文与技术栈（必读）
 
 如果某个 Skill 文件缺失，立即停止并报告 Orchestrator。
 
@@ -40,15 +37,17 @@ git branch --show-current # 必须是 feat/module-XX
 
 若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `feat/module-XX`。
 
-### Step 3: 强制读取输入文档
+### Step 3: 读取任务卡指定的输入文档
+
+> **v1.25 起（任务卡驱动）**：只读 Orchestrator 任务卡中列出的输入（精确路径 + 章节），**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——行为规范已在自身定义中。典型输入：
 
 ```markdown
-- docs/02-product-requirements/Modules/Module_XX_*.md
-- docs/04-execution-records/module-XX/task-sequence.yaml
-- docs/prototypes/module-XX/ 下的所有原型文件（优先读取，如缺失不阻断）
-- docs/03-engineering-standards/03_API_Standard.md
-- docs/03-engineering-standards/04_Testing_Standard.md
-- docs/03-engineering-standards/01_Code_Isolation_Standard.md
+- docs/02-product-requirements/Modules/Module_XX_*.md（按任务卡指定章节）
+- docs/05-execution-records/module-XX/task-sequence.yaml
+- docs/prototypes/module-XX/ 下的相关原型文件（优先读取，如缺失不阻断）
+- docs/03-engineering-standards/03_API_Standard.md（如任务涉及 API）
+- docs/03-engineering-standards/04_Testing_Standard.md（如任务涉及测试）
+- docs/03-engineering-standards/01_Code_Isolation_Standard.md（如任务涉及目录隔离）
 ```
 
 > **PRD 章节级读取（v1.24 起，控制上下文）**：PRD 文档较长（含业务沟通决策记录），按章节选择性读取，**禁止全文一次性读取**：
@@ -56,7 +55,7 @@ git branch --show-current # 必须是 feat/module-XX
 > - **按需**：1 模块目标、10 术语映射（UI 展示名对照）、Change Log（业务沟通记录，非开发契约，完整历史在 `design-decisions.md`）。
 > - **章节定位命令示例**：`grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md` 先看章节结构，再用 `sed -n '起点,终点p'` 读取指定章节。
 
-> `docs/04-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
+> `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
 >
 > `docs/prototypes/module-XX/` 是辅助理解材料，优先读取；如缺失或为空，以 PRD + L3 task-sequence 为准继续开发。
 
@@ -174,7 +173,7 @@ curl -s http://localhost:8080/api/v1/status
 
 ## 执行记录
 
-每次 Agent 调用结束后，必须在 `docs/04-execution-records/module-XX/backend-developer.md` 中记录：
+每次 Agent 调用结束后，必须在 `docs/05-execution-records/module-XX/backend-developer.md` 中记录：
 
 - 输入文档（PRD、原型、工程标准路径）
 - 新增/修改的文件列表
@@ -193,5 +192,5 @@ curl -s http://localhost:8080/api/v1/status
 2. 新增/修改的测试
 3. `go test` 和 `go vet` 的结果
 4. 服务启动验证结果
-5. 执行记录路径：`docs/04-execution-records/module-XX/backend-developer.md`
+5. 执行记录路径：`docs/05-execution-records/module-XX/backend-developer.md`
 6. 是否需要其他 Agent（前端、Prometheus、Build Resolver）配合
