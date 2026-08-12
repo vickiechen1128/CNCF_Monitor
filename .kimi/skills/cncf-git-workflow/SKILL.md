@@ -75,7 +75,7 @@ git checkout -b feat/module-XX
 | `ui-custom/web/` | `backend-developer`、`frontend-developer`、zhangwq 的 AI | `prototype-designer`、chenrt 的 AI |
 | `upstream/` | 禁止直接修改 | 全部 Agent |
 | `docs/03-engineering-standards/` | 项目负责人 + 开发工程师按需维护 | - |
-| `docs/05-team-collaboration/` | 项目负责人 + 开发工程师按需维护 | - |
+| `docs/01-team-collaboration/` | 项目负责人 + 开发工程师按需维护 | - |
 | `.kimi/agents/` | 项目负责人 + 开发工程师按需维护 | - |
 
 ---
@@ -88,7 +88,7 @@ git checkout -b feat/module-XX
 - 详细说明 1
 - 详细说明 2
 
-关联: docs/04-execution-records/module-XX/<agent>.md
+关联: docs/05-execution-records/module-XX/<agent>.md
 ```
 
 | 分支类型 | Commit 类型 | 示例 |

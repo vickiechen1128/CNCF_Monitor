@@ -54,8 +54,8 @@ git diff --stat
 
 | 分支类型 | 命名示例 | 允许修改 | 禁止修改 | 合并目标 | 负责人 | Reviewer |
 |----------|----------|----------|----------|----------|--------|----------|
-| 设计分支 | `design/module-XX` | `docs/02-product-requirements/Modules/`<br>`docs/prototypes/module-XX/`<br>`docs/03-engineering-standards/`<br>`docs/05-team-collaboration/`<br>`.kimi/agents/` | `platform/`<br>`ui-custom/web/`<br>`upstream/` | `develop` | chenrt | guixm、zhaohy |
-| 功能分支 | `feat/module-XX` | `platform/`<br>`ui-custom/web/`<br>`docs/03-engineering-standards/`<br>`docs/05-team-collaboration/`<br>`.kimi/agents/` | `docs/02-product-requirements/`<br>`docs/prototypes/`<br>`upstream/` | `develop` | zhangwq | zhangwq、zhaohy、guixm、chenrt |
+| 设计分支 | `design/module-XX` | `docs/02-product-requirements/Modules/`<br>`docs/prototypes/module-XX/`<br>`docs/03-engineering-standards/`<br>`docs/01-team-collaboration/`<br>`.kimi/agents/` | `platform/`<br>`ui-custom/web/`<br>`upstream/` | `develop` | chenrt | guixm、zhaohy |
+| 功能分支 | `feat/module-XX` | `platform/`<br>`ui-custom/web/`<br>`docs/03-engineering-standards/`<br>`docs/01-team-collaboration/`<br>`.kimi/agents/` | `docs/02-product-requirements/`<br>`docs/prototypes/`<br>`upstream/` | `develop` | zhangwq | zhangwq、zhaohy、guixm、chenrt |
 | 修复分支 | `fix/module-XX` | 与功能分支相同 | 与功能分支相同 | `develop` | zhangwq | zhangwq、zhaohy、guixm、chenrt |
 | 原型分支（历史兼容） | `feature/prototype-*` | 仅该分支历史对应的 UI、mock、部署配置 | PRD、团队文档、工程标准、生产代码 | **不合并** | chenrt | guixm、zhaohy |
 | 发布分支 | `release/*` | 版本相关配置、CHANGELOG | 新功能开发 | `main` + `develop` | chenrt | - |
@@ -64,7 +64,7 @@ git diff --stat
 > **目录隔离铁律**
 > - `docs/02-product-requirements/` 和 `docs/prototypes/` 是产品侧核心资产，**只能**由 chenrt / PM 的 AI 在 `design/module-XX` 分支修改；zhangwq / 开发的 AI **禁止**修改。
 > - `platform/` 和 `ui-custom/web/` 是生产代码，**只能**由 zhangwq / 开发的 AI 在 `feat/module-XX` 分支修改；chenrt / PM 的 AI **禁止**修改。
-> - `docs/03-engineering-standards/`、`docs/05-team-collaboration/`、`.kimi/agents/` 等规范与 Agent 定义，由项目负责人在设计分支、开发工程师在功能分支中按需维护。
+> - `docs/03-engineering-standards/`、`docs/01-team-collaboration/`、`.kimi/agents/` 等规范与 Agent 定义，由项目负责人在设计分支、开发工程师在功能分支中按需维护。
 > - `upstream/` 禁止直接修改，必须走 `patches/prometheus/*.patch` 流程。
 
 ## Commit Message 规范
@@ -85,11 +85,11 @@ git diff --stat
 - 详细说明 1
 - 详细说明 2
 
-关联: docs/04-execution-records/module-XX/<agent>.md
+关联: docs/05-execution-records/module-XX/<agent>.md
 ```
 
 - **必须小写**，禁止 emoji，禁止无意义描述如 "update"、"fix bug"。
-- `feat` / `fix` 提交**必须**关联 `docs/04-execution-records/module-XX/<agent>.md`。
+- `feat` / `fix` 提交**必须**关联 `docs/05-execution-records/module-XX/<agent>.md`。
 - `design` 提交**建议**说明 PRD 与原型路径。
 
 ## 提交前验证清单
@@ -199,7 +199,7 @@ git commit -m "feat(module-07): 实现资源管理 CRUD
 - 新增 Host/Middleware/Application CRUD API
 - 新增 Excel 批量导入与错误行返回
 
-关联: docs/04-execution-records/module-07/backend-developer.md"
+关联: docs/05-execution-records/module-07/backend-developer.md"
 ```
 ```
 

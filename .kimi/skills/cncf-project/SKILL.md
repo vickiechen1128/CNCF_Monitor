@@ -34,7 +34,7 @@ CNCF_Monitor/
 ├── scripts/                         # 构建脚本
 ├── deploy/                          # 部署配置
 ├── docs/                            # 文档
-│   ├── 01-source-architecture/      # 源码架构理解
+│   ├── 04-source-architecture/      # 源码架构理解
 │   ├── 02-product-requirements/     # 产品需求文档
 │   └── 03-engineering-standards/    # 工程约束与标准
 ├── Makefile

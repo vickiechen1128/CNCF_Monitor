@@ -32,7 +32,7 @@ Orchestrator 必须提供以下信息：
 
 - 当前分支：`feat/module-XX`
 - PRD 路径：`docs/02-product-requirements/Modules/Module_XX_*.md`
-- L3 micro-task 序列：`docs/04-execution-records/module-XX/task-sequence.yaml`
+- L3 micro-task 序列：`docs/05-execution-records/module-XX/task-sequence.yaml`
 - 原型路径：`docs/prototypes/module-XX/`（优先读取，如缺失不阻断）
 - 变更范围：`ui-custom/web/` 的 diff 或变更文件列表
 - 相关标准：

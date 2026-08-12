@@ -165,7 +165,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 children: (
                   <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
                     页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
-                    docs/04-execution-records/module-07/design-decisions.md 与 Module_07 PRD（对应原型目录上级）。
+                    docs/05-execution-records/module-07/design-decisions.md 与 Module_07 PRD（对应原型目录上级）。
                     决策清单：
                     3.1 v0.4+ 预留字段处理策略（cmdb / orphan / cmdb_field 类型存在、MVP 不使用，UI 标注 {'v0.4+'}）；
                     3.2 模块边界可视化（被动数据提供方、is_monitored 由 Module_01 维护只读展示、不生成下发 Prometheus 配置、CMDB 同步由 Module_04 负责）；

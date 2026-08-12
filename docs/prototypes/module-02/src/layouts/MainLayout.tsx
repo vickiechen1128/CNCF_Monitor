@@ -131,7 +131,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 children: (
                   <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
                     页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
-                    docs/04-execution-records/module-02/design-decisions.md 与 Module_02 PRD（对应原型目录上级）。
+                    docs/05-execution-records/module-02/design-decisions.md 与 Module_02 PRD（对应原型目录上级）。
                     决策清单（决策 4 版本落位，2026-08-06）：4.1 /api/v1/alerts 代理 v0.3；4.2 PromQL 校验 / 指标实时预览 v0.3；
                     4.3 租户 / 网域上下文注入 MVP 机制、多网域语义 v0.2；4.4 注入标签 key 统一 network_domain / tenant_id（MVP）；
                     4.5 目标状态展示新增 MVP（承接 M01 3.3 移交）；4.6 envelope 支持多网域数组、data_source 细化到网域；

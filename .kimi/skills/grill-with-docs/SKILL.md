@@ -18,7 +18,7 @@
 - **对事不对人**：追问的是文档和方案，不是质疑提出者
 - **证据优先**：每个结论都要有 PRD、原型、标准或技术预研报告支撑
 - **适可而止**：对齐到"可以进入下一步"即可，不要追求无限完美
-- **必须记录**：所有关键决策必须写入 `docs/04-execution-records/module-XX/design-decisions.md`
+- **必须记录**：所有关键决策必须写入 `docs/05-execution-records/module-XX/design-decisions.md`
 
 ---
 
@@ -78,7 +78,7 @@
 对齐结果必须写入：
 
 ```
-docs/04-execution-records/module-XX/design-decisions.md
+docs/05-execution-records/module-XX/design-decisions.md
 ```
 
 文件格式：
@@ -114,7 +114,7 @@ docs/04-execution-records/module-XX/design-decisions.md
 
 - `docs/02-product-requirements/Modules/Module_XX_*.md`
 - `docs/prototypes/module-XX/`
-- `docs/04-execution-records/module-XX/tech-feasibility.md`（如有）
+- `docs/05-execution-records/module-XX/tech-feasibility.md`（如有）
 ```
 
 ---

@@ -33,7 +33,7 @@ Orchestrator 在以下情况会调用你：
 #### 输入
 
 - `docs/02-product-requirements/Modules/Module_XX_*.md`（含 `[待验证]` 标记）
-- `docs/04-execution-records/module-XX/tech-gaps.md`（prototype-designer 输出的技术缺口清单，如有）
+- `docs/05-execution-records/module-XX/tech-gaps.md`（prototype-designer 输出的技术缺口清单，如有）
 - `docs/03-engineering-standards/01_Code_Isolation_Standard.md`
 - 当前 `upstream/prometheus/` 状态
 
@@ -42,7 +42,7 @@ Orchestrator 在以下情况会调用你：
 输出到：
 
 ```
-docs/04-execution-records/module-XX/tech-feasibility.md
+docs/05-execution-records/module-XX/tech-feasibility.md
 ```
 
 内容必须包含：
@@ -108,7 +108,7 @@ docs/04-execution-records/module-XX/tech-feasibility.md
 
 返回给 Orchestrator：
 
-1. 预研报告路径：`docs/04-execution-records/module-XX/tech-feasibility.md`
+1. 预研报告路径：`docs/05-execution-records/module-XX/tech-feasibility.md`
 2. 待验证问题清单
 3. 推荐方案与备选方案
 4. 对 PRD 的建议修改
@@ -145,17 +145,17 @@ git branch --show-current # 必须是 feat/module-XX
 
 ```markdown
 - docs/02-product-requirements/Modules/Module_XX_*.md
-- docs/04-execution-records/module-XX/task-sequence.yaml
-- docs/04-execution-records/module-XX/tech-feasibility.md（如已存在）
+- docs/05-execution-records/module-XX/task-sequence.yaml
+- docs/05-execution-records/module-XX/tech-feasibility.md（如已存在）
 - docs/prototypes/module-XX/ 下的所有原型文件（优先读取，如缺失不阻断）
 - docs/03-engineering-standards/01_Code_Isolation_Standard.md
 - docs/03-engineering-standards/03_API_Standard.md
 - docs/03-engineering-standards/04_Testing_Standard.md
 ```
 
-> `docs/04-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
+> `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
 >
-> 如果 `docs/04-execution-records/module-XX/tech-feasibility.md` 存在，必须优先阅读，了解预研结论和推荐方案。
+> 如果 `docs/05-execution-records/module-XX/tech-feasibility.md` 存在，必须优先阅读，了解预研结论和推荐方案。
 >
 > `docs/prototypes/module-XX/` 是辅助理解材料，优先读取；如缺失或为空，以 PRD + L3 task-sequence 为准继续开发。
 
@@ -275,7 +275,7 @@ make build-prometheus
 
 ### 技术预研模式汇报
 
-1. 预研报告路径：`docs/04-execution-records/module-XX/tech-feasibility.md`
+1. 预研报告路径：`docs/05-execution-records/module-XX/tech-feasibility.md`
 2. 待验证问题与结论
 3. 推荐方案与风险
 4. 对 PRD 的建议修改

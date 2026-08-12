@@ -16,7 +16,7 @@ Orchestrator（主 Agent）
    │       输出：04_Implementation_Map.md + 05_Code_Implementation_Plan.md
    │
    ├──► planner Phase 2: code-sequence-planner —— 从 L2 派生 L3
-   │       输出：docs/04-execution-records/module-XX/task-sequence.yaml
+   │       输出：docs/05-execution-records/module-XX/task-sequence.yaml
    │
    ├──► backend-developer / frontend-developer —— 按 L3 micro-task 开发
    │
@@ -155,7 +155,7 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 Micro-task 由 **planner Phase 2（code-sequence-planner）** 从 L2 派生，输出到：
 
 ```
-docs/04-execution-records/module-XX/task-sequence.yaml
+docs/05-execution-records/module-XX/task-sequence.yaml
 ```
 
 每个 micro-task 必须满足：
@@ -193,10 +193,10 @@ docs/04-execution-records/module-XX/task-sequence.yaml
    - 确保 PRD 版本号 = Plan 版本号
 5. **Code Sequence 派生（planner Phase 2: code-sequence-planner）**
    - 输入：L2 Plan
-   - 输出：`docs/04-execution-records/module-XX/task-sequence.yaml`
+   - 输出：`docs/05-execution-records/module-XX/task-sequence.yaml`
 6. **开发侧 Vibe Coding（backend-developer / frontend-developer / prometheus-developer）**
    - 基于最新 `develop` 创建 `feat/module-XX`
-   - 强制读取 PRD + `docs/04-execution-records/module-XX/task-sequence.yaml`
+   - 强制读取 PRD + `docs/05-execution-records/module-XX/task-sequence.yaml`
    - 优先读取 `docs/prototypes/module-XX/` 原型；如缺失，以 PRD + L3 为准
    - 在固定 worktree 中开发，只能修改各自允许的生产代码目录
    - 后端必须 TDD，前后端均需通过 `go test`/`go vet`/`pnpm test`/`pnpm lint`
@@ -232,7 +232,7 @@ docs/04-execution-records/module-XX/task-sequence.yaml
 
 一旦模块切出 `feat/module-XX`，PRD 进入 `frozen` 状态。开发中如需调整 PRD：
 
-- **影响单个 micro-task**：Orchestrator 就地决策，记录到 `docs/04-execution-records/module-XX/design-decisions.md`
+- **影响单个 micro-task**：Orchestrator 就地决策，记录到 `docs/05-execution-records/module-XX/design-decisions.md`
 - **影响模块边界 / 数据模型 / API 契约**：
   1. Orchestrator 创建变更请求（CR）
   2. 架构师（用户）审批
@@ -249,7 +249,7 @@ docs/04-execution-records/module-XX/task-sequence.yaml
 |------|-----------|-----------|
 | `docs/02-product-requirements/` | `prototype-designer` / chenrt 的 AI | `backend-developer`、`frontend-developer`、zhangwq 的 AI |
 | `docs/prototypes/` | `prototype-designer` / chenrt 的 AI | `backend-developer`、`frontend-developer`、zhangwq 的 AI |
-| `docs/04-execution-records/` | Orchestrator 协调写入；各 Agent 写入自己的执行记录 | 不允许覆盖其他 Agent 的记录 |
+| `docs/05-execution-records/` | Orchestrator 协调写入；各 Agent 写入自己的执行记录 | 不允许覆盖其他 Agent 的记录 |
 | `platform/` | `backend-developer`、`prometheus-developer`、zhangwq 的 AI | `prototype-designer`、chenrt 的 AI |
 | `ui-custom/web/` | `frontend-developer`、zhangwq 的 AI | `prototype-designer`、chenrt 的 AI |
 | `patches/prometheus/` | `prometheus-developer`、zhangwq 的 AI | `prototype-designer`、chenrt 的 AI |

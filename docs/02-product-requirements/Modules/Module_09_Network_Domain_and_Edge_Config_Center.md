@@ -1018,7 +1018,7 @@ edge-config-<network_domain_id>.zip
 
 ## Change Log
 
-> **Change Log 定位（v1.24）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.21 及以前逐版详情）已迁移至 `docs/04-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 4.x 数据模型 / 6.x 接口 / 8.x 状态机 / 9 验收标准）。
+> **Change Log 定位（v1.24）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.21 及以前逐版详情）已迁移至 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 4.x 数据模型 / 6.x 接口 / 8.x 状态机 / 9 验收标准）。
 
 | 版本 | 日期 | 变更类型 | 变更内容（一句话） | 产品版本影响 | 状态 |
 |------|------|----------|-------------------|--------------|------|

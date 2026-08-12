@@ -20,11 +20,9 @@
 
 ### Step 1: 读取强制 Skill
 
-按顺序读取并执行以下 Skill：
+按顺序读取并执行以下 Skill（**v1.25 起精简**：cncf-project 必读；其余 Skill 由 Orchestrator 在任务卡中按需指定，不再固定全读）：
 
-1. `cncf-project`：项目上下文与技术栈
-2. `cncf-git-workflow`：worktree、分支、目录隔离、commit 规范
-3. `web-development`：前端编码规范
+1. `cncf-project`：项目上下文与技术栈（必读）
 
 如果某个 Skill 文件缺失，立即停止并报告 Orchestrator。
 
@@ -38,14 +36,16 @@ git branch --show-current # 必须是 feat/module-XX
 
 若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `feat/module-XX`。
 
-### Step 3: 强制读取输入文档
+### Step 3: 读取任务卡指定的输入文档
+
+> **v1.25 起（任务卡驱动）**：只读 Orchestrator 任务卡中列出的输入（精确路径 + 章节），**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——行为规范已在自身定义中。典型输入：
 
 ```markdown
-- docs/02-product-requirements/Modules/Module_XX_*.md
-- docs/04-execution-records/module-XX/task-sequence.yaml
-- docs/prototypes/module-XX/ 下的所有原型文件（优先读取，如缺失不阻断）
-- docs/03-engineering-standards/02_Frontend_Standard.md
-- docs/03-engineering-standards/03_API_Standard.md
+- docs/02-product-requirements/Modules/Module_XX_*.md（按任务卡指定章节）
+- docs/05-execution-records/module-XX/task-sequence.yaml
+- docs/prototypes/module-XX/ 下的相关原型文件（优先读取，如缺失不阻断）
+- docs/03-engineering-standards/02_Frontend_Standard.md（如任务涉及前端规范）
+- docs/03-engineering-standards/03_API_Standard.md（如任务涉及 API）
 ```
 
 > **PRD 章节级读取（v1.24 起，控制上下文）**：PRD 文档较长（含业务沟通决策记录），按章节选择性读取，**禁止全文一次性读取**：
@@ -53,9 +53,18 @@ git branch --show-current # 必须是 feat/module-XX
 > - **按需**：1 模块目标、10 术语映射（用户词汇表）、8.x 状态机；Change Log 为业务沟通记录（非开发契约），完整历史在 `design-decisions.md`，仅在需要追溯变更原因时读取。
 > - **章节定位命令示例**：`grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md` 先看章节结构，再用 `sed -n '起点,终点p'` 读取指定章节。
 
-> `docs/04-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
+> `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
 >
 > `docs/prototypes/module-XX/` 是辅助理解材料，优先读取；如缺失或为空，以 PRD + L3 task-sequence 为准继续开发。
+
+### Step 3.5: 原型-实现一致性核对（v1.25 起，编码前强制）
+
+开发页面组件前，对照**原型 + PRD** 做四项核对（对齐记录：Module_07 第八轮反思——原型精心做的用户语言翻译在开发时被后端字段名覆盖回去，用户断层复现）：
+
+1. **UI 展示名核对**：页面字段标签必须用 PRD 字段表「UI 展示名」列 + 原型用户语言（如 `network_domain_id` → 网域、`instance_selection_mode` → 实例选择方式），**禁止**直接把后端字段名（snake_case）当 UI 文案；
+2. **用户文案核对**：页面可见文案（Alert / 表单 extra / Tooltip / 空态 / 按钮）**不得出现**原型折叠区 / PRD 技术层术语（模板 ID、内部枚举值、模块代号、checksum 等）；不确定时查 PRD「术语映射」章节；
+3. **交互组件核对**：数据规模与组件匹配（参照 prototype-designer 的「数据规模 → 组件选型」表）——大列表用 Table+分页/筛选，不用 Popover/Alert 堆砌；只读详情用 Card/Descriptions/Tabs；
+4. **冲突报告**：原型与 PRD 不一致（字段名、交互、布局）时，**报告 Orchestrator 决策**，禁止自行二选一；原型缺失时以 PRD + task-sequence 为准（不阻断）。
 
 ### Step 4: 安装依赖
 
@@ -154,7 +163,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 
 ## 执行记录
 
-每次 Agent 调用结束后，必须在 `docs/04-execution-records/module-XX/frontend-developer.md` 中记录：
+每次 Agent 调用结束后，必须在 `docs/05-execution-records/module-XX/frontend-developer.md` 中记录：
 
 - 输入文档（PRD、原型、工程标准路径）
 - 新增/修改的文件列表
@@ -173,5 +182,5 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 2. 新增/修改的测试
 3. `pnpm test` 和 `pnpm lint` 结果
 4. dev server 启动验证结果
-5. 执行记录路径：`docs/04-execution-records/module-XX/frontend-developer.md`
+5. 执行记录路径：`docs/05-execution-records/module-XX/frontend-developer.md`
 6. 是否需要后端 API 配合

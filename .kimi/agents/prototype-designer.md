@@ -50,12 +50,9 @@
 
 ### Step 1: 读取强制 Skill
 
-按顺序读取：
+按顺序读取（**v1.25 起精简**：cncf-project 必读；其余 Skill 由 Orchestrator 在任务卡中按需指定，不再固定全读）：
 
-1. `cncf-project`：项目上下文与技术栈
-2. `cncf-git-workflow`：worktree、分支、目录隔离、commit 规范
-3. `web-development`：前端原型快速搭建规范
-4. `grill-with-docs`：需求对齐与决策记录
+1. `cncf-project`：项目上下文与技术栈（必读）
 
 如果某个 Skill 文件缺失，立即停止并报告 Orchestrator。
 
@@ -71,6 +68,8 @@ git branch --show-current # 必须是 design/module-XX
 
 ### Step 3: 阅读已有输入
 
+> **v1.25 起（任务卡驱动）**：以下为设计前的典型输入（任务输入，按需读取）；**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——行为规范已在自身定义中。Orchestrator 任务卡可进一步限定本次所需的输入子集。
+
 - `docs/02-product-requirements/00_Product_Vision.md`
 - `docs/02-product-requirements/00_Global_Architecture.md`
 - `docs/02-product-requirements/01_User_Stories.md`（**全局用户故事库**：用户任务的权威来源，模块 PRD 只引用编码）
@@ -79,7 +78,7 @@ git branch --show-current # 必须是 design/module-XX
 - `docs/02-product-requirements/Modules/README.md`
 - `docs/02-product-requirements/Modules/Module_XX_*.md`（当前模块 PRD，无论是草案还是已有版本）
 - `docs/03-engineering-standards/02_Frontend_Standard.md`
-- `docs/04-execution-records/module-XX/design-decisions.md`（如已存在）
+- `docs/05-execution-records/module-XX/design-decisions.md`（如已存在）
 
 > **章节级读取（v1.24 起，控制上下文）**：读取当前模块 PRD 时按章节选择性读取——**必读**：3.x 核心功能（用户层）、4.x 数据模型（技术层）、5.x 流程、6.x 接口 / 协议、8.x 状态机、9 验收标准；**按需**：1 模块目标、10 术语映射、Change Log（完整历史见 design-decisions.md）。
 
@@ -103,13 +102,13 @@ git branch --show-current # 必须是 design/module-XX
 2. **识别 [待验证] 点**
    - 读取 PRD 时，必须标记所有 `[待验证]`、`TODO`、`FIXME` 位置
    - 如果有涉及 Prometheus / Blackbox / Alertmanager 等开源组件能力不确定的地方，**立即停止 PRD 定稿流程**，报告 Orchestrator 派发 `prometheus-developer` 做技术预研
-   - 输出：`docs/04-execution-records/module-XX/tech-gaps.md`，列出所有待验证点
+   - 输出：`docs/05-execution-records/module-XX/tech-gaps.md`，列出所有待验证点
 
 ### Phase 2：需求对齐（Grill Me）
 
 - 如果 PRD 中关键决策（API 设计、数据模型、权限范围、部署方式）不明确，**必须**调用 `grill-with-docs` Skill
 - 通过持续追问，把隐含的假设显性化
-- 将对齐结果写入 `docs/04-execution-records/module-XX/design-decisions.md`
+- 将对齐结果写入 `docs/05-execution-records/module-XX/design-decisions.md`
 - **对齐完成前，禁止发布 PRD 为 ready 版本**
 
 #### 2.1 用户任务与心智模型梳理（强制，先于页面设计）
@@ -124,7 +123,13 @@ git branch --show-current # 必须是 design/module-XX
 
 2. **「用户词汇表」草案**：后端术语 → 用户语言的映射（如 `ConfigDraft`→变更单、联合 checksum→配置完整性校验、job_type→采集/拨测、source_data_version→数据版本[仅技术信息]）。此后所有用户可见文案必须使用用户语言，技术术语只允许出现在折叠区 / 注释 / PRD 技术层。
 
-3. **心智模型差异识别**：列出"用户理解方式 vs 系统实现方式"的差异点（如用户理解"采集策略 / 监控对象 / 告警规则"，系统实现是 `ScrapeJob` / `file_sd` / `prometheus.yml`）。**页面设计以用户心智模型为骨架，系统实现模型只作为实现约束**。
+3. **心智模型差异识别（四问，v1.25 起）**：列出"用户理解方式 vs 系统实现方式"的差异点（如用户理解"采集策略 / 监控对象 / 告警规则"，系统实现是 `ScrapeJob` / `file_sd` / `prometheus.yml`）。**页面设计以用户心智模型为骨架，系统实现模型只作为实现约束**。四问（对齐记录：Module_07 第八轮反思，资源标签 vs 标签模板断层、模板↔实例关联隐式默认行为）：
+
+   - **① 用户理解 vs 系统实现差异**：如上所述，列出概念差异点；
+   - **② 系统隐含的默认行为（显性化）**：列出"用户无感知却生效的规则"——如模板按 `resource_type` 隐式关联该类型全部实例（用户默认以为是显式逐个绑定）、`system` 标签实时计算不落库、模板变更穿透 Job 配置等。**隐含默认行为必须在 UI 上显性化**（标注来源 / 展示关联 / 变更影响提示），不得让用户事后惊讶；
+   - **③ 跨模块概念一致性**：列出本模块核心概念在相邻模块的叫法——本模块的"标签模板 / 资源标签"在 Module_01（策略）/ Module_09（配置生成）叫什么？是否同一用户语言词汇？跨模块同一概念必须同一词汇（对照全局用户词汇表，见 01_User_Stories.md 与各模块 PRD 术语映射章节），避免 A 模块叫"标签"、B 模块叫"映射"造成断层；
+   - **④ 规则层 vs 实例层显性化**：当系统存在"规则（模板/策略）→ 实例（资源/产物）"派生关系时，派生关系的页面**必须标注来源**（如资源标签标注"来自 XX 模板 · app_name→app"、配置确认页标注"来自策略 XX"），用户能看出"这个值是从哪条规则来的"，否则规则层与实例层在两页展示必然对不上；
+   - **⑤ 数据规模预期**：预估每个列表 / 弹窗 / 下拉未来承载的数据规模（十级 / 百级 / 千级 / 万级），决定组件选型（见「用户视角设计规范」数据规模→组件选型表）。
 
 > 若原型只有少量调整、无新增页面，可复用既有任务的 JTBD 与词汇表，仅补充差异部分。
 
@@ -254,14 +259,16 @@ python3 -m http.server 8080
 
 | 段 | 评审内容 | 目的 |
 |----|---------|------|
-| **第一段：用户走查（用户视角）** | 以最终用户角色走查：页面能否看懂（对照用户词汇表）、用户任务是否闭环、核心决策信息是否前置、异常场景是否覆盖 | 验证产品假设与易用性；用户层错误若在此暴露，可避免技术层白返工 |
+| **第一段：用户走查（用户视角）** | 以最终用户角色走查：页面能否看懂（对照用户词汇表）、用户任务是否闭环、核心决策信息是否前置、异常场景是否覆盖、**跨模块旅程是否可达且概念一致（v1.25 起）** | 验证产品假设与易用性；用户层错误若在此暴露，可避免技术层白返工 |
 | **第二段：技术核对（技术视角）** | 数据模型 / API / 状态机 / 生成逻辑是否被原型覆盖；mock 数据契约与 PRD 字段（含 UI 展示名）是否一致；可开发性 | 保证原型作为开发输入不丢技术信息；用户（产品 + 架构师）借此核对技术实现完整性 |
+
+> **跨模块旅程走查（v1.25 起，第一段强制项）**：从本模块任一关键页面出发，走一遍会跳转到相邻模块的关键用户旅程（如 M07 标签模板页 → M01 创建 Job 选模板 → 选实例 → 回 M07 看该模板关联实例），逐跳确认：①跨模块概念在用户层叫法一致（对照各模块 PRD 术语映射 / 全局词汇表）；②跳转入口可达（链接非 404、路由存在）；③用户无需理解后端模块边界即可完成任务。发现断层（概念不同词 / 跳转断裂 / 用户困惑）即为返工项。
 
 > **技术核对段必须完整**：技术信息只是从"页面主区"移到"折叠区 / 注释 / README / mock 契约"，**不是被删除**。设计者对技术实现的了解程度取决于技术层完整性与 PRD 编写阶段的技术设计，不因评审先走用户视角而降低。
 
 ##### 8.1.1 评审记录（强制留痕）
 
-每次两段评审必须产出**评审记录**，追加写入 `docs/04-execution-records/module-XX/design-decisions.md` 的「评审记录」小节（与决策记录区分：决策记录沉淀"结论"，评审记录沉淀"过程"）。内容至少包含：
+每次两段评审必须产出**评审记录**，追加写入 `docs/05-execution-records/module-XX/design-decisions.md` 的「评审记录」小节（与决策记录区分：决策记录沉淀"结论"，评审记录沉淀"过程"）。内容至少包含：
 
 - 评审时间 / 版本（PRD 版本、原型版本）/ 参与方（用户 / Orchestrator / 评审角色）；
 - **第一段用户走查结论**：用户任务闭环情况、发现的可理解性问题（对照「用户词汇表」与「设计反模式清单」）、是否返工；
@@ -288,7 +295,7 @@ python3 -m http.server 8080
   1. 向用户 / Orchestrator 输出《原型验证结论》：包含 PRD 版本、原型版本、核心页面清单、已验证交互、未覆盖范围（如有）。
   2. 明确询问用户是否同意将 PRD 状态推进到 `ready`。
   3. 只有在获得用户明确确认后，才将 PRD 状态更新为 **ready**，并同步更新 Change Log。
-  4. 若用户未确认或要求继续修改，保持当前状态（`draft` 或 `prototyping`），记录原因到 `docs/04-execution-records/module-XX/design-decisions.md`。
+  4. 若用户未确认或要求继续修改，保持当前状态（`draft` 或 `prototyping`），记录原因到 `docs/05-execution-records/module-XX/design-decisions.md`。
 
 ---
 
@@ -314,7 +321,7 @@ python3 -m http.server 8080
 - 没有 Change Log 的修改，plan-maintainer 拒绝派生
 - `[待验证]` 类型的变更必须先由 `prometheus-developer` 完成技术预研，才能转为 ready
 - **新增「产品版本影响」列**：说明本次变更影响的产品版本（如 MVP、v0.2、v0.4+、v1.0+）；若仅影响文档自身，填「文档自身」
-- **精简 + 迁移规则（v1.24 起，控制文档长度）**：主 PRD 的 Change Log 只保留**最近 3 版的一句话摘要**（版本 / 日期 / 变更类型 / 一句话）；完整逐版详情（含影响范围）**迁移到 `docs/04-execution-records/module-XX/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 定位为**业务沟通决策记录**，不承载开发契约（开发契约见数据模型 / 接口 / 状态机 / 验收标准）。
+- **精简 + 迁移规则（v1.24 起，控制文档长度）**：主 PRD 的 Change Log 只保留**最近 3 版的一句话摘要**（版本 / 日期 / 变更类型 / 一句话）；完整逐版详情（含影响范围）**迁移到 `docs/05-execution-records/module-XX/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 定位为**业务沟通决策记录**，不承载开发契约（开发契约见数据模型 / 接口 / 状态机 / 验收标准）。
 
 ---
 
@@ -342,7 +349,7 @@ python3 -m http.server 8080
 **落地要求**：
 
 1. 用户可见文案（Alert message/description、表单 `extra`、Tooltip、页脚说明）中**不得出现**「决策 X」「PRD X.X」「原型演示」等引用或标记；
-2. 设计决策依据统一写入页面底部「原型与实现说明（面向产品 / 技术评审）」折叠区，或 `docs/04-execution-records/module-XX/design-decisions.md`；
+2. 设计决策依据统一写入页面底部「原型与实现说明（面向产品 / 技术评审）」折叠区，或 `docs/05-execution-records/module-XX/design-decisions.md`；
 3. 代码注释（`//` 或 JSX `{/* */}`）中保留决策 / PRD 引用，供后续开发（含 AI）理解实现上下文；
 4. 主布局（MainLayout）可提供全局「原型与实现说明」折叠区，集中承载本模块全部决策清单，各页面不再重复堆叠；
 5. PRD 中记录本规范（如「提示分区规范」小节），保证文档与实现一致。
@@ -362,6 +369,19 @@ python3 -m http.server 8080
 | **旅程映射** | mock 数据与交互覆盖完整用户旅程（含异常场景：失败 / 回滚 / 断网），避免只有"完美路径" | User Journey Mapping |
 
 **双层设计原则**：原型必须同时输出**用户层**（页面主区，讲人话）与**技术层**（折叠区 / 注释 / README / mock 契约，承载数据模型与决策引用）——用户层不出现技术术语，技术层不丢失实现细节。信息只是分层摆放，不是删除。
+
+**数据规模 → 组件选型（v1.25 起，强制）**：设计列表 / 弹窗 / 下拉前，先预估数据规模（十级 / 百级 / 千级 / 万级），按表选组件，禁止用轻量组件承载大数据集（对齐记录：Module_07 第八轮反思——关联实例用 Popover 弹窗，实例多时无法滚动/分页/筛选）：
+
+| 数据规模 | 禁止 | 推荐 |
+|---------|------|------|
+| 关联清单 / 实例列表（百级以上） | `Popover` / `Alert` / 平铺 Tag 承载 | `Table` + 分页（pageSize 10~20）+ 搜索 + 状态筛选；或大 `Drawer`（≥720px）内嵌 Table；千级以上评估虚拟滚动 |
+| 只读结构化详情（字段多、有层级） | `Alert` 承载 | `Card` / `Descriptions` / `Tabs`（按维度分 Tab，如「映射明细 / 关联实例」） |
+| 状态语义（在线/离线/告警等） | 仅用 Badge 颜色（success/error）传达 | 语义化色 + 文字标签（Badge 的 text 必填），禁止用视觉色当唯一语义 |
+| 选项枚举（≤20 项） | 自由文本输入 | `Select` / `Radio` / `Tag` 选择 |
+| 选项枚举（>20 项、可搜索） | 平铺多选 | `Select` + `showSearch` / 穿梭框 `Transfer`（带筛选） |
+| 主从关系（左侧列表 → 右侧详情） | 弹窗内嵌明细 | master-detail 布局（左列表 + 右详情 Card/Tabs） |
+
+> 选型依据：**先问"这个内容未来会有多少数据、什么结构"，再选组件**——组件承载能力 < 数据规模即为设计缺陷，评审第一段必须发现。
 
 ---
 
@@ -385,9 +405,9 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 
 - PRD 文档：`docs/02-product-requirements/Modules/Module_XX_*.md`
 - 原型代码：`docs/prototypes/module-XX/`
-- 对齐决策记录：`docs/04-execution-records/module-XX/design-decisions.md`
-- 技术缺口记录：`docs/04-execution-records/module-XX/tech-gaps.md`
-- 原型说明文档：`docs/04-execution-records/module-XX/prototype-designer.md`
+- 对齐决策记录：`docs/05-execution-records/module-XX/design-decisions.md`
+- 技术缺口记录：`docs/05-execution-records/module-XX/tech-gaps.md`
+- 原型说明文档：`docs/05-execution-records/module-XX/prototype-designer.md`
 
 ---
 
@@ -445,8 +465,8 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 4. **产品版本覆盖范围**（如 MVP / v0.2 / v0.4 / v1.0）
 5. **原型版本号**（必须与 PRD 版本号一致）
 6. 原型目录：`docs/prototypes/module-XX/`
-7. 对齐决策记录：`docs/04-execution-records/module-XX/design-decisions.md`
-8. 技术缺口记录：`docs/04-execution-records/module-XX/tech-gaps.md`（如有）
+7. 对齐决策记录：`docs/05-execution-records/module-XX/design-decisions.md`
+8. 技术缺口记录：`docs/05-execution-records/module-XX/tech-gaps.md`（如有）
 9. 全局导航映射表与跨模块入口清单
 10. 原型页面清单与核心交互流程
 11. MVP 页面与未来版本占位页清单
@@ -459,5 +479,5 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
     - 统一静态入口下页面是否正常（非空白、无 404）
 14. **评审记录**（见 Phase 8.1.1）：最近一次两段评审时间 / 参与方 / 用户走查结论 / 技术核对结论 / 遗留项（指向 design-decisions.md「评审记录」小节）
 15. PRD 状态变更确认记录：用户是否同意将 PRD 推进到 `ready`，以及确认时间/方式
-16. 执行记录路径：`docs/04-execution-records/module-XX/prototype-designer.md`
+16. 执行记录路径：`docs/05-execution-records/module-XX/prototype-designer.md`
 17. 已知问题或下一步建议

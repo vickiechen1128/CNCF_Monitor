@@ -40,7 +40,7 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 - `docs/02-product-requirements/02_Product_Roadmap.md`
 - `docs/02-product-requirements/Modules/Module_XX_*.md`（必须是 ready 状态）
 - `docs/prototypes/module-XX/`（如已存在）
-- `docs/04-execution-records/module-XX/design-decisions.md`
+- `docs/05-execution-records/module-XX/design-decisions.md`
 - `docs/03-engineering-standards/` 相关标准
 - 当前 `04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md`（用于做 diff，只更新受影响部分）
 

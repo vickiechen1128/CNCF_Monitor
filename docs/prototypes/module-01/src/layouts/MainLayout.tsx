@@ -153,7 +153,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 children: (
                   <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
                     页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
-                    docs/04-execution-records/module-01/design-decisions.md 与 Module_01 PRD（对应原型目录上级）。
+                    docs/05-execution-records/module-01/design-decisions.md 与 Module_01 PRD（对应原型目录上级）。
                     决策清单：决策 4 拨测配置合并为 ScrapeJob 的 blackbox 类型（job_type=standard / blackbox，生成 blackbox.yml）；
                     决策 5 先有指标库才能写 PromQL（规则保存时校验 expr 引用指标必须存在于指标库）；
                     决策 6 保留「指标元数据」概念、内部实现为「指标库」；

@@ -111,7 +111,20 @@ make build-prometheus      # 应能成功编译出 upstream/prometheus/prometheu
 
 > 你本机实测：Git for Windows **未随附** `mingw32-make.exe`（已 `ls` 确认 `G:\Git\mingw64\bin\mingw32-make.exe` 不存在——你的 Git 自定义装在 `G:\Git`），且 winget 社区源查不到 `GnuWin32.make`，同时直连 GitHub 下载 WinLibs 在国内网络会被拦截（`curl: (35) Recv failure: Connection was aborted`）。所以脚本最终走**第 2 步（下载 WinLibs MinGW-w64 取 mingw32-make）**，并通过 `scripts/dl-windows.sh` 自动走 ghproxy 国内镜像完成下载——它顺带把 CGO 需要的编译器也准备好了。
 
-### 2.3 国内网络：下载自动走镜像（`scripts/dl-windows.sh`）
+### 2.3 成员自定义路径（环境变量覆盖，无需改脚本、无需生成个人脚本）
+
+> **推荐做法（v1.25 起）**：`setup.sh` 是**路径参数化**的——仓库路径自动取脚本所在目录，Git/make 自动多布局探测。成员**不需要**让 AI 生成一份带自己路径的脚本副本（副本会随仓库更新而漂移），而是通过**环境变量**表达个性化差异，脚本保持唯一、跟仓库走。
+
+| 场景 | 环境变量 | 用法 |
+|------|----------|------|
+| Git 装在非标准路径且自动探测失败（找不到 make） | `GIT_MAKE_DIR` | `GIT_MAKE_DIR="D:/Git/mingw64/bin" bash setup.sh`（指向含 `mingw32-make.exe` 的目录） |
+| 脚本被复制到仓库外子目录运行 | `REPO_DIR` | `REPO_DIR="D:/code/CNCF_Monitor-worktree" bash setup.sh` |
+| 受限网络并发下载 | `DL_PARALLEL` / `DL_MAX_TIME` / `DL_RETRY` | `DL_PARALLEL=3 bash setup.sh`（建议 2~4） |
+| 指定首选下载镜像 | `GCC_MIRROR` | `GCC_MIRROR=ghproxy.com bash setup.sh` |
+
+> **让 AI 帮你**：如果你的机器有特殊路径，直接在对话里告诉 AI「我的 Git 装在 `D:\Git`、仓库在 `D:\code\CNCF_Monitor-worktree`」，AI 会给出对应的环境变量命令——**不用生成整份脚本**。完整环境变量清单见 `setup.sh` 头部注释。
+
+### 2.4 国内网络：下载自动走镜像（`scripts/dl-windows.sh`）
 
 `make`/`Go`/`Node`/`WinLibs` 的二进制都要从外网下载，而国内网络常拦截 GitHub release 资源主机（`objects.githubusercontent.com`）或 `go.dev`/`nodejs.org`，表现为 `curl: (35) Recv failure` 或长时间超时。`scripts/dl-windows.sh` 是统一的镜像感知下载器，按 URL 主机自动选镜像，**无需你手动配置**：
 
@@ -121,13 +134,13 @@ make build-prometheus      # 应能成功编译出 upstream/prometheus/prometheu
 
 并自动复用系统/git 代理（`HTTPS_PROXY` / `HTTP_PROXY` / `git config http.proxy`）。若默认镜像仍不可用，可用环境变量 `GCC_MIRROR` 指定首选镜像。出错时脚本会逐个镜像重试，全部失败才报错退出。
 
-> **受限网络加速（实测必备）**：若你的运营商对**单连接**限速（本机实测 `ghproxy.net` 单连接仅 ~12–13KB/s，而 `ghproxy.com`/`mirror.ghproxy.com`/其他 github 代理均被 TLS 拦截或超时），换镜像无效。此时 `setup.sh` 与 Makefile 的 GCC 下载改为调用 **`scripts/dl-parallel-windows.sh`**。它做三件事：**① 真正按 HTTP Range 把文件切成 N 段**（每段只下自己那一份，绝不会每段都下整文件）；**② 断点续传**（某段因超时/断流失败，下次只续传"还没下到的部分"，进度不丢）；**③ 503/429 自动退避 5 秒重试**。`DL_PARALLEL` 或第 3 参数控制并发（**默认 4**，并发越多越容易把免费公共镜像打爆致 503，建议 2~4）。可用 `DL_MAX_TIME`（单分片单次超时秒数，默认 1800）和 `DL_RETRY`（单分片最大尝试次数，默认 30，含续传）微调。若手动下载，推荐走 **方法一（直接解压到 `.tools/gcc`，见 2.4，已验证）**；若坚持用 `_gcc_make.zip` + `DL_SKIP_EXISTING` 让脚本解压（方法二，见 2.5），注意它**仅在 `make` 未安装时**才会跳过重下（详见 2.5「前提」），且文件必须**完整**否则脚本会沿用损坏文件。
+> **受限网络加速（实测必备）**：若你的运营商对**单连接**限速（本机实测 `ghproxy.net` 单连接仅 ~12–13KB/s，而 `ghproxy.com`/`mirror.ghproxy.com`/其他 github 代理均被 TLS 拦截或超时），换镜像无效。此时 `setup.sh` 与 Makefile 的 GCC 下载改为调用 **`scripts/dl-parallel-windows.sh`**。它做三件事：**① 真正按 HTTP Range 把文件切成 N 段**（每段只下自己那一份，绝不会每段都下整文件）；**② 断点续传**（某段因超时/断流失败，下次只续传"还没下到的部分"，进度不丢）；**③ 503/429 自动退避 5 秒重试**。`DL_PARALLEL` 或第 3 参数控制并发（**默认 4**，并发越多越容易把免费公共镜像打爆致 503，建议 2~4）。可用 `DL_MAX_TIME`（单分片单次超时秒数，默认 1800）和 `DL_RETRY`（单分片最大尝试次数，默认 30，含续传）微调。若手动下载，推荐走 **方法一（直接解压到 `.tools/gcc`，见 2.5，已验证）**；若坚持用 `_gcc_make.zip` + `DL_SKIP_EXISTING` 让脚本解压（方法二，见 2.6），注意它**仅在 `make` 未安装时**才会跳过重下（详见 2.6「前提」），且文件必须**完整**否则脚本会沿用损坏文件。
 
-#### 2.4 方法一（推荐·已验证）：手动解压到 `.tools/gcc`
+#### 2.5 方法一（推荐·已验证）：手动解压到 `.tools/gcc`
 
 > ✅ **已验证**：2026-08-10 用户在本机（Git 装在 `G:\Git`、无 `mingw32-make`）用此方法成功装上 gcc，`.tools/gcc/bin/gcc.exe` 就位；`setup.sh` 与 `make install-tools` 均正确复用、不再重复下载。推荐作为首选。
 
-**为什么推荐它**：它把 `gcc.exe` 直接摆到 `setup.sh` 和 `make install-tools`→`install-gcc` **两处都会检测的位置**（`.tools/gcc/bin/gcc.exe`），因此**不依赖 `make` 是否已安装**，对团队任何成员的机器都稳。相比之下，方法二只在「`make` 未安装」这一特定场景下才复用手动包（详见 2.5）。
+**为什么推荐它**：它把 `gcc.exe` 直接摆到 `setup.sh` 和 `make install-tools`→`install-gcc` **两处都会检测的位置**（`.tools/gcc/bin/gcc.exe`），因此**不依赖 `make` 是否已安装**，对团队任何成员的机器都稳。相比之下，方法二只在「`make` 未安装」这一特定场景下才复用手动包（详见 2.6）。
 
 **操作步骤**（在 Git Bash 中执行；把 zip 路径换成你迅雷/aria2 实际下载到的位置，且必须是**下载完成的 `.zip`，不是迅雷的 `.xltd` 临时文件**）：
 
@@ -159,7 +172,7 @@ bash setup.sh
 
 > 若只想要分步控制，可改用 `make install-tools`（gcc 会被跳过）后继续第 4~8 节。
 
-#### 2.5 方法二（备选·有前提）：`_gcc_make.zip` + `DL_SKIP_EXISTING`
+#### 2.6 方法二（备选·有前提）：`_gcc_make.zip` + `DL_SKIP_EXISTING`
 
 > ⚠️ **前提（务必先读）**：方法二只有在**当前环境 `make` 未安装**时才复用手动包。原理是 `setup.sh` 仅在 `command -v make` 失败时进入「下载 WinLibs 顺带取 mingw32-make」分支，该分支才会读取 `.tools/_gcc_make.zip` 并尊重 `DL_SKIP_EXISTING`。若你的 Git 自带 `mingw32-make`（或已装 `make`），`setup.sh` 会跳过该分支，`make install-tools`→`install-gcc` 会**重新把 gcc 下载到 `/tmp/gcc.zip`**，你手动下的包被忽略。因此方法二更适合「像本机这样 `make` 缺失」的机器；通用场景请优先用 2.4 的方法一。
 
