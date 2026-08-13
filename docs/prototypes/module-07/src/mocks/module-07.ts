@@ -1,6 +1,6 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.6（Module_07_Monitoring_Object_Management.md）
+// 对齐 PRD v2.7（Module_07_Monitoring_Object_Management.md）
 // ============================================================
 
 // ---------- 基础枚举 ----------
@@ -611,6 +611,37 @@ export const mockLabelTemplates: LabelTemplate[] = [
     updated_at: '2026-07-20 10:30:00',
   },
 ]
+
+// ---------- 模板被引用 Job（PRD 6.3 {v2.7}，策略层消费方只读展示） ----------
+// 引用关系由 Module_01 ScrapeJob.label_template_id 派生；本模块只读展示「被引用采集 Job N 个」
+export interface TemplateReferencingJob {
+  job_id: string
+  job_name: string
+  network_domain_id: string
+  enabled: boolean
+  /** 模板变更后的确认状态：pending = 模板已变更、待确认（v0.2+ 与 Module_09 变更单联动，MVP 演示「已变更」）；confirmed = 已确认 */
+  change_status: 'pending' | 'confirmed'
+}
+
+// mock：演示「主机默认模板」刚被修改（引用 Job 显示待确认），其余模板已确认
+export const mockTemplateReferencingJobs: TemplateReferencingJob[] = [
+  { job_id: 'job-node-prod', job_name: 'prod-node-exporter', network_domain_id: 'default', enabled: true, change_status: 'pending' },
+  { job_id: 'job-node-test', job_name: 'test-node-exporter', network_domain_id: 'gov-cloud-a', enabled: true, change_status: 'pending' },
+  { job_id: 'job-redis-prod', job_name: 'prod-redis-exporter', network_domain_id: 'default', enabled: true, change_status: 'confirmed' },
+  { job_id: 'job-kafka-prod', job_name: 'prod-kafka-exporter', network_domain_id: 'default', enabled: false, change_status: 'confirmed' },
+  { job_id: 'job-redis-ha', job_name: 'prod-redis-ha-sentinel', network_domain_id: 'default', enabled: true, change_status: 'confirmed' },
+  { job_id: 'job-app-order', job_name: 'prod-order-app', network_domain_id: 'default', enabled: true, change_status: 'confirmed' },
+  { job_id: 'job-snmp-gov', job_name: 'gov-snmp-core', network_domain_id: 'gov-cloud-a', enabled: true, change_status: 'confirmed' },
+]
+
+/** 模板 → 引用 Job 的关联（按 template_id 索引，派生自 Module_01 策略层） */
+export const TEMPLATE_REFERENCING_JOBS: Record<string, TemplateReferencingJob[]> = {
+  'tpl-host-default': mockTemplateReferencingJobs.filter((j) => j.job_id.startsWith('job-node')),
+  'tpl-mw-default': mockTemplateReferencingJobs.filter((j) => ['job-redis-prod', 'job-kafka-prod'].includes(j.job_id)),
+  'tpl-mw-redis-ha': mockTemplateReferencingJobs.filter((j) => j.job_id === 'job-redis-ha'),
+  'tpl-app-default': mockTemplateReferencingJobs.filter((j) => j.job_id === 'job-app-order'),
+  'tpl-gen-default': mockTemplateReferencingJobs.filter((j) => j.job_id === 'job-snmp-gov'),
+}
 
 // ---------- mock 导入记录（PRD 7.3） ----------
 export const mockImportHistory: ImportHistory[] = [

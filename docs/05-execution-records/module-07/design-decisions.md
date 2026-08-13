@@ -804,6 +804,47 @@ system 标签（由标签模板自动生成）：
 
 ---
 
+## 补充对齐：2026-08-13（第十一轮 模板变更影响闭环）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户提出①标签模板每次变更的内容用户在 UI 看不出，需要让用户知道要去 Module_09 做配置变更确认；②Module_01 ci-exporter 映射的「标签选择」应提示"CI 新增时创建新模板、已有 CI 时直接选择模板"。经 AskUserQuestion 确认三项决策后落地（本文件为问题 ① 决策，问题 ② 见 Module_01 决策 38）。
+
+### 关键决策
+
+#### 决策 3.44：模板变更影响反馈 + 被引用 Job 展示（MVP/v0.2+ 双层标注）
+
+- **问题**：模板变更穿透引用它的 Job（Module_07 5.3 契约已写明），但用户在 Module_07 保存模板后零反馈——看不到影响哪些采集任务、不知道要去 Module_09 配置中心确认发布；且 M09 配置变更确认 UI 为 v0.2+ 能力（3.4 {v0.2+}），MVP 阶段改模板即重新生成 + reload 直接生效、无确认环节。
+- **结论**（用户确认「PRD 双层标注 + MVP 先做影响提示」「新增被引用 Tab」）：
+  1. **保存后影响提示**：模板/映射保存成功时反馈「本模板被 N 个采集 Job 引用（M 个网域），将按新映射重新生成标签」+「查看引用 Job」入口；生效语义按版本区分——**MVP = 重新生成配置并立即生效**（无 M09 跳转），**v0.2+ = 前往配置中心确认后生效**（跳转 Module_09 变更确认页）；
+  2. **被引用 Job 展示**：模板详情右栏 Tab 化扩展为三 Tab（映射明细 / 关联实例 / **被引用采集 Job**），展示 Job 名/网域/启用状态/变更状态；模板修改后引用 Job 显示「模板已变更，待确认」badge（v0.2+ 与 M09 变更单联动，MVP 显示「已变更」）；左栏模板卡片同步增加被引用数 badge；
+  3. **接口补充**：`GET /label-templates/{template_id}/jobs`（被引用 Job 查询，变更状态由 M09 变更单派生）；
+  4. **跨模块词汇**：术语映射补充「配置变更确认 / 变更单」（ConfigDraft / change_no，跨模块词汇，与 Module_09 对齐）。
+- **依据**：心智模型差异识别（四问②系统隐含行为显性化：模板变更穿透 Job、需人工确认、pull 轮询延迟；④规则层 vs 策略层/发布层显性化：模板→Job→配置三级链路）；用户选择「PRD 双层标注 + MVP 先做影响提示」。
+- **影响范围**：Module_07 PRD 3.2 / 5.3 / 6.3 / 12.1 / 术语映射 / Change Log（v2.7）；Module_09 PRD 3.4 变更摘要补充标签模板话术（v1.25）；M07 原型 LabelTemplatesPage / mock / README / test（v2.3）。
+
+### 已确认项（2026-08-13 第十一轮）
+
+- [x] PRD 双层标注 + MVP 先做影响提示（用户确认）。
+- [x] M07 模板详情新增「被引用 Job」Tab（用户确认）。
+- [x] 下拉严格同类型过滤（用户确认，对应 M01 决策 38）。
+- [x] M07 原型落地：被引用 Job Tab + 保存影响提示 + 左栏 badge + mock 引用数据（tpl-host-default 演示「待确认」）；M01 原型落地：标签选择两情形（见 Module_01 决策 38）。
+- [x] M09 PRD 3.4 变更摘要补「标签模板变更话术」示例与风险等级建议（v1.25）。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 两段评审（用户走查 + 技术核对）随原型验证一并执行。
+- [ ] v0.2+「前往配置中心确认」跳转待 M09 变更确认 UI 落地时启用（本轮 MVP 原型以文案提示 + 评审折叠区说明承载）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.7）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.3）
+- `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.25）
+- `docs/prototypes/module-07/`（v2.3）
+
+---
+
 ## Change Log（完整历史）
 
 > v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.3 及以前的逐版完整变更详情（业务沟通决策记录）。

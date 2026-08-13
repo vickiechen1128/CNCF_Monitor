@@ -42,6 +42,7 @@ import type {
   CiType,
   Scheme,
   CITypeExporterMapping,
+  LabelTemplate,
   ResourceCategory,
 } from '../mocks/module-01'
 
@@ -55,6 +56,8 @@ export default function CiExporterMappingPage() {
   const [mappings, setMappings] = useState<CITypeExporterMapping[]>(() => [
     ...mockCITypeExporterMappings,
   ])
+  // {v3.3} 标签模板列表改为 state 承载：创建引导新建的模板即时进入选择器与列表
+  const [labelTemplates, setLabelTemplates] = useState<LabelTemplate[]>(mockLabelTemplates)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<CITypeExporterMapping | null>(null)
   const [form] = Form.useForm()
@@ -68,9 +71,18 @@ export default function CiExporterMappingPage() {
 
   const watchResourceCategory = Form.useWatch('resource_category', form)
   const watchedLabelTemplateId = Form.useWatch('label_template_id', form)
+  // {v3.3} 当前选择的 CI 类型（细粒度），用于「标签模板」按类型过滤
+  const watchResourceType = Form.useWatch('resource_type', form)
   const categoryCiTypes = (watchResourceCategory as ResourceCategory | undefined)
     ? CI_TYPES_BY_CATEGORY[watchResourceCategory as ResourceCategory]
     : []
+
+  // {v3.3} 标签模板严格按 CI 类型过滤：仅展示与当前 CI 类型同资源类别的模板（与「更换=同资源类型其他模板」一致）
+  const sameCategoryTemplates = useMemo(() => {
+    const category = watchResourceType ? CI_TYPE_CATEGORY_MAP[watchResourceType as CiType] : watchResourceCategory
+    if (!category) return []
+    return labelTemplates.filter((t) => t.resource_category === category)
+  }, [watchResourceType, watchResourceCategory, labelTemplates])
 
   const templateMap = useMemo(() => {
     const map = new Map<string, (typeof mockExporterTemplates)[number]>()
@@ -86,15 +98,24 @@ export default function CiExporterMappingPage() {
 
   const labelNameMap = useMemo(() => {
     const map = new Map<string, string>()
-    mockLabelTemplates.forEach((t) => map.set(t.template_id, t.name))
+    labelTemplates.forEach((t) => map.set(t.template_id, t.name))
     return map
-  }, [])
+  }, [labelTemplates])
 
   // 当前表单选中的标签模板（用于只读预览映射内容，模板由 Module_07 维护）
   const selectedLabelTemplate = useMemo(
-    () => mockLabelTemplates.find((t) => t.template_id === watchedLabelTemplateId) ?? null,
-    [watchedLabelTemplateId]
+    () => labelTemplates.find((t) => t.template_id === watchedLabelTemplateId) ?? null,
+    [watchedLabelTemplateId, labelTemplates]
   )
+
+  // {v3.3} 标签模板字段提示：区分「已有 CI 直接选择」与「新增 CI 需创建」两情形
+  const labelTemplateExtra = useMemo(() => {
+    if (!watchResourceType) return '选择 CI 类型后，此处仅展示同类型的标签模板；模板由 Module_07 维护，创建 Job 时自动继承'
+    if (sameCategoryTemplates.length > 0) {
+      return `该 CI 类型已有 ${sameCategoryTemplates.length} 个标签模板，直接选择即可（已自动关联默认模板，可更换）；标签内容编辑唯一入口在 Module_07`
+    }
+    return '该 CI 类型为新类型，尚无标签模板；创建后采集 Job 将自动继承'
+  }, [watchResourceType, sameCategoryTemplates.length])
 
   // 列表列点击模板名打开的只读预览抽屉
   const [previewTemplate, setPreviewTemplate] = useState<(typeof mockLabelTemplates)[number] | null>(null)
@@ -168,21 +189,33 @@ export default function CiExporterMappingPage() {
   const handleCiTypeChange = (ciType: CiType) => {
     const existingMapping = mappings.find((m) => m.resource_type === ciType)
     const hasTemplate = existingMapping?.has_label_template ?? false
+    if (hasTemplate && existingMapping?.label_template_id) {
+      // {v3.3} 已有 CI：自动预填该类型的默认标签模板（已有 CI 直接选择模板，无需重复创建）
+      form.setFieldsValue({ label_template_id: existingMapping.label_template_id })
+      return
+    }
+    form.setFieldsValue({ label_template_id: undefined })
     if (!hasTemplate && !editingMapping) {
-      // 无标签模板，弹出创建引导
+      // 无标签模板（新增 CI 类型），弹出创建引导
       setLabelGuideCiType(ciType)
       setLabelGuideCategory(CI_TYPE_CATEGORY_MAP[ciType] as ResourceCategory)
       setShowLabelGuide(true)
     }
   }
 
-  // {v3.1} 打开标签模板创建抽屉（预填 CI 类型和资源类别）
+  // {v3.1} 打开标签模板创建抽屉（预填 CI 类型和资源类别）；{v3.3} 支持从当前表单兜底取 CI 类型（选择器空态入口）
   const openLabelCreateDrawer = () => {
     setShowLabelGuide(false)
+    const ciType = labelGuideCiType ?? (form.getFieldValue('resource_type') as CiType | undefined)
+    const category = labelGuideCategory ?? (ciType ? (CI_TYPE_CATEGORY_MAP[ciType] as ResourceCategory) : undefined)
+    if (!ciType || !category) {
+      message.warning('请先选择 CI 类型')
+      return
+    }
     labelCreateForm.setFieldsValue({
-      name: `${CI_TYPE_LABEL[labelGuideCiType!]}默认标签模板`,
-      resource_category: labelGuideCategory,
-      resource_type: labelGuideCiType,
+      name: `${CI_TYPE_LABEL[ciType]}默认标签模板`,
+      resource_category: category,
+      resource_type: ciType,
     })
     setLabelCreateOpen(true)
   }
@@ -191,7 +224,7 @@ export default function CiExporterMappingPage() {
   const handleLabelCreateSave = () => {
     labelCreateForm.validateFields().then((values) => {
       // 模拟创建标签模板
-      const newTemplate = {
+      const newTemplate: LabelTemplate = {
         template_id: `lt-${Date.now()}`,
         name: values.name as string,
         resource_category: values.resource_category as ResourceCategory,
@@ -202,6 +235,8 @@ export default function CiExporterMappingPage() {
           { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
         ],
       }
+      // {v3.3} 新模板进入选择器列表（同类别模板即时可见）
+      setLabelTemplates((prev) => [...prev, newTemplate])
       // 更新映射的 has_label_template
       setMappings((prev) =>
         prev.map((m) =>
@@ -342,7 +377,7 @@ export default function CiExporterMappingPage() {
           )
         }
         if (!value) return '-'
-        const tpl = mockLabelTemplates.find((t) => t.template_id === value)
+        const tpl = labelTemplates.find((t) => t.template_id === value)
         return (
           <div
             onClick={(e) => {
@@ -611,16 +646,37 @@ export default function CiExporterMappingPage() {
           <Form.Item
             label="标签模板"
             name="label_template_id"
-            extra={
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                由 Module_07 维护；创建 Job 时自动继承，可换用其他模板（引用级）；标签内容编辑唯一入口在 Module_07
-              </Text>
-            }
+            extra={<Text type="secondary" style={{ fontSize: 12 }}>{labelTemplateExtra}</Text>}
           >
-            <Select placeholder="请选择" allowClear showSearch optionFilterProp="children">
-              {mockLabelTemplates.map((t) => (
+            <Select
+              placeholder="请选择"
+              allowClear
+              showSearch
+              optionFilterProp="children"
+              notFoundContent={
+                watchResourceType ? (
+                  // {v3.3} 无模板空态：新增 CI 类型引导创建（复用创建抽屉）
+                  <Space direction="vertical" size={6} style={{ padding: '8px 4px', textAlign: 'center' }}>
+                    <Text style={{ fontSize: 13 }}>该 CI 类型尚无标签模板，请先创建</Text>
+                    <Button size="small" type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={openLabelCreateDrawer}>
+                      创建标签模板
+                    </Button>
+                  </Space>
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 13 }}>请先选择 CI 类型</Text>
+                )
+              }
+            >
+              {/* {v3.3} 严格按 CI 类型过滤：仅同类型模板；默认模板带「默认」标记 */}
+              {sameCategoryTemplates.map((t) => (
                 <Option key={t.template_id} value={t.template_id}>
-                  {t.name}（{RESOURCE_CATEGORY_MAP[t.resource_category]} / {t.template_id}）
+                  <Space size={4}>
+                    {t.name}
+                    {t.is_default && <Tag color="gold">默认</Tag>}
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      （{RESOURCE_CATEGORY_MAP[t.resource_category]} / {t.template_id}）
+                    </Text>
+                  </Space>
                 </Option>
               ))}
             </Select>
@@ -696,9 +752,9 @@ export default function CiExporterMappingPage() {
         )}
       </Drawer>
 
-      {/* {v3.1} 标签模板创建引导 Modal：首次选择 CI 类型时检测到无标签模板则弹出 */}
+      {/* {v3.1} / {v3.3} 标签模板创建引导 Modal：新增 CI 类型（尚无模板）时弹出；文案强化「新增 CI 类型首次创建」语义 */}
       <Modal
-        title="为该 CI 类型创建标签模板？"
+        title="新增 CI 类型，尚未创建标签模板"
         open={showLabelGuide}
         onCancel={() => setShowLabelGuide(false)}
         footer={
@@ -717,14 +773,15 @@ export default function CiExporterMappingPage() {
             showIcon
             message={
               <Text style={{ fontSize: 13 }}>
-                系统检测到「{labelGuideCiType ? CI_TYPE_LABEL[labelGuideCiType] : ''}」类型尚未创建标签模板。
+                检测到新增 CI 类型「{labelGuideCiType ? CI_TYPE_LABEL[labelGuideCiType] : ''}」，尚未创建标签模板。
               </Text>
             }
           />
           <div>
             <Text style={{ fontSize: 13 }}>
               标签模板用于将平台资源字段（如 app_name / env / cluster）映射为 Prometheus 标签，是采集数据标签化的基础。
-              建议在首次引入 CI 类型时完成模板创建，后续创建采集 Job 时将自动继承。
+              建议在首次引入 CI 类型时完成模板创建；已有模板的 CI 类型直接选择模板即可，无需重复创建。
+              创建后后续创建采集 Job 时将自动继承。
             </Text>
           </div>
           <div>
