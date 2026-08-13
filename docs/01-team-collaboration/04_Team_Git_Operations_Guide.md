@@ -2,7 +2,7 @@
 
 > 文档类型：团队协作规范  
 > **目标读者**：chenrt（设计分支/合并操作）、zhangwq（功能分支/日常开发）、guixm / zhaohy（只读 Review，§7）  
-> 更新日期：2026-07-23（v1.25 去重：worktree 初始化指向 06 Gitflow §5，流程 mermaid 指向 orchestrator）
+> 更新日期：2026-08-13（v1.27 新增：版本号速查 §2.2、功能分支冻结基线 §6.2/6.5、版本化迭代 §6.6）
 
 ---
 
@@ -33,6 +33,20 @@
 | `hotfix/*` | `main` | `main` + `develop` | zhangwq | chenrt | 紧急修复 |
 
 > **所有合并到 `develop` / `main` 的操作必须由 chenrt 在主仓库执行 `--no-ff`。**
+
+### 2.2 版本号速查（v1.27）
+
+仓库内 4 种"版本"分层使用，禁止混用（详见 06 Gitflow §2.5）：
+
+| 层级 | 示例 | 谁维护 | 要点 |
+|------|------|--------|------|
+| 产品版本（路线图） | MVP / v0.2 / v0.3 / v0.4 / v1.0 | chenrt | 全局唯一，以 Module_00 集成图为准 |
+| PRD 修订版本 | v1.0 → v1.1 → … | chenrt（design 分支） | 每轮需求对齐 +1，与 PR 编号对应 |
+| 原型版本 | 与 PRD 修订版本一致 | chenrt（design 分支） | 必须与 PRD 修订版本保持一致 |
+| 发布 tag | v0.1.0 | chenrt | 仅发布时打在 `main`，开发阶段不启用 |
+
+- 每个模块 PRD 头部必带**修订表**（版本/日期/变更类型/变更内容/影响范围/产品版本影响/状态）。
+- **已冻结**版本 = zhangwq 开发与回退的基线；冻结行只增不改，需求变更一律新增行。
 
 ---
 
@@ -110,6 +124,8 @@ git push origin design/module-XX
 2. Reviewer 指定 guixm、zhaohy
 3. 合并前必须获得 guixm 和 zhaohy 的 Approve
 
+> **多轮迭代约定（v1.26）**：`design/module-XX` 允许跨多轮需求迭代（如第十一轮、第十二轮…），chenrt 持续在分支上提交并推送，每轮评审通过后合并到 `develop`。已合并的 PR 无法继续推送新提交，**每轮迭代后重新发起新 PR**（PR 编号递增，如 #12 → #24）。PR 标题或描述建议标注迭代轮次（如"第 N 轮需求对齐"），便于后续对照 PRD 版本。合并方式见 §5.5，与单轮 PR 完全一致。
+
 ### 5.5 合并到 develop
 
 ```bash
@@ -136,6 +152,8 @@ git checkout -b feat/module-XX
 ```
 
 ### 6.2 开发生产代码
+
+**开发前确认冻结基线**（v1.27）：在 PRD 头部确认「PRD 状态 = 已冻结」，并记录所依据的「PRD 版本 + PR 编号」到执行记录（`docs/05-execution-records/module-XX/<agent>.md`），作为后续回退依据。
 
 只允许修改以下目录：
 
@@ -166,6 +184,7 @@ git push origin feat/module-XX
 2. PR 描述必须包含：
    - 来源设计分支：`design/module-XX`
    - 来源 PRD：`docs/02-product-requirements/Modules/Module_XX_*.md`
+   - **依据的 PRD 版本 + PR 编号**（冻结基线，v1.27）
    - 来源原型：`docs/prototypes/module-XX/`
    - 测试结果（go test / go vet / pnpm test / pnpm lint）
    - 服务验证结果
@@ -189,6 +208,29 @@ git push origin feat/module-XX
 ```
 
 推送后预览链接会自动更新，验收方再次查看即可。
+
+### 6.6 开发中需求不对齐：版本化迭代（v1.27）
+
+feat 开发中发现需求与 PRD 不对齐时，**默认不中途修改**：
+
+1. 记录问题清单到执行记录，继续按已冻结 PRD 收尾当前版本；
+2. chenrt 在下一轮 design 迭代中修正需求（新 PR、PRD 版本 +1），合并到 develop；
+3. zhangwq 基于最新 develop 开新的 feat 分支承接新需求——全程无需 rebase。
+
+> 只有"必须中途改需求"的紧急情况才走 06 Gitflow §6.2 / Q5 的重建或 rebase 路径。
+
+### 6.7 回退操作速查（v1.27）
+
+```bash
+# 回退到开发时依据的冻结基线（对照 PRD + 原型）
+# 1. 在 PRD 修订表找冻结版本行，记下 PR 编号
+# 2. 定位该轮 merge commit
+git log --oneline --merges origin/develop | grep "#<PR编号>"
+# 3. 检出该基线对照（只读）
+git checkout <merge-commit-hash> -- docs/02-product-requirements/Modules/Module_XX_*.md docs/prototypes/module-XX/
+```
+
+当前 feat 分支整体不可接受时，按 §10 放弃重建（`git branch -D` + 从 `origin/develop` 重建）。
 
 ---
 

@@ -43,6 +43,7 @@
 - 只有状态为 **ready** 的 PRD，才能触发 plan-maintainer 派生 Implementation Plan。
 - 状态为 **frozen** 的 PRD，修改必须走变更请求（CR）流程。
 - 状态为 **draft** 或 **prototyping** 的 PRD，prototype-designer 可以自由修改。
+- **版本对齐（v1.26）**：PRD 版本与原型版本随迭代轮次递增（每轮 +1），与 design PR 编号一一对应；修订表已「冻结」行只增不改，变更一律新增行（见 06 Gitflow §2.5）。
 
 ---
 
@@ -75,7 +76,7 @@ git branch --show-current # 必须是 design/module-XX
 - `docs/02-product-requirements/01_User_Stories.md`（**全局用户故事库**：用户任务的权威来源，模块 PRD 只引用编码）
 - `docs/02-product-requirements/02_Product_Roadmap.md`
 - `docs/02-product-requirements/03_Functional_Architecture.md`
-- `docs/02-product-requirements/Modules/README.md`
+- `docs/02-product-requirements/Modules/README.md`（**模块目录与版本对齐总表，必读**：确认当前模块 PRD/原型版本对齐状态，迭代后需同步本表对应行）
 - `docs/02-product-requirements/Modules/Module_XX_*.md`（当前模块 PRD，无论是草案还是已有版本）
 - `docs/03-engineering-standards/02_Frontend_Standard.md`
 - `docs/05-execution-records/module-XX/design-decisions.md`（如已存在）
@@ -447,11 +448,21 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 
 ## 如果原型过程中发现 PRD 需要调整
 
+分两种场景（v1.26）：
+
+**场景 A：feat/module-XX 尚未创建**
+
 1. 直接在当前的 `design/module-XX` 分支上修改 PRD / 原型
-2. **同步更新 Change Log**
-3. 重新运行原型验证流程
-4. 重新 push，`design/module-XX → develop` 的 PR 会自动更新
-5. 待 guixm、zhaohy review 通过后，由 chenrt 合并到 `develop`
+2. 修订表**新增一行**（版本 +1，状态保持 prototyping / ready），**不改写已冻结行**
+3. **同步更新 Change Log**
+4. 重新运行原型验证流程
+5. 重新 push，`design/module-XX → develop` 的 PR 会自动更新
+6. 待 guixm、zhaohy review 通过后，由 chenrt 合并到 `develop`
+
+**场景 B：feat/module-XX 已在开发中**
+
+- **冻结期提交门禁（默认，推荐）**：PRD 处于冻结期——**构思可以继续，但禁止提交**。下一轮需求以草稿形式记录到 `docs/05-execution-records/module-XX/design-decisions.md`「下一轮迭代待办」，**不 commit / 不 push / 不发起新 PR**；当前版本按已冻结 PRD 收尾，待 feat 合并到 develop 后由 chenrt 解锁（修订表新增下一轮行），再恢复提交——全程无需 rebase。
+- **必须中途改（紧急）**：走变更请求（CR）流程；重新走 design 流程合并后，zhangwq 基于新的 develop commit 重建或 rebase `feat/module-XX`（重写历史、可能返工，需 chenrt 确认）。
 
 ---
 
@@ -481,3 +492,4 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 15. PRD 状态变更确认记录：用户是否同意将 PRD 推进到 `ready`，以及确认时间/方式
 16. 执行记录路径：`docs/05-execution-records/module-XX/prototype-designer.md`
 17. 已知问题或下一步建议
+18. **版本对齐表同步确认（v1.26）**：`docs/02-product-requirements/Modules/README.md` 中当前模块行已更新（PRD 版本 / 原型版本 / 对齐 / 状态）
