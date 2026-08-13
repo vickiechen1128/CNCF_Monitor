@@ -47,7 +47,7 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 | 模块 | MVP | v0.2 | v0.3 | v0.4 | v1.0 |
 |------|-----|------|------|------|------|
 | **Module_07 监控对象管理** | 四类资源 CRUD；Excel 导入；状态映射；标签模板；`ResourceLabel` 体系；`is_monitored` badge | - | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源 | CMDB-ITIL/ITSM 映射 |
-| **Module_01 监控策略与指标管理** | CI↔Exporter 模板绑定；ScrapeJob；实例选择；Blackbox 拨测；规则编辑 UI；静态指标库 | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」） | - | - | Recording Rules；指标库管理增强 |
+| **Module_01 监控策略与指标管理** | CI↔Exporter 模板绑定；ScrapeJob；实例选择；Blackbox 拨测；静态指标库 | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」） | 规则编辑 UI（类 YAML 表单 + PromQL 校验/实时预览，依赖 Module_02 validate/preview） | - | Recording Rules；指标库管理增强 |
 | **Module_09 网域与边缘配置中心** | 默认网域 `default`；单/多网域模式切换；配置生成/预览/Diff/下发；`external_labels` 注入 | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数 | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
 | **Module_02 查询中心** | PromQL 查询代理；目标状态展示；响应 envelope | 租户/网域上下文注入 | 告警状态代理；查询辅助；首页 Dashboard 数据 | - | - |
 | **Module_08 告警规则管理** | - | - | 规则分组；静默管理；Alertmanager 配置生成 | - | 完整告警规则 UI；通知渠道；边缘本地告警状态展示 |
@@ -261,6 +261,7 @@ Phase 8: 企业级能力（v1.0）
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 |
 |------|------|----------|----------|----------|
+| v1.3 | 2026-08-13 | 修改 | §1.5 功能-版本矩阵修正 Module_01 行：规则编辑 UI 由 MVP 移至 v0.3（与 Module_01 PRD v2.2 及 2.4「MVP 不做告警规则编辑 UI」对齐，补上 v0.3 列缺口） | 功能-版本矩阵 |
 | v1.2 | 2026-08-04 | 修改 | Module_01 v0.2 增加网域级覆盖表 `CITypeExporterMappingOverride` 与参数继承/同步能力（决策 13/14），产品版本覆盖由 MVP/v0.3/v1.0 扩展为 MVP/v0.2/v0.3/v1.0 | 功能-版本矩阵、Module_01 里程碑 |
 | v1.1 | 2026-08-03 | 修改 | 增加 0. 版本分层定义；新增 1.5 功能-版本矩阵；将多网域/集成模式开关从 `feature_flags.*` 调整为 `Tenant.*`；统一「单网域模式」表述 | 全文档、模块 PRD 模板 |
 | v1.0 | 2026-07-31 | 初始 | 产品路线图初始版本 | 全部 |

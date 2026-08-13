@@ -90,7 +90,8 @@ git diff --stat
 
 - **必须小写**，禁止 emoji，禁止无意义描述如 "update"、"fix bug"。
 - `feat` / `fix` 提交**必须**关联 `docs/05-execution-records/module-XX/<agent>.md`。
-- `design` 提交**建议**说明 PRD 与原型路径。
+- `design` 提交**建议**说明 PRD 与原型路径，并标注迭代轮次与 PRD 版本（如"第十一轮需求对齐，PRD v1.11"）。
+- 修改 PRD 的提交**必须**同步更新 PRD 修订表（新增一行、版本 +1、不改写已冻结行），见 06 Gitflow §2.5。
 
 ## 提交前验证清单
 
@@ -152,7 +153,7 @@ pnpm lint
 3. **变更读取**：`git status --short` 和 `git diff --stat`。
 4. **分支命名检查**：是否符合 `design/module-XX`、`feat/module-XX`、`fix/module-XX` 等规则。
 5. **目录权限检查**：变更文件是否落在当前分支允许修改的目录内。
-6. **Commit message 检查**：用户提供 message 后，验证格式、类型、scope、关联执行记录。
+6. **Commit message 检查**：用户提供 message 后，验证格式、类型、scope、关联执行记录；若变更涉及 PRD/原型，检查 PRD 修订表是否同步更新（新增行、版本递增、未改写已冻结行）。
 7. **验证检查**：根据变更范围，确认用户已运行并通过了相应测试/验证。
    - 若用户未提供验证结果，要求运行上述命令并返回输出。
    - 对前端/原型项目，可主动运行 `curl -sf http://localhost:5173/` 确认无异常跳转。
@@ -172,6 +173,9 @@ pnpm lint
 7. 提交前验证未执行或失败。
 8. 变更范围混入了其他模块或无关文件。
 9. 用户要求直接执行合并到 `develop` / `main` 的操作。
+10. PRD/原型变更未同步更新修订表，或改写了已「冻结」的版本行（06 Gitflow §2.5）。
+11. PRD 版本递增 / 原型版本变更后，未同步更新 `docs/02-product-requirements/Modules/README.md` 版本对齐表对应行。
+12. 模块 PRD 处于**冻结期**（修订表最新状态为「已冻结」）时，design 分支仍提交该模块 PRD / 原型版本变更（06 Gitflow §2.5 冻结期提交门禁；构思请写入 `design-decisions.md`「下一轮迭代待办」，不 commit / 不 push / 不发新 PR）。
 
 ## 输出模板
 

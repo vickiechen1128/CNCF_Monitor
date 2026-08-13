@@ -3,7 +3,7 @@
 > 文档类型：工程标准  
 > **目标读者**：技术架构师（分支模型设计）、chenrt（合并 / 回退操作执行人）、zhangwq（分支创建 / 合并申请）  
 > 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)  
-> 更新日期：2026-07-23（v1.25 去重）
+> 更新日期：2026-08-13（v1.26 新增：版本管理约定 §2.5、开发基线回退 §6.5、Q5 版本化迭代路径）
 
 ---
 
@@ -43,12 +43,14 @@
   - `docs/prototypes/module-XX/`（AI 生成的可点击原型代码）
 - 原型代码**严禁合并到 `platform/` 或 `ui-custom/web/`**。
 - `design/module-XX` 合并到 `develop` 后，该模块 PRD + 原型即冻结，成为开发 AI 的输入源。
-- 如 PRD 在开发期间变更，必须重新走 `design/module-XX` 流程，zhangwq 基于新的 develop commit 重建或 rebase `feat/module-XX`。
+- 如 PRD 在开发期间变更，默认走**版本化迭代**：当前 feat 版本按已冻结 PRD 收尾合并后，design 分支再迭代新需求（见 §2.5 与 Q5）；只有必须中途改需求的紧急情况，才重建或 rebase `feat/module-XX`。
+- **多轮迭代**：`design/module-XX` 支持跨多轮需求迭代（如第十一轮、第十二轮…），每轮评审合并后重新发起新 PR（编号递增），PR 标注迭代轮次（如"第 N 轮需求对齐"）。PRD 版本、原型版本随轮次递增（每轮 +1），与 PR 编号一一对应（见 §2.5）。
 
 ### 2.3 功能分支特殊规则
 
 - 一个 `feat/module-XX` 只实现一个模块。
 - 必须从 `develop` 最新状态切出，确保读取到已冻结的 PRD + 原型。
+- **开发前确认冻结基线**：在 PRD 头部确认「PRD 状态 = 已冻结」并记录所依据的「PRD 版本 + PR 编号」到执行记录；开发期间 PRD 变更默认不跟入（版本化迭代，见 Q5）。
 - 推送到远程后，GitHub Actions 自动部署预览环境。
 - 合并前必须完成：zhangwq Review + 提交前验证 + 产品经理/业务方预览验收。
 
@@ -66,6 +68,35 @@
 | Module 05 | `design/module-05` | `feat/module-05` | 前端门户集成 |
 
 > 模块可根据粒度进一步拆分，例如 `design/module-07a`、`feat/module-07a`，但需保持设计与实现分支一一对应。
+
+### 2.5 版本管理约定
+
+仓库内并存 4 种"版本"概念，必须**分层使用、禁止混用**：
+
+| 层级 | 命名示例 | 用途 | 管理要点 |
+|------|----------|------|----------|
+| 产品版本（路线图） | MVP / v0.2 / v0.3 / v0.4 / v1.0 | 功能落地的产品阶段 | 全局唯一，以 Module_00 集成图为准；各模块的「产品版本覆盖」需与之对齐 |
+| PRD 修订版本 | v1.0 → v1.1 → … | PRD 文档自身修订 | 每轮需求对齐递增（每轮 +1），与 design 迭代轮次、PR 编号一一对应 |
+| 原型版本 | 与 PRD 修订版本一致 | 原型项目版本 | 必须与 PRD 修订版本保持一致（prototype-designer 强制检查） |
+| 发布 tag | v0.1.0 | 对外发布基线 | 仅第一版发布时在 `main` 打（语义化版本）；开发阶段不启用 |
+
+**PRD 修订表模板**（每个模块 PRD 头部必带，统一列格式）：
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v1.1 | 2026-08-13 | 修改 | 标签口径统一（第十一轮） | 数据模型、标签模板 | MVP / v0.4 | 已冻结 |
+
+- **变更类型**：新增 / 修改 / 删除 / 回滚
+- **状态**：draft / prototyping / ready / 已冻结 / 已废弃
+- **已冻结**：该轮 review 合并到 `develop` 后由 chenrt 标记，成为 zhangwq 开发与回退的基线。
+- **冻结行只增不改**：修订表中已标记「已冻结」的版本行永不改写；需求变更一律**新增一行**，旧冻结版本保留作为开发基线。
+- **列格式说明**：全仓库统一列名为「版本 / 日期 / 变更类型 / 变更内容 / 产品版本影响 / 状态」；「影响范围」列为完整模板可选列——完整版保留该列（Module_00/02/03/04/05/06/08/10），精简记录版省略该列（Module_01/07/09，完整历史见 `docs/05-execution-records/module-XX/design-decisions.md`「Change Log（完整历史）」）。
+- **迭代追溯**：开发阶段不引入 git tag，追溯依靠「PRD 修订版本 + PR 编号 + 修订表冻结行」三者对应关系。
+- **跨模块对齐快照**：各模块 PRD/原型版本的当前状态与对齐情况见 `docs/02-product-requirements/Modules/README.md`（版本对齐总表，prototype-designer 迭代后同步、chenrt 标记冻结/合并后同步）。
+- **冻结期提交门禁（v1.26）**：模块 PRD 状态为「已冻结」（feat 分支已切出）至该 feat 版本合并到 `develop` 之间为**冻结期**。冻结期内：
+  - ✅ **允许**：产品经理本地构思、草稿编辑（不提交）；下一轮需求写入 `docs/05-execution-records/module-XX/design-decisions.md`「下一轮迭代待办」；
+  - ❌ **禁止**：commit / push 该模块 PRD / 原型版本变更；发起新的 design→develop PR；改写已冻结行（见上）。
+  - 🔓 **解锁**：当前 feat 版本合并到 `develop` 后，由 chenrt 在修订表新增下一轮行（状态 prototyping），恢复提交权限。
 
 ---
 
@@ -256,6 +287,22 @@ git reset --hard origin/main
 
 > 此操作会丢失 `develop` 上所有未合并到 `main` 的改动，仅在极端情况下使用。
 
+### 6.5 开发中回退到冻结基线（zhangwq 阅读）
+
+zhangwq 开发中需要确认或回退到"我开发时依据的 PRD 基线"时：
+
+```bash
+# 1. 在 PRD 修订表找到自己开发时依据的冻结版本行，记下「PRD 版本 + PR 编号」
+# 2. 定位该轮合并到 develop 的 merge commit
+git log --oneline --merges develop | grep "#<PR编号>"
+# 3. 需要时检出该基线（只读对照，不提交）
+git checkout <merge-commit-hash> -- docs/02-product-requirements/Modules/Module_XX_*.md docs/prototypes/module-XX/
+# 4. 对照完毕后可丢弃工作区改动
+git checkout -- docs/02-product-requirements/Modules/Module_XX_*.md docs/prototypes/module-XX/
+```
+
+> 若当前 feat 分支整体不可接受，走 §6.1 丢弃重建；若必须中途对接新 PRD 基线，走 Q5 的 rebase/重建路径（重写历史、可能返工，谨慎使用）。
+
 ---
 
 ## 7. 合并审批规则
@@ -263,9 +310,10 @@ git reset --hard origin/main
 ### 7.1 design/module-XX 合并条件
 
 1. PRD 和原型代码已按目录隔离要求放置
-2. guixm（业务架构师 / 管理视角）review 通过
-3. zhaohy（业务需求提出方 / 一线业务视角）review 通过
-4. chenrt（项目整体负责人 / 产品 Owner）做最终审批
+2. PRD 修订表已同步更新：版本已递增、未改写任何「已冻结」行、PR 标注迭代轮次（§2.5）
+3. guixm（业务架构师 / 管理视角）review 通过
+4. zhaohy（业务需求提出方 / 一线业务视角）review 通过
+5. chenrt（项目整体负责人 / 产品 Owner）做最终审批，合并后将该版本标记「已冻结」
 
 ### 7.2 feat/module-XX 合并条件
 
@@ -451,10 +499,14 @@ git checkout -b feat/module-XX origin/develop
 
 > 此操作会丢失该分支上的所有 commit，但 `develop` 完全不受影响。
 
-### Q5: 设计分支合并后，发现 PRD 需要小修改怎么办？
+### Q5: 设计分支合并后，发现 PRD 需要修改怎么办？
 
-- 如果 `feat/module-XX` 尚未创建：直接修改 `design/module-XX`，重新发起 PR 到 develop。
-- 如果 `feat/module-XX` 已在开发中：原则上冻结 PRD；如必须修改，重新走 `design/module-XX` 流程，zhangwq 基于新的 develop commit rebase `feat/module-XX`。
+分两种情况：
+
+- **feat/module-XX 尚未创建**：直接修改 `design/module-XX`（PRD 修订表新增一行，版本 +1），重新发起 PR 到 develop。
+- **feat/module-XX 已在开发中**：
+  - **默认路径（版本化迭代，推荐）**：**不中途修改**。记录问题清单，当前 feat 版本按已冻结 PRD 收尾合并；随后 design 分支迭代新需求（新轮次、新 PR、版本 +1），合并后再开新的 feat 分支承接——全程无需 rebase / 重建。
+  - **必须中途改（紧急）**：走变更请求（CR）流程，重新走 `design/module-XX` 流程合并后，zhangwq 基于新的 develop commit **重建或 rebase** `feat/module-XX`（重写历史、可能返工，谨慎使用）。
 
 ---
 
@@ -468,6 +520,7 @@ git checkout -b feat/module-XX origin/develop
 6. **严禁在 worktree 外直接开发并提交**（避免主仓库与 worktree 状态混乱）。
 7. **严禁 zhangwq 未经 chenrt 批准自行合并到 `develop`**。
 8. **严禁修改 `.git/worktrees/` 元数据**（除非明确知道如何修复）。
+9. **严禁改写修订表中已标记「已冻结」的版本行**（需求变更一律新增行，见 §2.5）。
 
 ---
 

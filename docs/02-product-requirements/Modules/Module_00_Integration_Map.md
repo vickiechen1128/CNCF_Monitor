@@ -8,7 +8,7 @@
 > **对应原型**: 暂无（待原型验证后补充）
 
 > **模块类型**: 全局索引文档
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[00_Product_Vision.md](../00_Product_Vision.md)
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[00_Product_Vision.md](../00_Product_Vision.md)、[02_Product_Roadmap.md](../02_Product_Roadmap.md)（**产品版本规划的权威视图：§1.5 功能-版本矩阵**，各模块「产品版本覆盖」以此对齐）
 > **目标用户**: 产品经理、技术架构师、AI 应用开发工程师、SRE
 
 ---

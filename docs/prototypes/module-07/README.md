@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.6
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.7
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.2
+> **原型版本**: v2.3
 > **本地启动命令**:
 >
 > ```bash

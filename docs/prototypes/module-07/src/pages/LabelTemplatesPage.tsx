@@ -32,11 +32,12 @@ import {
   RESOURCE_FIELD_OPTIONS,
   RESOURCE_TYPE_MAP,
   STATUS_MAP,
+  TEMPLATE_REFERENCING_JOBS,
   mockLabelTemplates,
   mockResources,
   mockStatusMappingConfig,
 } from '../mocks/module-07'
-import type { LabelTemplate, LabelTemplateSource, Mapping, Resource, ResourceType } from '../mocks/module-07'
+import type { LabelTemplate, LabelTemplateSource, Mapping, Resource, ResourceType, TemplateReferencingJob } from '../mocks/module-07'
 
 const { Title, Text } = Typography
 const { Option } = Select
@@ -80,7 +81,7 @@ function nowStr(): string {
 }
 
 export default function LabelTemplatesPage() {
-  const { message, modal } = App.useApp()
+  const { message, modal, notification } = App.useApp()
   const [activeType, setActiveType] = useState<ResourceType>('host')
   const [templates, setTemplates] = useState<LabelTemplate[]>(mockLabelTemplates)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(mockLabelTemplates[0].template_id)
@@ -95,7 +96,7 @@ export default function LabelTemplatesPage() {
   const watchedSourceType = Form.useWatch('source_type', mappingForm)
   const watchedSourceField = Form.useWatch('source_field', mappingForm)
 
-  // {v2.3} 右栏 Tab：映射明细 / 关联实例
+  // {v2.3} / {v2.7} 右栏 Tab：映射明细 / 关联实例 / 被引用采集 Job
   const [detailTab, setDetailTab] = useState<string>('mappings')
   // {v2.3} 关联实例 Table：搜索 + 状态筛选
   const [instanceSearch, setInstanceSearch] = useState('')
@@ -119,6 +120,40 @@ export default function LabelTemplatesPage() {
   // {v2.3} 关联实例：模板按 resource_type 隐式关联该类型全部资源
   const relatedResourcesOf = (tpl: LabelTemplate) => mockResources.filter((r) => r.resource_type === tpl.resource_type)
 
+  // {v2.7} 被引用 Job：引用本模板的采集 Job（策略层消费方，只读展示）
+  const referencingJobsOf = (tpl: LabelTemplate): TemplateReferencingJob[] => TEMPLATE_REFERENCING_JOBS[tpl.template_id] ?? []
+
+  // {v2.7} 保存后影响提示：告知「影响哪些采集任务、何时生效」；
+  // MVP = 重新生成配置并立即生效；v0.2+ = 前往配置中心确认（评审说明见 MainLayout 折叠区）
+  const notifyTemplateImpact = (tpl: LabelTemplate, actionLabel: string) => {
+    const jobs = referencingJobsOf(tpl)
+    if (jobs.length === 0) {
+      message.success(`${actionLabel}，暂无采集 Job 引用本模板`)
+      return
+    }
+    const domainCount = new Set(jobs.map((j) => j.network_domain_id)).size
+    const pendingCount = jobs.filter((j) => j.change_status === 'pending').length
+    notification.success({
+      message: `${actionLabel}，配置将重新生成`,
+      description: (
+        <Space direction="vertical" size={4}>
+          <Text style={{ fontSize: 13 }}>
+            本模板被 <Text strong>{jobs.length}</Text> 个采集 Job 引用（{domainCount} 个网域），将按新映射重新生成标签，重新生成配置并立即生效。
+          </Text>
+          <Text style={{ fontSize: 12, color: '#86909C' }}>
+            {pendingCount > 0 ? `其中 ${pendingCount} 个 Job 显示「模板已变更」状态，可在下方「被引用采集 Job」查看。` : '所有引用 Job 状态正常。'}
+          </Text>
+        </Space>
+      ),
+      btn: (
+        <Button size="small" onClick={() => { setDetailTab('jobs'); notification.destroy() }}>
+          查看引用 Job
+        </Button>
+      ),
+      duration: 8,
+    })
+  }
+
   // {v2.3} 关联实例 Table 数据：搜索 + 状态筛选
   const relatedInstances = useMemo(() => {
     if (!selectedTemplate) return []
@@ -140,6 +175,25 @@ export default function LabelTemplatesPage() {
       dataIndex: 'status',
       key: 'status',
       render: (v: Resource['status']) => <Badge status={v === 'online' ? 'success' : v === 'maintenance' ? 'warning' : 'default'} text={STATUS_MAP[v]} />,
+    },
+  ]
+
+  // {v2.7} 被引用采集 Job 列：Job 名 / 网域 / 启用状态 / 变更状态
+  const jobColumns: TableProps<TemplateReferencingJob>['columns'] = [
+    { title: '采集 Job', dataIndex: 'job_name', key: 'job_name', render: (v: string) => <Text strong style={{ fontSize: 12 }}>{v}</Text> },
+    { title: '网域', dataIndex: 'network_domain_id', key: 'network_domain_id', render: (v: string) => <Tag>{v}</Tag> },
+    {
+      title: '启用状态',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      render: (v: boolean) => (v ? <Badge status="success" text="启用" /> : <Badge status="default" text="禁用" />),
+    },
+    {
+      title: '变更状态',
+      dataIndex: 'change_status',
+      key: 'change_status',
+      render: (v: TemplateReferencingJob['change_status']) =>
+        v === 'pending' ? <Tag color="orange">模板已变更，待确认</Tag> : <Badge status="success" text="已确认" />,
     },
   ]
 
@@ -225,7 +279,9 @@ export default function LabelTemplatesPage() {
               : t
           )
         )
-        message.success('模板已更新')
+        closeTemplateDrawer()
+        // {v2.7} 保存后影响反馈：模板被引用 Job 变更配置
+        notifyTemplateImpact({ ...editingTemplate, ...values } as LabelTemplate, '模板已更新')
       } else {
         const tpl: LabelTemplate = {
           template_id: `tpl-${values.resource_type}-${Date.now()}`,
@@ -239,9 +295,9 @@ export default function LabelTemplatesPage() {
         setTemplates((prev) => [...prev, tpl])
         setActiveType(tpl.resource_type)
         setSelectedTemplateId(tpl.template_id)
+        closeTemplateDrawer()
         message.success('模板已新增')
       }
-      closeTemplateDrawer()
     })
   }
 
@@ -330,7 +386,9 @@ export default function LabelTemplatesPage() {
               : t
           )
         )
-        message.success('映射已更新')
+        closeMappingDrawer()
+        // {v2.7} 保存后影响反馈
+        notifyTemplateImpact(selectedTemplate, '映射已更新')
       } else {
         const mapping: Mapping = {
           mapping_id: `mp-${selectedTemplate.resource_type}-${Date.now()}`,
@@ -343,9 +401,10 @@ export default function LabelTemplatesPage() {
               : t
           )
         )
-        message.success('映射已新增')
+        closeMappingDrawer()
+        // {v2.7} 保存后影响反馈
+        notifyTemplateImpact(selectedTemplate, '映射已新增')
       }
-      closeMappingDrawer()
     })
   }
 
@@ -593,6 +652,11 @@ export default function LabelTemplatesPage() {
                                 <Text type="secondary" style={{ fontSize: 12 }}>
                                   关联实例 {relatedResourcesOf(tpl).length}
                                 </Text>
+                                {/* {v2.7} 被引用 Job 数 badge：模板变更影响哪些采集任务，右侧 Tab「被引用采集 Job」查看明细 */}
+                                <Badge count={referencingJobsOf(tpl).length} showZero color="#7F77DD" />
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                  被引用 {referencingJobsOf(tpl).length}
+                                </Text>
                               </Space>
                             }
                           />
@@ -719,6 +783,35 @@ export default function LabelTemplatesPage() {
                             columns={instanceColumns}
                             pagination={{ pageSize: 10, showSizeChanger: false }}
                             locale={{ emptyText: '无关联实例' }}
+                          />
+                        </Space>
+                      ),
+                    },
+                    {
+                      // {v2.7} 被引用采集 Job Tab：模板变更影响哪些采集任务（规则层 → 策略层显性化）
+                      key: 'jobs',
+                      label: `被引用采集 Job（${referencingJobsOf(selectedTemplate).length}）`,
+                      children: (
+                        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                          <Alert
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: 4 }}
+                            message={
+                              <Text style={{ fontSize: 13 }}>
+                                本模板被 <Text strong>{referencingJobsOf(selectedTemplate).length}</Text> 个采集 Job 引用。
+                                修改模板后，引用的 Job 会按新映射重新生成标签，配置变更需在配置中心确认后生效（后续版本开放；当前版本重新生成配置并立即生效）。
+                                如需查看具体清单，请浏览下方列表。
+                              </Text>
+                            }
+                          />
+                          <Table
+                            rowKey="job_id"
+                            size="small"
+                            dataSource={referencingJobsOf(selectedTemplate)}
+                            columns={jobColumns}
+                            pagination={{ pageSize: 10, showSizeChanger: false }}
+                            locale={{ emptyText: '暂无采集 Job 引用本模板' }}
                           />
                         </Space>
                       ),
