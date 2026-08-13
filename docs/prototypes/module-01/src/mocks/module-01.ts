@@ -1,6 +1,6 @@
 // ============================================================
 // Module_01 监控策略与指标管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.3（Module_01_Metric_Collection_Center.md）
+// 对齐 PRD v3.2（Module_01_Metric_Collection_Center.md）
 // ============================================================
 
 // ---------- CI 类型与资源类别（PRD 5.1 / 与 Module_07 四大类别对齐） ----------
@@ -390,6 +390,8 @@ export interface CITypeExporterMapping {
   scrape_interval: string
   scrape_timeout: string
   label_template_id?: string
+  /** {v3.1} 该 CI 类型是否已有标签模板，供前端判断是否提示创建引导 */
+  has_label_template: boolean
   /** 是否平台内置绑定（PRD 5.1），内置绑定禁止删除 */
   is_builtin: boolean
   created_at: string
@@ -407,6 +409,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '15s',
     scrape_timeout: '10s',
     label_template_id: 'lt-h-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-20T10:30:00Z',
@@ -421,6 +424,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',
@@ -435,6 +439,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',
@@ -449,6 +454,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',
@@ -463,11 +469,14 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '30s',
     scrape_timeout: '10s',
     label_template_id: 'lt-mw-001',
+    has_label_template: true,
     is_builtin: false,
     created_at: '2026-07-22T14:00:00Z',
     updated_at: '2026-07-22T14:00:00Z',
   },
   {
+    // {v3.2} 演示「标签模板待配置」：该 CI 类型（nginx）尚未创建标签模板，
+    // 作为创建引导 / 待配置 Badge / Job 层「标签待配置」提示的触发样本
     mapping_id: 'map-006',
     resource_type: 'nginx',
     exporter_template_id: 'et-nginx',
@@ -476,10 +485,11 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scheme: 'http',
     scrape_interval: '15s',
     scrape_timeout: '10s',
-    label_template_id: 'lt-mw-001',
+    label_template_id: undefined,
+    has_label_template: false,
     is_builtin: false,
     created_at: '2026-07-23T11:00:00Z',
-    updated_at: '2026-07-23T11:00:00Z',
+    updated_at: '2026-08-12T15:00:00Z',
   },
   {
     mapping_id: 'map-007',
@@ -491,6 +501,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '15s',
     scrape_timeout: '10s',
     label_template_id: 'lt-app-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-15T09:00:00Z',
@@ -505,6 +516,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scrape_interval: '60s',
     scrape_timeout: '30s',
     label_template_id: 'lt-gen-001',
+    has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-01T09:00:00Z',
@@ -744,6 +756,31 @@ export const mockScrapeJobs: ScrapeJob[] = [
     exporter_status: { 'res-gen-001': 'installed', 'res-gen-002': 'not_installed' },
     created_at: '2026-07-10T14:20:00Z',
     updated_at: '2026-07-10T14:20:00Z',
+  },
+  // {v3.2} 演示「Job 标签待配置」：引用 map-006（nginx 无标签模板），label_template_id 为空，
+  // 列表 / 详情 / 编辑表单显示「标签待配置」，引导先前往 CI-Exporter 映射页补配（补配后自动继承）
+  {
+    job_id: 'job-006',
+    job_name: 'prod-nginx',
+    resource_type: 'nginx',
+    exporter_template_id: 'et-nginx',
+    network_domain_id: 'default',
+    job_type: 'standard',
+    instance_selection_mode: 'manual',
+    selected_instance_ids: ['res-mw-004'],
+    instance_filter: null,
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: undefined,
+    relabel_configs: [],
+    enabled: true,
+    exporter_status: { 'res-mw-004': 'installed' },
+    mapping_overrides: [],
+    mapping_synced_at: '2026-08-12T16:00:00Z',
+    created_at: '2026-08-12T16:00:00Z',
+    updated_at: '2026-08-12T16:00:00Z',
   },
   // blackbox 拨测 Job：由原先独立「拨测配置」合并而来（PRD v2.0 决策 4）
   {
@@ -1157,6 +1194,8 @@ export const mockResources: Resource[] = [
   { resource_id: 'res-mw-001', resource_type: 'redis', instance_name: 'redis-cache-01', hostname: 'redis-cache-01.mw', instance_ip: '10.0.2.11', network_domain_id: 'default', env: 'prod', app_name: 'cache-service', cluster: 'cluster-prod', status: 'online' },
   { resource_id: 'res-mw-002', resource_type: 'mysql', instance_name: 'mysql-primary-01', hostname: 'mysql-primary-01.mw', instance_ip: '10.0.2.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', status: 'maintenance' },
   { resource_id: 'res-mw-003', resource_type: 'kafka', instance_name: 'kafka-broker-01', hostname: 'kafka-broker-01.mw', instance_ip: '10.0.2.31', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'mq-platform', cluster: 'cluster-staging', status: 'online' },
+  // {v3.2} nginx 实例：配合 map-006（无标签模板）演示「Job 标签待配置」链路
+  { resource_id: 'res-mw-004', resource_type: 'nginx', instance_name: 'nginx-edge-01', hostname: 'nginx-edge-01.mw', instance_ip: '10.0.2.41', network_domain_id: 'default', env: 'prod', app_name: 'gateway-nginx', cluster: 'cluster-prod', status: 'online' },
   { resource_id: 'res-app-002', resource_type: 'application_http', instance_name: 'pay-service-v1', hostname: 'pay-service-v1.app', instance_ip: '192.168.3.12', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'pay-service', cluster: 'cluster-staging', status: 'offline' },
   { resource_id: 'res-gen-001', resource_type: 'snmp', instance_name: 'switch-core-01', hostname: 'switch-core-01.net', instance_ip: '172.16.0.1', network_domain_id: 'gov-cloud-a', env: 'prod', app_name: 'network-infra', cluster: 'cluster-net', status: 'online' },
   { resource_id: 'res-gen-002', resource_type: 'snmp', instance_name: 'loadbalancer-02', hostname: 'lb-02.net', instance_ip: '172.16.0.2', network_domain_id: 'gov-cloud-a', env: 'prod', app_name: 'network-infra', cluster: 'cluster-net', status: 'online' },

@@ -1190,12 +1190,32 @@ export default function ResourcesPage() {
               ]}
             />
             <Divider />
-            <Title level={5}>标签管理</Title>
+            <Title level={5}>自定义标签（非必须）</Title>
+            {/* {v2.6} 统一口径：标签来源 vs 模板映射字段来源的对应关系，消除「系统/用户/CMDB」与「资源字段/组合字段/CMDB 字段」的歧义 */}
             <Alert
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
-              message="标签冲突优先级：CMDB > 用户 > 系统。系统与 CMDB 来源标签只读，仅用户添加的标签可编辑与删除。"
+              message="标签口径说明"
+              description={
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                  <Space wrap size={[4, 4]}>
+                    <Tag color="default">系统</Tag>
+                    <Text style={{ fontSize: 12 }}>= 由标签模板生成（MVP 字段来源：平台资源字段 / 组合字段），只读；改值请前往标签模板管理</Text>
+                  </Space>
+                  <Space wrap size={[4, 4]}>
+                    <Tag color="cyan">用户</Tag>
+                    <Text style={{ fontSize: 12 }}>= 实例级自定义标签（含通用目标 custom_labels 透传），唯一可编辑 / 删除来源</Text>
+                  </Space>
+                  <Space wrap size={[4, 4]}>
+                    <Tag>CMDB（v0.4+）</Tag>
+                    <Text style={{ fontSize: 12 }}>= 后续版本由 CMDB 同步，MVP 仅占位展示，对应模板映射的「CMDB 字段」来源</Text>
+                  </Space>
+                  <Text style={{ fontSize: 12, color: '#86909C' }}>
+                    {'冲突优先级：CMDB > 用户 > 系统（系统标签为生成基线，不可被覆盖）。大多数场景下标签模板已自动生成所需标签，仅当个别实例需要额外标签时使用。'}
+                  </Text>
+                </Space>
+              }
             />
             {/* 批量标签编辑占位（后续版本开放） */}
             <Alert
@@ -1223,7 +1243,7 @@ export default function ResourcesPage() {
                 </Col>
                 <Col span={6}>
                   <Button type="primary" icon={<PlusOutlined />} block style={{ backgroundColor: '#0ECDEB' }} onClick={handleAddLabel}>
-                    添加
+                    添加自定义标签
                   </Button>
                 </Col>
               </Row>
@@ -1257,8 +1277,9 @@ export default function ResourcesPage() {
                       <Col span={6}>
                         <Text strong>{label.label_key}</Text>
                         <div>
-                          <Tag color={label.source === 'cmdb' ? 'blue' : label.source === 'user' ? 'cyan' : 'default'}>
-                            {LABEL_SOURCE_MAP[label.source]}
+                          {/* {v2.6} cmdb 来源降级为 v0.4+ 占位展示（MVP 未接入 CMDB） */}
+                          <Tag color={label.source === 'cmdb' ? 'default' : label.source === 'user' ? 'cyan' : 'default'}>
+                            {label.source === 'cmdb' ? 'CMDB · v0.4+ 预留' : LABEL_SOURCE_MAP[label.source]}
                           </Tag>
                           {!label.is_editable && <LockOutlined style={{ color: '#86909C', marginLeft: 4 }} />}
                         </div>
@@ -1281,12 +1302,12 @@ export default function ResourcesPage() {
                         )}
                         {label.source === 'user' && (
                           <Text type="secondary" style={{ fontSize: 11 }}>
-                            手动添加
+                            资源自定义（实例级）
                           </Text>
                         )}
                         {label.source === 'cmdb' && (
                           <Text type="secondary" style={{ fontSize: 11 }}>
-                            CMDB 同步（后续版本）
+                            CMDB 同步（v0.4+ 接入后生效，MVP 仅占位展示）
                           </Text>
                         )}
                       </Col>

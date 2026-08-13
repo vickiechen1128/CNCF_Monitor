@@ -788,6 +788,48 @@
 
 ---
 
+## 补充对齐：2026-08-12（第十一轮 标签配置引导落地）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：用户指出①标签配置引导应落在 CI-Exporter 映射页、采集 Job 页应更凸显引导先关联 CI-Exporter 映射，且原型缺 mock 数据无法触发 v3.1 引导；②资源详情标签来源（CMDB/user/系统）与标签模板映射字段来源口径脱节。经分析确认方向后落地（问题 2 见 Module_07 决策 3.20）。
+
+### 关键决策
+
+#### 决策 37：标签配置引导落在映射层，Job 层做继承提示；补充「无模板」mock 演示数据
+
+- **问题**：
+  1. mock 8 条 `CITypeExporterMapping` 全部 `has_label_template=true`，「标签模板创建引导 / 待配置 Badge / 补配」逻辑永远无法触发，用户无法感受"什么条件下去做标签管理"；
+  2. ScrapeJobsPage 无标签模板时 Alert「暂未选择标签模板 → 前往创建」**直跳 Module_07 模板管理**，与 PRD 5.4 {v3.1}「引导用户先前往 CI-Exporter 映射页完成模板创建（Job 自动继承）」不符。
+- **结论**：
+  1. **mock 数据**：`map-006`（nginx）改为 `has_label_template=false` 且 `label_template_id=undefined`（非内置映射，语义合理），新增 `res-mw-004` nginx 资源与引用它的 `job-006 prod-nginx`（`label_template_id` 为空），完整演示「新增映射→创建引导→稍后再说→待配置 Badge→建 Job 引导补配→补配后自动继承」闭环；
+  2. **Job 表单主引导**：无模板且对应映射未配置时，Alert 改为主引导「前往 CI-Exporter 映射补配（Job 将自动继承）」（同原型内 `useNavigate('/ci-exporter-mapping')`），「前往标签模板管理」保留为深度管理次级入口；
+  3. **Job 列表 / 详情**：新增「标签模板」列（黑 box 场景显示「标签待配置」Tag，点击跳映射页），详情视图同步提示；
+  4. **映射页补配入口**：「待配置」Badge 可点击重新触发补配引导，操作列新增「补配标签模板」按钮；
+  5. **口径修正**：创建引导文案「将 CMDB 资源字段映射为 Prometheus 标签」→「将平台资源字段（app_name / env / cluster）映射为 Prometheus 标签」（MVP 不从 CMDB 导入，与 Module_07 决策 3.20 统一口径一致）。
+- **依据**：PRD 5.1 / 5.4 {v3.1} 标签模板创建引导；决策 15（标签模板继承链：映射默认 → Job 自动继承）；用户反馈「缺少 mock 数据让我感受什么条件下去 module01 做标签管理」。
+- **影响范围**：Module_01 PRD 5.4 / 8.1 / Change Log（v3.2）；原型 mock `module-01.ts`、`ScrapeJobsPage.tsx`、`CiExporterMappingPage.tsx`、测试（label_template_id 引用 FK 断言兼容 undefined）。
+
+### 已确认项（2026-08-12 第十一轮）
+
+- [x] mock 新增 nginx 无模板映射 + 引用它的 Job（演示「待配置」链路）。
+- [x] Job 表单无模板时主引导「前往 CI-Exporter 映射补配（自动继承）」，模块-07 为次级入口。
+- [x] Job 列表/详情「标签待配置」提示；映射页「待配置」Badge 可点击补配 + 操作列补配按钮。
+- [x] 创建引导文案口径修正（平台资源字段，非 CMDB）。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] 原型 v2.6 构建验证与统一入口验证（随本轮一并执行）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.2）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.6）
+- `docs/prototypes/module-01/`（v2.6）
+- `docs/05-execution-records/module-07/design-decisions.md`（决策 3.20）
+
+---
+
 ## Change Log（完整历史）
 
 > v2.4 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v2.1 及以前的逐版完整变更详情（业务沟通决策记录）。
