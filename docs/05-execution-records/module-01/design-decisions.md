@@ -628,6 +628,20 @@
 - **遗留项**：①跨模块端到端串联演示（M07→M01→M09 业务指标链路，P2，统一入口最终评审）；②filter 表达式 UI（v0.3+ 按版本规划，MVP 只做 manual）；③service_discovery UI（v0.2+ 预留，原型未实现）；④业务负责人业务域隔离（mock 全量展示，v0.2+ 由 Module_06 权限落地）。
 - **评审结论**：MVP 范围评审通过（PRD v3.6 与原型 v2.8 对齐）；PRD 状态推进（ready / 已冻结）需用户书面确认，当前保持「设计中」待领导/业务评审。
 
+### 2026-08-14（评审新问题落地：PRD v3.7 / 原型 v2.9）
+
+- **评审时间 / 版本**：2026-08-14；PRD v3.7、原型 v2.9；参与方：用户（chenrt）+ prototype-designer；评审方式：原型走查 + PRD 契约核对（第十六轮）。
+- **第一段用户走查结论（用户视角）**：
+  - **两库动线**：菜单归组「指标库」分组（技术指标库 / 业务指标库 / 业务视图）后，技术 / 业务二分清晰；技术指标库页顶部说明"技术元数据（能采到什么）vs 业务语义契约（业务关心什么）"并提供跳转；业务指标库「登记表」新增采集落地列（online 显示关联 Job），「业务视图」Tab 按业务域聚合成员（微服务/中间件/主机）+ 业务指标 + 埋点状态——语义层链路（业务域 ↔ 成员 ↔ 业务指标 ↔ 采集落地）在 MVP 即可感知；
+  - **自定义微服务提示**：CI-Exporter 映射页对 application_http 显性提示"业务服务（含自定义微服务）仍属 application_http、用自定义模板覆盖形态差异"，技术工程师不会误以为需按语言建 CI 类型；
+  - **可理解性**：无阻断项。
+- **第二段技术核对结论（技术视角）**：
+  - **mock 契约**：新增 `et-app-go`（用户自定义模板，is_builtin=false、/metrics）+ `map-009`（application_http → et-app-go，is_builtin=false）+ `job-007`（prod-go-microservices，引用 res-app-003）+ `goAppMetrics`（go_goroutines / go_memstats_alloc_bytes / order_creation_total）+ Resource.business_domain 补全（res-host-002 payment、res-mw-001 order、res-app-003 order）——与 PRD 5.1 自定义微服务语义一致，无需新增 CI 类型；
+  - **可开发性**：v2.9 改动均为前端 mock + 交互（Tabs、聚合视图、采集落地列、菜单归组），不涉及后端模型变更。
+- **问题清单与处理结果**：已修复——两库命名 / 动线归组 / 互链、自定义微服务样本与提示、业务视图 Tab 与采集落地列（PRD v3.7 + 原型 v2.9）。
+- **遗留项**：①v0.2+ 业务域聚合视图完整版（独立业务目录 + 健康度看板）详细设计；②跨模块端到端串联演示（P2）；③filter UI（v0.3+）；④service_discovery UI（v0.2+）；⑤业务负责人业务域隔离（v0.2+ Module_06）。
+- **评审结论**：MVP 范围评审通过（PRD v3.7 与原型 v2.9 对齐）；PRD 状态推进（ready / 已冻结）需用户书面确认，当前保持「设计中」待领导/业务评审。
+
 ---
 
 ## 补充对齐：2026-08-11（第十轮 UI/UX 易用性）
@@ -1044,12 +1058,154 @@
 
 ---
 
+## 补充对齐：2026-08-14（第十六轮 原型评审新问题——两库定位 / 自定义微服务 / 业务视图落地）
+
+### 讨论过程
+
+- 用户评审原型后提出 3 个问题：①「指标库」与「业务指标库」区别不明，建议按技术 / 业务区分、动线放一起；②ci-exporter mock 未体现「自定义的微服务」类型，易被认为原型未考虑自定义业务；③PRD 提到的业务视图 / 业务语义层在原型中不可见。
+- 分析定位：①区别已在 PRD 5.3 vs 5.9 定义（技术元数据 vs 业务语义契约），但原型菜单两项平级分散、命名歧义（"指标库 vs 业务指标库"让人误以为业务指标库不是指标库一部分）；②application_http 仅内置 Spring Boot Actuator 样本，PRD 5.1「default_port 可留空由实例 endpoint 决定」等语义未落地 mock；③业务域聚合视图是第十五轮确认的 v0.2+ 遗留项，MVP 原型仅有登记表、语义层链路（业务域 ↔ 成员 ↔ 业务指标 ↔ 采集落地）无可视化。
+
+### 关键决策
+
+1. **两库定位与动线归组**：技术指标库（ExporterMetricLibrary）回答「能采到什么」，业务指标库（BusinessMetric）回答「业务关心什么」，两者并列互补、规则编辑同时消费两库（expr 校验用技术库、阈值参考用业务库 v0.3+）；菜单归组「指标库」分组（技术指标库 / 业务指标库 / 业务视图），两页互链；「指标库」改名「技术指标库」消除歧义。
+2. **自定义微服务仍属 application_http（给技术工程师的显性约束）**：平台不按语言/框架拆分 CI 类型——Go / Python / 自研框架埋点的业务服务仍选 application_http，形态差异（/metrics 路径、非标端口、协议）通过用户自定义 Exporter 模板 + 映射覆盖（is_builtin=false），内置模板与自定义模板并存于同一 CI 类型；无需新增 CI 类型（新增类型仅走 v0.4+ CMDB 引导闭环）。UI 侧表单 extra + 页面 Alert 显性提示，避免技术工程师误以为需按语言建 CI 类型。
+3. **业务视图 MVP 轻量化**：业务指标库页内 Tab「登记表 / 业务视图」——按 business_domain 聚合成员（微服务/中间件/主机）+ 业务指标 + 埋点/采集落地状态，MVP 即可感知"微服务是业务域的实现载体、业务域是微服务的语义聚合"；完整版（健康度看板 + 独立业务目录）v0.2+。登记表补「采集落地」列（online 显示关联 Job，语义契约 → 采集落地链路显性化）。
+4. **业务视图独立成页（消除双入口冲突）**：用户评审指出「业务指标库页内业务视图 Tab」与「菜单指标库分组下的业务视图入口」冲突——业务视图**抽离为独立页**（`/business-view`，BusinessViewPage），导航「指标库 → 业务视图」进入；业务指标库页（`/business-metrics`）仅保留登记表，职责分离：登记表 = 语义契约维护，业务视图 = 业务域聚合。菜单 key 由 `?tab=biz-view` 简化为独立路由。
+5. **自定义模板版本归属（用户确认方案 A：仅占位符）**：用户追问"应用侧自定义 exporter 模板怎么实现、为何界面无新增模板功能"——答复：模板登记属 P2「Exporter 市场」，MVP 差异承载在映射层覆盖（选内置模板 + 改端口/路径/协议）；用户确认**只留占位入口**（不提前实现 P2）：映射表单「Exporter 模板」下拉旁置「无合适模板？登记自定义模板（P2 开放）」disabled 占位（Tooltip 说明版本归属），PRD 5.2 补模板创建链路与版本归属说明。
+
+### 已确认项（2026-08-14 第十六轮）
+
+- [x] 两库定位区分 + 导航归组 + 命名对齐（用户确认）。
+- [x] 自定义微服务仍属 application_http、用自定义模板覆盖形态差异（用户确认）。
+- [x] 业务视图独立成页（BusinessViewPage），与业务指标库登记表职责分离、消除双入口冲突（用户确认）。
+- [x] 自定义模板缺口只加占位入口（「登记自定义模板（P2 开放）」disabled + Tooltip，P2 版本归属显性化），不提前实现（用户确认）。
+
+### 仍待确认项
+
+- [ ] v0.2+ 业务域聚合视图完整版（独立业务目录 + 健康度看板，Module_07 决策 3.46）详细设计待后续迭代。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.7）
+- `docs/prototypes/module-01/`（v2.9，已同步）
+
+---
+
+## 补充对齐：2026-08-14（第十七轮 指标库锚点演进 + Exporter 模板降级——决策落档，待用户确认后落 PRD v3.8 / 原型）
+
+### 讨论过程
+
+- 用户连续追问两条：①"exporter 模板的必要性在哪里？既然多网域下端口/指标路径反正手填，可以做成自己填写的配置项，就不需要未来做 Exporter 市场了"；②"指标库分组锚点（MetricLibraryItem.exporter_template_id）是技术限制吗？想从最佳实践聊聊"。
+- 分析结论：
+  - **锚点不是技术限制，是设计选择**：Prometheus 生态无"指标库"概念（指标名全局命名空间，靠命名规范 + relabel 归拢），分组维度完全由产品自定；
+  - **业界两条组织路线**：按采集源/集成（Datadog integration ≈ 现状 exporter 模板）vs 按监控对象/服务（Zabbix host items、CloudWatch namespace ≈ CI 类型）。现状是"CI 类型（对象）→ Exporter 模板（采集源）→ 指标"两级混合；
+  - **按 exporter 分组是合理默认但非唯一锚点**：自然聚类（node_cpu_* 只出自 node_exporter）、规则编辑链路顺、文档绑定（HELP/UNIT 与安装指南同源）；但作为**唯一锚点**有三个缺陷——①多对多被拍平（go_goroutines / process_* 等多 exporter 共有的指标只能挂一个模板，换模板就提示不到）；②用户视角错位（application_http 场景用户心智是"我的服务是什么"，不是"我的埋点模板是 Spring Boot 还是 Go"）；③与自定义微服务场景打架（锚点在 exporter 上才逼出"模板"中间概念，也才产生上轮"自定义模板缺口"的别扭感）。
+
+### 关键决策（用户确认方向）
+
+1. **指标库锚点从 exporter 上移到 CI 类型（resource_type）**：`MetricLibraryItem` 归属改为 `resource_type`（可多对多：同一指标可属多个 CI 类型，解决多 exporter 共有指标被拍平）；规则编辑（v0.3）按 CI 类型提示指标，不再经模板中转。
+2. **Exporter 模板降级为「CI 类型的默认采集器 + 安装指南」附属**：`ExporterTemplate` 不再是独立实体/市场对象——并入 `CITypeExporterMapping`（CI 类型 ↔ 默认采集器：默认采集器名称/版本 + default_port/metrics_path/scheme + install_guide），作为映射层属性；不提供独立的模板登记/版本管理/部署指南运营。
+3. **端口/路径/协议直接手填**：映射 / Job 层采集参数（port/path/scheme）手填为主，"默认采集器"仅作预填（可覆盖）；支持"不使用默认采集器、直接填写"模式（呼应多网域手填现实，消除对模板预填的依赖）。
+4. **「Exporter 市场」概念移除/降级**：3.1 功能表 P2「Exporter 市场」行删除（或改"默认采集器信息维护（可选）"）；上轮"登记自定义模板（P2 开放）"占位入口随之删除（无需登记模板，自定义微服务 = application_http 类型下登记自定义指标集）。
+
+### 修改建议清单（PRD v3.8 + 原型 v3.0，待用户确认后执行）
+
+**PRD（Module_01_Metric_Collection_Center.md）**：
+
+| 章节 | 修改内容 |
+|------|---------|
+| 3.1 功能表 | 「CI 类型 ↔ Exporter 模板绑定」行改「CI 类型 ↔ 默认采集器」（绑定默认采集器参数 + 安装指南）；「Exporter 市场」P2 行删除（或改"默认采集器信息维护（可选，P2）"）；「指标库管理」行说明锚点改 CI 类型 |
+| 5.1 | `CITypeExporterMapping` 增加 `install_guide`、`default_exporter`（名称/版本）；语义从"模板绑定"改"默认采集器设定"；v0.2 网域覆盖表说明保留（参数网域可变，形态归属 CI 类型）；v3.7「自定义模板」表述改为"application_http 自定义指标集"（无需 et-app-go 模板概念）；删「登记自定义模板（P2）」占位入口说明 |
+| 5.2 | `ExporterTemplate` 章节删除或降级为 5.1 的"默认采集器描述"说明（不再支撑指标库分组；无版本管理/部署指南运营）；模板创建链路版本归属说明改写 |
+| 5.3 | `MetricLibraryItem.exporter_template_id` 改 `resource_type`（多对多）；分组从"按 Exporter"改"按 CI 类型"；决策 5 说明更新（先有指标库才能写 PromQL 不变，提示范围按 CI 类型）；MVP 最小集表（host/mysql/redis/kafka/blackbox/app/snmp）按 CI 类型组织 |
+| 决策 14 | 参数继承来源从"模板"改"CI 类型默认采集器"（创建时预填、可覆盖、手动同步逻辑不变） |
+| 决策 15 | 标签模板继承链中"映射默认 Exporter 模板"表述改"默认采集器" |
+| 术语映射 | `ExporterTemplate` → 默认采集器；`application_http` 行去掉 et-app-go 模板表述；删"自定义模板"行或改"自定义指标集"；补 `MetricLibraryItem.resource_type` 锚点说明 |
+| 8 验收 | 相关条目更新：v3.7 加的「et-app-go 模板 + map-009 映射」样本改"application_http 自定义指标集"；新增"指标可挂多个 CI 类型"验收；删/改「登记自定义模板占位入口」验收 |
+| Change Log | 新增 v3.8 行（锚点演进 + 模板降级，第十七轮） |
+
+**原型（docs/prototypes/module-01/）**：
+
+| 文件 | 修改内容 |
+|------|---------|
+| mocks/module-01.ts | `MetricLibraryItem.exporter_template_id` → `resource_type`（或新增多对多字段）；`mockExporterTemplates` 降级/并入映射（`mockCITypeExporterMappings` 增 install_guide / default_exporter）；et-app-go / map-009 样本改"application_http 自定义指标集"样本；mockScrapeJobs 引用字段同步；头部版本注释更新 |
+| MetricLibraryPage.tsx | 分组从"按 Exporter 模板"改"按 CI 类型"（resource_type）；筛选联动简化（去掉模板层）；"新增指标"表单的"所属 Exporter 模板"字段改"所属 CI 类型" |
+| CiExporterMappingPage.tsx | "Exporter 模板"下拉改"默认采集器"（名称/版本 + 安装指南折叠展示）；删「登记自定义模板（P2 开放）」占位入口；application_http 提示更新（自定义指标集而非自定义模板） |
+| RulesPage.tsx | 指标提示/校验过滤键 exporter_template_id → resource_type |
+| ScrapeJobsPage.tsx | Job 表单继承来源语义更新（默认采集器） |
+| module-01.test.ts | 测试同步：锚点字段、et-app-go 样本改自定义指标集、删"不新增 custom_service 类型"断言保留但措辞更新 |
+
+### 已确认项（2026-08-14 第十七轮）
+
+- [x] 指标库锚点上移到 CI 类型（resource_type，多对多）（用户确认）。
+- [x] Exporter 模板降级为「CI 类型的默认采集器 + 安装指南」附属（并入映射层，非独立实体）（用户确认）。
+- [x] 端口/路径/协议手填为主、默认采集器仅预填；「Exporter 市场」概念移除/降级（用户确认）。
+
+### 评审修正（用户评审意见吸收，2026-08-14 第十七轮追加——数据模型双层锚点）
+
+用户对上述方案给出专业评审，指出三处需修正（**全部采纳**）：
+
+1. **install_guide 必须绑定「采集实现」而非「被监控对象分类」（修正决策 2 的粗糙处）**：反例——`linux` 类 CI 类型下可能有 node_exporter / Telegraf / 自研 Agent 多种采集实现，安装方式、开放端口、离线包完全不同。若 install_guide 直接挂 CI 类型，就隐式假设「一个 CI 类型对应一种标准采集实现」（企业环境不成立）。**结论**：保留「采集实现（采集器）」轻量实体（CI 类型 → 多个可选采集实现，其一默认），install_guide / 默认参数 / 离线包归属采集实现；只是从「市场级运营实体」收缩为「CI 类型下的配置片段」。
+2. **指标锚点上移必须解决「同名不同义」冲突**：模板意外提供了命名空间隔离（Spring Boot 与 Go 都产出 `http_server_requests_seconds_count`，同名不同义）。若直接挂 CI 类型会变成"同名指标大杂烩"。**结论**：指标 ↔ CI 类型关联必须携带「来源采集器」标注（或指标元数据带语义版本/来源字段），规则编辑提示时对同名指标显示来源区分。
+3. **执行策略：折中保交付 + 数据层埋点 + 中期迁移（修正"一步到位"的激进）**：不做"纯 UI 妥协"——**数据层一步到位**：`MetricLibraryItem` 提升 `ci_type_id`（resource_type）为一级主锚点（多对多、关联带来源采集器），`exporter_template_id` 保留但**降级为「建议采集器」可空外键**（非锚点）；UI/交互层面折中渐进（MVP 保留采集器预填 + 手填模式，规则编辑提示锚点可后续切到 CI 类型）。避免「为了挂指标而造 et-app-go 模板」的技术债中长期复发。
+
+**修订后的数据模型（v3.8 目标）**：
+
+```text
+CI 类型（resource_type，用户心智锚点）             采集实现/采集器（轻量实体，非市场运营）
+  │  1──N                                          │
+  ├── 指标集（MetricLibraryItem.resource_types:     ├── install_guide / 默认参数（port/path/scheme）
+  │     {resource_type, source_exporter?}[]         ├── 一个 CI 类型可多个采集实现，其一默认
+  │     多对多，关联带来源采集器标注，解决同名冲突）    └── 由 CITypeExporterMapping 承载
+  └── 默认采集器（default_exporter，可空/可覆盖）
+```
+
+**修改建议清单按评审修正更新**：
+
+| 原建议 | 评审修正后 |
+|--------|-----------|
+| 5.2 `ExporterTemplate` 章节删除/降级 | 降级为「采集实现（采集器）」轻量实体说明：CI 类型下可多个采集实现、其一默认；install_guide / 默认参数 / 离线包归采集实现（**不挂 CI 类型**）；无市场运营 |
+| 5.1 映射增 install_guide / default_exporter | `CITypeExporterMapping` 承载「CI 类型 → 采集实现」配置（一个 CI 类型可多行，默认标记）；install_guide 在此层（采集实现绑定） |
+| 5.3 `exporter_template_id` 改 `resource_type` | `MetricLibraryItem` 增 `resource_types: {resource_type, source_exporter?}[]`（主锚点，多对多带来源标注）；`exporter_template_id` 保留降级为「建议采集器」可空外键 |
+| 8 验收"指标可挂多个 CI 类型" | 追加「同名指标（不同来源采集器）提示时显示来源区分」验收 |
+
+**评审二轮增量（2026-08-14 第十七轮追加，用户评审意见强化——已并入 PRD v3.8）**：
+
+1. **CI ↔ 采集实现多对多（双向）显性化**：不只"一个 CI 类型多个采集实现"，还要"一个采集实现服务多个 CI 类型"（如 Telegraf 同时服务 host / mysql）——5.1 采集实现语义补双向表述。
+2. **指标库按「语义域 + CI 类型」组织**：新增可选字段 `MetricLibraryItem.category`（cpu / memory / disk / network 等语义域，P1 增强），指标分组浏览与规则提示聚类维度；**不影响主锚点（CI 类型）**；术语映射补语义域行。
+3. **Job 三关联职责边界**：ScrapeJob = CI 类型（采什么）+ 采集实现（怎么采，引用可空手填）+ 实际参数覆盖（决策 14）；5.1 补职责边界（采集实现只约束 Job 配置，不约束指标库组织、不强制一对一），5.4 补「Job 引用采集实现、CI 不拥有采集实现」——用户从 node_exporter 切 Telegraf 时指标库不地震，只有 Job 配置变。
+
+**入口合一与定名（2026-08-14 第十八/十九轮追加，用户确认方案 A——已并入 PRD v3.8 / 原型 v3.0）**：
+
+1. **入口合一**：用户指出「默认采集器配置」与「采集 Job」功能类似——**不物理合并**（数据语义 / 网域无关性 / install_guide 归属三点硬理由），但**入口合一**：预设层从独立导航移除，**承载于「采集 Job」页「采集器管理」Tab**；创建 Job 时自动套用默认值（决策 14 已支持），用户在 Tab 内查看 / 维护预设。
+2. **定名「采集器管理」**：用户认为「CI 类型 ↔ 默认采集器」不便于理解、「CI-Exporter」引起歧义——用户语言统一为**「采集器管理」**（Tab 名），原型不再出现「CI-Exporter / CI 类型↔默认采集器」字样（技术标识 `CITypeExporterMapping` / 接口路径 `/ci-exporter-mappings` 保留）；PRD 全文用户语言层批量替换 + 8.1 验收补入口合一条目。
+3. **安装动线指引 + 职责边界（第十九轮，用户指出去重复）**：采集器管理 Tab 定位 = **类型级采集器指引**（该 CI 类型该装什么采集器、安装指南明显展示、可展开）+ 预设维护；**不做实例级安装确认**——确认在「采集 Job」选实例时进行（5.6，原型已有状态徽标循环 + 确认弹窗），Tab 内**不新增安装状态 / 确认 UI**（避免功能重复）；动线闭环以**文案衔接**闭合：「看指南 → 线下安装 → 选实例时标记已安装 → 生成配置」。
+4. **样式**：从 Collapse ghost 折叠区（样式隐蔽）升级为 Tabs（「采集 Job」/「采集器管理」），内容 Card 承载。
+
+### 仍待确认项 / 待办
+
+- [x] **PRD v3.8 已落档（2026-08-14 执行）**：3.1 / 5.1 / 5.2 / 5.3 / 5.4 / 5.5 / 5.6 / 6 边界 / 6.1 接口 / 术语映射 / 8 验收 / Change Log 已按双层锚点方案全面更新（本记录已同步）。
+- [ ] **原型 v3.0 同步（待执行）**：mocks（MetricLibraryItem.resource_types 多对多 + exporter_template_id 降级建议采集器；mockExporterTemplates 降级并入映射 + install_guide；et-app-go/map-009 样本改 application_http 自定义指标集）、MetricLibraryPage（按 CI 类型分组）、CiExporterMappingPage（默认采集器 + 删占位入口 + 手填模式）、RulesPage（resource_type 过滤）、ScrapeJobsPage（继承来源语义）、测试。
+- [ ] v3.7（折中，含 et-app-go 模板概念与 P2 占位入口）与 v3.8（数据层演进）的提交节奏：建议 v3.7 与 v3.8 一并提交（v3.8 已修订 v3.7 的模板概念表述），或按用户指定顺序，避免中间态。
+- [ ] Roadmap §1.5 检查：P2「Exporter 市场」未登记（仅"CI↔Exporter 模板绑定"措辞，落地时微调为"默认采集器"）。
+- [ ] v0.2+ 业务域聚合视图完整版（独立业务目录 + 健康度看板）详细设计待后续迭代（第十六轮遗留）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.8，已落档）
+- `docs/prototypes/module-01/`（v2.9 当前，目标 v3.0 待同步）
+- `docs/02-product-requirements/01_User_Stories.md`（M01-OPS-01/02 术语同步待确认）
+
+---
+
 ## Change Log（完整历史）
 
-> v2.4 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v2.1 及以前的逐版完整变更详情（业务沟通决策记录）。
+> v2.4 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v3.5 及以前的逐版完整变更详情（业务沟通决策记录）。
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                   | 影响范围                | 产品版本影响            | 状态    |
 | ---- | ---------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------------- | ----- |
+| v3.5 | 2026-08-14 | 新增 | 业务指标库（第十四轮需求讨论，解决职责断开）：新增 5.9 业务指标库（BusinessMetric）实体——业务负责人定义指标语义/阈值/所属业务域/负责人（owner 必填）、运维消费落地采集并标记「已上线」；与 ExporterMetricLibrary（技术指标库）并列；状态机 pending→instrumented→online；3.1 功能表新增业务指标库行（MVP 最小登记表 / v0.2+ 独立业务负责人入口 + 看板）；全局故事库回写 M01-BIZ-01/02 + 第 2 章引用；8 验收 2 条；术语映射补 BusinessMetric | 全部 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v3.4 | 2026-08-14 | 修改 | 跨模块对齐（第十三轮需求讨论，与 Module_07 v2.8 / Module_04 对齐）：5.1 新增 application_http 语义澄清（业务指标端点 HTTP 抓取模板、非独立 exporter、默认模板含 app/biz 映射即机制 A 落地）+ v0.4 新 CI 类型引导闭环（CMDB 待分类队列 → 映射创建引导）；5.4 新增 filter 模式字段语义（v0.3+ 筛选字段 = Resource 属性字段、label 仅 UI 别名自动派生、不用 label 名做筛选键防模板漂移）+ v0.2+ service_discovery 模式预留（微服务动态实例，prometheus_builtin + relabel，映射模板复用）；3.1 实例选择行补充；8.2 新增 2 条技术验收。评审前完善：Roadmap §1.5 登记 filter/service_discovery + application_http；术语映射补 instance_filter/service_discovery/application_http；骨架补齐（4 核心流程、5.9 状态机、6.1 接口设计）；全局故事库注册 M01-OPS-07 + 第 2 章引用 | 全部 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v3.3 | 2026-08-13 | 修改 | 标签选择两情形引导（用户反馈 + 需求对齐）：5.1 新增「{v3.3} 标签选择两情形引导」——选择器按 CI 类型严格过滤（仅同类型模板）、无模板空态 + 内联创建按钮、有模板提示「直接选择即可」、默认模板 Tag 标记、创建引导文案强化「新增 CI 类型」语义；8.1 新增 4 条验收项；原型同步 v2.7 | 全部 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v3.2 | 2026-08-12 | 修改 | 标签配置引导落地（用户反馈 + 原型对齐）：mock 新增 nginx 无标签模板映射与引用它的 Job（演示「待配置」链路）；Job 表单无模板时主引导改为「前往 CI-Exporter 映射补配（自动继承）」；Job 列表/详情新增「标签待配置」提示；映射页「待配置」Badge 可点击补配 + 操作列补配按钮；引导文案口径修正（平台资源字段，非 CMDB） | 全部 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v3.0 | 2026-08-11 | 修改 | 实例选择增强（第七轮需求讨论，与 Module_07 v2.3 对齐）：5.2 补充「实例候选自动收敛」——选定类型+网域后候选收敛为同类型同网域资源，支持一键全选/反选与关键字筛选（MVP，比 v0.3+ filter 轻）；3.1 功能表与验收标准同步 | 全部 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |

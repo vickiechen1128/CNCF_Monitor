@@ -79,8 +79,8 @@
 
 | 故事 ID | 角色 | 我希望 | 以便于 |
 |---------|------|--------|--------|
-| M01-OPS-01 | 运维工程师 | 为指定 CI 类型（host / mysql / redis 等）选择默认 Exporter 模板，建立 CI 类型 ↔ Exporter 模板绑定 | 采集配置标准化 |
-| M01-OPS-02 | 运维工程师 | 基于 CI 类型与 Exporter 模板创建 ScrapeJob，选择归属网域并配置抓取参数 | 快速建立采集任务 |
+| M01-OPS-01 | 运维工程师 | 为指定 CI 类型（host / mysql / redis 等）维护默认采集配置（默认采集器 + 参数 + 安装指南预设，{v3.8} 入口在「采集 Job」页折叠区；原「Exporter 模板」） | 采集配置标准化 |
+| M01-OPS-02 | 运维工程师 | 基于 CI 类型与默认采集器创建 ScrapeJob，选择归属网域并配置抓取参数（采集参数可手填覆盖） | 快速建立采集任务 |
 | M01-OPS-03 | 运维工程师 | MVP 手动勾选需要纳入 ScrapeJob 的实例 | 精确控制采集范围 |
 | M01-OPS-04 | 运维工程师 | 确认目标实例上 Exporter 已安装 / 已注册 | 避免生成大量 down 目标 |
 | M01-OPS-05 | 运维工程师 | 查看并维护指标库（counter/gauge/histogram/summary、HELP、UNIT） | 为规则编写提供指标提示 |
