@@ -1,10 +1,10 @@
 # Module 04: 自定义服务发现与外部 CMDB 生命周期管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.1
+> **PRD 版本**: v1.2
 > **产品版本覆盖**: v0.4+
 > **原型版本**: v1.1
-> **更新日期**: 2026-08-02
+> **更新日期**: 2026-08-14
 > **对应原型**: `docs/prototypes/module-04/`
 
 > **模块类型**: 扩展能力模块（v0.4+）
@@ -43,7 +43,7 @@
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
 | 外部 CMDB 同步与发现 | 从腾讯蓝鲸等 CMDB 拉取应用系统与实例列表；BlueKing CMDB 为权威数据源 | P2 |
-| BlueKing CMDB 字段映射 | Tenant → BlueKing Business；NetworkDomain → BlueKing Cloud Area；CI 字段映射到 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` | P2 |
+| BlueKing CMDB 字段映射 | Tenant → BlueKing Business；NetworkDomain → BlueKing Cloud Area；CI 字段映射到 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer`；**业务路径映射到 `business_domain`**（{v1.2}，与 Module\_07 v2.8 业务类型衔接：CMDB 同步后业务类型随资源落地，无需平台手动维护） | P2 |
 | Nacos 发现 | 从 Nacos 注册中心发现服务实例 | P2 |
 | HTTP 发现 | 从自定义 HTTP 接口获取目标列表 | P2 |
 | 目标转换 | 将外部数据格式转换为 MetricCenter Resource 模型，保留 CMDB CI ID、业务/模块路径、维护人 | P2 |
@@ -86,7 +86,7 @@ v0.4+ 由本模块扩展外部 Provider（须遵循 Module 07 接口定义）：
 | 失败继续采集 | CMDB/注册中心同步失败时，必须保留上一次成功同步结果，不得清空或跳过旧对象 |
 | 7 天保留期 | CMDB 中已删除或连续 7 天无法同步的对象，进入 `orphan` 状态 |
 | 孤儿分组 | 孤儿虚拟 CI 按 `network_domain_id` + `resource_type` 拆分，便于分网域、分资源类型清理 |
-| 字段映射 | 必须将外部 CI 的维护人、业务路径、模块路径映射到 `cmdb_maintainer`、`cmdb_business_path`、`cmdb_module_path` |
+| 字段映射 | 必须将外部 CI 的维护人、业务路径、模块路径映射到 `cmdb_maintainer`、`cmdb_business_path`、`cmdb_module_path`；业务路径同时映射为 `business_domain`（{v1.2}，与 Module\_07 v2.8 衔接，供 `biz` 标签生成） |
 
 ---
 
@@ -227,6 +227,7 @@ BlueKing CMDB 中的 CI 模型（`bk_obj_id`）需要映射到 MetricCenter 的 
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.2 | 2026-08-14 | 修改 | 跨模块对齐（与 Module_07 v2.8 业务类型衔接）：BlueKing CMDB 字段映射与 Provider 同步规范补充「业务路径 → `business_domain`」映射——CMDB 同步后业务类型随资源落地（供 `biz` 标签生成），无需平台手动维护 | 字段映射、Provider 规范 | v0.4+ | 设计中 |
 | v1.1 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
 | v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | v0.4+ | draft |

@@ -34,7 +34,17 @@
 - [ ] 领导评审后对页面信息架构的反馈
 - [ ] 是否需要针对 MVP 范围进一步裁剪页面字段
 
+---
+
+## 补充对齐：2026-08-14（原型 v1.2 同步——business_domain 同步 + 新类型引导闭环）
+
+- **参与 Agent**：prototype-designer
+- **触发原因**：Module_04 PRD v1.2（business_domain 同步映射）与 Module_01 v3.4（新 CI 类型引导闭环）落档后，原型 v1.1 落后需同步。
+- **原型改动**：ProvidersPage BlueKing 表单补「同步字段映射」Alert（Tenant→业务、NetworkDomain→云区域、CI 字段→cmdb_*、**业务路径→business_domain**，与 Module_07 v2.8 衔接供 biz 标签生成）；PendingCiPage 补「映射后的下一步」Alert（CI 映射后前往 Module_01 配置 CI-Exporter 采集映射与标签模板，新类型接入引导闭环）；package.json v0.2.0；验证 build/lint/统一入口 HTTP 200（M04 原型无测试文件，既有现状）。
+- **影响范围**：M04 原型（v1.2）。
+
 ## 关联文档
 
-- `docs/02-product-requirements/Modules/Module_04_Custom_Discovery.md`
-- `docs/prototypes/module-04/`
+- `docs/02-product-requirements/Modules/Module_04_Custom_Discovery.md`（v1.2）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.8）
+- `docs/prototypes/module-04/`（v1.2，已同步）

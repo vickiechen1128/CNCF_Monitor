@@ -12,6 +12,7 @@ import {
   InputNumber,
   Typography,
   message,
+  Alert,
 } from 'antd'
 import { PlusOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
@@ -78,6 +79,14 @@ export function ProvidersPage() {
       case 'blueking':
         return (
           <>
+            {/* {v1.2} BlueKing 字段映射：业务路径 → business_domain（与 Module_07 v2.8 业务类型衔接，供 biz 标签生成） */}
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="同步字段映射"
+              description="Tenant → 蓝鲸业务；NetworkDomain → 云区域（Cloud Area）；CI 字段 → cmdb_ci_id / cmdb_business_path / cmdb_module_path / cmdb_maintainer；业务路径 → 业务类型（business_domain）——CMDB 同步后业务类型随资源落地，无需平台手动维护（与 Module_07 v2.8 衔接，供 biz 标签生成）。"
+            />
             <Form.Item label="BlueKing 地址" name={['config', 'bkBaseUrl']}>
               <Input placeholder="https://cmdb.example.com" />
             </Form.Item>

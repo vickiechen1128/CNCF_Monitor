@@ -57,6 +57,8 @@ export function DeploymentsPage() {
       .filter((v) => v.network_domain_id === record.network_domain_id)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
     const previous = previousVersions.find((v) => v.id !== record.config_version_id)
+    // {v1.20} 回滚生效语义按域类型区分：管理域立即 reload；边缘域待 Agent 下次心跳拉取
+    const isEdge = networkDomains.find((d) => d.id === record.network_domain_id)?.domain_type === 'edge'
 
     Modal.confirm({
       title: '回滚配置',
@@ -64,6 +66,13 @@ export function DeploymentsPage() {
         <>
           确定将网域 <Text strong>{domainMap[record.network_domain_id]}</Text> 回滚到版本{' '}
           <Text code>{previous.id}</Text> 吗？
+          {isEdge && (
+            <div style={{ marginTop: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                边缘域回滚：确认后发布历史版本，待边缘 Agent 下次心跳拉取后生效（准实时 30s），进度可在 Agent 状态页查看。
+              </Text>
+            </div>
+          )}
         </>
       ) : (
         '未找到可回滚的历史版本。'
@@ -100,7 +109,12 @@ export function DeploymentsPage() {
           )
         )
         setData((prev) => [rollbackDeployment, ...prev])
-        message.success('已回滚到上一版本')
+        // {v1.20} 回滚结果提示按域类型区分
+        message.success(
+          isEdge
+            ? '已回滚：已发布历史版本，待边缘 Agent 下次心跳拉取生效'
+            : '已回滚到上一版本，配置已 reload 生效'
+        )
       },
     })
   }

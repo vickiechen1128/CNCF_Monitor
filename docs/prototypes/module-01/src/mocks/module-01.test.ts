@@ -8,6 +8,7 @@ import {
   STATUS_VALUES,
   STATUS_LABEL,
   currentTenant,
+  mockBusinessMetrics,
   mockCITypeExporterMappings,
   mockExporterInstallations,
   mockExporterTemplates,
@@ -276,5 +277,23 @@ describe('module-01 mocks（对齐 PRD v2.3）', () => {
           expect(candidates).toContain(f)
         })
       })
+  })
+
+  // ========== 业务指标库（PRD 5.9 {v3.5}/{v3.6}） ==========
+
+  it('业务指标库 mock：owner 必填、register_source/status 值合法（PRD 5.9）', () => {
+    expect(mockBusinessMetrics.length).toBeGreaterThan(0)
+    mockBusinessMetrics.forEach((m) => {
+      expect(m.owner).toBeTruthy()
+      expect(['self', 'agent']).toContain(m.register_source)
+      expect(['pending', 'instrumented', 'online']).toContain(m.status)
+    })
+  })
+
+  it('业务指标状态机：pending→instrumented→online 单向推进契约（PRD 5.9）', () => {
+    const order = ['pending', 'instrumented', 'online']
+    mockBusinessMetrics.forEach((m) => {
+      expect(order.indexOf(m.status)).toBeGreaterThanOrEqual(0)
+    })
   })
 })

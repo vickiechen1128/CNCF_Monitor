@@ -44,10 +44,11 @@ const { Option } = Select
 
 const RESOURCE_TYPES: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
 
-// MVP 字段来源：prometheus_builtin 由 Prometheus 原生注入无需映射，隐藏（数据模型保留，v0.2+ 服务发现启用）；cmdb_field v0.4+ 预留
+// MVP 字段来源：prometheus_builtin 由 Prometheus 原生注入无需映射，隐藏（数据模型保留，v0.2+ 服务发现启用）；
+// {v2.5} composite（组合字段）为 MVP 内部默认（自动生成 instance = 资源 IP + 端口，Prometheus 默认行为一致），前台不可新增，v0.2+ 身份定制（代理抓取/端口覆盖/服务发现）开放；cmdb_field v0.4+ 预留
 const SOURCE_TYPE_OPTIONS: { value: LabelTemplateSource; label: string; disabled?: boolean }[] = [
   { value: 'resource_field', label: '资源字段' },
-  { value: 'composite', label: '组合字段' },
+  { value: 'composite', label: '组合字段（内置默认，v0.2+ 开放）', disabled: true },
   { value: 'cmdb_field', label: 'CMDB 字段（后续版本开放）', disabled: true },
 ]
 
@@ -435,7 +436,17 @@ export default function LabelTemplatesPage() {
       title: '来源类型',
       dataIndex: 'source_type',
       key: 'source_type',
-      render: (value: LabelTemplateSource) => <Tag color={SOURCE_TYPE_COLOR[value]}>{SOURCE_TYPE_LABEL[value]}</Tag>,
+      render: (value: LabelTemplateSource) => (
+        <Space size={4}>
+          <Tag color={SOURCE_TYPE_COLOR[value]}>{SOURCE_TYPE_LABEL[value]}</Tag>
+          {/* {v2.5} 组合字段为内置默认：instance = 资源 IP + 端口（Prometheus 默认行为一致），前台不可新增、无需配置 */}
+          {value === 'composite' && (
+            <Tooltip title="采集目标身份（instance）自动生成：资源 IP + 端口；Prometheus 默认行为一致，无需配置，v0.2+ 身份定制开放">
+              <Tag style={{ fontSize: 11 }}>内置默认</Tag>
+            </Tooltip>
+          )}
+        </Space>
+      ),
     },
     {
       title: '目标标签',

@@ -1,6 +1,6 @@
-import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider, Alert, Switch, App, Collapse } from 'antd'
+import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider, Alert, Switch, App, Collapse, Select } from 'antd'
 import { useState, type ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AppstoreOutlined,
   DashboardOutlined,
@@ -8,9 +8,10 @@ import {
   BellOutlined,
   SettingOutlined,
   SearchOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
-import { currentTenant } from '../mocks/module-01'
+import { currentTenant, USER_ROLE_MAP, type UserRole } from '../mocks/module-01'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -21,14 +22,17 @@ interface MainLayoutProps {
 
 type MenuItem = Required<MenuProps>['items'][number]
 
-function buildMenu(): MenuItem[] {
+// {v3.6} 动线分离：导航按角色过滤——业务负责人仅见业务指标库；运维见全部（含业务指标库只读+状态推进）
+function buildMenu(role: UserRole): MenuItem[] {
   const module01Items: MenuItem[] = [
     { key: '/ci-exporter-mapping', icon: <AppstoreOutlined />, label: 'CI-Exporter 模板映射' },
     { key: '/scrape-jobs', icon: <AppstoreOutlined />, label: '采集 Job' },
     { key: '/metric-library', icon: <AppstoreOutlined />, label: '指标库' },
     { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' },
   ]
-
+  const bizItems: MenuItem[] = [
+    { key: '/business-metrics', icon: <TeamOutlined />, label: '业务指标库' },
+  ]
   // 全局跨模块导航占位：当前模块高亮，其他模块以 disabled + Tooltip 提示
   const globalItems: MenuItem[] = [
     {
@@ -50,17 +54,32 @@ function buildMenu(): MenuItem[] {
       ],
     },
   ]
-
-  return [...module01Items, ...globalItems]
+  const base = role === 'ops' ? [...module01Items, ...bizItems] : bizItems
+  return [...base, ...globalItems]
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { message } = App.useApp()
   const [showGlobalTip, setShowGlobalTip] = useState(true)
   const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
-  const menuItems = buildMenu()
+  // {v3.6} 当前角色（动线分离演示）：URL ?role=biz → 业务负责人，默认运维工程师
+  const role: UserRole = searchParams.get('role') === 'biz' ? 'biz_owner' : 'ops'
+  const menuItems = buildMenu(role)
+
+  const switchRole = (next: UserRole) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'biz_owner') params.set('role', 'biz')
+    else params.delete('role')
+    setSearchParams(params)
+    // 业务负责人视角仅业务指标库可访问：切换后跳转
+    if (next === 'biz_owner' && location.pathname !== '/business-metrics') {
+      navigate('/business-metrics')
+    }
+    message.info(next === 'biz_owner' ? '已切换为业务负责人：可登记/更新业务指标，不可配置采集任务' : '已切换为运维工程师：可配置采集任务、查看全部指标库')
+  }
 
   // 租户级多网域开关：直接改写 currentTenant，供各页面读取（与 Module_09 原型一致）
   const toggleMultiSite = (checked: boolean) => {
@@ -106,7 +125,14 @@ export function MainLayout({ children }: MainLayoutProps) {
               </Text>
             }
           />
-          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>运维工程师</Text>
+          {/* {v3.6} 动线分离：当前角色切换（原型演示；真实权限 v0.2+ 由 Module_06 提供） */}
+          <Select
+            value={role}
+            onChange={(v: UserRole) => switchRole(v)}
+            style={{ width: 140 }}
+            options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
+          />
+          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>{USER_ROLE_MAP[role]}</Text>
         </Space>
       </Header>
       <Layout>

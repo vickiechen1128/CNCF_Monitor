@@ -53,6 +53,7 @@ import {
   SCHEMES,
   ENV_VALUES,
   ENV_LABEL,
+  BIZ_DOMAINS,
   INSTALL_STATUS_MAP,
   INSTALL_STATUS_CYCLE,
   BLACKBOX_MODULES,
@@ -108,6 +109,8 @@ export default function ScrapeJobsPage() {
   const [editingJob, setEditingJob] = useState<ScrapeJob | null>(null)
   const [targetKeys, setTargetKeys] = useState<string[]>([])
   const [filterEnv, setFilterEnv] = useState<string | undefined>(undefined)
+  // {v3.4} 实例筛选补业务类型（label 别名 biz，见 PRD 5.4 filter 字段语义）
+  const [filterBusinessDomain, setFilterBusinessDomain] = useState<string | undefined>(undefined)
   const [blackboxTargets, setBlackboxTargets] = useState<BlackboxTarget[]>([])
   const [confirmTarget, setConfirmTarget] = useState<ExporterInstallationConfirmation | null>(null)
   const [detailJob, setDetailJob] = useState<ScrapeJob | null>(null)
@@ -187,7 +190,7 @@ export default function ScrapeJobsPage() {
     ? CI_TYPES_BY_CATEGORY[watchResourceCategory as ResourceCategory]
     : []
 
-  // Transfer 数据源：按当前 resource_type + Job 网域 + 环境筛选
+  // Transfer 数据源：按当前 resource_type + Job 网域 + 环境 + 业务类型筛选（{v3.4} 业务类型 = 筛选字段，label 名 biz 作 UI 别名）
   const transferData = useMemo<TransferItem[]>(() => {
     const rt = watchResourceType as CiType | undefined
     if (!rt) return []
@@ -195,12 +198,13 @@ export default function ScrapeJobsPage() {
       .filter((r) => r.resource_type === rt)
       .filter((r) => r.network_domain_id === watchNetworkDomainId)
       .filter((r) => (filterEnv ? r.env === filterEnv : true))
+      .filter((r) => (filterBusinessDomain ? r.business_domain === filterBusinessDomain : true))
       .map((r) => ({
         key: r.resource_id,
         title: `${r.instance_name} (${r.instance_ip})`,
-        description: `${domainNameMap.get(r.network_domain_id) ?? r.network_domain_id} · ${ENV_LABEL[r.env]} · ${r.app_name}`,
+        description: `${domainNameMap.get(r.network_domain_id) ?? r.network_domain_id} · ${ENV_LABEL[r.env]} · ${r.app_name}${r.business_domain ? ` · 业务类型(biz):${r.business_domain}` : ''}`,
       }))
-  }, [watchResourceType, watchNetworkDomainId, filterEnv, domainNameMap])
+  }, [watchResourceType, watchNetworkDomainId, filterEnv, filterBusinessDomain, domainNameMap])
 
   const openCreate = () => {
     setEditingJob(null)
@@ -1278,7 +1282,7 @@ export default function ScrapeJobsPage() {
                 style={{ marginBottom: 12 }}
               />
               <Row gutter={8} style={{ marginBottom: 8 }}>
-                <Col span={24}>
+                <Col span={12}>
                   <Select
                     placeholder="按环境筛选"
                     allowClear
@@ -1290,6 +1294,20 @@ export default function ScrapeJobsPage() {
                       <Option key={e} value={e}>
                         {ENV_LABEL[e]}
                       </Option>
+                    ))}
+                  </Select>
+                </Col>
+                <Col span={12}>
+                  {/* {v3.4} 业务类型筛选：筛选字段 = Resource 属性字段（business_domain），label 名 biz 作 UI 别名 */}
+                  <Select
+                    placeholder="按业务类型（biz）筛选"
+                    allowClear
+                    style={{ width: '100%' }}
+                    value={filterBusinessDomain}
+                    onChange={(v) => setFilterBusinessDomain(v)}
+                  >
+                    {BIZ_DOMAINS.map((d) => (
+                      <Option key={d} value={d}>{d}</Option>
                     ))}
                   </Select>
                 </Col>
