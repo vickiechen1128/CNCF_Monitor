@@ -1,9 +1,9 @@
 # MetricCenter Module 09 原型
 
-> **验证的 PRD 版本**: [Module_09_Network_Domain_and_Edge_Config_Center.md](../../02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) v1.24
+> **验证的 PRD 版本**: [Module_09_Network_Domain_and_Edge_Config_Center.md](../../02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) v1.28
 > **覆盖的产品版本**: MVP / v0.2 / v1.0
-> **原型版本**: v1.19
-> **更新日期**: 2026-08-07
+> **原型版本**: v1.21
+> **更新日期**: 2026-08-14
 > **本地启动命令**:
 >
 > ```bash
@@ -38,7 +38,7 @@ python3 -m http.server 8080
 
 ## 原型目标
 
-验证 [Module 09: 网域与边缘配置中心](docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 的核心交互（基于 PRD v1.21）：
+验证 [Module 09: 网域与边缘配置中心](docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 的核心交互（基于 PRD v1.26）：
 
 1. **单网域 / 多网域模式切换**：通过 `Tenant.multi_site_enabled` 开关演示两种模式下的 UI 差异。
 2. **网域管理**：注册、编辑、删除网域；`default` 管理域可修改名称/描述但禁止删除；`domain_type` 区分管理域/边缘域；**安装指引为页面顶部常驻提示区（决策 17，而非每行入口/弹窗）**——网域管理页顶部常驻展示「新网域接入操作流程」（3 步人工步骤 + 边缘节点组件构成 + 凭据获取方式：`NETWORK_DOMAIN_ID`=对应网域 ID、`TOKEN` 经网域行内复制按钮获取），**行内不再提供安装指引按钮**（操作列收敛为「编辑 / 更多（重置 Token）/ 删除」），**注册成功后自动滚动并高亮顶部提示区**（guideHighlight 描边高亮 4s）；**注册为登记制 + 闭环（决策 14）**——注册表单最小化（网域名称 + 租户，`id` 按名称自动生成、Token 自动签发、**Remote Write URL 留空自动推导**（中心 ingress + 网域路径，可手动覆盖）），表单内置「注册 → 安装指引 → 自动上线」闭环 Alert；**Agent 类型下拉保留、MVP 仅 `vmagent` 可选（决策 12/16，下拉 disabled 仅一个选项；编辑 edge 域时可改，prometheus-agent 标注 v0.2+ 开放）**；**字段语义对齐（决策 16）**——列表字段分配置字段（注册/编辑设置）与运行态字段（状态/最后心跳，由心跳上报自动更新，列头 Tooltip + 页脚说明来源），编辑表单补全可编辑配置字段（Agent 类型、Remote Write 目标）；Token 在 UI 中**完全脱敏展示**（不显示任何明文片段，完整值仅可通过复制按钮获取）。

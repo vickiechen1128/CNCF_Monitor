@@ -457,6 +457,13 @@ export function EdgeAgentsPage() {
                 <Text code>targets/*.json</Text> 做解析校验（JSON 结构、targets / labels 字段合法性），失败保留最后一份有效配置并记录错误，体现为{' '}
                 <Text code>config_sync_status</Text> 异常态（out_of_sync / manual_override）；Agent 为「哑校验」，不做 promtool 级语法校验，产物合法性由中心内容校验（validation_status）保证。
               </Text>
+              <br />
+              {/* {v1.28} 断网自治说明：断网不影响中心草稿/版本持久化，边缘保留最后有效配置自治，恢复后拉最新已审批版本 */}
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                断网自治（{`{v1.28}`}）：断网期间配置草稿 / 版本在中心正常生成与存储（不影响发布流程）；
+                边缘 Agent 保留<Text strong>最后一份有效配置</Text>继续自治采集（本地快照，不依赖中心在线），
+                网络恢复后心跳上报配置版本 → 中心响应有更新 → 拉取该网域最新已审批版本（网域内版本一致 + checksum 校验）。
+              </Text>
             </div>
           </>
         )}

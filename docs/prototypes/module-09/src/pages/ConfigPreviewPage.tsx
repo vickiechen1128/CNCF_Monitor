@@ -438,7 +438,13 @@ export function ConfigPreviewPage() {
       return
     }
     // 决策 19：确认动作记录确认人（当前登录用户），历史变更可审计「谁确认了高风险变更」；MVP 预置，用户管理接入后同步（决策 20）
-    message.success(`变更单 ${draft?.change_no} 已确认并发布到监控（确认人：${CURRENT_USER}）`)
+    // {v1.20} 发布通道按域类型提示：管理域确认后立即 reload 生效；边缘域发布为配置包，待 Agent 下次心跳拉取生效
+    const isEdge = activeDomain?.domain_type === 'edge'
+    message.success(
+      isEdge
+        ? `变更单 ${draft?.change_no} 已确认，已发布为配置包，待边缘 Agent 下次心跳拉取生效（确认人：${CURRENT_USER}）`
+        : `变更单 ${draft?.change_no} 已确认并发布到监控（确认人：${CURRENT_USER}）`
+    )
     setDetailDraft(null)
   }
 
@@ -507,6 +513,22 @@ export function ConfigPreviewPage() {
               <Text strong>自动生成</Text>（平台保证生成内容与策略一致）。本页汇总待发布的配置变更，
               请确认<Text strong>变更内容</Text>与<Text strong>影响</Text>后，决定是否发布到监控——
               确认的对象是「要不要上线」，而不是「配置怎么生成」。
+            </span>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+
+        {/* {v1.28} 技术确认 vs 审批上下文（ITIL 边界声明）：YAML 预览/Diff 为运维排查工具，不构成审批上下文；审批信息（人话摘要/变更清单/风险）为主区 */}
+        <Alert
+          message="审批信息与技术排查的分工"
+          description={
+            <span>
+              审批决策依据 = 人话变更摘要 + 变更清单 + 风险等级（本页主区）；下方的配置预览 / Diff（YAML）
+              是<Text strong>技术排查工具</Text>（供深入排查的运维核对配置生成是否正确），
+              <Text strong>不构成审批上下文</Text>——将来对接外部审批平台（ITSM）时，
+              审批单仅含人话摘要 / 影响范围 / 风险等级，配置产物与技术细节不传出平台。
             </span>
           }
           type="info"
@@ -736,9 +758,17 @@ export function ConfigPreviewPage() {
                     <Button danger icon={<DeleteOutlined />} onClick={handleDiscard}>
                       废弃变更
                     </Button>
-                    <Tooltip title={validationFailed ? '下发前校验未通过，禁止下发' : ''}>
+                    <Tooltip
+                      title={
+                        validationFailed
+                          ? '下发前校验未通过，禁止下发'
+                          : activeDomain?.domain_type === 'edge'
+                          ? '确认后发布为配置包，待边缘 Agent 下次心跳拉取生效'
+                          : '确认后立即 reload 生效'
+                      }
+                    >
                       <Button type="primary" icon={<CheckOutlined />} onClick={handleConfirm} disabled={validationFailed}>
-                        确认发布到监控
+                        确认发布
                       </Button>
                     </Tooltip>
                   </>

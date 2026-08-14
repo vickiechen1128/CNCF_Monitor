@@ -9,6 +9,7 @@ import {
   Modal,
   Descriptions,
   message,
+  Alert,
 } from 'antd'
 import { CheckOutlined, CloseOutlined, EyeOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
@@ -96,6 +97,14 @@ export function PendingCiPage() {
       <div className="page-header">
         <Title level={4}>待分类 CI</Title>
       </div>
+      {/* {v1.2} 新类型接入引导闭环：与 Module_01 v3.4 决策 39 联动（CMDB 新类型映射后 → M01 配置 CI-Exporter 映射/标签模板） */}
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="映射后的下一步"
+        description="CI 类型完成映射同步后，请前往「监控策略」模块（Module_01）为该 CI 类型配置 CI-Exporter 采集映射与标签模板（若尚未配置）——新类型出现 → 管理员映射 → 自动可采集的接入引导闭环。"
+      />
       <Card className="page-card">
         <Table
           rowKey="id"

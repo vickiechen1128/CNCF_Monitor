@@ -43,7 +43,7 @@ export type DeploymentValidationStatus = 'passed' | 'failed' | 'pending'
 /**
  * file_sd 目标文件条目（targets/<job_name>.json 中一个 target group，PRD 3.3 / 6.2）：
  * - targets：实例列表（host:port 或 URL）
- * - labels：由 LabelTemplate 静态展开的资源标签（app_code / env_flag / network_domain 等，PRD 3.3 映射语义）
+ * - labels：由 LabelTemplate 静态展开的资源标签（app / env / network_domain 等，PRD 3.3 映射语义）
  */
 export interface TargetsFileEntry {
   targets: string[]
@@ -802,18 +802,19 @@ scrape_configs:
           - 'targets/plc-gateway.json'
 `
 
-// targets/*.json（file_sd 目标文件，PRD 6.2）：按 job 名组织；labels 为 LabelTemplate 静态展开的资源标签（app_code / env_flag / network_domain，PRD 3.3 映射语义）
+// targets/*.json（file_sd 目标文件，PRD 6.2）：按 job 名组织；labels 为 LabelTemplate 静态展开的资源标签
+// {v1.27} 对齐 Module_07 5.15 业务指标标签规范机制 A：app（app_name→app）/ biz（business_domain→biz）/ env / network_domain 注入（static_configs[].labels）
 const targetsDefault: ConfigTargetsFiles = {
   'node-exporter': [
     {
       targets: ['localhost:9100'],
-      labels: { network_domain: 'default', app_code: 'app-center', env_flag: 'prod' },
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
     },
   ],
   'blackbox-tcp': [
     {
       targets: ['localhost:22'],
-      labels: { network_domain: 'default', app_code: 'app-center', env_flag: 'prod' },
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
     },
   ],
 }
@@ -823,13 +824,13 @@ const targetsGovBaseline: ConfigTargetsFiles = {
   'node-exporter': [
     {
       targets: ['10.0.1.10:9100'],
-      labels: { network_domain: 'gov-cloud-a', app_code: 'app-gov-web', env_flag: 'prod' },
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
     },
   ],
   'blackbox-http': [
     {
       targets: ['https://api.example.com/health'],
-      labels: { network_domain: 'gov-cloud-a', app_code: 'app-gov-web', env_flag: 'prod' },
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
     },
   ],
 }
@@ -839,17 +840,17 @@ const targetsGovDraft: ConfigTargetsFiles = {
   'node-exporter': [
     {
       targets: ['10.0.1.10:9100'],
-      labels: { network_domain: 'gov-cloud-a', app_code: 'app-gov-web', env_flag: 'prod' },
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
     },
     {
       targets: ['10.0.1.11:9100'],
-      labels: { network_domain: 'gov-cloud-a', app_code: 'app-gov-db', env_flag: 'prod' },
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-db', biz: 'data-api', env: 'prod' },
     },
   ],
   'blackbox-http': [
     {
       targets: ['https://api.example.com/health'],
-      labels: { network_domain: 'gov-cloud-a', app_code: 'app-gov-web', env_flag: 'prod' },
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
     },
   ],
 }
@@ -858,7 +859,7 @@ const targetsFinance: ConfigTargetsFiles = {
   'node-exporter': [
     {
       targets: ['10.0.3.20:9100'],
-      labels: { network_domain: 'finance-dmz', app_code: 'app-finance-pay', env_flag: 'prod' },
+      labels: { network_domain: 'finance-dmz', app: 'app-finance-pay', biz: 'payment', env: 'prod' },
     },
   ],
 }
@@ -869,13 +870,13 @@ const targetsMfg: ConfigTargetsFiles = {
   'node-exporter': [
     {
       targets: ['192.168.10.20:9100'],
-      labels: { network_domain: 'manufacturing-edge', app_code: 'app-mfg-line1', env_flag: 'prod' },
+      labels: { network_domain: 'manufacturing-edge', app: 'app-mfg-line1', biz: 'manufacturing', env: 'prod' },
     },
   ],
   'plc-gateway': `[
   {
     "targets": ["192.168.10.30:9273"],
-    "labels": {"network_domain": "manufacturing-edge", "app_code": "app-plc", "env_flag": "prod"}
+    "labels": {"network_domain": "manufacturing-edge", "app": "app-plc", "biz": "manufacturing", "env": "prod"}
   }`,
 }
 
