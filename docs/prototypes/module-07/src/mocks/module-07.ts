@@ -31,6 +31,8 @@ export interface ResourceBase {
   hostname?: string
   instance_ip?: string
   os_type?: string
+  // {v2.8} 业务类型/业务域归属（如 payment / data-api）；任意资源类型可挂，MVP 以 application 维护；映射为 `biz` label
+  business_domain?: string
   app_name?: string
   env?: Env
   cluster?: string
@@ -250,7 +252,7 @@ export const mockStatusMappingConfig: StatusMappingConfig = {
 export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceType, string[]> = {
   host: ['network_domain', 'hostname', 'instance_ip', 'os_type', 'app_name', 'env', 'cluster', 'owner', 'status'],
   middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  application: ['network_domain', 'service_name', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  application: ['network_domain', 'service_name', 'business_domain', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'status'],
   generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'app_name', 'env', 'cluster', 'owner', 'status'],
 }
 
@@ -258,7 +260,7 @@ export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceType, string[]> = {
 export const RESOURCE_FIELD_OPTIONS: Record<ResourceType, string[]> = {
   host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
   middleware: ['instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  application: ['instance_name', 'service_name', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  application: ['instance_name', 'service_name', 'business_domain', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
   generic_target: ['instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
 }
 
@@ -418,6 +420,7 @@ export const mockResources: Resource[] = [
     source_type: 'manual',
     instance_name: 'order-service-v2',
     service_name: 'order-service',
+    business_domain: 'order',
     health_check_url: 'http://10.0.3.11:9100/-/healthy',
     protocol: 'http',
     endpoint: '10.0.3.11:9100',
@@ -438,6 +441,7 @@ export const mockResources: Resource[] = [
     source_type: 'manual',
     instance_name: 'pay-service-v1',
     service_name: 'pay-service',
+    business_domain: 'payment',
     health_check_url: 'http://192.168.3.12:9100/-/healthy',
     protocol: 'http',
     endpoint: '192.168.3.12:9100',
@@ -505,11 +509,12 @@ export const mockResourceLabels: Record<string, ResourceLabel[]> = {
     { label_id: 'l2', resource_id: 'res-host-001', label_key: 'app', label_value: '电商前台', source: 'system', is_editable: false, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
     { label_id: 'l3', resource_id: 'res-host-001', label_key: 'env', label_value: 'prod', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值，优先级最高', created_at: '2026-07-01 10:00:00', updated_at: '2026-07-15 08:00:00' },
     { label_id: 'l4', resource_id: 'res-host-001', label_key: 'business', label_value: '电商', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值', created_at: '2026-07-01 10:00:00', updated_at: '2026-07-15 08:00:00' },
-    { label_id: 'l5', resource_id: 'res-host-001', label_key: 'team', label_value: 'sre', source: 'user', is_editable: true, created_at: '2026-07-05 14:00:00', updated_at: '2026-07-05 14:00:00' },
+    // {v2.8} 静态资源只读：user 来源标签为 Excel 带入（数据治理在 CMDB/Excel 侧），is_editable=false
+    { label_id: 'l5', resource_id: 'res-host-001', label_key: 'team', label_value: 'sre', source: 'user', is_editable: false, created_at: '2026-07-05 14:00:00', updated_at: '2026-07-05 14:00:00' },
   ],
   'res-mw-001': [
     { label_id: 'l6', resource_id: 'res-mw-001', label_key: 'instance', label_value: '10.0.2.11:6379', source: 'system', is_editable: false, created_at: '2026-07-05 10:00:00', updated_at: '2026-07-05 10:00:00' },
-    { label_id: 'l7', resource_id: 'res-mw-001', label_key: 'middleware', label_value: 'redis', source: 'user', is_editable: true, created_at: '2026-07-06 09:00:00', updated_at: '2026-07-06 09:00:00' },
+    { label_id: 'l7', resource_id: 'res-mw-001', label_key: 'middleware', label_value: 'redis', source: 'user', is_editable: false, created_at: '2026-07-06 09:00:00', updated_at: '2026-07-06 09:00:00' },
     { label_id: 'l8', resource_id: 'res-mw-001', label_key: 'dc', label_value: '上海 A 区', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值', created_at: '2026-07-05 10:00:00', updated_at: '2026-07-15 08:00:00' },
     { label_id: 'l9', resource_id: 'res-mw-001', label_key: 'env', label_value: 'prod', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值，优先级最高', created_at: '2026-07-05 10:00:00', updated_at: '2026-07-15 08:00:00' },
   ],
@@ -517,10 +522,14 @@ export const mockResourceLabels: Record<string, ResourceLabel[]> = {
     { label_id: 'l10', resource_id: 'res-app-001', label_key: 'service_name', label_value: 'order-service', source: 'system', is_editable: false, created_at: '2026-07-08 10:00:00', updated_at: '2026-07-08 10:00:00' },
     { label_id: 'l11', resource_id: 'res-app-001', label_key: 'cluster', label_value: 'k8s-prod', source: 'system', is_editable: false, created_at: '2026-07-08 10:00:00', updated_at: '2026-07-08 10:00:00' },
     { label_id: 'l12', resource_id: 'res-app-001', label_key: 'env', label_value: 'prod', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值，优先级最高', created_at: '2026-07-08 10:00:00', updated_at: '2026-07-15 08:00:00' },
+    // {v2.8} biz 标签 = business_domain 字段由标签模板映射生成（system 来源，实时计算不落库；mock 静态展示）
+    { label_id: 'l16', resource_id: 'res-app-001', label_key: 'biz', label_value: 'order', source: 'system', is_editable: false, created_at: '2026-07-08 10:00:00', updated_at: '2026-07-08 10:00:00' },
+    // {v2.8} application 为业务类型资源：user 来源标签可编辑（is_editable=true），如业务维度标注「核心链路」
+    { label_id: 'l17', resource_id: 'res-app-001', label_key: 'tier', label_value: 'core', source: 'user', is_editable: true, created_at: '2026-07-12 14:00:00', updated_at: '2026-07-12 14:00:00' },
   ],
   'res-gen-001': [
     { label_id: 'l13', resource_id: 'res-gen-001', label_key: 'instance', label_value: '172.16.0.1:9116', source: 'system', is_editable: false, created_at: '2026-07-10 10:00:00', updated_at: '2026-07-10 10:00:00' },
-    { label_id: 'l14', resource_id: 'res-gen-001', label_key: 'device_type', label_value: 'snmp_switch', source: 'user', is_editable: true, created_at: '2026-07-11 09:00:00', updated_at: '2026-07-11 09:00:00' },
+    { label_id: 'l14', resource_id: 'res-gen-001', label_key: 'device_type', label_value: 'snmp_switch', source: 'user', is_editable: false, created_at: '2026-07-11 09:00:00', updated_at: '2026-07-11 09:00:00' },
     { label_id: 'l15', resource_id: 'res-gen-001', label_key: 'env', label_value: 'prod', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值，优先级最高', created_at: '2026-07-10 10:00:00', updated_at: '2026-07-15 08:00:00' },
   ],
 }
@@ -589,6 +598,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-app-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-app-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-app-05', source_field: 'health_check_url', source_type: 'resource_field', target_label: 'health_check_url', enabled: true, transform: '' },
+      // {v2.8} 业务类型归属：business_domain → biz（业务指标按业务类型聚合的关联键，见 PRD 5.12 A / 5.15）
+      { mapping_id: 'mp-app-06', source_field: 'business_domain', source_type: 'resource_field', target_label: 'biz', enabled: true, transform: '' },
     ],
     created_at: '2026-07-20 10:20:00',
     updated_at: '2026-07-20 10:20:00',

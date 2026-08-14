@@ -25,7 +25,7 @@ import {
 } from './module-07'
 import type { ResourceType } from './module-07'
 
-describe('module-07 mocks（对齐 PRD v2.7）', () => {
+describe('module-07 mocks（对齐 PRD v2.8）', () => {
   const domainIds = mockNetworkDomains.map((d) => d.id)
 
   // ========== 资源基础字段校验 ==========
@@ -345,10 +345,16 @@ describe('module-07 mocks（对齐 PRD v2.7）', () => {
     })
   })
 
-  it('user 来源标签 is_editable 为 true（PRD 5.3/3.3）', () => {
+  it('user 来源标签可编辑性按资源类型区分（PRD 5.3/3.3 + {v2.8} 双场景治理：application 可编辑，静态资源 Excel/CMDB 带入只读）', () => {
     Object.values(mockResourceLabels).forEach((labels) => {
       labels.filter((l) => l.source === 'user').forEach((l) => {
-        expect(l.is_editable).toBe(true)
+        const res = mockResources.find((r) => r.resource_id === l.resource_id)
+        if (res && isApplicationResource(res)) {
+          expect(l.is_editable).toBe(true)
+        } else {
+          // {v2.8} 静态资源（host / middleware / generic_target）：标签治理在 CMDB/Excel 侧，user 来源为带入只读
+          expect(l.is_editable).toBe(false)
+        }
       })
     })
   })

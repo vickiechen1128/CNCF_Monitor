@@ -225,6 +225,11 @@ export default function ResourcesPage() {
 
   const handleAddLabel = () => {
     if (!selectedResource) return
+    // {v2.8} 双场景治理：静态资源标签由 CMDB / Excel 治理，平台只读，不提供实例级打标
+    if (selectedResource.resource_type !== 'application') {
+      message.warning('静态资源标签由 CMDB / Excel 治理，平台只读，不提供实例级打标入口')
+      return
+    }
     if (keyError) {
       message.error(keyError)
       return
@@ -354,6 +359,8 @@ export default function ResourcesPage() {
           resource_type: 'application' as const,
           instance_name: values.instance_name as string | undefined,
           service_name: values.service_name as string,
+          // {v2.8} 业务类型/业务域归属（可选填），映射为 biz 标签
+          business_domain: values.business_domain as string | undefined,
           health_check_url: values.health_check_url as string | undefined,
           protocol: values.protocol as AppProtocol | undefined,
           endpoint: values.endpoint as string | undefined,
@@ -412,6 +419,7 @@ export default function ResourcesPage() {
           ...record,
           ...common,
           service_name: values.service_name as string,
+          business_domain: values.business_domain as string | undefined,
           health_check_url: values.health_check_url as string | undefined,
           protocol: values.protocol as AppProtocol | undefined,
           endpoint: values.endpoint as string | undefined,
@@ -562,6 +570,17 @@ export default function ResourcesPage() {
                   <Input placeholder="如 order-service" />
                 </Form.Item>
               </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="业务类型"
+                  name="business_domain"
+                  extra="可选填；映射为 biz 标签，用于按业务类型聚合（如 payment / data-api）"
+                >
+                  <Input placeholder="如 payment / data-api" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="协议" name="protocol">
                   <Select placeholder="请选择" allowClear>
@@ -1121,6 +1140,8 @@ export default function ResourcesPage() {
                 { key: 'instance_name', label: '实例名', children: selectedResource.instance_name || '-' },
                 { key: 'hostname', label: '主机名', children: selectedResource.hostname || '-' },
                 { key: 'instance_ip', label: 'IP 地址', children: selectedResource.instance_ip || '-' },
+                // {v2.8} 业务类型：映射为 biz 标签（业务指标按业务类型聚合的关联键）
+                { key: 'business_domain', label: '业务类型', children: selectedResource.business_domain || '-' },
                 { key: 'app_name', label: '应用', children: selectedResource.app_name || '-' },
                 // {v2.3} 适用模板：该资源类型默认模板（模板按 resource_type 隐式关联）
                 {
@@ -1190,7 +1211,10 @@ export default function ResourcesPage() {
               ]}
             />
             <Divider />
-            <Title level={5}>自定义标签（非必须）</Title>
+            {/* {v2.8} 双场景治理：标题按资源类型区分（静态资源只读 / 应用服务可编辑） */}
+            <Title level={5}>
+              {selectedResource?.resource_type === 'application' ? '自定义标签（非必须）' : '自定义标签（静态资源只读）'}
+            </Title>
             {/* {v2.6} 统一口径：标签来源 vs 模板映射字段来源的对应关系，消除「系统/用户/CMDB」与「资源字段/组合字段/CMDB 字段」的歧义 */}
             <Alert
               type="info"
@@ -1205,14 +1229,22 @@ export default function ResourcesPage() {
                   </Space>
                   <Space wrap size={[4, 4]}>
                     <Tag color="cyan">用户</Tag>
-                    <Text style={{ fontSize: 12 }}>= 实例级自定义标签（含通用目标 custom_labels 透传），唯一可编辑 / 删除来源</Text>
+                    <Text style={{ fontSize: 12 }}>= 实例级自定义标签（含通用目标 custom_labels 透传）；仅应用服务资源可编辑 / 删除</Text>
                   </Space>
                   <Space wrap size={[4, 4]}>
                     <Tag>CMDB（v0.4+）</Tag>
                     <Text style={{ fontSize: 12 }}>= 后续版本由 CMDB 同步，MVP 仅占位展示，对应模板映射的「CMDB 字段」来源</Text>
                   </Space>
+                  <Space wrap size={[4, 4]}>
+                    <Tag color="blue">双场景</Tag>
+                    <Text style={{ fontSize: 12 }}>=
+                      {selectedResource?.resource_type === 'application'
+                        ? '业务类型资源：标签由平台治理，开放自定义标签（如核心链路、负责人）'
+                        : '静态资源（主机 / 中间件 / 通用目标）：标签由 CMDB / Excel 治理，平台只读，不提供实例级打标入口'}
+                    </Text>
+                  </Space>
                   <Text style={{ fontSize: 12, color: '#86909C' }}>
-                    {'冲突优先级：CMDB > 用户 > 系统（系统标签为生成基线，不可被覆盖）。大多数场景下标签模板已自动生成所需标签，仅当个别实例需要额外标签时使用。'}
+                    {'冲突优先级：CMDB > 用户 > 系统（系统标签为生成基线，不可被覆盖）。大多数场景下标签模板已自动生成所需标签，仅当个别应用服务实例需要额外标签时使用。'}
                   </Text>
                 </Space>
               }
@@ -1224,6 +1256,16 @@ export default function ResourcesPage() {
               style={{ marginBottom: 12 }}
               message="批量标签编辑：按资源类型或筛选条件批量增删改标签，后续版本开放"
             />
+            {selectedResource?.resource_type !== 'application' ? (
+              // {v2.8} 双场景治理：静态资源只读，不渲染添加输入（数据治理在 CMDB / Excel 侧）
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 12 }}
+                message="静态资源标签由 CMDB / Excel 治理，平台只读"
+                description="主机、中间件、通用目标资源的标签由 CMDB 同步（MVP 阶段由 Excel 导入带入），数据治理在 CMDB 侧完成，本平台不引导二次打标。如需修改标签，请前往 CMDB 或更新导入数据。"
+              />
+            ) : (
             <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
               <Row gutter={12} align="middle">
                 <Col span={9}>
@@ -1259,6 +1301,7 @@ export default function ResourcesPage() {
                 </div>
               )}
             </Space>
+            )}
             <Space direction="vertical" style={{ width: '100%' }}>
               {labels.map((label) => {
                 const tplSource = label.source === 'system' ? findTemplateSource(selectedResource?.resource_type ?? 'host', label.label_key) : null
@@ -1281,7 +1324,10 @@ export default function ResourcesPage() {
                           <Tag color={label.source === 'cmdb' ? 'default' : label.source === 'user' ? 'cyan' : 'default'}>
                             {label.source === 'cmdb' ? 'CMDB · v0.4+ 预留' : LABEL_SOURCE_MAP[label.source]}
                           </Tag>
-                          {!label.is_editable && <LockOutlined style={{ color: '#86909C', marginLeft: 4 }} />}
+                          {/* {v2.8} 静态资源整体只读：即使 user 来源（Excel 带入）也显示锁定 */}
+                          {(!label.is_editable || selectedResource?.resource_type !== 'application') && (
+                            <LockOutlined style={{ color: '#86909C', marginLeft: 4 }} />
+                          )}
                         </div>
                         {/* {v2.2} 联动标注：来源模板/映射 或 来源说明 */}
                         {label.source === 'system' && tplSource && (
@@ -1302,7 +1348,10 @@ export default function ResourcesPage() {
                         )}
                         {label.source === 'user' && (
                           <Text type="secondary" style={{ fontSize: 11 }}>
-                            资源自定义（实例级）
+                            {/* {v2.8} 双场景：application = 资源自定义（实例级）；静态资源 = Excel / CMDB 带入（只读） */}
+                            {selectedResource?.resource_type === 'application'
+                              ? '资源自定义（实例级）'
+                              : 'Excel / CMDB 带入（只读）'}
                           </Text>
                         )}
                         {label.source === 'cmdb' && (
@@ -1314,7 +1363,7 @@ export default function ResourcesPage() {
                       <Col span={12}>
                         <Input
                           value={label.label_value}
-                          disabled={!label.is_editable}
+                          disabled={!label.is_editable || selectedResource?.resource_type !== 'application'}
                           onChange={(e) => handleLabelChange(label.label_id, e.target.value)}
                           suffix={
                             label.conflict_hint ? (
@@ -1326,7 +1375,7 @@ export default function ResourcesPage() {
                         />
                       </Col>
                       <Col span={6} style={{ textAlign: 'right' }}>
-                        {label.is_editable ? (
+                        {label.is_editable && selectedResource?.resource_type === 'application' ? (
                           <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => handleDeleteLabel(label)}>
                             删除
                           </Button>
