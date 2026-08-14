@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v3.3
+> **PRD 版本**: v3.6
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
 > **原型版本**: v2.7
-> **更新日期**: 2026-08-13
+> **更新日期**: 2026-08-14
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -41,6 +41,10 @@
 - M01-OPS-04：确认目标实例上 Exporter 已安装/已注册，避免生成大量 down 目标。
 - M01-OPS-05：查看并维护指标库（counter/gauge/histogram/summary、HELP、UNIT）以及 Exporter 内置指标库，为规则编写提供指标提示。
 - M01-OPS-06：使用类 YAML 表单编辑告警/记录规则，编辑时获得 PromQL 校验与指标实时预览（v0.3）。
+- M01-OPS-07：v0.2+ 通过服务发现（K8s / Nacos 等）自动接入动态实例（微服务扩缩容），无需手动勾选（完整条目见全局库 §4.1；{v3.4}）。
+- M01-BIZ-01：业务负责人在业务指标库登记业务指标（名称/语义/阈值/所属业务域/负责人），把业务监控诉求明确传递给运维（完整条目见全局库 §4.1；{v3.5}）。
+- M01-BIZ-02：业务负责人 v0.2+ 按业务域查看业务指标健康度看板（完整条目见全局库 §4.1；{v3.5}）。
+- M01-BIZ-03：运维接业务负责人工单后代登记业务指标（owner 必填指向业务负责人），代办后请业务负责人确认语义（完整条目见全局库 §4.1；{v3.6}）。
 - M01-ARCH-01：在 [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource 列表上看到「已监控 / 未监控」badge，快速发现未被任何 `ScrapeJob` 选中的实例（v0.2+）。
 - M01-ARCH-02：v0.4+ 基于外部 CMDB 自动发现实例并推荐监控策略（自动规则生成），但仍由工程师在策略模块确认后生效。
 - M01-ARCH-03：v1.0 与 ITIL 流程结合，在变更/发布窗口中自动校验监控策略覆盖率。
@@ -57,10 +61,11 @@
 | 标签模板创建引导（{v3.1}）       | 新增 CI-Exporter 映射时，系统检测该 CI 类型是否已有标签模板；无模板时弹出轻量提示引导用户创建，支持「立即创建」（预填推荐映射）或「稍后再说」（列表显示待配置 badge）                              | P0         |
 | 标签模板展示列（{v3.1}）        | CI-Exporter 映射列表新增「标签模板」列，展示模板名称 + 默认/自定义标记 + 类别·模板ID；支持查看（只读预览抽屉）、更换（同资源类型其他模板）、补配（重新触发创建流程）                        | P0         |
 | ScrapeJob 管理            | Job 创建/编辑、命名、启用/禁用、关联 CI 类型与 ExporterTemplate、实例选择模式、标签模板引用；Job 必须绑定且仅绑定单一网域                                                            | P0         |
-| 实例选择                    | MVP 支持「按类型+网域自动收敛候选 + 手动勾选」（候选一键全选/反选、关键字筛选）；v0.3+ 支持按网域 / 环境 / 应用 / 标签等条件筛选并预览匹配结果                                                                                     | P0 / v0.3+ |
+| 实例选择                    | MVP 支持「按类型+网域自动收敛候选 + 手动勾选」（候选一键全选/反选、关键字筛选）；v0.3+ 支持按资源属性（网域 / 环境 / 应用 / 业务类型等）条件筛选并预览匹配结果——筛选字段为 Resource 属性字段，label 仅作 UI 别名（{v3.4}），不写标签                                                                                     | P0 / v0.3+ |
 | Exporter 安装/注册确认        | 在 Resource 或 Target 上标记 exporter 是否已安装/已注册，生成配置前必须确认                                                                                    | P0         |
 | ScrapeJob blackbox 类型支持 | Blackbox 拨测作为 `ScrapeJob` 的一种类型，通过 `job_type`、`blackbox_module`、`blackbox_targets` 配置；不再维护独立 `BlackboxTarget` 实体                        | P0         |
 | 指标库管理                 | 指标名注册、类型标记（counter/gauge/histogram/summary）、HELP/UNIT                                                                                   | P1         |
+| 业务指标库（{v3.5}/{v3.6}）        | 业务指标登记表（BusinessMetric）：业务负责人定义语义 / 阈值 / 所属业务域 / 负责人（owner 必填）；**登记不绑定角色——业务负责人自录或运维接工单代办（owner 仍指向业务负责人）**；运维消费后落地采集并标记「已上线」；MVP 最小登记表，v0.2+ 独立业务负责人角色入口 + 业务健康度看板 + 业务域聚合视图（语义层不改变采集配置逻辑） | P0 / v0.2+ |
 | Exporter 指标库            | 静态内置库覆盖常见 Exporter（node-exporter、mysqld-exporter、redis-exporter 等），并提供用户扩展入口；完整管理页面放 P1/P2                                              | P1 / P2    |
 | 高级 Relabel 管理           | 标签丢弃/保留/重写、正则替换、hashmod（未来）                                                                                                             | P2         |
 | Exporter 市场             | Exporter 登记、版本管理、部署指南（未来）                                                                                                               | P2         |
@@ -94,7 +99,16 @@
 
 ***
 
-## 4. 数据来源
+## 4. 核心流程与数据来源
+
+> **核心流程（{v3.4} 骨架补齐）**：本模块的核心用户流程为「**CI 类型接入 → 创建采集 Job → 配置生成下发 → 运行时采集**」——
+>
+> 1. **CI 类型接入**：运维工程师选择资源类别 → 细粒度 CI 类型，创建/复用 CI-Exporter 映射（含默认采集参数与标签模板；新 CI 类型无标签模板时触发创建引导，v0.4+ CMDB 新类型经 Module\_04 待分类队列进入同一流程）；
+> 2. **创建采集 Job**：基于映射创建 ScrapeJob（快照继承默认参数），选择实例——MVP 手动勾选（同类型同网域候选收敛）→ v0.3+ 条件筛选（filter）→ v0.2+ 服务发现（service_discovery，微服务动态实例）；
+> 3. **配置生成下发**：Module\_09 轮询策略变更，生成 `prometheus.yml`（含 `static_configs[].labels` 注入 app/biz）并下发（见 Module\_09 3.x）；
+> 4. **运行时采集**：Prometheus/Edge Agent 抓取，目标状态与采集诊断由 Module\_02 展示。
+>
+> 数据来源（本模块的输入）：
 
 1. [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 提供的 Resource、ResourceType、LabelTemplate 等对象数据。
 2. 本模块自身维护的策略配置：CITypeExporterMapping、ScrapeJob、MonitoringRule、ExporterMetricLibrary 等。
@@ -223,6 +237,18 @@
 >
 > - **v0.4+ CMDB 接入**：CMDB CI 类型为**唯一权威来源**；Module\_04 同步后向 Module\_07 写入四大类 + middleware\_type，并向本模块**刷新 resource\_type 映射**；MetricCenter **只维护映射、不增删类型**。
 >
+> **application\_http 语义澄清（{v3.4}）**：`application_http` 对应"业务指标端点采集"（应用服务资源自带 `/metrics`，见 Module\_07 5.8 `endpoint`），其"Exporter 模板"实为**HTTP 抓取模板**——业务应用无独立 exporter 进程，由 Prometheus client / 框架埋点暴露指标：
+>
+> - `default_port` 语义 = 业务指标端点端口（与实例 `endpoint` 的端口对应，可留空由实例 `endpoint` 决定）；
+> - 标签模板默认映射含 `app_name → app`、`business_domain → biz`（{v2.8} Module\_07 5.12 A / 5.15 业务指标标签规范：机制 A 抓取注入 `static_configs[].labels`），Job 引用含该映射的模板即可让业务指标自动带资源标签，**无需新增采集模型**；
+> - 业务维度标签（`path` / `method` / `status`）由指标自带，不参与资源关联（见 Module\_07 5.15）。
+>
+> **v0.4+ 新 CI 类型引导闭环（{v3.4}）**：CMDB 新 CI 类型经 Module\_04「待分类队列」完成映射同步后，本模块需要形成**新类型接入引导闭环**（复用 {v3.1} 标签模板创建引导模式）：
+>
+> - 新类型无 CI-Exporter 映射 → 映射列表显示「待配置」badge + 引导创建（推荐默认采集参数与标签模板，同 5.1「标签模板创建引导」流程）；
+> - 新类型已有映射但无标签模板 → 复用 {v3.1} 标签模板创建引导；
+> - 目的：CMDB 类型膨胀（环境/厂商变体）时，保证"新类型出现 → 管理员映射 → 自动可采集"闭环，避免类型静默无监控。
+>
 > **CI 类型选择交互（两级级联）**：本模块所有涉及 CI 类型的选择（CI-Exporter 模板映射、采集 Job、规则编辑、指标库筛选）统一采用**「资源类别 → 细粒度 CI 类型」两级级联**：先选资源类别（主机/中间件/应用/通用目标），再选该类别下的细粒度类型（MySQL/Redis/Kafka/...），避免「MySQL（middleware）」这类把类型与大类拼接的表述；选中细粒度类型后，通过 `CITypeExporterMapping` 自动带出该类型的默认 Exporter 模板（可覆盖）。该交互与 [Module\_07](Module_07_Monitoring_Object_Management.md) 的 Resource 选择体验一致。
 
 ### 5.2 Exporter 模板（ExporterTemplate）
@@ -305,6 +331,18 @@
 > - 候选列表提供**一键全选 / 反选**与**关键字筛选**（实例名 / IP / 应用名），用户可在此基础上手动调整勾选；
 > - 勾选结果仍持久化到 `selected_instance_ids`（manual 语义不变），仅候选呈现更智能——比 v0.3+ 的 `filter` 条件表达式模式更轻，不引入动态筛选规则；
 > - 目的：**创建 Job 时少选实例、自动带出**，同时保证「模板 ↔ 实例」关联可见（模板按资源类型隐式关联，见 Module\_07 3.2 / 5.3）。
+>
+> **{v3.4} filter 模式字段语义（v0.3+）**：`instance_filter` 的筛选字段 = **Resource 属性字段**（`env` / `cluster` / `app_name` / `business_domain` / `service_name` / `middleware_type` 等，即标签模板映射的**源字段**），筛选**不写任何标签**、与标签管理正交（选择器 vs 描述器，见 Module\_07 5.3「标签配置唯一入口原则」）：
+>
+> - **label 仅作 UI 别名，自动派生、无需手动维护**：筛选器展示字段时，若该字段在当前 CI 类型标签模板存在映射（如 `app_name → app`、`business_domain → biz`），则别名列显示 label 名（如「应用（app）」「业务类型（biz）」），由模板 Mapping 只读派生；无映射字段直接显示字段名；
+> - **筛选底层始终是字段**：**不用模板产出的 label 名做筛选键**——system 标签实时计算不落库（Module\_07 决策 3.29）+ 模板变更穿透 Job（Module\_07 决策 3.44），绑定 label 名会导致筛选语义随模板漂移；模板变更后别名自动跟随，但筛选结果不变；
+> - 筛选结果预览（匹配实例清单）后写入 `instance_filter`，`instance_selection_mode=filter` 时生成配置按表达式实时求值（v0.3+）。
+>
+> **{v3.4} v0.2+ 服务发现模式预留（微服务动态实例）**：微服务（K8s 扩缩容、实例漂移）场景下，静态 `selected_instance_ids` 手动勾选无法覆盖动态目标。预留演进（v0.2+ 落地，与 Module\_07 5.12 B `prometheus_builtin` / Module\_04 `KubernetesProvider` 对齐）：
+>
+> - `instance_selection_mode` 扩展 **`service_discovery`**：Job 绑定服务发现源（K8s Service / Endpoints / Nacos 等），目标由发现结果 + `relabel_configs`（`__meta_*` → `app` / `service` 标签）动态生成，**不落 `selected_instance_ids`**；
+> - CI-Exporter 映射（类型 → 抓取模板 + 标签模板）**模板层复用**——映射与"目标从哪来（静态 / 服务发现）"解耦，服务发现模式仅替换 Job 的目标选择方式；
+> - 关联键沿用稳定业务标识（`app` / `biz`，不用 `instance`），与 Module\_07 5.15 业务指标标签规范一致。
 >
 > **blackbox Job 说明**：
 >
@@ -451,6 +489,71 @@
 
 > **说明**：采集日志由 Prometheus 运行时产生，展示职责由 [Module\_02: 查询中心](Module_02_Query_Center.md) 承担。
 
+### 5.9 业务指标库（BusinessMetric）{v3.5}
+
+> **定位**：业务指标（如支付成功率、下单量）的**业务语义契约登记处**，与 5.3 ExporterMetricLibrary（技术指标库）**并列**。解决"业务监控指标只有业务负责人知道、运维无法凭空确定"的职责断开问题——业务负责人登记语义，运维消费落地采集（职责分工见 3.1「业务指标库」功能行）。
+>
+> **采集方式**：业务指标不来自独立 exporter，而是业务应用埋点（Prometheus client 暴露 `/metrics`，见 5.1 application\_http 语义）；采集落地走机制 A（Job 引用含 `app`/`biz` 映射的标签模板，抓取注入，见 Module\_07 5.15）。本实体**只登记语义契约、不承载采集配置**（采集配置在 ScrapeJob）。
+
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|----------|------|
+| metric\_id | string | ✅ | 指标 ID | 唯一标识 |
+| metric\_name | string | ✅ | 指标名 | Prometheus 指标名（业务埋点输出，如 `payment_success_rate`） |
+| description | string | ✅ | 指标语义 | **业务人话**说明（如"支付成功率 = 支付成功笔数 / 支付总笔数"），由业务负责人填写 |
+| metric\_type | enum | ✅ | 指标类型 | counter / gauge / histogram / summary |
+| unit | string | ❌ | 单位 | 如 % / 笔 / 元 |
+| business\_domain | string | ✅ | 所属业务域 | 归属业务类型（payment / data-api），与 Module\_07 `business_domain` 对齐（v0.2+ 关联独立业务目录实体） |
+| app\_name | string | ❌ | 关联应用 | 产出该指标的关联应用服务（值 = 平台 `app_name`） |
+| threshold\_suggestion | string | ❌ | 建议阈值 | 业务负责人建议的告警阈值（如"成功率 ≥ 99.9%"），作为 v0.3+ 规则编辑的参考输入 |
+| owner | string | ✅ | 业务负责人 | 指标语义责任人（**必填**，语义所有权不随录入者转移） |
+| register\_source | enum | ✅ | 登记来源 | {v3.6} `self`（业务负责人自录）/ `agent`（运维工单代办，owner 仍指向业务负责人） |
+| status | enum | ✅ | 埋点状态 | `pending`（待埋点）/ `instrumented`（已埋点，业务侧代码已输出）/ `online`（已上线，运维确认采集落地） |
+| created\_at / updated\_at | datetime | ✅ | 仅技术信息 | 创建 / 更新时间 |
+
+> **状态机与推进分工（{v3.6}）**：`pending` → `instrumented` → `online`，推进者按职责分工——**语义编辑权（description / threshold / owner）仅业务负责人或其委托**；`pending`（登记，自录或代办；代办后可选「请业务负责人确认语义」环节，确认前列表标「待确认」）；`instrumented`（业务侧埋点完成，业务负责人标记）；`online`（运维确认采集落地，指标可查）。`online` 后可回退 `instrumented`（采集下线）。
+>
+> **登记模式（{v3.6}：登记动作 ≠ 语义所有权）**：登记不绑定角色——**业务负责人自录（`self`）或运维接工单代办（`agent`）均可**；`owner` 字段必填且指向业务负责人（语义所有权不随录入者转移）；运维代录后可选「请业务负责人确认语义」，业务人员不熟悉平台时由运维代录、语义责任不丢失。
+>
+> **业务域聚合视图版本归属（{v3.6}）**：MVP 仅 `business_domain` 资源字段 + `biz` 标签（不做聚合视图）；**v0.2+ 独立业务目录**（Module\_07 决策 3.46）提供业务域聚合视图——成员列表（应用服务/微服务 + 中间件 + 主机，按 business\_domain 归属自动聚合）+ 健康度看板（M01-BIZ-02）+ 采集覆盖视图；微服务是业务域的实现载体、业务域是微服务的语义聚合在该视图显性化。**业务语义层不改变采集配置逻辑**（采集仍按 CI 类型 + 实例选择），仅影响视图 / 查询聚合（`biz`）/ 告警分组（v0.3+）/ 批量操作入口。
+>
+> **MVP / v0.2+ 分层**：MVP = 最小登记表（自录 + 代办均可，`owner` 必填保证职责可溯）；v0.2+ = 独立业务负责人角色入口（配合 Module\_06 权限）+ 业务健康度看板 + 业务域聚合视图。
+
+### 5.10 数据模型状态机 {v3.4}
+
+> **说明（{v3.4} 骨架补齐）**：集中定义本模块核心对象的状态流转，供后端实现与前后端契约对齐。
+
+**① ScrapeJob.enabled（采集任务启用状态）**
+
+```text
+            创建（继承映射默认值）
+                    │
+                    ▼
+      enabled（启用） ◄──────────┐
+          │                     │
+          │ 禁用                 │ 启用
+          ▼                     │
+      disabled（停用） ──────────┘
+```
+
+| 状态 | 含义 | 进入条件 | 后续流转 |
+|------|------|---------|---------|
+| enabled | 启用（参与配置生成） | 创建默认启用 / 手动启用 | 可切 disabled / 删除 |
+| disabled | 停用（不参与配置生成） | 手动停用 | 可切 enabled / 删除 |
+
+> 删除约束：被删除的 Job 由 Module\_09 在下一轮询周期感知 `updated_at`/删除事件并重新生成配置（pull 模式，本模块不主动通知）。
+
+**② instance_selection_mode（实例选择方式，随版本演进）**
+
+```text
+manual（MVP：手动勾选，候选按类型+网域收敛）
+   │
+   ├──► filter（v0.3+：按资源属性条件筛选，label 仅 UI 别名）
+   │
+   └──► service_discovery（v0.2+：服务发现 + relabel 动态生成，不落 selected_instance_ids）
+```
+
+> 三种模式互斥（同一 Job 仅一种）；演进向后兼容——manual 是 MVP 基线，filter / service_discovery 是扩展模式，均不影响标签管理（筛选/发现只决定"哪些实例被采集"，不写标签）。
+
 ***
 
 ## 6. 模块边界
@@ -472,6 +575,21 @@
 | 配置预览 / 人工确认 / 下发              | ❌                    | ❌                 | ✅                    | ❌                            |
 | 运行时目标列表 / 拨测结果 / 采集诊断         | ❌                    | ❌                 | ❌                    | ✅（告警状态部分） / Module\_02（查询展示） |
 | 告警规则生命周期（分组/静默/Alertmanager）  | ❌                    | ❌                 | ❌                    | ✅                            |
+
+### 6.1 接口设计 {v3.4}
+
+> **说明（{v3.4} 骨架补齐）**：本模块是策略 Owner，主要接口为**写策略 + 被轮询消费 + 只读消费外部对象**。MVP 最小契约（统一 `/api/v1` 前缀，鉴权/错误码规范见 [00\_Global\_Architecture.md](../00_Global_Architecture.md)）：
+
+| 方向 | 接口 | 说明 |
+|------|------|------|
+| 写（本模块） | `POST/PUT/DELETE /api/v1/ci-exporter-mappings` | CI-Exporter 映射 CRUD（模板层，全局一份） |
+| 写（本模块） | `POST/PUT/DELETE /api/v1/scrape-jobs` | ScrapeJob CRUD（含 instance_selection_mode / filter 表达式 / service_discovery 配置，v0.3+/v0.2+ 扩展字段） |
+| 读（本模块） | `GET /api/v1/exporter-templates`、`GET /api/v1/metric-library` | Exporter 模板与指标库查询 |
+| 消费（Module\_09 轮询） | 策略读取接口（ScrapeJob / CITypeExporterMapping / LabelTemplate 引用） | Module\_09 生成 `prometheus.yml` 的输入；本模块不主动通知（pull 模式） |
+| 只读消费（本模块 ← Module\_07） | Resource / LabelTemplate GET 接口 | 实例候选、标签模板引用（Module\_07 6.1 / 6.3） |
+| 调用（v0.3+） | Module\_02 `validate` / `preview` | 规则编辑时 PromQL 校验与指标预览 |
+
+> **跨模块契约要点**：①`label_template_id` 为跨模块唯一 FK（Module\_07 维护）；②`instance_filter` 筛选字段仅限 Resource 属性字段（label 名仅 UI 别名，不落表达式，见 5.4）；③v0.2+ `service_discovery` 目标由发现结果 + relabel 动态生成（不落 `selected_instance_ids`）。
 
 ***
 
@@ -525,6 +643,7 @@
 - [ ] {P0} {v2.4} 规则编辑 UI 中，记录规则的 labels 区域显示特殊提示，说明记录规则 labels 的语义（附加到新时间序列的维度标签）。
 - [ ] {P0} {v2.4} CI-Exporter 映射页的新增/编辑表单使用 Drawer 抽屉承载，底部操作栏始终可见，关闭前有未保存提示。
 - [ ] {P0} {v2.4} 规则编辑页的新增/编辑表单使用 Drawer 抽屉承载，底部操作栏始终可见，关闭前有未保存提示。
+- [ ] {P0} {v3.5} 业务指标库可登记业务指标（指标名 / 语义 / 阈值 / 所属业务域 / 负责人必填），列表展示埋点状态（待埋点 / 已埋点 / 已上线）；运维可将业务指标标记「已上线」（确认采集落地）
 
 ### 8.2 技术验收（后端/契约可验证）
 
@@ -533,6 +652,9 @@
 - [ ] {P0} blackbox ScrapeJob 的创建/编辑/启停、模块或目标变更后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 在下一轮询周期内检测到 `updated_at` 变化并重新生成对应网域配置（pull 模式，Module\_01 不主动通知）。
 - [ ] {P0} 运行时目标状态、拨测结果、采集诊断不再由本模块负责展示，相关验收标准已迁移至 [Module\_02: 查询中心](Module_02_Query_Center.md) 与 [Module\_08: 告警规则管理](Module_08_Alerting_Rule_Management.md)。
 - [ ] {P1} v0.4+ 支持基于外部 CMDB 自动发现实例并推荐监控策略；v1.0 支持与 ITIL 流程联动校验监控策略覆盖率。
+- [ ] {P1} {v3.4} `instance_filter`（v0.3+）筛选字段仅允许 Resource 属性字段（label 名仅作 UI 别名、由模板 Mapping 只读派生，不落筛选表达式）；筛选不写标签，与 Module\_07「标签配置唯一入口原则」一致。
+- [ ] {P1} {v3.4} v0.2+ `service_discovery` 模式：目标由服务发现结果 + `relabel_configs` 动态生成（不落 `selected_instance_ids`），关联键沿用 `app` / `biz`（不用 `instance`），CI-Exporter 映射模板层复用。
+- [ ] {P1} {v3.5} `BusinessMetric.owner` 必填校验；`business_domain` 与 Module\_07 资源 `business_domain` 对齐（同名同值）；状态机 `pending → instrumented → online` 流转可验证
 
 ## 术语映射（用户词汇表）
 
@@ -554,6 +676,10 @@
 | `selected_instance_ids`               | 已选实例             | 手动勾选的 Resource ID 列表                                         |
 | `mapping_overrides`                   | 仅技术信息            | 手动覆盖过映射默认值的字段名列表（「同步映射默认值」时跳过）                          |
 | `ExporterMetricLibrary`               | 指标库 / 指标元数据      | 平台可识别的指标名、类型、HELP、UNIT 集合                                |
+| `BusinessMetric`                      | 业务指标库            | {v3.5} 业务指标语义契约登记处（语义/阈值/所属业务域/负责人必填/埋点状态）；与 Exporter 技术指标库并列，业务负责人定义、运维落地采集 |
+| `register_source`                     | 登记来源             | {v3.6} 业务指标登记来源：`self`（业务负责人自录）/ `agent`（运维工单代办，owner 仍指向业务负责人） |
+| 业务负责人（Business Owner）             | 业务负责人            | {v3.6} 业务指标语义所有权角色：定义语义 / 阈值 / 看板；语义编辑权不随录入者转移 |
+| 业务域聚合视图                            | 仅技术信息            | {v3.6} v0.2+ 独立业务目录视图：成员列表（应用/微服务+中间件+主机）+ 健康度看板 + 采集覆盖；语义层不改变采集配置逻辑 |
 | `metric_type`                         | 指标类型             | counter / gauge / histogram / summary / unknown               |
 | `MonitoringRule`                      | 告警 / 记录规则        | 规则编辑模型（v0.3 起 UI 写入，MVP 手写 `rules.yml`）                    |
 | `MonitoringRule.labels`               | 告警标签（Alert Labels） | 告警规则的元数据标签，用于分级/路由，**非** target 身份标签（v2.8 新增）              |
@@ -564,6 +690,9 @@
 | `ExporterInstallationConfirmation`    | Exporter 安装确认    | 目标实例 Exporter 已安装/已注册的确认记录（仅标准 Exporter）                 |
 | `ScrapeTarget` / `ScrapeLog`          | 仅技术信息            | 运行时采集数据，展示职责由 Module\_02 承担                               |
 | `CI_TYPE_CATEGORY_MAP`                | 仅技术信息            | 粗粒度类别 → 细粒度 CI 类型映射表                                       |
+| `instance_filter`                     | 实例筛选条件           | {v3.4} v0.3+ 条件筛选表达式：筛选字段 = Resource 属性字段（label 仅作 UI 别名，由模板映射只读派生），筛选不写标签 |
+| `service_discovery`                   | 服务发现             | {v3.4} v0.2+ 实例选择模式：目标由服务发现结果 + relabel 动态生成（微服务动态实例），不落手动勾选 |
+| `application_http`                    | HTTP 应用 / 业务指标采集 | {v3.4} application 细粒度 CI 类型：业务指标端点 HTTP 抓取模板（无独立 exporter，应用自带 /metrics，默认模板映射 app/biz） |
 
 ## 提示分区规范
 
@@ -577,19 +706,11 @@
 
 ## Change Log
 
-> **Change Log 定位（v2.4）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v2.1 及以前的逐版变更详情）已迁移至 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 8 验收标准 / 术语映射）。
+> **Change Log 定位（v2.4 / 精简执行）**：本表为业务沟通决策的精简记录（**保留最近 3 版**一句话摘要）；**完整历史（v3.3 及以前的逐版变更详情）已迁移至 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 8 验收标准 / 术语映射）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
-| v3.3 | 2026-08-13 | 修改   | 标签选择两情形引导（用户反馈 + 需求对齐）：5.1 新增「{v3.3} 标签选择两情形引导」——选择器按 CI 类型严格过滤（仅同类型模板）、无模板空态 + 内联创建按钮、有模板提示「直接选择即可」、默认模板 Tag 标记、创建引导文案强化「新增 CI 类型」语义；8.1 新增 4 条验收项；原型同步 v2.7 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v3.2 | 2026-08-12 | 修改   | 标签配置引导落地（用户反馈 + 原型对齐）：mock 新增 nginx 无标签模板映射与引用它的 Job（演示「待配置」链路）；Job 表单无模板时主引导改为「前往 CI-Exporter 映射补配（自动继承）」；Job 列表/详情新增「标签待配置」提示；映射页「待配置」Badge 可点击补配 + 操作列补配按钮；引导文案口径修正（平台资源字段，非 CMDB） | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v3.0 | 2026-08-11 | 修改   | 实例选择增强（第七轮需求讨论，与 Module_07 v2.3 对齐）：5.2 补充「实例候选自动收敛」——选定类型+网域后候选收敛为同类型同网域资源，支持一键全选/反选与关键字筛选（MVP，比 v0.3+ filter 轻）；3.1 功能表与验收标准同步 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.9 | 2026-08-11 | 修改   | 标签模板引用语义澄清（与 Module_07 v2.2 标签治理对齐）：「允许覆盖」= 允许 Job 换用其他模板（引用级），不提供 Job 内标签编辑；标签内容编辑唯一入口在 Module_07；不引入实例级模板 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.8 | 2026-08-11 | 修改   | UI/UX 易用性优化（决策 34/35/36）：5.4 补充参数继承来源视觉标记说明（三层 Tag：继承自映射/已覆盖/待同步）；5.5 补充 labels/annotations 语义区分与必填状态说明（告警标签 vs 目标标签、推荐 key、模板变量）；术语映射新增 `MonitoringRule.labels`/`annotations`/`LabelTemplate` 标签三层区分；验收标准新增继承标记、语义卡片、Drawer 改造条目；原型待同步 v2.4 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.7 | 2026-08-11 | 修改   | 端口一致性说明（与 Module_07 v1.9 对齐）：映射 default_port 决定 instance 端口，三层解法（映射层可编辑 MVP / 网域覆盖 v0.2 / 实例级端口覆盖 v0.2+ 建议）；安装确认新增 actual_port 登记（P1）仅提示不自动改，明确不承担端口编辑；原型待同步 v2.3 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.6 | 2026-08-11 | 修改   | 标签模板展示样式落地（与 Module_07 v1.8 对齐）：映射列表「标签模板」列改两行卡片（名称+默认标记 / 类别·模板ID）、点击模板名打开只读预览抽屉、表单内预览改紧凑卡片替代 Tag 堆砌；原型待同步 v2.2 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.5 | 2026-08-11 | 修改   | 标签模板关联体验补齐（与 Module_07 v1.7 对齐）：模板以「名称（类别 / 模板ID）」展示，选择后内联只读预览映射内容 + 跨模块跳转；模板 ID 明确为跨模块唯一 FK | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.4 | 2026-08-07 | 修改   | 按 prototype-designer PRD 骨架规范补齐：第 2 章用户故事引用全局库（M01- 编码）、5.x 字段表加「UI 展示名」列、验收标准分层（8.1 用户 / 8.2 技术）+ P0/P1 标注、新增「术语映射」章节、Change Log 精简（完整历史迁移 design-decisions.md） | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v2.3 | 2026-08-07 | 新增   | 补充「提示分区规范」章节 + 原型清理用户可见文案中决策/PRD 引用 + MainLayout 全局折叠区                                                            | 文档自身            | 设计中 |
-| v2.2 | 2026-08-06 | 修改   | 规则编辑 UI 版本调整至 v0.3（与 Module_02 v1.2 / 路线图 2.4 对齐），5.5 新增 `MonitoringRule` MVP 预留说明                                        | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v3.6 | 2026-08-14 | 修改   | 业务指标动线分离（第十五轮需求讨论）：5.9 补「登记模式」——登记动作 ≠ 语义所有权（业务负责人自录 `self` / 运维工单代办 `agent`，owner 必填指向业务负责人、代办后可选确认环节）；状态机补推进分工（语义编辑权仅业务负责人或其委托，pending/instrumented 业务侧、online 运维）；补业务域聚合视图版本归属（v0.2+ 独立业务目录，语义层不改变采集配置逻辑）；3.1 功能行同步；全局故事库补 M01-BIZ-03 + 第 2 章引用；术语映射补 register_source/业务负责人/聚合视图 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v3.5 | 2026-08-14 | 新增   | 业务指标库（第十四轮需求讨论，解决职责断开）：新增 5.9 业务指标库（BusinessMetric）实体——业务负责人定义指标语义/阈值/所属业务域/负责人（owner 必填）、运维消费落地采集并标记「已上线」；与 ExporterMetricLibrary（技术指标库）并列；状态机 pending→instrumented→online；3.1 功能表新增业务指标库行（MVP 最小登记表 / v0.2+ 独立业务负责人入口 + 看板）；全局故事库回写 M01-BIZ-01/02 + 第 2 章引用；8 验收 2 条；术语映射补 BusinessMetric | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v3.4 | 2026-08-14 | 修改   | 跨模块对齐（第十三轮需求讨论，与 Module_07 v2.8 / Module_04 对齐）：5.1 新增 application_http 语义澄清（业务指标端点 HTTP 抓取模板、非独立 exporter、默认模板含 app/biz 映射即机制 A 落地）+ v0.4 新 CI 类型引导闭环（CMDB 待分类队列 → 映射创建引导）；5.4 新增 filter 模式字段语义（v0.3+ 筛选字段 = Resource 属性字段、label 仅 UI 别名自动派生、不用 label 名做筛选键防模板漂移）+ v0.2+ service_discovery 模式预留（微服务动态实例，prometheus_builtin + relabel，映射模板复用）；3.1 实例选择行补充；8.2 新增 2 条技术验收。评审前完善：Roadmap §1.5 登记 filter/service_discovery + application_http；术语映射补 instance_filter/service_discovery/application_http；骨架补齐（4 核心流程、5.9 状态机、6.1 接口设计）；全局故事库注册 M01-OPS-07 + 第 2 章引用 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 

@@ -527,6 +527,14 @@ export default function CiExporterMappingPage() {
                 label="CI 类型"
                 name="resource_type"
                 rules={[{ required: true, message: '请选择 CI 类型' }]}
+                // {v3.4} application_http 语义：业务指标端点采集（应用自带 /metrics，无独立 exporter，标签模板注入 app/biz）
+                extra={
+                  watchResourceType === 'application_http' ? (
+                    <span style={{ fontSize: 12, color: '#1481FD' }}>
+                      HTTP 应用（业务指标端点采集）：应用自带 /metrics，无独立 exporter；标签模板注入 app/biz（业务指标 ↔ 资源关联，见 Module_07 5.15）
+                    </span>
+                  ) : undefined
+                }
               >
                 <Select
                   disabled={!!editingMapping || categoryCiTypes.length === 0}

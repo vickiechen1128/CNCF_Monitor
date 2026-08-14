@@ -1174,6 +1174,104 @@ export const mockMetricLibrary: MetricLibraryItem[] = [
  */
 export const metricLibraryStore: MetricLibraryItem[] = [...mockMetricLibrary]
 
+// ---------- 业务指标库（PRD 5.9 {v3.5}/{v3.6}） ----------
+export type BusinessMetricStatus = 'pending' | 'instrumented' | 'online'
+export type BusinessMetricRegisterSource = 'self' | 'agent'
+
+export interface BusinessMetric {
+  metric_id: string
+  metric_name: string
+  /** 业务语义（业务人话），由业务负责人填写 */
+  description: string
+  metric_type: MetricType
+  unit?: string
+  business_domain: string
+  app_name?: string
+  threshold_suggestion?: string
+  /** 语义所有权责任人（必填，不随录入者转移） */
+  owner: string
+  /** {v3.6} 登记来源：self = 业务负责人自录 / agent = 运维工单代办 */
+  register_source: BusinessMetricRegisterSource
+  status: BusinessMetricStatus
+  created_at: string
+  updated_at: string
+}
+
+export const BIZ_METRIC_STATUS_MAP: Record<BusinessMetricStatus, string> = {
+  pending: '待埋点',
+  instrumented: '已埋点',
+  online: '已上线',
+}
+export const BIZ_METRIC_STATUS_COLOR: Record<BusinessMetricStatus, string> = {
+  pending: 'warning',
+  instrumented: 'processing',
+  online: 'success',
+}
+export const BIZ_REGISTER_SOURCE_MAP: Record<BusinessMetricRegisterSource, string> = {
+  self: '业务负责人自录',
+  agent: '运维代办',
+}
+export const BIZ_DOMAINS = ['payment', 'order', 'data-api']
+
+// mock 业务指标：演示两角色动线（业务负责人登记/埋点标记 → 运维确认采集上线）
+export const mockBusinessMetrics: BusinessMetric[] = [
+  {
+    metric_id: 'biz-001',
+    metric_name: 'payment_success_rate',
+    description: '支付成功率 = 支付成功笔数 / 支付总笔数',
+    metric_type: 'gauge',
+    unit: '%',
+    business_domain: 'payment',
+    app_name: 'pay-service',
+    threshold_suggestion: '成功率 ≥ 99.9%',
+    owner: '王经理（支付）',
+    register_source: 'self',
+    status: 'online',
+    created_at: '2026-07-20 10:00:00',
+    updated_at: '2026-07-28 14:00:00',
+  },
+  {
+    metric_id: 'biz-002',
+    metric_name: 'payment_failed_total',
+    description: '支付失败笔数（按失败原因维度统计）',
+    metric_type: 'counter',
+    unit: '笔',
+    business_domain: 'payment',
+    app_name: 'pay-service',
+    threshold_suggestion: '失败笔数每分钟 ≤ 10',
+    owner: '王经理（支付）',
+    register_source: 'self',
+    status: 'instrumented',
+    created_at: '2026-07-22 10:00:00',
+    updated_at: '2026-07-29 09:00:00',
+  },
+  {
+    metric_id: 'biz-003',
+    metric_name: 'order_amount_total',
+    description: '订单成交金额（GMV）累计',
+    metric_type: 'counter',
+    unit: '元',
+    business_domain: 'order',
+    app_name: 'order-service',
+    threshold_suggestion: '',
+    owner: '李经理（订单）',
+    register_source: 'agent',
+    status: 'pending',
+    created_at: '2026-07-30 15:00:00',
+    updated_at: '2026-07-30 15:00:00',
+  },
+]
+
+/** 业务指标库运行时共享容器（随 mock 重置，演示登记/状态推进） */
+export const businessMetricStore: BusinessMetric[] = [...mockBusinessMetrics]
+
+// ---------- 用户角色（{v3.6} 动线分离演示） ----------
+export type UserRole = 'ops' | 'biz_owner'
+export const USER_ROLE_MAP: Record<UserRole, string> = {
+  ops: '运维工程师',
+  biz_owner: '业务负责人',
+}
+
 // ---------- Resource（由 Module_07 维护，本模块只读引用，用于实例选择） ----------
 export interface Resource {
   resource_id: string
@@ -1185,18 +1283,20 @@ export interface Resource {
   env: Env
   app_name: string
   cluster: string
+  /** {v3.4} 业务类型归属（= 标签模板映射源字段，筛选 UI 以 label 名 biz 作别名展示） */
+  business_domain?: string
   status: ResourceStatus
 }
 
 export const mockResources: Resource[] = [
-  { resource_id: 'res-host-001', resource_type: 'host', instance_name: 'prod-web-01', hostname: 'prod-web-01.volc', instance_ip: '10.0.1.11', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', status: 'online' },
+  { resource_id: 'res-host-001', resource_type: 'host', instance_name: 'prod-web-01', hostname: 'prod-web-01.volc', instance_ip: '10.0.1.11', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
   { resource_id: 'res-host-002', resource_type: 'host', instance_name: 'prod-db-01', hostname: 'prod-db-01.volc', instance_ip: '10.0.1.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', status: 'online' },
   { resource_id: 'res-mw-001', resource_type: 'redis', instance_name: 'redis-cache-01', hostname: 'redis-cache-01.mw', instance_ip: '10.0.2.11', network_domain_id: 'default', env: 'prod', app_name: 'cache-service', cluster: 'cluster-prod', status: 'online' },
-  { resource_id: 'res-mw-002', resource_type: 'mysql', instance_name: 'mysql-primary-01', hostname: 'mysql-primary-01.mw', instance_ip: '10.0.2.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', status: 'maintenance' },
+  { resource_id: 'res-mw-002', resource_type: 'mysql', instance_name: 'mysql-primary-01', hostname: 'mysql-primary-01.mw', instance_ip: '10.0.2.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'maintenance' },
   { resource_id: 'res-mw-003', resource_type: 'kafka', instance_name: 'kafka-broker-01', hostname: 'kafka-broker-01.mw', instance_ip: '10.0.2.31', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'mq-platform', cluster: 'cluster-staging', status: 'online' },
   // {v3.2} nginx 实例：配合 map-006（无标签模板）演示「Job 标签待配置」链路
   { resource_id: 'res-mw-004', resource_type: 'nginx', instance_name: 'nginx-edge-01', hostname: 'nginx-edge-01.mw', instance_ip: '10.0.2.41', network_domain_id: 'default', env: 'prod', app_name: 'gateway-nginx', cluster: 'cluster-prod', status: 'online' },
-  { resource_id: 'res-app-002', resource_type: 'application_http', instance_name: 'pay-service-v1', hostname: 'pay-service-v1.app', instance_ip: '192.168.3.12', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'pay-service', cluster: 'cluster-staging', status: 'offline' },
+  { resource_id: 'res-app-002', resource_type: 'application_http', instance_name: 'pay-service-v1', hostname: 'pay-service-v1.app', instance_ip: '192.168.3.12', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'pay-service', cluster: 'cluster-staging', business_domain: 'payment', status: 'offline' },
   { resource_id: 'res-gen-001', resource_type: 'snmp', instance_name: 'switch-core-01', hostname: 'switch-core-01.net', instance_ip: '172.16.0.1', network_domain_id: 'gov-cloud-a', env: 'prod', app_name: 'network-infra', cluster: 'cluster-net', status: 'online' },
   { resource_id: 'res-gen-002', resource_type: 'snmp', instance_name: 'loadbalancer-02', hostname: 'lb-02.net', instance_ip: '172.16.0.2', network_domain_id: 'gov-cloud-a', env: 'prod', app_name: 'network-infra', cluster: 'cluster-net', status: 'online' },
 ]
