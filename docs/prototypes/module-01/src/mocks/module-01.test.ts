@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   CI_TYPES,
+  CI_TYPES_BY_CATEGORY,
   ENV_VALUES,
   ENV_LABEL,
   METRIC_TYPES,
@@ -172,25 +173,43 @@ describe('module-01 mocks（对齐 PRD v2.3）', () => {
       })
   })
 
-  it('MetricLibraryItem 的 metric_type 在 counter/gauge/histogram/summary/unknown 内', () => {
+  it('MetricLibraryItem 的 metric_type 在 counter/gauge/histogram/summary/unknown 内；{v3.8} 主锚点 resource_types 非空且 CI 类型合法', () => {
     mockMetricLibrary.forEach((m) => {
       expect(METRIC_TYPES).toContain(m.metric_type)
       expect(typeof m.is_builtin).toBe('boolean')
       expect(typeof m.enabled).toBe('boolean')
-      expect(templateIds.has(m.exporter_template_id)).toBe(true)
+      // {v3.8} 主锚点：每个指标至少挂一个 CI 类型
+      expect(Array.isArray(m.resource_types)).toBe(true)
+      expect(m.resource_types.length).toBeGreaterThan(0)
+      m.resource_types.forEach((rt) => expect(CI_TYPES).toContain(rt.resource_type))
+      // {v3.8} exporter_template_id 降级为「建议采集器」可空外键；存在时指向已登记的采集实现
+      if (m.exporter_template_id) {
+        expect(templateIds.has(m.exporter_template_id)).toBe(true)
+      }
     })
   })
 
-  it('MVP 内置指标库覆盖常见 Exporter（node/mysql/redis/kafka/blackbox/app/snmp）', () => {
-    const groups = mockMetricLibrary.reduce<Record<string, number>>((acc, m) => {
-      acc[m.exporter_template_id] = (acc[m.exporter_template_id] ?? 0) + 1
+  it('{v3.8} MVP 内置指标库按 CI 类型组织（host/mysql/redis/kafka/application_http/snmp），来源采集器标注完整', () => {
+    const byType = mockMetricLibrary.reduce<Record<string, number>>((acc, m) => {
+      m.resource_types.forEach((rt) => {
+        acc[rt.resource_type] = (acc[rt.resource_type] ?? 0) + 1
+      })
       return acc
     }, {})
-    expect(groups['et-node']).toBeGreaterThanOrEqual(30)
-    expect(groups['et-mysql']).toBeGreaterThanOrEqual(20)
-    expect(groups['et-redis']).toBeGreaterThanOrEqual(20)
-    expect(groups['et-kafka']).toBeGreaterThanOrEqual(20)
-    expect(groups['et-blackbox']).toBeGreaterThanOrEqual(10)
+    expect(byType['host']).toBeGreaterThanOrEqual(30)
+    expect(byType['mysql']).toBeGreaterThanOrEqual(20)
+    expect(byType['redis']).toBeGreaterThanOrEqual(20)
+    expect(byType['kafka']).toBeGreaterThanOrEqual(20)
+    expect(byType['application_http']).toBeGreaterThanOrEqual(10)
+    expect(byType['snmp']).toBeGreaterThanOrEqual(5)
+    // 来源采集器标注：application_http 下应同时存在 et-app（Spring Boot）与 et-app-go（Go）来源
+    const appSources = new Set(
+      mockMetricLibrary
+        .filter((m) => m.resource_types.some((rt) => rt.resource_type === 'application_http'))
+        .flatMap((m) => m.resource_types.map((rt) => rt.source_exporter))
+    )
+    expect(appSources.has('et-app')).toBe(true)
+    expect(appSources.has('et-app-go')).toBe(true)
   })
 
   it('内置指标 is_builtin=true（PRD 5.3）', () => {
@@ -295,5 +314,55 @@ describe('module-01 mocks（对齐 PRD v2.3）', () => {
     mockBusinessMetrics.forEach((m) => {
       expect(order.indexOf(m.status)).toBeGreaterThanOrEqual(0)
     })
+  })
+
+  // ========== {v3.7}/{v3.8} 业务服务仍属 application_http + 采集实现 + 业务视图聚合 ==========
+
+  it('{v3.8} 业务服务仍属 application_http：et-app-go 为采集实现（is_builtin=false，/metrics），映射 map-009 存在且非默认', () => {
+    const goTpl = mockExporterTemplates.find((t) => t.exporter_template_id === 'et-app-go')
+    expect(goTpl).toBeTruthy()
+    expect(goTpl!.is_builtin).toBe(false)
+    expect(goTpl!.supported_resource_types).toContain('application_http')
+    expect(goTpl!.metrics_path).toBe('/metrics')
+    const map009 = mockCITypeExporterMappings.find((m) => m.mapping_id === 'map-009')
+    expect(map009).toBeTruthy()
+    expect(map009!.resource_type).toBe('application_http')
+    expect(map009!.exporter_template_id).toBe('et-app-go')
+    expect(map009!.is_builtin).toBe(false)
+    // {v3.8} 同一 CI 类型多个采集实现：application_http 默认 map-007（et-app），map-009 非默认
+    expect(map009!.is_default).toBe(false)
+    expect(mockCITypeExporterMappings.find((m) => m.mapping_id === 'map-007')!.is_default).toBe(true)
+    // 业务服务（含自定义微服务）不新增 CI 类型：application_http 仍是唯一 application 细粒度类型
+    expect(CI_TYPES).not.toContain('custom_service')
+    expect(CI_TYPES.filter((t) => CI_TYPES_BY_CATEGORY.application?.includes(t))).toEqual(['application_http'])
+  })
+
+  it('{v3.7}/{v3.8} 自定义微服务采集链路闭环：job-007 引用采集实现 et-app-go 且选中实例为 order-go-service（res-app-003，business_domain=order）', () => {
+    const job = mockScrapeJobs.find((j) => j.job_id === 'job-007')
+    expect(job).toBeTruthy()
+    expect(job!.exporter_template_id).toBe('et-app-go')
+    expect(job!.resource_type).toBe('application_http')
+    const res = mockResources.find((r) => r.resource_id === 'res-app-003')
+    expect(res).toBeTruthy()
+    expect(res!.business_domain).toBe('order')
+    expect(job!.selected_instance_ids).toContain('res-app-003')
+    // 业务指标 order_amount_total（biz-003，order 域）可经 app_name=order-service 关联到该 Job（采集落地链路可见）
+    const biz = mockBusinessMetrics.find((b) => b.metric_id === 'biz-003')
+    expect(biz!.app_name).toBe(res!.app_name)
+  })
+
+  it('{v3.7} 业务视图聚合数据完备：payment / order 域有成员与业务指标，采集落地列可关联 Job', () => {
+    const domains = new Set(mockResources.filter((r) => r.business_domain).map((r) => r.business_domain))
+    expect(domains.has('payment')).toBe(true)
+    expect(domains.has('order')).toBe(true)
+    mockBusinessMetrics.forEach((m) => {
+      expect(m.business_domain).toBeTruthy()
+    })
+    // 业务指标 online 的（biz-001 pay-service）应有对应资源的采集 Job 关联
+    const onlineBiz = mockBusinessMetrics.find((b) => b.status === 'online')
+    expect(onlineBiz).toBeTruthy()
+    const res = mockResources.find((r) => r.app_name === onlineBiz!.app_name)
+    expect(res).toBeTruthy()
+    expect(mockScrapeJobs.some((j) => j.selected_instance_ids.includes(res!.resource_id))).toBe(true)
   })
 })

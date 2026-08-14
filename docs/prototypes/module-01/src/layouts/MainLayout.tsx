@@ -9,6 +9,7 @@ import {
   SettingOutlined,
   SearchOutlined,
   TeamOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { currentTenant, USER_ROLE_MAP, type UserRole } from '../mocks/module-01'
@@ -22,17 +23,29 @@ interface MainLayoutProps {
 
 type MenuItem = Required<MenuProps>['items'][number]
 
-// {v3.6} 动线分离：导航按角色过滤——业务负责人仅见业务指标库；运维见全部（含业务指标库只读+状态推进）
+// {v3.6} 动线分离：导航按角色过滤——业务负责人仅见业务指标库/业务视图；运维见全部（含业务指标库只读+状态推进）
+// {v3.7} 动线归组：指标库（技术指标库 / 业务指标库 / 业务视图）放入同一「指标库」分组，技术/业务二分、动线放一起
 function buildMenu(role: UserRole): MenuItem[] {
-  const module01Items: MenuItem[] = [
-    { key: '/ci-exporter-mapping', icon: <AppstoreOutlined />, label: 'CI-Exporter 模板映射' },
-    { key: '/scrape-jobs', icon: <AppstoreOutlined />, label: '采集 Job' },
-    { key: '/metric-library', icon: <AppstoreOutlined />, label: '指标库' },
-    { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' },
-  ]
-  const bizItems: MenuItem[] = [
-    { key: '/business-metrics', icon: <TeamOutlined />, label: '业务指标库' },
-  ]
+  // {v3.8} 采集分组（父+子，样式对齐指标库分组）：采集器管理（安装动线起点）/ 采集 Job；承载于 /scrape-jobs 页内下拉视图（?view= 区分）
+  const collectItem: MenuItem = { key: '/scrape-jobs?view=collectors', icon: <AppstoreOutlined />, label: '采集器管理' }
+  const jobsItem: MenuItem = { key: '/scrape-jobs?view=jobs', icon: <AppstoreOutlined />, label: '采集 Job' }
+  const collectGroup: MenuItem = {
+    key: 'collect',
+    icon: <AppstoreOutlined />,
+    label: '采集',
+    children: [collectItem, jobsItem],
+  }
+  // 指标库分组：技术指标库（技术元数据）+ 业务指标库（业务语义契约登记表）+ 业务视图（独立页，业务域聚合）
+  const techItem: MenuItem = { key: '/metric-library', icon: <DatabaseOutlined />, label: '技术指标库' }
+  const bizItem: MenuItem = { key: '/business-metrics', icon: <TeamOutlined />, label: '业务指标库' }
+  const bizViewItem: MenuItem = { key: '/business-view', icon: <TeamOutlined />, label: '业务视图' }
+  const metricLibGroup: MenuItem = {
+    key: 'metric-lib',
+    icon: <DatabaseOutlined />,
+    label: '指标库',
+    children: role === 'ops' ? [techItem, bizItem, bizViewItem] : [bizItem, bizViewItem],
+  }
+  const rulesItem: MenuItem = { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' }
   // 全局跨模块导航占位：当前模块高亮，其他模块以 disabled + Tooltip 提示
   const globalItems: MenuItem[] = [
     {
@@ -54,7 +67,7 @@ function buildMenu(role: UserRole): MenuItem[] {
       ],
     },
   ]
-  const base = role === 'ops' ? [...module01Items, ...bizItems] : bizItems
+  const base = role === 'ops' ? [collectGroup, metricLibGroup, rulesItem] : [metricLibGroup]
   return [...base, ...globalItems]
 }
 
@@ -91,10 +104,17 @@ export function MainLayout({ children }: MainLayoutProps) {
     message.info(checked ? '已切换为多网域模式：Job 可绑定 default 或边缘网域' : '已切换为单网域模式：Job 仅绑定 default 管理域')
   }
 
+  // {v3.7} 业务视图为独立路由页；{v3.8} 采集分组子项按 ?view= 区分（采集器管理默认 / 采集 Job）
+  const selectedKey =
+    location.pathname === '/scrape-jobs'
+      ? new URLSearchParams(location.search).get('view') === 'jobs'
+        ? '/scrape-jobs?view=jobs'
+        : '/scrape-jobs?view=collectors'
+      : location.pathname
   const openKeys = menuItems
     .filter((item): item is Exclude<typeof item, null> => {
       if (!item || !('children' in item) || !Array.isArray(item.children)) return false
-      return item.children.some((c) => c && 'key' in c && c.key === location.pathname)
+      return item.children.some((c) => c && 'key' in c && c.key === selectedKey)
     })
     .map((item) => ('key' in item ? String(item.key) : ''))
 
@@ -139,7 +159,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         <Sider theme="light" width={220} style={{ borderRight: '1px solid #E5E6EB' }}>
           <Menu
             mode="inline"
-            selectedKeys={[location.pathname]}
+            selectedKeys={[selectedKey]}
             defaultOpenKeys={openKeys}
             items={menuItems}
             onClick={(e) => navigate(e.key)}

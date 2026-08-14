@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Card,
   Table,
@@ -26,6 +26,8 @@ import {
   BIZ_DOMAINS,
   METRIC_TYPES,
   USER_ROLE_MAP,
+  mockResources,
+  mockScrapeJobs,
   type BusinessMetric,
   type BusinessMetricStatus,
   type BusinessMetricRegisterSource,
@@ -54,6 +56,19 @@ export default function BusinessMetricsPage() {
     businessMetricStore.splice(0, businessMetricStore.length, ...next)
     setMetrics(next)
   }
+
+  // {v3.7} 采集落地关联（语义层 → 采集层可见性）：业务指标 app_name → 关联采集 Job 名
+  // （app_name 匹配 Resource.app_name → ScrapeJob.selected_instance_ids，模拟采集落地链路）
+  const collectionJobByApp = useMemo(() => {
+    const appToJob = new Map<string, string>()
+    mockScrapeJobs.forEach((job) => {
+      job.selected_instance_ids.forEach((rid) => {
+        const res = mockResources.find((r) => r.resource_id === rid)
+        if (res && res.app_name && !appToJob.has(res.app_name)) appToJob.set(res.app_name, job.job_name)
+      })
+    })
+    return appToJob
+  }, [])
 
   const filtered = metrics.filter((m) => {
     const kw = search.trim().toLowerCase()
@@ -156,6 +171,25 @@ export default function BusinessMetricsPage() {
       ),
     },
     {
+      // {v3.7} 采集落地列：把「业务语义契约 → 采集落地」链路显性化（online 显示关联 Job，可跳查询中心查看）
+      title: '采集落地',
+      key: 'collection',
+      render: (_: unknown, m: BusinessMetric) => {
+        const jobName = m.app_name ? collectionJobByApp.get(m.app_name) : undefined
+        if (m.status === 'online') {
+          return (
+            <Tooltip title={jobName ? `经采集 Job「${jobName}」抓取，指标可在查询中心检索` : '已确认采集上线，指标可查'}>
+              <Badge status="success" text={<span>已上线{jobName ? ` · ${jobName}` : ''}</span>} />
+            </Tooltip>
+          )
+        }
+        if (m.status === 'instrumented') {
+          return <Text type="secondary" style={{ fontSize: 12 }}>待运维确认采集上线</Text>
+        }
+        return <Text type="secondary" style={{ fontSize: 12 }}>待业务侧埋点</Text>
+      },
+    },
+    {
       title: '操作',
       key: 'action',
       render: (_: unknown, m: BusinessMetric) => (
@@ -207,7 +241,7 @@ export default function BusinessMetricsPage() {
         </Text>
       </div>
 
-      {/* {v3.6} 动线分离说明（用户语言） */}
+      {/* {v3.6} 动线分离说明（用户语言）；{v3.7} 业务视图已独立为「指标库 → 业务视图」页（BusinessViewPage），本页仅登记表 */}
       <Alert
         type="info"
         showIcon
