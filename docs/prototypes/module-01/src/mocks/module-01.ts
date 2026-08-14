@@ -1,6 +1,6 @@
 // ============================================================
 // Module_01 监控策略与指标管理 - 数据模型与 mock 数据
-// 对齐 PRD v3.3（Module_01_Metric_Collection_Center.md）
+// 对齐 PRD v3.7（Module_01_Metric_Collection_Center.md）
 // ============================================================
 
 // ---------- CI 类型与资源类别（PRD 5.1 / 与 Module_07 四大类别对齐） ----------
@@ -8,6 +8,11 @@
 /**
  * CiType：细粒度 CI 类型（PRD 5.1 resource_type 枚举值 host/mysql/redis/...）
  * 用于 CITypeExporterMapping.resource_type 与 ScrapeJob.resource_type。
+ *
+ * {v3.7}/{v3.8} 语义约束：业务服务（含自定义微服务，如 Go/Python/自研框架埋点）**仍属
+ * application_http**，不新增 CI 类型——形态差异（metrics_path / 端口 / 协议）通过
+ * 「手填采集参数 / 多个可选采集实现」覆盖（见 et-app-go / map-009；指标直接挂 CI 类型）；新增 CI 类型
+ * 仅随 v0.4+ CMDB 新类型引导闭环走（PRD 5.1）。
  */
 export type CiType =
   | 'host'
@@ -351,6 +356,22 @@ export const mockExporterTemplates: ExporterTemplate[] = [
       '应用引入 micrometer-registry-prometheus 依赖并暴露 /actuator/prometheus 端点；保证 Agent 可达。',
     is_builtin: true,
   },
+  // {v3.7}/{v3.8} 采集实现（采集器）：业务服务（Go/Python/自研框架）仍属 application_http，
+  // 形态差异（/metrics 路径、非标端口由实例 endpoint 决定）通过「手填采集参数 / 多个可选采集实现」覆盖，
+  // 无需新增 CI 类型、也无需"为挂指标而造模板"（指标直接挂 CI 类型，见 MetricLibraryItem.resource_types）。
+  {
+    exporter_template_id: 'et-app-go',
+    name: 'Go 微服务指标端点（HTTP 抓取）',
+    version: '1.0.0',
+    default_port: 9090,
+    metrics_path: '/metrics',
+    scheme: 'http',
+    supported_resource_types: ['application_http'],
+    description: 'Go 微服务业务指标端点（Prometheus client_golang 埋点）',
+    install_guide:
+      '服务代码引入 client_golang 注册指标并暴露 /metrics 端点；端口以服务实际监听为准（映射 default_port 可留空由实例 endpoint 决定）。',
+    is_builtin: false,
+  },
   {
     exporter_template_id: 'et-snmp',
     name: 'snmp_exporter',
@@ -379,7 +400,7 @@ export const mockExporterTemplates: ExporterTemplate[] = [
   },
 ]
 
-// ---------- CI 类型 ↔ Exporter 模板绑定（PRD 5.1） ----------
+// ---------- CI 类型 ↔ 默认采集器（采集实现）绑定（PRD 5.1，{v3.8}） ----------
 export interface CITypeExporterMapping {
   mapping_id: string
   resource_type: CiType
@@ -392,6 +413,10 @@ export interface CITypeExporterMapping {
   label_template_id?: string
   /** {v3.1} 该 CI 类型是否已有标签模板，供前端判断是否提示创建引导 */
   has_label_template: boolean
+  /** {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认；可多行并存表示多个可选采集实现） */
+  is_default: boolean
+  /** {v3.8} 离线/隔离网域安装说明，归属采集实现（非 CI 类型） */
+  install_guide?: string
   /** 是否平台内置绑定（PRD 5.1），内置绑定禁止删除 */
   is_builtin: boolean
   created_at: string
@@ -401,6 +426,8 @@ export interface CITypeExporterMapping {
 export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   {
     mapping_id: 'map-001',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'host',
     exporter_template_id: 'et-node',
     default_port: 9100,
@@ -416,6 +443,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   },
   {
     mapping_id: 'map-002',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'mysql',
     exporter_template_id: 'et-mysql',
     default_port: 9104,
@@ -431,6 +460,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   },
   {
     mapping_id: 'map-003',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'redis',
     exporter_template_id: 'et-redis',
     default_port: 9121,
@@ -446,6 +477,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   },
   {
     mapping_id: 'map-004',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'kafka',
     exporter_template_id: 'et-kafka',
     default_port: 9308,
@@ -461,6 +494,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   },
   {
     mapping_id: 'map-005',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'elasticsearch',
     exporter_template_id: 'et-elasticsearch',
     default_port: 9114,
@@ -478,6 +513,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     // {v3.2} 演示「标签模板待配置」：该 CI 类型（nginx）尚未创建标签模板，
     // 作为创建引导 / 待配置 Badge / Job 层「标签待配置」提示的触发样本
     mapping_id: 'map-006',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'nginx',
     exporter_template_id: 'et-nginx',
     default_port: 9113,
@@ -493,6 +530,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   },
   {
     mapping_id: 'map-007',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'application_http',
     exporter_template_id: 'et-app',
     default_port: 8080,
@@ -506,8 +545,32 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     created_at: '2026-07-01T09:00:00Z',
     updated_at: '2026-07-15T09:00:00Z',
   },
+  // {v3.7}/{v3.8} 采集实现映射：application_http → Go 微服务指标端点（HTTP 抓取采集实现）。
+  // 演示「业务服务仍属 application_http」——同一 CI 类型下多个可选采集实现（et-app / Spring Boot 为默认，
+  // et-app-go / Go 埋点为可选），形态差异通过「手填采集参数 / 多个采集实现」覆盖，无需新增 CI 类型。
+  {
+    mapping_id: 'map-009',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: false,
+    resource_type: 'application_http',
+    exporter_template_id: 'et-app-go',
+    default_port: 9090,
+    metrics_path: '/metrics',
+    scheme: 'http',
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    label_template_id: 'lt-app-001',
+    has_label_template: true,
+    install_guide:
+      '服务代码引入 client_golang 注册指标并暴露 /metrics 端点；端口以服务实际监听为准（可留空由实例 endpoint 决定）。',
+    is_builtin: false,
+    created_at: '2026-08-14T09:00:00Z',
+    updated_at: '2026-08-14T09:00:00Z',
+  },
   {
     mapping_id: 'map-008',
+    // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
+    is_default: true,
     resource_type: 'snmp',
     exporter_template_id: 'et-snmp',
     default_port: 9116,
@@ -782,6 +845,31 @@ export const mockScrapeJobs: ScrapeJob[] = [
     created_at: '2026-08-12T16:00:00Z',
     updated_at: '2026-08-12T16:00:00Z',
   },
+  // {v3.7}/{v3.8} 采集 Job：引用 map-009（application_http → et-app-go 采集实现，非默认）。
+  // 业务服务（Go 微服务埋点 /metrics）仍属 application_http，选择该采集实现并手填/继承参数；业务指标采集落地链路可见。
+  {
+    job_id: 'job-007',
+    job_name: 'prod-go-microservices',
+    resource_type: 'application_http',
+    exporter_template_id: 'et-app-go',
+    network_domain_id: 'default',
+    job_type: 'standard',
+    instance_selection_mode: 'manual',
+    selected_instance_ids: ['res-app-003'],
+    instance_filter: null,
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: 'lt-app-001',
+    relabel_configs: [],
+    enabled: true,
+    exporter_status: { 'res-app-003': 'installed' },
+    mapping_overrides: [],
+    mapping_synced_at: '2026-08-14T09:30:00Z',
+    created_at: '2026-08-14T09:30:00Z',
+    updated_at: '2026-08-14T09:30:00Z',
+  },
   // blackbox 拨测 Job：由原先独立「拨测配置」合并而来（PRD v2.0 决策 4）
   {
     job_id: 'job-bb-001',
@@ -967,7 +1055,7 @@ export const mockMonitoringRules: MonitoringRule[] = [
   },
 ]
 
-// ---------- Exporter 指标库（PRD 5.3） ----------
+// ---------- Exporter 指标库（PRD 5.3，{v3.8} 锚点演进） ----------
 export interface MetricLibraryItem {
   metric_id: string
   metric_name: string
@@ -975,15 +1063,25 @@ export interface MetricLibraryItem {
   help: string
   unit?: string
   labels: string[]
-  exporter_template_id: string
+  /** {v3.8} 主锚点：指标 ↔ CI 类型多对多（关联带来源采集器标注，解决同名不同义，见 PRD 5.3） */
+  resource_types: { resource_type: CiType; source_exporter?: string }[]
+  /** {v3.8} 语义域（可选，P1 增强）：cpu / memory / disk / network 等，指标分组浏览与提示聚类 */
+  category?: string
+  /** {v3.8} 建议采集器（降级为可空外键，不作分组锚点；兼容既有 Job/规则引用） */
+  exporter_template_id?: string
   /** 是否平台内置（PRD 5.3），内置指标禁止编辑/删除 */
   is_builtin: boolean
   /** 是否启用（PRD 5.3），禁用指标不参与规则编辑提示 */
   enabled: boolean
 }
 
+// {v3.8} 指标行（组装前不含 metric_id；resource_types 可选，未写时由 withLib 按 CI 类型锚点补全）
+type MetricLibRow = Omit<MetricLibraryItem, 'metric_id' | 'resource_types'> & {
+  resource_types?: MetricLibraryItem['resource_types']
+}
+
 // MVP 指标库最小集：按 CI 类型 / Exporter 预置静态指标库（PRD v2.0 5.3）
-const nodeMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
+const nodeMetrics: MetricLibRow[] = [
   { metric_name: 'node_cpu_seconds_total', metric_type: 'counter', help: 'CPU 各模式累计耗时', unit: 's', labels: ['cpu', 'mode', 'instance'], exporter_template_id: 'et-node', is_builtin: true, enabled: true },
   { metric_name: 'node_cpu_guest_seconds_total', metric_type: 'counter', help: 'CPU guest 模式累计耗时', unit: 's', labels: ['cpu', 'mode', 'instance'], exporter_template_id: 'et-node', is_builtin: true, enabled: true },
   { metric_name: 'node_memory_MemTotal_bytes', metric_type: 'gauge', help: '物理内存总量', unit: 'bytes', labels: ['instance'], exporter_template_id: 'et-node', is_builtin: true, enabled: true },
@@ -1028,7 +1126,7 @@ const nodeMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
   { metric_name: 'node_netstat_Tcp_PassiveOpens', metric_type: 'gauge', help: '被动打开 TCP 连接数', unit: '', labels: ['instance'], exporter_template_id: 'et-node', is_builtin: true, enabled: true },
 ]
 
-const mysqlMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
+const mysqlMetrics: MetricLibRow[] = [
   { metric_name: 'mysql_global_status_threads_connected', metric_type: 'gauge', help: 'MySQL 当前连接数', unit: '', labels: ['instance'], exporter_template_id: 'et-mysql', is_builtin: true, enabled: true },
   { metric_name: 'mysql_global_status_threads_running', metric_type: 'gauge', help: 'MySQL 活跃线程数', unit: '', labels: ['instance'], exporter_template_id: 'et-mysql', is_builtin: true, enabled: true },
   { metric_name: 'mysql_global_status_threads_cached', metric_type: 'gauge', help: 'MySQL 缓存线程数', unit: '', labels: ['instance'], exporter_template_id: 'et-mysql', is_builtin: true, enabled: true },
@@ -1061,7 +1159,7 @@ const mysqlMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
   { metric_name: 'mysql_global_status_bytes_sent', metric_type: 'counter', help: '发送字节总数', unit: 'bytes', labels: ['instance'], exporter_template_id: 'et-mysql', is_builtin: true, enabled: true },
 ]
 
-const redisMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
+const redisMetrics: MetricLibRow[] = [
   { metric_name: 'redis_connected_clients', metric_type: 'gauge', help: '当前连接客户端数', unit: '', labels: ['instance'], exporter_template_id: 'et-redis', is_builtin: true, enabled: true },
   { metric_name: 'redis_blocked_clients', metric_type: 'gauge', help: '阻塞客户端数', unit: '', labels: ['instance'], exporter_template_id: 'et-redis', is_builtin: true, enabled: true },
   { metric_name: 'redis_rejected_connections_total', metric_type: 'counter', help: '拒绝连接总数', unit: '', labels: ['instance'], exporter_template_id: 'et-redis', is_builtin: true, enabled: true },
@@ -1089,7 +1187,7 @@ const redisMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
   { metric_name: 'redis_exporter_build_info', metric_type: 'gauge', help: 'Exporter 构建信息', unit: '', labels: ['instance', 'version'], exporter_template_id: 'et-redis', is_builtin: true, enabled: true },
 ]
 
-const kafkaMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
+const kafkaMetrics: MetricLibRow[] = [
   { metric_name: 'kafka_brokers', metric_type: 'gauge', help: 'Broker 数量', unit: '', labels: ['instance'], exporter_template_id: 'et-kafka', is_builtin: true, enabled: true },
   { metric_name: 'kafka_topic_partition_current_offset', metric_type: 'gauge', help: '分区当前 offset', unit: '', labels: ['instance', 'topic', 'partition'], exporter_template_id: 'et-kafka', is_builtin: true, enabled: true },
   { metric_name: 'kafka_topic_partition_oldest_offset', metric_type: 'gauge', help: '分区最旧 offset', unit: '', labels: ['instance', 'topic', 'partition'], exporter_template_id: 'et-kafka', is_builtin: true, enabled: true },
@@ -1118,7 +1216,7 @@ const kafkaMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
   { metric_name: 'kafka_exporter_build_info', metric_type: 'gauge', help: 'Exporter 构建信息', unit: '', labels: ['instance', 'version'], exporter_template_id: 'et-kafka', is_builtin: true, enabled: true },
 ]
 
-const blackboxMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
+const blackboxMetrics: MetricLibRow[] = [
   { metric_name: 'probe_success', metric_type: 'gauge', help: '拨测是否成功', unit: '', labels: ['instance', 'job', 'module'], exporter_template_id: 'et-blackbox', is_builtin: true, enabled: true },
   { metric_name: 'probe_duration_seconds', metric_type: 'gauge', help: '拨测耗时', unit: 's', labels: ['instance', 'job', 'module'], exporter_template_id: 'et-blackbox', is_builtin: true, enabled: true },
   { metric_name: 'probe_http_status_code', metric_type: 'gauge', help: 'HTTP 拨测返回状态码', unit: '', labels: ['instance', 'job', 'module'], exporter_template_id: 'et-blackbox', is_builtin: true, enabled: true },
@@ -1136,13 +1234,21 @@ const blackboxMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
   { metric_name: 'probe_failed_due_to_regex', metric_type: 'gauge', help: '是否因正则匹配失败', unit: '', labels: ['instance', 'job', 'module'], exporter_template_id: 'et-blackbox', is_builtin: true, enabled: true },
 ]
 
-const appMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
+const appMetrics: MetricLibRow[] = [
   { metric_name: 'app_http_requests_total', metric_type: 'counter', help: 'HTTP 请求总数', unit: '', labels: ['status', 'path', 'app'], exporter_template_id: 'et-app', is_builtin: true, enabled: true },
   { metric_name: 'app_http_request_duration_seconds', metric_type: 'histogram', help: 'HTTP 请求耗时分布', unit: 's', labels: ['status', 'path', 'app'], exporter_template_id: 'et-app', is_builtin: true, enabled: true },
   { metric_name: 'app_business_orders_total', metric_type: 'counter', help: '业务订单总数（用户扩展示例）', unit: '', labels: ['app', 'region'], exporter_template_id: 'et-app', is_builtin: false, enabled: true },
 ]
 
-const snmpMetrics: Omit<MetricLibraryItem, 'metric_id'>[] = [
+// {v3.7} 自定义微服务（et-app-go / Go 埋点）指标样本：体现「业务服务仍属 application_http」下用户自定义模板的指标库支撑，
+// 规则编辑时可按 et-app-go 提示这些指标名与标签
+const goAppMetrics: MetricLibRow[] = [
+  { metric_name: 'go_goroutines', metric_type: 'gauge', help: 'Go 运行时协程数', unit: '', labels: ['app', 'instance'], exporter_template_id: 'et-app-go', is_builtin: true, enabled: true },
+  { metric_name: 'go_memstats_alloc_bytes', metric_type: 'gauge', help: 'Go 堆内存分配字节数', unit: 'bytes', labels: ['app', 'instance'], exporter_template_id: 'et-app-go', is_builtin: true, enabled: true },
+  { metric_name: 'order_creation_total', metric_type: 'counter', help: '订单创建总数（用户自定义业务指标）', unit: '', labels: ['app', 'region', 'status'], exporter_template_id: 'et-app-go', is_builtin: false, enabled: true },
+]
+
+const snmpMetrics: MetricLibRow[] = [
   { metric_name: 'snmp_ifInOctets', metric_type: 'counter', help: '接口入流量', unit: 'bytes', labels: ['ifIndex', 'instance'], exporter_template_id: 'et-snmp', is_builtin: true, enabled: true },
   { metric_name: 'snmp_ifOutOctets', metric_type: 'counter', help: '接口出流量', unit: 'bytes', labels: ['ifIndex', 'instance'], exporter_template_id: 'et-snmp', is_builtin: true, enabled: true },
   { metric_name: 'snmp_ifInUcastPkts', metric_type: 'counter', help: '接口单播入包数', unit: '', labels: ['ifIndex', 'instance'], exporter_template_id: 'et-snmp', is_builtin: true, enabled: true },
@@ -1157,14 +1263,28 @@ let metricIdCounter = 1
 const withIds = (items: Omit<MetricLibraryItem, 'metric_id'>[]): MetricLibraryItem[] =>
   items.map((item) => ({ ...item, metric_id: `m-${String(metricIdCounter++).padStart(3, '0')}` }))
 
+// {v3.8} 按 CI 类型锚点补全 resource_types（主锚点，多对多带来源采集器标注）；个别行可显式覆盖 resource_types / category
+const withLib = (
+  rows: MetricLibRow[],
+  anchor: { resource_type: CiType; source_exporter?: string; category?: string }
+): Omit<MetricLibraryItem, 'metric_id'>[] =>
+  rows.map((row) => ({
+    ...row,
+    resource_types:
+      row.resource_types ??
+      [{ resource_type: anchor.resource_type, source_exporter: anchor.source_exporter }],
+    category: row.category ?? anchor.category,
+  }))
+
 export const mockMetricLibrary: MetricLibraryItem[] = [
-  ...withIds(nodeMetrics),
-  ...withIds(mysqlMetrics),
-  ...withIds(redisMetrics),
-  ...withIds(kafkaMetrics),
-  ...withIds(blackboxMetrics),
-  ...withIds(appMetrics),
-  ...withIds(snmpMetrics),
+  ...withIds(withLib(nodeMetrics, { resource_type: 'host', source_exporter: 'et-node', category: 'system' })),
+  ...withIds(withLib(mysqlMetrics, { resource_type: 'mysql', source_exporter: 'et-mysql', category: 'database' })),
+  ...withIds(withLib(redisMetrics, { resource_type: 'redis', source_exporter: 'et-redis', category: 'cache' })),
+  ...withIds(withLib(kafkaMetrics, { resource_type: 'kafka', source_exporter: 'et-kafka', category: 'mq' })),
+  ...withIds(withLib(blackboxMetrics, { resource_type: 'application_http', source_exporter: 'et-blackbox', category: 'probe' })),
+  ...withIds(withLib(appMetrics, { resource_type: 'application_http', source_exporter: 'et-app', category: 'http' })),
+  ...withIds(withLib(goAppMetrics, { resource_type: 'application_http', source_exporter: 'et-app-go', category: 'runtime' })),
+  ...withIds(withLib(snmpMetrics, { resource_type: 'snmp', source_exporter: 'et-snmp', category: 'network' })),
 ]
 
 /**
@@ -1290,13 +1410,16 @@ export interface Resource {
 
 export const mockResources: Resource[] = [
   { resource_id: 'res-host-001', resource_type: 'host', instance_name: 'prod-web-01', hostname: 'prod-web-01.volc', instance_ip: '10.0.1.11', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
-  { resource_id: 'res-host-002', resource_type: 'host', instance_name: 'prod-db-01', hostname: 'prod-db-01.volc', instance_ip: '10.0.1.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', status: 'online' },
-  { resource_id: 'res-mw-001', resource_type: 'redis', instance_name: 'redis-cache-01', hostname: 'redis-cache-01.mw', instance_ip: '10.0.2.11', network_domain_id: 'default', env: 'prod', app_name: 'cache-service', cluster: 'cluster-prod', status: 'online' },
+  { resource_id: 'res-host-002', resource_type: 'host', instance_name: 'prod-db-01', hostname: 'prod-db-01.volc', instance_ip: '10.0.1.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'online' },
+  { resource_id: 'res-mw-001', resource_type: 'redis', instance_name: 'redis-cache-01', hostname: 'redis-cache-01.mw', instance_ip: '10.0.2.11', network_domain_id: 'default', env: 'prod', app_name: 'cache-service', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
   { resource_id: 'res-mw-002', resource_type: 'mysql', instance_name: 'mysql-primary-01', hostname: 'mysql-primary-01.mw', instance_ip: '10.0.2.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'maintenance' },
   { resource_id: 'res-mw-003', resource_type: 'kafka', instance_name: 'kafka-broker-01', hostname: 'kafka-broker-01.mw', instance_ip: '10.0.2.31', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'mq-platform', cluster: 'cluster-staging', status: 'online' },
   // {v3.2} nginx 实例：配合 map-006（无标签模板）演示「Job 标签待配置」链路
   { resource_id: 'res-mw-004', resource_type: 'nginx', instance_name: 'nginx-edge-01', hostname: 'nginx-edge-01.mw', instance_ip: '10.0.2.41', network_domain_id: 'default', env: 'prod', app_name: 'gateway-nginx', cluster: 'cluster-prod', status: 'online' },
   { resource_id: 'res-app-002', resource_type: 'application_http', instance_name: 'pay-service-v1', hostname: 'pay-service-v1.app', instance_ip: '192.168.3.12', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'pay-service', cluster: 'cluster-staging', business_domain: 'payment', status: 'offline' },
+  // {v3.7}/{v3.8} 采集实现实例（Go 埋点）：演示「业务服务仍属 application_http」——et-app-go / map-009 采集落地的样本，
+  // 且为业务指标 order_amount_total（biz-003）提供业务视图聚合成员
+  { resource_id: 'res-app-003', resource_type: 'application_http', instance_name: 'order-go-service-v1', hostname: 'order-go-service-v1.app', instance_ip: '192.168.3.22', network_domain_id: 'default', env: 'prod', app_name: 'order-service', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
   { resource_id: 'res-gen-001', resource_type: 'snmp', instance_name: 'switch-core-01', hostname: 'switch-core-01.net', instance_ip: '172.16.0.1', network_domain_id: 'gov-cloud-a', env: 'prod', app_name: 'network-infra', cluster: 'cluster-net', status: 'online' },
   { resource_id: 'res-gen-002', resource_type: 'snmp', instance_name: 'loadbalancer-02', hostname: 'lb-02.net', instance_ip: '172.16.0.2', network_domain_id: 'gov-cloud-a', env: 'prod', app_name: 'network-infra', cluster: 'cluster-net', status: 'online' },
 ]

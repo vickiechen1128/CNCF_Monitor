@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Card,
   Table,
@@ -24,6 +24,7 @@ import {
   Modal,
   List,
   Radio,
+  Popover,
 } from 'antd'
 import type { TransferItem } from 'antd/es/transfer'
 import {
@@ -34,6 +35,7 @@ import {
   GlobalOutlined,
   SyncOutlined,
   SwapOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
@@ -71,6 +73,7 @@ import type {
   BlackboxTarget,
   ProbeProtocol,
   ResourceCategory,
+  CITypeExporterMapping,
 } from '../mocks/module-01'
 
 const { Title, Text } = Typography
@@ -101,6 +104,7 @@ type MappingOverrideField = (typeof MAPPING_OVERRIDE_FIELDS)[number]
 export default function ScrapeJobsPage() {
   const { modal, message } = App.useApp()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [jobs, setJobs] = useState<ScrapeJob[]>(() => [...mockScrapeJobs])
   const [installations, setInstallations] = useState<ExporterInstallationConfirmation[]>(() => [
     ...mockExporterInstallations,
@@ -118,6 +122,90 @@ export default function ScrapeJobsPage() {
   const [overriddenFields, setOverriddenFields] = useState<MappingOverrideField[]>([])
   const [confirmForm] = Form.useForm()
   const [form] = Form.useForm()
+
+  // {v3.8} 入口合一：视图由左侧导航「采集」分组子项驱动（?view=collectors/jobs，菜单即导航、页面无重复下拉）；
+  // 默认采集器管理（安装动线起点）
+  const view: 'collectors' | 'jobs' = searchParams.get('view') === 'jobs' ? 'jobs' : 'collectors'
+  const [presets, setPresets] = useState<CITypeExporterMapping[]>(() => [...mockCITypeExporterMappings])
+  const [presetDrawerOpen, setPresetDrawerOpen] = useState(false)
+  const [editingPreset, setEditingPreset] = useState<CITypeExporterMapping | null>(null)
+  const [presetForm] = Form.useForm()
+  const watchPresetCategory = Form.useWatch('resource_category', presetForm) as ResourceCategory | undefined
+  const presetCategoryCiTypes = (watchPresetCategory ? CI_TYPES_BY_CATEGORY[watchPresetCategory] : []) as CiType[]
+
+  const openPresetCreate = () => {
+    setEditingPreset(null)
+    presetForm.resetFields()
+    presetForm.setFieldsValue({ scheme: 'http', scrape_interval: '15s', scrape_timeout: '10s' })
+    setPresetDrawerOpen(true)
+  }
+  const openPresetEdit = (record: CITypeExporterMapping) => {
+    setEditingPreset(record)
+    presetForm.setFieldsValue({
+      ...record,
+      resource_category: CI_TYPE_CATEGORY_MAP[record.resource_type],
+    })
+    setPresetDrawerOpen(true)
+  }
+  const closePresetDrawer = () => {
+    setPresetDrawerOpen(false)
+    setEditingPreset(null)
+    presetForm.resetFields()
+  }
+  const handlePresetSave = () => {
+    presetForm.validateFields().then((values) => {
+      if (editingPreset) {
+        const updated: CITypeExporterMapping = {
+          ...editingPreset,
+          ...values,
+          resource_type: values.resource_type as CiType,
+          scheme: values.scheme as Scheme,
+          install_guide: (values.install_guide as string) || undefined,
+          updated_at: now(),
+        }
+        setPresets((prev) => prev.map((m) => (m.mapping_id === editingPreset.mapping_id ? updated : m)))
+        message.success('默认采集配置已更新')
+      } else {
+        const created: CITypeExporterMapping = {
+          mapping_id: `map-${Date.now()}`,
+          resource_type: values.resource_type as CiType,
+          exporter_template_id: values.exporter_template_id as string,
+          default_port: values.default_port as number,
+          metrics_path: values.metrics_path as string,
+          scheme: values.scheme as Scheme,
+          scrape_interval: values.scrape_interval as string,
+          scrape_timeout: values.scrape_timeout as string,
+          label_template_id: (values.label_template_id as string) || undefined,
+          has_label_template: !!values.label_template_id,
+          is_default: false,
+          install_guide: (values.install_guide as string) || undefined,
+          is_builtin: false,
+          created_at: now(),
+          updated_at: now(),
+        }
+        setPresets((prev) => [...prev, created])
+        message.success('默认采集配置已新增')
+      }
+      closePresetDrawer()
+    })
+  }
+  const handlePresetDelete = (record: CITypeExporterMapping) => {
+    if (record.is_builtin) {
+      message.warning('平台预置配置禁止删除')
+      return
+    }
+    modal.confirm({
+      title: '确认删除',
+      content: `确定删除「${CI_TYPE_LABEL[record.resource_type]}」的默认采集配置？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => {
+        setPresets((prev) => prev.filter((m) => m.mapping_id !== record.mapping_id))
+        message.success('已删除')
+      },
+    })
+  }
 
   // 租户级多网域开关（Header 切换）：单网域模式仅允许绑定 default 管理域
   const isMultiSite = currentTenant.multi_site_enabled
@@ -338,7 +426,7 @@ export default function ScrapeJobsPage() {
     const mapping = getMapping(record)
     const tpl = templateMap.get(record.exporter_template_id)
     if (!mapping) {
-      message.warning('未找到对应 CI-Exporter 映射，无法同步')
+      message.warning('未找到对应默认采集配置，无法同步')
       return
     }
     const nextOverrides = overriddenFields
@@ -611,13 +699,17 @@ export default function ScrapeJobsPage() {
         ),
     },
     {
-      title: 'Exporter / Module',
+      title: '默认采集器 / Module',
       key: 'exporter',
       render: (_: unknown, record: ScrapeJob) =>
         record.job_type === 'blackbox' ? (
           <Tag color="cyan">{record.blackbox_module ?? '-'}</Tag>
         ) : (
-          <Tag color="cyan">{templateNameMap.get(record.exporter_template_id) ?? record.exporter_template_id}</Tag>
+          <Tag color="cyan">
+            {record.exporter_template_id
+              ? (templateNameMap.get(record.exporter_template_id) ?? record.exporter_template_id)
+              : '手填参数'}
+          </Tag>
         ),
     },
     {
@@ -647,7 +739,7 @@ export default function ScrapeJobsPage() {
         ) : (
           <Space direction="vertical" size={2}>
             {isMappingChanged(record) ? (
-              <Tooltip title="CI-Exporter 映射默认值已变更，请在编辑中手动同步">
+              <Tooltip title="默认采集配置默认值已变更，请在编辑中手动同步">
                 <Tag color="warning">映射默认值已变更</Tag>
               </Tooltip>
             ) : (
@@ -725,13 +817,146 @@ export default function ScrapeJobsPage() {
   return (
     <MainLayout>
       <div className="page-header">
-        <Title level={4}>采集 Job</Title>
-        <Text type="secondary">
-          管理 Prometheus 采集任务（standard）与 blackbox 拨测任务；所有 Job 必须绑定单一网域，配置下发由 Module_09 负责
-        </Text>
+        {/* {v3.8} 标题随左侧导航子项一一对应：采集器管理 / 采集 Job（菜单即导航，无页内重复切换） */}
+        <Title level={4}>{view === 'collectors' ? '采集器管理' : '采集 Job'}</Title>
+        {view === 'collectors' ? (
+          <Text type="secondary">
+            类型级采集器指引 + 预设维护：每个 CI 类型该装什么采集器（默认/可选）、怎么装（安装指南）；创建采集 Job 时自动套用默认值（决策 14）；实例级安装确认在「采集 Job」选实例时进行（5.6）
+          </Text>
+        ) : (
+          <Text type="secondary">
+            管理 Prometheus 采集任务（standard）与 blackbox 拨测任务；所有 Job 必须绑定单一网域，配置下发由 Module_09 负责；创建 Job 时自动套用 CI 类型的默认采集配置（见「采集器管理」）
+          </Text>
+        )}
       </div>
-      <Card className="page-card">
-        <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+
+      {view === 'collectors' && (
+        <Card size="small">
+          <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message="类型级采集器指引：这个 CI 类型该装什么采集器、怎么装"
+                  description="查看安装指南 → 去线下目标机安装 → 装完回到「采集 Job」创建任务、在选实例时标记已安装（安装确认在选实例环节进行，此处不重复）→ 生成配置。此处同时维护创建 Job 自动套用的默认采集配置（决策 14）。"
+                />
+                <Row justify="space-between" style={{ marginBottom: 12 }}>
+                  <Col>
+                    <Button type="primary" size="small" icon={<PlusOutlined />} style={{ backgroundColor: '#0ECDEB' }} onClick={openPresetCreate}>
+                      新增默认采集配置
+                    </Button>
+                  </Col>
+                  <Col>
+                    <Text type="secondary">共 {presets.length} 条预设</Text>
+                  </Col>
+                </Row>
+                <Table
+                  rowKey="mapping_id"
+                  size="small"
+                  dataSource={presets}
+                  pagination={false}
+                  columns={[
+                    {
+                      title: '资源类型',
+                      dataIndex: 'resource_type',
+                      key: 'resource_type',
+                      render: (v: CiType) => (
+                        <Space>
+                          <Tag color="blue">{CI_TYPE_LABEL[v]}</Tag>
+                          <Text type="secondary" style={{ fontSize: 12 }}>{CI_TYPE_CATEGORY_MAP[v]}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '默认采集器',
+                      dataIndex: 'exporter_template_id',
+                      key: 'exporter_template_id',
+                      render: (v: string, record: CITypeExporterMapping) => (
+                        <Space>
+                          <Text strong>{templateNameMap.get(v) ?? v}</Text>
+                          {record.is_default && <Tag color="gold">默认</Tag>}
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '端口 / 路径 / 协议',
+                      key: 'endpoint',
+                      render: (_: unknown, record: CITypeExporterMapping) => (
+                        <Space wrap>
+                          <Tag>{record.scheme}</Tag>
+                          <Tag color="purple">:{record.default_port}</Tag>
+                          <Tag color="cyan">{record.metrics_path}</Tag>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '采集参数',
+                      key: 'scrape',
+                      render: (_: unknown, record: CITypeExporterMapping) => (
+                        <Space>
+                          <Text type="secondary">间隔 {record.scrape_interval}</Text>
+                          <Text type="secondary">超时 {record.scrape_timeout}</Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: '安装指南（线下安装指引）',
+                      key: 'install_guide',
+                      render: (_: unknown, record: CITypeExporterMapping) =>
+                        record.install_guide ? (
+                          <Popover
+                            placement="topLeft"
+                            title={`${CI_TYPE_LABEL[record.resource_type]} · ${
+                              templateNameMap.get(record.exporter_template_id) ?? ''
+                            } 安装指南`}
+                            content={
+                              <Text style={{ fontSize: 12, maxWidth: 380, display: 'block' }}>{record.install_guide}</Text>
+                            }
+                          >
+                            <Tag color="blue" style={{ cursor: 'pointer' }}>查看安装指南</Tag>
+                          </Popover>
+                        ) : (
+                          <Text type="secondary" style={{ fontSize: 12 }}>-</Text>
+                        ),
+                    },
+                    {
+                      title: '类型',
+                      dataIndex: 'is_builtin',
+                      key: 'is_builtin',
+                      render: (v: boolean) =>
+                        v ? (
+                          <Tag color="gold" icon={<LockOutlined />}>平台预置</Tag>
+                        ) : (
+                          <Tag>用户登记</Tag>
+                        ),
+                    },
+                    {
+                      title: '操作',
+                      key: 'actions',
+                      render: (_: unknown, record: CITypeExporterMapping) => (
+                        <Space>
+                          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openPresetEdit(record)}>
+                            编辑
+                          </Button>
+                          <Button
+                            type="link"
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={record.is_builtin}
+                            onClick={() => handlePresetDelete(record)}
+                          >
+                            删除
+                          </Button>
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
+              </Card>
+      )}
+      {view === 'jobs' && (
+        <Card className="page-card">
+          <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
           <Col>
             <Button
               type="primary"
@@ -751,7 +976,109 @@ export default function ScrapeJobsPage() {
         </Row>
 
         <Table rowKey="job_id" dataSource={jobs} columns={columns} pagination={{ pageSize: 5 }} />
-      </Card>
+              </Card>
+      )}
+
+
+      {/* {v3.8} 默认采集配置编辑抽屉（预设层维护：采集器 / 参数 / 安装指南；入口合一后承载于此） */}
+      <Drawer
+        title={editingPreset ? '编辑默认采集配置' : '新增默认采集配置'}
+        width={560}
+        open={presetDrawerOpen}
+        onClose={closePresetDrawer}
+        extra={
+          <Space>
+            <Button onClick={closePresetDrawer}>取消</Button>
+            <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handlePresetSave}>
+              保存
+            </Button>
+          </Space>
+        }
+      >
+        <Form form={presetForm} layout="vertical" style={{ marginTop: 8 }}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="资源类别" name="resource_category" rules={[{ required: true, message: '请选择资源类别' }]}>
+                <Select
+                  placeholder="请选择"
+                  disabled={!!editingPreset}
+                  onChange={() => presetForm.setFieldsValue({ resource_type: undefined, exporter_template_id: undefined })}
+                >
+                  {RESOURCE_CATEGORIES.map((cat) => (
+                    <Option key={cat} value={cat}>{RESOURCE_CATEGORY_MAP[cat]}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="CI 类型" name="resource_type" rules={[{ required: true, message: '请选择 CI 类型' }]}>
+                <Select placeholder="请选择" disabled={!!editingPreset}>
+                  {presetCategoryCiTypes.map((t) => (
+                    <Option key={t} value={t}>{CI_TYPE_LABEL[t]}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item
+            label="默认采集器"
+            name="exporter_template_id"
+            rules={[{ required: true, message: '请选择默认采集器' }]}
+            extra="选择后自动填充端口/路径/协议；安装指南归属采集器"
+          >
+            <Select placeholder="请选择" showSearch optionFilterProp="children">
+              {mockExporterTemplates
+                .filter((t) => t.supported_resource_types.length > 0)
+                .filter((t) =>
+                  presetForm.getFieldValue('resource_type')
+                    ? t.supported_resource_types.includes(presetForm.getFieldValue('resource_type') as CiType)
+                    : true
+                )
+                .map((t) => (
+                  <Option key={t.exporter_template_id} value={t.exporter_template_id}>
+                    {t.name} v{t.version}
+                  </Option>
+                ))}
+            </Select>
+          </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item label="默认端口" name="default_port" rules={[{ required: true, message: '请输入端口' }]}>
+                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="采集路径" name="metrics_path" rules={[{ required: true, message: '请输入路径' }]}>
+                <Input placeholder="/metrics" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item label="协议" name="scheme" rules={[{ required: true }]}>
+                <Select>
+                  {SCHEMES.map((s) => (
+                    <Option key={s} value={s}>{s.toUpperCase()}</Option>
+                  ))}
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="采集间隔" name="scrape_interval" rules={[{ required: true, message: '请输入间隔' }]}>
+                <Input placeholder="15s" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="采集超时" name="scrape_timeout" rules={[{ required: true, message: '请输入超时' }]}>
+                <Input placeholder="10s" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item label="安装指南（归属采集实现）" name="install_guide">
+            <Input.TextArea rows={3} placeholder="离线/隔离网域安装说明（如二进制解压、端口开放、Agent 可达性）" />
+          </Form.Item>
+        </Form>
+      </Drawer>
 
       <Drawer
         title={editingJob ? '编辑采集 Job' : '新增采集 Job'}
@@ -936,7 +1263,7 @@ export default function ScrapeJobsPage() {
                     disabled={!!editingJob || categoryCiTypes.length === 0}
                     onChange={(type) => {
                       setTargetKeys([])
-                      // 选中 CI 类型后自动匹配映射默认 Exporter 模板（决策 15 继承链）
+                      // {v3.8} 选中 CI 类型后自动匹配映射默认采集器（决策 15 继承链；可空手填）
                       const mapping = mockCITypeExporterMappings.find(
                         (m) => m.resource_type === (type as CiType)
                       )
@@ -955,14 +1282,15 @@ export default function ScrapeJobsPage() {
                 </Form.Item>
               </Col>
               <Col span={12}>
+                {/* {v3.8} 默认采集器：可空（手填模式），选中后预填采集参数 */}
                 <Form.Item
-                  label="Exporter 模板"
+                  label="默认采集器"
                   name="exporter_template_id"
-                  rules={[{ required: true, message: '请选择 Exporter 模板' }]}
-                  extra="选中 CI 类型后自动带出映射默认模板，可覆盖"
+                  extra="可选：选中 CI 类型后自动带出映射默认采集器（可换/可空）；不选时直接手填下方采集参数"
                 >
                   <Select
-                    placeholder="请选择"
+                    placeholder="可空（直接手填采集参数）"
+                    allowClear
                     onChange={(v) => handleTemplateChange(v as string)}
                     showSearch
                     optionFilterProp="children"

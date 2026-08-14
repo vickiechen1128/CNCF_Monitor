@@ -122,12 +122,15 @@ export default function RulesPage() {
     [rules]
   )
 
-  // 指标预览：选 exporter_template_id 后从当前指标库（共享 store，含用户新增/禁用）过滤该 Exporter 启用的指标名
-  const previewMetrics = metricLibraryStore.filter(
-    (m) =>
-      m.exporter_template_id === watchExporterTemplateId &&
-      m.enabled
-  )
+  // {v3.8} 指标预览：按 CI 类型（resource_types 主锚点）过滤当前指标库（共享 store，含用户新增/禁用）启用的指标名；
+  // 同名指标（不同来源采集器）在预览/校验中显示来源区分
+  const previewMetrics = metricLibraryStore.filter((m) => {
+    if (!watchResourceType) return false
+    return (
+      m.enabled &&
+      (m.resource_types ?? []).some((rt) => rt.resource_type === watchResourceType)
+    )
+  })
 
   // 将监控规则默认值打开 modal
   const handleOpenModal = (record?: MonitoringRule) => {
@@ -192,10 +195,10 @@ export default function RulesPage() {
     }
   }
 
-  // 校验表达式引用的指标是否存在于指标库（基于共享指标库 store，含用户新增/禁用）
+  // {v3.8} 校验表达式引用的指标是否存在于指标库（基于共享指标库 store，按 CI 类型 resource_types 过滤）
   const validateMetrics = (
     expr: string,
-    exporterTemplateId?: string
+    resourceType?: CiType
   ): { ok: true } | { ok: false; message: string } => {
     if (!expr.trim()) {
       return { ok: false, message: '表达式不能为空' }
@@ -203,10 +206,14 @@ export default function RulesPage() {
     const knownMetricNames = new Set(
       metricLibraryStore
         .filter((m) => m.enabled)
-        .filter((m) => !exporterTemplateId || m.exporter_template_id === exporterTemplateId)
+        .filter(
+          (m) =>
+            !resourceType ||
+            (m.resource_types ?? []).some((rt) => rt.resource_type === resourceType)
+        )
         .map((m) => m.metric_name)
     )
-    // 全库兜底（用户可在不同 exporter 间引用），只要任意启用指标命中即视为已知
+    // 全库兜底（用户可在不同 CI 类型间引用），只要任意启用指标命中即视为已知
     const allKnown = new Set(metricLibraryStore.filter((m) => m.enabled).map((m) => m.metric_name))
     const used = extractMetricNames(expr)
     const unknown = used.filter((n) => !allKnown.has(n))
@@ -214,21 +221,17 @@ export default function RulesPage() {
       return {
         ok: false,
         message: `未知指标名 ${unknown.join(', ')}${
-          exporterTemplateId
-            ? `（不在 ${templateNameMap.get(exporterTemplateId) ?? exporterTemplateId} 指标库中）`
-            : ''
+          resourceType ? `（不在「${CI_TYPE_LABEL[resourceType]}」指标库中）` : ''
         }`,
       }
     }
-    // 同 Exporter 校验：若选定 exporter，所有指标都应在该 exporter 内
-    if (exporterTemplateId) {
-      const notInExporter = used.filter((n) => !knownMetricNames.has(n))
-      if (notInExporter.length > 0) {
+    // 同 CI 类型校验：若选定 CI 类型，所有指标都应在该类型的指标集内
+    if (resourceType) {
+      const notInType = used.filter((n) => !knownMetricNames.has(n))
+      if (notInType.length > 0) {
         return {
           ok: false,
-          message: `指标 ${notInExporter.join(', ')} 不属于所选 Exporter「${
-            templateNameMap.get(exporterTemplateId) ?? exporterTemplateId
-          }」`,
+          message: `指标 ${notInType.join(', ')} 不属于所选 CI 类型「${CI_TYPE_LABEL[resourceType]}」的指标集（可先在技术指标库为该指标挂接该类型）`,
         }
       }
     }
@@ -242,8 +245,8 @@ export default function RulesPage() {
     setValidationResult(null)
     setTimeout(() => {
       setValidating(false)
-      const exporterTemplateId = form.getFieldValue('exporter_template_id') as string | undefined
-      const result = validateMetrics(expr, exporterTemplateId)
+      const resourceType = form.getFieldValue('resource_type') as CiType | undefined
+      const result = validateMetrics(expr, resourceType)
       if (!result.ok) {
         setValidationResult({ status: 'error', message: `校验失败：${result.message}` })
         return
@@ -261,10 +264,10 @@ export default function RulesPage() {
 
   const handleSave = () => {
     form.validateFields().then((values) => {
-      // 保存前强制校验：expr 引用的指标必须存在于指标库（PRD v2.0 决策 5）
+      // 保存前强制校验：expr 引用的指标必须存在于指标库（PRD v2.0 决策 5；{v3.8} 按 CI 类型校验）
       const expr = (values.expr as string) ?? ''
-      const exporterTemplateId = values.exporter_template_id as string | undefined
-      const metricResult = validateMetrics(expr, exporterTemplateId)
+      const resourceType = values.resource_type as CiType | undefined
+      const metricResult = validateMetrics(expr, resourceType)
       if (!metricResult.ok) {
         setValidationResult({ status: 'error', message: `保存失败：${metricResult.message}` })
         message.error('保存失败：PromQL 引用了指标库中不存在的指标')
@@ -601,7 +604,7 @@ export default function RulesPage() {
                 label="CI 类型"
                 name="resource_type"
                 rules={[{ required: true, message: '请选择 CI 类型' }]}
-                extra="选中后自动带出映射默认 Exporter 模板"
+                extra="选中后自动带出该类型的默认采集配置（默认采集器）；指标提示/校验按 CI 类型指标集（{v3.8}）"
               >
                 <Select
                   placeholder={categoryCiTypes.length > 0 ? '请选择 CI 类型' : '请先选择资源类别'}
@@ -627,10 +630,9 @@ export default function RulesPage() {
           <Row gutter={16}>
             <Col span={24}>
               <Form.Item
-                label="关联 Exporter 模板"
+                label="默认采集器"
                 name="exporter_template_id"
-                rules={[{ required: true, message: '请选择 Exporter 模板' }]}
-                extra="与所选 CI 类型联动：自动带出该类型映射默认模板，用于指标预览与 PromQL 校验，可按需覆盖"
+                extra="可选：与所选 CI 类型联动自动带出默认采集器（建议采集器），用于指标预览与 PromQL 校验；{v3.8} 指标提示按 CI 类型指标集，可不选"
               >
                 <Select placeholder="请选择" showSearch optionFilterProp="children">
                   {mockExporterTemplates
@@ -764,9 +766,9 @@ export default function RulesPage() {
                   <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                     description={
-                      watchExporterTemplateId
-                        ? '该 Exporter 暂无启用指标'
-                        : '请先选择 Exporter 模板'
+                      watchResourceType
+                        ? '该 CI 类型暂无启用指标'
+                        : '请先选择 CI 类型'
                     }
                   />
                 }
@@ -805,12 +807,12 @@ export default function RulesPage() {
             style={{ marginTop: 8 }}
           />
 
-          {!watchExporterTemplateId && (
+          {!watchResourceType && (
             <Alert
               type="info"
               showIcon
               message="提示"
-              description="选择「关联 Exporter 模板」后可获取指标预览，并辅助 PromQL 校验。"
+              description="选择「CI 类型」后按该类型指标集提供指标预览，并辅助 PromQL 校验（{v3.8}）。"
               style={{ marginTop: 12 }}
             />
           )}
