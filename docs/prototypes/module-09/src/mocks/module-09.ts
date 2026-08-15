@@ -1,6 +1,8 @@
 export type NetworkDomainStatus = 'online' | 'offline' | 'unknown'
 export type DomainType = 'management' | 'edge'
 export type AgentType = 'vmagent' | 'prometheus-agent'
+/** {v1.29} 网域生命周期状态：created = 已由 Module_06 行政创建但未纳管监控；monitored = 已完成监控纳管 */
+export type NetworkDomainRegistrationStatus = 'created' | 'monitored'
 export type ConfigSyncStatus = 'in_sync' | 'out_of_sync' | 'unknown' | 'manual_override'
 /** 采集器运行状态（PRD 3.2 采集器进程管理 / 6.3 第 1 条：Edge Sync Agent 部署守护本节点采集器，运行状态纳入心跳上报与 Agent 状态展示） */
 export type CollectorStatus = 'running' | 'stopped' | 'unknown'
@@ -126,6 +128,8 @@ export interface NetworkDomain {
   status: NetworkDomainStatus
   last_heartbeat: string
   agent_version: string
+  /** {v1.29} 网域生命周期：created（仅行政创建）/ monitored（已监控纳管） */
+  registration_status: NetworkDomainRegistrationStatus
   created_at: string
   updated_at: string
 }
@@ -275,6 +279,13 @@ export const currentTenant: Tenant = {
   multi_site_enabled: true,
 }
 
+// ---------- 用户角色（动线分离演示：本模块按用户职责区分运维工程师1/2） ----------
+export type UserRole = 'ops1' | 'ops2'
+export const USER_ROLE_MAP: Record<UserRole, string> = {
+  ops1: '运维工程师1',
+  ops2: '运维工程师2',
+}
+
 // 原型演示用伪 sha256（64 位十六进制，按 seed 稳定生成，64 个采样点均匀覆盖整个 seed）；
 // 实际系统由配置内容联合计算
 function demoChecksum(seed: string): string {
@@ -334,7 +345,7 @@ export const TOKEN_MASK = '••••••••'
 
 /**
  * 网域 Remote Write URL 自动推导（决策 14）：中心平台已知自身 ingest ingress，
- * 注册网域时默认按「中心 ingress 地址 + 网域路径」自动生成（可手动覆盖），减少人工填写项；
+ * 纳管网域时默认按「中心 ingress 地址 + 网域路径」自动生成（可手动覆盖），减少人工填写项；
  * 边缘 Agent 通过该地址回传本域指标（outbound HTTPS 443，PRD 3.1 / 6.x）。
  */
 export function deriveRemoteWriteUrl(domainId: string): string {
@@ -371,6 +382,7 @@ export const networkDomains: NetworkDomain[] = [
     status: 'online',
     last_heartbeat: '2026-08-03 14:30:00',
     agent_version: 'v1.102.0',
+    registration_status: 'monitored',
     created_at: '2026-07-01 00:00:00',
     updated_at: '2026-08-03 14:30:00',
   },
@@ -386,6 +398,7 @@ export const networkDomains: NetworkDomain[] = [
     status: 'online',
     last_heartbeat: '2026-08-03 14:28:00',
     agent_version: 'v1.102.0',
+    registration_status: 'monitored',
     created_at: '2026-07-10 00:00:00',
     updated_at: '2026-08-03 14:28:00',
   },
@@ -401,6 +414,7 @@ export const networkDomains: NetworkDomain[] = [
     status: 'offline',
     last_heartbeat: '2026-08-03 13:50:00',
     agent_version: 'v2.54.0',
+    registration_status: 'monitored',
     created_at: '2026-07-12 00:00:00',
     updated_at: '2026-08-03 13:50:00',
   },
@@ -410,12 +424,13 @@ export const networkDomains: NetworkDomain[] = [
     description: '工厂边缘网关，网络不稳定，启用 WAL 本地缓冲',
     domain_type: 'edge',
     tenant_id: 'platform_admin',
-    token: 'tk_mfg_9s0t1u2v3w4x',
+    token: '',
     agent_type: 'vmagent',
-    remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
-    status: 'online',
-    last_heartbeat: '2026-08-03 14:25:00',
-    agent_version: 'v1.102.0',
+    remote_write_url: '',
+    status: 'unknown',
+    last_heartbeat: '-',
+    agent_version: '-',
+    registration_status: 'created',
     created_at: '2026-07-20 00:00:00',
     updated_at: '2026-08-03 14:25:00',
   },
@@ -1413,7 +1428,7 @@ export const edgeAgentInstallGuide: EdgeAgentInstallGuide = {
   checksum_algorithm: 'sha256',
   systemd_unit: '/etc/systemd/system/metric-center-edge-agent.service',
   env_vars: {
-    NETWORK_DOMAIN_ID: '网域 ID（本页注册生成）',
+    NETWORK_DOMAIN_ID: '网域 ID（由 Module_06 行政创建，本页纳管）',
     TOKEN: '网域认证 Token（本页生成/重置）',
   },
   steps: [
@@ -1425,7 +1440,7 @@ export const edgeAgentInstallGuide: EdgeAgentInstallGuide = {
     {
       title: '配置 NETWORK_DOMAIN_ID / TOKEN 环境变量',
       description:
-        '在边缘节点配置环境变量（或写入 systemd 环境文件）：NETWORK_DOMAIN_ID=本页注册的网域 ID，TOKEN=本页生成/重置的网域认证 Token。',
+        '在边缘节点配置环境变量（或写入 systemd 环境文件）：NETWORK_DOMAIN_ID=Module_06 行政创建的网域 ID，TOKEN=本页纳管时生成/重置的网域认证 Token。',
     },
     {
       title: '启动 Edge Sync Agent（systemd）',

@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
-> **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v2.9
+> **PRD 状态**: `设计中`（原型已验证至 v2.7，待两段式评审与 ready 确认）
+> **PRD 版本**: v2.11
 > **产品版本覆盖**: MVP / v0.4 / v1.0
-> **原型版本**: v2.5
-> **更新日期**: 2026-08-14
+> **原型版本**: v2.7
+> **更新日期**: 2026-08-15
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -70,7 +70,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | **资源状态管理**          | online / offline / maintenance 状态维护                                                                                                                                 | P0               |
 | **已监控 / 未监控 badge** | 在 Resource 列表展示该资源是否被任意 ScrapeJob 选中；由 Module\_01 写入关联关系，Module\_07 只读展示                                                                                            | P0               |
 | **适用模板展示**          | 资源详情显示「适用模板」（该资源类型对应的默认标签模板名 + 模板 ID），与 system 标签来源标注呼应，让用户看见"此实例由哪个模板产生标签"；{v2.3}                                                                                  | P0               |
-| **网域归属**            | 资源按 `network_domain_id` 分组；网域生命周期由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
+| **网域归属**            | 资源按 `network_domain_id` 分组；网域生命周期由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**本模块不采用顶部「当前网域」全局上下文切换器**，而是在资源列表内提供「网域」筛选器（默认记忆上次选择、始终可切换为「全部网域」以支持跨域搜索）；**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
 | **CMDB 接入源**        | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 `ExcelProvider` / `SQLiteProvider` 维护资源；v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 实现外部 CMDB 同步                 | P0 / P2          |
 | **资源关系**            | 应用-实例-集群关系、依赖拓扑（未来）                                                                                                                                                 | P2               |
 
@@ -254,8 +254,8 @@ const (
 
 > **`is_monitored`** **字段说明**：
 >
-> - 该字段由 Module\_01 在创建/更新/删除 ScrapeJob 时同步计算并写入（或 Module\_07 通过只读接口查询 Module\_01 的关联关系后展示）。
-> - Module\_07 不在本模块内维护 Job 与资源的关联关系，仅负责在 Resource 列表展示「已监控 / 未监控」badge。
+> - **实现方案（v2.11 明确）**：Module\_07 **不持久化**该字段；在返回 Resource 列表/详情时，Module\_07 通过调用 Module\_01 的只读关联接口（`GET /api/v1/scrape-jobs?resource_id=...` 或内部等价查询）实时计算「该 Resource 是否被至少一个 ScrapeJob 选中」，并在响应中透传为 `is_monitored`。
+> - Module\_07 不在本模块内维护 Job 与资源的关联关系，仅负责展示「已监控 / 未监控」badge。
 
 ### 5.3 资源 Label（ResourceLabel）
 
@@ -331,7 +331,13 @@ const (
 
 > **MVP 处理**：系统初始化时自动创建一个 `id=default` 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知。
 >
-> **网域列展示策略**：即使租户处于单网域模式（`Tenant.multi_site_enabled=false`），Resource 列表、详情页与 Excel 模板仍保留「网域」列。网域在此被视为云区域（Cloud Area）概念，是资源从 CMDB 或 Excel 导入时的必要属性，不随 UI 模式隐藏。
+> **网域存在性校验口径（v2.11 明确）**：Resource 的 `network_domain_id` 是否有效，以 **Module\_06 维护的 `NetworkDomain` 行政记录**为准（网域由 M06 创建/分配/删除，M09 仅负责监控纳管）。M07 不重复维护网域生命周期，仅读取 `id` / `name` / `domain_type` 做展示与校验。
+>
+> **网域列展示策略（{v2.10} 细化）**：
+>
+> - 即使租户处于单网域模式（`Tenant.multi_site_enabled=false`），Resource 列表、详情页与 Excel 模板仍保留「网域」列。网域在此被视为云区域（Cloud Area）概念，是资源从 CMDB 或 Excel 导入时的必要属性，不随 UI 模式隐藏。
+> - **本模块不采用顶部「当前网域」全局上下文切换器**：Resource 是全局配置对象（带 `network_domain_id` 属性），用户经常需要跨网域搜索或查看全量资源。网域在 M07 仅作为**列表筛选器**使用：默认按用户上次选择的网域过滤（可记忆），但始终提供「全部网域」选项，支持跨域搜索。
+> - 资源详情页将「网域」作为基础属性置顶展示，避免淹没在大量 CMDB 字段中。
 
 ### 5.5 Excel 状态映射字典
 
@@ -696,7 +702,7 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 | DELETE | `/api/v1/label-templates/{template_id}`                       | 删除模板（默认模板禁止删除；被 Module\_01 引用时阻止）                                                                                                              |
 | POST   | `/api/v1/label-templates/{template_id}/clone`                 | 克隆模板（含全部 mappings，新模板 is\_default=false）                                                                                                       |
 | GET    | `/api/v1/label-templates/{template_id}/resources`             | 关联实例查询（{v2.3}）：按模板 resource\_type 返回关联资源列表（含 count / 实例名 / IP / 状态），用于「关联实例 N 个」展示                                                             |
-| GET    | `/api/v1/label-templates/{template_id}/jobs`                  | 被引用 Job 查询（{v2.7}）：返回引用本模板的 ScrapeJob 列表（含 count / Job 名 / 网域 / 启用状态 / 变更状态），用于「被引用采集 Job N 个」展示；变更状态由 Module\_09 变更单状态派生（v0.2+），MVP 返回「已变更」标识 |
+
 | POST   | `/api/v1/label-templates/{template_id}/mappings`              | 新增映射（服务端校验：保护 label / 同模板 target\_label 唯一）                                                                                                    |
 | PUT    | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | 编辑映射（编辑自身排除唯一性校验）                                                                                                                              |
 | DELETE | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | 删除映射                                                                                                                                           |
@@ -713,8 +719,54 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 ### 6.5 只读消费契约（Module\_01 / Module\_09）
 
 - Module\_01 与 Module\_09 **仅通过上述 GET 接口只读消费** Resource、ResourceLabel、LabelTemplate 数据，不经过本模块写接口；
-- `is_monitored` 由 Module\_01 计算后在资源列表响应中返回（或本模块调用 Module\_01 只读接口查询关联关系后透出）；
+- `is_monitored` 由 Module\_07 在返回资源数据前调用 Module\_01 只读关联接口实时计算并透出（见 5.2 `is_monitored` 字段说明），M07 不持久化该字段；
+- **被引用 Job 查询**：标签模板页「被引用采集 Job N 个」数据由 Module\_01 的只读接口提供（`GET /api/v1/scrape-jobs?label_template_id={template_id}`），M07 不直接暴露此聚合接口，以避免被动数据提供方反向依赖策略模块；
 - 本模块不提供 `prometheus.yml` 生成 / 下发类接口（职责在 Module\_09）。
+
+### 6.6 接口请求响应与错误码契约 {v2.11}
+
+> 本节为 MVP 后端可直接实现的请求 / 响应 / 错误码契约。所有接口统一返回 `platform/api/response` 格式：
+>
+> ```json
+> { "status": "success", "data": {} }
+> { "status": "error", "errorType": "bad_request", "error": "human readable message" }
+> ```
+>
+> 通用 `errorType`：`bad_request`、`unauthorized`、`forbidden`、`not_found`、`internal`。
+
+#### 6.6.1 资源管理 API
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v1/resources` | Query: `resource_type`、`network_domain_id`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2，含 `is_monitored` | — |
+| POST | `/api/v1/resources` | 5.2 字段（`source_type=manual`，除 id/timestamps） | 创建后的完整对象 | `bad_request`：必填字段缺失 / `network_domain_id` 不存在（M06 行政记录） |
+| PUT | `/api/v1/resources/{resource_id}` | 5.2 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：修改 host/middleware/generic 的 `user` 来源标签越权 |
+| DELETE | `/api/v1/resources/{resource_id}` | — | `{ resource_id }` | `not_found`；`forbidden`：被 Module\_01 的 ScrapeJob 引用时禁止删除 |
+| POST | `/api/v1/resources/import` | multipart/form-data：`file` + `resource_type` | 7.3 导入结果结构 | `bad_request`：文件格式 / 必填列缺失 |
+| GET | `/api/v1/resources/import-templates/{resource_type}` | — | `{ columns: [...], sample_row: [...] }` | `not_found`：未知资源类型 |
+
+#### 6.6.2 资源标签 API
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v1/resources/{resource_id}/labels` | — | `{ items: [...], total: N }`：按来源优先级排序（`system` / `user` / `cmdb {v0.4+}`） | `not_found` |
+| POST | `/api/v1/resources/{resource_id}/labels` | `{ key, value }` | 新增的 user 标签 | `forbidden`：`resource_type ≠ application`；`bad_request`：key 规则非法 / 覆盖 system/cmdb 标签 |
+| PUT | `/api/v1/resources/{resource_id}/labels/{label_id}` | `{ value }` | 更新后的 user 标签 | `forbidden`：非 user 来源；`not_found` |
+| DELETE | `/api/v1/resources/{resource_id}/labels/{label_id}` | — | `{ label_id }` | `forbidden`：非 user 来源；`not_found` |
+
+#### 6.6.3 标签模板 API
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v1/label-templates` | Query: `resource_type`、`is_default`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 含完整 mappings | — |
+| POST | `/api/v1/label-templates` | `{ name, resource_type, description?, mappings?: [...] }` | 创建的模板（`is_default=false`） | `bad_request`：同名同资源类型 / 非法 mapping |
+| PUT | `/api/v1/label-templates/{template_id}` | `{ name?, description?, resource_type? }`（resource_type 创建后不可改） | 更新后的模板 | `not_found`；`bad_request` |
+| DELETE | `/api/v1/label-templates/{template_id}` | — | `{ template_id }` | `bad_request`：默认模板禁止删除；`forbidden`：被 Module\_01 引用时禁止删除 |
+| POST | `/api/v1/label-templates/{template_id}/clone` | `{ name? }` | 克隆后的新模板 | `not_found` |
+| GET | `/api/v1/label-templates/{template_id}/resources` | — | `{ items: [...], total: N }`：按模板 resource_type 匹配的资源列表 | `not_found` |
+| POST | `/api/v1/label-templates/{template_id}/mappings` | `{ target_label, source_type, source_field, transform_rule? }` | 新增后的 mappings 列表 | `bad_request`：保护 label / 同模板 target_label 重复 |
+| PUT | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | `{ target_label?, source_type?, source_field?, transform_rule? }` | 更新后的 mappings 列表 | `not_found`；`bad_request` |
+| DELETE | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | — | `{ mapping_id }` | `not_found` |
 
 ***
 
@@ -764,7 +816,7 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 | 环境枚举    | `env` 必须是 `dev/test/staging/prod` 之一                            |
 | 业务类型    | `business_domain` 可选填；填写时符合命名规范（小写字母、数字、连字符，长度 ≤ 64）；留空 = 无业务类型归属（{v2.8}） |
 | 协议枚举    | `protocol` 必须是 `http/https/tcp` 之一                              |
-| 状态枚举    | `status` 必须是 `online/offline/maintenance` 之一                    |
+| 状态枚举    | Excel/CSV 导入时 `status` 列允许业务语言，经 5.5 状态映射字典转为 `online/offline/maintenance`；手动录入 / API 写请求必须直接为 `online/offline/maintenance` 之一 |
 | 重复检测    | 同一资源类型下，`instance_ip:port` 或 `service_name` 不可重复                |
 | 通用目标必填  | 通用目标 `instance_ip` 必填且符合 IPv4/域名格式                              |
 | 协议枚举    | 通用目标 `scheme` 必须是 `http/https` 之一                               |
@@ -976,6 +1028,8 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                  | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | --- |
+| v2.11 | 2026-08-15 | 修改 | 内容缺口补齐（ready 前最后一次文档修正）：①5.2 明确 `is_monitored` 由 M07 调用 M01 只读接口实时计算、不持久化；②5.4 明确网域存在性以 M06 行政记录为准；③7.2 修正 `status` 枚举校验口径（Excel 业务语言 vs API 直接枚举）；④6.3 删除「被引用 Job 查询」行，职责回归 M01；⑤6.5 增加 6.6 接口请求响应与错误码契约；⑥同步原型/总表版本至 v2.7 | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
+| v2.10 | 2026-08-15 | 修改 | 网域交互模式细化（第二十轮需求对齐）：明确 M07 不采用顶部「当前网域」全局上下文切换器，改为资源列表内「网域」筛选器（默认记忆 + 始终可切换「全部网域」）；3.1/5.4 同步说明；原型 v2.6 | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
 | v2.9 | 2026-08-14 | 修改 | 组合字段 MVP 内部默认（第十七轮需求讨论，用户异议「Prometheus 默认字段不应在前台告知」）：5.12 C 补「组合字段用户语言说明与 MVP 内部默认」——instance 为 Prometheus 内置身份标签（值=IP:端口，同 IP 多服务靠端口区分避免指标冲突）；MVP 直连抓取下组合字段输出与 Prometheus 默认 instance 一致（冗余），前台隐藏、新增映射不展示「组合字段」来源选项（同 prometheus_builtin 模式）、默认模板 composite 行标注「内置默认」；端口配置点不变（Module_01 映射 default_port → Job 快照继承 → 生成拼接）；v0.2+ 服务发现/代理抓取/端口覆盖需身份定制时再开放；5.13 默认模板补内置默认说明；原型 v2.5 同步 | MVP / v0.4 / v1.0 | 设计中 |
 | v2.8 | 2026-08-14 | 修改   | 标签双场景治理 + 业务指标关联（第十二轮需求对齐）：3.3 新增「双场景治理边界」——静态资源（host/中间件/通用目标）标签 CMDB/Excel 治理、平台只读收回实例级打标（6.2 写接口按 resource_type 校验返回 403）；application 开放 user 自定义标签；标签模板与治理解耦（保留字段→Label 契约）；5.2/5.8 新增 `business_domain` 字段（业务类型/业务域，映射 `biz` label）；5.12 A 新增 `business_domain → biz` 映射；新增 5.15「业务指标标签规范」（关联键 app/biz 不用 instance、机制 A 抓取注入为主 + 机制 B 埋点规范 + metric_relabel 兜底、业务维度标签 path/method/status 不参与关联）；12 验收补充；术语映射补充 business_domain / biz / 业务指标标签规范。评审前完善：Roadmap §1.5 登记业务类型能力（MVP 字段+biz 聚合 / v0.2+ 独立业务目录）；全局故事库回写 M07-OPS-08/09 + 第 2 章引用；7.1 应用服务导入模板列补 `business_domain`；7.2 补命名校验；5.15 补 `biz` 空值语义 | MVP / v0.4 / v1.0 | 设计中 |
 | v2.7 | 2026-08-13 | 修改   | 模板变更影响闭环（用户反馈 + 需求对齐）：3.2 新增「被引用 Job 展示」功能与「保存后影响提示」（MVP = 重新生成并立即生效 / v0.2+ = 前往配置中心确认后生效，双层标注）；3.2 右栏 Tab 化扩展为三 Tab（映射明细 / 关联实例 / 被引用 Job）；5.3 生成时机补保存反馈；6.3 新增被引用 Job 查询接口；12.1 新增验收项；术语映射补「配置变更确认 / 变更单」跨模块词汇                                                                     | MVP / v0.4 / v1.0 | 设计中 |

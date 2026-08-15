@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
-> **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.28
+> **PRD 状态**: `设计中`（原型已验证至 v1.23，待两段式评审与 ready 确认）
+> **PRD 版本**: v1.30
 > **产品版本覆盖**: MVP / v0.2 / v1.0
-> **原型版本**: v1.20
-> **更新日期**: 2026-08-14
+> **原型版本**: v1.23
+> **更新日期**: 2026-08-15
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -19,8 +19,8 @@
 
 核心职责：
 
-1. **网域管理**：注册、编辑、删除网域，生成/重置 Edge Agent 认证 Token，预置默认网域 `default`。
-2. **租户-网域关联 {v0.2}**：`NetworkDomain` 数据模型归属本模块，`tenant_id` 字段在 v0.2 必须落地，保证 1 租户 : N 网域、禁止跨租户共享网域、`network_domain_id` 全局唯一。
+1. **网域监控纳管（{v1.29} 职责细化）**：从 M06 已存在的网域中选择并标记为「已纳管监控」，填写监控参数（`agent_type` / `remote_write_url` 等）、生成/重置 Edge Agent 认证 Token、提供安装指引；`default` 管理域由系统预置并默认视为已纳管。**M06 是 `NetworkDomain` 行政 Owner（创建/分配/配额），M09 是网域监控纳管 Owner。**
+2. **租户-网域关联 {v0.2}**：`NetworkDomain` 数据模型由 M06 与 M09 共同维护，`tenant_id` 字段在 v0.2 必须落地，保证 1 租户 : N 网域、禁止跨租户共享网域、`network_domain_id` 全局唯一。
 3. **边缘 Agent 生命周期**：记录每个网域部署的采集器类型（`vmagent` / `prometheus-agent`）、版本、在线状态。
 4. **配置生成服务 {v0.2+}**：轮询 Module_01 的 ScrapeJobs / Rules 与 Module_07 的 Resources / LabelTemplates，按网域生成 `prometheus.yml`、`targets/*.json` 与 `rules.yml` 草稿。
 5. **草稿与预览 {v0.2+}**：维护 draft 配置态，提供预览、diff 对比与人工确认，确认后再转为待下发版本。
@@ -41,7 +41,7 @@
 
 > {v1.24} 完整用户故事条目（角色 / 我希望 / 以便于）见**全局用户故事库 [01_User_Stories.md](../01_User_Stories.md) 4.9 节**；本模块用户故事使用模块命名空间编码（`M09-ROLE-NN`，全局唯一），仅在此列出编码与一句话摘要。
 
-- **M09-ARCH-11**：注册一个新的隔离网域并生成 Edge Agent 接入 Token。
+- **M09-ARCH-11**：从 M06 已存在的隔离网域中选择一个完成监控纳管，填写监控参数并生成 Edge Agent 接入 Token。
 - **M09-ARCH-12**：查看所有网域列表及每个网域 Edge Agent 的在线状态（列表页形式）。
 - **M09-OPS-11**：在 Agent 状态列表页查看某个网域 Edge Agent 的最后心跳、WAL 积压和配置版本。
 - **M09-OPS-12**：当某个网域 Edge Agent 失联时，触发 `EdgeSiteOffline` 告警（告警规则由 Module_08 管理）。
@@ -58,28 +58,30 @@
 
 ### 3.1 网域管理
 
+> **{v1.29} 职责边界**：M09 不创建 `NetworkDomain` 行政记录；网域必须先由 [Module_06](Module_06_Multi_Tenant.md) 创建并分配给租户，再由 M09 完成「监控纳管」。
+
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
-| **网域列表** | 展示所有网域：ID、名称、状态、Agent 类型、最后心跳 | P0 |
-| **网域注册** | 创建新网域，生成唯一 `id` 和认证 Token；**MVP 阶段采集器类型固定 `vmagent`**（Agent 类型下拉保留、仅 `vmagent` 一个选项，`prometheus-agent` 保留枚举、v0.2+ 开放）；**Remote Write URL 由平台自动推导**（中心 ingress 地址 + 网域路径，可手动覆盖）；注册为**登记制**（仅生成网域元数据与 Token，Agent IP / 主机名 / 状态 / 最后心跳由心跳上报补全），是「注册 → 安装指引 → Agent 自动上线」闭环的必要前置步骤（见下方 3.1.1）；**注册成功后自动滚动并高亮页面顶部「安装指引」提示区** | P0 |
-| **网域编辑** | 修改网域名称、描述、Agent 类型、Remote Write 目标；表单仅维护**配置字段**，运行态字段（状态 / 最后心跳）只读展示 | P1 |
-| **网域删除** | 删除无资源绑定的网域；有资源绑定时禁止删除 | P1 |
+| **网域列表** | 展示本租户下所有被授权网域：ID、名称、**纳管状态**（`created` 已创建未纳管 / `monitored` 已纳管）、Agent 类型、最后心跳；未纳管网域可点击「纳管」进入监控参数配置 | P0 |
+| **网域纳管（原「网域注册」，{v1.29} 更名）** | 从 M06 已存在的网域中选择一个，填写监控参数（`agent_type` / `remote_write_url` 等），生成认证 Token；**MVP 阶段采集器类型固定 `vmagent`**（Agent 类型下拉保留、仅 `vmagent` 一个选项，`prometheus-agent` 保留枚举、v0.2+ 开放）；**Remote Write URL 由平台自动推导**（中心 ingress 地址 + 网域路径，可手动覆盖）；纳管为**登记制**（生成网域监控参数与 Token，Agent IP / 主机名 / 状态 / 最后心跳由心跳上报补全），是「纳管 → 安装指引 → Agent 自动上线」闭环的必要前置步骤（见下方 3.1.1）；**纳管成功后自动滚动并高亮页面顶部「安装指引」提示区** | P0 |
+| **网域编辑** | 修改网域监控参数（Agent 类型、Remote Write 目标、描述）；网域名称/租户/状态等行政字段由 [Module_06](Module_06_Multi_Tenant.md) 维护；表单仅维护**监控配置字段**，运行态字段（状态 / 最后心跳）只读展示 | P1 |
+| **网域删除**（由 M06 承责） | 网域行政删除（含资源绑定约束）由 Module_06 「网域管理」执行；本页不提供删除，仅监控纳管状态切换 | — |
 | **Token 管理** | 查看/重置 Edge Sync Agent 认证 Token；Token 在 UI 中**完全脱敏展示**（不显示任何明文片段），完整值仅可通过「复制」按钮获取 | **P0** |
 | **安装指引** | **页面顶部常驻提示区**（决策 17，而非每行入口/弹窗）：网域管理页顶部展示「新网域接入操作流程」——**3 步人工步骤**① 下载并校验一体化离线包（含 Edge Sync Agent + 采集器 + blackbox exporter 可选）② 配置 `NETWORK_DOMAIN_ID` / `TOKEN` 环境变量 ③ 启动 Edge Sync Agent（systemd）（采集器与 blackbox exporter 由 Agent 启动后自动部署，并入第③步描述）；同时说明**边缘节点组件构成**（Edge Sync Agent 必装 + 采集器 + blackbox exporter 可选）与**凭据获取方式**（`NETWORK_DOMAIN_ID` = 对应网域 ID、`TOKEN` 经网域行内复制按钮获取，UI 完全脱敏）；**行内不再提供安装指引按钮** | P1 |
 | **默认网域** | 系统初始化自动创建 `default` 网域，MVP 单网域场景无感知 | P0 |
 
-> **字段语义（决策 16）**：网域列表字段分两类——**配置字段**（ID / 名称 / 类型 / Agent 类型 / Token / Remote Write URL，注册或编辑时设置）与**运行态字段**（状态 / 最后心跳，由 Edge Sync Agent 心跳自动上报更新，注册 / 安装指引完成前为 `unknown` / `-`）。注册 / 编辑表单仅维护配置字段，与列表配置字段对齐；运行态字段的来源与语义在列表列头与页脚标注，组件明细与诊断请查看「Agent 状态」页。
+> **字段语义（决策 16 / {v1.29} 调整）**：网域列表字段分两类——**监控配置字段**（Agent 类型 / Token / Remote Write URL / 描述，纳管或编辑时设置）与**运行态字段**（状态 / 最后心跳，由 Edge Sync Agent 心跳自动上报更新，纳管 / 安装指引完成前为 `unknown` / `-`）。行政字段（ID / 名称 / 租户 / 域类型 / 启用状态）由 [Module_06](Module_06_Multi_Tenant.md) 维护。纳管 / 编辑表单仅维护监控配置字段；运行态字段的来源与语义在列表列头与页脚标注，组件明细与诊断请查看「Agent 状态」页。
 
-#### 3.1.1 注册 → 安装指引 → 自动上线（登记制闭环，决策 14）
+#### 3.1.1 纳管 → 安装指引 → 自动上线（登记制闭环，决策 14 / {v1.29} 调整）
 
-**「注册网域」不能由「安装指引」替代**，两者是「先有身份、再接入」的两个串行步骤：
+**「网域纳管」不能由「安装指引」替代**，两者是「先有身份、再接入」的两个串行步骤：
 
-1. **凭据前置签发**：Edge Sync Agent 启动时必须携带平台签发的 `NETWORK_DOMAIN_ID` 与 `TOKEN`（[6.3](#63-edge-sync-agent-本地行为) 第 2 条），这两个值只能由网域注册时生成；未预注册的网域没有可验证身份，Agent 首次心跳 / 拉包无法通过鉴权，更不可能「自动抓取」。
-2. **「自动注册」的对象是 Agent 实例而非网域**：Agent 首次成功握手后平台自动创建的是 `EdgeAgent` 运行态记录（上线 / 心跳 / 版本），而 `NetworkDomain`（网络边界 + 租户映射）必须先于 Agent 存在——配置生成按网域分组并注入 `external_labels.network_domain/tenant_id`，依赖网域→租户映射先行落地。
+1. **凭据前置签发**：Edge Sync Agent 启动时必须携带平台签发的 `NETWORK_DOMAIN_ID` 与 `TOKEN`（[6.3](#63-edge-sync-agent-本地行为) 第 2 条），这两个值由网域在 M09 纳管时生成；未预纳管的网域没有可验证身份，Agent 首次心跳 / 拉包无法通过鉴权，更不可能「自动抓取」。
+2. **「自动注册」的对象是 Agent 实例而非网域**：Agent 首次成功握手后平台自动创建的是 `EdgeAgent` 运行态记录（上线 / 心跳 / 版本），而 `NetworkDomain`（网络边界 + 租户映射）必须先由 M06 创建并分配给租户——配置生成按网域分组并注入 `external_labels.network_domain/tenant_id`，依赖网域→租户映射先行落地。
 3. **安全信任锚点**：不做「Agent 首包即自动建域」——陌生端点自报 domain_id 即可建域存在隐式信任问题，且与「网域 = CMDB 云区域 1:1（v0.4+，[4.7](#47-网域与-blueking-cloud-area-映射)）」的边界约束冲突。
-4. **v0.4+ 演化而非取消**：网域与 CMDB 云区域 1:1 后，「注册」将演化为「从 CMDB 同步 / 校验」，但 v0.2 前手动注册仍是唯一来源。
+4. **v0.4+ 演化而非取消**：网域与 CMDB 云区域 1:1 后，M06 的网域创建将演化为「从 CMDB 同步 / 校验」，M09 的纳管动作保留；v0.2 前 M06 手动创建网域仍是唯一来源。
 
-闭环流程：**注册（登记制，最小化表单：网域名称 + 租户，`id` 按租户前缀自动生成、Token 自动签发、Remote Write URL 自动推导）→ 安装指引（下载一体化离线包 + 注入凭据 + systemd 部署）→ Agent 心跳自动上线（出现在「Agent 状态」页）**。
+闭环流程：**M06 创建网域（行政记录：网域名称 + 租户，`id` 按租户前缀自动生成）→ M09 纳管（登记制：填写监控参数、Token 自动签发、Remote Write URL 自动推导）→ 安装指引（下载一体化离线包 + 注入凭据 + systemd 部署）→ Agent 心跳自动上线（出现在「Agent 状态」页）**。
 
 ### 3.2 边缘 Agent 管理
 
@@ -245,7 +247,7 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 | **变更摘要（人话）** | 每项待确认变更提供**人话摘要**，回答「为什么发生了变更」，如「新增 1 台服务器（10.0.1.11）加入 node-exporter 采集」「HighCPUUsage 告警规则阈值由 80 调整为 85」；摘要由 configgen 对比「当前生效版本」与「新草稿」的**产物差异**生成（见下方「变更摘要生成机制」，决策 18） | **P0** |
 | **变更清单（结构化 + 风险，决策 22）** | 每项变更拆分为结构化清单：变更类型（新增 / 修改 / 移除）、**变更对象 = 源数据对象统一枚举（决策 22：采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板，与 Module_01 采集 Job、规则编辑及 Module_07 资源、标签模板的功能对象对齐，非配置文件本身）**、**影响的配置文件（决策 22：configgen 对比产物差异派生，如仅 targets 变化 → `targets/*.json`）**、人话变更说明、**风险等级**（低风险=新增目标；高风险=删除目标导致监控断点、告警规则变更导致误报/漏报）；高风险变更在列表与详情中**醒目提示**，是运维确认的重点 | **P0** |
 | **草稿列表** | 展示每个网域的变更：**变更单号（主标识，决策 20，如 `CHG-20260803-003`，用户可读唯一标识，用于沟通与审计追溯）**、变更摘要、状态、风险等级、确认人、**已发布版本（决策 22：确认后生成的配置版本号 `cv-xxx` + 「记录」入口直达该变更的发布 / 回滚记录）**、下发前校验、生成时间；**支持按变更状态筛选（决策 21，Segmented：待确认 / 已确认 / 已废弃 / 全部，默认待确认）**，替代原「待确认 / 历史」二分切换，状态维度清晰且可扩展 | **P0** |
-| **按网域组织确认视图（{v1.26}）** | **多网域模式下，变更确认页按网域组织视图**——页面顶部提供「选择网域」切换器（仅多网域模式显示；单网域模式直接面向 `default` 管理域，隐藏切换器并提示「单网域模式说明」）；列表展示**当前选中网域的变更单**（单网域上下文，变更单天然归属网域，见 4.1 `ConfigDraft.network_domain_id` 必填），行内保留**域类型标记**（管理域 / 边缘域）；确认动作仍为**变更单级**（决策 22 不变：一次确认 / 废弃整张变更单），与网域切换无关；**确认抽屉标注发布通道**——管理域「确认后立即 reload 生效」、边缘域「发布为配置包，待边缘 Agent 下次心跳拉取生效」；变更检测状态卡（决策 20）同步按选中网域展示 | **P0** |
+| **按网域组织确认视图（{v1.26}/{v1.29} 细化）** | **多网域模式下，变更确认页按网域组织视图**——页面顶部提供「选择网域」切换器，**仅展示已纳管网域**（未纳管网域不生成配置草稿，不在切换器中出现；单网域模式直接面向 `default` 管理域，隐藏切换器并提示「单网域模式说明」）；列表展示**当前选中网域的变更单**（单网域上下文，变更单天然归属网域，见 4.1 `ConfigDraft.network_domain_id` 必填），行内保留**域类型标记**（管理域 / 边缘域）；确认动作仍为**变更单级**（决策 22 不变：一次确认 / 废弃整张变更单），与网域切换无关；**确认抽屉标注发布通道**——管理域「确认后立即 reload 生效」、边缘域「发布为配置包，待边缘 Agent 下次心跳拉取生效」；变更检测状态卡（决策 20）同步按选中网域展示 | **P0** |
 | **变更详情（抽屉式，决策 20/22）** | 列表点击变更行 → **右侧抽屉**打开变更详情：标题=变更单号 + 状态/风险/校验标签 + 人话摘要；抽屉内以**变更清单（详情核心，含影响的配置文件列）**为首，依次为基本信息（已确认变更展示**已发布配置版本** `cv-xxx`）、技术信息（折叠）、配置产物结构、配置文件预览 / Diff（受影响文件高亮）、下发前校验说明；**确认 / 废弃按钮置于抽屉操作区**；已确认 / 已废弃变更提供**「查看发布记录」入口**（跳转下发记录页定位回滚）。**变更摘要 = 列表总览（一句话），变更清单 = 抽屉详情（逐条明细），职责分明** | **P0** |
 | **配置预览（受影响文件高亮）** | 多文件只读预览：`prometheus.yml`、`targets/*.json`、`rules.yml`、`blackbox.yml`、`metadata.json`（YAML / JSON 高亮）；**决策 19：对比当前生效版本自动判定受影响的配置文件，受影响 Tab 加「变更」标记、默认聚焦第一个受影响文件、并提示「本次变更影响 N/M 个配置文件」**，用户优先看到实际变更内容，未受影响文件正常展示（面向需要深入排查的运维） | **P0** |
 | **Diff 对比** | 与当前生效版本**按文件**并排 diff（`prometheus.yml` / targets 文件 / `rules.yml` / `blackbox.yml` 逐个文件对比），标红新增/删除/修改项 | **P0** |
@@ -396,7 +398,7 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 >
 > **职责边界**：Edge Sync Agent 只管理**本节点**组件生命周期，**不做**下游节点 exporter 安装（目标主机 node-exporter 等由 Module_01 的 Exporter 安装流程负责，本轮因安全边界暂不纳入 Agent 管理范围）；**不做**指标抓取（采集器职责）；**不做**告警求值（MVP~v0.3 中心统一求值，v0.4+ 边缘自治由 vmalert 负责）。
 >
-> **登记语义**：网域注册时登记的 `agent_type` 是**采集器类型**（`vmagent` / `prometheus-agent`），Edge Sync Agent 为**必装组件、无需登记**；`EdgeAgent` 实例即代表「Edge Sync Agent + 采集器」组合（见 [4.2](#42-边缘-agentedgeagent)）。
+> **登记语义**：网域在 M09 纳管时登记的 `agent_type` 是**采集器类型**（`vmagent` / `prometheus-agent`），Edge Sync Agent 为**必装组件、无需登记**；`EdgeAgent` 实例即代表「Edge Sync Agent + 采集器」组合（见 [4.2](#42-边缘-agentedgeagent)）。
 
 ### 3.10 WAL 与 Remote Write 参数（按网域配置）
 
@@ -427,7 +429,7 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 
 #### 多网域模式行为
 
-- 用户需先在「网域管理」注册网域，生成 Edge Agent 认证 Token。
+- 用户需先在 [Module_06](Module_06_Multi_Tenant.md) 创建网域，再在本模块完成监控纳管，生成 Edge Agent 认证 Token。
 - 在隔离网域部署 Edge Sync Agent 后，心跳自动注册到对应网域。
 - 在 [Module_07](Module_07_Monitoring_Object_Management.md) 配置资源时，资源必须选择归属网域（`default` 作为中心管理域继续存在）。
 - 在 [Module_01](Module_01_Metric_Collection_Center.md) 配置 ScrapeJob 时，按网域筛选目标实例。
@@ -457,7 +459,12 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 
 ### 4.1 网域（NetworkDomain）
 
-本模块是 `NetworkDomain` 数据模型与生命周期的唯一 Owner。
+> **{v1.29} 职责边界**：`NetworkDomain` 数据模型由 **Module_06（行政 Owner）** 与 **Module_09（监控纳管 Owner）** 共同维护：
+>
+> - **M06 维护行政字段**：`id`、`name`、`description`、`domain_type`、`tenant_id`、配额与启用状态；网域创建/编辑/禁用/租户分配在 M06 完成。
+> - **M09 维护监控纳管字段**：`agent_type`、`remote_write_url`、`token`、运行态字段（`status` / `last_heartbeat` / `agent_version`）及关联的 `EdgeAgent` 实例；网域监控纳管、配置生成、下发、Agent 生命周期在 M09 完成。
+>
+> M09 不创建新的 `NetworkDomain` 行政记录，只把 M06 已存在的网域标记为「已纳管监控」。
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|----------|------|
@@ -469,7 +476,7 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 | cmdb_cloud_area_id | string | ❌ | 仅技术信息 | {v0.4+} 对应 BlueKing CMDB 云区域 ID（`bk_cloud_id`） |
 | cmdb_cloud_area_path | string | ❌ | 仅技术信息 | {v0.4+} 对应 BlueKing CMDB 云区域路径 |
 | token | string | ✅ | 认证 Token（脱敏） | Edge Sync Agent 拉取配置时的认证 Token |
-| agent_type | enum | ✅ | Agent 类型 | 边缘采集器类型：**MVP 阶段固定 `vmagent`**（注册时无需选择）；`prometheus-agent` 保留枚举、**v0.2+ 开放**为可选 |
+| agent_type | enum | ✅ | Agent 类型 | 边缘采集器类型：**MVP 阶段固定 `vmagent`**（纳管时无需选择）；`prometheus-agent` 保留枚举、**v0.2+ 开放**为可选 |
 | remote_write_url | string | ✅ | 回传地址 | 该网域 Agent Remote Write 目标地址 |
 | status | enum | ✅ | 状态 | online / offline / unknown（运行态字段，由心跳上报更新） |
 | last_heartbeat | datetime | ❌ | 最后心跳 | 边缘 Agent 最后心跳时间（运行态字段） |
@@ -500,10 +507,12 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 | remote_write_url | string | 回传地址 | Remote Write 目标地址 |
 | last_error | string | 最近错误 | 最近错误信息 |
 | components | json | 组件清单 | {v1.15} 本节点组件清单：组件类型 / 名称 / 运行状态 / 版本 / 配置版本 / 最近错误（由心跳附带上报，PRD 4.3）；Agent 状态页按组件类型分类展示（决策 15） |
+| collector_status | enum | 采集器状态 | 顶层采集器运行状态（与 `components` 中 `type=collector` 的 status 一致；online / offline / unknown / not_deployed） |
+| collector_version | string | 采集器版本 | 顶层采集器版本（与 `components` 中 `type=collector` 的 version 一致；未部署为空） |
 | created_at | datetime | 仅技术信息 | 创建时间 |
 | updated_at | datetime | 仅技术信息 | 更新时间 |
 
-> **模型语义（v1.11）**：`EdgeAgent` 实例代表「**边缘节点上的 Agent 部署 = Edge Sync Agent + 采集器组合**」，即一个边缘监控代理节点上的完整 Agent 部署单元；`agent_type` 字段为**采集器类型**（`vmagent` / `prometheus-agent`），由网域注册时在 `NetworkDomain.agent_type` 登记（见 [4.1](#41-网域networkdomain)），Edge Sync Agent 为必装组件、无需单独登记。
+> **模型语义（v1.11/{v1.29} 调整）**：`EdgeAgent` 实例代表「**边缘节点上的 Agent 部署 = Edge Sync Agent + 采集器组合**」，即一个边缘监控代理节点上的完整 Agent 部署单元；`agent_type` 字段为**采集器类型**（`vmagent` / `prometheus-agent`），由网域在 M09 纳管时在 `NetworkDomain.agent_type` 登记（见 [4.1](#41-网域networkdomain)），Edge Sync Agent 为必装组件、无需单独登记。
 > **default 管理域不产生实例（决策 16）**：`default` 由中心 Prometheus 直接采集、不部署 Edge Agent，因此不存在 `network_domain_id='default'` 的 `EdgeAgent` 实例；「Agent 状态」页仅展示有实例的 `edge` 网域。
 > 心跳（[4.3](#43-心跳上报edgeheartbeat)）由 **Edge Sync Agent** 上报，携带采集器类型（`agent_type`）、版本（`version`）、`config_version`、WAL 积压（`wal_backlog_bytes`）等，用于更新 `EdgeAgent` 的在线状态、最后心跳、配置同步状态与 WAL 积压字段。
 > **组件清单（v1.15）**：`components` 描述该边缘节点上全部组件实例（Edge Sync Agent 必装 + 采集器必装 + blackbox exporter 可选 + v0.4+ vmalert / alertmanager），由心跳附带上报（见 4.3），是「Agent 状态」页组件分类展示（决策 15）的数据来源；采集器组件状态 / 版本与顶层 `collector_status` / `collector_version` 保持一致。
@@ -580,7 +589,7 @@ MetricCenter 通过**租户级开关** `Tenant.multi_site_enabled` 区分两种�
 | source_change_no | string | ✅ | 来源变更单号 | {v1.22} **来源变更单号**（决策 22）：经 `config_version_id` → `ConfigVersion.change_no` 透传，全链路可追溯「哪个变更单发的、回滚它」 |
 | target_type | enum | ✅ | 目标类型 | central_prometheus / edge_agent |
 | target_address | string | ❌ | 目标地址 | 目标地址，如 Prometheus reload URL 或 Edge Agent 标识 |
-| status | enum | ✅ | 状态 | pending / success / failed / rolled_back |
+| status | enum | ✅ | 状态 | pending / running / success / failed / rolled_back |
 | validation_status | enum | ✅ | 下发前校验 | {v1.23} 下发前校验结果：passed / failed / pending（与草稿 `validation_status` 衔接；失败时 `error_message` 记录校验失败原因） |
 | includes_blackbox | boolean | ✅ | 含 blackbox.yml | {v1.23} 本次下发配置包是否包含 blackbox.yml（存在 `job_type=blackbox` 的 ScrapeJob 时必含） |
 | error_message | text | ❌ | 错误信息 | 失败原因 |
@@ -651,7 +660,7 @@ unknown ──► in_sync（中心版本 = 边缘生效版本）
 **④ 网域运行态（NetworkDomain.status）状态机**
 
 ```text
-unknown（未部署/注册后）──► online（Agent 心跳上线）──► offline（失联超阈值，触发 EdgeSiteOffline 告警）
+unknown（未部署/纳管后）──► online（Agent 心跳上线）──► offline（失联超阈值，触发 EdgeSiteOffline 告警）
 ```
 
 ---
@@ -870,6 +879,53 @@ edge-config-<network_domain_id>.zip
 2. **联合 checksum 双用途**：同一份联合 checksum（sha256(prometheus.yml + rules_yml + blackbox_yml + targets 内容)）在两端各司其职——中心侧用于**草稿去重裁决**（[3.3.3](#333-变更检测与草稿去重说明)：内容与生效版本一致则不进入确认）；边缘侧用于**拉包完整性校验**（[6.3](#63-edge-sync-agent-本地行为) 第 5 条：拉到的字节与中心生成的产物一致）。同一算法、两个校验对象：中心校验「生成内容是否变化」，边缘校验「传输字节是否完整」。
 3. **状态闭环**：`config_sync_status`（in_sync / out_of_sync / manual_override）是 Agent 的**应用回执**（随心跳上报，见 [3.8](#38-agent-状态列表与边缘诊断看板) / [4.2](#42-边缘-agentedgeagent)），与中心 `validation_status` 构成**闭环两端**——中心校验通过（validation_status=pass）→ 允许确认下发 → Agent 拉包、传输校验、原子替换、reload → 回执 `config_sync_status=in_sync`，闭环完成；任一端异常均可定位：`validation_status` 失败（中心产物问题，阻止下发）、`config_sync_status=out_of_sync` / `manual_override`（边缘应用或本地手工兜底问题，提示重新确认下发）。
 
+### 6.5 管理面 REST API 详细契约 {v1.30}
+
+> 本节补充前端「网域管理 / Agent 状态 / 配置变更确认 / 下发记录」所需的管理面 REST 契约。所有接口统一返回 `platform/api/response` 格式：
+>
+> ```json
+> { "status": "success", "data": {} }
+> { "status": "error", "errorType": "bad_request", "error": "human readable message" }
+> ```
+>
+> 通用 `errorType`：`bad_request`、`unauthorized`、`forbidden`、`not_found`、`internal`。
+
+#### 6.5.1 网域管理（监控纳管）
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v2/platform/network-domains` | Query: `tenant_id?`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 4.1（含 `is_monitored` / `token_masked`） | `forbidden`：越权访问其他租户 |
+| POST | `/api/v2/platform/network-domains/{id}/monitor` | `{ agent_type: 'vmagent', remote_write_url?: string, description?: string }` | 纳管后的网域（生成/返回 Token 一次） | `bad_request`：网域未在 M06 创建或已被纳管；`not_found` |
+| PUT | `/api/v2/platform/network-domains/{id}/monitor` | `{ agent_type?, remote_write_url?, description?, is_monitored? }` | 更新监控参数 | `not_found`；`bad_request`：网域未纳管 |
+| POST | `/api/v2/platform/network-domains/{id}/reset-token` | — | `{ token: '<一次性明文>', token_masked: '****abcd' }`（明文仅本次返回） | `not_found`；`bad_request`：非已纳管网域 |
+
+> **MVP 阶段**：`agent_type` 仅允许 `vmagent`；`prometheus-agent` 为 v0.2+ 预留枚举。
+
+#### 6.5.2 配置变更确认（ConfigDraft）
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v2/platform/config-drafts` | Query: `network_domain_id`、`status`（pending/confirmed/discarded/all，默认 pending）、`page`、`page_size` | `{ items: [...], total: N }`，item 含 `change_no`、`summary`、`risk`、`affected_files`、`created_at` | `bad_request`：未选择已纳管网域 |
+| GET | `/api/v2/platform/config-drafts/{change_no}` | — | 变更单详情，含 `prometheus_yml`、`targets_files`、`rules_yml`、`blackbox_yml`、`change_items`、`metadata` | `not_found` |
+| POST | `/api/v2/platform/config-drafts/{change_no}/confirm` | `{ confirmed_by: string }`（MVP 预置用户） | 生成的 `ConfigVersion`（含 `id`、`change_no`、`config_version`） | `bad_request`：`validation_status=failed` / 已非 pending；`not_found` |
+| POST | `/api/v2/platform/config-drafts/{change_no}/discard` | `{ discarded_by?: string }` | 废弃后的变更单 | `bad_request`：已非 pending；`not_found` |
+
+#### 6.5.3 配置版本与下发记录（ConfigVersion / ConfigDeployment）
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v2/platform/config-versions` | Query: `network_domain_id`、`change_no?`、`page`、`page_size` | `{ items: [...], total: N }` | — |
+| GET | `/api/v2/platform/config-versions/{id}` | — | 配置版本详情（含完整产物，用于 diff） | `not_found` |
+| GET | `/api/v2/platform/deployments` | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 4.6 | — |
+| POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | `{ triggered_by: string }` | 新的 `ConfigDeployment`（`status=success`，回滚目标版本） | `not_found`；`bad_request`：目标版本不存在或不是同一网域 |
+
+#### 6.5.4 Agent 状态查询
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v2/platform/edge-agents` | Query: `network_domain_id?`、`component_type?`、`status?`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 4.2（含顶层 `collector_status` / `collector_version` 与 `components` 明细） | — |
+| GET | `/api/v2/platform/edge-agents/{id}` | — | Agent 详情 | `not_found` |
+
 ---
 
 ## 7. 模块边界
@@ -943,7 +999,7 @@ edge-config-<network_domain_id>.zip
 ### 9.1 用户验收（用户可感知与操作）
 
 - [ ] {P0} MVP 阶段系统存在默认网域 `default`，资源可无感知归属默认网域
-- [ ] {P0} 可以创建/编辑/删除网域，删除前校验无资源绑定
+- [ ] {P0} 网域行政创建/编辑/删除由 Module_06 负责，M09 不提供删除入口；M09 可从 M06 已存在的网域中选择并进行**监控纳管**（填写监控参数、生成/重置 Edge Agent Token、Remote Write URL）
 - [ ] {P0} 可以为网域生成/重置 Edge Agent Token
 - [ ] {P0} Token 在 UI 中完全脱敏展示（不显示任何明文片段，含首尾 6 位），完整值仅可通过复制按钮获取
 - [ ] {P0} 草稿列表默认仅展示待确认（pending）草稿，历史草稿（confirmed / discarded）可切换查看；「人工确认下发」仅对 pending 草稿生效
@@ -952,14 +1008,14 @@ edge-config-<network_domain_id>.zip
 - [ ] {P0} v0.2 阶段，Web 门户可查看各网域 Edge Agent 在线状态、配置版本、WAL 积压（MVP 以 Agent 状态列表页形式实现）
 - [ ] {P0} 下发记录 `ConfigDeployment` 可查询成功/失败历史，支持查看失败原因
 - [ ] {P1} 平台明确允许本地手工兜底，并在 UI 中展示 `manual_override` 状态
-- [ ] {P0} 网域注册页提供安装指引，明确「边缘节点 = Edge Sync Agent（必装独立组件）+ 采集器（vmagent / prometheus-agent）+ blackbox exporter（可选）」组件构成与部署步骤（离线交付、校验和、`NETWORK_DOMAIN_ID` / `TOKEN` 环境变量、systemd），并消除「Agent 是中心内置」误解；注册时登记的 `agent_type` 为采集器类型，Edge Sync Agent 无需登记
+- [ ] {P0} 网域纳管页从 M06 已存在的网域中选择，提供安装指引，明确「边缘节点 = Edge Sync Agent（必装独立组件）+ 采集器（vmagent / prometheus-agent）+ blackbox exporter（可选）」组件构成与部署步骤（离线交付、校验和、`NETWORK_DOMAIN_ID` / `TOKEN` 环境变量、systemd），并消除「Agent 是中心内置」误解；纳管时登记的 `agent_type` 为采集器类型，Edge Sync Agent 无需登记
 - [ ] {P0} 网域安装指引为 **3 步人工步骤**（① 下载并校验一体化离线包 ② 配置 `NETWORK_DOMAIN_ID` / `TOKEN` 环境变量 ③ 启动 Edge Sync Agent），采集器与 blackbox exporter 由 Agent 启动后自动部署（并入第③步描述，不单列为人工步骤），无需手动分步安装
-- [ ] {P0} **MVP 阶段采集器类型固定 `vmagent`**（网域注册时无需选择），`prometheus-agent` 保留枚举、v0.2+ 开放为可选；Agent 状态列表页多网域模式支持按网域筛选（单网域模式固定 `default`），采用**「网域为主 + 组件分类」**结构（一级按网域聚合、展开按组件类型分类，决策 15），展示对象为边缘节点 Agent 部署实例（Edge Sync Agent + 采集器组合，PRD 4.2）
+- [ ] {P0} **MVP 阶段采集器类型固定 `vmagent`**（网域纳管时无需选择），`prometheus-agent` 保留枚举、v0.2+ 开放为可选；Agent 状态列表页多网域模式支持按网域筛选（单网域模式固定 `default`），采用**「网域为主 + 组件分类」**结构（一级按网域聚合、展开按组件类型分类，决策 15），展示对象为边缘节点 Agent 部署实例（Edge Sync Agent + 采集器组合，PRD 4.2）
 - [ ] {P0} 离线二进制包为一体化包（Edge Sync Agent + 采集器 vmagent/prometheus-agent 二选一 + blackbox exporter 可选），安装后 Edge Sync Agent 自动部署并管理本节点采集器与 blackbox exporter 进程（启动守护、健康检查、配置 reload、进程异常自动重启），采集器健康/版本纳入 Agent 状态上报；安装指引为 3 步人工步骤，无需手动分步安装采集器
-- [ ] {P0} **网域注册为登记制闭环（决策 14）**：注册表单最小化（必填仅网域名称 + 租户，`id` 按租户前缀自动生成、Token 自动签发、Remote Write URL 由平台自动推导可手动覆盖）；「注册网域」为必要前置步骤，不可被「安装指引」替代（Token 需注册时签发，Agent 启动必须携带 NETWORK_DOMAIN_ID / TOKEN）；注册 → 安装指引 → Agent 心跳自动上线闭环成立，Agent IP / 主机名由心跳上报补全
+- [ ] {P0} **网域纳管为登记制闭环（决策 14 / {v1.29} 调整）**：网域行政记录由 M06 创建（必填网域名称 + 租户，`id` 按租户前缀自动生成）；M09 纳管表单最小化（填写监控参数、Token 自动签发、Remote Write URL 由平台自动推导可手动覆盖）；「网域纳管」为必要前置步骤，不可被「安装指引」替代（Token 需纳管时签发，Agent 启动必须携带 NETWORK_DOMAIN_ID / TOKEN）；M06 创建 → M09 纳管 → 安装指引 → Agent 心跳自动上线闭环成立，Agent IP / 主机名由心跳上报补全
 - [ ] {P0} **Agent 状态页「网域为主 + 组件分类」（决策 15）**：一级表格按网域聚合（在线 Agent / 采集器运行中 / 拨测器运行中 / 配置同步 / WAL 合计），展开行按组件类型分类展示组件实例（Edge Sync Agent / 指标采集器 vmagent|prometheus-agent / 拨测器 blackbox exporter / v0.4+ vmalert / alertmanager，含组件状态 / 版本 / 配置版本 / 最近错误）；组件清单由心跳附带上报（`EdgeHeartbeat.components` → `EdgeAgent.components`），采集器组件状态 / 版本与顶层 `collector_status` / `collector_version` 一致；拨测器仅当网域存在 `job_type=blackbox` 的 ScrapeJob 时展示（否则展示「未部署」）
-- [ ] {P0} **default 管理域不部署 Edge Agent / 字段对齐 / 安装指引入口 / 组件类型筛选（决策 16）**：default 管理域由中心直接采集、无 `EdgeAgent` 实例（Agent 状态页仅展示有 Agent 的 `edge` 网域，单网域模式本页为空态）；注册表单 Agent 类型下拉保留、MVP 仅 `vmagent` 可选（`prometheus-agent` 枚举保留、v0.2+ 开放）；注册 / 编辑表单仅维护配置字段（名称 / 描述 / 租户[仅注册] / Agent 类型 / Remote Write URL），与列表配置字段对齐，运行态字段（状态 / 最后心跳）由心跳上报并在列头 / 页脚标注来源；Agent 状态页支持**网域 + 组件类型双筛选**（组件类型联动展开明细与统计卡，一级表对应列仅统计匹配组件）
-- [ ] {P0} **安装指引为页面顶部常驻提示区（决策 17）**：网域管理页顶部常驻展示「新网域接入操作流程」（3 步人工步骤 + 边缘节点组件构成 + 凭据获取方式：`NETWORK_DOMAIN_ID`=对应网域 ID、`TOKEN` 经网域行内复制按钮获取），**行内不再提供安装指引按钮 / 弹窗**；注册成功后自动滚动并高亮该提示区引导完成 Agent 接入
+- [ ] {P0} **default 管理域不部署 Edge Agent / 字段对齐 / 安装指引入口 / 组件类型筛选（决策 16 / {v1.29} 调整）**：default 管理域由中心直接采集、无 `EdgeAgent` 实例（Agent 状态页仅展示有 Agent 的 `edge` 网域，单网域模式本页为空态）；纳管表单 Agent 类型下拉保留、MVP 仅 `vmagent` 可选（`prometheus-agent` 枚举保留、v0.2+ 开放）；纳管 / 编辑表单仅维护监控配置字段（描述 / Agent 类型 / Remote Write URL），行政字段（名称 / 租户 / 域类型 / 启用状态）由 [Module_06](Module_06_Multi_Tenant.md) 维护，运行态字段（状态 / 最后心跳）由心跳上报并在列头 / 页脚标注来源；Agent 状态页支持**网域 + 组件类型双筛选**（组件类型联动展开明细与统计卡，一级表对应列仅统计匹配组件）
+- [ ] {P0} **安装指引为页面顶部常驻提示区（决策 17）**：网域管理页顶部常驻展示「新网域接入操作流程」（3 步人工步骤 + 边缘节点组件构成 + 凭据获取方式：`NETWORK_DOMAIN_ID`=对应网域 ID、`TOKEN` 经网域行内复制按钮获取），**行内不再提供安装指引按钮 / 弹窗**；纳管成功后自动滚动并高亮该提示区引导完成 Agent 接入
 - [ ] {P0} **配置变更确认心智（决策 18）**：确认界面以**人话变更摘要**（`summary`）与**结构化变更清单**（`change_items`：变更类型 / 对象 / 说明 / 风险等级）为核心信息，回答「为什么变更」与「影响如何」；**技术字段（源数据版本 / 生成器版本 / 联合 checksum / 触发摘要）下沉折叠**仅供排障；变更检测状态人话化（检测到变更已生成待确认草稿 / 无新变更 / 内容无变化无需确认）；**高风险变更（删除目标 / 告警规则变更）醒目提示**；「确认发布到监控」语义 = 变更发布审批（go/no-go），与平台自动生成职责分离（平台保证生成内容 = 策略忠实翻译，运维决定是否上线）
 - [ ] {P0} **变更对象 = 源数据对象 + 影响的配置文件 + 全链路关联（决策 22）**：变更清单「变更对象」为统一源数据对象枚举（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板，与 Module_01 / 07 功能对象对齐），每行携带**「影响的配置文件」**（configgen 产物差异派生：新增实例 → `targets/*.json`、改抓取频率 → `prometheus.yml`、规则变化 → `rules.yml`）；确认粒度为**变更单级**（一次确认 / 废弃整张变更单，不逐行确认、不拆分发布）；`ConfigVersion` 继承来源变更单号 `change_no`、`ConfigDeployment` 记录 `source_change_no`（均系统自动生成）——变更确认页展示「已发布配置版本」并提供「查看发布记录」入口，下发记录页展示「来源变更单号」列，业务出问题时从变更单直达回滚目标（回滚中心仍以下发记录页为主）
 - [ ] {P0} **受影响配置文件高亮（决策 19）**：配置预览对比当前生效版本自动判定受影响的配置文件（prometheus.yml / targets / rules.yml / blackbox.yml），受影响 Tab 加「变更」标记、默认聚焦第一个受影响文件、提示「本次变更影响 N/M 个配置文件」；用户手动切换 Tab 后不再强制跳转
@@ -1049,6 +1105,6 @@ edge-config-<network_domain_id>.zip
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
-| v1.28 | 2026-08-14 | 修改 | 审批分层与语义澄清（第十六轮需求讨论）：3.4 补「技术确认 vs 审批上下文（ITIL 边界声明）」——配置预览/Diff（YAML）为平台内技术确认的运维排查工具、不构成审批上下文，审批信息（人话摘要/变更清单/风险）为主区，未来 ITSM 审批上下文仅含人话+影响+风险、技术产物不出平台；4.5 补版本一致性语义澄清（网域级版本 + 网域内一致性[版本比对+checksum]，非全局同一版本，跨域同批变更 change_no 透传）；6.3 补断网期间草稿/版本显式说明（中心草稿持久化 + 边缘本地快照自治 + 恢复后拉最新已审批版本） | MVP / v0.2 | 设计中 |
-| v1.27 | 2026-08-14 | 修改 | 业务指标标签规范消费标注（与 Module_07 v2.8 5.15 / Module_01 v3.4 跨模块对齐）：3.3 配置生成补充「业务指标标签规范消费」——机制 A（MVP）targets labels 由 LabelTemplate 静态展开（app/biz 注入，即 static_configs[].labels）；机制 B（兜底）metric_relabel_configs 归一化（relabel 不能引入资源侧数据）；关联键 app/biz 不用 instance；v0.2+ 服务发现 __meta_* → app/service 由 relabel 映射 | MVP / v0.2 | 设计中 |
-| v1.26 | 2026-08-13 | 修改 | 下发机制语义澄清（原型对齐 + 需求讨论）：3.4 新增「按网域组织确认视图」（多网域切换器 + 单域变更单列表 + 变更单级确认不变 + 确认抽屉标注发布通道，补写原型已有交互）；3.5 新增「回滚异步生效提示」（管理域立即 reload / 边缘域待 Agent 下次心跳拉取）；术语映射新增「下发（动词）语义分级」四语义；9.1 新增 2 条验收项；原型同步 v1.20 | MVP / v0.2 | 设计中 |
+| v1.30 | 2026-08-15 | 修改 | 内容缺口补齐（ready 前最后一次文档修正）：①4.2 补 `collector_status` / `collector_version` 字段；②4.6 `ConfigDeployment.status` 补 `running` 枚举与 4.8 状态机一致；③9.1 修正「创建/编辑/删除网域」残留验收项为 M06/M09 职责拆分口径；④6.4 后新增 6.5 管理面 REST API 详细契约（网域纳管 / 变更确认 / 版本下发 / Agent 状态）；⑤同步原型/总表版本至 v1.23 | MVP / v0.2 | 设计中 |
+| v1.29.1 | 2026-08-15 | 修改（原型对齐） | 原型落地 v1.29 纳管模型：①module-09 原型移除「新增网域」（M09 不再创建 `NetworkDomain` 行政记录），页面主按钮改为「纳管网域」；②纳管弹窗从 M06 行政已创建（created）的网域中选择，填写监控参数（Agent 类型 MVP 固定 vmagent、Remote Write URL 自动推导），确认后自动签发 Token 并滚动高亮安装指引；③行内「纳管」按钮改为打开纳管弹窗（原为无参数确认框）；④编辑弹窗改为仅维护监控参数（描述/纳管状态/Agent 类型/Remote Write），名称/租户等行政字段只读展示；⑤全站「注册」措辞统一为「纳管」。网域行政创建入口见 [Module_06 v1.3.1](Module_06_Multi_Tenant.md)（原型新增「网域管理」页面） | 原型 `docs/prototypes/module-09/` | MVP / v0.2 | 设计中 |
+| v1.29 | 2026-08-15 | 修改 | 网域职责边界细化与纳管模型（第二十轮需求对齐）：①明确 M06 是 `NetworkDomain` 行政 Owner（创建/分配/配额），M09 是网域监控纳管 Owner；②「网域注册」更名为「网域纳管」，从 M06 已存在网域中选择并填写监控参数；③网域列表增加「纳管状态」列；④配置变更确认视图切换器仅展示已纳管网域；⑤1/2/3.1/4.1/4.2/9 验收同步 | MVP / v0.2 | 设计中 |

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+
 import {
   Card,
   Table,
@@ -44,6 +45,7 @@ import {
   mockResources,
   mockLabelTemplates,
   mockNetworkDomains,
+  MONITORED_NETWORK_DOMAINS,
   mockExporterInstallations,
   mockCITypeExporterMappings,
   currentTenant,
@@ -105,6 +107,8 @@ export default function ScrapeJobsPage() {
   const { modal, message } = App.useApp()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  // {v3.9} 从 Header 当前网域上下文读取，列表默认收敛到当前网域
+  const currentDomainId = searchParams.get('domain') || MONITORED_NETWORK_DOMAINS[0]?.id || 'default'
   const [jobs, setJobs] = useState<ScrapeJob[]>(() => [...mockScrapeJobs])
   const [installations, setInstallations] = useState<ExporterInstallationConfirmation[]>(() => [
     ...mockExporterInstallations,
@@ -209,9 +213,10 @@ export default function ScrapeJobsPage() {
 
   // 租户级多网域开关（Header 切换）：单网域模式仅允许绑定 default 管理域
   const isMultiSite = currentTenant.multi_site_enabled
+  // {v3.9} ScrapeJob 必须绑定已纳管网域；未纳管网域不可选
   const availableDomains = isMultiSite
-    ? mockNetworkDomains
-    : mockNetworkDomains.filter((d) => d.id === 'default')
+    ? MONITORED_NETWORK_DOMAINS
+    : MONITORED_NETWORK_DOMAINS.filter((d) => d.id === 'default')
 
   // 监听 Header 单网域/多网域切换：切回单网域时强制网域为 default 并清空跨域实例（实例必须与 Job 同域）
   useEffect(() => {
@@ -968,16 +973,27 @@ export default function ScrapeJobsPage() {
             </Button>
           </Col>
           <Col>
-            <Text type="secondary">
-              共 {jobs.length} 个任务（标准 {jobs.filter((j) => j.job_type === 'standard').length} / 拨测{' '}
-              {jobs.filter((j) => j.job_type === 'blackbox').length}）
-            </Text>
+            <Space size={12}>
+              <Tag color="blue">
+                当前网域：{mockNetworkDomains.find((d) => d.id === currentDomainId)?.name ?? currentDomainId}
+              </Tag>
+              <Text type="secondary">
+                共 {jobs.filter((j) => j.network_domain_id === currentDomainId).length} 个任务（标准{' '}
+                {jobs.filter((j) => j.network_domain_id === currentDomainId && j.job_type === 'standard').length} / 拨测{' '}
+                {jobs.filter((j) => j.network_domain_id === currentDomainId && j.job_type === 'blackbox').length}）
+              </Text>
+            </Space>
           </Col>
         </Row>
 
-        <Table rowKey="job_id" dataSource={jobs} columns={columns} pagination={{ pageSize: 5 }} />
-              </Card>
-      )}
+        <Table
+          rowKey="job_id"
+          dataSource={jobs.filter((j) => j.network_domain_id === currentDomainId)}
+          columns={columns}
+          pagination={{ pageSize: 5 }}
+        />
+      </Card>
+    )}
 
 
       {/* {v3.8} 默认采集配置编辑抽屉（预设层维护：采集器 / 参数 / 安装指南；入口合一后承载于此） */}
@@ -1203,7 +1219,7 @@ export default function ScrapeJobsPage() {
                 rules={[{ required: true, message: '请选择网域' }]}
                 extra={
                   isMultiSite
-                    ? '所有 ScrapeJob 必须绑定且仅绑定单一网域；网域由 Module_09 管理'
+                    ? '所有 ScrapeJob 必须绑定且仅绑定单一已纳管网域；未纳管网域需先到配置中心完成纳管'
                     : '单网域模式：仅支持 default 管理域（Header 可切换多网域模式）'
                 }
               >

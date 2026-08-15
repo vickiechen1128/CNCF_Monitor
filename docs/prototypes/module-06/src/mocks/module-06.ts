@@ -1,12 +1,38 @@
 export interface Tenant {
   id: string
   name: string
+  /** {v1.3} 租户被授权可使用的网域 ID 列表（由 Module_06 分配），不等于这些网域均已接入监控 */
   networkDomainIds: string[]
   networkDomainNames: string[]
+  /** {v1.3} 在这些网域中已完成监控纳管的子集（由 Module_09 维护，演示用） */
+  monitoredNetworkDomainIds?: string[]
   cmdbBusinessId: string
   cmdbBusinessPath: string
   isPlatformAdmin: boolean
   status: 'active' | 'inactive'
+}
+
+/**
+ * {v1.3} 网域行政记录（M06 为 NetworkDomain 的行政 Owner）：
+ * 本模块负责网域的创建 / 编辑 / 禁用与租户分配，表单只维护行政信息（名称、租户、状态、描述），
+ * 不维护监控参数（agent_type / remote_write_url 等，由 Module_09 纳管时填写）。
+ */
+export interface NetworkDomain {
+  id: string
+  name: string
+  description: string
+  /** 网域类型：default 管理域由系统预置，其余为边缘网域 */
+  domain_type: 'management' | 'edge'
+  /** 网域归属租户（1 网域 : 1 租户，创建后不可变更） */
+  tenant_id: string
+  status: 'active' | 'disabled'
+  /**
+   * 监控纳管状态：只读展示字段，由 Module_09 的纳管动作维护；
+   * created = 行政已创建未纳管；monitored = 已由 M09 完成监控纳管
+   */
+  registration_status: 'created' | 'monitored'
+  created_at: string
+  updated_at: string
 }
 
 export type UserRole = 'platform_admin' | 'tenant_admin' | 'operator' | 'viewer'
@@ -61,8 +87,9 @@ export const mockTenants: Tenant[] = [
   {
     id: 't-platform',
     name: '平台运营部',
-    networkDomainIds: ['nd-default', 'nd-edge'],
-    networkDomainNames: ['default', 'edge'],
+    networkDomainIds: ['nd-default', 'nd-edge', 'nd-manufacturing'],
+    networkDomainNames: ['default', 'edge', 'manufacturing'],
+    monitoredNetworkDomainIds: ['nd-default', 'nd-edge'],
     cmdbBusinessId: 'bk-biz-1',
     cmdbBusinessPath: '平台 / 基础设施',
     isPlatformAdmin: true,
@@ -73,6 +100,7 @@ export const mockTenants: Tenant[] = [
     name: '电商业务',
     networkDomainIds: ['nd-default'],
     networkDomainNames: ['default'],
+    monitoredNetworkDomainIds: ['nd-default'],
     cmdbBusinessId: 'bk-biz-2',
     cmdbBusinessPath: '业务 / 电商',
     isPlatformAdmin: false,
@@ -83,10 +111,63 @@ export const mockTenants: Tenant[] = [
     name: '金融业务',
     networkDomainIds: ['nd-finance'],
     networkDomainNames: ['finance'],
+    monitoredNetworkDomainIds: [],
     cmdbBusinessId: 'bk-biz-3',
     cmdbBusinessPath: '业务 / 金融',
     isPlatformAdmin: false,
     status: 'inactive',
+  },
+]
+
+/**
+ * {v1.3} 网域行政记录（M06 行政 Owner / M09 监控纳管 Owner，PRD v1.3 职责边界）：
+ * - nd-default：系统预置中心管理域，归属 platform_admin 预置租户（演示中为 t-platform），默认已纳管
+ * - registration_status 为只读演示字段，模拟「已由 Module_09 纳管」的回显，M06 页面不可编辑
+ */
+export const mockNetworkDomains: NetworkDomain[] = [
+  {
+    id: 'nd-default',
+    name: 'default',
+    description: '系统预置中心管理域，承载单机与中心采集模式',
+    domain_type: 'management',
+    tenant_id: 't-platform',
+    status: 'active',
+    registration_status: 'monitored',
+    created_at: '2026-07-01 00:00:00',
+    updated_at: '2026-08-10 09:00:00',
+  },
+  {
+    id: 'nd-edge',
+    name: 'edge',
+    description: '边缘接入网域，通过 Edge Agent 单向 HTTPS 出站接入',
+    domain_type: 'edge',
+    tenant_id: 't-platform',
+    status: 'active',
+    registration_status: 'monitored',
+    created_at: '2026-07-10 00:00:00',
+    updated_at: '2026-08-10 09:00:00',
+  },
+  {
+    id: 'nd-finance',
+    name: 'finance',
+    description: '金融专网网域（行政已禁用，未纳管监控）',
+    domain_type: 'edge',
+    tenant_id: 't-finance',
+    status: 'disabled',
+    registration_status: 'created',
+    created_at: '2026-07-12 00:00:00',
+    updated_at: '2026-08-01 10:00:00',
+  },
+  {
+    id: 'nd-manufacturing',
+    name: 'manufacturing',
+    description: '制造边缘节点网域（行政已创建，待 Module_09 纳管）',
+    domain_type: 'edge',
+    tenant_id: 't-platform',
+    status: 'active',
+    registration_status: 'created',
+    created_at: '2026-07-20 00:00:00',
+    updated_at: '2026-08-10 09:00:00',
   },
 ]
 

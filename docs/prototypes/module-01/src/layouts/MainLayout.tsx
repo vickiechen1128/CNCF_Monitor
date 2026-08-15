@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Divider, Alert, Switch, App, Collapse, Select } from 'antd'
+import { Layout, Menu, Typography, Space, Tag, Tooltip, Divider, Alert, Switch, App, Collapse, Select } from 'antd'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -12,7 +12,7 @@ import {
   DatabaseOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
-import { currentTenant, USER_ROLE_MAP, type UserRole } from '../mocks/module-01'
+import { currentTenant, USER_ROLE_MAP, type UserRole, MONITORED_NETWORK_DOMAINS } from '../mocks/module-01'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -80,6 +80,17 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
   // {v3.6} 当前角色（动线分离演示）：URL ?role=biz → 业务负责人，默认运维工程师
   const role: UserRole = searchParams.get('role') === 'biz' ? 'biz_owner' : 'ops'
+  // {v3.9} 当前网域上下文：仅展示已纳管网域；写入 URL ?domain=xxx 供各页面读取
+  const [currentDomainId, setCurrentDomainId] = useState<string>(() => {
+    const fromUrl = searchParams.get('domain')
+    return MONITORED_NETWORK_DOMAINS.some((d) => d.id === fromUrl) ? fromUrl! : MONITORED_NETWORK_DOMAINS[0]?.id ?? 'default'
+  })
+  const switchDomain = (domainId: string) => {
+    setCurrentDomainId(domainId)
+    const params = new URLSearchParams(searchParams)
+    params.set('domain', domainId)
+    setSearchParams(params)
+  }
   const menuItems = buildMenu(role)
 
   const switchRole = (next: UserRole) => {
@@ -98,6 +109,10 @@ export function MainLayout({ children }: MainLayoutProps) {
   const toggleMultiSite = (checked: boolean) => {
     currentTenant.multi_site_enabled = checked
     setMultiSite(checked)
+    // {v3.9} 切回单网域时，当前网域上下文强制收敛到 default
+    if (!checked && currentDomainId !== 'default') {
+      switchDomain('default')
+    }
     window.dispatchEvent(
       new CustomEvent('tenant-mode-change', { detail: { multiSiteEnabled: checked } })
     )
@@ -130,29 +145,41 @@ export function MainLayout({ children }: MainLayoutProps) {
             原型验证版
           </Tag>
         </Space>
-        <Space size="middle">
-          <Switch
-            checked={multiSite}
-            checkedChildren="多网域"
-            unCheckedChildren="单网域"
-            onChange={toggleMultiSite}
-          />
-          <Badge
-            status={multiSite ? 'success' : 'processing'}
-            text={
-              <Text style={{ color: 'rgba(255,255,255,0.85)' }}>
-                {multiSite ? '多网域模式' : '单网域模式 · default 管理域'}
-              </Text>
-            }
-          />
-          {/* {v3.6} 动线分离：当前角色切换（原型演示；真实权限 v0.2+ 由 Module_06 提供） */}
-          <Select
-            value={role}
-            onChange={(v: UserRole) => switchRole(v)}
-            style={{ width: 140 }}
-            options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
-          />
-          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>{USER_ROLE_MAP[role]}</Text>
+        <Space size="large" align="center">
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>网域模式</Text>
+            <Tooltip title={multiSite ? '多网域模式：Job 可绑定 default 或边缘网域' : '单网域模式：Job 仅绑定 default 管理域'}>
+              <Switch
+                checked={multiSite}
+                checkedChildren="多网域"
+                unCheckedChildren="单网域"
+                onChange={toggleMultiSite}
+              />
+            </Tooltip>
+          </Space>
+          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前网域</Text>
+            <Tooltip title={multiSite ? '仅展示已纳管监控的网域；未纳管网域需先到配置中心完成纳管' : '单网域模式：仅 default 管理域'}>
+              <Select
+                value={currentDomainId}
+                disabled={!multiSite}
+                onChange={switchDomain}
+                style={{ width: 180 }}
+                options={MONITORED_NETWORK_DOMAINS.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` }))}
+              />
+            </Tooltip>
+          </Space>
+          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
+            <Select
+              value={role}
+              onChange={(v: UserRole) => switchRole(v)}
+              style={{ width: 140 }}
+              options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
+            />
+          </Space>
         </Space>
       </Header>
       <Layout>

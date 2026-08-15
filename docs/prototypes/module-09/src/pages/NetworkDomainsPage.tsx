@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Card, Table, Tag, Button, Space, Modal, Form, Input, Select, message, Tooltip, Typography, Steps, Alert, Dropdown } from 'antd'
-import { EditOutlined, ReloadOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, DownOutlined, QuestionCircleOutlined } from '@ant-design/icons'
+import { EditOutlined, ReloadOutlined, CopyOutlined, DeleteOutlined, DownOutlined, QuestionCircleOutlined, CloudUploadOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
   networkDomains,
@@ -9,6 +9,7 @@ import {
   deriveRemoteWriteUrl,
   type NetworkDomain,
   type NetworkDomainStatus,
+  type NetworkDomainRegistrationStatus,
   type AgentType,
   type DomainType,
 } from '../mocks/module-09'
@@ -31,6 +32,16 @@ const domainTypeLabel: Record<DomainType, string> = {
   edge: '边缘域',
 }
 
+const registrationStatusColor: Record<NetworkDomainRegistrationStatus, string> = {
+  created: 'default',
+  monitored: 'processing',
+}
+
+const registrationStatusLabel: Record<NetworkDomainRegistrationStatus, string> = {
+  created: '已创建未纳管',
+  monitored: '已纳管',
+}
+
 const agentTypeLabel: Record<AgentType, string> = {
   vmagent: 'VMAgent',
   'prometheus-agent': 'Prometheus Agent',
@@ -38,71 +49,90 @@ const agentTypeLabel: Record<AgentType, string> = {
 
 export function NetworkDomainsPage() {
   const [data, setData] = useState<NetworkDomain[]>(networkDomains)
-  const [isModalOpen, setIsModalOpen] = useState(false)
+  // 编辑弹窗：仅维护监控参数（网域名称/租户等行政字段由 Module_06 维护，只读展示）
+  const [isEditOpen, setIsEditOpen] = useState(false)
   const [editingDomain, setEditingDomain] = useState<NetworkDomain | null>(null)
-  // 决策 17：安装指引为页面顶部常驻提示区；注册成功后滚动并高亮该提示区（guideHighlight 控制高亮态）
+  // {v1.29} 纳管弹窗：从 Module_06 行政已创建（created）的网域中选择并填写监控参数
+  const [isOnboardOpen, setIsOnboardOpen] = useState(false)
+  const [onboardTarget, setOnboardTarget] = useState<NetworkDomain | null>(null)
+  // 决策 17：安装指引为页面顶部常驻提示区；纳管成功后滚动并高亮该提示区（guideHighlight 控制高亮态）
   const guideRef = useRef<HTMLDivElement>(null)
   const [guideHighlight, setGuideHighlight] = useState(false)
   const [form] = Form.useForm<Partial<NetworkDomain>>()
+  const [onboardForm] = Form.useForm<Partial<NetworkDomain>>()
+
+  /** 可纳管网域：Module_06 已行政创建（created）且尚未纳管的网域 */
+  const pendingOnboardDomains = data.filter((d) => d.registration_status === 'created')
 
   const handleEdit = (record: NetworkDomain) => {
     setEditingDomain(record)
-    form.setFieldsValue(record)
-    setIsModalOpen(true)
+    form.setFieldsValue({ ...record })
+    setIsEditOpen(true)
   }
 
-  const handleCreate = () => {
-    setEditingDomain(null)
-    form.resetFields()
-    setIsModalOpen(true)
+  /** {v1.29} 纳管网域：入参 record 用于行内「纳管」按钮预选网域；不传则弹窗内自选 */
+  const openOnboard = (record?: NetworkDomain) => {
+    setOnboardTarget(record ?? null)
+    onboardForm.resetFields()
+    onboardForm.setFieldsValue({ id: record?.id, agent_type: 'vmagent', remote_write_url: '' })
+    setIsOnboardOpen(true)
+  }
+
+  const submitOnboard = (values: Partial<NetworkDomain>) => {
+    const target = onboardTarget ?? data.find((d) => d.id === values.id)
+    if (!target) {
+      message.error('请选择要纳管的网域')
+      return
+    }
+    setData((prev) =>
+      prev.map((item) =>
+        item.id === target.id
+          ? {
+              ...item,
+              agent_type: values.agent_type ?? 'vmagent',
+              // 决策 14：Remote Write URL 默认由平台自动推导（中心 ingress + 网域路径），留空自动生成，可手动覆盖
+              remote_write_url: values.remote_write_url || deriveRemoteWriteUrl(item.id),
+              // 纳管即自动签发 Token（PRD 3.1.1 凭据前置签发）
+              token: `tk_${Math.random().toString(36).slice(2, 14)}`,
+              registration_status: 'monitored',
+              updated_at: new Date().toLocaleString('zh-CN', { hour12: false }),
+            }
+          : item
+      )
+    )
+    message.success(`网域 "${target.name}" 已纳管，请按页面顶部安装指引接入 Edge Agent`)
+    setIsOnboardOpen(false)
+    // 决策 17：纳管成功后滚动并高亮页面顶部「安装指引」提示区（不弹窗），引导完成 Agent 接入
+    window.setTimeout(() => {
+      setGuideHighlight(true)
+      guideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 200)
+    window.setTimeout(() => setGuideHighlight(false), 4000)
   }
 
   const handleSave = (values: Partial<NetworkDomain>) => {
-    if (editingDomain) {
-      const isDefaultManagement = editingDomain.id === 'default'
-      setData((prev) =>
-        prev.map((item) =>
-          item.id === editingDomain.id
-            ? {
-                ...item,
-                ...values,
-                // default 管理域的 domain_type 不可变更
-                domain_type: isDefaultManagement ? 'management' : (values.domain_type ?? item.domain_type),
-                updated_at: new Date().toLocaleString('zh-CN', { hour12: false }),
-              }
-            : item
-        )
+    if (!editingDomain) return
+    const isDefaultManagement = editingDomain.id === 'default'
+    setData((prev) =>
+      prev.map((item) =>
+        item.id === editingDomain.id
+          ? {
+              ...item,
+              ...values,
+              // 行政字段（名称/租户/类型）由 Module_06 维护，此处不落库变更
+              name: item.name,
+              tenant_id: item.tenant_id,
+              domain_type: isDefaultManagement ? 'management' : item.domain_type,
+              // {v1.29} 取消纳管时清空 Token/Remote Write，重新纳管后由 submitOnboard 重新生成
+              token: values.registration_status === 'monitored' ? (item.token || `tk_${Math.random().toString(36).slice(2, 14)}`) : '',
+              remote_write_url: values.registration_status === 'monitored' ? (item.remote_write_url || deriveRemoteWriteUrl(item.id)) : '',
+              updated_at: new Date().toLocaleString('zh-CN', { hour12: false }),
+            }
+          : item
       )
-      message.success('网域已更新')
-    } else {
-      const now = new Date().toLocaleString('zh-CN', { hour12: false })
-      const id = values.name?.toLowerCase().replace(/\s+/g, '-') || `domain-${Date.now()}`
-      const newDomain: NetworkDomain = {
-        id,
-        name: values.name || '',
-        description: values.description || '',
-        domain_type: 'edge',
-        tenant_id: values.tenant_id || 'platform_admin',
-        token: `tk_${Math.random().toString(36).slice(2, 14)}`,
-        agent_type: values.agent_type || 'vmagent',
-        // 决策 14：Remote Write URL 默认由平台自动推导（中心 ingress + 网域路径），留空自动生成，可手动覆盖
-        remote_write_url: values.remote_write_url || deriveRemoteWriteUrl(id),
-        status: 'unknown',
-        last_heartbeat: '-',
-        agent_version: '-',
-        created_at: now,
-        updated_at: now,
-      }
-      setData((prev) => [...prev, newDomain])
-      message.success('网域已创建')
-      // 决策 17：注册成功后滚动并高亮页面顶部「安装指引」提示区（不弹窗），引导完成 Agent 接入
-      window.setTimeout(() => {
-        setGuideHighlight(true)
-        guideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      }, 200)
-      window.setTimeout(() => setGuideHighlight(false), 4000)
-    }
-    setIsModalOpen(false)
+    )
+    message.success('网域监控参数已更新')
+    setIsEditOpen(false)
   }
 
   const handleResetToken = (record: NetworkDomain) => {
@@ -129,6 +159,11 @@ export function NetworkDomainsPage() {
     navigator.clipboard.writeText(token).then(() => message.success('Token 已复制'))
   }
 
+  // {v1.29} 对已由 Module_06 行政创建的网域执行监控纳管：打开纳管弹窗填写监控参数（Token 自动签发 / Remote Write 自动推导）
+  const handleMonitor = (record: NetworkDomain) => {
+    openOnboard(record)
+  }
+
   const handleDelete = (record: NetworkDomain) => {
     if (record.domain_type === 'management') {
       message.error('管理域禁止删除')
@@ -152,12 +187,15 @@ export function NetworkDomainsPage() {
       <Card
         title="网域管理"
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            注册网域
-          </Button>
+          // {v1.29} M09 不再提供「新增网域」：网域行政创建由 Module_06「网域管理」负责，本页仅做监控纳管
+          <Tooltip title="网域行政创建请前往 Module_06「网域管理」；此处将已创建的网域接入监控">
+            <Button type="primary" icon={<CloudUploadOutlined />} onClick={() => openOnboard()}>
+              纳管网域
+            </Button>
+          </Tooltip>
         }
       >
-        {/* 决策 17：安装指引为页面顶部常驻提示区（通用操作流程），注册成功后滚动并高亮此区域；行内不再提供安装指引入口 */}
+        {/* 决策 17：安装指引为页面顶部常驻提示区（通用操作流程），纳管成功后滚动并高亮此区域；行内不再提供安装指引入口 */}
         <div
           ref={guideRef}
           style={{
@@ -175,7 +213,7 @@ export function NetworkDomainsPage() {
             description={
               <div>
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                  适用于所有新注册的边缘网域；采集器与 blackbox exporter 由 Edge Sync Agent 启动后自动部署（并入第③步描述），无需手动分步安装。
+                  适用于所有新纳管的边缘网域；采集器与 blackbox exporter 由 Edge Sync Agent 启动后自动部署（并入第③步描述），无需手动分步安装。
                 </Typography.Paragraph>
                 <Steps
                   size="small"
@@ -224,10 +262,19 @@ export function NetworkDomainsPage() {
               render: (type: DomainType) => <Tag color={domainTypeColor[type]}>{domainTypeLabel[type]}</Tag>,
             },
             {
+              // {v1.29} 网域生命周期：created = 已由 Module_06 行政创建；monitored = 已完成监控纳管
+              title: '纳管状态',
+              dataIndex: 'registration_status',
+              key: 'registration_status',
+              render: (status: NetworkDomainRegistrationStatus) => (
+                <Tag color={registrationStatusColor[status]}>{registrationStatusLabel[status]}</Tag>
+              ),
+            },
+            {
               // 决策 16：运行态字段标注——状态 / 最后心跳由 Edge Sync Agent 心跳上报更新，
-              // 注册（登记制）阶段为 unknown / '-'，安装指引完成后 Agent 上线变为 online；组件明细请查看「Agent 状态」页
+              // 纳管（登记制）阶段为 unknown / '-'，安装指引完成后 Agent 上线变为 online；组件明细请查看「Agent 状态」页
               title: (
-                <Tooltip title="运行态字段：由 Edge Sync Agent 心跳自动更新。注册/安装指引完成前为 unknown，Agent 上线后为 online；组件明细请查看「Agent 状态」页">
+                <Tooltip title="运行态字段：由 Edge Sync Agent 心跳自动更新。纳管/安装指引完成前为 unknown，Agent 上线后为 online；组件明细请查看「Agent 状态」页">
                   <Space size={4}>
                     状态
                     <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -246,7 +293,7 @@ export function NetworkDomainsPage() {
             },
             {
               title: (
-                <Tooltip title="运行态字段：由 Edge Sync Agent 心跳自动更新；注册/安装指引完成前为 '-'，Agent 上线后为心跳时间">
+                <Tooltip title="运行态字段：由 Edge Sync Agent 心跳自动更新；纳管/安装指引完成前为 '-'，Agent 上线后为心跳时间">
                   <Space size={4}>
                     最后心跳
                     <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -284,6 +331,11 @@ export function NetworkDomainsPage() {
               width: 190,
               render: (_: unknown, record: NetworkDomain) => (
                 <Space size="small">
+                  {record.registration_status === 'created' && (
+                    <Button size="small" type="primary" icon={<CloudUploadOutlined />} onClick={() => handleMonitor(record)}>
+                      纳管
+                    </Button>
+                  )}
                   <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
                     编辑
                   </Button>
@@ -319,70 +371,108 @@ export function NetworkDomainsPage() {
         />
         <div style={{ marginTop: 12 }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            字段语义：列表字段分两类——配置字段（ID / 名称 / 类型 / Agent 类型 / Token / Remote Write URL，注册或编辑时设置）与
-            运行态字段（状态 / 最后心跳，由 Edge Sync Agent 心跳自动上报更新，注册/安装指引完成前为 unknown / '-'）。
-            注册与编辑表单仅维护配置字段；组件明细与诊断请查看「Agent 状态」页。新网域接入流程见页面顶部「安装指引」提示区（注册成功将自动滚动高亮该区域）。
+            字段语义：行政字段（ID / 名称 / 类型）由 Module_06「网域管理」创建与维护，本页不可修改；监控配置字段（Agent 类型 /
+            Token / Remote Write URL，纳管或编辑时设置）与运行态字段（状态 / 最后心跳，由 Edge Sync Agent 心跳自动上报更新，
+            纳管/安装指引完成前为 unknown / '-'）。纳管与编辑表单仅维护监控配置字段；组件明细与诊断请查看「Agent 状态」页。
+            新网域接入流程见页面顶部「安装指引」提示区（纳管成功将自动滚动高亮该区域）。
           </Text>
         </div>
       </Card>
 
+      {/* {v1.29} 纳管弹窗：从 Module_06 行政已创建（created）的网域中选择，填写监控参数；M09 不创建行政记录 */}
       <Modal
-        title={editingDomain ? '编辑网域' : '注册网域'}
-        open={isModalOpen}
-        onCancel={() => setIsModalOpen(false)}
+        title="纳管网域（监控接入）"
+        open={isOnboardOpen}
+        onCancel={() => setIsOnboardOpen(false)}
+        onOk={() => onboardForm.submit()}
+        okText="确认纳管"
+        cancelText="取消"
+      >
+        <Form form={onboardForm} layout="vertical" onFinish={submitOnboard}>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="Module_06 行政创建 → Module_09 监控纳管"
+            description="网域的行政创建与租户分配由「系统设置」模块（Module_06 网域管理）负责；此处将已创建的网域接入监控——确认纳管后自动签发 Token、自动推导 Remote Write URL。default 管理域由系统预置且默认已纳管。"
+          />
+          <Form.Item
+            name="id"
+            label="选择网域"
+            rules={[{ required: true, message: '请选择要纳管的网域' }]}
+            extra={onboardTarget ? undefined : '仅列出 Module_06 已行政创建且未纳管的网域'}
+          >
+            <Select
+              placeholder="请选择网域"
+              disabled={!!onboardTarget}
+              options={pendingOnboardDomains.map((d) => ({
+                value: d.id,
+                label: `${d.name}（${d.id}，租户：${d.tenant_id}）`,
+              }))}
+              notFoundContent="暂无可纳管的网域：请先在 Module_06「网域管理」完成行政创建与租户分配"
+            />
+          </Form.Item>
+          {/* 决策 12/16：Agent 类型下拉保留，但 MVP 阶段固定 vmagent（PRD：纳管时无需选择）；prometheus-agent 枚举保留、v0.2+ 开放 */}
+          <Form.Item name="agent_type" label="Agent 类型" initialValue="vmagent" extra="MVP 阶段固定 vmagent（纳管时无需选择）；prometheus-agent v0.2+ 开放为可选">
+            <Select options={[{ value: 'vmagent', label: 'VMAgent' }]} disabled />
+          </Form.Item>
+          {/* 决策 14：Remote Write URL 默认由平台自动推导（中心 ingress + 网域路径），留空自动生成，可手动覆盖 */}
+          <Form.Item name="remote_write_url" label="Remote Write URL" extra="留空由平台自动推导（中心 ingress + 网域路径），可手动覆盖">
+            <Input placeholder="留空则自动生成，例如 https://metriccenter.example.com/api/v2/ingest/<domain-id>/prometheus" />
+          </Form.Item>
+          <Form.Item>
+            <Text type="secondary">
+              纳管成功后自动签发 Token 与 Remote Write URL；Agent IP / 主机名 / 状态 / 最后心跳由 Edge Sync Agent
+              心跳上报自动补全，接入步骤见页面顶部「安装指引」。
+            </Text>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑弹窗：行政字段只读展示，仅维护监控参数（PRD 3.1 网域编辑） */}
+      <Modal
+        title="编辑网域（监控参数）"
+        open={isEditOpen}
+        onCancel={() => setIsEditOpen(false)}
         onOk={() => form.submit()}
         okText="保存"
         cancelText="取消"
       >
         <Form form={form} layout="vertical" onFinish={handleSave}>
-          <Form.Item
-            name="name"
-            label="网域名称"
-            rules={[{ required: true, message: '请输入网域名称' }]}
-          >
-            <Input placeholder="例如：政务网 A 区" />
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="行政字段由 Module_06 维护，本表单仅维护监控配置"
+            description="网域名称 / 所属租户 / 类型等行政字段的修改请前往「系统设置」模块（Module_06 网域管理）；此处仅维护描述与监控参数。"
+          />
+          <Form.Item label="网域名称（行政字段，只读）">
+            <Input value={editingDomain?.name} disabled />
+          </Form.Item>
+          <Form.Item label="所属租户（行政字段，只读）">
+            <Input value={editingDomain?.tenant_id} disabled />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} placeholder="描述该网域的用途与网络特征" />
+            <Input.TextArea rows={2} placeholder="描述该网域的用途与网络特征" />
           </Form.Item>
-          {!editingDomain && (
-            <>
-              <Form.Item name="tenant_id" label="租户 ID" extra="注册后不可修改（一个租户可拥有多个网域，网域归属租户后不可变更）">
-                <Input placeholder="例如：platform_admin" />
-              </Form.Item>
-              {/* 决策 12/16：Agent 类型下拉保留，但 MVP 阶段仅 vmagent 一个选项（prometheus-agent 枚举保留、v0.2+ 开放） */}
-              <Form.Item name="agent_type" label="Agent 类型" initialValue="vmagent" extra="MVP 阶段固定 vmagent；prometheus-agent v0.2+ 开放为可选">
-                <Select
-                  options={[{ value: 'vmagent', label: 'VMAgent' }]}
-                  disabled
-                />
-              </Form.Item>
-              <Form.Item name="remote_write_url" label="Remote Write URL" extra="留空由平台自动推导（中心 ingress + 网域路径），可手动覆盖">
-                <Input placeholder="留空则自动生成，例如 https://metriccenter.example.com/api/v2/ingest/<domain-id>/prometheus" />
-              </Form.Item>
-              <Form.Item>
-                <Text type="secondary">
-                  注册为登记制：仅生成网域元数据（ID / 类型 / Remote Write 目标，后者自动推导）与认证 Token；
-                  Agent IP / 主机名 / 状态 / 最后心跳由 Edge Sync Agent 心跳上报自动补全，无需在此填写。
-                </Text>
-              </Form.Item>
-              <Alert
-                type="info"
-                showIcon
-                message="注册 → 安装指引 → 自动上线（闭环）"
-                description="网域注册是必要前置步骤：Edge Sync Agent 启动时必须携带平台签发的 NETWORK_DOMAIN_ID 与 TOKEN，Token 只能由注册时生成，无法靠 Agent 自行发现；注册完成后将自动打开「安装指引」，下载离线包并注入凭据后，Agent 启动即可心跳自动注册到该网域并出现在「Agent 状态」页。"
-              />
-            </>
-          )}
           {editingDomain?.id === 'default' && (
             <Form.Item>
               <Text type="secondary">
-                管理域 "default" 仅允许修改名称与描述，禁止删除；Agent 类型固定 vmagent、Remote Write 目标由中心配置。
+                管理域 "default" 由系统预置且默认已纳管，禁止删除与取消纳管；Agent 类型固定 vmagent、Remote Write 目标由中心配置。
               </Text>
             </Form.Item>
           )}
           {editingDomain && editingDomain.id !== 'default' && (
             <>
+              {/* {v1.29} 编辑时可切换纳管状态，用于演示取消纳管 / 重新纳管 */}
+              <Form.Item name="registration_status" label="纳管状态" extra="切换为「已创建未纳管」即取消纳管：清空 Token / Remote Write，网域退出监控上下文">
+                <Select
+                  options={[
+                    { value: 'created', label: '已创建未纳管' },
+                    { value: 'monitored', label: '已纳管' },
+                  ]}
+                />
+              </Form.Item>
               {/* 决策 16：编辑表单补全 PRD 3.1 要求的可编辑配置字段（Agent 类型、Remote Write 目标），与列表配置字段对齐 */}
               <Form.Item name="agent_type" label="Agent 类型" extra="MVP 阶段固定 vmagent；prometheus-agent 枚举保留、v0.2+ 开放（当前域演示）">
                 <Select

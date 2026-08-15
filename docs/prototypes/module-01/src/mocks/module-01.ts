@@ -146,19 +146,24 @@ export const currentTenant: Tenant = {
   multi_site_enabled: true,
 }
 
-// ---------- 网域（引用 Module_09，本模块只读） ----------
+// ---------- 网域（引用 Module_09，本模块只读；{v3.9} 仅 is_monitored=true 的网域可在 M01/M09 配置上下文选择） ----------
 export interface NetworkDomain {
   id: string
   name: string
   status: 'online' | 'offline' | 'unknown'
+  /** {v3.9} 是否已完成监控纳管（由 Module_09 写入）；M01 仅允许为已纳管网域创建 ScrapeJob */
+  is_monitored: boolean
 }
 
 export const mockNetworkDomains: NetworkDomain[] = [
-  { id: 'default', name: '默认网域', status: 'online' },
-  { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online' },
+  { id: 'default', name: '默认网域', status: 'online', is_monitored: true },
+  { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online', is_monitored: true },
+  { id: 'finance-dmz', name: '金融 DMZ', status: 'offline', is_monitored: false },
 ]
 
 export const NETWORK_DOMAIN_IDS: string[] = mockNetworkDomains.map((d) => d.id)
+/** {v3.9} 已纳管网域（M01/M09 配置上下文中仅展示这些） */
+export const MONITORED_NETWORK_DOMAINS: NetworkDomain[] = mockNetworkDomains.filter((d) => d.is_monitored)
 
 // ---------- 标签模板（引用 Module_07，本模块只读选择 + 只读预览映射内容） ----------
 export interface LabelTemplateMapping {

@@ -84,6 +84,10 @@ PNPM_BIN := $(PNPM_DIR)/bin/pnpm
 # 注：Windows 下 Node 解压到顶层（node.exe / npm），故 PATH 同时加入 $(NODE_DIR)
 export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PATH)
 
+# 显式锁定 GOROOT 到项目级工具链：屏蔽系统/用户环境里残留的 GOROOT（如手动安装的
+# ~/sdk/goX.Y.Z），否则会出现 "compile: version goX does not match go tool version goY"。
+export GOROOT := $(GO_DIR)
+
 .PHONY: all help install-go install-node install-pnpm install-tools \
         install-gcc install-promu ensure-cgo \
         ensure-go ensure-node ensure-pnpm \
@@ -117,13 +121,13 @@ install-go:
 		mkdir -p "$(GO_DIR)"; \
 		rm -rf "$(GO_DIR)"/*; \
 		if [ -n "$(USE_ZIP)" ]; then \
-			bash scripts/dl-windows.sh /tmp/go.zip "$(GO_URL)"; \
+			bash scripts/dl-parallel-windows.sh /tmp/go.zip "$(GO_URL)"; \
 			mkdir -p /tmp/goextract; \
 			unzip -q -o /tmp/go.zip -d /tmp/goextract; \
 			cp -r /tmp/goextract/go/. "$(GO_DIR)/"; \
 			rm -rf /tmp/goextract /tmp/go.zip; \
 		else \
-			bash scripts/dl-windows.sh /tmp/go.tar.gz "$(GO_URL)"; \
+			bash scripts/dl-parallel-windows.sh /tmp/go.tar.gz "$(GO_URL)"; \
 			tar -C "$(GO_DIR)" --strip-components=1 -xzf /tmp/go.tar.gz; \
 			rm /tmp/go.tar.gz; \
 		fi; \
@@ -139,13 +143,13 @@ install-node:
 		mkdir -p "$(NODE_DIR)"; \
 		rm -rf "$(NODE_DIR)"/*; \
 		if [ -n "$(USE_ZIP)" ]; then \
-			bash scripts/dl-windows.sh /tmp/node.zip "$(NODE_URL)"; \
+			bash scripts/dl-parallel-windows.sh /tmp/node.zip "$(NODE_URL)"; \
 			mkdir -p /tmp/nodeextract; \
 			unzip -q -o /tmp/node.zip -d /tmp/nodeextract; \
 			cp -r /tmp/nodeextract/node-v$(NODE_VERSION)-win-x64/. "$(NODE_DIR)/"; \
 			rm -rf /tmp/nodeextract /tmp/node.zip; \
 		else \
-			bash scripts/dl-windows.sh /tmp/node.tar.gz "$(NODE_URL)"; \
+			bash scripts/dl-parallel-windows.sh /tmp/node.tar.gz "$(NODE_URL)"; \
 			tar -C "$(NODE_DIR)" --strip-components=1 -xzf /tmp/node.tar.gz; \
 			rm /tmp/node.tar.gz; \
 		fi; \
@@ -169,8 +173,11 @@ install-pnpm: install-node
 			echo ">>> ERROR: pnpm executable not found after install. Contents of $(PNPM_DIR):"; \
 			ls -la "$(PNPM_DIR)"; exit 1; \
 		fi; \
-		printf '#!/usr/bin/env sh\n"$(NODE_BIN)" "$$PNPM_MAIN" "$$@"\n' > "$(PNPM_BIN)"; \
+		printf '#!/usr/bin/env sh\nexec "%s" "%s" "$$@"\n' "$(NODE_BIN)" "$$PNPM_MAIN" > "$(PNPM_BIN)"; \
 		chmod +x "$(PNPM_BIN)"; \
+		if [ -n "$(USE_ZIP)" ]; then \
+			printf '@"%s" "%s" %%%%*\n' "$(NODE_BIN)" "$$PNPM_MAIN" > "$(PNPM_DIR)/bin/pnpm.cmd"; \
+		fi; \
 		"$(PNPM_BIN)" --version; \
 	else \
 		echo ">>> pnpm already installed: $(PNPM_BIN)"; \
@@ -249,9 +256,9 @@ build-metric-center: ensure-go ensure-cgo
 	@echo ">>> Building metric-center"
 	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" build -o platform/cmd/metric-center/metric-center$(EXE) ./platform/cmd/metric-center
 
-build-prometheus: ensure-go ensure-node
+build-prometheus: ensure-go ensure-pnpm
 	@echo ">>> Building upstream Prometheus"
-		@cd "$(PROJECT_ROOT)/upstream/prometheus" && { [ -d web/ui/static ] || ( cd web/ui && "$(NPM_BIN)" ci && "$(NPM_BIN)" run build ); } && "$(GO_BIN)" build -o prometheus$(EXE) ./cmd/prometheus
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && { [ -d web/ui/static ] || ( cd web/ui && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build:mantine-ui ); } && "$(GO_BIN)" build -o prometheus$(EXE) ./cmd/prometheus
 
 build-ui: ensure-pnpm
 	@echo ">>> Building Custom UI"

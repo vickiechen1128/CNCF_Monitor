@@ -25,7 +25,7 @@ import {
 } from './module-07'
 import type { ResourceType } from './module-07'
 
-describe('module-07 mocks（对齐 PRD v2.8）', () => {
+describe('module-07 mocks（对齐 PRD v2.11）', () => {
   const domainIds = mockNetworkDomains.map((d) => d.id)
 
   // ========== 资源基础字段校验 ==========

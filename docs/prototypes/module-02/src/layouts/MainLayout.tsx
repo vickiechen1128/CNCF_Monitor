@@ -1,12 +1,18 @@
-import { Layout, Menu, Typography, Space, Badge, Tag, Switch, message, Collapse } from 'antd'
+import { Layout, Menu, Typography, Space, Tag, Switch, message, Collapse, Select, Tooltip, Divider } from 'antd'
 import type { ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AppstoreOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { useTenant } from '../contexts/TenantContext'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
+
+type UserRole = 'ops1' | 'ops2'
+const USER_ROLE_MAP: Record<UserRole, string> = {
+  ops1: '运维工程师1',
+  ops2: '运维工程师2',
+}
 
 interface MainLayoutProps {
   children: ReactNode
@@ -65,6 +71,17 @@ export function MainLayout({ children }: MainLayoutProps) {
   const { multiSiteEnabled, setMultiSiteEnabled } = useTenant()
   const menuItems = buildMenu()
 
+  const [searchParams, setSearchParams] = useSearchParams()
+  const role: UserRole = searchParams.get('role') === 'ops2' ? 'ops2' : 'ops1'
+
+  const switchRole = (next: UserRole) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'ops2') params.set('role', 'ops2')
+    else params.delete('role')
+    setSearchParams(params)
+    message.info(next === 'ops2' ? '已切换为运维工程师2' : '已切换为运维工程师1')
+  }
+
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (key.startsWith('/')) {
       navigate(key)
@@ -80,7 +97,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     <Layout className="app-layout">
       <Header className="app-header">
         <Space size="large">
-          <Title level={4} className="app-title" style={{ margin: 0 }}>
+          <Title level={4} className="app-title" style={{ margin: 0, color: '#fff' }}>
             <span className="app-title-accent">◆</span>
             MetricCenter
           </Title>
@@ -88,20 +105,28 @@ export function MainLayout({ children }: MainLayoutProps) {
             原型验证版
           </Tag>
         </Space>
-        <Space size="large">
-          {multiSiteEnabled ? (
-            <Badge
-              status="processing"
-              text={<Text style={{ color: 'rgba(255,255,255,0.85)' }}>多网域模式：覆盖 2 个网域（default、gov-cloud-a）</Text>}
-            />
-          ) : (
-            <Badge status="success" text={<Text style={{ color: 'rgba(255,255,255,0.85)' }}>default 网域在线（单网域）</Text>} />
-          )}
-          <Space size="small">
-            <Text style={{ color: 'rgba(255,255,255,0.65)' }}>多网域模式</Text>
-            <Switch size="small" checked={multiSiteEnabled} onChange={setMultiSiteEnabled} />
+        <Space size="large" align="center">
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>网域模式</Text>
+            <Tooltip title={multiSiteEnabled ? '多网域模式：覆盖多个网域' : '单网域模式：仅 default 管理域'}>
+              <Switch
+                checked={multiSiteEnabled}
+                checkedChildren="多网域"
+                unCheckedChildren="单网域"
+                onChange={setMultiSiteEnabled}
+              />
+            </Tooltip>
           </Space>
-          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>运维工程师</Text>
+          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
+            <Select
+              value={role}
+              onChange={(v: UserRole) => switchRole(v)}
+              style={{ width: 140 }}
+              options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
+            />
+          </Space>
         </Space>
       </Header>
       <Layout>

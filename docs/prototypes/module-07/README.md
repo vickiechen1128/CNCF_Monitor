@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.9
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.11
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.5
+> **原型版本**: v2.7
 > **本地启动命令**:
 >
 > ```bash
@@ -39,7 +39,7 @@ python3 -m http.server 8080
 
 验证 [Module 07: 监控对象管理](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) 的核心交互：
 
-1. **资源管理（MVP）**：四类资源（主机 / 中间件 / 应用服务 / 通用指标目标）的固定列列表、新增 / 编辑 / 删除、网域归属、已监控 badge；`is_monitored` 由 Module_01 维护，Module_07 只读展示。
+1. **资源管理（MVP / {v2.6}）**：四类资源（主机 / 中间件 / 应用服务 / 通用指标目标）的固定列列表、新增 / 编辑 / 删除、网域归属、已监控 badge；`is_monitored` 由 Module_01 维护，Module_07 只读展示。**{v2.6} 网域仅作为列表筛选器**：M07 顶部不再提供全局网域上下文切换器，资源列表操作区提供「网域筛选」下拉（默认「全部网域」、可切单个网域），与搜索框并列。
 2. **标签模板管理（MVP）**：左右分栏——左侧模板列表（资源类型 Tab + 搜索框 + 默认/自定义筛选，展示模板 ID），右侧映射明细按来源类型分组（组合字段 / 资源字段）；模板与映射编辑统一使用右侧抽屉，保留上下文；字段来源 MVP 支持资源字段 / 组合字段（`cmdb_field` v0.4+ 预留，`prometheus_builtin` 由 Prometheus 原生注入、MVP 隐藏）；新增映射目标标签默认预填来源字段（composite 默认 instance）；转换规则下拉可留空（无/lower/upper，prefix/replace P1 置灰）；保存时校验保护 label 与同模板目标标签唯一；MVP 不做分页。
 3. **资源标签管理（MVP / {v2.8} 双场景治理）**：
    - **应用服务资源**：开放自定义标签（user 来源可编辑 / 删除），标签口径说明含「双场景」条目；业务类型（`business_domain`）字段可在新增 / 编辑表单维护，详情展示，默认模板映射为 `biz` 标签（`business_domain → biz`，按业务类型聚合的关联键）；
