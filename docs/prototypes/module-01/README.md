@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.8
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.10
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.0
+> **原型版本**: v3.2
 > **本地启动命令**:
 >
 > ```bash
@@ -45,7 +45,7 @@ python3 -m http.server 8080
 4. **技术指标库（{v3.7 改名}/{v3.8 锚点演进}）**：**按 CI 类型分组**（主锚点 = `MetricLibraryItem.resource_types`，多对多、关联带来源采集器标注；可选语义域 `category` 筛选）；支持「资源类别 → CI 类型」两级筛选与 metric_type / 语义域筛选；新增/编辑用户扩展指标（`is_builtin=false`，表单选「所属 CI 类型」多选 + 来源采集器 + 语义域）；内置指标禁止编辑/删除；`enabled` 切换（禁用指标不参与规则提示）；MVP 内置库只读，必须先有指标库才能编写 PromQL；顶部说明两库关系（技术元数据「能采到什么」 vs 业务语义契约「业务关心什么」）并提供跳转业务指标库。
 5. **业务指标库（{v3.5}/{v3.6}/{v3.7}）**：业务指标（BusinessMetric）登记与状态推进；**两角色动线**（Header 角色切换器演示）——业务负责人：登记/更新业务指标（语义/阈值/业务域/负责人必填）、标记埋点完成（pending→instrumented），不配置采集任务；运维工程师：可查看全部指标库、配置采集任务，业务指标语义只读、确认采集上线（instrumented→online）、可代办登记（`register_source=agent`，owner 仍指向业务负责人）。状态机 pending→instrumented→online 按职责分工推进。登记表补「采集落地」列（online 显示关联采集 Job / 指标可查）。
 6. **业务视图（{v3.7} 独立页，导航「指标库 → 业务视图」）**：按 business_domain 聚合成员（微服务/中间件/主机，Resource.business_domain 归并）+ 业务指标 + 埋点/采集落地状态（MVP 轻量版，完整版 v0.2+ 独立业务目录 + 健康度看板）；与业务指标库登记表职责分离（登记表 = 语义契约维护，本页 = 业务域聚合视图）。
-7. **单网域/多网域模式**：Header 提供 `Tenant.multi_site_enabled` 租户级开关（与 Module_09 一致）；多网域模式 Job 可绑定 default / 边缘网域，单网域模式仅允许 default 管理域（网域下拉禁用）。
+7. **单网域/多网域模式 + 当前网域上下文（{v3.1}）**：Header 提供 `Tenant.multi_site_enabled` 租户级开关（与 Module_09 一致）与「当前网域」上下文选择器；选择器**仅展示已纳管监控的网域**（`NetworkDomain.is_monitored=true`）。多网域模式 Job 可绑定 default / 边缘网域，单网域模式仅允许 default 管理域；Job 列表按当前网域收敛，创建 Job 时网域下拉仅允许选择已纳管网域，未纳管网域提示先到 Module_09 完成纳管。
 8. **{v3.4}/{v3.7}/{v3.8} application_http 语义**：CI 类型 ↔ 默认采集器页对 `application_http`（HTTP 应用）显性提示「业务服务（含自定义微服务）仍属 application_http，用手填采集参数 / 多个可选采集实现覆盖形态差异，无需新增 CI 类型」（表单 extra + 页面 Alert）；采集 Job 实例选择新增「按业务类型（biz）筛选」（筛选字段 = Resource 属性字段 `business_domain`，label 名作 UI 别名）。
 9. **{v3.7}/{v3.8} 自定义微服务样本（采集实现）**：mock 提供采集实现 `et-app-go`（Go 微服务指标端点，is_builtin=false、/metrics、端口 9090）+ 映射 `map-009`（application_http → et-app-go，is_builtin=false、非默认采集实现）+ 采集 Job `job-007`（prod-go-microservices，引用 order-go-service 实例）+ 指标库 `goAppMetrics`（go_goroutines / go_memstats_alloc_bytes / order_creation_total，挂 application_http + 来源标注），演示「业务服务仍属 application_http、多个采集实现 + 手填参数覆盖形态差异」的完整采集链路；自定义指标直接挂 CI 类型（无「Exporter 市场」登记概念，{v3.8} 删占位入口）。
 

@@ -246,8 +246,6 @@ ${targetsLines}
 export function ConfigPreviewPage() {
   const navigate = useNavigate()
   const multiSite = currentTenant.multi_site_enabled
-  const defaultDomainId = networkDomains[0].id
-  const [selectedDomain, setSelectedDomain] = useState<string>(defaultDomainId)
   /** 抽屉中打开的变更（决策 20：列表点击 → 右侧抽屉查看变更详情），null=未打开 */
   const [detailDraft, setDetailDraft] = useState<ConfigDraft | null>(null)
   const [viewMode, setViewMode] = useState<'preview' | 'diff'>('preview')
@@ -258,10 +256,13 @@ export function ConfigPreviewPage() {
   /** 变更状态筛选（决策 21）：默认仅展示待确认（pending）；已确认 / 已废弃 / 全部 可切换（替代原「待确认 / 历史」Switch） */
   const [statusFilter, setStatusFilter] = useState<DraftStatusFilter>('pending')
 
+  // {v1.29} 配置变更确认页仅展示已纳管网域；未纳管网域不会生成 ConfigDraft
   const domainOptions = useMemo(
-    () => networkDomains.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` })),
+    () => networkDomains.filter((d) => d.registration_status === 'monitored').map((d) => ({ value: d.id, label: `${d.name} (${d.id})` })),
     []
   )
+  const defaultDomainId = domainOptions[0]?.value ?? networkDomains[0].id
+  const [selectedDomain, setSelectedDomain] = useState<string>(defaultDomainId)
 
   /** 所属网域列：network_domain_id → 网域名称（与下发记录页展示一致） */
   const domainMap = useMemo(() => Object.fromEntries(networkDomains.map((d) => [d.id, d.name])), [])

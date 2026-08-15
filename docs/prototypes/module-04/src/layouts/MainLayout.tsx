@@ -1,11 +1,19 @@
-import { Layout, Menu, Typography, Space, Badge, Tag } from 'antd'
-import type { ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Layout, Menu, Typography, Space, Tag, Switch, Select, App, Tooltip, Divider } from 'antd'
+import { useState, type ReactNode } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AppstoreOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
+
+type UserRole = 'ops1' | 'ops2'
+const USER_ROLE_MAP: Record<UserRole, string> = {
+  ops1: '运维工程师1',
+  ops2: '运维工程师2',
+}
+const currentTenant = { id: 'module-04', name: 'AIDC 运维租户', multi_site_enabled: true }
+
 
 interface MainLayoutProps {
   children: ReactNode
@@ -26,6 +34,25 @@ export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const menuItems = buildMenu()
+  const { message } = App.useApp()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
+  const role: UserRole = searchParams.get('role') === 'ops2' ? 'ops2' : 'ops1'
+
+  const switchRole = (next: UserRole) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'ops2') params.set('role', 'ops2')
+    else params.delete('role')
+    setSearchParams(params)
+    message.info(next === 'ops2' ? '已切换为运维工程师2' : '已切换为运维工程师1')
+  }
+
+  const toggleMultiSite = (checked: boolean) => {
+    currentTenant.multi_site_enabled = checked
+    setMultiSite(checked)
+    window.dispatchEvent(new CustomEvent('tenant-mode-change', { detail: { multiSiteEnabled: checked } }))
+    message.info(checked ? '已切换为多网域模式' : '已切换为单网域模式：仅 default 管理域')
+  }
 
   const openKeys = menuItems
     .filter((item): item is Exclude<typeof item, null> => {
@@ -38,7 +65,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     <Layout className="app-layout">
       <Header className="app-header">
         <Space size="large">
-          <Title level={4} className="app-title" style={{ margin: 0 }}>
+          <Title level={4} className="app-title" style={{ margin: 0, color: '#fff' }}>
             <span className="app-title-accent">◆</span>
             MetricCenter
           </Title>
@@ -46,9 +73,28 @@ export function MainLayout({ children }: MainLayoutProps) {
             原型验证版
           </Tag>
         </Space>
-        <Space size="middle">
-          <Badge status="success" text={<Text style={{ color: 'rgba(255,255,255,0.85)' }}>default 网域在线</Text>} />
-          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>运维工程师</Text>
+        <Space size="large" align="center">
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>网域模式</Text>
+            <Tooltip title={multiSite ? '多网域模式：覆盖多个网域' : '单网域模式：仅 default 管理域'}>
+              <Switch
+                checked={multiSite}
+                checkedChildren="多网域"
+                unCheckedChildren="单网域"
+                onChange={toggleMultiSite}
+              />
+            </Tooltip>
+          </Space>
+          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
+            <Select
+              value={role}
+              onChange={(v: UserRole) => switchRole(v)}
+              style={{ width: 140 }}
+              options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
+            />
+          </Space>
         </Space>
       </Header>
       <Layout>

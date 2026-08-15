@@ -44,12 +44,20 @@ fi
 
 mkdir -p "$(dirname "$OUT")"
 
-# 选择实际下载 URL
+# 选择实际下载 URL（与 dl-windows.sh 相同的镜像映射规则，保证国内可达性一致）
 URL="$BASE"
 if [ -n "${GCC_MIRROR:-}" ]; then
   URL="$GCC_MIRROR"
-elif [[ "$BASE" == *github.com* ]] || [[ "$BASE" == *githubusercontent.com* ]]; then
-  URL="https://ghproxy.net/${BASE#https://}"
+else
+  case "$BASE" in
+    *github.com*|*githubusercontent.com*)
+      URL="https://ghproxy.net/${BASE#https://}" ;;
+    *go.dev*|*golang.org*)
+      URL="${BASE/go.dev\//golang.google.cn/}"
+      URL="${URL/golang.org\//golang.google.cn/}" ;;
+    *nodejs.org*)
+      URL="${BASE/nodejs.org\/dist\//registry.npmmirror.com\/-/binary\/node/}" ;;
+  esac
 fi
 
 # 代理探测

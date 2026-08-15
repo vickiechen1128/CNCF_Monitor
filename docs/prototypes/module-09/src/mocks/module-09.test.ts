@@ -37,7 +37,13 @@ describe('module-09 mocks', () => {
     // 统一固定脱敏形态：仅圆点符号，不包含任何明文片段（含首尾 6 位与 tk_ 前缀）
     expect(TOKEN_MASK).toMatch(/^•+$/)
     networkDomains.forEach((domain) => {
-      // 完整 Token 保留在数据中，仅通过「复制」按钮获取，UI 不展示明文
+      if (domain.registration_status === 'created') {
+        // {v1.29} 行政已创建未纳管的网域不签发 Token（纳管时才自动签发）
+        expect(domain.token).toBe('')
+        expect(domain.remote_write_url).toBe('')
+        return
+      }
+      // 已纳管网域：完整 Token 保留在数据中，仅通过「复制」按钮获取，UI 不展示明文
       expect(domain.token).toMatch(/^tk_/)
       expect(domain.token.length).toBeGreaterThan(TOKEN_MASK.length)
       expect(domain.token).not.toContain(TOKEN_MASK)

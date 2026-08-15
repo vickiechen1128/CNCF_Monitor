@@ -11,20 +11,24 @@ import {
   Input,
   Select,
   Switch,
+  Tooltip,
   message,
 } from 'antd'
 import { PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
-import { mockTenants, type Tenant } from '../mocks/module-06'
+import { mockTenants, mockNetworkDomains, type Tenant } from '../mocks/module-06'
 
 const { Title } = Typography
 const { Option } = Select
 
-const networkDomainOptions = [
-  { value: 'nd-default', label: 'default' },
-  { value: 'nd-edge', label: 'edge' },
-  { value: 'nd-finance', label: 'finance' },
-]
+/**
+ * {v1.3} 数据源改为「网域管理」页面的行政记录（mockNetworkDomains），
+ * 不再使用硬编码列表；选项标注纳管状态，体现「授权 ≠ 已纳管」
+ */
+const networkDomainOptions = mockNetworkDomains.map((d) => ({
+  value: d.id,
+  label: d.registration_status === 'monitored' ? `${d.name}（${d.id}，已纳管）` : `${d.name}（${d.id}，未纳管）`,
+}))
 
 export function TenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>(mockTenants)
@@ -78,22 +82,19 @@ export function TenantsPage() {
       key: 'name',
     },
     {
-      title: '网域数量',
+      title: '被授权网域',
       dataIndex: 'networkDomainIds',
       key: 'networkDomainCount',
-      render: (ids: string[]) => ids.length,
-    },
-    {
-      title: '关联网域',
-      dataIndex: 'networkDomainNames',
-      key: 'networkDomainNames',
-      render: (names: string[]) => (
+      render: (ids: string[], record: Tenant) => (
         <Space size={[0, 4]} wrap>
-          {names.map((name) => (
-            <Tag key={name} color="blue">
-              {name}
-            </Tag>
-          ))}
+          {ids.map((id) => {
+            const monitored = record.monitoredNetworkDomainIds?.includes(id)
+            return (
+              <Tooltip key={id} title={monitored ? '已接入监控（由配置中心纳管）' : '已授权但未接入监控'}>
+                <Tag color={monitored ? 'blue' : 'default'}>{id}</Tag>
+              </Tooltip>
+            )
+          })}
         </Space>
       ),
     },
@@ -162,10 +163,11 @@ export function TenantsPage() {
             <Input placeholder="例如 电商业务" />
           </Form.Item>
           <Form.Item
-            label="关联网域"
+            label="被授权网域"
             name="networkDomainIds"
             initialValue={['nd-default']}
-            rules={[{ required: true, message: '请选择关联网域' }]}
+            rules={[{ required: true, message: '请选择被授权网域' }]}
+            extra="仅分配网域使用权；网域需先在「网域管理」页完成行政创建，监控纳管（安装 Edge Agent）由 Module_09 在租户授权范围内按需执行"
           >
             <Select mode="multiple" placeholder="请选择网域">
               {networkDomainOptions.map((opt) => (

@@ -154,6 +154,8 @@ export default function ResourcesPage() {
   const navigate = useNavigate()
   const [activeType, setActiveType] = useState<ResourceType>('host')
   const [search, setSearch] = useState('')
+  // {v2.10} 网域作为资源列表筛选器（非全局上下文），默认全部网域，可切换单个网域
+  const [filterDomain, setFilterDomain] = useState<string>('all')
   const [resources, setResources] = useState<Resource[]>(mockResources)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
@@ -170,6 +172,7 @@ export default function ResourcesPage() {
     const keyword = search.trim().toLowerCase()
     return resources.filter((item) => {
       if (item.resource_type !== activeType) return false
+      if (filterDomain !== 'all' && item.network_domain_id !== filterDomain) return false
       if (!keyword) return true
       const texts: (string | undefined)[] = [
         item.instance_name,
@@ -185,7 +188,7 @@ export default function ResourcesPage() {
       if (isGenericTargetResource(item)) texts.push(item.target_name, item.exporter_type)
       return texts.some((t) => (t ?? '').toLowerCase().includes(keyword))
     })
-  }, [resources, activeType, search])
+  }, [resources, activeType, search, filterDomain])
 
   // ---------- 详情抽屉：标签管理 ----------
   const handleOpenDetail = (record: Resource) => {
@@ -720,7 +723,7 @@ export default function ResourcesPage() {
             label="网域"
             name="network_domain_id"
             rules={[{ required: true, message: '请选择网域' }]}
-            extra="单网域模式下网域列仍展示，不可隐藏；网域生命周期由「配置中心」模块负责"
+            extra="网域作为资源属性由 CMDB / Excel / 手动录入带入；M07 不维护网域生命周期，列表内可用网域筛选器收敛视图"
           >
             <Select placeholder="请选择">
               {mockNetworkDomains.map((d) => (
@@ -1083,12 +1086,24 @@ export default function ResourcesPage() {
             </Space>
           </Col>
           <Col>
-            <Input.Search
-              placeholder="搜索实例名 / IP / 应用"
-              allowClear
-              onSearch={(value) => setSearch(value)}
-              style={{ width: 280 }}
-            />
+            <Space>
+              <Select
+                placeholder="网域筛选"
+                value={filterDomain}
+                onChange={(v) => setFilterDomain(v)}
+                style={{ width: 180 }}
+                options={[
+                  { value: 'all', label: '全部网域' },
+                  ...mockNetworkDomains.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` })),
+                ]}
+              />
+              <Input.Search
+                placeholder="搜索实例名 / IP / 应用"
+                allowClear
+                onSearch={(value) => setSearch(value)}
+                style={{ width: 280 }}
+              />
+            </Space>
           </Col>
         </Row>
 

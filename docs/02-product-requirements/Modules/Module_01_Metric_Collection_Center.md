@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
-> **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v3.8
+> **PRD 状态**: `设计中`（原型已验证至 v3.2，待两段式评审与 ready 确认）
+> **PRD 版本**: v3.10
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v2.9（本轮数据模型演进，原型待同步 v3.0）
-> **更新日期**: 2026-08-14
+> **原型版本**: v3.2
+> **更新日期**: 2026-08-15
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -60,7 +60,7 @@
 | 默认采集配置（{v3.8} 入口并入采集 Job「采集器管理」Tab，原「CI 类型 ↔ Exporter 模板绑定」） | 每种 `resource_type`（host / mysql / redis / kafka 等）的**默认采集器 + 采集参数 + 安装指南**预设（一个 CI 类型可多个可选采集实现、`is_default` 标记默认）；**入口承载于「采集 Job」页「采集器管理」Tab**（不独立导航），承担**类型级采集器指引**（该装什么、怎么装）+ 预设维护；创建 Job 时自动套用默认值、可覆盖（决策 14）；**实例级安装确认在「采集 Job」选实例时进行（5.6），本 Tab 不做确认、避免重复** | P0         |
 | 标签模板创建引导（{v3.1}）       | 新增默认采集配置时，系统检测该 CI 类型是否已有标签模板；无模板时弹出轻量提示引导用户创建，支持「立即创建」（预填推荐映射）或「稍后再说」（列表显示待配置 badge）                              | P0         |
 | 标签模板展示列（{v3.1}）        | 默认采集配置列表新增「标签模板」列，展示模板名称 + 默认/自定义标记 + 类别·模板ID；支持查看（只读预览抽屉）、更换（同资源类型其他模板）、补配（重新触发创建流程）                        | P0         |
-| ScrapeJob 管理            | Job 创建/编辑、命名、启用/禁用、关联 CI 类型与默认采集器、实例选择模式、标签模板引用；Job 必须绑定且仅绑定单一网域；**创建时自动套用该 CI 类型的默认采集配置**（页内「采集器管理」Tab 可维护预设与安装指南，{v3.8} 入口合一）；**选实例时进行 Exporter 安装确认（5.6）**                                                            | P0         |
+| ScrapeJob 管理            | Job 创建/编辑、命名、启用/禁用、关联 CI 类型与默认采集器、实例选择模式、标签模板引用；Job 必须绑定且仅绑定单一**已纳管网域**（未在 M09 完成监控纳管的网域不可选）；**创建时自动套用该 CI 类型的默认采集配置**（页内「采集器管理」Tab 可维护预设与安装指南，{v3.8} 入口合一）；**选实例时进行 Exporter 安装确认（5.6）**                                                            | P0         |
 | 实例选择                    | MVP 支持「按类型+网域自动收敛候选 + 手动勾选」（候选一键全选/反选、关键字筛选）；v0.3+ 支持按资源属性（网域 / 环境 / 应用 / 业务类型等）条件筛选并预览匹配结果——筛选字段为 Resource 属性字段，label 仅作 UI 别名（{v3.4}），不写标签                                                                                     | P0 / v0.3+ |
 | Exporter 安装/注册确认        | 在 Resource 或 Target 上标记 exporter 是否已安装/已注册，生成配置前必须确认                                                                                    | P0         |
 | ScrapeJob blackbox 类型支持 | Blackbox 拨测作为 `ScrapeJob` 的一种类型，通过 `job_type`、`blackbox_module`、`blackbox_targets` 配置；不再维护独立 `BlackboxTarget` 实体                        | P0         |
@@ -329,7 +329,7 @@
 | job\_name                 | string    | 用户输入                  | Job 名称          | Prometheus job\_name                                               |
 | resource\_type            | enum      | Module\_07            | 资源类型           | 关联 CI 类型                                                           |
 | exporter\_template\_id    | string    | CITypeExporterMapping | 默认采集器（{v3.8}）     | 关联默认采集器（采集实现）；可空（手填模式不选采集器，直接填采集参数）                     |
-| network\_domain\_id       | string    | Module\_09            | 网域              | 归属网域；**必填**，所有 ScrapeJob 必须绑定且仅绑定单一网域（见下方「网域约束」）                   |
+| network\_domain\_id       | string    | Module\_09            | 网域              | 归属网域；**必填**，所有 ScrapeJob 必须绑定且仅绑定单一**已纳管网域**（未在 M09 完成监控纳管的网域不可选，保存时校验）；M01 顶部网域上下文切换器仅展示已纳管网域 |
 | instance\_selection\_mode | enum      | 策略配置                  | 实例选择方式        | manual（MVP）/ filter（v0.3+）                                         |
 | selected\_instance\_ids   | \[]string | Module\_07            | 已选实例           | 手动勾选模式下选中的 Resource ID 列表                                          |
 | instance\_filter          | object    | 策略配置                  | 实例筛选条件        | filter 模式下的筛选条件（v0.3+）                                             |
@@ -348,10 +348,11 @@
 
 > **{v3.8} Job 是「关联三者」的运行时实例**：ScrapeJob 同时关联 **CI 类型**（采什么）、**采集实现**（怎么采，`exporter_template_id` 引用、可空手填）、**实际参数覆盖**（端口 / 路径 / 协议 / 间隔 / 超时，决策 14 快照 + 覆盖 + 手动同步）。Job 在创建时**引用**采集实现作为默认值预填，但 CI 类型**不拥有**采集实现（见 5.1 职责边界）——从 node_exporter 切到 Telegraf 只需改 Job / 映射，指标库不受影响。
 
-> **网域约束**：
+> **网域约束（{v3.9} 细化）**：
 >
-> - 所有 ScrapeJob（`job_type=standard` 与 `job_type=blackbox`）必须绑定且仅绑定一个 `network_domain_id`，禁止跨网域共享采集目标/拨测目标；
+> - 所有 ScrapeJob（`job_type=standard` 与 `job_type=blackbox`）必须绑定且仅绑定一个**已纳管网域**的 `network_domain_id`，禁止跨网域共享采集目标/拨测目标；未在 M09 完成监控纳管的网域不可作为 Job 归属网域（保存时校验，提示用户「请先到网域管理完成纳管」）。
 > - `instance_selection_mode=manual` 实例选择模式下，`selected_instance_ids` 选中的 Resource 必须与 Job 同属一个网域，保存时校验。
+> - M01 顶部提供「当前网域」全局上下文切换器：单网域租户默认显示 `default`；多网域租户仅列出已纳管网域；切换后 Job 列表、创建/编辑表单、实例候选均自动收敛到该网域。
 >
 > **实例候选自动收敛（{v3.0}，MVP）**：
 >
@@ -584,6 +585,40 @@ manual（MVP：手动勾选，候选按类型+网域收敛）
 
 > 三种模式互斥（同一 Job 仅一种）；演进向后兼容——manual 是 MVP 基线，filter / service_discovery 是扩展模式，均不影响标签管理（筛选/发现只决定"哪些实例被采集"，不写标签）。
 
+**③ BusinessMetric.status（业务指标埋点/采集落地状态）**
+
+```text
+pending（待埋点） ── 业务负责人登记或运维代办 ──► instrumented（已埋点，业务侧完成）
+                                                              │
+                                                              │ 运维确认采集 Job 已落地 / 指标可查
+                                                              ▼
+                                                        online（已上线）
+```
+
+| 状态 | 含义 | 进入条件 | 后续流转 |
+|------|------|---------|---------|
+| pending | 待埋点 | 业务指标首次登记（`register_source=self/agent`，owner 必填） | 业务负责人（或运维代办）完成代码/端点埋点后标记 instrumented |
+| instrumented | 已埋点 | 业务侧确认指标已在应用端产出 | 运维配置采集 Job 并确认指标可查后标记 online |
+| online | 已上线 | 运维确认采集已落地、指标可在查询中心查到 | 终态；若采集 Job 删除/指标长期不可查可回退到 pending（v0.2+ 自动检测） |
+
+> 状态推进权限：MVP 阶段不接入用户权限，由 UI 角色切换器演示「业务负责人」与「运维工程师」两动线；接入 Module_06 权限后，`pending→instrumented` 由业务负责人角色执行，`instrumented→online` 由运维角色执行。
+
+**④ ExporterInstallationConfirmation.status（实例 Exporter 安装确认状态）**
+
+```text
+unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 ──► confirmed（已确认，可生成 target）
+        │
+        └──► not_applicable（该实例无需 Exporter，如 blackbox / application_http）
+```
+
+| 状态 | 含义 | 进入条件 | 后续流转 |
+|------|------|---------|---------|
+| unconfirmed | 未确认已安装 | 实例被 ScrapeJob 选中但尚未人工确认 Exporter 就绪 | 运维确认后 → confirmed；实例被移除后删除确认记录 |
+| confirmed | 已确认 | 运维填写 `actual_port` / 备注 / 确认人后保存 | 参与 Module_09 配置生成；实例从 Job 移除后保留历史记录但不再生成 target |
+| not_applicable | 不适用 | blackbox / application_http 等无需独立 Exporter 的 Job 类型 | 终态，不生成确认记录 |
+
+> **确认粒度**：`resource_id` × `ScrapeJob` 维度；同一实例被多个 Job 选中时分别确认。
+
 ***
 
 ## 6. 模块边界
@@ -615,11 +650,62 @@ manual（MVP：手动勾选，候选按类型+网域收敛）
 | 写（本模块） | `POST/PUT/DELETE /api/v1/ci-exporter-mappings` | 默认采集配置 CRUD（采集实现层，每类型可多行，不绑网域） |
 | 写（本模块） | `POST/PUT/DELETE /api/v1/scrape-jobs` | ScrapeJob CRUD（含 instance_selection_mode / filter 表达式 / service_discovery 配置，v0.3+/v0.2+ 扩展字段） |
 | 读（本模块） | `GET /api/v1/exporter-templates`、`GET /api/v1/metric-library` | 采集实现（ExporterTemplate）与指标库查询（指标库按 CI 类型过滤，{v3.8}） |
+| 读（本模块） | `GET /api/v1/scrape-jobs` | ScrapeJob 列表；Query 支持 `label_template_id` 反查引用本模板的 Job（含变更状态，v0.2+） |
 | 消费（Module\_09 轮询） | 策略读取接口（ScrapeJob / CITypeExporterMapping / LabelTemplate 引用） | Module\_09 生成 `prometheus.yml` 的输入；本模块不主动通知（pull 模式） |
 | 只读消费（本模块 ← Module\_07） | Resource / LabelTemplate GET 接口 | 实例候选、标签模板引用（Module\_07 6.1 / 6.3） |
 | 调用（v0.3+） | Module\_02 `validate` / `preview` | 规则编辑时 PromQL 校验与指标预览 |
 
 > **跨模块契约要点**：①`label_template_id` 为跨模块唯一 FK（Module\_07 维护）；②`instance_filter` 筛选字段仅限 Resource 属性字段（label 名仅 UI 别名，不落表达式，见 5.4）；③v0.2+ `service_discovery` 目标由发现结果 + relabel 动态生成（不落 `selected_instance_ids`）。
+
+### 6.2 管理面 REST API 详细契约 {v3.10}
+
+> 本节为 MVP 后端可直接实现的请求 / 响应 / 错误码契约。所有接口统一返回 `platform/api/response` 格式：
+>
+> ```json
+> { "status": "success", "data": {} }
+> { "status": "error", "errorType": "bad_request", "error": "human readable message" }
+> ```
+>
+> 通用 `errorType`：`bad_request`、`unauthorized`、`forbidden`、`not_found`、`internal`。下文仅列业务专属错误。
+
+#### 6.2.1 默认采集配置（CITypeExporterMapping）
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v1/ci-exporter-mappings` | Query: `resource_type`、`is_default`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.1 | — |
+| POST | `/api/v1/ci-exporter-mappings` | 5.1 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：同 CI 类型存在多个 `is_default=true` |
+| PUT | `/api/v1/ci-exporter-mappings/{id}` | 5.1 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：同类型多个默认 |
+| DELETE | `/api/v1/ci-exporter-mappings/{id}` | — | `{ id }` | `bad_request`：默认模板禁止删除；`forbidden`：被 Job 引用时禁止删除 |
+
+#### 6.2.2 采集 Job（ScrapeJob）
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v1/scrape-jobs` | Query: `network_domain_id`、`resource_type`、`job_type`、`enabled`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2 / 5.4 | — |
+| POST | `/api/v1/scrape-jobs` | 5.2 / 5.4 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`network_domain_id` 未在 M09 完成监控纳管；`instance_selection_mode=manual` 但 `selected_instance_ids` 与资源类型/网域不匹配 |
+| PUT | `/api/v1/scrape-jobs/{id}` | 5.2 / 5.4 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：网域未纳管 / 实例不一致 |
+| DELETE | `/api/v1/scrape-jobs/{id}` | — | `{ id }` | `not_found` |
+| GET | `/api/v1/scrape-jobs?label_template_id={template_id}` | Query: `label_template_id`（必填） | `{ items: [...] }`：引用该标签模板的 Job 列表，item 含 `change_status`（pending/confirmed/none，v0.2+ 来自 M09 变更单状态） | `not_found`：模板不存在 |
+
+#### 6.2.3 指标库（ExporterMetricLibrary / BusinessMetric）
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v1/metric-library` | Query: `resource_type`、`metric_type`、`category`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，字段见 5.3 | — |
+| POST | `/api/v1/metric-library` | 5.3 字段（`is_builtin=false` 的用户扩展指标） | 创建后的完整对象 | `bad_request`：指标名重复 / 引用的 `resource_types` 不存在 |
+| PUT | `/api/v1/metric-library/{metric_id}` | 用户可更新字段（`enabled`、`help`、`unit`、`resource_types`、`source_exporters`、`category`） | 更新后的完整对象 | `forbidden`：内置指标禁止修改；`not_found` |
+| GET | `/api/v1/business-metrics` | Query: `business_domain`、`status`、`owner`、`page`、`page_size` | `{ items: [...], total: N }`，字段见 5.9 | — |
+| POST | `/api/v1/business-metrics` | 5.9 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`metric_name` 重复 / `owner` 为空 |
+| PUT | `/api/v1/business-metrics/{id}` | 5.9 可更新字段（按状态推进权限校验） | 更新后的完整对象 | `forbidden`：非业务负责人修改 pending/instrumented 语义字段；`bad_request`：状态流转非法 |
+
+#### 6.2.4 Exporter 安装确认
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| POST | `/api/v1/scrape-jobs/{job_id}/instances/{resource_id}/confirm` | `{ actual_port?: number, confirmed_by: string, notes?: string }` | 确认记录（5.6） | `bad_request`：资源不在该 Job 的 `selected_instance_ids` 中；`not_found` |
+| DELETE | `/api/v1/scrape-jobs/{job_id}/instances/{resource_id}/confirm` | — | `{ resource_id, job_id }` | `not_found` |
+
+> 说明：安装确认状态机见 5.10 ④；`not_applicable` 状态由 Job 类型决定，不生成确认记录。
 
 ***
 
@@ -679,13 +765,14 @@ manual（MVP：手动勾选，候选按类型+网域收敛）
 - [ ] {P0} {v3.7}/{v3.8} 默认采集配置区对 application_http 显性提示「业务服务（含自定义微服务）仍属 application_http、无需新增 CI 类型」；{v3.8} mock 提供自定义微服务指标集样本（application_http 挂接自定义指标，来源标注），自定义微服务可创建采集 Job 并展示采集落地
 - [ ] {P0} {v3.8} 技术指标库支持指标 ↔ CI 类型多对多挂接（同一指标可属多个 CI 类型）；同名指标（不同来源采集器，如 Spring Boot / Go 的 `http_server_requests_seconds_count`）提示时显示来源区分
 - [ ] {P0} {v3.8} 映射 / Job 表单支持「不使用默认采集器、直接手填采集参数」模式；采集参数手填值可被「同步映射默认值」保留（覆盖字段不刷新）
+- [ ] {P0} {v3.9} 顶部「当前网域」全局上下文切换器仅展示已纳管网域（`NetworkDomain.is_monitored=true`）；切换后采集 Job 列表、创建/编辑表单、实例候选列表按当前网域自动收敛；单网域模式隐藏切换器
 - [ ] {P0} {v3.8} 默认采集配置**入口承载于「采集 Job」页「采集器管理」Tab**（不独立导航，导航无「CI 类型 ↔ 默认采集器 / CI-Exporter」等入口）；创建 Job 时自动套用该 CI 类型的默认采集配置（决策 14），Tab 内可维护预设（采集器 / 参数 / 安装指南 / 标签模板）
 - [ ] {P0} {v3.8} 「采集器管理」Tab 承担**类型级采集器指引**（该 CI 类型该装什么采集器、安装指南明显展示），**不做实例级安装确认**——确认在「采集 Job」选实例时进行（5.6），动线以文案衔接（看指南 → 线下安装 → 选实例时标记已安装）
 
 ### 8.2 技术验收（后端/契约可验证）
 
 - [ ] {P0} 策略配置写入 DB 后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 能够轮询生成配置草稿，经人工确认后下发。
-- [ ] {P0} 标准 ScrapeJob 与 blackbox ScrapeJob 均必须绑定单一 `network_domain_id`；`instance_selection_mode=manual` 保存时校验 `selected_instance_ids` 选中的 Resource 与 Job 同属一个网域。
+- [ ] {P0} 标准 ScrapeJob 与 blackbox ScrapeJob 均必须绑定单一已纳管网域的 `network_domain_id`；未纳管网域不可选，保存时校验并提示用户先到 M09 完成纳管；`instance_selection_mode=manual` 保存时校验 `selected_instance_ids` 选中的 Resource 与 Job 同属一个网域。
 - [ ] {P0} blackbox ScrapeJob 的创建/编辑/启停、模块或目标变更后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 在下一轮询周期内检测到 `updated_at` 变化并重新生成对应网域配置（pull 模式，Module\_01 不主动通知）。
 - [ ] {P0} 运行时目标状态、拨测结果、采集诊断不再由本模块负责展示，相关验收标准已迁移至 [Module\_02: 查询中心](Module_02_Query_Center.md) 与 [Module\_08: 告警规则管理](Module_08_Alerting_Rule_Management.md)。
 - [ ] {P1} v0.4+ 支持基于外部 CMDB 自动发现实例并推荐监控策略；v1.0 支持与 ITIL 流程联动校验监控策略覆盖率。
@@ -749,7 +836,8 @@ manual（MVP：手动勾选，候选按类型+网域收敛）
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v3.10 | 2026-08-15 | 修改 | 内容缺口补齐（ready 前最后一次文档修正）：①5.10 补全 BusinessMetric 与 ExporterInstallationConfirmation 状态机；②6.1 新增 6.2 管理面 REST API 详细契约（请求/响应字段/错误码），并将「被引用 Job 查询」收敛到 M01 自身 `GET /api/v1/scrape-jobs?label_template_id=`；③8.1 补「当前网域」全局上下文切换器验收项；④同步原型/总表版本至 v3.2 | MVP / v0.2 | 设计中 |
+| v3.9 | 2026-08-15 | 修改 | 网域上下文细化（第二十轮需求对齐）：①明确 ScrapeJob 必须绑定单一已纳管网域，未在 M09 完成监控纳管的网域不可选，保存时校验并引导用户先到 M09 纳管；②M01 顶部增加「当前网域」全局上下文切换器，仅展示已纳管网域，切换后列表/表单/实例候选自动收敛；③3.1/5.4/8 验收同步 | MVP / v0.2 | 设计中 |
 | v3.8 | 2026-08-14 | 修改   | 指标库锚点演进 + Exporter 模板降级（第十七轮需求讨论 + 用户评审修正两轮，数据模型双层锚点）：①5.3 指标库锚点从 exporter_template_id **上移到 CI 类型（resource_types 多对多，关联带 source_exporter 来源标注解决同名不同义）**，exporter_template_id 降级「建议采集器」可空外键；②5.1/5.2 Exporter 模板**降级为「采集实现/采集器」**——install_guide/默认参数归属采集实现（非 CI 类型，评审修正：linux 下可 node_exporter/Telegraf/自研 Agent 多实现，`is_default` 标记默认），并入 CITypeExporterMapping（每类型可多行）；「Exporter 市场」运营概念移除（3.1 删行）；③采集参数（端口/路径/协议）**手填为主**、默认采集器仅预填（支持"不选采集器直接填写"模式）；④自定义微服务 = application_http 挂接自定义指标集（无需 et-app-go 模板概念，v3.7 相应表述修订）；⑤3.1/术语映射/6 边界/6.1 接口/8 验收全面同步；⑥评审二轮增量：CI ↔ 采集实现**多对多双向**（一个采集实现可服务多个 CI 类型，如 Telegraf）+ 指标**语义域** `category`（P1 增强，按「语义域+CI 类型」组织）+ 5.1 职责边界 / 5.4 Job 三关联（引用不拥有）显性化；⑦**入口合一与定名（第十八/十九轮）**：默认采集配置入口**并入「采集 Job」页「采集器管理」Tab**（不独立导航；定名「采集器管理」，原型不再出现「CI-Exporter / CI 类型↔默认采集器」字样，技术标识 /ci-exporter-mappings 接口路径保留）；Tab 承担**类型级采集器指引**（该装什么采集器、安装指南明显展示）**+ 预设维护**，**实例级安装确认在选实例时（5.6）、本 Tab 不做确认避免重复**，动线以文案衔接；术语映射补「采集器管理」；8.1 验收同步；**原型 v3.0 已同步 ✅** | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v3.7 | 2026-08-14 | 修改   | 原型评审新问题落地（第十六轮）：①两库定位区分——技术指标库（ExporterMetricLibrary，回答"能采到什么"）vs 业务指标库（BusinessMetric，回答"业务关心什么"），5.3 改名「技术指标库」+ 两库关系说明，3.1 指标库管理行改名，导航归组「指标库」分组（技术/业务/业务视图）动线放一起，两页互链；②自定义微服务仍属 application_http（给技术工程师显性约束）——不按语言/框架拆分 CI 类型，5.1 补自定义模板覆盖形态差异（is_builtin=false），原型补 et-app-go 模板 + map-009 映射 + 自定义微服务 Job 与指标，5.2 补模板创建链路版本归属（自定义模板登记属 P2「Exporter 市场」，映射表单旁置「登记自定义模板（P2 开放）」占位入口，MVP 差异承载在映射层覆盖）；③业务视图——MVP 轻量聚合独立成页（「指标库 → 业务视图」BusinessViewPage，按 business_domain 聚合成员+指标+采集落地），与业务指标库登记表职责分离（业务指标库页不再内嵌业务视图 Tab，消除双入口冲突）；登记表补「采集落地」列（online 关联 Job）；5.9 版本归属更新；8.1 验收 +4 条；术语映射补自定义模板 / 改技术指标库；原型 v2.8→v2.9（含 v2.8 头部版本登记漏更修正） | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
-| v3.6 | 2026-08-14 | 修改   | 业务指标动线分离（第十五轮需求讨论）：5.9 补「登记模式」——登记动作 ≠ 语义所有权（业务负责人自录 `self` / 运维工单代办 `agent`，owner 必填指向业务负责人、代办后可选确认环节）；状态机补推进分工（语义编辑权仅业务负责人或其委托，pending/instrumented 业务侧、online 运维）；补业务域聚合视图版本归属（v0.2+ 独立业务目录，语义层不改变采集配置逻辑）；3.1 功能行同步；全局故事库补 M01-BIZ-03 + 第 2 章引用；术语映射补 register_source/业务负责人/聚合视图 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 

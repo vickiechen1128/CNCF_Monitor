@@ -1,6 +1,6 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.7（Module_07_Monitoring_Object_Management.md）
+// 对齐 PRD v2.11（Module_07_Monitoring_Object_Management.md）
 // ============================================================
 
 // ---------- 基础枚举 ----------
@@ -697,3 +697,25 @@ export const mockImportHistory: ImportHistory[] = [
     ],
   },
 ]
+
+// ---------- 租户上下文（对齐 Module_01 / Module_09，演示单网域-多网域模式） ----------
+export interface Tenant {
+  id: string
+  name: string
+  /** 租户级多网域开关：false 时仅面向 default 管理域，网域选择固定 default */
+  multi_site_enabled: boolean
+}
+
+/** 当前租户上下文：通过切换 multi_site_enabled 演示单网域/多网域模式差异 */
+export const currentTenant: Tenant = {
+  id: 'tenant-007',
+  name: 'AIDC 运维租户',
+  multi_site_enabled: true,
+}
+
+// ---------- 用户角色（动线分离演示：本模块按用户职责区分运维工程师1/2） ----------
+export type UserRole = 'ops1' | 'ops2'
+export const USER_ROLE_MAP: Record<UserRole, string> = {
+  ops1: '运维工程师1',
+  ops2: '运维工程师2',
+}

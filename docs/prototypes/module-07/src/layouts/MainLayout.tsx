@@ -1,6 +1,7 @@
-import { Layout, Menu, Typography, Space, Badge, Tag, Tooltip, Collapse } from 'antd'
-import type { ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Layout, Menu, Typography, Space, Tag, Tooltip, Collapse, Select, App } from 'antd'
+import { type ReactNode } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { USER_ROLE_MAP, type UserRole } from '../mocks/module-07'
 import {
   AppstoreOutlined,
   DashboardOutlined,
@@ -100,6 +101,20 @@ function buildMenu(): MenuItem[] {
 export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { message } = App.useApp()
+  const [searchParams, setSearchParams] = useSearchParams()
+  // {v2.10} M07 不采用全局网域上下文切换器：网域仅作为资源列表内的筛选维度
+  // 当前角色（动线分离演示）：按用户职责区分运维工程师1/2，URL ?role=ops2 → 运维工程师2，默认运维工程师1
+  const role: UserRole = searchParams.get('role') === 'ops2' ? 'ops2' : 'ops1'
+
+  const switchRole = (next: UserRole) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'ops2') params.set('role', 'ops2')
+    else params.delete('role')
+    setSearchParams(params)
+    message.info(next === 'ops2' ? '已切换为运维工程师2' : '已切换为运维工程师1')
+  }
+
   const menuItems = buildMenu()
 
   const openKeys = menuItems
@@ -113,7 +128,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     <Layout className="app-layout">
       <Header className="app-header">
         <Space size="large">
-          <Title level={4} className="app-title" style={{ margin: 0 }}>
+          <Title level={4} className="app-title" style={{ margin: 0, color: '#fff' }}>
             <span className="app-title-accent">◆</span>
             MetricCenter
           </Title>
@@ -121,9 +136,16 @@ export function MainLayout({ children }: MainLayoutProps) {
             原型验证版
           </Tag>
         </Space>
-        <Space size="middle">
-          <Badge status="success" text={<Text style={{ color: 'rgba(255,255,255,0.85)' }}>default 网域在线</Text>} />
-          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>运维工程师</Text>
+        <Space size="large" align="center">
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
+            <Select
+              value={role}
+              onChange={(v: UserRole) => switchRole(v)}
+              style={{ width: 140 }}
+              options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
+            />
+          </Space>
         </Space>
       </Header>
       <Layout>

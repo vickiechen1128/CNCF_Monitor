@@ -1,7 +1,6 @@
-import { useState } from 'react'
-import { Layout, Menu, Typography, Space, Badge, Tag, Switch, Tooltip, Divider, Alert, Collapse } from 'antd'
-import type { ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useState, type ReactNode } from 'react'
+import { Layout, Menu, Typography, Space, Tag, Switch, Tooltip, Divider, Alert, Collapse, App, Select } from 'antd'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AppstoreOutlined,
   CloudOutlined,
@@ -12,7 +11,7 @@ import {
   SettingOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
-import { currentTenant } from '../mocks/module-09'
+import { currentTenant, USER_ROLE_MAP, type UserRole } from '../mocks/module-09'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -64,8 +63,21 @@ function buildMenu(multiSite: boolean): MenuItem[] {
 export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { message } = App.useApp()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
   const [showDesignTip, setShowDesignTip] = useState(true)
+  // 当前角色（动线分离演示）：按用户职责区分运维工程师1/2，URL ?role=ops2 → 运维工程师2，默认运维工程师1
+  const role: UserRole = searchParams.get('role') === 'ops2' ? 'ops2' : 'ops1'
+
+  const switchRole = (next: UserRole) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'ops2') params.set('role', 'ops2')
+    else params.delete('role')
+    setSearchParams(params)
+    message.info(next === 'ops2' ? '已切换为运维工程师2' : '已切换为运维工程师1')
+  }
+
   const menuItems = buildMenu(multiSite)
 
   const handleModeChange = (checked: boolean) => {
@@ -88,7 +100,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     <Layout className="app-layout">
       <Header className="app-header">
         <Space size="large">
-          <Title level={4} className="app-title" style={{ margin: 0 }}>
+          <Title level={4} className="app-title" style={{ margin: 0, color: '#fff' }}>
             <span className="app-title-accent">◆</span>
             MetricCenter
           </Title>
@@ -96,38 +108,32 @@ export function MainLayout({ children }: MainLayoutProps) {
             原型验证版
           </Tag>
         </Space>
-        <Space size="middle">
-          <Badge
-            status={multiSite ? 'processing' : 'success'}
-            text={
-              <Text style={{ color: 'rgba(255,255,255,0.85)' }}>
-                {multiSite ? '多网域模式' : '单网域模式'}
-              </Text>
-            }
-          />
-          <Text style={{ color: 'rgba(255,255,255,0.65)' }}>{currentTenant.name}</Text>
+        <Space size="large" align="center">
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>网域模式</Text>
+            <Tooltip title={multiSite ? '多网域模式：展示网域管理 / Agent 状态、按网域下发' : '单网域模式：隐藏网域管理，仅面向中心 Prometheus 下发'}>
+              <Switch
+                checked={multiSite}
+                checkedChildren="多网域"
+                unCheckedChildren="单网域"
+                onChange={handleModeChange}
+              />
+            </Tooltip>
+          </Space>
+          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
+          <Space size="small" align="center">
+            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
+            <Select
+              value={role}
+              onChange={(v: UserRole) => switchRole(v)}
+              style={{ width: 140 }}
+              options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
+            />
+          </Space>
         </Space>
       </Header>
       <Layout>
         <Sider theme="light" width={240} style={{ borderRight: '1px solid #E5E6EB' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #E5E6EB' }}>
-            <Space direction="vertical" size={4} style={{ width: '100%' }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                租户级模式开关
-              </Text>
-              <Switch
-                checked={multiSite}
-                onChange={handleModeChange}
-                checkedChildren="多网域"
-                unCheckedChildren="单网域"
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {multiSite
-                  ? '展示网域管理、Agent 状态、按网域下发'
-                  : '隐藏网域管理，仅面向中心 Prometheus 下发'}
-              </Text>
-            </Space>
-          </div>
           <Menu
             mode="inline"
             selectedKeys={[location.pathname]}
