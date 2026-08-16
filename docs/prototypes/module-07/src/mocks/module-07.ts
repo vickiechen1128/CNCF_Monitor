@@ -1,11 +1,11 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.11（Module_07_Monitoring_Object_Management.md）
+// 对齐 PRD v2.14（Module_07_Monitoring_Object_Management.md）
 // ============================================================
 
 // ---------- 基础枚举 ----------
-// PRD 5.1：四类资源类型
-export type ResourceType = 'host' | 'middleware' | 'application' | 'generic_target'
+// PRD 5.1：五大类资源类别（{v2.13} 由四大类拆分，新增 database，决策 D19；{v2.14} 字段更名 resource_category，决策 D24）
+export type ResourceCategory = 'host' | 'database' | 'middleware' | 'application' | 'generic_target'
 // PRD 5.2：数据来源；cmdb 为 v0.4+ 预留（由 Module_04 同步写入）
 export type SourceType = 'manual' | 'import' | 'cmdb'
 // PRD 5.2：资源状态；orphan 为 v0.4+ 预留（孤儿资源，由 Module_04 生命周期管理）
@@ -18,20 +18,21 @@ export type TargetScheme = 'http' | 'https'
 export type ImportStatus = 'success' | 'partial' | 'failed'
 // PRD 5.11：标签模板字段来源；cmdb_field 为 v0.4+ 预留
 export type LabelTemplateSource = 'resource_field' | 'prometheus_builtin' | 'composite' | 'cmdb_field'
-// PRD 5.5.3：状态映射规则适用的资源类型；'all' 表示通用
-export type StatusMappingResourceType = ResourceType | 'all'
+// PRD 5.5.3：状态映射规则适用的资源类别；'all' 表示通用
+export type StatusMappingResourceCategory = ResourceCategory | 'all'
 
 // ---------- 资源基础结构（PRD 5.2） ----------
 export interface ResourceBase {
   resource_id: string
-  resource_type: ResourceType
+  // {v2.14} 粗粒度资源类别（原 resource_type 更名，决策 D24）
+  resource_category: ResourceCategory
   network_domain_id: string
   source_type: SourceType
   instance_name?: string
   hostname?: string
   instance_ip?: string
   os_type?: string
-  // {v2.8} 业务类型/业务域归属（如 payment / data-api）；任意资源类型可挂，MVP 以 application 维护；映射为 `biz` label
+  // {v2.8} 业务类型/业务域归属（如 payment / data-api）；任意资源类别可挂，MVP 以 application 维护；映射为 `biz` label
   business_domain?: string
   app_name?: string
   env?: Env
@@ -50,16 +51,26 @@ export interface ResourceBase {
 
 // ---------- 主机资源（PRD 5.6） ----------
 export interface HostResource extends ResourceBase {
-  resource_type: 'host'
+  resource_category: 'host'
   hostname: string
   instance_ip: string
   os_type?: string
   os_version?: string
 }
 
+// ---------- 数据库资源（PRD 5.7.1，{v2.13} 新增，决策 D19） ----------
+export interface DatabaseResource extends ResourceBase {
+  resource_category: 'database'
+  database_type: string
+  instance_ip: string
+  port: number
+  version?: string
+  connection_string?: string
+}
+
 // ---------- 中间件资源（PRD 5.7） ----------
 export interface MiddlewareResource extends ResourceBase {
-  resource_type: 'middleware'
+  resource_category: 'middleware'
   middleware_type: string
   instance_ip: string
   port: number
@@ -69,7 +80,7 @@ export interface MiddlewareResource extends ResourceBase {
 
 // ---------- 应用服务资源（PRD 5.8） ----------
 export interface ApplicationResource extends ResourceBase {
-  resource_type: 'application'
+  resource_category: 'application'
   service_name: string
   health_check_url?: string
   protocol?: AppProtocol
@@ -79,7 +90,7 @@ export interface ApplicationResource extends ResourceBase {
 
 // ---------- 通用指标目标（PRD 5.9） ----------
 export interface GenericTargetResource extends ResourceBase {
-  resource_type: 'generic_target'
+  resource_category: 'generic_target'
   target_name: string
   instance_ip: string
   port?: number
@@ -89,20 +100,23 @@ export interface GenericTargetResource extends ResourceBase {
   exporter_type?: string
 }
 
-export type Resource = HostResource | MiddlewareResource | ApplicationResource | GenericTargetResource
+export type Resource = HostResource | DatabaseResource | MiddlewareResource | ApplicationResource | GenericTargetResource
 
 // ---------- 类型守卫 ----------
 export function isHostResource(r: Resource): r is HostResource {
-  return r.resource_type === 'host'
+  return r.resource_category === 'host'
+}
+export function isDatabaseResource(r: Resource): r is DatabaseResource {
+  return r.resource_category === 'database'
 }
 export function isMiddlewareResource(r: Resource): r is MiddlewareResource {
-  return r.resource_type === 'middleware'
+  return r.resource_category === 'middleware'
 }
 export function isApplicationResource(r: Resource): r is ApplicationResource {
-  return r.resource_type === 'application'
+  return r.resource_category === 'application'
 }
 export function isGenericTargetResource(r: Resource): r is GenericTargetResource {
-  return r.resource_type === 'generic_target'
+  return r.resource_category === 'generic_target'
 }
 
 // ---------- 资源 Label（PRD 5.3） ----------
@@ -143,7 +157,7 @@ export interface Mapping {
 export interface LabelTemplate {
   template_id: string
   name: string
-  resource_type: ResourceType
+  resource_category: ResourceCategory
   is_default: boolean
   mappings: Mapping[]
   created_at: string
@@ -153,7 +167,7 @@ export interface LabelTemplate {
 // ---------- Excel 导入（PRD 7.3） ----------
 export interface ImportError {
   row: number
-  resource_type: ResourceType
+  resource_category: ResourceCategory
   field: string
   value: string
   reason: string
@@ -162,7 +176,7 @@ export interface ImportError {
 export interface ImportHistory {
   import_id: string
   filename: string
-  resource_type: ResourceType
+  resource_category: ResourceCategory
   total: number
   success: number
   failed: number
@@ -176,7 +190,7 @@ export interface StatusMappingRule {
   id: string
   source_status: string
   target_status: ResourceStatus
-  resource_type: StatusMappingResourceType
+  resource_category: StatusMappingResourceCategory
   priority: number
   is_builtin: boolean
   enabled: boolean
@@ -194,7 +208,7 @@ export interface StatusMappingConfig {
 export interface CMDBProvider {
   name: string
   /** MVP 仅 ExcelProvider / SQLiteProvider；v0.4+ 由 Module_04 扩展 BlueKing/HTTP/Nacos/K8s */
-  listResources(resourceType: ResourceType, networkDomainID: string): Resource[]
+  listResources(resourceType: ResourceCategory, networkDomainID: string): Resource[]
 }
 
 export const MOCK_PROVIDERS: { name: string; version: string; status: 'active' | 'planned'; note: string }[] = [
@@ -207,13 +221,16 @@ export const MOCK_PROVIDERS: { name: string; version: string; status: 'active' |
 ]
 
 // ---------- 常量与字典 ----------
-export const RESOURCE_TYPES: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+// {v2.13} 五大类资源类别（决策 D19）
+export const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
 export const ENV_VALUES: Env[] = ['dev', 'test', 'staging', 'prod']
 /** MVP 可选状态；orphan 为 v0.4+ 预留，不在表单选项中展示 */
 export const STATUS_VALUES: ResourceStatus[] = ['online', 'offline', 'maintenance']
 /** 全部状态（含 v0.4+ orphan），用于只读展示与测试 */
 export const ALL_STATUS_VALUES: ResourceStatus[] = ['online', 'offline', 'maintenance', 'orphan']
-export const MIDDLEWARE_TYPE_OPTIONS = ['mysql', 'redis', 'kafka', 'elasticsearch', 'mongodb', 'rabbitmq']
+// {v2.13} 子类型拆分（决策 D19）：数据库产品线用 database_type，中间件不再承载数据库
+export const DATABASE_TYPE_OPTIONS = ['mysql', 'redis', 'mongodb', 'dm8', 'postgresql', 'oracle', 'sqlserver']
+export const MIDDLEWARE_TYPE_OPTIONS = ['kafka', 'elasticsearch', 'nginx', 'rabbitmq', 'zookeeper']
 export const PROTOCOL_OPTIONS: AppProtocol[] = ['http', 'https', 'tcp']
 export const SCHEME_OPTIONS: TargetScheme[] = ['http', 'https']
 
@@ -242,23 +259,25 @@ export const mockStatusMappingConfig: StatusMappingConfig = {
   case_sensitive: false,
   default_target: 'offline',
   rules: [
-    { id: 'sm-01', source_status: '运行中|正常|online|running', target_status: 'online', resource_type: 'host', priority: 100, is_builtin: true, enabled: true, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
-    { id: 'sm-02', source_status: '已停止|停止|offline|stopped', target_status: 'offline', resource_type: 'host', priority: 100, is_builtin: true, enabled: true, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
-    { id: 'sm-03', source_status: '维护中|维修中|maintenance', target_status: 'maintenance', resource_type: 'all', priority: 90, is_builtin: true, enabled: true, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
+    { id: 'sm-01', source_status: '运行中|正常|online|running', target_status: 'online', resource_category: 'host', priority: 100, is_builtin: true, enabled: true, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
+    { id: 'sm-02', source_status: '已停止|停止|offline|stopped', target_status: 'offline', resource_category: 'host', priority: 100, is_builtin: true, enabled: true, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
+    { id: 'sm-03', source_status: '维护中|维修中|maintenance', target_status: 'maintenance', resource_category: 'all', priority: 90, is_builtin: true, enabled: true, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
   ],
 }
 
-/** 四类资源固定列导入模板（PRD 7.1，含 network_domain 列） */
-export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceType, string[]> = {
+/** 五大类资源固定列导入模板（PRD 7.1，含 network_domain 列；{v2.13} 新增 database 列，决策 D19） */
+export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceCategory, string[]> = {
   host: ['network_domain', 'hostname', 'instance_ip', 'os_type', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'app_name', 'env', 'cluster', 'owner', 'status'],
   middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'app_name', 'env', 'cluster', 'owner', 'status'],
   application: ['network_domain', 'service_name', 'business_domain', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'status'],
   generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'app_name', 'env', 'cluster', 'owner', 'status'],
 }
 
-/** 标签模板映射：Resource 字段选项（PRD 5.12 A） */
-export const RESOURCE_FIELD_OPTIONS: Record<ResourceType, string[]> = {
+/** 标签模板映射：Resource 字段选项（PRD 5.12 A；{v2.13} 新增 database 键） */
+export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
   host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  database: ['instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
   middleware: ['instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
   application: ['instance_name', 'service_name', 'business_domain', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
   generic_target: ['instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
@@ -280,8 +299,10 @@ export const STATUS_MAP: Record<ResourceStatus, string> = {
   orphan: '孤儿 {v0.4+}',
 }
 
-export const RESOURCE_TYPE_MAP: Record<ResourceType, string> = {
+// {v2.14} 资源类别展示名（原 RESOURCE_TYPE_MAP 更名，决策 D24；{v2.13} 新增 database）
+export const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   host: '主机',
+  database: '数据库',
   middleware: '中间件',
   application: '应用',
   generic_target: '通用目标',
@@ -312,7 +333,7 @@ export const mockResources: Resource[] = [
   // ----- host（PRD 5.6） -----
   {
     resource_id: 'res-host-001',
-    resource_type: 'host',
+    resource_category: 'host',
     network_domain_id: 'default',
     source_type: 'manual',
     instance_name: 'prod-web-01',
@@ -335,7 +356,7 @@ export const mockResources: Resource[] = [
   },
   {
     resource_id: 'res-host-002',
-    resource_type: 'host',
+    resource_category: 'host',
     network_domain_id: 'default',
     source_type: 'import',
     instance_name: 'prod-db-01',
@@ -354,7 +375,7 @@ export const mockResources: Resource[] = [
   },
   {
     resource_id: 'res-host-003',
-    resource_type: 'host',
+    resource_category: 'host',
     network_domain_id: 'gov-cloud-a',
     source_type: 'manual',
     instance_name: 'test-gateway-01',
@@ -371,14 +392,14 @@ export const mockResources: Resource[] = [
     created_at: '2026-07-03 14:00:00',
     updated_at: '2026-07-24 16:45:00',
   },
-  // ----- middleware（PRD 5.7） -----
+  // ----- database（PRD 5.7.1，{v2.13} 新增，决策 D19） -----
   {
-    resource_id: 'res-mw-001',
-    resource_type: 'middleware',
+    resource_id: 'res-db-001',
+    resource_category: 'database',
     network_domain_id: 'default',
     source_type: 'manual',
     instance_name: 'redis-cache-01',
-    middleware_type: 'redis',
+    database_type: 'redis',
     instance_ip: '10.0.2.11',
     port: 6379,
     version: '7.2',
@@ -393,10 +414,51 @@ export const mockResources: Resource[] = [
     updated_at: '2026-07-25 09:10:00',
   },
   {
-    resource_id: 'res-mw-002',
-    resource_type: 'middleware',
+    resource_id: 'res-db-002',
+    resource_category: 'database',
     network_domain_id: 'default',
     source_type: 'import',
+    instance_name: 'mysql-order-01',
+    database_type: 'mysql',
+    instance_ip: '10.0.2.12',
+    port: 3306,
+    version: '8.0',
+    connection_string: 'mysql://order:****@10.0.2.12:3306/order',
+    app_name: '订单库',
+    env: 'prod',
+    cluster: 'db-cluster-a',
+    owner: '李四',
+    status: 'online',
+    is_monitored: true,
+    created_at: '2026-07-05 11:00:00',
+    updated_at: '2026-07-25 09:15:00',
+  },
+  {
+    resource_id: 'res-db-003',
+    resource_category: 'database',
+    network_domain_id: 'gov-cloud-a',
+    source_type: 'manual',
+    instance_name: 'dm-master-01',
+    database_type: 'dm8',
+    instance_ip: '192.168.1.41',
+    port: 5236,
+    version: 'dm8',
+    connection_string: 'dm://system:****@192.168.1.41:5236',
+    app_name: '政务数据库',
+    env: 'prod',
+    cluster: 'dm-cluster',
+    owner: '王五',
+    status: 'online',
+    is_monitored: false,
+    created_at: '2026-07-06 09:00:00',
+    updated_at: '2026-07-26 09:10:00',
+  },
+  // ----- middleware（PRD 5.7） -----
+  {
+    resource_id: 'res-mw-001',
+    resource_category: 'middleware',
+    network_domain_id: 'default',
+    source_type: 'manual',
     instance_name: 'kafka-01',
     middleware_type: 'kafka',
     instance_ip: '10.0.2.21',
@@ -412,10 +474,30 @@ export const mockResources: Resource[] = [
     created_at: '2026-07-06 10:00:00',
     updated_at: '2026-07-26 09:10:00',
   },
+  {
+    resource_id: 'res-mw-002',
+    resource_category: 'middleware',
+    network_domain_id: 'default',
+    source_type: 'manual',
+    instance_name: 'nginx-gw-01',
+    middleware_type: 'nginx',
+    instance_ip: '10.0.2.22',
+    port: 80,
+    version: '1.24',
+    connection_string: '10.0.2.22:80',
+    app_name: '网关 Nginx',
+    env: 'prod',
+    cluster: 'gw-cluster',
+    owner: '周八',
+    status: 'online',
+    is_monitored: true,
+    created_at: '2026-07-07 10:00:00',
+    updated_at: '2026-07-27 09:10:00',
+  },
   // ----- application（PRD 5.8） -----
   {
     resource_id: 'res-app-001',
-    resource_type: 'application',
+    resource_category: 'application',
     network_domain_id: 'default',
     source_type: 'manual',
     instance_name: 'order-service-v2',
@@ -436,7 +518,7 @@ export const mockResources: Resource[] = [
   },
   {
     resource_id: 'res-app-002',
-    resource_type: 'application',
+    resource_category: 'application',
     network_domain_id: 'gov-cloud-a',
     source_type: 'manual',
     instance_name: 'pay-service-v1',
@@ -458,7 +540,7 @@ export const mockResources: Resource[] = [
   // ----- generic_target（PRD 5.9） -----
   {
     resource_id: 'res-gen-001',
-    resource_type: 'generic_target',
+    resource_category: 'generic_target',
     network_domain_id: 'gov-cloud-a',
     source_type: 'import',
     instance_name: 'switch-core-01',
@@ -480,7 +562,7 @@ export const mockResources: Resource[] = [
   },
   {
     resource_id: 'res-gen-002',
-    resource_type: 'generic_target',
+    resource_category: 'generic_target',
     network_domain_id: 'gov-cloud-a',
     source_type: 'manual',
     instance_name: 'loadbalancer-02',
@@ -540,7 +622,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
   {
     template_id: 'tpl-host-default',
     name: '主机默认模板',
-    resource_type: 'host',
+    resource_category: 'host',
     is_default: true,
     mappings: [
       { mapping_id: 'mp-host-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
@@ -555,10 +637,27 @@ export const mockLabelTemplates: LabelTemplate[] = [
     updated_at: '2026-07-20 10:00:00',
   },
   // ----- middleware -----
+  // ----- database（{v2.13} 新增，决策 D19/D18） -----
+  {
+    template_id: 'tpl-db-default',
+    name: '数据库默认模板',
+    resource_category: 'database',
+    is_default: true,
+    mappings: [
+      { mapping_id: 'mp-db-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
+      { mapping_id: 'mp-db-02', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
+      { mapping_id: 'mp-db-03', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-db-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
+      { mapping_id: 'mp-db-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
+      { mapping_id: 'mp-db-06', source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true, transform: '' },
+    ],
+    created_at: '2026-07-20 10:05:00',
+    updated_at: '2026-07-20 10:05:00',
+  },
   {
     template_id: 'tpl-mw-default',
     name: '中间件默认模板',
-    resource_type: 'middleware',
+    resource_category: 'middleware',
     is_default: true,
     mappings: [
       { mapping_id: 'mp-mw-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
@@ -573,13 +672,14 @@ export const mockLabelTemplates: LabelTemplate[] = [
   {
     template_id: 'tpl-mw-redis-ha',
     name: 'Redis 高可用标签模板',
-    resource_type: 'middleware',
+    // {v2.13} redis 归 database（决策 D19）
+    resource_category: 'database',
     is_default: false,
     mappings: [
       { mapping_id: 'mp-mw-06', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-07', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-08', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
-      { mapping_id: 'mp-mw-09', source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-09', source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-10', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-11', source_field: 'instance_name', source_type: 'resource_field', target_label: 'instance_name', enabled: true, transform: '' },
     ],
@@ -590,7 +690,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
   {
     template_id: 'tpl-app-default',
     name: '应用默认模板',
-    resource_type: 'application',
+    resource_category: 'application',
     is_default: true,
     mappings: [
       { mapping_id: 'mp-app-01', source_field: 'service_name', source_type: 'resource_field', target_label: 'service_name', enabled: true, transform: '' },
@@ -608,7 +708,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
   {
     template_id: 'tpl-gen-default',
     name: '通用目标默认模板',
-    resource_type: 'generic_target',
+    resource_category: 'generic_target',
     is_default: true,
     mappings: [
       { mapping_id: 'mp-gen-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
@@ -659,21 +759,21 @@ export const mockImportHistory: ImportHistory[] = [
   {
     import_id: 'imp-001',
     filename: 'host_resources_20260725.xlsx',
-    resource_type: 'host',
+    resource_category: 'host',
     total: 120,
     success: 118,
     failed: 2,
     status: 'partial',
     created_at: '2026-07-25 14:30:00',
     errors: [
-      { row: 5, resource_type: 'host', field: 'instance_ip', value: '999.999.999.999', reason: 'IP 格式不正确' },
-      { row: 12, resource_type: 'host', field: 'env', value: 'production', reason: 'env 必须是 dev/test/staging/prod 之一' },
+      { row: 5, resource_category: 'host', field: 'instance_ip', value: '999.999.999.999', reason: 'IP 格式不正确' },
+      { row: 12, resource_category: 'host', field: 'env', value: 'production', reason: 'env 必须是 dev/test/staging/prod 之一' },
     ],
   },
   {
     import_id: 'imp-002',
     filename: 'middleware_resources_20260726.xlsx',
-    resource_type: 'middleware',
+    resource_category: 'middleware',
     total: 45,
     success: 45,
     failed: 0,
@@ -684,16 +784,16 @@ export const mockImportHistory: ImportHistory[] = [
   {
     import_id: 'imp-003',
     filename: 'app_resources_20260728.xlsx',
-    resource_type: 'application',
+    resource_category: 'application',
     total: 80,
     success: 0,
     failed: 80,
     status: 'failed',
     created_at: '2026-07-28 11:00:00',
     errors: [
-      { row: 3, resource_type: 'application', field: 'service_name', value: '', reason: '必填字段为空' },
-      { row: 8, resource_type: 'application', field: 'health_check_url', value: 'not-a-url', reason: 'URL 格式不正确' },
-      { row: 15, resource_type: 'application', field: 'protocol', value: 'grpc', reason: 'protocol 必须是 http/https/tcp 之一' },
+      { row: 3, resource_category: 'application', field: 'service_name', value: '', reason: '必填字段为空' },
+      { row: 8, resource_category: 'application', field: 'health_check_url', value: 'not-a-url', reason: 'URL 格式不正确' },
+      { row: 15, resource_category: 'application', field: 'protocol', value: 'grpc', reason: 'protocol 必须是 http/https/tcp 之一' },
     ],
   },
 ]

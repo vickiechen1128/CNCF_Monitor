@@ -2,11 +2,11 @@
 
 ## 任务
 
-基于 `docs/02-product-requirements/Modules/Module_08_Alerting_Rule_Management.md` 生成分模块独立原型。
+基于 `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md` 生成分模块独立原型。
 
 ## 输出
 
-- PRD 文件路径：`docs/02-product-requirements/Modules/Module_08_Alerting_Rule_Management.md`
+- PRD 文件路径：`docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`
 - PRD 状态：ready
 - PRD 版本：v1.1
 - 原型目录：`docs/prototypes/module-08/`

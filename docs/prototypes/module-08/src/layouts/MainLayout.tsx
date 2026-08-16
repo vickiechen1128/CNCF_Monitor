@@ -1,19 +1,25 @@
 import { Layout, Menu, Typography, Space, Tag, Switch, Select, App, Tooltip, Divider } from 'antd'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { AppstoreOutlined } from '@ant-design/icons'
+import {
+  AlertOutlined,
+  ApartmentOutlined,
+  BellOutlined,
+  PauseCircleOutlined,
+  SettingOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
 
-type UserRole = 'ops' | 'biz_owner'
+type UserRole = 'ops' | 'arch'
 const USER_ROLE_MAP: Record<UserRole, string> = {
   ops: '运维工程师',
-  biz_owner: '业务负责人',
+  arch: '运维架构师',
 }
 const currentTenant = { id: 'module-08', name: 'AIDC 运维租户', multi_site_enabled: true }
-
 
 interface MainLayoutProps {
   children: ReactNode
@@ -23,10 +29,12 @@ type MenuItem = Required<MenuProps>['items'][number]
 
 function buildMenu(): MenuItem[] {
   return [
-    { key: '/alerting-rules', icon: <AppstoreOutlined />, label: '告警规则' },
-    { key: '/rule-groups', icon: <AppstoreOutlined />, label: '规则组' },
-    { key: '/silences', icon: <AppstoreOutlined />, label: '静默规则' },
-    { key: '/notifiers', icon: <AppstoreOutlined />, label: '通知渠道' },
+    { key: '/alerts', icon: <AlertOutlined />, label: '告警状态' },
+    { key: '/routes', icon: <ApartmentOutlined />, label: '路由规则' },
+    { key: '/notifiers', icon: <BellOutlined />, label: '通知渠道' },
+    { key: '/silences', icon: <PauseCircleOutlined />, label: '静默规则' },
+    { key: '/inhibitions', icon: <ThunderboltOutlined />, label: '告警抑制' },
+    { key: '/config', icon: <SettingOutlined />, label: '配置管理' },
   ]
 }
 
@@ -37,14 +45,14 @@ export function MainLayout({ children }: MainLayoutProps) {
   const { message } = App.useApp()
   const [searchParams, setSearchParams] = useSearchParams()
   const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
-  const role: UserRole = searchParams.get('role') === 'biz' ? 'biz_owner' : 'ops'
+  const role: UserRole = searchParams.get('role') === 'arch' ? 'arch' : 'ops'
 
   const switchRole = (next: UserRole) => {
     const params = new URLSearchParams(searchParams)
-    if (next === 'biz_owner') params.set('role', 'biz')
+    if (next === 'arch') params.set('role', 'arch')
     else params.delete('role')
     setSearchParams(params)
-    message.info(next === 'biz_owner' ? '已切换为业务负责人' : '已切换为运维工程师')
+    message.info(next === 'arch' ? '已切换为运维架构师' : '已切换为运维工程师')
   }
 
   const toggleMultiSite = (checked: boolean) => {
@@ -70,6 +78,9 @@ export function MainLayout({ children }: MainLayoutProps) {
             MetricCenter
           </Title>
           <Tag color="#0ECDEB" style={{ color: '#0B1B2A', fontWeight: 600 }}>
+            告警收敛与通知管理
+          </Tag>
+          <Tag color="rgba(14,205,235,0.15)" style={{ color: '#0ECDEB', borderColor: 'rgba(14,205,235,0.4)' }}>
             原型验证版
           </Tag>
         </Space>

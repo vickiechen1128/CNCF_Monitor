@@ -19,7 +19,7 @@
 
 MVP 阶段**不实现完整认证鉴权与多租户隔离**，仅作为请求入口和代理层，便于快速验证业务链路。v1.0 阶段由本模块提供网关层鉴权与审计能力；用户/角色/租户/权限策略的生命周期管理由 [Module_06](Module_06_Multi_Tenant.md) 负责。
 
-> **与 Module 08 的边界**：告警状态查询 `/api/v1/alerts` 由 Gateway 代理到 Prometheus；功能 Owner 为 [Module 08: 告警规则管理](Module_08_Alerting_Rule_Management.md)。
+> **与 Module 08 的边界**：告警状态查询 `/api/v1/alerts` 由 Gateway 代理到 Prometheus；功能 Owner 为 [Module 08: 告警规则管理](Module_08_Alertmanager_Notification_Management.md)。
 
 ---
 

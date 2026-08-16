@@ -998,6 +998,67 @@ system 标签（由标签模板自动生成）：
 
 ---
 
+## 补充对齐：2026-08-16（M07 侧：资源分类五大类拆分 + 标签模板锚点粒度确认，决策 D18/D19）
+
+- **参与 Agent**：用户、prototype-designer
+- **触发原因**：M01 第二十五轮讨论（决策 D18/D19 主记录在 `docs/05-execution-records/module-01/design-decisions.md`）涉及 M07 数据模型的两处变更，需在本模块落档同步。
+- **关联模块**：Module_01、Module_04、Module_07。
+
+### 分析背景：CMDB 分类轴与监控采集轴两级映射推导（不统一分类法）
+
+- CMDB `bk_obj_id`（细粒度资源本质轴）→ M04「CMDB CI 类型映射表」归类 → M07 粗粒度类别 + 细粒度子类型 → M01 `CI_TYPE_CATEGORY_MAP` 推导 → M01 细粒度 CI 类型。
+- CMDB 侧永远不需要知道"采集实现"概念；M01 细粒度 CI 类型是派生策略维度、不回写 CMDB；新增产品线只配两行映射（M04 + M01），不改 CMDB 模型定义。
+- 本模块（M07）处于链中游：维护粗粒度类别 + 细粒度子类型字段（`middleware_type`，拟拆 `database_type` + `middleware_type`），是资源字段 schema 的归属方。
+
+### 关键决策
+
+#### 决策 D19（M07 侧）：资源分类四大类改五大类，数据库独立成类；`middleware_type` 拆为 `database_type` + `middleware_type`
+
+- **结论**：
+  1. 资源类别由四大类改为**五大类**：`host` / `database` / `middleware` / `application` / `generic_target`；
+  2. **归类规则**（写进规则避免每来一个新产品线都争一次）：以**数据存储/查询为主语义、按产品线分采集器** → database（mysql、postgresql、oracle、达梦 dm8、sqlserver、mongodb、**redis**）；**消息/网关/协调/搜索** → middleware（kafka、nginx、zookeeper、**elasticsearch**）；
+  3. M07 细粒度子类型字段由 `middleware_type` 拆为 **`database_type` + `middleware_type`** 两个字段（Resource 资源字段 schema、Excel 导入模板列、枚举同步调整）；
+  4. **边界案例**：redis → database（缓存，业界多数 CMDB 放数据库/缓存侧，用户已确认）；elasticsearch → middleware（建议默认值，**已按该默认值落地**，后续如调整仅改归类规则与映射表）。
+- **依据**：数据库按产品线重度扩张（达梦 / Oracle / SQL Server / PG / MongoDB），与消息/网关类中间件资源性质、采集器生态、使用人心智不同；趁 MVP 无存量数据改枚举成本最低。
+- **涟漪影响清单**：M07 资源类型枚举与字段表、Excel 导入模板列、标签模板类别归属（`LabelTemplate.resource_category`）、业务视图聚合措辞、M01 `CI_TYPE_CATEGORY_MAP` / 两级级联 / 指标库最小集表、M04 CMDB CI 类型映射表、全局架构文档与术语映射、所有原型 mocks。**对 CMDB 兼容性无影响**——`bk_obj_id` 不变，仅映射表多一个目标类别值。
+- **影响范围**：M07 PRD 5.x 资源类型枚举与字段表、6.1 Excel 导入说明；原型 mocks（module-07 / module-01 / module-04 等）。
+
+#### 决策 D18（M07 侧配合）：标签模板锚点粒度 = 粗粒度资源类别，M07 模型不动
+
+- **结论**：`LabelTemplate.resource_type` 保持**粗粒度类别**锚点（现状不变）——标签模板内容（字段 → label 映射）由资源字段 schema 决定、是类别级的（M07 5.12 A 字段来源表按 主机/中间件/应用服务 组织）；M01 映射按 CI 类型指定该类别下的默认模板、选择器按「所属类别」过滤（修订 M01 PRD v3.3「按 CI 类型严格过滤」措辞）。避免 host_linux / host_windows 各建一套内容几乎相同的模板。
+- **影响范围**：M07 模型**不动**；M01 侧 PRD 措辞修订 + 原型选择器过滤逻辑。
+- **状态**：**建议，待用户确认**（M01 主记录同步）。
+
+### 已确认项（2026-08-16）
+
+- [x] 资源分类五大类拆分（D19）确认；redis → database（用户确认）。
+- [x] 标签模板锚点 = 粗粒度类别、M07 `LabelTemplate.resource_type` 不动（D18 的 M07 侧结论）。
+- [x] **D18/D19 已按用户修改意见落地**：M07 PRD v2.13（5.1 枚举五大类 + CMDB 侧边界、5.2 字段表新增 database_type、5.7.1 数据库资源、5.10 锚点说明、5.12 A 字段来源拆分、5.13 数据库默认模板、7.1 数据库导入模板列、术语映射）；M01 v3.15 / M04 v1.3 同步；elasticsearch 按建议默认值留 middleware。
+
+### 仍待确认项
+
+- [ ] **原型 mocks 同步（D19 涟漪，待执行）**：module-07 / module-01 / module-04 原型 mocks 的 CI 类型、类别枚举、资源 mock 需从四大类调整为五大类（database 独立 + database_type / middleware_type 拆分）。
+- [ ] D19 落库后跨模块验证：M01 `CI_TYPE_CATEGORY_MAP` / 两级级联 / 指标库最小集表、M04 映射表与 M07 字段拆分的一致性（PRD 已改，验证与原型同步待执行）。
+
+### 关联文档
+
+- `docs/05-execution-records/module-01/design-decisions.md`（D17-D23 主记录，第二十五轮；D24 主记录，第二十六轮）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.14）
+- `docs/02-product-requirements/Modules/Module_04_Custom_Discovery.md`（v1.4，CMDB CI 类型映射表同步）
+
+---
+
+## 补充对齐：2026-08-16（M07 侧：术语分层与字段改名，决策 D24 同步）
+
+- **触发原因**：M01 第二十六轮决策 D24（术语分层：CI 类型专属 CMDB/M04、资源类别归 M07、监控对象类型归 M01）涉及 M07 字段改名，主记录见 `module-01/design-decisions.md`。
+- **M07 侧结论**：
+  1. `Resource.resource_type`（粗粒度）→ **`resource_category`**：枚举类型 `ResourceType` → `ResourceCategory`（常量 `ResourceTypeHost` → `ResourceCategoryHost` 等）、5.2 字段表、5.10 `LabelTemplate.resource_category`、5.12 A 表头、6.x API query / 错误码、Excel 状态映射、孤儿资源分组、术语映射全量同步；UI 展示名「资源类型」→「资源类别」。
+  2. 5.1 细粒度维度引用改为 M01 `monitor_type`、推导表改 `MONITOR_TYPE_DERIVATION_MAP`（消除与 M01 细粒度 `resource_type` 同名不同粒度的 API 歧义）。
+  3. 「CI 类型」仅在 CMDB / M04 上下文保留（CMDB 侧边界段不变）；M07 资源详情可只读展示派生的监控对象类型（UX 建议，随原型落地）。
+- **状态**：已确认并落地（M07 PRD v2.14）。原型 mocks 术语同步待执行。
+
+---
+
 ## Change Log（完整历史）
 
 > v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.3 及以前的逐版完整变更详情（业务沟通决策记录）。

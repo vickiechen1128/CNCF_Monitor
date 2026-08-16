@@ -37,12 +37,12 @@ import {
   mockResources,
   mockStatusMappingConfig,
 } from '../mocks/module-07'
-import type { LabelTemplate, LabelTemplateSource, Mapping, Resource, ResourceType, TemplateReferencingJob } from '../mocks/module-07'
+import type { LabelTemplate, LabelTemplateSource, Mapping, Resource, ResourceCategory, TemplateReferencingJob } from '../mocks/module-07'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
-const RESOURCE_TYPES: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
 
 // MVP 字段来源：prometheus_builtin 由 Prometheus 原生注入无需映射，隐藏（数据模型保留，v0.2+ 服务发现启用）；
 // {v2.5} composite（组合字段）为 MVP 内部默认（自动生成 instance = 资源 IP + 端口，Prometheus 默认行为一致），前台不可新增，v0.2+ 身份定制（代理抓取/端口覆盖/服务发现）开放；cmdb_field v0.4+ 预留
@@ -83,7 +83,7 @@ function nowStr(): string {
 
 export default function LabelTemplatesPage() {
   const { message, modal, notification } = App.useApp()
-  const [activeType, setActiveType] = useState<ResourceType>('host')
+  const [activeType, setActiveType] = useState<ResourceCategory>('host')
   const [templates, setTemplates] = useState<LabelTemplate[]>(mockLabelTemplates)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(mockLabelTemplates[0].template_id)
   const [templateSearch, setTemplateSearch] = useState('')
@@ -103,8 +103,8 @@ export default function LabelTemplatesPage() {
   const [instanceSearch, setInstanceSearch] = useState('')
   const [instanceStatusFilter, setInstanceStatusFilter] = useState<string>('all')
 
-  // 左侧模板列表：按资源类型 + 搜索 + 默认/自定义筛选
-  const typeTemplates = useMemo(() => templates.filter((t) => t.resource_type === activeType), [templates, activeType])
+  // 左侧模板列表：按资源类别 + 搜索 + 默认/自定义筛选
+  const typeTemplates = useMemo(() => templates.filter((t) => t.resource_category === activeType), [templates, activeType])
   const filteredTypeTemplates = useMemo(() => {
     const keyword = templateSearch.trim().toLowerCase()
     return typeTemplates.filter((t) => {
@@ -118,8 +118,8 @@ export default function LabelTemplatesPage() {
   const selectedTemplate =
     templates.find((t) => t.template_id === selectedTemplateId) ?? typeTemplates[0] ?? null
 
-  // {v2.3} 关联实例：模板按 resource_type 隐式关联该类型全部资源
-  const relatedResourcesOf = (tpl: LabelTemplate) => mockResources.filter((r) => r.resource_type === tpl.resource_type)
+  // {v2.3} 关联实例：模板按 resource_category 隐式关联该类型全部资源
+  const relatedResourcesOf = (tpl: LabelTemplate) => mockResources.filter((r) => r.resource_category === tpl.resource_category)
 
   // {v2.7} 被引用 Job：引用本模板的采集 Job（策略层消费方，只读展示）
   const referencingJobsOf = (tpl: LabelTemplate): TemplateReferencingJob[] => TEMPLATE_REFERENCING_JOBS[tpl.template_id] ?? []
@@ -199,11 +199,11 @@ export default function LabelTemplatesPage() {
   ]
 
   const handleTabChange = (key: string) => {
-    const type = key as ResourceType
+    const type = key as ResourceCategory
     setActiveType(type)
     setTemplateSearch('')
     setTemplateFilter('all')
-    const first = templates.find((t) => t.resource_type === type)
+    const first = templates.find((t) => t.resource_category === type)
     setSelectedTemplateId(first?.template_id ?? '')
   }
 
@@ -212,9 +212,9 @@ export default function LabelTemplatesPage() {
     setEditingTemplate(tpl ?? null)
     templateForm.resetFields()
     if (tpl) {
-      templateForm.setFieldsValue({ name: tpl.name, resource_type: tpl.resource_type })
+      templateForm.setFieldsValue({ name: tpl.name, resource_category: tpl.resource_category })
     } else {
-      templateForm.setFieldsValue({ resource_type: activeType })
+      templateForm.setFieldsValue({ resource_category: activeType })
     }
     setTemplateDrawerOpen(true)
   }
@@ -229,19 +229,19 @@ export default function LabelTemplatesPage() {
   const handleCloneTemplate = (tpl: LabelTemplate) => {
     const now = nowStr()
     const cloned: LabelTemplate = {
-      template_id: `tpl-${tpl.resource_type}-${Date.now()}`,
+      template_id: `tpl-${tpl.resource_category}-${Date.now()}`,
       name: `${tpl.name}（副本）`,
-      resource_type: tpl.resource_type,
+      resource_category: tpl.resource_category,
       is_default: false,
       mappings: tpl.mappings.map((m) => ({
         ...m,
-        mapping_id: `mp-${tpl.resource_type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        mapping_id: `mp-${tpl.resource_category}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       })),
       created_at: now,
       updated_at: now,
     }
     setTemplates((prev) => [...prev, cloned])
-    setActiveType(cloned.resource_type)
+    setActiveType(cloned.resource_category)
     setSelectedTemplateId(cloned.template_id)
     message.success(`已克隆模板「${tpl.name}」为「${cloned.name}」`)
   }
@@ -261,7 +261,7 @@ export default function LabelTemplatesPage() {
       onOk: () => {
         setTemplates((prev) => prev.filter((t) => t.template_id !== tpl.template_id))
         if (selectedTemplateId === tpl.template_id) {
-          const remaining = templates.filter((t) => t.resource_type === tpl.resource_type && t.template_id !== tpl.template_id)
+          const remaining = templates.filter((t) => t.resource_category === tpl.resource_category && t.template_id !== tpl.template_id)
           setSelectedTemplateId(remaining[0]?.template_id ?? '')
         }
         message.success('模板已删除')
@@ -276,7 +276,7 @@ export default function LabelTemplatesPage() {
         setTemplates((prev) =>
           prev.map((t) =>
             t.template_id === editingTemplate.template_id
-              ? { ...t, name: values.name as string, resource_type: values.resource_type as ResourceType, updated_at: now }
+              ? { ...t, name: values.name as string, resource_category: values.resource_category as ResourceCategory, updated_at: now }
               : t
           )
         )
@@ -285,16 +285,16 @@ export default function LabelTemplatesPage() {
         notifyTemplateImpact({ ...editingTemplate, ...values } as LabelTemplate, '模板已更新')
       } else {
         const tpl: LabelTemplate = {
-          template_id: `tpl-${values.resource_type}-${Date.now()}`,
+          template_id: `tpl-${values.resource_category}-${Date.now()}`,
           name: values.name as string,
-          resource_type: values.resource_type as ResourceType,
+          resource_category: values.resource_category as ResourceCategory,
           is_default: false,
           mappings: [],
           created_at: now,
           updated_at: now,
         }
         setTemplates((prev) => [...prev, tpl])
-        setActiveType(tpl.resource_type)
+        setActiveType(tpl.resource_category)
         setSelectedTemplateId(tpl.template_id)
         closeTemplateDrawer()
         message.success('模板已新增')
@@ -303,7 +303,7 @@ export default function LabelTemplatesPage() {
   }
 
   // ---------- 映射级操作 ----------
-  const getSourceFieldOptions = (type: ResourceType, sourceType?: LabelTemplateSource) => {
+  const getSourceFieldOptions = (type: ResourceCategory, sourceType?: LabelTemplateSource) => {
     if (sourceType === 'composite') return COMPOSITE_OPTIONS.map((f) => ({ value: f, label: f }))
     if (sourceType === 'cmdb_field') return CMDB_FIELD_OPTIONS.map((f) => ({ value: f, label: `${f}（后续版本开放）` }))
     return RESOURCE_FIELD_OPTIONS[type].map((f) => ({ value: f, label: f }))
@@ -392,7 +392,7 @@ export default function LabelTemplatesPage() {
         notifyTemplateImpact(selectedTemplate, '映射已更新')
       } else {
         const mapping: Mapping = {
-          mapping_id: `mp-${selectedTemplate.resource_type}-${Date.now()}`,
+          mapping_id: `mp-${selectedTemplate.resource_category}-${Date.now()}`,
           ...field,
         }
         setTemplates((prev) =>
@@ -528,7 +528,7 @@ export default function LabelTemplatesPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>标签模板</Title>
-        <Text type="secondary">按资源类型管理字段到 Prometheus Label 的映射（模板级管理）</Text>
+        <Text type="secondary">按资源类别管理字段到 Prometheus Label 的映射（模板级管理）</Text>
       </div>
 
       {/* 模块边界说明（用户语言，技术细节见 MainLayout 全局折叠区） */}
@@ -540,7 +540,7 @@ export default function LabelTemplatesPage() {
         description={
           <Space direction="vertical" size={4}>
             <Text style={{ fontSize: 13 }}>
-              • 标签模板按资源类型定义「字段 → 监控标签」的映射，本页负责模板的创建与维护。
+              • 标签模板按资源类别定义「字段 → 监控标签」的映射，本页负责模板的创建与维护。
             </Text>
             <Text style={{ fontSize: 13 }}>
               • 字段来源支持「资源字段 / 组合字段」；CMDB 字段后续版本开放。监控任务自带的标签由采集系统原生注入，无需在此配置。
@@ -573,14 +573,14 @@ export default function LabelTemplatesPage() {
               {mockStatusMappingConfig.rules.map((rule) => (
                 <Tag key={rule.id} style={{ fontSize: 12 }}>
                   {rule.source_status} → {STATUS_MAP[rule.target_status]}
-                  {rule.resource_type !== 'all' && `（${RESOURCE_TYPE_MAP[rule.resource_type as ResourceType]}）`}
+                  {rule.resource_category !== 'all' && `（${RESOURCE_TYPE_MAP[rule.resource_category as ResourceCategory]}）`}
                   {rule.is_builtin && ' [内置]'}
                 </Tag>
               ))}
             </Space>
             <Text style={{ fontSize: 12, color: '#86909C' }}>
               大小写敏感：{mockStatusMappingConfig.case_sensitive ? '是' : '否'} · 未匹配时的默认状态：{STATUS_MAP[mockStatusMappingConfig.default_target]} ·
-              优先级：精确资源类型规则 {'>'} 通用规则 · 规则的调整入口后续版本开放
+              优先级：精确资源类别规则 {'>'} 通用规则 · 规则的调整入口后续版本开放
             </Text>
           </Space>
         }
@@ -594,7 +594,7 @@ export default function LabelTemplatesPage() {
               onChange={handleTabChange}
               items={RESOURCE_TYPES.map((type) => ({
                 key: type,
-                label: `${RESOURCE_TYPE_MAP[type]} (${templates.filter((t) => t.resource_type === type).length})`,
+                label: `${RESOURCE_TYPE_MAP[type]} (${templates.filter((t) => t.resource_category === type).length})`,
               }))}
             />
           </Col>
@@ -687,7 +687,7 @@ export default function LabelTemplatesPage() {
                   <Space size={6}>
                     <Text strong>{selectedTemplate.name}</Text>
                     {selectedTemplate.is_default && <Tag color="gold">默认</Tag>}
-                    <Tag>{RESOURCE_TYPE_MAP[selectedTemplate.resource_type]}</Tag>
+                    <Tag>{RESOURCE_TYPE_MAP[selectedTemplate.resource_category]}</Tag>
                     <Text code style={{ fontSize: 11 }}>
                       {selectedTemplate.template_id}
                     </Text>
@@ -727,7 +727,7 @@ export default function LabelTemplatesPage() {
                   message={
                     <Space direction="vertical" size={2}>
                       <Text style={{ fontSize: 13 }}>
-                        标签模板只与资源类型绑定，不绑定具体采集任务；字段来源支持「资源字段 / 组合字段」，映射按来源类型分组展示。
+                        标签模板只与资源类别绑定，不绑定具体采集任务；字段来源支持「资源字段 / 组合字段」，映射按来源类型分组展示。
                       </Text>
                       <Text style={{ fontSize: 12, color: '#86909C' }}>
                         保护标签（不可作为目标标签）：{PROTECTED_PROMETHEUS_LABELS.join(', ')}
@@ -750,14 +750,14 @@ export default function LabelTemplatesPage() {
                       label: `关联实例（${relatedResourcesOf(selectedTemplate).length}）`,
                       children: (
                         <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                          {/* {v2.5} 隐式关联说明：让用户理解模板通过 resource_type 自动关联，无需手动逐台配置 */}
+                          {/* {v2.5} 隐式关联说明：让用户理解模板通过 resource_category 自动关联，无需手动逐台配置 */}
                           <Alert
                             type="info"
                             showIcon
                             style={{ marginBottom: 4 }}
                             message={
                               <Text style={{ fontSize: 13 }}>
-                                本模板适用于「{RESOURCE_TYPE_MAP[selectedTemplate.resource_type]}」类型，该类型下所有{' '}
+                                本模板适用于「{RESOURCE_TYPE_MAP[selectedTemplate.resource_category]}」类型，该类型下所有{' '}
                                 <Text strong>{relatedResourcesOf(selectedTemplate).length}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
                                 如需查看具体实例清单，请浏览下方列表。
                               </Text>
@@ -859,15 +859,15 @@ export default function LabelTemplatesPage() {
             label="模板名称"
             name="name"
             rules={[{ required: true, message: '请输入模板名称' }]}
-            extra="模板名称用于展示，同一资源类型下名称可重复"
+            extra="模板名称用于展示，同一资源类别下名称可重复"
           >
             <Input placeholder="如 主机默认模板" />
           </Form.Item>
           <Form.Item
-            label="资源类型"
-            name="resource_type"
-            rules={[{ required: true, message: '请选择资源类型' }]}
-            extra="模板与资源类型绑定，创建后不可修改"
+            label="资源类别"
+            name="resource_category"
+            rules={[{ required: true, message: '请选择资源类别' }]}
+            extra="模板与资源类别绑定，创建后不可修改"
           >
             <Select disabled={!!editingTemplate} placeholder="请选择">
               {RESOURCE_TYPES.map((type) => (
@@ -938,7 +938,7 @@ export default function LabelTemplatesPage() {
                 <Select
                   placeholder={watchedSourceType === 'cmdb_field' ? '后续版本开放' : '请选择'}
                   showSearch
-                  options={getSourceFieldOptions(selectedTemplate?.resource_type ?? activeType, watchedSourceType)}
+                  options={getSourceFieldOptions(selectedTemplate?.resource_category ?? activeType, watchedSourceType)}
                   disabled={watchedSourceType === 'cmdb_field'}
                   onChange={(v) => handleSourceFieldChange(v as string)}
                 />

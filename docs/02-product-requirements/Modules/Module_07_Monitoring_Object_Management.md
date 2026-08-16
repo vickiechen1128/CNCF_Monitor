@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `设计中`（原型已验证至 v2.7，待两段式评审与 ready 确认）
-> **PRD 版本**: v2.11
+> **PRD 版本**: v2.14
 > **产品版本覆盖**: MVP / v0.4 / v1.0
-> **原型版本**: v2.7
-> **更新日期**: 2026-08-15
+> **原型版本**: v2.7（本轮为契约层修订，原型待同步 v2.8）
+> **更新日期**: 2026-08-16
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -21,7 +21,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 
 具体职责：
 
-1. **资源管理**：维护四类监控资源（主机、中间件、应用服务、通用指标目标），支持 Excel 导入、手动录入、CRUD 与固定字段管理。
+1. **资源管理**：维护五类监控资源（主机、数据库、中间件、应用服务、通用指标目标，{v2.13} 新增数据库），支持 Excel 导入、手动录入、CRUD 与固定字段管理。
 2. **标签模板管理**：按资源类型定义字段到 Prometheus Label 的映射规则，为策略模块生成 Job 提供稳定的标签契约。
 3. **资源标签管理**：维护 ResourceLabel 的多种来源（system / user / cmdb）及冲突合并规则。
 4. **Excel 导入**：提供固定列模板、状态映射字典与导入校验。
@@ -43,7 +43,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 
 > {v1.6} 完整用户故事条目（角色 / 我希望 / 以便于）见**全局用户故事库** **[01\_User\_Stories.md](../01_User_Stories.md)** **4.7 节**；模块级用户故事使用模块命名空间编码（`M07-ROLE-NN`，全局唯一），产品级故事（ARCH-03）沿用全局库编码，仅在此列出编码与一句话摘要。
 
-- **M07-OPS-02**：从 Excel 批量导入主机、中间件、应用服务资源
+- **M07-OPS-02**：从 Excel 批量导入主机、数据库、中间件、应用服务资源
 - **M07-OPS-05**：临时添加一个资源用于验证（由策略模块决定是否纳入采集 Job）
 - **M07-OPS-07**：为资源类型创建/编辑标签模板，定义字段到监控标签的映射（完整条目见全局库 §4.7）
 - **M07-OPS-08**：为应用服务资源维护业务类型（业务域）归属，如支付业务、数据接口业务（完整条目见全局库 §4.7；{v2.8}）
@@ -60,8 +60,9 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 
 | 功能                  | 说明                                                                                                                                                                  | 优先级              |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| **资源类型管理**          | 定义主机、中间件、应用服务、通用指标目标四类资源，字段固定                                                                                                                                       | P0               |
+| **资源类型管理**          | 定义主机、数据库、中间件、应用服务、通用指标目标五类资源（{v2.13} 新增数据库），字段固定                                                                                                                                       | P0               |
 | **主机资源管理**          | 主机列表、CRUD、Excel 导入                                                                                                                                                  | P0               |
+| **数据库资源管理（{v2.13}）** | 数据库列表、类型选择（database_type）、CRUD、Excel 导入                                                                                                                             | P0               |
 | **中间件资源管理**         | 中间件列表、类型选择、CRUD、Excel 导入                                                                                                                                            | P0               |
 | **应用服务资源管理**        | 应用服务列表、CRUD、Excel 导入                                                                                                                                                | P0               |
 | **通用指标目标管理**        | 通用/自定义 Exporter 目标管理，支持自定义 IP、端口、metrics\_path 与 Label                                                                                                              | P0               |
@@ -86,7 +87,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- | --- |
 | **标签模板管理**             | 按资源类型定义字段到 Prometheus Label 的映射                                                                                                  | P0  |
 | **字段来源配置**             | 支持 Resource 字段、Prometheus 内置字段、组合字段、CMDB 字段（v0.4+）                                                                               | P0  |
-| **默认标签模板**             | 为四类资源预置默认模板                                                                                                                      | P0  |
+| **默认标签模板**             | 为五类资源预置默认模板（{v2.13} 新增数据库默认模板）                                                                                                                      | P0  |
 | **模板创建工作流**            | 选择资源类型 → 基于默认模板克隆/新建 → 编辑映射 → 保存前校验 → 保存（模板是业务标签契约，MVP 无需映射 Prometheus 内置采集参数）                                                   | P0  |
 | **映射校验规则**             | 目标标签不得为保护 label（`instance`/`job` 等，composite→`instance` 例外）；同一模板内目标标签必须唯一                                                        | P0  |
 | **关联实例展示**             | 模板列表/详情展示「关联实例 N 个」（= 该资源类型下资源数），可展开查看实例清单（实例名 / IP / 状态）；{v2.3}                                                                 | P0  |
@@ -99,7 +100,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 >
 > **Prometheus 内置字段澄清**：`job` / `scheme` / `metrics_path` / `__address__` 等内置字段由 Prometheus 从 Job 配置与 scrape 配置**原生注入**，模板无需（也不应）将它们映射到自身，否则是空操作。`source_type=prometheus_builtin` 保留为 v0.2+ 服务发现 / relabel 场景预留。
 >
-> **模板与实例的关联关系（{v2.3}）**：模板与实例通过 `resource_type` **隐式关联**——模板挂在资源类型上，该类型下所有资源实例自动适用（system 标签实时计算，见 5.3 生成时机）。**不引入模板→实例显式绑定**（避免与 Job 选实例逻辑重复、破坏标签配置唯一入口原则）。本模块负责把该关联**显式展示**给用户：
+> **模板与实例的关联关系（{v2.3}）**：模板与实例通过 `resource_category` **隐式关联**——模板挂在资源类型上，该类型下所有资源实例自动适用（system 标签实时计算，见 5.3 生成时机）。**不引入模板→实例显式绑定**（避免与 Job 选实例逻辑重复、破坏标签配置唯一入口原则）。本模块负责把该关联**显式展示**给用户：
 >
 > - 标签模板页每个模板显示「关联实例 N 个」，点击可展开实例清单（实例名 / 目标 IP / 状态），便于用户评估"改这个模板会影响哪些实例"；
 > - 资源详情新增「适用模板」行（见 3.1），显示该资源类型对应的默认模板名 + 模板 ID，与 system 标签来源标注（见 5.3 联动呈现）呼应。
@@ -119,7 +120,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 
 | 功能                     | 说明                                                                                               | 优先级 |
 | ---------------------- | ------------------------------------------------------------------------------------------------ | --- |
-| **ResourceLabel CRUD** | 为单个资源添加、编辑、删除标签（仅 `user` 来源可编辑；**仅 `resource_type=application` 资源可写，静态资源只读** {v2.8}） | P0  |
+| **ResourceLabel CRUD** | 为单个资源添加、编辑、删除标签（仅 `user` 来源可编辑；**仅 `resource_category=application` 资源可写，静态资源只读** {v2.8}） | P0  |
 | **来源与合并规则**            | 支持 `system` / `user` / `cmdb {v0.4+}` 三种来源，冲突优先级 `cmdb` > `user`；`system` 为系统保护标签不可覆盖（{v2.2} 修正） | P0  |
 | **内置 label 保护**        | 禁止覆盖 Prometheus 内置 label（`instance`、`job`、`scheme`、`__address__` 等）                              | P0  |
 | **CMDB 覆盖提示**          | 当用户输入的 key 与 `source=cmdb` 的已有 label 冲突时，实时提示「该 key 将由 CMDB 覆盖，建议更换 key」                         | P0  |
@@ -202,36 +203,40 @@ sequenceDiagram
 ### 5.1 资源类型枚举
 
 ```go
-type ResourceType string
+type ResourceCategory string
 
 const (
-    ResourceTypeHost          ResourceType = "host"
-    ResourceTypeMiddleware    ResourceType = "middleware"
-    ResourceTypeApplication   ResourceType = "application"
-    ResourceTypeGenericTarget ResourceType = "generic_target"
+    ResourceCategoryHost          ResourceCategory = "host"
+    ResourceCategoryDatabase      ResourceCategory = "database"      // {v2.13} 五大类拆分新增：数据库产品线独立成类（决策 D19）
+    ResourceCategoryMiddleware    ResourceCategory = "middleware"
+    ResourceCategoryApplication   ResourceCategory = "application"
+    ResourceCategoryGenericTarget ResourceCategory = "generic_target"
 )
 ```
 
-> **资源类型粒度说明（决策 16：两套 CI 类型粒度体系）**：
+> **资源类型粒度说明（决策 16：两套 CI 类型粒度体系；{v2.13} 五大类拆分，决策 D19）**：
 >
-> - `Resource.resource_type` 为**粗粒度四大类**分类；中间件以 `middleware_type`（mysql / redis / kafka / elasticsearch / ...）表达**细粒度子类型**（见 5.7）；
-> - 细粒度 CI 类型（host / mysql / redis / kafka / nginx / application\_http / snmp）的\*\*映射与策略绑定落在 [Module\_01](Module_01_Metric_Collection_Center.md)（策略层）\*\*的 `resource_type`，本模块不维护细粒度 CI 类型（映射表 `CI_TYPE_CATEGORY_MAP` 见 Module\_01 5.1）；
-> - **权威来源为 CMDB**：v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 同步后向本模块写入四大类 + middleware\_type，MetricCenter **只维护映射、不增删类型**。
+> - `Resource.resource_category` 为**粗粒度五大类**分类（{v2.13} 由四大类拆分而来，新增 `database`）；细粒度子类型以 `database_type`（mysql / redis / postgresql / oracle / dm8 / sqlserver / mongodb）与 `middleware_type`（kafka / elasticsearch / nginx / zookeeper）两个字段表达（见 5.7）；
+> - **五大类归类规则（{v2.13}，决策 D19）**：以**数据存储/查询为主语义、按产品线分采集器** → database；**消息/网关/协调/搜索** → middleware。边界案例已定：redis → database（缓存，业界多数 CMDB 放数据库/缓存侧）；elasticsearch 留 middleware；
+> - 细粒度监控对象类型（host / mysql / redis / kafka / nginx / application\_http / snmp，{v3.16} 术语分层，决策 D24）的\*\*映射与策略绑定落在 [Module\_01](Module_01_Metric_Collection_Center.md)（策略层）\*\*的 `monitor_type`，本模块不维护细粒度监控对象类型（推导表 `MONITOR_TYPE_DERIVATION_MAP` 见 Module\_01 5.1）；
+> - **权威来源为 CMDB**：v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 同步后向本模块写入五大类 + database\_type / middleware\_type，MetricCenter **只维护映射、不增删类型**。
 >
 > **CMDB 侧边界（v0.4+）**：
 >
 > - **CMDB 的 CI 类型本身是细粒度的**（如 BlueKing `bk_obj_id` 直接就是 mysql / redis / mongodb 等独立模型），CMDB **不存在**「中间件 → MySQL」的父子分类表达，也无需为 MetricCenter 引入 category 概念；
-> - MetricCenter 的**粗粒度四大类（category）仅是内部资源管理维度**（四类资源 CRUD 页面、标签模板归属、孤儿资源分组），不是 CMDB 的表达，也不是监控策略的表达；
-> - `middleware_type`（细粒度）来自 CMDB `bk_obj_id`（v0.4+）或 Excel 导入列（MVP）；`resource_type`（粗粒度）由 [Module\_04](Module_04_Custom_Discovery.md) 的「CMDB CI 类型映射表」将细粒度 CI 归类到四大类。
+> - MetricCenter 的**粗粒度五大类（category）仅是内部资源管理维度**（五类资源 CRUD 页面、标签模板归属、孤儿资源分组），不是 CMDB 的表达，也不是监控策略的表达；
+> - `database_type` / `middleware_type`（细粒度）来自 CMDB `bk_obj_id`（v0.4+）或 Excel 导入列（MVP）；`resource_category`（粗粒度）由 [Module\_04](Module_04_Custom_Discovery.md) 的「CMDB CI 类型映射表」将细粒度 CI 归类到五大类。**CMDB 对分类拆分无感知、不受影响**（bk\_obj\_id 不变，仅映射表多一个目标类别值）。
 
 ### 5.2 资源基础结构（Resource）
 
-所有资源类型共享的基础字段：
+所有资源类别共享的基础字段（{v3.16} 由「资源类型」更名，字段 `resource_category`）：
 
 | 字段                   | 类型           | 必填 | UI 展示名    | 说明                                                                             |
 | -------------------- | ------------ | -- | --------- | ------------------------------------------------------------------------------ |
 | resource\_id         | string       | ✅  | 资源 ID     | 稳定唯一键，不用于展示；MVP 取自 `server_id` / `instance_name`；v0.4+ CMDB 接入时复用 `cmdb_ci_id` |
-| resource\_type       | ResourceType | ✅  | 资源类型      | host / middleware / application / generic\_target                              |
+| resource\_category       | ResourceCategory | ✅  | 资源类型      | host / database / middleware / application / generic\_target（{v2.13} 五大类，新增 database）                              |
+| database\_type      | string       | ❌  | 数据库类型     | {v2.13} 细粒度子类型（仅 `resource_category=database` 时使用）：mysql / redis / postgresql / oracle / dm8（达梦）/ sqlserver / mongodb 等；来自 CMDB `bk_obj_id`（v0.4+）或 Excel 导入列（MVP） |
+| middleware\_type    | string       | ❌  | 中间件类型     | 细粒度子类型（仅 `resource_category=middleware` 时使用）：kafka / elasticsearch / nginx / zookeeper 等；{v2.13} mysql / redis 已移入 `database_type`，本字段不再承载数据库产品线 |
 | network\_domain\_id  | string       | ✅  | 网域        | 所属网域 ID；MVP 默认值为 `default`；v0.2+ 按租户上下文填充                                      |
 | source\_type         | enum         | ✅  | 数据来源      | 数据来源：`manual` / `import` / `cmdb {v0.4+}`，MVP 默认 `manual`                      |
 | instance\_name       | string       | ❌  | 实例名       | 可读实例名/展示名；host 模板中必填，对应 Excel `instance_name`，生成 `hostname` label              |
@@ -279,7 +284,7 @@ const (
 
 > **{v2.6} MVP 展示口径**：MVP 未接入 CMDB，`cmdb` 来源标签在原型中统一以「v0.4+ 预留」占位样式展示（数据模型与冲突优先级保留，见 3.3 {v2.6} 统一口径）；模板映射的字段来源**不新增** **`user_field`**——用户自定义标签唯一入口为资源详情 `user` 来源与通用目标 `custom_labels` 透传，避免破坏「标签配置唯一入口原则」。
 >
-> **{v2.8} 写接口边界（双场景治理）**：`user` 来源标签的写操作（新增/编辑/删除）**仅对 `resource_type=application` 资源开放**（业务类型资源，平台治理）；host / middleware / generic\_target 为**只读**（标签来自 Excel/CMDB 带入，数据治理在 CMDB 侧），写请求返回 403（见 6.2）。
+> **{v2.8} 写接口边界（双场景治理）**：`user` 来源标签的写操作（新增/编辑/删除）**仅对 `resource_category=application` 资源开放**（业务类型资源，平台治理）；host / middleware / generic\_target 为**只读**（标签来自 Excel/CMDB 带入，数据治理在 CMDB 侧），写请求返回 403（见 6.2）。
 
 **同 key 冲突优先级**：`cmdb` > `user`；`system` 为系统保护标签**不可被覆盖**。即：
 
@@ -333,6 +338,8 @@ const (
 >
 > **网域存在性校验口径（v2.11 明确）**：Resource 的 `network_domain_id` 是否有效，以 **Module\_06 维护的 `NetworkDomain` 行政记录**为准（网域由 M06 创建/分配/删除，M09 仅负责监控纳管）。M07 不重复维护网域生命周期，仅读取 `id` / `name` / `domain_type` 做展示与校验。
 >
+> **区域属性单一事实来源（v2.12 明确）**：Resource 上**不存储**任何区域属性（云类型 / 网络区域 / AZ 等）——这类信息唯一事实来源是 M06 的 `NetworkDomain` 行政记录（`zone_type` 等，见 Module\_06 3.1）。资源侧（Excel 模板 / 手动录入 / CMDB 同步）**只引用** `network_domain`，展示时的区域信息一律经网域派生（join），禁止在资源表冗余。用户心智路径唯一：**先在 M06 登记网域，再在 M07 导入/录入资源时选择网域**。
+>
 > **网域列展示策略（{v2.10} 细化）**：
 >
 > - 即使租户处于单网域模式（`Tenant.multi_site_enabled=false`），Resource 列表、详情页与 Excel 模板仍保留「网域」列。网域在此被视为云区域（Cloud Area）概念，是资源从 CMDB 或 Excel 导入时的必要属性，不随 UI 模式隐藏。
@@ -358,7 +365,7 @@ Excel/外部数据源中的状态值通常是业务语言（如 `运行中`、`�
 | 配置项                             | 说明                                                                                                                    |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `status_mapping.default_target` | 未匹配到任何规则时的 fallback 目标状态；默认 `offline`                                                                                 |
-| `status_mapping.rules`          | 规则列表，每条规则包含 `source_status`（来源值，支持精确匹配或正则）、`target_status`、`resource_type`（可选，为空时适用于所有类型）、`priority`（同 source 冲突时优先级） |
+| `status_mapping.rules`          | 规则列表，每条规则包含 `source_status`（来源值，支持精确匹配或正则）、`target_status`、`resource_category`（可选，为空时适用于所有类型）、`priority`（同 source 冲突时优先级） |
 | `status_mapping.case_sensitive` | 是否区分大小写；默认 `false`                                                                                                    |
 
 **配置示例**：
@@ -370,11 +377,11 @@ status_mapping:
   rules:
     - source_status: "运行中|正常|online|running"
       target_status: online
-      resource_type: host
+      resource_category: host
       priority: 100
     - source_status: "已停止|停止|offline|stopped"
       target_status: offline
-      resource_type: host
+      resource_category: host
       priority: 100
     - source_status: "维护中|维修中|maintenance"
       target_status: maintenance
@@ -388,7 +395,7 @@ type ResourceStatusMapping struct {
     ID             string        // 唯一标识
     SourceStatus   string        // 来源状态值（或正则表达式）
     TargetStatus   ResourceStatus // online / offline / maintenance
-    ResourceType   *ResourceType // 仅对特定资源类型生效；nil 表示通用
+    ResourceCategory   *ResourceCategory // 仅对特定资源类型生效；nil 表示通用
     Priority       int           // 同 source 冲突时优先级，数值大的优先
     IsBuiltin      bool          // 是否系统内置，内置规则禁止删除但可禁用
     Enabled        bool          // 是否启用
@@ -399,7 +406,7 @@ type ResourceStatusMapping struct {
 
 #### 5.5.4 映射优先级
 
-1. 先匹配 `resource_type` 精确匹配的规则；无命中再匹配通用规则（`resource_type` 为空）。
+1. 先匹配 `resource_category` 精确匹配的规则；无命中再匹配通用规则（`resource_category` 为空）。
 2. 同一 `source_status` 存在多条规则时，按 `priority` 倒序取最高者。
 3. 仍无命中时，使用 `default_target`（默认 `offline`）。
 4. 映射结果无法识别时（如配置错误指向非法状态），记录导入错误并跳过该资源。
@@ -428,10 +435,22 @@ type ResourceStatusMapping struct {
 
 | 字段                 | 类型     | 必填 | UI 展示名 | 说明                                          |
 | ------------------ | ------ | -- | ------ | ------------------------------------------- |
-| middleware\_type   | string | ✅  | 中间件类型  | mysql / redis / kafka / elasticsearch / ... |
+| middleware\_type   | string | ✅  | 中间件类型  | {v2.13} kafka / elasticsearch / nginx / zookeeper / ...（mysql / redis 已移入 `database_type`，见 5.7.1） |
 | instance\_ip       | string | ✅  | 目标 IP  | 服务 IP                                       |
 | port               | int    | ✅  | 端口     | 服务端口                                        |
 | version            | string | ❌  | 版本号    | 版本号                                         |
+| connection\_string | string | ❌  | 连接串    | 连接串（敏感信息可加密存储）                              |
+
+### 5.7.1 数据库资源（Database，{v2.13} 新增，决策 D19）
+
+{v2.13} 数据库产品线从中间件独立成类（五大类拆分）：以数据存储/查询为主语义、按产品线分采集器 → `resource_category=database`；细粒度子类型用 `database_type` 表达（mysql / redis / postgresql / oracle / dm8 / sqlserver / mongodb），不使用 `middleware_type`。
+
+| 字段                 | 类型     | 必填 | UI 展示名 | 说明                                          |
+| ------------------ | ------ | -- | ------ | ------------------------------------------- |
+| database\_type     | string | ✅  | 数据库类型  | mysql / redis / postgresql / oracle / dm8（达梦）/ sqlserver / mongodb |
+| instance\_ip       | string | ✅  | 目标 IP  | 服务 IP                                       |
+| port               | int    | ✅  | 端口     | 服务端口                                        |
+| version            | string | ❌  | 版本号    | 数据库版本                                       |
 | connection\_string | string | ❌  | 连接串    | 连接串（敏感信息可加密存储）                              |
 
 ### 5.8 应用服务资源（Application）
@@ -465,10 +484,12 @@ type ResourceStatusMapping struct {
 | -------------- | ------------ | ------ | ------- |
 | id             | string       | 仅技术信息  | 唯一标识    |
 | name           | string       | 模板名称   | 模板名称    |
-| resource\_type | ResourceType | 资源类型   | 适用的资源类型 |
+| resource\_category | ResourceCategory | 资源类型   | 适用的**粗粒度资源类别**（host / database / middleware / application / generic\_target，{v2.13} 新增 database） |
 | mappings       | \[]Mapping   | 字段映射   | 字段映射列表  |
 
 > **变更说明**：原 `job_id` 字段已移除。LabelTemplate 只与资源类型绑定，ScrapeJob 在 Module\_01 中引用 LabelTemplate。
+>
+> **{v2.13} 标签模板锚点粒度（决策 D18）**：模板内容（字段 → label 映射）由资源字段 schema 决定、**锚定粗粒度资源类别**（不按细粒度 CI 类型建模板，避免 host\_linux / host\_windows 各建一套内容几乎相同的模板）；细粒度 CI 类型的**默认模板由 Module\_01 映射指定**（`CITypeExporterMapping.label_template_id` 指向本类别下的某个模板），本模块模型不变。
 
 ### 5.11 字段映射（Mapping）
 
@@ -494,7 +515,7 @@ type ResourceStatusMapping struct {
 
 #### A. Resource 字段
 
-| 资源类型       | 来源字段                 | Prometheus Label     | 说明                                               |
+| 资源类别       | 来源字段                 | Prometheus Label     | 说明                                               |
 | ---------- | -------------------- | -------------------- | ------------------------------------------------ |
 | 通用         | `app_name`           | `app`                | Resource 基础字段                                    |
 | 通用         | `env`                | `env`                | Resource 基础字段                                    |
@@ -503,7 +524,8 @@ type ResourceStatusMapping struct {
 | 主机         | `hostname`           | `hostname`           | host 场景下默认与 `instance_name` 一致                   |
 | 主机         | `instance_ip`        | `instance_ip`        | 采集目标地址                                           |
 | 主机         | `os_type`            | `os_type`            | 操作系统类型                                           |
-| 中间件        | `middleware_type`    | `middleware_type`    | 中间件类型                                            |
+| 数据库 {v2.13} | `database_type`       | `database_type`      | 数据库类型（{v2.13} 由中间件行拆分，决策 D19）                 |
+| 中间件        | `middleware_type`    | `middleware_type`    | 中间件类型（{v2.13} 不再承载数据库产品线）                      |
 | 应用服务       | `service_name`       | `service_name`       | 应用服务名                                            |
 | 应用服务       | `business_domain`    | `biz`                | 业务类型归属（{v2.8}）；业务指标按业务类型聚合的关联键       |
 | 通用 {v0.4+} | `cmdb_business_path` | `cmdb_business_path` | CMDB 接入后由 Module\_04 同步                          |
@@ -528,7 +550,7 @@ type ResourceStatusMapping struct {
 
 | 组合字段       | 生成规则                                |
 | ---------- | ----------------------------------- |
-| `instance` | 主机/中间件：`instance_ip` + `:` + `port` |
+| `instance` | 主机/数据库/中间件（{v2.13}）：`instance_ip` + `:` + `port` |
 
 > **说明**：组合字段表示资源上不存在单一字段、需由多个字段拼接/计算得到的标签。MVP 仅保留一个预设（`instance_ip:port → instance`，即 Prometheus 标准 `instance` 标识），`target_label` 固定为 `instance`。
 >
@@ -574,6 +596,16 @@ type ResourceStatusMapping struct {
 | resource\_field | `env`              | `env`             |
 | resource\_field | `cluster`          | `cluster`         |
 | resource\_field | `middleware_type`  | `middleware_type` |
+
+**数据库默认标签模板（{v2.13} 新增，决策 D19）**
+
+| 来源类型            | 来源字段               | 目标 Label          |
+| --------------- | ------------------ | ----------------- |
+| composite       | `instance_ip:port` | `instance`        |
+| resource\_field | `app_name`         | `app`             |
+| resource\_field | `env`              | `env`             |
+| resource\_field | `cluster`          | `cluster`         |
+| resource\_field | `database_type`    | `database_type`   |
 
 **应用服务默认标签模板**
 
@@ -625,7 +657,7 @@ type ResourceStatusMapping struct {
 | maintenance | 维护中       | Excel 状态映射（维护中）            | 恢复 → online              |
 | orphan      | 孤儿（v0.4+） | CMDB 同步失败，资源保留 7 天         | 超期清理 / 同步恢复后转正常状态        |
 
-> **孤儿资源（v0.4+）**：CMDB 同步失败时按 `network_domain_id + resource_type` 归组保留 7 天，保证「CMDB 同步失败后仍保持监控不中断」（M04-OPS-10）；孤儿资源不参与新采集 Job 的实例选择，由 Module\_04 生命周期管理。
+> **孤儿资源（v0.4+）**：CMDB 同步失败时按 `network_domain_id + resource_category` 归组保留 7 天，保证「CMDB 同步失败后仍保持监控不中断」（M04-OPS-10）；孤儿资源不参与新采集 Job 的实例选择，由 Module\_04 生命周期管理。
 
 **② 标签来源优先级（ResourceLabel.source）**
 
@@ -672,12 +704,12 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 | 方法     | 路径                                                   | 说明                                                                                                                    |
 | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/resources`                                  | 资源列表，Query：`resource_type` / `network_domain_id` / `keyword` / `page` / `page_size`；返回含 `is_monitored`（Module\_01 计算） |
+| GET    | `/api/v1/resources`                                  | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword` / `page` / `page_size`；返回含 `is_monitored`（Module\_01 计算） |
 | POST   | `/api/v1/resources`                                  | 创建资源（source\_type=manual）                                                                                             |
 | PUT    | `/api/v1/resources/{resource_id}`                    | 更新资源                                                                                                                  |
 | DELETE | `/api/v1/resources/{resource_id}`                    | 删除资源（被 Job 引用时由 Module\_01 关联校验）                                                                                      |
 | POST   | `/api/v1/resources/import`                           | Excel 导入（multipart，返回 7.3 导入结果结构）                                                                                     |
-| GET    | `/api/v1/resources/import-templates/{resource_type}` | 下载固定列模板（返回列定义 JSON，前端渲染为可下载模板）                                                                                        |
+| GET    | `/api/v1/resources/import-templates/{resource_category}` | 下载固定列模板（返回列定义 JSON，前端渲染为可下载模板）                                                                                        |
 
 ### 6.2 资源标签 API（ResourceLabel）
 
@@ -690,18 +722,18 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 > `system` / `cmdb` 来源标签**不提供写接口**（只读展示）；`cmdb` 来源 v0.4+ 由 Module\_04 同步写入。
 >
-> **{v2.8} 写接口边界**：`user` 来源写接口（POST / PUT / DELETE）**仅对 `resource_type=application` 资源开放**（业务类型资源，平台治理）；host / middleware / generic\_target 资源标签只读（数据治理在 Excel/CMDB 侧），写请求返回 403（双场景治理边界，见 3.3）。
+> **{v2.8} 写接口边界**：`user` 来源写接口（POST / PUT / DELETE）**仅对 `resource_category=application` 资源开放**（业务类型资源，平台治理）；host / middleware / generic\_target 资源标签只读（数据治理在 Excel/CMDB 侧），写请求返回 403（双场景治理边界，见 3.3）。
 
 ### 6.3 标签模板 API（LabelTemplate）
 
 | 方法     | 路径                                                            | 说明                                                                                                                                             |
 | ------ | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/label-templates`                                     | 模板列表，Query：`resource_type` / `is_default` / `keyword`；返回含 mappings                                                                             |
+| GET    | `/api/v1/label-templates`                                     | 模板列表，Query：`resource_category` / `is_default` / `keyword`；返回含 mappings                                                                             |
 | POST   | `/api/v1/label-templates`                                     | 创建模板（非默认，mappings 为空）                                                                                                                          |
 | PUT    | `/api/v1/label-templates/{template_id}`                       | 改名 / 改资源类型（资源类型创建后不可改，服务端校验）                                                                                                                   |
 | DELETE | `/api/v1/label-templates/{template_id}`                       | 删除模板（默认模板禁止删除；被 Module\_01 引用时阻止）                                                                                                              |
 | POST   | `/api/v1/label-templates/{template_id}/clone`                 | 克隆模板（含全部 mappings，新模板 is\_default=false）                                                                                                       |
-| GET    | `/api/v1/label-templates/{template_id}/resources`             | 关联实例查询（{v2.3}）：按模板 resource\_type 返回关联资源列表（含 count / 实例名 / IP / 状态），用于「关联实例 N 个」展示                                                             |
+| GET    | `/api/v1/label-templates/{template_id}/resources`             | 关联实例查询（{v2.3}）：按模板 resource\_category 返回关联资源列表（含 count / 实例名 / IP / 状态），用于「关联实例 N 个」展示                                                             |
 
 | POST   | `/api/v1/label-templates/{template_id}/mappings`              | 新增映射（服务端校验：保护 label / 同模板 target\_label 唯一）                                                                                                    |
 | PUT    | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | 编辑映射（编辑自身排除唯一性校验）                                                                                                                              |
@@ -713,7 +745,7 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 | 方法  | 路径                            | 说明                                      |
 | --- | ----------------------------- | --------------------------------------- |
-| GET | `/api/v1/imports`             | 导入记录列表，Query：`resource_type` / `status` |
+| GET | `/api/v1/imports`             | 导入记录列表，Query：`resource_category` / `status` |
 | GET | `/api/v1/imports/{import_id}` | 导入详情（含 errors 明细）                       |
 
 ### 6.5 只读消费契约（Module\_01 / Module\_09）
@@ -738,19 +770,19 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
-| GET | `/api/v1/resources` | Query: `resource_type`、`network_domain_id`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2，含 `is_monitored` | — |
+| GET | `/api/v1/resources` | Query: `resource_category`、`network_domain_id`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2，含 `is_monitored` | — |
 | POST | `/api/v1/resources` | 5.2 字段（`source_type=manual`，除 id/timestamps） | 创建后的完整对象 | `bad_request`：必填字段缺失 / `network_domain_id` 不存在（M06 行政记录） |
 | PUT | `/api/v1/resources/{resource_id}` | 5.2 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：修改 host/middleware/generic 的 `user` 来源标签越权 |
 | DELETE | `/api/v1/resources/{resource_id}` | — | `{ resource_id }` | `not_found`；`forbidden`：被 Module\_01 的 ScrapeJob 引用时禁止删除 |
-| POST | `/api/v1/resources/import` | multipart/form-data：`file` + `resource_type` | 7.3 导入结果结构 | `bad_request`：文件格式 / 必填列缺失 |
-| GET | `/api/v1/resources/import-templates/{resource_type}` | — | `{ columns: [...], sample_row: [...] }` | `not_found`：未知资源类型 |
+| POST | `/api/v1/resources/import` | multipart/form-data：`file` + `resource_category` | 7.3 导入结果结构 | `bad_request`：文件格式 / 必填列缺失 |
+| GET | `/api/v1/resources/import-templates/{resource_category}` | — | `{ columns: [...], sample_row: [...] }` | `not_found`：未知资源类型 |
 
 #### 6.6.2 资源标签 API
 
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
 | GET | `/api/v1/resources/{resource_id}/labels` | — | `{ items: [...], total: N }`：按来源优先级排序（`system` / `user` / `cmdb {v0.4+}`） | `not_found` |
-| POST | `/api/v1/resources/{resource_id}/labels` | `{ key, value }` | 新增的 user 标签 | `forbidden`：`resource_type ≠ application`；`bad_request`：key 规则非法 / 覆盖 system/cmdb 标签 |
+| POST | `/api/v1/resources/{resource_id}/labels` | `{ key, value }` | 新增的 user 标签 | `forbidden`：`resource_category ≠ application`；`bad_request`：key 规则非法 / 覆盖 system/cmdb 标签 |
 | PUT | `/api/v1/resources/{resource_id}/labels/{label_id}` | `{ value }` | 更新后的 user 标签 | `forbidden`：非 user 来源；`not_found` |
 | DELETE | `/api/v1/resources/{resource_id}/labels/{label_id}` | — | `{ label_id }` | `forbidden`：非 user 来源；`not_found` |
 
@@ -758,12 +790,12 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
-| GET | `/api/v1/label-templates` | Query: `resource_type`、`is_default`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 含完整 mappings | — |
-| POST | `/api/v1/label-templates` | `{ name, resource_type, description?, mappings?: [...] }` | 创建的模板（`is_default=false`） | `bad_request`：同名同资源类型 / 非法 mapping |
-| PUT | `/api/v1/label-templates/{template_id}` | `{ name?, description?, resource_type? }`（resource_type 创建后不可改） | 更新后的模板 | `not_found`；`bad_request` |
+| GET | `/api/v1/label-templates` | Query: `resource_category`、`is_default`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 含完整 mappings | — |
+| POST | `/api/v1/label-templates` | `{ name, resource_category, description?, mappings?: [...] }` | 创建的模板（`is_default=false`） | `bad_request`：同名同资源类型 / 非法 mapping |
+| PUT | `/api/v1/label-templates/{template_id}` | `{ name?, description?, resource_category? }`（resource_category 创建后不可改） | 更新后的模板 | `not_found`；`bad_request` |
 | DELETE | `/api/v1/label-templates/{template_id}` | — | `{ template_id }` | `bad_request`：默认模板禁止删除；`forbidden`：被 Module\_01 引用时禁止删除 |
 | POST | `/api/v1/label-templates/{template_id}/clone` | `{ name? }` | 克隆后的新模板 | `not_found` |
-| GET | `/api/v1/label-templates/{template_id}/resources` | — | `{ items: [...], total: N }`：按模板 resource_type 匹配的资源列表 | `not_found` |
+| GET | `/api/v1/label-templates/{template_id}/resources` | — | `{ items: [...], total: N }`：按模板 resource_category 匹配的资源列表 | `not_found` |
 | POST | `/api/v1/label-templates/{template_id}/mappings` | `{ target_label, source_type, source_field, transform_rule? }` | 新增后的 mappings 列表 | `bad_request`：保护 label / 同模板 target_label 重复 |
 | PUT | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | `{ target_label?, source_type?, source_field?, transform_rule? }` | 更新后的 mappings 列表 | `not_found`；`bad_request` |
 | DELETE | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | — | `{ mapping_id }` | `not_found` |
@@ -788,6 +820,12 @@ network_domain | hostname | instance_ip | os_type | app_name | env | cluster | o
 network_domain | middleware_type | instance_ip | port | version | app_name | env | cluster | owner | status
 ```
 
+**数据库导入模板列（{v2.13} 新增，决策 D19）**
+
+```
+network_domain | database_type | instance_ip | port | version | app_name | env | cluster | owner | status
+```
+
 **应用服务导入模板列**
 
 ```
@@ -804,6 +842,12 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 
 其中 `custom_labels` 列支持 `key1=value1;key2=value2` 格式。
 
+> **网域列取值约束（v2.12）**：`network_domain` 列**只允许引用 Module\_06 已登记的网域**，不接受自由文本新造网域——
+>
+> - 「下载模板」生成的 Excel 中，`network_domain` 列附带**下拉数据校验 sheet**（选项实时取自 M06 网域清单），引导用户选择而非手填；
+> - 导入校验发现不存在的网域名时，报错文案必须引导闭环：「网域 xxx 未登记，请先到『系统设置 → 网域管理』登记后重新导入」（M06 入口）；
+> - v0.4+ CMDB 同步场景同理：`bk_cloud_id` → `NetworkDomain` 的映射表维护在 M06/M09 侧，匹配不上的资源进入「待分类」队列，不自动建档。
+
 ### 7.2 数据校验
 
 | 校验项     | 规则                                                              |
@@ -817,7 +861,7 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 | 业务类型    | `business_domain` 可选填；填写时符合命名规范（小写字母、数字、连字符，长度 ≤ 64）；留空 = 无业务类型归属（{v2.8}） |
 | 协议枚举    | `protocol` 必须是 `http/https/tcp` 之一                              |
 | 状态枚举    | Excel/CSV 导入时 `status` 列允许业务语言，经 5.5 状态映射字典转为 `online/offline/maintenance`；手动录入 / API 写请求必须直接为 `online/offline/maintenance` 之一 |
-| 重复检测    | 同一资源类型下，`instance_ip:port` 或 `service_name` 不可重复                |
+| 重复检测    | 同一网域 + 同一资源类型下，`instance_ip:port` 或 `service_name` 不可重复（{v2.12} 按 `network_domain_id` 收敛：政务云虽规划层保证跨区 IP 不重复，但按网域收敛可兼容其他客户跨区 IP 复用场景，并使"跨区迁移主机"语义正确）                |
 | 通用目标必填  | 通用目标 `instance_ip` 必填且符合 IPv4/域名格式                              |
 | 协议枚举    | 通用目标 `scheme` 必须是 `http/https` 之一                               |
 | 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式                 |
@@ -834,7 +878,7 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
     "errors": [
       {
         "row": 5,
-        "resource_type": "host",
+        "resource_category": "host",
         "field": "instance_ip",
         "value": "999.999.999.999",
         "reason": "IP 格式不正确"
@@ -864,7 +908,7 @@ go run main.go -listen-address ":9100" -app-name "order-service" -env "prod"
 
 ```yaml
 resource_id: "simple-agent-order-service-prod"
-resource_type: "application"
+resource_category: "application"
 network_domain_id: "default"
 source_type: "manual"
 service_name: "order-service"
@@ -891,7 +935,7 @@ status: "online"
 ```go
 type CMDBProvider interface {
     Name() string
-    ListResources(ctx context.Context, resourceType ResourceType, networkDomainID string, filter Filter) ([]Resource, error)
+    ListResources(ctx context.Context, resourceType ResourceCategory, networkDomainID string, filter Filter) ([]Resource, error)
 }
 ```
 
@@ -941,7 +985,7 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 ### 12.1 用户验收（用户可在 UI 感知/操作）
 
-- [ ] {P0} 可以维护主机、中间件、应用服务、通用指标目标四类资源
+- [ ] {P0} 可以维护主机、数据库、中间件、应用服务、通用指标目标五类资源（{v2.13} 新增数据库）
 - [ ] {P0} 系统初始化后存在默认网域 `default`，单网域场景下用户无感知
 - [ ] {P0} 可以按资源类型下载固定列的 Excel 模板，模板包含 `network_domain_id` 列
 - [ ] {P0} 可以上传 Excel 并导入到对应资源类型；未填写 `network_domain_id` 时自动归属到 `default`
@@ -982,7 +1026,7 @@ v0.4+ 实现（由 Module\_04 负责）：
 - [ ] {P1} 模块边界清晰：Module\_07 不生成 `prometheus.yml`，不配置 ScrapeJob，不下发配置
 - [ ] {P1} Module\_01 与 Module\_09 可通过只读接口稳定获取 Resource、LabelTemplate、ResourceLabel 数据
 - [ ] {P1} {v0.4+} 资源模型预留 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` 字段
-- [ ] {P0} ResourceLabel 写接口（POST / PUT / DELETE）按 `resource_type` 校验：仅 `application` 可写 user 标签，host / middleware / generic\_target 返回 403（{v2.8}）
+- [ ] {P0} ResourceLabel 写接口（POST / PUT / DELETE）按 `resource_category` 校验：仅 `application` 可写 user 标签，host / middleware / generic\_target 返回 403（{v2.8}）
 - [ ] {P1} `business_domain` 字段与 `business_domain → biz` 映射写入 5.12 A 契约；5.15 业务指标标签规范（关联键 `app` / `biz`、机制 A 注入 + 机制 B relabel 兜底）作为 Module\_01/09 生成配置的标签注入依据（{v2.8}）
 
 ## 提示分区规范
@@ -1001,9 +1045,10 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 | 后端术语                                  | 用户语言         | 说明                                                                                                                                  |
 | ------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `Resource`                            | 监控对象 / 资源    | 主机、中间件、应用、通用指标目标四类                                                                                                                  |
-| `resource_type`                       | 资源类型         | host / middleware / application / generic\_target（粗粒度四大类）                                                                           |
-| `middleware_type`                     | 中间件类型        | mysql / redis / kafka / elasticsearch 等（细粒度子类型）                                                                                     |
+| `Resource`                            | 监控对象 / 资源    | 主机、数据库、中间件、应用、通用指标目标五类（{v2.13} 新增数据库）                                                                                  |
+| `resource_category`                       | 资源类型         | host / database / middleware / application / generic\_target（粗粒度五大类，{v2.13}）                                                                           |
+| `middleware_type`                     | 中间件类型        | kafka / elasticsearch / nginx / zookeeper 等（细粒度子类型；{v2.13} mysql / redis 已移入 `database_type`）                                                                                     |
+| `database_type`（{v2.13} 新增）         | 数据库类型        | mysql / redis / postgresql / oracle / dm8（达梦）/ sqlserver / mongodb 等（细粒度子类型；数据库产品线独立成类，决策 D19）                                                                                  |
 | `ResourceLabel`                       | 资源标签         | 附加到资源的键值标签（三来源：CMDB / 用户 / 系统）                                                                                                      |
 | `LabelTemplate`                       | 标签模板         | 按资源类型管理「字段 → Prometheus Label」映射                                                                                                    |
 | 被引用 Job（ScrapeJob）                    | 被引用采集 Job    | 引用本模板的采集 Job（策略层消费方，Module\_01 维护）；模板变更穿透其配置（{v2.7}）                                                                                |
@@ -1028,9 +1073,9 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                  | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | --- |
+| v2.14 | 2026-08-16 | 修改 | 术语分层与字段改名（第二十六轮需求对齐，决策 D24）：①`Resource.resource_type` 更名为 `resource_category`（5.1 枚举类型与常量同步 `ResourceCategory`、5.2 字段表、5.10 LabelTemplate 锚点、5.12 A 表头、6.x API query / 错误码、Excel 状态映射、术语映射），UI 展示名「资源类型」→「资源类别」；②5.1 细粒度维度引用改为 M01 `monitor_type`、推导表改 `MONITOR_TYPE_DERIVATION_MAP`（消除与 M01 细粒度 `resource_type` 同名不同粒度的 API 歧义）；③「CI 类型」仅在 CMDB/M04 上下文保留（CMDB 侧边界段不变） | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
+| v2.13 | 2026-08-16 | 修改 | 资源分类四大类改五大类，数据库独立成类（第二十五轮需求对齐，决策 D19/D18）：①5.1 `ResourceType` 枚举新增 `database`，粒度说明与 CMDB 侧边界同步五大类（归类规则：数据库产品线→database、消息/网关/搜索→middleware；redis→database、ES 留 middleware；CMDB 无感知不受影响）；②5.2 字段表新增 `database_type` 字段、`middleware_type` 收窄；③5.7 新增 5.7.1 数据库资源小节（database_type）；④5.10 LabelTemplate 补锚点粒度说明（粗粒度类别，细粒度默认模板由 M01 映射指定，决策 D18）；⑤5.12 A 字段来源表中间件行拆分 database_type + middleware_type 两行、5.13 新增数据库默认标签模板、5.12 C 组合字段适用范围补数据库；⑥7.1 Excel 导入新增数据库模板列；⑦术语映射新增 database / database_type | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
+| v2.12 | 2026-08-15 | 修改 | 网域两层关系落地（需求讨论：政务云互联网区/政务外网区逻辑隔离）：①5.4 补「区域属性单一事实来源」——Resource 不存区域属性，只引用 `network_domain`，区域信息经 M06 网域派生；②7.1 补网域列取值约束（模板下拉取自 M06 清单 + 导入报错引导闭环 + CMDB 映射不匹配进待分类）；③7.2 重复检测按 `network_domain_id` 收敛；原型待同步 v2.8 | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
 | v2.11 | 2026-08-15 | 修改 | 内容缺口补齐（ready 前最后一次文档修正）：①5.2 明确 `is_monitored` 由 M07 调用 M01 只读接口实时计算、不持久化；②5.4 明确网域存在性以 M06 行政记录为准；③7.2 修正 `status` 枚举校验口径（Excel 业务语言 vs API 直接枚举）；④6.3 删除「被引用 Job 查询」行，职责回归 M01；⑤6.5 增加 6.6 接口请求响应与错误码契约；⑥同步原型/总表版本至 v2.7 | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
 | v2.10 | 2026-08-15 | 修改 | 网域交互模式细化（第二十轮需求对齐）：明确 M07 不采用顶部「当前网域」全局上下文切换器，改为资源列表内「网域」筛选器（默认记忆 + 始终可切换「全部网域」）；3.1/5.4 同步说明；原型 v2.6 | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
-| v2.9 | 2026-08-14 | 修改 | 组合字段 MVP 内部默认（第十七轮需求讨论，用户异议「Prometheus 默认字段不应在前台告知」）：5.12 C 补「组合字段用户语言说明与 MVP 内部默认」——instance 为 Prometheus 内置身份标签（值=IP:端口，同 IP 多服务靠端口区分避免指标冲突）；MVP 直连抓取下组合字段输出与 Prometheus 默认 instance 一致（冗余），前台隐藏、新增映射不展示「组合字段」来源选项（同 prometheus_builtin 模式）、默认模板 composite 行标注「内置默认」；端口配置点不变（Module_01 映射 default_port → Job 快照继承 → 生成拼接）；v0.2+ 服务发现/代理抓取/端口覆盖需身份定制时再开放；5.13 默认模板补内置默认说明；原型 v2.5 同步 | MVP / v0.4 / v1.0 | 设计中 |
-| v2.8 | 2026-08-14 | 修改   | 标签双场景治理 + 业务指标关联（第十二轮需求对齐）：3.3 新增「双场景治理边界」——静态资源（host/中间件/通用目标）标签 CMDB/Excel 治理、平台只读收回实例级打标（6.2 写接口按 resource_type 校验返回 403）；application 开放 user 自定义标签；标签模板与治理解耦（保留字段→Label 契约）；5.2/5.8 新增 `business_domain` 字段（业务类型/业务域，映射 `biz` label）；5.12 A 新增 `business_domain → biz` 映射；新增 5.15「业务指标标签规范」（关联键 app/biz 不用 instance、机制 A 抓取注入为主 + 机制 B 埋点规范 + metric_relabel 兜底、业务维度标签 path/method/status 不参与关联）；12 验收补充；术语映射补充 business_domain / biz / 业务指标标签规范。评审前完善：Roadmap §1.5 登记业务类型能力（MVP 字段+biz 聚合 / v0.2+ 独立业务目录）；全局故事库回写 M07-OPS-08/09 + 第 2 章引用；7.1 应用服务导入模板列补 `business_domain`；7.2 补命名校验；5.15 补 `biz` 空值语义 | MVP / v0.4 / v1.0 | 设计中 |
-| v2.7 | 2026-08-13 | 修改   | 模板变更影响闭环（用户反馈 + 需求对齐）：3.2 新增「被引用 Job 展示」功能与「保存后影响提示」（MVP = 重新生成并立即生效 / v0.2+ = 前往配置中心确认后生效，双层标注）；3.2 右栏 Tab 化扩展为三 Tab（映射明细 / 关联实例 / 被引用 Job）；5.3 生成时机补保存反馈；6.3 新增被引用 Job 查询接口；12.1 新增验收项；术语映射补「配置变更确认 / 变更单」跨模块词汇                                                                     | MVP / v0.4 / v1.0 | 设计中 |
 

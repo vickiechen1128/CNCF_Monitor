@@ -18,12 +18,14 @@ import { PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { mockTenants, mockNetworkDomains, type Tenant } from '../mocks/module-06'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 const { Option } = Select
 
 /**
  * {v1.3} 数据源改为「网域管理」页面的行政记录（mockNetworkDomains），
  * 不再使用硬编码列表；选项标注纳管状态，体现「授权 ≠ 已纳管」
+ * {v1.5} 新增 multi_site_enabled 行政能力开关（决策 31）：租户级配置，
+ * 不在顶栏提供运行时切换；该开关不控制 M09 页面入口（M09 入口由数据驱动）。
  */
 const networkDomainOptions = mockNetworkDomains.map((d) => ({
   value: d.id,
@@ -97,6 +99,22 @@ export function TenantsPage() {
           })}
         </Space>
       ),
+    },
+    {
+      title: (
+        <Tooltip title="{v1.5} 行政能力开关：false 时 M06 侧不可创建额外网域，但 M09 仍可查看 default 网域及其纳管状态；不控制 M09 页面入口（入口由数据驱动）">
+          <Space size={4}>
+            多网域能力
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              (multi_site_enabled)
+            </Text>
+          </Space>
+        </Tooltip>
+      ),
+      dataIndex: 'multi_site_enabled',
+      key: 'multi_site_enabled',
+      render: (value: boolean) =>
+        value ? <Tag color="green">已开启</Tag> : <Tag color="default">未开启</Tag>,
     },
     {
       title: 'CMDB 业务',
@@ -176,6 +194,15 @@ export function TenantsPage() {
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+          <Form.Item
+            label="多网域能力"
+            name="multi_site_enabled"
+            valuePropName="checked"
+            initialValue={false}
+            extra="{v1.5} 行政能力开关：是否允许该租户创建/管理多个网域。关闭时 M06 侧不可创建额外网域，但 M09 仍可查看 default 网域及其纳管状态；该开关不控制 M09 页面入口显示/隐藏（M09 入口由数据驱动）。"
+          >
+            <Switch checkedChildren="已开启" unCheckedChildren="未开启" />
           </Form.Item>
           <Form.Item
             label="CMDB 业务 ID"

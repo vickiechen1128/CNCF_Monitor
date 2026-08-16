@@ -1236,6 +1236,479 @@ CI 类型（resource_type，用户心智锚点）             采集实现/采�
 
 ---
 
+## 补充对齐：2026-08-15（采集器管理 OS 平台细分与自研采集器登记 MVP）
+
+- **参与 Agent**：用户、backend-developer
+- **触发原因**：用户针对采集器管理功能提出 OS 平台细分（Linux/Windows 采集器不同）与自研采集器登记留痕需求，确认后落档并更新 PRD。
+- **关联模块**：Module_01、Module_07。
+
+### 关键决策
+
+#### 决策 3.51：host 按 OS 拆分为 host_linux / host_windows 两个细粒度 CI 类型
+
+- **问题**：开源采集器（如 node_exporter vs windows_exporter）在不同操作系统下的项目、指标集、下载地址均不同，是否应在 CI 类型层面拆分？
+- **结论**：采用方案 A，将 Module_01 的细粒度 CI 类型 `host` 拆分为 `host_linux` 与 `host_windows`。Module_07 的 `Resource` 仍为 `resource_type=host`，并通过 `os_type` 字段区分操作系统；Module_01 的 `CI_TYPE_CATEGORY_MAP` 增加 `os_type` 条件映射：
+  - host + os_type=Linux/Unix → `host_linux`
+  - host + os_type=Windows → `host_windows`
+- **依据**：
+  - Module_07 主机资源已存在 `os_type`（linux / windows）字段；
+  - Linux 的 node_exporter 与 Windows 的 windows_exporter 是两个不同项目，指标前缀（`node_*` vs `windows_*`）与语义完全不同，若合并到同一 `host` CI 类型，指标库按 `source_exporter` 区分会让规则提示与指标浏览变脏；
+  - CI 类型是「用户视角的我要监控什么」，OS 平台差异是资源固有属性，应作为类型边界。
+- **影响范围**：
+  - Module_01 PRD 5.1 决策 16 映射表增加 `os_type` 条件列；
+  - 术语映射 `resource_type` 列举由 `host` 改为 `host_linux / host_windows`；
+  - 8.1 验收、5.3 MVP 指标库最小集由 `host` 改为 `host_linux`（node-exporter） / `host_windows`（windows-exporter）；
+  - 原型与后端枚举同步增加 `host_linux`、`host_windows`；MVP 内置采集器预置数据需分别维护。
+
+#### 决策 3.52：采集实现（ExporterTemplate）支持 OS/下载地址/主页，自研采集器登记纳入 MVP
+
+- **问题**：用户希望开源采集器能提供名称、搜索/下载地址、安装指南，并按 Linux/Windows 区分；自研采集器希望开发后在平台登记留痕。
+- **结论**：
+  1. 5.2 `ExporterTemplate` 增加结构化字段：`os`（适用操作系统，如 linux / windows / any）、`arch`（适用架构，如 amd64 / arm64 / any，可空）、`download_url`（下载地址/离线包路径）、`homepage`（官方文档/搜索入口地址），这些字段归属采集实现，不挂 CI 类型。
+  2. 「采集器管理」Tab 对每种 CI 类型展示匹配的采集实现（按 `supported_resource_types` + `os` 过滤），并提供「如何获取」引导文案 + 下载/主页链接。
+  3. 用户自定义采集实现（含自研采集器）登记从 P2 提前到 **MVP**，通过 `is_builtin=false` 的 ExporterTemplate 创建表单实现；字段与内置采集器一致，自研采集器通常填写内部制品库地址或内网下载链接。
+  4. 自研独立 exporter 进程纳入 5.6 `ExporterInstallationConfirmation` 安装确认范围；业务应用内嵌埋点（`application_http`）无需安装确认，走 5.9 业务指标库登记。
+- **依据**：
+  - 采集器管理的本质是「类型级采集器指引」，安装指南必须明确、可下载地址结构化；
+  - 自研采集器需要登记留痕，否则后续运维无法识别实例上运行的是哪个采集器；
+  - 应用内嵌埋点没有独立进程，与独立 exporter 的安装确认维度不同。
+- **影响范围**：
+  - Module_01 PRD 5.2 数据模型增加 `os / arch / download_url / homepage` 字段；
+  - 5.2 删除「用户自定义采集实现的登记属可选能力（P2）」表述，改为 MVP 支持；
+  - 5.1 默认采集配置描述补充：平台预置按 OS 区分的采集器数据，用户可登记自研采集器；
+  - 5.6 安装确认范围从「仅标准 Exporter」改为「独立进程型采集实现（含内置与自研）」；
+  - 8.1 验收增加：MVP 支持按 OS 预置采集器下载地址与安装指南、支持用户登记自研采集器；
+  - 原型与 mock 数据需同步增加 `host_linux` / `host_windows` 的预置采集器与下载地址。
+
+### 已确认项（2026-08-15）
+
+- [x] `host` 拆分为 `host_linux` / `host_windows`（用户确认方案 A）。
+- [x] 自研采集器登记纳入 MVP（用户确认）。
+- [x] 新增 `os / arch / download_url / homepage` 字段用于开源采集器指引。
+
+### 仍待确认项
+
+- 无（本阶段设计决策已全部书面化）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`
+
+---
+
+## 补充对齐：2026-08-15（采集器动线统一与 M01 网域呈现收敛）
+
+- **参与 Agent**：用户、backend-developer
+- **触发原因**：用户就「采集器管理默认值语义 / 自研登记引导 / 动线割裂」与「ScrapeJob 网域维度是技术限制还是管理限制、顶部网域切换器是否过度设计」两轮讨论后确认，落档并更新 PRD。
+- **关联模块**：Module_01、Module_07、Module_09。
+
+### 关键决策
+
+#### 决策 3.53：预置采集参数 = 官方默认值参考；采集器登记表单按「来源」做字段引导
+
+- **问题**：开源/第三方采集器的端口、路径、协议、采集参数是用户装完后人工回填，还是平台预置？自研采集器无官方默认值，如何引导填写？
+- **结论**：
+  1. 保留三层结构（`ExporterTemplate` 预置默认值 → `CITypeExporterMapping` 可调预设 → `ScrapeJob` 快照 + 覆盖），并在 PRD 显性化「**预置参数 = 官方默认值参考，不是强制值**」——用户装采集器时未改配置则直接用默认值，改了则在映射 / Job 层覆盖；
+  2. `ExporterTemplate` 新增 `source` 字段（`official` 开源官方 / `third_party` 第三方 / `internal` 自研）；登记 / 编辑表单按 `source` 引导：来源为自研时 `default_port` / `metrics_path` / `scheme` 必填并提示「按实际部署填写」，`download_url` 提示填内部制品库地址，名称建议 `xxx-exporter` 命名规范；
+  3. 「采集器管理」Tab 列表支持按 CI 类型 + 来源筛选。
+- **依据**：官方采集器参数有权威来源可预置；自研采集器无权威默认值，必填 + 提示比留空更不易出错。
+- **影响范围**：PRD 5.2 字段表与表单引导规则、5.1 Tab 筛选说明、8.1 / 8.2 验收、术语映射。
+
+#### 决策 3.54：动线统一为「登记即入池」；application_http 走引导卡、不进登记流程
+
+- **问题**：开源采集器与自研采集器两条动线割裂，是否应砍掉采集器管理中的参数默认值、全部放到 Job 配置时填写？
+- **结论**：
+  1. **不砍默认值信息**——砍掉后用户装完采集器将失去默认端口 / 路径参考；
+  2. 动线统一为「**登记即入池**」：自研采集器在采集器管理登记（`is_builtin=false`）后，与官方采集器完全同等待遇——同样被映射引用、创建 Job 时同样预填参数、同样走 5.6 安装确认；割裂不是两条流程，而是"一条流程 + 一个前置登记动作"；
+  3. `application_http` 不是采集器、无安装动作：采集器管理 Tab 对其展示**引导卡**（业务应用自带 `/metrics`，无需安装；指标语义到业务指标库登记；Job 端口 / 路径按实际 endpoint 手填），**不进入登记表单流程**，避免每个微服务被登记成一个"采集器"。
+- **依据**：采集器管理的核心价值是类型级知识库（该装什么、默认参数、去哪下载），砍掉则价值归零。
+- **影响范围**：PRD 5.1（动线说明、application_http 引导卡）、5.2、8.1 验收。
+
+#### 决策 3.55：ScrapeJob 绑网域是技术约束；「克隆到其他网域」暂不实现
+
+- **问题**：ScrapeJob 必须绑单一网域，是技术限制还是管理限制？共性 CI 类型跨网域重复配置的痛点如何解？
+- **结论**：
+  1. **技术约束**：隔离网域内目标只能被本网域边缘采集器 / Prometheus 抓取（网络可达性）；Module_09 按网域生成并下发配置、断网自治——Job 不绑网域则配置无处下发；
+  2. PRD 5.4 显性补充该约束说明；
+  3. 共性配置靠既有机制收敛：映射层全局预设（决策 13）+ v0.2 网域覆盖表（决策 13 预留）；
+  4. 「克隆到其他网域」（一键复制 Job、重新勾实例）**本轮不实现**（用户确认：非功能性需求先不加，后续按实际痛点评估）。
+- **依据**：放开网域维度等于隐藏技术约束，会在配置生成层爆开；跨网域逻辑 Job + M09 展开方案不推荐（实例选择跨域拆分、安装确认分域、断网部分生效状态无法表达）。
+- **影响范围**：PRD 5.4 网域约束说明。
+
+#### 决策 3.56：撤掉 M01 顶部全局网域切换器，网域收敛为采集 Job 页内查询条件（取代决策 3.49）
+
+- **问题**：M01 顶部全局网域上下文切换器是否过度设计？
+- **结论**：**撤掉**。M01 内仅 ScrapeJob 绑网域（决策 3.50 已明确规则不继承）；默认采集配置、技术指标库、业务指标库均网域无关——全局切换器会让其他页面被迫响应与自己无关的状态。改为：
+  1. 「采集 Job」页列表加网域查询条件（下拉，选项 = 已纳管网域 `is_monitored=true`）；
+  2. Job 表单 `network_domain_id` 必填（维持现状），实例候选按表单所选网域收敛（维持现状）；
+  3. M01 不提供顶部全局网域切换器；全局网域概念由 M06 / M09 承载；
+  4. 将来 M01 出现第二个网域感知功能（如 v0.4 `scope=edge` 边缘规则）时再评估是否恢复。
+- **依据**：单一消费者不应驱动全局 UI 状态；决策 3.49 由本决策取代。
+- **影响范围**：PRD 5.4 网域约束段 / 8.1 验收（v3.9 切换器条目替换为页内查询条件）；原型移除 M01 顶部切换器。
+
+### 已确认项（2026-08-15）
+
+- [x] 预置采集参数 = 官方默认值参考，语义显性化；登记表单按来源引导（决策 3.53）。
+- [x] 动线统一「登记即入池」；application_http 引导卡、不进登记流程（决策 3.54）。
+- [x] ScrapeJob 绑网域 = 技术约束；「克隆到其他网域」暂不实现（决策 3.55）。
+- [x] 撤掉 M01 顶部网域切换器，改为采集 Job 页内查询条件，取代决策 3.49（决策 3.56）。
+
+### 仍待确认项
+
+- 无。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`
+- `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`
+
+---
+
+## 补充对齐：2026-08-15（第二十三轮 M01/M08/M09 告警规则职责三轴重构）
+
+- **参与 Agent**：用户、backend-developer
+- **触发原因**：用户发现 M01「规则编辑」与 M08「告警规则管理」命名重叠、`MonitoringRule` 与 M08 `AlertingRule`/`RecordingRule` 字段重复、M08 与 M09 均声明生成 `rules.yml`、入口不统一，确认按三轴重构边界。
+- **关联模块**：Module_01、Module_08、Module_09、Module_02。
+
+### 关键决策
+
+#### 决策 3.58：M01/M08/M09 告警规则职责按三轴重构
+
+- **问题**：
+  1. M01 5.5 `MonitoringRule` 与 M08 6.1 `AlertingRule`/`RecordingRule` 字段大面积重复（expr / duration / labels / annotations / scope / enabled），权威来源不清；
+  2. M08 同时声明生成 `rules.yml`（§4/5.1），与 M01 决策 10 的「Module_09 为配置唯一生成者」冲突；
+  3. M01 与 M08 均出现「告警规则」命名，用户入口混淆；
+  4. M08 原本承载规则编辑 UI、规则生命周期、规则分组、rules.yml 生成、Alertmanager 配置，职责过重。
+- **结论**：
+  1. **三轴正交拆分**：
+     - **A. 规则内容创作**（expr / for / severity / labels / annotations / resource_type）：归属 **M01**（与 M01「采什么、怎么采、怎么判」的「怎么判」对齐）；
+     - **B. 规则组织与交付**（分组、启停、版本、按网域生成 `rules.yml`）：归属 **M09**（配置唯一生成者，决策 10）；M09 内部按 Prometheus `group` 语法自动派生规则分组，MVP 不暴露用户可管理的 RuleGroup 实体；
+     - **C. 告警收敛与分发**（Alertmanager：`alertmanager.yml`、路由、静默、抑制、接收人、通知状态）：归属 **M08**（M08 退回纯 Alertmanager 域，用户的原意）。
+  2. **单一权威记录**：由 M01 的 `MonitoringRule` 持有规则内容字段；M08 的 `AlertingRule`/`RecordingRule`/`RuleGroup` 等模型删除，改为 `Receiver`/`Route`/`Silence`/`InhibitionRule`/`AlertmanagerConfigVersion` 等 Alertmanager 相关模型；M09 消费 `MonitoringRule` 生成 `rules.yml`。
+  3. **规则编辑唯一入口在 M01**（页面名「监控规则编辑」/「判定规则编辑」，覆盖 alerting + recording）；M08 的规则视图只读，提供「前往 M01 编辑」跳转；M09 不暴露规则编辑 UI。
+  4. **规则启用状态**：由 M01 `MonitoringRule.enabled` 字段表达，M09 在生成 `rules.yml` 时过滤（只包含 enabled=true 的规则）。
+  5. **`alertmanager.yml` 由 M08 直接管理**：MVP 单域阶段 M08 写文件并触发 Alertmanager reload，不进入 M09 的 `ConfigDraft` / 配置变更确认流程；调整频繁、风险低（仅影响告警体验，不影响采集/规则求值）。
+- **依据**：单一职责原则；M09 已是配置唯一生成者（决策 10）；M08 复用 Alertmanager 更适合收敛/分发（用户原意）；M01 的指标库 / PromQL 校验能力天然属于规则内容创作侧。
+- **影响范围**：
+  - M01 PRD v3.13：§1 边界说明、§3.2 规则编辑动线、§5.5 `MonitoringRule` 字段说明（`scope`/`enabled` 指向 M09）、§6 模块边界表、M01-OPS-06 用户故事、Change Log；
+  - M08 PRD v1.3：模块名改为「告警收敛与通知管理」、全部章节重写、数据模型替换；
+  - M09 PRD v1.32：§1/§3.3 增加规则组织与交付职责、§3.4 审批分级策略、§6.2 配置包结构删除 `alertmanager.yml`、Change Log；
+  - 全局文档：Roadmap/功能架构/集成图/依赖链接中 M08 模块名与文件名同步更新。
+
+### 已确认项
+
+- [x] 规则内容创作归 M01，M08 退回纯 Alertmanager 收敛/分发域（用户确认）。
+- [x] 规则组织 / 下发 `rules.yml` 归 M09，M08 不再生成 `rules.yml`（用户确认）。
+- [x] 规则编辑唯一入口在 M01，M08 只读引用 + 跳转（用户确认）。
+- [x] M08 模块名称改为「告警收敛与通知管理」，PRD 重写并同步文件重命名（用户确认）。
+- [x] MVP 单域阶段 `alertmanager.yml` 由 M08 直写 reload，不进入 M09 审批（用户确认）。
+- [x] M09 内部自动派生规则分组，MVP 不暴露 RuleGroup 用户实体（用户确认）。
+
+### 仍待确认项
+
+- [ ] PRD 状态推进：保持「设计中」（待领导/业务评审）。
+- [ ] v0.4+ 多网域边缘 `alertmanager.yml` 分发方式：由 M08 直接推送还是随 M09 配置包下发（MVP 阶段不讨论）。
+- [ ] 全局 Roadmap/功能架构/集成图需人工复核 M08 新名称与职责边界是否已同步。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.13）
+- `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v1.3）
+- `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.32）
+- `docs/05-execution-records/module-08/design-decisions.md`
+- `docs/05-execution-records/module-09/design-decisions.md`
+
+- **参与 Agent**：用户、backend-developer
+- **触发原因**：用户发现 M01「规则编辑」与 M08「告警规则管理」命名重叠、`MonitoringRule` 与 `AlertingRule`/`RecordingRule` 字段重复、M08 与 M09 均声明生成 `rules.yml`、入口不统一，确认按三轴重构边界。
+- **关联模块**：Module_01、Module_08、Module_09、Module_02。
+
+### 关键决策
+
+#### 决策 3.57：M01/M08/M09 告警规则职责按三轴重构（M08 退回纯 Alertmanager 收敛/分发域）
+
+- **问题**：M01 5.5 `MonitoringRule` 与 M08 6.1 `AlertingRule`/`RecordingRule` 字段大面积重复（expr / duration / labels / annotations / scope / enabled），权威来源不清；M08 同时声明生成 `rules.yml`（M08 §4/5.1），与 M01 决策 10 的 Module_09 唯一配置生成者冲突；M01 与 M08 均出现「告警规则」命名，用户入口混淆。
+- **结论**：
+  1. 将规则相关职责拆为三根正交轴：
+     - **A. 规则内容创作**（expr / for / severity / labels / annotations / resource_type）：归属 **M01**（与 M01「采什么、怎么采、怎么判」的「怎么判」对齐）；
+     - **B. 规则组织与交付**（分组、启停、版本、按网域下发 `rules.yml`）：归属 **M09**（配置唯一生成者，决策 10；M08 不再生成 `rules.yml`）；
+     - **C. 告警收敛与分发**（Alertmanager：`alertmanager.yml`、路由、静默、抑制、接收人、通知状态）：归属 **M08**（M08 退回纯 Alertmanager 域，用户的原意）。
+  2. 单一权威记录：由 M01 的 `MonitoringRule` 持有规则内容字段；M08 的 `AlertingRule`/`RecordingRule` 不再重复内容字段，改为 **规则 ID 引用 + 组织/通知属性**（group_id、网域聚合、抑制、通知状态等）；`scope` 字段只保留在 M01 记录中，M08/M09 仅消费。
+  3. 规则编辑唯一入口在 M01（页面名「监控规则编辑」/「判定规则编辑」，覆盖 alerting + recording）；M08 的规则视图只读，提供「前往 M01 编辑」跳转；M08 功能名称改为「告警收敛与通知管理」，明确与规则内容编辑无关。
+  4. 规则编辑不在采集策略配置流程内触发，是独立创作流程，但依赖采集落地后的指标库；M01 可在采集 Job 详情 / 指标库提供「基于此建规则」快捷跳转，作为入口补充。
+  5. 历史表述修正：M08 的「告警规则生命周期管理」中的分组 / 版本 / 下发能力转移给 M09 承担；M08 保留生命周期中与 Alertmanager 相关的部分（通知状态、静默启停、路由变更）。
+- **依据**：单一职责原则；M09 已是配置唯一生成者（决策 10）；M08 复用 Alertmanager 更适合收敛/分发（用户原意）；M01 的指标库 / PromQL 校验能力天然属于内容创作侧。
+- **影响范围**：M01 PRD 5.5（MonitoringRule 字段、scope、规则编辑动线）、术语映射；M08 PRD 全部（角色定位、边界表、数据模型、用户故事、功能表、实现方式、Change Log）；M09 PRD 需补规则分组 / 按网域下发模型（从 M08 迁入）；M02 PRD 代理 `/api/v1/alerts` 展示触发告警状态，保持不变。
+
+### 已确认项（2026-08-15）
+
+- [x] 规则内容创作归 M01，M08 退回纯 Alertmanager 收敛/分发域（用户确认）。
+- [x] 规则组织 / 下发 `rules.yml` 归 M09，M08 不再生成 `rules.yml`（用户确认）。
+- [x] 规则编辑唯一入口在 M01，M08 只读引用 + 跳转（用户确认）。
+- [x] M08 模块名称改为「告警收敛与通知管理」（用户确认）。
+
+### 仍待确认项
+
+- 无（需同步修改 M01/M08/M09 PRD 与全局 Roadmap/术语映射）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`
+- `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`
+- `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`
+- `docs/02-product-requirements/Modules/Module_02_Query_Center.md`
+
+---
+
+## 补充对齐：2026-08-16（第二十四轮：列表列优化 + 动线主次分离 + 空态依赖引导，决策 D1-D16）
+
+- **参与 Agent**：用户、prototype-designer
+- **触发原因**：三轮讨论沉淀 16 项决策——①原型「采集 Job 列表」与「采集器管理列表」列字段重复/噪音（状态列常驻高亮、来源/类型双列同义、端口路径协议三 Tag 分列）；②「新增默认采集配置」与「登记采集器」两按钮平级、看不出前置补救关系；③原型缺 PRD v3.1 已验收的「标签模板」列；④一批数据模型/交互语义待澄清（CI 类型拆分轴、instance 标签语义、端口分层、显式采集器模式等）。
+- **关联模块**：Module_01、Module_07、Module_09。
+
+### 关键决策（D1-D16）
+
+| 编号 | 决策 | 结论 | 影响版本 | PRD 落点 |
+|---|---|---|---|---|
+| D1 | 依赖未就绪空态统一规范 | 网域 / 标签模板 / 采集器选择器遇依赖缺失时统一「说明文案 + 内联跳转/创建动作」，保存时 `bad_request` 仅兜底 | MVP | 3.1 / 5.4 / 6.2.2 |
+| D2 | 默认采集器可空但需显式模式 | `exporter_template_id` 可空合理，UI 用「使用默认采集器（推荐）/ 手填采集参数」显式二选一，不做"下拉留空" | MVP | 5.4 / 8.1 |
+| D3 | CI 类型拆分轴 = 指标/采集器 schema 差异 | 麒麟/统信/Ubuntu、arm64/x86 不拆 CI 类型；达梦/SQL Server/MySQL 因采集器与指标集不同可拆 | MVP | 5.1 |
+| D4 | 架构/发行版差异下沉采集器层 | 差异由 `ExporterTemplate.os/arch/install_guide/download_url` 承载，不上升 CI 类型 | MVP | 5.2 |
+| D5 | 采集器支持按 os/arch 多行或结构化下载地址 | 单一 `download_url` 无法表达多架构离线包；MVP 方式①（按 os/arch 多行登记），方式②（结构化数组）v0.2+ 预留 | MVP | 5.2 |
+| D6 | `instance = ip:port` 仅作抓取身份，非业务关联身份 | Prometheus 原生默认行为，端口/漂移不稳定；业务关联走 `app`/`biz`/稳定资源身份 | MVP | 5.4 / 术语映射 |
+| D7 | 标签模板必须包含稳定资源身份标签 | 默认标签模板至少映射一个网域内稳定资源身份（`resource_id`/`hostname`），供拓扑穿透/跨网域关联 | MVP | 5.1 / 8.1 / Module_07 约束 |
+| D8 | 资源层级/拓扑由 CMDB/APM 承载，监控只携带 join key | 不在 metric 标签层硬编码拓扑（避免基数爆炸）；监控经 `app`/`biz`/resource identity 关联 CMDB | v0.2+ | 模块边界 / 本记录 |
+| D9 | MVP 不实现实例级端口覆盖 | 同 CI 类型多端口 MVP 非高频；端口变更走 v0.2 网域级覆盖 + 实例级覆盖 | MVP/v0.2 | 5.1 / 5.4 |
+| D10 | 网域级覆盖表驱动场景增加"安全/高危端口" | 不同网域因安全策略要求不同端口（避开高危端口）是 v0.2 `CITypeExporterMappingOverride` 关键驱动 | v0.2 | 5.1 |
+| D11 | 列表状态列"异常驱动"展示 | 正常态收为 `-`/低饱和标签，异常/可行动态才醒目；详情收进抽屉/Tooltip | MVP | 3.1 / 8.1 |
+| D12 | 采集器管理按钮动线主次分离 | 主按钮「新增默认采集配置」；「登记采集器」降级次级按钮 + 选择器空态内联；页面编号动线说明（①登记→②配置默认→③创建 Job 选实例确认安装） | MVP | 3.1 / 5.1 |
+| D13 | 采集器登记入口 inline 在选择器空态 | 默认采集配置/Job 表单采集器下拉为空时显示「未找到？前往登记采集器」内联动作 | MVP | 5.1 / 5.4 / 8.1 |
+| D14 | Job 列表与默认采集配置列表列字段优化 | 去重复 Tag（Job 名称 blackbox Tag、采集器来源/类型双列）、合并同义列、端口/路径/协议合并 compact endpoint 文本、操作列图标化 | MVP | 8.1 |
+| D15 | 默认采集配置列表补齐标签模板列 | 原型缺 PRD v3.1 已验收列；按决策 15 两行卡片补齐（名称 + 默认/自定义标记 / 类别·模板ID，查看/更换/补配） | MVP | 8.1 / 原型 |
+| D16 | `手动选择` = `instance_selection_mode=manual` 实例手动勾选 | 非"手动选择采集器"；术语映射与 UI 文案明确（与 D2 采集器二选一区分） | MVP | 术语映射 / 5.4 |
+
+### 决策要点补充
+
+- **D3/D4 边界一句话**：隔离边界建实体（CI 类型），位置/平台维度建属性（os/arch），叫法建部署/制品字典——与 M06 网域 `zone_type` 的「隔离边界建实体、位置维度建属性、叫法建字典」原则同构。
+- **D8 落点**：本轮不新增 metric 标签；仅记录边界——资源层级/拓扑由 CMDB/APM 承载，监控平台标签层只带 join key（`app`/`biz`/稳定资源身份），v0.2+ 在跨模块文档（M07/M04）细化。
+- **D9/D10 端口分层**：类型级 `default_port`（MVP）→ 网域级 `CITypeExporterMappingOverride`（v0.2，含安全/高危端口驱动）→ 实例级端口覆盖（v0.2+ 评估）；Job 表单不提供端口字段（D6）。
+
+### 已确认项（2026-08-16）
+
+- [x] D1-D16 全部确认，PRD v3.14 按 2.1-2.7 落位（3.1 / 5.1 / 5.2 / 5.4 / 6.2.2 / 8.1 / 术语映射）。
+- [x] 原型落地：Job 列表列收敛、采集器管理列表合并重复列 + 补齐标签模板列、按钮主次分离 + 空态内联登记、Job 表单采集器显式二选一（D2）、网域/标签模板选择器空态引导（D1/D13）、手动选择文案（D16）。
+- [x] 原型「默认采集配置」表补「标签模板」列，与 PRD v3.1 验收对齐（D15）。
+- [x] 设计决策记录沉淀 D1-D16（本小节）。
+
+### 仍待确认项
+
+- [ ] D8（资源层级/拓扑由 CMDB/APM 承载）需在 Module_07 / Module_04 的跨模块文档中同步细化（v0.2+ 落地时）。
+- [ ] D5 方式②（`download_url` 结构化数组）在 v0.2+ 引入时需同步字段类型与后端契约。
+- [ ] Module_07 LabelTemplate 创建流程需增加「稳定资源身份标签」提示（D7 约束落地）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.14）
+- `docs/prototypes/module-01/src/pages/ScrapeJobsPage.tsx`（原型同步）
+- `docs/05-execution-records/module-01/design-decisions.md`（本记录）
+
+---
+
+## 补充对齐：2026-08-16（第二十五轮：CMDB 分类轴两级映射推导 + 标签模板锚点粒度 + 五大类拆分 + 原型检查问题，决策 D17-D23）
+
+- **参与 Agent**：用户、prototype-designer
+- **触发原因**：①讨论「CMDB 分类轴与监控采集轴怎么统一」——确认统一靠**两级映射推导**而非让 CMDB 迁就监控轴；②检查发现标签模板锚点在 M07 PRD / M01 PRD / M01 原型三处粒度不一致；③提出 MySQL 从中间件拆出「数据库」独立类；④原型检查发现 P1-P5 问题（采集器池不可见、install_guide 双写、blackbox 硬塞 application_http、标签模板选择器不过滤、跨模块跳转硬编码路径）。
+- **关联模块**：Module_01、Module_04、Module_07。
+
+### 分析过程：CMDB 分类轴与监控采集轴的两级映射推导（不统一分类法）
+
+用户确认：CMDB 不会按监控采集实现定义 CI 类型，统一靠映射推导，整条链两跳——
+
+```
+CMDB bk_obj_id（细粒度，资源本质轴：mysql / redis / 达梦）
+  → M04「CMDB CI 类型映射表」归类 → M07 粗粒度类别 + middleware_type
+  → M01 CI_TYPE_CATEGORY_MAP 推导 → M01 细粒度 CI 类型（mysql / host_linux ...）
+```
+
+- CMDB 侧**永远不需要知道"采集实现"概念**（M07 5.1 已写明：CMDB 不存在父子分类表达，也无需引入 category）；
+- M01 细粒度 CI 类型是**派生的策略维度**，只存在于监控平台内部，**不回写 CMDB**；
+- 新增产品线（如达梦）时动作是**配两行映射**（M04 映射表 + M01 CI_TYPE_CATEGORY_MAP），不是改 CMDB 模型定义；M04「待分类队列」承接"CMDB 出现映射表里没有的新类型"的缓冲。
+
+### 检查发现：标签模板锚点粒度三处不一致
+
+| 位置 | 锚点粒度 |
+|---|---|
+| M07 PRD 5.10 | `LabelTemplate.resource_type` = **粗粒度类别**（且 M07 明确"标签模板归属"是四大类的用途之一） |
+| M01 PRD v3.3 | 选择器"按 CI 类型严格过滤（仅同类型模板）"——**细粒度** |
+| M01 原型 | Job 表单选择器完全不过滤（列出全部模板）；采集器管理 Tab「更换」按粗粒度类别过滤 |
+
+若严格执行"按细粒度 CI 类型过滤"，host_linux / host_windows 需各建一套内容几乎相同的模板——而标签模板内容（字段 → label 映射）由资源字段 schema 决定，是**类别级**的（M07 5.12 A 字段来源表按 主机/中间件/应用服务 组织）。→ 见决策 D18。
+
+### 检查发现：原型 P1-P5（按严重度）
+
+- **P1**：「采集器管理」Tab 列表只展示映射（`filteredPresets`），登记入池的采集器本身不可见（未引用时无法在"采集器管理"页面看到）→ D22。
+- **P2**：`install_guide` 双写冗余（PRD 5.1 映射表有该字段、5.2 又明确归属采集实现；原型预设抽屉可编辑、列表读映射行）→ D20。
+- **P3**：blackbox Job 硬塞 `application_http` + `et-blackbox`（表单切换时强制写入），与列表/PRD 语义不一致，会污染 application_http 覆盖率统计 → D21。
+- **P4**：Job 表单标签模板选择器完全不过滤，与 PRD v3.3 不符——修复取决于 D18 锚点粒度决策，两者一起改。
+- **P5**：跨模块跳转硬编码相对路径（原型演示够用），实现期应走统一导航配置 → D23。
+
+### 关键决策（D17-D23）
+
+| 编号 | 决策 | 内容 | 状态 |
+|---|---|---|---|
+| D17 | 空态补救必须携带发起上下文 | 从「新增默认采集配置」/「采集 Job」表单的采集器空态发起登记时，登记表单预填 `supported_resource_types` = 当前 CI 类型，保存成功后自动回选到来源表单的采集器字段；否则登记完仍可能因过滤不可见，空态补救失效 | 已确认（原型已实现） |
+| D18 | 标签模板锚点粒度 = 粗粒度资源类别 | 标签模板内容（字段 → label 映射）由资源字段 schema 决定，是类别级的；M07 `LabelTemplate.resource_type` 保持粗粒度类别（M07 模型不动），M01 映射按 CI 类型指定该类别下的默认模板，选择器按「所属类别」过滤而非"按 CI 类型严格过滤"。避免 host_linux / host_windows 重复建模板。**需修订 M01 PRD v3.3 既有措辞** | **建议，待用户确认** |
+| D19 | 资源分类四大类改五大类，数据库独立成类 | `host` / `database` / `middleware` / `application` / `generic_target` 五大类；归类规则：以数据存储/查询为主语义、按产品线分采集器 → database（mysql、postgresql、oracle、达梦 dm8、sqlserver、mongodb、**redis**）；消息/网关/协调/搜索 → middleware（kafka、nginx、zookeeper、**elasticsearch**）。M07 `middleware_type` 拆为 `database_type` + `middleware_type` 两个细粒度字段；M01 `CI_TYPE_CATEGORY_MAP` 相应调整 | redis→database 已确认；ES 留 middleware 为**建议默认值** |
+| D20 | `install_guide` 单一持有方 = 采集实现 | `install_guide` 只存于 `ExporterTemplate`，映射行（`CITypeExporterMapping`）删除该字段、只读透传展示；类型级补充说明另用纯备注字段，避免双写不一致 | 已确认 |
+| D21 | blackbox Job 不占用 application_http / 采集器语义 | `job_type=blackbox` 时 `resource_type` / `exporter_template_id` 留空，不伪装为 `application_http` + `et-blackbox`；拨测语义由 `job_type` + `blackbox_module` + `blackbox_targets` 完整承载 | 已确认 |
+| D22 | 采集器管理列表 = 映射 + 池全貌 | 「采集器管理」列表需展示已登记但未被任何映射引用的采集器（标记「未被引用」状态），否则"登记即入池"对用户不可见 | 已确认 |
+| D23 | 跨模块跳转由统一导航配置承载 | 原型可暂用相对路径，PRD 明确实现期不写死路径 | 已确认 |
+
+### 决策要点补充
+
+- **D19 拆分理由**：数据库按产品线重度扩张（达梦 / Oracle / SQL Server / PG / MongoDB），与消息/网关类中间件（kafka / nginx）的资源性质、采集器生态、使用人心智不同，混在"中间件"里会越来越别扭；趁 MVP 无存量数据，改枚举成本最低。
+- **D19 涟漪影响清单**（改之前要有数）：M07 资源类型枚举与字段表、M01 `CI_TYPE_CATEGORY_MAP` / 两级级联 / 指标库最小集表、M04 CMDB CI 类型映射表、Excel 导入模板列、标签模板类别归属、业务视图"微服务/中间件/主机"聚合措辞、全局架构文档与术语映射、所有原型 mocks。**对 CMDB 兼容性无影响**——bk_obj_id 不变，只是映射表多一个目标类别值。
+- **D18 与 P4 的关系**：Job 表单标签模板选择器修复（加过滤）与 D18 锚点粒度决策一起做——若 D18 通过，选择器按「Job 所属资源类别」过滤 + 默认模板标记到 CI 类型。
+
+### 已确认项（2026-08-16）
+
+- [x] D17：空态登记携带发起上下文（原型已实现：openTemplateRegister(ctx) 预填 supported_resource_types + 保存后回选）。
+- [x] **D18：用户给出具体修改意见并指示执行**——M01 PRD v3.3「按 CI 类型严格过滤」修订为「按所属资源类别过滤，默认模板标记到 CI 类型」，M07 `LabelTemplate.resource_type` 保持粗粒度类别不动；已按 v3.15 / v2.13 落地。
+- [x] **D19：五大类拆分落地**——redis → database（用户确认）；elasticsearch 按建议默认值留 middleware（用户修改意见的归类规则 middleware 含 elasticsearch）；M01 v3.15 / M07 v2.13 / M04 v1.3 三份 PRD 已同步。
+- [x] D20 / D21 / D22 / D23：决策确认，PRD 修改已执行（M01 v3.15：install_guide 只读透传 / blackbox 留空 / 池全貌 / 跨模块跳转说明）。
+
+### 仍待确认项
+
+- [ ] **原型 mocks 同步（D19 涟漪，待执行）**：module-01 / module-07 / module-04 等原型 mocks 的 CI 类型、类别枚举、资源 mock 需从四大类调整为五大类（database 独立 + database_type / middleware_type 拆分）——PRD 契约已改，原型待同步。
+- [ ] D18 原型侧：Job 表单标签模板选择器改为按「所属资源类别」过滤 + 默认模板标记到 CI 类型（与 PRD v3.15 措辞一致后原型需同步）。
+- [ ] D20 原型侧：预设抽屉 install_guide 编辑入口收敛为只读透传（含类型级 install_notes 备注字段评估）。
+- [ ] D21 原型侧：blackbox Job 表单不再写入 application_http + et-blackbox（留空）。
+- [ ] D22 原型侧：采集器管理列表 = 映射 + 池全貌（未引用标记）。
+- [ ] D19 落库后 M07 `middleware_type` → `database_type` + `middleware_type` 的字段拆分与 M04 映射表同步（PRD 已改，跨模块验证）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.15）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.13）
+- `docs/02-product-requirements/Modules/Module_04_Custom_Discovery.md`（v1.3）
+- `docs/05-execution-records/module-07/design-decisions.md`（D19 同步）
+- `docs/prototypes/module-01/src/pages/ScrapeJobsPage.tsx`（D17 已实现）
+
+---
+
+## 补充对齐：2026-08-16（第二十六轮：术语分层与字段改名，决策 D24）
+
+- **参与 Agent**：用户、prototype-designer
+- **触发原因**：用户指出「CI 类型」是 CMDB 的原生词汇（CI = Configuration Item，`bk_obj_id` 就是 CI 类型 ID），M01 借用它命名一个**派生的策略维度**，用户必然以为两者是同一个东西、强绑定——需要术语分层 + 字段改名 + 链路可见化三层处理。
+- **关联模块**：Module_01、Module_04、Module_07、全局架构文档。
+
+### 术语分层（三层各归其主，互不借用）
+
+| 层 | 术语（UI 文案） | 技术字段 | 归属 | 含义 |
+|---|---|---|---|---|
+| CMDB | **CI 类型**（bk_obj_id） | `bk_obj_id` / `cmdb_ci_type` | CMDB / M04 | 资源本质分类（mysql / redis / 达梦），权威来源，监控平台只读 |
+| M07 | **资源类别 + 子类型** | `resource_category` + `database_type` / `middleware_type` / `os_type` | M07 | 内部资源管理维度（数据库 / 中间件 / 主机 / 应用 / 通用目标） |
+| M01 | **监控对象类型**（不再叫 CI 类型） | `monitor_type` | M01 | 派生的策略维度（host_linux / mysql / application_http），用于绑定采集器、指标库、标签模板 |
+
+**规则一句话**：「CI 类型」这个词只允许出现在 CMDB/M04 的上下文里；M01/M07 的页面、表单、术语映射一律不再使用。
+
+### 关键决策 D24：术语分层与字段改名
+
+- **M01**：`resource_type` → **`monitor_type`**（字段表 / API query / 数据模型 / 术语映射）；`CI_TYPE_CATEGORY_MAP` → **`MONITOR_TYPE_DERIVATION_MAP`**（监控对象类型推导表——名字即"这是推导演出，不是绑定"）；「CI 类型」→「监控对象类型」（M01 上下文，CMDB/M04 引用保留）；UI 展示名「资源类型」→「监控对象类型 / 资源类别」。
+- **M07**：`Resource.resource_type`（粗粒度）→ **`resource_category`**（枚举类型与常量同步 `ResourceCategory`、5.2 字段表、5.10 LabelTemplate 锚点、5.12 A 表头、6.x API、Excel 状态映射、术语映射）——消除与 M01 细粒度 `resource_type` 同名不同粒度的 API 层歧义；M01 细粒度维度引用改 `monitor_type`、推导表改 `MONITOR_TYPE_DERIVATION_MAP`。
+- **M04**：CMDB CI 类型映射表改**三列完整推导链**——`CI 类型（bk_obj_id，只读）→ 资源类别 + 子类型（管理员配置）→ 监控对象类型（只读，由推导表实时计算）`，第三列只读不可编辑；待分类队列引导文案改为「为 CI 类型指派资源类别与子类型」（非"创建 CI 类型"）；孤儿分组字段 `resource_type` → `resource_category`。
+- **全局**：`00_Global_Architecture.md` 新增「术语归属与禁用规则」小节（三层术语表 + 推导链 + 归属与禁用规则）；`03_Functional_Architecture.md` 相关表述同步（「CI 类型 ↔ Exporter 模板绑定」→「监控对象类型 ↔ 默认采集器绑定」、「四类资源」→「五类资源」）。
+
+### UX 补充建议（链路显性化，原型侧落地）
+
+1. **M04 映射表三列展示完整推导链**，第三列只读——用户一眼看到"我配的是前两列，监控对象类型是自动推出来的"。
+2. **M01 两级级联**：第二级 label「监控对象类型」，extra 写明"由资源类别与子类型（主机另按操作系统）自动推导"。
+3. **M04 待分类队列**：引导语说清楚动作是"为 CI 类型指派资源类别与子类型"。
+4. **M07 资源详情只读展示派生的监控对象类型**（如「监控对象类型：mysql（由 数据库 + mysql 推导）」）。
+5. **全局术语规范**：00_Global_Architecture 加「术语归属与禁用规则」（已落地）。
+
+### 已确认项（2026-08-16）
+
+- [x] D24 决策确认，PRD 修改已执行：M01 v3.16 / M07 v2.14 / M04 v1.4 / 00_Global_Architecture（第 7 章）/ 03_Functional_Architecture。
+- [x] 字段改名全量落地（monitor_type / MONITOR_TYPE_DERIVATION_MAP / resource_category / ResourceCategory），历史 Change Log 行保持原貌未被污染。
+- [x] 「CI 类型」仅在 CMDB/M04 上下文保留（M01 258 行 CMDB 接入段、M07 CMDB 侧边界段、M04 映射表首列）。
+
+### 仍待确认项
+
+- [ ] **原型 mocks 术语同步（D24 涟漪，待执行）**：module-01 / module-07 原型 mocks 的 `resource_type` → `monitor_type` / `resource_category`、`CI_TYPE_CATEGORY_MAP` → `MONITOR_TYPE_DERIVATION_MAP`、两级级联 label 文案「监控对象类型」+ extra 推导说明、M04 映射表三列化（原型 v1.1 未建，PRD 先行）。
+- [ ] M07 资源详情展示「派生的监控对象类型」（UX 建议第 4 条）随原型同步。
+- [ ] 全局术语规则在后续模块 PRD（M02/M08/M09 等）中的历史遗留「CI 类型」表述清理（版本修订时顺带）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.16）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.14）
+- `docs/02-product-requirements/Modules/Module_04_Custom_Discovery.md`（v1.4）
+- `docs/02-product-requirements/00_Global_Architecture.md`（第 7 章术语归属与禁用规则）
+- `docs/02-product-requirements/03_Functional_Architecture.md`（术语同步）
+
+---
+
+## 补充对齐：2026-08-16（第二十七轮：标签模板三环节定位澄清，决策 D25）
+
+- **参与 Agent**：用户、prototype-designer
+- **触发原因**：用户提出三点疑问——①默认采集配置必须关联标签模板吗（预设抽屉表单没有该字段、用户会奇怪为什么关联）；②采集 Job 动线应主动选择还是自动匹配；③为什么选择「监控对象类型」时标签模板才变化、而不是「资源类别」时。经讨论拍板 A+C+D。
+- **关联模块**：Module_01（5.1 映射、5.4 Job、v3.3 标签模板段）。
+
+### 关键决策 D25：标签模板三环节定位（A+C+D）
+
+- **正交关系定性**：标签模板（打什么标签，LabelTemplate 归 M07 维护）与采集器（怎么采，ExporterTemplate）**正交**；`CITypeExporterMapping.label_template_id` 的语义 = **该监控对象类型在该类别下的「默认模板」**（创建 Job 时自动预填的快捷来源），**非强关联、非必填**。
+- **A｜预设抽屉补「默认标签模板（可选）」字段**：不隐藏、不强制；按**资源类别**过滤候选（该类别下所有模板），extra 说明「该监控对象类型的默认标签模板：创建采集 Job 时自动预填，可更换；不选则创建 Job 时再选择」。让「默认模板标记到 CI 类型」（D18）在映射层可落地——现状断链：预设抽屉无该字段但 `handlePresetSave` 读 `values.label_template_id`，新建映射 `has_label_template` 恒 false、列表全显「标签模板待配置」。
+- **C｜Job 动线：自动预填 + 类别兜底 + 显性化 + 可更换**：创建 Job 自动预填顺序 = 映射默认模板（`mapping.label_template_id`，CI 类型级）→ **兜底同类别 `is_default` 模板**（映射未配置时）；概要行显性说明「已自动匹配该监控对象类型的默认模板，可更换」；用户可换用其他模板（引用级）。
+- **D｜选择器按「资源类别」过滤（类别驱动候选、类型驱动默认）**：标签模板锚定粗粒度类别（D18），选择器候选 = 当前资源类别下所有模板（选类别即收敛）；选定监控对象类型后预填/标记默认模板。与 D18 完全对齐——**不按「监控对象类型」触发过滤**（现状 `watchResourceType` 等价但交互时机晚、语义反）。
+
+### 已确认项（2026-08-16）
+
+- [x] A+C+D 拍板；决策落档本小节，PRD v3.17 与原型同步执行。
+
+### 仍待确认项
+
+- [ ] 无（本轮闭环）；原型同步后预览验证。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.17）
+- `docs/prototypes/module-01/src/pages/ScrapeJobsPage.tsx`（A/C/D 原型侧）
+
+---
+
+## 补充对齐：2026-08-16（第二十八轮：标签模板补配入口收敛 + D25-A 分组展示，决策 D26）
+
+- **参与 Agent**：用户、prototype-designer
+- **触发原因**：用户复核 D25 实现，确认方向（正交 + 可选 + 自动预填 + 类别兜底）正确，但指出**入口收敛没做完、原型「补配」是空跳转**：采集器管理列表「补配」按钮与「待配置」badge 都 `navigate('/ci-exporter-mapping')`（该路由渲染 ScrapeJobsPage 且默认 `view='collectors'`）——用户本就站在采集器管理页，点了跳到同一页、无动作发生；Job 表单 Alert 主按钮落位即止（不自动打开映射编辑抽屉）；Alert 还并列 M07 次级入口，用户不知道缺的是"模板"还是"映射关联"。
+- **关联模块**：Module_01（5.1 标签模板创建引导、5.4 Job 表单 Alert、8.1 验收）。
+
+### 关键决策 D26：补配入口收敛（一个动作、两个触发点）
+
+- **统一动作 = 打开该监控对象类型映射行的编辑抽屉**——"补配"的本质是在映射层设置默认模板，唯一落点就是映射行，不需要第三个页面；
+- **触发点 1｜Job 表单 Alert**：主按钮 → 跳采集器管理并**自动打开该映射的编辑抽屉**（带参 `?view=collectors&edit=<mapping_id>`）；落位即开，不要求用户自己找映射行；
+- **触发点 2｜映射列表「补配」按钮 / 「待配置」badge**：**同页直接打开本行编辑抽屉**（修复当前空跳转）；
+- **M07 创建入口收敛**：「前往标签模板管理（M07）」从 Job 表单 Alert **拿掉**，只保留在抽屉内标签模板选择器的**空态**（notFoundContent）——只有"该类别下真的一个模板都没有"时才需要去 M07 创建，复用空态依赖引导规范（D1）；
+- **Alert 文案按缺口类型区分**：①映射有候选但未关联模板 → 主按钮「立即补配」（打开映射编辑抽屉）；②该资源类别下无任何模板 → 主按钮「前往创建模板」（M07，此时才是真阻塞）——D25-C 类别兜底已让"映射未关联"不再是硬缺口；
+- **软引导不阻塞保存（确认边界）**：缺标签模板只是监控数据缺归属标签，Job 仍可运行——保持 warning Alert 提示、**不升级为必填校验**（与默认采集器必填不同）；
+- **D25-A 分组展示**：预设抽屉「默认标签模板（可选）」用 `Divider` 与采集参数隔开（分隔标题「标签模板（与采集器正交，可选）」），视觉上声明"这不是采集器的一部分"。
+
+### 已确认项（2026-08-16）
+
+- [x] D26 决策确认；PRD v3.18 与原型（补配入口收敛 + Divider）同步执行。
+
+### 仍待确认项
+
+- [ ] 无（本轮闭环）；原型构建 + 预览验证。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.18）
+- `docs/prototypes/module-01/src/pages/ScrapeJobsPage.tsx`（入口收敛 + Divider）
+
+---
+
 ## Change Log（完整历史）
 
 > v2.4 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v3.5 及以前的逐版完整变更详情（业务沟通决策记录）。

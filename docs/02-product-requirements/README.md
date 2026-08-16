@@ -34,7 +34,7 @@
 | Module 05 | [Module_05_Custom_UI.md](Modules/Module_05_Custom_UI.md) | 自定义前端门户 |
 | Module 06 | [Module_06_Multi_Tenant.md](Modules/Module_06_Multi_Tenant.md) | 系统与平台管理（含多租户） |
 | Module 07 | [Module_07_Monitoring_Object_Management.md](Modules/Module_07_Monitoring_Object_Management.md) | 监控对象管理 |
-| Module 08 | [Module_08_Alerting_Rule_Management.md](Modules/Module_08_Alerting_Rule_Management.md) | 告警规则管理 |
+| Module 08 | [Module_08_Alertmanager_Notification_Management.md](Modules/Module_08_Alertmanager_Notification_Management.md) | 告警规则管理 |
 | Module 09 | [Module_09_Network_Domain_and_Edge_Config_Center.md](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) | 网域与边缘配置中心 |
 | Module 10 | [Module_10_Monitoring_Source_Registry.md](Modules/Module_10_Monitoring_Source_Registry.md) | 监控源登记册与异构接入 |
 

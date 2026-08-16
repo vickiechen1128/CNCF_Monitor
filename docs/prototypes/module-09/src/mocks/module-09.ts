@@ -1,6 +1,13 @@
 export type NetworkDomainStatus = 'online' | 'offline' | 'unknown'
 export type DomainType = 'management' | 'edge'
 export type AgentType = 'vmagent' | 'prometheus-agent'
+/**
+ * 下发通道（{v1.33}/{v1.34} 决策 31/32/33）：
+ * - `local`：采集器与中心同机/同 Pod，中心直接写盘并 reload（MVP 固定 `default` 域）
+ * - `agent_pull`：采集器位于中心无法直接触及的远端节点（隔离网域等），由 Edge Sync Agent 心跳拉取 zip 配置包
+ * 通道绑定到**采集节点位置**而非域类型（决策 32）；MVP 按网域固定、不提供切换、不支持同域混合通道（决策 33）。
+ */
+export type Channel = 'local' | 'agent_pull'
 /** {v1.29} 网域生命周期状态：created = 已由 Module_06 行政创建但未纳管监控；monitored = 已完成监控纳管 */
 export type NetworkDomainRegistrationStatus = 'created' | 'monitored'
 export type ConfigSyncStatus = 'in_sync' | 'out_of_sync' | 'unknown' | 'manual_override'
@@ -122,11 +129,35 @@ export interface NetworkDomain {
   description: string
   domain_type: DomainType
   tenant_id: string
+  /**
+   * 下发通道（{v1.33}/{v1.34} 决策 31/32/33）：`local`（中心同机写盘 reload）/ `agent_pull`（Edge Sync Agent 心跳拉包）；
+   * MVP 按网域固定（`default` 域 = `local`，其他网域 = `agent_pull`），不提供切换（决策 33）；
+   * `channel` 决定哪些字段必填 / 展示（Token / Agent 类型 / Remote Write URL / 运行态心跳字段 / 安装指引仅 `agent_pull` 展示）。
+   */
+  channel: Channel
+  /**
+   * 网络区域类型（{v1.31}，M06 行政字段，纳管只读引用）：网络隔离/位置语义分类，
+   * 值集为部署级字典（政务云预置 `internet` 互联网区 / `extranet` 政务外网区等，公有云预置 region 列表）；
+   * 配置生成时注入 `external_labels.zone_type`（PRD 4.1 / 9.2）。
+   */
+  zone_type: string
+  /**
+   * 中心接入地址（{v1.31}）：该网域视角的中心可达地址（如 `https://10.8.0.5:8443`，
+   * 网闸/防火墙地址映射后的地址）；`domain_type=edge` 纳管时必填，由运维按该区网闸策略填写，
+   * 用于合成心跳响应中的配置包绝对下载地址（PRD 6.1）；管理域（default）为空。
+   */
+  center_endpoint: string
+  /** {v1.33} 认证 Token（脱敏展示）：`channel=agent_pull` 时必填（纳管时自动签发）；`channel=local` 时为空且不展示 */
   token: string
-  agent_type: AgentType
+  /** {v1.33} Agent 类型：`channel=agent_pull` 时必填（采集器类型）；`channel=local` 时为空 */
+  agent_type: AgentType | ''
+  /** {v1.33} 该网域 Agent Remote Write 目标地址（PRD 4.1）：语义为该网域视角的可达地址（网闸映射后地址），非中心自认地址；`channel=agent_pull` 时必填，`channel=local` 时为空 */
   remote_write_url: string
-  status: NetworkDomainStatus
+  /** {v1.33} 状态（运行态字段）：`channel=agent_pull` 时由心跳上报更新；`channel=local` 时为空 */
+  status: NetworkDomainStatus | ''
+  /** {v1.33} 最后心跳（运行态字段）：`channel=agent_pull` 时由心跳上报更新；`channel=local` 时为空 */
   last_heartbeat: string
+  /** {v1.33} Agent 版本（运行态字段）：`channel=agent_pull` 时由心跳上报更新；`channel=local` 时为空 */
   agent_version: string
   /** {v1.29} 网域生命周期：created（仅行政创建）/ monitored（已监控纳管） */
   registration_status: NetworkDomainRegistrationStatus
@@ -225,6 +256,8 @@ export interface ConfigDeployment {
   config_version_id: string
   /** 来源变更单号（决策 22）：经 config_version_id → ConfigVersion.change_no 透传，全链路可追溯「哪个变更发的、回滚它」 */
   source_change_no: string
+  /** 下发通道（{v1.33}）：`local`（中心直接 reload）/ `agent_pull`（Edge Sync Agent 拉包），与对应 NetworkDomain.channel 一致 */
+  channel: Channel
   target_type: DeploymentTargetType
   target_address: string
   status: DeploymentStatus
@@ -272,7 +305,8 @@ export interface ChangeDetectionStatus {
  */
 export const MVP_AGENT_TYPE: AgentType = 'vmagent'
 
-// 当前租户上下文：通过切换 multi_site_enabled 演示单网域/多网域模式差异
+// 当前租户上下文（决策 31）：multi_site_enabled 为 M06 租户级行政能力开关，不在 UI 提供运行时切换；
+// 页面入口与字段展示由数据驱动（Agent 状态入口按 EdgeAgent 实例存在性、字段按下发通道）
 export const currentTenant: Tenant = {
   id: 'platform_admin',
   name: '平台默认租户',
@@ -369,6 +403,54 @@ export const validationLayeringNote = {
     '联合校验值双用途：同一份 sha256(prometheus.yml + rules_yml + blackbox_yml + targets 内容)，中心侧用于草稿去重裁决（内容是否变化），边缘侧用于拉包完整性校验（传输字节是否完整）',
 }
 
+/**
+ * 审批分级策略（{v1.32} M01/M08/M09 告警规则职责重构，PRD 3.4）：
+ * - 人工确认（go/no-go）：prometheus.yml、targets/*.json、rules.yml、blackbox.yml 的变更进入待确认列表；
+ * - 自动生效：alertmanager.yml 由 Module_08 直接写文件并触发 Alertmanager reload，不进入本模块 ConfigDraft / 配置变更确认流程；
+ * - 混单规则：若某次变更同时涉及人工确认文件与 alertmanager.yml（防御性说明），按高风险文件走人工确认。
+ * 原因：通知路由/接收人/静默/抑制调整频繁、风险低（仅影响告警体验，不影响采集/规则求值），且 M08 是 Alertmanager 配置的唯一 Owner。
+ */
+export const approvalTieringNote = {
+  manual:
+    '人工确认（go/no-go）：prometheus.yml、targets/*.json、rules.yml、blackbox.yml 的变更进入待确认列表，由运维审批后发布',
+  auto:
+    '自动生效：alertmanager.yml 由 Module_08（告警收敛与通知管理）直接写文件并触发 Alertmanager reload，不进入本模块变更单 / 配置变更确认流程',
+  mixed:
+    '混单规则：若某次变更同时涉及人工确认文件与 alertmanager.yml（防御性说明），按高风险文件走人工确认',
+  reason:
+    '原因：通知路由 / 接收人 / 静默 / 抑制调整频繁、风险低（仅影响告警体验，不影响采集 / 规则求值），且 Module_08 是 Alertmanager 配置的唯一 Owner',
+}
+
+/**
+ * 网闸 / 隔离区连接约束（{v1.31}，强制，PRD §6）：在政务云等网闸隔离场景
+ * （互联网区 ↔ 政务外网区，双向网闸地址策略不同）下，禁止任何中心 → 边缘方向的主动连接——
+ * 所有交互（心跳、配置拉取、指标 remote_write）一律由边缘 Agent 向中心发起（pull / push 上行）；
+ * 中心侧不实现也不保留「主动触达边缘」的能力（如主动 reload、主动探测）。
+ * 所有面向边缘的地址均为「该网域视角的可达地址」（网闸地址映射后的地址），不是中心自认地址。
+ */
+export const gatewayConstraintNote =
+  '网闸 / 隔离区连接约束（强制）：禁止任何中心 → 边缘方向的主动连接，所有交互（心跳 / 配置拉取 / 指标回传）一律由边缘 Agent 向中心发起（pull / push 上行），中心无入站端口；面向边缘的地址均为该网域视角的可达地址（网闸映射后地址），配置拉取地址由网域级 center_endpoint + 相对路径合成绝对地址下发给 Agent'
+
+/**
+ * rules.yml 分组派生（{v1.32}，PRD 3.3）：M09 读取 MonitoringRule 后按 Prometheus `group` 语法组织 rules.yml，
+ * group 由 M09 内部自动派生（默认按 resource_type 或 rule_type 聚类），MVP 不暴露用户可管理的 RuleGroup 实体；
+ * 按规则作用域生成：中心域（default）包含 scope=central/both 规则，边缘域仅当存在 scope=edge/both 规则时
+ * （v0.4+）随配置包生成，MVP 阶段由中心统一求值。
+ */
+export const rulesGroupDerivationNote =
+  'rules.yml 按 Prometheus group 语法组织：分组由配置中心内部自动派生（默认按 resource_type / rule_type 聚类），MVP 不暴露用户可管理的规则分组实体；按规则作用域生成——中心域（default）包含 scope=central/both 规则，边缘域仅当存在 scope=edge/both 规则时（v0.4+）随配置包下发，MVP 阶段由中心统一求值'
+
+/**
+ * 配置包绝对下载地址合成（{v1.31}，PRD 6.1）：返回绝对地址 = 该网域 center_endpoint
+ * （该网域视角的中心可达地址，网闸映射后地址）+ 固定相对路径 /api/v2/platform/edge/config?network_domain=<id>；
+ * 禁止返回相对路径由 Agent 自行拼接（网闸场景下 Agent 无法推导中心映射地址）。
+ * center_endpoint 缺失（如管理域）时不走本协议。
+ */
+export function deriveConfigDownloadUrl(domain: Pick<NetworkDomain, 'id' | 'center_endpoint'>): string {
+  if (!domain.center_endpoint) return ''
+  return `${domain.center_endpoint}/api/v2/platform/edge/config?network_domain=${domain.id}`
+}
+
 export const networkDomains: NetworkDomain[] = [
   {
     id: 'default',
@@ -376,12 +458,18 @@ export const networkDomains: NetworkDomain[] = [
     description: '默认中心管理域，承载单机与中心采集模式；可修改名称以匹配云区域命名',
     domain_type: 'management',
     tenant_id: 'platform_admin',
-    token: 'tk_default_a1b2c3d4e5f6',
-    agent_type: 'vmagent',
-    remote_write_url: 'http://localhost:8428/api/v1/write',
-    status: 'online',
-    last_heartbeat: '2026-08-03 14:30:00',
-    agent_version: 'v1.102.0',
+    // {v1.33}/{v1.34} default 固定 channel=local（决策 32/33）：中心直接采集，不部署 Edge Agent
+    channel: 'local',
+    // {v1.31} 管理域（default）由中心直接采集，无网闸拓扑：zone_type 为空、center_endpoint 为空（不走边缘协议）
+    zone_type: '',
+    center_endpoint: '',
+    // {v1.33} channel=local：不生成 Token / Agent 类型 / Remote Write / 运行态心跳字段（PRD 4.1 为空且不展示）
+    token: '',
+    agent_type: '',
+    remote_write_url: '',
+    status: '',
+    last_heartbeat: '',
+    agent_version: '',
     registration_status: 'monitored',
     created_at: '2026-07-01 00:00:00',
     updated_at: '2026-08-03 14:30:00',
@@ -392,6 +480,11 @@ export const networkDomains: NetworkDomain[] = [
     description: '物理隔离政务网，通过 Edge Agent 单向 HTTPS 出站接入',
     domain_type: 'edge',
     tenant_id: 'platform_admin',
+    // {v1.33}/{v1.34} 非 default 网域固定 channel=agent_pull（决策 33）
+    channel: 'agent_pull',
+    // {v1.31} 政务外网区（M06 行政登记）；center_endpoint 为网闸映射后的中心可达地址，用于合成配置包绝对下载地址
+    zone_type: 'extranet',
+    center_endpoint: 'https://10.8.0.5:8443',
     token: 'tk_gova_7g8h9i0j1k2l',
     agent_type: 'vmagent',
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
@@ -408,6 +501,11 @@ export const networkDomains: NetworkDomain[] = [
     description: '金融专网 DMZ 区，部署 Prometheus Agent Mode',
     domain_type: 'edge',
     tenant_id: 'platform_admin',
+    // {v1.33}/{v1.34} 非 default 网域固定 channel=agent_pull（决策 33）
+    channel: 'agent_pull',
+    // {v1.31} 互联网区（M06 行政登记）；center_endpoint 为网闸映射后的中心可达地址
+    zone_type: 'internet',
+    center_endpoint: 'https://10.30.2.100:8443',
     token: 'tk_finance_3m4n5o6p7q8r',
     agent_type: 'prometheus-agent',
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
@@ -424,12 +522,17 @@ export const networkDomains: NetworkDomain[] = [
     description: '工厂边缘网关，网络不稳定，启用 WAL 本地缓冲',
     domain_type: 'edge',
     tenant_id: 'platform_admin',
+    // {v1.33}/{v1.34} 非 default 网域固定 channel=agent_pull（决策 33）；未纳管（created）时监控参数为空
+    channel: 'agent_pull',
+    // {v1.31} 未登记 zone_type（M06 未配置）→ 不注入 external_labels.zone_type（PRD 9.2「登记了 zone_type 时同步注入」）
+    zone_type: '',
+    center_endpoint: '',
     token: '',
-    agent_type: 'vmagent',
+    agent_type: '',
     remote_write_url: '',
-    status: 'unknown',
-    last_heartbeat: '-',
-    agent_version: '-',
+    status: '',
+    last_heartbeat: '',
+    agent_version: '',
     registration_status: 'created',
     created_at: '2026-07-20 00:00:00',
     updated_at: '2026-08-03 14:25:00',
@@ -437,14 +540,25 @@ export const networkDomains: NetworkDomain[] = [
 ]
 
 /**
- * 配置产物形态分层（决策 6）：按域类型区分——management（管理域，如 default）=本地文件集
- * （写入中心 Prometheus 配置目录，无 zip / metadata.json 下载校验）；edge（边缘域）=zip 配置包
- * （含 metadata.json 供拉取后 checksum 校验）。分层依据是域类型而非单/多网域开关。
+ * 配置产物形态分层（决策 6 / 决策 32）：按下发通道区分——`channel=local`（如 default）=本地文件集
+ * （写入中心 Prometheus 配置目录，无 zip / metadata.json 下载校验）；`channel=agent_pull`=zip 配置包
+ * （含 metadata.json 供拉取后 checksum 校验）。分层依据是**下发通道**（`local` / `agent_pull`）而非域类型（决策 32）。
  */
 export type ConfigArtifactShape = 'local_files' | 'zip_package'
 
-export function domainArtifactShape(domain: Pick<NetworkDomain, 'domain_type'>): ConfigArtifactShape {
-  return domain.domain_type === 'edge' ? 'zip_package' : 'local_files'
+export function domainArtifactShape(domain: Pick<NetworkDomain, 'channel'>): ConfigArtifactShape {
+  return domain.channel === 'agent_pull' ? 'zip_package' : 'local_files'
+}
+
+/** 下发通道中文语义（决策 31/32/33）：用户可见文案，不含实现层决策引用 */
+export const channelLabel: Record<Channel, string> = {
+  local: 'local',
+  agent_pull: 'agent_pull',
+}
+
+export const channelTip: Record<Channel, string> = {
+  local: '采集器与中心同机/同 Pod，中心直接写盘并 reload（如默认 default 网域）；无 Edge Agent / Token / 安装指引',
+  agent_pull: '采集器位于远端/隔离节点，由 Edge Sync Agent 心跳拉取 zip 配置包（Token 认证 + checksum 校验）',
 }
 
 export const edgeAgents: EdgeAgent[] = [
@@ -706,6 +820,7 @@ export const edgeAgents: EdgeAgent[] = [
 
 // prometheus.yml 为 file_sd 骨架（PRD 3.3 / 3.3.2）：仅含 job 结构（job_name / metrics_path / params / relabel / file_sd 引用），
 // targets 列表统一放入 targets/*.json（file_sd_configs 引用，固定文件名覆盖写），不内联 static_configs。
+// {v1.31} external_labels 注入：network_domain / tenant_id 必注入；zone_type 仅当网域登记了 zone_type 时注入（PRD 9.2）
 const prometheusYmlDefault = `global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -744,6 +859,7 @@ const prometheusYmlGov = `global:
   external_labels:
     network_domain: 'gov-cloud-a'
     tenant_id: 'platform_admin'
+    zone_type: 'extranet'
 
 remote_write:
   - url: 'https://metriccenter.example.com/api/v2/ingest/prometheus'
@@ -778,6 +894,7 @@ const prometheusYmlFinance = `global:
   external_labels:
     network_domain: 'finance-dmz'
     tenant_id: 'platform_admin'
+    zone_type: 'internet'
 
 remote_write:
   - url: 'https://metriccenter.example.com/api/v2/ingest/prometheus'
@@ -793,6 +910,7 @@ scrape_configs:
 
 // 制造边缘域草稿：prometheus.yml 骨架合法（promtool 可通过），
 // 语法错误体现在 targets/plc-gateway.json（JSON 数组未闭合），用于演示 configgen 侧 targets schema 校验失败（PRD 3.5.1）
+// {v1.31} manufacturing-edge 未登记 zone_type（M06 未配置）→ 不注入 external_labels.zone_type（PRD 9.2）
 const prometheusYmlMfgInvalid = `global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -895,6 +1013,10 @@ const targetsMfg: ConfigTargetsFiles = {
   }`,
 }
 
+// rules.yml（{v1.32} M01/M08/M09 告警规则职责重构）：由 M09 按 Prometheus `group` 语法组织——
+// M09 读取 Module_01 的 MonitoringRule，按规则字段自动派生 group 分组（默认按 resource_type / rule_type 聚类），
+// MVP 不暴露用户可管理的 RuleGroup 实体；按规则作用域生成：中心域（default）包含 scope=central/both 规则，
+// 边缘域仅当存在 scope=edge/both 规则时（v0.4+）随配置包生成，MVP 阶段由中心统一求值。
 const rulesYml = `groups:
   - name: node.rules
     rules:
@@ -1211,6 +1333,7 @@ export const configDeployments: ConfigDeployment[] = [
     network_domain_id: 'default',
     config_version_id: 'cv-default-001',
     source_change_no: 'CHG-20260803-001',
+    channel: 'local',
     target_type: 'central_prometheus',
     target_address: 'metric-center-local',
     status: 'success',
@@ -1228,6 +1351,7 @@ export const configDeployments: ConfigDeployment[] = [
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-001',
     source_change_no: 'CHG-20260803-003',
+    channel: 'agent_pull',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-01',
     status: 'success',
@@ -1245,6 +1369,7 @@ export const configDeployments: ConfigDeployment[] = [
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-002',
     source_change_no: 'CHG-20260803-003',
+    channel: 'agent_pull',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-02',
     status: 'failed',
@@ -1262,6 +1387,7 @@ export const configDeployments: ConfigDeployment[] = [
     network_domain_id: 'finance-dmz',
     config_version_id: 'cv-finance-001',
     source_change_no: 'CHG-20260803-006',
+    channel: 'agent_pull',
     target_type: 'edge_agent',
     target_address: 'edge-agent-finance-01',
     status: 'failed',
@@ -1279,6 +1405,7 @@ export const configDeployments: ConfigDeployment[] = [
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-001',
     source_change_no: 'CHG-20260803-003',
+    channel: 'agent_pull',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-02',
     status: 'rolled_back',
@@ -1296,6 +1423,7 @@ export const configDeployments: ConfigDeployment[] = [
     network_domain_id: 'manufacturing-edge',
     config_version_id: 'cv-default-001',
     source_change_no: 'CHG-20260803-001',
+    channel: 'agent_pull',
     target_type: 'edge_agent',
     target_address: 'edge-agent-mfg-01',
     status: 'success',
@@ -1313,6 +1441,7 @@ export const configDeployments: ConfigDeployment[] = [
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-002',
     source_change_no: 'CHG-20260803-003',
+    channel: 'agent_pull',
     target_type: 'edge_agent',
     target_address: 'edge-agent-gova-01',
     status: 'failed',
@@ -1389,6 +1518,8 @@ export interface EdgeAgentInstallGuideComponent {
 export interface EdgeAgentInstallGuide {
   /** 部署定位（决策 9）：边缘监控代理节点的独立客户端程序，outbound HTTPS 443 + 每网域 Token 通信 */
   deployment: string
+  /** {v1.31} 网闸 / 隔离区连接约束：禁止中心→边缘主动连接，全部交互由边缘发起；地址为网域视角可达地址 */
+  gateway_note: string
   /** 边缘节点组件构成（v1.6）：Edge Sync Agent（必装独立组件）+ 采集器（vmagent/prometheus-agent）+ blackbox exporter（可选） */
   components: EdgeAgentInstallGuideComponent[]
   /** 一体化交付 + 职责边界（v1.8/PRD v1.12）：离线二进制包为一体化包，Agent 负责本节点组件生命周期管理；不做下游节点 exporter 安装 */
@@ -1403,7 +1534,9 @@ export interface EdgeAgentInstallGuide {
 
 export const edgeAgentInstallGuide: EdgeAgentInstallGuide = {
   deployment:
-    'Edge Sync Agent 是部署在边缘监控代理节点的独立客户端程序（非中心平台内置进程）；与中心通过 outbound HTTPS 443 + 每网域 Token 通信，心跳 / 配置拉取 / remote_write 全部由边缘主动出站，中心无入站端口；MVP 单网域不部署，v0.2+ 多网域模式下每个边缘节点部署一个（离线二进制包 + systemd 交付）',
+    'Edge Sync Agent 是部署在边缘监控代理节点的独立客户端程序（非中心平台内置进程）；与中心通过 outbound HTTPS 443 + 每网域 Token 通信，心跳 / 配置拉取 / remote_write 全部由边缘主动出站，中心无入站端口；default 域固定 local 通道（中心直接采集）不部署，agent_pull 通道网域每个边缘节点部署一个（离线二进制包 + systemd 交付）',
+  gateway_note:
+    '网闸 / 隔离区连接约束（强制）：禁止任何中心 → 边缘方向的主动连接（中心无入站端口、无主动 reload / 探测能力），所有交互（心跳 / 配置拉取 / 指标回传）一律由边缘 Agent 向中心发起（pull / push 上行）；面向边缘的地址均为该网域视角的可达地址（网闸映射后地址，center_endpoint / remote_write_url 按区配置），配置拉取地址 = 网域 center_endpoint + 相对路径合成绝对地址下发给 Agent',
   components: [
     {
       name: 'Edge Sync Agent',

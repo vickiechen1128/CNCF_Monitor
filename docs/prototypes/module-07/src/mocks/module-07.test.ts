@@ -23,7 +23,7 @@ import {
   isHostResource,
   isMiddlewareResource,
 } from './module-07'
-import type { ResourceType } from './module-07'
+import type { ResourceCategory } from './module-07'
 
 describe('module-07 mocks（对齐 PRD v2.11）', () => {
   const domainIds = mockNetworkDomains.map((d) => d.id)
@@ -122,9 +122,9 @@ describe('module-07 mocks（对齐 PRD v2.11）', () => {
   // ========== 标签模板 ==========
 
   it('四类资源均预置默认标签模板且 mappings 非空（PRD 5.13）', () => {
-    const types: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+    const types: ResourceCategory[] = ['host', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
-      const defaults = mockLabelTemplates.filter((tpl) => tpl.resource_type === t && tpl.is_default)
+      const defaults = mockLabelTemplates.filter((tpl) => tpl.resource_category === t && tpl.is_default)
       expect(defaults.length).toBeGreaterThanOrEqual(1)
       defaults.forEach((tpl) => expect(tpl.mappings.length).toBeGreaterThan(0))
     })
@@ -138,10 +138,10 @@ describe('module-07 mocks（对齐 PRD v2.11）', () => {
       })
   })
 
-  it('标签模板不绑定 job_id，只与资源类型绑定（PRD 5.10）', () => {
+  it('标签模板不绑定 job_id，只与资源类别绑定（PRD 5.10；{v2.13} 五大类）', () => {
     mockLabelTemplates.forEach((tpl) => {
       expect(tpl).not.toHaveProperty('job_id')
-      expect(['host', 'middleware', 'application', 'generic_target']).toContain(tpl.resource_type)
+      expect(['host', 'database', 'middleware', 'application', 'generic_target']).toContain(tpl.resource_category)
     })
   })
 
@@ -242,8 +242,8 @@ describe('module-07 mocks（对齐 PRD v2.11）', () => {
   })
 
   it('mockStatusMappingConfig 精确资源类型规则优先级高于 all 通用规则（PRD 5.5.4）', () => {
-    const typedRules = mockStatusMappingConfig.rules.filter((r) => r.resource_type !== 'all')
-    const allRules = mockStatusMappingConfig.rules.filter((r) => r.resource_type === 'all')
+    const typedRules = mockStatusMappingConfig.rules.filter((r) => r.resource_category !== 'all')
+    const allRules = mockStatusMappingConfig.rules.filter((r) => r.resource_category === 'all')
     if (typedRules.length > 0 && allRules.length > 0) {
       const minTypedPriority = Math.min(...typedRules.map((r) => r.priority))
       const maxAllPriority = Math.max(...allRules.map((r) => r.priority))
@@ -254,7 +254,7 @@ describe('module-07 mocks（对齐 PRD v2.11）', () => {
   // ========== 导入模板列 ==========
 
   it('IMPORT_TEMPLATE_COLUMNS 四类资源均包含 network_domain 列（PRD 7.1）', () => {
-    const types: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+    const types: ResourceCategory[] = ['host', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
       expect(IMPORT_TEMPLATE_COLUMNS[t]).toContain('network_domain')
     })
@@ -281,7 +281,7 @@ describe('module-07 mocks（对齐 PRD v2.11）', () => {
   })
 
   it('IMPORT_TEMPLATE_COLUMNS 四类资源均包含 status 列用于状态映射（PRD 7.1/5.5）', () => {
-    const types: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+    const types: ResourceCategory[] = ['host', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
       expect(IMPORT_TEMPLATE_COLUMNS[t]).toContain('status')
     })
@@ -362,7 +362,7 @@ describe('module-07 mocks（对齐 PRD v2.11）', () => {
   // ========== 字段选项完整性 ==========
 
   it('RESOURCE_FIELD_OPTIONS 四类资源均包含 network_domain_id（PRD 5.12 A）', () => {
-    const types: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+    const types: ResourceCategory[] = ['host', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
       expect(RESOURCE_FIELD_OPTIONS[t]).toContain('network_domain_id')
     })
