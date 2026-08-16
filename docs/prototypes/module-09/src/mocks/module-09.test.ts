@@ -12,7 +12,11 @@ import {
   changeDetectionStatus,
   domainArtifactShape,
   validationLayeringNote,
+  approvalTieringNote,
+  rulesGroupDerivationNote,
+  gatewayConstraintNote,
   deriveRemoteWriteUrl,
+  deriveConfigDownloadUrl,
   MVP_AGENT_TYPE,
   TOKEN_MASK,
   type ConfigTargetsFiles,
@@ -27,10 +31,12 @@ describe('module-09 mocks', () => {
     expect(typeof currentTenant.multi_site_enabled).toBe('boolean')
   })
 
-  it('should include a default management domain', () => {
+  it('should include a default management domain with fixed local channel (决策 32/33)', () => {
     const defaultDomain = networkDomains.find((d) => d.id === 'default')
     expect(defaultDomain).toBeDefined()
     expect(defaultDomain?.domain_type).toBe('management')
+    // {v1.33} default 固定 channel=local（中心直接采集，不部署 Edge Agent）
+    expect(defaultDomain?.channel).toBe('local')
   })
 
   it('should fully mask network domain tokens in UI without plaintext fragments (PRD 3.1 Token 管理)', () => {
@@ -43,7 +49,15 @@ describe('module-09 mocks', () => {
         expect(domain.remote_write_url).toBe('')
         return
       }
-      // 已纳管网域：完整 Token 保留在数据中，仅通过「复制」按钮获取，UI 不展示明文
+      if (domain.channel === 'local') {
+        // {v1.33} channel=local 网域不生成 Token（PRD 4.1：token 为空且不展示）
+        expect(domain.token).toBe('')
+        expect(domain.agent_type).toBe('')
+        expect(domain.remote_write_url).toBe('')
+        expect(domain.status).toBe('')
+        return
+      }
+      // 已纳管 agent_pull 网域：完整 Token 保留在数据中，仅通过「复制」按钮获取，UI 不展示明文
       expect(domain.token).toMatch(/^tk_/)
       expect(domain.token.length).toBeGreaterThan(TOKEN_MASK.length)
       expect(domain.token).not.toContain(TOKEN_MASK)
@@ -209,24 +223,27 @@ describe('module-09 mocks', () => {
     // 与中心通过 outbound HTTPS 443 + 每网域 Token 通信
     expect(edgeAgentInstallGuide.deployment).toContain('outbound HTTPS 443')
     expect(edgeAgentInstallGuide.deployment).toContain('Token')
-    // MVP 单网域不部署，v0.2+ 多网域每个边缘节点部署一个（离线二进制包 + systemd）
-    expect(edgeAgentInstallGuide.deployment).toContain('MVP 单网域不部署')
+    // default 域固定 local 通道（中心直接采集）不部署；agent_pull 通道网域每个边缘节点部署一个（离线二进制包 + systemd）
+    expect(edgeAgentInstallGuide.deployment).toContain('local 通道')
+    expect(edgeAgentInstallGuide.deployment).toContain('不部署')
+    expect(edgeAgentInstallGuide.deployment).toContain('agent_pull 通道网域')
     expect(edgeAgentInstallGuide.deployment).toContain('systemd')
   })
 
-  it('should layer config artifact shape by domain type (决策 6 配置产物形态分层)', () => {
+  it('should layer config artifact shape by channel (决策 6 / 决策 32：local=本地文件集，agent_pull=zip 配置包)', () => {
     const defaultDomain = networkDomains.find((d) => d.id === 'default')
     expect(defaultDomain?.domain_type).toBe('management')
-    // 中心管理域（default）=本地文件集：无 zip / metadata.json 下载校验
+    expect(defaultDomain?.channel).toBe('local')
+    // local 通道（default）=本地文件集：无 zip / metadata.json 下载校验
     expect(domainArtifactShape(defaultDomain!)).toBe('local_files')
-    // 边缘域=zip 配置包（含 metadata.json 供拉取后 checksum 校验）
+    // agent_pull 通道=zip 配置包（含 metadata.json 供拉取后 checksum 校验）
     networkDomains
-      .filter((d) => d.domain_type === 'edge')
+      .filter((d) => d.channel === 'agent_pull')
       .forEach((d) => {
         expect(domainArtifactShape(d)).toBe('zip_package')
       })
-    // 分层依据是域类型而非单/多网域开关：当前 mock 处于多网域模式（multi_site_enabled=true），
-    // default 管理域依然走本地文件集
+    // 分层依据是下发通道而非域类型 / 单多网域开关：当前 mock 处于多网域能力开启态，
+    // default（channel=local）依然走本地文件集
     expect(currentTenant.multi_site_enabled).toBe(true)
     expect(domainArtifactShape(defaultDomain!)).toBe('local_files')
     // 所有网域均可判定配置产物形态（不存在未分层网域）
@@ -297,14 +314,36 @@ describe('module-09 mocks', () => {
     expect(MVP_AGENT_TYPE).toBe('vmagent')
     // prometheus-agent 保留枚举（AgentType）、v0.2+ 开放为可选
     expect(['vmagent', 'prometheus-agent']).toContain(MVP_AGENT_TYPE)
-    // default 管理域（MVP 单网域场景）采集器类型固定 vmagent
-    expect(networkDomains.find((d) => d.id === 'default')?.agent_type).toBe('vmagent')
-    // prometheus-agent 枚举保留用于 v0.2+ 演示（finance-dmz 域）
+    // default 管理域固定 channel=local：不登记 Agent 类型（PRD 4.1 channel=local 时为空），不部署边缘采集器
+    expect(networkDomains.find((d) => d.id === 'default')?.channel).toBe('local')
+    expect(networkDomains.find((d) => d.id === 'default')?.agent_type).toBe('')
+    // prometheus-agent 枚举保留用于 v0.2+ 演示（finance-dmz 域，channel=agent_pull）
     expect(networkDomains.some((d) => d.agent_type === 'prometheus-agent')).toBe(true)
   })
 
+  it('should fix channel per domain (决策 32/33): default=local, others=agent_pull, no switch in MVP', () => {
+    // MVP 通道按网域固定：default 固定 local，其他网域固定 agent_pull；不提供通道切换、不支持同域混合通道
+    networkDomains.forEach((d) => {
+      if (d.id === 'default') {
+        expect(d.channel).toBe('local')
+      } else {
+        expect(d.channel).toBe('agent_pull')
+      }
+    })
+    // 下发记录 channel 与对应 NetworkDomain.channel 一致（PRD 4.6）
+    const channelByDomainId = Object.fromEntries(networkDomains.map((d) => [d.id, d.channel]))
+    configDeployments.forEach((deployment) => {
+      expect(deployment.channel).toBe(channelByDomainId[deployment.network_domain_id])
+    })
+    // 配置产物形态按下发通道分层（决策 32，与域类型解耦）
+    networkDomains.forEach((d) => {
+      const shape = domainArtifactShape(d)
+      expect(shape).toBe(d.channel === 'agent_pull' ? 'zip_package' : 'local_files')
+    })
+  })
+
   it('should support per-domain filtering on edge agent status page (决策 13 网域筛选)', () => {
-    // 多网域模式：Agent 分布在多个网域，支撑「选择网域」筛选下拉（单网域模式固定 default）
+    // Agent 分布在多个 agent_pull 网域，支撑「选择网域」筛选下拉（仅列出存在 EdgeAgent 实例的网域）
     const domainsWithAgents = new Set(edgeAgents.map((a) => a.network_domain_id))
     expect(domainsWithAgents.size).toBeGreaterThan(1)
     // 每个 Agent 均可归属到已声明的网域（筛选后按 network_domain_id 匹配）
@@ -441,15 +480,17 @@ describe('module-09 mocks', () => {
     )
   })
 
-  it('should not deploy edge agents in default management domain (决策 16 / PRD 3.11)', () => {
-    // default 管理域由中心直接采集，不部署 Edge Agent → 不存在 network_domain_id='default' 的 EdgeAgent 实例
+  it('should not deploy edge agents in default management domain (决策 16 / 决策 32 / PRD 3.11)', () => {
+    // default 固定 channel=local、由中心直接采集，不部署 Edge Agent → 不存在 network_domain_id='default' 的 EdgeAgent 实例
+    expect(networkDomains.find((d) => d.id === 'default')?.channel).toBe('local')
     expect(edgeAgents.some((a) => a.network_domain_id === 'default')).toBe(false)
-    // 所有有 Agent 的网域均为 edge 类型（Agent 状态页仅展示有 Agent 的网域，default 管理域不出现）
+    // 所有有 Agent 的网域均为 edge 类型且 channel=agent_pull（Agent 状态页仅展示有 Agent 的网域，default 不出现）
     const agentDomainIds = new Set(edgeAgents.map((a) => a.network_domain_id))
     expect(agentDomainIds.size).toBeGreaterThan(1)
     agentDomainIds.forEach((id) => {
       const domain = networkDomains.find((d) => d.id === id)
       expect(domain?.domain_type).toBe('edge')
+      expect(domain?.channel).toBe('agent_pull')
     })
   })
 
@@ -555,5 +596,99 @@ describe('module-09 mocks', () => {
       expect(d.source_change_no).toBe(changeNoByVersion[d.config_version_id])
       expect(d.source_change_no).toMatch(/^CHG-\d{8}-\d{3}$/)
     })
+  })
+
+  it('should expose zone_type and center_endpoint on every domain (PRD 4.1 / {v1.31} 网闸拓扑 / {v1.33} 通道)', () => {
+    networkDomains.forEach((d) => {
+      // zone_type：M06 行政字段（可空，未登记为空）
+      expect(typeof d.zone_type).toBe('string')
+      // center_endpoint：该网域视角的中心可达地址；agent_pull 通道纳管必填，local 通道为空（PRD 4.1）
+      expect(typeof d.center_endpoint).toBe('string')
+      if (d.channel === 'local') {
+        expect(d.center_endpoint).toBe('')
+      }
+    })
+    // 已纳管 agent_pull 网域均已配置 center_endpoint（网闸映射后的中心可达地址，用于合成配置包绝对下载地址，PRD 6.1）
+    const agentPullDomains = networkDomains.filter((d) => d.channel === 'agent_pull' && d.registration_status === 'monitored')
+    expect(agentPullDomains.length).toBeGreaterThan(0)
+    agentPullDomains.forEach((d) => {
+      expect(d.center_endpoint).toMatch(/^https:\/\//)
+    })
+    // zone_type 值集：政务云预置 internet / extranet（M06 登记，示例网域）
+    expect(networkDomains.some((d) => d.zone_type === 'extranet')).toBe(true)
+    expect(networkDomains.some((d) => d.zone_type === 'internet')).toBe(true)
+  })
+
+  it('should inject external_labels.zone_type only when domain registered zone_type (PRD 9.2 / {v1.31})', () => {
+    // 已登记 zone_type 的网域（gov-cloud-a=extranet / finance-dmz=internet）→ prometheus.yml 注入 zone_type
+    const govDraft = configDrafts.find((d) => d.network_domain_id === 'gov-cloud-a')
+    expect(govDraft?.prometheus_yml).toContain("zone_type: 'extranet'")
+    const financeDraft = configDrafts.find((d) => d.network_domain_id === 'finance-dmz')
+    expect(financeDraft?.prometheus_yml).toContain("zone_type: 'internet'")
+    // 未登记 zone_type 的网域（manufacturing-edge）→ 不注入 zone_type
+    const mfgDraft = configDrafts.find((d) => d.network_domain_id === 'manufacturing-edge')
+    expect(mfgDraft?.prometheus_yml).not.toContain('zone_type:')
+    // 管理域（default）无网闸拓扑 → 不注入 zone_type
+    const defaultDraft = configDrafts.find((d) => d.network_domain_id === 'default')
+    expect(defaultDraft?.prometheus_yml).not.toContain('zone_type:')
+    // 所有 prometheus.yml 均注入 network_domain / tenant_id
+    configDrafts.forEach((draft) => {
+      expect(draft.prometheus_yml).toContain('network_domain:')
+      expect(draft.prometheus_yml).toContain('tenant_id:')
+    })
+  })
+
+  it('should synthesize absolute config download url from center_endpoint (PRD 6.1 / {v1.31})', () => {
+    const gov = networkDomains.find((d) => d.id === 'gov-cloud-a')
+    expect(deriveConfigDownloadUrl(gov!)).toBe('https://10.8.0.5:8443/api/v2/platform/edge/config?network_domain=gov-cloud-a')
+    // 管理域（center_endpoint 为空）不走协议 → 返回空
+    const defaultDomain = networkDomains.find((d) => d.id === 'default')
+    expect(deriveConfigDownloadUrl(defaultDomain!)).toBe('')
+  })
+
+  it('should describe approval tiering: alertmanager.yml managed by Module_08, not in M09 flow (PRD 3.4 / {v1.32})', () => {
+    // 人工确认：prometheus.yml / targets / rules.yml / blackbox.yml
+    expect(approvalTieringNote.manual).toContain('prometheus.yml')
+    expect(approvalTieringNote.manual).toContain('targets')
+    expect(approvalTieringNote.manual).toContain('rules.yml')
+    expect(approvalTieringNote.manual).toContain('blackbox.yml')
+    expect(approvalTieringNote.manual).toContain('人工确认')
+    // 自动生效：alertmanager.yml 由 Module_08 直接管理，不进入本模块变更确认流程
+    expect(approvalTieringNote.auto).toContain('alertmanager.yml')
+    expect(approvalTieringNote.auto).toContain('Module_08')
+    expect(approvalTieringNote.auto).toContain('不进入')
+    // 混单规则：按高风险文件走人工确认
+    expect(approvalTieringNote.mixed).toContain('高风险文件')
+    // 原因：通知路由调整频繁、风险低、M08 是 Alertmanager 唯一 Owner
+    expect(approvalTieringNote.reason).toContain('唯一 Owner')
+    // 配置产物不包含 alertmanager.yml（ConfigDraft / 配置包均不含，PRD 6.2 / 3.11）
+    configDrafts.forEach((draft) => {
+      expect(draft.prometheus_yml).not.toContain('alertmanager')
+      expect(draft.rules_yml).not.toContain('alertmanager')
+      expect(draft.blackbox_yml).not.toContain('alertmanager')
+    })
+  })
+
+  it('should organize rules.yml by Prometheus group syntax with auto-derived groups (PRD 3.3 / {v1.32})', () => {
+    // M09 按 Prometheus group 语法组织 rules.yml（内部自动派生分组，MVP 不暴露 RuleGroup 实体）
+    configDrafts.forEach((draft) => {
+      if (draft.rules_yml) {
+        expect(draft.rules_yml).toContain('groups:')
+        expect(draft.rules_yml).toMatch(/name: [a-z0-9.]+/i)
+      }
+    })
+    expect(rulesGroupDerivationNote).toContain('group')
+    expect(rulesGroupDerivationNote).toContain('自动派生')
+    expect(rulesGroupDerivationNote).toContain('scope')
+  })
+
+  it('should describe gateway/zone isolation connection constraint (PRD §6 / {v1.31})', () => {
+    // 禁止中心 → 边缘主动连接：所有交互由边缘 Agent 发起
+    expect(gatewayConstraintNote).toContain('禁止任何中心')
+    expect(gatewayConstraintNote).toContain('边缘')
+    expect(gatewayConstraintNote).toContain('中心无入站端口')
+    expect(gatewayConstraintNote).toContain('可达地址')
+    expect(edgeAgentInstallGuide.gateway_note).toContain('pull')
+    expect(edgeAgentInstallGuide.gateway_note).toContain('center_endpoint')
   })
 })

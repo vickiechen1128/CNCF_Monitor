@@ -3,6 +3,7 @@ import './App.css'
 
 import { ProvidersPage } from './pages/ProvidersPage'
 import { SyncPoliciesPage } from './pages/SyncPoliciesPage'
+import { CmdbMappingPage } from './pages/CmdbMappingPage'
 import { PendingCiPage } from './pages/PendingCiPage'
 import { OrphansPage } from './pages/OrphansPage'
 
@@ -12,6 +13,7 @@ function App() {
       <Routes>
         <Route path="/providers" element={<ProvidersPage />} />
         <Route path="/sync-policies" element={<SyncPoliciesPage />} />
+        <Route path="/cmdb-mapping" element={<CmdbMappingPage />} />
         <Route path="/pending-ci" element={<PendingCiPage />} />
         <Route path="/orphans" element={<OrphansPage />} />
         <Route path="*" element={<Navigate to="/providers" replace />} />

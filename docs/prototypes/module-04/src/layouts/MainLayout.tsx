@@ -25,6 +25,8 @@ function buildMenu(): MenuItem[] {
   return [
     { key: '/providers', icon: <AppstoreOutlined />, label: 'Provider 配置' },
     { key: '/sync-policies', icon: <AppstoreOutlined />, label: '同步策略' },
+    // {v1.4} PRD 7.1 CMDB CI 类型映射（三列推导链，决策 D24）
+    { key: '/cmdb-mapping', icon: <AppstoreOutlined />, label: 'CI 类型映射' },
     { key: '/pending-ci', icon: <AppstoreOutlined />, label: '待分类 CI' },
     { key: '/orphans', icon: <AppstoreOutlined />, label: '孤儿资源' },
   ]

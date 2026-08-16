@@ -6,6 +6,12 @@ export interface Tenant {
   networkDomainNames: string[]
   /** {v1.3} 在这些网域中已完成监控纳管的子集（由 Module_09 维护，演示用） */
   monitoredNetworkDomainIds?: string[]
+  /**
+   * {v1.5} 行政能力开关：是否允许该租户创建/管理多个网域。
+   * 注意：该开关不控制 Module_09 页面入口显示/隐藏（M09 入口由数据驱动）；
+   * false 时 M06 侧不可创建额外网域，但 M09 仍可查看 default 网域及其纳管状态。
+   */
+  multi_site_enabled: boolean
   cmdbBusinessId: string
   cmdbBusinessPath: string
   isPlatformAdmin: boolean
@@ -14,7 +20,7 @@ export interface Tenant {
 
 /**
  * {v1.3} 网域行政记录（M06 为 NetworkDomain 的行政 Owner）：
- * 本模块负责网域的创建 / 编辑 / 禁用与租户分配，表单只维护行政信息（名称、租户、状态、描述），
+ * 本模块负责网域的创建 / 编辑 / 禁用与租户分配，表单只维护行政信息（名称、租户、状态、描述、zone_type），
  * 不维护监控参数（agent_type / remote_write_url 等，由 Module_09 纳管时填写）。
  */
 export interface NetworkDomain {
@@ -26,6 +32,13 @@ export interface NetworkDomain {
   /** 网域归属租户（1 网域 : 1 租户，创建后不可变更） */
   tenant_id: string
   status: 'active' | 'disabled'
+  /**
+   * {v1.4} 网络区域类型（行政分类字段，表达网络隔离/位置语义）：
+   * - 值集为部署级字典（ZONE_TYPE_OPTIONS），UI 以下拉选择呈现，不开放自由文本；
+   * - 由 M06 在网域创建/编辑时登记，M09 纳管时只读引用并注入指标标签；
+   * - 空字符串表示未登记（如 default 管理域由中心直接采集，无网闸拓扑，不适用）。
+   */
+  zone_type: string
   /**
    * 监控纳管状态：只读展示字段，由 Module_09 的纳管动作维护；
    * created = 行政已创建未纳管；monitored = 已由 M09 完成监控纳管
@@ -83,6 +96,31 @@ export const ACTION_LABELS: Record<AuditAction, string> = {
   sync: '同步',
 }
 
+/**
+ * {v1.4} 网络区域类型部署级字典（模拟平台配置文件维护的值集）：
+ * - 不做死枚举：不同客户环境预置不同词汇——政务云预置 互联网区/政务外网区/专线区/DMZ，
+ *   公有云预置按 region 划分（如 cn-hangzhou）；
+ * - UI 以下拉选择呈现，不开放自由文本；
+ * - 一句话原则：隔离边界建实体（NetworkDomain），位置维度建属性（zone_type），叫法建字典（部署级词汇表）。
+ */
+export interface ZoneTypeOption {
+  value: string
+  label: string
+  description: string
+}
+
+export const ZONE_TYPE_OPTIONS: ZoneTypeOption[] = [
+  { value: 'internet', label: '互联网区（internet）', description: '政务云预置：面向互联网访问的隔离区' },
+  { value: 'extranet', label: '政务外网区（extranet）', description: '政务云预置：政务外网隔离区' },
+  { value: 'private-line', label: '专线区（private-line）', description: '政务云预置：专线接入隔离区' },
+  { value: 'dmz', label: 'DMZ（dmz）', description: '政务云预置：非军事化隔离区' },
+  { value: 'cn-hangzhou', label: 'cn-hangzhou', description: '公有云预置：杭州 region' },
+  { value: 'cn-beijing', label: 'cn-beijing', description: '公有云预置：北京 region' },
+]
+
+export const zoneTypeLabelOf = (value: string) =>
+  ZONE_TYPE_OPTIONS.find((z) => z.value === value)?.label ?? (value ? value : '未登记')
+
 export const mockTenants: Tenant[] = [
   {
     id: 't-platform',
@@ -90,6 +128,7 @@ export const mockTenants: Tenant[] = [
     networkDomainIds: ['nd-default', 'nd-edge', 'nd-manufacturing'],
     networkDomainNames: ['default', 'edge', 'manufacturing'],
     monitoredNetworkDomainIds: ['nd-default', 'nd-edge'],
+    multi_site_enabled: true,
     cmdbBusinessId: 'bk-biz-1',
     cmdbBusinessPath: '平台 / 基础设施',
     isPlatformAdmin: true,
@@ -101,6 +140,7 @@ export const mockTenants: Tenant[] = [
     networkDomainIds: ['nd-default'],
     networkDomainNames: ['default'],
     monitoredNetworkDomainIds: ['nd-default'],
+    multi_site_enabled: false,
     cmdbBusinessId: 'bk-biz-2',
     cmdbBusinessPath: '业务 / 电商',
     isPlatformAdmin: false,
@@ -112,6 +152,7 @@ export const mockTenants: Tenant[] = [
     networkDomainIds: ['nd-finance'],
     networkDomainNames: ['finance'],
     monitoredNetworkDomainIds: [],
+    multi_site_enabled: false,
     cmdbBusinessId: 'bk-biz-3',
     cmdbBusinessPath: '业务 / 金融',
     isPlatformAdmin: false,
@@ -123,6 +164,7 @@ export const mockTenants: Tenant[] = [
  * {v1.3} 网域行政记录（M06 行政 Owner / M09 监控纳管 Owner，PRD v1.3 职责边界）：
  * - nd-default：系统预置中心管理域，归属 platform_admin 预置租户（演示中为 t-platform），默认已纳管
  * - registration_status 为只读演示字段，模拟「已由 Module_09 纳管」的回显，M06 页面不可编辑
+ * - zone_type（v1.4）：由 M06 登记的行政字段；default 管理域由中心直接采集、无网闸拓扑，留空不适用
  */
 export const mockNetworkDomains: NetworkDomain[] = [
   {
@@ -132,6 +174,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     domain_type: 'management',
     tenant_id: 't-platform',
     status: 'active',
+    zone_type: '',
     registration_status: 'monitored',
     created_at: '2026-07-01 00:00:00',
     updated_at: '2026-08-10 09:00:00',
@@ -143,6 +186,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     domain_type: 'edge',
     tenant_id: 't-platform',
     status: 'active',
+    zone_type: 'internet',
     registration_status: 'monitored',
     created_at: '2026-07-10 00:00:00',
     updated_at: '2026-08-10 09:00:00',
@@ -154,6 +198,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     domain_type: 'edge',
     tenant_id: 't-finance',
     status: 'disabled',
+    zone_type: 'private-line',
     registration_status: 'created',
     created_at: '2026-07-12 00:00:00',
     updated_at: '2026-08-01 10:00:00',
@@ -165,6 +210,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     domain_type: 'edge',
     tenant_id: 't-platform',
     status: 'active',
+    zone_type: 'extranet',
     registration_status: 'created',
     created_at: '2026-07-20 00:00:00',
     updated_at: '2026-08-10 09:00:00',

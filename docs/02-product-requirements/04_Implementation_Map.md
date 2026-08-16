@@ -408,7 +408,7 @@ Module_07 监控对象管理（四类对象固定字段 + LabelTemplate + Resour
 - 自定义服务发现与外部 CMDB 生命周期管理：[Module_04_Custom_Discovery.md](Modules/Module_04_Custom_Discovery.md)
 - 系统与平台管理（含多租户）：[Module_06_Multi_Tenant.md](Modules/Module_06_Multi_Tenant.md)
 - 监控对象管理：[Module_07_Monitoring_Object_Management.md](Modules/Module_07_Monitoring_Object_Management.md)
-- 告警规则管理：[Module_08_Alerting_Rule_Management.md](Modules/Module_08_Alerting_Rule_Management.md)
+- 告警规则管理：[Module_08_Alertmanager_Notification_Management.md](Modules/Module_08_Alertmanager_Notification_Management.md)
 - 网域与边缘配置中心：[Module_09_Network_Domain_and_Edge_Config_Center.md](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md)
 - 完整代码实施计划：[05_Code_Implementation_Plan.md](05_Code_Implementation_Plan.md)
 - 监控策略管理方案决策记录：[../decisions/grill-2026-07-31-monitoring-strategy-management.md](../decisions/grill-2026-07-31-monitoring-strategy-management.md)

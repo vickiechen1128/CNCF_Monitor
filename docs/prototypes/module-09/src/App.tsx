@@ -10,11 +10,11 @@ function App() {
   return (
     <HashRouter>
       <Routes>
-        <Route path="/network-domains" element={<NetworkDomainsPage />} />
-        <Route path="/edge-agents" element={<EdgeAgentsPage />} />
+        <Route path="/domain-onboarding" element={<NetworkDomainsPage />} />
+        <Route path="/node-status" element={<EdgeAgentsPage />} />
         <Route path="/config-preview" element={<ConfigPreviewPage />} />
         <Route path="/deployments" element={<DeploymentsPage />} />
-        <Route path="*" element={<Navigate to="/config-preview" replace />} />
+        <Route path="*" element={<Navigate to="/domain-onboarding" replace />} />
       </Routes>
     </HashRouter>
   )

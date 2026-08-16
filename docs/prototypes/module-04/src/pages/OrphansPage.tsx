@@ -16,7 +16,7 @@ import {
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
-import { mockOrphans, type OrphanResource } from '../mocks/module-04'
+import { mockOrphans, RESOURCE_CATEGORY_LABELS, type OrphanResource } from '../mocks/module-04'
 
 const { Title, Text } = Typography
 
@@ -46,10 +46,13 @@ export function OrphansPage() {
       render: (name: string) => <Tag color="blue">{name}</Tag>,
     },
     {
-      title: '资源类型',
-      dataIndex: 'resourceType',
-      key: 'resourceType',
-      render: (type: string) => <Tag>{type}</Tag>,
+      // {v1.4} resource_type → resource_category（五大类，决策 D19/D24）
+      title: '资源类别',
+      dataIndex: 'resourceCategory',
+      key: 'resourceCategory',
+      render: (cat: string) => (
+        <Tag color="blue">{RESOURCE_CATEGORY_LABELS[cat as keyof typeof RESOURCE_CATEGORY_LABELS] ?? cat}</Tag>
+      ),
     },
     {
       title: '实例名称',
@@ -117,7 +120,7 @@ export function OrphansPage() {
       </div>
       <Card className="page-card">
         <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-          已删除对象保留 7 天，超过保留期后自动转为孤儿资源。可按网域与资源类型分组处理。
+          已删除对象保留 7 天，超过保留期后自动转为孤儿资源。可按网域与资源类别分组处理。
         </Text>
         <Table
           rowKey="id"

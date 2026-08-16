@@ -1,5 +1,5 @@
-import { Layout, Menu, Typography, Space, Tag, Switch, Select, App, Tooltip, Divider } from 'antd'
-import { useState, type ReactNode } from 'react'
+import { Layout, Menu, Typography, Space, Tag, Select, App } from 'antd'
+import { type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AppstoreOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
@@ -12,7 +12,12 @@ const USER_ROLE_MAP: Record<UserRole, string> = {
   ops1: '运维工程师1',
   ops2: '运维工程师2',
 }
-const currentTenant = { id: 'module-06', name: 'AIDC 运维租户', multi_site_enabled: true }
+
+/**
+ * {v1.5} 决策 31：移除全局「单/多网域模式」Switch ——
+ * multi_site_enabled 为 M06 租户级行政能力开关（在「租户管理」中配置），
+ * 不在顶栏提供运行时切换；Module_09 页面入口由数据驱动，与本页解耦。
+ */
 
 
 interface MainLayoutProps {
@@ -37,7 +42,6 @@ export function MainLayout({ children }: MainLayoutProps) {
   const menuItems = buildMenu()
   const { message } = App.useApp()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
   const role: UserRole = searchParams.get('role') === 'ops2' ? 'ops2' : 'ops1'
 
   const switchRole = (next: UserRole) => {
@@ -46,13 +50,6 @@ export function MainLayout({ children }: MainLayoutProps) {
     else params.delete('role')
     setSearchParams(params)
     message.info(next === 'ops2' ? '已切换为运维工程师2' : '已切换为运维工程师1')
-  }
-
-  const toggleMultiSite = (checked: boolean) => {
-    currentTenant.multi_site_enabled = checked
-    setMultiSite(checked)
-    window.dispatchEvent(new CustomEvent('tenant-mode-change', { detail: { multiSiteEnabled: checked } }))
-    message.info(checked ? '已切换为多网域模式' : '已切换为单网域模式：仅 default 管理域')
   }
 
   const openKeys = menuItems
@@ -75,18 +72,6 @@ export function MainLayout({ children }: MainLayoutProps) {
           </Tag>
         </Space>
         <Space size="large" align="center">
-          <Space size="small" align="center">
-            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>网域模式</Text>
-            <Tooltip title={multiSite ? '多网域模式：覆盖多个网域' : '单网域模式：仅 default 管理域'}>
-              <Switch
-                checked={multiSite}
-                checkedChildren="多网域"
-                unCheckedChildren="单网域"
-                onChange={toggleMultiSite}
-              />
-            </Tooltip>
-          </Space>
-          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
           <Space size="small" align="center">
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
             <Select

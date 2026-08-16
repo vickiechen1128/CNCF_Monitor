@@ -624,7 +624,7 @@ GET  /api/v1/probe-results
 
 **目标**：管理告警规则生命周期（规则分组、启用/禁用、静默、Alertmanager 配置），并通过查询中心展示告警状态。
 
-> 本阶段对应 [Module_08: 告警规则管理](Modules/Module_08_Alerting_Rule_Management.md)。规则编辑 UI 在 Module_01 中实现，Module_08 负责消费规则记录并完成后续生命周期管理。
+> 本阶段对应 [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md)。规则编辑 UI 在 Module_01 中实现，Module_08 负责消费规则记录并完成后续生命周期管理。
 >
 > **边界说明**：Module_02 仅代理 Prometheus `/api/v1/alerts` 返回当前触发/待处理告警实例；Alertmanager 的通知状态（分组、静默、抑制、接收人）由 Module_08 负责。
 
@@ -960,7 +960,7 @@ GET /api/v2/platform/alerting/inhibit-rules
 
 **目标**：提供完整的告警规则 UI、Alertmanager 配置生成、静默管理、通知渠道配置。
 
-> 对应 [Module_08: 告警规则管理](Modules/Module_08_Alerting_Rule_Management.md) v1.0 能力。
+> 对应 [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md) v1.0 能力。
 
 **Agent 分工**：
 - `planner`：定义告警规则 UI 与 Alertmanager 配置模板、通知渠道模型
@@ -987,7 +987,7 @@ GET /api/v2/platform/alerting/inhibit-rules
 
 **目标**：在边缘网域实现断网自治告警（vmalert + 本地 Alertmanager），并完成 mTLS 证书自动轮转与 Token 轮换。
 
-> 对应 [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 第 3.2、3.7、3.9 节与 [Module_08: 告警规则管理](Modules/Module_08_Alerting_Rule_Management.md) 第 3.2 节。
+> 对应 [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 第 3.2、3.7、3.9 节与 [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md) 第 3.2 节。
 
 **Agent 分工**：
 - `planner`：定义边缘规则 `scope=edge/both` 下发策略、证书轮转协议、Token 轮换流程
@@ -1293,7 +1293,7 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2
   - [Module_01: 监控策略与指标管理](Modules/Module_01_Metric_Collection_Center.md)
   - [Module_02: 查询中心](Modules/Module_02_Query_Center.md)
   - [Module_07: 监控对象管理](Modules/Module_07_Monitoring_Object_Management.md)
-  - [Module_08: 告警规则管理](Modules/Module_08_Alerting_Rule_Management.md)
+  - [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md)
   - [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md)
   - 新增引用 [Module_03: 网关与认证](Modules/Module_03_Gateway_and_Auth.md)、[Module_04: 自定义服务发现与外部 CMDB 生命周期管理](Modules/Module_04_Custom_Discovery.md)、[Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md)、[Module_10: 监控源登记册与异构接入](Modules/Module_10_Monitoring_Source_Registry.md)。
 - 依据 [02_Product_Roadmap.md](02_Product_Roadmap.md) 的 MVP / v0.2 / v0.3 / v0.4 / v1.0 里程碑，将实施计划扩展为 9 个 Phase（含子 Phase）：
@@ -1356,6 +1356,6 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2
   - [Module_05: 自定义前端门户](Modules/Module_05_Custom_UI.md)
   - [Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md)
   - [Module_07: 监控对象管理](Modules/Module_07_Monitoring_Object_Management.md)
-  - [Module_08: 告警规则管理](Modules/Module_08_Alerting_Rule_Management.md)
+  - [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md)
   - [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md)
   - [Module_10: 监控源登记册与异构接入](Modules/Module_10_Monitoring_Source_Registry.md)

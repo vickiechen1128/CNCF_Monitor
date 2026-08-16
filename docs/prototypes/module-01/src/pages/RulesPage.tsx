@@ -160,7 +160,7 @@ export default function RulesPage() {
       form.setFieldsValue({
         rule_type: 'alerting',
         resource_category: 'host',
-        resource_type: 'host',
+        resource_type: 'host_linux',
         duration: '5m',
         enabled: true,
         labels: [],
@@ -482,7 +482,7 @@ export default function RulesPage() {
       <div className="page-header">
         <Title level={4}>规则编辑</Title>
         <Text type="secondary">
-          管理告警规则与记录规则；expr 引用的指标必须先存在于指标库，保存时强制校验；规则生命周期由 Module_08 管理
+          管理告警规则与记录规则的内容创作；expr 引用的指标必须先存在于指标库，保存时强制校验。规则保存后由 Module_09 按网域分组生成并下发 rules.yml；启用/禁用、分组、静默、Alertmanager 配置与告警状态由 Module_08（告警收敛与通知管理）负责
         </Text>
       </div>
       <Card className="page-card">

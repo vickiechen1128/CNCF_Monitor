@@ -86,7 +86,7 @@
 - **业务功能 Owner**: Module_08
 - **查询代理通道**: Module_02
 - **UI 页面**: Module_05
-- **权威定义**: [Module_08 3.1 节](Module_08_Alerting_Rule_Management.md#31-%E5%91%8A%E8%AD%A6%E8%A7%84%E5%88%99%E7%AE%A1%E7%90%86)
+- **权威定义**: [Module_08 3.1 节](Module_08_Alertmanager_Notification_Management.md#31-%E5%91%8A%E8%AD%A6%E8%A7%84%E5%88%99%E7%AE%A1%E7%90%86)
 
 ### 3.7 认证 / 多租户 / 权限 / 审计
 
@@ -145,7 +145,7 @@
 - **权威定义**:
   - Module_04: [5 节](Module_04_Custom_Discovery.md#5-cmdb-%E5%90%8C%E6%AD%A5%E7%AD%96%E7%95%A5%E4%B8%8E%E5%A4%B1%E8%B4%A5%E5%A4%84%E7%90%86)、[6 节](Module_04_Custom_Discovery.md#6-%E5%AD%90%E5%84%BF%E8%99%9A%E6%8B%9F-ci-%E7%AE%A1%E7%90%86)、[7 节](Module_04_Custom_Discovery.md#7-blueking-cmdb-%E6%98%A0%E5%B0%84%E8%A7%84%E8%8C%83)
   - Module_07: [10 节](Module_07_Monitoring_Object_Management.md#10-cmdb-provider-%E6%89%A9%E5%B1%95%E8%AE%BE%E8%AE%A1)
-  - Module_08: [5.7 节](Module_08_Alerting_Rule_Management.md#57-itil-%E4%BA%8B%E4%BB%B6%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84)
+  - Module_08: [5.7 节](Module_08_Alertmanager_Notification_Management.md#57-itil-%E4%BA%8B%E4%BB%B6%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84)
 - **关键约束**:
   - **CMDB（腾讯蓝鲸）是监控对象的唯一数据源 {v0.4+}**；MetricCenter 本地资源是其只读/缓存镜像；同步策略与生命周期由 Module_04 负责。
   - ITSM 服务目录必须显式映射到 CMDB 业务/模块路径，禁止绕过 CMDB 直接定义业务归属 {v1.0+}。
@@ -241,7 +241,7 @@
 - **边缘本地告警（断网场景）{P2}**: 由边缘本地 Alertmanager 处理，状态通过 Module_09 EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 - **权威定义**:
   - Module_02: [3 节](Module_02_Query_Center.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)、[4 节](Module_02_Query_Center.md#4-%E6%8E%A5%E5%8F%A3%E8%AE%BE%E8%AE%A1)、[6 节](Module_02_Query_Center.md#6-%E5%93%8D%E5%BA%94-envelope-%E4%B8%8E%E6%95%B0%E6%8D%AE%E6%96%B0%E9%B2%9C%E5%BA%A6)
-  - Module_08: [3.1 节](Module_08_Alerting_Rule_Management.md#31-prometheus-%E5%91%8A%E8%AD%A6-vs-alertmanager-%E9%80%9A%E7%9F%A5%E7%8A%B6%E6%80%81)、[3.2 节](Module_08_Alerting_Rule_Management.md#32-%E4%B8%AD%E5%BF%83%E8%BE%B9%E7%BC%98%E5%91%8A%E8%AD%A6%E7%81%BE%E5%A4%87%E8%BE%B9%E7%95%8C)、[5.3 节](Module_08_Alerting_Rule_Management.md#53-%E5%91%8A%E8%AD%A6%E7%8A%B6%E6%80%81%E6%9F%A5%E7%9C%8B)
+  - Module_08: [3.1 节](Module_08_Alertmanager_Notification_Management.md#31-prometheus-%E5%91%8A%E8%AD%A6-vs-alertmanager-%E9%80%9A%E7%9F%A5%E7%8A%B6%E6%80%81)、[3.2 节](Module_08_Alertmanager_Notification_Management.md#32-%E4%B8%AD%E5%BF%83%E8%BE%B9%E7%BC%98%E5%91%8A%E8%AD%A6%E7%81%BE%E5%A4%87%E8%BE%B9%E7%95%8C)、[5.3 节](Module_08_Alertmanager_Notification_Management.md#53-%E5%91%8A%E8%AD%A6%E7%8A%B6%E6%80%81%E6%9F%A5%E7%9C%8B)
   - Module_09: [3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E8%BE%B9%E7%BC%98-agent-%E7%AE%A1%E7%90%86)、[3.8 节](Module_09_Network_Domain_and_Edge_Config_Center.md#38-agent-%E7%8A%B6%E6%80%81%E5%88%97%E8%A1%A8%E4%B8%8E%E8%BE%B9%E7%BC%98%E8%AF%8A%E6%96%AD%E7%9C%8B%E6%9D%BF)、[4.3 节](Module_09_Network_Domain_and_Edge_Config_Center.md#43-%E5%BF%83%E8%B7%B3%E4%B8%8A%E6%8A%A5edgeheartbeat)
 
 ---

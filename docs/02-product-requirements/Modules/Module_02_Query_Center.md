@@ -9,7 +9,7 @@
 > **副标题**: 带租户/网域上下文注入的 Prometheus Query API 代理 + 采集目标状态展示
 
 > **模块类型**: 核心能力模块
-> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[02_Product_Roadmap.md](../02_Product_Roadmap.md)、[Module_06_Multi_Tenant.md](Module_06_Multi_Tenant.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)、[Module_01_Metric_Collection_Center.md](Module_01_Metric_Collection_Center.md)、[Module_07_Monitoring_Object_Management.md](Module_07_Monitoring_Object_Management.md)、[Module_08_Alerting_Rule_Management.md](Module_08_Alerting_Rule_Management.md)
+> **依赖文档**: [00_Global_Architecture.md](../00_Global_Architecture.md)、[03_Functional_Architecture.md](../03_Functional_Architecture.md)、[02_Product_Roadmap.md](../02_Product_Roadmap.md)、[Module_06_Multi_Tenant.md](Module_06_Multi_Tenant.md)、[Module_09_Network_Domain_and_Edge_Config_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)、[Module_01_Metric_Collection_Center.md](Module_01_Metric_Collection_Center.md)、[Module_07_Monitoring_Object_Management.md](Module_07_Monitoring_Object_Management.md)、[Module_08_Alertmanager_Notification_Management.md](Module_08_Alertmanager_Notification_Management.md)
 > **目标用户**: 运维工程师、业务研发工程师、AI 应用开发工程师
 
 ---

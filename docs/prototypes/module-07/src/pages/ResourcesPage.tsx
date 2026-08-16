@@ -37,6 +37,7 @@ import {
 import { MainLayout } from '../layouts/MainLayout'
 import {
   ENV_VALUES,
+  DATABASE_TYPE_OPTIONS,
   IMPORT_TEMPLATE_COLUMNS,
   LABEL_SOURCE_MAP,
   LABEL_SOURCE_PRIORITY,
@@ -52,6 +53,7 @@ import {
   isApplicationResource,
   isGenericTargetResource,
   isHostResource,
+  isDatabaseResource,
   isMiddlewareResource,
   mockLabelTemplates,
   mockNetworkDomains,
@@ -65,14 +67,15 @@ import type {
   Resource,
   ResourceLabel,
   ResourceStatus,
-  ResourceType,
+  ResourceCategory,
   TargetScheme,
 } from '../mocks/module-07'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
-const RESOURCE_TYPES: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+// {v2.13} 五大类（决策 D19）：新增 database——此前本地数组漏加，Tabs 只渲染 4 类
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
 
 const STATUS_COLOR: Record<ResourceStatus, string> = {
   online: '#00B578',
@@ -85,14 +88,14 @@ const IPV4_RE = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\
 const CUSTOM_LABELS_RE = /^([A-Za-z_][A-Za-z0-9_]*=[^;]+)(;([A-Za-z_][A-Za-z0-9_]*=[^;]+))*$/
 
 /** Excel 导入结果 mock 演示（PRD 7.2 / 7.3，含重复检测与网域校验错误示例） */
-const IMPORT_RESULT_DEMO: Record<ResourceType, { total: number; success: number; failed: number; errors: ImportError[] }> = {
+const IMPORT_RESULT_DEMO: Record<ResourceCategory, { total: number; success: number; failed: number; errors: ImportError[] }> = {
   host: {
     total: 3,
     success: 1,
     failed: 2,
     errors: [
-      { row: 2, resource_type: 'host', field: 'instance_ip', value: '999.999.999.999', reason: 'IP 格式不正确' },
-      { row: 3, resource_type: 'host', field: 'instance_ip:port', value: '10.0.1.11:9100', reason: '重复检测：instance_ip:port 已存在' },
+      { row: 2, resource_category: 'host', field: 'instance_ip', value: '999.999.999.999', reason: 'IP 格式不正确' },
+      { row: 3, resource_category: 'host', field: 'instance_ip:port', value: '10.0.1.11:9100', reason: '重复检测：instance_ip:port 已存在' },
     ],
   },
   middleware: {
@@ -100,20 +103,29 @@ const IMPORT_RESULT_DEMO: Record<ResourceType, { total: number; success: number;
     success: 1,
     failed: 1,
     errors: [
-      { row: 2, resource_type: 'middleware', field: 'network_domain', value: 'unknown-domain', reason: '网域不存在：network_domain 必须对应已存在的 NetworkDomain.id' },
+      { row: 2, resource_category: 'middleware', field: 'network_domain', value: 'unknown-domain', reason: '网域不存在：network_domain 必须对应已存在的 NetworkDomain.id' },
+    ],
+  },
+  // {v2.13} 数据库产品线导入示例（决策 D19）
+  database: {
+    total: 2,
+    success: 1,
+    failed: 1,
+    errors: [
+      { row: 2, resource_category: 'database', field: 'database_type', value: 'oracle-xe', reason: 'database_type 必须是 mysql/redis/mongodb/dm8/postgresql/oracle/sqlserver 之一' },
     ],
   },
   application: {
     total: 3,
     success: 2,
     failed: 1,
-    errors: [{ row: 3, resource_type: 'application', field: 'env', value: 'production', reason: 'env 必须是 dev/test/staging/prod 之一' }],
+    errors: [{ row: 3, resource_category: 'application', field: 'env', value: 'production', reason: 'env 必须是 dev/test/staging/prod 之一' }],
   },
   generic_target: {
     total: 2,
     success: 1,
     failed: 1,
-    errors: [{ row: 1, resource_type: 'generic_target', field: 'custom_labels', value: 'device_type=snmp', reason: 'custom_labels 必须符合 key=value;key2=value2 格式' }],
+    errors: [{ row: 1, resource_category: 'generic_target', field: 'custom_labels', value: 'device_type=snmp', reason: 'custom_labels 必须符合 key=value;key2=value2 格式' }],
   },
 }
 
@@ -131,28 +143,28 @@ function nowStr(): string {
   return new Date().toISOString().slice(0, 19).replace('T', ' ')
 }
 
-// {v2.2} 联动：按资源类型 + 标签 key 查找模板中对应的映射来源（用于 system 标签标注「来自 XX 模板 · app_name→app」）
-function findTemplateSource(resourceType: ResourceType, labelKey: string): { templateName: string; sourceField: string } | null {
+// {v2.2} 联动：按资源类别 + 标签 key 查找模板中对应的映射来源（用于 system 标签标注「来自 XX 模板 · app_name→app」）
+function findTemplateSource(resourceType: ResourceCategory, labelKey: string): { templateName: string; sourceField: string } | null {
   const tpl =
-    mockLabelTemplates.find((t) => t.resource_type === resourceType && t.is_default) ??
-    mockLabelTemplates.find((t) => t.resource_type === resourceType)
+    mockLabelTemplates.find((t) => t.resource_category === resourceType && t.is_default) ??
+    mockLabelTemplates.find((t) => t.resource_category === resourceType)
   if (!tpl) return null
   const mapping = tpl.mappings.find((m) => m.target_label === labelKey)
   if (!mapping) return null
   return { templateName: tpl.name, sourceField: mapping.source_field }
 }
 
-// {v2.2} 联动：该标签 key 是否被当前资源类型的模板映射为生成目标（用于新增标签时引导走模板）
-function isTemplateMappedLabel(resourceType: ResourceType, labelKey: string): boolean {
+// {v2.2} 联动：该标签 key 是否被当前资源类别的模板映射为生成目标（用于新增标签时引导走模板）
+function isTemplateMappedLabel(resourceType: ResourceCategory, labelKey: string): boolean {
   return mockLabelTemplates.some(
-    (t) => t.resource_type === resourceType && t.mappings.some((m) => m.target_label === labelKey)
+    (t) => t.resource_category === resourceType && t.mappings.some((m) => m.target_label === labelKey)
   )
 }
 
 export default function ResourcesPage() {
   const { message, modal } = App.useApp()
   const navigate = useNavigate()
-  const [activeType, setActiveType] = useState<ResourceType>('host')
+  const [activeType, setActiveType] = useState<ResourceCategory>('host')
   const [search, setSearch] = useState('')
   // {v2.10} 网域作为资源列表筛选器（非全局上下文），默认全部网域，可切换单个网域
   const [filterDomain, setFilterDomain] = useState<string>('all')
@@ -171,7 +183,7 @@ export default function ResourcesPage() {
   const filteredData = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     return resources.filter((item) => {
-      if (item.resource_type !== activeType) return false
+      if (item.resource_category !== activeType) return false
       if (filterDomain !== 'all' && item.network_domain_id !== filterDomain) return false
       if (!keyword) return true
       const texts: (string | undefined)[] = [
@@ -183,6 +195,7 @@ export default function ResourcesPage() {
         item.env,
         item.owner,
       ]
+      if (isDatabaseResource(item)) texts.push(item.database_type)
       if (isMiddlewareResource(item)) texts.push(item.middleware_type)
       if (isApplicationResource(item)) texts.push(item.service_name)
       if (isGenericTargetResource(item)) texts.push(item.target_name, item.exporter_type)
@@ -229,7 +242,7 @@ export default function ResourcesPage() {
   const handleAddLabel = () => {
     if (!selectedResource) return
     // {v2.8} 双场景治理：静态资源标签由 CMDB / Excel 治理，平台只读，不提供实例级打标
-    if (selectedResource.resource_type !== 'application') {
+    if (selectedResource.resource_category !== 'application') {
       message.warning('静态资源标签由 CMDB / Excel 治理，平台只读，不提供实例级打标入口')
       return
     }
@@ -238,11 +251,11 @@ export default function ResourcesPage() {
       return
     }
     // {v2.2} 类型级变更引导：key 已被模板映射为生成目标时，引导走模板而非实例级手工覆盖
-    const templateMapped = isTemplateMappedLabel(selectedResource.resource_type, newLabelKey.trim())
+    const templateMapped = isTemplateMappedLabel(selectedResource.resource_category, newLabelKey.trim())
     if (templateMapped) {
       modal.confirm({
         title: '该标签由标签模板生成',
-        content: `「${newLabelKey.trim()}」由当前资源类型的标签模板映射生成（如需修改请前往标签模板管理），确认仍要手动添加吗？`,
+        content: `「${newLabelKey.trim()}」由当前资源类别的标签模板映射生成（如需修改请前往标签模板管理），确认仍要手动添加吗？`,
         okText: '仍要添加',
         cancelText: '前往标签模板',
         onCancel: () => {
@@ -319,7 +332,7 @@ export default function ResourcesPage() {
     })
   }
 
-  const buildNewResource = (type: ResourceType, values: Record<string, unknown>): Resource => {
+  const buildNewResource = (type: ResourceCategory, values: Record<string, unknown>): Resource => {
     const base = {
       network_domain_id: (values.network_domain_id as string) || 'default',
       source_type: 'manual' as const,
@@ -336,7 +349,7 @@ export default function ResourcesPage() {
       case 'host':
         return {
           resource_id: `res-host-${Date.now()}`,
-          resource_type: 'host' as const,
+          resource_category: 'host' as const,
           instance_name: values.instance_name as string,
           hostname: values.hostname as string,
           instance_ip: values.instance_ip as string,
@@ -344,10 +357,23 @@ export default function ResourcesPage() {
           os_version: values.os_version as string | undefined,
           ...base,
         }
+      case 'database':
+        // {v2.13} 数据库资源（PRD 5.7.1，决策 D19）
+        return {
+          resource_id: `res-db-${Date.now()}`,
+          resource_category: 'database' as const,
+          instance_name: values.instance_name as string | undefined,
+          database_type: values.database_type as string,
+          instance_ip: values.instance_ip as string,
+          port: values.port as number,
+          version: values.version as string | undefined,
+          connection_string: values.connection_string as string | undefined,
+          ...base,
+        }
       case 'middleware':
         return {
           resource_id: `res-mw-${Date.now()}`,
-          resource_type: 'middleware' as const,
+          resource_category: 'middleware' as const,
           instance_name: values.instance_name as string | undefined,
           middleware_type: values.middleware_type as string,
           instance_ip: values.instance_ip as string,
@@ -359,7 +385,7 @@ export default function ResourcesPage() {
       case 'application':
         return {
           resource_id: `res-app-${Date.now()}`,
-          resource_type: 'application' as const,
+          resource_category: 'application' as const,
           instance_name: values.instance_name as string | undefined,
           service_name: values.service_name as string,
           // {v2.8} 业务类型/业务域归属（可选填），映射为 biz 标签
@@ -373,7 +399,7 @@ export default function ResourcesPage() {
       case 'generic_target':
         return {
           resource_id: `res-gen-${Date.now()}`,
-          resource_type: 'generic_target' as const,
+          resource_category: 'generic_target' as const,
           instance_name: values.instance_name as string | undefined,
           target_name: values.target_name as string,
           instance_ip: values.instance_ip as string,
@@ -397,7 +423,7 @@ export default function ResourcesPage() {
       status: (values.status as ResourceStatus) || 'online',
       updated_at: nowStr(),
     }
-    switch (record.resource_type) {
+    switch (record.resource_category) {
       case 'host':
         return {
           ...record,
@@ -406,6 +432,17 @@ export default function ResourcesPage() {
           instance_ip: values.instance_ip as string,
           os_type: values.os_type as string | undefined,
           os_version: values.os_version as string | undefined,
+        }
+      case 'database':
+        // {v2.13} 数据库资源编辑（PRD 5.7.1，决策 D19）
+        return {
+          ...record,
+          ...common,
+          database_type: values.database_type as string,
+          instance_ip: values.instance_ip as string,
+          port: values.port as number,
+          version: values.version as string | undefined,
+          connection_string: values.connection_string as string | undefined,
         }
       case 'middleware':
         return {
@@ -460,8 +497,8 @@ export default function ResourcesPage() {
     })
   }
 
-  // ---------- 表单字段渲染（按资源类型，PRD 5.6~5.9） ----------
-  const renderTypeFields = (type: ResourceType) => {
+  // ---------- 表单字段渲染（按资源类别，PRD 5.6~5.9） ----------
+  const renderTypeFields = (type: ResourceCategory) => {
     switch (type) {
       case 'host':
         return (
@@ -503,13 +540,75 @@ export default function ResourcesPage() {
             </Form.Item>
           </>
         )
+      case 'database':
+        // {v2.13} 数据库资源表单（PRD 5.7.1，决策 D19）
+        return (
+          <>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="实例名" name="instance_name">
+                  <Input placeholder="如 mysql-order-01" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="数据库类型" name="database_type" rules={[{ required: true, message: '请选择数据库类型' }]}>
+                  <Select placeholder="请选择">
+                    {DATABASE_TYPE_OPTIONS.map((t) => (
+                      <Option key={t} value={t}>
+                        {t}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="服务 IP"
+                  name="instance_ip"
+                  rules={[
+                    { required: true, message: '请输入服务 IP' },
+                    { pattern: IPV4_RE, message: 'IPv4 格式不正确' },
+                  ]}
+                >
+                  <Input placeholder="如 10.0.2.12" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="服务端口"
+                  name="port"
+                  rules={[
+                    { required: true, message: '请输入服务端口' },
+                    { type: 'number', min: 1, max: 65535, message: '端口范围 1~65535' },
+                  ]}
+                >
+                  <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="如 3306" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="版本" name="version">
+                  <Input placeholder="如 8.0" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="连接串" name="connection_string">
+                  <Input placeholder="如 mysql://user:****@10.0.2.12:3306/order" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </>
+        )
       case 'middleware':
         return (
           <>
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="实例名" name="instance_name">
-                  <Input placeholder="如 redis-cache-01" />
+                  <Input placeholder="如 kafka-01" />
                 </Form.Item>
               </Col>
               <Col span={12}>
@@ -749,8 +848,8 @@ export default function ResourcesPage() {
     </>
   )
 
-  // ---------- 表格列（按资源类型固定展示，PRD 3.1） ----------
-  const getColumns = (type: ResourceType): TableProps<Resource>['columns'] => {
+  // ---------- 表格列（按资源类别固定展示，PRD 3.1） ----------
+  const getColumns = (type: ResourceCategory): TableProps<Resource>['columns'] => {
     const domainColumn = {
       title: '网域',
       dataIndex: 'network_domain_id',
@@ -862,6 +961,35 @@ export default function ResourcesPage() {
                 {record.cluster && <Tag color="purple">{record.cluster}</Tag>}
               </Space>
             ),
+          },
+          domainColumn,
+          sourceColumn,
+          statusColumn,
+          monitoredColumn,
+          actionColumn,
+        ]
+        return cols
+      }
+      case 'database': {
+        // {v2.13} 数据库资源列表列（PRD 5.7.1，决策 D19）
+        const cols: TableProps<Resource>['columns'] = [
+          { title: '实例名', dataIndex: 'instance_name', key: 'instance_name' },
+          {
+            title: '数据库类型',
+            key: 'database_type',
+            render: (_: unknown, record: Resource) =>
+              isDatabaseResource(record) ? <Tag color="green">{record.database_type}</Tag> : '-',
+          },
+          { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip' },
+          {
+            title: '端口',
+            key: 'port',
+            render: (_: unknown, record: Resource) => (isDatabaseResource(record) ? record.port : '-'),
+          },
+          {
+            title: '版本',
+            key: 'version',
+            render: (_: unknown, record: Resource) => (isDatabaseResource(record) ? record.version || '-' : '-'),
           },
           domainColumn,
           sourceColumn,
@@ -1002,6 +1130,19 @@ export default function ResourcesPage() {
         { key: 'os_version', label: '系统版本', children: r.os_version || '-' },
       ]
     }
+    if (isDatabaseResource(r)) {
+      // {v2.13} 数据库资源详情（PRD 5.7.1，决策 D19）
+      return [
+        { key: 'database_type', label: '数据库类型', children: r.database_type },
+        { key: 'port', label: '端口', children: r.port },
+        { key: 'version', label: '版本', children: r.version || '-' },
+        {
+          key: 'connection_string',
+          label: '连接串',
+          children: r.connection_string ? <Text code style={{ fontSize: 12 }}>{r.connection_string}</Text> : '-',
+        },
+      ]
+    }
     if (isMiddlewareResource(r)) {
       return [
         { key: 'middleware_type', label: '中间件类型', children: r.middleware_type },
@@ -1109,10 +1250,10 @@ export default function ResourcesPage() {
 
         <Tabs
           activeKey={activeType}
-          onChange={(key) => setActiveType(key as ResourceType)}
+          onChange={(key) => setActiveType(key as ResourceCategory)}
           items={RESOURCE_TYPES.map((type) => ({
             key: type,
-            label: `${RESOURCE_TYPE_MAP[type]} (${resources.filter((r) => r.resource_type === type).length})`,
+            label: `${RESOURCE_TYPE_MAP[type]} (${resources.filter((r) => r.resource_category === type).length})`,
           }))}
           style={{ marginBottom: 16 }}
         />
@@ -1142,7 +1283,7 @@ export default function ResourcesPage() {
         {selectedResource && (
           <>
             <Alert
-              message={`来源：${SOURCE_TYPE_MAP[selectedResource.source_type]} | 类型：${RESOURCE_TYPE_MAP[selectedResource.resource_type]} | 网域：${selectedResource.network_domain_id}`}
+              message={`来源：${SOURCE_TYPE_MAP[selectedResource.source_type]} | 类型：${RESOURCE_TYPE_MAP[selectedResource.resource_category]} | 网域：${selectedResource.network_domain_id}`}
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
@@ -1158,13 +1299,13 @@ export default function ResourcesPage() {
                 // {v2.8} 业务类型：映射为 biz 标签（业务指标按业务类型聚合的关联键）
                 { key: 'business_domain', label: '业务类型', children: selectedResource.business_domain || '-' },
                 { key: 'app_name', label: '应用', children: selectedResource.app_name || '-' },
-                // {v2.3} 适用模板：该资源类型默认模板（模板按 resource_type 隐式关联）
+                // {v2.3} 适用模板：该资源类别默认模板（模板按 resource_category 隐式关联）
                 {
                   key: 'apply_template',
                   label: '适用模板',
                   children: (() => {
                     const tpl = mockLabelTemplates.find(
-                      (t) => t.resource_type === selectedResource.resource_type && t.is_default
+                      (t) => t.resource_category === selectedResource.resource_category && t.is_default
                     )
                     return tpl ? (
                       <Typography.Link
@@ -1226,9 +1367,9 @@ export default function ResourcesPage() {
               ]}
             />
             <Divider />
-            {/* {v2.8} 双场景治理：标题按资源类型区分（静态资源只读 / 应用服务可编辑） */}
+            {/* {v2.8} 双场景治理：标题按资源类别区分（静态资源只读 / 应用服务可编辑） */}
             <Title level={5}>
-              {selectedResource?.resource_type === 'application' ? '自定义标签（非必须）' : '自定义标签（静态资源只读）'}
+              {selectedResource?.resource_category === 'application' ? '自定义标签（非必须）' : '自定义标签（静态资源只读）'}
             </Title>
             {/* {v2.6} 统一口径：标签来源 vs 模板映射字段来源的对应关系，消除「系统/用户/CMDB」与「资源字段/组合字段/CMDB 字段」的歧义 */}
             <Alert
@@ -1253,7 +1394,7 @@ export default function ResourcesPage() {
                   <Space wrap size={[4, 4]}>
                     <Tag color="blue">双场景</Tag>
                     <Text style={{ fontSize: 12 }}>=
-                      {selectedResource?.resource_type === 'application'
+                      {selectedResource?.resource_category === 'application'
                         ? '业务类型资源：标签由平台治理，开放自定义标签（如核心链路、负责人）'
                         : '静态资源（主机 / 中间件 / 通用目标）：标签由 CMDB / Excel 治理，平台只读，不提供实例级打标入口'}
                     </Text>
@@ -1269,9 +1410,9 @@ export default function ResourcesPage() {
               type="warning"
               showIcon
               style={{ marginBottom: 12 }}
-              message="批量标签编辑：按资源类型或筛选条件批量增删改标签，后续版本开放"
+              message="批量标签编辑：按资源类别或筛选条件批量增删改标签，后续版本开放"
             />
-            {selectedResource?.resource_type !== 'application' ? (
+            {selectedResource?.resource_category !== 'application' ? (
               // {v2.8} 双场景治理：静态资源只读，不渲染添加输入（数据治理在 CMDB / Excel 侧）
               <Alert
                 type="info"
@@ -1319,7 +1460,7 @@ export default function ResourcesPage() {
             )}
             <Space direction="vertical" style={{ width: '100%' }}>
               {labels.map((label) => {
-                const tplSource = label.source === 'system' ? findTemplateSource(selectedResource?.resource_type ?? 'host', label.label_key) : null
+                const tplSource = label.source === 'system' ? findTemplateSource(selectedResource?.resource_category ?? 'host', label.label_key) : null
                 return (
                   <Card
                     key={label.label_id}
@@ -1340,7 +1481,7 @@ export default function ResourcesPage() {
                             {label.source === 'cmdb' ? 'CMDB · v0.4+ 预留' : LABEL_SOURCE_MAP[label.source]}
                           </Tag>
                           {/* {v2.8} 静态资源整体只读：即使 user 来源（Excel 带入）也显示锁定 */}
-                          {(!label.is_editable || selectedResource?.resource_type !== 'application') && (
+                          {(!label.is_editable || selectedResource?.resource_category !== 'application') && (
                             <LockOutlined style={{ color: '#86909C', marginLeft: 4 }} />
                           )}
                         </div>
@@ -1364,7 +1505,7 @@ export default function ResourcesPage() {
                         {label.source === 'user' && (
                           <Text type="secondary" style={{ fontSize: 11 }}>
                             {/* {v2.8} 双场景：application = 资源自定义（实例级）；静态资源 = Excel / CMDB 带入（只读） */}
-                            {selectedResource?.resource_type === 'application'
+                            {selectedResource?.resource_category === 'application'
                               ? '资源自定义（实例级）'
                               : 'Excel / CMDB 带入（只读）'}
                           </Text>
@@ -1378,7 +1519,7 @@ export default function ResourcesPage() {
                       <Col span={12}>
                         <Input
                           value={label.label_value}
-                          disabled={!label.is_editable || selectedResource?.resource_type !== 'application'}
+                          disabled={!label.is_editable || selectedResource?.resource_category !== 'application'}
                           onChange={(e) => handleLabelChange(label.label_id, e.target.value)}
                           suffix={
                             label.conflict_hint ? (
@@ -1390,7 +1531,7 @@ export default function ResourcesPage() {
                         />
                       </Col>
                       <Col span={6} style={{ textAlign: 'right' }}>
-                        {label.is_editable && selectedResource?.resource_type === 'application' ? (
+                        {label.is_editable && selectedResource?.resource_category === 'application' ? (
                           <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => handleDeleteLabel(label)}>
                             删除
                           </Button>
@@ -1411,7 +1552,7 @@ export default function ResourcesPage() {
 
       {/* 新增 / 编辑资源（PRD 5.6~5.9 按类型渲染字段，v1.8 起改为右侧抽屉编辑） */}
       <Drawer
-        title={`${editingResource ? '编辑资源' : '新增资源'} - ${RESOURCE_TYPE_MAP[editingResource?.resource_type ?? activeType]}`}
+        title={`${editingResource ? '编辑资源' : '新增资源'} - ${RESOURCE_TYPE_MAP[editingResource?.resource_category ?? activeType]}`}
         width={560}
         open={editOpen}
         onClose={() => {
@@ -1437,7 +1578,7 @@ export default function ResourcesPage() {
         }
       >
         <Form form={resourceForm} layout="vertical" style={{ marginTop: 8 }}>
-          {renderTypeFields(editingResource?.resource_type ?? activeType)}
+          {renderTypeFields(editingResource?.resource_category ?? activeType)}
           {renderCommonFields()}
         </Form>
       </Drawer>
@@ -1459,7 +1600,7 @@ export default function ResourcesPage() {
           showIcon
           style={{ marginBottom: 16 }}
           message="固定列模板"
-          description="按资源类型提供固定列模板；未填写网域时自动归属默认网域。"
+          description="按资源类别提供固定列模板；未填写网域时自动归属默认网域。"
         />
         <Table
           size="small"

@@ -23,21 +23,21 @@ import {
   STATUS_MAPPING_RULES,
   mockImportHistory,
 } from '../mocks/module-07'
-import type { ImportError, ImportHistory, ResourceType } from '../mocks/module-07'
+import type { ImportError, ImportHistory, ResourceCategory } from '../mocks/module-07'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
-const RESOURCE_TYPES: ResourceType[] = ['host', 'middleware', 'application', 'generic_target']
+const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
 
 export default function ImportHistoryPage() {
-  const [filterType, setFilterType] = useState<ResourceType | 'all'>('all')
+  const [filterType, setFilterType] = useState<ResourceCategory | 'all'>('all')
   const [reportOpen, setReportOpen] = useState(false)
   const [reportRecord, setReportRecord] = useState<ImportHistory | null>(null)
 
   const filteredData = useMemo(() => {
     if (filterType === 'all') return mockImportHistory
-    return mockImportHistory.filter((item) => item.resource_type === filterType)
+    return mockImportHistory.filter((item) => item.resource_category === filterType)
   }, [filterType])
 
   const openReport = (record: ImportHistory) => {
@@ -48,11 +48,11 @@ export default function ImportHistoryPage() {
   const errorColumns: TableProps<ImportError>['columns'] = [
     { title: '行号', dataIndex: 'row', key: 'row', width: 80 },
     {
-      title: '资源类型',
-      dataIndex: 'resource_type',
-      key: 'resource_type',
+      title: '资源类别',
+      dataIndex: 'resource_category',
+      key: 'resource_category',
       width: 110,
-      render: (v: ResourceType) => <Tag>{RESOURCE_TYPE_MAP[v]}</Tag>,
+      render: (v: ResourceCategory) => <Tag>{RESOURCE_TYPE_MAP[v]}</Tag>,
     },
     { title: '字段', dataIndex: 'field', key: 'field', width: 150 },
     {
@@ -77,10 +77,10 @@ export default function ImportHistoryPage() {
       ),
     },
     {
-      title: '资源类型',
-      dataIndex: 'resource_type',
-      key: 'resource_type',
-      render: (value: ResourceType) => <Tag>{RESOURCE_TYPE_MAP[value]}</Tag>,
+      title: '资源类别',
+      dataIndex: 'resource_category',
+      key: 'resource_category',
+      render: (value: ResourceCategory) => <Tag>{RESOURCE_TYPE_MAP[value]}</Tag>,
     },
     { title: '总数', dataIndex: 'total', key: 'total' },
     {
@@ -159,10 +159,10 @@ export default function ImportHistoryPage() {
         <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
           <Col>
             <Space>
-              <Text type="secondary">资源类型：</Text>
+              <Text type="secondary">资源类别：</Text>
               <Select
                 value={filterType}
-                onChange={(value) => setFilterType(value as ResourceType | 'all')}
+                onChange={(value) => setFilterType(value as ResourceCategory | 'all')}
                 style={{ width: 160 }}
               >
                 <Option value="all">全部</Option>

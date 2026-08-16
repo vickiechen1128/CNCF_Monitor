@@ -16,7 +16,7 @@ docs/prototypes/
 ├── module-05/          # 自定义前端门户
 ├── module-06/          # 系统与平台管理
 ├── module-07/          # 监控对象管理
-├── module-08/          # 告警规则管理
+├── module-08/          # 告警收敛与通知管理
 ├── module-09/          # 网域与边缘配置中心
 └── module-10/          # 监控源登记册
 ```
@@ -88,6 +88,6 @@ python3 -m http.server 8080
 | module-05 | `docs/02-product-requirements/Modules/Module_05_Custom_UI.md` |
 | module-06 | `docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md` |
 | module-07 | `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md` |
-| module-08 | `docs/02-product-requirements/Modules/Module_08_Alerting_Rule_Management.md` |
+| module-08 | `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md` |
 | module-09 | `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md` |
 | module-10 | `docs/02-product-requirements/Modules/Module_10_Monitoring_Source_Registry.md` |

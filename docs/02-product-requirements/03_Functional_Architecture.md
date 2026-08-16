@@ -2,7 +2,7 @@
 
 > 文档类型：产品需求文档 / 功能架构  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)  
-> 更新日期：2026-07-31
+> 更新日期：2026-08-16
 
 ---
 
@@ -106,8 +106,8 @@
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **CI 类型 ↔ Exporter 模板绑定** | 每种 `resource_type` 映射到一个 ExporterTemplate，包含默认端口、metrics_path、scheme、scrape_interval、scrape_timeout 等 | P0 |
-| **采集 Job 管理** | Job 创建/编辑、命名、启用/禁用、关联 CI 类型与 ExporterTemplate、实例选择模式、标签模板引用 | P0 |
+| **监控对象类型 ↔ 默认采集器绑定**（{D24}） | 每种 `monitor_type` 映射到一个默认采集器，包含默认端口、metrics_path、scheme、scrape_interval、scrape_timeout 等 | P0 |
+| **采集 Job 管理** | Job 创建/编辑、命名、启用/禁用、关联监控对象类型与默认采集器（{D24}）、实例选择模式、标签模板引用 | P0 |
 | **实例选择** | MVP 支持「手动勾选」；v0.3+ 支持按网域 / 环境 / 应用 / 标签等条件筛选并预览匹配结果 | P0 / v0.3+ |
 | **Exporter 安装/注册确认** | 在 Resource 或 Target 上标记 exporter 是否已安装/已注册，生成配置前必须确认 | P0 |
 | **拨测配置管理** | Blackbox Exporter 的 probe 模板与拨测目标配置，作为监控策略的一部分由本模块编辑 | P0 |
@@ -121,7 +121,7 @@
 > - Resource / LabelTemplate / ResourceLabel 由 [Module_07](Modules/Module_07_Monitoring_Object_Management.md) 维护，本模块只读消费。
 > - `prometheus.yml` / `rules.yml` 的生成、预览、下发由 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。
 > - 运行时目标状态、拨测结果、采集诊断由 [Module_02](Modules/Module_02_Query_Center.md) 负责展示。
-> - 告警规则生命周期（分组、静默、Alertmanager 配置、告警状态展示）由 [Module_08](Modules/Module_08_Alerting_Rule_Management.md) 负责。
+> - 告警规则生命周期（分组、静默、Alertmanager 配置、告警状态展示）由 [Module_08](Modules/Module_08_Alertmanager_Notification_Management.md) 负责。
 
 ---
 
@@ -173,7 +173,7 @@
 
 > **边界说明**：
 > - 本模块负责**被监控对象**的指标与 exporter 采集健康度（例如 `up` 指标）；Edge Agent 在线、WAL、配置同步等**监控基础设施健康度**由 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。
-> - 告警状态查看能力：Module_02 在 MVP 阶段仅作为查询代理暴露 Prometheus `/api/v1/alerts`；Alertmanager 通知状态（分组、静默、抑制、接收人）由 [Module_08](Modules/Module_08_Alerting_Rule_Management.md) 负责。
+> - 告警状态查看能力：Module_02 在 MVP 阶段仅作为查询代理暴露 Prometheus `/api/v1/alerts`；Alertmanager 通知状态（分组、静默、抑制、接收人）由 [Module_08](Modules/Module_08_Alertmanager_Notification_Management.md) 负责。
 
 ---
 
@@ -237,8 +237,8 @@
 
 | 模块 | MVP 必须（P0/P1） | MVP 不做（P2/未来） |
 |------|-------------------|---------------------|
-| 监控对象管理（Module_07） | 四类资源固定字段、Excel 导入（含可选 `network_domain_id` 与 `cmdb_*` 预留列）、默认网域 `default`、状态映射字典、LabelTemplate、ResourceLabel、「已监控 / 未监控」badge | 动态字段、ScrapeJob、配置生成下发、腾讯蓝鲸 CMDB 同步 |
-| 监控策略与指标管理（Module_01） | CI 类型 ↔ Exporter 模板绑定、ScrapeJob 编辑、手动勾选实例、Exporter 安装/注册确认、Blackbox 拨测配置、规则编辑 UI（类 YAML + PromQL 校验 + 指标预览） | 高级 Relabel、Exporter 市场、指标元数据管理页（P1）、自动筛选实例（v0.3+） |
+| 监控对象管理（Module_07） | 五类资源固定字段（{D24}）、Excel 导入（含可选 `network_domain_id` 与 `cmdb_*` 预留列）、默认网域 `default`、状态映射字典、LabelTemplate、ResourceLabel、「已监控 / 未监控」badge | 动态字段、ScrapeJob、配置生成下发、腾讯蓝鲸 CMDB 同步 |
+| 监控策略与指标管理（Module_01） | 监控对象类型 ↔ 默认采集器绑定（{D24}）、ScrapeJob 编辑、手动勾选实例、Exporter 安装/注册确认、Blackbox 拨测配置、规则编辑 UI（类 YAML + PromQL 校验 + 指标预览） | 高级 Relabel、Exporter 市场、指标元数据管理页（P1）、自动筛选实例（v0.3+） |
 | 网域与边缘配置中心（Module_09） | 默认网域 `default`、配置生成草稿、配置预览 / diff、人工确认后中心 Prometheus reload、Agent 状态列表页、`external_labels` 注入 | 多网域 Edge Sync Agent 拉取（v0.2+）、版本回滚、自动下发、Token 轮换、mTLS、图表/趋势诊断看板 |
 | 查询中心（Module_02） | 带租户/网域注入的 PromQL 代理、`/api/v1/alerts` 代理、响应 envelope 元数据（`data_source` / `freshness_at` / `network_domain`）、目标状态列表 | 复杂 Dashboard、图表库、深度采集诊断、覆盖率分析、批量查询 |
 | 告警规则管理（Module_08） | 规则记录持久化与分组、抑制规则生成；Prometheus 告警状态由 Module_02 代理展示；Alertmanager 通知状态由 Module_08 提供 | 规则编辑 UI（在 Module_01）、Recording Rules UI、静默管理 UI、通知渠道配置 |
@@ -259,7 +259,7 @@
     ▼
 监控策略与指标管理（Module_01）
     │
-    ├──► CI 类型 ↔ Exporter 模板绑定
+    ├──► 监控对象类型 ↔ 默认采集器绑定（{D24}）
     ├──► ScrapeJob 配置 + 手动勾选实例
     ├──► Blackbox 拨测配置
     └──► 规则编辑 UI（类 YAML 表单）
@@ -299,7 +299,7 @@
 
 > **数据流说明**：
 > - Module_07 负责维护对象数据（Resource、LabelTemplate、ResourceLabel），作为被动数据提供方。
-> - Module_01 消费对象数据，产出 CI 类型 ↔ Exporter 绑定、ScrapeJob、MonitoringRule 等策略记录。
+> - Module_01 消费对象数据，产出监控对象类型 ↔ 默认采集器绑定（{D24}）、ScrapeJob、MonitoringRule 等策略记录。
 > - Module_09 轮询 Module_01 与 Module_07 的数据，生成按网域的 `prometheus.yml` / `rules.yml` 草稿，经人工确认后下发到中心 Prometheus 或 Edge Agent；同时在 Edge Agent 配置中注入 `external_labels`。
 > - Module_02 负责 PromQL 查询与运行时目标状态展示；Module_08 负责告警规则生命周期、Alertmanager 通知状态与配置；Module_09 负责 Edge Agent 基础设施健康状态。
 
@@ -361,7 +361,7 @@ global:
 | 监控策略与指标管理 | [Module_01_Metric_Collection_Center.md](Modules/Module_01_Metric_Collection_Center.md) |
 | 网域与边缘配置中心 | [Module_09_Network_Domain_and_Edge_Config_Center.md](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) |
 | 查询中心 | [Module_02_Query_Center.md](Modules/Module_02_Query_Center.md) |
-| 告警规则管理 | [Module_08_Alerting_Rule_Management.md](Modules/Module_08_Alerting_Rule_Management.md) |
+| 告警规则管理 | [Module_08_Alertmanager_Notification_Management.md](Modules/Module_08_Alertmanager_Notification_Management.md) |
 | 监控源管理 | [Module_10_Monitoring_Source_Registry.md](Modules/Module_10_Monitoring_Source_Registry.md) |
 | 系统与平台管理 | [Module_06_Multi_Tenant.md](Modules/Module_06_Multi_Tenant.md) |
 

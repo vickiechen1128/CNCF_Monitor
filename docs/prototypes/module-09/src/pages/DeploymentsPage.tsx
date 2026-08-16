@@ -6,6 +6,9 @@ import {
   configDeployments,
   configVersions,
   networkDomains,
+  channelLabel,
+  channelTip,
+  type Channel,
   type ConfigDeployment,
   type DeploymentStatus,
   type DeploymentValidationStatus,
@@ -57,8 +60,10 @@ export function DeploymentsPage() {
       .filter((v) => v.network_domain_id === record.network_domain_id)
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
     const previous = previousVersions.find((v) => v.id !== record.config_version_id)
-    // {v1.20} 回滚生效语义按域类型区分：管理域立即 reload；边缘域待 Agent 下次心跳拉取
-    const isEdge = networkDomains.find((d) => d.id === record.network_domain_id)?.domain_type === 'edge'
+    // {v1.20}/{v1.33} 回滚生效语义按下发通道区分：local 通道立即 reload（同步生效）；
+    // agent_pull 通道重新发布历史版本，待 Edge Sync Agent 下次心跳拉取生效（异步生效，准实时 30s）
+    const channel = record.channel || networkDomains.find((d) => d.id === record.network_domain_id)?.channel
+    const isAgentPull = channel === 'agent_pull'
 
     Modal.confirm({
       title: '回滚配置',
@@ -66,10 +71,18 @@ export function DeploymentsPage() {
         <>
           确定将网域 <Text strong>{domainMap[record.network_domain_id]}</Text> 回滚到版本{' '}
           <Text code>{previous.id}</Text> 吗？
-          {isEdge && (
+          {isAgentPull && (
             <div style={{ marginTop: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                边缘域回滚：确认后发布历史版本，待边缘 Agent 下次心跳拉取后生效（准实时 30s），进度可在 Agent 状态页查看。
+                agent_pull 通道回滚（异步生效）：确认后重新发布历史版本为 zip 配置包，待 Edge Sync Agent 下次心跳拉取后生效
+                （准实时 30s），生效进度经 config_sync_status（out_of_sync → in_sync）在「Agent 状态」页可见。
+              </Text>
+            </div>
+          )}
+          {!isAgentPull && (
+            <div style={{ marginTop: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                local 通道回滚（同步生效）：确认后重新下发历史版本，中心写盘并 reload，立即生效。
               </Text>
             </div>
           )}
@@ -91,6 +104,7 @@ export function DeploymentsPage() {
           network_domain_id: record.network_domain_id,
           config_version_id: previous.id,
           source_change_no: previous.change_no,
+          channel: channel ?? 'local',
           target_type: record.target_type,
           target_address: record.target_address,
           status: 'success',
@@ -109,10 +123,10 @@ export function DeploymentsPage() {
           )
         )
         setData((prev) => [rollbackDeployment, ...prev])
-        // {v1.20} 回滚结果提示按域类型区分
+        // {v1.20}/{v1.33} 回滚结果提示按下发通道区分
         message.success(
-          isEdge
-            ? '已回滚：已发布历史版本，待边缘 Agent 下次心跳拉取生效'
+          isAgentPull
+            ? '已回滚：已发布历史版本，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）'
             : '已回滚到上一版本，配置已 reload 生效'
         )
       },
@@ -141,6 +155,25 @@ export function DeploymentsPage() {
               dataIndex: 'network_domain_id',
               key: 'network_domain_id',
               render: (id: string) => <Text>{domainMap[id] ?? id}</Text>,
+            },
+            {
+              // {v1.33} 下发通道（PRD 4.6）：local（中心直接 reload）/ agent_pull（Edge Sync Agent 拉包），与对应 NetworkDomain.channel 一致
+              title: (
+                <Tooltip title="下发通道：local（中心直接 reload，同步生效）/ agent_pull（Edge Sync Agent 心跳拉取配置包，异步生效）；决定发布 / 回滚的生效语义">
+                  <Space size={4}>
+                    下发通道
+                    <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+                  </Space>
+                </Tooltip>
+              ),
+              dataIndex: 'channel',
+              key: 'channel',
+              width: 130,
+              render: (channel: Channel) => (
+                <Tooltip title={channelTip[channel]}>
+                  <Tag color={channel === 'local' ? 'default' : 'blue'}>{channelLabel[channel]}</Tag>
+                </Tooltip>
+              ),
             },
             {
               title: '配置版本',

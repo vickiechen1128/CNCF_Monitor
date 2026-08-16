@@ -1,6 +1,6 @@
 // ============================================================
 // Module_01 监控策略与指标管理 - 数据模型与 mock 数据
-// 对齐 PRD v3.7（Module_01_Metric_Collection_Center.md）
+// 对齐 PRD v3.13（Module_01_Metric_Collection_Center.md）
 // ============================================================
 
 // ---------- CI 类型与资源类别（PRD 5.1 / 与 Module_07 四大类别对齐） ----------
@@ -15,7 +15,8 @@
  * 仅随 v0.4+ CMDB 新类型引导闭环走（PRD 5.1）。
  */
 export type CiType =
-  | 'host'
+  | 'host_linux'
+  | 'host_windows'
   | 'mysql'
   | 'redis'
   | 'kafka'
@@ -25,16 +26,17 @@ export type CiType =
   | 'snmp'
 
 /**
- * ResourceCategory：Module_07 的四大资源类别。
- * 用于与 Module_07 的 Resource.resource_type 对齐，以及 LabelTemplate 归属。
+ * ResourceCategory：Module_07 的五大资源类别（{v3.16} 由四大类拆分，决策 D19）。
+ * 用于与 Module_07 的 Resource.resource_category 对齐，以及 LabelTemplate 归属。
  */
-export type ResourceCategory = 'host' | 'middleware' | 'application' | 'generic_target'
+export type ResourceCategory = 'host' | 'database' | 'middleware' | 'application' | 'generic_target'
 
-/** CiType → ResourceCategory 映射（与 Module_07 四大类别对齐） */
+/** CiType → ResourceCategory 映射（与 Module_07 五大类别对齐，{v3.16}） */
 export const CI_TYPE_CATEGORY_MAP: Record<CiType, ResourceCategory> = {
-  host: 'host',
-  mysql: 'middleware',
-  redis: 'middleware',
+  host_linux: 'host',
+  host_windows: 'host',
+  mysql: 'database',
+  redis: 'database',
   kafka: 'middleware',
   elasticsearch: 'middleware',
   nginx: 'middleware',
@@ -43,7 +45,8 @@ export const CI_TYPE_CATEGORY_MAP: Record<CiType, ResourceCategory> = {
 }
 
 export const CI_TYPE_LABEL: Record<CiType, string> = {
-  host: '主机',
+  host_linux: '主机 Linux',
+  host_windows: '主机 Windows',
   mysql: 'MySQL',
   redis: 'Redis',
   kafka: 'Kafka',
@@ -54,7 +57,8 @@ export const CI_TYPE_LABEL: Record<CiType, string> = {
 }
 
 export const CI_TYPES: CiType[] = [
-  'host',
+  'host_linux',
+  'host_windows',
   'mysql',
   'redis',
   'kafka',
@@ -64,16 +68,18 @@ export const CI_TYPES: CiType[] = [
   'snmp',
 ]
 
-/** 资源类别 → 细粒度 CI 类型（问题 5：两级级联选择） */
+/** 资源类别 → 细粒度 CI 类型（问题 5：两级级联选择；{v3.16} 拆出 database 组，决策 D19） */
 export const CI_TYPES_BY_CATEGORY: Record<ResourceCategory, CiType[]> = {
-  host: ['host'],
-  middleware: ['mysql', 'redis', 'kafka', 'elasticsearch', 'nginx'],
+  host: ['host_linux', 'host_windows'],
+  database: ['mysql', 'redis'],
+  middleware: ['kafka', 'elasticsearch', 'nginx'],
   application: ['application_http'],
   generic_target: ['snmp'],
 }
 
 export const RESOURCE_CATEGORIES: ResourceCategory[] = [
   'host',
+  'database',
   'middleware',
   'application',
   'generic_target',
@@ -81,6 +87,7 @@ export const RESOURCE_CATEGORIES: ResourceCategory[] = [
 
 export const RESOURCE_CATEGORY_MAP: Record<ResourceCategory, string> = {
   host: '主机',
+  database: '数据库',
   middleware: '中间件',
   application: '应用',
   generic_target: '通用目标',
@@ -199,11 +206,28 @@ export const mockLabelTemplates: LabelTemplate[] = [
     ],
   },
   {
+    template_id: 'lt-db-001',
+    name: '数据库默认标签模板',
+    resource_category: 'database',
+    is_default: true,
+    mappings: [
+      // {v3.16} D7：默认模板至少含一个稳定资源身份标签（resource_id），供跨网域/端口变更后关联与拓扑穿透
+      { source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true },
+      { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
+      { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+      { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
+      { source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true },
+      { source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true },
+    ],
+  },
+  {
     template_id: 'lt-mw-001',
     name: '中间件默认标签模板',
     resource_category: 'middleware',
     is_default: true,
     mappings: [
+      // {v3.16} D7：稳定资源身份标签
+      { source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true },
       { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
       { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
       { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
@@ -217,6 +241,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
     resource_category: 'application',
     is_default: true,
     mappings: [
+      // {v3.16} D7：稳定资源身份标签
+      { source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true },
       { source_field: 'service_name', source_type: 'resource_field', target_label: 'service_name', enabled: true },
       { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
       { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
@@ -230,6 +256,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
     resource_category: 'generic_target',
     is_default: true,
     mappings: [
+      // {v3.16} D7：稳定资源身份标签
+      { source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true },
       { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
       { source_field: 'target_name', source_type: 'resource_field', target_label: 'target_name', enabled: true },
       { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
@@ -241,13 +269,13 @@ export const mockLabelTemplates: LabelTemplate[] = [
   {
     template_id: 'lt-mw-002',
     name: 'Redis 高可用标签模板',
-    resource_category: 'middleware',
+    resource_category: 'database',
     is_default: false,
     mappings: [
       { source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true },
       { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
       { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
-      { source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true },
+      { source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true },
       { source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true },
       { source_field: 'instance_name', source_type: 'resource_field', target_label: 'instance_name', enabled: true },
     ],
@@ -255,6 +283,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
 ]
 
 // ---------- Exporter 模板（PRD 5.2） ----------
+export type ExporterSource = 'official' | 'third_party' | 'internal'
+
 export interface ExporterTemplate {
   exporter_template_id: string
   name: string
@@ -264,10 +294,28 @@ export interface ExporterTemplate {
   scheme: Scheme
   supported_resource_types: CiType[]
   description?: string
+  /** 适用操作系统（PRD v3.11） */
+  os: 'linux' | 'windows' | 'any'
+  /** 适用架构（PRD v3.11） */
+  arch: 'amd64' | 'arm64' | 'any'
+  /** 下载地址 / 离线包路径 / 内部制品库地址（PRD v3.11） */
+  download_url?: string
+  /** 官方文档 / 主页（PRD v3.11） */
+  homepage?: string
   /** 离线/隔离网域安装说明（PRD 5.2） */
   install_guide: string
   /** 是否平台内置（PRD 5.2） */
   is_builtin: boolean
+  /** 来源：开源官方 / 第三方 / 自研（PRD v3.12） */
+  source: ExporterSource
+}
+
+export const EXPORTER_SOURCES: ExporterSource[] = ['official', 'third_party', 'internal']
+
+export const EXPORTER_SOURCE_LABEL: Record<ExporterSource, string> = {
+  official: '开源官方',
+  third_party: '第三方',
+  internal: '自研',
 }
 
 export const mockExporterTemplates: ExporterTemplate[] = [
@@ -278,11 +326,34 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     default_port: 9100,
     metrics_path: '/metrics',
     scheme: 'http',
-    supported_resource_types: ['host'],
-    description: '主机节点指标采集器',
+    supported_resource_types: ['host_linux'],
+    description: 'Linux 主机节点指标采集器',
+    os: 'linux',
+    arch: 'amd64',
+    download_url: 'https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz',
+    homepage: 'https://github.com/prometheus/node_exporter',
     install_guide:
-      '在目标主机解压二进制后执行 ./node_exporter --web.listen-address=:9100；隔离网域可使用内网镜像离线安装，并开放 9100 端口。',
+      '在目标 Linux 主机解压二进制后执行 ./node_exporter --web.listen-address=:9100；隔离网域可使用内网镜像离线安装，并开放 9100 端口。',
     is_builtin: true,
+    source: 'official',
+  },
+  {
+    exporter_template_id: 'et-windows',
+    name: 'windows_exporter',
+    version: '0.25.1',
+    default_port: 9182,
+    metrics_path: '/metrics',
+    scheme: 'http',
+    supported_resource_types: ['host_windows'],
+    description: 'Windows 主机节点指标采集器',
+    os: 'windows',
+    arch: 'amd64',
+    download_url: 'https://github.com/prometheus-community/windows_exporter/releases/download/v0.25.1/windows_exporter-0.25.1-amd64.exe',
+    homepage: 'https://github.com/prometheus-community/windows_exporter',
+    install_guide:
+      '在 Windows 主机运行 windows_exporter.exe --web.listen-address=:9182；隔离网域可使用内网镜像离线安装，并开放 9182 端口。',
+    is_builtin: true,
+    source: 'official',
   },
   {
     exporter_template_id: 'et-mysql',
@@ -293,9 +364,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['mysql'],
     description: 'MySQL 指标采集器',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://github.com/prometheus/mysqld_exporter/releases/download/v0.15.1/mysqld_exporter-0.15.1.linux-amd64.tar.gz',
+    homepage: 'https://github.com/prometheus/mysqld_exporter',
     install_guide:
       '创建只读监控账号后，配置 .my.cnf 连接串，运行 ./mysqld_exporter --config.my-cnf=.my.cnf --web.listen-address=:9104。',
     is_builtin: true,
+    source: 'official',
   },
   {
     exporter_template_id: 'et-redis',
@@ -306,9 +382,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['redis'],
     description: 'Redis 指标采集器',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://github.com/oliver006/redis_exporter/releases/download/v1.58.0/redis_exporter-v1.58.0.linux-amd64.tar.gz',
+    homepage: 'https://github.com/oliver006/redis_exporter',
     install_guide:
       '运行 ./redis_exporter --redis.addr=localhost:6379 --web.listen-address=:9121；隔离网域需确保 Agent 可达 Redis 实例。',
     is_builtin: true,
+    source: 'official',
   },
   {
     exporter_template_id: 'et-kafka',
@@ -319,8 +400,13 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['kafka'],
     description: 'Kafka 指标采集器',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://github.com/danielqsj/kafka_exporter/releases/download/v1.7.0/kafka_exporter-1.7.0.linux-amd64.tar.gz',
+    homepage: 'https://github.com/danielqsj/kafka_exporter',
     install_guide: '运行 ./kafka_exporter --kafka.server=localhost:9092 --web.listen-address=:9308。',
     is_builtin: true,
+    source: 'official',
   },
   {
     exporter_template_id: 'et-elasticsearch',
@@ -331,9 +417,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['elasticsearch'],
     description: 'Elasticsearch 指标采集器',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://github.com/prometheus-community/elasticsearch_exporter/releases/download/v1.7.0/elasticsearch_exporter-1.7.0.linux-amd64.tar.gz',
+    homepage: 'https://github.com/prometheus-community/elasticsearch_exporter',
     install_guide:
       '运行 ./elasticsearch_exporter --es.uri=http://localhost:9200 --web.listen-address=:9114。',
     is_builtin: false,
+    source: 'third_party',
   },
   {
     exporter_template_id: 'et-nginx',
@@ -344,9 +435,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['nginx'],
     description: 'Nginx stub_status 指标采集器',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://github.com/nginxinc/nginx-prometheus-exporter/releases/download/v0.11.0/nginx-prometheus-exporter_0.11.0_linux_amd64.tar.gz',
+    homepage: 'https://github.com/nginxinc/nginx-prometheus-exporter',
     install_guide:
       '在 Nginx 开启 stub_status 后，运行 ./nginx_exporter --nginx.scrape-uri=http://localhost:80/stub_status。',
     is_builtin: false,
+    source: 'third_party',
   },
   {
     exporter_template_id: 'et-app',
@@ -357,9 +453,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['application_http'],
     description: '应用自定义指标（Spring Boot Actuator）',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://micrometer.io/docs/registry/prometheus',
+    homepage: 'https://micrometer.io/docs/registry/prometheus',
     install_guide:
       '应用引入 micrometer-registry-prometheus 依赖并暴露 /actuator/prometheus 端点；保证 Agent 可达。',
     is_builtin: true,
+    source: 'official',
   },
   // {v3.7}/{v3.8} 采集实现（采集器）：业务服务（Go/Python/自研框架）仍属 application_http，
   // 形态差异（/metrics 路径、非标端口由实例 endpoint 决定）通过「手填采集参数 / 多个可选采集实现」覆盖，
@@ -373,9 +474,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['application_http'],
     description: 'Go 微服务业务指标端点（Prometheus client_golang 埋点）',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://pkg.go.dev/github.com/prometheus/client_golang/prometheus',
+    homepage: 'https://prometheus.io/docs/guides/go-application/',
     install_guide:
       '服务代码引入 client_golang 注册指标并暴露 /metrics 端点；端口以服务实际监听为准（映射 default_port 可留空由实例 endpoint 决定）。',
     is_builtin: false,
+    source: 'internal',
   },
   {
     exporter_template_id: 'et-snmp',
@@ -386,9 +492,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: ['snmp'],
     description: 'SNMP 通用采集器',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://github.com/prometheus/snmp_exporter/releases/download/v0.25.0/snmp_exporter-0.25.0.linux-amd64.tar.gz',
+    homepage: 'https://github.com/prometheus/snmp_exporter',
     install_guide:
       '生成 snmp.yml 模块配置后运行 ./snmp_exporter --config.file=snmp.yml；交换机/路由器需开启 SNMP v2c 只读团体字。',
     is_builtin: true,
+    source: 'official',
   },
   {
     exporter_template_id: 'et-blackbox',
@@ -399,9 +510,14 @@ export const mockExporterTemplates: ExporterTemplate[] = [
     scheme: 'http',
     supported_resource_types: [],
     description: '黑盒拨测采集器（HTTP/TCP/ICMP/DNS），通过 ScrapeJob.job_type=blackbox 使用',
+    os: 'any',
+    arch: 'any',
+    download_url: 'https://github.com/prometheus/blackbox_exporter/releases/download/v0.25.0/blackbox_exporter-0.25.0.linux-amd64.tar.gz',
+    homepage: 'https://github.com/prometheus/blackbox_exporter',
     install_guide:
       'blackbox exporter 随 Edge Agent / 中心采集器同域部署；拨测目标由 ScrapeJob.blackbox_targets 维护。',
     is_builtin: true,
+    source: 'official',
   },
 ]
 
@@ -433,7 +549,7 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     mapping_id: 'map-001',
     // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
     is_default: true,
-    resource_type: 'host',
+    resource_type: 'host_linux',
     exporter_template_id: 'et-node',
     default_port: 9100,
     metrics_path: '/metrics',
@@ -447,6 +563,23 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     updated_at: '2026-07-20T10:30:00Z',
   },
   {
+    mapping_id: 'map-010',
+    // {v3.11} 按 OS 平台预置不同采集器：host_windows → windows_exporter
+    is_default: true,
+    resource_type: 'host_windows',
+    exporter_template_id: 'et-windows',
+    default_port: 9182,
+    metrics_path: '/metrics',
+    scheme: 'http',
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    label_template_id: 'lt-h-001',
+    has_label_template: true,
+    is_builtin: true,
+    created_at: '2026-08-15T09:00:00Z',
+    updated_at: '2026-08-15T09:00:00Z',
+  },
+  {
     mapping_id: 'map-002',
     // {v3.8} 该 CI 类型下是否默认采集实现（每类型至多一个默认）
     is_default: true,
@@ -457,7 +590,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scheme: 'http',
     scrape_interval: '30s',
     scrape_timeout: '10s',
-    label_template_id: 'lt-mw-001',
+    // {v3.16} mysql 归 database 类别，默认标签模板为数据库模板（决策 D19/D18）
+    label_template_id: 'lt-db-001',
     has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
@@ -474,7 +608,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
     scheme: 'http',
     scrape_interval: '30s',
     scrape_timeout: '10s',
-    label_template_id: 'lt-mw-001',
+    // {v3.16} redis 归 database 类别，默认标签模板为数据库模板（决策 D19/D18）
+    label_template_id: 'lt-db-001',
     has_label_template: true,
     is_builtin: true,
     created_at: '2026-07-01T09:00:00Z',
@@ -681,10 +816,10 @@ export interface BlackboxTarget {
 export interface ScrapeJob {
   job_id: string
   job_name: string
-  /** standard job 必须设置；blackbox job 使用 application_http 作为占位 */
-  resource_type: CiType
-  /** standard job 必须设置；blackbox job 使用 et-blackbox 作为占位 */
-  exporter_template_id: string
+  /** standard job 必填；{v3.16} blackbox job 留空（决策 D21，不占用 application_http / 采集器语义） */
+  resource_type?: CiType
+  /** standard job 必填；{v3.16} blackbox job 留空（决策 D21） */
+  exporter_template_id?: string
   network_domain_id: string
   /** Job 类型：standard 标准采集 / blackbox 拨测（PRD v2.0） */
   job_type: ScrapeJobType
@@ -715,15 +850,16 @@ export interface ScrapeJob {
 }
 
 export const mockScrapeJobs: ScrapeJob[] = [
+  // {v3.11} host 按 OS 平台拆分后，Job 需按细粒度 CI 类型（host_linux / host_windows）分别创建
   {
     job_id: 'job-001',
-    job_name: 'prod-hosts',
-    resource_type: 'host',
+    job_name: 'prod-hosts-linux',
+    resource_type: 'host_linux',
     exporter_template_id: 'et-node',
     network_domain_id: 'default',
     job_type: 'standard',
     instance_selection_mode: 'manual',
-    selected_instance_ids: ['res-host-001', 'res-host-002'],
+    selected_instance_ids: ['res-host-001'],
     instance_filter: null,
     scrape_interval: '15s',
     scrape_timeout: '10s',
@@ -732,12 +868,35 @@ export const mockScrapeJobs: ScrapeJob[] = [
     label_template_id: 'lt-h-001',
     relabel_configs: [],
     enabled: true,
-    exporter_status: { 'res-host-001': 'installed', 'res-host-002': 'installed' },
+    exporter_status: { 'res-host-001': 'installed' },
     // 演示决策 14：metrics_path 被手动覆盖，同步映射默认值时该字段不刷新
     mapping_overrides: ['metrics_path'],
     mapping_synced_at: '2026-07-05T10:10:00Z',
     created_at: '2026-07-05T10:10:00Z',
     updated_at: '2026-07-20T11:00:00Z',
+  },
+  {
+    job_id: 'job-001-win',
+    job_name: 'prod-hosts-windows',
+    resource_type: 'host_windows',
+    exporter_template_id: 'et-windows',
+    network_domain_id: 'default',
+    job_type: 'standard',
+    instance_selection_mode: 'manual',
+    selected_instance_ids: ['res-host-002'],
+    instance_filter: null,
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: 'lt-h-001',
+    relabel_configs: [],
+    enabled: true,
+    exporter_status: { 'res-host-002': 'installed' },
+    mapping_overrides: [],
+    mapping_synced_at: '2026-08-15T09:00:00Z',
+    created_at: '2026-08-15T09:00:00Z',
+    updated_at: '2026-08-15T09:00:00Z',
   },
   {
     job_id: 'job-002',
@@ -876,11 +1035,10 @@ export const mockScrapeJobs: ScrapeJob[] = [
     updated_at: '2026-08-14T09:30:00Z',
   },
   // blackbox 拨测 Job：由原先独立「拨测配置」合并而来（PRD v2.0 决策 4）
+  // {v3.16} 决策 D21：blackbox 不占 resource_type / exporter_template_id（不伪装 application_http + et-blackbox）
   {
     job_id: 'job-bb-001',
     job_name: 'blackbox-http-default',
-    resource_type: 'application_http',
-    exporter_template_id: 'et-blackbox',
     network_domain_id: 'default',
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
@@ -903,8 +1061,6 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-002',
     job_name: 'blackbox-tcp-default',
-    resource_type: 'application_http',
-    exporter_template_id: 'et-blackbox',
     network_domain_id: 'default',
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
@@ -925,8 +1081,6 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-003',
     job_name: 'blackbox-icmp-gov',
-    resource_type: 'application_http',
-    exporter_template_id: 'et-blackbox',
     network_domain_id: 'gov-cloud-a',
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
@@ -976,7 +1130,7 @@ export const mockMonitoringRules: MonitoringRule[] = [
     duration: '5m',
     labels: { severity: 'warning', team: 'sre' },
     annotations: { summary: '主机 CPU 使用率过高', description: '实例 {{ $labels.instance }} CPU 使用率超过 80%' },
-    resource_type: 'host',
+    resource_type: 'host_linux',
     exporter_template_id: 'et-node',
     scope: 'central',
     enabled: true,
@@ -1131,6 +1285,18 @@ const nodeMetrics: MetricLibRow[] = [
   { metric_name: 'node_netstat_Tcp_PassiveOpens', metric_type: 'gauge', help: '被动打开 TCP 连接数', unit: '', labels: ['instance'], exporter_template_id: 'et-node', is_builtin: true, enabled: true },
 ]
 
+// {v3.11} Windows 主机指标库最小集（host_windows → windows_exporter）
+const windowsMetrics: MetricLibRow[] = [
+  { metric_name: 'windows_cpu_time_total', metric_type: 'counter', help: 'CPU 各模式累计耗时', unit: 's', labels: ['core', 'mode', 'instance'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+  { metric_name: 'windows_cs_physical_memory_bytes', metric_type: 'gauge', help: '物理内存总量', unit: 'bytes', labels: ['instance'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+  { metric_name: 'windows_os_physical_memory_free_bytes', metric_type: 'gauge', help: '可用物理内存', unit: 'bytes', labels: ['instance'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+  { metric_name: 'windows_logical_disk_size_bytes', metric_type: 'gauge', help: '逻辑磁盘总容量', unit: 'bytes', labels: ['instance', 'volume'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+  { metric_name: 'windows_logical_disk_free_bytes', metric_type: 'gauge', help: '逻辑磁盘可用空间', unit: 'bytes', labels: ['instance', 'volume'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+  { metric_name: 'windows_net_bytes_received_total', metric_type: 'counter', help: '网卡接收字节总数', unit: 'bytes', labels: ['instance', 'nic'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+  { metric_name: 'windows_net_bytes_sent_total', metric_type: 'counter', help: '网卡发送字节总数', unit: 'bytes', labels: ['instance', 'nic'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+  { metric_name: 'windows_exporter_build_info', metric_type: 'gauge', help: 'Exporter 构建信息', unit: '', labels: ['instance', 'version', 'revision'], exporter_template_id: 'et-windows', is_builtin: true, enabled: true },
+]
+
 const mysqlMetrics: MetricLibRow[] = [
   { metric_name: 'mysql_global_status_threads_connected', metric_type: 'gauge', help: 'MySQL 当前连接数', unit: '', labels: ['instance'], exporter_template_id: 'et-mysql', is_builtin: true, enabled: true },
   { metric_name: 'mysql_global_status_threads_running', metric_type: 'gauge', help: 'MySQL 活跃线程数', unit: '', labels: ['instance'], exporter_template_id: 'et-mysql', is_builtin: true, enabled: true },
@@ -1282,7 +1448,8 @@ const withLib = (
   }))
 
 export const mockMetricLibrary: MetricLibraryItem[] = [
-  ...withIds(withLib(nodeMetrics, { resource_type: 'host', source_exporter: 'et-node', category: 'system' })),
+  ...withIds(withLib(nodeMetrics, { resource_type: 'host_linux', source_exporter: 'et-node', category: 'system' })),
+  ...withIds(withLib(windowsMetrics, { resource_type: 'host_windows', source_exporter: 'et-windows', category: 'system' })),
   ...withIds(withLib(mysqlMetrics, { resource_type: 'mysql', source_exporter: 'et-mysql', category: 'database' })),
   ...withIds(withLib(redisMetrics, { resource_type: 'redis', source_exporter: 'et-redis', category: 'cache' })),
   ...withIds(withLib(kafkaMetrics, { resource_type: 'kafka', source_exporter: 'et-kafka', category: 'mq' })),
@@ -1410,12 +1577,15 @@ export interface Resource {
   cluster: string
   /** {v3.4} 业务类型归属（= 标签模板映射源字段，筛选 UI 以 label 名 biz 作别名展示） */
   business_domain?: string
+  /** {v3.11} OS 类型：host 粗粒度资源按 os_type 映射为 host_linux / host_windows */
+  os_type?: 'linux' | 'windows'
   status: ResourceStatus
 }
 
 export const mockResources: Resource[] = [
-  { resource_id: 'res-host-001', resource_type: 'host', instance_name: 'prod-web-01', hostname: 'prod-web-01.volc', instance_ip: '10.0.1.11', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
-  { resource_id: 'res-host-002', resource_type: 'host', instance_name: 'prod-db-01', hostname: 'prod-db-01.volc', instance_ip: '10.0.1.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'online' },
+  // {v3.11} host 按 os_type 拆分为 host_linux / host_windows 两种细粒度 CI 类型
+  { resource_id: 'res-host-001', resource_type: 'host_linux', instance_name: 'prod-web-01', hostname: 'prod-web-01.volc', instance_ip: '10.0.1.11', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', business_domain: 'order', os_type: 'linux', status: 'online' },
+  { resource_id: 'res-host-002', resource_type: 'host_windows', instance_name: 'prod-db-01', hostname: 'prod-db-01.volc', instance_ip: '10.0.1.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', os_type: 'windows', status: 'online' },
   { resource_id: 'res-mw-001', resource_type: 'redis', instance_name: 'redis-cache-01', hostname: 'redis-cache-01.mw', instance_ip: '10.0.2.11', network_domain_id: 'default', env: 'prod', app_name: 'cache-service', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
   { resource_id: 'res-mw-002', resource_type: 'mysql', instance_name: 'mysql-primary-01', hostname: 'mysql-primary-01.mw', instance_ip: '10.0.2.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'maintenance' },
   { resource_id: 'res-mw-003', resource_type: 'kafka', instance_name: 'kafka-broker-01', hostname: 'kafka-broker-01.mw', instance_ip: '10.0.2.31', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'mq-platform', cluster: 'cluster-staging', status: 'online' },

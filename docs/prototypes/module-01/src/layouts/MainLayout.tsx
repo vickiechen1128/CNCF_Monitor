@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography, Space, Tag, Tooltip, Divider, Alert, Switch, App, Collapse, Select } from 'antd'
+import { Layout, Menu, Typography, Space, Tag, Tooltip, Alert, App, Collapse, Select, Divider } from 'antd'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -12,7 +12,7 @@ import {
   DatabaseOutlined,
 } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
-import { currentTenant, USER_ROLE_MAP, type UserRole, MONITORED_NETWORK_DOMAINS } from '../mocks/module-01'
+import { USER_ROLE_MAP, type UserRole } from '../mocks/module-01'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -77,20 +77,8 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const { message } = App.useApp()
   const [showGlobalTip, setShowGlobalTip] = useState(true)
-  const [multiSite, setMultiSite] = useState(currentTenant.multi_site_enabled)
   // {v3.6} 当前角色（动线分离演示）：URL ?role=biz → 业务负责人，默认运维工程师
   const role: UserRole = searchParams.get('role') === 'biz' ? 'biz_owner' : 'ops'
-  // {v3.9} 当前网域上下文：仅展示已纳管网域；写入 URL ?domain=xxx 供各页面读取
-  const [currentDomainId, setCurrentDomainId] = useState<string>(() => {
-    const fromUrl = searchParams.get('domain')
-    return MONITORED_NETWORK_DOMAINS.some((d) => d.id === fromUrl) ? fromUrl! : MONITORED_NETWORK_DOMAINS[0]?.id ?? 'default'
-  })
-  const switchDomain = (domainId: string) => {
-    setCurrentDomainId(domainId)
-    const params = new URLSearchParams(searchParams)
-    params.set('domain', domainId)
-    setSearchParams(params)
-  }
   const menuItems = buildMenu(role)
 
   const switchRole = (next: UserRole) => {
@@ -103,20 +91,6 @@ export function MainLayout({ children }: MainLayoutProps) {
       navigate('/business-metrics')
     }
     message.info(next === 'biz_owner' ? '已切换为业务负责人：可登记/更新业务指标，不可配置采集任务' : '已切换为运维工程师：可配置采集任务、查看全部指标库')
-  }
-
-  // 租户级多网域开关：直接改写 currentTenant，供各页面读取（与 Module_09 原型一致）
-  const toggleMultiSite = (checked: boolean) => {
-    currentTenant.multi_site_enabled = checked
-    setMultiSite(checked)
-    // {v3.9} 切回单网域时，当前网域上下文强制收敛到 default
-    if (!checked && currentDomainId !== 'default') {
-      switchDomain('default')
-    }
-    window.dispatchEvent(
-      new CustomEvent('tenant-mode-change', { detail: { multiSiteEnabled: checked } })
-    )
-    message.info(checked ? '已切换为多网域模式：Job 可绑定 default 或边缘网域' : '已切换为单网域模式：Job 仅绑定 default 管理域')
   }
 
   // {v3.7} 业务视图为独立路由页；{v3.8} 采集分组子项按 ?view= 区分（采集器管理默认 / 采集 Job）
@@ -146,31 +120,6 @@ export function MainLayout({ children }: MainLayoutProps) {
           </Tag>
         </Space>
         <Space size="large" align="center">
-          <Space size="small" align="center">
-            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>网域模式</Text>
-            <Tooltip title={multiSite ? '多网域模式：Job 可绑定 default 或边缘网域' : '单网域模式：Job 仅绑定 default 管理域'}>
-              <Switch
-                checked={multiSite}
-                checkedChildren="多网域"
-                unCheckedChildren="单网域"
-                onChange={toggleMultiSite}
-              />
-            </Tooltip>
-          </Space>
-          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
-          <Space size="small" align="center">
-            <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前网域</Text>
-            <Tooltip title={multiSite ? '仅展示已纳管监控的网域；未纳管网域需先到配置中心完成纳管' : '单网域模式：仅 default 管理域'}>
-              <Select
-                value={currentDomainId}
-                disabled={!multiSite}
-                onChange={switchDomain}
-                style={{ width: 180 }}
-                options={MONITORED_NETWORK_DOMAINS.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` }))}
-              />
-            </Tooltip>
-          </Space>
-          <Divider type="vertical" style={{ borderColor: 'rgba(255,255,255,0.25)', height: 22, margin: 0 }} />
           <Space size="small" align="center">
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
             <Select

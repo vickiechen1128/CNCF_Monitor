@@ -8,11 +8,16 @@ import {
   configVersions,
   configDeployments,
   networkDomains,
-  currentTenant,
   targetsFilesToText,
   changeDetectionStatus,
   domainArtifactShape,
   validationLayeringNote,
+  approvalTieringNote,
+  rulesGroupDerivationNote,
+  gatewayConstraintNote,
+  channelLabel,
+  channelTip,
+  type Channel,
   type ConfigDraftStatus,
   type DraftValidationStatus,
   type ConfigDraft,
@@ -20,7 +25,6 @@ import {
   type ConfigChangeTarget,
   type AffectedConfigFile,
   type ChangeDetectionOutcome,
-  type DomainType,
 } from '../mocks/module-09'
 
 const { Text } = Typography
@@ -198,9 +202,9 @@ function tabValidationError(draft: ConfigDraft | undefined, file: PreviewFileKey
   return ''
 }
 
-/** 配置产物形态分层（决策 6）：management=本地文件集（无 zip/metadata.json），edge=zip 配置包（含 metadata.json） */
-function renderPackageTree(domainType: DomainType | undefined, domainId: string, draft: ConfigDraft) {
-  const isEdge = domainArtifactShape({ domain_type: domainType ?? 'management' }) === 'zip_package'
+/** 配置产物形态分层（决策 6 / 决策 32）：channel=local（如 default）=本地文件集（无 zip/metadata.json），channel=agent_pull=zip 配置包（含 metadata.json） */
+function renderPackageTree(channel: Channel | undefined, domainId: string, draft: ConfigDraft) {
+  const isZip = domainArtifactShape({ channel: channel ?? 'local' }) === 'zip_package'
   const hasBlackbox = Boolean(draft.blackbox_yml)
   const targetJobs = Object.keys(targetsFilesToText(draft.targets_files))
   const targetsLines = targetJobs
@@ -216,36 +220,39 @@ function renderPackageTree(domainType: DomainType | undefined, domainId: string,
     lineHeight: 1.8,
     fontFamily: "'SFMono-Regular', Consolas, Menlo, Courier, monospace",
   }
-  // 中心管理域（default）：本地文件集，直接写中心 Prometheus 配置目录，无 zip / metadata.json（决策 6）
-  if (!isEdge) {
+  // local 通道（如 default）：本地文件集，直接写中心 Prometheus 配置目录，无 zip / metadata.json（决策 6 / 决策 32）
+  if (!isZip) {
     return (
       <pre style={preStyle}>
         {`本地文件集（直接写入中心 Prometheus 配置目录，无 zip / metadata.json）
-├── prometheus.yml      # 中心 Prometheus 主配置（job 骨架 + external_labels；确认后 SIGHUP / POST /-/reload）
+├── prometheus.yml      # 中心 Prometheus 主配置（job 骨架 + external_labels.network_domain / tenant_id[/zone_type]；确认后 SIGHUP / POST /-/reload）
 ├── targets/            # file_sd 目标文件（按 job 分文件，固定文件名覆盖写，原子写不触发采集器 reload）
 ${targetsLines}
-├── rules.yml           # 中心统一求值规则（scope=central/both，MVP~v0.3 固定 central）
-└── blackbox.yml        # 本域 blackbox 探测模块${hasBlackbox ? '' : '（当前无 job_type=blackbox 的 ScrapeJob，不生成）'}`}
+├── rules.yml           # 中心统一求值规则（Prometheus group 语法，M09 自动派生分组；scope=central/both，MVP~v0.3 固定 central）
+└── blackbox.yml        # 本域 blackbox 探测模块${hasBlackbox ? '' : '（当前无 job_type=blackbox 的 ScrapeJob，不生成）'}
+
+# alertmanager.yml 由 Module_08 直接管理，不属于本模块配置产物（{v1.32} 审批分级）`}
       </pre>
     )
   }
-  // 边缘域：zip 配置包（含 metadata.json 供 Agent 拉取后 checksum 校验）
+  // agent_pull 通道：zip 配置包（含 metadata.json 供 Agent 拉取后 checksum 校验）
   return (
     <pre style={preStyle}>
       {`edge-config-${domainId}.zip
-├── prometheus.yml      # 本域 scrape_configs（仅 job 骨架，file_sd_configs 引用 targets/*.json，已注入 external_labels.network_domain / tenant_id）
+├── prometheus.yml      # 本域 scrape_configs（仅 job 骨架，file_sd_configs 引用 targets/*.json，已注入 external_labels.network_domain / tenant_id[/zone_type]）
 ├── targets/            # file_sd 目标文件（按 job 分文件，固定文件名覆盖写，原子写不触发采集器 reload）
 ${targetsLines}
 ├── blackbox.yml        # 本域 blackbox 探测模块${hasBlackbox ? '' : '（当前无 job_type=blackbox 的 ScrapeJob，不打包）'}
-├── rules.yml           # 本域告警规则（scope=edge/both，v0.4+，见下方说明）
-└── metadata.json       # config_version、生成时间、agent_type、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml+targets 内容)，供 Agent 拉取后完整性校验）`}
+├── rules.yml           # 本域告警规则（Prometheus group 语法，M09 自动派生分组；scope=edge/both，v0.4+，见下方说明）
+└── metadata.json       # config_version、生成时间、agent_type、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml+targets 内容)，供 Agent 拉取后完整性校验）
+
+# alertmanager.yml 由 Module_08 直接管理，不进入本配置包（{v1.32} 审批分级）`}
     </pre>
   )
 }
 
 export function ConfigPreviewPage() {
   const navigate = useNavigate()
-  const multiSite = currentTenant.multi_site_enabled
   /** 抽屉中打开的变更（决策 20：列表点击 → 右侧抽屉查看变更详情），null=未打开 */
   const [detailDraft, setDetailDraft] = useState<ConfigDraft | null>(null)
   const [viewMode, setViewMode] = useState<'preview' | 'diff'>('preview')
@@ -267,6 +274,11 @@ export function ConfigPreviewPage() {
   /** 所属网域列：network_domain_id → 网域名称（与下发记录页展示一致） */
   const domainMap = useMemo(() => Object.fromEntries(networkDomains.map((d) => [d.id, d.name])), [])
 
+  /** {v1.33} 网域 → 下发通道映射（决策 31/32/33）：发布通道 / 产物形态 / 生效提示均按下发通道区分 */
+  const channelByDomainId = useMemo(() => {
+    return Object.fromEntries(networkDomains.map((d) => [d.id, d.channel])) as Record<string, Channel>
+  }, [])
+
   /** 全链路关联（决策 22）：change_no → 配置版本号（cv-xxx），已确认变更展示其发布版本，定位回滚目标 */
   const versionByChangeNo = useMemo(
     () => Object.fromEntries(configVersions.map((v) => [v.change_no, v.id])),
@@ -282,11 +294,12 @@ export function ConfigPreviewPage() {
     return counter
   }, [])
 
-  const activeDomainId = multiSite ? selectedDomain : defaultDomainId
+  // 决策 31：按网域组织视图（网域切换器列出所有已纳管网域），不依赖单/多网域运行时开关
+  const activeDomainId = selectedDomain
 
-  /** 当前选中网域与其类型（决策 6 配置产物形态分层：management=本地文件集，edge=zip 配置包） */
+  /** 当前选中网域与其下发通道（决策 32：配置产物形态按下发通道分层，local=本地文件集，agent_pull=zip 配置包） */
   const activeDomain = networkDomains.find((d) => d.id === activeDomainId)
-  const isEdgeDomain = activeDomain?.domain_type === 'edge'
+  const isAgentPullDomain = activeDomain?.channel === 'agent_pull'
 
   /** 该网域全部草稿（含历史草稿） */
   const domainDrafts = useMemo(
@@ -439,10 +452,10 @@ export function ConfigPreviewPage() {
       return
     }
     // 决策 19：确认动作记录确认人（当前登录用户），历史变更可审计「谁确认了高风险变更」；MVP 预置，用户管理接入后同步（决策 20）
-    // {v1.20} 发布通道按域类型提示：管理域确认后立即 reload 生效；边缘域发布为配置包，待 Agent 下次心跳拉取生效
-    const isEdge = activeDomain?.domain_type === 'edge'
+    // {v1.33} 发布通道按下发通道提示：local 通道确认后立即 reload 生效；agent_pull 通道发布为配置包，待 Edge Sync Agent 下次心跳拉取生效
+    const isAgentPull = activeDomain?.channel === 'agent_pull'
     message.success(
-      isEdge
+      isAgentPull
         ? `变更单 ${draft?.change_no} 已确认，已发布为配置包，待边缘 Agent 下次心跳拉取生效（确认人：${CURRENT_USER}）`
         : `变更单 ${draft?.change_no} 已确认并发布到监控（确认人：${CURRENT_USER}）`
     )
@@ -480,25 +493,27 @@ export function ConfigPreviewPage() {
       <Card
         title="配置变更确认"
         extra={
-          multiSite ? (
-            <Space>
-              <span className="text-secondary">选择网域：</span>
-              <Select
-                value={selectedDomain}
-                onChange={handleSelectDomain}
-                options={domainOptions}
-                style={{ width: 240 }}
-              />
-            </Space>
-          ) : (
-            <Tag color="blue">单网域模式：仅面向 default 管理域</Tag>
-          )
+          // 决策 31/PRD 3.11：按网域组织视图，网域切换器列出所有已纳管网域（不依赖单/多网域运行时开关）
+          <Space>
+            <span className="text-secondary">选择网域：</span>
+            <Select
+              value={selectedDomain}
+              onChange={handleSelectDomain}
+              options={domainOptions}
+              style={{ width: 240 }}
+            />
+          </Space>
         }
       >
-        {!multiSite && (
+        {/* {v1.33} 当前选中网域的发布通道标注（决策 31/32/33）：local / agent_pull 及对应生效提示 */}
+        {activeDomain && (
           <Alert
-            message="单网域模式说明"
-            description="当前租户未开启多网域能力，配置变更确认直接面向中心 Prometheus。"
+            message={`发布通道：${channelLabel[activeDomain.channel]}（${activeDomain.name}）`}
+            description={
+              activeDomain.channel === 'agent_pull'
+                ? '确认后发布为 zip 配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s，进度见「Agent 状态」页 config_sync_status）'
+                : '确认后由中心写盘并 reload（SIGHUP / POST /-/reload）立即生效'
+            }
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
@@ -515,6 +530,25 @@ export function ConfigPreviewPage() {
               请确认<Text strong>变更内容</Text>与<Text strong>影响</Text>后，决定是否发布到监控——
               确认的对象是「要不要上线」，而不是「配置怎么生成」。
             </span>
+          }
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+
+        {/* {v1.32} M01/M08/M09 告警规则职责重构：审批分级策略——prometheus.yml / targets / rules.yml / blackbox.yml 人工确认，
+            alertmanager.yml 由 Module_08 直接管理、不进入本模块变更确认流程（自动生效） */}
+        <Alert
+          message="审批分级：哪些变更需要人工确认？"
+          description={
+            <div>
+              <ul style={{ paddingLeft: 18, margin: 0 }}>
+                <li>{approvalTieringNote.manual}</li>
+                <li>{approvalTieringNote.auto}</li>
+                <li>{approvalTieringNote.mixed}</li>
+                <li>{approvalTieringNote.reason}</li>
+              </ul>
+            </div>
           }
           type="info"
           showIcon
@@ -623,6 +657,27 @@ export function ConfigPreviewPage() {
                   render: (_: unknown, record: ConfigDraft) => (
                     <Text ellipsis style={{ maxWidth: 380 }}>{record.summary}</Text>
                   ),
+                },
+                {
+                  // {v1.33} 行内保留下发通道标记（PRD 3.4）：local / agent_pull（与对应 NetworkDomain.channel 一致，决策 32）
+                  title: (
+                    <Tooltip title="该变更所属网域的下发通道：local（中心直接 reload）/ agent_pull（Edge Sync Agent 心跳拉取配置包）；决定确认后生效方式">
+                      <Space size={4}>
+                        下发通道
+                        <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+                      </Space>
+                    </Tooltip>
+                  ),
+                  key: 'channel',
+                  width: 130,
+                  render: (_: unknown, record: ConfigDraft) => {
+                    const channel = channelByDomainId[record.network_domain_id] ?? 'agent_pull'
+                    return (
+                      <Tooltip title={channelTip[channel]}>
+                        <Tag color={channel === 'local' ? 'default' : 'blue'}>{channelLabel[channel]}</Tag>
+                      </Tooltip>
+                    )
+                  },
                 },
                 {
                   title: '状态',
@@ -763,8 +818,8 @@ export function ConfigPreviewPage() {
                       title={
                         validationFailed
                           ? '下发前校验未通过，禁止下发'
-                          : activeDomain?.domain_type === 'edge'
-                          ? '确认后发布为配置包，待边缘 Agent 下次心跳拉取生效'
+                          : activeDomain?.channel === 'agent_pull'
+                          ? '确认后发布为配置包，待 Edge Sync Agent 下次心跳拉取生效'
                           : '确认后立即 reload 生效'
                       }
                     >
@@ -935,13 +990,20 @@ export function ConfigPreviewPage() {
 
               <Card
                 size="small"
-                title={`配置产物结构${isEdgeDomain ? '（zip 配置包，含 metadata.json）' : '（本地文件集，无 zip / metadata.json）'}`}
+                title={`配置产物结构${isAgentPullDomain ? '（zip 配置包，含 metadata.json）' : '（本地文件集，无 zip / metadata.json）'}`}
                 style={{ marginBottom: 16 }}
               >
-                {renderPackageTree(activeDomain?.domain_type, activeDomainId, draft)}
+                {renderPackageTree(activeDomain?.channel, activeDomainId, draft)}
                 <Alert
                   message="配置产物形态分层与生成说明"
-                  description="配置产物形态按域类型分层：中心管理域（default）=本地文件集（prometheus.yml + targets/*.json + rules.yml + blackbox.yml），确认后 SIGHUP / -/reload，无 zip、无 metadata.json 下载校验（版本一致性由 ConfigVersion 记录保证）；边缘域=zip 配置包（含 metadata.json，Agent 拉取后校验值校验）；分层依据是域类型而非单/多网域开关。rules.yml 按作用域生成：中心域（default）包含 scope=central/both 规则；边缘域仅当存在 scope=edge/both 规则时（v0.4+）随配置包下发，MVP 阶段由中心统一求值。targets 由 configgen 按 job 名自动生成，前端动态遍历 targets_files 渲染子 Tab，新增 job 无需改前端。targets 变化仅原子重写对应 targets/*.json（临时文件 + rename），不触发采集器 reload——file_sd 由磁盘监听/轮询自动感知；仅 prometheus.yml 结构变化才触发 reload（reload 策略分离）。blackbox.yml 在网域存在 job_type=blackbox 的 ScrapeJob 时必含，且必须随 prometheus.yml 一同下发。"
+                  description={
+                    <span>
+                      配置产物形态按下发通道分层（决策 32）：local 通道网域（如 default）=本地文件集（prometheus.yml + targets/*.json + rules.yml + blackbox.yml），确认后 SIGHUP / -/reload，无 zip、无 metadata.json 下载校验（版本一致性由 ConfigVersion 记录保证）；agent_pull 通道网域=zip 配置包（含 metadata.json，Agent 拉取后校验值校验）；分层依据是下发通道（local / agent_pull）而非域类型。{' '}
+                      <Text strong>{rulesGroupDerivationNote}</Text>。{' '}
+                      <Text strong>external_labels 注入</Text>：network_domain / tenant_id 必注入，网域登记了 zone_type 时同步注入 zone_type（{`{v1.31}`}，PRD 9.2）。{' '}
+                      <Text strong>审批分级（{`{v1.32}`}）</Text>：alertmanager.yml 由 Module_08（告警收敛与通知管理）直接管理并触发 Alertmanager reload，不进入本模块变更单 / 配置变更确认流程，配置包 / 本地文件集中均不包含。targets 由 configgen 按 job 名自动生成，前端动态遍历 targets_files 渲染子 Tab，新增 job 无需改前端。targets 变化仅原子重写对应 targets/*.json（临时文件 + rename），不触发采集器 reload——file_sd 由磁盘监听/轮询自动感知；仅 prometheus.yml 结构变化才触发 reload（reload 策略分离）。blackbox.yml 在网域存在 job_type=blackbox 的 ScrapeJob 时必含，且必须随 prometheus.yml 一同下发。
+                    </span>
+                  }
                   type="info"
                   showIcon
                   style={{ marginTop: 12 }}
@@ -1005,7 +1067,7 @@ export function ConfigPreviewPage() {
 
               {viewMode === 'preview' ? (
                 effectiveActiveFile === 'metadata.json' ? (
-                  isEdgeDomain ? (
+                  isAgentPullDomain ? (
                     <Descriptions bordered size="small" column={{ xs: 1, sm: 2 }}>
                       <Descriptions.Item label="config_version">
                         <Text code>{draft.id}</Text>
@@ -1041,7 +1103,7 @@ export function ConfigPreviewPage() {
                     </Descriptions>
                   ) : (
                     <Alert
-                      message="中心管理域（default）为本地文件集"
+                      message="local 通道网域（如 default）为本地文件集"
                       description="配置产物不打包、无 metadata.json（无 zip 下载校验，版本一致性由配置版本记录保证）；联合校验值仅用于中心侧差异检测与裁决。"
                       type="info"
                       showIcon
@@ -1053,7 +1115,7 @@ export function ConfigPreviewPage() {
                   renderYamlPreview(activeFileText)
                 )
               ) : effectiveActiveFile === 'metadata.json' ? (
-                isEdgeDomain ? (
+                isAgentPullDomain ? (
                   <Alert
                     message="metadata.json 仅只读展示"
                     description="metadata.json 为配置包元数据（config_version / 生成时间 / agent_type / 联合校验值），不参与版本 diff。"
@@ -1062,7 +1124,7 @@ export function ConfigPreviewPage() {
                   />
                 ) : (
                   <Alert
-                    message="中心管理域（default）为本地文件集"
+                    message="local 通道网域（如 default）为本地文件集"
                     description="配置产物不打包、无 metadata.json，无需参与版本 diff；联合校验值由配置版本记录并在中心侧用于差异检测。"
                     type="info"
                     showIcon
@@ -1117,6 +1179,14 @@ export function ConfigPreviewPage() {
                   </Col>
                 </Row>
               )}
+
+              <Alert
+                message="网闸 / 隔离区连接约束（agent_pull 通道发布）"
+                description={gatewayConstraintNote}
+                type="info"
+                showIcon
+                style={{ marginTop: 16 }}
+              />
 
               <Alert
                 message="下发前校验说明"

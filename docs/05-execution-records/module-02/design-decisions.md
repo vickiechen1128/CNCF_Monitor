@@ -89,7 +89,7 @@
 - `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（3.3 移交清单、5.5 MonitoringRule、v2.2 规则编辑 UI 版本调整）
 - `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（5.2 `is_monitored`、5.12 LabelTemplate）
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（3.3.1 `external_labels`、4.2/4.3 EdgeAgent 心跳）
-- `docs/02-product-requirements/Modules/Module_08_Alerting_Rule_Management.md`（v0.3 alerts 对齐，版本面待同步）
+- `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v0.3 alerts 对齐，版本面待同步）
 
 ---
 

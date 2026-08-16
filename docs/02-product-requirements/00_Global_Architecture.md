@@ -2,7 +2,7 @@
 
 > 文档类型：产品需求文档 / 全局架构  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)  
-> 更新日期：2026-07-30
+> 更新日期：2026-08-16
 
 ---
 
@@ -443,3 +443,30 @@ Prometheus Server ──► Remote Write ──► VictoriaMetrics / Mimir / Tha
 | `ui-custom/` | 独立前端门户 | 可自由修改 |
 | `patches/prometheus/` | 对上游源码的必要 patch | 每次升级需重新验证 |
 | `deploy/` | 部署脚本与配置 | 可自由修改 |
+
+---
+
+## 7. 术语归属与禁用规则（决策 D24 术语分层，2026-08-16）
+
+> **背景**：MetricCenter 借用 CMDB 原生词汇「CI 类型」命名了监控平台内部的**派生策略维度**，用户必然以为两者是同一个东西、强绑定。D24 将三个词分层，各归其主、互不借用。
+
+| 层 | 术语（UI 文案） | 技术字段 | 归属 | 含义 |
+|---|---|---|---|---|
+| CMDB | **CI 类型**（bk_obj_id） | `bk_obj_id` / `cmdb_ci_type` | CMDB / Module_04 | 资源本质分类（mysql / redis / 达梦），权威来源，监控平台只读 |
+| Module_07 | **资源类别 + 子类型** | `resource_category` + `database_type` / `middleware_type` / `os_type` | Module_07 | 内部资源管理维度（数据库 / 中间件 / 主机 / 应用 / 通用目标） |
+| Module_01 | **监控对象类型** | `monitor_type` | Module_01 | 派生的策略维度（host_linux / mysql / application_http），用于绑定采集器、指标库、标签模板 |
+
+**推导链（两级映射）**：
+
+```
+CMDB bk_obj_id（细粒度，资源本质轴）
+  → M04「CMDB CI 类型映射表」指派资源类别 + 子类型
+  → M07 resource_category + database_type / middleware_type / os_type
+  → M01 MONITOR_TYPE_DERIVATION_MAP 推导 → monitor_type（监控对象类型）
+```
+
+**归属与禁用规则**（写进各模块术语映射）：
+- **「CI 类型」只允许出现在 CMDB / Module_04 的上下文**；Module_01 / Module_07 的页面、表单、术语映射一律不再使用（历史遗留表述随版本修订清理）。
+- **「监控对象类型」只允许出现在 Module_01**；Module_04 / CMDB 上下文不得使用（M04 映射表第三列为只读推导展示例外）。
+- **「资源类别」归 Module_07 / Module_04 映射表**；细粒度子类型用 `database_type` / `middleware_type` / `os_type` 表达。
+- **回写边界**：`monitor_type` 是派生策略维度，只存在于监控平台内部，**不回写 CMDB**；CMDB 对分类拆分无感知（bk_obj_id 不变，仅映射表多一个目标类别值）。
