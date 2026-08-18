@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Card, Table, Tag, Button, Space, Modal, Form, Input, Select, message, Tooltip, Typography, Steps, Alert, Dropdown, Drawer, Descriptions } from 'antd'
 import { EditOutlined, ReloadOutlined, CopyOutlined, DownOutlined, EyeOutlined, CloudUploadOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
 import {
   networkDomains,
   edgeAgents,
@@ -9,7 +10,6 @@ import {
   TOKEN_MASK,
   deriveRemoteWriteUrl,
   deriveConfigDownloadUrl,
-  gatewayConstraintNote,
   channelLabel,
   channelTip,
   type Channel,
@@ -252,7 +252,7 @@ export function NetworkDomainsPage() {
                 <div>
                   <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
                     适用于所有已纳管的 <Text code>agent_pull</Text> 通道网域（远端/隔离采集节点）；local 通道网域（如 default）由中心直接采集，
-                    无需安装 Edge Sync Agent。采集器与 blackbox exporter 由 Edge Sync Agent 启动后自动部署（并入第③步描述），无需手动分步安装。
+                    无需安装 Edge Sync Agent。采集器与 blackbox exporter 由 Edge Sync Agent 启动后自动部署，无需手动安装。
                   </Typography.Paragraph>
                   <Steps
                     size="small"
@@ -260,42 +260,31 @@ export function NetworkDomainsPage() {
                     current={-1}
                     items={edgeAgentInstallGuide.steps.map((s) => ({ title: s.title, description: s.description }))}
                   />
-                  <div style={{ marginTop: 12 }}>
-                    <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                      边缘节点组件构成：
-                    </Text>
-                    <ul style={{ margin: 0, paddingLeft: 18 }}>
-                      {edgeAgentInstallGuide.components.map((c) => (
-                        <li key={c.name} style={{ marginBottom: 2 }}>
-                          <Text strong>{c.name}</Text>（{c.required ? '必装' : '可选'}）：{c.role}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                      凭据获取与交付：
-                    </Text>
-                    <Text type="secondary">
-                      <Text code>NETWORK_DOMAIN_ID</Text> 为对应网域 ID（网域列表首列）；<Text code>TOKEN</Text> 通过网域行内「复制」按钮获取（UI 完全脱敏展示）。
-                      交付方式：{edgeAgentInstallGuide.delivery}；校验和算法：{edgeAgentInstallGuide.checksum_algorithm}；
-                      systemd 单元：{edgeAgentInstallGuide.systemd_unit}。
-                    </Text>
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                      网闸 / 隔离区连接约束（{`{v1.31}`}）：
-                    </Text>
-                    <Text type="secondary">{gatewayConstraintNote}。配置包下载地址示例：{' '}
-                      {networkDomains
-                        .filter((d) => d.channel === 'agent_pull' && d.center_endpoint)
-                        .map((d) => `${d.id} → ${deriveConfigDownloadUrl(d)}`)
-                        .join('；') || '（暂无已纳管 agent_pull 网域）'}
-                    </Text>
-                  </div>
                 </div>
               }
             />
+            <ReviewNote title="安装指引技术细节（面向产品 / 开发评审）" style={{ marginTop: 12 }}>
+              <ul style={{ paddingLeft: 18, margin: 0 }}>
+                {edgeAgentInstallGuide.components.map((c) => (
+                  <li key={c.name} style={{ marginBottom: 2 }}>
+                    <Text strong>{c.name}</Text>（{c.required ? '必装' : '可选'}）：{c.role}
+                  </li>
+                ))}
+              </ul>
+              <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                <Text code>NETWORK_DOMAIN_ID</Text> 为对应网域 ID；<Text code>TOKEN</Text> 通过网域行内「复制」按钮获取（UI 脱敏展示）。
+                交付方式：{edgeAgentInstallGuide.delivery}；校验和算法：{edgeAgentInstallGuide.checksum_algorithm}；
+                systemd 单元：{edgeAgentInstallGuide.systemd_unit}。
+              </Text>
+              <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                网闸 / 隔离区连接约束（强制）：禁止中心 → 边缘主动连接，所有交互由边缘 Agent 向中心发起（pull / push 上行）；
+                面向边缘的地址为该网域视角的可达地址。配置包下载地址示例：{' '}
+                {networkDomains
+                  .filter((d) => d.channel === 'agent_pull' && d.center_endpoint)
+                  .map((d) => `${d.id} → ${deriveConfigDownloadUrl(d)}`)
+                  .join('；') || '（暂无已纳管 agent_pull 网域）'}
+              </Text>
+            </ReviewNote>
           </div>
         )}
         <Table
@@ -437,18 +426,17 @@ export function NetworkDomainsPage() {
             },
           ]}
         />
-        <div style={{ marginTop: 12 }}>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            字段语义：网域列（名称 + ID，行政字段由 Module_06「网域管理」创建与维护，本页不可修改）；
-            网络区域类型（zone_type，行政字段由 M06 登记，本页只读展示）；
-            下发通道（local / agent_pull）按网域固定（default=local、其他=agent_pull，MVP 不可编辑）；
-            local 通道网域（default）由中心直接采集，仅展示网域与下发通道，不生成凭据、运行状态显示「-」；
-            agent_pull 通道网域的凭据（Token）由纳管时自动签发，运行状态由 Edge Sync Agent 心跳上报更新；
-            纳管与编辑表单仅维护监控配置字段；操作列三槽位：主操作（纳管/编辑 随行状态变化）+ 详情（常驻）+ 更多（重置 Token，仅 agent_pull 已纳管行）；
-            点击「详情」或行可查看中心接入地址、Remote Write URL、Agent 类型及各组件运行状态概览。
-            新网域接入流程见页面顶部「安装指引」提示区（纳管成功将自动滚动高亮该区域）。
-          </Text>
-        </div>
+        {/* 字段语义为评审说明（含 Module_06 引用），移入 ReviewNote，由全局开关控制显隐 */}
+        <ReviewNote title="字段语义说明（面向评审）" style={{ margin: '12px 0 0' }}>
+          字段语义：网域列（名称 + ID，行政字段由 Module_06「网域管理」创建与维护，本页不可修改）；
+          网络区域类型（zone_type，行政字段由 M06 登记，本页只读展示）；
+          下发通道（local / agent_pull）按网域固定（default=local、其他=agent_pull，MVP 不可编辑）；
+          local 通道网域（default）由中心直接采集，仅展示网域与下发通道，不生成凭据、运行状态显示「-」；
+          agent_pull 通道网域的凭据（Token）由纳管时自动签发，运行状态由 Edge Sync Agent 心跳上报更新；
+          纳管与编辑表单仅维护监控配置字段；操作列三槽位：主操作（纳管/编辑 随行状态变化）+ 详情（常驻）+ 更多（重置 Token，仅 agent_pull 已纳管行）；
+          点击「详情」或行可查看中心接入地址、Remote Write URL、Agent 类型及各组件运行状态概览。
+          新网域接入流程见页面顶部「安装指引」提示区（纳管成功将自动滚动高亮该区域）。
+        </ReviewNote>
       </Card>
 
       {/* 决策 36-1：右侧详情抽屉 */}
@@ -528,7 +516,7 @@ export function NetworkDomainsPage() {
                           </Descriptions.Item>
                           <Descriptions.Item label="配置同步">
                             <Tag color={agent.config_sync_status === 'in_sync' ? 'success' : agent.config_sync_status === 'out_of_sync' ? 'error' : 'default'}>
-                              {agent.config_sync_status === 'in_sync' ? '已同步' : agent.config_sync_status === 'out_of_sync' ? '未同步' : agent.config_sync_status === 'manual_override' ? '手动覆盖' : '未知'}
+                              {agent.config_sync_status === 'in_sync' ? '已同步' : agent.config_sync_status === 'out_of_sync' ? '未同步' : agent.config_sync_status === 'manual_override' ? '人工覆盖' : '未知'}
                             </Tag>
                           </Descriptions.Item>
                           {agent.components.filter((c) => c.type === 'blackbox_exporter').length > 0 && (
@@ -564,13 +552,10 @@ export function NetworkDomainsPage() {
         cancelText="取消"
       >
         <Form form={onboardForm} layout="vertical" onFinish={submitOnboard}>
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="Module_06 行政创建 → Module_09 监控纳管"
-            description="网域的行政创建与租户分配由「系统设置」模块（Module_06 网域管理）负责；此处将已创建的网域接入监控——确认纳管后自动签发 Token、自动推导 Remote Write URL。default 管理域固定 local 通道、由系统预置且默认已纳管；其余网域纳管固定 agent_pull 通道（决策 33，MVP 不提供通道选择/切换）。"
-          />
+          {/* 决策 14/33/35：行政创建归 Module_06 网域管理；纳管自动签发 Token / 推导 Remote Write URL；default=local 预置已纳管，其余固定 agent_pull，MVP 不提供通道切换 */}
+          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 16 }}>
+            网域的行政创建与租户分配由「系统设置 · 网域管理」负责；确认纳管后自动签发 Token 并推导 Remote Write URL。
+          </Text>
           <Form.Item label="目标网域">
             <Input value={onboardTarget ? `${onboardTarget.name}（${onboardTarget.id}，租户：${onboardTarget.tenant_id}）` : ''} disabled />
           </Form.Item>
@@ -596,14 +581,13 @@ export function NetworkDomainsPage() {
             name="center_endpoint"
             label="中心接入地址"
             rules={[{ required: true, message: '边缘域纳管必填：该网域视角的中心可达地址（网闸映射后地址）' }]}
-            extra="如 https://10.8.0.5:8443（网闸/防火墙地址映射后的中心地址）；配置拉取地址 = 中心接入地址 + 固定相对路径合成绝对地址下发给 Agent（PRD 6.1）"
+            extra="如 https://10.8.0.5:8443（网闸/防火墙地址映射后的中心地址）；配置拉取地址 = 中心接入地址 + 固定相对路径合成后下发给 Agent。"
           >
             <Input placeholder="https://<center-address>:<port>" />
           </Form.Item>
           <Form.Item>
             <Text type="secondary">
-              纳管成功后自动签发 Token 与 Remote Write URL；Agent IP / 主机名 / 状态 / 最后心跳由 Edge Sync Agent
-              心跳上报自动补全，接入步骤见页面顶部「安装指引」。
+              纳管成功后自动签发 Token 与 Remote Write URL；Agent 主机信息与心跳状态在接入后自动补全，接入步骤见页面顶部「安装指引」。
             </Text>
           </Form.Item>
         </Form>
@@ -619,13 +603,10 @@ export function NetworkDomainsPage() {
         cancelText="取消"
       >
         <Form form={form} layout="vertical" onFinish={handleSave}>
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="行政字段由 Module_06 维护，本表单仅维护监控配置"
-            description="网域名称 / 所属租户 / 类型等行政字段的修改请前往「系统设置」模块（Module_06 网域管理）；此处仅维护描述与监控参数。"
-          />
+          {/* 行政字段只读（Module_06 维护），本表单仅维护监控配置（PRD 3.1 网域编辑） */}
+          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 16 }}>
+            网域名称 / 所属租户 / 类型为行政字段，请在「系统设置 · 网域管理」中修改；此处仅维护描述与监控参数。
+          </Text>
           <Form.Item label="网域名称（行政字段，只读）">
             <Input value={editingDomain?.name} disabled />
           </Form.Item>
@@ -652,8 +633,7 @@ export function NetworkDomainsPage() {
           {editingDomain?.channel === 'local' && (
             <Form.Item>
               <Text type="secondary">
-                local 通道网域（default）由中心直接采集：不生成 Token / Agent 类型 / Remote Write URL / 中心接入地址，
-                不提供安装指引，无 Edge Agent 心跳语义；下发通道固定 local 不可编辑。
+                local 通道网域（default）由中心直接采集，不生成 Token / Remote Write 等接入配置，无 Edge Agent 心跳。
               </Text>
             </Form.Item>
           )}
@@ -684,7 +664,7 @@ export function NetworkDomainsPage() {
               <Form.Item
                 name="center_endpoint"
                 label="中心接入地址"
-                extra="该网域视角的中心可达地址（网闸映射后地址），用于合成配置包绝对下载地址（PRD 6.1）"
+                extra="该网域视角的中心可达地址（网闸映射后地址），用于合成配置包绝对下载地址后下发给 Agent。"
               >
                 <Input placeholder="https://<center-address>:<port>" />
               </Form.Item>

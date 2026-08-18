@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import {
-  Alert,
   Button,
   Card,
   Descriptions,
@@ -11,16 +10,14 @@ import {
   Table,
   Tag,
   Typography,
-  Row,
-  Col,
 } from 'antd'
 import type { TableProps } from 'antd'
 import { DownloadOutlined, EyeOutlined, FileExcelOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { FilterBar, FilterItem } from '../components/FilterBar'
+import { EllipsisText } from '../components/EllipsisText'
 import {
   RESOURCE_TYPE_MAP,
-  STATUS_MAP,
-  STATUS_MAPPING_RULES,
   mockImportHistory,
 } from '../mocks/module-07'
 import type { ImportError, ImportHistory, ResourceCategory } from '../mocks/module-07'
@@ -61,7 +58,12 @@ export default function ImportHistoryPage() {
       key: 'value',
       render: (v: string) => (v ? <Text code style={{ fontSize: 12 }}>{v}</Text> : '(空)'),
     },
-    { title: '原因', dataIndex: 'reason', key: 'reason' },
+    {
+      title: '原因',
+      dataIndex: 'reason',
+      key: 'reason',
+      render: (v: string) => (v ? <EllipsisText maxWidth={260}>{v}</EllipsisText> : '-'),
+    },
   ]
 
   const columns: TableProps<ImportHistory>['columns'] = [
@@ -140,44 +142,29 @@ export default function ImportHistoryPage() {
         <Title level={4}>导入记录</Title>
         <Text type="secondary">查看 Excel 批量导入资源的历史记录与错误报告</Text>
       </div>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="状态映射字典：Excel 中文状态自动映射为运行中 / 已停止 / 维护中"
-        description={
-          <Space wrap size={[8, 8]}>
-            {STATUS_MAPPING_RULES.map((rule) => (
-              <Tag key={rule.target}>
-                {rule.source.join(' / ')} → {STATUS_MAP[rule.target]}
-              </Tag>
-            ))}
-          </Space>
-        }
-      />
+      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+        状态映射（Excel 中文状态 → 运行中 / 已停止 / 维护中）为系统规则，本页只读展示，规则明细见「标签模板」页。
+      </Text>
       <Card className="page-card">
-        <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
-          <Col>
-            <Space>
-              <Text type="secondary">资源类别：</Text>
-              <Select
-                value={filterType}
-                onChange={(value) => setFilterType(value as ResourceCategory | 'all')}
-                style={{ width: 160 }}
-              >
-                <Option value="all">全部</Option>
-                {RESOURCE_TYPES.map((type) => (
-                  <Option key={type} value={type}>
-                    {RESOURCE_TYPE_MAP[type]}
-                  </Option>
-                ))}
-              </Select>
-            </Space>
-          </Col>
-          <Col>
-            <Button icon={<DownloadOutlined />}>导出记录</Button>
-          </Col>
-        </Row>
+        <FilterBar>
+          <FilterItem label="资源类别" width={220}>
+            <Select
+              value={filterType}
+              onChange={(value) => setFilterType(value as ResourceCategory | 'all')}
+              style={{ width: 160 }}
+            >
+              <Option value="all">全部</Option>
+              {RESOURCE_TYPES.map((type) => (
+                <Option key={type} value={type}>
+                  {RESOURCE_TYPE_MAP[type]}
+                </Option>
+              ))}
+            </Select>
+          </FilterItem>
+        </FilterBar>
+        <div style={{ textAlign: 'right', marginBottom: 16 }}>
+          <Button icon={<DownloadOutlined />}>导出记录</Button>
+        </div>
 
         <Table
           rowKey="import_id"

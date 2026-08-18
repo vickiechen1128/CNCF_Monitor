@@ -129,14 +129,36 @@ describe('module-09 mocks', () => {
     expect(() => JSON.parse(govTexts['blackbox-http'])).not.toThrow()
   })
 
-  it('should include a draft that fails pre-deploy validation on targets schema (PRD 3.5.1 demo)', () => {
-    const failed = configDrafts.find((d) => d.validation_status === 'failed')
+  it('should include a draft that fails pre-deploy validation on targets schema (PRD 3.5.1 demo / 决策 39-1 用户配置问题)', () => {
+    // {v1.39} 决策 39-1：按 id 定位用户配置问题草稿（draft-gov-003 为平台故障演示，不在此断言内）
+    const failed = configDrafts.find((d) => d.id === 'draft-default-003')
     expect(failed).toBeDefined()
+    expect(failed?.validation_status).toBe('failed')
+    expect(failed?.validation_cause).toBe('user_config')
     expect(failed?.validation_error).toContain('targets')
+    // {v1.39} 决策 39-1：行内 Popover 依赖的定位详情（失败文件 + 行号 + 错误信息）
+    expect(failed?.validation_details).toBeDefined()
+    expect(failed?.validation_details?.[0].file).toBe('targets/plc-gateway.json')
+    expect(failed?.validation_details?.[0].line).toBe(4)
+    expect(failed?.validation_details?.[0].message).toContain('JSON')
     const plcGateway = (failed?.targets_files as ConfigTargetsFiles)['plc-gateway']
     expect(typeof plcGateway).toBe('string')
     // JSON 未闭合：configgen 侧 schema 解析会失败
     expect(() => JSON.parse(plcGateway as string)).toThrow()
+  })
+
+  it('should include a platform fault draft with validation_cause=platform_fault (决策 39-3: 平台技术故障自动重试, 无用户可见重新校验按钮)', () => {
+    const platformFault = configDrafts.find((d) => d.id === 'draft-gov-003')
+    expect(platformFault).toBeDefined()
+    expect(platformFault?.validation_status).toBe('failed')
+    expect(platformFault?.validation_cause).toBe('platform_fault')
+    expect(platformFault?.validation_details).toBeDefined()
+    expect(platformFault?.validation_details?.[0].file).toBe('rules.yml')
+    expect(platformFault?.validation_details?.[0].message).toContain('promtool')
+    // 平台故障不展示「重新校验」按钮——用户修不了平台侧 bug，由校验层自动重试（决策 39-3）
+    // 持续失败时仅提示「联系平台侧 / 查看日志」
+    expect(platformFault?.validation_error).toContain('平台技术故障')
+    expect(platformFault?.validation_error).toContain('自动重试')
   })
 
   it('should record agent_ip reported by heartbeat on every edge agent (PRD 3.2)', () => {
@@ -252,19 +274,55 @@ describe('module-09 mocks', () => {
     })
   })
 
-  it('should mark deployments with pre-deploy validation result and blackbox participation', () => {
+  it('should mark deployments with pre-deploy validation result and blackbox participation (决策 39-2: 校验失败不下发、不产生下发记录)', () => {
     configDeployments.forEach((deployment) => {
+      // 下发记录中的 validation_status 为确认时已通过的校验记录（决策 39-2：校验失败不产生下发记录）
       expect(['passed', 'failed', 'pending']).toContain(deployment.validation_status)
       expect(typeof deployment.includes_blackbox).toBe('boolean')
+      // 决策 39-2：下发记录中不应存在 validation_status=failed 的记录（校验失败不进入下发流程）
+      expect(deployment.validation_status).not.toBe('failed')
     })
-    const failedValidation = configDeployments.find((d) => d.validation_status === 'failed')
-    expect(failedValidation?.error_message).toBeTruthy()
   })
 
   it('should expose an agent demonstrating config package checksum failure', () => {
     const agent = edgeAgents.find((a) => a.last_error.includes('checksum'))
     expect(agent).toBeDefined()
     expect(agent?.config_sync_status).toBe('out_of_sync')
+    // {v1.40 决策 40-1}：checksum 校验失败保留旧配置 → 成因 C local_reset（引导「立即同步」）
+    expect(agent?.out_of_sync_cause).toBe('local_reset')
+  })
+
+  it('should simulate all three out_of_sync causes with cause-based guidance (决策 40-1)', () => {
+    // 成因 A（pending_draft）：中心存在待确认变更草稿 →「前往配置确认」
+    const pendingDraft = edgeAgents.find((a) => a.out_of_sync_cause === 'pending_draft')
+    expect(pendingDraft).toBeDefined()
+    expect(pendingDraft?.config_sync_status).toBe('out_of_sync')
+    // 成因 B（pull_pending）：无待确认变更、Agent 拉包/生效延迟 → 纯展示等待 +「查看下发记录」
+    const pullPending = edgeAgents.find((a) => a.out_of_sync_cause === 'pull_pending')
+    expect(pullPending).toBeDefined()
+    expect(pullPending?.config_sync_status).toBe('out_of_sync')
+    // 成因 C（local_reset）：本地环境/地址变化、checksum 失败留旧包 →「立即同步」
+    const localReset = edgeAgents.find((a) => a.out_of_sync_cause === 'local_reset')
+    expect(localReset).toBeDefined()
+    expect(localReset?.config_sync_status).toBe('out_of_sync')
+    // 仅 out_of_sync 状态携带成因，其余状态无 out_of_sync_cause
+    edgeAgents.forEach((a) => {
+      if (a.config_sync_status === 'out_of_sync') {
+        expect(['pending_draft', 'pull_pending', 'local_reset']).toContain(a.out_of_sync_cause)
+      } else {
+        expect(a.out_of_sync_cause).toBeUndefined()
+      }
+    })
+  })
+
+  it('should keep agent_pull deployments as center publish records without pull/effect failure semantics (决策 40-2)', () => {
+    configDeployments.forEach((d) => {
+      if (d.channel === 'agent_pull') {
+        // agent_pull 记录只记「发布配置包」中心动作：发布失败=中心侧平台故障，不承载拉包/生效失败
+        // 「拉包/生效失败」不产生下发记录（由采集节点状态页 config_sync_status 承载）
+        expect(d.error_message).not.toMatch(/reload|拉包|拉取|checksum|promtool/)
+      }
+    })
   })
 
   it('should describe center/edge validation layering and handoff (PRD 6.4 校验分层说明, v1.9)', () => {
@@ -359,7 +417,7 @@ describe('module-09 mocks', () => {
     edgeAgents.forEach((a) => {
       expect(['online', 'offline', 'unknown']).toContain(a.status)
       expect(a.last_heartbeat).toBeTruthy()
-      expect(['in_sync', 'out_of_sync', 'unknown', 'manual_override']).toContain(a.config_sync_status)
+      expect(['in_sync', 'out_of_sync', 'unknown', 'manual_override', 'no_version']).toContain(a.config_sync_status)
       expect(['running', 'stopped', 'unknown']).toContain(a.collector_status)
       expect(a.collector_version).toBeTruthy()
       expect(typeof a.wal_backlog_bytes).toBe('number')
@@ -375,16 +433,15 @@ describe('module-09 mocks', () => {
   })
 
   it('should demonstrate pending-only default view distribution across domains (默认仅展示待确认草稿, PRD 3.4)', () => {
-    // default 域：confirmed + discarded（自动丢弃演示），无 pending → 默认视图为空态
+    // default 域：confirmed（draft-default-001/004）+ discarded（自动丢弃演示）+ pending（draft-default-003 校验失败）→ 默认视图有内容
     const defaultDrafts = configDrafts.filter((d) => d.network_domain_id === 'default')
     expect(defaultDrafts.some((d) => d.status === 'confirmed')).toBe(true)
     expect(defaultDrafts.some((d) => d.status === 'discarded')).toBe(true)
-    expect(defaultDrafts.some((d) => d.status === 'pending')).toBe(false)
-    // gov / mfg 域有 pending 草稿 → 默认视图有内容
+    expect(defaultDrafts.some((d) => d.status === 'pending')).toBe(true)
+    // gov 域有 pending 草稿 → 默认视图有内容
     expect(configDrafts.some((d) => d.network_domain_id === 'gov-cloud-a' && d.status === 'pending')).toBe(true)
-    expect(
-      configDrafts.some((d) => d.network_domain_id === 'manufacturing-edge' && d.status === 'pending')
-    ).toBe(true)
+    // {v1.37} manufacturing-edge 未纳管：不再生成草稿（原 draft-mfg-001 已迁至 default 域，断点修复）
+    expect(configDrafts.some((d) => d.network_domain_id === 'manufacturing-edge')).toBe(false)
     // finance 域仅 discarded → 默认视图为空态，历史视图有内容
     expect(configDrafts.some((d) => d.network_domain_id === 'finance-dmz' && d.status === 'pending')).toBe(false)
     expect(configDrafts.some((d) => d.network_domain_id === 'finance-dmz' && d.status === 'discarded')).toBe(true)
@@ -400,7 +457,7 @@ describe('module-09 mocks', () => {
     expect(autoDiscarded?.metadata.checksum).toBe(effective?.metadata.checksum)
   })
 
-  it('should expose per-domain change detection status with all three outcomes (PRD 3.3.3 检测状态可观测)', () => {
+  it('should expose per-domain change detection status with outcomes (PRD 3.3.3 检测状态可观测, {v1.37} P0)', () => {
     const domainIds = new Set(networkDomains.map((d) => d.id))
     const outcomes = new Set(changeDetectionStatus.map((s) => s.outcome))
     changeDetectionStatus.forEach((status) => {
@@ -414,14 +471,14 @@ describe('module-09 mocks', () => {
         expect(configDrafts.some((d) => d.id === draft.id)).toBe(true)
       })
     })
-    // 三种检测结果均有演示：检测到变更 / 无变更跳过重算 / checksum 一致自动丢弃
+    // {v1.37} 检测结果演示：检测到变更（default / gov）/ 无变更跳过重算（finance）；
+    // checksum 一致自动丢弃由 draft-default-002（discarded，checksum 与生效版本一致）覆盖验证
     expect(outcomes.has('changes_found')).toBe(true)
     expect(outcomes.has('no_change')).toBe(true)
-    expect(outcomes.has('checksum_same')).toBe(true)
-    // checksum_same 检测状态与自动丢弃草稿（draft-default-002）联动
-    const checksumSame = changeDetectionStatus.find((s) => s.outcome === 'checksum_same')
-    expect(checksumSame?.network_domain_id).toBe('default')
-    expect(configDrafts.find((d) => d.id === 'draft-default-002')).toBeDefined()
+    // default 最近一次检测与校验失败草稿（draft-default-003）联动（{v1.37} 断点修复）
+    const defaultStatus = changeDetectionStatus.find((s) => s.network_domain_id === 'default')
+    expect(defaultStatus?.outcome).toBe('changes_found')
+    expect(configDrafts.find((d) => d.id === 'draft-default-003')).toBeDefined()
   })
 
   it('should categorize edge node components by type on every edge agent (决策 15 / PRD 3.2 组件分类 / 4.2 components)', () => {
@@ -516,9 +573,11 @@ describe('module-09 mocks', () => {
     expect(ruleChange?.change_items.some((i) => i.risk === 'high')).toBe(true)
     expect(ruleChange?.change_items.some((i) => i.type === 'modify')).toBe(true)
     expect(ruleChange?.summary).toContain('HighCPUUsage')
-    // 校验失败草稿（mfg）仍提供变更摘要（确认被下发前校验阻止，PRD 3.5.1）
-    const failed = configDrafts.find((d) => d.validation_status === 'failed')
+    // 校验失败草稿（{v1.37} 断点修复：用户配置问题在 default 域，{v1.39} 决策 39-1 归因为 user_config）仍提供变更摘要（确认被下发前校验阻止，PRD 3.5.1）
+    const failed = configDrafts.find((d) => d.id === 'draft-default-003')
     expect(failed?.summary).toBeTruthy()
+    expect(failed?.network_domain_id).toBe('default')
+    expect(failed?.validation_cause).toBe('user_config')
     // 自动丢弃草稿无实际变更项
     const autoDiscarded = configDrafts.find((d) => d.id === 'draft-default-002')
     expect(autoDiscarded?.change_items.length).toBe(0)
@@ -578,7 +637,7 @@ describe('module-09 mocks', () => {
     const ruleChange = configDrafts.find((d) => d.id === 'draft-gov-002')
     expect(ruleChange?.change_items[0].target).toBe('alert_rule')
     expect(ruleChange?.change_items[0].affected_files).toEqual(['rules.yml'])
-    const jobAdd = configDrafts.find((d) => d.id === 'draft-mfg-001')
+    const jobAdd = configDrafts.find((d) => d.id === 'draft-default-003')
     expect(jobAdd?.change_items[0].target).toBe('scrape_job')
     expect(jobAdd?.change_items[0].affected_files).toContain('prometheus.yml')
     expect(jobAdd?.change_items[0].affected_files).toContain('targets')
@@ -625,9 +684,8 @@ describe('module-09 mocks', () => {
     expect(govDraft?.prometheus_yml).toContain("zone_type: 'extranet'")
     const financeDraft = configDrafts.find((d) => d.network_domain_id === 'finance-dmz')
     expect(financeDraft?.prometheus_yml).toContain("zone_type: 'internet'")
-    // 未登记 zone_type 的网域（manufacturing-edge）→ 不注入 zone_type
-    const mfgDraft = configDrafts.find((d) => d.network_domain_id === 'manufacturing-edge')
-    expect(mfgDraft?.prometheus_yml).not.toContain('zone_type:')
+    // {v1.37} manufacturing-edge 未纳管 → 不生成配置草稿（PRD 3.4「未纳管网域不生成配置草稿」，断点修复）
+    expect(configDrafts.some((d) => d.network_domain_id === 'manufacturing-edge')).toBe(false)
     // 管理域（default）无网闸拓扑 → 不注入 zone_type
     const defaultDraft = configDrafts.find((d) => d.network_domain_id === 'default')
     expect(defaultDraft?.prometheus_yml).not.toContain('zone_type:')

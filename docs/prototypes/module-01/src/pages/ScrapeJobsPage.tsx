@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode, type Key } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 
 import {
@@ -43,6 +43,11 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   ReadOutlined,
+  InfoCircleOutlined,
+  ArrowRightOutlined,
+  CopyOutlined,
+  SendOutlined,
+  SaveOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
@@ -94,6 +99,20 @@ const { Option } = Select
 
 const now = () => new Date().toISOString()
 
+// 表单内字段说明提示（轻量非 Alert）：代替表单/抽屉中堆叠的说明性 Alert，用户主区保持清爽
+function FieldGuide({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={{ marginBottom: 8, padding: '8px 12px', background: '#F7F9FB', borderRadius: 6 }}>
+      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+        <Text strong style={{ fontSize: 12 }}>
+          {title}
+        </Text>
+        {children}
+      </Space>
+    </div>
+  )
+}
+
 // {v3.16} D23：跨模块跳转链接统一收拢为常量；原型演示用相对路径，实现期由统一路由/导航配置承载（不写死路径）
 // {v3.17} 网域空态两步指引：M06 创建网域（行政）→ M09 完成纳管（监控）
 const MODULE_LINKS = {
@@ -122,6 +141,34 @@ const PROTOCOL_LABEL: Record<ProbeProtocol, string> = {
 const MAPPING_OVERRIDE_FIELDS = ['scrape_interval', 'scrape_timeout', 'metrics_path', 'scheme', 'label_template_id'] as const
 type MappingOverrideField = (typeof MAPPING_OVERRIDE_FIELDS)[number]
 
+// {v3.22} 状态列四态聚合（决策 D29）：草稿(draft) > 待下发(pending) > 已生效(active) > 已停用(disabled)
+// 草稿=draft_status=draft（不入下发管线）；待下发=存在 M09 待确认变更单；已生效=启用且无待下发；已停用=未启用
+type JobStatus = 'draft' | 'pending' | 'active' | 'disabled'
+const getJobStatus = (j: ScrapeJob): JobStatus => {
+  if (j.draft_status === 'draft') return 'draft'
+  if (j.change_status === 'pending') return 'pending'
+  return j.enabled ? 'active' : 'disabled'
+}
+
+// {v3.22} v0.2 能力角标：橙色小 Tag，标识「该能力 v0.2 交付」的入口/按钮（演示态占位标记）
+function V02Badge() {
+  return (
+    <Tag
+      color="orange"
+      style={{
+        marginInlineStart: 4,
+        marginInlineEnd: 0,
+        paddingInline: 4,
+        lineHeight: '14px',
+        fontSize: 10,
+        borderRadius: 4,
+      }}
+    >
+      v0.2
+    </Tag>
+  )
+}
+
 export default function ScrapeJobsPage() {
   const { modal, message } = App.useApp()
   const navigate = useNavigate()
@@ -143,11 +190,24 @@ export default function ScrapeJobsPage() {
   const [previewTemplate, setPreviewTemplate] = useState<LabelTemplate | null>(null)
   // 决策 14：当前编辑表单中手动覆盖过映射默认值的字段（「同步映射默认值」时跳过）
   const [overriddenFields, setOverriddenFields] = useState<MappingOverrideField[]>([])
+  // {v3.22} 克隆上下文（决策 D29）：从哪个 Job 克隆而来，用于抽屉内提示 + 跨网域克隆时清空实例重选
+  const [cloneSource, setCloneSource] = useState<ScrapeJob | null>(null)
+  // {v3.22} 列表「状态」查询条件（状态器）：四态聚合筛选（草稿选项 MVP 置灰禁用）
+  const [statusFilter, setStatusFilter] = useState<'all' | JobStatus>('all')
+  // {v3.22} 多选 + 批量提交生效（v0.2）：选中行 + 结果抽屉
+  const [selectedRowKeys, setSelectedRowKeys] = useState<Key[]>([])
+  const [batchDrawerOpen, setBatchDrawerOpen] = useState(false)
+  const [batchResult, setBatchResult] = useState<{ ok: string[]; fail: { name: string; reason: string }[] } | null>(null)
+  // {v3.22} 提交生效失败时置顶 Alert 的逐条错误清单
+  const [submitErrors, setSubmitErrors] = useState<{ field: string; msg: string }[]>([])
   const [confirmForm] = Form.useForm()
   const [form] = Form.useForm()
 
   // {v3.12} 采集 Job 列表网域查询条件（取代顶部全局网域切换器）
-  const [listDomainFilter, setListDomainFilter] = useState<string | undefined>(undefined)
+  // {v3.19} 支持 URL 预选网域（来自 M09「去配置采集 Job」跳转：?view=jobs&network_domain=<id>，决策 D27-2）
+  const [listDomainFilter, setListDomainFilter] = useState<string | undefined>(
+    searchParams.get('network_domain') ?? undefined
+  )
 
   // {v3.8} 入口合一：视图由左侧导航「采集」分组子项驱动（?view=collectors/jobs，菜单即导航、页面无重复下拉）；
   // 默认采集器管理（安装动线起点）
@@ -213,6 +273,8 @@ export default function ScrapeJobsPage() {
   useEffect(() => {
     if (editMappingId) {
       const mapping = mockCITypeExporterMappings.find((m) => m.mapping_id === editMappingId)
+      // 外部 URL 参数（?edit=<mapping_id>）一次性同步打开抽屉，属「外部系统 → 状态」同步场景
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (mapping) openPresetEdit(mapping)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -359,11 +421,9 @@ export default function ScrapeJobsPage() {
     setTemplateModalOpen(true)
   }
 
-  const templateMap = useMemo(() => {
-    const map = new Map<string, (typeof exporterTemplates)[number]>()
-    exporterTemplates.forEach((t) => map.set(t.exporter_template_id, t))
-    return map
-  }, [exporterTemplates])
+  // 模板 ID → ExporterTemplate 快速索引（纯派生，随渲染重建；React Compiler 对 Map 类型 useMemo 无法保留记忆化，改普通常量）
+  const templateMap = new Map<string, (typeof exporterTemplates)[number]>()
+  exporterTemplates.forEach((t) => templateMap.set(t.exporter_template_id, t))
 
   // {v3.12} 采集器管理 Tab 列表：按 监控对象类型 + 来源筛选（采集实现 source 挂在 ExporterTemplate 上）
   const filteredPresets = useMemo(() => {
@@ -375,7 +435,9 @@ export default function ScrapeJobsPage() {
       }
       return true
     })
-  }, [presets, collectorCiTypeFilter, collectorSourceFilter, templateMap])
+    // templateMap 为随渲染重建的普通常量，不入依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presets, collectorCiTypeFilter, collectorSourceFilter])
 
   // {v3.16} D22：列表 = 映射 ∪ 未被引用采集器（池全貌）——「登记即入池」对用户可见
   type CollectorRow =
@@ -404,11 +466,9 @@ export default function ScrapeJobsPage() {
     return map
   }, [])
 
-  const labelNameMap = useMemo(() => {
-    const map = new Map<string, string>()
-    mockLabelTemplates.forEach((t) => map.set(t.template_id, t.name))
-    return map
-  }, [])
+  // mockLabelTemplates 为模块常量（从不变化），Map 索引无需 useMemo；React Compiler 亦无法保留其记忆化
+  const labelNameMap = new Map<string, string>()
+  mockLabelTemplates.forEach((t) => labelNameMap.set(t.template_id, t.name))
 
   const watchJobType = Form.useWatch('job_type', form) as ScrapeJobType | undefined
   const watchResourceType = Form.useWatch('resource_type', form)
@@ -470,8 +530,21 @@ export default function ScrapeJobsPage() {
       }))
   }, [watchResourceType, watchNetworkDomainId, filterEnv, filterBusinessDomain, domainNameMap])
 
+  // {v3.22} 列表可见 Job：网域 + 状态（四态）双查询条件过滤
+  const visibleJobs = useMemo(
+    () =>
+      jobs.filter((j) => {
+        if (listDomainFilter && j.network_domain_id !== listDomainFilter) return false
+        if (statusFilter !== 'all' && getJobStatus(j) !== statusFilter) return false
+        return true
+      }),
+    [jobs, listDomainFilter, statusFilter]
+  )
+
   const openCreate = () => {
     setEditingJob(null)
+    setCloneSource(null)
+    setSubmitErrors([])
     form.resetFields()
     setTargetKeys([])
     setBlackboxTargets([])
@@ -493,6 +566,8 @@ export default function ScrapeJobsPage() {
 
   const openEdit = (record: ScrapeJob) => {
     setEditingJob(record)
+    setCloneSource(null)
+    setSubmitErrors([])
     form.setFieldsValue({
       job_name: record.job_name,
       job_type: record.job_type,
@@ -522,9 +597,46 @@ export default function ScrapeJobsPage() {
     setDrawerOpen(true)
   }
 
+  // {v3.22} 决策 D29：克隆 Job（v0.2）——复制源 Job 采集参数新建；
+  // 同网域克隆：直接改选实例分组后提交生效；跨网域克隆：网域改为新域、实例清空重选、安装确认需重新进行
+  const openClone = (source: ScrapeJob) => {
+    setCloneSource(source)
+    setEditingJob(null)
+    setSubmitErrors([])
+    form.resetFields()
+    setTargetKeys([...source.selected_instance_ids])
+    setBlackboxTargets(source.blackbox_targets ? [...source.blackbox_targets] : [])
+    setFilterEnv(undefined)
+    setOverriddenFields(
+      (source.mapping_overrides ?? []).filter((f) =>
+        (MAPPING_OVERRIDE_FIELDS as readonly string[]).includes(f)
+      ) as MappingOverrideField[]
+    )
+    form.setFieldsValue({
+      job_name: `${source.job_name}-clone`,
+      job_type: source.job_type,
+      resource_category: source.resource_type ? CI_TYPE_CATEGORY_MAP[source.resource_type] : undefined,
+      resource_type: source.resource_type,
+      exporter_template_id: source.exporter_template_id,
+      collector_mode: source.exporter_template_id ? 'use_default' : 'manual',
+      network_domain_id: source.network_domain_id,
+      instance_selection_mode: source.instance_selection_mode,
+      scrape_interval: source.scrape_interval,
+      scrape_timeout: source.scrape_timeout,
+      metrics_path: source.metrics_path,
+      scheme: source.scheme,
+      label_template_id: source.label_template_id,
+      enabled: source.enabled,
+      blackbox_module: source.blackbox_module,
+    })
+    setDrawerOpen(true)
+  }
+
   const closeDrawer = () => {
     setDrawerOpen(false)
     setEditingJob(null)
+    setCloneSource(null)
+    setSubmitErrors([])
     setTargetKeys([])
     setBlackboxTargets([])
     setOverriddenFields([])
@@ -672,23 +784,45 @@ export default function ScrapeJobsPage() {
     return null
   }
 
-  const handleSave = () => {
-    form.validateFields().then((values) => {
-      const jobType = values.job_type as ScrapeJobType
-      const networkDomainId = values.network_domain_id as string
+  // {v3.22} 表单字段错误文案映射（提交生效失败时置顶 Alert 逐条展示，便于定位）
+  const FIELD_LABEL: Record<string, string> = {
+    job_name: 'Job 名称',
+    job_type: 'Job 类型',
+    network_domain_id: '归属网域',
+    resource_category: '资源类别',
+    resource_type: '监控对象类型',
+    exporter_template_id: '默认采集器',
+    scrape_interval: '采集间隔',
+    scrape_timeout: '采集超时',
+    metrics_path: '采集路径',
+    scheme: '协议',
+    label_template_id: '标签模板',
+    instance_selection_mode: '实例选择模式',
+    blackbox_module: '拨测模块',
+  }
 
-      if (jobType === 'blackbox') {
-        if (blackboxTargets.length === 0) {
-          message.error('请至少添加一个拨测目标')
-          return
+  // {v3.22} 决策 D29：提交生效（完整校验）——失败时置顶 Alert 逐条错误清单
+  const handleSave = () => {
+    setSubmitErrors([])
+    form.validateFields().then(
+      (values) => {
+        const jobType = values.job_type as ScrapeJobType
+        const networkDomainId = values.network_domain_id as string
+
+        if (jobType === 'blackbox') {
+          if (blackboxTargets.length === 0) {
+            setSubmitErrors([{ field: '拨测目标', msg: '请至少添加一个拨测目标' }])
+            message.error('请至少添加一个拨测目标')
+            return
+          }
+        } else {
+          const domainErr = validateDomainConsistency(networkDomainId, targetKeys)
+          if (domainErr) {
+            setSubmitErrors([{ field: '实例选择', msg: domainErr }])
+            message.error(domainErr)
+            return
+          }
         }
-      } else {
-        const domainErr = validateDomainConsistency(networkDomainId, targetKeys)
-        if (domainErr) {
-          message.error(domainErr)
-          return
-        }
-      }
 
       const exporterTemplateId = values.exporter_template_id as string
       // 同步安装状态冗余字段（仅 standard）
@@ -716,7 +850,28 @@ export default function ScrapeJobsPage() {
 
       if (editingJob) {
         // {v3.14} 剥离 UI 层显式模式字段（collector_mode 不入 ScrapeJob 模型，仅表单交互）
-        const { collector_mode: _collectorMode, ...jobValues } = values
+        const { collector_mode, ...jobValues } = values
+        void collector_mode
+
+        // {v3.20} 决策 38-1：仅变更实例（targets/*.json）→ file_sd 自动热加载，免 reload、免人工确认；
+        // 其余采集参数（job_name/resource_type/exporter/interval/timeout/path/scheme/标签模板）→ 触碰 prometheus.yml → 仍需走 M09 人工确认 + reload
+        const onlyTargetsChanged = (() => {
+          const oldInst = [...editingJob.selected_instance_ids].sort()
+          const newInst = [...targetKeys].sort()
+          if (JSON.stringify(oldInst) !== JSON.stringify(newInst)) {
+            // 仅比对表单可编辑、且会写入 prometheus.yml 的采集参数（exporter_template_id 由 resource_type 派生、非表单字段，不在此列）
+            const configKeys: (keyof ScrapeJob)[] = [
+              'job_name', 'resource_type',
+              'scrape_interval', 'scrape_timeout', 'metrics_path', 'scheme', 'label_template_id',
+            ]
+            const configChanged = configKeys.some(
+              (k) => JSON.stringify(editingJob[k]) !== JSON.stringify(values[k])
+            )
+            return !configChanged
+          }
+          return false
+        })()
+
         const updated: ScrapeJob = {
           ...editingJob,
           ...jobValues,
@@ -728,10 +883,13 @@ export default function ScrapeJobsPage() {
           exporter_status: exporterStatus,
           // 决策 14：保存当前表单中手动覆盖过的字段标记
           mapping_overrides: jobType === 'standard' ? overriddenFields : undefined,
+          // {v3.20} 决策 38-1：仅实例变更 = 自动生效（保持已确认，无需 M09 确认）；其余变更 = 待确认
+          change_status: onlyTargetsChanged ? 'confirmed' : 'pending',
           updated_at: now(),
         }
         setJobs((prev) => prev.map((j) => (j.job_id === editingJob.job_id ? updated : j)))
-        message.success('Job 已更新')
+        if (onlyTargetsChanged) showAutoEffectToast('Job 已更新')
+        else showChangePendingToast('Job 已更新')
       } else {
         const newJob: ScrapeJob = {
           job_id: `job-${Date.now()}`,
@@ -755,24 +913,125 @@ export default function ScrapeJobsPage() {
           exporter_status: exporterStatus,
           // 决策 14：创建时对映射默认值做快照，记录同步时间；保存手动覆盖字段标记
           mapping_overrides: jobType === 'standard' ? overriddenFields : [],
+          // {v3.19} 新建即置「待确认」（M09 变更单待确认，决策 D27-2）
+          change_status: 'pending',
           mapping_synced_at: jobType === 'standard' ? now() : undefined,
           created_at: now(),
           updated_at: now(),
         }
         setJobs((prev) => [...prev, newJob])
-        message.success('Job 已新增')
+        showChangePendingToast('Job 已新增')
       }
       closeDrawer()
+      },
+      (errInfo: { errorFields?: { name: (string | number)[]; errors: string[] }[] }) => {
+        const errs: { field: string; msg: string }[] = []
+        ;(errInfo.errorFields ?? []).forEach((f) => {
+          const name = Array.isArray(f?.name) && f.name.length > 0 ? String(f.name[0]) : ''
+          const msg = Array.isArray(f?.errors) && f.errors.length > 0 ? f.errors[0] : '该项为必填'
+          errs.push({ field: FIELD_LABEL[name] ?? name, msg })
+        })
+        setSubmitErrors(errs)
+        message.error(`提交生效失败：${errs.length} 处校验未通过，请修正后重试`)
+      }
+    )
+  }
+
+  // {v3.22} 决策 D29：保存草稿（v0.2）——仅基础校验（Job 名称必填），不校验完整采集参数；
+  // 草稿不入下发管线（draft_status='draft'、change_status='none'），toast 后表单保持打开
+  const handleSaveDraft = () => {
+    const name = form.getFieldValue('job_name') as string | undefined
+    if (!name?.trim()) {
+      message.warning('请先填写 Job 名称以保存草稿')
+      return
+    }
+    setSubmitErrors([])
+    const jobType = (form.getFieldValue('job_type') as ScrapeJobType) ?? 'standard'
+    const draftJob: ScrapeJob = {
+      job_id: editingJob?.job_id ?? `job-draft-${Date.now()}`,
+      job_name: name.trim(),
+      job_type: jobType,
+      resource_type: (form.getFieldValue('resource_type') as CiType) ?? 'host_linux',
+      exporter_template_id: form.getFieldValue('exporter_template_id') as string | undefined,
+      network_domain_id: (form.getFieldValue('network_domain_id') as string) ?? 'default',
+      instance_selection_mode: (form.getFieldValue('instance_selection_mode') as 'manual' | 'filter') ?? 'manual',
+      selected_instance_ids: jobType === 'standard' ? targetKeys : [],
+      instance_filter: null,
+      scrape_interval: (form.getFieldValue('scrape_interval') as string) ?? '15s',
+      scrape_timeout: (form.getFieldValue('scrape_timeout') as string) ?? '10s',
+      metrics_path: (form.getFieldValue('metrics_path') as string) ?? '/metrics',
+      scheme: (form.getFieldValue('scheme') as Scheme) ?? 'http',
+      label_template_id: form.getFieldValue('label_template_id') as string | undefined,
+      relabel_configs: [],
+      blackbox_module: jobType === 'blackbox' ? (form.getFieldValue('blackbox_module') as BlackboxModule) : undefined,
+      blackbox_targets: jobType === 'blackbox' ? blackboxTargets : undefined,
+      enabled: false,
+      exporter_status: {},
+      draft_status: 'draft',
+      change_status: 'none',
+      created_at: editingJob?.created_at ?? now(),
+      updated_at: now(),
+    }
+    if (editingJob) {
+      setJobs((prev) => prev.map((j) => (j.job_id === editingJob.job_id ? draftJob : j)))
+    } else {
+      setJobs((prev) => [...prev, draftJob])
+    }
+    setCloneSource(null)
+    message.success('草稿已保存，当前配置不会进入下发管线（可继续编辑后提交生效）')
+    // 表单保持打开，不关闭抽屉
+  }
+
+  // {v3.22} 决策 D29：批量提交生效（v0.2）——勾选多条 Job 一键生成变更并提交；
+  // 草稿不可勾选（勾选框置灰）；已停用项给出失败原因；成功项乐观置「待下发」，弹结果抽屉逐错误清单
+  const handleBatchSubmit = () => {
+    const selected = jobs.filter((j) => selectedRowKeys.includes(j.job_id))
+    if (selected.length === 0) return
+    const ok: string[] = []
+    const fail: { name: string; reason: string }[] = []
+    selected.forEach((j) => {
+      const s = getJobStatus(j)
+      if (s === 'draft') fail.push({ name: j.job_name, reason: '草稿未提交，不能批量提交生效' })
+      else if (s === 'disabled') fail.push({ name: j.job_name, reason: '已停用，请先启用后再提交生效' })
+      else ok.push(j.job_name)
     })
+    // 乐观更新：成功项本地标为「待下发」，等待 M09 变更单确认
+    setJobs((prev) =>
+      prev.map((j) =>
+        selectedRowKeys.includes(j.job_id) && !fail.some((f) => f.name === j.job_name)
+          ? { ...j, change_status: 'pending' as const, updated_at: now() }
+          : j
+      )
+    )
+    setBatchResult({ ok, fail })
+    setBatchDrawerOpen(true)
+    setSelectedRowKeys([])
+  }
+
+  /** {v3.19} 保存/启停/删除后的动线引导（决策 D27-2，MVP 单域动线闭环）：
+   *  {v3.22} 改为乐观更新 toast：本地先标为「待下发」，点击 toast 前往 M09「配置变更确认」页确认发布
+   *  与全站其他 toast 保持一致——单行 message.success（不再内嵌按钮/竖排结构，避免高度与边框和其他提示框不一致） */
+  const showChangePendingToast = (baseMsg: string) => {
+    message.success({
+      content: `${baseMsg}：已标为「待下发」，变更将由 M09 生成变更单，需确认后生效（点击本条前往配置变更确认）`,
+      onClick: () => window.open(MODULE_LINKS.module09, '_blank'),
+    })
+  }
+
+  /** {v3.20} 决策 38-1：仅新增/移除实例（targets/*.json 变更）→ file_sd 自动热加载，无需 reload、无需人工确认 */
+  const showAutoEffectToast = (baseMsg: string) => {
+    message.success(`${baseMsg}：实例变更已写入 targets/*.json，file_sd 自动热加载，立即可生效（无需 reload / 人工确认）`)
   }
 
   const handleToggleEnabled = (record: ScrapeJob, checked: boolean) => {
     setJobs((prev) =>
       prev.map((j) =>
-        j.job_id === record.job_id ? { ...j, enabled: checked, updated_at: now() } : j
+        j.job_id === record.job_id
+          ? { ...j, enabled: checked, change_status: 'pending' as const, updated_at: now() }
+          : j
       )
     )
-    message.success(checked ? '已启用' : '已禁用')
+    showChangePendingToast(checked ? 'Job 已启用' : 'Job 已禁用')
   }
 
   const handleDelete = (record: ScrapeJob) => {
@@ -784,7 +1043,7 @@ export default function ScrapeJobsPage() {
       cancelText: '取消',
       onOk: () => {
         setJobs((prev) => prev.filter((j) => j.job_id !== record.job_id))
-        message.success('已删除')
+        showChangePendingToast('Job 已删除')
       },
     })
   }
@@ -878,6 +1137,26 @@ export default function ScrapeJobsPage() {
       ),
     },
     {
+      // {v3.22} 状态列聚合四态（决策 D29）：草稿 / 待下发 / 已生效 / 已停用；
+      // 草稿 MVP 无真实实例（v0.2 支持保存草稿）——灰显 + Tooltip；「待下发」与下发状态列联动
+      title: '状态',
+      key: 'status',
+      width: 96,
+      render: (_: unknown, record: ScrapeJob) => {
+        const s = getJobStatus(record)
+        if (s === 'draft') {
+          return (
+            <Tooltip title="v0.2 支持保存草稿：草稿不入下发管线，可继续编辑后提交生效">
+              <Tag style={{ color: 'rgba(0,0,0,0.45)', background: '#fafafa', borderColor: '#d9d9d9' }}>草稿</Tag>
+            </Tooltip>
+          )
+        }
+        if (s === 'pending') return <Tag color="gold">待下发</Tag>
+        if (s === 'active') return <Tag color="green">已生效</Tag>
+        return <Tag>已停用</Tag>
+      },
+    },
+    {
       title: '监控对象类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
@@ -956,6 +1235,41 @@ export default function ScrapeJobsPage() {
         )
       },
     },
+    {
+      // {v3.19} 下发状态（决策 D27-2，MVP）：pending=待确认（存在 M09 待确认变更单）→ 点击跳转配置变更确认；
+      // confirmed=已确认；none/空=无变更。数据由 M09 变更单状态回写（pull 模式）
+      title: (
+        <Tooltip title="变更下发状态（来自 M09 变更单）：待确认=有变更单待你在「配置变更确认」页确认发布；已确认=变更单已确认；无变更=未产生变更单">
+          <Space size={4}>
+            下发状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'changeStatus',
+      width: 130,
+      render: (_: unknown, record: ScrapeJob) => {
+        if (record.change_status === 'pending') {
+          // {v3.20} 样式调整：原 warning Tag 易被误读为静态状态、看不出可点击；
+          // 改为 link 型 Button + 箭头图标，明确「这是可前往确认的操作入口」
+          return (
+            <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
+              <Button
+                type="link"
+                size="small"
+                icon={<ArrowRightOutlined />}
+                style={{ padding: 0, height: 'auto', fontSize: 13 }}
+                onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
+              >
+                待确认
+              </Button>
+            </Tooltip>
+          )
+        }
+        if (record.change_status === 'confirmed') return <Tag color="success">已确认</Tag>
+        return <Text type="secondary">-</Text>
+      },
+    },
     // {v3.2} 标签模板列：展示继承模板名 / 「标签待配置」提示（引导先补配 CI-Exporter 映射）
     // {v3.13} 收敛：正常态模板名 ellipsis + Tooltip 看全名，继承状态 Tag 仅在「待同步」时出现（正常继承不给标记）；
     // 「标签待配置」橙色 Tag + 点击跳转保留（异常态引导）
@@ -1021,11 +1335,17 @@ export default function ScrapeJobsPage() {
       title: '操作',
       key: 'actions',
       // {v3.13} 收敛：高频「编辑」保留文字按钮；「详情」「删除」收成图标按钮（Tooltip 说明），降低行宽
+      // {v3.22} 决策 D29：新增「克隆」（v0.2 角标）——复制源 Job 参数新建同/跨网域变体
       render: (_: unknown, record: ScrapeJob) => (
         <Space size={2}>
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
             编辑
           </Button>
+          <Tooltip title="克隆（v0.2 交付）：复制源 Job 采集参数新建；跨网域克隆时实例需重新选择、安装确认需重新进行">
+            <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => openClone(record)}>
+              克隆<V02Badge />
+            </Button>
+          </Tooltip>
           <Tooltip title="查看详情">
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetailJob(record)} />
           </Tooltip>
@@ -1046,11 +1366,11 @@ export default function ScrapeJobsPage() {
         <Title level={4}>{view === 'collectors' ? '采集器管理' : '采集 Job'}</Title>
         {view === 'collectors' ? (
           <Text type="secondary">
-            类型级采集器指引 + 预设维护：每个 监控对象类型该装什么采集器（默认/可选）、怎么装（安装指南）；创建采集 Job 时自动套用默认值（决策 14）；实例级安装确认在「采集 Job」选实例时进行（5.6）
+            类型级采集器指引与预设维护：每个监控对象类型该装什么采集器（默认/可选）、怎么装（安装指南）；创建采集 Job 时自动套用默认值；实例级安装确认在采集 Job 页选实例时进行
           </Text>
         ) : (
           <Text type="secondary">
-            管理 Prometheus 采集任务（standard）与 blackbox 拨测任务；所有 Job 必须绑定单一网域，配置下发由 Module_09 负责；创建 Job 时自动套用 监控对象类型的默认采集配置（见「采集器管理」）
+            维护 Prometheus 采集任务与 blackbox 拨测任务；所有采集 Job 必须绑定单一网域，配置变更由配置中心下发；创建 Job 时自动套用该监控对象类型的默认采集配置
           </Text>
         )}
       </div>
@@ -1067,13 +1387,12 @@ export default function ScrapeJobsPage() {
               { title: '创建 Job 确认安装', description: '选实例时进行，本页不重复' },
             ]}
           />
-          {/* {v3.12} application_http 引导；{v3.19} 改 banner 紧凑窄条：与 Steps 搭配不并列突兀 */}
-          <Alert
-            type="info"
-            banner
-            style={{ marginBottom: 12 }}
-            message="HTTP 应用 / 业务指标采集无需安装独立采集器：业务服务（含自定义微服务）仍属 application_http，无需登记「采集器」；创建采集 Job 时端口 / 采集路径按应用实际 endpoint 手填，可选 Spring Boot actuator / Go / Python 等多个采集实现。"
-          />
+          {/* {v3.12} application_http 引导；{v3.19} 改 banner 紧凑窄条；{v3.20} 转 FieldGuide 轻量提示，与 Steps 搭配不突兀 */}
+          <FieldGuide title="HTTP 应用 / 业务指标采集">
+            <Text style={{ fontSize: 12 }}>
+              无需安装独立采集器：业务服务（含自定义微服务）仍属 application_http；创建采集 Job 时端口 / 采集路径按应用实际 endpoint 手填，可选 Spring Boot actuator / Go / Python 等多个采集实现。
+            </Text>
+          </FieldGuide>
           <Row justify="space-between" style={{ marginBottom: 12 }}>
             <Col>
               <Space wrap size={12}>
@@ -1459,17 +1778,43 @@ export default function ScrapeJobsPage() {
         <Card className="page-card">
           <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
           <Col>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              style={{ backgroundColor: '#0ECDEB' }}
-              onClick={openCreate}
-            >
-              新增 Job
-            </Button>
+            <Space size={8}>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                style={{ backgroundColor: '#0ECDEB' }}
+                onClick={openCreate}
+              >
+                新增 Job
+              </Button>
+              {/* {v3.22} 决策 D29：批量提交生效（v0.2）——勾选多条 Job 一键生成变更并提交，弹结果抽屉逐错误清单 */}
+              <Tooltip title="v0.2 交付：对勾选的多条 Job 批量生成配置变更并提交生效（MVP 演示）">
+                <Button
+                  icon={<SendOutlined />}
+                  disabled={selectedRowKeys.length === 0}
+                  onClick={handleBatchSubmit}
+                >
+                  批量提交生效<V02Badge />
+                </Button>
+              </Tooltip>
+            </Space>
           </Col>
           <Col>
             <Space size={12}>
+              {/* {v3.22} 状态器：四态聚合筛选；MVP 无真实草稿实例，「草稿」选项置灰禁用（v0.2 支持保存草稿） */}
+              <Select
+                placeholder="全部状态"
+                style={{ width: 120 }}
+                value={statusFilter}
+                onChange={(v) => setStatusFilter(v as 'all' | JobStatus)}
+                options={[
+                  { value: 'all', label: '全部状态' },
+                  { value: 'active', label: '已生效' },
+                  { value: 'pending', label: '待下发' },
+                  { value: 'disabled', label: '已停用' },
+                  { value: 'draft', label: '草稿', disabled: true },
+                ]}
+              />
               {/* {v3.12} 采集 Job 列表网域查询条件（选项 = 已纳管网域） */}
               <Select
                 placeholder="全部网域"
@@ -1480,9 +1825,9 @@ export default function ScrapeJobsPage() {
                 options={MONITORED_NETWORK_DOMAINS.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` }))}
               />
               <Text type="secondary">
-                共 {jobs.filter((j) => (listDomainFilter ? j.network_domain_id === listDomainFilter : true)).length} 个任务（标准{' '}
-                {jobs.filter((j) => (listDomainFilter ? j.network_domain_id === listDomainFilter : true) && j.job_type === 'standard').length} / 拨测{' '}
-                {jobs.filter((j) => (listDomainFilter ? j.network_domain_id === listDomainFilter : true) && j.job_type === 'blackbox').length}）
+                共 {visibleJobs.length} 个任务（标准{' '}
+                {visibleJobs.filter((j) => j.job_type === 'standard').length} / 拨测{' '}
+                {visibleJobs.filter((j) => j.job_type === 'blackbox').length}）
               </Text>
             </Space>
           </Col>
@@ -1490,14 +1835,74 @@ export default function ScrapeJobsPage() {
 
         <Table
           rowKey="job_id"
-          dataSource={jobs.filter((j) => (listDomainFilter ? j.network_domain_id === listDomainFilter : true))}
+          dataSource={visibleJobs}
           columns={columns}
           // {v3.17} 列数多超出窗口：固定最小宽度、横向滚动，避免列挤压换行拉高行高
-          scroll={{ x: 1080 }}
+          // {v3.22} 新增「状态」列 + 多选列，最小宽度上浮
+          scroll={{ x: 1240 }}
           pagination={{ pageSize: 5 }}
+          rowSelection={{
+            // {v3.22} 决策 D29：多选批量提交；草稿不可勾选（草稿未提交，不能批量提交生效）
+            selectedRowKeys,
+            onChange: (keys) => setSelectedRowKeys(keys),
+            getCheckboxProps: (record: ScrapeJob) => ({ disabled: record.draft_status === 'draft' }),
+          }}
         />
       </Card>
     )}
+
+      {/* {v3.22} 批量提交生效结果抽屉（v0.2）：成功 N 条 / 失败 N 条逐错误清单 */}
+      <Drawer
+        title="批量提交生效结果"
+        width={480}
+        open={batchDrawerOpen}
+        onClose={() => setBatchDrawerOpen(false)}
+        extra={<Button onClick={() => setBatchDrawerOpen(false)}>关闭</Button>}
+      >
+        {batchResult && (
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Alert
+              type={batchResult.fail.length > 0 ? 'warning' : 'success'}
+              showIcon
+              message={`成功 ${batchResult.ok.length} 条 / 失败 ${batchResult.fail.length} 条`}
+              description="提交成功的 Job 已乐观标为「待下发」，将由 M09 生成变更单，需确认后生效"
+            />
+            {batchResult.ok.length > 0 && (
+              <div>
+                <Text strong>成功（{batchResult.ok.length}）：</Text>
+                <List
+                  size="small"
+                  dataSource={batchResult.ok}
+                  renderItem={(name) => (
+                    <List.Item>
+                      <Text>{name}</Text>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            )}
+            {batchResult.fail.length > 0 && (
+              <div>
+                <Text strong type="danger">
+                  失败（{batchResult.fail.length}）——逐错误清单：
+                </Text>
+                <List
+                  size="small"
+                  dataSource={batchResult.fail}
+                  renderItem={(f) => (
+                    <List.Item>
+                      <Space>
+                        <Text strong>{f.name}</Text>
+                        <Text type="danger">{f.reason}</Text>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </div>
+            )}
+          </Space>
+        )}
+      </Drawer>
 
 
       {/* {v3.8} 默认采集配置编辑抽屉（预设层维护：采集器 / 参数 / 安装指南；入口合一后承载于此） */}
@@ -1663,16 +2068,9 @@ export default function ScrapeJobsPage() {
             extra="安装指南由采集实现持有并唯一维护；如需该监控对象类型的补充说明，另行维护类型级备注（install_notes）"
           >
             {watchPresetExporter && templateMap.get(watchPresetExporter)?.install_guide ? (
-              <Alert
-                type="info"
-                showIcon
-                message="该采集器的安装指南"
-                description={
-                  <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', display: 'block' }}>
-                    {templateMap.get(watchPresetExporter)?.install_guide}
-                  </Text>
-                }
-              />
+              <Text style={{ fontSize: 12, whiteSpace: 'pre-wrap', display: 'block' }}>
+                {templateMap.get(watchPresetExporter)?.install_guide}
+              </Text>
             ) : (
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {watchPresetExporter ? '该采集器未提供安装指南' : '未选择采集器'}
@@ -1690,8 +2088,12 @@ export default function ScrapeJobsPage() {
         extra={
           <Space>
             <Button onClick={closeDrawer}>取消</Button>
+            {/* {v3.22} 决策 D29：双按钮——保存草稿（v0.2，基础校验）/ 提交生效（完整校验） */}
+            <Button icon={<SaveOutlined />} onClick={handleSaveDraft}>
+              保存草稿<V02Badge />
+            </Button>
             <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleSave}>
-              保存
+              提交生效
             </Button>
           </Space>
         }
@@ -1714,6 +2116,47 @@ export default function ScrapeJobsPage() {
             }
           }}
         >
+          {/* {v3.22} 提交生效失败：置顶 Alert 逐条错误清单（便于定位到具体字段） */}
+          {submitErrors.length > 0 && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={`提交生效失败：${submitErrors.length} 处校验未通过`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {submitErrors.map((e) => (
+                    <li key={e.field}>
+                      <Text type="danger">
+                        {e.field}：{e.msg}
+                      </Text>
+                    </li>
+                  ))}
+                </ul>
+              }
+            />
+          )}
+          {/* {v3.22} 决策 D29：克隆提示——同网域直接改选实例分组；跨网域实例清空重选、安装确认需重新进行 */}
+          {cloneSource && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={`克隆自「${cloneSource.job_name}」`}
+              description={
+                <Space direction="vertical" size={4}>
+                  <Text>已复制源 Job 的采集参数（采集器 / 间隔 / 超时 / 路径 / 协议 / 标签模板）。</Text>
+                  {watchNetworkDomainId && watchNetworkDomainId !== cloneSource.network_domain_id ? (
+                    <Text type="warning">
+                      跨网域克隆：实例已清空重选，所选实例的「安装确认」需重新进行。
+                    </Text>
+                  ) : (
+                    <Text type="secondary">同网域克隆：可直接调整实例分组后提交生效。</Text>
+                  )}
+                </Space>
+              }
+            />
+          )}
           {editingJob && editingJob.job_type === 'standard' && isMappingChanged(editingJob) && (
             <Alert
               type="warning"
@@ -1828,9 +2271,14 @@ export default function ScrapeJobsPage() {
                       </Typography.Link>
                     </Space>
                   }
-                  onChange={() => {
+                  onChange={(v) => {
                     setTargetKeys([])
-                    message.info('切换网域后已选实例已清空，实例必须与 Job 同域')
+                    // {v3.22} 决策 D29：克隆跨网域时实例清空重选 + 安装确认需重新进行
+                    if (cloneSource && v !== cloneSource.network_domain_id) {
+                      message.warning('跨网域克隆：实例已清空，请重新选择该网域实例；「安装确认」需对所选实例重新进行')
+                    } else {
+                      message.info('切换网域后已选实例已清空，实例必须与 Job 同域')
+                    }
                   }}
                 >
                   {MONITORED_NETWORK_DOMAINS.map((d) => (
@@ -1988,13 +2436,11 @@ export default function ScrapeJobsPage() {
                   </Col>
                 </Row>
               ) : (
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 16 }}
-                  message="手填采集参数模式"
-                  description="不引用采集器默认值（exporter_template_id 为空），请在下方直接填写采集参数（采集间隔 / 采集超时 / 协议 / 指标路径）；application_http 等业务指标端点场景推荐此模式。"
-                />
+                <FieldGuide title="手填采集参数模式">
+                  <Text style={{ fontSize: 12 }}>
+                    不引用采集器默认值，请在下方直接填写采集参数（采集间隔 / 采集超时 / 协议 / 指标路径）；HTTP 应用等业务指标端点场景推荐此模式。
+                  </Text>
+                </FieldGuide>
               )}
             </>
           )}
@@ -2053,9 +2499,26 @@ export default function ScrapeJobsPage() {
                             ) : (
                               <Tag style={{ fontSize: 11 }}>自定义</Tag>
                             )}
-                            <Text type="secondary" style={{ fontSize: 11 }}>
-                              {RESOURCE_CATEGORY_MAP[selectedLabelTemplate.resource_category]} · {selectedLabelTemplate.template_id}
-                            </Text>
+                            <Tag color="default" style={{ fontSize: 11, marginInlineEnd: 0 }}>
+                              {RESOURCE_CATEGORY_MAP[selectedLabelTemplate.resource_category]}
+                            </Tag>
+                            <Tooltip title={`模板 ID：${selectedLabelTemplate.template_id}`}>
+                              <Text
+                                code
+                                type="secondary"
+                                style={{
+                                  fontSize: 11,
+                                  maxWidth: 160,
+                                  display: 'inline-block',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  verticalAlign: 'middle',
+                                }}
+                              >
+                                {selectedLabelTemplate.template_id}
+                              </Text>
+                            </Tooltip>
                           </Space>
                           <Button size="small" icon={<EyeOutlined />} onClick={() => setPreviewTemplate(selectedLabelTemplate)}>
                             查看映射
@@ -2074,7 +2537,7 @@ export default function ScrapeJobsPage() {
                           </Typography.Link>
                         </Space>
                       ) : (
-                        /* {v3.1} 无标签模板时展示创建引导；{v3.2} 区分「映射未配置模板（引导先补配 CI-Exporter 映射，Job 自动继承）」与「用户未选择模板」 */
+                        // 无标签模板时展示创建引导；区分「映射未配置模板（引导先补配采集映射，Job 自动继承）」与「用户未选择模板」
                         <Alert
                           type={mappingMissingTemplate ? 'warning' : 'info'}
                           showIcon
@@ -2129,6 +2592,7 @@ export default function ScrapeJobsPage() {
                     allowClear
                     showSearch
                     optionFilterProp="children"
+                    optionLabelProp="label"
                     // {v3.14} 决策 D1/D13：标签模板选择器空态 = 说明文案 + 内联跳转 Module_07（模板 CRUD 归属方）
                     // {v3.16} 决策 D18：按所属资源类别过滤（模板锚定粗粒度类别），默认模板由映射标记到 监控对象类型
                     notFoundContent={
@@ -2148,8 +2612,15 @@ export default function ScrapeJobsPage() {
                         watchResourceCategory ? t.resource_category === watchResourceCategory : true
                       )
                       .map((t) => (
-                        <Option key={t.template_id} value={t.template_id}>
-                          {t.name}（{RESOURCE_CATEGORY_MAP[t.resource_category]} · {t.mappings.length} 条映射）
+                        // {v3.20} 标签模板选项改为两行（名称 + 类别/映射数），并用 optionLabelProp="label"
+                        // 让选中后下拉框只显示短名称，避免字段被长文案撑爆
+                        <Option key={t.template_id} value={t.template_id} label={t.name}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.4 }}>
+                            <Text strong style={{ fontSize: 13 }}>{t.name}</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {RESOURCE_CATEGORY_MAP[t.resource_category]} · {t.mappings.length} 条映射
+                            </Text>
+                          </div>
                         </Option>
                       ))}
                   </Select>
@@ -2232,25 +2703,21 @@ export default function ScrapeJobsPage() {
           </Form.Item>
 
           {watchMode === 'filter' && !isBlackbox && (
-            <Alert
-              type="info"
-              showIcon
-              message="v0.3+ 开放：按网域/环境/应用/标签筛选"
-              description="instance_filter 字段在 v0.3+ 版本开放，支持动态条件筛选与预览匹配结果。"
-              style={{ marginBottom: 16 }}
-            />
+            <FieldGuide title="按网域/环境/应用/标签筛选">
+              <Text style={{ fontSize: 12 }}>
+                支持基于条件的动态筛选与匹配结果预览（逐步开放）。
+              </Text>
+            </FieldGuide>
           )}
         </Form>
 
         {isBlackbox ? (
           <>
-            <Alert
-              type="info"
-              showIcon
-              message="拨测目标"
-              description="blackbox 拨测目标内嵌在 ScrapeJob 中，Module_09 会生成 blackbox.yml 与对应 scrape_config。"
-              style={{ marginBottom: 12 }}
-            />
+            <FieldGuide title="拨测目标">
+              <Text style={{ fontSize: 12 }}>
+                拨测目标内嵌在采集 Job 中，配置中心会据此生成拨测配置与对应抓取配置。
+              </Text>
+            </FieldGuide>
             <List
               bordered
               dataSource={blackboxTargets}
@@ -2303,13 +2770,11 @@ export default function ScrapeJobsPage() {
         ) : (
           watchResourceType && (
             <>
-              <Alert
-                type="info"
-                showIcon
-                message="实例选择（自动带出候选）"
-                description="已按「资源类型 + Job 归属网域」自动收敛可选实例（v3.0）；支持一键全选/反选与关键字搜索；跨网域实例不可被同一 Job 选中。v0.3+ 开放按环境/应用/标签条件筛选。"
-                style={{ marginBottom: 12 }}
-              />
+              <FieldGuide title="实例选择（自动带出候选）">
+                <Text style={{ fontSize: 12 }}>
+                  已按「资源类型 + Job 归属网域」自动收敛可选实例；支持一键全选 / 反选与关键字搜索；跨网域实例不可被同一 Job 选中。
+                </Text>
+              </FieldGuide>
               <Row gutter={8} style={{ marginBottom: 8 }}>
                 <Col span={12}>
                   <Select
@@ -2418,13 +2883,11 @@ export default function ScrapeJobsPage() {
           </>
         )}
 
-        <Alert
-          type="warning"
-          showIcon
-          message="P2：高级 Relabel 管理"
-          description="relabel_configs 字段为 P2 预留，将支持标签丢弃/保留/重写、正则替换、hashmod 等高级能力。"
-          style={{ marginTop: 24 }}
-        />
+        <FieldGuide title="高级 Relabel 管理（预留）">
+          <Text style={{ fontSize: 12 }}>
+            标签高能力处理（丢弃 / 保留 / 重写与正则替换等）将在后续开放，当前为预留入口。
+          </Text>
+        </FieldGuide>
       </Drawer>
 
       <Modal
@@ -2713,13 +3176,11 @@ export default function ScrapeJobsPage() {
                 },
               ]}
             />
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginTop: 12 }}
-              message="标签内容编辑唯一入口在 Module_07"
-              description="本模块只读引用该模板；如需调整字段 → 标签映射、克隆或删除模板，请前往标签模板管理。"
-            />
+            <FieldGuide title="标签内容编辑">
+              <Text style={{ fontSize: 12 }}>
+                标签内容编辑的唯一入口在标签模板管理，本模块只读引用该模板；如需调整字段到标签的映射、克隆或删除模板，请前往标签模板管理。
+              </Text>
+            </FieldGuide>
           </>
         )}
       </Modal>
@@ -2741,13 +3202,11 @@ export default function ScrapeJobsPage() {
         width={640}
       >
         <Form form={templateForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="自研采集器登记后即入池"
-            description="登记完成后，该采集器与平台预置采集器同等待遇——可被默认采集配置引用、创建 Job 时预填参数、可走实例级安装确认。"
-          />
+          <FieldGuide title="自研采集器登记后即入池">
+            <Text style={{ fontSize: 12 }}>
+              登记完成后，该采集器与平台预置采集器同等待遇——可被默认采集配置引用、创建 Job 时预填参数、可走实例级安装确认。
+            </Text>
+          </FieldGuide>
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="采集器名称" name="name" rules={[{ required: true, message: '请输入采集器名称' }]}>

@@ -86,3 +86,14 @@ body {
 .yaml-preview .key { color: #0ECDEB; }
 .yaml-preview .string { color: #A5D63F; }
 .yaml-preview .number { color: #FF9F43; }
+
+/* {module-09} 部分异常节点行级高亮（决策 36-2：Edge Sync Agent 在线但采集器/拨测器异常 → 监控采集中断，需上机修复） */
+.edge-agent-table tr.row-partial-abnormal > td.ant-table-cell {
+  background: #fff1f0;
+}
+.edge-agent-table tr.row-partial-abnormal:hover > td.ant-table-cell {
+  background: #ffe7e5;
+}
+.edge-agent-table tr.row-partial-abnormal > td.ant-table-cell:first-child {
+  border-left: 3px solid #ff4d4f;
+}

@@ -150,7 +150,8 @@ export interface Tenant {
 export const currentTenant: Tenant = {
   id: 'tenant-001',
   name: 'AIDC 运维租户',
-  multi_site_enabled: true,
+  // {v3.19} 单域 MVP 演示：multi_site_enabled=false（网域选择固定 default；多网域能力由 Module_06 行政开关控制）
+  multi_site_enabled: false,
 }
 
 // ---------- 网域（引用 Module_09，本模块只读；{v3.9} 仅 is_monitored=true 的网域可在 M01/M09 配置上下文选择） ----------
@@ -843,6 +844,10 @@ export interface ScrapeJob {
   enabled: boolean
   /** 冗余快速查找：resource_id → 安装状态（详情展示使用 ExporterInstallationConfirmation） */
   exporter_status: Record<string, ExporterInstallStatus>
+  /** {v3.19} 下发状态（决策 D27-2，MVP）：pending=有待确认变更单 / confirmed=变更单已确认 / none=无变更；由 M09 变更单状态回写（pull 模式，列表查询时随 GET /api/v1/scrape-jobs 返回） */
+  change_status?: 'pending' | 'confirmed' | 'none'
+  /** {v3.22} 草稿状态（决策 D29，v0.2 支持保存草稿）：draft=草稿（仅新建阶段，不进入下发管线）/ submitted=草稿已提交为正式 Job / discarded=已废弃；MVP 演示态仅展示 draft */
+  draft_status?: 'draft' | 'submitted' | 'discarded'
   /** 演示决策 14：最近一次从映射（含网域覆盖）同步默认采集参数的时间；早于映射 updated_at 时视为「映射默认值已变更」 */
   mapping_synced_at?: string
   created_at: string
@@ -871,6 +876,8 @@ export const mockScrapeJobs: ScrapeJob[] = [
     exporter_status: { 'res-host-001': 'installed' },
     // 演示决策 14：metrics_path 被手动覆盖，同步映射默认值时该字段不刷新
     mapping_overrides: ['metrics_path'],
+    // {v3.19} 已确认下发（M09 变更单已确认，决策 D27-2）
+    change_status: 'confirmed',
     mapping_synced_at: '2026-07-05T10:10:00Z',
     created_at: '2026-07-05T10:10:00Z',
     updated_at: '2026-07-20T11:00:00Z',
@@ -894,9 +901,37 @@ export const mockScrapeJobs: ScrapeJob[] = [
     enabled: true,
     exporter_status: { 'res-host-002': 'installed' },
     mapping_overrides: [],
+    // {v3.19} 待确认（刚编辑保存，M09 变更单待确认，决策 D27-2）
+    change_status: 'pending',
     mapping_synced_at: '2026-08-15T09:00:00Z',
     created_at: '2026-08-15T09:00:00Z',
     updated_at: '2026-08-15T09:00:00Z',
+  },
+  {
+    // {v3.20} 测试用主机采集 Job（初始已确认）：用于演示「仅新增实例 = targets/*.json 变更 = file_sd 自动热加载、无需 reload / 无需人工确认」动线（决策 38-1）
+    job_id: 'job-host-demo',
+    job_name: 'demo-hosts-linux',
+    resource_type: 'host_linux',
+    exporter_template_id: 'et-node',
+    network_domain_id: 'default',
+    job_type: 'standard',
+    instance_selection_mode: 'manual',
+    selected_instance_ids: ['res-host-003'],
+    instance_filter: null,
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: 'lt-h-001',
+    relabel_configs: [],
+    enabled: true,
+    exporter_status: { 'res-host-003': 'installed' },
+    mapping_overrides: [],
+    // {v3.20} 初始已确认；勾选新增实例保存后保持「已确认（自动生效）」
+    change_status: 'confirmed',
+    mapping_synced_at: '2026-08-10T10:10:00Z',
+    created_at: '2026-08-10T10:10:00Z',
+    updated_at: '2026-08-10T10:10:00Z',
   },
   {
     job_id: 'job-002',
@@ -1098,6 +1133,55 @@ export const mockScrapeJobs: ScrapeJob[] = [
     created_at: '2026-07-17T10:00:00Z',
     updated_at: '2026-07-17T10:00:00Z',
   },
+  // {v3.22} 草稿演示 Job（决策 D29，v0.2 支持保存草稿）：MVP 无真实草稿实例，本行用于演示「保存草稿」动线——
+  // 草稿不进入下发管线（change_status='none'）、不启用（enabled=false），列表状态列灰显「草稿」
+  {
+    job_id: 'job-draft-001',
+    job_name: 'draft-redis-cluster',
+    resource_type: 'redis',
+    exporter_template_id: 'et-redis',
+    network_domain_id: 'default',
+    job_type: 'standard',
+    instance_selection_mode: 'manual',
+    selected_instance_ids: ['res-mw-001'],
+    instance_filter: null,
+    scrape_interval: '30s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: 'lt-mw-001',
+    relabel_configs: [],
+    enabled: false,
+    exporter_status: { 'res-mw-001': 'unregistered' },
+    draft_status: 'draft',
+    change_status: 'none',
+    created_at: '2026-08-18T09:30:00Z',
+    updated_at: '2026-08-18T09:30:00Z',
+  },
+  // {v3.22} 克隆演示 Job（决策 D29）：由 job-001（prod-hosts-linux）跨网域克隆而来——网域改为 gov-cloud-a、
+  // 实例清空重选 gov 网域实例、提交生效后置「待确认」；演示「安装确认需重新进行」路径
+  {
+    job_id: 'job-clone-001',
+    job_name: 'prod-hosts-linux-gov-clone',
+    resource_type: 'host_linux',
+    exporter_template_id: 'et-node',
+    network_domain_id: 'gov-cloud-a',
+    job_type: 'standard',
+    instance_selection_mode: 'manual',
+    selected_instance_ids: ['res-host-004'],
+    instance_filter: null,
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: 'lt-h-001',
+    relabel_configs: [],
+    enabled: true,
+    exporter_status: { 'res-host-004': 'not_installed' },
+    change_status: 'pending',
+    created_at: '2026-08-18T10:00:00Z',
+    updated_at: '2026-08-18T10:00:00Z',
+  },
 ]
 
 // ---------- 规则编辑模型（PRD 5.5） ----------
@@ -1117,6 +1201,10 @@ export interface MonitoringRule {
   /** 规则作用域：central / edge / both（PRD 5.5，MVP~v0.3 固定 central、不暴露给用户） */
   scope: 'central' | 'edge' | 'both'
   enabled: boolean
+  /** {v3.20} 下发状态（决策 D28，v0.3 随规则编辑 UI 落地）：pending=有待确认变更单 / confirmed=变更单已确认 / none=无变更；由 M09 变更单状态回写 */
+  change_status?: 'pending' | 'confirmed' | 'none'
+  /** {v3.22} 草稿状态（决策 D29，v0.2 支持保存草稿）：draft=草稿（PromQL 半成品可暂存，不进入下发管线）/ submitted=草稿已提交为正式规则 / discarded=已废弃 */
+  draft_status?: 'draft' | 'submitted' | 'discarded'
   created_at: string
   updated_at: string
 }
@@ -1134,6 +1222,8 @@ export const mockMonitoringRules: MonitoringRule[] = [
     exporter_template_id: 'et-node',
     scope: 'central',
     enabled: true,
+    // {v3.20} 已确认下发（M09 变更单已确认，决策 D28）
+    change_status: 'confirmed',
     created_at: '2026-07-02T09:00:00Z',
     updated_at: '2026-07-18T10:00:00Z',
   },
@@ -1179,6 +1269,8 @@ export const mockMonitoringRules: MonitoringRule[] = [
     exporter_template_id: 'et-app',
     scope: 'central',
     enabled: false,
+    // {v3.20} 待确认（刚编辑保存，M09 变更单待确认，决策 D28）
+    change_status: 'pending',
     created_at: '2026-07-04T09:00:00Z',
     updated_at: '2026-07-04T09:00:00Z',
   },
@@ -1211,6 +1303,24 @@ export const mockMonitoringRules: MonitoringRule[] = [
     enabled: true,
     created_at: '2026-07-25T15:00:00Z',
     updated_at: '2026-07-25T15:00:00Z',
+  },
+  // {v3.22} 规则草稿演示（决策 D29，v0.2 支持保存草稿）：PromQL 半成品可暂存、不进入下发管线（change_status='none'）
+  {
+    rule_id: 'rule-draft-001',
+    rule_type: 'alerting',
+    name: 'DraftMysqlConnections',
+    expr: 'mysql_global_status_threads_connected',
+    duration: '5m',
+    labels: { severity: 'warning' },
+    annotations: {},
+    resource_type: 'mysql',
+    exporter_template_id: 'et-mysql',
+    scope: 'central',
+    enabled: false,
+    draft_status: 'draft',
+    change_status: 'none',
+    created_at: '2026-08-18T10:30:00Z',
+    updated_at: '2026-08-18T10:30:00Z',
   },
 ]
 
@@ -1585,6 +1695,10 @@ export interface Resource {
 export const mockResources: Resource[] = [
   // {v3.11} host 按 os_type 拆分为 host_linux / host_windows 两种细粒度 CI 类型
   { resource_id: 'res-host-001', resource_type: 'host_linux', instance_name: 'prod-web-01', hostname: 'prod-web-01.volc', instance_ip: '10.0.1.11', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', business_domain: 'order', os_type: 'linux', status: 'online' },
+  // {v3.20} 测试用主机实例：res-host-003 由 demo-hosts-linux 预选，res-host-004/005 供「新增实例自动生效」测试时勾选
+  { resource_id: 'res-host-003', resource_type: 'host_linux', instance_name: 'prod-web-02', hostname: 'prod-web-02.volc', instance_ip: '10.0.1.12', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', business_domain: 'order', os_type: 'linux', status: 'online' },
+  { resource_id: 'res-host-004', resource_type: 'host_linux', instance_name: 'prod-web-03', hostname: 'prod-web-03.volc', instance_ip: '10.0.1.13', network_domain_id: 'default', env: 'prod', app_name: 'web-portal', cluster: 'cluster-prod', business_domain: 'order', os_type: 'linux', status: 'online' },
+  { resource_id: 'res-host-005', resource_type: 'host_linux', instance_name: 'prod-batch-01', hostname: 'prod-batch-01.volc', instance_ip: '10.0.1.14', network_domain_id: 'default', env: 'prod', app_name: 'batch-job', cluster: 'cluster-prod', business_domain: 'order', os_type: 'linux', status: 'online' },
   { resource_id: 'res-host-002', resource_type: 'host_windows', instance_name: 'prod-db-01', hostname: 'prod-db-01.volc', instance_ip: '10.0.1.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', os_type: 'windows', status: 'online' },
   { resource_id: 'res-mw-001', resource_type: 'redis', instance_name: 'redis-cache-01', hostname: 'redis-cache-01.mw', instance_ip: '10.0.2.11', network_domain_id: 'default', env: 'prod', app_name: 'cache-service', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
   { resource_id: 'res-mw-002', resource_type: 'mysql', instance_name: 'mysql-primary-01', hostname: 'mysql-primary-01.mw', instance_ip: '10.0.2.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'maintenance' },

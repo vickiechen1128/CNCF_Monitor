@@ -1,9 +1,9 @@
 # MetricCenter Module 09 原型
 
-> **验证的 PRD 版本**: [Module_09_Network_Domain_and_Edge_Config_Center.md](../../02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) v1.36
+> **验证的 PRD 版本**: [Module_09_Network_Domain_and_Edge_Config_Center.md](../../02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) v1.42
 > **覆盖的产品版本**: MVP / v0.2 / v1.0
-> **原型版本**: v1.36
-> **更新日期**: 2026-08-16
+> **原型版本**: v1.43
+> **更新日期**: 2026-08-18
 > **本地启动命令**:
 >
 > ```bash
@@ -13,6 +13,12 @@
 > ```
 >
 > **访问地址**: http://localhost:5178/
+
+## v1.43 变更说明（联动 M01 草稿，改动很小，无结构性变化）
+
+- **配置变更确认页「变更检测状态」卡补说明**：草稿对象（draft_status=draft，v0.2 支持保存草稿）不参与生成配置变更，仅「已提交」（draft_status=ready）的采集 Job / 规则提交生效后才纳入变更检测生成变更单——解释为什么编辑中的 Job / 不出现在变更单里（PRD 3.3）。
+- **change_status 枚举演示补 deployed 样例（v0.2 角标）**：mock 新增 `changeStatusEnumDemo`（pending / confirmed / deployed / none 全链路回写 M01，PRD 3.3/3.4/3.5），deployed 旁标 v0.2 角标并说明——MVP 阶段 deployed 由 none 占位，即确认下发成功后直接回写 none（M01 列表「下发状态=无变更」）。
+- 版本声明与 ReviewNote 决策清单更新到 v1.43；本版只读主字段，快照删除对其无影响。
 
 ## 构建产物验证
 
@@ -44,7 +50,7 @@ python3 -m http.server 8080
 3. **采集节点状态（决策 36-2：节点平铺表 + 组件抽屉）**：**主对象改为「采集节点」**，一行一个节点——节点（主机名/IP）、网域、整体状态（三档聚合：正常/部分异常/离线）、采集器状态、拨测器状态、配置同步（含引导按钮）、WAL 积压、最后心跳；**组件明细进「查看」右侧抽屉**——按组件类型分区展示（Edge Sync Agent / vmagent / blackbox exporter 各一独立分区，实例名截断+Tooltip），**最近错误仅显示一句话摘要（截断约 80 字符）+「查看错误详情」按钮**，点击用 **Modal 弹窗**展示完整错误详情（等宽字体、可复制、含所属组件/关联配置版本/发生时间）；**五维筛选（网域/整体状态/采集器状态/拨测器状态/配置同步）全部作用于平铺列**，不存在嵌套子表导致的筛选失效问题；**页面顶部常驻组件关系横幅**；组件清单由 Edge Sync Agent 心跳附带上报（PRD 4.3）；含「配置包 checksum 校验失败保留旧配置」（边缘传输校验失败演示，PRD 6.4 边缘②传输校验）与「本地手工兜底 manual_override」示例行；页面说明补充**网闸 / 隔离区连接约束（{v1.31}）**与**边缘告警组件职责（{v1.32}）**——vmalert 随配置包 `rules.yml`（scope=edge/both，分组自动派生）下发，alertmanager.yml 由 Module_08 统一管理、不随本模块配置包下发。
 4. **配置变更确认（决策 18/19/20/21/22，菜单 / 页面标题为「配置变更确认」）**：面向不了解 Prometheus 的运维工程师，明确「平台自动生成 + 运维人工审批（go/no-go）」职责边界——页面顶部人话说明「本页确认什么」；**审批分级策略（{v1.32} M01/M08/M09 告警规则职责重构）**——prometheus.yml / targets / rules.yml / blackbox.yml 人工确认（go/no-go），alertmanager.yml 由 Module_08（告警收敛与通知管理）直接写文件并触发 Alertmanager reload、**不进入本模块变更单 / 配置变更确认流程**（自动生效），混单规则按高风险文件走人工确认，原因：通知路由调整频繁、风险低、M08 是 Alertmanager 配置唯一 Owner；**rules.yml 按 Prometheus `group` 语法组织（{v1.32}）**——M09 自动派生分组（默认按 resource_type / rule_type 聚类）、MVP 不暴露用户可管理的 RuleGroup 实体，按作用域生成（中心域 scope=central/both，边缘域 scope=edge/both v0.4+）；**网域选择器仅展示已纳管网域（{v1.22}）**，未纳管网域不会出现在此页；**变更列表以「变更单号」为主标识（决策 20，如 CHG-20260803-003）+ 人话变更摘要** + **「风险等级」「确认人」列（决策 19）**，**支持按变更状态筛选（决策 21：待确认 / 已确认 / 已废弃 / 全部，默认待确认）**；**变更对象 = 源数据对象统一枚举（决策 22：采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板）+ 「影响的配置文件」派生列（targets/*.json / prometheus.yml / rules.yml / blackbox.yml）**，解决「新增实例与改抓取频率源头都在采集 Job」的影响范围不可见问题；**确认粒度为变更单级（决策 22：整单 go/no-go，不逐行确认）**；**点击变更行打开右侧抽屉查看详情（决策 20）**——变更清单（变更类型 / 变更对象 / 人话说明 / 风险等级 / 影响的配置文件）为详情核心（摘要=列表总览、清单=抽屉明细职责分明），配置预览 / Diff、技术信息折叠、确认/废弃按钮均收纳于抽屉；**YAML 预览受影响文件高亮（决策 19）**——受影响 Tab 加「变更」标记、默认聚焦第一个受影响文件、提示「本次变更影响 N/M 个配置文件」（用户手动切换后不强制跳转）；**变更检测状态为引导性状态（决策 20）**——不记历史，检测到 N 个待确认变更（含高风险数）→ 提示前往列表确认，无变更 → 提示策略/资源变更后自动生成；**全链路关联（决策 22）**——已确认变更展示「已发布配置版本」（cv-xxx）+ 列表「已发布版本」列「记录」快捷入口 + 抽屉「查看发布记录」按钮（跳转下发记录页定位回滚）；**提示分区（决策 21）**——用户可见文案不含「决策 X」「PRD X.X」实现层引用，设计决策依据集中折叠在页面底部「原型与实现说明（面向产品 / 技术评审）」区（默认折叠），代码注释保留决策引用供开发 / AI 参考。
 5. **配置预览 / Diff / 下发**：`prometheus.yml` 为 file_sd 骨架（file_sd_configs 引用 targets/*.json，不内联 targets）；配置包结构含 `targets/` 目录（按 job 分文件）；多文件 Tabs 预览（prometheus.yml / targets / rules.yml / blackbox.yml / metadata.json），diff 跟随当前 Tab 与上一 ConfigVersion 按文件对比；确认后触发下发；配置产物形态按域类型分层（决策 6）——中心管理域（default）= 本地文件集（无 zip / metadata.json），边缘域 = zip 配置包（含 metadata.json）；**external_labels 注入（{v1.31}）**——network_domain / tenant_id 必注入，网域登记了 zone_type 时同步注入 zone_type（PRD 9.2）；配置包 / 本地文件集中**均不包含 alertmanager.yml**（{v1.32}，由 Module_08 管理）。
-6. **下发前校验**：promtool check config（file_sd 仅查文件存在性）、blackbox_exporter --config.check、configgen 侧 targets schema 校验（PRD 3.5.1）；校验失败（如 mfg 域 targets JSON 语法错误）标注「中心内容校验失败（PRD 6.4）」并在对应文件 Tab 上定位提示，且禁止确认下发；页面补充「校验分层（PRD 6.4）」说明——中心①内容校验（validation_status，防生成错误，失败阻止确认下发）与边缘②传输校验（config_sync_status，防传输损坏/篡改/半写）由同一份配置产物衔接，Agent 为「哑校验」（不做 promtool 级语法校验）、联合 checksum 双用途（中心草稿去重裁决 + 边缘拉包完整性校验）；抽屉补充「网闸 / 隔离区连接约束（{v1.31}）」说明（边缘域发布通道：全部交互由边缘 Agent 发起）。
+6. **下发前校验（{v1.39} 决策 39-1/39-2/39-3 行内闭环）**：promtool check config（file_sd 仅查文件存在性）、blackbox_exporter --config.check、configgen 侧 targets schema 校验（PRD 3.5.1）；**校验失败行内闭环**——点击红色「失败」Tag 弹出 Popover 展示失败文件 + 行号 + 错误信息 + 归因分类 + 引导：用户配置问题（`user_config`，如 default 域 targets JSON 未闭合）→「前往修改」跳 M01 修复源数据后回来点「重新校验」（按钮原地转 loading、行内结果原地刷新，先重新生成产物再校验）；平台技术故障（`platform_fault`，如 gov 域 promtool 校验服务不可用）→ 校验层自动重试（30s/2min/5min 指数退避，用户无感）、持续失败仅提示联系平台侧，**不展示「重新校验」**；校验失败不产生下发记录（决策 39-2）；页面补充「校验分层（PRD 6.4）」说明——中心①内容校验（validation_status，防生成错误，失败阻止确认下发）与边缘②传输校验（config_sync_status，防传输损坏/篡改/半写）由同一份配置产物衔接，Agent 为「哑校验」（不做 promtool 级语法校验）、联合 checksum 双用途（中心草稿去重裁决 + 边缘拉包完整性校验）；抽屉补充「网闸 / 隔离区连接约束（{v1.31}）」说明（边缘域发布通道：全部交互由边缘 Agent 发起）。
 7. **配置发布与回滚记录（决策 19/22，定位为回滚中心 + 配置变更执行台账）**：每次「配置变更确认」发布到监控与每次回滚自动留痕（谁 / 何时 / 哪个配置版本 / 结果，含下发前校验结果与 blackbox.yml 是否参与）；**新增「来源变更单号」列（决策 22，经 config_version_id → ConfigVersion.change_no 透传）**，与变更确认页的「已发布配置版本」「查看发布记录」入口形成 **change_no → cv → deploy 双向可追溯**，业务出问题时从变更单直达回滚目标；页顶 Alert 说明定位（回滚中心 + 变更执行台账 + 与 Module_06 全局审计边界：领域审计 vs 平台级操作留痕）；支持按历史版本一键回滚（回滚动作本身也是一条 rolled_back 记录）。
 
 ## 全局导航映射

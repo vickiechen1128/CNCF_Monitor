@@ -26,8 +26,9 @@ describe('module-01 mocks（对齐 PRD v2.3）', () => {
   const resourceIds = new Set(mockResources.map((r) => r.resource_id))
   const metricNames = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
 
-  it('network_domain_id 非空且为规范值（default / gov-cloud-a）', () => {
-    expect(NETWORK_DOMAIN_IDS).toEqual(['default', 'gov-cloud-a'])
+  it('network_domain_id 非空且为规范值（default / gov-cloud-a / finance-dmz）', () => {
+    // finance-dmz 为离线、未纳管网域（is_monitored=false），仅出现在 NETWORK_DOMAIN_IDS，不在 MONITORED_NETWORK_DOMAINS
+    expect(NETWORK_DOMAIN_IDS).toEqual(['default', 'gov-cloud-a', 'finance-dmz'])
     mockNetworkDomains.forEach((d) => {
       expect(d.id).toBeTruthy()
       expect(NETWORK_DOMAIN_IDS).toContain(d.id)
@@ -189,14 +190,16 @@ describe('module-01 mocks（对齐 PRD v2.3）', () => {
     })
   })
 
-  it('{v3.8} MVP 内置指标库按 CI 类型组织（host/mysql/redis/kafka/application_http/snmp），来源采集器标注完整', () => {
+  it('{v3.8} MVP 内置指标库按 CI 类型组织（host_linux/host_windows/mysql/redis/kafka/application_http/snmp），来源采集器标注完整', () => {
     const byType = mockMetricLibrary.reduce<Record<string, number>>((acc, m) => {
       m.resource_types.forEach((rt) => {
         acc[rt.resource_type] = (acc[rt.resource_type] ?? 0) + 1
       })
       return acc
     }, {})
-    expect(byType['host']).toBeGreaterThanOrEqual(30)
+    // {v3.11} host 按 os_type 拆分为 host_linux / host_windows
+    expect(byType['host_linux']).toBeGreaterThanOrEqual(30)
+    expect(byType['host_windows']).toBeGreaterThanOrEqual(5)
     expect(byType['mysql']).toBeGreaterThanOrEqual(20)
     expect(byType['redis']).toBeGreaterThanOrEqual(20)
     expect(byType['kafka']).toBeGreaterThanOrEqual(20)
