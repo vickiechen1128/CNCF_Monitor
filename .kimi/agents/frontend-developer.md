@@ -48,9 +48,10 @@ git branch --show-current # 必须是 feat/module-XX
 - docs/03-engineering-standards/03_API_Standard.md（如任务涉及 API）
 ```
 
-> **PRD 章节级读取（v1.24 起，控制上下文）**：PRD 文档较长（含业务沟通决策记录），按章节选择性读取，**禁止全文一次性读取**：
-> - **必读**：3.x 核心功能（用户层，页面与交互依据）、4.x 数据模型（字段 / UI 展示名契约）、5.x 流程、6.x 接口 / 协议、9 验收标准；
-> - **按需**：1 模块目标、10 术语映射（用户词汇表）、8.x 状态机；Change Log 为业务沟通记录（非开发契约），完整历史在 `design-decisions.md`，仅在需要追溯变更原因时读取。
+> **PRD 章节级读取（v1.27 起，章节编号已冻结）**：PRD 按章节选择性读取，**禁止全文一次性读取**。PRD 骨架章节号为全局固定（见 prototype-designer「PRD 编写骨架规范」）：
+> - **必读**：第 3 章核心功能（用户层，页面与交互依据）、第 4 章核心流程、第 5 章数据模型（字段 / UI 展示名契约）、第 6 章接口设计、第 9 章验收标准、**第 11 章前端交互契约**（页面状态矩阵：加载 / 空态 / 接口错误 / 权限不足 / 数据超量与边界；全局行为规则）；
+> - **按需**：第 1 章模块目标、第 8 章状态机、第 10 章术语映射；Change Log 为业务沟通记录（非开发契约），完整历史在 `design-decisions.md`，仅在需要追溯变更原因时读取。
+> - 既有模块 PRD 若尚未对齐冻结章节号（如 Module_07/09 与骨架不一致），先 `grep -n "^## "` 确认实际章节结构再按语义定位，并在执行记录中标注该 PRD 待迁移。
 > - **章节定位命令示例**：`grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md` 先看章节结构，再用 `sed -n '起点,终点p'` 读取指定章节。
 
 > `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
@@ -63,7 +64,7 @@ git branch --show-current # 必须是 feat/module-XX
 
 1. **UI 展示名核对**：页面字段标签必须用 PRD 字段表「UI 展示名」列 + 原型用户语言（如 `network_domain_id` → 网域、`instance_selection_mode` → 实例选择方式），**禁止**直接把后端字段名（snake_case）当 UI 文案；
 2. **用户文案核对**：页面可见文案（Alert / 表单 extra / Tooltip / 空态 / 按钮）**不得出现**原型折叠区 / PRD 技术层术语（模板 ID、内部枚举值、模块代号、checksum 等）；不确定时查 PRD「术语映射」章节；
-3. **交互组件核对**：数据规模与组件匹配（参照 prototype-designer 的「数据规模 → 组件选型」表）——大列表用 Table+分页/筛选，不用 Popover/Alert 堆砌；只读详情用 Card/Descriptions/Tabs；
+3. **交互组件核对**：组件选型对照 `docs/03-engineering-standards/02_Frontend_Standard.md` 第 8 章「交互组件选型决策表」（Drawer / Modal / 独立页面全局口径）与第 9 章「列表与长文本规范」（截断 / 行高 / 横向滚动）；数据规模与组件匹配参照 PRD 与原型。**原型做法与全局标准冲突时，以全局标准为准**，并报告 Orchestrator 修正原型，禁止照抄原型中的违规模式（如散点手写 `maxWidth`、Popover 承载大列表）；
 4. **冲突报告**：原型与 PRD 不一致（字段名、交互、布局）时，**报告 Orchestrator 决策**，禁止自行二选一；原型缺失时以 PRD + task-sequence 为准（不阻断）。
 
 ### Step 4: 安装依赖
@@ -111,6 +112,7 @@ allowBuilds:
 - 所有 API 调用通过 `src/api/client.ts`
 - 优先使用 TypeScript 严格类型
 - 类型定义必须与后端模型严格对齐：实现前先阅读 `platform/models/*.go`，字段名使用 snake_case 匹配后端 JSON
+- 长文本截断 / 表格列配置优先复用 `src/components/` 共享件（如 `EllipsisText`，若已存在），禁止散点手写 `maxWidth` 内联样式；表格列超出一屏时按 `02_Frontend_Standard.md` 第 9 章启用 `scroll={{ x: ... }}` 横向滚动 + 固定列
 - 范围控制：仅修改当前任务要求的文件和目录。不要借机新增 ESLint/Vitest/测试配置等基础设施，除非任务明确要求或当前项目完全缺失且无法运行 `pnpm lint`/`pnpm test`
 
 ## 目录规则
@@ -156,6 +158,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 | "dev server 启动慢，curl 跳过" | 页面能启动是提交通行证之一 |
 | "为绕过类型加个 any 就行" | 优先补齐类型，禁止随意使用 `any` |
 | "task-sequence.yaml 太细，我可以按自己理解做" | task-sequence 是 Orchestrator 派发的任务边界。偏离必须报告 |
+| "原型就是这么画的，我照抄就行" | 原型是布局 / 交互参考，不是规范豁免。原型与 `02_Frontend_Standard.md` 第 8–10 章冲突时以标准为准，并报告 Orchestrator 修正原型 |
 | "PRD 和实现对不上，我顺便改下 PRD" | 禁止。开发分支不能修改 PRD，必须报告 Orchestrator 走 CR 流程 |
 | "原型不存在，我没法开发" | 原型缺失不阻断。以 PRD + L3 task-sequence 为准继续 |
 

@@ -1,25 +1,30 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Alert, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented } from 'antd'
-import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined, CopyOutlined, InfoCircleOutlined, HistoryOutlined } from '@ant-design/icons'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Alert, Empty, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented, Popover, type TableColumnsType } from 'antd'
+import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined, CopyOutlined, InfoCircleOutlined, HistoryOutlined, ReloadOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
+import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   configDrafts,
   configVersions,
   configDeployments,
+  edgeAgents,
   networkDomains,
   targetsFilesToText,
   changeDetectionStatus,
   domainArtifactShape,
   validationLayeringNote,
   approvalTieringNote,
-  rulesGroupDerivationNote,
+  changeStatusEnumDemo,
   gatewayConstraintNote,
   channelLabel,
   channelTip,
   type Channel,
+  type ConfigSyncStatus,
   type ConfigDraftStatus,
   type DraftValidationStatus,
+  type ValidationCause,
   type ConfigDraft,
   type ConfigChangeItem,
   type ConfigChangeTarget,
@@ -29,8 +34,43 @@ import {
 
 const { Text } = Typography
 
+/** {v1.39 决策 39-1} 跨模块跳转链接：「前往修改」跳 Module_01 采集 Job / 规则编辑并预选网域（修复源数据后回来重新校验）；原型演示用相对路径 */
+const MODULE_LINKS = {
+  module01: '../module-01/dist/index.html',
+} as const
+
+/** {v1.39 决策 39-1/39-3} 校验失败归因分类 UI：user_config=用户配置问题（可修复，行内引导前往 M01）/ platform_fault=平台技术故障（自动重试，仅提示） */
+const validationCauseLabel: Record<ValidationCause, string> = {
+  user_config: '用户配置问题',
+  platform_fault: '平台技术故障',
+}
+
+const validationCauseColor: Record<ValidationCause, string> = {
+  user_config: 'orange',
+  platform_fault: 'red',
+}
+
 /** 当前登录用户（决策 19：确认发布时记录确认人，历史变更可审计「谁确认了高风险变更」；MVP 阶段预置，用户管理接入后同步，决策 20） */
 const CURRENT_USER = '张伟（运维）'
+
+/** {v1.43} v0.2 能力角标：橙色小 Tag，标识「该能力 v0.2 交付」的演示标记（标在 deployed 样例旁，说明 MVP 由 none 占位） */
+function V02Badge() {
+  return (
+    <Tag
+      color="orange"
+      style={{
+        marginInlineStart: 4,
+        marginInlineEnd: 0,
+        paddingInline: 4,
+        lineHeight: '14px',
+        fontSize: 10,
+        borderRadius: 4,
+      }}
+    >
+      v0.2
+    </Tag>
+  )
+}
 
 const draftStatusColor: Record<ConfigDraftStatus, string> = {
   pending: 'warning',
@@ -192,14 +232,53 @@ function computeDiff(oldText: string, newText: string) {
   return rows
 }
 
-/** 校验失败场景定位到对应文件 Tab（PRD 3.5.1）：promtool→prometheus.yml、configgen schema→targets、blackbox→blackbox.yml */
-function tabValidationError(draft: ConfigDraft | undefined, file: PreviewFileKey): string {
-  if (!draft || draft.validation_status !== 'failed') return ''
-  const err = draft.validation_error
-  if (file === 'prometheus.yml' && /promtool/i.test(err)) return err
-  if (file === 'targets' && /targets|schema|configgen/i.test(err)) return err
-  if (file === 'blackbox.yml' && /blackbox/i.test(err)) return err
-  return ''
+/**
+ * {v1.39 决策 39-1} 校验失败详情行内 Popover（失败文件 + 行号 + 错误信息 + 归因分类 + 对应引导）：
+ * 用户配置问题 →「前往修改」跳 M01 对应采集 Job / 规则修复源数据；平台技术故障 → 仅提示自动重试 / 联系平台侧
+ */
+function renderValidationFailPopover(record: ConfigDraft) {
+  const cause = record.validation_cause ?? 'user_config'
+  const details = record.validation_details ?? []
+  return (
+    <div style={{ maxWidth: 380 }}>
+      <Tag color={validationCauseColor[cause]} style={{ marginBottom: 8 }}>
+        归因：{validationCauseLabel[cause]}
+      </Tag>
+      {details.length > 0 ? (
+        details.map((d, i) => (
+          <div key={i} style={{ marginBottom: 8 }}>
+            <Text code style={{ fontSize: 12 }}>
+              {d.file}
+              {d.line ? `:${d.line}` : ''}
+            </Text>
+            <div style={{ fontSize: 13, color: 'rgba(0,0,0,0.75)', marginTop: 2 }}>{d.message}</div>
+          </div>
+        ))
+      ) : (
+        <div style={{ fontSize: 13, color: 'rgba(0,0,0,0.75)', marginBottom: 8 }}>{record.validation_error}</div>
+      )}
+      {cause === 'user_config' ? (
+        <Space align="start" size={8} wrap>
+          <Button
+            size="small"
+            type="primary"
+            onClick={() =>
+              window.open(`${MODULE_LINKS.module01}?view=jobs&network_domain=${record.network_domain_id}`, '_blank')
+            }
+          >
+            前往修改
+          </Button>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            跳转至采集 Job / 规则编辑页修复源数据，修复后回来点「重新校验」（重新生成产物再校验）
+          </Text>
+        </Space>
+      ) : (
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          平台技术故障：校验层已自动重试（30s / 2min / 5min 指数退避，用户无感）；持续失败请联系平台侧 / 查看日志
+        </Text>
+      )}
+    </div>
+  )
 }
 
 /** 配置产物形态分层（决策 6 / 决策 32）：channel=local（如 default）=本地文件集（无 zip/metadata.json），channel=agent_pull=zip 配置包（含 metadata.json） */
@@ -224,14 +303,14 @@ function renderPackageTree(channel: Channel | undefined, domainId: string, draft
   if (!isZip) {
     return (
       <pre style={preStyle}>
-        {`本地文件集（直接写入中心 Prometheus 配置目录，无 zip / metadata.json）
-├── prometheus.yml      # 中心 Prometheus 主配置（job 骨架 + external_labels.network_domain / tenant_id[/zone_type]；确认后 SIGHUP / POST /-/reload）
-├── targets/            # file_sd 目标文件（按 job 分文件，固定文件名覆盖写，原子写不触发采集器 reload）
+        {`本地文件集（直接写入中心 Prometheus 配置目录）
+├── prometheus.yml
+├── targets/
 ${targetsLines}
-├── rules.yml           # 中心统一求值规则（Prometheus group 语法，M09 自动派生分组；scope=central/both，MVP~v0.3 固定 central）
-└── blackbox.yml        # 本域 blackbox 探测模块${hasBlackbox ? '' : '（当前无 job_type=blackbox 的 ScrapeJob，不生成）'}
+├── rules.yml
+└── blackbox.yml${hasBlackbox ? '' : '（当前无 blackbox Job，不生成）'}
 
-# alertmanager.yml 由 Module_08 直接管理，不属于本模块配置产物（{v1.32} 审批分级）`}
+# alertmanager.yml 由告警通知模块管理，不属于本模块配置产物`}
       </pre>
     )
   }
@@ -239,22 +318,27 @@ ${targetsLines}
   return (
     <pre style={preStyle}>
       {`edge-config-${domainId}.zip
-├── prometheus.yml      # 本域 scrape_configs（仅 job 骨架，file_sd_configs 引用 targets/*.json，已注入 external_labels.network_domain / tenant_id[/zone_type]）
-├── targets/            # file_sd 目标文件（按 job 分文件，固定文件名覆盖写，原子写不触发采集器 reload）
+├── prometheus.yml
+├── targets/
 ${targetsLines}
-├── blackbox.yml        # 本域 blackbox 探测模块${hasBlackbox ? '' : '（当前无 job_type=blackbox 的 ScrapeJob，不打包）'}
-├── rules.yml           # 本域告警规则（Prometheus group 语法，M09 自动派生分组；scope=edge/both，v0.4+，见下方说明）
-└── metadata.json       # config_version、生成时间、agent_type、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml+targets 内容)，供 Agent 拉取后完整性校验）
+├── blackbox.yml${hasBlackbox ? '' : '（当前无 blackbox Job，不打包）'}
+├── rules.yml
+└── metadata.json
 
-# alertmanager.yml 由 Module_08 直接管理，不进入本配置包（{v1.32} 审批分级）`}
+# alertmanager.yml 由告警通知模块管理，不进入本配置包`}
     </pre>
   )
 }
 
 export function ConfigPreviewPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   /** 抽屉中打开的变更（决策 20：列表点击 → 右侧抽屉查看变更详情），null=未打开 */
   const [detailDraft, setDetailDraft] = useState<ConfigDraft | null>(null)
+  /** {v1.38} 变更单列表数据（决策 38-2：校验失败「重新校验」后更新行状态；初始化自 mock） */
+  const [draftList, setDraftList] = useState<ConfigDraft[]>(() => [...configDrafts])
+  /** {v1.39 决策 39-1} 正在重新校验中的变更单 ID 集合（按钮原地转 loading） */
+  const [revalidatingIds, setRevalidatingIds] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<'preview' | 'diff'>('preview')
   const [activeFile, setActiveFile] = useState<PreviewFileKey>('prometheus.yml')
   /** 用户是否手动选择过预览文件 Tab（决策 19）：未手动选择时默认聚焦第一个受影响文件；用户选择后跟随用户 */
@@ -268,7 +352,15 @@ export function ConfigPreviewPage() {
     () => networkDomains.filter((d) => d.registration_status === 'monitored').map((d) => ({ value: d.id, label: `${d.name} (${d.id})` })),
     []
   )
-  const defaultDomainId = domainOptions[0]?.value ?? networkDomains[0].id
+  // {v1.37} 默认选中规则（断点修复）：优先 URL 预选网域（「前往配置确认」跳转带参）→ 显式优先 default → 首个已纳管网域
+  const defaultDomainId =
+    (searchParams.get('network_domain') &&
+    domainOptions.some((o) => o.value === searchParams.get('network_domain'))
+      ? searchParams.get('network_domain')
+      : null) ??
+    domainOptions.find((o) => o.value === 'default')?.value ??
+    domainOptions[0]?.value ??
+    networkDomains[0].id
   const [selectedDomain, setSelectedDomain] = useState<string>(defaultDomainId)
 
   /** 所属网域列：network_domain_id → 网域名称（与下发记录页展示一致） */
@@ -285,26 +377,44 @@ export function ConfigPreviewPage() {
     []
   )
 
-  /** 全链路关联（决策 22）：change_no → 已发布的下发记录数，提示「查看发布记录」入口 */
-  const deploymentCountByChangeNo = useMemo(() => {
-    const counter: Record<string, number> = {}
-    configDeployments.forEach((d) => {
-      counter[d.source_change_no] = (counter[d.source_change_no] ?? 0) + 1
-    })
-    return counter
-  }, [])
-
   // 决策 31：按网域组织视图（网域切换器列出所有已纳管网域），不依赖单/多网域运行时开关
   const activeDomainId = selectedDomain
+
+  /** {v1.37} 单域/单通道收敛（断点修复）：所有已纳管网域均同一通道时，「下发通道」列信息量为零，隐藏该列 */
+  const showChannelColumn = new Set(domainOptions.map((o) => channelByDomainId[o.value])).size > 1
 
   /** 当前选中网域与其下发通道（决策 32：配置产物形态按下发通道分层，local=本地文件集，agent_pull=zip 配置包） */
   const activeDomain = networkDomains.find((d) => d.id === activeDomainId)
   const isAgentPullDomain = activeDomain?.channel === 'agent_pull'
 
+  /** {v1.37} 网域级配置同步状态（决策 37-1）：local 通道由最近一次 ConfigDeployment 派生
+   *  （success→已同步 / failed→未同步 / 无 success 下发→未下发配置）；agent_pull 由 EdgeAgent 心跳回执派生 */
+  const domainSyncStatus = useMemo<ConfigSyncStatus>(() => {
+    const domainDeployments = configDeployments.filter((d) => d.network_domain_id === activeDomainId)
+    const latest = [...domainDeployments].sort((a, b) => b.triggered_at.localeCompare(a.triggered_at))[0]
+    if (!latest) {
+      const agent = edgeAgents.find((a) => a.network_domain_id === activeDomainId)
+      if (agent) return agent.config_sync_status
+      return 'no_version'
+    }
+    if (latest.status === 'success' || latest.status === 'rolled_back') return 'in_sync'
+    if (latest.status === 'failed') return 'out_of_sync'
+    return 'unknown'
+  }, [activeDomainId])
+
+  /** {v1.37} 网域级配置同步状态四档 UI 映射（决策 37-1）：未下发配置 / 未同步 / 已同步 / 人工覆盖 */
+  const domainSyncStatusUI: Record<ConfigSyncStatus, { color: string; label: string }> = {
+    no_version: { color: 'default', label: '未下发配置' },
+    out_of_sync: { color: 'warning', label: '未同步' },
+    in_sync: { color: 'success', label: '已同步' },
+    manual_override: { color: 'error', label: '人工覆盖' },
+    unknown: { color: 'default', label: '未知' },
+  }
+
   /** 该网域全部草稿（含历史草稿） */
   const domainDrafts = useMemo(
-    () => configDrafts.filter((d) => d.network_domain_id === activeDomainId),
-    [activeDomainId]
+    () => draftList.filter((d) => d.network_domain_id === activeDomainId),
+    [activeDomainId, draftList]
   )
 
   /** 当前视图草稿：按状态筛选（决策 21，默认待确认） */
@@ -453,10 +563,11 @@ export function ConfigPreviewPage() {
     }
     // 决策 19：确认动作记录确认人（当前登录用户），历史变更可审计「谁确认了高风险变更」；MVP 预置，用户管理接入后同步（决策 20）
     // {v1.33} 发布通道按下发通道提示：local 通道确认后立即 reload 生效；agent_pull 通道发布为配置包，待 Edge Sync Agent 下次心跳拉取生效
+    // {v1.40 决策 40-3} agent_pull 确认后动线引导：正常路径无需任何点击（心跳自动拉取，out_of_sync → in_sync 自动流转），仅成因 C（本地环境变化）才需要「立即同步」；补充「采集节点状态」页入口
     const isAgentPull = activeDomain?.channel === 'agent_pull'
     message.success(
       isAgentPull
-        ? `变更单 ${draft?.change_no} 已确认，已发布为配置包，待边缘 Agent 下次心跳拉取生效（确认人：${CURRENT_USER}）`
+        ? `变更单 ${draft?.change_no} 已确认，已发布配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）。可在「采集节点状态」页查看配置同步状态并确认生效进度（确认人：${CURRENT_USER}）`
         : `变更单 ${draft?.change_no} 已确认并发布到监控（确认人：${CURRENT_USER}）`
     )
     setDetailDraft(null)
@@ -467,8 +578,35 @@ export function ConfigPreviewPage() {
     setDetailDraft(null)
   }
 
+  /** {v1.39 决策 39-1} 校验失败行内「重新校验」——点击后什么都不弹，按钮原地转 loading，行内「校验」列原地刷新结果；
+   *  用户配置问题应先到 M01 修正源数据，再回来点重新校验（重新生成产物再校验，不是对旧产物重跑）；
+   *  技术故障自动重试（用户不可见），持续失败标记「平台故障」仅提示（本按钮仅用户配置问题展示） */
+  const handleRevalidate = (target: ConfigDraft) => {
+    setRevalidatingIds((prev) => new Set(prev).add(target.id))
+    // 模拟重新校验延迟（真实场景：重新生成产物→重新校验）
+    setTimeout(() => {
+      setDraftList((prev) =>
+        prev.map((d) =>
+          d.id === target.id
+            ? { ...d, validation_status: 'passed' as const, validation_error: '', validation_cause: undefined, validation_details: undefined }
+            : d
+        )
+      )
+      setDetailDraft((prev) =>
+        prev && prev.id === target.id
+          ? { ...prev, validation_status: 'passed' as const, validation_error: '', validation_cause: undefined, validation_details: undefined }
+          : prev
+      )
+      setRevalidatingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(target.id)
+        return next
+      })
+      message.success(`变更单 ${target.change_no} 已重新校验：校验通过，可确认发布（若为配置问题，请先在 M01 修正源数据）`)
+    }, 1500)
+  }
+
   const validationFailed = draft?.validation_status === 'failed'
-  const activeTabError = tabValidationError(draft ?? undefined, effectiveActiveFile)
 
   /** 变更状态筛选（决策 21）：Segmented 替代原「待确认 / 历史」Switch，状态维度清晰且可扩展 */
   const statusFilterBar = (
@@ -493,7 +631,8 @@ export function ConfigPreviewPage() {
       <Card
         title="配置变更确认"
         extra={
-          // 决策 31/PRD 3.11：按网域组织视图，网域切换器列出所有已纳管网域（不依赖单/多网域运行时开关）
+          // [DECISION D31] 按网域组织视图，网域切换器列出所有已纳管网域（不依赖单/多网域运行时开关）
+          // [DECISION D37-1] 网域切换器旁展示网域级配置同步状态（单域 MVP 下 local 通道同步状态唯一落点）
           <Space>
             <span className="text-secondary">选择网域：</span>
             <Select
@@ -502,91 +641,99 @@ export function ConfigPreviewPage() {
               options={domainOptions}
               style={{ width: 240 }}
             />
+            <span className="text-secondary">配置同步：</span>
+            <Tooltip
+              title={
+                activeDomain?.channel === 'local'
+                  ? 'local 通道网域级配置同步状态由最近一次下发记录派生（success→已同步 / failed→未同步，可重试 / 无 success 下发→未下发配置）'
+                  : 'agent_pull 通道网域级配置同步状态由 Edge Sync Agent 心跳回执派生（详情见「采集节点状态」页）'
+              }
+            >
+              <Tag color={domainSyncStatusUI[domainSyncStatus].color}>
+                {domainSyncStatusUI[domainSyncStatus].label}
+              </Tag>
+            </Tooltip>
           </Space>
         }
       >
-        {/* {v1.33} 当前选中网域的发布通道标注（决策 31/32/33）：local / agent_pull 及对应生效提示 */}
+        {/* [DECISION D31/D32/D33] 当前选中网域的发布通道标注：local / agent_pull 及对应生效提示（一行短说明，非告警） */}
         {activeDomain && (
-          <Alert
-            message={`发布通道：${channelLabel[activeDomain.channel]}（${activeDomain.name}）`}
-            description={
-              activeDomain.channel === 'agent_pull'
-                ? '确认后发布为 zip 配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s，进度见「Agent 状态」页 config_sync_status）'
-                : '确认后由中心写盘并 reload（SIGHUP / POST /-/reload）立即生效'
-            }
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-          />
+          <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+            发布通道：{channelLabel[activeDomain.channel]}（{activeDomain.name}）；
+            {activeDomain.channel === 'agent_pull'
+              ? '确认后发布为配置包，待 Edge Agent 下次心跳拉取生效（准实时 30s）'
+              : '确认后由中心写盘并 reload 立即生效'}
+          </Text>
         )}
 
-        {/* 决策 18：人话说明「自动生成 + 人工审批」的职责边界；决策 20：检测状态为引导性状态条，与下方待确认列表联动 */}
-        <Alert
-          message="本页确认什么？"
-          description={
-            <span>
-              监控对象（Module_07）、采集策略与告警规则（Module_01）变更后，配置会{' '}
-              <Text strong>自动生成</Text>（平台保证生成内容与策略一致）。本页汇总待发布的配置变更，
-              请确认<Text strong>变更内容</Text>与<Text strong>影响</Text>后，决定是否发布到监控——
-              确认的对象是「要不要上线」，而不是「配置怎么生成」。
-            </span>
-          }
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-
-        {/* {v1.32} M01/M08/M09 告警规则职责重构：审批分级策略——prometheus.yml / targets / rules.yml / blackbox.yml 人工确认，
-            alertmanager.yml 由 Module_08 直接管理、不进入本模块变更确认流程（自动生效） */}
-        <Alert
-          message="审批分级：哪些变更需要人工确认？"
-          description={
-            <div>
+        {/* 原「本页确认什么 / 审批分级 / 审批信息与技术排查分工」三个说明 Alert 合并为评审说明（决策编号与 PRD 引用仅保留于此） */}
+        <ReviewNote title="本页设计说明">
+          <ul style={{ paddingLeft: 18, margin: 0 }}>
+            <li>
+              本页确认什么（决策 18/20）：监控对象（Module_07）、采集策略与告警规则（Module_01）变更后配置自动生成
+              （平台保证生成内容与策略一致）；本页汇总待发布变更，确认对象是「要不要上线」，而非「配置怎么生成」。
+            </li>
+            <li>
+              审批分级（{'{v1.32}'} 决策 32）：
               <ul style={{ paddingLeft: 18, margin: 0 }}>
                 <li>{approvalTieringNote.manual}</li>
                 <li>{approvalTieringNote.auto}</li>
                 <li>{approvalTieringNote.mixed}</li>
                 <li>{approvalTieringNote.reason}</li>
               </ul>
-            </div>
-          }
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-
-        {/* {v1.28} 技术确认 vs 审批上下文（ITIL 边界声明）：YAML 预览/Diff 为运维排查工具，不构成审批上下文；审批信息（人话摘要/变更清单/风险）为主区 */}
-        <Alert
-          message="审批信息与技术排查的分工"
-          description={
-            <span>
-              审批决策依据 = 人话变更摘要 + 变更清单 + 风险等级（本页主区）；下方的配置预览 / Diff（YAML）
-              是<Text strong>技术排查工具</Text>（供深入排查的运维核对配置生成是否正确），
-              <Text strong>不构成审批上下文</Text>——将来对接外部审批平台（ITSM）时，
+            </li>
+            <li>
+              审批信息与技术排查的分工（{'{v1.28}'} ITIL 边界声明）：审批决策依据 = 人话变更摘要 + 变更清单 + 风险等级（本页主区）；
+              配置预览 / Diff（YAML）为技术排查工具，不构成审批上下文——将来对接外部审批平台（ITSM）时，
               审批单仅含人话摘要 / 影响范围 / 风险等级，配置产物与技术细节不传出平台。
-            </span>
-          }
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
+            </li>
+            <li>
+              change_status 全链路回写 M01（{'{v1.43}'}，联动 M01 草稿，M01 侧 v3.22 演示）：
+              <ul style={{ paddingLeft: 18, margin: 0 }}>
+                <li>{changeStatusEnumDemo.pending}</li>
+                <li>{changeStatusEnumDemo.confirmed}</li>
+                <li>
+                  {changeStatusEnumDemo.deployed}
+                  <V02Badge />
+                </li>
+                <li>{changeStatusEnumDemo.none}</li>
+              </ul>
+            </li>
+          </ul>
+        </ReviewNote>
+
+        <ReviewNote title="配置产物结构说明（面向产品 / 开发评审）" style={{ marginBottom: 16 }}>
+          <ul style={{ paddingLeft: 18, margin: 0 }}>
+            <li>
+              local 通道：产物为本地文件集，确认后 SIGHUP / POST /-/reload 生效，无 zip / metadata.json；版本一致性由 ConfigVersion 记录保证。
+            </li>
+            <li>
+              agent_pull 通道：产物为 zip 配置包，含 metadata.json（config_version、生成时间、agent_type、联合 checksum sha256），供 Edge Agent 拉取后完整性校验。
+            </li>
+            <li>
+              rules.yml 分组由配置中心自动派生；external_labels 注入 network_domain / tenant_id；alertmanager.yml 由告警通知模块管理，不进入本模块产物。
+            </li>
+            <li>
+              targets/*.json 固定文件名覆盖写、原子写，不触发采集器 reload；仅 prometheus.yml 结构变化才触发 reload。
+            </li>
+          </ul>
+        </ReviewNote>
 
         <Card size="small" title="变更检测状态" style={{ marginBottom: 16 }}>
           {pendingCount > 0 ? (
-            <Alert
-              message={`检测到 ${pendingCount} 个待确认变更`}
-              description={`监控对象 / 策略 / 规则已有新变化，请前往下方「待确认」列表逐项确认后发布（含 ${domainDrafts.filter((d) => d.status === 'pending' && d.change_items.some((i) => i.risk === 'high')).length} 个高风险变更）。`}
-              type="warning"
-              showIcon
-            />
+            <Text type="warning" style={{ display: 'block' }}>
+              检测到 {pendingCount} 个待确认变更：监控对象 / 策略 / 规则已有新变化，请前往下方「待确认」列表逐项确认后发布
+              （含 {domainDrafts.filter((d) => d.status === 'pending' && d.change_items.some((i) => i.risk === 'high')).length} 个高风险变更）。
+            </Text>
           ) : (
-            <Alert
-              message="当前无待确认变更"
-              description="监控对象 / 策略 / 规则变更后，配置会自动生成并在此汇总；无实际影响的变更（内容无变化）已自动过滤，无需确认。"
-              type="success"
-              showIcon
-            />
+            <Text type="success" style={{ display: 'block' }}>
+              当前无待确认变更：监控对象 / 策略 / 规则变更后，配置会自动生成并在此汇总；无实际影响的变更（内容无变化）已自动过滤，无需确认。
+            </Text>
           )}
+          {/* {v1.43} 草稿对象不生成配置变更（联动 M01 草稿，PRD 3.3）：解释为什么编辑中的 Job 不出现在变更单里 */}
+          <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+            草稿对象（draft）不生成配置变更：仅「已提交」的 Job / 规则提交生效后才进入变更检测——编辑中的 Job 不会出现在变更单里。
+          </Text>
           {detectionStatus && (
             <Collapse
               ghost
@@ -614,13 +761,9 @@ export function ConfigPreviewPage() {
                           </Tag>
                         </Descriptions.Item>
                       </Descriptions>
-                      <Alert
-                        message="校验值裁决说明（技术信息）"
-                        description="策略或资源有变化但重算后内容校验值与当前生效版本一致时，说明没有实际影响，草稿自动丢弃、不进入确认列表；仅内容存在实际差异的变更才等待人工确认。检测状态为实时说明，不保留历史。"
-                        type="info"
-                        showIcon
-                        style={{ marginTop: 12 }}
-                      />
+                      <Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
+                        校验值裁决说明：策略或资源变更后，若重算校验值与当前生效版本一致，则自动丢弃草稿；仅存在实际差异的变更才需确认。
+                      </Text>
                     </>
                   ),
                 },
@@ -635,13 +778,14 @@ export function ConfigPreviewPage() {
               dataSource={drafts}
               rowKey="id"
               size="small"
-              pagination={false}
+              scroll={TABLE_SCROLL_X}
+              pagination={TABLE_PAGINATION}
               rowClassName={(record) => (record.id === draft?.id ? 'bg-brand-light' : '')}
               onRow={(record) => ({
                 onClick: () => openDetail(record),
                 style: { cursor: 'pointer' },
               })}
-              columns={[
+              columns={([
                 {
                   // 决策 20：变更单号 = 用户可读唯一标识（列表主列），用于沟通与审计追溯
                   title: '变更单号',
@@ -680,12 +824,70 @@ export function ConfigPreviewPage() {
                   },
                 },
                 {
+                  // [DECISION D39-1] 下发前校验列置于「状态」列之前：校验状态先于变更状态，便于一眼定位需处理的失败单
+                  title: (
+                    <Tooltip title="中心内容校验结果：通过 / 未通过（点击红色「失败」Tag 查看行内失败原因与引导）">
+                      <Space size={4}>
+                        下发前校验
+                        <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+                      </Space>
+                    </Tooltip>
+                  ),
+                  dataIndex: 'validation_status',
+                  key: 'validation_status',
+                  width: 200,
+                  render: (status: DraftValidationStatus, record) => (
+                    <Space size={4}>
+                      {status === 'failed' ? (
+                        <Popover
+                          content={renderValidationFailPopover(record)}
+                          title="校验失败原因"
+                          trigger="click"
+                          placement="right"
+                        >
+                          {/* stopPropagation：点击失败 Tag 只弹 Popover，不触发行点击打开抽屉 */}
+                          <Tag
+                            color={validationColor[status]}
+                            style={{ cursor: 'pointer' }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {validationLabel[status]}
+                          </Tag>
+                        </Popover>
+                      ) : (
+                        <Tooltip title="下发前校验（配置内容合法性与目标格式检查）">
+                          <Tag color={validationColor[status]}>{validationLabel[status]}</Tag>
+                        </Tooltip>
+                      )}
+                      {/* {v1.39} 决策 39-1/39-3：校验失败「重新校验」仅用户配置问题展示（点击后按钮原地转 loading，行内结果原地刷新）；
+                          平台技术故障自动重试、用户无感，不展示「重新校验」 */}
+                      {status === 'failed' && record.validation_cause === 'user_config' && (
+                        <Button
+                          size="small"
+                          type="link"
+                          icon={<ReloadOutlined />}
+                          loading={revalidatingIds.has(record.id)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRevalidate(record)
+                          }}
+                        >
+                          重新校验
+                        </Button>
+                      )}
+                    </Space>
+                  ),
+                },
+                {
+                  // {v1.39} 状态列与操作入口区分开：状态 Tag 仅为状态标记（非按钮，点击不触发任何操作），操作统一走「操作」列按钮
                   title: '状态',
                   dataIndex: 'status',
                   key: 'status',
-                  width: 90,
+                  width: 100,
                   render: (status: ConfigDraftStatus) => (
-                    <Tag color={draftStatusColor[status]}>{draftStatusLabel[status]}</Tag>
+                    <Tooltip title="状态标记（非按钮）：点击该行或「操作」列「详情」按钮打开详情处理">
+                      <Tag color={draftStatusColor[status]}>{draftStatusLabel[status]}</Tag>
+                    </Tooltip>
                   ),
                 },
                 {
@@ -723,61 +925,36 @@ export function ConfigPreviewPage() {
                     ),
                 },
                 {
-                  // 决策 22：已发布版本列——确认后生成的配置版本号（cv-xxx）+ 发布记录入口，业务出问题时从变更单直达回滚目标
-                  title: (
-                    <Tooltip title="确认后生成的配置版本号（cv-xxx）；「记录」直达该变更的发布与回滚记录页">
-                      <Space size={4}>
-                        已发布版本
-                        <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
-                      </Space>
-                    </Tooltip>
-                  ),
-                  key: 'published_version',
-                  width: 150,
-                  render: (_: unknown, record: ConfigDraft) => {
-                    const version = record.status === 'confirmed' ? versionByChangeNo[record.change_no] : undefined
-                    const deployCount = deploymentCountByChangeNo[record.change_no] ?? 0
-                    return version ? (
-                      <Space size={4}>
-                        <Text code>{version}</Text>
-                        {deployCount > 0 && (
-                          <Tooltip title={`该变更已产生 ${deployCount} 条发布记录，点击前往查看 / 回滚`}>
-                            <Button size="small" type="link" icon={<HistoryOutlined />} onClick={() => navigate('/deployments')}>
-                              记录
-                            </Button>
-                          </Tooltip>
-                        )}
-                      </Space>
-                    ) : (
-                      <Text type="secondary">-</Text>
-                    )
-                  },
-                },
-                {
-                  title: '下发前校验',
-                  dataIndex: 'validation_status',
-                  key: 'validation_status',
-                  width: 110,
-                  render: (status: DraftValidationStatus, record) => (
-                    <Tooltip title={status === 'failed' ? record.validation_error : '下发前校验（配置内容合法性与目标格式检查）'}>
-                      <Tag color={validationColor[status]}>{validationLabel[status]}</Tag>
-                    </Tooltip>
+                  // [DECISION D22] 已发布版本（cv-xxx）与发布记录入口下沉至抽屉（Descriptions「已发布配置版本」+「查看发布记录」按钮），列表不再占列
+                  // [DECISION D19] 生成时间列下沉至抽屉 Descriptions「生成时间」，列表不再占列
+                  // {v1.39} 独立「操作」列：状态 Tag 与操作按钮在视觉上区分开，用户无需猜测——操作入口统一在此列（详情=打开抽屉处理确认/废弃）
+                  title: '操作',
+                  key: 'actions',
+                  width: 80,
+                  fixed: 'right',
+                  render: (_: unknown, record: ConfigDraft) => (
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<EyeOutlined />}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openDetail(record)
+                      }}
+                    >
+                      详情
+                    </Button>
                   ),
                 },
-                { title: '生成时间', dataIndex: 'created_at', key: 'created_at', width: 150 },
-              ]}
+                ] as TableColumnsType<ConfigDraft>
+              ).filter((col) => showChannelColumn || (col as { key?: string }).key !== 'channel')}
             />
           ) : statusFilter === 'pending' ? (
-            <Alert
-              message="当前无待确认变更"
-              description="策略或资源变更后配置自动生成；内容无实际影响的变更已自动过滤，此处仅展示需要人工确认的变更。可切换状态筛选查看已确认 / 已废弃变更。"
-              type="success"
-              showIcon
-            />
+            <Empty description="当前无待确认变更：策略或资源变更后配置自动生成；内容无实际影响的变更已自动过滤，此处仅展示需要人工确认的变更。可切换状态筛选查看已确认 / 已废弃变更。" />
           ) : statusFilter === 'all' ? (
-            <Alert message="当前网域暂无配置变更" type="info" showIcon />
+            <Empty description="当前网域暂无配置变更" />
           ) : (
-            <Alert message={`暂无${STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)?.label ?? ''}变更`} type="info" showIcon />
+            <Empty description={`暂无${STATUS_FILTER_OPTIONS.find((o) => o.value === statusFilter)?.label ?? ''}变更`} />
           )}
         </Card>
 
@@ -831,8 +1008,13 @@ export function ConfigPreviewPage() {
                 ) : (
                   <Space size={8}>
                     {versionByChangeNo[draft.change_no] && (
-                      <Tooltip title="前往发布记录页查看该变更的下发与回滚记录">
-                        <Button icon={<HistoryOutlined />} onClick={() => navigate('/deployments')}>
+                      <Tooltip title="前往发布记录页查看该变更的下发与回滚记录（按变更单定位）">
+                        <Button
+                          icon={<HistoryOutlined />}
+                          onClick={() =>
+                            navigate(`/deployments?change_no=${draft.change_no}&network_domain=${draft.network_domain_id}`)
+                          }
+                        >
                           查看发布记录
                         </Button>
                       </Tooltip>
@@ -915,7 +1097,7 @@ export function ConfigPreviewPage() {
                     ]}
                   />
                 ) : (
-                  <Alert message="无实际内容变化（已自动丢弃），无需确认" type="info" showIcon />
+                  <Empty description="无实际内容变化（已自动丢弃），无需确认" />
                 )}
               </Card>
 
@@ -978,10 +1160,11 @@ export function ConfigPreviewPage() {
                 ]}
               />
 
-              {validationFailed && (
+              {/* {v1.39} 决策 39-1：抽屉只承载变更清单 / Diff / 确认/废弃操作——校验失败时最多留一行 Alert 摘要，
+                  详细校验信息（失败文件 + 行号 + 归因 + 引导）一律在列表「下发前校验」列行内查看，不进抽屉 */}
+              {validationFailed && draft && (
                 <Alert
-                  message="下发前校验失败（中心内容校验）"
-                  description={draft.validation_error}
+                  message={`校验未通过（${validationCauseLabel[draft.validation_cause ?? 'user_config']}），请先在列表查看失败原因并处理`}
                   type="error"
                   showIcon
                   style={{ marginBottom: 16 }}
@@ -994,20 +1177,12 @@ export function ConfigPreviewPage() {
                 style={{ marginBottom: 16 }}
               >
                 {renderPackageTree(activeDomain?.channel, activeDomainId, draft)}
-                <Alert
-                  message="配置产物形态分层与生成说明"
-                  description={
-                    <span>
-                      配置产物形态按下发通道分层（决策 32）：local 通道网域（如 default）=本地文件集（prometheus.yml + targets/*.json + rules.yml + blackbox.yml），确认后 SIGHUP / -/reload，无 zip、无 metadata.json 下载校验（版本一致性由 ConfigVersion 记录保证）；agent_pull 通道网域=zip 配置包（含 metadata.json，Agent 拉取后校验值校验）；分层依据是下发通道（local / agent_pull）而非域类型。{' '}
-                      <Text strong>{rulesGroupDerivationNote}</Text>。{' '}
-                      <Text strong>external_labels 注入</Text>：network_domain / tenant_id 必注入，网域登记了 zone_type 时同步注入 zone_type（{`{v1.31}`}，PRD 9.2）。{' '}
-                      <Text strong>审批分级（{`{v1.32}`}）</Text>：alertmanager.yml 由 Module_08（告警收敛与通知管理）直接管理并触发 Alertmanager reload，不进入本模块变更单 / 配置变更确认流程，配置包 / 本地文件集中均不包含。targets 由 configgen 按 job 名自动生成，前端动态遍历 targets_files 渲染子 Tab，新增 job 无需改前端。targets 变化仅原子重写对应 targets/*.json（临时文件 + rename），不触发采集器 reload——file_sd 由磁盘监听/轮询自动感知；仅 prometheus.yml 结构变化才触发 reload（reload 策略分离）。blackbox.yml 在网域存在 job_type=blackbox 的 ScrapeJob 时必含，且必须随 prometheus.yml 一同下发。
-                    </span>
-                  }
-                  type="info"
-                  showIcon
-                  style={{ marginTop: 12 }}
-                />
+                {/* [DECISION D32] 配置产物形态按下发通道分层（卡片标题已含通道差异）：local=本地文件集（prometheus.yml + targets/*.json + rules.yml + blackbox.yml），
+                    确认后 SIGHUP / -/reload，无 zip / metadata.json 下载校验（版本一致性由 ConfigVersion 记录保证）；agent_pull=zip 配置包（含 metadata.json，Agent 拉取后校验值校验）。
+                    [DECISION D32/{v1.32}] rules.yml 分组由配置中心自动派生（见 rulesGroupDerivationNote）；external_labels 注入 network_domain / tenant_id，登记 zone_type 时同步注入（{v1.31} / PRD 9.2）；
+                    审批分级（{v1.32}）：alertmanager.yml 由 Module_08 直接管理并触发 Alertmanager reload，不进入本模块变更确认流程，产物中均不包含；
+                    targets 变化仅原子重写 targets/*.json（临时文件 + rename），不触发采集器 reload；仅 prometheus.yml 结构变化才触发 reload（reload 策略分离）；
+                    blackbox.yml 在网域存在 job_type=blackbox 的 ScrapeJob 时必含，且必须随 prometheus.yml 一同下发。 */}
               </Card>
 
               <Space style={{ marginBottom: 16 }}>
@@ -1055,16 +1230,6 @@ export function ConfigPreviewPage() {
                 />
               )}
 
-              {activeTabError && (
-                <Alert
-                  message={`下发前校验失败（中心内容校验：${effectiveActiveFile === 'targets' ? `targets/${effectiveTargetJob}.json` : effectiveActiveFile}）`}
-                  description={activeTabError}
-                  type="error"
-                  showIcon
-                  style={{ marginBottom: 12 }}
-                />
-              )}
-
               {viewMode === 'preview' ? (
                 effectiveActiveFile === 'metadata.json' ? (
                   isAgentPullDomain ? (
@@ -1102,36 +1267,21 @@ export function ConfigPreviewPage() {
                       </Descriptions.Item>
                     </Descriptions>
                   ) : (
-                    <Alert
-                      message="local 通道网域（如 default）为本地文件集"
-                      description="配置产物不打包、无 metadata.json（无 zip 下载校验，版本一致性由配置版本记录保证）；联合校验值仅用于中心侧差异检测与裁决。"
-                      type="info"
-                      showIcon
-                    />
+                    <Empty description="当前网域为本地文件集，配置产物不打包、无 metadata.json；联合校验值仅用于中心侧差异检测与裁决。" />
                   )
                 ) : effectiveActiveFile === 'targets' && targetJobs.length === 0 ? (
-                  <Alert message="当前变更无 targets 文件" type="info" showIcon />
+                  <Empty description="当前变更无 targets 文件" />
                 ) : (
                   renderYamlPreview(activeFileText)
                 )
               ) : effectiveActiveFile === 'metadata.json' ? (
                 isAgentPullDomain ? (
-                  <Alert
-                    message="metadata.json 仅只读展示"
-                    description="metadata.json 为配置包元数据（config_version / 生成时间 / agent_type / 联合校验值），不参与版本 diff。"
-                    type="info"
-                    showIcon
-                  />
+                  <Empty description="metadata.json 为配置包元数据，仅只读展示，不参与版本 diff。" />
                 ) : (
-                  <Alert
-                    message="local 通道网域（如 default）为本地文件集"
-                    description="配置产物不打包、无 metadata.json，无需参与版本 diff；联合校验值由配置版本记录并在中心侧用于差异检测。"
-                    type="info"
-                    showIcon
-                  />
+                  <Empty description="当前网域为本地文件集，配置产物不打包、无 metadata.json，无需参与版本 diff。" />
                 )
               ) : effectiveActiveFile === 'targets' && targetJobs.length === 0 ? (
-                <Alert message="当前变更无 targets 文件" type="info" showIcon />
+                <Empty description="当前变更无 targets 文件" />
               ) : (
                 <Row gutter={16}>
                   <Col span={12}>
@@ -1142,7 +1292,7 @@ export function ConfigPreviewPage() {
                       {previousVersion ? (
                         renderYamlPreview(previousFileText)
                       ) : (
-                        <Alert message="无历史版本" type="info" showIcon />
+                        <Empty description="无历史版本" />
                       )}
                     </Card>
                   </Col>
@@ -1180,35 +1330,48 @@ export function ConfigPreviewPage() {
                 </Row>
               )}
 
-              <Alert
-                message="网闸 / 隔离区连接约束（agent_pull 通道发布）"
-                description={gatewayConstraintNote}
-                type="info"
-                showIcon
-                style={{ marginTop: 16 }}
-              />
+              {/* 原抽屉内「网闸约束 / 下发前校验说明 / 校验分层说明」三个说明 Alert 合并为评审说明（决策编号与 PRD 引用仅保留于此） */}
+              <ReviewNote title="本抽屉设计说明（校验与网闸约束）" style={{ margin: '16px 0 0' }}>
+                <ul style={{ paddingLeft: 18, margin: 0 }}>
+                  {/* {v1.37} 网闸约束仅 agent_pull 通道展示（决策 37 断点修复）：local 通道（如 default）无网闸拓扑、与用户无关 */}
+                  {isAgentPullDomain && <li>{gatewayConstraintNote}（{'{v1.31}'}，强制，PRD §6）</li>}
+                  <li>
+                    下发前校验（决策 39-1）：配置生成后、发布或允许拉取前，必须先通过中心内容校验：promtool check config 校验
+                    prometheus.yml（对 file_sd 仅检查文件存在性，不校验 SD 内容）；配置包含 blackbox.yml 时调用
+                    blackbox_exporter --config.check 校验；targets JSON 由 configgen 侧 schema 校验（结构 / host:port / labels
+                    合法性，弥补 promtool 缺口）。校验失败时草稿/版本保持原状态、不进入发布流程，并记录错误原因。
+                  </li>
+                  <li>
+                    校验分层：
+                    <ul style={{ paddingLeft: 18, margin: 0 }}>
+                      <li>{validationLayeringNote.center}</li>
+                      <li>{validationLayeringNote.edge}</li>
+                      <li>{validationLayeringNote.agentDumbCheck}</li>
+                      <li>{validationLayeringNote.checksumDualUse}</li>
+                    </ul>
+                  </li>
+                </ul>
+              </ReviewNote>
 
-              <Alert
-                message="下发前校验说明"
-                description="配置生成后、发布或允许拉取前，必须先通过中心内容校验：promtool check config 校验 prometheus.yml（对 file_sd 仅检查文件存在性，不校验 SD 内容）；配置包含 blackbox.yml 时调用 blackbox_exporter --config.check 校验；targets JSON 由 configgen 侧 schema 校验（结构 / host:port / labels 合法性，弥补 promtool 缺口）。校验失败时草稿/版本保持原状态、不进入发布流程，并记录错误原因；与边缘侧传输校验的分层关系与衔接见下方「校验分层说明」。"
-                type="info"
-                showIcon
-                style={{ marginTop: 16 }}
-              />
-
-              <Alert
-                message="校验分层说明"
-                description={
-                  <ul style={{ paddingLeft: 18, margin: 0 }}>
-                    <li>{validationLayeringNote.center}</li>
-                    <li>{validationLayeringNote.edge}</li>
-                    <li>{validationLayeringNote.agentDumbCheck}</li>
-                    <li>{validationLayeringNote.checksumDualUse}</li>
-                  </ul>
-                }
-                type="info"
-                showIcon
-              />
+              {/* {v1.40 决策 40-3} agent_pull 确认后动线引导（确认抽屉底部入口）：已发布配置包 → 待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）；
+                  正常路径无需任何点击（心跳自动 out_of_sync → in_sync 流转），仅成因 C（本地环境变化）才需要「立即同步」；提供「前往采集节点状态」入口查看生效进度 */}
+              {isAgentPullDomain && (
+                <Alert
+                  message="agent_pull 确认后动线：已发布配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）"
+                  description="确认后可在「采集节点状态」页查看配置同步状态（config_sync_status）确认生效进度——正常路径无需任何点击（out_of_sync → in_sync 随心跳自动流转），仅本地环境/地址变化（成因 C）才需要在该页点击「立即同步」强制重新拉包。"
+                  type="success"
+                  showIcon
+                  action={
+                    <Button
+                      size="small"
+                      onClick={() => navigate(`/node-status?network_domain=${draft.network_domain_id}`)}
+                    >
+                      前往采集节点状态
+                    </Button>
+                  }
+                  style={{ marginTop: 16 }}
+                />
+              )}
             </>
           )}
         </Drawer>

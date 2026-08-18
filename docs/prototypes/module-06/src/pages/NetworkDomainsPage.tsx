@@ -16,6 +16,7 @@ import {
 } from 'antd'
 import { PlusOutlined, EditOutlined, StopOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   mockNetworkDomains,
   mockTenants,
@@ -165,32 +166,14 @@ export function NetworkDomainsPage() {
         type === 'management' ? <Tag color="blue">管理域</Tag> : <Tag color="cyan">边缘域</Tag>,
     },
     {
-      title: (
-        <Tooltip title="{v1.4} 行政字段：由 M06 登记，选项来自部署级字典（政务云预置互联网区/政务外网区等，公有云预置 region），不开放自由文本；M09 纳管时只读引用并注入指标标签">
-          <Space size={4}>
-            网络区域类型
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              (zone_type)
-            </Text>
-          </Space>
-        </Tooltip>
-      ),
+      title: '网络区域类型',
       dataIndex: 'zone_type',
       key: 'zone_type',
       render: (value: string) =>
         value ? <Tag>{zoneTypeLabelOf(value)}</Tag> : <Text type="secondary">未登记</Text>,
     },
     {
-      title: (
-        <Tooltip title="只读字段：由 Module_09 网域纳管动作维护，本页不可编辑">
-          <Space size={4}>
-            监控纳管
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              (M09)
-            </Text>
-          </Space>
-        </Tooltip>
-      ),
+      title: '监控纳管',
       dataIndex: 'registration_status',
       key: 'registration_status',
       render: (status: NetworkDomain['registration_status']) =>
@@ -211,6 +194,8 @@ export function NetworkDomainsPage() {
     {
       title: '操作',
       key: 'action',
+      fixed: 'right' as const,
+      width: 150,
       render: (_: unknown, record: NetworkDomain) => (
         <Space size="small">
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => showEdit(record)}>
@@ -231,7 +216,16 @@ export function NetworkDomainsPage() {
   ]
 
   return (
-    <MainLayout>
+    <MainLayout
+      reviewNotes={
+        <>
+          M06 为网域的行政 Owner：本页只维护行政信息（名称 / 所属租户 / 状态 / 网络区域类型），监控纳管（令牌、Remote Write、Edge Agent）由 Module_09 执行。
+          网域定义为全平台唯一入口，下游模块（导入 / 纳管 / CMDB 同步）只引用 network_domain_id；ID 按租户前缀自动生成且全局唯一，创建后归属不可变更。
+          网络区域类型（zone_type）为部署级字典下拉（政务云预置互联网区 / 政务外网区等，公有云预置区域），不开放自由文本，M09 纳管时只读引用。
+          新建校验：所选租户未开启多网域能力（multi_site_enabled=false）时不可创建额外网域；该开关不控制配置中心页面入口（入口由数据驱动）。
+        </>
+      }
+    >
       <div className="page-header">
         <Title level={4}>网域管理</Title>
       </div>
@@ -243,24 +237,13 @@ export function NetworkDomainsPage() {
           </Button>
         }
       >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="M06 行政创建 → M09 监控纳管（两阶段生命周期）"
-          description={
-            <Text type="secondary">
-              本页是网域定义的<b>全平台唯一入口</b>（{'{v1.4}'}）：仅维护行政信息（名称、所属租户、状态、
-              网络区域类型 zone_type），网域 ID 按租户前缀自动生成且全局唯一。下游模块（M07 资源导入/录入、
-              M09 监控纳管、CMDB 同步）只引用 network_domain_id，不得在其他入口新建网域。
-              行政创建后的网域处于「未纳管」状态，需前往 Module_09「网域纳管」填写监控参数并安装 Edge Agent
-              后才进入监控上下文。1 个网域必须且只能归属 1 个租户，禁止跨租户共享网域；
-              网域是逻辑操作上下文与采集边界，不是控制面层级（{'{v1.5}'}）。
-              租户未开启多网域能力（multi_site_enabled=false）时不可创建额外网域。
-            </Text>
-          }
+        <Table
+          rowKey="id"
+          dataSource={domains}
+          columns={columns}
+          scroll={TABLE_SCROLL_X}
+          pagination={TABLE_PAGINATION}
         />
-        <Table rowKey="id" dataSource={domains} columns={columns} pagination={{ pageSize: 8 }} />
       </Card>
       <Modal
         title={editingDomain ? '编辑网域（行政信息）' : '新增网域（行政登记）'}
@@ -303,14 +286,14 @@ export function NetworkDomainsPage() {
               type="warning"
               showIcon
               style={{ marginBottom: 16 }}
-              message="该租户未开启多网域能力（multi_site_enabled=false）"
-              description="按 {v1.5} 约束，M06 侧不可为该租户创建额外网域；该租户仅可使用 default 网域及其纳管状态（M09 入口由数据驱动，不受此开关控制）。可在「租户管理」中开启多网域能力。"
+              message="该租户未开启多网域能力"
+              description="不可为该租户创建额外网域，仅可使用默认网域（default）；如确有需要，可在「租户管理」开启多网域能力。"
             />
           )}
           <Form.Item
-            label="网络区域类型（zone_type）"
+            label="网络区域类型"
             name="zone_type"
-            extra="{v1.4} 行政字段：选项来自部署级字典（政务云预置互联网区/政务外网区/专线区/DMZ，公有云预置 region），不开放自由文本；M09 纳管时只读引用并注入指标标签"
+            extra="选项来自部署级字典（如互联网区 / 政务外网区 / 专线区），不开放自由文本。"
           >
             <Select
               placeholder="请选择网络区域类型（可留空表示未登记）"
@@ -351,12 +334,9 @@ export function NetworkDomainsPage() {
             </Select>
           </Form.Item>
           <Form.Item>
-            <Alert
-              type="info"
-              showIcon
-              message="本表单仅维护行政信息"
-              description="行政字段范围（v1.4）：ID / 名称 / 所属租户 / 状态 / 网络区域类型（zone_type）。监控参数（Agent 类型、Remote Write URL、Edge Agent Token、center_endpoint）由 Module_09「网域纳管」填写，此处不可配置。"
-            />
+            <Text type="secondary" style={{ display: 'block' }}>
+              本表单仅维护行政信息（ID / 名称 / 租户 / 状态 / 网络区域类型）；监控参数由「配置中心-网域纳管」填写。
+            </Text>
           </Form.Item>
         </Form>
       </Modal>

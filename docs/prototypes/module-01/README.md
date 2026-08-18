@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.13
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.22
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.3
+> **原型版本**: v3.22
 > **本地启动命令**:
 >
 > ```bash
@@ -13,8 +13,16 @@
 >
 > **访问地址**: http://localhost:5175/
 
-## 本次 v3.3 相对 v3.2 的关键变更
+## 本次 v3.22 相对 v3.20 的关键变更（自 v3.14 起多轮原型变更累计，v3.22 = 草稿/克隆/批量提交 + 乐观更新闭环）
 
+- **{v3.22} 状态列四态聚合（决策 D29 原型侧）**：采集 Job 列表「状态」列聚合四态（草稿 / 待下发 / 已生效 / 已停用）——MVP 无真实草稿实例，草稿标签灰显 + Tooltip「v0.2 支持保存草稿」；状态查询器中「草稿」选项置灰禁用（v0.2 支持保存草稿）。
+- **{v3.22} 乐观更新 toast（决策 D29 原型侧）**：保存 / 启停 / 删除成功的 toast 改为乐观更新——本地先把该 Job / 规则标为「待下发」，附「前往配置变更确认」跳转（M09），不再等待服务端确认。
+- **{v3.22} 克隆 Job（v0.2 角标，决策 D29 原型侧）**：操作列新增「克隆」——点击打开新建抽屉并预填源 Job 参数；演示两条路径：同网域克隆直接改选实例分组；跨网域克隆网域重选、实例清空重选、提示「安装确认需重新进行」。
+- **{v3.22} 多选 + 批量提交生效（v0.2 角标，决策 D29 原型侧）**：Job 列表支持多选，toolbar「批量提交生效」一键提交，弹结果抽屉成功 N 条 / 失败 N 条逐错误清单（草稿不可勾选）。
+- **{v3.22} Job / 规则表单双按钮（决策 D29 原型侧）**：「保存草稿（v0.2，基础校验，草稿不入下发管线）/ 提交生效（完整校验）」。Job 保存草稿后表单保持打开；提交生效失败时 Alert 置顶逐条错误。规则页（v0.3 预览）草稿允许 PromQL 半成品暂存，提交生效失败错误定位到 expr 字段下方。
+- **{v3.22} mock 数据补 draft_status / change_status**：Job / 规则对象补 `draft_status`、`change_status` 字段；新增 1-2 条 `draft_status=draft` 草稿演示数据与 1 条克隆演示数据（跨网域克隆 `prod-hosts-linux-gov-clone`）；MVP 演示态下 `change_status` 仅用 pending / confirmed / none。
+- **{v3.20} 规则编辑引导确认（决策 D28）**：规则保存 / 启停 / 删除成功提示改为「变更将由 M09 生成变更单，需确认后生效」+ 内联「前往配置变更确认」跳转（rules.yml 变更必须 reload、走 M09 人工确认档，决策 38-1）；规则列表新增「下发状态」列（待确认 / 已确认 / 无变更，mock 以 `change_status` 承载，rule-001 已确认 / rule-004 待确认演示）；保存 / 启停 / 删除后规则置「待确认」。
+- **{v3.19} 下发状态感知（决策 D27-2）**：采集 Job 列表新增「下发状态」列（待确认 / 已确认 / 无变更，来自 M09 变更单状态，mock 以 `change_status` 承载）；保存 / 启停 / 删除成功提示改为「变更将由 M09 生成变更单，需确认后生效」+ 内联「前往配置变更确认」跳转（跨模块链接 module-09）；保存 / 启停 / 删除后 Job 置「待确认」；支持 URL 预选网域（`?view=jobs&network_domain=<id>`，供 M09「去配置采集 Job」跳转）；`currentTenant.multi_site_enabled=false`（单域 MVP 演示）。
 - **对齐 PRD v3.13**：主机 CI 类型按 OS 平台拆分为 `host_linux` / `host_windows`；ExporterTemplate 增加 `os`、`arch`、`download_url`、`homepage`、`source`（official / third_party / internal）字段与对应 mock 数据。
 - **网域呈现收敛（v3.12）**：移除顶部全局网域切换器 / 多网域开关；Header 仅保留角色切换器，网域作为采集 Job 列表查询条件与 Job 表单必填字段。
 - **采集器管理增强**：增加 `application_http` 引导卡、按 CI 类型 + 来源筛选、「登记采集器」Modal（自研采集器登记后进入 `exporterTemplates` 池）。

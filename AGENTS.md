@@ -378,7 +378,7 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `setup.sh` / `SETUP_WINDOWS.md` | 一键初始化脚本与 Windows 指南 |
 | `docs/03-engineering-standards/00_Engineering_Standard.md` | 目录结构、技术栈、编码前必读 |
 | `docs/03-engineering-standards/01_Code_Isolation_Standard.md` | upstream 与业务代码隔离规则 |
-| `docs/03-engineering-standards/02_Frontend_Standard.md` | 前端开发规范、pnpm workspace 约束 |
+| `docs/03-engineering-standards/02_Frontend_Standard.md` | 前端开发规范（组件选型 / 长文本与横向滚动 / 页面状态）、pnpm workspace 约束 |
 | `docs/03-engineering-standards/03_API_Standard.md` | API 设计规范、路由规划、错误类型 |
 | `docs/03-engineering-standards/04_Testing_Standard.md` | 测试标准与提交前验证清单 |
 | `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` | AI Agent 协作流程 |

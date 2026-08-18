@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Table, Tag, Row, Col, Statistic, Space, Typography, Tooltip, Select, Empty, Alert, Button, Drawer, Descriptions, Modal } from 'antd'
-import { ReloadOutlined, QuestionCircleOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Row, Col, Statistic, Space, Typography, Tooltip, Select, Empty, Alert, Button, Drawer, Descriptions, Modal, message } from 'antd'
+import { ReloadOutlined, QuestionCircleOutlined, LinkOutlined, ArrowRightOutlined, SyncOutlined, ExclamationCircleFilled } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
+import { FilterBar, FilterItem } from '../components/FilterBar'
+import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   edgeAgents,
   networkDomains,
@@ -16,6 +19,11 @@ import {
 } from '../mocks/module-09'
 
 const { Text } = Typography
+
+/** {v1.37} 跨模块跳转链接（决策 D27-2 保存感知反向动线）：「去配置采集 Job」跳 Module_01 采集 Job 页并预选网域；原型演示用相对路径 */
+const MODULE_LINKS = {
+  module01: '../module-01/dist/index.html',
+} as const
 
 /** 组件运行状态（PRD 3.2 组件分类 / 决策 15）：Edge Sync Agent 用在线/离线，采集器与拨测器等进程组件用运行中/已停止 */
 const componentStatusColor: Record<EdgeComponent['status'], { color: string; label: string }> = {
@@ -39,8 +47,8 @@ const componentTypeTip: Record<EdgeComponentType, string> = {
   edge_sync_agent: '必装独立组件：负责心跳 / 配置拉取 / 控制本节点采集器与拨测器（非中心平台内置）',
   collector: '指标采集器：vmagent / prometheus-agent 二选一（由网域 agent_type 登记），负责抓取与 remote_write，由 Edge Sync Agent 部署守护',
   blackbox_exporter: '拨测器（可选）：网域存在 job_type=blackbox 的 ScrapeJob 时随一体化包附带，由 Edge Sync Agent 部署守护',
-  vmalert: '边缘自治告警组件（v0.4+，P2）：随配置包 rules.yml（scope=edge/both，M09 自动派生分组）下发后启动本地求值（断网自治告警）',
-  alertmanager: '边缘告警通知组件（v0.4+，P2）：alertmanager.yml 由 Module_08 统一管理（不随本配置包下发），本地通知通道（飞书 / 钉钉 webhook，断网独立通知）',
+  vmalert: '边缘自治告警组件（v0.4+，P2）：随配置包 rules.yml（scope=edge/both，由配置中心自动派生分组）下发后启动本地求值（断网自治告警）',
+  alertmanager: '边缘告警通知组件（v0.4+，P2）：alertmanager.yml 由告警通知模块统一管理（不随本配置包下发），本地通知通道（飞书 / 钉钉 webhook，断网独立通知）',
 }
 
 function formatBytes(bytes: number) {
@@ -111,7 +119,11 @@ function getBlackboxStatusLabel(status: string): string {
 
 export function EdgeAgentsPage() {
   const navigate = useNavigate()
-  const hasAnyAgent = edgeAgents.length > 0
+  // {v1.40} 决策 40-4：agent 列表本地态（「立即同步」后延迟更新 config_sync_status → in_sync，原型以 mock 模拟 force-sync API）
+  const [agents, setAgents] = useState<EdgeAgent[]>(edgeAgents)
+  // {v1.40} 决策 40-4：正在执行「立即同步」的 Agent id（按钮 loading）
+  const [syncingAgentId, setSyncingAgentId] = useState<string | null>(null)
+  const hasAnyAgent = agents.length > 0
 
   // 筛选状态
   const [selectedDomain, setSelectedDomain] = useState<string | undefined>(undefined)
@@ -138,7 +150,7 @@ export function EdgeAgentsPage() {
 
   // 筛选后的节点列表
   const filteredAgents = useMemo(() => {
-    let list = [...edgeAgents]
+    let list = [...agents]
     if (selectedDomain) {
       list = list.filter((a) => a.network_domain_id === selectedDomain)
     }
@@ -155,19 +167,19 @@ export function EdgeAgentsPage() {
       list = list.filter((a) => a.config_sync_status === selectedConfigSync)
     }
     return list
-  }, [selectedDomain, selectedOverallStatus, selectedCollectorStatus, selectedBlackboxStatus, selectedConfigSync])
+  }, [agents, selectedDomain, selectedOverallStatus, selectedCollectorStatus, selectedBlackboxStatus, selectedConfigSync])
 
   // 统计卡
   const stats = useMemo(() => {
-    const total = edgeAgents.length
-    const online = edgeAgents.filter((a) => a.status === 'online').length
-    const collectorRunning = edgeAgents.filter((a) => a.collector_status === 'running').length
-    const blackboxRunning = edgeAgents.filter((a) => {
+    const total = agents.length
+    const online = agents.filter((a) => a.status === 'online').length
+    const collectorRunning = agents.filter((a) => a.collector_status === 'running').length
+    const blackboxRunning = agents.filter((a) => {
       const bb = a.components.find((c) => c.type === 'blackbox_exporter')
       return bb?.status === 'running'
     }).length
     return { total, online, collectorRunning, blackboxRunning }
-  }, [])
+  }, [agents])
 
   // 打开 Drawer 查看组件详情
   const openDrawer = (agent: EdgeAgent) => {
@@ -175,10 +187,34 @@ export function EdgeAgentsPage() {
     setDrawerOpen(true)
   }
 
+  /** {v1.40} 决策 40-4「立即同步」：中心置 force_pull 标记，Agent 下次心跳无视版本一致强制重新拉包；
+   *  原型以 mock 模拟——按钮 loading → 延迟（模拟心跳拉包）→ config_sync_status → in_sync */
+  const handleForceSync = (agent: EdgeAgent) => {
+    setSyncingAgentId(agent.id)
+    message.loading({ content: `正在向网域下发强制同步标记，等待 ${agent.hostname} 下次心跳拉包...`, key: `sync-${agent.id}` })
+    setTimeout(() => {
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agent.id
+            ? {
+                ...a,
+                config_sync_status: 'in_sync',
+                out_of_sync_cause: undefined,
+                last_error: '',
+                last_config_pull: new Date().toLocaleString('zh-CN', { hour12: false }),
+                components: a.components.map((c) => ({ ...c, last_error: undefined })),
+              }
+            : a
+        )
+      )
+      setSyncingAgentId(null)
+      message.success({ content: `${agent.hostname} 已强制重新拉包并 reload 生效（config_sync_status → in_sync）`, key: `sync-${agent.id}` })
+    }, 1800)
+  }
+
   const filterBar = (
-    <Space wrap>
-      <Space>
-        <Text type="secondary">网域：</Text>
+    <FilterBar>
+      <FilterItem label="网域" width={250}>
         <Select
           allowClear
           placeholder="全部网域"
@@ -186,12 +222,11 @@ export function EdgeAgentsPage() {
           value={selectedDomain}
           onChange={(v) => setSelectedDomain(v)}
           options={networkDomains
-            .filter((d) => edgeAgents.some((a) => a.network_domain_id === d.id))
+            .filter((d) => agents.some((a) => a.network_domain_id === d.id))
             .map((d) => ({ value: d.id, label: `${d.name}（${d.id}）` }))}
         />
-      </Space>
-      <Space>
-        <Text type="secondary">整体状态：</Text>
+      </FilterItem>
+      <FilterItem label="整体状态">
         <Select
           allowClear
           placeholder="全部"
@@ -204,9 +239,8 @@ export function EdgeAgentsPage() {
             { value: 'offline', label: '离线' },
           ]}
         />
-      </Space>
-      <Space>
-        <Text type="secondary">采集器状态：</Text>
+      </FilterItem>
+      <FilterItem label="采集器状态" width={240}>
         <Select
           allowClear
           placeholder="全部"
@@ -219,9 +253,8 @@ export function EdgeAgentsPage() {
             { value: 'unknown', label: '未知' },
           ]}
         />
-      </Space>
-      <Space>
-        <Text type="secondary">拨测器状态：</Text>
+      </FilterItem>
+      <FilterItem label="拨测器状态" width={240}>
         <Select
           allowClear
           placeholder="全部"
@@ -235,9 +268,8 @@ export function EdgeAgentsPage() {
             { value: 'unknown', label: '未知' },
           ]}
         />
-      </Space>
-      <Space>
-        <Text type="secondary">配置同步：</Text>
+      </FilterItem>
+      <FilterItem label="配置同步" width={240}>
         <Select
           allowClear
           placeholder="全部"
@@ -247,23 +279,34 @@ export function EdgeAgentsPage() {
           options={[
             { value: 'in_sync', label: '已同步' },
             { value: 'out_of_sync', label: '未同步' },
-            { value: 'manual_override', label: '手工覆盖' },
+            { value: 'manual_override', label: '人工覆盖' },
+            { value: 'no_version', label: '未下发配置' },
             { value: 'unknown', label: '未知' },
           ]}
         />
-      </Space>
-    </Space>
+      </FilterItem>
+    </FilterBar>
   )
+
+  const [bannerClosed, setBannerClosed] = useState(() => localStorage.getItem('edgeAgentsBannerClosed') === 'true')
 
   return (
     <MainLayout>
-      {/* 组件关系说明横幅 */}
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="一次安装 = 三个进程：Edge Sync Agent（管理进程）+ 采集器 vmagent（采集指标）+ 拨测器 blackbox（可选）。Edge Sync Agent 负责拉取配置并守护另外两个进程，某个进程异常会被自动重启并在此处展示。"
-      />
+      {/* PRD 3.8.1：页面顶部组件关系说明横幅，改为可关闭 Alert，默认展示，关闭后记住用户选择 */}
+      {!bannerClosed && (
+        <Alert
+          type="info"
+          showIcon
+          closable
+          message="组件关系说明"
+          description="一次安装 = 三个进程：Edge Sync Agent（管理进程）+ 采集器 vmagent（采集指标）+ 拨测器 blackbox（可选）。Edge Sync Agent 负责拉取配置并守护另外两个进程，某个进程异常会被自动重启并在此处展示。"
+          style={{ margin: '0 0 16px' }}
+          onClose={() => {
+            localStorage.setItem('edgeAgentsBannerClosed', 'true')
+            setBannerClosed(true)
+          }}
+        />
+      )}
 
       {/* 统计卡片 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -298,8 +341,8 @@ export function EdgeAgentsPage() {
             </Tooltip>
           </Space>
         }
-        extra={filterBar}
       >
+        {hasAnyAgent && filterBar}
         {!hasAnyAgent ? (
           <Alert
             type="info"
@@ -315,7 +358,10 @@ export function EdgeAgentsPage() {
               dataSource={filteredAgents}
               rowKey="id"
               size="small"
-              pagination={{ pageSize: 10 }}
+              className="edge-agent-table"
+              rowClassName={(record) => (computeOverallStatus(record) === 'partial_abnormal' ? 'row-partial-abnormal' : '')}
+              scroll={TABLE_SCROLL_X}
+              pagination={TABLE_PAGINATION}
               onRow={(record) => ({
                 style: { cursor: 'pointer' },
                 onClick: () => openDrawer(record),
@@ -325,6 +371,7 @@ export function EdgeAgentsPage() {
                   title: '节点（主机名 / IP）',
                   key: 'node',
                   width: 220,
+                  fixed: 'left',
                   render: (_: unknown, record: EdgeAgent) => (
                     <Space direction="vertical" size={2}>
                       <Text strong>{record.hostname}</Text>
@@ -376,6 +423,23 @@ export function EdgeAgentsPage() {
                 },
                 {
                   title: (
+                    <Tooltip title="Edge Sync Agent（配置轮询采集器）运行状态：负责心跳 / 配置拉取 / 守护本节点采集器与拨测器；在线/离线两档">
+                      <Space size={4}>
+                        Edge Sync Agent
+                        <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+                      </Space>
+                    </Tooltip>
+                  ),
+                  key: 'sync-agent-status',
+                  width: 130,
+                  render: (_: unknown, record: EdgeAgent) => {
+                    const sa = record.components.find((c) => c.type === 'edge_sync_agent')
+                    const cfg = componentStatusColor[sa?.status ?? 'unknown']
+                    return <Tag color={cfg.color}>{cfg.label}</Tag>
+                  },
+                },
+                {
+                  title: (
                     <Tooltip title="采集器运行状态（由 Edge Sync Agent 部署守护，进程异常自动重启并上报）">
                       <Space size={4}>
                         采集器状态
@@ -412,7 +476,7 @@ export function EdgeAgentsPage() {
                 },
                 {
                   title: (
-                    <Tooltip title="配置同步状态（四档）：in_sync=已同步；out_of_sync=未同步（中心有更新版本，需人工确认下发）；manual_override=本地手工覆盖（需人工重新确认）；unknown=未知。四档状态均支持引导操作">
+                    <Tooltip title="配置同步状态（五档，未同步按成因分档展示）：已同步；待确认变更=中心有待确认变更草稿→「前往配置确认」；生效中=已确认后等待 Agent 拉包/生效（无需操作）→「查看下发记录」；本地校验失败=checksum 校验失败保留旧配置→「立即同步」；人工覆盖=本地修改（纯展示）；未下发配置→「去配置采集 Job」；未知。local 通道网域由下发记录派生，见「配置变更确认」页同步状态">
                       <Space size={4}>
                         配置同步
                         <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -420,29 +484,84 @@ export function EdgeAgentsPage() {
                     </Tooltip>
                   ),
                   key: 'config-sync',
-                  width: 200,
+                  width: 260,
                   render: (_: unknown, record: EdgeAgent) => {
-                    const syncConfig: Record<ConfigSyncStatus, { color: string; label: string; action?: { text: string; link: string } }> = {
+                    const cause = record.out_of_sync_cause
+                    // {v1.42} 决策 40-1 修订：out_of_sync 不再统一显示「未同步」，按成因分档展示标签与颜色，
+                    // 与下一步按钮一一对应（待确认变更→前往配置确认 / 生效中→查看下发记录 / 本地校验失败→立即同步），
+                    // 避免三种按钮并存时都挂「未同步」标签造成认知混淆
+                    const syncConfig: Record<ConfigSyncStatus, { color: string; label: string }> = {
                       in_sync: { color: 'success', label: '已同步' },
-                      out_of_sync: { color: 'warning', label: '未同步', action: { text: '前往配置确认', link: '/config-preview' } },
-                      manual_override: { color: 'error', label: '手工覆盖', action: { text: '去配置采集 Job', link: '/global/strategy' } },
+                      out_of_sync:
+                        cause === 'pending_draft'
+                          ? { color: 'gold', label: '待确认变更' }
+                          : cause === 'pull_pending'
+                            ? { color: 'blue', label: '生效中' }
+                            : cause === 'local_reset'
+                              ? { color: 'volcano', label: '本地校验失败' }
+                              : { color: 'warning', label: '未同步' },
+                      manual_override: { color: 'error', label: '人工覆盖' },
                       unknown: { color: 'default', label: '未知' },
+                      no_version: { color: 'default', label: '未下发配置' },
                     }
                     const cfg = syncConfig[record.config_sync_status]
                     return (
-                      <Space>
+                      <Space size={4}>
                         <Tag color={cfg.color}>{cfg.label}</Tag>
-                        {cfg.action && (
+                        {/* {v1.40 决策 40-1} out_of_sync 按成因渲染引导（标签分档见 syncConfig） */}
+                        {record.config_sync_status === 'out_of_sync' && cause === 'pending_draft' && (
                           <Button
                             type="link"
                             size="small"
-                            icon={record.config_sync_status === 'out_of_sync' ? <CheckCircleOutlined /> : <SettingOutlined />}
+                            icon={<ArrowRightOutlined />}
                             onClick={(e) => {
                               e.stopPropagation()
-                              navigate(cfg.action!.link)
+                              navigate(`/config-preview?network_domain=${record.network_domain_id}`)
                             }}
                           >
-                            {cfg.action.text}
+                            前往配置确认
+                          </Button>
+                        )}
+                        {record.config_sync_status === 'out_of_sync' && cause === 'pull_pending' && (
+                          <Tooltip title="无待确认变更，Agent 拉包/生效延迟（网络波动 / 瞬时 reload 失败自动重试中），等待心跳自动流转为已同步，无需操作">
+                            <Button
+                              type="link"
+                              size="small"
+                              icon={<LinkOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                navigate(`/deployments?network_domain=${record.network_domain_id}`)
+                              }}
+                            >
+                              查看下发记录
+                            </Button>
+                          </Tooltip>
+                        )}
+                        {record.config_sync_status === 'out_of_sync' && cause === 'local_reset' && (
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<SyncOutlined spin={syncingAgentId === record.id} />}
+                            loading={syncingAgentId === record.id}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleForceSync(record)
+                            }}
+                          >
+                            立即同步
+                          </Button>
+                        )}
+                        {record.config_sync_status === 'no_version' && (
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<ArrowRightOutlined />}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              window.open(`${MODULE_LINKS.module01}?view=jobs&network_domain=${record.network_domain_id}`, '_blank')
+                            }}
+                          >
+                            去配置采集 Job
                           </Button>
                         )}
                       </Space>
@@ -460,13 +579,14 @@ export function EdgeAgentsPage() {
                 {
                   title: '最后心跳',
                   key: 'last-heartbeat',
-                  width: 160,
+                  width: 140,
                   render: (_: unknown, record: EdgeAgent) => <Text>{record.last_heartbeat}</Text>,
                 },
                 {
                   title: '操作',
                   key: 'action',
                   width: 80,
+                  fixed: 'right',
                   render: (_: unknown, record: EdgeAgent) => (
                     <Tooltip title="查看组件详情">
                       <Button
@@ -485,7 +605,7 @@ export function EdgeAgentsPage() {
                 },
               ]}
             />
-            <div style={{ marginTop: 12 }}>
+            <ReviewNote title="设计说明：展示范围 / 配置同步五档 / 边缘约束（面向产品 / 技术评审）" style={{ margin: '12px 0 0' }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 展示范围（决策 31/32/33）：仅展示部署了 Edge Agent 的网域——local 通道网域（default）由中心直接采集、不部署 Edge Agent，
                 不产生 EdgeAgent 实例、不出现在本页（与域类型解耦，通道绑定采集节点位置）；菜单常驻展示，无实例时展示空态引导。
@@ -493,15 +613,18 @@ export function EdgeAgentsPage() {
               </Text>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                展示结构：节点列表（主机名 / IP / 网域 / 整体状态 / 采集器状态 / 拨测器状态 / 配置同步 / WAL 积压 / 最后心跳），
+                展示结构：节点列表（主机名 / IP / 网域 / 整体状态 / Edge Sync Agent 状态 / 采集器状态 / 拨测器状态 / 配置同步 / WAL 积压 / 最后心跳），
                 点击行或「查看」按钮展开组件详情抽屉，展示该节点下各组件（Edge Sync Agent / 采集器 / 拨测器）的运行状态、版本、配置版本、最近错误。
               </Text>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                配置同步状态说明（四档）：<Text code>in_sync</Text>=已同步（中心与边缘版本一致）；
-                <Text code>out_of_sync</Text>=未同步（中心有更新版本，或边缘拉取配置包后 checksum 校验失败保留旧配置）→ 可点击「前往配置确认」；
-                <Text code>manual_override</Text>=本地手工覆盖（平台不强制 reconcile，需人工重新确认）→ 可点击「去配置采集 Job」；
-                <Text code>unknown</Text>=未知（未上报配置版本）。Agent IP / 主机名由 Edge Sync Agent 心跳上报登记，仅展示，不参与配置下发。
+                配置同步状态说明（五档，{`{v1.37}`} 决策 37-1）：<Text code>in_sync</Text>=已同步（中心与边缘版本一致）；
+                <Text code>out_of_sync</Text>=未同步，{`{v1.42}`} **按成因分档展示（决策 40-1）**，标签与下一步按钮一一对应，避免多按钮并存时统一显示「未同步」造成迷惑——成因 A（<Text code>pending_draft</Text>）=<Text code>待确认变更</Text>：中心存在待确认变更草稿 →「前往配置确认」（预选该网域）；成因 B（<Text code>pull_pending</Text>）=<Text code>生效中</Text>：采集器运行正常、配置已确认后等待 Agent 拉包/生效（典型场景：变更确认后在等待）→ **纯展示等待**（心跳自动变为已同步，无需操作）+「查看下发记录」链接；成因 C（<Text code>local_reset</Text>）=<Text code>本地校验失败</Text>：本地环境/地址变化、checksum 校验失败保留旧配置 →「立即同步」强制重新拉包（无视版本一致 304）；
+                采集器进程异常（已停止）属于组件健康问题：配置版本已同步（in_sync），不在配置同步列给引导按钮，从详情抽屉查看组件错误与维修提示。
+                <Text code>manual_override</Text>=人工覆盖（本地手工兜底；平台不强制 reconcile，纯展示，需人工重新确认下发恢复一致性）；
+                <Text code>no_version</Text>=未下发配置（Agent 已上线但网域尚无配置版本）→ 可点击「去配置采集 Job」（跳 Module_01 预选网域）；
+                <Text code>unknown</Text>=未知（未上报配置版本）。local 通道网域（default）不产生 EdgeAgent 实例，其网域级配置同步状态由下发记录派生，展示于「配置变更确认」页（决策 37-1）。
+                Agent IP / 主机名由 Edge Sync Agent 心跳上报登记，仅展示，不参与配置下发。
               </Text>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
@@ -530,7 +653,7 @@ export function EdgeAgentsPage() {
                 边缘 Agent 保留<Text strong>最后一份有效配置</Text>继续自治采集（本地快照，不依赖中心在线），
                 网络恢复后心跳上报配置版本 → 中心响应有更新 → 拉取该网域最新已审批版本（网域内版本一致 + checksum 校验）。
               </Text>
-            </div>
+            </ReviewNote>
           </>
         )}
       </Card>
@@ -545,12 +668,37 @@ export function EdgeAgentsPage() {
       >
         {drawerAgent && (
           <>
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="Agent 是管理进程，负责拉取配置和守护另外两个进程。某个进程异常会被自动重启并在此处展示。"
-            />
+            {/* {v1.42} 组件健康异常（Edge Sync Agent 在线但采集器/拨测器异常）的高影响提示：
+                与配置同步无关（配置仍可显示「已同步」），监控已中断，须上机修复 */}
+            {computeOverallStatus(drawerAgent) === 'partial_abnormal' && (
+              <div
+                style={{
+                  background: '#FFF1F0',
+                  border: '1px solid #FFCCC7',
+                  borderLeft: '4px solid #FF4D4F',
+                  borderRadius: 6,
+                  padding: '12px 16px',
+                  marginBottom: 16,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <ExclamationCircleFilled style={{ color: '#FF4D4F', marginTop: 3 }} />
+                  <div>
+                    <Text strong style={{ color: '#CF1322', fontSize: 14 }}>
+                      监控采集中断，需立即处理
+                    </Text>
+                    <div style={{ marginTop: 4, fontSize: 12, color: '#820014' }}>
+                      采集器/拨测器进程异常，该节点指标已停止采集与回传，相关告警和看板将失效。
+                      此异常与配置同步无关（配置仍显示「已同步」），平台无法远程修复；请登录该边缘节点用 systemd 重启服务，
+                      或按「网域纳管」安装指引重装离线包。
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
+              Agent 是管理进程，负责拉取配置并守护其他进程；进程异常会被自动重启并在此展示。
+            </Text>
             <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
               <Descriptions.Item label="节点名称">{drawerAgent.hostname}</Descriptions.Item>
               <Descriptions.Item label="IP 地址">{drawerAgent.agent_ip}</Descriptions.Item>
@@ -568,6 +716,10 @@ export function EdgeAgentsPage() {
                 {drawerAgent.wal_backlog_bytes > 0 ? formatBytes(drawerAgent.wal_backlog_bytes) : '0 B'}
               </Descriptions.Item>
             </Descriptions>
+
+            <Text type="secondary" style={{ display: 'block', marginBottom: 16, fontSize: 12 }}>
+              维修提示：进程持续异常时，登录边缘节点用 systemd 重启服务，或按「网域纳管」安装指引重装离线包（MVP 不提供中心侧远程重启）。
+            </Text>
 
             <Text strong style={{ display: 'block', marginBottom: 12 }}>
               组件列表

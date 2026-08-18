@@ -339,7 +339,7 @@ export default function MetricLibraryPage() {
       <div className="page-header">
         <Title level={4}>技术指标库</Title>
         <Text type="secondary">
-          平台可识别的指标元数据（指标名 / 类型 / HELP / UNIT），回答「能采到什么」；{'{v3.8} 锚点演进：'}按 CI 类型（resource_type）分组查看（多对多，关联带来源采集器标注，可按语义域聚合），必须先存在指标库才能编写 PromQL（规则编辑提示 + 校验）。MVP 阶段内置库只读，P1/P2 支持用户导入 / 更新 / 覆盖 / 禁用；禁用指标不参与规则编辑提示
+          平台可识别的指标元数据（指标名 / 类型 / 单位 / 说明），回答「能采到什么」；按 CI 类型分组查看，必须先存在指标库才能编写 PromQL。
         </Text>
       </div>
       {/* {v3.7} 两库关系说明（用户语言）：技术指标库回答「指标是什么」，业务指标库回答「业务要什么」；动线归组放一起 */}
@@ -433,7 +433,7 @@ export default function MetricLibraryPage() {
               <DatabaseOutlined style={{ color: '#0ECDEB', fontSize: 18 }} />
               <Text type="secondary">
                 共 {metrics.length} 个指标（内置 {metrics.filter((m) => m.is_builtin).length} /
-                用户扩展 {metrics.filter((m) => !m.is_builtin).length}），按 {groupedData.length} 个 CI 类型组织（{'{v3.8}'}）
+                用户扩展 {metrics.filter((m) => !m.is_builtin).length}），按 {groupedData.length} 个 CI 类型组织
               </Text>
             </Space>
           </Col>

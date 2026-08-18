@@ -55,3 +55,7 @@ _gcc_make.zip
 
 # WorkBuddy 项目本地元数据（记忆/自动化等，不纳入版本控制）
 .workbuddy/
+
+# Python 缓存（scripts/ 下的检查脚本运行时产生）
+__pycache__/
+*.pyc

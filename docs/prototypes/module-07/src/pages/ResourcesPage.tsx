@@ -35,6 +35,10 @@ import {
   UploadOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { FilterBar, FilterItem } from '../components/FilterBar'
+import { EllipsisText } from '../components/EllipsisText'
+import { ReviewNote } from '../components/ReviewNote'
+import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../components/tablePresets'
 import {
   ENV_VALUES,
   DATABASE_TYPE_OPTIONS,
@@ -889,6 +893,8 @@ export default function ResourcesPage() {
     const actionColumn = {
       title: '操作',
       key: 'actions',
+      fixed: 'right' as const,
+      width: 150,
       render: (_: unknown, record: Resource) => (
         <Space size={0}>
           <Button
@@ -938,9 +944,9 @@ export default function ResourcesPage() {
             render: (_: unknown, record: Resource) => (
               <Space direction="vertical" size={0}>
                 <Text strong>{record.instance_name}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>
+                <EllipsisText type="secondary" maxWidth={180}>
                   {record.hostname}
-                </Text>
+                </EllipsisText>
               </Space>
             ),
           },
@@ -1197,13 +1203,21 @@ export default function ResourcesPage() {
           <span>
             本页维护监控对象（资源）、资源标签与标签模板的数据，<strong>不生成采集配置、不配置采集任务、不下发配置</strong>。
             采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责。
-            「已监控 / 未监控」状态由监控策略模块计算，本页只读展示。
           </span>
         }
       />
 
+      <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
+        <ul style={{ paddingLeft: 18, margin: 0 }}>
+          <li>「已监控 / 未监控」状态由监控策略模块计算，本页只读展示。</li>
+          <li>标签来源口径：模板映射生成 = 「系统」标签；手工添加 = 「用户」标签；CMDB 字段（v0.4+）= 「CMDB」标签。</li>
+          <li>列显隐配置为 P1 占位，MVP 版本列表列固定展示，可在「列设置」查看后续规划。</li>
+          <li>Excel 导入：状态中文值按内置状态映射转换（本页只读展示，配置入口 P2）；枚举列（env / protocol / scheme）要求与字典一致，否则报错。</li>
+        </ul>
+      </ReviewNote>
+
       <Card className="page-card">
-        <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+        <Row gutter={[16, 16]} align="middle" style={{ marginBottom: 16 }}>
           <Col>
             <Space wrap>
               <Button type="primary" icon={<PlusOutlined />} style={{ backgroundColor: '#0ECDEB' }} onClick={openAddModal}>
@@ -1226,27 +1240,28 @@ export default function ResourcesPage() {
               </Tooltip>
             </Space>
           </Col>
-          <Col>
-            <Space>
-              <Select
-                placeholder="网域筛选"
-                value={filterDomain}
-                onChange={(v) => setFilterDomain(v)}
-                style={{ width: 180 }}
-                options={[
-                  { value: 'all', label: '全部网域' },
-                  ...mockNetworkDomains.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` })),
-                ]}
-              />
-              <Input.Search
-                placeholder="搜索实例名 / IP / 应用"
-                allowClear
-                onSearch={(value) => setSearch(value)}
-                style={{ width: 280 }}
-              />
-            </Space>
-          </Col>
         </Row>
+
+        <FilterBar>
+          <FilterItem label="网域" width={240}>
+            <Select
+              placeholder="全部网域"
+              allowClear
+              value={filterDomain === 'all' ? undefined : filterDomain}
+              onChange={(v) => setFilterDomain(v ?? 'all')}
+              style={{ width: 180 }}
+              options={mockNetworkDomains.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` }))}
+            />
+          </FilterItem>
+          <FilterItem label="搜索" width={340}>
+            <Input.Search
+              placeholder="搜索实例名 / IP / 应用"
+              allowClear
+              onSearch={(value) => setSearch(value)}
+              style={{ width: 280 }}
+            />
+          </FilterItem>
+        </FilterBar>
 
         <Tabs
           activeKey={activeType}
@@ -1262,7 +1277,9 @@ export default function ResourcesPage() {
           rowKey="resource_id"
           dataSource={filteredData}
           columns={getColumns(activeType)}
-          pagination={{ pageSize: 6 }}
+          size="small"
+          scroll={TABLE_SCROLL_X}
+          pagination={TABLE_PAGINATION}
           onRow={(record) => ({
             onClick: () => handleOpenDetail(record),
             style: { cursor: 'pointer' },
@@ -1282,12 +1299,11 @@ export default function ResourcesPage() {
       >
         {selectedResource && (
           <>
-            <Alert
-              message={`来源：${SOURCE_TYPE_MAP[selectedResource.source_type]} | 类型：${RESOURCE_TYPE_MAP[selectedResource.resource_category]} | 网域：${selectedResource.network_domain_id}`}
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-            />
+            <Space size={[8, 8]} wrap style={{ marginBottom: 16 }}>
+              <Tag color="blue">{SOURCE_TYPE_MAP[selectedResource.source_type]}</Tag>
+              <Tag>{RESOURCE_TYPE_MAP[selectedResource.resource_category]}</Tag>
+              <Tag>网域：{selectedResource.network_domain_id}</Tag>
+            </Space>
             <Descriptions
               column={2}
               size="small"
@@ -1372,13 +1388,9 @@ export default function ResourcesPage() {
               {selectedResource?.resource_category === 'application' ? '自定义标签（非必须）' : '自定义标签（静态资源只读）'}
             </Title>
             {/* {v2.6} 统一口径：标签来源 vs 模板映射字段来源的对应关系，消除「系统/用户/CMDB」与「资源字段/组合字段/CMDB 字段」的歧义 */}
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="标签口径说明"
-              description={
-                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            <div style={{ marginBottom: 12, padding: 12, background: '#F7F8FA', borderRadius: 6 }}>
+              <Text strong style={{ fontSize: 13 }}>标签口径说明</Text>
+              <Space direction="vertical" size={6} style={{ width: '100%', marginTop: 8 }}>
                   <Space wrap size={[4, 4]}>
                     <Tag color="default">系统</Tag>
                     <Text style={{ fontSize: 12 }}>= 由标签模板生成（MVP 字段来源：平台资源字段 / 组合字段），只读；改值请前往标签模板管理</Text>
@@ -1402,25 +1414,17 @@ export default function ResourcesPage() {
                   <Text style={{ fontSize: 12, color: '#86909C' }}>
                     {'冲突优先级：CMDB > 用户 > 系统（系统标签为生成基线，不可被覆盖）。大多数场景下标签模板已自动生成所需标签，仅当个别应用服务实例需要额外标签时使用。'}
                   </Text>
-                </Space>
-              }
-            />
+              </Space>
+            </div>
             {/* 批量标签编辑占位（后续版本开放） */}
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="批量标签编辑：按资源类别或筛选条件批量增删改标签，后续版本开放"
-            />
+            <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+              批量标签编辑（后续版本开放）：按资源类别或筛选条件批量增删改标签。
+            </Text>
             {selectedResource?.resource_category !== 'application' ? (
               // {v2.8} 双场景治理：静态资源只读，不渲染添加输入（数据治理在 CMDB / Excel 侧）
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 12 }}
-                message="静态资源标签由 CMDB / Excel 治理，平台只读"
-                description="主机、中间件、通用目标资源的标签由 CMDB 同步（MVP 阶段由 Excel 导入带入），数据治理在 CMDB 侧完成，本平台不引导二次打标。如需修改标签，请前往 CMDB 或更新导入数据。"
-              />
+              <Text style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
+                静态资源标签由 CMDB / Excel 治理，平台只读。主机、中间件、通用目标资源的标签由 CMDB 同步（MVP 阶段由 Excel 导入带入），数据治理在 CMDB 侧完成，本平台不引导二次打标。如需修改标签，请前往 CMDB 或更新导入数据。
+              </Text>
             ) : (
             <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
               <Row gutter={12} align="middle">
@@ -1446,7 +1450,7 @@ export default function ResourcesPage() {
                 </Col>
               </Row>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                key 规则：小写字母 / 数字 / 下划线；禁止以 __ 开头；长度 ≤128；禁止覆盖 Prometheus 内置标签（instance / job / scheme / __address__ 等）。
+                key 规则：小写字母/数字/下划线；禁止 __ 开头；长度 ≤128；禁止覆盖 Prometheus 内置标签（如 instance/job/scheme 等）。
               </Text>
               {(keyError || cmdbConflict) && (
                 <div>
@@ -1595,13 +1599,9 @@ export default function ResourcesPage() {
         }
         width={560}
       >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="固定列模板"
-          description="按资源类别提供固定列模板；未填写网域时自动归属默认网域。"
-        />
+        <Text style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
+          <Text strong>固定列模板：</Text>按资源类别提供固定列模板；未填写网域时自动归属默认网域。
+        </Text>
         <Table
           size="small"
           rowKey="column"
@@ -1629,28 +1629,19 @@ export default function ResourcesPage() {
         }
         width={720}
       >
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="状态映射字典"
-          description={
-            <Space wrap size={[8, 8]}>
-              {STATUS_MAPPING_RULES.map((rule) => (
-                <Tag key={rule.target}>
-                  {rule.source.join(' / ')} → {STATUS_MAP[rule.target]}
-                </Tag>
-              ))}
-            </Space>
-          }
-        />
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="导入校验项"
-          description="必填字段 · 网域存在性（空时归属 default，不存在则报错） · IP 格式 · 端口范围 1~65535 · URL 格式 · env 枚举 dev/test/staging/prod · protocol 枚举 http/https/tcp · 状态枚举 · 重复检测（instance_ip:port / service_name 不可重复） · 通用目标 instance_ip 必填 · scheme 枚举 http/https · custom_labels 格式 key=value;key2=value2"
-        />
+        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+          状态映射字典：
+        </Text>
+        <Space wrap size={[8, 8]} style={{ marginBottom: 12 }}>
+          {STATUS_MAPPING_RULES.map((rule) => (
+            <Tag key={rule.target}>
+              {rule.source.join(' / ')} → {STATUS_MAP[rule.target]}
+            </Tag>
+          ))}
+        </Space>
+        <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
+          导入校验项：必填字段 · 网域存在性 · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+        </Text>
         <Row gutter={16} style={{ marginBottom: 12 }}>
           <Col span={8}>
             <Card size="small">

@@ -10,7 +10,10 @@ export type AgentType = 'vmagent' | 'prometheus-agent'
 export type Channel = 'local' | 'agent_pull'
 /** {v1.29} 网域生命周期状态：created = 已由 Module_06 行政创建但未纳管监控；monitored = 已完成监控纳管 */
 export type NetworkDomainRegistrationStatus = 'created' | 'monitored'
-export type ConfigSyncStatus = 'in_sync' | 'out_of_sync' | 'unknown' | 'manual_override'
+/** {v1.37} 配置同步状态（决策 37-1）：in_sync / out_of_sync / unknown / manual_override / no_version（未下发配置：网域尚无成功下发过的 ConfigVersion）；`channel=local` 网域由下发记录派生，`channel=agent_pull` 网域由心跳回执派生 */
+export type ConfigSyncStatus = 'in_sync' | 'out_of_sync' | 'unknown' | 'manual_override' | 'no_version'
+/** {v1.40} 未同步成因（决策 40-1）：`out_of_sync` 时的引导成因（仅 out_of_sync 有值）——pending_draft=中心存在待确认变更草稿（→「前往配置确认」）/ pull_pending=无待确认变更、Agent 拉包/生效延迟（→ 纯展示等待 +「查看下发记录」）/ local_reset=Agent 本地环境/地址变化、checksum 校验失败保留旧配置、人工覆盖后恢复一致性（→「立即同步」） */
+export type OutOfSyncCause = 'pending_draft' | 'pull_pending' | 'local_reset'
 /** 采集器运行状态（PRD 3.2 采集器进程管理 / 6.3 第 1 条：Edge Sync Agent 部署守护本节点采集器，运行状态纳入心跳上报与 Agent 状态展示） */
 export type CollectorStatus = 'running' | 'stopped' | 'unknown'
 
@@ -40,11 +43,22 @@ export interface EdgeComponent {
   version: string
   /** 组件当前生效配置版本（与 EdgeAgent.config_version 对齐；无配置概念的可省略） */
   config_version?: string
-  /** 组件最近错误（如配置 reload 失败 / 拉包校验失败 / 本地手工覆盖提示） */
+  /** 组件最近错误（如配置 reload 失败 / 拉包校验失败 / 人工覆盖提示） */
   last_error?: string
 }
 export type ConfigDraftStatus = 'pending' | 'confirmed' | 'discarded'
 export type DraftValidationStatus = 'passed' | 'failed' | 'pending'
+/** {v1.39 决策 39-1/39-3} 校验失败归因分类：user_config=用户配置问题 / platform_fault=平台技术故障 */
+export type ValidationCause = 'user_config' | 'platform_fault'
+/**
+ * {v1.39 决策 39-1} 校验失败定位详情（行内 Popover 展示：失败文件 + 行号 + 错误信息）：
+ * 用户配置问题定位到 M01 / M07 对应 Job / 规则修复；平台技术故障仅提示（不提供用户修复动作）
+ */
+export interface ValidationErrorDetail {
+  file: string
+  line?: number
+  message: string
+}
 export type DeploymentStatus = 'pending' | 'running' | 'success' | 'failed' | 'rolled_back'
 export type DeploymentTargetType = 'central_prometheus' | 'edge_agent' | 'vmagent'
 export type DeploymentValidationStatus = 'passed' | 'failed' | 'pending'
@@ -189,6 +203,8 @@ export interface EdgeAgent {
   last_config_pull: string
   config_version: string
   config_sync_status: ConfigSyncStatus
+  /** {v1.40} 未同步成因（决策 40-1）：`out_of_sync` 时的引导成因（仅 out_of_sync 有值）；由心跳回执的拉包结果与中心待确认变更草稿联合判定（见 PRD 4.8 ③） */
+  out_of_sync_cause?: OutOfSyncCause
   wal_backlog_bytes: number
   remote_write_url: string
   last_error: string
@@ -221,6 +237,13 @@ export interface ConfigDraft {
   /** 下发前校验结果（PRD 3.5.1：promtool check config / blackbox_exporter --config.check） */
   validation_status: DraftValidationStatus
   validation_error: string
+  /**
+   * {v1.39 决策 39-1/39-3} 校验失败归因分类：user_config=用户配置问题（行内展示「重新校验」+「前往修改」跳 M01 修复源数据）；
+   * platform_fault=平台技术故障（校验层自动重试、用户无感，仅提示联系平台侧，不展示「重新校验」）
+   */
+  validation_cause?: ValidationCause
+  /** {v1.39 决策 39-1} 校验失败定位详情（失败文件 + 行号 + 错误信息），行内 Popover 展示；详细校验信息一律在行内，不进抽屉 */
+  validation_details?: ValidationErrorDetail[]
   /**
    * 人话变更摘要（决策 18）：configgen 对比当前生效版本与草稿的**产物差异**生成，
    * 面向不了解 Prometheus 的运维工程师回答「为什么发生了变更」，如「新增 1 台服务器（10.0.1.11）加入 node-exporter 采集」。
@@ -267,6 +290,8 @@ export interface ConfigDeployment {
   /** 本次下发配置包是否包含 blackbox.yml（PRD 4.5） */
   includes_blackbox: boolean
   error_message: string
+  /** {v1.37} 下发失败后的重试次数（决策 37-2）：0=未重试；重试复用本记录（failed → running → success/failed） */
+  retry_count: number
   triggered_by: string
   triggered_at: string
   completed_at: string
@@ -419,6 +444,22 @@ export const approvalTieringNote = {
     '混单规则：若某次变更同时涉及人工确认文件与 alertmanager.yml（防御性说明），按高风险文件走人工确认',
   reason:
     '原因：通知路由 / 接收人 / 静默 / 抑制调整频繁、风险低（仅影响告警体验，不影响采集 / 规则求值），且 Module_08 是 Alertmanager 配置的唯一 Owner',
+}
+
+/**
+ * change_status 全链路回写 M01（{v1.43} 联动 M01 草稿，PRD 3.3/3.4/3.5，M01 侧 v3.22 演示）：
+ * - ConfigDraft 生成 → 回写 pending（待确认）；
+ * - ConfigDraft 确认并生成 ConfigVersion → 回写 confirmed（已确认）；
+ * - ConfigDeployment.status=success（local reload 成功 / agent_pull 被 Edge Agent 成功应用）→ 回写 deployed（v0.2 起精确回写）；
+ *   MVP 阶段 deployed 由 none 占位，即确认下发成功后直接回写 none（M01 列表「下发状态=无变更」）；
+ * - 无相关在途变更 → 回写 none。
+ */
+export const changeStatusEnumDemo = {
+  pending: 'pending 待确认：ConfigDraft 生成后回写，M01 列表「下发状态=待确认」',
+  confirmed: 'confirmed 已确认：ConfigDraft 确认并生成 ConfigVersion 后回写',
+  deployed:
+    'deployed 已下发（v0.2 起精确回写）：ConfigDeployment.status=success 后回写；MVP 阶段由 none 占位，即确认下发成功后直接回写 none',
+  none: 'none 无变更：无相关在途变更时回写，M01 列表「下发状态=无变更」',
 }
 
 /**
@@ -622,7 +663,9 @@ export const edgeAgents: EdgeAgent[] = [
     heartbeat_rtt_ms: 52,
     last_config_pull: '2026-08-03 14:15:00',
     config_version: '20260803-141500',
-    config_sync_status: 'out_of_sync',
+    // {v1.41} 采集器已停止（组件健康问题）：配置版本已同步（in_sync），不产生配置同步引导按钮；
+    // 整体状态=部分异常，用户从详情抽屉查看组件错误 + 维修提示（进程异常 ≠ 配置未同步）
+    config_sync_status: 'in_sync',
     wal_backlog_bytes: 2097152,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: 'config reload: timeout waiting for response',
@@ -693,43 +736,6 @@ export const edgeAgents: EdgeAgent[] = [
     updated_at: '2026-08-03 13:50:00',
   },
   {
-    id: 'ea-mfg-01',
-    network_domain_id: 'manufacturing-edge',
-    agent_type: 'vmagent',
-    version: 'v1.2.0',
-    collector_version: 'v1.102.0',
-    collector_status: 'running',
-    hostname: 'edge-agent-mfg-01',
-    agent_ip: '192.168.10.11',
-    status: 'online',
-    last_heartbeat: '2026-08-03 14:25:00',
-    heartbeat_rtt_ms: 88,
-    last_config_pull: '2026-08-03 14:10:00',
-    config_version: '20260803-140000',
-    config_sync_status: 'in_sync',
-    wal_backlog_bytes: 268435456,
-    remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
-    last_error: '',
-    components: [
-      {
-        type: 'edge_sync_agent',
-        name: 'metric-center-edge-agent',
-        status: 'online',
-        version: 'v1.2.0',
-        config_version: '20260803-140000',
-      },
-      {
-        type: 'collector',
-        name: 'vmagent',
-        status: 'running',
-        version: 'v1.102.0',
-        config_version: '20260803-140000',
-      },
-    ],
-    created_at: '2026-07-20 00:00:00',
-    updated_at: '2026-08-03 14:25:00',
-  },
-  {
     id: 'ea-gov-a-03',
     network_domain_id: 'gov-cloud-a',
     agent_type: 'vmagent',
@@ -743,7 +749,9 @@ export const edgeAgents: EdgeAgent[] = [
     heartbeat_rtt_ms: 47,
     last_config_pull: '2026-08-03 14:20:00',
     config_version: '20260803-141500',
+    // {v1.40} 决策 40-1 成因 C（local_reset）：Agent 本地 checksum 校验失败保留旧配置 →「立即同步」强制重新拉包（无视版本一致 304）
     config_sync_status: 'out_of_sync',
+    out_of_sync_cause: 'local_reset',
     wal_backlog_bytes: 524288,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error:
@@ -777,44 +785,188 @@ export const edgeAgents: EdgeAgent[] = [
     updated_at: '2026-08-03 14:29:00',
   },
   {
-    id: 'ea-mfg-02',
-    network_domain_id: 'manufacturing-edge',
+    id: 'ea-gov-a-04',
+    network_domain_id: 'gov-cloud-a',
     agent_type: 'vmagent',
     version: 'v1.2.0',
     collector_version: 'v1.102.0',
     collector_status: 'running',
-    hostname: 'edge-agent-mfg-02',
-    agent_ip: '192.168.10.12',
+    hostname: 'edge-agent-gova-04',
+    agent_ip: '10.20.1.14',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:24:00',
-    heartbeat_rtt_ms: 92,
-    last_config_pull: '2026-08-03 14:05:00',
-    config_version: '20260803-140000',
+    last_heartbeat: '2026-08-03 14:31:00',
+    heartbeat_rtt_ms: 50,
+    last_config_pull: '2026-08-03 14:12:00',
+    config_version: '20260803-141500',
     config_sync_status: 'manual_override',
-    wal_backlog_bytes: 134217728,
+    wal_backlog_bytes: 262144,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
-    last_error:
-      '本地手工修改 prometheus.yml（平台不强制回拉覆盖），需人工重新确认下发以恢复一致性',
+    last_error: '本地手工修改 prometheus.yml（平台不强制回拉覆盖），需人工重新确认下发以恢复一致性',
     components: [
       {
         type: 'edge_sync_agent',
         name: 'metric-center-edge-agent',
         status: 'online',
         version: 'v1.2.0',
-        config_version: '20260803-140000',
-        last_error:
-          '本地手工修改 prometheus.yml（平台不强制回拉覆盖），需人工重新确认下发以恢复一致性',
+        config_version: '20260803-141500',
+        last_error: '本地手工修改 prometheus.yml（平台不强制回拉覆盖），需人工重新确认下发以恢复一致性',
       },
       {
         type: 'collector',
         name: 'vmagent',
         status: 'running',
         version: 'v1.102.0',
-        config_version: '20260803-140000',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'blackbox_exporter',
+        name: 'blackbox-exporter',
+        status: 'running',
+        version: 'v0.25.0',
+        config_version: '20260803-141500',
       },
     ],
-    created_at: '2026-07-21 00:00:00',
-    updated_at: '2026-08-03 14:24:00',
+    created_at: '2026-07-22 00:00:00',
+    updated_at: '2026-08-03 14:31:00',
+  },
+  {
+    // {v1.37} no_version（未下发配置）演示：Agent 已上线（心跳正常）但网域尚无成功下发的 ConfigVersion
+    id: 'ea-gov-a-05',
+    network_domain_id: 'gov-cloud-a',
+    agent_type: 'vmagent',
+    version: 'v1.2.0',
+    collector_version: 'v1.102.0',
+    collector_status: 'running',
+    hostname: 'edge-agent-gova-05',
+    agent_ip: '10.20.1.15',
+    status: 'online',
+    last_heartbeat: '2026-08-03 14:32:00',
+    heartbeat_rtt_ms: 49,
+    last_config_pull: '2026-08-03 14:02:00',
+    config_version: '',
+    config_sync_status: 'no_version',
+    wal_backlog_bytes: 131072,
+    remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
+    last_error: '',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'running',
+        version: 'v1.102.0',
+        config_version: '',
+      },
+      {
+        type: 'blackbox_exporter',
+        name: 'blackbox-exporter',
+        status: 'running',
+        version: 'v0.25.0',
+        config_version: '',
+      },
+    ],
+    created_at: '2026-07-23 00:00:00',
+    updated_at: '2026-08-03 14:32:00',
+  },
+  {
+    // {v1.40} 决策 40-1 成因 A（pending_draft）：中心存在该网域待确认变更草稿（draft-gov-003 待确认）→「前往配置确认」（预选该网域）
+    id: 'ea-gov-a-06',
+    network_domain_id: 'gov-cloud-a',
+    agent_type: 'vmagent',
+    version: 'v1.2.0',
+    collector_version: 'v1.102.0',
+    collector_status: 'running',
+    hostname: 'edge-agent-gova-06',
+    agent_ip: '10.20.1.16',
+    status: 'online',
+    last_heartbeat: '2026-08-03 14:33:00',
+    heartbeat_rtt_ms: 48,
+    last_config_pull: '2026-08-03 14:18:00',
+    config_version: '20260803-141500',
+    config_sync_status: 'out_of_sync',
+    out_of_sync_cause: 'pending_draft',
+    wal_backlog_bytes: 393216,
+    remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
+    last_error: '中心存在待确认变更草稿（draft-gov-003），配置变更确认后随下次心跳拉取生效',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '20260803-141500',
+        last_error: '中心存在待确认变更草稿（draft-gov-003），配置变更确认后随下次心跳拉取生效',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'running',
+        version: 'v1.102.0',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'blackbox_exporter',
+        name: 'blackbox-exporter',
+        status: 'running',
+        version: 'v0.25.0',
+        config_version: '20260803-141500',
+      },
+    ],
+    created_at: '2026-07-24 00:00:00',
+    updated_at: '2026-08-03 14:33:00',
+  },
+  {
+    // {v1.41} 决策 40-1 成因 B（pull_pending）典型场景：采集器运行正常，配置已确认（变更单 CHG-20260803-004）后等待 Agent 拉包/生效
+    // → 纯展示等待（心跳自动 out_of_sync → in_sync，无需操作）+「查看下发记录」
+    id: 'ea-gov-a-07',
+    network_domain_id: 'gov-cloud-a',
+    agent_type: 'vmagent',
+    version: 'v1.2.0',
+    collector_version: 'v1.102.0',
+    collector_status: 'running',
+    hostname: 'edge-agent-gova-07',
+    agent_ip: '10.20.1.17',
+    status: 'online',
+    last_heartbeat: '2026-08-03 14:34:00',
+    heartbeat_rtt_ms: 46,
+    last_config_pull: '2026-08-03 14:16:00',
+    config_version: '20260803-141500',
+    config_sync_status: 'out_of_sync',
+    out_of_sync_cause: 'pull_pending',
+    wal_backlog_bytes: 786432,
+    remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
+    last_error: '配置变更已确认（CHG-20260803-004），随下次心跳拉取生效中（拉包/生效延迟，等待自动流转）',
+    components: [
+      {
+        type: 'edge_sync_agent',
+        name: 'metric-center-edge-agent',
+        status: 'online',
+        version: 'v1.2.0',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'collector',
+        name: 'vmagent',
+        status: 'running',
+        version: 'v1.102.0',
+        config_version: '20260803-141500',
+      },
+      {
+        type: 'blackbox_exporter',
+        name: 'blackbox-exporter',
+        status: 'running',
+        version: 'v0.25.0',
+        config_version: '20260803-141500',
+      },
+    ],
+    created_at: '2026-07-25 00:00:00',
+    updated_at: '2026-08-03 14:34:00',
   },
 ]
 
@@ -908,26 +1060,38 @@ scrape_configs:
           - 'targets/node-exporter.json'
 `
 
-// 制造边缘域草稿：prometheus.yml 骨架合法（promtool 可通过），
-// 语法错误体现在 targets/plc-gateway.json（JSON 数组未闭合），用于演示 configgen 侧 targets schema 校验失败（PRD 3.5.1）
-// {v1.31} manufacturing-edge 未登记 zone_type（M06 未配置）→ 不注入 external_labels.zone_type（PRD 9.2）
-const prometheusYmlMfgInvalid = `global:
+// {v1.37} default 域校验失败草稿的 prometheus.yml：含 plc-gateway job 骨架（与 targetsDefaultInvalid 的 plc-gateway 联动，
+// 演示 configgen 侧 targets schema 校验失败——promtool 对 file_sd 内容不校验，缺口由生成器弥补，PRD 3.5.1）
+const prometheusYmlDefaultInvalid = `global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    network_domain: 'manufacturing-edge'
+    network_domain: 'default'
     tenant_id: 'platform_admin'
 
 remote_write:
-  - url: 'https://metriccenter.example.com/api/v2/ingest/prometheus'
-    headers:
-      X-Network-Domain-Token: '***'
+  - url: 'http://localhost:8428/api/v1/write'
 
 scrape_configs:
   - job_name: 'node-exporter'
     file_sd_configs:
       - files:
           - 'targets/node-exporter.json'
+
+  - job_name: 'blackbox-tcp'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    file_sd_configs:
+      - files:
+          - 'targets/blackbox-tcp.json'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 127.0.0.1:9115
 
   - job_name: 'plc-gateway'
     file_sd_configs:
@@ -997,20 +1161,59 @@ const targetsFinance: ConfigTargetsFiles = {
   ],
 }
 
-// 制造边缘域：node-exporter 正常；plc-gateway 文件故意未闭合（JSON 语法错误），
-// 用于演示 configgen 侧 targets schema 校验失败（PRD 3.5.1：promtool 对 file_sd 内容不校验的缺口由生成器弥补）
-const targetsMfg: ConfigTargetsFiles = {
+// {v1.37} default 域校验失败演示（决策 37-1/37-2 联动）：plc-gateway 文件故意未闭合（JSON 数组缺 `]`），
+// 演示 configgen 侧 targets schema 校验失败——挂在 default（local 通道、单域可达），保证校验失败 UI 可演示
+const targetsDefaultInvalid: ConfigTargetsFiles = {
   'node-exporter': [
     {
-      targets: ['192.168.10.20:9100'],
-      labels: { network_domain: 'manufacturing-edge', app: 'app-mfg-line1', biz: 'manufacturing', env: 'prod' },
+      targets: ['localhost:9100'],
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
+    },
+  ],
+  'blackbox-tcp': [
+    {
+      targets: ['localhost:22'],
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
     },
   ],
   'plc-gateway': `[
   {
-    "targets": ["192.168.10.30:9273"],
-    "labels": {"network_domain": "manufacturing-edge", "app": "app-plc", "biz": "manufacturing", "env": "prod"}
+    "targets": ["localhost:9273"],
+    "labels": {"network_domain": "default", "app": "app-plc", "biz": "order", "env": "prod"}
   }`,
+}
+
+// {v1.37} default 域第二版本 targets（cv-default-002 / draft-default-004）：node-exporter 新增第二实例，供 local 回滚演示
+const targetsDefaultV2: ConfigTargetsFiles = {
+  'node-exporter': [
+    {
+      targets: ['localhost:9100', 'localhost:9101'],
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
+    },
+  ],
+  'blackbox-tcp': [
+    {
+      targets: ['localhost:22'],
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
+    },
+  ],
+}
+
+// {v1.38} 分级下发自动生效演示（决策 38-1）：纯 targets 变更（node-exporter 新增第三实例），
+// file_sd 热加载免 reload，自动生成 cv + deployment（triggered_by=系统自动），不进入人工确认列表
+const targetsDefaultV3: ConfigTargetsFiles = {
+  'node-exporter': [
+    {
+      targets: ['localhost:9100', 'localhost:9101', 'localhost:9102'],
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
+    },
+  ],
+  'blackbox-tcp': [
+    {
+      targets: ['localhost:22'],
+      labels: { network_domain: 'default', app: 'app-center', biz: 'order', env: 'prod' },
+    },
+  ],
 }
 
 // rules.yml（{v1.32} M01/M08/M09 告警规则职责重构）：由 M09 按 Prometheus `group` 语法组织——
@@ -1186,39 +1389,163 @@ export const configDrafts: ConfigDraft[] = [
     updated_at: '2026-08-03 14:42:00',
   },
   {
-    id: 'draft-mfg-001',
-    change_no: 'CHG-20260803-005',
-    network_domain_id: 'manufacturing-edge',
-    source_version: '',
-    prometheus_yml: prometheusYmlMfgInvalid,
-    rules_yml: rulesYml,
-    blackbox_yml: '',
-    targets_files: targetsMfg,
+    // {v1.39 决策 39-3} 平台技术故障演示（gov 域）：promtool 校验服务瞬时不可用 → 校验层自动重试（30s/2min/5min 指数退避，用户无感）；
+    // 持续失败标记「平台故障」，仅提示联系平台侧 / 查看日志，不展示「重新校验」（用户修不了平台侧 bug）
+    id: 'draft-gov-003',
+    change_no: 'CHG-20260803-009',
+    network_domain_id: 'gov-cloud-a',
+    source_version: 'cv-gov-002',
+    prometheus_yml: prometheusYmlGov,
+    rules_yml: rulesYmlChanged,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsGovDraft,
     metadata: {
       generated_by: 'system',
       generator_version: 'configgen v1.7.0',
-      reason: '工厂边缘网关新增 plc-gateway 采集',
+      reason: '规则阈值调整（校验平台故障）',
+      source_data_version: '2026-08-03 14:50:00',
+      trigger_summary: 'MonitoringRule#HighDiskUsage updated_at 变更（2026-08-03 14:50:00）触发重算',
+      checksum: computeJointChecksum(prometheusYmlGov, rulesYmlChanged, blackboxYml, targetsGovDraft),
+      source_summary: 'MonitoringRule#HighDiskUsage 阈值调整，promtool 校验服务瞬时不可用（平台技术故障）',
+    },
+    status: 'pending',
+    validation_status: 'failed',
+    validation_error:
+      '平台技术故障：promtool 校验服务瞬时不可用，校验层已自动重试（30s / 2min / 5min 指数退避，用户无感）；持续失败请查看平台日志 / 联系平台侧',
+    validation_cause: 'platform_fault',
+    validation_details: [
+      { file: 'rules.yml', line: 18, message: 'promtool check rules 执行超时（校验服务不可用）' },
+    ],
+    summary: 'HighDiskUsage 告警规则阈值调整（校验平台故障，系统自动重试中）',
+    change_items: [
+      {
+        type: 'modify',
+        target: 'alert_rule',
+        description: 'HighDiskUsage 阈值调整（校验受平台故障阻塞，系统自动重试中）',
+        risk: 'high',
+        affected_files: ['rules.yml'],
+      },
+    ],
+    created_at: '2026-08-03 14:52:00',
+    updated_at: '2026-08-03 14:52:00',
+  },
+  {
+    // {v1.37} 校验失败演示迁至 default 域（原 manufacturing-edge 未纳管、草稿被 domainOptions 过滤不可达，断点修复）：
+    // plc-gateway 采集新增，targets/plc-gateway.json 语法错误（JSON 数组未闭合）→ configgen 侧 targets schema 校验失败
+    id: 'draft-default-003',
+    change_no: 'CHG-20260803-005',
+    network_domain_id: 'default',
+    source_version: 'cv-default-002',
+    prometheus_yml: prometheusYmlDefaultInvalid,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefaultInvalid,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: '新增 plc-gateway 采集',
       source_data_version: '2026-08-03 14:20:00',
-      trigger_summary: 'LabelTemplate#LT-7 updated_at 变更（2026-08-03 14:20:00）触发重算',
-      checksum: computeJointChecksum(prometheusYmlMfgInvalid, rulesYml, '', targetsMfg),
+      trigger_summary: 'ScrapeJob#plc-gateway updated_at 变更（2026-08-03 14:20:00）触发重算',
+      checksum: computeJointChecksum(prometheusYmlDefaultInvalid, rulesYml, blackboxYml, targetsDefaultInvalid),
       source_summary: 'ScrapeJob#plc-gateway 新增，targets/plc-gateway.json 语法错误（JSON 数组未闭合）',
     },
     status: 'pending',
     validation_status: 'failed',
     validation_error:
       '中心内容校验失败：configgen 侧 targets schema 校验失败：targets/plc-gateway.json 解析失败（JSON 数组未闭合，unexpected end of input）；prometheus.yml 骨架本身可过 promtool 校验（file_sd 仅查文件存在性），草稿保持待确认，不进入下发流程',
+    /** {v1.39 决策 39-1} 用户配置问题：错误原因 + 定位详情 + 行内引导「前往修改」跳 M01 */
+    validation_cause: 'user_config',
+    validation_details: [
+      { file: 'targets/plc-gateway.json', line: 4, message: 'JSON 数组未闭合（unexpected end of input），请检查 new_targets 数组是否完整闭合' },
+    ],
     summary: '新增 plc-gateway 采集（校验未通过，待修复）',
     change_items: [
       {
         type: 'add',
         target: 'scrape_job',
-        description: '新增 plc-gateway 采集（192.168.10.30:9273）',
+        description: '新增 plc-gateway 采集（localhost:9273）',
         risk: 'low',
         affected_files: ['prometheus.yml', 'targets'],
       },
     ],
     created_at: '2026-08-03 14:22:00',
     updated_at: '2026-08-03 14:22:00',
+  },
+  {
+    // {v1.37} default 域已确认变更（对应 cv-default-002）：node-exporter 新增第二实例，已确认发布但 local reload 失败（deploy-008），
+    // 供「未同步（out_of_sync）+ 重试 / 回滚」演示（决策 37-2）
+    id: 'draft-default-004',
+    change_no: 'CHG-20260803-007',
+    network_domain_id: 'default',
+    source_version: 'cv-default-001',
+    prometheus_yml: prometheusYmlDefault,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefaultV2,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: '新增采集实例',
+      source_data_version: '2026-08-03 14:30:00',
+      trigger_summary: 'Resource#R-1010 updated_at 变更（2026-08-03 14:30:00）触发重算',
+      checksum: computeJointChecksum(prometheusYmlDefault, rulesYml, blackboxYml, targetsDefaultV2),
+      source_summary: 'node-exporter 目标 +1（localhost:9101），targets/node-exporter.json 更新（prometheus.yml 骨架不变）',
+    },
+    status: 'confirmed',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: '新增 1 台服务器（localhost:9101）加入 node-exporter 采集',
+    change_items: [
+      {
+        type: 'add',
+        target: 'scrape_target',
+        description: 'node-exporter 新增实例 localhost:9101',
+        risk: 'low',
+        affected_files: ['targets'],
+      },
+    ],
+    created_at: '2026-08-03 14:31:00',
+    updated_at: '2026-08-03 14:33:00',
+    confirmed_by: '张伟（运维）',
+    confirmed_at: '2026-08-03 14:33:00',
+  },
+  {
+    // {v1.38} 分级下发自动生效演示（决策 38-1）：纯 targets 变更（node-exporter 新增第三实例）自动生效——
+    // 不进入人工确认列表（无确认动作），草稿由系统自动确认留痕（confirmed_by=系统自动），对应 cv-default-003 / deploy-009
+    id: 'draft-default-005',
+    change_no: 'CHG-20260803-008',
+    network_domain_id: 'default',
+    source_version: 'cv-default-002',
+    prometheus_yml: prometheusYmlDefault,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefaultV3,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: '新增采集实例（targets 变更自动生效）',
+      source_data_version: '2026-08-03 14:40:00',
+      trigger_summary: 'Resource#R-1011 updated_at 变更（2026-08-03 14:40:00）触发重算，影响文件 ⊆ targets/*.json → 自动生效',
+      checksum: computeJointChecksum(prometheusYmlDefault, rulesYml, blackboxYml, targetsDefaultV3),
+      source_summary: 'node-exporter 目标 +1（localhost:9102），纯 targets 变更，file_sd 热加载免 reload',
+    },
+    status: 'confirmed',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: '新增 1 台服务器（localhost:9102）加入 node-exporter 采集（自动生效）',
+    change_items: [
+      {
+        type: 'add',
+        target: 'scrape_target',
+        description: 'node-exporter 新增实例 localhost:9102',
+        risk: 'low',
+        affected_files: ['targets'],
+      },
+    ],
+    created_at: '2026-08-03 14:41:00',
+    updated_at: '2026-08-03 14:41:00',
+    confirmed_by: '系统自动',
+    confirmed_at: '2026-08-03 14:41:00',
   },
   {
     id: 'draft-finance-001',
@@ -1273,6 +1600,42 @@ export const configVersions: ConfigVersion[] = [
     },
     created_at: '2026-08-03 14:25:00',
     created_by: 'system',
+  },
+  {
+    // {v1.37} default 域第二个版本：node-exporter 新增实例（local 回滚演示用历史版本，断点修复）
+    id: 'cv-default-002',
+    network_domain_id: 'default',
+    draft_id: 'draft-default-004',
+    change_no: 'CHG-20260803-007',
+    prometheus_yml: prometheusYmlDefault,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefaultV2,
+    metadata: {
+      version_note: 'add second node',
+      checksum: computeJointChecksum(prometheusYmlDefault, rulesYml, blackboxYml, targetsDefaultV2),
+      source_data_version: '2026-08-03 14:30:00',
+    },
+    created_at: '2026-08-03 14:33:00',
+    created_by: '张伟（运维）',
+  },
+  {
+    // {v1.38} 分级下发自动生效版本（决策 38-1）：纯 targets 差异自动生成 ConfigVersion（无人工确认动作）
+    id: 'cv-default-003',
+    network_domain_id: 'default',
+    draft_id: 'draft-default-005',
+    change_no: 'CHG-20260803-008',
+    prometheus_yml: prometheusYmlDefault,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefaultV3,
+    metadata: {
+      version_note: 'auto-apply targets-only change',
+      checksum: computeJointChecksum(prometheusYmlDefault, rulesYml, blackboxYml, targetsDefaultV3),
+      source_data_version: '2026-08-03 14:40:00',
+    },
+    created_at: '2026-08-03 14:41:00',
+    created_by: '系统自动',
   },
   {
     id: 'cv-gov-001',
@@ -1341,6 +1704,7 @@ export const configDeployments: ConfigDeployment[] = [
     validation_error: '',
     includes_blackbox: true,
     error_message: '',
+    retry_count: 0,
     triggered_by: 'system',
     triggered_at: '2026-08-03 14:25:10',
     completed_at: '2026-08-03 14:25:12',
@@ -1359,12 +1723,15 @@ export const configDeployments: ConfigDeployment[] = [
     validation_error: '',
     includes_blackbox: false,
     error_message: '',
+    retry_count: 0,
     triggered_by: 'admin',
     triggered_at: '2026-08-03 14:15:10',
     completed_at: '2026-08-03 14:15:20',
     created_at: '2026-08-03 14:15:10',
   },
   {
+    // {v1.40 决策 40-2 语义修正} agent_pull 发布失败 = 中心侧平台故障（对象存储写入超时，已触发平台侧自动重试）；
+    // 「拉包/生效失败」不产生下发记录（由采集节点状态页 config_sync_status 承载）；agent_pull 行不提供「重试」按钮（平台故障用户无法修复）
     id: 'deploy-003',
     network_domain_id: 'gov-cloud-a',
     config_version_id: 'cv-gov-002',
@@ -1376,29 +1743,12 @@ export const configDeployments: ConfigDeployment[] = [
     validation_status: 'passed',
     validation_error: '',
     includes_blackbox: false,
-    error_message: 'config reload: timeout waiting for response',
+    error_message: '发布配置包写入对象存储超时（平台侧故障，已触发平台自动重试，无需人工操作）',
+    retry_count: 0,
     triggered_by: 'admin',
     triggered_at: '2026-08-03 14:20:10',
     completed_at: '2026-08-03 14:21:10',
     created_at: '2026-08-03 14:20:10',
-  },
-  {
-    id: 'deploy-004',
-    network_domain_id: 'finance-dmz',
-    config_version_id: 'cv-finance-001',
-    source_change_no: 'CHG-20260803-006',
-    channel: 'agent_pull',
-    target_type: 'edge_agent',
-    target_address: 'edge-agent-finance-01',
-    status: 'failed',
-    validation_status: 'failed',
-    validation_error: 'blackbox_exporter --config.check 校验失败：模块 http_2xx 定义非法（prober 参数缺失）',
-    includes_blackbox: true,
-    error_message: 'blackbox_exporter --config.check 校验失败：模块 http_2xx 定义非法（prober 参数缺失）',
-    triggered_by: 'system',
-    triggered_at: '2026-08-03 13:45:10',
-    completed_at: '2026-08-03 13:45:15',
-    created_at: '2026-08-03 13:45:10',
   },
   {
     id: 'deploy-005',
@@ -1413,61 +1763,71 @@ export const configDeployments: ConfigDeployment[] = [
     validation_error: '',
     includes_blackbox: false,
     error_message: '',
+    retry_count: 0,
     triggered_by: 'admin',
     triggered_at: '2026-08-03 14:05:10',
     completed_at: '2026-08-03 14:06:00',
     created_at: '2026-08-03 14:05:10',
   },
   {
-    id: 'deploy-006',
-    network_domain_id: 'manufacturing-edge',
-    config_version_id: 'cv-default-001',
-    source_change_no: 'CHG-20260803-001',
-    channel: 'agent_pull',
-    target_type: 'edge_agent',
-    target_address: 'edge-agent-mfg-01',
+    // {v1.37} default 域 local reload 失败演示（决策 37-2）：cv-default-002 下发写盘后 reload 超时，
+    // 记录 failed、行内可「重试」（复用记录 retry_count 递增）；生效版本仍为 cv-default-001（failed 目标版本不计入生效）
+    id: 'deploy-008',
+    network_domain_id: 'default',
+    config_version_id: 'cv-default-002',
+    source_change_no: 'CHG-20260803-007',
+    channel: 'local',
+    target_type: 'central_prometheus',
+    target_address: 'metric-center-local',
+    status: 'failed',
+    validation_status: 'passed',
+    validation_error: '',
+    includes_blackbox: true,
+    error_message: 'config reload: timeout waiting for response',
+    retry_count: 0,
+    triggered_by: '张伟（运维）',
+    triggered_at: '2026-08-03 14:33:00',
+    completed_at: '2026-08-03 14:33:05',
+    created_at: '2026-08-03 14:33:00',
+  },
+  {
+    // {v1.38} 分级下发自动生效记录（决策 38-1）：纯 targets 变更自动生效（file_sd 热加载免 reload），留痕来源「系统自动」
+    id: 'deploy-009',
+    network_domain_id: 'default',
+    config_version_id: 'cv-default-003',
+    source_change_no: 'CHG-20260803-008',
+    channel: 'local',
+    target_type: 'central_prometheus',
+    target_address: 'metric-center-local',
     status: 'success',
     validation_status: 'passed',
     validation_error: '',
-    includes_blackbox: false,
+    includes_blackbox: true,
     error_message: '',
-    triggered_by: 'system',
-    triggered_at: '2026-08-03 14:10:10',
-    completed_at: '2026-08-03 14:10:18',
-    created_at: '2026-08-03 14:10:10',
-  },
-  {
-    id: 'deploy-007',
-    network_domain_id: 'gov-cloud-a',
-    config_version_id: 'cv-gov-002',
-    source_change_no: 'CHG-20260803-003',
-    channel: 'agent_pull',
-    target_type: 'edge_agent',
-    target_address: 'edge-agent-gova-01',
-    status: 'failed',
-    validation_status: 'failed',
-    validation_error:
-      'promtool check config 校验失败：parse error: unexpected token "targets"（本地配置已被手工兜底修改，与期望态不一致）',
-    includes_blackbox: false,
-    error_message: 'promtool check config 校验失败：parse error: unexpected token "targets"',
-    triggered_by: 'admin',
-    triggered_at: '2026-08-03 14:30:10',
-    completed_at: '2026-08-03 14:30:11',
-    created_at: '2026-08-03 14:30:10',
+    retry_count: 0,
+    triggered_by: '系统自动',
+    triggered_at: '2026-08-03 14:41:00',
+    completed_at: '2026-08-03 14:41:00',
+    created_at: '2026-08-03 14:41:00',
   },
 ]
 
-// 变更检测状态（PRD 3.3.3「检测状态可观测」P1）：每个网域最近一次轮询的检测结果，
-// 三种结果均有演示：changes_found（gov / mfg）/ no_change（finance）/ checksum_same（default，与 draft-default-002 联动）
+// 变更检测状态（PRD 3.3.3「检测状态可观测」P0）：每个网域最近一次轮询的检测结果，
+// 三种结果均有演示：changes_found（default / gov）/ no_change（finance）
 export const changeDetectionStatus: ChangeDetectionStatus[] = [
   {
     network_domain_id: 'default',
-    last_checked_at: '2026-08-03 14:35:30',
-    source_data_version: '2026-08-03 14:35:00',
-    outcome: 'checksum_same',
-    generated_drafts: [],
+    last_checked_at: '2026-08-03 14:22:30',
+    source_data_version: '2026-08-03 14:20:00',
+    outcome: 'changes_found',
+    generated_drafts: [
+      {
+        id: 'draft-default-003',
+        trigger_summary: 'ScrapeJob#plc-gateway updated_at 变更（2026-08-03 14:20:00）触发重算',
+      },
+    ],
     summary:
-      '源数据版本变化（LabelTemplate#LT-3，14:35:00）触发重算，重算后联合 checksum 与生效版本 cv-default-001 一致 → 内容无变化，自动丢弃（draft-default-002），不进入确认',
+      '本轮检测到变更：生成 draft-default-003（新增 plc-gateway 采集），进入确认列表（targets schema 校验失败，待修复）',
   },
   {
     network_domain_id: 'gov-cloud-a',
@@ -1481,19 +1841,6 @@ export const changeDetectionStatus: ChangeDetectionStatus[] = [
       },
     ],
     summary: '本轮检测到变更：生成 draft-gov-001（targets/node-exporter.json 新增实例 10.0.1.11），进入确认列表',
-  },
-  {
-    network_domain_id: 'manufacturing-edge',
-    last_checked_at: '2026-08-03 14:21:30',
-    source_data_version: '2026-08-03 14:20:00',
-    outcome: 'changes_found',
-    generated_drafts: [
-      {
-        id: 'draft-mfg-001',
-        trigger_summary: 'LabelTemplate#LT-7 updated_at 变更（2026-08-03 14:20:00）触发重算',
-      },
-    ],
-    summary: '本轮检测到变更：生成 draft-mfg-001（新增 plc-gateway 采集），进入确认列表（targets schema 校验失败，待修复）',
   },
   {
     network_domain_id: 'finance-dmz',

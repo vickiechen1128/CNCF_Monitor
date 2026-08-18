@@ -25,6 +25,9 @@ import {
 import type { TableProps } from 'antd'
 import { CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { FilterBar, FilterItem } from '../components/FilterBar'
+import { EllipsisText } from '../components/EllipsisText'
+import { ReviewNote } from '../components/ReviewNote'
 import {
   CMDB_FIELD_OPTIONS,
   COMPOSITE_OPTIONS,
@@ -558,33 +561,35 @@ export default function LabelTemplatesPage() {
         }
       />
 
-      {/* 状态映射可配置说明（MVP 配置层 + UI 只读，用户语言） */}
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="状态映射规则"
-        description={
-          <Space direction="vertical" size={4}>
-            <Text style={{ fontSize: 13 }}>
-              Excel 导入时，状态列的中文值（如「运行中」）会转换为系统状态（运行中 / 已停止 / 维护中）。当前规则：
-            </Text>
-            <Space wrap size={[8, 4]}>
-              {mockStatusMappingConfig.rules.map((rule) => (
-                <Tag key={rule.id} style={{ fontSize: 12 }}>
-                  {rule.source_status} → {STATUS_MAP[rule.target_status]}
-                  {rule.resource_category !== 'all' && `（${RESOURCE_TYPE_MAP[rule.resource_category as ResourceCategory]}）`}
-                  {rule.is_builtin && ' [内置]'}
-                </Tag>
-              ))}
-            </Space>
-            <Text style={{ fontSize: 12, color: '#86909C' }}>
-              大小写敏感：{mockStatusMappingConfig.case_sensitive ? '是' : '否'} · 未匹配时的默认状态：{STATUS_MAP[mockStatusMappingConfig.default_target]} ·
-              优先级：精确资源类别规则 {'>'} 通用规则 · 规则的调整入口后续版本开放
-            </Text>
-          </Space>
-        }
-      />
+      {/* 状态映射规则（用户语言，非阻塞展示） */}
+      <div style={{ marginBottom: 16 }}>
+        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
+          状态映射规则：Excel 导入时，状态列的中文值（如「运行中」）转换为系统状态。当前规则：
+        </Text>
+        <Space wrap size={[8, 4]}>
+          {mockStatusMappingConfig.rules.map((rule) => (
+            <Tag key={rule.id} style={{ fontSize: 12 }}>
+              {rule.source_status} → {STATUS_MAP[rule.target_status]}
+              {rule.resource_category !== 'all' && `（${RESOURCE_TYPE_MAP[rule.resource_category as ResourceCategory]}）`}
+              {rule.is_builtin && ' [内置]'}
+            </Tag>
+          ))}
+        </Space>
+        <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginTop: 4 }}>
+          大小写敏感：{mockStatusMappingConfig.case_sensitive ? '是' : '否'} · 未匹配时的默认状态：{STATUS_MAP[mockStatusMappingConfig.default_target]} ·
+          优先级：精确资源类别规则 {'>'} 通用规则 · 规则的调整入口后续版本开放
+        </Text>
+      </div>
+
+      <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
+        <ul style={{ paddingLeft: 18, margin: 0 }}>
+          <li>字段来源中的「prometheus_builtin」由 Prometheus 原生注入，无需映射，MVP 隐藏（数据模型保留，v0.2+ 服务发现启用）。</li>
+          <li>组合字段 composite 为 MVP 内部默认（自动生成 instance = 资源 IP + 端口，Prometheus 默认行为一致），前台不可新增，v0.2+ 身份定制开放。</li>
+          <li>保护标签（instance/job 等）不允许作为目标标签；composite → instance 为例外允许。</li>
+          <li>同一模板内 target_label 唯一，保存时校验（编辑自身排除）。</li>
+          <li>转换规则「prefix/replace」需参数，后续版本开放。</li>
+        </ul>
+      </ReviewNote>
 
       <Card className="page-card">
         <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
@@ -648,7 +653,7 @@ export default function LabelTemplatesPage() {
                           <List.Item.Meta
                             title={
                               <Space size={6}>
-                                <Text strong>{tpl.name}</Text>
+                                <EllipsisText maxWidth={140}>{tpl.name}</EllipsisText>
                                 {tpl.is_default && <Tag color="gold">默认</Tag>}
                               </Space>
                             }
@@ -720,21 +725,14 @@ export default function LabelTemplatesPage() {
                   </Space>
                 }
               >
-                <Alert
-                  type="info"
-                  showIcon
-                  style={{ marginBottom: 12 }}
-                  message={
-                    <Space direction="vertical" size={2}>
-                      <Text style={{ fontSize: 13 }}>
-                        标签模板只与资源类别绑定，不绑定具体采集任务；字段来源支持「资源字段 / 组合字段」，映射按来源类型分组展示。
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#86909C' }}>
-                        保护标签（不可作为目标标签）：{PROTECTED_PROMETHEUS_LABELS.join(', ')}
-                      </Text>
-                    </Space>
-                  }
-                />
+                <Space direction="vertical" size={2} style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13 }}>
+                    标签模板只与资源类别绑定，不绑定具体采集任务；字段来源支持「资源字段 / 组合字段」，映射按来源类型分组展示。
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#86909C' }}>
+                    保护标签（不可作为目标标签）：{PROTECTED_PROMETHEUS_LABELS.join(', ')}
+                  </Text>
+                </Space>
                 {/* {v2.3} 右栏 Tab 化：映射明细 / 关联实例（实例用完整 Table 承载，支持分页/搜索/状态筛选） */}
                 <Tabs
                   activeKey={detailTab}
@@ -751,32 +749,26 @@ export default function LabelTemplatesPage() {
                       children: (
                         <Space direction="vertical" style={{ width: '100%' }} size={12}>
                           {/* {v2.5} 隐式关联说明：让用户理解模板通过 resource_category 自动关联，无需手动逐台配置 */}
-                          <Alert
-                            type="info"
-                            showIcon
-                            style={{ marginBottom: 4 }}
-                            message={
-                              <Text style={{ fontSize: 13 }}>
-                                本模板适用于「{RESOURCE_TYPE_MAP[selectedTemplate.resource_category]}」类型，该类型下所有{' '}
-                                <Text strong>{relatedResourcesOf(selectedTemplate).length}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
-                                如需查看具体实例清单，请浏览下方列表。
-                              </Text>
-                            }
-                          />
-                          <Row gutter={8}>
-                            <Col span={14}>
+                          <Text style={{ fontSize: 13 }}>
+                            本模板适用于「{RESOURCE_TYPE_MAP[selectedTemplate.resource_category]}」类型，该类型下所有{' '}
+                            <Text strong>{relatedResourcesOf(selectedTemplate).length}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
+                            如需查看具体实例清单，请浏览下方列表。
+                          </Text>
+                          <FilterBar>
+                            <FilterItem label="搜索" width={360}>
                               <Input.Search
                                 placeholder="搜索实例名 / IP / 应用"
                                 allowClear
                                 value={instanceSearch}
                                 onChange={(e) => setInstanceSearch(e.target.value)}
+                                style={{ width: 300 }}
                               />
-                            </Col>
-                            <Col span={10}>
+                            </FilterItem>
+                            <FilterItem label="状态" width={240}>
                               <Select
                                 placeholder="按状态筛选"
                                 allowClear
-                                style={{ width: '100%' }}
+                                style={{ width: 180 }}
                                 value={instanceStatusFilter}
                                 onChange={(v) => setInstanceStatusFilter(v ?? 'all')}
                               >
@@ -785,8 +777,8 @@ export default function LabelTemplatesPage() {
                                 <Option value="offline">已停止</Option>
                                 <Option value="maintenance">维护中</Option>
                               </Select>
-                            </Col>
-                          </Row>
+                            </FilterItem>
+                          </FilterBar>
                           <Table
                             rowKey="resource_id"
                             size="small"
@@ -804,18 +796,11 @@ export default function LabelTemplatesPage() {
                       label: `被引用采集 Job（${referencingJobsOf(selectedTemplate).length}）`,
                       children: (
                         <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                          <Alert
-                            type="info"
-                            showIcon
-                            style={{ marginBottom: 4 }}
-                            message={
-                              <Text style={{ fontSize: 13 }}>
-                                本模板被 <Text strong>{referencingJobsOf(selectedTemplate).length}</Text> 个采集 Job 引用。
-                                修改模板后，引用的 Job 会按新映射重新生成标签，配置变更需在配置中心确认后生效（后续版本开放；当前版本重新生成配置并立即生效）。
-                                如需查看具体清单，请浏览下方列表。
-                              </Text>
-                            }
-                          />
+                          <Text style={{ fontSize: 13 }}>
+                            本模板被 <Text strong>{referencingJobsOf(selectedTemplate).length}</Text> 个采集 Job 引用。
+                            修改模板后，引用的 Job 会按新映射重新生成标签，配置变更需在配置中心确认后生效（后续版本开放；当前版本重新生成配置并立即生效）。
+                            如需查看具体清单，请浏览下方列表。
+                          </Text>
                           <Table
                             rowKey="job_id"
                             size="small"
@@ -878,11 +863,9 @@ export default function LabelTemplatesPage() {
             </Select>
           </Form.Item>
           {!editingTemplate && (
-            <Alert
-              type="info"
-              showIcon
-              message="新增模板默认为自定义模板，映射列表为空。创建后可通过「新增映射」添加字段映射。"
-            />
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              新增模板默认为自定义模板，映射列表为空。创建后可通过「新增映射」添加字段映射。
+            </Text>
           )}
         </Form>
       </Drawer>

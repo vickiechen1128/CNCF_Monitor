@@ -1,5 +1,8 @@
-import { useState, type ReactNode } from 'react'
-import { Layout, Menu, Typography, Space, Tag, Tooltip, Divider, Alert, Collapse, App, Select } from 'antd'
+import { ReviewNotesProvider } from '../contexts/ReviewNotesContext'
+import { ReviewNote } from '../components/ReviewNote'
+import { ReviewNoteSwitch } from '../components/ReviewNoteSwitch'
+import type { ReactNode } from 'react'
+import { Layout, Menu, Typography, Space, Tag, Tooltip, Divider, App, Select } from 'antd'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AppstoreOutlined,
@@ -24,8 +27,7 @@ interface MainLayoutProps {
 
 type MenuItem = Required<MenuProps>['items'][number]
 
-/**
- * 菜单（决策 34/35）：菜单分为两个一级组——
+/* [DECISION D34/D35] 菜单分为两个一级组——
  * 网域与节点管理（接入面）：网域纳管 / 采集节点状态（常驻，无实例时展示空态引导）
  * 配置下发（配置面）：配置变更确认 / 下发记录
  * 不依赖「单/多网域模式」运行时开关，页面入口由数据驱动。
@@ -37,7 +39,7 @@ function buildMenu(): MenuItem[] {
     icon: <NodeIndexOutlined />,
     children: [
       { key: '/domain-onboarding', icon: <CloudOutlined />, label: '网域纳管' },
-      // 决策 34/35：采集节点状态子菜单常驻，无实例时展示空态引导
+      // [DECISION D34/D35] 采集节点状态子菜单常驻，无实例时展示空态引导
       { key: '/node-status', icon: <ClusterOutlined />, label: '采集节点状态' },
     ],
   }
@@ -82,7 +84,6 @@ export function MainLayout({ children }: MainLayoutProps) {
   const navigate = useNavigate()
   const { message } = App.useApp()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [showDesignTip, setShowDesignTip] = useState(true)
   // 当前角色（动线分离演示）：按用户职责区分运维工程师1/2，URL ?role=ops2 → 运维工程师2，默认运维工程师1
   const role: UserRole = searchParams.get('role') === 'ops2' ? 'ops2' : 'ops1'
 
@@ -104,7 +105,8 @@ export function MainLayout({ children }: MainLayoutProps) {
     .map((item) => ('key' in item ? String(item.key) : ''))
 
   return (
-    <Layout className="app-layout">
+    <ReviewNotesProvider>
+      <Layout className="app-layout">
       <Header className="app-header">
         <Space size="large">
           <Title level={4} className="app-title" style={{ margin: 0, color: '#fff' }}>
@@ -116,7 +118,8 @@ export function MainLayout({ children }: MainLayoutProps) {
           </Tag>
         </Space>
         <Space size="large" align="center">
-          {/* 决策 31：移除全局「单/多网域模式」Switch —— multi_site_enabled 为 M06 租户级行政开关，
+          <ReviewNoteSwitch />
+          {/* [DECISION D31] 移除全局「单/多网域模式」Switch —— multi_site_enabled 为 M06 租户级行政开关，
               不在 UI 提供运行时切换；页面入口与字段展示由数据驱动 */}
           <Space size="small" align="center">
             <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
@@ -141,69 +144,33 @@ export function MainLayout({ children }: MainLayoutProps) {
           />
         </Sider>
         <Content className="app-content">
-          {showDesignTip && (
-            <Alert
-              type="info"
-              showIcon
-              closable
-              message="Module_09 设计意图"
-              description={
-                <span>
-                  监控对象、采集策略与告警规则变更后，配置会<Text strong>自动生成</Text>并汇总为待确认的变更；
-                  运维在「配置变更确认」页做<Text strong>发布审批（go/no-go）</Text>——平台保证生成内容与策略一致，
-                  运维确认变更影响后决定是否发布到监控。配置按网域生成（<Text code>prometheus.yml</Text> +{' '}
-                  <Text code>targets/*.json</Text> + <Text code>rules.yml</Text> + <Text code>blackbox.yml</Text>），
-                  下发通道按采集节点位置分层（{`{v1.34}`}）：local 通道走本地文件集 / agent_pull 通道走 zip 配置包；
-                  <Text strong>审批分级（{`{v1.32}`}）</Text>——
-                  <Text code>alertmanager.yml</Text> 由 Module_08（告警收敛与通知管理）直接管理、不进入本模块变更确认流程。
-                  <br />
-                  <Text strong>菜单结构（{`{v1.35}`}）：</Text>
-                  「网域与节点管理」（接入面：网域纳管 / 采集节点状态）与「配置下发」（配置面：配置变更确认 / 下发记录）两个一级组。
-                  采集节点状态子菜单常驻，无实例时展示空态引导。
-                </span>
-              }
-              style={{ margin: 16 }}
-              onClose={() => setShowDesignTip(false)}
-            />
-          )}
+          <ReviewNote title="设计意图（面向产品 / 技术评审）" style={{ margin: '16px 16px 0' }}>
+            监控对象、采集策略与告警规则变更后，配置会自动生成并汇总为待确认的变更；
+            运维在「配置变更确认」页做发布审批（go/no-go）——平台保证生成内容与策略一致，
+            运维确认变更影响后决定是否发布到监控。配置按网域生成（prometheus.yml + targets/*.json + rules.yml + blackbox.yml），
+            下发通道按采集节点位置分层：local 通道走本地文件集，agent_pull 通道走 zip 配置包；
+            alertmanager.yml 由告警收敛与通知管理模块直接管理，不进入本模块变更确认流程。
+            菜单结构：「网域与节点管理」（接入面：网域纳管 / 采集节点状态）与「配置下发」（配置面：配置变更确认 / 下发记录）两个一级组，
+            采集节点状态子菜单常驻，无实例时展示空态引导。
+          </ReviewNote>
           {children}
-          {/* 提示分区规范（决策 21）：用户可见文案不含设计决策 / PRD 引用；本折叠区集中承载设计依据，供产品 / 技术评审与开发参考 */}
-          <Collapse
-            ghost
-            style={{ margin: '0 16px 16px' }}
-            items={[
-              {
-                key: 'review',
-                label: (
-                  <Space size={4}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      原型与实现说明（面向产品 / 技术评审，不影响功能体验）
-                    </Text>
-                  </Space>
-                ),
-                children: (
-                  <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
-                    页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
-                    docs/05-execution-records/module-09/design-decisions.md 与 Module_09 PRD（对应原型目录上级）。
-                    决策清单：决策 6 配置产物形态分层（{'{v1.33}'} 改按下发通道 local/agent_pull 分层，决策 32）；决策 7 targets 前端数据驱动；决策 8 rules 按作用域生成；
-                    决策 9 / 11 安装指引（Edge Sync Agent 部署定位 / 3 步人工步骤）；决策 12 MVP 固定 vmagent；
-                    决策 14 注册登记制闭环（Token 前置签发 / Remote Write 自动推导）；决策 15 Agent 状态页「网域为主 + 组件分类」；
-                    决策 16 字段语义对齐 / default 无 Agent / 组件类型筛选；决策 17 安装指引页面顶部提示区；
-                    决策 18 配置变更确认心智（自动生成 + 人工审批、变更摘要 / 清单）；决策 19 受影响文件高亮 / 风险与确认人 / 下发记录定位；
-                    决策 20 变更单号 / 抽屉式详情 / 检测状态引导性 / 确认人预置；决策 21 状态筛选 / 提示分区规范；
-                    决策 22 变更对象 = 源数据对象（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板）+「影响的配置文件」派生列 / 变更单级确认（不逐行）/ 全链路关联（change_no → 配置版本 → 下发记录，双向可追溯、回滚入口）。
-                    {'{v1.31}'} 网闸拓扑：center_endpoint（边缘域纳管必填，合成配置包绝对下载地址）/ zone_type（M06 行政字段，配置生成注入 external_labels.zone_type）/ 网闸隔离区连接约束（禁止中心→边缘主动连接，全部边缘发起）。
-                    {'{v1.32}'} M01/M08/M09 告警规则职责重构：rules.yml 按 Prometheus group 语法组织（M09 自动派生分组，MVP 不暴露 RuleGroup 实体）；审批分级——prometheus.yml / targets / rules.yml / blackbox.yml 人工确认，alertmanager.yml 由 Module_08 直接管理、不进入本模块变更确认流程（配置包不含 alertmanager.yml）。
-                    {'{v1.33}/{v1.34}'} 决策 31/32/33：移除全局「单/多网域模式」运行时切换（multi_site_enabled 为 M06 租户级行政开关）；下发通道按采集节点位置分层（local / agent_pull，与域类型解耦）；MVP 通道按网域固定（default=local，其他=agent_pull）、不提供通道切换、不支持同域混合通道；Token / Agent 类型 / 安装指引 / 运行态字段仅 agent_pull 展示；「Agent 状态」入口按是否存在 EdgeAgent 实例渐进呈现。
-                    {'{v1.35}'} 决策 34/35：纳管入口单一化（仅行内「纳管」、移除右上角按钮）；菜单分为「网域与节点管理」（接入面：网域纳管 + 采集节点状态常驻）与「配置下发」（配置面：配置变更确认 + 下发记录）两个一级组；采集节点状态子菜单常驻 + 空态引导；配置同步列扩展四档状态 + 引导按钮（「去配置采集 Job」「前往配置确认」）。
-                    实现细节与数据契约见 PRD 对应章节与代码注释。
-                  </Typography.Paragraph>
-                ),
-              },
-            ]}
-          />
+          {/* [DECISION D21] 提示分区规范：用户可见文案不含决策编号 / PRD 引用 / 版本标记；
+              评审说明统一由 <ReviewNote> 承载，受全局「评审说明」开关控制。 */}
+          <ReviewNote>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
+              设计决策与 PRD 引用详见 docs/05-execution-records/module-09/design-decisions.md 与 Module_09 PRD。
+              本模块关键决策：配置产物形态分层（D6/D32）、下发通道按采集节点位置分层（D31/D32/D33）、
+              配置变更确认心智（自动生成 + 人工审批，D18）、变更对象与影响文件（D22）、
+              提示分区规范（D21）。
+              v1.43（联动 M01 草稿）：配置生成候选集过滤 draft_status=ready，草稿对象（draft）不生成配置变更；
+              change_status 全链路回写 M01（pending / confirmed / deployed / none，PRD 3.3/3.4/3.5），
+              MVP 阶段 deployed 由 none 占位（确认下发成功后直接回写 none，v0.2 起精确回写）。
+              实现细节与数据契约见 PRD 对应章节与代码注释。
+            </Typography.Paragraph>
+          </ReviewNote>
         </Content>
       </Layout>
     </Layout>
+    </ReviewNotesProvider>
   )
 }

@@ -1,9 +1,9 @@
 # MetricCenter 产品路线图
 
 > 文档类型：产品需求文档  
-> 版本：v1.5
+> 版本：v1.6
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
-> 更新日期：2026-08-14
+> 更新日期：2026-08-18
 
 ---
 
@@ -30,7 +30,7 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 
 | 里程碑 | 目标 | 核心交付 | 技术栈 | 时间（预估） |
 |--------|------|----------|--------|-------------|
-| **MVP** | 三类资源管理 + 网域模型预留 + 采集/拨测配置 + 配置下发 + 指标查询（单机模式） | 可运行的配置管理中心；网域模型（默认 `default`，单机模式隐藏）；主机/中间件/应用服务资源管理（`resource_id` 稳定唯一键，`instance_name` / `hostname` 可读展示名）；`ResourceLabel` 标签体系（`system` / `user` 来源，CMDB 来源预留）；标签模板；采集 Job；Blackbox 拨测；prometheus.yml 生成与下发；PromQL 查询代理 | SQLite + Prometheus TSDB + Prometheus Server + Blackbox Exporter | 3 ~ 4 周 |
+| **MVP** | 五类资源管理 + 网域登记 + 采集/拨测配置 + 配置下发 + 指标查询（单机模式） | 可运行的配置管理中心；网域登记管理（Module_06，预置默认 `default`）；主机/数据库/中间件/应用服务/通用指标目标五类资源管理（`resource_id` 稳定唯一键，`instance_name` / `hostname` 可读展示名）；`ResourceLabel` 标签体系（`system` / `user` 来源，CMDB 来源预留）；标签模板；采集 Job；Blackbox 拨测；prometheus.yml 生成与下发；PromQL 查询代理 | SQLite + Prometheus TSDB + Prometheus Server + Blackbox Exporter | 待重估（原 3 ~ 4 周，网域登记 / 五类资源 / 导入 upsert / 模板快照纳入后需重新估算） |
 | **v0.2** | 多网域 Edge-Cloud 架构落地 + 租户-网域关联 | 网域生命周期与 Token 管理；租户数据模型与租户-网域关联；Edge Sync Agent、按网域配置拉取、vmagent / Prometheus Agent Mode 接入；中心 VictoriaMetrics 汇聚；边缘 Agent 状态监控与诊断；外部 Prometheus Remote Write 接入；监控源登记册 | SQLite + VictoriaMetrics + vmagent/Prometheus Agent + Edge Sync Agent + Ingestion Gateway | 4 ~ 5 周 |
 | **v0.3** | 门户化查询与告警状态 | Custom UI 门户、PromQL 查询页、告警状态查看（代理 `/api/v1/alerts`）、按网域/监控源筛选、告警抑制引擎 | 保持 v0.2 技术栈 | 2 ~ 3 周 |
 | **v0.4** | 外部 CMDB 集成与异构监控接入 | 外部 CMDB 同步（BlueKing / HTTP / Nacos）：事件触发 + 15 分钟轮询、CI 类型映射表、待分类 CI 队列；`ResourceLabel.source=cmdb` 注入；异构监控源登记册；Zabbix / 云监控 Adapter；mTLS、证书轮转、Token 轮换 | PostgreSQL / MySQL 预研 | 3 ~ 4 周 |
@@ -46,12 +46,12 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 
 | 模块 | MVP | v0.2 | v0.3 | v0.4 | v1.0 |
 |------|-----|------|------|------|------|
-| **Module_07 监控对象管理** | 四类资源 CRUD；Excel 导入；状态映射；标签模板；`ResourceLabel` 体系；`is_monitored` badge；业务类型归属（`business_domain` → `biz` 标签聚合，静态资源标签只读） | 独立业务目录（业务类型实体 + 资源归属 + 业务类型自定义标签）；业务指标标签规范消费（relabel 归一化） | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源 | CMDB-ITIL/ITSM 映射 |
+| **Module_07 监控对象管理** | 五类资源 CRUD；Excel 导入（含 upsert 更新）；状态映射；标签模板；`ResourceLabel` 体系；业务类型归属（`business_domain` → `biz` 标签聚合，静态资源标签只读） | 独立业务目录（业务类型实体 + 资源归属 + 业务类型自定义标签）；业务指标标签规范消费（relabel 归一化） | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源 | CMDB-ITIL/ITSM 映射 |
 | **Module_01 监控策略与指标管理** | CI↔默认采集器绑定（{v3.8}，原「Exporter 模板」）；ScrapeJob；实例选择；Blackbox 拨测；静态指标库（按 CI 类型组织，锚点演进 v3.8）；application_http 业务指标端点采集（app/biz 标签注入）；业务指标库（BusinessMetric 登记表，业务负责人定义语义/阈值） | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」）；服务发现模式 `service_discovery`（微服务动态实例，prometheus_builtin + relabel）；业务健康度看板（业务负责人角色入口） | 规则编辑 UI（类 YAML 表单 + PromQL 校验/实时预览，依赖 Module_02 validate/preview）；实例属性筛选 `filter`（按资源属性条件筛选实例，label 仅 UI 别名） | - | Recording Rules；指标库管理增强 |
 | **Module_09 网域与边缘配置中心** | 默认网域 `default`；单/多网域模式切换；配置生成/预览/Diff/下发；`external_labels` 注入 | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数 | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
 | **Module_02 查询中心** | PromQL 查询代理；目标状态展示；响应 envelope | 租户/网域上下文注入 | 告警状态代理；查询辅助；首页 Dashboard 数据 | - | - |
 | **Module_08 告警规则管理** | - | - | 规则分组；静默管理；Alertmanager 配置生成 | - | 完整告警规则 UI；通知渠道；边缘本地告警状态展示 |
-| **Module_06 系统与平台管理** | 单租户默认模式（`platform_admin`） | 租户数据模型；租户-网域关联；`Tenant.multi_site_enabled` | - | CMDB 业务/模块路径映射 | 用户/角色/权限；审计日志；平台配置；元数据迁移 PostgreSQL/MySQL |
+| **Module_06 系统与平台管理** | 单租户默认模式（`platform_admin`）+ **网域登记管理**（网域 CRUD / 区域属性，M07 校验消费；行政属性归 M06，监控纳管归 M09） | 租户数据模型；租户-网域关联；`Tenant.multi_site_enabled` | - | CMDB 业务/模块路径映射 | 用户/角色/权限；审计日志；平台配置；元数据迁移 PostgreSQL/MySQL |
 | **Module_10 监控源登记册** | - | 监控源 CRUD；外部 Prometheus Remote Write；Ingestion Gateway；标签注入 | - | Zabbix / 云监控 Adapter；标签归一化；Metric Drop Rules | 长期存储路由 VictoriaMetrics/Mimir |
 | **Module_04 自定义服务发现** | Excel Provider（由 Module_07 承载） | - | - | BlueKing / HTTP / Nacos Provider；CI 类型映射；待分类队列；孤儿资源 | - |
 | **Module_03 网关与认证** | - | 统一入口路由；Ingestion 路由 | - | - | 认证鉴权中间件；请求级审计；多租户路由 |
@@ -65,13 +65,13 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 
 ### 2.1 目标
 
-MVP 聚焦 **"三类资源管理 + 采集/拨测配置 + prometheus.yml 下发 + 指标查询"**，验证监控数据源从资源到 Prometheus 的完整闭环。MVP 以**单机模式**运行，隐藏「网域/站点」与「监控源」概念，后台自动使用默认网域 `default`。
+MVP 聚焦 **"五类资源管理 + 网域登记 + 采集/拨测配置 + prometheus.yml 下发 + 指标查询"**，验证监控数据源从资源到 Prometheus 的完整闭环。MVP 以**单机模式**运行，单网域默认（`default`，网域登记由 Module_06 提供），隐藏「监控源」概念。
 
 ### 2.2 部署模式与特性开关
 
 | 模式 | 开启条件 | 用户感知 | 数据模型 |
 |---|---|---|---|
-| **单网域模式（默认）** | `Tenant.multi_site_enabled=false` | 无网域/站点概念；隐藏「网域管理」与「Agent 状态」入口 | 仅存在 `default` 管理域 |
+| **单网域模式（默认）** | `Tenant.multi_site_enabled=false` | 单网域默认 `default`，资源网域列保留（默认填 `default`）；提供网域登记（Module_06）；隐藏「Agent 状态」与边缘能力入口 | 仅存在 `default` 管理域（可登记其他网域） |
 | **多网域模式** | `Tenant.multi_site_enabled=true` | 展示「网域管理」、Edge Agent、边缘诊断、按网域配置下发 | 多网域 |
 | **集成模式** | `Tenant.heterogeneous_ingestion_enabled=true` {v0.2} | 展示「监控源登记册」、外部 Prometheus / Zabbix 接入 | 多网域 + MonitoringSource |
 
@@ -80,10 +80,10 @@ MVP 聚焦 **"三类资源管理 + 采集/拨测配置 + prometheus.yml 下发 +
 ### 2.3 交付物
 
 - **配置管理**（[Module 07](Modules/Module_07_Monitoring_Object_Management.md)）：
-  - 网域模型：预置默认网域 `default`，资源必须归属网域
-  - 主机 / 中间件 / 应用服务三类资源管理；`resource_id` 为稳定唯一键，`instance_name` / `hostname` 作为可读展示名
-  - 按资源类型的固定列 Excel 导入（含可选 `network_domain_id` 列，留空默认 `default`；预留 `cmdb_*` 可选列）
-  - Excel 中文状态通过可配置字典映射到 `Resource.status`（`online` / `offline` / `maintenance`）
+  - 网域模型：预置默认网域 `default` + **网域登记管理（Module_06，MVP 范围）**，资源必须归属网域
+  - 主机 / 数据库 / 中间件 / 应用服务 / 通用指标目标**五类资源管理**；`resource_id` 为稳定唯一键（服务端生成），`instance_name` / `hostname` 作为可读展示名；application 粒度 = 服务实例（多副本多行，`service_name + endpoint` 判重）
+  - 按资源类型的固定列 Excel 导入（含可选 `network_domain_id` 列，留空默认 `default`；预留 `cmdb_*` 可选列）；**支持 upsert 模式**（按类型判重键覆盖更新）
+  - Excel 中文状态通过可配置字典映射到 `Resource.status`（`online` / `offline` / `maintenance`；M01/M09 生成配置默认排除 `offline`）
   - `ResourceLabel` 标签体系：`system`（标签模板生成）、`user`（用户手动）、`cmdb`（v0.4+ 预留）；同 key 冲突优先级 `cmdb` > `user` > `system`
   - 标签模板（按资源类型区分；字段来源支持 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}`）
   - 采集 Job 管理 + 目标筛选
@@ -122,11 +122,11 @@ Phase 1: 基础底座
 ├── Prometheus + Blackbox Exporter 本地运行
 └── platform 入口包装（metric-center）
 
-Phase 2: MVP 核心 — 配置管理（Module 07）
-├── 网域模型：预置默认网域 `default`，资源归属网域
-├── 三类资源模型（Host / Middleware / Application）；`resource_id` 稳定唯一键，`instance_name` / `hostname` 可读展示名
-├── 固定列 Excel 导入与校验（含可选 `network_domain_id` 列；预留 `cmdb_*` 可选列）
-├── Excel 状态 → `Resource.status` 映射字典（默认 + 可配置）
+Phase 2: MVP 核心 — 配置管理（Module 07 + Module 06 网域登记）
+├── 网域模型：预置默认网域 `default` + 网域登记管理（M06），资源归属网域
+├── 五类资源模型（Host / Database / Middleware / Application / GenericTarget）；`resource_id` 稳定唯一键（服务端生成），`instance_name` / `hostname` 可读展示名；application 粒度 = 服务实例
+├── 固定列 Excel 导入与校验（含可选 `network_domain_id` 列；预留 `cmdb_*` 可选列；支持 upsert 覆盖更新）
+├── Excel 状态 → `Resource.status` 映射字典（默认 + 可配置；M01/M09 默认排除 offline）
 ├── `ResourceLabel` 数据模型与 CRUD（`system` / `user` 来源；CMDB 来源预留）
 ├── 标签模板管理（按资源类型；字段来源 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}`）
 ├── 采集 Job 管理 + 目标筛选
@@ -261,6 +261,7 @@ Phase 8: 企业级能力（v1.0）
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 |
 |------|------|----------|----------|----------|
+| v1.6 | 2026-08-18 | 修改 | M07 评审结论落版回写（MVP 动线完整性走查）：§1 里程碑 MVP 行「三类资源」改五类、补网域登记、排期待重估；§1.5 M07 行四类改五类、去 `is_monitored` badge、补导入 upsert；§1.5 M06 行 MVP 补网域登记管理（行政归 M06 / 纳管归 M09）；§2 MVP 范围去「隐藏网域概念」，单网域模式改为提供网域登记；§3 Phase 2 同步五类资源 + upsert + 网域登记；§2.3 交付物补 application 粒度与 offline 排除语义 | 全文档 |
 | v1.5 | 2026-08-14 | 修改 | §1.5 Module_01 行 MVP 补业务指标库（BusinessMetric 登记表）、v0.2 补业务健康度看板（第十四轮，业务负责人角色） | 功能-版本矩阵 |
 | v1.4 | 2026-08-14 | 修改 | §1.5 功能-版本矩阵更新：Module_07 行 MVP 补业务类型归属（business_domain → biz 聚合）、v0.2 补独立业务目录（第十二轮）；Module_01 行 MVP 补 application_http 业务指标端点采集、v0.2 补 service_discovery（微服务动态实例）、v0.3 补实例属性筛选 filter（第十三轮） | 功能-版本矩阵 |
 | v1.3 | 2026-08-13 | 修改 | §1.5 功能-版本矩阵修正 Module_01 行：规则编辑 UI 由 MVP 移至 v0.3（与 Module_01 PRD v2.2 及 2.4「MVP 不做告警规则编辑 UI」对齐，补上 v0.3 列缺口） | 功能-版本矩阵 |

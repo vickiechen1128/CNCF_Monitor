@@ -92,7 +92,8 @@ export GOROOT := $(GO_DIR)
         install-gcc install-promu ensure-cgo \
         ensure-go ensure-node ensure-pnpm \
         apply-patches build-metric-center build-prometheus build-ui build-all \
-        run-metric-center run-prometheus dev-ui test-platform clean
+        run-metric-center run-prometheus dev-ui test-platform clean \
+        check-prd-hygiene check-prototype-notes check-prototype
 
 all: build-all
 
@@ -109,6 +110,9 @@ help:
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
 	@echo "  make test-platform      运行 platform/ 测试"
+	@echo "  make check-prd-hygiene  检查 PRD 去历史化与章节冻结"
+	@echo "  make check-prototype-notes  检查原型用户可见文案是否泄漏评审标记"
+	@echo "  make check-prototype  检查原型标记泄漏 + 结构反模式（Alert 滥用/列数/筛选布局）"
 	@echo "  make clean              清理构建产物"
 
 # -----------------------------------------------------------------------------
@@ -300,3 +304,19 @@ clean:
 	@rm -f "$(PROJECT_ROOT)/upstream/node_exporter/node_exporter"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/dist"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/node_modules"
+
+# -----------------------------------------------------------------------------
+# 文档与原型规范检查
+# -----------------------------------------------------------------------------
+
+check-prd-hygiene:
+	@echo ">>> Checking PRD hygiene (decision markers / frozen chapter structure)"
+	@bash "$(PROJECT_ROOT)/scripts/check-prd-hygiene.sh"
+
+check-prototype-notes:
+	@echo ">>> Checking prototype user-visible notes for leaked decision markers"
+	@bash "$(PROJECT_ROOT)/scripts/check-prototype-notes.sh"
+
+check-prototype:
+	@echo ">>> Checking prototype marker leaks + structural anti-patterns"
+	@bash "$(PROJECT_ROOT)/scripts/check-prototype.sh"
