@@ -1,7 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
 
+	"gorm.io/gorm"
+)
 // DomainType distinguishes a management domain from an edge domain.
 type DomainType string
 
@@ -70,7 +73,7 @@ type NetworkDomain struct {
 	Status    DomainStatus `gorm:"size:20;not null" json:"status"` // enabled/disabled（行政）
 	CreatedAt time.Time    `json:"created_at"`
 	UpdatedAt time.Time    `json:"updated_at"`
-	DeletedAt *time.Time   `json:"deleted_at,omitempty"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }
 
 // IsManagement reports whether the domain is a management (non-deletable) domain.

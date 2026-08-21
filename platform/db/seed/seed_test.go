@@ -1,7 +1,9 @@
 package seed
 
 import (
+	"fmt"
 	"strconv"
+	"sync/atomic"
 	"testing"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -11,11 +13,16 @@ import (
 	"gorm.io/gorm"
 )
 
+// seedDBSeq keeps each call to newTestDB on a fresh, isolated in-memory
+// database so tests never pollute one another via the shared cache DSN.
+var seedDBSeq int64
+
 // newTestDB opens an in-memory SQLite database and migrates exactly the tables
 // needed by the seed package.
 func newTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	n := atomic.AddInt64(&seedDBSeq, 1)
+	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:seed_%d?mode=memory&cache=shared", n)), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Tenant{},
@@ -147,4 +154,47 @@ func TestRunIsIdempotent(t *testing.T) {
 
 func TestRunNilDBReturnsError(t *testing.T) {
 	assert.Error(t, Run(nil))
+}
+// TestRunSeedsDefaultDomainAuthorized verifies the default management domain is
+// seeded with registration ownership = platform_admin and the authorized tenant
+// = platform_admin (T06-10).
+func TestRunSeedsDefaultDomainAuthorized(t *testing.T) {
+	db := newTestDB(t)
+	require.NoError(t, Run(db))
+
+	var dom models.NetworkDomain
+	require.NoError(t, db.Where("id = ?", models.DefaultDomainID).First(&dom).Error)
+	assert.Equal(t, models.DomainTypeManagement, dom.DomainType)
+	assert.Equal(t, models.ChannelTypeLocal, dom.Channel)
+	assert.Equal(t, models.PlatformAdminTenantID, dom.TenantID)
+	assert.Equal(t, models.DomainStatusEnabled, dom.Status)
+	assert.Equal(t, []string{models.PlatformAdminTenantID}, dom.AuthorizedTenantIDs)
+}
+
+// TestRunBackfillsAuthorizedOnExistingDefault simulates a Phase 0 pre-created
+// default domain that lacks AuthorizedTenantIDs and verifies Run idempotently
+// back-fills it without duplicating records (T06-10).
+func TestRunBackfillsAuthorizedOnExistingDefault(t *testing.T) {
+	db := newTestDB(t)
+
+	// Phase 0 row without authorized_tenant_ids
+	legacy := &models.NetworkDomain{
+		ID:         models.DefaultDomainID,
+		Name:       "默认网域",
+		DomainType: models.DomainTypeManagement,
+		Channel:    models.ChannelTypeLocal,
+		TenantID:   models.PlatformAdminTenantID,
+		Status:     models.DomainStatusEnabled,
+	}
+	require.NoError(t, db.Create(legacy).Error)
+
+	require.NoError(t, Run(db))
+
+	var dom models.NetworkDomain
+	require.NoError(t, db.Where("id = ?", models.DefaultDomainID).First(&dom).Error)
+	assert.Equal(t, []string{models.PlatformAdminTenantID}, dom.AuthorizedTenantIDs)
+
+	var n int64
+	require.NoError(t, db.Model(&models.NetworkDomain{}).Where("id = ?", models.DefaultDomainID).Count(&n).Error)
+	assert.Equal(t, int64(1), n, "no duplicate rows after back-fill")
 }

@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
 	"github.com/metriccenter/metriccenter/platform/db"
 )
 
@@ -82,6 +83,9 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	config := platform.Group("/config")
 	config.GET("/preview", configPreviewHandler)
 	config.POST("/apply", configApplyHandler)
+
+        // Module 06 Phase 1: zone-type dictionary + network-domain registry.
+        networkdomain.RegisterRoutes(platform, db.DB)
 }
 
 func healthHandler(c *gin.Context) {

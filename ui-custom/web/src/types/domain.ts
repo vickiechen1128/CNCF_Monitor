@@ -55,6 +55,30 @@ export interface NetworkDomain {
   deleted_at?: string
 }
 
+/**
+ * 禁用网域返回的影响范围（该网域下 M07 资源数 / 已纳管 EdgeAgent 数）。
+ * Module_06 §6.2/§9.2——禁用 = 冻结，禁用时后端在响应中返回影响范围供前端二次确认弹窗展示。
+ */
+export interface NetworkDomainImpact {
+  resource_count: number
+  managed_edge_agent_count: number
+  /** 兼容别名：后端可能以 `edge_agent_count` 命名已纳管 EdgeAgent 数（review 阶段按后端汇报对齐）。 */
+  edge_agent_count?: number
+}
+
+/**
+ * PATCH /api/v2/platform/network-domains/:id/status 的响应 data 结构。
+ * 契约兼容：禁用的影响范围可能嵌套在 `data.impact`，或直接平铺在 `data.{resource_count,...}`。
+ */
+export interface NetworkDomainStatusResult {
+  id?: string
+  status?: DomainStatus
+  impact?: NetworkDomainImpact
+  resource_count?: number
+  managed_edge_agent_count?: number
+  edge_agent_count?: number
+}
+
 /** 租户生命周期状态 */
 export type TenantStatus = 'active' | 'suspended' | 'disabled'
 
