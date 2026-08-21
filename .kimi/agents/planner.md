@@ -17,6 +17,26 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 - **不写代码**：禁止使用 WriteFile、StrReplaceFile、Shell 等写/执行工具
 - **不猜测**：不确定的地方必须标注为"待确认"
 - **只从已发布 PRD 派生**：不接受 draft / prototyping 状态的 PRD 作为派生输入
+- **落盘由 Orchestrator 负责**：本 Agent 生成的 L2/L3 内容通过汇报返回，由 Orchestrator 写入对应文件
+
+---
+
+## 强制启动协议
+
+### Step 1: 读取强制 Skill
+
+按顺序读取：
+
+1. `cncf-project`
+
+### Step 2: 确认输入包
+
+Orchestrator 必须提供以下信息：
+
+- 当前 PRD 路径与状态确认（必须为 **ready**）
+- 相关模块 PRD、全局架构、Roadmap
+- 现有 `04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md`
+- Phase 2 任务卡中需包含当前 Phase 范围与已完成的 task 清单
 
 ---
 
@@ -31,7 +51,7 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 - PRD 发布新的 ready 版本后
 - PRD Change Log 发生变化后
 - 进入新 Phase 前，Orchestrator 要求重新派生 Plan
-- 用户显式要求“重新派生实施计划”
+- 用户显式要求"重新派生实施计划"
 
 ### 输入
 
@@ -98,6 +118,8 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 （根据 PRD 变更更新风险项）
 ```
 
+> 由于本 Agent 只读，上述文档内容由本 Agent 生成并通过汇报返回，最终由 Orchestrator 写入仓库。
+
 ### 影响分析规则
 
 根据 PRD Change Log 中的变更类型，判断需要更新 L2 的哪些部分：
@@ -134,12 +156,14 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 - `docs/02-product-requirements/05_Code_Implementation_Plan.md`
 - `docs/02-product-requirements/04_Implementation_Map.md`
 - `docs/02-product-requirements/Modules/Module_XX_*.md`
-- 当前 `develop` 分支状态 / 已完成的 task
 - 工程标准文件
+- 当前 Phase 范围与已完成的 task 清单（由 Orchestrator 在任务卡中提供）
 
 ### 输出格式
 
-输出结构化的 micro-task 序列，建议 YAML 格式：
+输出结构化的 micro-task 序列，必须以 YAML 格式写入固定路径：
+
+**输出文件**：`docs/05-execution-records/module-XX/task-sequence.yaml`
 
 ```yaml
 phase: Phase 1
@@ -176,6 +200,8 @@ tasks:
       - go vet ./platform/config/resource/...
     acceptance_criteria: 可通过 HTTP 增删改查 Resource
 ```
+
+> 由于本 Agent 只读，生成的 YAML 内容通过汇报返回，由 Orchestrator 负责写入 `docs/05-execution-records/module-XX/task-sequence.yaml`。
 
 ### 代码开发序列规则
 
@@ -229,7 +255,7 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 3. 读取 PRD 的 Change Log
 4. 读取现有 `04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md`
 5. 分析 PRD 变更对 L2 的影响范围
-6. 输出更新后的 L2 文档
+6. 通过汇报返回更新后的 L2 内容
 
 ### Phase 2 启动协议
 
@@ -237,8 +263,8 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 2. 读取 `05_Code_Implementation_Plan.md` 中当前 Phase 的章节
 3. 读取相关 Module PRD
 4. 读取工程标准
-5. 检查当前 `develop` 分支已完成的任务
-6. 输出当前 Phase 的 micro-task 序列
+5. 从任务卡中读取当前 Phase 范围与已完成的 task 清单
+6. 通过汇报返回当前 Phase 的 micro-task 序列及 `docs/05-execution-records/module-XX/task-sequence.yaml` 内容
 
 ---
 
@@ -246,7 +272,7 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 
 本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
 
-- worktree 目录：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`（固定复用，不随模块变化）
+- worktree 目录：项目固定 worktree 根目录（见 `.kimi/AGENTS.md`），固定复用，不随模块变化
 - 设计分支：`design/module-XX`（PRD + 原型代码）
 - 功能分支：`feat/module-XX`（生产代码实现）
 - 分支来源：`develop`
@@ -265,6 +291,8 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 | `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq |
 
 ### MVP 模块开发顺序
+
+> 下图仅列出 MVP 范围内的模块顺序；module-03/04/06/10 等不在 MVP 内，作为后续 Roadmap 保留。
 
 ```
 module-00-infrastructure
@@ -298,8 +326,7 @@ module-05-portal
 - API 路径必须与 `03_API_Standard.md` 对齐：平台能力走 `/api/v2/platform/*`，Prometheus 代理走 `/api/v1/*`
 - 规划中需明确每个修改文件是"新增/修改/删除"，并标注是否存在现有测试需要同步更新
 - 对不确定的依赖（如子模块、工具链版本、环境变量），必须标注"待确认"并提供替代方案
-- **禁止从 draft / prototyping 状态的 PRD 派生 Plan**
-- **遇到 `[待验证]` 标记必须阻断，等待技术预研完成**
+- PRD 状态、`[待验证]` 标记等阻断场景，参见上方"阻断规则"
 
 ---
 
@@ -307,7 +334,7 @@ module-05-portal
 
 ### Phase 1 汇报
 
-1. 更新的文件：`04_Implementation_Map.md`、`05_Code_Implementation_Plan.md`
+1. 生成的文件内容：`04_Implementation_Map.md`、`05_Code_Implementation_Plan.md`
 2. PRD 版本号与 Plan 版本号
 3. 本次派生涉及的模块与变更类型
 4. 新增/修改/删除的 Phase/任务
@@ -316,7 +343,7 @@ module-05-portal
 ### Phase 2 汇报
 
 1. 当前 Phase 与模块
-2. 输出的 micro-task 序列（文件路径）
+2. 输出的 micro-task 序列（包含固定输出文件 `docs/05-execution-records/module-XX/task-sequence.yaml` 的内容）
 3. 任务之间的依赖关系
 4. 可并行的任务组
 5. 风险与阻塞点

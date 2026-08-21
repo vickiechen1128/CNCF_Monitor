@@ -96,6 +96,8 @@ export interface ConfigDraftMetadata {
   trigger_summary: string
   checksum: string
   source_summary: string
+  /** {v1.47 决策 42-1} 被同域更晚 `pending` 草稿取代（superseded）时，指向新变更单号，供「已取代」展示与追溯 */
+  superseded_by_change_no?: string
 }
 
 /**
@@ -299,7 +301,7 @@ export interface ConfigDeployment {
 }
 
 /** 本轮变更检测结果类型（PRD 3.3.3「检测状态可观测」P1） */
-export type ChangeDetectionOutcome = 'changes_found' | 'no_change' | 'checksum_same'
+export type ChangeDetectionOutcome = 'changes_found' | 'no_change' | 'checksum_same' | 'generation_failed'
 
 /**
  * 变更检测状态（PRD 3.3.3「检测状态可观测」P1）：每个网域最近一次轮询（pull 模式，默认 30s）的检测结果，
@@ -316,6 +318,8 @@ export interface ChangeDetectionStatus {
    * - changes_found：本轮检测到变更 → 生成了草稿（引用草稿 ID / 触发摘要）
    * - no_change：源数据版本未变化 → 本轮无变更，跳过重算
    * - checksum_same：源数据版本变化但重算后联合 checksum 与生效版本一致 → 内容无变化，自动丢弃，不进入确认
+   * - generation_failed：本轮检测到变更但 configgen 生成异常（非校验类）→ 不推进 source_data_version、标记失败待重算，
+   *   下一轮轮询自动重试（决策 42-4，产生 generate 失败可见性；不生成草稿）
    */
   outcome: ChangeDetectionOutcome
   /** 本轮检测生成的草稿（changes_found 时） */
@@ -447,20 +451,46 @@ export const approvalTieringNote = {
 }
 
 /**
- * change_status 全链路回写 M01（{v1.43} 联动 M01 草稿，PRD 3.3/3.4/3.5，M01 侧 v3.22 演示）：
+ * change_status 全链路回写 M01（{v1.43} 联动 M01 草稿，PRD 3.3/3.4/3.5，M01 侧 v3.22 演示；
+ * {v1.50 决策 31-M2} 变更状态回写 deployed 提前到 MVP 必实现，消除「已生效 vs 无变更」歧义）：
  * - ConfigDraft 生成 → 回写 pending（待确认）；
  * - ConfigDraft 确认并生成 ConfigVersion → 回写 confirmed（已确认）；
- * - ConfigDeployment.status=success（local reload 成功 / agent_pull 被 Edge Agent 成功应用）→ 回写 deployed（v0.2 起精确回写）；
- *   MVP 阶段 deployed 由 none 占位，即确认下发成功后直接回写 none（M01 列表「下发状态=无变更」）；
+ * - ConfigDeployment.status=success（local reload 成功 / agent_pull 被 Edge Agent 成功应用）→ 回写 deployed；
+ *   {v1.50 决策 31-M2} 成功下发即回写 deployed（MVP 生效），不再由 none 占位；
  * - 无相关在途变更 → 回写 none。
  */
 export const changeStatusEnumDemo = {
   pending: 'pending 待确认：ConfigDraft 生成后回写，M01 列表「下发状态=待确认」',
   confirmed: 'confirmed 已确认：ConfigDraft 确认并生成 ConfigVersion 后回写',
   deployed:
-    'deployed 已下发（v0.2 起精确回写）：ConfigDeployment.status=success 后回写；MVP 阶段由 none 占位，即确认下发成功后直接回写 none',
+    'deployed 已下发（{v1.50} 决策 31-M2，MVP 必实现）：ConfigDeployment.status=success 后即回写 deployed，消除「已生效 vs 无变更」歧义',
   none: 'none 无变更：无相关在途变更时回写，M01 列表「下发状态=无变更」',
 }
+
+/**
+ * 冻结（禁用）网域不生成新变更单（{v1.50} 决策 30，契约同步呈现）：网域冻结 / 禁用期间，
+ * 冻结域内的资源 / 采集 Job / 告警规则变化**不再产生新变更单**；已生成的存量变更单的下发与回滚不受影响
+ * （仍可按现状确认 / 回滚）。本模块仅同步呈现 M01 / M07 契约，不新增机制。
+ */
+export const frozenDomainExclusionNote =
+  '冻结（禁用）网域不生成新变更单（决策 30，{v1.50}）：网域冻结期间，冻结域内资源 / 采集 Job / 告警规则的变化不再产生新变更单；存量变更单的下发与回滚不受影响（仍可按现状确认 / 回滚）'
+
+/**
+ * 删除「未指定网域资源自动归 default」兜底（{v1.50} 决策 31-M3）：未指定网域的资源不再自动归入 default；
+ * network_domain_id 由 Module_07 导入校验**强制必填**——缺失网域的资源在导入阶段即被拦截，避免误归默认域。
+ */
+export const defaultFallbackRemovalNote =
+  '删除「未指定网域资源自动归 default」兜底（决策 31-M3，{v1.50}）：资源未指定网域不再自动归入 default；network_domain_id 由 Module_07 导入校验强制必填，缺失即在导入阶段拦截'
+
+/**
+ * 采集认证 / TLS 透传映射（{v1.50} 决策 31，MVP 必实现）：M09 不是认证 / TLS 的 Owner，仅做**透传映射、无新机制**——
+ * ScrapeJob 的认证 / TLS 字段由 M01 配置，M09 在配置预览 / prometheus.yml 中透传：
+ * auth_type=basic → basic_auth（username / password）；auth_type=bearer → authorization（Bearer token）；
+ * tls_skip_verify → tls_config.insecure_skip_verify；ca_file → tls_config.ca_file；全部可选、默认不启用。
+ * blackbox 拨测 HTTP / HTTPS 模块同理透传 tls_config（见下方 gov 域 blackbox-http 的 tls_config 示例）。
+ */
+export const authTlsPassthroughNote =
+  '采集认证 / TLS 透传映射（{v1.50} 决策 31，MVP 必实现）：认证 / TLS 由 Module_01（ScrapeJob）配置、本模块仅透传映射、无新机制——auth_type=basic → basic_auth（username/password）、auth_type=bearer → authorization（Bearer token）、tls_skip_verify → tls_config.insecure_skip_verify、ca_file → tls_config.ca_file；全部可选、默认不启用；blackbox 拨测 HTTP / HTTPS 模块同理透传 tls_config'
 
 /**
  * 网闸 / 隔离区连接约束（{v1.31}，强制，PRD §6）：在政务云等网闸隔离场景
@@ -473,13 +503,14 @@ export const gatewayConstraintNote =
   '网闸 / 隔离区连接约束（强制）：禁止任何中心 → 边缘方向的主动连接，所有交互（心跳 / 配置拉取 / 指标回传）一律由边缘 Agent 向中心发起（pull / push 上行），中心无入站端口；面向边缘的地址均为该网域视角的可达地址（网闸映射后地址），配置拉取地址由网域级 center_endpoint + 相对路径合成绝对地址下发给 Agent'
 
 /**
- * rules.yml 分组派生（{v1.32}，PRD 3.3）：M09 读取 MonitoringRule 后按 Prometheus `group` 语法组织 rules.yml，
- * group 由 M09 内部自动派生（默认按 resource_type 或 rule_type 聚类），MVP 不暴露用户可管理的 RuleGroup 实体；
+ * rules.yml 分组派生（{v1.32}，PRD 3.3）：M09 读取 MonitoringRule 后按 Prometheus `group` 语法组织 rules.yml；
+ * {v1.48 决策 38-1} MVP 由 M01 规则文件挂载（content_mode=yaml_passthrough）的 rule_content 原样透传并入，group 随文件自带；
+ * v0.3 字段级编辑（structured）后 group 由 M09 内部自动派生（默认按 resource_type 或 rule_type 聚类），MVP 不暴露用户可管理的 RuleGroup 实体；
  * 按规则作用域生成：中心域（default）包含 scope=central/both 规则，边缘域仅当存在 scope=edge/both 规则时
  * （v0.4+）随配置包生成，MVP 阶段由中心统一求值。
  */
 export const rulesGroupDerivationNote =
-  'rules.yml 按 Prometheus group 语法组织：分组由配置中心内部自动派生（默认按 resource_type / rule_type 聚类），MVP 不暴露用户可管理的规则分组实体；按规则作用域生成——中心域（default）包含 scope=central/both 规则，边缘域仅当存在 scope=edge/both 规则时（v0.4+）随配置包下发，MVP 阶段由中心统一求值'
+  'rules.yml 按 Prometheus group 语法组织：MVP 由 M01 规则文件挂载（content_mode=yaml_passthrough）的 rule_content 原样透传并入（决策 38-1，{v1.48}），group 随文件自带；v0.3 字段级编辑（structured）后分组由配置中心内部自动派生（默认按 resource_type / rule_type 聚类），MVP 不暴露用户可管理的规则分组实体；按规则作用域生成——中心域（default）包含 scope=central/both 规则，边缘域仅当存在 scope=edge/both 规则时（v0.4+）随配置包下发，MVP 阶段由中心统一求值'
 
 /**
  * 配置包绝对下载地址合成（{v1.31}，PRD 6.1）：返回绝对地址 = 该网域 center_endpoint
@@ -972,13 +1003,14 @@ export const edgeAgents: EdgeAgent[] = [
 
 // prometheus.yml 为 file_sd 骨架（PRD 3.3 / 3.3.2）：仅含 job 结构（job_name / metrics_path / params / relabel / file_sd 引用），
 // targets 列表统一放入 targets/*.json（file_sd_configs 引用，固定文件名覆盖写），不内联 static_configs。
-// {v1.31} external_labels 注入：network_domain / tenant_id 必注入；zone_type 仅当网域登记了 zone_type 时注入（PRD 9.2）
+// {v1.45} external_labels 注入（决策 19/23）：仅部署级 / 物理维度不可变元数据——network_domain_id 必注入、replica 部署拓扑注入；
+// zone_type 仅当网域登记了 zone_type 时注入（PRD 3.3.1）；不注入 tenant_id 与业务标签（biz / tenant 由 M07 LabelTemplate 以 target 级注入，见 targets 注释）
 const prometheusYmlDefault = `global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    network_domain: 'default'
-    tenant_id: 'platform_admin'
+    network_domain_id: 'default'
+    replica: 'replica-0'
 
 remote_write:
   - url: 'http://localhost:8428/api/v1/write'
@@ -1009,9 +1041,9 @@ const prometheusYmlGov = `global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    network_domain: 'gov-cloud-a'
-    tenant_id: 'platform_admin'
+    network_domain_id: 'gov-cloud-a'
     zone_type: 'extranet'
+    replica: 'replica-0'
 
 remote_write:
   - url: 'https://metriccenter.example.com/api/v2/ingest/prometheus'
@@ -1020,6 +1052,14 @@ remote_write:
 
 scrape_configs:
   - job_name: 'node-exporter'
+    # {v1.50 决策 31} 采集认证 / TLS 透传映射示例（MVP 必实现）：auth_type=basic → basic_auth、tls_skip_verify/ca_file → tls_config；
+    # 认证 / TLS 由 M01 配置，本模块仅透传映射、无新机制；全部可选、默认不启用（node-exporter job 演示启用态）
+    basic_auth:
+      username: 'exporter'
+      password: '***'
+    tls_config:
+      insecure_skip_verify: true
+      ca_file: '/etc/prometheus/certs/gov-exporter-ca.crt'
     file_sd_configs:
       - files:
           - 'targets/node-exporter.json'
@@ -1028,6 +1068,10 @@ scrape_configs:
     metrics_path: /probe
     params:
       module: [http_2xx]
+    # {v1.50 决策 31} blackbox 拨测 HTTP / HTTPS 模块同理透传 tls_config（HTTPS 拨测目标）
+    tls_config:
+      insecure_skip_verify: true
+      ca_file: '/etc/prometheus/certs/gov-blackbox-ca.crt'
     file_sd_configs:
       - files:
           - 'targets/blackbox-http.json'
@@ -1044,9 +1088,9 @@ const prometheusYmlFinance = `global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    network_domain: 'finance-dmz'
-    tenant_id: 'platform_admin'
+    network_domain_id: 'finance-dmz'
     zone_type: 'internet'
+    replica: 'replica-0'
 
 remote_write:
   - url: 'https://metriccenter.example.com/api/v2/ingest/prometheus'
@@ -1066,8 +1110,8 @@ const prometheusYmlDefaultInvalid = `global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    network_domain: 'default'
-    tenant_id: 'platform_admin'
+    network_domain_id: 'default'
+    replica: 'replica-0'
 
 remote_write:
   - url: 'http://localhost:8428/api/v1/write'
@@ -1101,6 +1145,15 @@ scrape_configs:
 
 // targets/*.json（file_sd 目标文件，PRD 6.2）：按 job 名组织；labels 为 LabelTemplate 静态展开的资源标签
 // {v1.27} 对齐 Module_07 5.15 业务指标标签规范机制 A：app（app_name→app）/ biz（business_domain→biz）/ env / network_domain 注入（static_configs[].labels）
+// {v1.44}/{v1.45} 标签注入链路（2026-08-19 决策 19/23）：biz 由 Module_07 LabelTemplate 的 business_domain→biz 映射、
+// tenant 由 tenant_id→tenant 映射，在生成 targets/*.json 时注入 static_configs[].labels——不经过 M09 external_labels
+// （external_labels 仅注入 network_domain_id / zone_type / replica 部署级元数据，见 prometheus.yml 注释）；biz 只承载不可变业务编码
+// （business_domain），业务展示名不进标签、UI 展示时 join 业务字典。MVP 单租户下 tenant 映射可选、不强制注入。
+// 业务与网域正交（决策 2026-08-19）：一个网域承载多个业务的资源（biz 各不相同），一个业务也可跨多个网域；业务归属变更（资源换业务）
+// 只原子重写 targets/*.json（file_sd 自动感知，不触发采集器 reload），prometheus.yml 骨架 / rules.yml 不变。
+// {v1.49 决策 29} offline 排除（MVP 必实现）：configgen 生成 targets/*.json 时按 Resource.status=offline 过滤已下线实例——
+// offline 不进入 targets，offline 后下一配置生成周期即从 targets 移除（对齐 Module_07 8.1 / Module_01 3.1）；
+// 下方各 targets 快照默认均已剔除 offline 实例（系统中存在 offline 资源但不进产物）。maintenance 口径与 Module_07 一并对齐（MVP 不保证）。
 const targetsDefault: ConfigTargetsFiles = {
   'node-exporter': [
     {
@@ -1157,6 +1210,29 @@ const targetsFinance: ConfigTargetsFiles = {
     {
       targets: ['10.0.3.20:9100'],
       labels: { network_domain: 'finance-dmz', app: 'app-finance-pay', biz: 'payment', env: 'prod' },
+    },
+  ],
+}
+
+// {v1.44} 业务归属变更草稿（draft-gov-004）用：gov-cloud-a 域新增第二业务 risk——10.0.1.11 业务归属由 data-api 调整为 risk
+// （真实拓扑变化：应用 app-gov-db 从「数据 API 平台」划归「风控平台」），biz 标签由 data-api 变为 risk；
+// 演示「多业务共用 1 网域」（gov-cloud-a 同时承载 data-api + risk 两个业务，网域与业务正交）与
+// 「业务归属变更只重写 targets/node-exporter.json」（file_sd 自动感知，prometheus.yml 骨架 / rules.yml 不变，不触发 reload）
+const targetsGovBizChange: ConfigTargetsFiles = {
+  'node-exporter': [
+    {
+      targets: ['10.0.1.10:9100'],
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
+    },
+    {
+      targets: ['10.0.1.11:9100'],
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-risk', biz: 'risk', env: 'prod' },
+    },
+  ],
+  'blackbox-http': [
+    {
+      targets: ['https://api.example.com/health'],
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
     },
   ],
 }
@@ -1220,6 +1296,9 @@ const targetsDefaultV3: ConfigTargetsFiles = {
 // M09 读取 Module_01 的 MonitoringRule，按规则字段自动派生 group 分组（默认按 resource_type / rule_type 聚类），
 // MVP 不暴露用户可管理的 RuleGroup 实体；按规则作用域生成：中心域（default）包含 scope=central/both 规则，
 // 边缘域仅当存在 scope=edge/both 规则时（v0.4+）随配置包生成，MVP 阶段由中心统一求值。
+// {v1.48 决策 38-1 规则文件挂载}：MVP 阶段 M01 规则编辑页以「文件挂载」形态（content_mode=yaml_passthrough）把整份
+// rules.yml 存于 MonitoringRule.rule_content——M09 生成 rules.yml 时把各「已提交生效」的 rule_content 原样并入（透传），
+// 不再按字段派生；rulesGroupDerivationNote 的字段化派生逻辑随 v0.3 字段级编辑（content_mode=structured）落地后启用。
 const rulesYml = `groups:
   - name: node.rules
     rules:
@@ -1232,7 +1311,8 @@ const rulesYml = `groups:
           summary: 'High CPU usage on {{ $labels.instance }}'
 `
 
-// 规则变更草稿（draft-gov-002）用：HighCPUUsage 阈值 80 → 85（演示「告警规则变更 = high 风险」的确认场景）
+// {v1.48} 规则变更草稿（draft-gov-002）用：HighCPUUsage 阈值 80 → 85（演示「告警规则变更 = high 风险」的确认场景）
+// {v1.48} 挂载形态下即为 M01 中 rule_content 透传内容的变化（M01 保存 / 启停 / 删除后进入变更检测）。
 const rulesYmlChanged = `groups:
   - name: node.rules
     rules:
@@ -1430,6 +1510,44 @@ export const configDrafts: ConfigDraft[] = [
     updated_at: '2026-08-03 14:52:00',
   },
   {
+    // {v1.44} 业务归属变更演示（业务-网域正交性对齐，2026-08-19 决策）：Resource#R-1024 业务归属由 data-api 调整为 risk，
+    // biz 标签由 data-api 变为 risk——真实拓扑变化，仅原子重写 targets/node-exporter.json（file_sd 自动感知，不触发 reload），
+    // 为低风险变更；同时演示「多业务共用 1 网域」：gov-cloud-a 域承载 data-api（10.0.1.10 / blackbox-http）+ risk（10.0.1.11）两个业务。
+    id: 'draft-gov-004',
+    change_no: 'CHG-20260803-010',
+    network_domain_id: 'gov-cloud-a',
+    source_version: 'cv-gov-002',
+    prometheus_yml: prometheusYmlGov,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsGovBizChange,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: '资源业务归属变更',
+      source_data_version: '2026-08-03 14:55:00',
+      trigger_summary: 'Resource#R-1024 business_domain 由 data-api 调整为 risk（2026-08-03 14:55:00）触发重算',
+      checksum: computeJointChecksum(prometheusYmlGov, rulesYml, blackboxYml, targetsGovBizChange),
+      source_summary:
+        'Resource#R-1024 业务归属由 data-api 调整为 risk，targets/node-exporter.json 中 10.0.1.11 的 biz 标签由 data-api 变为 risk（prometheus.yml 骨架 / rules.yml 不变）',
+    },
+    status: 'pending',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: '10.0.1.11 业务归属由 data-api 调整为 risk（biz 标签更新，仅重写 targets/node-exporter.json）',
+    change_items: [
+      {
+        type: 'modify',
+        target: 'scrape_target',
+        description: '10.0.1.11 业务归属由 data-api（app-gov-db）调整为 risk（app-gov-risk），biz 标签更新，仅重写 targets/node-exporter.json',
+        risk: 'low',
+        affected_files: ['targets'],
+      },
+    ],
+    created_at: '2026-08-03 14:56:00',
+    updated_at: '2026-08-03 14:56:00',
+  },
+  {
     // {v1.37} 校验失败演示迁至 default 域（原 manufacturing-edge 未纳管、草稿被 domainOptions 过滤不可达，断点修复）：
     // plc-gateway 采集新增，targets/plc-gateway.json 语法错误（JSON 数组未闭合）→ configgen 侧 targets schema 校验失败
     id: 'draft-default-003',
@@ -1472,7 +1590,35 @@ export const configDrafts: ConfigDraft[] = [
     updated_at: '2026-08-03 14:22:00',
   },
   {
-    // {v1.37} default 域已确认变更（对应 cv-default-002）：node-exporter 新增第二实例，已确认发布但 local reload 失败（deploy-008），
+    // {v1.47 决策 42-1} 补漏演示：default 域一度生成的早期变更单被更晚的 draft-default-003（CHG-20260803-005）取代 → discarded(superseded)。
+    // 效果：default 域同时最多一张「活」的 pending（这里是校验失败待修复的 CHG-20260803-005），旧的待确认单自动转为「已取代」不阻塞确认列表
+    id: 'draft-default-superseded',
+    change_no: 'CHG-20260803-014',
+    network_domain_id: 'default',
+    source_version: 'cv-default-001',
+    prometheus_yml: prometheusYmlDefault,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefault,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: '被同域更晚变更单取代（superseded）',
+      source_data_version: '2026-08-03 14:21:00',
+      trigger_summary: 'ScrapeJob#plc-gateway updated_at 变更（2026-08-03 14:21:00）触发重算，产物载荷取代本单',
+      checksum: computeJointChecksum(prometheusYmlDefault, rulesYml, blackboxYml, targetsDefault),
+      source_summary: '同域生成更晚 pending（CHG-20260803-005）后，本单自动置为 superseded，不阻塞确认列表',
+      superseded_by_change_no: 'CHG-20260803-005',
+    },
+    status: 'discarded',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: '已被后续变更单 CHG-20260803-005 取代，无需确认',
+    change_items: [],
+    created_at: '2026-08-03 14:18:00',
+    updated_at: '2026-08-03 14:21:00',
+  },
+  {
     // 供「未同步（out_of_sync）+ 重试 / 回滚」演示（决策 37-2）
     id: 'draft-default-004',
     change_no: 'CHG-20260803-007',
@@ -1831,16 +1977,18 @@ export const changeDetectionStatus: ChangeDetectionStatus[] = [
   },
   {
     network_domain_id: 'gov-cloud-a',
-    last_checked_at: '2026-08-03 14:09:30',
-    source_data_version: '2026-08-03 14:08:00',
+    // {v1.44} 检测状态指向最新待确认草稿：业务归属变更 draft-gov-004（10.0.1.11 biz: data-api → risk）
+    last_checked_at: '2026-08-03 14:56:30',
+    source_data_version: '2026-08-03 14:55:00',
     outcome: 'changes_found',
     generated_drafts: [
       {
-        id: 'draft-gov-001',
-        trigger_summary: 'Resource#R-1024 updated_at 变更（2026-08-03 14:08:00）触发重算',
+        id: 'draft-gov-004',
+        trigger_summary: 'Resource#R-1024 business_domain 由 data-api 调整为 risk（2026-08-03 14:55:00）触发重算',
       },
     ],
-    summary: '本轮检测到变更：生成 draft-gov-001（targets/node-exporter.json 新增实例 10.0.1.11），进入确认列表',
+    summary:
+      '本轮检测到变更：生成 draft-gov-004（10.0.1.11 业务归属 data-api → risk，biz 标签更新，仅重写 targets/node-exporter.json），进入确认列表',
   },
   {
     network_domain_id: 'finance-dmz',
@@ -1849,6 +1997,15 @@ export const changeDetectionStatus: ChangeDetectionStatus[] = [
     outcome: 'no_change',
     generated_drafts: [],
     summary: '源数据版本未变化（14:36:00 轮询）→ 本轮无变更，跳过重算',
+  },
+  {
+    // {v1.47 决策 42-4} 生成失败演示：configgen 生成异常（非校验类）→ 变更检测状态呈败态、本轮不生成草稿、不推进 source_data_version，下一轮自动重试
+    network_domain_id: 'manufacturing-edge',
+    last_checked_at: '2026-08-03 14:58:00',
+    source_data_version: '2026-08-03 14:57:00',
+    outcome: 'generation_failed',
+    generated_drafts: [],
+    summary: 'configgen 生成异常（源表 labels 模板渲染失败）：本轮不生成配置草稿、不推进源数据版本，下一轮轮询自动重试',
   },
 ]
 

@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
-> **PRD 状态**: `设计中`（原型已验证至 v2.7；评审问题清单与结论已落档至 design-decisions.md「评审问题清单：MVP 动线完整性走查」与「评审结论（2026-08-18 第二轮讨论）」，待 ready 确认）
-> **PRD 版本**: v2.16
+> **PRD 状态**: `ready`（可开发版本）
+> **PRD 版本**: v2.21
 > **产品版本覆盖**: MVP / v0.4 / v1.0
-> **原型版本**: v2.7（本轮为评审结论落版，涉及行为变更（is_monitored 取消、endpoint 必填、分页 pageSize 50 等），原型待同步）
-> **更新日期**: 2026-08-18
+> **原型版本**: v2.21（已对齐）
+> **更新日期**: 2026-08-21
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -50,7 +50,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 - **M07-OPS-02**：从 Excel 批量导入主机、数据库、中间件、应用服务资源
 - **M07-OPS-05**：临时添加一个资源用于验证（由策略模块决定是否纳入采集 Job）
 - **M07-OPS-07**：为资源类型创建/编辑标签模板，定义字段到监控标签的映射（完整条目见全局库 §4.7）
-- **M07-OPS-08**：为应用服务资源维护业务类型（业务域）归属，如支付业务、数据接口业务（完整条目见全局库 §4.7）
+- **M07-OPS-08**：为资源维护业务归属（`biz_code`，全类型必填，字典下拉选择），如支付业务、数据接口业务（完整条目见全局库 §4.7）
 - **M07-OPS-09**：为应用服务资源添加自定义标签（业务类型资源可写，静态资源只读）（完整条目见全局库 §4.7）
 - **ARCH-03**：查看平台整体采集覆盖率（完整条目见全局库 §2.2；落点：M01 实例选择器「未纳入任何 Job」筛选 + M02 目标状态页，M07 不展示采集状态）
 
@@ -60,7 +60,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 
 ## 3. 核心功能
 
-> 决策依据：design-decisions.md 决策 3.32-3.42（模板↔实例隐式关联 / 标签模板动线）/ 3.43（标签来源口径）/ 3.44（模板变更影响反馈）/ 3.45（标签双场景治理）/ 3.46（业务类型）
+> 决策依据：design-decisions.md 决策 3.32-3.42（模板↔实例隐式关联 / 标签模板动线）/ 3.43（标签来源口径）/ 3.44（模板变更影响反馈）/ 3.45（标签双场景治理）/ 3.46（业务类型）/ 设计对齐决策 13/14/17/21/22（业务分组字典、`biz_code` 必填改造与命名 / 停用治理、`tenant_id→tenant` 可选映射）
 
 ### 3.1 资源管理
 
@@ -74,10 +74,11 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | **通用指标目标管理**        | 通用/自定义 Exporter 目标管理，支持自定义 IP、端口、metrics\_path 与 Label                                                                                                              | P0               |
 | **展示字段控制**          | 按资源类型固定展示列、默认排序                                                                                                                                                     | P0               |
 | **列显隐配置**           | 资源列表支持用户勾选显示 / 隐藏列（含中间件类型、网域、来源等），满足不同用户查看不同字段的诉求                                                                                                                   | P1               |
-| **资源状态管理**          | online / offline / maintenance 状态维护；状态行为语义见 8.1（M01/M09 默认排除 offline） | P0               |
-| **采集状态归 M01 / M02** | M07 不展示「是否被 Job 选中 / 采集成功」状态（原 `is_monitored` 已取消）；「未纳入任何 Job」在 M01 实例选择器筛选、「选中但无数据」在 M02 目标状态页查看（见 5.2 采集状态口径） | —                |
+| **资源状态管理**          | online / offline / maintenance 状态维护；状态行为语义见 8.1（排除 `offline` 为目标语义、实现于 M09 targets 生成——offline 后下一配置生成周期即从 targets 移除、不触发 reload，决策 29 MVP 必实现） | P0               |
+| **采集状态归 M01 / M02** | M07 资源列表提供「未监控」筛选（`is_monitored=false`，字段由 M01 维护、M07 只读映射，决策 31-M1），作为「未纳入任何 Job」的列表级识别入口；「采集成功」详情不展示，归 M02 目标状态页查看（见 5.2 采集状态口径） | —                |
 | **适用模板展示**          | 资源详情显示「适用模板」（该资源类型对应的默认标签模板名 + 模板 ID），与 system 标签来源标注呼应，让用户看见"此实例由哪个模板产生标签"                                                                                  | P0               |
 | **网域归属**            | 资源按 `network_domain_id` 分组；网域生命周期由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**本模块不采用顶部「当前网域」全局上下文切换器**，而是在资源列表内提供「网域」筛选器（默认记忆上次选择、始终可切换为「全部网域」以支持跨域搜索）；**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
+| **业务分组字典** | 维护业务编码 `biz_code`（字典主键）与展示名 `biz_name`、`description`、状态（enabled/disabled），为资源录入/Excel 导入提供下拉选项；**MVP 由配置文件预置，不提供维护页面**；v0.2+ 评估维护入口，开放时须遵守红线：**只允许改 `biz_name` / `description` / 状态，`biz_code` 永不可改、停用不删除**（决策 17/21/22）。**MVP 运维口径**：字典配置文件约定为 `platform/config/business_domains.yaml`，改动后**热加载生效**（无需重启，P0 验收项）；初始字典编码上线前必须经**命名评审**（`biz_code` 永不可改，属一次性不可逆决策）；**强制预置兜底条目 `infra`**（公共基础设施），无业务归属的设备类资源统一挂 `infra`，避免必填逼出假业务污染 `biz` 聚合 | P0 |
 | **CMDB 接入源**        | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 `ExcelProvider` / `SQLiteProvider` 维护资源；v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 实现外部 CMDB 同步                 | P0 / P2          |
 | **资源关系**            | 应用-实例-集群关系、依赖拓扑（未来）                                                                                                                                                 | P2               |
 
@@ -150,7 +151,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 > **双场景治理边界**：标签管理按"静态资源 vs 业务类型资源"两种场景区分治理——
 >
 > - **静态资源（host / middleware / generic\_target）**：标签治理在 CMDB 侧（MVP = Excel 导入列带入作为前置形态，v0.4+ = Module\_04 CMDB 同步），平台**只读展示来源、不提供实例级打标入口**（ResourceLabel 写接口对非 application 资源返回 403，见 6.2）；数据治理主体不在本平台，避免引导用户二次打标与 CMDB 数据冲突。
-> - **业务类型资源（application）**：开放 `user` 来源自定义标签（资源详情「自定义标签」入口），承载业务用户关心的业务维度标注；`business_domain`（业务类型/业务域，如支付业务、数据接口业务）作为 Resource 基础字段维护，标签模板映射为 `biz` label（见 5.2 / 5.8 / 5.12 A / 5.15），支持"按业务类型聚合监控"。
+> - **业务类型资源（application）**：开放 `user` 来源自定义标签（资源详情「自定义标签」入口），承载业务用户关心的业务维度标注；`biz_code`（业务类型/业务域，如支付业务、数据接口业务）作为 Resource 基础字段维护，标签模板映射为 `biz` label（见 5.2 / 5.8 / 5.12 A / 5.15），支持"按业务类型聚合监控"。
 >
 > **标签模板与治理解耦**：标签模板（LabelTemplate）与"谁治理标签数据"是两个层面——即使静态资源标签治理在 CMDB 侧，标签模板仍保留：它是"CMDB/Excel 字段 → Prometheus Label"的技术契约（Module\_01/09 生成 Job 配置的输入），不因静态资源只读而移除。
 
@@ -249,12 +250,13 @@ const (
 | database\_type      | string       | ❌  | 数据库类型     | 细粒度子类型（仅 `resource_category=database` 时使用）：mysql / redis / postgresql / oracle / dm8（达梦）/ sqlserver / mongodb 等；来自 CMDB `bk_obj_id`（v0.4+）或 Excel 导入列（MVP） |
 | middleware\_type    | string       | ❌  | 中间件类型     | 细粒度子类型（仅 `resource_category=middleware` 时使用）：kafka / elasticsearch / nginx / zookeeper 等；mysql / redis 已移入 `database_type`，本字段不再承载数据库产品线 |
 | network\_domain\_id  | string       | ✅  | 网域        | 所属网域 ID；MVP 默认值为 `default`；v0.2+ 按租户上下文填充                                      |
+| tenant\_id           | string       | ❌  | 仅技术信息     | 租户归属（权限/治理作用域，见决策 18）；MVP 单租户固定 `platform_admin`；作为 target 级 `tenant` 标签的**可选**标签映射来源（决策 19，见 5.12 A）；v0.2+ 多租户时按租户上下文填充，不进入采集拓扑 |
 | source\_type         | enum         | ✅  | 数据来源      | 数据来源：`manual` / `import` / `cmdb {v0.4+}`，MVP 默认 `manual`                      |
 | instance\_name       | string       | ❌  | 实例名       | 可读实例名/展示名；host 模板中必填，对应 Excel `instance_name`，生成 `hostname` label              |
 | hostname             | string       | ❌  | 主机名       | 主机名；host 场景下默认与 `instance_name` 一致；也可从 CMDB `bk_host_name` 等字段同步               |
 | instance\_ip         | string       | ❌  | 目标 IP     | 目标 IP 或域名；host / generic\_target 必填，作为 Prometheus scrape target 地址             |
 | os\_type             | string       | ❌  | 操作系统类型    | 操作系统类型，如 `Linux`、`Windows`；host 场景下从 Excel `image` 或 CMDB 同步                   |
-| business\_domain     | string       | ❌  | 业务类型      | 业务类型/业务域归属（如 payment、data-api）；映射为 `biz` label；任意资源类型可挂，MVP 以 application 维护，v0.2+ 演进独立业务目录 |
+| biz\_code     | string       | ✅  | 业务      | 业务归属**不可变编码**（如 payment、data-api）；对应业务分组字典主键；**MVP 所有资源类型必填**；导入时填写编码，UI 展示取字典 `biz_name`；经标签模板映射为 `biz` label；编码创建后不可变，展示名可改；停用条目不可被新资源/编辑选用，存量资源保留历史值 |
 | app\_name            | string       | ✅* | 应用名       | 应用名 → 映射为 `app` label；application 默认取 `service_name`（免重复填写）；必填规则：application / database / middleware 必填，host / generic\_target 可空（空值不注入 `app` 标签，见 5.15 规则 4） |
 | env                  | string       | ✅  | 环境        | 环境 → 映射为 `env` label；全类型必填（任何资源都有环境归属）                                        |
 | cluster              | string       | ✅* | 集群        | 集群/子应用 → 映射为 `cluster` label；host 场景下 `sub_app_code` 为空时取 `vpc`；必填规则同 `app_name`（host / generic\_target 可空，空值不注入标签） |
@@ -263,13 +265,15 @@ const (
 | cmdb\_business\_path | string       | ❌  | 仅技术信息     | {v1.0+} 对应 BlueKing CMDB 业务路径，用于 ITSM 服务目录映射                                   |
 | cmdb\_module\_path   | string       | ❌  | 仅技术信息     | {v1.0+} 对应 BlueKing CMDB 模块路径，用于影响范围定位                                         |
 | cmdb\_maintainer     | string       | ❌  | 仅技术信息     | {v1.0+} 对应 BlueKing CMDB 维护人，告警负责人来源之一                                         |
-| status               | string       | ✅  | 状态        | `online` / `offline` / `maintenance` / `orphan {v0.4+}`；导入时 Excel 中文状态需映射到该枚举；状态行为语义见 8.1（M01 选实例 / M09 生成配置默认排除 `offline`） |
+| status               | string       | ✅  | 运行状态    | `online` / `offline` / `maintenance` / `orphan {v0.4+}`；导入时 Excel 中文状态需映射到该枚举；状态行为语义见 8.1（排除 `offline` 为目标语义、实现于 M09 targets 生成，见 8.1——决策 29 MVP 必实现）。UI 展示名「运行状态」，以与「采集状态」区分（决策 32） |
 | created\_at          | datetime     | ✅  | 仅技术信息     | 创建时间                                                                           |
 | updated\_at          | datetime     | ✅  | 仅技术信息     | 更新时间                                                                           |
 
 > **`app_name` / `cluster` 必填标注（✅\*）**：按资源类别差异化——application / database / middleware 必填；host / generic\_target 可空（设备类资源无应用归属，强制必填会逼填假数据污染 `app` / `cluster` 标签聚合）；空值不注入对应标签（与 5.15 规则 4「`biz` 空值语义」对齐）。
 >
-> **采集状态口径**：M07 是**资产台账**，不展示「是否被 ScrapeJob 选中 / 是否采集成功」类状态（原 `is_monitored` 已取消，避免「被引用」被误读为「在监控中」）。「哪些资源未纳入任何采集 Job」在 **M01 实例选择器**（「未纳入任何 Job」筛选）查看；「选中了但没采到数据」在 **M02 目标状态页**（`up` / target 状态）查看。
+> **采集状态口径**：M07 是**资产台账**，不展示「是否被 ScrapeJob 选中 / 是否采集成功」类状态（原 `is_monitored` 已取消，避免「被引用」被误读为「在监控中」）。「哪些资源未纳入任何采集 Job」在 **M01 实例选择器**（「未纳入任何 Job」筛选）查看；「选中了但没采到数据」在 **M02 目标状态页**（`up` / target 状态）查看。**注意**：以上两个落点为目标口径，其实际交付以 M01 / M02 各自 PRD 与排期为准（随 M01 节奏落地，MVP 不保证可用，见 design-decisions.md「评审结论（2026-08-19 第三轮讨论）」K 组）。
+>
+> **状态 → 运行状态（决策 32）**：资源列表「状态」列 UI 更名「**运行状态**」，表意更贴近其取值（运行中 / 已停止 / 维护中），并与「采集状态」列、资源「来源」列区分。`Resource.status` 字段不变。**「运行状态」数据来源非 M07 自身功能**（由 CMDB 同步 / Excel 导入 / 用户手动维护），列头数据来源以**隐藏样式**（hover 提示）标注，不占用列宽、不干扰用户（原型见 ResourcesPage.tsx 状态列头 Tooltip）。
 
 ### 5.3 资源 Label（ResourceLabel）
 
@@ -287,7 +291,7 @@ const (
 
 **来源说明**：
 
-- `system`：由 [LabelTemplate](#54-标签模板-labeltemplate) 根据 Resource 字段自动生成的默认 label，如 `app`、`env`、`cluster`、`hostname`。
+- `system`：由 [LabelTemplate](#54-标签模板-labeltemplate) 根据 Resource 字段自动生成的默认 label，如 `app`、`env`、`cluster`、`hostname`、`biz`（来自 `biz_code`）。
 - `user`：用户通过 UI 或 Excel 手动添加的 label。
 - `cmdb`：v0.4+ 由 Module\_04 CMDB 同步写入的 label。
 
@@ -468,7 +472,7 @@ type ResourceStatusMapping struct {
 | 字段                 | 类型     | 必填 | UI 展示名   | 说明                                                          |
 | ------------------ | ------ | -- | -------- | ----------------------------------------------------------- |
 | service\_name      | string | ✅  | 服务名      | 服务名                                                         |
-| business\_domain   | string | ❌  | 业务类型   | 业务类型/业务域归属（如 payment / data-api）；映射为 `biz` label        |
+| biz\_code   | string | ✅  | 业务   | 业务归属**不可变编码**（如 payment、data-api）；对应业务分组字典主键；**MVP 必填**；导入时填写编码，UI 展示取字典 `biz_name`；经标签模板映射为 `biz` label；编码创建后不可变，展示名可改；停用条目不可被新资源/编辑选用，存量资源保留历史值 |
 | health\_check\_url | string | ❌  | 健康检查 URL | 拨测 URL；作为资源字段由 Module\_07 维护，Blackbox Job 配置由 Module\_01 负责 |
 | protocol           | string | ❌  | 协议       | http / https / tcp                                          |
 | endpoint           | string | ✅  | 业务指标端点   | 业务指标抓取地址（host:port），即 Prometheus scrape target 地址；同一服务多实例 = 多行，`service_name` 相同、`endpoint` 不同 |
@@ -477,7 +481,7 @@ type ResourceStatusMapping struct {
 > **资源粒度说明（粒度 = 服务实例）**：application 资源**一行 = 一个可抓取实例**，「服务」是逻辑概念，**不落资源表**，由 `app` / `biz` 标签聚合表达（与 5.15 关联键契约自洽）——
 >
 > - **单实例**（一台机器一个进程）：1 行资源，`service_name + endpoint`；
-> - **多副本服务**（同服务部署在 N 台 VM）：**N 行资源**，共享 `app_name` / `business_domain`，PromQL `sum by (app)` / `sum by (biz)` 天然完成服务级 / 业务类型级聚合，单实例用 `instance` 区分；
+> - **多副本服务**（同服务部署在 N 台 VM）：**N 行资源**，共享 `app_name` / `biz_code`，PromQL `sum by (app)` / `sum by (biz)` 天然完成服务级 / 业务类型级聚合，单实例用 `instance` 区分；
 > - **K8s 动态实例**（扩缩容 / 漂移）：MVP 不手工表达，v0.2 走服务发现（5.15 已预留 `__meta_*`）；
 > - **用户侧唯一入口**（LB / VIP / 域名）：**拨测语义**（服务对外是否存活），由 `health_check_url` 承载、M01 Blackbox 消费，不决定资源粒度；纯拨测资源行的 `endpoint` 填拨测地址（与 `health_check_url` 一致）。
 >
@@ -539,6 +543,7 @@ type ResourceStatusMapping struct {
 | 通用         | `app_name`           | `app`                | Resource 基础字段                                    |
 | 通用         | `env`                | `env`                | Resource 基础字段                                    |
 | 通用         | `cluster`            | `cluster`            | Resource 基础字段；host 场景下 `sub_app_code` 为空时取 `vpc` |
+| 通用         | `biz_code`    | `biz`                | 业务类型归属；**全资源类型通用业务标签**，值取 Resource 的 `biz_code` 编码 |
 | 通用         | `instance_name`      | `instance_name`      | 可读实例名；host 模板中必填                                 |
 | 主机         | `hostname`           | `hostname`           | host 场景下默认与 `instance_name` 一致                   |
 | 主机         | `instance_ip`        | `instance_ip`        | 采集目标地址                                           |
@@ -546,10 +551,12 @@ type ResourceStatusMapping struct {
 | 数据库 | `database_type`       | `database_type`      | 数据库类型                 |
 | 中间件        | `middleware_type`    | `middleware_type`    | 中间件类型                      |
 | 应用服务       | `service_name`       | `service_name`       | 应用服务名                                            |
-| 应用服务       | `business_domain`    | `biz`                | 业务类型归属；业务指标按业务类型聚合的关联键       |
+| 应用服务       | `biz_code`    | `biz`                | 业务类型归属；业务指标按业务类型聚合的关联键       |
 | 通用 {v0.4+} | `cmdb_business_path` | `cmdb_business_path` | CMDB 接入后由 Module\_04 同步                          |
 | 通用 {v0.4+} | `cmdb_module_path`   | `cmdb_module_path`   | CMDB 接入后由 Module\_04 同步                          |
 | 通用 {v0.4+} | `cmdb_maintainer`    | `cmdb_maintainer`    | CMDB 接入后由 Module\_04 同步                          |
+
+> **`tenant_id` → `tenant` 可选映射（决策 19）**：MVP 单租户不强制注入、默认模板不含此映射；未来多租户若需在指标上体现租户归属，由本映射将资源字段 `tenant_id` 映射为 target 级 `tenant` 标签（可选，随模板配置）。租户隔离优先在 API Gateway / 查询代理层通过 PromQL 注入实现，租户不进入采集拓扑。
 
 #### B. Prometheus 内置字段
 
@@ -602,6 +609,7 @@ type ResourceStatusMapping struct {
 | resource\_field | `app_name`         | `app`           |
 | resource\_field | `env`              | `env`           |
 | resource\_field | `cluster`          | `cluster`       |
+| resource\_field | `biz_code`         | `biz`           |
 | resource\_field | `hostname`         | `hostname`      |
 | resource\_field | `instance_name`    | `instance_name` |
 | resource\_field | `os_type`          | `os_type`       |
@@ -613,7 +621,8 @@ type ResourceStatusMapping struct {
 | composite       | `instance_ip:port` | `instance`        |
 | resource\_field | `app_name`         | `app`             |
 | resource\_field | `env`              | `env`             |
-| resource\_field | `cluster`          | `cluster`         |
+| resource\_field | `cluster`         | `cluster`         |
+| resource\_field | `biz_code`        | `biz`             |
 | resource\_field | `middleware_type`  | `middleware_type` |
 
 **数据库默认标签模板**
@@ -624,6 +633,7 @@ type ResourceStatusMapping struct {
 | resource\_field | `app_name`         | `app`             |
 | resource\_field | `env`              | `env`             |
 | resource\_field | `cluster`          | `cluster`         |
+| resource\_field | `biz_code`         | `biz`             |
 | resource\_field | `database_type`    | `database_type`   |
 
 **应用服务默认标签模板**
@@ -634,6 +644,7 @@ type ResourceStatusMapping struct {
 | resource\_field | `app_name`         | `app`              |
 | resource\_field | `env`              | `env`              |
 | resource\_field | `cluster`          | `cluster`          |
+| resource\_field | `biz_code`         | `biz`              |
 | resource\_field | `health_check_url` | `health_check_url` |
 
 **通用指标目标默认标签模板**
@@ -645,25 +656,26 @@ type ResourceStatusMapping struct {
 | resource\_field | `app_name`         | `app`         |
 | resource\_field | `env`              | `env`         |
 | resource\_field | `cluster`          | `cluster`     |
+| resource\_field | `biz_code`         | `biz`         |
 | resource\_field | `custom_labels.*`  | 透传            |
 
 > **默认模板中的组合字段 = 内置默认**：上表 host / middleware / generic\_target 默认模板中的 `composite → instance` 行为**内置默认（自动生成 `instance = 资源IP + default_port`，与 Prometheus 默认行为一致）**——前台标注「内置默认」、用户无需配置且不可新增（新增映射不展示组合字段选项，见 5.12 C）；application 默认模板不含组合字段（`endpoint` 字段自带端口，抓取时自动注入 `instance = endpoint`，同样无需配置）。
 
 ### 5.15 业务指标标签规范
 
-> 监控"业务侧包装的服务接口 / 微服务"场景下，业务指标（接口 QPS、延迟、错误率）带有业务属性。Prometheus 无"指标 ↔ 资源"实体关联机制，一切关联通过 label 完成——本规范定义业务指标与静态资源（Resource）的关联契约，是 Module\_01（策略）/ Module\_09（配置生成）的标签注入依据。
+> 所有资源类型均维护 `biz_code` 字段，用于表达资源所属业务域，并通过 LabelTemplate 统一映射为 `biz` label。Prometheus 无"指标 ↔ 资源"实体关联机制，一切关联通过 label 完成——本规范定义业务指标与资源（Resource）的关联契约，是 Module\_01（策略）/ Module\_09（配置生成）的标签注入依据。
 
 **关联键（Join Keys）**：
 
 | 标签 | 来源 | 必带 | 说明 |
 |------|------|------|------|
 | `app` | 标签模板映射（`app_name` → `app`，抓取注入）或业务埋点自带 | ✅ | 指标 ↔ 应用服务资源的关联键；值 = 平台 `app_name` |
-| `biz` | 标签模板映射（`business_domain` → `biz`，抓取注入） | ❌ | 指标 ↔ 业务类型（业务域）的关联键；值 = 平台 `business_domain`（如 payment / data-api） |
+| `biz` | 标签模板映射（`biz_code` → `biz`，抓取注入） | ✅ | 指标 ↔ 业务类型（业务域）的关联键；**值取 `biz_code` 不可变编码**（如 payment / data-api）；展示名通过业务分组字典 `biz_name` 解析，修改 `biz_name` 不影响监控配置 |
 | `env` / `cluster` | 标签模板映射 | ❌ 建议 | 环境 / 集群维度，辅助过滤 |
 
 **关联机制（机制 A 为主 + 机制 B 兜底）**：
 
-- **机制 A：抓取时注入（推荐，MVP 主路径）**——业务指标端点注册为 application 资源（`endpoint` 字段，见 5.8；**资源粒度 = 服务实例**，多副本 = N 行资源共享 `app_name` / `business_domain`），标签模板把 `app_name` / `business_domain` / `env` / `cluster` 映射为标签；Module\_09 生成 `prometheus.yml` 时写入 `static_configs[].labels`，Prometheus 抓取时自动附加到该 target 全部序列（业务指标自动带资源标签，**零业务侧成本**）。
+- **机制 A：抓取时注入（推荐，MVP 主路径）**——所有资源类型在录入/导入时维护 `biz_code` 字段，默认标签模板为每一类资源生成 `app` / `biz` / `env` / `cluster` 等标签（`biz_code → biz` 为全资源类型通用映射）；Module\_09 生成 `prometheus.yml` 时写入 `static_configs[].labels`，Prometheus 抓取时自动附加到该 target 全部序列（资源指标自动带业务标签，**零业务侧成本**）。
 - **机制 B：业务埋点标签 + relabel 归一化（兜底）**——业务侧代码埋点直出指标时，按本规范携带 `app`（值 = 平台 `app_name`）等关联标签；平台侧用 `metric_relabel_configs` 归一化兜底（如业务侧 `biz` / `service` 标签重命名为 `app`）。**关键限制**：`metric_relabel_configs` 只能操作指标自带标签、无法引入资源侧数据，关联键值一致性依赖业务侧按规范埋点（或平台侧治理校验）。
 - **查询时 join（可选）**：PromQL `on(app)` / `group_left` join 资源维度，用于聚合场景；依赖前两步标签一致。
 
@@ -672,7 +684,7 @@ type ResourceStatusMapping struct {
 1. **关联键用稳定业务标识，不用 `instance`**——动态微服务实例（K8s 扩缩容）下 `instance` 会漂移；`app` / `biz` 为稳定业务标识，v0.2+ 服务发现场景（`prometheus_builtin` + `__meta_*` relabel，见 5.12 B）天然兼容；
 2. **业务属性分两类**：资源属性（`app` / `biz` / `env` / `cluster`，参与关联与聚合）与业务维度属性（`path` / `method` / `status`，仅查询分析），两者在埋点与展示中明确区分；
 3. **业务维度标签不参与资源关联**——`path` / `method` / `status` 等指标自带维度标签仅用于接口级 QPS / 延迟 / 错误率分析，不作为指标 ↔ 资源关联键；
-4. **`biz` 空值语义**——非 application 资源或无 `business_domain` 归属的资源**不注入 `biz` 标签**（空值不产生标签，避免空 label 污染序列）；`biz` 仅在模板映射存在且来源字段非空时生成（与 5.3 `system` 标签实时计算语义一致）。
+4. **`biz` 空值与不变性语义**——`biz_code` 为空时不注入 `biz` 标签；MVP 所有资源类型 `biz_code` 必填，因此默认注入；**注入 `biz` 标签的值是 `biz_code` 编码（不可变），业务字典的 `biz_name` 仅用于 UI 展示，修改 `biz_name` 不触发配置重新生成或下发**。
 
 **版本**：MVP 落地机制 A（现有 5.8 / 5.12 设计已支撑）+ 规范定义；机制 B 的 `metric_relabel_configs` 归一化兜底 MVP 提供；v0.2+ 动态实例（服务发现）场景沿用本规范（关联键不变）。
 
@@ -685,7 +697,7 @@ MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 **主机导入模板列**
 
 ```
-network_domain | instance_name | hostname | instance_ip | os_type | app_name | env | cluster | owner | status
+network_domain | instance_name | hostname | instance_ip | os_type | biz_code | app_name | env | cluster | owner | status
 ```
 
 其中 `instance_name` 为必填（host 模板必填项，生成 `hostname` label，见 5.2 / 5.12 A）。
@@ -693,38 +705,39 @@ network_domain | instance_name | hostname | instance_ip | os_type | app_name | e
 **中间件导入模板列**
 
 ```
-network_domain | middleware_type | instance_ip | port | version | app_name | env | cluster | owner | status
+network_domain | middleware_type | instance_ip | port | version | biz_code | app_name | env | cluster | owner | status
 ```
 
 **数据库导入模板列**
 
 ```
-network_domain | database_type | instance_ip | port | version | app_name | env | cluster | owner | status
+network_domain | database_type | instance_ip | port | version | biz_code | app_name | env | cluster | owner | status
 ```
 
 **应用服务导入模板列**
 
 ```
-network_domain | service_name | business_domain | health_check_url | protocol | endpoint | port | app_name | env | cluster | owner | status
+network_domain | service_name | biz_code | health_check_url | protocol | endpoint | port | app_name | env | cluster | owner | status
 ```
 
-其中 `business_domain`（业务类型）为可选项：填写时映射为 `biz` 标签；留空 = 无业务类型归属（不注入 `biz` 标签）。
+其中 `biz_code`（业务类型）为**必填项**：导入时填写业务编码，映射为 `biz` 标签。
 
 > **同一服务多实例说明**：应用服务按「一行 = 一个可抓取实例」建模（见 5.8 粒度说明）——同一服务部署在 N 台机器 = **N 行**，`service_name` 相同、`endpoint` 不同，导入**允许**该行形态（重复检测按 `service_name + endpoint`，见 5.16.2）；`app_name` 可留空（默认取 `service_name`）。
 
 **通用指标目标导入模板列**
 
 ```
-network_domain | target_name | instance_ip | port | metrics_path | scheme | exporter_type | custom_labels | app_name | env | cluster | owner | status
+network_domain | target_name | instance_ip | port | metrics_path | scheme | exporter_type | custom_labels | biz_code | app_name | env | cluster | owner | status
 ```
 
 其中 `custom_labels` 列支持 `key1=value1;key2=value2` 格式。
 
 > **网域列取值约束**：`network_domain` 列**只允许引用 Module\_06 已登记的网域**，不接受自由文本新造网域（**M06 网域登记已纳入 MVP 范围**，报错引导闭环成立；单网域场景下仅允许 `default` / 空值自动填充 `default`）——
 >
-> - 「下载模板」生成的 Excel 中，`network_domain` 列附带**下拉数据校验 sheet**（选项实时取自 M06 网域清单），引导用户选择而非手填；
+> - 「下载模板」**由后端生成静态 xlsx**（MVP 不做 dataValidation 下拉——SheetJS 社区版不支持、前端生成成本高），改为模板内置「**取值说明 sheet**」：`network_domain` / `biz_code` / `env` / `status` 等列的合法值清单（实时取自 M06 网域清单与业务分组字典），引导用户照单填写；dataValidation 下拉挪 v0.2+ 评估；
 > - 导入校验发现不存在的网域名时，报错文案必须引导闭环：「网域 xxx 未登记，请先到『系统设置 → 网域管理』登记后重新导入」（M06 入口）；
 > - v0.4+ CMDB 同步场景同理：`bk_cloud_id` → `NetworkDomain` 的映射表维护在 M06/M09 侧，匹配不上的资源进入「待分类」队列，不自动建档。
+> - `biz_code` 列**只允许引用已登记的业务分组字典条目**（合法值见模板「取值说明 sheet」），不接受自由文本；导入校验发现未登记的业务编码时，报错文案给出可执行指引：「业务 xxx 未登记，请联系平台管理员在业务分组字典配置（`platform/config/business_domains.yaml`）中添加后重新导入」（MVP 字典由配置文件预置、热加载生效，无维护页面，见 3.1）。
 
 #### 5.16.2 数据校验
 
@@ -736,7 +749,7 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 | 端口范围    | `port` 必须在 1 \~ 65535                                           |
 | URL 格式  | `health_check_url` 必须符合 HTTP/TCP URL 格式                         |
 | 环境枚举    | `env` 必须是 `dev/test/staging/prod` 之一                            |
-| 业务类型    | `business_domain` 可选填；填写时符合命名规范（小写字母、数字、连字符，长度 ≤ 64）；留空 = 无业务类型归属 |
+| 业务存在性 | `biz_code` **必填**，且必须对应已**启用**的业务分组字典条目；**停用条目不可被新资源 / 新增 / 编辑选用**（编辑已属停用业务时提示、允许保留历史值）；编码规范：小写字母、数字、连字符，长度 ≤ 64 |
 | 协议枚举    | `protocol` 必须是 `http/https/tcp` 之一                              |
 | 状态枚举    | Excel/CSV 导入时 `status` 列允许业务语言，经 5.5 状态映射字典转为 `online/offline/maintenance`；手动录入 / API 写请求必须直接为 `online/offline/maintenance` 之一 |
 | 重复检测    | 判重键按资源类型明确（均按 `network_domain_id` 收敛：政务云虽规划层保证跨区 IP 不重复，但按网域收敛可兼容其他客户跨区 IP 复用场景，并使"跨区迁移主机"语义正确）——**host = (domain, `instance_ip`)；database / middleware / generic\_target = (domain, `instance_ip`, `port`)；application = (domain, `service_name`, `endpoint`)** |
@@ -745,6 +758,8 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 | 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式                 |
 
 > **导入模式（upsert）**：导入 API 支持 `mode=create_only / upsert`（见 6.1）。`upsert` 模式下按上述**判重键**定位已有资源并**覆盖更新**（状态 / 负责人 / 集群等字段变更可批量收敛，CMDB 导出 → 修改 → 再导入的批量维护动线成立）；`create_only` 下判重命中即失败（计入 failed）。判重键即 upsert 的更新定位键，与 `resource_id`（服务端 uuid）解耦。
+>
+> **upsert 不做删除 / 全量同步**：Excel 中消失的行不会被清理，upsert 只新增与覆盖更新。**批量下线推荐动线**：将目标行 `status` 置为「已停止」（映射为 `offline`）后 upsert 导入——配合 8.1 的排除语义获得「停止采集」效果：`offline` 后**下一配置生成周期即从 targets 移除、不触发采集器 reload**（决策 29）；彻底删除仍走单条 DELETE（被 Job 引用时按 6.1 报错指引先解除引用）。
 
 #### 5.16.3 导入结果
 
@@ -788,11 +803,12 @@ go run main.go -listen-address ":9100" -app-name "order-service" -env "prod"
 #### 5.17.2 对应的资源示例
 
 ```yaml
-resource_id: "simple-agent-order-service-prod"
+resource_id: "9f3c2a1e-7b4d-4e8f-a2c6-5d1e0f8b3a47"   # 服务端生成（uuid），示例为创建后返回值
 resource_category: "application"
 network_domain_id: "default"
 source_type: "manual"
 service_name: "order-service"
+biz_code: "payment"
 app_name: "order-service"
 env: "prod"
 cluster: "bj-01"
@@ -817,12 +833,13 @@ status: "online"
 
 | 方法     | 路径                                                   | 说明                                                                                                                    |
 | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/resources`                                  | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `page` / `page_size`（MVP 分页从简，默认 50） |
+| GET    | `/api/v1/resources`                                  | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `is_monitored`（决策 31-M1：`false` 筛选「未监控」，字段由 M01 维护、M07 只读映射）/ `page` / `page_size`（MVP 分页从简，默认 50） |
 | POST   | `/api/v1/resources`                                  | 创建资源（source\_type=manual）                                                                                             |
 | PUT    | `/api/v1/resources/{resource_id}`                    | 更新资源                                                                                                                  |
 | DELETE | `/api/v1/resources/{resource_id}`                    | 删除资源（被 Job 引用时由 Module\_01 关联校验并**在报错中列出引用 Job 名单 + 跳转**，见 6.6.1）                                                    |
 | POST   | `/api/v1/resources/import`                           | Excel 导入（multipart，返回 5.16.3 导入结果结构）；Form 参数 `mode=create_only / upsert`（默认 create\_only，upsert 语义见 5.16.2）       |
 | GET    | `/api/v1/resources/import-templates/{resource_category}` | 下载固定列模板（返回列定义 JSON，前端渲染为可下载模板）                                                                                        |
+| GET    | `/api/v1/business-domains`                           | 业务分组字典列表（MVP 只读，供资源录入 / Excel 校验下拉使用；数据来自配置文件预置） |
 
 ### 6.2 资源标签 API（ResourceLabel）
 
@@ -982,7 +999,7 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 > **孤儿资源（v0.4+）**：CMDB 同步失败时按 `network_domain_id + resource_category` 归组保留 7 天，保证「CMDB 同步失败后仍保持监控不中断」（M04-OPS-10）；孤儿资源不参与新采集 Job 的实例选择，由 Module\_04 生命周期管理。
 >
-> **行为语义（采集契约）**：status 不仅是展示字段——**M01 选实例 / M09 生成配置时默认排除 `offline` 资源**（不再出现在 `prometheus.yml` 抓取目标与 Job 实例选择中，避免下线资源持续被抓取、持续告警骚扰）；`maintenance` 的排除口径待 M01 侧对齐（MVP 至少排除 `offline`）。维护窗口 / 下线场景由此获得「停止采集」语义。
+> **行为语义（目标采集契约，决策 29 MVP 必实现）**：status 不仅是展示字段——目标语义为「M01 选实例 / M09 生成配置时默认排除 `offline` 资源」（`offline` 不再出现在 `prometheus.yml` 抓取目标与 Job 实例选择中，避免下线资源持续被抓取、持续告警骚扰）。实现落点：M09 生成 `targets/*.json` 时按 `Resource.status=offline` 过滤，`offline` 后**下一配置生成周期即从 targets 移除、不触发采集器 reload**（targets 变化仅原子重写 `targets/*.json`，file_sd 自动感知，见 M09）；M01 实例候选集对 `offline` 实例**显示但置灰不可选**（见 M01 §3.1/§5.4）。`maintenance` 的排除口径与 M07 8.1 一并对齐（MVP 不保证）。
 
 ### 8.2 标签来源优先级（ResourceLabel.source）
 
@@ -1024,9 +1041,9 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 - [ ] {P0} 资源详情显示「适用模板」（该资源类型默认模板名 + 模板 ID），与 system 标签来源标注呼应
 - [ ] {P0} 用户添加的标签 key 与模板映射目标冲突时，提示「该标签由标签模板生成，如需修改请前往标签模板管理」，引导类型级变更
 - [ ] {P0} 静态资源（主机/中间件/通用目标）标签只读展示来源（system / cmdb / Excel 带入），不提供实例级打标入口
-- [ ] {P0} 应用服务资源可维护 `business_domain`（业务类型）字段（新增/编辑时可选填），详情页展示
+- [ ] {P0} 所有资源类型新增/编辑时**必填** `biz_code`（业务），详情页展示业务展示名 `biz_name`；停用业务以「业务名（已停用）」标识
 - [ ] {P0} 应用服务资源开放「自定义标签」编辑（user 来源）；非 application 资源标签编辑入口隐藏/禁用
-- [ ] {P0} 标签模板可新增 `business_domain → biz` 映射；业务指标经抓取注入带 `app` / `biz` 标签，可按业务类型聚合
+- [ ] {P0} 标签模板可新增 `biz_code → biz` 映射；所有资源类型默认模板包含 `biz_code → biz` 映射；业务指标经抓取注入带 `app` / `biz` 标签，可按业务类型聚合
 
 ### 9.2 技术验收（后端/契约可验证）
 
@@ -1041,7 +1058,9 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 - [ ] {P1} Module\_01 与 Module\_09 可通过只读接口稳定获取 Resource、LabelTemplate、ResourceLabel 数据
 - [ ] {P1} {v0.4+} 资源模型预留 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` 字段
 - [ ] {P0} ResourceLabel 写接口（POST / PUT / DELETE）按 `resource_category` 校验：仅 `application` 可写 user 标签，host / middleware / generic\_target 返回 403
-- [ ] {P1} `business_domain` 字段与 `business_domain → biz` 映射写入 5.12 A 契约；5.15 业务指标标签规范（关联键 `app` / `biz`、机制 A 注入 + 机制 B relabel 兜底）作为 Module\_01/09 生成配置的标签注入依据
+- [ ] {P1} `biz_code` 字段与 `biz_code → biz` 映射写入 5.12 A 契约；5.15 业务指标标签规范（关联键 `app` / `biz`、机制 A 注入 + 机制 B relabel 兜底）作为 Module\_01/09 生成配置的标签注入依据
+- [ ] {P1} 业务分组字典提供只读接口（MVP 无写接口）；业务存在性校验「`biz_code` 必须对应**启用**条目」；停用条目不可被新增/编辑选用，存量资源保留历史值（决策 22）
+- [ ] {P1} `biz_code` 编码创建后不可变，字典展示名 `biz_name` 修改不触发配置重新生成 / 下发（决策 6/21）；MVP 单租户下 `tenant_id → tenant` 映射可选、默认模板不注入（决策 19）
 
 ***
 
@@ -1063,13 +1082,14 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 | `ConfigDraft` / `change_no`           | 配置变更确认 / 变更单 | {v0.2+} Module\_09 的待确认配置变更（变更单号 `CHG-xxx`）；模板变更后用户前往配置中心确认发布（跨模块词汇，见 Module\_09 术语映射）                                              |
 | `ResourceLabel.source`                | 标签来源         | cmdb / user / system；system = 模板生成（对应字段来源：资源字段+组合字段）、user = 实例级自定义、cmdb = v0.4+ 预留（MVP 占位展示）                                        |
 | `Mapping.source_type`                 | 映射字段来源       | resource\_field / composite / cmdb\_field / prometheus\_builtin；生成关系：system 标签 ← 资源字段+组合字段，cmdb 标签 ← cmdb\_field（v0.4+），user 标签不走模板 |
-| `status`                              | 状态           | 运行中 / 已停止 / 维护中（+ v0.4+ 孤儿）                                                                                                         |
+| `status`                              | 运行状态         | 运行中 / 已停止 / 维护中（+ v0.4+ 孤儿）；UI 展示名「运行状态」，数据来源（CMDB / Excel / 手动）以列头隐藏提示标注（决策 32）                                        |
 | `orphan`                              | 孤儿资源         | 仅技术信息（v0.4+，CMDB 同步失败保留 7 天）                                                                                                        |
 | Excel 状态映射                            | 仅技术信息        | Excel 中文状态（运行中/已停止/维护中）→ 枚举映射规则                                                                                                     |
 | `cmdb_ci_id` / `cmdb_business_path` 等 | 仅技术信息        | CMDB 预留字段（v0.4+，Excel 模板保留列）                                                                                                        |
 | `network_domain_id`                   | 网域           | 资源归属网域（对应 CMDB 云区域，v0.4+）                                                                                                           |
-| `business_domain`                     | 业务类型        | 业务类型/业务域归属（如支付业务、数据接口业务）；映射为 `biz` label                                                                                        |
-| `biz`（label）                        | 业务标签        | 业务类型聚合标签：资源 / 业务指标按业务类型聚合的关联键                                                                                                  |
+| `biz_code`                     | 业务        | 业务归属**不可变编码**（如 payment、data-api），对业务分组字典主键；展示名 `biz_name` 仅 UI 展示；经标签模板映射为 `biz` label；停用条目不可新选，存量资源保留历史值                                                           |
+| `biz_name`                     | 业务名        | 业务分组字典展示名，仅 UI 展示，修改不触发监控配置重新生成 / 下发；停用业务以「业务名（已停用）」标识                                                           |
+| `biz`（label）                        | 业务标签        | 业务聚合标签：值 = 资源 `biz_code` 不可变编码；`biz_name` 仅 UI 展示，修改展示名不影响监控配置                                                                                            |
 | 业务指标标签规范（5.15）                   | 仅技术信息        | 业务指标 ↔ 静态资源关联契约：`app` / `biz` 关联键、机制 A 抓取注入 + 机制 B relabel 兜底、业务维度标签不参与资源关联                                        |
 | `PROTECTED_PROMETHEUS_LABELS`         | 仅技术信息        | 保护 label（instance / job 等），用户禁止覆盖                                                                                                   |
 | `CMDBProvider`                        | 仅技术信息        | v0.4+ CMDB 同步接口（Module\_04 实现）                                                                                                      |
@@ -1095,7 +1115,7 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 | 资源列表（主机/数据库/中间件/应用服务/通用目标） | 加载中 | 表格骨架屏 |
 | 资源列表（主机/数据库/中间件/应用服务/通用目标） | 空态 | 「暂无资源」，提供「新增资源」与「下载模板 / Excel 导入」引导 |
 | 资源列表（主机/数据库/中间件/应用服务/通用目标） | 接口错误 | Alert 提示「资源列表加载失败，请稍后重试」，提供「重新加载」按钮 |
-| 资源列表（主机/数据库/中间件/应用服务/通用目标） | 数据超量 | MVP 分页从简（pageSize 默认 50），优先搜索 / 筛选（关键字、网域、状态）；「网域」筛选器默认记忆上次选择、始终可切「全部网域」 |
+| 资源列表（主机/数据库/中间件/应用服务/通用目标） | 数据超量 | MVP 分页从简（pageSize 默认 50），优先搜索 / 筛选（关键字、网域、业务、状态）；「网域」「业务」筛选器默认记忆上次选择、始终可切「全部网域 / 全部业务」 |
 | 资源列表（主机/数据库/中间件/应用服务/通用目标） | 权限不足 | 静态资源（host / middleware / generic\_target）标签只读展示，不提供打标入口 |
 | 资源详情（含标签管理） | 加载中 | 表单 / 标签卡骨架屏 |
 | 资源详情（含标签管理） | 空态 | 「暂无自定义标签（非必须）」引导：标签模板已自动生成所需标签，仅当个别实例需要额外标签时使用 |
@@ -1126,12 +1146,13 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 - **表单校验错误位置**：字段校验失败时错误提示置于字段下方；全局错误使用 Alert 置顶展示。
 - **提交中防重复**：创建 / 编辑 / 保存按钮在提交期间置为 loading 并禁用，等待接口返回后再恢复。
 - **网域列默认展示且单网域模式不可隐藏**：即使单网域模式（`multi_site_enabled=false`），资源列表 / 详情 / Excel 模板仍保留「网域」列；网域作为云区域概念从 CMDB / Excel 带入，列显隐配置中隐藏需用户主动关闭（见 5.4「网域列展示策略」）。
+- **业务列默认展示**：资源列表与资源详情页展示「业务」列，显示业务字典 `biz_name`；**停用业务在列/详情中以「业务名（已停用）」标识**（存量资源保留历史值、仍可显示）；`biz_code` 字段在新增/编辑表单中为必填下拉选择（下拉仅含启用条目，停用条目不可选）；MVP 不提供业务分组管理页面，业务字典由配置文件预置。
 - **「网域」筛选器记忆与切换**：资源列表「网域」筛选器默认记忆上次选择，始终提供「全部网域」选项支持跨域搜索；不采用顶部「当前网域」全局上下文切换器。
-- **Excel 导入空态引导**：导入记录空态提供「下载模板」引导（模板 `network_domain` 列附带 M06 网域下拉校验 sheet）；导入失败展示校验报告（行号 / 字段 / 原因），未登记网域报错引导闭环到 M06（见 5.16.1）。
+- **Excel 导入空态引导**：导入记录空态提供「下载模板」引导（模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 枚举列合法值，见 5.16.1）；导入失败展示校验报告（行号 / 字段 / 原因），未登记网域报错引导闭环到 M06、未登记业务报错引导联系平台管理员维护业务字典配置（见 5.16.1）。
 - **静态资源标签只读提示**：静态资源（host / middleware / generic\_target）标签区只读展示来源（system / cmdb / Excel 带入），不提供实例级打标入口；写请求返回 403 时提示原因（见 3.3 / 6.2）。
 - **保存模板 / 映射后影响反馈**：模板 / 映射保存成功后给出影响反馈（替代单纯「保存成功」）——「本模板被 N 个采集 Job 引用（M 个网域），将按新映射重新生成标签」，并提供「查看引用 Job」入口；生效语义按版本区分（MVP = 重新生成并立即生效；v0.2+ = 前往配置中心确认后生效）（见 3.2「保存后影响提示」）；MVP 同时提示「**无版本回滚能力，修改立即生效**」——每次变更落只读修改快照（操作人 / 时间 / 旧值 / 新值），版本化切换 UI 为 P1（见 3.2 / 5.3）。
 - **跨模块跳转**：标签模板页「被引用 Job」数据由 Module\_01 只读接口提供（跳转查看）；删除资源 403 报错提供「查看引用 Job」跳转；网域登记跳转 Module\_06；配置变更确认跳转 Module\_09（v0.2+ 启用）。跨模块跳转由统一导航配置承载，原型可暂用相对路径演示。
-- **采集状态归 M01 / M02**：M07 不展示「是否被 Job 选中 / 采集成功」状态（原「已监控 / 未监控」badge 已取消）；「未纳入任何 Job」在 M01 实例选择器筛选、「选中但无数据」在 M02 目标状态页查看（见 5.2 采集状态口径）。
+- **「未监控」筛选（决策 31-M1）**：资源列表提供「未监控」筛选器（`is_monitored=false`，字段由 M01 维护、M07 只读映射）；不展示「采集成功」详情（归 M02 目标状态页）；「未纳入任何 Job」同步在 M01 实例选择器可筛（见 5.2 采集状态口径）。
 
 ***
 
@@ -1141,7 +1162,9 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | --- |
-| v2.16 | 2026-08-18 | 修改 | 评审结论落版（MVP 动线完整性走查，见 design-decisions.md「评审结论（2026-08-18 第二轮讨论）」）：①Excel 导入增加 upsert 模式与按类型判重键（5.16.2/5.16.3/6.1）；②Application 粒度=服务实例，endpoint 必填、判重键 service_name+endpoint、app_name 默认取 service_name、粒度说明（5.8/5.15/5.16.1）；③status 行为语义：M01/M09 默认排除 offline（8.1）；④取消 is_monitored（5.2/6.1/6.5/9.1/10/11，采集状态归 M01 实例选择器 + M02 目标状态页，DELETE 403 报错带 Job 名单与跳转）；⑤网域登记纳入 MVP（5.4/5.16.1，M06 网域登记 MVP 提供）；⑥app_name/cluster 必填差异化（host/generic_target 可空，5.2）；⑦模板只读修改快照（3.2/5.3/11.2）；⑧主机模板补 instance_name 列、组合字段 MVP 隐藏统一（5.12 B/C、9.1）、resource_id 服务端 uuid、分页 pageSize 50（11.1/11.2）、keyword=名称+IP、联删 ResourceLabel、并发后写覆盖（6.1/6.6.1） | MVP / v0.4 / v1.0 | 设计中 |
-| v2.15 | 2026-08-18 | 结构改造 | 按 prototype-designer.md 冻结骨架（章节 1-11 编号冻结）重构：正文本体去演变标注（移除 `{v2.x}` / （决策 N） / （v2.x） 等 PRD 演变标注）；每章开头保留一行决策依据引用；新增第 11 章「前端交互契约」；原第 7 章 Excel 导入规范并入 5.16、原第 9 章 CMDB Provider 扩展设计并入 6.7、原 5.14 状态机提升为第 8 章；Change Log 精简为最近 3 版，完整历史已迁移至 design-decisions.md | 文档自身 | 设计中 |
+| v2.21 | 2026-08-21 | 修改 | 资源列表可辨认性优化（决策 32）：①「状态」列 UI 更名「**运行状态**」（`Resource.status` 字段不变），表意贴近取值并与「采集状态」「来源」列区分（5.2 status 行 / 术语映射同步）；②「运行状态」数据来源（CMDB / Excel / 手动）非 M07 自身功能，列头以**隐藏样式**（hover 提示）标注、不占列宽（5.2 新增决策 32 说明），原型 ResourcesPage 状态列头同步隐藏化 | MVP | 设计中 |
+| v2.20 | 2026-08-21 | 修改 | 四模块 MVP 残余缺陷收敛落版（决策 29 / 31-M1，见 design-decisions.md 决策 28~31）：①offline 排除**提级 P0**——8.1「目标采集契约，MVP 不保证」措辞改写为「决策 29 MVP 必实现」，明确 M09 生成 targets 时过滤 `Resource.status=offline`、offline 后下一配置生成周期即从 targets 移除、不触发 reload，M01 候选实例显示但置灰（3.1 / 5.2 / 5.16.2 / 8.1 同步）；②资源列表新增「未监控」筛选（决策 31-M1）——`is_monitored` 字段由 M01 维护、M07 只读映射，`GET /api/v1/resources` 增加 `is_monitored` query 参数，5.2 采集状态口径由「已取消」改为「弱依赖只读筛选」（3.1 / 6.x / 11 同步）；8.1 记录完整覆盖率视图归 v0.2+ 为已知裁剪 | MVP / v0.4 / v1.0 | 设计中 |
+| v2.19 | 2026-08-19 | 修改 | 评审结论落版（2026-08-19 第三轮讨论，见 design-decisions.md「评审结论（2026-08-19 第三轮讨论）」）：①跨模块契约延后随 M01 节奏——8.1 `offline` 排除语义与 5.2 采集状态口径降级为「目标语义，MVP 不保证」（3.1 / 5.2 status 行同步）；②biz_code 字典 MVP 运维口径补全——配置文件 `platform/config/business_domains.yaml` 热加载生效、报错文案改可执行指引、初始字典命名评审、强制预置兜底条目 `infra`（3.1 / 5.16.1）；③Excel 模板改后端生成静态 xlsx + 「取值说明 sheet」（MVP 不做 dataValidation 下拉）；④5.16.2 补 upsert 不删除声明与批量下线动线；⑤5.17.2 示例补 `biz_code`、`resource_id` 改 uuid 形态；⑥§2 M07-OPS-08 改全类型口径 | MVP / v0.4 / v1.0 | 设计中 |
+| v2.18 | 2026-08-19 | 修改 | 按设计对齐决策 21/22/19 全模块字段更名与字典治理：①原 `business_domain` 更名 `biz_code`（资源字段 / 字典主键，指标标签仍为 `biz`），字典展示名更名 `biz_name`，**全模块全局替换、无新旧混用**（§5.2/5.8/5.12/5.13/5.15/5.16/5.17/9/10/11）；②§3.1 业务分组字典补红线（只改 `biz_name`/`description`/状态，`biz_code` 永不可改、停用不删除）；③§5.13 全部资源类型默认模板补 `biz_code → biz` 通用行；④§5.2/5.12 新增 `tenant_id` 字段与 `tenant_id → tenant` 可选映射说明（决策 19）；⑤§5.16.2 业务存在性校验细化：停用条目不可新选、存量保留历史值；⑥§11 业务列 / 详情展示 `biz_name`，停用业务以「业务名（已停用）」标识；⑦§6.1/§9 业务字典只读接口（MVP 无写接口）与停用治理 / 不变性验收；原型同步至 v2.8 | MVP / v0.4 / v1.0 | 设计中 |
+| v2.17 | 2026-08-19 | 修改 | 按 design-decisions 决策 13/14/17 改造业务字段：①§3.1 新增业务分组字典说明（MVP 配置文件预置、无维护页面）；②§5.2/5.8 `business_domain` 改为所有资源类型必填；③§5.12 默认模板增加 `business_domain → biz` 通用映射；④§5.15 把 `biz` 扩展为全资源类型通用标签并补充不变性语义；⑤§5.16.1 所有 Excel 模板增加 `business_domain` 列并改为必填；⑥§5.16.2 增加业务存在性校验；⑦§6.1 新增 `/api/v1/business-domains` 只读接口；⑧§9.1/§10/§11 同步业务列展示与必填验收 | MVP / v0.2 / v0.4 | 设计中 |
 | v2.14 | 2026-08-16 | 修改 | 术语分层与字段改名（第二十六轮需求对齐，决策 D24）：①`Resource.resource_type` 更名为 `resource_category`（5.1 枚举类型与常量同步 `ResourceCategory`、5.2 字段表、5.10 LabelTemplate 锚点、5.12 A 表头、6.x API query / 错误码、Excel 状态映射、术语映射），UI 展示名「资源类型」→「资源类别」；②5.1 细粒度维度引用改为 M01 `monitor_type`、推导表改 `MONITOR_TYPE_DERIVATION_MAP`（消除与 M01 细粒度 `resource_type` 同名不同粒度的 API 歧义）；③「CI 类型」仅在 CMDB/M04 上下文保留（CMDB 侧边界段不变） | MVP / v0.2 / v0.4 / v1.0 | 设计中 |
-| v2.13 | 2026-08-16 | 修改 | 资源分类四大类改五大类，数据库独立成类（第二十五轮需求对齐，决策 D19/D18）：①5.1 `ResourceType` 枚举新增 `database`，粒度说明与 CMDB 侧边界同步五大类（归类规则：数据库产品线→database、消息/网关/搜索→middleware；redis→database、ES 留 middleware；CMDB 无感知不受影响）；②5.2 字段表新增 `database_type` 字段、`middleware_type` 收窄；③5.7 新增 5.7.1 数据库资源小节（database_type）；④5.10 LabelTemplate 补锚点粒度说明（粗粒度类别，细粒度默认模板由 M01 映射指定，决策 D18）；⑤5.12 A 字段来源表中间件行拆分 database_type + middleware_type 两行、5.13 新增数据库默认标签模板、5.12 C 组合字段适用范围补数据库；⑥7.1 Excel 导入新增数据库模板列；⑦术语映射新增 database / database_type | MVP / v0.2 / v0.4 / v1.0 | 设计中 |

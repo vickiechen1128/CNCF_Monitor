@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
-> **PRD 状态**: `设计中`（v3.22：新增 ScrapeJob/规则草稿（仅新建阶段）、批量提交生效与克隆 Job 方案；原型待同步）
-> **PRD 版本**: v3.22
+> **PRD 状态**: `ready`（可开发版本）
+> **PRD 版本**: v3.26
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.20（本轮为 PRD 方案迭代，原型待同步至 v3.22）
-> **更新日期**: 2026-08-18
+> **原型版本**: v3.26（已对齐）
+> **更新日期**: 2026-08-21
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -21,9 +21,9 @@
 
 1. **监控策略配置（MVP）**：建立监控对象类型与默认采集器（采集实现）的绑定关系，基于该绑定创建并维护 `ScrapeJob`，在隔离网域场景下手动勾选需要监控的实例，并确认 Exporter 已完成安装/注册。
 2. **指标库管理（P1）**：维护平台可识别的指标名、类型、HELP/UNIT，以及常见采集实现的指标集（静态库），为规则编辑提供指标提示与校验能力；必须先有指标库才能编写 PromQL；指标锚点为监控对象类型（多对多带来源标注）。
-3. **规则编辑 UI（v0.3）**：提供告警规则与记录规则的类 YAML 表单编辑器，支持 PromQL 校验与指标实时预览；规则内容创作由本模块负责，规则保存后由 [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 按网域分组并生成/下发 `rules.yml`，静默、Alertmanager 配置、告警状态展示由 [Module\_08: 告警收敛与通知管理](Module_08_Alertmanager_Notification_Management.md) 负责。
+3. **规则管理（MVP 文件挂载 / v0.3 字段化编辑）**：MVP 提供**规则文件挂载**——上传 / 粘贴完整 `rules.yml` 整文件透传落库 `MonitoringRule`，规则变更经 [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 生成 / 确认 / 下发（**不绕过 M09**，保证 M09 完成所有配置文件更新与下发）；v0.3 升级为类 YAML 表单编辑器（expr / for / labels / annotations）+ PromQL 校验 + 指标实时预览。规则内容创作由本模块负责，静默、Alertmanager 配置、告警状态展示由 [Module\_08: 告警收敛与通知管理](Module_08_Alertmanager_Notification_Management.md) 负责。
 
-> 规则编辑 UI 由 MVP 调整至 **v0.3**（与 [02_Product_Roadmap.md](../02_Product_Roadmap.md) 2.4「MVP 不做告警规则编辑 UI」及 [Module_08](Module_08_Alertmanager_Notification_Management.md) v0.3 落地对齐）；MVP 阶段告警/记录规则以手写 `rules.yml` + Alertmanager 方式使用。规则编辑 UI 依赖的 [Module_02](Module_02_Query_Center.md) PromQL 校验与指标实时预览接口（`validate` / `preview`）随之 v0.3 启用。
+> 规则编辑 UI 的**字段级形态**由 MVP 调整至 **v0.3**（与 [02_Product_Roadmap.md](../02_Product_Roadmap.md) 2.4「MVP 不做告警规则编辑 UI」及 [Module_08](Module_08_Alertmanager_Notification_Management.md) v0.3 落地对齐）；**MVP 已交付规则文件挂载（见 3.1）**——规则内容以整文件透传（`content_mode=yaml_passthrough`）经「规则编辑」页落库 `MonitoringRule`，保存 / 启停 / 删除即触发 Module\_09 生成 `rules.yml` 草稿、变更单人工确认与下发，不再手写绕过 M09。字段级规则编辑 UI 依赖的 [Module_02](Module_02_Query_Center.md) PromQL 校验与指标实时预览接口（`validate` / `preview`）随之 v0.3 启用。
 
 > **边界说明**：
 >
@@ -44,12 +44,12 @@
 - M01-OPS-03：在 MVP 阶段手动勾选需要纳入该 `ScrapeJob` 监控的具体实例；后续版本支持按网域 / 环境 / 应用 / 标签等条件筛选实例。
 - M01-OPS-04：确认目标实例上 Exporter 已安装/已注册，避免生成大量 down 目标。
 - M01-OPS-05：查看并维护指标库（counter/gauge/histogram/summary、HELP、UNIT）以及 Exporter 内置指标库，为规则编写提供指标提示。
-- M01-OPS-06：使用类 YAML 表单编辑告警/记录规则，编辑时获得 PromQL 校验与指标实时预览；保存后进入 Module\_09 规则生成与交付流程（v0.3）。
+- M01-OPS-06：MVP 通过「规则编辑」页上传 / 粘贴完整 `rules.yml`（**整文件透传**）挂载告警/记录规则，保存 / 启停 / 删除后进入 Module\_09 生成与交付流程（变更单**人工确认**后下发，不绕过 M09）；v0.3 升级为类 YAML 表单编辑（expr / for / labels / annotations），编辑时获得 PromQL 校验与指标实时预览，同样进入 Module\_09 规则生成与交付流程。
 - M01-OPS-07：v0.2+ 通过服务发现（K8s / Nacos 等）自动接入动态实例（微服务扩缩容），无需手动勾选（完整条目见全局库 §4.1）。
 - M01-BIZ-01：业务负责人在业务指标库登记业务指标（名称/语义/阈值/所属业务域/负责人），把业务监控诉求明确传递给运维（完整条目见全局库 §4.1）。
 - M01-BIZ-02：业务负责人 v0.2+ 按业务域查看业务指标健康度看板（完整条目见全局库 §4.1）。
 - M01-BIZ-03：运维接业务负责人工单后代登记业务指标（owner 必填指向业务负责人），代办后请业务负责人确认语义（完整条目见全局库 §4.1）。
-- M01-ARCH-01：在 [Module\_07: 监控对象管理](Module_07_Monitoring_Object_Management.md) 的 Resource 列表上看到「已监控 / 未监控」badge，快速发现未被任何 `ScrapeJob` 选中的实例（v0.2+）。
+- M01-ARCH-01：在实例选择器中通过「未纳入任何 Job」筛选，快速发现未被任何 `ScrapeJob` 选中的实例（**目标语义，MVP 不保证，随本模块开发节奏落地**；原「[Module_07](Module_07_Monitoring_Object_Management.md) Resource 列表『已监控 / 未监控』badge」已随 M07 `is_monitored` 取消，见 [Module_07 5.2](Module_07_Monitoring_Object_Management.md)；若沿用 M01 不承载该能力则统一改指 [Module_02](Module_02_Query_Center.md) 目标状态页）。
 - M01-ARCH-02：v0.4+ 基于外部 CMDB 自动发现实例并推荐监控策略（自动规则生成），但仍由工程师在策略模块确认后生效。
 - M01-ARCH-03：v1.0 与 ITIL 流程结合，在变更/发布窗口中自动校验监控策略覆盖率。
 
@@ -69,11 +69,12 @@
 | ScrapeJob 管理            | Job 创建/编辑、命名、启用/禁用、关联监控对象类型与默认采集器、实例选择模式、标签模板引用；Job 必须绑定且仅绑定单一**已纳管网域**（未在 M09 完成监控纳管的网域不可选）；**创建时自动套用该监控对象类型的默认采集配置**（页内「采集器管理」Tab 可维护预设与安装指南）；**选实例时进行 Exporter 安装确认（5.6）**                                                            | P0         |
 | ScrapeJob 草稿与批量提交生效 | v0.2 起**新建 Job**支持「保存草稿」与「提交生效」两种保存模式：草稿态仅做基础校验（字段类型 / 名称唯一性等），不进入 M09 配置生成，允许创建过程半成品暂存；提交生效时做完整校验（含必填项 / 网域已纳管 / 实例同域），状态转 `ready` 后进入 M09 变更检测管线；**草稿仅存在于新建阶段，对象一旦提交生效（`ready`）不再回退草稿态**，已生效对象的后续修改直接走正常变更管线（保存 → M09 变更单确认）；列表支持多选「批量提交生效」；MVP 阶段状态列按四态占位展示（草稿态灰显提示 v0.2 开放） | P0 / v0.2  |
 | 克隆 Job | v0.2 起支持将已有 Job **一次性克隆**为新 Job（同网域或跨网域）：复制 `job_name`（自动追加后缀）、监控对象类型、采集实现、采集参数、标签模板；`network_domain_id` 可改选（跨网域克隆场景）；**`selected_instance_ids` 不携带**（Resource 是网域内对象），克隆后按目标网域自动收敛候选并需重新勾选；**Exporter 安装确认需对新实例重新进行**；克隆产物是独立 Job，与源 Job 无持续绑定；**不引入「Job 模板」持久实体**——复用通过一次性克隆完成，与 Job 参数快照保护语义（映射变更不穿透已存 Job）保持一致 | P0 / v0.2  |
-| 实例选择                    | MVP 支持「按类型+网域自动收敛候选 + 手动勾选」（候选一键全选/反选、关键字筛选）；v0.3+ 支持按资源属性（网域 / 环境 / 应用 / 业务类型等）条件筛选并预览匹配结果——筛选字段为 Resource 属性字段，label 仅作 UI 别名，不写标签                                                                                     | P0 / v0.3+ |
+| 实例选择                    | MVP 支持「按类型+网域自动收敛候选 + 手动勾选」（候选一键全选/反选、关键字筛选）；**`offline` 排除（MVP 必实现）**——候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（`maintenance` 排除口径与 [Module_07 8.1](Module_07_Monitoring_Object_Management.md) 一并对齐、MVP 不保证）；已选实例转 `offline` 后 M09 配置生成跳过（见下方「实例选择方式」与 [Module_07 8.1](Module_07_Monitoring_Object_Management.md)）；v0.3+ 支持按资源属性（网域 / 环境 / 应用 / 业务类型等）条件筛选并预览匹配结果——筛选字段为 Resource 属性字段，label 仅作 UI 别名，不写标签 | P0 / v0.3+ |
 | Exporter 安装/注册确认        | 在 Resource 或 Target 上标记 exporter 是否已安装/已注册，生成配置前必须确认                                                                                    | P0         |
 | ScrapeJob blackbox 类型支持 | Blackbox 拨测作为 `ScrapeJob` 的一种类型，通过 `job_type`、`blackbox_module`、`blackbox_targets` 配置；不再维护独立 `BlackboxTarget` 实体                        | P0         |
 | 技术指标库管理 | 平台可识别的指标元数据（指标名 / 类型 counter/gauge/histogram/summary / HELP/UNIT），回答「能采到什么」；**分组锚点为监控对象类型（monitor_type，多对多、关联带来源采集器标注，见 5.3）**、规则编辑按监控对象类型提示指标与 PromQL 校验；与业务指标库（业务语义契约）**并列互补**——技术库回答"指标是什么"、业务库回答"业务要什么"，两者 UI 互链、动线归组于「指标库」 | P1 |
 | 业务指标库 | 业务指标登记表（BusinessMetric）：业务负责人定义语义 / 阈值 / 所属业务域 / 负责人（owner 必填）；**登记不绑定角色——业务负责人自录或运维接工单代办（owner 仍指向业务负责人）**；运维消费后落地采集并标记「已上线」；登记表补「采集落地」列（online 显示关联 Job，语义契约 → 采集落地链路显性化）；**业务视图**（MVP 轻量聚合）：按 business_domain 聚合成员（微服务/中间件/主机）+ 业务指标 + 采集落地状态，语义层不改变采集配置逻辑；MVP 轻量版，v0.2+ 独立业务负责人角色入口 + 业务健康度看板 + 独立业务目录聚合视图 | P0 / v0.2+ |
+| 规则文件挂载 | MVP 规则管理入口（承载于独立「规则编辑」页，导航位于「指标库」之后）：上传 / 粘贴完整 `rules.yml`（**整文件透传**，`content_mode=yaml_passthrough`）→ YAML 语法校验 → 落库 `MonitoringRule`（`draft_status=ready`）→ 触发 M09 变更检测，由 M09 生成 / 确认 / 下发 `rules.yml`（**人工确认档**，对齐决策 38-1）——**保证规则变更与采集 Job 一样走 M09 统一配置下发闭环，不绕过 M09**；列表展示规则名 / 规则条数 / 更新时间 / 启用状态 / 下发状态（`change_status`）；支持启停 / 删除 / 详情（YAML 只读视图）；**不做字段级 PromQL 创作编辑**（v0.3 升级 `structured` 字段化表单，见 3.2） | P0         |
 | Exporter 指标库            | 静态内置库覆盖常见采集实现（node-exporter、mysqld-exporter、redis-exporter 等）的指标，按监控对象类型组织，并提供用户扩展入口（自定义指标集挂监控对象类型）；完整管理页面放 P1/P2                                              | P1 / P2    |
 | 高级 Relabel 管理           | 标签丢弃/保留/重写、正则替换、hashmod（未来）                                                                                                             | P2         |
 
@@ -87,15 +88,15 @@
 
 | 功能        | 说明                                                                      | 优先级 / 版本 |
 | --------- | ----------------------------------------------------------------------- | --- |
-| 类 YAML 表单 | 提供 expr / for / labels / annotations 字段，支持告警规则与记录规则编辑                   | P0 / v0.3 |
+| 类 YAML 表单 | 提供 expr / for / labels / annotations 字段，支持告警规则与记录规则编辑（**v0.3 字段化形态，替代 MVP 的整文件透传挂载**，见 3.1「规则文件挂载」） | P0 / v0.3 |
 | PromQL 校验 | 调用 [Module\_02: 查询中心](Module_02_Query_Center.md) 或 Prometheus 接口校验表达式语法 | P0 / v0.3 |
 | 指标实时预览    | 在编辑规则时展示指标名、标签键值提示与最近样本预览                                               | P0 / v0.3 |
 | 规则模板      | 按监控对象类型 / 采集实现预置常用规则模板，支持一键填充（P1）                                  | P1 / v0.3 |
 | 图形化规则构建器  | 拖拽式构建复杂规则（未来）                                                           | P2 |
 
-> 规则编辑 UI 整体由 MVP 调整至 **v0.3**——MVP 阶段告警/记录规则手写 `rules.yml`（路线图 2.4），规则编辑 UI、PromQL 校验、指标实时预览及规则模板随 [Module_08](Module_08_Alertmanager_Notification_Management.md)（v0.3）一同交付；PromQL 校验与指标预览调用 [Module_02](Module_02_Query_Center.md) v0.3 提供的 `validate` / `preview` 接口。
+> 本节的**字段级规则编辑 UI**（类 YAML 表单 + PromQL 校验 + 指标预览）整体由 MVP 调整至 **v0.3**。**MVP 已交付「规则文件挂载」（见 3.1）：上传 / 粘贴完整 `rules.yml` 整文件透传落库，规则变更同样进入 M09 变更检测 → 确认 → 下发闭环**——MVP 不再"手写 rules.yml 绕过 M09"，规则创作体验（字段表单 / 校验 / 预览 / 模板）留待 v0.3 字段化编辑，规则编辑 UI、PromQL 校验、指标实时预览及规则模板随 [Module_08](Module_08_Alertmanager_Notification_Management.md)（v0.3）一同交付；PromQL 校验与指标预览调用 [Module_02](Module_02_Query_Center.md) v0.3 提供的 `validate` / `preview` 接口。
 >
-> 规则编辑 UI 由本模块提供；规则保存后由 [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 按规则分组与作用域生成并下发 `rules.yml`，静默、Alertmanager 配置与告警状态展示由 [Module\_08: 告警收敛与通知管理](Module_08_Alertmanager_Notification_Management.md) 负责。
+> 规则编辑 UI 由本模块提供；规则保存后（MVP 透传 / v0.3 字段化）由 [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 按规则内容与作用域生成并下发 `rules.yml`，静默、Alertmanager 配置与告警状态展示由 [Module\_08: 告警收敛与通知管理](Module_08_Alertmanager_Notification_Management.md) 负责。
 
 ### 3.3 运行时采集状态展示（已移出）
 
@@ -399,6 +400,11 @@
 | scrape\_timeout           | duration  | 继承/覆盖                 | 采集超时          | 默认来自 CITypeExporterMapping                                         |
 | metrics\_path             | string    | 继承/覆盖                 | 采集路径          | 默认来自采集实现（ExporterTemplate）                                 |
 | scheme                    | string    | 继承/覆盖                 | 协议             | 默认来自采集实现（ExporterTemplate）                                 |
+| auth\_type                | enum      | 用户                    | 认证类型          | **采集认证/TLS 最小集（MVP 必实现，决策 31）**：`none` / `basic` / `bearer`，默认 `none`（无认证）；全部可选、默认不启用，不影响既有裸 http 场景 |
+| username / password       | string    | 用户                    | Basic 认证账密   | `auth_type=basic` 时必填，映射 `basic_auth`；password 仅后端存储/下发，前端不回显明文 |
+| token                     | string    | 用户                    | Bearer Token     | `auth_type=bearer` 时必填，映射 `authorization: Bearer <token>` |
+| tls\_skip\_verify        | bool      | 用户                    | 跳过 TLS 校验     | https + 自签证书场景；默认 `false`，映射 `tls_config.insecure_skip_verify` |
+| ca\_file                  | string    | 用户                    | CA 证书路径       | 可选，映射 `tls_config.ca_file`；`ca_file` 路径基准见 Module\_09 下发约定 |
 | label\_template\_id       | string    | Module\_07            | 标签模板          | 生成 labels 时引用的 LabelTemplate                                       |
 | mapping\_overrides        | \[]string | 策略配置                  | 仅技术信息         | 手动覆盖过映射默认值的参数字段名（scrape\_interval / scrape\_timeout / metrics\_path / scheme / label\_template\_id）；「同步映射默认值」时跳过这些字段 |
 | relabel\_configs          | \[]object | 策略配置                  | 仅技术信息         | 高级 relabel 规则（P2）                                                  |
@@ -407,7 +413,7 @@
 | blackbox\_targets         | \[]BlackboxTarget | 策略配置                  | 拨测目标          | `job_type=blackbox` 时必填；探测目标对象列表（含目标地址、协议、完整 URL），结构见下方「BlackboxTarget 结构」 |
 | enabled                   | bool      | 用户                    | 启用状态          | 是否启用；与 `draft_status` 正交：草稿也可标记启用意图，但 `draft_status=draft` 时不参与配置生成                                       |
 | draft\_status             | enum      | 用户/策略配置            | 草稿状态          | `draft`（编辑中，v0.2 开放）/ `ready`（待下发）；默认 `ready`；MVP 阶段所有对象默认 `ready`；**仅新建阶段可为 `draft`，提交生效转为 `ready` 后不再回退**；已生效对象的后续修改直接更新主字段、走正常变更管线；仅 `ready` 状态的对象进入 M09 配置生成候选集 |
-| change\_status            | enum      | Module\_09（回写）      | 下发状态          | `pending`（存在 M09 待确认变更单）/ `confirmed`（变更单已确认，待下发）/ `deployed`（已下发生效）/ `none`（无在途变更）；MVP 阶段 M09 回写 `pending/confirmed/none`，v0.2 起扩展 `deployed` |
+| change\_status            | enum      | Module\_09（回写）      | 下发状态          | `pending`（存在 M09 待确认变更单）/ `confirmed`（变更单已确认，待下发）/ `deployed`（已下发生效）/ `none`（无在途变更）；**MVP 阶段 M09 回写 `pending/confirmed/none/deployed`**（`deployed` 提前到 MVP，决策 31-M2），M09 依据 ConfigDeployment success 记录回写，消除「已生效 vs 无变更」歧义 |
 | created\_at / updated\_at | datetime  | 平台                    | 仅技术信息         | 创建/更新时间；保存草稿同样更新 `updated_at`，但 M09 仅当 `draft_status=ready` 时才纳入源数据版本触发重算                            |
 
 > **Job 是「关联三者」的运行时实例**：ScrapeJob 同时关联 **监控对象类型**（采什么）、**采集实现**（怎么采，`exporter_template_id` 引用、可空手填）、**实际参数覆盖**（端口 / 路径 / 协议 / 间隔 / 超时，快照 + 覆盖 + 手动同步）。Job 在创建时**引用**采集实现作为默认值预填，但监控对象类型**不拥有**采集实现（见 5.1 职责边界）——从 node_exporter 切到 Telegraf 只需改 Job / 映射，指标库不受影响。
@@ -417,11 +423,13 @@
 > - **网域绑定是技术约束，不是管理偏好**：隔离网域内目标只能被本网域的边缘采集器 / Prometheus 抓取（网络可达性）；Module_09 按网域生成并下发配置、断网自治——Job 不绑网域则配置无处下发。共性监控对象类型跨网域重复配置的痛点由既有机制收敛：映射层为网域无关全局预设（见 5.1）+ v0.2 网域覆盖表 + v0.2「克隆 Job」（同网域 / 跨网域一次性复制，见 3.1）。
 > - 所有 ScrapeJob（`job_type=standard` 与 `job_type=blackbox`）必须绑定且仅绑定一个**已纳管网域**的 `network_domain_id`，禁止跨网域共享采集目标/拨测目标；未在 M09 完成监控纳管的网域不可作为 Job 归属网域（保存时校验，提示用户「请先到网域管理完成纳管」）。
 > - `instance_selection_mode=manual` 实例选择模式下，`selected_instance_ids` 选中的 Resource 必须与 Job 同属一个网域，保存时校验。
+> - **冻结（禁用）网域校验（MVP，决策 30）**：冻结网域**禁止新建 Job**（保存时 `bad_request`，提示该网域已冻结）；存量 Job **禁止新增该域实例**（`selected_instance_ids` 追加该域实例时校验拒绝），**允许移除该域实例、禁用/编辑 Job**（与「冻结不阻断存量采集、仅拒绝新纳管」的 M06 语义一致，见 M06 5.1 禁用冻结语义）。
 > - **网域呈现收敛**：M01 内仅 ScrapeJob 绑网域（默认采集配置 / 技术指标库 / 业务指标库 / 告警规则均网域无关），**不提供顶部全局网域切换器**；「采集 Job」页改为**列表内网域查询条件**（下拉，选项 = 已纳管网域 `is_monitored=true`）+ 表单内 `network_domain_id` 必填（实例候选随之收敛）；全局网域概念由 M06 / M09 承载；将来 M01 出现第二个网域感知功能（如 v0.4 `scope=edge` 边缘规则）时再评估是否恢复全局切换器。
 
 > **实例候选自动收敛（MVP）**：
 >
 > - Job 表单选定 `monitor_type` 与 `network_domain_id` 后，实例候选**自动收敛为「同监控对象类型 + 同网域」的资源**（与网域约束天然一致，避免选到跨网域无效项）；
+> - **`offline` 实例显示但置灰不可选（MVP 必实现，决策 29）**：候选集中 `Resource.status=offline` 的实例照常展示（保证下线台账可见），但**置灰禁止勾选**（`maintenance` 排除口径与 [Module_07 8.1](Module_07_Monitoring_Object_Management.md) 一并对齐、MVP 不保证）；已选实例事后转 `offline` 的，M09 配置生成跳过（`offline` 后下一配置生成周期即从 `targets/*.json` 移除）；
 > - 候选列表提供**一键全选 / 反选**与**关键字筛选**（实例名 / IP / 应用名），用户可在此基础上手动调整勾选；
 > - 勾选结果仍持久化到 `selected_instance_ids`（manual 语义不变），仅候选呈现更智能——比 v0.3+ 的 `filter` 条件表达式模式更轻，不引入动态筛选规则；
 > - 目的：**创建 Job 时少选实例、自动带出**，同时保证「模板 ↔ 实例」关联可见（模板按资源类别隐式关联，见 Module\_07 3.2 / 5.3）。
@@ -501,33 +509,35 @@
 > - **「状态」聚合列（MVP 四态占位）**：「采集 Job」列表新增「状态」聚合列，按以下规则展示四态：
 >   - **草稿**（`draft_status=draft`，MVP 阶段无实例，状态列标签灰显并 Tooltip「v0.2 支持保存草稿」，状态筛选器中「草稿」选项禁用；v0.2 起真实草稿对象显示为正常 Tag 且可筛选）；
 >   - **待下发**（`draft_status=ready` 且 `enabled=true` 且 `change_status=pending/confirmed`：存在 M09 待确认或已确认但未最终下发的变更单）；
->   - **已生效**（`draft_status=ready` 且 `enabled=true` 且 `change_status=none/deployed`：无在途变更或已确认并下发成功；MVP 阶段 `deployed` 枚举占位，确认下发成功后直接回写 `none`，v0.2 随 M09 部署状态回写精确判断）；
+>   - **已生效**（`draft_status=ready` 且 `enabled=true` 且 `change_status=none/deployed`：无在途变更或已确认并下发成功；`deployed` 提前到 MVP（决策 31-M2），确认下发成功后由 M09 依据 ConfigDeployment success 回写 `deployed`）；
 >   - **已停用**（`enabled=false`）；
-> - **数据回写来源**：`change_status` 由 M09 变更单 / 下发记录状态回写（pull 模式，列表查询时随 `GET /api/v1/scrape-jobs` 返回）；MVP 阶段 `change_status` 取 `pending/confirmed/none`，v0.2 起 M09 扩展为 `pending/confirmed/deployed/none`；
-> - **规则列表的同一下发状态列无 MVP UI 载体**（规则编辑 UI 不在 MVP、规则为手写 `rules.yml`）→ 随 v0.3 规则编辑 UI 一并落地（同一 `change_status` 机制，不单独为 MVP 造规则列表页）。
+> - **数据回写来源**：`change_status` 由 M09 变更单 / 下发记录状态回写（pull 模式，列表查询时随 `GET /api/v1/scrape-jobs` 返回）；`deployed` 提前到 MVP（决策 31-M2），MVP 阶段 `change_status` 取 `pending/confirmed/deployed/none`，deployed 由 M09 依据 ConfigDeployment success 回写，消除「已生效 vs 无变更」歧义；
+> - **规则列表同用该下发状态列（MVP 起）**：规则经「规则编辑」页整文件挂载（`content_mode=yaml_passthrough`）落库后，保存 / 启停 / 删除即进入 M09 变更检测，`change_status` 与采集 Job 同源同机制展示；v0.3 随字段化编辑增强（同 5.5）。
 
 ### 5.5 规则编辑模型（MonitoringRule）
 
 > 决策依据：design-decisions.md 决策 35 / D28
 
-> **MVP 预留说明**：规则编辑 UI 于 v0.3 交付（见 3.2），`MonitoringRule` 数据模型在 MVP 阶段**预留定义**——便于 Module_09 配置生成源表与 v0.3 规则编辑 UI 无缝衔接；MVP 阶段告警/记录规则以手写 `rules.yml` + Alertmanager 方式使用，不通过 UI 写入本模型。
+> **MVP 启用说明（规则文件挂载形态）**：MVP 阶段 `MonitoringRule` 即作为规则的**实际载体**（不再仅是预留定义）——规则内容以**整文件透传**（`content_mode=yaml_passthrough`，上传 / 粘贴完整 `rules.yml`）方式经本模块「规则编辑」页挂载入库，保存即 `draft_status=ready` 进入 Module_09 变更检测管线，由 M09 生成 / 确认 / 下发 `rules.yml`——**保证规则变更同样走 M09 统一配置下发闭环，不绕过 M09**（对齐决策 38-1：规则变更属人工确认档，需 reload）。v0.3 起升级为**字段级结构化编辑**（`content_mode=structured`，类 YAML 表单 + PromQL 校验 + 指标预览，见 3.2），M09 生成逻辑结构化优先、透传兜底。
 
-| 字段                        | 类型                  | UI 展示名      | 说明                            |
-| ------------------------- | ------------------- | ------------ | ----------------------------- |
-| id                        | string              | 规则 ID       | 唯一标识                          |
-| name                      | string              | 规则名称       | 规则名                           |
-| rule\_type                | enum                | 规则类型       | alerting / recording          |
-| expr                      | string              | 表达式        | PromQL 表达式                    |
-| duration                  | duration            | 持续时间       | `for` 字段，仅告警规则                |
-| labels                    | map\<string,string> | 告警标签       | 规则 labels（UI 展示名用「告警标签」，与标签模板的「目标标签」区分） |
-| annotations               | map\<string,string> | 告警说明       | 规则 annotations，仅告警规则          |
-| monitor\_type            | enum                | 监控对象类型       | 适用监控对象类型（派生的策略维度）                      |
-| exporter\_template\_id    | string              | 默认采集器     | 关联默认采集器（采集实现），用于指标提示（可空，规则按监控对象类型提示指标集）         |
-| scope                    | enum                | 求值范围       | `central` / `edge` / `both`；MVP~v0.3 固定 `central`（中心求值），`edge`/`both` 由 Module\_09 在生成 `rules.yml` 时按作用域下发到中心或边缘域（v0.4+） |
-| enabled                   | bool                | 启用状态       | 是否启用；由 Module\_09 管理规则是否参与配置生成（`rules.yml` 只包含 `enabled=true` 且 `draft_status=ready` 的规则） |
-| draft\_status             | enum                | 用户/策略配置    | 草稿状态       | `draft` / `ready`，默认 `ready`；v0.3 随规则编辑 UI 开放「保存草稿」；**仅新建阶段可为 `draft`**——PromQL 半成品可先存草稿，提交生效时做完整 PromQL 校验并转 `ready`，之后不再回退；已生效规则的后续修改直接走正常变更管线 |
-| change\_status            | enum                | Module\_09（回写） | 下发状态       | `pending` / `confirmed` / `deployed` / `none`；v0.3 随规则编辑 UI 落地；MVP 阶段规则为手写 `rules.yml`，无规则列表 UI |
-| created\_at / updated\_at | datetime            | 仅技术信息      | 创建/更新时间；保存草稿更新 `updated_at`，但 M09 仅当 `draft_status=ready` 时才纳入源数据版本触发重算 |
+| 字段                        | 类型                  | 来源             | UI 展示名      | 说明                            |
+| ------------------------- | ------------------- | --------------- | ------------ | ----------------------------- |
+| id                        | string              | 平台生成         | 规则 ID       | 唯一标识                          |
+| content\_mode             | enum                | 用户/策略配置     | 内容形态       | `yaml_passthrough`（MVP：整文件透传）/ `structured`（v0.3+：逐条字段化编辑）；MVP 默认 `yaml_passthrough` |
+| rule\_content             | text                | 用户输入         | 规则文件内容   | `content_mode=yaml_passthrough` 时**必填**：完整 `rules.yml` 内容（含 `groups`），上传 / 粘贴保存；M09 生成 `rules.yml` 时原样并入该内容；`structured` 模式不填 |
+| name                      | string              | 用户输入         | 规则名称       | `yaml_passthrough` 模式为展示名（可空，落库后可提取 `groups` 数展示）；`structured` 模式为规则名 |
+| rule\_type                | enum                | 用户输入         | 规则类型       | alerting / recording（`structured` 模式） |
+| expr                      | string              | 用户输入         | 表达式        | PromQL 表达式（`structured` 模式）                    |
+| duration                  | duration            | 用户输入         | 持续时间       | `for` 字段，仅告警规则（`structured` 模式）                |
+| labels                    | map\<string,string> | 用户输入         | 告警标签       | 规则 labels（UI 展示名用「告警标签」，与标签模板的「目标标签」区分；`structured` 模式） |
+| annotations               | map\<string,string> | 用户输入         | 告警说明       | 规则 annotations，仅告警规则（`structured` 模式）          |
+| monitor\_type            | enum                | M07 资源推导     | 监控对象类型       | 适用监控对象类型（派生的策略维度，透传模式可空）                      |
+| exporter\_template\_id    | string              | 映射            | 默认采集器     | 关联默认采集器（采集实现），用于指标提示（可空，规则按监控对象类型提示指标集）         |
+| scope                    | enum                | 用户/策略配置     | 求值范围       | `central` / `edge` / `both`；MVP~v0.3 固定 `central`（中心求值），`edge`/`both` 由 Module\_09 在生成 `rules.yml` 时按作用域下发到中心或边缘域（v0.4+） |
+| enabled                   | bool                | 用户             | 启用状态       | 是否启用；由 Module\_09 管理规则是否参与配置生成（`rules.yml` 只包含 `enabled=true` 且 `draft_status=ready` 的规则）；透传模式禁用即从生成中摘除 |
+| draft\_status             | enum                | 用户/策略配置     | 草稿状态       | `draft` / `ready`，默认 `ready`；MVP 文件挂载默认 `ready`（透传内容保存即进入 M09 变更管线）；v0.3 字段化编辑开放「保存草稿」；**仅新建阶段可为 `draft`**——PromQL 半成品可先存草稿，提交生效时做完整 PromQL 校验并转 `ready`，之后不再回退；已生效规则的后续修改直接走正常变更管线 |
+| change\_status            | enum                | Module\_09（回写） | 下发状态       | `pending` / `confirmed` / `deployed` / `none`；**MVP 随规则文件挂载启用**——规则保存 / 启停 / 删除即触发 M09 变更单（同采集 Job 动线）；v0.3 随字段化编辑增强为逐条 |
+| created\_at / updated\_at | datetime            | 平台             | 仅技术信息      | 创建/更新时间；保存草稿更新 `updated_at`，但 M09 仅当 `draft_status=ready` 时才纳入源数据版本触发重算 |
 
 > **Labels/Annotations 语义说明与必填状态**：
 >
@@ -548,11 +558,11 @@
 > - 告警/记录规则由**中心侧对全网域聚合数据统一求值**，因此 `MonitoringRule` **不绑定** `network_domain_id`——采集发生在网域内（Job 绑域），求值发生在中心（规则不限域）；
 > - 如需将规则限定到某个网域，在 `expr` 的 label selector 中按 `network_domain` 标签过滤（该标签由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 生成 `prometheus.yml` 时作为 `external_labels` 自动注入，见 Module\_09 3.3.1）。
 
-> **规则变更引导确认（v0.3 随规则编辑 UI 落地）**：规则变更（`rules.yml` 变化）必须 reload，属 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 决策 38-1 的**人工确认档**（非 target 自动生效档）——
+> **规则变更引导确认（MVP 随规则文件挂载启用，v0.3 随字段化编辑增强）**：规则变更（`rules.yml` 变化）必须 reload，属 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 决策 38-1 的**人工确认档**（非 target 自动生效档）——
 >
-> - **保存 / 启停 / 删除后引导**：成功提示改为「变更将由 M09 生成变更单，需确认后生效」+「前往配置变更确认」跳转（与采集 Job 同一套机制）；
+> - **保存 / 启停 / 删除后引导（MVP）**：规则文件挂载的保存 / 启停 / 删除操作成功提示「变更将由 M09 生成变更单，需确认后生效」+「前往配置变更确认」跳转（与采集 Job 同一套机制）；
 > - **草稿与提交生效（v0.3）**：规则编辑 UI 新建规则时提供「保存草稿」与「提交生效」两种保存模式；草稿态允许 PromQL 半成品暂存，不做完整校验；提交生效时调用 Module\_02 进行 PromQL 语法/指标存在性校验，通过后 `draft_status` 转 `ready`；**草稿仅存在于新建阶段**，已生效规则的修改直接走正常变更管线；
-> - **规则列表「下发状态」列**：展示 `change_status`（`pending`=待确认 / `confirmed`=已确认待下发 / `deployed`=已下发生效 / `none`=无变更，来自 M09 变更单与下发记录状态），与采集 Job 列表同源同机制；MVP 阶段规则为手写 `rules.yml`、无规则列表 UI，随 v0.3 规则编辑 UI 一并落地（原型 RulesPage 为 v0.3 预览）。
+> - **规则列表「下发状态」列**：展示 `change_status`（`pending`=待确认 / `confirmed`=已确认待下发 / `deployed`=已下发生效 / `none`=无变更，来自 M09 变更单与下发记录状态），与采集 Job 列表同源同机制；**MVP 即提供规则列表**（整文件挂载 + 下发状态），原型 RulesPage 同步承载文件挂载形态，v0.3 升级为逐条字段级表单。
 
 > **scope 业务场景说明**：
 >
@@ -665,9 +675,10 @@
 |------|------|------|
 | 写（本模块） | `POST/PUT/DELETE /api/v1/ci-exporter-mappings` | 默认采集配置 CRUD（采集实现层，每类型可多行，不绑网域） |
 | 写（本模块） | `POST/PUT/DELETE /api/v1/scrape-jobs` | ScrapeJob CRUD（含 instance_selection_mode / filter 表达式 / service_discovery 配置，v0.3+/v0.2+ 扩展字段） |
+| 写（本模块） | `POST/PUT/DELETE /api/v1/monitoring-rules` | MonitoringRule CRUD（MVP 整文件透传：`content_mode` / `rule_content`；列表含下发状态 `change_status`，来自 M09 变更单） |
 | 读（本模块） | `GET /api/v1/exporter-templates`、`GET /api/v1/metric-library` | 采集实现（ExporterTemplate）与指标库查询（指标库按监控对象类型过滤） |
 | 读（本模块） | `GET /api/v1/scrape-jobs` | ScrapeJob 列表；Query 支持 `label_template_id` 反查引用本模板的 Job（含下发状态 `change_status`，MVP，来自 M09 变更单状态） |
-| 消费（Module\_09 轮询） | 策略读取接口（ScrapeJob / CITypeExporterMapping / LabelTemplate 引用） | Module\_09 生成 `prometheus.yml` 的输入；本模块不主动通知（pull 模式） |
+| 消费（Module\_09 轮询） | 策略读取接口（ScrapeJob / CITypeExporterMapping / MonitoringRule / LabelTemplate 引用） | Module\_09 生成 `prometheus.yml` 与 `rules.yml` 的输入；本模块不主动通知（pull 模式） |
 | 只读消费（本模块 ← Module\_07） | Resource / LabelTemplate GET 接口 | 实例候选、标签模板引用（Module\_07 6.1 / 6.3） |
 | 调用（v0.3+） | Module\_02 `validate` / `preview` | 规则编辑时 PromQL 校验与指标预览 |
 
@@ -698,11 +709,11 @@
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
 | GET | `/api/v1/scrape-jobs` | Query: `network_domain_id`、`monitor_type`、`job_type`、`enabled`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2 / 5.4（**含下发状态 `change_status`，MVP**，见 5.4） | — |
-| POST | `/api/v1/scrape-jobs` | 5.2 / 5.4 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`network_domain_id` 未在 M09 完成监控纳管；`instance_selection_mode=manual` 但 `selected_instance_ids` 与监控对象类型/网域不匹配 |
-| PUT | `/api/v1/scrape-jobs/{id}` | 5.2 / 5.4 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：网域未纳管 / 实例不一致 |
+| POST | `/api/v1/scrape-jobs` | 5.2 / 5.4 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`network_domain_id` 未在 M09 完成监控纳管；**创建到冻结（禁用）网域**（决策 30）；`instance_selection_mode=manual` 但 `selected_instance_ids` 与监控对象类型/网域不匹配；`auth_type=basic` 缺 `username/password` 或 `auth_type=bearer` 缺 `token`（决策 31） |
+| PUT | `/api/v1/scrape-jobs/{id}` | 5.2 / 5.4 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：网域未纳管 / 冻结网域禁止新增该域实例（决策 30，允许移除/删减）/ 实例不一致 / 认证、TLS 组合非法 |
 | DELETE | `/api/v1/scrape-jobs/{id}` | — | `{ id }` | `not_found` |
 | POST | `/api/v1/scrape-jobs/{id}/clone` | `{ job_name?: string, network_domain_id?: string }`（v0.2；缺省 `job_name` 自动追加后缀，缺省网域 = 源网域） | 克隆产物的完整对象 | `not_found`；`bad_request`：目标网域未纳管 |
-| GET | `/api/v1/scrape-jobs?label_template_id={template_id}` | Query: `label_template_id`（必填） | `{ items: [...] }`：引用该标签模板的 Job 列表，item 含 `change_status`（pending/confirmed/none，**MVP**，来自 M09 变更单状态） | `not_found`：模板不存在 |
+| GET | `/api/v1/scrape-jobs?label_template_id={template_id}` | Query: `label_template_id`（必填） | `{ items: [...] }`：引用该标签模板的 Job 列表，item 含 `change_status`（pending/confirmed/none/deployed，**MVP**，来自 M09 变更单状态，deployed 由 M09 依据 ConfigDeployment success 回写） | `not_found`：模板不存在 |
 
 > **UI 空态引导优先**：除 `bad_request` 外，UI 层应优先通过网域选择器空态引导（「暂无已纳管网域，前往网域管理完成纳管」+ 内联跳转 M09）避免用户进入保存失败路径；`bad_request` 仅作兜底（见 3.1「空态依赖引导规范」）。
 
@@ -717,7 +728,18 @@
 | POST | `/api/v1/business-metrics` | 5.9 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`metric_name` 重复 / `owner` 为空 |
 | PUT | `/api/v1/business-metrics/{id}` | 5.9 可更新字段（按状态推进权限校验） | 更新后的完整对象 | `forbidden`：非业务负责人修改 pending/instrumented 语义字段；`bad_request`：状态流转非法 |
 
-#### 6.2.4 Exporter 安装确认
+#### 6.2.4 规则（MonitoringRule）
+
+| 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
+|------|------|----------------|----------------|----------|
+| GET | `/api/v1/monitoring-rules` | Query: `rule_type`、`enabled`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.5（**含下发状态 `change_status`，MVP**，来自 M09 变更单） | — |
+| POST | `/api/v1/monitoring-rules` | 5.5 字段（`content_mode=yaml_passthrough` 时**必填** `rule_content`） | 创建后的完整对象（保存即 `draft_status=ready`，进入 M09 变更检测） | `bad_request`：`rule_content` 为空 / YAML 语法非法（至少校验 `groups` 存在且为数组） |
+| PUT | `/api/v1/monitoring-rules/{id}` | 5.5 可更新字段（`name`、`rule_content`、`enabled` 等） | 更新后的完整对象 | `not_found`；`bad_request`：YAML 非法 |
+| DELETE | `/api/v1/monitoring-rules/{id}` | — | `{ id }` | `not_found` |
+
+> 说明：MVP 的 MonitoringRule 变更（保存 / 启停 / 删除）即触发 Module\_09 变更检测 → 生成 `rules.yml` 草稿 → 变更单**人工确认** → 下发（人工确认档，决策 38-1，与采集 Job 同动线）。YAML 校验可复用 Module\_09 configgen `--config.check`，或后端 YAML 解析（至少校验 `groups` 存在且为数组）。
+
+#### 6.2.5 Exporter 安装确认
 
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
@@ -754,7 +776,7 @@
 | ScrapeJob blackbox 类型编辑       | ✅                    | ❌                 | ❌                    | ❌                            |
 | 实例选择（手动/筛选）                   | ✅                    | ❌                 | ❌                    | ❌                            |
 | Exporter 安装/注册确认              | ✅                    | ❌                 | ❌                    | ❌                            |
-| 规则编辑 UI                       | ✅                    | ❌                 | ❌                    | ❌                            |
+| 规则管理（MVP 文件挂载 / v0.3 编辑 UI） | ✅                    | ❌                 | ❌                    | ❌                            |
 | 指标库（Exporter 指标库）          | ✅                    | ❌                 | ❌                    | ❌                            |
 | Resource「已监控/未监控」badge        | 提供选中状态数据             | ✅ 展示              | ❌                    | ❌                            |
 | 生成 prometheus.yml / rules.yml | ❌                    | ❌                 | ✅                    | ❌                            |
@@ -800,6 +822,10 @@ manual（MVP：手动勾选，候选按类型+网域收敛）
 ```
 
 > 三种模式互斥（同一 Job 仅一种）；演进向后兼容——manual 是 MVP 基线，filter / service_discovery 是扩展模式，均不影响标签管理（筛选/发现只决定"哪些实例被采集"，不写标签）。
+
+> **`offline` 排除（MVP 必实现，决策 29）**：与 [Module_07 8.1](Module_07_Monitoring_Object_Management.md) 状态机行为语义对齐——「M01 实例选择候选集中 `offline` 实例**显示但置灰不可选**；已选实例转 `offline` 后 M09 配置生成跳过（`offline` 后下一配置生成周期即从 `targets/*.json` 移除，见 [Module_09 3.3 实例过滤](Module_09_Network_Domain_and_Edge_Config_Center.md)）」为 **MVP 必实现**。落地时点：候选集查询将 `offline` 实例置灰禁用（仍展示、不可勾选）；已选实例转 `offline` 后的生成跳过由 M09 configgen 承担。`maintenance` 排除口径与本条一并对齐（MVP 不保证）。
+
+> **「未纳入任何 Job」筛选器（跨模块契约跟进项）**：[Module_07 5.2](Module_07_Monitoring_Object_Management.md) / 全局 ARCH-03 将「哪些机器还没被管」落点到本模块实例选择器——本模块规划实例选择「未纳入任何 Job」筛选器，**MVP 不保证，随本模块开发节奏落地**（或确认统一改指 [Module_02](Module_02_Query_Center.md) 目标状态页，见 M01-ARCH-01）。
 
 **③ BusinessMetric.status（业务指标埋点/采集落地状态）**
 
@@ -862,7 +888,7 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
 > - **草稿仅存在于新建阶段（单向流转）**：对象一旦 `ready` 不再回退 `draft`。已生效对象的修改不做草稿快照——Job 参数（采集频率 / 端口等）调整低频，直接保存走 M09 变更单确认即可，避免引入第二套继承/快照语义。
 > - `draft_status` 与 `enabled` 正交：`enabled=false` 时无论 `draft_status` 如何均不参与配置生成，聚合状态显示「已停用」；`draft_status=draft` 时聚合状态显示「草稿」。
 > - 草稿保存仅做基础校验（字段类型 / 名称唯一性 / 网域已纳管等），**不做完整必填业务字段校验**，避免用户因查资料、讨论而无法暂存半成品；提交生效时做完整校验（含必填项 / 网域已纳管 / 实例同域，规则含 PromQL 校验）。
-> - `MonitoringRule` 采用同一状态机（v0.3 随规则编辑 UI 落地）。
+> - `MonitoringRule` 采用同一状态机（MVP 随规则文件挂载启用——保存即 `ready` 进入 M09 变更管线；v0.3 随字段化编辑开放草稿）。
 
 ***
 
@@ -875,10 +901,13 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
 - [ ] {P0} 模块名称与文档目录已更新为「监控策略与指标管理」。
 - [ ] {P0} 可以为常见监控对象类型（`host_linux` / `host_windows` / mysql / redis 等）建立/编辑 默认采集配置，包含默认端口、metrics\_path、scheme、scrape\_interval、scrape\_timeout、安装指南 / 下载地址；同一监控对象类型可配置多个可选采集实现（`is_default` 标记默认）。
 - [ ] {P0} 可以创建/编辑 `ScrapeJob`，指定 job\_name、monitor\_type、默认采集器（可空，手填模式）、网域、实例选择模式与标签模板引用；采集参数（端口/路径/协议）可直接手填覆盖。
+- [ ] {P0} 采集 Job 支持配置认证/TLS 最小集（决策 31）：`auth_type`（none/basic/bearer）＋对应 `username`/`password` 或 `token`、`tls_skip_verify`、`ca_file`；全部可选、默认 `auth_type=none`，不配置时与既有裸 http 采集完全兼容；表单以「认证与 TLS」折叠面板承载。
+- [ ] {P0} 冻结（禁用）网域禁止新建 Job、存量 Job 禁止新增该域实例（决策 30）；允许移除该域实例、禁用/编辑 Job；保存时给出明确错误提示。
 - [ ] {P0} 默认采集配置与 Job 表单中，标签模板以「名称（类别 / 模板ID）」展示；选择模板后内联只读展示其映射内容，并提供「前往标签模板管理」跨模块跳转（模板 CRUD 归属 Module\_07）。
 - [ ] {P0} 默认采集配置列表的「标签模板」列采用两行卡片展示（名称 + 默认/自定义标记 / 类别·模板ID），点击模板名称打开只读预览抽屉展示映射明细。
 - [ ] {P0} MVP 支持手动勾选实例；勾选结果持久化到 `ScrapeJob.selected_instance_ids`。
 - [ ] {P0} 选定 `monitor_type` 与 `network_domain_id` 后，实例候选自动收敛为「同类型 + 同网域」资源，支持一键全选/反选与关键字筛选（减少手动逐个勾选）
+- [ ] {P0} 实例候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（保证下线台账可见、不可勾选）；已选实例转 `offline` 后 M09 配置生成跳过（`offline` 后下一配置生成周期即从 `targets/*.json` 移除，见 [Module_09 3.3 实例过滤](Module_09_Network_Domain_and_Edge_Config_Center.md)）
 - [ ] {P0} 可以标记 Resource/Target 的采集器安装/注册状态（含自研独立 exporter），未确认实例不生成 target。
 - [ ] {P1} 安装确认时可登记实例上 exporter 实际监听端口（actual\_port）；配置生成时与生效端口不一致时提示，不自动改配置。
 - [ ] {P0} {v0.3} 规则编辑 UI 支持类 YAML 表单（expr / for / labels / annotations），调用查询中心进行 PromQL 校验，并提供指标实时预览。
@@ -939,7 +968,10 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
 - [ ] {P0} Job 表单缺模板 Alert 按缺口类型区分文案（映射未关联 →「立即补配」；类别无模板 →「前往创建模板」），且为软引导不阻塞保存
 - [ ] {P0} 采集 Job 保存/启停/删除成功后，提示「变更将由 M09 生成变更单，需确认后生效」并提供「前往配置变更确认」跳转按钮
 - [ ] {P0} 「采集 Job」列表「状态」聚合列展示四态：草稿 / 待下发 / 已生效 / 已停用；MVP 阶段「草稿」态无实例，标签灰显并 Tooltip 提示「v0.2 支持保存草稿」，状态筛选器中「草稿」选项禁用；`change_status` 支持 `pending` / `confirmed` / `deployed` / `none` 四枚举（MVP 阶段 M09 回写 `pending/confirmed/none`，v0.2 起扩展 `deployed`）
-- [ ] {P0} 规则保存/启停/删除成功后，提示「变更将由 M09 生成变更单，需确认后生效」并提供「前往配置变更确认」跳转按钮；规则列表「下发状态」列展示 `change_status`（与采集 Job 同源同机制）（v0.3 随规则编辑 UI 落地）
+- [ ] {P0} 「规则编辑」页支持上传 / 粘贴完整 `rules.yml`（**整文件透传**，`content_mode=yaml_passthrough`）挂载规则：YAML 语法非法时给出错误提示（至少校验 `groups` 存在且为数组）；保存即 `draft_status=ready` 进入 M09 变更检测管线
+- [ ] {P0} 规则列表展示规则名 / 规则条数 / 更新时间 / 启用状态 / 下发状态（`change_status`），支持启停 / 删除 / 详情（YAML 只读视图）
+- [ ] {P0} 规则文件挂载保存/启停/删除成功后，提示「变更将由 M09 生成变更单，需确认后生效」并提供「前往配置变更确认」跳转按钮；规则列表「下发状态」列展示 `change_status`（与采集 Job 同源同机制，MVP 起）
+- [ ] {P0} 规则挂载后，M09 生成的 `rules.yml` 草稿包含该透传规则内容，支持变更单**人工确认**后下发生效（决策 38-1，与采集 Job 同动线）；下发后规则状态回写 `change_status`
 - [ ] {P0} {v0.2} 采集 Job 新建表单提供「保存草稿」与「提交生效」两个主操作：「保存草稿」仅做基础校验，允许半成品暂存；「提交生效」做完整校验（含必填项、网域已纳管、实例同域等），通过后 `draft_status` 转 `ready` 并进入 M09 变更检测管线；已生效 Job 的编辑仅提供普通「保存」，直接走 M09 变更单确认管线（不做草稿快照）
 - [ ] {P0} {v0.2} 采集 Job 列表支持多选「批量提交生效」：选中的 `draft_status=draft` 对象逐条校验，失败的给出逐条错误清单，成功的批量转 `ready`
 - [ ] {P0} {v0.2} 采集 Job 列表操作列提供「克隆」入口：打开新建抽屉并预填源 Job 的采集参数 / 监控对象类型 / 采集实现 / 标签模板；同网域克隆可直接改选实例，跨网域克隆需改选目标网域、实例清空重选，并提示安装确认需重新进行
@@ -964,6 +996,8 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
 - [ ] {P0} {v0.2} 保存草稿时仅更新 `draft_status`/`updated_at`，**不触发** M09 源数据版本重算；提交生效时 `updated_at` 变化且 `draft_status=ready`，M09 下一周期将其纳入源数据版本并生成配置草稿
 - [ ] {P0} {v0.2} `GET /api/v1/scrape-jobs` 返回 `draft_status`，前端据此与 `change_status` 聚合状态列「草稿」态
 - [ ] {P0} {v0.2} `POST /api/v1/scrape-jobs/{id}/clone` 复制源 Job 的采集参数 / `job_type` / 监控对象类型 / 采集实现 / 标签模板，**不携带** `selected_instance_ids` 与安装确认记录；跨网域克隆时校验目标网域已纳管
+- [ ] {P0} `MonitoringRule` 新增 `content_mode`（`yaml_passthrough` / `structured`）与 `rule_content` 字段并落库；`content_mode=yaml_passthrough` 保存时校验 `rule_content` 非空且 YAML 合法（至少 `groups` 存在且为数组）
+- [ ] {P0} Module\_09 生成 `rules.yml` 时，`content_mode=yaml_passthrough` 的规则将 `rule_content` **原样并入**；规则保存 / 启停 / 删除引起 `updated_at` 变化后，M09 下一轮询周期检测并重新生成 `rules.yml` 草稿，经变更单**人工确认**后下发（pull 模式，M01 不主动通知；对齐决策 38-1）
 - [ ] {P0} {v0.3} `MonitoringRule` 草稿机制与 `ScrapeJob` 一致（仅新建阶段），提交生效时调用 Module_02 PromQL 校验接口
 ***
 
@@ -1003,7 +1037,7 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
 | 业务域聚合视图                            | 仅技术信息            | v0.2+ 独立业务目录视图：成员列表（应用/微服务+中间件+主机）+ 健康度看板 + 采集覆盖；语义层不改变采集配置逻辑 |
 | `metric_type`                         | 指标类型             | counter / gauge / histogram / summary / unknown               |
 | `MetricLibraryItem.category`          | 语义域             | 可选（P1 增强）：cpu / memory / disk / network 等，指标分组浏览与提示聚类维度；按「语义域 +监控对象类型」组织，不按 Exporter |
-| `MonitoringRule`                      | 告警 / 记录规则        | 规则编辑模型（v0.3 起 UI 写入，MVP 手写 `rules.yml`）                    |
+| `MonitoringRule`                      | 告警 / 记录规则        | 规则编辑模型（MVP 起：整文件透传挂载 `content_mode=yaml_passthrough` + `rule_content`，保存即进入 M09 变更检测与下发；v0.3 起字段化 UI 逐条写入 `structured`）                    |
 | `MonitoringRule.labels`               | 告警标签（Alert Labels） | 告警规则的元数据标签，用于分级/路由，**非** target 身份标签              |
 | `MonitoringRule.annotations`          | 告警说明（Annotations） | 告警触发时附带的人类可读信息，用于通知展示，不参与路由判断                    |
 | `LabelTemplate` 生成的 labels          | 目标标签（Target Labels） | 标识被监控资源身份的标签（instance/app/env），由采集 Job 的标签模板生成      |
@@ -1055,17 +1089,20 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
 | 业务指标库 | 接口错误 | Alert 提示「业务指标加载失败，请稍后重试」 |
 | 安装确认 | 加载中 | 列表骨架屏 |
 | 安装确认 | 空态 | 「该 Job 中所有实例均已确认或无需确认」 |
-| 规则编辑（v0.3） | 加载中 | 编辑器骨架屏 |
-| 规则编辑（v0.3） | 空态 | 「暂无规则」，提供「新建规则」引导 |
-| 规则编辑（v0.3） | 接口错误 | Alert 提示「规则列表加载失败，请稍后重试」 |
+| 规则编辑（文件挂载·MVP） | 加载中 | 表格骨架屏 |
+| 规则编辑（文件挂载·MVP） | 空态 | 「暂无规则」，提供「上传 / 粘贴 rules.yml 挂载」引导 |
+| 规则编辑（文件挂载·MVP） | 接口错误 | Alert 提示「规则列表加载失败，请稍后重试」 |
+| 规则编辑（文件挂载·MVP） | 保存成功 | Toast「已挂载，将由 M09 生成变更单」+「前往配置变更确认」跳转按钮 |
+| 规则编辑（文件挂载·MVP） | 保存失败（YAML 非法） | Alert 置顶提示 YAML 语法错误（至少校验 `groups` 存在且为数组），表单保持当前内容 |
 | 采集 Job 列表 | 草稿态占位 | MVP 阶段状态列展示「草稿」标签但无实例，标签灰显并 Tooltip「v0.2 支持保存草稿」，状态筛选器中「草稿」选项禁用；v0.2 起真实草稿对象显示为橙色 Tag 且可筛选 |
 | 采集 Job 编辑 | 草稿保存成功 | Toast「草稿已保存，当前配置不会进入下发管线」；表单保持打开，可继续编辑 |
 | 采集 Job 编辑 | 提交生效成功 | Toast「已提交生效，将由 M09 生成变更单」+「前往配置变更确认」跳转按钮 |
 | 采集 Job 编辑 | 提交生效失败 | Alert 置顶展示逐条校验错误（含必填项 / 网域 / 实例同域 / 规则 PromQL 等），表单保持当前值 |
 | 采集 Job 列表 | 批量提交结果 | 抽屉展示批量提交结果：成功 N 条（已转 ready）、失败 N 条（仍 draft，附逐条错误） |
 | 采集 Job 列表 | 克隆（v0.2） | 操作列「克隆」→ 打开新建抽屉并预填源 Job 参数；跨网域克隆时目标网域需改选、实例清空重选，并提示「安装确认需在新 Job 中重新进行」 |
-| 规则编辑（v0.3） | 草稿保存成功 | Toast「规则草稿已保存」；允许 PromQL 半成品暂存 |
-| 规则编辑（v0.3） | 提交生效失败 | 校验失败时 Alert 置顶，PromQL 错误定位到 expr 字段下方 |
+| 规则编辑（v0.3 字段化） | 空态 | 「暂无规则」，提供「新建规则」引导 |
+| 规则编辑（v0.3 字段化） | 草稿保存成功 | Toast「规则草稿已保存」；允许 PromQL 半成品暂存 |
+| 规则编辑（v0.3 字段化） | 提交生效失败 | 校验失败时 Alert 置顶，PromQL 错误定位到 expr 字段下方 |
 
 ### 11.2 全局行为规则
 
@@ -1078,8 +1115,12 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
   - 标签模板选择器空态：「该监控对象类型尚无标签模板，请先创建」+ 内联打开创建抽屉
 - **异常驱动展示**：列表中的状态/同步/标签列采用异常驱动展示——正常态以低饱和标签或 `-` 呈现，异常态（如映射默认值已变更、标签模板待配置、网域未纳管）才使用高饱和/可点击 Tag；详情数据收进抽屉/Tooltip。
 - **跨模块跳转**：跨模块跳转由统一导航配置承载，原型可暂用相对路径演示，实现期不得在代码中写死路径，统一走导航/路由配置。
-- **变更引导提示**：采集 Job 保存/启停/删除成功提示由纯 toast 改为「变更将由 M09 生成变更单，需确认后生效」+「前往配置变更确认」跳转按钮。
+- **变更引导提示**：采集 Job 与规则（文件挂载）保存/启停/删除成功提示由纯 toast 改为「变更将由 M09 生成变更单，需确认后生效」+「前往配置变更确认」跳转按钮。
 - **参数继承来源视觉标记**：编辑表单中继承字段的 label 旁增加 inline Tag，标记来源状态（继承自映射/已覆盖/待同步），详见 5.4「参数继承来源视觉标记」。
+- **认证/TLS 表单折叠区（MVP，决策 31）**：采集 Job 表单底部提供「认证与 TLS」**折叠面板**（默认折叠，不展开不增加裸 http 用户的视觉负担）：
+  - 认证类型 `auth_type` 三选一（无认证 / Basic / Bearer）；选 Basic 展开 `username`/`password`（password 掩码输入、提交后不回显明文、支持「重新设置或清除」）；选 Bearer 展开 `token` 输入；
+  - TLS 区提供 `tls_skip_verify` 开关与 `ca_file` 输入（可选）；折叠面板内联说明「认证/TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs」；
+  - 全部字段可选、默认 `auth_type=none` + `tls_skip_verify=false`，与既有裸 http 采集完全兼容。
 - **草稿与提交生效双按钮（v0.2，仅新建对象）**：新建 Job 表单底部固定「保存草稿」（次级按钮）与「提交生效」（主按钮）：
   - 点「保存草稿」→ 基础校验通过即持久化，`draft_status=draft`；
   - 点「提交生效」→ 做完整校验（含必填项 / 网域已纳管 / 实例同域），通过后 `draft_status=ready` 且不再回退，进入 M09 变更检测管线；
@@ -1098,6 +1139,10 @@ unconfirmed（未确认） ── 运维在创建/编辑 Job 选实例时标记 
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v3.26 | 2026-08-21 | 修改 | 决策 30/31 落版：①采集认证/TLS 最小集（决策 31，MVP 必实现）——ScrapeJob 新增 `auth_type`（none/basic/bearer，默认 none）/`username`/`password`/`token`/`tls_skip_verify`（默认 false）/`ca_file`，全部可选、默认无认证；§5.4 字段表、§6.2.2 POST/PUT 错误契约（认证/TLS 组合校验）、§11.2 表单「认证与 TLS」折叠面板、§9 P0 验收同步，M09 configgen 透明映射 `basic_auth`/`authorization`/`tls_config`；②网域冻结校验（决策 30）——冻结网域禁止新建 Job、存量 Job 禁止新增该域实例（允许移除/禁用/编辑），§5.4 网域约束 + §6.2.2 + §9 P0 验收；③`change_status=deployed` 回写提前到 MVP（决策 31-M2），M09 依据 ConfigDeployment success 回写 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v3.25 | 2026-08-21 | 修改 | `offline` 排除提级 MVP 必实现（决策 29）：①§3.1「实例选择」行与实例选择方式说明——候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（保证下线台账可见、不可勾选），删除「MVP 不保证」表述；②§5.4 实例候选自动收敛新增「`offline` 实例显示但置灰不可选」条款，已选实例转 `offline` 后 M09 配置生成跳过；③§8 状态语义将 `offline` 排除提级 MVP 必实现（`maintenance` 排除口径仍与 Module_07 8.1 一并对齐、MVP 不保证）；④§9 验收新增「实例候选集中 offline 实例显示但置灰不可选」P0 验收项；本轮为 PRD 契约落版，不涉及原型行为变更 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
+| v3.24 | 2026-08-20 | 新增 | **规则进入 M09 配置下发闭环**（解决手写 `rules.yml` 绕过 M09 的契约空白）：新增「规则文件挂载」——MVP 通过「规则编辑」页上传/粘贴完整 `rules.yml`（整文件透传 `content_mode=yaml_passthrough` + `rule_content`）落库 `MonitoringRule`，YAML 校验（至少 `groups` 存在且为数组）后保存即 `draft_status=ready`；规则保存/启停/删除触发 M09 变更检测 → 生成 `rules.yml` → 变更单**人工确认**（决策 38-1）→ 下发，回写 `change_status`，与采集 Job 同源同机制；`MonitoringRule` 新增 `content_mode` / `rule_content` / `change_status` 字段，新增 6.2.4 规则 CRUD 契约，3.1 新增功能行、5.5 修订模型、9 验收与 11 前端契约同步；v0.3 升级为 `structured` 字段化编辑 UI | MVP / v0.3 / v1.0 | 设计中 |
+| v3.23 | 2026-08-19 | 修改 | 回写跨模块契约（Module_07 8.1 / 第三轮评审 K 组）：`offline` / `maintenance` 排除与「未纳入任何 Job」筛选器声明为**目标语义、MVP 不保证、随本模块节奏落地**——①§3.1「实例选择」行与实例选择方式说明补 `offline` 候选集排除 + 已选实例转 `offline` 后 M09 生成跳过；②M01-ARCH-01 更新为实例选择器「未纳入任何 Job」筛选（原 M07 已监控/未监控 badge 已随 is_monitored 取消；不落 M01 则改指 M02 目标状态页）；本轮为契约声明，不涉及原型行为变更 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v3.22 | 2026-08-18 | 新增 | 采集 Job / 规则草稿（仅新建阶段，单向 draft→ready，不做快照）与批量提交生效方案；克隆 Job（同网域 / 跨网域一次性复制，不引入模板实体）；新增 `draft_status` / `change_status` 字段与状态机；Job 草稿、批量提交生效与克隆归 v0.2；规则草稿归 v0.3；MVP 阶段状态列按四态占位展示（草稿标签灰显、筛选禁用）；M09 `change_status` 扩展为 `pending/confirmed/deployed/none` | MVP / v0.2 / v0.3 | 设计中 |
 | v3.21 | 2026-08-18 | 结构改造 | 按 prototype-designer.md 冻结骨架（章节 1-11 编号冻结）重构：正文本体去演变标注（移除 `{v3.x}` / `{v3.x} 更名` / `（决策 N）` / `（v3.x）` 等 PRD 演变标注）；每章开头保留一行决策依据引用；新增第 11 章「前端交互契约」；Change Log 精简为最近 3 版，完整历史已迁移至 design-decisions.md | 文档自身 | 设计中 |
 | v3.20 | 2026-08-17 | 修改 | 规则编辑引导确认（第三十轮需求对齐，决策 D28，与 M09 决策 38 联动） | MVP / v0.2 / v0.3 / v1.0 | 设计中 |

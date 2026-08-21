@@ -284,6 +284,8 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 
 如果某个任务太大，继续拆。不要为了让 agent "一次做完" 而合并任务。
 
+> **契约必填规则（v1.27 起）**：当任务同时涉及 `platform/` 和 `ui-custom/web/` 的同一接口（跨端任务）时，任务卡的 `契约:` 段**必填**——在派发前补全 path / method / request / response 示例，人从 PRD 第 5/6 章提炼，两端以同一契约为准并行开发。
+
 ---
 
 ## 子 Agent 调用规范
@@ -301,6 +303,7 @@ docs/02-product-requirements/Modules/Module_XX_*.md
   - 输出：<新增/修改的文件列表>
   - 验收：<测试命令 / lint / 服务启动验证>
   - 不修改范围：<如 platform/ 之外 / 原型目录 / PRD>
+  - 契约：<可选，跨端任务必填：path / method / request / response 示例，随任务附上>
   ```
 - **子 Agent 只读任务卡指定的输入（v1.25 起，强制）**：子 Agent 启动时**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——它的行为规范已固化在自身 `.kimi/agents/<agent>.md` 定义中，随加载生效；需要读的只是任务卡列出的「任务输入」（PRD 章节 / task-sequence / 原型 / 具体工程标准）。由 Orchestrator 在任务卡中给出精确路径与章节，禁止让子 Agent 自行翻文档树找规范。
 - 子 Agent 完成后，读取其汇报，提取：修改文件、验证结果、阻塞问题

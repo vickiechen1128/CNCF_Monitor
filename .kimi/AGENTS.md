@@ -1,5 +1,7 @@
 # CNCF_Monitor Agent 团队速查
 
+> **版本：v1.27** — 契约优先（Contract-First）对齐：frontend/backend 均以 PRD 第 3/5/6 章 + `03_API_Standard.md` 为唯一契约，禁止以对端代码为实现依据；Orchestrator 跨端任务卡 `契约:` 段必填。
+
 ## 核心架构：Orchestrator + 三层派生 + Developer + Reviewer
 
 ```

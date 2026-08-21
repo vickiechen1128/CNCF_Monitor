@@ -1,10 +1,10 @@
 # Module 04: 自定义服务发现与外部 CMDB 生命周期管理
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.4
+> **PRD 版本**: v1.5
 > **产品版本覆盖**: v0.4+
-> **原型版本**: v1.1
-> **更新日期**: 2026-08-16
+> **原型版本**: v1.5
+> **更新日期**: 2026-08-19
 > **对应原型**: `docs/prototypes/module-04/`
 
 > **模块类型**: 扩展能力模块（v0.4+）
@@ -43,7 +43,7 @@
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
 | 外部 CMDB 同步与发现 | 从腾讯蓝鲸等 CMDB 拉取应用系统与实例列表；BlueKing CMDB 为权威数据源 | P2 |
-| BlueKing CMDB 字段映射 | Tenant → BlueKing Business；NetworkDomain → BlueKing Cloud Area；CI 字段映射到 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer`；**业务路径映射到 `business_domain`**（{v1.2}，与 Module\_07 v2.8 业务类型衔接：CMDB 同步后业务类型随资源落地，无需平台手动维护） | P2 |
+| BlueKing CMDB 字段映射 | BlueKing Business → [Module_07](Module_07_Monitoring_Object_Management.md) 业务分组字典（`business_domain` = `bk_biz_id`，`display_name` = `bk_biz_name`）；NetworkDomain → BlueKing Cloud Area；CI 字段映射到 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer`；资源 `business_domain` 取自 `bk_biz_id`（或稳定业务路径编码），随资源同步写入 M07；业务字典预留 `cmdb_business_id` 用于手工条目与 CMDB 业务匹配合并；**Tenant 不再与 BlueKing Business 强制映射** | P2 |
 | Nacos 发现 | 从 Nacos 注册中心发现服务实例 | P2 |
 | HTTP 发现 | 从自定义 HTTP 接口获取目标列表 | P2 |
 | 目标转换 | 将外部数据格式转换为 MetricCenter Resource 模型，保留 CMDB CI ID、业务/模块路径、维护人 | P2 |
@@ -86,7 +86,7 @@ v0.4+ 由本模块扩展外部 Provider（须遵循 Module 07 接口定义）：
 | 失败继续采集 | CMDB/注册中心同步失败时，必须保留上一次成功同步结果，不得清空或跳过旧对象 |
 | 7 天保留期 | CMDB 中已删除或连续 7 天无法同步的对象，进入 `orphan` 状态 |
 | 孤儿分组 | 孤儿虚拟 CI 按 `network_domain_id` + `resource_category` 拆分，便于分网域、分资源类别清理 |
-| 字段映射 | 必须将外部 CI 的维护人、业务路径、模块路径映射到 `cmdb_maintainer`、`cmdb_business_path`、`cmdb_module_path`；业务路径同时映射为 `business_domain`（{v1.2}，与 Module\_07 v2.8 衔接，供 `biz` 标签生成） |
+| 字段映射 | 必须将外部 CI 的维护人、业务路径、模块路径映射到 `cmdb_maintainer`、`cmdb_business_path`、`cmdb_module_path`；BlueKing Business（`bk_biz_id` / `bk_biz_name`）同步为 [Module_07](Module_07_Monitoring_Object_Management.md) 业务分组字典条目（`business_domain` = `bk_biz_id`，`display_name` = `bk_biz_name`），并将资源 `business_domain` 设置为 `bk_biz_id`（或稳定业务路径编码），供 M07 LabelTemplate 生成 `biz` 标签；业务字典条目预留 `cmdb_business_id` 用于与 CMDB 业务匹配合并；**Tenant 不再与 BlueKing Business 强制映射** |
 
 ---
 
@@ -96,8 +96,8 @@ v0.4+ 由本模块扩展外部 Provider（须遵循 Module 07 接口定义）：
 
 | 场景 | 处理规则 |
 |------|----------|
-| 正常同步 | 按全量或增量方式拉取 CMDB CI，更新本地 `Resource` 镜像；标签模板从 CMDB 字段生成 Prometheus Label |
-| 同步失败（CMDB 不可达、接口超时、鉴权失败） | **继续使用上一次成功同步的资源快照**生成配置并下发，保证采集不中断；同步失败事件进入审计日志 |
+| 正常同步 | 按全量或增量方式拉取 CMDB CI，更新本地 `Resource` 镜像；标签模板从 CMDB 字段生成 Prometheus Label；BlueKing Business 同步为 M07 业务分组字典条目 |
+| 同步失败（CMDB 不可达、接口超时、鉴权失败） | **继续使用上一次成功同步的资源快照**生成配置并下发，保证采集不中断；同步失败事件进入审计日志；业务分组字典沿用旧快照，不影响标签生成 |
 | 对象在 CMDB 中被删除或长期无法同步 | 保留该对象 **7 天**（可配置），期间继续按旧快照采集；超过 7 天后标记为 `status=orphan`，进入孤儿资源管理 |
 | 对象恢复同步 | 自动取消 `orphan` 标记，恢复为 `online` 并按最新 CMDB 数据更新 |
 
@@ -224,6 +224,7 @@ BlueKing CMDB 中的 CI 模型（`bk_obj_id`）需要映射到 MetricCenter 的�
 - [ ] CMDB 中删除/长期失联的对象保留 7 天后标记为 `orphan`
 - [ ] 孤儿资源按 `network_domain_id` + `resource_category` 分组展示，支持恢复、转手动、删除
 - [ ] BlueKing CMDB 字段正确映射到 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer`
+- [ ] BlueKing Business（`bk_biz_id` / `bk_biz_name`）同步为 [Module_07](Module_07_Monitoring_Object_Management.md) 业务分组字典条目（`business_domain` / `display_name`），资源 `business_domain` 取自 `bk_biz_id`
 - [ ] 维护 CMDB CI 类型 → `resource_category` 映射表；未映射或禁用的 CI 类型进入待分类队列
 - [ ] 待分类 CI 队列支持查看原始数据、映射到现有类型、忽略；同步任务不被阻塞
 
@@ -231,6 +232,7 @@ BlueKing CMDB 中的 CI 模型（`bk_obj_id`）需要映射到 MetricCenter 的�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.5 | 2026-08-19 | 修改 | 按 design-decisions 决策 12~17 调整 BlueKing 业务映射：①§3「BlueKing CMDB 字段映射」功能说明改为 BlueKing Business → M07 业务分组字典；②§4.1 Provider 字段映射同步改为 BlueKing Business 同步为 M07 业务字典条目（`business_domain` / `display_name`），资源 `business_domain` 取自 `bk_biz_id`；③§5 同步策略增加业务字典失败兜底；④明确 Tenant 不再与 BlueKing Business 强制映射 | 3 核心功能、4.1 Provider 规范、5 同步策略、6 验收 | v0.4+ | 设计中 |
 | v1.4 | 2026-08-16 | 修改 | 术语分层与字段改名（第二十六轮需求对齐，决策 D24）：①7.1 CMDB CI 类型映射表改为**三列完整推导链**——`CI 类型（bk_obj_id，只读）→ 资源类别 + 子类型（管理员配置）→ 监控对象类型（只读，由 M01 推导表 `MONITOR_TYPE_DERIVATION_MAP` 实时计算）`，第三列只读不可编辑，用户一眼看清"我配的是前两列，监控对象类型自动推导"；②映射规则补推导链与术语归属（「CI 类型」专属 CMDB/M04，「监控对象类型」禁止出现在本模块 UI）；③孤儿资源分组字段 `resource_type` → `resource_category`（五大类）；④7.2 待分类队列引导文案改为「为 CI 类型指派资源类别与子类型」（非"创建 CI 类型"） | CMDB CI 类型映射表、孤儿资源、待分类队列 | v0.4+ | 设计中 |
 | v1.3 | 2026-08-16 | 修改 | 五大类拆分联动（第二十五轮需求对齐，决策 D19）：①7.1 映射表 mysql/redis/mongodb 等数据库产品线目标类别由 middleware 改为 database，新增达梦 dm8 示例行，中间件行收窄为 kafka/nginx/zookeeper/elasticsearch；②映射规则补「新增产品线只配一行映射、不改 CMDB 模型」；③7.2 处理流程补新数据库产品线归类说明（待分类队列承接新类型缓冲） | CMDB CI 类型映射表、待分类队列 | v0.4+ | 设计中 |
 | v1.2 | 2026-08-14 | 修改 | 跨模块对齐（与 Module_07 v2.8 业务类型衔接）：BlueKing CMDB 字段映射与 Provider 同步规范补充「业务路径 → `business_domain`」映射——CMDB 同步后业务类型随资源落地（供 `biz` 标签生成），无需平台手动维护 | 字段映射、Provider 规范 | v0.4+ | 设计中 |

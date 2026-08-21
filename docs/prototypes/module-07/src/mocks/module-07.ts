@@ -1,6 +1,9 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.14（Module_07_Monitoring_Object_Management.md）
+// 对齐 PRD v2.20（Module_07_Monitoring_Object_Management.md）
+// 决策 13/14/17/19/21/22：业务分组字典 + biz_code 全资源必填（biz 标签只承载不可变编码），展示取 biz_name；强制预置兜底条目 infra
+// 决策 31-M1：is_monitored 由 M01 维护、M07 只读映射（原「已监控/未监控」列恢复为只读采集状态，MVP 资源列表仅按 is_monitored 筛选，M07 不计算）
+// 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真，见 STATUS_MAPPING 注释）
 // ============================================================
 
 // ---------- 基础枚举 ----------
@@ -33,12 +36,14 @@ export interface ResourceBase {
   instance_ip?: string
   os_type?: string
   // {v2.8} 业务类型/业务域归属（如 payment / data-api）；任意资源类别可挂，MVP 以 application 维护；映射为 `biz` label
-  business_domain?: string
+  biz_code?: string
   app_name?: string
   env?: Env
   cluster?: string
   owner?: string
   status: ResourceStatus
+  // {v2.20} 决策 31-M1：是否被任意采集 Job 纳入监控。由 Module_01（监控策略）维护、M07 只读映射，M07 不据此计算/不写回。
+  // 资源列表「未监控」筛选即依据此字段；注：is_monitored=false 不代表 status=offline，两者独立。
   is_monitored: boolean
   // v0.4+ 预留字段：CMDB 接入后由 Module_04 同步（mock 可为空，UI 标注 {v0.4+}）
   cmdb_ci_id?: string
@@ -144,6 +149,39 @@ export const mockNetworkDomains: NetworkDomain[] = [
   { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online' },
 ]
 
+// ---------- 业务分组字典（PRD 5.2 / 决策 13/14/17） ----------
+// MVP 由配置文件预置，只读，不提供维护页面；v0.2+ 评估维护入口（code 不可变、停用不删除）
+export interface BusinessDomain {
+  /** 业务编码，进 biz 标签，创建后不可变 */
+  biz_code: string
+  /** 展示名，可改，不影响监控配置；UI 一律展示 biz_name */
+  biz_name: string
+  description?: string
+  /** enabled = 启用（可被资源引用）；disabled = 停用（仅可改展示名，不可删除） */
+  status: 'enabled' | 'disabled'
+}
+
+export const mockBusinessDomains: BusinessDomain[] = [
+  { biz_code: 'order', biz_name: '订单业务', description: '订单服务相关资源', status: 'enabled' },
+  { biz_code: 'payment', biz_name: '支付业务', description: '支付 / 资金相关资源', status: 'enabled' },
+  { biz_code: 'infra', biz_name: '基础设施', description: '公共基础设施资源（INF 兜底，设备类无业务归属资源挂此）', status: 'enabled' },
+  { biz_code: 'data-api', biz_name: '数据接口', description: '数据接口服务资源', status: 'enabled' },
+  { biz_code: 'retired-biz', biz_name: '已下线业务', description: '停用中，不可再被资源引用', status: 'disabled' },
+  // 注：settlement / after-sale 等未登记编码刻意不预置，用于演示「业务未登记 → 引导联系平台管理员」误导入场景（§5.16.1/§11.2）
+]
+
+/** 业务字典展示名解析：code → biz_name；未登记或空值返回 code 本身或 '-' */
+export function resolveBizName(code?: string): string {
+  if (!code) return '-'
+  return mockBusinessDomains.find((d) => d.biz_code === code)?.biz_name || code
+}
+
+/** 业务字典条目是否停用（disabled）：停用业务不可再被资源引用，但存量资源保留历史值 */
+export function isBizDisabled(code?: string): boolean {
+  if (!code) return false
+  return mockBusinessDomains.find((d) => d.biz_code === code)?.status === 'disabled'
+}
+
 // ---------- 标签模板（PRD 5.10 / 5.11） ----------
 export interface Mapping {
   mapping_id: string
@@ -247,7 +285,9 @@ export const PROTECTED_PROMETHEUS_LABELS = [
   'quantile',
 ]
 
-/** Excel 状态映射字典（PRD 5.5.1） */
+/** Excel 状态映射字典（PRD 5.5.1）
+ * {v2.20} 决策 29 说明：目标状态 offline 后，Module_09 下一配置生成周期即把它从 targets/*.json 移除、
+ * 不触发采集器 reload（批量下线动线为真）；本模块仅维护 Resource.status，采集生效由配置中心消费。 */
 export const STATUS_MAPPING_RULES: { source: string[]; target: ResourceStatus }[] = [
   { source: ['运行中', '正常', 'online', 'active', 'running', 'up'], target: 'online' },
   { source: ['已停止', '停止', 'offline', 'stopped', 'down', '关机'], target: 'offline' },
@@ -265,22 +305,22 @@ export const mockStatusMappingConfig: StatusMappingConfig = {
   ],
 }
 
-/** 五大类资源固定列导入模板（PRD 7.1，含 network_domain 列；{v2.13} 新增 database 列，决策 D19） */
+/** 五大类资源固定列导入模板（PRD 5.16.1，含 network_domain / biz_code 列；{v2.17} 全资源类必填 biz_code） */
 export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceCategory, string[]> = {
-  host: ['network_domain', 'hostname', 'instance_ip', 'os_type', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  application: ['network_domain', 'service_name', 'business_domain', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  host: ['network_domain', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  application: ['network_domain', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
 }
 
-/** 标签模板映射：Resource 字段选项（PRD 5.12 A；{v2.13} 新增 database 键） */
+/** 标签模板映射：Resource 字段选项（PRD 5.12 A；{v2.13} 新增 database 键；{v2.17} 全资源类补 biz_code → biz） */
 export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
-  host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  database: ['instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  middleware: ['instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  application: ['instance_name', 'service_name', 'business_domain', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  generic_target: ['instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  database: ['instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  middleware: ['instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  application: ['instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  generic_target: ['instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
 }
 
 /** Prometheus 内置字段（PRD 5.12 B，不含 __name__） */
@@ -337,6 +377,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'default',
     source_type: 'manual',
     instance_name: 'prod-web-01',
+    biz_code: 'infra',
     hostname: 'prod-web-01.volc',
     instance_ip: '10.0.1.11',
     os_type: 'Linux',
@@ -360,6 +401,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'default',
     source_type: 'import',
     instance_name: 'prod-db-01',
+    biz_code: 'order',
     hostname: 'prod-db-01.volc',
     instance_ip: '10.0.1.21',
     os_type: 'Linux',
@@ -369,7 +411,7 @@ export const mockResources: Resource[] = [
     cluster: 'db-cluster-a',
     owner: '李四',
     status: 'online',
-    is_monitored: true,
+    is_monitored: false,
     created_at: '2026-07-02 09:00:00',
     updated_at: '2026-07-22 11:20:00',
   },
@@ -379,6 +421,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'gov-cloud-a',
     source_type: 'manual',
     instance_name: 'test-gateway-01',
+    biz_code: 'infra',
     hostname: 'test-gateway-01.volc',
     instance_ip: '192.168.1.31',
     os_type: 'Linux',
@@ -388,7 +431,7 @@ export const mockResources: Resource[] = [
     cluster: 'gateway-cluster',
     owner: '王五',
     status: 'maintenance',
-    is_monitored: false,
+    is_monitored: true,
     created_at: '2026-07-03 14:00:00',
     updated_at: '2026-07-24 16:45:00',
   },
@@ -399,6 +442,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'default',
     source_type: 'manual',
     instance_name: 'redis-cache-01',
+    biz_code: 'infra',
     database_type: 'redis',
     instance_ip: '10.0.2.11',
     port: 6379,
@@ -419,6 +463,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'default',
     source_type: 'import',
     instance_name: 'mysql-order-01',
+    biz_code: 'order',
     database_type: 'mysql',
     instance_ip: '10.0.2.12',
     port: 3306,
@@ -439,6 +484,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'gov-cloud-a',
     source_type: 'manual',
     instance_name: 'dm-master-01',
+    biz_code: 'infra',
     database_type: 'dm8',
     instance_ip: '192.168.1.41',
     port: 5236,
@@ -460,6 +506,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'default',
     source_type: 'manual',
     instance_name: 'kafka-01',
+    biz_code: 'infra',
     middleware_type: 'kafka',
     instance_ip: '10.0.2.21',
     port: 9092,
@@ -470,7 +517,7 @@ export const mockResources: Resource[] = [
     cluster: 'kafka-cluster',
     owner: '孙七',
     status: 'offline',
-    is_monitored: true,
+    is_monitored: false,
     created_at: '2026-07-06 10:00:00',
     updated_at: '2026-07-26 09:10:00',
   },
@@ -480,6 +527,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'default',
     source_type: 'manual',
     instance_name: 'nginx-gw-01',
+    biz_code: 'infra',
     middleware_type: 'nginx',
     instance_ip: '10.0.2.22',
     port: 80,
@@ -502,7 +550,7 @@ export const mockResources: Resource[] = [
     source_type: 'manual',
     instance_name: 'order-service-v2',
     service_name: 'order-service',
-    business_domain: 'order',
+    biz_code: 'order',
     health_check_url: 'http://10.0.3.11:9100/-/healthy',
     protocol: 'http',
     endpoint: '10.0.3.11:9100',
@@ -523,7 +571,7 @@ export const mockResources: Resource[] = [
     source_type: 'manual',
     instance_name: 'pay-service-v1',
     service_name: 'pay-service',
-    business_domain: 'payment',
+    biz_code: 'payment',
     health_check_url: 'http://192.168.3.12:9100/-/healthy',
     protocol: 'http',
     endpoint: '192.168.3.12:9100',
@@ -544,6 +592,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'gov-cloud-a',
     source_type: 'import',
     instance_name: 'switch-core-01',
+    biz_code: 'retired-biz',
     target_name: '核心交换-01',
     instance_ip: '172.16.0.1',
     port: 9116,
@@ -566,6 +615,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'gov-cloud-a',
     source_type: 'manual',
     instance_name: 'loadbalancer-02',
+    biz_code: 'data-api',
     target_name: '负载均衡-02',
     instance_ip: '172.16.0.2',
     port: 9131,
@@ -604,7 +654,7 @@ export const mockResourceLabels: Record<string, ResourceLabel[]> = {
     { label_id: 'l10', resource_id: 'res-app-001', label_key: 'service_name', label_value: 'order-service', source: 'system', is_editable: false, created_at: '2026-07-08 10:00:00', updated_at: '2026-07-08 10:00:00' },
     { label_id: 'l11', resource_id: 'res-app-001', label_key: 'cluster', label_value: 'k8s-prod', source: 'system', is_editable: false, created_at: '2026-07-08 10:00:00', updated_at: '2026-07-08 10:00:00' },
     { label_id: 'l12', resource_id: 'res-app-001', label_key: 'env', label_value: 'prod', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值，优先级最高', created_at: '2026-07-08 10:00:00', updated_at: '2026-07-15 08:00:00' },
-    // {v2.8} biz 标签 = business_domain 字段由标签模板映射生成（system 来源，实时计算不落库；mock 静态展示）
+    // {v2.8} biz 标签 = biz_code 字段由标签模板映射生成（system 来源，实时计算不落库；mock 静态展示）
     { label_id: 'l16', resource_id: 'res-app-001', label_key: 'biz', label_value: 'order', source: 'system', is_editable: false, created_at: '2026-07-08 10:00:00', updated_at: '2026-07-08 10:00:00' },
     // {v2.8} application 为业务类型资源：user 来源标签可编辑（is_editable=true），如业务维度标注「核心链路」
     { label_id: 'l17', resource_id: 'res-app-001', label_key: 'tier', label_value: 'core', source: 'user', is_editable: true, created_at: '2026-07-12 14:00:00', updated_at: '2026-07-12 14:00:00' },
@@ -632,6 +682,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-host-05', source_field: 'hostname', source_type: 'resource_field', target_label: 'hostname', enabled: true, transform: '' },
       { mapping_id: 'mp-host-06', source_field: 'instance_name', source_type: 'resource_field', target_label: 'instance_name', enabled: true, transform: '' },
       { mapping_id: 'mp-host-07', source_field: 'os_type', source_type: 'resource_field', target_label: 'os_type', enabled: true, transform: 'lower' },
+      // {v2.17} 全资源类通用业务标签：biz_code → biz（决策 13/14/17）
+      { mapping_id: 'mp-host-08', source_field: 'biz_code', source_type: 'resource_field', target_label: 'biz', enabled: true, transform: '' },
     ],
     created_at: '2026-07-20 10:00:00',
     updated_at: '2026-07-20 10:00:00',
@@ -650,6 +702,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-db-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-db-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-db-06', source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true, transform: '' },
+      // {v2.17} 全资源类通用业务标签：biz_code → biz（决策 13/14/17）
+      { mapping_id: 'mp-db-07', source_field: 'biz_code', source_type: 'resource_field', target_label: 'biz', enabled: true, transform: '' },
     ],
     created_at: '2026-07-20 10:05:00',
     updated_at: '2026-07-20 10:05:00',
@@ -665,6 +719,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-mw-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-05', source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true, transform: '' },
+      // {v2.17} 全资源类通用业务标签：biz_code → biz（决策 13/14/17）
+      { mapping_id: 'mp-mw-def-01', source_field: 'biz_code', source_type: 'resource_field', target_label: 'biz', enabled: true, transform: '' },
     ],
     created_at: '2026-07-20 10:10:00',
     updated_at: '2026-07-20 10:10:00',
@@ -698,8 +754,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-app-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-app-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-app-05', source_field: 'health_check_url', source_type: 'resource_field', target_label: 'health_check_url', enabled: true, transform: '' },
-      // {v2.8} 业务类型归属：business_domain → biz（业务指标按业务类型聚合的关联键，见 PRD 5.12 A / 5.15）
-      { mapping_id: 'mp-app-06', source_field: 'business_domain', source_type: 'resource_field', target_label: 'biz', enabled: true, transform: '' },
+      // {v2.8} 业务类型归属：biz_code → biz（业务指标按业务类型聚合的关联键，见 PRD 5.12 A / 5.15）
+      { mapping_id: 'mp-app-06', source_field: 'biz_code', source_type: 'resource_field', target_label: 'biz', enabled: true, transform: '' },
     ],
     created_at: '2026-07-20 10:20:00',
     updated_at: '2026-07-20 10:20:00',
@@ -717,6 +773,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-gen-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-06', source_field: 'custom_labels.*', source_type: 'resource_field', target_label: 'custom_labels.*', enabled: true, transform: '' },
+      // {v2.17} 全资源类通用业务标签：biz_code → biz（决策 13/14/17）
+      { mapping_id: 'mp-gen-07', source_field: 'biz_code', source_type: 'resource_field', target_label: 'biz', enabled: true, transform: '' },
     ],
     created_at: '2026-07-20 10:30:00',
     updated_at: '2026-07-20 10:30:00',
@@ -792,7 +850,9 @@ export const mockImportHistory: ImportHistory[] = [
     created_at: '2026-07-28 11:00:00',
     errors: [
       { row: 3, resource_category: 'application', field: 'service_name', value: '', reason: '必填字段为空' },
+      { row: 4, resource_category: 'application', field: 'biz_code', value: 'settlement', reason: '业务 settlement 未登记，请联系平台管理员在业务分组字典配置（platform/config/business_domains.yaml）中添加后重新导入' },
       { row: 8, resource_category: 'application', field: 'health_check_url', value: 'not-a-url', reason: 'URL 格式不正确' },
+      { row: 11, resource_category: 'application', field: 'network_domain', value: 'edge-seattle', reason: '网域 edge-seattle 未登记，请先到「资源管理 → 业务分组」登记网域后重新导入（闭环到 Module_06）' },
       { row: 15, resource_category: 'application', field: 'protocol', value: 'grpc', reason: 'protocol 必须是 http/https/tcp 之一' },
     ],
   },

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Card,
   Table,
@@ -16,6 +16,7 @@ import {
 } from 'antd'
 import { PlusOutlined, EditOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { FilterBar, FilterItem } from '../components/FilterBar'
 import { mockTenants, mockNetworkDomains, type Tenant } from '../mocks/module-06'
 
 const { Title } = Typography
@@ -26,6 +27,8 @@ const { Option } = Select
  * 不再使用硬编码列表；选项标注纳管状态，体现「授权 ≠ 已纳管」
  * {v1.5} 新增 multi_site_enabled 行政能力开关（决策 31）：租户级配置，
  * 不在顶栏提供运行时切换；该开关不控制 M09 页面入口（M09 入口由数据驱动）。
+ * {v1.9} 租户与业务解耦（决策 12~17）：移除「CMDB 业务 ID / 业务路径」列与表单项；
+ * 业务（biz_code / biz_name）为资源分组维度、由 Module_07 维护，不在本页展示。
  */
 const networkDomainOptions = mockNetworkDomains.map((d) => ({
   value: d.id,
@@ -37,6 +40,18 @@ export function TenantsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null)
   const [form] = Form.useForm()
+  // {v2.1} 列表筛选（PRD §11.1：租户管理支持名称/状态筛选）
+  const [filterName, setFilterName] = useState('')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all')
+
+  const filteredTenants = useMemo(() => {
+    const keyword = filterName.trim().toLowerCase()
+    return tenants.filter((t) => {
+      if (filterStatus !== 'all' && t.status !== filterStatus) return false
+      if (keyword && !t.name.toLowerCase().includes(keyword)) return false
+      return true
+    })
+  }, [tenants, filterName, filterStatus])
 
   const showAdd = () => {
     setEditingTenant(null)
@@ -108,11 +123,6 @@ export function TenantsPage() {
         value ? <Tag color="green">已开启</Tag> : <Tag color="default">未开启</Tag>,
     },
     {
-      title: 'CMDB 业务',
-      dataIndex: 'cmdbBusinessPath',
-      key: 'cmdbBusinessPath',
-    },
-    {
       title: '平台管理员',
       dataIndex: 'isPlatformAdmin',
       key: 'isPlatformAdmin',
@@ -141,8 +151,9 @@ export function TenantsPage() {
       reviewNotes={
         <>
           被授权网域数据源来自「网域管理」页面的行政记录，非硬编码列表；选项标注纳管状态，体现「授权 ≠ 已纳管」。
-          多网域能力（multi_site_enabled）为租户级行政能力开关，不在顶栏提供运行时切换；该开关不控制配置中心各页面入口（入口由数据驱动）。
-          multi_site_enabled 与 cmdb_business_* 为仅技术信息字段，用户侧展示名见 PRD「术语映射」。
+          网域为部署级资源、可跨租户共享（决策 18~20 落版）：租户通过授权 scope 使用网域（授权 ≠ 拥有），登记所有权归平台运营部（platform_admin），本页仅维护租户侧被授权列表。
+          多网域能力（multi_site_enabled）为租户级行政能力开关：是否允许该租户被授权使用多个网域；该开关不控制配置中心各页面入口（入口由数据驱动）。
+          租户与业务解耦（决策 12~17 落版）：业务（业务分组）为资源分组维度、由资源管理（Module_07）维护，租户页不维护业务映射。
         </>
       }
     >
@@ -157,9 +168,31 @@ export function TenantsPage() {
           </Button>
         }
       >
+        <FilterBar>
+          <FilterItem label="名称">
+            <Input.Search
+              placeholder="搜索租户名称"
+              allowClear
+              onSearch={(value) => setFilterName(value)}
+              style={{ width: 200 }}
+            />
+          </FilterItem>
+          <FilterItem label="状态">
+            <Select
+              placeholder="全部状态"
+              allowClear
+              value={filterStatus === 'all' ? undefined : filterStatus}
+              onChange={(v) => setFilterStatus((v ?? 'all') as 'all' | 'active' | 'inactive')}
+              style={{ width: 160 }}
+            >
+              <Option value="active">启用</Option>
+              <Option value="inactive">禁用</Option>
+            </Select>
+          </FilterItem>
+        </FilterBar>
         <Table
           rowKey="id"
-          dataSource={tenants}
+          dataSource={filteredTenants}
           columns={columns}
           pagination={{ pageSize: 8 }}
         />
@@ -177,14 +210,14 @@ export function TenantsPage() {
             name="name"
             rules={[{ required: true, message: '请输入租户名称' }]}
           >
-            <Input placeholder="例如 电商业务" />
+            <Input placeholder="例如 电商研发部" />
           </Form.Item>
           <Form.Item
             label="被授权网域"
             name="networkDomainIds"
             initialValue={['nd-default']}
             rules={[{ required: true, message: '请选择被授权网域' }]}
-            extra="仅分配网域使用权；网域需先在「网域管理」页完成行政创建，监控纳管（安装 Edge Agent）由 Module_09 在租户授权范围内按需执行"
+            extra="仅分配网域使用权（授权 ≠ 拥有）：网域为部署级资源、可跨租户共享，登记所有权归平台运营部（platform_admin）；网域需先在「网域管理」页完成行政创建，监控纳管（安装 Edge Agent）由 Module_09 在租户授权范围内按需执行"
           >
             <Select mode="multiple" placeholder="请选择网域">
               {networkDomainOptions.map((opt) => (
@@ -199,23 +232,9 @@ export function TenantsPage() {
             name="multi_site_enabled"
             valuePropName="checked"
             initialValue={false}
-            extra="是否允许该租户创建/管理多个网域。关闭时仅可使用默认网域（default），不可创建额外网域。"
+            extra="是否允许该租户被授权使用多个网域。关闭时平台侧仅授权该租户单个网域（通常为 default），不可被授权额外网域。"
           >
             <Switch checkedChildren="已开启" unCheckedChildren="未开启" />
-          </Form.Item>
-          <Form.Item
-            label="CMDB 业务 ID"
-            name="cmdbBusinessId"
-            rules={[{ required: true, message: '请输入 CMDB 业务 ID' }]}
-          >
-            <Input placeholder="例如 bk-biz-2" />
-          </Form.Item>
-          <Form.Item
-            label="CMDB 业务路径"
-            name="cmdbBusinessPath"
-            rules={[{ required: true, message: '请输入 CMDB 业务路径' }]}
-          >
-            <Input placeholder="例如 业务 / 电商" />
           </Form.Item>
           <Form.Item
             label="状态"

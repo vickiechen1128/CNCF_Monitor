@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.22
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.26
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.22
+> **原型版本**: v3.26
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,26 @@
 > ```
 >
 > **访问地址**: http://localhost:5175/
+
+## 本次 v3.26 相对 v3.25 的关键变更（决策 30 冻结网域校验 + 决策 31 采集认证/TLS 最小集）
+
+- **{v3.26} 采集认证/TLS 最小集（决策 31，PSD 无备份）**：采集 Job 表单抽屉（编辑/新建 Job 的 Form 区域）底部新增「认证与 TLS」折叠面板（antd `Collapse`，默认折叠，不展开不增加裸 http 视觉负担）——认证类型 `auth_type` 单选（none 默认 / basic / bearer）+ `tls_skip_verify` Switch（默认 false）+ `ca_file` 可选输入；`auth_type=basic` 显示 username/password 两个必填输入、`auth_type=bearer` 显示 token 必填输入、`auth_type=none` 隐藏认证字段。折叠面板内联说明「认证/TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs」。提交时校验：basic 缺 username/password、bearer 缺 token 报错（bad_request，前端就地提示）。这些字段**不进 targets 判定**（targets 仅实例变化），仅影响 `prometheus.yml`，若变更提交后置 `change_status=pending`（走 M09 人工确认）。
+- **{v3.26} 冻结（禁用）网域校验（决策 30）**：`NetworkDomain` 新增可选 `frozen?: boolean`；新增「已纳管但冻结」演示网域「遗留机房（legacy-dc，`is_monitored=true` 且 `frozen=true`）」——冻结网域禁止新建 Job、存量 Job 禁止新增该域实例（允许移除/禁用/编辑存量）。采集 Job 表单「归属网域」Select 对冻结网域显示但置灰不可选（Option disabled + Tooltip「网域已冻结（禁用），禁止新建/纳管」）；提交时命中冻结域给出明确错误提示；实例 Transfer 对冻结域实例不放开作为「新增」（仅放行移除，拦截新增）。
+- 对齐 Module_01 PRD v3.26 / 原型 v3.26；本轮为原型行为同步，与 PRD 落版同步提交。
+
+## 本次 v3.25 相对 v3.24 的关键变更（offline 排除提级 MVP 必实现，决策 29）
+
+- **{v3.25} 实例候选 offline 置灰（MVP 必实现，PRD 3.1 / 5.4 / 8 / 9）**：实例选择候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（保证下线台账可见、不可勾选）——标题与描述追加「已下线」标注，`Transfer` 数据项置 `disabled` 禁止勾选；已选实例转 `offline` 后由 M09 配置生成跳过（`offline` 后下一配置生成周期即从 `targets/*.json` 移除）。新增 default 网域 mysql 下线副本 `res-mw-005` 演示置灰。`maintenance` 排除口径与 Module_07 8.1 一并对齐（MVP 不保证）。
+- 对齐 Module_01 PRD v3.25 / 原型 v3.25；本轮为原型行为同步，与 PRD 落版同步提交。
+
+## 本次 v3.24 相对 v3.23 的关键变更（决策 38-1 规则文件挂载，MVP 补齐 M01↔M09 规则链路契约）
+
+- **{v3.24} 规则文件挂载（MVP，PRD 5.5 / 3.1 / 6.2）**：规则编辑页新增「文件挂载」视图（默认）——上传 / 粘贴整文件 `rules.yml`（`content_mode=yaml_passthrough` + `rule_content`）落库，基础 YAML 校验（至少含 `groups` 数组）+ 规则条数启发式展示；保存 / 启停 / 删除后**不绕过 M09**：由配置中心变更检测生成 `rules.yml` → 变更单人工确认 → 下发（决策 38-1 人工确认档），`change_status` 全链路回写（待确认 / 已确认 / 无变更）。演示数据 3 条：rule-file-001 已确认 / rule-file-002 待确认 / rule-file-003 无变更。
+- **{v3.24} 双形态切换（PRD 3.2）**：页面提供「文件挂载（MVP）/ 字段化编辑（v0.3 预览）」Segmented 切换；字段化编辑视图保留为 v0.3 预览（`content_mode=structured`，PromQL 校验 + 指标预览），MVP 不实现字段级编辑。手写 `rules.yml` 直接透传落库，M09 生成 `rules.yml` 时原样并入。
+
+## 本次 v3.23 相对 v3.22 的关键变更（回写跨模块契约，第四轮评审 K 组）
+
+- **{v3.23} 实例候选集排除注释（契约声明，不改行为）**：实例选择区新增「实例候选集排除（目标语义，MVP 不保证）」评审说明——`offline` / `maintenance` 排除为目标语义（对齐 Module_07 8.1，MVP 阶段 offline 资源仍进入候选 / 被采集，随本模块开发节奏落地）；「未纳入任何 Job」筛选器为目标语义（MVP 不保证，或统一改指 Module_02 目标状态页）。本轮为契约声明，不涉及原型行为变更。
 
 ## 本次 v3.22 相对 v3.20 的关键变更（自 v3.14 起多轮原型变更累计，v3.22 = 草稿/克隆/批量提交 + 乐观更新闭环）
 

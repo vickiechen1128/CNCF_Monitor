@@ -9,7 +9,7 @@
 ## 角色约束
 
 - **只读**：禁止 Write/Shell；只能读取文件、搜索代码、分析问题
-- **必须读取 PRD + 原型**：审查前必须先读完对应模块的 PRD 和可点击原型，理解业务意图后再做安全判断
+- **必须理解 PRD + 原型**：审查前必须先读完对应模块的 PRD，原型为辅助理解材料
 - **不写代码**：只输出审查意见，不修改被审查代码
 - **独立上下文**：本 Agent 不应与实现 Agent 共享会话；Orchestrator 必须提供完整的审查输入包
 
@@ -33,19 +33,20 @@ Orchestrator 必须提供以下信息：
 - PRD 路径：`docs/02-product-requirements/Modules/Module_XX_*.md`
 - L3 micro-task 序列：`docs/05-execution-records/module-XX/task-sequence.yaml`
 - 原型路径：`docs/prototypes/module-XX/`（优先读取，如缺失不阻断）
-- 变更范围：`platform/`、`ui-custom/web/`、`deploy/` 和 `patches/prometheus/` 的 diff 或变更文件列表
+- 变更范围：`platform/`、`ui-custom/web/`、`deploy/`（如存在） 和 `patches/prometheus/` 的 diff 或变更文件列表
 - 相关标准：
   - `docs/03-engineering-standards/01_Code_Isolation_Standard.md`
   - `docs/03-engineering-standards/03_API_Standard.md`
   - `docs/03-engineering-standards/04_Testing_Standard.md`
-  - `docs/03-engineering-standards/05_Security_Standard.md`（如存在）
+  - `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`
+  - 安全规范见根目录 `AGENTS.md` §9 安全注意事项（如后续新增独立安全标准文件，则一并读取）
 
 如果 PRD 或 L3 task-sequence 缺失，必须停止并报告 Orchestrator。
 原型缺失时，以 PRD + L3 task-sequence 为准继续审查。
 
 ### Step 3: 确认被审查的代码范围
 
-- 本次审查只关注 `feat/module-XX` 分支上 `platform/`、`ui-custom/web/`、`deploy/` 和 `patches/prometheus/` 的变更
+- 本次审查只关注 `feat/module-XX` 分支上 `platform/`、`ui-custom/web/`、`deploy/`（如存在） 和 `patches/prometheus/` 的变更
 - 禁止审查 `docs/`、`upstream/` 目录的变更
 
 ---
@@ -54,9 +55,9 @@ Orchestrator 必须提供以下信息：
 
 - `platform/` 下的后端代码
 - `ui-custom/web/` 下的前端代码
-- `deploy/` 下的部署配置
+- `deploy/` 下的部署配置（如存在）
 - `patches/prometheus/` 中的 patch
-- 本次 PR 引入的变更 diff
+- 本次 feat 分支相对 `develop` 引入的变更 diff
 
 ## 审查维度
 
@@ -101,7 +102,7 @@ Orchestrator 必须提供以下信息：
 - [ ] 问题 1：文件 + 行号 + 风险描述 + 建议修复
 
 ### 遗留风险
-- （如无则写“无”）
+- （如无则写"无"）
 ```
 
 ---
@@ -109,11 +110,14 @@ Orchestrator 必须提供以下信息：
 ## 特殊规则
 
 - 发现配置下发/资源导入等核心接口未鉴权，必须标记为 CRITICAL
+- 发现所有 `/api/v2/platform/*` 写接口未鉴权，必须标记为 CRITICAL
 - 发现 URL 解析/反向代理未校验 scheme 与 host，必须标记为 HIGH（SSRF 风险）
 - 发现用户上传文件未校验类型/大小/路径，必须标记为 HIGH
 - 发现直接修改 `upstream/prometheus/` 且未生成 patch 的情况，必须标记为 CRITICAL
 - 发现 patch 引入新的网络监听、文件写入或命令执行入口，必须标记为 HIGH
 - 发现安全控制点与 `docs/prototypes/module-XX/` 原型中的业务意图明显不符，必须标记为 MEDIUM
+- 发现 SQL 注入、命令注入、NoSQL 注入风险，必须标记为 CRITICAL
+- 发现硬编码密钥、密码、token、数据库连接串，必须标记为 HIGH
 
 ---
 

@@ -561,6 +561,35 @@
 - **问题清单**：4.6 字段缺失（已修复）；PRD 骨架规范缺口（已修复）
 - **遗留项**：3.8.2 边缘诊断看板（P1/P2）未实现（MVP 范围外占位）；PRD 骨架规范（UI 展示名 / 术语映射 / 验收分层）需推广到 Module_01/02/07 等其他模块 PRD
 
+### 第十四轮评审（2026-08-21）：PRD v1.50 vs 原型 v1.49 两段式评审（决策 28~31 / 31-M2 / 31-M3 契约落版核查）
+
+- **评审时间 / 版本 / 参与方**：2026-08-21；PRD v1.50，原型 v1.49（package.json `1.49.0`）；参与方 = chenrt（产品 + 架构师）/ prototype-designer。本次为**新增两段式评审**：重点核查 v1.49/v1.50 落版的四组契约——决策 28（M06 单一事实来源）、决策 29（offline 排除提级 MVP）、决策 30（冻结域不生成新变更单）、决策 31 + 31-M2 + 31-M3（认证/TLS 透传、deployed 回写提前、删除 default 隐式归集）。
+- **第一段用户走查结论（用户视角）**：
+  - **用户任务闭环**：配置变更确认 → 生效后影响（发布通道 `local`/`agent_pull` 生效提示）→ 查看变更单 / 按文件 diff → 下发 → 回滚/重试 的完整旅程闭环，`change_no → cv-xxx → deploy-xxx` 全链路可追溯；业务出问题时从变更单直达回滚目标（回滚中心仍以下发记录页为主）。任务标题明确（「配置发布与回滚记录」「本页确认什么」）。
+  - **用户语言**：用户可见文案干净，`prometheus.yml` / `scrape_configs` / 联合 checksum / `source_data_version` 等技术术语下沉「检测技术信息」折叠区与「配置产物」预览（技术排查面板），主区以「变更单号 / 变更摘要（人话）/ 变更清单（类型·对象·说明·风险·影响的配置文件）」呈现；「决策 X / PRD X.X / {v1.xx}」引用仅在 `<ReviewNote>` 折叠区与代码注释，符合反模式清单与提示分区规范。
+  - **核心决策信息前置**：变更清单为详情核心、生效后影响（发布通道 + 校验 + 确认动作）前置于操作区；**认证/TLS 生效提示未前置**——决策 31 当前仅在配置预览（技术）与 ReviewNote 说明，变更详情未提供「该 Job 已启用认证/TLS，生效后按新凭据采集」类前置提示（建议）。
+  - **异常 / 边界场景**：校验失败（`validation_status=failed`）提供失败原因 + 重新校验 / 废弃两闭环出口；diff 为空 / 内容无变化自动丢弃（检测状态「无变更」+ 校验值裁决折叠说明）；下发失败重试（local）、回滚异步生效提示、同域 pending 取代（superseded「已取代」标签）均已覆盖。**offline 排除（决策 29）与冻结域（决策 30）仅存在于折叠 ReviewNote**，无用户可见提示 / 具体 UI 态演示（建议）。
+  - **跨模块旅程一致性**：M01 采集认证/TLS、M07 offline 排除、M06 网域行政登记在用户层叫法一致且可达（「去配置采集 Job」预选网域跳 M01）；M09 页面统一称「网域纳管」，与 M06「网域管理」区分，无断层。
+- **第二段技术核对结论（技术视角）**：
+  - **数据模型 / UI 展示名覆盖**：`NetworkDomain`（channel/token/zone_type/center_endpoint 等）、`ConfigDraft`（change_no/summary/change_items/status/metadata 联合 checksum）、`ConfigVersion`（change_no 继承）、`ConfigDeployment`（source_change_no/validation_status/includes_blackbox/channel/status）字段在 mock 契约中均有对应，与 PRD §5 字段表（含 UI 展示名）一致。
+  - **决策 31（认证/TLS 透传）**：`prometheusYmlGov` 中 gov-cloud-a 域 node-exporter job 演示 `basic_auth` + `tls_config`（insecure_skip_verify/ca_file 透传）、blackbox-http job 演示 `tls_config`（HTTPS 拨测），与 PRD §3.3「认证/TLS 透传」行及决策 31 映射规则（`auth_type=basic→basic_auth`、`bearer→authorization`、`tls_skip_verify→tls_config.insecure_skip_verify`、`ca_file→tls_config.ca_file`）一致；无新机制、默认不启用。
+  - **决策 29（offline 排除）**：mock targets 快照默认已剔除 offline 实例（`Resource.status=offline` 不进产物，注释声明「系统中存在 offline 资源但不进产物」），与 PRD §3.3「实例过滤」及 9.2 技术验收一致。
+  - **决策 31-M2（deployed 回写提前 MVP）**：`changeStatusEnumDemo.deployed` 附 `MVPTag` 标注 MVP 必实现，与 PRD §3.5 / 5.6 `change_status` 回写规则一致。
+  - **决策 31-M3（删除 default 隐式归集）**：ReviewNote 与 mock 注释明确「未指定网域资源不再自动归 default，`network_domain_id` 由 M07 导入校验强制必填」，与 PRD §5.1 MVP 处理一致，无越界实现。
+  - **决策 28（M06 单一事实来源）**：`NetworkDomainsPage` 纳管 / 编辑表单中行政字段（name / tenant_id / zone_type / 域类型）均只读展示（disabled），M09 仅维护监控纳管字段，未越界改行政模型。
+  - **决策 30（冻结域）**：仅 ReviewNote 文本契约说明，`mock` 与网域列表无冻结/禁用态字段与示例，冻结域「不生成新变更单、存量下发/回滚不受影响」的运行时语义未用具体 UI 态演示（见遗留项）。
+  - **版本对齐**：原型 `package.json` 版本仍为 `1.49.0`，但原型内容（MainLayout 决策说明 + 配置预览 auth/TLS + offline 剔除 + deployed 角标）已体现 v1.50 契约；PRD v1.50 与原型标记不一致，违反 §8.2 版本一致性要求（见遗留项）。
+  - **可开发性**：config preview 的 targets 子 Tab 数据驱动（遍历 `targets_files` 渲染）、变更清单结构化、校验/回滚/取代闭环均结构化，可直接作为 frontend-developer / backend-developer 的开发输入。
+- **问题清单与处理结果**（本次为评审任务，仅记录、不改原型代码 / PRD 正文 / 不置 ready）：
+  - **致命**：0 项。
+  - **返工**：0 项（原型核心决策覆盖完整，无阻断性缺口）。
+  - **建议（遗留待下轮迭代）**：
+    1. 原型版本标记未与内容对齐：`package.json` 仍 `1.49.0`，内容已含 v1.50 决策演示，建议 bump 至 `1.50.0` 并与 README / 版本对齐表同步（满足 §8.2 一致性与 §5 Phase 7 package.json 声明要求）。
+    2. 决策 30 冻结域无具体 UI 态演示：建议在网域切换器为冻结（禁用）域标注「停用」Tag、并演示「冻结域不生成新变更单」的空态提示，使契约语义可见。
+    3. 决策 29 offline 排除无用户可见提示：建议在变更详情或变更检测状态前置「已排除 N 个离线实例」的人话提示（当 offline 导致目标被移除时），避免运维困惑「节点为何消失」。
+    4. 决策 31 认证/TLS 生效提示未前置：建议在涉及 Job 认证/TLS 调整的变更详情前置「该 Job 已启用认证/TLS，生效后按新凭据采集」提示。
+- **遗留项**：上述 4 条建议待下轮原型迭代处理；3.8.2 边缘诊断看板（P1/P2）仍为 MVP 外占位；PRD 骨架规范向 Module_01/02/07 推广持续进行。
+
 ### 关联文档
 
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`
@@ -1058,3 +1087,66 @@
 
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.42）
 - `docs/prototypes/module-09/`（v1.42）
+
+---
+
+## 补充决策（2026-08-21：MVP 版本缺憾补漏——pending 堆积取代 / 校验失败卡死 / local reload 重试 / 生成失败可观测 / MVP 验收收敛）
+
+- **触发原因**：对 M09 PRD v1.46 做 MVP 版致命缺憾审查（2026-08-21），结论：MVP 核心链路（生成→确认→reload）无致命断链，但存在 5 个 MVP 真实会踩的口子——①同域连续变更会堆积多张 `pending` 变更单且旧单不被取代/作废；②`validation_status=failed` 的草稿无修复/废弃闭环会永久卡死「待确认」；③`local` reload 失败后无平台内重试入口；④configgen 自身异常（非校验类）无「生成失败」显式状态，变更静默丢失；⑤MVP 范围声明与大量 P0 偏好错位，验收边界不清。
+- **关联模块**：Module_09（配置生成 / 变更确认 / 下发 / 数据模型状态机 / 验收标准）。
+
+### 关键决策
+
+#### 决策 42-1：同域 `pending` 草稿「后单取代前单」——旧 pending 自动置超控（superseded）
+
+- **问题**：checksum 裁决只与「当前生效 `ConfigVersion`」对比（PRD 3.3.3），未定义与「既有 `pending` 草稿」的关系。运维在确认周期内连续改策略/资源，每轮生成一张新 `pending`，旧单仍停留 pending 且不作废，确认页同域出现多张待确认变更单，运维不知确认哪张；确认旧单会把过期状态发布出去，随后又出现更新单，反直觉。
+- **结论（用户确认）**：确认前引入**「后单取代前单」**语义——同一网域内，若生成新 `pending` 草稿（其产物与旧 pending 产物存在差异）时，将该域**更早仍未确认的 `pending` 草稿自动置为 `discarded`（superseded，被后续变更单取代）**，保持同域同时最多一张「活」的 `pending`；`ConfigDraft.status` 枚举扩展 `discarded(superseded)` 语义，`metadata` 记录 `superseded_by_change_no` 供追溯。
+- **依据**：运维头脑中的「当前待确认变更」永远是最近一次（确认对象 = 最新源状态发布审批，见 PRD 3.4 go/no-go）；同域多条活 pending 会放大确认错误风险；取代语义复用既有 `discarded` 终态，不新增状态。
+- **影响范围**：M09 PRD 3.3.3（checksum 裁决补充取代规则）/ 8 ConfigDraft 状态机 / 9 验收 / 6.6.2；原型（确认页同域至多一张活 pending 演示）。
+
+#### 决策 42-2：校验失败草稿闭环——提供「重新校验」与「废弃」出口
+
+- **问题**：PRD 3.5.1 校验失败保持原状态、6.6.2 confirm 对 `validation_status=failed` 直接 `bad_request`，但全文无「修复/废弃被校验卡住的草稿」路径。只要源数据不再变化，这张 failed 草稿永远待确认且无法推进，挡住后续发布认知。
+- **结论（用户确认）**：`failed` 草稿提供两个出口——①**「重新校验」**：点击后重新执行中心内容校验（promtool / blackbox --config.check / targets schema），仅重校、不重生成源内容；校验通过则恢复为可确认 `pending`（确认前环内自愈）；②**「废弃」**：明确「校验未通过，本次变更将保持当前生效配置不变」。两者均为变更单级操作，入口在确认页该变更单的失败态行/详情。
+- **依据**：`failed（可重试）` 已在 ConfigDeployment 状态机确立（PRD 8 ②），草稿侧应有一致闭环；「重新校验」解决"源数据未变但校验结果因环境/工具升级变化"的自愈，「废弃」解决"确实无法通过或不想上线"的退出；避免 failed 草稿永久阻塞确认列表。
+- **影响范围**：M09 PRD 3.5.1（校验失败处理）/ 6.6.2（confirm 前可重新校验、失败态可废弃）/ 8 ConfigDraft 状态机 / 9 验收。
+
+#### 决策 42-3：`local` 通道 reload 失败重试入口
+
+- **问题**：PRD 8 ConfigDeployment `failed→可重试`，但 6.6.3 只有 `rollback`——全网无「重试下发」API/按钮。`local` 是 MVP 核心通道，reload 失败（中心 Prometheus 挂起、本地配置被手工改动）后除手工兜底外无平台内重试路径。
+- **结论（用户确认）**：下发记录页对 `status=failed` 的 `local` 通道下发记录提供**「重试」按钮**，复用最近一次该版本的下发动作（重新写盘 + reload），生成新的 `ConfigDeployment` 记录；受限于网闸「中心不主动触达边缘」约束（PRD 6.1），**`agent_pull` 通道不提供重试**（沿用决策 40-2：只记「发布配置包」动作，拉包/生效由边缘心跳驱动）。
+- **依据**：`local` 中心可自达（同机/同 Pod），重试语义成立；`agent_pull` 边缘主动出站，重试应由「立即同步」（force_pull）覆盖而非中心重发；与决策 40-2 边界一致。
+- **影响范围**：M09 PRD 3.5（下发）/ 6.6.3（重试接口）/ 9 验收；原型 DeploymentsPage（failed 行 local→重试按钮）。
+
+#### 决策 42-4：配置生成失败（非校验类）显式「生成失败」状态与告警
+
+- **问题**：PRD 3.4 变更检测状态只有「检测到变更 / 无变更 / checksum 一致」三态。若轮询中 configgen 自身抛错（源表读取失败、模板渲染 bug），`source_data_version` 已推进则下次不再触发、且无失败可见性，变更静默丢失。
+- **结论（用户确认）**：变更检测状态新增**「生成失败」**态——configgen 生成异常（非校验类）时记录失败原因与时间，UI 以 error 态提示「本次变更生成失败：<原因>，请查看日志」，且**不推进** `source_data_version` 记录（或标记失败待重算），下一轮重试；校验失败走 42-2 的 `failed` 草稿闭环，不归入本状态。
+- **依据**：pull 轮询是后台异步行为，失败不可见会引发"变更为什么没生效"困惑（PRD 3.3.3 已立此项）；「不推进版本 + 下轮重试」保证异常可自愈，不丢变更。
+- **影响范围**：M09 PRD 3.4（变更检测状态）/ 3.3.3（失败不推进版本记录）/ 9 验收。
+
+#### 决策 42-5：MVP 验收范围收敛——澄清 P0 与 v0.2 归属
+
+- **问题**：PRD 1 MVP 阶段仅「default 域 + `local` 通道 + 无需 Edge Agent」，但 3.1 的 Token 生成/重置、安装指引、`agent_pull` 字段条件化均标 **P0**，且 9.1 中多条 `{P0}` 同时带 `{v0.2}` 前缀（多文件预览、节点状态等）。P0 ≠ MVP，但文档高频混用导致 MVP 验收边界不清。
+- **结论（用户确认）**：明确「**P0 = 本模块主干能力（含 v0.2 交付物）**，MVP 子集 = `default` + `local` + 配置生成/预览/确认/reload 全链路」；9.1/9.2 验收标准中凡依赖 Edge Agent / `agent_pull` / 多网域的条目显式标注 `{v0.2}`，MVP 验收仅保留该子集可验证项。
+- **依据**：优先级（P0）解决"主干能力排序"，版本标记（{v0.2}）解决"交付里程碑归属"，两者正交；收敛 MVP 验收可让评审/开发聚焦 local 链路。
+- **影响范围**：M09 PRD 1 / 9.1 / 9.2 / Change Log；README 版本对齐表（MVP 覆盖说明）。
+
+### 已确认项
+
+- [x] 42-1 同域 new `pending` 取代旧 `pending`（superseded），同域至多一张活 pending（用户确认）。
+- [x] 42-2 校验失败草稿提供「重新校验」与「废弃」两出口（用户确认）。
+- [x] 42-3 `local` 通道 failed 下发记录提供「重试」按钮；`agent_pull` 不提供（用户确认）。
+- [x] 42-4 配置生成异常新增「生成失败」态，不推进版本、下轮重试（用户确认）。
+- [x] 42-5 MVP 验收收敛：P0≠MVP，依赖 Edge Agent/agent_pull 条目标 {v0.2}（用户确认）。
+
+### 仍待确认项
+
+- [ ] PRD 按决策 42 系列升 v1.47（正文 §3.3.3 / 3.4 / 3.5 / 3.5.1 / 6.6.2 / 6.6.3 / 8 / 9，术语表同步）并同步 README 版本对齐表（align 保持「✅ 对齐」，产品版本覆盖不变）；check:notes / check:prototype 通过。
+- [ ] 原型按需同步（确认页同域至多一张活 pending、failed 草稿重新校验/废弃、DeploymentsPage local→重试、变更检测「生成失败」态）——因本批为契约与闭环补口子、不改 MVP 行为，本轮不强制改原型。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.46 → v1.47）
+- `docs/02-product-requirements/Modules/README.md`（版本对齐表）
+- `docs/prototypes/module-09/`（v1.46，本轮不改）

@@ -25,10 +25,28 @@ import {
 } from './module-07'
 import type { ResourceCategory } from './module-07'
 
-describe('module-07 mocks（对齐 PRD v2.11）', () => {
+describe('module-07 mocks（对齐 PRD v2.20）', () => {
   const domainIds = mockNetworkDomains.map((d) => d.id)
 
   // ========== 资源基础字段校验 ==========
+
+  it('资源 is_monitored 均为布尔且部分为 false（决策 31-M1：由 M01 维护、M07 只读映射）', () => {
+    mockResources.forEach((r) => {
+      // 必须显式声明（undefined 视为非法，用于「未监控」筛选不可出现悬空值）
+      expect(typeof r.is_monitored).toBe('boolean')
+    })
+    expect(mockResources.some((r) => r.is_monitored === true)).toBe(true)
+    expect(mockResources.some((r) => r.is_monitored === false)).toBe(true)
+  })
+
+  it('is_monitored 与 status 相互独立：存在未监控且非 offline，也存在 offline 但已监控（决策 31-M1）', () => {
+    const unmonitored = mockResources.filter((r) => r.is_monitored === false)
+    const monitored = mockResources.filter((r) => r.is_monitored === true)
+    // 未监控里至少有一个 status != offline（演示 is_monitored 与现状状态正交）
+    expect(unmonitored.some((r) => r.status !== 'offline')).toBe(true)
+    // 已监控里至少有一个 status === online（正常被采集）
+    expect(monitored.some((r) => r.status === 'online')).toBe(true)
+  })
 
   it('资源 env 取值均在 dev/test/staging/prod 枚举内（PRD 7.2）', () => {
     mockResources.forEach((r) => {
@@ -97,14 +115,6 @@ describe('module-07 mocks（对齐 PRD v2.11）', () => {
     gens.forEach((r) => {
       expect(r.target_name).toBeTruthy()
       expect(r.instance_ip).toBeTruthy()
-    })
-  })
-
-  // ========== is_monitored 只读字段 ==========
-
-  it('is_monitored 字段存在且为布尔值（PRD 3.1/5.2，由 Module_01 维护）', () => {
-    mockResources.forEach((r) => {
-      expect(typeof r.is_monitored).toBe('boolean')
     })
   })
 

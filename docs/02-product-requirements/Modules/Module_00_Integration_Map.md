@@ -1,10 +1,10 @@
 # Module 00: 模块职责矩阵与集成关系
 
 > **PRD 状态**: `draft`
-> **PRD 版本**: v1.3
+> **PRD 版本**: v1.4
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
 > **原型版本**: N/A（待原型验证后补充）
-> **更新日期**: 2026-07-31
+> **更新日期**: 2026-08-21
 > **对应原型**: 暂无（待原型验证后补充）
 
 > **模块类型**: 全局索引文档
@@ -31,15 +31,15 @@
 
 | 模块 | 功能 Owner | 数据/模型 Owner | MVP 实现者 | 主要依赖模块 | 核心输出物 |
 |------|------------|-----------------|------------|--------------|------------|
-| **Module_01 监控策略与指标管理** | 监控策略配置层：CI 类型 ↔ Exporter 模板绑定、ScrapeJob 配置、实例选择、规则编辑 UI、指标元数据管理 {P1} | `CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob`、`MonitoringRule`、`ExporterMetricLibrary` | Module_01 | Module_07、Module_09、Module_02、Module_08 | 策略配置 API、规则编辑 UI、指标元数据 API |
+| **Module_01 监控策略与指标管理** | 监控策略配置层：CI 类型 ↔ Exporter 模板绑定、ScrapeJob 配置（实例选择、冻结（禁用）网域校验、采集认证/TLS 最小集——`auth_type`/`tls_skip_verify`/`ca_file`，决策 30/31）、规则编辑（文件挂载 `content_mode=yaml_passthrough`，决策 38-1）、指标元数据管理 {P1} | `CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob`、`MonitoringRule`、`ExporterMetricLibrary` | Module_01 | Module_07、Module_09、Module_02、Module_08 | 策略配置 API、规则编辑 UI（文件挂载）、指标元数据 API |
 | **Module_02 查询中心** | Prometheus Query API 代理（instant / range / labels / series / alerts）、租户/网域标签自动注入、响应 envelope 元数据（`data_source` / `freshness_at` / `network_domain`） | 查询结果代理、多租户注入规则 | Module_02 | Prometheus、Module_03、Module_06、Module_09、Module_08 | `/api/v1/query*` 代理、`/api/v1/alerts` 代理 |
 | **Module_03 网关与认证** | 统一入口、网关层认证鉴权、多租户路由、请求级审计 | 路由/中间件配置 | Module_03 | Module_06（用户/角色/租户数据） | Gateway、Auth 中间件 |
 | **Module_04 自定义服务发现与外部 CMDB 生命周期管理** {v0.4+} | 外部 CMDB/K8s/Nacos Provider 扩展；CMDB 同步策略、失败容错、7 天保留、孤儿虚拟 CI 管理 | Provider 接口实现（遵循 Module_07 接口）、CMDB 同步任务、孤儿分组模型 | Module_07（MVP Provider） | Module_07 | BlueKing/HTTP/Nacos Provider、 orphans 视图 |
 | **Module_05 自定义前端门户** | UI 页面组织、交互设计 | 前端组件/页面 | Module_05 | Module_01/02/07/08/09/10 | Web 门户 |
-| **Module_06 租户与平台管理（含多租户）** | 租户生命周期 {v0.2}、租户-网域关联 {v0.2}、平台全局策略、数据存储管理；**不存在跨租户全局管理员**；用户/角色/权限可能由外部 IAM/SSO 承接 | `Tenant`、`User`、`Role`、审计记录 | Module_06 | Module_03、Module_09 | 平台管理 API |
-| **Module_07 监控对象管理** {MVP 核心} | 四类资源管理、标签模板、资源标签、Excel 导入、Resource「已监控 / 未监控」badge；不再负责 ScrapeJob / 配置生成 / 配置下发 | `Resource`（含 `generic_target`）、`LabelTemplate`、`ResourceLabel`、`CMDBProvider` | Module_07 | Module_09（NetworkDomain 引用）、Module_01 | Resource / LabelTemplate / ResourceLabel API |
+| **Module_06 租户与平台管理（含多租户）** | 租户生命周期 {v0.2}、**网域行政登记（NetworkDomain 行政模型单一事实来源：ID/名称/登记归属/授权租户/禁用冻结/zone_type，MVP 落地，决策 18~20/23/28）**、平台全局策略、数据存储管理；**不存在跨租户全局管理员**；用户/角色/权限可能由外部 IAM/SSO 承接 | `Tenant`、`NetworkDomain`（行政）、`User`、`Role`、审计记录 | Module_06 + Module_09（纳管） | Module_03、Module_07、Module_09 | 平台管理 API、网域管理 API |
+| **Module_07 监控对象管理** {MVP 核心} | 四类资源管理、标签模板、资源标签、Excel 导入、`network_domain_id` 导入强制必填（决策 31-M3）、offline 排除语义（决策 29）、「未监控」筛选（`is_monitored` 由 Module_01 维护、M07 只读映射，决策 31-M1）；不再负责 ScrapeJob / 配置生成 / 配置下发 | `Resource`（含 `generic_target`）、`LabelTemplate`、`ResourceLabel`、`CMDBProvider` | Module_07 | Module_09（NetworkDomain 引用）、Module_01 | Resource / LabelTemplate / ResourceLabel API |
 | **Module_08 告警规则管理** | 告警规则生命周期（分组、静默、Alertmanager 配置）、Alertmanager 集成、通知状态、边缘本地告警心跳 {P2}；规则编辑 UI 由 Module_01 提供 | `AlertingRule`、`RuleGroup`、`Silence`、`Notifier` | Module_08 | Module_01（规则来源）、Module_02（告警代理）、Module_09（`EdgeSiteOffline` 触发条件、边缘心跳） | `rules.yml`、`alertmanager.yml` |
-| **Module_09 网域与边缘配置中心** | NetworkDomain / EdgeAgent 生命周期、配置生成 / 预览 / 下发、配置拉取接口、Token 安全、`external_labels` 注入、Agent 状态列表页 {MVP}、边缘诊断看板 {P1/P2} | `NetworkDomain`、`EdgeAgent`、`EdgeHeartbeat`、`ConfigDraft`、`ConfigVersion`、`ConfigDeployment`、`Tenant-NetworkDomain` 关系 | Module_09 | Module_01（策略数据）、Module_07（对象数据）、Module_06（Tenant）、Module_08（规则） | `/api/v2/platform/edge/*`、配置生成服务 |
+| **Module_09 网域与边缘配置中心** | EdgeAgent 生命周期与监控纳管、配置生成 / 预览 / 下发（按 `network_domain_id`）、`external_labels` 注入、认证/TLS 透传（决策 31）、offline 排除（决策 29）、冻结域不生成新变更单（决策 30）、Agent 状态列表页 {MVP}、边缘诊断看板 {P1/P2}；**NetworkDomain 行政字段归 Module_06，本模块仅持纳管字段**（决策 28） | `NetworkDomain`（纳管）、`EdgeAgent`、`EdgeHeartbeat`、`ConfigDraft`、`ConfigVersion`、`ConfigDeployment` | Module_09 | Module_01（策略/认证/规则数据）、Module_07（对象数据）、Module_06（网域行政）、Module_08（规则） | `/api/v2/platform/edge/*`、配置生成服务 |
 | **Module_10 监控源登记册与异构接入** | 监控源登记、外部 Prometheus/Zabbix/云监控接入、Ingestion Gateway 业务逻辑 | `MonitoringSource`、`IngestionStats`、`LabelNormalizationRule`、`MetricDropRule` | Module_10 | Module_09（网域引用）、Module_03（网关框架） | `/api/v2/ingest/*`、Remote Write 配置片段 |
 
 ---
@@ -48,10 +48,11 @@
 
 ### 3.1 NetworkDomain
 
-- **数据模型 Owner**: Module_09
-- **生命周期 UI/API Owner**: Module_09
-- **引用方**: Module_07（资源分组）、Module_10（监控源归属）
-- **权威定义**: [Module_09 4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E7%BD%91%E5%9F%9Fnetworkdomain)
+- **行政模型 Owner（单一事实来源）**: Module_06（ID/名称/登记归属/授权租户/禁用冻结/zone_type，决策 18~20/23/28）
+- **纳管模型 Owner**: Module_09（`is_monitored`、`center_endpoint`、采集器注册、失败计数）
+- **生命周期 UI/API**: 行政登记 UI/API → Module_06；纳管 UI/API → Module_09
+- **引用方**: Module_07（资源分组，只读引用 `network_domain_id`）、Module_10（监控源归属）
+- **权威定义**: Module_06 [5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、Module_09 [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9F%E5%8F%8A%E7%BA%B3%E7%AE%A1%E6%A8%A1%E5%9E%8B)（行政部分不重复声明）
 
 ### 3.2 Edge Agent 状态
 
@@ -120,10 +121,10 @@
 ### 3.11 Tenant 与 NetworkDomain 关系 {v0.2}
 
 - **Tenant 数据模型 Owner**: Module_06
-- **NetworkDomain 数据模型 Owner**: Module_09
-- **Tenant-NetworkDomain 关系 Owner**: Module_09（通过 `NetworkDomain.tenant_id`）
-- **引用方**: Module_07（资源只读引用 `network_domain_id`，不感知租户）
-- **权威定义**: [Module_09 4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E7%BD%91%E5%9F%9Fnetworkdomain)、[Module_06 3.1 节](Module_06_Multi_Tenant.md#31-%E7%A7%9F%E6%88%B7%E4%B8%8E%E7%BD%91%E5%9F%9F%E5%85%B3%E7%B3%BB)
+- **NetworkDomain 行政模型 Owner**: Module_06（`tenant_id` 登记归属、`authorized_tenant_ids` 又名份授权、禁用/冻结，为单一事实来源，决策 28）；**NetworkDomain 纳管模型 Owner**: Module_09（`is_monitored`、`center_endpoint`、采集器注册、失败计数）
+- **网域行政关系 Owner**: Module_06（`NetworkDomain.tenant_id` 登记归属 + `authorized_tenant_ids` 跨租户共享）；本模块不重复声明行政语义
+- **引用方**: Module_07（资源只读引用 `network_domain_id`，不感知租户）、Module_09（纳管字段）
+- **权威定义**: [Module_06 5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、[Module_09 5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9F%E5%8F%8A%E7%BA%B3%E7%AE%A1%E6%A8%A1%E5%9E%8B)
 
 ### 3.12 标签归一化
 
@@ -153,8 +154,8 @@
 
 ### 3.15 Tenant / NetworkDomain 与 BlueKing CMDB 映射
 
-- **Tenant 数据模型 + 网域关联 Owner {v0.2}**: Module_06
-- **NetworkDomain 数据模型 + 租户关联 Owner {v0.2}**: Module_09
+- **Tenant 数据模型 + 网域行政关联 Owner**: Module_06（`NetworkDomain` 行政模型单一事实来源，决策 28）
+- **NetworkDomain 纳管模型 + 采集关联 Owner**: Module_09（`EdgeAgent`、配置生成/下发、采集状态）
 - **Tenant/NetworkDomain → BlueKing 映射 Owner {v0.4+}**: Module_04（同步实现），映射关系由 Module_06/09 维护
 - **引用方**: Module_07（资源字段注入）、Module_08（影响范围拓扑）
 - **权威定义**:
@@ -162,8 +163,8 @@
   - Module_09: [4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E7%BD%91%E5%9F%9Fnetworkdomain)、[4.4 节](Module_09_Network_Domain_and_Edge_Config_Center.md#44-%E7%BD%91%E5%9F%9F%E4%B8%8E-blueking-cloud-area-%E6%98%A0%E5%B0%84)
   - Module_04: [7 节](Module_04_Custom_Discovery.md#7-blueking-cmdb-%E6%98%A0%E5%B0%84%E8%A7%84%E8%8C%83)
 - **关键约束**:
-  - **1 租户 : N 网域 {v0.2}**，禁止跨租户共享网域；`default` 网域归属 `platform_admin` 租户，仍遵循单一租户归属。
-  - `network_domain_id` 必须全局唯一 {v0.2}，建议采用租户前缀（如 `<tenant_id>-<domain_code>`）。
+  - **1 网域 : N 租户（跨租户共享）**：网域登记归属 `tenant_id` 固定 `platform_admin`，通过 `authorized_tenant_ids` 授权共享；`default` 网域归属 `platform_admin`，**默认不共享**，授权后共享（决策 18~20）。
+  - `network_domain_id` 必须全局唯一，建议采用**部署级前缀**（如 `<deploy_code>-<domain_code>`），非租户前缀（决策 20）。
   - **租户 → 蓝鲸业务（Business）{v0.4+ 同步}**；**网域 → 蓝鲸云区域（Cloud Area）{v0.4+ 同步}**。
 
 ### 3.16 Resource Label 生命周期 {MVP / v0.4+}
@@ -272,6 +273,7 @@
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.4 | 2026-08-21 | 修改 | 四模块评审前同步跨模块契约（决策 18~20/23/28/29/30/31/31-M1~M3）：①§2 职责矩阵 M06 行补「网域行政登记（NetworkDomain 行政模型单一事实来源）」，M07 行改「未监控筛选 + is_monitored 由 M01 维护」并删「已监控/未监控 badge」，M09 行补认证/TLS 透传、offline 排除、冻结域不生成新变更单并声明仅持纳管字段；②§3.1/§3.11/§3.15 NetworkDomain 行政模型 Owner 由 Module_09 改为 Module_06（单一事实来源）、纳管归 Module_09；③§3.15 跨租户共享（1 网域:N 租户、authorized_tenant_ids）与部署级 ID 前缀替换旧「1 租户:N 网域 / 禁止跨租户共享 / 租户前缀」语义（决策 18~20） | Module_06 / Module_07 / Module_09 | MVP / v0.2 / v0.4 / v1.0 | ready |
 | v1.0 | 2026-07-27 | 初始 | 整合 Module_01 ~ Module_10 职责矩阵与跨模块引用关系 | 全部 | MVP / v0.2 / v0.3 / v0.4 / v1.0 | ready |
 | v1.1 | 2026-07-28 | 修改 | 根据产品优化建议更新：标签归一化、Generic Target、边缘自治告警、Metric Drop Rules、Tenant-NetworkDomain 关系 | 全部 | v0.2 / v0.4 / v1.0 | ready |
 | v1.2 | 2026-07-30 | 修改 | 根据 CMDB-ITIL 映射优化：补充 CMDB 与 ITIL/ITSM 映射、Tenant/NetworkDomain 与 BlueKing CMDB 映射 | 全部 | v0.4 / v1.0 | ready |

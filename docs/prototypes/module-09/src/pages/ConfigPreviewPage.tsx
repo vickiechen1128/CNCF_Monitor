@@ -18,6 +18,9 @@ import {
   approvalTieringNote,
   changeStatusEnumDemo,
   gatewayConstraintNote,
+  authTlsPassthroughNote,
+  frozenDomainExclusionNote,
+  defaultFallbackRemovalNote,
   channelLabel,
   channelTip,
   type Channel,
@@ -53,8 +56,8 @@ const validationCauseColor: Record<ValidationCause, string> = {
 /** 当前登录用户（决策 19：确认发布时记录确认人，历史变更可审计「谁确认了高风险变更」；MVP 阶段预置，用户管理接入后同步，决策 20） */
 const CURRENT_USER = '张伟（运维）'
 
-/** {v1.43} v0.2 能力角标：橙色小 Tag，标识「该能力 v0.2 交付」的演示标记（标在 deployed 样例旁，说明 MVP 由 none 占位） */
-function V02Badge() {
+/** {v1.50 决策 31-M2} MVP 能力角标：橙色小 Tag，标注「deployed 回写为 MVP 必实现」——成功下发即回写 deployed（不再由 none 占位） */
+function MVPTag() {
   return (
     <Tag
       color="orange"
@@ -67,7 +70,7 @@ function V02Badge() {
         borderRadius: 4,
       }}
     >
-      v0.2
+      MVP
     </Tag>
   )
 }
@@ -101,12 +104,15 @@ const detectionOutcomeColor: Record<ChangeDetectionOutcome, string> = {
   changes_found: 'processing',
   no_change: 'default',
   checksum_same: 'success',
+  generation_failed: 'error',
 }
 
 const detectionOutcomeLabel: Record<ChangeDetectionOutcome, string> = {
   changes_found: '检测到变更，已生成待确认草稿',
   no_change: '无新变更，无需确认',
   checksum_same: '内容无变化，无需确认',
+  // {v1.47 决策 42-4} 生成失败态：configgen 生成异常（非校验类），不产生草稿，提醒查看日志
+  generation_failed: '变更生成失败（configgen 异常），本轮未生成草稿，请查看日志',
 }
 
 /** 变更清单（决策 18）：变更类型 / 风险等级的中文语义 */
@@ -694,10 +700,17 @@ export function ConfigPreviewPage() {
                 <li>{changeStatusEnumDemo.confirmed}</li>
                 <li>
                   {changeStatusEnumDemo.deployed}
-                  <V02Badge />
+                  <MVPTag />
                 </li>
                 <li>{changeStatusEnumDemo.none}</li>
               </ul>
+            </li>
+            <li>
+              采集认证 / TLS 透传映射（{'{v1.50 决策 31}'}，MVP 必实现）：{authTlsPassthroughNote}——下方配置预览 scrape_configs 中，
+              gov-cloud-a 域 node-exporter job 演示 basic_auth + tls_config 透传、blackbox-http job 演示 tls_config 透传（HTTPS 拨测）。
+            </li>
+            <li>
+              冻结（禁用）网域不生成新变更单（{'{v1.50 决策 30}'}）：{frozenDomainExclusionNote}——冻结域的变更不再进入本页待确认列表。
             </li>
           </ul>
         </ReviewNote>
@@ -711,10 +724,19 @@ export function ConfigPreviewPage() {
               agent_pull 通道：产物为 zip 配置包，含 metadata.json（config_version、生成时间、agent_type、联合 checksum sha256），供 Edge Agent 拉取后完整性校验。
             </li>
             <li>
-              rules.yml 分组由配置中心自动派生；external_labels 注入 network_domain / tenant_id；alertmanager.yml 由告警通知模块管理，不进入本模块产物。
+              rules.yml（{'{v1.48 决策 38-1 规则文件挂载}'}）：MVP 由 Module_01 规则编辑页「文件挂载」的 `MonitoringRule.rule_content`（content_mode=yaml_passthrough，整份 rules.yml）**原样透传并入**，group 随文件自带、不按字段派生；保存 / 启停 / 删除规则后进入变更检测 → 变更单人工确认 → 下发，`change_status` 全链路回写 M01（不绕过配置中心）。v0.3 字段级编辑（structured）后改为按字段派生分组。external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（tenant / biz 由标签模板以 target 级注入）；alertmanager.yml 由告警通知模块管理，不进入本模块产物。
+            </li>
+            <li>
+              targets/*.json 中每个 target 的 labels 由 LabelTemplate 静态展开（含 business_domain→biz、tenant_id→tenant 等映射）——biz / tenant 等 target 级标签不经 external_labels 注入；业务与网域正交，一个网域可承载多个业务的资源。
             </li>
             <li>
               targets/*.json 固定文件名覆盖写、原子写，不触发采集器 reload；仅 prometheus.yml 结构变化才触发 reload。
+            </li>
+            <li>
+              `offline` 排除（MVP 必实现，{'{v1.49 决策 29}'}，跨模块契约，对齐 Module_07 8.1 / Module_01 3.1）：生成 `targets/*.json` 时按 `Resource.status=offline` **过滤已下线实例**——`offline` 不进入 `targets/*.json`，`offline` 后下一配置生成周期即从 targets 移除。`maintenance` 排除口径与 Module_07 8.1 一并对齐（MVP 不保证）。
+            </li>
+            <li>
+              删除「未指定网域资源自动归 default」兜底（{'{v1.50 决策 31-M3}'}）：{defaultFallbackRemovalNote}——不再存在「未归类资源 = default 域」的隐式映射，配置生成仅覆盖已明确归属到网域的采集对象。
             </li>
           </ul>
         </ReviewNote>
@@ -728,6 +750,12 @@ export function ConfigPreviewPage() {
           ) : (
             <Text type="success" style={{ display: 'block' }}>
               当前无待确认变更：监控对象 / 策略 / 规则变更后，配置会自动生成并在此汇总；无实际影响的变更（内容无变化）已自动过滤，无需确认。
+            </Text>
+          )}
+          {/* {v1.47 决策 42-4} 生成失败态横幅：configgen 生成异常 → 与「无变更」区分，避免变更静默丢失 */}
+          {detectionStatus?.outcome === 'generation_failed' && (
+            <Text type="danger" style={{ display: 'block', marginTop: 4 }}>
+              变更检测失败：configgen 生成异常（{detectionStatus.summary}）。本轮不推进源数据版本，下一轮轮询自动重试；持续失败请查看平台日志。
             </Text>
           )}
           {/* {v1.43} 草稿对象不生成配置变更（联动 M01 草稿，PRD 3.3）：解释为什么编辑中的 Job 不出现在变更单里 */}
@@ -883,10 +911,18 @@ export function ConfigPreviewPage() {
                   title: '状态',
                   dataIndex: 'status',
                   key: 'status',
-                  width: 100,
-                  render: (status: ConfigDraftStatus) => (
+                  width: 120,
+                  render: (status: ConfigDraftStatus, record: ConfigDraft) => (
                     <Tooltip title="状态标记（非按钮）：点击该行或「操作」列「详情」按钮打开详情处理">
-                      <Tag color={draftStatusColor[status]}>{draftStatusLabel[status]}</Tag>
+                      <Space size={4}>
+                        <Tag color={draftStatusColor[status]}>{draftStatusLabel[status]}</Tag>
+                        {/* {v1.47 决策 42-1} 被同域更晚 pending 取代：标「已取代」并指向新单号，帮助运维识别被自动弃用的旧待确认单 */}
+                        {record.metadata.superseded_by_change_no && (
+                          <Tooltip title={`此变更单已被同域更晚的变更单 ${record.metadata.superseded_by_change_no} 取代（superseded），无需确认，保持当前生效配置不变`}>
+                            <Tag color="purple">已取代</Tag>
+                          </Tooltip>
+                        )}
+                      </Space>
                     </Tooltip>
                   ),
                 },
@@ -1179,7 +1215,9 @@ export function ConfigPreviewPage() {
                 {renderPackageTree(activeDomain?.channel, activeDomainId, draft)}
                 {/* [DECISION D32] 配置产物形态按下发通道分层（卡片标题已含通道差异）：local=本地文件集（prometheus.yml + targets/*.json + rules.yml + blackbox.yml），
                     确认后 SIGHUP / -/reload，无 zip / metadata.json 下载校验（版本一致性由 ConfigVersion 记录保证）；agent_pull=zip 配置包（含 metadata.json，Agent 拉取后校验值校验）。
-                    [DECISION D32/{v1.32}] rules.yml 分组由配置中心自动派生（见 rulesGroupDerivationNote）；external_labels 注入 network_domain / tenant_id，登记 zone_type 时同步注入（{v1.31} / PRD 9.2）；
+                    [DECISION D32/{v1.32}] rules.yml 分组由配置中心自动派生（见 rulesGroupDerivationNote）；external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（{v1.45} / PRD 3.3.1，不注入 tenant_id / 业务标签）；
+                    [DECISION D32/{v1.44}/{v1.45}] targets/*.json 中每个 target 的 labels 为 LabelTemplate 静态展开的资源标签（含 business_domain→biz、tenant_id→tenant 等映射，
+                    即 static_configs[].labels 注入）——biz / tenant 等 target 级标签不经过 external_labels，见「本抽屉设计说明」；
                     审批分级（{v1.32}）：alertmanager.yml 由 Module_08 直接管理并触发 Alertmanager reload，不进入本模块变更确认流程，产物中均不包含；
                     targets 变化仅原子重写 targets/*.json（临时文件 + rename），不触发采集器 reload；仅 prometheus.yml 结构变化才触发 reload（reload 策略分离）；
                     blackbox.yml 在网域存在 job_type=blackbox 的 ScrapeJob 时必含，且必须随 prometheus.yml 一同下发。 */}
@@ -1335,6 +1373,18 @@ export function ConfigPreviewPage() {
                 <ul style={{ paddingLeft: 18, margin: 0 }}>
                   {/* {v1.37} 网闸约束仅 agent_pull 通道展示（决策 37 断点修复）：local 通道（如 default）无网闸拓扑、与用户无关 */}
                   {isAgentPullDomain && <li>{gatewayConstraintNote}（{'{v1.31}'}，强制，PRD §6）</li>}
+                  <li>
+                    {/* {v1.44}/{v1.45} 标签注入链路 + 业务-网域正交性（2026-08-19 决策 19/23）：
+                        biz（business_domain→biz）与 tenant（tenant_id→tenant）均由 Module_07 LabelTemplate 注入
+                        targets/*.json 的 static_configs[].labels，不由 external_labels 注入（external_labels 仅注入
+                        network_domain_id / zone_type / replica 部署级元数据）；网域与业务正交——一个网域承载多个业务
+                        （如 gov-cloud-a 同时承载 data-api + risk），biz + network_domain 组合过滤 */}
+                    标签注入链路（PRD 3.3）：实例级业务标签 biz 由 Module_07 标签模板的 business_domain→biz 映射、
+                    租户标签 tenant 由 tenant_id→tenant 映射，在生成 targets/*.json 时作为 static_configs[].labels 注入——
+                    不经过本模块 external_labels（external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica）；
+                    业务与网域正交（多业务共用 1 网域），biz 只承载不可变业务编码，业务展示名不进标签；业务归属变更只原子
+                    重写 targets/*.json，不触发采集器 reload。
+                  </li>
                   <li>
                     下发前校验（决策 39-1）：配置生成后、发布或允许拉取前，必须先通过中心内容校验：promtool check config 校验
                     prometheus.yml（对 file_sd 仅检查文件存在性，不校验 SD 内容）；配置包含 blackbox.yml 时调用

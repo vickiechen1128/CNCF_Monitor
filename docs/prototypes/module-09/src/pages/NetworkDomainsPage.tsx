@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, Table, Tag, Button, Space, Modal, Form, Input, Select, message, Tooltip, Typography, Steps, Alert, Dropdown, Drawer, Descriptions } from 'antd'
 import { EditOutlined, ReloadOutlined, CopyOutlined, DownOutlined, EyeOutlined, CloudUploadOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
@@ -110,6 +111,21 @@ export function NetworkDomainsPage() {
 
   /** 存在 agent_pull 通道网域：决定 Token / Agent 类型 / 安装指引等字段是否展示（决策 31/32/33） */
   const hasAgentPull = data.some((d) => d.channel === 'agent_pull')
+
+  /** {R4} 从 Module_06 跳转而来（#/domain-onboarding?network_domain=xxx），预选该网域并打开纳管弹窗 */
+  const [searchParams] = useSearchParams()
+  useEffect(() => {
+    const targetId = searchParams.get('network_domain')
+    if (!targetId) return
+    const target = data.find((d) => d.id === targetId && d.registration_status === 'created')
+    if (target) {
+      openOnboard(target)
+      window.setTimeout(() => {
+        document.getElementById('domain-table')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 200)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /** 打开详情抽屉 */
   const openDetail = (record: NetworkDomain) => {
@@ -288,6 +304,7 @@ export function NetworkDomainsPage() {
           </div>
         )}
         <Table
+          id="domain-table"
           dataSource={data}
           rowKey="id"
           size="small"

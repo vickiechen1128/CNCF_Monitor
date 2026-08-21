@@ -1,26 +1,30 @@
 export interface Tenant {
   id: string
   name: string
-  /** {v1.3} 租户被授权可使用的网域 ID 列表（由 Module_06 分配），不等于这些网域均已接入监控 */
+  /** {v2.0} 租户被授权可使用的网域 ID 列表（授权 ≠ 拥有；网域为部署级资源，登记所有权归 platform_admin，授权不转移所有权）；不等于这些网域均已接入监控 */
   networkDomainIds: string[]
   networkDomainNames: string[]
   /** {v1.3} 在这些网域中已完成监控纳管的子集（由 Module_09 维护，演示用） */
   monitoredNetworkDomainIds?: string[]
   /**
-   * {v1.5} 行政能力开关：是否允许该租户创建/管理多个网域。
+   * {v2.0} 行政能力开关：是否允许该租户**被授权使用多个网域**（决策 18~20）。
    * 注意：该开关不控制 Module_09 页面入口显示/隐藏（M09 入口由数据驱动）；
-   * false 时 M06 侧不可创建额外网域，但 M09 仍可查看 default 网域及其纳管状态。
+   * false 时平台侧仅授权该租户单个网域（通常为 default），M09 仍可查看 default 网域及其纳管状态。
    */
   multi_site_enabled: boolean
-  cmdbBusinessId: string
-  cmdbBusinessPath: string
+  /**
+   * {v1.9} 租户与业务解耦（决策 12~17）：租户是权限/管理边界（对应运维团队/组织），
+   * 业务（biz_code / biz_name）是监控对象分组维度、由 Module_07 维护，租户不再承载 CMDB 业务映射字段。
+   */
   isPlatformAdmin: boolean
   status: 'active' | 'inactive'
 }
 
 /**
- * {v1.3} 网域行政记录（M06 为 NetworkDomain 的行政 Owner）：
- * 本模块负责网域的创建 / 编辑 / 禁用与租户分配，表单只维护行政信息（名称、租户、状态、描述、zone_type），
+ * {v2.0} 网域行政记录（M06 为 NetworkDomain 的行政 Owner，PRD v2.0 决策 18~20）：
+ * 网域为部署级资源、可跨租户共享：登记归属（tenant_id）为部署级登记方（MVP 固定 platform_admin），
+ * 登记 ≠ 独占——通过 authorized_tenant_ids 授权多个租户共享使用（授权 ≠ 拥有）。
+ * 表单只维护行政信息（名称、登记归属、授权租户、状态、描述、zone_type），
  * 不维护监控参数（agent_type / remote_write_url 等，由 Module_09 纳管时填写）。
  */
 export interface NetworkDomain {
@@ -29,8 +33,10 @@ export interface NetworkDomain {
   description: string
   /** 网域类型：default 管理域由系统预置，其余为边缘网域 */
   domain_type: 'management' | 'edge'
-  /** 网域归属租户（1 网域 : 1 租户，创建后不可变更） */
+  /** 登记归属租户 ID（部署级登记方，MVP 固定 platform_admin）；登记 ≠ 独占，网域可授权多个租户共享 */
   tenant_id: string
+  /** {v2.0} 被授权可使用该网域的租户 ID 列表（1 网域 : N 租户，可跨租户共享）；由 M06 维护授权关系，授权 ≠ 拥有，不等于已纳管 */
+  authorized_tenant_ids?: string[]
   status: 'active' | 'disabled'
   /**
    * {v1.4} 网络区域类型（行政分类字段，表达网络隔离/位置语义）：
@@ -97,7 +103,8 @@ export const ACTION_LABELS: Record<AuditAction, string> = {
 }
 
 /**
- * {v1.4} 网络区域类型部署级字典（模拟平台配置文件维护的值集）：
+ * {v1.4} 网络区域类型部署级字典（模拟平台配置文件维护的值集，PRD v2.2 决策 23：
+ * 由只读接口 GET /api/v2/platform/zone-types 提供，仅返回启用中的字典项）：
  * - 不做死枚举：不同客户环境预置不同词汇——政务云预置 互联网区/政务外网区/专线区/DMZ，
  *   公有云预置按 region 划分（如 cn-hangzhou）；
  * - UI 以下拉选择呈现，不开放自由文本；
@@ -129,50 +136,46 @@ export const mockTenants: Tenant[] = [
     networkDomainNames: ['default', 'edge', 'manufacturing'],
     monitoredNetworkDomainIds: ['nd-default', 'nd-edge'],
     multi_site_enabled: true,
-    cmdbBusinessId: 'bk-biz-1',
-    cmdbBusinessPath: '平台 / 基础设施',
     isPlatformAdmin: true,
     status: 'active',
   },
   {
     id: 't-ecommerce',
-    name: '电商业务',
+    name: '电商研发部',
     networkDomainIds: ['nd-default'],
     networkDomainNames: ['default'],
     monitoredNetworkDomainIds: ['nd-default'],
     multi_site_enabled: false,
-    cmdbBusinessId: 'bk-biz-2',
-    cmdbBusinessPath: '业务 / 电商',
     isPlatformAdmin: false,
     status: 'active',
   },
   {
     id: 't-finance',
-    name: '金融业务',
+    name: '金融运维部',
     networkDomainIds: ['nd-finance'],
     networkDomainNames: ['finance'],
     monitoredNetworkDomainIds: [],
     multi_site_enabled: false,
-    cmdbBusinessId: 'bk-biz-3',
-    cmdbBusinessPath: '业务 / 金融',
     isPlatformAdmin: false,
     status: 'inactive',
   },
 ]
 
 /**
- * {v1.3} 网域行政记录（M06 行政 Owner / M09 监控纳管 Owner，PRD v1.3 职责边界）：
- * - nd-default：系统预置中心管理域，归属 platform_admin 预置租户（演示中为 t-platform），默认已纳管
+ * {v2.0} 网域行政记录（M06 行政 Owner / M09 监控纳管 Owner，PRD v2.0 职责边界）：
+ * - nd-default：系统预置中心管理域，登记归属 platform_admin（t-platform），被授权使用：平台运营部 + 电商研发部（演示「1 网域 : N 租户」跨租户共享），默认已纳管
+ * - 登记归属（tenant_id）为部署级登记方，MVP 固定 t-platform；登记 ≠ 独占，通过 authorized_tenant_ids 授权多个租户共享使用
  * - registration_status 为只读演示字段，模拟「已由 Module_09 纳管」的回显，M06 页面不可编辑
  * - zone_type（v1.4）：由 M06 登记的行政字段；default 管理域由中心直接采集、无网闸拓扑，留空不适用
  */
 export const mockNetworkDomains: NetworkDomain[] = [
   {
-    id: 'nd-default',
+    id: 'default',
     name: 'default',
     description: '系统预置中心管理域，承载单机与中心采集模式',
     domain_type: 'management',
     tenant_id: 't-platform',
+    authorized_tenant_ids: ['t-platform', 't-ecommerce'],
     status: 'active',
     zone_type: '',
     registration_status: 'monitored',
@@ -180,11 +183,12 @@ export const mockNetworkDomains: NetworkDomain[] = [
     updated_at: '2026-08-10 09:00:00',
   },
   {
-    id: 'nd-edge',
+    id: 'mc-edge',
     name: 'edge',
     description: '边缘接入网域，通过 Edge Agent 单向 HTTPS 出站接入',
     domain_type: 'edge',
     tenant_id: 't-platform',
+    authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'internet',
     registration_status: 'monitored',
@@ -192,11 +196,12 @@ export const mockNetworkDomains: NetworkDomain[] = [
     updated_at: '2026-08-10 09:00:00',
   },
   {
-    id: 'nd-finance',
+    id: 'mc-finance',
     name: 'finance',
-    description: '金融专网网域（行政已禁用，未纳管监控）',
+    description: '金融专网网域（登记归属平台运营部，授权金融运维部使用；行政已禁用，未纳管监控）',
     domain_type: 'edge',
-    tenant_id: 't-finance',
+    tenant_id: 't-platform',
+    authorized_tenant_ids: ['t-finance'],
     status: 'disabled',
     zone_type: 'private-line',
     registration_status: 'created',
@@ -204,11 +209,12 @@ export const mockNetworkDomains: NetworkDomain[] = [
     updated_at: '2026-08-01 10:00:00',
   },
   {
-    id: 'nd-manufacturing',
+    id: 'mc-manufacturing',
     name: 'manufacturing',
     description: '制造边缘节点网域（行政已创建，待 Module_09 纳管）',
     domain_type: 'edge',
     tenant_id: 't-platform',
+    authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'extranet',
     registration_status: 'created',
@@ -232,7 +238,7 @@ export const mockUsers: User[] = [
     displayName: '张三',
     role: 'tenant_admin',
     tenantId: 't-ecommerce',
-    tenantName: '电商业务',
+    tenantName: '电商研发部',
     status: 'active',
     email: 'zhangsan@example.com',
   },
@@ -242,7 +248,7 @@ export const mockUsers: User[] = [
     displayName: '李四',
     role: 'operator',
     tenantId: 't-ecommerce',
-    tenantName: '电商业务',
+    tenantName: '电商研发部',
     status: 'active',
   },
   {
@@ -251,7 +257,7 @@ export const mockUsers: User[] = [
     displayName: '王五',
     role: 'operator',
     tenantId: 't-finance',
-    tenantName: '金融业务',
+    tenantName: '金融运维部',
     status: 'inactive',
   },
   {
@@ -260,7 +266,7 @@ export const mockUsers: User[] = [
     displayName: '赵六',
     role: 'viewer',
     tenantId: 't-ecommerce',
-    tenantName: '电商业务',
+    tenantName: '电商研发部',
     status: 'active',
   },
   {
@@ -282,9 +288,9 @@ export const mockAuditLogs: AuditLog[] = [
     resourceId: 't-finance',
     operator: 'admin',
     operatedAt: '2026-08-01 10:00:00',
-    description: '创建租户：金融业务',
+    description: '创建租户：金融运维部',
     diff: {
-      name: { new: '金融业务' },
+      name: { new: '金融运维部' },
       status: { new: 'active' },
     },
   },
@@ -295,7 +301,7 @@ export const mockAuditLogs: AuditLog[] = [
     resourceId: 't-finance',
     operator: 'admin',
     operatedAt: '2026-08-01 14:30:00',
-    description: '禁用租户：金融业务',
+    description: '禁用租户：金融运维部',
     diff: {
       status: { old: 'active', new: 'inactive' },
     },

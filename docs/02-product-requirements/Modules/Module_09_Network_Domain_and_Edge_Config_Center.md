@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
-> **PRD 状态**: `prototyping`（v1.42：未同步按成因分档标签化展示 + 进程异常醒目提示 + Edge Sync Agent 状态列 + 术语统一「人工覆盖」；原型已同步）
-> **PRD 版本**: v1.42
+> **PRD 状态**: `ready`（可开发版本）
+> **PRD 版本**: v1.50
 > **产品版本覆盖**: MVP / v0.2 / v1.0
-> **原型版本**: v1.42（同步：采集节点状态页分档标签 + 行级高亮 + 抽屉高危横幅 + Edge Sync Agent 状态列）
-> **更新日期**: 2026-08-18
+> **原型版本**: v1.50（已对齐）
+> **更新日期**: 2026-08-21
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -18,7 +18,7 @@
 核心职责：
 
 1. **网域监控纳管**：从 M06 已存在的网域中选择并标记为「已纳管监控」，**下发通道按网域确定**：`default` 固定 `local`，其他网域固定 `agent_pull`，并填写对应监控参数；`agent_pull` 通道生成/重置 Edge Agent 认证 Token、提供安装指引，`local` 通道（默认 `default`）不生成 Token；`default` 管理域由系统预置并默认视为已纳管。**M06 是 `NetworkDomain` 行政 Owner（创建/分配/配额），M09 是网域监控纳管 Owner。**
-2. **租户-网域关联**：`NetworkDomain` 数据模型由 M06 与 M09 共同维护，`tenant_id` 字段在 v0.2 必须落地，保证 1 租户 : N 网域、禁止跨租户共享网域、`network_domain_id` 全局唯一。
+2. **网域行政模型（以 M06 为单一事实来源）**：`NetworkDomain` 行政字段（`id` / `name` / `domain_type` / `tenant_id` / `authorized_tenant_ids` / 启用状态等）及其全部约束语义（ID 规则、租户归属与跨租户共享等）由 [Module_06](Module_06_Multi_Tenant.md) 统一定义与维护，本模块不重复声明行政语义；M09 只持有监控纳管相关字段（`channel` / `agent_type` / `remote_write_url` / `token` / 运行态字段）。
 3. **边缘 Agent 生命周期**：记录每个网域部署的采集器类型（`vmagent` / `prometheus-agent`）、版本、在线状态。
 4. **配置生成服务**：轮询 Module_01 的 ScrapeJobs / MonitoringRules 与 Module_07 的 Resources / LabelTemplates，按网域生成 `prometheus.yml`、`targets/*.json` 与 `rules.yml` 草稿；规则按 Prometheus `group` 语法组织（M09 内部自动派生分组，MVP 不暴露用户可管理的 RuleGroup 实体）。
 5. **草稿与预览**：维护 draft 配置态，提供预览、diff 对比与人工确认，确认后再转为待下发版本；`alertmanager.yml` 由 Module_08 直接管理，不进入本模块配置变更确认流程（详见 [3.4 节](#34-配置变更确认与预览-v02))。
@@ -79,11 +79,11 @@
 **「网域纳管」不能由「安装指引」替代**，两者是「先有身份、再接入」的两个串行步骤：
 
 1. **凭据前置签发**：Edge Sync Agent 启动时必须携带平台签发的 `NETWORK_DOMAIN_ID` 与 `TOKEN`（[[6.4](#64-edge-sync-agent-本地行为) 第 2 条），这两个值由网域在 M09 纳管时生成；未预纳管的网域没有可验证身份，Agent 首次心跳 / 拉包无法通过鉴权，更不可能「自动抓取」。
-2. **「自动注册」的对象是 Agent 实例而非网域**：Agent 首次成功握手后平台自动创建的是 `EdgeAgent` 运行态记录（上线 / 心跳 / 版本），而 `NetworkDomain`（网络边界 + 租户映射）必须先由 M06 创建并分配给租户——配置生成按网域分组并注入 `external_labels.network_domain/tenant_id`，依赖网域→租户映射先行落地。
+2. **「自动注册」的对象是 Agent 实例而非网域**：Agent 首次成功握手后平台自动创建的是 `EdgeAgent` 运行态记录（上线 / 心跳 / 版本），而 `NetworkDomain`（网络边界 + 租户映射）必须先由 M06 创建并分配给租户——配置生成按网域分组并注入 `external_labels.network_domain_id`，依赖网域→租户映射先行落地。
 3. **安全信任锚点**：不做「Agent 首包即自动建域」——陌生端点自报 domain_id 即可建域存在隐式信任问题，且与「网域 = CMDB 云区域 1:1」的边界约束冲突。
 4. **v0.4+ 演化而非取消**：网域与 CMDB 云区域 1:1 后，M06 的网域创建将演化为「从 CMDB 同步 / 校验」，M09 的纳管动作保留；v0.2 前 M06 手动创建网域仍是唯一来源。
 
-闭环流程（`channel=agent_pull` 网域）：**M06 创建网域（行政记录：网域名称 + 租户，`id` 按租户前缀自动生成）→ M09 纳管（登记制：非 `default` 网域固定 `agent_pull` 通道、填写监控参数、Token 自动签发、Remote Write URL 自动推导）→ 安装指引（下载一体化离线包 + 注入凭据 + systemd 部署）→ Agent 心跳自动上线（出现在「采集节点状态」页）**。
+闭环流程（`channel=agent_pull` 网域）：**M06 创建网域（行政记录：网域名称 + 租户归属/授权，ID 规则见 [Module_06](Module_06_Multi_Tenant.md)）→ M09 纳管（登记制：非 `default` 网域固定 `agent_pull` 通道、填写监控参数、Token 自动签发、Remote Write URL 自动推导）→ 安装指引（下载一体化离线包 + 注入凭据 + systemd 部署）→ Agent 心跳自动上线（出现在「采集节点状态」页）**。
 
 `channel=local` 的网域（如默认 `default`）不经过安装指引 / Token 环节，配置确认后直接由中心写盘并 reload。
 
@@ -111,20 +111,22 @@
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
 | **轮询策略数据** | 定时轮询 Module_01（ScrapeJobs、`MonitoringRule`）与 Module_07（Resources、LabelTemplates）；读取各源表 `max(updated_at)` 作为「源数据版本」，仅当源数据版本变化时触发重算（预筛，避免无谓轮询） | **P0** |
-| **按网域生成配置** | 为每个网域生成 `prometheus.yml`（含 scrape_configs、external_labels）与 `targets/*.json`（file_sd 目标文件）；scrape_configs 通过 `file_sd_configs` 引用本域 `targets/*.json`（固定文件名覆盖写），prometheus.yml 仅含 job 骨架（job_name、metrics_path、params、relabel、file_sd 引用），targets 列表统一放入 targets JSON 文件；`rules.yml` 由 `MonitoringRule` 按 Prometheus `group` 语法组织（M09 内部自动派生规则分组，MVP 不暴露用户可管理的 RuleGroup 实体），按规则作用域与下发通道生成：所有 `scope=central`/`both` 的规则进入 `rules.yml` 候选集；`channel=local` 的网域直接包含候选集；`channel=agent_pull` 的网域在 v0.4+ 仅包含 `scope=edge`/`both` 规则（MVP 阶段 `scope` 固定 `central`，所有通道均包含同一套规则，中心统一求值）；`alertmanager.yml` 由 Module_08 直接管理，不在本模块生成或审批；**配置生成候选集仅包含 `draft_status=ready` 的 `ScrapeJob` / `MonitoringRule`（v0.2 起 Job、v0.3 起规则），`draft_status=draft` 对象不参与配置生成** | **P0** |
-| **标签注入** | 自动注入 `external_labels.network_domain`、租户标签、由 LabelTemplate 展开的标签 | **P0** |
-| **实例过滤** | 根据 Job 中手动勾选的实例或筛选条件，从 Module_07 Resources 解析目标列表 | **P0** |
+| **按网域生成配置** | 为每个网域生成 `prometheus.yml`（含 scrape_configs、external_labels）与 `targets/*.json`（file_sd 目标文件）；scrape_configs 通过 `file_sd_configs` 引用本域 `targets/*.json`（固定文件名覆盖写），prometheus.yml 仅含 job 骨架（job_name、metrics_path、params、relabel、file_sd 引用），targets 列表统一放入 targets JSON 文件；`rules.yml` 由 `MonitoringRule` 按 Prometheus `group` 语法组织（M09 内部自动派生规则分组，MVP 不暴露用户可管理的 RuleGroup 实体），按规则作用域与下发通道生成：所有 `scope=central`/`both` 的规则进入 `rules.yml` 候选集；`channel=local` 的网域直接包含候选集；`channel=agent_pull` 的网域在 v0.4+ 仅包含 `scope=edge`/`both` 规则（MVP 阶段 `scope` 固定 `central`，所有通道均包含同一套规则，中心统一求值）；**规则内容按 `content_mode` 分形态并入 `rules.yml`（MVP 起）：`content_mode=yaml_passthrough` 的规则将 `rule_content`（完整 `rules.yml` 内容，含 `groups`）原样并入；`content_mode=structured`（v0.3+）按字段化生成（对齐 [Module_01 5.5](Module_01_Metric_Collection_Center.md#55-规则编辑模型monitoringrule)）**；`alertmanager.yml` 由 Module_08 直接管理，不在本模块生成或审批；**配置生成候选集仅包含 `draft_status=ready` 的 `ScrapeJob` / `MonitoringRule`（v0.2 起 Job、v0.3 起规则），`draft_status=draft` 对象不参与配置生成** | **P0** |
+| **标签注入** | 自动注入 `external_labels.network_domain_id`（登记 `zone_type` / 部署 `replica` 时同步注入）；实例级业务标签 `biz` 与租户标签 `tenant` 均由 M07 LabelTemplate 以 target 级注入（`business_domain → biz`、`tenant_id → tenant` 映射），注入 `targets/*.json` 的 `static_configs[].labels`，M09 不单独注入 | **P0** |
+| **实例过滤** | 根据 Job 中手动勾选的实例或筛选条件，从 Module_07 Resources 解析目标列表；**`offline` 排除（MVP 必实现）**——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤已下线实例，`offline` 后下一配置生成周期即从 targets 移除（跨模块契约，对齐 [Module_07 8.1](Module_07_Monitoring_Object_Management.md)）；`maintenance` 排除口径届时与 M01 一并对齐 | **P0** |
 | **草稿生成** | 生成后先写入 `ConfigDraft`，不直接覆盖生效版本 | **P0** |
 | **差异检测（版本触发 + checksum 裁决）** | 生成后计算配置内容联合 checksum，与当前生效 `ConfigVersion` 的 checksum 对比：内容一致则不生成新草稿 / 自动丢弃；不一致才进入待确认 | **P0** |
 | **规则作用域过滤与分组** | `rules.yml` 按 `MonitoringRule` 字段自动派生 `group`（默认按 `resource_type` 或 `rule_type` 聚类，MVP 不暴露用户可管理分组）；下发到边缘时仅包含 `scope=edge`/`both` 的规则；中心仅包含 `scope=central`/`both` | P1 |
 | **blackbox 配置生成** | 当网域存在 `job_type=blackbox` 的 ScrapeJob 时，生成并打包 `blackbox.yml` | **P0** |
+| **认证/TLS 透传** | 将 `ScrapeJob` 的认证/TLS 最小集映射进对应 `scrape_configs`：`auth_type=basic` → `basic_auth`（username/password）、`auth_type=bearer` → `authorization`（Bearer token）、`tls_skip_verify` → `tls_config.insecure_skip_verify`、`ca_file` → `tls_config.ca_file`；全部可选、默认不启用（无认证裸 http 场景不受影响）——M09 仅透传映射、无新机制（决策 31）；blackbox 拨测的 HTTP/HTTPS 模块同理透传 `tls_config` | **P0** |
 
 > **scope 业务场景**：MVP~v0.3 阶段 `scope` 固定 `central`（中心统一求值，用户无需配置 scope）；`edge`/`both` 为 v0.4+（P2）预留，核心场景为**断网自治告警**（边缘 vmalert 本地求值 + 本地通知通道）；`both` 用于边缘快速响应 + 中心聚合（需以标签区分求值域去重）；`central` 用于跨域/全局聚合规则。本模块按 `scope` 决定 `rules.yml` 随哪个网域配置包下发。详见 [Module_01 5.5 scope 字段说明](Module_01_Metric_Collection_Center.md#55-规则编辑模型monitoringrule)。
 
 > **配置文件 × 源数据映射语义**：按网域生成的配置结果按「层级」分为两类文件，驱动源不同：
 >
-> - `prometheus.yml` = **网域级 + job 结构级**：`global.external_labels`（network_domain / tenant_id）与 `remote_write` 由 `NetworkDomain`（`agent_type`、`remote_write_url`、`tenant_id` 等）驱动；scrape_configs 的 job 骨架（job_name、metrics_path、params、relabel_configs、file_sd 引用）由 `ScrapeJob`、`CITypeExporterMapping`、`ExporterInstallationConfirmation` 驱动；
-> - `targets/*.json` = **资源级 + 标签模板级**：目标列表由 `Resource` 实例选择（Job 中手动勾选的实例或筛选条件）驱动；targets 中的 labels 由 `LabelTemplate` 静态展开驱动。
+> - `prometheus.yml` = **网域级 + job 结构级**：`global.external_labels`（network_domain_id / zone_type / replica）与 `remote_write` 由 `NetworkDomain`（`agent_type`、`remote_write_url`、`tenant_id` 等）驱动；scrape_configs 的 job 骨架（job_name、metrics_path、params、relabel_configs、file_sd 引用）由 `ScrapeJob`、`CITypeExporterMapping`、`ExporterInstallationConfirmation` 驱动；
+> - `targets/*.json` = **资源级 + 标签模板级**：目标列表由 `Resource` 实例选择（Job 中手动勾选的实例或筛选条件）驱动；targets 中的 labels 由 `LabelTemplate` 静态展开驱动；
+> - `rules.yml` = **规则级（MonitoringRule）**：`content_mode=yaml_passthrough`（MVP）的规则将 `rule_content` 原样并入，`content_mode=structured`（v0.3+）按字段化生成；规则保存 / 启停 / 删除引起 `updated_at` 变化即触发本文件重算（pull 模式，对齐 Module_01 5.5「规则文件挂载」）。
 >
 > **推论**：`LabelTemplate` / `Resource` 变更触发的是 `targets/*.json` 中 labels 与目标列表的变化，**而非 `prometheus.yml` 结构变化**；相应差异体现在 targets 文件内容上（targets 内容已纳入联合 checksum 裁决，见 3.3.3）。`prometheus.yml` 仅在网域属性或 job 结构（job 增删、抓取参数、relabel 变化）变化时才改变。
 >
@@ -139,23 +141,25 @@
 
 `external_labels` 是 Prometheus / vmagent 在 `global` 段配置的一组全局标签，采集器在抓取每条时间序列后会自动把这些标签附加到 series 上，因此所有从该 Agent 回写的指标都会统一携带这些标签。
 
-Module_09 在生成每个网域的 `prometheus.yml` 时，必须在该网域 Agent 配置文件的 `global.external_labels` 中注入以下标签：
+Module_09 在生成每个网域的 `prometheus.yml` 时，必须在该网域 Agent 配置文件的 `global.external_labels` 中注入以下**部署级、物理维度的不可变元数据**（2026-08-19 决策：external_labels 不注入租户 / 业务标签）：
 
 ```yaml
 global:
   external_labels:
-    network_domain: "gov-cloud-a"
-    tenant_id: "tenant-a"
+    network_domain_id: "gov-cloud-a"
+    zone_type: "extranet"     # 仅当网域登记了 zone_type 时注入
+    replica: "replica-0"      # 部署级高可用副本标识
 ```
 
-- `network_domain`：取值对应 `NetworkDomain.id`，用于标识指标来源网域。
-- `tenant_id`：取值对应 `NetworkDomain.tenant_id`，用于标识指标所属租户。
+- `network_domain_id`：取值对应 `NetworkDomain.id`，用于标识指标来源网域。
+- `zone_type`：网络区域类型（政务云 `internet` / `extranet` 等），仅当网域登记了 `zone_type` 时同步注入。
+- `replica`：部署级高可用副本标识，随部署拓扑注入。
 
 注入效果：
 
-- 边缘 Agent 抓取的所有指标在 Remote Write 到中心时都会自动携带 `network_domain` 和 `tenant_id` 标签。
-- Module_02 查询中心 Prometheus 时，可基于 `network_domain` 标签对用户有权限的网域做进一步过滤或展示来源网域。
-- 该机制是 Module_02 实现「按网域查询」与「租户数据隔离」的基础之一。
+- 边缘 Agent 抓取的所有指标在 Remote Write 到中心时都会自动携带 `network_domain_id` / `zone_type` / `replica` 标签。
+- Module_02 查询中心 Prometheus 时，可基于 `network_domain_id` 标签对用户有权限的网域做进一步过滤或展示来源网域。
+- **租户 / 业务标签不由 `external_labels` 注入**：租户标签 `tenant`（`tenant_id → tenant`）与实例级业务标签 `biz`（`business_domain → biz`）均由 [Module_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入，在生成 `targets/*.json` 时作为 `static_configs[].labels` 注入，M09 不单独注入；MVP 单租户下 `tenant` 映射可选、不强制注入，租户数据隔离优先在 API Gateway / 查询代理层通过 PromQL 注入实现（决策 19）。
 
 > **与 Module_10 的边界**：Module_09 只负责为**内部 Edge Agent**（vmagent / prometheus-agent）生成配置时注入 `external_labels`；Module_10 负责**外部异构监控源**（第三方 Prometheus、Zabbix、云监控等）接入时的标签归一化。详见 [[7.1.4 与 Module_10 的边界](#714-与-module-10-的边界)。
 
@@ -225,6 +229,12 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
  - **一致**：内容无实际变化，不生成新草稿（或生成的草稿直接标记 `discarded`），仅更新 `source_data_version` 记录，不进入确认列表；
  - **不一致**：生成 `status=pending` 的 `ConfigDraft`，`metadata` 记录 `trigger_summary`（触发来源：变更的 job / rule / 表 + 时间），进入人工确认。
 
+**第三层：同域 pending 取代（防堆积，决策 42-1）**
+
+- 生成新 `pending` 草稿并确认其产物与生效版本有实质差异后，将该网域**更早仍未确认（`status=pending`）的草稿自动置为 `discarded`（superseded，被后续变更单取代）**，`metadata` 记录 `superseded_by_change_no`（指向新变更单号）供追溯。
+- 效果：同一网域**同时最多一张「活」的 `pending` 变更单**，确认页不会出现同域多张待确认单，运维确认的永远是最近一次源状态的发布审批（go/no-go），避免确认过期状态。
+- 边界：`superseded` 仅发生在「确认前」；已 `confirmed` / 已 `discarded` 的草稿不受影响；若无更早 `pending` 则无需取代。
+
 **Edge Agent 侧（场景 B）与中心侧职责划分**
 
 | 环节 | 机制 | 职责 |
@@ -237,7 +247,7 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 >
 > - **上次检测时间**：最近一次轮询执行时间；
 > - **当前源数据版本**：`source_data_version`（各源表 `max(updated_at)` 聚合）；
-> - **检测结果**：本轮检测到变更 → 生成了哪些草稿（引用草稿 ID / 触发摘要）；未检测到变更 → 本轮无变更、跳过重算；checksum 一致 → 内容无变化、自动丢弃、不进入确认。
+> - **检测结果**：本轮检测到变更 → 生成了哪些草稿（引用草稿 ID / 触发摘要）；未检测到变更 → 本轮无变更、跳过重算；checksum 一致 → 内容无变化、自动丢弃、不进入确认；**生成失败（configgen 异常，非校验类）→ 提示「本次变更生成失败：<原因>，请查看日志」，对该轮**不推进** `source_data_version` 记录、标记失败待重算，下一轮重试（决策 42-4）。**
 
 ### 3.4 配置变更确认与预览
 
@@ -269,7 +279,7 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 | **PromQL 语法校验** | 对生成的 rules 做 PromQL 解析校验（调用 Module_02 或本地校验库） | P1 |
 | **人工确认发布（变更单级确认）** | **确认粒度为变更单级（一次确认 / 废弃整张变更单，go/no-go 发布审批）**：变更清单各行仅作影响信息展示，**不逐行确认、不拆分发布**；运维工程师确认后，draft 转为 `ConfigVersion`（继承 `change_no`，分配版本号 `cv-xxx`），进入**待下发**状态；`local` 通道 reload 成功或 `agent_pull` 通道配置包被 Agent 成功应用后，对应 M01 对象的 `change_status` 回写为 `deployed`；**确认动作记录确认人（MVP 阶段预置登录用户上下文，Module_06 用户管理接入后同步为真实用户）** | **P0** |
 | **草稿废弃** | 允许人工废弃当前 draft，保持当前生效版本不变 | P1 |
-| **变更检测状态（引导性）** | **定位为引导用户操作的状态说明，不记录检测历史**：有待确认变更 → 提示「检测到 N 个待确认变更，请前往下方列表确认后发布」（含高风险变更数）；无变更 → 提示「当前无待确认变更，策略/资源变更后将自动生成」；**与待确认列表联动形成操作引导流**（先看状态 → 再逐项确认）。上次检测时间、源数据版本、校验值裁决等技术信息折叠展示，供「确认了却没生效」时排障 | **P0** |
+| **变更检测状态（引导性）** | **定位为引导用户操作的状态说明，不记录检测历史**：有待确认变更 → 提示「检测到 N 个待确认变更，请前往下方列表确认后发布」（含高风险变更数）；无变更 → 提示「当前无待确认变更，策略/资源变更后将自动生成」；**生成失败（决策 42-4）** → 提示「本次变更生成失败：<原因>，请查看日志」；**与待确认列表联动形成操作引导流**（先看状态 → 再逐项确认）。上次检测时间、源数据版本、校验值裁决等技术信息折叠展示，供「确认了却没生效」时排障 | **P0** |
 
 > **变更摘要生成机制**：变更摘要**不是**"策略操作日志"，而是由 configgen 对比**配置产物差异**生成，与既有 pull 模式 / checksum 裁决架构一致、**不依赖 Module_01/07 改造**：
 >
@@ -303,8 +313,9 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 |------|------|--------|
 | **`local` 通道 Reload** | `channel=local` 网域（含默认 `default`）：确认后由中心将配置产物写中心 Prometheus 配置目录，执行 SIGHUP 或 POST `/-/reload` | **P0** |
 | **下发记录** | 记录每次发布与回滚的**来源变更单号（`source_change_no`，自动生成：经 `config_version_id` → `ConfigVersion.change_no` 透传）**、配置版本、目标、操作人、时间、结果、失败原因；部署 ID（`deploy-xxx`）与配置版本号（`cv-xxx`）均为系统自动生成，用户不可手填 | **P0** |
-| **变更状态回写 M01** | 配置生成 / 确认 / 下发全链路回写 `ScrapeJob` / `MonitoringRule` 的 `change_status`：生成 `ConfigDraft` 后回写 `pending`；确认后生成 `ConfigVersion` 回写 `confirmed`；`local` 通道 reload 成功或 `agent_pull` 通道配置包被 Edge Agent 成功应用后回写 `deployed`；无相关在途变更回写 `none`（v0.2 起 Job、v0.3 起规则；MVP 阶段 `deployed` 由 `none` 占位，v0.2 起精确写回） | **P0** |
+| **变更状态回写 M01** | 配置生成 / 确认 / 下发全链路回写 `ScrapeJob` / `MonitoringRule` 的 `change_status`：生成 `ConfigDraft` 后回写 `pending`；确认后生成 `ConfigVersion` 回写 `confirmed`；`local` 通道 reload 成功或 `agent_pull` 通道配置包被 Edge Agent 成功应用后回写 `deployed`；无相关在途变更回写 `none`（**MVP 起即包含 `deployed`**，决策 31-M2——`ConfigDeployment.status=success` 即回写，消除「已生效 vs 无变更」歧义；v0.2 起 Job、v0.3 起规则精确按对象回写） | **P0** |
 | **版本回滚** | 支持选择历史 `ConfigVersion` 重新下发，覆盖当前生效配置（回滚动作本身也生成一条下发记录，状态 rolled_back） | **P0** |
+| **`local` 重试下发** | 下发记录页对 `status=failed` 的 **`local` 通道**下发记录提供**「重试」按钮**（决策 42-3）：复用最近一次该版本的下发动作（重新写盘 + reload），生成新的 `ConfigDeployment` 记录；`agent_pull` 通道**不提供重试**（中心不主动触达边缘，拉包/生效由边缘心跳驱动，见 6.1 / 决策 40-2） | **P0** |
 | **回滚异步生效提示** | 回滚的生效语义**按下发通道区分**：`local` 通道 = 重新下发后**立即 reload 生效**；**`agent_pull` 通道 = 重新发布历史 `ConfigVersion`（生成对应配置包），生效依赖 Edge Sync Agent 下次心跳拉取（准实时 30s）**；UI 在回滚动作后给出对应提示——`local`「已回滚，配置已 reload 生效」、`agent_pull`「已发布历史版本，待 Edge Sync Agent 下次心跳拉取生效」；生效进度由 `config_sync_status`（out_of_sync → in_sync）表达，采集节点状态列表可见（见 5.2） | **P0** |
 | **多目标分发** | 按网域分发到对应 Edge Sync Agent；支持批量选择网域下发 | P1 |
 | **配置包拉取接口** | `GET /api/v2/platform/edge/config?network_domain=<id>` | **P0** |
@@ -330,7 +341,11 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
  - `blackbox_exporter --config.check --config.file=<blackbox.yml>` 确保 `blackbox.yml` 模块定义合法；
  - **configgen 侧 targets schema 校验**：配置生成服务生成 targets JSON 时校验文件结构（JSON 顶层数组、`targets` / `labels` 字段）、`host:port` 地址格式与 labels 合法性（遵循标签命名规则，禁止覆盖 `__address__` 等内置标签），不通过则拒绝生成草稿。
 - **promtool 校验缺口说明**：`promtool check config` 对 `file_sd_configs` 只检查文件**存在性**（文件缺失仅 WARNING），**不校验 SD 文件内容**（社区已知缺口）；该缺口由 configgen 侧的 targets schema 校验弥补（上一条）。
-- 校验失败时，当前 `ConfigDraft` / `ConfigVersion` 保持原状态，不进入下发流程，并记录错误原因。
+- 校验失败时，当前 `ConfigDraft` 保持原状态（`validation_status=failed`），不进入下发流程，并记录错误原因；「变更确认」页该变更单展示失败态与失败原因，并提供**两个闭环出口（决策 42-2）**：
+ - **重新校验**：对该草稿重新执行中心内容校验（仅重校、不重生成源内容），适用于"源数据未变但校验结果因环境/工具升级变化"的自愈；重新校验通过后恢复为可确认 `pending`；
+ - **废弃**：明确「校验未通过，本次变更将保持当前生效配置不变」，将该草稿置 `discarded`。
+ - 二者均为**变更单级**操作，避免 failed 草稿永久卡死在「待确认」列表、挡住后续发布（对应 6.6.2 校验失败相关接口）。
+- `ValidationStatus` 状态含义：`passed`（可确认下发）/ `failed`（阻止确认，提供重新校验 / 废弃出口）/ `pending`（未校验或生成中）。
 - **校验分层定位**：以上校验均为**中心内容校验**（防**生成错误**），与之对应的是 Edge Sync Agent 拉包后的**边缘传输校验**（防**传输损坏/篡改/半写文件**）；中心内容校验与边缘传输校验的分层关系与衔接见 [[6.5](#65-中心边缘校验分层与衔接)。
 - Edge Sync Agent 解压配置包后，需同步通知同域 blackbox exporter 重新加载 `blackbox.yml`（推荐 `SIGHUP`；如 blackbox exporter 提供 reload API，也可调用 API）；采集器（vmagent / prometheus-agent）仅当 `prometheus.yml` 结构变化时才需 reload，targets 文件变化由 file_sd 自动感知（见 3.5 reload 策略分离）。
 
@@ -554,9 +569,9 @@ MetricCenter 通过 [Module_06](Module_06_Multi_Tenant.md) 的**租户级行政�
 
 ### 5.1 网域（NetworkDomain）
 
-> **职责边界**：`NetworkDomain` 数据模型由 **Module_06（行政 Owner）** 与 **Module_09（监控纳管 Owner）** 共同维护：
+> **职责边界**：`NetworkDomain` 数据模型由 **Module_06（行政 Owner）** 与 **Module_09（监控纳管 Owner）** 共同维护；**NetworkDomain 行政模型以 [Module_06](Module_06_Multi_Tenant.md) 为单一事实来源**——本模块不再重复声明行政字段表与行政约束（ID 规则、租户归属与跨租户共享等），下表仅列出本模块持有 / 纳管涉及的字段：
 > >
-> > - **M06 维护行政字段**：`id`、`name`、`description`、`domain_type`、`tenant_id`、配额与启用状态；网域创建/编辑/禁用/租户分配在 M06 完成。
+> > - **M06 维护行政字段**：`id`、`name`、`description`、`domain_type`、`tenant_id`、`authorized_tenant_ids`、配额与启用状态；网域创建/编辑/禁用/租户分配在 M06 完成（字段表与约束语义见 [Module_06 5.1](Module_06_Multi_Tenant.md)）。
 > > - **M09 维护监控纳管字段**：**`channel`**、`agent_type`、`remote_write_url`、`token`、运行态字段（`status` / `last_heartbeat` / `agent_version`）及关联的 `EdgeAgent` 实例；网域监控纳管、配置生成、下发、Agent 生命周期在 M09 完成。`channel` 决定哪些字段必填/展示。
 > >
 > > M09 不创建新的 `NetworkDomain` 行政记录，只把 M06 已存在的网域标记为「已纳管监控」。
@@ -565,12 +580,12 @@ MetricCenter 通过 [Module_06](Module_06_Multi_Tenant.md) 的**租户级行政�
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|----------|------|
-| id | string | ✅ | 网域 ID | 网域唯一标识，必须全局唯一；v0.2 起建议采用租户前缀，如 `<tenant_id>-gov-cloud-a`、`default` |
+| id | string | ✅ | 网域 ID | 网域唯一标识，必须全局唯一；ID 规则（含前缀约定）由 [Module_06](Module_06_Multi_Tenant.md) 统一定义，本模块只读引用 |
 | name | string | ✅ | 网域名称 | 网域展示名；`default` 网域的 `name` / `description` 允许修改以匹配客户云区域命名 |
 | description | string | ❌ | 描述 | 网域描述 |
 | domain_type | enum | ✅ | 域类型 | 网域类型：`management`（管理域，如 `default`）/ `edge`（边缘域）；`management` 类型网域禁止删除 |
 | zone_type | string | ❌ | 网络区域类型 | 网络隔离/位置语义分类，**M06 行政字段**（创建/编辑网域时登记，M09 纳管只读引用）；值集为部署级字典（政务云预置 `internet` 互联网区 / `extranet` 政务外网区等，公有云预置 region 列表），见 [Module_06 3.1](Module_06_Multi_Tenant.md)；配置生成时注入指标标签 |
-| tenant_id | string | ✅ | 租户 | 所属租户 ID；`platform_admin` 表示平台默认租户，禁止跨租户共享网域 |
+| tenant_id | string | ✅ | 租户 | M06 行政字段（登记归属），本模块只读引用；租户归属 / 跨租户共享约束见 [Module_06 5.1](Module_06_Multi_Tenant.md) |
 | cmdb_cloud_area_id | string | ❌ | 仅技术信息 | 对应 BlueKing CMDB 云区域 ID（`bk_cloud_id`） |
 | cmdb_cloud_area_path | string | ❌ | 仅技术信息 | 对应 BlueKing CMDB 云区域路径 |
 | **channel** | **enum** | **✅** | **下发通道** | **配置下发通道：`local`（中心同机写盘 reload）/ `agent_pull`（Edge Sync Agent 心跳拉包）；MVP 按网域固定（`default` 域 = `local`，其他网域 = `agent_pull`），不提供切换；同一网域混合通道与通道切换为 v0.4+ 演化场景** |
@@ -584,9 +599,15 @@ MetricCenter 通过 [Module_06](Module_06_Multi_Tenant.md) 的**租户级行政�
 | created_at | datetime | ✅ | 仅技术信息 | 创建时间 |
 | updated_at | datetime | ✅ | 仅技术信息 | 更新时间 |
 
-> **MVP 处理**：系统初始化时自动创建一个 `id=default`、`domain_type=management`、**`channel=local`** 的默认网域，所有未指定网域的资源自动归属到默认网域，保证单网域场景无感知且无需部署 Edge Sync Agent。默认网域 `default` 归属于 `platform_admin` 租户，所有未指定租户的资源默认继承该归属。`default` 网域的 `name` / `description` 允许用户修改以匹配云区域命名，但禁止删除；`channel` 固定 `local`，切换能力预留至 v0.4+。
+> **MVP 处理**：系统初始化时自动创建一个 `id=default`、`domain_type=management`、**`channel=local`** 的默认网域；**M09 不做「未指定网域资源自动归 default」的隐式归集**（决策 31-M3）——资源 `network_domain_id` 由 [Module_07](Module_07_Monitoring_Object_Management.md) 在导入校验强制必填（缺失即拒绝，避免掩盖导入漏填）；仅用户显式选择 `default` 网域的资源才归入默认网域。默认网域 `default` 的登记归属为 `platform_admin` 租户（行政语义见 Module_06）。`default` 网域的 `name` / `description` 允许用户修改以匹配云区域命名，但禁止删除；`channel` 固定 `local`，切换能力预留至 v0.4+。
 >
-> **归属约束**：一个网域必须且只能归属一个租户（1 租户 : N 网域），禁止跨租户共享网域；`network_domain_id` 必须全局唯一，建议创建时校验租户前缀。
+> **行政约束以 M06 为单一事实来源**：网域租户归属 / 跨租户共享约束、`network_domain_id` 全局唯一与前缀规则均由 [Module_06](Module_06_Multi_Tenant.md) 定义并强制校验（决策 18~20），本模块不再重复声明；M09 仅校验「纳管」相关约束（如 `channel` 决定字段必填/展示）。
+>
+> **网域与业务正交（2026-08-19 决策）**：网域（由网络环境决定，登记制、低频变更）与业务（由组织管理需求决定、持续演进）是**两个正交维度**——每个资源有且仅有 1 个网域归属（`network_domain_id`）+ 1 个业务归属（`business_domain`，由 [Module_07](Module_07_Monitoring_Object_Management.md) 维护）。本模块配置生成**不把业务作为网域属性**：一个网域可承载多个业务的资源（多业务共用 1 网域为正常状态），一个业务也可跨多个网域；业务通过 `biz` 标签（M07 LabelTemplate 注入，见 3.3）与 `network_domain` 组合过滤与聚合。业务归属变更（资源换业务）只触发 `targets/*.json` 原子重写，不影响 `prometheus.yml` 骨架 / `rules.yml`（见 3.3.2）。
+>
+> **标签注入边界（2026-08-19 决策）**：本模块 `external_labels` 只注入**部署级、物理维度的不可变元数据**（`network_domain_id`、`zone_type`、`replica`），**不注入租户 / 业务标签**。租户标签 `tenant`（`tenant_id → tenant`）与实例级业务标签 `biz`（`business_domain → biz`）均由 [Module_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入 `targets/*.json` 的 `static_configs[].labels`，M09 不单独注入；MVP 单租户下 `tenant` 映射可选、不强制注入，租户数据隔离优先在查询网关层通过 PromQL 注入实现。
+>
+> **配置目录组织（MVP）**：配置产物**按 `network_domain` 分目录**组织（`edge-config-<network_domain_id>.zip` / 本地文件集，见 6.3）。**多租户命名空间（按 tenant + network_domain 分目录）为 {v0.2+} 占位**——原则：配置只随物理网域 / 采集目标变化而重新生成与下发，不因租户数量复制采集基础设施；详细目录 / 命名空间规则随多租户版本再定，MVP 不展开、不实现。
 
 ### 5.2 边缘 Agent（EdgeAgent）
 
@@ -644,10 +665,10 @@ MetricCenter 通过 [Module_06](Module_06_Multi_Tenant.md) 的**租户级行政�
 | rules_yml | text | ❌ | 仅技术信息 | 生成的 rules.yml 内容（可选） |
 | blackbox_yml | text | ❌ | 仅技术信息 | 生成的 blackbox.yml 内容（可选） |
 | targets_files | json | ❌ | 仅技术信息 | 生成的 targets 内容承载字段：按 job 名组织的 targets 列表（file_sd 目标文件，如 `{"node-exporter": [{"targets": [...], "labels": {...}}], "blackbox-http": [...]}`；网域无任何目标时为空对象） |
-| metadata | json | ✅ | 仅技术信息 | 生成时间、生成器版本、`source_data_version`、`trigger_summary`（触发来源 job/rule/表 + 时间）、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml+targets 内容)）、来源 job/rule 摘要 |
+| metadata | json | ✅ | 仅技术信息 | 生成时间、生成器版本、`source_data_version`、`trigger_summary`（触发来源 job/rule/表 + 时间）、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml+targets 内容)）、来源 job/rule 摘要；被同域更晚 pending 取代时记录 `superseded_by_change_no`（指向新变更单号） |
 | summary | string | ✅ | 变更摘要 | **人话变更摘要**：由 configgen 对比当前生效版本与草稿的产物差异生成，面向运维回答「为什么发生了变更」，如「新增 1 台服务器（10.0.1.11）加入 node-exporter 采集」 |
 | change_items | json | ✅ | 变更清单 | **结构化变更清单**：`[{type: add/modify/remove, target: 源数据对象枚举（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板）, description, risk: low/high, affected_files: 影响的配置文件（prometheus.yml / targets / rules.yml / blackbox.yml）}]`，供「配置变更确认」页结构化展示（变更类型 / 变更对象 / 说明 / 风险等级 / 影响的配置文件） |
-| status | enum | ✅ | 状态 | pending / confirmed / discarded |
+| status | enum | ✅ | 状态 | pending / confirmed / discarded；`discarded` 承载四语义——人工废弃 / 内容无变化自动丢弃 / 校验失败后废弃 / **被同域更晚 pending 取代（superseded，决策 42-1）** |
 | created_at | datetime | ✅ | 仅技术信息 | 创建时间 |
 | updated_at | datetime | ✅ | 仅技术信息 | 更新时间 |
 | confirmed_by | string | ❌ | 确认人 | 确认人 |
@@ -799,7 +820,7 @@ Content-Disposition: attachment; filename="edge-config-gov-cloud-a.zip"
 
 ```
 edge-config-<network_domain_id>.zip
-├── prometheus.yml          # 本域 scrape_configs（仅 job 骨架，已注入 external_labels.network_domain；以 file_sd_configs 引用 targets/*.json）
+├── prometheus.yml          # 本域 scrape_configs（仅 job 骨架，已注入 external_labels.network_domain_id / zone_type / replica；以 file_sd_configs 引用 targets/*.json）
 ├── targets/                # file_sd 目标文件（按 job 分文件，固定文件名覆盖写）
 │   └── <job_name>.json     # 如 node-exporter.json / blackbox-http.json（targets 列表 + labels）
 ├── blackbox.yml            # 本域 Blackbox 探测模块（可选）
@@ -902,7 +923,8 @@ edge-config-<network_domain_id>.zip
 | GET | `/api/v2/platform/config-drafts` | Query: `network_domain_id`、`status`（pending/confirmed/discarded/all，默认 pending）、`page`、`page_size` | `{ items: [...], total: N }`，item 含 `change_no`、`summary`、`risk`、`affected_files`、`created_at` | `bad_request`：未选择已纳管网域 |
 | GET | `/api/v2/platform/config-drafts/{change_no}` | — | 变更单详情，含 `prometheus_yml`、`targets_files`、`rules_yml`、`blackbox_yml`、`change_items`、`metadata` | `not_found` |
 | POST | `/api/v2/platform/config-drafts/{change_no}/confirm` | `{ confirmed_by: string }`（MVP 预置用户） | 生成的 `ConfigVersion`（含 `id`、`change_no`、`config_version`） | `bad_request`：`validation_status=failed` / 已非 pending；`not_found` |
-| POST | `/api/v2/platform/config-drafts/{change_no}/discard` | `{ discarded_by?: string }` | 废弃后的变更单 | `bad_request`：已非 pending；`not_found` |
+| POST | `/api/v2/platform/config-drafts/{change_no}/revalidate` | — | 重新执行中心内容校验，返回新 `validation_status`；校验通过后该草稿恢复为可确认 `pending`，可继续 confirm | `bad_request`：校验仍 `failed` / 已非 failed 草稿；`not_found` |
+| POST | `/api/v2/platform/config-drafts/{change_no}/discard` | `{ discarded_by?: string }` | 废弃后的变更单（含校验失败态草稿的废弃出口，决策 42-2） | `bad_request`：已非 pending（校验失败态 failed 亦可废弃）；`not_found` |
 
 #### 6.5.3 配置版本与下发记录（ConfigVersion / ConfigDeployment）
 
@@ -912,6 +934,7 @@ edge-config-<network_domain_id>.zip
 | GET | `/api/v2/platform/config-versions/{id}` | — | 配置版本详情（含完整产物，用于 diff） | `not_found` |
 | GET | `/api/v2/platform/deployments` | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.6 | — |
 | POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | `{ triggered_by: string }` | 新的 `ConfigDeployment`（`status=success`，回滚目标版本） | `not_found`；`bad_request`：目标版本不存在或不是同一网域 |
+| POST | `/api/v2/platform/deployments/{deployment_id}/retry` | `{ triggered_by: string }` | 重新执行该下发（仅 `local` 通道，复用最近一次版本的下发动作），生成新的 `ConfigDeployment` | `bad_request`：非 `local` 通道 / 原记录非 failed；`not_found` |
 
 #### 6.5.4 采集节点状态查询
 
@@ -966,11 +989,11 @@ edge-config-<network_domain_id>.zip
 
 | 职责 | Module_09（网域与边缘配置中心） | Module_10（外部监控源接入与标签归一化） |
 |------|--------------------------------|------------------------------------------|
-| 内部 Edge Agent 的 `external_labels` 注入 | ✅ 在生成 `prometheus.yml` 时注入 `network_domain`、`tenant_id` 等 | ❌ |
+| 内部 Edge Agent 的 `external_labels` 注入 | ✅ 在生成 `prometheus.yml` 时注入 `network_domain_id` / `zone_type` / `replica` 等部署级元数据 | ❌ |
 | 外部异构监控源（第三方 Prometheus/Zabbix/云监控）接入 | ❌ | ✅ 负责标签归一化、映射、补全 |
-| 外部来源的 `network_domain` / `tenant_id` 标签对齐 | ❌ 可提供网域/租户定义供引用 | ✅ 负责将外部指标映射到本网域模型 |
+| 外部来源的 `network_domain_id` / `tenant` 标签对齐 | ❌ 可提供网域/租户定义供引用 | ✅ 负责将外部指标映射到本网域模型 |
 
-> **原则**：Module_09 管「内部 Agent 出身标签」，Module_10 管「外部来源入场标签」。两者都可能在指标上产生 `network_domain` 等标签，但生成时机和 responsibility 不同：Module_09 通过 Agent 配置注入，Module_10 通过接入网关/转换器在数据入平台时打标或改写。
+> **原则**：Module_09 管「内部 Agent 出身标签」，Module_10 管「外部来源入场标签」。两者都可能在指标上产生 `network_domain_id` 等标签，但生成时机和 responsibility 不同：Module_09 通过 Agent 配置注入，Module_10 通过接入网关/转换器在数据入平台时打标或改写。
 
 ---
 
@@ -1001,15 +1024,17 @@ edge-config-<network_domain_id>.zip
  pending（待确认）─── 确认发布（人工，变更单级 go/no-go）───► confirmed（已确认）
    │   ▲                                                            │
    │   └────────── 内容无变化自动裁决（checksum 一致）──────────────► discarded（自动丢弃）
+   │   └────────── 被同域更晚 pending 取代（superseded，决策 42-1）──► discarded（已取代）
    │
    └────── 废弃（人工）───► discarded（已废弃）
+   └────── 校验失败后重新校验通过 或 校验失败后废弃（决策 42-2）
 ```
 
 | 状态 | 含义 | 进入条件 | 后续流转 |
 |------|------|---------|---------|
-| pending | 待确认 | configgen 检测到变更且产物有实际差异 | 确认 → confirmed；废弃 → discarded；自动丢弃（内容无变化不生成） |
+| pending | 待确认 | configgen 检测到变更且产物有实际差异 | 确认 → confirmed；废弃 → discarded；自动丢弃（内容无变化不生成）；校验失败后重新校验通过或废弃（见 3.5.1 / 决策 42-2）；被同域更晚 pending 取代 → discarded(superseded) |
 | confirmed | 已确认 | 运维确认发布（记录确认人） | 生成 ConfigVersion（继承 change_no，分配 cv-xxx）→ 进入下发流程 |
-| discarded | 已废弃 / 自动丢弃 | 人工废弃；或重算后 checksum 与生效版本一致自动丢弃 | 终态，保持当前生效配置不变 |
+| discarded | 已废弃 / 自动丢弃 / 已取代 | 人工废弃；或重算后 checksum 与生效版本一致自动丢弃；或被同域更晚 pending 取代（superseded，`metadata.superseded_by_change_no` 指向新单） | 终态，保持当前生效配置不变 |
 
 **② ConfigDeployment（下发记录）状态机**
 
@@ -1053,6 +1078,10 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 
 ### 9.1 用户验收（用户可感知与操作）
 
+> **MVP 验收范围收敛（决策 42-5）**：本模块 **P0 是主干能力排序，不等于 MVP 交付**。**MVP 子集 = `default` 域 + `local` 通道 + 配置生成/预览/确认/reload 全链路**——凡涉及 Edge Agent / `agent_pull` / 多网域 / 节点状态/Token/安装指引 的验收条目均标注 **{v0.2}**，MVP 仅验收本次子集内可闭合项（default 域存在、配置生成 → 变更检测 → 确认 → diff/preview → reload 生效、local 重试/回滚、下发记录）。
+>
+> 本清单内显式含「v0.2 阶段」「采集节点状态」「Edge Agent」「agent_pull」字样的条目**归属 v0.2 验收**，不阻塞 MVP。
+
 - [ ] {P0} MVP 阶段系统存在默认网域 `default`，资源可无感知归属默认网域
 - [ ] {P0} 网域行政创建/编辑/删除由 Module_06 负责，M09 不提供删除入口；M09 可从 M06 已存在的网域中选择并进行**监控纳管**（填写监控参数、生成/重置 Edge Agent Token、Remote Write URL）
 - [ ] {P0} 可以为网域生成/重置 Edge Agent Token
@@ -1073,7 +1102,7 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P0} **MVP 阶段采集器类型固定 `vmagent`**（`channel=agent_pull` 网域纳管时无需选择），`prometheus-agent` 保留枚举、v0.2+ 开放为可选；采集节点状态列表页按是否存在 EdgeAgent 实例渐进呈现，支持按网域筛选，采用**「网域为主 + 组件分类」**结构（一级按网域聚合、展开按组件类型分类，展示对象为边缘节点 Agent 部署实例（Edge Sync Agent + 采集器组合，PRD 5.2）
 - [ ] {P0} 离线二进制包为一体化包（Edge Sync Agent + 采集器 vmagent/prometheus-agent 二选一 + blackbox exporter 可选），安装后 Edge Sync Agent 自动部署并管理本节点采集器与 blackbox exporter 进程（启动守护、健康检查、配置 reload、进程异常自动重启），采集器健康/版本纳入 采集节点状态上报；安装指引为 3 步人工步骤，无需手动分步安装采集器
 - [ ] {P0} **进程维修提示（MVP 文档化路径）**：若 Edge Sync Agent 自动重启采集器 / 拨测器进程后仍持续异常，抽屉内「最近错误」展示失败摘要，并提示运维人员到边缘节点通过 systemd 重启服务或按「网域纳管」安装指引重装离线包；中心侧远程重启进程按钮（`force_restart` 指令通道）留 v0.2+ 评审
-- [ ] {P0} **网域纳管为登记制闭环**：网域行政记录由 M06 创建（必填网域名称 + 租户，`id` 按租户前缀自动生成）；M09 纳管表单最小化（填写监控参数、Token 自动签发、Remote Write URL 由平台自动推导可手动覆盖）；「网域纳管」为必要前置步骤，不可被「安装指引」替代（Token 需纳管时签发，Agent 启动必须携带 NETWORK_DOMAIN_ID / TOKEN）；M06 创建 → M09 纳管 → 安装指引 → Agent 心跳自动上线闭环成立，Agent IP / 主机名由心跳上报补全
+- [ ] {P0} **网域纳管为登记制闭环**：网域行政记录由 M06 创建（必填网域名称 + 租户归属/授权，ID 规则见 [Module_06](Module_06_Multi_Tenant.md)）；M09 纳管表单最小化（填写监控参数、Token 自动签发、Remote Write URL 由平台自动推导可手动覆盖）；「网域纳管」为必要前置步骤，不可被「安装指引」替代（Token 需纳管时签发，Agent 启动必须携带 NETWORK_DOMAIN_ID / TOKEN）；M06 创建 → M09 纳管 → 安装指引 → Agent 心跳自动上线闭环成立，Agent IP / 主机名由心跳上报补全
 - [ ] {P0} **采集节点状态页组件分区抽屉**：点击行或「查看」按钮打开右侧 Drawer，按组件类型分区展示组件实例（Edge Sync Agent / 指标采集器 vmagent|prometheus-agent / 拨测器 blackbox exporter / v0.4+ vmalert / alertmanager，含组件状态 / 版本 / 配置版本 / 最近错误）；组件清单由心跳附带上报（`EdgeHeartbeat.components` → `EdgeAgent.components`），采集器组件状态 / 版本与顶层 `collector_status` / `collector_version` 一致；拨测器仅当网域存在 `job_type=blackbox` 的 ScrapeJob 时展示（否则展示「未部署」）
 - [ ] {P0} **配置同步状态引导操作**：采集节点状态列表「配置同步」列展示 **5 档状态**并提供按成因引导按钮——`未下发配置`（`config_sync_status=no_version`）显示「去配置采集 Job」按钮并跳转 M01 采集 Job 页（预选该网域）；`未同步`（`config_sync_status=out_of_sync`）按 `out_of_sync_cause` 三成因区分：*`pending_draft`* 显示「前往配置确认」按钮、*`pull_pending`* 纯展示等待并附带「查看下发记录」链接、*`local_reset`* 显示「立即同步」按钮（中心置 `force_pull` 标记，Agent 下次心跳强制重新拉包并 reload）；`已同步` / `人工覆盖` / `未知` 纯展示
 - [ ] {P0} **default 管理域固定 `local` 通道 / 字段条件化 / 安装指引入口 / 组件类型筛选**：`default` 管理域固定 `channel=local`、由中心直接采集、无 `EdgeAgent` 实例（MVP 不支持通道切换、不支持同域混合通道，单网域分布式采集为 v0.4+ 演化场景）；Token / Agent 类型 / Remote Write URL / 安装指引 / 运行态心跳字段仅对 `channel=agent_pull` 网域展示；纳管表单 Agent 类型下拉保留、MVP 仅 `vmagent` 可选（`prometheus-agent` 枚举保留、v0.2+ 开放）；纳管 / 编辑表单仅维护监控配置字段（描述 / Agent 类型 / Remote Write URL，下发通道只读展示），行政字段（名称 / 租户 / 域类型 / 启用状态）由 [Module_06](Module_06_Multi_Tenant.md) 维护，运行态字段（状态 / 最后心跳）由心跳上报并在列头 / 页脚标注来源；采集节点状态页支持**网域 + 组件类型双筛选**（组件类型联动展开明细与统计卡，一级表对应列仅统计匹配组件）
@@ -1094,10 +1123,17 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P0} **提示分区规范**：用户可见文案不含「决策 X」「PRD X.X」等实现层引用；设计决策依据集中折叠在页面底部「原型与实现说明（面向产品 / 技术评审）」区（默认折叠）；代码注释与 PRD 承载实现细节供开发 / AI 参考
 - [ ] {P2} P1/P2 阶段，边缘诊断看板可展示 WAL 积压趋势、Remote Write 队列状态、最近错误、24h 断网时长等图表
 
+> **MVP 缺憾补漏验收（决策 42 系列，均为 MVP 子集内可闭合项）**：
+
+- [ ] {P0} **同域至多一张活 `pending` 变更单（决策 42-1）**：同一网域在确认周期内连续变更时，旧的 `pending` 草稿被更新的草稿自动置为 `discarded`（superseded，界面展示「已取代」），变更确认列表同时最多呈现一张待确认单，不会出现同域多张待确认单
+- [ ] {P0} **校验失败草稿闭环（决策 42-2）**：`validation_status=failed` 的草稿不可确认，界面展示失败原因，并提供「重新校验」与「废弃」两出口；重新校验通过后恢复可确认；废弃后保持当前生效配置不变
+- [ ] {P0} **`local` 重试下发（决策 42-3）**：`channel=local` 且 `status=failed` 的下发记录提供「重试」按钮，重试复用最近一次版本的下发动作并生成新下发记录；`agent_pull` 通道不提供重试
+- [ ] {P0} **变更检测「生成失败」可观测（决策 42-4）**：configgen 生成异常时，变更检测状态明确提示「本次变更生成失败 + 原因」，不推进 `source_data_version`，下一轮自动重试
+
 ### 9.2 技术验收（后端机制 / 协议 / 数据契约可验证）
 
-- [ ] {P2} `network_domain_id` 必须全局唯一，创建时建议校验租户前缀
-- [ ] {P2} 一个网域必须且只能归属一个租户，禁止跨租户共享网域
+- [ ] {P2} `network_domain_id` 必须全局唯一（ID 规则由 Module_06 统一定义并校验，本模块只读引用）
+- [ ] {P0} 配置生成时排除 `Resource.status=offline` 资源：`offline` 资源不进入 `targets/*.json`，`offline` 后下一配置生成周期即从 targets 移除（对齐 [Module_07 8.1](Module_07_Monitoring_Object_Management.md)）
 - [ ] {P2} 网域可维护 BlueKing CMDB 云区域 ID 与路径映射
 - [ ] {P0} v0.2 阶段，配置中心可轮询 Module_01 与 Module_07 数据并生成按网域的 `prometheus.yml` 与 `targets/*.json` 草稿
 - [ ] {P0} Module_01/07 策略/资源写库后无需主动通知 Module_09，配置生成由 Module_09 异步轮询（pull 模式）检测 `updated_at` 变化触发
@@ -1113,8 +1149,8 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P1} v0.2 阶段，Edge Sync Agent 可通过 Token 拉取本域配置包
 - [ ] {P1} v0.2 阶段，Edge Sync Agent 心跳可更新网域最后在线时间、配置版本、WAL 积压
 - [ ] {P1} Edge Agent 失联超过阈值（默认 5 分钟）时，触发 `EdgeSiteOffline` 告警
-- [ ] {P1} 配置包包含 `prometheus.yml`、`targets/*.json` 和 `metadata.json`，且 `prometheus.yml` 已注入 `external_labels.network_domain` 与 `external_labels.tenant_id`； 网域登记了 `zone_type` 时同步注入 `external_labels.zone_type`
-- [ ] {P0} **规则组织与交付**：M09 按 `MonitoringRule` 字段自动派生 Prometheus `group` 生成 `rules.yml`；MVP 所有 `channel` 均包含全部 `enabled=true` 规则（`scope` 固定 `central`，中心统一求值）；v0.4+ `channel=agent_pull` 的网域仅包含 `scope=edge`/`both` 规则，`channel=local` 网域仍包含全部规则
+- [ ] {P1} 配置包包含 `prometheus.yml`、`targets/*.json` 和 `metadata.json`，且 `prometheus.yml` 已注入 `external_labels.network_domain_id`（`zone_type` / `replica` 按网域登记 / 部署拓扑注入），**不注入 `tenant_id` 与业务标签**
+- [ ] {P0} **规则组织与交付**：M09 按 `MonitoringRule` 字段自动派生 Prometheus `group` 生成 `rules.yml`；**规则内容按 `content_mode` 分形态并入：`content_mode=yaml_passthrough`（MVP）将 `rule_content` 原样并入（含 `groups`，M09 不解析/不重排），`content_mode=structured`（v0.3+）按字段化生成**（对齐 Module_01 5.5「规则文件挂载」）；MVP 所有 `channel` 均包含全部 `enabled=true` 规则（`scope` 固定 `central`，中心统一求值）；v0.4+ `channel=agent_pull` 的网域仅包含 `scope=edge`/`both` 规则，`channel=local` 网域仍包含全部规则
 - [ ] {P0} **`alertmanager.yml` 不进入 M09 配置产物**：ConfigDraft / ConfigVersion / 配置包中均不包含 `alertmanager.yml`；`alertmanager.yml` 由 Module_08 直接管理并触发 Alertmanager reload
 - [ ] {P1} 心跳响应 `config_download_url` 为绝对地址（网域 `center_endpoint` + 相对路径合成）；网闸 / 隔离区场景下不存在中心→边缘的主动连接，所有交互由边缘发起
 - [ ] {P0} 配置包必须包含 `targets/*.json`（按 job 分文件，固定文件名覆盖写），且 `prometheus.yml` 的 scrape_configs 以 `file_sd_configs` 引用 targets 文件、不内联 targets 列表
@@ -1136,7 +1172,14 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P0} {v0.3} 配置生成候选集**仅包含** `draft_status=ready` 且 `enabled=true` 的 `MonitoringRule`；`draft_status=draft` 的规则不参与配置生成
 - [ ] {P0} {v0.2} `ScrapeJob` / `MonitoringRule` 的 `updated_at` 变化且 `draft_status=draft` 时，M09 源数据版本聚合可感知变化，但生成配置时过滤掉草稿对象，通过 checksum 裁决避免产生噪音草稿
 - [ ] {P0} {v0.2} 确认下发成功后，M09 将相关 `ScrapeJob` 的 `change_status` 回写为 `deployed`；`agent_pull` 通道在 Edge Agent 成功应用配置包后回写，`local` 通道在中心 reload 成功后回写
-- [ ] {P0} {v0.3} 规则编辑 UI 落地后，M09 按同样逻辑回写 `MonitoringRule` 的 `change_status`
+- [ ] {P0} {v0.2} 规则编辑 UI 落地后，M09 按同样逻辑回写 `MonitoringRule` 的 `change_status`
+
+> **MVP 缺憾补漏技术验收（决策 42 系列）**：
+
+- [ ] {P0} **同域 pending 取代（决策 42-1）**：生成新 `pending` 草稿且产物与生效版本有实质差异时，同域更早 `pending` 草稿自动置 `discarded(superseded)` 且 `metadata.superseded_by_change_no` 指向新单；同域不存在多于一张的活 `pending`
+- [ ] {P0} **校验失败闭环（决策 42-2）**：`validation_status=failed` 草稿禁止 confirm；`revalidate` 仅重校、校验通过后恢复可确认；`discard` 支持校验失败态草稿
+- [ ] {P0} **local 重试（决策 42-3）**：`retry` 仅对 `local` 通道 + 原记录 failed 生效，重试生成新 `ConfigDeployment`；`agent_pull` 通道 `retry` 返回 `bad_request`
+- [ ] {P0} **生成失败不推进版本（决策 42-4）**：configgen 生成异常时不推进 `source_data_version`、标记失败待重算，下一轮轮询自动重试
 
 ## 10. 术语映射（用户词汇表）
 
@@ -1173,7 +1216,7 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 | `metadata.json` | 仅技术信息 | 边缘配置包元数据（版本 / 校验值等） |
 | `EdgeHeartbeat` | 仅技术信息 | 边缘 Agent 心跳上报协议 |
 | `file_sd_configs` / `targets/*.json` | 仅技术信息 | 采集目标文件机制 |
-| `external_labels` | 仅技术信息 | 回写指标自动携带的网域 / 租户标签 |
+| `external_labels` | 仅技术信息 | 回写指标自动携带的网域 / 网络区域 / 副本标签 |
 
 ## 11. 前端交互契约
 
@@ -1216,6 +1259,14 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.50 | 2026-08-21 | 修改 | 决策 30/31 落版：①采集认证/TLS 最小集透传（决策 31，MVP 必实现）——§3.3 配置生成服务新增「认证/TLS 透传」行，将 ScrapeJob 的 `auth_type`（basic→`basic_auth` username/password、bearer→`authorization` Bearer）/`tls_skip_verify`→`tls_config.insecure_skip_verify`/`ca_file`→`tls_config.ca_file` 映射进对应 `scrape_configs`，全部可选默认不启用，blackbox 拨测 HTTP/HTTPS 模块同理透传 `tls_config`、无新机制；②网域冻结域不生成新变更单（决策 30）——§3.4 配置变更确认补充冻结（禁用）域不生成新变更单、存量下发与回滚不受影响；③变更状态回写 `change_status=deployed` 提前到 MVP（决策 31-M2）——§3.5 M09 依据 ConfigDeployment success 记录回写、消除「已生效 vs 无变更」歧义；④删除「未指定网域资源自动归 default」兜底（决策 31-M3）——§5.1 明确 M07 导入校验 `network_domain_id` 必填、缺失即拒绝，M09 不做隐式归集、仅显式选择 default 才归入 | 3.3 / 3.4 / 3.5 / 5.1 | MVP / v0.2 | prototyping |
+| v1.49 | 2026-08-21 | 修改 | M09 网域契约结构性对齐（决策 28）+ offline 排除提级 P0（决策 29）：①§1 / §3.1.1 / §5.1 删除「1 租户 : N 网域」「禁止跨租户共享网域」「租户前缀」「tenant_id=所属租户」「未指定继承 default」等旧语义，明确「NetworkDomain 行政模型以 Module_06 为单一事实来源」、ID 规则置 M06（id / tenant_id 字段只读引用、归属约束改为行政约束引用、MVP 处理去掉租户继承语义、§9.1/§9.2 同步）；②§3.3「实例过滤」与 9.2 验收将 `offline` 排除提级 MVP 必实现——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤，`offline` 后下一配置生成周期即从 targets 移除；本轮为 PRD 契约落版，不涉及原型行为变更 | 1 / 3.1.1 / 3.3 / 5.1 / 9 | MVP / v0.2 | prototyping |
+| v1.48 | 2026-08-21 | 修改 | 对齐 Module_01 v3.24「规则文件挂载」补充 `rule_content` 透传并入契约：①§3.3「按网域生成配置」新增 `content_mode` 分形态并入逻辑——`yaml_passthrough`（MVP）将 `rule_content`（完整 rules.yml 含 groups）原样并入，`structured`（v0.3+）按字段化生成；②§3.3 配置文件映射语义补充 `rules.yml` = 规则级（MonitoringRule）层级；③9.2 验收「规则组织与交付」补透传表述 | 3.3 配置生成 / 9 验收 | MVP / v0.3 | prototyping |
+| v1.47 | 2026-08-21 | 修改 | MVP 缺憾补漏（决策 42 系列）：①同域 `pending` 草稿「后单取代前单」（superseded）防堆积——3.3.3 补第三层裁决、8 状态机、5.4 metadata `superseded_by_change_no`；②校验失败草稿补「重新校验 / 废弃」闭环——3.5.1、6.6.2 新增 revalidate 接口、8 pending 流转；③`local` 通道 failed 下发记录补「重试」入口——3.5、6.6.3 新增 retry 接口（`agent_pull` 不提供）；④configgen 生成异常补「生成失败」态且不推进版本、下轮重试——3.3.3 检测状态可观测、3.4 变更检测状态；⑤9.1/9.2 MVP 验收范围收敛并补 4 项闭环验收（决策 42-1~42-4） | 3.3.3 / 3.4 / 3.5 / 3.5.1 / 5.4 / 6.6.2 / 6.6.3 / 8 / 9 | MVP / v0.2 | prototyping |
+| v1.46 | 2026-08-19 | 修改 | 回写跨模块契约（Module_07 8.1 / 第三轮评审 K 组）：§3.3「实例过滤」声明 `offline` 排除为**目标语义、MVP 不保证、随 M01 开发节奏落地**——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤已下线实例；本轮为契约声明，不涉及原型行为变更 | 3.3 配置生成 / 实例过滤 | MVP / v0.2 | prototyping |
+| v1.45 | 2026-08-19 | 修改 | 按 2026-08-19 业务登记与网域-业务正交性决策（决策 19/23）收敛标签注入：①§3.3.1 `external_labels` 移除 `tenant_id`，最终保留 `network_domain_id` / `zone_type` / `replica` 部署级元数据；②§3.3 / §5 明确 `biz` 与 `tenant` 均由 M07 LabelTemplate 以 target 级注入（`business_domain → biz`、`tenant_id → tenant`），M09 不单独注入，MVP 单租户下 `tenant` 映射可选；③§5 配置目录 MVP 只写「按 `network_domain` 分目录」，多租户命名空间仅留 {v0.2+} 占位说明（原则一句话 + 详细规则多租户版本再定），不展开、不实现；④同步 §6.3 配置包结构 / §7.1.4 边界表 / §9 验收标准 / §10 术语映射；原型同步 external_labels 演示 | 3.3 配置生成 / 3.3.1 external_labels / 5.1 网域数据模型 / 6.3 / 7.1.4 / 9 / 10 / 原型 | MVP / v0.2 | prototyping |
+| v1.44 | 2026-08-19 | 修改 | 按 2026-08-19 业务登记与网域-业务正交性决策补充：①§5.1 网域数据模型增加「网域与业务正交」说明——网域与业务是两个正交维度、多业务共用 1 网域为正常状态、业务归属变更只触发 `targets/*.json` 原子重写；②原型同步业务归属变更演示（多业务共用 1 网域 + 10.0.1.11 业务 data-api→risk 仅重写 targets） | 5.1 网域数据模型 / 原型 | MVP / v0.2 | prototyping |
+| v1.43 | 2026-08-19 | 修改 | 按 design-decisions 决策 12~17 补充 `biz` 业务标签注入链路说明：①§3.3「标签注入」明确 `biz` 等实例级业务标签由 Module_07 LabelTemplate 注入 `targets/*.json` 的 `static_configs[].labels`，不由 M09 的 `external_labels` 注入；②§3.3.1 `external_labels` 注入说明增加与 M07 的标签边界说明 | 3.3 配置生成 / 3.3.1 external_labels | MVP / v0.2 | prototyping |
 | v1.42 | 2026-08-18 | 修改 | 未同步按成因分档标签化展示（待确认变更 / 生效中 / 本地校验失败）+ 进程异常醒目提示（行级高亮 + 抽屉高危横幅，与配置同步解耦）+ 平铺表新增 Edge Sync Agent 状态列 + manual_override 术语统一「人工覆盖」 | 采集节点状态页 / 3.2 / 3.6 / 3.8.1 | MVP / v0.2 | prototyping |
 | v1.41 | 2026-08-18 | 新增 | 联动 M01 草稿状态：配置生成候选集过滤 `draft_status=ready`；`change_status` 扩展为 `pending/confirmed/deployed/none` 并定义全链路回写 M01 规则；MVP 阶段 `deployed` 由 `none` 占位，v0.2 起精确回写 | 3.3 配置生成 / 3.4 配置确认 / 3.5 配置下发 / 5.6 下发记录 | MVP / v0.2 / v0.3 | prototyping |
 | v1.40 | 2026-08-17 | 修改 | out_of_sync 按成因区分引导 + 立即同步；agent_pull 下发记录只记发布动作且无重试按钮；确认后动线引导；页顶组件关系横幅改为可关闭 Alert；补全 no_version / out_of_sync_cause 枚举与进程维修文档化路径 | 采集节点状态页 / 下发记录页 / 配置变更确认页 | MVP / v0.2 | prototyping |

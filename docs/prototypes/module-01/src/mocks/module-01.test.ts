@@ -5,6 +5,7 @@ import {
   ENV_VALUES,
   ENV_LABEL,
   METRIC_TYPES,
+  MONITORED_NETWORK_DOMAINS,
   NETWORK_DOMAIN_IDS,
   STATUS_VALUES,
   STATUS_LABEL,
@@ -15,24 +16,38 @@ import {
   mockExporterTemplates,
   mockLabelTemplates,
   mockMetricLibrary,
+  mockMountedRuleFiles,
   mockMonitoringRules,
   mockNetworkDomains,
   mockResources,
   mockScrapeJobs,
 } from './module-01'
 
-describe('module-01 mocks（对齐 PRD v2.3）', () => {
+describe('module-01 mocks（对齐 PRD v3.26）', () => {
   const templateIds = new Set(mockExporterTemplates.map((t) => t.exporter_template_id))
   const resourceIds = new Set(mockResources.map((r) => r.resource_id))
   const metricNames = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
 
-  it('network_domain_id 非空且为规范值（default / gov-cloud-a / finance-dmz）', () => {
+  it('network_domain_id 非空且为规范值（default / gov-cloud-a / finance-dmz / legacy-dc）', () => {
     // finance-dmz 为离线、未纳管网域（is_monitored=false），仅出现在 NETWORK_DOMAIN_IDS，不在 MONITORED_NETWORK_DOMAINS
-    expect(NETWORK_DOMAIN_IDS).toEqual(['default', 'gov-cloud-a', 'finance-dmz'])
+    // legacy-dc 为「已纳管但冻结」演示网域（{v3.26} 决策 30，is_monitored=true 且 frozen=true）
+    expect(NETWORK_DOMAIN_IDS).toEqual(['default', 'gov-cloud-a', 'finance-dmz', 'legacy-dc'])
     mockNetworkDomains.forEach((d) => {
       expect(d.id).toBeTruthy()
       expect(NETWORK_DOMAIN_IDS).toContain(d.id)
     })
+  })
+
+  it('{v3.26} 决策 30：legacy-dc 为「已纳管但冻结」网域（is_monitored=true 且 frozen=true），仍入选 MONITORED_NETWORK_DOMAINS', () => {
+    const frozen = mockNetworkDomains.find((d) => d.id === 'legacy-dc')
+    expect(frozen).toBeTruthy()
+    expect(frozen!.is_monitored).toBe(true)
+    expect(frozen!.frozen).toBe(true)
+    // 冻结网域仍在「已纳管网域」中（M01 表单显示但置灰不可选），非冻结网域不设 frozen
+    expect(MONITORED_NETWORK_DOMAINS.some((d) => d.id === 'legacy-dc')).toBe(true)
+    mockNetworkDomains
+      .filter((d) => d.id !== 'legacy-dc')
+      .forEach((d) => expect(d.frozen).toBeFalsy())
   })
 
   it('ScrapeJob / Resource 的 network_domain_id 均在规范网域内', () => {
@@ -259,6 +274,42 @@ describe('module-01 mocks（对齐 PRD v2.3）', () => {
       if (c.actual_port !== undefined) {
         expect(c.actual_port).toBeGreaterThanOrEqual(1)
         expect(c.actual_port).toBeLessThanOrEqual(65535)
+      }
+    })
+  })
+
+  it('{v3.24} 规则文件挂载 mock 完整性：content_mode=yaml_passthrough、rule_content 含 groups、rule_count 与内容一致（PRD 5.5）', () => {
+    expect(mockMountedRuleFiles.length).toBeGreaterThan(0)
+    mockMountedRuleFiles.forEach((f) => {
+      expect(f.content_mode).toBe('yaml_passthrough')
+      expect(f.rule_content).toContain('groups:')
+      expect(f.rule_content).toMatch(/^\s*-\s+(?:alert|record):/m)
+      // 启发式规则条数：groups[*].rules 中 alert / record 条目合计
+      const matches = f.rule_content.match(/^\s*-\s+(?:alert|record):/gm) ?? []
+      expect(f.rule_count).toBe(matches.length)
+      expect(f.rule_count).toBeGreaterThan(0)
+      expect(typeof f.enabled).toBe('boolean')
+      expect(['pending', 'confirmed', 'none']).toContain(f.change_status)
+      expect(f.created_at).toBeTruthy()
+      expect(f.updated_at).toBeTruthy()
+    })
+  })
+
+  it('{v3.24} 规则文件挂载 change_status 全链路回写 M09：rule-file-001 已确认 / rule-file-002 待确认 / rule-file-003 无变更（决策 38-1 人工确认档）', () => {
+    const byId = new Map(mockMountedRuleFiles.map((f) => [f.rule_id, f]))
+    expect(byId.get('rule-file-001')?.change_status).toBe('confirmed')
+    expect(byId.get('rule-file-002')?.change_status).toBe('pending')
+    expect(byId.get('rule-file-003')?.change_status).toBe('none')
+  })
+
+  it('{v3.24} MonitoringRule content_mode 合法且 MVP 默认 yaml_passthrough，rule_content 在透传模式下必填（PRD 5.5）', () => {
+    mockMonitoringRules.forEach((r) => {
+      if (r.content_mode !== undefined) {
+        expect(['yaml_passthrough', 'structured']).toContain(r.content_mode)
+        if (r.content_mode === 'yaml_passthrough') {
+          expect(r.rule_content).toBeTruthy()
+          expect(r.rule_content).toContain('groups:')
+        }
       }
     })
   })

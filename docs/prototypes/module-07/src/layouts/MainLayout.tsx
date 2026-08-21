@@ -141,6 +141,7 @@ export function MainLayout({ children }: MainLayoutProps) {
             </Tag>
           </Space>
           <Space size="large" align="center">
+            <ReviewNoteSwitch />
             <Space size="small" align="center">
               <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>当前角色</Text>
               <Select
@@ -150,7 +151,6 @@ export function MainLayout({ children }: MainLayoutProps) {
                 options={Object.entries(USER_ROLE_MAP).map(([value, label]) => ({ value, label }))}
               />
             </Space>
-            <ReviewNoteSwitch />
           </Space>
         </Header>
         <Layout>
@@ -191,7 +191,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 docs/05-execution-records/module-07/design-decisions.md 与 Module_07 PRD（对应原型目录上级）。
                 决策清单：
                 3.1 v0.4+ 预留字段处理策略（cmdb / orphan / cmdb_field 类型存在、MVP 不使用，UI 标注 {'v0.4+'}）；
-                3.2 模块边界可视化（被动数据提供方、is_monitored 由 Module_01 维护只读展示、不生成下发 Prometheus 配置、CMDB 同步由 Module_04 负责）；
+                3.2 模块边界可视化（被动数据提供方、采集/监控状态归 M01/M02（M07 只读映射 is_monitored，见 3.20）、不生成下发 Prometheus 配置、CMDB 同步由 Module_04 负责）；
                 3.3 状态映射可配置说明放置位置（标签模板页 + 导入记录页，UI 配置入口 P2）；
                 3.4 保护 Prometheus label 校验（composite→instance 映射为例外允许）；
                 3.5 跨模块导航占位（非本模块菜单 disabled + 版本标注）；
@@ -209,6 +209,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                 3.17 转换规则 transform 下拉可留空（无/lower/upper，prefix/replace 需参数后续版本开放）；
                 3.18 组合字段取值时序：port 取映射 default_port，与 Job/Exporter 无关，唯一风险为端口不一致（见 Module_01 5.1 端口一致性说明）；
                 3.19 prometheus_builtin MVP 隐藏、数据模型保留。
+                3.20 {'{v2.20}'} 决策 31-M1：is_monitored 由 M01 维护、M07 只读映射（资源列表「采集状态」列只读展示 + 「未监控」筛选，M07 不计算不写回，且 is_monitored 与 status 维度独立）；
+                3.21 {'{v2.20}'} 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真）。
                 实现细节与数据契约见 PRD 对应章节（6 接口设计 / 5.12 C 组合字段 / 12 验收标准）与代码注释。
               </Typography.Paragraph>
             </ReviewNote>

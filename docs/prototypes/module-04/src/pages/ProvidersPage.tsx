@@ -79,19 +79,16 @@ export function ProvidersPage() {
       case 'blueking':
         return (
           <>
-            {/* {v1.2} BlueKing 字段映射：业务路径 → business_domain（与 Module_07 v2.8 业务类型衔接，供 biz 标签生成） */}
+            {/* {v1.5} 决策 D12~D17（2026-08-19，业务登记与网域-业务正交）：Tenant 不再与 BlueKing Business 强制映射；BlueKing Business → M07 业务分组字典，资源 business_domain 取自 bk_biz_id */}
             <Alert
               type="info"
               showIcon
               style={{ marginBottom: 12 }}
               message="同步字段映射"
-              description="Tenant → 蓝鲸业务；NetworkDomain → 云区域（Cloud Area）；CI 字段 → cmdb_ci_id / cmdb_business_path / cmdb_module_path / cmdb_maintainer；业务路径 → 业务类型（business_domain）——CMDB 同步后业务类型随资源落地，无需平台手动维护（与 Module_07 v2.8 衔接，供 biz 标签生成）。"
+              description="NetworkDomain → 云区域（Cloud Area）；CI 字段 → cmdb_ci_id / cmdb_business_path / cmdb_module_path / cmdb_maintainer；BlueKing 业务（bk_biz_id / bk_biz_name）→ M07 业务分组字典（business_domain = bk_biz_id，display_name = bk_biz_name），资源 business_domain 取自 bk_biz_id，供 biz 标签生成。租户与业务不再强制映射。"
             />
-            <Form.Item label="BlueKing 地址" name={['config', 'bkBaseUrl']}>
-              <Input placeholder="https://cmdb.example.com" />
-            </Form.Item>
             <Form.Item label="业务 ID" name={['config', 'bkBizId']}>
-              <Input placeholder="例如 2" />
+              <Input placeholder="例如 2（CMDB 所含业务将同步登记到业务分组字典）" />
             </Form.Item>
             <Form.Item label="用户名" name={['config', 'username']}>
               <Input />
@@ -193,7 +190,19 @@ export function ProvidersPage() {
   const providerType = Form.useWatch('type', form)
 
   return (
-    <MainLayout>
+    <MainLayout
+      reviewNotes={
+        <>
+          本页演示外部数据源 Provider 配置与字段映射（v0.4+）。关键决策：
+          D12 网域与业务正交：网域登记制（固定低频）、业务由 M07 业务分组字典维护（持续演进），多业务共用一网域是正常态；
+          D13 业务登记入口归 M07，本模块只消费，不在 M04 维护业务；
+          D14 BlueKing Business → M07 业务分组字典（business_domain = bk_biz_id / display_name = bk_biz_name），资源 business_domain 取自 bk_biz_id（或稳定业务路径编码），供 biz 标签生成；
+          D15-v0.4+ 蓝鲸 CMDB 同步时，业务路径同时映射为 business_domain，编码优先 bk_biz_id，无则按业务路径生成稳定编码；
+          D16 Tenant 不再与 BlueKing Business 强制映射（租户 ≠ 业务）；
+          D17 同步失败容错：业务字典沿用旧快照，不影响标签生成与配置下发。
+        </>
+      }
+    >
       <div className="page-header">
         <Title level={4}>Provider 配置</Title>
       </div>

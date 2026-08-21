@@ -162,9 +162,35 @@ export function MainLayout({ children }: MainLayoutProps) {
               本模块关键决策：配置产物形态分层（D6/D32）、下发通道按采集节点位置分层（D31/D32/D33）、
               配置变更确认心智（自动生成 + 人工审批，D18）、变更对象与影响文件（D22）、
               提示分区规范（D21）。
+              v1.50（决策 31/30/31-M2/31-M3 契约同步呈现，2026-08-21）：①采集认证 / TLS 透传（决策 31，MVP 必实现）——
+              ScrapeJob 认证 / TLS 字段由 M01 配置，本模块仅透传映射（auth_type=basic→basic_auth、auth_type=bearer→authorization、
+              tls_skip_verify→tls_config.insecure_skip_verify、ca_file→tls_config.ca_file），blackbox HTTP/HTTPS 模块同理透传 tls_config；
+              ②冻结（禁用）网域不生成新变更单（决策 30），存量下发与回滚不受影响；③变更状态回写 deployed 提前到 MVP（决策 31-M2），
+              成功下发即 deployed；④删除「未指定网域资源自动归 default」兜底（决策 31-M3），network_domain_id 由 M07 导入校验强制必填。
+              本批为 M01 / M07 契约的同步呈现，无新机制。
+              v1.49（决策 28/29 契约落版 + 原型同步）：①网域契约结构性对齐（决策 28）——NetworkDomain 行政模型以 Module_06 为单一事实来源、
+              本模块不再重复声明行政字段表（ID 规则 / 租户归属 / 跨租户共享见 Module_06）；②offline 排除提级 MVP 必实现（决策 29）——
+              生成 targets/*.json 时按 Resource.status=offline 过滤已下线实例（offline 后下一配置生成周期即从 targets 移除），
+              maintenance 排除口径与 Module_07 8.1 一并对齐（MVP 不保证）。
+              v1.48（决策 38-1 规则文件挂载，MVP 补齐 M01↔M09 规则链路契约）：rules.yml 生成改为「透传并入」——
+              MVP 阶段 M01 规则编辑页以文件挂载（content_mode=yaml_passthrough）把整份 rules.yml 存于
+              MonitoringRule.rule_content，M09 生成 rules.yml 时原样并入（不按字段派生），保存 / 启停 / 删除后
+              进入变更检测 → 变更单人工确认 → 下发，change_status 全链路回写 M01；v0.3 字段级编辑（structured）后
+              恢复按字段派生分组。本轮联动 M01 原型 v3.24，不改变本模块行为逻辑。
+              v1.47（MVP 缺憾补漏，2026-08-21 决策 42 系列）：同域 pending 草稿「后单取代前单」superseded 防堆积；
+              校验失败草稿提供「重新校验 / 废弃」闭环；local 通道 failed 下发记录提供「重试」入口（agent_pull 不提供）；
+              configgen 生成异常新增「生成失败」态且不推进版本、下轮重试；9 验收收敛 MVP 边界标注 {'{v0.2}'}。本轮为契约与闭环补口子、不改原型行为。
+              v1.46 契约由 v1.49 提级取代：offline 过滤已由「目标语义、MVP 不保证」提级为「MVP 必实现」（决策 29，见 v1.49 说明）。
+              v1.45（标签注入收敛，2026-08-19 决策 19/23）：external_labels 移除 tenant_id，仅注入部署级元数据
+              network_domain_id / zone_type / replica；biz 与 tenant 均由 Module_07 LabelTemplate 以 target 级注入
+              targets/*.json 的 static_configs[].labels，M09 不单独注入；配置产物按 network_domain 分目录（MVP），
+              多租户命名空间 {'{v0.2+}'} 占位不实现。
+              v1.44（业务-网域正交性对齐，2026-08-19 决策）：biz 等实例级业务标签由 Module_07 LabelTemplate
+              注入 targets/*.json 的 static_configs[].labels，不经本模块 external_labels；网域与业务正交——
+              多业务共用 1 网域为正常状态，业务归属变更只原子重写 targets/*.json（新增待确认草稿 draft-gov-004 演示）。
               v1.43（联动 M01 草稿）：配置生成候选集过滤 draft_status=ready，草稿对象（draft）不生成配置变更；
               change_status 全链路回写 M01（pending / confirmed / deployed / none，PRD 3.3/3.4/3.5），
-              MVP 阶段 deployed 由 none 占位（确认下发成功后直接回写 none，v0.2 起精确回写）。
+              v1.50 起 deployed 提前为 MVP 必实现（成功下发即回写，见上方 v1.50 说明；v1.43 原文「MVP 由 none 占位」由 v1.50 取代）。
               实现细节与数据契约见 PRD 对应章节与代码注释。
             </Typography.Paragraph>
           </ReviewNote>

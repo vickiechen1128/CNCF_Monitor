@@ -2,7 +2,8 @@
 
 > 文档类型：产品需求文档 / 功能架构  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)  
-> 更新日期：2026-08-16
+> 版本：v3.3
+> 更新日期：2026-08-21
 
 ---
 
@@ -13,6 +14,7 @@
 3. **MVP 聚焦**：先跑通「对象 → 策略 → 配置 → 采集 → 查询 → 告警状态」主链路
 4. **对象-策略-配置解耦**：监控对象（Module_07）、监控策略（Module_01）、配置中心（Module_09）三层独立演进
 5. **资源管理最小化**：MVP 仅保留必要字段，后续接入腾讯蓝鲸等外部 CMDB
+6. **租户-网域-业务正交**：物理拓扑（网域）是配置生成与采集部署的唯一结构化维度；租户（治理/权限）与业务（分组）均作为 target 级标签处理，不进采集拓扑、不触发配置重发。判定标准详见 [00_Global_Architecture.md §1.1](00_Global_Architecture.md#11-核心设计原则物理拓扑租户治理与业务分组正交)。
 
 ---
 
@@ -83,19 +85,21 @@
 | **资源状态管理** | `online` / `offline` / `maintenance` 状态维护；Excel/CMDB 状态通过可配置字典映射 | P0 |
 | **资源 Label 管理** | `ResourceLabel` CRUD；来源分层 `system` / `user` / `cmdb {v0.4+}`；同 key 优先级 `cmdb` > `user` > `system` | P0 |
 | **标签模板管理** | 按资源类型定义字段 → Label 映射；字段来源支持 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}`；transform 规则 | P0 |
-| **已监控 / 未监控 badge** | 在 Resource 列表展示该资源是否被任意 ScrapeJob 选中；由 Module_01 写入关联关系，Module_07 只读展示 | P0 |
-| **网域归属** | 资源按 `network_domain_id` 分组；网域生命周期由 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 负责 | P0 |
+| **「未监控」筛选** | 在 Resource 列表按「未监控」筛选未被任意 ScrapeJob 选中的资源；`is_monitored` 由 Module_01 维护、Module_07 只读映射，不展示「已监控」详情（决策 31-M1） | P0 |
+| **网域归属** | 资源按 `network_domain_id` 分组；`network_domain_id` 强制必填（决策 31-M3）；网域行政登记由 [Module_06](Modules/Module_06_Multi_Tenant.md) 负责（单一事实来源，决策 28）、监控纳管由 [Module_09](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 负责 | P0 |
 | **CMDB 接入源** | Excel 接入（MVP）、HTTP API、Nacos、Kubernetes、腾讯蓝鲸（v0.4+） | P1/P2 |
 | **资源关系** | 应用-实例-集群关系、依赖拓扑（未来） | P2 |
 
 > **核心字段约定**：
 > - `resource_id`：稳定唯一键，不用于展示；MVP 取自 `server_id` / `instance_name`；v0.4+ 复用 CMDB `cmdb_ci_id`。
 > - `instance_name` / `hostname`：可读展示名；Prometheus `instance` label 仍为目标地址，不用于展示。
-> - `network_domain_id`：资源必须归属网域；MVP 默认 `default`，v0.2+ 按租户上下文填充。
+> - `tenant_id`：资源所属租户（组织/部门）；MVP 固定为 `platform_admin`，v0.2+ 按实际租户归属填充；经 M07 LabelTemplate 注入 target 级 `tenant` 标签。
+> - `network_domain_id`：资源所属物理网域；MVP 默认 `default`；网域是部署级资源，不由租户拥有，多租户下可跨租户共享。
+> - `biz_code`：资源所属业务类型/业务域的不可变编码；MVP 必填，由配置文件预置字典（字典条目 = `biz_code` + `biz_name` + 状态）；经 M07 LabelTemplate 注入 target 级 `biz` 标签；`biz_name` 仅作展示，不进标签。
 > - `source_type`：数据来源 `manual` / `import` / `cmdb {v0.4+}`。
-> - `is_monitored`：是否已被至少一个 ScrapeJob 选中；由 Module_01 维护，Module_07 只读展示。
+> - `is_monitored`：是否已被至少一个 ScrapeJob 选中；由 Module_01 维护，Module_07 只读映射，仅用于「未监控」筛选，不展示「已监控」详情（决策 31-M1）。
 >
-> **网域化说明**：所有资源必须归属到一个网域。MVP 阶段系统预置 `default` 网域，多网域场景下按 `network_domain_id` 隔离资源视图与配置。
+> **网域化说明**：所有资源必须归属到一个网域。MVP 阶段系统预置 `default` 网域。网域按物理网络边界组织，是 M09 配置生成与下发的唯一结构化单位；租户/业务变化不触发网域配置重新生成。
 
 ---
 
@@ -113,7 +117,8 @@
 | **拨测配置管理** | Blackbox Exporter 的 probe 模板与拨测目标配置，作为监控策略的一部分由本模块编辑 | P0 |
 | **指标元数据管理** | 指标名注册、类型标记（counter/gauge/histogram/summary）、HELP/UNIT | P1 |
 | **Exporter 指标库** | 静态内置库覆盖常见 Exporter（node-exporter、mysqld-exporter、redis-exporter 等），并提供用户扩展入口；完整管理页面放 P1/P2 | P1 / P2 |
-| **规则编辑 UI** | 类 YAML 表单（expr / for / labels / annotations），支持 PromQL 校验与指标实时预览；规则保存后由 Module_08 管理生命周期 | P0 |
+| **规则文件挂载（MVP）** | 「规则编辑」页上传/粘贴整文件 `rules.yml`（`content_mode=yaml_passthrough` + `rule_content`）透传落库 `MonitoringRule`；保存/启停/删除进入 M09 变更检测 → 生成 `rules.yml` → 人工确认 → 下发，回写 `change_status=deployed`（决策 38-1，不绕过 M09）；基础 YAML 校验 + 规则条数启发式展示 | P0 |
+| **规则编辑 UI（字段化，v0.3）** | 类 YAML 表单（expr / for / labels / annotations），支持 PromQL 校验与指标实时预览；`content_mode=structured` 字段化写入，取代 MVP 整文件透传挂载；规则保存后由 Module_08 管理生命周期 | v0.3 |
 | **高级 Relabel 管理** | 标签丢弃/保留/重写、正则替换、hashmod（未来） | P2 |
 | **Exporter 市场** | Exporter 登记、版本管理、部署指南（未来） | P2 |
 
@@ -132,10 +137,10 @@
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **网域管理** | 网域注册、编辑、删除、Token 生成与重置、默认网域 `default` | P0 |
+| **网域纳管** | 仅持有网域纳管相关字段（纳管状态、`center_endpoint`、采集器注册信息）；网域行政登记（ID/名称/登记归属/授权租户/禁用冻结/`zone_type`）以 [Module_06](Modules/Module_06_Multi_Tenant.md) 为单一事实来源（决策 28）；Token 生成与重置、默认网域 `default` | P0 |
 | **Token 鉴权** | Edge Sync Agent 使用 Token 拉取配置和推送心跳 | **P0（v0.2）** |
 | **边缘 Agent 管理** | 注册边缘 Agent、查看 Agent 类型（vmagent / prometheus-agent）、版本、状态 | **P0（v0.2）** |
-| **配置生成服务** | 定时轮询 Module_01（ScrapeJobs、Rules）与 Module_07（Resources、LabelTemplates），按网域生成 `prometheus.yml` 与 `rules.yml` 草稿；在 `global.external_labels` 中注入 `network_domain`、`tenant_id` | **P0（v0.2）** |
+| **配置生成服务** | 定时轮询 Module_01（ScrapeJobs、Rules）与 Module_07（Resources、LabelTemplates），按网域生成 `prometheus.yml` 与 `rules.yml` 草稿；生成时排除 `offline` 资源（决策 29）、透传采集认证/TLS 进 `scrape_configs`（决策 31）、冻结/禁用网域不生成新变更单（决策 30）、变更确认后回写 `change_status=deployed`（决策 31-M2）；在 `global.external_labels` 中注入 `network_domain`、`tenant_id` | P0 |
 | **配置预览与确认** | 以 YAML 高亮预览、与当前生效版本 diff、人工确认后转为待下发版本 | **P0（v0.2）** |
 | **配置下发** | 单网域：手动下发、SIGHUP / `/-/reload`；多网域：Edge Sync Agent 轮询拉取配置包 | P0 / P1 |
 | **配置版本** | 下发历史、版本对比、一键回滚 | P1 |
@@ -211,7 +216,8 @@
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **租户与权限** | 租户创建/编辑/禁用、租户-网域关联（1 租户 : N 网域，禁止跨租户共享）；用户/角色/权限可由外部 IAM/SSO 承接 | P0/P1（v0.2） |
+| **租户与权限** | 租户创建/编辑/禁用、租户-网域关联（网域为部署级资源，可通过 `authorized_tenant_ids` 跨租户共享，决策 18~20）；用户/角色/权限可由外部 IAM/SSO 承接 | P0/P1（v0.2） |
+| **网域行政登记** | NetworkDomain 行政模型单一事实来源（ID/名称/登记归属/授权租户/禁用冻结/`zone_type`，决策 18~20/23/28）；`network_domain_id` 全局唯一（部署级前缀 `deploy_code-domain_code`，决策 20）；默认网域 `default` 归属 `platform_admin`、默认不共享、授权后共享 | P0 |
 | **数据存储管理** | TSDB 状态、Retention、Remote Write 转发开关、中心时序存储（VictoriaMetrics） | P2 |
 | **审计日志** | 操作记录、变更追踪、登录日志 | P2 |
 | **平台配置** | `platform_admin` 租户内的全局 scrape 默认值、通知默认配置 | P2 |
@@ -237,15 +243,15 @@
 
 | 模块 | MVP 必须（P0/P1） | MVP 不做（P2/未来） |
 |------|-------------------|---------------------|
-| 监控对象管理（Module_07） | 五类资源固定字段（{D24}）、Excel 导入（含可选 `network_domain_id` 与 `cmdb_*` 预留列）、默认网域 `default`、状态映射字典、LabelTemplate、ResourceLabel、「已监控 / 未监控」badge | 动态字段、ScrapeJob、配置生成下发、腾讯蓝鲸 CMDB 同步 |
-| 监控策略与指标管理（Module_01） | 监控对象类型 ↔ 默认采集器绑定（{D24}）、ScrapeJob 编辑、手动勾选实例、Exporter 安装/注册确认、Blackbox 拨测配置、规则编辑 UI（类 YAML + PromQL 校验 + 指标预览） | 高级 Relabel、Exporter 市场、指标元数据管理页（P1）、自动筛选实例（v0.3+） |
-| 网域与边缘配置中心（Module_09） | 默认网域 `default`、配置生成草稿、配置预览 / diff、人工确认后中心 Prometheus reload、Agent 状态列表页、`external_labels` 注入 | 多网域 Edge Sync Agent 拉取（v0.2+）、版本回滚、自动下发、Token 轮换、mTLS、图表/趋势诊断看板 |
+| 监控对象管理（Module_07） | 五类资源固定字段（{D24}）、Excel 导入（含 `network_domain_id` 强制必填，决策 31-M3）、默认网域 `default`、状态映射字典（`offline` 排除语义，决策 29）、LabelTemplate、ResourceLabel、「未监控」筛选（`is_monitored` 由 Module_01 维护、只读映射，决策 31-M1） | 动态字段、ScrapeJob、配置生成下发、腾讯蓝鲸 CMDB 同步 |
+| 监控策略与指标管理（Module_01） | 监控对象类型 ↔ 默认采集器绑定（{D24}）、ScrapeJob 编辑（实例选择 + 冻结/禁用网域校验，决策 30；**采集认证/TLS 最小集**：`auth_type` none/basic/bearer、`tls_skip_verify`、`ca_file`，决策 31）、手动勾选实例、Exporter 安装/注册确认、Blackbox 拨测配置、**规则文件挂载**（整文件 `rules.yml` 透传 → M09 生成下发，`change_status=deployed` 回写，决策 38-1） | 高级 Relabel、Exporter 市场、指标元数据管理页（P1）、自动筛选实例（v0.3+）、字段化规则编辑 UI（v0.3，`content_mode=structured`） |
+| 网域与边缘配置中心（Module_09） | 默认网域 `default`（行政登记归 Module_06）、配置生成草稿（生成时排除 `offline` 资源、透传认证/TLS、冻结/禁用域不生成新变更单、回写 `change_status=deployed`）、配置预览 / diff、人工确认后中心 Prometheus reload、Agent 状态列表页、`external_labels` 注入 | 多网域 Edge Sync Agent 拉取（v0.2+）、版本回滚、自动下发、Token 轮换、mTLS、图表/趋势诊断看板 |
 | 查询中心（Module_02） | 带租户/网域注入的 PromQL 代理、`/api/v1/alerts` 代理、响应 envelope 元数据（`data_source` / `freshness_at` / `network_domain`）、目标状态列表 | 复杂 Dashboard、图表库、深度采集诊断、覆盖率分析、批量查询 |
 | 告警规则管理（Module_08） | 规则记录持久化与分组、抑制规则生成；Prometheus 告警状态由 Module_02 代理展示；Alertmanager 通知状态由 Module_08 提供 | 规则编辑 UI（在 Module_01）、Recording Rules UI、静默管理 UI、通知渠道配置 |
 | 监控源管理（Module_10） | 无（集成模式关闭） | 外部 Prometheus / Zabbix / 云监控接入（集成模式 P0） |
-| 系统与平台管理（Module_06） | 无 | 多租户完整功能、审计、Remote Write 全局配置；不存在跨租户全局管理员 |
+| 系统与平台管理（Module_06） | **网域行政登记**（NetworkDomain 行政模型单一事实来源：ID/名称/登记归属/授权租户/禁用冻结/`zone_type`，决策 18~20/23/28，预置默认 `default`） | 多租户完整功能、审计、Remote Write 全局配置；不存在跨租户全局管理员 |
 
-> **说明**：MVP 阶段网域与边缘配置中心、监控源管理的功能处于关闭或隐藏状态，数据模型已预留。v0.2 开启多站点模式后，网域与边缘配置中心功能激活；集成项目中开启集成模式后，监控源管理功能激活。
+> **说明**：MVP 阶段网域与边缘配置中心（配置生成/预览/Diff/下发）与网域行政登记功能已激活；多网域 Edge Sync Agent、Token 拉取等模式在 v0.2 开启多站点后激活，监控源管理在开启集成模式后激活。
 
 ---
 
@@ -373,5 +379,6 @@ global:
 
 | 日期 | 版本 | 变更内容 | 作者 |
 |------|------|----------|------|
+| 2026-08-21 | v3.3 | 对齐 M01 v3.26 / M07 v2.20 / M09 v1.50 与决策 18~20/23/28~31/38-1：M07「已监控 / 未监控 badge」改为「未监控」筛选（`is_monitored` 由 Module_01 维护、Module_07 只读映射，决策 31-M1）；M01 新增采集认证/TLS 最小集、冻结/禁用网域校验（决策 30/31）、规则文件挂载（整文件 `rules.yml` 透传 → M09 生成下发，`change_status=deployed` 回写，决策 38-1）；M09 网域管理改为仅持纳管字段、网域行政登记以 M06 为单一事实来源（决策 28），配置生成排除 `offline` 资源（决策 29）、透传认证/TLS、冻结域不生成新变更单；M06 新增网域行政登记并修正跨租户共享（1 网域:N 租户、`authorized_tenant_ids`）；更新 MVP 边界表与激活说明。 | 产品架构 |
 | 2026-07-31 | v3.1 | 按《监控策略管理方案设计》决策重构模块边界：Module_01 改为「监控策略与指标管理」、Module_07 改为「监控对象管理」、Module_09 改为「网域与边缘配置中心」；重新划分 ScrapeJob、配置生成/下发、运行时目标状态、告警生命周期等职责；更新数据流图、MVP 边界表与模块对应关系表。 | 产品架构 |
 | 2026-07-31 | v3.2 | 按 grill-2026-07-31-query-center 决策与 Module_02/06/08/09 PRD 更新：Module_02 改为带租户/网域注入的 Prometheus Query API 代理并补充响应 envelope 元数据；Module_09 明确 MVP 诊断降级为 Agent 状态列表页、配置生成注入 `external_labels`、区分基础设施健康与被监控对象健康；Module_08 区分 Prometheus 告警状态与 Alertmanager 通知状态；Module_06 明确不存在跨租户全局管理员；新增数据流关键链路说明与 `external_labels` 专节；更新 MVP 边界表与模块对应关系表。 | 产品架构 |
