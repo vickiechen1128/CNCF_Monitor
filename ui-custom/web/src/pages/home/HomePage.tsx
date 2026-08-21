@@ -13,16 +13,16 @@ const STATUS_MOCK: Status = {
   mode: 'static-preview',
 }
 
-const IS_STATIC_PREVIEW = import.meta.env.VITE_STATIC_PREVIEW === 'true'
-
 export function HomePage() {
-  const [status, setStatus] = useState<Status | null>(() => (IS_STATIC_PREVIEW ? STATUS_MOCK : null))
-  const [loading, setLoading] = useState(() => !IS_STATIC_PREVIEW)
+  const [status, setStatus] = useState<Status | null>(null)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Vercel 静态预览环境没有后端，不发起请求
-    if (IS_STATIC_PREVIEW) {
+    // Vercel 静态预览环境没有后端，使用 mock 状态
+    if (import.meta.env.VITE_STATIC_PREVIEW === 'true') {
+      setStatus(STATUS_MOCK)
+      setLoading(false)
       return
     }
 

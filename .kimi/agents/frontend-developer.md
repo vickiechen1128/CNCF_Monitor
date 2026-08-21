@@ -64,7 +64,7 @@ git branch --show-current # 必须是 feat/module-XX
 > - 既有模块 PRD 若尚未对齐冻结章节号（如 Module_07/09 与骨架不一致），先 `grep -n "^## "` 确认实际章节结构再按语义定位，并在执行记录中标注该 PRD 待迁移。
 > - **章节定位命令示例**：`grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md` 先看章节结构，再用 `sed -n '起点,终点p'` 读取指定章节。
 
-> `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入（v1.28 起：**缺失不阻断**——以 PRD + 任务卡为准继续开发，并在汇报中标注「task-sequence 缺失」；仅当任务卡本身也未给出任务边界时才停止并报告 Orchestrator）。
+> `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
 >
 > `docs/prototypes/module-XX/` 是辅助理解材料，优先读取；如缺失或为空，以 PRD + L3 task-sequence 为准继续开发。
 

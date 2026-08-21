@@ -153,7 +153,7 @@ git branch --show-current # 必须是 feat/module-XX
 - docs/03-engineering-standards/04_Testing_Standard.md
 ```
 
-> `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入（v1.28 起：**缺失不阻断**——以 PRD + 任务卡为准继续开发，并在汇报中标注「task-sequence 缺失」；仅当任务卡本身也未给出任务边界时才停止并报告 Orchestrator）。
+> `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
 >
 > 如果 `docs/05-execution-records/module-XX/tech-feasibility.md` 存在，必须优先阅读，了解预研结论和推荐方案。
 >

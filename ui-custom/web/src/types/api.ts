@@ -15,11 +15,3 @@ export interface ApiErrorResponse {
 }
 
 export type ApiError = ApiErrorResponse
-
-/** 平台业务接口统一分页响应信封（03_API_Standard §7.2） */
-export interface Paginated<T> {
-  list: T[]
-  total: number
-  page: number
-  page_size: number
-}

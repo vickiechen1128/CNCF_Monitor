@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -33,17 +32,7 @@ func Init() error {
 		return fmt.Errorf("failed to open database %q: %w", dsn, err)
 	}
 
-	err = AutoMigrate()
-	if err != nil {
-		return fmt.Errorf("failed to migrate database schema: %w", err)
-	}
-
-	// Idempotently seed platform core data (platform_admin tenant, default
-	// domain, zone_type dictionary, label templates, built-in exporters).
-	if err := seed.Run(DB); err != nil {
-		return fmt.Errorf("failed to seed platform core data: %w", err)
-	}
-	return nil
+	return AutoMigrate()
 }
 
 // AutoMigrate creates or updates the database schema for all known models.
@@ -53,33 +42,12 @@ func AutoMigrate() error {
 	}
 
 	return DB.AutoMigrate(
-		// 共享基础模型
-		&models.Tenant{},
-		&models.NetworkDomain{},
-		&models.ZoneType{},
-		&models.ResourceStatusMapping{},
-		// 五类资源
 		&models.Host{},
-		&models.Database{},
 		&models.Middleware{},
 		&models.Application{},
-		&models.GenericTarget{},
-		&models.ResourceLabel{},
-		// 标签模板与采集策略
 		&models.LabelTemplate{},
-		&models.CITypeExporterMapping{},
-		&models.ExporterTemplate{},
 		&models.ScrapeJob{},
-		&models.MonitoringRule{},
-		// 历史表
 		&models.BlackboxProbeConfig{},
-		// 配置中心
-		&models.ConfigDraft{},
-		&models.ConfigVersion{},
-		&models.ConfigDeployment{},
-		&models.EdgeAgent{},
-		// 预留
-		&models.BusinessMetric{},
 	)
 }
 

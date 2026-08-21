@@ -1,69 +1,18 @@
 package models
 
-// JobType distinguishes a standard scrape job from a blackbox probe job.
-type JobType string
-
-// Job type constants.
-const (
-	JobTypeStandard JobType = "standard"
-	JobTypeBlackbox JobType = "blackbox"
-)
-
-// AuthType represents the scrape authentication mode.
-type AuthType string
-
-// Auth type constants.
-const (
-	AuthTypeNone   AuthType = "none"
-	AuthTypeBasic  AuthType = "basic"
-	AuthTypeBearer AuthType = "bearer"
-)
-
-// ChangeStatus represents the M09 config-change writeback status.
-type ChangeStatus string
-
-// Change status constants.
-const (
-	ChangeStatusNone      ChangeStatus = "none"
-	ChangeStatusPending   ChangeStatus = "pending"
-	ChangeStatusConfirmed ChangeStatus = "confirmed"
-	ChangeStatusDeployed  ChangeStatus = "deployed"
-)
-
-// InstanceSelectionMode selects how instances are chosen for a job.
-type InstanceSelectionMode string
-
-// Instance selection mode constants.
-const (
-	InstanceSelectionManual  InstanceSelectionMode = "manual"  // MVP
-	InstanceSelectionFilter  InstanceSelectionMode = "filter"  // v0.3+
-)
-
-// ScrapeJob defines a Prometheus scrape job configuration, aligned with
-// Module_01 §5.4. Legacy Phase-0 fields are retained for compatibility.
+// ScrapeJob defines a Prometheus scrape job configuration.
+//
+// This is a Phase 0 skeleton; filter rules and full label template associations
+// will be expanded in later phases.
 type ScrapeJob struct {
 	BaseModel
-	JobName                string               `gorm:"size:100;uniqueIndex" json:"job_name"`
-	JobType                JobType              `gorm:"size:20;not null" json:"job_type"` // standard / blackbox
-	ResourceType           ResourceType         `gorm:"size:20;not null" json:"resource_type"`
-	MonitorType            string               `gorm:"size:64" json:"monitor_type"` // 细粒度监控对象类型（推导）
-	ExporterTemplateID     string               `gorm:"size:64" json:"exporter_template_id,omitempty"`
-	NetworkDomainID        string               `gorm:"size:64;not null;index" json:"network_domain_id"` // 必填且须已纳管
-	InstanceSelectionMode  InstanceSelectionMode `gorm:"size:20;not null" json:"instance_selection_mode"` // manual
-	SelectedInstanceIDs    []string             `gorm:"serializer:json" json:"selected_instance_ids"`
-	ScrapeInterval         string               `gorm:"size:20;not null" json:"scrape_interval"`
-	ScrapeTimeout          string               `gorm:"size:20;not null" json:"scrape_timeout"`
-	MetricsPath            string               `gorm:"size:200;not null" json:"metrics_path"`
-	Scheme                 string               `gorm:"size:20;not null" json:"scheme"`
-	AuthType               AuthType             `gorm:"size:20;not null" json:"auth_type"`
-	Username               string               `gorm:"size:200" json:"username,omitempty"` // auth_type=basic
-	Token                  string               `gorm:"size:2000" json:"token,omitempty"`    // auth_type=bearer
-	TLSSkipVerify          bool                 `json:"tls_skip_verify"`
-	CAFile                 string               `gorm:"size:500" json:"ca_file,omitempty"`
-	LabelTemplateID        string               `gorm:"size:64" json:"label_template_id,omitempty"`
-	FilterRules            string               `gorm:"type:text" json:"filter_rules"`
-	BlackboxModule         string               `gorm:"size:100" json:"blackbox_module,omitempty"` // job_type=blackbox
-	DraftStatus            string               `gorm:"size:20;not null" json:"draft_status"`      // draft/ready
-	ChangeStatus           ChangeStatus         `gorm:"size:20;not null" json:"change_status"`
-	Enabled                bool                 `json:"enabled"`
+	JobName          string       `gorm:"size:100;uniqueIndex" json:"job_name"`
+	ResourceType     ResourceType `gorm:"size:20;not null" json:"resource_type"`
+	ScrapeInterval   string       `gorm:"size:20;not null" json:"scrape_interval"`
+	ScrapeTimeout    string       `gorm:"size:20;not null" json:"scrape_timeout"`
+	MetricsPath      string       `gorm:"size:200;not null" json:"metrics_path"`
+	Scheme           string       `gorm:"size:20;not null" json:"scheme"`
+	FilterRules      string       `gorm:"type:text" json:"filter_rules"`
+	LabelTemplateID  string       `gorm:"size:64" json:"label_template_id"`
+	Enabled          bool         `json:"enabled"`
 }
