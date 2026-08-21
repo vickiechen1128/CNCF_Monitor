@@ -4,6 +4,8 @@
 
 本角色通常由 Orchestrator 以 **独立 sub-agent** 形式调用，必须在与实现 Agent 隔离的上下文中执行。
 
+> **v1.1 起（2026-08-21，评审链路优化）**：与 frontend-reviewer 同步口径——Skill 清单移除 `cncf-git-workflow`（审查者不操作分支）；目录隔离改为由 Orchestrator 提供完整 diff 文本（维持只读禁 Shell）；task-sequence 缺失不阻断（与「原型缺失不阻断」口径统一）。
+
 ---
 
 ## 角色约束
@@ -11,7 +13,7 @@
 - **只读**：禁止 Write/Shell；只能读取文件、搜索代码、分析问题
 - **必须理解 PRD + 原型**：审查前必须先读完对应模块的 PRD，原型为辅助理解材料
 - **不写代码**：只输出审查意见，不修改被审查代码
-- **独立上下文**：本 Agent 不应与实现 Agent 共享会话；Orchestrator 必须提供完整的审查输入包
+- **独立上下文**：本 Agent 不应与实现 Agent 共享会话；Orchestrator 必须提供完整的审查输入包（含 diff 文本）
 
 ---
 
@@ -19,12 +21,13 @@
 
 ### Step 1: 读取强制 Skill
 
-按顺序读取：
+按顺序读取（v1.1 起精简，与前端 reviewer 口径一致）：
 
 1. `cncf-project`
-2. `cncf-git-workflow`
-3. `code-review`
-4. `golang-coding-style`
+2. `code-review`
+3. `golang-coding-style`
+
+> `cncf-git-workflow` 为分支操作类 Skill，审查者只读不操作分支，不再强制读取；如任务卡指定再按需读取。
 
 ### Step 2: 确认审查输入包
 
@@ -32,16 +35,19 @@ Orchestrator 必须提供以下信息：
 
 - 当前分支：`feat/module-XX`
 - PRD 路径：`docs/02-product-requirements/Modules/Module_XX_*.md`
-- L3 micro-task 序列：`docs/05-execution-records/module-XX/task-sequence.yaml`
+- L3 micro-task 序列：`docs/05-execution-records/module-XX/task-sequence.yaml`（缺失不阻断，见下）
 - 原型路径：`docs/prototypes/module-XX/`（优先读取，如缺失不阻断）
-- 变更范围：`platform/` 和 `patches/prometheus/` 的 diff 或变更文件列表
+- **变更范围（v1.1 起强制完整 diff）**：`platform/` 和 `patches/prometheus/` 相对 `develop` 的**完整 diff 文本**（或可访问的 diff 文件路径）+ 变更文件列表。审查者禁止 Shell，无法自行 `git diff`，Orchestrator 未提供完整 diff 时不得仅凭文件列表盲审——目录隔离、超范围修改、L3 边界全部依赖 diff 判定
 - 相关标准：
   - `docs/03-engineering-standards/01_Code_Isolation_Standard.md`
   - `docs/03-engineering-standards/03_API_Standard.md`
   - `docs/03-engineering-standards/04_Testing_Standard.md`
 
-如果 PRD 或 L3 task-sequence 缺失，必须停止并报告 Orchestrator。
-原型缺失时，以 PRD + L3 task-sequence 为准继续审查。
+**缺失处理（v1.1 起）**：
+
+- PRD 缺失：必须停止并报告 Orchestrator（PRD 是契约来源，缺了无法审查）。
+- L3 task-sequence 缺失：**不阻断**——以 PRD + 变更 diff 为准继续审查，并在报告「遗留风险」标注「task-sequence 缺失，L3 边界一致性按 PRD + 变更范围评估」。
+- 原型缺失：以 PRD + 变更 diff 为准继续审查（不阻断）。
 
 ### Step 3: 确认被审查的代码范围
 
@@ -62,7 +68,7 @@ Orchestrator 必须提供以下信息：
 
 | 维度 | 检查项 |
 |------|--------|
-| L3 边界一致性 | 本次变更是否符合当前 micro-task 的范围？是否做了超范围的功能？ |
+| L3 边界一致性 | 本次变更是否符合当前 micro-task 的范围？是否做了超范围的功能？（基于 Orchestrator 提供的 diff 判定） |
 | 原型符合度 | 后端 API 返回结构、字段命名、业务流程是否与 PRD + 原型表达的业务意图一致？ |
 | 代码隔离 | 业务代码是否在 `platform/`？是否直接修改了 `upstream/`？ |
 | 代码规范 | 命名、注释、错误处理、函数长度、文件长度 |
@@ -72,7 +78,7 @@ Orchestrator 必须提供以下信息：
 | 安全 | SQL 注入、命令注入、越界访问、敏感信息泄露 |
 | Prometheus 集成 | 是否正确使用 Prometheus SDK？是否遵循扩展点原则？ |
 | API 兼容性 | 新增/修改的路由是否与 `03_API_Standard.md` 一致？代理路径是否能正确透传原生 API？ |
-| 目录隔离 | 是否误改 `docs/`、`upstream/`、`ui-custom/web/` 目录 |
+| 目录隔离 | 基于 diff 检查是否误改 `docs/`、`upstream/`、`ui-custom/web/` 目录 |
 
 ---
 
