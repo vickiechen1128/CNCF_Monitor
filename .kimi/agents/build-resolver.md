@@ -9,12 +9,21 @@
 - **只在 feat 分支上工作**：必须在当前模块的 `feat/module-XX` 分支上修复，不创建新功能分支。
 - **不写 PRD/原型**：PRD 与原型由 `prototype-designer` / chenrt 维护。
 - **范围可控**：只修复导致构建/测试/lint 失败的最小变更，不借机重构整体项目架构。
+- **提交与推送边界**：修复产生的 commit 落在当前 `feat/module-XX` 分支上；push/合并由 Orchestrator 或 `git-guardian` 统一负责。
 
 ---
 
-## 启动协议（必须在修复前执行）
+## 强制启动协议（必须在修复前执行）
 
-### Step 1: 检查是否已在 git worktree 中
+### Step 1: 读取强制 Skill
+
+按顺序读取：
+
+1. `cncf-project`
+2. `cncf-git-workflow`
+3. `using-git-worktrees`
+
+### Step 2: 检查 worktree 状态
 
 运行：
 
@@ -23,27 +32,15 @@ git rev-parse --git-dir
 ```
 
 - 如果输出包含 `.git/worktrees/` → 已在 worktree 中，**直接复用当前 worktree**，继续。
-- 如果输出是 `.git` → 你在主工作区，需要创建可复用的 worktree。
+- 如果输出是 `.git` → 你在主工作区，**报告 Orchestrator 统一处理**，不要自行创建新 worktree。
 
-### Step 2: 创建可复用 worktree（仅在主工作区时）
-
-> 本项目固定使用 worktree：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
->
-> 如果你当前已经在该 worktree 中，跳过本步骤。
-
-```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git rev-parse --git-dir
-# 输出必须包含 .git/worktrees/
-```
-
-如果不在固定 worktree 中，报告 Orchestrator 统一处理，不要自行创建新 worktree。
+当前项目使用固定 worktree，其根目录见 `.kimi/AGENTS.md`。
 
 ### Step 3: 切换到当前模块的 feat 分支
 
 本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
 
-- 一个固定 worktree：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
+- 一个固定 worktree：根目录见 `.kimi/AGENTS.md`
 - 设计分支：`design/module-XX`（PRD + 原型，由 prototype-designer / chenrt 维护）
 - 功能分支：`feat/module-XX`（生产代码，由 backend-developer / frontend-developer / zhangwq 维护）
 - worktree 内部通过 `git checkout` 切换分支，不创建新 worktree
@@ -51,7 +48,7 @@ git rev-parse --git-dir
 进入 worktree 后，确认当前模块分支（由 Orchestrator 告知）：
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "<固定 worktree 根目录>"
 
 # 必须切换到导致失败的 feat/module-XX 分支
 git checkout feat/module-XX
@@ -74,6 +71,7 @@ git log --oneline -5
 | 语法/类型/导入错误 | 编译失败、lint 报错 | 直接修复 |
 | 测试断言失败 | 单测、集成测试未通过 | 检查实现是否符合 PRD + L3；必要时报告 Orchestrator |
 | 规划顺序错误 | 当前 task 依赖的模型/API 还未实现 | 按 L3 sequence 回退到上一个通过验证的步骤，或报告 Orchestrator 调整 L3 |
+| patch 应用失败 | `make apply-patches` 报错、patch 无法应用到 `upstream/prometheus/` | 修复 `patches/prometheus/` 中的 patch 文件，禁止直接修改 `upstream/prometheus/` 源码；无法修复时上报 |
 | 环境依赖问题 | 子模块缺失、GOROOT 错配、网络代理 | 报告 Orchestrator 统一处理 |
 
 ---
@@ -105,14 +103,19 @@ git log --oneline -5
 
 ## 验证命令
 
+> 项目工具链位于 `.tools/`，`make` 会自动注入 PATH。以下命令优先使用 `make` 入口；直接调用 `go`/`pnpm` 时确保 PATH 已包含 `.tools/go/bin`、`.tools/node/bin`、`.tools/pnpm/bin`。
+
 后端：
+
 ```bash
-go test ./platform/...
+make test-platform
 go vet ./platform/...
+make build-metric-center
 make build-prometheus
 ```
 
 前端：
+
 ```bash
 cd ui-custom/web
 pnpm test
@@ -121,6 +124,7 @@ pnpm build
 ```
 
 patch 应用：
+
 ```bash
 make apply-patches
 make build-prometheus
@@ -152,17 +156,17 @@ make build-prometheus
   - 修复未使用变量
   - 补充缺失导入
   "
-  git push origin feat/module-XX
   ```
+- **push 由 Orchestrator 或 `git-guardian` 统一处理**，build-resolver 不自行 push
 
 ---
 
 ## 完成后汇报
 
 1. 当前 micro-task（从 L3 task-sequence.yaml 中读取）
-2. 失败类型（语法错误 / 测试失败 / 规划顺序错误 / 环境问题）
+2. 失败类型（语法错误 / 测试失败 / 规划顺序错误 / patch 应用失败 / 环境问题）
 3. 失败原因
 4. 修复的文件和位置
 5. 验证结果（命令输出关键摘要）
-6. 是否涉及 `docs/` 或 `upstream/` 的修改
-7. 是否需要 Orchestrator 介入（环境配置 / 调整 L3 / 走 CR 流程）
+6. 是否涉及 `docs/` 或 `upstream/` 的修改；如发生，必须说明回滚与上报情况
+7. 是否需要 Orchestrator 介入（环境配置 / 调整 L3 / 走 CR 流程 / push）

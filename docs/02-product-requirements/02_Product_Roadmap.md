@@ -1,9 +1,9 @@
 # MetricCenter 产品路线图
 
 > 文档类型：产品需求文档  
-> 版本：v1.6
+> 版本：v1.8
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
-> 更新日期：2026-08-18
+> 更新日期：2026-08-21
 
 ---
 
@@ -46,9 +46,9 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 
 | 模块 | MVP | v0.2 | v0.3 | v0.4 | v1.0 |
 |------|-----|------|------|------|------|
-| **Module_07 监控对象管理** | 五类资源 CRUD；Excel 导入（含 upsert 更新）；状态映射；标签模板；`ResourceLabel` 体系；业务类型归属（`business_domain` → `biz` 标签聚合，静态资源标签只读） | 独立业务目录（业务类型实体 + 资源归属 + 业务类型自定义标签）；业务指标标签规范消费（relabel 归一化） | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源 | CMDB-ITIL/ITSM 映射 |
-| **Module_01 监控策略与指标管理** | CI↔默认采集器绑定（{v3.8}，原「Exporter 模板」）；ScrapeJob；实例选择；Blackbox 拨测；静态指标库（按 CI 类型组织，锚点演进 v3.8）；application_http 业务指标端点采集（app/biz 标签注入）；业务指标库（BusinessMetric 登记表，业务负责人定义语义/阈值） | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」）；服务发现模式 `service_discovery`（微服务动态实例，prometheus_builtin + relabel）；业务健康度看板（业务负责人角色入口） | 规则编辑 UI（类 YAML 表单 + PromQL 校验/实时预览，依赖 Module_02 validate/preview）；实例属性筛选 `filter`（按资源属性条件筛选实例，label 仅 UI 别名） | - | Recording Rules；指标库管理增强 |
-| **Module_09 网域与边缘配置中心** | 默认网域 `default`；单/多网域模式切换；配置生成/预览/Diff/下发；`external_labels` 注入 | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数 | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
+| **Module_07 监控对象管理** | 五类资源 CRUD；Excel 导入（含 upsert 更新 + `network_domain_id` 强制必填，决策 31-M3）；状态映射（`offline` 排除语义，决策 29）；标签模板；`ResourceLabel` 体系；「未监控」筛选（`is_monitored` 由 M01 维护、M07 只读映射，决策 31-M1）；业务类型归属（`biz_code` → `biz` 标签聚合，静态资源标签只读） | 独立业务目录（业务类型实体 + 资源归属 + 业务类型自定义标签）；业务指标标签规范消费（relabel 归一化） | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源 | CMDB-ITIL/ITSM 映射 |
+| **Module_01 监控策略与指标管理** | CI↔默认采集器绑定（{v3.8}，原「Exporter 模板」）；ScrapeJob（实例选择 + 冻结（禁用）网域校验，决策 30）；**采集认证/TLS 最小集**（`auth_type` none/basic/bearer + `tls_skip_verify` + `ca_file`，决策 31）；Blackbox 拨测；静态指标库（按 CI 类型组织，锚点演进 v3.8）；application_http 业务指标端点采集（app/biz 标签注入）；业务指标库（BusinessMetric 登记表，业务负责人定义语义/阈值）；**规则文件挂载**（「规则编辑」页上传/粘贴整文件 `rules.yml` 透传落库 `MonitoringRule`，保存/启停/删除进入 M09 变更检测 → 生成 → 人工确认 → 下发，回写 `change_status=deployed`，不绕过 M09） | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」）；服务发现模式 `service_discovery`（微服务动态实例，prometheus_builtin + relabel）；业务健康度看板（业务负责人角色入口） | 规则编辑 UI（类 YAML 表单 + PromQL 校验/实时预览，依赖 Module_02 validate/preview；`content_mode=structured` 字段化写入，替代 MVP 的整文件透传挂载）；实例属性筛选 `filter`（按资源属性条件筛选实例，label 仅 UI 别名） | - | Recording Rules；指标库管理增强 |
+| **Module_09 网域与边缘配置中心** | 默认网域 `default`（行政登记归 M06）；单/多网域模式切换；配置生成/预览/Diff/下发（含 `offline` 排除，决策 29；认证/TLS 透传进 scrape_configs，决策 31；冻结域不生成新变更单，决策 30）；`external_labels` 注入；`change_status=deployed` 回写（决策 31-M2）；规则文件挂载生成 `rules.yml` | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数 | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
 | **Module_02 查询中心** | PromQL 查询代理；目标状态展示；响应 envelope | 租户/网域上下文注入 | 告警状态代理；查询辅助；首页 Dashboard 数据 | - | - |
 | **Module_08 告警规则管理** | - | - | 规则分组；静默管理；Alertmanager 配置生成 | - | 完整告警规则 UI；通知渠道；边缘本地告警状态展示 |
 | **Module_06 系统与平台管理** | 单租户默认模式（`platform_admin`）+ **网域登记管理**（网域 CRUD / 区域属性，M07 校验消费；行政属性归 M06，监控纳管归 M09） | 租户数据模型；租户-网域关联；`Tenant.multi_site_enabled` | - | CMDB 业务/模块路径映射 | 用户/角色/权限；审计日志；平台配置；元数据迁移 PostgreSQL/MySQL |
@@ -103,7 +103,7 @@ MVP 聚焦 **"五类资源管理 + 网域登记 + 采集/拨测配置 + promethe
 ### 2.4 明确不做
 
 - 动态资源模型与自定义字段扩展
-- 告警规则编辑 UI（手写 `rules.yml`）
+- 告警规则字段化编辑 UI（PromQL 创作；MVP 仅提供「规则文件挂载」——上传/粘贴整文件 `rules.yml` 透传落库，经 M09 统一生成/确认/下发；v0.3 提供类 YAML 字段化表单）
 - Alertmanager 配置生成与静默管理 UI
 - 多租户与持久化权限
 - 复杂 Dashboard / 图表库
@@ -216,7 +216,7 @@ Phase 8: 企业级能力（v1.0）
 
 | 阶段 | 选型 | 说明 |
 |------|------|------|
-| MVP ~ v0.3 | **手写 `rules.yml` + Alertmanager** | 规则手写，告警收敛/静默/通知走 Alertmanager；数据模型预留 `scope=central`、`inhibitable` |
+| MVP ~ v0.3 | **规则文件挂载 + Alertmanager** | 规则经「规则编辑」页上传/粘贴整文件 `rules.yml` 透传落库 `MonitoringRule`（`content_mode=yaml_passthrough`），由 M09 统一生成/确认/下发 `rules.yml`（不绕过 M09）；告警收敛/静默/通知走 Alertmanager；数据模型预留 `scope=central`、`inhibitable`；PromQL 创作 UI v0.3 提供（`content_mode=structured`） |
 | v0.3 | **告警状态查看** | 代理 `/api/v1/alerts` 到前端，支持按网域/监控源筛选 |
 | v0.3 | **告警抑制引擎** | 网域离线时自动生成 `inhibit_rules`，抑制次生告警 |
 | v0.4 ~ v1.0 | **告警规则 UI + 生成 `rules.yml` / `alertmanager.yml`** | 降低告警配置门槛；支持 `scope=central/edge/both` |
@@ -243,7 +243,7 @@ Phase 8: 企业级能力（v1.0）
 | 阶段 | 能力 | 说明 |
 |------|------|------|
 | **MVP** | 本地资源管理 + Excel 导入 | `resource_id` 稳定唯一键；`instance_name` / `hostname` 可读展示名；`ResourceLabel.source=system/user`；CMDB 字段仅预留，不生成 label |
-| **v0.2** | 租户-网域关联 | `network_domain_id` 按租户上下文填充；`default` 网域归属 `platform_admin` 租户；禁止跨租户共享网域 |
+| **v0.2** | 租户-网域关联 | `network_domain_id` 按租户上下文填充；`default` 网域归属 `platform_admin` 租户；网域为部署级资源，可通过 `authorized_tenant_ids` 跨租户共享（决策 18~20） |
 | **v0.4** | 外部 CMDB 同步（BlueKing / HTTP / Nacos） | 事件触发 + 15 分钟轮询，轮询结果为准；CI 类型映射表；待分类队列；`ResourceLabel.source=cmdb` 注入；CMDB 是权威来源，本地资源为其只读/缓存镜像 |
 | **v1.0+** | CMDB-ITIL/ITSM 映射 | 服务目录、影响范围、负责人等字段映射到告警事件 |
 
@@ -261,6 +261,8 @@ Phase 8: 企业级能力（v1.0）
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 |
 |------|------|----------|----------|----------|
+| v1.8 | 2026-08-21 | 修改 | 四模块评审前同步跨模块契约（决策 28~31/31-M1~M3）：§1.5 Module_07 行 MVP 补「未监控」筛选（is_monitored 由 M01 维护、M07 只读映射）、offline 排除（决策 29）、network_domain_id 强制必填（31-M3）；Module_01 行 MVP 补采集认证/TLS 最小集（决策 31）与冻结（禁用）网域校验（决策 30）、回写 change_status=deployed（31-M2）；Module_09 行 MVP 补 offline 排除 / 认证TLS 透传 / 冻结域不生成新变更单 / change_status 回写 / 规则挂载生成 rules.yml | 功能-版本矩阵 |
+| v1.7 | 2026-08-21 | 修改 | 对齐 M01 v3.24 / M09 v1.48「规则进入 M09 配置下发闭环」：§1.5 Module_01 行 MVP 补规则文件挂载（整文件透传落库 MonitoringRule → M09 生成/确认/下发，回写 change_status），v0.3 列补 `content_mode=structured` 字段化写入；§2.4 明确不做改为「告警规则字段化编辑 UI（PromQL 创作）」，说明 MVP 提供规则文件挂载、v0.3 提供类 YAML 字段化表单；§4.5 告警 MVP 选型由「手写 rules.yml」改为「规则文件挂载 + Alertmanager」 | 功能-版本矩阵 / §2.4 / §4.5 |
 | v1.6 | 2026-08-18 | 修改 | M07 评审结论落版回写（MVP 动线完整性走查）：§1 里程碑 MVP 行「三类资源」改五类、补网域登记、排期待重估；§1.5 M07 行四类改五类、去 `is_monitored` badge、补导入 upsert；§1.5 M06 行 MVP 补网域登记管理（行政归 M06 / 纳管归 M09）；§2 MVP 范围去「隐藏网域概念」，单网域模式改为提供网域登记；§3 Phase 2 同步五类资源 + upsert + 网域登记；§2.3 交付物补 application 粒度与 offline 排除语义 | 全文档 |
 | v1.5 | 2026-08-14 | 修改 | §1.5 Module_01 行 MVP 补业务指标库（BusinessMetric 登记表）、v0.2 补业务健康度看板（第十四轮，业务负责人角色） | 功能-版本矩阵 |
 | v1.4 | 2026-08-14 | 修改 | §1.5 功能-版本矩阵更新：Module_07 行 MVP 补业务类型归属（business_domain → biz 聚合）、v0.2 补独立业务目录（第十二轮）；Module_01 行 MVP 补 application_http 业务指标端点采集、v0.2 补 service_discovery（微服务动态实例）、v0.3 补实例属性筛选 filter（第十三轮） | 功能-版本矩阵 |

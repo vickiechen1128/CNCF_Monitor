@@ -15,6 +15,10 @@ import {
   approvalTieringNote,
   rulesGroupDerivationNote,
   gatewayConstraintNote,
+  changeStatusEnumDemo,
+  authTlsPassthroughNote,
+  frozenDomainExclusionNote,
+  defaultFallbackRemovalNote,
   deriveRemoteWriteUrl,
   deriveConfigDownloadUrl,
   MVP_AGENT_TYPE,
@@ -464,7 +468,7 @@ describe('module-09 mocks', () => {
       expect(domainIds.has(status.network_domain_id)).toBe(true)
       expect(status.last_checked_at).toBeTruthy()
       expect(status.source_data_version).toBeTruthy()
-      expect(['changes_found', 'no_change', 'checksum_same']).toContain(status.outcome)
+      expect(['changes_found', 'no_change', 'checksum_same', 'generation_failed']).toContain(status.outcome)
       expect(status.summary).toBeTruthy()
       // changes_found 引用的生成草稿必须真实存在
       status.generated_drafts.forEach((draft) => {
@@ -597,6 +601,27 @@ describe('module-09 mocks', () => {
     expect(ruleDraft?.targets_files).toEqual(draft?.targets_files)
   })
 
+  it('should demonstrate business ownership change as a low-risk targets-only rewrite (2026-08-19 业务-网域正交性)', () => {
+    // 业务归属变更草稿（draft-gov-004）：10.0.1.11 的 biz 由 data-api → risk——真实拓扑变化，仅重写 targets/node-exporter.json
+    const bizChange = configDrafts.find((d) => d.id === 'draft-gov-004')
+    expect(bizChange).toBeDefined()
+    expect(bizChange?.status).toBe('pending')
+    expect(bizChange?.change_items[0].target).toBe('scrape_target')
+    expect(bizChange?.change_items[0].type).toBe('modify')
+    expect(bizChange?.change_items[0].risk).toBe('low')
+    expect(bizChange?.change_items[0].affected_files).toEqual(['targets'])
+    // 与生效版本 cv-gov-002 相比：prometheus.yml 骨架 / rules.yml 不变，仅 targets 变化
+    const version = configVersions.find((v) => v.id === 'cv-gov-002')
+    expect(bizChange?.prometheus_yml).toBe(version?.prometheus_yml)
+    expect(bizChange?.rules_yml).toBe(version?.rules_yml)
+    expect(bizChange?.targets_files).not.toEqual(version?.targets_files)
+    // 多业务共用 1 网域：gov-cloud-a 的 node-exporter targets 同时包含 data-api 与 risk 两个 biz 值（网域与业务正交）
+    const nodeTargets = (bizChange?.targets_files as ConfigTargetsFiles)['node-exporter']
+    const bizValues = Array.isArray(nodeTargets) ? nodeTargets.map((t) => t.labels.biz) : []
+    expect(bizValues).toContain('data-api')
+    expect(bizValues).toContain('risk')
+  })
+
   it('should record confirmer on confirmed drafts for change audit (决策 19 确认人)', () => {
     // 已确认草稿必须有确认人与确认时间（变更管理审计）；pending / discarded 不要求
     configDrafts
@@ -689,10 +714,12 @@ describe('module-09 mocks', () => {
     // 管理域（default）无网闸拓扑 → 不注入 zone_type
     const defaultDraft = configDrafts.find((d) => d.network_domain_id === 'default')
     expect(defaultDraft?.prometheus_yml).not.toContain('zone_type:')
-    // 所有 prometheus.yml 均注入 network_domain / tenant_id
+    // {v1.45} 所有 prometheus.yml 均注入部署级元数据 network_domain_id / replica；不注入 tenant_id / 业务标签
+    // （biz / tenant 由 M07 LabelTemplate 以 target 级注入 targets/*.json，见 PRD 3.3/3.3.1、决策 19/23）
     configDrafts.forEach((draft) => {
-      expect(draft.prometheus_yml).toContain('network_domain:')
-      expect(draft.prometheus_yml).toContain('tenant_id:')
+      expect(draft.prometheus_yml).toContain('network_domain_id:')
+      expect(draft.prometheus_yml).toContain('replica:')
+      expect(draft.prometheus_yml).not.toContain('tenant_id:')
     })
   })
 
@@ -748,5 +775,42 @@ describe('module-09 mocks', () => {
     expect(gatewayConstraintNote).toContain('可达地址')
     expect(edgeAgentInstallGuide.gateway_note).toContain('pull')
     expect(edgeAgentInstallGuide.gateway_note).toContain('center_endpoint')
+  })
+
+  it('should passthrough采集认证/TLS mapping into scrape_configs (决策 31, MVP, PRD v1.50)', () => {
+    // 认证 / TLS 由 M01（ScrapeJob）配置、本模块仅透传映射、无新机制（决策 31）
+    expect(authTlsPassthroughNote).toContain('透传映射')
+    expect(authTlsPassthroughNote).toContain('basic_auth')
+    expect(authTlsPassthroughNote).toContain('authorization')
+    expect(authTlsPassthroughNote).toContain('insecure_skip_verify')
+    expect(authTlsPassthroughNote).toContain('ca_file')
+    expect(authTlsPassthroughNote).toContain('无新机制')
+    // gov-cloud-a 域 prometheus.yml 子配置示例：node-exporter job 透传 basic_auth + tls_config；blackbox-http job 透传 tls_config
+    const govDraft = configDrafts.find((d) => d.network_domain_id === 'gov-cloud-a')
+    expect(govDraft?.prometheus_yml).toContain('basic_auth:')
+    expect(govDraft?.prometheus_yml).toContain('tls_config:')
+    expect(govDraft?.prometheus_yml).toContain('insecure_skip_verify: true')
+    expect(govDraft?.prometheus_yml).toContain('ca_file:')
+    // 认证 / TLS 仅作透传，不注入 external_labels 租户 / 业务标签（与 v1.45 收敛保持一致）
+    expect(govDraft?.prometheus_yml).not.toContain('tenant_id:')
+    // blackbox HTTP/HTTPS 拨测模块同理透传 tls_config
+    expect(govDraft?.prometheus_yml).toMatch(/job_name: 'blackbox-http'[\s\S]*tls_config:/)
+  })
+
+  it('should reflect deployed status write-back as MVP (决策 31-M2, PRD v1.50)', () => {
+    // {v1.50 决策 31-M2} 成功下发即回写 deployed（不再由 none 占位），消除「已生效 vs 无变更」歧义
+    expect(changeStatusEnumDemo.deployed).toContain('deployed')
+    expect(changeStatusEnumDemo.deployed).toContain('MVP')
+    expect(changeStatusEnumDemo.deployed).not.toContain('由 none 占位')
+  })
+
+  it('should exclude frozen domains from generating new change orders and drop default fallback (决策 30 / 31-M3, PRD v1.50)', () => {
+    // 冻结（禁用）网域不生成新变更单；存量下发与回滚不受影响（决策 30）
+    expect(frozenDomainExclusionNote).toContain('不再产生新变更单')
+    expect(frozenDomainExclusionNote).toContain('存量')
+    expect(frozenDomainExclusionNote).toContain('回滚不受影响')
+    // 删除「未指定网域资源自动归 default」兜底；network_domain_id 由 M07 导入校验强制必填（决策 31-M3）
+    expect(defaultFallbackRemovalNote).toContain('不再自动归入 default')
+    expect(defaultFallbackRemovalNote).toContain('强制必填')
   })
 })

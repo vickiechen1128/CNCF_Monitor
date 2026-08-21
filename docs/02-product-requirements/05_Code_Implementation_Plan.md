@@ -1,9 +1,12 @@
 # MetricCenter 代码实施计划
 
 > 文档类型：工程实施计划  
-> 依赖文档：[00_Global_Architecture.md](00_Global_Architecture.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)、[00_Product_Vision.md](00_Product_Vision.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[Modules/README.md](Modules/README.md)、[../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)、[../decisions/grill-2026-07-31-query-center.md](../decisions/grill-2026-07-31-query-center.md)  
-> 版本：v3.3  
-> 更新日期：2026-08-02
+> 依赖文档：[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[04_Implementation_Map.md](04_Implementation_Map.md)、[00_Product_Vision.md](00_Product_Vision.md)  
+>
+> **各模块 PRD 版本**：Module_01 v3.26 · Module_06 v2.2 · Module_07 v2.21 · Module_09 v1.50
+>
+> Plan 版本：v2026-08-21  
+> 更新日期：2026-08-21
 
 ---
 
@@ -28,7 +31,7 @@
 | 原则 | 说明 |
 |------|------|
 | **后端先行，前端跟上** | 先有稳定的 API 契约，再写前端页面 |
-| **数据流驱动** | 按“对象 → 标签 → 策略 → 配置生成 → 下发 → 查询/告警”主线推进 |
+| **数据流驱动** | 按「网域登记 → 对象 → 标签 → 策略 → 配置生成 → 下发 → 验收」主线推进 |
 | **控制面与源码隔离** | 业务代码只写在 `platform/` 和 `ui-custom/`，上游源码尽量不碰 |
 | **先 L1/L2，后 L3/L4** | 优先做 Prometheus 已支持、只需代理或生成配置的能力 |
 | **每阶段可运行** | 每个 Phase 结束都应有一个可演示的闭环，不堆积半成品 |
@@ -36,76 +39,70 @@
 
 ### 2.2 模块优先级总览
 
-本计划按 **功能子模块** 组织开发，每个模块对应一个 `feat/module-XX-<功能名>` 分支，由 Orchestrator 按顺序切分并合并到 `develop`。
-
 ```
-feat/module-00-infrastructure          Phase 0: 基础设施与共享数据模型
+feat/module-00-infrastructure          Phase 0: 基础设施与种子数据
         │
         ▼
-feat/module-07-resource-management     Phase 1: 监控对象管理（Resource + Excel 导入 + LabelTemplate）
+feat/module-06-domain-registry         Phase 1: 网域登记管理（M06 MVP 子集）
         │
         ▼
-feat/module-01-strategy                Phase 2.1: 监控策略与指标管理
-        │      （CI↔Exporter 绑定 + ScrapeJob + 实例选择 + 规则编辑 UI）
+feat/module-07-resource-management     Phase 2: 监控对象管理（五类资源）
         │
         ▼
-feat/module-09-config-center           Phase 2.2: 网域与边缘配置中心
-        │      （配置生成 / 预览 / 下发 / NetworkDomain）
-        │
-        ├──► feat/module-02-query-center        Phase 3: 查询中心（含目标状态展示）
-        │
-        ├──► feat/module-08-alerting-lifecycle  Phase 4: 告警生命周期管理
+feat/module-01-strategy                Phase 3: 监控策略与指标管理（规则文件挂载）
         │
         ▼
-feat/module-05-portal                  Phase 5: 前端门户集成与 MVP 验收
+feat/module-09-config-center           Phase 4: 网域与边缘配置中心（default/local 闭环）
         │
         ▼
-feat/module-06-tenant-management       Phase 6.1: 租户与网域关联（v0.2）
-        │
-        ├──► feat/module-09-edge-cloud          Phase 6.2: 边缘 Agent 与配置分发（v0.2）
-        │
-        ├──► feat/module-10-source-registry     Phase 6.3: 监控源登记册与 Ingestion Gateway（v0.2）
-        │
-        └──► feat/module-03-gateway             Phase 6.4: 网关统一入口与 Ingestion 路由（v0.2）
+跨模块联调验收                          Phase 5: 无独立 portal 分支，用现有页面串链
         │
         ▼
-feat/module-05-portal-v03              Phase 7: 门户化查询与告警状态（v0.3）
+v0.2 阶段
+├──► feat/module-02-query-center        Phase 6.1: 查询中心（多租户/网域注入）
+├──► feat/module-06-tenant-management   Phase 6.2: 租户-网域关联
+├──► feat/module-09-edge-cloud          Phase 6.3: Edge Agent / agent_pull 全量
+└──► feat/module-10-source-registry     Phase 6.4: 监控源登记册 + Ingestion Gateway
         │
         ▼
-feat/module-04-cmdb-discovery          Phase 8: 自定义服务发现与外部 CMDB（v0.4）
-        │
-        ├──► feat/module-10-heterogeneous       Phase 8.2: Zabbix / 云监控异构接入（v0.4）
+v0.3 阶段
+├──► feat/module-05-portal              Phase 7.1: 门户化首页 / Dashboard / 导航
+├──► feat/module-08-alerting-lifecycle  Phase 7.2: 告警状态 / Alertmanager 配置 / 静默
+└──► feat/module-02-query-center-v03    Phase 7.3: 查询页图表 / PromQL 校验
         │
         ▼
-feat/module-06-enterprise              Phase 9.1: 多租户权限与审计（v1.0）
+v0.4 阶段
+├──► feat/module-04-cmdb-discovery      Phase 8.1: 外部 CMDB 生命周期管理
+└──► feat/module-10-heterogeneous       Phase 8.2: Zabbix / 云监控异构接入
         │
-        ├──► feat/module-08-alerting-enterprise Phase 9.2: 告警规则 UI / Alertmanager 配置 / 通知渠道（v1.0）
-        │
-        ├──► feat/module-09-edge-autonomy       Phase 9.3: 边缘自治告警与 mTLS 自动轮转（v1.0）
-        │
-        └──► feat/module-06-storage             Phase 9.4: 元数据迁移与长期存储（v1.0）
+        ▼
+v1.0 阶段
+├──► feat/module-06-enterprise          Phase 9.1: 多租户权限 / 审计 / 平台配置
+├──► feat/module-08-alerting-enterprise Phase 9.2: 完整告警规则 UI / 通知渠道
+├──► feat/module-09-edge-autonomy       Phase 9.3: 边缘自治告警 / mTLS 自动轮转
+└──► feat/module-06-storage             Phase 9.4: 元数据迁移 / 长期存储
 ```
 
 | 模块分支 | 对应 Phase | 功能 | 前置依赖 |
 |----------|-----------|------|----------|
-| `feat/module-00-infrastructure` | Phase 0 | 基础设施与共享数据模型 | - |
-| `feat/module-07-resource-management` | Phase 1 | 监控对象管理：Resource CRUD + Excel 导入 + LabelTemplate + ResourceLabel 基础 CRUD + 状态映射 | Module 00 |
-| `feat/module-01-strategy` | Phase 2.1 | 监控策略与指标管理：CI↔Exporter 绑定、`ScrapeJob`、实例选择、Exporter 安装确认、规则编辑 UI、静态指标库 | Module 07 |
-| `feat/module-09-config-center` | Phase 2.2 | 网域与边缘配置中心：NetworkDomain、配置生成、草稿预览、人工确认、下发 reload | Module 07、Module 01 |
-| `feat/module-02-query-center` | Phase 3 | 查询中心：带租户/网域上下文注入的 Prometheus Query API 代理 + 目标状态展示 | Module 09、中心 Prometheus 运行 |
-| `feat/module-08-alerting-lifecycle` | Phase 4 | 告警生命周期管理：规则分组、静默、Alertmanager 配置、告警状态查看 | Module 01、Module 09 |
-| `feat/module-05-portal` | Phase 5 | 前端门户集成与 MVP 验收 | 全部后端 API |
-| `feat/module-06-tenant-management` | Phase 6.1 | 租户模型、租户-网域关联、平台默认租户 | Module 09 |
-| `feat/module-09-edge-cloud` | Phase 6.2 | Edge Sync Agent、配置拉取、vmagent/Prometheus Agent 接入、中心 VictoriaMetrics 汇聚、Agent 状态列表 | Module 09、Module 06 |
-| `feat/module-10-source-registry` | Phase 6.3 | 监控源登记册、外部 Prometheus Remote Write、Ingestion Gateway 业务逻辑 | Module 09、Module 03 |
-| `feat/module-03-gateway` | Phase 6.4 | 统一入口、Ingestion Gateway 路由、请求级审计框架 | Module 02、Module 10 |
-| `feat/module-05-portal-v03` | Phase 7 | Custom UI 门户、PromQL 查询页、告警状态查看、告警抑制引擎 | Module 02、Module 08 |
-| `feat/module-04-cmdb-discovery` | Phase 8 | BlueKing/HTTP/Nacos Provider、CI 类型映射、待分类队列、孤儿资源管理 | Module 07、Module 06 |
-| `feat/module-10-heterogeneous` | Phase 8.2 | Zabbix Adapter、云监控 Puller、标签归一化、Metric Drop Rules | Module 10、Module 03 |
-| `feat/module-06-enterprise` | Phase 9.1 | 用户/角色/权限 UI、审计日志、平台配置 | Module 06、Module 03 |
-| `feat/module-08-alerting-enterprise` | Phase 9.2 | 告警规则 UI、Alertmanager 配置生成、静默管理、通知渠道 | Module 08、Module 01 |
-| `feat/module-09-edge-autonomy` | Phase 9.3 | 边缘自治告警（vmalert）、mTLS 证书自动轮转、Token 轮换 | Module 09、Module 08 |
-| `feat/module-06-storage` | Phase 9.4 | 元数据迁移 PostgreSQL/MySQL、长期存储 VictoriaMetrics/Mimir | Module 06、Module 10 |
+| `feat/module-00-infrastructure` | Phase 0 | 基础设施、共享模型、种子数据 | - |
+| `feat/module-06-domain-registry` | Phase 1 | 网域登记：租户/网域种子、`zone-types`、网域 CRUD、冻结语义 | Phase 0 |
+| `feat/module-07-resource-management` | Phase 2 | 五类资源 CRUD + Excel 导入 + LabelTemplate + ResourceLabel + `biz_code` | Phase 1 |
+| `feat/module-01-strategy` | Phase 3 | CI↔Exporter 绑定、ScrapeJob、认证/TLS、Blackbox、规则文件挂载 | Phase 2 |
+| `feat/module-09-config-center` | Phase 4 | 配置生成、预览/Diff、确认、local reload、`change_status` 回写 | Phase 3 |
+| `跨模块联调验收` | Phase 5 | 端到端验证、文档补齐、无独立 portal 分支 | Phase 4 |
+| `feat/module-02-query-center` | Phase 6.1 | 多租户/网域 PromQL 注入、目标状态、响应 envelope | Phase 5 |
+| `feat/module-06-tenant-management` | Phase 6.2 | 租户数据模型、租户-网域关联、multi_site_enabled | Phase 4 |
+| `feat/module-09-edge-cloud` | Phase 6.3 | Edge Sync Agent、配置包拉取、心跳、Agent 状态列表 | Phase 6.2 |
+| `feat/module-10-source-registry` | Phase 6.4 | 监控源登记册、Remote Write 接入、Ingestion Gateway | Phase 4 |
+| `feat/module-05-portal` | Phase 7.1 | Custom UI 门户、首页 Dashboard、统一导航 | Phase 5 / 6 |
+| `feat/module-08-alerting-lifecycle` | Phase 7.2 | Alertmanager 配置、静默、告警状态查看 | Phase 7.1 |
+| `feat/module-04-cmdb-discovery` | Phase 8.1 | BlueKing/HTTP/Nacos Provider、CI 映射、待分类队列 | Phase 6.2 |
+| `feat/module-10-heterogeneous` | Phase 8.2 | Zabbix / 云监控 Adapter、标签归一化 | Phase 8.1 |
+| `feat/module-06-enterprise` | Phase 9.1 | 用户/角色/权限、审计、平台配置 | Phase 6.2 |
+| `feat/module-08-alerting-enterprise` | Phase 9.2 | 完整告警规则 UI、通知渠道、Alertmanager 配置 | Phase 7.2 |
+| `feat/module-09-edge-autonomy` | Phase 9.3 | 边缘自治告警、证书自动轮转、Token 轮换 | Phase 6.3 |
+| `feat/module-06-storage` | Phase 9.4 | PostgreSQL/MySQL 迁移、长期存储 | Phase 6.4 / 9.1 |
 
 ### 2.3 多 Agent 协作开发模式
 
@@ -115,18 +112,18 @@ feat/module-06-enterprise              Phase 9.1: 多租户权限与审计（v1.
 
 | Agent | 职责 | 写权限 | 在计划中的使用时机 |
 |-------|------|--------|-------------------|
-| `planner` | 输出实现计划、识别风险、拆分子任务 | ❌ 只读 | 每个 Phase 开始前，由 Orchestrator 调用 |
+| `planner` | 输出实现计划、识别风险、拆分子任务 | ❌ 只读 | 每个 Phase 开始前 |
 | `backend-developer` | Go 后端 TDD 开发 | ✅ | 后端 API、模型、配置生成等 |
 | `frontend-developer` | React + TypeScript 前端开发 | ✅ | 页面组件、API 调用、布局 |
 | `prometheus-developer` | Prometheus 扩展 / Patch | ✅ | 涉及 Prometheus 源码修改或扩展点时使用 |
 | `build-resolver` | 修复构建/测试/lint 错误 | ✅ | 构建或测试失败时 |
 | `golang-reviewer` | Go 代码审查 | ❌ 只读 | Backend Developer 完成后 |
 | `frontend-reviewer` | 前端代码审查 | ❌ 只读 | Frontend Developer 完成后 |
-| `security-reviewer` | 安全审查 | ❌ 只读 | Phase 2.2（配置下发）、Phase 4（告警通知）、Phase 6（Token/证书）、Phase 9（权限/审计）等关键节点 |
+| `security-reviewer` | 安全审查 | ❌ 只读 | Phase 4（配置下发）、Phase 6（Token/证书）、Phase 9（权限/审计）等关键节点 |
 
 #### 标准工作流
 
-```
+```text
 Orchestrator（你）
     │
     ├──► 调用 planner 输出模块任务规划
@@ -177,7 +174,7 @@ Orchestrator（你）
 
 #### Worktree 使用规范
 
-本项目采用**Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支**模式（适合单人/小团队，避免目录堆积，同时保证每个模块可独立回退）：
+本项目采用 **Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支** 模式。
 
 ```bash
 # 由 Orchestrator 在主仓库执行（一次性初始化）
@@ -199,21 +196,13 @@ git checkout -b feat/module-XX-<功能名> origin/develop
 | `main` | `main` | 稳定/生产版本 | - | - |
 | `develop` | `develop` | 集成/开发主线 | `main` | - |
 | feature | `feat/module-00-infrastructure` | 基础设施 | `develop` | `develop` |
+| feature | `feat/module-06-domain-registry` | 网域登记 | `develop` | `develop` |
 | feature | `feat/module-07-resource-management` | 监控对象管理 | `develop` | `develop` |
 | feature | `feat/module-01-strategy` | 监控策略与指标管理 | `develop` | `develop` |
 | feature | `feat/module-09-config-center` | 网域与边缘配置中心 | `develop` | `develop` |
 | feature | `feat/module-02-query-center` | 查询中心 | `develop` | `develop` |
-| feature | `feat/module-08-alerting-lifecycle` | 告警生命周期 | `develop` | `develop` |
+| feature | `feat/module-08-alerting-lifecycle` | 告警收敛与通知管理 | `develop` | `develop` |
 | feature | `feat/module-05-portal` | 前端门户 | `develop` | `develop` |
-| feature | `feat/module-06-tenant-management` | 租户与网域关联 | `develop` | `develop` |
-| feature | `feat/module-09-edge-cloud` | 边缘 Agent 与配置分发 | `develop` | `develop` |
-| feature | `feat/module-10-source-registry` | 监控源登记册 | `develop` | `develop` |
-| feature | `feat/module-03-gateway` | 网关与 Ingestion 路由 | `develop` | `develop` |
-| feature | `feat/module-04-cmdb-discovery` | 外部 CMDB 生命周期管理 | `develop` | `develop` |
-| feature | `feat/module-10-heterogeneous` | 异构监控接入 | `develop` | `develop` |
-| feature | `feat/module-06-enterprise` | 多租户权限与审计 | `develop` | `develop` |
-| feature | `feat/module-08-alerting-enterprise` | 企业级告警能力 | `develop` | `develop` |
-| feature | `feat/module-09-edge-autonomy` | 边缘自治告警 | `develop` | `develop` |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` |
 | `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` |
 
@@ -269,81 +258,70 @@ Agent 进入 worktree 后必须先执行启动协议：
 
 ## 3. 模块依赖关系图
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Phase 0 基础设施                          │
-│  platform/models/ · platform/db/ · platform/api/response         │
-│  共享模型：Resource / LabelTemplate / ResourceLabel /            │
-│  CITypeExporterMapping / ScrapeJob / MonitoringRule /            │
-│  NetworkDomain / ConfigDraft / ConfigVersion / EdgeAgent /       │
-│  MonitoringSource / Tenant                                       │
+│  platform/models/ · platform/db/ · platform/api/response           │
+│  种子数据：platform_admin 租户、default 网域、zone_type 字典、      │
+│  默认 LabelTemplate、内置 ExporterTemplate、CITypeExporterMapping  │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   Phase 1 监控对象管理（Module_07）                │
-│  Resource CRUD · Excel 导入 · LabelTemplate · 状态映射 ·         │
-│  ResourceLabel                                                  │
+│                   Phase 1 网域登记管理（Module_06）                │
+│  zone-types 字典 · NetworkDomain 行政 CRUD · 冻结语义 · 种子 upsert │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│       Phase 2.1 监控策略与指标管理（Module_01）                    │
-│  CI↔Exporter 绑定 · ScrapeJob · 实例选择 · 规则编辑 UI            │
+│                   Phase 2 监控对象管理（Module_07）                │
+│  五类资源 CRUD · Excel 导入 · LabelTemplate · ResourceLabel      │
+│  biz_code 业务字典 · 状态映射 · is_monitored 只读映射             │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│       Phase 2.2 网域与边缘配置中心（Module_09）                    │
-│  NetworkDomain · 配置生成 · 草稿预览 · 人工确认 · 下发 reload     │
-│  external_labels 注入 · Edge Agent 状态列表 {MVP}               │
+│       Phase 3 监控策略与指标管理（Module_01）                      │
+│  CI↔Exporter 绑定 · ScrapeJob · 认证/TLS · Blackbox · 规则文件挂载 │
 └─────────────────────────────────────────────────────────────────┘
-              │               │
-              ▼               ▼
-   Phase 3 查询中心      Phase 4 告警生命周期
-   Module_02            Module_08
-   （带租户/网域注入的    （分组/静默/Alertmanager/告警状态）
-    Prometheus Query
-    API 代理 + 目标状态）
-              │               │
-              └───────┬───────┘
-                      ▼
-           Phase 5 前端门户集成（Module_05）
-                      │
-                      ▼
-           Phase 6.1 租户与网域关联（Module_06）
-              │       │       │
-              ▼       ▼       ▼
-   Phase 6.2 边缘 Agent   Phase 6.3 监控源登记册   Phase 6.4 网关
-   Module_09              Module_10                Module_03
-              │               │
-              └───────┬───────┘
-                      ▼
-           Phase 7 门户化查询与告警（v0.3）
-           Module_02 / Module_08 / Module_05
-                      │
-                      ▼
-           Phase 8 外部 CMDB 与异构接入（v0.4）
-           Module_04 / Module_10 / Module_06 / Module_09
-                      │
-                      ▼
-           Phase 9 企业级能力（v1.0）
-           Module_06 / Module_08 / Module_09 / Module_03
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│       Phase 4 网域与边缘配置中心（Module_09）                      │
+│  网域监控纳管 · 配置生成 · 草稿预览/Diff · 人工确认 · local reload  │
+│  external_labels 注入 · agent_pull UI 占位 · change_status 回写  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Phase 5 跨模块联调验收                           │
+│  无独立 portal 分支；用现有页面串链；端到端验证；文档补齐           │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+        Phase 6.1          Phase 6.2         Phase 6.3/6.4
+        Module_02          Module_06         Module_09 / Module_10
+        （注入/查询）        （租户-网域）       （Edge / 监控源）
+              │               │               │
+              └───────────────┴───────────────┘
+                              │
+                              ▼
+                        v0.3 / v0.4 / v1.0
 ```
 
 ### 3.1 关键依赖说明
 
 | 依赖方 | 被依赖方 | 说明 |
 |--------|----------|------|
-| 监控策略（Module_01） | 资源管理（Module_07） | `ScrapeJob` 需要读取 Resource、LabelTemplate、ResourceLabel |
-| 配置中心（Module_09） | 资源管理、监控策略 | 组装 `prometheus.yml` / `rules.yml` 需要 Module_07 与 Module_01 的数据 |
-| 查询中心（Module_02） | 配置中心（Module_09） | 需要 Module_09 已生成配置且中心 Prometheus 正在抓取，才能展示目标状态与指标；Module_02 代理时注入的 `network_domain` / `tenant_id` 标签依赖 Module_09 的 `external_labels` 注入 |
-| 告警生命周期（Module_08） | 监控策略、配置中心 | 消费 Module_01 产出的规则记录，经配置中心下发，并通过查询中心展示告警状态 |
-| 租户管理（Module_06） | 网域与配置中心（Module_09） | `NetworkDomain.tenant_id` 归属 Module_09，Module_06 负责 Tenant 生命周期与校验 |
-| 监控源登记册（Module_10） | 网域（Module_09）、网关（Module_03） | 监控源必须归属网域，Remote Write 接收点依赖 Module_03 网关路由 |
-| 自定义服务发现（Module_04） | 资源管理（Module_07）、租户/网域 | Provider 输出写入 Resource，依赖 Module_07 的 `CMDBProvider` 接口与 Module_06/09 的 BlueKing 映射 |
-| 网关（Module_03） | 多租户（Module_06）、查询/告警代理 | 网关层鉴权与租户路由依赖 Module_06；Ingestion Gateway 路由与 Module_10 配合 |
-| 前端门户 | 全部后端 API | 最后统一集成 |
+| Module_06 网域登记 | Phase 0 | 需要 Tenant / NetworkDomain 行政模型与种子数据 |
+| Module_07 资源管理 | Module_06 | Resource 的 `network_domain_id` 必须引用 M06 已登记网域 |
+| Module_01 监控策略 | Module_07 | `ScrapeJob` 需要读取 Resource、LabelTemplate、ResourceLabel |
+| Module_01 监控策略 | Module_06 | ScrapeJob 需校验网域是否已纳管 / 是否冻结 |
+| Module_09 配置中心 | Module_01 / Module_07 | 组装 `prometheus.yml` / `rules.yml` 需要 M01 与 M07 的数据 |
+| Module_09 配置中心 | Module_06 | `NetworkDomain` 行政字段由 M06 维护，M09 只读引用 |
+| Module_02 查询中心（v0.2） | Module_09 / Module_06 | 注入 `network_domain` / `tenant` 标签依赖 M09 external_labels 与 M06 租户-网域关联 |
+| Module_08 告警收敛（v0.3） | Module_01 / Module_09 | 消费 M01 规则记录，M08 负责 Alertmanager 配置 |
 
 ---
 
@@ -353,54 +331,100 @@ Agent 进入 worktree 后必须先执行启动协议：
 
 **对应模块分支**：`feat/module-00-infrastructure`
 
-**目标**：建立后端项目结构、数据库访问、统一 API 响应，并冻结 MVP 核心共享模型；同时为后续多网域与异构接入预留最小数据契约。
+**目标**：建立后端项目结构、数据库访问、统一 API 响应，并冻结 MVP 核心共享模型；同时完成 MVP 所需种子数据的 upsert 机制。
 
 **Agent 分工**：
-- `planner`：规划数据库选型、模型结构、API 响应格式
-- `backend-developer`：实现数据库、模型、统一响应、健康检查
-- `frontend-developer`：建立前端目录结构与 API client 雏形
+- `planner`：规划数据库选型、模型结构、API 响应格式、种子数据清单
+- `backend-developer`：实现数据库、模型、统一响应、健康检查、种子数据
+- `frontend-developer`：确认前端目录结构与 API client 雏形
 - `golang-reviewer`：审查后端基础设施代码
 
 | 任务 | 目录/文件 | 说明 | 验收标准 |
 |------|-----------|------|----------|
-| 数据库初始化 | `platform/db/db.go` | SQLite 连接、迁移框架（gorm 或 sqlx） | 服务启动自动建表 |
-| 统一模型层 | `platform/models/` | 共享模型：`Resource`、`ResourceLabel`、`LabelTemplate`、`NetworkDomain`、`CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob`、`MonitoringRule`、`ConfigDraft`、`ConfigVersion`、`ConfigDeployment`、`EdgeAgent`、`Tenant`、`MonitoringSource` | 模型与 Module_01/06/07/09/10 PRD 一致 |
-| 统一 API 响应 | `platform/api/response/` | JSON 统一封装、错误码；包含 `errorType` 枚举 | 所有 API 返回统一格式 |
+| 数据库初始化 | `platform/db/db.go` | SQLite 连接、GORM 迁移框架 | 服务启动自动建表 |
+| 统一模型层 | `platform/models/` | Tenant、NetworkDomain、Resource、ResourceLabel、LabelTemplate、CITypeExporterMapping、ExporterTemplate、ScrapeJob、MonitoringRule、ConfigDraft、ConfigVersion、ConfigDeployment、EdgeAgent、BusinessMetric（预留） | 模型与 Module_01/06/07/09 PRD 一致 |
+| 统一 API 响应 | `platform/api/response/` | JSON 统一封装、errorType 枚举 | 所有 API 返回统一格式 |
 | 健康检查增强 | `platform/cmd/metric-center/main.go` | 增加 `/api/v1/health/db` 检查 DB | 能检测 DB 连通性 |
+| 种子数据 upsert | `platform/db/seed/` | `platform_admin` 租户、`default` 网域（management/local）、zone_type 字典、默认 LabelTemplate、内置 ExporterTemplate、默认 CITypeExporterMapping | 后端启动后幂等生成，重复启动不报错 |
 | 前端项目结构调整 | `ui-custom/web/src/api/`、`ui-custom/web/src/types/` | 建立 API 客户端与类型定义目录 | 目录规范确定 |
 
 **风险点**：
-- ORM 选型未完全确定，建议 MVP 用 GORM + SQLite，后续切 PostgreSQL 成本低。
 - 模型字段一旦确定，Excel 模板、标签模板、策略绑定表会强依赖，需在本阶段冻结最小字段集。
+- 种子数据涉及 M06/M07/M01 三模块默认值，需在 Phase 0 明确清单，避免后续模块重复初始化。
 
 ---
 
-### Phase 1：监控对象管理（第 1 ~ 2 周）
+### Phase 1：网域登记管理（第 1 周）
+
+**对应模块分支**：`feat/module-06-domain-registry`
+
+**目标**：实现 MVP 所需的网域行政登记能力：`zone-types` 只读字典、`NetworkDomain` 行政 CRUD、禁用=冻结、空网域删除、种子数据 upsert。
+
+> 本阶段对应 [Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md) 的 MVP 子集。完整租户生命周期、RBAC、审计放到 v0.2 及以后。
+
+**Agent 分工**：
+- `planner`：明确 NetworkDomain 行政字段、zone_type 字典来源、冻结语义、空网域删除规则
+- `backend-developer`：实现 zone-types 接口、NetworkDomain 行政 API、种子 upsert、冻结联动校验
+- `frontend-developer`：实现网域管理页面、禁用二次确认弹窗（展示 M07 资源数 / M09 已纳管 EdgeAgent 数）
+- `golang-reviewer`：审查行政字段校验与跨模块约束
+
+| 任务 | 目录/文件 | 说明 | 验收标准 |
+|------|-----------|------|----------|
+| zone_type 字典 | `platform/admin/networkdomain/zone_type.go` | 部署级字典（政务云：`internet`/`extranet`/`private-line`/`dmz`；公有云按 region） | `GET /api/v2/platform/zone-types` 返回启用中字典项 |
+| NetworkDomain 行政 API | `platform/admin/networkdomain/` | CRUD；`id` 按 `<deploy_code>-<domain_code>` 生成；`tenant_id` 创建后不可变 | 可通过 HTTP 增删改查 |
+| 禁用=冻结 | `platform/admin/networkdomain/status.go` | 禁用网域时返回影响范围（M07 资源数 / M09 已纳管 EdgeAgent 数）；管理域 `default` 禁止禁用 | M07/M01/M09 校验生效 |
+| 空网域删除 | `platform/admin/networkdomain/delete.go` | 仅当无 M07 资源引用且无已纳管 EdgeAgent 时允许删除；软删除 | 非空网域删除被拒并引导禁用 |
+| 授权租户 | `platform/admin/networkdomain/authorized.go` | `authorized_tenant_ids` 维护（MVP 缺省 = 登记归属租户） | 可维护授权列表 |
+| 种子数据完善 | `platform/db/seed/` | `default` 网域 `domain_type=management`、`channel=local`、登记归属 `platform_admin` | 系统启动后存在 |
+| 前端网域管理页 | `ui-custom/web/src/pages/admin/domains/` | 列表、登记表单、禁用确认弹窗、空态引导 | 可完成网域登记闭环 |
+
+**接口预览**：
+
+```http
+GET    /api/v2/platform/zone-types
+GET    /api/v2/platform/network-domains
+POST   /api/v2/platform/network-domains
+GET    /api/v2/platform/network-domains/:id
+PUT    /api/v2/platform/network-domains/:id
+PATCH  /api/v2/platform/network-domains/:id/status
+DELETE /api/v2/platform/network-domains/:id
+```
+
+**依赖**：Phase 0
+
+**风险点**：
+- `network_domain_id` 全局唯一且含部署前缀，需在生成逻辑中处理 `default` 例外。
+- 禁用网域的跨模块联动校验必须同步落地，否则 M07/M01/M09 会出现行为不一致。
+
+---
+
+### Phase 2：监控对象管理（第 1 ~ 2 周）
 
 **对应模块分支**：`feat/module-07-resource-management`
 
-**目标**：实现四类资源的最小化 CRUD、Excel 导入、`ResourceLabel` 基础 CRUD、状态映射、LabelTemplate 管理，并在 Resource 列表预留「已监控 / 未监控」badge 展示字段。
+**目标**：实现五类资源的最小化 CRUD、Excel 导入 upsert、`ResourceLabel` 基础 CRUD、状态映射、LabelTemplate 管理、`biz_code` 业务字典、`is_monitored` 只读映射。
 
 > 本阶段对应 [Module_07: 监控对象管理](Modules/Module_07_Monitoring_Object_Management.md)。`ScrapeJob`、配置生成、配置下发已不在本模块范围内。
 
 **Agent 分工**：
-- `planner`：输出资源 API、Excel 模板、校验规则、`ResourceLabel` / `LabelTemplate` 数据契约的详细规划
+- `planner`：输出资源 API、Excel 模板、校验规则、`ResourceLabel` / `LabelTemplate` 数据契约
 - `backend-developer`：实现资源 CRUD、Excel 导入、`ResourceLabel` API、LabelTemplate API、状态映射后端
-- `frontend-developer`：实现资源管理页面（列表、导入弹窗、资源详情 Label 编辑）与标签模板页面
+- `frontend-developer`：实现资源管理页面、导入弹窗、资源详情 Label 编辑、标签模板页面
 - `golang-reviewer`：审查后端 API、Excel 解析、Label 校验逻辑
 - `frontend-reviewer`：审查前端资源页面与标签模板页面
 
 | 任务 | 目录/文件 | 说明 | 验收标准 |
 |------|-----------|------|----------|
-| 资源 API | `platform/config/resource/` | Host / Middleware / Application / GenericTarget 的 CRUD | 可通过 HTTP 增删改查 |
-| Excel 导入 | `platform/config/resource/excel.go` | 固定列模板解析、校验、批量写入；含可选 `network_domain_id` 与 `cmdb_*` 预留列 | 导入 100 条数据，错误行返回准确 |
-| Excel 模板下载 | `platform/config/resource/template.go` | 按资源类型生成 CSV/Excel 模板 | 前端可下载模板 |
+| 资源 API | `platform/config/resource/` | Host / Database / Middleware / Application / GenericTarget 的 CRUD | 可通过 HTTP 增删改查五类资源 |
+| Excel 导入 | `platform/config/resource/excel.go` | 固定列模板解析、校验、批量写入、upsert、错误行返回 | 导入 100 条数据，错误行返回准确 |
+| Excel 模板下载 | `platform/config/resource/template.go` | 按资源类型生成 xlsx/CSV 模板 | 前端可下载模板 |
 | 状态映射 | `platform/config/resource/status_mapping.go` | Excel/CMDB 状态 → `Resource.status` 默认 + 可配置规则 | 中文状态正确映射 |
-| ResourceLabel API | `platform/config/resource/label.go` | Label CRUD；key 合规校验；来源 `system` / `user` | 可增删改查，冲突可检测 |
-| 标签模板 API | `platform/config/label/` | 按资源类型管理字段 → Label 映射；字段来源 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}` | 增删改查可用 |
+| ResourceLabel API | `platform/config/resource/label.go` | Label CRUD；key 合规校验；来源 `system` / `user`；仅 application 可写 user 标签 | 可增删改查，冲突可检测 |
+| 标签模板 API | `platform/config/label/` | 按资源类别管理字段 → Label 映射；字段来源 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}` | 增删改查可用 |
 | system label 生成器 | `platform/config/label/generator.go` | 根据模板为资源生成 `source=system` 的 `ResourceLabel` | 修改模板后 label 同步更新 |
-| 已监控/未监控 badge 字段 | `platform/config/resource/monitored_badge.go` | 提供 `is_monitored` 只读展示字段（数据由 Module_01 维护关联关系） | Resource 列表可展示 badge |
-| 前端资源管理页 | `ui-custom/web/src/pages/resources/` | 四类资源列表、导入弹窗、资源详情 Label 编辑与冲突提示 | 可导入并展示资源；Label key 冲突有提示 |
+| `is_monitored` 只读映射 | `platform/config/resource/monitored.go` | 字段由 Module_01 维护关联关系，M07 只读展示并支持筛选 | Resource 列表可筛选「未监控」 |
+| `biz_code` 业务字典 | `platform/config/resource/business.go` | 部署级字典，资源新增/编辑时校验存在性；停用条目不可新选 | 导入/录入时未登记业务报错 |
+| 前端资源管理页 | `ui-custom/web/src/pages/resources/` | 五类资源列表、导入弹窗、资源详情 Label 编辑与冲突提示、网域/业务筛选 | 可导入并展示资源 |
 | 前端标签模板页 | `ui-custom/web/src/pages/label-templates/` | 标签模板 CRUD 页面 | 可完成标签模板 CRUD |
 
 **接口预览**：
@@ -416,54 +440,59 @@ GET    /api/v2/platform/resources/:id/labels
 POST   /api/v2/platform/resources/:id/labels
 PUT    /api/v2/platform/resources/:id/labels/:key
 DELETE /api/v2/platform/resources/:id/labels/:key
-GET    /api/v2/platform/status-mapping/test?source=运行中&type=host
-GET/POST    /api/v2/platform/label-templates
-PUT/DELETE  /api/v2/platform/label-templates/:id
-POST        /api/v2/platform/label-templates/:id/apply
+GET    /api/v2/platform/resources?is_monitored=false
+GET    /api/v2/platform/label-templates
+POST   /api/v2/platform/label-templates
+PUT    /api/v2/platform/label-templates/:id
+DELETE /api/v2/platform/label-templates/:id
 ```
 
-**依赖**：Phase 0
+**依赖**：Phase 1
+
+**风险点**：
+- 五类资源字段差异化较大，需通过 embedding 或 discriminator 模式共享基座表。
+- `system` label 保护不可被 `user` 覆盖，合并逻辑需充分单元测试。
+- `is_monitored` 由 M01 维护，M07 只读映射，两模块需就更新时机达成一致。
 
 ---
 
-### Phase 2：监控策略与配置中心（第 2 ~ 4 周）
-
-本 Phase 合并 [Module_01: 监控策略与指标管理](Modules/Module_01_Metric_Collection_Center.md) 与 [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md)。两个模块可以按顺序落地（推荐：先 Module_01，后 Module_09），也可以在接口契约冻结后部分并行开发。Module_09 的配置生成强依赖 Module_01 的 `ScrapeJob` / `MonitoringRule`，因此配置生成器必须在 Module_01 数据模型稳定后才能完整联调。
-
-#### Phase 2.1：监控策略与指标管理（第 2 ~ 3 周）
+### Phase 3：监控策略与指标管理（第 2 ~ 3 周）
 
 **对应模块分支**：`feat/module-01-strategy`
 
-**目标**：实现监控策略配置层，包括 CI 类型 ↔ Exporter 模板绑定、`ScrapeJob`、实例选择、Exporter 安装确认、规则编辑 UI、静态指标库。
+**目标**：实现监控策略配置层，包括 CI 类型 ↔ 默认采集器绑定、`ExporterTemplate`、`ScrapeJob`、实例选择、Exporter 安装确认、Blackbox 拨测、规则文件挂载、静态指标库。
 
 > **边界说明**：
 > - `ScrapeJob` 由 Module_01 持有并编辑，不再由 Module_07 承载。
 > - Blackbox 拨测配置作为监控策略的一部分，由 Module_01 编辑。
-> - 配置生成 / 预览 / 下发由 Module_09 负责；运行时目标状态展示由 Module_02 吸收。
+> - 规则编辑改为「规则文件挂载」：整文件 `rules.yml` 透传落库 `MonitoringRule`，字段化编辑 + PromQL 校验移出 MVP。
+> - 配置生成 / 预览 / 下发由 Module_09 负责。
 
 **Agent 分工**：
-- `planner`：明确 CI↔Exporter 绑定、`ScrapeJob`、实例选择、规则编辑的数据契约与 API
-- `backend-developer`：实现策略 API、目标筛选、规则校验、静态指标库初始化
-- `frontend-developer`：实现策略配置页面（CI 绑定、Job、实例选择、规则编辑）
+- `planner`：明确 CI↔Exporter 绑定、`ScrapeJob`、实例选择、规则挂载的数据契约与 API
+- `backend-developer`：实现策略 API、目标筛选、Blackbox、规则挂载、静态指标库初始化
+- `frontend-developer`：实现策略配置页面（CI 绑定、Job、实例选择、规则挂载、拨测配置）
 - `golang-reviewer`：审查策略后端逻辑
 - `frontend-reviewer`：审查策略前端页面
 
 | 任务 | 目录/文件 | 说明 | 验收标准 |
 |------|-----------|------|----------|
-| CI↔Exporter 模板绑定 API | `platform/strategy/ci-exporter/` | 按 `resource_type` 维护默认 Exporter、端口、metrics_path、scheme、scrape_interval、scrape_timeout | 常见 CI 类型（host/mysql/redis）可绑定 |
-| Exporter 模板 API | `platform/strategy/exporter-template/` | ExporterTemplate CRUD、内置模板初始化 | node-exporter、mysqld-exporter、redis-exporter 模板可展示 |
+| CI↔Exporter 模板绑定 API | `platform/strategy/ci-exporter/` | 按 `monitor_type` 维护默认采集器、端口、metrics_path、scheme、scrape_interval、scrape_timeout、`label_template_id` | 常见 monitor_type 可绑定 |
+| Exporter 模板 API | `platform/strategy/exporter-template/` | ExporterTemplate CRUD、内置模板初始化 | node-exporter、mysqld-exporter、redis-exporter、windows-exporter 模板可展示 |
 | ScrapeJob API | `platform/strategy/scrapejob/` | Job CRUD、关联 CI↔Exporter 绑定、标签模板引用、实例选择模式 | 可创建 Job 并预览匹配资源 |
-| 实例选择 | `platform/strategy/scrapejob/selection.go` | MVP 手动勾选 `Resource`；v0.3+ 支持按网域/环境/应用/标签筛选 | 勾选结果持久化到 `selected_instance_ids` |
-| Exporter 安装/注册确认 | `platform/strategy/scrapejob/installation.go` | 标记 Resource/Target 的 Exporter 安装状态 | 未确认实例不生成 target |
-| 拨测配置 API | `platform/strategy/probe/` | Blackbox probe 模板与拨测目标配置 | 可关联应用服务资源的 `health_check_url` |
-| 规则编辑 API | `platform/strategy/rule/` | 告警/记录规则类 YAML 表单 CRUD；调用 Module_02 进行 PromQL 校验 | 规则记录可创建并校验 |
-| 指标静态库 | `platform/strategy/metric-library/` | 内置常见 Exporter 指标（node/mysql/redis），规则编辑时提供提示 | 规则编辑可提示指标名与标签 |
-| 前端策略配置页 | `ui-custom/web/src/pages/strategy/` | CI 绑定、ScrapeJob、实例选择、规则编辑、拨测配置页面 | 可完成策略配置闭环 |
+| 实例选择 | `platform/strategy/scrapejob/selection.go` | MVP 手动勾选 `Resource`；同 monitor_type + 同网域候选；`offline` 实例显示但置灰不可选 | 勾选结果持久化到 `selected_instance_ids` |
+| 认证/TLS 透传 | `platform/strategy/scrapejob/auth.go` | `auth_type` none/basic/bearer、`username`/`password`/`token`、`tls_skip_verify`、`ca_file`；映射到 scrape_configs | 配置产物含 `basic_auth`/`authorization`/`tls_config` |
+| 冻结网域校验 | `platform/strategy/scrapejob/domain.go` | 禁止在禁用网域新建 Job；禁止向禁用网域新增实例；允许移除/编辑/禁用 Job | 校验生效 |
+| Exporter 安装/注册确认 | `platform/strategy/scrapejob/installation.go` | 标记 Resource×Exporter 的安装状态；未确认实例不生成 target | 未确认实例不进入 targets |
+| 拨测配置 API | `platform/strategy/probe/` | Blackbox probe：job_type=blackbox、blackbox_module、blackbox_targets | 可关联应用服务资源的 `health_check_url` |
+| 规则文件挂载 | `platform/strategy/rule/` | `MonitoringRule.content_mode=yaml_passthrough`；上传/粘贴完整 `rules.yml`；YAML 语法校验（至少 `groups` 存在且为数组）；保存即进入 M09 变更管线 | 规则保存后 M09 能生成 rules.yml |
+| 静态指标库 | `platform/strategy/metric-library/` | 内置 host/database/middleware/application/generic 常见指标 | 规则挂载页面可提示指标名 |
+| 前端策略配置页 | `ui-custom/web/src/pages/strategy/` | CI 绑定、ScrapeJob、实例选择、规则挂载、拨测配置页面 | 可完成策略配置闭环 |
 
 **接口预览**：
 
 ```http
-# CI 类型 ↔ Exporter 模板绑定
+# CI 类型 ↔ 默认采集器绑定
 GET/POST    /api/v2/platform/ci-exporter-mappings
 PUT/DELETE  /api/v2/platform/ci-exporter-mappings/:id
 
@@ -475,7 +504,6 @@ PUT/DELETE  /api/v2/platform/exporter-templates/:id
 GET/POST    /api/v2/platform/scrape-jobs
 PUT/DELETE  /api/v2/platform/scrape-jobs/:id
 POST        /api/v2/platform/scrape-jobs/:id/preview-targets
-POST        /api/v2/platform/scrape-jobs/:id/confirm-instances
 
 # Exporter 安装确认
 GET         /api/v2/platform/resources/:id/exporter-installation
@@ -485,557 +513,270 @@ PUT         /api/v2/platform/resources/:id/exporter-installation
 GET/POST    /api/v2/platform/probe-configs
 PUT/DELETE  /api/v2/platform/probe-configs/:id
 
-# 规则编辑
+# 规则文件挂载
 GET/POST    /api/v2/platform/monitoring-rules
 PUT/DELETE  /api/v2/platform/monitoring-rules/:id
-POST        /api/v2/platform/monitoring-rules/:id/validate
-
-# 指标库
-GET         /api/v2/platform/exporter-metrics?exporter_template_id=
+POST        /api/v2/platform/monitoring-rules/:id/validate-yaml
 ```
 
-**依赖**：Phase 1
+**依赖**：Phase 2
+
+**风险点**：
+- `monitor_type` 由 M07 资源类别 + 子类型推导，需在 M01 与 M07 间约定推导表 `MONITOR_TYPE_DERIVATION_MAP`。
+- 认证/TLS 字段透传需与 M09 配置生成器契约对齐，避免 `tls_config` 路径基准不一致。
+- 规则文件挂载只做 YAML 语法校验，不做 PromQL 语义校验；错误规则可能进入下发流程，需在 M09 的 promtool 校验阶段拦截。
 
 ---
 
-#### Phase 2.2：网域与边缘配置中心（第 3 ~ 4 周）
+### Phase 4：网域与边缘配置中心（第 3 ~ 4 周）
 
 **对应模块分支**：`feat/module-09-config-center`
 
-**目标**：实现配置生成 / 预览 / 下发能力，落地 `NetworkDomain` 默认网域，并注入 `external_labels.network_domain` / `external_labels.tenant_id`。
+**目标**：实现配置生成 / 预览 / 下发能力。MVP 只保证 `default` 域 + `local` 通道闭环；`agent_pull` 网域纳管 UI 保留占位页，完整 Edge Agent 能力放到 v0.2。
 
 > **边界说明**：
 > - Module_09 读取 Module_01 的 `ScrapeJob` / `MonitoringRule` 与 Module_07 的 `Resource` / `LabelTemplate`，轮询生成配置草稿。
 > - 配置草稿需人工确认后再生成 `ConfigVersion` 并触发下发，防止平台 bug 导致监控整体失效。
-> - MVP 阶段诊断看板降级为 **Agent 状态列表页**（在线状态、最后心跳、配置版本、WAL 积压、最近错误），图表/趋势看板放 P1/P2。
+> - `external_labels` 只注入 `network_domain_id` / `zone_type` / `replica`，不注入 `tenant_id` 与业务标签。
 
 **Agent 分工**：
-- `planner`：规划配置生成器输入/输出、下发方式、校验策略、NetworkDomain 数据契约
-- `backend-developer`：实现配置生成、校验、下发、历史记录、NetworkDomain / EdgeAgent 基础 API
+- `planner`：规划配置生成器输入/输出、下发方式、校验策略、NetworkDomain 监控纳管契约
+- `backend-developer`：实现配置生成、校验、下发、历史记录、NetworkDomain 监控纳管 API
 - `prometheus-developer`：评估是否需要 Prometheus 扩展；MVP 阶段通常只需生成配置，不修改源码
-- `frontend-developer`：实现配置预览 / diff / 下发页面、网域管理页面、Agent 状态列表页
+- `frontend-developer`：实现配置预览 / diff / 下发页面、网域纳管页面、agent_pull 占位页
 - `golang-reviewer`：审查配置生成与下发逻辑
 - `security-reviewer`：审查配置下发安全性（文件写入、reload 触发权限、Token 鉴权）
 
 | 任务 | 目录/文件 | 说明 | 验收标准 |
 |------|-----------|------|----------|
-| NetworkDomain API | `platform/configcenter/domain/` | 网域 CRUD、默认网域 `default` 初始化、Token 生成/重置 | MVP 单网域无感知 |
-| EdgeAgent 基础 API | `platform/configcenter/edge/` | Agent 注册、心跳接收、状态展示 | 心跳可更新在线状态 |
-| 配置生成器 | `platform/configcenter/generator/` | 按网域组装 `prometheus.yml`（scrape_configs + external_labels）与 `rules.yml` | 生成 YAML 与 PRD 示例一致 |
-| Label 合并器 | `platform/configcenter/generator/labels.go` | 合并 `system` / `user` / `cmdb {v0.4+}` label，优先级 `cmdb` > `user` > `system` | 冲突时按优先级合并 |
-| 配置校验 | `platform/configcenter/generator/validate.go` | 调用 `promtool check config` | 错误配置能被拦截 |
+| NetworkDomain 监控纳管 API | `platform/configcenter/domain/` | 从 M06 已存在网域中选择；维护 `channel` / `agent_type` / `remote_write_url` / `token` / `center_endpoint`；`default` 固定 `local` | 可标记网域为已纳管 |
+| agent_pull 占位页 | `ui-custom/web/src/pages/config-center/domains/` | 安装指引（3 步人工步骤）、Token 脱敏复制、采集节点状态空态引导 | 页面可展示但不实现心跳/拉包 |
+| 配置生成器 | `platform/configcenter/generator/` | 按网域组装 `prometheus.yml`（scrape_configs + file_sd + external_labels）与 `rules.yml` | 生成 YAML 与 PRD 示例一致 |
+| `external_labels` 注入 | `platform/configcenter/generator/labels.go` | 只注入 `network_domain_id`、`zone_type`、`replica` | 产物中无 `tenant_id` |
+| `offline` 资源排除 | `platform/configcenter/generator/targets.go` | 生成 `targets/*.json` 时过滤 `Resource.status=offline` | offline 资源不出现在配置中 |
+| Label 合并器 | `platform/configcenter/generator/labels.go` | 合并 `system` / `user` / `cmdb {v0.4+}` label，优先级 `cmdb` > `user` > `system`；`system` 不可被覆盖 | 冲突时按优先级合并 |
+| 配置校验 | `platform/configcenter/generator/validate.go` | 调用 `promtool check config`、blackbox `--config.check`、targets JSON schema 校验 | 错误配置能被拦截 |
 | 配置草稿与预览 | `platform/configcenter/draft/` | 生成 `ConfigDraft`、YAML 预览、与当前版本 diff、人工确认/废弃 | UI 可预览并确认 |
-| 配置下发 | `platform/configcenter/deployment/` | 确认后生成 `ConfigVersion`，触发中心 Prometheus reload | Prometheus 成功 reload |
+| 配置下发 | `platform/configcenter/deployment/` | 确认后生成 `ConfigVersion`；`local` 通道写盘并触发中心 Prometheus reload | Prometheus 成功 reload |
 | 下发历史 | `platform/configcenter/deployment/history.go` | 记录每次下发内容与结果 | 有历史记录表 |
-| 配置包拉取接口 | `platform/configcenter/edge/pull.go` | Edge Sync Agent 通过 Token 拉取本域配置包 | 返回 zip 包与 304 |
-| Agent 状态列表页 | `ui-custom/web/src/pages/config-center/agents/` | 分页表格展示各网域 Agent 在线状态、最后心跳、配置版本、WAL 积压、最近错误 | 可查看 Agent 状态 |
-| 前端配置中心页 | `ui-custom/web/src/pages/config-center/` | 网域管理、草稿列表、配置预览/diff、一键下发、下发历史 | 可下发后看到 targets 更新 |
+| `change_status` 回写 | `platform/configcenter/deployment/callback.go` | `ConfigDeployment.status=success` 后回写 M01 `ScrapeJob.change_status=deployed` | M01 列表状态正确 |
+| 前端配置中心页 | `ui-custom/web/src/pages/config-center/` | 网域纳管、草稿列表、配置预览/diff、一键下发、下发历史 | 可下发后看到 targets 更新 |
 
 **接口预览**：
 
 ```http
-# 网域管理
-GET/POST    /api/v2/platform/network-domains
-PUT/DELETE  /api/v2/platform/network-domains/:id
-POST        /api/v2/platform/network-domains/:id/reset-token
-GET         /api/v2/platform/network-domains/:id/edge-agents
+# 网域监控纳管
+GET/POST    /api/v2/platform/network-domains/:id/onboard
+PUT         /api/v2/platform/network-domains/:id/onboard
+GET         /api/v2/platform/network-domains/:id/config-status
 
 # 配置草稿 / 预览 / 确认
 GET/POST    /api/v2/platform/config/drafts
 POST        /api/v2/platform/config/drafts/:id/confirm
 POST        /api/v2/platform/config/drafts/:id/discard
+POST        /api/v2/platform/config/drafts/:id/revalidate
 GET         /api/v2/platform/config/preview?draft_id=
 
 # 配置下发与历史
 POST        /api/v2/platform/config/apply
 GET         /api/v2/platform/config/history
+POST        /api/v2/platform/config/history/:id/retry
 
-# Edge Sync Agent 协议
+# Edge Sync Agent 协议（v0.2 实现）
 POST        /api/v2/platform/edge/heartbeat
 GET         /api/v2/platform/edge/config?network_domain=
 ```
 
-**依赖**：Phase 2.1、本地 Prometheus 进程可运行
+**依赖**：Phase 3、本地 Prometheus 进程可运行
 
 **风险点**：
 - 本地开发需要能启动 Prometheus 并加载生成的配置，需同步准备 `deploy/` 启动脚本和示例配置。
 - 配置生成是 MVP 核心，需重点测试标签模板与 relabel 的正确性。
 - 配置中心引入人工确认步骤，需保证 UI diff 清晰，避免工程师误操作。
+- `agent_pull` 占位页与后续 v0.2 真实能力需明确边界，避免用户误以为 MVP 支持边缘 Agent。
 
 ---
 
-### Phase 3：查询中心（含目标状态展示）（第 4 周）
+### Phase 5：跨模块联调验收（第 4 ~ 5 周）
 
-**对应模块分支**：`feat/module-02-query-center`
+**对应分支**：不创建独立 `feat/module-05-portal` 分支，直接在 `develop` 或临时 `feat/module-00-e2e` 分支完成。
 
-**目标**：提供统一的 Prometheus Query API 代理入口，在转发时自动注入租户/网域上下文以保证多租户隔离，并返回带数据来源与新鲜度 envelope 的响应；同时吸收原 Module_01 的运行时目标状态展示职责（目标列表、拨测结果、采集诊断）。
-
-> 本阶段对应 [Module_02: 查询中心](Modules/Module_02_Query_Center.md)。原 `feat/module-01-collection-status` 分支取消，目标状态展示合并到本阶段。
->
-> **注入行为**：Module_02 不是透明代理。转发前自动注入 `tenant_id` 与用户有权限的全部 `network_domain_id`；单网域场景对用户无感知，多网域场景默认查询全部授权网域，用户仍可在 PromQL 中手动进一步过滤。系统注入 = 权限隔离，用户过滤 = 业务筛选。
+**目标**：把 M06 / M07 / M01 / M09 页面串成可用动线，补齐导航、错误处理、端到端验证与文档。
 
 **Agent 分工**：
-- `planner`：明确查询代理接口、注入规则、envelope 元数据、目标状态展示、拨测结果查询的需求
-- `backend-developer`：实现 Query 代理、targets 代理、alerts 代理、元数据代理、拨测结果查询
-- `frontend-developer`：实现 PromQL 查询页面与目标状态页面
-- `golang-reviewer`：审查代理、注入与 envelope 逻辑
-- `frontend-reviewer`：审查查询/目标状态页面
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| Query 代理 API | `platform/query/proxy.go` 或 `platform/gateway/proxy/query.go` | 代理 `/api/v1/query`、`/api/v1/query_range`、labels、series；自动注入 `tenant_id` 与有权限的 `network_domain_id` | 返回与 Prometheus 兼容且带 envelope 的响应 |
-| 指标元数据缓存 | `platform/query/metadata.go` | 代理 `/api/v1/metadata`、`/api/v1/labels` | 补全可用 |
-| Targets 代理 API | `platform/query/targets.go` | 代理 `/api/v1/targets` | 返回目标列表、状态、错误信息 |
-| Alerts 代理 API | `platform/query/alerts.go` | 代理 Prometheus `/api/v1/alerts`；Alertmanager 通知状态不归本模块 | 返回当前 firing/pending 告警实例 |
-| 目标状态聚合 | `platform/query/target-status.go` | 按 Job / env / app 聚合 | 筛选与统计可用 |
-| 拨测结果查询 | `platform/query/probe.go` | 代理 PromQL `probe_success`、`probe_duration` | 可展示拨测结果 |
-| 查询辅助 | `platform/query/autocomplete.go` | 指标名/Label 建议 | 前端可联想 |
-| 响应 envelope | `platform/query/envelope.go` | 统一包裹 Prometheus 响应，附加 `meta.data_source` / `meta.freshness_at` / `meta.network_domain` | 不污染 series 标签 |
-| 前端查询页 | `ui-custom/web/src/pages/query/` | PromQL 编辑器、结果表格/JSON、目标状态、拨测结果、数据来源提示 | 可执行查询并查看目标状态 |
-
-**接口预览**：
-
-```http
-# 以下接口均代理 Prometheus Query API，Module_02 自动注入 tenant_id / network_domain_id，
-# 并在原始响应外层包裹 envelope 元数据（data_source / freshness_at / network_domain）。
-POST /api/v1/query
-POST /api/v1/query_range
-GET  /api/v1/labels
-GET  /api/v1/label/:name/values
-GET  /api/v1/series
-GET  /api/v1/targets
-GET  /api/v1/targets/:id
-GET  /api/v1/alerts
-GET  /api/v1/probe-results
-```
-
-**依赖**：Phase 2.2（需要 Module_09 已生成配置且中心 Prometheus 正在抓取）
-
-**风险点**：
-- PromQL 注入逻辑复杂（标签选择器拼接、与现有选择器合并、正则匹配多网域），需充分单元测试并覆盖边界情况。
-- 响应 envelope 元数据可能带来性能开销（especially freshness_at 需要跨 series 计算最新时间戳），需在接入层做缓存或异步采样。
-- Module_02 不存在跨租户全局管理员 bypass 逻辑，平台管理员按租户维度管理；如后续需求变化，需同步调整 Module_06 与注入逻辑。
-
----
-
-### Phase 4：告警生命周期管理（第 5 周）
-
-**对应模块分支**：`feat/module-08-alerting-lifecycle`
-
-**目标**：管理告警规则生命周期（规则分组、启用/禁用、静默、Alertmanager 配置），并通过查询中心展示告警状态。
-
-> 本阶段对应 [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md)。规则编辑 UI 在 Module_01 中实现，Module_08 负责消费规则记录并完成后续生命周期管理。
->
-> **边界说明**：Module_02 仅代理 Prometheus `/api/v1/alerts` 返回当前触发/待处理告警实例；Alertmanager 的通知状态（分组、静默、抑制、接收人）由 Module_08 负责。
-
-**Agent 分工**：
-- `planner`：明确告警规则分组、静默、Alertmanager 配置生成、告警状态展示的需求
-- `backend-developer`：实现规则组、静默、Alertmanager 配置生成、`/api/v1/alerts` 代理（可复用 Module_02 代理能力）
-- `frontend-developer`：实现告警规则组、静默、Alertmanager 配置与告警状态页面
-- `golang-reviewer`：审查告警生命周期逻辑
-- `frontend-reviewer`：审查告警页面
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| 规则组 API | `platform/alerting/group.go` | 按网域/规则组聚合 Module_01 产出的规则记录 | 可创建/编辑规则组 |
-| 规则生命周期 API | `platform/alerting/rule.go` | 规则启用/禁用、版本管理、按网域聚合 | 规则状态可控 |
-| 静默管理 API | `platform/alerting/silence.go` | 调用 Alertmanager API 创建/删除静默规则 | 静默规则生效 |
-| Alertmanager 配置生成 | `platform/alerting/alertmanager.go` | 基于通知渠道模板生成 `alertmanager.yml` | 配置可被 Alertmanager 加载 |
-| 告警抑制规则生成 | `platform/alerting/inhibit.go` | 网域离线时自动生成 `inhibit_rules` | `EdgeSiteOffline` 可抑制可达性告警 |
-| Alerts 代理 API | `platform/alerting/alerts.go`（可调用 `platform/query/`） | 代理 `/api/v1/alerts` | 返回当前告警 |
-| rules.yml 示例 | `deploy/rules.yml` | 提供 MVP 示例规则 | Prometheus 加载后可触发测试告警 |
-| 前端告警页 | `ui-custom/web/src/pages/alerts/` | 告警状态、规则组、静默、Alertmanager 配置页面 | 可查看当前告警并管理规则组 |
-
-**接口预览**：
-
-```http
-GET         /api/v1/alerts
-GET/POST    /api/v2/platform/alerting/groups
-PUT/DELETE  /api/v2/platform/alerting/groups/:id
-GET/POST    /api/v2/platform/alerting/silences
-PUT/DELETE  /api/v2/platform/alerting/silences/:id
-GET/POST    /api/v2/platform/alerting/alertmanager-config
-GET         /api/v2/platform/alerting/rules
-PUT         /api/v2/platform/alerting/rules/:id/enable
-PUT         /api/v2/platform/alerting/rules/:id/disable
-```
-
-**依赖**：Phase 2.1、Phase 2.2
-
----
-
-### Phase 5：前端门户集成与 MVP 验收（第 5 ~ 6 周）
-
-**对应模块分支**：`feat/module-05-portal`
-
-**目标**：把各页面串成完整门户，补齐导航、首页、错误处理，并完成端到端验收。
-
-**Agent 分工**：
-- `planner`：规划门户布局、导航结构、首页 Dashboard 内容
-- `frontend-developer`：实现统一布局、导航、首页、错误处理
-- `backend-developer`：配合提供首页所需聚合数据 API
-- `frontend-reviewer`：审查门户集成代码
+- `planner`：规划联调动线、验收用例、文档更新清单
+- `frontend-developer`：统一布局/导航调整、首页状态卡片、错误处理
+- `backend-developer`：配合提供首页所需聚合数据 API（资源数、待确认变更单数）
+- `frontend-reviewer`：审查门户串联代码
 - `build-resolver`：解决端到端验证中出现的构建/测试问题
 
 | 任务 | 目录/文件 | 说明 | 验收标准 |
 |------|-----------|------|----------|
-| 统一布局 | `ui-custom/web/src/layouts/` | 侧边栏导航、顶部状态 | 页面切换流畅 |
-| 首页 Dashboard | `ui-custom/web/src/pages/home/` | 资源数量、采集覆盖率、最近告警、待确认配置草稿 | 数据真实 |
-| 错误与加载状态 | `ui-custom/web/src/components/` | 统一 Loading / Error | 用户体验一致 |
-| 端到端测试 | `tests/e2e/` 或手工 | 资源导入 → 策略配置 → 配置生成 → 下发 → 查询 → 告警查看 | 主链路跑通 |
-| 文档更新 | `README.md`、部署文档 | 补充启动步骤 | 新成员可按文档跑起来 |
+| 统一布局 | `ui-custom/web/src/layouts/` | 侧边栏导航：网域管理、资源管理、标签模板、策略、配置中心、查询 | 页面切换流畅 |
+| 首页 Dashboard | `ui-custom/web/src/pages/home/` | 资源数量、待确认配置草稿数、最近下发记录 | 数据真实 |
+| 错误与加载状态 | `ui-custom/web/src/components/` | 统一 Loading / Error / 空态 | 用户体验一致 |
+| 端到端联调 | 手工 / 脚本 | 网域登记 → 资源导入 → 策略配置 → 配置生成 → 确认下发 → Prometheus reload → 指标查询 | 主链路跑通 |
+| 文档更新 | `README.md`、部署文档 | 补充启动步骤与 MVP 范围说明 | 新成员可按文档跑起来 |
 
 **依赖**：Phase 1 ~ 4
 
+**风险点**：
+- 没有独立 portal 分支，联调阶段可能出现多模块前端代码冲突，需由 Orchestrator 统一协调。
+- M02 查询代理仅保留现有能力，若 MVP 演示需要告警/目标状态页面，需明确哪些能力可用、哪些仅 placeholder。
+
 ---
 
-### Phase 6：多网域 Edge-Cloud 与监控源登记册（v0.2，第 7 ~ 10 周）
+### Phase 6：多网域 Edge-Cloud 与监控源登记册（v0.2，第 5 ~ 8 周）
 
 本阶段对应 [02_Product_Roadmap.md](02_Product_Roadmap.md) 的 **v0.2** 里程碑：多网域 Edge-Cloud 架构落地、租户-网域关联、外部 Prometheus Remote Write 接入、中心 VictoriaMetrics 汇聚。建议拆分为 4 个并行的子 Phase。
 
-#### Phase 6.1：租户与网域关联（v0.2）
+#### Phase 6.1：查询中心（v0.2）
+
+**对应模块分支**：`feat/module-02-query-center`
+
+**目标**：提供统一的 Prometheus Query API 代理入口，在转发时自动注入租户/网域上下文以保证多租户隔离，并返回带数据来源与新鲜度 envelope 的响应；同时吸收目标状态展示职责。
+
+**主要任务**：
+- Query 代理 API：`platform/query/proxy.go`
+- PromQL AST 注入 `tenant` / `network_domain`
+- `/api/v1/targets` 代理与目标状态聚合
+- 响应 envelope：`meta.data_source` / `meta.freshness_at` / `meta.network_domains`
+
+**依赖**：Phase 5、Module_06 租户-网域关联（6.2）
+
+#### Phase 6.2：租户与网域关联（v0.2）
 
 **对应模块分支**：`feat/module-06-tenant-management`
 
-**目标**：落地租户数据模型与 `NetworkDomain.tenant_id` 关联，支撑多站点模式；默认租户 `platform_admin` 拥有 `default` 网域，且不存在跨租户全局管理员。
+**目标**：落地租户数据模型与 `NetworkDomain.tenant_id` / `authorized_tenant_ids` 关联，支撑多站点模式。
 
-> 对应 [Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md) 3.1 节与 [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 4.1 节。
+**主要任务**：
+- Tenant CRUD：`platform/admin/tenant/`
+- 租户-网域授权校验
+- `multi_site_enabled` 能力开关
+- 默认租户/网域数据迁移
 
-**Agent 分工**：
-- `planner`：定义 Tenant 与 NetworkDomain 数据契约、隔离规则、BlueKing CMDB 映射字段
-- `backend-developer`：实现 Tenant CRUD、租户-网域校验、默认租户初始化
-- `frontend-developer`：实现租户管理页面、网域-租户关系展示
-- `golang-reviewer`：审查隔离规则
+**依赖**：Phase 4
 
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| Tenant API | `platform/admin/tenant/` | 租户 CRUD、状态管理 | 可创建/禁用租户 |
-| 租户-网域校验 | `platform/admin/tenant/domain.go` | 1 租户 : N 网域，禁止跨租户共享；`default` 归属 `platform_admin` | 校验生效 |
-| NetworkDomain tenant_id 改造 | `platform/configcenter/domain/` | 为 NetworkDomain 写入 `tenant_id`，全局唯一校验 | 已有 `default` 网域自动关联默认租户 |
-| BlueKing CMDB 映射字段预留 | `platform/admin/tenant/cmdb.go` | `cmdb_business_id`、`cmdb_business_path` | v0.4 可直接使用 |
-| 前端租户页 | `ui-custom/web/src/pages/admin/tenants/` | 租户列表、关联网域展示 | 页面可用 |
-
-**依赖**：Phase 2.2
-
----
-
-#### Phase 6.2：边缘 Agent 接入与配置分发（v0.2）
+#### Phase 6.3：边缘 Agent 接入与配置分发（v0.2）
 
 **对应模块分支**：`feat/module-09-edge-cloud`
 
 **目标**：让 Edge Sync Agent 能够通过 Token 拉取本域配置包，vmagent / Prometheus Agent Mode 接入，中心 VictoriaMetrics 接收 Remote Write，并展示 Agent 状态列表。
 
-> 对应 [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 第 3、5、6 节。
+**主要任务**：
+- EdgeHeartbeat 接口
+- 配置包拉取（zip + metadata.json + checksum）
+- 配置版本比对与 304 返回
+- Remote Write 参数注入
+- Agent 状态列表页完整实现
 
-**Agent 分工**：
-- `planner`：设计 Edge Sync Agent 协议、配置包结构、心跳字段、WAL 参数
-- `backend-developer`：实现心跳接口、配置包拉取、版本比对、Remote Write 目标生成
-- `prometheus-developer`：确认 vmagent / Prometheus Agent 配置兼容性与 reload 行为
-- `frontend-developer`：实现 Agent 状态列表页、网域管理增强
-- `security-reviewer`：审查 Token 鉴权与配置包下载安全
+**依赖**：Phase 6.2、Phase 4
 
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| EdgeHeartbeat 接口 | `platform/configcenter/edge/heartbeat.go` | 接收心跳，更新在线状态、WAL 积压、配置版本 | 心跳更新状态 |
-| 配置包拉取 | `platform/configcenter/edge/pull.go` | 返回 zip（prometheus.yml + blackbox.yml + metadata.json） | Edge Sync Agent 可拉取 |
-| 配置版本比对 | `platform/configcenter/edge/version.go` | 心跳携带当前版本，无变化返回 304 | 避免无效下发 |
-| Remote Write 参数注入 | `platform/configcenter/generator/remote_write.go` | 为每个网域生成 `remote_write_url`、WAL 参数 | vmagent 可写入中心 VM |
-| VictoriaMetrics 接入 | `deploy/victoria-metrics/` | 本地/测试环境 VM 启动脚本 | 中心 VM 接收 remote write |
-| Agent 状态列表页 | `ui-custom/web/src/pages/config-center/agents/` | 展示在线状态、最后心跳、WAL 积压、最近错误 | 数据实时 |
-| 边缘 Agent 交付物 | `deploy/edge-agent/` | 离线二进制包 + systemd 服务文件示例 | 可交付运维 |
-
-**接口预览**：
-
-```http
-POST /api/v2/platform/edge/heartbeat
-GET  /api/v2/platform/edge/config?network_domain=<id>
-GET  /api/v2/platform/network-domains/:id/edge-agents
-```
-
-**依赖**：Phase 6.1、Phase 2.2
-
----
-
-#### Phase 6.3：监控源登记册与 Ingestion Gateway（v0.2）
+#### Phase 6.4：监控源登记册与 Ingestion Gateway（v0.2）
 
 **对应模块分支**：`feat/module-10-source-registry`
 
-**目标**：登记外部 Prometheus 等异构监控源，通过统一 Remote Write 接收点接入，实现客户现有 Prometheus 的“借道汇聚”。
+**目标**：登记外部 Prometheus 等异构监控源，通过统一 Remote Write 接收点接入。
 
-> 对应 [Module_10: 监控源登记册与异构接入](Modules/Module_10_Monitoring_Source_Registry.md) 第 3、5 节。
+**主要任务**：
+- MonitoringSource CRUD
+- Ingestion Gateway `/api/v2/ingest/prometheus/:source_id`
+- Token 鉴权与标签注入
+- 接入源健康状态
 
-**Agent 分工**：
-- `planner`：定义 MonitoringSource 模型、Token 鉴权规则、标签注入规则
-- `backend-developer`：实现监控源 CRUD、Remote Write 接收点、标签注入、健康诊断
-- `prometheus-developer`：验证 Remote Write 接收端与 vmagent/VM 兼容性
-- `frontend-developer`：实现监控源登记册页面
-- `security-reviewer`：审查 Token 鉴权、source_id 校验、限流策略
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| MonitoringSource API | `platform/ingestion/source/` | 监控源 CRUD、Token 生成/重置、状态管理 | 可登记外部 Prometheus |
-| Ingestion Gateway | `platform/ingestion/gateway/` | `/api/v2/ingest/prometheus/{source_id}` 接收点 | 外部 Prometheus 可推送 |
-| Token 鉴权 | `platform/ingestion/auth.go` | 从 URL path 识别 source_id，校验 Bearer Token | 非法请求被拒绝 |
-| 标签注入 | `platform/ingestion/injector.go` | 自动注入 `network_domain`、`source_type`、`source_id` | 查询时标签正确 |
-| 健康诊断 | `platform/ingestion/health.go` | 最后推送时间、推送速率、错误率 | UI 可查看 |
-| 前端监控源页 | `ui-custom/web/src/pages/sources/` | 监控源列表、注册、Token 展示、remote_write 配置片段 | 可生成可复制配置 |
-
-**接口预览**：
-
-```http
-GET/POST    /api/v2/platform/sources
-PUT/DELETE  /api/v2/platform/sources/:id
-POST        /api/v2/platform/sources/:id/reset-token
-POST        /api/v2/ingest/prometheus/:source_id
-```
-
-**依赖**：Phase 2.2、Phase 6.4（网关路由可并行）
+**依赖**：Phase 4
 
 ---
 
-#### Phase 6.4：网关统一入口与 Ingestion 路由（v0.2）
+### Phase 7：门户化查询与告警状态（v0.3，第 9 ~ 10 周）
 
-**对应模块分支**：`feat/module-03-gateway`
+#### Phase 7.1：自定义前端门户
 
-**目标**：提供统一 API 入口，将查询、配置、Ingestion 请求路由到对应后端模块；为后续认证鉴权与审计预留中间件能力。
+**对应模块分支**：`feat/module-05-portal`
 
-> 对应 [Module_03: 网关与认证](Modules/Module_03_Gateway_and_Auth.md)。
+**目标**：补齐 Custom UI 门户体验，提供首页 Dashboard、统一导航、查询页图表、告警状态页。
 
-**Agent 分工**：
-- `planner`：设计网关路由表、中间件链、Ingestion 路由规则
-- `backend-developer`：实现路由转发、配置管理 API 路由、Ingestion 路由挂载点
-- `frontend-developer`：统一 base URL 与 API client 配置
-- `golang-reviewer`：审查路由与中间件代码
+**主要任务**：
+- 门户首页 Dashboard
+- PromQL 查询页增强（表格/简单折线/查询历史）
+- 统一导航与权限入口占位
 
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| 统一路由 | `platform/gateway/router.go` | 所有请求通过 Gateway 进入并分发 | 配置/查询/ingest 路由正确 |
-| 查询代理路由 | `platform/gateway/proxy/query.go` | `/api/v1/*` 转发到 Module_02 | Prometheus API 可达 |
-| 配置 API 路由 | `platform/gateway/proxy/config.go` | `/api/v2/platform/*` 路由到对应服务 | 配置 API 正常 |
-| Ingestion 路由 | `platform/gateway/proxy/ingest.go` | `/api/v2/ingest/*` 路由到 Module_10 | Remote Write 可达 |
-| 审计事件收集框架 | `platform/gateway/audit/` | 记录关键请求事件（MVP 只收集，P2 展示） | 事件可写入日志/队列 |
+#### Phase 7.2：告警收敛与通知管理
 
-**依赖**：Phase 3、Phase 6.3
+**对应模块分支**：`feat/module-08-alerting-lifecycle`
 
-**风险点**：
-- 网关成为单点，需保证转发性能与超时配置合理。
-- Ingestion Gateway 高写入场景下需独立限流与资源隔离。
+**目标**：管理 Alertmanager 配置（路由/接收人/静默/抑制），并通过 M02 展示告警状态。
 
----
+**主要任务**：
+- Receiver / Route / Silence / InhibitionRule 数据模型
+- `alertmanager.yml` 生成与 reload
+- 告警状态页（调用 M02 `/api/v1/alerts`）
 
-### Phase 7：门户化查询与告警状态（v0.3，第 11 ~ 12 周）
+#### Phase 7.3：查询中心增强
 
-**对应模块分支**：`feat/module-05-portal-v03`
+**对应模块分支**：`feat/module-02-query-center-v03`
 
-**目标**：补齐 Custom UI 门户体验，提供更友好的 PromQL 查询页、告警状态筛选、告警抑制引擎。
+**目标**：PromQL 校验/预览接口、查询辅助、首页 Dashboard 数据。
 
-> 对应 [02_Product_Roadmap.md](02_Product_Roadmap.md) v0.3 里程碑与 [Module_05: 自定义前端门户](Modules/Module_05_Custom_UI.md)。
-
-**Agent 分工**：
-- `planner`：规划门户页面结构、图表库选型、告警状态展示需求
-- `frontend-developer`：实现查询页图表、告警状态页、目标状态页增强
-- `backend-developer`：配合提供首页聚合数据、告警抑制规则生成
-- `golang-reviewer`：审查告警抑制逻辑
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| PromQL 查询页增强 | `ui-custom/web/src/pages/query/` | 表格/JSON/简单折线、查询历史、常用模板 | 可展示时序图 |
-| 告警状态页 | `ui-custom/web/src/pages/alerts/` | 按网域/监控源筛选、firing/pending 列表 | 筛选生效 |
-| 告警抑制引擎 | `platform/alerting/inhibit.go` | 网域离线自动生成 `inhibit_rules` | 风暴抑制 |
-| 首页 Dashboard | `ui-custom/web/src/pages/home/` | 资源数、采集覆盖率、待确认草稿、最近告警 | 数据真实 |
-| Open API 文档 | `docs/04-api/` | 对外提供 RESTful API 说明 | 外部系统可调通 |
-
-**接口预览**：
-
-```http
-GET /api/v2/platform/dashboard/summary
-GET /api/v2/platform/alerting/inhibit-rules
-```
-
-**依赖**：Phase 5、Phase 6
+**主要任务**：
+- `/api/v1/query/validate`、`/api/v1/query/preview`
+- 指标名/标签补全
+- 批量查询接口
 
 ---
 
-### Phase 8：外部 CMDB 与异构监控接入（v0.4，第 13 ~ 16 周）
+### Phase 8：外部 CMDB 与异构监控接入（v0.4，第 11 ~ 14 周）
 
-本阶段对应 [02_Product_Roadmap.md](02_Product_Roadmap.md) 的 **v0.4** 里程碑：外部 CMDB 集成与异构监控接入。拆分为两个并行的子 Phase。
-
-#### Phase 8.1：自定义服务发现与外部 CMDB 生命周期管理（v0.4）
+#### Phase 8.1：自定义服务发现与外部 CMDB 生命周期管理
 
 **对应模块分支**：`feat/module-04-cmdb-discovery`
 
-**目标**：接入腾讯蓝鲸、HTTP、Nacos 等外部 CMDB，将权威 CI 同步为 MetricCenter Resource，并管理同步失败容错与孤儿资源。
+**目标**：接入腾讯蓝鲸、HTTP、Nacos 等外部 CMDB，将权威 CI 同步为 MetricCenter Resource。
 
-> 对应 [Module_04: 自定义服务发现与外部 CMDB 生命周期管理](Modules/Module_04_Custom_Discovery.md)。
+**主要任务**：
+- CMDBProvider 接口
+- BlueKing / HTTP / Nacos Provider
+- CI 类型映射表、待分类队列、孤儿资源管理
 
-**Agent 分工**：
-- `planner`：设计 Provider 接口、同步策略、CI 类型映射表、待分类队列、孤儿资源生命周期
-- `backend-developer`：实现 BlueKing/HTTP/Nacos Provider、同步任务、映射表、队列、孤儿视图
-- `prometheus-developer`：评估 Prometheus discovery 扩展点，避免修改源码
-- `frontend-developer`：实现 Provider 配置页、CI 类型映射页、待分类队列页、孤儿资源页
-- `golang-reviewer`：审查同步逻辑与幂等性
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| Provider 接口实现 | `platform/discovery/provider/` | `Provider.ListResources(ctx, resourceType, networkDomainID, filter)` | 新 Provider 可插拔 |
-| BlueKing Provider | `platform/discovery/provider/blueking.go` | 蓝鲸 CI 拉取、字段映射、事件订阅 | CI 可同步为 Resource |
-| HTTP/Nacos Provider | `platform/discovery/provider/http.go`、`nacos.go` | 通用 HTTP 与 Nacos 注册中心发现 | 可配置接入 |
-| CI 类型映射表 | `platform/discovery/mapping.go` | `bk_obj_id` → `resource_type`，支持按网域覆盖 | 未映射进入待分类队列 |
-| 待分类 CI 队列 | `platform/discovery/pending.go` | 查看原始数据、映射、忽略；不阻塞同步 | 队列可处理 |
-| 同步任务调度 | `platform/discovery/scheduler.go` | 事件触发 + 15 分钟轮询双保险 | 轮询结果为准 |
-| 孤儿资源管理 | `platform/discovery/orphan.go` | 7 天保留、按 `network_domain:resource_type` 分组、恢复/删除 | 生命周期可控 |
-| CMDB 字段注入 | `platform/config/resource/cmdb.go` | `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` | v1.0 告警/ITSM 可用 |
-| 前端发现管理页 | `ui-custom/web/src/pages/discovery/` | Provider 配置、映射表、待分类队列、孤儿视图 | 可完成闭环 |
-
-**依赖**：Phase 6.1、Phase 1
-
----
-
-#### Phase 8.2：Zabbix / 云监控异构接入（v0.4）
+#### Phase 8.2：Zabbix / 云监控异构接入
 
 **对应模块分支**：`feat/module-10-heterogeneous`
 
-**目标**：在监控源登记册基础上，引入 Zabbix Adapter 与云监控 Puller，实现异构监控系统的统一汇聚。
+**目标**：在监控源登记册基础上，引入 Zabbix Adapter 与云监控 Puller。
 
-> 对应 [Module_10: 监控源登记册与异构接入](Modules/Module_10_Monitoring_Source_Registry.md) 第 5.2、5.3 节。
-
-**Agent 分工**：
-- `planner`：定义 Adapter/Puller 接入规范、标签归一化规则、Metric Drop Rules
-- `backend-developer`：实现标签归一化管道、Metric Drop Rules、高基数防护
-- `prometheus-developer`：提供 Adapter 架构建议与 Remote Write 验证
-- `frontend-developer`：实现监控源类型扩展、归一化规则配置页
-- `security-reviewer`：审查 Adapter 接入鉴权
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| 标签归一化管道 | `platform/ingestion/normalization.go` | 将 `host/hostname/ip` → `instance`，`application/service` → `app` 等 | 外部标签标准化 |
-| Metric Drop Rules | `platform/ingestion/drop_rules.go` | 按 source 配置白名单/黑名单/基数限制 | 高基数指标被丢弃/采样 |
-| Zabbix 接入架构 | `docs/04-adapters/zabbix.md` | zabbix_exporter / 自研 Adapter 设计 | 架构评审通过 |
-| 云监控 Puller 架构 | `docs/04-adapters/cloud-monitor.md` | 阿里云/腾讯云/AWS CloudWatch Puller 设计 | 架构评审通过 |
-| 接入源健康告警 | `platform/ingestion/alerts.go` | 监控源离线超过阈值触发告警 | 离线可感知 |
-
-**依赖**：Phase 6.3、Phase 8.1
-
-**风险点**：
-- 外部 CMDB 同步失败时不能中断采集，必须保留上一次成功快照。
-- 异构监控指标命名空间差异大，需提前定义归一化规则并覆盖主要云厂商。
-- CMDB 接入后本地 Resource 变为只读/缓存镜像，需同步调整导入流程。
+**主要任务**：
+- 标签归一化管道
+- Metric Drop Rules
+- Zabbix / 云监控 Adapter 架构
 
 ---
 
-### Phase 9：企业级能力（v1.0，第 17 ~ 22 周）
+### Phase 9：企业级能力（v1.0，第 15 ~ 20 周）
 
-本阶段对应 [02_Product_Roadmap.md](02_Product_Roadmap.md) 的 **v1.0** 里程碑：告警规则 UI、Alertmanager 配置生成、多租户权限、边缘自治告警、长期存储、ITSM/ITIL 对接。拆分为 4 个并行子 Phase。
-
-#### Phase 9.1：多租户权限与审计（v1.0）
+#### Phase 9.1：多租户权限与审计
 
 **对应模块分支**：`feat/module-06-enterprise`
 
-**目标**：实现完整的用户/角色/权限策略、审计日志展示与归档、平台全局配置。
+**目标**：完整用户/角色/权限策略、审计日志展示与归档、平台全局配置。
 
-> 对应 [Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md) 与 [Module_03: 网关与认证](Modules/Module_03_Gateway_and_Auth.md)。
-
-**Agent 分工**：
-- `planner`：定义角色权限矩阵、审计字段、平台配置项
-- `backend-developer`：实现 User/Role/Permission、审计日志查询、平台配置 API
-- `frontend-developer`：实现用户/角色/权限管理页、审计日志页、系统设置页
-- `security-reviewer`：审查权限模型与审计安全性
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| 用户与角色 API | `platform/admin/user/`、`platform/admin/role/` | CRUD、角色权限绑定 | 可按角色授权 |
-| 权限策略引擎 | `platform/admin/authz.go` | 基于租户/网域/资源的权限判断 | 未授权访问被拒绝 |
-| 审计日志 | `platform/admin/audit/` | 记录操作、配置变更、登录；支持查询与导出 | 日志完整 |
-| 平台配置 | `platform/admin/settings.go` | 全局 scrape 限制、默认通知配置 | 可配置 |
-| 网关鉴权中间件 | `platform/gateway/auth/` | Token / Session / SSO 校验，调用 Module_06 | 未认证请求被拦截 |
-| 前端系统设置页 | `ui-custom/web/src/pages/settings/` | 用户/角色/租户/审计/平台配置入口 | 页面可用 |
-
-**依赖**：Phase 6.1、Phase 6.4
-
----
-
-#### Phase 9.2：企业级告警能力（v1.0）
+#### Phase 9.2：企业级告警能力
 
 **对应模块分支**：`feat/module-08-alerting-enterprise`
 
-**目标**：提供完整的告警规则 UI、Alertmanager 配置生成、静默管理、通知渠道配置。
+**目标**：完整告警规则 UI、Alertmanager 配置生成、静默管理、通知渠道配置。
 
-> 对应 [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md) v1.0 能力。
-
-**Agent 分工**：
-- `planner`：定义告警规则 UI 与 Alertmanager 配置模板、通知渠道模型
-- `backend-developer`：实现规则组/记录规则/静默/通知渠道 API，生成 `alertmanager.yml`
-- `frontend-developer`：实现告警规则表单、静默页、通知渠道页
-- `golang-reviewer`：审查配置生成逻辑
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| 告警规则 UI 后端 | `platform/alerting/rules-ui.go` | 规则 CRUD、版本管理、按网域分组 | 规则可管理 |
-| 记录规则管理 | `platform/alerting/recording.go` | Recording Rule CRUD、启用/禁用 | 预聚合规则可生成 |
-| 静默管理 UI | `platform/alerting/silence.go` | 创建/删除静默规则、有效期选择 | 静默生效 |
-| 通知渠道 | `platform/alerting/notifier.go` | 飞书/钉钉/邮件/企业微信 Webhook | 渠道可配置 |
-| Alertmanager 配置生成 | `platform/alerting/alertmanager.go` | 生成 `route`、`receiver`、`inhibit_rules` | Alertmanager 可加载 |
-| 前端告警中心 | `ui-custom/web/src/pages/alerts/` | 规则组、静默、通知渠道、告警状态 | 闭环可用 |
-
-**依赖**：Phase 4、Phase 9.1
-
----
-
-#### Phase 9.3：边缘自治告警与证书自动轮转（v1.0）
+#### Phase 9.3：边缘自治告警与证书自动轮转
 
 **对应模块分支**：`feat/module-09-edge-autonomy`
 
-**目标**：在边缘网域实现断网自治告警（vmalert + 本地 Alertmanager），并完成 mTLS 证书自动轮转与 Token 轮换。
+**目标**：在边缘网域实现断网自治告警（vmalert + 本地 Alertmanager），mTLS 证书自动轮转与 Token 轮换。
 
-> 对应 [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 第 3.2、3.7、3.9 节与 [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md) 第 3.2 节。
-
-**Agent 分工**：
-- `planner`：定义边缘规则 `scope=edge/both` 下发策略、证书轮转协议、Token 轮换流程
-- `backend-developer`：实现边缘规则过滤、配置包含 `rules.yml`/`alertmanager.yml`、证书/Token 管理
-- `prometheus-developer`：验证 vmalert 本地求值与 Alertmanager 断网通知
-- `security-reviewer`：审查证书与 Token 安全
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| 规则作用域过滤 | `platform/configcenter/generator/scope.go` | 边缘只下发 `scope=edge/both`，中心只下发 `scope=central/both` | 规则范围正确 |
-| 边缘配置包扩展 | `platform/configcenter/edge/package.go` | 配置包增加 `rules.yml`、`alertmanager.yml` | Edge Agent 可启动本地告警 |
-| 边缘告警状态上报 | `platform/configcenter/edge/alerts.go` | 通过 EdgeHeartbeat 上报本地告警状态 | 中心可查看 |
-| mTLS 证书签发 | `platform/configcenter/cert/` | 为 Edge Agent 签发客户端证书 | 证书可下发 |
-| 证书自动轮转 | `platform/configcenter/cert/rotation.go` | 到期前自动更新，Edge Sync Agent 热加载 | 轮转不中断 |
-| Token 轮换 | `platform/configcenter/domain/token.go` | 支持重置 Token 并强制重新认证 | 旧 Token 失效 |
-
-**依赖**：Phase 6.2、Phase 9.2
-
----
-
-#### Phase 9.4：元数据迁移与长期存储（v1.0）
+#### Phase 9.4：元数据迁移与长期存储
 
 **对应模块分支**：`feat/module-06-storage`
 
 **目标**：将元数据从 SQLite 迁移到 PostgreSQL / MySQL，并将长期时序存储切换到 VictoriaMetrics / Mimir 集群。
-
-> 对应 [02_Product_Roadmap.md](02_Product_Roadmap.md) 4.1 与 4.2 节。
-
-**Agent 分工**：
-- `planner`：设计迁移方案、数据校验、双写切换策略
-- `backend-developer`：实现 PostgreSQL/MySQL 存储层、迁移工具、长期存储路由
-- `prometheus-developer`：确认 VM/Mimir 集群部署与 Remote Write 配置
-- `build-resolver`：处理迁移过程中的构建与测试问题
-
-| 任务 | 目录/文件 | 说明 | 验收标准 |
-|------|-----------|------|----------|
-| 关系型存储适配 | `platform/db/postgres.go` / `mysql.go` | 支持 PostgreSQL / MySQL 连接与迁移 | 可切换数据库 |
-| 数据迁移工具 | `platform/cmd/migrate/` | SQLite → PostgreSQL/MySQL 迁移脚本 | 数据一致 |
-| 长期存储配置 | `platform/ingestion/storage.go` | Remote Write 转发到 VM/Mimir 集群 | 数据写入长期存储 |
-| 保留策略 | `platform/admin/retention.go` | TSDB 状态查看、Retention 配置 | 可配置保留周期 |
-| 部署文档 | `deploy/ha/` | 高可用部署方案 | 可落地 |
-
-**依赖**：Phase 6.4、Phase 8.2
-
-**风险点**：
-- 元数据迁移过程必须保证回滚能力，建议先双写再切流。
-- 多租户权限模型与 Module_02 的注入逻辑必须同步复核，避免 admin bypass 冲突。
-- 边缘自治告警涉及证书生命周期，需提前规划证书有效期与告警策略。
 
 ---
 
@@ -1047,70 +788,57 @@ GET /api/v2/platform/alerting/inhibit-rules
 platform/
   cmd/metric-center/          # 主程序入口
   cmd/migrate/                # v1.0 元数据迁移工具
+  db/                         # 数据库连接、迁移、种子数据
+    db.go
+    seed/                     # platform_admin / default / zone_type / 默认模板 / 内置采集器
+  api/response/               # 统一响应（含 errorType 枚举）
+  models/                     # 共享 GORM 模型
+  admin/                      # Module_06 系统与平台管理
+    networkdomain/            # 网域登记行政 API（zone-types / network-domains）
+    tenant/                   # v0.2+ 租户管理
+    user/                     # v1.0+ 用户管理
+    role/                     # v1.0+ 角色权限
+    audit/                    # v1.0+ 审计日志
   config/                     # Module_07 监控对象管理
-    resource/                 # 资源管理（含 Excel 导入、状态映射、ResourceLabel CRUD）
-    label/                    # 标签模板 + system label 生成
+    resource/                 # 五类资源 CRUD + Excel 导入 + ResourceLabel
+    label/                    # LabelTemplate + system label 生成
   strategy/                   # Module_01 监控策略与指标管理
-    ci-exporter/              # CI 类型 ↔ Exporter 模板绑定
-    exporter-template/        # Exporter 模板管理
-    scrapejob/                # ScrapeJob 与实例选择
-    probe/                    # 拨测配置
-    rule/                     # 规则编辑 UI 后端
+    ci-exporter/              # CI 类型 ↔ 默认采集器绑定
+    exporter-template/        # 采集实现 / 采集器
+    scrapejob/                # ScrapeJob + 实例选择 + 认证/TLS
+    probe/                    # Blackbox 拨测配置
+    rule/                     # 规则文件挂载
     metric-library/           # 静态指标库
+    installation/             # Exporter 安装确认
   configcenter/               # Module_09 网域与边缘配置中心
-    domain/                   # NetworkDomain 生命周期
-    edge/                     # Edge Agent 注册、心跳、配置拉取
+    domain/                   # 网域监控纳管
     generator/                # 配置生成、校验、Label 合并
     draft/                    # 配置草稿与预览
     deployment/               # 配置下发、reload、历史记录
+    edge/                     # v0.2+ Edge Agent 心跳、配置包拉取
     cert/                     # v1.0 mTLS 证书签发与轮转
-  query/                      # Module_02 查询中心
-    proxy.go                  # Prometheus Query API 代理（含 tenant/network_domain 注入）
-    envelope.go               # 响应 envelope 元数据
-    metadata.go               # 指标/标签元数据代理
-    targets.go                # /api/v1/targets 代理与目标状态聚合
-    alerts.go                 # /api/v1/alerts 代理
-    probe.go                  # 拨测结果查询
-    autocomplete.go           # 指标名/Label 建议
-  alerting/                   # Module_08 告警规则管理
-    group.go                  # 规则组
-    rule.go                   # 规则生命周期
-    silence.go                # 静默管理
-    alertmanager.go           # Alertmanager 配置生成
-    inhibit.go                # 告警抑制规则生成
-    recording.go              # v1.0 记录规则
-    notifier.go               # v1.0 通知渠道
-  ingestion/                  # Module_10 监控源登记册与异构接入
-    source/                   # MonitoringSource CRUD
-    gateway/                  # Remote Write 接收点
-    auth.go                   # Token 鉴权
-    injector.go               # 标签注入
-    normalization.go          # 标签归一化
-    drop_rules.go             # Metric Drop Rules
-    health.go                 # 接入源健康诊断
-    storage.go                # v1.0 长期存储路由
-  discovery/                  # Module_04 自定义服务发现与外部 CMDB
-    provider/                 # Provider 接口与实现
-    mapping.go                # CI 类型映射表
-    pending.go                # 待分类 CI 队列
-    orphan.go                 # 孤儿资源管理
-    scheduler.go              # 同步任务调度
-  admin/                      # Module_06 系统与平台管理
-    tenant/                   # 租户管理
-    user/                     # 用户管理
-    role/                     # 角色权限
-    audit/                    # 审计日志
-    settings.go               # 平台配置
-    retention.go              # TSDB 状态与保留策略
-  gateway/                    # Module_03 网关与认证
-    router.go                 # 统一路由
-    proxy/                    # 通用代理中间件
-    auth/                     # v1.0 认证鉴权中间件
-    tenant/                   # v1.0 多租户路由
-    audit/                    # 审计事件收集
-  models/                     # 数据模型
-  db/                         # 数据库连接与迁移
-  api/response/               # 统一响应（含 errorType 枚举）
+  query/                      # Module_02 查询中心（v0.2 起）
+    proxy.go
+    envelope.go
+    metadata.go
+    targets.go
+  alerting/                   # Module_08 告警收敛（v0.3 起）
+    receiver.go
+    route.go
+    silence.go
+    inhibit.go
+    alertmanager.go
+  ingestion/                  # Module_10 监控源登记册（v0.2 起）
+    source/
+    gateway/
+    auth.go
+    injector.go
+    normalization.go
+  discovery/                  # Module_04 自定义服务发现（v0.4 起）
+    provider/
+    mapping.go
+    pending.go
+    orphan.go
   examples/simple-agent/      # simple-agent 模板
 ```
 
@@ -1122,29 +850,24 @@ ui-custom/web/
     api/                      # API 客户端
     types/                    # TypeScript 类型
     pages/
-      resources/              # 资源管理（Module_07）
-      label-templates/        # 标签模板（Module_07）
-      strategy/               # 监控策略（Module_01）
+      admin/
+        domains/              # Module_06 网域登记
+        tenants/              # v0.2+ 租户管理
+      resources/              # Module_07 资源管理
+      label-templates/        # Module_07 标签模板
+      strategy/               # Module_01 监控策略
         ci-exporter/
         scrape-jobs/
         rules/
         probe-configs/
-      config-center/          # 网域与配置中心（Module_09）
+      config-center/          # Module_09 配置中心
         domains/
         drafts/
         preview/
         history/
-        agents/               # Agent 状态列表页
-      query/                  # 指标查询 + 目标状态（Module_02）
-      alerts/                 # 告警生命周期（Module_08）
-      sources/                # 监控源登记册（Module_10）
-      discovery/              # CMDB 同步与发现（Module_04）
-      admin/                  # 租户/用户/角色/审计（Module_06）
-        tenants/
-        users/
-        roles/
-        audit/
-        settings/
+        agents/               # Agent 状态（MVP 占位，v0.2 完整）
+      query/                  # Module_02 查询中心（保留现有能力）
+      alerts/                 # Module_08 告警收敛（v0.3）
       home/                   # 首页 Dashboard
     components/               # 通用组件
     layouts/                  # 布局
@@ -1156,87 +879,98 @@ ui-custom/web/
 
 ### 6.1 顺序约束
 
-```
-Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2
+```text
+Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
                               │
-                    ┌─────────┼─────────┐
-                    ▼         ▼         ▼
-                 Phase 3   Phase 4   （并行可开始）
-                    │         │
-                    └────┬────┘
-                         ▼
-                      Phase 5
-                         │
-                         ▼
-              Phase 6.1 / 6.2 / 6.3 / 6.4（v0.2，可并行）
-                         │
-                         ▼
-              Phase 7（v0.3，可基于 6 完成的部分提前开始）
-                         │
-                         ▼
-              Phase 8.1 / 8.2（v0.4，可并行）
-                         │
-                         ▼
-              Phase 9.1 / 9.2 / 9.3 / 9.4（v1.0，可并行）
+              ┌───────────────┼───────────────┐
+              ▼               ▼               ▼
+          Phase 6.1        Phase 6.2         Phase 6.3/6.4
+          (Module_02)      (Module_06)       (Module_09/10)
+              │               │               │
+              └───────────────┴───────────────┘
+                              │
+                              ▼
+                    Phase 7 / Phase 8 / Phase 9
 ```
 
 ### 6.2 可并行任务
 
 | 阶段 | 可并行项 |
 |------|----------|
-| Phase 1 | 后端资源 API、LabelTemplate API 与前端资源页面、标签模板页面可并行 |
-| Phase 2.1 | CI↔Exporter 绑定、ScrapeJob、规则编辑、拨测配置三个子能力可并行开发 |
-| Phase 2.2 | 配置生成、配置预览/下发、Edge Agent 基础接口、Agent 状态列表页可并行 |
-| Phase 2.1 与 2.2 | 在接口契约冻结后，Module_09 的 NetworkDomain / EdgeAgent 基础 API 可与 Module_01 部分并行；配置生成器必须等 Module_01 数据模型稳定 |
-| Phase 3 ~ 4 | 查询中心与告警生命周期可并行（均依赖 Phase 2.2） |
-| Phase 5 | 前端集成与后端收尾可并行 |
-| Phase 6 | 6.1 租户、6.2 边缘、6.3 监控源、6.4 网关可并行；6.3/6.4 可在 2.2 后提前启动 |
-| Phase 7 | 查询页增强、告警抑制、首页 Dashboard 可并行 |
-| Phase 8 | CMDB 同步与 Zabbix/云监控 Adapter 可并行 |
-| Phase 9 | 权限审计、告警企业级、边缘自治、存储迁移可并行 |
+| Phase 1 | 后端行政 API 与前端网域管理页可并行 |
+| Phase 2 | 后端资源 API、LabelTemplate API 与前端资源页面、标签模板页面可并行 |
+| Phase 3 | CI↔Exporter 绑定、ScrapeJob、Blackbox、规则挂载可并行开发 |
+| Phase 3 与 Phase 4 | 在 M01 数据模型稳定后，M09 配置生成器可与 M01 剩余前端页面并行 |
+| Phase 5 | 前端串联与后端聚合 API 可并行 |
+| Phase 6 | 6.1/6.2/6.3/6.4 可并行；6.1 依赖 6.2 租户模型 |
+| Phase 7 / 8 / 9 | 内部子阶段可并行 |
 
 ### 6.3 Agent 驱动的开发节奏
 
-> 以下按 **1 个 Orchestrator + 1 个 backend-developer + 1 个 frontend-developer** 的节奏编排。每个 Phase 内，Backend 与 Frontend 可在不同 worktree 中并行。
+> 以下按 **1 个 Orchestrator + 1 个 backend-developer + 1 个 frontend-developer** 的节奏编排。
 
 | 周次 | Orchestrator 动作 | backend-developer | frontend-developer | reviewer |
 |------|-------------------|-------------------|--------------------|----------|
-| 1 | 调用 planner 规划 Phase 0~1；创建 2 个 worktree | Phase 0：基础设施 + Phase 1 API | Phase 0：前端结构 + Phase 1 页面框架 | golang-reviewer 审查后端基础设施 |
-| 2 | 汇总 Phase 1 结果；规划 Phase 2.1 | Phase 1 收尾 + Phase 2.1 策略后端 | Phase 1 页面完成 + Phase 2.1 策略页面 | frontend-reviewer 审查资源/策略页面 |
-| 3 | 规划 Phase 2.2；协调前后端契约 | Phase 2.1 收尾 + Phase 2.2 配置中心 | Phase 2.1 策略页面完成 + Phase 2.2 配置预览页 | golang-reviewer 审查配置逻辑 |
-| 4 | 规划 Phase 3；本地 Prometheus 联调 | Phase 2.2 收尾 + Phase 3 查询/目标状态 | Phase 2.2 配置预览/下发/Agent 状态页 + Phase 3 查询/目标状态页 | security-reviewer 审查配置下发 |
-| 5 | 规划 Phase 4/5 | Phase 4 告警生命周期 | Phase 4 告警页面 + Phase 5 门户集成 | frontend-reviewer 审查查询/告警/门户页面 |
-| 6 | Phase 5 收尾；端到端验收 | 配合首页聚合数据 API | Phase 5 门户集成、首页、E2E 验证 | build-resolver 处理构建问题；双 reviewer 最终审查 |
-| 7~10 | 规划 Phase 6 子阶段 | Phase 6.1/6.2/6.3/6.4 后端 | Phase 6 网域/Agent/监控源/网关页面 | security-reviewer 审查 Token/证书/鉴权 |
-| 11~12 | Phase 7 门户化 | Phase 7 告警抑制/首页数据 | Phase 7 查询/告警/首页增强 | frontend-reviewer |
-| 13~16 | Phase 8 CMDB/异构 | Phase 8.1/8.2 后端 | Phase 8 Provider/映射/监控源页面 | golang-reviewer |
-| 17~22 | Phase 9 企业级 | Phase 9 后端 | Phase 9 权限/告警/存储管理页 | security-reviewer |
-
-> **关键**：Orchestrator 必须在每个 Phase 开始前调用 `planner`，并在 Developer 完成后立即调用 Reviewer，形成“规划 → 开发 → 审查 → 修复 → 合并”的闭环。
+| 1 | 规划 Phase 0~1；创建 worktree | Phase 0：基础设施 + 种子数据 | Phase 0：前端结构 + 网域管理页框架 | golang-reviewer 审查后端基础设施 |
+| 2 | 汇总 Phase 1；规划 Phase 2 | Phase 1：网域登记 API | Phase 1：网域管理页 | frontend-reviewer |
+| 3 | 规划 Phase 3 | Phase 2：资源/标签模板/Excel 后端 | Phase 2：资源/标签模板页面 | golang-reviewer |
+| 4 | 规划 Phase 4；协调前后端契约 | Phase 3：策略后端（CI/Job/规则挂载） | Phase 3：策略页面 | frontend-reviewer |
+| 5 | 规划 Phase 5；本地 Prometheus 联调 | Phase 4：配置生成/下发 | Phase 4：配置中心页 + agent_pull 占位 | security-reviewer 审查配置下发 |
+| 6 | Phase 5 收尾；端到端验收 | 配合首页聚合数据 API | Phase 5：门户串联、首页、E2E | build-resolver 处理构建问题 |
 
 ---
 
 ## 7. MVP 验收清单
 
-- [ ] 可导入主机、中间件、应用服务、通用指标目标四类资源；Excel 状态正确映射到 `Resource.status`
-- [ ] 资源列表以 `instance_name` / `hostname` 作为可读名展示，并展示「已监控 / 未监控」badge
-- [ ] 可维护 `ResourceLabel`（`system` / `user` 来源），key 校验与冲突提示生效
-- [ ] 可维护标签模板，修改模板后 `source=system` 的 ResourceLabel 同步更新
-- [ ] 可为常见 CI 类型建立/编辑 CI 类型 ↔ Exporter 模板绑定
-- [ ] 可创建/编辑 `ScrapeJob`，并手动勾选实例；勾选结果持久化
-- [ ] 可标记 Resource 的 Exporter 安装/注册状态，未确认实例不生成 target
+### 7.1 网域登记（Module_06）
+
+- [ ] 系统启动后存在 `platform_admin` 租户与 `default` 管理域（`channel=local`）
+- [ ] 可通过 `GET /api/v2/platform/zone-types` 获取网络区域类型字典
+- [ ] 可登记/编辑/禁用网域；禁用=冻结，拒绝新资源登记、新 Job、新变更单
+- [ ] `default` 管理域禁止禁用、禁止删除
+- [ ] 空网域可删除，非空网域删除被拒并引导禁用
+- [ ] `tenant_id` 创建后不可变更
+
+### 7.2 监控对象管理（Module_07）
+
+- [ ] 可维护主机 / 数据库 / 中间件 / 应用服务 / 通用指标目标五类资源
+- [ ] 资源新增/编辑时 `network_domain_id` 与 `biz_code` 必填
+- [ ] 可按资源类型下载固定列 Excel 模板并导入；支持 upsert 更新
+- [ ] Excel 中文状态正确映射到 `Resource.status`
+- [ ] 可维护标签模板；默认模板含 `biz_code → biz` 与 `instance_ip:port → instance`
+- [ ] 资源详情可查看 `system` / `user` 来源 ResourceLabel；`system` 标签只读
+- [ ] 仅 application 资源可添加/修改 `user` label
+- [ ] 资源列表支持「未监控」筛选（`is_monitored` 由 M01 维护、M07 只读映射）
+
+### 7.3 监控策略与指标管理（Module_01）
+
+- [ ] 可为常见 monitor_type 建立/编辑 CI 类型 ↔ Exporter 模板绑定
+- [ ] 可创建/编辑 `ScrapeJob`，手动勾选实例；`offline` 实例置灰不可选
+- [ ] ScrapeJob 必须绑定已纳管网域；冻结网域禁止新建 Job / 新增该域实例
+- [ ] 认证/TLS 字段可配置并透传进 scrape_configs
 - [ ] 可维护 Blackbox 拨测配置
-- [ ] 规则编辑 UI 支持类 YAML 表单（expr / for / labels / annotations），调用查询中心进行 PromQL 校验
-- [ ] MVP 内置常见 Exporter 的静态指标库，规则编辑时可提示指标名与标签
-- [ ] 配置中心可按网域生成 `prometheus.yml` 草稿，经人工确认后下发并 reload 中心 Prometheus
-- [ ] 配置中心的 `prometheus.yml` 已正确注入 `external_labels.network_domain` 与 `external_labels.tenant_id`
+- [ ] 规则编辑页支持上传/粘贴完整 `rules.yml` 透传落库（`content_mode=yaml_passthrough`）
+- [ ] 规则保存/启停/删除后进入 M09 变更管线，`change_status` 可被 M09 回写
+
+### 7.4 网域与边缘配置中心（Module_09）
+
+- [ ] 可对 `default` 域完成监控纳管（`channel=local`）
+- [ ] 配置中心按网域生成 `prometheus.yml`、`targets/*.json`、`rules.yml` 草稿
+- [ ] 生成的 `external_labels` 只包含 `network_domain_id` / `zone_type` / `replica`
+- [ ] `offline` 资源不进入 `targets/*.json`
+- [ ] 配置预览 / Diff / 人工确认可用
+- [ ] 确认后 `local` 通道写盘并触发中心 Prometheus reload 成功
 - [ ] 下发记录可查询成功/失败历史与失败原因
-- [ ] 可通过查询中心执行 PromQL 查询并查看结果；未授权租户/网域的数据不可见
-- [ ] 查询响应包含 envelope 元数据：`data_source`、`freshness_at`、`network_domain`
-- [ ] 可通过查询中心查看采集目标状态（up/down）与拨测结果
-- [ ] 可查看当前告警状态（由 Module_02 代理 Prometheus `/api/v1/alerts`）
-- [ ] Module_08 可按规则组与网域聚合生成 `rules.yml`，并生成 `alertmanager.yml`
-- [ ] 前端门户各页面连通，主链路端到端可用
+- [ ] 下发成功后回写 M01 `ScrapeJob.change_status=deployed`
+- [ ] `agent_pull` 网域纳管 UI 占位页可展示安装指引与 Token 复制入口
+
+### 7.5 跨模块联调验收（Phase 5）
+
+- [ ] 网域登记 → 资源导入 → 策略配置 → 配置生成 → 确认下发 → Prometheus reload → 指标可见 主链路跑通
+- [ ] 各页面可通过统一导航切换
+- [ ] 首页展示资源数量、待确认草稿数等聚合数据
+- [ ] `go test ./platform/...`、`go vet ./platform/...`、`pnpm test`、`pnpm lint` 全部通过
+- [ ] 后端服务能启动，关键接口返回 200；前端 dev server 能启动，首页返回 200
 
 ---
 
@@ -1244,30 +978,21 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2
 
 | 风险 | 影响 | 规避措施 |
 |------|------|----------|
-| Module_07 / Module_01 / Module_09 边界混淆 | 代码耦合、职责重复 | Phase 0 冻结对象/策略/下发的数据契约；Phase 1/2 分别输出边界说明文档 |
-| 标签模板生成 relabel 错误 | 配置下发后 targets 标签不对 | Phase 2.2 增加 promtool 校验 + 单元测试 |
-| ResourceLabel 合并优先级错误 | CMDB/user/system 覆盖关系不符合预期 | Phase 1 明确 `cmdb` > `user` > `system` 规则并写单元测试覆盖 |
-| Excel 状态映射遗漏 | 客户状态值无法导入 | Phase 1 提供默认映射 + 可配置规则；导入失败行明确返回 |
-| 静态 Exporter 指标库过时 | 规则编辑时的指标提示误导用户 | 指标库按 Exporter 版本维护；MVP 内置常见版本，P1 提供管理入口 |
-| 手动勾选实例导致监控覆盖延迟 | 新增资源长期处于未监控状态 | Resource 列表 badge 提示；流程上要求新实例录入后进入策略模块确认 |
-| 本地手工兜底可能造成配置漂移 | DB 期望态与磁盘实际态不一致 | 允许本地兜底但 UI 标识 `manual_override`；工程师需重新确认下发以恢复一致性 |
-| 配置中心草稿确认流程增加操作成本 | 配置变更延迟生效 | UI 提供清晰 diff 与一键确认；默认网域场景简化流程 |
-| Module_01 与 Module_08 规则边界不清 | 规则编辑与生命周期管理重复或遗漏 | 明确 Module_01 产出规则记录，Module_08 负责分组/启用/禁用/下发 |
-| 本地 Prometheus 启动困难 | 阻塞 Phase 2.2 ~ Phase 4 | 第 1 周就准备 `deploy/` 启动脚本和示例配置 |
-| Excel 字段后期变更 | 导致导入逻辑和模板返工 | Phase 1 冻结最小字段集，后续只增不改 |
+| M06 / M07 / M01 / M09 网域边界混淆 | 代码耦合、职责重复 | Phase 0 冻结对象/策略/下发的数据契约；M06 行政、M07 只读引用、M09 监控纳管职责写入各模块接口注释 |
+| M06 禁用网域跨模块联动遗漏 | 禁用后 M07/M01/M09 行为不一致 | Phase 1 明确冻结语义并在各模块写校验；联调阶段专门验证 |
+| 标签模板生成 relabel / instance 标签错误 | 配置下发后 targets 标签不对 | Phase 4 增加 promtool 校验 + 单元测试；用 simple-agent 验证端到端 |
+| ResourceLabel 合并优先级错误 | CMDB/user/system 覆盖关系不符合预期 | Phase 2 明确 `cmdb` > `user` > `system`、`system` 不可被 user 覆盖，并写单元测试 |
+| 规则文件挂载只做语法校验，错误规则进入下发 | Prometheus reload 失败或规则不生效 | M09 promtool 校验作为兜底；MVP 内在 UI 提示「请确保 YAML 语法正确」 |
+| `agent_pull` 占位页与真实能力边界不清 | 用户误以为 MVP 支持边缘 Agent | 占位页明确标注「v0.2 启用」；按钮/入口置灰或引导文档 |
+| M01 与 M09 `change_status` 回写延迟 | 用户看到的状态不准确 | 采用 pull 模式异步回写；UI 提示「状态可能存在延迟，可刷新查看最新」 |
+| Excel 字段后期变更 | 导致导入逻辑和模板返工 | Phase 2 冻结最小字段集，后续只增不改 |
 | 前端等待后端 API | 串行阻塞 | Planner 在规划中明确 API 契约，Frontend Developer 使用 mock 数据并行开发 |
 | 多 Agent 同时修改冲突 | 代码冲突、worktree 污染 | 采用单一 worktree，Agent 顺序进入；前后端按 `platform/` 与 `ui-custom/` 目录天然隔离 |
 | Agent 误解需求 | 实现偏离 | 每个 Phase 开始前必须调用 `planner` 输出规划，并引用相关 PRD 文件 |
 | Reviewer 与 Developer 标准不一致 | 反复修改 | Orchestrator 在启动时统一注入 `.kimi/skills/golang-coding-style` 和 `web-development` 规范 |
 | Prometheus 源码被误改 | 未来升级困难 | 涉及源码时必须走 `prometheus-developer`，生成 patch 文件 |
-| Worktree 残留 | 磁盘占用、分支混乱 | 采用单一 worktree 复用，MVP 完成后再清理；禁止为每个 Phase 新建 worktree |
-| PromQL 注入逻辑复杂 | 多网域正则选择器拼接、与已有选择器合并、标签名一致性容易出错 | Phase 3 对注入逻辑写充分单元测试；明确 label key 由 Module_09 `external_labels` 生成 |
-| 响应 envelope 元数据性能开销 | 跨 series 计算 `freshness_at` 可能增加查询延迟 | 接入层做缓存或异步采样；P1 评估按需关闭 envelope |
-| 不存在跨租户全局管理员 | 若 Module_06 仍保留“平台管理员可查看所有租户”验收标准，会与 Module_02 注入逻辑冲突 | 同步复核 Module_06；MVP 按“管理员即租户内管理员”实现，无 admin bypass |
-| 边缘 Agent 离线导致配置不同步 | 边缘长期未更新配置 | Edge Sync Agent 启动即拉取，心跳返回 `config_changed`；支持手动触发拉取 |
-| 外部 Prometheus Remote Write 鉴权泄露 | 监控源 Token 被滥用 | 每个监控源独立 Token；URL path 中 source_id 与 Token 双重校验；支持 Token 轮换 |
-| CMDB 同步失败导致监控中断 | 配置生成无数据 | 同步失败时保留上一次成功快照；7 天保留期兜底 |
-| 证书轮转异常导致 Edge Agent 失联 | 断网续传与配置拉取失败 | 证书到期前提前轮转；保留旧证书宽限期；Agent 支持热加载 |
+| 配置中心草稿确认流程增加操作成本 | 配置变更延迟生效 | UI 提供清晰 diff 与一键确认；default 域场景简化流程 |
+| 本地 Prometheus 启动困难 | 阻塞 Phase 4 ~ 5 | 第 1 周就准备 `deploy/` 启动脚本和示例配置 |
 
 ### 8.1 Orchestrator 执行一个 Phase 的 Checklist
 
@@ -1287,75 +1012,23 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2
 
 ## 9. 变更记录
 
+### v2026-08-21
+
+- 按用户最新决策重派生 MVP 实施计划：
+  - MVP 范围收缩为 M01 / M06 / M07 / M09 的部分能力；M02 / M05 / M08 不列为 MVP 新开发任务。
+  - 模块顺序重写为 Phase 0 → M06 → M07 → M01 → M09 → 跨模块联调验收。
+  - 新增 `feat/module-06-domain-registry` 分支承载网域登记；移除原 `feat/module-05-portal` MVP 独立分支。
+  - M01 规则编辑任务改为「规则文件挂载」；字段化编辑 + PromQL 校验移出 MVP。
+  - M09 任务裁剪到 `default/local` 通道闭环；`agent_pull` 网域纳管 UI 保留占位页。
+  - M07 资源模型改五类（补 Database），补充 `biz_code`、`is_monitored` 只读筛选、`zone_type` 等字段。
+  - M06 网域登记纳入 MVP：`zone-types` 字典、`authorized_tenant_ids`、禁用=冻结、种子 upsert。
+  - `external_labels` 明确只注入 `network_domain_id` / `zone_type` / `replica`。
+  - 重写 §7 MVP 验收清单与 §8 风险表。
+- PRD 版本对齐：M01 v3.26 / M06 v2.2 / M07 v2.21 / M09 v1.50。
+
 ### v3.3（2026-08-02）
 
-- 同步 Module PRD 7 月 31 日版本，更新模块名称与路径引用：
-  - [Module_01: 监控策略与指标管理](Modules/Module_01_Metric_Collection_Center.md)
-  - [Module_02: 查询中心](Modules/Module_02_Query_Center.md)
-  - [Module_07: 监控对象管理](Modules/Module_07_Monitoring_Object_Management.md)
-  - [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md)
-  - [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md)
-  - 新增引用 [Module_03: 网关与认证](Modules/Module_03_Gateway_and_Auth.md)、[Module_04: 自定义服务发现与外部 CMDB 生命周期管理](Modules/Module_04_Custom_Discovery.md)、[Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md)、[Module_10: 监控源登记册与异构接入](Modules/Module_10_Monitoring_Source_Registry.md)。
-- 依据 [02_Product_Roadmap.md](02_Product_Roadmap.md) 的 MVP / v0.2 / v0.3 / v0.4 / v1.0 里程碑，将实施计划扩展为 9 个 Phase（含子 Phase）：
-  - Phase 0~5 保持 MVP 原有主线；
-  - Phase 6 覆盖 v0.2（租户-网域、Edge Agent、监控源登记册、网关 Ingestion 路由）；
-  - Phase 7 覆盖 v0.3（门户化查询与告警抑制）；
-  - Phase 8 覆盖 v0.4（外部 CMDB 与 Zabbix/云监控异构接入）；
-  - Phase 9 覆盖 v1.0（多租户权限、企业级告警、边缘自治告警、元数据迁移与长期存储）。
-- 更新模块优先级总览与分支约定，补充 Module_03/04/06/10 的 feature 分支。
-- 更新模块依赖关系图，增加 Tenant、MonitoringSource、Discovery、Ingestion Gateway 等依赖。
-- 补充前后端目录约定：`platform/ingestion/`、`platform/discovery/`、`platform/admin/`、`platform/configcenter/cert/` 等。
-- 更新开发顺序与并行建议，覆盖 v0.2 ~ v1.0 的并行开发节奏。
-- 更新风险表，增加边缘 Agent 离线、Remote Write 鉴权、CMDB 同步失败、证书轮转等风险项。
+- 同步 Module PRD 7 月 31 日版本，更新模块名称与路径引用。
+- 扩展实施计划为 9 个 Phase，覆盖 MVP ~ v1.0。
+- 更新模块依赖图、目录约定、风险表。
 - 变更人：chenrt
-
-### v3.2（2026-07-31）
-
-- 根据 `docs/decisions/grill-2026-07-31-query-center.md` 调整 Module_02/09 边界与开发阶段：
-  - Phase 2 合并为“监控策略与配置中心”，包含 Module_01（Phase 2.1）与 Module_09（Phase 2.2），可顺序或部分并行开发。
-  - Phase 3 改为 Module_02 查询中心，明确其依赖 Module_09 配置生成完成且中心 Prometheus 已运行。
-  - Module_07 的标签模板能力归入 Phase 1（监控对象管理）。
-- 新增并明确 `feat/module-02-query-center` 分支。
-- 更新模块依赖图，补充 `Module_09 → Module_02` 依赖，强调 Module_02 注入的 `network_domain` / `tenant_id` 标签来自 Module_09 的 `external_labels`。
-- 更新后端目录结构，新增 `platform/query/` 作为 Module_02 查询中心主目录。
-- 更新 Module_02 API 预览，说明自动注入 tenant_id / network_domain_id 行为与响应 envelope 元数据（`data_source` / `freshness_at` / `network_domain`）。
-- 更新 MVP 验收清单，补充查询响应 envelope、external_labels 注入、告警代理边界等条目。
-- 更新风险表，新增“PromQL 注入逻辑复杂”、“响应 envelope 元数据性能开销”、“不存在跨租户全局管理员”三项风险。
-- 同步更新 Agent 节奏与前端目录，增加 Agent 状态列表页。
-
-### v3.1（2026-07-31）
-
-- 根据 `docs/decisions/grill-2026-07-31-monitoring-strategy-management.md` 调整模块边界：
-  - [Module_01: 监控策略与指标管理](Modules/Module_01_Metric_Collection_Center.md) 承担 CI↔Exporter 绑定、`ScrapeJob`、实例选择、规则编辑 UI。
-  - [Module_07: 监控对象管理](Modules/Module_07_Monitoring_Object_Management.md) 聚焦 Resource、LabelTemplate、Excel 导入、「已监控/未监控」badge。
-  - [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) 承担配置生成 / 预览 / 下发。
-- 调整开发阶段：Phase 2 拆分为 2a（标签模板）、2b（监控策略）、2c（配置中心）。
-- 取消独立的 `feat/module-01-collection-status` 分支，目标状态展示由 Module_02 吸收。
-- 将 Phase 3 改为“查询中心（含目标状态展示）”，Phase 4 改为“告警生命周期管理”。
-- 更新模块依赖图为 `Module_07 → Module_01 → Module_09`。
-- 更新 API 预览，补充 Module_01 策略 API 与 Module_09 配置中心 API。
-- 更新 MVP 验收清单与风险表，突出静态指标库、手动实例选择、本地手工兜底、Module_01/08 边界等风险。
-
----
-
-## 10. 关联文档
-
-- 产品愿景：[00_Product_Vision.md](00_Product_Vision.md)
-- 产品路线图：[02_Product_Roadmap.md](02_Product_Roadmap.md)
-- 实施难度分析：[04_Implementation_Map.md](04_Implementation_Map.md)
-- 功能架构全景：[03_Functional_Architecture.md](03_Functional_Architecture.md)
-- 模块详细需求：[Modules/README.md](Modules/README.md)
-- Agent 团队定义：[.kimi/AGENTS.md](../../.kimi/AGENTS.md)
-- 查询中心设计决策：[../decisions/grill-2026-07-31-query-center.md](../decisions/grill-2026-07-31-query-center.md)
-- Module PRD：
-  - [Module_00: 模块职责矩阵与集成关系](Modules/Module_00_Integration_Map.md)
-  - [Module_01: 监控策略与指标管理](Modules/Module_01_Metric_Collection_Center.md)
-  - [Module_02: 查询中心](Modules/Module_02_Query_Center.md)
-  - [Module_03: 网关与认证](Modules/Module_03_Gateway_and_Auth.md)
-  - [Module_04: 自定义服务发现与外部 CMDB 生命周期管理](Modules/Module_04_Custom_Discovery.md)
-  - [Module_05: 自定义前端门户](Modules/Module_05_Custom_UI.md)
-  - [Module_06: 系统与平台管理（含多租户）](Modules/Module_06_Multi_Tenant.md)
-  - [Module_07: 监控对象管理](Modules/Module_07_Monitoring_Object_Management.md)
-  - [Module_08: 告警规则管理](Modules/Module_08_Alertmanager_Notification_Management.md)
-  - [Module_09: 网域与边缘配置中心](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md)
-  - [Module_10: 监控源登记册与异构接入](Modules/Module_10_Monitoring_Source_Registry.md)

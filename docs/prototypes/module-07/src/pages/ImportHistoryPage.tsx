@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import {
+  Alert,
   Button,
   Card,
   Descriptions,
+  message,
   Modal,
   Progress,
   Select,
@@ -18,7 +20,9 @@ import { FilterBar, FilterItem } from '../components/FilterBar'
 import { EllipsisText } from '../components/EllipsisText'
 import {
   RESOURCE_TYPE_MAP,
+  STATUS_MAP,
   mockImportHistory,
+  mockStatusMappingConfig,
 } from '../mocks/module-07'
 import type { ImportError, ImportHistory, ResourceCategory } from '../mocks/module-07'
 
@@ -142,9 +146,33 @@ export default function ImportHistoryPage() {
         <Title level={4}>导入记录</Title>
         <Text type="secondary">查看 Excel 批量导入资源的历史记录与错误报告</Text>
       </div>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-        状态映射（Excel 中文状态 → 运行中 / 已停止 / 维护中）为系统规则，本页只读展示，规则明细见「标签模板」页。
-      </Text>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Excel 导入说明"
+        description={
+          <Space direction="vertical" size={6}>
+            <Text style={{ fontSize: 13 }}>
+              • 状态映射为系统规则，Excel 导入时状态列中文值自动转换为系统状态，本页只读展示：
+            </Text>
+            <Space wrap size={[8, 4]}>
+              {mockStatusMappingConfig.rules.map((rule) => (
+                <Tag key={rule.id} style={{ fontSize: 12 }}>
+                  {rule.source_status} → {STATUS_MAP[rule.target_status]}
+                  {rule.is_builtin && ' [内置]'}
+                </Tag>
+              ))}
+            </Space>
+            <Text style={{ fontSize: 13 }}>
+              • 导入模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 枚举列合法值。
+            </Text>
+            <Text style={{ fontSize: 13 }}>
+              • 导入为 upsert 语义，不删除 Excel 中消失的行；批量下线请将目标行状态置「已停止」后导入。
+            </Text>
+          </Space>
+        }
+      />
       <Card className="page-card">
         <FilterBar>
           <FilterItem label="资源类别" width={220}>
@@ -171,6 +199,17 @@ export default function ImportHistoryPage() {
           dataSource={filteredData}
           columns={columns}
           pagination={{ pageSize: 5 }}
+          locale={{
+            emptyText: (
+              <Space direction="vertical" align="center" style={{ padding: 24 }}>
+                <Text type="secondary">暂无导入记录</Text>
+                <Space>
+                  <Button icon={<DownloadOutlined />} onClick={() => message.info('下载模板：由后端生成的静态 xlsx（内置取值说明 sheet）')}>下载模板</Button>
+                  <Button type="primary" icon={<FileExcelOutlined />} onClick={() => message.info('上传 Excel 的入口位于资源列表「Excel 导入」')}>上传 Excel</Button>
+                </Space>
+              </Space>
+            ),
+          }}
         />
       </Card>
 

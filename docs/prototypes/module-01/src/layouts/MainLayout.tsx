@@ -162,6 +162,18 @@ export function MainLayout({ children }: MainLayoutProps) {
                 决策 6 保留「指标元数据」概念、内部实现为「指标库」；
                 决策 14 采集参数可从 CI-Exporter 映射继承、且可被手动覆盖（「同步映射默认值」跳过已覆盖字段）；
                 决策 15 选中 CI 类型后自动匹配映射默认 Exporter 模板（继承链）。
+                v3.26（决策 30 冻结网域校验 / 决策 31 采集认证-TLS 最小集）：
+                决策 30 冻结（禁用）网域禁止新建 Job、存量 Job 禁止新增该域实例（允许移除/禁用/编辑存量）——表单「归属网域」Select 对冻结网域显示但置灰不可选，
+                冻结域实例不放开作为「新增」；新增「遗留机房（legacy-dc）」已纳管但冻结的演示网域。
+                决策 31 采集 Job 表单抽屉底部新增「认证与 TLS」折叠面板（默认折叠）——认证类型 none/basic/bearer 与 TLS 跳过校验开关 + CA 文件，
+                仅影响 prometheus.yml（由 M09 映射进 scrape_configs），不参与 targets 判定，变更提交后置 change_status=pending 走 M09 人工确认。
+                v3.25（决策 29 offline 排除提级 MVP 必实现）：实例选择候选集中 `Resource.status=offline` 实例「显示但置灰不可选」（保证下线台账可见、不可勾选），
+                已选实例转 offline 后由 M09 配置生成跳过（offline 后下一配置生成周期即从 targets/*.json 移除）；`maintenance` 排除口径与 Module_07 8.1 一并对齐（MVP 不保证）。
+                v3.24（决策 38-1 规则文件挂载，MVP 补齐 M01↔M09 规则链路契约）：规则编辑页新增「文件挂载」视图（MVP）——上传/粘贴整文件 rules.yml
+                （content_mode=yaml_passthrough + rule_content）落库，保存/启停/删除后由 M09 生成 rules.yml → 变更单人工确认 → 下发（不绕过配置中心）；
+                规则条数启发式展示 + 基础 YAML 校验；「字段化编辑」视图为 v0.3 预览（content_mode=structured），MVP 不实现字段级编辑。
+                v3.23（第四轮评审 K 组，回写跨模块契约）：offline/maintenance 排除为目标语义（MVP 不保证，随本模块节奏落地）；
+                「未纳入任何 Job」筛选器为目标语义（MVP 不保证，或统一改指 Module_02 目标状态页）；本轮契约声明不改原型行为。
                 v3.22（决策 D29 原型侧）：状态列四态聚合（草稿/待下发/已生效/已停用，草稿 MVP 灰显 + Tooltip「v0.2 支持保存草稿」）；
                 保存/启停/删除改乐观更新（本地先标「待下发」，toast 附「前往配置变更确认」跳转 M09）；
                 操作列新增「克隆」（v0.2，同网域直接改选实例分组、跨网域实例清空重选 + 安装确认需重新进行）；

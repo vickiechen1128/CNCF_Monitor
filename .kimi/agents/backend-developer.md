@@ -17,6 +17,16 @@
 
 ---
 
+## 契约优先（Contract-First）
+
+> **v1.27 起（适配前后端并行开发）**：
+>
+> - **唯一契约来源**：`PRD 第 5/6 章字段与接口契约` + `docs/03-engineering-standards/03_API_Standard.md`。
+> - **禁止以对端代码为实现依据**：并行开发时前端可能尚未实现或正在变更；后端必须按 PRD + API 标准自主实现接口，不反向读取前端代码拉齐字段。
+> - 前端实现对契约的解读与 PRD / API 标准不一致时，报告 Orchestrator 决策，**禁止擅自对齐对端代码**。
+
+---
+
 ## 强制启动协议（编码前必须执行）
 
 ### Step 1: 读取强制 Skill
@@ -50,9 +60,10 @@ git branch --show-current # 必须是 feat/module-XX
 - docs/03-engineering-standards/01_Code_Isolation_Standard.md（如任务涉及目录隔离）
 ```
 
-> **PRD 章节级读取（v1.24 起，控制上下文）**：PRD 文档较长（含业务沟通决策记录），按章节选择性读取，**禁止全文一次性读取**：
-> - **必读**：3.x 核心功能（用户层语义）、4.x 数据模型（字段 / 类型 / 枚举契约）、5.x 流程、6.x 接口 / 协议、8.x 状态机（状态流转）、9 验收标准（技术验收部分）；
-> - **按需**：1 模块目标、10 术语映射（UI 展示名对照）、Change Log（业务沟通记录，非开发契约，完整历史在 `design-decisions.md`）。
+> **PRD 章节级读取（v1.27 起，章节编号已冻结，与前端严格对齐）**：PRD 文档较长（含业务沟通决策记录），按章节选择性读取，**禁止全文一次性读取**。PRD 骨架章节号为全局固定（见 prototype-designer「PRD 编写骨架规范」）：
+> - **必读**：第 3 章核心功能（用户层语义）、第 4 章核心流程、第 5 章数据模型（字段 / 类型 / 枚举契约）、第 6 章接口设计（接口 / 协议 / 请求响应契约）、第 8 章状态机（状态流转）、第 9 章验收标准（技术验收部分）；
+> - **按需**：第 1 章模块目标、第 10 章术语映射（UI 展示名对照）、第 11 章前端交互契约；Change Log 为业务沟通记录（非开发契约，完整历史在 `design-decisions.md`），仅在需要追溯变更原因时读取。
+> - 既有模块 PRD 若尚未对齐冻结章节号，先 `grep -n "^## "` 确认实际章节结构再按语义定位，并在执行记录中标注该 PRD 待迁移。
 > - **章节定位命令示例**：`grep -n "^## " docs/02-product-requirements/Modules/Module_XX_*.md` 先看章节结构，再用 `sed -n '起点,终点p'` 读取指定章节。
 
 > `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入，必须存在。如果缺失，必须停止并报告 Orchestrator。
@@ -127,6 +138,11 @@ make install-tools
 - API 路径必须与 `03_API_Standard.md` 对齐：
   - 平台能力：`/api/v2/platform/*`
   - Prometheus 代理/健康检查：`/api/v1/*`
+- **API 契约义务（契约优先 / Contract-First）**：
+  - 响应信封：所有响应（成功 / 错误）必须统一通过 `platform/api/response` 封装，遵循 `{status, data, errorType, error}`，禁止裸返回、自定义信封或赶工期绕过
+  - JSON 字段命名：统一 **snake_case**，Go 结构体必须显式写 `json:"snake_case"` 标签，禁止依赖默认字段名
+  - 错误类型：必须使用 `03_API_Standard.md` 定义的标准 `errorType` 枚举（bad_request / unauthorized / forbidden / not_found / conflict / internal / bad_gateway），禁止自定义错误码或直接裸 HTTP 状态码
+  - 字段契约来源：以 PRD 第 5/6 章字段表 + `03_API_Standard.md` 为唯一权威；前端以同一契约对接，**禁止以对端开发中的代码为实现依据**
 - 避免过度工程化：不要为测试问题引入复杂的生产代码包装
 - URL 解析与反向代理必须校验 scheme（仅 `http`/`https`）和 host，防范 SSRF
 

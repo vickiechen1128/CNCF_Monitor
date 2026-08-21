@@ -1,6 +1,6 @@
 // ============================================================
 // Module_01 监控策略与指标管理 - 数据模型与 mock 数据
-// 对齐 PRD v3.13（Module_01_Metric_Collection_Center.md）
+// 对齐 PRD v3.26（Module_01_Metric_Collection_Center.md）
 // ============================================================
 
 // ---------- CI 类型与资源类别（PRD 5.1 / 与 Module_07 四大类别对齐） ----------
@@ -102,6 +102,9 @@ export type MetricType = 'counter' | 'gauge' | 'histogram' | 'summary' | 'unknow
 export type Env = 'dev' | 'test' | 'staging' | 'prod'
 export type ResourceStatus = 'online' | 'offline' | 'maintenance'
 export type ProbeProtocol = 'http' | 'https' | 'tcp' | 'icmp' | 'dns'
+/** {v3.26} 决策 31：采集认证类型（none/basic/bearer），仅影响 prometheus.yml，由 M09 映射进 scrape_configs */
+export type AuthType = 'none' | 'basic' | 'bearer'
+export const AUTH_TYPES: AuthType[] = ['none', 'basic', 'bearer']
 
 /** ScrapeJob 类型：standard 标准采集 / blackbox 拨测（PRD v2.0 决策 4） */
 export type ScrapeJobType = 'standard' | 'blackbox'
@@ -161,12 +164,16 @@ export interface NetworkDomain {
   status: 'online' | 'offline' | 'unknown'
   /** {v3.9} 是否已完成监控纳管（由 Module_09 写入）；M01 仅允许为已纳管网域创建 ScrapeJob */
   is_monitored: boolean
+  /** {v3.26} 决策 30：是否已冻结（禁用）。冻结网域（已纳管但禁用）禁止新建 Job、存量 Job 禁止新增该域实例（允许移除/禁用/编辑存量）；由 Module_06 行政开关控制 */
+  frozen?: boolean
 }
 
 export const mockNetworkDomains: NetworkDomain[] = [
   { id: 'default', name: '默认网域', status: 'online', is_monitored: true },
   { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online', is_monitored: true },
   { id: 'finance-dmz', name: '金融 DMZ', status: 'offline', is_monitored: false },
+  // {v3.26} 决策 30：演示「已纳管但冻结」网域（is_monitored=true 可出现在 M01/M09 配置上下文，但 frozen=true 置灰不可选/不可新增实例）
+  { id: 'legacy-dc', name: '遗留机房', status: 'online', is_monitored: true, frozen: true },
 ]
 
 export const NETWORK_DOMAIN_IDS: string[] = mockNetworkDomains.map((d) => d.id)
@@ -850,6 +857,13 @@ export interface ScrapeJob {
   draft_status?: 'draft' | 'submitted' | 'discarded'
   /** 演示决策 14：最近一次从映射（含网域覆盖）同步默认采集参数的时间；早于映射 updated_at 时视为「映射默认值已变更」 */
   mapping_synced_at?: string
+  /** {v3.26} 决策 31：采集认证/TLS 最小集——仅影响 prometheus.yml（由 M09 映射进 scrape_configs），不参与 targets 判定；变更提交后 change_status=pending 走 M09 人工确认 */
+  auth_type?: AuthType
+  auth_username?: string
+  auth_password?: string
+  auth_token?: string
+  tls_skip_verify?: boolean
+  ca_file?: string
   created_at: string
   updated_at: string
 }
@@ -1205,9 +1219,136 @@ export interface MonitoringRule {
   change_status?: 'pending' | 'confirmed' | 'none'
   /** {v3.22} 草稿状态（决策 D29，v0.2 支持保存草稿）：draft=草稿（PromQL 半成品可暂存，不进入下发管线）/ submitted=草稿已提交为正式规则 / discarded=已废弃 */
   draft_status?: 'draft' | 'submitted' | 'discarded'
+  /** {v3.24} 规则内容形态（PRD 5.5）：MVP 整文件透传 `yaml_passthrough`（rule_content 必填）/ v0.3+ 逐条字段化 `structured`（本字段不填）；MVP 默认 `yaml_passthrough` */
+  content_mode?: 'yaml_passthrough' | 'structured'
+  /** {v3.24} 规则文件内容（PRD 5.5）：content_mode=yaml_passthrough 时必填——完整 rules.yml（含 groups），M09 生成 rules.yml 时原样并入 */
+  rule_content?: string
   created_at: string
   updated_at: string
 }
+
+/** {v3.24} 规则文件挂载（MVP，PRD 5.5）：通过「规则编辑」页上传 / 粘贴整文件 `rules.yml`（content_mode=yaml_passthrough + rule_content）落库，
+ *  保存 / 启停 / 删除即进入 M09 变更检测 → 生成 rules.yml → 变更单人工确认 → 下发（决策 38-1），回写 change_status（与采集 Job 同源同机制） */
+export interface MountedRuleFile {
+  rule_id: string
+  /** 展示名（可空，落库后提取 groups 数 / 规则条数展示） */
+  name: string
+  content_mode: 'yaml_passthrough' | 'structured'
+  /** 完整 rules.yml 内容（含 groups 顶层数组），M09 生成 rules.yml 时原样并入 */
+  rule_content: string
+  /** 文件内规则条数（groups[*].rules 中 alert / record 条目合计） */
+  rule_count: number
+  enabled: boolean
+  /** 下发状态（来自 M09 变更单）：pending / confirmed / none */
+  change_status?: 'pending' | 'confirmed' | 'none'
+  created_at: string
+  updated_at: string
+}
+
+// ---------- {v3.24} 规则文件挂载 mock（MVP 整文件透传，PRD 5.5） ----------
+const mountedRuleContentHost = `groups:
+  - name: node.rules
+    rules:
+      - alert: HostHighCpuUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: sre
+        annotations:
+          summary: '主机 CPU 使用率过高'
+      - alert: HostDiskAlmostFull
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) > 0.9
+        for: 10m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: '主机磁盘即将写满'
+  - name: middleware.rules
+    rules:
+      - alert: RedisMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 2m
+        labels:
+          severity: critical
+          team: middleware
+        annotations:
+          summary: 'Redis 内存使用率过高'
+      - alert: MysqlHighConnections
+        expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: middleware
+        annotations:
+          summary: 'MySQL 连接数过高'
+`
+
+const mountedRuleContentApp = `groups:
+  - name: app.rules
+    rules:
+      - alert: AppErrorRateHigh
+        expr: rate(app_http_requests_total{status=~"5.."}[5m]) / rate(app_http_requests_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          team: app
+        annotations:
+          summary: '应用 5xx 错误率过高'
+      - record: job:app_request_rate:5m
+        expr: sum by (job, app) (rate(app_http_requests_total[5m]))
+`
+
+const mountedRuleContentBlackbox = `groups:
+  - name: blackbox.rules
+    rules:
+      - alert: ProbeFailed
+        expr: probe_success{job="blackbox-http-default"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: sre
+        annotations:
+          summary: '拨测失败'
+`
+
+export const mockMountedRuleFiles: MountedRuleFile[] = [
+  {
+    rule_id: 'rule-file-001',
+    name: '主机与中间件告警',
+    content_mode: 'yaml_passthrough',
+    rule_content: mountedRuleContentHost,
+    rule_count: 4,
+    enabled: true,
+    change_status: 'confirmed',
+    created_at: '2026-07-02T09:00:00Z',
+    updated_at: '2026-07-18T10:00:00Z',
+  },
+  {
+    rule_id: 'rule-file-002',
+    name: '应用业务规则',
+    content_mode: 'yaml_passthrough',
+    rule_content: mountedRuleContentApp,
+    rule_count: 2,
+    enabled: true,
+    // {v3.24} 刚挂载：M09 变更单待确认（决策 38-1 人工确认档）
+    change_status: 'pending',
+    created_at: '2026-08-18T14:30:00Z',
+    updated_at: '2026-08-18T14:30:00Z',
+  },
+  {
+    rule_id: 'rule-file-003',
+    name: '拨测告警规则',
+    content_mode: 'yaml_passthrough',
+    rule_content: mountedRuleContentBlackbox,
+    rule_count: 1,
+    enabled: false,
+    change_status: 'none',
+    created_at: '2026-07-25T15:00:00Z',
+    updated_at: '2026-07-25T15:00:00Z',
+  },
+]
 
 export const mockMonitoringRules: MonitoringRule[] = [
   {
@@ -1702,6 +1843,8 @@ export const mockResources: Resource[] = [
   { resource_id: 'res-host-002', resource_type: 'host_windows', instance_name: 'prod-db-01', hostname: 'prod-db-01.volc', instance_ip: '10.0.1.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', os_type: 'windows', status: 'online' },
   { resource_id: 'res-mw-001', resource_type: 'redis', instance_name: 'redis-cache-01', hostname: 'redis-cache-01.mw', instance_ip: '10.0.2.11', network_domain_id: 'default', env: 'prod', app_name: 'cache-service', cluster: 'cluster-prod', business_domain: 'order', status: 'online' },
   { resource_id: 'res-mw-002', resource_type: 'mysql', instance_name: 'mysql-primary-01', hostname: 'mysql-primary-01.mw', instance_ip: '10.0.2.21', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'maintenance' },
+  // {v3.25} offline 排除演示（决策 29）：default 网域 mysql 下线副本——实例候选「显示但置灰不可选」，M09 配置生成跳过
+  { resource_id: 'res-mw-005', resource_type: 'mysql', instance_name: 'mysql-primary-01-retired', hostname: 'mysql-primary-01-retired.mw', instance_ip: '10.0.2.22', network_domain_id: 'default', env: 'prod', app_name: 'mysql-core', cluster: 'cluster-prod', business_domain: 'payment', status: 'offline' },
   { resource_id: 'res-mw-003', resource_type: 'kafka', instance_name: 'kafka-broker-01', hostname: 'kafka-broker-01.mw', instance_ip: '10.0.2.31', network_domain_id: 'gov-cloud-a', env: 'staging', app_name: 'mq-platform', cluster: 'cluster-staging', status: 'online' },
   // {v3.2} nginx 实例：配合 map-006（无标签模板）演示「Job 标签待配置」链路
   { resource_id: 'res-mw-004', resource_type: 'nginx', instance_name: 'nginx-edge-01', hostname: 'nginx-edge-01.mw', instance_ip: '10.0.2.41', network_domain_id: 'default', env: 'prod', app_name: 'gateway-nginx', cluster: 'cluster-prod', status: 'online' },

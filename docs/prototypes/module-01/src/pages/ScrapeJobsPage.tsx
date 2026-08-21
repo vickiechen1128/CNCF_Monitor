@@ -29,6 +29,7 @@ import {
   Radio,
   Popover,
   Dropdown,
+  Collapse,
 } from 'antd'
 import type { TransferItem } from 'antd/es/transfer'
 import {
@@ -50,6 +51,7 @@ import {
   SaveOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
 import {
   mockScrapeJobs,
   mockExporterTemplates,
@@ -92,6 +94,7 @@ import type {
   ExporterSource,
   ExporterTemplate,
   LabelTemplate,
+  AuthType,
 } from '../mocks/module-01'
 
 const { Title, Text } = Typography
@@ -149,6 +152,10 @@ const getJobStatus = (j: ScrapeJob): JobStatus => {
   if (j.change_status === 'pending') return 'pending'
   return j.enabled ? 'active' : 'disabled'
 }
+
+// {v3.26} 决策 30：判断网域是否已冻结（禁用）——仅「已纳管且 frozen=true」的网络域视为冻结，禁止新建 Job/新增该域实例
+const isFrozenDomain = (id?: string) =>
+  !!id && MONITORED_NETWORK_DOMAINS.some((d) => d.id === id && d.frozen === true)
 
 // {v3.22} v0.2 能力角标：橙色小 Tag，标识「该能力 v0.2 交付」的入口/按钮（演示态占位标记）
 function V02Badge() {
@@ -478,6 +485,8 @@ export default function ScrapeJobsPage() {
   const watchedLabelTemplateId = Form.useWatch('label_template_id', form)
   // {v3.14} 决策 D2：采集器模式显式二选一（使用默认采集器 / 手填采集参数），避免"下拉留空"歧义
   const watchCollectorMode = Form.useWatch('collector_mode', form) as 'use_default' | 'manual' | undefined
+  // {v3.26} 决策 31：认证类型（none/basic/bearer），用于条件渲染认证字段与提交校验
+  const watchAuthType = Form.useWatch('auth_type', form) as AuthType | undefined
 
   // 当前表单选中的标签模板（用于只读预览映射内容，模板由 Module_07 维护）
   const selectedLabelTemplate = useMemo(
@@ -515,6 +524,10 @@ export default function ScrapeJobsPage() {
     : []
 
   // Transfer 数据源：按当前 resource_type + Job 网域 + 环境 + 业务类型筛选（{v3.4} 业务类型 = 筛选字段，label 名 biz 作 UI 别名）
+  // {v3.25} offline 排除提级 MVP 必实现（决策 29，对齐 Module_07 8.1 / Module_09 3.3）：
+  // 候选集中 Resource.status=offline 实例「显示但置灰不可选」——仍展示（保证下线台账可见），但 disabled 禁止勾选；
+  // 已选实例事后转 offline 后由 M09 配置生成跳过（离线后下一配置生成周期即从 targets 移除）。
+  // maintenance 排除口径与 Module_07 8.1 一并对齐（MVP 不保证，此处不置灰 + ReviewNote 标注）。
   const transferData = useMemo<TransferItem[]>(() => {
     const rt = watchResourceType as CiType | undefined
     if (!rt) return []
@@ -525,8 +538,10 @@ export default function ScrapeJobsPage() {
       .filter((r) => (filterBusinessDomain ? r.business_domain === filterBusinessDomain : true))
       .map((r) => ({
         key: r.resource_id,
-        title: `${r.instance_name} (${r.instance_ip})`,
-        description: `${domainNameMap.get(r.network_domain_id) ?? r.network_domain_id} · ${ENV_LABEL[r.env]} · ${r.app_name}${r.business_domain ? ` · 业务类型(biz):${r.business_domain}` : ''}`,
+        title: `${r.instance_name}${r.status === 'offline' ? '（已下线）' : ''} (${r.instance_ip})`,
+        description: `${domainNameMap.get(r.network_domain_id) ?? r.network_domain_id} · ${ENV_LABEL[r.env]} · ${r.app_name}${r.business_domain ? ` · 业务类型(biz):${r.business_domain}` : ''}${r.status === 'offline' ? ' · 状态:offline（已下线）' : ''}`,
+        // {v3.25} 决策 29：offline 实例显示但置灰不可选（disabled）；maintenance 除外（MVP 不保证）
+        disabled: r.status === 'offline',
       }))
   }, [watchResourceType, watchNetworkDomainId, filterEnv, filterBusinessDomain, domainNameMap])
 
@@ -560,6 +575,10 @@ export default function ScrapeJobsPage() {
       metrics_path: '/metrics',
       enabled: true,
       network_domain_id: 'default',
+      // {v3.26} 决策 31：认证/TLS 默认无认证 + 跳过校验默认关
+      auth_type: 'none',
+      tls_skip_verify: false,
+      ca_file: undefined,
     })
     setDrawerOpen(true)
   }
@@ -585,6 +604,13 @@ export default function ScrapeJobsPage() {
       label_template_id: record.label_template_id,
       enabled: record.enabled,
       blackbox_module: record.blackbox_module,
+      // {v3.26} 决策 31：编辑回填认证/TLS
+      auth_type: record.auth_type ?? 'none',
+      auth_username: record.auth_username,
+      auth_password: record.auth_password,
+      auth_token: record.auth_token,
+      tls_skip_verify: record.tls_skip_verify ?? false,
+      ca_file: record.ca_file,
     })
     setTargetKeys([...record.selected_instance_ids])
     setBlackboxTargets(record.blackbox_targets ? [...record.blackbox_targets] : [])
@@ -628,6 +654,13 @@ export default function ScrapeJobsPage() {
       label_template_id: source.label_template_id,
       enabled: source.enabled,
       blackbox_module: source.blackbox_module,
+      // {v3.26} 决策 31：克隆复制认证/TLS
+      auth_type: source.auth_type ?? 'none',
+      auth_username: source.auth_username,
+      auth_password: source.auth_password,
+      auth_token: source.auth_token,
+      tls_skip_verify: source.tls_skip_verify ?? false,
+      ca_file: source.ca_file,
     })
     setDrawerOpen(true)
   }
@@ -799,6 +832,12 @@ export default function ScrapeJobsPage() {
     label_template_id: '标签模板',
     instance_selection_mode: '实例选择模式',
     blackbox_module: '拨测模块',
+    // {v3.26} 决策 31：认证/TLS 字段
+    auth_type: '认证类型',
+    auth_username: '用户名',
+    auth_password: '密码',
+    auth_token: 'Token',
+    ca_file: 'CA 证书文件',
   }
 
   // {v3.22} 决策 D29：提交生效（完整校验）——失败时置顶 Alert 逐条错误清单
@@ -808,6 +847,14 @@ export default function ScrapeJobsPage() {
       (values) => {
         const jobType = values.job_type as ScrapeJobType
         const networkDomainId = values.network_domain_id as string
+
+        // {v3.26} 决策 30：冻结（禁用）网域禁止新建 Job——提交时兜底校验（表单 Select 已置灰，此处防克隆/程序化命中）
+        if (isFrozenDomain(networkDomainId)) {
+          const msg = `归属网域「${domainNameMap.get(networkDomainId) ?? networkDomainId}」已冻结（禁用），禁止新建采集 Job`
+          setSubmitErrors([{ field: '归属网域', msg }])
+          message.error(msg)
+          return
+        }
 
         if (jobType === 'blackbox') {
           if (blackboxTargets.length === 0) {
@@ -855,6 +902,27 @@ export default function ScrapeJobsPage() {
 
         // {v3.20} 决策 38-1：仅变更实例（targets/*.json）→ file_sd 自动热加载，免 reload、免人工确认；
         // 其余采集参数（job_name/resource_type/exporter/interval/timeout/path/scheme/标签模板）→ 触碰 prometheus.yml → 仍需走 M09 人工确认 + reload
+        // {v3.26} 决策 31：认证/TLS 变更同样触碰 prometheus.yml（不影响 targets），故也判定为「非仅实例变更」→ 置 pending 走 M09 人工确认
+        const authChanged = (() => {
+          const norm = (v: unknown) => v ?? ''
+          const oldAuth = {
+            auth_type: editingJob.auth_type ?? 'none',
+            auth_username: norm(editingJob.auth_username),
+            auth_password: norm(editingJob.auth_password),
+            auth_token: norm(editingJob.auth_token),
+            tls_skip_verify: editingJob.tls_skip_verify ?? false,
+            ca_file: norm(editingJob.ca_file),
+          }
+          const newAuth = {
+            auth_type: (values.auth_type as AuthType) ?? 'none',
+            auth_username: norm(values.auth_username),
+            auth_password: norm(values.auth_password),
+            auth_token: norm(values.auth_token),
+            tls_skip_verify: (values.tls_skip_verify as boolean) ?? false,
+            ca_file: norm(values.ca_file),
+          }
+          return JSON.stringify(oldAuth) !== JSON.stringify(newAuth)
+        })()
         const onlyTargetsChanged = (() => {
           const oldInst = [...editingJob.selected_instance_ids].sort()
           const newInst = [...targetKeys].sort()
@@ -867,7 +935,7 @@ export default function ScrapeJobsPage() {
             const configChanged = configKeys.some(
               (k) => JSON.stringify(editingJob[k]) !== JSON.stringify(values[k])
             )
-            return !configChanged
+            return !configChanged && !authChanged
           }
           return false
         })()
@@ -911,6 +979,13 @@ export default function ScrapeJobsPage() {
           blackbox_targets: jobType === 'blackbox' ? blackboxTargets : undefined,
           enabled: values.enabled as boolean,
           exporter_status: exporterStatus,
+          // {v3.26} 决策 31：认证/TLS 最小集（仅影响 prometheus.yml，不参与 targets）
+          auth_type: (values.auth_type as AuthType) || 'none',
+          auth_username: values.auth_username as string | undefined,
+          auth_password: values.auth_password as string | undefined,
+          auth_token: values.auth_token as string | undefined,
+          tls_skip_verify: (values.tls_skip_verify as boolean) ?? false,
+          ca_file: values.ca_file as string | undefined,
           // 决策 14：创建时对映射默认值做快照，记录同步时间；保存手动覆盖字段标记
           mapping_overrides: jobType === 'standard' ? overriddenFields : [],
           // {v3.19} 新建即置「待确认」（M09 变更单待确认，决策 D27-2）
@@ -2282,8 +2357,15 @@ export default function ScrapeJobsPage() {
                   }}
                 >
                   {MONITORED_NETWORK_DOMAINS.map((d) => (
-                    <Option key={d.id} value={d.id}>
-                      {d.name}
+                    // {v3.26} 决策 30：冻结（禁用）网域显示但置灰不可选（Option disabled + Tooltip 说明）
+                    <Option key={d.id} value={d.id} disabled={isFrozenDomain(d.id)}>
+                      {d.frozen ? (
+                        <Tooltip title="网域已冻结（禁用），禁止新建/纳管">
+                          {d.name}（已冻结）
+                        </Tooltip>
+                      ) : (
+                        d.name
+                      )}
                     </Option>
                   ))}
                 </Select>
@@ -2702,6 +2784,115 @@ export default function ScrapeJobsPage() {
             <Switch />
           </Form.Item>
 
+          {/* {v3.26} 决策 31：采集认证/TLS 最小集——折叠面板（默认折叠，不展开不增加裸 http 视觉负担）；
+              仅影响 prometheus.yml（由 M09 映射进 scrape_configs），不参与 targets 判定；变更提交后置 change_status=pending 走 M09 人工确认 */}
+          <Collapse
+            ghost
+            style={{ marginBottom: 8 }}
+            items={[
+              {
+                key: 'auth-tls',
+                label: <Text strong>认证与 TLS</Text>,
+                children: (
+                  <div>
+                    <Alert
+                      type="info"
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                      message="认证/TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs"
+                    />
+                    <Row gutter={16}>
+                      <Col span={12}>
+                        <Form.Item
+                          label="认证类型"
+                          name="auth_type"
+                          initialValue="none"
+                          extra="无认证 / Basic 基本认证 / Bearer Token"
+                        >
+                          <Select>
+                            <Option value="none">无认证（none）</Option>
+                            <Option value="basic">Basic 基本认证</Option>
+                            <Option value="bearer">Bearer Token</Option>
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                      <Col span={12}>
+                        <Form.Item
+                          label="TLS 跳过证书校验"
+                          name="tls_skip_verify"
+                          valuePropName="checked"
+                          initialValue={false}
+                          extra="自签名 / 内网证书场景可开启"
+                        >
+                          <Switch />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    {watchAuthType === 'basic' && (
+                      <Row gutter={16}>
+                        <Col span={12}>
+                          <Form.Item
+                            label="用户名"
+                            name="auth_username"
+                            rules={[
+                              {
+                                validator: (_, v) =>
+                                  watchAuthType === 'basic' && !v
+                                    ? Promise.reject(new Error('Basic 认证需填写用户名'))
+                                    : Promise.resolve(),
+                              },
+                            ]}
+                          >
+                            <Input placeholder="Basic 认证用户名" />
+                          </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                          <Form.Item
+                            label="密码"
+                            name="auth_password"
+                            rules={[
+                              {
+                                validator: (_, v) =>
+                                  watchAuthType === 'basic' && !v
+                                    ? Promise.reject(new Error('Basic 认证需填写密码'))
+                                    : Promise.resolve(),
+                              },
+                            ]}
+                          >
+                            <Input.Password placeholder="Basic 认证密码" />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    )}
+                    {watchAuthType === 'bearer' && (
+                      <Form.Item
+                        label="Token"
+                        name="auth_token"
+                        rules={[
+                          {
+                            validator: (_, v) =>
+                              watchAuthType === 'bearer' && !v
+                                ? Promise.reject(new Error('Bearer 认证需填写 Token'))
+                                : Promise.resolve(),
+                          },
+                        ]}
+                      >
+                        <Input.Password placeholder="Bearer Token" />
+                      </Form.Item>
+                    )}
+                    <Form.Item
+                      label="CA 证书文件（可选）"
+                      name="ca_file"
+                      extra="仅供启用了 TLS 的 https 目标使用"
+                    >
+                      <Input placeholder="如 /etc/prometheus/certs/ca.crt" />
+                    </Form.Item>
+                  </div>
+                ),
+              },
+            ]}
+          />
+
           {watchMode === 'filter' && !isBlackbox && (
             <FieldGuide title="按网域/环境/应用/标签筛选">
               <Text style={{ fontSize: 12 }}>
@@ -2775,6 +2966,17 @@ export default function ScrapeJobsPage() {
                   已按「资源类型 + Job 归属网域」自动收敛可选实例；支持一键全选 / 反选与关键字搜索；跨网域实例不可被同一 Job 选中。
                 </Text>
               </FieldGuide>
+              {/* {v3.25} offline 排除提级 MVP 必实现（决策 29，对齐 Module_07 8.1 / Module_09 3.3）：候选集 offline 实例「显示但置灰不可选」；已选实例转 offline 后 M09 配置生成跳过；「未纳入任何 Job」筛选器为目标语义、MVP 不保证（或统一改指 Module_02 目标状态页） */}
+              <ReviewNote title="实例候选集排除（offline 排除 MVP 必实现）">
+                <ul style={{ paddingLeft: 18, margin: 0 }}>
+                  <li>
+                    **`offline` 排除（MVP 必实现，决策 29）**：候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（保证下线台账可见、不可勾选，可观察左侧候选中的「已下线」标注）；已选实例转 `offline` 后 M09 配置生成跳过（`offline` 后下一配置生成周期即从 `targets/*.json` 移除，见 [Module_09 3.3 实例过滤](../../../../02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md)）。`maintenance` 排除口径与 [Module_07 8.1](../../../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) 一并对齐（MVP 不保证）。
+                  </li>
+                  <li>
+                    「未纳入任何 Job」筛选器为**目标语义**（MVP 不保证，随本模块落地）：用于快速发现未被任何 ScrapeJob 选中的实例；若沿用不落本模块则统一改指 Module_02 目标状态页。
+                  </li>
+                </ul>
+              </ReviewNote>
               <Row gutter={8} style={{ marginBottom: 8 }}>
                 <Col span={12}>
                   <Select
@@ -2810,7 +3012,20 @@ export default function ScrapeJobsPage() {
                 dataSource={transferData}
                 titles={['同类型同域可选实例', '已选实例']}
                 targetKeys={targetKeys}
-                onChange={(next) => setTargetKeys(next as string[])}
+                onChange={(next) => {
+                  const nextKeys = next as string[]
+                  // {v3.26} 决策 30：冻结（禁用）网域禁止新增该域实例（允许移除/禁用/编辑存量）——仅放行移除，拦截新增
+                  if (isFrozenDomain(watchNetworkDomainId)) {
+                    const prevKeys = new Set(targetKeys)
+                    const added = nextKeys.filter((k) => !prevKeys.has(k))
+                    if (added.length > 0) {
+                      message.warning('网域已冻结（禁用），禁止新增该域实例；仅允许移除或调整存量')
+                      setTargetKeys(targetKeys.filter((k) => !nextKeys.includes(k)))
+                      return
+                    }
+                  }
+                  setTargetKeys(nextKeys)
+                }}
                 render={(item) => String(item.title)}
                 listStyle={{ width: 300, height: 320 }}
                 style={{ marginBottom: 24 }}

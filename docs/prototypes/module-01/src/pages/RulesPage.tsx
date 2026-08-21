@@ -19,6 +19,8 @@ import {
   App,
   Tooltip,
   Empty,
+  Segmented,
+  Upload,
 } from 'antd'
 import {
   PlusOutlined,
@@ -30,10 +32,14 @@ import {
   ThunderboltOutlined,
   InfoCircleOutlined,
   ArrowRightOutlined,
+  UploadOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
 import {
   mockMonitoringRules,
+  mockMountedRuleFiles,
   mockExporterTemplates,
   mockCITypeExporterMappings,
   metricLibraryStore,
@@ -46,7 +52,13 @@ import {
   METRIC_TYPE_COLOR,
   METRIC_TYPE_LABEL,
 } from '../mocks/module-01'
-import type { CiType, RuleType, MonitoringRule, ResourceCategory } from '../mocks/module-01'
+import type {
+  CiType,
+  RuleType,
+  MonitoringRule,
+  MountedRuleFile,
+  ResourceCategory,
+} from '../mocks/module-01'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -54,6 +66,14 @@ const { Option } = Select
 const { TabPane } = Tabs
 
 const now = () => new Date().toISOString()
+
+/** 时间格式化：YYYY-MM-DD HH:mm */
+const formatTime = (iso: string) => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 // 表单内字段说明提示（轻量非 Alert）：代替表单中堆叠的说明性 Alert，用户主区保持清爽
 function FieldGuide({ title, children }: { title: string; children: ReactNode }) {
@@ -73,11 +93,6 @@ function FieldGuide({ title, children }: { title: string; children: ReactNode })
 const MODULE_LINKS = {
   module09: '../module-09/dist/index.html',
 } as const
-
-type ValidationResult =
-  | { status: 'success'; message: string }
-  | { status: 'error'; message: string }
-  | null
 
 // {v3.22} v0.2 能力角标：橙色小 Tag，标识「该能力 v0.2 交付」的入口/按钮（演示态占位标记）
 function V02Badge() {
@@ -127,7 +142,371 @@ const extractMetricNames = (expr: string): string[] => {
   return matches.filter((n) => !functions.has(n))
 }
 
-export default function RulesPage() {
+/** {v3.24} 规则文件挂载 YAML 校验（PRD 5.5 / 6.2.4）：至少校验 groups 存在且为数组 */
+const validateRuleContent = (
+  content: string
+): { ok: true } | { ok: false; message: string } => {
+  if (!content.trim()) return { ok: false, message: '规则文件内容不能为空' }
+  if (!/^groups\s*:/m.test(content)) {
+    return { ok: false, message: 'YAML 非法：缺少顶层键 groups（rules.yml 必须以 groups 为顶层数组）' }
+  }
+  const groupNames = content.match(/^\s*-\s*name\s*:/gm)
+  if (!groupNames || groupNames.length === 0) {
+    return { ok: false, message: 'YAML 非法：groups 下缺少规则分组（需至少一个 - name: xxx）' }
+  }
+  if (!/^(\s*)rules\s*:/m.test(content)) {
+    return { ok: false, message: 'YAML 非法：缺少 rules 键（每个分组下需有 rules 数组）' }
+  }
+  return { ok: true }
+}
+
+/** 统计 rules.yml 内规则条数（groups[*].rules 中 alert / record 条目合计，原型启发式） */
+const countRuleCount = (content: string): number => {
+  const alerts = content.match(/^\s*-\s*alert\s*:/gm) ?? []
+  const records = content.match(/^\s*-\s*record\s*:/gm) ?? []
+  return alerts.length + records.length
+}
+
+// ==================== MVP 视图：规则文件挂载（PRD 5.5 / 3.1，{v3.24}） ====================
+
+function FileMountView() {
+  const { modal, message } = App.useApp()
+  const [files, setFiles] = useState<MountedRuleFile[]>(() => [...mockMountedRuleFiles])
+  const [mountOpen, setMountOpen] = useState(false)
+  const [mountName, setMountName] = useState('')
+  const [mountContent, setMountContent] = useState('')
+  const [mountError, setMountError] = useState<string | null>(null)
+  const [detailFile, setDetailFile] = useState<MountedRuleFile | null>(null)
+
+  const totalRules = files.reduce((acc, f) => acc + f.rule_count, 0)
+  const enabledCount = files.filter((f) => f.enabled).length
+
+  /** {v3.24} 规则变更引导（决策 D28 / 38-1）：与采集 Job 同源同机制——乐观更新 toast + 「前往配置变更确认」跳转 */
+  const showChangePendingToast = (baseMsg: string) => {
+    message.success({
+      content: `${baseMsg}：已标为「待下发」，变更将由 M09 生成变更单，需确认后生效（点击本条前往配置变更确认）`,
+      onClick: () => window.open(MODULE_LINKS.module09, '_blank'),
+    })
+  }
+
+  const handleMount = () => {
+    const result = validateRuleContent(mountContent)
+    if (!result.ok) {
+      setMountError(result.message)
+      return
+    }
+    setMountError(null)
+    const newFile: MountedRuleFile = {
+      rule_id: `rule-file-${Date.now()}`,
+      name: mountName.trim() || `rules-挂载-${files.length + 1}`,
+      content_mode: 'yaml_passthrough',
+      rule_content: mountContent,
+      rule_count: countRuleCount(mountContent),
+      enabled: true,
+      change_status: 'pending',
+      created_at: now(),
+      updated_at: now(),
+    }
+    setFiles((prev) => [newFile, ...prev])
+    setMountOpen(false)
+    setMountName('')
+    setMountContent('')
+    setMountError(null)
+    showChangePendingToast('规则已挂载')
+  }
+
+  const handleToggleEnabled = (record: MountedRuleFile, checked: boolean) => {
+    setFiles((prev) =>
+      prev.map((f) =>
+        f.rule_id === record.rule_id
+          ? { ...f, enabled: checked, change_status: 'pending' as const, updated_at: now() }
+          : f
+      )
+    )
+    showChangePendingToast(checked ? '规则已启用' : '规则已禁用')
+  }
+
+  const handleDelete = (record: MountedRuleFile) => {
+    modal.confirm({
+      title: '确认删除',
+      content: `确定删除已挂载的规则文件「${record.name}」？删除后 M09 生成的 rules.yml 将移除该文件内容，规则不再生效。`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => {
+        setFiles((prev) => prev.filter((f) => f.rule_id !== record.rule_id))
+        showChangePendingToast('规则已删除')
+      },
+    })
+  }
+
+  /** 读取本地 rules.yml 文件内容填入粘贴框，并自动带出展示名 */
+  const onReadFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result ?? '')
+      setMountContent(text)
+      if (!mountName.trim()) {
+        setMountName(file.name.replace(/\.(ya?ml|yml)$/i, ''))
+      }
+    }
+    reader.readAsText(file)
+    return false
+  }
+
+  const renderChangeStatus = (status: MountedRuleFile['change_status']) => {
+    if (status === 'pending') {
+      return (
+        <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
+          <Button
+            type="link"
+            size="small"
+            icon={<ArrowRightOutlined />}
+            style={{ padding: 0, height: 'auto', fontSize: 13 }}
+            onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
+          >
+            待确认
+          </Button>
+        </Tooltip>
+      )
+    }
+    if (status === 'confirmed') return <Tag color="success">已确认</Tag>
+    return <Text type="secondary">-</Text>
+  }
+
+  const columns = [
+    {
+      title: '规则文件',
+      dataIndex: 'name',
+      key: 'name',
+      render: (value: string) => (
+        <Space>
+          <Text strong>{value}</Text>
+          <Tag color="geekblue">文件透传</Tag>
+        </Space>
+      ),
+    },
+    {
+      title: (
+        <Tooltip title="groups[*].rules 中 alert / record 条目合计">
+          <Space size={4}>
+            规则条数
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      dataIndex: 'rule_count',
+      key: 'rule_count',
+      width: 100,
+      render: (value: number) => <Tag color="blue">{value} 条</Tag>,
+    },
+    {
+      title: '更新时间',
+      dataIndex: 'updated_at',
+      key: 'updated_at',
+      width: 150,
+      render: (value: string) => <Text type="secondary">{formatTime(value)}</Text>,
+    },
+    {
+      // {v3.24} 下发状态（决策 D28 / 38-1）：rules.yml 变更必须 reload、走 M09 人工确认档；与采集 Job 同源同机制
+      title: (
+        <Tooltip title="规则变更下发状态（来自 M09 变更单）：待确认=有变更单待你在「配置变更确认」页确认发布；已确认=变更单已确认；无变更=未产生变更单">
+          <Space size={4}>
+            下发状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'changeStatus',
+      width: 120,
+      render: (_: unknown, record: MountedRuleFile) => renderChangeStatus(record.change_status),
+    },
+    {
+      title: '启用状态',
+      dataIndex: 'enabled',
+      key: 'enabled',
+      width: 90,
+      render: (value: boolean, record: MountedRuleFile) => (
+        <Switch
+          checked={value}
+          size="small"
+          onChange={(checked) => handleToggleEnabled(record, checked)}
+        />
+      ),
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 130,
+      render: (_: unknown, record: MountedRuleFile) => (
+        <Space>
+          <Button type="link" icon={<EyeOutlined />} onClick={() => setDetailFile(record)}>
+            详情
+          </Button>
+          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+            删除
+          </Button>
+        </Space>
+      ),
+    },
+  ]
+
+  return (
+    <>
+      <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+        <Col>
+          <Button
+            type="primary"
+            icon={<UploadOutlined />}
+            style={{ backgroundColor: '#0ECDEB' }}
+            onClick={() => setMountOpen(true)}
+          >
+            上传 / 粘贴 rules.yml 挂载
+          </Button>
+        </Col>
+        <Col>
+          <Space size="large">
+            <Statistic title="已挂载文件" value={files.length} valueStyle={{ color: '#0ECDEB' }} />
+            <Statistic title="规则条数" value={totalRules} />
+            <Statistic title="已启用" value={enabledCount} valueStyle={{ color: '#52C41A' }} />
+          </Space>
+        </Col>
+      </Row>
+
+      <Alert
+        type="info"
+        showIcon
+        message="规则文件挂载（MVP）"
+        description="本页通过上传 / 粘贴完整的规则文件来挂载告警与记录规则。保存 / 启停 / 删除后，变更进入配置中心的变更确认流程，确认后统一下发生效；右上角可切换「字段化编辑」查看 v0.3 的逐条编辑预览。"
+        style={{ marginBottom: 16 }}
+      />
+
+      <Table
+        rowKey="rule_id"
+        dataSource={files}
+        columns={columns}
+        pagination={{ pageSize: 5 }}
+      />
+
+      {/* 挂载抽屉：上传 / 粘贴整文件 rules.yml */}
+      <Drawer
+        title="挂载 rules.yml"
+        open={mountOpen}
+        onClose={() => {
+          setMountOpen(false)
+          setMountError(null)
+        }}
+        width={680}
+        maskClosable={false}
+        extra={
+          <Space>
+            <Button
+              onClick={() => {
+                setMountOpen(false)
+                setMountError(null)
+              }}
+            >
+              取消
+            </Button>
+            <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleMount}>
+              挂载并提交
+            </Button>
+          </Space>
+        }
+      >
+        <Form layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item label="规则文件名称（展示名，选填）" extra="留空则按上传文件名或「rules-挂载-N」自动生成">
+            <Input
+              value={mountName}
+              onChange={(e) => setMountName(e.target.value)}
+              placeholder="如：主机与中间件告警"
+            />
+          </Form.Item>
+          <Form.Item
+            label="rules.yml 内容（必填）"
+            extra="支持直接粘贴或选择本地 .yml / .yaml 文件上传；内容需含 groups 顶层数组，校验通过后保存"
+          >
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Upload beforeUpload={onReadFile} showUploadList={false} accept=".yml,.yaml">
+                <Button icon={<UploadOutlined />}>选择文件上传</Button>
+              </Upload>
+              <TextArea
+                rows={18}
+                value={mountContent}
+                onChange={(e) => {
+                  setMountContent(e.target.value)
+                  setMountError(null)
+                }}
+                placeholder={'groups:\n  - name: node.rules\n    rules:\n      - alert: HostHighCpuUsage\n        expr: ...\n'}
+                style={{ fontFamily: 'SFMono-Regular, Consolas, Menlo, monospace', fontSize: 12 }}
+              />
+            </Space>
+          </Form.Item>
+          {mountError && (
+            <Alert
+              type="error"
+              showIcon
+              message="挂载失败"
+              description={mountError}
+              style={{ marginBottom: 16 }}
+            />
+          )}
+          <Alert
+            type="info"
+            showIcon
+            message="挂载后的配置闭环"
+            description="挂载保存后，M09 下一轮询周期检测到 MonitoringRule 变化 → 生成 rules.yml 草稿（rule_content 原样并入）→ 在「配置变更确认」页人工确认后下发生效；本页列表「下发状态」随 M09 变更单状态回写（与采集 Job 同源同机制）。"
+          />
+        </Form>
+      </Drawer>
+
+      {/* 详情抽屉：YAML 只读视图 */}
+      <Drawer
+        title={detailFile ? `规则文件：${detailFile.name}` : '规则文件详情'}
+        open={!!detailFile}
+        onClose={() => setDetailFile(null)}
+        width={680}
+      >
+        {detailFile && (
+          <>
+            <Space wrap style={{ marginBottom: 16 }}>
+              <Tag color="geekblue">文件透传</Tag>
+              <Tag color="blue">{detailFile.rule_count} 条规则</Tag>
+              <Tag color={detailFile.enabled ? 'success' : 'default'}>
+                {detailFile.enabled ? '已启用' : '已停用'}
+              </Tag>
+              {detailFile.change_status === 'pending' && <Tag color="warning">待确认</Tag>}
+              {detailFile.change_status === 'confirmed' && <Tag color="success">已确认</Tag>}
+            </Space>
+            <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+              更新时间：{formatTime(detailFile.updated_at)} · 该内容将原样并入 M09 生成的 rules.yml
+            </Text>
+            <pre
+              style={{
+                margin: 0,
+                padding: 12,
+                background: '#0B1B2A',
+                color: '#C9D1D9',
+                borderRadius: 6,
+                maxHeight: 480,
+                overflow: 'auto',
+                fontFamily: 'SFMono-Regular, Consolas, Menlo, monospace',
+                fontSize: 12,
+                lineHeight: 1.6,
+              }}
+            >
+              {detailFile.rule_content}
+            </pre>
+          </>
+        )}
+      </Drawer>
+    </>
+  )
+}
+
+// ==================== v0.3 预览视图：字段化编辑（PRD 3.2，{v3.24} 明确为 structured 形态） ====================
+
+function StructuredEditView() {
   const { modal, message } = App.useApp()
   const [rules, setRules] = useState<MonitoringRule[]>(() => [...mockMonitoringRules])
   const [modalOpen, setModalOpen] = useState(false)
@@ -312,7 +691,8 @@ export default function RulesPage() {
     })
   }
 
-  const handleSave = () => {    form.validateFields().then((values) => {
+  const handleSave = () => {
+    form.validateFields().then((values) => {
       // 保存前强制校验：expr 引用的指标必须存在于指标库（PRD v2.0 决策 5；{v3.8} 按 CI 类型校验）
       const expr = (values.expr as string) ?? ''
       const resourceType = values.resource_type as CiType | undefined
@@ -628,57 +1008,57 @@ export default function RulesPage() {
   )
 
   return (
-    <MainLayout>
-      <div className="page-header">
-        <Title level={4}>规则编辑</Title>
-        <Text type="secondary">
-          维护告警 / 记录规则的表达式与标签；表达式引用的指标需先存在指标库，保存时强校验；规则变更由配置中心下发，告警收敛与通知由告警管理模块负责
-        </Text>
-      </div>
-      <Card className="page-card">
-        <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
-          <Col>
-            <Space>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                style={{ backgroundColor: '#0ECDEB' }}
-                onClick={() => handleOpenModal()}
-              >
-                新增规则
+    <>
+      <Row gutter={[16, 16]} align="middle" justify="space-between" style={{ marginBottom: 16 }}>
+        <Col>
+          <Space>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              style={{ backgroundColor: '#0ECDEB' }}
+              onClick={() => handleOpenModal()}
+            >
+              新增规则
+            </Button>
+            <Tooltip title="P1：规则模板一键填充（待实现）">
+              <Button icon={<ThunderboltOutlined />} disabled>
+                规则模板（P1）
               </Button>
-              <Tooltip title="P1：规则模板一键填充（待实现）">
-                <Button icon={<ThunderboltOutlined />} disabled>
-                  规则模板（P1）
-                </Button>
-              </Tooltip>
-            </Space>
-          </Col>
-          <Col>
-            <Space size="large">
-              <Statistic
-                title="告警规则"
-                value={alertingRules.length}
-                valueStyle={{ color: RULE_TYPE_MAP.alerting.color }}
-              />
-              <Statistic
-                title="记录规则"
-                value={recordingRules.length}
-                valueStyle={{ color: RULE_TYPE_MAP.recording.color }}
-              />
-            </Space>
-          </Col>
-        </Row>
+            </Tooltip>
+          </Space>
+        </Col>
+        <Col>
+          <Space size="large">
+            <Statistic
+              title="告警规则"
+              value={alertingRules.length}
+              valueStyle={{ color: RULE_TYPE_MAP.alerting.color }}
+            />
+            <Statistic
+              title="记录规则"
+              value={recordingRules.length}
+              valueStyle={{ color: RULE_TYPE_MAP.recording.color }}
+            />
+          </Space>
+        </Col>
+      </Row>
 
-        <Tabs defaultActiveKey="alerting">
-          <TabPane tab="告警规则" key="alerting">
-            {renderTable(alertingRules)}
-          </TabPane>
-          <TabPane tab="记录规则" key="recording">
-            {renderTable(recordingRules)}
-          </TabPane>
-        </Tabs>
-      </Card>
+      <Alert
+        type="info"
+        showIcon
+        message="v0.3 字段化编辑预览（content_mode=structured）"
+        description="本视图为 v0.3 规划的类 YAML 字段化编辑（expr / for / labels / annotations），MVP 通过左侧「文件挂载」视图整文件透传 rules.yml；v0.3 落地后逐条写入 MonitoringRule（structured），同样经 M09 生成 rules.yml → 变更单人工确认 → 下发。"
+        style={{ marginBottom: 16 }}
+      />
+
+      <Tabs defaultActiveKey="alerting">
+        <TabPane tab="告警规则" key="alerting">
+          {renderTable(alertingRules)}
+        </TabPane>
+        <TabPane tab="记录规则" key="recording">
+          {renderTable(recordingRules)}
+        </TabPane>
+      </Tabs>
 
       <Drawer
         title={editingRule ? '编辑规则' : '新增规则'}
@@ -935,6 +1315,52 @@ export default function RulesPage() {
           )}
         </Form>
       </Drawer>
+    </>
+  )
+}
+
+type ValidationResult =
+  | { status: 'success'; message: string }
+  | { status: 'error'; message: string }
+  | null
+
+/** {v3.24} 规则编辑页（PRD 3.1 / 3.2 / 5.5）：MVP 提供「文件挂载」视图（整文件透传 rules.yml），v0.3 提供「字段化编辑」视图（预览） */
+export default function RulesPage() {
+  // 视图模式：mount = MVP 规则文件挂载（默认）/ structured = v0.3 字段化编辑（预览）
+  const [mode, setMode] = useState<'mount' | 'structured'>('mount')
+
+  return (
+    <MainLayout>
+      <div className="page-header">
+        <Title level={4}>规则编辑</Title>
+        <Text type="secondary">
+          MVP 通过上传 / 粘贴整文件 rules.yml 挂载告警 / 记录规则（不绕过 M09：保存 / 启停 / 删除后由配置中心生成
+          rules.yml → 人工确认 → 下发）；v0.3 升级为字段化编辑（PromQL 校验 + 指标预览）。
+        </Text>
+      </div>
+      <Card className="page-card">
+        <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
+          <Col>
+            <Segmented
+              value={mode}
+              onChange={(v) => setMode(v as 'mount' | 'structured')}
+              options={[
+                { label: '文件挂载（MVP）', value: 'mount' },
+                { label: '字段化编辑（v0.3 预览）', value: 'structured' },
+              ]}
+            />
+          </Col>
+          <Col>
+            <ReviewNote title="规则内容形态（PRD 5.5 / 3.1 / 3.2）">
+              MVP 默认 <Text code>content_mode=yaml_passthrough</Text>——规则经「规则编辑」页上传 / 粘贴整文件
+              rules.yml 落库 MonitoringRule（rule_content），保存 / 启停 / 删除即触发 M09 变更检测 → 生成 rules.yml →
+              变更单人工确认 → 下发，回写 change_status（与采集 Job 同源同机制）；v0.3 升级为{' '}
+              <Text code>content_mode=structured</Text> 逐条字段化编辑（expr / for / labels / annotations）。
+            </ReviewNote>
+          </Col>
+        </Row>
+        {mode === 'mount' ? <FileMountView /> : <StructuredEditView />}
+      </Card>
     </MainLayout>
   )
 }

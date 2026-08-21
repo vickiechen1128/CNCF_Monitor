@@ -16,6 +16,16 @@
 
 ---
 
+## 契约优先（Contract-First）
+
+> **v1.27 起（适配前后端并行开发）**：
+>
+> - **唯一契约来源**：`PRD 第 5/6 章字段与接口契约` + `docs/03-engineering-standards/03_API_Standard.md`。
+> - **禁止以对端代码为实现依据**：并行开发时后端可能尚未实现或正在变更；前端必须按 PRD + API 标准定义类型与请求，不反向读取 `platform/models/*.go` 拉齐字段。
+> - 后端实现对契约的解读与 PRD / API 标准不一致时，报告 Orchestrator 决策，**禁止擅自对齐对端代码**。
+
+---
+
 ## 强制启动协议（编码前必须执行）
 
 ### Step 1: 读取强制 Skill
@@ -111,7 +121,7 @@ allowBuilds:
 - 组件文件 PascalCase，工具文件 camelCase
 - 所有 API 调用通过 `src/api/client.ts`
 - 优先使用 TypeScript 严格类型
-- 类型定义必须与后端模型严格对齐：实现前先阅读 `platform/models/*.go`，字段名使用 snake_case 匹配后端 JSON
+- 类型定义以 **PRD 第 5 章字段契约 + 第 6 章接口契约 + `docs/03-engineering-standards/03_API_Standard.md`** 为权威（字段名使用 snake_case 匹配后端约定的 JSON）；`platform/models/*.go` **仅作参考**（并行开发时后端模型可能尚未实现或正在变更），字段名 / 枚举值以 PRD 字段契约 + API 标准为准，与对端代码不一致时**报告 Orchestrator**，禁止擅自以对端代码覆盖契约
 - 长文本截断 / 表格列配置优先复用 `src/components/` 共享件（如 `EllipsisText`，若已存在），禁止散点手写 `maxWidth` 内联样式；表格列超出一屏时按 `02_Frontend_Standard.md` 第 9 章启用 `scroll={{ x: ... }}` 横向滚动 + 固定列
 - 范围控制：仅修改当前任务要求的文件和目录。不要借机新增 ESLint/Vitest/测试配置等基础设施，除非任务明确要求或当前项目完全缺失且无法运行 `pnpm lint`/`pnpm test`
 

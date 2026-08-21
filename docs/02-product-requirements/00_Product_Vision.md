@@ -3,8 +3,8 @@
 > 文档类型：产品需求文档  
 > 产品名称：MetricCenter（企业级多网域指标集成与管控中心）  
 > 目标读者：产品经理、技术架构师、AI 应用开发工程师、运维专家  
-> 版本：v3.0  
-> 更新日期：2026-07-24
+> 版本：v3.1  
+> 更新日期：2026-08-21
 
 ---
 
@@ -52,9 +52,10 @@
 
 ### 4.1 包含范围
 
-- 三类资源管理：主机、中间件、应用服务（必须归属网域/站点，单机模式下自动归属 `default`）
-- 网域与站点管理：网域注册、Token 管理、边缘 Agent 接入、异构监控源登记
+- 五类资源管理：主机、数据库、中间件、应用服务、通用指标目标（必须归属网域，单机模式下自动归属 `default`）
+- 网域管理：**网域行政登记（Module_06，MVP 范围：ID/名称/登记归属/授权租户/禁用冻结/zone_type）+ 监控纳管（Module_09：Token、边缘 Agent 接入、配置下发）**、异构监控源登记
 - 采集配置管理：采集 Job、标签模板、采集模板、拨测配置
+- 规则挂载：整文件 `rules.yml` 上传/粘贴落库，经配置中心统一生成/确认/下发（决策 38-1）
 - 配置生成与下发：`prometheus.yml` 生成、校验、reload；多网域场景下支持 Edge Sync Agent 拉取
 - 指标汇聚：自部署 Edge Agent、外部 Prometheus Remote Write、Zabbix / 云监控 Adapter
 - 指标查询门户：统一 PromQL 查询代理与结果展示
@@ -63,10 +64,10 @@
 ### 4.2 不包含范围（MVP）
 
 - 动态资源模型与自定义字段扩展
-- 告警规则编辑 UI（MVP 手写 `rules.yml`）
+- 告警规则字段化编辑 UI（MVP 仅「规则文件挂载」——上传/粘贴整文件 `rules.yml`，经配置中心统一生成/确认/下发；v0.3 提供类 YAML 字段化表单）
 - 告警收敛/静默/通知管理 UI（MVP 借助 Alertmanager 原生能力）
 - 复杂 Dashboard 编辑器
-- 多租户与权限控制 UI（租户/网域数据模型在 v0.2 预留，MVP 以 `default` 网域单租户运行）
+- 多租户权限与租户数据模型（网域行政登记已在 MVP，Module_06；完整租户生命周期/租户-网域关联在 v0.2，MVP 以单租户 `platform_admin` 运行）
 - 外部 CMDB 自动同步（MVP 通过 Excel 导入，v0.4+ 接入 BlueKing/HTTP/Nacos Provider）
 - 日志与链路追踪
 
@@ -115,7 +116,7 @@ MetricCenter 在 Prometheus 生态之上构建控制面，详细架构见 [00_Gl
 
 详细里程碑与技术演进见 [02_Product_Roadmap.md](02_Product_Roadmap.md)，实施难度分析见 [04_Implementation_Map.md](04_Implementation_Map.md)。
 
-- **MVP**：三类资源管理 + 默认站点 + 标签模板（`system` / `user` label）+ 采集 Job + 拨测 + 配置下发 + 指标查询（单机模式无感知）
+- **MVP**：五类资源管理 + 网域登记（Module_06）+ 默认站点 + 标签模板（`system` / `user` label）+ 采集 Job + 拨测 + 规则文件挂载 + 配置下发 + 指标查询（单机模式无感知）
 - **v0.2**：多站点模式 + Edge Agent + Remote Write + VictoriaMetrics 中心汇聚 + 边缘 Agent 诊断；租户数据模型与租户-网域关联落地
 - **v0.3 ~ v0.4**：异构监控源登记册、外部 Prometheus / Zabbix 接入、查询门户、告警状态查看、Open API；外部 CMDB 同步（BlueKing/HTTP/Nacos）与 `cmdb` 来源 label
 - **v1.0 及以后**：告警规则 UI、Alertmanager 配置生成、边缘自治告警、多租户权限 UI、长期存储、ITSM/ITIL 事件对接

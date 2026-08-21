@@ -59,10 +59,13 @@ import {
   isHostResource,
   isDatabaseResource,
   isMiddlewareResource,
+  mockBusinessDomains,
   mockLabelTemplates,
   mockNetworkDomains,
   mockResourceLabels,
   mockResources,
+  isBizDisabled,
+  resolveBizName,
 } from '../mocks/module-07'
 import type {
   AppProtocol,
@@ -121,9 +124,13 @@ const IMPORT_RESULT_DEMO: Record<ResourceCategory, { total: number; success: num
   },
   application: {
     total: 3,
-    success: 2,
-    failed: 1,
-    errors: [{ row: 3, resource_category: 'application', field: 'env', value: 'production', reason: 'env 必须是 dev/test/staging/prod 之一' }],
+    success: 1,
+    failed: 2,
+    errors: [
+      // {v2.19} 业务未登记校验（决策 13/14/17）：报错给可执行指引（5.16.1）——字典由平台配置文件预置、热加载生效，无自助登记入口
+      { row: 2, resource_category: 'application', field: 'biz_code', value: 'settlement', reason: '业务 settlement 未登记，请联系平台管理员在业务分组字典配置（platform/config/business_domains.yaml）中添加后重新导入' },
+      { row: 3, resource_category: 'application', field: 'endpoint', value: '10.0.3.11:9100', reason: '重复检测：service_name+endpoint 已存在' },
+    ],
   },
   generic_target: {
     total: 2,
@@ -172,6 +179,10 @@ export default function ResourcesPage() {
   const [search, setSearch] = useState('')
   // {v2.10} 网域作为资源列表筛选器（非全局上下文），默认全部网域，可切换单个网域
   const [filterDomain, setFilterDomain] = useState<string>('all')
+  // {v2.17} 业务作为资源列表筛选器（网域与业务是两个正交维度，资源双归属）
+  const [filterBusiness, setFilterBusiness] = useState<string>('all')
+  // {v2.20} 决策 31-M1：采集状态筛选器（全部 / 未监控）。is_monitored 由 M01 维护、M07 只读；勾选「未监控」仅显示 is_monitored=false 的资源
+  const [filterMonitored, setFilterMonitored] = useState<string>('all')
   const [resources, setResources] = useState<Resource[]>(mockResources)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
@@ -189,12 +200,16 @@ export default function ResourcesPage() {
     return resources.filter((item) => {
       if (item.resource_category !== activeType) return false
       if (filterDomain !== 'all' && item.network_domain_id !== filterDomain) return false
+      if (filterBusiness !== 'all' && item.biz_code !== filterBusiness) return false
+      // {v2.20} 决策 31-M1：未监控筛选 = is_monitored=false（只读映射，不据此计算）
+      if (filterMonitored === 'unmonitored' && item.is_monitored !== false) return false
       if (!keyword) return true
       const texts: (string | undefined)[] = [
         item.instance_name,
         item.hostname,
         item.instance_ip,
         item.app_name,
+        resolveBizName(item.biz_code),
         item.cluster,
         item.env,
         item.owner,
@@ -205,7 +220,7 @@ export default function ResourcesPage() {
       if (isGenericTargetResource(item)) texts.push(item.target_name, item.exporter_type)
       return texts.some((t) => (t ?? '').toLowerCase().includes(keyword))
     })
-  }, [resources, activeType, search, filterDomain])
+  }, [resources, activeType, search, filterDomain, filterBusiness, filterMonitored])
 
   // ---------- 详情抽屉：标签管理 ----------
   const handleOpenDetail = (record: Resource) => {
@@ -339,13 +354,16 @@ export default function ResourcesPage() {
   const buildNewResource = (type: ResourceCategory, values: Record<string, unknown>): Resource => {
     const base = {
       network_domain_id: (values.network_domain_id as string) || 'default',
+      // {v2.18} 业务必填：来自业务分组字典下拉（决策 13/14/17/21），存不可变编码 biz_code
+      biz_code: values.biz_code as string | undefined,
       source_type: 'manual' as const,
       app_name: values.app_name as string | undefined,
       env: values.env as Env | undefined,
       cluster: values.cluster as string | undefined,
       owner: values.owner as string | undefined,
       status: (values.status as ResourceStatus) || 'online',
-      is_monitored: false,
+      // {v2.20} 决策 31-M1：新建资源 is_monitored 默认 true（Mock 简化：M07 不计算；真实由 M01 注册采集后置 true，M07 只读）
+      is_monitored: true,
       created_at: nowStr(),
       updated_at: nowStr(),
     }
@@ -392,8 +410,6 @@ export default function ResourcesPage() {
           resource_category: 'application' as const,
           instance_name: values.instance_name as string | undefined,
           service_name: values.service_name as string,
-          // {v2.8} 业务类型/业务域归属（可选填），映射为 biz 标签
-          business_domain: values.business_domain as string | undefined,
           health_check_url: values.health_check_url as string | undefined,
           protocol: values.protocol as AppProtocol | undefined,
           endpoint: values.endpoint as string | undefined,
@@ -420,6 +436,8 @@ export default function ResourcesPage() {
   const buildEditedResource = (record: Resource, values: Record<string, unknown>): Resource => {
     const common = {
       network_domain_id: (values.network_domain_id as string) || 'default',
+      // {v2.18} 业务必填：来自业务分组字典下拉（决策 13/14/17/21），存不可变编码 biz_code
+      biz_code: values.biz_code as string | undefined,
       app_name: values.app_name as string | undefined,
       env: values.env as Env | undefined,
       cluster: values.cluster as string | undefined,
@@ -463,7 +481,6 @@ export default function ResourcesPage() {
           ...record,
           ...common,
           service_name: values.service_name as string,
-          business_domain: values.business_domain as string | undefined,
           health_check_url: values.health_check_url as string | undefined,
           protocol: values.protocol as AppProtocol | undefined,
           endpoint: values.endpoint as string | undefined,
@@ -676,15 +693,6 @@ export default function ResourcesPage() {
                   <Input placeholder="如 order-service" />
                 </Form.Item>
               </Col>
-              <Col span={12}>
-                <Form.Item
-                  label="业务类型"
-                  name="business_domain"
-                  extra="可选填；映射为 biz 标签，用于按业务类型聚合（如 payment / data-api）"
-                >
-                  <Input placeholder="如 payment / data-api" />
-                </Form.Item>
-              </Col>
             </Row>
             <Row gutter={16}>
               <Col span={12}>
@@ -788,11 +796,13 @@ export default function ResourcesPage() {
     }
   }
 
-  const renderCommonFields = () => (
+  const renderCommonFields = () => {
+    const appClusterRequired = ['application', 'database', 'middleware'].includes(activeType)
+    return (
     <>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]} extra="映射为 app 标签">
+          <Form.Item label="应用名" name="app_name" rules={appClusterRequired ? [{ required: true, message: '请输入应用名' }] : []} extra="应用服务 / 数据库 / 中间件必填；主机与通用目标可空，为空时不注入 app 标签">
             <Input placeholder="如 订单服务" />
           </Form.Item>
         </Col>
@@ -810,7 +820,7 @@ export default function ResourcesPage() {
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="集群" name="cluster" rules={[{ required: true, message: '请输入集群' }]} extra="映射为 cluster 标签；主机场景下子应用编码为空时取 VPC">
+          <Form.Item label="集群" name="cluster" rules={appClusterRequired ? [{ required: true, message: '请输入集群' }] : []} extra="应用服务 / 数据库 / 中间件必填；主机场景下子应用编码为空时取 VPC；主机与通用目标可空">
             <Input placeholder="如 k8s-prod" />
           </Form.Item>
         </Col>
@@ -838,7 +848,28 @@ export default function ResourcesPage() {
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="状态" name="status" rules={[{ required: true, message: '请选择状态' }]} extra="孤儿状态为后续版本预留，不在表单选项中">
+          {/* {v2.18} 业务必填下拉：业务分组字典由配置预置（决策 13/14/17）；biz 标签只承载不可变编码 biz_code；停用条目不可选用 */}
+          <Form.Item
+            label="业务"
+            name="biz_code"
+            rules={[{ required: true, message: '请选择业务' }]}
+            extra="必填；业务归属由业务分组字典维护，用于按业务聚合监控（编码不可变）"
+          >
+            <Select placeholder="请选择业务" showSearch optionFilterProp="label">
+              {mockBusinessDomains
+                .filter((d) => d.status === 'enabled')
+                .map((d) => (
+                  <Option key={d.biz_code} value={d.biz_code}>
+                    {d.biz_name}（{d.biz_code}）
+                  </Option>
+                ))}
+            </Select>
+          </Form.Item>
+        </Col>
+      </Row>
+      <Row gutter={16}>
+        <Col span={12}>
+          <Form.Item label="运行状态" name="status" rules={[{ required: true, message: '请选择运行状态' }]} extra="孤儿状态为后续版本预留，不在表单选项中">
             <Select placeholder="请选择">
               {STATUS_VALUES.map((s) => (
                 <Option key={s} value={s}>
@@ -850,7 +881,8 @@ export default function ResourcesPage() {
         </Col>
       </Row>
     </>
-  )
+    )
+  }
 
   // ---------- 表格列（按资源类别固定展示，PRD 3.1） ----------
   const getColumns = (type: ResourceCategory): TableProps<Resource>['columns'] => {
@@ -860,6 +892,19 @@ export default function ResourcesPage() {
       key: 'network_domain_id',
       render: (value: string) => <Tag color="cyan">{value}</Tag>,
     }
+    // {v2.18} 业务列：展示业务字典 biz_name，停用业务加「已停用」标识（网域与业务双归属正交维度，决策 13/14/17/21）
+    const businessColumn = {
+      title: '业务',
+      dataIndex: 'biz_code',
+      key: 'biz_code',
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isBizDisabled(value) ? 'default' : 'geekblue'}>
+            {resolveBizName(value)}
+            {isBizDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : '-',
+    }
     const sourceColumn = {
       title: '来源',
       dataIndex: 'source_type',
@@ -867,28 +912,33 @@ export default function ResourcesPage() {
       render: (value: string) => <Tag>{SOURCE_TYPE_MAP[value as keyof typeof SOURCE_TYPE_MAP] || value}</Tag>,
     }
     const statusColumn = {
-      title: '状态',
+      // {v2.21} 决策 32：「状态」更名「运行状态」；数据来源（CMDB / Excel / 手动）非 M07 自身功能，以列头 hover 隐藏提示标注、不占列宽
+      title: (
+        <span>
+          <Tooltip title="运行状态数据来源：CMDB 同步 / Excel 导入 / 用户手动维护，非本模块计算">
+            运行状态
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
       dataIndex: 'status',
       key: 'status',
       render: (value: ResourceStatus) => <Badge color={STATUS_COLOR[value]} text={STATUS_MAP[value]} />,
     }
+    // {v2.20} 决策 31-M1：采集状态列——is_monitored 由 M01 维护、M07 只读映射，不做计算/回写
     const monitoredColumn = {
       title: (
-        <Tooltip title="「已监控 / 未监控」由监控策略模块维护关联关系，本页只读展示。">
-          <Space size={4}>
-            监控
-            <InfoCircleOutlined style={{ color: '#86909C' }} />
-          </Space>
-        </Tooltip>
+        <span>
+          <Tooltip title="采集状态数据来源：由「监控策略」模块（M01）计算，本模块只读展示">
+            采集状态
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
       ),
       dataIndex: 'is_monitored',
       key: 'is_monitored',
       render: (value: boolean) =>
-        value ? (
-          <Badge status="processing" text={<span style={{ color: '#00B578' }}>已监控</span>} />
-        ) : (
-          <Badge status="default" text="未监控" />
-        ),
+        value === false ? <Tag color="red">未监控</Tag> : <Tag color="#0ECDEB">已监控</Tag>,
     }
     const actionColumn = {
       title: '操作',
@@ -969,9 +1019,10 @@ export default function ResourcesPage() {
             ),
           },
           domainColumn,
+          businessColumn,
           sourceColumn,
-          statusColumn,
           monitoredColumn,
+          statusColumn,
           actionColumn,
         ]
         return cols
@@ -998,9 +1049,10 @@ export default function ResourcesPage() {
             render: (_: unknown, record: Resource) => (isDatabaseResource(record) ? record.version || '-' : '-'),
           },
           domainColumn,
+          businessColumn,
           sourceColumn,
-          statusColumn,
           monitoredColumn,
+          statusColumn,
           actionColumn,
         ]
         return cols
@@ -1026,9 +1078,10 @@ export default function ResourcesPage() {
             render: (_: unknown, record: Resource) => (isMiddlewareResource(record) ? record.version || '-' : '-'),
           },
           domainColumn,
+          businessColumn,
           sourceColumn,
-          statusColumn,
           monitoredColumn,
+          statusColumn,
           actionColumn,
         ]
         return cols
@@ -1066,9 +1119,10 @@ export default function ResourcesPage() {
             render: (_: unknown, record: Resource) => (isApplicationResource(record) ? record.port ?? '-' : '-'),
           },
           domainColumn,
+          businessColumn,
           sourceColumn,
-          statusColumn,
           monitoredColumn,
+          statusColumn,
           actionColumn,
         ]
         return cols
@@ -1118,9 +1172,10 @@ export default function ResourcesPage() {
               ),
           },
           domainColumn,
+          businessColumn,
           sourceColumn,
-          statusColumn,
           monitoredColumn,
+          statusColumn,
           actionColumn,
         ]
         return cols
@@ -1197,6 +1252,7 @@ export default function ResourcesPage() {
       <Alert
         type="info"
         showIcon
+        closable
         style={{ marginBottom: 16 }}
         message="本页只维护监控对象数据"
         description={
@@ -1209,10 +1265,12 @@ export default function ResourcesPage() {
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
-          <li>「已监控 / 未监控」状态由监控策略模块计算，本页只读展示。</li>
+          <li>{'{v2.20} 决策 31-M1'}：采集状态（已监控 / 未监控）由 M01 维护、M07 只读映射，本页「采集状态」列只读展示并提供「未监控」筛选；is_monitored=false 不代表 status=offline，两者维度独立，M07 不据此计算 / 不写回。</li>
+          <li>采集成功 / 目标数据归 M01 / M02：「未纳入任何 Job」在 M01 实例选择器筛选、「选中但无数据」在 M02 目标状态页查看。</li>
           <li>标签来源口径：模板映射生成 = 「系统」标签；手工添加 = 「用户」标签；CMDB 字段（v0.4+）= 「CMDB」标签。</li>
           <li>列显隐配置为 P1 占位，MVP 版本列表列固定展示，可在「列设置」查看后续规划。</li>
           <li>Excel 导入：状态中文值按内置状态映射转换（本页只读展示，配置入口 P2）；枚举列（env / protocol / scheme）要求与字典一致，否则报错。</li>
+          <li>{'{v2.20} 决策 29'}：目标状态 offline 后，配置中心（Module_09）下一配置生成周期即将其从 targets/*.json 移除、不触发采集器 reload，批量下线动线为真。</li>
         </ul>
       </ReviewNote>
 
@@ -1253,6 +1311,32 @@ export default function ResourcesPage() {
               options={mockNetworkDomains.map((d) => ({ value: d.id, label: `${d.name} (${d.id})` }))}
             />
           </FilterItem>
+          <FilterItem label="业务" width={240}>
+            <Select
+              placeholder="全部业务"
+              allowClear
+              value={filterBusiness === 'all' ? undefined : filterBusiness}
+              onChange={(v) => setFilterBusiness(v ?? 'all')}
+              style={{ width: 180 }}
+              options={mockBusinessDomains
+                .filter((d) => d.status === 'enabled')
+                .map((d) => ({ value: d.biz_code, label: `${d.biz_name} (${d.biz_code})` }))}
+            />
+          </FilterItem>
+          {/* {v2.20} 决策 31-M1：采集状态筛选——is_monitored 由 M01 维护、M07 只读映射；勾选「未监控」仅显示 is_monitored=false 的资源 */}
+          <FilterItem label="采集状态" width={240}>
+            <Select
+              placeholder="全部"
+              allowClear
+              value={filterMonitored === 'all' ? undefined : filterMonitored}
+              onChange={(v) => setFilterMonitored(v ?? 'all')}
+              style={{ width: 180 }}
+              options={[
+                { value: 'all', label: '全部' },
+                { value: 'unmonitored', label: '未监控' },
+              ]}
+            />
+          </FilterItem>
           <FilterItem label="搜索" width={340}>
             <Input.Search
               placeholder="搜索实例名 / IP / 应用"
@@ -1266,10 +1350,17 @@ export default function ResourcesPage() {
         <Tabs
           activeKey={activeType}
           onChange={(key) => setActiveType(key as ResourceCategory)}
-          items={RESOURCE_TYPES.map((type) => ({
-            key: type,
-            label: `${RESOURCE_TYPE_MAP[type]} (${resources.filter((r) => r.resource_category === type).length})`,
-          }))}
+          items={RESOURCE_TYPES.map((type) => {
+            const total = resources.filter((r) => r.resource_category === type).length
+            // {v2.20} 决策 31-M1：Tab 标题展示该类型未监控资源数，配合「采集状态=未监控」筛选动线
+            const unmonitored = resources.filter(
+              (r) => r.resource_category === type && r.is_monitored === false,
+            ).length
+            return {
+              key: type,
+              label: `${RESOURCE_TYPE_MAP[type]} (${total}${unmonitored ? ` · 未监控 ${unmonitored}` : ''})`,
+            }
+          })}
           style={{ marginBottom: 16 }}
         />
 
@@ -1280,6 +1371,9 @@ export default function ResourcesPage() {
           size="small"
           scroll={TABLE_SCROLL_X}
           pagination={TABLE_PAGINATION}
+          locale={{
+            emptyText: filterMonitored === 'unmonitored' ? '当前类型下暂无未监控资源' : undefined,
+          }}
           onRow={(record) => ({
             onClick: () => handleOpenDetail(record),
             style: { cursor: 'pointer' },
@@ -1312,8 +1406,7 @@ export default function ResourcesPage() {
                 { key: 'instance_name', label: '实例名', children: selectedResource.instance_name || '-' },
                 { key: 'hostname', label: '主机名', children: selectedResource.hostname || '-' },
                 { key: 'instance_ip', label: 'IP 地址', children: selectedResource.instance_ip || '-' },
-                // {v2.8} 业务类型：映射为 biz 标签（业务指标按业务类型聚合的关联键）
-                { key: 'business_domain', label: '业务类型', children: selectedResource.business_domain || '-' },
+                { key: 'biz_code', label: '业务', children: resolveBizName(selectedResource.biz_code) },
                 { key: 'app_name', label: '应用', children: selectedResource.app_name || '-' },
                 // {v2.3} 适用模板：该资源类别默认模板（模板按 resource_category 隐式关联）
                 {
@@ -1343,21 +1436,8 @@ export default function ResourcesPage() {
                 { key: 'owner', label: '负责人', children: selectedResource.owner || '-' },
                 {
                   key: 'status',
-                  label: '状态',
+                  label: '运行状态',
                   children: <Badge color={STATUS_COLOR[selectedResource.status]} text={STATUS_MAP[selectedResource.status]} />,
-                },
-                {
-                  key: 'is_monitored',
-                  label: (
-                    <Tooltip title="「已监控 / 未监控」由监控策略模块维护，本页只读展示">
-                      <Space size={4}>监控状态<InfoCircleOutlined style={{ color: '#86909C', fontSize: 12 }} /></Space>
-                    </Tooltip>
-                  ),
-                  children: selectedResource.is_monitored ? (
-                    <Badge status="processing" text="已监控" />
-                  ) : (
-                    <Badge status="default" text="未监控" />
-                  ),
                 },
                 { key: 'created_at', label: '创建时间', children: selectedResource.created_at },
                 { key: 'updated_at', label: '更新时间', children: selectedResource.updated_at },
@@ -1600,7 +1680,7 @@ export default function ResourcesPage() {
         width={560}
       >
         <Text style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-          <Text strong>固定列模板：</Text>按资源类别提供固定列模板；未填写网域时自动归属默认网域。
+          <Text strong>固定列模板：</Text>按资源类别提供固定列模板；未填写网域时自动归属默认网域。{/* {v2.19} 模板由后端生成静态 xlsx，内置「取值说明 sheet」列出合法值清单（5.16.1） */}
         </Text>
         <Table
           size="small"
@@ -1615,6 +1695,10 @@ export default function ResourcesPage() {
         <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
           custom_labels 列支持 key1=value1;key2=value2 格式；status 支持中文状态值（见导入弹窗状态映射）。
         </Text>
+        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+          模板为后端静态生成 xlsx，内置取值说明 sheet 列出各列合法值；biz_code 必填，仅可填已登记字典条目（含兜底 infra）。
+        </Text>
+        {/* {v2.19} 下载模板由后端生成静态 xlsx + 「取值说明 sheet」（5.16.1）；dataValidation 下拉挪 v0.2+。原灰色长说明已精简。 */}
       </Modal>
 
       {/* Excel 导入结果（PRD 7.2 / 7.3） */}
@@ -1640,7 +1724,10 @@ export default function ResourcesPage() {
           ))}
         </Space>
         <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
-          导入校验项：必填字段 · 网域存在性 · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+          导入校验项：必填字段（含 biz_code 必填） · 网域存在性 · 业务存在性（仅限启用条目，不可自由文本） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+        </Text>
+        <Text style={{ fontSize: 12, color: '#00B0F0', display: 'block', marginBottom: 12 }}>
+          导入按行增量更新，不会删除资源，Excel 中已消失的行不会被自动清理。如需停止采集某批资源，请将目标行的「运行状态」改为「已停止」后重新导入，已停止资源将不再被采集。
         </Text>
         <Row gutter={16} style={{ marginBottom: 12 }}>
           <Col span={8}>

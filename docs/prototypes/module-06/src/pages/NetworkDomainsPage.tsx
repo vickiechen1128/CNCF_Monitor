@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Card,
   Table,
@@ -11,11 +11,11 @@ import {
   Input,
   Select,
   Tooltip,
-  Alert,
   message,
 } from 'antd'
-import { PlusOutlined, EditOutlined, StopOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, StopOutlined, CheckCircleOutlined, DeleteOutlined, CloudUploadOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { FilterBar, FilterItem } from '../components/FilterBar'
 import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   mockNetworkDomains,
@@ -29,47 +29,89 @@ const { Title, Text } = Typography
 const { Option } = Select
 
 /**
- * {v1.3} M06 为 NetworkDomain 的行政 Owner（PRD 职责边界）：
- * 本页负责网域的行政创建 / 编辑 / 禁用与租户分配，表单只维护行政信息，
- * 不维护监控参数；监控纳管（Token / Remote Write / Edge Agent）由 Module_09 执行。
+ * {v2.0} M06 为 NetworkDomain 的行政 Owner（PRD v2.0，决策 18~20）：
+ * 网域为部署级资源、可跨租户共享：登记归属（tenant_id）固定 platform_admin（登记 ≠ 独占），
+ * 通过授权租户（authorized_tenant_ids）授权多个租户共享使用（授权 ≠ 拥有）。
+ * 表单只维护行政信息（名称 / 登记归属 / 授权租户 / 状态 / 网络区域类型），不维护监控参数；
+ * 监控纳管（Token / Remote Write / Edge Agent）由 Module_09 执行。
  * {v1.4} 新增 zone_type（网络区域类型，部署级字典下拉）；网域定义为全平台唯一入口（下游只引用 network_domain_id）。
- * {v1.5} 新建校验：所选租户 multi_site_enabled=false 时不可创建额外网域（行政能力开关，不控制 M09 入口）。
+ * {v2.0} ID 按部署级前缀自动生成（nd-<名称>）；新建校验：被授权租户未开启多网域能力（multi_site_enabled=false）时仅可被授权单个网域。
+ * {v2.2} PRD v2.2（决策 23）补漏：
+ * - 登记归属（tenant_id）创建后不可变更（编辑表单不含该字段）；授权租户可选，缺省 = 登记归属租户（新建默认回填 platform_admin）；
+ * - 禁用 = 冻结：禁用二次确认展示影响范围（资源引用数 / 已纳管 EdgeAgent 数），禁用后拒绝新登记与新纳管、存量不受影响；
+ * - 空网域（未纳管、无资源引用）可删除（软删），非空网域/管理域不可删除。
  */
 export function NetworkDomainsPage() {
   const [domains, setDomains] = useState<NetworkDomain[]>(mockNetworkDomains)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingDomain, setEditingDomain] = useState<NetworkDomain | null>(null)
   const [form] = Form.useForm()
+  // {v2.1} 列表筛选（PRD §11.1：网域管理支持按登记归属/zone_type/状态/授权租户筛选）
+  const [filterOwner, setFilterOwner] = useState('all')
+  const [filterZoneType, setFilterZoneType] = useState('all')
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'disabled'>('all')
+  const [filterAuthorizedTenant, setFilterAuthorizedTenant] = useState('all')
+
+  const filteredDomains = useMemo(() => {
+    return domains.filter((d) => {
+      if (filterOwner !== 'all' && d.tenant_id !== filterOwner) return false
+      if (filterZoneType !== 'all' && d.zone_type !== filterZoneType) return false
+      if (filterStatus !== 'all' && d.status !== filterStatus) return false
+      if (filterAuthorizedTenant !== 'all' && !(d.authorized_tenant_ids ?? []).includes(filterAuthorizedTenant))
+        return false
+      return true
+    })
+  }, [domains, filterOwner, filterZoneType, filterStatus, filterAuthorizedTenant])
 
   const tenantNameOf = (tenantId: string) =>
     mockTenants.find((t) => t.id === tenantId)?.name ?? tenantId
 
   const watchedName = Form.useWatch('name', form) as string | undefined
-  const watchedTenant = Form.useWatch('tenant_id', form) as string | undefined
 
-  /** PRD：network_domain_id 全局唯一，按租户前缀自动生成（<tenant>-<name slug>） */
+  /** PRD：network_domain_id 全局唯一，按 <deploy_code>-<domain_code> 自动生成（deploy_code 默认 mc）；default 管理域为历史预置、无前缀 */
   const suggestedId = (() => {
     if (editingDomain) return editingDomain.id
-    const tenantPrefix = watchedTenant ? watchedTenant.replace(/^t-/, '') : ''
     const nameSlug = (watchedName ?? '').trim().toLowerCase().replace(/\s+/g, '-')
-    if (!tenantPrefix || !nameSlug) return ''
-    return `${tenantPrefix}-${nameSlug}`
+    if (!nameSlug) return ''
+    return `mc-${nameSlug}`
   })()
 
   const showAdd = () => {
     setEditingDomain(null)
     form.resetFields()
+    // {v2.0} 登记归属为部署级登记方（MVP 固定 platform_admin），新建时默认填充
+    // {v2.2} 授权租户可选，缺省 = 登记归属租户（默认回填 platform_admin）
+    form.setFieldsValue({ tenant_id: 't-platform', authorized_tenant_ids: ['t-platform'] })
     setIsModalOpen(true)
   }
 
   const showEdit = (record: NetworkDomain) => {
     setEditingDomain(record)
-    form.setFieldsValue({ ...record })
+    // {v2.2} 登记归属创建后不可变更，编辑表单不含 tenant_id
+    const { tenant_id, ...editableFields } = record
+    form.setFieldsValue(editableFields)
     setIsModalOpen(true)
   }
 
   const handleSave = (values: Partial<NetworkDomain>) => {
     const now = new Date().toLocaleString('zh-CN', { hour12: false })
+    // {v2.2} 授权租户可选，缺省 = 登记归属租户（platform_admin）
+    const selectedTenantIds = (values.authorized_tenant_ids ?? []).length
+      ? (values.authorized_tenant_ids as string[])
+      : ['t-platform']
+    const violatedTenant = mockTenants.find((t) => {
+      if (!selectedTenantIds.includes(t.id) || t.multi_site_enabled) return false
+      const otherAuthorizedCount = domains.filter(
+        (d) => d.id !== editingDomain?.id && (d.authorized_tenant_ids ?? []).includes(t.id)
+      ).length
+      return otherAuthorizedCount >= 1
+    })
+    if (violatedTenant) {
+      message.error(
+        `租户「${violatedTenant.name}」未开启多网域能力，仅可被授权单个网域（通常为 default）`
+      )
+      return
+    }
     if (editingDomain) {
       setDomains((prev) =>
         prev.map((item) =>
@@ -77,7 +119,7 @@ export function NetworkDomainsPage() {
             ? {
                 ...item,
                 ...values,
-                // 行政归属（id / 租户）创建后不可变更
+                // 登记归属（id / 登记方）创建后不可变更；授权租户可编辑
                 id: item.id,
                 tenant_id: item.tenant_id,
                 updated_at: now,
@@ -87,15 +129,7 @@ export function NetworkDomainsPage() {
       )
       message.success('网域行政信息已更新')
     } else {
-      // {v1.5} 行政能力开关校验：multi_site_enabled=false 的租户不可在 M06 创建额外网域
-      const targetTenant = mockTenants.find((t) => t.id === values.tenant_id)
-      if (targetTenant && !targetTenant.multi_site_enabled) {
-        message.error(
-          `租户「${targetTenant.name}」未开启多网域能力（multi_site_enabled=false），不可创建额外网域；请使用 default 网域，或在租户管理中开启多网域能力`
-        )
-        return
-      }
-      const id = suggestedId || `nd-${Date.now()}`
+      const id = suggestedId || `mc-${Date.now()}`
       if (domains.some((d) => d.id === id)) {
         message.error(`网域 ID「${id}」已存在：network_domain_id 必须全局唯一`)
         return
@@ -105,7 +139,8 @@ export function NetworkDomainsPage() {
         name: values.name || '',
         description: values.description || '',
         domain_type: 'edge',
-        tenant_id: values.tenant_id || '',
+        tenant_id: values.tenant_id || 't-platform',
+        authorized_tenant_ids: selectedTenantIds,
         status: values.status || 'active',
         zone_type: values.zone_type || '',
         // 新建网域仅完成行政登记，监控纳管由 Module_09 执行
@@ -125,11 +160,16 @@ export function NetworkDomainsPage() {
       return
     }
     const nextStatus = record.status === 'active' ? 'disabled' : 'active'
+    // {v2.2} 禁用 = 冻结：二次确认展示后端返回的影响范围（资源引用数 / 已纳管 EdgeAgent 数）
+    const impactText =
+      record.registration_status === 'monitored'
+        ? `影响范围：M07 资源引用 N 条、已纳管 EdgeAgent 1 个。禁用后该网域不再接受新资源登记与新纳管，存量资源与采集配置不受影响、继续采集（停止采集由 Module_09 退纳管决定）。同时联动 Module_01（该网域禁止新建监控任务）与 Module_09（该网域不再生成新的变更单，存量下发与回滚不受影响）。`
+        : `影响范围：M07 资源引用 0 条、已纳管 EdgeAgent 0 个（空网域，可直接删除）。禁用后该网域不可被租户使用、不再接受新资源登记与新纳管。禁用语义同时联动 Module_01 与 Module_09（禁止新建监控任务、不再生成新变更单）。`
     Modal.confirm({
       title: nextStatus === 'disabled' ? '禁用网域' : '启用网域',
       content:
         nextStatus === 'disabled'
-          ? `确定禁用网域 "${record.name}" 吗？禁用后该网域不可被租户使用，已纳管的监控配置将停止生效。`
+          ? `确定禁用网域 "${record.name}" 吗？\n${impactText}`
           : `确定重新启用网域 "${record.name}" 吗？`,
       okText: nextStatus === 'disabled' ? '确认禁用' : '确认启用',
       okType: nextStatus === 'disabled' ? 'danger' : 'primary',
@@ -142,7 +182,30 @@ export function NetworkDomainsPage() {
               : item
           )
         )
-        message.success(nextStatus === 'disabled' ? '网域已禁用' : '网域已启用')
+        message.success(nextStatus === 'disabled' ? '网域已禁用（冻结）' : '网域已启用')
+      },
+    })
+  }
+
+  /** {v2.2} 删除网域：仅空网域可删（无资源引用且未纳管），软删；管理域禁止删除 */
+  const handleDelete = (record: NetworkDomain) => {
+    if (record.domain_type === 'management') {
+      message.error('系统预置管理域禁止删除')
+      return
+    }
+    if (record.registration_status === 'monitored') {
+      message.error(`网域 "${record.name}" 已纳管监控（存在资源引用/EdgeAgent），不可删除，请改用「禁用」`)
+      return
+    }
+    Modal.confirm({
+      title: '删除网域',
+      content: `确定删除空网域 "${record.name}" 吗？删除为软删，仅对未纳管、无资源引用的空网域生效；管理域不可删除。`,
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        setDomains((prev) => prev.filter((item) => item.id !== record.id))
+        message.success(`网域 "${record.name}" 已删除`)
       },
     })
   }
@@ -151,11 +214,29 @@ export function NetworkDomainsPage() {
     { title: '网域 ID', dataIndex: 'id', key: 'id' },
     { title: '网域名称', dataIndex: 'name', key: 'name' },
     {
-      title: '所属租户',
+      title: '登记归属',
       dataIndex: 'tenant_id',
       key: 'tenant_id',
       render: (tenantId: string) => (
-        <Tooltip title={`1 网域 : 1 租户，归属不可变更`}>{tenantNameOf(tenantId)}</Tooltip>
+        <Tooltip title={`部署级登记方（登记 ≠ 独占，网域可授权多个租户共享）`}>{tenantNameOf(tenantId)}</Tooltip>
+      ),
+    },
+    {
+      title: '授权租户',
+      dataIndex: 'authorized_tenant_ids',
+      key: 'authorized_tenant_ids',
+      render: (ids: string[] = []) => (
+        <Space size={[0, 4]} wrap>
+          {ids.length === 0 ? (
+            <Text type="secondary">未授权</Text>
+          ) : (
+            ids.map((id) => (
+              <Tag key={id} color="geekblue">
+                {tenantNameOf(id)}
+              </Tag>
+            ))
+          )}
+        </Space>
       ),
     },
     {
@@ -195,9 +276,19 @@ export function NetworkDomainsPage() {
       title: '操作',
       key: 'action',
       fixed: 'right' as const,
-      width: 150,
+      width: 200,
       render: (_: unknown, record: NetworkDomain) => (
         <Space size="small">
+          {record.registration_status !== 'monitored' && (
+            <Button
+              type="link"
+              size="small"
+              icon={<CloudUploadOutlined />}
+              onClick={() => jumpToConfigCenter(record)}
+            >
+              配置纳管（M09）
+            </Button>
+          )}
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => showEdit(record)}>
             编辑
           </Button>
@@ -210,19 +301,35 @@ export function NetworkDomainsPage() {
           >
             {record.status === 'active' ? '禁用' : '启用'}
           </Button>
+          <Button
+            type="link"
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(record)}
+          >
+            删除
+          </Button>
         </Space>
       ),
     },
   ]
 
+  /** {v2.3} R4：跳转 Module_09 网域纳管并预选当前网域（跨模块跳转，相对路径与部署结构对齐） */
+  const jumpToConfigCenter = (record: NetworkDomain) => {
+    window.open(`../../module-09/dist/index.html#/domain-onboarding?network_domain=${encodeURIComponent(record.id)}`, '_blank')
+  }
+
   return (
     <MainLayout
       reviewNotes={
         <>
-          M06 为网域的行政 Owner：本页只维护行政信息（名称 / 所属租户 / 状态 / 网络区域类型），监控纳管（令牌、Remote Write、Edge Agent）由 Module_09 执行。
-          网域定义为全平台唯一入口，下游模块（导入 / 纳管 / CMDB 同步）只引用 network_domain_id；ID 按租户前缀自动生成且全局唯一，创建后归属不可变更。
-          网络区域类型（zone_type）为部署级字典下拉（政务云预置互联网区 / 政务外网区等，公有云预置区域），不开放自由文本，M09 纳管时只读引用。
-          新建校验：所选租户未开启多网域能力（multi_site_enabled=false）时不可创建额外网域；该开关不控制配置中心页面入口（入口由数据驱动）。
+          M06 为网域的行政 Owner：本页只维护行政信息（名称 / 登记归属 / 授权租户 / 状态 / 网络区域类型），监控纳管（令牌、Remote Write、Edge Agent）由 Module_09 执行。
+          网域为部署级资源、可跨租户共享（决策 18~20 落版）：登记归属固定平台运营部（platform_admin），登记 ≠ 独占，通过「授权租户」授权多个租户共享使用（授权 ≠ 拥有）；登记归属创建后不可变更（决策 23）。
+          网域定义为全平台唯一入口，下游模块（导入 / 纳管 / CMDB 同步）只引用 network_domain_id；ID 按 `&lt;deploy_code&gt;-&lt;domain_code&gt;` 自动生成且全局唯一（deploy_code 默认 `mc`；default 管理域为历史预置、无前缀）。
+          网络区域类型（zone_type）为部署级字典下拉（来自只读接口 GET /api/v2/platform/zone-types，政务云预置互联网区 / 政务外网区等，公有云预置区域），不开放自由文本，M09 纳管时只读引用。
+          新建校验：被授权租户未开启多网域能力（multi_site_enabled=false）时仅可被授权单个网域；该开关不控制配置中心页面入口（入口由数据驱动）。
+          禁用 = 冻结（决策 23）：禁用二次确认展示影响范围（资源引用数 / 已纳管 EdgeAgent 数），禁用后拒绝新登记与新纳管、存量资源与采集不受影响（停止采集由 Module_09 退纳管决定）；空网域可删除（软删），非空网域 / 管理域不可删除。
         </>
       }
     >
@@ -237,9 +344,74 @@ export function NetworkDomainsPage() {
           </Button>
         }
       >
+        <FilterBar>
+          <FilterItem label="登记归属">
+            <Select
+              placeholder="全部登记归属"
+              allowClear
+              showSearch
+              optionFilterProp="children"
+              value={filterOwner === 'all' ? undefined : filterOwner}
+              onChange={(v) => setFilterOwner(v ?? 'all')}
+              style={{ width: 180 }}
+            >
+              {mockTenants.map((t) => (
+                <Option key={t.id} value={t.id}>
+                  {t.name}
+                </Option>
+              ))}
+            </Select>
+          </FilterItem>
+          <FilterItem label="网络区域类型">
+            <Select
+              placeholder="全部网络区域类型"
+              allowClear
+              showSearch
+              optionFilterProp="children"
+              value={filterZoneType === 'all' ? undefined : filterZoneType}
+              onChange={(v) => setFilterZoneType(v ?? 'all')}
+              style={{ width: 200 }}
+            >
+              {ZONE_TYPE_OPTIONS.map((z) => (
+                <Option key={z.value} value={z.value}>
+                  {z.label}
+                </Option>
+              ))}
+            </Select>
+          </FilterItem>
+          <FilterItem label="状态">
+            <Select
+              placeholder="全部状态"
+              allowClear
+              value={filterStatus === 'all' ? undefined : filterStatus}
+              onChange={(v) => setFilterStatus((v ?? 'all') as 'all' | 'active' | 'disabled')}
+              style={{ width: 140 }}
+            >
+              <Option value="active">启用</Option>
+              <Option value="disabled">禁用</Option>
+            </Select>
+          </FilterItem>
+          <FilterItem label="授权租户">
+            <Select
+              placeholder="全部授权租户"
+              allowClear
+              showSearch
+              optionFilterProp="children"
+              value={filterAuthorizedTenant === 'all' ? undefined : filterAuthorizedTenant}
+              onChange={(v) => setFilterAuthorizedTenant(v ?? 'all')}
+              style={{ width: 180 }}
+            >
+              {mockTenants.map((t) => (
+                <Option key={t.id} value={t.id}>
+                  {t.name}
+                </Option>
+              ))}
+            </Select>
+          </FilterItem>
+        </FilterBar>
         <Table
           rowKey="id"
-          dataSource={domains}
+          dataSource={filteredDomains}
           columns={columns}
           scroll={TABLE_SCROLL_X}
           pagination={TABLE_PAGINATION}
@@ -258,17 +430,43 @@ export function NetworkDomainsPage() {
             name="name"
             rules={[{ required: true, message: '请输入网域名称' }]}
           >
-            <Input placeholder="例如：政务网 A 区" disabled={editingDomain?.id === 'nd-default'} />
+            <Input placeholder="例如：政务网 A 区" disabled={editingDomain?.id === 'default'} />
           </Form.Item>
+          {editingDomain ? (
+            <Form.Item
+              label="登记归属"
+              extra="创建后不可变更；如确需调整登记归属，请联系平台管理员走归属转移流程"
+            >
+              <Text>
+                {tenantNameOf(editingDomain.tenant_id)}（{editingDomain.tenant_id}）
+              </Text>
+            </Form.Item>
+          ) : (
+            <Form.Item
+              label="登记归属"
+              name="tenant_id"
+              rules={[{ required: true, message: '请选择登记归属' }]}
+              extra="部署级登记方，MVP 固定平台运营部（platform_admin）；登记 ≠ 独占，网域可授权多个租户共享；创建后不可变更"
+            >
+              <Select placeholder="请选择登记归属" disabled showSearch optionFilterProp="children">
+                {mockTenants
+                  .filter((t) => t.status === 'active')
+                  .map((t) => (
+                    <Option key={t.id} value={t.id}>
+                      {t.name}
+                    </Option>
+                  ))}
+              </Select>
+            </Form.Item>
+          )}
           <Form.Item
-            label="所属租户"
-            name="tenant_id"
-            rules={[{ required: true, message: '请选择所属租户' }]}
-            extra="1 网域 : 1 租户；创建后网域归属租户不可变更，禁止跨租户共享网域"
+            label="授权租户"
+            name="authorized_tenant_ids"
+            extra="可选，缺省 = 登记归属租户（platform_admin）；网域为部署级资源，可授权多个租户共享使用（授权 ≠ 拥有）；被授权租户未开启多网域能力时仅可被授权单个网域"
           >
             <Select
-              placeholder="请选择租户"
-              disabled={!!editingDomain}
+              mode="multiple"
+              placeholder="请选择被授权使用该网域的租户"
               showSearch
               optionFilterProp="children"
             >
@@ -281,15 +479,6 @@ export function NetworkDomainsPage() {
                 ))}
             </Select>
           </Form.Item>
-          {!editingDomain && watchedTenant && !mockTenants.find((t) => t.id === watchedTenant)?.multi_site_enabled && (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="该租户未开启多网域能力"
-              description="不可为该租户创建额外网域，仅可使用默认网域（default）；如确有需要，可在「租户管理」开启多网域能力。"
-            />
-          )}
           <Form.Item
             label="网络区域类型"
             name="zone_type"
@@ -310,12 +499,12 @@ export function NetworkDomainsPage() {
           </Form.Item>
           <Form.Item
             label="网域 ID（自动生成）"
-            extra="按租户前缀自动生成（<租户>-<名称>），全局唯一、创建后不可修改"
+            extra="按部署级前缀自动生成（&lt;deploy_code&gt;-&lt;domain_code&gt;，deploy_code 默认 mc；default 管理域无前缀），全局唯一、创建后不可修改"
           >
             <Input
-              value={suggestedId || '自动生成（请先选择租户并填写名称）'}
+              value={suggestedId || '自动生成（请先填写名称）'}
               disabled
-              placeholder="nd-xxx"
+              placeholder="mc-xxx"
             />
           </Form.Item>
           <Form.Item label="描述" name="description">
@@ -335,7 +524,7 @@ export function NetworkDomainsPage() {
           </Form.Item>
           <Form.Item>
             <Text type="secondary" style={{ display: 'block' }}>
-              本表单仅维护行政信息（ID / 名称 / 租户 / 状态 / 网络区域类型）；监控参数由「配置中心-网域纳管」填写。
+              本表单仅维护行政信息（ID / 名称 / 登记归属 / 授权租户 / 状态 / 网络区域类型）；监控参数由「配置中心-网域纳管」填写。
             </Text>
           </Form.Item>
         </Form>

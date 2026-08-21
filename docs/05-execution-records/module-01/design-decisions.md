@@ -642,6 +642,31 @@
 - **遗留项**：①v0.2+ 业务域聚合视图完整版（独立业务目录 + 健康度看板）详细设计；②跨模块端到端串联演示（P2）；③filter UI（v0.3+）；④service_discovery UI（v0.2+）；⑤业务负责人业务域隔离（v0.2+ Module_06）。
 - **评审结论**：MVP 范围评审通过（PRD v3.7 与原型 v2.9 对齐）；PRD 状态推进（ready / 已冻结）需用户书面确认，当前保持「设计中」待领导/业务评审。
 
+### 2026-08-21（两段式设计评审：PRD v3.26 / 原型 v3.25）
+
+- **评审时间 / 版本**：2026-08-21；PRD v3.26、原型 v3.25；参与方：用户（chenrt）+ prototype-designer；评审方式：原型代码走查 + PRD 契约核对（重点：采集认证/TLS 最小集[决策 31]、冻结网域校验[决策 30]、`deployed` 回写提前 MVP[决策 31-M2]、规则文件挂载[MVP，决策 38-1]）。
+- **版本说明**：PRD 头注「原型 v3.25（待同步 v3.26）」的标注已滞后——原型代码实则已随 `{v3.26}` 注释落地 决策 30/31（认证/TLS 折叠面板、冻结域置灰与校验、`deployed` 聚合）与规则文件挂载，故本评审以原型实际代码为准。
+- **第一段用户走查结论（用户视角，按运维工程师角色）**：
+  - **①任务标题与闭环**：各核心页任务标题明确且闭环——「采集 Job」列表（新建/编辑/克隆/启停/删除/批量提交生效/网域+状态四态筛选）+ 采集器管理 Tab（主按钮「新增默认采集配置」+ ①登记②配置③选实例确认安装 编号动线）、实例选择 Transfer（同类型同网域收敛 + 关键字筛选）+ 选实例时 Exporter 安装确认卡片、规则「文件挂载」视图（上传/粘贴→YAML 校验→挂载→M09 变更确认闭环）、技术/业务指标库、业务视图聚合。**闭环完整**；
+  - **②文案讲人话**：主体文案讲人话（认证类型/Basic/Bearer/用户名/密码/Token/CA 证书/跳过 TLS 证书校验、下发状态、参数继承 Tag），字段级/实现层技术信息（`content_mode`、`MonitoringRule`、`rule_content`、`change_status`、`决策 38-1`）已正确折叠进底部 ReviewNote（RulesPage 1354）。**但存在 1 处返工违规**：
+    - **返工【RulesPage 文件挂载页顶部信息 Alert（376–382 行）**：`message="MVP 规则文件挂载（content_mode=yaml_passthrough）"`、`description="…决定 38-1…#…#"` 将原始字段名 `content_mode=yaml_passthrough` 与实现决策引用 `决策 38-1` 裸暴露到用户可见主区，违反 PRD §10「提示分区规范」（决策引用 / 技术字段应折叠进底部评审说明区，用户无感）；下方「文件挂载（MVP）」按钮与抽屉标题保留 `rules.yml` 属该功能固有语义、可接受；
+    - **建议【BusinessViewPage 业务语义 Alert（51–52 行）**：用户可见描述中含原始字段 `business_domain`、缩写 `biz 标签`、`CI 类型`，建议下沉或改讲人话（如「按业务类型」「按监控对象类型」）；
+  - **③决策信息前置**：认证/TLS 以「认证与 TLS」折叠面板承载、默认 `auth_type=none`+`tls_skip_verify=false`（不展开不增加裸 http 视觉负担，符合 PRD §11.2）；选实例时 `offline` 实例候选行即置灰不可选（「（已下线）」标注可见）；启停/保存后的「变更将由 M09 生成变更单，需确认后生效」+「前往配置变更确认」跳转主区可见、落地列表「下发状态」列可点（待确认→确认）。**信息前置达标**；
+  - **④异常/边界覆盖**：Basic 缺账密 / Bearer 缺 Token 必填校验（字段级 validator）；`tls_skip_verify` 开关 + extra「自签名 / 内网证书场景可开启」说明 TLS 校验失败场景；冻结（禁用）网域在表单 Select 置灰不可选（Tooltip「网域已冻结（禁用）」）+ 提交兜底 `bad_request` + 编辑存量 Job 拦截向该域新增实例（仅放行移除）；`offline` 实例置灰不可勾选。**覆盖完整**；
+  - **⑤跨模块旅程概念一致**：Job 与规则列表「下发状态」叫法统一、均提供「前往配置变更确认」跳转（M09）；`deployed` 在用户层经「状态」聚合列「已生效」呈现（MVP 语义闭环）；offline 置灰与「未纳入任何 Job」筛选器（M07 未监控/已监控 badge 已取消）以 ReviewNote 声明「目标语义、MVP 不保证」，与 PRD M01-ARCH-01 一致可达。**跨模块叫法一致、可达性达标**。
+- **第二段技术核对结论（技术视角）**：
+  - **①数据模型字段覆盖**：ScrapeJob 认证/TLS 最小集（`auth_type` none/basic/bearer、`username/password`、`token`、`tls_skip_verify`、`ca_file`，决策 31）字段定义、表单折叠面板、编辑/克隆回填均在原型呈现 ✓；冻结域 `frozen:true`（mock `legacy-dc`，决策 30）✓；`offline` 实例 `status=offline` 显示但置灰 ✓；`change_status` 取值 pending/confirmed/none ✓；指标库锚点多对多 + `source_exporter` 来源采集器标注（同名不同义）✓；业务指标库字段（语义/阈值/业务域/owner/register_source/status）与 PRD 5.9 一致 ✓；
+  - **②mock 契约 vs PRD 字段名不一致（建议）**：mock 指标库锚点字段名用 `resource_types`、采集实现用 `supported_resource_types`，而 PRD 5.3/5.2 字段名为 `monitor_types` / `supported_monitor_types`；二者语义等价、UI 展示名也对，但**字段名应统一**，避免开发按 mock 而非 PRD 落库；
+  - **③认证/TLS 最小集在表单体现**：齐全（决策 31）✓；`ca_file` 为可选、`tls_skip_verify` 开关、Basic/Bearer 条件渲染账密/Token 字段，组合非法主要由后端 `bad_request` 兜底，原型未做字段级组合校验（可接受）；
+  - **④冻结网域禁选**：新建 Job 网域 Select 置灰 + 提交校验 + 编辑新增该域实例拦截（决策 30）✓；
+  - **⑤规则文件挂载与 deployed 回写可开发性**：规则文件挂载（`content_mode=yaml_passthrough` + `rule_content` -> `MountedRuleFile`、YAML 校验至少 `groups` 数组、保存即 `change_status=pending` 进入 M09 变更检测、列表「下发状态」列）可开发 ✓；`deployed` 回写经「状态」聚合列「已生效」（active）覆盖，前端可开发 ✓；
+  - **⑥可开发性结论**：v3.25/v3.26 本轮改动均为前端 mock + 交互（认证/TLS 折叠表单、冻结域置灰与校验、`deployed` 聚合映射、规则文件挂载视图、指标库来源标注），不涉及后端模型变更；原型含 `mocks/module-01.test.ts` 测试。**可开发**。
+- **问题清单与处理结果**：
+  - **返工**：RulesPage 文件挂载页顶部信息 Alert 暴露 `content_mode=yaml_passthrough` + `决策 38-1`（违反 PRD §10 提示分区），应改讲人话或折叠进底部 ReviewNote；
+  - **建议**：①mock 指标库锚点字段名 `resource_types`/`supported_resource_types` 与 PRD `monitor_types`/`supported_monitor_types` 对齐；②mock `change_status` 缺 `deployed` 样本（deployed 回写仅经聚合「已生效」隐式呈现，未用真实数据演示）；③BusinessViewPage Alert 的 `business_domain`/`biz`/`CI 类型` 术语下沉。
+- **遗留项**：①PRD v3.26 内部一致性：§5.4 字段表 / Change Log（决策 31-M2：`deployed` 提前 MVP）与 §9.1 第 970 行、§9.2 第 993 行（仍写「MVP 回写 pending/confirmed/none、v0.2 扩展 deployed」）表述冲突，需 PRD 修订统一（本轮仅记录、未改 PRD）；②`ca_file`/认证 TLS 组合合法性后端 `bad_request` 兜底的具体错误文案待实现期对齐；③跨模块端到端串联演示（M07→M01→M09）P2 遗留。
+- **评审结论**：MVP 范围评审通过（PRD v3.26 与原型 v3.25 对齐，含决策 30/31 / deployed 回写 / 规则文件挂载）；含 1 项返工（RulesPage 可见 Alert 术语裸暴露）与 4 项建议见上；PRD 状态推进（ready / 已冻结）仍需用户书面确认，当前保持「设计中」。
+
 ---
 
 ## 补充对齐：2026-08-11（第十轮 UI/UX 易用性）

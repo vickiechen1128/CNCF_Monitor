@@ -38,7 +38,6 @@ import {
   TEMPLATE_REFERENCING_JOBS,
   mockLabelTemplates,
   mockResources,
-  mockStatusMappingConfig,
 } from '../mocks/module-07'
 import type { LabelTemplate, LabelTemplateSource, Mapping, Resource, ResourceCategory, TemplateReferencingJob } from '../mocks/module-07'
 
@@ -147,6 +146,7 @@ export default function LabelTemplatesPage() {
           <Text style={{ fontSize: 12, color: '#86909C' }}>
             {pendingCount > 0 ? `其中 ${pendingCount} 个 Job 显示「模板已变更」状态，可在下方「被引用采集 Job」查看。` : '所有引用 Job 状态正常。'}
           </Text>
+          <Text style={{ fontSize: 12, color: '#86909C' }}>MVP 无版本回滚能力，修改立即生效（每次变更落只读修改快照）。</Text>
         </Space>
       ),
       btn: (
@@ -538,6 +538,7 @@ export default function LabelTemplatesPage() {
       <Alert
         type="info"
         showIcon
+        closable
         style={{ marginBottom: 16 }}
         message="标签模板怎么用"
         description={
@@ -552,34 +553,11 @@ export default function LabelTemplatesPage() {
               • 每类资源预置一个默认模板，默认模板不可删除。
             </Text>
             <Text style={{ fontSize: 13 }}>
-              • 标签来源口径：模板映射生成的标签 = 资源详情中的「系统」标签；用户手工添加的标签 = 「用户」标签（在资源详情添加，不在此配置）；CMDB 字段 v0.4+ 开放后对应「CMDB」标签。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 状态映射（Excel 中文 → 运行中/已停止/维护中）为系统规则，本页只读展示，详见导入记录页。
+              • 状态映射（Excel 中文 → 运行中/已停止/维护中）为 Excel 导入的系统规则，规则明细见「导入记录」页。
             </Text>
           </Space>
         }
       />
-
-      {/* 状态映射规则（用户语言，非阻塞展示） */}
-      <div style={{ marginBottom: 16 }}>
-        <Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>
-          状态映射规则：Excel 导入时，状态列的中文值（如「运行中」）转换为系统状态。当前规则：
-        </Text>
-        <Space wrap size={[8, 4]}>
-          {mockStatusMappingConfig.rules.map((rule) => (
-            <Tag key={rule.id} style={{ fontSize: 12 }}>
-              {rule.source_status} → {STATUS_MAP[rule.target_status]}
-              {rule.resource_category !== 'all' && `（${RESOURCE_TYPE_MAP[rule.resource_category as ResourceCategory]}）`}
-              {rule.is_builtin && ' [内置]'}
-            </Tag>
-          ))}
-        </Space>
-        <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginTop: 4 }}>
-          大小写敏感：{mockStatusMappingConfig.case_sensitive ? '是' : '否'} · 未匹配时的默认状态：{STATUS_MAP[mockStatusMappingConfig.default_target]} ·
-          优先级：精确资源类别规则 {'>'} 通用规则 · 规则的调整入口后续版本开放
-        </Text>
-      </div>
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
@@ -587,6 +565,7 @@ export default function LabelTemplatesPage() {
           <li>组合字段 composite 为 MVP 内部默认（自动生成 instance = 资源 IP + 端口，Prometheus 默认行为一致），前台不可新增，v0.2+ 身份定制开放。</li>
           <li>保护标签（instance/job 等）不允许作为目标标签；composite → instance 为例外允许。</li>
           <li>同一模板内 target_label 唯一，保存时校验（编辑自身排除）。</li>
+          <li>标签来源口径：模板映射生成的标签 = 资源详情中的「系统」标签；用户手工添加 = 「用户」标签（在资源详情添加，不在此配置）；CMDB 字段（v0.4+）= 「CMDB」标签。监控任务自带的标签由采集系统原生注入，无需在此配置。</li>
           <li>转换规则「prefix/replace」需参数，后续版本开放。</li>
         </ul>
       </ReviewNote>
@@ -799,6 +778,7 @@ export default function LabelTemplatesPage() {
                           <Text style={{ fontSize: 13 }}>
                             本模板被 <Text strong>{referencingJobsOf(selectedTemplate).length}</Text> 个采集 Job 引用。
                             修改模板后，引用的 Job 会按新映射重新生成标签，配置变更需在配置中心确认后生效（后续版本开放；当前版本重新生成配置并立即生效）。
+                            MVP 无版本回滚能力，修改立即生效，每次变更落只读修改快照（操作人 / 时间 / 旧值 / 新值）。
                             如需查看具体清单，请浏览下方列表。
                           </Text>
                           <Table
