@@ -8,6 +8,9 @@ import "time"
 // assets/templates/excel/host_template.md.
 type Host struct {
 	BaseModel
+	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
+	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
+	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
 	CloudCode     string `gorm:"size:50" json:"cloud_code"`
 	AppCode       string `gorm:"size:100" json:"app_code"`
 	SubAppCode    string `gorm:"size:100" json:"sub_app_code"`
@@ -55,6 +58,9 @@ func (h *Host) GetCluster() string { return h.SubAppCode }
 
 // GetStatus returns the resource status.
 func (h *Host) GetStatus() string { return h.Status }
+
+// GetResourceCategory returns the authoritative resource category.
+func (h *Host) GetResourceCategory() ResourceCategory { return ResourceCategoryHost }
 
 // Hostname returns the hostname, mapped from InstanceName.
 func (h *Host) Hostname() string { return h.InstanceName }
