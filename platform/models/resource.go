@@ -12,9 +12,11 @@ type ResourceType string
 
 // Resource type constants.
 const (
-	ResourceTypeHost         ResourceType = "host"
-	ResourceTypeMiddleware   ResourceType = "middleware"
-	ResourceTypeApplication  ResourceType = "application"
+	ResourceTypeHost             ResourceType = "host"
+	ResourceTypeDatabase          ResourceType = "database"
+	ResourceTypeMiddleware        ResourceType = "middleware"
+	ResourceTypeApplication       ResourceType = "application"
+	ResourceTypeGenericTarget     ResourceType = "generic_target"
 )
 
 // BaseModel provides the common primary key and timestamp fields used by all models.
@@ -36,11 +38,16 @@ type Resource interface {
 	GetStatus() string
 }
 
-// Middleware represents a middleware resource such as MySQL, Redis or Kafka.
+// Middleware represents a middleware resource such as Kafka, Elasticsearch,
+// Nginx or Zookeeper (resource_category=middleware). MySQL/Redis now belong to
+// Database (see §5.7.1 of Module_07).
 type Middleware struct {
 	BaseModel
 	ResourceID       string       `gorm:"size:64;uniqueIndex:idx_middleware_resource_id" json:"resource_id"`
 	ResourceType     ResourceType `gorm:"size:20;not null" json:"resource_type"`
+	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
+	NetworkDomainID  string       `gorm:"size:64;not null;index" json:"network_domain_id"`
+	BizCode          string       `gorm:"size:64;not null" json:"biz_code"`
 	AppName          string       `gorm:"size:100;not null" json:"app_name"`
 	Env              string       `gorm:"size:20;not null" json:"env"`
 	Cluster          string       `gorm:"size:100;not null" json:"cluster"`
@@ -53,11 +60,16 @@ type Middleware struct {
 	ConnectionString string       `gorm:"size:500" json:"connection_string"`
 }
 
-// Application represents an application service resource that can be probed.
+// Application represents an application service resource that can be probed
+// (resource_category=application). One row equals one scrapable instance, all
+// sharing the same app_name / biz_code.
 type Application struct {
 	BaseModel
 	ResourceID     string       `gorm:"size:64;uniqueIndex:idx_application_resource_id" json:"resource_id"`
 	ResourceType   ResourceType `gorm:"size:20;not null" json:"resource_type"`
+	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
+	NetworkDomainID  string     `gorm:"size:64;not null;index" json:"network_domain_id"`
+	BizCode          string     `gorm:"size:64;not null" json:"biz_code"`
 	AppName        string       `gorm:"size:100;not null" json:"app_name"`
 	Env            string       `gorm:"size:20;not null" json:"env"`
 	Cluster        string       `gorm:"size:100;not null" json:"cluster"`
@@ -105,3 +117,9 @@ func (a *Application) GetCluster() string { return a.Cluster }
 
 // GetStatus returns the resource status.
 func (a *Application) GetStatus() string { return a.Status }
+
+// GetResourceCategory returns the authoritative resource category.
+func (m *Middleware) GetResourceCategory() ResourceCategory { return ResourceCategoryMiddleware }
+
+// GetResourceCategory returns the authoritative resource category.
+func (a *Application) GetResourceCategory() ResourceCategory { return ResourceCategoryApplication }
