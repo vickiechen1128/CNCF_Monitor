@@ -273,7 +273,7 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
 
 - worktree 目录：项目固定 worktree 根目录（见 `.kimi/AGENTS.md`），固定复用，不随模块变化
-- 设计分支：`design/module-XX`（PRD + 原型代码）
+- 设计分支：`design/module-mvp-demo`（PRD + 原型代码）
 - 功能分支：`feat/module-XX`（生产代码实现）
 - 分支来源：`develop`
 - 合并目标：`develop`
@@ -284,7 +284,7 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 |----------|----------|------|------|----------|--------|
 | `main` | `main` | 稳定/生产版本 | - | - | chenrt |
 | `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt |
-| `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
+| `design/module-mvp-demo` | `design/module-mvp-demo` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
 | `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq |
 | `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt |

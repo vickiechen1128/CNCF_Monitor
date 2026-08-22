@@ -54,7 +54,7 @@ git diff --stat
 
 | 分支类型 | 命名示例 | 允许修改 | 禁止修改 | 合并目标 | 负责人 | Reviewer |
 |----------|----------|----------|----------|----------|--------|----------|
-| 设计分支 | `design/module-XX` | `docs/02-product-requirements/Modules/`<br>`docs/prototypes/module-XX/`<br>`docs/03-engineering-standards/`<br>`docs/01-team-collaboration/`<br>`.kimi/agents/` | `platform/`<br>`ui-custom/web/`<br>`upstream/` | `develop` | chenrt | guixm、zhaohy |
+| 设计分支 | `design/module-mvp-demo` | `docs/02-product-requirements/Modules/`<br>`docs/prototypes/module-XX/`<br>`docs/03-engineering-standards/`<br>`docs/01-team-collaboration/`<br>`.kimi/agents/` | `platform/`<br>`ui-custom/web/`<br>`upstream/` | `develop` | chenrt | guixm、zhaohy |
 | 功能分支 | `feat/module-XX` | `platform/`<br>`ui-custom/web/`<br>`docs/03-engineering-standards/`<br>`docs/01-team-collaboration/`<br>`.kimi/agents/` | `docs/02-product-requirements/`<br>`docs/prototypes/`<br>`upstream/` | `develop` | zhangwq | zhangwq、zhaohy、guixm、chenrt |
 | 修复分支 | `fix/module-XX` | 与功能分支相同 | 与功能分支相同 | `develop` | zhangwq | zhangwq、zhaohy、guixm、chenrt |
 | 原型分支（历史兼容） | `feature/prototype-*` | 仅该分支历史对应的 UI、mock、部署配置 | PRD、团队文档、工程标准、生产代码 | **不合并** | chenrt | guixm、zhaohy |
@@ -62,7 +62,7 @@ git diff --stat
 | 热修分支 | `hotfix/*` | 生产紧急修复 | 无关改动 | `main` + `develop` | zhangwq | chenrt |
 
 > **目录隔离铁律**
-> - `docs/02-product-requirements/` 和 `docs/prototypes/` 是产品侧核心资产，**只能**由 chenrt / PM 的 AI 在 `design/module-XX` 分支修改；zhangwq / 开发的 AI **禁止**修改。
+> - `docs/02-product-requirements/` 和 `docs/prototypes/` 是产品侧核心资产，**只能**由 chenrt / PM 的 AI 在 `design/module-mvp-demo` 分支修改；zhangwq / 开发的 AI **禁止**修改。
 > - `platform/` 和 `ui-custom/web/` 是生产代码，**只能**由 zhangwq / 开发的 AI 在 `feat/module-XX` 分支修改；chenrt / PM 的 AI **禁止**修改。
 > - `docs/03-engineering-standards/`、`docs/01-team-collaboration/`、`.kimi/agents/` 等规范与 Agent 定义，由项目负责人在设计分支、开发工程师在功能分支中按需维护。
 > - `upstream/` 禁止直接修改，必须走 `patches/prometheus/*.patch` 流程。
@@ -71,7 +71,7 @@ git diff --stat
 
 | 分支类型 | Commit 类型 | 示例 |
 |----------|-------------|------|
-| `design/module-XX` | `design(module-XX): ...` | `design(module-07): 添加资源管理 PRD 与原型` |
+| `design/module-mvp-demo` | `design(module-XX): ...` | `design(module-07): 添加资源管理 PRD 与原型` |
 | `feat/module-XX` | `feat(module-XX): ...` | `feat(module-07): 实现资源管理 CRUD 与 Excel 导入` |
 | `fix/module-XX` | `fix(module-XX): ...` | `fix(module-07): 修复资源列表查询参数校验` |
 | `release/*` | `release: ...` | `release: bump version to v0.1.0` |
@@ -151,7 +151,7 @@ pnpm lint
 1. **worktree 检查**：确认当前目录为 `/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`。
 2. **分支读取**：`git branch --show-current`。
 3. **变更读取**：`git status --short` 和 `git diff --stat`。
-4. **分支命名检查**：是否符合 `design/module-XX`、`feat/module-XX`、`fix/module-XX` 等规则。
+4. **分支命名检查**：是否符合 `design/module-mvp-demo`、`feat/module-XX`、`fix/module-XX` 等规则。
 5. **目录权限检查**：变更文件是否落在当前分支允许修改的目录内。
 6. **Commit message 检查**：用户提供 message 后，验证格式、类型、scope、关联执行记录；若变更涉及 PRD/原型，检查 PRD 修订表是否同步更新（新增行、版本递增、未改写已冻结行）。
 7. **验证检查**：根据变更范围，确认用户已运行并通过了相应测试/验证。
@@ -218,7 +218,7 @@ git commit -m "feat(module-07): 实现资源管理 CRUD
 3. 未提供 `pnpm lint` 验证结果。
 
 修复步骤：
-1. 将文档/Agent 修改保留在 `design/module-07` 分支（由 chenrt/项目负责人维护）或转移到对应负责人的分支；
+1. 将文档/Agent 修改保留在 `design/module-mvp-demo` 分支（由 chenrt/项目负责人维护）或转移到对应负责人的分支；
 2. 重写 commit message，例如 `feat(module-07): 修复资源列表查询参数`；
 3. 运行 `cd ui-custom/web && pnpm lint && pnpm test` 并返回结果。
 ```

@@ -115,3 +115,13 @@ type strErr string
 func (e strErr) Error() string {
 	return string(e)
 }
+
+// ErrorTypeConflict indicates an id / reference coexistence violation, e.g. a
+// duplicate domain id, deletion of a non-empty domain, or freezing/deleting a
+// management domain.
+const ErrorTypeConflict = "conflict"
+
+// Conflict writes a conflict response (HTTP 409) to the gin context.
+func Conflict(c *gin.Context, err error) {
+	c.JSON(http.StatusConflict, Fail(ErrorTypeConflict, err))
+}

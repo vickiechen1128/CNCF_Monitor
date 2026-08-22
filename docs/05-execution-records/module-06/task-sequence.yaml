@@ -1,0 +1,291 @@
+phase: "Phase 1"
+module: "module-06-domain-registry"
+module_branch: "feat/module-06-domain-registry"
+plan_version: "v2026-08-21"
+owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer 执行"
+source:
+  - "docs/02-product-requirements/05_Code_Implementation_Plan.md（Phase 1，§5.1/§5.2，§7.1 网域登记）"
+  - "docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md（§4.0/§5.2/§6.2/§8/§9/§11）"
+  - "docs/03-engineering-standards/03_API_Standard.md"
+precondition:
+  - "worktree 已切到 feat/module-06-domain-registry；Phase 0 已落地：Tenant/NetworkDomain/ZoneType/EdgeAgent 等模型已建、seed 已含 platform_admin 租户与 default 网域（幂等）、`make test-platform` 基线通过"
+  - "前端 `cd ui-custom/web && pnpm install && pnpm lint` 基线通过；`api/domain.ts`/`types/domain.ts` 已含 zone-type/network-domain 的 list/get 雏形"
+  - "MVP 无鉴权（决策 8）依赖内网/VPN 隔离；本阶段不新增接口级鉴权"
+go_tool: "`make test-platform`（等价 `.tools/go/bin/go test ./platform/...`）"
+fe_tool: "`cd ui-custom/web && pnpm test` / `pnpm lint`；`pnpm dev` 验证页面"
+
+tasks:
+  # =================== 后端：networkdomain 行政包（充分拆分，可独立验证） ===================
+
+  - id: "T06-01"
+    title: "网域 ID 生成规则 + deploy_code 读取（idgen）"
+    prd: "Module_06 §5.2/§9.2：`id = <deploy_code>-<domain_code>`，deploy_code 来自 `METRIC_CENTER_DEPLOY_CODE`（默认 `mc`），`default` 为历史预置例外（无前缀）"
+    group: "backend"
+    input_files: ["platform/models/network_domain.go"]
+    output_files:
+      - "platform/admin/networkdomain/idgen.go"
+      - "platform/admin/networkdomain/idgen_test.go"
+    depends_on: []
+    verify_commands: ["go test ./platform/admin/networkdomain/...", "go vet ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "新增 `GenerateDomainID(deployCode, domainCode string) string`，复用 `models.DefaultDomainID`（default 例外无前缀）"
+      - "`ReadDeployCode()` 读取 `METRIC_CENTER_DEPLOY_CODE`，缺省返回 `mc`；校验 domainCode 与 namespace 字符（小写/数字/连字符），非法返回 bad_request 语义"
+      - "domainCode 为空或格式非法时报错；domainCode 为 default 时返回 `default`（保留预置）"
+      - "单测覆盖默认 mc 前缀、环境变量覆盖、default 例外、非法 domainCode 报错"
+
+  - id: "T06-02"
+    title: "zone-types 只读字典接口（部署级启用中字典）"
+    prd: "Module_06 §6.2/§9.2：`GET /api/v2/platform/zone-types` 返回启用中 `[{code,display_name,description}]`，响应统一 `{status,data}`"
+    group: "backend"
+    input_files: ["platform/models/zone_type.go", "platform/db/db.go", "platform/api/response/response.go"]
+    output_files:
+      - "platform/admin/networkdomain/zone_type.go"
+      - "platform/admin/networkdomain/zone_type_test.go"
+    depends_on: []
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "新增 handler：仅返回 `enabled=true` 字典项，剔除停用项"
+      - "响应只暴露 `code/display_name/description`，走 `response.OK` 统一格式"
+      - "handler 通过注入的 `*gorm.DB` 查询，便于测试 mock"
+      - "单测：enabled+disabled 混合断言只返回启用项；空字典不报错返回空 list"
+      - "HTTP 路由冒烟由 T06-11 集成覆盖"
+
+  - id: "T06-03"
+    title: "NetworkDomain 列表接口（分页 / 筛选）"
+    prd: "Module_06 §6.2：`GET /api/v2/platform/network-domains` 支持分页、按 tenant_id / zone_type / status / 名称筛选；§11.1 数据超量分页（默认 20/页）"
+    group: "backend"
+    input_files: ["platform/models/network_domain.go", "platform/api/response/response.go"]
+    output_files:
+      - "platform/admin/networkdomain/list.go"
+      - "platform/admin/networkdomain/list_test.go"
+    depends_on: []
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "GET 列表支持 `page/page_size`（默认 page=1、page_size=20，上限 100）返回 `{list,total,page,page_size}`"
+      - "支持 `tenant_id`（authorized_tenant_ids 包含或 tenant_id 匹配）、`zone_type`、`status`、`name`（模糊）筛选；缺省不过滤"
+      - "已软删（DeletedAt 非空）记录不进入列表（GORM 默认软删过滤）"
+      - "单测覆盖分页、各筛选组合、空结果、page_size 越界钳制"
+
+  - id: "T06-04"
+    title: "NetworkDomain 登记（Create）+ id 自动生成 + authorized_tenant_ids 缺省回填"
+    prd: "Module_06 §4.0/§6.2：`POST /api/v2/platform/network-domains` 登记行政信息（name/domain_type/zone_type/description），id 自动生成、登记归属固定 `platform_admin`；§5.2 `authorized_tenant_ids` 缺省=登记归属租户；创建不校验唯一租户归属"
+    group: "backend"
+    input_files: ["platform/models/network_domain.go", "platform/admin/networkdomain/idgen.go"]
+    output_files:
+      - "platform/admin/networkdomain/create.go"
+      - "platform/admin/networkdomain/create_test.go"
+    depends_on: ["T06-01"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "POST 请求体含 name(必填)/domain_type(必填 management|edge)/zone_type/description；id 由后端按 `ReadDeployCode()+domainCode` 生成并回写"
+      - "`tenant_id` 创建固定为 `models.PlatformAdminTenantID`（忽略请求体传入的 tenant_id，登记归属不信任客户端）"
+      - "`authorized_tenant_ids` 缺省自动回填=[tenant_id]（即 platform_admin）"
+      - "`status` 缺省置 enabled；default id 不可被登记（保留预置）"
+      - "字段校验失败（缺 name/非法 domain_type）返回 bad_request；id 冲突返回统一错误"
+      - "单测覆盖正常创建、缺省授权回填、必填校验、domainCode 重复冲突、default 保留"
+
+  - id: "T06-05"
+    title: "NetworkDomain 详情接口（GET by id）"
+    prd: "Module_06 §6.2：`GET /api/v2/platform/network-domains/:id` 返回网域行政+纳管字段详情"
+    group: "backend"
+    input_files: ["platform/models/network_domain.go", "platform/api/response/response.go"]
+    output_files:
+      - "platform/admin/networkdomain/detail.go"
+      - "platform/admin/networkdomain/detail_test.go"
+    depends_on: []
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "按 id 返回完整 NetworkDomain（含授权租户、纳管监控字段、状态、时间戳）"
+      - "不存在或已软删返回 not_found"
+      - "单测覆盖命中、未命中、非法 id 路径"
+
+  - id: "T06-06"
+    title: "NetworkDomain 编辑（Update，tenant_id 不可变、PUT 不含该字段）"
+    prd: "Module_06 §6.2/§9.2：`PUT /api/v2/platform/network-domains/:id` 仅编辑 name/description/zone_type/授权租户；tenant_id 创建后不可变更、编辑请求不含该字段；`default` 域类型/登记归属不可变但名称/描述可改"
+    group: "backend"
+    input_files: ["platform/models/network_domain.go"]
+    output_files:
+      - "platform/admin/networkdomain/update.go"
+      - "platform/admin/networkdomain/update_test.go"
+    depends_on: ["T06-04"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "PUT 请求体仅接受 name/description/zone_type/authorized_tenant_ids；忽略或拒绝请求体中的 tenant_id/id/status/domain_type"
+      - "`tenant_id`、`domain_type` 保持原值不被覆盖（编辑后断言不变）；default 域 management+platform_admin 不可变"
+      - "不存在返回 not_found；字段校验失败返回 bad_request"
+      - "单测覆盖可编辑字段更新成功、tenant_id 不可变断言、default 约束、未命中"
+
+  - id: "T06-07"
+    title: "禁用=冻结：PATCH status + 影响范围统计（default 禁禁用）"
+    prd: "Module_06 §6.2/§8/§9.2：`PATCH /api/v2/platform/network-domains/:id/status` 启用/禁用；禁用=冻结：返回影响范围（该网域下 M07 资源数/已纳管 EdgeAgent 数）、拒绝新登记与新纳管、存量不受影响；management（default）域禁止禁用；§11.2 破坏性操作二次确认"
+    group: "backend"
+    input_files: ["platform/models/network_domain.go", "platform/models/resource_base.go", "platform/models/edge_agent.go"]
+    output_files:
+      - "platform/admin/networkdomain/status.go"
+      - "platform/admin/networkdomain/impact.go"
+      - "platform/admin/networkdomain/status_test.go"
+    depends_on: ["T06-03"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "PATCH body `{status: enabled|disabled}`；`disabled` 时汇总 `{resource_count, managed_edge_agent_count}` 影响范围并在响应 data 返回"
+      - "影响范围：跨五类资源表（Host/Database/Middleware/Application/GenericTarget）按 network_domain_id 求和 resource_count；EdgeAgent 按 network_domain_id 且 status∈(online|unknown) 计 managed_edge_agent_count"
+      - "禁用写 status=disabled（冻结）；恢复写 enabled；domain_type=management（default）禁用被拒"
+      - "禁用仅改行政状态，存量资源/EdgeAgent 数据不被改动（冻结≠删除）"
+      - "单测覆盖禁用成功+影响范围数值正确、恢复成功、default 禁禁用、非法 status 值校验"
+
+  - id: "T06-08"
+    title: "空网域删除（前置校验 + 软删除 + default 禁删）"
+    prd: "Module_06 §6.2/§9.2/§11.2：`DELETE /api/v2/platform/network-domains/:id` 仅空网域（无 M07 资源引用且无已纳管 EdgeAgent）可删，否则拒绝并引导禁用；软删（BaseModel 体系）；management（default）禁止删除"
+    group: "backend"
+    input_files: ["platform/models/network_domain.go", "platform/models/resource_base.go", "platform/models/edge_agent.go"]
+    output_files:
+      - "platform/admin/networkdomain/delete.go"
+      - "platform/admin/networkdomain/delete_test.go"
+    depends_on: ["T06-07"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "删除前置：跨五类资源表无 network_domain_id 引用且 EdgeAgent 无匹配（非 offline）→ 允许；否则返回拒绝并引导「请改用禁用」"
+      - "management（default）域删除被拒（禁删）"
+      - "删除采用软删（DeletedAt 置位），行保留；软删后列表/详情不可见且再次 DELETE 返回 not_found"
+      - "单测覆盖空网域可删（含软删断言）、非空被拒、default 禁删、二次删除 not_found"
+
+  - id: "T06-09"
+    title: "authorized_tenant_ids 授权租户维护（缺省回填 + 编辑维护 + 多租户共享）"
+    prd: "Module_06 §3.2/§5.2/§6.2/§9.2：授权租户由 M06 维护，缺省=登记归属租户；授权≠拥有≠已纳管；1 网域可授权多租户共享"
+    group: "backend"
+    input_files: ["platform/admin/networkdomain/create.go", "platform/admin/networkdomain/update.go"]
+    output_files: ["platform/admin/networkdomain/authorized_test.go"]
+    depends_on: ["T06-04", "T06-06"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "回归断言：创建缺省 authorized_tenant_ids=[tenant_id]；编辑可追加/移除授权租户（覆盖多租户共享授权）"
+      - "授权变更同步维护 Tenant.network_domain_ids（授权≠拥有；MVP 单租户断言不反向破坏 default 授权关系）"
+      - "单测覆盖缺省回填、追加/移除、清空授权列表"
+
+  - id: "T06-10"
+    title: "seed 完善：default 网域登记归属/授权租户对齐 + platform_admin 幂等增强"
+    prd: "Module_06 §9.2：platform_admin 租户与 default 管理域由后端启动 migration upsert 保证存在、幂等可重复执行；default 登记归属 platform_admin、channel=local、domain_type=management、授权租户=platform_admin"
+    group: "backend"
+    input_files: ["platform/db/seed/ten_domain.go", "platform/models/network_domain.go", "platform/models/tenant.go"]
+    output_files: ["platform/db/seed/ten_domain.go", "platform/db/seed/seed_test.go"]
+    depends_on: []
+    verify_commands: ["go test ./platform/db/seed/..."]
+    acceptance_criteria:
+      - "default 网域 seed 补齐 AuthorizedTenantIDs=[platform_admin] 与 domain_type=management/channel=local/tenant_id=platform_admin/status=enabled"
+      - "对已存在 default 做「更新缺失字段」的幂等 upsert（首启建、再启补齐 authorized_tenant_ids），重复 Run 不重复不报错"
+      - "seed_test 增补断言：default 授权租户、domain_type、channel、登记归属"
+
+  - id: "T06-11"
+    title: "路由注册接入 main.go + 端到端 HTTP 集成验收"
+    prd: "Module_06 §6.2 接口预览：zone-types + network-domains 七接口挂到 `/api/v2/platform/*`，统一响应格式"
+    group: "backend"
+    input_files: ["platform/cmd/metric-center/main.go", "platform/admin/networkdomain/zone_type.go", "platform/admin/networkdomain/list.go", "platform/admin/networkdomain/create.go", "platform/admin/networkdomain/detail.go", "platform/admin/networkdomain/update.go", "platform/admin/networkdomain/status.go", "platform/admin/networkdomain/delete.go"]
+    output_files:
+      - "platform/admin/networkdomain/routes.go"
+      - "platform/cmd/metric-center/main.go"
+      - "platform/cmd/metric-center/main_test.go"
+    depends_on: ["T06-02", "T06-03", "T06-04", "T06-05", "T06-06", "T06-07", "T06-08", "T06-10"]
+    verify_commands: ["go test ./platform/...", "go vet ./platform/..."]
+    acceptance_criteria:
+      - "新增 `RegisterRoutes(g *gin.RouterGroup, db *gorm.DB)`，在 main 的 registerPlatformConfigRoutes 下挂 `GET /platform/zone-types`、`GET/POST /platform/network-domains`、`GET/PUT/DELETE /platform/network-domains/:id`、`PATCH /platform/network-domains/:id/status`"
+      - "集成测试（memory DB+seed）：全链路登记→列表→详情→编辑→禁用（返回影响范围）→空网域删除；default 禁禁用/禁删被拒；`go test ./platform/...` 全绿"
+      - "一次 Real 启动验证 /api/v1/health、/api/v1/health/db 200；seed 后 default 存在、zone-types 可查"
+
+  # =================== 前端：网域管理页（数据契约为 backend 契约，可独立验证） ===================
+
+  - id: "T06-F1"
+    title: "前端网域 API client 扩展 + 影响范围响应类型 + 单测"
+    prd: "Module_06 §4.0/§6.2/§9.1（前端数据契约，对应 T06-01~T06-08 后端契约）"
+    group: "frontend"
+    input_files: ["ui-custom/web/src/api/domain.ts", "ui-custom/web/src/types/domain.ts", "ui-custom/web/src/api/domain.test.ts"]
+    output_files:
+      - "ui-custom/web/src/api/domain.ts"
+      - "ui-custom/web/src/types/domain.ts"
+      - "ui-custom/web/src/api/domain.test.ts"
+    depends_on: ["T06-02", "T06-03", "T06-04", "T06-05", "T06-06", "T06-07", "T06-08"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "`networkDomainApi` 补齐 create/update/get/remove/patchStatus；CreateInput（name/domain_type/zone_type/description/authorized_tenant_ids，不含 tenant_id）、UpdateInput（name/description/zone_type/authorized_tenant_ids）"
+      - "`types/domain.ts` 新增 NetworkDomainImpact{resource_count,managed_edge_agent_count} 与禁用结果类型；ListParams 扩展 status/zone_type/tenant_id/name 筛选"
+      - "`zoneTypeApi.list` 复用字典供表单下拉，仅消费启用项"
+      - "domain.test.ts：mock fetch 覆盖 create/get/update/remove/patchStatus 的路径/body、分页筛选参数、影响范围解析；vitest 全绿、eslint 通过"
+
+  - id: "T06-F2"
+    title: "网域管理列表页（分页/筛选/加载/空态/错误/登记导航）"
+    prd: "Module_06 §11.1 页面状态矩阵：加载骨架屏、空态「暂无网域」+「登记网域」引导、接口错误 Alert+「重新加载」、数据超量分页+筛选（MVP 无鉴权态）"
+    group: "frontend"
+    input_files: ["ui-custom/web/src/api/domain.ts", "ui-custom/web/src/types/domain.ts"]
+    output_files:
+      - "ui-custom/web/src/pages/admin/domains/DomainsPage.tsx"
+      - "ui-custom/web/src/pages/admin/domains/useDomains.ts"
+      - "ui-custom/web/src/pages/admin/domains/DomainsPage.test.tsx"
+    depends_on: ["T06-F1"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "Ant Design 表格展示 id/name/domain_type/zone_type/tenant_id/authorized_tenant_ids/status；loading 骨架屏"
+      - "空列表渲染「暂无网域」空态 + 「登记网域」按钮；分页（默认 20/页）与 status/zone_type/name 筛选联动 list"
+      - "接口错误渲染 Alert「网域列表加载失败，请稍后重试」+「重新加载」；提交中防重复"
+      - "管理域（default）行标识；操作列提供登记/编辑/禁用（二次确认）/删除入口"
+      - "组件单测覆盖加载/成功/空态/错误态与分页筛选调用"
+
+  - id: "T06-F3"
+    title: "登记表单 + 编辑表单（zone_type 字典下拉、id 自动生成展示、提交 loading）"
+    prd: "Module_06 §4.0/§6.2/§11.2：登记行政信息，zone_type 来自 `/zone-types` 只读字典不开放自由文本，提交按钮 loading 防重复，字段校验错误置于字段下方"
+    group: "frontend"
+    input_files: ["ui-custom/web/src/pages/admin/domains/DomainsPage.tsx", "ui-custom/web/src/api/domain.ts"]
+    output_files:
+      - "ui-custom/web/src/pages/admin/domains/DomainForm.tsx"
+      - "ui-custom/web/src/pages/admin/domains/DomainForm.test.tsx"
+    depends_on: ["T06-F1", "T06-F2"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "表单复用登记/编辑两种模式：登记态 create、编辑态预填并走 update（不含 tenant_id）"
+      - "zone_type 下拉来自 zoneTypeApi.list 仅显示启用项；字典为空时置灰提示平台预置，不开放自由文本"
+      - "登记态展示「ID 自动生成」提示（由后端返回 id）；domain_type 必选"
+      - "提交期间按钮 loading+disabled；成功/失败分别处理并回刷列表；单测覆盖两种模式提交与校验"
+
+  - id: "T06-F4"
+    title: "禁用二次确认弹窗（展示后端影响范围、default 禁禁用、非空删除引导）"
+    prd: "Module_06 §6.2/§9.1/§11.2：禁用弹窗二次确认并展示后端返回影响范围（资源数/已纳管 EdgeAgent 数）；default 不可禁用；非空删除被拒引导禁用"
+    group: "frontend"
+    input_files: ["ui-custom/web/src/pages/admin/domains/DomainsPage.tsx", "ui-custom/web/src/api/domain.ts"]
+    output_files:
+      - "ui-custom/web/src/pages/admin/domains/DisableDomainModal.tsx"
+      - "ui-custom/web/src/pages/admin/domains/DisableDomainModal.test.tsx"
+    depends_on: ["T06-F1", "T06-F2"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "禁用前调 patchStatus(disabled) 返回影响范围后，弹窗展示「该网域下资源数 N / 已纳管 EdgeAgent 数 M」，人工二次确认才正式执行并刷新"
+      - "管理域（default）禁用按钮置灰/禁用并提示「管理域不可禁用」；恢复走 patchStatus(enabled)"
+      - "删除接口返回「存在资源引用/已纳管」错误时引导改用禁用"
+      - "单测覆盖影响范围展示、default 禁禁用、确认/取消分支"
+
+  - id: "T06-F5"
+    title: "空网域删除引导 + 删除限制（管理域无删除入口、非空引导）"
+    prd: "Module_06 §6.2/§11.2：删除仅空网域可用（无 M07 资源引用、无已纳管 EdgeAgent）；非空删除按钮置灰提示改用禁用；管理域（default）不提供删除入口"
+    group: "frontend"
+    input_files: ["ui-custom/web/src/pages/admin/domains/DomainsPage.tsx", "ui-custom/web/src/api/domain.ts"]
+    output_files:
+      - "ui-custom/web/src/pages/admin/domains/DeleteDomainModal.tsx"
+      - "ui-custom/web/src/pages/admin/domains/DeleteDomainModal.test.tsx"
+    depends_on: ["T06-F1", "T06-F2"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "管理域（default）不渲染删除入口；空网域展示可删除并二次确认"
+      - "调 remove(id) 成功后空态引导「暂无网域，去登记」；被拒（非空）时 Alert 展示后端错误并引导「请改用禁用」"
+      - "单测覆盖管理域无删除入口、空网域删除成功、非空被拒引导"
+
+  - id: "T06-F6"
+    title: "页面挂载与导航入口（网域管理页可达、回到首页）"
+    prd: "Module_06 §4.0 登记闭环 + §11 交互契约；Phase 5 统一导航前先提供最小可达入口"
+    group: "frontend"
+    input_files: ["ui-custom/web/src/App.tsx", "ui-custom/web/src/layouts/MainLayout.tsx", "ui-custom/web/src/pages/admin/domains/DomainsPage.tsx"]
+    output_files:
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+    depends_on: ["T06-F2"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "MainLayout 增加最小导航（首页 / 网域管理）或 App 提供简单页面切换，使 DomainsPage 可在浏览器访问"
+      - "网域管理入口常驻可用（部署级登记能力）；统一导航留给 Phase 5，不引入跨模块职责"
+      - "`pnpm lint`、`pnpm test` 通过；`pnpm dev` 首页与网域管理页均 200"

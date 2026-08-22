@@ -250,7 +250,7 @@ Stage 8: 需求冻结
 ### 7.3 chenrt 动作
 
 1. 准备原型任务卡，包含：需要展示的页面列表、关键业务流程、参考的 Module 文档
-2. 调用 `prototype-designer` 生成原型到 `design/module-XX` 分支（命令见 [`04_Team_Git_Operations_Guide.md`](04_Team_Git_Operations_Guide.md) §5）
+2. 调用 `prototype-designer` 生成原型到 `design/module-mvp-demo` 分支（命令见 [`04_Team_Git_Operations_Guide.md`](04_Team_Git_Operations_Guide.md) §5）
 3. 在本地启动验证原型效果
 4. 如需修改，继续与 Agent 迭代
 
@@ -408,7 +408,7 @@ Stage 8: 需求冻结
 
 **日期**：2026-07-21  
 **参与人**：chenrt、guixm、zhaohy  
-**原型分支**：design/module-XX
+**原型分支**：design/module-mvp-demo
 
 ## 1. 原型展示页面
 ## 2. guixm 意见

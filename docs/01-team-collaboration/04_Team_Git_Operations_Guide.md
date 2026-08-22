@@ -2,7 +2,7 @@
 
 > 文档类型：团队协作规范  
 > **目标读者**：chenrt（设计分支/合并操作）、zhangwq（功能分支/日常开发）、guixm / zhaohy（只读 Review，§7）  
-> 更新日期：2026-08-13（v1.27 新增：版本号速查 §2.2、功能分支冻结基线 §6.2/6.5、版本化迭代 §6.6）
+> 更新日期：2026-08-22（v1.28 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §5；feedback 单随 feat PR 链接 §6.4）
 
 ---
 
@@ -27,7 +27,7 @@
 
 | 分支 | 来源 | 合并目标 | 负责人 | Reviewer | 产出物 |
 |------|------|---------|--------|----------|--------|
-| `design/module-XX` | `develop` | `develop` | chenrt | guixm、zhaohy | PRD + 原型 |
+| `design/module-mvp-demo` | `develop` | `develop` | chenrt | guixm、zhaohy | PRD + 原型 |
 | `feat/module-XX` | `develop` | `develop` | zhangwq | zhangwq、zhaohy、guixm、chenrt | 生产代码 |
 | `release/*` | `develop` | `main` + `develop` | chenrt | - | 发布版本 |
 | `hotfix/*` | `main` | `main` + `develop` | zhangwq | chenrt | 紧急修复 |
@@ -85,9 +85,11 @@ git pull origin develop
 
 ---
 
-## 5. chenrt 操作：设计分支（design/module-XX）
+## 5. chenrt 操作：设计分支（MVP 阶段单一 `design/module-mvp-demo`）
 
 chenrt 负责 PRD + 原型的提交，以及所有分支向 `develop` 的合并。
+
+> **v1.28（单设计分支）**：MVP 阶段**合并为单一 `design/module-mvp-demo` 分支，不再按模块切分**。设计跨模块（如网域跨 M01/M06/M07/M09）时无需切换分支。模块归属靠 **PRD 文件物理隔离**（`Module_XX_*.md` 单文件）+ `docs/02-product-requirements/Modules/README.md` §4 映射表追溯，**追溯能力不依赖分支名**。进入正式多版本阶段后再视需要拆分回 `design/module-XX`。
 
 ### 5.1 创建设计分支
 
@@ -95,7 +97,7 @@ chenrt 负责 PRD + 原型的提交，以及所有分支向 `develop` 的合并�
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git checkout develop
 git pull origin develop
-git checkout -b design/module-XX
+git checkout -b design/module-mvp-demo
 ```
 
 ### 5.2 编写 PRD 与原型
@@ -115,16 +117,16 @@ git commit -m "design(module-XX): 添加 XXX 模块 PRD 与原型
 - 新增 PRD
 - 新增可点击原型代码
 "
-git push origin design/module-XX
+git push origin design/module-mvp-demo
 ```
 
 ### 5.4 发起 PR
 
-1. 在 GitHub 上发起 `design/module-XX → develop` 的 Pull Request
+1. 在 GitHub 上发起 `design/module-mvp-demo → develop` 的 Pull Request
 2. Reviewer 指定 guixm、zhaohy
 3. 合并前必须获得 guixm 和 zhaohy 的 Approve
 
-> **多轮迭代约定（v1.26）**：`design/module-XX` 允许跨多轮需求迭代（如第十一轮、第十二轮…），chenrt 持续在分支上提交并推送，每轮评审通过后合并到 `develop`。已合并的 PR 无法继续推送新提交，**每轮迭代后重新发起新 PR**（PR 编号递增，如 #12 → #24）。PR 标题或描述建议标注迭代轮次（如"第 N 轮需求对齐"），便于后续对照 PRD 版本。合并方式见 §5.5，与单轮 PR 完全一致。
+> **多轮迭代约定（v1.26）**：`design/module-mvp-demo` 允许跨多轮需求迭代（如第十一轮、第十二轮…），chenrt 持续在分支上提交并推送，每轮评审通过后合并到 `develop`。已合并的 PR 无法继续推送新提交，**每轮迭代后重新发起新 PR**（PR 编号递增，如 #12 → #24）。PR 标题或描述建议标注迭代轮次（如"第 N 轮需求对齐"），便于后续对照 PRD 版本。合并方式见 §5.5，与单轮 PR 完全一致。
 
 ### 5.5 合并到 develop
 
@@ -132,7 +134,7 @@ git push origin design/module-XX
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
 git pull origin develop
-git merge --no-ff design/module-XX
+git merge --no-ff design/module-mvp-demo
 git push origin develop
 ```
 
@@ -182,13 +184,14 @@ git push origin feat/module-XX
 
 1. 在 GitHub 上发起 `feat/module-XX → develop` 的 Pull Request
 2. PR 描述必须包含：
-   - 来源设计分支：`design/module-XX`
+   - 来源设计分支：`design/module-mvp-demo`
    - 来源 PRD：`docs/02-product-requirements/Modules/Module_XX_*.md`
    - **依据的 PRD 版本 + PR 编号**（冻结基线，v1.27）
    - 来源原型：`docs/prototypes/module-XX/`
    - 测试结果（go test / go vet / pnpm test / pnpm lint）
    - 服务验证结果
    - 预览链接（待 GitHub Actions Bot 自动回复）
+   - **dev-feedback.md 链接（v1.28）**：若 `docs/05-execution-records/module-XX/dev-feedback.md` 非空（存在 ①空白 / ③技术优化 反馈），PR 描述必须链接该反馈单，供 PM 合并时一次性收割；若为空则注明「无开发反馈」
 3. Reviewer 指定 chenrt、zhaohy、guixm
 
 ### 6.5 处理 Review 意见
@@ -238,10 +241,10 @@ git checkout <merge-commit-hash> -- docs/02-product-requirements/Modules/Module_
 
 guixm 和 zhaohy 主要参与 GitHub 上的 Review 和验收，不需要本地开发环境。
 
-### 7.1 查看 PRD + 原型 PR（design/module-XX）
+### 7.1 查看 PRD + 原型 PR（design/module-mvp-demo）
 
 1. 打开 GitHub 仓库
-2. 进入 `design/module-XX → develop` 的 Pull Request
+2. 进入 `design/module-mvp-demo → develop` 的 Pull Request
 3. 查看 Files changed：
    - `docs/02-product-requirements/Modules/Module_XX_*.md`
    - `docs/prototypes/module-XX/`
@@ -250,7 +253,7 @@ guixm 和 zhaohy 主要参与 GitHub 上的 Review 和验收，不需要本地�
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git fetch origin
-git checkout origin/design/module-XX
+git checkout origin/design/module-mvp-demo
 # 查看完成后切回 develop
 git checkout develop
 ```

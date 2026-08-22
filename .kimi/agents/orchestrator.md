@@ -234,7 +234,7 @@ Orchestrator 判断影响范围
         └──► 批准：
              │
              ▼
-             切回 design/module-XX 更新 PRD + Change Log
+             切回 design/module-mvp-demo 更新 PRD + Change Log
              │
              ▼
              重新调用 plan-maintainer 更新 L2
@@ -314,8 +314,8 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 
 1. 先让实现 Agent 完成并汇报
 2. 调用 `new_context`
-3. 启动 Reviewer sub-agent，传入：
-   - `git diff` 输出或变更文件列表
+3. 启动 Reviewer sub-agent，传入（**v1.28 起：必须附完整 diff 文本**——Reviewer 禁止 Shell，无法自行 `git diff`；仅给文件列表会导致目录隔离 / 超范围修改 / L3 边界审查盲审）：
+   - `git diff develop...feat/module-XX` 的完整 diff 文本（或可访问的 diff 文件路径）+ 变更文件列表
    - PRD 路径
    - 原型路径
    - 相关工程标准路径
@@ -422,4 +422,5 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 4. 审查结论（是否通过，遗留问题）
 5. 验证结果（test / lint / 服务启动）
 6. 变更请求记录（如有）
-7. 下一步建议（发起 PR / 补充测试 / 合并 develop / 进入下一模块）
+7. dev-feedback 收割状态（v1.26 起）：确认 `docs/05-execution-records/module-XX/dev-feedback.md` **已填写 / 已收割**——非空反馈必须随 feat PR 描述链接、合并时由 PM 在 `design/module-mvp-demo` 上一轮版本化迭代收割；**② 类（实现矛盾）问题必须事前报告走 CR，禁止事后塞进 feedback 当既成事实**
+8. 下一步建议（发起 PR / 补充测试 / 合并 develop / 进入下一模块）
