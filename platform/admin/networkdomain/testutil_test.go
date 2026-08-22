@@ -72,6 +72,20 @@ func seedZoneTypes(t *testing.T, db *gorm.DB) {
 	}
 }
 
+// seedTenants inserts the platform_admin and biz-ops tenants plus one
+// suspended tenant so status filtering can be exercised.
+func seedTenants(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	items := []models.Tenant{
+		{ID: models.PlatformAdminTenantID, Name: "平台默认租户", Status: models.TenantStatusActive, IsPlatformAdmin: true},
+		{ID: "t-biz-ops", Name: "平台运营部", Status: models.TenantStatusActive},
+		{ID: "t-suspended", Name: "停用租户", Status: models.TenantStatusSuspended},
+	}
+	for i := range items {
+		require.NoError(t, db.Create(&items[i]).Error)
+	}
+}
+
 // insertDomain persists a network domain row directly (test fixture helper).
 func insertDomain(t *testing.T, db *gorm.DB, d *models.NetworkDomain) {
 	t.Helper()

@@ -77,7 +77,11 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 		require.Equal(t, http.StatusOK, code)
 		arr, ok := out["data"].([]interface{})
 		require.True(t, ok, "zone-types data should be an array")
-		assert.Len(t, arr, 4)
+		assert.Len(t, arr, 2, "acceptance baseline enables only 政务外网区/互联网区")
+		for _, it := range arr {
+			m := it.(map[string]interface{})
+			assert.True(t, m["code"] == "extranet" || m["code"] == "internet", "unexpected enabled zone type: %v", m["code"])
+		}
 	}
 
 	// 2. register an edge domain

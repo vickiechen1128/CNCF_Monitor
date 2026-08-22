@@ -66,13 +66,18 @@ func TestRunSeedsZoneTypes(t *testing.T) {
 
 	require.NoError(t, Run(db))
 
-	for _, code := range []models.ZoneTypeCode{
-		models.ZoneTypeInternet, models.ZoneTypeExtranet,
-		models.ZoneTypePrivateLine, models.ZoneTypeDMZ,
-	} {
+	// 验收基线：仅 政务外网区 / 互联网区 启用，专线区 / DMZ区 保留但禁用
+	enabled := []models.ZoneTypeCode{models.ZoneTypeExtranet, models.ZoneTypeInternet}
+	disabled := []models.ZoneTypeCode{models.ZoneTypePrivateLine, models.ZoneTypeDMZ}
+	for _, code := range enabled {
 		var zt models.ZoneType
 		require.NoError(t, db.Where("code = ?", string(code)).First(&zt).Error)
 		assert.True(t, zt.Enabled, "zone_type %s should be enabled", code)
+	}
+	for _, code := range disabled {
+		var zt models.ZoneType
+		require.NoError(t, db.Where("code = ?", string(code)).First(&zt).Error)
+		assert.False(t, zt.Enabled, "zone_type %s should be disabled", code)
 	}
 }
 

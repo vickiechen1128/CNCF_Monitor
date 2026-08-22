@@ -129,12 +129,11 @@ export function DomainFormModal({ open, mode, domain, onCancel, onSuccess }: Dom
           <Form.Item
             label="域类型"
             name="domain_type"
-            rules={[{ required: true, message: '请选择域类型' }]}
-            extra="登记的一般为「边缘域」；「管理域」为系统预置（default）"
+            initialValue="edge"
+            extra="登记只支持「边缘域」；「管理域」为系统预置，由平台管理员维护"
           >
-            <Select placeholder="请选择域类型">
+            <Select disabled placeholder="边缘域">
               <Select.Option value="edge">边缘域</Select.Option>
-              <Select.Option value="management">管理域</Select.Option>
             </Select>
           </Form.Item>
         ) : (

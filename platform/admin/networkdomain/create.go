@@ -26,8 +26,12 @@ type CreateNetworkDomainRequest struct {
 	AuthorizedTenantIDs []string          `json:"authorized_tenant_ids"`
 }
 
+// validDomainType reports whether dt is a domain type that may be provisioned
+// through the registration API. Management domains are system-provisioned
+// (only the platform admin) and must NOT be created via business registration,
+// so the API only accepts edge domains here.
 func validDomainType(dt models.DomainType) bool {
-	return dt == models.DomainTypeManagement || dt == models.DomainTypeEdge
+	return dt == models.DomainTypeEdge
 }
 
 // randomDomainCode returns a short random lowercase-hex domain code used when
@@ -55,7 +59,7 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !validDomainType(req.DomainType) {
-			response.BadRequest(c, fmt.Errorf("invalid domain_type %q: must be management or edge", req.DomainType))
+			response.BadRequest(c, fmt.Errorf("invalid domain_type %q: only edge domains can be registered; management domains are system-provisioned", req.DomainType))
 			return
 		}
 		if req.DomainCode == models.DefaultDomainID {

@@ -72,6 +72,16 @@ func TestCreateNetworkDomainInvalidDomainType(t *testing.T) {
 	assert.Equal(t, 400, code)
 }
 
+// TestCreateNetworkDomainRejectsManagementDomain verifies that a management
+// domain cannot be created through the business registration API: management
+// domains are system-provisioned (only the platform admin), not business assets.
+func TestCreateNetworkDomainRejectsManagementDomain(t *testing.T) {
+	db := openTestDB(t)
+	code, _, errStr := postCreate(t, db, `{"name":"越权管理域","domain_type":"management","domain_code":"ops-dc"}`)
+	assert.Equal(t, 400, code)
+	assert.Contains(t, errStr, "system-provisioned")
+}
+
 func TestCreateNetworkDomainReservedDefault(t *testing.T) {
 	db := openTestDB(t)
 	code, _, _ := postCreate(t, db, `{"name":"x","domain_type":"edge","domain_code":"default"}`)

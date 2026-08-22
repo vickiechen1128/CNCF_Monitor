@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import config from 'antd/locale/zh_CN'
 import { MainLayout } from '../../../layouts/MainLayout'
+import { FilterBar, FilterItem } from '../../../components/FilterBar'
+import { EllipsisText } from '../../../components/EllipsisText'
+import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { Alert, Button, Card, ConfigProvider, Empty, Input, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd'
 import {
   CheckCircleOutlined,
@@ -20,10 +23,11 @@ import { DomainFormModal } from './DomainForm'
 import { DisableDomainModal } from './DisableDomainModal'
 import { DeleteDomainModal } from './DeleteDomainModal'
 
-const { Title, Text } = Typography
+const { Text } = Typography
 
 /**
  * 网域管理列表页（Module_06 §11.1 页面状态矩阵）。
+ * 参见 docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md
  * 覆盖：加载骨架屏 / 空态「暂无网域」+登记引导 / 接口错误 Alert+重新加载 / 权限不足空态 / 数据超量分页+筛选。
  * 操作：登记（DomainForm create）/ 编辑（DomainForm edit）/ 禁用（DisableDomainModal 二次确认+影响范围）/
  * 启用（直接恢复）/ 删除（仅空网域）/ 跨模块跳转 Module_09 网域纳管（占位）。
@@ -96,6 +100,8 @@ export function DomainsPage() {
     window.open(`#/domain-onboarding?network_domain=${encodeURIComponent(record.id)}`, '_blank')
   }
 
+  // 列集合对齐原型（网域ID/名称/登记归属/授权租户/类型/网络区域类型/监控纳管/状态/创建时间/操作）。
+  // D4：按原型补齐「监控纳管」「创建时间」，状态色对齐原型（启用 #00B578 / 禁用 #86909C）。
   const columns: ColumnsType<NetworkDomain> = [
     {
       title: '网域 ID',
@@ -110,22 +116,7 @@ export function DomainsPage() {
       dataIndex: 'name',
       key: 'name',
       width: 200,
-      ellipsis: { showTitle: true },
-    },
-    {
-      title: '域类型',
-      dataIndex: 'domain_type',
-      key: 'domain_type',
-      width: 110,
-      render: (type: NetworkDomain['domain_type']) =>
-        type === 'management' ? <Tag color="blue">管理域</Tag> : <Tag color="cyan">边缘域</Tag>,
-    },
-    {
-      title: '网络区域类型',
-      dataIndex: 'zone_type',
-      key: 'zone_type',
-      width: 150,
-      render: (value: string) => (value ? <Tag>{zoneTypeLabel(value)}</Tag> : <Text type="secondary">未登记</Text>),
+      render: (name: string) => <EllipsisText>{name}</EllipsisText>,
     },
     {
       title: '登记归属',
@@ -159,23 +150,57 @@ export function DomainsPage() {
       },
     },
     {
+      title: '类型',
+      dataIndex: 'domain_type',
+      key: 'domain_type',
+      width: 110,
+      render: (type: NetworkDomain['domain_type']) =>
+        type === 'management' ? <Tag color="blue">管理域</Tag> : <Tag color="cyan">边缘域</Tag>,
+    },
+    {
+      title: '网络区域类型',
+      dataIndex: 'zone_type',
+      key: 'zone_type',
+      width: 150,
+      render: (value: string) => (value ? <Tag>{zoneTypeLabel(value)}</Tag> : <Text type="secondary">未登记</Text>),
+    },
+    {
+      title: '监控纳管',
+      dataIndex: 'is_monitored',
+      key: 'is_monitored',
+      width: 110,
+      render: (v: boolean) =>
+        v ? (
+          <Tag color="processing">已纳管</Tag>
+        ) : (
+          <Tag>未纳管</Tag>
+        ),
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
       width: 100,
       render: (status: NetworkDomain['status']) =>
-        status === 'enabled' ? <Tag color="green">启用</Tag> : <Tag>禁用</Tag>,
+        status === 'enabled' ? <Tag color="#00B578">启用</Tag> : <Tag color="#86909C">禁用</Tag>,
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 170,
+      render: (v: string) => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '—'),
     },
     {
       title: '操作',
       key: 'action',
-      width: 260,
+      width: 272,
       fixed: 'right',
       render: (_: unknown, record: NetworkDomain) => {
         const isManagement = record.domain_type === 'management'
         const vacant = isVacantDomain(record)
         return (
-          <Space size={0} wrap>
+          <Space size={8}>
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => showEdit(record)}>
               编辑
             </Button>
@@ -223,16 +248,18 @@ export function DomainsPage() {
                 </Button>
               </Tooltip>
             )}
-            <Tooltip title="跳转 Module_09 网域纳管">
-              <Button
-                type="link"
-                size="small"
-                icon={<CloudUploadOutlined />}
-                onClick={() => jumpToConfigCenter(record)}
-              >
-                网域纳管
-              </Button>
-            </Tooltip>
+            {!record.is_monitored && (
+              <Tooltip title="跳转 Module_09 网域纳管">
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<CloudUploadOutlined />}
+                  onClick={() => jumpToConfigCenter(record)}
+                >
+                  网域纳管
+                </Button>
+              </Tooltip>
+            )}
           </Space>
         )
       },
@@ -248,11 +275,6 @@ export function DomainsPage() {
       ) : (
       <ConfigProvider locale={config}>
       <Card
-        title={
-          <Title level={4} style={{ margin: 0 }}>
-            网域管理
-          </Title>
-        }
         extra={
           <Button type="primary" icon={<PlusOutlined />} onClick={showCreate}>
             登记网域
@@ -273,61 +295,69 @@ export function DomainsPage() {
             style={{ marginBottom: 16 }}
           />
         )}
-        <Space style={{ marginBottom: 16 }} wrap>
-          <Input.Search
-            placeholder="按网域名称搜索"
-            allowClear
-            style={{ width: 200 }}
-            onSearch={(v) => setFilters({ ...filters, name: v || undefined })}
-          />
-          <Select
-            placeholder="全部网络区域类型"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 180 }}
-            value={filters.zone_type}
-            onChange={(v) => setFilters({ ...filters, zone_type: v })}
-          >
-            {enabledZoneTypes.map((z) => (
-              <Select.Option key={z.code} value={z.code} label={z.display_name}>
-                {z.display_name}
-              </Select.Option>
-            ))}
-          </Select>
-          <Select
-            placeholder="全部状态"
-            allowClear
-            style={{ width: 140 }}
-            value={filters.status}
-            onChange={(v) => setFilters({ ...filters, status: v })}
-          >
-            <Select.Option value="enabled">启用</Select.Option>
-            <Select.Option value="disabled">禁用</Select.Option>
-          </Select>
-          <Select
-            placeholder="全部登记归属"
-            allowClear
-            showSearch
-            optionFilterProp="label"
-            style={{ width: 180 }}
-            value={filters.tenant_id}
-            onChange={(v) => setFilters({ ...filters, tenant_id: v })}
-          >
-            {tenants.map((t) => (
-              <Select.Option key={t.id} value={t.id} label={t.name}>
-                {t.name}
-              </Select.Option>
-            ))}
-          </Select>
-        </Space>
+        <FilterBar>
+          <FilterItem label="网域名称" width={260}>
+            <Input.Search
+              placeholder="按网域名称搜索"
+              allowClear
+              style={{ width: 180 }}
+              onSearch={(v) => setFilters({ ...filters, name: v || undefined })}
+            />
+          </FilterItem>
+          <FilterItem label="网络区域" width={260}>
+            <Select
+              placeholder="全部"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 180 }}
+              value={filters.zone_type}
+              onChange={(v) => setFilters({ ...filters, zone_type: v })}
+            >
+              {enabledZoneTypes.map((z) => (
+                <Select.Option key={z.code} value={z.code} label={z.display_name}>
+                  {z.display_name}
+                </Select.Option>
+              ))}
+            </Select>
+          </FilterItem>
+          <FilterItem label="状态" width={200}>
+            <Select
+              placeholder="全部"
+              allowClear
+              style={{ width: 120 }}
+              value={filters.status}
+              onChange={(v) => setFilters({ ...filters, status: v })}
+            >
+              <Select.Option value="enabled">启用</Select.Option>
+              <Select.Option value="disabled">禁用</Select.Option>
+            </Select>
+          </FilterItem>
+          <FilterItem label="登记归属" width={260}>
+            <Select
+              placeholder="全部"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              style={{ width: 180 }}
+              value={filters.tenant_id}
+              onChange={(v) => setFilters({ ...filters, tenant_id: v })}
+            >
+              {tenants.map((t) => (
+                <Select.Option key={t.id} value={t.id} label={t.name}>
+                  {t.name}
+                </Select.Option>
+              ))}
+            </Select>
+          </FilterItem>
+        </FilterBar>
 
         <Table<NetworkDomain>
           rowKey="id"
           dataSource={data.list}
           loading={loading}
           columns={columns}
-          scroll={{ x: 1280 }}
+          scroll={TABLE_SCROLL_X}
           locale={{
             emptyText: (
               <Empty description="暂无网域">
@@ -338,11 +368,10 @@ export function DomainsPage() {
             ),
           }}
           pagination={{
+            ...TABLE_PAGINATION,
             current: page,
             pageSize,
             total: data.total,
-            showSizeChanger: true,
-            showTotal: (t) => `共 ${t} 条`,
             onChange: (p, pz) => onPageSizeChange(p, pz),
           }}
         />

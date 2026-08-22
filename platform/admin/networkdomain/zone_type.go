@@ -9,12 +9,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// ZoneTypeView is the public projection of a zone_type dictionary entry,
-// exposing only the enabled dictionary fields.
+// ZoneTypeView is the public projection of a zone_type dictionary entry.
+// Only enabled entries are returned; Enabled is always true here but kept so
+// the frontend's presence filter stays self-consistent.
 type ZoneTypeView struct {
 	Code        string `json:"code"`
 	DisplayName string `json:"display_name"`
 	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // ListZoneTypes returns only the enabled, deployment-level zone_type
@@ -33,6 +35,7 @@ func ListZoneTypes(db *gorm.DB) gin.HandlerFunc {
 				Code:        z.Code,
 				DisplayName: z.DisplayName,
 				Description: z.Description,
+				Enabled:     true,
 			})
 		}
 		response.OK(c, items)
