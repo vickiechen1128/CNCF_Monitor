@@ -11,19 +11,22 @@
 
 > **v1.25 起去重**：工作流每一步的**详细执行要求（每个 Agent 何时被调、读什么、产出什么、如何验收）的权威定义在 `.kimi/agents/orchestrator.md`「标准工作流」**；本文件仅保留人视角的流程概览，不再重复细节。
 
-本项目采用 **Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支** 的协作模式。
+本项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 的协作模式。
+
+- **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，写 PRD、改原型。
+- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX` 做 Vibe Coding（并行推进多模块时额外 `git worktree add` 多目录）。
 
 ```
 Orchestrator 接收需求
     │
+    ├──► [设计空间] prototype-designer 产出 PRD + 原型（design/module-mvp-demo）
     ├──► Planner 输出模块任务规划（明确 feature/module-XX-<功能名> 分支）
-    ├──► 复用单一 git worktree，切换到当前模块 feature 分支
-    ├──► Backend Developer / Frontend Developer TDD 开发（提交到 feature/module-XX-<功能名>）
+    ├──► [开发空间] Backend / Frontend Developer TDD 开发（提交到 feat/module-XX-<功能名>）
     ├──► Reviewer 代码审查（如 REQUEST_CHANGES，返回 Developer 修复）
-    ├──► 在 worktree 中验证运行状态（后端 go test/vet+接口；前端 pnpm test/lint+dev server）
-    ├──► Orchestrator 在主仓库将 feature 分支 --no-ff 合并到 develop
+    ├──► [开发空间] 验证运行状态（后端 go test/vet+接口；前端 pnpm test/lint+dev server）
+    ├──► Orchestrator 将 feat 分支 --no-ff 合并到 develop
     ├──► 在 develop 环境中再次验证运行状态（如失败回退或修复）
-    └──► worktree 保留，切换到下一模块分支
+    └──► 开发空间保留，切换到下一模块 feat 分支
 ```
 
 > 各环节的**任务卡格式与子 Agent 只读规则见 `.kimi/agents/orchestrator.md`**；详细分支策略与回退机制见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。

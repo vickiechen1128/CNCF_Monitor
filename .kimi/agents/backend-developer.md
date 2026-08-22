@@ -53,15 +53,14 @@
 
 如果某个 Skill 文件缺失，立即停止并报告 Orchestrator。
 
-### Step 2: 切换到正确的 worktree 与分支
+### Step 2: 切换到开发空间与 feat 分支
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git rev-parse --git-dir   # 必须包含 .git/worktrees/
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git branch --show-current # 必须是 feat/module-XX
 ```
 
-若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `feat/module-XX`。
+若不在正确分支，在开发空间内按 `cncf-git-workflow` Skill 创建/切换 `feat/module-XX`。
 
 ### Step 3: 读取任务卡指定的输入文档
 

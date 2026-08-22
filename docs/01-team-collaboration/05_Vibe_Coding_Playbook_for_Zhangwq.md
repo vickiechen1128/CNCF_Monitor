@@ -11,7 +11,7 @@
 本手册是 开发工程师 在 MetricCenter 项目中使用 AI Agent 进行 Vibe Coding 的**执行层 SOP**，聚焦于**人**要做的动作：
 
 - 如何把 Module 文档转化为任务卡并调用 Agent
-- 如何监督 AI 在正确范围、正确分支、正确 worktree 内开发
+- 如何监督 AI 在正确范围、正确分支、正确空间（开发空间 `CNCF_Monitor-feature`）内开发
 - 如何对 AI 输出进行人工 Review 与测试补强
 - 如何执行提交前验证并产出合并申请
 
@@ -27,7 +27,7 @@
 接收 chenrt 任务单
         │
         ▼
-准备：worktree、feat 分支、必读文档
+准备：开发空间、feat 分支、必读文档
         │
         ▼
 设计任务卡（输入路径+章节 / 输出 / 验收 / 不修改范围）
@@ -59,7 +59,7 @@
 
 | 检查项            | 命令                                  | 期望结果                 |
 | -------------- | ----------------------------------- | -------------------- |
-| 在固定 worktree 内 | `git rev-parse --git-dir`           | 包含 `.git/worktrees/` |
+| 在开发空间 `CNCF_Monitor-feature` | `pwd`                           | `/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature` |
 | 在正确 feat 分支    | `git branch --show-current`         | `feat/module-XX`     |
 | 分支基于最新 develop | `git log --oneline -1`              | 与 origin/develop 同步  |
 | 后端环境           | `go version`                        | 与 `go.mod` 一致        |
@@ -200,7 +200,7 @@ AI 通常擅长 happy path，但容易遗漏异常路径、并发、权限边界
 ### Q4：如何在多个模块之间切换？
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git stash push -m "WIP: module-XX"
 git checkout feat/module-YY
 # 处理完切回来
@@ -217,7 +217,7 @@ git stash pop
 3. **禁止直接修改** **`upstream/`** **源码**；必须走 patch 流程。
 4. **禁止未经 chenrt 批准直接合并到** **`develop`**。
 5. **禁止在未经批准的情况下切换 AI 模型或工具**。
-6. **禁止让 AI 在 worktree 外直接开发并提交**。
+6. **禁止让 AI 在开发空间（`CNCF_Monitor-feature`）之外直接开发并提交**。
 
 ***
 

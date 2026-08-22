@@ -270,11 +270,11 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 
 ## 分支与模块顺序
 
-本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
+本项目采用**双文件夹隔离 + 设计/实现分离分支**模式：
 
-- worktree 目录：项目固定 worktree 根目录（见 `.kimi/AGENTS.md`），固定复用，不随模块变化
-- 设计分支：`design/module-mvp-demo`（PRD + 原型代码）
-- 功能分支：`feat/module-XX`（生产代码实现）
+- 设计空间 `CNCF_Monitor-worktree`：固定分支 `design/module-mvp-demo`（PRD + 原型代码）
+- 开发空间 `CNCF_Monitor-feature`：`develop` + `feat/module-XX`（生产代码实现）
+- 开发侧并行推进多模块时可在开发空间额外 `git worktree add` 多目录
 - 分支来源：`develop`
 - 合并目标：`develop`
 

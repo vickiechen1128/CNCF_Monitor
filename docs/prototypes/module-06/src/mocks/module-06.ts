@@ -128,6 +128,11 @@ export const ZONE_TYPE_OPTIONS: ZoneTypeOption[] = [
 export const zoneTypeLabelOf = (value: string) =>
   ZONE_TYPE_OPTIONS.find((z) => z.value === value)?.label ?? (value ? value : '未登记')
 
+/**
+ * 以下 mock 数组为**原型演示数据，不落库**（仅用于可点击原型交互演示）。
+ * 实际落库仅后端启动时 migration upsert `platform_admin` 单租户（决策 23，MVP），
+ * 「平台运营部 / 电商研发部 / 金融运维部」等租户示例仅供前端演示，禁止在交付时 seed 进数据库。
+ */
 export const mockTenants: Tenant[] = [
   {
     id: 't-platform',

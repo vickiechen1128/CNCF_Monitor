@@ -75,10 +75,11 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
 每次被调用时，按顺序执行：
 
 1. **读取项目上下文**：必须首先调用 `cncf-project` Skill
-2. **确认当前工作区**：
+2. **确认当前工作区与空间归属**：
+   - 设计工作（PRD / 原型）→ 设计空间 `CNCF_Monitor-worktree`，分支 `design/module-mvp-demo`
+   - 开发协调（Vibe Coding）→ 开发空间 `CNCF_Monitor-feature`，分支 `feat/module-XX`
    ```bash
-   cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-   git rev-parse --git-dir
+   pwd
    git branch --show-current
    ```
 3. **明确用户需求**：如果需求不清晰，使用 `grill-with-docs` Skill 或 `AskUserQuestion` 进行对齐

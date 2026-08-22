@@ -131,12 +131,12 @@ Orchestrator（你）
     │         ▼
     │    明确当前模块分支：feat/module-XX-<功能名>
     │
-    ├──► 复用单一 git worktree
+    ├──► [开发空间] 从 develop 切出当前模块 feat 分支
     │         │
     │         ▼
-    │    在 worktree 内切换到当前模块 feature 分支
+    │    cncf-git-workflow 双文件夹模型，开发在 CNCF_Monitor-feature
     │
-    ├──► 调用 backend-developer 在 worktree 中 TDD 开发
+    ├──► 调用 backend-developer 在开发空间 TDD 开发
     │         │
     │         ▼
     │    完成后提交到 feat/module-XX-<功能名>
@@ -153,7 +153,7 @@ Orchestrator（你）
     │
     ├──► 调用 frontend-reviewer 审查
     │
-    ├──► 在 worktree 中验证运行状态
+    ├──► 在开发空间验证运行状态
     │         │
     │         ▼
     │    后端：go test/vet + 启动服务验证接口
@@ -162,28 +162,28 @@ Orchestrator（你）
     ├──► 将 feat/module-XX-<功能名> 以 --no-ff 合并到 develop
     │         │
     │         ▼
-    │    由 Orchestrator 在主仓库执行合并
+    │    由 Orchestrator 在开发空间执行合并
     │
     ├──► 在 develop 环境中再次验证运行状态
     │         │
     │         ▼
     │    如验证失败，回退或修复；如通过，继续下一模块
     │
-    └──► worktree 保留，切换到下一个模块分支继续复用
+    └──► 开发空间 CNCF_Monitor-feature 保留，切换到下一个模块 feat 分支继续复用
 ```
 
-#### Worktree 使用规范
+#### 双文件夹隔离与开发空间规范
 
-本项目采用 **Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支** 模式。
+本项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 模式。
+
+- **设计空间** `CNCF_Monitor-worktree`：固定分支 `design/module-mvp-demo`，写 PRD、改原型。
+- **开发空间** `CNCF_Monitor-feature`：`develop` + `feat/module-XX-<功能名>`，做 Vibe Coding（独立克隆，与设计空间物理隔离）。
 
 ```bash
-# 由 Orchestrator 在主仓库执行（一次性初始化）
-cd "../CNCF_Monitor"
+# 开发空间一次性初始化（克隆远程仓库）
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
+git clone <远程仓库地址> .
 git checkout develop
-
-# 创建单一 worktree，目录固定，不随模块变化
-git worktree add "../CNCF_Monitor-worktree" develop
-cd "../CNCF_Monitor-worktree"
 
 # 开始某个模块时，从 develop 切出对应 feature 分支
 git checkout -b feat/module-XX-<功能名> origin/develop
@@ -209,10 +209,10 @@ git checkout -b feat/module-XX-<功能名> origin/develop
 - 每个功能子模块对应一个 feature 分支，分支内只包含该模块的改动
 - 模块完成后，Orchestrator 将当前 feature 分支以 `--no-ff` 合并回 `develop`
 - 严禁 feature 分支直接合入 `main`
-- worktree 目录固定复用，通过切换分支完成不同模块开发
+- 开发空间 `CNCF_Monitor-feature` 克隆固定复用，通过切换 feat 分支完成不同模块开发
 - 回退策略详见 [06_Gitflow_Branch_and_Rollback_Guide.md](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)
 
-Agent 进入 worktree 后必须先执行启动协议：
+Agent 进入开发空间后必须先执行启动协议：
 
 - **backend-developer**: `make install-tools && make build-prometheus && go test ./platform/...`
 - **frontend-developer**: `cd ui-custom/web && pnpm install && pnpm lint`
@@ -911,7 +911,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 | 周次 | Orchestrator 动作 | backend-developer | frontend-developer | reviewer |
 |------|-------------------|-------------------|--------------------|----------|
-| 1 | 规划 Phase 0~1；创建 worktree | Phase 0：基础设施 + 种子数据 | Phase 0：前端结构 + 网域管理页框架 | golang-reviewer 审查后端基础设施 |
+| 1 | 规划 Phase 0~1；在开发空间创建 feat 分支 | Phase 0：基础设施 + 种子数据 | Phase 0：前端结构 + 网域管理页框架 | golang-reviewer 审查后端基础设施 |
 | 2 | 汇总 Phase 1；规划 Phase 2 | Phase 1：网域登记 API | Phase 1：网域管理页 | frontend-reviewer |
 | 3 | 规划 Phase 3 | Phase 2：资源/标签模板/Excel 后端 | Phase 2：资源/标签模板页面 | golang-reviewer |
 | 4 | 规划 Phase 4；协调前后端契约 | Phase 3：策略后端（CI/Job/规则挂载） | Phase 3：策略页面 | frontend-reviewer |
@@ -987,7 +987,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 | M01 与 M09 `change_status` 回写延迟 | 用户看到的状态不准确 | 采用 pull 模式异步回写；UI 提示「状态可能存在延迟，可刷新查看最新」 |
 | Excel 字段后期变更 | 导致导入逻辑和模板返工 | Phase 2 冻结最小字段集，后续只增不改 |
 | 前端等待后端 API | 串行阻塞 | Planner 在规划中明确 API 契约，Frontend Developer 使用 mock 数据并行开发 |
-| 多 Agent 同时修改冲突 | 代码冲突、worktree 污染 | 采用单一 worktree，Agent 顺序进入；前后端按 `platform/` 与 `ui-custom/` 目录天然隔离 |
+| 多 Agent 同时修改冲突 | 代码冲突、空间/分支污染 | 采用双文件夹隔离，开发集中在 `CNCF_Monitor-feature` 按 Phase 顺序进入；前后端按 `platform/` 与 `ui-custom/` 目录天然隔离 |
 | Agent 误解需求 | 实现偏离 | 每个 Phase 开始前必须调用 `planner` 输出规划，并引用相关 PRD 文件 |
 | Reviewer 与 Developer 标准不一致 | 反复修改 | Orchestrator 在启动时统一注入 `.kimi/skills/golang-coding-style` 和 `web-development` 规范 |
 | Prometheus 源码被误改 | 未来升级困难 | 涉及源码时必须走 `prometheus-developer`，生成 patch 文件 |
@@ -1000,12 +1000,12 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 - [ ] 明确本 Phase 要交付的功能和验收标准
 - [ ] 调用 `planner`，提供相关 PRD 和上一 Phase 的输出
-- [ ] 复用单一 git worktree（在 worktree 内切换到当前模块的 `feat/module-XX-<功能名>`）
+- [ ] 在开发空间 `CNCF_Monitor-feature` 内切换到当前模块的 `feat/module-XX-<功能名>`
 - [ ] 向 `backend-developer` / `frontend-developer` 分配任务，并注入相关 skill 上下文
 - [ ] 接收 Developer 完成汇报，检查测试与 lint 结果
 - [ ] 调用对应 `reviewer` 进行代码审查
 - [ ] 如审查不通过，返回 Developer 修复并重新审查
-- [ ] 将当前 `feat/module-XX-<功能名>` 以 `--no-ff` 合并到 `develop`（保留 worktree 供下一模块复用）
+- [ ] 将当前 `feat/module-XX-<功能名>` 以 `--no-ff` 合并到 `develop`（开发空间保留供下一模块复用）
 - [ ] 更新本文件中的 MVP 验收清单状态
 
 ---

@@ -71,14 +71,14 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | Skill | 用途 | 对应 Agent |
 |-------|------|-----------|
 | `cncf-project` | 项目上下文、技术栈、常用命令 | 所有 Agent |
-| `cncf-git-workflow` | Gitflow、单一固定 worktree、目录隔离、commit 规范 | 所有 Agent |
+| `cncf-git-workflow` | Gitflow、双文件夹隔离（设计/开发空间）、目录隔离、commit 规范 | 所有 Agent |
 | `grill-with-docs` | 需求对齐、设计决策拷问 | orchestrator、prototype-designer |
 | `golang-coding-style` | Go 编码规范 | backend-developer |
 | `prometheus-architecture` | Prometheus 架构与扩展点 | prometheus-developer |
 | `testing-tdd` | TDD 流程与测试结构 | developer |
 | `code-review` | 代码质量检查清单 | reviewer |
 | `security-review` | 安全检查清单 | security-reviewer |
-| `using-git-worktrees` | worktree 使用协议 | developer |
+| `using-git-worktrees` | 并行推进多模块时在开发空间加开 worktree | developer |
 | `web-development` | 前端编码规范 | frontend-developer |
 
 ---
@@ -200,7 +200,7 @@ docs/05-execution-records/module-XX/task-sequence.yaml
    - 基于最新 `develop` 创建 `feat/module-XX`
    - 强制读取 PRD + `docs/05-execution-records/module-XX/task-sequence.yaml`
    - 优先读取 `docs/prototypes/module-XX/` 原型；如缺失，以 PRD + L3 为准
-   - 在固定 worktree 中开发，只能修改各自允许的生产代码目录
+   - 在开发空间 `CNCF_Monitor-feature` 中开发，只能修改各自允许的生产代码目录
    - 后端必须 TDD，前后端均需通过 `go test`/`go vet`/`pnpm test`/`pnpm lint`
    - 按 micro-task 逐个完成，每个任务结束后汇报 Orchestrator
    - 开发中发现 PRD 需要调整，必须报告 Orchestrator，禁止自行修改 PRD
@@ -212,7 +212,7 @@ docs/05-execution-records/module-XX/task-sequence.yaml
    - CRITICAL / HIGH：Orchestrator 打回给原 Developer 或对应 specialist 修复
    - MEDIUM / LOW：记录为遗留风险或快速修复
    - 修复完成后必须重新执行对应验证命令，并再次审查直至通过
-9. **在 worktree 中验证运行状态**：
+9. **在开发空间 `CNCF_Monitor-feature` 中验证运行状态**：
    - 后端：`go test ./platform/...`、`go vet ./platform/...`，并启动服务验证关键接口返回 200
    - 前端：`pnpm test`、`pnpm lint`，并启动 dev server 验证页面可访问
    - 验证通过后必须停止服务并释放端口
@@ -226,7 +226,7 @@ docs/05-execution-records/module-XX/task-sequence.yaml
     - 在 GitHub PR 中评论或 Approve
 13. **如验收通过，由 chenrt 在主仓库将 `feat/module-XX` 以 `--no-ff` 合并到 `develop`**
 14. **在 develop 环境中再次验证运行状态**（步骤同 9）
-15. worktree 保留供下一模块复用
+15. 开发空间 `CNCF_Monitor-feature` 保留供下一模块复用（在克隆内切到新的 `feat/module-XX` 分支）
 
 ---
 

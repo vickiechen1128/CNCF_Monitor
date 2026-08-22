@@ -23,32 +23,29 @@
 2. `cncf-git-workflow`
 3. `using-git-worktrees`
 
-### Step 2: 检查 worktree 状态
+### Step 2: 确认在开发空间中
 
 运行：
 
 ```bash
-git rev-parse --git-dir
+pwd
 ```
 
-- 如果输出包含 `.git/worktrees/` → 已在 worktree 中，**直接复用当前 worktree**，继续。
-- 如果输出是 `.git` → 你在主工作区，**报告 Orchestrator 统一处理**，不要自行创建新 worktree。
-
-当前项目使用固定 worktree，其根目录见 `.kimi/AGENTS.md`。
+- 当前工作目录应在开发空间 `CNCF_Monitor-feature`。
+- 如果不在，**报告 Orchestrator 统一处理**，不要自行切换空间或创建 worktree。
 
 ### Step 3: 切换到当前模块的 feat 分支
 
-本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
+本项目采用**双文件夹隔离 + 设计/实现分离分支**模式：
 
-- 一个固定 worktree：根目录见 `.kimi/AGENTS.md`
-- 设计分支：`design/module-mvp-demo`（PRD + 原型，由 prototype-designer / chenrt 维护）
-- 功能分支：`feat/module-XX`（生产代码，由 backend-developer / frontend-developer / zhangwq 维护）
-- worktree 内部通过 `git checkout` 切换分支，不创建新 worktree
+- 设计空间 `CNCF_Monitor-worktree`：固定分支 `design/module-mvp-demo`（PRD + 原型，由 prototype-designer / chenrt 维护）
+- 开发空间 `CNCF_Monitor-feature`：`develop` + `feat/*`（生产代码，由 backend-developer / frontend-developer / zhangwq 维护）
+- 开发空间克隆内通过 `git checkout` 切换分支；并行推进多模块时可额外 `git worktree add` 多目录
 
-进入 worktree 后，确认当前模块分支（由 Orchestrator 告知）：
+进入开发空间后，确认当前模块分支（由 Orchestrator 告知）：
 
 ```bash
-cd "<固定 worktree 根目录>"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 
 # 必须切换到导致失败的 feat/module-XX 分支
 git checkout feat/module-XX

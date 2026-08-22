@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography, Space, Tag, Select, App } from 'antd'
+import { Layout, Menu, Typography, Space, Tag, Select, App, Tabs } from 'antd'
 import { type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AppstoreOutlined } from '@ant-design/icons'
@@ -90,6 +90,15 @@ export function MainLayout({ reviewNotes, children }: MainLayoutProps) {
             <ReviewNoteSwitch />
           </Space>
         </Header>
+        {/*
+          顶部一级 tab：文案须用 PRD 模块名（Module_06 = 「系统与平台管理」），首页为第一个 tab；
+          模块内功能页面由下方左侧栏承接二级导航。见 PRD §11.0 导航契约。
+        */}
+        <Tabs
+          className="app-module-tabs"
+          activeKey="module-06"
+          items={[{ key: 'module-06', label: '系统与平台管理' }]}
+        />
         <Layout>
           <Sider theme="light" width={220} style={{ borderRight: '1px solid #E5E6EB' }}>
             <Menu

@@ -39,6 +39,19 @@ body {
   margin-right: 8px;
 }
 
+.app-module-tabs {
+  background: #fff;
+  border-bottom: 1px solid #E5E6EB;
+  padding: 0 24px;
+  /* 顶部一级 tab：文案用 PRD 模块名（Module_06 = 系统与平台管理） */
+}
+.app-module-tabs.ant-tabs > .ant-tabs-nav {
+  margin: 0;
+}
+.app-module-tabs.ant-tabs .ant-tabs-tab {
+  font-weight: 600;
+}
+
 .app-content {
   padding: 20px 24px;
   background: #F7F8FA;

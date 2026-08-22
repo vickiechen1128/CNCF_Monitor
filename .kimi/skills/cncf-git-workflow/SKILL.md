@@ -4,32 +4,36 @@
 
 ---
 
-## 1. 单一固定 Worktree
+## 1. 双文件夹隔离（设计空间 + 开发空间）
 
-本项目使用 **一个固定 worktree**，所有 Agent 在同一 worktree 内通过 `git checkout` 切换分支，不为每个任务创建新 worktree。
+本项目采用 **双文件夹隔离** 协作模型：设计与开发在不同物理目录（两个独立克隆）中互不打扰，共用同一个远程仓库。
 
 ```text
-固定 worktree 路径：/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree
-对应主仓库路径：/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor
+设计空间（写 PRD / 改原型）：/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree
+开发空间（Vibe Coding）    ：/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature
 ```
 
-### 1.1 检查当前是否在 worktree 中
+### 1.1 各 Agent 的工作空间归属
+
+| 空间 | 目录 | 固定分支 | 工作内容 |
+|------|------|----------|----------|
+| 设计空间 | `CNCF_Monitor-worktree` | `design/module-mvp-demo` | 写 PRD、改原型 → 合入 develop |
+| 开发空间 | `CNCF_Monitor-feature` | `develop` + `feat/*` | 拉功能分支做 Vibe Coding |
+
+- **prototype-designer / chenrt（需求侧）**：在设计空间 `CNCF_Monitor-worktree` 工作，固定分支 `design/module-mvp-demo`。
+- **Developer / Reviewer / Build Resolver 等开发侧 Agent**：在开发空间 `CNCF_Monitor-feature` 工作，从 `develop` 创建/切换 `feat/module-XX` 分支。
+
+### 1.2 检查当前是否在正确的空间中
 
 ```bash
-git rev-parse --git-dir
+pwd
+git branch --show-current
 ```
 
-- 输出包含 `.git/worktrees/` → 已在固定 worktree 中，继续
-- 输出是 `.git` → 你在主工作区，必须切换到固定 worktree：
+- 设计工作（PRD / 原型）：确认 `pwd` 为设计空间，且当前分支为 `design/module-mvp-demo`。
+- 开发工作（Vibe Coding）：确认 `pwd` 为开发空间 `CNCF_Monitor-feature`，且已在 `feat/module-XX` 分支。
 
-```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
-git checkout develop
-git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree" develop
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-```
-
-> 如果 worktree 已存在，直接 `cd` 进入并 `git checkout` 切换分支即可。
+> 两个克隆为物理隔离的独立 checkout，一个目录内的 checkout / 分支操作不会影响另一个。
 
 ---
 
@@ -142,4 +146,4 @@ git checkout -b feat/module-XX
 
 - `cncf-project`：项目背景、技术栈、常用命令
 - `cncf-git-workflow`：**本文件**，Git 工作流与目录隔离
-- `using-git-worktrees`：通用 git worktree 命令参考；本项目优先遵循本 Skill 的“单一固定 worktree”规则
+- `using-git-worktrees`：通用 git worktree 命令参考；本项目开发侧以「双文件夹隔离」的单一开发克隆为主，串行推进模块；如需**并行**推进多个模块，可在开发空间额外 `git worktree add` 多目录，参考 `using-git-worktrees` 的使用协议
