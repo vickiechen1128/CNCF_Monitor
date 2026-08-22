@@ -32,7 +32,7 @@
 | `release/*` | `develop` | `main` + `develop` | chenrt | - | 发布版本 |
 | `hotfix/*` | `main` | `main` + `develop` | zhangwq | chenrt | 紧急修复 |
 
-> **所有合并到 `develop` / `main` 的操作必须由 chenrt 在主仓库执行 `--no-ff`。**
+> **所有合并到 `develop` / `main` 的操作必须由 chenrt 执行 `--no-ff`**：设计分支在设计空间合并，功能分支在开发空间合并。
 
 ### 2.2 版本号速查（v1.27）
 
@@ -52,16 +52,18 @@
 
 ## 3. 仓库与工作目录约定
 
-| 路径 | 用途 | 谁使用 |
-|------|------|--------|
-| `/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor` | 主仓库 | chenrt（执行 `--no-ff` 合并） |
-| `/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree` | 固定 worktree | zhangwq（日常开发）、chenrt（设计分支） |
+本项目采用**双文件夹隔离**：设计与开发在不同物理目录（两个独立克隆）中互不打扰。
 
-> 所有 Agent 开发都在固定 worktree 内进行，通过 `git checkout` 切换分支，不额外创建 worktree。
+| 路径 | 固定分支 | 用途 | 谁使用 |
+|------|----------|------|--------|
+| `/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree` | `design/module-mvp-demo` | **设计空间**：写 PRD、改原型 | chenrt / prototype-designer |
+| `/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature` | `develop` + `feat/*` | **开发空间**：Vibe Coding（从 develop 切 feat 分支） | zhangwq / 开发侧 Agent |
 
-### 3.1 worktree 初始化与验证
+> 设计变更（`docs/02-product-requirements/`、`docs/prototypes/`）在设计空间提交；生产代码（`platform/`、`ui-custom/web/`）在开发空间提交。两空间物理隔离，互不影响。
 
-> **v1.25 去重**：worktree 初始化命令与验证方法见 `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` §5（唯一权威）。此处仅提醒：初始化一次即可，日常开发只做 `git checkout` 切换分支。
+### 3.1 开发空间初始化与验证
+
+> **初始化命令与验证方法见 `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` §5（唯一权威）。** 开发空间一次性克隆即可，日常开发只做 `git checkout` 切换 feat 分支。
 
 ---
 
@@ -69,16 +71,18 @@
 
 所有成员在本地操作前，先拉取远程最新状态：
 
+- **设计（chenrt）** 在设计空间拉取：
+
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git checkout develop
 git pull origin develop
 ```
 
-chenrt 在主仓库合并前也需要拉取：
+- **开发（zhangwq / 开发侧 Agent）** 在开发空间拉取：
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git checkout develop
 git pull origin develop
 ```
@@ -128,10 +132,10 @@ git push origin design/module-mvp-demo
 
 > **多轮迭代约定（v1.26）**：`design/module-mvp-demo` 允许跨多轮需求迭代（如第十一轮、第十二轮…），chenrt 持续在分支上提交并推送，每轮评审通过后合并到 `develop`。已合并的 PR 无法继续推送新提交，**每轮迭代后重新发起新 PR**（PR 编号递增，如 #12 → #24）。PR 标题或描述建议标注迭代轮次（如"第 N 轮需求对齐"），便于后续对照 PRD 版本。合并方式见 §5.5，与单轮 PR 完全一致。
 
-### 5.5 合并到 develop
+### 5.5 合并到 develop（在设计空间执行）
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git checkout develop
 git pull origin develop
 git merge --no-ff design/module-mvp-demo
@@ -144,10 +148,10 @@ git push origin develop
 
 zhangwq 负责基于已冻结的 PRD + 原型开发生产代码。
 
-### 6.1 创建功能分支
+### 6.1 创建功能分支（在开发空间执行）
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git checkout develop
 git pull origin develop
 git checkout -b feat/module-XX
@@ -196,10 +200,10 @@ git push origin feat/module-XX
 
 ### 6.5 处理 Review 意见
 
-收到 Review 意见后：
+收到 Review 意见后（在开发空间执行）：
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git checkout feat/module-XX
 # 修改代码后
 git add <修改文件>
@@ -274,10 +278,10 @@ git checkout develop
 
 ## 8. chenrt 合并功能分支
 
-所有 Reviewer Approve 后，chenrt 在主仓库执行合并：
+所有 Reviewer Approve 后，chenrt 在开发空间 `CNCF_Monitor-feature` 执行合并（feat 分支所在空间；`--no-ff` 只允许 chenrt 执行）：
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git checkout develop
 git pull origin develop
 git merge --no-ff feat/module-XX
@@ -305,10 +309,10 @@ exec ./node_modules/.bin/vite --host
 
 ## 9. 多模块切换
 
-当需要暂停当前模块、处理其他模块时：
+当需要暂停当前模块、处理其他模块时（在开发空间执行）：
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 
 # 保存当前工作区
 git stash push -m "WIP: module-XX"
@@ -321,14 +325,16 @@ git checkout feat/module-XX
 git stash pop
 ```
 
+> **并行多模块**：如需同时推进多个模块（避免 stash 频繁切换），可在开发空间额外创建独立 worktree（`git worktree add ../CNCF_Monitor-feature-YY -b feat/module-YY`），参考 `using-git-worktrees` Skill。
+
 ---
 
 ## 10. 放弃当前分支重来
 
-如果当前分支改动混乱，可放弃后重建：
+如果当前分支改动混乱，可放弃后重建（在开发空间执行）：
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git checkout develop
 git branch -D feat/module-XX
 git checkout -b feat/module-XX origin/develop
@@ -345,7 +351,7 @@ git checkout -b feat/module-XX origin/develop
 3. **禁止产品经理的 AI 修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**。
 4. **禁止开发的 AI 修改 `docs/02-product-requirements/`、`docs/prototypes/` 目录**。
 5. **禁止绕过提交前验证直接申请合并**。
-6. **禁止在 worktree 外直接开发并提交**。
+6. **禁止在错误的空间中开发并提交**（设计变更在设计空间，生产代码在开发空间，避免空间与分支错乱）。
 
 ---
 

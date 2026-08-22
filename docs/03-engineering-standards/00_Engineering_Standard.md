@@ -136,7 +136,7 @@ func main() {
 
 1. **先读文档再写代码**：AI Agent 接到任务后，按任务卡读取相关 PRD 和工程标准（见 `.kimi/agents/orchestrator.md` 任务卡驱动）
 2. **按功能子模块开发**：每个功能子模块一个 `feature/module-XX-<功能名>` 分支
-3. **单一 worktree 复用**：所有 Agent 在固定 worktree `../CNCF_Monitor-worktree` 内切换分支开发
+3. **双文件夹隔离复用**：设计空间 `CNCF_Monitor-worktree`（固定分支 `design/module-mvp-demo`）与开发空间 `CNCF_Monitor-feature`（`develop` + `feat/*`）物理隔离；开发串行复用同一开发克隆，并行时额外 `git worktree add` 多目录
 4. **不编造接口**：所有 API 设计需符合 `03_API_Standard.md` 或已在 PRD 中定义
 5. **提交前必须验证**：除测试/lint 外，必须启动服务并验证关键接口/页面可正常访问
 6. **Patch 可追溯**：所有对 upstream 的修改必须有 patch 文件和说明

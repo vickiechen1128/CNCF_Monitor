@@ -14,13 +14,13 @@
 3. **保留 develop 作为 SSOT**：不引入 `staging/acceptance-XX` 等额外业务验收分支，`develop` 承担 PRD、原型与已验收代码的集成基线。
 4. **随时可回退**：模块不满意时，可放弃整个 `feat/` 分支；已合并到 `develop` 后，可通过 revert 撤销。
 5. **在线验收**：每个 `feat/module-XX` PR 自动部署预览环境，产品经理和业务方在 PR 阶段通过 URL 验收，再决定是否合并。
-6. **单人开发友好**：固定单一 worktree，通过切换分支完成不同模块，避免目录堆积。
+6. **双文件夹友好**：设计空间（`CNCF_Monitor-worktree`）与开发空间（`CNCF_Monitor-feature`）物理隔离、互不打扰；开发侧串行复用单一克隆，并行时额外 `git worktree add` 多目录，避免目录堆积与上下文错乱。
 
 ---
 
 ## 2. 分支模型
 
-本项目采用 **Gitflow + 单一 worktree + 设计/实现分离分支**。
+本项目采用 **双文件夹隔离 + 设计/实现分离分支**。
 
 ### 2.1 分支约定
 
@@ -160,35 +160,35 @@ CNCF_Monitor/
 
 ---
 
-## 5. 工作目录与 worktree 约定
+## 5. 工作目录与双文件夹隔离约定
 
-- **主仓库**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor`
-- **固定 worktree**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`
-- **规则**：所有 Agent 开发在固定 worktree 内进行，通过 `git checkout` 切换分支，不创建新 worktree。
+- **设计空间**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，负责写 PRD、改原型。
+- **开发空间**：`/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature`，`develop` + `feat/module-XX`，负责 Vibe Coding。
+- **规则**：设计空间与开发空间为两个独立克隆，物理隔离。开发侧串行复用 `CNCF_Monitor-feature`，通过 `git checkout` 切换分支；并行推进多模块时才在开发空间额外 `git worktree add` 多目录。
 
-### 5.1 worktree 初始化（一次性）
+### 5.1 开发空间初始化（一次性）
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
+git clone <远程仓库地址> .
 git checkout develop
-git worktree add "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree" develop
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 ```
 
-### 5.2 验证当前在 worktree 内
+### 5.2 校验当前所处的空间与分支
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 
-# 确认当前目录是 worktree
-git rev-parse --git-dir
-# 输出应包含 .git/worktrees/
+# 确认当前目录在开发空间
+pwd
 
 # 确认当前分支
 git branch --show-current
 ```
 
-### 5.3 创建设计分支
+> 设计工作应在 `CNCF_Monitor-worktree` 且分支为 `design/module-mvp-demo`；开发工作应在 `CNCF_Monitor-feature` 且分支为 `feat/module-XX`。
+
+### 5.3 创建设计分支（在设计空间 `CNCF_Monitor-worktree`）
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
@@ -197,19 +197,19 @@ git pull origin develop
 git checkout -b design/module-mvp-demo
 ```
 
-### 5.4 创建功能分支
+### 5.4 创建功能分支（在开发空间 `CNCF_Monitor-feature`）
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git checkout develop
 git pull origin develop
 git checkout -b feat/module-XX
 ```
 
-### 5.5 多模块切换（stash 方式）
+### 5.5 多模块切换（stash 方式，在开发空间 `CNCF_Monitor-feature`）
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 
 # 保存当前工作区
 git stash push -m "WIP: module-XX"
@@ -222,6 +222,13 @@ git checkout feat/module-XX
 git stash pop
 ```
 
+> **并行多模块推荐做法**：如需同时推进多个模块（避免 stash 频繁切换），可在开发空间额外创建独立 worktree：
+> ```bash
+> cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
+> git worktree add ../CNCF_Monitor-feature-YY -b feat/module-YY
+> ```
+> 参考 `using-git-worktrees` Skill 的使用协议。
+
 ---
 
 ## 6. 回退机制
@@ -231,8 +238,8 @@ git stash pop
 如果 Agent 当前模块的代码不符合要求，且尚未合并到 `develop`，最简单的方式是删除该 feat 分支并重建。
 
 ```bash
-# 1. 切回 develop，确保 worktree 不处于要删除的分支上
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+# 1. 切回 develop，确保开发空间不处于要删除的分支上
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git checkout develop
 
 # 2. 删除不满意的 feat 分支（本地）
@@ -480,14 +487,14 @@ git branch --merged develop | grep -E "design/module-mvp-demo|feat/module-XX"
 ### Q3: 想比较当前 feat 分支和 develop 的差异？
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git diff develop..feat/module-XX
 ```
 
 ### Q4: 发现当前 feat 分支改动混乱，如何放弃重来？
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 
 # 1. 切回 develop（确保不在要删除的分支上）
 git checkout develop
@@ -519,9 +526,9 @@ git checkout -b feat/module-XX origin/develop
 3. **严禁将 `docs/prototypes/` 中的原型代码直接复制到 `platform/` 或 `ui-custom/web/` 后原样合并**；原型可作为实现基底复制，但必须完成 **mock 替换 / ReviewNote 剔除 / MVP 裁剪** 三道工序后方可提交。
 4. **严禁产品经理的 AI 修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**。
 5. **严禁开发的 AI 修改 `docs/02-product-requirements/`、`docs/prototypes/` 目录**。
-6. **严禁在 worktree 外直接开发并提交**（避免主仓库与 worktree 状态混乱）。
+6. **严禁在错误的空间中开发并提交**（设计变更须在设计空间 `CNCF_Monitor-worktree`，生产代码须在开发空间 `CNCF_Monitor-feature`，避免空间与分支错乱）。
 7. **严禁 zhangwq 未经 chenrt 批准自行合并到 `develop`**。
-8. **严禁修改 `.git/worktrees/` 元数据**（除非明确知道如何修复）。
+8. **严禁擅自改动 `.git/worktrees/` 元数据**（除非明确知道如何修复）。
 9. **严禁改写修订表中已标记「已冻结」的版本行**（需求变更一律新增行，见 §2.5）。
 
 ---

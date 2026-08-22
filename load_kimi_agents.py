@@ -1,8 +1,9 @@
 import os
 import yaml
 
-# 定义 .kimi 目录路径
-KIMI_DIR = "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree/.kimi"
+# 基于本脚本所在位置定位同克隆的 .kimi，天然适配双文件夹隔离
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+KIMI_DIR = os.path.join(THIS_DIR, ".kimi")
 AGENTS_DIR = os.path.join(KIMI_DIR, "agents")
 
 # 加载 YAML 配置文件

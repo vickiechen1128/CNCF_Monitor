@@ -136,7 +136,7 @@
 ### 6.1 zhangwq 在 Vibe Coding 中的关键动作
 
 1. **任务卡设计**：把 Module 文档、原型代码和工程标准转化为任务卡（输入路径+章节 / 输出 / 验收 / 不修改范围，见 `.kimi/agents/orchestrator.md`）。
-2. **过程监督**：确保 AI 在正确的 worktree、正确的分支、正确的范围内开发。
+2. **过程监督**：确保 AI 在正确的空间（开发空间 `CNCF_Monitor-feature`）、正确的分支、正确的范围内开发。
 3. **结果校验**：AI 输出后必须人工 Review，不盲目信任。
 4. **测试补强**：AI 写 happy path，SRE 补异常路径和集成场景。
 5. **质量兜底**：提交前验证清单的最终执行人（见 `03-engineering-standards/04_Testing_Standard.md` §4）。

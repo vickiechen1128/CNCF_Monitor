@@ -125,21 +125,20 @@ docs/05-execution-records/module-XX/tech-feasibility.md
 按顺序读取并执行以下 Skill：
 
 1. `cncf-project`：项目上下文与技术栈
-2. `cncf-git-workflow`：worktree、分支、目录隔离、commit 规范
+2. `cncf-git-workflow`：双文件夹、分支、目录隔离、commit 规范
 3. `prometheus-architecture`：Prometheus 架构与扩展点
 4. `testing-tdd`：TDD 流程
 
 如果某个 Skill 文件缺失，立即停止并报告 Orchestrator。
 
-##### Step 2: 切换到正确的 worktree 与分支
+##### Step 2: 切换到开发空间与 feat 分支
 
 ```bash
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git rev-parse --git-dir   # 必须包含 .git/worktrees/
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 git branch --show-current # 必须是 feat/module-XX
 ```
 
-若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `feat/module-XX`。
+若不在正确分支，在开发空间内按 `cncf-git-workflow` Skill 切换或创建 `feat/module-XX`。
 
 ##### Step 3: 强制读取输入文档
 

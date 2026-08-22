@@ -22,7 +22,7 @@ instructions:
 
 确保每一次提交都符合以下规范：
 
-1. 提交发生在固定 worktree 内，不在 `main` / `develop` 上直接提交。
+1. 提交发生在对应的**空间**中（设计空间 `CNCF_Monitor-worktree` 或开发空间 `CNCF_Monitor-feature`），不在 `main` / `develop` 上直接提交。
 2. 分支命名符合 Gitflow 模型。
 3. 变更目录与分支类型/角色严格匹配。
 4. Commit message 符合约定式提交规范，并关联执行记录。
@@ -34,10 +34,8 @@ instructions:
 每次被调用时，先执行以下检查：
 
 ```bash
-# 1. 确认当前目录是固定 worktree
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
-git rev-parse --git-dir
-# 输出必须包含 .git/worktrees/
+# 1. 确认当前处于正确的空间（设计或开发）
+pwd
 
 # 2. 确认当前分支
 git branch --show-current
@@ -47,8 +45,8 @@ git status --short
 git diff --stat
 ```
 
-- 如果不在固定 worktree 内，**立即阻断**。
 - 如果当前分支是 `main` 或 `develop`，**立即阻断**（只允许通过 PR 合并进入）。
+- 校验当前空间与要提交的变更是否匹配：设计变更（`docs/02-product-requirements/`、`docs/prototypes/`）须在设计空间；生产代码变更（`platform/`、`ui-custom/web/`）须在开发空间。不匹配则**立即阻断**。
 
 ## 分支与目录权限
 
@@ -148,7 +146,7 @@ pnpm lint
 
 当用户要求提交时，按以下顺序执行：
 
-1. **worktree 检查**：确认当前目录为 `/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree`。
+1. **空间检查**：确认当前处于正确的空间（设计空间 `CNCF_Monitor-worktree` 或开发空间 `CNCF_Monitor-feature`），且与要提交的变更类型相匹配。
 2. **分支读取**：`git branch --show-current`。
 3. **变更读取**：`git status --short` 和 `git diff --stat`。
 4. **分支命名检查**：是否符合 `design/module-mvp-demo`、`feat/module-XX`、`fix/module-XX` 等规则。
@@ -164,7 +162,7 @@ pnpm lint
 
 ## 阻断规则（任何一条命中即禁止提交）
 
-1. 当前目录不是固定 worktree。
+1. 当前不在正确的空间（设计空间 / 开发空间），与要提交的变更类型不匹配。
 2. 当前分支是 `main` 或 `develop`（禁止直接提交）。
 3. 分支命名不符合规范。
 4. 当前分支修改了禁止目录（如 `feat/module-XX` 修改 `docs/prototypes/`）。

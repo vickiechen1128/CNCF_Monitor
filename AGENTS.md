@@ -356,11 +356,14 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 ## 11. 协作工作流（简要）
 
-项目采用 **Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支**。
+项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 模型。
 
-1. **需求阶段**：`prototype-designer` 产出 PRD 和可点击原型，分支 `design/module-mvp-demo`。
+- **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，用于写 PRD、改原型。
+- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX-<功能名>` 做 Vibe Coding（并行推进多模块时可在开发空间额外 `git worktree add` 多目录）。
+
+1. **需求阶段**：`prototype-designer` 在设计空间产出 PRD 和可点击原型，分支 `design/module-mvp-demo`。
 2. **规划阶段**：`planner` 从 ready PRD 派生 L2（实现地图 + 代码实施计划）和 L3（`task-sequence.yaml`）。
-3. **开发阶段**：`backend-developer` / `frontend-developer` / `prometheus-developer` 基于 `develop` 创建 `feat/module-XX-<功能名>` 分支，TDD 开发。
+3. **开发阶段**：`backend-developer` / `frontend-developer` / `prometheus-developer` 在开发空间基于 `develop` 创建 `feat/module-XX-<功能名>` 分支，TDD 开发。
 4. **审查阶段**：`golang-reviewer`、`frontend-reviewer`、`security-reviewer` 独立审查。
 5. **合并阶段**：Orchestrator 在验证通过后以 `--no-ff` 合并到 `develop`。
 6. **验证阶段**：在 `develop` 重复执行测试和服务启动验证。
