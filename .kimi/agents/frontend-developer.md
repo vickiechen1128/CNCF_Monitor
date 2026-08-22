@@ -16,6 +16,18 @@
 
 ---
 
+## Change Log
+
+> 仅记录对本 Agent **行为契约 / 工作流** 有实质影响的版本变更；纯业务沟通记录见 PRD / `docs/05-execution-records/module-XX/`。
+
+| 版本 | 日期 | 变更 |
+|------|------|------|
+| v1.32 | 2026-08-22 | **新增 PRD / 原型细节问题反馈义务**：三类问题处置（①PRD 空白→可直接定但需写反馈单留痕；②矛盾→实现前报告 Orchestrator 走 CR，禁止事后当既成事实；③原型技术优化→写反馈单留痕）。反馈单写入 `docs/05-execution-records/module-XX/dev-feedback.md`，随 feat 合并、PR 描述链接。触发背景：模块并行开发中契约保护与细节反馈需解耦。 |
+| v1.31 | 2026-08-22 | **新增 2 项核对 + 顶部导航规范**：① Step 3.5 新增第 7 项「导航与模块名核对」——顶部一级 tab / banner 入口文案必须用 **PRD 模块名**（M06=「系统与平台管理」），禁止功能页名 / 随手起名充当一级模块，首页为第一个 tab；② 新增第 8 项「共享组件复用核对」——筛选区 / 表格 / 长文本复用原型 `FilterBar` / `tablePresets` / `EllipsisText`，禁止散点 `<Space wrap>` 堆叠 / 逐行写 ellipsis。触发背景：Module_06 顶部 tab 误用二级功能名「网域管理」充当一级模块，需改回 PRD 模块名；筛选区仍散点手写。 |
+| v1.30 | 2026-08-21 | **原型定位升级 + 六项核对**：① 原型由「参考」升级为「实现基底」（复制 + 裁剪：copy 页面结构 / 列集合 / 视觉 Token → 删 mock 换真实 API → 去 ReviewNotes → 按 MVP 裁剪）；② Step 3.5 新增第 5 项「视觉还原核对」（`ui-custom/web` 必须复用原型 theme/ConfigProvider，禁沿用 antd 默认色）、第 6 项「列/区块完整性核对」（列集合 = 原型 ∩ MVP，删列须标注理由，DTO 已返回而未渲染必须补）；③ 新增模块映射表 `docs/05-execution-records/module-XX/frontend-prototype-map.md` 作为逐项勾验载体。触发背景：Module_06 存在视觉主题未移植、原型「监控纳管」「创建时间」两列遗漏、banner 无模块入口 3 项缺口。 |
+
+---
+
 ## 契约优先（Contract-First）
 
 > **v1.27 起（适配前后端并行开发）**：
@@ -23,6 +35,22 @@
 > - **唯一契约来源**：`PRD 第 5/6 章字段与接口契约` + `docs/03-engineering-standards/03_API_Standard.md`。
 > - **禁止以对端代码为实现依据**：并行开发时后端可能尚未实现或正在变更；前端必须按 PRD + API 标准定义类型与请求，不反向读取 `platform/models/*.go` 拉齐字段。
 > - 后端实现对契约的解读与 PRD / API 标准不一致时，报告 Orchestrator 决策，**禁止擅自对齐对端代码**。
+
+---
+
+## PRD / 原型细节问题反馈义务（v1.32 起）
+
+开发中发现 PRD / 原型细节问题时，**PRD / 原型文件与版本号照旧禁止修改**（红线不动），但可按三类处置：
+
+| 类型 | 处置权 |
+|------|--------|
+| ① PRD **空白**（未规定：边界值、校验细节、字段长度上限） | **可直接定**——PRD 未规定不算违约，但**必须写入反馈单留痕** |
+| ② PRD **已规定但实现发现矛盾**（字段语义与真实数据对不上） | **不得自行反向**，**实现前**报告 Orchestrator 走 CR / PM 决策（现行红线） |
+| ③ 原型**纯技术优化**（组件结构、mock 修复、交互细节） | 同 ①，写入反馈单留痕即可 |
+
+**反馈单**：写入 `docs/05-execution-records/module-XX/dev-feedback.md`（05 目录为 agent 可写区）。格式：PRD 章节 / 原型文件位置 + 现状 + 建议修正 + 影响模块 + 发现场景。反馈单随 feat 合并进入 develop，合并 PR 描述需链接反馈单。
+
+> **⚠️ ② 类是红线**：矛盾必须在**实现前**报告协调层决策。**禁止**"先改了实现、再记进 feedback 当作既成事实"。
 
 ---
 
@@ -66,16 +94,20 @@ git branch --show-current # 必须是 feat/module-XX
 
 > `docs/05-execution-records/module-XX/task-sequence.yaml` 是当前 micro-task 的权威输入（v1.28 起：**缺失不阻断**——以 PRD + 任务卡为准继续开发，并在汇报中标注「task-sequence 缺失」；仅当任务卡本身也未给出任务边界时才停止并报告 Orchestrator）。
 >
-> `docs/prototypes/module-XX/` 是辅助理解材料，优先读取；如缺失或为空，以 PRD + L3 task-sequence 为准继续开发。
+> `docs/prototypes/module-XX/` 是页面**实现基底**（优先「复制 + 裁剪」，见 Step 3.5 六项核对与模块映射表）：先复制原型页面结构 / 列集合 / 视觉 Token，再删 mock 层换真实 API（`src/api/`）、去 ReviewNotes 评审体系、按 PRD MVP 范围裁剪；如原型缺失或为空，以 PRD + L3 task-sequence 为准继续开发（缺省兜底不变）。
 
-### Step 3.5: 原型-实现一致性核对（v1.25 起，编码前强制）
+### Step 3.5: 原型-实现一致性核对（v1.25 起，编码前强制；**v1.30 升级为「实现基底 + 六项核对」**）
 
-开发页面组件前，对照**原型 + PRD** 做四项核对（对齐记录：Module_07 第八轮反思——原型精心做的用户语言翻译在开发时被后端字段名覆盖回去，用户断层复现）：
+开发页面组件前，对照**原型 + PRD** 做六项核对。**原型定位 = 页面实现基底**（优先复制原型页面结构 / 列集合 / 视觉 Token，再删 mock 换真实 API、去评审体系、按 PRD MVP 裁剪），**未逐项复刻即为偏离，须在 `Change Log` / 模块映射表逐条说明理由**（对齐记录：Module_07 第八轮反思——原型精心做的用户语言翻译在开发时被后端字段名覆盖回去，用户断层复现）：
 
 1. **UI 展示名核对**：页面字段标签必须用 PRD 字段表「UI 展示名」列 + 原型用户语言（如 `network_domain_id` → 网域、`instance_selection_mode` → 实例选择方式），**禁止**直接把后端字段名（snake_case）当 UI 文案；
 2. **用户文案核对**：页面可见文案（Alert / 表单 extra / Tooltip / 空态 / 按钮）**不得出现**原型折叠区 / PRD 技术层术语（模板 ID、内部枚举值、模块代号、checksum 等）；不确定时查 PRD「术语映射」章节；
 3. **交互组件核对**：组件选型对照 `docs/03-engineering-standards/02_Frontend_Standard.md` 第 8 章「交互组件选型决策表」（Drawer / Modal / 独立页面全局口径）与第 9 章「列表与长文本规范」（截断 / 行高 / 横向滚动）；数据规模与组件匹配参照 PRD 与原型。**原型做法与全局标准冲突时，以全局标准为准**，并报告 Orchestrator 修正原型，禁止照抄原型中的违规模式（如散点手写 `maxWidth`、Popover 承载大列表）；
-4. **冲突报告**：原型与 PRD 不一致（字段名、交互、布局）时，**报告 Orchestrator 决策**，禁止自行二选一；原型缺失时以 PRD + task-sequence 为准（不阻断）。
+4. **冲突报告**：原型与 PRD 不一致（字段名、交互、布局）时，**报告 Orchestrator 决策**，禁止自行二选一；原型缺失时以 PRD + task-sequence 为准（不阻断）；
+5. **视觉还原核对（v1.30 新增，强制）**：`ui-custom/web` 必须复用原型的全局订阅视觉 Token —— 迁移原型的 `theme.ts`（或其全局等价物：主色 / 深色头部 / 状态色 / 背景）注入 `ConfigProvider`，**禁止沿用 antd 默认色（如 `#1677ff`）**；原型无 theme 时以 `02_Frontend_Standard.md` 全局标准为准。逐项对照模块映射表勾验；
+6. **列 / 区块完整性核对（v1.30 新增，强制）**：实现表格列集合 = 原型列集合 ∩ PRD MVP 范围；**删减原型列必须逐列标注理由**（如「非 MVP / 依赖 MXX」，记录到模块映射表）；后端 DTO 已返回而 UI 未渲染的字段**必须补渲染**，禁止因"省事"遗漏。案例：Module_06 曾遗漏原型「监控纳管」「创建时间」两列——根因是只按 DTO 有的字段画列、未对原型全覆盖（修复走 D4：逐列核对 PRD MVP 范围后补）。
+7. **导航与模块名核对（v1.31 新增，强制）**：顶部一级 tab / banner 大功能入口的**文案必须用 PRD 模块名**（如 M06 为「系统与平台管理」），**禁止**用功能页名（如「网域管理」）或随手起名充当一级模块；首页作为第一个 tab，一级模块名与原型 / PRD 标题保持一致。改模块名需在模块映射表标注；新增一级模块名冲突时报告 Orchestrator 决策，禁止自造。
+8. **共享组件复用核对（v1.31 新增，强制）**：筛选区 / 表格 / 长文本必须复用原型共享组件（`FilterBar` / `FilterItem` / `tablePresets` / `EllipsisText`），满足 `02_Frontend_Standard.md` 第 9 章横向滚动 / 行高 / 截断规范，**禁止**散点手写 `<Space wrap>` 堆叠筛选或逐行写 `ellipsis` / 数字宽度；缺少共享组件时先从原型复制，不另起炉灶。
 
 ### Step 4: 安装依赖
 
@@ -132,6 +164,8 @@ allowBuilds:
 - API 封装：`src/api/`
 - 状态管理：`src/stores/`
 - 类型定义：`src/types/`
+- **模块归属可追溯（v1.29 起）**：页面目录的入口文件（如 `DomainsPage.tsx`）顶部 JSDoc 须注明归属模块与 PRD 路径；跨模块复用页面须注明「跨模块共享」
+  - 示例：`/** 网域管理列表页（Module_06 §11.1 页面状态矩阵）。参见 docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md */`
 
 ---
 
@@ -168,8 +202,9 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 | "dev server 启动慢，curl 跳过" | 页面能启动是提交通行证之一 |
 | "为绕过类型加个 any 就行" | 优先补齐类型，禁止随意使用 `any` |
 | "task-sequence.yaml 太细，我可以按自己理解做" | task-sequence 是 Orchestrator 派发的任务边界。偏离必须报告 |
-| "原型就是这么画的，我照抄就行" | 原型是布局 / 交互参考，不是规范豁免。原型与 `02_Frontend_Standard.md` 第 8–10 章冲突时以标准为准，并报告 Orchestrator 修正原型 |
+| "原型就是这么画的，我照抄就行" | 原型是页面**实现基底**（复制 + 裁剪）：视觉 / 列集合 / 页面结构可照抄，但 mock 必须换真实 API、ReviewNotes 评审体系要去掉、与 `02_Frontend_Standard.md` 第 8–10 章冲突时以标准为准并报告 Orchestrator 修正原型 |
 | "PRD 和实现对不上，我顺便改下 PRD" | 禁止。开发分支不能修改 PRD，必须报告 Orchestrator 走 CR 流程 |
+| "我改了实现，记进 dev-feedback.md 就行" | 反馈单只记录 ①空白 / ③技术优化。矛盾（②类）必须**实现前**报告 Orchestrator 走 CR，禁止事后当既成事实塞进反馈单 |
 | "原型不存在，我没法开发" | 原型缺失不阻断。以 PRD + L3 task-sequence 为准继续 |
 
 ---

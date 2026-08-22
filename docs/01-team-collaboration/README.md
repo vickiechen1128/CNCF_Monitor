@@ -49,7 +49,7 @@
 | 场景 | 怎么做 |
 |------|--------|
 | 需求拆解 | 与 chenrt 需求拆解会，判断业务价值 / MVP 范围 / 优先级 |
-| 原型评审 | 在 GitHub `design/module-XX → develop` PR 里看 PRD + 原型，评论或 Approve（管理视角） |
+| 原型评审 | 在 GitHub `design/module-mvp-demo → develop` PR 里看 PRD + 原型，评论或 Approve（管理视角） |
 | 功能验收 | 点 `feat/module-XX` PR 里 Vercel Bot 的 `Preview` 链接，对照原型验收 |
 
 > 你不需要本地开发环境，所有评审/验收都在 GitHub PR 内完成（操作见 [`04_Team_Git_Operations_Guide.md`](04_Team_Git_Operations_Guide.md) §7）。

@@ -42,7 +42,7 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | Agent | 职责 | 写权限 | 关键约束 |
 |-------|------|--------|----------|
 | `orchestrator` | 接收需求、管理 PRD 状态、协调三层派生、调度子 Agent、管理 review-fix 闭环 | ✅ 可写协调产物 | 不直接写业务代码；保持会话整洁；调用子 Agent 时使用独立上下文 |
-| `prototype-designer` | 产出 PRD + 可点击前端原型；维护 PRD Change Log；推动 PRD 到 ready 状态 | ✅ | 只能写 `docs/02-product-requirements/`、`docs/prototypes/`；分支 `design/module-XX` |
+| `prototype-designer` | 产出 PRD + 可点击前端原型；维护 PRD Change Log；推动 PRD 到 ready 状态 | ✅ | 只能写 `docs/02-product-requirements/`、`docs/prototypes/`；分支 `design/module-mvp-demo` |
 | `prometheus-developer` | Prometheus 扩展 / Patch；技术预研 | ✅ | 优先扩展点，次选 patch；分支 `feat/module-XX` |
 | `planner` | 两阶段规划：Phase 1 从 PRD 派生 L2；Phase 2 从 L2 派生 L3 | ❌ 只读 | 禁止 Write/Shell；只接受 ready PRD；遇到 `[待验证]` 阻断 |
 | `backend-developer` | 基于 PRD + L3 开发 Go 后端 | ✅ | 只能写 `platform/`、`patches/prometheus/`；分支 `feat/module-XX`；必须 TDD |
@@ -180,13 +180,13 @@ docs/05-execution-records/module-XX/task-sequence.yaml
 2. **需求对齐**
    - 如果需求不清晰，调用 `grill-with-docs` 或 `AskUserQuestion`
 3. **原型验证（prototype-designer）**
-   - 基于 `develop` 创建 `design/module-XX`
+   - 基于 `develop` 创建 `design/module-mvp-demo`
    - 如果 PRD 中有 `[待验证]` 点，先派发 `prometheus-developer` 做技术预研
    - 输出/更新 PRD：`docs/02-product-requirements/Modules/Module_XX_*.md`
    - 输出可点击原型：`docs/prototypes/module-XX/`
    - 维护 Change Log
    - 将 PRD 状态推进到 **ready**
-   - chenrt 发起 `design/module-XX → develop` 的 PR，guixm、zhaohy review
+   - chenrt 发起 `design/module-mvp-demo → develop` 的 PR，guixm、zhaohy review
    - chenrt 以 `--no-ff` 合并到 `develop`
 4. **Plan 派生（planner Phase 1: plan-maintainer）**
    - 输入：ready 状态的 PRD
@@ -238,7 +238,7 @@ docs/05-execution-records/module-XX/task-sequence.yaml
 - **影响模块边界 / 数据模型 / API 契约**：
   1. Orchestrator 创建变更请求（CR）
   2. 架构师（用户）审批
-  3. 如批准，切回 `design/module-XX` 更新 PRD + Change Log
+  3. 如批准，切回 `design/module-mvp-demo` 更新 PRD + Change Log
   4. 重新调用 plan-maintainer 更新 L2
   5. 重新调用 code-sequence-planner 更新 L3
   6. 通知开发 Agent 调整

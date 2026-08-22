@@ -41,7 +41,7 @@ git rev-parse --git-dir
 本项目采用**Gitflow + 单一 worktree + 设计/实现分离分支**模式：
 
 - 一个固定 worktree：根目录见 `.kimi/AGENTS.md`
-- 设计分支：`design/module-XX`（PRD + 原型，由 prototype-designer / chenrt 维护）
+- 设计分支：`design/module-mvp-demo`（PRD + 原型，由 prototype-designer / chenrt 维护）
 - 功能分支：`feat/module-XX`（生产代码，由 backend-developer / frontend-developer / zhangwq 维护）
 - worktree 内部通过 `git checkout` 切换分支，不创建新 worktree
 

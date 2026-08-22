@@ -3,14 +3,14 @@
 > 文档类型：工程标准  
 > **目标读者**：技术架构师（分支模型设计）、chenrt（合并 / 回退操作执行人）、zhangwq（分支创建 / 合并申请）  
 > 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)  
-> 更新日期：2026-08-13（v1.26 新增：版本管理约定 §2.5、开发基线回退 §6.5、Q5 版本化迭代路径）
+> 更新日期：2026-08-22（v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
 
 ---
 
 ## 1. 设计目标
 
 1. **按阶段隔离**：产品侧 Vibe Coding（`design/`）与开发侧 Vibe Coding（`feat/`）分离，避免上下文错乱。
-2. **需求即代码**：PRD 和原型代码合并到同一条 `design/module-XX` 分支，随合并进入 `develop`，成为 AI 读取的单一事实源。
+2. **需求即代码**：PRD 和原型代码合并到同一条 `design/module-mvp-demo` 分支，随合并进入 `develop`，成为 AI 读取的单一事实源。
 3. **保留 develop 作为 SSOT**：不引入 `staging/acceptance-XX` 等额外业务验收分支，`develop` 承担 PRD、原型与已验收代码的集成基线。
 4. **随时可回退**：模块不满意时，可放弃整个 `feat/` 分支；已合并到 `develop` 后，可通过 revert 撤销。
 5. **在线验收**：每个 `feat/module-XX` PR 自动部署预览环境，产品经理和业务方在 PR 阶段通过 URL 验收，再决定是否合并。
@@ -28,7 +28,7 @@
 |----------|----------|------|------|----------|--------|----------|
 | `main` | `main` | 稳定/生产版本 | - | - | chenrt（项目整体负责人 / 产品 Owner） | - |
 | `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt（项目整体负责人 / 产品 Owner） | - |
-| `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt（项目整体负责人 / 产品 Owner） | guixm（业务架构师 / 管理视角）、zhaohy（业务需求提出方 / 一线视角） |
+| `design/module-mvp-demo` | `design/module-mvp-demo` | MVP 阶段**单一**设计分支：PRD + AI 生成的原型代码（模块归属按 PRD 单文件隔离，见 §2.4） | `develop` | `develop` | chenrt（项目整体负责人 / 产品 Owner） | guixm（业务架构师 / 管理视角）、zhaohy（业务需求提出方 / 一线视角） |
 | `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | zhangwq、zhaohy、guixm、chenrt |
 | `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt | guixm、zhaohy |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt（项目整体负责人 / 产品 Owner） | - |
@@ -38,13 +38,15 @@
 
 ### 2.2 设计分支特殊规则
 
-- `design/module-XX` 必须同时包含：
-  - `docs/02-product-requirements/Modules/Module_XX_*.md`（PRD）
-  - `docs/prototypes/module-XX/`（AI 生成的可点击原型代码）
-- 原型代码**严禁合并到 `platform/` 或 `ui-custom/web/`**。
-- `design/module-XX` 合并到 `develop` 后，该模块 PRD + 原型即冻结，成为开发 AI 的输入源。
+> **v1.27（单一设计分支）**：MVP 阶段合并为**单一** `design/module-mvp-demo` 分支，**不再按模块切分**。设计跨模块（如网域跨 M01/M06/M07/M09）时无需切换分支；模块归属靠 PRD 文件物理隔离（`Module_XX_*.md` 单文件）+ `docs/02-product-requirements/Modules/README.md` §4 映射表追溯，**追溯不依赖分支名**。进入正式多版本阶段后再拆分回 `design/module-XX`。
+
+- `design/module-mvp-demo` 必须同时包含：
+  - `docs/02-product-requirements/Modules/Module_XX_*.md`（PRD，单模块单文件）
+  - `docs/prototypes/module-XX/`（AI 生成的可点击原型代码，按模块目录）
+- 原型代码可作为**实现基底**复制到 `platform/` 或 `ui-custom/web/`，但复制后必须完成三道工序（**mock 替换 / ReviewNote 剔除 / MVP 裁剪**）方能合并，未走完禁止原样合并（见 §11 禁止事项 3）。
+- `design/module-mvp-demo` 合并到 `develop` 后，该模块 PRD + 原型即冻结，成为开发 AI 的输入源。
 - 如 PRD 在开发期间变更，默认走**版本化迭代**：当前 feat 版本按已冻结 PRD 收尾合并后，design 分支再迭代新需求（见 §2.5 与 Q5）；只有必须中途改需求的紧急情况，才重建或 rebase `feat/module-XX`。
-- **多轮迭代**：`design/module-XX` 支持跨多轮需求迭代（如第十一轮、第十二轮…），每轮评审合并后重新发起新 PR（编号递增），PR 标注迭代轮次（如"第 N 轮需求对齐"）。PRD 版本、原型版本随轮次递增（每轮 +1），与 PR 编号一一对应（见 §2.5）。
+- **多轮迭代**：`design/module-mvp-demo` 支持跨多轮需求迭代（如第十一轮、第十二轮…），每轮评审合并后重新发起新 PR（编号递增），PR 标注迭代轮次（如"第 N 轮需求对齐"）。PRD 版本、原型版本随轮次递增（每轮 +1），与 PR 编号一一对应（见 §2.5）。
 
 ### 2.3 功能分支特殊规则
 
@@ -56,18 +58,18 @@
 
 ### 2.4 模块分支列表
 
-> **维护提示（v1.25）**：本表为当前已规划模块的快照，**新增模块时需同步更新本表**（design/ 与 feat/ 分支一一对应）。已冻结/已交付模块可保留作历史参考。
+> **维护提示（v1.27）**：本表为当前已规划模块的快照。MVP 阶段**设计统一走单一 `design/module-mvp-demo` 分支**（不再按模块切分），功能分支逐个模块 `feat/module-XX`。**新增模块时需同步更新本表**；已冻结/已交付模块可保留作历史参考。
 
 | 模块编号 | 设计分支 | 功能分支 | 说明 |
 |----------|----------|----------|------|
-| Module 00 | `design/module-00` | `feat/module-00` | 基础设施与数据模型 |
-| Module 07 | `design/module-07` | `feat/module-07` | 配置管理（含资源、标签、Job、拨测） |
-| Module 01 | `design/module-01` | `feat/module-01` | 采集状态与诊断 |
-| Module 02 | `design/module-02` | `feat/module-02` | 指标查询中心 |
-| Module 08 | `design/module-08` | `feat/module-08` | 告警状态查看 |
-| Module 05 | `design/module-05` | `feat/module-05` | 前端门户集成 |
+| Module 00 | `design/module-mvp-demo` | `feat/module-00` | 基础设施与数据模型 |
+| Module 07 | `design/module-mvp-demo` | `feat/module-07` | 配置管理（含资源、标签、Job、拨测） |
+| Module 01 | `design/module-mvp-demo` | `feat/module-01` | 采集状态与诊断 |
+| Module 02 | `design/module-mvp-demo` | `feat/module-02` | 指标查询中心 |
+| Module 08 | `design/module-mvp-demo` | `feat/module-08` | 告警状态查看 |
+| Module 05 | `design/module-mvp-demo` | `feat/module-05` | 前端门户集成 |
 
-> 模块可根据粒度进一步拆分，例如 `design/module-07a`、`feat/module-07a`，但需保持设计与实现分支一一对应。
+> MVP 阶段 `feat/module-XX` 可按粒度进一步拆分（例如 `feat/module-07a`），但设计统一在 `design/module-mvp-demo`，模块归属靠 PRD 单文件物理隔离追溯。
 
 ### 2.5 版本管理约定
 
@@ -192,7 +194,7 @@ git branch --show-current
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git checkout develop
 git pull origin develop
-git checkout -b design/module-XX
+git checkout -b design/module-mvp-demo
 ```
 
 ### 5.4 创建功能分支
@@ -244,13 +246,13 @@ git checkout -b feat/module-XX origin/develop
 
 ### 6.2 设计分支已合并但想撤回 PRD
 
-如果 `design/module-XX` 已合并到 `develop`，但发现 PRD 或原型存在重大问题：
+如果 `design/module-mvp-demo` 已合并到 `develop`，但发现 PRD 或原型存在重大问题：
 
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
 
-# 找到 design/module-XX 的 merge commit
+# 找到 design/module-mvp-demo 的 merge commit
 git log --oneline --merges
 
 # revert 合并（保留历史）
@@ -307,7 +309,7 @@ git checkout -- docs/02-product-requirements/Modules/Module_XX_*.md docs/prototy
 
 ## 7. 合并审批规则
 
-### 7.1 design/module-XX 合并条件
+### 7.1 design/module-mvp-demo 合并条件
 
 1. PRD 和原型代码已按目录隔离要求放置
 2. PRD 修订表已同步更新：版本已递增、未改写任何「已冻结」行、PR 标注迭代轮次（§2.5）
@@ -327,7 +329,7 @@ git checkout -- docs/02-product-requirements/Modules/Module_XX_*.md docs/prototy
 ### 7.3 合并权限
 
 - **唯一合并人**：chenrt（项目整体负责人 / 产品 Owner）
-- **合并方式**：`git merge --no-ff design/module-XX` 或 `git merge --no-ff feat/module-XX`
+- **合并方式**：`git merge --no-ff design/module-mvp-demo` 或 `git merge --no-ff feat/module-XX`
 - **合并地点**：在主仓库 `CNCF_Monitor` 中执行
 - **合并后**：必须再次在 develop 环境执行提交前验证
 
@@ -339,7 +341,7 @@ zhangwq 提交的合并申请应包含：
 ## 合并申请
 
 **分支**：feat/module-XX
-**来源设计**：design/module-XX
+**来源设计**：design/module-mvp-demo
 **来源 PRD**：docs/02-product-requirements/Modules/Module_XX_*.md
 **来源原型**：docs/prototypes/module-XX/
 **预览链接**：https://...
@@ -362,7 +364,7 @@ zhangwq 提交的合并申请应包含：
 
 > **v1.25 去重**：全链路协作流程（角色流程图 + 文字版步骤）的**权威定义在 `.kimi/agents/orchestrator.md`「标准工作流」**（Agent 执行视角）与 [`05_AI_Agent_Collaboration_Standard.md`](05_AI_Agent_Collaboration_Standard.md) §1（人视角概览）。本文件只承载**分支 / 回退 / 审批**等 git 操作层面规则，不再重复流程图。
 
-一句话概览：`design/module-XX`（PRD+原型）→ chenrt 合并到 `develop` 冻结 → zhangwq 切 `feat/module-XX` 开发 → 预览验收 → chenrt `--no-ff` 合并回 `develop`。
+一句话概览：`design/module-mvp-demo`（PRD+原型）→ chenrt 合并到 `develop` 冻结 → zhangwq 切 `feat/module-XX` 开发 → 预览验收 → chenrt `--no-ff` 合并回 `develop`。
 
 ### 8.2 Commit 规范
 
@@ -472,7 +474,7 @@ https://<org>.github.io/CNCF_Monitor/preview/feat-module-XX/
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
 git checkout develop
-git branch --merged develop | grep -E "design/module-XX|feat/module-XX"
+git branch --merged develop | grep -E "design/module-mvp-demo|feat/module-XX"
 ```
 
 ### Q3: 想比较当前 feat 分支和 develop 的差异？
@@ -503,10 +505,10 @@ git checkout -b feat/module-XX origin/develop
 
 分两种情况：
 
-- **feat/module-XX 尚未创建**：直接修改 `design/module-XX`（PRD 修订表新增一行，版本 +1），重新发起 PR 到 develop。
+- **feat/module-XX 尚未创建**：直接修改 `design/module-mvp-demo`（PRD 修订表新增一行，版本 +1），重新发起 PR 到 develop。
 - **feat/module-XX 已在开发中**：
   - **默认路径（版本化迭代，推荐）**：**不中途修改**。记录问题清单，当前 feat 版本按已冻结 PRD 收尾合并；随后 design 分支迭代新需求（新轮次、新 PR、版本 +1），合并后再开新的 feat 分支承接——全程无需 rebase / 重建。
-  - **必须中途改（紧急）**：走变更请求（CR）流程，重新走 `design/module-XX` 流程合并后，zhangwq 基于新的 develop commit **重建或 rebase** `feat/module-XX`（重写历史、可能返工，谨慎使用）。
+  - **必须中途改（紧急）**：走变更请求（CR）流程，重新走 `design/module-mvp-demo` 流程合并后，zhangwq 基于新的 develop commit **重建或 rebase** `feat/module-XX`（重写历史、可能返工，谨慎使用）。
 
 ---
 
@@ -514,7 +516,7 @@ git checkout -b feat/module-XX origin/develop
 
 1. **严禁 `design/` 或 `feat/` 分支直接合入 `main`**。
 2. **严禁在 `feat/module-XX` 分支混入其他模块改动**。
-3. **严禁将 `docs/prototypes/` 中的原型代码直接复制到 `platform/` 或 `ui-custom/web/` 后原样合并**。
+3. **严禁将 `docs/prototypes/` 中的原型代码直接复制到 `platform/` 或 `ui-custom/web/` 后原样合并**；原型可作为实现基底复制，但必须完成 **mock 替换 / ReviewNote 剔除 / MVP 裁剪** 三道工序后方可提交。
 4. **严禁产品经理的 AI 修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**。
 5. **严禁开发的 AI 修改 `docs/02-product-requirements/`、`docs/prototypes/` 目录**。
 6. **严禁在 worktree 外直接开发并提交**（避免主仓库与 worktree 状态混乱）。

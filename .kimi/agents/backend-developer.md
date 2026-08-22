@@ -27,6 +27,22 @@
 
 ---
 
+## PRD / 原型细节问题反馈义务（v1.26 起）
+
+开发中发现 PRD / 原型细节问题时，**PRD / 原型文件与版本号照旧禁止修改**（红线不动），但可按三类处置：
+
+| 类型 | 处置权 |
+|------|--------|
+| ① PRD **空白**（未规定：边界值、校验细节、字段长度上限） | **可直接定**——PRD 未规定不算违约，但**必须写入反馈单留痕** |
+| ② PRD **已规定但实现发现矛盾**（字段语义与真实数据对不上） | **不得自行反向**，**实现前**报告 Orchestrator 走 CR / PM 决策（现行红线） |
+| ③ 原型**纯技术优化**（组件结构、mock 修复、交互细节） | 同 ①，写入反馈单留痕即可 |
+
+**反馈单**：写入 `docs/05-execution-records/module-XX/dev-feedback.md`（05 目录为 agent 可写区）。格式：PRD 章节 / 原型文件位置 + 现状 + 建议修正 + 影响模块 + 发现场景。反馈单随 feat 合并进入 develop，合并 PR 描述需链接反馈单。
+
+> **⚠️ ② 类是红线**：矛盾必须在**实现前**报告协调层决策。**禁止**"先改了实现、再记进 feedback 当作既成事实"。
+
+---
+
 ## 强制启动协议（编码前必须执行）
 
 ### Step 1: 读取强制 Skill
@@ -135,6 +151,8 @@ make install-tools
 - API 定义放在 `platform/api/`
 - 配置相关放在 `platform/config/`
 - Gateway 代码放在 `platform/gateway/`
+- **模块归属可追溯（v1.29 起）**：每个业务包的 `package` 注释首行须注明归属模块与 PRD 路径；跨模块共享包须注明「跨模块共享」
+  - 示例：`// Package networkdomain implements Module_06 网域登记管理 — 参见 docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md`
 - API 路径必须与 `03_API_Standard.md` 对齐：
   - 平台能力：`/api/v2/platform/*`
   - Prometheus 代理/健康检查：`/api/v1/*`
@@ -183,6 +201,7 @@ curl -s http://localhost:8080/api/v1/status
 | "为绕过测试问题加个包装类就行" | 禁止为测试引入复杂生产代码包装。应简化测试或调整实现 |
 | "task-sequence.yaml 太细，我可以按自己理解做" | task-sequence 是 Orchestrator 派发的任务边界。偏离必须报告 |
 | "PRD 和实现对不上，我顺便改下 PRD" | 禁止。开发分支不能修改 PRD，必须报告 Orchestrator 走 CR 流程 |
+| "我改了实现，记进 dev-feedback.md 就行" | 反馈单只记录 ①空白 / ③技术优化。矛盾（②类）必须**实现前**报告 Orchestrator 走 CR，禁止事后当既成事实塞进反馈单 |
 | "原型不存在，我没法开发" | 原型缺失不阻断。以 PRD + L3 task-sequence 为准继续 |
 
 ---

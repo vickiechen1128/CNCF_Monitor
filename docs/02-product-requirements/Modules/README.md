@@ -3,7 +3,7 @@
 > 文档类型：产品需求索引
 > **定位**：本文件是各模块 PRD 的**目录 + 版本对齐快照**，回答"每个模块当前到什么版本、原型是否对齐、是否可开发"。它是 prototype-designer 的固定输入（见 `.kimi/agents/prototype-designer.md` Step 3）。
 > **主控关系**：产品版本的定义/规划以 [02_Product_Roadmap.md](../02_Product_Roadmap.md) §1.5 功能-版本矩阵为准；各模块版本声明以其 PRD 头部为准；本表是两者的**跨模块快照**（详见 06 Gitflow §2.5）。
-> 更新日期：2026-08-21（v1.42）
+> 更新日期：2026-08-22（v1.43）
 
 ---
 
@@ -35,10 +35,41 @@
 - **更新时机**：任何模块 PRD 版本递增、原型版本变更、PRD 状态流转（ready / 已冻结）时，**与修订表同一次提交**更新本表对应行。
 - **更新人**：prototype-designer（迭代后同步）；chenrt（标记已冻结、合并 PR 后同步）。
 
-## 4. Change Log
+## 4. 模块 ↔ 代码目录映射
+
+> 定位：回答「某个模块的代码落在哪个目录」。源码目录按功能域组织，模块归属由分支名 + commit message + 本表共同承载。
+> 更新时机：新增/迁移模块源码目录时，**与功能代码同一次提交**更新本表。
+
+| 模块 | 功能域 | 后端目录/包 | 前端目录 | 负责人 / 开发分支 |
+|------|--------|------------|----------|------------------|
+| Module_00 | 全局索引 | — | — | `design` / chenrt, prototype-designer |
+| Module_01 | 监控策略与指标管理 | `platform/cmd/metric-center/`（Prometheus 代理入口）<br>`platform/models/`（共享模型） | `ui-custom/web/src/pages/collection/` | `feat/module-01-*` |
+| Module_02 | 查询中心 | `platform/api/response/`（统一响应封装）<br>`platform/cmd/metric-center/`（查询代理） | `ui-custom/web/src/pages/query/` | `feat/module-02-*` |
+| Module_03 | 网关与认证 | 预留 `platform/gateway/` | 共享路由/鉴权（`src/api/client.ts`、`src/layouts/`） | `feat/module-03-*` |
+| Module_04 | 自定义服务发现 | 预留 `platform/discovery/` | `ui-custom/web/src/pages/resources/` | `feat/module-04-*` |
+| Module_05 | 自定义前端门户 | — | `ui-custom/web/` 整体 | `feat/module-05-*` |
+| Module_06 | 租户与平台管理 / 网域登记 | `platform/admin/networkdomain/` | `ui-custom/web/src/pages/admin/domains/` | `feat/module-06-*` / zhangwq |
+| Module_07 | 监控对象管理 | `platform/models/`（共享模型）<br>预留 M07 目录待创建 | `ui-custom/web/src/pages/resources/` | `feat/module-07-*` |
+| Module_08 | 告警规则管理 | 预留 `platform/config/` | `ui-custom/web/src/pages/alerts/` | `feat/module-08-*` |
+| Module_09 | 网域与边缘配置中心 | 预留 `platform/collector/`<br>预留 `platform/config/` | 预留页面目录（`#/domain-onboarding`） | `feat/module-09-*` |
+| Module_10 | 监控源登记册 | 预留 `platform/discovery/` | 预留 | `feat/module-10-*` |
+| **共享基础设施** | 跨模块 | `platform/api/response/`、`platform/db/`、`platform/models/` | `ui-custom/web/src/layouts/`、`src/api/`、`src/components/` | `develop` / 各 Agent |
+
+### 4.1 目录归属原则
+
+1. **源码目录按功能域命名**，不按模块号命名。例如网域功能使用 `networkdomain/` 而非 `module-06/`。
+2. **模块归属通过以下四层共同追溯**：
+   - Git 分支：`feat/module-XX-*`；
+   - Commit message：`feat(module-XX): ...`；
+   - 执行记录：`docs/05-execution-records/module-XX/`；
+   - 本表：模块到功能目录的映射。
+3. **跨模块共享代码**（如 `models/`、`api/response/`、`layouts/`）不归入任何单一模块目录，由 `develop` 统一维护；修改时须在 commit / PR 描述中说明影响的模块。
+
+## 5. Change Log
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.43 | 2026-08-22 | 新增 | 新增「模块 ↔ 代码目录映射」章节（§4）及目录归属原则：源码目录按功能域命名、不按模块号命名；模块归属由分支名 + commit message + 执行记录 + 本表四层追溯；跨模块共享代码不归入单一模块。同步更新 agent 规范：backend-developer.md 要求 Go 包注释注明模块/PRD 路径；frontend-developer.md 要求页面入口 JSDoc 注明模块/PRD 路径 | 全部模块 / Agent 规范 | 文档自身 | 使用中 |
 | v1.42 | 2026-08-21 | 修改 | PRD 状态推进 ready（可开发）：Module_01（v3.26）、Module_06（v2.2/原型 v2.3）、Module_07（v2.21）、Module_09（v1.50）四模块 PRD 状态由 设计中/prototyping 流转为 `ready`（两段式评审通过、原型对齐、可用于后续 plan-maintainer 派生 Implementation Plan）；本表对应四行使序状态列同步更新，对齐保持「✅ 对齐」 | Module_01 / Module_06 / Module_07 / Module_09 | 文档自身 | 使用中 |
 | v1.41 | 2026-08-21 | 修改 | 两段式评审返工修复 + 版本对齐：Module_07 原型 v2.20→v2.21（host 导入模板补 `instance_name` 列、导入弹窗去技术术语 upsert/M01/M09/offline、`app_name`/`cluster` 差异化必填）；Module_06 原型 v2.2→v2.3（R1 ID 前缀 `nd-*`→`<deploy_code>-<domain_code>` 默认 `mc`、`default` 无前缀；R2 `multi_site_enabled` 裸暴露去用户层；R3 去「v0.2+」阶段标记；R4 未纳管网域行内「配置纳管（M09）」跳转 Module_09 预选该网域——M09 `NetworkDomainsPage` 补读 `?network_domain=` 自动打开纳管弹窗；R5 禁用=冻结确认补充 M01/M09 传导影响）；Module_09 原型版本声明 v1.49→v1.50（对齐 PRD）。三模块对齐保持「✅ 对齐」 | Module_07 / Module_06 / Module_09 | 文档自身 | 使用中 |
 | v1.40 | 2026-08-21 | 修改 | 原型同步落版（决策 28~31 / 31-M1~31-M3 / 30-3）：Module_01 原型 v3.25→v3.26（认证与TLS 折叠面板 auth_type/basic/bearer + tls_skip_verify + ca_file、冻结网域 Select 置灰+Tooltip、提交兜底校验冻结域/认证必填、mock 补 frozen legacy-dc 与 default 域下线 res-mw-005）；Module_07 原型 v2.9→v2.20（「未监控」筛选器 + 采集状态列 + Tab 未监控计数、资源列表 is_monitored 只读映射）；Module_09 原型 v1.49→v1.50（scrape_configs 透传 basic_auth/authorization/tls_config示例 + blackbox HTTP/HTTPS tls_config、ReviewNote 补冻结域不生成变更单/认证TLS透传/offline 排除说明）。三模块对齐均改「✅ 对齐」，原型版本与 PRD 版本拉齐 | Module_01 / Module_07 / Module_09 | 文档自身 | 使用中 |

@@ -121,9 +121,9 @@
 > **v1.25 去重**：需求从痛点收集到冻结的完整流程见 [`02_Demand_Workflow.md`](02_Demand_Workflow.md)。本守则仅保留关键约定：
 
 - 任何进入开发队列的需求，必须落在某个 `Modules/Module_XX_*.md` 中。
-- **PRD 与原型代码放在同一分支 `design/module-XX`**，统一由 chenrt 提交到 `develop`。
+- **PRD 与原型代码放在同一分支 `design/module-mvp-demo`**，统一由 chenrt 提交到 `develop`。
 - 原型代码存放在 `docs/prototypes/module-XX/`，**属于产品设计区**，不污染 `platform/` 和 `ui-custom/web/`。
-- `design/module-XX` 合并到 `develop` 后，PRD + 原型成为 `develop` 上的 SSOT，zhangwq 的 AI 从此读取。
+- `design/module-mvp-demo` 合并到 `develop` 后，PRD + 原型成为 `develop` 上的 SSOT，zhangwq 的 AI 从此读取。
 - 需求变更需 chenrt 确认；涉及业务方向调整需 guixm 同意。
 - zhaohy 的需求输入应尽量使用"用户故事"格式：作为【角色】，我希望【功能】，以便于【价值】。
 
@@ -145,11 +145,11 @@
 
 | 分支类型 | 命名示例 | 负责人 | 合并目标 | Reviewer | 说明 |
 |----------|----------|--------|----------|----------|------|
-| 设计分支 | `design/module-XX` | chenrt | `develop` | guixm、zhaohy | 包含 PRD + 原型代码 |
+| 设计分支 | `design/module-mvp-demo` | chenrt | `develop` | guixm、zhaohy | 包含 PRD + 原型代码 |
 | 功能分支 | `feat/module-XX` | zhangwq | `develop` | chenrt、zhaohy、guixm | 生产代码实现 |
 | 热修复 | `hotfix/*` | zhangwq | `main` + `develop` | chenrt | 生产紧急修复 |
 
-- `design/module-XX` 合并到 `develop` 后，该模块 PRD + 原型即冻结。
+- `design/module-mvp-demo` 合并到 `develop` 后，该模块 PRD + 原型即冻结。
 - 只有 chenrt 有权将分支 `--no-ff` 合并到 `develop`。
 - `feat/module-XX` 合并前必须完成：zhangwq Review 通过 + 提交前验证通过 + 产品经理/业务方通过预览链接验收。
 
@@ -214,7 +214,7 @@
 | MVP 范围变更 | chenrt | guixm、zhaohy | 需同步更新 Roadmap |
 | 需求优先级调整 | chenrt | guixm、zhaohy | 影响开发顺序 |
 | 新增/删除模块 | chenrt | guixm、zhangwq | 需更新功能架构 |
-| `design/module-XX` 合并到 develop | chenrt | guixm、zhaohy | PRD + 原型评审通过 |
+| `design/module-mvp-demo` 合并到 develop | chenrt | guixm、zhaohy | PRD + 原型评审通过 |
 | `feat/module-XX` 合并到 develop | chenrt | zhangwq（Review 通过）、zhaohy（业务验收通过） | 必须完成提交前验证 + 预览验收 |
 | 技术选型变更 | chenrt | zhangwq | 需更新 Implementation Map |
 | API 路径/响应格式变更 | zhangwq | chenrt | 需更新 API Standard |
@@ -269,7 +269,7 @@
 3. **禁止绕过提交前验证直接申请合并**。
 4. **禁止在 `feat/module-XX` 分支混入其他模块改动**。
 5. **禁止直接修改 `upstream/` 源码**；必须走 patch 流程。
-6. **禁止将 `design/module-XX` 中的原型代码复制到 `platform/` 或 `ui-custom/web/` 后原样合并**；必须在 `feat/module-XX` 中按工程标准重新实现。
+6. **禁止将 `docs/prototypes/` 中的原型代码复制到 `platform/` 或 `ui-custom/web/` 后原样合并**；原型可作为实现基底复制，但须完成 **mock 替换 / ReviewNote 剔除 / MVP 裁剪** 三道工序（见 `03_Code_Collaboration_Workflow.md` §6）。
 7. **禁止产品经理的 AI 修改 `platform/`、`ui-custom/web/`、`upstream/` 目录**。
 8. **禁止开发的 AI 修改 `docs/02-product-requirements/`、`docs/prototypes/` 目录**。
 9. **禁止未经 chenrt 批准直接合并到 `develop`**。

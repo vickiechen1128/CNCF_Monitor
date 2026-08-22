@@ -39,7 +39,7 @@ cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 |----------|----------|------|------|----------|--------|
 | `main` | `main` | 稳定/生产版本 | - | - | chenrt |
 | `develop` | `develop` | PRD + 原型 + 已验收代码的 SSOT | `main` | - | chenrt |
-| `design/module-XX` | `design/module-07` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
+| `design/module-mvp-demo` | `design/module-mvp-demo` | PRD + AI 生成的原型代码 | `develop` | `develop` | chenrt |
 | `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq |
 | `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt |
@@ -52,10 +52,10 @@ cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 ```bash
 git checkout develop
 git pull origin develop
-git checkout -b design/module-XX
+git checkout -b design/module-mvp-demo
 ```
 
-开发阶段（确认 `design/module-XX` 已合并到 develop 且 PRD + 原型已冻结）：
+开发阶段（确认 `design/module-mvp-demo` 已合并到 develop 且 PRD + 原型已冻结）：
 
 ```bash
 git checkout develop
@@ -93,7 +93,7 @@ git checkout -b feat/module-XX
 
 | 分支类型 | Commit 类型 | 示例 |
 |----------|-------------|------|
-| `design/module-XX` | `design(module-XX): ...` | `design(module-07): 添加资源管理 PRD 与原型` |
+| `design/module-mvp-demo` | `design(module-XX): ...` | `design(module-07): 添加资源管理 PRD 与原型` |
 | `feat/module-XX` | `feat(module-XX): ...` | `feat(module-07): 实现资源管理 CRUD 与 Excel 导入` |
 | `fix/module-XX` | `fix(module-XX): ...` | `fix(module-07): 修复资源列表查询参数校验` |
 | `release/*` | `release: ...` | `release: bump version to v0.1.0` |
@@ -129,7 +129,7 @@ git log --oneline -5
 
 # 创建并切换设计分支
 git checkout develop && git pull origin develop
-git checkout -b design/module-XX
+git checkout -b design/module-mvp-demo
 
 # 创建并切换功能分支
 git checkout develop && git pull origin develop
