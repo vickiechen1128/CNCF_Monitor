@@ -459,6 +459,16 @@ export function NetworkDomainsPage() {
               </Select>
             </Form.Item>
           )}
+          <Form.Item label="域类型" extra="登记固定为边缘域，只读；管理域为系统预置，由平台管理员维护">
+            <Select
+              value="edge"
+              disabled
+              options={[
+                { value: 'edge', label: '边缘域' },
+                { value: 'management', label: '管理域（系统预置）' },
+              ]}
+            />
+          </Form.Item>
           <Form.Item
             label="授权租户"
             name="authorized_tenant_ids"
