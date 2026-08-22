@@ -358,7 +358,7 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 项目采用 **Gitflow + 单一 worktree + 按功能子模块拆分 feature 分支**。
 
-1. **需求阶段**：`prototype-designer` 产出 PRD 和可点击原型，分支 `design/module-XX`。
+1. **需求阶段**：`prototype-designer` 产出 PRD 和可点击原型，分支 `design/module-mvp-demo`。
 2. **规划阶段**：`planner` 从 ready PRD 派生 L2（实现地图 + 代码实施计划）和 L3（`task-sequence.yaml`）。
 3. **开发阶段**：`backend-developer` / `frontend-developer` / `prometheus-developer` 基于 `develop` 创建 `feat/module-XX-<功能名>` 分支，TDD 开发。
 4. **审查阶段**：`golang-reviewer`、`frontend-reviewer`、`security-reviewer` 独立审查。

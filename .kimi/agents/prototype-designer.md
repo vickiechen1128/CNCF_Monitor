@@ -62,10 +62,10 @@
 ```bash
 cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-worktree"
 git rev-parse --git-dir   # 必须包含 .git/worktrees/
-git branch --show-current # 必须是 design/module-XX
+git branch --show-current # 必须是 design/module-mvp-demo
 ```
 
-若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `design/module-XX`。
+若不在正确分支，按 `cncf-git-workflow` Skill 切换或创建 `design/module-mvp-demo`。
 
 ### Step 3: 阅读已有输入
 
@@ -180,6 +180,8 @@ Change Log          （业务沟通决策记录：仅保留最近 3 版一句话
 
 - **输出全产品页面结构图**：包含当前模块及其他相关模块的导航关系，避免模块原型成为孤岛。
 - **确定全局导航条目**：首页 Dashboard、资源管理、监控策略、配置中心、指标查询、告警状态、系统设置等。
+- **顶部一级模块导航（v1.31 新增，强制）**：Header 承载一级功能模块的**横向文字 tab 导航**，采用 AWS 式「文字 + 选中下划线」样式，紧跟品牌标题（MetricCenter）右侧；每个大功能模块一个 tab，点亮选中态下划线。**首页作为第一个 tab 整合进该导航**，后续大模块（M07/M09 等）在 tab 上追加即可。这是全局大功能切换的唯一入口，禁止把小模块切换做成页面内小按钮或侧边栏独占。
+- **侧边栏承载二级页面导航**：Sider 展示当前一级模块下的二级页面，随顶部 tab 切换联动；顶部 tab 管「大功能模块」，侧边栏管「模块内页面」。
 - **按用户任务组织导航**：菜单与页面按"用户要完成什么任务"组织，**不按数据表 / 后端模块 / 配置文件组织**（反模式：用 prometheus.yml / targets 组织确认页）。
 - **区分 MVP 页面与未来版本占位**：当前模块的 MVP 页面必须高保真可点击；v0.2+ 页面以低保真占位页或 disabled 菜单项形式呈现，标注 `{v0.2}`、`{v0.4+}` 等阶段标签。
 - **输出导航映射表**：每个菜单项 → 所属模块 → 产品版本 → 原型页面路径。
@@ -428,7 +430,7 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 
 | 维度 | 原型开发 | 正式开发 |
 |------|----------|----------|
-| 分支 | `design/module-XX` | `feat/module-XX` |
+| 分支 | `design/module-mvp-demo` | `feat/module-XX` |
 | 可写目录 | `docs/02-product-requirements/`、`docs/prototypes/` | `platform/`、`ui-custom/web/` |
 | 数据 | 本地 mock | 真实后端 API |
 | 测试 | 不强制 | 必须 TDD / 组件测试 |
@@ -465,11 +467,11 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 
 **场景 A：feat/module-XX 尚未创建**
 
-1. 直接在当前的 `design/module-XX` 分支上修改 PRD / 原型
+1. 直接在当前的 `design/module-mvp-demo` 分支上修改 PRD / 原型
 2. 修订表**新增一行**（版本 +1，状态保持 prototyping / ready），**不改写已冻结行**
 3. **同步更新 Change Log**
 4. 重新运行原型验证流程
-5. 重新 push，`design/module-XX → develop` 的 PR 会自动更新
+5. 重新 push，`design/module-mvp-demo → develop` 的 PR 会自动更新
 6. 待 guixm、zhaohy review 通过后，由 chenrt 合并到 `develop`
 
 **场景 B：feat/module-XX 已在开发中**

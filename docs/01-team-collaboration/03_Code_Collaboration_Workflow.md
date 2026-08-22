@@ -2,7 +2,7 @@
 
 > 文档类型：团队协作规范
 > **目标读者**：chenrt、zhangwq、guixm、zhaohy——**人视角**的代码协作总览
-> 更新日期：2026-08-12（v1.25 重构：PR 模板 / 验证清单 / prompt 模板的权威定义在工程标准与 .kimi/agents/，本文件只保留协作总览与合并规则）
+> 更新日期：2026-08-22（v1.26 新增：开发问题反馈单机制 §6.1 与三类问题处置权；改写原型代码复制条款 §6 禁止事项 3）
 
 ---
 
@@ -24,10 +24,10 @@
 
 ```
 Phase 1: 产品侧 Vibe Coding（chenrt）
-├── 基于 develop 创建 design/module-XX
+├── 基于 develop 创建 design/module-mvp-demo
 ├── 编写 PRD：docs/02-product-requirements/Modules/Module_XX_*.md
 ├── 生成原型：docs/prototypes/module-XX/
-├── 发起 design/module-XX → develop 的 PR
+├── 发起 design/module-mvp-demo → develop 的 PR
 ├── guixm + zhaohy review
 └── chenrt --no-ff 合并到 develop
          │
@@ -51,7 +51,7 @@ Phase 3: develop 验证
 
 | 分支                 | 合并目标               | 谁发起 PR  | 谁 Review                    | 谁合并               |
 | ------------------ | ------------------ | ------- | --------------------------- | ----------------- |
-| `design/module-XX` | `develop`          | chenrt  | guixm、zhaohy                | chenrt（`--no-ff`） |
+| `design/module-mvp-demo` | `develop`          | chenrt  | guixm、zhaohy                | chenrt（`--no-ff`） |
 | `feat/module-XX`   | `develop`          | zhangwq | zhangwq、zhaohy、guixm、chenrt | chenrt（`--no-ff`） |
 | `release/*`        | `main` + `develop` | chenrt  | -                           | chenrt（`--no-ff`） |
 | `hotfix/*`         | `main` + `develop` | zhangwq | chenrt                      | chenrt（`--no-ff`） |
@@ -70,7 +70,7 @@ Phase 3: develop 验证
 1. 创建设计分支（命令见 [`04_Team_Git_Operations_Guide.md`](04_Team_Git_Operations_Guide.md) §5）
 2. 编写 PRD 到 `docs/02-product-requirements/Modules/Module_XX_*.md`（骨架规范见 `.kimi/agents/prototype-designer.md` Phase 3）
 3. 生成原型到 `docs/prototypes/module-XX/`（调用 `prototype-designer`）
-4. 发起 `design/module-XX → develop` PR，Reviewer 指定 guixm、zhaohy
+4. 发起 `design/module-mvp-demo → develop` PR，Reviewer 指定 guixm、zhaohy
 5. Review 通过后 chenrt `--no-ff` 合并到 develop（命令见 04 §5.5）
 
 ### 3.3 Review 关注点
@@ -87,7 +87,7 @@ Phase 3: develop 验证
 
 ### 4.1 触发与负责人
 
-- 触发：`design/module-XX` 已合并到 develop；chenrt 向 zhangwq 下达开发任务单
+- 触发：`design/module-mvp-demo` 已合并到 develop；chenrt 向 zhangwq 下达开发任务单
 - 执行：zhangwq（SRE / 工程质量 Owner）
 
 ### 4.2 操作步骤
@@ -133,12 +133,30 @@ Phase 3: develop 验证
 
 ## 6. 禁止事项
 
+> **核心原则：契约保护与细节反馈解耦。** 禁改 PRD/原型是硬红线（保护契约优先 + 版本可追溯），但由此带来的"每条细节都要走 design 分支往返"成本，通过下方 §6.1 反馈单机制解决，**不放松 PRD/原型禁改红线**。
+
 1. **禁止产品经理的 AI 修改** `platform/`、`ui-custom/web/`、`upstream/` 目录。
-2. **禁止开发的 AI 修改** `docs/02-product-requirements/`、`docs/prototypes/` 目录。
-3. **禁止将** `docs/prototypes/` 中的原型代码直接复制到生产目录后原样合并。
+2. **禁止开发的 AI 修改** `docs/02-product-requirements/`、`docs/prototypes/` 目录（PRD / 原型文件与版本号照旧禁止改动；开发发现的问题走 §6.1 反馈单）。
+3. **禁止将** `docs/prototypes/` 中的原型代码直接复制到生产目录后原样合并。原型可作为**实现基底**复制，但复制后必须完成三道工序——**mock 替换 / ReviewNote 剔除 / MVP 裁剪**——未走完三道工序不得作为生产代码提交。
 4. **禁止绕过提交前验证直接申请合并**。
 5. **禁止在** `feat/module-XX` **分支混入其他模块改动**。
 6. **禁止未经 chenrt 批准直接合并到** `develop`。
+
+### 6.1 开发问题反馈单机制（v1.26 起）
+
+开发在 `feat` 分支上发现 PRD / 原型细节问题时，**PRD / 原型文件与版本号照旧禁止修改**，但可按以下分类处置，避免每条边界值都要走 design 分支往返：
+
+| 类型 | 例子 | 处置权 |
+|------|------|--------|
+| ① PRD **空白**（未规定） | 边界值、校验细节、字段长度上限 | **开发可直接定**——PRD 未规定不算违约，但必须写入反馈单留痕 |
+| ② PRD **已规定但实现发现矛盾** | 某字段语义与真实数据对不上 | **开发不得自行反向**，必须事前报告 PM 决策（现行红线，保留） |
+| ③ 原型**纯技术优化** | 组件结构、mock 修复、交互细节 | 同①，写入反馈单留痕即可 |
+
+**反馈单位置**：`docs/05-execution-records/module-XX/dev-feedback.md`（05 目录为 agent 可写区）。格式：PRD 章节 / 原型文件位置 + 现状 + 建议修正 + 影响模块 + 发现场景。
+
+**反馈单不是改 PRD，是变更请求单**——PRD 版本号不动、不用跑 design 分支。`feat` 合并 PR 时，feedback 非空必须**在 PR 描述中链接反馈单**；PM 在 `design/module-mvp-demo` 分支上做一轮版本化迭代时**一次性收割**（收割后在单内标「已收割于 vX.X」）。
+
+> **红线（② 类）**：矛盾必须在**实现前**报告 Orchestrator 走决策，禁止"改了实现再记进 feedback 当既成事实"（见 `frontend-developer.md` / `backend-developer.md` Anti-Rationalization）。
 
 ---
 
