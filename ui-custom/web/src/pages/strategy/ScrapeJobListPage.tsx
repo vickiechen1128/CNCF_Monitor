@@ -22,8 +22,11 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { networkDomainApi } from '../../api/domain'
 import { scrapeJobApi } from '../../api/scrapeJobs'
+import { exporterTemplateApi } from '../../api/exporterTemplates'
+import { labelTemplateApi } from '../../api/labelTemplates'
 import type { NetworkDomain } from '../../types/domain'
-import type { MonitorType, ScrapeJob } from '../../types/strategy'
+import type { ExporterTemplate, MonitorType, ScrapeJob } from '../../types/strategy'
+import type { LabelTemplateListItem } from '../../types/label'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
@@ -48,6 +51,8 @@ function JobsTab() {
   const { data, loading, error, filters, setFilters, page, pageSize, onPageChange, onPageSizeChange, reload } =
     useScrapeJobs()
   const [domains, setDomains] = useState<NetworkDomain[]>([])
+  const [templates, setTemplates] = useState<ExporterTemplate[]>([])
+  const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ScrapeJob | null>(null)
 
@@ -60,11 +65,49 @@ function JobsTab() {
       .catch(() => setDomains([]))
   }, [])
 
+  // 采集器模板与标签模板：F1-1 采集器列反查真实名称 / 标签模板列渲染（禁用裸 ID）
+  useEffect(() => {
+    Promise.all([
+      exporterTemplateApi.list({ page: 1, page_size: 100 }),
+      labelTemplateApi.list({ page: 1, page_size: 100 }),
+    ])
+      .then(([tmplRes, labelRes]) => {
+        setTemplates(tmplRes.data?.list ?? [])
+        setLabelTemplates(labelRes.data?.list ?? [])
+      })
+      .catch(() => {
+        setTemplates([])
+        setLabelTemplates([])
+      })
+  }, [])
+
   const domainById = useMemo(() => {
     const m = new Map<string, NetworkDomain>()
     domains.filter((d) => d.is_monitored && d.status === 'enabled').forEach((d) => m.set(d.id, d))
     return m
   }, [domains])
+
+  // 采集器模板按「数字 id / 名称」双重索引，兼容 job.exporter_template_id 为 id 或名称两种口径（F1-1）
+  const templateByRef = useMemo(() => {
+    const m = new Map<string, ExporterTemplate>()
+    templates.forEach((t) => {
+      m.set(String(t.id), t)
+      m.set(t.name, t)
+    })
+    return m
+  }, [templates])
+
+  // 标签模板按 id 索引（F1-1）
+  const labelTemplateById = useMemo(() => {
+    const m = new Map<string, LabelTemplateListItem>()
+    labelTemplates.forEach((t) => m.set(String(t.id), t))
+    return m
+  }, [labelTemplates])
+
+  // 补配跳转占位（Job 列表侧「待配置」入口；实际维护在采集器默认配置/M07）
+  const openLabelTemplateGuide = useCallback(() => {
+    message.info('标签模板补配请前往「采集器默认配置」维护（M07）')
+  }, [])
 
   const notifyChangeGuide = useCallback(() => {
     message.success('变更将由 M09 生成变更单并下发')
@@ -140,8 +183,34 @@ function JobsTab() {
       dataIndex: 'exporter_template_id',
       key: 'exporter_template_id',
       width: 160,
-      // 本模块未接入 M07/采集器名称解析；禁止裸露 ID，展示语义化「默认采集器」
-      render: (v?: string) => (v ? <EllipsisText>默认采集器</EllipsisText> : '-'),
+      // F1-1：按 exporter_template_id 反查真实模板名（id/名称双重索引）；blackbox 显拨测模块；
+      // 查不到才回退「默认采集器」占位，禁止裸露 ID
+      render: (_: unknown, r: ScrapeJob) => {
+        if (r.job_type === 'blackbox') return r.blackbox_module ? <EllipsisText>{r.blackbox_module}</EllipsisText> : '-'
+        const ref = r.exporter_template_id
+        if (!ref) return '-'
+        const tmpl = templateByRef.get(String(ref))
+        return tmpl ? <EllipsisText>{tmpl.name}</EllipsisText> : <EllipsisText>默认采集器</EllipsisText>
+      },
+    },
+    {
+      title: '标签模板',
+      key: 'label_template',
+      width: 140,
+      // F1-1：label_template_id 命中→模板名 + 待配置橙 Tag（可点击补配引导）；未关联→'-'
+      render: (_: unknown, r: ScrapeJob) => {
+        const ref = r.label_template_id
+        if (!ref) return '-'
+        const t = labelTemplateById.get(String(ref))
+        return (
+          <Space size={4}>
+            <EllipsisText>{t?.name ?? '标签模板'}</EllipsisText>
+            <Tag color="orange" onClick={openLabelTemplateGuide} style={{ cursor: 'pointer' }}>
+              待配置
+            </Tag>
+          </Space>
+        )
+      },
     },
     {
       title: '已选实例',

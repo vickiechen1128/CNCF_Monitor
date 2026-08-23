@@ -8,6 +8,8 @@ const listMock = vi.fn()
 const updateMock = vi.fn()
 const removeMock = vi.fn()
 const domainListMock = vi.fn()
+const tmplListMock = vi.fn()
+const labelListMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
@@ -21,6 +23,15 @@ vi.mock('../../api/domain', () => ({
   networkDomainApi: {
     list: (...args: unknown[]) => domainListMock(...args),
   },
+}))
+
+// F1-1：采集器列反查真实名称 / 标签模板列渲染
+vi.mock('../../api/exporterTemplates', () => ({
+  exporterTemplateApi: { list: (...args: unknown[]) => tmplListMock(...args) },
+}))
+
+vi.mock('../../api/labelTemplates', () => ({
+  labelTemplateApi: { list: (...args: unknown[]) => labelListMock(...args) },
 }))
 
 // 采集器管理 Tab 独立测试（F2），页面挂载测试内 stub
@@ -64,9 +75,29 @@ beforeEach(() => {
   updateMock.mockReset()
   removeMock.mockReset()
   domainListMock.mockReset()
+  tmplListMock.mockReset()
+  labelListMock.mockReset()
   domainListMock.mockResolvedValue({
     status: 'success',
     data: { list: [{ id: 'mc-a', name: '网域A', is_monitored: true, status: 'enabled' }], total: 1, page: 1, page_size: 100 },
+  })
+  tmplListMock.mockResolvedValue({
+    status: 'success',
+    data: {
+      list: [{ id: 1, name: 'mysqld-exporter' }, { id: 2, name: 'redis-exporter' }],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    },
+  })
+  labelListMock.mockResolvedValue({
+    status: 'success',
+    data: {
+      list: [{ id: 7, name: 'MySQL 标准标签' }, { id: 8, name: 'Redis 标准标签' }],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    },
   })
 })
 
@@ -123,6 +154,35 @@ describe('ScrapeJobListPage', () => {
 
     renderPage()
     expect(await screen.findByText('拨测')).toBeInTheDocument()
+  })
+
+  it('resolves collector name from exporter_template_id and renders label template column (F1-1)', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          // 常规 job：exporter_template_id 命中模板名「mysqld-exporter」；label_template_id 命中「MySQL 标准标签」
+          job(1, { exporter_template_id: 'mysqld-exporter', label_template_id: '7' }),
+          // 未关联标签模板
+          job(2, { exporter_template_id: 'redis-exporter', label_template_id: undefined }),
+          // 查无模板 → 回退「默认采集器」占位，禁止裸 ID
+          job(3, { exporter_template_id: 'unknown-exporter' }),
+        ],
+        total: 3,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('mysqld-exporter')).toBeInTheDocument()
+    expect(screen.getByText('redis-exporter')).toBeInTheDocument()
+    // 采集器列真实模板名解析 + 默认占位（非裸 ID）
+    expect(screen.getByText('默认采集器')).toBeInTheDocument()
+    // 标签模板列：命中模板名 + 待配置橙 Tag；未关联渲染 '-'
+    expect(screen.getByText('MySQL 标准标签')).toBeInTheDocument()
+    expect(screen.getAllByText('待配置').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows empty state 暂无采集任务', async () => {
