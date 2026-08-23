@@ -56,7 +56,7 @@ else
       URL="${BASE/go.dev\//golang.google.cn/}"
       URL="${URL/golang.org\//golang.google.cn/}" ;;
     *nodejs.org*)
-      URL="${BASE/nodejs.org\/dist\//registry.npmmirror.com\/-/binary\/node/}" ;;
+      URL="${BASE/nodejs.org\/dist\//registry.npmmirror.com/-/binary/node/}" ;;
   esac
 fi
 

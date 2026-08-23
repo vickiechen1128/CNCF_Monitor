@@ -284,9 +284,17 @@ run-prometheus: build-prometheus
 		--config.file="$(PROJECT_ROOT)/upstream/prometheus/prometheus.yml" \
 		--web.listen-address=:9090
 
-dev-ui: ensure-pnpm
+dev-ui:
 	@echo ">>> Starting Custom UI dev server"
-	@cd "$(PROJECT_ROOT)/ui-custom/web" && "$(PNPM_BIN)" install && exec "$(PROJECT_ROOT)/ui-custom/web/node_modules/.bin/vite"
+	@cd "$(PROJECT_ROOT)/ui-custom/web" && \
+	if [ -x "node_modules/.bin/vite" ]; then \
+		echo ">>> node_modules present; skipping toolchain download and starting vite directly"; \
+		exec "node_modules/.bin/vite"; \
+	else \
+		$(MAKE) ensure-pnpm && \
+		"$(PNPM_BIN)" install && \
+		exec "node_modules/.bin/vite"; \
+	fi
 
 # -----------------------------------------------------------------------------
 # 测试与清理
