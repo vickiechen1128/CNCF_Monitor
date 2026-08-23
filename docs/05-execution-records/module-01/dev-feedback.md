@@ -44,6 +44,18 @@
 - **问题**：与本次 ScrapeJob 凭据修复（json:"-" 不回显）同一安全口径未覆盖到 M06/M09 管理域；security-reviewer 定向复审时发现，属本模块外遗留。
 - **登记原因**：不在 module-01 改动范围，不阻塞本模块合并。建议在 M06/M09 对应模块上线前按同一决策收敛为 `json:"-"`（或确认存储即脱敏）。
 
+## 2026-08-23（原型↔生产映射发现，已裁决）
+
+### F-07：采集 Job「编辑态网域 disabled」与契约「PUT 可改网域」冲突（② 类，已定方案）
+- **位置**：`ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`（编辑态网域 `disabled={isEdit}`）；契约 `api-contract-snapshot.md` §5/§10（`PUT /scrape-jobs/:id` 允许改 network_domain_id，仅当目标网域冻结时禁止新增该域实例）
+- **问题**：生产将编辑态网域固定为只读（不可改），与契约/PRD 允许「改网域」的接口口径冲突。若按契约放开，则需处理跨域约束（目标网域已纳管 + 非冻结 + 实例同域一致性校验）；若维持只读，需在 PRD §5.4 锁定「Job 创建后不可改网域」并为契约对齐回显口径。
+- **决策（chenrt/PM，2026-08-23）**：**选①按契约放开编辑态改网域**。T01-F11 已落地：`ScrapeJobFormDrawer` 网域字段去掉 `disabled={isEdit}`，编辑态可改网域（目标网域仍仅已纳管非冻结可选）。冻结核验与实例同域一致性由后端接口约束，前端沿用已纳管非冻结过滤。
+- **验收口径**：与 frontend-prototype-map §6/§7（FIX-2）、task-sequence T01-F11 一致。
+
+### F-03 补充：参数同步列三态回显（T01-F12）
+- **背景**：dev F-03 登记「`mapping_overrides` MVP 不持久化」。T01-F12 在未落库前提下纠前端口径：黑盒 Job 显「同步」；有覆盖显「已覆盖 n 项」（蓝）；无覆盖时对比默认映射快照（ciExporterMappings is_default）——不一致显「待同步」（橙）+ Tooltip「映射默认值已变更」，一致显「已同步」。
+- **留痕**：`ScrapeJobListPage` 参数同步列按 `mapping_overrides.length` + 默认映射快照对比实现异常驱动三态；后续若后端落库 `mapping_overrides`（dev F-03 解除），可直接升级为按持久化覆盖数量回显。
+
 ## 收割状态
 - [ ] F-01 已收割（chenrt 修订 PRD §5.6 / §6.2.5）
 - [ ] F-02 已收割（chenrt 修订 PRD §5.4 / §9）
@@ -51,3 +63,4 @@
 - [ ] F-04 已登记（契约偏差，新建场景退化为本地预检）
 - [ ] F-05 已登记（M09 未落地，跳转占位）
 - [ ] F-06 已登记（NetworkDomain.token 回显，M06/M09 跟进）
+- [ ] F-07 已裁决（编辑态网域按契约放开，T01-F11 落地）
