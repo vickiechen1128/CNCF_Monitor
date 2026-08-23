@@ -303,10 +303,11 @@ docs/02-product-requirements/Modules/Module_XX_*.md
   - 角色：<backend-developer / frontend-developer / ...>
   - 输入（精确路径 + 章节）：
     - 契约快照：**docs/05-execution-records/module-XX/api-contract-snapshot.md**（前后端并行时必填）
-    - PRD：docs/02-product-requirements/Modules/Module_XX_*.md 的 §3/§5/§6/§9（按任务给章节号；快照缺失或矛盾时补读）
+    - 前端原型映射表：**docs/05-execution-records/module-XX/frontend-prototype-map.md**（前端任务必填；缺失则阻断派发）
+    - PRD：docs/02-product-requirements/Modules/Module_XX_*.md 的 §3/§5/§6/§9/§11（按任务给章节号；快照缺失或矛盾时补读）
     - task-sequence：docs/05-execution-records/module-XX/task-sequence.yaml
-    - 原型：docs/prototypes/module-XX/（仅参考对应页面）
-    - 工程标准：<按需给具体文件，如 03_API_Standard.md>
+    - 原型：docs/prototypes/module-XX/ 下 task-sequence 中 `prototype_pages` 指定的页面（按任务精确读取）
+    - 工程标准：<按需给具体文件，如 03_API_Standard.md / 02_Frontend_Standard.md>
   - 输出：<新增/修改的文件列表>
   - 复杂度度量：
     - estimated_files_changed: <N>
@@ -318,6 +319,18 @@ docs/02-product-requirements/Modules/Module_XX_*.md
   - 不修改范围：<如 platform/ 之外 / 原型目录 / PRD>
   - 契约：<跨端任务必填；未生成快照时必须填写 path / method / request / response 示例>
   ```
+
+### F 任务派发与验收特殊要求（v1.31 起）
+
+- **派发前必须确认**：
+  - `docs/05-execution-records/module-XX/frontend-prototype-map.md` 已存在；
+  - task-sequence 中该 F 任务已填写 `prototype_pages`、`ui_contract`、`nav_contract`、`clipping`；
+  - 缺失任一即打回 planner/prototype-designer 补齐，不派发前端任务。
+- **验收时必须做原型符合度抽查**：除测试清单外，至少抽查以下一项：
+  - 顶部 tab / Sider 文案是否与 `nav_contract` 一致；
+  - 表格列集合是否等于原型列集合 ∩ MVP（对照 `frontend-prototype-map.md` 列对照表）；
+  - 视觉 Token（主色/头部/状态色）是否已迁移；
+  - 抽查结果写入当前执行记录。
 - **子 Agent 只读任务卡指定的输入（v1.25 起，强制）**：子 Agent 启动时**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——它的行为规范已固化在自身 `.kimi/agents/<agent>.md` 定义中，随加载生效；需要读的只是任务卡列出的「任务输入」（契约快照 / PRD 章节 / task-sequence / 原型 / 具体工程标准）。由 Orchestrator 在任务卡中给出精确路径与章节，禁止让子 Agent 自行翻文档树找规范。
 - 子 Agent 完成后，读取其汇报，提取：修改文件、验证结果、阻塞问题
 

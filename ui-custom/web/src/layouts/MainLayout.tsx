@@ -1,5 +1,5 @@
 import { Layout, Menu, Typography } from 'antd'
-import { AppstoreOutlined, DatabaseOutlined, TagsOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, DatabaseOutlined, TagsOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { MenuProps } from 'antd'
@@ -49,12 +49,30 @@ const MODULES: ModuleDef[] = [
       { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
     ],
   },
+  {
+    key: 'monitoring-strategy',
+    label: '采集策略',
+    path: '/scrape-jobs',
+    subItems: [
+      { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
+      { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
+      { key: '/rules', label: '规则编辑', icon: <AppstoreOutlined /> },
+      { key: '/metric-library', label: '指标库', icon: <DatabaseOutlined /> },
+    ],
+  },
 ]
 
-/** 依据当前路由推断激活的一级模块：/admin/domains → 系统与平台管理；/resources、/label-templates → 监控对象管理；其余 → 首页 */
+/** 依据当前路由推断激活的一级模块：/admin/domains → 系统与平台管理；/resources、/label-templates → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页 */
 function resolveActiveModule(locationPath: string): ModuleDef {
   if (locationPath.startsWith('/admin/domains')) return MODULES[1]
   if (locationPath.startsWith('/resources') || locationPath.startsWith('/label-templates')) return MODULES[2]
+  if (
+    locationPath.startsWith('/collectors') ||
+    locationPath.startsWith('/scrape-jobs') ||
+    locationPath.startsWith('/rules') ||
+    locationPath.startsWith('/metric-library')
+  )
+    return MODULES[3]
   return MODULES[0]
 }
 

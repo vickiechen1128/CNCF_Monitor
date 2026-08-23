@@ -46,9 +46,10 @@ Orchestrator 必须提供以下信息：
   - **diff 文件路径**（保留，**按需切片读取**；禁止一次性全文注入大 diff）
 - **已验证清单（信任边界，v1.2 新增）**：Orchestrator 明确列出已由「后端单测 / 全量测试 / 开发验证」确认的项（如契约字段、mapping_id 语义、测试已跑通）；reviewer 对这些**抽查确认，不重新全量验证**
 - 契约快照：`docs/05-execution-records/module-XX/api-contract-snapshot.md`（契约一致性核对基准；缺失时回退 PRD 第 5/6 章 + `03_API_Standard.md`）
-- PRD 路径：`docs/02-product-requirements/Modules/Module_XX_*.md`（章节级读取，禁止全文）
+- **前端原型映射表：`docs/05-execution-records/module-XX/frontend-prototype-map.md`（前端任务必读取；核对原型符合度的第一靶子）**
 - L3 micro-task 序列：`docs/05-execution-records/module-XX/task-sequence.yaml`（缺失不阻断，见下）
-- 原型路径：`docs/prototypes/module-XX/`（优先读取，如缺失不阻断）
+- 原型路径：`docs/prototypes/module-XX/`（按任务卡 `prototype_pages` 读取，如缺失不阻断）
+- PRD 路径：`docs/02-product-requirements/Modules/Module_XX_*.md`（章节级读取，禁止全文）
 - 相关标准：
   - `docs/03-engineering-standards/02_Frontend_Standard.md`
   - `docs/03-engineering-standards/03_API_Standard.md`
@@ -80,7 +81,7 @@ Orchestrator 必须提供以下信息：
 | 维度 | 检查项 |
 |------|--------|
 | L3 边界一致性 | 本次变更是否符合当前 micro-task 的范围？是否做了超范围的功能？（基于 Orchestrator 提供的 diff 判定） |
-| 原型符合度 | 对照「原型 + PRD」做四项核对（v1.1 起，对齐 developer Step 3.5）：①**UI 展示名**——页面字段标签是否用 PRD 字段表「UI 展示名」+ 原型用户语言，禁止直接把 snake_case 字段名当文案；②**用户文案**——可见文案是否出现模板 ID / 内部枚举 / 模块代号等技术术语；③**交互组件**——组件选型与 `02_Frontend_Standard.md` 第 8-9 章一致（禁止散点手写 `maxWidth`、Popover 承载大列表）；④**冲突**——原型与 PRD 不一致时实现侧是否报告 Orchestrator，还是自行二选一 |
+| 原型符合度 | 以 `frontend-prototype-map.md` 为第一核对靶子，按任务卡 `prototype_pages` / `ui_contract` / `nav_contract` / `clipping` 逐项核对：①**导航模型**——顶部一级 tab / Sider 二级文案是否与 `nav_contract` 一致，是否误用功能页名充当一级模块名；②**列 / 区块完整性**——实现列集合是否 = 原型列集合 ∩ MVP，删减项是否已在 `clipping` 登记理由；③**UI 展示名**——页面字段标签是否用 PRD 字段表「UI 展示名」+ 原型用户语言，禁止直接把 snake_case 字段名当文案；④**用户文案**——可见文案是否出现模板 ID / 内部枚举 / 模块代号等技术术语；⑤**交互组件**——组件选型与 `02_Frontend_Standard.md` 第 8-9 章一致（禁止散点手写 `maxWidth`、Popover 承载大列表）；⑥**冲突 / 偏离**——原型与 PRD 不一致，或实现偏离 `frontend-prototype-map.md` 时，实现侧是否报告 Orchestrator 并留痕，还是自行二选一 |
 | 契约一致性 | **（v1.2 起以契约快照为基准）** 前端类型 / 字段名（snake_case）/ 枚举值 / 响应结构与 **`api-contract-snapshot.md`** 是否一致；快照缺失时回退 **PRD 第 5/6 章 + `03_API_Standard.md`**；禁止以 `platform/models/*.go` 为实现依据（并行开发时后端未实现，抄对端代码是最高频翻车点） |
 | 代码规范 | 组件命名、类型定义、Hooks 使用；是否复用 `src/components/` 共享组件（长文本截断、表格列等），禁止散点手写内联样式重复造轮子 |
 | API 调用 | 是否统一使用 `src/api/client.ts`；URL 是否与 `03_API_Standard.md` 一致 |
@@ -148,6 +149,7 @@ Orchestrator 必须提供以下信息：
 ## 特殊规则
 
 - 发现页面流程与 `docs/prototypes/module-XX/` 原型明显不符，必须标记为 HIGH
+- 发现实现与 `frontend-prototype-map.md` 的列/区块/导航约定不符，且未在 `clipping` / `dev-feedback.md` 留痕，必须标记为 HIGH
 - 发现直接修改 `upstream/prometheus/` 且未生成 patch 的情况，必须标记为 CRITICAL
 - 发现无类型定义的关键 props / API 响应，必须标记为 HIGH
 - 发现 URL 解析/反向代理未校验 scheme 与 host，必须标记为 HIGH（SSRF 风险）

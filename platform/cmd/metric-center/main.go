@@ -25,6 +25,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/strategy"
 )
 
 var (
@@ -96,6 +97,10 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	businessStore := resource.NewBusinessDomainStore(*businessDomainsFile)
 	resource.RegisterRoutes(platform, db.DB, businessStore)
 	label.RegisterRoutes(platform, db.DB)
+
+	// Module 01 (T01-09 收口): 监控策略——采集器模板 + 默认采集配置 + 采集 Job
+	// （实例候选/安装确认/预览）+ 规则挂载 + 技术指标库，均在 /api/v2/platform/* 下。
+	strategy.RegisterRoutes(platform, db.DB)
 }
 
 func healthHandler(c *gin.Context) {

@@ -170,13 +170,14 @@ install-pnpm: install-node
 		"$(NPM_BIN)" install -g --prefix="$(PNPM_DIR)" pnpm@9 || true; \
 		mkdir -p "$(PNPM_DIR)/bin"; \
 		PNPM_MAIN=""; \
-		for c in "$(PNPM_DIR)/node_modules/pnpm/bin/pnpm.cjs" "$(PNPM_DIR)/node_modules/.bin/pnpm" "$(PNPM_DIR)/pnpm" "$(PNPM_DIR)/pnpm.cjs"; do \
+		for c in "$(PNPM_DIR)/lib/node_modules/pnpm/bin/pnpm.cjs" "$(PNPM_DIR)/node_modules/pnpm/bin/pnpm.cjs" "$(PNPM_DIR)/lib/node_modules/.bin/pnpm" "$(PNPM_DIR)/node_modules/.bin/pnpm" "$(PNPM_DIR)/pnpm" "$(PNPM_DIR)/pnpm.cjs"; do \
 			if [ -f "$$c" ]; then PNPM_MAIN="$$c"; break; fi; \
 		done; \
 		if [ -z "$$PNPM_MAIN" ]; then \
 			echo ">>> ERROR: pnpm executable not found after install. Contents of $(PNPM_DIR):"; \
 			ls -la "$(PNPM_DIR)"; exit 1; \
 		fi; \
+		rm -f "$(PNPM_BIN)"; \
 		printf '#!/usr/bin/env sh\nexec "%s" "%s" "$$@"\n' "$(NODE_BIN)" "$$PNPM_MAIN" > "$(PNPM_BIN)"; \
 		chmod +x "$(PNPM_BIN)"; \
 		if [ -n "$(USE_ZIP)" ]; then \
@@ -267,6 +268,23 @@ build-prometheus: ensure-go ensure-pnpm
 build-ui: ensure-pnpm
 	@echo ">>> Building Custom UI"
 	@cd "$(PROJECT_ROOT)/ui-custom/web" && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build
+
+# v0.2 placeholder targets for Edge Sync Agent. They are safe no-ops until platform/edge-sync-agent/ is created.
+build-edge-agent: ensure-go
+	@if [ -d "$(PROJECT_ROOT)/platform/edge-sync-agent" ]; then \
+		echo ">>> Building edge-sync-agent"; \
+		cd "$(PROJECT_ROOT)/platform/edge-sync-agent" && "$(GO_BIN)" build -o edge-sync-agent$(EXE) ./cmd/edge-sync-agent; \
+	else \
+		echo ">>> platform/edge-sync-agent/ not yet created (planned for v0.2); skipping build"; \
+	fi
+
+build-edge-package:
+	@echo ">>> Packaging edge distribution bundle"
+	@if [ -d "$(PROJECT_ROOT)/platform/edge-sync-agent" ]; then \
+		echo ">>> TODO: assemble edge-sync-agent + vmagent/prometheus-agent + blackbox exporter into deployable archive"; \
+	else \
+		echo ">>> platform/edge-sync-agent/ not yet created (planned for v0.2); skipping package"; \
+	fi
 
 build-all: build-metric-center build-prometheus build-ui
 

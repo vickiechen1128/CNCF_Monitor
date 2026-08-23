@@ -32,6 +32,7 @@ CNCF_Monitor/
 │
 ├── platform/                                    # MetricCenter 业务扩展代码
 │   ├── cmd/metric-center/                       # 主程序入口
+│   ├── edge-sync-agent/                         # v0.2 边缘配置同步 Agent（独立 Go module）
 │   ├── gateway/                                 # API Gateway
 │   │   ├── auth/                                # 认证鉴权
 │   │   ├── tenant/                              # 多租户

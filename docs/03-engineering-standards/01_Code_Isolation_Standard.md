@@ -28,6 +28,8 @@
 | `scripts/` | 构建、打 patch、部署脚本 | ✅ 是 |
 | `deploy/` | Docker、K8s、Compose 配置 | ✅ 是 |
 
+> 其中 `platform/edge-sync-agent/`（v0.2）是部署在边缘节点的业务组件，应使用**独立 `go.mod`**，避免引入 Gin、GORM、SQLite 等控制面依赖，以最小化边缘二进制体积并支持交叉编译；其源码仍属于 `platform/` 业务代码范围，受本隔离标准约束。
+
 ---
 
 ## 3. 允许修改 upstream 的场景

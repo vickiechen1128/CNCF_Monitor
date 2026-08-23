@@ -19,6 +19,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xuri/excelize/v2"
@@ -61,6 +62,11 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.CITypeExporterMapping{},
 		// M06 扩展
 		&models.EdgeAgent{},
+		// 策略域模型（seed.Run 会写入内置技术指标库 + Module_01 strategy 路由）
+		&models.ExporterMetricLibrary{},
+		&models.ScrapeJob{},
+		&models.MonitoringRule{},
+		&models.ExporterInstallationConfirmation{},
 	))
 	require.NoError(t, seed.Run(db))
 
@@ -73,6 +79,9 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	bizStore := resource.NewBusinessDomainStore(businessDomainsTestPath)
 	resource.RegisterRoutes(platform, db, bizStore)
 	label.RegisterRoutes(platform, db)
+
+	// Module 01 收口（T01-09）：监控策略全部路由。
+	strategy.RegisterRoutes(platform, db)
 	return r, db
 }
 

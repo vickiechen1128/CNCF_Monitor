@@ -3,6 +3,10 @@ import HomePage from './pages/home/HomePage'
 import DomainsPage from './pages/admin/domains/DomainsPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
+import ScrapeJobListPage from './pages/strategy/ScrapeJobListPage'
+import CollectorListPage from './pages/strategy/CollectorListPage'
+import RulesPage from './pages/strategy/RulesPage'
+import MetricLibraryPage from './pages/strategy/MetricLibraryPage'
 import './App.css'
 
 function App() {
@@ -13,6 +17,10 @@ function App() {
         <Route path="/admin/domains" element={<DomainsPage />} />
         <Route path="/resources" element={<ResourcesPage />} />
         <Route path="/label-templates" element={<LabelTemplatesPage />} />
+        <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
+        <Route path="/collectors" element={<CollectorListPage />} />
+        <Route path="/rules" element={<RulesPage />} />
+        <Route path="/metric-library" element={<MetricLibraryPage />} />
       </Routes>
     </BrowserRouter>
   )

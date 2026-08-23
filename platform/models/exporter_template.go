@@ -20,8 +20,8 @@ type ExporterTemplate struct {
 	MetricsPath           string         `gorm:"size:200;not null" json:"metrics_path"` // 默认 /metrics
 	Scheme                string         `gorm:"size:20;not null" json:"scheme"`        // 默认 http
 	SupportedMonitorTypes []string       `gorm:"serializer:json" json:"supported_monitor_types"`
-	OS                    string         `gorm:"size:50;not null" json:"os"`       // linux / windows / any
-	Arch                  string         `gorm:"size:50;not null" json:"arch"`     // amd64 / arm64 / any
+	OS                    string         `gorm:"size:50;not null" json:"os"`   // linux / windows / any
+	Arch                  string         `gorm:"size:50;not null" json:"arch"` // amd64 / arm64 / any
 	DownloadURL           string         `gorm:"size:1000" json:"download_url"`
 	Homepage              string         `gorm:"size:1000" json:"homepage"`
 	InstallGuide          string         `gorm:"type:text" json:"install_guide"`
@@ -38,5 +38,7 @@ func BuiltinExporterTemplates() []ExporterTemplate {
 		{Name: "mysqld-exporter", Version: "0.15.1", DefaultPort: 9104, MetricsPath: "/metrics", Scheme: "http", SupportedMonitorTypes: []string{"mysql"}, OS: "linux", Arch: "amd64", IsBuiltin: true, Source: ExporterSourceOfficial, InstallGuide: "https://github.com/prometheus/mysqld_exporter"},
 		{Name: "redis-exporter", Version: "1.59.0", DefaultPort: 9121, MetricsPath: "/metrics", Scheme: "http", SupportedMonitorTypes: []string{"redis"}, OS: "linux", Arch: "amd64", IsBuiltin: true, Source: ExporterSourceOfficial, InstallGuide: "https://github.com/oliver006/redis_exporter"},
 		{Name: "windows-exporter", Version: "0.24.0", DefaultPort: 9182, MetricsPath: "/metrics", Scheme: "http", SupportedMonitorTypes: []string{"host_windows"}, OS: "windows", Arch: "amd64", IsBuiltin: true, Source: ExporterSourceOfficial, InstallGuide: "https://github.com/prometheus-community/windows_exporter"},
+		{Name: "kafka-exporter", Version: "1.7.0", DefaultPort: 9308, MetricsPath: "/metrics", Scheme: "http", SupportedMonitorTypes: []string{"kafka"}, OS: "linux", Arch: "amd64", IsBuiltin: true, Source: ExporterSourceOfficial, InstallGuide: "https://github.com/danielqsj/kafka_exporter"},
+		{Name: "snmp-exporter", Version: "0.26.0", DefaultPort: 9116, MetricsPath: "/snmp", Scheme: "http", SupportedMonitorTypes: []string{"snmp"}, OS: "linux", Arch: "amd64", IsBuiltin: true, Source: ExporterSourceOfficial, InstallGuide: "https://github.com/prometheus/snmp_exporter"},
 	}
 }
