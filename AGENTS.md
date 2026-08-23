@@ -59,7 +59,8 @@ CNCF_Monitor-worktree/
 │   └── node_exporter/              # node_exporter 源码（禁止直接修改）
 ├── platform/                       # MetricCenter 业务扩展代码
 │   ├── cmd/metric-center/          # 控制面主程序入口
-│   ├── api/response/               # 统一 API 响应封装
+│   ├── edge-sync-agent/            # v0.2 边缘采集客户端（独立 Go module）
+│   ├── api/response/                 # 统一 API 响应封装
 │   ├── db/                         # SQLite + GORM 连接与迁移
 │   ├── models/                     # 领域模型（CMDB、标签模板、采集任务等）
 │   ├── examples/simple-agent/      # 标准采集端 Agent 模板（独立 Go 模块）
@@ -148,6 +149,8 @@ make build-metric-center   # 编译控制面后端 -> platform/cmd/metric-center
 make build-prometheus      # 编译上游 Prometheus（首次会自动构建 Web UI 资源）
 make build-ui              # 构建 Custom UI -> ui-custom/web/dist
 make build-all             # 编译后端 + Prometheus + 前端
+make build-edge-agent      # {v0.2} 编译边缘采集客户端 -> platform/edge-sync-agent/edge-sync-agent
+make build-edge-package    # {v0.2} 组装边缘一体化离线包
 ```
 
 ### 5.2 运行
@@ -194,6 +197,7 @@ bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报�
 - `db/db.go`：SQLite 初始化、GORM 迁移；支持 `METRIC_CENTER_DB_DSN` 环境变量覆盖默认 `metric_center.db`。
 - `models/`：领域模型，统一嵌入 `BaseModel`（ID、时间戳、软删除），实现 `Resource` 接口。
 - `api/response/`：统一响应格式 `{status, data, errorType, error}`。
+- `edge-sync-agent/`（v0.2）：部署在边缘监控代理节点的独立客户端，负责心跳上报、配置包拉取、进程守护与 reload；使用独立 `go.mod`，便于最小化依赖与交叉编译。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
 
 ### 6.2 前端（`ui-custom/web/`）
 
@@ -215,6 +219,8 @@ bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报�
 
 ### 6.4 预留扩展目录
 
+v0.2 计划落地的目录：`platform/edge-sync-agent/`（边缘采集客户端，独立 Go module）。
+
 项目中存在但未实际落地的目录：`platform/gateway/`、`platform/discovery/`、`platform/collector/`、`platform/storage/`、`platform/config/`，后续模块会按需实现。
 
 ---
@@ -226,6 +232,7 @@ bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报�
 | 目录 | 允许修改 | 禁止修改 |
 |------|----------|----------|
 | `platform/` | backend-developer、prometheus-developer | prototype-designer |
+| `platform/edge-sync-agent/`（v0.2，独立 Go module） | backend-developer | prototype-designer |
 | `ui-custom/web/` | frontend-developer | prototype-designer |
 | `docs/02-product-requirements/` | prototype-designer、chenrt | backend-developer、frontend-developer |
 | `docs/prototypes/` | prototype-designer、chenrt | backend-developer、frontend-developer |
@@ -333,6 +340,8 @@ make run-metric-center
 make dev-ui
 ```
 
+> 测试/生产环境建议将 `metric-center` 与 Prometheus 作为「一体化交付包」同机部署：一个安装包内同时包含两个二进制，由 systemd / supervisor / 启动脚本统一拉起，但二者仍是独立进程。M09 `local` 下发通道要求控制面能直接写 Prometheus 配置目录并触发 reload。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
+
 ### 10.2 Vercel 预览
 
 - 触发分支：`feature/module-*`、`develop`、`main`。
@@ -389,6 +398,7 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` | 分支策略与回退指南 |
 | `docs/02-product-requirements/Modules/Module_XX_*.md` | 各模块 PRD |
 | `docs/prototypes/module-XX/` | 可点击原型 |
+| `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
 | `.kimi/AGENTS.md` | Kimi Agent 团队角色与工作流速查 |
 | `.kimi/agents/*.md` | 各 Agent 详细行为规则 |
 
@@ -401,3 +411,4 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 - `platform/examples/simple-agent/` 可独立运行，用于验证采集链路。
 - `patches/` 目录尚未创建；Makefile 已预留 `make apply-patches` 命令。
 - `platform/` 中部分目录（gateway、discovery、collector、storage、config）为预留结构，等待后续模块实现。
+- M09 部署形态与 Edge Sync Agent 代码组织已决策：控制面与 Prometheus 作为「一体化交付包」但保持独立进程；`platform/edge-sync-agent/` 将在 v0.2 作为独立 Go module 承载 Edge Sync Agent。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
