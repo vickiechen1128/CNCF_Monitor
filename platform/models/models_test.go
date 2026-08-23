@@ -232,12 +232,12 @@ func TestTenantCreateAndDefaults(t *testing.T) {
 	assert.NoError(t, db.AutoMigrate(&Tenant{}))
 
 	tenant := &Tenant{
-		ID:              PlatformAdminTenantID,
-		Name:            "平台默认租户",
+		ID:               PlatformAdminTenantID,
+		Name:             "平台默认租户",
 		NetworkDomainIDs: []string{DefaultDomainID},
 		MultiSiteEnabled: false,
-		IsPlatformAdmin: true,
-		Status:          TenantStatusActive,
+		IsPlatformAdmin:  true,
+		Status:           TenantStatusActive,
 	}
 	assert.NoError(t, db.Create(tenant).Error)
 
@@ -317,7 +317,7 @@ func TestBuiltinTemplates(t *testing.T) {
 	assert.NoError(t, db.AutoMigrate(&ExporterTemplate{}, &CITypeExporterMapping{}))
 
 	templates := BuiltinExporterTemplates()
-	assert.Len(t, templates, 4) // node / mysqld / redis / windows
+	assert.Len(t, templates, 6) // node / mysqld / redis / windows / kafka / snmp
 	for i := range templates {
 		templates[i].IsBuiltin = true
 		assert.NoError(t, db.Create(&templates[i]).Error)
@@ -369,12 +369,12 @@ func TestScrapeJobAndMonitoringRule(t *testing.T) {
 	assert.Equal(t, []string{"srv-001"}, job.SelectedInstanceIDs)
 
 	rule := &MonitoringRule{
-		Name:           "node-down",
-		ContentMode:    RuleContentModeYAMLPassthrough,
-		Scope:          ScopeTypeCentral,
-		Enabled:        true,
-		DraftStatus:    "ready",
-		ChangeStatus:   ChangeStatusNone,
+		Name:         "node-down",
+		ContentMode:  RuleContentModeYAMLPassthrough,
+		Scope:        ScopeTypeCentral,
+		Enabled:      true,
+		DraftStatus:  "ready",
+		ChangeStatus: ChangeStatusNone,
 	}
 	assert.NoError(t, db.Create(rule).Error)
 	assert.NotZero(t, rule.ID)
@@ -385,10 +385,10 @@ func TestConfigModelsSmoke(t *testing.T) {
 	assert.NoError(t, db.AutoMigrate(&ConfigDraft{}, &ConfigVersion{}, &ConfigDeployment{}))
 
 	draft := &ConfigDraft{
-		NetworkDomainID: DefaultDomainID,
-		ChangeNo:        "CHG-20260821-001",
-		PrometheusYml:   "global: { scrape_interval: 15s }",
-		Status:          DraftStatusPending,
+		NetworkDomainID:  DefaultDomainID,
+		ChangeNo:         "CHG-20260821-001",
+		PrometheusYml:    "global: { scrape_interval: 15s }",
+		Status:           DraftStatusPending,
 		ValidationStatus: "passed",
 	}
 	assert.NoError(t, db.Create(draft).Error)
@@ -552,6 +552,165 @@ func TestLabelRules(t *testing.T) {
 	assert.Equal(t, []string{"dev", "test", "staging", "prod"}, ValidEnvs)
 	assert.Equal(t, []string{"http", "https", "tcp"}, ValidProtocols)
 	assert.Equal(t, []string{"http", "https"}, ValidSchemes)
+}
+
+// --- Module 01 (T01-01): models contract baseline ---
+
+func TestMonitorTypeDerivationMapFull(t *testing.T) {
+	expected := map[string]string{
+		"host:linux":               MonitorTypeHostLinux,
+		"host:unix":                MonitorTypeHostLinux,
+		"host:windows":             MonitorTypeHostWindows,
+		"database:mysql":           MonitorTypeMySQL,
+		"database:redis":           MonitorTypeRedis,
+		"middleware:kafka":         MonitorTypeKafka,
+		"middleware:elasticsearch": MonitorTypeElasticsearch,
+		"middleware:nginx":         MonitorTypeNginx,
+		"application:":             MonitorTypeApplicationHTTP,
+		"generic_target:":          MonitorTypeSNMP,
+	}
+	assert.Equal(t, expected, MONITOR_TYPE_DERIVATION_MAP, "MONITOR_TYPE_DERIVATION_MAP must cover all mappings (no dm8)")
+
+	// Derivation helper round-trip.
+	mt, ok := DeriveMonitorType(ResourceCategoryHost, "linux")
+	assert.True(t, ok)
+	assert.Equal(t, MonitorTypeHostLinux, mt)
+	_, ok = DeriveMonitorType(ResourceCategoryDatabase, "dm8")
+	assert.False(t, ok, "dm8 is out of MVP scope")
+}
+
+func TestValidMonitorTypes(t *testing.T) {
+	types := ValidMonitorTypes()
+	assert.Len(t, types, 9)
+	assert.True(t, ValidMonitorType("mysql"))
+	assert.True(t, ValidMonitorType("application_http"))
+	assert.False(t, ValidMonitorType("dm8"))
+	assert.False(t, ValidMonitorType(""))
+}
+
+func TestBlackboxTargetJSONRoundTrip(t *testing.T) {
+	orig := []BlackboxTarget{
+		{Target: "10.0.1.11", Protocol: BlackboxTargetProtocolHTTP, URL: "https://api.example.com/health"},
+		{Target: "10.0.1.12", Protocol: BlackboxTargetProtocolICMP},
+	}
+	b, err := json.Marshal(orig)
+	assert.NoError(t, err)
+	var back []BlackboxTarget
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, orig, back)
+
+	// Enum guards.
+	assert.True(t, ValidBlackboxTargetProtocol("https"))
+	assert.True(t, ValidBlackboxTargetProtocol("dns"))
+	assert.False(t, ValidBlackboxTargetProtocol("ftp"))
+	assert.Len(t, ValidBlackboxTargetProtocols(), 5)
+}
+
+func TestScrapeJobBlackboxTargetsPersistence(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&ScrapeJob{}))
+
+	job := &ScrapeJob{
+		JobName:               "blackbox-http",
+		JobType:               JobTypeBlackbox,
+		ResourceType:          ResourceTypeApplication,
+		NetworkDomainID:       DefaultDomainID,
+		InstanceSelectionMode: InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "12s",
+		MetricsPath:           "/probe",
+		Scheme:                "http",
+		AuthType:              AuthTypeNone,
+		BlackboxModule:        "http_2xx",
+		BlackboxTargets:       []BlackboxTarget{{Target: "10.0.1.11", Protocol: BlackboxTargetProtocolHTTP}},
+		ChangeStatus:          ChangeStatusNone,
+		DraftStatus:           "ready",
+		Enabled:               true,
+	}
+	assert.NoError(t, db.Create(job).Error)
+	assert.Len(t, job.BlackboxTargets, 1)
+
+	var got ScrapeJob
+	assert.NoError(t, db.First(&got, "id = ?", job.ID).Error)
+	assert.Equal(t, "10.0.1.11", got.BlackboxTargets[0].Target)
+	assert.Equal(t, BlackboxTargetProtocolHTTP, got.BlackboxTargets[0].Protocol)
+}
+
+func TestExporterMetricLibraryMonitorTypesSerialization(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&ExporterMetricLibrary{}))
+
+	m := &ExporterMetricLibrary{
+		MetricName: "node_cpu_usage",
+		MetricType: MetricTypeGauge,
+		Help:       "CPU 使用率",
+		Unit:       "percent",
+		Labels:     []string{"cpu", "mode"},
+		MonitorTypes: []ExporterMetricAnchor{
+			{MonitorType: MonitorTypeHostLinux, SourceExporter: "node-exporter"},
+		},
+		Category:  "cpu",
+		IsBuiltin: true,
+		Enabled:   true,
+	}
+	assert.NoError(t, db.Create(m).Error)
+	assert.NotZero(t, m.ID)
+
+	var got ExporterMetricLibrary
+	assert.NoError(t, db.First(&got, "id = ?", m.ID).Error)
+	assert.Equal(t, "cpu", got.Category)
+	assert.Equal(t, []string{"cpu", "mode"}, got.Labels)
+	assert.Len(t, got.MonitorTypes, 1)
+	assert.Equal(t, "node-exporter", got.MonitorTypes[0].SourceExporter)
+	assert.True(t, got.IsBuiltin)
+}
+
+func TestExporterInstallationConfirmationDefaultAndPK(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&ScrapeJob{}, &ExporterInstallationConfirmation{}))
+
+	job := &ScrapeJob{
+		JobName:               "node-prod",
+		JobType:               JobTypeStandard,
+		ResourceType:          ResourceTypeHost,
+		MonitorType:           MonitorTypeHostLinux,
+		NetworkDomainID:       DefaultDomainID,
+		InstanceSelectionMode: InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "12s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              AuthTypeNone,
+		ChangeStatus:          ChangeStatusNone,
+		DraftStatus:           "ready",
+	}
+	assert.NoError(t, db.Create(job).Error)
+
+	// PK = (resource_id, scrape_job_id)；default status unconfirmed.
+	conf := &ExporterInstallationConfirmation{ResourceID: "srv-001", ScrapeJobID: job.ID}
+	assert.Equal(t, InstallationStatus(""), conf.Status)
+
+	conf.Status = InstallationStatusConfirmed
+	conf.ConfirmedBy = PlatformAdminTenantID
+	assert.NoError(t, db.Create(conf).Error)
+
+	var got ExporterInstallationConfirmation
+	assert.NoError(t, db.Where("resource_id = ? AND scrape_job_id = ?", "srv-001", job.ID).First(&got).Error)
+	assert.Equal(t, InstallationStatusConfirmed, got.Status)
+
+	// Duplicate is illegal (composite PK) → second upsert replaces, not new row.
+	assert.NoError(t, db.Save(&ExporterInstallationConfirmation{
+		ResourceID: "srv-001", ScrapeJobID: job.ID, Status: InstallationStatusNotApplicable,
+	}).Error)
+	var count int64
+	assert.NoError(t, db.Model(&ExporterInstallationConfirmation{}).Count(&count).Error)
+	assert.Equal(t, int64(1), count)
+}
+
+func TestInstallationStatusEnums(t *testing.T) {
+	assert.Equal(t, InstallationStatus("unconfirmed"), InstallationStatusUnconfirmed)
+	assert.Equal(t, InstallationStatus("confirmed"), InstallationStatusConfirmed)
+	assert.Equal(t, InstallationStatus("not_applicable"), InstallationStatusNotApplicable)
 }
 
 func TestLabelTemplateSnapshotSmoke(t *testing.T) {

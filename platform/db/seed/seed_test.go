@@ -31,6 +31,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.LabelTemplate{},
 		&models.ExporterTemplate{},
 		&models.CITypeExporterMapping{},
+		&models.ExporterMetricLibrary{},
 	))
 	return db
 }
@@ -114,13 +115,13 @@ func TestRunSeedsExportersAndMappings(t *testing.T) {
 
 	require.NoError(t, Run(db))
 
-	for _, name := range []string{"node-exporter", "mysqld-exporter", "redis-exporter", "windows-exporter"} {
+	for _, name := range []string{"node-exporter", "mysqld-exporter", "redis-exporter", "windows-exporter", "kafka-exporter", "snmp-exporter"} {
 		var e models.ExporterTemplate
 		require.NoError(t, db.Where("name = ?", name).First(&e).Error)
 		assert.True(t, e.IsBuiltin)
 	}
 
-	for _, mt := range []string{"host_linux", "host_windows", "mysql", "redis"} {
+	for _, mt := range []string{"host_linux", "host_windows", "mysql", "redis", "kafka", "snmp"} {
 		var m models.CITypeExporterMapping
 		require.NoError(t, db.Where("monitor_type = ?", mt).First(&m).Error)
 		assert.True(t, m.IsDefault)
@@ -141,25 +142,72 @@ func TestRunIsIdempotent(t *testing.T) {
 	require.NoError(t, Run(db))
 	require.NoError(t, Run(db))
 
-	var tenants, domains, zones, templates, exporters, mappings int64
+	var tenants, domains, zones, templates, exporters, mappings, metrics int64
 	countRows(t, db, &models.Tenant{}, &tenants)
 	countRows(t, db, &models.NetworkDomain{}, &domains)
 	countRows(t, db, &models.ZoneType{}, &zones)
 	countRows(t, db, &models.LabelTemplate{}, &templates)
 	countRows(t, db, &models.ExporterTemplate{}, &exporters)
 	countRows(t, db, &models.CITypeExporterMapping{}, &mappings)
+	countRows(t, db, &models.ExporterMetricLibrary{}, &metrics)
 
 	assert.Equal(t, int64(1), tenants, "tenant is unique")
 	assert.Equal(t, int64(1), domains, "default domain is unique")
 	assert.Equal(t, int64(4), zones, "zone_type dictionary is unique")
 	assert.Equal(t, int64(5), templates, "label templates are unique")
-	assert.Equal(t, int64(4), exporters, "exporters are unique")
-	assert.Equal(t, int64(4), mappings, "ci_type_exporter_mappings are unique")
+	assert.Equal(t, int64(6), exporters, "exporters are unique")
+	assert.Equal(t, int64(6), mappings, "ci_type_exporter_mappings are unique")
+	assert.Equal(t, int64(len(BuiltinMetricLibrary())), metrics, "metric library is unique and idempotent")
 }
 
 func TestRunNilDBReturnsError(t *testing.T) {
 	assert.Error(t, Run(nil))
 }
+
+func TestRunSeedsMetricLibrary(t *testing.T) {
+	db := newTestDB(t)
+	require.NoError(t, Run(db))
+
+	// 每个 monitor_type 至少 1 条默认指标。
+	var hostLinux, mysql, kafka, snmp, appHTTP int64
+	query := func(field, val string, out *int64) {
+		t.Helper()
+		require.NoError(t, db.Model(&models.ExporterMetricLibrary{}).
+			Where(field+" LIKE ?", "%\""+val+"\"%").Count(out).Error)
+	}
+	query("monitor_types", "host_linux", &hostLinux)
+	query("monitor_types", "mysql", &mysql)
+	query("monitor_types", "kafka", &kafka)
+	query("monitor_types", "snmp", &snmp)
+	query("monitor_types", "application_http", &appHTTP)
+	assert.Greater(t, hostLinux, int64(0), "host_linux needs at least 1 default metric")
+	assert.Greater(t, mysql, int64(0))
+	assert.Greater(t, kafka, int64(0), "kafka metrics present")
+	assert.Greater(t, snmp, int64(0), "snmp metrics present")
+	assert.Greater(t, appHTTP, int64(0))
+
+	// application_http 含拨测三件套。
+	for _, name := range []string{"probe_success", "probe_duration_seconds", "probe_http_status_code"} {
+		var m models.ExporterMetricLibrary
+		require.NoError(t, db.Where("metric_name = ? AND is_builtin = ?", name, true).First(&m).Error)
+		assert.True(t, m.Enabled, "probe metric %s should be seeded", name)
+	}
+
+	var gt int64
+	require.NoError(t, db.Model(&models.ExporterMetricLibrary{}).Where("is_builtin = ?", true).Count(&gt).Error)
+	assert.Equal(t, int64(len(BuiltinMetricLibrary())), gt)
+}
+
+func TestRunSeedsDomainIsMonitored(t *testing.T) {
+	db := newTestDB(t)
+	require.NoError(t, Run(db))
+
+	var dom models.NetworkDomain
+	require.NoError(t, db.Where("id = ?", models.DefaultDomainID).First(&dom).Error)
+	assert.True(t, dom.IsMonitored, "default domain must be seeded with is_monitored=true")
+	assert.True(t, dom.IsManagement())
+}
+
 // TestRunSeedsDefaultDomainAuthorized verifies the default management domain is
 // seeded with registration ownership = platform_admin and the authorized tenant
 // = platform_admin (T06-10).

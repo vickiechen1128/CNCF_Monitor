@@ -27,17 +27,19 @@ func runExporters(db *gorm.DB) error {
 
 	// 2) Default CITypeExporterMappings keyed by monitor_type + exporter ID.
 	type defaultMapping struct {
-		monitorType      string
-		exporter         string
-		defaultPort      int
-		scrapeInterval   string
-		scrapeTimeout    string
+		monitorType    string
+		exporter       string
+		defaultPort    int
+		scrapeInterval string
+		scrapeTimeout  string
 	}
 	mappings := []defaultMapping{
 		{monitorType: "host_linux", exporter: "node-exporter", defaultPort: 9100, scrapeInterval: "15s", scrapeTimeout: "10s"},
 		{monitorType: "host_windows", exporter: "windows-exporter", defaultPort: 9182, scrapeInterval: "15s", scrapeTimeout: "10s"},
 		{monitorType: "mysql", exporter: "mysqld-exporter", defaultPort: 9104, scrapeInterval: "15s", scrapeTimeout: "10s"},
 		{monitorType: "redis", exporter: "redis-exporter", defaultPort: 9121, scrapeInterval: "15s", scrapeTimeout: "10s"},
+		{monitorType: "kafka", exporter: "kafka-exporter", defaultPort: 9308, scrapeInterval: "15s", scrapeTimeout: "10s"},
+		{monitorType: "snmp", exporter: "snmp-exporter", defaultPort: 9116, scrapeInterval: "15s", scrapeTimeout: "10s"},
 	}
 	for _, m := range mappings {
 		exporterID, ok := exporterIDByName[m.exporter]

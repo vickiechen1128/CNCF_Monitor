@@ -63,6 +63,7 @@ type ScrapeJob struct {
 	LabelTemplateID        string               `gorm:"size:64" json:"label_template_id,omitempty"`
 	FilterRules            string               `gorm:"type:text" json:"filter_rules"`
 	BlackboxModule         string               `gorm:"size:100" json:"blackbox_module,omitempty"` // job_type=blackbox
+	BlackboxTargets        []BlackboxTarget     `gorm:"serializer:json" json:"blackbox_targets"`   // job_type=blackbox 拨测目标
 	DraftStatus            string               `gorm:"size:20;not null" json:"draft_status"`      // draft/ready
 	ChangeStatus           ChangeStatus         `gorm:"size:20;not null" json:"change_status"`
 	Enabled                bool                 `json:"enabled"`

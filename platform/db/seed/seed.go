@@ -29,6 +29,9 @@ func Run(db *gorm.DB) error {
 	if err := runExporters(db); err != nil {
 		return fmt.Errorf("seed exporters: %w", err)
 	}
+	if err := runMetricLibrary(db); err != nil {
+		return fmt.Errorf("seed metric library: %w", err)
+	}
 	return nil
 }
 

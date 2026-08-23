@@ -31,6 +31,7 @@ func runTenantAndDomain(db *gorm.DB) error {
 		TenantID:            models.PlatformAdminTenantID,
 		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
 		Status:              models.DomainStatusEnabled,
+		IsMonitored:         true, // Module_01：已纳管，作为 ScrapeJob 保存校验前提
 	}
 	if err := firstOrCreate(db, domain, "id = ?", models.DefaultDomainID); err != nil {
 		return fmt.Errorf("seed default domain: %w", err)
@@ -46,7 +47,7 @@ func runTenantAndDomain(db *gorm.DB) error {
 	// re-apply the canonical administrative fields. Select limits the update to
 	// the administrative set, and re-running Run never duplicates nor errors.
 	if err := db.Model(domain).
-		Select("name", "domain_type", "channel", "tenant_id", "status", "authorized_tenant_ids").
+		Select("name", "domain_type", "channel", "tenant_id", "status", "authorized_tenant_ids", "is_monitored").
 		Updates(domain).Error; err != nil {
 		return fmt.Errorf("align default domain fields: %w", err)
 	}
