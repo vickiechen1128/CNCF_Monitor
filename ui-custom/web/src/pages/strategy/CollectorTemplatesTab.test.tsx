@@ -103,7 +103,10 @@ describe('CollectorTemplatesTab', () => {
 
     render(<CollectorTemplatesTab />)
 
-    expect(await screen.findByText('未被引用')).toBeInTheDocument()
+    // 等待异步数据渲染完成（mysql mapping 行出现）后再断言
+    await screen.findByText('MySQL')
+    // 「未被引用」可能同时出现在 mapping 行标记与并入的模板池行，需容忍多处
+    expect(screen.getAllByText('未被引用').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('待配置').length).toBeGreaterThanOrEqual(1)
   })
 
@@ -137,19 +140,24 @@ describe('CollectorTemplatesTab', () => {
     expect(screen.queryByText('redis-exporter')).toBeNull()
   })
 
-  it('renders empty state 暂无默认采集配置', async () => {
+  it('renders empty state 暂无默认采集配置 with inline register entry (A9)', async () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
+    // 空态需采集器池也为空（F1-5：池有模板时以「未被引用」行并入，不显空态）
+    tmplListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
 
     render(<CollectorTemplatesTab />)
 
     expect(await screen.findByText('暂无默认采集配置')).toBeInTheDocument()
+    expect(screen.getByText('池中没有需要的采集器？')).toBeInTheDocument()
+    expect(screen.getByText('登记自研/第三方采集器')).toBeInTheDocument()
   })
 
   it('opens registration drawer on 登记采集器 click', async () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
     render(<CollectorTemplatesTab />)
-    fireEvent.click(screen.getByText('登记采集器'))
+    // 「登记采集器」同时出现在 Steps 标题与右上按钮，点击右上按钮打开抽屉
+    fireEvent.click(screen.getByRole('button', { name: /登记采集器/ }))
 
     // 抽屉打开后展示登记表单（采集器名称必填输入 + antd 两字按钮自动加空格「登 记」）
     expect(screen.getByPlaceholderText('例如：mysql-exporter')).toBeInTheDocument()
@@ -160,7 +168,7 @@ describe('CollectorTemplatesTab', () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
     render(<CollectorTemplatesTab />)
-    fireEvent.click(screen.getByText('登记采集器'))
+    fireEvent.click(screen.getByRole('button', { name: /登记采集器/ }))
     await screen.findByPlaceholderText('例如：mysql-exporter')
 
     // source 默认 internal（内部自建）：default_port/metrics_path/scheme 动态必填
@@ -170,5 +178,81 @@ describe('CollectorTemplatesTab', () => {
     expect(screen.getByText('请输入采集路径')).toBeInTheDocument()
     // 协议 error 文案与 placeholder 同为「请选择协议」，需容忍多处匹配
     expect(screen.getAllByText('请选择协议').length).toBeGreaterThanOrEqual(1)
+  })
+
+  // ---- F10 增强：Steps 动线 / 未被引用模板行并入+去配置 / 安装与文档入口 ----
+  it('renders Steps three-step flow (A4)', async () => {
+    mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
+    tmplListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
+
+    render(<CollectorTemplatesTab />)
+
+    expect(await screen.findByText('部署动线')).toBeInTheDocument()
+    // 「登记采集器」同时出现在 Steps 标题与右上按钮，容忍多处
+    expect(screen.getAllByText('登记采集器').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('配置默认采集')).toBeInTheDocument()
+    expect(screen.getByText('创建 Job 确认安装')).toBeInTheDocument()
+  })
+
+  it('merges unreferenced template rows with 去配置 action (F1-5)', async () => {
+    // 仅一个 mapping 引用 t1；t3（池中未被引用）应并入列表
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [mapping(1, 'mysql', 1, {})], total: 1, page: 1, page_size: 20 },
+    })
+    tmplListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          template(1, 'mysqld-exporter'),
+          template(2, 'redis-exporter'),
+          template(3, 'snmp-exporter'),
+        ],
+        total: 3,
+        page: 1,
+        page_size: 100,
+      },
+    })
+
+    render(<CollectorTemplatesTab />)
+
+    // 未被引用的池中模板 snmp-exporter 并入为行（引用 t2 及被引用的 t1 通过 mapping 行呈现）
+    await screen.findByText('mysqld-exporter')
+    expect(screen.findByText('snmp-exporter')).resolves.toBeTruthy()
+    expect(screen.getAllByText('未被引用').length).toBeGreaterThanOrEqual(1)
+    // 行操作「去配置」存在（每个模板池行各一）
+    const gotoConfig = screen.getAllByText('去配置')
+    expect(gotoConfig.length).toBeGreaterThanOrEqual(1)
+    fireEvent.click(gotoConfig[0])
+  })
+
+  it('shows install/download/doc entry on install column (F1-6)', async () => {
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [mapping(1, 'mysql', 1, {})], total: 1, page: 1, page_size: 20 },
+    })
+    // 给模板注入 download_url/homepage 以呈现图标链
+    tmplListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { ...template(1, 'mysqld-exporter'), download_url: 'https://x/download', homepage: 'https://x/doc', install_guide: 'a,b,c' },
+          template(2, 'redis-exporter'),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 100,
+      },
+    })
+
+    render(<CollectorTemplatesTab />)
+
+    await screen.findByText('mysqld-exporter')
+    // 安装/文档列按钮存在（点击展开 Popover 图标链）
+    const btn = screen.getAllByText('安装指南')[0]
+    expect(btn).toBeInTheDocument()
+    fireEvent.click(btn)
+    expect(await screen.findByText('下载')).toBeInTheDocument()
+    expect(screen.getByText('文档')).toBeInTheDocument()
   })
 })
