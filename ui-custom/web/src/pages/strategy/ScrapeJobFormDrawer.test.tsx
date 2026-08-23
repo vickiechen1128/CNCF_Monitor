@@ -8,6 +8,8 @@ const createMock = vi.fn()
 const updateMock = vi.fn()
 const domainListMock = vi.fn()
 const mappingListMock = vi.fn()
+const labelListMock = vi.fn()
+const exporterCreateMock = vi.fn()
 
 vi.mock('../../api/domain', () => ({
   networkDomainApi: { list: (...args: unknown[]) => domainListMock(...args) },
@@ -24,6 +26,14 @@ vi.mock('../../api/scrapeJobs', () => ({
   },
 }))
 
+vi.mock('../../api/labelTemplates', () => ({
+  labelTemplateApi: { list: (...args: unknown[]) => labelListMock(...args) },
+}))
+
+vi.mock('../../api/exporterTemplates', () => ({
+  exporterTemplateApi: { create: (...args: unknown[]) => exporterCreateMock(...args) },
+}))
+
 // 实例选择器独立测试（F5），抽屉内直接 stub
 vi.mock('./InstanceSelector', () => ({
   InstanceSelector: () => <div data-testid="instance-selector">instance selector</div>,
@@ -38,6 +48,12 @@ beforeEach(() => {
   updateMock.mockReset()
   domainListMock.mockReset()
   mappingListMock.mockReset()
+  labelListMock.mockReset()
+  exporterCreateMock.mockReset()
+  labelListMock.mockResolvedValue({
+    status: 'success',
+    data: { list: [], total: 0, page: 1, page_size: 100 },
+  })
   domainListMock.mockResolvedValue({
     status: 'success',
     data: {
@@ -119,5 +135,52 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.blackbox_module).toBe('http_2xx')
     expect(body.network_domain_id).toBe('mc-a')
     expect((body.blackbox_targets as { target: string }[])[0].target).toBe('https://example.com')
+  })
+
+  it('renders label template as card filtered by resource category (F1-4)', async () => {
+    labelListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+          { id: 8, name: 'Linux 标签', resource_category: 'host', is_default: false, mappings: [], created_at: '', updated_at: '' },
+        ],
+        total: 2,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    renderDrawer()
+
+    // 选择监控对象类型 mysql（database 资源类别）
+    fireEvent.mouseDown(screen.getByText('按资源类别 → 细粒度选择'))
+    await selectAntdOption('MySQL')
+
+    // 仅展示 database 类别模板卡片，host 类别不展示
+    expect(await screen.findByText('MySQL 标准标签')).toBeInTheDocument()
+    expect(screen.queryByText('Linux 标签')).toBeNull()
+  })
+
+  it('shows label template empty hint with 补配 action when none in category (F1-4)', async () => {
+    renderDrawer()
+    fireEvent.mouseDown(screen.getByText('按资源类别 → 细粒度选择'))
+    await selectAntdOption('MySQL')
+    expect(await screen.findByText('该资源类别下暂无标签模板')).toBeInTheDocument()
+    expect(screen.getByText('前往补配标签模板')).toBeInTheDocument()
+  })
+
+  it('opens collector register drawer from inline button (C1)', async () => {
+    renderDrawer()
+    fireEvent.click(screen.getByRole('button', { name: /登记采集器/ }))
+    expect(await screen.findByPlaceholderText('例如：mysql-exporter')).toBeInTheDocument()
+  })
+
+  it('shows cross-module guidance when no monitored domain (A7)', async () => {
+    domainListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 100 },
+    })
+    renderDrawer()
+    expect(await screen.findByText(/纳管网域/)).toBeInTheDocument()
   })
 })

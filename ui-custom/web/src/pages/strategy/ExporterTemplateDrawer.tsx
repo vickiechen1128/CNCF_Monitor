@@ -14,15 +14,15 @@ import {
 } from 'antd'
 import { exporterTemplateApi, type ExporterTemplateInput } from '../../api/exporterTemplates'
 import { MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
-import type { MonitorType } from '../../types/strategy'
+import type { ExporterTemplate, MonitorType } from '../../types/strategy'
 
 const { TextArea } = Input
 
 interface ExporterTemplateDrawerProps {
   open: boolean
   onCancel: () => void
-  /** 登记成功后回刷采集器池列表 */
-  onSuccess: () => void
+  /** 登记成功后回调：回刷采集器池（忽略参数）或回选到来源表单（接收新模板，C1） */
+  onSuccess: (template?: ExporterTemplate) => void
 }
 
 /** 登记采集器来源 */
@@ -54,14 +54,15 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess }: ExporterTe
     setSubmitting(true)
     setSubmitError(null)
     try {
-      await exporterTemplateApi.create({
+      const response = await exporterTemplateApi.create({
         ...values,
         supported_monitor_types: (values.supported_monitor_types ?? []) as MonitorType[],
         source: values.source ?? 'internal',
       })
       message.success('采集器已登记')
       setSubmitting(false)
-      onSuccess()
+      // C1：将登记的新模板传回来源表单（若调用方只回刷采集器池可忽略参数）
+      onSuccess(response.data)
       onCancel()
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '登记失败，请稍后重试')

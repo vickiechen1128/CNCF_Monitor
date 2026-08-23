@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Button,
@@ -13,18 +13,23 @@ import {
   Select,
   Space,
   Tag,
+  Typography,
   message,
 } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { networkDomainApi } from '../../api/domain'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
+import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
 import type { NetworkDomain } from '../../types/domain'
-import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, MonitorType } from '../../types/strategy'
+import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, ExporterTemplate, MonitorType } from '../../types/strategy'
 import type { ScrapeJob } from '../../types/strategy'
+import type { ResourceCategory } from '../../types/resource'
+import type { LabelTemplateListItem } from '../../types/label'
 import { SCRAPE_PARAM_FIELDS, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, CATEGORY_MAP } from './strategyConstants'
 import { InstanceSelector } from './InstanceSelector'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
+import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 
 const BLACKBOX_MODULES = ['http_2xx', 'icmp_ping', 'tcp_connect', 'dns_query']
 const BLACKBOX_PROTOCOLS: { value: BlackboxTargetProtocol; label: string }[] = [
@@ -34,6 +39,8 @@ const BLACKBOX_PROTOCOLS: { value: BlackboxTargetProtocol; label: string }[] = [
   { value: 'icmp', label: 'ICMP' },
   { value: 'dns', label: 'DNS' },
 ]
+
+const { Text } = Typography
 
 /** 参数继承来源 Tag（§5.4 参数同步）：inherited 灰 / overridden 蓝 / pending 橙 */
 function ParamsSyncTag({ state }: { state: 'inherited' | 'overridden' | 'pending' | 'none' }) {
@@ -56,7 +63,8 @@ interface ScrapeJobFormDrawerProps {
  * - monitor_type 两级级联带出默认采集器与参数（可覆盖）；默认采集器「使用默认/手填」二选一；
  * - 网域下拉=已纳管非冻结；job_type standard/blackbox 切换（blackbox 隐藏 mon/exp，显黑盒目标）；
  * - 认证TLS折叠面板（auth_type 三选一 + basic→user/pass 掩码、bearer→token、TLS 区）；
- * - 标签模板卡（映射自动继承）；标准 Job 内嵌实例选择器与安装确认面板。
+ * - 标签模板卡片式选择（按资源类别过滤 + 补配引导，F1-4）；采集器 inline 登记成功回选（C1）；
+ * - 编辑态网域可改（FIX-2 已按契约开放），网域空态跨模块引导（A7）；标准 Job 内嵌实例选择器与安装确认面板。
  */
 export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: ScrapeJobFormDrawerProps) {
   const [form] = Form.useForm<ScrapeJobInput>()
@@ -66,12 +74,24 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const [collectorMode, setCollectorMode] = useState<'default' | 'manual'>('default')
   const [paramsState, setParamsState] = useState<'inherited' | 'overridden' | 'pending' | 'none'>('none')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
+  const [registerOpen, setRegisterOpen] = useState(false)
 
   const isEdit = !!record
   const jobType = Form.useWatch('job_type', form) ?? 'standard'
   const monitorType = Form.useWatch('monitor_type', form) as MonitorType | undefined
   const networkDomainId = (Form.useWatch('network_domain_id', form) as string | undefined) ?? ''
   const authType = (Form.useWatch('auth_type', form) as AuthType | undefined) ?? 'none'
+
+  // F1-4：按当前 monitor_type 推导资源类别，过滤可选的标签模板（卡片式）
+  const resourceCategory = useMemo<ResourceCategory | undefined>(() => {
+    if (!monitorType) return undefined
+    return MONITOR_TYPE_CASCADE.find((g) => g.types.includes(monitorType))?.category
+  }, [monitorType])
+  const filteredLabelTemplates = useMemo(
+    () => labelTemplates.filter((t) => t.resource_category === resourceCategory),
+    [labelTemplates, resourceCategory],
+  )
 
   // 打开抽屉时装载网域与初始值
   useEffect(() => {
@@ -83,6 +103,11 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       .list({ page: 1, page_size: 100 })
       .then((res) => setDomains((res.data?.list ?? []).filter((d) => d.is_monitored && d.status === 'enabled')))
       .catch(() => setDomains([]))
+    // F1-4：装载标签模板（卡片式选择按资源类别过滤）
+    labelTemplateApi
+      .list({ page: 1, page_size: 100 })
+      .then((res) => setLabelTemplates(res.data?.list ?? []))
+      .catch(() => setLabelTemplates([]))
     form.resetFields()
     if (record) {
       setSelectedIds(record.selected_instance_ids ?? [])
@@ -140,6 +165,22 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     [form],
   )
 
+  // C1：登记采集器成功后回选到来源表单（D17）：回填 exporter_template_id 并切「手填」展示
+  const handleRegisterSuccess = useCallback(
+    (template?: ExporterTemplate) => {
+      if (template?.id) {
+        form.setFieldsValue({ exporter_template_id: String(template.id) })
+        setCollectorMode('manual')
+      }
+    },
+    [form],
+  )
+
+  // F1-4：标签模板补配引导（M07 标签模板管理维护）
+  const openLabelTemplateGuide = useCallback(() => {
+    message.info('标签模板补配请前往「标签模板」管理维护（M07）')
+  }, [])
+
   const handleSubmit = async () => {
     let values: ScrapeJobInput
     try {
@@ -164,7 +205,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         token: values.token,
         tls_skip_verify: values.tls_skip_verify ?? false,
         ca_file: values.ca_file,
-        label_template_id: values.label_template_id,
+        label_template_id: values.label_template_id || undefined,
         enabled: true,
       }
       if (values.job_type === 'blackbox') {
@@ -190,22 +231,23 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   }
 
   return (
-    <Drawer
-      title={isEdit ? `编辑采集任务 ${record?.job_name ?? ''}` : '新增采集任务'}
-      open={open}
-      onClose={submitting ? undefined : onCancel}
-      width={640}
-      footer={
-        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <Button onClick={onCancel} disabled={submitting}>
-            取消
-          </Button>
-          <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmit()}>
-            保存
-          </Button>
-        </Space>
-      }
-    >
+    <>
+      <Drawer
+        title={isEdit ? `编辑采集任务 ${record?.job_name ?? ''}` : '新增采集任务'}
+        open={open}
+        onClose={submitting ? undefined : onCancel}
+        width={640}
+        footer={
+          <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Button onClick={onCancel} disabled={submitting}>
+              取消
+            </Button>
+            <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmit()}>
+              保存
+            </Button>
+          </Space>
+        }
+      >
       {submitError && (
         <Alert type="error" showIcon message="保存失败" description={submitError} style={{ marginBottom: 16 }} />
       )}
@@ -252,13 +294,18 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               </Col>
               <Col span={12}>
                 <Form.Item label="网域" name="network_domain_id" rules={[{ required: true, message: '请选择网域' }]}>
-                  <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域" disabled={isEdit}>
+                  <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域">
                     {domains.map((d) => (
                       <Select.Option key={d.id} value={d.id} label={d.name}>
                         {d.name}
                       </Select.Option>
                     ))}
                   </Select>
+                  {domains.length === 0 && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      暂无已纳管非冻结网域，请前往「监控对象管理」纳管网域（M07）
+                    </Text>
+                  )}
                 </Form.Item>
               </Col>
             </Row>
@@ -271,6 +318,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                     <Radio.Button value="manual">手填</Radio.Button>
                   </Radio.Group>
                   <ParamsSyncTag state={paramsState} />
+                  {/* C1：空态/任意态提供 inline 登记采集器，登记成功后回选（D17） */}
+                  <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
+                    登记采集器
+                  </Button>
                 </Space>
                 {collectorMode === 'manual' ? (
                   <Form.Item name="exporter_template_id" noStyle rules={[{ required: true, message: '请输入采集器模板 ID' }]}>
@@ -293,8 +344,47 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               </Space>
             </Card>
 
-            <Form.Item label="标签模板" name="label_template_id" extra="M07 只读引用；更换请在采集器默认配置中维护">
-              <Input placeholder="标签模板 ID（可选，映射自动继承）" maxLength={64} />
+            <Form.Item
+              label="标签模板"
+              extra={resourceCategory ? '按资源类别过滤；映射自动继承，补配请前往标签模板管理（M07）' : '选择监控对象类型后按资源类别列出可用标签模板'}
+            >
+              {monitorType && filteredLabelTemplates.length > 0 ? (
+                <Form.Item name="label_template_id" noStyle>
+                  <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
+                    <Space direction="vertical" style={{ width: '100%' }} size={4}>
+                      <Radio.Button value="" style={{ width: '100%', textAlign: 'left' }}>
+                        <Text type="secondary">不关联标签模板</Text>
+                      </Radio.Button>
+                      {filteredLabelTemplates.map((t) => (
+                        <Radio.Button key={t.id} value={String(t.id)} style={{ width: '100%', height: 'auto', padding: '8px 12px', whiteSpace: 'normal', textAlign: 'left' }}>
+                          <Space size={6} direction="vertical" align="start">
+                            <Space size={6}>
+                              <Text strong>{t.name}</Text>
+                              {t.is_default && <Tag color="blue">默认</Tag>}
+                            </Space>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                              {CATEGORY_MAP[t.resource_category]} · {t.mappings?.length ?? 0} 条映射
+                            </Text>
+                          </Space>
+                        </Radio.Button>
+                      ))}
+                    </Space>
+                  </Radio.Group>
+                </Form.Item>
+              ) : (
+                <Space direction="vertical" size={4}>
+                  {monitorType && filteredLabelTemplates.length === 0 ? (
+                    <>
+                      <Text type="secondary">该资源类别下暂无标签模板</Text>
+                      <Button type="link" size="small" onClick={openLabelTemplateGuide}>
+                        前往补配标签模板
+                      </Button>
+                    </>
+                  ) : (
+                    <Text type="secondary">选择监控对象类型后按资源类别列出</Text>
+                  )}
+                </Space>
+              )}
             </Form.Item>
 
             <Collapse ghost>
@@ -398,18 +488,25 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               </Form.List>
             </Form.Item>
             <Form.Item label="网域" name="network_domain_id" rules={[{ required: true, message: '请选择网域' }]}>
-              <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域" disabled={isEdit}>
+              <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域">
                 {domains.map((d) => (
                   <Select.Option key={d.id} value={d.id} label={d.name}>
                     {d.name}
                   </Select.Option>
                 ))}
               </Select>
+              {domains.length === 0 && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  暂无已纳管非冻结网域，请前往「监控对象管理」纳管网域（M07）
+                </Text>
+              )}
             </Form.Item>
           </>
         )}
       </Form>
     </Drawer>
+      <ExporterTemplateDrawer open={registerOpen} onCancel={() => setRegisterOpen(false)} onSuccess={handleRegisterSuccess} />
+    </>
   )
 }
 
