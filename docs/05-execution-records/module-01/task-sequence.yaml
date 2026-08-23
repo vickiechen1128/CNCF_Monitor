@@ -1,0 +1,538 @@
+phase: "Phase 3"
+module: "module-01-strategy"
+module_branch: "feat/module-01-strategy"
+plan_version: "v2026-08-21"
+owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer 执行"
+source:
+  - "docs/02-product-requirements/05_Code_Implementation_Plan.md（Phase 3；后端目录 platform/strategy/{exporter-template,ci-exporter,scrapejob,rule,metric-library}/）"
+  - "docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md v3.26（§3 核心功能 / §5 数据模型 / §6 接口设计 / §8 状态机 / §9 验收标准 / §10 术语映射 / §11 前端交互契约）"
+  - "docs/02-product-requirements/04_Implementation_Map.md（Module_01 相关章节）"
+  - "docs/03-engineering-standards/03_API_Standard.md（§3 统一响应 / §7.2 分页 list 键，默认 page_size=20 上限 100）"
+precondition:
+  - "Phase 0 已落地（已核实）：platform/models 下 ScrapeJob（含 auth_type none/basic/bearer / tls_skip_verify / change_status pending/confirmed/deployed/none / blackbox_module）/ ExporterTemplate（source 枚举）+ BuiltinExporterTemplates 4 个 / CITypeExporterMapping / MonitoringRule（content_mode=RulesContentModeYAMLPassthrough + rule_content）已存在；db/seed/exporter.go 已预置 node/mysqld/redis/windows 采集器 + 4 条默认映射；前端 types/strategy.ts 已预建 ScrapeJob/CITypeExporterMapping/ExporterTemplate/MonitoringRule 类型"
+  - "M06（networkdomain）/ M07（resource、label）已合并 develop；NetworkDomain 已有 is_monitored 字段（M09 字段，MVP 由 seed 预置 true）"
+  - "缺失（本期开发）：ExporterMetricLibrary / ExporterInstallationConfirmation / BlackboxTarget 模型、MONITOR_TYPE_DERIVATION_MAP、kafka/snmp 种子、platform/strategy/* 全部后端包与前端策略页面"
+  - "本期不新增鉴权（决策8），write 操作 confirmed_by 固定 platform_admin"
+  - "规则文件挂载只做 YAML 语法校验（至少 groups 存在且为数组），不做 PromQL 语义校验（v0.3 起调用 M02）"
+  - "字段级规则编辑 UI + PromQL 校验/预览为 v0.3，不在本期；BusinessMetric 业务指标库仅模型预留（P2），本期无 UI/API"
+  - "网域已纳管校验：NetworkDomain.is_monitored（M09 字段）本期由 seed 预置 true，后端校验 is_monitored + status=enabled（用户决策）"
+  - "本期不含 v0.2：草稿 draft 四态占位、克隆 Job、批量提交生效、CITypeExporterMappingOverride、service_discovery"
+go_tool: "go test ./platform/strategy/... ；go vet ./platform/..."
+fe_tool: "cd ui-custom/web && pnpm lint ；单文件 pnpm vitest run <file>（禁止全量 pnpm test）"
+contract_snapshot: "docs/05-execution-records/module-01/api-contract-snapshot.md（前端契约第一权威）"
+
+tasks:
+  # ---------------------------------------------------------------------------
+  # 后端 A 组：models 契约补齐 + 种子扩充
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-01"
+    name: "models 契约补齐：新增 BlackboxTarget / ExporterMetricLibrary / ExporterInstallationConfirmation + ScrapeJob 扩展字段 + MONITOR_TYPE_DERIVATION_MAP"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "models-baseline"
+    prd: "Module_01 §5.1（推导表）/§5.3（技术指标库）/§5.4（blackbox_targets）/§5.6（安装确认，维度以 §6.2.5+§8④ 为准）/§10（MONITOR_TYPE_DERIVATION_MAP）"
+    depends_on: []
+    estimated_files_changed: 7
+    estimated_test_cases: 18
+    shared_files: "是（platform/models/，T01-05/T01-06 只读消费）"
+    input_files:
+      - "platform/models/scrape_job.go"
+      - "platform/models/exporter_template.go"
+      - "platform/models/ci_exporter_mapping.go"
+    output_files:
+      - "platform/models/blackbox_target.go"
+      - "platform/models/exporter_metric_library.go"
+      - "platform/models/exporter_installation_confirmation.go"
+      - "platform/models/monitor_type.go"
+      - "platform/models/scrape_job.go"            # 追加 BlackboxTargets([]BlackboxTarget serializer:json)
+      - "platform/models/models_test.go"
+    verify_commands:
+      - "go test ./platform/models/..."
+      - "go vet ./platform/models/..."
+    acceptance_criteria:
+      - "新增 BlackboxTarget{target 必填, protocol∈{http,https,tcp,icmp,dns}, url 可选} + BlackboxTargetProtocol 枚举；ScrapeJob 追加 `BlackboxTargets []BlackboxTarget`（serializer:json，field blackbox_targets），保留 legacy FilterRules/BlackboxModule 列不动"
+      - "新增 ExporterMetricLibrary{monitor_types []ExporterMetricAnchor(monitor_type, source_exporter) serializer:json, metric_name, metric_type{counter/gauge/histogram/summary/unknown}, help, unit, labels []string serializer:json, category, exporter_template_id?, is_builtin, enabled}（§5.3）"
+      - "新增 ExporterInstallationConfirmation：PK (resource_id, scrape_job_id)，FK scrape_job_id→ScrapeJob.id，字段{resource_id, scrape_job_id, exporter_template_id(冗余缓存,不参与唯一), status unconfirmed|confirmed|not_applicable, confirmed_by, confirmed_at, notes, actual_port}；枚举名与 §8 统一（用户决策：修正 §5.6）"
+      - "新增 monitor_type.go：MONITOR_TYPE_DERIVATION_MAP（host+linux→host_linux / host+windows→host_windows / database+mysql→mysql / database+redis→redis / middleware+kafka→kafka / middleware+elasticsearch→elasticsearch / middleware+nginx→nginx / application→application_http / generic_target→snmp）+ ValidMonitorTypes + 明细常量；不含 dm8"
+      - "MonitoringRule 已就绪不重排，仅核对 content_mode yaml_passthrough + scope central"
+      - "models_test 覆盖：BlackboxTarget JSON 往返、ExporterMetricLibrary monitor_types 序列化、安装确认默认 unconfirmed / PK 维度、MONITOR_TYPE_DERIVATION_MAP 全映射"
+
+  - task_id: "T01-02"
+    name: "种子数据扩充：kafka-exporter/snmp-exporter + 默认映射 + 静态指标库最小集 + 网域 is_monitored 预置"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "models-baseline"
+    prd: "Module_01 §5.2/§5.3（MVP 指标库最小集：host_linux 30~60、host_windows、mysql、redis、kafka、snmp、application_http 含拨测三件套 probe_success/probe_duration_seconds/probe_http_status_code）/§9.2"
+    depends_on: ["T01-01"]
+    estimated_files_changed: 4
+    estimated_test_cases: 10
+    shared_files: "否"
+    input_files:
+      - "platform/db/seed/exporter.go"
+      - "platform/db/seed/ten_domain.go"          # 网域 seed
+    output_files:
+      - "platform/db/seed/exporter.go"            # 追加 kafka/snmp exporter + 映射
+      - "platform/db/seed/metric_library.go"      # 内置 ExporterMetricLibrary 最小集
+      - "platform/db/seed/ten_domain.go"          # 网域 is_monitored=true 预置（用户决策）
+      - "platform/db/seed/seed_test.go"
+    verify_commands:
+      - "go test ./platform/db/seed/..."
+      - "go vet ./platform/db/..."
+    acceptance_criteria:
+      - "ExporterTemplate 增补 kafka-exporter（9308）/snmp-exporter（9116），is_builtin true、source official；对应 CITypeExporterMapping（kafka/snmp 各一条 is_default=true）；幂等 upsert"
+      - "metric_library.go 预置静态指标：host_linux（含 cpu/memory/disk/network）、host_windows、mysql、redis、kafka、snmp、application_http（含 probe_success/probe_duration_seconds/probe_http_status_code 拨测三件套）；每 monitor_type 挂 monitor_types；幂等 upsert"
+      - "网域 seed：default 及示例 edge 域 is_monitored=true（用户决策），供 ScrapeJob 已纳管校验"
+      - "seed_test 断言：各 monitor_type 至少 1 默认指标、kafka/snmp 存在、application_http 含拨测三件套、网域 is_monitored=true"
+
+  # ---------------------------------------------------------------------------
+  # 后端 B 组：ExporterTemplate + CITypeExporterMapping
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-03"
+    name: "ExporterTemplate API（列表筛选 / 登记 source=internal / 编辑 / 软删 + 内置只读）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "ci-exporter"
+    prd: "Module_01 §5.2/§6.1/§6.2/§9"
+    depends_on: ["T01-01", "T01-02"]
+    estimated_files_changed: 6
+    estimated_test_cases: 14
+    shared_files: "否"
+    input_files:
+      - "platform/models/exporter_template.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/strategy/exporter-template/list.go"
+      - "platform/strategy/exporter-template/create.go"
+      - "platform/strategy/exporter-template/update.go"
+      - "platform/strategy/exporter-template/delete.go"
+      - "platform/strategy/exporter-template/routes.go"
+      - "platform/strategy/exporter-template/exporter_template_test.go"
+    verify_commands:
+      - "go test ./platform/strategy/exporter-template/..."
+      - "go vet ./platform/strategy/exporter-template/..."
+    acceptance_criteria:
+      - "GET /exporter-templates：Query monitor_type/source/page/page_size；返回 {list,total,page,page_size}"
+      - "POST：source=internal 时 default_port/metrics_path/scheme 必填；is_builtin=true 拒绝写（bad_request）；登记即入池"
+      - "PUT /:id：内部可改；内置只读拒绝；未命中 not_found"
+      - "DELETE /:id：软删；被 CITypeExporterMapping 引用 forbidden；未命中 not_found"
+
+  - task_id: "T01-04"
+    name: "CITypeExporterMapping API（CRUD + is_default 每类型唯一 + has_label_template + 未被引用标记）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "ci-exporter"
+    prd: "Module_01 §5.1/§6.1/§6.2.1/§9"
+    depends_on: ["T01-01", "T01-02", "T01-03"]
+    estimated_files_changed: 6
+    estimated_test_cases: 14
+    shared_files: "否"
+    input_files:
+      - "platform/models/ci_exporter_mapping.go"
+      - "platform/models/label_template.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/strategy/ci-exporter/list.go"
+      - "platform/strategy/ci-exporter/create.go"
+      - "platform/strategy/ci-exporter/update.go"
+      - "platform/strategy/ci-exporter/delete.go"
+      - "platform/strategy/ci-exporter/routes.go"
+      - "platform/strategy/ci-exporter/ci_exporter_test.go"
+    verify_commands:
+      - "go test ./platform/strategy/ci-exporter/..."
+      - "go vet ./platform/strategy/ci-exporter/..."
+    acceptance_criteria:
+      - "GET /ci-exporter-mappings：Query monitor_type/is_default/page/page_size；返回 {list,...}；item 附 has_label_template + is_referenced（未被任何 ScrapeJob 引用的 bool，供『未被引用』标记）；install_guide 只读透传自 ExporterTemplate"
+      - "POST：monitor_type+exporter_template_id 必填；每 monitor_type 至多一个 is_default（重复 bad_request）；label_template_id 可空；校验 exporter 存在"
+      - "PUT /:id：可改参数；is_default 唯一约束；内置/引用删除保护"
+      - "DELETE /:id：软删；is_builtin 禁删；被 ScrapeJob 引用 forbidden；未命中 not_found"
+
+  # ---------------------------------------------------------------------------
+  # 后端 C 组：ScrapeJob CRUD + 实例选择 + 安装确认 + Blackbox
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-05"
+    name: "ScrapeJob CRUD + 列表 + 网域已纳管/冻结校验 + 认证TLS + blackbox 字段校验 + 参数快照继承"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-job"
+    prd: "Module_01 §5.4/§6.1/§6.2.2/§8/§9.2/§11.1"
+    depends_on: ["T01-01", "T01-02", "T01-04"]
+    estimated_files_changed: 7
+    estimated_test_cases: 24
+    shared_files: "否"
+    input_files:
+      - "platform/models/scrape_job.go"
+      - "platform/models/blackbox_target.go"
+      - "platform/models/network_domain.go"
+      - "platform/models/ci_exporter_mapping.go"
+    output_files:
+      - "platform/strategy/scrapejob/list.go"
+      - "platform/strategy/scrapejob/create.go"
+      - "platform/strategy/scrapejob/update.go"
+      - "platform/strategy/scrapejob/delete.go"
+      - "platform/strategy/scrapejob/validate.go"
+      - "platform/strategy/scrapejob/routes.go"
+      - "platform/strategy/scrapejob/scrape_job_test.go"
+    verify_commands:
+      - "go test ./platform/strategy/scrapejob/..."
+      - "go vet ./platform/strategy/scrapejob/..."
+    acceptance_criteria:
+      - "GET /scrape-jobs：Query network_domain_id/monitor_type/job_type/enabled/keyword/page/page_size；返回 {list,...}；item 含 change_status；page_size 默认 20 上限 100"
+      - "GET /scrape-jobs?label_template_id=：必填 Query；返回引用该模板的 Job；模板不存在 not_found"
+      - "POST：network_domain_id 必填且 is_monitored=true（seed 预置）且 status=enabled（冻结 bad_request）；monitor_type∈ValidMonitorTypes；从 CITypeExporterMapping is_default 继承 scrape_interval/scrape_timeout/metrics_path/scheme/label_template_id 预填为快照可覆盖；instance_selection_mode 默认 manual"
+      - "认证TLS（决策31）：auth_type=none 默认；basic→username+password 必填；bearer→token 必填；password/token 仅存储不回显明文（omitempty）"
+      - "blackbox：job_type=blackbox 时 blackbox_module 必填 + blackbox_targets 非空（protocol∈{http,https,tcp,icmp,dns}）；monitor_type/exporter_template_id 置空"
+      - "PUT /:id：可改；网域/冻结/认证/blackbox 校验同 POST；删除软删 not_found"
+
+  - task_id: "T01-06"
+    name: "实例候选查询（同类型同网域收敛 + offline 置灰）+ Exporter 安装确认 + preview-targets"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-job"
+    prd: "Module_01 §3.1/§5.4/§5.6（维度以 §6.2.5+§8④ 为准，PK resource_id×scrape_job_id）/§6.2.5/§8 ②④"
+    depends_on: ["T01-01", "T01-05"]
+    estimated_files_changed: 5
+    estimated_test_cases: 18
+    shared_files: "否"
+    input_files:
+      - "platform/models/scrape_job.go"
+      - "platform/models/exporter_installation_confirmation.go"
+      - "platform/models/resource.go"
+      - "platform/models/network_domain.go"
+    output_files:
+      - "platform/strategy/scrapejob/selection.go"
+      - "platform/strategy/scrapejob/installation.go"
+      - "platform/strategy/scrapejob/preview.go"
+      - "platform/strategy/scrapejob/selection_test.go"
+      - "platform/strategy/scrapejob/installation_test.go"
+    verify_commands:
+      - "go test ./platform/strategy/scrapejob/..."
+      - "go vet ./platform/strategy/scrapejob/..."
+    acceptance_criteria:
+      - "GET /scrape-jobs/instance-candidates：Query monitor_type+network_domain_id 必填 + keyword + page/page_size；返回同 monitor_type 推导资源类别下同网域 Resource 候选 {list,...}；item 含 resource_id/instance_name/instance_ip/status/disabled（status=offline 时 disabled=true 置灰，决策29）"
+      - "候选按 M07 Resource 推导：monitor_type→category（host/database/middleware/application/generic_target）再按 os_type/database_type/middleware_type 细过滤"
+      - "POST /scrape-jobs/:id/instances/:resource_id/confirm：body {confirmed_by 必填固定 platform_admin, actual_port? P1, notes?}；校验资源在 Job selected_instance_ids 且同域；落 ExporterInstallationConfirmation（status=confirmed）；失败 bad_request；未命中 not_found"
+      - "DELETE .../confirm：删除确认记录返回 {resource_id, job_id}；未命中 not_found"
+      - "GET /scrape-jobs/:id/instances：返回已选实例 + 安装状态（unconfirmed/confirmed）；Job 未命中 not_found"
+      - "POST /scrape-jobs/:id/preview-targets：解析目标清单（standard→实例地址；blackbox→blackbox_targets）"
+
+  # ---------------------------------------------------------------------------
+  # 后端 D 组：MonitoringRule + 技术指标库
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-07"
+    name: "MonitoringRule CRUD（yaml_passthrough 整文件透传 + YAML 校验 + change_status）+ validate-yaml"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "rule"
+    prd: "Module_01 §3.1/§5.5/§6.1/§6.2.4/§8 ⑤/§9"
+    depends_on: ["T01-01"]
+    estimated_files_changed: 6
+    estimated_test_cases: 14
+    shared_files: "否"
+    input_files:
+      - "platform/models/monitoring_rule.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/strategy/rule/list.go"
+      - "platform/strategy/rule/create.go"
+      - "platform/strategy/rule/update.go"
+      - "platform/strategy/rule/delete.go"
+      - "platform/strategy/rule/validate.go"
+      - "platform/strategy/rule/routes.go"
+      - "platform/strategy/rule/monitoring_rule_test.go"
+    verify_commands:
+      - "go test ./platform/strategy/rule/..."
+      - "go vet ./platform/strategy/rule/..."
+    acceptance_criteria:
+      - "GET /monitoring-rules：Query rule_type/enabled/keyword/page/page_size；返回 {list,...}；item 含 content_mode/rule_content(详情)/name/enabled/change_status"
+      - "POST：content_mode=yaml_passthrough 时 rule_content 必填且 YAML 合法（至少 groups 存在且为数组，否则 bad_request）；scope=central 固定；draft_status=ready；change_status=pending"
+      - "PUT /:id：可改 name/rule_content/enabled；YAML 非法 bad_request；not_found"
+      - "DELETE /:id：软删返回 {id}；not_found"
+      - "POST /:id/validate-yaml：body {rule_content}，返回 {valid, error?}"
+      - "保存/启停/删除后 change_status 由 M09 pull 回写，后端仅维护 updated_at，不主动通知"
+
+  - task_id: "T01-08"
+    name: "技术指标库 API（GET 列表筛选 + 用户扩展 POST + 内置只读）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "metric-library"
+    prd: "Module_01 §3.1/§5.3/§6.1/§6.2.3/§9"
+    depends_on: ["T01-01", "T01-02"]
+    estimated_files_changed: 5
+    estimated_test_cases: 12
+    shared_files: "否"
+    input_files:
+      - "platform/models/exporter_metric_library.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/strategy/metric-library/list.go"
+      - "platform/strategy/metric-library/create.go"
+      - "platform/strategy/metric-library/routes.go"
+      - "platform/strategy/metric-library/metric_library_test.go"
+    verify_commands:
+      - "go test ./platform/strategy/metric-library/..."
+      - "go vet ./platform/strategy/metric-library/..."
+    acceptance_criteria:
+      - "GET /metric-library：Query monitor_type/metric_type/category/keyword/page/page_size；返回 {list,...}"
+      - "POST：is_builtin=false 用户扩展；metric_name+monitor_types 判重；is_builtin=true 拒绝写；monitor_type∈ValidMonitorTypes"
+      - "PUT /:metric_id：仅可改 is_builtin=false 的 enabled/help/unit/monitor_types/category；内置 forbidden；not_found"
+
+  # ---------------------------------------------------------------------------
+  # 后端 E 组：路由收口 + 集成
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-09"
+    name: "strategy 路由收口 + main.go 接入 + 端到端集成验收"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "routes-integration"
+    prd: "Module_01 §6.1 + §9.2；03_API_Standard §7.2"
+    depends_on: ["T01-03", "T01-04", "T01-05", "T01-06", "T01-07", "T01-08"]
+    estimated_files_changed: 3
+    estimated_test_cases: 10
+    shared_files: "是（platform/cmd/metric-center/main.go，唯一写者）"
+    input_files:
+      - "platform/cmd/metric-center/main.go"
+      - "platform/strategy/*/routes.go"
+    output_files:
+      - "platform/strategy/routes.go"               # strategy.RegisterRoutes 收口五子包
+      - "platform/cmd/metric-center/main.go"
+      - "platform/cmd/metric-center/main_test.go"
+    verify_commands:
+      - "go test ./platform/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "main.go 调用 strategy.RegisterRoutes，挂 /api/v2/platform：/exporter-templates、/ci-exporter-mappings、/scrape-jobs（含 instance-candidates/instances/confirm/preview-targets）、/monitoring-rules（含 validate-yaml）、/metric-library；统一 {status,data}/{status,errorType,error}"
+      - "集成测试（memory DB + seed）：exporter 登记→内置只读→删除引用拦截；mapping is_default 唯一→Job 继承快照；ScrapeJob 创建（网域已纳管/冻结拒绝/认证/blackbox）→实例候选(offline 置灰)→安装确认→preview；rule 透传(YAML 校验)→validate-yaml；metric-library 筛选/用户扩展"
+      - "go test ./platform/... 全绿，go vet 通过"
+
+  # ---------------------------------------------------------------------------
+  # 前端 F 组：API client + types
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-F1"
+    name: "前端 strategy API client + types 扩展 + 单测"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-api-client"
+    prd: "Module_01 §6 + api-contract-snapshot.md（契约第一权威）"
+    depends_on: []   # 契约由 snapshot 锁定，可与后端并行
+    estimated_files_changed: 11
+    estimated_test_cases: 20
+    shared_files: "是（src/types/strategy.ts 独占扩展，F2-F8 只消费）"
+    input_files:
+      - "ui-custom/web/src/api/client.ts"
+      - "ui-custom/web/src/types/strategy.ts"
+      - "ui-custom/web/src/types/api.ts"
+    output_files:
+      - "ui-custom/web/src/api/exporterTemplates.ts"
+      - "ui-custom/web/src/api/ciExporterMappings.ts"
+      - "ui-custom/web/src/api/scrapeJobs.ts"
+      - "ui-custom/web/src/api/monitoringRules.ts"
+      - "ui-custom/web/src/api/metricLibrary.ts"
+      - "ui-custom/web/src/api/{exporterTemplates,ciExporterMappings,scrapeJobs,monitoringRules,metricLibrary}.test.ts"
+      - "ui-custom/web/src/types/strategy.ts"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/api/exporterTemplates.test.ts"
+      - "cd ui-custom/web && pnpm vitest run src/api/ciExporterMappings.test.ts"
+      - "cd ui-custom/web && pnpm vitest run src/api/scrapeJobs.test.ts"
+      - "cd ui-custom/web && pnpm vitest run src/api/monitoringRules.test.ts"
+      - "cd ui-custom/web && pnpm vitest run src/api/metricLibrary.test.ts"
+    acceptance_criteria:
+      - "exporterTemplateApi/ciExporterMappingApi/scrapeJobApi/monitoringRuleApi/metricLibraryApi：list（含各 Query 参数）/create/update/remove；scrapeJob 追加 instanceCandidates/confirmInstance(POST+DELETE)/instances/previewTargets；monitoringRule 追加 validateYaml/getDetail"
+      - "types/strategy.ts 扩展 BlackboxTarget/ExporterMetricLibraryItem{monitor_types[],metric_type,help,unit,labels[],is_builtin,enabled,source_exporter?}/InstanceCandidate{resource_id,instance_name,instance_ip,status,disabled}/ScrapeJob 补 blackbox_targets + change_status/draft_status；信封按快照区分 list/items"
+      - "单测 mock fetch 覆盖各 list 参数/CRUD/confirm/validate-yaml/metric-library 筛选；单文件 vitest + eslint 全绿"
+
+  # ---------------------------------------------------------------------------
+  # 前端 G 组：采集器管理 Tab / 采集 Job 页
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-F2"
+    name: "采集器管理 Tab（默认采集配置列表 + ExporterTemplate 登记 + 未被引用标记 + 标签模板列/补配/预览抽屉）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-collectors-tab"
+    prd: "Module_01 §3.1/§5.1/§5.2/§9.1/§11.1"
+    depends_on: ["T01-F1"]
+    estimated_files_changed: 4
+    estimated_test_cases: 16
+    shared_files: "否"
+    input_files:
+      - "ui-custom/web/src/api/exporterTemplates.ts"
+      - "ui-custom/web/src/api/ciExporterMappings.ts"
+      - "ui-custom/web/src/types/strategy.ts"
+      - "ui-custom/web/src/pages/collection/CollectionPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/strategy/CollectorTemplatesTab.tsx"
+      - "ui-custom/web/src/pages/strategy/ExporterTemplateDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/MappingDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/CollectorTemplatesTab.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/CollectorTemplatesTab.test.tsx"
+    acceptance_criteria:
+      - "采集器管理 Tab 承载于采集 Job 页（不独立导航）；主按钮「新增默认采集配置」+「登记采集器」次级"
+      - "列表按 monitor_type+source 筛选；行展示 type+默认采集器+default_port+metrics_path+scheme+interval/timeout+is_default+未被引用标记（is_referenced=false）"
+      - "标签模板列两行卡片（模板名+默认/自定义标记）+ 查看（只读预览抽屉）+ 更换 + 补配 + 待配置 badge"
+      - "登记表单 source=internal 时 default_port/metrics_path/scheme 必填；登记即入池；空态引导"
+
+  - task_id: "T01-F3"
+    name: "采集 Job 列表页（网域/类型/关键字筛选 + 四态状态列 + 参数同步列 + 启停/删除 + 变更引导）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-scrape-job"
+    prd: "Module_01 §3.1/§5.4/§8/§11.1/§11.2"
+    depends_on: ["T01-F1"]
+    estimated_files_changed: 3
+    estimated_test_cases: 16
+    shared_files: "否"
+    input_files:
+      - "ui-custom/web/src/api/scrapeJobs.ts"
+      - "ui-custom/web/src/api/domain.ts"
+      - "ui-custom/web/src/types/strategy.ts"
+    output_files:
+      - "ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx"
+      - "ui-custom/web/src/pages/strategy/useScrapeJobs.ts"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobListPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/ScrapeJobListPage.test.tsx"
+    acceptance_criteria:
+      - "网域筛选（下拉=is_monitored=true 非冻结）+ monitor_type + 关键字；分页默认 20/页；列 Job名/类型/网域/采集器/已选实例数/间隔/下发状态/状态/操作"
+      - "状态聚合四态列（待下发/已生效/已停用/草稿占位灰显 v0.2）；参数同步列展示 mapping_overrides.length 概览"
+      - "启停/删除二次确认；成功提示「变更将由 M09 生成变更单」+「前往配置变更确认」跳转；加载骨架/空态/错误态"
+
+  - task_id: "T01-F4"
+    name: "采集 Job 编辑抽屉（monitor_type 两级级联 / 默认采集器或手填 / 网域 / 认证TLS折叠 / 标签模板卡片 + 参数继承来源Tag）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-scrape-job"
+    prd: "Module_01 §3.1/§5.4/§9.1/§11.1/§11.2"
+    depends_on: ["T01-F1", "T01-F3"]
+    estimated_files_changed: 2
+    estimated_test_cases: 18
+    shared_files: "是（ScrapeJobListPage.tsx 由 F3 建、F4 内嵌 drawer）"
+    input_files:
+      - "ui-custom/web/src/api/scrapeJobs.ts"
+      - "ui-custom/web/src/api/domain.ts"
+      - "ui-custom/web/src/api/ciExporterMappings.ts"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/ScrapeJobFormDrawer.test.tsx"
+    acceptance_criteria:
+      - "monitor_type 两级级联（资源类别→细粒度）自动带出默认采集器与参数（可覆盖）；默认采集器 Radio 二选一（使用默认/手填）"
+      - "网域下拉=已纳管非冻结，空态跳 M09；job_type standard/blackbox 切换（blackbox 隐藏 monitor_type/exporter，显 blackbox_module+blackbox_targets）"
+      - "认证TLS折叠面板：auth_type 三选一（none/basic/bearer），basic→username+password（掩码不回显），bearer→token；TLS 区 tls_skip_verify + ca_file"
+      - "标签模板卡片式选择（同资源类别过滤）+ 更换 + 补配跳转；参数继承来源 Tag（继承映射灰/已覆盖蓝/待同步橙）"
+      - "校验错误、loading 防重复、成功提示 M09 变更引导"
+
+  - task_id: "T01-F5"
+    name: "实例选择器 + Exporter 安装确认（同类型同网域候选收敛 + offline 置灰 + 全选/反选 + 关键字 + 安装确认 inline）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-scrape-job"
+    prd: "Module_01 §3.1/§5.4/§5.6/§8 ②④/§9.1/§11.1"
+    depends_on: ["T01-F1", "T01-F4"]
+    estimated_files_changed: 4
+    estimated_test_cases: 16
+    shared_files: "是（ScrapeJobFormDrawer.tsx 由 F4 建、F5 内嵌）"
+    input_files:
+      - "ui-custom/web/src/api/scrapeJobs.ts"
+      - "ui-custom/web/src/types/strategy.ts"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/strategy/InstanceSelector.tsx"
+      - "ui-custom/web/src/pages/strategy/ExporterInstallationPanel.tsx"
+      - "ui-custom/web/src/pages/strategy/InstanceSelector.test.tsx"
+      - "ui-custom/web/src/pages/strategy/ExporterInstallationPanel.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/InstanceSelector.test.tsx"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/ExporterInstallationPanel.test.tsx"
+    acceptance_criteria:
+      - "选定 monitor_type+network_domain_id 后调 instanceCandidates 收敛候选；全选/反选 + 关键字；持久化 selected_instance_ids"
+      - "status=offline 置灰不可选（决策29）+ 说明文案；安装确认：已选实例行显状态，勾选触发 confirmInstance（confirmed_by=platform_admin）；未确认实例生成配置前禁止（UI 引导）"
+      - "blackbox Job 隐藏实例选择器，改 blackbox_targets 编辑；空态/错误态"
+
+  # ---------------------------------------------------------------------------
+  # 前端 H 组：规则挂载 / 技术指标库
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-F6"
+    name: "规则编辑（文件挂载）页（上传/粘贴 rules.yml + validate-yaml + 列表 + 启停/删除/详情 + 下发状态 + M09 变更引导）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-rule"
+    prd: "Module_01 §3.1/§5.5/§6.2.4/§9.1/§11.1/§11.2"
+    depends_on: ["T01-F1"]
+    estimated_files_changed: 4
+    estimated_test_cases: 16
+    shared_files: "否"
+    input_files:
+      - "ui-custom/web/src/api/monitoringRules.ts"
+      - "ui-custom/web/src/types/strategy.ts"
+      - "ui-custom/web/src/pages/rules/RulesPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/strategy/RulesPage.tsx"
+      - "ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/RulesPage.test.tsx"
+      - "ui-custom/web/src/pages/strategy/RuleMountDrawer.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/RulesPage.test.tsx"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/RuleMountDrawer.test.tsx"
+    acceptance_criteria:
+      - "挂载抽屉：上传/粘贴 rules.yml（yaml_passthrough）；提交前 validateYaml 预检；YAML 非法 Alert 保持内容"
+      - "列表：规则名/规则条数/更新时间/启用状态/下发状态（change_status）；启停/删除/详情（YAML 只读 Drawer）；保存成功提示 M09 变更引导 + 乐观待下发"
+      - "加载/空态「暂无规则」/错误态"
+
+  - task_id: "T01-F7"
+    name: "技术指标库页（只读列表 + 资源类别→类型两级筛选 + metric_type 筛选 + 空态/错误态）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-metric-library"
+    prd: "Module_01 §3.1/§5.3/§9.1/§11.1"
+    depends_on: ["T01-F1"]
+    estimated_files_changed: 2
+    estimated_test_cases: 12
+    shared_files: "否"
+    input_files:
+      - "ui-custom/web/src/api/metricLibrary.ts"
+      - "ui-custom/web/src/types/strategy.ts"
+    output_files:
+      - "ui-custom/web/src/pages/strategy/MetricLibraryPage.tsx"
+      - "ui-custom/web/src/pages/strategy/MetricLibraryPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/MetricLibraryPage.test.tsx"
+    acceptance_criteria:
+      - "只读列表：筛选（资源类别→类型两级 / metric_type / category 可选）；分页默认 20/页；列 指标名/类型/HELP/单位/所属类型/来源采集器(source_exporter)/启用状态"
+      - "加载骨架/空态/错误态；MVP 内置只读不做编辑/导入 UI（P1）；两库定位说明"
+
+  # ---------------------------------------------------------------------------
+  # 前端 I 组：页面挂载与导航
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-F8"
+    name: "页面挂载与导航入口（采集 Job（含采集器管理 Tab）/ 规则编辑 / 技术指标库）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-navigation"
+    prd: "Module_01 §11 交互契约 + Phase 5 导航前最小可达入口"
+    depends_on: ["T01-F2", "T01-F3", "T01-F6", "T01-F7"]
+    estimated_files_changed: 2
+    estimated_test_cases: 4
+    shared_files: "是（App.tsx/MainLayout.tsx）"
+    input_files:
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/pages/strategy/*.tsx"
+    output_files:
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+    acceptance_criteria:
+      - "App 注册 /scrape-jobs（含 ?tab=collectors 采集器管理 Tab）/rules/metric-library 路由"
+      - "MainLayout 一级模块「监控策略」（采集 Job / 规则编辑 / 指标库）与既有监控对象/系统平台并列；resolveActiveModule 覆盖新路径"
+      - "pnpm lint 通过、pnpm dev 页面 200"

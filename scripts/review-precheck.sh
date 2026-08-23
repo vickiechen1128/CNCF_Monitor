@@ -48,9 +48,32 @@ if ! git rev-parse --git-dir >/dev/null 2>&1; then
   exit 1
 fi
 
-CHANGED_FILES=$(git diff --name-only "$BASE_BRANCH"...HEAD -- 2>/dev/null || true)
+# 解析实际基准：优先使用远端追踪 ref。本地 $BASE_BRANCH 常因 worktree 检出而滞后于远端，
+# 零提交场景下会造成误判；远端 ref 代表已合并的最新状态。
+RESOLVED_BASE="$BASE_BRANCH"
+if git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
+  RESOLVED_BASE="origin/$BASE_BRANCH"
+fi
 
 current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+# 已提交改动数量（相对基准分支）
+COMMIT_COUNT=$(git rev-list --count "$RESOLVED_BASE"..HEAD 2>/dev/null || echo 0)
+
+# 变更范围：优先取已提交改动；分支无提交时回退到未提交工作区改动（git diff $RESOLVED_BASE --）
+if [[ "$COMMIT_COUNT" -gt 0 ]]; then
+  DIFF_SOURCE="committed ($RESOLVED_BASE...HEAD)"
+  CHANGED_FILES=$(git diff --name-only "$RESOLVED_BASE"...HEAD -- 2>/dev/null || true)
+else
+  DIFF_SOURCE="uncommitted (git diff $RESOLVED_BASE --)"
+  CHANGED_FILES=$(git diff --name-only "$RESOLVED_BASE" -- 2>/dev/null || true)
+fi
+
+# 阻断零提交审查：既无已提交改动，也无未提交改动时，无可审查内容，直接失败
+if [[ "$COMMIT_COUNT" -eq 0 && -z "$CHANGED_FILES" ]]; then
+  echo "ERROR: 分支 '$current_branch' 相对 '$RESOLVED_BASE' 既无提交也无未提交改动，无可审查内容，阻断预检" >&2
+  exit 1
+fi
 
 # 安全扫描只关注实际代码目录，避免 docs/.kimi/ 等干扰
 SCAN_PREFIXES=("platform/" "ui-custom/web/" "deploy/" "patches/prometheus/")
@@ -195,9 +218,10 @@ fi
   echo "# 审查预检报告：$MODULE"
   echo ""
   echo "## 执行元数据"
-  echo "- base branch：$BASE_BRANCH"
+  echo "- base branch: $BASE_BRANCH (resolved: $RESOLVED_BASE)"
   echo "- current branch：$current_branch"
-  echo "- commit range：$BASE_BRANCH...HEAD"
+  echo "- commit range：$RESOLVED_BASE...HEAD"
+  echo "- 变更范围来源：$DIFF_SOURCE"
   echo "- generated at：$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "- changed files count：$changed_count"
   echo "- 契约快照：$SNAPSHOT_STATUS"
