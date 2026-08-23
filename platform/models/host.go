@@ -8,6 +8,9 @@ import "time"
 // assets/templates/excel/host_template.md.
 type Host struct {
 	BaseModel
+	ResourceID       string           `gorm:"size:64;uniqueIndex:idx_host_resource_id" json:"resource_id"` // uuid，创建后不可变（M07 生成）
+	SourceType       SourceType       `gorm:"size:20;not null" json:"source_type"`
+	TenantID         string           `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
 	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
@@ -36,8 +39,13 @@ type Host struct {
 	ExpiredAt     *time.Time `json:"expired_at,omitempty"`
 }
 
-// GetResourceID returns the resource id. ServerID is preferred, falling back to InstanceName.
+// GetResourceID returns the resource id. The shared ResourceID column (uuid,
+// set by M07) takes precedence; legacy ServerID / InstanceName fallbacks are
+// kept for backward compatibility.
 func (h *Host) GetResourceID() string {
+	if h.ResourceID != "" {
+		return h.ResourceID
+	}
 	if h.ServerID != "" {
 		return h.ServerID
 	}

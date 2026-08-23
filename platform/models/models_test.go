@@ -1,7 +1,9 @@
 package models
 
 import (
+	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -129,7 +131,7 @@ func TestAutoMigrate(t *testing.T) {
 		&Tenant{}, &NetworkDomain{}, &ZoneType{}, &ResourceStatusMapping{},
 		&ResourceLabel{}, &CITypeExporterMapping{}, &ExporterTemplate{},
 		&MonitoringRule{}, &ConfigDraft{}, &ConfigVersion{}, &ConfigDeployment{},
-		&EdgeAgent{}, &BusinessMetric{},
+		&EdgeAgent{}, &BusinessMetric{}, &ImportRecord{}, &LabelTemplateSnapshot{},
 	))
 }
 
@@ -446,4 +448,131 @@ func newMemDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
 	return db
+}
+
+// --- T07-01: shared contract columns + ImportRecord + LabelTemplateSnapshot + label rules ---
+
+func TestHostSharedContractColumns(t *testing.T) {
+	// Zero-value Host must not panic on the new shared contract fields/accessors.
+	var h Host
+	assert.NotPanics(t, func() {
+		assert.Equal(t, "", h.GetResourceID())
+		assert.Equal(t, SourceType(""), h.SourceType)
+		assert.Equal(t, "", h.TenantID)
+	})
+
+	// ResourceID column takes precedence over the legacy ServerID fallback.
+	pref := &Host{ResourceID: "uuid-123", ServerID: "srv-001", InstanceName: "host-01"}
+	assert.Equal(t, "uuid-123", pref.GetResourceID())
+
+	// Legacy fallback stays intact when ResourceID is empty.
+	legacy := &Host{ServerID: "srv-001", InstanceName: "host-01"}
+	assert.Equal(t, "srv-001", legacy.GetResourceID())
+
+	// Middleware / Application expose the new columns without rearranging layout.
+	m := &Middleware{ResourceID: "mw-1", SourceType: SourceTypeImport, TenantID: PlatformAdminTenantID}
+	assert.Equal(t, SourceTypeImport, m.SourceType)
+	assert.Equal(t, PlatformAdminTenantID, m.TenantID)
+	a := &Application{ResourceID: "app-1", SourceType: SourceTypeManual, TenantID: PlatformAdminTenantID}
+	assert.Equal(t, SourceTypeManual, a.SourceType)
+	assert.Equal(t, PlatformAdminTenantID, a.TenantID)
+}
+
+func TestImportRecordErrorsJSONRoundTrip(t *testing.T) {
+	rec := &ImportRecord{
+		ImportNo:         "IMP-20260822-001",
+		ResourceCategory: ResourceCategoryHost,
+		Mode:             ImportModeUpsert,
+		Total:            3,
+		Success:          2,
+		Updated:          1,
+		Failed:           1,
+		Status:           ImportStatusPartial,
+		Errors: []ImportErrorDetail{
+			{Row: 5, ResourceCategory: "host", Field: "instance_ip", Value: "999.999.999.999", Reason: "IP 格式不正确"},
+			{Row: 6, ResourceCategory: "host", Field: "env", Value: "qa", Reason: "环境枚举不合法"},
+		},
+		Operator: PlatformAdminTenantID,
+	}
+
+	// Pure JSON round trip (errors array must survive).
+	b, err := json.Marshal(rec)
+	assert.NoError(t, err)
+	var back ImportRecord
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, rec.ImportNo, back.ImportNo)
+	assert.Equal(t, rec.Mode, back.Mode)
+	assert.Equal(t, ImportStatusPartial, back.Status)
+	assert.Equal(t, rec.Errors, back.Errors)
+
+	// GORM serializer:json persistence round trip.
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&ImportRecord{}))
+	assert.NoError(t, db.Create(rec).Error)
+	assert.NotZero(t, rec.ID)
+
+	var got ImportRecord
+	assert.NoError(t, db.First(&got, "import_no = ?", rec.ImportNo).Error)
+	assert.Equal(t, ImportModeUpsert, got.Mode)
+	assert.Equal(t, 2, got.Success)
+	assert.Equal(t, 1, got.Failed)
+	assert.Len(t, got.Errors, 2)
+	assert.Equal(t, "instance_ip", got.Errors[0].Field)
+	assert.Equal(t, "IP 格式不正确", got.Errors[0].Reason)
+	assert.Equal(t, PlatformAdminTenantID, got.Operator)
+}
+
+func TestProtectedPrometheusLabels(t *testing.T) {
+	for _, key := range []string{"instance", "job", "scheme", "__address__", "__scheme__", "__metrics_path__"} {
+		assert.True(t, IsProtectedLabel(key), "expected %q to be a protected label", key)
+	}
+	assert.False(t, IsProtectedLabel("app"))
+	assert.False(t, IsProtectedLabel("env"))
+}
+
+func TestLabelRules(t *testing.T) {
+	// ValidBizCode: lowercase letters / digits / hyphens, length ≤ 64.
+	assert.True(t, ValidBizCode.MatchString("payment"))
+	assert.True(t, ValidBizCode.MatchString("data-api"))
+	assert.True(t, ValidBizCode.MatchString("a1-b2"))
+	assert.False(t, ValidBizCode.MatchString("Payment"))
+	assert.False(t, ValidBizCode.MatchString("with_underscore"))
+	assert.False(t, ValidBizCode.MatchString(strings.Repeat("a", 65)))
+
+	// ValidateLabelKey: lowercase / underscore / no "__" prefix / ≤128.
+	assert.NoError(t, ValidateLabelKey("app"))
+	assert.NoError(t, ValidateLabelKey("app_name"))
+	assert.Error(t, ValidateLabelKey(""))
+	assert.Error(t, ValidateLabelKey("__name__"))
+	assert.Error(t, ValidateLabelKey("AppName"))
+	assert.Error(t, ValidateLabelKey("has-dash"))
+	assert.Error(t, ValidateLabelKey(strings.Repeat("a", 129)))
+
+	// Enum slices.
+	assert.Equal(t, []string{"dev", "test", "staging", "prod"}, ValidEnvs)
+	assert.Equal(t, []string{"http", "https", "tcp"}, ValidProtocols)
+	assert.Equal(t, []string{"http", "https"}, ValidSchemes)
+}
+
+func TestLabelTemplateSnapshotSmoke(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&LabelTemplateSnapshot{}))
+
+	oldMap := LabelMapping{SourceField: "app_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true}
+	newMap := LabelMapping{SourceField: "service_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true}
+	snap := &LabelTemplateSnapshot{
+		TemplateID: 1,
+		Operator:   PlatformAdminTenantID,
+		ChangedMappings: []MappingChange{
+			{TargetLabel: "app", OldValue: &oldMap, NewValue: &newMap},
+		},
+	}
+	assert.NoError(t, db.Create(snap).Error)
+	assert.NotZero(t, snap.ID)
+
+	var got LabelTemplateSnapshot
+	assert.NoError(t, db.First(&got, "template_id = ?", 1).Error)
+	assert.Len(t, got.ChangedMappings, 1)
+	assert.Equal(t, "app", got.ChangedMappings[0].TargetLabel)
+	assert.Equal(t, "app_name", got.ChangedMappings[0].OldValue.SourceField)
 }
