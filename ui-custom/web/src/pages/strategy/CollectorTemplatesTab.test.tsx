@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
-import { setupAntdTest } from '../../test/antdTestUtils'
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { setupAntdTest, selectAntdOption } from '../../test/antdTestUtils'
 import { CollectorTemplatesTab } from './CollectorTemplatesTab'
 
 const mappingListMock = vi.fn()
 const tmplListMock = vi.fn()
+const mappingUpdateMock = vi.fn()
+const labelTemplateListMock = vi.fn()
 
 vi.mock('../../api/ciExporterMappings', () => ({
   ciExporterMappingApi: {
     list: (...args: unknown[]) => mappingListMock(...args),
     create: vi.fn(),
-    update: vi.fn(),
+    update: (...args: unknown[]) => mappingUpdateMock(...args),
   },
 }))
 
@@ -18,6 +20,10 @@ vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: {
     list: (...args: unknown[]) => tmplListMock(...args),
   },
+}))
+
+vi.mock('../../api/labelTemplates', () => ({
+  labelTemplateApi: { list: (...args: unknown[]) => labelTemplateListMock(...args) },
 }))
 
 function mapping(id: number, monitor_type: string, exporter_template_id: number, extra: Record<string, unknown> = {}) {
@@ -65,6 +71,21 @@ describe('CollectorTemplatesTab', () => {
   beforeEach(() => {
     mappingListMock.mockReset()
     tmplListMock.mockReset()
+    mappingUpdateMock.mockReset()
+    labelTemplateListMock.mockReset()
+    labelTemplateListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], instance_count: 0 },
+          { id: 8, name: 'MySQL 备选标签', resource_category: 'database', is_default: false, mappings: [], instance_count: 0 },
+          { id: 9, name: '主机标签', resource_category: 'host', is_default: false, mappings: [], instance_count: 0 },
+        ],
+        total: 3,
+        page: 1,
+        page_size: 100,
+      },
+    })
     tmplListMock.mockResolvedValue({
       status: 'success',
       data: { list: [template(1, 'mysqld-exporter'), template(2, 'redis-exporter')], total: 2, page: 1, page_size: 100 },
@@ -254,5 +275,55 @@ describe('CollectorTemplatesTab', () => {
     fireEvent.click(btn)
     expect(await screen.findByText('下载')).toBeInTheDocument()
     expect(screen.getByText('文档')).toBeInTheDocument()
+  })
+
+  // ---- Q1b：更换/补配独立轻量抽屉（仅改标签模板，不进入采集参数编辑） ----
+  it('opens label template drawer with 更换 mode and only label field (Q1b)', async () => {
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [mapping(1, 'mysql', 1, { has_label_template: true, label_template_id: '7' })], total: 1, page: 1, page_size: 20 },
+    })
+
+    render(<CollectorTemplatesTab />)
+    await screen.findByText('mysqld-exporter')
+
+    fireEvent.click(screen.getAllByText('更换')[0])
+    expect(await screen.findByText('更换标签模板')).toBeInTheDocument()
+    const drawer = screen.getByRole('dialog')
+    // 更换需回显「当前已选模板」确认（PRD L241）——抽屉内同时存在当前模板块与 Select 选中值，故用 getAllByText
+    expect(within(drawer).getAllByText(/MySQL 标准标签/).length).toBeGreaterThanOrEqual(1)
+    // 抽屉带入上下文：监控对象类型 / 资源类别 / 默认采集器（方便确认在给哪条默认采集配置换属主标签）
+    expect(within(drawer).getByText('监控对象类型：MySQL')).toBeInTheDocument()
+    expect(within(drawer).getByText('资源类别：数据库')).toBeInTheDocument()
+    expect(within(drawer).getByText('默认采集器：mysqld-exporter')).toBeInTheDocument()
+    // 轻量抽屉不含采集器相关可编辑字段（端口/路径/协议/采集间隔/超时）——限定在抽屉容器内断言
+    expect(within(drawer).queryByText('采集间隔')).toBeNull()
+    expect(within(drawer).queryByText('默认端口')).toBeNull()
+    expect(within(drawer).queryByText('采集路径')).toBeNull()
+  })
+
+  it('submits only label_template_id from label drawer (Q1b)', async () => {
+    mappingUpdateMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [mapping(1, 'mysql', 1, { has_label_template: false })], total: 1, page: 1, page_size: 20 },
+    })
+
+    render(<CollectorTemplatesTab />)
+    await screen.findByText('mysqld-exporter')
+
+    fireEvent.click(screen.getAllByText('补配')[0])
+    expect(await screen.findByText('补配标签模板')).toBeInTheDocument()
+    // 候选按资源类别过滤：database 模板出现、host 模板不出现
+    fireEvent.mouseDown(screen.getByText('请选择该资源类别的标签模板'))
+    expect(await screen.findByText(/MySQL 备选标签/)).toBeInTheDocument()
+    expect(screen.queryByText(/主机标签/)).toBeNull()
+    // 选择模板后保存
+    await selectAntdOption('MySQL 标准标签（数据库）')
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(mappingUpdateMock).toHaveBeenCalled())
+    expect(mappingUpdateMock.mock.calls[0][0]).toBe(1)
+    // 载荷仅包含 label_template_id，不含采集参数
+    expect(mappingUpdateMock.mock.calls[0][1]).toEqual({ label_template_id: '7' })
   })
 })

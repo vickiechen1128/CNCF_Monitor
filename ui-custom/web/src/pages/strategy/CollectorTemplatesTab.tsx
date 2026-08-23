@@ -31,6 +31,7 @@ import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 import { MappingDrawer } from './MappingDrawer'
+import { LabelTemplateSelectDrawer } from './LabelTemplateSelectDrawer'
 
 const { Text } = Typography
 
@@ -96,6 +97,10 @@ export function CollectorTemplatesTab() {
   const [tmplOpen, setTmplOpen] = useState(false)
   const [mappingOpen, setMappingOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<CITypeExporterMapping | null>(null)
+  // 标签模板轻量抽屉（Q1b：更换/补配独立入口，仅改 label_template_id）
+  const [labelSelectOpen, setLabelSelectOpen] = useState(false)
+  const [labelSelectMode, setLabelSelectMode] = useState<'replace' | 'supplement'>('replace')
+  const [labelSelectMapping, setLabelSelectMapping] = useState<CITypeExporterMapping | null>(null)
   // 标签模板查看（只读预览抽屉）
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewMapping, setPreviewMapping] = useState<CITypeExporterMapping | null>(null)
@@ -146,6 +151,12 @@ export function CollectorTemplatesTab() {
   const openEditMapping = (record: CITypeExporterMapping) => {
     setEditingMapping(record)
     setMappingOpen(true)
+  }
+  /** 标签模板轻量抽屉（Q1b）：mode=replace 更换 / supplement 补配，仅改标签模板 */
+  const openLabelTemplateSelect = (record: CITypeExporterMapping, mode: 'replace' | 'supplement') => {
+    setLabelSelectMapping(record)
+    setLabelSelectMode(mode)
+    setLabelSelectOpen(true)
   }
   /** template 行「去配置」：打开默认采集配置新增抽屉（F1-5） */
   const openConfigureForTemplate = () => {
@@ -265,10 +276,11 @@ export function CollectorTemplatesTab() {
               <Button type="link" size="small" onClick={() => { setPreviewMapping(row.mapping); setPreviewOpen(true) }}>
                 查看
               </Button>
-              <Button type="link" size="small" onClick={() => openEditMapping(row.mapping)}>
+              {/* Q1b：更换/补配走独立轻量抽屉（仅改标签模板），不进入采集参数编辑 */}
+              <Button type="link" size="small" onClick={() => openLabelTemplateSelect(row.mapping, 'replace')}>
                 更换
               </Button>
-              <Button type="link" size="small" onClick={() => openEditMapping(row.mapping)}>
+              <Button type="link" size="small" onClick={() => openLabelTemplateSelect(row.mapping, 'supplement')}>
                 补配
               </Button>
             </Space>
@@ -422,6 +434,13 @@ export function CollectorTemplatesTab() {
 
       <ExporterTemplateDrawer open={tmplOpen} onCancel={() => setTmplOpen(false)} onSuccess={reload} />
       <MappingDrawer open={mappingOpen} record={editingMapping} onCancel={() => setMappingOpen(false)} onSuccess={reload} />
+      <LabelTemplateSelectDrawer
+        open={labelSelectOpen}
+        mode={labelSelectMode}
+        record={labelSelectMapping!}
+        onCancel={() => setLabelSelectOpen(false)}
+        onSuccess={reload}
+      />
       <Drawer
         title="标签模板预览"
         open={previewOpen}
