@@ -20,14 +20,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
+	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/config/label"
+	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/db"
 )
 
 var (
-	listenAddr    = flag.String("listen-address", ":8080", "MetricCenter HTTP 监听地址")
-	prometheusURL = flag.String("prometheus.url", "http://localhost:9090", "Prometheus 查询地址")
+	listenAddr          = flag.String("listen-address", ":8080", "MetricCenter HTTP 监听地址")
+	prometheusURL       = flag.String("prometheus.url", "http://localhost:9090", "Prometheus 查询地址")
+	businessDomainsFile = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
 )
 
 func main() {
@@ -84,8 +87,15 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	config.GET("/preview", configPreviewHandler)
 	config.POST("/apply", configApplyHandler)
 
-        // Module 06 Phase 1: zone-type dictionary + network-domain registry.
-        networkdomain.RegisterRoutes(platform, db.DB)
+	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
+	networkdomain.RegisterRoutes(platform, db.DB)
+
+	// Module 07 (T07-18 收口): business-domain dictionary (read-only, yaml preset
+	// + hot reload), resource CRUD / Excel template & import / resource labels /
+	// import records / label-templates, all under /api/v2/platform/*.
+	businessStore := resource.NewBusinessDomainStore(*businessDomainsFile)
+	resource.RegisterRoutes(platform, db.DB, businessStore)
+	label.RegisterRoutes(platform, db.DB)
 }
 
 func healthHandler(c *gin.Context) {
