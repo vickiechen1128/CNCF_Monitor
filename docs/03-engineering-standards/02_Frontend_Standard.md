@@ -200,3 +200,36 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 | 接口错误 | `message.error` 提示 + 页面保留旧数据；列表加载失败展示错误态与「重试」按钮 |
 | 权限不足 | 隐藏操作入口，或禁用 + Tooltip 说明原因；整页无权限展示 403 页 |
 | 数据超量 / 边界 | 列表分页（默认 20/页）；下拉选项 >20 项用 `showSearch`；超长输入前端先行校验 |
+
+## 11. 构建与测试类型隔离（跨模块强制）
+
+`pnpm build` 的脚本为 `tsc && vite build`，其中 `tsc` 会按 `tsconfig.json` 的 `include` 对所有源码做类型检查。为避免生产构建把测试文件里的 Vitest / Chai `expect` 类型冲突也纳入检查，必须将测试文件从生产构建的类型检查中排除，测试类型由 Vitest（`vitest.config.ts`）独立检查：
+
+`ui-custom/web/tsconfig.json`：
+
+```json
+{
+  "compilerOptions": { ... },
+  "include": ["src"],
+  "exclude": [
+    "src/setupTests.ts",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
+  ],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+```
+
+- **生产构建**：`tsc` 仅检查业务代码，测试文件不参与类型检查；
+- **测试运行**：走 `vitest run`，不依赖 tsconfig 的 include，不受排除影响；
+- **禁止**为了绕过构建而给测试加入 `@ts-ignore` / 任意 `any`，也不允许删除测试文件；
+- 新增测试文件请沿用 `*.test.ts(x)` 命名，确保被统一排除规则覆盖。
+
+**ESLint 配套（v1.33 起，跨模块强制）**：`eslint.config.js` 必须与 tsconfig 排除口径一致，否则类型感知 lint 会对被排除的测试文件报 `The file was not found in any of the provided project(s)`。规则：
+
+1. 主配置块（`files: ['src/**/*.{ts,tsx}']`）保留 `parserOptions.project: './tsconfig.json'`，仅对业务代码做类型感知解析；
+2. 追加一个测试文件专用配置块（`files: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'src/setupTests.ts']`），将 `parserOptions.project` 置 `null` 禁用类型感知解析（typescript-eslint 官方支持），规则集与主块保持一致；
+3. 项目级关闭核心规则 `no-undef`（`'no-undef': 'off'`）——TS 已做类型检查，避免误报 `ResponseInit` 等 TS/DOM 全局类型未定义；
+4. 禁止使用 flat config 的 `excludes` 键（当前 `@eslint/config-array` 版本不支持，会报 `Unexpected key "excludes"`）。
+
+> ⚠️ 注意：`excludes` 与 `project: null` 二选一时用后者；若升级 ESLint 后 `excludes` 可用，仍以 `project: null` 方案为准保持行为稳定。

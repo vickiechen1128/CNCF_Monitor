@@ -67,6 +67,8 @@ func AutoMigrate() error {
 		&models.ResourceLabel{},
 		// 标签模板与采集策略
 		&models.LabelTemplate{},
+		&models.LabelTemplateSnapshot{},
+		&models.ImportRecord{},
 		&models.CITypeExporterMapping{},
 		&models.ExporterTemplate{},
 		&models.ScrapeJob{},

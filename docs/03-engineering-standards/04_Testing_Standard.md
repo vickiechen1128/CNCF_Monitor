@@ -4,7 +4,7 @@
 > **目标读者**：后端开发工程师、前端开发工程师（编码前必读）、技术架构师（质量门禁 / 覆盖率评估）
 > 目标：建立后端与前端的测试规范，确保改造后的 Prometheus 稳定可靠。
 > **权威定位（v1.25）**：本文档 §4「提交前验证清单」为测试 / lint / 服务启动验证的**唯一权威**，其他标准（01 §5、02 §6）只做引用。
-> 更新日期：2026-07-21（v1.25 去重）
+> 更新日期：2026-08-22（v1.26 新增前端单文件测试粒度与 flaky 处理原则）
 
 ---
 
@@ -40,6 +40,20 @@
 - 使用 Playwright
 - 覆盖：登录、查询、目标管理核心流程
 
+### 2.3 Flaky 测试处理原则（v2026-08-22 新增）
+
+- **禁止把 flaky 测试制度化**：不允许以「重试 2 次即算通过」作为常规验收标准。
+- 发现 flaky 后优先修复根因：
+  - 使用 `await screen.findBy*` / `waitFor` 处理异步渲染；
+  - 使用 `userEvent.setup()` 而非 `userEvent.click` 旧用法；
+  - 对 antd `Modal`、`Select`、`Drawer` 等 jsdom 不稳定组件，统一使用 `src/test/antdTestUtils.tsx` 提供的 helper；
+  - mock `matchMedia`、`getComputedStyle`、`scrollTo`、`ResizeObserver` 等 jsdom 缺失 API。
+- 对暂时无法根除的 flaky 用例，必须：
+  - 隔离到独立文件（如 `*.flaky.test.tsx`）或在用例顶部加显式注释 `// FLAKY: root cause & tracking issue`；
+  - 在执行记录中标注为技术债务，限期修复；
+  - 不得以普通用例身份进入全量回归。
+- 禁止每个测试文件自行发明临时 workaround。所有 antd 组件测试稳定模式统一沉淀在 `web-development` skill 与 `src/test/antdTestUtils.tsx`。
+
 ---
 
 ## 3. 测试覆盖率
@@ -61,8 +75,9 @@
 
 - [ ] 通过 `go test ./platform/...`
 - [ ] 通过 `go vet ./platform/...`
-- [ ] 前端通过 `pnpm test`
 - [ ] 前端通过 `pnpm lint`
+- [ ] 前端单任务验证通过 `pnpm vitest run <具体测试文件>`（开发期每个任务必须）
+- [ ] 前端全量回归通过 `pnpm test`（仅在 Phase 收尾、合并前、CI 中执行）
 
 ### 4.2 服务启动验证
 

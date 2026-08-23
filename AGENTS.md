@@ -178,6 +178,7 @@ pnpm lint        # eslint . --ext ts,tsx
 ```bash
 make apply-patches         # 应用 patches/prometheus/*.patch 到上游源码
 make clean                 # 清理构建产物
+bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报告 -> docs/05-execution-records/module-XX/review-precheck.md
 ```
 
 ---

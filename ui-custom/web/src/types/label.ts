@@ -44,3 +44,41 @@ export interface ResourceLabel {
   updated_at: string
   deleted_at?: string
 }
+
+/**
+ * 新增/编辑映射输入（PRD §6.6.3 POST/PUT mappings）。
+ * `source_type` 与 `LabelSourceType` 同源（resource_field / composite / prometheus_builtin / cmdb_field）；
+ * `transform_rule` 可空，留空 = 原样透传（§5.11）。
+ */
+export interface MappingInput {
+  target_label: string
+  source_type: LabelSourceType
+  source_field?: string
+  transform_rule?: string
+}
+
+/** 创建标签模板输入（非默认，is_default=false）；mappings 可空（PRD §6.6.3） */
+export interface LabelTemplateCreateInput {
+  name: string
+  resource_category: ResourceCategory
+  description?: string
+  mappings?: MappingInput[]
+}
+
+/** 更新标签模板输入：仅 name/description 可改；resource_category 创建后不可改，故 update 不含（PRD §6.3/§6.6.3） */
+export interface LabelTemplateUpdateInput {
+  name?: string
+  description?: string
+}
+
+/** 关联实例行（§3.2 关联实例展示；GET /label-templates/:template_id/resources 的 item） */
+export interface TemplateInstanceItem {
+  resource_id: string
+  instance_name: string
+  status: string
+}
+
+/** 模板列表项：LabelTemplate + 关联实例数（§3.2「关联实例 N 个」= 该 resource_category 下资源数） */
+export interface LabelTemplateListItem extends LabelTemplate {
+  instance_count: number
+}

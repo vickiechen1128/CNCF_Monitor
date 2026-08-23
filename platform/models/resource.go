@@ -43,21 +43,23 @@ type Resource interface {
 // Database (see §5.7.1 of Module_07).
 type Middleware struct {
 	BaseModel
-	ResourceID       string       `gorm:"size:64;uniqueIndex:idx_middleware_resource_id" json:"resource_id"`
-	ResourceType     ResourceType `gorm:"size:20;not null" json:"resource_type"`
-	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
-	NetworkDomainID  string       `gorm:"size:64;not null;index" json:"network_domain_id"`
-	BizCode          string       `gorm:"size:64;not null" json:"biz_code"`
-	AppName          string       `gorm:"size:100;not null" json:"app_name"`
-	Env              string       `gorm:"size:20;not null" json:"env"`
-	Cluster          string       `gorm:"size:100;not null" json:"cluster"`
-	Owner            string       `gorm:"size:100" json:"owner"`
-	Status           string       `gorm:"size:20;not null" json:"status"`
-	MiddlewareType   string       `gorm:"size:50;not null" json:"middleware_type"`
-	InstanceIP       string       `gorm:"size:50;not null" json:"instance_ip"`
-	Port             int          `json:"port"`
-	Version          string       `gorm:"size:50" json:"version"`
-	ConnectionString string       `gorm:"size:500" json:"connection_string"`
+	ResourceID       string            `gorm:"size:64;uniqueIndex:idx_middleware_resource_id" json:"resource_id"`
+	ResourceType     ResourceType      `gorm:"size:20;not null" json:"resource_type"`
+	ResourceCategory ResourceCategory  `gorm:"size:30;not null" json:"resource_category"`
+	NetworkDomainID  string            `gorm:"size:64;not null;index" json:"network_domain_id"`
+	BizCode          string            `gorm:"size:64;not null" json:"biz_code"`
+	SourceType       SourceType        `gorm:"size:20;not null" json:"source_type"`
+	TenantID         string            `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
+	AppName          string            `gorm:"size:100;not null" json:"app_name"`
+	Env              string            `gorm:"size:20;not null" json:"env"`
+	Cluster          string            `gorm:"size:100;not null" json:"cluster"`
+	Owner            string            `gorm:"size:100" json:"owner"`
+	Status           string            `gorm:"size:20;not null" json:"status"`
+	MiddlewareType   string            `gorm:"size:50;not null" json:"middleware_type"`
+	InstanceIP       string            `gorm:"size:50;not null" json:"instance_ip"`
+	Port             int               `json:"port"`
+	Version          string            `gorm:"size:50" json:"version"`
+	ConnectionString string            `gorm:"size:500" json:"connection_string"`
 }
 
 // Application represents an application service resource that can be probed
@@ -65,21 +67,23 @@ type Middleware struct {
 // sharing the same app_name / biz_code.
 type Application struct {
 	BaseModel
-	ResourceID     string       `gorm:"size:64;uniqueIndex:idx_application_resource_id" json:"resource_id"`
-	ResourceType   ResourceType `gorm:"size:20;not null" json:"resource_type"`
-	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
-	NetworkDomainID  string     `gorm:"size:64;not null;index" json:"network_domain_id"`
-	BizCode          string     `gorm:"size:64;not null" json:"biz_code"`
-	AppName        string       `gorm:"size:100;not null" json:"app_name"`
-	Env            string       `gorm:"size:20;not null" json:"env"`
-	Cluster        string       `gorm:"size:100;not null" json:"cluster"`
-	Owner          string       `gorm:"size:100" json:"owner"`
-	Status         string       `gorm:"size:20;not null" json:"status"`
-	ServiceName    string       `gorm:"size:100;not null" json:"service_name"`
-	HealthCheckURL string       `gorm:"size:500;not null" json:"health_check_url"`
-	Protocol       string       `gorm:"size:20;not null" json:"protocol"`
-	Endpoint       string       `gorm:"size:500" json:"endpoint"`
-	Port           int          `json:"port"`
+	ResourceID       string            `gorm:"size:64;uniqueIndex:idx_application_resource_id" json:"resource_id"`
+	ResourceType     ResourceType      `gorm:"size:20;not null" json:"resource_type"`
+	ResourceCategory ResourceCategory  `gorm:"size:30;not null" json:"resource_category"`
+	NetworkDomainID  string            `gorm:"size:64;not null;index" json:"network_domain_id"`
+	BizCode          string            `gorm:"size:64;not null" json:"biz_code"`
+	SourceType       SourceType        `gorm:"size:20;not null" json:"source_type"`
+	TenantID         string            `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
+	AppName          string            `gorm:"size:100;not null" json:"app_name"`
+	Env              string            `gorm:"size:20;not null" json:"env"`
+	Cluster          string            `gorm:"size:100;not null" json:"cluster"`
+	Owner            string            `gorm:"size:100" json:"owner"`
+	Status           string            `gorm:"size:20;not null" json:"status"`
+	ServiceName      string            `gorm:"size:100;not null" json:"service_name"`
+	HealthCheckURL   string            `gorm:"size:500;not null" json:"health_check_url"`
+	Protocol         string            `gorm:"size:20;not null" json:"protocol"`
+	Endpoint         string            `gorm:"size:500" json:"endpoint"`
+	Port             int               `json:"port"`
 }
 
 // GetResourceID returns the resource id.

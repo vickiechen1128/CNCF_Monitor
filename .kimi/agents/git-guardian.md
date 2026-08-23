@@ -87,6 +87,7 @@ git diff --stat
 ```
 
 - **必须小写**，禁止 emoji，禁止无意义描述如 "update"、"fix bug"。
+- `feat` / `fix` 提交**必须**在标题或正文中携带 task id(s)（如 `T07-05` 或 `T07-05~07`、`T07-F3~F4`）。
 - `feat` / `fix` 提交**必须**关联 `docs/05-execution-records/module-XX/<agent>.md`。
 - `design` 提交**建议**说明 PRD 与原型路径，并标注迭代轮次与 PRD 版本（如"第十一轮需求对齐，PRD v1.11"）。
 - 修改 PRD 的提交**必须**同步更新 PRD 修订表（新增一行、版本 +1、不改写已冻结行），见 06 Gitflow §2.5。
@@ -110,16 +111,26 @@ curl -sf http://localhost:8080/api/v1/status
 
 ### 前端生产代码变更（`ui-custom/web/`）
 
+**增量 commit（单个/相邻任务的功能块）**：
+
 ```bash
 cd ui-custom/web
 pnpm lint
-pnpm test
-pnpm build
+pnpm vitest run <本次变更涉及的测试文件>
 # 开发服务器验证
 pnpm dev
 # 另开终端验证 http://localhost:5173/ 返回 200
 curl -sf http://localhost:5173/
 ```
+
+**Phase 收尾 / 合并前**：
+
+```bash
+pnpm test
+pnpm build
+```
+
+> 增量 commit 不得以「全量 test 还没跑」为借口跳过单文件 vitest；Phase 收尾/合并前不得以「单文件通过」为由跳过全量 test + build。
 
 ### 原型代码变更（`docs/prototypes/*/`）
 
@@ -149,14 +160,15 @@ pnpm lint
 1. **空间检查**：确认当前处于正确的空间（设计空间 `CNCF_Monitor-worktree` 或开发空间 `CNCF_Monitor-feature`），且与要提交的变更类型相匹配。
 2. **分支读取**：`git branch --show-current`。
 3. **变更读取**：`git status --short` 和 `git diff --stat`。
-4. **分支命名检查**：是否符合 `design/module-mvp-demo`、`feat/module-XX`、`fix/module-XX` 等规则。
-5. **目录权限检查**：变更文件是否落在当前分支允许修改的目录内。
-6. **Commit message 检查**：用户提供 message 后，验证格式、类型、scope、关联执行记录；若变更涉及 PRD/原型，检查 PRD 修订表是否同步更新（新增行、版本递增、未改写已冻结行）。
-7. **验证检查**：根据变更范围，确认用户已运行并通过了相应测试/验证。
+4. **积压检查**：若工作区还存在大量不属于本次功能块的未提交改动，提醒提交人确认归属并拆分；禁止一次 commit 混交多个功能块或模块的改动。
+5. **分支命名检查**：是否符合 `design/module-mvp-demo`、`feat/module-XX`、`fix/module-XX` 等规则。
+6. **目录权限检查**：变更文件是否落在当前分支允许修改的目录内。
+7. **Commit message 检查**：用户提供 message 后，验证格式、类型、scope、**task id**、关联执行记录；若变更涉及 PRD/原型，检查 PRD 修订表是否同步更新（新增行、版本递增、未改写已冻结行）。
+8. **验证检查**：根据变更范围，确认用户已运行并通过了相应测试/验证。
    - 若用户未提供验证结果，要求运行上述命令并返回输出。
    - 对前端/原型项目，可主动运行 `curl -sf http://localhost:5173/` 确认无异常跳转。
-8. **合并目标提醒**：确认当前分支类型对应的合并目标是否为 `develop`（`release/*`、`hotfix/*` 除外）。
-9. **输出审查报告**：
+9. **合并目标提醒**：确认当前分支类型对应的合并目标是否为 `develop`（`release/*`、`hotfix/*` 除外）。
+10. **输出审查报告**：
    - 通过：给出建议的 `git add` + `git commit` 命令。
    - 阻断：列出所有违规项，并给出修复步骤。禁止执行 commit/push。
 
@@ -174,6 +186,9 @@ pnpm lint
 10. PRD/原型变更未同步更新修订表，或改写了已「冻结」的版本行（06 Gitflow §2.5）。
 11. PRD 版本递增 / 原型版本变更后，未同步更新 `docs/02-product-requirements/Modules/README.md` 版本对齐表对应行。
 12. 模块 PRD 处于**冻结期**（修订表最新状态为「已冻结」）时，design 分支仍提交该模块 PRD / 原型版本变更（06 Gitflow §2.5 冻结期提交门禁；构思请写入 `design-decisions.md`「下一轮迭代待办」，不 commit / 不 push / 不发新 PR）。
+13. `feat` / `fix` 提交 message 未携带 task id（如 `T07-05`、`T07-F3`）。
+14. 单一 commit 跨多个功能块（例如同一 commit 同时包含「资源 CRUD」和「Excel 导入」或「标签模板管理」），或一次提交超过约 10 个文件且无法用一句话概括。
+15. 提交关联的执行记录文件不存在，或其中无对应 task id 条目。
 
 ## 输出模板
 
@@ -196,10 +211,10 @@ pnpm lint
 
 ```bash
 git add <文件>
-git commit -m "feat(module-07): 实现资源管理 CRUD
+git commit -m "feat(module-07): 资源管理 CRUD 接口（T07-05~07）
 
 - 新增 Host/Middleware/Application CRUD API
-- 新增 Excel 批量导入与错误行返回
+- 统一使用 platform/api/response 响应信封
 
 关联: docs/05-execution-records/module-07/backend-developer.md"
 ```
