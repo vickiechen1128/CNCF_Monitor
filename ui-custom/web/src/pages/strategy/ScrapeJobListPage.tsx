@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import {
   Alert,
   Badge,
@@ -12,7 +12,6 @@ import {
   Space,
   Switch,
   Table,
-  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -36,7 +35,6 @@ import { CHANGE_STATUS_MAP, JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP
 import { useScrapeJobs } from './useScrapeJobs'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { aggregateJobStatus } from './jobStatus'
-import { CollectorTemplatesTab } from './CollectorTemplatesTab'
 
 const { Text } = Typography
 
@@ -209,19 +207,24 @@ function JobsTab() {
       title: '标签模板',
       key: 'label_template',
       width: 140,
-      // F1-1：label_template_id 命中→模板名 + 待配置橙 Tag（可点击补配引导）；未关联→'-'
+      // O1/T01-F14：异常驱动。正常继承（job.label_template_id 命中）→ 只显模板名，不显「待配置」Tag；
+      // 仅当 job 未关联标签模板、但该 monitor_type 的默认映射已挂 label_template_id（有默认标签待补配）时，
+      // 显橙色「待配置」Tag（可点击补配引导）；其余 → '-'
       render: (_: unknown, r: ScrapeJob) => {
         const ref = r.label_template_id
-        if (!ref) return '-'
-        const t = labelTemplateById.get(String(ref))
-        return (
-          <Space size={4}>
-            <EllipsisText>{t?.name ?? '标签模板'}</EllipsisText>
+        if (ref) {
+          const t = labelTemplateById.get(String(ref))
+          return <EllipsisText>{t?.name ?? '标签模板'}</EllipsisText>
+        }
+        const def = r.monitor_type ? defaultMappingByMonitorType.get(String(r.monitor_type)) : undefined
+        if (def?.label_template_id) {
+          return (
             <Tag color="orange" onClick={openLabelTemplateGuide} style={{ cursor: 'pointer' }}>
               待配置
             </Tag>
-          </Space>
-        )
+          )
+        }
+        return '-'
       },
     },
     {
@@ -426,28 +429,20 @@ function JobsTab() {
 }
 
 /**
- * 采集 Job 页（F8 挂载）：承载「采集 Job」与「采集器管理」两个 Tab。
- * 默认展示采集 Job；`?tab=collectors` 直达采集器管理（F2 不独立导航）。
+ * 采集 Job 独立页（F-09 用户裁定拆分，路由 /scrape-jobs，2026-08-23）。
+ * 「采集器管理」已拆为独立页面（/collectors），故本页仅承载采集 Job 列表，
+ * 不再使用页内 Tabs；旧 `?tab=collectors` 直达链接自动重定向到 /collectors。
  */
 export function ScrapeJobListPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') === 'collectors' ? 'collectors' : 'jobs'
-
-  const handleTabChange = (key: string) => {
-    if (key === 'collectors') setSearchParams({ tab: 'collectors' })
-    else setSearchParams({})
+  const location = useLocation()
+  // 兼容旧外链：`/scrape-jobs?tab=collectors` → 采集器管理独立页（F-09）
+  if (new URLSearchParams(location.search).get('tab') === 'collectors') {
+    return <Navigate to="/collectors" replace />
   }
 
   return (
     <MainLayout>
-      <Tabs
-        activeKey={activeTab}
-        onChange={handleTabChange}
-        items={[
-          { key: 'jobs', label: '采集 Job', children: <JobsTab /> },
-          { key: 'collectors', label: '采集器管理', children: <CollectorTemplatesTab /> },
-        ]}
-      />
+      <JobsTab />
     </MainLayout>
   )
 }

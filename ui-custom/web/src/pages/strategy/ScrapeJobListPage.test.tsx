@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { render, screen, fireEvent, within } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ScrapeJobListPage } from './ScrapeJobListPage'
 
@@ -38,11 +38,6 @@ vi.mock('../../api/labelTemplates', () => ({
 // F1-2：默认映射快照（参数同步三态「异常驱动」对比基线）
 vi.mock('../../api/ciExporterMappings', () => ({
   ciExporterMappingApi: { list: (...args: unknown[]) => mappingListMock(...args) },
-}))
-
-// 采集器管理 Tab 独立测试（F2），页面挂载测试内 stub
-vi.mock('./CollectorTemplatesTab', () => ({
-  CollectorTemplatesTab: () => <div data-testid="collectors-tab">collectors</div>,
 }))
 
 // 页面测试不深入抽屉内部（F4 单独测）
@@ -220,9 +215,55 @@ describe('ScrapeJobListPage', () => {
     expect(screen.getByText('redis-exporter')).toBeInTheDocument()
     // 采集器列真实模板名解析 + 默认占位（非裸 ID）
     expect(screen.getByText('默认采集器')).toBeInTheDocument()
-    // 标签模板列：命中模板名 + 待配置橙 Tag；未关联渲染 '-'
+    // 标签模板列（O1/T01-F14 异常驱动）：正常继承只显模板名、无「待配置」Tag
     expect(screen.getByText('MySQL 标准标签')).toBeInTheDocument()
-    expect(screen.getAllByText('待配置').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('待配置')).toBeNull()
+  })
+
+  it('label template column exception-driven: 待配置 only when job lacks label but default mapping has one (O1/T01-F14)', async () => {
+    // redis 默认映射已挂标签模板（label_template_id='8'）；mysql 默认映射未挂
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 1, monitor_type: 'mysql', exporter_template_id: 1, is_default: true, scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http' },
+          { id: 2, monitor_type: 'redis', exporter_template_id: 2, is_default: true, label_template_id: '8', scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http' },
+        ],
+        total: 2,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          // 正常继承：job 已关联标签模板 → 只显模板名、无「待配置」Tag
+          job(1, { monitor_type: 'mysql', label_template_id: '7' }),
+          // 异常态：job 未关联标签模板，但 redis 默认映射已挂标签 → 显橙色「待配置」Tag
+          job(2, { monitor_type: 'redis', label_template_id: undefined }),
+          // 无标签：job 未关联且默认映射未挂标签 → '-'
+          job(3, { monitor_type: 'mysql', label_template_id: undefined }),
+        ],
+        total: 3,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('job-1')).toBeInTheDocument()
+    // 正常继承：只显模板名、无「待配置」Tag
+    expect(screen.getByText('MySQL 标准标签')).toBeInTheDocument()
+    const row1 = screen.getByText('job-1').closest('tr') as HTMLElement
+    expect(within(row1).queryByText('待配置')).toBeNull()
+    // 异常态：job-2 行显「待配置」橙 Tag
+    const row2 = screen.getByText('job-2').closest('tr') as HTMLElement
+    expect(within(row2).getByText('待配置')).toBeInTheDocument()
+    // 无标签：job-3 行渲染 '-'
+    const row3 = screen.getByText('job-3').closest('tr') as HTMLElement
+    expect(within(row3).getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows empty state 暂无采集任务', async () => {
@@ -230,6 +271,21 @@ describe('ScrapeJobListPage', () => {
 
     renderPage()
     expect(await screen.findByText('暂无采集任务')).toBeInTheDocument()
+  })
+
+  it('redirects legacy ?tab=collectors to /collectors (F-09)', async () => {
+    // 拆分前 `?scrape-jobs?tab=collectors` 直达采集器管理；拆分后自动跳转独立页
+    render(
+      <MemoryRouter initialEntries={['/scrape-jobs?tab=collectors']}>
+        <Routes>
+          <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
+          <Route path="/collectors" element={<div data-testid="collectors-page">collectors</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 跳转后应落到 /collectors 对应页面，且不再渲染采集 Job 列表主体
+    expect(await screen.findByTestId('collectors-page')).toBeInTheDocument()
+    expect(screen.queryByText('新增采集任务')).toBeNull()
   })
 
   it('opening create drawer renders job form', async () => {
