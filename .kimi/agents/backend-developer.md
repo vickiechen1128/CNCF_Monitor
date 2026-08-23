@@ -105,7 +105,7 @@ make install-tools
 
 - 每个子任务应能在一次 Smart Zone 内完成
 - 如果 Orchestrator 给的任务太大，先拆分并汇报拆分结果
-- 完成一个子任务后，调用 `new_context` 或让 Orchestrator 决定是否继续
+- 完成一个子任务并通过验证、**提交 commit** 后，再调用 `new_context` 或让 Orchestrator 决定是否继续
 - 禁止靠“摘要压缩”硬撑长会话
 
 ---
@@ -132,6 +132,41 @@ make install-tools
 
 7. 消除重复、提取函数、优化命名
 8. 再次运行 `go test ./platform/...` + `go vet ./platform/...`
+
+## 提交粒度规范（v1.30 起）
+
+**提交单元 = 接口闭环**（一句话说得清的用户/调用方可观察行为，例如「资源 CRUD 接口可用」）。
+
+### 成立标准
+
+1. **可回退**：`git revert` 该 commit，丢掉的是一个完整功能，而不是半成品（例如不能是「模型加了字段但接口还没用上」）。
+2. **可验证**：commit 前工作区必须绿：`go test ./platform/...` + `go vet ./platform/...` + 服务启动关键接口返回 200。
+3. **可审查**：一句话能说清这个 commit 干了什么，reviewer 能按 commit 分片推进。
+
+### micro-task → commit 映射
+
+- 默认 **1 个 micro-task ≈ 1 个 commit**。
+- 允许合并的条件：**相邻 + 同功能块 + 单独提交会留下死代码/半成品**（例如 Excel 解析逻辑若单独提交、没有导入接口调用它，即为死代码）。
+- 禁止：跨功能块合并、把多个任务堆积到最后一次性提交。
+- 参考 M07 后端分组：models 契约 / 业务字典与辅助层 / 资源 CRUD / Excel 导入闭环 / 资源标签 / 标签模板管理 / 路由注册。
+
+### commit 时机
+
+TDD 循环闭环即提交：**GREEN + `go vet` + 服务启动验证通过后立即 commit**，然后再进入下一个任务或 `new_context`。
+
+### commit message 规范
+
+```
+feat(module-XX): 一句话描述（T07-XX~XX）
+
+- 详细说明 1
+- 详细说明 2
+
+关联: docs/05-execution-records/module-XX/backend-developer.md
+```
+
+- `feat` / `fix` 提交必须携带 task id（如 `T07-05~07`）。
+- 未携带 task id 或跨功能块堆积的 commit，Git Guardian 将阻断。
 
 ---
 
@@ -201,19 +236,27 @@ curl -s http://localhost:8080/api/v1/status
 | "task-sequence.yaml 太细，我可以按自己理解做" | task-sequence 是 Orchestrator 派发的任务边界。偏离必须报告 |
 | "PRD 和实现对不上，我顺便改下 PRD" | 禁止。开发分支不能修改 PRD，必须报告 Orchestrator 走 CR 流程 |
 | "我改了实现，记进 dev-feedback.md 就行" | 反馈单只记录 ①空白 / ③技术优化。矛盾（②类）必须**实现前**报告 Orchestrator 走 CR，禁止事后当既成事实塞进反馈单 |
+| "等所有任务做完再一起提交" | 禁止堆积提交。每个 micro-task/功能块闭环即 commit，否则 reviewer 无法分片、无回退点、执行记录无 hash 可追溯 |
+| "commit 太多历史会变乱" | 历史乱的不是数量，是不可回退的巨型 commit。按功能块提交比 18 个任务压成 1 个 commit 更容易 bisect 和回滚 |
+| "先 commit 一个半成品，后面再补" | 半成品的 commit 无法 revert、无法 bisect、无法交付给前端联调。必须等功能闭环再 commit |
 | "原型不存在，我没法开发" | 原型缺失不阻断。以 PRD + L3 task-sequence 为准继续 |
 
 ---
 
 ## 执行记录
 
-每次 Agent 调用结束后，必须在 `docs/05-execution-records/module-XX/backend-developer.md` 中记录：
+每个 micro-task 验收通过并 commit 后，**立即追加**一条任务条目到 `docs/05-execution-records/module-XX/backend-developer.md`；Agent 调用结束后再写总结性收尾。
 
-- 输入文档（PRD、原型、工程标准路径）
+每次任务条目至少包含：
+- task id（如 T07-05）
+- commit hash（如 `a1b2c3d`）
 - 新增/修改的文件列表
 - 关键实现说明
 - 遇到的问题与解决方案
-- 验证结果（go test、go vet、服务启动）
+- 验证结果（`go test`、`go vet`、服务启动）
+
+总结性收尾 additionally 包含：
+- 输入文档（PRD、原型、工程标准路径）
 - 遗留风险与下一步
 
 ---
@@ -226,5 +269,6 @@ curl -s http://localhost:8080/api/v1/status
 2. 新增/修改的测试
 3. `go test` 和 `go vet` 的结果
 4. 服务启动验证结果
-5. 执行记录路径：`docs/05-execution-records/module-XX/backend-developer.md`
-6. 是否需要其他 Agent（前端、Prometheus、Build Resolver）配合
+5. **commit 列表（hash + 对应 task id，如 `a1b2c3d T07-05`）**
+6. 执行记录路径：`docs/05-execution-records/module-XX/backend-developer.md`
+7. 是否需要其他 Agent（前端、Prometheus、Build Resolver）配合

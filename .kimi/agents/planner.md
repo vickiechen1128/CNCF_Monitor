@@ -73,6 +73,7 @@ Orchestrator 必须提供以下信息：
 3. PRD 没有 Change Log
 4. PRD 版本号与当前 Implementation Plan 版本号无法对应
 5. 缺少 `02_Product_Roadmap.md` 或 `00_Global_Architecture.md`
+6. PRD 内部出现**契约一致性矛盾**：同一字段必填口径冲突、路由前缀与 `03_API_Standard.md` 冲突、枚举值在同一 PRD 不同章节不一致、数据模型字段名 / UI 展示名 / 接口字段名无法对齐
 
 ### 输出格式
 
@@ -161,9 +162,12 @@ Orchestrator 必须提供以下信息：
 
 ### 输出格式
 
-输出结构化的 micro-task 序列，必须以 YAML 格式写入固定路径：
+Phase 2 必须输出两个固定产物，由 Orchestrator 落盘：
 
-**输出文件**：`docs/05-execution-records/module-XX/task-sequence.yaml`
+1. **micro-task 序列**：`docs/05-execution-records/module-XX/task-sequence.yaml`
+2. **API 契约快照**：`docs/05-execution-records/module-XX/api-contract-snapshot.md`
+
+**输出文件 1**：`docs/05-execution-records/module-XX/task-sequence.yaml`
 
 ```yaml
 phase: Phase 1
@@ -173,10 +177,16 @@ tasks:
   - task_id: m07-01
     name: 定义 Resource / ResourceLabel / LabelTemplate 共享模型
     agent: backend-developer
+    status: pending
+    commit_group: models-layer
+    prd: "Module_07 §5.2/§5.3/§5.11"
     depends_on: []
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "否"
     input_files:
       - docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
-      - docs/02-product-requirements/05_Code_Implementation_Plan.md
+      - docs/05-execution-records/module-XX/api-contract-snapshot.md
     output_files:
       - platform/models/resource.go
       - platform/models/label.go
@@ -189,6 +199,9 @@ tasks:
     name: 实现 Resource CRUD API
     agent: backend-developer
     depends_on: [m07-01]
+    estimated_files_changed: 4
+    estimated_test_cases: 10
+    shared_files: "否"
     input_files:
       - platform/models/resource.go
     output_files:
@@ -201,7 +214,24 @@ tasks:
     acceptance_criteria: 可通过 HTTP 增删改查 Resource
 ```
 
+> 字段说明：
+> - `status`：任务状态，`pending` / `done`，由 Orchestrator 在 developer 完成并提交 commit 后更新。
+> - `commit_group`：建议的提交分组名，同一 group 的相邻任务可合并为一个 commit；跨 group 禁止合并。
+> - `prd`：该任务对应的 PRD 章节号，用于产品侧反向追溯代码实现位置。
+>
 > 由于本 Agent 只读，生成的 YAML 内容通过汇报返回，由 Orchestrator 负责写入 `docs/05-execution-records/module-XX/task-sequence.yaml`。
+
+**输出文件 2**：`docs/05-execution-records/module-XX/api-contract-snapshot.md`
+
+> 契约快照是前后端并行的**唯一权威契约**，前端任务应优先读取本快照，不再反向读取 `platform/models/*.go`。快照内容必须包括：
+> - 本 Phase 涉及的所有 API：`method`、`path`、请求/响应字段、枚举值、错误码
+> - 字段必填口径、默认值、唯一性约束、展示名（PRD 字段表「UI 展示名」列）
+> - 与上一版快照的变更 diff（如有）
+> - 来源：PRD 章节号、API 标准文件路径
+>
+> 快照再生成条件：PRD 第 5/6 章变更、`03_API_Standard.md` 变更、后端模型字段变更、或进入新 Phase 前。
+>
+> 模板：`docs/05-execution-records/_api-contract-snapshot.template.md`（复制到 `module-XX/` 后按模块填充；完整示例见 `docs/05-execution-records/module-07/api-contract-snapshot.md`）。
 
 ### 代码开发序列规则
 
@@ -220,20 +250,26 @@ types → api client → components → pages → tests
 #### 前后端并行规则
 
 - API 契约明确后，前端可用 mock 数据并行开发
+- 前端开发时**以 API 契约快照为第一权威**，PRD 字段/接口章节为补充，禁止反向以 `platform/models/*.go` 为准
 - 以下任务必须先完成后端契约，前端才能开始：
   - 数据模型定义
   - API 路径与请求/响应结构定义
 
 #### 跨模块依赖规则
 
+MVP 主线顺序（与用户最新决策对齐）：
+
 ```
-Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
+Phase 0（基础设施） → Phase 1（M06 网域登记） → Phase 2（M07 监控对象）
+  → Phase 3（M01 监控策略） → Phase 4（M09 配置中心） → Phase 5（跨模块联调验收）
 ```
 
-- Phase 2.1（Module_01）依赖 Phase 1（Module_07）
-- Phase 2.2（Module_09）依赖 Phase 1 和 Phase 2.1
-- Phase 3（Module_02）和 Phase 4（Module_08）可并行，均依赖 Phase 2.2
-- Phase 5（Module_05）依赖所有后端 API
+- M07 依赖 M06：Resource 的 `network_domain_id` 必须引用 M06 已登记网域
+- M01 依赖 M07：ScrapeJob 需要读取 Resource、LabelTemplate、ResourceLabel
+- M01 依赖 M06：ScrapeJob 需校验网域是否已纳管 / 是否冻结
+- M09 依赖 M01 / M07：组装配置需要 M01 与 M07 的数据
+- M09 依赖 M06：`NetworkDomain` 行政字段由 M06 维护，M09 只读引用
+- M02 / M05 / M08 不列为 MVP 新开发任务；M02 存量代理能力保留，M05 联调阶段用现有页面串链，M08 告警收敛/通知管理后移到 v0.3 及以后
 
 ### 任务拆分标准
 
@@ -243,6 +279,15 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 - 有明确输入：PRD 路径、原型路径、标准文件、起始 commit
 - 有明确输出：修改的文件列表、测试命令、验证命令
 - 可独立验证：执行一条或一组命令即可判断成败
+- **任务复杂度度量（v2026-08-22 起）**：每个任务卡必须标注：
+  - `estimated_files_changed`：预计新增/修改文件数
+  - `estimated_test_cases`：预计新增/更新测试用例数
+  - `shared_files`：是否与其他任务共享文件（是/否）
+- **提交与追溯字段（v2026-08-23 起）**：每个任务卡必须标注：
+  - `status`：初始为 `pending`，完成后由 Orchestrator 更新为 `done`
+  - `commit_group`：建议的提交分组名，同组相邻任务可合并为一个 commit
+  - `prd`：该任务对应的 PRD 章节号，用于产品侧反向追溯
+- **前端验证命令粒度**：前端任务的 `verify_commands` 必须指向单文件/单目录测试（如 `pnpm vitest run src/pages/resources/__tests__/ResourceFormDrawer.test.tsx`），全量 `pnpm test` 仅在 Phase 收尾和合并前执行
 
 ---
 
@@ -292,26 +337,25 @@ Phase 0 → Phase 1 → Phase 2.1 → Phase 2.2 → Phase 3/4 → Phase 5
 
 ### MVP 模块开发顺序
 
-> 下图仅列出 MVP 范围内的模块顺序；module-03/04/06/10 等不在 MVP 内，作为后续 Roadmap 保留。
+> 与用户最新决策对齐：MVP 仅包含 M01、M06、M07、M09 的部分能力；M02 存量代理保留但不新增开发，M05 不保留独立 feat 分支，M08 告警收敛/通知管理后移。
 
 ```
 module-00-infrastructure
         │
         ▼
-module-07-resource-management
+module-06-domain-registry（网域登记）
         │
         ▼
-module-01-strategy
+module-07-resource-management（监控对象管理）
         │
         ▼
-module-09-config-center
-        │
-        ├──► module-02-query-center
-        │
-        ├──► module-08-alerting-lifecycle
+module-01-strategy（监控策略与指标管理）
         │
         ▼
-module-05-portal
+module-09-config-center（网域与边缘配置中心）
+        │
+        ▼
+跨模块联调验收（无独立 portal 分支）
 ```
 
 > 详细顺序以 `05_Code_Implementation_Plan.md` 为准。
@@ -326,6 +370,8 @@ module-05-portal
 - API 路径必须与 `03_API_Standard.md` 对齐：平台能力走 `/api/v2/platform/*`，Prometheus 代理走 `/api/v1/*`
 - 规划中需明确每个修改文件是"新增/修改/删除"，并标注是否存在现有测试需要同步更新
 - 对不确定的依赖（如子模块、工具链版本、环境变量），必须标注"待确认"并提供替代方案
+- 涉及共享文件的任务（如同一页面的 F5/F6）应在任务卡中标注，并建议 Orchestrator 由**同一 sub-agent 续作**或合并为连续任务，避免重复上下文建立
+- API 契约快照在 PRD / API 标准 / 模型变更时必须重新派生，旧版快照作废
 - PRD 状态、`[待验证]` 标记等阻断场景，参见上方"阻断规则"
 
 ---
@@ -344,6 +390,8 @@ module-05-portal
 
 1. 当前 Phase 与模块
 2. 输出的 micro-task 序列（包含固定输出文件 `docs/05-execution-records/module-XX/task-sequence.yaml` 的内容）
-3. 任务之间的依赖关系
-4. 可并行的任务组
-5. 风险与阻塞点
+3. 输出的 API 契约快照（包含固定输出文件 `docs/05-execution-records/module-XX/api-contract-snapshot.md` 的内容）
+4. 任务之间的依赖关系
+5. 可并行的任务组
+6. 涉及共享文件的任务及编排建议
+7. 风险与阻塞点

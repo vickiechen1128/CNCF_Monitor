@@ -114,7 +114,9 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
    │
    ├──► 4. Code Sequence 派生（planner Phase 2: code-sequence-planner）
    │      输入：L2 Plan
-   │      输出：当前 Phase 的 micro-task 序列（L3）
+   │      输出：当前 Phase 的 micro-task 序列（L3）+ API 契约快照
+   │            docs/05-execution-records/module-XX/task-sequence.yaml
+   │            docs/05-execution-records/module-XX/api-contract-snapshot.md
    │
    ├──► 5. 开发执行（backend/frontend/prometheus-developer）
    │      在 feat/module-XX 上按 micro-task 逐个执行
@@ -203,6 +205,7 @@ PRD 状态变为 ready（需用户 / Orchestrator 书面确认）
 - [ ] PRD 版本号 = Implementation Map 版本号 = Code Implementation Plan 版本号
 - [ ] 如果 PRD 是 frozen，确认是否有未处理的变更请求（CR）
 - [ ] L3 micro-task 序列已生成且与当前 Phase 对应
+- [ ] API 契约快照已生成且版本与当前 task-sequence 一致（**跨端任务缺失则阻断审查**）
 
 如果发现版本不一致，必须先调用 plan-maintainer 同步，再进入开发。
 
@@ -241,7 +244,7 @@ Orchestrator 判断影响范围
              重新调用 plan-maintainer 更新 L2
              │
              ▼
-             重新调用 code-sequence-planner 更新 L3
+             重新调用 code-sequence-planner 更新 L3（含 api-contract-snapshot.md）
              │
              ▼
              通知开发 Agent 调整
@@ -286,6 +289,8 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 如果某个任务太大，继续拆。不要为了让 agent "一次做完" 而合并任务。
 
 > **契约必填规则（v1.27 起）**：当任务同时涉及 `platform/` 和 `ui-custom/web/` 的同一接口（跨端任务）时，任务卡的 `契约:` 段**必填**——在派发前补全 path / method / request / response 示例，人从 PRD 第 5/6 章提炼，两端以同一契约为准并行开发。
+>
+> **契约快照规则（v2026-08-22 起）**：planner Phase 2 已输出 `api-contract-snapshot.md` 时，任务卡中 `契约:` 段可直接引用该快照路径，无需重复填写字段；若快照缺失，仍必须手动填写。
 
 ---
 
@@ -297,29 +302,57 @@ docs/02-product-requirements/Modules/Module_XX_*.md
   ## 任务卡：<模块>-<功能>
   - 角色：<backend-developer / frontend-developer / ...>
   - 输入（精确路径 + 章节）：
-    - PRD：docs/02-product-requirements/Modules/Module_XX_*.md 的 §3/§5/§6/§9（按任务给章节号）
+    - 契约快照：**docs/05-execution-records/module-XX/api-contract-snapshot.md**（前后端并行时必填）
+    - PRD：docs/02-product-requirements/Modules/Module_XX_*.md 的 §3/§5/§6/§9（按任务给章节号；快照缺失或矛盾时补读）
     - task-sequence：docs/05-execution-records/module-XX/task-sequence.yaml
     - 原型：docs/prototypes/module-XX/（仅参考对应页面）
     - 工程标准：<按需给具体文件，如 03_API_Standard.md>
   - 输出：<新增/修改的文件列表>
-  - 验收：<测试命令 / lint / 服务启动验证>
+  - 复杂度度量：
+    - estimated_files_changed: <N>
+    - estimated_test_cases: <N>
+    - shared_files: <是/否，涉及共享文件时列出文件路径>
+  - 验收：<测试命令 / lint / 服务启动验证；前端任务必须指定单文件测试命令>
+  - commit 单元（commit_unit）：<该任务建议与哪些相邻任务合并为一个 commit；独立提交则写「独立」>
+  - 提交后必须更新：`docs/05-execution-records/module-XX/task-sequence.yaml` 对应 task 的 `status` 为 `done`
   - 不修改范围：<如 platform/ 之外 / 原型目录 / PRD>
-  - 契约：<可选，跨端任务必填：path / method / request / response 示例，随任务附上>
+  - 契约：<跨端任务必填；未生成快照时必须填写 path / method / request / response 示例>
   ```
-- **子 Agent 只读任务卡指定的输入（v1.25 起，强制）**：子 Agent 启动时**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——它的行为规范已固化在自身 `.kimi/agents/<agent>.md` 定义中，随加载生效；需要读的只是任务卡列出的「任务输入」（PRD 章节 / task-sequence / 原型 / 具体工程标准）。由 Orchestrator 在任务卡中给出精确路径与章节，禁止让子 Agent 自行翻文档树找规范。
+- **子 Agent 只读任务卡指定的输入（v1.25 起，强制）**：子 Agent 启动时**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——它的行为规范已固化在自身 `.kimi/agents/<agent>.md` 定义中，随加载生效；需要读的只是任务卡列出的「任务输入」（契约快照 / PRD 章节 / task-sequence / 原型 / 具体工程标准）。由 Orchestrator 在任务卡中给出精确路径与章节，禁止让子 Agent 自行翻文档树找规范。
 - 子 Agent 完成后，读取其汇报，提取：修改文件、验证结果、阻塞问题
+
+### 同目录/同页面任务复用 sub-agent（v2026-08-22 新增）
+
+当多个连续任务涉及**同一页面目录或同一共享文件**时（如 F5/F6 都改 `ResourcesPage.tsx`），Orchestrator 应优先**复用同一个 frontend-developer sub-agent 续作**，而不是启动新 agent。规则：
+
+- 默认把共享文件相关的任务合并为一个连续任务序列，派给同一 agent；
+- 如必须拆分任务卡，则在前一个任务完成后，通过 `resume` 同一 agent ID 继续执行下一个任务，保留完整上下文；
+- 禁止为共享文件任务启动多个独立 agent 并行修改，避免冲突和重复读取成本。
 
 ### 审查阶段必须独立会话
 
 实现 Agent 与审查 Agent **不能共享上下文**。审查开始前：
 
 1. 先让实现 Agent 完成并汇报
-2. 调用 `new_context`
-3. 启动 Reviewer sub-agent，传入（**v1.28 起：必须附完整 diff 文本**——Reviewer 禁止 Shell，无法自行 `git diff`；仅给文件列表会导致目录隔离 / 超范围修改 / L3 边界审查盲审）：
-   - `git diff develop...feat/module-XX` 的完整 diff 文本（或可访问的 diff 文件路径）+ 变更文件列表
-   - PRD 路径
-   - 原型路径
-   - 相关工程标准路径
+2. 生成结构化预检报告：
+   ```bash
+   bash scripts/review-precheck.sh -m module-XX -o docs/05-execution-records/module-XX/review-precheck.md
+   ```
+3. 调用 `new_context`
+4. 启动 Reviewer sub-agent，传入（**v1.30 起：结构化审查输入包**——reviewer 定义已按 v1.2「结构化输入」重写，禁止再注入完整大 diff 全文；目录隔离 / 超范围修改 / L3 边界改由**预检结果**覆盖，diff 按需切片读取）：
+   - **变更文件清单 + 每文件 1-3 行变更摘要**（功能 / 契约面）
+   - **审查预检结果**（Orchestrator 机械检查产出，reviewer 直接采信命中清单）：
+     - 目录隔离检查（`git diff --name-only develop...feat/module-XX` 对照白名单）
+     - 契约字段 / 枚举 / 路由前缀 grep 比对契约快照
+     - URL scheme / host 校验（SSRF）
+     - 安全预检：密钥 / 硬编码敏感信息、注入模式、上传校验
+   - **高风险预标注**（需重点核查的文件 / 区域）
+   - **已验证清单**（已由单测 / 全量测试 / 开发验证确认的项；reviewer 抽查而非重验）
+   - 契约快照：`docs/05-execution-records/module-XX/api-contract-snapshot.md`（核对基准；缺失时回退 PRD 第 5/6 章 + `03_API_Standard.md`；**跨端任务缺失则阻断审查**）
+   - **diff 文件路径**（可访问，reviewer 按需切片读取；不注入全文）
+   - PRD 路径 / 原型路径 / 相关工程标准路径
+   - 汇报要求：审查文件数（深读/抽查）、执行度量（起止时间 / token 估算 / 重试次数）
+5. 在 `docs/05-execution-records/module-XX/orchestrator.md`（或执行记录）中登记该 Reviewer 的 **agent id**、审查起止时间与摘要，供修复后定向复审复用
 
 ---
 
@@ -330,7 +363,8 @@ docs/02-product-requirements/Modules/Module_XX_*.md
    - 有 CRITICAL / HIGH：必须打回给原实现 Agent 或对应 specialist 修复
    - 只有 MEDIUM / LOW：可让实现 Agent 快速修复，或记录为遗留风险由用户决定
 3. 修复后，必须再次走对应验证命令（test / lint / 服务启动）
-4. 必要时可调用 `build-resolver` 处理构建/测试/lint 失败
+4. **修复后复审**：优先 `resume` 原 Reviewer 的 agent id，注入 fix 摘要 + 变更 diff 片段做定向复审；只有原会话不可用时才启动新 Reviewer 全量重审
+5. 必要时可调用 `build-resolver` 处理构建/测试/lint 失败
 
 ---
 
@@ -369,6 +403,7 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 | "PRD 还没 ready，但可以先开发" | 禁止。没有 ready PRD 就没有对齐的 Plan，开发必然返工 |
 | "Plan 版本和 PRD 版本差一点没关系" | 版本不对齐意味着 Plan 已经过时，必须重新派生 |
 | "开发中改 PRD 不用走 CR" | 除非影响极小且只记录到 design-decisions.md，否则必须走 CR |
+| "前端任务用全量 pnpm test 验收更方便" | 全量测试 100 秒+，会放大 flaky 和反馈延迟。开发期必须用单文件测试，全量只在 Phase 收尾/合并前执行 |
 
 ---
 
@@ -388,10 +423,10 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 - 是否对齐：是 / 否
 
 ## 已完成的子任务
-- [x] task-01：xxx（负责人：planner / plan-maintainer）
+- [x] task-01：xxx（负责人：planner / plan-maintainer；起止：14:00-15:30；token：≈80k）
 
 ## 进行中的子任务
-- [ ] task-02：xxx（负责人：backend-developer）
+- [ ] task-02：xxx（负责人：backend-developer；起止：15:30-；token：≈120k）
 
 ## 阻塞与待确认
 - xxx（需要用户确认 / 需要技术预研 / 需要环境修复）
@@ -420,8 +455,13 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 1. PRD / 原型 / 代码的对应路径
 2. PRD 版本与 Plan 版本
 3. 所有子任务清单及负责人
-4. 审查结论（是否通过，遗留问题）
-5. 验证结果（test / lint / 服务启动）
-6. 变更请求记录（如有）
-7. dev-feedback 收割状态（v1.26 起）：确认 `docs/05-execution-records/module-XX/dev-feedback.md` **已填写 / 已收割**——非空反馈必须随 feat PR 描述链接、合并时由 PM 在 `design/module-mvp-demo` 上一轮版本化迭代收割；**② 类（实现矛盾）问题必须事前报告走 CR，禁止事后塞进 feedback 当既成事实**
-8. 下一步建议（发起 PR / 补充测试 / 合并 develop / 进入下一模块）
+4. 子 Agent 执行度量（v2026-08-22 起）：
+   - 每个子任务起止时间（如 `2026-08-22 14:00 - 16:30`）
+   - 每个子任务大致 token 消耗（如 `≈120k tokens`）——从会话上下文长度估算即可
+   - 失败/重试次数（如测试 flaky 重跑次数）
+5. 审查结论（是否通过，遗留问题）
+6. 验证结果（test / lint / 服务启动）
+7. **commit 列表（hash + 对应 task id，按功能块分组）**
+8. 变更请求记录（如有）
+8. dev-feedback 收割状态（v1.26 起）：确认 `docs/05-execution-records/module-XX/dev-feedback.md` **已填写 / 已收割**——非空反馈必须随 feat PR 描述链接、合并时由 PM 在 `design/module-mvp-demo` 上一轮版本化迭代收割；**② 类（实现矛盾）问题必须事前报告走 CR，禁止事后塞进 feedback 当既成事实**
+9. 下一步建议（发起 PR / 补充测试 / 合并 develop / 进入下一模块）
