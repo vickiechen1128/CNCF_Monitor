@@ -348,7 +348,8 @@ func TestCreateLabelTemplateRollbackOnSnapshotFailure(t *testing.T) {
 
 	code, e := decodeErr(t, doJSON(t, r, http.MethodPost, "/api/v2/platform/label-templates", `{"name":"rollback-host","resource_category":"host"}`))
 	require.Equal(t, http.StatusInternalServerError, code, "快照写入失败应返回 500：%s", e.Error)
-	assert.Contains(t, e.Error, "append label template snapshot")
+	// security：内部错误不回显明细，仅返回通用文案。
+	assert.Equal(t, "internal error", e.Error)
 
 	var n int64
 	require.NoError(t, db.Model(&models.LabelTemplate{}).Count(&n).Error)

@@ -136,7 +136,7 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 - **ExporterTemplate 创建**：name/metrics_path/scheme 必填；source=internal 追加 default_port 必填；source=official|third_party 平台预置只读。
 - **CITypeExporterMapping 创建**：monitor_type/exporter_template_id 必填；label_template_id 可选；每类型至多一个 is_default。
 - **ScrapeJob 创建**：job_name/monitor_type/network_domain_id(已纳管非冻结)/instance_selection_mode/scrape_interval/scrape_timeout/metrics_path/scheme 必填；auth_type 默认 none；basic→username+password 必填、bearer→token 必填；job_type=blackbox→blackbox_module+blackbox_targets 必填、monitor_type/exporter 置空；selected_instance_ids 可选（manual 校验同域）。
-- **ScrapeJob 更新**：均允许改；仅约束冻结域禁止新增该域实例、认证TLS/blackbox 组合校验一致。
+- **ScrapeJob 更新**：均允许改（含 job_type/instance_selection_mode，支持 blackbox↔standard 双向切换）；仅约束冻结域禁止新增该域实例、认证TLS/blackbox 组合校验一致。job_type 切换按创建同口径校验：切 blackbox 时清空 monitor_type/exporter 且 blackbox_module+blackbox_targets 必填；切回 standard 需显式提供 monitor_type（security 修复：internal 错误仅回显「internal error」，password/token 经 `json:"-"` 不回显）。
 - **MonitoringRule 创建**：content_mode(默认 yaml_passthrough)、rule_content 必填（yaml_passthrough 且 YAML 合法）；name 可选；scope=central 固定。
 - **技术指标库创建**：metric_name/metric_type/monitor_types 必填；is_builtin=false；内置只读。
 

@@ -2,6 +2,7 @@
 package response
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -57,7 +58,20 @@ func Success(data interface{}) Response {
 }
 
 // Fail returns a failure response with the given error type and error.
+// 安全原则：ErrorTypeInternal 路径对外仅返回通用文案「internal error」，
+// 内部细节（err）只写日志，不回显给客户端；其余 errorType 为可预期/用户侧
+// 文案（bad_request/unauthorized/forbidden/not_found/conflict），仍透传 err。
 func Fail(errorType string, err error) Response {
+	if errorType == ErrorTypeInternal {
+		if err != nil {
+			log.Printf("internal error: %v", err)
+		}
+		return Response{
+			Status:    StatusError,
+			ErrorType: errorType,
+			Error:     "internal error",
+		}
+	}
 	message := "internal error"
 	if err != nil {
 		message = err.Error()

@@ -143,8 +143,8 @@ func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T) {
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
-		Status string            `json:"status"`
-		Data   models.ScrapeJob  `json:"data"`
+		Status string           `json:"status"`
+		Data   models.ScrapeJob `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.Equal(t, "success", out.Status)
@@ -201,6 +201,10 @@ func TestCreateScrapeJobAuthValidation(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	assert.Equal(t, "basic-ok", out.Data.JobName)
+	// 决策31：创建响应不回显 password/token 明文。
+	assert.NotContains(t, w.Body.String(), "secret", "创建响应不得回显 password 明文")
+	assert.NotContains(t, string(w.Body.Bytes()), "\"password\"", "创建响应不得含 password 字段键")
+	assert.NotContains(t, string(w.Body.Bytes()), "\"token\"", "创建响应不得含 token 字段键")
 
 	// 重新从 DB 读取：password 已落库（仅存储，不回显明文由只读响应控制）。
 	var persisted models.ScrapeJob
@@ -261,6 +265,52 @@ func TestListScrapeJobsFiltersAndLabelTemplateReverseLookup(t *testing.T) {
 	// label_template_id 反查：模板不存在 not_found。
 	w = perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs?label_template_id=999", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestUpdateScrapeJobJobTypeSwitch(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// standard → blackbox：缺 blackbox 必填字段 → bad_request。
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"job_type":"blackbox"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// standard → blackbox（带拨测字段）：monitor_type/exporter 清空、job_type 切换。
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID,
+		`{"job_type":"blackbox","blackbox_module":"http_2xx","blackbox_targets":[{"target":"api.example.com","protocol":"http"}]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			JobType        models.JobType `json:"job_type"`
+			MonitorType    string         `json:"monitor_type"`
+			BlackboxModule string         `json:"blackbox_module"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, string(models.JobTypeBlackbox), string(out.Data.JobType))
+	assert.Empty(t, out.Data.MonitorType, "切到 blackbox 后 monitor_type 清空")
+	assert.Equal(t, "http_2xx", out.Data.BlackboxModule)
+
+	// blackbox → standard：缺 monitor_type → bad_request。
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"job_type":"standard"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// blackbox → standard（带 monitor_type 与采集参数）成功。
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID,
+		`{"job_type":"standard","monitor_type":"mysql","scrape_interval":"15s","scrape_timeout":"10s","metrics_path":"/metrics","scheme":"http"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, string(models.JobTypeStandard), string(out.Data.JobType))
+	assert.Equal(t, "mysql", out.Data.MonitorType)
 }
 
 func TestUpdateAndDeleteScrapeJob(t *testing.T) {

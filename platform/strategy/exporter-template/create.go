@@ -12,19 +12,19 @@ import (
 
 // CreateExporterTemplateRequest 是登记采集器模板的请求体（source=internal）。
 type CreateExporterTemplateRequest struct {
-	Name                  string              `json:"name"`
-	Version               string              `json:"version"`
-	DefaultPort           int                 `json:"default_port"`
-	MetricsPath           string              `json:"metrics_path"`
-	Scheme                string              `json:"scheme"`
-	SupportedMonitorTypes []string            `json:"supported_monitor_types"`
-	OS                    string              `json:"os"`
-	Arch                  string              `json:"arch"`
-	DownloadURL           string              `json:"download_url"`
-	Homepage              string              `json:"homepage"`
-	InstallGuide          string              `json:"install_guide"`
+	Name                  string                `json:"name"`
+	Version               string                `json:"version"`
+	DefaultPort           int                   `json:"default_port"`
+	MetricsPath           string                `json:"metrics_path"`
+	Scheme                string                `json:"scheme"`
+	SupportedMonitorTypes []string              `json:"supported_monitor_types"`
+	OS                    string                `json:"os"`
+	Arch                  string                `json:"arch"`
+	DownloadURL           string                `json:"download_url"`
+	Homepage              string                `json:"homepage"`
+	InstallGuide          string                `json:"install_guide"`
 	Source                models.ExporterSource `json:"source"`
-	IsBuiltin             *bool               `json:"is_builtin"`
+	IsBuiltin             *bool                 `json:"is_builtin"`
 }
 
 // CreateExporterTemplate 是 POST /api/v2/platform/exporter-templates 的 handler：
@@ -101,6 +101,13 @@ func validateCreateExporterTemplate(req *CreateExporterTemplateRequest) error {
 	}
 	if req.IsBuiltin != nil && *req.IsBuiltin {
 		return fmt.Errorf("is_builtin 不可由用户写为 true（内置采集器只读）")
+	}
+	// download_url/homepage 非空时须具备合法 http/https scheme 与非空 host（security）。
+	if err := validateHTTPURL("download_url", req.DownloadURL); err != nil {
+		return err
+	}
+	if err := validateHTTPURL("homepage", req.Homepage); err != nil {
+		return err
 	}
 	return nil
 }

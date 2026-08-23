@@ -133,7 +133,7 @@ func TestCreateExporterTemplateInternal(t *testing.T) {
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
 	require.Equal(t, http.StatusOK, w.Code)
 	var out struct {
-		Status string                `json:"status"`
+		Status string                  `json:"status"`
 		Data   models.ExporterTemplate `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
@@ -210,6 +210,51 @@ func TestUpdateExporterTemplateBuiltinForbiddenAndNotFound(t *testing.T) {
 	// 未命中 → not_found。
 	w = perform(t, r, http.MethodPut, "/api/v2/platform/exporter-templates/999999", `{"version":"1.0.0"}`)
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestCreateExporterTemplateDownloadURLValidation(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	base := `{"name":"custom-agent","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"`
+
+	// 合法 http/https download_url 通过。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", base+`, "download_url":"https://dl.example.com/agent","homepage":"http://example.com"} }`)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 非 http/https scheme → bad_request。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", base+`, "download_url":"ftp://dl.example.com/agent"} }`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 缺 host → bad_request。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", base+`, "download_url":"https://"} }`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// homepage 非法 → bad_request。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", base+`, "homepage":"javascript:alert(1)"} }`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 未提供 download_url 通过（可选字段）。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"agent-nourl","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestUpdateExporterTemplateDownloadURLValidation(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	id := seedExporter(t, db, &models.ExporterTemplate{Name: "custom-agent", DefaultPort: 9100, MetricsPath: "/metrics", Scheme: "http", Source: models.ExporterSourceInternal})
+	p := "/api/v2/platform/exporter-templates/" + strconv.FormatUint(uint64(id), 10)
+
+	// 合法 URL 更新通过。
+	w := perform(t, r, http.MethodPut, p, `{"download_url":"https://dl.example.com/agent"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 非法 scheme → bad_request。
+	w = perform(t, r, http.MethodPut, p, `{"download_url":"file:///etc/passwd"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 缺 host → bad_request。
+	w = perform(t, r, http.MethodPut, p, `{"homepage":"https://"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestDeleteExporterTemplateInternalOK(t *testing.T) {

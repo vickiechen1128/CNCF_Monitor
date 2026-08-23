@@ -13,17 +13,17 @@ import (
 // UpdateExporterTemplateRequest 是更新采集器模板的请求体：内部模板可改，
 // 内置（is_builtin=true，source=official|third_party）只读。
 type UpdateExporterTemplateRequest struct {
-	Name                  *string              `json:"name"`
-	Version               *string              `json:"version"`
-	DefaultPort           *int                 `json:"default_port"`
-	MetricsPath           *string              `json:"metrics_path"`
-	Scheme                *string              `json:"scheme"`
-	SupportedMonitorTypes []string             `json:"supported_monitor_types"`
-	OS                    *string              `json:"os"`
-	Arch                  *string              `json:"arch"`
-	DownloadURL           *string              `json:"download_url"`
-	Homepage              *string              `json:"homepage"`
-	InstallGuide          *string              `json:"install_guide"`
+	Name                  *string                `json:"name"`
+	Version               *string                `json:"version"`
+	DefaultPort           *int                   `json:"default_port"`
+	MetricsPath           *string                `json:"metrics_path"`
+	Scheme                *string                `json:"scheme"`
+	SupportedMonitorTypes []string               `json:"supported_monitor_types"`
+	OS                    *string                `json:"os"`
+	Arch                  *string                `json:"arch"`
+	DownloadURL           *string                `json:"download_url"`
+	Homepage              *string                `json:"homepage"`
+	InstallGuide          *string                `json:"install_guide"`
 	Source                *models.ExporterSource `json:"source"`
 }
 
@@ -93,9 +93,17 @@ func UpdateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 			tmpl.Arch = *req.Arch
 		}
 		if req.DownloadURL != nil {
+			if err := validateHTTPURL("download_url", *req.DownloadURL); err != nil {
+				response.BadRequest(c, err)
+				return
+			}
 			tmpl.DownloadURL = *req.DownloadURL
 		}
 		if req.Homepage != nil {
+			if err := validateHTTPURL("homepage", *req.Homepage); err != nil {
+				response.BadRequest(c, err)
+				return
+			}
 			tmpl.Homepage = *req.Homepage
 		}
 		if req.InstallGuide != nil {

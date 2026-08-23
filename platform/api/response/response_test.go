@@ -43,7 +43,7 @@ func TestError(t *testing.T) {
 
 	assert.Equal(t, StatusError, resp.Status)
 	assert.Equal(t, ErrorTypeInternal, resp.ErrorType)
-	assert.Equal(t, "database connection failed", resp.Error)
+	assert.Equal(t, "internal error", resp.Error)
 	assert.Nil(t, resp.Data)
 }
 
@@ -54,6 +54,20 @@ func TestErrorWithNil(t *testing.T) {
 	assert.Equal(t, ErrorTypeInternal, resp.ErrorType)
 	assert.Equal(t, "internal error", resp.Error)
 	assert.Nil(t, resp.Data)
+}
+
+func TestInternalErrorDetailNotEchoed(t *testing.T) {
+	// security：ErrorTypeInternal 对外不回显内部错误详情，仅返回通用文案。
+	resp := Error(errors.New("secret connection string: user=admin password=hunter2 host=10.0.0.5"))
+
+	assert.Equal(t, StatusError, resp.Status)
+	assert.Equal(t, ErrorTypeInternal, resp.ErrorType)
+	assert.Equal(t, "internal error", resp.Error)
+	assert.NotContains(t, resp.Error, "hunter2")
+
+	// BadRequest 类仍透传用户可预期文案（不受内部错误收紧影响）。
+	bad := Fail(ErrorTypeBadRequest, errors.New("job_name 不能为空"))
+	assert.Equal(t, "job_name 不能为空", bad.Error)
 }
 
 func TestJSONSerializationSuccess(t *testing.T) {
@@ -178,7 +192,7 @@ func TestInternalServerError(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, StatusError, body.Status)
 	assert.Equal(t, ErrorTypeInternal, body.ErrorType)
-	assert.Equal(t, "db error", body.Error)
+	assert.Equal(t, "internal error", body.Error) // security：不回显 db error 详情
 }
 
 func TestStatusAndErrorTypeConstants(t *testing.T) {

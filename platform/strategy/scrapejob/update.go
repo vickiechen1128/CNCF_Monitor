@@ -13,25 +13,27 @@ import (
 // UpdateScrapeJobRequest 是更新采集 Job 的请求体：均允许改（api-contract-snapshot
 // §5）。password/token 更新时仅存储、不回显明文。
 type UpdateScrapeJobRequest struct {
-	JobName               *string                  `json:"job_name"`
-	MonitorType           *string                  `json:"monitor_type"`
-	ExporterTemplateID    *string                  `json:"exporter_template_id"`
-	NetworkDomainID       *string                  `json:"network_domain_id"`
-	SelectedInstanceIDs   []string                 `json:"selected_instance_ids"`
-	ScrapeInterval        *string                  `json:"scrape_interval"`
-	ScrapeTimeout         *string                  `json:"scrape_timeout"`
-	MetricsPath           *string                  `json:"metrics_path"`
-	Scheme                *string                  `json:"scheme"`
-	AuthType              *models.AuthType         `json:"auth_type"`
-	Username              *string                  `json:"username"`
-	Password              *string                  `json:"password"`
-	Token                 *string                  `json:"token"`
-	TLSSkipVerify         *bool                    `json:"tls_skip_verify"`
-	CAFile                *string                  `json:"ca_file"`
-	LabelTemplateID       *string                  `json:"label_template_id"`
-	BlackboxModule        *string                  `json:"blackbox_module"`
-	BlackboxTargets       []models.BlackboxTarget  `json:"blackbox_targets"`
-	Enabled               *bool                    `json:"enabled"`
+	JobName               *string                       `json:"job_name"`
+	JobType               *models.JobType               `json:"job_type"`
+	MonitorType           *string                       `json:"monitor_type"`
+	ExporterTemplateID    *string                       `json:"exporter_template_id"`
+	NetworkDomainID       *string                       `json:"network_domain_id"`
+	InstanceSelectionMode *models.InstanceSelectionMode `json:"instance_selection_mode"`
+	SelectedInstanceIDs   []string                      `json:"selected_instance_ids"`
+	ScrapeInterval        *string                       `json:"scrape_interval"`
+	ScrapeTimeout         *string                       `json:"scrape_timeout"`
+	MetricsPath           *string                       `json:"metrics_path"`
+	Scheme                *string                       `json:"scheme"`
+	AuthType              *models.AuthType              `json:"auth_type"`
+	Username              *string                       `json:"username"`
+	Password              *string                       `json:"password"`
+	Token                 *string                       `json:"token"`
+	TLSSkipVerify         *bool                         `json:"tls_skip_verify"`
+	CAFile                *string                       `json:"ca_file"`
+	LabelTemplateID       *string                       `json:"label_template_id"`
+	BlackboxModule        *string                       `json:"blackbox_module"`
+	BlackboxTargets       []models.BlackboxTarget       `json:"blackbox_targets"`
+	Enabled               *bool                         `json:"enabled"`
 }
 
 // UpdateScrapeJob 是 PUT /api/v2/platform/scrape-jobs/:id 的 handler：可改字段，
@@ -82,6 +84,9 @@ func applyJobUpdate(job *models.ScrapeJob, req UpdateScrapeJobRequest) {
 	if req.JobName != nil {
 		job.JobName = *req.JobName
 	}
+	if req.JobType != nil {
+		job.JobType = *req.JobType
+	}
 	if req.MonitorType != nil {
 		job.MonitorType = *req.MonitorType
 	}
@@ -90,6 +95,9 @@ func applyJobUpdate(job *models.ScrapeJob, req UpdateScrapeJobRequest) {
 	}
 	if req.NetworkDomainID != nil {
 		job.NetworkDomainID = *req.NetworkDomainID
+	}
+	if req.InstanceSelectionMode != nil {
+		job.InstanceSelectionMode = *req.InstanceSelectionMode
 	}
 	if req.SelectedInstanceIDs != nil {
 		job.SelectedInstanceIDs = req.SelectedInstanceIDs

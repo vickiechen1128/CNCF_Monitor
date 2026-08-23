@@ -450,6 +450,37 @@ func newMemDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+func TestScrapeJobSecretsNotSerialized(t *testing.T) {
+	// 决策31：password/token 仅存储，JSON 不回显明文。
+	job := &ScrapeJob{
+		JobName:               "sec-prod",
+		JobType:               JobTypeStandard,
+		ResourceType:          ResourceTypeHost,
+		MonitorType:           MonitorTypeHostLinux,
+		NetworkDomainID:       DefaultDomainID,
+		InstanceSelectionMode: InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "12s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              AuthTypeBasic,
+		Username:              "monitor",
+		Password:              "p@ssw0rd-secret",
+		Token:                 "tok-xyz-secret",
+		ChangeStatus:          ChangeStatusNone,
+		DraftStatus:           "ready",
+		Enabled:               true,
+	}
+	b, err := json.Marshal(job)
+	assert.NoError(t, err)
+	assert.NotContains(t, string(b), "p@ssw0rd-secret", "JSON 不得回显 password 明文")
+	assert.NotContains(t, string(b), "tok-xyz-secret", "JSON 不得回显 token 明文")
+	assert.NotContains(t, string(b), "\"password\"", "JSON 不得包含 password 字段键")
+	assert.NotContains(t, string(b), "\"token\"", "JSON 不得包含 token 字段键")
+	// 公开字段仍保留（创建/更新响应保留 username 即可）。
+	assert.Contains(t, string(b), "\"username\":\"monitor\"")
+}
+
 // --- T07-01: shared contract columns + ImportRecord + LabelTemplateSnapshot + label rules ---
 
 func TestHostSharedContractColumns(t *testing.T) {
