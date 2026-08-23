@@ -61,6 +61,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.CITypeExporterMapping{},
 		// M06 扩展
 		&models.EdgeAgent{},
+		// 策略域模型（seed.Run 会写入内置技术指标库）
+		&models.ExporterMetricLibrary{},
 	))
 	require.NoError(t, seed.Run(db))
 

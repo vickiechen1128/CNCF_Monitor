@@ -57,6 +57,7 @@ type ScrapeJob struct {
 	Scheme                 string               `gorm:"size:20;not null" json:"scheme"`
 	AuthType               AuthType             `gorm:"size:20;not null" json:"auth_type"`
 	Username               string               `gorm:"size:200" json:"username,omitempty"` // auth_type=basic
+	Password               string               `gorm:"size:2000" json:"password,omitempty"` // auth_type=basic；仅存储不回显明文
 	Token                  string               `gorm:"size:2000" json:"token,omitempty"`    // auth_type=bearer
 	TLSSkipVerify          bool                 `json:"tls_skip_verify"`
 	CAFile                 string               `gorm:"size:500" json:"ca_file,omitempty"`
