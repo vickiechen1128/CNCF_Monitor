@@ -1,5 +1,5 @@
 import { Layout, Menu, Typography } from 'antd'
-import { AppstoreOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, DatabaseOutlined, TagsOutlined } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { MenuProps } from 'antd'
@@ -15,9 +15,9 @@ interface MainLayoutProps {
  * 一级功能模块定义（Header 横导航 + Sider 二级导航的数据源）。
  * 顶部 tab 文案用 PRD 模块名：M06 为「系统与平台管理」（frontend-developer.md
  * Step 3.5 第 7 项「导航与模块名核对」，禁止用功能页名「网域管理」充当一级模块）。
- * D3（临时）：MVP 现仅「首页 / 系统与平台管理」两个一级模块；
+ * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 监控对象管理」三个一级模块；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位，
- * 后续大模块（M07/M09 等）在 MODULES 追加即可。
+ * 后续大模块（M09 等）在 MODULES 追加即可。
  */
 interface ModuleSubItem {
   key: string
@@ -40,11 +40,21 @@ const MODULES: ModuleDef[] = [
     path: '/admin/domains',
     subItems: [{ key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> }],
   },
+  {
+    key: 'monitoring-object',
+    label: '监控对象管理',
+    path: '/resources',
+    subItems: [
+      { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
+      { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
+    ],
+  },
 ]
 
-/** 依据当前路由推断激活的一级模块：/admin/domains → 系统与平台管理，其余 → 首页 */
+/** 依据当前路由推断激活的一级模块：/admin/domains → 系统与平台管理；/resources、/label-templates → 监控对象管理；其余 → 首页 */
 function resolveActiveModule(locationPath: string): ModuleDef {
   if (locationPath.startsWith('/admin/domains')) return MODULES[1]
+  if (locationPath.startsWith('/resources') || locationPath.startsWith('/label-templates')) return MODULES[2]
   return MODULES[0]
 }
 
