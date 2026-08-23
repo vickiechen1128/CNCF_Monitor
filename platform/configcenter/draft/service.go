@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
@@ -333,8 +334,9 @@ func GetDraftDetail(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) {
 	return &d, nil
 }
 
-// ConfirmDraft 确认一条 pending + validation=passed 的草稿：生成 ConfigVersion 并
-// 将草稿置为 confirmed（契约 §4；local 写盘 / reload / 下发记录见 T09-06 deployment）。
+// ConfirmDraft 确认一张 pending + validation=passed 的草稿：生成 ConfigVersion 并将
+// 草稿置为 confirmed，随后触发 local 下发（confirm → deployments 记录，T09-06）。
+// 契约 §4；writeback change_status 见 deployment.Dispatch（决策 31-M2）。
 func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVersion, error) {
 	d, err := GetDraftDetail(db, changeNo)
 	if err != nil {
@@ -370,6 +372,11 @@ func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVers
 	}
 	if err := db.Model(d).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("mark draft confirmed: %w", err)
+	}
+	// confirm 触发 local 下发（T09-06）：创建 ConfigDeployment 记录；local 通道写盘
+	// reload 并回写 M01 change_status；agent_pull 通道登记占位（MVP）。
+	if _, err := deployment.DeployConfirmedVersion(db, version, confirmedBy); err != nil {
+		return nil, err
 	}
 	return version, nil
 }

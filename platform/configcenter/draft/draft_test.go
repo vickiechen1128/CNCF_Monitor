@@ -214,6 +214,8 @@ func TestConfirmDraftRejectsUnpassedValidation(t *testing.T) {
 
 func TestConfirmDraftCreatesVersion(t *testing.T) {
 	db := newMemDB(t)
+	// confirm 触发 local 下发：需网域行解析通道（此处 seed agent_pull → 登记占位下发）。
+	seedMonitoredDomain(t, db, "edge-c", true)
 	seedDraftWithStatus(t, db, "CHG-99990101-002", "edge-c", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
 
 	v, err := ConfirmDraft(db, "CHG-99990101-002", "admin")
@@ -226,6 +228,11 @@ func TestConfirmDraftCreatesVersion(t *testing.T) {
 	assert.Equal(t, models.DraftStatusConfirmed, draft.Status)
 	assert.Equal(t, "admin", draft.ConfirmedBy)
 	assert.NotNil(t, draft.ConfirmedAt)
+
+	// confirm 应触发一条下发记录（agent_pull 通道 MVP 登记 pending 占位）。
+	var deployments []models.ConfigDeployment
+	require.NoError(t, db.Where("network_domain_id = ?", "edge-c").Find(&deployments).Error)
+	assert.Len(t, deployments, 1)
 }
 
 func TestConfirmDraftRejectsNonPending(t *testing.T) {
