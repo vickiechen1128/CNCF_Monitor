@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ScrapeJobListPage } from './ScrapeJobListPage'
 
@@ -20,6 +21,11 @@ vi.mock('../../api/domain', () => ({
   networkDomainApi: {
     list: (...args: unknown[]) => domainListMock(...args),
   },
+}))
+
+// 采集器管理 Tab 独立测试（F2），页面挂载测试内 stub
+vi.mock('./CollectorTemplatesTab', () => ({
+  CollectorTemplatesTab: () => <div data-testid="collectors-tab">collectors</div>,
 }))
 
 // 页面测试不深入抽屉内部（F4 单独测）
@@ -64,6 +70,14 @@ beforeEach(() => {
   })
 })
 
+function renderPage() {
+  render(
+    <MemoryRouter>
+      <ScrapeJobListPage />
+    </MemoryRouter>,
+  )
+}
+
 describe('ScrapeJobListPage', () => {
   setupAntdTest()
 
@@ -82,7 +96,7 @@ describe('ScrapeJobListPage', () => {
       },
     })
 
-    render(<ScrapeJobListPage />)
+    renderPage()
 
     expect(await screen.findByText('job-1')).toBeInTheDocument()
     // 「待下发」「已生效」同时出现在下发状态列与状态聚合列，需匹配多个
@@ -105,21 +119,21 @@ describe('ScrapeJobListPage', () => {
       },
     })
 
-    render(<ScrapeJobListPage />)
+    renderPage()
     expect(await screen.findByText('拨测')).toBeInTheDocument()
   })
 
   it('shows empty state 暂无采集任务', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
-    render(<ScrapeJobListPage />)
+    renderPage()
     expect(await screen.findByText('暂无采集任务')).toBeInTheDocument()
   })
 
   it('opening create drawer renders job form', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
-    render(<ScrapeJobListPage />)
+    renderPage()
     fireEvent.click(screen.getByText('新增采集任务'))
     expect(screen.getByTestId('job-form-drawer')).toBeInTheDocument()
   })

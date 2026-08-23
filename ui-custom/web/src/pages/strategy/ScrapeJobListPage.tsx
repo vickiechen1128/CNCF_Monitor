@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Alert,
   Badge,
@@ -11,6 +12,7 @@ import {
   Space,
   Switch,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -29,18 +31,19 @@ import { CHANGE_STATUS_MAP, JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP
 import { useScrapeJobs } from './useScrapeJobs'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { aggregateJobStatus } from './jobStatus'
+import { CollectorTemplatesTab } from './CollectorTemplatesTab'
 
 const { Text } = Typography
 
 /**
- * 采集 Job 列表页（Module_01 §3.1/§5.4/§8/§11.1/§11.2，F3）。
+ * 采集 Job Tab 页（Module_01 §3.1/§5.4/§8/§11.1/§11.2，F3）。
  * - 网域（仅已纳管 is_monitored=true 且 status=enabled）/ 监控类型（两级级联）/ 关键字筛选，分页默认 20/页；
  * - 列：Job名 / 类型 / 网域 / 采集器 / 已选实例数 / 间隔 / 下发状态 / 状态（聚合四态）/ 参数同步 / 操作；
  * - 状态聚合四态：待下发 / 已生效 / 已停用 / 草稿（v0.2 灰显占位）；参数同步列展示 mapping_overrides.length 概览；
  * - 启停 / 删除二次确认；成功提示「变更将由 M09 生成变更单」+「前往配置变更确认」跳转；
  * - 加载骨架 / 空态「暂无采集任务」/ 错误态。
  */
-export function ScrapeJobListPage() {
+function JobsTab() {
   const { data, loading, error, filters, setFilters, page, pageSize, onPageChange, onPageSizeChange, reload } =
     useScrapeJobs()
   const [domains, setDomains] = useState<NetworkDomain[]>([])
@@ -311,6 +314,31 @@ export function ScrapeJobListPage() {
         }}
       />
     </Card>
+  )
+}
+
+/**
+ * 采集 Job 页（F8 挂载）：承载「采集 Job」与「采集器管理」两个 Tab。
+ * 默认展示采集 Job；`?tab=collectors` 直达采集器管理（F2 不独立导航）。
+ */
+export function ScrapeJobListPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') === 'collectors' ? 'collectors' : 'jobs'
+
+  const handleTabChange = (key: string) => {
+    if (key === 'collectors') setSearchParams({ tab: 'collectors' })
+    else setSearchParams({})
+  }
+
+  return (
+    <Tabs
+      activeKey={activeTab}
+      onChange={handleTabChange}
+      items={[
+        { key: 'jobs', label: '采集 Job', children: <JobsTab /> },
+        { key: 'collectors', label: '采集器管理', children: <CollectorTemplatesTab /> },
+      ]}
+    />
   )
 }
 
