@@ -744,6 +744,105 @@ func TestInstallationStatusEnums(t *testing.T) {
 	assert.Equal(t, InstallationStatus("not_applicable"), InstallationStatusNotApplicable)
 }
 
+// --- Module 09 (T09-01): config-center enum & JSON carrier contracts ---
+
+func TestConfigCenterEnumConstants(t *testing.T) {
+	// ChannelType / AgentType / DraftStatus / DeploymentStatus enum values.
+	assert.Equal(t, ChannelType("local"), ChannelTypeLocal)
+	assert.Equal(t, ChannelType("agent_pull"), ChannelTypeAgentPull)
+	assert.Equal(t, AgentType("vmagent"), AgentTypeVMAgent)
+	assert.Equal(t, AgentType("prometheus-agent"), AgentTypePrometheusAgent)
+
+	assert.Equal(t, DraftStatus("pending"), DraftStatusPending)
+	assert.Equal(t, DraftStatus("confirmed"), DraftStatusConfirmed)
+	assert.Equal(t, DraftStatus("discarded"), DraftStatusDiscarded)
+
+	assert.Equal(t, DeploymentStatus("pending"), DeploymentStatusPending)
+	assert.Equal(t, DeploymentStatus("running"), DeploymentStatusRunning)
+	assert.Equal(t, DeploymentStatus("success"), DeploymentStatusSuccess)
+	assert.Equal(t, DeploymentStatus("failed"), DeploymentStatusFailed)
+	assert.Equal(t, DeploymentStatus("rolled_back"), DeploymentStatusRolledBack)
+}
+
+func TestConfigCenterValidationStatus(t *testing.T) {
+	assert.Equal(t, ValidationStatus("passed"), ValidationStatusPassed)
+	assert.Equal(t, ValidationStatus("failed"), ValidationStatusFailed)
+	assert.Equal(t, ValidationStatus("pending"), ValidationStatusPending)
+	assert.Equal(t, ValidationStatus("rejected"), ValidationStatusRejected)
+	assert.True(t, IsValidValidationStatus(string(ValidationStatusFailed)))
+	assert.False(t, IsValidValidationStatus("bogus"))
+	assert.Equal(t, []string{"passed", "failed", "pending", "rejected"}, ValidValidationStatus())
+}
+
+func TestConfigCenterEnumCollections(t *testing.T) {
+	assert.Equal(t, []string{"scrape_job", "target_instance", "monitoring_rule", "probe_target", "label_template"}, ValidChangeItemTargets())
+	assert.Equal(t, []string{"add", "update", "delete"}, ValidChangeItemTypes())
+	assert.Equal(t, []string{"low", "high"}, ValidRisks())
+	assert.Equal(t, []string{"prometheus", "targets", "rules", "blackbox"}, ValidAffectedFiles())
+	assert.True(t, IsValidRisk("high"))
+	assert.False(t, IsValidRisk("medium"))
+
+	assert.Equal(t, AffectedFile("prometheus"), AffectedFilePrometheus)
+	assert.Equal(t, ChangeItemTarget("monitoring_rule"), ChangeItemTargetMonitoringRule)
+	assert.Equal(t, ChangeItemType("delete"), ChangeItemTypeDelete)
+	assert.Equal(t, Risk("high"), RiskHigh)
+	assert.Equal(t, ConfigSyncStatus("in_sync"), ConfigSyncStatusInSync)
+	assert.Equal(t, ConfigSyncStatus("no_version"), ConfigSyncStatusNoVersion)
+	assert.Equal(t, OutOfSyncCause("pending_draft"), OutOfSyncCausePendingDraft)
+}
+
+func TestConfigChangeItemJSONRoundTrip(t *testing.T) {
+	item := ConfigChangeItem{
+		ID:            "ci-1",
+		Type:          string(ChangeItemTypeAdd),
+		Target:        string(ChangeItemTargetTargetInstance),
+		Description:   "新增 1 台服务器加入 node-exporter 采集",
+		AffectedFiles: []string{string(AffectedFileTargets)},
+		Risk:          string(RiskLow),
+	}
+	b, err := json.Marshal(item)
+	assert.NoError(t, err)
+	var back ConfigChangeItem
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, item, back)
+	// snake_case JSON 键名。
+	assert.Contains(t, string(b), "\"affected_files\"")
+	assert.Contains(t, string(b), "\"target_instance\"")
+}
+
+func TestConfigDraftMetadataJSONRoundTrip(t *testing.T) {
+	md := ConfigDraftMetadata{
+		SourceDataVersion:    "2026-08-23T10:00:00Z",
+		TriggerSummary:       "ScrapeJob node-exporter-prod 变更",
+		Checksum:             "sha256-abc123",
+		GeneratorVersion:     "0.1.0",
+		SupersededByChangeNo: "CHG-20260823-002",
+	}
+	b, err := json.Marshal(md)
+	assert.NoError(t, err)
+	var back ConfigDraftMetadata
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, md, back)
+	assert.Contains(t, string(b), "\"source_data_version\"")
+	assert.Contains(t, string(b), "\"superseded_by_change_no\"")
+}
+
+func TestConfigDeploymentStatusValues(t *testing.T) {
+	// All DeploymentStatus must map to a string (contract §5 / §8).
+	for _, s := range []DeploymentStatus{
+		DeploymentStatusPending, DeploymentStatusRunning, DeploymentStatusSuccess,
+		DeploymentStatusFailed, DeploymentStatusRolledBack,
+	} {
+		assert.NotEmpty(t, string(s))
+	}
+}
+
+func TestTokenMasked(t *testing.T) {
+	assert.Equal(t, "", TokenMasked(""))
+	assert.Equal(t, "****", TokenMasked("abcd"), "完全脱敏，不显明文片段")
+	assert.Equal(t, 8, len(TokenMasked("tok-1234")))
+}
+
 func TestLabelTemplateSnapshotSmoke(t *testing.T) {
 	db := newMemDB(t)
 	assert.NoError(t, db.AutoMigrate(&LabelTemplateSnapshot{}))
