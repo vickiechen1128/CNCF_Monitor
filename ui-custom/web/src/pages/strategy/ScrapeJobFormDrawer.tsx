@@ -17,6 +17,7 @@ import {
   message,
 } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { networkDomainApi } from '../../api/domain'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import { labelTemplateApi } from '../../api/labelTemplates'
@@ -40,7 +41,7 @@ const BLACKBOX_PROTOCOLS: { value: BlackboxTargetProtocol; label: string }[] = [
   { value: 'dns', label: 'DNS' },
 ]
 
-const { Text } = Typography
+const { Text, Link } = Typography
 
 /** 参数继承来源 Tag（§5.4 参数同步）：inherited 灰 / overridden 蓝 / pending 橙 */
 function ParamsSyncTag({ state }: { state: 'inherited' | 'overridden' | 'pending' | 'none' }) {
@@ -67,7 +68,8 @@ interface ScrapeJobFormDrawerProps {
  * - 编辑态网域可改（FIX-2 已按契约开放），网域空态跨模块引导（A7）；标准 Job 内嵌实例选择器与安装确认面板。
  */
 export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: ScrapeJobFormDrawerProps) {
-  const [form] = Form.useForm<ScrapeJobInput>()
+  const navigate = useNavigate()
+  const [form] = Form.useForm<ScrapeJobInput & { resource_category?: ResourceCategory }>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [domains, setDomains] = useState<NetworkDomain[]>([])
@@ -80,8 +82,22 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const isEdit = !!record
   const jobType = Form.useWatch('job_type', form) ?? 'standard'
   const monitorType = Form.useWatch('monitor_type', form) as MonitorType | undefined
+  // O2/T01-F15：登记采集器发起上下文 = 当前已选监控对象类型（预填 supported_monitor_types）；useMemo 稳定引用
+  const registerInitialTypes = useMemo<MonitorType[] | undefined>(
+    () => (monitorType ? [monitorType] : undefined),
+    [monitorType],
+  )
+  const resourceCategorySelected = Form.useWatch('resource_category', form) as ResourceCategory | undefined
+  // Q1a：登记采集器仅在「已选监控对象类型但无默认采集器」的空态展示（PRD §3.1 采集器选择器空态引导，L83）
+  const exporterTemplateId = Form.useWatch('exporter_template_id', form) as string | undefined
   const networkDomainId = (Form.useWatch('network_domain_id', form) as string | undefined) ?? ''
   const authType = (Form.useWatch('auth_type', form) as AuthType | undefined) ?? 'none'
+
+  // F1-8：监控对象类型候选 = 按已选资源类别过滤（两级级联）
+  const categoryTypes = useMemo<MonitorType[]>(() => {
+    if (!resourceCategorySelected) return []
+    return MONITOR_TYPE_CASCADE.find((g) => g.category === resourceCategorySelected)?.types ?? []
+  }, [resourceCategorySelected])
 
   // F1-4：按当前 monitor_type 推导资源类别，过滤可选的标签模板（卡片式）
   const resourceCategory = useMemo<ResourceCategory | undefined>(() => {
@@ -111,9 +127,12 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     form.resetFields()
     if (record) {
       setSelectedIds(record.selected_instance_ids ?? [])
+      // F1-8 编辑态回显：由 record.monitor_type 反推所属资源类别预填（提交载荷仍为 single monitor_type）
+      const echoedCategory = MONITOR_TYPE_CASCADE.find((g) => g.types.includes(record.monitor_type as MonitorType))?.category
       form.setFieldsValue({
         job_name: record.job_name,
         job_type: record.job_type,
+        resource_category: echoedCategory,
         monitor_type: (record.monitor_type || undefined) as MonitorType | undefined,
         exporter_template_id: record.exporter_template_id,
         network_domain_id: record.network_domain_id,
@@ -278,18 +297,20 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           <>
             <Row gutter={16}>
               <Col span={12}>
+                <Form.Item label="资源类别" name="resource_category" rules={[{ required: true, message: '请选择资源类别' }]}>
+                  <Select
+                    placeholder="请选择"
+                    options={MONITOR_TYPE_CASCADE.map((g) => ({ value: g.category, label: CATEGORY_MAP[g.category] }))}
+                    onChange={() => form.setFieldsValue({ monitor_type: undefined })}
+                  />
+                </Form.Item>
                 <Form.Item label="监控对象类型" name="monitor_type" rules={[{ required: true, message: '请选择监控对象类型' }]}>
-                  <Select placeholder="按资源类别 → 细粒度选择" onChange={(v) => void handleMonitorTypeChange(v as MonitorType | undefined)}>
-                    {MONITOR_TYPE_CASCADE.map((g) => (
-                      <Select.OptGroup label={CATEGORY_MAP[g.category]} key={g.category}>
-                        {g.types.map((t) => (
-                          <Select.Option key={t} value={t}>
-                            {MONITOR_TYPE_MAP[t] ?? t}
-                          </Select.Option>
-                        ))}
-                      </Select.OptGroup>
-                    ))}
-                  </Select>
+                  <Select
+                    placeholder={categoryTypes.length > 0 ? '请选择监控对象类型' : '请先选择资源类别'}
+                    disabled={categoryTypes.length === 0}
+                    options={categoryTypes.map((t) => ({ value: t, label: MONITOR_TYPE_MAP[t] ?? t }))}
+                    onChange={(v) => void handleMonitorTypeChange(v as MonitorType | undefined)}
+                  />
                 </Form.Item>
               </Col>
               <Col span={12}>
@@ -303,7 +324,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   </Select>
                   {domains.length === 0 && (
                     <Text type="secondary" style={{ fontSize: 12 }}>
-                      暂无已纳管非冻结网域，请前往「监控对象管理」纳管网域（M07）
+                      默认域自动同步已纳管，未纳管请前往
+                      <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
+                      纳管
                     </Text>
                   )}
                 </Form.Item>
@@ -318,10 +341,12 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                     <Radio.Button value="manual">手填</Radio.Button>
                   </Radio.Group>
                   <ParamsSyncTag state={paramsState} />
-                  {/* C1：空态/任意态提供 inline 登记采集器，登记成功后回选（D17） */}
-                  <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
-                    登记采集器
-                  </Button>
+                  {/* C1/PRD §3.1 采集器选择器空态引导：仅「有类型无采集器」显示登记入口，登记成功回选（D17） */}
+                  {monitorType && !exporterTemplateId ? (
+                    <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => setRegisterOpen(true)}>
+                      登记采集器
+                    </Button>
+                  ) : null}
                 </Space>
                 {collectorMode === 'manual' ? (
                   <Form.Item name="exporter_template_id" noStyle rules={[{ required: true, message: '请输入采集器模板 ID' }]}>
@@ -497,7 +522,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
               </Select>
               {domains.length === 0 && (
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  暂无已纳管非冻结网域，请前往「监控对象管理」纳管网域（M07）
+                  默认域自动同步已纳管，未纳管请前往
+                  <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
+                  纳管
                 </Text>
               )}
             </Form.Item>
@@ -505,7 +532,12 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         )}
       </Form>
     </Drawer>
-      <ExporterTemplateDrawer open={registerOpen} onCancel={() => setRegisterOpen(false)} onSuccess={handleRegisterSuccess} />
+      <ExporterTemplateDrawer
+        open={registerOpen}
+        onCancel={() => setRegisterOpen(false)}
+        onSuccess={handleRegisterSuccess}
+        initialMonitorTypes={registerInitialTypes}
+      />
     </>
   )
 }

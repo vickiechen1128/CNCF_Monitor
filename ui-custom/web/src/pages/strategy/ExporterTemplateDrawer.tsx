@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Button,
@@ -23,6 +23,8 @@ interface ExporterTemplateDrawerProps {
   onCancel: () => void
   /** 登记成功后回调：回刷采集器池（忽略参数）或回选到来源表单（接收新模板，C1） */
   onSuccess: (template?: ExporterTemplate) => void
+  /** O2/T01-F15：发起上下文预填——从 Job 表单发起登记时预填 supported_monitor_types=当前监控对象类型；采集器管理 Tab 直接登记不传（保持不预填） */
+  initialMonitorTypes?: MonitorType[]
 }
 
 /** 登记采集器来源 */
@@ -36,10 +38,19 @@ const SOURCE_OPTIONS = [
  * 登记采集器抽屉（Module_01 §9.1 / api-contract-snapshot §3）。
  * source=internal 时 default_port/metrics_path/scheme 必填；登记即入池。
  */
-export function ExporterTemplateDrawer({ open, onCancel, onSuccess }: ExporterTemplateDrawerProps) {
+export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonitorTypes }: ExporterTemplateDrawerProps) {
   const [form] = Form.useForm<ExporterTemplateInput>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+
+  // O2/T01-F15：打开抽屉时若提供发起上下文（当前监控对象类型），预填 supported_monitor_types；
+  // 采集器管理 Tab 直接登记不传该 prop（不预填，行为不变）
+  useEffect(() => {
+    if (!open) return
+    form.setFieldsValue({
+      supported_monitor_types: initialMonitorTypes?.length ? [...initialMonitorTypes] : undefined,
+    })
+  }, [open, initialMonitorTypes, form])
 
   // source=internal（内部自建）时 default_port/metrics_path/scheme 为动态必填（契约 §3），其余来源可选
   const source = (Form.useWatch('source', form) ?? 'internal') as ExporterTemplateInput['source']

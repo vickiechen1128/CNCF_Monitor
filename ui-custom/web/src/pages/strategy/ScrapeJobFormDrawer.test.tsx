@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest, selectAntdOption } from '../../test/antdTestUtils'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 
@@ -65,8 +66,27 @@ beforeEach(() => {
   })
 })
 
+/** 渲染抽屉：MemoryRouter + Routes 供网域空态「前往网域管理」跳转断言（O3/T01-F16） */
 function renderDrawer(record?: unknown) {
-  render(<ScrapeJobFormDrawer open record={record as never} onCancel={() => {}} onSuccess={() => {}} />)
+  render(
+    <MemoryRouter initialEntries={['/scrape-jobs']}>
+      <Routes>
+        <Route
+          path="/scrape-jobs"
+          element={<ScrapeJobFormDrawer open record={record as never} onCancel={() => {}} onSuccess={() => {}} />}
+        />
+        <Route path="/admin/domains" element={<div>domains-page</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+// F1-8 两级级联：先选资源类别，再选监控对象类型
+async function selectCategoryAndType(categoryText: string, typeText: string) {
+  fireEvent.mouseDown(screen.getByText('请选择'))
+  await selectAntdOption(categoryText)
+  fireEvent.mouseDown(screen.getByText('请选择监控对象类型'))
+  await selectAntdOption(typeText)
 }
 
 describe('ScrapeJobFormDrawer', () => {
@@ -77,6 +97,7 @@ describe('ScrapeJobFormDrawer', () => {
     expect(screen.getByText('新增采集任务')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：prod-mysql-01')).toBeInTheDocument()
     expect(screen.getByText('监控对象类型')).toBeInTheDocument()
+    expect(screen.getByText('资源类别')).toBeInTheDocument()
     expect(screen.getByTestId('instance-selector')).toBeInTheDocument()
   })
 
@@ -152,9 +173,8 @@ describe('ScrapeJobFormDrawer', () => {
     })
     renderDrawer()
 
-    // 选择监控对象类型 mysql（database 资源类别）
-    fireEvent.mouseDown(screen.getByText('按资源类别 → 细粒度选择'))
-    await selectAntdOption('MySQL')
+    // F1-8：资源类别=数据库 → 监控对象类型=MySQL（两级级联）
+    await selectCategoryAndType('数据库', 'MySQL')
 
     // 仅展示 database 类别模板卡片，host 类别不展示
     expect(await screen.findByText('MySQL 标准标签')).toBeInTheDocument()
@@ -163,24 +183,90 @@ describe('ScrapeJobFormDrawer', () => {
 
   it('shows label template empty hint with 补配 action when none in category (F1-4)', async () => {
     renderDrawer()
-    fireEvent.mouseDown(screen.getByText('按资源类别 → 细粒度选择'))
-    await selectAntdOption('MySQL')
+    await selectCategoryAndType('数据库', 'MySQL')
     expect(await screen.findByText('该资源类别下暂无标签模板')).toBeInTheDocument()
     expect(screen.getByText('前往补配标签模板')).toBeInTheDocument()
   })
 
-  it('opens collector register drawer from inline button (C1)', async () => {
+  it('filters monitor type options by resource category and triggers default collector (F1-8)', async () => {
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          {
+            id: 1,
+            monitor_type: 'mysql',
+            exporter_template_id: 'exp-1',
+            scrape_interval: '15s',
+            scrape_timeout: '10s',
+            metrics_path: '/metrics',
+            scheme: 'http',
+            label_template_id: undefined,
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
     renderDrawer()
+
+    // 选中资源类别=数据库
+    fireEvent.mouseDown(screen.getByText('请选择'))
+    await selectAntdOption('数据库')
+
+    // 打开监控对象类型下拉：仅展示数据库下类型，不含主机类型
+    fireEvent.mouseDown(screen.getByText('请选择监控对象类型'))
+    expect(await screen.findByText('MySQL')).toBeInTheDocument()
+    expect(screen.queryByText('Linux 主机')).toBeNull()
+
+    // 选中 MySQL → 沿用 handleMonitorTypeChange 带出默认采集器与参数
+    await selectAntdOption('MySQL')
+    await waitFor(() =>
+      expect(mappingListMock).toHaveBeenCalledWith({ monitor_type: 'mysql', is_default: true, page: 1, page_size: 20 }),
+    )
+  })
+
+  it('echoes resource category derived from monitor_type in edit mode (F1-8)', async () => {
+    renderDrawer({
+      id: 1,
+      job_name: 'job-mysql-1',
+      job_type: 'standard',
+      monitor_type: 'mysql',
+      network_domain_id: 'mc-a',
+      scrape_interval: '15s',
+      scrape_timeout: '10s',
+      metrics_path: '/metrics',
+      scheme: 'http',
+      auth_type: 'none',
+      tls_skip_verify: false,
+    })
+    // 编辑态回显：由 monitor_type=mysql 反推资源类别=数据库，监控对象类型=MySQL
+    expect(await screen.findByText('数据库')).toBeInTheDocument()
+    expect(screen.getByText('MySQL')).toBeInTheDocument()
+  })
+
+  it('opens collector register drawer from inline button only in empty state (C1)', async () => {
+    renderDrawer()
+    // Q1a：登记入口仅空态展示（已选监控对象类型但无默认采集器）；未选类型时不出现
+    expect(screen.queryByRole('button', { name: /登记采集器/ })).toBeNull()
+    await selectCategoryAndType('数据库', 'MySQL')
     fireEvent.click(screen.getByRole('button', { name: /登记采集器/ }))
     expect(await screen.findByPlaceholderText('例如：mysql-exporter')).toBeInTheDocument()
   })
 
-  it('shows cross-module guidance when no monitored domain (A7)', async () => {
+  it('shows cross-module guidance to M06 domain management when no monitored domain (O3/T01-F16)', async () => {
     domainListMock.mockResolvedValue({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     renderDrawer()
-    expect(await screen.findByText(/纳管网域/)).toBeInTheDocument()
+    // 空态文案体现「默认域自动同步已纳管，未纳管请前往网域管理纳管」，不再写 M07
+    expect(await screen.findByText(/默认域自动同步已纳管/)).toBeInTheDocument()
+    const guideLink = screen.getByText(/网域管理/)
+    expect(guideLink).toBeInTheDocument()
+    // 可点击引导跳转 /admin/domains（系统与平台管理 → 网域管理）
+    fireEvent.click(guideLink)
+    expect(await screen.findByText('domains-page')).toBeInTheDocument()
   })
 })
