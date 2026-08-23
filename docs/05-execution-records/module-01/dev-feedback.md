@@ -39,9 +39,15 @@
 - **问题**：「前往配置变更确认」为目标路由跳转占位，当前仅提示文案。
 - **登记原因**：配置变更确认页属 M09（Phase 4）模块，M09 未落地前无法提供真实跳转目标，故以占位提示保留动线。
 
+### F-06：NetworkDomain.token 明文回显（跨模块敏感项，M06/M09 跟进）
+- **位置**：`platform/models/network_domain.go:64` `Token` 为 `json:"token,omitempty"`，`platform/admin/networkdomain/` create/detail/list/update 整体序列化 `models.NetworkDomain`，会回显该 token。
+- **问题**：与本次 ScrapeJob 凭据修复（json:"-" 不回显）同一安全口径未覆盖到 M06/M09 管理域；security-reviewer 定向复审时发现，属本模块外遗留。
+- **登记原因**：不在 module-01 改动范围，不阻塞本模块合并。建议在 M06/M09 对应模块上线前按同一决策收敛为 `json:"-"`（或确认存储即脱敏）。
+
 ## 收割状态
 - [ ] F-01 已收割（chenrt 修订 PRD §5.6 / §6.2.5）
 - [ ] F-02 已收割（chenrt 修订 PRD §5.4 / §9）
 - [ ] F-03 已登记（MVP 功能裁剪，`mapping_overrides` 不持久化）
 - [ ] F-04 已登记（契约偏差，新建场景退化为本地预检）
 - [ ] F-05 已登记（M09 未落地，跳转占位）
+- [ ] F-06 已登记（NetworkDomain.token 回显，M06/M09 跟进）
