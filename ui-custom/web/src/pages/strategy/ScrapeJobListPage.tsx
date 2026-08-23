@@ -24,8 +24,9 @@ import { networkDomainApi } from '../../api/domain'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import { exporterTemplateApi } from '../../api/exporterTemplates'
 import { labelTemplateApi } from '../../api/labelTemplates'
+import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import type { NetworkDomain } from '../../types/domain'
-import type { ExporterTemplate, MonitorType, ScrapeJob } from '../../types/strategy'
+import type { CITypeExporterMapping, ExporterTemplate, MonitorType, ScrapeJob } from '../../types/strategy'
 import type { LabelTemplateListItem } from '../../types/label'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -53,6 +54,7 @@ function JobsTab() {
   const [domains, setDomains] = useState<NetworkDomain[]>([])
   const [templates, setTemplates] = useState<ExporterTemplate[]>([])
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
+  const [defaultMappings, setDefaultMappings] = useState<CITypeExporterMapping[]>([])
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ScrapeJob | null>(null)
 
@@ -65,19 +67,22 @@ function JobsTab() {
       .catch(() => setDomains([]))
   }, [])
 
-  // 采集器模板与标签模板：F1-1 采集器列反查真实名称 / 标签模板列渲染（禁用裸 ID）
+  // 采集器模板 / 标签模板 / 默认映射快照：F1-1 采集器列反查名称、标签模板列渲染；F1-2 参数同步三态对比
   useEffect(() => {
     Promise.all([
       exporterTemplateApi.list({ page: 1, page_size: 100 }),
       labelTemplateApi.list({ page: 1, page_size: 100 }),
+      ciExporterMappingApi.list({ is_default: true, page: 1, page_size: 100 }),
     ])
-      .then(([tmplRes, labelRes]) => {
+      .then(([tmplRes, labelRes, mapRes]) => {
         setTemplates(tmplRes.data?.list ?? [])
         setLabelTemplates(labelRes.data?.list ?? [])
+        setDefaultMappings(mapRes.data?.list ?? [])
       })
       .catch(() => {
         setTemplates([])
         setLabelTemplates([])
+        setDefaultMappings([])
       })
   }, [])
 
@@ -103,6 +108,13 @@ function JobsTab() {
     labelTemplates.forEach((t) => m.set(String(t.id), t))
     return m
   }, [labelTemplates])
+
+  // 默认映射快照按 monitor_type 索引（F1-2 参数同步「异常驱动」对比基线）
+  const defaultMappingByMonitorType = useMemo(() => {
+    const m = new Map<string, CITypeExporterMapping>()
+    defaultMappings.filter((d) => d.is_default).forEach((d) => m.set(d.monitor_type, d))
+    return m
+  }, [defaultMappings])
 
   // 补配跳转占位（Job 列表侧「待配置」入口；实际维护在采集器默认配置/M07）
   const openLabelTemplateGuide = useCallback(() => {
@@ -245,9 +257,34 @@ function JobsTab() {
       title: '参数同步',
       key: 'params',
       width: 110,
+      // F1-2：三态回显（异常驱动）。优先按持久化 mapping_overrides（后端当前不落库，dev F-03）
+      // 显示「已覆盖 n 项」；否则对比当前默认映射快照——不一致显「待同步」，一致显「已同步」。
       render: (_: unknown, r: ScrapeJob) => {
+        if (r.job_type === 'blackbox') return <Text type="secondary">同步</Text>
         const n = r.mapping_overrides?.length ?? 0
-        return n > 0 ? <Tag color="blue">已覆盖 {n} 项</Tag> : <Text type="secondary">同步</Text>
+        if (n > 0) {
+          return (
+            <Tooltip title={`已覆盖 ${n} 个采集参数`}>
+              <Tag color="blue">已覆盖 {n} 项</Tag>
+            </Tooltip>
+          )
+        }
+        const def = r.monitor_type ? defaultMappingByMonitorType.get(String(r.monitor_type)) : undefined
+        const pending =
+          !!def &&
+          ((r.scrape_interval && r.scrape_interval !== def.scrape_interval) ||
+            (r.scrape_timeout && r.scrape_timeout !== def.scrape_timeout) ||
+            (r.metrics_path && r.metrics_path !== def.metrics_path) ||
+            (r.scheme && r.scheme !== def.scheme))
+        return pending ? (
+          <Tooltip title="映射默认值已变更，建议在编辑中同步">
+            <Tag color="orange">待同步</Tag>
+          </Tooltip>
+        ) : (
+          <Tooltip title="参数与当前默认映射一致">
+            <Text type="secondary">已同步</Text>
+          </Tooltip>
+        )
       },
     },
     {

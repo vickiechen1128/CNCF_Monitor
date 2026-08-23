@@ -10,6 +10,7 @@ const removeMock = vi.fn()
 const domainListMock = vi.fn()
 const tmplListMock = vi.fn()
 const labelListMock = vi.fn()
+const mappingListMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
@@ -32,6 +33,11 @@ vi.mock('../../api/exporterTemplates', () => ({
 
 vi.mock('../../api/labelTemplates', () => ({
   labelTemplateApi: { list: (...args: unknown[]) => labelListMock(...args) },
+}))
+
+// F1-2：默认映射快照（参数同步三态「异常驱动」对比基线）
+vi.mock('../../api/ciExporterMappings', () => ({
+  ciExporterMappingApi: { list: (...args: unknown[]) => mappingListMock(...args) },
 }))
 
 // 采集器管理 Tab 独立测试（F2），页面挂载测试内 stub
@@ -77,6 +83,7 @@ beforeEach(() => {
   domainListMock.mockReset()
   tmplListMock.mockReset()
   labelListMock.mockReset()
+  mappingListMock.mockReset()
   domainListMock.mockResolvedValue({
     status: 'success',
     data: { list: [{ id: 'mc-a', name: '网域A', is_monitored: true, status: 'enabled' }], total: 1, page: 1, page_size: 100 },
@@ -95,6 +102,16 @@ beforeEach(() => {
     data: {
       list: [{ id: 7, name: 'MySQL 标准标签' }, { id: 8, name: 'Redis 标准标签' }],
       total: 2,
+      page: 1,
+      page_size: 100,
+    },
+  })
+  // 默认映射快照：mysql 默认 scrape_interval=15s（与 job 默认一致 → 已同步）
+  mappingListMock.mockResolvedValue({
+    status: 'success',
+    data: {
+      list: [{ id: 1, monitor_type: 'mysql', exporter_template_id: 1, is_default: true, scrape_interval: '15s', scrape_timeout: '10s', metrics_path: '/metrics', scheme: 'http' }],
+      total: 1,
       page: 1,
       page_size: 100,
     },
@@ -139,6 +156,29 @@ describe('ScrapeJobListPage', () => {
     expect(screen.getAllByText('已覆盖 1 项').length).toBeGreaterThanOrEqual(1)
     // 「网域A」同时出现在筛选下拉选项与表格网域列
     expect(screen.getAllByText('网域A').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders param sync three states overridden/pending/synced (F1-2)', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          job(1, {}), // 与默认映射一致（15s）→ 已同步
+          job(2, { scrape_interval: '60s' }), // 与默认映射不一致 → 待同步
+          job(3, { mapping_overrides: [{ field: 'scheme', value: 'https' }] }), // → 已覆盖 1 项
+        ],
+        total: 3,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('job-1')).toBeInTheDocument()
+    expect(screen.getAllByText('已同步').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('待同步').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('已覆盖 1 项').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows blackbox job type label', async () => {
