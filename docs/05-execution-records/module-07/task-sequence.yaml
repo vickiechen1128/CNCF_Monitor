@@ -1,0 +1,643 @@
+phase: "Phase 2"
+module: "module-07-resource-management"
+module_branch: "feat/module-07-resource-management"
+plan_version: "v2026-08-22"
+owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer 执行"
+source:
+  - "docs/02-product-requirements/05_Code_Implementation_Plan.md（Phase 2，第 400-455 行；§5.1 后端目录 platform/config/{resource,label}/；§5.2 前端目录 pages/{resources,label-templates}/）"
+  - "docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md（§3 核心功能 / §4 核心流程 / §5 数据模型 / §6 接口设计 / §8 状态机 / §9 验收标准 / §11 前端交互契约）"
+  - "docs/02-product-requirements/04_Implementation_Map.md（§2.1 / §3 / §4.2~§4.4）"
+  - "docs/03-engineering-standards/03_API_Standard.md（§7 字段/分页/枚举契约）"
+  - "docs/03-engineering-standards/04_Testing_Standard.md（§4 提交前验证清单）"
+precondition:
+  - "worktree 已切到 feat/module-07-resource-management；Phase 0 已落地：models/ 下五类资源模型（resource.go/resource_base.go/resource_category.go/resource_label.go/label_template.go/status_mapping.go/host.go/database.go/generic_target.go/network_domain.go/tenant.go）、seed（五类默认 LabelTemplate + default 网域）、`make test-platform` 基线通过"
+  - "M06 已合并 develop：`platform/admin/networkdomain/`（RegisterRoutes 模式）、main.go 已挂载 `/api/v2/platform/*` 平台组，networkDomainApi/zoneTypeApi 前端可用（M07 网域下拉/校验复用 M06 网域数据）"
+  - "前端 `cd ui-custom/web && pnpm install && pnpm lint` 基线通过；`types/resource.ts`（五类枚举/ResourceBaseShape）与 `types/label.ts`（LabelTemplate/Mapping/ResourceLabel）已预建；`pages/resources/ResourcePage.tsx` 为占位"
+  - "MVP 无鉴权（决策 8）依赖内网/VPN 隔离；本阶段不新增接口级鉴权"
+  - "go.mod 尚无 xlsx 库：T07-08/T07-09 需新增 `github.com/xuri/excelize/v2` 依赖（Excel 模板生成/解析）；若离线环境无法拉取，退化为 CSV 模板（见任务内注），属本阶段决策点"
+go_tool: "`make test-platform`（等价 `.tools/go/bin/go test ./platform/...`）；单包验证 `go test ./platform/config/resource/...` / `go test ./platform/config/label/...`；`go vet ./platform/...`"
+fe_tool: "`cd ui-custom/web && pnpm test` / `pnpm lint`；`pnpm dev` 验证页面"
+contract_snapshot: "docs/05-execution-records/module-07/api-contract-snapshot.md（前端任务契约第一权威：API 路径/方法/字段/枚举/错误码/必填口径/UI 展示名；与 PRD §5/§6、03_API_Standard 冲突时以此为准；缺失时回退 PRD 第 5/6 章 + 03_API_Standard）"
+
+tasks:
+  # =====================================================================
+  # 后端 A 组：models 层对齐 + 业务字典 + 校验/状态映射（可并行起步）
+  # =====================================================================
+
+  - id: "T07-01"
+    title: "models 契约对齐 + 新增 ImportRecord/LabelTemplateSnapshot + 公共常量（PROTECTED_PROMETHEUS_LABELS / env / protocol / biz 规范）"
+    prd: "Module_07 §5.2/§5.3/§5.11/§6.4：五类资源需承载 resource_id(uuid)/source_type/tenant_id 共享契约；导入记录（§6.4）与模板修改快照（§3.2/§5.3 MVP 只读快照）需落库；label key 校验（小写/下划线/禁 `__` 开头/禁内置 label）与 biz_code/env/protocol 枚举需集中定义"
+    group: "backend"
+    input_files:
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/models/resource_base.go"
+      - "platform/models/resource_label.go"
+      - "platform/models/status_mapping.go"
+      - "platform/models/models_test.go"
+    output_files:
+      - "platform/models/import_record.go"
+      - "platform/models/label_template_snapshot.go"
+      - "platform/models/label_rules.go"
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/models/models_test.go"
+    depends_on: []
+    verify_commands: ["go test ./platform/models/...", "go vet ./platform/models/..."]
+    acceptance_criteria:
+      - "Host/Middleware/Application 补齐共享契约列：`ResourceID string`（uuid 由 M07 生成）、`SourceType SourceType`、`TenantID string`（默认 platform_admin），字段与 Database/GenericTarget 的 ResourceBase 口径一致（PRD §5.2），不做结构重排（保留 legacy 列与 Get* 访问器）"
+      - "新增 `ImportRecord` 模型：id/import_no/resource_category/mode(create_only|upsert)/total/success/updated/failed/status/errors(JSON 数组：row/field/value/reason)/operator/created_at（PRD §6.4，MVP 操作人固定 platform_admin）"
+      - "新增 `LabelTemplateSnapshot` 模型：id/template_id/operator/changed_mappings(JSON)/created_at（PRD §3.2 只读修改快照，MVP 仅追加、不提供查询/回滚 API）"
+      - "`label_rules.go` 集中定义：`PROTECTED_PROMETHEUS_LABELS`（instance/job/scheme/__address__ 等，composite→instance 例外）、`ValidEnvs`(dev/test/staging/prod)、`ValidProtocols`(http/https/tcp)、`ValidSchemes`(http/https)、`ValidBizCode` 正则（小写/数字/连字符 ≤64）、`ValidateLabelKey`（小写/下划线/禁 `__` 开头/≤128）"
+      - "models_test 增补：ImportRecord 序列化（errors JSON 往返）、PROTECTED_PROMETHEUS_LABELS 覆盖 instance/job/scheme、Host 新增列缺省零值不 panic"
+
+  - id: "T07-02"
+    title: "业务分组字典：business_domains.yaml 预置 + 热加载 + 只读接口（GET /api/v2/platform/business-domains）"
+    prd: "Module_07 §3.1/§6.1/§9.2：MVP 由配置文件预置（`platform/config/business_domains.yaml`），改动后热加载生效（无需重启，P0 验收项）；初始字典编码上线前须命名评审（biz_code 永不可改）；强制预置兜底条目 `infra`；只读接口供资源录入/Excel 校验下拉；停用条目不可被新资源选用"
+    group: "backend"
+    input_files:
+      - "platform/cmd/metric-center/main.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/resource/business.go"
+      - "platform/config/resource/business_test.go"
+      - "platform/config/business_domains.yaml"
+    depends_on: []
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "`platform/config/business_domains.yaml` 定义字典：条目含 `code`（不可变主键）/`name`（展示名可改）/`description`/`enabled`；预置含 `infra`（公共基础设施兜底）+ ≥2 条示例业务（如 payment/data-api），yaml 语法正确"
+      - "`BusinessDomainStore` 从 yaml 加载进内存；`Lookup(code)` / `EnabledList()`；`GetEnabledMap()` 供资源校验；文件 mtime 变更后下次读取自动重载（热加载，P0），加载失败返回错误并保留上次快照"
+      - "`GET /api/v2/platform/business-domains` 只读接口：返回 `{list:[{code,name,description,enabled}], total}`（03_API_Standard §7.2 分页信封），仅暴露字典字段，无写接口"
+      - "单测覆盖：正常加载、infra 兜底存在、停用项不进入 EnabledList、yaml 改写后热加载生效（改文件 mtime 重读）、缺失文件报错不 panic"
+
+  - id: "T07-03"
+    title: "资源校验与查询辅助层（ValidateResourceInput / 判重键 / 分页构造 / 字段映射 helper）"
+    prd: "Module_07 §5.2/§5.16.2/§6.6.1：资源写请求校验（必填项、env/protocol/status 枚举、IP 格式、端口范围、URL 格式、biz_code 存在且启用）；判重键按类型收敛（host=(domain,instance_ip)；database/middleware/generic=(domain,instance_ip,port)；application=(domain,service_name,endpoint)）；列表分页/筛选参数构造（默认 page_size=50，上限 100）"
+    group: "backend"
+    input_files:
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/models/database.go"
+      - "platform/models/generic_target.go"
+      - "platform/models/label_rules.go"
+    output_files:
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/validate_test.go"
+      - "platform/config/resource/query.go"
+    depends_on: ["T07-01"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "`ValidateResourceInput(category, input, bizStore, networkDomainExists)` 纯函数：必填（含 `app_name`/`cluster` 对 host/generic_target 可空，application/database/middleware 必填）、env∈ValidEnvs、protocol∈ValidProtocols、IP IPv4 校验、port 1~65535、URL 格式（health_check_url）、status∈online/offline/maintenance（API 写请求不接受中文状态）"
+      - "`DedupKey(category, resource) string`：按 §5.16.2 判重键生成（host=(network_domain_id,instance_ip)；database/middleware/generic=(network_domain_id,instance_ip,port)；application=(network_domain_id,service_name,endpoint)）"
+      - "`ParsePageParams(query)` 复用 M06 默认 page=1/page_size=50（PRD §6.1 MVP 默认 50）上限 100；`BuildListQuery` 支持 resource_category/network_domain_id/keyword(名称+IP LIKE)/is_monitored 透传（M01 未实现不生效，见 T07-05）"
+      - "字段映射 helper：将 PRD 规范字段名映射到现模型列（如 Host: instance_ip→private_ip、hostname→instance_name、os_type→image、env→env_flag、cluster→sub_app_code），注释标注 legacy 映射来源，便于 T07-05/06 复用"
+      - "单测覆盖各类型必填/非法枚举/IP/端口/URL、判重键各类型、分页钳制与关键字构造"
+
+  - id: "T07-04"
+    title: "状态映射 service（Excel 中文状态 → Resource.status，默认映射 + 可配置扩展）"
+    prd: "Module_07 §5.5/§9.2：Excel/外部数据源状态值（运行中/已停止/维护中）映射为 online/offline/maintenance；默认映射（§5.5.1）已预建 models.DefaultStatusMappings；可配置扩展 default_target/rules/case_sensitive（§5.5.2）；优先级：类型精确匹配 > 通用规则 > default_target"
+    group: "backend"
+    input_files:
+      - "platform/models/status_mapping.go"
+      - "platform/models/resource_category.go"
+    output_files:
+      - "platform/config/resource/status_mapping.go"
+      - "platform/config/resource/status_mapping_test.go"
+    depends_on: ["T07-01"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "`MapStatus(source string, category ResourceCategory, extraRules []Rule) (ResourceStatus, error)` 纯函数：`运行中/正常/online/active/running/up`→online、`已停止/停止/offline/stopped/down/关机`→offline、`维护中/维修中/maintenance/maintaining`→maintenance（不区分大小写，§5.5.1 默认映射）"
+      - "无命中时按优先级：category 精确匹配规则 > 通用规则（category 为空）> default_target（默认 offline）；extraRules 可覆盖默认（§5.5.2）"
+      - "映射结果非法时（目标状态不在枚举）返回错误（§5.5.4 第 4 条，导入层计入 failed 并跳过）"
+      - "单测覆盖三种中文状态映射、大小写、category 精确优先、priority 倒序、default_target 兜底、非法目标报错"
+
+  # =====================================================================
+  # 后端 B 组：五类资源 CRUD（依赖 A 组）
+  # =====================================================================
+
+  - id: "T07-05"
+    title: "资源列表接口（GET /api/v2/platform/resources，五类分页/筛选 + is_monitored 透传预留）"
+    prd: "Module_07 §6.1/§6.6.1/§11.1：列表按 resource_category 分表查询，Query: resource_category(前端 Tab 必传)/network_domain_id/keyword/is_monitored/page/page_size；返回 `{list,total,page,page_size}`；is_monitored 由 M01 维护、M07 只读映射，本阶段仅预留查询参数透传（不实现 M01 关联）"
+    group: "backend"
+    input_files:
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/models/database.go"
+      - "platform/models/generic_target.go"
+      - "platform/config/resource/query.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/resource/list.go"
+      - "platform/config/resource/list_test.go"
+      - "platform/config/resource/monitored.go"
+    depends_on: ["T07-01", "T07-03"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "GET 列表：`resource_category` 必填（非法/缺失返回 bad_request），按 category 路由到 Host/Database/Middleware/Application/GenericTarget 表；支持 network_domain_id/keyword（名称+IP 模糊）筛选；分页默认 page=1/page_size=50 上限 100，返回 `{list,total,page,page_size}`（API 标准 §7.2）"
+      - "`monitored.go`：接受 `is_monitored` 查询参数，注释标注「M01 维护、M07 只读映射，M01 未实现时透传不生效」；不反向查询 ScrapeJob（避免反向依赖，§6.5）"
+      - "已软删记录不进入列表；空结果返回空 list 而非 null；list item 字段对齐 §5.2"
+      - "单测覆盖各类型查询、分页、筛选组合、非法 category、空结果、is_monitored 参数透传不报错"
+    contract:
+      path: "GET /api/v2/platform/resources"
+      method: "GET"
+      request: "Query: resource_category(必填 host|database|middleware|application|generic_target)、network_domain_id、keyword、is_monitored、page、page_size"
+      response: "data: {list:[{resource_id, resource_category, network_domain_id, biz_code, app_name, env, cluster, owner, status, source_type, ...差异化字段}], total, page, page_size}"
+
+  - id: "T07-06"
+    title: "资源创建 + 更新接口（POST /api/v2/platform/resources、PUT /api/v2/platform/resources/:resource_id）"
+    prd: "Module_07 §6.1/§6.6.1/§9.1：创建（source_type=manual）与更新复用 ValidateResourceInput；`network_domain_id` 以 M06 行政记录为准校验存在性（default 为例外）；`biz_code` 必填且对应启用字典条目；PUT 不允许改 resource_id"
+    group: "backend"
+    input_files:
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/business.go"
+      - "platform/models/network_domain.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/resource/create.go"
+      - "platform/config/resource/update.go"
+      - "platform/config/resource/create_update_test.go"
+    depends_on: ["T07-02", "T07-03", "T07-05"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "POST：`resource_id` 服务端生成 uuid（创建后不可变，PRD §5.2）；`source_type=manual`；`network_domain_id` 存在性校验（查 NetworkDomain，软删不计；缺失返回 bad_request 引导先登记网域，§5.4）；`biz_code` 存在且启用（停用条目不可选，PRD §3.1）；缺省 `tenant_id=platform_admin`；成功返回创建后的完整对象"
+      - "PUT：按 resource_id 更新可更新字段；resource_id/resource_category/source_type 不可改（resource_category 变更被拒）；不存在/已软删返回 not_found；网域/biz 校验同 POST"
+      - "字段校验失败返回 bad_request 且错误信息含字段名；单测覆盖创建成功、uuid 生成、网域不存在/biz 停用拒绝、更新未命中、resource_id 不可改"
+    contract:
+      path: "POST /api/v2/platform/resources、PUT /api/v2/platform/resources/:resource_id"
+      method: "POST / PUT"
+      request: "body: {resource_category, network_domain_id, biz_code, app_name, env, cluster, owner, status, source_type, ...差异化字段}"
+      response: "data: 创建/更新后的完整资源对象"
+
+  - id: "T07-07"
+    title: "资源删除接口（DELETE /api/v2/platform/resources/:resource_id，被引用拦截留 M01 契约）"
+    prd: "Module_07 §6.1/§6.6.1/§11.2：删除返回 `{resource_id}`；被 ScrapeJob 引用时由 Module_01 关联校验并返回 403 + 引用 Job 名单（{job_name, network_domain_id, enabled}）与「查看引用 Job」跳转；MVP M01 未开发，本阶段删除不校验 Job 引用，但在 handler 中预留 M01 契约（TODO + 错误契约注释）"
+    group: "backend"
+    input_files:
+      - "platform/config/resource/create.go"
+      - "platform/models/resource.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/resource/delete.go"
+      - "platform/config/resource/delete_test.go"
+    depends_on: ["T07-03", "T07-06"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "按 resource_id 软删（DeletedAt 置位，BaseModel 体系）；成功返回 `{resource_id}`；不存在/已软删返回 not_found；二次删除返回 not_found"
+      - "handler 中预留被引用拦截契约：注释 `// TODO(M01): ScrapeJob 引用校验，403 data 返回引用 Job 名单 {job_name, network_domain_id, enabled}`（§6.6.1），本阶段直接放行（M01 未实现），不得反向查询 ScrapeJob（§6.5）"
+      - "删除前置同时清理该资源下的 ResourceLabel（物理删除或随资源软删，二选一并注释说明）"
+      - "单测覆盖删除成功（含软删断言）、未命中、二次删除、关联 ResourceLabel 清理"
+
+  - id: "T07-08"
+    title: "Excel 模板下载接口（GET /api/v2/platform/resources/:type/template，静态 xlsx + 取值说明 sheet）"
+    prd: "Module_07 §5.16.1/§6.1/§9.1：按资源类型下载固定列模板；后端生成静态 xlsx（MVP 不做 dataValidation），内置「取值说明 sheet」列出 network_domain（实时取自 M06 网域清单）/biz_code（业务字典）/env/status 等列合法值；主机模板必含 `instance_name` 列"
+    group: "backend"
+    input_files:
+      - "platform/models/resource_category.go"
+      - "platform/config/resource/business.go"
+      - "platform/models/network_domain.go"
+    output_files:
+      - "platform/config/resource/template.go"
+      - "platform/config/resource/template_test.go"
+    depends_on: ["T07-01", "T07-02"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "GET /resources/:type/template（type=host/database/middleware/application/generic_target）返回 xlsx 下载（Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet，文件名为 `{type}_template.xlsx`）；未知类型返回 not_found"
+      - "模板 sheet1 列严格对齐 §5.16.1：host=`network_domain|instance_name|hostname|instance_ip|os_type|biz_code|app_name|env|cluster|owner|status`；database/middleware 含 `{database_type|middleware_type}|instance_ip|port|version|biz_code|app_name|env|cluster|owner|status`；application 含 `service_name|biz_code|health_check_url|protocol|endpoint|port|app_name|env|cluster|owner|status`；generic_target 含 `target_name|instance_ip|port|metrics_path|scheme|exporter_type|custom_labels|biz_code|app_name|env|cluster|owner|status`"
+      - "sheet2「取值说明」列出 network_domain 合法值（M06 网域清单）、biz_code 合法值（业务字典启用项）、env(dev/test/staging/prod)、status 中文取值；custom_labels 格式说明 `key1=value1;key2=value2`"
+      - "**依赖**：引入 `github.com/xuri/excelize/v2`（若离线无法拉取，退化为同列 CSV 并在 handler 注释标注，属决策点）；单测覆盖列头断言与未知类型 not_found"
+    contract:
+      path: "GET /api/v2/platform/resources/:type/template"
+      method: "GET"
+      request: "path: type = host|database|middleware|application|generic_target"
+      response: "二进制 xlsx 文件流（Content-Type spreadsheetml），sheet1 数据列 + sheet2 取值说明"
+
+  - id: "T07-09"
+    title: "Excel 解析与校验（parse → 行级校验 → 状态映射 → 判重/错误行收集）"
+    prd: "Module_07 §5.16.2/§5.16.3/§9.2：解析上传文件为行记录；行级校验（必填/网域存在/biz 存在且启用/IP/端口/URL/env/protocol/status 映射/custom_labels 格式）；判重键生成；错误行返回 {row, resource_category, field, value, reason}；未登记网域/业务给出可执行引导文案"
+    group: "backend"
+    input_files:
+      - "platform/config/resource/template.go"
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/status_mapping.go"
+      - "platform/config/resource/business.go"
+      - "platform/models/network_domain.go"
+    output_files:
+      - "platform/config/resource/excel.go"
+      - "platform/config/resource/excel_test.go"
+    depends_on: ["T07-02", "T07-03", "T07-04", "T07-08"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "`ParseExcel(fileBytes, category) ([]ImportRow, error)`：读取 sheet1 表头与固定列顺序，列缺失/列名不符返回 bad_request（§5.16.1 固定列，不支持动态列）"
+      - "`ValidateImportRow` 行级校验：必填项（app_name/cluster 对 host/generic 可空）、network_domain 存在（空自动填 default）、biz_code 必填且对应启用条目、IP IPv4、port 1~65535、URL 格式、env/protocol/scheme 枚举、custom_labels 格式（`key=value;key2=value2`）"
+      - "status 列允许业务语言，经 MapStatus（T07-04）转 online/offline/maintenance；转换失败行计入 failed"
+      - "判重键（T07-03 DedupKey）生成到 ImportRow 上供 upsert 定位；错误行信息完整（row 从 2 起始即表头后第一行，§5.16.3 示例 row=5）"
+      - "未登记网域报错文案引导闭环：「网域 xxx 未登记，请先到『系统设置 → 网域管理』登记后重新导入」；未登记业务报错：「业务 xxx 未登记，请联系平台管理员在业务分组字典配置（platform/config/business_domains.yaml）中添加后重新导入」（§5.16.1）"
+      - "单测覆盖：合法文件解析、各校验项命中、中文状态映射、判重键生成、错误行收集与行号"
+
+  - id: "T07-10"
+    title: "Excel 导入执行（POST /api/v2/platform/resources/:type/import，upsert）+ 导入记录查询（GET /api/v2/platform/imports、GET /api/v2/platform/imports/:import_id）"
+    prd: "Module_07 §6.1/§6.4/§5.16.2/§5.16.3/§9.1：multipart 上传 `file`+`resource_category`+`mode`(create_only 默认/upsert)；upsert 按判重键定位覆盖更新并返回 updated 计数；create_only 判重命中计 failed；每次导入落 ImportRecord（§6.4）；导入记录列表/详情可查"
+    group: "backend"
+    input_files:
+      - "platform/config/resource/excel.go"
+      - "platform/models/import_record.go"
+      - "platform/models/resource.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/resource/import.go"
+      - "platform/config/resource/import_records.go"
+      - "platform/config/resource/import_test.go"
+    depends_on: ["T07-01", "T07-06", "T07-09"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "POST import：multipart/form-data 解析 `file` + `resource_category` + `mode`；非法 mode/未知类型/文件格式错误返回 bad_request；source_type 置 import（§5.2）"
+      - "逐行按判重键 upsert：命中→覆盖更新（updated++），未命中→新建（success++）；create_only 命中→failed 并记录错误；failed 行不写入；部分成功不整体回滚"
+      - "返回 §5.16.3 结构：`{total, success, updated, failed, errors:[{row, resource_category, field, value, reason}]}`（create_only 无 updated 字段）"
+      - "导入完成后落 ImportRecord（mode/total/success/updated/failed/status/errors/operator），状态 success 或 partial"
+      - "GET /imports 列表：Query resource_category/status，分页返回 `{list,total,page,page_size}`；GET /imports/:import_id 返回详情含 errors 明细；未命中 not_found"
+      - "单测覆盖 create_only/upsert 两模式、判重更新、错误行、ImportRecord 落库与查询、导入记录分页筛选"
+
+  # =====================================================================
+  # 后端 C 组：ResourceLabel 读写（依赖 generator，注意组内顺序）
+  # =====================================================================
+
+  - id: "T07-11"
+    title: "ResourceLabel 读取接口（GET /api/v2/platform/resources/:resource_id/labels，system 实时计算合并 + user 库内，来源优先级排序）"
+    prd: "Module_07 §6.2/§6.6.2/§5.3/§9.1：返回资源全量标签（system+user），system 为模板实时计算不落库（§5.3 生成时机），按来源优先级排序展示；system 标签需标注来源映射（如 app_name→app）供「来自 XX 模板 · 来源字段→目标标签」展示"
+    group: "backend"
+    input_files:
+      - "platform/models/resource_label.go"
+      - "platform/models/label_template.go"
+      - "platform/config/label/generator.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/resource/label_read.go"
+      - "platform/config/resource/label_read_test.go"
+    depends_on: ["T07-05", "T07-13"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "GET /resources/:resource_id/labels：资源不存在返回 not_found；返回 `{items:[{id, key, value, source, source_map?}], total}`"
+      - "user 标签从 ResourceLabel 表读取（source=user）；system 标签调用 label.Generator（T07-13）按该资源类型默认模板实时计算，不落库"
+      - "合并排序按来源优先级展示（system 在前、user 在后，cmdb 为 v0.4+ 预留占位）；system 标签项携带 `source_map`（如 `app_name→app`）供前端标注「来自 XX 模板」（§5.3 联动呈现）"
+      - "system 与 user 同 key 时不重复展示（以 user 为准，§5.3 冲突优先级），user 不可覆盖 system（写端拦截见 T07-12）"
+      - "单测覆盖：system 计算合并、user 读取、排序、同 key 合并、资源未命中"
+
+  - id: "T07-12"
+    title: "ResourceLabel 写接口（POST/PUT/DELETE /api/v2/platform/resources/:resource_id/labels[/:label_id]，仅 application 可写 user，403 边界）"
+    prd: "Module_07 §6.2/§6.6.2/§3.3/§8.2/§9.2：user 来源标签写操作（新增/编辑/删除）仅对 resource_category=application 开放，host/middleware/generic 返回 403（双场景治理）；key 合规（ValidateLabelKey）；禁止覆盖 Prometheus 内置 label 与 system 标签；PUT/DELETE 仅可操作 user 来源"
+    group: "backend"
+    input_files:
+      - "platform/models/resource_label.go"
+      - "platform/models/resource.go"
+      - "platform/models/label_rules.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/resource/label_write.go"
+      - "platform/config/resource/label_write_test.go"
+    depends_on: ["T07-01", "T07-03", "T07-11"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "POST /resources/:resource_id/labels `{key, value}`：仅 application 资源可写 user 标签；host/database/middleware/generic_target 返回 403（errorType=forbidden，文案提示「该资源为静态资源，标签由 CMDB/Excel 带入，不支持手动打标」，§11.1）；resource 不存在 not_found"
+      - "key 校验：ValidateLabelKey（小写/下划线/禁 `__` 开头/≤128）；key∈PROTECTED_PROMETHEUS_LABELS 拒绝（bad_request）；key 已存在 system 标签拒绝（user 不可覆盖 system，§8.2）；重复 key 同资源返回 conflict"
+      - "PUT /labels/:label_id：仅可编辑 source=user 的标签（非 user 来源 forbidden，§6.6.2）；value 更新"
+      - "DELETE /labels/:label_id：仅可删除 user 来源（非 user forbidden）；返回 `{label_id}`"
+      - "单测覆盖：application 写成功、静态资源 403、key 非法、内置 label 拒绝、system 覆盖拒绝、非 user 编辑/删除 forbidden、未命中"
+
+  - id: "T07-13"
+    title: "system label 生成器（platform/config/label/generator.go：ComputeSystemLabels + 适用模板查询）"
+    prd: "Module_07 §5.3/§5.12/§5.13/§9.1：按资源类型的默认标签模板对单个资源实时计算 system 标签（不落库）；供资源详情标签展示（T07-11）与「适用模板」展示（默认模板名+ID）；模板映射 source_field → 资源字段值 → target_label"
+    group: "backend"
+    input_files:
+      - "platform/models/label_template.go"
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/models/database.go"
+      - "platform/models/generic_target.go"
+      - "platform/models/resource_category.go"
+    output_files:
+      - "platform/config/label/generator.go"
+      - "platform/config/label/generator_test.go"
+    depends_on: ["T07-01", "T07-03"]
+    verify_commands: ["go test ./platform/config/label/...", "go vet ./platform/config/label/..."]
+    acceptance_criteria:
+      - "`ComputeSystemLabels(template *models.LabelTemplate, res Resource) []SystemLabel` 纯函数：遍历 template.Mappings，按 source_type 取值——resource_field 从资源读取对应字段（经 T07-03 字段映射 helper 取 Host legacy 列）、composite→instance 为「内置默认」标注（§5.13，本阶段不生成拼接值，交由 M09 拼接，§5.12 C）；返回 {key, value, source_map(来源字段→目标标签)}"
+      - "`GetApplicableTemplate(db, category) (*models.LabelTemplate, error)`：返回该类型默认模板（is_default=true）名+ID，供「适用模板」展示；无默认模板返回可读空态错误"
+      - "空值处理：app_name/cluster 空不注入对应标签（§5.15 规则 4）；仅计算 source_type=resource_field/composite 的启用映射（prometheus_builtin/cmdb_field 本阶段跳过）"
+      - "单测覆盖：host 默认模板计算（app/env/cluster/biz/hostname/os_type）、application 模板（service_name/biz）、空值跳过、适用模板查询、source_map 标注"
+
+  # =====================================================================
+  # 后端 D 组：LabelTemplate 管理（依赖 A 组 + T07-13）
+  # =====================================================================
+
+  - id: "T07-14"
+    title: "LabelTemplate 列表接口（GET /api/v2/platform/label-templates，分页/筛选）"
+    prd: "Module_07 §6.3/§6.6.3：模板列表，Query: resource_category/is_default/keyword/page/page_size；返回含完整 mappings；MVP 分页从简（默认 50）"
+    group: "backend"
+    input_files:
+      - "platform/models/label_template.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/label/list.go"
+      - "platform/config/label/list_test.go"
+    depends_on: ["T07-01"]
+    verify_commands: ["go test ./platform/config/label/...", "go vet ./platform/config/label/..."]
+    acceptance_criteria:
+      - "GET 列表支持 resource_category/is_default/keyword(名称模糊)/page/page_size（默认 50 上限 100），返回 `{list,total,page,page_size}`，item 含完整 mappings（serializer:json）"
+      - "列表 item 附关联实例数 `instance_count`（= 该 resource_category 下资源数，§3.2 关联实例 N 个，T07-17 的 count 同源）"
+      - "软删不进入列表；空结果空 list"
+      - "单测覆盖分页、各筛选、mappings 序列化、instance_count 计算"
+
+  - id: "T07-15"
+    title: "LabelTemplate CRUD + clone 接口（POST/PUT/DELETE /api/v2/platform/label-templates[/:template_id]、POST /:template_id/clone，含修改快照）"
+    prd: "Module_07 §6.3/§6.6.3/§3.2：创建（非默认、mappings 可空）、改名/改描述（resource_category 创建后不可改）、删除（默认模板禁删；被 Module_01 引用时阻止——M01 未实现本阶段留契约）、克隆（含全部 mappings，is_default=false）；每次变更落 LabelTemplateSnapshot 只读快照"
+    group: "backend"
+    input_files:
+      - "platform/models/label_template.go"
+      - "platform/models/label_template_snapshot.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/label/template_crud.go"
+      - "platform/config/label/template_clone.go"
+      - "platform/config/label/template_crud_test.go"
+    depends_on: ["T07-01", "T07-14"]
+    verify_commands: ["go test ./platform/config/label/...", "go vet ./platform/config/label/..."]
+    acceptance_criteria:
+      - "POST：`{name, resource_category, description?, mappings?}` 创建 is_default=false；同名同类型返回 conflict；mappings 传入时走 T07-16 校验"
+      - "PUT /:template_id：仅可改 name/description（resource_category 创建后不可改，改则 bad_request）；未命中 not_found"
+      - "DELETE /:template_id：is_default=true 模板拒绝删除（bad_request「默认模板禁止删除」）；预留 M01 引用拦截契约注释（TODO(M01)：ScrapeJob 引用时 forbidden，本阶段放行）；软删"
+      - "POST /:template_id/clone：复制模板与全部 mappings，新模板 is_default=false，`{name?}` 可选覆盖名称；克隆成功返回新模板；未命中 not_found"
+      - "每次 create/update/delete/mappings 变更落一条 LabelTemplateSnapshot（operator=platform_admin、changed_mappings 记录变更映射旧值/新值，MVP 仅追加）（§3.2/§5.3）"
+      - "单测覆盖：CRUD 各分支、同名冲突、resource_category 不可改、默认模板禁删、clone 含 mappings 且非默认、快照落库"
+
+  - id: "T07-16"
+    title: "LabelTemplate mappings CRUD 接口（POST/PUT/DELETE /api/v2/platform/label-templates/:template_id/mappings[/:mapping_id]）"
+    prd: "Module_07 §6.3/§6.6.3/§5.11/§9.2：新增/编辑/删除映射；目标标签不得为保护 label（PROTECTED_PROMETHEUS_LABELS，composite→instance 例外）；同一模板内 target_label 唯一（编辑自身排除唯一性校验）；新增 resource_field 映射时目标标签默认预填来源字段名；变更落快照"
+    group: "backend"
+    input_files:
+      - "platform/models/label_template.go"
+      - "platform/models/label_rules.go"
+      - "platform/models/label_template_snapshot.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/label/mappings.go"
+      - "platform/config/label/mappings_test.go"
+    depends_on: ["T07-01", "T07-15"]
+    verify_commands: ["go test ./platform/config/label/...", "go vet ./platform/config/label/..."]
+    acceptance_criteria:
+      - "POST /:template_id/mappings `{target_label, source_type, source_field, transform_rule?}`：target_label∈PROTECTED_PROMETHEUS_LABELS 拒绝，`source_type=composite && target_label=instance` 跳过拦截（composite→instance 例外，§5.11）；同模板 target_label 重复返回 bad_request；返回更新后的 mappings 列表"
+      - "新增 resource_field 映射时 target_label 默认预填为 source_field（§5.11 目标标签默认值）；composite 映射 target_label 锁定 instance"
+      - "PUT /:template_id/mappings/:mapping_id：编辑排除自身唯一性校验；transform_rule 枚举 lower/upper/prefix/replace 或空（§5.11，prefix/replace 为 P1 MVP 置灰但枚举接受）"
+      - "DELETE /:template_id/mappings/:mapping_id：返回 `{mapping_id}`；未命中 not_found；默认模板映射不可删除（默认模板只读保护，改走克隆）"
+      - "变更落 LabelTemplateSnapshot（T07-15 同机制）；单测覆盖保护 label 拦截、composite 例外、唯一性（含编辑自身排除）、默认预填、transform 校验"
+
+  - id: "T07-17"
+    title: "LabelTemplate 关联实例查询接口（GET /api/v2/platform/label-templates/:template_id/resources）"
+    prd: "Module_07 §6.3/§6.6.3/§3.2/§11.1：按模板 resource_category 返回关联资源列表（隐式关联：该类型下全部资源自动适用，§3.2）；返回 items（实例名/IP/状态）与 total，用于「关联实例 N 个」展开（前端 Table pageSize=10）"
+    group: "backend"
+    input_files:
+      - "platform/models/label_template.go"
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/models/database.go"
+      - "platform/models/generic_target.go"
+      - "platform/api/response/response.go"
+    output_files:
+      - "platform/config/label/instances.go"
+      - "platform/config/label/instances_test.go"
+    depends_on: ["T07-01", "T07-03", "T07-14"]
+    verify_commands: ["go test ./platform/config/label/...", "go vet ./platform/config/label/..."]
+    acceptance_criteria:
+      - "GET /:template_id/resources：按模板 resource_category 路由到对应资源表查询；返回 `{items:[{resource_id, instance_name/instance_ip, status}], total, page, page_size}`（支持 page/page_size 默认 10，§11.1）"
+      - "item 的「实例名」按类型取展示字段（host=instance_name、application=service_name、database/middleware=instance_ip、generic=target_name），与 PRD §5 展示口径一致"
+      - "模板不存在/软删返回 not_found；空类型返回空 list"
+      - "单测覆盖各类型关联查询、分页、字段取展示名、未命中"
+
+  # =====================================================================
+  # 后端 E 组：路由注册 + 端到端集成测试（收口）
+  # =====================================================================
+
+  - id: "T07-18"
+    title: "路由注册接入 main.go + 端到端 HTTP 集成验收"
+    prd: "Module_07 §6 接口预览 + §9.2：全部 M07 接口挂到 `/api/v2/platform/*`（资源/业务字典/标签/标签模板/导入记录），统一响应格式；端到端覆盖五类资源 CRUD→Excel 导入 upsert→ResourceLabel 403 边界→LabelTemplate clone/mappings→关联实例→导入记录"
+    group: "backend"
+    input_files:
+      - "platform/cmd/metric-center/main.go"
+      - "platform/config/resource/*.go"
+      - "platform/config/label/*.go"
+    output_files:
+      - "platform/config/resource/routes.go"
+      - "platform/config/label/routes.go"
+      - "platform/cmd/metric-center/main.go"
+      - "platform/cmd/metric-center/main_test.go"
+    depends_on: ["T07-02", "T07-04", "T07-05", "T07-06", "T07-07", "T07-08", "T07-10", "T07-11", "T07-12", "T07-13", "T07-14", "T07-15", "T07-16", "T07-17"]
+    verify_commands: ["go test ./platform/...", "go vet ./platform/..."]
+    acceptance_criteria:
+      - "`platform/config/resource/routes.go` 与 `platform/config/label/routes.go` 提供 `RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`，在 main 的 registerPlatformConfigRoutes 下挂 `/platform/resources`、`/platform/resources/:type/template`、`/platform/resources/:type/import`、`/platform/resources/:resource_id/labels`、`/platform/business-domains`、`/platform/imports`、`/platform/label-templates`（含 mappings/clone/resources 子路由）"
+      - "集成测试（memory DB + seed，复用 M06 buildIntegrationEngine 模式）：五类资源创建→列表→详情→更新→删除闭环；Excel 导入（create_only/upsert 两模式 + 中文状态映射 + 导入记录查询）；ResourceLabel application 可写/静态资源 403；LabelTemplate 列表→CRUD→clone→mappings（保护 label 拦截）→关联实例；business-domains 只读"
+      - "`go test ./platform/...` 全绿、`go vet ./platform/...` 通过；一次 Real 启动验证 /api/v1/health、/api/v1/health/db 200，business-domains 与 label-templates 可查"
+    contract:
+      path: "全部 M07 接口（/api/v2/platform/resources*、/business-domains、/imports、/label-templates*）"
+      method: "GET/POST/PUT/PATCH/DELETE"
+      request: "按各任务 contract 段"
+      response: "统一 `{status, data}` / `{status, errorType, error}`（03_API_Standard §3）"
+
+  # =====================================================================
+  # 前端 F 组：API client + types（数据契约对齐后端）
+  # =====================================================================
+
+  - id: "T07-F1"
+    title: "前端资源 API client + types + 单测（resources / labels / business-domains / imports）"
+    prd: "Module_07 §6.1/§6.2/§6.4/§9.1（前端数据契约，对应 T07-02/T07-05~T07-12 后端契约）"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/client.ts"
+      - "ui-custom/web/src/types/resource.ts"
+      - "ui-custom/web/src/types/api.ts"
+    output_files:
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/api/resources.test.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    depends_on: ["T07-02", "T07-05", "T07-06", "T07-07", "T07-08", "T07-10", "T07-11", "T07-12"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "`resourceApi.list`（GET /api/v2/platform/resources，params：resource_category/network_domain_id/keyword/is_monitored/page/page_size）、`create`、`update`、`remove`（DELETE :resource_id）、`template`（GET :type/template，下载文件）、`importExcel`（POST :type/import，multipart FormData：file+mode）、`labels`（GET/POST/PUT/DELETE /resources/:id/labels）"
+      - "`businessDomainApi.list`（GET /business-domains）与 `importApi.list/get`（GET /imports、GET /imports/:import_id）"
+      - "`types/resource.ts` 新增：`ResourceCreateInput`/`ResourceUpdateInput`（含五类差异化字段）、`ImportResult{total,success,updated?,failed,errors[]}`、`ImportRecord`、`BusinessDomain{code,name,description,enabled}`、`ResourceLabel` 与 `SystemLabelSourceMap`（label 项含 source_map，§5.3 联动）"
+      - "`importExcel` 用原生 FormData（不 JSON 序列化，Content-Type multipart/form-data）；单测 mock fetch 覆盖 list 参数、create/update/remove 路径与 body、import FormData、labels CRUD、business/imports 解析；vitest 全绿、eslint 通过"
+
+  - id: "T07-F2"
+    title: "前端标签模板 API client + types + 单测（label-templates / mappings / clone / resources）"
+    prd: "Module_07 §6.3/§9.1（前端数据契约，对应 T07-13~T07-17 后端契约）"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/client.ts"
+      - "ui-custom/web/src/types/label.ts"
+      - "ui-custom/web/src/types/api.ts"
+    output_files:
+      - "ui-custom/web/src/api/labelTemplates.ts"
+      - "ui-custom/web/src/api/labelTemplates.test.ts"
+      - "ui-custom/web/src/types/label.ts"
+    depends_on: ["T07-13", "T07-14", "T07-15", "T07-16", "T07-17"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "`labelTemplateApi`：`list`（GET /label-templates，params：resource_category/is_default/keyword/page/page_size）、`create`、`update`、`remove`、`clone`（POST :id/clone）、`resources`（GET :id/resources，关联实例）、`addMapping`/`updateMapping`/`removeMapping`（POST/PUT/DELETE :id/mappings[/:mapping_id]）"
+      - "`types/label.ts` 扩展：`LabelTemplateCreateInput`/`UpdateInput`（resource_category 创建后不可改，update 不含）、`MappingInput{target_label, source_type, source_field, transform_rule?}`、`TemplateInstanceItem{resource_id, instance_name, status}`、`LabelTemplateListItem`（含 instance_count，§3.2）"
+      - "单测 mock fetch 覆盖 list 筛选参数、CRUD/clone/mappings 路径与 body、关联实例分页解析；vitest 全绿、eslint 通过"
+
+  # =====================================================================
+  # 前端 G 组：资源管理页（依赖 F1）
+  # =====================================================================
+
+  - id: "T07-F3"
+    title: "资源管理列表页（五类 Tab + 表格 + 网域/业务/状态/未监控筛选 + 分页 + 状态矩阵）"
+    prd: "Module_07 §11.1 页面状态矩阵 + §3.1/§5.4/§11.2：资源类型 Tab + 表格 + 行点击详情抽屉；「网域」筛选器（默认记忆上次选择、始终可切「全部网域」）；「业务」列展示 biz_name（停用以「业务名（已停用）」标识）；「运行状态」列（online/offline/maintenance，列头数据来源以 hover 提示标注）；「未监控」筛选（is_monitored=false 透传，§11.2）；空态/加载/错误态"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/api/domain.ts"
+      - "ui-custom/web/src/types/resource.ts"
+      - "ui-custom/web/src/pages/resources/ResourcePage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/useResources.ts"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.test.tsx"
+    depends_on: ["T07-F1"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "五类 Tab（主机/数据库/中间件/应用服务/通用指标目标）切换调 resourceApi.list 传对应 resource_category；表格列按类型差异化展示（含网域列默认展示不可隐藏、业务列展示 biz_name）"
+      - "筛选器：网域（下拉自 networkDomainApi.list，默认记忆上次、可切「全部网域」）、业务（自 businessDomainApi.list 仅启用项）、运行状态、关键字；「未监控」筛选透传 is_monitored=false（§11.2）"
+      - "分页（默认 50/页）联动 list；loading 骨架屏 / 空态「暂无资源」+「新增资源」与「下载模板/Excel 导入」引导 / 接口错误 Alert「资源列表加载失败，请稍后重试」+「重新加载」（§11.1）"
+      - "操作列提供新增/编辑（抽屉）、下载模板、导入、删除（二次确认）入口；行点击打开资源详情抽屉（T07-F6）"
+      - "组件单测覆盖加载/成功/空态/错误态、Tab 切换、筛选参数、分页调用（§11.1 状态矩阵）"
+
+  - id: "T07-F4"
+    title: "资源新增/编辑抽屉表单（五类差异化字段 + 网域/业务字典下拉 + 校验 + 提交防重复）"
+    prd: "Module_07 §3.1/§11.2：资源新增/编辑统一右侧 Drawer（与标签模板页一致，保留列表上下文）；biz_code 必填下拉（仅启用条目）；网域下拉（M06 网域清单）；字段校验错误置于字段下方；提交按钮 loading 防重复"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/api/domain.ts"
+      - "ui-custom/web/src/types/resource.ts"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.test.tsx"
+    depends_on: ["T07-F1", "T07-F3"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "Drawer 复用新增/编辑两种模式：新增态 create（resource_id 由后端生成不展示）、编辑态预填并走 update（resource_id/resource_category/source_type 只读或隐藏，§5.2）"
+      - "表单字段按 resource_category 差异化渲染（host: instance_name/hostname/instance_ip/os_type；database: database_type 下拉/instance_ip/port；middleware: middleware_type 下拉；application: service_name/endpoint/health_check_url/protocol；generic: target_name/metrics_path/scheme/custom_labels），与 §5.6~§5.9 字段表一致"
+      - "biz_code 必填下拉（businessDomainApi.list 仅启用项）；network_domain 下拉（networkDomainApi.list）；停用业务不可选（§11.2）"
+      - "必填/env/protocol/IP/port 前端校验错误置于字段下方；提交按钮 loading+disabled 防重复；成功后回刷列表（§11.2）"
+      - "单测覆盖两种模式提交、差异化字段渲染、字典下拉、校验、提交防重复"
+
+  - id: "T07-F5"
+    title: "Excel 导入弹窗 + 导入记录面板（模板下载 / 上传 / 校验报告 / 记录列表与详情）"
+    prd: "Module_07 §5.16/§6.4/§11.1/§11.2：导入弹窗提供「下载模板」（调 template 接口下载 xlsx，含取值说明 sheet）、上传文件、选择 mode（create_only/upsert）、展示导入结果（total/success/updated/failed + 错误行表）；导入记录空态引导「下载模板」+「上传 Excel」；记录按资源类型/状态筛选、分页；错误报告含行号/字段/原因与未登记网域/业务引导文案"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ImportModal.tsx"
+      - "ui-custom/web/src/pages/resources/ImportRecordsPanel.tsx"
+      - "ui-custom/web/src/pages/resources/ImportModal.test.tsx"
+      - "ui-custom/web/src/pages/resources/ImportRecordsPanel.test.tsx"
+    depends_on: ["T07-F1", "T07-F3"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "ImportModal：资源类型联动模板下载（`resourceApi.template(type)` 触发浏览器下载 xlsx）；文件上传 + mode 选择（默认 create_only）+ 提交（loading 防重复）"
+      - "导入结果展示：total/success/updated/failed 统计 + 错误行 Table（行号/字段/值/原因，§5.16.3）；错误文案透传后端引导（未登记网域→M06 入口、未登记业务→维护业务字典，§5.16.1）"
+      - "ImportRecordsPanel：导入记录列表（importApi.list 按 resource_category/status 筛选、分页）+ 详情（importApi.get 含 errors 明细）；空态「暂无导入记录」+「下载模板」/「上传 Excel」引导（§11.1）"
+      - "单测覆盖：模板下载触发、上传提交 FormData、结果统计与错误行渲染、记录列表筛选/分页/空态/错误态"
+
+  - id: "T07-F6"
+    title: "资源详情抽屉（标签管理 system/user 展示 + user 编辑(仅 application) + 适用模板 + 业务展示 + 403 提示）"
+    prd: "Module_07 §3.3/§5.3/§11.1/§9.1：详情抽屉基础属性置顶（含网域、业务 biz_name，停用以「业务名（已停用）」标识）；「适用模板」行（默认模板名+ID，自 labelTemplateApi.list 取 is_default）；标签管理展示全量标签（system/user，system 标注「来自 XX 模板 · 来源字段→目标标签」并可跳转模板页）；user 编辑仅 application（静态资源只读展示，写返回 403 提示「该资源为静态资源…不支持手动打标」）"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/api/labelTemplates.ts"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/types/label.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceDetailDrawer.test.tsx"
+    depends_on: ["T07-F1", "T07-F2", "T07-F3"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "详情基础属性置顶展示（resource_id/网域/业务 biz_name/运行状态/来源，§5.4 网域置顶）；「适用模板」行展示该类型默认模板名 + ID，点击跳转对应类型模板页（§3.1/§5.3 联动）"
+      - "标签卡展示全量标签（resourceApi.labels）：system 标签标注「来自 XX 模板 · source_map（如 app_name→app）」并跳转模板页；user 标注「手动添加」；cmdb 以「v0.4+ 预留」占位（§3.3 统一口径）"
+      - "user 标签编辑（新增/编辑/删除）：仅 resource_category=application 展示「自定义标签（非必须）」编辑入口并附引导文案「大多数场景下标签模板已自动生成所需标签…」（§3.3）；静态资源只读展示来源、不提供打标入口；写返回 403 时 Alert 提示（§11.1）"
+      - "新增/编辑 key 冲突提示：key 与模板映射目标冲突提示「该标签由标签模板生成，如需修改请前往标签模板管理」（§3.3/§5.3）"
+      - "单测覆盖：详情渲染、适用模板、标签展示与来源标注、application 可编辑/静态只读、403 提示、冲突提示"
+
+  # =====================================================================
+  # 前端 H 组：标签模板页（依赖 F2）
+  # =====================================================================
+
+  - id: "T07-F7"
+    title: "标签模板页左栏列表（资源类型 Tab + 搜索 + 默认/自定义筛选 + 新建/克隆/删除 + 卡片信息）"
+    prd: "Module_07 §3.2/§11.1：左栏模板列表——按资源类型 Tab 切换 + 搜索框 + 默认/自定义筛选；模板卡片精简为「名称 + 默认/自定义 Tag + 映射数 + 关联实例数 badge」；新建/克隆/删除操作；分页从简（pageSize 默认 50）"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/labelTemplates.ts"
+      - "ui-custom/web/src/types/label.ts"
+    output_files:
+      - "ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx"
+      - "ui-custom/web/src/pages/label-templates/TemplateList.tsx"
+      - "ui-custom/web/src/pages/label-templates/LabelTemplatesPage.test.tsx"
+    depends_on: ["T07-F2"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "左栏资源类型 Tab（五类）切换调 labelTemplateApi.list({resource_category})；搜索框 keyword + 「默认/自定义」is_default 筛选联动 list"
+      - "模板卡片展示：名称 + 默认/自定义 Tag + 映射数（mappings.length）+ 关联实例数 badge（instance_count，§3.2）；默认模板「新建」按钮置灰不可建默认（服务端 is_default=false）"
+      - "空态「暂无标签模板」+「新建模板」引导；加载骨架屏；接口错误 Alert「模板列表加载失败，请稍后重试」+「重新加载」（§11.1）"
+      - "操作：新建模板（Drawer）、克隆（调 clone）、删除（Modal 二次确认，默认模板删除按钮置灰并提示「默认模板禁止删除」）；分页（pageSize 50）"
+      - "单测覆盖加载/空态/错误态、Tab/搜索/筛选、新建/克隆/删除调用、默认模板禁删提示"
+
+  - id: "T07-F8"
+    title: "标签模板页右栏三 Tab（映射明细 / 关联实例 / 被引用 Job）+ 映射抽屉编辑 + 保存影响反馈"
+    prd: "Module_07 §3.2/§11.1/§5.11/§6.5/§9.1：右栏 Tabs——Tab1 映射明细（按来源类型分组展示，新增/编辑/删除映射用 Drawer，保护 label/唯一性前端预校验）；Tab2 关联实例（Table 分页 pageSize=10、关键字搜索、状态筛选 + 隐式关联说明文案）；Tab3 被引用 Job（Job 名/网域/启用状态/变更状态，pageSize=10 + 说明文案；数据由 M01 只读接口提供，M01 未实现本阶段展示空态占位）；保存后影响反馈（「本模板被 N 个采集 Job 引用…重新生成标签并立即生效」+「查看引用 Job」入口 + 「无版本回滚能力，修改立即生效」提示）"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/api/labelTemplates.ts"
+      - "ui-custom/web/src/types/label.ts"
+      - "ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/label-templates/TemplateDetailTabs.tsx"
+      - "ui-custom/web/src/pages/label-templates/MappingDrawer.tsx"
+      - "ui-custom/web/src/pages/label-templates/TemplateDetailTabs.test.tsx"
+      - "ui-custom/web/src/pages/label-templates/MappingDrawer.test.tsx"
+    depends_on: ["T07-F2", "T07-F7"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "Tab1 映射明细：按来源类型分组展示映射（resource_field/composite 等，§5.12）；新增/编辑/删除映射用 Drawer（保留模板上下文，§3.2 UI/UX）；新增映射字段来源仅展示资源字段（prometheus_builtin/组合字段隐藏、cmdb_field 以 v0.4+ disabled，§5.12 B/C）；target_label 默认预填 source_field；transform 下拉（无/lower/upper，prefix/replace 置灰 P1，§5.11）"
+      - "映射前端预校验：保护 label 拒绝（composite→instance 例外）、同模板 target_label 唯一；服务端校验错误透传展示（§5.11/§9.2）"
+      - "Tab2 关联实例：labelTemplateApi.resources 分页 pageSize=10、关键字搜索、状态筛选；Tab 顶部隐式关联说明文案（§3.2）；空态「该类型下暂无实例」"
+      - "Tab3 被引用 Job：M01 未实现本阶段展示空态占位 + 说明文案「本模板被 {N} 个采集 Job 引用…配置变更需在配置中心确认后生效（MVP 重新生成并立即生效）」（§3.2/§6.5，数据源 M01 `GET /api/v1/scrape-jobs?label_template_id=` 留接口注释）；Tab 顶部说明文案完整"
+      - "模板/映射保存成功后影响反馈：Alert「本模板被 N 个采集 Job 引用，将按新映射重新生成标签；MVP 重新生成并立即生效；无版本回滚能力，修改立即生效」+「查看引用 Job」跳转 Tab3（§3.2/§11.2）"
+      - "单测覆盖：三 Tab 渲染与数据加载、映射 Drawer 提交与校验、关联实例分页/搜索/状态筛选、被引用 Job 空态、保存影响反馈展示"
+
+  # =====================================================================
+  # 前端 I 组：页面挂载与导航（收口）
+  # =====================================================================
+
+  - id: "T07-F9"
+    title: "页面挂载与导航入口（资源管理 + 标签模板页可达）"
+    prd: "Module_07 §11 交互契约 + L2 §5.2 前端目录；Phase 5 统一导航前先提供最小可达入口，复用 MainLayout 模块化导航"
+    group: "frontend"
+    input_files:
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx"
+    output_files:
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+    depends_on: ["T07-F3", "T07-F7"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "App 注册 `/resources` 与 `/label-templates` 路由，渲染 ResourcesPage 与 LabelTemplatesPage（替换现有占位 ResourcePage）"
+      - "MainLayout MODULES 增加一级模块「监控对象管理」（含二级：资源管理 / 标签模板），与「系统与平台管理」并列；resolveActiveModule 覆盖新路径（对齐 M06 导航模式，不引入跨模块职责）"
+      - "`pnpm lint`、`pnpm test` 通过；`pnpm dev` 首页/资源管理/标签模板页均 200"
