@@ -303,6 +303,13 @@ python3 -m http.server 8080
   > 对应原型：docs/prototypes/module-XX/
   ```
 - 如有问题，返回 Phase 3 修正 PRD。
+- **输出 `frontend-prototype-map.md`（v1.28 起，PRD 推进到 ready 前必须完成）**：在原型与 PRD 一致后、状态变更前，产出 `docs/05-execution-records/module-XX/frontend-prototype-map.md`。该表是 L3 规划与前端开发的逐项勾验载体，内容包括：
+  1. **决策落版**：D1~D6 选择（视觉还原强制、原型=实现基底、banner 入口、缺列补法、tab 模块名、共享组件复用）；
+  2. **文件级映射**：原型文件 → 生产目标文件 → 处理方式（复制 / 复制+裁剪 / 删除 / 替换）+ 核对项 + 理由；
+  3. **列 / 区块对照表**：原型表格列/区块 → 生产是否实现 → 处理（已有 / 缺失 / 裁剪）+ 理由，**任何删减必须标注「非 MVP / 依赖 MXX」**；
+  4. **导航与信息架构模型**：顶部一级 tab 文案（= PRD 模块名）、Sider 二级页面、跨模块入口；
+  5. **视觉 Token 清单**：主色、深色头部、状态色、背景、全局 ConfigProvider 主题；
+  6. **待办勾验清单**：开发前逐项可勾选。
 - **如原型与 PRD 一致，禁止直接更新 PRD 状态为 ready**。必须：
   1. 向用户 / Orchestrator 输出《原型验证结论》：包含 PRD 版本、原型版本、核心页面清单、已验证交互、未覆盖范围（如有）。
   2. 明确询问用户是否同意将 PRD 状态推进到 `ready`。
@@ -423,6 +430,7 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 - 对齐决策记录：`docs/05-execution-records/module-XX/design-decisions.md`
 - 技术缺口记录：`docs/05-execution-records/module-XX/tech-gaps.md`
 - 原型说明文档：`docs/05-execution-records/module-XX/prototype-designer.md`
+- 前端原型映射表（v1.28 起）：`docs/05-execution-records/module-XX/frontend-prototype-map.md`（L3 与开发勾验载体）
 
 ---
 
@@ -506,5 +514,6 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 14. **评审记录**（见 Phase 8.1.1）：最近一次两段评审时间 / 参与方 / 用户走查结论 / 技术核对结论 / 遗留项（指向 design-decisions.md「评审记录」小节）
 15. PRD 状态变更确认记录：用户是否同意将 PRD 推进到 `ready`，以及确认时间/方式
 16. 执行记录路径：`docs/05-execution-records/module-XX/prototype-designer.md`
-17. 已知问题或下一步建议
-18. **版本对齐表同步确认（v1.26）**：`docs/02-product-requirements/Modules/README.md` 中当前模块行已更新（PRD 版本 / 原型版本 / 对齐 / 状态）
+17. 前端原型映射表路径：`docs/05-execution-records/module-XX/frontend-prototype-map.md`
+18. 已知问题或下一步建议
+19. **版本对齐表同步确认（v1.26）**：`docs/02-product-requirements/Modules/README.md` 中当前模块行已更新（PRD 版本 / 原型版本 / 对齐 / 状态）
