@@ -29,15 +29,10 @@ type MenuItem = Required<MenuProps>['items'][number]
 // {v3.6} 动线分离：导航按角色过滤——业务负责人仅见业务指标库/业务视图；运维见全部（含业务指标库只读+状态推进）
 // {v3.7} 动线归组：指标库（技术指标库 / 业务指标库 / 业务视图）放入同一「指标库」分组，技术/业务二分、动线放一起
 function buildMenu(role: UserRole): MenuItem[] {
-  // {v3.8} 采集分组（父+子，样式对齐指标库分组）：采集器管理（安装动线起点）/ 采集 Job；承载于 /scrape-jobs 页内下拉视图（?view= 区分）
-  const collectItem: MenuItem = { key: '/scrape-jobs?view=collectors', icon: <AppstoreOutlined />, label: '采集器管理' }
-  const jobsItem: MenuItem = { key: '/scrape-jobs?view=jobs', icon: <AppstoreOutlined />, label: '采集 Job' }
-  const collectGroup: MenuItem = {
-    key: 'collect',
-    icon: <AppstoreOutlined />,
-    label: '采集',
-    children: [collectItem, jobsItem],
-  }
+  // {v3.28} F-09（裁定修订）：采集器管理 / 采集 Job 提升为 Sider 一级导航项（独立页面 /collectors、/scrape-jobs），取消「采集策略」一级分组；规则编辑为独立一级项（导航位于「指标库」之后，见 PRD §3.1）
+  const collectorsItem: MenuItem = { key: '/collectors', icon: <AppstoreOutlined />, label: '采集器管理' }
+  const jobsItem: MenuItem = { key: '/scrape-jobs', icon: <AppstoreOutlined />, label: '采集 Job' }
+  const rulesItem: MenuItem = { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' }
   // 指标库分组：技术指标库（技术元数据）+ 业务指标库（业务语义契约登记表）+ 业务视图（独立页，业务域聚合）
   const techItem: MenuItem = { key: '/metric-library', icon: <DatabaseOutlined />, label: '技术指标库' }
   const bizItem: MenuItem = { key: '/business-metrics', icon: <TeamOutlined />, label: '业务指标库' }
@@ -48,7 +43,6 @@ function buildMenu(role: UserRole): MenuItem[] {
     label: '指标库',
     children: role === 'ops' ? [techItem, bizItem, bizViewItem] : [bizItem, bizViewItem],
   }
-  const rulesItem: MenuItem = { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' }
   // 全局跨模块导航占位：当前模块高亮，其他模块以 disabled + Tooltip 提示
   const globalItems: MenuItem[] = [
     {
@@ -70,7 +64,7 @@ function buildMenu(role: UserRole): MenuItem[] {
       ],
     },
   ]
-  const base = role === 'ops' ? [collectGroup, metricLibGroup, rulesItem] : [metricLibGroup]
+  const base = role === 'ops' ? [collectorsItem, jobsItem, metricLibGroup, rulesItem] : [metricLibGroup]
   return [...base, ...globalItems]
 }
 
@@ -95,13 +89,13 @@ export function MainLayout({ children }: MainLayoutProps) {
     message.info(next === 'biz_owner' ? '已切换为业务负责人：可登记/更新业务指标，不可配置采集任务' : '已切换为运维工程师：可配置采集任务、查看全部指标库')
   }
 
-  // {v3.7} 业务视图为独立路由页；{v3.8} 采集分组子项按 ?view= 区分（采集器管理默认 / 采集 Job）
+  // {v3.27} F-09：选中态按 pathname 判定（/collectors=采集器管理，/scrape-jobs=采集 Job；/rules /metric-library 等沿用 pathname）
   const selectedKey =
-    location.pathname === '/scrape-jobs'
-      ? new URLSearchParams(location.search).get('view') === 'jobs'
-        ? '/scrape-jobs?view=jobs'
-        : '/scrape-jobs?view=collectors'
-      : location.pathname
+    location.pathname === '/collectors'
+      ? '/collectors'
+      : location.pathname === '/scrape-jobs'
+        ? '/scrape-jobs'
+        : location.pathname
   const openKeys = menuItems
     .filter((item): item is Exclude<typeof item, null> => {
       if (!item || !('children' in item) || !Array.isArray(item.children)) return false

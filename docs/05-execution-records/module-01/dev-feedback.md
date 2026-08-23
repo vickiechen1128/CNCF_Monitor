@@ -78,6 +78,7 @@
 - **决策（chenrt，2026-08-23）**：采集器管理拆为独立页面（建议路由 `/collectors`），采集 Job 保持 `/scrape-jobs`；「采集策略」一级 tab 下 Sider 二级含「采集器管理 / 采集 Job / 规则编辑 / 指标库」四个子项；`CollectorTemplatesTab` 由页内 Tab 改挂独立路由（组件主体可复用）。动线保持「先采集器管理（登记+默认配置）→ 再采集 Job（创建时自动套用默认值）」。
 - **待 design 分支更新原型**：原型折叠子目录模型 → 独立两页模型；导航 IA 同步 frontend-prototype-map §4。
 - **收割/实现**：映射表 D2/D4 与 §4 导航 IA 同步更新；task-sequence 新增 T01-F17（导航拆分）。
+- **补充裁定（chenrt，2026-08-23 21:4x）**：原型侧「采集策略」一级分组**取消**——采集器管理（/collectors）与采集 Job（/scrape-jobs）**提升为 Sider 一级导航项**，规则编辑为独立一级项（位于「指标库」之后，PRD §3.1）；原「四个子项」表述以本次裁定为准。生产实施（T01-F17）时「采集策略」分组是否保留按此裁定对齐。
 
 ### F-10：默认采集配置抽屉「标签模板」字段偏离原型（② 类，待修复）
 - **位置**：`ui-custom/web/src/pages/strategy/MappingDrawer.tsx:211-213`（label_template_id 为裸 Input + `disabled={!isEdit}` 新增禁填）；原型 `ScrapeJobsPage.tsx` L2075-2106（Select 选择器 + 自动预填 + 无模板创建引导）；PRD §5.1 L236（已有模板自动预填默认模板、无模板触发创建引导）

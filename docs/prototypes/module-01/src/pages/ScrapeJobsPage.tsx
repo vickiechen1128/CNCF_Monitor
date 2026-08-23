@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode, type Key } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 
 import {
   Card,
-  Divider,
   Table,
   Steps,
   Button,
@@ -28,7 +27,6 @@ import {
   List,
   Radio,
   Popover,
-  Dropdown,
   Collapse,
 } from 'antd'
 import type { TransferItem } from 'antd/es/transfer'
@@ -178,7 +176,7 @@ function V02Badge() {
 
 export default function ScrapeJobsPage() {
   const { modal, message } = App.useApp()
-  const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const [jobs, setJobs] = useState<ScrapeJob[]>(() => [...mockScrapeJobs])
   const [installations, setInstallations] = useState<ExporterInstallationConfirmation[]>(() => [
@@ -211,14 +209,13 @@ export default function ScrapeJobsPage() {
   const [form] = Form.useForm()
 
   // {v3.12} 采集 Job 列表网域查询条件（取代顶部全局网域切换器）
-  // {v3.19} 支持 URL 预选网域（来自 M09「去配置采集 Job」跳转：?view=jobs&network_domain=<id>，决策 D27-2）
+  // {v3.27} F-09：支持 URL 预选网域（来自 M09「去配置采集 Job」跳转：/scrape-jobs?network_domain=<id>，决策 D27-2）；视图由 pathname 派生，不再用 ?view=
   const [listDomainFilter, setListDomainFilter] = useState<string | undefined>(
     searchParams.get('network_domain') ?? undefined
   )
 
-  // {v3.8} 入口合一：视图由左侧导航「采集」分组子项驱动（?view=collectors/jobs，菜单即导航、页面无重复下拉）；
-  // 默认采集器管理（安装动线起点）
-  const view: 'collectors' | 'jobs' = searchParams.get('view') === 'jobs' ? 'jobs' : 'collectors'
+  // {v3.27} F-09：视图由 pathname 驱动（/collectors=采集器管理，/scrape-jobs=采集 Job）；/ci-exporter-mapping 兼容书签落位采集器管理视图
+  const view: 'collectors' | 'jobs' = location.pathname === '/scrape-jobs' ? 'jobs' : 'collectors'
   const [presets, setPresets] = useState<CITypeExporterMapping[]>(() => [...mockCITypeExporterMappings])
   // {v3.12} 采集器（ExporterTemplate）运行时容器：自研采集器登记后入池，可被映射引用
   const [exporterTemplates, setExporterTemplates] = useState(() => [...mockExporterTemplates])
@@ -235,6 +232,17 @@ export default function ScrapeJobsPage() {
   const watchPresetCategory = Form.useWatch('resource_category', presetForm) as ResourceCategory | undefined
   // {v3.16} D20：预设抽屉选中的采集器（用于只读展示安装指南）
   const watchPresetExporter = Form.useWatch('exporter_template_id', presetForm) as string | undefined
+  // {v3.27} F-11：标签模板变更唯一入口 = 轻量「更换/补配」抽屉（LabelTemplateSelectDrawer）；编辑抽屉（MappingDrawer）不再含 label_template_id 字段
+  const [labelSelectOpen, setLabelSelectOpen] = useState(false)
+  const [labelSelectMapping, setLabelSelectMapping] = useState<CITypeExporterMapping | null>(null)
+  const openLabelSelect = (record: CITypeExporterMapping) => {
+    setLabelSelectMapping(record)
+    setLabelSelectOpen(true)
+  }
+  const closeLabelSelect = () => {
+    setLabelSelectOpen(false)
+    setLabelSelectMapping(null)
+  }
   const presetCategoryCiTypes = (watchPresetCategory ? CI_TYPES_BY_CATEGORY[watchPresetCategory] : []) as CiType[]
   // {v3.12} 采集器管理 Tab 筛选：按 监控对象类型 + 来源（official / third_party / internal）
   const [collectorCiTypeFilter, setCollectorCiTypeFilter] = useState<CiType | undefined>(undefined)
@@ -266,25 +274,27 @@ export default function ScrapeJobsPage() {
     }
     setPresetDrawerOpen(true)
   }
+  // {v3.27} F-11：编辑抽屉不再含 label_template_id 字段，setFieldsValue 时剔除该字段，避免编辑保存时误清空标签模板
   const openPresetEdit = (record: CITypeExporterMapping) => {
     setEditingPreset(record)
+    const { label_template_id: _lt, has_label_template: _ht, ...rest } = record
+    void _lt
+    void _ht
     presetForm.setFieldsValue({
-      ...record,
+      ...rest,
       resource_category: CI_TYPE_CATEGORY_MAP[record.resource_type],
     })
     setPresetDrawerOpen(true)
   }
-  // {v3.18} D26：从 Job 表单缺模板 Alert 带参跳转（?view=collectors&edit=<mapping_id>）而来时，自动打开对应映射编辑抽屉
-  // （view 由 searchParams 派生，collectors 即默认视图，无需 setView）
+  // {v3.27} F-11：兼容 ?edit=<mapping_id> 深链——收敛为打开「更换/补配」轻量抽屉（编辑抽屉不再承载标签模板补配）
   const editMappingId = searchParams.get('edit')
   useEffect(() => {
     if (editMappingId) {
       const mapping = mockCITypeExporterMappings.find((m) => m.mapping_id === editMappingId)
-      // 外部 URL 参数（?edit=<mapping_id>）一次性同步打开抽屉，属「外部系统 → 状态」同步场景
+      // 外部 URL 参数（?edit=<mapping_id>）一次性同步打开轻量抽屉，属「外部系统 → 状态」同步场景
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (mapping) openPresetEdit(mapping)
+      if (mapping) openLabelSelect(mapping)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMappingId])
   const closePresetDrawer = () => {
     setPresetDrawerOpen(false)
@@ -1379,12 +1389,12 @@ export default function ScrapeJobsPage() {
         const mapping = getMapping(record)
         if (mapping && !mapping.has_label_template) {
           return (
-            // {v3.18} D26：点击打开该 Job 对应映射的编辑抽屉（修复空跳转）
+            // {v3.27} F-11：点击打开该 Job 对应映射的「更换/补配」轻量抽屉（收敛为唯一标签模板变更入口）
             <Tooltip title="该监控对象类型的默认采集配置尚未关联标签模板，点击立即补配">
               <Tag
                 color="warning"
                 style={{ cursor: 'pointer' }}
-                onClick={() => mapping && openPresetEdit(mapping)}
+                onClick={() => mapping && openLabelSelect(mapping)}
               >
                 标签待配置
               </Tag>
@@ -1636,17 +1646,14 @@ export default function ScrapeJobsPage() {
                           type="link"
                           size="small"
                           style={{ padding: 0, fontSize: 11 }}
-                          // {v3.18} D26：同页直接打开本行编辑抽屉（修复空跳转）
-                          onClick={() => openPresetEdit(record)}
+                          // {v3.27} F-11：同页直接打开本行「更换/补配」轻量抽屉（收敛为唯一标签模板变更入口）
+                          onClick={() => openLabelSelect(record)}
                         >
                           补配
                         </Button>
                       </Space>
                     )
                   }
-                  const siblings = mockLabelTemplates.filter(
-                    (t) => t.resource_category === tpl.resource_category && t.template_id !== tpl.template_id
-                  )
                   return (
                     <Space direction="vertical" size={2}>
                       <Space size={4}>
@@ -1688,21 +1695,15 @@ export default function ScrapeJobsPage() {
                         <Text type="secondary" style={{ fontSize: 11 }}>
                           {RESOURCE_CATEGORY_MAP[tpl.resource_category]} · {tpl.template_id}
                         </Text>
-                        {siblings.length > 0 && (
-                          <Dropdown
-                            menu={{
-                              items: siblings.map((s) => ({
-                                key: s.template_id,
-                                label: s.name,
-                                onClick: () => handlePresetLabelTemplateChange(record, s.template_id),
-                              })),
-                            }}
-                          >
-                            <Button type="link" size="small" style={{ padding: 0, fontSize: 11 }} icon={<SwapOutlined />}>
-                              更换
-                            </Button>
-                          </Dropdown>
-                        )}
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ padding: 0, fontSize: 11 }}
+                          icon={<SwapOutlined />}
+                          onClick={() => openLabelSelect(record)}
+                        >
+                          更换
+                        </Button>
                       </Space>
                     </Space>
                   )
@@ -1996,6 +1997,16 @@ export default function ScrapeJobsPage() {
         }
       >
         <Form form={presetForm} layout="vertical" style={{ marginTop: 8 }}>
+          {/* {v3.27} F-11：编辑态快照语义提示——变更仅影响新建 Job，不影响已存在 Job；存量 Job 采用新参数需到采集 Job 内手动「同步映射默认值」 */}
+          {editingPreset && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="编辑默认采集配置的影响范围"
+              description="本修改仅影响新建采集 Job（创建时自动套用新默认值）；已存在的 Job 不会自动变更。如需存量 Job 采用新参数，请在对应采集 Job 内手动「同步映射默认值」。"
+            />
+          )}
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item label="资源类别" name="resource_category" rules={[{ required: true, message: '请选择资源类别' }]}>
@@ -2066,44 +2077,7 @@ export default function ScrapeJobsPage() {
                 ))}
             </Select>
           </Form.Item>
-          {/* {v3.18} D26/D25-A：Divider 分组——声明"标签模板与采集器正交、可选"（不是采集器的一部分） */}
-          <Divider style={{ margin: '4px 0 12px' }} plain>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              标签模板（与采集器正交，可选）
-            </Text>
-          </Divider>
-          {/* {v3.17} D25-A：默认标签模板（可选）——按资源类别过滤；创建 Job 时自动预填；与采集器正交，由 Module_07 维护 */}
-          <Form.Item
-            label="默认标签模板（可选）"
-            name="label_template_id"
-            extra="该监控对象类型的默认标签模板：创建采集 Job 时自动预填，可更换；不选则创建 Job 时再选择。标签模板与采集器正交，由 Module_07 维护"
-          >
-            <Select
-              placeholder={watchPresetCategory ? '请选择（可选）' : '请先选择资源类别'}
-              allowClear
-              showSearch
-              optionFilterProp="children"
-              notFoundContent={
-                <Space direction="vertical" size={4} style={{ padding: '8px 0' }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {watchPresetCategory ? '该资源类别尚无标签模板，请先创建' : '请先选择资源类别'}
-                  </Text>
-                  <Typography.Link href={MODULE_LINKS.module07} style={{ fontSize: 12 }}>
-                    前往标签模板管理（Module_07）→
-                  </Typography.Link>
-                </Space>
-              }
-            >
-              {mockLabelTemplates
-                .filter((t) => (watchPresetCategory ? t.resource_category === watchPresetCategory : true))
-                .map((t) => (
-                  <Option key={t.template_id} value={t.template_id}>
-                    {t.name}（{RESOURCE_CATEGORY_MAP[t.resource_category]} · {t.mappings.length} 条映射）
-                    {t.is_default ? ' · 默认' : ''}
-                  </Option>
-                ))}
-            </Select>
-          </Form.Item>
+          {/* {v3.27} F-11：MappingDrawer 完全移除 label_template_id 字段（PRD §5.1）；标签模板唯一变更入口 = 列表「更换/补配」轻量抽屉（LabelTemplateSelectDrawer），见下方 Drawer */}
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item label="默认端口" name="default_port" rules={[{ required: true, message: '请输入端口' }]} extra="预置参数 = 官方默认值参考；自研采集器请按实际部署填写">
@@ -2153,6 +2127,113 @@ export default function ScrapeJobsPage() {
             )}
           </Form.Item>
         </Form>
+      </Drawer>
+
+      {/* {v3.27} F-11：标签模板「更换 / 补配」轻量抽屉——唯一变更入口；带入只读上下文，候选按资源类别过滤并高亮当前模板 */}
+      <Drawer
+        title="更换 / 补配标签模板"
+        width={480}
+        open={labelSelectOpen}
+        onClose={closeLabelSelect}
+        footer={
+          <Space>
+            <Button onClick={closeLabelSelect}>关闭</Button>
+          </Space>
+        }
+      >
+        {labelSelectMapping &&
+          (() => {
+            const cat = CI_TYPE_CATEGORY_MAP[labelSelectMapping.resource_type]
+            const candidates = mockLabelTemplates.filter((t) => t.resource_category === cat)
+            return (
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Descriptions size="small" column={1} bordered>
+                  <Descriptions.Item label="监控对象类型">
+                    {CI_TYPE_LABEL[labelSelectMapping.resource_type]}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="资源类别">{RESOURCE_CATEGORY_MAP[cat]}</Descriptions.Item>
+                  <Descriptions.Item label="默认采集器">
+                    {templateNameMap.get(labelSelectMapping.exporter_template_id) ??
+                      labelSelectMapping.exporter_template_id}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="当前标签模板">
+                    {labelSelectMapping.label_template_id
+                      ? labelNameMap.get(labelSelectMapping.label_template_id) ??
+                        labelSelectMapping.label_template_id
+                      : '未配置'}
+                  </Descriptions.Item>
+                </Descriptions>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  为该默认采集配置更换 / 补配标签模板（按资源类别过滤，由 Module_07 维护）：
+                </Text>
+                {candidates.length === 0 ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="该资源类别尚无标签模板"
+                    description={
+                      <Space direction="vertical" size={4}>
+                        <Text style={{ fontSize: 12 }}>
+                          请先到 Module_07 创建该资源类别的标签模板，创建后采集 Job 将自动继承。
+                        </Text>
+                        <Typography.Link href={MODULE_LINKS.module07} style={{ fontSize: 12 }}>
+                          前往标签模板管理（Module_07）→
+                        </Typography.Link>
+                      </Space>
+                    }
+                  />
+                ) : (
+                  <List
+                    size="small"
+                    bordered
+                    dataSource={candidates}
+                    renderItem={(t) => {
+                      const isCurrent = t.template_id === labelSelectMapping.label_template_id
+                      return (
+                        <List.Item
+                          actions={[
+                            isCurrent ? (
+                              <Tag color="blue" key="cur">
+                                当前
+                              </Tag>
+                            ) : (
+                              <Button
+                                key="pick"
+                                type="link"
+                                size="small"
+                                onClick={() => {
+                                  handlePresetLabelTemplateChange(labelSelectMapping, t.template_id)
+                                  closeLabelSelect()
+                                }}
+                              >
+                                选为默认
+                              </Button>
+                            ),
+                          ]}
+                        >
+                          <List.Item.Meta
+                            title={
+                              <Space size={4}>
+                                {t.name}
+                                {t.is_default ? (
+                                  <Tag color="gold" style={{ fontSize: 11 }}>
+                                    默认
+                                  </Tag>
+                                ) : (
+                                  <Tag style={{ fontSize: 11 }}>自定义</Tag>
+                                )}
+                              </Space>
+                            }
+                            description={`${RESOURCE_CATEGORY_MAP[t.resource_category]} · ${t.template_id} · ${t.mappings.length} 条映射`}
+                          />
+                        </List.Item>
+                      )
+                    }}
+                  />
+                )}
+              </Space>
+            )
+          })()}
       </Drawer>
 
       <Drawer
@@ -2636,11 +2717,7 @@ export default function ScrapeJobsPage() {
                                     size="small"
                                     type="primary"
                                     style={{ backgroundColor: '#0ECDEB', borderColor: '#0ECDEB', color: '#fff' }}
-                                    onClick={() =>
-                                      navigate(
-                                        `/ci-exporter-mapping?edit=${currentTypeMapping?.mapping_id ?? ''}`
-                                      )
-                                    }
+                                    onClick={() => currentTypeMapping && openLabelSelect(currentTypeMapping)}
                                   >
                                     立即补配（设置该类型的默认标签模板）
                                   </Button>
@@ -3251,7 +3328,10 @@ export default function ScrapeJobsPage() {
                     <Tag
                       color="warning"
                       style={{ cursor: 'pointer' }}
-                      onClick={() => getMapping(detailJob) && openPresetEdit(getMapping(detailJob)!)}
+                      onClick={() => {
+                        const m = getMapping(detailJob)
+                        if (m) openLabelSelect(m)
+                      }}
                     >
                       标签待配置
                     </Tag>
