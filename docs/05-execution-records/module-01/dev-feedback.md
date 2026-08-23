@@ -52,9 +52,50 @@
 - **决策（chenrt/PM，2026-08-23）**：**选①按契约放开编辑态改网域**。T01-F11 已落地：`ScrapeJobFormDrawer` 网域字段去掉 `disabled={isEdit}`，编辑态可改网域（目标网域仍仅已纳管非冻结可选）。冻结核验与实例同域一致性由后端接口约束，前端沿用已纳管非冻结过滤。
 - **验收口径**：与 frontend-prototype-map §6/§7（FIX-2）、task-sequence T01-F11 一致。
 
+### F-08：采集 Job 表单 / 默认采集配置表单「资源类别+监控对象类型」被合并为单 Select（F1-8，T01-F13）
+- **位置**：`ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`（单「监控对象类型」Select，OptGroup 级联）、`MappingDrawer.tsx`（单「监控类型」Select，OptGroup 级联）
+- **问题**：原型为「资源类别 + 监控对象类型」两个独立字段（两级级联），生产一度合并为单个 Select（OptGroup），被 frontend-prototype-map §3.2/§6.1 记为偏离 F1-8，用户明确要求恢复两字段布局。
+- **决策（chenrt，2026-08-23）**：拆回两个独立 Form.Item：`resource_category`（选项=MONITOR_TYPE_CASCADE 各 category，展示 CATEGORY_MAP）+ `monitor_type`（保留契约字段名，选项按已选 category 过滤，两级级联）；选定 monitor_type 仍沿用 handleMonitorTypeChange 带出默认采集器与参数；编辑态由 record.monitor_type 反推预填 resource_category；提交载荷仍为 single monitor_type（resource_category 仅表单级联用，不落后端字段）；MappingDrawer 编辑态两字段保持 disabled。
+- **留痕**：T01-F13 落地，见 frontend-prototype-map §6.1/§7；影响文件按 `fe-fix-monitor-type-split` 分组。
+
 ### F-03 补充：参数同步列三态回显（T01-F12）
 - **背景**：dev F-03 登记「`mapping_overrides` MVP 不持久化」。T01-F12 在未落库前提下纠前端口径：黑盒 Job 显「同步」；有覆盖显「已覆盖 n 项」（蓝）；无覆盖时对比默认映射快照（ciExporterMappings is_default）——不一致显「待同步」（橙）+ Tooltip「映射默认值已变更」，一致显「已同步」。
 - **留痕**：`ScrapeJobListPage` 参数同步列按 `mapping_overrides.length` + 默认映射快照对比实现异常驱动三态；后续若后端落库 `mapping_overrides`（dev F-03 解除），可直接升级为按持久化覆盖数量回显。
+
+## 2026-08-23（复审观察项 O1/O2/O3 修复，用户口径）
+> 定向复审观察项 O1/O2/O3 已由用户裁定按 §6.5 待修复并完成 T01-F14~F16。
+
+### O1/O2/O3 已按用户口径修复（T01-F14 ~ T01-F16）
+- **O1（T01-F14）**：Job 列表「标签模板」列「待配置」橙 Tag 改异常驱动 —— 正常继承（job.label_template_id 命中）只显模板名、不显「待配置」Tag；仅当 Job 未关联标签模板、但该 monitor_type 默认映射已挂 label_template_id 时显橙色「待配置」（可点击补配引导）；其余显 `-`。复用 `labelTemplateById` / `defaultMappingByMonitorType`，不新增后端调用。
+- **O2（T01-F15）**：`ExporterTemplateDrawer` 新增可选 prop `initialMonitorTypes?: MonitorType[]`，打开抽屉时预填 `supported_monitor_types`；`ScrapeJobFormDrawer` 登记调用以当前已选 `monitor_type`（useMemo 稳定引用）传入；`CollectorTemplatesTab` 直接登记不传（不预填，行为不变）。
+- **O3（T01-F16）**：`ScrapeJobFormDrawer`「网域」空态引导由指向 M07 的文字改为指向 M06 的可点击链接（`useNavigate('/admin/domains')`，`系统与平台管理 → 网域管理`）；文案体现「默认域自动同步已纳管，未纳管请前往网域管理纳管」，不再写 M07。
+
+## 2026-08-23（用户裁定：导航独立两页 + 标签模板口径偏离）
+
+### F-09：采集器管理与采集 Job 由「页内 Tab」改为「两个独立页面」（① 类，已决策，待 design 更新原型）
+- **位置**：`ui-custom/web/src/pages/strategy/CollectorTemplatesTab.tsx`（现为 `/scrape-jobs?tab=collectors` 页内 Tab）；`MainLayout.tsx` 采集策略一级 tab 的 Sider 二级；原型 `docs/prototypes/module-01/src/pages/ScrapeJobsPage.tsx` 折叠子目录模型（D2/D4）
+- **问题**：生产把「采集器管理」做成采集 Job 页内 Tab（`?tab=collectors`），与原型「采集分组折叠子项」及用户动线「先配置采集器管理、再配置采集 Job」不符；用户裁定不启用折叠，改为**两个独立页面**。
+- **决策（chenrt，2026-08-23）**：采集器管理拆为独立页面（建议路由 `/collectors`），采集 Job 保持 `/scrape-jobs`；「采集策略」一级 tab 下 Sider 二级含「采集器管理 / 采集 Job / 规则编辑 / 指标库」四个子项；`CollectorTemplatesTab` 由页内 Tab 改挂独立路由（组件主体可复用）。动线保持「先采集器管理（登记+默认配置）→ 再采集 Job（创建时自动套用默认值）」。
+- **待 design 分支更新原型**：原型折叠子目录模型 → 独立两页模型；导航 IA 同步 frontend-prototype-map §4。
+- **收割/实现**：映射表 D2/D4 与 §4 导航 IA 同步更新；task-sequence 新增 T01-F17（导航拆分）。
+
+### F-10：默认采集配置抽屉「标签模板」字段偏离原型（② 类，待修复）
+- **位置**：`ui-custom/web/src/pages/strategy/MappingDrawer.tsx:211-213`（label_template_id 为裸 Input + `disabled={!isEdit}` 新增禁填）；原型 `ScrapeJobsPage.tsx` L2075-2106（Select 选择器 + 自动预填 + 无模板创建引导）；PRD §5.1 L236（已有模板自动预填默认模板、无模板触发创建引导）
+- **问题**：生产把标签模板关联重心放在列表「查看/更换/补配」两行卡片，抽屉内 label_template_id 退化为「新增禁用 + 手填 ID」，丢失了 PRD/原型「新增即自动预填默认模板 + Select 选择器 + 无模板创建引导（立即创建/稍后再说）」的要求；Job 侧标签模板非必填（✅ 与 PRD 一致，无偏离）。
+- **决策（chenrt，2026-08-23）**：MappingDrawer label_template_id 改为 Select 选择器（按资源类别过滤 + allowClear），新增态可预填/可选（不再 disabled）；无可用模板时提供「前往标签模板管理（M07）创建」引导；已有默认模板自动预填。标签模板仍非必填、与采集器正交。
+- **实现**：task-sequence 新增 T01-F18。
+
+## 2026-08-23（用户裁定：标签模板变更入口收敛，防双入口不同步）
+
+### F-11：默认采集配置「编辑」抽屉剥离标签模板字段，标签模板变更入口收敛到「更换/补配」（② 类，已裁决）
+- **位置**：`ui-custom/web/src/pages/strategy/MappingDrawer.tsx`（编辑默认采集配置抽屉）、`CollectorTemplatesTab.tsx`（列表「标签模板」列 查看/更换/补配）、`LabelTemplateSelectDrawer.tsx`（更换/补配轻量抽屉）、`platform/strategy/ci-exporter/update.go`（PUT 部分更新）
+- **问题**：此前「更换/补配」与「编辑」都指向同一 mapping 的 `label_template_id`，两个入口写同一字段 → 界面数据易不同步；且「更换/补配」打开内容与「编辑」雷同，违背「换/配标签时不改采集器信息」的人工裁定。
+- **决策（chenrt，2026-08-23，替代 F-10 的 MappingDrawer 内联编辑方案）**：
+  1. **入口收敛**：`MappingDrawer`（新增+编辑）**完全移除 `label_template_id` 字段**，仅保留采集器/参数/默认标记；标签模板的**唯一变更入口** = 列表「标签模板」列「更换/补配」轻量抽屉（`LabelTemplateSelectDrawer`），后端 PUT 仍支持部分更新 `label_template_id`（§6.2.1）。
+  2. **体验增强**：轻量抽屉带入上下文（监控对象类型 / 资源类别 / 默认采集器，只读），明确「在给哪条默认采集配置换/配标签」；「更换」模式高亮回显**当前已选模板**（PRD L241「更换=同资源类别其他模板」）；候选按资源类别过滤，空态提供「前往标签模板管理创建」引导。
+- **深链核对结论**：生产未实现「打开本行编辑抽屉补配」的 `edit=`/`view=collectors` 深链——Job 表单标签引导（F1-4，`ScrapeJobFormDrawer.tsx:405`）仅为 `message.info` 提示「前往标签模板管理维护（M07）」，非映射编辑抽屉跳转；故无待重定向入口。
+- **待 PRD/原型同步**：PRD §5.1 默认采集配置实体/§6.2.1 增补「标签模板经『更换/补配』轻量入口维护、编辑抽屉不含该字段」；原型配合收敛动线。
+- **留痕**：`LabelTemplateSelectDrawer`、`MappingDrawer` 按此实现；F-10 内联 Select 方案被本项替代。另在 `MappingDrawer` 编辑态新增快照语义 info 提示「变更仅影响新建 Job，不影响已存在 Job…（如需存量 Job 采用新参数，请在采集 Job 内手动『同步映射默认值』）」，依据 PRD §5.4 参数继承与同步策略（L209-216/L465-467）——修饰该类配置时向用户说明为何无需 M09 变更确认。
 
 ## 收割状态
 - [ ] F-01 已收割（chenrt 修订 PRD §5.6 / §6.2.5）
@@ -64,3 +105,4 @@
 - [ ] F-05 已登记（M09 未落地，跳转占位）
 - [ ] F-06 已登记（NetworkDomain.token 回显，M06/M09 跟进）
 - [ ] F-07 已裁决（编辑态网域按契约放开，T01-F11 落地）
+- [ ] F-11 未收割（chenrt 修订 PRD §5.1/§6.2.1：编辑抽屉剥离标签模板字段，更换/补配轻量抽屉为唯一入口；同步原型动线）
