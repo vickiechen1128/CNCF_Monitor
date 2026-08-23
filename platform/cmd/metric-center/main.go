@@ -24,6 +24,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
+	"github.com/metriccenter/metriccenter/platform/configcenter"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 )
@@ -84,9 +85,6 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 
 func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	platform := g.Group("/platform")
-	config := platform.Group("/config")
-	config.GET("/preview", configPreviewHandler)
-	config.POST("/apply", configApplyHandler)
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
 	networkdomain.RegisterRoutes(platform, db.DB)
@@ -101,6 +99,11 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	// Module 01 (T01-09 收口): 监控策略——采集器模板 + 默认采集配置 + 采集 Job
 	// （实例候选/安装确认/预览）+ 规则挂载 + 技术指标库，均在 /api/v2/platform/* 下。
 	strategy.RegisterRoutes(platform, db.DB)
+
+	// Module 09 (T09-07 收口): 网域与边缘配置中心——网域监控纳管、配置草稿、
+	// 配置版本与下发记录（含 retry/rollback），统一挂载到 /api/v2/platform/*。
+	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
+	configcenter.RegisterRoutes(platform, db.DB)
 }
 
 func healthHandler(c *gin.Context) {
@@ -128,16 +131,6 @@ func statusHandler(c *gin.Context) {
 		"version": "0.1.0-mvp",
 		"mode":    "mvp",
 	})
-}
-
-func configPreviewHandler(c *gin.Context) {
-	response.OK(c, gin.H{
-		"prometheus_yml": "# TODO: 根据 CMDB + 标签模板生成\n",
-	})
-}
-
-func configApplyHandler(c *gin.Context) {
-	response.OK(c, gin.H{"ok": true, "message": "配置下发接口占位"})
 }
 
 func prometheusProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {
