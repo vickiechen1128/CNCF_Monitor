@@ -99,6 +99,8 @@ describe('ScrapeJobListPage', () => {
     renderPage()
 
     expect(await screen.findByText('job-1')).toBeInTheDocument()
+    // MainLayout 导航外壳已包覆：顶栏品牌标题可见
+    expect(screen.getByText('MetricCenter')).toBeInTheDocument()
     // 「待下发」「已生效」同时出现在下发状态列与状态聚合列，需匹配多个
     expect(screen.getAllByText('待下发').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)

@@ -99,12 +99,12 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         label_template_id: record.label_template_id,
         auth_type: record.auth_type,
         username: record.username,
-        token: record.token,
+        // 认证密文仅存储不回显（决策31）：编辑回填 token/password 一律置空，仅保留 auth 类型选择与密文占位说明
+        token: undefined,
         tls_skip_verify: record.tls_skip_verify,
         ca_file: record.ca_file,
         blackbox_module: record.blackbox_module,
         blackbox_targets: record.blackbox_targets,
-        // 认证密文仅存储不回显明文（决策31），编辑回填一律置空
         password: undefined,
       })
       setParamsState((record.mapping_overrides?.length ?? 0) > 0 ? 'pending' : 'none')

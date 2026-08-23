@@ -8,6 +8,7 @@ import type { ResourceCategory } from '../../types/resource'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { MainLayout } from '../../layouts/MainLayout'
 import { CATEGORY_MAP, METRIC_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 
 const { Text } = Typography
@@ -120,13 +121,14 @@ export function MetricLibraryPage() {
   const currentTypes = MONITOR_TYPE_CASCADE.find((g) => g.category === category)?.types ?? []
 
   return (
-    <Card
-      extra={
-        <Button icon={<ReloadOutlined />} onClick={reload}>
-          刷新
-        </Button>
-      }
-    >
+    <MainLayout>
+      <Card
+        extra={
+          <Button icon={<ReloadOutlined />} onClick={reload}>
+            刷新
+          </Button>
+        }
+      >
       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
         技术指标库（ExporterMetricLibrary）：面向采集目标的标准指标字典，仅供查看。业务指标库预留后续版本。
       </Typography.Paragraph>
@@ -232,6 +234,7 @@ export function MetricLibraryPage() {
         }}
       />
     </Card>
+    </MainLayout>
   )
 }
 

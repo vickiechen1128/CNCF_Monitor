@@ -27,6 +27,7 @@ import type { MonitorType, ScrapeJob } from '../../types/strategy'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { MainLayout } from '../../layouts/MainLayout'
 import { CHANGE_STATUS_MAP, JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 import { useScrapeJobs } from './useScrapeJobs'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
@@ -139,7 +140,8 @@ function JobsTab() {
       dataIndex: 'exporter_template_id',
       key: 'exporter_template_id',
       width: 160,
-      render: (v?: string) => (v ? <EllipsisText>{v}</EllipsisText> : '-'),
+      // 本模块未接入 M07/采集器名称解析；禁止裸露 ID，展示语义化「默认采集器」
+      render: (v?: string) => (v ? <EllipsisText>默认采集器</EllipsisText> : '-'),
     },
     {
       title: '已选实例',
@@ -331,14 +333,16 @@ export function ScrapeJobListPage() {
   }
 
   return (
-    <Tabs
-      activeKey={activeTab}
-      onChange={handleTabChange}
-      items={[
-        { key: 'jobs', label: '采集 Job', children: <JobsTab /> },
-        { key: 'collectors', label: '采集器管理', children: <CollectorTemplatesTab /> },
-      ]}
-    />
+    <MainLayout>
+      <Tabs
+        activeKey={activeTab}
+        onChange={handleTabChange}
+        items={[
+          { key: 'jobs', label: '采集 Job', children: <JobsTab /> },
+          { key: 'collectors', label: '采集器管理', children: <CollectorTemplatesTab /> },
+        ]}
+      />
+    </MainLayout>
   )
 }
 

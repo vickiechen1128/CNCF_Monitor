@@ -158,7 +158,7 @@ export function CollectorTemplatesTab() {
       render: (_: unknown, r: CITypeExporterMapping) => (
         <Space direction="vertical" size={4}>
           <Space size={4}>
-            <Text strong>{r.has_label_template ? (r.label_template_id ?? '已挂模板') : '待配置'}</Text>
+            <Text strong>{r.has_label_template ? (r.label_template_id ? '已挂模板' : '待配置') : '未配置'}</Text>
             {!r.has_label_template && <Tag color="orange">待配置</Tag>}
           </Space>
           <Space size={0}>
@@ -281,7 +281,7 @@ export function CollectorTemplatesTab() {
             <div>
               <Text type="secondary">标签模板</Text>
               <div>
-                <Text strong>{previewMapping.has_label_template ? previewMapping.label_template_id || '已挂模板' : '待配置'}</Text>
+                <Text strong>{previewMapping.has_label_template ? (previewMapping.label_template_id ? '已挂模板' : '待配置') : '未配置'}</Text>
               </div>
             </div>
             <div>

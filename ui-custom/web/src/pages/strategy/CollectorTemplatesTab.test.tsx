@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { CollectorTemplatesTab } from './CollectorTemplatesTab'
 
@@ -154,5 +154,21 @@ describe('CollectorTemplatesTab', () => {
     // 抽屉打开后展示登记表单（采集器名称必填输入 + antd 两字按钮自动加空格「登 记」）
     expect(screen.getByPlaceholderText('例如：mysql-exporter')).toBeInTheDocument()
     expect(screen.getByText('登 记')).toBeInTheDocument()
+  })
+
+  it('requires default_port/metrics_path/scheme when source=internal on register', async () => {
+    mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
+
+    render(<CollectorTemplatesTab />)
+    fireEvent.click(screen.getByText('登记采集器'))
+    await screen.findByPlaceholderText('例如：mysql-exporter')
+
+    // source 默认 internal（内部自建）：default_port/metrics_path/scheme 动态必填
+    const drawer = screen.getByPlaceholderText('例如：mysql-exporter').closest('.ant-drawer') as HTMLElement
+    fireEvent.click(within(drawer).getByRole('button', { name: /登\s*记/ }))
+    expect(await screen.findByText('请输入默认端口')).toBeInTheDocument()
+    expect(screen.getByText('请输入采集路径')).toBeInTheDocument()
+    // 协议 error 文案与 placeholder 同为「请选择协议」，需容忍多处匹配
+    expect(screen.getAllByText('请选择协议').length).toBeGreaterThanOrEqual(1)
   })
 })

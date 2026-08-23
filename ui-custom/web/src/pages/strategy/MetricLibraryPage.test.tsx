@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { MetricLibraryPage } from './MetricLibraryPage'
 
@@ -47,9 +48,14 @@ describe('MetricLibraryPage', () => {
       },
     })
 
-    render(<MetricLibraryPage />)
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
 
     expect(await screen.findByText('node_cpu_usage_1')).toBeInTheDocument()
+    expect(screen.getByText('MetricCenter')).toBeInTheDocument()
     expect(screen.getAllByText('仪表').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Linux 主机').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('node-exporter').length).toBeGreaterThanOrEqual(1)
@@ -59,7 +65,11 @@ describe('MetricLibraryPage', () => {
   it('shows empty state 暂无指标', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
-    render(<MetricLibraryPage />)
+    render(
+      <MemoryRouter>
+        <MetricLibraryPage />
+      </MemoryRouter>,
+    )
     expect(await screen.findByText('暂无指标')).toBeInTheDocument()
   })
 })

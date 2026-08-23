@@ -41,6 +41,9 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess }: ExporterTe
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
+  // source=internal（内部自建）时 default_port/metrics_path/scheme 为动态必填（契约 §3），其余来源可选
+  const source = (Form.useWatch('source', form) ?? 'internal') as ExporterTemplateInput['source']
+
   const handleSubmit = async () => {
     let values: ExporterTemplateInput
     try {
@@ -133,19 +136,34 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess }: ExporterTe
         </Row>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item label="默认端口" name="default_port" rules={[{ type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' }]}>
+            <Form.Item
+              label="默认端口"
+              name="default_port"
+              rules={[
+                ...(source === 'internal' ? [{ required: true, message: '请输入默认端口' }] : []),
+                { type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' },
+              ]}
+            >
               <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：9104" />
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label="采集路径" name="metrics_path">
+            <Form.Item
+              label="采集路径"
+              name="metrics_path"
+              rules={source === 'internal' ? [{ required: true, message: '请输入采集路径' }] : []}
+            >
               <Input placeholder="/metrics（默认）" maxLength={128} />
             </Form.Item>
           </Col>
         </Row>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item label="协议" name="scheme">
+            <Form.Item
+              label="协议"
+              name="scheme"
+              rules={source === 'internal' ? [{ required: true, message: '请选择协议' }] : []}
+            >
               <Select placeholder="请选择协议">
                 <Select.Option value="http">http</Select.Option>
                 <Select.Option value="https">https</Select.Option>

@@ -24,6 +24,7 @@ import type { MonitoringRule } from '../../types/strategy'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { MainLayout } from '../../layouts/MainLayout'
 import { CHANGE_STATUS_MAP, CONTENT_MODE_MAP } from './strategyConstants'
 import { RuleMountDrawer } from './RuleMountDrawer'
 
@@ -222,18 +223,19 @@ export function RulesPage() {
   }, [toggleEnabled, removeRule])
 
   return (
-    <Card
-      extra={
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={reload}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setMountOpen(true)}>
-            挂载规则
-          </Button>
-        </Space>
-      }
-    >
+    <MainLayout>
+      <Card
+        extra={
+          <Space>
+            <Button icon={<ReloadOutlined />} onClick={reload}>
+              刷新
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setMountOpen(true)}>
+              挂载规则
+            </Button>
+          </Space>
+        }
+      >
       {error && (
         <Alert
           type="error"
@@ -347,7 +349,8 @@ export function RulesPage() {
           </Space>
         )}
       </Drawer>
-    </Card>
+      </Card>
+    </MainLayout>
   )
 }
 

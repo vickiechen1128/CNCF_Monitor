@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { RulesPage } from './RulesPage'
 
@@ -64,9 +65,14 @@ describe('RulesPage', () => {
       },
     })
 
-    render(<RulesPage />)
+    render(
+      <MemoryRouter>
+        <RulesPage />
+      </MemoryRouter>,
+    )
 
     expect(await screen.findByText('rule-1')).toBeInTheDocument()
+    expect(screen.getByText('MetricCenter')).toBeInTheDocument()
     expect(screen.getAllByText('文件透传').length).toBeGreaterThanOrEqual(1)
     // 两条 `- alert:` → 规则条数 2
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
@@ -78,14 +84,22 @@ describe('RulesPage', () => {
   it('shows empty state 暂无规则', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
-    render(<RulesPage />)
+    render(
+      <MemoryRouter>
+        <RulesPage />
+      </MemoryRouter>,
+    )
     expect(await screen.findByText('暂无规则')).toBeInTheDocument()
   })
 
   it('opening mount drawer renders rule mount', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
-    render(<RulesPage />)
+    render(
+      <MemoryRouter>
+        <RulesPage />
+      </MemoryRouter>,
+    )
     fireEvent.click(screen.getByText('挂载规则'))
     expect(screen.getByTestId('rule-mount-drawer')).toBeInTheDocument()
   })
