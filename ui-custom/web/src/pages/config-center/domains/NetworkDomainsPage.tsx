@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   Card,
+  Collapse,
   ConfigProvider,
   Descriptions,
   Drawer,
@@ -27,6 +28,7 @@ import {
   DownOutlined,
   EditOutlined,
   EyeOutlined,
+  InfoCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -86,8 +88,8 @@ export function NetworkDomainsPage() {
   const [plainToken, setPlainToken] = useState<{ title: string; token: string; tokenMasked?: string; domainName?: string } | null>(null)
   const guideRef = useRef<HTMLDivElement>(null)
   const [guideHighlight, setGuideHighlight] = useState(false)
-
-  const hasAgentPull = data.items.some((d) => d.channel === 'agent_pull')
+  // 安装指引折叠态（PRD §1109 常驻提示区）：默认收起，local 通道用户无需细看；agent_pull 纳管成功自动展开
+  const [guideOpen, setGuideOpen] = useState(false)
 
   // M06 网域管理 -> M09 网域纳管深链：预选网域并打开纳管抽屉（R4）
   const [searchParams] = useSearchParams()
@@ -134,8 +136,9 @@ export function NetworkDomainsPage() {
         })
       }
       reload()
-      // 决策 17：纳管成功滚动并高亮顶部安装指引区（agent_pull）
+      // 决策 17：纳管成功滚动并高亮顶部安装指引区（agent_pull），并展开指引
       if (onboardDomain.channel === 'agent_pull') {
+        setGuideOpen(true)
         window.setTimeout(() => {
           setGuideHighlight(true)
           guideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -331,8 +334,8 @@ export function NetworkDomainsPage() {
     <MainLayout>
       <ConfigProvider locale={config}>
         <Card title="网域纳管">
-        {hasAgentPull && (
-          <div
+        {/* PRD §1109：安装指引为页面顶部常驻提示区（不随是否有 agent_pull 网域而隐藏） */}
+        <div
             ref={guideRef}
             style={{
               marginBottom: 16,
@@ -342,31 +345,43 @@ export function NetworkDomainsPage() {
               transition: 'outline 0.3s',
             }}
           >
-            <Alert
-              type="info"
-              showIcon
-              message="新网域接入操作流程（安装指引）"
-              description={
-                <div>
-                  <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                    适用于所有已纳管的 <Text code>agent_pull</Text> 通道网域（远端/隔离采集节点）；local 通道网域（如 default）由中心直接采集，
-                    无需安装 Edge Sync Agent。
-                  </Typography.Paragraph>
-                  <Steps
-                    size="small"
-                    direction="vertical"
-                    current={-1}
-                    items={[
-                      { title: '在网域纳管页完成监控纳管', description: '成功后自动签发 Token 与 Remote Write URL' },
-                      { title: '下载边缘一体化离线包并部署', description: 'Edge Sync Agent 由 systemd 管理，自动拉起采集器与 exporter' },
-                      { title: 'Agent 心跳回连中心', description: '配置包自动拉取，运行态与心跳状态落到本页运行状态列' },
-                    ]}
-                  />
-                </div>
-              }
+            <Collapse
+              ghost
+              size="small"
+              activeKey={guideOpen ? ['guide'] : []}
+              onChange={(k) => setGuideOpen(k.includes('guide'))}
+              items={[
+                {
+                  key: 'guide',
+                  label: (
+                    <Space size={8}>
+                      <InfoCircleOutlined style={{ color: '#1677ff' }} />
+                      <Text strong>新网域接入操作流程（安装指引）</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>点击展开（local 通道网域无需查看）</Text>
+                    </Space>
+                  ),
+                  children: (
+                    <div>
+                      <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                        适用于所有已纳管的 <Text code>agent_pull</Text> 通道网域（远端/隔离采集节点）；local 通道网域（如 default）由中心直接采集，
+                        无需安装 Edge Sync Agent。
+                      </Typography.Paragraph>
+                      <Steps
+                        size="small"
+                        direction="vertical"
+                        current={-1}
+                        items={[
+                          { title: '在网域纳管页完成监控纳管', description: '成功后自动签发 Token 与 Remote Write URL' },
+                          { title: '下载边缘一体化离线包并部署', description: 'Edge Sync Agent 由 systemd 管理，自动拉起采集器与 exporter' },
+                          { title: 'Agent 心跳回连中心', description: '配置包自动拉取，运行态与心跳状态落到本页运行状态列' },
+                        ]}
+                      />
+                    </div>
+                  ),
+                },
+              ]}
             />
           </div>
-        )}
 
         {error && (
           <Alert
@@ -489,7 +504,7 @@ function EditDomainForm({
         <Tag color={channelColor[domain.channel]}>{channelLabel[domain.channel]}</Tag>
       </Form.Item>
       {!isLocal && (
-        <Form.Item name="agent_type" label="Agent 类型">
+        <Form.Item name="agent_type" label="指标采集器类型">
           <Select options={[{ value: 'vmagent', label: agentTypeLabel.vmagent }]} disabled />
         </Form.Item>
       )}

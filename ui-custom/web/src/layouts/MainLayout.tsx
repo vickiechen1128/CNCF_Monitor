@@ -48,6 +48,26 @@ const MODULES: ModuleDef[] = [
     ],
   },
   {
+    key: 'monitoring-object',
+    label: '监控对象管理',
+    path: '/resources',
+    subItems: [
+      { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
+      { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
+    ],
+  },
+  {
+    key: 'monitoring-strategy',
+    label: '采集策略',
+    path: '/scrape-jobs',
+    subItems: [
+      { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
+      { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
+      { key: '/rules', label: '规则编辑', icon: <AppstoreOutlined /> },
+      { key: '/metric-library', label: '指标库', icon: <DatabaseOutlined /> },
+    ],
+  },
+  {
     key: 'config-center',
     label: '网域与边缘配置中心',
     path: '/domain-onboarding',
@@ -68,26 +88,6 @@ const MODULES: ModuleDef[] = [
           { key: '/deployments', label: '下发记录', icon: <SendOutlined /> },
         ],
       },
-    ],
-  },
-  {
-    key: 'monitoring-object',
-    label: '监控对象管理',
-    path: '/resources',
-    subItems: [
-      { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
-      { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
-    ],
-  },
-  {
-    key: 'monitoring-strategy',
-    label: '采集策略',
-    path: '/scrape-jobs',
-    subItems: [
-      { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
-      { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
-      { key: '/rules', label: '规则编辑', icon: <AppstoreOutlined /> },
-      { key: '/metric-library', label: '指标库', icon: <DatabaseOutlined /> },
     ],
   },
 ]

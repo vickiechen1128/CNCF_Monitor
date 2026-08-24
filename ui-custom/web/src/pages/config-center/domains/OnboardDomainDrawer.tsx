@@ -103,13 +103,22 @@ export function OnboardDomainDrawer({ open, domain, submitting, onSubmit, onClos
           </div>
         </Form.Item>
 
-        <Form.Item
-          name="agent_type"
-          label="Agent 类型"
-          extra="MVP 阶段固定 vmagent（纳管时无需选择）；prometheus-agent 枚举保留、v0.2+ 开放"
-        >
-          <Select options={[{ value: 'vmagent', label: agentTypeLabel.vmagent }]} disabled />
-        </Form.Item>
+        {isLocal ? (
+          <Form.Item label="指标采集器类型">
+            <Input value="无" disabled />
+            <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', lineHeight: '18px', marginTop: 4 }}>
+              local 通道网域（default）由中心负责采集，无独立采集器进程，不涉及采集器类型。
+            </div>
+          </Form.Item>
+        ) : (
+          <Form.Item
+            name="agent_type"
+            label="指标采集器类型"
+            extra="MVP 阶段固定 vmagent（纳管时无需选择）；prometheus-agent 枚举保留、v0.2+ 开放"
+          >
+            <Select options={[{ value: 'vmagent', label: agentTypeLabel.vmagent }]} disabled />
+          </Form.Item>
+        )}
 
         {!isLocal && (
           <Form.Item

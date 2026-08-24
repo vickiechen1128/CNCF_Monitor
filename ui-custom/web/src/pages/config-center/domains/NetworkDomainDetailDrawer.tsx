@@ -67,7 +67,7 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
           <Descriptions.Item label="Remote Write URL">
             <ConfigValue channel={domain.channel} value={domain.remote_write_url} />
           </Descriptions.Item>
-          <Descriptions.Item label="Agent 类型">
+          <Descriptions.Item label="指标采集器类型">
             {domain.channel === 'agent_pull' && domain.agent_type ? (
               <Tag color="blue">{agentTypeLabel[domain.agent_type]}</Tag>
             ) : (
