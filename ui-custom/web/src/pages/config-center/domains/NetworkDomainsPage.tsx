@@ -24,7 +24,6 @@ import {
 import config from 'antd/locale/zh_CN'
 import {
   CloudUploadOutlined,
-  CopyOutlined,
   DownOutlined,
   EditOutlined,
   EyeOutlined,
@@ -39,6 +38,7 @@ import { FilterBar, FilterItem } from '../../../components/FilterBar'
 import { useNetworkDomains } from './useNetworkDomains'
 import { OnboardDomainDrawer, type OnboardInput } from './OnboardDomainDrawer'
 import { NetworkDomainDetailDrawer } from './NetworkDomainDetailDrawer'
+import { PlainTokenModal } from './PlainTokenModal'
 import {
   TOKEN_MASK,
   agentTypeLabel,
@@ -83,6 +83,7 @@ export function NetworkDomainsPage() {
   const [detailDomain, setDetailDomain] = useState<NetworkDomain | null>(null)
   const [onboardDomain, setOnboardDomain] = useState<NetworkDomain | null>(null)
   const [editingDomain, setEditingDomain] = useState<NetworkDomain | null>(null)
+  const [plainToken, setPlainToken] = useState<{ title: string; token: string; tokenMasked?: string; domainName?: string } | null>(null)
   const guideRef = useRef<HTMLDivElement>(null)
   const [guideHighlight, setGuideHighlight] = useState(false)
 
@@ -120,9 +121,18 @@ export function NetworkDomainsPage() {
     if (!onboardDomain) return
     setSubmitting(true)
     try {
-      await networkDomainMonitorApi.monitor(onboardDomain.id, input)
+      const res = await networkDomainMonitorApi.monitor(onboardDomain.id, input)
       message.success(`网域 "${onboardDomain.name}" 已纳管`)
       setOnboardOpen(false)
+      // MEDIUM-1：纳管 agent_pull 域成功 → /monitor 单次返回明文 token，用一次性 Modal 展示引导保存
+      if (onboardDomain.channel === 'agent_pull' && res.data?.token) {
+        setPlainToken({
+          title: `网域「${onboardDomain.name}」接入 Token（仅本次可见）`,
+          token: res.data.token,
+          tokenMasked: res.data.token_masked,
+          domainName: onboardDomain.name,
+        })
+      }
       reload()
       // 决策 17：纳管成功滚动并高亮顶部安装指引区（agent_pull）
       if (onboardDomain.channel === 'agent_pull') {
@@ -154,15 +164,8 @@ export function NetworkDomainsPage() {
     }
   }
 
-  const handleCopyToken = (record: NetworkDomain) => {
-    const raw = record.token || record.token_masked
-    if (!raw) return
-    navigator.clipboard?.writeText(raw).then(
-      () => message.success('Token 已复制'),
-      () => message.error('复制失败'),
-    )
-  }
-
+  // HIGH-1：list 接口不返回明文 token（仅 token_masked 脱敏串），列表行不再提供「复制明文」；
+  // 明文仅在纳管成功 / 重置 Token 的单次响应中获取，经一次性 PlainTokenModal 展示复制。
   const handleResetToken = (record: NetworkDomain) => {
     Modal.confirm({
       title: '重置 Token',
@@ -175,7 +178,17 @@ export function NetworkDomainsPage() {
         try {
           const res = await networkDomainMonitorApi.resetToken(record.id)
           const token = res.data?.token
-          message.success(token ? `新 Token：${token}（仅本次可见，请注意保存）` : 'Token 已重置')
+          // LOW-1：明文 Token 改用一次性高对比 Modal 展示，避免常驻 toast 暴露明文
+          if (token) {
+            setPlainToken({
+              title: `网域「${record.name}」新 Token（仅本次可见）`,
+              token,
+              tokenMasked: res.data?.token_masked,
+              domainName: record.name,
+            })
+          } else {
+            message.success('Token 已重置')
+          }
           reload()
         } catch (err) {
           message.error(err instanceof Error ? err.message : '重置失败，请稍后重试')
@@ -250,12 +263,10 @@ export function NetworkDomainsPage() {
       title: '凭据',
       key: 'credential',
       width: 110,
+      // HIGH-1：list 不返回明文 token，故凭据列仅展示脱敏串，不提供「复制明文」按钮
       render: (_: unknown, record: NetworkDomain) =>
-        record.channel === 'agent_pull' && (record.token || record.token_masked) ? (
-          <Space size={2}>
-            <Text type="secondary" style={{ fontSize: 12 }}>{TOKEN_MASK}</Text>
-            <Tooltip title="复制 Token"><CopyOutlined onClick={() => handleCopyToken(record)} style={{ cursor: 'pointer' }} /></Tooltip>
-          </Space>
+        record.channel === 'agent_pull' && record.token_masked ? (
+          <Text type="secondary" style={{ fontSize: 12 }}>{TOKEN_MASK}</Text>
         ) : (
           <Text type="secondary">-</Text>
         ),
@@ -416,6 +427,15 @@ export function NetworkDomainsPage() {
         open={detailOpen}
         domain={detailDomain}
         onClose={() => setDetailOpen(false)}
+      />
+
+      <PlainTokenModal
+        open={plainToken !== null}
+        title={plainToken?.title}
+        token={plainToken?.token ?? ''}
+        tokenMasked={plainToken?.tokenMasked}
+        domainName={plainToken?.domainName}
+        onClose={() => setPlainToken(null)}
       />
 
       <Drawer

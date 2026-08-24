@@ -1,18 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 import { NetworkDomainsPage } from './NetworkDomainsPage'
 import type { NetworkDomain } from '../../../types/config-center'
 
 const useNetworkDomainsMock = vi.fn()
 const monitorApiMock = vi.fn()
+const resetTokenApiMock = vi.fn()
 
 vi.mock('./useNetworkDomains', () => ({
   useNetworkDomains: (...a: unknown[]) => useNetworkDomainsMock(...a),
 }))
 
 vi.mock('../../../api/configCenter', () => ({
-  networkDomainMonitorApi: { monitor: (...a: unknown[]) => monitorApiMock(...a) },
+  networkDomainMonitorApi: {
+    monitor: (...a: unknown[]) => monitorApiMock(...a),
+    resetToken: (...a: unknown[]) => resetTokenApiMock(...a),
+  },
 }))
 
 /** 采集详情/纳管渲染逻辑已在各自组件单测覆盖，页面测试仅需轻量桩验证挂载与主流程 */
@@ -36,6 +41,9 @@ vi.mock('./OnboardDomainDrawer', () => ({
     )
   },
 }))
+
+/** 与 configCenterConstants.TOKEN_MASK 对齐的掩码常量，用于断言脱敏展示 */
+const TOKEN_MASK_CHARS = '••••••••'
 
 const domainRow = (id: string, name: string, extra: Partial<NetworkDomain> = {}): NetworkDomain => ({
   id,
@@ -74,10 +82,13 @@ function renderPage() {
 }
 
 describe('NetworkDomainsPage（网域纳管）', () => {
+  setupAntdTest()
+
   beforeEach(() => {
     useNetworkDomainsMock.mockReset()
     monitorApiMock.mockReset()
     monitorApiMock.mockResolvedValue({ status: 'success', data: null })
+    resetTokenApiMock.mockReset()
   })
 
   it('加载中显示 spinner', () => {
@@ -172,5 +183,80 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     const confirmBtn = await screen.findByRole('button', { name: /mock-confirm-onboard/ })
     fireEvent.click(confirmBtn)
     expect(monitorApiMock).toHaveBeenCalledWith('mc-d', expect.objectContaining({ agent_type: 'vmagent' }))
+  })
+
+  it('HIGH-1 凭据列仅展示脱敏串，不提供「复制明文」按钮（list 不返回明文 token）', async () => {
+    useNetworkDomainsMock.mockReturnValue(
+      result({
+        data: {
+          items: [domainRow('mc-h', '医保网', { is_monitored: true, token_masked: TOKEN_MASK_CHARS })],
+          total: 1,
+        },
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('医保网')).toBeInTheDocument()
+    // 脱敏串展示
+    expect(screen.getAllByText('••••••••').length).toBeGreaterThanOrEqual(1)
+    // 列表行不渲染复制入口
+    expect(screen.queryByRole('button', { name: /复制/i })).not.toBeInTheDocument()
+  })
+
+  it('MEDIUM-1 纳管 agent_pull 域成功后弹一次性明文 Token 展示', async () => {
+    useNetworkDomainsMock.mockReturnValue(
+      result({ data: { items: [domainRow('mc-e', '政务云B区', { channel: 'agent_pull' })], total: 1 } }),
+    )
+    monitorApiMock.mockResolvedValue({
+      status: 'success',
+      data: { ...domainRow('mc-e', '政务云B区', { channel: 'agent_pull' }), is_monitored: true, token: 'plain-abc', token_masked: TOKEN_MASK_CHARS },
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /纳管/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /mock-confirm-onboard/ }))
+    expect(await screen.findByText('plain-abc')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /复制明文/ })).toBeInTheDocument()
+  })
+
+  it('MEDIUM-1 default(local) 域纳管成功不弹明文 Token', async () => {
+    useNetworkDomainsMock.mockReturnValue(
+      result({
+        data: { items: [domainRow('default', '默认域', { channel: 'local', domain_type: 'management' })], total: 1 },
+      }),
+    )
+    monitorApiMock.mockResolvedValue({
+      status: 'success',
+      data: { ...domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }), is_monitored: true },
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /纳管/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /mock-confirm-onboard/ }))
+    expect(monitorApiMock).toHaveBeenCalled()
+    // 无明文 token → 不弹展示 Modal
+    expect(screen.queryByRole('button', { name: /复制明文/ })).not.toBeInTheDocument()
+  })
+
+  it('LOW-1 重置 Token 成功弹一次性明文 Modal 而非 toast 暴露明文', async () => {
+    useNetworkDomainsMock.mockReturnValue(
+      result({
+        data: { items: [domainRow('mc-r', '核心生产网', { is_monitored: true, channel: 'agent_pull' })], total: 1 },
+      }),
+    )
+    resetTokenApiMock.mockResolvedValue({
+      status: 'success',
+      data: { token: 'new-plain-token', token_masked: TOKEN_MASK_CHARS },
+    })
+    const modal = mockAntdModal()
+    renderPage()
+    const moreBtn = await screen.findByRole('button', { name: /更多/ })
+    // Dropdown 默认 hover 触发：用 mouseOver 模拟 onMouseEnter 展开菜单
+    fireEvent.mouseOver(moreBtn)
+    const menuItem = await screen.findByText('重置 Token')
+    fireEvent.click(menuItem)
+    expect(modal.confirm).toHaveBeenCalled()
+    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
+    await onOk()
+    expect(resetTokenApiMock).toHaveBeenCalledWith('mc-r')
+    // 明文在一次性 Modal 展示而非常驻 toast
+    expect(await screen.findByText('new-plain-token')).toBeInTheDocument()
   })
 })
