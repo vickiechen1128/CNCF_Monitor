@@ -1,0 +1,473 @@
+phase: "Phase 4"
+module: "module-09-config-center"
+module_branch: "feat/module-09-config-center"
+plan_version: "v2026-08-23"
+owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer / security-reviewer 执行"
+source:
+  - "docs/02-product-requirements/05_Code_Implementation_Plan.md（Phase 4，第 530-595 行；§5 后端目录 platform/configcenter/{domain,generator,draft,deployment}/；前端目录 pages/config-center/）"
+  - "docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md（§3 核心功能 / §4 核心流程 / §5 数据模型 / §6 接口设计 / §9 验收标准 / §10 术语 / §11 前端交互契约）"
+  - "docs/02-product-requirements/04_Implementation_Map.md（§2.3 Module_09 / 数据模型 §2.4）"
+  - "docs/03-engineering-standards/03_API_Standard.md（§7 字段/分页/枚举契约）"
+  - "docs/03-engineering-standards/04_Testing_Standard.md（§4 提交前验证清单）"
+  - "docs/05-execution-records/module-09/frontend-prototype-map.md"
+  - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+precondition:
+  - "worktree 已切到 feat/module-09-config-center；Phase 3（feat/module-01-strategy）已合入 develop：ScrapeJob / MonitoringRule / rules.yml 关联可用；M06 网域行政 CRUD 可用（/api/v2/platform/network-domains）；本地 Prometheus 进程可运行"
+  - "models/ 下已具：network_domain.go（NetworkDomain 行政+监控纳管字段）、edge_agent.go、config.go（ConfigDraft/ConfigVersion/ConfigDeployment）、resource*.go/label*.go（M09 只读引用）"
+  - "前端 `cd ui-custom/web && pnpm install && pnpm lint` 基线通过；MainLayout.tsx 当前为扁平 subItems，需支持一级菜单组（见 T09-F6）"
+  - "MVP 无鉴权（决策 8）依赖内网/VPN 隔离；本阶段不新增接口级鉴权"
+  - "MVP 只做 default/local 通道全链路；agent_pull / Edge Sync Agent 拉包/心跳/Token/安装指引为 v0.2（feat/module-09-edge-cloud），本分支仅 UI 字段与占位"
+  - "change_status 回写变性（决策 31-M2）提前到 MVP：ConfigDeployment.status=success 后回写 M01 ScrapeJob.change_status=deployed"
+  - "promtool / blackbox exporter 二进制需在本分支预研可调用路径用于 T09-03 校验（优先系统 PATH，缺省返回 pending 并在 dev-feedback 登记）"
+go_tool: "`make test-platform`（等价 `.tools/go/bin/go test ./platform/...`）；单包验证 `go test ./platform/configcenter/...` / `go vet ./platform/...`"
+fe_tool: "`cd ui-custom/web && pnpm test` / `pnpm lint` / `pnpm vitest run src/pages/config-center/<page>.test.tsx`；`pnpm dev` 验证页面"
+contract_snapshot: "docs/05-execution-records/module-09/api-contract-snapshot.md（前端任务契约第一权威：API 路径/方法/字段/枚举/错误码/必填口径/UI 展示名；与 PRD §5/§6、03_API_Standard 冲突时以此为准；缺失时回退 PRD 第 5/6 章 + 03_API_Standard）"
+
+# =====================================================================
+# 后端任务（models → repository/service → handler → tests，按接口闭包分 commit_group）
+# =====================================================================
+tasks:
+  - id: "T09-01"
+    title: "models 契约对齐 + 监控纳管/配置/枚举常量集中定义"
+    prd: "Module_09 §5.1/§5.2/§5.4/§5.5/§5.6：NetworkDomain 监控纳管字段（channel/token/agent_type/center_endpoint/remote_write_url/is_monitored/运行态）已在 models/network_domain.go 预置，需与契约逐字段对齐；ConfigDraft/ConfigVersion/ConfigDeployment 为 M09 核心模型；channel/agent_type/DraftStatus/DeploymentStatus/config_sync_status/validation_status/风险/变更对象 等枚举与校验需集中定义"
+    group: "backend"
+    status: "pending"
+    commit_group: "models-alignment"
+    depends_on: []
+    input_files:
+      - "platform/models/network_domain.go"
+      - "platform/models/edge_agent.go"
+      - "platform/models/config.go"
+    output_files:
+      - "platform/models/config_center_rules.go"   # 枚举 & 校验集中定义（可新增或并入现有）
+      - "platform/models/network_domain.go"
+      - "platform/models/config.go"
+      - "platform/models/models_test.go"
+    estimated_files_changed: 4
+    estimated_test_cases: 10
+    shared_files: "是：platform/models/*.go 与 T09-02~06 共享模型定义；建议由同一 backend-developer sub-agent 续作"
+    verify_commands:
+      - "go test ./platform/models/..."
+      - "go vet ./platform/models/..."
+    acceptance_criteria:
+      - "NetworkDomain 监控纳管字段齐全：channel(local/agent_pull 必填 default=local)、token、agent_type(vmagent/prometheus-agent，MVP 前端仅 vmagent)、center_endpoint、remote_write_url、is_monitored、monitored_status/last_heartbeat/agent_version（agent_pull 运行态，MVP 占位）；行政字段（name/domain_type/tenant_id）以 M06 为准只读引用"
+      - "ConfigDraft/ConfigVersion/ConfigDeployment 字段对齐契约 §5.4/§5.5/§5.6，含 ConfigDeployment.status/validation_status/includes_blackbox/error_message/triggered_by/triggered_at/completed_at"
+      - "新增枚举常量：ChannelType(local/agent_pull)、AgentType(vmagent/prometheus-agent)、DraftStatus(pending/confirmed/discarded)、DeploymentStatus(pending/running/success/failed/rolled_back)、validation_status(passed/failed/pending/rejected)、ConfigSyncStatus(in_sync/out_of_sync/unknown/manual_override/no_version)、OutOfSyncCause(pending_draft/pull_pending/local_reset)、ChangeItemTarget(scrape_job/target_instance/monitoring_rule/probe_target/label_template)、Risk(low/high)、AffectedFile(prometheus/ targets/rules/blackbox)"
+      - "ConfigChangeItem / AffectedConfigFile / ConfigDraftMetadata 结构体（契约 §5.4 change_items/metadata JSON 载体）就绪"
+      - "models_test 增补：枚举合法值、ConfigDeployment 状态取值、ConfigDraft metadata 序列化往返（JSON) "
+
+  - id: "T09-02"
+    title: "配置生成器核心：prometheus.yml + rules.yml 生成主流程"
+    prd: "Module_09 §3.3 / 9.2：按网域组装 prometheus.yml（scrape_configs 以 file_sd_configs 引用 targets/*.json 不内联 + global.external_labels）+ rules.yml（rules 按 scope=central yaml_passthrough 并入）；生成 YAML 与 PRD 示例一致"
+    group: "backend"
+    status: "pending"
+    commit_group: "configgen"
+    depends_on: ["T09-01"]
+    input_files:
+      - "platform/models/config_center_rules.go"
+      - "platform/strategy/scrapejob/"        # ScrapeJob/ExporterTemplate 数据只读
+      - "platform/config/resource/"           # Resource/LabelTemplate 数据只读
+    output_files:
+      - "platform/configcenter/generator/generator.go"
+      - "platform/configcenter/generator/data_source.go"  # 聚合 M01/M07/M06 源数据
+      - "platform/configcenter/generator/generator_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "是：platform/configcenter/generator/* 与 T09-03 共享生成器包"
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+      - "go vet ./platform/configcenter/generator/..."
+    acceptance_criteria:
+      - "生成器输入：网域 + 源数据聚合（ScrapeJob[ready+enabled] / Resource / LabelTemplate / NetworkDomain / ExporterTemplate / rules）"
+      - "prometheus.yml global.external_labels 仅注入 network_domain_id / zone_type / replica（M09 不注入 tenant_id 与业务标签，§3.3.1）"
+      - "scrape_configs 以 file_sd_configs 引用 targets/<job>.json，不内联 targets；含 metrics_path/params/relabel 骨架由 ScrapeJob 驱动；认证/TLS 最小集透传（basic→basic_auth / bearer→authorization token / tls_skip_verify→tls_config）"
+      - "rules.yml 按 content_mode=yaml_passthrough 将 MonitoringRule.rule_content 原样并入（不解析不重排）；alertmanager.yml 不在产物中"
+      - "YAML 产物与 PRD §3.3 示例语义一致；测试覆盖 external_labels 不注入 tenant_id、file_sd 引用、认证/TLS 透传"
+
+  - id: "T09-03"
+    title: "配置生成器 labels/targets/校验 + 源数据差异"
+    prd: "Module_09 §3.3 / §3.3.1 / §3.5.1 / 9.2：targets/*.json 生成（offline 排除 + 标签合并优先级 cmdb>user>system、system 不可覆盖）+ targets JSON schema 校验 + promtool & blackbox --config.check 校验兜底 + 变更检测 checksum 裁决"
+    group: "backend"
+    status: "pending"
+    commit_group: "configgen"
+    depends_on: ["T09-02"]
+    input_files:
+      - "platform/configcenter/generator/generator.go"
+      - "platform/models/config_center_rules.go"
+    output_files:
+      - "platform/configcenter/generator/labels.go"
+      - "platform/configcenter/generator/targets.go"
+      - "platform/configcenter/generator/validate.go"
+      - "platform/configcenter/generator/change_detect.go"
+      - "platform/configcenter/generator/generator_test.go"
+    estimated_files_changed: 5
+    estimated_test_cases: 14
+    shared_files: "是：platform/configcenter/generator/ 与 T09-02 同包联动"
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+      - "go vet ./platform/configcenter/generator/..."
+    acceptance_criteria:
+      - "targets.go：按 job 生成 targets/<job>.json（file_sd JSON）；过滤 Resource.status=offline；标签合并按 system/user，优先级 user>system、system 不可被覆盖（prototype 语义，cmdb v0.4+ 提到 user 之上）"
+      - "labels.go：external_labels 只注入部署级三个标签；instance/target 业务标签来自 M07 LabelTemplate target 级注入，M09 不注入"
+      - "validate.go：targets JSON schema 校验（结构/host:port/labels 合法性）；promtool check config 校验 prometheus.yml；存在 blackbox.yml 时 blackbox --config.check；promtool 不可调用时返回 validation_status=pending（dev-feedback 登记）"
+      - "change_detect.go：变更检测 = 源数据版本触发预筛 + 联合 checksum(sha256(prometheus+rules+blackbox+targets内容)) 裁决；生成异常不推进 source_data_version、下轮重试（决策 42-4）"
+      - "测试覆盖 offline 排除、标签优先级与 system 不可覆盖、external_labels 断言、checksum 一致自动丢弃"
+
+  - id: "T09-04"
+    title: "网域监控纳管 API（monitor / reset-token / 列表读 M06）+ agent_pull 占位"
+    prd: "Module_09 §3.1 / §6.1 / §5.1：从 M06 已存在网域中选择纳管，维护 channel/agent_type/remote_write_url/token/center_endpoint；default 固定 local；GET network-domains 返回 is_monitored/token_masked"
+    group: "backend"
+    status: "pending"
+    commit_group: "domain-onboard"
+    depends_on: ["T09-01"]
+    input_files:
+      - "platform/models/network_domain.go"
+      - "platform/models/config_center_rules.go"
+      - "platform/admin/networkdomain/"   # M06 网域数据源（只读引用行政部分）
+    output_files:
+      - "platform/configcenter/domain/onboard.go"
+      - "platform/configcenter/domain/service.go"
+      - "platform/configcenter/domain/onboard_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 9
+    shared_files: "是：platform/configcenter/domain/ 仅本任务使用；NetworkDomain 表与 M06 shared"
+    verify_commands:
+      - "go test ./platform/configcenter/domain/..."
+      - "go vet ./platform/configcenter/domain/..."
+    acceptance_criteria:
+      - "GET /api/v2/platform/network-domains（含 is_monitored/token_masked，keyword/page/page_size 分页）——本任务仅补充/确认监控纳管字段返回（列表主实现见 M06 与契约 §6.1）"
+      - "POST /api/v2/platform/network-domains/{id}/monitor：body {agent_type,remote_write_url?,description?}；校验网域未纳管/存在；default 强制 channel=local；非 default 网域 MVP 仅登记监控参数（channel=agent_pull，agent_type 固定 vmagent）；纳管成功返回 Token（仅 agent_pull 签发，local 返回空 token）"
+      - "PUT .../monitor：更新 agent_type/remote_write_url/description/is_monitored（unmonitor）；校验已纳管"
+      - "POST .../reset-token：仅 agent_pull 已纳管网域生效，返回一次性明文 {token, token_masked}；local 返回 bad_request"
+      - "Token 脱敏规则：UI/列表 token_masked 完全脱敏（不显明文片段），明文仅 reset-token 返回一次"
+      - "测试覆盖 default 固定 local、非 default agent_pull token 签发、local reset-token 拒绝"
+
+  - id: "T09-05"
+    title: "配置草稿服务：生成/列表/详情/确认/废弃/重校验 + 校验失败闭环"
+    prd: "Module_09 §3.4 / §6.6.2 / 9.1 / 9.2（决策 42-1/42-2）：config-drafts 列表(网域+状态筛选)、详情（含产物与 change_items/metadata）、confirm(生成 ConfigVersion)、discard、revalidate；同域至多一张活 pending；校验失败草稿不可确认"
+    group: "backend"
+    status: "pending"
+    commit_group: "draft-service"
+    depends_on: ["T09-03", "T09-04"]
+    input_files:
+      - "platform/configcenter/generator/"
+      - "platform/models/config.go"
+    output_files:
+      - "platform/configcenter/draft/service.go"
+      - "platform/configcenter/draft/handler.go"
+      - "platform/configcenter/draft/draft_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 12
+    shared_files: "是：platform/configcenter/draft/ 与 T09-06 deployment 共享回调/来源 data_source；建议同一 backend-developer sub-agent 续作"
+    verify_commands:
+      - "go test ./platform/configcenter/draft/..."
+      - "go vet ./platform/configcenter/draft/..."
+    acceptance_criteria:
+      - "POST /api/v2/platform/config/drafts（手动触发生成，返回新草稿或已有草稿）：生成 ConfigDraft（change_no=CHG-YYYYMMDD-NNN 全局唯一、source_version、prometheus/rules/blackbox/targets、metadata[source_data_version/trigger_summary/联合 checksum]、summary、change_items、status/pending、validation_status）"
+      - "GET /api/v2/platform/config-drafts：Query network_domain_id、status(pending/confirmed/discarded/all 默认 pending)、page/page_size；返回 items 含 change_no/summary/risk/affected_files/created_at/confirmed_by"
+      - "GET /api/v2/platform/config-drafts/{change_no}：变更单详情含完整产物与 change_items/metadata"
+      - "POST .../confirm({confirmed_by})：校验 validation_status=passed + status=pending；成功生成 ConfigVersion 并继承 change_no；bad_request 若校验失败或已非 pending"
+      - "POST .../revalidate：重校；校验通过恢复可确认、仍 failed 返回 bad_request（决策 42-2）"
+      - "POST .../discard：废弃变更单（支持校验失败态 failed 草稿）；bad_request 若已非 pending"
+      - "同域 pending 取代（决策 42-1）：生成有实质差异的新 pending 时，更早 pending 置 discarded(superseded)，metadata.superseded_by_change_no 指向新单"
+      - "测试覆盖 change_no 序列、confirm 前置校验、同域最近取代、校验失败闭环"
+
+  - id: "T09-06"
+    title: "配置下发与历史：local 写盘 reload + retry/rollback + change_status 回写"
+    prd: "Module_09 §3.5 / §6.6.3 / §6.6.4(/`历史/回滚/重试`) / 9.2：确认后 local 通道写中心 Prometheus 配置目录并 SIGHUP/POST reload；ConfigDeployment 记录；config-versions & deployments 历史；retry(local failed)/rollback；reload 成功后回写 M01 ScrapeJob.change_status=deployed（决策 31-M2）"
+    group: "backend"
+    status: "pending"
+    commit_group: "deployment"
+    depends_on: ["T09-05"]
+    input_files:
+      - "platform/configcenter/draft/service.go"
+      - "platform/models/config.go"
+    output_files:
+      - "platform/configcenter/deployment/service.go"
+      - "platform/configcenter/deployment/handler.go"
+      - "platform/configcenter/deployment/callback.go"
+      - "platform/configcenter/deployment/history.go"
+      - "platform/configcenter/deployment/deployment_test.go"
+    estimated_files_changed: 5
+    estimated_test_cases: 15
+    shared_files: "是：platform/configcenter/deployment/ 承接 T09-05 confirm 产物；change_status 回写依赖 M01 ScrapeJob 模型（只读写）"
+    verify_commands:
+      - "go test ./platform/configcenter/deployment/..."
+      - "go vet ./platform/configcenter/deployment/..."
+    acceptance_criteria:
+      - "confirm 触发 local 下发：确认后写 `prometheus.yml`/`targets/*.json`/`rules.yml`/`blackbox.yml`（targets 原子写：临时文件+rename）到中心配置目录并 SIGHUP/POST /-/reload；prometheus.yml 结构变化才 reload，targets 变化仅重写文件（决策 31 相关 reload 策略分离）"
+      - "GET /api/v2/platform/config-versions（network_domain_id/change_no?/page）；GET /api/v2/platform/config-versions/{id} 详情（供 diff）"
+      - "GET /api/v2/platform/deployments（network_domain_id/status?/change_no?/page）"
+      - "POST /api/v2/platform/deployments/{deployment_id}/retry({triggered_by})：仅 local 通道 + 原记录 failed 生效，复用最近版本下发动作，生成新 ConfigDeployment；agent_pull 返回 bad_request（决策 42-3）"
+      - "POST /api/v2/platform/deployments/{config_version_id}/rollback({triggered_by})：目标版本存在且同网域，生成新 ConfigDeployment(status=success 回滚)；not_found/bad_request 校验"
+      - "callback.go：ConfigDeployment.status=success 后回写相关 M01 ScrapeJob.change_status=deployed（pending→deployed）"
+      - "测试覆盖 local 重试、回滚、change_status 回写、失败记录 error_message"
+
+  - id: "T09-07"
+    title: "路由注册 + 全链路集成冒烟"
+    prd: "Module_09 §6.6 / 9.2：全部 M09 API 注册到 /api/v2/platform/*，集成后主链路（生成→确认→reload→下发记录→change_status 回写）可跑通"
+    group: "backend"
+    status: "pending"
+    commit_group: "routes"
+    depends_on: ["T09-04", "T09-05", "T09-06"]
+    input_files:
+      - "platform/configcenter/domain/onboard.go"
+      - "platform/configcenter/draft/handler.go"
+      - "platform/configcenter/deployment/handler.go"
+      - "platform/cmd/metric-center/main.go"
+    output_files:
+      - "platform/configcenter/register.go"
+      - "platform/cmd/metric-center/main.go"
+      - "platform/cmd/metric-center/main_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：platform/cmd/metric-center/main.go 全局入口（T06/T07/T01 均挂载于此）；建议由负责 M09 路由的同一 backend-developer sub-agent 续作，避免并行冲突"
+    verify_commands:
+      - "go test ./platform/..."
+      - "go vet ./platform/..."
+      - "go build ./platform/..."
+    acceptance_criteria:
+      - "configcenter.RegisterRoutes 在 main.go 挂载，全部 M09 API 注册至 /api/v2/platform/*（不含 /api/v1/* 代理）"
+      - "make build-metric-center 通过；smoke：启动后 /api/v1/health 200 且 M09 路由已注册（TestEndToEndSmoke 覆盖）"
+      - "主链路走通（集成冒烟）：M06 网域 → monitor 纳管 → config/drafts 生成 → preview 取详情 → confirm → deployments 记录 → ScrapeJob.change_status=deployed"
+      - "老 /api/v2/platform/config/preview|apply（main.go L87-89 预置占位）本阶段收敛或并入 configcenter，不允许重复注册"
+
+# =====================================================================
+# 前端任务（types → api client → components/pages → tests）
+# =====================================================================
+
+  - id: "T09-F1"
+    title: "types + API client + 枚举/常量（config-center 契约落地）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "config-api"
+    prd: "Module_09 §5/§6（契约 §1/§3~§6/§N 枚举/UI 展示名）"
+    prototype_pages: []
+    ui_contract: "契约全量（网域纳管 / 草稿 / 配置版本 / 下发记录 / agent 状态空态）；错误类型按契约 errorType 映射 ApiError"
+    nav_contract: "无新导航（辅助文件）；为 F2~F5 提供 types/api/constants"
+    clipping:
+      - item: "agent_pull 与 Token 真实类型"
+        reason: "MVP local 优先；agent 相关字段占位，v0.2 补全"
+    depends_on: []
+    estimated_files_changed: 3
+    estimated_test_cases: 4
+    shared_files: "是：src/types/config-center.ts + src/api/configCenter.ts + configConstants.ts 被 T09-F2~F5 共享；建议 T09-F1→F6 由同一 frontend-developer sub-agent 续作"
+    input_files:
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+      - "docs/prototypes/module-09/src/mocks/module-09.ts"
+      - "docs/05-execution-records/module-09/frontend-prototype-map.md"
+    output_files:
+      - "ui-custom/web/src/types/config-center.ts"
+      - "ui-custom/web/src/api/configCenter.ts"
+      - "ui-custom/web/src/pages/config-center/configCenterConstants.ts"
+      - "ui-custom/web/src/pages/config-center/configCenterConstants.test.ts"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/config-center/configCenterConstants.test.ts"
+    acceptance_criteria:
+      - "types/config-center.ts 定义 NetworkDomain/ConfigDraft/ConfigChangeItem/ConfigVersion/ConfigDeployment + 枚举（channel/agent_type/纳管态/草稿态/下发态/下发状态/目标/受影响文件/风险）"
+      - "api/configCenter.ts 实现契约全部 API（getNetworkDomains/monitorDomain/resetToken/getConfigDrafts/getConfigDraftDetail/confirmDraft/discardDraft/revalidateDraft/getConfigVersions/getDeployments/retryDeployment/rollbackDeployment）"
+      - "constants 按契约 UI 展示名映射（channelLabel 等）与 enum 派生态（纳管态由 is_monitored 派生、受影响文件颜色等）"
+      - "ApiError 按契约 errorType 抛出；Token 字段类型 token_masked 脱敏约定"
+
+  - id: "T09-F2"
+    title: "网域纳管页（7 列 + 详情抽屉 + 行内纳管/编辑 + 顶部安装指引占位）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "domain-pages"
+    prd: "Module_09 §3.1 / §9.1 / §11 §3.1/§3.4/§5.2"
+    prototype_pages:
+      - "docs/prototypes/module-09/src/pages/NetworkDomainsPage.tsx"
+    ui_contract: "PRD §3.1 / §9.1（纳管入口单一化、7 列收敛、详情抽屉、Token 脱敏、安装指引、local 固定）；契约 §6.1；状态矩阵 §11.1 网域纳管页"
+    nav_contract: "顶部一级 tab「系统与平台管理」下 Sider 一级菜单组「网域与节点管理」→ 二级「网域纳管」（路由 /domain-onboarding）；网域纳管与 M06 网域管理并存且菜单名区分"
+    clipping:
+      - item: "Token 真实签发/复制、重置 Token、安装指引离线包下载、运行态心跳展示"
+        reason: "agent_pull 网域 v0.2 能力，MVP 仅为 UI 字段与占位（frontend-prototype-map C1~C4）"
+    depends_on: ["T09-F1"]
+    estimated_files_changed: 5
+    estimated_test_cases: 12
+    shared_files: "是:config-center 共享（api/types/constants）+ MainLayout/App（F6 统一挂载，本任务不单独改 layout）"
+    input_files:
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+      - "docs/prototypes/module-09/src/pages/NetworkDomainsPage.tsx"
+      - "docs/05-execution-records/module-09/frontend-prototype-map.md"
+      - "docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx"
+      - "ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx"
+      - "ui-custom/web/src/pages/config-center/domains/NetworkDomainDetailDrawer.tsx"
+      - "ui-custom/web/src/pages/config-center/domains/useNetworkDomains.ts"
+      - "ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/config-center/domains/NetworkDomainsPage.test.tsx"
+    acceptance_criteria:
+      - "7 列：网域(名称+ID)/网络区域类型(zone_type Tag)/纳管状态/下发通道/running 运行态(仅 agent_pull)/凭据(token_masked+复制仅 agent_pull)/操作(纳管/编辑 + 详情 + 更多重置仅 agent_pull 已纳管)"
+      - "纳管入口单一化：仅行内「纳管」按钮（页面右上角无「纳管网域」按钮）；纳管表单含 agent_type(MVP 仅 vmagent)/remote_write_url(可覆盖)/description；default 域固定 local 且行信息只读展示"
+      - "agent_pull 字段（Token/安装指引/运行态）UI 占位：仅 agent_pull 行展示，local 行显 '-' 绝不误展示"
+      - "Token 完全脱敏：token_masked 展示、复制按钮复制明文、重置需 Modal 二次确认（v0.2 占位）"
+      - "详情抽屉：配置字段（center_endpoint/remote_write_url/agent_type/description）入 Drawer，行政字段只读展示 M06"
+      - "顶部常驻安装指引提示区（3 步 + 组件构成 + 凭据获取）；状态矩阵覆盖加载/空态/接口错误/权限不足（§11.1 网域纳管页）"
+
+  - id: "T09-F3"
+    title: "采集节点状态页：MVP 空态占位（列表 v0.2）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "node-placeholder"
+    prd: "Module_09 §3.2 / §3.8.1 / §9.1 / §11 §3.2 / §5.2 / §5.3"
+    prototype_pages:
+      - "docs/prototypes/module-09/src/pages/EdgeAgentsPage.tsx"
+    ui_contract: "PRD §3.8.1 / §11.1 采集节点状态页；空态引导（尚未接入采集节点→去网域纳管）"
+    nav_contract: "「系统与平台管理」→ Sider 组「网域与节点管理」→ 二级「采集节点状态」（/node-status）；子菜单常驻，无 EdgeAgent 实例进空态"
+    clipping:
+      - item: "节点平铺列表/组件分区抽屉/错误详情 Modal/五维筛选/演示场景切换器/跨模块跳转"
+        reason: "EdgeAgent 实例 MVP 不存在（default/local 无 Agent）；整页列表为 v0.2（frontend-prototype-map C6/C7/C9）"
+    depends_on: ["T09-F1"]
+    estimated_files_changed: 2
+    estimated_test_cases: 4
+    shared_files: "是:config-center 共享 + MainLayout/App（F6 挂载）"
+    input_files:
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+      - "docs/prototypes/module-09/src/pages/EdgeAgentsPage.tsx"
+      - "docs/05-execution-records/module-09/frontend-prototype-map.md"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/config-center/nodes/EdgeAgentsPage.test.tsx"
+    acceptance_criteria:
+      - "MVP 空态引导卡片：「尚未接入采集节点」→ 引导先到「网域纳管」完成纳管并按安装指引接入 Edge Sync Agent"
+      - "子菜单常驻（导航不因无数据隐藏）；无 EdgeAgent 实例时不展示列表/抽屉"
+      - "状态矩阵覆盖加载/空态/接口错误/权限不足（§11.1 采集节点状态页）；列表与组件分区为 v0.2 范围外不实现"
+
+  - id: "T09-F4"
+    title: "配置变更确认页（网域切换 + 变更摘要/清单/预览/Diff + 确认/废弃/重校验）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "preview-page"
+    prd: "Module_09 §3.4 / §9.1 / §11 §5.4 / §5.6 / §6.6.2"
+    prototype_pages:
+      - "docs/prototypes/module-09/src/pages/ConfigPreviewPage.tsx"
+    ui_contract: "PRD §3.4 / §9.1（人话摘要/结构化清单/受影响文件高亮/变更检测状态/风险/确认人/变更单号）+ §11.1 配置变更确认页状态矩阵 + §11.2 轮询 30s"
+    nav_contract: "「系统与平台管理」→ Sider 组「配置下发」→ 二级「配置变更确认」（/config-preview）；按网域组织确认视图"
+    clipping:
+      - item: "metadata.json 配置包 Tab（仅 agent_pull）"
+        reason: "配置包/metadata 为 agent_pull v0.2（frontend-prototype-map C8）；local 无 metadata"
+    depends_on: ["T09-F1"]
+    estimated_files_changed: 5
+    estimated_test_cases: 14
+    shared_files: "是:config-center 共享 + MainLayout/App；与 T09-F5 共享 useConfigDrafts/use 数据层建议同 sub-agent 续作"
+    input_files:
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+      - "docs/prototypes/module-09/src/pages/ConfigPreviewPage.tsx"
+      - "docs/05-execution-records/module-09/frontend-prototype-map.md"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx"
+      - "ui-custom/web/src/pages/config-center/preview/useConfigDrafts.ts"
+      - "ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts"
+      - "ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/config-center/preview/ConfigPreviewPage.test.tsx"
+    acceptance_criteria:
+      - "网域切换器 + 行内下发通道 Tag（local/agent_pull），状态筛选(pending/confirmed/discarded/all 默认 pending)+分页"
+      - "变更列表列：change_no/网域/风险等级/确认人(confirmed 显示确认人与确认时间)/created_at；变更检测状态区（待确认 N 项含高风险 / 无变更）+30s 轮询"
+      - "详情抽屉四 Tab：变更摘要(Descriptions)/变更清单(结构化 change_items 类型/对象/说明/影响的配置文件/风险)/配置预览(prometheus.yml/targets/rules.yml/blackbox.yml 条件 Tab + package tree)/版本对比(diff)"
+      - "受影响配置文件高亮：预览自动判定受影响文件、受影响 Tab 加「变更」标记、默认聚焦首受影响、提示「本次变更影响 N/M 个配置文件」（PRD §9.1）"
+      - "确认(MVP 预置确认人)/废弃/重新校验动作：Modal 二次确认+loading 防重复；校验失败草稿置灰禁止确认并提供重校验废弃；确认抽屉标注发布通道「确认后立即 reload 生效」"
+      - "技术信息(源数据版本/生成器版本/联合 checksum)下沉折叠；状态矩阵覆盖加载/空态/错误/权限不足"
+
+  - id: "T09-F5"
+    title: "下发记录页（列表 + 详情 + local 重试 + 回滚 + 定位参数）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "deployments-page"
+    prd: "Module_09 §3.5 / §9.1（回滚中心） / §11 §5.6 / §6.6.3"
+    prototype_pages:
+      - "docs/prototypes/module-09/src/pages/DeploymentsPage.tsx"
+    ui_contract: "PRD §3.5 / §9.1（下发记录=回滚中心 + 变更执行台账；来源变更单号列；重试 local failed）+ §11.1 下发记录页状态矩阵"
+    nav_contract: "「系统与平台管理」→ Sider 组「配置下发」→ 二级「下发记录」（/deployments）；从配置变更确认页「查看发布记录」深链携带 change_no+network_domain"
+    clipping:
+      - item: "agent_pull 行「重试」按钮"
+        reason: "决策 40-2：agent_pull 发布失败归平台侧自动重试，本页不展示重试（frontend-prototype-map §3.4）"
+    depends_on: ["T09-F1"]
+    estimated_files_changed: 3
+    estimated_test_cases: 10
+    shared_files: "是:config-center 共享 + MainLayout/App；与 T09-F4 共享网域/变更数据层"
+    input_files:
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+      - "docs/prototypes/module-09/src/pages/DeploymentsPage.tsx"
+      - "docs/05-execution-records/module-09/frontend-prototype-map.md"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.tsx"
+      - "ui-custom/web/src/pages/config-center/deployments/useDeployments.ts"
+      - "ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/config-center/deployments/DeploymentsPage.test.tsx"
+    acceptance_criteria:
+      - "列表列：部署 ID(EllipsisText)/网域/下发通道/配置版本/来源变更单号(code)/状态(failed 带错误 Tooltip)/开始时间/操作"
+      - "操作：详情 + 回滚 + 重试（仅 local 且 status=failed）；agent_pull 不展示重试；回滚二次确认 + 异步提示"
+      - "query 定位：?change_no 收窄到该变更单发布记录、?network_domain 再收窄到该网域（对接 config-preview 深链）"
+      - "状态矩阵覆盖加载/空态/接口错误/权限不足（§11.1 下发记录页）"
+
+  - id: "T09-F6"
+    title: "导航与路由挂载：MainLayout 一级菜单组 + App 四路由"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "nav-mount"
+    prd: "Module_09 §9.1 P0 导航结构 / §11 §10 术语"
+    prototype_pages:
+      - "docs/prototypes/module-09/src/layouts/MainLayout.tsx"
+    ui_contract: "PRD §9.1 导航结构 + §10 术语（网域纳管 vs 网域管理区分）"
+    nav_contract: "顶部一级 tab「系统与平台管理」（沿用 PRD 模块名）；Sider 支持一级菜单组：组「网域与节点管理」=网域纳管(/domain-onboarding)、采集节点状态(/node-status)；组「配置下发」=配置变更确认(/config-preview)、下发记录(/deployments)；既有 M06「网域管理」(/admin/domains) 保留与「网域纳管」并存"
+    clipping: []
+    depends_on: ["T09-F2", "T09-F3", "T09-F4", "T09-F5"]
+    estimated_files_changed: 2
+    estimated_test_cases: 3
+    shared_files: "是：src/layouts/MainLayout.tsx + src/App.tsx 全站共享；必须与 T09-F2~F5 同一 frontend-developer sub-agent 串联续作，禁止多 agent 并行改共享文件"
+    input_files:
+      - "docs/05-execution-records/module-09/frontend-prototype-map.md（nav 落版 §4）"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/App.tsx"
+    output_files:
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/pages/config-center/configCenterRoutes.test.tsx（可选，路由/激活断言）"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+    acceptance_criteria:
+      - "MainLayout MODULES 新增 M09 子项：resolveActiveModule 将 /domain-onboarding、/node-status、/config-preview、/deployments 归入「系统与平台管理」（key=platform-admin）"
+      - "Sider 渲染支持一级菜单组（antd Menu items 嵌套 children 分组），M09 两个组「网域与节点管理」「配置下发」正确展示且高亮当前子项"
+      - "App.tsx 注册四路由（含懒加载），访问 /domain-onboarding 200 并默认跳首页导航到网域纳管"
+      - "导航 tab 文案用 PRD 模块名，禁止功能页名充当一级模块（网域纳管不得独立成一级 tab、不得命名为「网域管理」）"
+
+  - id: "T09-F7"
+    title: "前端集成验证与收尾"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "frontend-closeout"
+    prd: "Module_09 §9 / §11.2 全局行为规则"
+    prototype_pages: []
+    ui_contract: "§11.2 全局行为（轮询/二次确认/loading 防重复/跨模块跳转）；全链路动线"
+    nav_contract: "M09 四页在「系统与平台管理」tab 下导航联动；跨模块跳转（网域纳管→安装指引、下发记录深链、采集节点状态→网域纳管）"
+    clipping: []
+    depends_on: ["T09-F6"]
+    estimated_files_changed: 1
+    estimated_test_cases: 4
+    shared_files: "是：端到端共享文件回归；由负责 M09 前端的同一 sub-agent 收口"
+    input_files:
+      - "docs/05-execution-records/module-09/frontend-prototype-map.md"
+      - "ui-custom/web/src/App.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/configCenterSmoke.test.tsx（可选端到端冒烟）"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+    acceptance_criteria:
+      - "默认/local 主链路在前端可走通：网域纳管(default 固定 local) → 配置变更确认(检测/预览/diff) → 确认 → 下发记录可见 → change_status 掉 M01"
+      - "前端 `pnpm test`（全量）通过、`pnpm lint`/`tsc --noEmit` 通过"
+      - "跨模块深链：config-preview 携带 change_no/network_domain 到 /deployments 正确过滤；采集节点状态空态引导到网域纳管"
+      - "提交前验证清单（docs/03-engineering-standards/04_Testing_Standard.md §4）通过后停服释放端口"

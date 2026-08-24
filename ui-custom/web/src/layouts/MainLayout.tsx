@@ -1,5 +1,14 @@
 import { Layout, Menu, Typography } from 'antd'
-import { AppstoreOutlined, DatabaseOutlined, TagsOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import {
+  AppstoreOutlined,
+  CloudServerOutlined,
+  DatabaseOutlined,
+  DesktopOutlined,
+  FileSearchOutlined,
+  SendOutlined,
+  TagsOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import type { MenuProps } from 'antd'
@@ -15,21 +24,16 @@ interface MainLayoutProps {
  * 一级功能模块定义（Header 横导航 + Sider 二级导航的数据源）。
  * 顶部 tab 文案用 PRD 模块名：M06 为「系统与平台管理」（frontend-developer.md
  * Step 3.5 第 7 项「导航与模块名核对」，禁止用功能页名「网域管理」充当一级模块）。
- * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 监控对象管理」三个一级模块；
- * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位，
- * 后续大模块（M09 等）在 MODULES 追加即可。
+ * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 监控对象管理 / 采集策略」等一级模块；
+ * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
+ * M09 在「系统与平台管理」下新增两个一级菜单组（N2-1）：组「网域与节点管理」（网域纳管 / 采集节点状态）、
+ * 组「配置下发」（配置变更确认 / 下发记录）；既有 M06「网域管理」保留并与「网域纳管」并存。
  */
-interface ModuleSubItem {
-  key: string
-  label: string
-  icon?: ReactNode
-}
-
 interface ModuleDef {
   key: string
   label: string
   path: string
-  subItems: ModuleSubItem[]
+  subItems?: MenuProps['items']
 }
 
 const MODULES: ModuleDef[] = [
@@ -38,7 +42,25 @@ const MODULES: ModuleDef[] = [
     key: 'platform-admin',
     label: '系统与平台管理',
     path: '/admin/domains',
-    subItems: [{ key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> }],
+    subItems: [
+      { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
+      {
+        type: 'group',
+        label: '网域与节点管理',
+        children: [
+          { key: '/domain-onboarding', label: '网域纳管', icon: <CloudServerOutlined /> },
+          { key: '/node-status', label: '采集节点状态', icon: <DesktopOutlined /> },
+        ],
+      },
+      {
+        type: 'group',
+        label: '配置下发',
+        children: [
+          { key: '/config-preview', label: '配置变更确认', icon: <FileSearchOutlined /> },
+          { key: '/deployments', label: '下发记录', icon: <SendOutlined /> },
+        ],
+      },
+    ],
   },
   {
     key: 'monitoring-object',
@@ -62,9 +84,39 @@ const MODULES: ModuleDef[] = [
   },
 ]
 
-/** 依据当前路由推断激活的一级模块：/admin/domains → 系统与平台管理；/resources、/label-templates → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页 */
+/** 收集 Sider 菜单所有叶子 key（含嵌套一级菜单组的子项） */
+function collectLeafKeys(items?: MenuProps['items']): string[] {
+  if (!items) return []
+  const keys: string[] = []
+  const walk = (list: MenuProps['items']) => {
+    if (!list) return
+    list.forEach((it) => {
+      if (!it) return
+      if ('children' in it && it.children) {
+        walk(it.children)
+      } else if (it.key) {
+        keys.push(it.key as string)
+      }
+    })
+  }
+  walk(items)
+  return keys
+}
+
+/**
+ * 依据当前路由推断激活的一级模块。
+ * /admin/domains、/domain-onboarding、/node-status、/config-preview、/deployments → 系统与平台管理；
+ * /resources、/label-templates → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
+ */
 function resolveActiveModule(locationPath: string): ModuleDef {
-  if (locationPath.startsWith('/admin/domains')) return MODULES[1]
+  if (
+    locationPath.startsWith('/admin/domains') ||
+    locationPath.startsWith('/domain-onboarding') ||
+    locationPath.startsWith('/node-status') ||
+    locationPath.startsWith('/config-preview') ||
+    locationPath.startsWith('/deployments')
+  )
+    return MODULES[1]
   if (locationPath.startsWith('/resources') || locationPath.startsWith('/label-templates')) return MODULES[2]
   if (
     locationPath.startsWith('/collectors') ||
@@ -85,9 +137,10 @@ export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const active = resolveActiveModule(location.pathname)
-  const selectedSubKey = active.subItems.some((it) => location.pathname.startsWith(it.key))
+  const leafKeys = collectLeafKeys(active.subItems)
+  const selectedSubKey = leafKeys.some((k) => location.pathname.startsWith(k))
     ? location.pathname
-    : active.subItems[0]?.key
+    : leafKeys[0]
 
   const handleModuleSwitch = (key: string) => {
     const target = MODULES.find((m) => m.key === key)
@@ -116,7 +169,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           </nav>
         </div>
       </Header>
-      {active.subItems.length > 0 ? (
+      {active.subItems && active.subItems.length > 0 ? (
         <Layout>
           <Sider width={200} className="app-sider" theme="light">
             <Menu
