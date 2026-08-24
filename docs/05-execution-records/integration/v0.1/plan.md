@@ -32,10 +32,10 @@
 
 ## 3. 验收标准
 
-- [ ] 各页面可通过统一侧边栏导航流畅切换
-- [ ] 首页展示资源数量、待确认配置草稿数、最近下发记录
+- [x] 各页面可通过统一侧边栏导航流畅切换
+- [x] 首页展示资源数量、待确认配置草稿数、最近下发记录（`/api/v2/platform/dashboard/summary` 聚合）
 - [ ] 端到端主链路跑通：网域 → 资源 → 策略 → 配置生成 → 确认下发 → Prometheus reload → 指标可见
-- [ ] `go test ./platform/...`、`go vet ./platform/...` 通过
-- [ ] `pnpm test`、`pnpm lint` 通过
+- [x] `go test ./platform/...`、`go vet ./platform/...` 通过
+- [x] `pnpm vitest run`、`pnpm lint` 通过（1 例 flaky 已归因，见 issues）
 - [ ] 后端服务与前端 dev server 均可启动并返回 200
 - [ ] README / 部署文档补齐 MVP 启动步骤与范围说明

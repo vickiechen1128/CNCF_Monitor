@@ -27,6 +27,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/configcenter"
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
+	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 )
@@ -116,6 +117,9 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	// 配置版本与下发记录（含 retry/rollback），统一挂载到 /api/v2/platform/*。
 	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
 	configcenter.RegisterRoutes(platform, db.DB)
+
+	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
+	platform.GET("/dashboard/summary", dashboard.SummaryHandler(db.DB))
 }
 
 func healthHandler(c *gin.Context) {
