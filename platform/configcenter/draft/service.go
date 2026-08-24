@@ -166,6 +166,13 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	return artifacts, jobs, rules, nil
 }
 
+// LatestLivePending 返回某网域最新活 pending 草稿（无则 nil）。供 M09 自动变更检测
+// 轮询（configcenter/change 包）复用保活口径判断「该域是否已有待确认变更单」：
+// 已有活 pending 时跳过本轮（等用户处理），避免重复生成，与决策 42-1 对齐。
+func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
+	return latestLivePending(db, domainID)
+}
+
 // latestLivePending 返回某网域最新的活 pending 草稿（无则 nil）。
 func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	var d models.ConfigDraft

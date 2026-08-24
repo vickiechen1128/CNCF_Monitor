@@ -22,6 +22,7 @@ import { networkDomainApi } from '../../api/domain'
 import { ciExporterMappingApi } from '../../api/ciExporterMappings'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
+import { configDraftApi } from '../../api/configCenter'
 import type { NetworkDomain } from '../../types/domain'
 import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, ExporterTemplate, MonitorType } from '../../types/strategy'
 import type { ScrapeJob } from '../../types/strategy'
@@ -240,7 +241,17 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       } else {
         await scrapeJobApi.create(body)
       }
-      message.success('变更将由 M09 生成变更单并下发')
+      // 即时性优化：保存成功后立刻触发一次变更单生成（best-effort，失败静默）。
+      // 检测闭环不依赖它——M09 §3.3.3 30s 自动变更检测兜底；GenerateDraft 同域活
+      // pending 保活约束保证不会重复生成（决策 42-1）。
+      if (values.network_domain_id) {
+        void configDraftApi.create(values.network_domain_id).catch(() => undefined)
+      }
+      message.success({
+        content: '变更将由 M09 生成变更单并下发',
+        key: `job-saved-${values.network_domain_id}`,
+        onClick: () => navigate('/config-preview'), // 前往配置变更确认页
+      })
       setSubmitting(false)
       onSuccess()
     } catch (err) {

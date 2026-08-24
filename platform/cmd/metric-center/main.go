@@ -9,6 +9,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,6 +18,10 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +31,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/configcenter"
+	"github.com/metriccenter/metriccenter/platform/configcenter/change"
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
@@ -38,10 +44,22 @@ var (
 	businessDomainsFile = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
 	configDir           = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
 	configReloadURL     = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
+	changeDetectInterval = flag.Duration("change-detect.interval", 30*time.Second, "M09 §3.3.3 配置变更检测轮询间隔（可用环境变量 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 覆盖，单位秒）")
 )
 
 func main() {
 	flag.Parse()
+
+	// M09 变更检测间隔：环境变量优先（单位秒），未配置时用 flag 默认值。
+	if v := os.Getenv("CONFIG_CHANGE_DETECT_INTERVAL_SECONDS"); v != "" {
+		if sec, err := strconv.Atoi(v); err == nil && sec > 0 {
+			*changeDetectInterval = time.Duration(sec) * time.Second
+		}
+	}
+
+	// 优雅退出：监听 SIGINT/SIGTERM，取消 ctx 以停下变更检测 watcher，并 Shutdown HTTP 服务。
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	promURL, err := parseURL(*prometheusURL)
 	if err != nil {
@@ -60,11 +78,24 @@ func main() {
 		Reload: buildReloadFunc(*configReloadURL),
 	}
 
+	// M09 §3.3.3：启动 30s 配置变更检测轮询（方案 A，闭环补缺），随 ctx 优雅退出。
+	change.Start(ctx, db.DB, *changeDetectInterval)
+
 	r := setupRouter(promURL)
+
+	srv := &http.Server{Addr: *listenAddr, Handler: r}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("server shutdown error: %v", err)
+		}
+	}()
 
 	log.Printf(">>> metric-center listening on %s", *listenAddr)
 	log.Printf(">>> prometheus proxy target: %s", promURL.String())
-	if err := r.Run(*listenAddr); err != nil {
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatalf("failed to start metric-center: %v", err)
 	}
 }

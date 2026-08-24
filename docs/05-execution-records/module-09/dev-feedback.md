@@ -60,3 +60,28 @@
   3. ConfirmDraft 不再覆盖 `source_version`（确认不改变基线指向）。
 - **影响模块**：前端（`deploymentApi.getConfigVersion(source_version)` → `/config-versions/:id` 传 change_no 字符串，后端已兼容，前端无需改动）
 - **发现场景**：T09-05 定向复审确认版本对比 Diff 永不渲染真实 diff。
+
+---
+
+## 5. 契约口径空白：禁用网域后纳管状态保持不变
+
+- **类别**：① 空白判定 / 契约口径确认
+- **PRD 章节 / 文件位置**：Module_09 §3.1 字段语义（行政区状态由 M06 维护、纳管状态由 M09 维护）；Module_06「网域管理」；源码 `platform/models/network_domain.go`（`Status` vs `IsMonitored`）
+- **现状**：在「网域管理」（M06）将边缘域禁用（`Status=disabled`）后，M09「网域纳管」页该域**仍显示「已纳管」**并保留监控参数 / Token。根因：`NetworkDomain.Status`（M06 行政启用状态）与 `IsMonitored`（M09 监控纳管状态）是**独立字段**，M06 禁用操作不联动取消 M09 纳管，且 PRD 未对「禁用是否应取消纳管 / 冻结 Token」作出规定。
+- **建议 / 结论**：认定为契约口径空白（用户判定其违反契约，属产品口径待决），先登记后评审，暂不改动。候选口径——① 禁用即取消纳管并冻结 Token；② 禁用仅行政停用、纳管与 Token 保留（当前行为）。需在后续评审中拍板。
+- **影响模块**：前端（网域管理 → 网域纳管状态联动）、后端（M06 网域状态变更钩子）
+- **发现场景**：M09 测试，禁用边缘域后观察网域纳管状态
+
+---
+
+## 6. MVP 缺漏：自动变更检测（§3.3.3 30s 轮询）+ 保存后跳转动线
+
+- **类别**：① 空白判定 / MVP 缺漏（联调期跨模块闭环缺口）
+- **PRD 章节 / 文件位置**：PRD §3.3.3（源数据版本触发检测，30s 轮询，P0）、§9.1（确认动线）；决策 42-1（活 pending 保活）、42-4（生成失败可观测）、42-5（MVP 子集含「配置生成→变更检测→确认→diff→reload」全链路）；源码 `platform/configcenter/generator/change_detect.go`（SourceDataVersion / NeedsRegeneration）、`draft/service.go`
+- **现状缺漏**：`NeedsRegeneration` 全仓库**无调用方**——仅有 `GenerateDraft` 内部用 `SourceDataVersion` 给草稿 metadata 打版本戳，没有「用版本比对来触发重新生成」的链路；且 `ScrapeJobFormDrawer` 成功提示注释声明「前往配置变更确认」跳转但**未实现**、配置确认页（`useConfigDrafts.ts`）也无调 `createDraft` 的入口。净效果：用户保存采集 Job / 改资源后，UI 上没有任何途径让变更单出现，超出 30s 也不会自动生成。
+- **结论（联调落地）**：**方案 A 为主 + 吸收方案 B**。
+  - 后端：新增 `ConfigChangeBaseline` 持久化检测基线（DB 派生，重启/首启不误判不误生成），`configcenter/change` 包提供 30s 轮询 goroutine（`--change-detect.interval` / `CONFIG_CHANGE_DETECT_INTERVAL_SECONDS`），单域裁决后复用 `GenerateDraft`；失败记 failed 可观测状态、不推进版本、下轮重试。
+  - 前端：`ScrapeJobFormDrawer` 保存后提供「前往配置变更确认」跳转并 best-effort 即时触发一次 `createDraft`（保活保证不重复，仅即时性优化）。
+- **是否需设计侧确认**：需在 PRD 明确「保存即时生成 vs 30s 轮询」的即时性表述；该条目定位为 MVP 欠账补足，非 v0.2 新功能。
+- **影响模块**：后端（新增 watcher + 基线表）、前端（跳转动线）
+- **发现场景**：M09 联调，新增采集 Job 后配置确认页仍为「当前无待确认变更」。

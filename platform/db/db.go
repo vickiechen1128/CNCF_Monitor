@@ -81,6 +81,7 @@ func AutoMigrate() error {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		&models.ConfigChangeBaseline{},
 		&models.EdgeAgent{},
 		// 预留
 		&models.BusinessMetric{},

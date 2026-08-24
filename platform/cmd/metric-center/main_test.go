@@ -178,7 +178,7 @@ func resourcePayload(category string, overrides map[string]interface{}) map[stri
 	base := map[string]interface{}{
 		"resource_category": category,
 		"network_domain_id": "default",
-		"biz_code":          "infra",
+		"biz_code":          "authorized-ops",
 		"app_name":          "app",
 		"cluster":           "cluster-1",
 		"owner":             "ops",
@@ -371,7 +371,7 @@ func TestEndToEndResourceCRUD(t *testing.T) {
 			assert.Equal(t, "manual", data["source_type"])
 			assert.Equal(t, cat, data["resource_category"])
 			assert.Equal(t, "default", data["network_domain_id"])
-			assert.Equal(t, "infra", data["biz_code"])
+			assert.Equal(t, "authorized-ops", data["biz_code"])
 
 			// 2. list：包含新创建资源。
 			code, out = c.json("GET", "/api/v2/platform/resources?resource_category="+cat, "")
@@ -431,7 +431,7 @@ func TestEndToEndSmoke(t *testing.T) {
 	hosts := []map[string]interface{}{
 		{"instance_name": "web-online-01", "instance_ip": "10.0.1.1", "env": "prod", "app_name": "pay-web", "cluster": "pay-cluster"},
 		{"instance_name": "web-offline-02", "instance_ip": "10.0.1.2", "env": "staging", "app_name": "pay-web", "cluster": "pay-cluster", "status": "offline"},
-		{"instance_name": "db-online-03", "instance_ip": "10.0.1.3", "env": "prod", "app_name": "pay-db", "cluster": "db-cluster", "biz_code": "payment"},
+		{"instance_name": "db-online-03", "instance_ip": "10.0.1.3", "env": "prod", "app_name": "pay-db", "cluster": "db-cluster", "biz_code": "data-innovation-lab"},
 	}
 	for _, ov := range hosts {
 		code, out := c.json("POST", "/api/v2/platform/resources", mustJSON(t, resourcePayload("host", ov)))
@@ -457,17 +457,17 @@ func TestEndToEndSmoke(t *testing.T) {
 	assert.Equal(t, "pay-cluster", web["cluster"], "cluster 应归一化读回 sub_app_code 列（legacy）")
 
 	// 2. K-1：biz_code / status 服务端筛选（PRD §11.1）。
-	code, out = c.json("GET", "/api/v2/platform/resources?resource_category=host&biz_code=infra", "")
+	code, out = c.json("GET", "/api/v2/platform/resources?resource_category=host&biz_code=authorized-ops", "")
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, float64(2), out["data"].(map[string]interface{})["total"], "biz_code=infra 应命中 2 台")
+	assert.Equal(t, float64(2), out["data"].(map[string]interface{})["total"], "biz_code=authorized-ops 应命中 2 台")
 
 	code, out = c.json("GET", "/api/v2/platform/resources?resource_category=host&status=offline", "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"], "status=offline 应命中 1 台")
 
-	code, out = c.json("GET", "/api/v2/platform/resources?resource_category=host&biz_code=infra&status=online", "")
+	code, out = c.json("GET", "/api/v2/platform/resources?resource_category=host&biz_code=authorized-ops&status=online", "")
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"], "biz_code=infra&status=online 组合应命中 1 台")
+	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"], "biz_code=authorized-ops&status=online 组合应命中 1 台")
 
 	// 3. K-2：标签模板关联实例 keyword / status 服务端筛选。
 	//    创建 2 个 application 资源（svc-online / svc-offline），默认 application 模板应命中。
@@ -526,7 +526,7 @@ func TestEndToEndExcelImport(t *testing.T) {
 	}
 
 	hostRows := func(ip, name, status string) [][]string {
-		return [][]string{{"default", name, name, ip, "Linux", "infra", "", "prod", "", "ops", status}}
+		return [][]string{{"default", name, name, ip, "Linux", "authorized-ops", "", "prod", "", "ops", status}}
 	}
 
 	// 1. create_only 导入：中文状态「运行中」映射为 online，新建 source_type=import。
@@ -781,7 +781,7 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 }
 
 // TestEndToEndBusinessDomainsReadOnly 覆盖业务分组字典（验收要点 5）：只读返回
-// 全量条目（含停用 legacy），无 POST/PUT/DELETE 写路由。
+// 全量条目（MVP 预置两条：authorized-ops / data-innovation-lab），无 POST/PUT/DELETE 写路由。
 func TestEndToEndBusinessDomainsReadOnly(t *testing.T) {
 	r, _ := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
@@ -789,15 +789,13 @@ func TestEndToEndBusinessDomainsReadOnly(t *testing.T) {
 	code, out := c.json("GET", "/api/v2/platform/business-domains", "")
 	require.Equal(t, http.StatusOK, code)
 	bdata := out["data"].(map[string]interface{})
-	assert.Equal(t, float64(4), bdata["total"], "字典含 infra/payment/data-api/legacy")
-	codes := make([]string, 0, 4)
+	assert.Equal(t, float64(2), bdata["total"], "MVP 字典含 authorized-ops / data-innovation-lab")
+	codes := make([]string, 0, 2)
 	for _, it := range listItems(out) {
 		codes = append(codes, it.(map[string]interface{})["code"].(string))
 	}
-	assert.Contains(t, codes, "infra")
-	assert.Contains(t, codes, "payment")
-	assert.Contains(t, codes, "data-api")
-	assert.Contains(t, codes, "legacy")
+	assert.Contains(t, codes, "authorized-ops")
+	assert.Contains(t, codes, "data-innovation-lab")
 
 	// 只读：无写路由 → 404。
 	code, _ = c.json("POST", "/api/v2/platform/business-domains", `{"code":"x","name":"X"}`)

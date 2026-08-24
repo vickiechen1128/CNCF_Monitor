@@ -35,6 +35,10 @@ vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: { create: (...args: unknown[]) => exporterCreateMock(...args) },
 }))
 
+vi.mock('../../api/configCenter', () => ({
+  configDraftApi: { create: vi.fn().mockResolvedValue({ status: 'success', data: {} }) },
+}))
+
 // 实例选择器独立测试（F5），抽屉内直接 stub
 vi.mock('./InstanceSelector', () => ({
   InstanceSelector: () => <div data-testid="instance-selector">instance selector</div>,
