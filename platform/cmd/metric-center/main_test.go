@@ -883,3 +883,30 @@ func TestEndToEndConfigCenterSmoke(t *testing.T) {
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"], "应存在 1 个配置版本")
 }
+
+// TestBuildReloadFunc 覆盖 HIGH-1 装配的 reload 回调（review-fix）：
+//   - 未配置 reload 地址必须如实报错，拒绝“伪成功”静默 success；
+//   - 2xx 返回 nil，非 2xx / 非法 scheme 返回错误。
+func TestBuildReloadFunc(t *testing.T) {
+	// 未配置 reload 地址 → 报错（不静默 success）。
+	noURL := buildReloadFunc("")
+	require.Error(t, noURL(), "未配置 reload 地址应报错而非静默成功")
+
+	// 正常 2xx reload → nil。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	ok := buildReloadFunc(srv.URL)
+	require.NoError(t, ok())
+
+	// 非 2xx → error。
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer bad.Close()
+	require.Error(t, buildReloadFunc(bad.URL)())
+
+	// 非法 scheme → error。
+	require.Error(t, buildReloadFunc("ftp://x/-/reload")())
+}

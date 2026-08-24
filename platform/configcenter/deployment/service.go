@@ -25,8 +25,9 @@ type Applier interface {
 	Apply(ca *generator.ConfigArtifacts) error
 }
 
-// DefaultApplier 供 HTTP handler 进行 local 下发。默认 no-op（内存 / 测试环境不写盘）；
-// 由路由注册（register.go / main.go）替换为指向中心配置目录的 *DiskApplier。
+// DefaultApplier 供 HTTP handler 进行 local 下发。默认 no-op（内存 / 测试环境不
+// 写盘，保证未显式配置时 confirm 不抛错）；生产由 cmd/metric-center/main.go 在
+// 启动时装配为指向中心配置目录 + reload 地址的 *DiskApplier（T09-06 review-fix）。
 var DefaultApplier Applier = noopApplier{}
 
 // noopApplier 无副作用投递（默认占位，保证未显式配置时 confirm 不抛错）。
