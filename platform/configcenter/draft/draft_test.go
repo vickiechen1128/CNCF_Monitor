@@ -216,6 +216,65 @@ func TestGenerateDraftPropagatesLoadFailure(t *testing.T) {
 	require.Error(t, err, "rules 加载失败不得静默生成空草稿")
 }
 
+// TestGenerateDraftBackfillsSourceVersion 覆盖 T09-05 review-fix：生成草稿时回填
+// source_version = 该网域上一已确认 ConfigVersion 的 change_no（用于版本对比 Tab）。
+// 无历史版本时保持空（前端据此显示「无历史版本可对比」）。
+func TestGenerateDraftBackfillsSourceVersion(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-sv", true)
+
+	// 无历史版本 → source_version 为空。
+	d1, err := GenerateDraft(db, "edge-sv")
+	require.NoError(t, err)
+	assert.Empty(t, d1.SourceVersion, "无历史版本时 source_version 应为空")
+
+	// 废弃 d1 腾出活 pending 名额，再手动补一条上一已确认 ConfigVersion。
+	_, err = DiscardDraft(db, d1.ChangeNo)
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&models.ConfigVersion{
+		NetworkDomainID: "edge-sv",
+		DraftID:         "draft-prev",
+		ChangeNo:        "CHG-PREV-001",
+		PrometheusYml:   "global:\n  scrape_interval: 5s\n",
+	}).Error)
+
+	// 已有上一版本 → source_version 回填为其 change_no。
+	d2, err := GenerateDraft(db, "edge-sv")
+	require.NoError(t, err)
+	assert.Equal(t, "CHG-PREV-001", d2.SourceVersion)
+}
+
+// TestConfirmDraftKeepsSourceVersion 覆盖 ConfirmDraft 不应把草稿 source_version 覆盖
+// 为草稿自身 change_no（旧实现 :379 的缺陷）：确认后 source_version 仍指向前一版本。
+func TestConfirmDraftKeepsSourceVersion(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-sv2", true)
+
+	// 上一版本已确认。
+	require.NoError(t, db.Create(&models.ConfigVersion{
+		NetworkDomainID: "edge-sv2",
+		DraftID:         "draft-prev",
+		ChangeNo:        "CHG-PREV-002",
+		PrometheusYml:   "global:\n  scrape_interval: 5s\n",
+	}).Error)
+
+	// 生成草稿 → source_version 回填为上一版本 change_no。
+	d, err := GenerateDraft(db, "edge-sv2")
+	require.NoError(t, err)
+	assert.Equal(t, "CHG-PREV-002", d.SourceVersion)
+
+	// 测试环境无 promtool，手动模拟 revalidate 通过后再 confirm。
+	require.NoError(t, db.Model(d).Update("validation_status", string(models.ValidationStatusPassed)).Error)
+	v, err := ConfirmDraft(db, d.ChangeNo, "admin")
+	require.NoError(t, err)
+	assert.Equal(t, d.ChangeNo, v.ChangeNo)
+
+	// confirm 不得把 source_version 覆盖为草稿自身 change_no。
+	var confirmed models.ConfigDraft
+	require.NoError(t, db.Where("change_no = ?", d.ChangeNo).First(&confirmed).Error)
+	assert.Equal(t, "CHG-PREV-002", confirmed.SourceVersion, "confirm 后 source_version 仍应指向历史版本 change_no")
+}
+
 func TestConfirmDraftRejectsUnpassedValidation(t *testing.T) {
 	db := newMemDB(t)
 	seedDraftWithStatus(t, db, "CHG-99990101-001", "edge-c", string(models.DraftStatusPending), string(models.ValidationStatusPending))

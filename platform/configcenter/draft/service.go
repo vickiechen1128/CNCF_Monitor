@@ -99,11 +99,24 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// T09-05 review-fix：source_version 回填为该网域「上一已确认 ConfigVersion」的
+	// change_no（契约 §4 语义「基于哪个 ConfigVersion」，供版本对比 Tab 拉基线版本）。
+	// 无历史版本保持空，前端据此显示「无历史版本可对比」。
+	baseVersion, err := lastConfirmedVersion(db, domainID)
+	if err != nil {
+		return nil, err
+	}
+	sourceVersionRef := ""
+	if baseVersion != nil {
+		sourceVersionRef = baseVersion.ChangeNo
+	}
 	_ = vMsg // 校验说明已反映在 validation 状态（MVP 不单独落库）
 
 	draft := &models.ConfigDraft{
 		NetworkDomainID:  domainID,
 		ChangeNo:         changeNo,
+		SourceVersion:    sourceVersionRef,
 		PrometheusYml:    artifacts.PrometheusYML,
 		RulesYml:         artifacts.RulesYML,
 		BlackboxYml:      artifacts.BlackboxYML,
@@ -165,6 +178,20 @@ func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error
 		return nil, fmt.Errorf("load latest pending draft: %w", err)
 	}
 	return &d, nil
+}
+
+// lastConfirmedVersion 返回某网域最近一次 confirm 生成的 ConfigVersion（按 created_at
+// 倒序取最新一条）；无历史版本返回 nil。用于 GenerateDraft 回填 source_version。
+func lastConfirmedVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error) {
+	var v models.ConfigVersion
+	err := db.Where("network_domain_id = ?", domainID).Order("created_at desc").First(&v).Error
+	if err == gorm.ErrRecordNotFound {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("load last confirmed config version: %w", err)
+	}
+	return &v, nil
 }
 
 // buildChangeItems 依据参与生成的 jobs / rules 生成结构化变更清单。
@@ -373,10 +400,12 @@ func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVers
 		}
 
 		updates := map[string]interface{}{
-			"status":         models.DraftStatusConfirmed,
-			"confirmed_by":   confirmedBy,
-			"confirmed_at":   &now,
-			"source_version": d.ChangeNo,
+			"status":       models.DraftStatusConfirmed,
+			"confirmed_by": confirmedBy,
+			"confirmed_at": &now,
+			// T09-05 review-fix：不再覆盖 source_version。它已在 GenerateDraft 时回填为
+			// 上一已确认 ConfigVersion 的 change_no（旧实现误置为草稿自身 change_no，
+			// 导致版本对比 Tab 拉基线版本不命中 diff 降级）。确认不应改变该基线指向。
 		}
 		if err := tx.Model(d).Updates(updates).Error; err != nil {
 			return fmt.Errorf("mark draft confirmed: %w", err)

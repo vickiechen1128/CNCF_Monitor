@@ -110,7 +110,7 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | （上表全部字段） | | |
-| `source_version` | string | 基于哪个 ConfigVersion；用于版本对比 Tab |
+| `source_version` | string | 基于哪个 ConfigVersion；用于版本对比 Tab。生成草稿时回填为**上一已确认 ConfigVersion 的 change_no**（该网域按 created_at 取最近一次 confirm 生成的版本）；无历史版本为空，前端据此显示「无历史版本可对比」 |
 | `prometheus_yml` | string | prometheus.yml 文本 |
 | `rules_yml` | string | rules.yml（可选） |
 | `blackbox_yml` | string | blackbox.yml（可选） |
@@ -134,7 +134,7 @@
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/api/v2/platform/config-versions` | Query: `network_domain_id`、`change_no?`、`page`、`page_size` | `{ items: [ConfigVersion], total }` | — | §6.5.3 |
-| GET | `/api/v2/platform/config-versions/{id}` | — | ConfigVersion 详情（含完整产物，供 diff） | `not_found` | §6.5.3 |
+| GET | `/api/v2/platform/config-versions/{id}` | — | ConfigVersion 详情（含完整产物，供 diff）。`{id}` 兼容两种 ref：纯数字按主键 id 命中；否则按 `change_no` 命中（source_version 透传为 change_no 时直接命中） | `not_found` | §6.5.3 |
 | GET | `/api/v2/platform/deployments` | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [ConfigDeployment], total }` | — | §6.5.3 |
 | POST | `/api/v2/platform/deployments/{deployment_id}/retry` | body `{ triggered_by }` | 新的 ConfigDeployment | `bad_request`：非 local / 原记录非 failed；`not_found` | §6.5.3 / 决策 42-3 |
 | POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | body `{ triggered_by }` | 新的 ConfigDeployment（回滚目标版本） | `not_found`；`bad_request`：目标版本不存在/不同网域 | §6.5.3 |

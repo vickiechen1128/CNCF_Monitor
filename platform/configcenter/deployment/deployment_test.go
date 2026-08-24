@@ -375,6 +375,12 @@ func TestListAndGetVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "default", v.NetworkDomainID)
 
+	// 方案 a：纯数字入参按主键 id 命中之外，非纯数字入参按 change_no 命中
+	// （前端 diff 用 source_version=上一版本 change_no 拉基线版本）。
+	vCn, err := GetVersion(db, "CHG-20240101-001")
+	require.NoError(t, err)
+	assert.Equal(t, "CHG-20240101-001", vCn.ChangeNo)
+
 	_, err = GetVersion(db, "cv-missing")
 	assert.ErrorIs(t, err, ErrVersionNotFound)
 }
