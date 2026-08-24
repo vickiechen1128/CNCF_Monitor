@@ -50,7 +50,7 @@
 | 纳管状态（registration_status Tag） | 纳管状态（由 `is_monitored` 派生 `monitored`/`created`） | ✅ | 契约 GET network-domains 返回 `is_monitored`；前端派生注册态 |
 | 下发通道（channel Tag：local 中性 / agent_pull 蓝） | 下发通道（同） | ✅ | `default` 固定 local |
 | 运行状态（状态+心跳合并，仅 agent_pull） | 运行状态（`agent_pull && status` 时展示状态+心跳；local 显 `-`） | ⚠️ C1 | 运行态字段 agent_pull 心跳为 v0.2 占位，MVP local 恒显 `-` |
-| 凭据（脱敏 Token+复制，仅 agent_pull） | 凭据（`agent_pull && token` 时脱敏+复制；local 显 `-`） | ⚠️ C2 | Token 生成为 agent_pull v0.2；MVP local 行不展示 |
+| 凭据（脱敏 Token+复制，仅 agent_pull） | 凭据（`agent_pull && token_masked` 时仅展示脱敏串 `••••••••`，local 显 `-`） | ⚠️ C2 | 契约口径（dev-feedback #1）：list 不返回明文 token，列表行**不提供「复制明文」**；明文仅在纳管成功/重置 Token 单次响应后经一次性 PlainTokenModal 展示并复制（review-fix HIGH-1/MEDIUM-1/LOW-1） |
 | 操作（纳管/编辑 + 详情 + 更多[重置 Token]） | 操作（三槽位：主操作=纳管/编辑文本链接 + 详情常驻 + 更多仅 agent_pull 已纳管显示重置 Token） | ⚠️ C3 | 重置 Token 为 v0.2 占位；MVP local 行仅 编辑/详情 |
 | 顶部「新网域接入操作流程」提示区（3 步） | 顶部常驻提示区（3 步人工步骤 + 组件构成 + 凭据获取；纳管成功滚动高亮） | ⚠️ C4 | 安装指引仅在纳管 agent_pull 域后引导；MVP local 域裁剪提示强度 |
 | 详情抽屉（中心接入地址/Remote Write URL/Agent 类型/描述） | 右侧详情 Drawer（同口径） | ✅ | 配置字段进 Drawer |
