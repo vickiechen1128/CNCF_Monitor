@@ -157,6 +157,9 @@ Orchestrator 必须提供以下信息：
 - `docs/02-product-requirements/05_Code_Implementation_Plan.md`
 - `docs/02-product-requirements/04_Implementation_Map.md`
 - `docs/02-product-requirements/Modules/Module_XX_*.md`
+- `docs/prototypes/module-XX/`（有前端任务时必读，只读相关页面）
+- `docs/05-execution-records/module-XX/frontend-prototype-map.md`（有前端任务时**必读**；缺失时停止并报告 Orchestrator/prototype-designer 补产出）
+- `docs/05-execution-records/module-XX/design-decisions.md`
 - 工程标准文件
 - 当前 Phase 范围与已完成的 task 清单（由 Orchestrator 在任务卡中提供）
 
@@ -198,6 +201,9 @@ tasks:
   - task_id: m07-02
     name: 实现 Resource CRUD API
     agent: backend-developer
+    status: pending
+    commit_group: resource-crud
+    prd: "Module_07 §6.2"
     depends_on: [m07-01]
     estimated_files_changed: 4
     estimated_test_cases: 10
@@ -212,12 +218,47 @@ tasks:
       - go test ./platform/config/resource/...
       - go vet ./platform/config/resource/...
     acceptance_criteria: 可通过 HTTP 增删改查 Resource
+
+  - task_id: m07-f03
+    name: 资源管理列表页
+    agent: frontend-developer
+    status: pending
+    commit_group: resource-pages
+    prd: "Module_07 §11.1"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/ResourcesPage.tsx"
+    ui_contract: "PRD §11.1 条目 1-4（加载/空态/接口错误/权限不足/数据超量）"
+    nav_contract: "顶部一级 tab 文案 = PRD 模块名「监控对象管理」；Sider 二级入口「资源管理」"
+    clipping:
+      - item: "原型的批量导出按钮"
+        reason: "非 MVP，M05 联调阶段再议"
+    depends_on: [m07-f01]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：ui-custom/web/src/pages/resources/ResourcesPage.tsx 与 T07-F4/F5/F6 共享"
+    input_files:
+      - "docs/05-execution-records/module-07/frontend-prototype-map.md"
+      - "docs/prototypes/module-07/src/pages/ResourcesPage.tsx"
+      - "docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md"
+      - "docs/05-execution-records/module-07/api-contract-snapshot.md"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/useResources.ts"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ResourcesPage.test.tsx"
+      - "cd ui-custom/web && pnpm dev"
+    acceptance_criteria: 五类 Tab 切换正常；表格列与 frontend-prototype-map 列对照表一致；状态矩阵覆盖加载/空态/错误/权限不足
 ```
 
 > 字段说明：
 > - `status`：任务状态，`pending` / `done`，由 Orchestrator 在 developer 完成并提交 commit 后更新。
 > - `commit_group`：建议的提交分组名，同一 group 的相邻任务可合并为一个 commit；跨 group 禁止合并。
 > - `prd`：该任务对应的 PRD 章节号，用于产品侧反向追溯代码实现位置。
+> - `prototype_pages`（前端任务必填）：该任务涉及的原型页面文件路径列表， reviewer/验收抽查的靶子。
+> - `ui_contract`（前端任务必填）：PRD 第 11 章「前端交互契约」对应条目编号，精确到页面状态矩阵条目。
+> - `nav_contract`（前端任务必填）：该页面对应的顶部一级 tab 文案、Sider 二级文案、跨模块入口，防止导航写反或模块名误用。
+> - `clipping`（前端任务必填，允许为空数组）：原型有但 MVP 不做的列/区块/交互，逐条写理由（如「非 MVP / 依赖 MXX」）；无记录的删减视为偏离。
 >
 > 由于本 Agent 只读，生成的 YAML 内容通过汇报返回，由 Orchestrator 负责写入 `docs/05-execution-records/module-XX/task-sequence.yaml`。
 
@@ -232,6 +273,20 @@ tasks:
 > 快照再生成条件：PRD 第 5/6 章变更、`03_API_Standard.md` 变更、后端模型字段变更、或进入新 Phase 前。
 >
 > 模板：`docs/05-execution-records/_api-contract-snapshot.template.md`（复制到 `module-XX/` 后按模块填充；完整示例见 `docs/05-execution-records/module-07/api-contract-snapshot.md`）。
+
+### L3 输出前自检清单（v1.28 起）
+
+Planner 返回 L3 前必须逐项确认：
+
+- [ ] 所有前端任务都填写了 `prototype_pages`、`ui_contract`、`nav_contract`、`clipping`
+- [ ] 导航模型与 `frontend-prototype-map.md` 一致：一级 tab 文案 = PRD 模块名，Sider 二级页面不冲突
+- [ ] 列 / 区块完整性：实现集合 = 原型列集合 ∩ MVP 范围；所有删减已在 `clipping` 登记
+- [ ] 前端任务 `verify_commands` 是单文件/单目录测试，不是全量 `pnpm test`
+- [ ] 后端任务 `verify_commands` 指向对应包/目录，不是全量 `go test ./platform/...`
+- [ ] 每个任务都有 `status: pending`、`commit_group`、`prd`
+- [ ] `clipping` 中不存在无理由条目；任何「后续版本」条目都标注了目标版本
+
+---
 
 ### 代码开发序列规则
 

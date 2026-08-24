@@ -17,7 +17,8 @@ function App() {
         <Route path="/business-metrics" element={<BusinessMetricsPage />} />
         {/* {v3.7} 业务视图独立页（导航「指标库 → 业务视图」，与业务指标库登记表职责分离） */}
         <Route path="/business-view" element={<BusinessViewPage />} />
-        {/* {v3.8} 入口合一：默认采集配置承载于采集 Job 页折叠区，原 /ci-exporter-mapping 路由保留跳转（兼容书签） */}
+        {/* {v3.27} F-09：采集器管理独立页面 /collectors（与 /scrape-jobs 并列）；原 /ci-exporter-mapping 路由保留（兼容书签，落位采集器管理视图） */}
+        <Route path="/collectors" element={<ScrapeJobsPage />} />
         <Route path="/ci-exporter-mapping" element={<ScrapeJobsPage />} />
         <Route path="*" element={<Navigate to="/scrape-jobs" replace />} />
       </Routes>

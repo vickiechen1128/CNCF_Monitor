@@ -21,12 +21,16 @@
 | 目录 | 用途 | 是否允许直接修改 |
 |------|------|-----------------|
 | `upstream/prometheus/` | Prometheus 原始源码 | ❌ 否，必要修改通过 patch |
+| `upstream/alertmanager/` | Alertmanager 原始源码 | ❌ 否 |
+| `upstream/blackbox_exporter/` | blackbox_exporter 原始源码 | ❌ 否 |
 | `upstream/node_exporter/` | node_exporter 原始源码 | ❌ 否 |
 | `platform/` | MetricCenter 业务扩展代码 | ✅ 是 |
 | `ui-custom/` | 独立前端门户 | ✅ 是 |
 | `patches/prometheus/` | 对 upstream 的必要 patch | ✅ 是，但需严格审批 |
 | `scripts/` | 构建、打 patch、部署脚本 | ✅ 是 |
 | `deploy/` | Docker、K8s、Compose 配置 | ✅ 是 |
+
+> 其中 `platform/edge-sync-agent/`（v0.2）是部署在边缘节点的业务组件，应使用**独立 `go.mod`**，避免引入 Gin、GORM、SQLite 等控制面依赖，以最小化边缘二进制体积并支持交叉编译；其源码仍属于 `platform/` 业务代码范围，受本隔离标准约束。
 
 ---
 

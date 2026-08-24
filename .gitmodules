@@ -4,3 +4,9 @@
 [submodule "upstream/node_exporter"]
 	path = upstream/node_exporter
 	url = https://github.com/prometheus/node_exporter.git
+[submodule "upstream/alertmanager"]
+	path = upstream/alertmanager
+	url = https://github.com/prometheus/alertmanager.git
+[submodule "upstream/blackbox_exporter"]
+	path = upstream/blackbox_exporter
+	url = https://github.com/prometheus/blackbox_exporter.git

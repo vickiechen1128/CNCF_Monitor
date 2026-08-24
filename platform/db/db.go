@@ -73,6 +73,8 @@ func AutoMigrate() error {
 		&models.ExporterTemplate{},
 		&models.ScrapeJob{},
 		&models.MonitoringRule{},
+		&models.ExporterMetricLibrary{},
+		&models.ExporterInstallationConfirmation{},
 		// 历史表
 		&models.BlackboxProbeConfig{},
 		// 配置中心

@@ -211,7 +211,7 @@ make install-tools
 echo ">>> [2/6] Ensuring C compiler (CGO) for MetricCenter SQLite"
 make ensure-cgo
 
-# 3. 初始化 Git 子模块（upstream/prometheus、upstream/node_exporter 源码）
+# 3. 初始化 Git 子模块（upstream/prometheus、alertmanager、blackbox_exporter、node_exporter 源码）
 # 未初始化时 upstream/ 目录为空，编译/运行 Prometheus 会失败，必须先行拉取。
 echo ">>> [3/6] Initializing git submodules (upstream/ source)"
 git submodule update --init --recursive

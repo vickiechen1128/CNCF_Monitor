@@ -61,7 +61,8 @@ type NetworkDomain struct {
 
 	// Monitoring-management fields (Module_09).
 	Channel         ChannelType `gorm:"size:20;not null" json:"channel"`
-	Token           string      `gorm:"size:500" json:"token,omitempty"` // agent_pull 时必填；脱敏存储
+	Token           string      `gorm:"size:500" json:"-"`                              // agent_pull 时必填；仅服务端存取，不回显明文（token_masked 经 AfterFind 派生）
+	TokenMaskedView string      `gorm:"-" json:"token_masked,omitempty"`                // 派生视图：完全脱敏的 token，不落库
 	AgentType       AgentType   `gorm:"size:30" json:"agent_type,omitempty"`
 	CenterEndpoint  string      `gorm:"size:500" json:"center_endpoint,omitempty"`
 	RemoteWriteURL  string      `gorm:"size:500" json:"remote_write_url,omitempty"`
@@ -78,6 +79,13 @@ type NetworkDomain struct {
 
 // IsManagement reports whether the domain is a management (non-deletable) domain.
 func (d *NetworkDomain) IsManagement() bool { return d.DomainType == DomainTypeManagement }
+
+// AfterFind 在每次从库读出后派生 token_masked（完全脱敏），并确保不回显明文。
+// 列表 / 详情（含 M06 网域列表）因此自动返回 token_masked 而非明文（契约 §3/§6.1）。
+func (d *NetworkDomain) AfterFind(tx *gorm.DB) error {
+	d.TokenMaskedView = TokenMasked(d.Token)
+	return nil
+}
 
 // TableName returns the GORM table name for a NetworkDomain.
 func (NetworkDomain) TableName() string { return "network_domains" }

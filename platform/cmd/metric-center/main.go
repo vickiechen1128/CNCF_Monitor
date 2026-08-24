@@ -10,6 +10,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -24,13 +25,18 @@ import (
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
+	"github.com/metriccenter/metriccenter/platform/configcenter"
+	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/strategy"
 )
 
 var (
 	listenAddr          = flag.String("listen-address", ":8080", "MetricCenter HTTP 监听地址")
 	prometheusURL       = flag.String("prometheus.url", "http://localhost:9090", "Prometheus 查询地址")
 	businessDomainsFile = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
+	configDir           = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
+	configReloadURL     = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
 )
 
 func main() {
@@ -43,6 +49,14 @@ func main() {
 
 	if err := db.Init(); err != nil {
 		log.Fatalf("failed to initialize database: %v", err)
+	}
+
+	// HIGH-1 / T09-06 运行期装配：local 通道经 *DiskApplier 写中心 Prometheus 配置目录
+	// 并 trigger reload；未配置 reload 地址时走 buildReloadFunc 如实报错（不伪成功）。
+	// 默认 noopApplier 仅服务于内存/测试环境（集成测试不调用 main，仍为 no-op）。
+	deployment.DefaultApplier = &deployment.DiskApplier{
+		Dir:    *configDir,
+		Reload: buildReloadFunc(*configReloadURL),
 	}
 
 	r := setupRouter(promURL)
@@ -83,9 +97,6 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 
 func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	platform := g.Group("/platform")
-	config := platform.Group("/config")
-	config.GET("/preview", configPreviewHandler)
-	config.POST("/apply", configApplyHandler)
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
 	networkdomain.RegisterRoutes(platform, db.DB)
@@ -96,6 +107,15 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	businessStore := resource.NewBusinessDomainStore(*businessDomainsFile)
 	resource.RegisterRoutes(platform, db.DB, businessStore)
 	label.RegisterRoutes(platform, db.DB)
+
+	// Module 01 (T01-09 收口): 监控策略——采集器模板 + 默认采集配置 + 采集 Job
+	// （实例候选/安装确认/预览）+ 规则挂载 + 技术指标库，均在 /api/v2/platform/* 下。
+	strategy.RegisterRoutes(platform, db.DB)
+
+	// Module 09 (T09-07 收口): 网域与边缘配置中心——网域监控纳管、配置草稿、
+	// 配置版本与下发记录（含 retry/rollback），统一挂载到 /api/v2/platform/*。
+	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
+	configcenter.RegisterRoutes(platform, db.DB)
 }
 
 func healthHandler(c *gin.Context) {
@@ -123,16 +143,6 @@ func statusHandler(c *gin.Context) {
 		"version": "0.1.0-mvp",
 		"mode":    "mvp",
 	})
-}
-
-func configPreviewHandler(c *gin.Context) {
-	response.OK(c, gin.H{
-		"prometheus_yml": "# TODO: 根据 CMDB + 标签模板生成\n",
-	})
-}
-
-func configApplyHandler(c *gin.Context) {
-	response.OK(c, gin.H{"ok": true, "message": "配置下发接口占位"})
 }
 
 func prometheusProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc {
@@ -172,6 +182,37 @@ func parseURL(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("parse url %q: host must not be empty", raw)
 	}
 	return u, nil
+}
+
+// buildReloadFunc 返回供 *DiskApplier 使用的 reload 回调：POST 到中心 Prometheus
+// reload 地址（/-/reload 以上游为准）。未配置 reloadURL 时如实返回错误而非静默
+// success——避免 HIGH-1 修复前“不 reload 却记 success”的伪成功。
+func buildReloadFunc(reloadURL string) func() error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	return func() error {
+		if reloadURL == "" {
+			return errors.New("config reload url not configured; refusing silent success")
+		}
+		u, err := url.Parse(reloadURL)
+		if err != nil {
+			return fmt.Errorf("parse reload url: %w", err)
+		}
+		if u.Scheme != "http" && u.Scheme != "https" {
+			return fmt.Errorf("parse reload url %q: scheme must be http or https", reloadURL)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("parse reload url %q: host must not be empty", reloadURL)
+		}
+		resp, err := client.Post(reloadURL, "application/json", nil)
+		if err != nil {
+			return fmt.Errorf("reload prometheus at %s: %w", reloadURL, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+			return fmt.Errorf("reload prometheus at %s: unexpected status %d", reloadURL, resp.StatusCode)
+		}
+		return nil
+	}
 }
 
 // safeResponseWriter wraps gin.ResponseWriter to provide a non-panicking

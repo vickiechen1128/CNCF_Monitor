@@ -232,12 +232,12 @@ func TestTenantCreateAndDefaults(t *testing.T) {
 	assert.NoError(t, db.AutoMigrate(&Tenant{}))
 
 	tenant := &Tenant{
-		ID:              PlatformAdminTenantID,
-		Name:            "平台默认租户",
+		ID:               PlatformAdminTenantID,
+		Name:             "平台默认租户",
 		NetworkDomainIDs: []string{DefaultDomainID},
 		MultiSiteEnabled: false,
-		IsPlatformAdmin: true,
-		Status:          TenantStatusActive,
+		IsPlatformAdmin:  true,
+		Status:           TenantStatusActive,
 	}
 	assert.NoError(t, db.Create(tenant).Error)
 
@@ -317,7 +317,7 @@ func TestBuiltinTemplates(t *testing.T) {
 	assert.NoError(t, db.AutoMigrate(&ExporterTemplate{}, &CITypeExporterMapping{}))
 
 	templates := BuiltinExporterTemplates()
-	assert.Len(t, templates, 4) // node / mysqld / redis / windows
+	assert.Len(t, templates, 6) // node / mysqld / redis / windows / kafka / snmp
 	for i := range templates {
 		templates[i].IsBuiltin = true
 		assert.NoError(t, db.Create(&templates[i]).Error)
@@ -369,12 +369,12 @@ func TestScrapeJobAndMonitoringRule(t *testing.T) {
 	assert.Equal(t, []string{"srv-001"}, job.SelectedInstanceIDs)
 
 	rule := &MonitoringRule{
-		Name:           "node-down",
-		ContentMode:    RuleContentModeYAMLPassthrough,
-		Scope:          ScopeTypeCentral,
-		Enabled:        true,
-		DraftStatus:    "ready",
-		ChangeStatus:   ChangeStatusNone,
+		Name:         "node-down",
+		ContentMode:  RuleContentModeYAMLPassthrough,
+		Scope:        ScopeTypeCentral,
+		Enabled:      true,
+		DraftStatus:  "ready",
+		ChangeStatus: ChangeStatusNone,
 	}
 	assert.NoError(t, db.Create(rule).Error)
 	assert.NotZero(t, rule.ID)
@@ -385,10 +385,10 @@ func TestConfigModelsSmoke(t *testing.T) {
 	assert.NoError(t, db.AutoMigrate(&ConfigDraft{}, &ConfigVersion{}, &ConfigDeployment{}))
 
 	draft := &ConfigDraft{
-		NetworkDomainID: DefaultDomainID,
-		ChangeNo:        "CHG-20260821-001",
-		PrometheusYml:   "global: { scrape_interval: 15s }",
-		Status:          DraftStatusPending,
+		NetworkDomainID:  DefaultDomainID,
+		ChangeNo:         "CHG-20260821-001",
+		PrometheusYml:    "global: { scrape_interval: 15s }",
+		Status:           DraftStatusPending,
 		ValidationStatus: "passed",
 	}
 	assert.NoError(t, db.Create(draft).Error)
@@ -448,6 +448,37 @@ func newMemDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	assert.NoError(t, err)
 	return db
+}
+
+func TestScrapeJobSecretsNotSerialized(t *testing.T) {
+	// 决策31：password/token 仅存储，JSON 不回显明文。
+	job := &ScrapeJob{
+		JobName:               "sec-prod",
+		JobType:               JobTypeStandard,
+		ResourceType:          ResourceTypeHost,
+		MonitorType:           MonitorTypeHostLinux,
+		NetworkDomainID:       DefaultDomainID,
+		InstanceSelectionMode: InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "12s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              AuthTypeBasic,
+		Username:              "monitor",
+		Password:              "p@ssw0rd-secret",
+		Token:                 "tok-xyz-secret",
+		ChangeStatus:          ChangeStatusNone,
+		DraftStatus:           "ready",
+		Enabled:               true,
+	}
+	b, err := json.Marshal(job)
+	assert.NoError(t, err)
+	assert.NotContains(t, string(b), "p@ssw0rd-secret", "JSON 不得回显 password 明文")
+	assert.NotContains(t, string(b), "tok-xyz-secret", "JSON 不得回显 token 明文")
+	assert.NotContains(t, string(b), "\"password\"", "JSON 不得包含 password 字段键")
+	assert.NotContains(t, string(b), "\"token\"", "JSON 不得包含 token 字段键")
+	// 公开字段仍保留（创建/更新响应保留 username 即可）。
+	assert.Contains(t, string(b), "\"username\":\"monitor\"")
 }
 
 // --- T07-01: shared contract columns + ImportRecord + LabelTemplateSnapshot + label rules ---
@@ -552,6 +583,264 @@ func TestLabelRules(t *testing.T) {
 	assert.Equal(t, []string{"dev", "test", "staging", "prod"}, ValidEnvs)
 	assert.Equal(t, []string{"http", "https", "tcp"}, ValidProtocols)
 	assert.Equal(t, []string{"http", "https"}, ValidSchemes)
+}
+
+// --- Module 01 (T01-01): models contract baseline ---
+
+func TestMonitorTypeDerivationMapFull(t *testing.T) {
+	expected := map[string]string{
+		"host:linux":               MonitorTypeHostLinux,
+		"host:unix":                MonitorTypeHostLinux,
+		"host:windows":             MonitorTypeHostWindows,
+		"database:mysql":           MonitorTypeMySQL,
+		"database:redis":           MonitorTypeRedis,
+		"middleware:kafka":         MonitorTypeKafka,
+		"middleware:elasticsearch": MonitorTypeElasticsearch,
+		"middleware:nginx":         MonitorTypeNginx,
+		"application:":             MonitorTypeApplicationHTTP,
+		"generic_target:":          MonitorTypeSNMP,
+	}
+	assert.Equal(t, expected, MONITOR_TYPE_DERIVATION_MAP, "MONITOR_TYPE_DERIVATION_MAP must cover all mappings (no dm8)")
+
+	// Derivation helper round-trip.
+	mt, ok := DeriveMonitorType(ResourceCategoryHost, "linux")
+	assert.True(t, ok)
+	assert.Equal(t, MonitorTypeHostLinux, mt)
+	_, ok = DeriveMonitorType(ResourceCategoryDatabase, "dm8")
+	assert.False(t, ok, "dm8 is out of MVP scope")
+}
+
+func TestValidMonitorTypes(t *testing.T) {
+	types := ValidMonitorTypes()
+	assert.Len(t, types, 9)
+	assert.True(t, ValidMonitorType("mysql"))
+	assert.True(t, ValidMonitorType("application_http"))
+	assert.False(t, ValidMonitorType("dm8"))
+	assert.False(t, ValidMonitorType(""))
+}
+
+func TestBlackboxTargetJSONRoundTrip(t *testing.T) {
+	orig := []BlackboxTarget{
+		{Target: "10.0.1.11", Protocol: BlackboxTargetProtocolHTTP, URL: "https://api.example.com/health"},
+		{Target: "10.0.1.12", Protocol: BlackboxTargetProtocolICMP},
+	}
+	b, err := json.Marshal(orig)
+	assert.NoError(t, err)
+	var back []BlackboxTarget
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, orig, back)
+
+	// Enum guards.
+	assert.True(t, ValidBlackboxTargetProtocol("https"))
+	assert.True(t, ValidBlackboxTargetProtocol("dns"))
+	assert.False(t, ValidBlackboxTargetProtocol("ftp"))
+	assert.Len(t, ValidBlackboxTargetProtocols(), 5)
+}
+
+func TestScrapeJobBlackboxTargetsPersistence(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&ScrapeJob{}))
+
+	job := &ScrapeJob{
+		JobName:               "blackbox-http",
+		JobType:               JobTypeBlackbox,
+		ResourceType:          ResourceTypeApplication,
+		NetworkDomainID:       DefaultDomainID,
+		InstanceSelectionMode: InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "12s",
+		MetricsPath:           "/probe",
+		Scheme:                "http",
+		AuthType:              AuthTypeNone,
+		BlackboxModule:        "http_2xx",
+		BlackboxTargets:       []BlackboxTarget{{Target: "10.0.1.11", Protocol: BlackboxTargetProtocolHTTP}},
+		ChangeStatus:          ChangeStatusNone,
+		DraftStatus:           "ready",
+		Enabled:               true,
+	}
+	assert.NoError(t, db.Create(job).Error)
+	assert.Len(t, job.BlackboxTargets, 1)
+
+	var got ScrapeJob
+	assert.NoError(t, db.First(&got, "id = ?", job.ID).Error)
+	assert.Equal(t, "10.0.1.11", got.BlackboxTargets[0].Target)
+	assert.Equal(t, BlackboxTargetProtocolHTTP, got.BlackboxTargets[0].Protocol)
+}
+
+func TestExporterMetricLibraryMonitorTypesSerialization(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&ExporterMetricLibrary{}))
+
+	m := &ExporterMetricLibrary{
+		MetricName: "node_cpu_usage",
+		MetricType: MetricTypeGauge,
+		Help:       "CPU 使用率",
+		Unit:       "percent",
+		Labels:     []string{"cpu", "mode"},
+		MonitorTypes: []ExporterMetricAnchor{
+			{MonitorType: MonitorTypeHostLinux, SourceExporter: "node-exporter"},
+		},
+		Category:  "cpu",
+		IsBuiltin: true,
+		Enabled:   true,
+	}
+	assert.NoError(t, db.Create(m).Error)
+	assert.NotZero(t, m.ID)
+
+	var got ExporterMetricLibrary
+	assert.NoError(t, db.First(&got, "id = ?", m.ID).Error)
+	assert.Equal(t, "cpu", got.Category)
+	assert.Equal(t, []string{"cpu", "mode"}, got.Labels)
+	assert.Len(t, got.MonitorTypes, 1)
+	assert.Equal(t, "node-exporter", got.MonitorTypes[0].SourceExporter)
+	assert.True(t, got.IsBuiltin)
+}
+
+func TestExporterInstallationConfirmationDefaultAndPK(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&ScrapeJob{}, &ExporterInstallationConfirmation{}))
+
+	job := &ScrapeJob{
+		JobName:               "node-prod",
+		JobType:               JobTypeStandard,
+		ResourceType:          ResourceTypeHost,
+		MonitorType:           MonitorTypeHostLinux,
+		NetworkDomainID:       DefaultDomainID,
+		InstanceSelectionMode: InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "12s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              AuthTypeNone,
+		ChangeStatus:          ChangeStatusNone,
+		DraftStatus:           "ready",
+	}
+	assert.NoError(t, db.Create(job).Error)
+
+	// PK = (resource_id, scrape_job_id)；default status unconfirmed.
+	conf := &ExporterInstallationConfirmation{ResourceID: "srv-001", ScrapeJobID: job.ID}
+	assert.Equal(t, InstallationStatus(""), conf.Status)
+
+	conf.Status = InstallationStatusConfirmed
+	conf.ConfirmedBy = PlatformAdminTenantID
+	assert.NoError(t, db.Create(conf).Error)
+
+	var got ExporterInstallationConfirmation
+	assert.NoError(t, db.Where("resource_id = ? AND scrape_job_id = ?", "srv-001", job.ID).First(&got).Error)
+	assert.Equal(t, InstallationStatusConfirmed, got.Status)
+
+	// Duplicate is illegal (composite PK) → second upsert replaces, not new row.
+	assert.NoError(t, db.Save(&ExporterInstallationConfirmation{
+		ResourceID: "srv-001", ScrapeJobID: job.ID, Status: InstallationStatusNotApplicable,
+	}).Error)
+	var count int64
+	assert.NoError(t, db.Model(&ExporterInstallationConfirmation{}).Count(&count).Error)
+	assert.Equal(t, int64(1), count)
+}
+
+func TestInstallationStatusEnums(t *testing.T) {
+	assert.Equal(t, InstallationStatus("unconfirmed"), InstallationStatusUnconfirmed)
+	assert.Equal(t, InstallationStatus("confirmed"), InstallationStatusConfirmed)
+	assert.Equal(t, InstallationStatus("not_applicable"), InstallationStatusNotApplicable)
+}
+
+// --- Module 09 (T09-01): config-center enum & JSON carrier contracts ---
+
+func TestConfigCenterEnumConstants(t *testing.T) {
+	// ChannelType / AgentType / DraftStatus / DeploymentStatus enum values.
+	assert.Equal(t, ChannelType("local"), ChannelTypeLocal)
+	assert.Equal(t, ChannelType("agent_pull"), ChannelTypeAgentPull)
+	assert.Equal(t, AgentType("vmagent"), AgentTypeVMAgent)
+	assert.Equal(t, AgentType("prometheus-agent"), AgentTypePrometheusAgent)
+
+	assert.Equal(t, DraftStatus("pending"), DraftStatusPending)
+	assert.Equal(t, DraftStatus("confirmed"), DraftStatusConfirmed)
+	assert.Equal(t, DraftStatus("discarded"), DraftStatusDiscarded)
+
+	assert.Equal(t, DeploymentStatus("pending"), DeploymentStatusPending)
+	assert.Equal(t, DeploymentStatus("running"), DeploymentStatusRunning)
+	assert.Equal(t, DeploymentStatus("success"), DeploymentStatusSuccess)
+	assert.Equal(t, DeploymentStatus("failed"), DeploymentStatusFailed)
+	assert.Equal(t, DeploymentStatus("rolled_back"), DeploymentStatusRolledBack)
+}
+
+func TestConfigCenterValidationStatus(t *testing.T) {
+	assert.Equal(t, ValidationStatus("passed"), ValidationStatusPassed)
+	assert.Equal(t, ValidationStatus("failed"), ValidationStatusFailed)
+	assert.Equal(t, ValidationStatus("pending"), ValidationStatusPending)
+	assert.Equal(t, ValidationStatus("rejected"), ValidationStatusRejected)
+	assert.True(t, IsValidValidationStatus(string(ValidationStatusFailed)))
+	assert.False(t, IsValidValidationStatus("bogus"))
+	assert.Equal(t, []string{"passed", "failed", "pending", "rejected"}, ValidValidationStatus())
+}
+
+func TestConfigCenterEnumCollections(t *testing.T) {
+	assert.Equal(t, []string{"scrape_job", "target_instance", "monitoring_rule", "probe_target", "label_template"}, ValidChangeItemTargets())
+	assert.Equal(t, []string{"add", "update", "delete"}, ValidChangeItemTypes())
+	assert.Equal(t, []string{"low", "high"}, ValidRisks())
+	assert.Equal(t, []string{"prometheus", "targets", "rules", "blackbox"}, ValidAffectedFiles())
+	assert.True(t, IsValidRisk("high"))
+	assert.False(t, IsValidRisk("medium"))
+
+	assert.Equal(t, AffectedFile("prometheus"), AffectedFilePrometheus)
+	assert.Equal(t, ChangeItemTarget("monitoring_rule"), ChangeItemTargetMonitoringRule)
+	assert.Equal(t, ChangeItemType("delete"), ChangeItemTypeDelete)
+	assert.Equal(t, Risk("high"), RiskHigh)
+	assert.Equal(t, ConfigSyncStatus("in_sync"), ConfigSyncStatusInSync)
+	assert.Equal(t, ConfigSyncStatus("no_version"), ConfigSyncStatusNoVersion)
+	assert.Equal(t, OutOfSyncCause("pending_draft"), OutOfSyncCausePendingDraft)
+}
+
+func TestConfigChangeItemJSONRoundTrip(t *testing.T) {
+	item := ConfigChangeItem{
+		ID:            "ci-1",
+		Type:          string(ChangeItemTypeAdd),
+		Target:        string(ChangeItemTargetTargetInstance),
+		Description:   "新增 1 台服务器加入 node-exporter 采集",
+		AffectedFiles: []string{string(AffectedFileTargets)},
+		Risk:          string(RiskLow),
+	}
+	b, err := json.Marshal(item)
+	assert.NoError(t, err)
+	var back ConfigChangeItem
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, item, back)
+	// snake_case JSON 键名。
+	assert.Contains(t, string(b), "\"affected_files\"")
+	assert.Contains(t, string(b), "\"target_instance\"")
+}
+
+func TestConfigDraftMetadataJSONRoundTrip(t *testing.T) {
+	md := ConfigDraftMetadata{
+		SourceDataVersion:    "2026-08-23T10:00:00Z",
+		TriggerSummary:       "ScrapeJob node-exporter-prod 变更",
+		Checksum:             "sha256-abc123",
+		GeneratorVersion:     "0.1.0",
+		SupersededByChangeNo: "CHG-20260823-002",
+	}
+	b, err := json.Marshal(md)
+	assert.NoError(t, err)
+	var back ConfigDraftMetadata
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, md, back)
+	assert.Contains(t, string(b), "\"source_data_version\"")
+	assert.Contains(t, string(b), "\"superseded_by_change_no\"")
+}
+
+func TestConfigDeploymentStatusValues(t *testing.T) {
+	// All DeploymentStatus must map to a string (contract §5 / §8).
+	for _, s := range []DeploymentStatus{
+		DeploymentStatusPending, DeploymentStatusRunning, DeploymentStatusSuccess,
+		DeploymentStatusFailed, DeploymentStatusRolledBack,
+	} {
+		assert.NotEmpty(t, string(s))
+	}
+}
+
+func TestTokenMasked(t *testing.T) {
+	assert.Equal(t, "", TokenMasked(""))
+	assert.Equal(t, "****", TokenMasked("abcd"), "完全脱敏，不显明文片段")
+	assert.Equal(t, 8, len(TokenMasked("tok-1234")))
 }
 
 func TestLabelTemplateSnapshotSmoke(t *testing.T) {

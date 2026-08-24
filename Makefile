@@ -170,13 +170,14 @@ install-pnpm: install-node
 		"$(NPM_BIN)" install -g --prefix="$(PNPM_DIR)" pnpm@9 || true; \
 		mkdir -p "$(PNPM_DIR)/bin"; \
 		PNPM_MAIN=""; \
-		for c in "$(PNPM_DIR)/node_modules/pnpm/bin/pnpm.cjs" "$(PNPM_DIR)/node_modules/.bin/pnpm" "$(PNPM_DIR)/pnpm" "$(PNPM_DIR)/pnpm.cjs"; do \
+		for c in "$(PNPM_DIR)/lib/node_modules/pnpm/bin/pnpm.cjs" "$(PNPM_DIR)/node_modules/pnpm/bin/pnpm.cjs" "$(PNPM_DIR)/lib/node_modules/.bin/pnpm" "$(PNPM_DIR)/node_modules/.bin/pnpm" "$(PNPM_DIR)/pnpm" "$(PNPM_DIR)/pnpm.cjs"; do \
 			if [ -f "$$c" ]; then PNPM_MAIN="$$c"; break; fi; \
 		done; \
 		if [ -z "$$PNPM_MAIN" ]; then \
 			echo ">>> ERROR: pnpm executable not found after install. Contents of $(PNPM_DIR):"; \
 			ls -la "$(PNPM_DIR)"; exit 1; \
 		fi; \
+		rm -f "$(PNPM_BIN)"; \
 		printf '#!/usr/bin/env sh\nexec "%s" "%s" "$$@"\n' "$(NODE_BIN)" "$$PNPM_MAIN" > "$(PNPM_BIN)"; \
 		chmod +x "$(PNPM_BIN)"; \
 		if [ -n "$(USE_ZIP)" ]; then \
@@ -268,6 +269,40 @@ build-ui: ensure-pnpm
 	@echo ">>> Building Custom UI"
 	@cd "$(PROJECT_ROOT)/ui-custom/web" && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build
 
+# v0.2 placeholder targets for Edge Sync Agent. They are safe no-ops until platform/edge-sync-agent/ is created.
+build-edge-agent: ensure-go
+	@if [ -d "$(PROJECT_ROOT)/platform/edge-sync-agent" ]; then \
+		echo ">>> Building edge-sync-agent"; \
+		cd "$(PROJECT_ROOT)/platform/edge-sync-agent" && "$(GO_BIN)" build -o edge-sync-agent$(EXE) ./cmd/edge-sync-agent; \
+	else \
+		echo ">>> platform/edge-sync-agent/ not yet created (planned for v0.2); skipping build"; \
+	fi
+
+build-edge-package:
+	@echo ">>> Packaging edge distribution bundle"
+	@if [ -d "$(PROJECT_ROOT)/platform/edge-sync-agent" ]; then \
+		echo ">>> TODO: assemble edge-sync-agent + vmagent/prometheus-agent + blackbox exporter into deployable archive"; \
+	else \
+		echo ">>> platform/edge-sync-agent/ not yet created (planned for v0.2); skipping package"; \
+	fi
+
+build-alertmanager: ensure-go
+	@echo ">>> Building upstream Alertmanager"
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager/ui/app" && \
+		if [ ! -d dist ]; then \
+			echo ">>> Installing Alertmanager UI dependencies and building assets"; \
+			npm ci && npm run build; \
+		fi
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o alertmanager$(EXE) ./cmd/alertmanager
+
+build-blackbox-exporter: ensure-go
+	@echo ">>> Building upstream blackbox_exporter"
+	@cd "$(PROJECT_ROOT)/upstream/blackbox_exporter" && "$(GO_BIN)" build -o blackbox_exporter$(EXE) ./
+
+# Center bundle: control plane + Prometheus + Alertmanager + blackbox exporter + Custom UI.
+# Use this target when preparing a test/production deployment package.
+build-center: build-metric-center build-prometheus build-alertmanager build-blackbox-exporter build-ui
+
 build-all: build-metric-center build-prometheus build-ui
 
 # -----------------------------------------------------------------------------
@@ -309,7 +344,9 @@ clean:
 	@rm -f "$(PROJECT_ROOT)/platform/cmd/metric-center/metric-center$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/prometheus/prometheus$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/prometheus/promtool"
-	@rm -f "$(PROJECT_ROOT)/upstream/node_exporter/node_exporter"
+	@rm -f "$(PROJECT_ROOT)/upstream/node_exporter/node_exporter$(EXE)"
+	@rm -f "$(PROJECT_ROOT)/upstream/alertmanager/alertmanager$(EXE)"
+	@rm -f "$(PROJECT_ROOT)/upstream/blackbox_exporter/blackbox_exporter$(EXE)"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/dist"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/node_modules"
 

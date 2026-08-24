@@ -1,0 +1,155 @@
+package draft
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/models"
+	"gorm.io/gorm"
+)
+
+// queryPage 解析 page/page_size，带默认与上限。
+func queryPage(c *gin.Context) (page, pageSize int) {
+	page = 1
+	pageSize = 20
+	if v := c.Query("page"); v != "" {
+		fmt.Sscanf(v, "%d", &page)
+	}
+	if v := c.Query("page_size"); v != "" {
+		fmt.Sscanf(v, "%d", &pageSize)
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+	return page, pageSize
+}
+
+// RegisterRoutes 将 Module_09 配置草稿端点挂到 /api/v2/platform 子组：
+//   - POST       /config/drafts                      手动触发生成
+//   - GET        /config-drafts                     列表（网域 + 状态筛选 + 分页）
+//   - GET        /config-drafts/{change_no}         详情
+//   - POST       /config-drafts/{change_no}/confirm     确认（生成 ConfigVersion）
+//   - POST       /config-drafts/{change_no}/revalidate  重校验
+//   - POST       /config-drafts/{change_no}/discard     废弃
+func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
+	platform.POST("/config/drafts", GenerateDraftHandler(db))
+	platform.GET("/config-drafts", ListDraftsHandler(db))
+	platform.GET("/config-drafts/:change_no", GetDraftHandler(db))
+	platform.POST("/config-drafts/:change_no/confirm", ConfirmDraftHandler(db))
+	platform.POST("/config-drafts/:change_no/revalidate", RevalidateDraftHandler(db))
+	platform.POST("/config-drafts/:change_no/discard", DiscardDraftHandler(db))
+}
+
+// GenerateDraftHandler 处理 POST /api/v2/platform/config/drafts。
+func GenerateDraftHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			NetworkDomainID string `json:"network_domain_id" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
+			return
+		}
+		d, err := GenerateDraft(db, req.NetworkDomainID)
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		response.OK(c, d)
+	}
+}
+
+// ListDraftsHandler 处理 GET /api/v2/platform/config-drafts。
+func ListDraftsHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		page, pageSize := queryPage(c)
+		items, total, err := ListDrafts(db, c.Query("network_domain_id"), c.Query("status"), page, pageSize)
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		if items == nil {
+			items = []models.ConfigDraft{}
+		}
+		response.OK(c, gin.H{"items": items, "total": total})
+	}
+}
+
+// GetDraftHandler 处理 GET /api/v2/platform/config-drafts/{change_no}。
+func GetDraftHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		d, err := GetDraftDetail(db, c.Param("change_no"))
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		response.OK(c, d)
+	}
+}
+
+// ConfirmDraftHandler 处理 POST /api/v2/platform/config-drafts/{change_no}/confirm。
+func ConfirmDraftHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			ConfirmedBy string `json:"confirmed_by" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
+			return
+		}
+		version, err := ConfirmDraft(db, c.Param("change_no"), req.ConfirmedBy)
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		response.OK(c, version)
+	}
+}
+
+// RevalidateDraftHandler 处理 POST /api/v2/platform/config-drafts/{change_no}/revalidate。
+func RevalidateDraftHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		d, err := RevalidateDraft(db, c.Param("change_no"))
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		response.OK(c, gin.H{"validation_status": d.ValidationStatus})
+	}
+}
+
+// DiscardDraftHandler 处理 POST /api/v2/platform/config-drafts/{change_no}/discard。
+func DiscardDraftHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		d, err := DiscardDraft(db, c.Param("change_no"))
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		response.OK(c, d)
+	}
+}
+
+// respondDraftError 将服务层 sentinel 错误映射为统一响应。
+func respondDraftError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, ErrNotFound), errors.Is(err, ErrDomainNotFound):
+		response.NotFound(c, err.Error())
+	case errors.Is(err, ErrDomainNotMonitored),
+		errors.Is(err, ErrDomainFrozen),
+		errors.Is(err, ErrNotPending),
+		errors.Is(err, ErrValidationNotPassed),
+		errors.Is(err, ErrValidationStillFailed):
+		response.BadRequest(c, err)
+	default:
+		response.InternalServerError(c, err)
+	}
+}

@@ -82,9 +82,10 @@ git branch --show-current # 必须是 feat/module-XX
 
 ```markdown
 - docs/05-execution-records/module-XX/api-contract-snapshot.md（**契约权威，必读**）
+- docs/05-execution-records/module-XX/frontend-prototype-map.md（**原型映射表，前端任务必读**；缺失时停止并报告 Orchestrator）
 - docs/02-product-requirements/Modules/Module_XX_*.md（按任务卡指定章节，契约快照缺失或矛盾时补读）
 - docs/05-execution-records/module-XX/task-sequence.yaml
-- docs/prototypes/module-XX/ 下的相关原型文件（优先读取，如缺失不阻断）
+- docs/prototypes/module-XX/ 下的相关原型文件（按任务卡 `prototype_pages` 指定读取，如缺失不阻断）
 - docs/03-engineering-standards/02_Frontend_Standard.md（如任务涉及前端规范）
 - docs/03-engineering-standards/03_API_Standard.md（如任务涉及 API）
 ```
@@ -101,7 +102,9 @@ git branch --show-current # 必须是 feat/module-XX
 
 ### Step 3.5: 原型-实现一致性核对（v1.25 起，编码前强制；**v1.30 升级为「实现基底 + 六项核对」**）
 
-开发页面组件前，对照**原型 + PRD** 做六项核对。**原型定位 = 页面实现基底**（优先复制原型页面结构 / 列集合 / 视觉 Token，再删 mock 换真实 API、去评审体系、按 PRD MVP 裁剪），**未逐项复刻即为偏离，须在 `Change Log` / 模块映射表逐条说明理由**（对齐记录：Module_07 第八轮反思——原型精心做的用户语言翻译在开发时被后端字段名覆盖回去，用户断层复现）：
+开发页面组件前，必须对照 **frontend-prototype-map.md + task-sequence 中本任务的 `prototype_pages` / `ui_contract` / `nav_contract` / `clipping` + PRD** 做逐项核对。**原型定位 = 页面实现基底**（优先复制原型页面结构 / 列集合 / 视觉 Token，再删 mock 换真实 API、去评审体系、按 PRD MVP 裁剪）。
+
+**未逐项复刻即为偏离**——偏离项必须写入 `docs/05-execution-records/module-XX/dev-feedback.md` 或直接在 `frontend-prototype-map.md` 的「偏离记录」区追加说明理由，禁止口头/会话内处理（对齐记录：Module_07 第八轮反思——原型精心做的用户语言翻译在开发时被后端字段名覆盖回去，用户断层复现）。
 
 1. **UI 展示名核对**：页面字段标签必须用 PRD 字段表「UI 展示名」列 + 原型用户语言（如 `network_domain_id` → 网域、`instance_selection_mode` → 实例选择方式），**禁止**直接把后端字段名（snake_case）当 UI 文案；
 2. **用户文案核对**：页面可见文案（Alert / 表单 extra / Tooltip / 空态 / 按钮）**不得出现**原型折叠区 / PRD 技术层术语（模板 ID、内部枚举值、模块代号、checksum 等）；不确定时查 PRD「术语映射」章节；
