@@ -73,11 +73,16 @@ describe('TemplateList selection (T07-F8)', () => {
 
   it('does not trigger onSelect when clicking 克隆 button', async () => {
     listMock.mockResolvedValue(page([item(1, '主机模板')]))
-    cloneMock.mockResolvedValue({ status: 'success', data: item(11, '克隆') })
+    cloneMock.mockResolvedValue({ status: 'success', data: item(11, '主机模板 副本') })
     const { onSelect } = renderList()
     fireEvent.click(await screen.findByRole('button', { name: /克隆/ }))
-    await waitFor(() => expect(cloneMock).toHaveBeenCalledWith(1))
     expect(onSelect).not.toHaveBeenCalled()
+    // 克隆弹窗带默认名「<原名> 副本」，确认后以该名称调用 clone
+    const dialog = await screen.findByRole('dialog')
+    const nameInput = within(dialog).getByPlaceholderText('请输入模板名称')
+    expect(nameInput).toHaveValue('主机模板 副本')
+    fireEvent.click(within(dialog).getByRole('button', { name: /克\s*隆/ }))
+    await waitFor(() => expect(cloneMock).toHaveBeenCalledWith(1, { name: '主机模板 副本' }))
   })
 
   it('does not trigger onSelect when opening delete confirm', async () => {

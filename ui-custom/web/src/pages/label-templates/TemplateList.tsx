@@ -64,7 +64,9 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
   const [filter, setFilter] = useState<TemplateFilter>('all')
   const [page, setPage] = useState(1)
   const [refresh, setRefresh] = useState(0)
-  const [cloningId, setCloningId] = useState<number | null>(null)
+  const [cloneTarget, setCloneTarget] = useState<LabelTemplateListItem | null>(null)
+  const [cloneName, setCloneName] = useState('')
+  const [cloning, setCloning] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<LabelTemplateListItem | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -109,16 +111,29 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
     setRefresh((r) => r + 1)
   }, [])
 
-  const handleClone = async (tpl: LabelTemplateListItem) => {
-    setCloningId(tpl.id)
+  const openClone = (tpl: LabelTemplateListItem) => {
+    setCloneTarget(tpl)
+    setCloneName(`${tpl.name} 副本`)
+    setError(null)
+  }
+
+  const handleCloneOk = async () => {
+    if (!cloneTarget) return
+    const name = cloneName.trim()
+    if (!name) {
+      message.warning('请输入模板名称')
+      return
+    }
+    setCloning(true)
     try {
-      await labelTemplateApi.clone(tpl.id)
-      message.success(`已克隆模板「${tpl.name}」`)
+      await labelTemplateApi.clone(cloneTarget.id, { name })
+      message.success(`已克隆模板「${name}」`)
+      setCloneTarget(null)
       void load()
     } catch (err) {
       message.error(err instanceof Error ? err.message : '克隆失败，请稍后重试')
     } finally {
-      setCloningId(null)
+      setCloning(false)
     }
   }
 
@@ -213,10 +228,10 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
                       type="link"
                       size="small"
                       icon={<CopyOutlined />}
-                      loading={cloningId === tpl.id}
+                      loading={cloning && cloneTarget?.id === tpl.id}
                       onClick={(e) => {
                         e.stopPropagation()
-                        void handleClone(tpl)
+                        openClone(tpl)
                       }}
                     >
                       克隆
@@ -281,6 +296,26 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
           />
         )}
       </div>
+
+      <Modal
+        title="克隆模板"
+        open={cloneTarget !== null}
+        onCancel={() => setCloneTarget(null)}
+        onOk={handleCloneOk}
+        confirmLoading={cloning}
+        okText="克隆"
+        cancelText="取消"
+        destroyOnHidden
+      >
+        <p>基于「{cloneTarget?.name}」克隆新模板，请设置新模板名称：</p>
+        <Input
+          value={cloneName}
+          allowClear
+          placeholder="请输入模板名称"
+          onChange={(e) => setCloneName(e.target.value)}
+          onPressEnter={() => void handleCloneOk()}
+        />
+      </Modal>
 
       <Modal
         title="删除模板"
