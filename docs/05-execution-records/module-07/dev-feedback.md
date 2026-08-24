@@ -76,3 +76,39 @@
   - `TestCreateLabelTemplateRollbackOnSnapshotFailure`（快照失败回滚模板创建，L-1）。
   - `TestResourceLabelUniqueIndex`（(resource_id,key,source) 唯一索引，L-3）。
   - `TestEndToEndSmoke`（端到端冒烟：legacy 归一化 + 服务端筛选关键链路，L-5/L-7）。
+
+---
+
+## 7. PRD 不完善：host 的 `os_type` 标注非必填与采集实例定位依赖矛盾（已实施前后端必填）
+
+> 触发：M07 测试发现「主机资源操作系统未填时，采集 Job 中选不到对应实例」。经对标 PRD 判定为 **PRD 标注不完善**，非执行失误。
+
+- **PRD 章节**：Module_07 §5.6 字段表 `os_type` 标 **❌ 非必填**（L258）。
+- **矛盾点**：采集实例定位**强依赖 os_type**——`platform/models/monitor_type.go` 将 host 的 `linux`/`windows` 监控类型推导为 `os_type` + `OSKeywords`，`platform/strategy/scrapejob/selection.go` 按 `image`（os_type legacy 列）关键词过滤实例候选。**os_type 为空的实例既 `linux` 也不 `windows`，被直接排除出候选 → 所选主机在采集 Job 中选不到**。
+- **现状**：前端 `ResourceFormDrawer`（操作系统 Input）、后端 `validateHost` 均按 PRD 非必填实现（遵 PRD），证实是 PRD 口径问题。
+- **已实施修复（开发侧）**：
+  - 后端 `validateHost` 增加 `os_type 必填`；
+  - 前端 host 表单「操作系统」增加 required 校验（placeholder 去除「（可选）」）。
+- **请求结论**：请设计侧将 Module_07 §5.6 `os_type` 标注改为 **✅ 必填（host）**，并同步 M07 excel/monitor_type 相关描述。
+
+## 8. 待复现：资源（host）编辑仅回填「运行状态」，其余字段为空
+
+> 触发：M07 测试，host 资源点「编辑」，抽屉**只有「运行状态」回填，其他字段（实例名/IP/操作系统/业务等）均未回显**。
+
+- **代码层证据**：① 后端 `list.go buildListItem` 对 host 返回 `instance_name/hostname/instance_ip/os_type` 等全部字段（标准名）；② `TestEndToEndSmoke` 经真实 API 断言 create→list 后 os_type/instance_name/env/app_name/cluster 全部归一化读回有值；③ 前端 `ResourceFormDrawer` 编辑态 `recordToFormValues` 覆盖全字段 + `setFieldsValue` 回填，单测断言 instance_name/instance_ip 回显通过。故「仅回填 status」在完整 record 下前置不成立。
+- **疑点聚焦**：`status` Form.Item 是唯一带 `initialValue="online"` 的字段（L376）。在 `form.resetFields()` 后，未注册/未 set 到的字段会落空，仅 status 由 initialValue 兜底为 "online"，与现象吻合 —— **指向真实 `record` 数据中其余字段为空**（如该 host 行经某入口创建/导入时未写差异化与共享业务字段），或极少数前端异步 race。
+- **状态**：**待复现数据**。请提供该主机行的真实字段值（或允许用真实 DB 复现），以确定是「该行数据缺字段」还是「前端渲染缺陷」，再决定修复。**(2026-08-24 更新：用户复测问题已解决，无需继续。)**
+
+## 9. PRD 补建议：操作系统改为「内置字典 + AutoComplete 下拉」而非自由文本
+
+> 触发：用户反馈「操作系统填自由文本（如拼写错误的 `ubutund`）时，采集 Job 选 Linux 主机找不到对应实例」→ 结论需在采集端建立稳定匹配口径，故做内置字典。
+
+- **原设计**：`os_type` 为自由文本 Input（§7 已修必填，但仍允许任意输入）。采集 Job 候选筛选靠 `monitor_type.go` 的 `OSKeywords` 做脆性 LOWER LIKE 匹配，**拼错或填带版本全名即匹配不到**，用户无法稳定把主机归入 `host_linux`/`host_windows` 候选。
+- **已落地（开发侧，单一权威字典）**：
+  - 后端 `platform/models/os_dict.go`：内置字典 `规范名 → 家族`（Ubuntu/CentOS/RedHat/openEuler/Kylin/AIX/Solaris…→linux；Windows Server 2016~2022/Windows 10/11…→windows）；
+  - `NormalizeOSType`：精确名 → 前缀+版本归一（"ubuntu 22.04 LTS"→"Ubuntu"）→ 家族 token 回落（含 linux/unix/windows 的非字典值→"Linux"/"Windows"）→ 否则保留自定义；
+  - `monitor_type.go` host 候选关键字改为字典动态推导 `OSKeywordsForLinux/Windows()`，替代硬编码 `OSKeywords`；
+  - 配置接口 `GET /api/v2/platform/os-options`（`platform/config/resource/os_options.go`）；
+  - 前端 host 表单「操作系统」改用 antd AutoComplete 下拉选择（可搜索、可自定义），写入后端归一化。
+- **口径边界**：纯拼写错误且不含任何家族关键字（如 `ubutund`）无法自动映射——这正是用下拉+字典规避的点。若需兼容更多 Linux 写法，在 `osDict` 增补规范名即可（家族映射一并生效）。
+- **请求结论**：请设计侧确认是否将 Module_07 §5.6 的 `os_type` 描述改为「内置字典选择（参考 `/os-options`），可按需扩展规范名」，并在 PRD 中说明字典口径，便于 M01/M09 采集候选匹配对齐。

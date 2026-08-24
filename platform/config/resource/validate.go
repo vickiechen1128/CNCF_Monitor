@@ -145,6 +145,12 @@ func validateHost(in *ResourceInput) error {
 	if strings.TrimSpace(in.InstanceName) == "" && strings.TrimSpace(in.Hostname) == "" {
 		return fmt.Errorf("instance_name 必填")
 	}
+	// os_type 必填：host 采集语法依赖 os_type 定位实例（M01 monitor_type=linux/windows
+	// 由 OSKeywords 匹配 image/os_type，见 platform/models/monitor_type.go），为空则所选
+	// 实例在采集 Job 候选中被排除。dev-feedback §7 登记 PRD 标注与此口径不一致。
+	if strings.TrimSpace(in.OSType) == "" {
+		return fmt.Errorf("os_type 必填")
+	}
 	return nil
 }
 

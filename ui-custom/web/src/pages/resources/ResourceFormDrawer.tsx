@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Alert,
+  AutoComplete,
   Button,
   Col,
   Drawer,
@@ -14,10 +15,11 @@ import {
   message,
 } from 'antd'
 import { networkDomainApi } from '../../api/domain'
-import { businessDomainApi, resourceApi } from '../../api/resources'
+import { businessDomainApi, osOptionApi, resourceApi } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type {
   BusinessDomain,
+  OSOption,
   ResourceCategory,
   ResourceCreateInput,
   ResourceStatus,
@@ -75,6 +77,12 @@ const PROTOCOL_OPTIONS = ['http', 'https', 'tcp']
 
 /** 通用目标采集协议（§5.9 scheme，默认 http） */
 const SCHEME_OPTIONS = ['http', 'https']
+
+/** 操作系统家族展示名（os_dict.go：linux / windows） */
+const OS_FAMILY_LABEL: Record<string, string> = {
+  linux: 'Linux',
+  windows: 'Windows',
+}
 
 /** IPv4 地址校验（§5.16.2 IP 格式） */
 const IPV4_RE = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/
@@ -272,6 +280,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [submitting, setSubmitting] = useState(false)
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
+  // 操作系统内置字典（仅 host 表单「操作系统」下拉使用，os_dict.go）
+  const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -291,11 +301,12 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       form.resetFields()
       form.setFieldsValue(recordToFormValues(record))
     }
-    // 网域 / 业务字典下拉（M06 网域清单 / §3.1 业务分组字典）
-    Promise.all([networkDomainApi.list({ page: 1, page_size: 100 }), businessDomainApi.list()])
-      .then(([nd, bd]) => {
+    // 网域 / 业务字典 + 操作系统字典下拉（M06 网域清单 / §3.1 业务字典 / os_dict.go）
+    Promise.all([networkDomainApi.list({ page: 1, page_size: 100 }), businessDomainApi.list(), osOptionApi.list()])
+      .then(([nd, bd, os]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
+        setOsOptions(os.data?.list ?? [])
         setDictError(null)
       })
       .catch((err: Error) => setDictError(err.message))
@@ -427,8 +438,23 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="操作系统" name="os_type">
-                  <Input placeholder="例如：Linux（可选）" maxLength={64} />
+                <Form.Item
+                  label="操作系统"
+                  name="os_type"
+                  extra="按内置字典选择或输入常用操作系统名；采集 Job 将按 Linux/Windows 家族匹配"
+                  rules={[{ required: true, message: '请输入操作系统' }]}
+                >
+                  <AutoComplete
+                    placeholder="请选择或输入操作系统，例如：Ubuntu"
+                    options={osOptions.map((o) => ({
+                      value: o.name,
+                      label: `${o.name}（${OS_FAMILY_LABEL[o.family] ?? o.family}）`,
+                    }))}
+                    // 未选中字典项时允许自定义输入（保留原值，由后端 NormalizeOSType 兜底家族）
+                    filterOption={(input, option) =>
+                      (option?.value as string).toLowerCase().includes(input.toLowerCase())
+                    }
+                  />
                 </Form.Item>
               </Col>
             </Row>

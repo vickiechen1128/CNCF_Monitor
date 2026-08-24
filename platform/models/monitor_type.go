@@ -86,9 +86,10 @@ func DeriveResourceFilter(monitorType string) (MonitorTypeDerivation, bool) {
 	mt := strings.TrimSpace(monitorType)
 	switch mt {
 	case MonitorTypeHostLinux:
-		return MonitorTypeDerivation{Category: ResourceCategoryHost, SubtypeField: "os_type", OSKeywords: []string{"linux", "unix", "ubuntu", "centos", "debian", "suse"}}, true
+		// os 家族关键字由内置 OS 字典推导（os_dict.go）：linux 家族规范名 + 兜底 token。
+		return MonitorTypeDerivation{Category: ResourceCategoryHost, SubtypeField: "os_type", OSKeywords: OSKeywordsForLinux()}, true
 	case MonitorTypeHostWindows:
-		return MonitorTypeDerivation{Category: ResourceCategoryHost, SubtypeField: "os_type", OSKeywords: []string{"windows", "win"}}, true
+		return MonitorTypeDerivation{Category: ResourceCategoryHost, SubtypeField: "os_type", OSKeywords: OSKeywordsForWindows()}, true
 	case MonitorTypeMySQL:
 		return MonitorTypeDerivation{Category: ResourceCategoryDatabase, SubtypeField: "database_type", Subtype: "mysql"}, true
 	case MonitorTypeRedis:
