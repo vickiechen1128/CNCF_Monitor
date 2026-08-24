@@ -120,6 +120,44 @@ func seedJob(t *testing.T, db *gorm.DB, domainID string, changeStatus models.Cha
 	return j
 }
 
+// seedJobWithDraft 同上，但允许指定 draft_status（用于 MEDIUM-3 过滤断言）。
+func seedJobWithDraft(t *testing.T, db *gorm.DB, domainID string, changeStatus models.ChangeStatus, draftStatus string) *models.ScrapeJob {
+	t.Helper()
+	j := &models.ScrapeJob{
+		JobName:               fmt.Sprintf("job-%s-%s-%s", domainID, draftStatus, changeStatus),
+		JobType:               models.JobTypeStandard,
+		ResourceType:          models.ResourceTypeHost,
+		NetworkDomainID:       domainID,
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "10s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              models.AuthTypeNone,
+		DraftStatus:           draftStatus,
+		ChangeStatus:          changeStatus,
+		Enabled:               true,
+	}
+	require.NoError(t, db.Create(j).Error)
+	return j
+}
+
+// newMemDBNoJobTable 迁移时不建 ScrapeJob 表，用于模拟 writeback 目标表故障
+// （MEDIUM-1 降级路径）。
+func newMemDBNoJobTable(t *testing.T) *gorm.DB {
+	t.Helper()
+	n := atomic.AddInt64(&memDBCounter, 1)
+	dsn := fmt.Sprintf("file:deploy_nojob_%d?mode=memory&cache=shared", n)
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.NetworkDomain{},
+		&models.ConfigVersion{},
+		&models.ConfigDeployment{},
+	))
+	return db
+}
+
 // applyRecorder records Apply calls and can inject an error.
 type applyRecorder struct {
 	applied int
@@ -243,6 +281,39 @@ func TestRollbackVersionNotFound(t *testing.T) {
 	db := newMemDB(t)
 	_, err := Rollback(db, "cv-missing", "admin", &applyRecorder{})
 	assert.ErrorIs(t, err, ErrVersionNotFound)
+}
+
+// TestDispatchWritebackFailureDegrades 覆盖 MEDIUM-1：writeback 失败不应整链 500，
+// 部署仍记 success 并把失败降级记录到 error_message（投递成功与回写解耦）。
+func TestDispatchWritebackFailureDegrades(t *testing.T) {
+	db := newMemDBNoJobTable(t) // 无 ScrapeJob 表 → writeback 必然失败
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-010")
+
+	app := &applyRecorder{}
+	dep, err := Dispatch(db, v, "admin", app)
+	require.NoError(t, err, "writeback 失败应降级，不向调用方返回 500")
+	assert.Equal(t, models.DeploymentStatusSuccess, dep.Status, "投递已成功，状态应仍为 success")
+	assert.Contains(t, dep.ErrorMessage, "writeback", "writeback 失败应记录到 error_message")
+	assert.Equal(t, 1, app.applied)
+}
+
+// TestWritebackChangeStatusFiltersDraftReady 覆盖 MEDIUM-3：仅回写 draft_status=ready
+// 的 pending Job；draft 态 Job 不应被置为 deployed。
+func TestWritebackChangeStatusFiltersDraftReady(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-011")
+	ready := seedJobWithDraft(t, db, "default", models.ChangeStatusPending, "ready")
+	draft := seedJobWithDraft(t, db, "default", models.ChangeStatusPending, "draft")
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(&ready, ready.ID).Error)
+	assert.Equal(t, models.ChangeStatusDeployed, ready.ChangeStatus, "ready 的 pending Job 应回写 deployed")
+	require.NoError(t, db.First(&draft, draft.ID).Error)
+	assert.Equal(t, models.ChangeStatusPending, draft.ChangeStatus, "draft 态 pending Job 不应被回写")
 }
 
 func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T) {

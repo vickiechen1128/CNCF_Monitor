@@ -164,8 +164,14 @@ func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.Net
 		return nil, fmt.Errorf("record deployment: %w", err)
 	}
 	// 成功下发后回写 M01 ScrapeJob.change_status=deployed（决策 31-M2）。
+	// MEDIUM-1 review-fix：writeback 失败与投递成功解耦——降级记录到 error_message，
+	// 不整链 500（避免客户端在部署已成功后因回写失败而重复下发）。
 	if err := writebackChangeStatus(db, version.NetworkDomainID); err != nil {
-		return nil, fmt.Errorf("writeback change_status: %w", err)
+		dep.ErrorMessage = fmt.Sprintf("writeback change_status failed: %v", err)
+		if uerr := db.Model(dep).Update("error_message", dep.ErrorMessage).Error; uerr != nil {
+			return nil, fmt.Errorf("record writeback failure: %w", uerr)
+		}
+		return dep, nil
 	}
 	return dep, nil
 }

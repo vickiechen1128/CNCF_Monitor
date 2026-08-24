@@ -337,6 +337,10 @@ func GetDraftDetail(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) {
 // ConfirmDraft 确认一张 pending + validation=passed 的草稿：生成 ConfigVersion 并将
 // 草稿置为 confirmed，随后触发 local 下发（confirm → deployments 记录，T09-06）。
 // 契约 §4；writeback change_status 见 deployment.Dispatch（决策 31-M2）。
+//
+// MEDIUM-1 review-fix：create ConfigVersion / 置草稿 confirmed / 落下发记录收拢到
+// 同一事务，任一步失败整体回滚（重试仍见 pending 草稿，不落「版本已建草稿已
+// confirmed 却报 500」的部分提交死角）。
 func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVersion, error) {
 	d, err := GetDraftDetail(db, changeNo)
 	if err != nil {
@@ -349,33 +353,40 @@ func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVers
 		return nil, ErrValidationNotPassed
 	}
 
-	now := time.Now()
-	version := &models.ConfigVersion{
-		NetworkDomainID: d.NetworkDomainID,
-		DraftID:         fmt.Sprint(d.ID),
-		ChangeNo:        d.ChangeNo,
-		PrometheusYml:   d.PrometheusYml,
-		RulesYml:        d.RulesYml,
-		BlackboxYml:     d.BlackboxYml,
-		TargetsFiles:    d.TargetsFiles,
-		Metadata:        d.Metadata,
-	}
-	if err := db.Create(version).Error; err != nil {
-		return nil, fmt.Errorf("create config version: %w", err)
-	}
+	var version *models.ConfigVersion
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+		version = &models.ConfigVersion{
+			NetworkDomainID: d.NetworkDomainID,
+			DraftID:         fmt.Sprint(d.ID),
+			ChangeNo:        d.ChangeNo,
+			PrometheusYml:   d.PrometheusYml,
+			RulesYml:        d.RulesYml,
+			BlackboxYml:     d.BlackboxYml,
+			TargetsFiles:    d.TargetsFiles,
+			Metadata:        d.Metadata,
+		}
+		if err := tx.Create(version).Error; err != nil {
+			return fmt.Errorf("create config version: %w", err)
+		}
 
-	updates := map[string]interface{}{
-		"status":         models.DraftStatusConfirmed,
-		"confirmed_by":   confirmedBy,
-		"confirmed_at":   &now,
-		"source_version": d.ChangeNo,
-	}
-	if err := db.Model(d).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("mark draft confirmed: %w", err)
-	}
-	// confirm 触发 local 下发（T09-06）：创建 ConfigDeployment 记录；local 通道写盘
-	// reload 并回写 M01 change_status；agent_pull 通道登记占位（MVP）。
-	if _, err := deployment.DeployConfirmedVersion(db, version, confirmedBy); err != nil {
+		updates := map[string]interface{}{
+			"status":         models.DraftStatusConfirmed,
+			"confirmed_by":   confirmedBy,
+			"confirmed_at":   &now,
+			"source_version": d.ChangeNo,
+		}
+		if err := tx.Model(d).Updates(updates).Error; err != nil {
+			return fmt.Errorf("mark draft confirmed: %w", err)
+		}
+		// confirm 触发 local 下发（T09-06）：创建 ConfigDeployment 记录；local 通道写盘
+		// reload 并回写 M01 change_status；agent_pull 通道登记占位（MVP）。
+		// writeback 失败已在 deployment.Dispatch 内降级处理，不阻断本事务提交。
+		if _, err := deployment.DeployConfirmedVersion(tx, version, confirmedBy); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return version, nil
