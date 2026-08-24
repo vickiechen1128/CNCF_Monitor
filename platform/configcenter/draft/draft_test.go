@@ -205,6 +205,17 @@ func TestGenerateDraftBuildsChangeItemsWithJobsAndRules(t *testing.T) {
 	assert.NotEmpty(t, d.RulesYml)
 }
 
+// TestGenerateDraftPropagatesLoadFailure 覆盖 MEDIUM-2：rules 源数据加载失败必须
+// 上抛错误，不得吞错并静默生成空配置草稿（避免前端拿到空草稿却可 passed→confirm）。
+func TestGenerateDraftPropagatesLoadFailure(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-g8", true)
+	require.NoError(t, db.Migrator().DropTable(&models.MonitoringRule{}))
+
+	_, err := GenerateDraft(db, "edge-g8")
+	require.Error(t, err, "rules 加载失败不得静默生成空草稿")
+}
+
 func TestConfirmDraftRejectsUnpassedValidation(t *testing.T) {
 	db := newMemDB(t)
 	seedDraftWithStatus(t, db, "CHG-99990101-001", "edge-c", string(models.DraftStatusPending), string(models.ValidationStatusPending))

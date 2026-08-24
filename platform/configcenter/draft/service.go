@@ -59,7 +59,10 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return existing, nil
 	}
 
-	artifacts, err := buildArtifacts(db, dom)
+	// MEDIUM-2 review-fix：jobs/rules 复用聚合产物的一次加载（buildArtifacts 已上抛
+	// 加载错误），不再二次查询并吞错（原 `jobs, _ :=` / `rules, _ :=` 会在 DB 瞬时
+	// 失败时静默生成空草稿可 passed→confirm 下发空配置）。
+	artifacts, jobs, rules, err := buildArtifacts(db, dom)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +72,6 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return nil, err
 	}
 
-	jobs, _ := generator.LoadJobs(db, domainID)
-	rules, _ := generator.LoadRules(db)
 	items := buildChangeItems(jobs, rules)
 	checksum := artifacts.Checksum()
 	validation, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
@@ -120,25 +121,26 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 }
 
 // buildArtifacts 聚合网域源数据并组装配置产物（jobs 目标解析 + rules 透传）。
-func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, error) {
+// 同时返回参与生成的 jobs/rules，供上层构建变更清单复用（MEDIUM-2），避免二次查询。
+func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.MonitoringRule, error) {
 	jobs, err := generator.LoadJobs(db, dom.ID)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	rules, err := generator.LoadRules(db)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	jobBuilds := make([]generator.JobBuild, 0, len(jobs))
 	for _, job := range jobs {
 		tmpl, err := generator.LoadDefaultTemplate(db, models.ResourceCategory(job.ResourceType))
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		targets, err := generator.ResolveJobTargets(db, job, tmpl)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		jobBuilds = append(jobBuilds, generator.JobBuild{Job: job, Targets: targets})
 	}
@@ -146,9 +148,9 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	// replica 无独立数据源，MVP 不注入（external_labels 仅 network_domain_id/zone_type）。
 	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
-	return artifacts, nil
+	return artifacts, jobs, rules, nil
 }
 
 // latestLivePending 返回某网域最新的活 pending 草稿（无则 nil）。
