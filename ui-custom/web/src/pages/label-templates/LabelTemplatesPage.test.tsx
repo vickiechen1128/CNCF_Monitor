@@ -168,7 +168,11 @@ describe('LabelTemplatesPage', () => {
     renderPage()
     await screen.findByText('主机默认模板')
     fireEvent.click(screen.getByRole('button', { name: /克隆/ }))
-    await waitFor(() => expect(cloneMock).toHaveBeenCalledWith(1))
+    const dialog = await screen.findByRole('dialog')
+    const nameInput = within(dialog).getByPlaceholderText('请输入模板名称')
+    fireEvent.change(nameInput, { target: { value: '主机自用模板' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: /克\s*隆/ }))
+    await waitFor(() => expect(cloneMock).toHaveBeenCalledWith(1, { name: '主机自用模板' }))
   })
 
   it('deletes custom template after modal confirm', async () => {
