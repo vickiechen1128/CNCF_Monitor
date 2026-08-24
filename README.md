@@ -39,6 +39,8 @@ CNCF_Monitor/
 │   └── AGENTS.md                     # Agent 使用速查
 ├── upstream/                         # 上游开源源码（尽量不修改）
 │   ├── prometheus/
+│   ├── alertmanager/
+│   ├── blackbox_exporter/
 │   └── node_exporter/
 ├── platform/                         # MetricCenter 业务扩展代码
 │   ├── cmd/metric-center/            # 主程序入口
@@ -117,11 +119,18 @@ Makefile 会自动将 `.tools/go/bin`、`.tools/node/bin`、`.tools/pnpm/bin` �
 | `ui-custom/web/package.json` | ✅ 已初始化 | Custom UI 前端项目（Vite + React + TS + Ant Design） |
 | `platform/examples/simple-agent/` | ✅ 已存在 | 标准采集端 Agent 模板，可独立运行 |
 | `upstream/prometheus/` | ✅ 已存在 | 上游 Prometheus 源码 |
-| `upstream/node_exporter/` | ✅ 已存在 | 上游 node_exporter 源码 |
+| `upstream/alertmanager/` | ✅ 已存在 | 上游 Alertmanager 源码（M08 通知收敛） |
+| `upstream/blackbox_exporter/` | ✅ 已存在 | 上游 blackbox_exporter 源码（M01/M09 拨测） |
+| `upstream/node_exporter/` | ✅ 已存在 | 上游 node_exporter 源码（参考示例，当前不默认构建） |
 
 当前可用命令：
 - `make build-metric-center`：编译 MetricCenter 控制面后端
 - `make build-prometheus`：编译上游 Prometheus
+- `make build-alertmanager`：编译上游 Alertmanager
+- `make build-blackbox-exporter`：编译上游 blackbox_exporter
+- `make build-center`：编译中心一体化交付包（控制面 + Prometheus + Alertmanager + blackbox_exporter + UI）
+- `make build-edge-agent`：{v0.2} 编译边缘采集客户端
+- `make build-edge-package`：{v0.2} 组装边缘一体化离线包
 - `make build-ui`：构建 Custom UI
 - `make dev-ui`：启动前端开发服务器
 - `make run-metric-center`：启动 MetricCenter（默认 http://localhost:8080）
@@ -282,5 +291,5 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 ## 8. 许可证
 
-上游项目 Prometheus 与 node_exporter 遵循 Apache License 2.0。
+上游项目 Prometheus、Alertmanager、blackbox_exporter 与 node_exporter 遵循 Apache License 2.0。
 MetricCenter 新增代码同样遵循 Apache License 2.0。
