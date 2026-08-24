@@ -39,6 +39,8 @@ CNCF_Monitor/
 │   └── AGENTS.md                     # Agent 使用速查
 ├── upstream/                         # 上游开源源码（尽量不修改）
 │   ├── prometheus/
+│   ├── alertmanager/
+│   ├── blackbox_exporter/
 │   └── node_exporter/
 ├── platform/                         # MetricCenter 业务扩展代码
 │   ├── cmd/metric-center/            # 主程序入口
@@ -117,16 +119,31 @@ Makefile 会自动将 `.tools/go/bin`、`.tools/node/bin`、`.tools/pnpm/bin` �
 | `ui-custom/web/package.json` | ✅ 已初始化 | Custom UI 前端项目（Vite + React + TS + Ant Design） |
 | `platform/examples/simple-agent/` | ✅ 已存在 | 标准采集端 Agent 模板，可独立运行 |
 | `upstream/prometheus/` | ✅ 已存在 | 上游 Prometheus 源码 |
-| `upstream/node_exporter/` | ✅ 已存在 | 上游 node_exporter 源码 |
+| `upstream/alertmanager/` | ✅ 已存在 | 上游 Alertmanager 源码（M08 通知收敛） |
+| `upstream/blackbox_exporter/` | ✅ 已存在 | 上游 blackbox_exporter 源码（M01/M09 拨测） |
+| `upstream/node_exporter/` | ✅ 已存在 | 上游 node_exporter 源码（参考示例，当前不默认构建） |
 
-当前可用命令：
-- `make build-metric-center`：编译 MetricCenter 控制面后端
-- `make build-prometheus`：编译上游 Prometheus
-- `make build-ui`：构建 Custom UI
-- `make dev-ui`：启动前端开发服务器
-- `make run-metric-center`：启动 MetricCenter（默认 http://localhost:8080）
-- `make run-prometheus`：启动 Prometheus（默认 http://localhost:9090）
-- `make install-tools`：安装工具链
+当前可用命令按「**使用场景** × **适用版本**」拆分如下：
+
+| 场景 | 命令 | 用途 | 适用版本 |
+|------|------|------|----------|
+| **环境准备** | `make install-tools` | 安装 Go / Node.js / pnpm 工具链到 `.tools/`（每位协作者首次只需一次） | 通用 |
+| **本地开发** | `make run-metric-center` | 编译并启动控制面（默认 `:8080`） | MVP / 后续 |
+|  | `make run-prometheus` | 编译并启动 Prometheus（默认 `:9090`） | MVP / 后续 |
+|  | `make dev-ui` | 启动前端开发服务器（默认 `:5173`） | MVP / 后续 |
+| **测试验证** | `make test-platform` | 运行 `platform/` 下所有 Go 测试 | MVP / 后续 |
+|  | `cd ui-custom/web && pnpm test` | 前端单元测试 | MVP / 后续 |
+|  | `cd ui-custom/web && pnpm lint` | 前端静态检查 | MVP / 后续 |
+| **编译打包（预生产 / 测试环境）** | `make build-metric-center` | 编译控制面后端二进制 | MVP / 后续 |
+|  | `make build-prometheus` | 编译上游 Prometheus | MVP / 后续 |
+|  | `make build-ui` | 构建前端静态资源 | MVP / 后续 |
+|  | `make build-alertmanager` | 编译上游 Alertmanager | MVP / 后续 |
+|  | `make build-blackbox-exporter` | 编译上游 blackbox_exporter | MVP / 后续 |
+|  | `make build-center` | 组装中心一体化交付包（metric-center + prometheus + alertmanager + blackbox_exporter + UI） | MVP / 后续 |
+| **边缘交付（未来版本）** | `make build-edge-agent` | 编译边缘采集客户端 | v0.2 |
+|  | `make build-edge-package` | 组装边缘一体化离线包（Edge Sync Agent + vmagent / prometheus-agent + blackbox exporter） | v0.2 |
+
+> **说明**：`make build-all` 是历史快捷命令，仅编译 metric-center + Prometheus + UI，**不包含** Alertmanager / blackbox_exporter；中心一体化交付包请使用 `make build-center`。
 
 ### 3.3 一键初始化脚本
 
@@ -216,8 +233,9 @@ docker run -p 9090:9090 prom/prometheus:latest
 - [ ] 已安装 `make`、`curl`、`git`（Windows 缺失的 `make` 由 setup.sh 自动获取）
 - [ ] 已执行 `make install-tools` 且 `.tools/` 目录生成成功
 - [ ] 已阅读 [`00_Product_Vision.md`](docs/02-product-requirements/00_Product_Vision.md) 和 [`00_Global_Architecture.md`](docs/02-product-requirements/00_Global_Architecture.md)
-- [ ] 已执行 `make build-metric-center`，确认控制面后端可编译
-- [ ] 已执行 `make build-ui`，确认前端可构建
+- [ ] 本地开发验证：`make run-metric-center` + `make run-prometheus` + `make dev-ui` 均可启动
+- [ ] 测试验证：`make test-platform` 与 `pnpm test` / `pnpm lint` 通过
+- [ ] 编译打包验证：`make build-center` 可完成（如需预生产/测试环境交付）
 - [ ] 如需验证采集链路，可运行 `platform/examples/simple-agent/`
 
 ---
@@ -282,5 +300,5 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 ## 8. 许可证
 
-上游项目 Prometheus 与 node_exporter 遵循 Apache License 2.0。
+上游项目 Prometheus、Alertmanager、blackbox_exporter 与 node_exporter 遵循 Apache License 2.0。
 MetricCenter 新增代码同样遵循 Apache License 2.0。

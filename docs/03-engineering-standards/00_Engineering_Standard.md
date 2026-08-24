@@ -28,6 +28,8 @@ CNCF_Monitor/
 │
 ├── upstream/                                    # 上游开源源码（尽量不修改）
 │   ├── prometheus/
+│   ├── alertmanager/
+│   ├── blackbox_exporter/
 │   └── node_exporter/
 │
 ├── platform/                                    # MetricCenter 业务扩展代码

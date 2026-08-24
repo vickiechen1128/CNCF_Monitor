@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import config from 'antd/locale/zh_CN'
+import { useNavigate } from 'react-router-dom'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../../components/FilterBar'
 import { EllipsisText } from '../../../components/EllipsisText'
@@ -54,6 +55,7 @@ export function DomainsPage() {
   const [disableTarget, setDisableTarget] = useState<NetworkDomain | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<NetworkDomain | null>(null)
   const [enablingId, setEnablingId] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     Promise.all([zoneTypeApi.list(), tenantApi.list({ page: 1, page_size: 100 })])
@@ -95,9 +97,9 @@ export function DomainsPage() {
     }
   }
 
-  /** 跨模块跳转占位：Module_09 网域纳管（Phase 5 统一导航前先用 href 占位） */
+  /** 跨模块跳转：Module_09 网域纳管（同页签内导航，NetworkDomainsPage 以 useSearchParams 读 network_domain 定位） */
   const jumpToConfigCenter = (record: NetworkDomain) => {
-    window.open(`#/domain-onboarding?network_domain=${encodeURIComponent(record.id)}`, '_blank')
+    navigate(`/domain-onboarding?network_domain=${encodeURIComponent(record.id)}`)
   }
 
   // 列集合对齐原型（网域ID/名称/登记归属/授权租户/类型/网络区域类型/监控纳管/状态/创建时间/操作）。

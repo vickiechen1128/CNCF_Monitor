@@ -79,24 +79,30 @@ M09 PRD 第 3.11 节、第 6.3 节明确规定：
 metric-center-bundle/
 ├── bin/
 │   ├── metric-center          # 控制面二进制（platform/cmd/metric-center 产物）
-│   └── prometheus             # 上游 Prometheus 二进制（upstream/prometheus 产物）
+│   ├── prometheus             # 上游 Prometheus 二进制（upstream/prometheus 产物）
+│   ├── alertmanager           # 上游 Alertmanager 二进制（upstream/alertmanager 产物，M08 使用）
+│   └── blackbox_exporter      # 上游 blackbox_exporter 二进制（upstream/blackbox_exporter 产物，M01/M09 拨测使用）
 ├── config/
 │   ├── metric-center.yml      # 控制面配置（监听端口、数据库路径、Prometheus 地址等）
-│   └── prometheus/
-│       └── prometheus.yml     # Prometheus 初始配置（空 scrape_configs 或最小配置）
+│   ├── prometheus/
+│   │   └── prometheus.yml     # Prometheus 初始配置（空 scrape_configs 或最小配置）
+│   ├── alertmanager.yml       # Alertmanager 初始配置（M08 管理）
+│   └── blackbox.yml           # blackbox exporter 初始配置（M09 管理，存在 blackbox Job 时需要）
 ├── data/                      # Prometheus TSDB 数据目录（运行期生成）
 ├── logs/                      # 运行日志目录
 └── scripts/
-    ├── start.sh               # 同时启动 metric-center 与 prometheus
+    ├── start.sh               # 同时启动 metric-center、prometheus、alertmanager、blackbox_exporter
     ├── stop.sh                # 优雅停止
     └── install-systemd.sh     # 安装 systemd unit
 ```
 
-systemd 建议拆成两个 service，再由一个 target 统一管理：
+systemd 建议拆成多个 service，再由一个 target 统一管理：
 
 - `metric-center.service`：拉起控制面。
 - `prometheus.service`：拉起 Prometheus。
-- `metric-center.target`：依赖前两个 service，实现 `systemctl start metric-center` 一次启动全部。
+- `alertmanager.service`：拉起 Alertmanager（M08）。
+- `blackbox-exporter.service`：拉起 blackbox exporter（M01/M09 拨测）。
+- `metric-center.target`：依赖上述 service，实现 `systemctl start metric-center` 一次启动全部。
 
 这样：
 
@@ -289,6 +295,8 @@ M09 PRD 第 9.1 节「MVP 验收范围收敛」明确说明：
 测试环境 / 生产（中心）
 ├─ metric-center（控制面）
 ├─ prometheus（数据面，同机）
+├─ alertmanager（告警通知收敛，M08）
+├─ blackbox_exporter（拨测探针，M01/M09）
 └─ 配置目录 + reload 通道（local）
 
 远端 / 隔离网域（边缘）
@@ -302,6 +310,7 @@ M09 PRD 第 9.1 节「MVP 验收范围收敛」明确说明：
 ## 4. 待办与后续行动
 
 1. **MVP 阶段**：
+   - 已添加 `upstream/alertmanager/` 与 `upstream/blackbox_exporter/` 子模块；`Makefile` 已增加 `build-alertmanager`、`build-blackbox-exporter`、`build-center` 目标；`clean` 已覆盖新产物。
    - 在 `metric-center` 配置中增加 `prometheus.config_dir`、`prometheus.reload_url` 等配置项，适配 `local` 通道。
    - 在 `Makefile` / `setup.sh` 中补充「中心一体化交付包」的打包脚本（`scripts/package-center.sh`）。
    - 更新根目录 `AGENTS.md` 或 `docs/03-engineering-standards/00_Engineering_Standard.md` 中关于测试部署形态的说明。

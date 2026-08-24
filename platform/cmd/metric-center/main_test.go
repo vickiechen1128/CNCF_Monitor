@@ -17,6 +17,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
+	"github.com/metriccenter/metriccenter/platform/configcenter"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/strategy"
@@ -67,6 +68,10 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.ScrapeJob{},
 		&models.MonitoringRule{},
 		&models.ExporterInstallationConfirmation{},
+		// 配置中心（Module_09）
+		&models.ConfigDraft{},
+		&models.ConfigVersion{},
+		&models.ConfigDeployment{},
 	))
 	require.NoError(t, seed.Run(db))
 
@@ -82,6 +87,9 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	// Module 01 收口（T01-09）：监控策略全部路由。
 	strategy.RegisterRoutes(platform, db)
+
+	// Module 09 收口（T09-07）：网域监控纳管 + 配置草稿 + 配置下发与历史。
+	configcenter.RegisterRoutes(platform, db)
 	return r, db
 }
 
@@ -798,4 +806,107 @@ func TestEndToEndBusinessDomainsReadOnly(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code)
 	code, _ = c.json("DELETE", "/api/v2/platform/business-domains/infra", "")
 	assert.Equal(t, http.StatusNotFound, code)
+}
+
+// ---------------------------------------------------------------------------
+// Module_09（T09-07）配置中心端到端集成冒烟：
+// 主链路走通——已纳管 default(local) 网域 → 生成草稿 → 校验通过 → 确认
+// （生成 ConfigVersion + 触发 local 下发记录）→ deployments 可见 → ScrapeJob.change_status 回写。
+// ---------------------------------------------------------------------------
+
+// TestEndToEndConfigCenterSmoke 覆盖 T09-07 全链路集成冒烟（决策 31-M2 / PRD §9.2）：
+// 复用 seed 生成的 default(local,已纳管) 网域，经真实路由串联验证 config-center 主链路。
+// promtool 在本环境不可调用，草稿校验态由测试直接落库为 passed（等价 revalidate 通过）。
+func TestEndToEndConfigCenterSmoke(t *testing.T) {
+	r, dbm := buildIntegrationEngine(t)
+	c := &apiClient{t: t, r: r}
+	domainID := models.DefaultDomainID
+
+	// 0. 种子一条待下发 ScrapeJob（change_status=pending），供回写断言。
+	job := &models.ScrapeJob{
+		JobName:               "mc9-smoke-job",
+		JobType:               models.JobTypeStandard,
+		ResourceType:          models.ResourceTypeHost,
+		NetworkDomainID:       domainID,
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "10s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              models.AuthTypeNone,
+		DraftStatus:           "ready",
+		ChangeStatus:          models.ChangeStatusPending,
+		Enabled:               true,
+	}
+	require.NoError(t, dbm.Create(job).Error)
+
+	// 1. 生成草稿（POST /config/drafts）。
+	code, out := c.json("POST", "/api/v2/platform/config/drafts", mustJSON(t, map[string]interface{}{"network_domain_id": domainID}))
+	require.Equal(t, http.StatusOK, code, "生成草稿应成功：%v", out)
+	draft := out["data"].(map[string]interface{})
+	changeNo, _ := draft["change_no"].(string)
+	require.NotEmpty(t, changeNo, "草稿应生成 change_no")
+	assert.Equal(t, string(models.DraftStatusPending), draft["status"])
+
+	// 2. 校验通过：测试环境无 promtool，直接落库 validation_status=passed（等价 revalidate）。
+	require.NoError(t, dbm.Model(&models.ConfigDraft{}).
+		Where("change_no = ?", changeNo).Update("validation_status", string(models.ValidationStatusPassed)).Error)
+
+	// 3. 详情（GET /config-drafts/{change_no}）。
+	code, out = c.json("GET", "/api/v2/platform/config-drafts/"+changeNo, "")
+	require.Equal(t, http.StatusOK, code, "草稿详情应可读：%v", out)
+	assert.Equal(t, changeNo, out["data"].(map[string]interface{})["change_no"])
+
+	// 4. 确认（POST /config-drafts/{change_no}/confirm）→ 触发 local 下发。
+	code, out = c.json("POST", "/api/v2/platform/config-drafts/"+changeNo+"/confirm", `{"confirmed_by":"admin"}`)
+	require.Equal(t, http.StatusOK, code, "确认应成功：%v", out)
+	version := out["data"].(map[string]interface{})
+	require.NotEmpty(t, version["id"], "确认应生成 ConfigVersion")
+	assert.Equal(t, changeNo, version["change_no"])
+
+	// 5. 下发记录列表（GET /deployments）应含本次 confirm 触发的 local 成功记录。
+	code, out = c.json("GET", "/api/v2/platform/deployments?network_domain_id="+domainID, "")
+	require.Equal(t, http.StatusOK, code)
+	deps := out["data"].(map[string]interface{})["items"].([]interface{})
+	require.NotEmpty(t, deps, "应存在下发记录")
+	dep := deps[0].(map[string]interface{})
+	assert.Equal(t, string(models.ChannelTypeLocal), dep["channel"])
+	assert.Equal(t, string(models.DeploymentStatusSuccess), dep["status"])
+	assert.Equal(t, changeNo, dep["source_change_no"])
+
+	// 6. change_status 回写（决策 31-M2）：pending → deployed。
+	require.NoError(t, dbm.First(job, job.ID).Error)
+	assert.Equal(t, models.ChangeStatusDeployed, job.ChangeStatus, "confirm 成功下发后 ScrapeJob.change_status 应回写 deployed")
+
+	// 7. 配置版本列表可见（GET /config-versions）。
+	code, out = c.json("GET", "/api/v2/platform/config-versions?network_domain_id="+domainID, "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"], "应存在 1 个配置版本")
+}
+
+// TestBuildReloadFunc 覆盖 HIGH-1 装配的 reload 回调（review-fix）：
+//   - 未配置 reload 地址必须如实报错，拒绝“伪成功”静默 success；
+//   - 2xx 返回 nil，非 2xx / 非法 scheme 返回错误。
+func TestBuildReloadFunc(t *testing.T) {
+	// 未配置 reload 地址 → 报错（不静默 success）。
+	noURL := buildReloadFunc("")
+	require.Error(t, noURL(), "未配置 reload 地址应报错而非静默成功")
+
+	// 正常 2xx reload → nil。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	ok := buildReloadFunc(srv.URL)
+	require.NoError(t, ok())
+
+	// 非 2xx → error。
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer bad.Close()
+	require.Error(t, buildReloadFunc(bad.URL)())
+
+	// 非法 scheme → error。
+	require.Error(t, buildReloadFunc("ftp://x/-/reload")())
 }

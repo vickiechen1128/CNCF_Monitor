@@ -203,6 +203,7 @@ git checkout -b feat/module-XX-<功能名> origin/develop
 | feature | `feat/module-02-query-center` | 查询中心 | `develop` | `develop` |
 | feature | `feat/module-08-alerting-lifecycle` | 告警收敛与通知管理 | `develop` | `develop` |
 | feature | `feat/module-05-portal` | 前端门户 | `develop` | `develop` |
+| `integration/*` | `integration/v0.1` | 版本末跨模块联调 / E2E 验收 | `develop` | `develop` |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` |
 | `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` |
 
@@ -599,9 +600,14 @@ GET         /api/v2/platform/edge/config?network_domain=
 
 ### Phase 5：跨模块联调验收（第 4 ~ 5 周）
 
-**对应分支**：不创建独立 `feat/module-05-portal` 分支，直接在 `develop` 或临时 `feat/module-00-e2e` 分支完成。
+**对应分支**：`integration/v0.1`（MVP）。从 `develop` 切出，承载版本末跨模块联调；验收通过后 `--no-ff` 合回 `develop` 并删除。v0.2 / v0.3 等后续版本复用同一机制，依次使用 `integration/v0.2`、`integration/v0.3` 等。
 
-**目标**：把 M06 / M07 / M01 / M09 页面串成可用动线，补齐导航、错误处理、端到端验证与文档。
+**目标**：把 M06 / M07 / M01 / M09 页面串成可用动线，补齐导航、错误处理、端到端验证与文档；同时建立跨版本可复用的「联调分支 + 冻结窗口」机制，避免联调期间功能分支继续改动造成冲突。
+
+**入口条件**：
+1. Phase 1 ~ 4 相关 `feat/module-XX` 已全部 `--no-ff` 合并到 `develop`。
+2. 对应模块 PRD 修订表已标记「已冻结」。
+3. chenrt 宣布「代码冻结 / 进入联调」，从 `develop` 切出 `integration/v0.1`。
 
 **Agent 分工**：
 - `planner`：规划联调动线、验收用例、文档更新清单
@@ -621,7 +627,7 @@ GET         /api/v2/platform/edge/config?network_domain=
 **依赖**：Phase 1 ~ 4
 
 **风险点**：
-- 没有独立 portal 分支，联调阶段可能出现多模块前端代码冲突，需由 Orchestrator 统一协调。
+- 联调期间发现需要实质性返工的模块时，必须走「先收尾 integration 回合 develop → 再重新切 feat 分支处理」的回退路径，禁止在 `integration/vX.Y` 上大规模重构或私自重启已冻结的 `feat/module-XX`。
 - M02 查询代理仅保留现有能力，若 MVP 演示需要告警/目标状态页面，需明确哪些能力可用、哪些仅 placeholder。
 
 ---
