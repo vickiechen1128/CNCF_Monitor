@@ -98,6 +98,19 @@
 - **待 PRD/原型同步**：PRD §5.1 默认采集配置实体/§6.2.1 增补「标签模板经『更换/补配』轻量入口维护、编辑抽屉不含该字段」；原型配合收敛动线。
 - **留痕**：`LabelTemplateSelectDrawer`、`MappingDrawer` 按此实现；F-10 内联 Select 方案被本项替代。另在 `MappingDrawer` 编辑态新增快照语义 info 提示「变更仅影响新建 Job，不影响已存在 Job…（如需存量 Job 采用新参数，请在采集 Job 内手动『同步映射默认值』）」，依据 PRD §5.4 参数继承与同步策略（L209-216/L465-467）——修饰该类配置时向用户说明为何无需 M09 变更确认。
 
+## 2026-08-24（Phase 5 联调：标签模板选择/预览补齐映射明细与 M07 跨模块引导）
+
+### F-12：标签模板选择/预览缺少映射明细与 M07 跨模块引导（② 类，已按 PRD §5.1 补齐）
+- **位置**：`ui-custom/web/src/pages/strategy/CollectorTemplatesTab.tsx`（列表列 + 预览抽屉）、`LabelTemplateSelectDrawer.tsx`（更换/补配选择抽屉）、`ScrapeJobFormDrawer.tsx`（Job 表单标签模板 Radio 列表）
+- **问题**：PRD §5.1 L228/L229/L240 要求「选择/查看标签模板时展示模板头部（名称 + 默认标记）+ 映射明细，并提供『前往标签模板管理（M07）』跨模块跳转」；但实现仅显示模板名（此前甚至只显「已挂模板」），**无映射明细、无 M07 引导入口**，模板不合适时用户无法前往 M07 深度管理，交互欠缺。
+- **修正（已实施，锚定 PRD L228/L229/L240）**：
+  1. 新增可复用 `LabelTemplatePreview` 组件：模板头部（名称 + 默认标记）+ 类别·模板ID + 映射明细表（来源字段 → 来源类型 → 目标标签 → 启用）+「前往标签模板管理（M07）」链接。
+  2. `LabelTemplateSelectDrawer`：选中模板后内联展示 `LabelTemplatePreview`，随选择实时联动，可核对映射内容后再提交；空态保留「前往标签模板管理创建」引导。
+  3. `CollectorTemplatesTab`：列表「标签模板」列显示具体模板名称 +「默认」标记（命中模板时）；预览抽屉由 `LabelTemplatePreview` 承载映射明细 + M07 链接，替代原「已挂模板」占位。
+  4. Job 表单 Radio 列表已展示名称 + 默认标记 + 类别·映射数，空态/F1-4 已有 M07 引导，未重复改造（与 PRD L229 匹配）。
+- **验证**：`tsc --noEmit`、`eslint` 通过；`vitest`（CollectorTemplatesTab + ScrapeJobFormDrawer，21 用例）通过。
+- **收割方式**：实现已对齐 PRD L228/L229/L240，无待 PRD 修订项；供 PM 复核与原型动线校验（跨模块跳转沿用 `#/label-templates`，未落地统一导航配置为既有债务）。
+
 ## 收割状态
 - [ ] F-01 已收割（chenrt 修订 PRD §5.6 / §6.2.5）
 - [ ] F-02 已收割（chenrt 修订 PRD §5.4 / §9）
@@ -107,3 +120,4 @@
 - [ ] F-06 已登记（NetworkDomain.token 回显，M06/M09 跟进）
 - [ ] F-07 已裁决（编辑态网域按契约放开，T01-F11 落地）
 - [ ] F-11 未收割（chenrt 修订 PRD §5.1/§6.2.1：编辑抽屉剥离标签模板字段，更换/补配轻量抽屉为唯一入口；同步原型动线）
+- [ ] F-12 已对齐 PRD L228/L229/L240（实现完整，供 PM 复核与原型动线校验；跨模块跳转未落地统一导航配置为既有债务）
