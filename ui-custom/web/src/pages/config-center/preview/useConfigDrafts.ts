@@ -6,6 +6,9 @@ import type { ConfigDraft, DraftStatus, NetworkDomain, PaginatedItems } from '..
 /** 变更状态筛选（决策 21）：默认 pending；all 传后端透传（契约 §4 status 支持 all） */
 export type DraftStatusFilter = DraftStatus | 'all'
 
+/** 「全部网域」的显式选项值（LOW-2）：选中时向后端传 network_domain_id=undefined 跨全部网域查询 */
+export const ALL_DOMAINS_ID = '__all__'
+
 /** 变更检测状态轮询间隔（PRD §11.2 全局行为规则：30s 轮询变更检测） */
 export const POLL_INTERVAL_MS = 30_000
 
@@ -46,7 +49,7 @@ export function useConfigDrafts(): UseConfigDraftsResult {
   const load = useCallback(async () => {
     try {
       const res = await configDraftApi.list({
-        network_domain_id: domainId,
+        network_domain_id: domainId === ALL_DOMAINS_ID ? undefined : domainId,
         status,
         page,
         page_size: pageSize,

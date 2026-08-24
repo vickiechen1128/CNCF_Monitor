@@ -29,12 +29,12 @@ import {
   InfoCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import { configDraftApi } from '../../../api/configCenter'
-import type { ConfigDraft, ConfigChangeItem, DraftStatus, Risk } from '../../../types/config-center'
+import { configDraftApi, deploymentApi } from '../../../api/configCenter'
+import type { ConfigDraft, ConfigChangeItem, ConfigVersion, DraftStatus, Risk } from '../../../types/config-center'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { MainLayout } from '../../../layouts/MainLayout'
-import { useConfigDrafts, fetchMonitoredDomains } from './useConfigDrafts'
-import { affectedFileSet, computeDiff, previewFileText, PREVIEW_TABS, shortChecksum } from './configPreviewYaml'
+import { useConfigDrafts, fetchMonitoredDomains, ALL_DOMAINS_ID } from './useConfigDrafts'
+import { affectedFileSet, computeDiff, fileTextByKey, previewFileText, PREVIEW_TABS, shortChecksum } from './configPreviewYaml'
 import {
   CURRENT_USER,
   affectedFileColor,
@@ -88,6 +88,9 @@ export function ConfigPreviewPage() {
   const [confirming, setConfirming] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [revalidating, setRevalidating] = useState(false)
+  // MEDIUM-2：版本对比 Tab 真实对比 source_version（ConfigVersion 产物）
+  const [sourceOrigin, setSourceOrigin] = useState<ConfigVersion | null>(null)
+  const [sourceVersionLoading, setSourceVersionLoading] = useState(false)
 
   useEffect(() => {
     fetchMonitoredDomains()
@@ -115,10 +118,23 @@ export function ConfigPreviewPage() {
 
   const openDetail = useCallback(async (record: ConfigDraft) => {
     setDetailLoading(true)
+    setSourceOrigin(null)
+    setActiveTab('summary')
     try {
       const res = await configDraftApi.get(record.change_no)
       setDetail(res.data)
-      setActiveTab('summary')
+      // MEDIUM-2：存在基础版本时拉取其产物供版本对比 Tab 做真实 diff
+      if (res.data.source_version) {
+        setSourceVersionLoading(true)
+        try {
+          const vres = await deploymentApi.getConfigVersion(res.data.source_version)
+          setSourceOrigin(vres.data)
+        } catch {
+          setSourceOrigin(null)
+        } finally {
+          setSourceVersionLoading(false)
+        }
+      }
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载变更详情失败，请稍后重试')
     } finally {
@@ -418,14 +434,33 @@ export function ConfigPreviewPage() {
     if (!detail.source_version) {
       return <Empty description="无历史版本可对比（该变更暂无基础版本）" />
     }
+    if (sourceVersionLoading) {
+      return (
+        <div style={{ textAlign: 'center', padding: 40 }}>
+          <Text type="secondary">加载源版本产物…</Text>
+        </div>
+      )
+    }
+    // MEDIUM-2：无法拉取到源版本产物时明确降级，而非把草稿全量标为新增
+    if (!sourceOrigin) {
+      return (
+        <Alert
+          type="warning"
+          showIcon
+          message="无历史版本可对比"
+          description="当前无法拉取源版本（source_version）产物，仅展示草稿本次变更；历史版本确认后仍可在「查看发布记录」查看。"
+        />
+      )
+    }
     const fileTabs = PREVIEW_TABS.map(({ key, label }) => {
       const newText = previewFileText(detail, key)
-      const rows = computeDiff(undefined, newText)
+      const oldText = fileTextByKey(sourceOrigin, key)
+      const rows = computeDiff(oldText, newText)
       return {
         key,
         label,
         children:
-          rows.length === 0 ? (
+          rows.length === 0 || (rows.length === 1 && rows[0].type === 'same') ? (
             <Empty description="当前文件无差异" />
           ) : (
             <pre style={{ margin: 0, maxHeight: 480, overflow: 'auto', background: '#F7F8FA', padding: 12, fontSize: 13 }}>
@@ -448,7 +483,7 @@ export function ConfigPreviewPage() {
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="版本对比为草稿产物 vs 生效版本（按文件 diff）；targets/*.json 与 YAML 均参与对比。MVP local 无历史版本时可顺延展示草稿内容。"
+          message="版本对比为草稿产物 vs 生效版本（按文件 diff）；targets/*.json 与 YAML 均参与对比。作用域为当前 source_version，仅列出存在差异的文件。"
         />
         <Tabs type="card" items={fileTabs} />
       </div>
@@ -468,12 +503,15 @@ export function ConfigPreviewPage() {
           extra={
             <Space wrap>
               <Select
-                allowClear
+                // LOW-2：以显式「全部网域」选项替代 allowClear（清空后不再被默认 effect 强制重选）
                 placeholder="选择网域"
                 style={{ minWidth: 200 }}
-                value={domainId}
-                onChange={(v) => setDomainId(v)}
-                options={domains.map((d) => ({ value: d.id, label: `${d.name}（${channelLabel[d.channel as 'local' | 'agent_pull']}）` }))}
+                value={domainId ?? ALL_DOMAINS_ID}
+                onChange={(v) => setDomainId(v as string | undefined)}
+                options={[
+                  { value: ALL_DOMAINS_ID, label: '全部网域' },
+                  ...domains.map((d) => ({ value: d.id, label: `${d.name}（${channelLabel[d.channel as 'local' | 'agent_pull']}）` })),
+                ]}
               />
               <Select
                 style={{ width: 120 }}

@@ -37,6 +37,29 @@ export function previewFileText(draft: ConfigDraft, key: string): string | undef
   }
 }
 
+/** 从「可含产物的对象」（ConfigDraft 或 ConfigVersion）按 Tab key 取文本；供版本对比 Tab 复用（MEDIUM-2） */
+export interface ArtifactSource {
+  prometheus_yml?: string
+  rules_yml?: string
+  blackbox_yml?: string
+  targets_files?: Record<string, string>
+}
+
+export function fileTextByKey(src: ArtifactSource, key: string): string | undefined {
+  switch (key) {
+    case 'prometheus.yml':
+      return src.prometheus_yml
+    case 'rules.yml':
+      return src.rules_yml
+    case 'blackbox.yml':
+      return src.blackbox_yml
+    case 'targets':
+      return targetsText(src.targets_files)
+    default:
+      return undefined
+  }
+}
+
 /** targets_files 对象 → 单块文本（多个 job 依次拼接，便于预览与 diff） */
 export function targetsText(map?: Record<string, string>): string | undefined {
   if (!map || Object.keys(map).length === 0) return undefined
@@ -65,27 +88,36 @@ export interface DiffRow {
  * 按新增/删除行归类，200 行截断防止超长文件卡死渲染。
  */
 export function computeDiff(oldText: string | undefined, newText: string | undefined): DiffRow[] {
-  const oldLines = (oldText ?? '').split('\n')
-  const newLines = (newText ?? '').split('\n')
-  const maxLen = Math.max(oldLines.length, newLines.length)
+  // 空文本按无行处理，避免把单元素 [""] 误判成一行「removed」/「added」空首行（MEDIUM-2 spurious）
+  const oldLines = oldText ? oldText.split('\n') : []
+  const newLines = newText ? newText.split('\n') : []
   const rows: DiffRow[] = []
   let o = 0
   let n = 0
-  for (let i = 0; i < maxLen && i < 200; i++) {
-    const oldLine = oldLines[o] ?? null
-    const newLine = newLines[n] ?? null
-    if (oldLine === null && newLine === null) break
+  // 主循环：双指针逐行对齐；差异行按「是否仍出现在后续新行」判断移除/新增
+  while (o < oldLines.length && n < newLines.length && rows.length < 200) {
+    const oldLine = oldLines[o]
+    const newLine = newLines[n]
     if (oldLine === newLine) {
-      rows.push({ line: i + 1, oldLine, newLine, type: 'same' })
+      rows.push({ line: rows.length + 1, oldLine, newLine, type: 'same' })
       o++
       n++
-    } else if (oldLine !== null && !newLines.slice(n).includes(oldLine)) {
-      rows.push({ line: i + 1, oldLine, newLine: null, type: 'removed' })
+    } else if (!newLines.slice(n).includes(oldLine)) {
+      rows.push({ line: rows.length + 1, oldLine, newLine: null, type: 'removed' })
       o++
     } else {
-      rows.push({ line: i + 1, oldLine: null, newLine, type: 'added' })
+      rows.push({ line: rows.length + 1, oldLine: null, newLine, type: 'added' })
       n++
     }
+  }
+  // 收尾：剩余旧行为移除、剩余新行为新增（修复原 for 循环 bound=maxLen 漏发尾部行——MEDIUM-2）
+  while (o < oldLines.length && rows.length < 200) {
+    rows.push({ line: rows.length + 1, oldLine: oldLines[o], newLine: null, type: 'removed' })
+    o++
+  }
+  while (n < newLines.length && rows.length < 200) {
+    rows.push({ line: rows.length + 1, oldLine: null, newLine: newLines[n], type: 'added' })
+    n++
   }
   return rows
 }

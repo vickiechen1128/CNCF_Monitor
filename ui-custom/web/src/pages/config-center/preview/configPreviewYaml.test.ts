@@ -2,11 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   affectedFileSet,
   computeDiff,
+  fileTextByKey,
   previewFileText,
   shortChecksum,
   targetsText,
 } from './configPreviewYaml'
-import type { ConfigDraft } from '../../../types/config-center'
+import type { ConfigDraft, ConfigVersion } from '../../../types/config-center'
 
 const base: ConfigDraft = {
   change_no: 'CHG-20260823-001',
@@ -67,5 +68,29 @@ describe('configPreviewYaml（配置预览 / Diff 工具）', () => {
     expect(rows.find((r) => r.type === 'added')?.newLine).toBe('x')
     expect(rows.find((r) => r.type === 'removed')?.oldLine).toBe('b')
     expect(rows.some((r) => r.type === 'same')).toBe(true)
+  })
+
+  it('computeDiff 空旧文本（新文件）只标新增，不产生 spurious removed 空首行（MEDIUM-2）', () => {
+    const rows = computeDiff(undefined, 'a\nb')
+    expect(rows.filter((r) => r.type === 'removed')).toHaveLength(0)
+    expect(rows.filter((r) => r.type === 'added')).toHaveLength(2)
+    // 旧文本为空串也应视为无行，避免单一 [""] 被误判
+    const rowsEmptyString = computeDiff('', 'a')
+    expect(rowsEmptyString.filter((r) => r.type === 'removed')).toHaveLength(0)
+  })
+
+  it('fileTextByKey 兼容 ConfigDraft 与 ConfigVersion 产物读取（MEDIUM-2 diff 复用的源）', () => {
+    const version: ConfigVersion = {
+      id: 'cv-1',
+      network_domain_id: 'default',
+      prometheus_yml: 'global:',
+      targets_files: { job: '[...]' },
+    }
+    expect(fileTextByKey(version, 'prometheus.yml')).toBe('global:')
+    expect(fileTextByKey(version, 'targets')).toContain('# job.json')
+    expect(fileTextByKey(version, 'rules.yml')).toBeUndefined()
+    // 与 previewFileText（草稿侧读取）即 ConfigDraft 共享同一产物形状
+    const draft: ConfigDraft = { ...base, rules_yml: 'groups:' }
+    expect(fileTextByKey(draft, 'rules.yml')).toBe('groups:')
   })
 })

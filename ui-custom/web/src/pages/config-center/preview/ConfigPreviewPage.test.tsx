@@ -14,6 +14,9 @@ const draftApiMock = {
   discard: vi.fn(),
   revalidate: vi.fn(),
 }
+const deploymentApiMock = {
+  getConfigVersion: vi.fn(),
+}
 const reloadMock = vi.fn()
 const setDomainIdMock = vi.fn()
 const setStatusMock = vi.fn()
@@ -21,6 +24,7 @@ const setStatusMock = vi.fn()
 vi.mock('./useConfigDrafts', () => ({
   useConfigDrafts: (...a: unknown[]) => useConfigDraftsMock(...a),
   fetchMonitoredDomains: (...a: unknown[]) => fetchMonitoredDomainsMock(...a),
+  ALL_DOMAINS_ID: '__all__',
 }))
 vi.mock('../../../api/configCenter', () => ({
   configDraftApi: {
@@ -29,6 +33,9 @@ vi.mock('../../../api/configCenter', () => ({
     confirm: (...a: unknown[]) => draftApiMock.confirm(...a),
     discard: (...a: unknown[]) => draftApiMock.discard(...a),
     revalidate: (...a: unknown[]) => draftApiMock.revalidate(...a),
+  },
+  deploymentApi: {
+    getConfigVersion: (...a: unknown[]) => deploymentApiMock.getConfigVersion(...a),
   },
 }))
 vi.mock('antd/locale/zh_CN', () => ({ default: {} }))
@@ -87,6 +94,7 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     draftApiMock.confirm.mockReset()
     draftApiMock.discard.mockReset()
     draftApiMock.revalidate.mockReset()
+    deploymentApiMock.getConfigVersion.mockReset()
     reloadMock.mockReset()
     setDomainIdMock.mockReset()
     setStatusMock.mockReset()
@@ -182,5 +190,41 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     await onOk()
     expect(draftApiMock.discard).toHaveBeenCalledWith('CHG-20260823-001', expect.any(String))
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+  })
+
+  it('MEDIUM-2 版本对比 Tab：有 source_version 时拉取源版本产物并做真实 diff', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' })], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' }),
+    })
+    deploymentApiMock.getConfigVersion.mockResolvedValue({
+      status: 'success',
+      data: { id: 'cv-1', network_domain_id: 'default', prometheus_yml: 'a: 2' },
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    await waitFor(() => expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledWith('cv-1'))
+    fireEvent.click(await screen.findByRole('tab', { name: '版本对比' }))
+    // 源版本 prometheus.yml 为 'a: 2'，草稿为 'a: 1' → 出现 removed 'a: 2' 与 added 'a: 1'
+    expect(await screen.findByText(/- a: 2/)).toBeInTheDocument()
+    expect(screen.getByText(/\+ a: 1/)).toBeInTheDocument()
+    // 不再把空旧文本标成 spurious removed（diff 仅真实差异行）
+    expect(screen.queryByText('无历史版本可对比')).not.toBeInTheDocument()
+  })
+
+  it('MEDIUM-2 版本对比 Tab：无法拉取源版本产物时明确降级文案而非全量新增', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' })], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({ source_version: 'cv-1', prometheus_yml: 'a: 1' }),
+    })
+    deploymentApiMock.getConfigVersion.mockRejectedValue(new Error('fetch failed'))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    await waitFor(() => expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledWith('cv-1'))
+    fireEvent.click(await screen.findByRole('tab', { name: '版本对比' }))
+    expect(await screen.findByText('无历史版本可对比')).toBeInTheDocument()
+    expect(screen.getByText(/无法拉取源版本/)).toBeInTheDocument()
   })
 })
