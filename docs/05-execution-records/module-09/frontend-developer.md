@@ -23,7 +23,8 @@
 | review-fix HIGH-1/MEDIUM-1/LOW-1 | Token 明文仅一次性 Modal 展示，列表仅脱敏串（PlainTokenModal） | `599c6530` |
 | review-fix MEDIUM-2/LOW-2 | 版本对比真实 diff source_version + 全部网域显式选项 | `e4f58487` |
 | docs | frontend-prototype-map 凭据列偏离记录（review-fix） | `a97fc875` |
-| user-verify-fix | M09 独立顶级 tab + 下发记录全量 + 网域信封修正 + 网域管理跳转白屏修复 | （本次提交） |
+| user-verify-fix | M09 独立顶级 tab + 下发记录全量 + 网域信封修正 + 网域管理跳转白屏修复 | `ce0ac65b` |
+| user-verify-fix-2 | NetworkDomainsPage 白屏（useNetworkDomains 消费 M06 {list} 信封崩溃） | （本次提交） |
 
 ## 关键实现说明
 
@@ -45,6 +46,9 @@
 - **下发记录全量查询**：配合后端去必填，未筛选网域时下发记录/配置版本正常返回全量，不再报 "network_domain_id is required"。
 - **网域信息加载失败修复**：`useDeployments.ts` `fetchAllDomains` 误读 M09 `{items,total}` 信封，实际 `networkDomainMonitorApi.list` 走 M06 `/api/v2/platform/network-domains` 返回 `{list,total}`；改为显式读取 `list` 信封。
 - **网域管理跳转白屏修复**：`DomainsPage.tsx` `jumpToConfigCenter` 由 `window.open('#/domain-onboarding?...')`（与 BrowserRouter 冲突的白屏根因）改为 `useNavigate` 同页签 `navigate('/domain-onboarding?network_domain=...')`。
+
+### 补充修复（user-verify-fix-2）
+- **NetworkDomainsPage 白屏**：`useNetworkDomains.ts` 的 `load` 直接 `setData(res.data)` 期望 M09 `{items,total}`，但 `GET /api/v2/platform/network-domains` 列表由 M06 networkdomain 包实现返回 `{list,total,page,page_size}` → `data.items` 为 undefined，`data.items.some(...)` 抛 `Cannot read properties of undefined (reading 'some')`。已与 `fetchAllDomains` 一致：归一化读取 `list` 信封为 `PaginatedItems`。根因与 user-verify-fix 第 3 条同类，属上轮验证遗漏 NetworkDomainsPage 测试（此页 12 用例现全部通过）。
 
 ## 验证结果
 
