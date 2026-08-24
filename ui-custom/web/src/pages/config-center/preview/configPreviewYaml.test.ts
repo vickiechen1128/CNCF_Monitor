@@ -1,0 +1,71 @@
+import { describe, it, expect } from 'vitest'
+import {
+  affectedFileSet,
+  computeDiff,
+  previewFileText,
+  shortChecksum,
+  targetsText,
+} from './configPreviewYaml'
+import type { ConfigDraft } from '../../../types/config-center'
+
+const base: ConfigDraft = {
+  change_no: 'CHG-20260823-001',
+  network_domain_id: 'default',
+  network_domain_name: '默认域',
+  channel: 'local',
+  status: 'pending',
+  summary: '',
+  risk: 'low',
+  affected_files: [],
+  validation_status: 'passed',
+  created_at: '2026-08-23T10:00:00Z',
+  source_version: '',
+}
+
+describe('configPreviewYaml（配置预览 / Diff 工具）', () => {
+  it('affectedFileSet 聚合 change_items 与列表 affected_files', () => {
+    const set = affectedFileSet({
+      ...base,
+      affected_files: ['targets', 'rules'],
+      change_items: [
+        { id: 'c1', type: 'add', target: 'target_instance', description: '', affected_files: ['prometheus', 'targets'], risk: 'low' },
+      ],
+    })
+    expect(set.has('prometheus')).toBe(true)
+    expect(set.has('targets')).toBe(true)
+    expect(set.has('rules')).toBe(true)
+    expect(set.has('blackbox')).toBe(false)
+  })
+
+  it('targetsText 将多个 job 拼接为带注释文本；空映射返回 undefined', () => {
+    expect(targetsText({})).toBeUndefined()
+    expect(targetsText()).toBeUndefined()
+    const text = targetsText({ job_a: 'a', job_b: 'b' })
+    expect(text).toContain('# job_a.json')
+    expect(text).toContain('# job_b.json')
+  })
+
+  it('previewFileText 按产物 key 取文本', () => {
+    const draft: ConfigDraft = {
+      ...base,
+      prometheus_yml: 'global:',
+      targets_files: { job: '[...]' },
+    }
+    expect(previewFileText(draft, 'prometheus.yml')).toBe('global:')
+    expect(previewFileText(draft, 'targets')).toContain('# job.json')
+    expect(previewFileText(draft, 'blackbox.yml')).toBeUndefined()
+  })
+
+  it('shortChecksum 长校验值短显、空值返回 -', () => {
+    expect(shortChecksum()).toBe('-')
+    expect(shortChecksum('abc')).toBe('abc')
+    expect(shortChecksum('0123456789abcdefghijklmnopqrstuvwxyz')).toContain('...')
+  })
+
+  it('computeDiff 区分相同/新增/移除行', () => {
+    const rows = computeDiff('a\nb\nc', 'a\nx\nc')
+    expect(rows.find((r) => r.type === 'added')?.newLine).toBe('x')
+    expect(rows.find((r) => r.type === 'removed')?.oldLine).toBe('b')
+    expect(rows.some((r) => r.type === 'same')).toBe(true)
+  })
+})
