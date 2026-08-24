@@ -20,7 +20,8 @@
 | review-fix HIGH-1 | main.go 装配真实 DiskApplier + reload 回调，修复 local 下发伪成功 | `2d7cd860` |
 | review-fix MEDIUM-1/3 | ConfirmDraft 事务化 + writeback 降级/就绪过滤 | `68b5dd8b` |
 | review-fix MEDIUM-2 | GenerateDraft 消除二次查询吞错 | `21930a2d` |
-| user-verify-fix | ListDeployments/ListVersions 去必填（未传网域返回全量）+ 单测 | （本次提交） |
+| user-verify-fix | ListDeployments/ListVersions 去必填（未传网域返回全量）+ 单测 | `ce0ac65b` |
+| user-verify-fix | ListDrafts 去必填（未传网域返回全量，前端默认/「全部网域」不再 `network domain not found`）+ 单测 | `2d8a6d94` |
 
 ## T09-06 配置下发与历史（commit bc86e41d）
 
