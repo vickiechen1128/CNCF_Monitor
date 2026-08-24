@@ -7,13 +7,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// ListVersions 分页列出某网域的配置版本（契约 §5，network_domain_id 必填；
-// change_no 可选收窄）。按 created_at 倒序返回。
+// ListVersions 分页列出配置版本（契约 §5，network_domain_id 可选；
+// 为空返回全量，change_no 可选收窄）。按 created_at 倒序返回。
 func ListVersions(db *gorm.DB, domainID, changeNo string, page, pageSize int) ([]models.ConfigVersion, int64, error) {
-	if domainID == "" {
-		return nil, 0, ErrDomainRequired
+	q := db.Model(&models.ConfigVersion{})
+	if domainID != "" {
+		q = q.Where("network_domain_id = ?", domainID)
 	}
-	q := db.Model(&models.ConfigVersion{}).Where("network_domain_id = ?", domainID)
 	if changeNo != "" {
 		q = q.Where("change_no = ?", changeNo)
 	}
@@ -55,12 +55,13 @@ func loadVersionByChangeNo(db *gorm.DB, changeNo string) (*models.ConfigVersion,
 	return &v, nil
 }
 
-// ListDeployments 分页列出某网域的下发记录（契约 §5；status / change_no 可选收窄）。
+// ListDeployments 分页列出下发记录（契约 §5；network_domain_id 可选，
+// 为空返回全量，status / change_no 可选收窄）。
 func ListDeployments(db *gorm.DB, domainID, status, changeNo string, page, pageSize int) ([]models.ConfigDeployment, int64, error) {
-	if domainID == "" {
-		return nil, 0, ErrDomainRequired
+	q := db.Model(&models.ConfigDeployment{})
+	if domainID != "" {
+		q = q.Where("network_domain_id = ?", domainID)
 	}
-	q := db.Model(&models.ConfigDeployment{}).Where("network_domain_id = ?", domainID)
 	if status != "" && status != "all" {
 		q = q.Where("status = ?", status)
 	}

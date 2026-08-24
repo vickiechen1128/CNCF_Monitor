@@ -97,5 +97,7 @@ export function useDeployments(): UseDeploymentsResult {
 /** 全部网域（id→name 映射，用于列表「网域」列展示；下发记录可能涉及未纳管历史域） */
 export async function fetchAllDomains(): Promise<NetworkDomain[]> {
   const res = await networkDomainMonitorApi.list({ page: 1, page_size: 100 })
-  return res.data.items
+  // networkDomainMonitorApi.list 实际走 M06 `/api/v2/platform/network-domains`，信封为 { list, total }
+  // （非 M09 的 { items, total }）。此处显式读取 list 信封，返回值语义保持 NetworkDomain[] 不变。
+  return (res.data as unknown as { list: NetworkDomain[] }).list
 }

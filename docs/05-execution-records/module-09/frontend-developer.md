@@ -23,11 +23,12 @@
 | review-fix HIGH-1/MEDIUM-1/LOW-1 | Token 明文仅一次性 Modal 展示，列表仅脱敏串（PlainTokenModal） | `599c6530` |
 | review-fix MEDIUM-2/LOW-2 | 版本对比真实 diff source_version + 全部网域显式选项 | `e4f58487` |
 | docs | frontend-prototype-map 凭据列偏离记录（review-fix） | `a97fc875` |
+| user-verify-fix | M09 独立顶级 tab + 下发记录全量 + 网域信封修正 + 网域管理跳转白屏修复 | （本次提交） |
 
 ## 关键实现说明
 
 - **契约优先**：类型与 API 以 `api-contract-snapshot.md` 为第一权威（snake_case），未反向读取 `platform/models/*.go`。Token 契约口径与后端确认：list 不返回明文 `token`（`json:"-"`），明文仅在 `/monitor`、`/reset-token` 单次返回 → 列表凭据列仅展示脱敏串、移除复制明文入口，明文经 `PlainTokenModal` 一次性展示。
-- **T09-F6 导航**：MainLayout 支持 antd Menu 一级菜单组；`resolveActiveModule` 将 `/domain-onboarding`、`/node-status`、`/config-preview`、`/deployments` 归入一级 tab「系统与平台管理」（key=platform-admin）；Sider 两个组「网域与节点管理」「配置下发」；既有 M06「网域管理」(`/admin/domains`) 保留并存。
+- **T09-F6 导航**：MainLayout 支持 antd Menu 一级菜单组；新增独立顶级模块 `config-center`（label「网域与边缘配置中心」，与「采集策略」同级）；`resolveActiveModule` 将 `/domain-onboarding`、`/node-status`、`/config-preview`、`/deployments` 归入 `config-center`；Sider 两个组「网域与节点管理」「配置下发」；既有 M06「网域管理」(`/admin/domains`) 保留在「系统与平台管理」下并存。
 - **T09-F4 配置变更确认**：预览四 Tab（变更摘要/变更清单/配置预览条件 Tab/版本对比 diff）；30s 轮询变更检测；受影响配置文件高亮 + 默认聚焦首受影响 + 「影响 N/M 个文件」；技术信息（源数据版本/生成器版本/checksum）下沉折叠。版本对比 diff 依赖后端 `source_version` 回填（review-fix，见 backend-developer.md）。
 - **T09-F5 下发记录**：local 且 failed 才展示「重试」；agent_pull 不展示；`?change_no` + `?network_domain` 深链定位。
 - **共享组件**：长文本用 `EllipsisText`、表格列复刻原型、状态矩阵覆盖加载/空态/接口错误/权限不足。
@@ -38,9 +39,17 @@
 - **MEDIUM-2（版本对比真实 diff）**：`source_version` 存在时调用 `deploymentApi.getConfigVersion` 拉基线产物，`renderDiffTab` 三态（加载/真实 diff/降级 Alert）；修复 `computeDiff` 纯替换尾部漏行 bug（主循环 + 双收尾循环）；新增 `fileTextByKey` 兼容 Draft/Version 读产物。
 - **LOW-2（全部网域）**：网域 Select 用显式「全部网域」显式选项替代 `allowClear`，值映射 `undefined` 跨域查询。
 
+## user-verify-fix 修复说明
+
+- **M09 独立顶级 tab**：`MainLayout.tsx` 新增顶级模块 `config-center`（label「网域与边缘配置中心」），M09 两组菜单从 M06「系统与平台管理」下移出；`resolveActiveModule` 弃用手写索引改用 `findModuleByKey`，路由归属 `config-center`。
+- **下发记录全量查询**：配合后端去必填，未筛选网域时下发记录/配置版本正常返回全量，不再报 "network_domain_id is required"。
+- **网域信息加载失败修复**：`useDeployments.ts` `fetchAllDomains` 误读 M09 `{items,total}` 信封，实际 `networkDomainMonitorApi.list` 走 M06 `/api/v2/platform/network-domains` 返回 `{list,total}`；改为显式读取 `list` 信封。
+- **网域管理跳转白屏修复**：`DomainsPage.tsx` `jumpToConfigCenter` 由 `window.open('#/domain-onboarding?...')`（与 BrowserRouter 冲突的白屏根因）改为 `useNavigate` 同页签 `navigate('/domain-onboarding?network_domain=...')`。
+
 ## 验证结果
 
 - 单任务 `pnpm vitest run <目标文件>` 与 `pnpm lint` 通过。
+- user-verify-fix：`pnpm exec tsc --noEmit`、`pnpm lint`、`pnpm vitest run MainLayout/DomainsPage/DeploymentsPage 测试`（3 文件 21 用例）通过。
 - Phase 收尾全量：`pnpm test`（43 文件 / 305 用例）通过、`pnpm lint` 0 警告、`npx tsc --noEmit` 通过、`pnpm build` 成功（M09 四页独立懒加载 chunk）。
 - dev server 验证：`/`、`/domain-onboarding`、`/node-status`、`/config-preview`、`/deployments` 均 200，验证后停服释放端口。
 

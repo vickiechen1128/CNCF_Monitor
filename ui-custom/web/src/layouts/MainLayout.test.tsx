@@ -46,7 +46,7 @@ describe('MainLayout', () => {
     expect(screen.queryByText('jobs-content')).toBeNull()
   })
 
-  it('under 系统与平台管理 renders M06 网域管理 + M09 两个一级菜单组（N2-1）', () => {
+  it('renders M06 网域管理 + M09 独立顶级模块「网域与边缘配置中心」的两个一级菜单组（N2-1）', () => {
     render(
       <MemoryRouter initialEntries={['/deployments']}>
         <Routes>
@@ -54,14 +54,14 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
+    // 顶部一级 tab：M09 独立为「网域与边缘配置中心」顶级模块
+    expect(screen.getByText('网域与边缘配置中心')).toBeInTheDocument()
     expect(screen.getByText('系统与平台管理')).toBeInTheDocument()
-    // 既有 M06「网域管理」保留
-    expect(screen.getByText('网域管理')).toBeInTheDocument()
-    // 组「网域与节点管理」及其子项
+    // M09 顶级模块下的组「网域与节点管理」及其子项
     expect(screen.getByText('网域与节点管理')).toBeInTheDocument()
     expect(screen.getByText('网域纳管')).toBeInTheDocument()
     expect(screen.getByText('采集节点状态')).toBeInTheDocument()
-    // 组「配置下发」及其子项
+    // M09 顶级模块下的组「配置下发」及其子项
     expect(screen.getByText('配置下发')).toBeInTheDocument()
     expect(screen.getByText('配置变更确认')).toBeInTheDocument()
     expect(screen.getByText('下发记录')).toBeInTheDocument()
@@ -83,7 +83,7 @@ describe('MainLayout', () => {
     expect(selected?.className ?? '').toContain('ant-menu-item-selected')
   })
 
-  it('resolves /domain-onboarding、/node-status、/config-preview to 系统与平台管理 module tab', () => {
+  it('resolves /domain-onboarding、/node-status、/config-preview to 网域与边缘配置中心 module tab', () => {
     render(
       <MemoryRouter initialEntries={['/config-preview']}>
         <Routes>
@@ -91,10 +91,10 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
-    // 顶部一级 tab「系统与平台管理」处于 active
+    // 顶部一级 tab「网域与边缘配置中心」处于 active
     const tab = screen
       .getAllByRole('button')
-      .find((el) => (el.textContent || '').includes('系统与平台管理'))
+      .find((el) => (el.textContent || '').includes('网域与边缘配置中心'))
     expect(tab?.className ?? '').toContain('active')
     expect(screen.getByText('preview-content')).toBeInTheDocument()
   })

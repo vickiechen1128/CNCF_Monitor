@@ -20,6 +20,7 @@
 | review-fix HIGH-1 | main.go 装配真实 DiskApplier + reload 回调，修复 local 下发伪成功 | `2d7cd860` |
 | review-fix MEDIUM-1/3 | ConfirmDraft 事务化 + writeback 降级/就绪过滤 | `68b5dd8b` |
 | review-fix MEDIUM-2 | GenerateDraft 消除二次查询吞错 | `21930a2d` |
+| user-verify-fix | ListDeployments/ListVersions 去必填（未传网域返回全量）+ 单测 | （本次提交） |
 
 ## T09-06 配置下发与历史（commit bc86e41d）
 
@@ -127,3 +128,25 @@
 
 #### 前端联动
 - 前端**无需改动**：`deploymentApi.getConfigVersion(source_version)` → `/config-versions/{change_no}`，后端 GetVersion 已兼容按 change_no 命中；source_version 语义（上一版本 change_no）与 ConfigPreviewPage 现有拉取方式对齐。
+
+### user-verify-fix：列表接口去 network_domain_id 必填（下发记录/配置版本未选网域报错）
+
+#### 问题
+- 用户验收 «下发记录»页未筛选网域时，前端 `GET /api/v2/platform/deployments` 不带 `network_domain_id`，后端 `ListDeployments` 直接返回 `ErrDomainRequired`（“network_domain_id is required”）→ 页面级报错。裁定：未传网域应返回全量，而非报错。
+
+#### 修复
+- `platform/configcenter/deployment/history.go`：
+  - `ListDeployments`：删除 `if domainID == "" { return nil, 0, ErrDomainRequired }`，改为仅当 `domainID != ""` 才追加 `.Where("network_domain_id = ?", domainID)`；status/change_no 过滤保留。
+  - `ListVersions`：同步删除必填分支，`domainID` 非空才按网域过滤，返回全量。
+- `platform/configcenter/deployment/handler.go`：`ErrDomainRequired` 常量与 BadRequest 分支保留不删（list 接口不再触发该错误，空网域路径自然返回全量，不再 400）。
+
+#### 新增/修改测试（deployment_test.go）
+- `TestListAndGetVersion`：空 domainID 断言由「ErrDomainRequired」改为「返回全量（total=2）」。
+- `TestListDeploymentsFilter`：空 domainID 断言改为「返回全量（total=3）」。
+- `TestDeploymentHandlerRoutes`：GET `/deployments` 不带 `network_domain_id` 由「期望 400」改为「期望 200」。
+
+#### 验证
+- `go test ./platform/configcenter/deployment/...` 通过；`go build ./platform/...`、`go vet ./platform/configcenter/deployment/...` 通过。
+
+#### 前端联动
+- 前端下发记录页不再因未选网域报错；「网域信息加载失败」由前端 `fetchAllDomains` 信封 `items/list` 修正解决（见 frontend-developer.md）。

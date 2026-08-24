@@ -24,10 +24,11 @@ interface MainLayoutProps {
  * 一级功能模块定义（Header 横导航 + Sider 二级导航的数据源）。
  * 顶部 tab 文案用 PRD 模块名：M06 为「系统与平台管理」（frontend-developer.md
  * Step 3.5 第 7 项「导航与模块名核对」，禁止用功能页名「网域管理」充当一级模块）。
- * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 监控对象管理 / 采集策略」等一级模块；
+ * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 网域与边缘配置中心 / 监控对象管理 / 采集策略」等一级模块；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
- * M09 在「系统与平台管理」下新增两个一级菜单组（N2-1）：组「网域与节点管理」（网域纳管 / 采集节点状态）、
- * 组「配置下发」（配置变更确认 / 下发记录）；既有 M06「网域管理」保留并与「网域纳管」并存。
+ * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），含两个一级菜单组（N2-1）：
+ * 组「网域与节点管理」（网域纳管 / 采集节点状态）、组「配置下发」（配置变更确认 / 下发记录）；
+ * 既有 M06「网域管理」保留在「系统与平台管理」下并与「网域纳管」并存。
  */
 interface ModuleDef {
   key: string
@@ -44,6 +45,13 @@ const MODULES: ModuleDef[] = [
     path: '/admin/domains',
     subItems: [
       { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
+    ],
+  },
+  {
+    key: 'config-center',
+    label: '网域与边缘配置中心',
+    path: '/domain-onboarding',
+    subItems: [
       {
         type: 'group',
         label: '网域与节点管理',
@@ -103,28 +111,34 @@ function collectLeafKeys(items?: MenuProps['items']): string[] {
   return keys
 }
 
+/** 按 key 查找一级模块，避免因 MODULES 顺序/索引变更导致激活态错位 */
+function findModuleByKey(key: string): ModuleDef {
+  return MODULES.find((m) => m.key === key) ?? MODULES[0]
+}
+
 /**
  * 依据当前路由推断激活的一级模块。
- * /admin/domains、/domain-onboarding、/node-status、/config-preview、/deployments → 系统与平台管理；
+ * /admin/domains → 系统与平台管理；/domain-onboarding、/node-status、/config-preview、/deployments → 网域与边缘配置中心；
  * /resources、/label-templates → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
+  if (locationPath.startsWith('/admin/domains')) return findModuleByKey('platform-admin')
   if (
-    locationPath.startsWith('/admin/domains') ||
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
     locationPath.startsWith('/config-preview') ||
     locationPath.startsWith('/deployments')
   )
-    return MODULES[1]
-  if (locationPath.startsWith('/resources') || locationPath.startsWith('/label-templates')) return MODULES[2]
+    return findModuleByKey('config-center')
+  if (locationPath.startsWith('/resources') || locationPath.startsWith('/label-templates'))
+    return findModuleByKey('monitoring-object')
   if (
     locationPath.startsWith('/collectors') ||
     locationPath.startsWith('/scrape-jobs') ||
     locationPath.startsWith('/rules') ||
     locationPath.startsWith('/metric-library')
   )
-    return MODULES[3]
+    return findModuleByKey('monitoring-strategy')
   return MODULES[0]
 }
 

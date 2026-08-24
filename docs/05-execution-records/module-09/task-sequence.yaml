@@ -176,7 +176,8 @@ tasks:
     title: "配置下发与历史：local 写盘 reload + retry/rollback + change_status 回写"
     prd: "Module_09 §3.5 / §6.6.3 / §6.6.4(/`历史/回滚/重试`) / 9.2：确认后 local 通道写中心 Prometheus 配置目录并 SIGHUP/POST reload；ConfigDeployment 记录；config-versions & deployments 历史；retry(local failed)/rollback；reload 成功后回写 M01 ScrapeJob.change_status=deployed（决策 31-M2）"
     group: "backend"
-    status: "pending"
+    status: "done"
+    fix_note: "M09-BE-FIX：移除 ListDeployments/ListVersions 对 network_domain_id 的必填限制（未传网域返回全量，不再 ErrDomainRequired）；同步更新 deployment_test.go 空网域用例为返回全量断言（含 handler 空网域返回 200）。"
     commit_group: "deployment"
     depends_on: ["T09-05"]
     input_files:
@@ -279,7 +280,7 @@ tasks:
     prototype_pages:
       - "docs/prototypes/module-09/src/pages/NetworkDomainsPage.tsx"
     ui_contract: "PRD §3.1 / §9.1（纳管入口单一化、7 列收敛、详情抽屉、Token 脱敏、安装指引、local 固定）；契约 §6.1；状态矩阵 §11.1 网域纳管页"
-    nav_contract: "顶部一级 tab「系统与平台管理」下 Sider 一级菜单组「网域与节点管理」→ 二级「网域纳管」（路由 /domain-onboarding）；网域纳管与 M06 网域管理并存且菜单名区分"
+    nav_contract: "顶部一级 tab「网域与边缘配置中心」（独立顶级模块兼 PRD 模块名）→ Sider 一级菜单组「网域与节点管理」→ 二级「网域纳管」（路由 /domain-onboarding）；网域纳管与 M06 网域管理并存且菜单名区分"
     clipping:
       - item: "Token 真实签发/复制、重置 Token、安装指引离线包下载、运行态心跳展示"
         reason: "agent_pull 网域 v0.2 能力，MVP 仅为 UI 字段与占位（frontend-prototype-map C1~C4）"
@@ -318,7 +319,7 @@ tasks:
     prototype_pages:
       - "docs/prototypes/module-09/src/pages/EdgeAgentsPage.tsx"
     ui_contract: "PRD §3.8.1 / §11.1 采集节点状态页；空态引导（尚未接入采集节点→去网域纳管）"
-    nav_contract: "「系统与平台管理」→ Sider 组「网域与节点管理」→ 二级「采集节点状态」（/node-status）；子菜单常驻，无 EdgeAgent 实例进空态"
+    nav_contract: "「网域与边缘配置中心」（独立顶级 tab）→ Sider 组「网域与节点管理」→ 二级「采集节点状态」（/node-status）；子菜单常驻，无 EdgeAgent 实例进空态"
     clipping:
       - item: "节点平铺列表/组件分区抽屉/错误详情 Modal/五维筛选/演示场景切换器/跨模块跳转"
         reason: "EdgeAgent 实例 MVP 不存在（default/local 无 Agent）；整页列表为 v0.2（frontend-prototype-map C6/C7/C9）"
@@ -350,7 +351,7 @@ tasks:
     prototype_pages:
       - "docs/prototypes/module-09/src/pages/ConfigPreviewPage.tsx"
     ui_contract: "PRD §3.4 / §9.1（人话摘要/结构化清单/受影响文件高亮/变更检测状态/风险/确认人/变更单号）+ §11.1 配置变更确认页状态矩阵 + §11.2 轮询 30s"
-    nav_contract: "「系统与平台管理」→ Sider 组「配置下发」→ 二级「配置变更确认」（/config-preview）；按网域组织确认视图"
+    nav_contract: "「网域与边缘配置中心」（独立顶级 tab）→ Sider 组「配置下发」→ 二级「配置变更确认」（/config-preview）；按网域组织确认视图"
     clipping:
       - item: "metadata.json 配置包 Tab（仅 agent_pull）"
         reason: "配置包/metadata 为 agent_pull v0.2（frontend-prototype-map C8）；local 无 metadata"
@@ -387,7 +388,7 @@ tasks:
     prototype_pages:
       - "docs/prototypes/module-09/src/pages/DeploymentsPage.tsx"
     ui_contract: "PRD §3.5 / §9.1（下发记录=回滚中心 + 变更执行台账；来源变更单号列；重试 local failed）+ §11.1 下发记录页状态矩阵"
-    nav_contract: "「系统与平台管理」→ Sider 组「配置下发」→ 二级「下发记录」（/deployments）；从配置变更确认页「查看发布记录」深链携带 change_no+network_domain"
+    nav_contract: "「网域与边缘配置中心」（独立顶级 tab）→ Sider 组「配置下发」→ 二级「下发记录」（/deployments）；从配置变更确认页「查看发布记录」深链携带 change_no+network_domain"
     clipping:
       - item: "agent_pull 行「重试」按钮"
         reason: "决策 40-2：agent_pull 发布失败归平台侧自动重试，本页不展示重试（frontend-prototype-map §3.4）"
@@ -421,7 +422,7 @@ tasks:
     prototype_pages:
       - "docs/prototypes/module-09/src/layouts/MainLayout.tsx"
     ui_contract: "PRD §9.1 导航结构 + §10 术语（网域纳管 vs 网域管理区分）"
-    nav_contract: "顶部一级 tab「系统与平台管理」（沿用 PRD 模块名）；Sider 支持一级菜单组：组「网域与节点管理」=网域纳管(/domain-onboarding)、采集节点状态(/node-status)；组「配置下发」=配置变更确认(/config-preview)、下发记录(/deployments)；既有 M06「网域管理」(/admin/domains) 保留与「网域纳管」并存"
+    nav_contract: "顶部一级 tab「网域与边缘配置中心」（独立顶级模块，M09 与 M01/M06/M07 同级，PRD 模块名）；Sider 支持一级菜单组：组「网域与节点管理」=网域纳管(/domain-onboarding)、采集节点状态(/node-status)；组「配置下发」=配置变更确认(/config-preview)、下发记录(/deployments)；既有 M06「网域管理」(/admin/domains) 保留与「网域纳管」并存"
     clipping: []
     depends_on: ["T09-F2", "T09-F3", "T09-F4", "T09-F5"]
     estimated_files_changed: 2
@@ -439,10 +440,10 @@ tasks:
       - "cd ui-custom/web && pnpm lint"
       - "cd ui-custom/web && pnpm test"
     acceptance_criteria:
-      - "MainLayout MODULES 新增 M09 子项：resolveActiveModule 将 /domain-onboarding、/node-status、/config-preview、/deployments 归入「系统与平台管理」（key=platform-admin）"
+      - "MainLayout MODULES 新增独立顶级模块 config-center（label「网域与边缘配置中心」）：resolveActiveModule 将 /domain-onboarding、/node-status、/config-preview、/deployments 归入 config-center，不再挂到「系统与平台管理」（key=platform-admin）"
       - "Sider 渲染支持一级菜单组（antd Menu items 嵌套 children 分组），M09 两个组「网域与节点管理」「配置下发」正确展示且高亮当前子项"
       - "App.tsx 注册四路由（含懒加载），访问 /domain-onboarding 200 并默认跳首页导航到网域纳管"
-      - "导航 tab 文案用 PRD 模块名，禁止功能页名充当一级模块（网域纳管不得独立成一级 tab、不得命名为「网域管理」）"
+      - "导航 tab 文案用 PRD 模块名（「网域与边缘配置中心」为独立一级 tab），禁止功能页名充当一级模块（网域纳管不得独立成一级 tab、不得命名为「网域管理」）"
 
   - id: "T09-F7"
     title: "前端集成验证与收尾"
@@ -452,7 +453,7 @@ tasks:
     prd: "Module_09 §9 / §11.2 全局行为规则"
     prototype_pages: []
     ui_contract: "§11.2 全局行为（轮询/二次确认/loading 防重复/跨模块跳转）；全链路动线"
-    nav_contract: "M09 四页在「系统与平台管理」tab 下导航联动；跨模块跳转（网域纳管→安装指引、下发记录深链、采集节点状态→网域纳管）"
+    nav_contract: "M09 四页在「网域与边缘配置中心」独立顶级 tab 下导航联动；跨模块跳转（网域纳管→安装指引、下发记录深链、采集节点状态→网域纳管）"
     clipping: []
     depends_on: ["T09-F6"]
     estimated_files_changed: 1

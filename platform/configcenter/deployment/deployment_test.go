@@ -365,8 +365,11 @@ func TestListAndGetVersion(t *testing.T) {
 	assert.Equal(t, int64(1), total)
 	assert.Equal(t, "CHG-20240101-001", items[0].ChangeNo)
 
-	_, _, err = ListVersions(db, "", "", 1, 20)
-	assert.ErrorIs(t, err, ErrDomainRequired)
+	// domainID 为空 → 返回全量（不再 ErrDomainRequired）。
+	items, total, err = ListVersions(db, "", "", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), total)
+	assert.Len(t, items, 2)
 
 	// 取一条已种子版本详情。
 	var first models.ConfigVersion
@@ -402,8 +405,11 @@ func TestListDeploymentsFilter(t *testing.T) {
 	assert.Equal(t, int64(2), total)
 	assert.Equal(t, models.DeploymentStatusSuccess, items[0].Status)
 
-	_, _, err = ListDeployments(db, "", "", "", 1, 20)
-	assert.ErrorIs(t, err, ErrDomainRequired)
+	// domainID 为空 → 返回全量（不再 ErrDomainRequired）。
+	items, total, err = ListDeployments(db, "", "", "", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), total)
+	assert.Len(t, items, 3)
 }
 
 func TestDeploymentHandlerRoutes(t *testing.T) {
@@ -431,11 +437,11 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
-	// 缺少必填网域 → bad_request。
+	// 未传网域 → 返回全量，不应是 bad_request。
 	w = httptest.NewRecorder()
 	req, _ = http.NewRequest(http.MethodGet, "/api/v2/platform/deployments", nil)
 	r.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 }
 
 // ==== helpers ====
