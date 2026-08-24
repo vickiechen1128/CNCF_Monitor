@@ -17,6 +17,9 @@
 | T09-01~05 | models 契约对齐/枚举集中、配置生成器、labels/targets/校验/变更检测、网域监控纳管+agent_pull 占位、配置草稿服务 | 早前基线（承接 Summary 中已提交项） |
 | T09-06 | 配置下发与历史：local 写盘 reload / retry / rollback / change_status 回写 | `bc86e41d` |
 | T09-07 | 配置中心路由注册 + 全链路集成冒烟 | `7f56b2aa` |
+| review-fix HIGH-1 | main.go 装配真实 DiskApplier + reload 回调，修复 local 下发伪成功 | `2d7cd860` |
+| review-fix MEDIUM-1/3 | ConfirmDraft 事务化 + writeback 降级/就绪过滤 | `68b5dd8b` |
+| review-fix MEDIUM-2 | GenerateDraft 消除二次查询吞错 | `21930a2d` |
 
 ## T09-06 配置下发与历史（commit bc86e41d）
 
@@ -67,3 +70,35 @@
 ## 遗留 & 后续
 - 前端任务 T09-F1~F7 待 frontend-developer 基于 `api-contract-snapshot.md` 推进。
 - agent_pull / Edge Sync Agent 拉包、心跳、Token 在线下收为 v0.2（feat/module-09-edge-cloud），本分支仅 UI 字段与占位。
+
+## review-fix（golang-reviewer 审查回修）
+
+### HIGH-1 运行期装配真实 Applier，修复 local 伪成功（commit 2d7cd860）
+- **问题**：`DefaultApplier` 恒为 `noopApplier{}`，运行期只写 success 不写盘不 reload，violates M09 §3.5。
+- **修复**（`platform/cmd/metric-center/main.go`）：
+  - 新增 `-config.dir`（默认 `./config-output`）与 `-config.reload-url`（空则结构变更报错，不伪成功）。
+  - main() 启动时装配 `deployment.DefaultApplier = &deployment.DiskApplier{Dir, Reload: buildReloadFunc(url)}`。
+  - 新增 `buildReloadFunc`：POST reload 地址；未配置 / 非 2xx / 非法 scheme 均如实报错。
+  - 修正 `service.go` `DefaultApplier` 误导注释（原「由路由注册替换」→ 明确由 main.go 装配）。
+- **测试**：`TestBuildReloadFunc`（未配置报错 / 2xx 成功 / 非 2xx / 非法 scheme）。
+- 说明：集成测试 `buildIntegrationEngine` 不调用 main()，仍走 no-op，符合「测试替换、生产装配经 main」约束。
+
+### MEDIUM-1 confirm 多步事务化 + writeback 解耦（commit 68b5dd8b）
+- **问题**：ConfirmDraft 先建版本/置 confirmed 再下发，dispatch 失败可造成「版本已建、草稿已 confirmed」部分提交死角；writeback 失败整链 500 可致客户端重复下发。
+- **修复**：
+  - `draft/service.go` `ConfirmDraft`：create ConfigVersion + 置草稿 confirmed + DeployConfirmedVersion 收拢到 `db.Transaction`，任一步失败整体回滚，重试仍见 pending。
+  - `deployment/service.go` `dispatchVersion`：writeback 失败从「整链 500」改为「降级记录到 dep.error_message 并返回成功」，投递成功与回写解耦。
+- **测试**：`TestDispatchWritebackFailureDegrades`（无 scrape_jobs 表 → writeback 失败降级不报错）。
+
+### MEDIUM-2 GenerateDraft 吞错修复（commit 21930a2d）
+- **问题**：`jobs, _ :=` / `rules, _ :=` 吞 LoadJobs/LoadRules 错误，DB 瞬态失败静默生成空草稿。
+- **修复**：`buildArtifacts` 改为同时返回 jobs/rules（一次加载即可复用），GenerateDraft 删除二次查询与吞错，加载错误统一上抛。
+- **测试**：`TestGenerateDraftPropagatesLoadFailure`（drop monitoring_rules 表 → GenerateDraft 报错，不生成空草稿）。
+
+### MEDIUM-3 writeback 回写口径对齐（commit 68b5dd8b）
+- **问题**：callback 注释声称仅回写 draft_status=ready，但 WHERE 实际只按 `change_status=pending`，会把未就绪 Job 一并置 deployed。
+- **修复**：`deployment/callback.go` `writebackChangeStatus` WHERE 增加 `draft_status='ready'`，与注释语义对齐。
+- **测试**：`TestWritebackChangeStatusFiltersDraftReady`（ready 回写、draft 态不回写）。
+
+### 契约口径确认（list 不返回明文 token）
+- **结论**：`NetworkDomain.Token` 序列化为 `json:"-"`，明文不进入任何 list/detail 响应；`token_masked` 经 AfterFind 派生。明文仅在 `POST /monitor` 与 `POST /reset-token` 通过专用 `TokenResult{token,token_masked}` 单次返回。**契约 §3/§9 口径已满足，无需改动网络域序列化**。（已登记 dev-feedback.md）
