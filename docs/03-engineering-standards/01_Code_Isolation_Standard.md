@@ -21,6 +21,8 @@
 | 目录 | 用途 | 是否允许直接修改 |
 |------|------|-----------------|
 | `upstream/prometheus/` | Prometheus 原始源码 | ❌ 否，必要修改通过 patch |
+| `upstream/alertmanager/` | Alertmanager 原始源码 | ❌ 否 |
+| `upstream/blackbox_exporter/` | blackbox_exporter 原始源码 | ❌ 否 |
 | `upstream/node_exporter/` | node_exporter 原始源码 | ❌ 否 |
 | `platform/` | MetricCenter 业务扩展代码 | ✅ 是 |
 | `ui-custom/` | 独立前端门户 | ✅ 是 |

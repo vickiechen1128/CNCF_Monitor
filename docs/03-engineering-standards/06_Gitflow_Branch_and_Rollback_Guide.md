@@ -3,7 +3,7 @@
 > 文档类型：工程标准  
 > **目标读者**：技术架构师（分支模型设计）、chenrt（合并 / 回退操作执行人）、zhangwq（分支创建 / 合并申请）  
 > 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)  
-> 更新日期：2026-08-22（v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
+> 更新日期：2026-08-23（v1.28 新增：按版本短生命周期联调分支 `integration/vX.Y` 与冻结窗口 §2.6 / §11 禁止事项 10；v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
 
 ---
 
@@ -11,7 +11,7 @@
 
 1. **按阶段隔离**：产品侧 Vibe Coding（`design/`）与开发侧 Vibe Coding（`feat/`）分离，避免上下文错乱。
 2. **需求即代码**：PRD 和原型代码合并到同一条 `design/module-mvp-demo` 分支，随合并进入 `develop`，成为 AI 读取的单一事实源。
-3. **保留 develop 作为 SSOT**：不引入 `staging/acceptance-XX` 等额外业务验收分支，`develop` 承担 PRD、原型与已验收代码的集成基线。
+3. **保留 develop 作为 SSOT**：`develop` 仍是 PRD、原型与已验收代码的唯一持久集成基线；跨模块联调通过按版本切出、短生命周期的 `integration/vX.Y` 分支承载，验收后必须 `--no-ff` 合回 `develop` 并删除，避免长期分支漂移。
 4. **随时可回退**：模块不满意时，可放弃整个 `feat/` 分支；已合并到 `develop` 后，可通过 revert 撤销。
 5. **在线验收**：每个 `feat/module-XX` PR 自动部署预览环境，产品经理和业务方在 PR 阶段通过 URL 验收，再决定是否合并。
 6. **双文件夹友好**：设计空间（`CNCF_Monitor-worktree`）与开发空间（`CNCF_Monitor-feature`）物理隔离、互不打扰；开发侧串行复用单一克隆，并行时额外 `git worktree add` 多目录，避免目录堆积与上下文错乱。
@@ -32,9 +32,10 @@
 | `feat/module-XX` | `feat/module-07` | 生产代码实现 | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | zhangwq、zhaohy、guixm、chenrt |
 | `feature/prototype-*` | `feature/prototype-mvp-demo` | 历史兼容原型分支 | `develop` | **不合并** | chenrt | guixm、zhaohy |
 | `release/*` | `release/v0.1.0` | 版本发布 | `develop` | `main` + `develop` | chenrt（项目整体负责人 / 产品 Owner） | - |
+| `integration/*` | `integration/v0.1` | 版本末跨模块联调 / E2E 验收（按版本短生命周期） | `develop` | `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | chenrt（项目整体负责人 / 产品 Owner） |
 | `hotfix/*` | `hotfix/v0.1.1` | 生产紧急修复 | `main` | `main` + `develop` | zhangwq（SRE 工程师 / 工程质量 Owner） | chenrt（项目整体负责人 / 产品 Owner） |
 
-> **重要**：只有 chenrt 有权将 `design/`、`feat/`、`release/`、`hotfix/` 分支合并到 `develop` 或 `main`，且必须使用 `--no-ff`。
+> **重要**：只有 chenrt 有权将 `design/`、`feat/`、`integration/`、`release/`、`hotfix/` 分支合并到 `develop` 或 `main`，且必须使用 `--no-ff`。
 
 ### 2.2 设计分支特殊规则
 
@@ -99,6 +100,51 @@
   - ✅ **允许**：产品经理本地构思、草稿编辑（不提交）；下一轮需求写入 `docs/05-execution-records/module-XX/design-decisions.md`「下一轮迭代待办」；
   - ❌ **禁止**：commit / push 该模块 PRD / 原型版本变更；发起新的 design→develop PR；改写已冻结行（见上）。
   - 🔓 **解锁**：当前 feat 版本合并到 `develop` 后，由 chenrt 在修订表新增下一轮行（状态 prototyping），恢复提交权限。
+
+---
+
+## 2.6 跨模块联调分支（`integration/vX.Y`）
+
+每个产品版本末（MVP / v0.2 / v0.3 / …）都会进入跨模块联调阶段。为在**不污染 `develop` SSOT** 的前提下，给联调修复提供一个稳定的工作位，并为下游功能分支提供明确的**冻结窗口**，引入按版本切出的短生命周期 `integration/vX.Y` 分支。
+
+### 2.6.1 分支定位
+
+| 维度 | 说明 |
+|------|------|
+| 命名 | `integration/v0.1`（MVP）、`integration/v0.2`（v0.2）等，与产品版本对齐 |
+| 来源 | 从 `develop` 切出，且必须在本版本所有相关 `feat/module-XX` 已 `--no-ff` 合并到 `develop` 之后 |
+| 合并目标 | 联调验收通过后 `--no-ff` 合回 `develop`，随后删除该分支 |
+| 负责人 | zhangwq（工程质量 Owner）负责推动联调；chenrt 唯一有合并/删除权限 |
+
+### 2.6.2 冻结窗口规则
+
+进入 `integration/vX.Y` 即视为**版本级代码冻结窗口**开启，规则如下：
+
+- **已合并的 `feat/module-XX` 冻结**：不再接受新提交。联调期间发现的 bug 或边界问题，在 `integration/vX.Y` 上修复；禁止回退到原 `feat/module-XX` 分支继续开发。
+- **下一版本功能分支可并行启动**：v0.3 的功能分支可以从 `develop` 最新状态切出，但必须预期在 `integration/v0.2` 合回 develop 后执行一次 rebase / 同步。
+- **禁止未经协调的 rebase**：任何在冻结窗口内对 `develop` 历史的重写，必须经 chenrt 与 zhangwq 共同确认。
+
+### 2.6.3 入口条件
+
+1. 本版本范围内所有 `feat/module-XX` 已 `--no-ff` 合并到 `develop`。
+2. PRD 修订表中对应版本行已标记为「已冻结」。
+3. chenrt 正式宣布「代码冻结 / 进入联调」。
+4. 从 `develop` 切出 `integration/vX.Y`。
+
+### 2.6.4 出口条件
+
+1. Phase 5 验收清单全部完成（端到端主链路跑通、文档补齐、构建/测试通过）。
+2. chenrt 审批通过。
+3. `--no-ff` 合并 `integration/vX.Y` → `develop`。
+4. 删除 `integration/vX.Y` 分支。
+5. 宣布解冻，下一版本功能分支可正式推进。
+
+### 2.6.5 大改动回退路径
+
+联调期间若发现某模块需要**实质性返工**（超出 bug 修复/边界补齐范围）：
+
+- **默认路径**：先记录问题，让当前 `integration/vX.Y` 尽快收尾合回 `develop`；解冻后重新切 `feat/module-XX`（或变更请求 CR）处理该模块；必要时再开 `integration/vX.Y.1` 做第二轮联调。
+- **禁止路径**：在 `integration/vX.Y` 上大规模重构已合并模块的核心逻辑，或私自重启已冻结的 `feat/module-XX` 分支。
 
 ---
 
@@ -530,6 +576,7 @@ git checkout -b feat/module-XX origin/develop
 7. **严禁 zhangwq 未经 chenrt 批准自行合并到 `develop`**。
 8. **严禁擅自改动 `.git/worktrees/` 元数据**（除非明确知道如何修复）。
 9. **严禁改写修订表中已标记「已冻结」的版本行**（需求变更一律新增行，见 §2.5）。
+10. **严禁在 `integration/vX.Y` 冻结窗口内向已合并的 `feat/module-XX` 分支提交新改动**；所有联调修复必须落在 `integration/vX.Y` 上，实质性返工走 §2.6.5 回退路径。
 
 ---
 

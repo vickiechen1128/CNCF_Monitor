@@ -56,7 +56,9 @@ CNCF_Monitor-worktree/
 ├── .tools/                         # 项目级工具链（Go、Node.js、pnpm、可选 MinGW-w64），被 .gitignore 忽略
 ├── upstream/                       # 上游开源子模块源码
 │   ├── prometheus/                 # Prometheus 源码（禁止直接修改）
-│   └── node_exporter/              # node_exporter 源码（禁止直接修改）
+│   ├── alertmanager/               # Alertmanager 源码（禁止直接修改）
+│   ├── blackbox_exporter/          # blackbox_exporter 源码（禁止直接修改）
+│   └── node_exporter/              # node_exporter 源码（禁止直接修改，当前不默认构建）
 ├── platform/                       # MetricCenter 业务扩展代码
 │   ├── cmd/metric-center/          # 控制面主程序入口
 │   ├── edge-sync-agent/            # v0.2 边缘采集客户端（独立 Go module）
@@ -149,6 +151,9 @@ make build-metric-center   # 编译控制面后端 -> platform/cmd/metric-center
 make build-prometheus      # 编译上游 Prometheus（首次会自动构建 Web UI 资源）
 make build-ui              # 构建 Custom UI -> ui-custom/web/dist
 make build-all             # 编译后端 + Prometheus + 前端
+make build-alertmanager    # 编译上游 Alertmanager -> upstream/alertmanager/alertmanager
+make build-blackbox-exporter  # 编译上游 blackbox_exporter -> upstream/blackbox_exporter/blackbox_exporter
+make build-center          # 编译中心一体化交付包（metric-center + prometheus + alertmanager + blackbox_exporter + ui）
 make build-edge-agent      # {v0.2} 编译边缘采集客户端 -> platform/edge-sync-agent/edge-sync-agent
 make build-edge-package    # {v0.2} 组装边缘一体化离线包
 ```
@@ -410,5 +415,6 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 - 前端骨架已建立，包含首页状态卡片、MainLayout、API 客户端和若干页面占位。
 - `platform/examples/simple-agent/` 可独立运行，用于验证采集链路。
 - `patches/` 目录尚未创建；Makefile 已预留 `make apply-patches` 命令。
+- `upstream/alertmanager/` 与 `upstream/blackbox_exporter/` 已添加为 Git 子模块，支撑 MVP 的 M08 通知收敛与 M01/M09 blackbox 拨测；`upstream/node_exporter/` 保留子模块但当前不默认构建。
 - `platform/` 中部分目录（gateway、discovery、collector、storage、config）为预留结构，等待后续模块实现。
-- M09 部署形态与 Edge Sync Agent 代码组织已决策：控制面与 Prometheus 作为「一体化交付包」但保持独立进程；`platform/edge-sync-agent/` 将在 v0.2 作为独立 Go module 承载 Edge Sync Agent。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
+- 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop` 并删除；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md`。
