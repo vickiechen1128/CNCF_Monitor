@@ -102,3 +102,28 @@
 
 ### 契约口径确认（list 不返回明文 token）
 - **结论**：`NetworkDomain.Token` 序列化为 `json:"-"`，明文不进入任何 list/detail 响应；`token_masked` 经 AfterFind 派生。明文仅在 `POST /monitor` 与 `POST /reset-token` 通过专用 `TokenResult{token,token_masked}` 单次返回。**契约 §3/§9 口径已满足，无需改动网络域序列化**。（已登记 dev-feedback.md）
+
+### review-fix（T09-05 定向复审）source_version 基线回填 + 版本查询兼容
+
+#### 问题
+- GenerateDraft 从不设置 `source_version`；全库唯一写入点是 ConfirmDraft，误置为**草稿自身的 change_no**（而非「基于的上一版本」）。
+- 前端按数字主键 id 调 `GET /config-versions/{id}` 拉基线版本，而 source_version 存的是 change_no 字符串 → 查询不命中 → ErrVersionNotFound → 版本对比 Diff Tab 降级（永不渲染真实 diff）。
+
+#### 修复（方案 a：source_version 存 change_no + GetVersion 双语义兼容）
+- `platform/configcenter/draft/service.go` GenerateDraft：新增 `lastConfirmedVersion`，取该网域最近 confirm 生成的 ConfigVersion（created_at 倒序）并回填 `SourceVersion = 上一版本 change_no`；无历史版本为空（前端据此显示「无历史版本可对比」）。
+- `platform/configcenter/draft/service.go` ConfirmDraft：移除 updates 中 `"source_version": d.ChangeNo`（确认不改变基线指向，避免覆盖 GenerateDraft 已回填的正确值）。
+- `platform/configcenter/deployment/history.go` GetVersion：纯数字入参按主键 id 查，否则按 change_no 查（新增 `loadVersionByChangeNo`）；`loadVersion`（按 id）保持供 Retry/Rollback 使用，改动不波及下发/回滚路径。
+- 契约 `api-contract-snapshot.md` §4/§5 补充 source_version 口径（存 change_no）与 `{id}` 双语义命中；登记 `dev-feedback.md`（口径确认）。
+
+#### 新增/修改测试
+- `platform/configcenter/draft/draft_test.go`：
+  - `TestGenerateDraftBackfillsSourceVersion`（无历史→source_version 空；有历史→回填上一版本 change_no）；
+  - `TestConfirmDraftKeepsSourceVersion`（confirm 后 source_version 仍指向前一版本，不被覆盖为草稿自身 change_no）。
+- `platform/configcenter/deployment/deployment_test.go`：`TestListAndGetVersion` 追加按 change_no 拉详情命中断言。
+
+#### 验证
+- `go test ./platform/configcenter/draft/...`、`./platform/configcenter/deployment/...`、`go test ./platform/...` 全绿；`go vet ./platform/...`、`go build ./platform/...` 通过。
+- 服务启动 :8080 后 `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200；验证完毕已停服释放端口。
+
+#### 前端联动
+- 前端**无需改动**：`deploymentApi.getConfigVersion(source_version)` → `/config-versions/{change_no}`，后端 GetVersion 已兼容按 change_no 命中；source_version 语义（上一版本 change_no）与 ConfigPreviewPage 现有拉取方式对齐。

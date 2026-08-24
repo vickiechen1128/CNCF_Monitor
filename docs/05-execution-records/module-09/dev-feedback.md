@@ -46,3 +46,17 @@
 - **结论**：MVP 不阻断；生产需随中心 Prometheus 部署具备 promtool 才走真实校验。
 - **影响模块**：后端
 - **发现场景**：T09 测试/验收环境。
+
+---
+
+## 4. 契约口径确认：source_version 语义与版本查询兼容
+
+- **类别**：契约口径确认（回应定向复审残留缺陷）
+- **PRD 章节 / 文件位置**：契约 `api-contract-snapshot.md` §4 ConfigDraftDetail.`source_version`、§5 `GET /config-versions/{id}`；源码 `platform/configcenter/draft/service.go` GenerateDraft/ConfirmDraft、`platform/configcenter/deployment/history.go` GetVersion
+- **现状修复**：此前 GenerateDraft 从不设置 `source_version`，仅 ConfirmDraft 把它置为草稿自身 `change_no`（错误）；前端按数字主键 id 调 `GET /config-versions/{id}` 拉基线不命中 → diff Tab 降级。
+- **结论 / 口径**：
+  1. `source_version` = 生成草稿时回填**上一已确认 ConfigVersion 的 change_no**（该网域按 created_at 取最近 confirm 生成的版本）；无历史版本为空。
+  2. `GET /config-versions/{id}` 的 `{id}` 兼容两种 ref：纯数字按主键 id 命中，否则按 `change_no` 命中；`source_version`（change_no）透传直接命中。
+  3. ConfirmDraft 不再覆盖 `source_version`（确认不改变基线指向）。
+- **影响模块**：前端（`deploymentApi.getConfigVersion(source_version)` → `/config-versions/:id` 传 change_no 字符串，后端已兼容，前端无需改动）
+- **发现场景**：T09-05 定向复审确认版本对比 Diff 永不渲染真实 diff。
