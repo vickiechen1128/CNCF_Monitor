@@ -323,13 +323,14 @@ func nextChangeNo(db *gorm.DB) (string, error) {
 	return fmt.Sprintf("%s%03d", prefix, seq), nil
 }
 
-// ListDrafts 分页列出某网域的配置草稿（network_domain_id 必填，契约 §4）。
+// ListDrafts 分页列出配置草稿（契约 §4 / 前端「全部网域」选项：network_domain_id 为空时列出全部网域，
+// 不为空时按网域过滤；与 deployment 列表语义一致，避免默认态/「全部网域」报错）。
 // status 为空或 all 时不筛选；只返回 draft 主要列表字段。
 func ListDrafts(db *gorm.DB, domainID, status string, page, pageSize int) ([]models.ConfigDraft, int64, error) {
-	if domainID == "" {
-		return nil, 0, ErrDomainNotFound
+	q := db.Model(&models.ConfigDraft{})
+	if domainID != "" {
+		q = q.Where("network_domain_id = ?", domainID)
 	}
-	q := db.Model(&models.ConfigDraft{}).Where("network_domain_id = ?", domainID)
 	switch {
 	case status == "" || status == "all":
 	case models.DraftStatus(status) == models.DraftStatusPending:

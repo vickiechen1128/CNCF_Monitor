@@ -55,6 +55,9 @@ export function useConfigDrafts(): UseConfigDraftsResult {
         page_size: pageSize,
       } as Record<string, string | number | undefined>)
       setData(res.data)
+      // 成功即清除可能残留的错误（初始 undefined/「全部网域」请求不得留下误报）
+      setError(null)
+      setPermissionDenied(false)
     } catch (e) {
       if (isApiError(e) && e.code === 403) {
         setPermissionDenied(true)
@@ -128,5 +131,8 @@ export function useConfigDrafts(): UseConfigDraftsResult {
 /** 已纳管网域（可生成变更单的候选网域，作为变更页网域切换器选项） */
 export async function fetchMonitoredDomains(): Promise<NetworkDomain[]> {
   const res = await networkDomainMonitorApi.list({ page: 1, page_size: 100 })
-  return res.data.items.filter((d) => d.is_monitored)
+  // networkDomainMonitorApi.list 实际走 M06 `/api/v2/platform/network-domains`，信封为 { list, total }
+  // （非 M09 的 { items, total }）。此处显式读取 list 信封再过滤已纳管网域。
+  const list = (res.data as unknown as { list: NetworkDomain[] }).list
+  return list.filter((d) => d.is_monitored)
 }

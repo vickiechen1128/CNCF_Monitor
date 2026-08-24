@@ -351,6 +351,20 @@ func TestListDraftsFilterAndPagination(t *testing.T) {
 	assert.Equal(t, int64(4), total)
 }
 
+func TestListDraftsEmptyDomainReturnsAll(t *testing.T) {
+	db := newMemDB(t)
+	// 跨网域各造 1 条 pending 草稿
+	for i, dom := range []string{"edge-l", "edge-c"} {
+		seedDraftWithStatus(t, db, fmt.Sprintf("CHG-99990102-%03d", i+1), dom, string(models.DraftStatusPending), string(models.ValidationStatusPending))
+	}
+
+	// 未传 network_domain_id（前端默认态 /「全部网域」）应列出全部，而非 ErrDomainNotFound
+	items, total, err := ListDrafts(db, "", "pending", 1, 20)
+	require.NoError(t, err)
+	assert.Len(t, items, 2)
+	assert.Equal(t, int64(2), total)
+}
+
 // ==================== HTTP layer ====================
 
 func TestDraftHandlerRoutes(t *testing.T) {
