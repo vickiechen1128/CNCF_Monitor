@@ -98,12 +98,8 @@ export function ConfigPreviewPage() {
       .catch(() => setDomainError(true))
   }, [])
 
-  // 默认选中第一个已纳管网域（决策 37：优先 default → 首个已纳管网域）
-  useEffect(() => {
-    if (domainId !== undefined || domains.length === 0) return
-    const first = domains.find((d) => d.name === '默认域' || d.id === 'default') ?? domains[0]
-    setDomainId(first.id)
-  }, [domains, domainId, setDomainId])
+  // 默认「全部网域」（口径对齐）：不强制选中首个网域，domainId 保持 undefined 即展示全部网域变更清单；
+  // 网域加载完成后不覆盖默认值，用户可手动切换到具体网域。
 
   const channelByDomainId = useMemo(() => {
     const m = new Map<string, { name: string; channel: string }>()

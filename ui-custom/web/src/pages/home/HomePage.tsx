@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Spin, Alert, Row, Col, Statistic, Table, Typography } from 'antd'
+import { Card, Spin, Alert, Row, Col, Statistic, Table, Typography, Space } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { apiClient } from '../../api/client'
 import { dashboardApi } from '../../api/dashboard'
@@ -55,7 +55,6 @@ const DEPLOYMENT_COLUMNS: ColumnsType<RecentDeployment> = [
 
 export function HomePage() {
   const [status, setStatus] = useState<Status | null>(() => (IS_STATIC_PREVIEW ? STATUS_MOCK : null))
-  const [loading, setLoading] = useState(() => !IS_STATIC_PREVIEW)
   const [error, setError] = useState<string | null>(null)
 
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(() =>
@@ -78,11 +77,9 @@ export function HomePage() {
         } else {
           setError(res.error || '请求失败')
         }
-        setLoading(false)
       })
       .catch((err: Error) => {
         setError(err.message)
-        setLoading(false)
       })
   }, [])
 
@@ -111,23 +108,6 @@ export function HomePage() {
 
   return (
     <MainLayout>
-      <Card title="系统状态（PR 预览）" className="status-card">
-        {loading && <Spin tip="加载中..." />}
-        {error && <Alert message="请求失败" description={error} type="error" showIcon />}
-        {status && (
-          <div>
-            <p>
-              <strong>版本：</strong>
-              {status.version}
-            </p>
-            <p>
-              <strong>模式：</strong>
-              {status.mode}
-            </p>
-          </div>
-        )}
-      </Card>
-
       <Card title="Dashboard 概览" className="dashboard-card">
         {dashboardLoading && <Spin tip="加载中..." />}
         {dashboardError && <Alert message="请求失败" description={dashboardError} type="error" showIcon />}
@@ -168,6 +148,19 @@ export function HomePage() {
           </div>
         )}
       </Card>
+
+      {/* 系统状态标注：版本/模式放在页面角落，不占据首屏中央 */}
+      {(status || error) && (
+        <div style={{ textAlign: 'right', marginTop: 12 }}>
+          <Typography.Text type={error ? 'danger' : 'secondary'} style={{ fontSize: 12 }}>
+            <Space size={16}>
+              {status && <span>版本 {status.version}</span>}
+              {status && <span>模式 {status.mode}</span>}
+              {error && <span>状态加载失败：{error}</span>}
+            </Space>
+          </Typography.Text>
+        </div>
+      )}
     </MainLayout>
   )
 }

@@ -69,9 +69,9 @@ describe('HomePage', () => {
     render(<HomePage />)
 
     await waitFor(() => {
-      expect(screen.getByText('v0.1.0')).toBeInTheDocument()
+      expect(screen.getByText('版本 v0.1.0')).toBeInTheDocument()
     })
-    expect(screen.getByText('standalone')).toBeInTheDocument()
+    expect(screen.getByText('模式 standalone')).toBeInTheDocument()
 
     // Dashboard 统计
     await waitFor(() => {
@@ -107,7 +107,7 @@ describe('HomePage', () => {
     render(<HomePage />)
 
     await waitFor(() => {
-      expect(screen.getByText('status service unreachable')).toBeInTheDocument()
+      expect(screen.getByText('状态加载失败：status service unreachable')).toBeInTheDocument()
     })
   })
 
