@@ -155,6 +155,10 @@ func TestValidateTargetGroups(t *testing.T) {
 	assert.NoError(t, ValidateTargetGroups(ok))
 	assert.Error(t, ValidateTargetGroups([]TargetGroup{{Targets: []string{"__bad__"}}}))
 	assert.Error(t, ValidateTargetGroups([]TargetGroup{{Targets: []string{"10.0.1.10"}, Labels: map[string]string{"__address__": "x"}}}), "禁止覆盖内置标签")
+	// 方案 A：instance 是 Prometheus 约定标签（默认模板 instance_ip:port → instance），产物校验层放行；
+	// 但 job / scheme 等保护标签在 targets labels 中仍应拒绝。
+	assert.NoError(t, ValidateTargetGroups([]TargetGroup{{Targets: []string{"10.0.1.10"}, Labels: map[string]string{"instance": "10.0.1.10:9100"}}}))
+	assert.Error(t, ValidateTargetGroups([]TargetGroup{{Targets: []string{"10.0.1.10"}, Labels: map[string]string{"job": "x"}}}), "禁止覆盖内置标签")
 	assert.Error(t, ValidateTargetGroups([]TargetGroup{{Targets: []string{""}}}))
 	assert.Error(t, ValidateTargetGroups([]TargetGroup{{}}))
 }
@@ -165,8 +169,10 @@ func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
 	t.Cleanup(func() { execLookPath = old })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil)
-	status, msg := ValidateArtifacts(ca, false)
+	status, cause, details, msg := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusPending, status)
+	assert.Equal(t, models.ValidationCausePlatformFault, cause, "promtool 缺失应归因为平台故障")
+	assert.Empty(t, details)
 	assert.NotEmpty(t, msg)
 }
 
@@ -178,15 +184,28 @@ func TestValidateArtifactsPassed(t *testing.T) {
 	t.Cleanup(func() { execLookPath = oldLook; toolCheckerFn = oldChecker })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil)
-	status, _ := ValidateArtifacts(ca, false)
+	status, cause, details, _ := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusPassed, status)
+	assert.Empty(t, cause)
+	assert.Empty(t, details)
 }
 
 func TestValidateArtifactsFailedSchema(t *testing.T) {
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil)
 	ca.TargetsFiles["j.json"] = "not-json"
-	status, _ := ValidateArtifacts(ca, false)
+	status, cause, details, _ := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusFailed, status)
+	assert.Equal(t, models.ValidationCauseUserConfig, cause, "targets schema 失败应归因为用户配置")
+	assert.Len(t, details, 1)
+	assert.Equal(t, "j.json", details[0].File)
+	// 保护标签冲突亦归因 user_config 且带结构化定位。
+	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil)
+	ca2.TargetsFiles["a.json"] = `[{"targets":["10.0.1.10"],"labels":{"job":"x"}}]`
+	status2, cause2, details2, _ := ValidateArtifacts(ca2, false)
+	assert.Equal(t, models.ValidationStatusFailed, status2)
+	assert.Equal(t, models.ValidationCauseUserConfig, cause2)
+	assert.Equal(t, "a.json", details2[0].File)
+	assert.Contains(t, details2[0].Message, "禁止覆盖内置标签")
 }
 
 func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {

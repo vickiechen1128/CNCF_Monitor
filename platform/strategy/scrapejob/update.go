@@ -61,6 +61,12 @@ func UpdateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 决策 44-1：change_status=pending 的 job 已挂起变更单，禁止编辑，避免变更单内容与源数据脱节。
+		if job.ChangeStatus == models.ChangeStatusPending {
+			response.Conflict(c, fmt.Errorf("采集 Job %q 存在待确认变更单，禁止编辑；请先前往配置变更确认页处理", job.JobName))
+			return
+		}
+
 		applyJobUpdate(&job, req)
 		if err := validateJobRequest(db, &job); err != nil {
 			response.BadRequest(c, err)

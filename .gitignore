@@ -59,3 +59,7 @@ _gcc_make.zip
 # Python 缓存（scripts/ 下的检查脚本运行时产生）
 __pycache__/
 *.pyc
+
+# M09 local 下发产物与 Prometheus TSDB 运行时数据（make run-prometheus 生成）
+config-output/
+data/

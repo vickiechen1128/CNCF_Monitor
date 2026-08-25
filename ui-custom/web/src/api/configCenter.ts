@@ -9,6 +9,7 @@ import type {
   ConfigDeployment,
   ConfigDraft,
   ConfigVersion,
+  DiscardImpact,
   MonitorDomainInput,
   NetworkDomain,
   PaginatedItems,
@@ -69,8 +70,14 @@ export const configDraftApi = {
       `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/revalidate`,
     )
   },
-  discard(change_no: string, discarded_by?: string): Promise<ApiResponse<ConfigDraft>> {
-    return apiClient.post<ConfigDraft>(
+  /** 废弃影响预览（决策 43-7）：真正废弃前展示对 ScrapeJob 源数据的分类影响。 */
+  discardImpact(change_no: string): Promise<ApiResponse<DiscardImpact>> {
+    return apiClient.get<DiscardImpact>(
+      `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/discard-impact`,
+    )
+  },
+  discard(change_no: string, discarded_by?: string): Promise<ApiResponse<{ draft: ConfigDraft; impact: DiscardImpact }>> {
+    return apiClient.post<{ draft: ConfigDraft; impact: DiscardImpact }>(
       `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/discard`,
       { body: discarded_by ? { discarded_by } : {} },
     )

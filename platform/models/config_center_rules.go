@@ -19,6 +19,22 @@ const (
 	ValidationStatusRejected ValidationStatus = "rejected" // 人工/策略拒绝
 )
 
+// ValidationCause 表示校验失败/待校验的归因（决策 45-3，MVP 落 user_config 判定）。
+type ValidationCause string
+
+// Validation cause 常量。
+const (
+	ValidationCauseUserConfig   ValidationCause = "user_config"   // 用户配置问题，可修复（展示「重新校验 + 前往修改」）
+	ValidationCausePlatformFault ValidationCause = "platform_fault" // 平台技术故障，自动重试、用户不可见
+)
+
+// ValidationDetail 表示结构化校验失败定位（对齐原型 validation_details）。
+type ValidationDetail struct {
+	File    string `json:"file,omitempty"`    // 受影响的配置文件/目标文件
+	Line    int    `json:"line,omitempty"`    // 行号（0 = 无行号信息）
+	Message string `json:"message"`           // 具体错误说明
+}
+
 // ConfigSyncStatus 表示边缘 Agent 配置同步状态（v0.2，MVP 仅占位常量）。
 type ConfigSyncStatus string
 
@@ -109,11 +125,12 @@ type AffectedConfigFile struct {
 // ConfigDraftMetadata 是 ConfigDraft / ConfigVersion metadata 的 JSON 载体
 // （PRD §3.3.3，技术信息下沉折叠）。
 type ConfigDraftMetadata struct {
-	SourceDataVersion   string `json:"source_data_version"`              // 各源表 max(updated_at) 聚合
-	TriggerSummary      string `json:"trigger_summary,omitempty"`        // 触发来源摘要
-	Checksum            string `json:"checksum"`                         // 联合 checksum（sha256 拼接）
-	GeneratorVersion    string `json:"generator_version,omitempty"`      // 生成器版本
+	SourceDataVersion    string `json:"source_data_version"`               // 各源表 max(updated_at) 聚合
+	TriggerSummary       string `json:"trigger_summary,omitempty"`         // 触发来源摘要
+	Checksum             string `json:"checksum"`                          // 联合 checksum（sha256 拼接）
+	GeneratorVersion     string `json:"generator_version,omitempty"`       // 生成器版本
 	SupersededByChangeNo string `json:"superseded_by_change_no,omitempty"` // 被更晚 pending 取代时指向新单
+	SupersedesChangeNo  string `json:"supersedes_change_no,omitempty"`    // 取代更早 pending 时指向旧单
 }
 
 // ValidValidationStatus 返回合法的 validation_status 取值集合。

@@ -81,6 +81,16 @@ export type DraftStatus = 'pending' | 'confirmed' | 'discarded'
 /** 下发前校验状态 */
 export type DraftValidationStatus = 'passed' | 'failed' | 'pending' | 'rejected'
 
+/** 校验失败归因（决策 45-3） */
+export type DraftValidationCause = 'user_config' | 'platform_fault'
+
+/** 结构化校验失败定位（对齐原型 validation_details） */
+export interface ValidationDetail {
+  file?: string
+  line?: number
+  message: string
+}
+
 /** 风险等级 */
 export type Risk = 'low' | 'high'
 
@@ -131,6 +141,12 @@ export interface ConfigDraft {
   risk: Risk
   affected_files: AffectedFile[]
   validation_status: DraftValidationStatus
+  /** 校验失败/待校验的具体原因（PRD §3.5.1，重校验失败亦透传） */
+  validation_message?: string
+  /** 校验失败归因（user_config 用户配置可修复 / platform_fault 平台故障自动重试，决策 45-3） */
+  validation_cause?: DraftValidationCause
+  /** 结构化校验失败定位（对齐原型 validation_details） */
+  validation_details?: ValidationDetail[]
   confirmed_by?: string
   confirmed_at?: string
   created_at: string
@@ -159,6 +175,14 @@ export interface ConfigVersion {
 
 /** 下发记录状态 */
 export type DeploymentStatus = 'pending' | 'running' | 'success' | 'failed' | 'rolled_back'
+
+/** 废弃配置草稿对源数据的影响统计（决策 43-7） */
+export interface DiscardImpact {
+  new_reverted: number
+  modified_kept: number
+  deleted_restored: number
+  missing: number
+}
 
 /** 下发记录（ConfigDeployment） */
 export interface ConfigDeployment {

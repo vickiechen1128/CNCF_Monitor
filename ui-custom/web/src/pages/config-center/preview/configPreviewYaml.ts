@@ -64,8 +64,13 @@ export function fileTextByKey(src: ArtifactSource, key: string): string | undefi
 export function targetsText(map?: Record<string, string>): string | undefined {
   if (!map || Object.keys(map).length === 0) return undefined
   return Object.entries(map)
-    .map(([job, content]) => `# ${job}.json\n${content}`)
+    .map(([job, content]) => `# ${withJSONSuffix(job)}\n${content}`)
     .join('\n\n')
+}
+
+/** 将 targets key 补全为 <job>.json 显示文件名：key 已含 .json 后缀时不重复追加 */
+function withJSONSuffix(job: string): string {
+  return job.endsWith('.json') ? job : `${job}.json`
 }
 
 /** 联合校验值短显（展示与复制分离，技术信息折叠区用） */

@@ -226,7 +226,13 @@ docs/05-execution-records/module-XX/task-sequence.yaml
     - 在 GitHub PR 中评论或 Approve
 13. **如验收通过，由 chenrt 在主仓库将 `feat/module-XX` 以 `--no-ff` 合并到 `develop`**
 14. **在 develop 环境中再次验证运行状态**（步骤同 9）
-15. 开发空间 `CNCF_Monitor-feature` 保留供下一模块复用（在克隆内切到新的 `feat/module-XX` 分支）
+15. **版本末跨模块联调（integration/vX.Y）**
+    - 触发条件：本版本所有 `feat/module-XX` 已合并到 `develop`，PRD 修订表已标记「已冻结」，chenrt 宣布进入联调
+    - Orchestrator 协调从 `develop` 切出 `integration/vX.Y`（如 `integration/v0.1`）
+    - 联调记录统一写入 `docs/05-execution-records/integration/v0.1/`（README / plan / issues / e2e-results）
+    - 已合并的 `feat/module-XX` 在联调窗口内冻结；所有联调修复只进 `integration/vX.Y`
+    - 验收通过后，由 chenrt 以 `--no-ff` 合并 `integration/vX.Y` → `develop`，随后删除该分支
+16. 开发空间 `CNCF_Monitor-feature` 保留供下一模块复用（在克隆内切到新的 `feat/module-XX` 分支）
 
 ---
 

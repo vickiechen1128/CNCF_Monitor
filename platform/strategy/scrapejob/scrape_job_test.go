@@ -275,7 +275,7 @@ func TestUpdateScrapeJobJobTypeSwitch(t *testing.T) {
 		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
 		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
 		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
-		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
 	}
 	require.NoError(t, db.Create(job).Error)
 	jobID := strconv.FormatUint(uint64(job.ID), 10)
@@ -321,7 +321,7 @@ func TestUpdateAndDeleteScrapeJob(t *testing.T) {
 		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
 		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
 		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
-		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
 	}
 	require.NoError(t, db.Create(job).Error)
 
@@ -352,6 +352,63 @@ func TestUpdateAndDeleteScrapeJob(t *testing.T) {
 	// 未命中 not_found。
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/999999", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// 回归：软删后重建同名 Job 应成功，而不是命中 DB 唯一索引抛 internal error
+// （create.go 用 Unscoped 查找软删残留并在重建前物理清理）。
+func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+
+	// 先创建一个草稿 Job（change_status=none，可删除）。
+	body := `{"job_name":"recreate-me","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","draft_status":"draft","enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	jobID := strconv.FormatUint(uint64(created.Data.ID), 10)
+
+	// 软删该 Job。
+	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+jobID, "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 重建同名 Job：应 200 成功，而不是 500 internal error。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code, "软删后重建同名 Job 应成功（避免 uniqueIndex 冲突 500）")
+
+	// 活跃同名仍应冲突。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusConflict, w.Code)
+}
+
+// 决策 44-1：change_status=pending 的 job 已挂起待确认变更单，编辑/删除均拒绝（409）。
+func TestUpdateDeletePendingJobRejected(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	job := &models.ScrapeJob{
+		JobName: "node-pending", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// 编辑 → 409 conflict，且字段未被修改。
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"scrape_interval":"60s"}`)
+	require.Equal(t, http.StatusConflict, w.Code)
+	var reloaded models.ScrapeJob
+	require.NoError(t, db.First(&reloaded, job.ID).Error)
+	assert.Equal(t, "15s", reloaded.ScrapeInterval, "pending job 不得被修改")
+
+	// 删除 → 409 conflict，且记录仍在。
+	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+jobID, "")
+	require.Equal(t, http.StatusConflict, w.Code)
+	require.NoError(t, db.First(&reloaded, job.ID).Error)
 }
 
 func TestInstanceCandidatesHostOfflineGrey(t *testing.T) {

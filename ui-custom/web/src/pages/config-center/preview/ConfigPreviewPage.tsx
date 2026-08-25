@@ -24,13 +24,14 @@ import type { ColumnsType } from 'antd/es/table'
 import {
   CheckOutlined,
   DeleteOutlined,
+  EditOutlined,
   EyeOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
 import { configDraftApi, deploymentApi } from '../../../api/configCenter'
-import type { ConfigDraft, ConfigChangeItem, ConfigVersion, DraftStatus, Risk } from '../../../types/config-center'
+import type { ConfigDraft, ConfigChangeItem, ConfigVersion, DiscardImpact, DraftStatus, Risk } from '../../../types/config-center'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { useConfigDrafts, fetchMonitoredDomains, ALL_DOMAINS_ID } from './useConfigDrafts'
@@ -54,6 +55,34 @@ import {
 } from '../configCenterConstants'
 
 const { Text } = Typography
+
+/** 废弃变更单对源数据的分类影响说明（决策 43-7）。 */
+function DiscardImpactSummary({ impact }: { impact: DiscardImpact }) {
+  const items: string[] = []
+  if (impact.new_reverted > 0) {
+    items.push(`${impact.new_reverted} 个新建未生效 Job 将回退为草稿`)
+  }
+  if (impact.modified_kept > 0) {
+    items.push(`${impact.modified_kept} 个已生效 Job 的修改将保留（变更单废弃不影响字段值）`)
+  }
+  if (impact.deleted_restored > 0) {
+    items.push(`${impact.deleted_restored} 个已生效 Job（删除/停用/草稿化）将被恢复`)
+  }
+  if (impact.missing > 0) {
+    items.push(`${impact.missing} 个已生效 Job 在系统中已不存在，无法自动恢复`)
+  }
+  if (items.length === 0) {
+    return <Text type="secondary">废弃后保持当前生效配置不变，源数据无额外影响。</Text>
+  }
+  return (
+    <Space direction="vertical" size={4}>
+      <div>废弃后源数据将发生如下变化：</div>
+      {items.map((t) => (
+        <div key={t}>• {t}</div>
+      ))}
+    </Space>
+  )
+}
 
 /**
  * 配置变更确认页（Module_09 契约 §4 / PRD §3.4 / §11）。
@@ -98,12 +127,8 @@ export function ConfigPreviewPage() {
       .catch(() => setDomainError(true))
   }, [])
 
-  // 默认选中第一个已纳管网域（决策 37：优先 default → 首个已纳管网域）
-  useEffect(() => {
-    if (domainId !== undefined || domains.length === 0) return
-    const first = domains.find((d) => d.name === '默认域' || d.id === 'default') ?? domains[0]
-    setDomainId(first.id)
-  }, [domains, domainId, setDomainId])
+  // 默认「全部网域」（口径对齐）：不强制选中首个网域，domainId 保持 undefined 即展示全部网域变更清单；
+  // 网域加载完成后不覆盖默认值，用户可手动切换到具体网域。
 
   const channelByDomainId = useMemo(() => {
     const m = new Map<string, { name: string; channel: string }>()
@@ -169,29 +194,38 @@ export function ConfigPreviewPage() {
     })
   }
 
-  const handleDiscard = () => {
+  const handleDiscard = async () => {
     if (!detail) return
-    Modal.confirm({
-      title: `废弃变更单 ${detail.change_no}？`,
-      content: '废弃后该变更不被下发，保持当前生效配置不变。',
-      okText: '废弃变更',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      async onOk() {
-        setDiscarding(true)
-        try {
-          await configDraftApi.discard(detail.change_no, CURRENT_USER)
-          message.info(`变更单 ${detail.change_no} 已废弃，保持当前生效配置不变`)
-          setDetail(null)
-          reload()
-        } catch (e) {
-          message.error(e instanceof Error ? e.message : '废弃变更失败，请稍后重试')
-          throw e
-        } finally {
-          setDiscarding(false)
-        }
-      },
-    })
+    setDiscarding(true)
+    try {
+      const res = await configDraftApi.discardImpact(detail.change_no)
+      const impact = res.data
+      Modal.confirm({
+        title: `废弃变更单 ${detail.change_no}？`,
+        content: <DiscardImpactSummary impact={impact} />,
+        okText: '废弃变更',
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        async onOk() {
+          setDiscarding(true)
+          try {
+            await configDraftApi.discard(detail.change_no, CURRENT_USER)
+            message.info(`变更单 ${detail.change_no} 已废弃，保持当前生效配置不变`)
+            setDetail(null)
+            reload()
+          } catch (e) {
+            message.error(e instanceof Error ? e.message : '废弃变更失败，请稍后重试')
+            throw e
+          } finally {
+            setDiscarding(false)
+          }
+        },
+      })
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载废弃影响失败，请稍后重试')
+    } finally {
+      setDiscarding(false)
+    }
   }
 
   const handleRevalidate = async () => {
@@ -209,8 +243,17 @@ export function ConfigPreviewPage() {
     }
   }
 
-  const validationFailed = detail?.validation_status === 'failed'
+  // 决策 45-1：仅 passed 可确认下发；pending/failed/rejected 均不可确认。
+  // 重新校验 / 废弃出口对「非 passed 且非已确认/已废弃」的待办单可用。
+  // 决策 45-3：platform_fault（如 promtool 不可用）属平台技术故障，不提供「重新校验」（自动重试）。
   const isPending = detail?.status === 'pending'
+  const validationPassed = detail?.validation_status === 'passed'
+  const validationFailed = detail?.validation_status === 'failed'
+  const isPlatformFault = detail?.validation_cause === 'platform_fault'
+  const canConfirm = isPending && validationPassed
+  const canRevalidate = isPending && !validationPassed && !isPlatformFault
+  // failed + user_config 时可提供「前往修改」引导（源数据输入层，决策 45-4）
+  const canFixUserConfig = isPending && validationFailed && detail?.validation_cause === 'user_config'
 
   const columns: ColumnsType<ConfigDraft> = [
     {
@@ -306,6 +349,25 @@ export function ConfigPreviewPage() {
             {validationLabel[detail?.validation_status ?? 'pending']}
           </Tag>
         </Descriptions.Item>
+        {detail?.validation_message ? (
+          <Descriptions.Item label="校验信息" span={2}>
+            {/* 决策 45-2：failed→error；pending（待环境就绪）→warning，避免语义误导 */}
+            <Alert
+              type={detail.validation_status === 'failed' ? 'error' : 'warning'}
+              showIcon
+              message={
+                <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                  <span>{detail.validation_message}</span>
+                  {detail.validation_details?.map((vd, i) => (
+                    <Text key={i} type="secondary" style={{ fontSize: 12 }}>
+                      {vd.file ? `${vd.file}${vd.line ? `:${vd.line}` : ''}` : '—'}：{vd.message}
+                    </Text>
+                  ))}
+                </Space>
+              }
+            />
+          </Descriptions.Item>
+        ) : null}
         <Descriptions.Item label="生成时间">{detail?.created_at}</Descriptions.Item>
         <Descriptions.Item label="变更摘要" span={2}>{detail?.summary}</Descriptions.Item>
       </Descriptions>
@@ -595,16 +657,35 @@ export function ConfigPreviewPage() {
             <Space size={8}>
               {isPending ? (
                 <>
-                  {validationFailed && (
+                  {canRevalidate && (
                     <Button icon={<ReloadOutlined />} loading={revalidating} onClick={handleRevalidate}>
                       重新校验
+                    </Button>
+                  )}
+                  {canFixUserConfig && (
+                    <Button
+                      icon={<EditOutlined />}
+                      onClick={() => {
+                        setDetail(null)
+                        navigate(`/scrape-jobs`)
+                      }}
+                    >
+                      前往修改
                     </Button>
                   )}
                   <Button danger icon={<DeleteOutlined />} loading={discarding} onClick={handleDiscard}>
                     废弃变更
                   </Button>
-                  <Tooltip title={validationFailed ? '下发前校验未通过，禁止确认' : '确认后立即 reload / 发布配置包生效'}>
-                    <Button type="primary" icon={<CheckOutlined />} disabled={validationFailed} loading={confirming} onClick={handleConfirm}>
+                  <Tooltip
+                    title={
+                      validationPassed
+                        ? '确认后立即 reload / 发布配置包生效'
+                        : detail?.validation_status === 'failed'
+                          ? '下发前校验未通过，禁止确认'
+                          : '下发前校验未通过（待校验），禁止确认'
+                    }
+                  >
+                    <Button type="primary" icon={<CheckOutlined />} disabled={!canConfirm} loading={confirming} onClick={handleConfirm}>
                       确认发布
                     </Button>
                   </Tooltip>
@@ -624,6 +705,15 @@ export function ConfigPreviewPage() {
           )
         }
       >
+        {detail && detail.metadata?.superseded_by_change_no && (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`该变更单已被新变更单 ${detail.metadata.superseded_by_change_no} 取代`}
+            description="网域内产生了新的配置变更，本单已自动废弃。请前往列表打开新变更单进行确认。"
+          />
+        )}
         {detail && (
           <Tabs
             activeKey={activeTab}

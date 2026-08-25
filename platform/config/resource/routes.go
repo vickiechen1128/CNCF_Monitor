@@ -51,6 +51,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDo
 	}
 
 	platform.GET("/business-domains", ListBusinessDomains(bizStore))
+	// 操作系统内置字典（只读，供 M07 采集入口/资源表单下拉；位于 platform 层，
+	// 避免与 /resources/:resource_id 通配符冲突，见 RegisterRoutes 注释）。
+	platform.GET("/os-options", ListOSOptions())
 
 	imports := platform.Group("/imports")
 	{

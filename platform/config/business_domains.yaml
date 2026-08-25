@@ -10,30 +10,20 @@
 #   - description 描述：可改。
 #   - enabled     启用状态：停用条目不可被新资源/新增/编辑选用，存量资源保留历史值。
 #
-# 强制预置兜底条目 infra：公共基础设施，无业务归属的设备类资源统一挂 infra，
-# 避免必填逼出假业务污染 biz 聚合。
+# MVP 预置两条业务（chenrt 2026-08-24 确认）：
+#   authorized-ops        授权运营
+#   data-innovation-lab   数据创新实验室
 #
 # 命名评审记录（上线前必填）：
-#   infra      公共基础设施兜底（强制）
-#   payment    支付业务
-#   data-api   数据接口业务
+#   authorized-ops        授权运营（MVP 预置）
+#   data-innovation-lab   数据创新实验室（MVP 预置）
 
-- code: infra
-  name: 公共基础设施
-  description: 公共基础设施兜底，无业务归属的设备类资源统一挂载
+- code: authorized-ops
+  name: 授权运营
+  description: 授权运营业务域，覆盖授权运营相关资源
   enabled: true
 
-- code: payment
-  name: 支付业务
-  description: 支付业务域，覆盖支付核心链路相关资源
+- code: data-innovation-lab
+  name: 数据创新实验室
+  description: 数据创新实验室业务域，覆盖数据创新相关资源
   enabled: true
-
-- code: data-api
-  name: 数据接口业务
-  description: 数据接口业务域，覆盖对外数据服务相关资源
-  enabled: true
-
-- code: legacy
-  name: 遗留系统
-  description: 遗留业务示例（停用条目，不可被新资源选用）
-  enabled: false

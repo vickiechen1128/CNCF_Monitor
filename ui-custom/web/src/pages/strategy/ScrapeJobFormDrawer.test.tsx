@@ -35,6 +35,10 @@ vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: { create: (...args: unknown[]) => exporterCreateMock(...args) },
 }))
 
+vi.mock('../../api/configCenter', () => ({
+  configDraftApi: { create: vi.fn().mockResolvedValue({ status: 'success', data: {} }) },
+}))
+
 // 实例选择器独立测试（F5），抽屉内直接 stub
 vi.mock('./InstanceSelector', () => ({
   InstanceSelector: () => <div data-testid="instance-selector">instance selector</div>,
@@ -146,8 +150,8 @@ describe('ScrapeJobFormDrawer', () => {
     fireEvent.click(screen.getByText('添加拨测目标'))
     await userEvent.type(await screen.findByPlaceholderText('目标地址'), 'https://example.com')
 
-    // antd 会在双字按钮插入空格（「保 存」），用 role+空格容忍正则匹配
-    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    // 新增态 footer：提交生效（完整校验进入 M09 管线）
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     const body = createMock.mock.calls[0][0] as Record<string, unknown>
@@ -156,6 +160,28 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.blackbox_module).toBe('http_2xx')
     expect(body.network_domain_id).toBe('mc-a')
     expect((body.blackbox_targets as { target: string }[])[0].target).toBe('https://example.com')
+  })
+
+  it('saves a standard job as draft with minimal validation and passes network_domain_id + draft_status', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { id: 10, job_name: 'draft-job', job_type: 'standard' } })
+    renderDrawer()
+
+    await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'draft-job')
+
+    // 选择网域
+    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
+    await selectAntdOption('网域A')
+
+    // 点击保存草稿（仅校验 job_name / job_type）
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存\s*草\s*稿/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    const body = createMock.mock.calls[0][0] as Record<string, unknown>
+    expect(body.job_name).toBe('draft-job')
+    expect(body.job_type).toBe('standard')
+    expect(body.draft_status).toBe('draft')
+    expect(body.network_domain_id).toBe('mc-a')
+    expect(body.enabled).toBe(true)
   })
 
   it('renders label template as card filtered by resource category (F1-4)', async () => {
@@ -244,6 +270,57 @@ describe('ScrapeJobFormDrawer', () => {
     // 编辑态回显：由 monitor_type=mysql 反推资源类别=数据库，监控对象类型=MySQL
     expect(await screen.findByText('数据库')).toBeInTheDocument()
     expect(screen.getByText('MySQL')).toBeInTheDocument()
+  })
+
+  it('echoes standard params and label template selection in edit mode', async () => {
+    // 提供 database 类别标签模板，验证编辑时标签模板卡片区可选并选中已挂模板
+    labelListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 7, name: 'MySQL 标准标签', resource_category: 'database', is_default: true, mappings: [], created_at: '', updated_at: '' },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    // 决定性实验：默认映射返回与 record 不同的间隔 99s，
+    // 若编辑回显显示 15s（record 值）则证明 setFieldsValue 不触发 handleMonitorTypeChange 覆盖；显示 99s 则证明被覆盖。
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 1, monitor_type: 'mysql', exporter_template_id: 'exp-x', scrape_interval: '99s', scrape_timeout: '90s', metrics_path: '/x', scheme: 'ftp', label_template_id: undefined },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    renderDrawer({
+      id: 1,
+      job_name: 'job-mysql-1',
+      job_type: 'standard',
+      monitor_type: 'mysql',
+      network_domain_id: 'mc-a',
+      scrape_interval: '15s',
+      scrape_timeout: '10s',
+      metrics_path: '/metrics',
+      scheme: 'https',
+      auth_type: 'none',
+      tls_skip_verify: false,
+      label_template_id: '7',
+    })
+    // 采集参数（SCRAPE_PARAM_FIELDS）由 record 回显，而非被默认映射（99s）覆盖
+    expect(await screen.findByDisplayValue('15s')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('10s')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('/metrics')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('https')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('99s')).toBeNull()
+    // 标签模板卡片选中已挂模板「MySQL 标准标签」（value=7），label_template_id 未被默认映射清空
+    expect(await screen.findByText('MySQL 标准标签')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /MySQL 标准标签/ })).toBeChecked()
   })
 
   it('opens collector register drawer from inline button only in empty state (C1)', async () => {

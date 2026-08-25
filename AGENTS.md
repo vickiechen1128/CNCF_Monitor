@@ -161,8 +161,8 @@ make build-edge-package    # {v0.2} 组装边缘一体化离线包
 ### 5.2 运行
 
 ```bash
-make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080）
-make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090）
+make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080；已默认传 --config.reload-url=http://localhost:9090/-/reload）
+make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090；--config.file 指向 config-output/prometheus.yml（首次自动 seed）并开启 --web.enable-lifecycle）
 make dev-ui                # 启动前端开发服务器（默认 http://localhost:5173）
 ```
 
@@ -404,6 +404,7 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/02-product-requirements/Modules/Module_XX_*.md` | 各模块 PRD |
 | `docs/prototypes/module-XX/` | 可点击原型 |
 | `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
+| `docs/06-mvp-e2e-testing/README.md` | MVP 配置下发闭环 API 测试指导手册（local 通道，curl 动线 + 成功判据 + 排查表） |
 | `.kimi/AGENTS.md` | Kimi Agent 团队角色与工作流速查 |
 | `.kimi/agents/*.md` | 各 Agent 详细行为规则 |
 

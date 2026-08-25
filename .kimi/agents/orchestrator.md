@@ -140,6 +140,60 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
 
 ---
 
+## 跨模块联调阶段（integration/vX.Y）
+
+每个版本末（MVP / v0.2 / v0.3 …）进入 Phase 5 跨模块联调时，Orchestrator 负责协调 `integration/vX.Y` 分支与冻结窗口。
+
+### 触发条件
+
+- 本版本范围内所有 `feat/module-XX` 已 `--no-ff` 合并到 `develop`
+- 对应模块 PRD 修订表已标记「已冻结」
+- chenrt 宣布「代码冻结 / 进入联调」
+
+### Orchestrator 动作
+
+1. **切出联调分支**：
+
+   ```bash
+   cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
+   git fetch origin develop
+   git branch integration/v0.1 origin/develop
+   git checkout integration/v0.1
+   ```
+
+2. **创建/确认联调记录目录**：
+
+   - 路径：`docs/05-execution-records/integration/v0.1/`
+   - 必备文件：
+     - `README.md`：入口条件、范围、状态
+     - `plan.md`：联调动线、验收用例、任务分工
+     - `issues.md`：联调中发现的问题与修复记录
+     - `e2e-results.md`：端到端验证结果
+
+3. **冻结已合并的 `feat/module-XX` 分支**：
+
+   - 禁止在联调窗口内向已合并的 `feat/module-XX` 提交新改动
+   - 所有修复统一落在 `integration/vX.Y`
+
+4. **协调修复闭环**：
+
+   - 小问题：直接派发 `frontend-developer` / `backend-developer` / `build-resolver` 在 `integration/vX.Y` 上修复
+   - 大问题（需实质性返工）：记录问题清单，推动 `integration/vX.Y` 尽快收尾合回 `develop`；解冻后重新切 `feat/module-XX` 处理
+
+5. **联调验收与合回**：
+
+   - 验收通过后，Orchestrator 汇报 chenrt
+   - 由 chenrt 执行 `--no-ff` 合并 `integration/vX.Y` → `develop`
+   - 删除 `integration/vX.Y` 分支
+
+### 记录要求
+
+- 所有跨模块问题必须写入 `docs/05-execution-records/integration/v0.1/issues.md`
+- 端到端验证结果必须写入 `docs/05-execution-records/integration/v0.1/e2e-results.md`
+- 涉及模块边界 / 数据模型 / API 契约的变更，仍需走变更请求（CR）流程
+
+---
+
 ## 技术预研协调
 
 ### 何时触发

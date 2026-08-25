@@ -23,6 +23,8 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { ciExporterMappingApi, type CITypeExporterMappingListParams } from '../../api/ciExporterMappings'
 import { exporterTemplateApi } from '../../api/exporterTemplates'
+import { labelTemplateApi } from '../../api/labelTemplates'
+import type { LabelTemplateListItem } from '../../types/label'
 import type { ExporterSource } from '../../types/strategy'
 import type { CITypeExporterMapping } from '../../types/strategy'
 import type { ExporterTemplate } from '../../types/strategy'
@@ -32,6 +34,7 @@ import { MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 import { MappingDrawer } from './MappingDrawer'
 import { LabelTemplateSelectDrawer } from './LabelTemplateSelectDrawer'
+import { LabelTemplatePreview } from './LabelTemplatePreview'
 
 const { Text } = Typography
 
@@ -84,6 +87,7 @@ function InstallLinks({ template }: { template?: ExporterTemplate }) {
 export function CollectorTemplatesTab() {
   const [mappings, setMappings] = useState<CITypeExporterMapping[]>([])
   const [templates, setTemplates] = useState<ExporterTemplate[]>([])
+  const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filters, setFilters] = useState<{ monitor_type?: string; source?: ExporterSource }>({})
@@ -111,6 +115,13 @@ export function CollectorTemplatesTab() {
     return m
   }, [templates])
 
+  // 标签模板 id -> 模板对象，用于「标签模板」列与预览抽屉展示具体模板及映射明细
+  const labelTemplateById = useMemo(() => {
+    const m = new Map<number, LabelTemplateListItem>()
+    labelTemplates.forEach((t) => m.set(t.id, t))
+    return m
+  }, [labelTemplates])
+
   const load = useCallback(async () => {
     try {
       const params: CITypeExporterMappingListParams = {
@@ -118,13 +129,15 @@ export function CollectorTemplatesTab() {
         page,
         page_size: pageSize,
       }
-      const [mappingRes, tmplRes] = await Promise.all([
+      const [mappingRes, tmplRes, lblRes] = await Promise.all([
         ciExporterMappingApi.list(params),
         exporterTemplateApi.list({ page: 1, page_size: 100 }),
+        labelTemplateApi.list({ page: 1, page_size: 100 }),
       ])
       setMappings(mappingRes.data?.list ?? [])
       setTotal(mappingRes.data?.total ?? 0)
       setTemplates(tmplRes.data?.list ?? [])
+      setLabelTemplates(lblRes.data?.list ?? [])
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败，请稍后重试')
     } finally {
@@ -269,7 +282,13 @@ export function CollectorTemplatesTab() {
         ) : (
           <Space direction="vertical" size={4}>
             <Space size={4}>
-              <Text strong>{row.mapping.has_label_template ? (row.mapping.label_template_id ? '已挂模板' : '待配置') : '未配置'}</Text>
+              {labelTemplateById.has(Number(row.mapping.label_template_id)) ? (
+                <Text strong>{labelTemplateById.get(Number(row.mapping.label_template_id))?.name}</Text>
+              ) : (
+                <Text strong>{row.mapping.has_label_template ? (row.mapping.label_template_id ? '已挂模板' : '待配置') : '未配置'}</Text>
+              )}
+              {labelTemplateById.has(Number(row.mapping.label_template_id)) &&
+                labelTemplateById.get(Number(row.mapping.label_template_id))?.is_default && <Tag color="blue">默认</Tag>}
               {!row.mapping.has_label_template && <Tag color="orange">待配置</Tag>}
             </Space>
             <Space size={0}>
@@ -448,13 +467,17 @@ export function CollectorTemplatesTab() {
         width={420}
       >
         {previewMapping ? (
-          <Space direction="vertical">
-            <div>
-              <Text type="secondary">标签模板</Text>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {labelTemplateById.has(Number(previewMapping.label_template_id)) ? (
+              <LabelTemplatePreview template={labelTemplateById.get(Number(previewMapping.label_template_id)) ?? null} />
+            ) : (
               <div>
-                <Text strong>{previewMapping.has_label_template ? (previewMapping.label_template_id ? '已挂模板' : '待配置') : '未配置'}</Text>
+                <Text type="secondary">标签模板</Text>
+                <div>
+                  <Text strong>{previewMapping.has_label_template ? (previewMapping.label_template_id ? '已挂模板' : '待配置') : '未配置'}</Text>
+                </div>
               </div>
-            </div>
+            )}
             <div>
               <Text type="secondary">监控类型</Text>
               <div>{MONITOR_TYPE_MAP[previewMapping.monitor_type as keyof typeof MONITOR_TYPE_MAP] ?? previewMapping.monitor_type}</div>

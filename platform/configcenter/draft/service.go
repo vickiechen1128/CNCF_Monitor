@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
@@ -26,6 +28,9 @@ var (
 	ErrNotPending        = errors.New("config draft is not pending")
 	ErrValidationNotPassed = errors.New("draft validation has not passed; revalidate or discard instead")
 	ErrValidationStillFailed = errors.New("draft validation still failed")
+	// ErrNoChanges 表示当前源数据产物无任何变更项（如无 ready job/rule），
+	// 且该网域从未产生已生效版本；用于抑制「配置无变化」的噪声变更单（决策 44-3）。
+	ErrNoChanges = errors.New("no config changes to generate")
 )
 
 // GenerateDraft 手动触发生成一条配置草稿（POST /api/v2/platform/config/drafts）。
@@ -52,19 +57,23 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return nil, ErrDomainFrozen
 	}
 
-	// 同域活 pending 保活：已存在直接返回。
-	if existing, err := latestLivePending(db, domainID); err != nil {
-		return nil, err
-	} else if existing != nil {
-		return existing, nil
-	}
-
 	// MEDIUM-2 review-fix：jobs/rules 复用聚合产物的一次加载（buildArtifacts 已上抛
 	// 加载错误），不再二次查询并吞错（原 `jobs, _ :=` / `rules, _ :=` 会在 DB 瞬时
 	// 失败时静默生成空草稿可 passed→confirm 下发空配置）。
 	artifacts, jobs, rules, err := buildArtifacts(db, dom)
 	if err != nil {
 		return nil, err
+	}
+
+	// 同域活 pending 保活 / 取代（决策 42-1）：
+	// 若已有 pending 草稿，基于当前源数据全量重算产物；checksum 相同则幂等返回，
+	// 不同则生成新 pending 并将旧单置 discarded（metadata 互记 supersede 关系）。
+	existing, err := latestLivePending(db, domainID)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return reconcileWithExistingPending(db, existing, artifacts, jobs, rules)
 	}
 
 	sourceVersion, err := generator.SourceDataVersion(db, domainID)
@@ -74,7 +83,19 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 
 	items := buildChangeItems(jobs, rules)
 	checksum := artifacts.Checksum()
-	validation, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+
+	// 决策 44-3：抑制「配置无变化」的噪声变更单。
+	// 无任何变更项且该网域从未产生已生效版本时，不生成草稿，直接返回 ErrNoChanges。
+	if len(items) == 0 {
+		baseVersion, err := lastConfirmedVersion(db, domainID)
+		if err != nil {
+			return nil, err
+		}
+		if baseVersion == nil {
+			return nil, ErrNoChanges
+		}
+	}
 
 	meta := models.ConfigDraftMetadata{
 		SourceDataVersion: sourceVersion,
@@ -94,6 +115,10 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal change items: %w", err)
 	}
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		return nil, fmt.Errorf("marshal validation details: %w", err)
+	}
 
 	changeNo, err := nextChangeNo(db)
 	if err != nil {
@@ -111,7 +136,6 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	if baseVersion != nil {
 		sourceVersionRef = baseVersion.ChangeNo
 	}
-	_ = vMsg // 校验说明已反映在 validation 状态（MVP 不单独落库）
 
 	draft := &models.ConfigDraft{
 		NetworkDomainID:  domainID,
@@ -124,8 +148,11 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		Metadata:         string(metaJSON),
 		Summary:          buildSummary(items),
 		ChangeItems:      string(itemsJSON),
-		Status:           models.DraftStatusPending,
-		ValidationStatus: string(validation),
+		Status:            models.DraftStatusPending,
+		ValidationStatus:  string(validation),
+		ValidationMessage: vMsg,
+		ValidationCause:   string(cause),
+		ValidationDetails: string(detailsJSON),
 	}
 	if err := db.Create(draft).Error; err != nil {
 		return nil, fmt.Errorf("create config draft: %w", err)
@@ -147,7 +174,7 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 
 	jobBuilds := make([]generator.JobBuild, 0, len(jobs))
 	for _, job := range jobs {
-		tmpl, err := generator.LoadDefaultTemplate(db, models.ResourceCategory(job.ResourceType))
+		tmpl, err := generator.LoadTemplateForJob(db, job)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -166,6 +193,31 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	return artifacts, jobs, rules, nil
 }
 
+// LatestLivePending 返回某网域最新活 pending 草稿（无则 nil）。供 M09 自动变更检测
+// 轮询（configcenter/change 包）复用保活口径判断「该域是否已有待确认变更单」：
+// 已有活 pending 时跳过本轮（等用户处理），避免重复生成，与决策 42-1 对齐。
+func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
+	return latestLivePending(db, domainID)
+}
+
+// ShouldSupersedePending 判断当前源数据产物 checksum 是否与已有 pending 草稿不同。
+// 供 watcher 在 skipped_pending 分支决定是否取代旧单（决策 44-2）：不同则返回 true，
+// 调用方应继续 GenerateDraft 生成新 pending 并取代旧单；相同或出错则返回 false。
+func ShouldSupersedePending(db *gorm.DB, dom *models.NetworkDomain, pending *models.ConfigDraft) (bool, error) {
+	artifacts, _, _, err := buildArtifacts(db, dom)
+	if err != nil {
+		return false, err
+	}
+	currentChecksum := artifacts.Checksum()
+
+	var existingMeta models.ConfigDraftMetadata
+	if err := json.Unmarshal([]byte(pending.Metadata), &existingMeta); err != nil {
+		// metadata 损坏/为空，按「有实质差异」处理。
+		return true, nil
+	}
+	return currentChecksum != existingMeta.Checksum, nil
+}
+
 // latestLivePending 返回某网域最新的活 pending 草稿（无则 nil）。
 func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	var d models.ConfigDraft
@@ -178,6 +230,118 @@ func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error
 		return nil, fmt.Errorf("load latest pending draft: %w", err)
 	}
 	return &d, nil
+}
+
+// reconcileWithExistingPending 在已有活 pending 草稿时，基于当前源数据产物做保活/取代裁决。
+// checksum 与旧草稿相同 → 返回旧草稿（幂等）；不同 → 生成新 pending 并将旧单置 discarded，
+// 两者 metadata 互记 supersede 关系。
+func reconcileWithExistingPending(
+	db *gorm.DB,
+	existing *models.ConfigDraft,
+	artifacts *generator.ConfigArtifacts,
+	jobs []models.ScrapeJob,
+	rules []models.MonitoringRule,
+) (*models.ConfigDraft, error) {
+	currentChecksum := artifacts.Checksum()
+
+	var existingMeta models.ConfigDraftMetadata
+	if err := json.Unmarshal([]byte(existing.Metadata), &existingMeta); err != nil {
+		// 旧草稿 metadata 损坏/为空，按「有实质差异」处理并继续生成新单。
+		existingMeta = models.ConfigDraftMetadata{}
+	}
+
+	if currentChecksum == existingMeta.Checksum && currentChecksum != "" {
+		// 产物无实质变化：幂等返回旧草稿，不生成噪声。
+		return existing, nil
+	}
+
+	// 产物有变化：生成新 pending 并取代旧单。
+	sourceVersion, err := generator.SourceDataVersion(db, existing.NetworkDomainID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := buildChangeItems(jobs, rules)
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+
+	changeNo, err := nextChangeNo(db)
+	if err != nil {
+		return nil, err
+	}
+
+	baseVersion, err := lastConfirmedVersion(db, existing.NetworkDomainID)
+	if err != nil {
+		return nil, err
+	}
+	sourceVersionRef := ""
+	if baseVersion != nil {
+		sourceVersionRef = baseVersion.ChangeNo
+	}
+
+	newMeta := models.ConfigDraftMetadata{
+		SourceDataVersion:    sourceVersion,
+		TriggerSummary:       "源数据变更自动取代待确认草稿",
+		Checksum:             currentChecksum,
+		GeneratorVersion:     generator.GeneratorVersion,
+		SupersedesChangeNo:   existing.ChangeNo,
+	}
+	newMetaJSON, err := json.Marshal(newMeta)
+	if err != nil {
+		return nil, fmt.Errorf("marshal new draft metadata: %w", err)
+	}
+	targetsJSON, err := json.Marshal(artifacts.TargetsFiles)
+	if err != nil {
+		return nil, fmt.Errorf("marshal targets files: %w", err)
+	}
+	itemsJSON, err := json.Marshal(items)
+	if err != nil {
+		return nil, fmt.Errorf("marshal change items: %w", err)
+	}
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		return nil, fmt.Errorf("marshal validation details: %w", err)
+	}
+
+	newDraft := &models.ConfigDraft{
+		NetworkDomainID:   existing.NetworkDomainID,
+		ChangeNo:          changeNo,
+		SourceVersion:     sourceVersionRef,
+		PrometheusYml:     artifacts.PrometheusYML,
+		RulesYml:          artifacts.RulesYML,
+		BlackboxYml:       artifacts.BlackboxYML,
+		TargetsFiles:      string(targetsJSON),
+		Metadata:          string(newMetaJSON),
+		Summary:           buildSummary(items),
+		ChangeItems:       string(itemsJSON),
+		Status:            models.DraftStatusPending,
+		ValidationStatus:  string(validation),
+		ValidationMessage: vMsg,
+		ValidationCause:   string(cause),
+		ValidationDetails: string(detailsJSON),
+	}
+
+	// 更新旧草稿 metadata（superseded_by）并置 discarded；同时创建新草稿。
+	err = db.Transaction(func(tx *gorm.DB) error {
+		existingMeta.SupersededByChangeNo = newDraft.ChangeNo
+		updatedMetaJSON, mErr := json.Marshal(existingMeta)
+		if mErr != nil {
+			return fmt.Errorf("marshal superseded metadata: %w", mErr)
+		}
+		if err := tx.Model(existing).Updates(map[string]interface{}{
+			"status":   models.DraftStatusDiscarded,
+			"metadata": string(updatedMetaJSON),
+		}).Error; err != nil {
+			return fmt.Errorf("mark existing draft discarded: %w", err)
+		}
+		if err := tx.Create(newDraft).Error; err != nil {
+			return fmt.Errorf("create superseding draft: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return newDraft, nil
 }
 
 // lastConfirmedVersion 返回某网域最近一次 confirm 生成的 ConfigVersion（按 created_at
@@ -424,9 +588,90 @@ func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVers
 	return version, nil
 }
 
+// DiscardImpact 描述废弃一张配置变更单后对源数据（当前仅 ScrapeJob）的影响统计，
+// 用于前端二次确认弹窗分类告知（决策 43-7）。
+type DiscardImpact struct {
+	NewReverted     int `json:"new_reverted"`      // 新建未生效 job 回退 draft
+	ModifiedKept    int `json:"modified_kept"`     // 已生效 job 的修改保留
+	DeletedRestored int `json:"deleted_restored"`  // 删除/停用/草稿化的已生效 job 被恢复
+	Missing         int `json:"missing"`           // 生效版本中存在但 DB 中已无记录
+}
+
 // DiscardDraft 废弃一张 pending 草稿（支持校验失败态 failed 草稿）；
 // 已非 pending 返回 bad_request。
-func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) {
+//
+// 废弃必须伴随源数据处理：full-render 模型下「只改变更单状态、不处理源数据」
+// 会导致被废弃的差异在下一轮全量渲染中复现（鬼影）。分类处理规则（决策 43 系列）：
+//   - 新建且从未生效的 job：回退 draft_status=draft，change_status=none；
+//   - 已生效 job 的修改：保留修改值，change_status=deployed（MVP 不自动回滚，弹窗已告知）；
+//   - 已生效 job 的删除/停用/草稿化：恢复（undelete + enabled + ready），change_status=deployed。
+func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardImpact, error) {
+	d, err := GetDraftDetail(db, changeNo)
+	if err != nil {
+		return nil, nil, err
+	}
+	if d.Status != models.DraftStatusPending {
+		return nil, nil, ErrNotPending
+	}
+
+	impact, err := computeDiscardImpact(db, d)
+	if err != nil {
+		return nil, nil, err
+	}
+	liveJobNames, err := jobNamesFromLiveVersion(db, d)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var jobs []models.ScrapeJob
+	if err := db.Unscoped().Where("network_domain_id = ?", d.NetworkDomainID).Find(&jobs).Error; err != nil {
+		return nil, nil, fmt.Errorf("load domain jobs for discard: %w", err)
+	}
+
+	now := time.Now()
+	err = db.Transaction(func(tx *gorm.DB) error {
+		for i := range jobs {
+			j := &jobs[i]
+			wasLive := liveJobNames[j.JobName]
+			isLiveNow := !j.DeletedAt.Valid && j.Enabled && j.DraftStatus == "ready"
+			updates := map[string]interface{}{"updated_at": now}
+			switch {
+			case !isLiveNow && wasLive:
+				// 删除/停用/草稿化的已生效 job：恢复为生效态。
+				updates["deleted_at"] = gorm.Expr("NULL")
+				updates["enabled"] = true
+				updates["draft_status"] = "ready"
+				updates["change_status"] = string(models.ChangeStatusDeployed)
+			case isLiveNow && !wasLive:
+				// 新建未生效 job：回退 draft。
+				updates["draft_status"] = "draft"
+				updates["change_status"] = string(models.ChangeStatusNone)
+			case isLiveNow && wasLive:
+				// 已生效 job 的修改：保留修改，清除 pending。
+				updates["change_status"] = string(models.ChangeStatusDeployed)
+			default:
+				// 从未参与生效的草稿/已删 job：无需处理。
+				continue
+			}
+			// 使用 Unscoped：被软删的 job 需要恢复，且需要把 deleted_at 真正置 NULL。
+			if err := tx.Unscoped().Model(j).Updates(updates).Error; err != nil {
+				return fmt.Errorf("update job %d on discard: %w", j.ID, err)
+			}
+		}
+		if err := tx.Model(d).Update("status", models.DraftStatusDiscarded).Error; err != nil {
+			return fmt.Errorf("discard config draft: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	d.Status = models.DraftStatusDiscarded
+	return d, impact, nil
+}
+
+// GetDiscardImpact 在真正废弃前计算影响面（GET /config-drafts/:change_no/discard-impact）。
+func GetDiscardImpact(db *gorm.DB, changeNo string) (*DiscardImpact, error) {
 	d, err := GetDraftDetail(db, changeNo)
 	if err != nil {
 		return nil, err
@@ -434,11 +679,80 @@ func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) {
 	if d.Status != models.DraftStatusPending {
 		return nil, ErrNotPending
 	}
-	d.Status = models.DraftStatusDiscarded
-	if err := db.Model(d).Update("status", models.DraftStatusDiscarded).Error; err != nil {
-		return nil, fmt.Errorf("discard config draft: %w", err)
+	return computeDiscardImpact(db, d)
+}
+
+// computeDiscardImpact 基于当前 DB 源数据与上一生效版本产物，统计废弃后的分类影响。
+// 当前仅处理 ScrapeJob；MonitoringRule 的自动回滚待 v0.3 deployed_snapshot 后扩展。
+func computeDiscardImpact(db *gorm.DB, d *models.ConfigDraft) (*DiscardImpact, error) {
+	var jobs []models.ScrapeJob
+	if err := db.Unscoped().Where("network_domain_id = ?", d.NetworkDomainID).Find(&jobs).Error; err != nil {
+		return nil, fmt.Errorf("load domain jobs: %w", err)
 	}
-	return d, nil
+	liveJobNames, err := jobNamesFromLiveVersion(db, d)
+	if err != nil {
+		return nil, err
+	}
+
+	impact := &DiscardImpact{}
+	currentNames := make(map[string]bool, len(jobs))
+	for _, j := range jobs {
+		currentNames[j.JobName] = true
+		wasLive := liveJobNames[j.JobName]
+		isLiveNow := !j.DeletedAt.Valid && j.Enabled && j.DraftStatus == "ready"
+		switch {
+		case !isLiveNow && wasLive:
+			impact.DeletedRestored++
+		case isLiveNow && !wasLive:
+			impact.NewReverted++
+		case isLiveNow && wasLive:
+			impact.ModifiedKept++
+		}
+	}
+	for name := range liveJobNames {
+		if !currentNames[name] {
+			impact.Missing++
+		}
+	}
+	return impact, nil
+}
+
+// jobNamesFromLiveVersion 从变更单对应的上一个生效 ConfigVersion 产物中解析 job_name 集合。
+func jobNamesFromLiveVersion(db *gorm.DB, d *models.ConfigDraft) (map[string]bool, error) {
+	out := make(map[string]bool)
+	if d.SourceVersion == "" {
+		return out, nil
+	}
+	var v models.ConfigVersion
+	if err := db.Where("change_no = ?", d.SourceVersion).First(&v).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return out, nil
+		}
+		return nil, fmt.Errorf("load source version %q: %w", d.SourceVersion, err)
+	}
+	return scrapeJobNamesFromPrometheusYml(v.PrometheusYml)
+}
+
+// scrapeJobNamesFromPrometheusYml 从 prometheus.yml 内容中提取 scrape_configs[].job_name。
+func scrapeJobNamesFromPrometheusYml(yml string) (map[string]bool, error) {
+	out := make(map[string]bool)
+	if strings.TrimSpace(yml) == "" {
+		return out, nil
+	}
+	var cfg struct {
+		ScrapeConfigs []struct {
+			JobName string `yaml:"job_name"`
+		} `yaml:"scrape_configs"`
+	}
+	if err := yaml.Unmarshal([]byte(yml), &cfg); err != nil {
+		return nil, fmt.Errorf("parse prometheus yml: %w", err)
+	}
+	for _, sc := range cfg.ScrapeConfigs {
+		if sc.JobName != "" {
+			out[sc.JobName] = true
+		}
+	}
+	return out, nil
 }
 
 // RevalidateDraft 重校一张 pending 草稿的中心内容校验（契约 §4 / 决策 42-2）：
@@ -457,13 +771,25 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	if err != nil {
 		return nil, err
 	}
-	validation, _ := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		return nil, fmt.Errorf("marshal validation details: %w", err)
+	}
 	d.ValidationStatus = string(validation)
-	if err := db.Model(d).Update("validation_status", d.ValidationStatus).Error; err != nil {
-		return nil, fmt.Errorf("update draft validation_status: %w", err)
+	d.ValidationMessage = vMsg
+	d.ValidationCause = string(cause)
+	d.ValidationDetails = string(detailsJSON)
+	if err := db.Model(d).Updates(map[string]interface{}{
+		"validation_status":   d.ValidationStatus,
+		"validation_message":  d.ValidationMessage,
+		"validation_cause":    d.ValidationCause,
+		"validation_details":  d.ValidationDetails,
+	}).Error; err != nil {
+		return nil, fmt.Errorf("update draft validation: %w", err)
 	}
 	if validation == models.ValidationStatusFailed {
-		return d, ErrValidationStillFailed
+		return d, fmt.Errorf("%w: %s", ErrValidationStillFailed, vMsg)
 	}
 	return d, nil
 }

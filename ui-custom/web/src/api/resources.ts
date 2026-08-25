@@ -13,6 +13,7 @@ import type {
   ImportMode,
   ImportRecord,
   ImportResult,
+  OSOption,
   Resource,
   ResourceCategory,
   ResourceCreateInput,
@@ -179,6 +180,13 @@ export const resourceApi = {
 export const businessDomainApi = {
   list(): Promise<ApiResponse<BusinessDomainsResponse>> {
     return apiClient.get<BusinessDomainsResponse>('/api/v2/platform/business-domains')
+  },
+}
+
+/** 操作系统内置字典（只读，供 host 表单「操作系统」下拉，os_dict.go） */
+export const osOptionApi = {
+  list(): Promise<ApiResponse<{ list: OSOption[] }>> {
+    return apiClient.get<{ list: OSOption[] }>('/api/v2/platform/os-options')
   },
 }
 

@@ -28,6 +28,7 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 		jobs.POST("/:id/instances/:resource_id/confirm", ConfirmInstallation(db))
 		jobs.DELETE("/:id/instances/:resource_id/confirm", CancelInstallation(db))
 		jobs.POST("/:id/preview-targets", PreviewTargets(db))
+		jobs.POST("/batch-draft-status", BatchUpdateDraftStatusHandler(db))
 		jobs.PUT("/:id", UpdateScrapeJob(db))
 		jobs.DELETE("/:id", DeleteScrapeJob(db))
 	}
