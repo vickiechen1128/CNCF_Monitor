@@ -1150,3 +1150,231 @@
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.46 → v1.47）
 - `docs/02-product-requirements/Modules/README.md`（版本对齐表）
 - `docs/prototypes/module-09/`（v1.46，本轮不改）
+
+---
+
+## 决策：targets/*.json 中 labels 的注入层级（2026-08-25）
+
+### 问题
+M09 配置预览生成的 `targets/*.json` 中 `labels` 应放在 file_sd 的 target 级，还是提升到 `prometheus.yml` 的 job 级（通过 `relabel_configs` 常量注入）？
+
+### 结论
+**保持 target 级注入为主，job 级注入仅作为未来可选扩展。**
+
+- M01 一个 ScrapeJob 可选择多个资源实例，每个实例的标签值天然不同（hostname、instance_name、instance_ip:port、app/biz 等）。target 级 labels 是 Prometheus file_sd 的标准做法，能正确表达 per-instance 标签，且热更新 targets 文件即可 reload。
+- `prometheus.yml` 的 job 级没有原生 labels 字段；若要做 job 级常量注入，只能通过 `relabel_configs` 的 `target_label + replacement`，这会把同一标签值硬编码到所有 target，不适合实例差异。
+- 网域/租户标识按 PRD §3.3.1 走 `prometheus.yml` 的 `external_labels`，不进 targets labels。
+
+### 未来扩展（非 MVP）
+可在 M07 `LabelTemplate.Mapping` 中增加 `scope` 字段（`instance` / `job`）：
+- `scope=instance` 的映射继续渲染到 `targets/*.json` 的 target group labels；
+- `scope=job` 的映射渲染到 `prometheus.yml` 对应 job 的 `relabel_configs` 常量注入。
+当前 P1 只修复 target 级标签未取到模板值的实现问题，不动注入层级。
+
+### 影响范围
+- `platform/configcenter/generator/labels.go`
+- `platform/configcenter/generator/targets.go`
+- PRD §3.3 / §3.3.3
+
+---
+
+## 决策：变更单废弃对源数据的回写语义（2026-08-25，决策 43 系列）
+
+- **参与方**：chenrt（拍板）、backend-developer（分析与实现）
+- **触发原因**：用户在方案 C（M01「保存草稿/提交生效」双按钮提级 MVP，见 module-01 design-decisions D28）讨论中追问：pending 变更单被废弃后，job 的数据状态是什么？并明确产品原则「采集 Job 功能本身不做日志记录，只保留干净的生效 job」。排查发现 `DiscardDraft` 实现存在语义缺口，需要系统性决策。
+- **关联模块**：Module_09（变更单状态机）、Module_01（draft_status / change_status 语义）
+
+### 背景：发现的实现缺口
+
+当前 `platform/configcenter/draft/service.go` 的 `DiscardDraft` 只做一件事：把变更单 `status` 置为 `discarded`。**不回写 job 的 `change_status`、不处理 job 数据、不推进 watcher 基线**。叠加决策 F-14（skipped_pending 不推进 SourceVersion）后净效果：
+
+1. 被废弃变更单涉及的 job，`change_status` 永远卡在 `pending`（脏标记残留）；
+2. 下一轮 watcher 检测到「源数据版本 > 基线」，**重新生成一张内容相同的变更单**——废弃操作等于白点，且用户会反复看到同一张单。
+
+### 前提：full-render 模型的硬约束
+
+M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready` 对象渲染完整产物，与已生效 `ConfigVersion` 比 checksum。变更单不是「最近编辑的增量清单」，而是「**DB 期望态 vs 线上生效态的差异快照**」。
+
+由此推出铁律：**只要数据还在 DB 期望态里，差异就永远存在**。「废弃变更单但 job 数据不动」是伪选项——下一轮轮询、或任何无关变更触发的下一次全量渲染，都会把被「拒绝」的内容原样带回（下称**鬼影复现**）。
+
+因此废弃要真正生效，必须让 **DB 期望态与线上生效态重新一致**，只有两个方向：
+
+- **方向 A：回退 DB 数据**（把期望态改回线上态）——真正的「撤销」；
+- **方向 B：推进基线吞掉差异**——**否决**。下次无关变更触发全量渲染时差异照样复现，且制造「DB 与线上静默不一致」的隐患。
+
+结论：废弃必须伴随方向 A 的数据处理。但不同变更类型的「回退」可行性与含义不同，故有以下分类决策。
+
+#### 决策 43-1：废弃语义澄清——废弃 ≠ 撤销变更，但废弃必须伴随数据处理
+
+- **结论（用户确认）**：变更单「废弃」的产品语义 =「本次变更不发布，并将源数据恢复到与线上生效态一致」。不允许只改变更单状态而源数据不动（会产生鬼影复现与 `change_status` 脏残留）。
+- **依据**：full-render 硬约束（见前提）；pull 轮询是后台异步行为，静默不一致不可接受（对齐决策 42-4「失败可观测」原则）。
+
+#### 决策 43-2：日志职责归属——job 表只承载工作态，废弃历史归 M09
+
+- **结论（用户确认）**：M01 采集 Job 列表只保留工作态——`draft`（编辑中）/ `ready`（待下发或已生效），配合 `change_status` 表达在途情况；**不引入任何 `rejected` / `discarded` 等 job 级终态**。废弃/拒绝的审计历史完全由 M09 承载：`ConfigDraft.status=discarded` + change_no 时间线 + `superseded_by_change_no` / `supersedes_change_no` 取代链（决策 42-1 已有）。
+- **依据**：用户明确产品原则「采集 job 功能本身不要变成日志记录，只保留干净的生效的 job」；M09 变更单天然是审计层，双端重复记账只会制造状态一致性负担。
+
+#### 决策 43-3：新建未生效 job 随单废弃自动回退 `draft`（系统级回退的唯一例外）
+
+- **结论（用户确认）**：变更单废弃时，其中**新建且从未生效**的 job（不出现在任何已生效 `ConfigVersion` 渲染结果中）自动回退 `draft_status=draft`、`change_status=none`。数据保留不丢用户输入；`draft` 是合法工作态而非日志残留。
+- **机制闭环**：回退 draft 后该 job 退出配置生成候选集 → 源数据版本变化 → 下轮 watcher 检测到 DB 期望态与线上 checksum 一致 → **不再生成新变更单**，鬼影消除、链路收敛。用户想彻底丢弃时在 M01 删除该 draft job 即可（draft 不参与生成，删除不触发新变更单）。
+- **与单向流转的关系**：这是对 M01 PRD「draft→ready 单向、提交生效后不再回退」的**唯一例外**——系统随单回退、且仅作用于从未生效的对象，不触碰已生效对象。与 D28 移除的「用户主动 ready→draft 批量回退」是两回事（那是用户随手 toggle，会破坏单向约束；这里是变更单审批结果的执行动作）。
+- **依据**：新建 job 是「纯增量」，回退 draft 无线上影响；保留数据尊重用户劳动；draft 作为「半成品暂存」的 PRD 原生语义正好承接。
+
+#### 决策 43-4：已生效 job 的字段修改——MVP 选「提示 + 复现」（2a），自动回滚留待 v0.3
+
+- **结论（用户确认）**：变更单中含**已生效 job 的字段修改**时，MVP 不做自动回滚——废弃后修改值保留在 DB 期望态，差异将随下一张变更单**诚实复现**；废弃弹窗明确告知用户（见 43-7）。真正的撤销引导用户「前往采集 Job 改回原值」。
+- **不选自动回滚的原因**：真正的回滚需要把 job 字段恢复到已生效值，这需要部署快照——MVP 的 job 表没有 `deployed_snapshot`，从渲染产物（prometheus.yml）反解 job 字段不可靠；为低频场景增加快照机制得不偿失。
+- **不选「禁止废弃含修改的变更单」（2b）的原因**：修改类变更用户通常是要下发的，废弃是低频操作；为低频场景禁用整个废弃能力，交互代价大于收益。
+- **长期备注（v0.3 提级项）**：**job 表建议增加 `deployed_snapshot` 字段**（记录最近一次成功下发时的字段快照），变更单废弃时提供「随单回滚」按钮逐条恢复——届时 43-4 升级为完整撤销语义。本条需在 v0.3 规划时收割。
+
+#### 决策 43-5：删除/停用型变更随单废弃自动恢复（无备选）
+
+- **结论（用户确认）**：变更单中含「删除已生效 job（软删）/ 停用（`enabled=false`）」时，废弃必须**自动恢复**该 job（软删回滚 / `enabled` 还原），`change_status` 回写 `deployed`（它在线上本来就是生效的）。语义 =「撤销删除/停用」。
+- **依据**：若不恢复——job 已软删（DB 期望态=不存在）而线上还在采集，产生静默不一致 + 鬼影复现 + 用户在列表里看不见该 job 的三重问题。恢复是方向 A 对删除型变更的必然推论，没有可行备选。
+
+#### 决策 43-6：`change_status` 回写规则（废弃时的统一收口）
+
+- **结论（用户确认）**：废弃动作执行时统一回写——新建 job 回 draft → `change_status=none`；已生效 job（修改保留 / 删除撤销）→ `change_status=deployed`；**任何情况下不允许 `pending` 残留**（修复现有缺口）。
+- **依据**：`change_status=pending` 的语义是「存在在途变更单」；变更单终态化（discarded）后在途事实消失，残留 pending 会让 M01 四态聚合列（决策 D27-2）持续误报「待下发」。
+
+#### 决策 43-7：废弃二次确认弹窗的分类知情告知
+
+- **结论（用户确认）**：前端废弃确认弹窗按变更类型分类展示影响，用户知情后再确认，形如：
+  ```
+  废弃后：
+  - N 条新建 Job 将退回草稿，可继续编辑或删除
+  - M 条已生效 Job 的修改将保留在期望数据中，将随下次变更单复现
+  - K 条删除/停用操作将被撤销，对应 Job 恢复为已生效
+  ```
+- **依据**：43-4 的「复现」行为若无事先告知，用户会误判废弃失效；分类告知把 full-render 模型的约束转化为可理解的动线。
+
+### 汇总：废弃后 job 状态矩阵
+
+| 变更类型 | 废弃后 job 状态 | 日志残留 |
+|----------|----------------|----------|
+| 新建未生效 | 回 `draft` + `change_status=none`，可继续编辑/删除 | 无（draft 是工作态） |
+| 已生效 job 被修改 | 数据保留修改值，`change_status=deployed`，差异随下次变更单复现（弹窗已告知） | 无 |
+| 已生效 job 被删除/停用 | 自动恢复，`change_status=deployed` | 无 |
+| 变更单本体 | `discarded`，留在 M09 变更单列表作审计 | 日志归 M09 |
+
+### 已确认项
+
+- [x] 43-1 废弃必须伴随数据处理，方向 B（吞基线）否决（用户确认）。
+- [x] 43-2 job 表不做日志，废弃历史归 M09（用户确认）。
+- [x] 43-3 新建未生效 job 随单废弃自动回退 draft，单向流转唯一系统级例外（用户确认）。
+- [x] 43-4 修改类 MVP 选 2a「提示+复现」；`deployed_snapshot` +「随单回滚」备注 v0.3（用户确认）。
+- [x] 43-5 删除/停用型废弃自动恢复（用户确认）。
+- [x] 43-6 废弃时 change_status 统一回写，pending 不残留（用户确认）。
+- [x] 43-7 废弃弹窗分类知情告知（用户确认）。
+
+### 仍待确认项
+
+- [ ] design 分支收割 PRD：M09 PRD 只定义了变更单「确认/废弃」按钮，**未定义废弃对源数据的回写语义**——需按 43-1~43-7 修订 §3.5 / §8 ConfigDraft 状态机 / §9 验收；M01 PRD §5.4 `draft_status` 单向流转补充「系统随单回退例外」注记。
+- [ ] v0.3 规划收割 43-4 长期项：job 表 `deployed_snapshot` + 变更单废弃「随单回滚」。
+- [ ] 代码实现待执行：`DiscardDraft` 增加分类回写 + 恢复逻辑 + 前端弹窗分类告知（本轮仅落文档）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（§3.5 / §8 待 design 分支修订）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（§5.4 draft_status 单向流转注记，待 design 分支修订）
+- `docs/05-execution-records/module-01/design-decisions.md`（决策 D28：方案 C 提级 MVP）
+- `docs/05-execution-records/module-09/dev-feedback.md`（F-17）
+
+## 决策：pending 期间源数据锁定 / watcher 取代时机 / 空变更单抑制（2026-08-25，决策 44 系列）
+
+### 背景：联调发现的状态流转矛盾
+
+用户在 develop 分支功能测试时反馈三类互相矛盾的状态流转：
+
+1. job「待生效」（`change_status=pending`）时编辑按钮仍可点击，保存报内部错误——变更单已挂起，源数据再变动会让变更单内容与现实脱节；
+2. 「待生效」job 可被删除，但配置中心的变更单不受联动，成为幽灵单；
+3. 草稿态 job 未参与配置生成，watcher 却因源数据版本推进生成「配置无变化」的空变更单，困惑用户。
+
+### 前提：watcher 取代时机不能只盯采集 job
+
+用户明确指出：将来还有**告警规则编辑**等旁路源数据变化，watcher 不能在「已有活 pending」时无条件跳过，否则旁路变更会被旧单长期压住。
+
+### 决策
+
+- **44-1 pending 期间禁止修改 job（编辑 / 启停 / 删除）**（用户确认）
+  - 后端 `UpdateScrapeJob` / `DeleteScrapeJob` 在 `change_status=pending` 时返回 409 Conflict，文案指引前往配置变更确认页处理；
+  - 前端列表操作列对 pending 行禁用「编辑 / 启停 Switch / 删除」，Tooltip 说明原因；
+  - 依据：pending 即「变更单已挂起」，此时改动源数据必然导致变更单内容与源数据脱节；删除则产生幽灵单。解锁路径只有确认或废弃变更单。
+- **44-2 watcher 遇活 pending 先比较 checksum，不同则取代**（用户确认，修订 F-14 的「直接跳过」前提）
+  - watcher 发现已有活 pending 时，不再直接跳过：调用 `ShouldSupersedePending` 比较当前产物 checksum 与 pending 的 `metadata.checksum`；
+  - checksum 相同 → 保持 `skipped_pending`，**不推进基线**（沿用 F-14），等人工处理旧单；
+  - checksum 不同 → 走 `GenerateDraft` 取代语义：生成新 pending，旧单置 `discarded`，旧单 metadata 记录 `superseded_by_change_no`、新单记录 `supersedes_change_no`；
+  - 旧单详情页展示 Alert「该变更单已被新变更单 XXX 取代」，避免用户对着过期单确认；
+  - metadata 损坏/为空的旧单按「有实质差异」处理，避免卡点。
+- **44-3 抑制「配置无变化」的空变更单**（用户确认）
+  - `GenerateDraft` 在变更项为空且该网域从未产生已生效版本时返回 `ErrNoChanges`，不落库；
+  - watcher 收到 `ErrNoChanges` 时推进基线并标记 `idle`（避免每轮重试），手动触发生成接口返回 200 + `{no_changes: true, message: "当前无配置变更"}`；
+  - 依据：草稿态 job 本就不参与配置生成，为其生成空变更单只会困惑用户。
+- **44-4 禁止删除 pending job**：语义并入 44-1（删除同样 409），不单列实现。
+
+### 与既有决策的关系
+
+- F-14「skipped_pending 不推进基线」**保留**，但触发条件从「有活 pending 即跳过」收窄为「有活 pending 且 checksum 相同才跳过」；checksum 不同走取代分支并正常推进基线。
+- F-13「后单取代前单」从手动触发生成扩展到 watcher 自动检测路径，语义统一。
+
+### 已确认项
+
+- [x] 44-1 pending 期间禁止编辑/启停/删除（用户确认）
+- [x] 44-2 watcher checksum 比较 + 取代 + superseded_by 前端提示（用户确认）
+- [x] 44-3 抑制「配置无变化」变更单（用户确认）
+- [x] 44-4 禁止删除 pending job（用户确认，并入 44-1）
+
+### 仍待确认项
+
+- [ ] design 分支收割 PRD：M09 §3.3.3 变更检测需按「checksum 比较取代」修订（当前只描述「已有 pending 跳过」）；§3.4 补「空变更单抑制」与「superseded_by 提示」；M01 PRD 需补 pending 期间 job 锁定语义（编辑/删除/启停的约束与引导文案）。
+- [ ] 原型侧：M09 变更单详情页「已被取代」Alert、M01 列表 pending 行禁用态需同步到可点击原型。
+
+### 关联文档
+
+- `docs/05-execution-records/module-09/dev-feedback.md`（F-19）
+- `docs/05-execution-records/module-01/dev-feedback.md`（F-19）
+- 源码：`platform/configcenter/change/watcher.go`、`platform/configcenter/draft/service.go`、`platform/strategy/scrapejob/update.go`、`platform/strategy/scrapejob/delete.go`、`ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`
+
+## 决策：校验分层落地与三态操作出口修正（2026-08-25，决策 45 系列）
+
+### 背景：方案 A 修复后暴露的 UI 缺口 + 原型归因未对齐
+
+- 方案 A（instance 放行）落地后，`CHG-20260825-020` 重校回到 `pending`，但配置确认详情页 **pending 态没有操作按钮**、「确认发布」未禁用（违反 §3.5.1 三态语义），且校验失败原因无归因——`failed` 与 `pending`（promtool 不可用）在 UI 上无法区分。
+- 分层意见已确认：**第一层（源数据输入）** 做可预判失败的静态校验；**第二层（配置变更确认）** 只做「中心内容校验 + 变更确认/下发」动线（§3.5.1），不再承载「解释为什么失败」。prd §3.5.1 本身已给出三态定义，**prd 无需改动**，缺口在实现层 + 原型已有的 `validation_cause` / `validation_details` 未同步到实现。
+
+### 决策
+
+- **45-1 操作区三态出口语义修正**（用户确认）
+  - 「确认发布」可点条件由 `=== 'passed'` 反转为「**非** `passed` 一律禁用」：`passed`→可确认；`pending`/`failed`→禁确认，展示「重新校验 + 废弃」两出口；
+  - 依据：`pending` 是「未校验/生成中」，§3.5.1 只允许 `passed` 下发；promtool 不可用等未校验态不应可发布。此修正同时让 `pending` 态获得「重新校验」自愈入口。
+- **45-2 校验信息 Alert 按 status 分色**（用户确认）
+  - `failed`→`error`；`pending`→`warning`（promtool 不可用属「待环境就绪」，非用户配置失败）；
+  - 依据：当前实现恒用 `error`，`pending` 文案「promtool 不可用」被染成红色，语义误导。
+- **45-3 后端补校验归因字段，对齐原型**（用户确认）
+  - `ConfigDraft` 增 `validation_cause`（`user_config` 用户配置可修复 / `platform_fault` 平台技术故障自动重试）与 `validation_details`（`[{file,line,message}]` 结构化定位）；
+  - 判定：configgen 产物 schema 校验类失败（targets_json_schema / intersection_job_metric / protected_label 等）→ `user_config`；依赖工具不可用（promtool / blackbox_exporter）→ `platform_fault`。
+  - MVP 范围：前端先用分层展示（`failed` 才有行内 Popover/跳 M01），`platform_fault` 不展示「重新校验」（自动重试），仅 `user_config` 展示。
+- **45-4 第一层（源数据输入）静态校验**：M07 标签模板/采集目标表单对「可预判失败」的目标标签（`job`/`scheme`/`__*`）即时红框提示；**`composite→instance` 例外放行**（默认模板内置合法映射），手动映射 `instance`（非 composite 来源）才拦截。M07 PRD §5.12/§5.13 已定义，落地到 M07 前端实现。
+
+### 与既有决策的关系
+
+- 承接 §8 方案 A（instance 放行，决策落 M09 校验器），45 系列解决其在 UI 上的可操作性与归因。
+- 对齐原型 v1.39 决策 39-1（校验失败动线行内闭环）/ 39-3（技术侧故障自动重试、用户不可见）。
+
+### 已确认项
+
+- [x] 45-1 操作区三态出口语义修正（用户确认）
+- [x] 45-2 校验信息 Alert 分色（用户确认）
+- [x] 45-3 后端补 validation_cause / validation_details 归因（用户确认）
+- [x] 45-4 第一层源数据静态校验，落地 M07（用户确认立项）
+
+### 仍待确认项
+
+- [ ] design 分支收割 PRD：M09 §3.5 补「pending 态不可确认发布、需重校」语义注记；原型 `validation_cause` / `validation_details` 字段说明是否进 PRD 数据模型，待 design 分支决策。
+- [ ] M07 第一层静态校验实现（45-4）本轮不在 M09 范围，单独列 M07 前端任务。
+
+### 关联文档
+
+- `docs/05-execution-records/module-09/dev-feedback.md`（§9）
+- 源码：`platform/configcenter/draft/service.go`、`platform/configcenter/generator/validate.go`、`platform/models/config.go`、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`、`ui-custom/web/src/types/config-center.ts`

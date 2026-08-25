@@ -42,3 +42,5 @@
 | 日期 | 变更 | 作者 | 备注 |
 |------|------|------|------|
 | 2026-08-23 | 创建 `integration/v0.1` 分支与记录目录 | chenrt | 分支基于 origin/develop |
+| 2026-08-25 | 回归修复：M09 后单取代前单 + watcher 自适应退避；M01 批量 ready/draft；NetworkDomainsPage `scrollIntoView` jsdom 兼容性修复；全部测试 310/310 通过 | backend-developer / frontend-developer | 详见 `issues.md` #3/#4/#5/#6 与 `e2e-results.md` 回归验证 |
+| 2026-08-25 | 跨模块落地：M09 校验分层（instance 放行 + vMsg 透传 + pending 态操作出口 + validation_cause/details，决策 45）；M01 labels 挂 target 级（D43）+ 批量提交生效单向 + pending 期 job 锁定（D28/44）；M07 os_type 必填 + 内置字典 | backend-developer / frontend-developer | 详见 `issues.md` #7~#11；待 design 分支收割 PRD 修订项已逐条标注 |

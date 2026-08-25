@@ -58,3 +58,48 @@
 - [x] 全部通过
 - [ ] 存在遗留问题（见 `issues.md` —— 1 例 flaky 已归因）
 - [ ] 未通过，需重新联调
+
+---
+
+## 回归验证（2026-08-25）
+
+> 本次回归针对 M09 后单取代前单、watcher 自适应退避、M01 批量 ready/draft 以及 NetworkDomainsPage `scrollIntoView` jsdom 报错修复。
+
+| 步骤 | 操作 | 期望结果 | 实际结果 | 状态 |
+|------|------|----------|----------|------|
+| 1 | 后端单元测试 | `go test ./platform/...` 全部通过 | 全部通过（含新增 draft/change/scrapejob 单测） | ✅ PASS |
+| 2 | 后端静态检查 | `go vet ./platform/...` 无告警 | 无告警 | ✅ PASS |
+| 3 | 前端单元测试（全量） | `pnpm vitest run` 全绿，无 unhandled error | 44 文件 / 310 用例全部通过 | ✅ PASS |
+| 4 | 前端 lint | `pnpm lint` 通过 | 通过 | ✅ PASS |
+| 5 | 配置变更单合并 | pending 下新增 job1、job2，配置预览应同时包含两者 | 后单取代前单，pending 合并最新全量变更 | ✅ PASS |
+| 6 | 自适应退避 | 启动参数 `--change-detect.min-interval=5s --change-detect.max-interval=30s` 生效 | 参数解析并写入 baseline 调度 | ✅ PASS |
+| 7 | 批量 ready/draft | 列表页勾选多条 Job 后批量切换状态 | 后端接口正常返回，列表刷新 | ✅ PASS |
+
+## 回归结论
+
+- [x] 全部通过
+- [ ] 存在遗留问题（见 `issues.md` —— 1 例 flaky 已归因）
+- [ ] 未通过，需重新联调
+
+**2026-08-25 更新**：原第 3 点 flaky 已通过代码修复（issues #3），本轮无遗留未处理问题；issues #4/#5/#6 已闭环。
+
+## 回归验证（2026-08-25 晚：校验分层 + 批量提交 + os_type 字典）
+
+> 针对 M09 方案 A + 决策 45（instance 放行 / vMsg 透传 / pending 操作出口 / validation_cause）、M01 labels target 级（D43）+ 批量提交生效单向 + pending 期锁定，M07 os_type 必填 + 内置字典。
+
+| 步骤 | 操作 | 期望结果 | 实际结果 | 状态 |
+|------|------|----------|----------|------|
+| 1 | 后端单元测试 | `go test ./platform/...` 全部通过 | 全部通过（含 validate/归因/draft 单测） | ✅ PASS |
+| 2 | 后端静态检查 | `go vet ./platform/...` 无告警 | 无告警 | ✅ PASS |
+| 3 | 前端单元测试（ConfigPreviewPage） | pending+platform_fault / failed+user_config 两态用例通过 | 15/15 通过，覆盖确认禁用/重新校验/废弃/前往修改 | ✅ PASS |
+| 4 | instance 放行回归 | 重校 `CHG-20260825-020` 不再 400，返回 200 pending | instance 不再误拦，promtool 缺失回落 pending | ✅ PASS |
+| 5 | vMsg 透传 | detail 返回 `validation_status` 与 `validation_message` | `validation_message="promtool 不可调用…"` 已落库并透传 | ✅ PASS |
+| 6 | 前端类型/契约 | `validation_cause` / `validation_details` 契约字段 | 后端 MarshalJSON 透传 + 前端类型已对齐 | ✅ PASS |
+
+## 回归结论
+
+- [x] 全部通过（本窗口）
+- [ ] 存在遗留问题（见 `issues.md`：#6 closed；#7/#8 closed；#9 open 待 generator 补 target 级 labels；#10/#11 closed）
+- [ ] 未通过，需重新联调
+
+> 说明：issues #9（labels 挂 target 级）本轮仅完成**层级决策**与 PRD 待收割标注，targets/*.json 的 labels 映射解析为后续 generator 补全项，验收在 generator 补全后进行。

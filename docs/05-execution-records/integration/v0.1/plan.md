@@ -8,8 +8,8 @@
 |------|-----------|------|----------|
 | 1 | 网域管理（M06） | 登记 `default` 网域 | 网域状态为「已纳管监控」 |
 | 2 | 资源管理（M07） | Excel 导入 / 手动新增 Host | 资源列表展示正确，标签模板可用 |
-| 3 | 策略（M01） | 创建 `standard` ScrapeJob，绑定 `default` 网域与资源 | Job 状态正确，change_status = none |
-| 4 | 配置中心（M09） | 生成配置 → diff/preview → 确认下发 | 生成 `ConfigVersion`，`local` 通道 reload 成功 |
+| 3 | 策略（M01） | 创建 `standard` ScrapeJob，绑定 `default` 网域与资源（支持「保存草稿/提交生效」双模式、批量提交生效） | Job 状态正确，change_status = none；草稿不触发变更单 |
+| 4 | 配置中心（M09） | 生成配置 → diff/preview → **校验 status=passed 后方可确认发布** → local 通道 reload | 非 passed（pending/failed）禁止确认，展示「重新校验+废弃」（详见 issues #7/#8） |
 | 5 | 首页 Dashboard | 查看资源数、待确认草稿数 | 数据真实 |
 
 ### 动线 B：blackbox 拨测链路
@@ -36,6 +36,6 @@
 - [x] 首页展示资源数量、待确认配置草稿数、最近下发记录（`/api/v2/platform/dashboard/summary` 聚合）
 - [ ] 端到端主链路跑通：网域 → 资源 → 策略 → 配置生成 → 确认下发 → Prometheus reload → 指标可见
 - [x] `go test ./platform/...`、`go vet ./platform/...` 通过
-- [x] `pnpm vitest run`、`pnpm lint` 通过（1 例 flaky 已归因，见 issues）
+- [x] `pnpm vitest run`（44 文件 / 310 用例全部通过，无 unhandled error）、`pnpm lint` 通过（issues #3 已修复）
 - [ ] 后端服务与前端 dev server 均可启动并返回 200
 - [ ] README / 部署文档补齐 MVP 启动步骤与范围说明

@@ -111,6 +111,27 @@
 - **验证**：`tsc --noEmit`、`eslint` 通过；`vitest`（CollectorTemplatesTab + ScrapeJobFormDrawer，21 用例）通过。
 - **收割方式**：实现已对齐 PRD L228/L229/L240，无待 PRD 修订项；供 PM 复核与原型动线校验（跨模块跳转沿用 `#/label-templates`，未落地统一导航配置为既有债务）。
 
+## 2026-08-25（Phase 5 联调：草稿/批量提交生效提级 MVP，决策 D28）
+
+### F-16：采集 Job 草稿与批量提交生效（P1 需求，方案 C 提级 MVP）
+
+- **类别**：① PRD 空白判定（P1 需求，用户决策提前实现并提级 MVP）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.1「ScrapeJob 草稿与批量提交生效」/ §5.4 `draft_status` 字段 / §11.1 列表操作；源码 `platform/strategy/scrapejob/batch.go` / `routes.go`、`ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`、`ScrapeJobFormDrawer.tsx`
+- **问题**：PRD 将「保存草稿 / 提交生效」双模式与批量提交生效定位为 v0.2 能力，MVP 仅四态占位（草稿灰显）。用户初次配置场景（job 量大）需要先批量编辑、再一次下发，MVP 缺少承载。
+- **结论（用户拍板，详见 design-decisions D28）**：
+  1. **方案 C 提级 MVP**：创建抽屉提供「保存草稿 / 提交生效」双按钮，默认仍为「提交生效」；草稿只做基础校验（字段类型 / 名称唯一性），提交生效做完整校验（必填 / 网域已纳管 / 实例同域）；draft 语义 = 新建阶段半成品暂存，不是变更安全闸口（闸口在 M09 变更单人工确认）。
+  2. **批量接口收窄为「批量提交生效」（draft→ready 单向）**：本轮先落地的 `POST /api/v2/platform/scrape-jobs/batch-draft-status` 双向接口需收窄——已 ready 的 job 跳过/报错，不提供用户主动 ready→draft 回退（前端不暴露、后端拒绝）。回退诉求由 M09 变更单废弃承接（决策 43-3：新建未生效 job 随单自动回退 draft，为系统级唯一例外）。
+  3. **批量下发诉求由变更单合并承载**：连续创建多个 ready job 由 M09「后单取代前单」合并进同一张 pending 变更单，最后一次人工确认全部下发；draft 中间态不是批量下发的必要条件。
+- **影响模块**：后端（`platform/strategy/scrapejob/batch.go` 收窄 + 创建接口支持 draft 保存）、前端（`ScrapeJobFormDrawer.tsx` 双按钮、`ScrapeJobListPage.tsx` 批量提交生效）
+- **发现场景**：用户实测 M09 配置预览行为后提出批量编写 job 的诉求；讨论中进一步明确「采集 job 不做日志记录，只保留干净的生效 job」的产品原则。
+- **实现落库**：
+  - 后端 `platform/strategy/scrapejob/batch.go`：`BatchUpdateDraftStatusHandler` 语义收窄为「批量提交生效」，请求体改为 `BatchSubmitReadyRequest{IDs}`；`BatchSubmitReady` 要求目标 job 当前 `draft_status=draft`，逐条做完整校验（all-or-nothing），成功后置 `draft_status=ready / change_status=pending`；不再提供 ready→draft 用户主动回退。
+  - 后端 `platform/strategy/scrapejob/create.go`：`CreateScrapeJobRequest` 新增 `draft_status` 字段；`draft` 时仅做基础校验（job_name / job_type / 唯一性）并保存，`ready` 时做完整校验并进入 M09 变更管线。
+  - 后端单测：`platform/strategy/scrapejob/batch_test.go` 重写为单向语义；`create.go` 分支通过既有测试覆盖。
+  - 前端 `ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`：新增态 footer 改为「取消 / 保存草稿 / 提交生效」；「保存草稿」仅基础校验 + `draft_status: 'draft'` + 不触发 M09 变更单；「提交生效」保持完整校验 + 即时 best-effort 触发 `configDraftApi.create`。
+  - 前端 `ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`：批量操作只剩「批量提交生效」，仅当选中项含 `draft_status === 'draft'` 时可用，调用 `batchSubmitReady`。
+  - 前端类型/API：`ScrapeJobInput` 增加 `draft_status?: 'draft' | 'ready'`；`scrapeJobApi.batchDraftStatus` 改为 `batchSubmitReady({ ids })`。
+
 ## 收割状态
 - [ ] F-01 已收割（chenrt 修订 PRD §5.6 / §6.2.5）
 - [ ] F-02 已收割（chenrt 修订 PRD §5.4 / §9）
@@ -121,3 +142,58 @@
 - [ ] F-07 已裁决（编辑态网域按契约放开，T01-F11 落地）
 - [ ] F-11 未收割（chenrt 修订 PRD §5.1/§6.2.1：编辑抽屉剥离标签模板字段，更换/补配轻量抽屉为唯一入口；同步原型动线）
 - [ ] F-12 已对齐 PRD L228/L229/L240（实现完整，供 PM 复核与原型动线校验；跨模块跳转未落地统一导航配置为既有债务）
+- [x] F-16 已修正/实现（代码已落库；design 分支待收割 PRD §5.1 版本归属 v0.2→MVP / §5.4 单向流转补系统随单回退例外 决策 43-3 / §11.1 批量提交生效 并同步原型）
+
+### F-18：保存草稿时 `network_domain_id` 报必填（F-16 实现缺漏）
+
+- **类别**：② 实现偏差修正
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.4 `network_domain_id` / §11.1 草稿保存；源码 `ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`
+- **问题**：F-16 创建抽屉「保存草稿 / 提交生效」双按钮落地后，用户勾选默认网域并点「保存草稿」，前端仍报 `network_domain_id 必填（须为已纳管且非冻结的网域）`。
+- **根因**：`Form.Item name="network_domain_id"` 内部同时放置了 `Select` 和提示 `Text` 两个子元素，触发 antd 警告「`Form.Item` with `name` must have a single child element」，导致 `Select` 的值未能正确绑定到 form。无论用户是否点选网域，`network_domain_id` 都为空，后端完整校验分支报错。
+- **修复**：
+  1. 标准/黑盒两个网域 `Form.Item` 都把提示文本移到 `extra` 属性，保证单个 child；
+  2. `handleSaveDraft` 先用 `validateFields(['job_name','job_type'])` 做基础校验，再用 `form.getFieldsValue()` 取全量字段，避免 `validateFields(nameList)` 只返回指定字段导致网域丢失。
+- **新增单测**：`ScrapeJobFormDrawer.test.tsx` 新增 `saves a standard job as draft with minimal validation and passes network_domain_id + draft_status`，断言保存草稿时请求体携带 `network_domain_id` 与 `draft_status: 'draft'`。
+- **验证**：`pnpm exec vitest run src/pages/strategy/ScrapeJobFormDrawer.test.tsx` 12 用例全部通过；`pnpm tsc --noEmit`、`pnpm lint` 通过。
+- **发现场景**：用户前端功能测试保存草稿步骤。
+
+## 2026-08-25（M09 联调：labels 归属层级设计决策 D43）
+
+### F-17：Job 级 labels vs target 级 labels 的设计决策（① 类，已决策，待 PRD / 原型同步）
+
+- **类别**：① PRD 空白判定（产品/设计决策）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.4（ScrapeJob 字段与配置生成）、§9（Prometheus 配置模型）；`Module_09_Network_Domain_and_Edge_Config_Center.md` §3.2/§9.1（targets/*.json 产物）；源码 `platform/configcenter/generator/`、`platform/models/scrape_job.go`
+- **问题**：用户在配置 Job 时选择标签模板，但配置预览发现 `targets/*.json` 中 `labels: {}` 未取到标签模板映射值。讨论聚焦到「labels 应挂在 `prometheus.yml` 的 `job_name` 级，还是必须挂在 `targets/*.json` 的 target 级」。
+- **分析过程**：
+  1. Prometheus 语义：`scrape_configs[].job_name` 下可配置 `static_configs[].labels`（job 级，作用于该 job 全部 target），也可在 `file_sd_config` 指向的 `targets/*.json` 中给每个 target 配独立 `labels`。
+  2. 标签模板（M07）定义的是「资源字段 → Prometheus label」的映射规则，其输入来自 CMDB 资源属性；同一 Job 下的不同 target 对应不同资源实例，资源属性可能不同，因此**映射值天然是 per-target**。
+  3. 但 UI 当前在 Job 创建时只让用户选一个标签模板，没有逐 target 指定映射值；若直接把模板名挂在 job 级，所有 target 会获得同一组静态 labels，失去 per-instance 差异化能力。
+  4. 工程实现：generator 已按 target 级生成 `targets/*.json`，只是尚未把标签模板映射解析到每个 target 的 `labels` 字段（取值来源 = 资源实例的属性字典按模板映射转换）。
+- **决策（用户拍板）**：
+  - **labels 最终挂在 target 级**（`targets/*.json` 中每个 target 的 `labels`），与 Prometheus file_sd 语义和资源实例级差异化一致；`prometheus.yml` 的 job 级 labels 仅保留系统必要字段（如 `network_domain_id`），不承载标签模板映射。
+  - **标签模板与 Job 的绑定关系仍记录在 Job 级**（`ScrapeJob.label_template_id`），配置生成时按该模板把每个 target 对应资源的属性转换为 target 级 labels。
+  - 当前预览中 `labels: {}` 为空是**实现缺漏**，不是设计层级错误；由 M01/M09 generator 侧补全标签模板映射解析（不在本次前端/配置废弃回写任务范围内）。
+- **待 PRD / 原型同步**：
+  1. `Module_01` PRD §5.4 明确 `label_template_id` 为 Job 级引用，但生成的 labels 落在 `targets/*.json` 的 target 级；
+  2. `Module_09` PRD §3.2/§9.1 产物说明中补充 `targets/*.json[].labels` 的来源（= 标签模板按资源实例属性映射）；
+  3. 原型侧若后续要展示「每个 target 会获得哪些 labels」，需在 target 预览/详情处设计，不在 Job 创建抽屉主路径。
+- **影响模块**：后端配置生成器（`platform/configcenter/generator/`）、M07 标签模板映射服务
+- **发现场景**：M09 配置预览功能测试，用户发现 `targets/default.json` 中 `labels` 为空。
+## 2026-08-25（M09 联调：pending 期间 job 锁定，决策 44-1/44-4）
+
+### F-19：「待生效」job 仍可编辑/删除，与变更单状态脱节（② 类，已按决策 44-1/44-4 修正）
+
+- **类别**：② 实现偏差修正 / ① PRD 空白判定
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.4（draft_status / change_status 流转）；源码 `platform/strategy/scrapejob/update.go`、`delete.go`、`ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`
+- **问题（联调实测）**：
+  1. job 生效状态为「待生效」（`change_status=pending`，变更单未确认）时编辑按钮仍可点击，点击保存报内部错误；
+  2. 「待生效」job 可被删除，但配置中心的变更单不联动，成为幽灵单。
+- **根因**：M01 的编辑/删除接口未检查 `change_status`；pending 语义（变更单已挂起、等待 M09 确认）没有传导到 M01 的操作约束。
+- **结论（用户拍板，决策 44-1/44-4）**：pending 期间禁止编辑/启停/删除 job——变更单挂起期间改动源数据必然导致单实脱节，删除则产生幽灵单；解锁路径只有确认或废弃变更单。
+- **实现落库**：
+  - 后端 `scrapejob/update.go` / `delete.go`：`change_status=pending` 返回 409 Conflict，文案指引前往配置变更确认页处理；
+  - 前端 `ScrapeJobListPage.tsx`：pending 行禁用「编辑 / 启停 Switch / 删除」，Tooltip 说明原因；
+  - 单测：`scrapejob/scrape_job_test.go` 新增 `TestUpdateDeletePendingJobRejected`（409 + 数据未被修改/删除）；存量 update/delete 用例种子改为 `change_status=none`；`ScrapeJobListPage.test.tsx` 新增 pending 行禁用断言。
+- **是否需设计侧确认**：需——M01 PRD §5.4 需补 pending 期间的锁定语义（编辑/删除/启停约束与引导文案）；原型需补 pending 行禁用态。
+- **影响模块**：M01 采集 Job 管理（前后端）、M09 变更单联动
+- **发现场景**：用户对「job 状态 / 生效状态 / 配置变更单」三者关系与数据流转的联调测试。
