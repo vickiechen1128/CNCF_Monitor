@@ -178,11 +178,13 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'host' })
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
     // antd Form 校验错误为异步渲染，逐项用异步查询避免与校验完成时机竞态
-    await waitFor(() => expect(screen.getByText('请选择网域')).toBeInTheDocument())
-    expect(await screen.findByText('请选择业务')).toBeInTheDocument()
-    expect(await screen.findByText('请选择环境')).toBeInTheDocument()
-    expect(await screen.findByText('请输入实例名')).toBeInTheDocument()
-    expect(await screen.findByText('请输入 IP 地址')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByText('请选择网域', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument(),
+    )
+    expect(await screen.findByText('请选择业务', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(await screen.findByText('请选择环境', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(await screen.findByText('请输入实例名', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(await screen.findByText('请输入 IP 地址', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
     expect(createMock).not.toHaveBeenCalled()
   })
 
