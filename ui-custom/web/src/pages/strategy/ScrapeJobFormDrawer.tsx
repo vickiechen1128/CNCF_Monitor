@@ -201,20 +201,13 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     message.info('标签模板补配请前往「标签模板」管理维护（M07）')
   }, [])
 
-  const handleSubmit = async () => {
-    let values: ScrapeJobInput
-    try {
-      values = await form.validateFields()
-    } catch {
-      return
-    }
-    setSubmitting(true)
-    setSubmitError(null)
-    try {
+  // 将表单值组装为请求体；draftStatus 决定是「保存草稿」还是「提交生效」。
+  const buildBody = useCallback(
+    (values: ScrapeJobInput, draftStatus: 'draft' | 'ready'): ScrapeJobInput => {
       const body: ScrapeJobInput = {
         job_name: values.job_name,
         job_type: values.job_type ?? 'standard',
-        network_domain_id: values.network_domain_id!,
+        network_domain_id: values.network_domain_id ?? '',
         scrape_interval: values.scrape_interval,
         scrape_timeout: values.scrape_timeout,
         metrics_path: values.metrics_path,
@@ -226,6 +219,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         tls_skip_verify: values.tls_skip_verify ?? false,
         ca_file: values.ca_file,
         label_template_id: values.label_template_id || undefined,
+        draft_status: draftStatus,
         enabled: true,
       }
       if (values.job_type === 'blackbox') {
@@ -236,6 +230,47 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         body.exporter_template_id = values.exporter_template_id
         body.selected_instance_ids = selectedIds
       }
+      return body
+    },
+    [selectedIds],
+  )
+
+  // 保存草稿：仅基础校验（job_name / job_type），不进入 M09 变更管线。
+  // 用 form.getFieldsValue() 补全已填字段（如 network_domain_id），避免 validateFields(nameList)
+  // 只返回指定字段导致选中的网域丢失。
+  const handleSaveDraft = async () => {
+    try {
+      await form.validateFields(['job_name', 'job_type'])
+    } catch {
+      return
+    }
+    const values = form.getFieldsValue()
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const body = buildBody(values, 'draft')
+      await scrapeJobApi.create(body)
+      message.success('已保存为草稿')
+      setSubmitting(false)
+      onSuccess()
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : '保存草稿失败，请稍后重试')
+      setSubmitting(false)
+    }
+  }
+
+  // 提交生效（编辑/新建）：完整校验并进入 M09 变更管线。
+  const handleSubmitReady = async () => {
+    let values: ScrapeJobInput
+    try {
+      values = await form.validateFields()
+    } catch {
+      return
+    }
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      const body = buildBody(values, 'ready')
       if (isEdit && record) {
         await scrapeJobApi.update(record.id, body)
       } else {
@@ -272,9 +307,20 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
             <Button onClick={onCancel} disabled={submitting}>
               取消
             </Button>
-            <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmit()}>
-              保存
-            </Button>
+            {isEdit ? (
+              <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmitReady()}>
+                保存
+              </Button>
+            ) : (
+              <>
+                <Button loading={submitting} disabled={submitting} onClick={() => void handleSaveDraft()}>
+                  保存草稿
+                </Button>
+                <Button type="primary" loading={submitting} disabled={submitting} onClick={() => void handleSubmitReady()}>
+                  提交生效
+                </Button>
+              </>
+            )}
           </Space>
         }
       >
@@ -325,7 +371,20 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="网域" name="network_domain_id" rules={[{ required: true, message: '请选择网域' }]}>
+                <Form.Item
+                  label="网域"
+                  name="network_domain_id"
+                  rules={[{ required: true, message: '请选择网域' }]}
+                  extra={
+                    domains.length === 0 ? (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        默认域自动同步已纳管，未纳管请前往
+                        <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
+                        纳管
+                      </Text>
+                    ) : undefined
+                  }
+                >
                   <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域">
                     {domains.map((d) => (
                       <Select.Option key={d.id} value={d.id} label={d.name}>
@@ -333,13 +392,6 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                       </Select.Option>
                     ))}
                   </Select>
-                  {domains.length === 0 && (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      默认域自动同步已纳管，未纳管请前往
-                      <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
-                      纳管
-                    </Text>
-                  )}
                 </Form.Item>
               </Col>
             </Row>
@@ -523,7 +575,20 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                 )}
               </Form.List>
             </Form.Item>
-            <Form.Item label="网域" name="network_domain_id" rules={[{ required: true, message: '请选择网域' }]}>
+            <Form.Item
+              label="网域"
+              name="network_domain_id"
+              rules={[{ required: true, message: '请选择网域' }]}
+              extra={
+                domains.length === 0 ? (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    默认域自动同步已纳管，未纳管请前往
+                    <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
+                    纳管
+                  </Text>
+                ) : undefined
+              }
+            >
               <Select showSearch optionFilterProp="label" placeholder="仅已纳管非冻结网域">
                 {domains.map((d) => (
                   <Select.Option key={d.id} value={d.id} label={d.name}>
@@ -531,13 +596,6 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   </Select.Option>
                 ))}
               </Select>
-              {domains.length === 0 && (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  默认域自动同步已纳管，未纳管请前往
-                  <Link onClick={() => navigate('/admin/domains')}>「系统与平台管理 → 网域管理」</Link>
-                  纳管
-                </Text>
-              )}
             </Form.Item>
           </>
         )}

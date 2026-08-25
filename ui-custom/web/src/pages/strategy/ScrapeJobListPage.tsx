@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { Key } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import {
   Alert,
@@ -18,7 +19,7 @@ import {
   message,
 } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import type { ColumnsType } from 'antd/es/table'
+import type { ColumnsType, TableRowSelection } from 'antd/es/table/interface'
 import { networkDomainApi } from '../../api/domain'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import { exporterTemplateApi } from '../../api/exporterTemplates'
@@ -31,7 +32,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
-import { CHANGE_STATUS_MAP, JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 import { useScrapeJobs } from './useScrapeJobs'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { aggregateJobStatus } from './jobStatus'
@@ -39,10 +40,22 @@ import { aggregateJobStatus } from './jobStatus'
 const { Text } = Typography
 
 /**
+ * 变更进度（M09 管线追踪视角，Module_01 §9），回答「它挂在变更单的哪一环」。
+ * 与「生效状态」列共用底层 change_status，但用 M09 管线词表呈现，避免两列文案撞车。
+ */
+const CHANGE_PROGRESS_MAP: Record<string, string> = {
+  none: '无变更',
+  pending: '待确认',
+  confirmed: '已确认待下发',
+  deployed: '已下发',
+}
+
+/**
  * 采集 Job Tab 页（Module_01 §3.1/§5.4/§8/§11.1/§11.2，F3）。
  * - 网域（仅已纳管 is_monitored=true 且 status=enabled）/ 监控类型（两级级联）/ 关键字筛选，分页默认 20/页；
- * - 列：Job名 / 类型 / 网域 / 采集器 / 已选实例数 / 间隔 / 下发状态 / 状态（聚合四态）/ 参数同步 / 操作；
- * - 状态聚合四态：待下发 / 已生效 / 已停用 / 草稿（v0.2 灰显占位）；参数同步列展示 mapping_overrides.length 概览；
+ * - 列：Job名 / 类型 / 网域 / 采集器 / 已选实例数 / 间隔 / 变更进度 / 生效状态 / 参数同步 / 操作；
+ * - 「生效状态」= 用户视角生命周期（草稿 / 待生效（原待下发）/ 已生效 / 已停用）；「变更进度」= M09 管线视角
+ *   （待确认 / 已确认待下发 / 已下发 / 无变更）；参数同步列展示 mapping_overrides.length 概览；
  * - 启停 / 删除二次确认；成功提示「变更将由 M09 生成变更单」+「前往配置变更确认」跳转；
  * - 加载骨架 / 空态「暂无采集任务」/ 错误态。
  */
@@ -55,6 +68,7 @@ function JobsTab() {
   const [defaultMappings, setDefaultMappings] = useState<CITypeExporterMapping[]>([])
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ScrapeJob | null>(null)
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
 
   // 已纳管（is_monitored=true）且非冻结（status=enabled）的网域下拉（§5.4 / §11.1）
   useEffect(() => {
@@ -149,6 +163,29 @@ function JobsTab() {
     }
   }, [notifyChangeGuide, reload])
 
+  const batchSubmitReady = useCallback(async () => {
+    if (selectedRowKeys.length === 0) return
+    try {
+      await scrapeJobApi.batchSubmitReady({ ids: selectedRowKeys as number[] })
+      message.success('已批量提交生效')
+      setSelectedRowKeys([])
+      reload()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '批量提交生效失败，请稍后重试')
+    }
+  }, [selectedRowKeys, reload])
+
+  const rowSelection = useMemo<TableRowSelection<ScrapeJob>>(
+    () => ({
+      selectedRowKeys,
+      onChange: (newSelectedRowKeys) => {
+        setSelectedRowKeys(newSelectedRowKeys)
+      },
+      preserveSelectedRowKeys: true,
+    }),
+    [selectedRowKeys],
+  )
+
   const openCreate = () => {
     setEditing(null)
     setFormOpen(true)
@@ -236,14 +273,14 @@ function JobsTab() {
     },
     { title: '间隔', dataIndex: 'scrape_interval', key: 'scrape_interval', width: 90, render: (v?: string) => v || '-' },
     {
-      title: '下发状态',
+      title: '变更进度',
       dataIndex: 'change_status',
       key: 'change_status',
-      width: 100,
-      render: (v: string) => CHANGE_STATUS_MAP[v] ?? v,
+      width: 110,
+      render: (v: string) => CHANGE_PROGRESS_MAP[v] ?? v,
     },
     {
-      title: '状态',
+      title: '生效状态',
       key: 'status',
       width: 100,
       render: (_: unknown, r: ScrapeJob) => {
@@ -295,32 +332,44 @@ function JobsTab() {
       key: 'actions',
       fixed: 'right',
       width: 160,
-      render: (_: unknown, r: ScrapeJob) => (
-        <Space size={0}>
-          <Button type="link" size="small" onClick={() => openEdit(r)}>
-            编辑
-          </Button>
-          <Tooltip title={r.enabled ? '点击停用' : '点击启用'}>
-            <Switch
-              size="small"
-              checked={r.enabled}
-              onChange={(checked) => void toggleEnabled(r, checked)}
-              aria-label="启停"
-            />
-          </Tooltip>
-          <Popconfirm
-            title="删除采集任务"
-            description="删除后该任务将不再下发配置，确定删除？"
-            okText="删除"
-            cancelText="取消"
-            onConfirm={() => void removeJob(r)}
-          >
-            <Button type="link" size="small" danger>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
+      render: (_: unknown, r: ScrapeJob) => {
+        // 决策 44-1：change_status=pending 的 job 已挂起变更单，禁止编辑/删除/启停，
+        // 避免变更单内容与源数据脱节。
+        const isPending = r.change_status === 'pending'
+        const pendingTip = '该 Job 存在待确认变更单，请先前往配置变更确认页处理'
+        return (
+          <Space size={0}>
+            <Tooltip title={isPending ? pendingTip : undefined}>
+              <Button type="link" size="small" disabled={isPending} onClick={() => openEdit(r)}>
+                编辑
+              </Button>
+            </Tooltip>
+            <Tooltip title={isPending ? pendingTip : r.enabled ? '点击停用' : '点击启用'}>
+              <Switch
+                size="small"
+                checked={r.enabled}
+                disabled={isPending}
+                onChange={(checked) => void toggleEnabled(r, checked)}
+                aria-label="启停"
+              />
+            </Tooltip>
+            <Popconfirm
+              title="删除采集任务"
+              description="删除后该任务将不再下发配置，确定删除？"
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => void removeJob(r)}
+              disabled={isPending}
+            >
+              <Tooltip title={isPending ? pendingTip : undefined}>
+                <Button type="link" size="small" danger disabled={isPending}>
+                  删除
+                </Button>
+              </Tooltip>
+            </Popconfirm>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -328,6 +377,28 @@ function JobsTab() {
     <Card
       extra={
         <Space>
+          {selectedRowKeys.length > 0 && (
+            <>
+              <span style={{ marginRight: 8 }}>已选 {selectedRowKeys.length} 项</span>
+              <Tooltip
+                title={
+                  data.list.some((j) => selectedRowKeys.includes(j.id as Key) && j.draft_status === 'draft')
+                    ? undefined
+                    : '选中的 Job 均不是草稿态，无需提交生效'
+                }
+              >
+                <Button
+                  type="primary"
+                  disabled={
+                    !data.list.some((j) => selectedRowKeys.includes(j.id as Key) && j.draft_status === 'draft')
+                  }
+                  onClick={() => void batchSubmitReady()}
+                >
+                  批量提交生效
+                </Button>
+              </Tooltip>
+            </>
+          )}
           <Button icon={<ReloadOutlined />} onClick={reload}>
             刷新
           </Button>
@@ -399,6 +470,7 @@ function JobsTab() {
 
       <Table<ScrapeJob>
         rowKey="id"
+        rowSelection={rowSelection}
         dataSource={data.list}
         loading={loading}
         columns={columns}

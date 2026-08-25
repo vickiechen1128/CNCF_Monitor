@@ -144,9 +144,11 @@ describe('ScrapeJobListPage', () => {
     expect(await screen.findByText('job-1')).toBeInTheDocument()
     // MainLayout 导航外壳已包覆：顶栏品牌标题可见
     expect(screen.getByText('MetricCenter')).toBeInTheDocument()
-    // 「待下发」「已生效」同时出现在下发状态列与状态聚合列，需匹配多个
-    expect(screen.getAllByText('待下发').length).toBeGreaterThanOrEqual(1)
+    // 生效状态列（用户视角生命周期）与变更进度列（M09 管线视角）分列呈现：job-1 pending → 待生效/待确认，job-2 deployed → 已生效/已下发
+    expect(screen.getAllByText('待生效').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('待确认').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('已下发').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('已停用')).toBeInTheDocument()
     expect(screen.getAllByText('已覆盖 1 项').length).toBeGreaterThanOrEqual(1)
     // 「网域A」同时出现在筛选下拉选项与表格网域列
@@ -294,5 +296,36 @@ describe('ScrapeJobListPage', () => {
     renderPage()
     fireEvent.click(screen.getByText('新增采集任务'))
     expect(screen.getByTestId('job-form-drawer')).toBeInTheDocument()
+  })
+
+  // 决策 44-1：change_status=pending 的 job 已挂起待确认变更单，编辑/启停/删除均禁用。
+  it('disables edit/toggle/delete for pending job, keeps them enabled otherwise', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          job(1, { change_status: 'pending', enabled: true }),
+          job(2, { change_status: 'deployed', enabled: true }),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    renderPage()
+    expect(await screen.findByText('job-1')).toBeInTheDocument()
+
+    const editButtons = screen.getAllByRole('button', { name: /编\s*辑/ })
+    const deleteButtons = screen.getAllByRole('button', { name: /删\s*除/ })
+    const switches = screen.getAllByRole('switch')
+
+    // 第一行（pending）全部禁用；第二行（deployed）可用。
+    expect(editButtons[0]).toBeDisabled()
+    expect(deleteButtons[0]).toBeDisabled()
+    expect(switches[0]).toBeDisabled()
+    expect(editButtons[1]).not.toBeDisabled()
+    expect(deleteButtons[1]).not.toBeDisabled()
+    expect(switches[1]).not.toBeDisabled()
   })
 })
