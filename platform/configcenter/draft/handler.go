@@ -39,6 +39,7 @@ func queryPage(c *gin.Context) (page, pageSize int) {
 //   - POST       /config-drafts/{change_no}/confirm     确认（生成 ConfigVersion）
 //   - POST       /config-drafts/{change_no}/revalidate  重校验
 //   - POST       /config-drafts/{change_no}/discard     废弃
+//   - GET        /config-drafts/{change_no}/discard-impact 废弃影响预览
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	platform.POST("/config/drafts", GenerateDraftHandler(db))
 	platform.GET("/config-drafts", ListDraftsHandler(db))
@@ -46,6 +47,7 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	platform.POST("/config-drafts/:change_no/confirm", ConfirmDraftHandler(db))
 	platform.POST("/config-drafts/:change_no/revalidate", RevalidateDraftHandler(db))
 	platform.POST("/config-drafts/:change_no/discard", DiscardDraftHandler(db))
+	platform.GET("/config-drafts/:change_no/discard-impact", DiscardImpactHandler(db))
 }
 
 // GenerateDraftHandler 处理 POST /api/v2/platform/config/drafts。
@@ -129,12 +131,24 @@ func RevalidateDraftHandler(db *gorm.DB) gin.HandlerFunc {
 // DiscardDraftHandler 处理 POST /api/v2/platform/config-drafts/{change_no}/discard。
 func DiscardDraftHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		d, err := DiscardDraft(db, c.Param("change_no"))
+		d, impact, err := DiscardDraft(db, c.Param("change_no"))
 		if err != nil {
 			respondDraftError(c, err)
 			return
 		}
-		response.OK(c, d)
+		response.OK(c, gin.H{"draft": d, "impact": impact})
+	}
+}
+
+// DiscardImpactHandler 处理 GET /api/v2/platform/config-drafts/{change_no}/discard-impact。
+func DiscardImpactHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		impact, err := GetDiscardImpact(db, c.Param("change_no"))
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		response.OK(c, impact)
 	}
 }
 
@@ -143,6 +157,9 @@ func respondDraftError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrDomainNotFound):
 		response.NotFound(c, err.Error())
+	case errors.Is(err, ErrNoChanges):
+		// 无实质变更：返回 200 + 空数据，前端可据此提示「当前无配置变更」。
+		response.OK(c, gin.H{"message": "当前无配置变更", "no_changes": true})
 	case errors.Is(err, ErrDomainNotMonitored),
 		errors.Is(err, ErrDomainFrozen),
 		errors.Is(err, ErrNotPending),

@@ -13,6 +13,7 @@ const draftApiMock = {
   confirm: vi.fn(),
   discard: vi.fn(),
   revalidate: vi.fn(),
+  discardImpact: vi.fn(),
 }
 const deploymentApiMock = {
   getConfigVersion: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../../../api/configCenter', () => ({
     confirm: (...a: unknown[]) => draftApiMock.confirm(...a),
     discard: (...a: unknown[]) => draftApiMock.discard(...a),
     revalidate: (...a: unknown[]) => draftApiMock.revalidate(...a),
+    discardImpact: (...a: unknown[]) => draftApiMock.discardImpact(...a),
   },
   deploymentApi: {
     getConfigVersion: (...a: unknown[]) => deploymentApiMock.getConfigVersion(...a),
@@ -94,6 +96,7 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     draftApiMock.confirm.mockReset()
     draftApiMock.discard.mockReset()
     draftApiMock.revalidate.mockReset()
+    draftApiMock.discardImpact.mockReset()
     deploymentApiMock.getConfigVersion.mockReset()
     reloadMock.mockReset()
     setDomainIdMock.mockReset()
@@ -181,10 +184,30 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
   it('废弃变更：Modal 二次确认后调用 discard 并 reload', async () => {
     useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
     draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow() })
+    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
+    draftApiMock.discard.mockResolvedValue({ status: 'success', data: { draft: draftRow({ status: 'discarded' }), impact: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } } })
     const modal = mockAntdModal()
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
     fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
+    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
+    expect(modal.confirm).toHaveBeenCalled()
+    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
+    await onOk()
+    expect(draftApiMock.discard).toHaveBeenCalledWith('CHG-20260823-001', expect.any(String))
+    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+  })
+
+  it('校验失败态草稿仍可废弃：使用相同 change_no 调用 discardImpact + discard', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ validation_status: 'failed' }) })
+    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
+    draftApiMock.discard.mockResolvedValue({ status: 'success', data: { draft: draftRow({ status: 'discarded', validation_status: 'failed' }), impact: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } } })
+    const modal = mockAntdModal()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
+    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
     expect(modal.confirm).toHaveBeenCalled()
     const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
     await onOk()
@@ -226,5 +249,68 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '版本对比' }))
     expect(await screen.findByText('无历史版本可对比')).toBeInTheDocument()
     expect(screen.getByText(/无法拉取源版本/)).toBeInTheDocument()
+  })
+
+  // 决策 44-2：旧单被新 pending 取代后，详情页提示「已被新变更单取代」。
+  it('已被取代的变更单详情页展示 superseded_by 提示', async () => {
+    const superseded = draftRow({
+      status: 'discarded',
+      metadata: {
+        source_data_version: 'v1',
+        trigger_summary: 'watcher',
+        checksum: 'abc',
+        generator_version: 'g1',
+        superseded_by_change_no: 'CHG-20260823-002',
+      },
+    })
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [superseded], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: superseded })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    expect(await screen.findByText(/该变更单已被新变更单 CHG-20260823-002 取代/)).toBeInTheDocument()
+    expect(screen.getByText(/本单已自动废弃/)).toBeInTheDocument()
+  })
+
+  // 决策 45-1/45-3：pending 且 platform_fault（如 promtool 不可用）——待校验禁确认，
+  // 不展示「重新校验」（平台故障自动重试），仍有「废弃」出口。
+  it('pending+platform_fault 禁确认、不展示重新校验、保留废弃', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'pending',
+        validation_cause: 'platform_fault',
+        validation_message: 'promtool 不可调用，待运维环境就绪后重校',
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
+    expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: /重新校验/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /废弃变更/ })).toBeInTheDocument()
+    expect(await screen.findByText(/promtool 不可调用/)).toBeInTheDocument()
+  })
+
+  // 决策 45-1/45-3/45-4：failed + user_config ——展示「重新校验 + 前往修改 + 废弃」。
+  it('failed+user_config 展示重新校验与前往修改引导', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'failed',
+        validation_cause: 'user_config',
+        validation_message: 'targets 文件 a.json 非法: 禁止覆盖内置标签 "job"',
+        validation_details: [{ file: 'a.json', message: '禁止覆盖内置标签 "job"' }],
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
+    expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: /重新校验/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /前往修改/ })).toBeInTheDocument()
+    // 结构化细节定位展示（全角冒号分隔 file 与 message）
+    expect(await screen.findByText(/a\.json\s*：\s*禁止覆盖内置标签/)).toBeInTheDocument()
   })
 })

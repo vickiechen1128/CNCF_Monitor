@@ -46,6 +46,12 @@ describe('configPreviewYaml（配置预览 / Diff 工具）', () => {
     expect(text).toContain('# job_b.json')
   })
 
+  it('targetsText 对已含 .json 后缀的 key 不重复追加（修复 default.json.json）', () => {
+    const text = targetsText({ 'default.json': 'x' })
+    expect(text).toContain('# default.json')
+    expect(text).not.toContain('default.json.json')
+  })
+
   it('previewFileText 按产物 key 取文本', () => {
     const draft: ConfigDraft = {
       ...base,

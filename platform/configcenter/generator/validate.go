@@ -95,9 +95,16 @@ func validTargetHost(host string) bool {
 }
 
 // validateLabelName 校验标签名合法且不覆盖内置标签。
+// instance 单独放行：它是 Prometheus 约定标签（非 `__` 前缀保留标签），
+// 在 static_configs[].labels 中写入 instance 是标准用法；系统默认模板按
+// PRD M07 §5.12C 组合字段生成 instance_ip:port → instance，与此保持一致。
+// M09 PRD §3.5.1 仅禁止覆盖 `__address__` 等内置标签，不含 instance。
 func validateLabelName(name string) error {
 	if name == "" {
 		return fmt.Errorf("标签名为空")
+	}
+	if name == "instance" {
+		return nil
 	}
 	if models.IsProtectedLabel(name) {
 		return fmt.Errorf("禁止覆盖内置标签 %q", name)
@@ -105,33 +112,42 @@ func validateLabelName(name string) error {
 	return nil
 }
 
-// ValidateArtifacts 对配置产物做中心内容校验，返回 validation_status 与说明
-// （PRD §3.5.1 / 决策 42-2）：
-//   - targets schema 校验失败 → failed；
-//   - 外部校验工具不可调用 → pending；
-//   - 工具可调用但校验失败 → failed；通过 → passed。
-func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, string) {
+// ValidateArtifacts 对配置产物做中心内容校验，返回：
+//   - status：passed/failed/pending（PRD §3.5.1 / 决策 42-2）；
+//   - cause：故障归因（user_config 用户配置可修复 / platform_fault 平台技术故障，决策 45-3）；
+//   - details：结构化校验失败定位（对齐原型 validation_details）；passed/pending 为空；
+//   - message：人类可读说明。
+//
+// 归因规则：targets schema / 内容校验失败 → user_config；
+// 外部校验工具不可调用 → platform_fault。
+func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
 	for name, content := range ca.TargetsFiles {
 		var groups []TargetGroup
 		if err := json.Unmarshal([]byte(content), &groups); err != nil {
-			return models.ValidationStatusFailed, fmt.Sprintf("targets 文件 %s 解析失败: %v", name, err)
+			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
+				[]models.ValidationDetail{{File: name, Message: fmt.Sprintf("解析失败: %v", err)}},
+				fmt.Sprintf("targets 文件 %s 解析失败: %v", name, err)
 		}
 		if err := ValidateTargetGroups(groups); err != nil {
-			return models.ValidationStatusFailed, fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
+			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
+				[]models.ValidationDetail{{File: name, Message: err.Error()}},
+				fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
 		}
 	}
 	if _, err := execLookPath("promtool"); err != nil {
-		return models.ValidationStatusPending, "promtool 不可调用，待运维环境就绪后重校"
+		return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "promtool 不可调用，待运维环境就绪后重校"
 	}
 	if includeBlackbox && ca.BlackboxYML != "" {
 		if _, err := execLookPath("blackbox_exporter"); err != nil {
-			return models.ValidationStatusPending, "blackbox_exporter 不可调用，待环境就绪后重校"
+			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "blackbox_exporter 不可调用，待环境就绪后重校"
 		}
 	}
 	if ok, msg := toolCheckerFn(ca.PrometheusYML, ca.BlackboxYML, includeBlackbox); !ok {
-		return models.ValidationStatusFailed, fmt.Sprintf("外部校验未通过: %s", msg)
+		return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
+			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg}},
+			fmt.Sprintf("外部校验未通过: %s", msg)
 	}
-	return models.ValidationStatusPassed, ""
+	return models.ValidationStatusPassed, "", nil, ""
 }
 
 // runToolChecks 实际调用 promtool check config 与 blackbox --config.check。

@@ -34,6 +34,9 @@ type ConfigDraft struct {
 	ChangeItems     string     `gorm:"type:text" json:"change_items,omitempty"` // JSON 载体
 	Status          DraftStatus `gorm:"size:20;not null" json:"status"`
 	ValidationStatus string   `gorm:"size:20;not null" json:"validation_status"` // passed/failed/pending/rejected
+	ValidationMessage string  `gorm:"type:text" json:"validation_message,omitempty"` // 校验失败/待校验的具体说明
+	ValidationCause  string   `gorm:"size:20" json:"validation_cause,omitempty"`     // user_config/platform_fault（决策 45-3）
+	ValidationDetails string `gorm:"type:text" json:"validation_details,omitempty"`  // JSON 载体：[]ValidationDetail 结构化定位
 	ConfirmedBy     string     `gorm:"size:100" json:"confirmed_by,omitempty"`
 	ConfirmedAt     *time.Time `json:"confirmed_at,omitempty"`
 }
@@ -82,30 +85,36 @@ func (d ConfigDraft) MarshalJSON() ([]byte, error) {
 		Metadata         *json.RawMessage `json:"metadata,omitempty"`
 		Summary          string           `json:"summary,omitempty"`
 		ChangeItems      *json.RawMessage `json:"change_items,omitempty"`
-		Status           DraftStatus      `json:"status"`
-		ValidationStatus string           `json:"validation_status"`
-		ConfirmedBy      string           `json:"confirmed_by,omitempty"`
-		ConfirmedAt      *time.Time       `json:"confirmed_at,omitempty"`
+		Status            DraftStatus      `json:"status"`
+		ValidationStatus  string           `json:"validation_status"`
+		ValidationMessage string           `json:"validation_message,omitempty"`
+		ValidationCause   string           `json:"validation_cause,omitempty"`
+		ValidationDetails *json.RawMessage `json:"validation_details,omitempty"`
+		ConfirmedBy       string           `json:"confirmed_by,omitempty"`
+		ConfirmedAt       *time.Time       `json:"confirmed_at,omitempty"`
 	}
 	return json.Marshal(draftView{
-		ID:               d.ID,
-		CreatedAt:        d.CreatedAt,
-		UpdatedAt:        d.UpdatedAt,
-		DeletedAt:        timeOfNullable(d.DeletedAt),
-		NetworkDomainID:  d.NetworkDomainID,
-		ChangeNo:         d.ChangeNo,
-		SourceVersion:    d.SourceVersion,
-		PrometheusYml:    d.PrometheusYml,
-		RulesYml:         d.RulesYml,
-		BlackboxYml:      d.BlackboxYml,
-		TargetsFiles:     jsonCarrier(d.TargetsFiles),
-		Metadata:         jsonCarrier(d.Metadata),
-		Summary:          d.Summary,
-		ChangeItems:      jsonCarrier(d.ChangeItems),
-		Status:           d.Status,
-		ValidationStatus: d.ValidationStatus,
-		ConfirmedBy:      d.ConfirmedBy,
-		ConfirmedAt:      d.ConfirmedAt,
+		ID:                d.ID,
+		CreatedAt:         d.CreatedAt,
+		UpdatedAt:         d.UpdatedAt,
+		DeletedAt:         timeOfNullable(d.DeletedAt),
+		NetworkDomainID:   d.NetworkDomainID,
+		ChangeNo:          d.ChangeNo,
+		SourceVersion:     d.SourceVersion,
+		PrometheusYml:     d.PrometheusYml,
+		RulesYml:          d.RulesYml,
+		BlackboxYml:       d.BlackboxYml,
+		TargetsFiles:      jsonCarrier(d.TargetsFiles),
+		Metadata:          jsonCarrier(d.Metadata),
+		Summary:           d.Summary,
+		ChangeItems:       jsonCarrier(d.ChangeItems),
+		Status:            d.Status,
+		ValidationStatus:  d.ValidationStatus,
+		ValidationMessage: d.ValidationMessage,
+		ValidationCause:   d.ValidationCause,
+		ValidationDetails: jsonCarrier(d.ValidationDetails),
+		ConfirmedBy:       d.ConfirmedBy,
+		ConfirmedAt:       d.ConfirmedAt,
 	})
 }
 

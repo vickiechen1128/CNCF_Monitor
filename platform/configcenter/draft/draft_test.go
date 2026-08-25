@@ -2,6 +2,7 @@ package draft
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -113,6 +115,8 @@ func unmarshalData(t *testing.T, w *httptest.ResponseRecorder) map[string]interf
 func TestGenerateDraftCreatesPending(t *testing.T) {
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "edge-g1", true)
+	seedHost(t, db, "edge-g1", "res-1")
+	seedJob(t, db, "edge-g1", "job1") // 决策 44-3：无变更项不再生成空变更单
 
 	d, err := GenerateDraft(db, "edge-g1")
 	require.NoError(t, err)
@@ -132,6 +136,8 @@ func TestGenerateDraftCreatesPending(t *testing.T) {
 func TestGenerateDraftReturnsExistingLivePending(t *testing.T) {
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "edge-g2", true)
+	seedHost(t, db, "edge-g2", "res-1")
+	seedJob(t, db, "edge-g2", "job1")
 
 	first, err := GenerateDraft(db, "edge-g2")
 	require.NoError(t, err)
@@ -168,6 +174,8 @@ func TestGenerateDraftChangeNoSequence(t *testing.T) {
 	seedDraftWithStatus(t, db, "CHG-"+todaySuffix()+"-001", "edge-g5", string(models.DraftStatusConfirmed), string(models.ValidationStatusPassed))
 	// 已有活 pending 会直接返回（复用 singleToken 测试）；这里用不同网域验证递增。
 	seedMonitoredDomain(t, db, "edge-g6", true)
+	seedHost(t, db, "edge-g6", "res-1")
+	seedJob(t, db, "edge-g6", "job1")
 	d, err := GenerateDraft(db, "edge-g6")
 	require.NoError(t, err)
 	assert.Equal(t, "CHG-"+todaySuffix()+"-002", d.ChangeNo)
@@ -222,6 +230,8 @@ func TestGenerateDraftPropagatesLoadFailure(t *testing.T) {
 func TestGenerateDraftBackfillsSourceVersion(t *testing.T) {
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "edge-sv", true)
+	seedHost(t, db, "edge-sv", "res-1")
+	seedJob(t, db, "edge-sv", "job1") // 决策 44-3：需 ready job 产生实质变更
 
 	// 无历史版本 → source_version 为空。
 	d1, err := GenerateDraft(db, "edge-sv")
@@ -229,7 +239,7 @@ func TestGenerateDraftBackfillsSourceVersion(t *testing.T) {
 	assert.Empty(t, d1.SourceVersion, "无历史版本时 source_version 应为空")
 
 	// 废弃 d1 腾出活 pending 名额，再手动补一条上一已确认 ConfigVersion。
-	_, err = DiscardDraft(db, d1.ChangeNo)
+	_, _, err = DiscardDraft(db, d1.ChangeNo)
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&models.ConfigVersion{
 		NetworkDomainID: "edge-sv",
@@ -315,15 +325,19 @@ func TestConfirmDraftRejectsNonPending(t *testing.T) {
 func TestDiscardDraft(t *testing.T) {
 	db := newMemDB(t)
 	seedDraftWithStatus(t, db, "CHG-99990101-004", "edge-c", string(models.DraftStatusPending), string(models.ValidationStatusFailed))
-	d, err := DiscardDraft(db, "CHG-99990101-004")
+	d, impact, err := DiscardDraft(db, "CHG-99990101-004")
 	require.NoError(t, err)
 	assert.Equal(t, models.DraftStatusDiscarded, d.Status, "校验失败态 failed 草稿也可废弃")
+	assert.NotNil(t, impact)
+	assert.Equal(t, 0, impact.NewReverted)
+	assert.Equal(t, 0, impact.ModifiedKept)
+	assert.Equal(t, 0, impact.DeletedRestored)
 }
 
 func TestDiscardDraftRejectsNonPending(t *testing.T) {
 	db := newMemDB(t)
 	seedDraftWithStatus(t, db, "CHG-99990101-005", "edge-c", string(models.DraftStatusConfirmed), string(models.ValidationStatusPassed))
-	_, err := DiscardDraft(db, "CHG-99990101-005")
+	_, _, err := DiscardDraft(db, "CHG-99990101-005")
 	assert.ErrorIs(t, err, ErrNotPending)
 }
 
@@ -365,11 +379,44 @@ func TestListDraftsEmptyDomainReturnsAll(t *testing.T) {
 	assert.Equal(t, int64(2), total)
 }
 
+// 回归（决策 F20-2）：RevalidateDraft 重校失败时透传具体校验信息并落库
+// validation_message，不再丢弃 vMsg / 只报无具象的 "draft validation still failed"。
+func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "dom1", true)
+	d := seedDraftWithStatus(t, db, "CHG-0001", "dom1", "pending", "failed")
+
+	// 覆盖 targets_files：含 job 保护标签触发 schema 失败并产生具象 vMsg。
+	targets := map[string]string{
+		"a.json": `[{"targets":["10.0.1.10"],"labels":{"job":"x"}}]`,
+	}
+	b, err := json.Marshal(targets)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(d).Update("targets_files", string(b)).Error)
+
+	updated, err := RevalidateDraft(db, d.ChangeNo)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrValidationStillFailed))
+	assert.Contains(t, err.Error(), "禁止覆盖内置标签", "错误应透传具体校验信息")
+
+	var reloaded models.ConfigDraft
+	require.NoError(t, db.Where("change_no = ?", d.ChangeNo).First(&reloaded).Error)
+	assert.Equal(t, "failed", reloaded.ValidationStatus)
+	assert.Contains(t, reloaded.ValidationMessage, "禁止覆盖内置标签")
+	assert.Equal(t, reloaded.ValidationMessage, updated.ValidationMessage)
+	// 决策 45-3：schema 失败归因 user_config，且结构化细节落库。
+	assert.Equal(t, string(models.ValidationCauseUserConfig), reloaded.ValidationCause)
+	assert.Contains(t, reloaded.ValidationDetails, "a.json")
+	assert.Contains(t, reloaded.ValidationDetails, "禁止覆盖内置标签")
+}
+
 // ==================== HTTP layer ====================
 
 func TestDraftHandlerRoutes(t *testing.T) {
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "edge-h", true)
+	seedHost(t, db, "edge-h", "res-1")
+	seedJob(t, db, "edge-h", "job1") // 决策 44-3：无变更项时不再生成空变更单，需 ready job 产生实质变更
 
 	r := newGin()
 	g := r.Group("/api/v2/platform")
@@ -409,6 +456,189 @@ func TestDraftHandlerRoutes(t *testing.T) {
 	// 详情 not_found。
 	w = perform(t, r, http.MethodGet, "/api/v2/platform/config-drafts/CHG-NOPE", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDraftHandlerDiscardValidationFailed(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-h-fail", true)
+
+	r := newGin()
+	g := r.Group("/api/v2/platform")
+	RegisterRoutes(g, db)
+
+	// 直接写入一张 validation_status=failed 的 pending 草稿。
+	seedDraftWithStatus(t, db, "CHG-FAILED-001", "edge-h-fail", string(models.DraftStatusPending), string(models.ValidationStatusFailed))
+
+	// 废弃影响预览应返回 200。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/config-drafts/CHG-FAILED-001/discard-impact", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	// 废弃本身应返回 200，且草稿变为 discarded。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/config-drafts/CHG-FAILED-001/discard", `{}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var draft models.ConfigDraft
+	require.NoError(t, db.Where("change_no = ?", "CHG-FAILED-001").First(&draft).Error)
+	assert.Equal(t, models.DraftStatusDiscarded, draft.Status)
+}
+
+func TestDiscardDraftImpactAndRollback(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-discard", true)
+
+	// 构造上一生效版本：线上已有 job-a、job-b。
+	prevYml, err := yaml.Marshal(map[string]interface{}{
+		"global": map[string]string{"scrape_interval": "15s"},
+		"scrape_configs": []map[string]string{
+			{"job_name": "job-a"},
+			{"job_name": "job-b"},
+		},
+	})
+	require.NoError(t, err)
+	version := &models.ConfigVersion{
+		NetworkDomainID: "edge-discard",
+		DraftID:         "draft-prev",
+		ChangeNo:        "CHG-PREV-001",
+		PrometheusYml:   string(prevYml),
+	}
+	require.NoError(t, db.Create(version).Error)
+
+	now := time.Now()
+	// job-a：已生效且仍在候选集，参数被修改 → keep_modified
+	jobA := &models.ScrapeJob{
+		JobName: "job-a", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		NetworkDomainID: "edge-discard", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "30s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	// job-b：已生效但被用户删除 → restore
+	jobB := &models.ScrapeJob{
+		JobName: "job-b", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		NetworkDomainID: "edge-discard", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+		BaseModel: models.BaseModel{DeletedAt: gorm.DeletedAt{Valid: true, Time: now}},
+	}
+	// job-c：新建且 ready，未生效过 → revert_to_draft
+	jobC := &models.ScrapeJob{
+		JobName: "job-c", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		NetworkDomainID: "edge-discard", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	// job-d：一直是 draft，从未生效 → ignore
+	jobD := &models.ScrapeJob{
+		JobName: "job-d", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		NetworkDomainID: "edge-discard", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "draft", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	for _, j := range []*models.ScrapeJob{jobA, jobB, jobC, jobD} {
+		require.NoError(t, db.Create(j).Error)
+	}
+
+	draft := seedDraftWithStatus(t, db, "CHG-DISCARD-001", "edge-discard", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
+	draft.SourceVersion = version.ChangeNo
+	require.NoError(t, db.Save(draft).Error)
+
+	// GetDiscardImpact 预计算与真正废弃结果一致。
+	impact, err := GetDiscardImpact(db, draft.ChangeNo)
+	require.NoError(t, err)
+	assert.Equal(t, 1, impact.NewReverted, "job-c 新建未生效应回退 draft")
+	assert.Equal(t, 1, impact.ModifiedKept, "job-a 已生效修改应保留")
+	assert.Equal(t, 1, impact.DeletedRestored, "job-b 已生效删除应恢复")
+	assert.Equal(t, 0, impact.Missing)
+
+	d, impact2, err := DiscardDraft(db, draft.ChangeNo)
+	require.NoError(t, err)
+	assert.Equal(t, models.DraftStatusDiscarded, d.Status)
+	assert.Equal(t, impact, impact2)
+
+	// 回写断言
+	var a, b, c, dJob models.ScrapeJob
+	require.NoError(t, db.First(&a, jobA.ID).Error)
+	assert.Equal(t, "ready", a.DraftStatus)
+	assert.Equal(t, models.ChangeStatusDeployed, a.ChangeStatus)
+
+	require.NoError(t, db.Unscoped().First(&b, jobB.ID).Error)
+	assert.False(t, b.DeletedAt.Valid, "job-b 应被恢复（软删撤销）")
+	assert.True(t, b.Enabled)
+	assert.Equal(t, "ready", b.DraftStatus)
+	assert.Equal(t, models.ChangeStatusDeployed, b.ChangeStatus)
+
+	require.NoError(t, db.First(&c, jobC.ID).Error)
+	assert.Equal(t, "draft", c.DraftStatus)
+	assert.Equal(t, models.ChangeStatusNone, c.ChangeStatus)
+
+	require.NoError(t, db.First(&dJob, jobD.ID).Error)
+	assert.Equal(t, "draft", dJob.DraftStatus)
+	assert.Equal(t, models.ChangeStatusNone, dJob.ChangeStatus)
+}
+
+func TestDiscardDraftRevertsNewJobOnFirstDeploy(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-first", true)
+
+	job := &models.ScrapeJob{
+		JobName: "new-job", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		NetworkDomainID: "edge-first", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	draft := seedDraftWithStatus(t, db, "CHG-FIRST-001", "edge-first", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
+	// 首次部署无 SourceVersion
+	require.Empty(t, draft.SourceVersion)
+
+	_, impact, err := DiscardDraft(db, draft.ChangeNo)
+	require.NoError(t, err)
+	assert.Equal(t, 1, impact.NewReverted)
+	assert.Equal(t, 0, impact.ModifiedKept)
+	assert.Equal(t, 0, impact.DeletedRestored)
+
+	var updated models.ScrapeJob
+	require.NoError(t, db.First(&updated, job.ID).Error)
+	assert.Equal(t, "draft", updated.DraftStatus)
+	assert.Equal(t, models.ChangeStatusNone, updated.ChangeStatus)
+}
+
+func TestDiscardImpactHandler(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-impact", true)
+
+	prevYml, err := yaml.Marshal(map[string]interface{}{
+		"scrape_configs": []map[string]string{{"job_name": "job-impact"}},
+	})
+	require.NoError(t, err)
+	version := &models.ConfigVersion{
+		NetworkDomainID: "edge-impact",
+		DraftID:         "draft-prev",
+		ChangeNo:        "CHG-IMPACT-PREV",
+		PrometheusYml:   string(prevYml),
+	}
+	require.NoError(t, db.Create(version).Error)
+
+	job := &models.ScrapeJob{
+		JobName: "job-impact", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		NetworkDomainID: "edge-impact", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	draft := seedDraftWithStatus(t, db, "CHG-IMPACT-001", "edge-impact", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
+	draft.SourceVersion = version.ChangeNo
+	require.NoError(t, db.Save(draft).Error)
+
+	r := newGin()
+	RegisterRoutes(r.Group("/api/v2/platform"), db)
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/config-drafts/"+draft.ChangeNo+"/discard-impact", "")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	data := unmarshalData(t, w)
+	assert.EqualValues(t, 0, data["new_reverted"])
+	assert.EqualValues(t, 1, data["modified_kept"])
+	assert.EqualValues(t, 0, data["deleted_restored"])
 }
 
 // generatorVersionPlaceholder 仅用于断言 metadata.generator_version 非空占位。

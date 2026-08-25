@@ -141,7 +141,9 @@ export function NetworkDomainsPage() {
         setGuideOpen(true)
         window.setTimeout(() => {
           setGuideHighlight(true)
-          guideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          if (typeof guideRef.current?.scrollIntoView === 'function') {
+            guideRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
         }, 200)
         window.setTimeout(() => setGuideHighlight(false), 4000)
       }
