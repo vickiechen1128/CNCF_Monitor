@@ -82,6 +82,25 @@ func LoadDefaultTemplate(db *gorm.DB, category models.ResourceCategory) (*models
 	return &tmpl, nil
 }
 
+// LoadTemplateForJob 解析某个采集 Job 应使用的标签模板：
+//   - 优先按 Job 显式挂载的 LabelTemplateID（M01 ScrapeJob.label_template_id）；
+//   - 未挂载或模板不存在时，回落该资源类别的默认模板（M07 is_default）。
+//
+// 二者都不可得时返回 nil（targets 不带业务标签，仅地址）。P1-1：修复 labels 为空——
+// 此前仅按 resource_type 取默认模板，忽略了 Job 上挂载的 label_template_id。
+func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error) {
+	if job.LabelTemplateID != "" {
+		var tmpl models.LabelTemplate
+		if err := db.Where("id = ?", job.LabelTemplateID).First(&tmpl).Error; err == nil {
+			return &tmpl, nil
+		} else if err != gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("load label template %s: %w", job.LabelTemplateID, err)
+		}
+		// 挂载的模板已被删除 → 回落默认模板
+	}
+	return LoadDefaultTemplate(db, models.ResourceCategory(job.ResourceType))
+}
+
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。
 type ErrNotFound struct {
 	Resource string

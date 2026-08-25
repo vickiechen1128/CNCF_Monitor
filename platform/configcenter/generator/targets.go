@@ -25,6 +25,7 @@ func resolveResource(db *gorm.DB, resourceID string) (*resourceTarget, error) {
 				"instance_ip":      host.PrivateIP,
 				"service_name":     host.InstanceName,
 				"health_check_url": "",
+				"env":              host.GetEnv(),
 			},
 		}, nil
 	}
@@ -40,6 +41,7 @@ func resolveResource(db *gorm.DB, resourceID string) (*resourceTarget, error) {
 				"biz_code":    database.BizCode,
 				"cluster":     database.GetCluster(),
 				"instance_ip": database.InstanceIP,
+				"env":         database.GetEnv(),
 			},
 		}, nil
 	}
@@ -55,6 +57,7 @@ func resolveResource(db *gorm.DB, resourceID string) (*resourceTarget, error) {
 				"biz_code":    middleware.BizCode,
 				"cluster":     middleware.GetCluster(),
 				"instance_ip": middleware.InstanceIP,
+				"env":         middleware.GetEnv(),
 			},
 		}, nil
 	}
@@ -71,6 +74,7 @@ func resolveResource(db *gorm.DB, resourceID string) (*resourceTarget, error) {
 				"cluster":          application.GetCluster(),
 				"service_name":     application.ServiceName,
 				"health_check_url": application.HealthCheckURL,
+				"env":              application.GetEnv(),
 			},
 		}, nil
 	}
@@ -86,6 +90,7 @@ func resolveResource(db *gorm.DB, resourceID string) (*resourceTarget, error) {
 				"biz_code":    generic.BizCode,
 				"cluster":     generic.GetCluster(),
 				"instance_ip": generic.InstanceIP,
+				"env":         generic.GetEnv(),
 			},
 		}, nil
 	}
