@@ -311,12 +311,23 @@ build-all: build-metric-center build-prometheus build-ui
 
 run-metric-center: build-metric-center
 	@echo ">>> Starting metric-center"
-	@cd "$(PROJECT_ROOT)" && ./platform/cmd/metric-center/metric-center$(EXE)
+	@cd "$(PROJECT_ROOT)" && ./platform/cmd/metric-center/metric-center$(EXE) \
+		--config.reload-url=http://localhost:9090/-/reload
 
+# M09 local 下发闭环：config.file 必须指向 config-output/prometheus.yml（控制面
+# DiskApplier 的写盘目录），且 file_sd 相对路径 targets/*.json 按配置文件所在目录
+# 解析；--web.enable-lifecycle 开放 /-/reload 供控制面在结构变更后触发热加载。
 run-prometheus: build-prometheus
 	@echo ">>> Starting Prometheus"
+	@mkdir -p "$(PROJECT_ROOT)/config-output"
+	@if [ ! -f "$(PROJECT_ROOT)/config-output/prometheus.yml" ]; then \
+		echo ">>> Seeding config-output/prometheus.yml from upstream default"; \
+		cp "$(PROJECT_ROOT)/upstream/prometheus/prometheus.yml" \
+			"$(PROJECT_ROOT)/config-output/prometheus.yml"; \
+	fi
 	@cd "$(PROJECT_ROOT)" && ./upstream/prometheus/prometheus$(EXE) \
-		--config.file="$(PROJECT_ROOT)/upstream/prometheus/prometheus.yml" \
+		--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
+		--web.enable-lifecycle \
 		--web.listen-address=:9090
 
 dev-ui:
