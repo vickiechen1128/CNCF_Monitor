@@ -1198,6 +1198,38 @@ export const mockScrapeJobs: ScrapeJob[] = [
   },
 ]
 
+// ---------- 规则变更/生效状态枚举（F-23，与采集 Job 四态同源） ----------
+
+/** 规则变更进度（F-23）：来源于 M09 变更单 + 下发结果回写 */
+export type RuleChangeProgress = 'none' | 'pending' | 'confirmed_pending_deliver' | 'delivered'
+
+export const CHANGE_PROGRESS_MAP: Record<RuleChangeProgress, { text: string; color: string }> = {
+  none: { text: '无变更', color: 'default' },
+  pending: { text: '待确认', color: 'gold' },
+  confirmed_pending_deliver: { text: '已确认待下发', color: 'processing' },
+  delivered: { text: '已下发', color: 'success' },
+}
+
+/**
+ * change_status → 变更进度 的映射（原型仅建模 none/pending/confirmed 三态：
+ * confirmed 表示 M09 已确认、等待下发，故归为「已确认待下发」；「已下发」为原型未细分的终态占位）。
+ */
+export const CHANGE_PROGRESS_BY_CHANGE_STATUS: Record<'none' | 'pending' | 'confirmed', RuleChangeProgress> = {
+  none: 'none',
+  pending: 'pending',
+  confirmed: 'confirmed_pending_deliver',
+}
+
+/** 规则生效状态（F-23）：草稿 / 已停用 / 待生效 / 已生效（draft_status + change_status + enabled 四态聚合） */
+export type RuleEffectiveStatus = 'draft' | 'disabled' | 'pending_effect' | 'active'
+
+export const EFFECTIVE_STATUS_MAP: Record<RuleEffectiveStatus, { text: string; color: string }> = {
+  draft: { text: '草稿', color: 'default' },
+  disabled: { text: '已停用', color: 'default' },
+  pending_effect: { text: '待生效', color: 'gold' },
+  active: { text: '已生效', color: 'success' },
+}
+
 // ---------- 规则编辑模型（PRD 5.5） ----------
 export interface MonitoringRule {
   rule_id: string

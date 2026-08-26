@@ -262,6 +262,20 @@ export const MOCK_PROVIDERS: { name: string; version: string; status: 'active' |
 // {v2.13} 五大类资源类别（决策 D19）
 export const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
 export const ENV_VALUES: Env[] = ['dev', 'test', 'staging', 'prod']
+/** {v2.2+} 操作系统内置字典（AutoComplete 可搜索/自定义，对应后端 /api/v2/platform/os-options）：规范名 → 家族，host 必填 */
+export const OS_OPTIONS: { label: string; value: string }[] = [
+  { label: 'Ubuntu', value: 'Ubuntu' },
+  { label: 'CentOS', value: 'CentOS' },
+  { label: 'RedHat Enterprise Linux', value: 'RedHat' },
+  { label: 'openEuler', value: 'openEuler' },
+  { label: 'Kylin', value: 'Kylin' },
+  { label: 'Debian', value: 'Debian' },
+  { label: 'AIX', value: 'AIX' },
+  { label: 'Solaris', value: 'Solaris' },
+  { label: 'Windows Server', value: 'Windows Server' },
+  { label: 'Windows 10', value: 'Windows 10' },
+  { label: 'Windows 11', value: 'Windows 11' },
+]
 /** MVP 可选状态；orphan 为 v0.4+ 预留，不在表单选项中展示 */
 export const STATUS_VALUES: ResourceStatus[] = ['online', 'offline', 'maintenance']
 /** 全部状态（含 v0.4+ orphan），用于只读展示与测试 */

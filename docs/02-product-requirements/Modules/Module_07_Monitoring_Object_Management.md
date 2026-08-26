@@ -255,9 +255,9 @@ const (
 | instance\_name       | string       | ❌  | 实例名       | 可读实例名/展示名；host 模板中必填，对应 Excel `instance_name`，生成 `hostname` label              |
 | hostname             | string       | ❌  | 主机名       | 主机名；host 场景下默认与 `instance_name` 一致；也可从 CMDB `bk_host_name` 等字段同步               |
 | instance\_ip         | string       | ❌  | 目标 IP     | 目标 IP 或域名；host / generic\_target 必填，作为 Prometheus scrape target 地址             |
-| os\_type             | string       | ❌  | 操作系统类型    | 操作系统类型，如 `Linux`、`Windows`；host 场景下从 Excel `image` 或 CMDB 同步                   |
+| os\_type             | string       | ✅* | 操作系统类型    | 操作系统类型；**host 必填**，为采集实例定位的关键依据（留空/拼错的主机被排除出采集候选，见 5.6）；采用**内置字典选择**（AutoComplete 下拉，可搜索/自定义），规范名↔家族归一化后落库；合法选项见 `GET /api/v2/platform/os-options`，host 场景下从 Excel `image` 或 CMDB 同步，字典可按需扩展规范名 |
 | biz\_code     | string       | ✅  | 业务      | 业务归属**不可变编码**（如 payment、data-api）；对应业务分组字典主键；**MVP 所有资源类型必填**；导入时填写编码，UI 展示取字典 `biz_name`；经标签模板映射为 `biz` label；编码创建后不可变，展示名可改；停用条目不可被新资源/编辑选用，存量资源保留历史值 |
-| app\_name            | string       | ✅* | 应用名       | 应用名 → 映射为 `app` label；application 默认取 `service_name`（免重复填写）；必填规则：application / database / middleware 必填，host / generic\_target 可空（空值不注入 `app` 标签，见 5.15 规则 4） |
+| app\_name            | string       | ✅* | 应用名       | 应用名 → 映射为 `app` label；必填规则：application / database / middleware **必填**，host / generic\_target 可空（空值不注入 `app` 标签，见 5.15 规则 4） |
 | env                  | string       | ✅  | 环境        | 环境 → 映射为 `env` label；全类型必填（任何资源都有环境归属）                                        |
 | cluster              | string       | ✅* | 集群        | 集群/子应用 → 映射为 `cluster` label；host 场景下 `sub_app_code` 为空时取 `vpc`；必填规则同 `app_name`（host / generic\_target 可空，空值不注入标签） |
 | owner                | string       | ❌  | 负责人       | 负责人；MVP 可由用户填写；v0.4+ CMDB 接入时优先取自 `cmdb_maintainer`                            |
@@ -442,7 +442,7 @@ type ResourceStatusMapping struct {
 | ------------ | ------ | -- | ------ | --------------- |
 | hostname     | string | ✅  | 主机名    | 主机名             |
 | instance\_ip | string | ✅  | 目标 IP  | 管理 IP           |
-| os\_type     | string | ❌  | 操作系统类型 | linux / windows |
+| os\_type     | string | ✅  | 操作系统类型 | 操作系统类型，**host 必填**——采集实例定位强依赖它（`linux`/`windows` 监控类型由 `os_type` 推导，为空/拼错的主机被排除出采集候选）；**内置字典选择**（AutoComplete 下拉，可搜索/自定义），按「规范名 → 家族」归一化（Ubuntu/CentOS/openEuler/Kylin…→linux，Windows Server/Windows 10/11…→windows），合法选项见 `GET /api/v2/platform/os-options`，字典可按需扩展规范名 |
 | os\_version  | string | ❌  | 系统版本   | 系统版本            |
 
 ### 5.7 中间件资源（Middleware）
@@ -722,7 +722,7 @@ network_domain | service_name | biz_code | health_check_url | protocol | endpoin
 
 其中 `biz_code`（业务类型）为**必填项**：导入时填写业务编码，映射为 `biz` 标签。
 
-> **同一服务多实例说明**：应用服务按「一行 = 一个可抓取实例」建模（见 5.8 粒度说明）——同一服务部署在 N 台机器 = **N 行**，`service_name` 相同、`endpoint` 不同，导入**允许**该行形态（重复检测按 `service_name + endpoint`，见 5.16.2）；`app_name` 可留空（默认取 `service_name`）。
+> **同一服务多实例说明**：应用服务按「一行 = 一个可抓取实例」建模（见 5.8 粒度说明）——同一服务部署在 N 台机器 = **N 行**，`service_name` 相同、`endpoint` 不同，导入**允许**该行形态（重复检测按 `service_name + endpoint`，见 5.16.2）；N 行共享同一 `app_name`（**必填**，不再「留空默认取 service_name」）。
 
 **通用指标目标导入模板列**
 
@@ -827,28 +827,28 @@ status: "online"
 
 > 决策依据：design-decisions.md 决策 3.20（接口设计章节）/ 3.45（写接口边界）/ D24（术语改名）
 
-> 技术层：MVP 最小 REST 契约。统一前缀 `/api/v1`；鉴权、租户上下文、网关透传与错误码规范见 [00\_Global\_Architecture.md](../00_Global_Architecture.md)；所有响应错误统一为 `{ "code": string, "message": string }`。
+> 技术层：MVP 最小 REST 契约。业务 API 统一前缀 `/api/v2/platform`（见 [03\_API\_Standard](../03-engineering-standards/03_API_Standard.md) §1.2）；鉴权、租户上下文、网关透传与错误码规范见 [00\_Global\_Architecture.md](../00_Global_Architecture.md)；所有响应错误统一为 `{ "code": string, "message": string }`。
 
 ### 6.1 资源管理 API（Resource）
 
 | 方法     | 路径                                                   | 说明                                                                                                                    |
 | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/resources`                                  | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `is_monitored`（决策 31-M1：`false` 筛选「未监控」，字段由 M01 维护、M07 只读映射）/ `page` / `page_size`（MVP 分页从简，默认 50） |
-| POST   | `/api/v1/resources`                                  | 创建资源（source\_type=manual）                                                                                             |
-| PUT    | `/api/v1/resources/{resource_id}`                    | 更新资源                                                                                                                  |
-| DELETE | `/api/v1/resources/{resource_id}`                    | 删除资源（被 Job 引用时由 Module\_01 关联校验并**在报错中列出引用 Job 名单 + 跳转**，见 6.6.1）                                                    |
-| POST   | `/api/v1/resources/import`                           | Excel 导入（multipart，返回 5.16.3 导入结果结构）；Form 参数 `mode=create_only / upsert`（默认 create\_only，upsert 语义见 5.16.2）       |
-| GET    | `/api/v1/resources/import-templates/{resource_category}` | 下载固定列模板（返回列定义 JSON，前端渲染为可下载模板）                                                                                        |
-| GET    | `/api/v1/business-domains`                           | 业务分组字典列表（MVP 只读，供资源录入 / Excel 校验下拉使用；数据来自配置文件预置） |
+| GET    | `/api/v2/platform/resources`                                  | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `is_monitored`（决策 31-M1：`false` 筛选「未监控」，字段由 M01 维护、M07 只读映射）/ `page` / `page_size`（MVP 分页从简，默认 50） |
+| POST   | `/api/v2/platform/resources`                                  | 创建资源（source\_type=manual）                                                                                             |
+| PUT    | `/api/v2/platform/resources/{resource_id}`                    | 更新资源                                                                                                                  |
+| DELETE | `/api/v2/platform/resources/{resource_id}`                    | 删除资源（被 Job 引用时由 Module\_01 关联校验并**在报错中列出引用 Job 名单 + 跳转**，见 6.6.1）                                                    |
+| POST   | `/api/v2/platform/resources/import`                           | Excel 导入（multipart，返回 5.16.3 导入结果结构）；Form 参数 `mode=create_only / upsert`（默认 create\_only，upsert 语义见 5.16.2）       |
+| GET    | `/api/v2/platform/resources/import-templates/{resource_category}` | 下载固定列模板（返回列定义 JSON，前端渲染为可下载模板）                                                                                        |
+| GET    | `/api/v2/platform/business-domains`                           | 业务分组字典列表（MVP 只读，供资源录入 / Excel 校验下拉使用；数据来自配置文件预置） |
 
 ### 6.2 资源标签 API（ResourceLabel）
 
 | 方法     | 路径                                                  | 说明                               |
 | ------ | --------------------------------------------------- | -------------------------------- |
-| GET    | `/api/v1/resources/{resource_id}/labels`            | 资源标签列表（按来源优先级排序展示）               |
-| POST   | `/api/v1/resources/{resource_id}/labels`            | 添加 user 来源标签（校验 key 规则与保护 label） |
-| PUT    | `/api/v1/resources/{resource_id}/labels/{label_id}` | 编辑 user 来源标签值                    |
-| DELETE | `/api/v1/resources/{resource_id}/labels/{label_id}` | 删除 user 来源标签                     |
+| GET    | `/api/v2/platform/resources/{resource_id}/labels`            | 资源标签列表（按来源优先级排序展示）               |
+| POST   | `/api/v2/platform/resources/{resource_id}/labels`            | 添加 user 来源标签（校验 key 规则与保护 label） |
+| PUT    | `/api/v2/platform/resources/{resource_id}/labels/{label_id}` | 编辑 user 来源标签值                    |
+| DELETE | `/api/v2/platform/resources/{resource_id}/labels/{label_id}` | 删除 user 来源标签                     |
 
 > `system` / `cmdb` 来源标签**不提供写接口**（只读展示）；`cmdb` 来源 v0.4+ 由 Module\_04 同步写入。
 >
@@ -858,16 +858,16 @@ status: "online"
 
 | 方法     | 路径                                                            | 说明                                                                                                                                             |
 | ------ | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v1/label-templates`                                     | 模板列表，Query：`resource_category` / `is_default` / `keyword`；返回含 mappings                                                                             |
-| POST   | `/api/v1/label-templates`                                     | 创建模板（非默认，mappings 为空）                                                                                                                          |
-| PUT    | `/api/v1/label-templates/{template_id}`                       | 改名 / 改资源类型（资源类型创建后不可改，服务端校验）                                                                                                                   |
-| DELETE | `/api/v1/label-templates/{template_id}`                       | 删除模板（默认模板禁止删除；被 Module\_01 引用时阻止）                                                                                                              |
-| POST   | `/api/v1/label-templates/{template_id}/clone`                 | 克隆模板（含全部 mappings，新模板 is\_default=false）                                                                                                       |
-| GET    | `/api/v1/label-templates/{template_id}/resources`             | 关联实例查询：按模板 resource\_category 返回关联资源列表（含 count / 实例名 / IP / 状态），用于「关联实例 N 个」展示                                                             |
+| GET    | `/api/v2/platform/label-templates`                                     | 模板列表，Query：`resource_category` / `is_default` / `keyword`；返回含 mappings                                                                             |
+| POST   | `/api/v2/platform/label-templates`                                     | 创建模板（非默认，mappings 为空）                                                                                                                          |
+| PUT    | `/api/v2/platform/label-templates/{template_id}`                       | 改名 / 改资源类型（资源类型创建后不可改，服务端校验）                                                                                                                   |
+| DELETE | `/api/v2/platform/label-templates/{template_id}`                       | 删除模板（默认模板禁止删除；被 Module\_01 引用时阻止）                                                                                                              |
+| POST   | `/api/v2/platform/label-templates/{template_id}/clone`                 | 克隆模板（含全部 mappings，新模板 is\_default=false）                                                                                                       |
+| GET    | `/api/v2/platform/label-templates/{template_id}/resources`             | 关联实例查询：按模板 resource\_category 返回关联资源列表（含 count / 实例名 / IP / 状态），用于「关联实例 N 个」展示                                                             |
 
-| POST   | `/api/v1/label-templates/{template_id}/mappings`              | 新增映射（服务端校验：保护 label / 同模板 target\_label 唯一）                                                                                                    |
-| PUT    | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | 编辑映射（编辑自身排除唯一性校验）                                                                                                                              |
-| DELETE | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | 删除映射                                                                                                                                           |
+| POST   | `/api/v2/platform/label-templates/{template_id}/mappings`              | 新增映射（服务端校验：保护 label / 同模板 target\_label 唯一）                                                                                                    |
+| PUT    | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | 编辑映射（编辑自身排除唯一性校验）                                                                                                                              |
+| DELETE | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | 删除映射                                                                                                                                           |
 
 > **组合字段接口语义**：模板 API 只保存映射规则（`source_field=instance_ip:port`、`source_type=composite`），**不保存任何实例值**；`instance` 标签出值由 Module\_09 生成配置时拼接（见 5.12 C 取值时序）。
 
@@ -875,14 +875,14 @@ status: "online"
 
 | 方法  | 路径                            | 说明                                      |
 | --- | ----------------------------- | --------------------------------------- |
-| GET | `/api/v1/imports`             | 导入记录列表，Query：`resource_category` / `status` |
-| GET | `/api/v1/imports/{import_id}` | 导入详情（含 errors 明细）                       |
+| GET | `/api/v2/platform/imports`             | 导入记录列表，Query：`resource_category` / `status` |
+| GET | `/api/v2/platform/imports/{import_id}` | 导入详情（含 errors 明细）                       |
 
 ### 6.5 只读消费契约（Module\_01 / Module\_09）
 
 - Module\_01 与 Module\_09 **仅通过上述 GET 接口只读消费** Resource、ResourceLabel、LabelTemplate 数据，不经过本模块写接口；
 - **采集状态不反向依赖**：M07 不调用 M01 查询「是否被选中 / 采集状态」（原 `is_monitored` 已取消）；「未纳入任何 Job」在 M01 实例选择器查看、「选中但无数据」在 M02 目标状态页查看（见 5.2 采集状态口径）；
-- **被引用 Job 查询**：标签模板页「被引用采集 Job N 个」数据由 Module\_01 的只读接口提供（`GET /api/v1/scrape-jobs?label_template_id={template_id}`），M07 不直接暴露此聚合接口，以避免被动数据提供方反向依赖策略模块；
+- **被引用 Job 查询**：标签模板页「被引用采集 Job N 个」数据由 Module\_01 的只读接口提供（`GET /api/v2/platform/scrape-jobs?label_template_id={template_id}`），M07 不直接暴露此聚合接口，以避免被动数据提供方反向依赖策略模块；
 - 本模块不提供 `prometheus.yml` 生成 / 下发类接口（职责在 Module\_09）。
 
 ### 6.6 接口请求响应与错误码契约
@@ -900,35 +900,35 @@ status: "online"
 
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
-| GET | `/api/v1/resources` | Query: `resource_category`、`network_domain_id`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2 | — |
-| POST | `/api/v1/resources` | 5.2 字段（`source_type=manual`，除 id/timestamps） | 创建后的完整对象 | `bad_request`：必填字段缺失 / `network_domain_id` 不存在（M06 行政记录） |
-| PUT | `/api/v1/resources/{resource_id}` | 5.2 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：修改 host/middleware/generic 的 `user` 来源标签越权 |
-| DELETE | `/api/v1/resources/{resource_id}` | — | `{ resource_id }` | `not_found`；`forbidden`：被 Module\_01 的 ScrapeJob 引用时禁止删除，**报错 data 返回引用 Job 名单**（`{ job_name, network_domain_id, enabled }[]`）与「查看引用 Job」跳转（M01 Job 列表） |
-| POST | `/api/v1/resources/import` | multipart/form-data：`file` + `resource_category` + `mode`（`create_only` 默认 / `upsert`） | 5.16.3 导入结果结构（upsert 含 `updated`） | `bad_request`：文件格式 / 必填列缺失 / 非法 mode |
-| GET | `/api/v1/resources/import-templates/{resource_category}` | — | `{ columns: [...], sample_row: [...] }` | `not_found`：未知资源类型 |
+| GET | `/api/v2/platform/resources` | Query: `resource_category`、`network_domain_id`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2 | — |
+| POST | `/api/v2/platform/resources` | 5.2 字段（`source_type=manual`，除 id/timestamps） | 创建后的完整对象 | `bad_request`：必填字段缺失 / `network_domain_id` 不存在（M06 行政记录） |
+| PUT | `/api/v2/platform/resources/{resource_id}` | 5.2 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：修改 host/middleware/generic 的 `user` 来源标签越权 |
+| DELETE | `/api/v2/platform/resources/{resource_id}` | — | `{ resource_id }` | `not_found`；`forbidden`：被 Module\_01 的 ScrapeJob 引用时禁止删除，**报错 data 返回引用 Job 名单**（`{ job_name, network_domain_id, enabled }[]`）与「查看引用 Job」跳转（M01 Job 列表） |
+| POST | `/api/v2/platform/resources/import` | multipart/form-data：`file` + `resource_category` + `mode`（`create_only` 默认 / `upsert`） | 5.16.3 导入结果结构（upsert 含 `updated`） | `bad_request`：文件格式 / 必填列缺失 / 非法 mode |
+| GET | `/api/v2/platform/resources/import-templates/{resource_category}` | — | `{ columns: [...], sample_row: [...] }` | `not_found`：未知资源类型 |
 
 #### 6.6.2 资源标签 API
 
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
-| GET | `/api/v1/resources/{resource_id}/labels` | — | `{ items: [...], total: N }`：按来源优先级排序（`system` / `user` / `cmdb {v0.4+}`） | `not_found` |
-| POST | `/api/v1/resources/{resource_id}/labels` | `{ key, value }` | 新增的 user 标签 | `forbidden`：`resource_category ≠ application`；`bad_request`：key 规则非法 / 覆盖 system/cmdb 标签 |
-| PUT | `/api/v1/resources/{resource_id}/labels/{label_id}` | `{ value }` | 更新后的 user 标签 | `forbidden`：非 user 来源；`not_found` |
-| DELETE | `/api/v1/resources/{resource_id}/labels/{label_id}` | — | `{ label_id }` | `forbidden`：非 user 来源；`not_found` |
+| GET | `/api/v2/platform/resources/{resource_id}/labels` | — | `{ items: [...], total: N }`：按来源优先级排序（`system` / `user` / `cmdb {v0.4+}`） | `not_found` |
+| POST | `/api/v2/platform/resources/{resource_id}/labels` | `{ key, value }` | 新增的 user 标签 | `forbidden`：`resource_category ≠ application`；`bad_request`：key 规则非法 / 覆盖 system/cmdb 标签 |
+| PUT | `/api/v2/platform/resources/{resource_id}/labels/{label_id}` | `{ value }` | 更新后的 user 标签 | `forbidden`：非 user 来源；`not_found` |
+| DELETE | `/api/v2/platform/resources/{resource_id}/labels/{label_id}` | — | `{ label_id }` | `forbidden`：非 user 来源；`not_found` |
 
 #### 6.6.3 标签模板 API
 
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
-| GET | `/api/v1/label-templates` | Query: `resource_category`、`is_default`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 含完整 mappings | — |
-| POST | `/api/v1/label-templates` | `{ name, resource_category, description?, mappings?: [...] }` | 创建的模板（`is_default=false`） | `bad_request`：同名同资源类型 / 非法 mapping |
-| PUT | `/api/v1/label-templates/{template_id}` | `{ name?, description?, resource_category? }`（resource_category 创建后不可改） | 更新后的模板 | `not_found`；`bad_request` |
-| DELETE | `/api/v1/label-templates/{template_id}` | — | `{ template_id }` | `bad_request`：默认模板禁止删除；`forbidden`：被 Module\_01 引用时禁止删除 |
-| POST | `/api/v1/label-templates/{template_id}/clone` | `{ name? }` | 克隆后的新模板 | `not_found` |
-| GET | `/api/v1/label-templates/{template_id}/resources` | — | `{ items: [...], total: N }`：按模板 resource_category 匹配的资源列表 | `not_found` |
-| POST | `/api/v1/label-templates/{template_id}/mappings` | `{ target_label, source_type, source_field, transform_rule? }` | 新增后的 mappings 列表 | `bad_request`：保护 label / 同模板 target_label 重复 |
-| PUT | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | `{ target_label?, source_type?, source_field?, transform_rule? }` | 更新后的 mappings 列表 | `not_found`；`bad_request` |
-| DELETE | `/api/v1/label-templates/{template_id}/mappings/{mapping_id}` | — | `{ mapping_id }` | `not_found` |
+| GET | `/api/v2/platform/label-templates` | Query: `resource_category`、`is_default`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 含完整 mappings | — |
+| POST | `/api/v2/platform/label-templates` | `{ name, resource_category, description?, mappings?: [...] }` | 创建的模板（`is_default=false`） | `bad_request`：同名同资源类型 / 非法 mapping |
+| PUT | `/api/v2/platform/label-templates/{template_id}` | `{ name?, description?, resource_category? }`（resource_category 创建后不可改） | 更新后的模板 | `not_found`；`bad_request` |
+| DELETE | `/api/v2/platform/label-templates/{template_id}` | — | `{ template_id }` | `bad_request`：默认模板禁止删除；`forbidden`：被 Module\_01 引用时禁止删除 |
+| POST | `/api/v2/platform/label-templates/{template_id}/clone` | `{ name? }` | 克隆后的新模板 | `not_found` |
+| GET | `/api/v2/platform/label-templates/{template_id}/resources` | — | `{ items: [...], total: N }`：按模板 resource_category 匹配的资源列表 | `not_found` |
+| POST | `/api/v2/platform/label-templates/{template_id}/mappings` | `{ target_label, source_type, source_field, transform_rule? }` | 新增后的 mappings 列表 | `bad_request`：保护 label / 同模板 target_label 重复 |
+| PUT | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | `{ target_label?, source_type?, source_field?, transform_rule? }` | 更新后的 mappings 列表 | `not_found`；`bad_request` |
+| DELETE | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | — | `{ mapping_id }` | `not_found` |
 
 ### 6.7 CMDB Provider 扩展接口
 
@@ -1163,8 +1163,8 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | --- |
 | v2.21 | 2026-08-21 | 修改 | 资源列表可辨认性优化（决策 32）：①「状态」列 UI 更名「**运行状态**」（`Resource.status` 字段不变），表意贴近取值并与「采集状态」「来源」列区分（5.2 status 行 / 术语映射同步）；②「运行状态」数据来源（CMDB / Excel / 手动）非 M07 自身功能，列头以**隐藏样式**（hover 提示）标注、不占列宽（5.2 新增决策 32 说明），原型 ResourcesPage 状态列头同步隐藏化 | MVP | 设计中 |
-| v2.20 | 2026-08-21 | 修改 | 四模块 MVP 残余缺陷收敛落版（决策 29 / 31-M1，见 design-decisions.md 决策 28~31）：①offline 排除**提级 P0**——8.1「目标采集契约，MVP 不保证」措辞改写为「决策 29 MVP 必实现」，明确 M09 生成 targets 时过滤 `Resource.status=offline`、offline 后下一配置生成周期即从 targets 移除、不触发 reload，M01 候选实例显示但置灰（3.1 / 5.2 / 5.16.2 / 8.1 同步）；②资源列表新增「未监控」筛选（决策 31-M1）——`is_monitored` 字段由 M01 维护、M07 只读映射，`GET /api/v1/resources` 增加 `is_monitored` query 参数，5.2 采集状态口径由「已取消」改为「弱依赖只读筛选」（3.1 / 6.x / 11 同步）；8.1 记录完整覆盖率视图归 v0.2+ 为已知裁剪 | MVP / v0.4 / v1.0 | 设计中 |
+| v2.20 | 2026-08-21 | 修改 | 四模块 MVP 残余缺陷收敛落版（决策 29 / 31-M1，见 design-decisions.md 决策 28~31）：①offline 排除**提级 P0**——8.1「目标采集契约，MVP 不保证」措辞改写为「决策 29 MVP 必实现」，明确 M09 生成 targets 时过滤 `Resource.status=offline`、offline 后下一配置生成周期即从 targets 移除、不触发 reload，M01 候选实例显示但置灰（3.1 / 5.2 / 5.16.2 / 8.1 同步）；②资源列表新增「未监控」筛选（决策 31-M1）——`is_monitored` 字段由 M01 维护、M07 只读映射，`GET /api/v2/platform/resources` 增加 `is_monitored` query 参数，5.2 采集状态口径由「已取消」改为「弱依赖只读筛选」（3.1 / 6.x / 11 同步）；8.1 记录完整覆盖率视图归 v0.2+ 为已知裁剪 | MVP / v0.4 / v1.0 | 设计中 |
 | v2.19 | 2026-08-19 | 修改 | 评审结论落版（2026-08-19 第三轮讨论，见 design-decisions.md「评审结论（2026-08-19 第三轮讨论）」）：①跨模块契约延后随 M01 节奏——8.1 `offline` 排除语义与 5.2 采集状态口径降级为「目标语义，MVP 不保证」（3.1 / 5.2 status 行同步）；②biz_code 字典 MVP 运维口径补全——配置文件 `platform/config/business_domains.yaml` 热加载生效、报错文案改可执行指引、初始字典命名评审、强制预置兜底条目 `infra`（3.1 / 5.16.1）；③Excel 模板改后端生成静态 xlsx + 「取值说明 sheet」（MVP 不做 dataValidation 下拉）；④5.16.2 补 upsert 不删除声明与批量下线动线；⑤5.17.2 示例补 `biz_code`、`resource_id` 改 uuid 形态；⑥§2 M07-OPS-08 改全类型口径 | MVP / v0.4 / v1.0 | 设计中 |
 | v2.18 | 2026-08-19 | 修改 | 按设计对齐决策 21/22/19 全模块字段更名与字典治理：①原 `business_domain` 更名 `biz_code`（资源字段 / 字典主键，指标标签仍为 `biz`），字典展示名更名 `biz_name`，**全模块全局替换、无新旧混用**（§5.2/5.8/5.12/5.13/5.15/5.16/5.17/9/10/11）；②§3.1 业务分组字典补红线（只改 `biz_name`/`description`/状态，`biz_code` 永不可改、停用不删除）；③§5.13 全部资源类型默认模板补 `biz_code → biz` 通用行；④§5.2/5.12 新增 `tenant_id` 字段与 `tenant_id → tenant` 可选映射说明（决策 19）；⑤§5.16.2 业务存在性校验细化：停用条目不可新选、存量保留历史值；⑥§11 业务列 / 详情展示 `biz_name`，停用业务以「业务名（已停用）」标识；⑦§6.1/§9 业务字典只读接口（MVP 无写接口）与停用治理 / 不变性验收；原型同步至 v2.8 | MVP / v0.4 / v1.0 | 设计中 |
-| v2.17 | 2026-08-19 | 修改 | 按 design-decisions 决策 13/14/17 改造业务字段：①§3.1 新增业务分组字典说明（MVP 配置文件预置、无维护页面）；②§5.2/5.8 `business_domain` 改为所有资源类型必填；③§5.12 默认模板增加 `business_domain → biz` 通用映射；④§5.15 把 `biz` 扩展为全资源类型通用标签并补充不变性语义；⑤§5.16.1 所有 Excel 模板增加 `business_domain` 列并改为必填；⑥§5.16.2 增加业务存在性校验；⑦§6.1 新增 `/api/v1/business-domains` 只读接口；⑧§9.1/§10/§11 同步业务列展示与必填验收 | MVP / v0.2 / v0.4 | 设计中 |
+| v2.17 | 2026-08-19 | 修改 | 按 design-decisions 决策 13/14/17 改造业务字段：①§3.1 新增业务分组字典说明（MVP 配置文件预置、无维护页面）；②§5.2/5.8 `business_domain` 改为所有资源类型必填；③§5.12 默认模板增加 `business_domain → biz` 通用映射；④§5.15 把 `biz` 扩展为全资源类型通用标签并补充不变性语义；⑤§5.16.1 所有 Excel 模板增加 `business_domain` 列并改为必填；⑥§5.16.2 增加业务存在性校验；⑦§6.1 新增 `/api/v2/platform/business-domains` 只读接口；⑧§9.1/§10/§11 同步业务列展示与必填验收 | MVP / v0.2 / v0.4 | 设计中 |
 | v2.14 | 2026-08-16 | 修改 | 术语分层与字段改名（第二十六轮需求对齐，决策 D24）：①`Resource.resource_type` 更名为 `resource_category`（5.1 枚举类型与常量同步 `ResourceCategory`、5.2 字段表、5.10 LabelTemplate 锚点、5.12 A 表头、6.x API query / 错误码、Excel 状态映射、术语映射），UI 展示名「资源类型」→「资源类别」；②5.1 细粒度维度引用改为 M01 `monitor_type`、推导表改 `MONITOR_TYPE_DERIVATION_MAP`（消除与 M01 细粒度 `resource_type` 同名不同粒度的 API 歧义）；③「CI 类型」仅在 CMDB/M04 上下文保留（CMDB 侧边界段不变） | MVP / v0.2 / v0.4 / v1.0 | 设计中 |

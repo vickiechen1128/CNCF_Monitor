@@ -51,6 +51,9 @@ import {
   RULE_TYPE_MAP,
   METRIC_TYPE_COLOR,
   METRIC_TYPE_LABEL,
+  CHANGE_PROGRESS_MAP,
+  CHANGE_PROGRESS_BY_CHANGE_STATUS,
+  EFFECTIVE_STATUS_MAP,
 } from '../mocks/module-01'
 import type {
   CiType,
@@ -58,6 +61,7 @@ import type {
   MonitoringRule,
   MountedRuleFile,
   ResourceCategory,
+  RuleEffectiveStatus,
 } from '../mocks/module-01'
 
 const { Title, Text } = Typography
@@ -839,6 +843,26 @@ function StructuredEditView() {
     showChangePendingToast(checked ? '规则已启用' : '规则已禁用')
   }
 
+  /** {v3.xx} F-23：规则生效状态（草稿 / 已停用 / 待生效 / 已生效，与采集 Job 四态同源） */
+  const getRuleEffectiveStatus = (r: MonitoringRule): RuleEffectiveStatus => {
+    if (r.draft_status === 'draft') return 'draft'
+    if (r.change_status === 'pending') return 'pending_effect'
+    return r.enabled ? 'active' : 'disabled'
+  }
+
+  /** {v3.xx} F-23：操作列启停由 Switch 改为文字按钮「停用 / 启用」+ 二次确认（与采集 Job 一致） */
+  const handleToggleEnabledConfirm = (record: MonitoringRule) => {
+    const next = !record.enabled
+    modal.confirm({
+      title: next ? '确认启用规则' : '确认停用规则',
+      content: `确定${next ? '启用' : '停用'}规则「${record.name}」？`,
+      okText: next ? '启用' : '停用',
+      okButtonProps: next ? undefined : { danger: true },
+      cancelText: '取消',
+      onOk: () => handleToggleEnabled(record, next),
+    })
+  }
+
   const columns = [
     {
       title: '规则名称',
@@ -854,7 +878,8 @@ function StructuredEditView() {
       ),
     },
     {
-      title: '资源类型',
+      // {v3.xx} F-24：规则列表「监控对象类型」列（两级级联选中的细粒度类型，随字段化编辑表单 resource_type）
+      title: '监控对象类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
       render: (value: CiType) => (
@@ -893,21 +918,22 @@ function StructuredEditView() {
         record.rule_type === 'recording' ? <Text type="secondary">-</Text> : value || '-',
     },
     {
-      // {v3.20} 下发状态（决策 D28，v0.3 随规则编辑 UI 落地）：rules.yml 变更必须 reload、走 M09 人工确认档（决策 38-1）
+      // {v3.xx} F-23：原「下发状态」Tooltip 列收窄为「变更进度」列（无变更 / 待确认 / 已确认待下发 / 已下发）
       title: (
-        <Tooltip title="规则变更下发状态（来自 M09 变更单）：待确认=有变更单待你在「配置变更确认」页确认发布（rules.yml 变更必须 reload，走人工确认）；已确认=变更单已确认；无变更=未产生变更单">
+        <Tooltip title="规则变更进度（来自 M09 变更单）：无变更=未产生变更单；待确认=有变更单待你在「配置变更确认」页确认发布；已确认待下发=变更单已确认、等待下发（rules.yml 变更必须 reload、走人工确认）；已下发=已下发生效">
           <Space size={4}>
-            下发状态
+            变更进度
             <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
           </Space>
         </Tooltip>
       ),
-      key: 'changeStatus',
-      width: 130,
+      key: 'changeProgress',
+      width: 120,
       render: (_: unknown, record: MonitoringRule) => {
-        if (record.change_status === 'pending') {
-          // {v3.20} 样式调整：原 warning Tag 易被误读为静态状态、看不出可点击；
-          // 改为 link 型 Button + 箭头图标，明确「这是可前往确认的操作入口」
+        const progKey = CHANGE_PROGRESS_BY_CHANGE_STATUS[record.change_status ?? 'none']
+        const c = CHANGE_PROGRESS_MAP[progKey]
+        if (progKey === 'pending') {
+          // 待确认 → 可点击前往 M09「配置变更确认」页确认发布
           return (
             <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
               <Button
@@ -917,36 +943,44 @@ function StructuredEditView() {
                 style={{ padding: 0, height: 'auto', fontSize: 13 }}
                 onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
               >
-                待确认
+                {c.text}
               </Button>
             </Tooltip>
           )
         }
-        if (record.change_status === 'confirmed') return <Tag color="success">已确认</Tag>
-        return <Text type="secondary">-</Text>
+        return <Tag color={c.color}>{c.text}</Tag>
       },
     },
     {
-      title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      render: (value: boolean, record: MonitoringRule) => (
-        <Switch
-          checked={value}
-          size="small"
-          onChange={(checked) => handleToggleEnabled(record, checked)}
-        />
+      // {v3.xx} F-23：原「启用状态」Switch 列改为「生效状态」列（草稿 / 已停用 / 待生效 / 已生效，与采集 Job 四态同源）
+      title: (
+        <Tooltip title="生效状态：草稿=保存草稿未入下发管线；待生效=变更单待确认、尚未下发生效；已生效=已启用且无待确认变更；已停用=未启用">
+          <Space size={4}>
+            生效状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
       ),
+      key: 'effectiveStatus',
+      width: 100,
+      render: (_: unknown, record: MonitoringRule) => {
+        const c = EFFECTIVE_STATUS_MAP[getRuleEffectiveStatus(record)]
+        return <Tag color={c.color}>{c.text}</Tag>
+      },
     },
     {
       title: '操作',
       key: 'actions',
       render: (_: unknown, record: MonitoringRule) => (
         <Space>
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
+          {/* {v3.xx} F-23：启停由 Switch 改为文字按钮「停用 / 启用」+ 二次确认 */}
+          <Button type="link" size="small" onClick={() => handleToggleEnabledConfirm(record)}>
+            {record.enabled ? '停用' : '启用'}
+          </Button>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
             编辑
           </Button>
-          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
             删除
           </Button>
         </Space>

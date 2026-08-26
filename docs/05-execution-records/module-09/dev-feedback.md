@@ -82,7 +82,7 @@
 - **结论（联调落地）**：**方案 A 为主 + 吸收方案 B**。
   - 后端：新增 `ConfigChangeBaseline` 持久化检测基线（DB 派生，重启/首启不误判不误生成），`configcenter/change` 包提供 30s 轮询 goroutine（`--change-detect.interval` / `CONFIG_CHANGE_DETECT_INTERVAL_SECONDS`），单域裁决后复用 `GenerateDraft`；失败记 failed 可观测状态、不推进版本、下轮重试。
   - 前端：`ScrapeJobFormDrawer` 保存后提供「前往配置变更确认」跳转并 best-effort 即时触发一次 `createDraft`（保活保证不重复，仅即时性优化）。
-- **是否需设计侧确认**：需在 PRD 明确「保存即时生成 vs 30s 轮询」的即时性表述；该条目定位为 MVP 欠账补足，非 v0.2 新功能。
+- **是否需设计侧确认**：~~需在 PRD 明确「保存即时生成 vs 30s 轮询」的即时性表述~~ **已收割于 v1.50**（PRD §3.3.3 已明确「保存后即时触发 + 前往配置变更确认跳转」的即时性表述，与轮询双通道并存）；该条目定位为 MVP 欠账补足，非 v0.2 新功能。
 - **影响模块**：后端（新增 watcher + 基线表）、前端（跳转动线）
 - **发现场景**：M09 联调，新增采集 Job 后配置确认页仍为「当前无待确认变更」。
 
@@ -128,7 +128,7 @@
   - 后端 `platform/configcenter/draft/handler.go`：新增 `GET /config-drafts/:change_no/discard-impact` 端点；`discard` 返回 `{draft, impact}`。
   - 后端单测：`platform/configcenter/draft/draft_test.go` 覆盖分类回写、首次部署回退、discard-impact HTTP 端点。
   - 前端 `ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`：废弃前先调 `discardImpact`，Modal 按 `new_reverted / modified_kept / deleted_restored / missing` 分类展示后再确认。
-- **是否需设计侧确认**：需——PRD §3.5 / §8 需补废弃回写语义；M01 PRD §5.4 `draft_status` 单向流转需补「系统随单回退例外」注记；v0.3 规划需收割 `deployed_snapshot` 长期项。
+- **是否需设计侧确认**：~~需——PRD §3.5 / §8 需补废弃回写语义~~ **已收割于 v1.50**（PRD §3.5 / §8 已按决策 43 系列补废弃回写语义 + 废弃弹窗分类知情告知）；M01 PRD §5.4 `draft_status` 单向流转「系统随单回退例外」注记由 M01 design 侧收割；v0.3 规划需收割 `deployed_snapshot` 长期项（见 design-decisions 43-4 长期备注）。
 - **影响模块**：后端（`draft/service.go` DiscardDraft 重构 + 单测）、前端（废弃确认弹窗分类告知）
 - **发现场景**：用户讨论方案 C 时追问「pending 变更单被驳回后 job 状态是什么」，并明确产品原则「采集 job 不做日志记录，只保留干净的生效 job」。
 
@@ -163,7 +163,7 @@
   - 后端：`scrapejob/update.go` / `delete.go` pending 409 守卫；`draft/service.go` 新增 `ErrNoChanges`、`ShouldSupersedePending`；`draft/handler.go` `no_changes` 分支；`change/watcher.go` skipped_pending 分支改为 checksum 比较 + 取代。
   - 单测：`draft/service_test.go`（抑制 / checksum 比较 / 损坏 metadata）；`draft/draft_test.go`（存量用例补 ready job 种子）；`change/watcher_test.go`（checksum 相同跳过 / 不同取代 / 空变更抑制；修正种子 job 时间戳盖过 host 版本推进的问题）；`scrapejob/scrape_job_test.go`（pending 409 用例 + 存量用例种子改 `change_status=none`）。
   - 前端：`ScrapeJobListPage.tsx` pending 行禁用编辑/启停/删除 + Tooltip；`ConfigPreviewPage.tsx` 详情页 superseded_by Alert；对应测试用例各 1 个。
-- **是否需设计侧确认**：需——M09 PRD §3.3.3 按「checksum 比较取代」修订（取代 F-14 的纯跳过描述）；§3.4 补空变更单抑制与 superseded_by 提示；M01 PRD 补 pending 锁定语义。
+- **是否需设计侧确认**：~~需——M09 PRD §3.3.3 按「checksum 比较取代」修订（取代 F-14 的纯跳过描述）；§3.4 补空变更单抑制与 superseded_by 提示~~ **已收割于 v1.50**（M09 PRD §3.3.3 / §3.4 已按 checksum 取代 + 空变更抑制 + superseded_by 提示同步）；M01 PRD 补 pending 锁定语义——已同步（M01 PRD §5.4「pending 期锁定」）。
 - **发现场景**：用户对「job 状态 / 生效状态 / 配置变更单」三者关系与数据流转的联调测试。
 
 ## 8. instance 校验口径与校验信息透传（2026-08-25，方案 A 落地）
@@ -189,6 +189,7 @@
   - `pending` 态「确认发布」**未禁用**（违反 §3.5.1 三态语义——promtool 不可用等未校验态不应可发布）；
   - `pending` 态**不展示「重新校验」**（promtool 不可用的 pending 态依赖重校来自愈，却没有入口）。
 - **问题 2（校验失败归因缺失）**：原型已定义 `validation_cause`（`user_config`=用户配置问题，可修复并展示「重新校验+前往修改」/ `platform_fault`=平台技术故障，自动重试、不展示「重新校验」）与 `validation_details`（`[{file,line,message}]` 结构化定位 + 行内 Popover + 跳转 M01），当前实现均未落地，`failed` 与 `pending` 无法在 UI 区分，用户拿到的是无操作指向的错误文案。
+  - **45-3 修订（2026-08-26）**：`platform_fault` 亦展示「重新校验」手动自愈出口（后端自动重试未落地，隐藏按钮会死锁）——**已收割于 v1.50**（原型失败详情 Popover 补「重新校验」按钮，行内按钮对所有 `failed` 归因展示）。
 - **结论（决策 45 系列，详见 design-decisions.md）**：
   1. 操作区三态语义按 `ValidationStatus !== 'passed'` 判定可靠出口：`passed`→可「确认发布」；`failed`/`pending`→禁「确认发布」、给「重新校验 + 废弃」；
   2. 校验信息 Alert 按 status 分色：`failed`→error、`pending`→warning（promtool 不可用属待环境就绪，非失败）；
@@ -205,25 +206,29 @@
 - **根因**：`resolveResource` 未感知采集策略层端口；Host 分支只取 `PrivateIP`，Database/Middleware 分支取资源业务端口；`ScrapeJob` 无 port 字段、生成器也未解析映射/采集器 default_port。
 - **结论（决策 46，用户拍板最小方案）**：新增 `generator.LoadExporterPort`——优先 `CITypeExporterMapping.default_port`（monitor_type 默认映射），回落 `ExporterTemplate.default_port`（exporter_template_id）；`resolveResource` 对 Host/Database/Middleware 统一拼接 exporter 端口（Database/Middleware 在 exporter 端口为 0 时回落业务端口）；Application（健康检查 URL）/ GenericTarget（登记服务端口）不变；`instance` 组合标签随地址自动带端口。
 - **实现落库**：`generator/targets.go`（`exporterPortOr` / `resolveResource` 签名 + 端口拼接）、`generator/data_source.go`（`LoadExporterPort`）、`draft/service.go`（buildArtifacts 传 exporterPort）；单测 `TestResolveTargetsExporterPort` / `TestLoadExporterPortPriority`，存量 host 断言改为带端口。
-- **是否需设计侧确认**：需——PRD M01 §5.4 统一「端口是否进 ScrapeJob 字段 / mapping_overrides」口径（当前 416 行与字段表冲突，已列 M01 F-20）；v0.2+ 若做 Job 级端口快照则补 `ScrapeJob.port` 与前端表单端口输入。
+- **是否需设计侧确认**：~~需——PRD M01 §5.4 统一「端口是否进 ScrapeJob 字段 / mapping_overrides」口径（当前 416 行与字段表冲突，已列 M01 F-20）~~ **已收割于 v1.50**（M01 PRD §5.4「端口不在 Job 层的理由」已按决策 46 统一：MVP 端口**不进 `ScrapeJob` 快照**、`mapping_overrides` 亦**不含 `port`**，由 M09 生成器按 `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port` 解析，见 M01 dev-feedback F-20 收割注记）；v0.2+ 若做 Job 级端口快照则补 `ScrapeJob.port` 与前端表单端口输入——仍待 v0.2+ 评估。
 - **影响模块**：M09 配置生成、M01 采集 Job（端口快照规划）、M07 §5.12C（已按 default_port 对齐）
 - **发现场景**：用户对「配置生成 targets 与实例实际 exporter 端口」一致性的联调测试。
 
 ## 收割状态
 
+> **2026-08-26 已收割于 v1.50**（design 分支 `design/module-mvp-demo`）：design 侧已按本轮一次性收割——M09 PRD 正文同步实现口径（**版本号保持 v1.50 不动**，Change Log 追加 v1.50 同步概括行），原型 `ConfigPreviewPage.tsx` 同步「废弃分类告知 Modal（决策 43）+ platform_fault 手动重校（决策 45-3 修订）」；验证：原型 `tsc` / `eslint` / `vitest` / `check-prototype` 通过。
+
 - [x] F-13 已修正（后单取代前单 + supersede 审计字段）
 - [x] F-14 已修正（skipped_pending 不推进基线）
-- [x] F-15 已修正/实现（自适应退避已落库 + 启动参数；PRD §3.3.3 待 design 分支按实现口径同步）
-- [x] F-17 已修正/实现（DiscardDraft 分类回写 + 废弃弹窗分类告知；PRD §3.5 / §8 待 design 分支按决策 43 系列同步）
+- [x] F-15 已修正/实现（自适应退避已落库 + 启动参数）—— **已收割于 v1.50**（PRD §3.3.3 已按自适应退避 min 5s / max 120s + `--change-detect.min/max-interval` 可覆盖同步）
+- [x] F-17 已修正/实现（DiscardDraft 分类回写 + 废弃弹窗分类告知）—— **已收割于 v1.50**（PRD §3.5 / §8 已按决策 43 系列补废弃回写语义；M01 PRD §5.4「系统随单回退例外」由 M01 design 侧收割）
 - [ ] F-18 已补测试，待用户复现信息确认是否为版本/环境不一致
-- [x] F-19 已修正/实现（决策 44 系列；PRD §3.3.3 / §3.4 与 M01 pending 锁定语义待 design 分支同步）
+- [x] F-19 已修正/实现（决策 44 系列）—— **已收割于 v1.50**（M09 PRD §3.3.3 改「checksum 比较取代」、§3.4 补空变更单抑制与 superseded_by 提示；M01 PRD §5.4「pending 期锁定」已同步）
+- [x] §6 自动变更检测（30s 轮询 + 保存后跳转）—— **已收割于 v1.50**（PRD §3.3.3 已补「保存后即时触发 + 前往配置变更确认跳转」即时性表述）
 - [x] §8 instance 放行 + vMsg 透传 已修正/实现（方案 A；PRD 无需改动）
-- [x] §9 pending 态操作出口 + 校验归因 已修正（决策 45 系列）
+- [x] §9 pending 态操作出口 + 校验归因 已修正（决策 45 系列）—— **已收割于 v1.50**（PRD §3.5.1 补三态操作出口与 `validation_cause`/`validation_details` 归因；原型 platform_fault 手动重校同步）
   - [x] 45-1 操作区三态语义修正（非 passed 禁用确认，pending 也给出重新校验+废弃）
   - [x] 45-2 校验信息 Alert 分色（failed→error / pending→warning）
   - [x] 45-3 validation_cause / validation_details 归因字段（后端 + 契约 + 前端展示）
-  - [x] 45-3 修订（2026-08-26）：platform_fault 也展示「重新校验」手动自愈出口（后端自动重试未落地，隐藏按钮会死锁；见 design-decisions.md 45-3 修订注记）
+  - [x] 45-3 修订（2026-08-26）：platform_fault 也展示「重新校验」手动自愈出口（后端自动重试未落地，隐藏按钮会死锁；见 design-decisions.md 45-3 修订注记）—— **已收割于 v1.50**（原型失败详情 Popover 补「重新校验」按钮）
   - [ ] 45-4 M07 源数据输入层静态校验（单独列 M07 前端任务，本轮不涉及 M09）
+- [x] §10 target 缺 exporter 端口（决策 46）—— **已收割于 v1.50**（M01 PRD §5.4「端口不在 Job 层的理由」已按决策 46 统一：MVP 端口**不进 `ScrapeJob` 快照**、`mapping_overrides` 不含 `port`，由 M09 生成器按 `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port` 解析；Job 级端口快照留待 v0.2+ 评估，见 M01 dev-feedback F-20）
 
 ## 2026-08-26（M01/M09 联调：变更清单未按产物 diff 派生 + 规则挂载默认启用）
 

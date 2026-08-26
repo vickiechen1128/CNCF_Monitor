@@ -1486,3 +1486,51 @@ system 标签（由标签模板自动生成）：
 - R1 / R2 / R3 待修复（原型 mock + 文案 + 表单必填约束），修复后需回归 §9.1/9.2 验收。
 - R4/R5/R6 为可选项，随联调决策；R6 涉及术语取舍，建议与产品对齐「离线」是否作为 offline 的正式用户语言。
 - MVP 不保证项仍随 M01/M02 节奏落地（offline 从 targets 移除 / 未纳入任何 Job 筛选 / 采集成败目标状态），见 K 组跟进项。
+
+---
+
+## 补充对齐：2026-08-26（开发侧反馈收割：os_type 必填+内置字典、app_name 严格必填、§6 路由前缀 v2）
+
+- **参与 Agent**：user、prototype-designer（收割开发侧 `docs/05-execution-records/module-07/dev-feedback.md` §7/§9/F-1/F-2 与 `docs/05-execution-records/integration/v0.1/issues.md`#11）
+- **触发原因**：M07 开发阶段与联调（feat/module-07-resource-management、integration/v0.1）发现的 PRD 标注不完善 / 契约差距，需设计侧统一口径并同步 PRD 与原型。**版本号不变**（PRD 保持 v2.21、原型保持 v2.8）。
+- **关联模块**：Module_01（采集候选匹配主机）、Module_09（配置生成 instance 端口）。
+
+### 关键决策
+
+#### 决策 3.53：host 的 `os_type` 改必填 + 内置字典选择（`❌` → `✅*`/`✅`）
+
+- **问题**：PRD 原标 `os_type` 非必填且为自由文本，但采集实例定位强依赖它——`platform/models/monitor_type.go` 将 host 推导为 `linux`/`windows` 监控类型、`selection.go` 按 `os_type` 关键词过滤实例候选；`os_type` 为空或拼错（如 `ubutund`）的主机被排除出采集候选，采集 Job 选不到（dev-feedback §7/§9、integration #11）。
+- **结论**：
+  1. **必填**：host 的 `os_type` 改为必填（PRD §5.6 表格 `❌`→`✅`；§5.2 基础字段改 `✅*`，仅 host 差异化必填）；
+  2. **内置字典**：改为「内置字典选择（AutoComplete 下拉，可搜索/自定义）」，按「规范名 → 家族」归一化（Ubuntu/CentOS/openEuler/Kylin…→linux，Windows Server/Windows 10/11…→windows），规范名可按需扩展；M01/M09 采集候选匹配以此为稳定口径；
+  3. **项目内已落地（开发侧）**：`platform/models/os_dict.go`（`NormalizeOSType`）+ `GET /api/v2/platform/os-options`；前端 host 表单改 AutoComplete 下拉并必填。
+- **依据**：采集候选匹配的脆性 LOWER LIKE 无法容忍自由文本；需建立单一权威字典口径，避免 M01/M09 采集候选匹配漂移。
+- **影响范围**：Module_07 PRD 5.2 / 5.6（v2.21 正文更新）；原型 ResourcesPage host 表单操作系统改必填 + AutoComplete（v2.8，已同步）。
+
+#### 决策 3.54：应用服务 `app_name` 一律必填，取消「留空默认取 service_name」（严格必填口径）
+
+- **问题**：PRD §5.2 标 `app_name` 对 application/database/middleware 必填，§5.16.1 又写「`app_name` 可留空（默认取 `service_name`）」，内部矛盾（dev-feedback F-1）；后端已按严格必填实现（`validateApplication` 要求必填、前端未做缺省逻辑）。
+- **结论**：**统一严格必填口径**——application/database/middleware 的 `app_name` 一律必填，删除「留空默认取 service_name / 可留空」表述；host、generic_target 仍可空（空值不注入 `app` 标签，与 5.15 规则 4 对齐）。不再实现「空则缺省取 service_name」逻辑。
+- **依据**：应用名是 `app` 标签聚合的关联键，缺省推演增加歧义且与后端已落地行为一致；用户拍板按严格必填。
+- **影响范围**：Module_07 PRD 5.2 / 5.16.1（v2.21 正文更新）；原型表单 `app_name` 对 application/database/middleware 必填（已一致，无改动）。
+
+#### 决策 3.55：§6 接口前缀 v1 → v2，统一 `/api/v2/platform`，以 03_API_Standard §1.2 为准
+
+- **问题**：PRD §6（含 6.6 契约）仍写 `/api/v1/resources`、`/api/v1/label-templates`、`/api/v1/business-domains` 等，与 03_API_Standard §1.2 / L3 契约的 `/api/v2/platform/resources` 等不一致；M01/M09 对接若按 PRD 取路径会 404（dev-feedback F-2）。
+- **结论**：PRD §6 全量路由前缀 `v1→v2`，统一为 `/api/v2/platform/*`，章节头注同步指向 03_API_Standard §1.2（含 `business-domains`、`imports`、`scrape-jobs` 引用）；另补 `os-options` 接口（决策 3.53 字典选项）。
+- **依据**：MVP 业务 API 统一走 `/api/v2/platform` 前缀（详见 03_API_Standard §1.2），PRD 不应与实现标准偏离。
+- **影响范围**：Module_07 PRD 6.x（v2.21 正文更新）；M01/M09 对接路径约束。
+
+### 已确认项（2026-08-26）
+
+- [x] os_type host 必填 + 内置字典（AutoComplete 下拉 / 可扩展规范名）（用户确认）。
+- [x] app_name 严格必填，去掉「留空默认取 service_name」（用户确认）。
+- [x] §6 路由前缀 v2 化，以 03_API_Standard §1.2 为准（用户确认）。
+- [x] 落档范围：M07 PRD（v2.21 正文更新）+ 原型（v2.8，os_type 下拉）+ design-decisions（用户确认）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.21）
+- `docs/prototypes/module-07/src/pages/ResourcesPage.tsx`、`src/mocks/module-07.ts`（v2.8，已同步）
+- `docs/05-execution-records/module-07/dev-feedback.md` §7/§9/F-1/F-2
+- `docs/05-execution-records/integration/v0.1/issues.md` #11

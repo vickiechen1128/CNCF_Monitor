@@ -207,13 +207,13 @@ scrape_configs:
 
 #### 3.3.3 变更检测与草稿去重说明
 
-> **触发模式声明（pull 模式）**：变更检测采用 **pull 模式**——Module_09 异步轮询（默认 30s）检测 Module_01/07 各源表的 `updated_at` 变化，Module_01/07 **不主动通知、不感知 Module_09 的存在**，策略/资源写库即完成其职责。本文档（及设计中「XX 变更触发 Module_09 重算」的表述，实际语义均为「Module_09 轮询时检测到 XX 的 `updated_at` 变化」，而非事件推送。
+> **触发模式声明（pull 模式）**：变更检测采用 **pull 模式**——Module_09 异步轮询检测 Module_01/07 各源表的 `updated_at` 变化，Module_01/07 **不主动通知、不感知 Module_09 的存在**，策略/资源写库即完成其职责。本文档（及设计中「XX 变更触发 Module_09 重算」的表述，实际语义均为「Module_09 轮询时检测到 XX 的 `updated_at` 变化」，而非事件推送。轮询为**兜底保底**，配合前端保存后 best-effort 即时触发（见下「即时性优化」）保证变更单在合理时间内出现。
 
 Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」**的混合机制，避免两个问题：无谓轮询（版本未变化却重算）、草稿噪音（内容无变化却反复进入人工确认）。
 
 **第一层：版本触发预筛（决定"要不要算"）**
 
-- 配置中心定时（默认 30s）读取参与配置生成的各源表 `max(updated_at)`，聚合为「源数据版本」（`source_data_version`）；
+- 配置中心异步轮询读取参与配置生成的各源表 `max(updated_at)`，聚合为「源数据版本」（`source_data_version`）；轮询间隔采用**自适应退避（决策 F-15）**：最近源数据有活动时按短间隔（默认 5s）检测，持续无变化时指数退避至最大间隔（默认 120s），兼顾单网域实时性与多网域资源开销；启动参数 `--change-detect.min-interval` / `--change-detect.max-interval` 与环境变量 `CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS` / `CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS` 可覆盖（兼容旧 `CONFIG_CHANGE_DETECT_INTERVAL_SECONDS`，作为最大间隔）。「检测延迟不超过一个轮询周期（默认 30s）」的历史表述随退避机制更新为「不超过当前退避间隔」；
 - 参与聚合的源表（与设计一致）：
  - `ScrapeJob`（含 blackbox 类型）、`MonitoringRule`（Module_01）；
  - `CITypeExporterMapping`（Module_01）；
@@ -221,18 +221,21 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
  - `ExporterInstallationConfirmation`（Module_01）；
 - 仅当 `source_data_version` 大于「上次生成时间」时才触发该网域重新生成，否则跳过本轮。
 - **草稿状态过滤（v0.2/v0.3）**：生成配置时，`ScrapeJob` / `MonitoringRule` 候选集必须过滤为 `draft_status=ready` 且 `enabled=true`；`draft_status=draft` 或 `enabled=false` 的对象不参与配置生成，因此其 `updated_at` 变化不会触发有效配置变更；但 M09 仍可在 `source_data_version` 聚合中感知其变化，生成空跑后通过 checksum 裁决丢弃（内容无变化），避免草稿对象在确认页产生噪音。
+- **即时性优化（MVP 落地，决策 F-19）**：轮询为**兜底保底**；用户在策略/资源页保存后，前端**best-effort 即时触发一次** `createDraft`（同域活 pending 保活约束保证不重复、不覆盖轮询语义），并提供「前往配置变更确认」跳转入口。即时触发仅做实时性优化，检测闭环不依赖它——即使触发失败，下一轮轮询仍会按源数据版本变化自动生成。
 
 **第二层：checksum 裁决（决定"算出来要不要确认"）**
 
 - 生成完成后，对配置内容计算**联合 checksum**：`sha256(prometheus.yml + rules_yml + blackbox_yml + targets 内容)`（按需拼接，缺失文件按空串处理；`targets 内容` 为按固定顺序拼接的本域全部 `targets/*.json` 文件内容，保证 targets 变化可被裁决覆盖）；
 - 与当前生效 `ConfigVersion.metadata.checksum` 对比：
- - **一致**：内容无实际变化，不生成新草稿（或生成的草稿直接标记 `discarded`），仅更新 `source_data_version` 记录，不进入确认列表；
+ - **一致（空变更抑制，决策 F-19）**：内容无实际变化，**不生成新草稿 / 不落库、不进入确认列表**（`ErrNoChanges`）——watcher 推进检测基线但不落变更单；用户手动触发生成时返回 200 + `no_changes` 提示；仅更新 `source_data_version` 记录；
  - **不一致**：生成 `status=pending` 的 `ConfigDraft`，`metadata` 记录 `trigger_summary`（触发来源：变更的 job / rule / 表 + 时间），进入人工确认。
 
-**第三层：同域 pending 取代（防堆积，决策 42-1）**
+**第三层：同域 pending 取代（防堆积，决策 42-1 / F-19 checksum 比较取代）**
 
-- 生成新 `pending` 草稿并确认其产物与生效版本有实质差异后，将该网域**更早仍未确认（`status=pending`）的草稿自动置为 `discarded`（superseded，被后续变更单取代）**，`metadata` 记录 `superseded_by_change_no`（指向新变更单号）供追溯。
-- 效果：同一网域**同时最多一张「活」的 `pending` 变更单**，确认页不会出现同域多张待确认单，运维确认的永远是最近一次源状态的发布审批（go/no-go），避免确认过期状态。
+- watcher 或生成器遇**活 `pending`** 时，先对「当前源数据产物 checksum」与「既有 pending 产物 checksum」做比较（而非直接跳过）：
+ - **checksum 相同**：源数据无实质变化，保持 `skipped_pending`、**不推进检测基线**（沿用 F-14 语义），不生成新单；
+ - **checksum 不同**：源数据已前进，生成新 `pending` 草稿**取代旧单**——旧单置 `discarded(superseded)`，`metadata` 互记 `superseded_by_change_no`（旧单指向新单）/ `supersedes_change_no`（新单指向旧单）供审计追溯；
+- 效果：同一网域**同时最多一张「活」的 `pending` 变更单**，确认页不会出现同域多张待确认单，运维确认的永远是最近一次源状态的发布审批（go/no-go），避免确认过期状态；被取代旧单在详情页以 Alert 提示「已被新变更单取代」。
 - 边界：`superseded` 仅发生在「确认前」；已 `confirmed` / 已 `discarded` 的草稿不受影响；若无更早 `pending` 则无需取代。
 
 **Edge Agent 侧（场景 B）与中心侧职责划分**
@@ -247,7 +250,7 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 >
 > - **上次检测时间**：最近一次轮询执行时间；
 > - **当前源数据版本**：`source_data_version`（各源表 `max(updated_at)` 聚合）；
-> - **检测结果**：本轮检测到变更 → 生成了哪些草稿（引用草稿 ID / 触发摘要）；未检测到变更 → 本轮无变更、跳过重算；checksum 一致 → 内容无变化、自动丢弃、不进入确认；**生成失败（configgen 异常，非校验类）→ 提示「本次变更生成失败：<原因>，请查看日志」，对该轮**不推进** `source_data_version` 记录、标记失败待重算，下一轮重试（决策 42-4）。**
+> - **检测结果**：本轮检测到变更 → 生成了哪些草稿（引用草稿 ID / 触发摘要）；未检测到变更 → 本轮无变更、跳过重算；checksum 一致 → 内容无变化、**自动丢弃且不落库（空变更抑制）**、不进入确认；**生成失败（configgen 异常，非校验类）→ 提示「本次变更生成失败：<原因>，请查看日志」，对该轮**不推进** `source_data_version` 记录、标记失败待重算，下一轮重试（决策 42-4）。**
 
 ### 3.4 配置变更确认与预览
 
@@ -273,12 +276,12 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 | **变更清单（结构化 + 风险）** | 每项变更拆分为结构化清单：变更类型（新增 / 修改 / 移除）、**变更对象 = 源数据对象统一枚举：采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板，与 Module_01 采集 Job、规则编辑及 Module_07 资源、标签模板的功能对象对齐，非配置文件本身**、**影响的配置文件**：configgen 对比产物差异派生，如仅 targets 变化 → `targets/*.json`**、人话变更说明、**风险等级**（低风险=新增目标；高风险=删除目标导致监控断点、告警规则变更导致误报/漏报）；高风险变更在列表与详情中**醒目提示**，是运维确认的重点 | **P0** |
 | **草稿列表** | 展示每个网域的变更：**变更单号（主标识，如 `CHG-20260803-003`，用户可读唯一标识，用于沟通与审计追溯）**、变更摘要、状态、风险等级、确认人、**已发布版本**：确认后生成的配置版本号 `cv-xxx` + 「记录」入口直达该变更的发布 / 回滚记录、下发前校验、生成时间；**支持按变更状态筛选**（Segmented：待确认 / 已确认 / 已废弃 / 全部，默认待确认），替代原「待确认 / 历史」二分切换，状态维度清晰且可扩展 | **P0** |
 | **按网域组织确认视图** | 变更确认页**按网域组织视图**——页面顶部提供「选择网域」切换器，**仅展示已纳管网域**（未纳管网域不生成配置草稿，不在切换器中出现；仅存在 `default` 单域时默认选中 `default`）；列表展示**当前选中网域的变更单**（单网域上下文，变更单天然归属网域，见 5.1 `ConfigDraft.network_domain_id` 必填），行内保留**下发通道标记**（`local` / `agent_pull`）；确认动作仍为**变更单级**（一次确认 / 废弃整张变更单），与网域切换无关；**确认抽屉标注发布通道**——`local`「确认后立即 reload 生效」、`agent_pull`「发布为配置包，待边缘 Agent 下次心跳拉取生效」；变更检测状态卡同步按选中网域展示 | **P0** |
-| **变更详情（抽屉式）** | 列表点击变更行 → **右侧抽屉**打开变更详情：标题=变更单号 + 状态/风险/校验标签 + 人话摘要；抽屉内以**变更清单（详情核心，含影响的配置文件列）**为首，依次为基本信息（已确认变更展示**已发布配置版本** `cv-xxx`）、技术信息（折叠）、配置产物结构、配置文件预览 / Diff（受影响文件高亮）、下发前校验说明；**确认 / 废弃按钮置于抽屉操作区**；已确认 / 已废弃变更提供**「查看发布记录」入口**（跳转下发记录页定位回滚）。**变更摘要 = 列表总览（一句话），变更清单 = 抽屉详情（逐条明细），职责分明** | **P0** |
+| **变更详情（抽屉式）** | 列表点击变更行 → **右侧抽屉**打开变更详情：标题=变更单号 + 状态/风险/校验标签 + 人话摘要；抽屉内以**变更清单（详情核心，含影响的配置文件列）**为首，依次为基本信息（已确认变更展示**已发布配置版本** `cv-xxx`）、技术信息（折叠）、配置产物结构、配置文件预览 / Diff（受影响文件高亮）、下发前校验说明；**确认 / 废弃按钮置于抽屉操作区**；已确认 / 已废弃变更提供**「查看发布记录」入口**（跳转下发记录页定位回滚）；**被同域更晚 pending 取代的旧单（superseded）详情页顶部 Alert 提示「已被新变更单取代」（不再提供确认/废弃操作，仅展示）**。**变更摘要 = 列表总览（一句话），变更清单 = 抽屉详情（逐条明细），职责分明** | **P0** |
 | **配置预览（受影响文件高亮）** | 多文件只读预览：`prometheus.yml`、`targets/*.json`、`rules.yml`、`blackbox.yml`、`metadata.json`（YAML / JSON 高亮）；**对比当前生效版本自动判定受影响的配置文件，受影响 Tab 加「变更」标记、默认聚焦第一个受影响文件、并提示「本次变更影响 N/M 个配置文件」**，用户优先看到实际变更内容，未受影响文件正常展示（面向需要深入排查的运维） | **P0** |
 | **Diff 对比** | 与当前生效版本**按文件**并排 diff（`prometheus.yml` / targets 文件 / `rules.yml` / `blackbox.yml` 逐个文件对比），标红新增/删除/修改项 | **P0** |
 | **PromQL 语法校验** | 对生成的 rules 做 PromQL 解析校验（调用 Module_02 或本地校验库） | P1 |
 | **人工确认发布（变更单级确认）** | **确认粒度为变更单级（一次确认 / 废弃整张变更单，go/no-go 发布审批）**：变更清单各行仅作影响信息展示，**不逐行确认、不拆分发布**；运维工程师确认后，draft 转为 `ConfigVersion`（继承 `change_no`，分配版本号 `cv-xxx`），进入**待下发**状态；`local` 通道 reload 成功或 `agent_pull` 通道配置包被 Agent 成功应用后，对应 M01 对象的 `change_status` 回写为 `deployed`；**确认动作记录确认人（MVP 阶段预置登录用户上下文，Module_06 用户管理接入后同步为真实用户）** | **P0** |
-| **草稿废弃** | 允许人工废弃当前 draft，保持当前生效版本不变 | P1 |
+| **草稿废弃** | 允许人工废弃当前 draft，保持当前生效版本不变；**废弃伴随源数据回写语义（决策 43 系列，详见 §3.5「废弃回写」）**——废弃前前端调 `discard-impact` 获取分类影响并弹窗知情告知，按分类回写：新建未生效 Job 随单回退 `draft`、已生效 Job 修改 MVP 提示+复现、删除/停用型自动恢复；**`change_status` 统一回写、不允许 `pending` 残留**；job 表不引入 rejected/discarded 终态，废弃审计历史由 M09 变更单承载 | P1 |
 | **变更检测状态（引导性）** | **定位为引导用户操作的状态说明，不记录检测历史**：有待确认变更 → 提示「检测到 N 个待确认变更，请前往下方列表确认后发布」（含高风险变更数）；无变更 → 提示「当前无待确认变更，策略/资源变更后将自动生成」；**生成失败（决策 42-4）** → 提示「本次变更生成失败：<原因>，请查看日志」；**与待确认列表联动形成操作引导流**（先看状态 → 再逐项确认）。上次检测时间、源数据版本、校验值裁决等技术信息折叠展示，供「确认了却没生效」时排障 | **P0** |
 
 > **变更摘要生成机制**：变更摘要**不是**"策略操作日志"，而是由 configgen 对比**配置产物差异**生成，与既有 pull 模式 / checksum 裁决架构一致、**不依赖 Module_01/07 改造**：
@@ -289,6 +292,8 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 > - **精度边界**：若规则阈值（如 80→85）只嵌在 PromQL 字符串中，精确提取需解析 PromQL，可退化为「HighCPUUsage 规则表达式已修改」级别；若规则模型将阈值参数结构化，则可直接生成「阈值由 80 调整为 85」——MVP 建议规则模型结构化阈值（Module_08 协同），原型以 mock 字段演示完整话术。
 
 > **targets 前端数据驱动**：`targets/<job_name>.json` 由 configgen 按 job 名自动生成（固定文件名覆盖写）；前端预览的 targets 子 Tab **动态遍历 `ConfigDraft.targets_files` 数据渲染**，**新增 job 无需前端改动**（三层解耦：文件命名=后端生成、展示=数据驱动、用户入口=Module_01/07 策略配置）。
+>
+> **targets labels 归属层级（决策 D43，target 级）**：`targets/*.json` 中每个 target 的 `labels` **挂 target 级**（`[{"targets": [...], "labels": {...}}]`），与 Prometheus file_sd 语义 + 资源实例级差异化一致；**Job 级 labels 仅保留系统字段**。`ScrapeJob.label_template_id` 为 Job 级引用，配置生成时按该模板把**每个 target 对应资源属性**转换为 target 级 `labels`（`business_domain → biz`、`tenant_id → tenant` 等业务标签由 M07 LabelTemplate 注入，见 §3.3.1；`instance` 组合标签随地址自动带端口）。标签模板变更 → 命中引用 Job 的 target labels → 触发 `targets/*.json` 重写与变更单（变更对象=标签模板、风险 high）。
 
 > **提示分区规范**：原型 / 产品页面中的提示按受众分三类，避免相互干扰——
 >
@@ -333,6 +338,15 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 > **与 Module_06 全局审计的边界**：下发记录（`ConfigDeployment`）是 Module_09 的**领域业务对象**（有状态机 pending/success/failed/rolled_back、可操作回滚、含配置版本/目标/校验等结构化字段），承担**领域审计**（每个网域发过什么版本、结果如何）；Module_06 的**全局审计日志**是平台级横切操作留痕（actor/action/resource/time，P2，请求级事件由 Module_03 收集）。两者**联动不重复**：下发/回滚动作可同时写入一条全局审计日志，但领域数据不迁移、互不替代。
 
 > **reload 策略分离（targets vs 结构）**：targets 变化（增删实例、标签变更）时，仅原子重写对应 `targets/*.json` 文件（临时文件 + rename，避免采集器读到半写文件），**不触发**采集器主配置 reload——file_sd 由采集器磁盘监听 / 轮询自动感知并应用；仅当 `prometheus.yml` 结构（job 骨架、external_labels、remote_write、relabel 等）变化时才触发 reload。
+>
+> **废弃回写语义（决策 43-1~43-7，MVP 落地）**：变更单**废弃（discard）不是「数据不动只废单」**——full-render 模型下废弃不处理源数据必然导致鬼影复现（下一轮轮询因「源版本 > 基线」重新生成内容相同的变更单）。废弃必须伴随源数据分类回写，规则：
+>
+> - **分类判定**：废弃前由后端 `discard-impact` 计算影响分类，前端弹窗**分类知情告知**后再确认（`new_reverted` 新建未生效 / `modified_kept` 已生效修改 / `deleted_restored` 删除停用 / `missing` 未命中）；
+> - **新建未生效 Job（new_reverted）**：随单回退 `draft`（撤回「提交生效」，等待下次提交）；
+> - **已生效 Job 修改（modified_kept）**：MVP 选 **「提示 + 复现」**（2a）——提示「修改将不生效、随复现变更单再次进入确认」，并说明 `deployed_snapshot` + 「随单回滚」备注至 **v0.3**；
+> - **删除 / 停用型（deleted_restored）**：自动恢复（删除恢复启用 / 停用恢复启用）；
+> - **`change_status` 统一回写**：不允许 `pending` 残留（废弃即清除，防假锁）；job 表**不引入 rejected/discarded 终态**，废弃审计历史由 M09 变更单承载；废弃后下一轮轮询因「源版本=基线」不再复现空单。
+> - **规则侧回写**：规则 `change_status` 与采集 Job 同口径——确认下发后回写 `deployed`（决策 31-M2 / issue #18），废弃场景的规则回滚登记待 v0.3（`deployed_snapshot`）。
 
 #### 3.5.1 下发前校验与 blackbox 重载说明
 
@@ -342,10 +356,11 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
  - **configgen 侧 targets schema 校验**：配置生成服务生成 targets JSON 时校验文件结构（JSON 顶层数组、`targets` / `labels` 字段）、`host:port` 地址格式与 labels 合法性（遵循标签命名规则，禁止覆盖 `__address__` 等内置标签），不通过则拒绝生成草稿。
 - **promtool 校验缺口说明**：`promtool check config` 对 `file_sd_configs` 只检查文件**存在性**（文件缺失仅 WARNING），**不校验 SD 文件内容**（社区已知缺口）；该缺口由 configgen 侧的 targets schema 校验弥补（上一条）。
 - 校验失败时，当前 `ConfigDraft` 保持原状态（`validation_status=failed`），不进入下发流程，并记录错误原因；「变更确认」页该变更单展示失败态与失败原因，并提供**两个闭环出口（决策 42-2）**：
- - **重新校验**：对该草稿重新执行中心内容校验（仅重校、不重生成源内容），适用于"源数据未变但校验结果因环境/工具升级变化"的自愈；重新校验通过后恢复为可确认 `pending`；
+ - **重新校验**：对该草稿重新执行中心内容校验（仅重校、不重生成源内容），适用于"源数据未变但校验结果因环境/工具升级变化"的自愈；重新校验通过后恢复为可确认 `passed`；
  - **废弃**：明确「校验未通过，本次变更将保持当前生效配置不变」，将该草稿置 `discarded`。
  - 二者均为**变更单级**操作，避免 failed 草稿永久卡死在「待确认」列表、挡住后续发布（对应 6.6.2 校验失败相关接口）。
-- `ValidationStatus` 状态含义：`passed`（可确认下发）/ `failed`（阻止确认，提供重新校验 / 废弃出口）/ `pending`（未校验或生成中）。
+- `ValidationStatus` 状态含义（决策 45-1 三态操作出口）：`passed`（**可确认下发**）/ `failed`（阻止确认，提供「重新校验 + 废弃」出口）/ `pending`（未校验或生成中——**同样禁止确认下发**，提供「重新校验 + 废弃」出口，promtool/blackbox 暂不可用属「待环境就绪」而非失败，以 warning 提示）；**操作区判定为「仅 `validation_status=passed` 可确认发布」**，`failed`/`pending` 均不可确认。
+- **校验失败归因（决策 45-3，对齐原型 v1.39）**：`ConfigDraft` 持久化 `validation_cause`（`user_config` = 用户配置问题，可修复，提供「重新校验 + 前往修改」/ `platform_fault` = 平台技术故障，**同样提供手动「重新校验」自愈出口**）与 `validation_details`（`[{file, line, message}]` 结构化定位，前端行内 Popover 定位并跳转 Module_01 修改源数据）；（MVP 归因判定：targets schema 类失败归 `user_config`，promtool/blackbox 不可用归 `platform_fault`）。校验信息 Alert 按状态分色——`failed`→error、`pending`→warning。
 - **校验分层定位**：以上校验均为**中心内容校验**（防**生成错误**），与之对应的是 Edge Sync Agent 拉包后的**边缘传输校验**（防**传输损坏/篡改/半写文件**）；中心内容校验与边缘传输校验的分层关系与衔接见 [[6.5](#65-中心边缘校验分层与衔接)。
 - Edge Sync Agent 解压配置包后，需同步通知同域 blackbox exporter 重新加载 `blackbox.yml`（推荐 `SIGHUP`；如 blackbox exporter 提供 reload API，也可调用 API）；采集器（vmagent / prometheus-agent）仅当 `prometheus.yml` 结构变化时才需 reload，targets 文件变化由 file_sd 自动感知（见 3.5 reload 策略分离）。
 
@@ -665,10 +680,13 @@ MetricCenter 通过 [Module_06](Module_06_Multi_Tenant.md) 的**租户级行政�
 | rules_yml | text | ❌ | 仅技术信息 | 生成的 rules.yml 内容（可选） |
 | blackbox_yml | text | ❌ | 仅技术信息 | 生成的 blackbox.yml 内容（可选） |
 | targets_files | json | ❌ | 仅技术信息 | 生成的 targets 内容承载字段：按 job 名组织的 targets 列表（file_sd 目标文件，如 `{"node-exporter": [{"targets": [...], "labels": {...}}], "blackbox-http": [...]}`；网域无任何目标时为空对象） |
-| metadata | json | ✅ | 仅技术信息 | 生成时间、生成器版本、`source_data_version`、`trigger_summary`（触发来源 job/rule/表 + 时间）、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml+targets 内容)）、来源 job/rule 摘要；被同域更晚 pending 取代时记录 `superseded_by_change_no`（指向新变更单号） |
+| metadata | json | ✅ | 仅技术信息 | 生成时间、生成器版本、`source_data_version`、`trigger_summary`（触发来源 job/rule/表 + 时间）、联合 checksum（sha256(prometheus.yml+rules_yml+blackbox_yml+targets 内容)）、来源 job/rule 摘要；被同域更晚 pending 取代时记录 `superseded_by_change_no`（指向新变更单号），新单记录 `supersedes_change_no`（指向被取代旧单） |
 | summary | string | ✅ | 变更摘要 | **人话变更摘要**：由 configgen 对比当前生效版本与草稿的产物差异生成，面向运维回答「为什么发生了变更」，如「新增 1 台服务器（10.0.1.11）加入 node-exporter 采集」 |
 | change_items | json | ✅ | 变更清单 | **结构化变更清单**：`[{type: add/modify/remove, target: 源数据对象枚举（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板）, description, risk: low/high, affected_files: 影响的配置文件（prometheus.yml / targets / rules.yml / blackbox.yml）}]`，供「配置变更确认」页结构化展示（变更类型 / 变更对象 / 说明 / 风险等级 / 影响的配置文件） |
-| status | enum | ✅ | 状态 | pending / confirmed / discarded；`discarded` 承载四语义——人工废弃 / 内容无变化自动丢弃 / 校验失败后废弃 / **被同域更晚 pending 取代（superseded，决策 42-1）** |
+| validation_status | enum | ✅ | 校验 | 下发前校验结果：`passed` / `failed` / `pending`（见 3.5.1）；仅 `passed` 可确认发布 |
+| validation_cause | enum | ❌ | 校验原因 | 校验失败归因（决策 45-3）：`user_config`（用户配置问题，可修复，提供「重新校验 + 前往修改」）/ `platform_fault`（平台技术故障，提供手动「重新校验」自愈出口）；MVP 判定：targets schema 类失败归 `user_config`、promtool/blackbox 不可用归 `platform_fault` |
+| validation_details | json | ❌ | 校验详情 | 结构化校验失败定位：`[{file, line, message}]`，前端行内 Popover 定位并跳转 Module_01 修改源数据 |
+| status | enum | ✅ | 状态 | pending / confirmed / discarded；`discarded` 承载四语义——人工废弃（含废弃回写源数据） / 内容无变化自动丢弃 / 校验失败后废弃 / **被同域更晚 pending 取代（superseded，决策 42-1）** |
 | created_at | datetime | ✅ | 仅技术信息 | 创建时间 |
 | updated_at | datetime | ✅ | 仅技术信息 | 更新时间 |
 | confirmed_by | string | ❌ | 确认人 | 确认人 |
@@ -1018,23 +1036,23 @@ edge-config-<network_domain_id>.zip
 **① ConfigDraft（变更单）状态机**
 
 ```text
-[生成] 检测到源数据变更 + 内容有实际差异（联合 checksum ≠ 生效版本）
-   │
+[生成] 检测到源数据变更 + 内容有实际差异（联合 checksum ≠ 生效版本，空变更抑制：无差异不落库）
+   │  └── 遇活 pending：与既有 pending 产物 checksum 比较（决策 42-1 / F-19）——相同保持 skipped_pending 不推基线；不同生成新单取代旧单
    ▼
- pending（待确认）─── 确认发布（人工，变更单级 go/no-go）───► confirmed（已确认）
+ pending（待确认）─── 确认发布（人工，变更单级 go/no-go；仅 validation_status=passed 可确认）───► confirmed（已确认）
    │   ▲                                                            │
-   │   └────────── 内容无变化自动裁决（checksum 一致）──────────────► discarded（自动丢弃）
-   │   └────────── 被同域更晚 pending 取代（superseded，决策 42-1）──► discarded（已取代）
+   │   └──────── 内容无变化自动裁决（empty-change 抑制，不落库）──────►（不生成）
+   │   └──────── 被同域更晚 pending 取代（superseded，metadata 互记）──► discarded（已取代）
    │
-   └────── 废弃（人工）───► discarded（已废弃）
-   └────── 校验失败后重新校验通过 或 校验失败后废弃（决策 42-2）
+   └────── 校验失败后重新校验通过 或 校验失败后废弃（决策 42-2 / 45-1）
+   └────── 废弃（人工）───► discarded（已废弃，伴随源数据分类回写，决策 43）
 ```
 
 | 状态 | 含义 | 进入条件 | 后续流转 |
 |------|------|---------|---------|
-| pending | 待确认 | configgen 检测到变更且产物有实际差异 | 确认 → confirmed；废弃 → discarded；自动丢弃（内容无变化不生成）；校验失败后重新校验通过或废弃（见 3.5.1 / 决策 42-2）；被同域更晚 pending 取代 → discarded(superseded) |
-| confirmed | 已确认 | 运维确认发布（记录确认人） | 生成 ConfigVersion（继承 change_no，分配 cv-xxx）→ 进入下发流程 |
-| discarded | 已废弃 / 自动丢弃 / 已取代 | 人工废弃；或重算后 checksum 与生效版本一致自动丢弃；或被同域更晚 pending 取代（superseded，`metadata.superseded_by_change_no` 指向新单） | 终态，保持当前生效配置不变 |
+| pending | 待确认 | configgen 检测到变更且产物有实际差异；仅 `validation_status=passed` 可确认 | 确认 → confirmed（生成 ConfigVersion）；废弃 → discarded（分类回写源数据）；校验失败 / 未校验（pending）不可确认，提供「重新校验 + 废弃」（见 3.5.1 / 决策 45-1）；被同域更晚 pending 取代 → discarded(superseded) |
+| confirmed | 已确认 | 运维确认发布（记录确认人，变更单级 go/no-go） | 生成 ConfigVersion（继承 change_no，分配 cv-xxx）→ 进入下发流程；下发成功后 M01 `change_status` 回写 `deployed`（决策 31-M2） |
+| discarded | 已废弃 / 自动丢弃 / 已取代 | 人工废弃（**伴随源数据分类回写：新建回退 draft / 已生效修改保留提示复现 / 删除·停用自动恢复，`change_status` 清理防 pending 残留，决策 43**）；或重算后 checksum 与生效版本一致（空变更抑制、不落库）；或被同域更晚 pending 取代（superseded，`metadata.superseded_by_change_no` 指向新单，新单 `supersedes_change_no` 指向旧单） | 终态，保持当前生效配置不变；废弃审计历史由本变更单承载 |
 
 **② ConfigDeployment（下发记录）状态机**
 
@@ -1126,7 +1144,8 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 > **MVP 缺憾补漏验收（决策 42 系列，均为 MVP 子集内可闭合项）**：
 
 - [ ] {P0} **同域至多一张活 `pending` 变更单（决策 42-1）**：同一网域在确认周期内连续变更时，旧的 `pending` 草稿被更新的草稿自动置为 `discarded`（superseded，界面展示「已取代」），变更确认列表同时最多呈现一张待确认单，不会出现同域多张待确认单
-- [ ] {P0} **校验失败草稿闭环（决策 42-2）**：`validation_status=failed` 的草稿不可确认，界面展示失败原因，并提供「重新校验」与「废弃」两出口；重新校验通过后恢复可确认；废弃后保持当前生效配置不变
+- [ ] {P0} **校验失败草稿闭环（决策 42-2 / 45-1）**：`validation_status=failed` 的草稿不可确认，界面展示失败原因（含归因分类与结构化定位），并提供「重新校验」与「废弃」两出口；`pending`（未校验 / 生成中）同样不可确认，提供「重新校验 + 废弃」；重新校验通过后恢复可确认；废弃后保持当前生效配置不变
+- [ ] {P0} **废弃回写知情告知（决策 43）**：废弃变更单前弹窗按分类告知源数据影响（新建回退草稿 / 已生效修改保留并提示复现 / 删除停用自动恢复），确认后源数据按分类回写，`change_status` 不再残留 pending；废弃后变更列表不再次出现内容相同的变更单
 - [ ] {P0} **`local` 重试下发（决策 42-3）**：`channel=local` 且 `status=failed` 的下发记录提供「重试」按钮，重试复用最近一次版本的下发动作并生成新下发记录；`agent_pull` 通道不提供重试
 - [ ] {P0} **变更检测「生成失败」可观测（决策 42-4）**：configgen 生成异常时，变更检测状态明确提示「本次变更生成失败 + 原因」，不推进 `source_data_version`，下一轮自动重试
 
@@ -1137,7 +1156,7 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P2} 网域可维护 BlueKing CMDB 云区域 ID 与路径映射
 - [ ] {P0} v0.2 阶段，配置中心可轮询 Module_01 与 Module_07 数据并生成按网域的 `prometheus.yml` 与 `targets/*.json` 草稿
 - [ ] {P0} Module_01/07 策略/资源写库后无需主动通知 Module_09，配置生成由 Module_09 异步轮询（pull 模式）检测 `updated_at` 变化触发
-- [ ] {P0} 策略变更到配置草稿生成（含确认前）的检测延迟不超过一个轮询周期（默认 30s）
+- [ ] {P0} 策略变更到配置草稿生成（含确认前）的检测延迟不超过当前轮询间隔（自适应退避：有活动短间隔默认 5s，静默期指数退避至默认 120s；`--change-detect.min-interval` / `--change-detect.max-interval` 可覆盖）
 - [ ] {P0} 配置中心按源数据版本（各源表 `max(updated_at)` 聚合）触发重算；源数据未变化时不产生无谓轮询
 - [ ] {P0} 生成的草稿内容与当前生效 `ConfigVersion` 一致（联合 checksum 相同）时，不进入人工确认列表
 - [ ] {P0} `ConfigDraft.metadata` 记录 `source_data_version`、`trigger_summary` 与联合 checksum，可用于追溯变更来源
@@ -1180,6 +1199,17 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P0} **校验失败闭环（决策 42-2）**：`validation_status=failed` 草稿禁止 confirm；`revalidate` 仅重校、校验通过后恢复可确认；`discard` 支持校验失败态草稿
 - [ ] {P0} **local 重试（决策 42-3）**：`retry` 仅对 `local` 通道 + 原记录 failed 生效，重试生成新 `ConfigDeployment`；`agent_pull` 通道 `retry` 返回 `bad_request`
 - [ ] {P0} **生成失败不推进版本（决策 42-4）**：configgen 生成异常时不推进 `source_data_version`、标记失败待重算，下一轮轮询自动重试
+
+> **MVP 缺憾补漏技术验收（决策 43 / 44 / 45 系列）**：
+
+- [ ] {P0} **空变更抑制（决策 44 / F-19）**：产物与生效版本一致时不生成 / 不落库变更单（`ErrNoChanges`），watcher 推进检测基线但不落库；手动触发生成返回 200 + `no_changes`
+- [ ] {P0} **pending 期源数据锁定（决策 44-1）**：`change_status=pending` 期间禁止编辑 / 启停 / 删除采集 Job（后端 409 + 前端禁用 Tooltip），避免变更单内容与现实脱节
+- [ ] {P0} **同域 pending checksum 比较取代（决策 44 / F-19）**：watcher 遇活 pending 时比较「当前产物 checksum vs 既有 pending checksum」——相同保持 `skipped_pending` 不推进基线（F-14）；不同生成新单取代旧单，`metadata` 互记 `superseded_by_change_no` / `supersedes_change_no`；被取代旧单详情页 Alert「已被新变更单取代」
+- [ ] {P0} **废弃分类回写源数据（决策 43 系列）**：`discard` 前经 `discard-impact` 计算分类并弹窗告知；新建未生效 Job 随单回退 `draft`、已生效修改提示+复现（`deployed_snapshot` 回滚备注 v0.3）、删除/停用自动恢复；`change_status` 清理、不允许 `pending` 残留；job 表不引入 rejected/discarded 终态，废弃后轮询不再复现空单
+- [ ] {P0} **校验三态确认出口（决策 45-1）**：操作区「仅 `validation_status=passed` 可确认发布」；`pending`（promtool 不可用等未校验态）与 `failed` 均禁确认，提供「重新校验 + 废弃」出口；`platform_fault` 也提供手动「重新校验」自愈出口
+- [ ] {P0} **校验归因字段（决策 45-3）**：`ConfigDraft` 持久化 `validation_cause`（`user_config` / `platform_fault`）与 `validation_details`（`[{file,line,message}]`），detail / revalidate 失败响应透传具体校验信息（替代无具象文案）
+- [ ] {P0} **targets labels target 级（决策 D43）**：`targets/*.json` 每个 target 的 `labels` 由 `label_template_id` 按对应资源属性转换（target 级），Job 级 labels 仅保留系统字段；标签模板变更 → 命中引用 Job 的 target labels → 触发 `targets/*.json` 重写与变更单
+- [ ] {P0} **规则 change_status 回写（决策 31-M2 / issue #18）**：确认下发成功后 `MonitoringRule.change_status` 同步回写 `deployed`（与采集 Job 同口径），废弃场景规则回滚登记待 v0.3
 
 ## 10. 术语映射（用户词汇表）
 
@@ -1247,7 +1277,8 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 
 ### 11.2 全局行为规则
 
-- **轮询间隔**：配置变更检测状态区域每 30s 自动刷新；采集节点状态页每 30s 自动刷新；下发记录页进入时刷新，不自动轮询。
+- **轮询间隔**：配置变更检测状态区域按自适应退避间隔自动刷新（有活动短间隔默认 5s，静默期指数退避至默认 120s）；采集节点状态页每 30s 自动刷新；下发记录页进入时刷新，不自动轮询。
+- **保存后即时触发与跳转**：策略 / 资源页保存成功后，提供「前往配置变更确认」跳转入口，并 best-effort 即时触发一次 `createDraft`（同域活 pending 保活约束保证不重复，仅实时性优化；30s 轮询兜底）。
 - **破坏性操作二次确认**：重置 Token、废弃变更单、回滚配置版本操作前弹出 Modal 要求用户二次确认，并明确提示影响范围。
 - **表单校验提示位置**：表单字段校验失败时，错误提示置于字段下方；全局错误使用 Alert 置顶展示。
 - **提交中防重复**：确认发布、重试下发、重置 Token 等按钮在提交期间置为 loading 并禁用，等待接口返回后再恢复。
@@ -1259,7 +1290,7 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
-| v1.50 | 2026-08-21 | 修改 | 决策 30/31 落版：①采集认证/TLS 最小集透传（决策 31，MVP 必实现）——§3.3 配置生成服务新增「认证/TLS 透传」行，将 ScrapeJob 的 `auth_type`（basic→`basic_auth` username/password、bearer→`authorization` Bearer）/`tls_skip_verify`→`tls_config.insecure_skip_verify`/`ca_file`→`tls_config.ca_file` 映射进对应 `scrape_configs`，全部可选默认不启用，blackbox 拨测 HTTP/HTTPS 模块同理透传 `tls_config`、无新机制；②网域冻结域不生成新变更单（决策 30）——§3.4 配置变更确认补充冻结（禁用）域不生成新变更单、存量下发与回滚不受影响；③变更状态回写 `change_status=deployed` 提前到 MVP（决策 31-M2）——§3.5 M09 依据 ConfigDeployment success 记录回写、消除「已生效 vs 无变更」歧义；④删除「未指定网域资源自动归 default」兜底（决策 31-M3）——§5.1 明确 M07 导入校验 `network_domain_id` 必填、缺失即拒绝，M09 不做隐式归集、仅显式选择 default 才归入 | 3.3 / 3.4 / 3.5 / 5.1 | MVP / v0.2 | prototyping |
+| v1.50 | 2026-08-26 | 修改 | **版本号保持 v1.50（同步联调已拍板决策，非升版）**——按 `module-09/dev-feedback.md`（F-15/F-17/F-19/§8/§9）与 `integration/v0.1/issues.md`（#5/#8/#9/#18）同步正文：①§3.3.3 轮询改**自适应退避**（min 5s / max 120s，`--change-detect.min/max-interval` 可覆盖）、同域 pending 改 **checksum 比较取代**（相同不推基线 / 不同取代并 `supersedes_change_no` 互记）、补**保存后即时触发 + 前往配置变更确认跳转**、空变更抑制（`ErrNoChanges` 不落库）；②§3.4 变更详情补 superseded 旧单「已被新变更单取代」Alert、草稿废弃补**分类回写知情告知**（决策 43）、targets labels **target 级**来源说明（决策 D43）；③§3.5 补**废弃回写语义**（新建回退 draft / 已生效修改提示+复现备注 v0.3 / 删除停用自动恢复 / change_status 防 pending 残留 / 规则回写同口径）；④§3.5.1 补**校验三态操作出口**（仅 passed 可确认，pending 亦禁确认给「重新校验+废弃」）与 **`validation_cause` / `validation_details` 归因**（决策 45）；⑤§5.4 ConfigDraft 字段表补 `validation_status` / `validation_cause` / `validation_details`、metadata 补 `supersedes_change_no`；⑥§8 ConfigDraft 状态机补空变更抑制 / supersede 互记 / 废弃回写流转；⑦§9.1/§9.2/§11.2 验收与轮询表述对齐并补决策 43/44/45 验收项 | 3.3.3 / 3.4 / 3.5 / 3.5.1 / 5.4 / 8 / 9 / 11.2 | MVP / v0.2 | prototyping |
 | v1.49 | 2026-08-21 | 修改 | M09 网域契约结构性对齐（决策 28）+ offline 排除提级 P0（决策 29）：①§1 / §3.1.1 / §5.1 删除「1 租户 : N 网域」「禁止跨租户共享网域」「租户前缀」「tenant_id=所属租户」「未指定继承 default」等旧语义，明确「NetworkDomain 行政模型以 Module_06 为单一事实来源」、ID 规则置 M06（id / tenant_id 字段只读引用、归属约束改为行政约束引用、MVP 处理去掉租户继承语义、§9.1/§9.2 同步）；②§3.3「实例过滤」与 9.2 验收将 `offline` 排除提级 MVP 必实现——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤，`offline` 后下一配置生成周期即从 targets 移除；本轮为 PRD 契约落版，不涉及原型行为变更 | 1 / 3.1.1 / 3.3 / 5.1 / 9 | MVP / v0.2 | prototyping |
 | v1.48 | 2026-08-21 | 修改 | 对齐 Module_01 v3.24「规则文件挂载」补充 `rule_content` 透传并入契约：①§3.3「按网域生成配置」新增 `content_mode` 分形态并入逻辑——`yaml_passthrough`（MVP）将 `rule_content`（完整 rules.yml 含 groups）原样并入，`structured`（v0.3+）按字段化生成；②§3.3 配置文件映射语义补充 `rules.yml` = 规则级（MonitoringRule）层级；③9.2 验收「规则组织与交付」补透传表述 | 3.3 配置生成 / 9 验收 | MVP / v0.3 | prototyping |
 | v1.47 | 2026-08-21 | 修改 | MVP 缺憾补漏（决策 42 系列）：①同域 `pending` 草稿「后单取代前单」（superseded）防堆积——3.3.3 补第三层裁决、8 状态机、5.4 metadata `superseded_by_change_no`；②校验失败草稿补「重新校验 / 废弃」闭环——3.5.1、6.6.2 新增 revalidate 接口、8 pending 流转；③`local` 通道 failed 下发记录补「重试」入口——3.5、6.6.3 新增 retry 接口（`agent_pull` 不提供）；④configgen 生成异常补「生成失败」态且不推进版本、下轮重试——3.3.3 检测状态可观测、3.4 变更检测状态；⑤9.1/9.2 MVP 验收范围收敛并补 4 项闭环验收（决策 42-1~42-4） | 3.3.3 / 3.4 / 3.5 / 3.5.1 / 5.4 / 6.6.2 / 6.6.3 / 8 / 9 | MVP / v0.2 | prototyping |
