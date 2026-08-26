@@ -22,6 +22,7 @@
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v1.35 | 2026-08-26 | **新增 Form 抽屉/弹窗强制 forceRender 规则**：所有包含 Form 且通过 `useEffect(open)` 执行 `setFieldsValue` 回显/预填的 Drawer/Modal，必须设置 `forceRender`，**禁止使用 `destroyOnHidden` / `destroyOnClose`**（销毁重建会放大惰性挂载竞态）。触发背景：#19 发现规则、采集 Job、资源（M07）、映射、网域等 6+ 处抽屉/弹窗因 antd 首次打开惰性挂载导致编辑回显首次为空、二次才出现，需系统性规范避免回归；详见新增 Step 3.7 与回归测试要求。 |
 | v1.33 | 2026-08-22 | **契约快照权威化 + antd 测试稳定模式前置**：①「契约优先」升级，以 `api-contract-snapshot.md` 为第一权威，PRD/API 标准为补充，禁止反向读取 `platform/models/*.go`；② Step 1 将 `web-development` skill 列为必读，并强调其「Ant Design 组件测试稳定模式」章节；③ 新增 Step 3.6「应用 antd 测试稳定模式」；④ 任务卡输入清单必填 `api-contract-snapshot.md`；⑤ 单任务验证命令改为 `pnpm vitest run <文件>`，全量 `pnpm test` 仅在 Phase 收尾/合并前执行。触发背景：M07 前端任务因契约来源分散、antd jsdom 测试基建未沉淀，导致从下午执行到 23 点，消耗大量 token。 |
 | v1.32 | 2026-08-22 | **新增 PRD / 原型细节问题反馈义务**：三类问题处置（①PRD 空白→可直接定但需写反馈单留痕；②矛盾→实现前报告 Orchestrator 走 CR，禁止事后当既成事实；③原型技术优化→写反馈单留痕）。反馈单写入 `docs/05-execution-records/module-XX/dev-feedback.md`，随 feat 合并、PR 描述链接。触发背景：模块并行开发中契约保护与细节反馈需解耦。 |
 | v1.31 | 2026-08-22 | **新增 2 项核对 + 顶部导航规范**：① Step 3.5 新增第 7 项「导航与模块名核对」——顶部一级 tab / banner 入口文案必须用 **PRD 模块名**（M06=「系统与平台管理」），禁止功能页名 / 随手起名充当一级模块，首页为第一个 tab；② 新增第 8 项「共享组件复用核对」——筛选区 / 表格 / 长文本复用原型 `FilterBar` / `tablePresets` / `EllipsisText`，禁止散点 `<Space wrap>` 堆叠 / 逐行写 ellipsis。触发背景：Module_06 顶部 tab 误用二级功能名「网域管理」充当一级模块，需改回 PRD 模块名；筛选区仍散点手写。 |
@@ -125,6 +126,20 @@ git branch --show-current # 必须是 feat/module-XX
 2. 优先使用 `await screen.findBy*` / `await waitFor` 处理异步渲染，禁止依赖同步 `screen.getBy*` 断言 antd 下拉/抽屉/弹窗；
 3. 对 `Modal.confirm`/`Modal.info` 等静态方法使用 `mockAntdModal()` spy，断言用户点击结果；
 4. 全量回归命令使用 `pnpm test` 只在 Phase 收尾/合并前执行；单任务验证使用 `pnpm vitest run <具体测试文件>`。
+
+### Step 3.7: Form 抽屉/弹窗强制 forceRender（v1.35 新增，强制）
+
+> 触发背景：issues #19 发现规则、采集 Job、M07 资源、标签映射、网域等 6+ 处「Form 放 Drawer/Modal + `useEffect(open)` `setFieldsValue` 回显」组件，首次打开编辑回显为空、二次才出现。
+
+**根因**：antd Drawer/Modal 首次打开时内容**惰性挂载**（rc-drawer/rc-dialog 动画期晚于父组件 `useEffect` 的 `form.setFieldsValue` 执行）；`setFieldsValue` 在 Form 字段注册前调用被**静默丢弃**，二次打开时 Form 已常驻挂载才回显成功。
+
+**强制规则**：
+
+1. 所有**包含 Form**且通过 `useEffect(open)`（或 `useEffect([record])`）执行 `setFieldsValue` 回显/预填的 Drawer/Modal，**必须设置 `forceRender`**，保证 Form 常驻挂载、首次打开即正确回显；
+2. **禁止**使用 `destroyOnHidden` / `destroyOnClose`（销毁重建会让每次打开都退回首次惰性挂载，恰好放大该竞态）；如需重置表单，在 `useEffect(open)` 内 `form.resetFields()` 后 `setFieldsValue`；
+3. 每个 Form 抽屉/弹窗必须配套「**关闭 → 打开切换回显**」回归测试（首次打开即断言 `findByDisplayValue` 命中编辑值），防止未来遗漏。
+
+> 例外：无 Form 的确认/展示弹窗（删除确认、克隆、明文 Token 展示等）无回显竞态，可继续使用 `destroyOnHidden`/`destroyOnClose`。
 
 ### Step 4: 安装依赖
 

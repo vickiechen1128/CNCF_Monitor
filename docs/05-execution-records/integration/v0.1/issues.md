@@ -15,6 +15,8 @@
 | 14 | 规则挂载「保存并下发」后状态变停用（M01，实现偏差） | M01 | 前端创建请求漏传 `enabled`；后端 `CreateMonitoringRuleRequest.Enabled` 为非指针 bool，零值 false 落库 | 后端 `Enabled` 改为 `*bool` 缺省 true；前端显式传 `enabled: true`，按钮文案改为「提交生效」 | backend-developer / frontend-developer | `go test ./platform/strategy/rule/...` + 前端相关用例通过 | closed（PRD 无需改动） |
 | 15 | Prometheus 加载不到告警规则（"No rules found"）（M09，实现偏差） | M01/M09 | M09 `render.go` 生成 prometheus.yml 未注入 `rule_files` 引用 rules.yml，Prometheus 默认不加载规则文件 | `cfgFile` 增 `RuleFiles`，有规则时注入 `rule_files: ["rules.yml"]`（无规则不注入） | backend-developer | `go test ./platform/...` 通过；端到端下发后 Prometheus Rules 正常加载 | closed（PRD 无需改动） |
 | 16 | promtool 校验误报——check config 缺 rules.yml 引用文件（M09，实现偏差） | M09 | F-23 修复后 prometheus.yml 经 `rule_files: ["rules.yml"]` 引用同目录规则文件，但 `runPromtoolCheck` 校验时只写 prometheus.yml 到临时目录，未写 rules.yml / targets/*.json，promtool 判定引用文件不存在 | `runPromtoolCheck` 改为按真实下发目录结构（prometheus.yml + rules.yml + targets/*.json）写入临时目录再校验 | backend-developer | `go test ./platform/...` 通过；重编译重启后对失败草稿 CHG-20260826-015 重校通过（passed） | closed（PRD 无需改动） |
+| 18 | 规则 change_status 无 M09 回写，禁用后残留 pending 假锁（M01/M09，实现缺漏） | M01/M09 | `MonitoringRule.change_status` 创建时置 pending 后永不再写回（ScrapeJob 有 `deployment/callback.go` 回写 pending→deployed，规则无对应机制）；M09 确认/废弃/下发均只处理 Job 侧 | 决策 C：`deployment/callback.go` 增 `writebackRuleChangeStatus`（pending+ready→deployed 全量回写），`Dispatch` 统一经 `writebackChangeStatuses` 执行；ceshi002 一次性数据修复 pending→none；废弃回写场景登记待 v0.3 | backend-developer | `go test ./platform/...` 全绿 + `go vet` 通过；ceshi002 已解锁（change_status=none） | closed（方案 C 已拍板并落地，待重启服务后 E2E 复核） |
+| 19 | Form 抽屉/弹窗首次打开内容为空、二次才回显（antd 惰性挂载竞态，M01/M07/M09 跨模块通病） | M01/M07/M09 | antd Drawer/Modal 首次打开时内容惰性挂载（rc-motion 动画期晚于父组件 useEffect 的 `form.setFieldsValue`），setFieldsValue 在 Form 字段注册前执行被静默吞掉；二次打开时 Form 已常驻挂载 → 回显正常 | 规则/采集 Job/标签映射/登记采集器/资源（M07）/网域登记+编辑/标签模板新增 共 9 处 Form 抽屉/弹窗统一增 `forceRender`（替代 destroyOnHidden/destroyOnClose），保证 Form 常驻挂载、首次打开即回显；补「关闭→打开切换回显」回归测试；frontend-developer.md v1.35 新增强制规则（Step 3.7） | frontend-developer | `pnpm vitest run`（ResourceFormDrawer/LabelTemplatesPage/RuleMountDrawer/ScrapeJobFormDrawer）45/45 + `tsc --noEmit` 通过 | closed（PRD 无需改动） |
 
 ---
 
@@ -164,6 +166,15 @@
 - **登记**：M09 dev-feedback §6。
 - **状态**：closed（`go test ./platform/...` 全通过 + 前端 tsc/eslint/vitest 通过）
 
+### F-25 决策：规则「停用可编辑」提级 MVP，规则草稿（draft_status=draft）推迟 v0.3（用户拍板）
+- **背景**：用户希望规则编辑效仿采集 Job——规则显示「停用」状态时允许再次编辑；并咨询 MVP 阶段实现规则「保存草稿」（draft→ready 批量提交流程）的难度与是否属 0.2 提级。
+- **决策（chenrt，2026-08-26）**：
+  1. **MVP 实现「停用可编辑」**：规则操作列新增「编辑」按钮，复用 `RuleMountDrawer` 编辑模式（回显 + PUT update，不携带 enabled、不改启停状态）；编辑可用性 = 除 `change_status=pending`（存在待确认变更单，锁定期）外均可编辑，与采集 Job F-19 / 决策 44-1 锁定语义一致；
+  2. **规则草稿推迟 v0.3 不提前实现**：yaml_passthrough 整文件无「PromQL 半成品」场景，草稿价值绑在 v0.3 字段化编辑；api-contract-snapshot §18 已将其列为 v0.2 能力、本期范围外。
+- **登记**：M01 dev-feedback F-25。
+- **状态**：closed（前端已实现，单测 11 用例 + tsc + eslint 通过）
+- **注意**：该「pending 锁定」依赖 `change_status` 真实反映在途单据，而 #18 暴露规则 change_status 无 M09 回写、会残留假 pending——两处需一并治理。
+
 ---
 
 ### 12. target 抓取地址缺 exporter 端口（跨 M01/M09，决策 46）
@@ -237,3 +248,86 @@
 - **验证**：`go test ./platform/...` 通过；重编译并重启 metric-center 后，对失败草稿 `CHG-20260826-015` 重新校验返回 `validation_status=passed`，草稿进入可确认状态。
 - **状态**：closed（PRD 无需改动）
 - **登记**：M09 dev-feedback F-24。
+
+### 17. 规则按 CI 类型组织 + 多记录合并语义（M01/M09，用户拍板功能增强）
+
+- **背景（用户诉求 + DeepSeek 分析引出）**：用户询问「规则名与 rules.yml 的映射、能否按 CI 类型维护多条规则」后，拍板把 v0.2 的 monitor_type 维度提级 MVP：前端按资源类别组织多条规则，后端统一拼接为同一份 rules.yml。
+- **问题**：
+  1. `renderRules` 原样字符串拼接多条 `rule_content`，各带顶层 `groups:` 键 → 重复顶层键的非法 rules.yml，promtool 校验失败（issue 16 修复后该校验真正生效，此坑暴露）；
+  2. `MonitoringRule.MonitorType` 列已存在（M01 PRD §5.5 透传模式可空），但接口不接、列表不筛、前端无入口。
+- **修复方案（方案 A，保存时校验组名唯一，非渲染期合并同名组）**：
+  - 后端 `generator/render.go`：`renderRules` 改为逐条解析 groups → `yaml.Node` 节点级合并为单个 `groups:` 文档（内容不重排）；
+  - 后端 `strategy/rule/`：`validate.go` 新增 `extractGroupNames` / `validateGroupNamesAvailable`（生效规则间组名全局唯一，撞名 bad_request 点名占用方；停用不校验、停用即释放）；`create.go`/`update.go` 接收并校验 `monitor_type`（可空，`models.ValidMonitorType`）；`list.go` 支持 `monitor_type` 筛选；
+  - 前端 `RuleMountDrawer.tsx`：新增「资源类别 → 监控对象类型」两级级联（复用 MONITOR_TYPE_CASCADE，F1-8 同源），提交仅 `monitor_type`；`RulesPage.tsx`：新增「监控对象类型」列 + 筛选 + 详情行；`monitoringRules.ts` 接口补 `monitor_type`。
+- **涉及文件**：`platform/configcenter/generator/render.go`、`generator.go`、`generator_test.go`、`platform/strategy/rule/{validate,create,update,list}.go`、`monitoring_rule_test.go`、`ui-custom/web/src/api/monitoringRules.ts`、`pages/strategy/{RuleMountDrawer,RulesPage}.tsx` 及测试。
+- **修复人**：backend-developer / frontend-developer
+- **验证**：`go test ./platform/...` 全绿 + `go vet` 通过；前端 RuleMountDrawer/RulesPage 9 用例通过、`pnpm lint`、`tsc --noEmit` 通过（全量测试仅 `resources.test.ts` 1 个改动前已存在的 jsdom 问题）。
+- **状态**：closed（待 design 收割 PRD §5.5 多记录合并语义 + 原型补级联字段）
+- **登记**：M01 dev-feedback F-24。
+
+### 18. 规则 change_status 无 M09 回写，禁用后残留 pending 假锁（M01/M09，实现缺漏）
+
+- **问题（用户实测）**：规则 `ceshi002` 已停用，前端操作列「编辑」被禁用，Tooltip 提示「该规则存在待确认变更单，请先前往配置变更确认页处理」，但配置变更确认页无任何待处理记录，用户被卡死无法编辑。
+- **实测定性（DB 证据）**：
+  - `monitoring_rules` 规则 id=5 `ceshi002`：`enabled=0`、`change_status=pending`、`draft_status=ready`，创建 13:14:14、更新（停用）13:21:49；
+  - `config_drafts` 规则侧完整闭环已发生：CHG-20260826-015（13:14 创建 → 13:19 **confirmed**，「变更告警规则 1 条」）= ceshi002 创建；CHG-20260826-016（13:23 创建 → 13:35 **confirmed**，「移除告警规则 1 条（高风险）」）= ceshi002 停用。两条均已确认下发，`config_change_baselines` 为 idle、无活 pending。
+  - 即：**规则侧 M09 管线已正常处理，但 `MonitoringRule.change_status` 自创建起一直是 pending，从未被写回**。
+- **根因**：`MonitoringRule.change_status` **缺少 M09 回写机制**，与 ScrapeJob 形成反差：
+  - ScrapeJob：`platform/configcenter/deployment/callback.go` `writebackChangeStatus` 在 local reload 成功后把 `change_status=pending` 回写为 `deployed`（决策 31-M2），废弃时 `draft/service.go` 决策 43 回滚源数据；**规则侧无任何对应回写/重置**；
+  - `strategy/rule/create.go` 创建即置 `change_status=pending`，此后 update/delete/confirm/deploy/abandon 均不触碰该字段 → 规则 change_status 永久停留在 pending；
+  - 前端 F-25 编辑按钮按 `change_status=pending` 锁定（与 Job F-19 同语义），规则因此被「假 pending」锁死，而 M09 确认页只展示活 pending 单据（已确认单据为历史、不展示）→ 无可处理项，用户无出口。
+- **候选修复方案（已决策 C，2026-08-26 用户拍板）**：
+  - A. **补规则回写（对齐决策 31-M2）**：`deployment/callback.go` / `Dispatch` 成功下发后同步把 `MonitoringRule.change_status` pending→deployed（规则为全局 scope=central，无网域列，按「有变更被下发」全量回写）；`draft/service.go` 废弃（决策 43）时对规则补重置/回滚，避免废弃后仍 pending；
+  - B. **前端 pending 锁自愈出口**：规则列表「编辑」的 pending 锁定增加兜底——当 `change_status=pending` 但实际无在途单据时提供「刷新状态」动作或放行编辑；需后端提供规则↔在途单据的关联查询（按规则组名反查活 pending 变更项）；
+  - C. **MVP 最小修复（已选）**：先落 A 的部署回写（堵住「确认下发后仍 pending」主路径），配合对现有 `ceshi002` 一条做一次性数据修复（手动置 change_status=none），废弃/ErrNoChanges 场景登记待 v0.3。
+- **已实施（方案 C，2026-08-26）**：
+  - `platform/configcenter/deployment/callback.go`：新增 `writebackRuleChangeStatus`（`MonitoringRule` 中 change_status=pending 且 draft_status=ready → deployed，全局全量回写）与 `writebackChangeStatuses`（合并 Job + 规则回写错误，`errors.Join`）；
+  - `platform/configcenter/deployment/service.go`：`Dispatch` 成功下发后由 `writebackChangeStatus` 改为 `writebackChangeStatuses`，回写失败仍按 MEDIUM-1 降级记录 error_message 不整链 500；
+  - `deployment/deployment_test.go`：新增 `seedRule` + `TestWritebackRuleChangeStatus`（ready→deployed / draft 不动 / none 不动），`newMemDB` 迁移补 `MonitoringRule`；
+  - 数据修复：`monitoring_rules` id=5 `ceshi002` `change_status` pending→none（一次性，DB 直改）。
+- **验证**：`go vet ./platform/...` + `go test ./platform/...` 全绿；ceshi002 前端「编辑」按钮已解锁。**注意**：运行中的 metric-center 仍为旧二进制，需重启服务后新回写逻辑才生效，建议按动线「新增/改规则 → 确认下发 → 检查 change_status=deployed」E2E 复核。
+- **待 v0.3 跟进**：规则废弃（决策 43）场景的 change_status 重置/回滚（方案 A 后半段）；按需评估前端 pending 锁自愈出口（方案 B）。
+- **关联**：与 F-25「规则 pending 期锁定待后端 409 兜底」备注同源——本 issue 是该缺漏在真实数据上的暴露。
+- **涉及文件**：`platform/configcenter/deployment/callback.go`、`platform/configcenter/deployment/service.go`、`platform/configcenter/deployment/deployment_test.go`、`platform/strategy/rule/*.go`、`ui-custom/web/src/pages/strategy/RulesPage.tsx`。
+- **修复人**：backend-developer
+- **验证**：`go vet ./platform/...` + `go test ./platform/...` 全绿；ceshi002 前端「编辑」按钮已解锁（详见上文「已实施 / 验证」）
+- **状态**：closed（方案 C 已拍板并落地：规则部署回写 + ceshi002 数据修复；废弃回写登记待 v0.3；待重启服务后 E2E 复核）
+- **待 design 分支收割**：M01 PRD §5.5 补「规则 change_status 随 M09 确认/下发/废弃回写，同采集 Job」语义；评估规则侧是否需要 `network_domain_id` 关联或全局回写口径。
+
+### 19. 编辑抽屉首次打开内容为空、二次才回显（M01，antd Drawer 惰性挂载竞态）
+
+- **问题（用户实测）**：规则 `ceshi002` 刷新页面后首次点「编辑」抽屉内容全为空，关闭再点第二次才回显规则名与 yaml。随后发现采集 Job 也复现：刷新后直接点「编辑」为空，仅「先勾选前面多选框（触发额外重渲染）再点编辑」才有回显。
+- **根因**：antd `Drawer` 默认 `forceRender=false`，首次打开时内容**惰性挂载**（rc-drawer 内部 motion 动画期在父组件 commit 之后才真正挂载 Form）；父组件 `useEffect([open, record])` 里的 `form.setFieldsValue` 在**同一 commit 末尾**执行，早于 Form 字段注册 → 值被静默吞掉。第二次打开时 Form 已常驻挂载（rc-drawer 首次打开后内容保持挂载）→ 回显正常。勾选多选框只是多触发一次父组件重渲染、改变挂载时序，属**偶发缓解**而非修复。
+- **影响范围**：所有「Form 放 Drawer + useEffect(open) 里 setFieldsValue 回显/预填」的抽屉均同源存在——`RuleMountDrawer`（规则，已先修）、`ScrapeJobFormDrawer`（采集 Job）、`MappingDrawer`（默认采集配置）、`ExporterTemplateDrawer`（登记采集器）。
+- **修复（2026-08-26）**：四个抽屉的 `Drawer` 统一增 `forceRender`，保证 Form 常驻挂载，首次打开即正确回显/预填，不依赖交互垫时序。
+- **扩展修复（2026-08-26 续，通病收敛）**：同一竞态在 M07/M09 侧继续复现（M07 资源编辑 `ResourceFormDrawer`、网域登记 `DomainForm`(Modal)、网域编辑 `NetworkDomainsPage`、标签映射 `MappingDrawer`、标签模板新增 `LabelTemplatesPage`），均以 `forceRender` 统一修复（替代 destroyOnHidden/destroyOnClose）；累计 9 处。
+- **规范登记（v1.35）**：`frontend-developer.md` Change Log 新增 v1.35 + 正文新增 Step 3.7「Form 抽屉/弹窗强制 forceRender」强制规则——所有「Form 放 Drawer/Modal + useEffect(open) setFieldsValue 回显/预填」必须 `forceRender`，禁止 destroyOnHidden/destroyOnClose，且每个 Form 抽屉/弹窗必须配套「关闭→打开切换回显」回归测试（例外：无 Form 的确认/展示弹窗不受限）。
+- **测试**：
+  - `ScrapeJobFormDrawer.test.tsx` 新增「关闭→打开切换（首次打开）即回显 job_name/采集参数」回归用例；`RuleMountDrawer.test.tsx` 已含同款用例（#19 首修时新增）；
+  - 注意：jsdom 下 rc-motion 挂载时序与真实浏览器不同，该用例在**移除 forceRender 时也不失败**（无法复现时序竞态），作用为行为契约/文档守卫，真实验证靠浏览器手动复测；
+  - `CollectorTemplatesTab.test.tsx` 原 `screen.getByRole('dialog')` 因 forceRender 后同页多抽屉常驻挂载而多匹配，改为按「更换标签模板」标题定位目标抽屉。
+- **验证**：`pnpm vitest run src/pages/strategy` 69/69 通过 + `tsc --noEmit` + `pnpm lint` 通过；扩展修复后 `pnpm vitest run`（ResourceFormDrawer/LabelTemplatesPage/RuleMountDrawer/ScrapeJobFormDrawer）45/45 通过 + `tsc --noEmit` 通过。
+- **涉及文件**：`ui-custom/web/src/pages/strategy/{RuleMountDrawer,ScrapeJobFormDrawer,MappingDrawer,ExporterTemplateDrawer}.tsx` + 对应 `.test.tsx`、`CollectorTemplatesTab.test.tsx`；扩展：`pages/resources/ResourceFormDrawer.tsx(.test.tsx)`、`pages/label-templates/{MappingDrawer,LabelTemplatesPage}.tsx`、`pages/admin/domains/DomainForm.tsx`、`pages/config-center/domains/NetworkDomainsPage.tsx`；规范：`.kimi/agents/frontend-developer.md`（v1.35 / Step 3.7）。
+- **修复人**：frontend-developer
+- **状态**：closed（PRD 无需改动；浏览器侧建议刷新后首次点编辑复核）
+
+### 20. scrape_interval/scrape_timeout 从未写入 prometheus.yml + 采集参数层叠默认链落地（M01 ↔ M09，已修复）
+
+- **问题（用户实测追问）**：采集 Job 上填的「采集间隔/采集超时」不生效——M09 生成器 `scrapeConf` 结构体无 `scrape_interval/scrape_timeout` 字段，两个值从未渲染进 prometheus.yml（静默按 Prometheus 全局默认 1m 执行）；同时参数在「采集器登记 → 默认采集配置 → 采集 Job」三层重复填写，且 update / 批量提交生效路径无回落（清空字段报必填）。
+- **修复（F-28，用户拍板方案 A「层叠默认 + 稀疏覆盖」，2026-08-26）**：
+  - 生成器 `render.go`：`scrapeConf` 补 `scrape_interval/scrape_timeout` 真实渲染；空值按全局兜底常量（`models.DefaultScrapeInterval=15s` 等）回填；
+  - M01 `scrapejob`：create/update/batch-submit-ready 统一 `resolveJobScrapeParams` 三层回落（is_default 映射 → 采集器模板 → 全局兜底），保存时解析为生效快照（决策 14 快照语义不变，端口仍走生成器 `LoadExporterPort`，决策 46 不变）；
+  - 前端参数区改 placeholder 稀疏继承（留空=继承），详见 M01 dev-feedback F-28。
+- **联调影响**：生成的 prometheus.yml 每个 scrape_config 现在显式携带 `scrape_interval/scrape_timeout/metrics_path/scheme`——变更单 diff 会更完整（存量 Job 首次重新生成会体现 interval/timeout 注入差异，属一次性口径收敛）；校验侧 promtool 对新字段原生支持，无兼容风险。
+- **涉及文件**：`platform/configcenter/generator/render.go`、`platform/models/scrape_job.go`、`platform/strategy/scrapejob/{validate,create,update,batch}.go`、`ui-custom/web/src/pages/strategy/{MappingDrawer,ScrapeJobFormDrawer,CollectorTemplatesTab}.tsx`。
+- **修复人**：backend-developer / frontend-developer
+- **验证**：`go test ./platform/...` 全绿（新增 `TestAssembleRendersScrapeIntervalTimeout` 等 5 用例）；前端 `pnpm test` 334/335（唯一失败为改动前已存在的 `resources.test.ts` jsdom 问题）；`tsc --noEmit`、`pnpm lint` 通过。
+- **状态**：closed（待重启 metric-center 后按「清空 Job 参数保存 → 生成变更单 → diff 可见 interval/timeout」E2E 复核）
+
+### 21. 登记采集器 internal error——软删残留占用 name 唯一索引（M01，实现偏差，已修复）
+
+- **问题（用户实测）**：登记采集器点击保存返回「登记失败 internal error」（500）。根因：ExporterTemplate 删除走软删（`deleted_at`），name 唯一索引仍被软删行占用；GORM 默认作用域（`deleted_at IS NULL`）查询不到软删行，同名重建时 INSERT 命中 DB 唯一约束抛 500。
+- **修复（F-29，2026-08-26）**：`create.go` 重复检查改 `Unscoped()` 连软删行一起查，软删残留先物理清理释放索引再重建；活跃同名仍返回 409 Conflict。与 scrapejob 软删重建行为对齐。
+- **涉及文件**：`platform/strategy/exporter-template/create.go`、`platform/strategy/exporter-template/exporter_template_test.go`。
+- **验证**：新增回归测试 `TestCreateExporterTemplateRecreateAfterSoftDelete`；`go test ./platform/...` 全绿。
+- **状态**：closed（修复已合入源码，待重启 metric-center 后按「删除→重建同名登记→成功」E2E 复核）
