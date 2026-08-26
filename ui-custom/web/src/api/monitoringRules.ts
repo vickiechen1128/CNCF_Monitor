@@ -12,17 +12,19 @@ import type { MonitoringRule, RuleContentMode } from '../types/strategy'
 export interface MonitoringRuleListParams extends Record<string, string | number | boolean | undefined> {
   rule_type?: string
   enabled?: boolean
+  monitor_type?: string
   keyword?: string
   page?: number
   page_size?: number
 }
 
-/** 规则创建/编辑输入（§7 / §10：content_mode 默认 yaml_passthrough，rule_content 必填） */
+/** 规则创建/编辑输入（§7 / §10：content_mode 默认 yaml_passthrough，rule_content 必填；monitor_type 可空） */
 export interface MonitoringRuleInput {
   content_mode?: RuleContentMode
   rule_content?: string
   name?: string
   enabled?: boolean
+  monitor_type?: string
 }
 
 /** validate-yaml 预检输出（§7：{valid, error?}） */

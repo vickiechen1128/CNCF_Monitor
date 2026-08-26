@@ -24,7 +24,7 @@ import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
 import { configDraftApi } from '../../api/configCenter'
 import type { NetworkDomain } from '../../types/domain'
-import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, ExporterTemplate, MonitorType } from '../../types/strategy'
+import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, CITypeExporterMapping, ExporterTemplate, MonitorType } from '../../types/strategy'
 import type { ScrapeJob } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
@@ -79,6 +79,9 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
   const [registerOpen, setRegisterOpen] = useState(false)
+  // F-28 稀疏覆盖：当前监控对象类型的默认采集配置（用于参数 placeholder 展示继承默认值；
+  // 不再值预填进表单，留空=继承，保存时由后端按 映射→模板→全局 链解析生效快照）
+  const [mappingDefaults, setMappingDefaults] = useState<CITypeExporterMapping | null>(null)
 
   const isEdit = !!record
   const jobType = Form.useWatch('job_type', form) ?? 'standard'
@@ -126,6 +129,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
       .then((res) => setLabelTemplates(res.data?.list ?? []))
       .catch(() => setLabelTemplates([]))
     form.resetFields()
+    setMappingDefaults(null)
     if (record) {
       setSelectedIds(record.selected_instance_ids ?? [])
       // F1-8 编辑态回显：由 record.monitor_type 反推所属资源类别预填（提交载荷仍为 single monitor_type）
@@ -159,22 +163,21 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     }
   }, [open, record, form])
 
-  // monitor_type 变化 → 带出默认采集器与参数（可覆盖）
+  // monitor_type 变化 → 带出默认采集器与标签模板；采集参数仅以 placeholder 展示
+  // 映射默认值（F-28 稀疏覆盖：留空=继承，不再把参数值写进表单快照）
   const handleMonitorTypeChange = useCallback(
     async (next: MonitorType | undefined) => {
       setParamsState('none')
+      setMappingDefaults(null)
       if (!next) return
       try {
         const res = await ciExporterMappingApi.list({ monitor_type: next as string, is_default: true, page: 1, page_size: 20 })
         const def = res.data?.list?.[0]
         if (def) {
+          setMappingDefaults(def)
           form.setFieldsValue({
             exporter_template_id: def.exporter_template_id as string,
-            scrape_interval: def.scrape_interval,
-            scrape_timeout: def.scrape_timeout,
-            metrics_path: def.metrics_path,
-            scheme: def.scheme,
-            label_template_id: def.label_template_id,
+            label_template_id: def.label_template_id || undefined,
           })
           setParamsState('inherited')
         }
@@ -184,6 +187,22 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     },
     [form],
   )
+
+  // F-28：参数字段 placeholder = 继承链下层生效值提示（映射 → 采集器/全局兜底）
+  const paramPlaceholders: Record<string, string> = {
+    scrape_interval: mappingDefaults?.scrape_interval
+      ? `留空继承默认采集配置（${mappingDefaults.scrape_interval}）`
+      : '留空使用全局默认（15s）',
+    scrape_timeout: mappingDefaults?.scrape_timeout
+      ? `留空继承默认采集配置（${mappingDefaults.scrape_timeout}）`
+      : '留空使用全局默认（10s）',
+    metrics_path: mappingDefaults?.metrics_path
+      ? `留空继承默认采集配置（${mappingDefaults.metrics_path}）`
+      : '留空继承采集器默认（/metrics）',
+    scheme: mappingDefaults?.scheme
+      ? `留空继承默认采集配置（${mappingDefaults.scheme}）`
+      : '留空继承采集器默认（http）',
+  }
 
   // C1：登记采集器成功后回选到来源表单（D17）：回填 exporter_template_id 并切「手填」展示
   const handleRegisterSuccess = useCallback(
@@ -208,10 +227,12 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         job_name: values.job_name,
         job_type: values.job_type ?? 'standard',
         network_domain_id: values.network_domain_id ?? '',
-        scrape_interval: values.scrape_interval,
-        scrape_timeout: values.scrape_timeout,
-        metrics_path: values.metrics_path,
-        scheme: values.scheme,
+        // F-28：采集参数可留空（留空=继承）。空值显式归一为 '' 提交——编辑态清空字段
+        // 即「恢复继承」，后端保存时按 映射→模板→全局 链重新解析生效快照。
+        scrape_interval: values.scrape_interval || '',
+        scrape_timeout: values.scrape_timeout || '',
+        metrics_path: values.metrics_path || '',
+        scheme: values.scheme || '',
         auth_type: values.auth_type ?? 'none',
         username: values.username,
         password: values.password,
@@ -302,6 +323,10 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
         open={open}
         onClose={submitting ? undefined : onCancel}
         width={640}
+        // forceRender：Drawer 首次打开时内容惰性挂载（rc-drawer 动画期先于父组件
+        // useEffect 的 setFieldsValue 完成挂载），导致编辑回显首次为空、二次才出现；
+        // forceRender 保证 Form 常驻挂载，首次打开即正确回显（#19 同源问题，采集 Job 抽屉）。
+        forceRender
         footer={
           <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <Button onClick={onCancel} disabled={submitting}>
@@ -423,12 +448,16 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                 <Row gutter={12}>
                   {SCRAPE_PARAM_FIELDS.map((f) => (
                     <Col span={12} key={f.field}>
-                      <Form.Item name={f.field as never} label={f.label} rules={[{ required: true, message: `请输入${f.label}` }]}>
-                        <Input placeholder={f.field === 'metrics_path' ? '/metrics' : f.field === 'scheme' ? 'http' : undefined} maxLength={64} />
+                      {/* F-28：参数不再必填；placeholder 展示继承链下层生效值（留空=继承） */}
+                      <Form.Item name={f.field as never} label={f.label}>
+                        <Input placeholder={paramPlaceholders[f.field]} maxLength={64} allowClear />
                       </Form.Item>
                     </Col>
                   ))}
                 </Row>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  采集参数留空 = 继承默认采集配置 / 采集器默认值；填写 = 覆盖并保存为本 Job 快照。
+                </Text>
               </Space>
             </Card>
 

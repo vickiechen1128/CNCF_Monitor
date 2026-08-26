@@ -123,7 +123,9 @@ describe('TemplateDetailTabs', () => {
     renderTabs(template())
     fireEvent.click(await screen.findByRole('tab', { name: /被引用采集 Job/ }))
     expect(await screen.findByText('暂无采集 Job 引用本模板')).toBeInTheDocument()
-    expect(screen.getByText(/无版本回滚能力/)).toBeInTheDocument()
+    // #19 通病修复后：MappingDrawer forceRender 常驻挂载，其保存提示也含「无版本回滚能力」，
+    // 此处按 jobs tab 空态特有「只读修改快照」子串匹配，避免 getByText 多匹配
+    expect(screen.getByText(/只读修改快照/)).toBeInTheDocument()
   })
 
   it('shows save impact Alert after deleting a mapping and 查看引用 Job jumps to jobs tab', async () => {

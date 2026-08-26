@@ -4,8 +4,10 @@ import {
   Badge,
   Button,
   Card,
+  Descriptions,
   Drawer,
   Empty,
+  Popconfirm,
   Popover,
   Select,
   Space,
@@ -13,6 +15,7 @@ import {
   Table,
   Tag,
   Typography,
+  message,
 } from 'antd'
 import {
   DownloadOutlined,
@@ -37,6 +40,13 @@ import { LabelTemplateSelectDrawer } from './LabelTemplateSelectDrawer'
 import { LabelTemplatePreview } from './LabelTemplatePreview'
 
 const { Text } = Typography
+
+/** 采集器来源展示名（F-28 查看抽屉） */
+const SOURCE_MAP: Record<string, string> = {
+  official: '官方',
+  third_party: '第三方',
+  internal: '内部自建',
+}
 
 /**
  * 联合行：默认采集配置（mapping）行 或 「未被引用」采集器模板（template）行。
@@ -82,7 +92,7 @@ function InstallLinks({ template }: { template?: ExporterTemplate }) {
  * 采集器管理 Tab（承载于采集 Job 页，不独立导航，Module_01 §9.1 / TaskDesc F2 / F10 增强）。
  * - 顶部 Steps 三步动线（登记采集器 → 配置默认采集 → 创建 Job 确认安装），可收起（A4，P1 修复）；
  * - 列表 = 默认采集配置（CITypeExporterMapping）+ 「未被引用」采集器模板（ExporterTemplate）池行（F1-5）；
- * - 模板行展示 安装指南/下载/文档（Popover 图标链，F1-6）；空态内联登记（A9）；模板行「去配置」（F1-5）。
+ * - 模板行展示 安装指南/下载/文档（Popover 图标链，F1-6）；空态内联登记（A9）；模板行「去配置」（F1-5）+ 自建模板「删除」（F-27 A）；
  */
 export function CollectorTemplatesTab() {
   const [mappings, setMappings] = useState<CITypeExporterMapping[]>([])
@@ -101,6 +111,8 @@ export function CollectorTemplatesTab() {
   const [tmplOpen, setTmplOpen] = useState(false)
   const [mappingOpen, setMappingOpen] = useState(false)
   const [editingMapping, setEditingMapping] = useState<CITypeExporterMapping | null>(null)
+  // 「去配置」/ 登记成功引导：新增默认采集配置时预填的采集器模板
+  const [prefillTemplate, setPrefillTemplate] = useState<ExporterTemplate | null>(null)
   // 标签模板轻量抽屉（Q1b：更换/补配独立入口，仅改 label_template_id）
   const [labelSelectOpen, setLabelSelectOpen] = useState(false)
   const [labelSelectMode, setLabelSelectMode] = useState<'replace' | 'supplement'>('replace')
@@ -108,6 +120,8 @@ export function CollectorTemplatesTab() {
   // 标签模板查看（只读预览抽屉）
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewMapping, setPreviewMapping] = useState<CITypeExporterMapping | null>(null)
+  // 采集器查看（F-28：只读详情抽屉，含 supported_monitor_types 等登记信息回显）
+  const [viewTemplate, setViewTemplate] = useState<ExporterTemplate | null>(null)
 
   const templateById = useMemo(() => {
     const m = new Map<number, ExporterTemplate>()
@@ -159,10 +173,12 @@ export function CollectorTemplatesTab() {
 
   const openCreateMapping = () => {
     setEditingMapping(null)
+    setPrefillTemplate(null)
     setMappingOpen(true)
   }
   const openEditMapping = (record: CITypeExporterMapping) => {
     setEditingMapping(record)
+    setPrefillTemplate(null)
     setMappingOpen(true)
   }
   /** 标签模板轻量抽屉（Q1b）：mode=replace 更换 / supplement 补配，仅改标签模板 */
@@ -171,11 +187,40 @@ export function CollectorTemplatesTab() {
     setLabelSelectMode(mode)
     setLabelSelectOpen(true)
   }
-  /** template 行「去配置」：打开默认采集配置新增抽屉（F1-5） */
-  const openConfigureForTemplate = () => {
+  /** template 行「去配置」：打开默认采集配置新增抽屉并预填该模板（F1-5 + F-26 动线补齐） */
+  const openConfigureForTemplate = (template: ExporterTemplate) => {
     setEditingMapping(null)
+    setPrefillTemplate(template)
     setMappingOpen(true)
   }
+
+  /** template 行「删除」（F-27 A）：仅非内置可删；内置/被引用由后端 forbidden 兜底 */
+  const removeTemplate = useCallback(
+    async (template: ExporterTemplate) => {
+      try {
+        await exporterTemplateApi.remove(template.id)
+        message.success(`采集器「${template.name}」已删除`)
+        reload()
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : '删除失败，请稍后重试')
+      }
+    },
+    [reload],
+  )
+
+  /** mapping 行「删除」（F-28）：仅非内置可删；被 Job 引用由后端 forbidden 兜底 */
+  const removeMapping = useCallback(
+    async (mapping: CITypeExporterMapping) => {
+      try {
+        await ciExporterMappingApi.remove(mapping.id)
+        message.success('默认采集配置已删除')
+        reload()
+      } catch (e) {
+        message.error(e instanceof Error ? e.message : '删除失败，请稍后重试')
+      }
+    },
+    [reload],
+  )
 
   /** 按下拉 source 前端过滤（契约 §4 列表仅按 monitor_type/is_default 筛选） */
   const sourceFilteredMappings = useMemo(() => {
@@ -225,8 +270,11 @@ export function CollectorTemplatesTab() {
       title: '默认端口',
       key: 'default_port',
       render: (_, row) => {
-        const tmpl = row.kind === 'template' ? row.template : row.template
-        return tmpl ? (tmpl.default_port ?? '-') : (row.kind === 'mapping' ? (row.mapping.default_port ?? '-') : '-')
+        if (row.kind === 'template') return row.template.default_port ?? '-'
+        // mapping：有覆盖值优先，无则继承 template 默认
+        const port = row.mapping.default_port
+        if (port && port > 0) return port
+        return row.template?.default_port ?? '-'
       },
     },
     {
@@ -234,7 +282,8 @@ export function CollectorTemplatesTab() {
       key: 'metrics_path',
       render: (_, row) => {
         if (row.kind === 'template') return row.template.metrics_path || '/'
-        return row.template?.metrics_path || row.mapping.metrics_path || '/'
+        // mapping：有覆盖值优先，无则继承 template 默认
+        return row.mapping.metrics_path || row.template?.metrics_path || '/'
       },
     },
     {
@@ -242,7 +291,8 @@ export function CollectorTemplatesTab() {
       key: 'scheme',
       render: (_, row) => {
         if (row.kind === 'template') return row.template.scheme || '-'
-        return row.template?.scheme || row.mapping.scheme || '-'
+        // mapping：有覆盖值优先，无则继承 template 默认
+        return row.mapping.scheme || row.template?.scheme || '-'
       },
     },
     {
@@ -251,8 +301,9 @@ export function CollectorTemplatesTab() {
       render: (_, row) =>
         row.kind === 'mapping' ? (
           <Space direction="vertical" size={0}>
-            <Text type="secondary">间隔 {row.mapping.scrape_interval || '-'}</Text>
-            <Text type="secondary">超时 {row.mapping.scrape_timeout || '-'}</Text>
+            {/* F-28 稀疏覆盖：留空=继承全局默认（15s/10s） */}
+            <Text type="secondary">间隔 {row.mapping.scrape_interval || '15s（默认）'}</Text>
+            <Text type="secondary">超时 {row.mapping.scrape_timeout || '10s（默认）'}</Text>
           </Space>
         ) : (
           <Text type="secondary">-</Text>
@@ -316,16 +367,61 @@ export function CollectorTemplatesTab() {
       title: '操作',
       key: 'actions',
       fixed: 'right',
-      width: 100,
+      width: 210,
       render: (_, row) =>
         row.kind === 'mapping' ? (
-          <Button type="link" size="small" onClick={() => openEditMapping(row.mapping)}>
-            编辑
-          </Button>
+          <Space size={0}>
+            <Button type="link" size="small" onClick={() => openEditMapping(row.mapping)}>
+              编辑
+            </Button>
+            {/* F-28：映射行也可查看所引用采集器的登记详情（含支持的监控对象类型） */}
+            {row.template && (
+              <Button type="link" size="small" onClick={() => setViewTemplate(row.template!)}>
+                查看
+              </Button>
+            )}
+            {/* F-28：非内置默认采集配置可删除；内置由平台 seed 维护（后端 bad_request 兜底），
+                被 Job 引用时后端 forbidden 兜底 */}
+            {!row.mapping.is_builtin && (
+              <Popconfirm
+                title="删除默认采集配置"
+                description="删除后该监控类型将无默认采集实现；已被采集 Job 引用的配置无法删除。"
+                okText="删除"
+                okButtonProps={{ danger: true }}
+                cancelText="取消"
+                onConfirm={() => void removeMapping(row.mapping)}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
         ) : (
-          <Button type="link" size="small" onClick={openConfigureForTemplate}>
-            去配置
-          </Button>
+          <Space size={0}>
+            {/* F-28：查看采集器登记详情（名称/版本/支持的监控对象类型/端口/路径/协议/安装指南等） */}
+            <Button type="link" size="small" onClick={() => setViewTemplate(row.template)}>
+              查看
+            </Button>
+            <Button type="link" size="small" onClick={() => openConfigureForTemplate(row.template)}>
+              去配置
+            </Button>
+            {/* F-27 A：自建采集器删除入口；内置模板只读不提供删除（后端同步 forbidden 兜底） */}
+            {!row.template.is_builtin && (
+              <Popconfirm
+                title="删除采集器"
+                description={`删除后「${row.template.name}」将不可再被默认采集配置引用；已被引用的采集器无法删除。`}
+                okText="删除"
+                okButtonProps={{ danger: true }}
+                cancelText="取消"
+                onConfirm={() => void removeTemplate(row.template)}
+              >
+                <Button type="link" size="small" danger>
+                  删除
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
         ),
     },
   ]
@@ -378,7 +474,7 @@ export function CollectorTemplatesTab() {
             size="small"
             current={-1}
             items={[
-              { title: '登记采集器', description: '在采集器池登记自研/第三方/官方采集器' },
+              { title: '登记采集器', description: '登记内部自建采集器（官方/第三方由平台预置）' },
               { title: '配置默认采集', description: '为监控类型配置默认采集实现与参数' },
               { title: '创建 Job 确认安装', description: '创建采集任务并确认实例安装' },
             ]}
@@ -433,7 +529,7 @@ export function CollectorTemplatesTab() {
               <Space direction="vertical">
                 <Text type="secondary">池中没有需要的采集器？</Text>
                 <Button icon={<PlusOutlined />} onClick={() => setTmplOpen(true)}>
-                  登记自研/第三方采集器
+                  登记内部自建采集器
                 </Button>
               </Space>
             </Empty>
@@ -451,8 +547,22 @@ export function CollectorTemplatesTab() {
         }}
       />
 
-      <ExporterTemplateDrawer open={tmplOpen} onCancel={() => setTmplOpen(false)} onSuccess={reload} />
-      <MappingDrawer open={mappingOpen} record={editingMapping} onCancel={() => setMappingOpen(false)} onSuccess={reload} />
+      <ExporterTemplateDrawer
+        open={tmplOpen}
+        onCancel={() => setTmplOpen(false)}
+        onSuccess={(t) => {
+          reload()
+          // F-26 动线补齐：登记成功顺势打开「新增默认采集配置」并预填刚登记的采集器
+          if (t) openConfigureForTemplate(t)
+        }}
+      />
+      <MappingDrawer
+        open={mappingOpen}
+        record={editingMapping}
+        initialTemplate={editingMapping ? null : prefillTemplate}
+        onCancel={() => setMappingOpen(false)}
+        onSuccess={reload}
+      />
       <LabelTemplateSelectDrawer
         open={labelSelectOpen}
         mode={labelSelectMode}
@@ -460,13 +570,74 @@ export function CollectorTemplatesTab() {
         onCancel={() => setLabelSelectOpen(false)}
         onSuccess={reload}
       />
+      {/* F-28：采集器登记详情只读查看（模板行 + 映射行均可打开） */}
+      <Drawer
+        title={viewTemplate ? `采集器详情：${viewTemplate.name}` : '采集器详情'}
+        open={!!viewTemplate}
+        onClose={() => setViewTemplate(null)}
+        width={520}
+      >
+        {viewTemplate && (
+          <Descriptions column={1} bordered size="small">
+            <Descriptions.Item label="名称">{viewTemplate.name}</Descriptions.Item>
+            <Descriptions.Item label="版本">{viewTemplate.version || '-'}</Descriptions.Item>
+            <Descriptions.Item label="来源">
+              <Space size={4}>
+                <span>{SOURCE_MAP[viewTemplate.source] ?? viewTemplate.source}</span>
+                {viewTemplate.is_builtin && <Tag color="blue">内置</Tag>}
+              </Space>
+            </Descriptions.Item>
+            <Descriptions.Item label="支持的监控对象类型">
+              {viewTemplate.supported_monitor_types?.length ? (
+                <Space size={4} wrap>
+                  {viewTemplate.supported_monitor_types.map((t) => (
+                    <Tag key={t}>{MONITOR_TYPE_MAP[t as keyof typeof MONITOR_TYPE_MAP] ?? t}</Tag>
+                  ))}
+                </Space>
+              ) : (
+                <Text type="secondary">未标注（可被任意监控对象类型引用）</Text>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="默认端口">{viewTemplate.default_port || '-'}</Descriptions.Item>
+            <Descriptions.Item label="采集路径">{viewTemplate.metrics_path || '-'}</Descriptions.Item>
+            <Descriptions.Item label="协议">{viewTemplate.scheme || '-'}</Descriptions.Item>
+            <Descriptions.Item label="操作系统 / 架构">
+              {viewTemplate.os || 'any'} / {viewTemplate.arch || 'any'}
+            </Descriptions.Item>
+            <Descriptions.Item label="下载地址">
+              {viewTemplate.download_url ? (
+                <a href={viewTemplate.download_url} target="_blank" rel="noreferrer">
+                  {viewTemplate.download_url}
+                </a>
+              ) : (
+                '-'
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="文档">
+              {viewTemplate.homepage ? (
+                <a href={viewTemplate.homepage} target="_blank" rel="noreferrer">
+                  {viewTemplate.homepage}
+                </a>
+              ) : (
+                '-'
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="安装指南">
+              {viewTemplate.install_guide ? (
+                <Text style={{ whiteSpace: 'pre-wrap' }}>{viewTemplate.install_guide}</Text>
+              ) : (
+                '-'
+              )}
+            </Descriptions.Item>
+          </Descriptions>
+        )}
+      </Drawer>
       <Drawer
         title="标签模板预览"
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         width={420}
-      >
-        {previewMapping ? (
+      >        {previewMapping ? (
           <Space direction="vertical" style={{ width: '100%' }}>
             {labelTemplateById.has(Number(previewMapping.label_template_id)) ? (
               <LabelTemplatePreview template={labelTemplateById.get(Number(previewMapping.label_template_id)) ?? null} />
