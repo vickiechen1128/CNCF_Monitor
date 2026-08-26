@@ -10,6 +10,8 @@
 | 记录时间 | 2026-08-22（reviewer 双审 + 修复循环后） |
 | PRD 版本 | v2.21 |
 
+> **设计侧回改（2026-08-26）**：F-1、F-2、§7、§9 四项需产品/设计确认的开放性口均已由设计侧收割并落档（`docs/05-execution-records/module-07/design-decisions.md` 决策 3.53/3.54/3.55），PRD 与原型已同步更新（**版本号不变**：PRD v2.21、原型 v2.8）。详见各条「⑤ 设计侧回改」标注。
+
 ---
 
 ## 1. 需产品/设计确认（PRD 内部矛盾）
@@ -19,11 +21,13 @@
 - **矛盾点**：§5.2 将 `app_name` 标为 ✅*（application/database/middleware 必填）；§5.16.1 又明确「`app_name` 可留空（默认取 `service_name`）」。
 - **实现取舍**：后端按严格必填口径实现（create/import 的 `validateApplication` 要求 app_name 必填），未实现「空则缺省取 service_name」逻辑；前端 `ResourceFormDrawer` 也未对 application 做差异化必填（五类统一可选）。
 - **建议**：产品确认唯一口径后，后端补「缺省取 service_name」或前端按类型加差异化必填，并在 design-decisions.md 记录取舍。
+- **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——用户拍板**严格必填口径**（decision 3.54）：application/database/middleware 的 `app_name` 一律必填，删除「留空默认取 service_name / 可留空」表述（PRD §5.2/§5.16.1 已改）；后端严格必填实现保持不变，前端无需补缺省逻辑。
 
 ### F-2. PRD §6 与 03_API_Standard / L3 路由前缀不一致
 
 - **矛盾点**：PRD 写 `/api/v1/resources`、`/api/v1/resources/import-templates/{category}`、`/api/v1/resources/import`、`/api/v1/business-domains`；实现按 03_API_Standard §1.2 与 L3 契约使用 `/api/v2/platform/resources`、`/resources/:type/template`、`/resources/:type/import`、`/api/v2/platform/business-domains`。
 - **建议**：更新 PRD §6 路由清单为 v2 前缀（或追加 design-decision 说明以 API 标准为准），避免 M01/M09 对接时按 PRD 取路径。
+- **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——PRD §6 全量路由前缀 `v1→v2` 统一为 `/api/v2/platform/*`（decision 3.55），章节头注指向 03_API_Standard §1.2；`business-domains` / `label-templates` / `imports` / `scrape-jobs` 引用同步更新。
 
 ## 2. 已修复（reviewer 意见闭环）
 
@@ -90,6 +94,7 @@
   - 后端 `validateHost` 增加 `os_type 必填`；
   - 前端 host 表单「操作系统」增加 required 校验（placeholder 去除「（可选）」）。
 - **请求结论**：请设计侧将 Module_07 §5.6 `os_type` 标注改为 **✅ 必填（host）**，并同步 M07 excel/monitor_type 相关描述。
+- **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——PRD §5.6 `os_type` 改 `✅` 必填（§5.2 基础字段改 `✅*` 差异化必填），并同步 excel/monitor_type 采集候选口径（decision 3.53）。
 
 ## 8. 待复现：资源（host）编辑仅回填「运行状态」，其余字段为空
 
@@ -112,3 +117,4 @@
   - 前端 host 表单「操作系统」改用 antd AutoComplete 下拉选择（可搜索、可自定义），写入后端归一化。
 - **口径边界**：纯拼写错误且不含任何家族关键字（如 `ubutund`）无法自动映射——这正是用下拉+字典规避的点。若需兼容更多 Linux 写法，在 `osDict` 增补规范名即可（家族映射一并生效）。
 - **请求结论**：请设计侧确认是否将 Module_07 §5.6 的 `os_type` 描述改为「内置字典选择（参考 `/os-options`），可按需扩展规范名」，并在 PRD 中说明字典口径，便于 M01/M09 采集候选匹配对齐。
+- **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——PRD §5.2/§5.6 `os_type` 已明确为「内置字典选择（AutoComplete 下拉，可搜索/自定义），参考 `/api/v2/platform/os-options`，规范名可按需扩展」，按「规范名→家族」归一化（decision 3.53）；原型 host 表单同步改必填 + AutoComplete 下拉。

@@ -4,6 +4,7 @@ import {
   Alert,
   App,
   Badge,
+  AutoComplete,
   Button,
   Card,
   Col,
@@ -41,6 +42,7 @@ import { ReviewNote } from '../components/ReviewNote'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../components/tablePresets'
 import {
   ENV_VALUES,
+  OS_OPTIONS,
   DATABASE_TYPE_OPTIONS,
   IMPORT_TEMPLATE_COLUMNS,
   LABEL_SOURCE_MAP,
@@ -551,8 +553,20 @@ export default function ResourcesPage() {
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="操作系统" name="os_type">
-                  <Input placeholder="如 Linux / Windows" />
+                <Form.Item
+                  label="操作系统"
+                  name="os_type"
+                  rules={[{ required: true, message: '请选择操作系统' }]}
+                  extra="必填；内置字典选择（可搜索/自定义），采集实例定位依赖它，越界拼写将无法匹配采集候选"
+                >
+                  <AutoComplete
+                    options={OS_OPTIONS}
+                    placeholder="选择或输入（如 Ubuntu / CentOS / Windows Server）"
+                    allowClear
+                    filterOption={(inputValue, option) =>
+                      String(option?.value ?? '').toLowerCase().includes(inputValue.toLowerCase())
+                    }
+                  />
                 </Form.Item>
               </Col>
             </Row>
