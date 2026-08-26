@@ -40,6 +40,9 @@ func BatchSubmitReady(db *gorm.DB, ids []uint) ([]models.ScrapeJob, error) {
 		if j.DraftStatus != "draft" {
 			return nil, fmt.Errorf("采集 Job %q 当前不是草稿态，无法批量提交生效", j.JobName)
 		}
+		// F-28：草稿允许采集参数留空；提交生效前按层叠默认链（映射→模板→
+		// 全局兜底）解析留空字段为生效快照，随状态翻转一并落库。
+		resolveJobScrapeParams(db, j)
 		// 完整校验：提交生效意味着进入 M09 配置生成候选集。
 		if err := validateJobRequest(db, j); err != nil {
 			return nil, fmt.Errorf("采集 Job %q 校验未通过：%w", j.JobName, err)
@@ -49,22 +52,18 @@ func BatchSubmitReady(db *gorm.DB, ids []uint) ([]models.ScrapeJob, error) {
 		}
 	}
 
-	if err := db.Model(&models.ScrapeJob{}).
-		Where("id IN ?", ids).
-		Updates(map[string]interface{}{
-			"draft_status":  "ready",
-			"change_status": string(models.ChangeStatusPending),
-		}).Error; err != nil {
-		return nil, fmt.Errorf("update draft_status: %w", err)
+	// 全部校验通过后逐条落库（含解析后的生效参数快照），保持 all-or-nothing。
+	for i := range jobs {
+		jobs[i].DraftStatus = "ready"
+		jobs[i].ChangeStatus = models.ChangeStatusPending
+		if err := db.Save(&jobs[i]).Error; err != nil {
+			return nil, fmt.Errorf("submit scrape job %q ready: %w", jobs[i].JobName, err)
+		}
 	}
 
 	// 返回更新后的完整对象（顺序与请求 ids 一致）。
 	updated := make([]models.ScrapeJob, len(jobs))
-	for i := range jobs {
-		jobs[i].DraftStatus = "ready"
-		jobs[i].ChangeStatus = models.ChangeStatusPending
-		updated[i] = jobs[i]
-	}
+	copy(updated, jobs)
 	return updated, nil
 }
 

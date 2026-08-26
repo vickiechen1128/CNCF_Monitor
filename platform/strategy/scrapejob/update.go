@@ -68,6 +68,9 @@ func UpdateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		applyJobUpdate(&job, req)
+		// F-28：更新时同样走层叠默认链——用户清空某参数字段即表示「恢复继承」，
+		// 保存时按映射→模板→全局兜底重新解析为生效快照（对齐 create 行为）。
+		resolveJobScrapeParams(db, &job)
 		if err := validateJobRequest(db, &job); err != nil {
 			response.BadRequest(c, err)
 			return

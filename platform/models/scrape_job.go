@@ -39,6 +39,15 @@ const (
 	InstanceSelectionFilter InstanceSelectionMode = "filter" // v0.3+
 )
 
+// 采集参数全局兜底默认值（F-28 层叠默认链末端）：Job → 默认采集配置（映射）
+// → 采集器模板（仅 metrics_path/scheme）→ 本组常量。与 Prometheus 常用约定一致。
+const (
+	DefaultScrapeInterval = "15s"
+	DefaultScrapeTimeout  = "10s"
+	DefaultMetricsPath    = "/metrics"
+	DefaultScheme         = "http"
+)
+
 // ScrapeJob defines a Prometheus scrape job configuration, aligned with
 // Module_01 §5.4. Legacy Phase-0 fields are retained for compatibility.
 type ScrapeJob struct {

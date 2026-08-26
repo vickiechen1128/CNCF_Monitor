@@ -117,8 +117,9 @@ func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 		} else {
-			// 提交生效：完整校验并进入 M09 变更管线。
-			inheritDefaultsFromMapping(db, job)
+			// 提交生效：完整校验并进入 M09 变更管线。采集参数留空字段先按
+			// 层叠默认链（映射→模板→全局兜底，F-28）解析为生效快照。
+			resolveJobScrapeParams(db, job)
 			if err := validateJobRequest(db, job); err != nil {
 				response.BadRequest(c, err)
 				return

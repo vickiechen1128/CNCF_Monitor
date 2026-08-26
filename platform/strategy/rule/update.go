@@ -2,22 +2,26 @@ package rule
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
 
 // UpdateMonitoringRuleRequest 是更新规则挂载的请求体（api-contract-snapshot §7）：
-// name / rule_content / enabled 可改；YAML 非法 bad_request。
+// name / rule_content / enabled / monitor_type 可改；YAML 非法 bad_request。
 type UpdateMonitoringRuleRequest struct {
 	Name        *string `json:"name"`
 	RuleContent *string `json:"rule_content"`
 	Enabled     *bool   `json:"enabled"`
+	MonitorType *string `json:"monitor_type"`
 }
 
 // UpdateMonitoringRule 是 PUT /api/v2/platform/monitoring-rules/:id 的 handler。
-// rule_content 提供时须为合法 YAML（至少 groups 数组）；not_found。
+// rule_content 提供时须为合法 YAML（至少 groups 数组）；应用变更后若规则生效
+// （enabled && draft_status=ready），其 group 名须与其他生效规则全局唯一；not_found。
 func UpdateMonitoringRule(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseRuleID(c)
@@ -39,12 +43,27 @@ func UpdateMonitoringRule(db *gorm.DB) gin.HandlerFunc {
 		if req.Enabled != nil {
 			r.Enabled = *req.Enabled
 		}
+		if req.MonitorType != nil {
+			mt := strings.TrimSpace(*req.MonitorType)
+			if mt != "" && !models.ValidMonitorType(mt) {
+				response.BadRequest(c, fmt.Errorf("monitor_type %q 非法（非受支持的监控对象类型）", *req.MonitorType))
+				return
+			}
+			r.MonitorType = mt
+		}
 		if req.RuleContent != nil {
 			if err := validateRuleYAML(*req.RuleContent); err != nil {
 				response.BadRequest(c, err)
 				return
 			}
 			r.RuleContent = *req.RuleContent
+		}
+		// 生效规则将合并进同一份 rules.yml：变更后 group 名须全局唯一。
+		if r.Enabled && r.DraftStatus == "ready" {
+			if err := validateGroupNamesAvailable(db, r.RuleContent, r.ID); err != nil {
+				response.BadRequest(c, err)
+				return
+			}
 		}
 		if err := db.Save(r).Error; err != nil {
 			response.InternalServerError(c, fmt.Errorf("update monitoring rule %d: %w", id, err))
