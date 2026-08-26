@@ -224,6 +224,27 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 访问 http://localhost:9090
 
+### 4.7 后端改动后重启与验证避坑（M01/M09 联动）
+
+每次修改 `platform/` 后端代码后，**必须重编译并重启控制面**，否则旧二进制仍在运行，新逻辑不生效：
+
+```bash
+make build-metric-center
+# 先停掉旧进程，再启动
+make run-metric-center
+```
+
+`make run-metric-center` 会自动把 `upstream/prometheus` 和 `upstream/blackbox_exporter` 加入 `PATH`，因此 M09 草稿校验能找到 `promtool` / `blackbox_exporter`。若手动起二进制，必须显式导出：
+
+```bash
+export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$PATH"
+./platform/cmd/metric-center/metric-center --config.reload-url=http://localhost:9090/-/reload
+```
+
+否则变更单会卡在 `validation_status=pending`，提示「promtool 不可调用」。
+
+另外，若旧逻辑已生成一张 `pending` 草稿，即使换了新二进制，`GenerateDraft` 也会按 checksum 幂等返回旧草稿（保活设计）。要看到新的 diff / 变更清单，需要先**废弃**旧草稿，再重新触发变更。废弃会按决策 43 回滚源数据（例如被禁用的 Job 会被恢复启用），因此典型验证动线是：**废弃旧单 → 重新禁用 Job → 生成新单 → 重校/确认**。
+
 ---
 
 ## 5. 协作者 Setup 检查清单
@@ -234,6 +255,7 @@ docker run -p 9090:9090 prom/prometheus:latest
 - [ ] 已执行 `make install-tools` 且 `.tools/` 目录生成成功
 - [ ] 已阅读 [`00_Product_Vision.md`](docs/02-product-requirements/00_Product_Vision.md) 和 [`00_Global_Architecture.md`](docs/02-product-requirements/00_Global_Architecture.md)
 - [ ] 本地开发验证：`make run-metric-center` + `make run-prometheus` + `make dev-ui` 均可启动
+- [ ] 后端改动后重新编译并重启控制面（见 4.7）
 - [ ] 测试验证：`make test-platform` 与 `pnpm test` / `pnpm lint` 通过
 - [ ] 编译打包验证：`make build-center` 可完成（如需预生产/测试环境交付）
 - [ ] 如需验证采集链路，可运行 `platform/examples/simple-agent/`

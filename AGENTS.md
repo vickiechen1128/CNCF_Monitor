@@ -166,6 +166,9 @@ make run-prometheus        # 编译并启动 Prometheus（默认 http://localhos
 make dev-ui                # 启动前端开发服务器（默认 http://localhost:5173）
 ```
 
+> 注意：`make run-metric-center` 会重新编译并启动新二进制；Makefile 已把 `upstream/prometheus`、`upstream/blackbox_exporter` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`。后端代码改动后旧进程不会自动加载新逻辑，需先停止旧进程再执行 `make run-metric-center`。若手动启动二进制，必须显式导出 `PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$PATH"`，否则草稿校验会卡在 `pending`（提示「promtool 不可调用」）。
+> 另外，旧逻辑生成的 `pending` 草稿会按 checksum 幂等返回；要验证新逻辑，需先废弃旧单，再重新触发变更。废弃会按决策 43 回滚源数据（如把禁用的 Job 恢复启用），典型验证动线：废弃旧单 → 重新禁用 → 生成新单 → 重校/确认。
+
 ### 5.3 测试
 
 ```bash
