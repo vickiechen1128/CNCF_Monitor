@@ -57,13 +57,19 @@ func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.R
 
 // rulesFixture 返回一份携带一组 groups 的合法规则 YAML。
 func rulesFixture() string {
-	return `
+	return rulesFixtureGroup("host-cpu-alerts")
+}
+
+// rulesFixtureGroup 返回携带指定组名的一组 groups 的合法规则 YAML
+// （group 名全局唯一约束下，多规则用例须用不同组名）。
+func rulesFixtureGroup(group string) string {
+	return fmt.Sprintf(`
 groups:
-- name: host-cpu-alerts
+- name: %s
   rules:
   - alert: HighCPU
     expr: node_cpu_usage > 0.9
-`
+`, group)
 }
 
 func TestValidateRuleYamlSyntax(t *testing.T) {
@@ -105,6 +111,31 @@ func TestCreateMonitoringRule(t *testing.T) {
 	assert.Equal(t, string(models.ChangeStatusPending), string(out.Data.ChangeStatus))
 }
 
+// TestCreateMonitoringRuleDefaultEnabled 覆盖「创建默认启用」（M01 PRD §8，与采集
+// Job 对齐）：请求体不传 enabled 时必须默认 true，不得以零值 false 落库造成
+// 「保存并提交后规则变停用」。
+func TestCreateMonitoringRuleDefaultEnabled(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 不传 enabled → 默认启用。
+	body := fmt.Sprintf(`{"rule_content":%s,"name":"default-enabled"}`, jsonString(rulesFixture()))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Enabled, "缺省 enabled 应默认 true")
+
+	// 显式传 enabled=false → 尊重调用方（停用挂载场景）。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"explicit-disabled","enabled":false}`, jsonString(rulesFixture()))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.False(t, out.Data.Enabled, "显式 enabled=false 应落库为停用")
+}
+
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
@@ -114,9 +145,9 @@ func TestListUpdateDeleteMonitoringRule(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 
-	// 创建两条规则。
+	// 创建两条规则（生效规则合并为同一份 rules.yml，组名须全局唯一）。
 	for _, name := range []string{"cpu-rules", "disk-rules"} {
-		body := fmt.Sprintf(`{"rule_content":%s,"name":%s,"enabled":true}`, jsonString(rulesFixture()), jsonString(name))
+		body := fmt.Sprintf(`{"rule_content":%s,"name":%s,"enabled":true}`, jsonString(rulesFixtureGroup(name+"-grp")), jsonString(name))
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
 		require.Equal(t, http.StatusOK, w.Code)
 	}
@@ -212,4 +243,133 @@ func TestValidateYAMLEndpoint(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &badResp))
 	assert.False(t, badResp.Data.Valid)
 	assert.NotEmpty(t, badResp.Data.Error)
+}
+// TestExtractGroupNames 覆盖 group 名提取：空 name、文件内重名均报错。
+func TestExtractGroupNames(t *testing.T) {
+	names, err := extractGroupNames("groups:\n- name: a\n  rules: []\n- name: b\n  rules: []\n")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, names)
+
+	_, err = extractGroupNames("groups:\n- rules: []\n")
+	require.Error(t, err, "空 name 应报错")
+
+	_, err = extractGroupNames("groups:\n- name: a\n  rules: []\n- name: a\n  rules: []\n")
+	require.Error(t, err, "文件内重名应报错")
+}
+
+// TestCreateMonitoringRuleGroupNameConflict 覆盖「生效规则合并为同一份 rules.yml，
+// group 名全局唯一」：与已生效规则重名 → 400；组名不同或自身停用 → 放行。
+func TestCreateMonitoringRuleGroupNameConflict(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	body := fmt.Sprintf(`{"rule_content":%s,"name":"rule-a"}`, jsonString(rulesFixtureGroup("shared-grp")))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 重名（新规则默认启用）→ bad_request，错误信息点名占用方。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "shared-grp")
+	assert.Contains(t, w.Body.String(), "rule-a")
+
+	// 组名不同 → 放行。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"rule-b"}`, jsonString(rulesFixtureGroup("other-grp")))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 显式停用创建：不下发，不做唯一性校验 → 放行。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"rule-c","enabled":false}`, jsonString(rulesFixtureGroup("shared-grp")))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestCreateMonitoringRuleMonitorType 覆盖 monitor_type：非法值 400；合法值落库；
+// 可空（PRD §5.5 透传模式可空）。
+func TestCreateMonitoringRuleMonitorType(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 非法 monitor_type → bad_request。
+	body := fmt.Sprintf(`{"rule_content":%s,"monitor_type":"not_a_type"}`, jsonString(rulesFixture()))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "monitor_type")
+
+	// 合法 monitor_type → 落库。
+	body = fmt.Sprintf(`{"rule_content":%s,"monitor_type":"mysql","name":"mysql-rules"}`, jsonString(rulesFixture()))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "mysql", out.Data.MonitorType)
+
+	// 不传 monitor_type → 可空放行。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"no-type"}`, jsonString(rulesFixtureGroup("no-type-grp")))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// monitor_type 列表筛选。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/monitoring-rules?monitor_type=mysql", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var listOut struct {
+		Data struct {
+			List  []models.MonitoringRule `json:"list"`
+			Total int64                   `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listOut))
+	require.Equal(t, int64(1), listOut.Data.Total)
+	assert.Equal(t, "mysql-rules", listOut.Data.List[0].Name)
+}
+
+// TestUpdateMonitoringRuleGroupNameConflict 覆盖更新路径的唯一性校验：
+// 改内容撞名 400；排除自身；占用方停用后放行；monitor_type 非法 400。
+func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	create := func(name, group string) uint {
+		body := fmt.Sprintf(`{"rule_content":%s,"name":%s}`, jsonString(rulesFixtureGroup(group)), jsonString(name))
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+		require.Equal(t, http.StatusOK, w.Code)
+		var out struct {
+			Data models.MonitoringRule `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		return out.Data.ID
+	}
+	idA := create("rule-a", "grp-a")
+	idB := create("rule-b", "grp-b")
+
+	// 自身内容不变、仅改名字 → 排除自身，不应误判冲突。
+	w := perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), `{"name":"rule-b-v2"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 更新内容撞上 rule-a 的组名 → bad_request。
+	body := fmt.Sprintf(`{"rule_content":%s}`, jsonString(rulesFixtureGroup("grp-a")))
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), body)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "grp-a")
+
+	// 非法 monitor_type → bad_request。
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), `{"monitor_type":"bad"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 合法 monitor_type → 落库。
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), `{"monitor_type":"redis"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "redis", out.Data.MonitorType)
+
+	// 停用 rule-a 后，grp-a 释放 → rule-b 可改用。
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idA), `{"enabled":false}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), body)
+	require.Equal(t, http.StatusOK, w.Code)
 }

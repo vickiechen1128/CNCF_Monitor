@@ -5,7 +5,9 @@ import { CollectorTemplatesTab } from './CollectorTemplatesTab'
 
 const mappingListMock = vi.fn()
 const tmplListMock = vi.fn()
+const tmplRemoveMock = vi.fn()
 const mappingUpdateMock = vi.fn()
+const mappingRemoveMock = vi.fn()
 const labelTemplateListMock = vi.fn()
 
 vi.mock('../../api/ciExporterMappings', () => ({
@@ -13,12 +15,14 @@ vi.mock('../../api/ciExporterMappings', () => ({
     list: (...args: unknown[]) => mappingListMock(...args),
     create: vi.fn(),
     update: (...args: unknown[]) => mappingUpdateMock(...args),
+    remove: (...args: unknown[]) => mappingRemoveMock(...args),
   },
 }))
 
 vi.mock('../../api/exporterTemplates', () => ({
   exporterTemplateApi: {
     list: (...args: unknown[]) => tmplListMock(...args),
+    remove: (...args: unknown[]) => tmplRemoveMock(...args),
   },
 }))
 
@@ -71,7 +75,9 @@ describe('CollectorTemplatesTab', () => {
   beforeEach(() => {
     mappingListMock.mockReset()
     tmplListMock.mockReset()
+    tmplRemoveMock.mockReset()
     mappingUpdateMock.mockReset()
+    mappingRemoveMock.mockReset()
     labelTemplateListMock.mockReset()
     labelTemplateListMock.mockResolvedValue({
       status: 'success',
@@ -170,7 +176,7 @@ describe('CollectorTemplatesTab', () => {
 
     expect(await screen.findByText('暂无默认采集配置')).toBeInTheDocument()
     expect(screen.getByText('池中没有需要的采集器？')).toBeInTheDocument()
-    expect(screen.getByText('登记自研/第三方采集器')).toBeInTheDocument()
+    expect(screen.getByText('登记内部自建采集器')).toBeInTheDocument()
   })
 
   it('opens registration drawer on 登记采集器 click', async () => {
@@ -247,8 +253,98 @@ describe('CollectorTemplatesTab', () => {
     fireEvent.click(gotoConfig[0])
   })
 
-  it('shows install/download/doc entry on install column (F1-6)', async () => {
+  it('shows delete only on non-builtin template rows and calls remove (F-27 A)', async () => {
+    mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
+    tmplListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          template(1, 'mysqld-exporter'), // 内置 → 无删除按钮
+          { ...template(2, 'custom-exporter', 'internal'), is_builtin: false },
+        ],
+        total: 2,
+        page: 1,
+        page_size: 100,
+      },
+    })
+    tmplRemoveMock.mockResolvedValue({ status: 'success', data: { id: 2 } })
+
+    render(<CollectorTemplatesTab />)
+    await screen.findByText('custom-exporter')
+
+    // 仅自建（非内置）模板行有「删除」
+    const delButtons = screen.queryAllByRole('button', { name: '删 除' }).length
+      ? screen.queryAllByRole('button', { name: '删 除' })
+      : screen.queryAllByRole('button', { name: '删除' })
+    expect(delButtons).toHaveLength(1)
+
+    // Popconfirm 二次确认后调用 remove(2)
+    fireEvent.click(delButtons[0])
+    const confirm = await screen.findAllByRole('button', { name: '删 除' })
+    fireEvent.click(confirm[confirm.length - 1])
+    await waitFor(() => expect(tmplRemoveMock).toHaveBeenCalledWith(2))
+  })
+
+  // ---- F-28：映射行删除 + 采集器查看抽屉 ----
+  it('shows delete on non-builtin mapping rows and calls remove (F-28)', async () => {
     mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          mapping(1, 'mysql', 1, {}), // 非内置 → 有删除
+          mapping(2, 'redis', 2, { is_builtin: true }), // 内置 → 无删除
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    mappingRemoveMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
+
+    render(<CollectorTemplatesTab />)
+    await screen.findByText('mysqld-exporter')
+
+    // 操作列「删除」按钮仅出现在非内置映射行（模板池行为空，无其他删除入口）
+    const delButtons = screen.getAllByRole('button', { name: /删\s*除/ })
+    expect(delButtons).toHaveLength(1)
+
+    fireEvent.click(delButtons[0])
+    const confirm = await screen.findAllByRole('button', { name: '删 除' })
+    fireEvent.click(confirm[confirm.length - 1])
+    await waitFor(() => expect(mappingRemoveMock).toHaveBeenCalledWith(1))
+  })
+
+  it('opens collector detail drawer from 查看 with supported monitor types (F-28)', async () => {
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [mapping(1, 'mysql', 1, {})], total: 1, page: 1, page_size: 20 },
+    })
+    tmplListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ ...template(1, 'mysqld-exporter'), supported_monitor_types: ['mysql'] }],
+        total: 1,
+        page: 1,
+        page_size: 100,
+      },
+    })
+
+    render(<CollectorTemplatesTab />)
+    await screen.findByText('mysqld-exporter')
+
+    // 行内有两个「查看」（标签模板列 + 操作列），取操作列（行内最后一个）
+    const row = screen.getByText('mysqld-exporter').closest('tr') as HTMLElement
+    const viewButtons = within(row).getAllByRole('button', { name: /查\s*看/ })
+    fireEvent.click(viewButtons[viewButtons.length - 1])
+    // 只读详情抽屉：来源 / 支持的监控对象类型 / 端口 / 路径 / 协议全字段回显
+    expect(await screen.findByText('采集器详情：mysqld-exporter')).toBeInTheDocument()
+    expect(screen.getByText('支持的监控对象类型')).toBeInTheDocument()
+    expect(screen.getByText('官方')).toBeInTheDocument()
+    // Descriptions 内容区内 MySQL 标签（监控类型列也有 MySQL，容忍多处）
+    expect(screen.getAllByText('MySQL').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows install/download/doc entry on install column (F1-6)', async () => {    mappingListMock.mockResolvedValue({
       status: 'success',
       data: { list: [mapping(1, 'mysql', 1, {})], total: 1, page: 1, page_size: 20 },
     })
@@ -289,7 +385,9 @@ describe('CollectorTemplatesTab', () => {
 
     fireEvent.click(screen.getAllByText('更换')[0])
     expect(await screen.findByText('更换标签模板')).toBeInTheDocument()
-    const drawer = screen.getByRole('dialog')
+    // #19 修复后：同页内的 ExporterTemplateDrawer/MappingDrawer 因 forceRender 常驻挂载
+    // （关闭态也渲染 role=dialog），故需按标题定位「更换标签模板」抽屉而非单一 getByRole('dialog')
+    const drawer = screen.getAllByRole('dialog').find((d) => within(d).queryByText('更换标签模板')) as HTMLElement
     // 更换需回显「当前已选模板」确认（PRD L241）——抽屉内同时存在当前模板块与 Select 选中值，故用 getAllByText
     expect(within(drawer).getAllByText(/MySQL 标准标签/).length).toBeGreaterThanOrEqual(1)
     // 抽屉带入上下文：监控对象类型 / 资源类别 / 默认采集器（方便确认在给哪条默认采集配置换属主标签）

@@ -3,6 +3,7 @@ package rule
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
@@ -11,12 +12,16 @@ import (
 )
 
 // CreateMonitoringRuleRequest 是创建规则挂载的请求体（api-contract-snapshot §7）：
-// content_mode=yaml_passthrough、rule_content 必填、name 可空、enabled。
+// content_mode=yaml_passthrough、rule_content 必填、name / enabled / monitor_type 可空。
+// Enabled 为指针：缺省（未传）按 true 处理，与采集 Job「创建默认启用」对齐
+// （M01 PRD §8）；非指针 bool 会在前端漏传时以零值 false 落库，造成「保存即停用」。
+// MonitorType 可空（PRD §5.5 透传模式可空），非空时须为合法监控对象类型。
 type CreateMonitoringRuleRequest struct {
 	ContentMode models.RuleContentMode `json:"content_mode"`
 	RuleContent string                 `json:"rule_content"`
 	Name        string                 `json:"name"`
-	Enabled     bool                   `json:"enabled"`
+	Enabled     *bool                  `json:"enabled"`
+	MonitorType string                 `json:"monitor_type"`
 }
 
 // CreateMonitoringRule 是 POST /api/v2/platform/monitoring-rules 的 handler：
@@ -42,13 +47,32 @@ func CreateMonitoringRule(db *gorm.DB) gin.HandlerFunc {
 			response.BadRequest(c, err)
 			return
 		}
+		if mt := strings.TrimSpace(req.MonitorType); mt != "" && !models.ValidMonitorType(mt) {
+			response.BadRequest(c, fmt.Errorf("monitor_type %q 非法（非受支持的监控对象类型）", req.MonitorType))
+			return
+		}
+
+		// enabled 缺省默认启用（M01 PRD §8「创建默认启用」与采集 Job 对齐）。
+		enabled := true
+		if req.Enabled != nil {
+			enabled = *req.Enabled
+		}
+
+		// 生效规则将合并进同一份 rules.yml：group 名须全局唯一（禁用时不下发，不校验）。
+		if enabled {
+			if err := validateGroupNamesAvailable(db, req.RuleContent, 0); err != nil {
+				response.BadRequest(c, err)
+				return
+			}
+		}
 
 		r := &models.MonitoringRule{
 			Name:         req.Name,
 			ContentMode:  mode,
 			RuleContent:  req.RuleContent,
+			MonitorType:  strings.TrimSpace(req.MonitorType),
 			Scope:        models.ScopeTypeCentral,
-			Enabled:      req.Enabled,
+			Enabled:      enabled,
 			DraftStatus:  "ready",
 			ChangeStatus: models.ChangeStatusPending,
 		}

@@ -182,6 +182,36 @@ func TestCreateExporterTemplateDuplicateName(t *testing.T) {
 	require.Equal(t, http.StatusConflict, w.Code)
 }
 
+// 回归：软删后重建同名采集器应成功，而不是命中 DB 唯一索引抛 internal error
+// （create.go 用 Unscoped 查找软删残留并在重建前物理清理，与 scrapejob 对齐）。
+func TestCreateExporterTemplateRecreateAfterSoftDelete(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	body := `{"name":"recreate-me","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"}`
+
+	// 先登记一个 internal 采集器。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.ExporterTemplate `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	id := strconv.FormatUint(uint64(created.Data.ID), 10)
+
+	// 软删该采集器。
+	w = perform(t, r, http.MethodDelete, "/api/v2/platform/exporter-templates/"+id, "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 重建同名采集器：应 200 成功，而不是 500 internal error。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
+	require.Equal(t, http.StatusOK, w.Code, "软删后重建同名采集器应成功（避免 uniqueIndex 冲突 500）")
+
+	// 活跃同名仍应冲突。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
+	require.Equal(t, http.StatusConflict, w.Code)
+}
+
 func TestUpdateExporterTemplateInternal(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)

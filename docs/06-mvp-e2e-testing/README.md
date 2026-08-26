@@ -6,7 +6,7 @@
 
 ---
 
-## 1. 动手前必读的 4 个事实（不理解就会误判）
+## 1. 动手前必读的 5 个事实（不理解就会误判）
 
 1. **local 下发通道只对 `default` 管理域生效。**
    `configcenter/domain/service.go:83-93`：`default` 域固定 `channel=local`（写盘 + reload），
@@ -31,6 +31,11 @@
    少任何一个都会出现「下发 failed」或「假 success」（生成的 file_sd 用相对路径
    `targets/<job>.json`，按配置文件所在目录解析，`config.file` 指错目录时 targets 永远加载不到）。
 
+5. **后端改动后必须重编译重启，且不要手动绕过 Makefile 的 PATH**（2026-08-26 追加）：
+   - 修改 `platform/` 后，旧的 `metric-center` 二进制仍在跑，新逻辑不会生效；须先 `make build-metric-center`，再用 `make run-metric-center` 启动。Makefile 会自动把 `upstream/prometheus` 和 `upstream/blackbox_exporter` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`。
+   - 若手动启动二进制却忘了把上述两个目录加入 PATH，草稿会卡在 `validation_status=pending`，提示「promtool 不可调用」，导致无法确认发布。
+   - 如果已有一张旧逻辑生成的 `pending` 草稿，即使重启了新二进制，`GenerateDraft` 也会按 checksum 幂等返回旧草稿（保活设计）。要看到新逻辑生成的 diff / 变更清单，需要先**废弃**旧单，再重新触发变更。废弃会按决策 43 回滚源数据（例如把禁用的 Job 恢复启用），所以常见验证动线是：**废弃旧单 → 重新禁用 Job → 生成新单 → 重校/确认**。
+
 ---
 
 ## 2. 启动环境（4 个进程）
@@ -53,7 +58,7 @@ cd platform/examples/simple-agent && ../../../.tools/go/bin/go run . -listen-add
 
 > 也可以用 `upstream/node_exporter` 替代 simple-agent，端口同样保持 9100。
 
-## 3. Step 0：环境自检（4 条全绿再往下走）
+## 3. Step 0：环境自检（4 条全绿 + Step 0.5 通过再往下走）
 
 ```bash
 # 0.1 控制面健康
@@ -70,6 +75,28 @@ ls config-output/prometheus.yml
 curl -s 'http://localhost:8080/api/v2/platform/network-domains/default' | jq '.data | {id, channel, is_monitored, status}'
 # 期望：channel=local, is_monitored=true, status=enabled
 ```
+
+### Step 0.5：确认控制面是新二进制且校验工具在 PATH 中
+
+每次修改 `platform/` 后，**不要直接复用旧进程**：
+
+```bash
+make build-metric-center
+# 在另一个终端先停止旧 metric-center 进程，再：
+make run-metric-center
+```
+
+验证控制面已加载新逻辑且 `promtool` 可被调用：
+
+```bash
+curl -s -X POST http://localhost:8080/api/v2/platform/config/drafts \
+  -H 'Content-Type: application/json' \
+  -d '{"network_domain_id":"default"}' | jq '.data.validation_status'
+# 期望：passed（若源数据无变化则返回 errType=no_changes）
+# 若返回 pending 且 message 含 "promtool 不可调用"，说明 PATH 未包含上游二进制目录
+```
+
+若存在旧逻辑生成的 `pending` 草稿，先**废弃**它，再重新触发变更（见事实 5）。
 
 ---
 

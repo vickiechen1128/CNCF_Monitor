@@ -664,6 +664,10 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       open={open}
       onClose={submitting ? undefined : onCancel}
       width={560}
+      // forceRender：Drawer 首次打开时内容惰性挂载（rc-drawer 动画期先于父组件
+      // useEffect 的 setFieldsValue 完成挂载），导致编辑回显首次为空、二次才出现；
+      // forceRender 保证 Form 常驻挂载，首次打开即正确回显（#19 通病，M07 资源抽屉）。
+      forceRender
       footer={
         <div style={{ textAlign: 'right' }}>
           <Space>

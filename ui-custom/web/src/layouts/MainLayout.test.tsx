@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../test/antdTestUtils'
 import { MainLayout } from './MainLayout'
@@ -46,7 +46,7 @@ describe('MainLayout', () => {
     expect(screen.queryByText('jobs-content')).toBeNull()
   })
 
-  it('renders M06 网域管理 + M09 独立顶级模块「网域与边缘配置中心」的两个一级菜单组（N2-1）', () => {
+  it('renders M06 网域管理 + M09 独立顶级模块「网域与边缘配置中心」的两个一级子菜单（N2-1）', async () => {
     render(
       <MemoryRouter initialEntries={['/deployments']}>
         <Routes>
@@ -57,18 +57,18 @@ describe('MainLayout', () => {
     // 顶部一级 tab：M09 独立为「网域与边缘配置中心」顶级模块
     expect(screen.getByText('网域与边缘配置中心')).toBeInTheDocument()
     expect(screen.getByText('系统与平台管理')).toBeInTheDocument()
-    // M09 顶级模块下的组「网域与节点管理」及其子项
+    // 「网域与节点管理」为可折叠子菜单：默认折叠，子项不常驻 Sider
     expect(screen.getByText('网域与节点管理')).toBeInTheDocument()
-    expect(screen.getByText('网域纳管')).toBeInTheDocument()
-    expect(screen.getByText('采集节点状态')).toBeInTheDocument()
-    // M09 顶级模块下的组「配置下发」及其子项
+    expect(screen.queryByText('网域纳管')).toBeNull()
+    expect(screen.queryByText('采集节点状态')).toBeNull()
+    // 「配置下发」同为可折叠子菜单：位于 /deployments（配置面路由）时自动展开，子项可见
     expect(screen.getByText('配置下发')).toBeInTheDocument()
-    expect(screen.getByText('配置变更确认')).toBeInTheDocument()
+    expect(await screen.findByText('配置变更确认')).toBeInTheDocument()
     expect(screen.getByText('下发记录')).toBeInTheDocument()
     expect(screen.getByText('deployments-content')).toBeInTheDocument()
   })
 
-  it('highlights 下发记录 sub-item when route is /deployments (M09)', () => {
+  it('expands 网域与节点管理 submenu on click（低频接入面可折叠）', () => {
     render(
       <MemoryRouter initialEntries={['/deployments']}>
         <Routes>
@@ -76,11 +76,79 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
-    const selected = screen
-      .getAllByRole('menuitem')
-      .find((el) => (el.textContent || '').includes('下发记录'))
-    expect(selected).toBeDefined()
-    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.queryByText('网域纳管')).toBeNull()
+    fireEvent.click(screen.getByText('网域与节点管理'))
+    expect(screen.getByText('网域纳管')).toBeInTheDocument()
+    expect(screen.getByText('采集节点状态')).toBeInTheDocument()
+  })
+
+  it('auto-expands 网域与节点管理 when active route is in that group (/domain-onboarding)', async () => {
+    render(
+      <MemoryRouter initialEntries={['/domain-onboarding']}>
+        <Routes>
+          <Route
+            path="/domain-onboarding"
+            element={<MainLayout>onboarding-content</MainLayout>}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('网域与节点管理')).toBeInTheDocument()
+    expect(await screen.findByText('网域纳管')).toBeInTheDocument()
+    expect(screen.getByText('采集节点状态')).toBeInTheDocument()
+    // 「配置下发」在非配置面路由下保持折叠，子项不显示
+    expect(screen.queryByText('配置变更确认')).toBeNull()
+    expect(screen.queryByText('下发记录')).toBeNull()
+    expect(screen.getByText('onboarding-content')).toBeInTheDocument()
+  })
+
+  it('collapses 网域与节点管理 on manual toggle even when active route is in that group（激活页可手动折叠）', async () => {
+    render(
+      <MemoryRouter initialEntries={['/domain-onboarding']}>
+        <Routes>
+          <Route
+            path="/domain-onboarding"
+            element={<MainLayout>onboarding-content</MainLayout>}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // antd Menu 折叠/展开由 SubMenu 的 ant-menu-submenu-open class 标记（jsdom 下
+    // CSSMotion 不生效、DOM 不随折叠移除，故用 className 而非可见性/存在性断言）
+    const submenuTitle = screen.getByText('网域与节点管理')
+    const submenuLi = submenuTitle.closest('li.ant-menu-submenu') as HTMLElement
+    // 首次进入该组自动展开
+    await waitFor(() => {
+      expect(submenuLi.classList.contains('ant-menu-submenu-open')).toBe(true)
+    })
+    // 用户手动折叠应立即生效，不再被强制展开
+    fireEvent.click(submenuTitle)
+    await waitFor(() => {
+      expect(submenuLi.classList.contains('ant-menu-submenu-open')).toBe(false)
+    })
+    // 再次点击展开
+    fireEvent.click(submenuTitle)
+    await waitFor(() => {
+      expect(submenuLi.classList.contains('ant-menu-submenu-open')).toBe(true)
+    })
+  })
+
+  it('highlights 下发记录 sub-item when route is /deployments (M09)', async () => {
+    render(
+      <MemoryRouter initialEntries={['/deployments']}>
+        <Routes>
+          <Route path="/deployments" element={<MainLayout>deployments-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // /deployments 属「配置下发」组：自动展开后子项渲染，且「下发记录」处于选中态
+    await waitFor(() => {
+      const selected = screen
+        .getAllByRole('menuitem')
+        .find((el) => (el.textContent || '').includes('下发记录'))
+      expect(selected).toBeDefined()
+      expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    })
   })
 
   it('resolves /domain-onboarding、/node-status、/config-preview to 网域与边缘配置中心 module tab', () => {

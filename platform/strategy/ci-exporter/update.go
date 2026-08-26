@@ -66,7 +66,7 @@ func UpdateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc {
 			m.IsDefault = *req.IsDefault
 		}
 		if req.ExporterTemplateID != nil {
-			if err := verifyExporter(db, *req.ExporterTemplateID); err != nil {
+			if _, err := loadExporterByID(db, *req.ExporterTemplateID); err != nil {
 				response.BadRequest(c, err)
 				return
 			}
@@ -104,6 +104,17 @@ func UpdateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 最终生效的（monitor_type, exporter）须满足采集器支持类型声明（F-27 C）。
+		tmpl, err := loadExporterByID(db, m.ExporterTemplateID)
+		if err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+		if err := ensureExporterSupportsType(tmpl, monitorType); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+
 		if err := db.Save(&m).Error; err != nil {
 			response.InternalServerError(c, fmt.Errorf("update ci-exporter mapping %d: %w", id, err))
 			return
@@ -112,17 +123,17 @@ func UpdateCITypeExporterMapping(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// verifyExporter 校验 exporter_template_id 对应采集器存在。
-func verifyExporter(db *gorm.DB, id string) error {
+// loadExporterByID 按字符串数字 ID 加载采集器模板；非法/不存在返回错误。
+func loadExporterByID(db *gorm.DB, id string) (*models.ExporterTemplate, error) {
 	v, err := strconv.ParseUint(id, 10, 64)
 	if err != nil || v == 0 {
-		return fmt.Errorf("exporter_template_id %q 非法", id)
+		return nil, fmt.Errorf("exporter_template_id %q 非法", id)
 	}
 	var tmpl models.ExporterTemplate
 	if err := db.First(&tmpl, v).Error; err != nil {
-		return fmt.Errorf("exporter_template_id %s 不存在", id)
+		return nil, fmt.Errorf("exporter_template_id %s 不存在", id)
 	}
-	return nil
+	return &tmpl, nil
 }
 
 // parseMappingID 解析路径参数 id 为正整数；非法/缺省返回 false。

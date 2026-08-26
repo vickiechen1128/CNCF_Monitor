@@ -11,7 +11,6 @@ import {
   Popconfirm,
   Select,
   Space,
-  Switch,
   Table,
   Tag,
   Tooltip,
@@ -344,15 +343,27 @@ function JobsTab() {
                 编辑
               </Button>
             </Tooltip>
-            <Tooltip title={isPending ? pendingTip : r.enabled ? '点击停用' : '点击启用'}>
-              <Switch
-                size="small"
-                checked={r.enabled}
-                disabled={isPending}
-                onChange={(checked) => void toggleEnabled(r, checked)}
-                aria-label="启停"
-              />
-            </Tooltip>
+            {/* M01 PRD（破坏性操作二次确认）：启停为有文字按钮 + Popconfirm，
+                停用明确提示监控中断影响；原小号无文字 Switch 可发现性差且无确认 */}
+            <Popconfirm
+              title={r.enabled ? '停用采集任务' : '启用采集任务'}
+              description={
+                r.enabled
+                  ? `停用后「${r.job_name}」将从下发配置中移除，相关监控中断；需到配置变更页确认后生效。`
+                  : `启用后「${r.job_name}」将重新纳入配置下发；需到配置变更页确认后生效。`
+              }
+              okText={r.enabled ? '确认停用' : '确认启用'}
+              okButtonProps={r.enabled ? { danger: true } : undefined}
+              cancelText="取消"
+              onConfirm={() => void toggleEnabled(r, !r.enabled)}
+              disabled={isPending}
+            >
+              <Tooltip title={isPending ? pendingTip : undefined}>
+                <Button type="link" size="small" danger={r.enabled} disabled={isPending}>
+                  {r.enabled ? '停用' : '启用'}
+                </Button>
+              </Tooltip>
+            </Popconfirm>
             <Popconfirm
               title="删除采集任务"
               description="删除后该任务将不再下发配置，确定删除？"

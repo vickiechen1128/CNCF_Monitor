@@ -44,6 +44,15 @@ describe('ExporterTemplateDrawer', () => {
     expect(screen.queryByText('MySQL')).toBeNull()
   })
 
+  it('only offers 内部自建 source (official/third_party 平台预置只读，F-26)', async () => {
+    renderDrawer()
+    // 默认选中「内部自建」；打开下拉无官方/第三方选项（后端也只放行 internal）
+    fireEvent.mouseDown(screen.getByText('内部自建'))
+    await screen.findAllByText('内部自建')
+    expect(screen.queryByText('官方（内置）')).toBeNull()
+    expect(screen.queryByText('第三方')).toBeNull()
+  })
+
   it('submits prefilled supported_monitor_types on register (O2/T01-F15)', async () => {
     exporterCreateMock.mockResolvedValue({
       status: 'success',

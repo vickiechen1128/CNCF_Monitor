@@ -157,6 +157,84 @@ func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T) {
 	assert.Equal(t, string(models.ChangeStatusPending), string(out.Data.ChangeStatus), "创建后 change_status=pending")
 }
 
+// F-28：无默认映射时，留空采集参数按全局兜底常量解析（15s/10s//metrics/http）。
+func TestCreateScrapeJobGlobalDefaultFallback(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	body := `{"job_name":"sparse-job","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, models.DefaultScrapeInterval, out.Data.ScrapeInterval)
+	assert.Equal(t, models.DefaultScrapeTimeout, out.Data.ScrapeTimeout)
+	assert.Equal(t, models.DefaultMetricsPath, out.Data.MetricsPath)
+	assert.Equal(t, models.DefaultScheme, out.Data.Scheme)
+}
+
+// F-28：映射稀疏留空时，metrics_path/scheme 继续回落到采集器模板默认值。
+func TestCreateScrapeJobTemplateFallback(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	tmplID := seedExporter(t, db, "node-exporter") // 模板自带 /metrics + http
+	// 稀疏映射：仅覆盖间隔/超时，路径与协议留空（=继承采集器模板）。
+	require.NoError(t, db.Create(&models.CITypeExporterMapping{
+		MonitorType: "host_linux", ExporterTemplateID: tmplID, IsDefault: true, DefaultPort: 9100,
+		ScrapeInterval: "30s", ScrapeTimeout: "20s",
+	}).Error)
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	body := `{"job_name":"tpl-fallback","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "30s", out.Data.ScrapeInterval, "映射层覆盖")
+	assert.Equal(t, "20s", out.Data.ScrapeTimeout)
+	assert.Equal(t, "/metrics", out.Data.MetricsPath, "映射留空 → 回落采集器模板")
+	assert.Equal(t, "http", out.Data.Scheme)
+}
+
+// F-28：更新时清空某参数字段 = 恢复继承，保存时重新解析为映射快照。
+func TestUpdateScrapeJobClearFieldReInherits(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	tmplID := seedExporter(t, db, "node-exporter")
+	require.NoError(t, db.Create(&models.CITypeExporterMapping{
+		MonitorType: "host_linux", ExporterTemplateID: tmplID, IsDefault: true, DefaultPort: 9100,
+		MetricsPath: "/metrics", Scheme: "http", ScrapeInterval: "30s", ScrapeTimeout: "20s",
+	}).Error)
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "60s", ScrapeTimeout: "10s", MetricsPath: "/custom", Scheme: "https",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// 清空 scrape_interval 与 metrics_path → 恢复继承映射默认值。
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"scrape_interval":"","metrics_path":""}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "30s", out.Data.ScrapeInterval, "清空后回落映射默认")
+	assert.Equal(t, "/metrics", out.Data.MetricsPath)
+	assert.Equal(t, "10s", out.Data.ScrapeTimeout, "未清空字段保持用户值")
+	assert.Equal(t, "https", out.Data.Scheme)
+}
+
 func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)

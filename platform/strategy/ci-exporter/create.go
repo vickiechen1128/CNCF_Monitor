@@ -83,6 +83,10 @@ func validateMappingReq(req CreateCITypeExporterMappingRequest, db *gorm.DB) err
 	if err := db.First(&tmpl, exporterID).Error; err != nil {
 		return fmt.Errorf("exporter_template_id %d 不存在", exporterID)
 	}
+	// 采集器声明的支持类型（supported_monitor_types）非空时须包含所选 monitor_type（F-27 C）。
+	if err := ensureExporterSupportsType(&tmpl, req.MonitorType); err != nil {
+		return err
+	}
 	// label_template_id 存在（可空）。
 	if req.LabelTemplateID != "" {
 		var lt models.LabelTemplate
@@ -113,4 +117,18 @@ func ensureSingleDefault(db *gorm.DB, monitorType string, wantDefault bool, excl
 		return fmt.Errorf("monitor_type %q 已存在默认采集配置，每类型仅允许一个 is_default=true", monitorType)
 	}
 	return nil
+}
+
+// ensureExporterSupportsType 校验采集器声明支持所选监控对象类型（F-27 C）：
+// supported_monitor_types 为空（未标注，兼容存量）放行；非空且不包含 monitor_type 报错。
+func ensureExporterSupportsType(tmpl *models.ExporterTemplate, monitorType string) error {
+	if len(tmpl.SupportedMonitorTypes) == 0 {
+		return nil
+	}
+	for _, t := range tmpl.SupportedMonitorTypes {
+		if t == monitorType {
+			return nil
+		}
+	}
+	return fmt.Errorf("采集器 %q 未声明支持监控对象类型 %q（supported_monitor_types=%v）", tmpl.Name, monitorType, tmpl.SupportedMonitorTypes)
 }

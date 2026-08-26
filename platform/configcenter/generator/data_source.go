@@ -101,6 +101,34 @@ func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplat
 	return LoadDefaultTemplate(db, models.ResourceCategory(job.ResourceType))
 }
 
+// LoadExporterPort 解析采集 Job 的采集策略层端口（target/instance 拼接用）。
+//
+// 优先级（PRD M07 §5.12C / M01 §5.1 端口一致性说明）：
+//  1. CITypeExporterMapping（按 monitor_type 的默认映射 default_port，映射表单可编辑）；
+//  2. 回落 ExporterTemplate（按 exporter_template_id 的 default_port）；
+//  3. 二者皆缺返回 0（host 不拼端口保持裸 IP；database/middleware 回落业务端口）。
+func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error) {
+	if job.MonitorType != "" {
+		var mapping models.CITypeExporterMapping
+		err := db.Where("monitor_type = ?", job.MonitorType).Order("is_default desc, created_at asc").First(&mapping).Error
+		if err == nil && mapping.DefaultPort > 0 {
+			return mapping.DefaultPort, nil
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return 0, fmt.Errorf("load ci-exporter mapping %s: %w", job.MonitorType, err)
+		}
+	}
+	if job.ExporterTemplateID != "" {
+		var tmpl models.ExporterTemplate
+		err := db.Where("id = ?", job.ExporterTemplateID).First(&tmpl).Error
+		if err == nil && tmpl.DefaultPort > 0 {
+			return tmpl.DefaultPort, nil
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return 0, fmt.Errorf("load exporter template %s: %w", job.ExporterTemplateID, err)
+		}
+	}
+	return 0, nil
+}
+
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。
 type ErrNotFound struct {
 	Resource string

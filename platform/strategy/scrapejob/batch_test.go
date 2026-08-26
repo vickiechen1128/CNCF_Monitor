@@ -20,7 +20,8 @@ func newBatchTestDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:batch_%d?mode=memory&cache=shared", n)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.NetworkDomain{}))
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.NetworkDomain{},
+		&models.CITypeExporterMapping{}, &models.ExporterTemplate{}))
 	return db
 }
 
@@ -98,8 +99,9 @@ func TestBatchSubmitReady_ValidateBeforeReady(t *testing.T) {
 	db := newBatchTestDB(t)
 	seedBatchDomain(t, db)
 	j1 := seedBatchJob(t, db, "job1", "draft")
-	// 把必填字段置空，模拟草稿态未填完整。
-	require.NoError(t, db.Model(j1).Update("scrape_interval", "").Error)
+	// 把必填字段置空，模拟草稿态未填完整（F-28 后采集参数可留空继承，
+	// 改用 standard 仍必填的 monitor_type 作为「未填完整」用例）。
+	require.NoError(t, db.Model(j1).Update("monitor_type", "").Error)
 
 	_, err := BatchSubmitReady(db, []uint{j1.ID})
 	require.Error(t, err)
@@ -107,6 +109,31 @@ func TestBatchSubmitReady_ValidateBeforeReady(t *testing.T) {
 	var updated models.ScrapeJob
 	require.NoError(t, db.First(&updated, j1.ID).Error)
 	assert.Equal(t, "draft", updated.DraftStatus)
+}
+
+// F-28：草稿采集参数留空（=继承）时，提交生效按层叠默认链解析为生效快照并落库。
+func TestBatchSubmitReady_ResolvesEmptyScrapeParams(t *testing.T) {
+	db := newBatchTestDB(t)
+	seedBatchDomain(t, db)
+	j1 := seedBatchJob(t, db, "job1", "draft")
+	// 留空全部采集参数；无映射无采集器绑定 → 全局兜底常量。
+	require.NoError(t, db.Model(j1).Updates(map[string]interface{}{
+		"scrape_interval": "", "scrape_timeout": "", "metrics_path": "", "scheme": "",
+	}).Error)
+
+	jobs, err := BatchSubmitReady(db, []uint{j1.ID})
+	require.NoError(t, err)
+	require.Len(t, jobs, 1)
+	assert.Equal(t, models.DefaultScrapeInterval, jobs[0].ScrapeInterval)
+	assert.Equal(t, models.DefaultScrapeTimeout, jobs[0].ScrapeTimeout)
+	assert.Equal(t, models.DefaultMetricsPath, jobs[0].MetricsPath)
+	assert.Equal(t, models.DefaultScheme, jobs[0].Scheme)
+
+	// 解析结果已随状态翻转落库。
+	var persisted models.ScrapeJob
+	require.NoError(t, db.First(&persisted, j1.ID).Error)
+	assert.Equal(t, models.DefaultScrapeInterval, persisted.ScrapeInterval)
+	assert.Equal(t, "ready", persisted.DraftStatus)
 }
 
 func TestBatchSubmitReady_MissingID(t *testing.T) {

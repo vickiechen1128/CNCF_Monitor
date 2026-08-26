@@ -45,13 +45,23 @@ func CreateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// name 唯一（GORM 唯一索引兜底，查询提前校验给友好错误）。
-		var dup int64
-		if err := db.Model(&models.ExporterTemplate{}).Where("name = ?", req.Name).Count(&dup).Error; err != nil {
-			response.InternalServerError(c, fmt.Errorf("check duplicate exporter template: %w", err))
-			return
-		}
-		if dup > 0 {
+		// name 唯一（GORM 唯一索引兜底，提前查询给友好错误）。
+		// 软删兼容：delete.go 使用软删，name 唯一索引仍被已软删行占用。
+		// 用 Unscoped 连软删行一起查——GORM 默认作用域（deleted_at IS NULL）会
+		// 看不见软删行，导致同名重建时 INSERT 命中 DB 唯一约束而抛 internal error。
+		// 仅软删残留时先物理清理旧行释放索引，再允许用户重建同名采集器。
+		var existing models.ExporterTemplate
+		if err := db.Unscoped().Where("name = ?", req.Name).First(&existing).Error; err != nil {
+			if err != gorm.ErrRecordNotFound {
+				response.InternalServerError(c, fmt.Errorf("check duplicate exporter template: %w", err))
+				return
+			}
+		} else if existing.DeletedAt.Valid {
+			if err := db.Unscoped().Delete(&existing).Error; err != nil {
+				response.InternalServerError(c, fmt.Errorf("purge soft-deleted exporter template %q: %w", req.Name, err))
+				return
+			}
+		} else {
 			response.Conflict(c, fmt.Errorf("采集器 %q 已存在", req.Name))
 			return
 		}

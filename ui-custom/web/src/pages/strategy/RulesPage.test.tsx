@@ -55,7 +55,7 @@ describe('RulesPage', () => {
       status: 'success',
       data: {
         list: [
-          rule(1, { change_status: 'pending' }),
+          rule(1, { change_status: 'pending', monitor_type: 'mysql' }),
           rule(2, { change_status: 'deployed', enabled: true }),
           rule(3, { enabled: false }),
         ],
@@ -74,11 +74,14 @@ describe('RulesPage', () => {
     expect(await screen.findByText('rule-1')).toBeInTheDocument()
     expect(screen.getByText('MetricCenter')).toBeInTheDocument()
     expect(screen.getAllByText('文件透传').length).toBeGreaterThanOrEqual(1)
+    // 监控对象类型列：有值映射展示名，无值显示占位「-」
+    expect(screen.getAllByText('MySQL').length).toBeGreaterThanOrEqual(1)
     // 两条 `- alert:` → 规则条数 2
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('待下发').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('待确认').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('待生效').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('停用')).toBeInTheDocument()
+    expect(screen.getAllByText('停用').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows empty state 暂无规则', async () => {
@@ -101,6 +104,40 @@ describe('RulesPage', () => {
       </MemoryRouter>,
     )
     fireEvent.click(screen.getByText('挂载规则'))
+    expect(screen.getByTestId('rule-mount-drawer')).toBeInTheDocument()
+  })
+
+  it('edit button is disabled for pending rules and opens drawer in edit mode otherwise', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          rule(1, { change_status: 'pending', enabled: true }),
+          rule(2, { change_status: 'deployed', enabled: true }),
+          rule(3, { enabled: false, change_status: 'none' }),
+        ],
+        total: 3,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <RulesPage />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('rule-1')).toBeInTheDocument()
+
+    // 三行按序渲染：rule-1(pending) 编辑禁用；rule-2(已生效) 与 rule-3(停用) 可编辑
+    const editButtons = screen.getAllByText('编辑').map((el) => el.closest('button'))
+    expect(editButtons[0]).toBeDisabled()
+    expect(editButtons[1]).toBeEnabled()
+    expect(editButtons[2]).toBeEnabled()
+
+    // 点击停用规则（rule-3）的「编辑」→ 打开抽屉进入编辑模式
+    fireEvent.click(editButtons[2]!)
     expect(screen.getByTestId('rule-mount-drawer')).toBeInTheDocument()
   })
 })

@@ -143,6 +143,44 @@
 - [ ] F-11 未收割（chenrt 修订 PRD §5.1/§6.2.1：编辑抽屉剥离标签模板字段，更换/补配轻量抽屉为唯一入口；同步原型动线）
 - [ ] F-12 已对齐 PRD L228/L229/L240（实现完整，供 PM 复核与原型动线校验；跨模块跳转未落地统一导航配置为既有债务）
 - [x] F-16 已修正/实现（代码已落库；design 分支待收割 PRD §5.1 版本归属 v0.2→MVP / §5.4 单向流转补系统随单回退例外 决策 43-3 / §11.1 批量提交生效 并同步原型）
+- [x] F-21 已修正/实现（变更清单按产物 diff 派生，禁用 Job 不再误报「无变化」）
+- [x] F-22 已修正/实现（规则创建默认启用，按钮文案「提交生效」）
+- [ ] F-23 已登记（生产已对齐采集 Job 列；待 design 更新原型 RulesPage）
+- [ ] F-24 已实现（代码已落库；待 design 收割 PRD §5.5 多记录合并语义 + 原型补资源类别/监控对象类型字段）
+- [x] F-25 已决策（MVP 实现「停用可编辑」；规则草稿推迟 v0.3 不提前实现；待 design 评估规则后端 pending 409 兜底 + PRD §5.5 锁定语义）
+- [ ] F-26 已实现（代码已落库：来源下拉仅内部自建 / exporter_template_id 字符串契约修复 / 登记→配置动线预填；待 design 收割 PRD §5.2 L81↔L334 矛盾）
+- [ ] F-27 A/B/C 已实现（删除入口 / 下拉类型过滤 / 映射类型校验已落库）；F-27 D 待设计侧决策（开放 official/third_party 登记 + 预置降级为初始数据，需修订 PRD §5.2）
+- [ ] F-28 已实现（代码已落库：采集参数层叠默认 + 稀疏覆盖 / interval·timeout 真实渲染 / 查看抽屉 / 映射删除；待 design 收割 PRD §5.1/§5.4 层叠默认链与「留空=继承」口径 + 原型同步 placeholder 交互）
+
+## 2026-08-26（采集参数三层简化：层叠默认 + 稀疏覆盖）
+
+### F-28：采集参数「填 3 遍」简化——层叠默认 + 稀疏覆盖（② 类实现偏差修复 + ① 类 PRD 口径待收割）
+
+- **类别**：② 实现偏差（B/C/D/E 已按用户拍板落地）+ ① PRD 空白（层叠默认链口径待 design 收割）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.1（CITypeExporterMapping）/ §5.2（ExporterTemplate 预置参数）/ §5.4（ScrapeJob 参数字段表）；源码 `platform/strategy/scrapejob/{validate,create,update,batch}.go`、`platform/configcenter/generator/render.go`、`ui-custom/web/src/pages/strategy/{CollectorTemplatesTab,MappingDrawer,ScrapeJobFormDrawer}.tsx`
+- **问题（用户实测提出）**：
+  1. **端口/路径填 3 遍、间隔/超时填 2 遍**：采集器登记（模板层）→ 默认采集配置（映射层）→ 采集 Job 都要重复填写同义参数；且三处均为值预填/必填，用户无法「留空继承」；
+  2. **间隔/超时从未生效（缺陷）**：generator `scrapeConf` 结构体无 `scrape_interval/scrape_timeout` 字段，Job 上填的间隔/超时**从未写入 prometheus.yml**（静默丢失，实际按 Prometheus 全局默认 1m 执行）；
+  3. **更新/批量提交生效路径无回落**：`inheritDefaultsFromMapping` 仅 create 调用且只有「映射一层」回落；update 清空字段直接报「必填」；草稿批量提交生效不做参数解析；
+  4. **登记采集器后无「查看」入口**：supported_monitor_types 等登记信息无法回显确认；
+  5. **默认采集配置（映射行）无「删除」入口**：后端 DELETE 早已实现，前端未放按钮。
+- **结论（用户拍板，方案 A / V1「层叠默认 + 稀疏覆盖」）**：
+  - **层叠默认链**：Job → 默认采集配置（CITypeExporterMapping，is_default）→ 采集器模板（ExporterTemplate，仅 metrics_path/scheme 有模板级默认）→ 全局兜底常量（`models.DefaultScrapeInterval=15s` / `DefaultScrapeTimeout=10s` / `DefaultMetricsPath=/metrics` / `DefaultScheme=http`）。任一层留空 = 继承下一层。
+  - **快照语义不变（决策 14 兼容）**：解析发生在 **Job 保存时**（create/update/batch-submit-ready 统一 `resolveJobScrapeParams`），落库即为该 Job 生效快照；映射/模板后续变更不自动影响存量 Job，存量 Job 采用新默认值仍需重新保存（清空字段保存 = 恢复继承）。
+  - **端口不进 Job 快照**（维持决策 46）：端口解析仍在生成器 `LoadExporterPort`（映射层 → 模板层）。
+- **已落地改动**：
+  - **后端 `scrapejob`**：`validateJobRequest` 摘除 standard 任务 4 参数硬必填；`inheritDefaultsFromMapping` 升级为 `resolveJobScrapeParams`（三层回落 + 全局兜底，保证 ready 任务生效参数恒非空）；create / update / `BatchSubmitReady` 三入口统一调用（batch 路径同步把解析结果随状态翻转落库，保持 all-or-nothing）。
+  - **后端 `generator`**：`scrapeConf` 补 `scrape_interval/scrape_timeout` 字段真实渲染进 prometheus.yml；空值按全局兜底常量回填（存量/异常数据防线）。
+  - **前端 `MappingDrawer`**：F-26 值预填改为 **placeholder 展示所选采集器默认参数**（留空=继承）；协议改 allowClear Select；提交时空值显式归一为 `''`/`0`（编辑态清空 = 恢复继承）；新增「留空=继承」说明 Alert。
+  - **前端 `ScrapeJobFormDrawer`**：参数区 4 字段摘除必填校验，placeholder 展示继承链下层生效值（映射 → 采集器/全局兜底）；`buildBody` 空值归一为 `''` 提交；`handleMonitorTypeChange` 不再值预填参数（默认采集器/标签模板仍自动带出）。
+  - **前端 `CollectorTemplatesTab`**：模板行 + 映射行新增「查看」（只读详情抽屉：名称/版本/来源/支持的监控对象类型/端口/路径/协议/OS/架构/下载/文档/安装指南）；映射行新增「删除」（仅非内置，Popconfirm 二次确认，被 Job 引用由后端 forbidden 兜底）；采集参数列稀疏值显示「15s（默认）/10s（默认）」。
+- **待 PRD 修订（① 类，design 分支收割）**：
+  1. §5.1/§5.4 补「层叠默认链 + 留空=继承」口径：Job/映射参数字段可空，空 = 继承下一层，保存时解析为快照；
+  2. §5.4 字段表 4 参数从「继承映射快照可覆盖」改为「可留空（继承）/ 可覆盖（快照）」；
+  3. 原型 MappingDrawer/ScrapeJobFormDrawer 参数区同步 placeholder 继承交互。
+- **验证**：后端 `go test ./platform/...` 全绿 + `go vet`（新增 `TestCreateScrapeJobGlobalDefaultFallback` / `TestCreateScrapeJobTemplateFallback` / `TestUpdateScrapeJobClearFieldReInherits` / `TestBatchSubmitReady_ResolvesEmptyScrapeParams` / `TestAssembleRendersScrapeIntervalTimeout`，改写 `TestBatchSubmitReady_ValidateBeforeReady` 失败用例改用 monitor_type）；前端 `pnpm test` 334/335（新增映射删除 / 查看抽屉 / 稀疏提交 / placeholder 继承 4 用例；唯一失败仍为改动前已存在的 `resources.test.ts` jsdom `Response.stream`）、`tsc --noEmit`、`pnpm lint` 通过。
+- **影响模块**：M01 采集 Job / 默认采集配置（主）；M09 配置生成器（scrape_interval/timeout 渲染补齐，见 integration/v0.1 issues.md）。
+- **发现场景**：用户系统性测试采集器管理 → 默认采集配置 → 采集 Job 动线，质疑参数重复填写与生效一致性。
 
 ### F-18：保存草稿时 `network_domain_id` 报必填（F-16 实现缺漏）
 
@@ -197,3 +235,158 @@
 - **是否需设计侧确认**：需——M01 PRD §5.4 需补 pending 期间的锁定语义（编辑/删除/启停约束与引导文案）；原型需补 pending 行禁用态。
 - **影响模块**：M01 采集 Job 管理（前后端）、M09 变更单联动
 - **发现场景**：用户对「job 状态 / 生效状态 / 配置变更单」三者关系与数据流转的联调测试。
+
+## 2026-08-26（M09 联调：target 抓取地址缺端口，决策 46）
+
+### F-20：ScrapeJob 无 port 字段，Host 采集 target 落到 80 端口 / PRD §5.4 端口口径内部冲突（① 类，已决策最小方案）
+
+- **类别**：① PRD 空白 / 内部口径冲突；② 实现偏差
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.4（字段表 386-414 行无 `port` 字段；但 416 行「实际参数覆盖（端口 / 路径 / 协议 / 间隔 / 超时，快照 + 覆盖）」明确端口是 Job 参数覆盖项；`mapping_overrides` 可覆盖字段枚举（406 行）也未含 `port`）；`Module_07` §5.12C（instance 端口取 `CITypeExporterMapping.default_port`）；源码 `platform/configcenter/generator/targets.go`、`platform/models/scrape_job.go`、`ui-custom/web/src/api/scrapeJobs.ts`（`ScrapeJobInput` 无 port）
+- **问题（联调实测）**：添加采集 Job 后 Prometheus 抓取报 `Get "http://1.15.94.116/metrics": dial tcp 1.15.94.116:80: connect: connection refused`——target 生成无端口，Prometheus 默认 80；而 node_exporter 实际监听 9100（用户实测可达）。targets JSON 产物为 `["1.15.94.116"]`，`instance` 标签同为无端口。
+- **根因**：`resolveResource` 的 Host 分支 `Address = host.PrivateIP` 只取 IP；Database/Middleware 分支虽拼端口但用的是**资源业务端口**（3306/6379），按 PRD §5.12C 应为 exporter 监听端口（9104/9121）。`ScrapeJob` 模型与前端表单均无 `port` 字段，PRD §5.4 内部对「端口是否进 Job 快照」表述冲突（416 行 vs 字段表 / mapping_overrides）。
+- **结论（用户拍板，决策 46）**：MVP 先取**生成器层最小方案**——不新增 ScrapeJob.port 字段（PRD §5.4 字段表与 mapping_overrides 口径冲突另行列项，待设计侧统一后再评估 Job 级端口快照），由 M09 生成器解析策略层端口：
+  - `LoadExporterPort`：优先 `CITypeExporterMapping.default_port`（monitor_type 默认映射），回落 `ExporterTemplate.default_port`（exporter_template_id）；
+  - `resolveResource`：Host/Database/Middleware 抓取地址统一拼接 exporter 端口（Database/Middleware 在 exporter 端口为 0 时回落业务端口）；Application 用健康检查 URL、GenericTarget 用登记服务端口（不变）；
+  - `instance` 组合标签随地址自动带端口。
+- **实现落库**：`generator/targets.go`（`LoadExporterPort` / `resolveResource` / `ResolveJobTargets` 签名 + 端口拼接）、`generator/data_source.go`（`LoadExporterPort`）、`draft/service.go`（buildArtifacts 传入 exporterPort）；单测 `generator_test.go` 新增 `TestResolveTargetsExporterPort` / `TestLoadExporterPortPriority`，并修正存量 host 断言（`10.0.1.1:9100`）。
+- **是否需设计侧确认**：需——① PRD M01 §5.4 统一「端口是否进 ScrapeJob 字段 / mapping_overrides」口径；② 若确认 Job 级端口快照（v0.2+），补 ScrapeJob.port 字段与前端表单端口输入。
+- **影响模块**：M01 采集 Job（模型/表单端口字段规划）、M07 §5.12C 契约（已按 default_port 对齐）、M09 配置生成
+- **发现场景**：用户对「配置生成 targets 与实例实际 exporter 端口」一致性的联调测试。
+
+## 2026-08-26（user-verify-fix）
+
+### F-21：配置变更清单与产物 diff 不一致（M01 ↔ M09，② 实现偏差，已修正）
+
+- **类别**：② 实现偏差修正
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §8（`enabled=false` 不参与配置生成）；`Module_09_Network_Domain_and_Edge_Config_Center.md` §3.4（变更类型：新增/修改/移除，按产物差异派生）；源码 `platform/configcenter/draft/service.go`、`platform/configcenter/draft/change_items.go`、`ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`
+- **问题（用户验收）**：禁用已生效采集 Job 后，配置变更确认页显示「本次配置无变化」，但版本对比 Tab 显示 scrape_config 确实被删除，两者矛盾。
+- **根因**：`buildChangeItems` 仅罗列当前仍启用 Job 且全部标「新增」，不做新旧产物 diff；禁用后 Job 被过滤，清单为空 → `buildSummary` 误报「无变化」。
+- **结论（PRD 无需改动，实现修正）**：
+  - M09 后端：新增 `change_items.go`，按上一生效版本产物与本次产物 diff 派生 add/update/delete；移除已生效 Job 标记 high「监控断点风险」。
+  - M01 前端：`ScrapeJobListPage` 启停改为有文字按钮「停用/启用」+ Popconfirm 二次确认（停用提示监控中断影响）。
+- **影响模块**：M01 采集 Job 列表交互、M09 变更清单生成。
+- **发现场景**：用户禁用 Job 后查看配置变更确认页。
+
+### F-22：规则挂载「保存并下发」后规则状态为停用（② 实现偏差，已修正）
+
+- **类别**：② 实现偏差修正
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.5/§8（规则创建默认启用）；源码 `platform/strategy/rule/create.go`、`ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx`
+- **问题（用户验收）**：规则挂载抽屉点击「保存并下发」后，规则列表显示「停用」。
+- **根因**：前端创建请求漏传 `enabled`；后端 `Enabled` 为非指针 bool，缺省零值 false 落库。
+- **结论（PRD 无需改动，实现修正）**：
+  - 后端 `Enabled` 改为 `*bool`，缺省默认 `true`；
+  - 前端请求显式传 `enabled: true`，按钮文案改为「提交生效」（与 Job 抽屉一致，需 M09 人工确认后下发）。
+- **影响模块**：M01 规则管理。
+- **发现场景**：用户新增规则后查看列表生效状态。
+
+### F-23：规则编辑列表状态列与启停控件样式偏离原型（① 类，待 design 管道修复）
+
+- **类别**：① PRD / 原型待修订（UI 对齐采集 Job 列，需 design 更新原型）
+- **PRD 章节 / 文件位置**：原型 `docs/prototypes/module-01/src/pages/RulesPage.tsx`（「下发状态」Tooltip 列 L311-315 +「启用状态」Switch 列 L325-330）；生产 `ui-custom/web/src/pages/strategy/RulesPage.tsx`（列与启停控件）
+- **问题（用户验收）**：用户要求规则编辑列表按采集 Job UI 显示字段对齐——将「启用状态」「下发状态」两列改为「变更进度」「生效状态」，启停控件由 Switch 改为文字按钮「停用/启用」+ Popconfirm 二次确认。生产已按此对齐（复用采集 Job 的 `CHANGE_PROGRESS_MAP` / `aggregateJobStatus` / 文字按钮模式），与原型不一致。
+- **结论（chenrt，2026-08-26）**：生产先按采集 Job 同源同机制落地（F-21 对齐），原型不一致项登记待 design 管道修复。
+- **待 design 分支更新原型**：
+  1. 原型规则列表删除「下发状态」Tooltip 列与「启用状态」Switch 列；
+  2. 原型改为「变更进度」（无变更 / 待确认 / 已确认待下发 / 已下发）+「生效状态」（草稿 / 已停用 / 待生效 / 已生效）两列；
+  3. 原型操作列启停控件由 Switch 改为文字按钮「停用 / 启用」+ Popconfirm（与采集 Job 一致）。
+- **影响模块**：M01 规则编辑（前端 RulesPage 已实现对齐，3 用例通过 / tsc / eslint 通过）。
+- **发现场景**：用户要求规则编辑 UI 与采集 Job UI 字段、控件对齐。
+
+## 2026-08-26（规则管理增强：按 CI 类型组织 + 合并语义，用户拍板提级）
+
+### F-24：规则按监控对象类型组织 + 多记录合并语义 + 组名全局唯一（① 类 PRD 空白 / ② 类实现补齐，已按用户口径落地）
+
+- **类别**：① PRD 空白判定（多记录如何合并为 rules.yml 未定义）+ ② 实现补齐（v0.2 的 monitor_type 维度提级 MVP，用户拍板）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.5（规则挂载，L532 已明确透传模式 `monitor_type` 可空，但未定义**多条规则记录如何合并为单份 rules.yml**）；源码 `platform/configcenter/generator/render.go`、`platform/strategy/rule/`（validate/create/update/list）、`ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx`、`RulesPage.tsx`
+- **问题（用户验收 + DeepSeek 分析引出）**：
+  1. `renderRules` 原样字符串拼接多条 `rule_content`，每条各带顶层 `groups:` 键 → 拼出**重复顶层键的非法 YAML**，promtool 校验失败、rules.yml 不可用；
+  2. 模型已有 `monitor_type` 列（§5.5 透传模式可空），但创建/更新接口不接、列表不筛、前端无入口，用户无法按 CI 类型（资源类别）组织多条规则。
+- **结论（用户拍板，方案 A）**：
+  1. **合并语义**：`renderRules` 由字符串拼接改为「逐条解析 groups → 节点级（`yaml.Node`）合并为单个 `groups:` 文档」，各 group 内容不重排；
+  2. **组名全局唯一**：保存时校验（创建 + 更新路径）——文件内重名 / 空 name 报错；与其他生效规则（`enabled=true AND draft_status=ready`，排除自身）撞名返回 bad_request 并点名占用方；停用规则不下发不校验，停用后组名释放；
+  3. **monitor_type 提级 MVP（可空）**：POST/PUT 接收 `monitor_type`（非空时校验 `models.ValidMonitorType`），GET 列表支持 `monitor_type` 筛选；前端挂载抽屉加「资源类别 → 监控对象类型」两级级联（复用 `MONITOR_TYPE_CASCADE`，与 MappingDrawer/ScrapeJobFormDrawer F1-8 同源），列表加「监控对象类型」列与筛选、详情抽屉补一行；
+  4. **产物形态不变**：仍是单文件 `rules.yml` + `prometheus.yml` 注入 `rule_files: ["rules.yml"]`；monitor_type 纯组织/筛选维度，不参与渲染；不持久化 `exporter_template_id`（MVP 无指标提示功能）。
+- **待 PRD 修订**：§5.5 补一句「多条启用规则记录由生成器按 groups 解析合并为单份 rules.yml，组名（group name）全局唯一；同名组请写在同一条规则内容内」；原型规则挂载抽屉补「资源类别 / 监控对象类型」两字段（可空）。
+- **验证**：后端 `go test ./platform/...` 全绿（generator 合并用例 + rule 包组名唯一 / monitor_type 校验筛选 4 个新用例）+ `go vet` 通过；前端 `RuleMountDrawer` / `RulesPage` 9 用例通过、`pnpm lint`、`tsc --noEmit` 通过（全量 `pnpm test` 仅 `src/api/resources.test.ts` 1 个改动前已存在的 jsdom `Response.stream` 失败）。
+- **影响模块**：M01 规则管理（前后端）、M09 配置生成（renderRules 合并语义）。
+- **发现场景**：用户询问 `linux_host_alerts` 与 rules.yml 映射关系、能否按 CI 类型维护多条规则；决定把 v0.2 的分类 UI 提级 MVP。
+
+## 2026-08-26（规则编辑 MVP 范围裁定：停用可编辑提级 MVP，规则草稿推迟 v0.3）
+
+### F-25：规则「停用可编辑」MVP 落地，规则草稿（draft_status=draft）推迟至 v0.3（① 类，已决策）
+
+- **类别**：① PRD 空白判定（MVP 范围裁定，用户拍板）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.5（draft_status：「MVP 文件挂载默认 ready…；v0.3 字段化编辑开放『保存草稿』」）；`api-contract-snapshot.md` §18（草稿 draft api / clone / 批量提交 列为 **v0.2 能力、本期范围外**）；源码 `platform/strategy/rule/create.go`、`update.go`、`ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx`、`RulesPage.tsx`
+- **问题（用户需求 + 范围评估）**：用户希望规则编辑效仿采集 Job——当规则显示「停用」状态时允许再次编辑；并咨询 MVP 阶段是否实现规则「保存草稿」（`draft_status=draft` → ready 批量提交流程）以及其难度/是否属 0.2 提级。
+- **结论（chenrt，2026-08-26，用户拍板）**：
+  1. **MVP 实现「停用可编辑」**：规则操作列新增「编辑」按钮，复用 `RuleMountDrawer` 编辑模式（回显 + PUT update，**不携带 enabled、不改启停状态**）；编辑可用性 = 除 `change_status=pending`（存在待确认变更单，锁定期）外均可编辑（停用 / 已生效 / 已下发均允许），与采集 Job F-19 / 决策 44-1 锁定语义一致。
+  2. **规则草稿功能推迟至 v0.3，不提前实现**：MVP 不做规则「保存草稿 / 批量提交生效」；yaml_passthrough 整文件无「PromQL 半成品」场景，草稿价值绑在 v0.3 字段化编辑；api-contract 已将其列为 v0.2 能力、本期范围外，本次明确不提前。
+- **实现落库**：
+  - 前端 `RulesPage.tsx`：新增 `openEdit`（置 `editingRule` 并打开抽屉）、操作列「编辑」按钮（pending 禁用 + Tooltip 指引，停用/已生效可编辑）、「挂载规则」重置 `editingRule`、抽屉 onCancel/onSuccess 重置 `editingRule`；
+  - 前端 `RuleMountDrawer.tsx`：编辑模式回显（名称 / 资源类别反推 / 监控对象类型 / 内容）并走 `monitoringRuleApi.update`；
+  - 单测：`RulesPage.test.tsx` 新增编辑按钮用例（pending 禁用、停用规则可点开抽屉）；`RuleMountDrawer.test.tsx` 新增编辑模式用例（回显 + update 载荷不携带 enabled）；11 用例通过 + tsc + eslint 通过。
+- **备注（待设计侧评估，需后续收割）**：采集 Job 的 pending 锁定已含后端 409 兜底（F-19 / 决策 44-1 / 44-4）；规则侧**当前仅前端禁用 pending 编辑，后端 PUT/DELETE 未加 pending 409 兜底**（后端仍允许改 pending 规则）——若确认规则与 Job 同锁语义，需补后端 409 + 对应单测；同时 PRD §5.5 建议补一句「规则 pending 期锁定编辑/启停/删除，同采集 Job」。
+- **影响模块**：M01 规则编辑（前端 RulesPage / RuleMountDrawer）。
+- **发现场景**：用户对规则编辑 MVP 范围与草稿功能难度的评估讨论。
+
+## 2026-08-26（采集器管理三联问题：来源下拉 / 契约类型 / 动线断点）
+
+### F-26：登记采集器来源下拉与后端限制矛盾 + 新增默认采集配置 400 + 登记后动线断点（② 类实现偏差，已按用户口径修正；① 类 PRD 矛盾待收割）
+
+- **类别**：② 实现偏差修正（1/3 两项）+ ① PRD 内部矛盾登记（第 2 项）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.2（L323 source 枚举 / L334「official / third_party 由平台预置、只读维护」 vs L81 动线「登记采集器（仅自研 / 第三方需要）」**两处口径冲突**）；§5.1 默认采集配置；源码 `ui-custom/web/src/pages/strategy/{ExporterTemplateDrawer,MappingDrawer,CollectorTemplatesTab}.tsx`、`platform/strategy/exporter-template/validate.go`、`platform/strategy/ci-exporter/create.go`
+- **问题（用户验收三连）**：
+  1. **来源下拉误导**：登记抽屉「来源」下拉提供 官方（内置）/第三方/内部自建 三项，但后端 `validateCreateExporterTemplate` 只放行 `source=internal`（对齐 PRD L334），选前两项必报 400——展示了注定失败的路径；
+  2. **新增默认采集配置 400**：`MappingDrawer` 采集器下拉 `Select.Option value={t.id}`（number），提交载荷 `exporter_template_id` 为 JSON number；后端 `CreateCITypeExporterMappingRequest.ExporterTemplateID` 是 string（字符串承载数字 ID + `strconv.ParseUint`）→ `json: cannot unmarshal number`。存量单测 fixture 误用字符串 id（`'exp-1'`）掩盖了该问题；
+  3. **登记后动线断点**：模板行「去配置」（F1-5）与登记成功回调均不携带模板上下文——`openConfigureForTemplate()` 无参、`onSuccess={reload}` 丢弃 C1 回调的新模板对象，用户刚登记完还要在「新增默认采集配置」里重选一遍采集器。
+- **结论（用户拍板，2026-08-26）**：
+  1. 来源下拉**只保留「内部自建」**（对齐 PRD L334 与后端校验），表单 extra 标注「官方/第三方由平台预置、只读维护」；Steps 动线与空态按钮文案同步收敛为「登记内部自建采集器」。用户的「自行登记官方采集器 + 自定义默认端口」诉求不需要放开 official：端口以映射层 `CITypeExporterMapping.default_port` 优先生效（决策 46 `LoadExporterPort`），需要变体时用 `source=internal` 登记（PRD L173「登记即入池、同动线」）；
+  2. `MappingDrawer` 下拉 `value={String(t.id)}`，测试 fixture 改数字 id 回归；
+  3. 动线补齐：`MappingDrawer` 新增 `initialTemplate` prop（新增态预填采集器 + 模板默认端口/路径/协议——预置参数=官方默认值参考语义）；模板行「去配置」按行预填；登记成功自动打开「新增默认采集配置」并预填刚登记的采集器（复用 C1 回调参数）。
+- **待 PRD 修订**：§5.2 L81 动线「仅自研 / 第三方需要」与 L334「third_party 平台预置只读」冲突，需设计侧统一为「用户登记仅 internal」。
+- **验证**：`pnpm vitest run`（MappingDrawer/ExporterTemplateDrawer/CollectorTemplatesTab）20 用例通过（新增「数字 id 提交字符串」「initialTemplate 预填」「来源仅内部自建」3 用例）；`pnpm test` 全量 325/326（唯一失败仍为改动前已存在的 `resources.test.ts` jsdom `Response.stream`）；`tsc --noEmit`、`pnpm lint` 通过。
+- **影响模块**：M01 采集器管理 / 默认采集配置（纯前端修复；后端校验口径不变）。
+- **发现场景**：用户测试登记采集器与新增默认采集配置动线。
+
+## 2026-08-26（采集器管理问答与闭环优化：删除入口 / 类型对齐 / 端口路径语义）
+
+### F-27：采集器管理能力闭环——删除入口、supported_monitor_types 约束、端口/路径分层语义（② 类补齐已落地 + ① 类产品方向待设计侧）
+
+- **类别**：② 实现补齐（A/B/C 已按用户拍板落地）+ ① 产品方向登记（D 待设计侧决策）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.1（CITypeExporterMapping）/ §5.2（ExporterTemplate，L323 source 枚举 / L332 预置参数=官方默认值参考 / L334 预置只读）/ §10；源码 `platform/strategy/ci-exporter/`、`platform/strategy/exporter-template/`、`ui-custom/web/src/pages/strategy/{CollectorTemplatesTab,MappingDrawer}.tsx`
+- **用户问答结论（已在会话中向用户澄清并获认可）**：
+  1. **自建采集器无删除入口** = 纯前端缺口：后端 `DELETE /exporter-templates/:id` 早已实现（软删；内置 forbidden、被映射引用 forbidden），前端模板行只放了「去配置」；
+  2. **`supported_monitor_types` 与映射不对齐的后果** = 此前该字段仅作预填/展示，无任何过滤与校验 → 可把「声明支持 MySQL」的模板绑到 Redis 默认配置，不报错但元数据失真（约束未闭环）；
+  3. **登记时类型非必填 vs 默认配置必填** = 实体语义分层：ExporterTemplate 是「采集实现」（一个实现可支持多类型，允许先登记后绑定）；CITypeExporterMapping 是「类型 ↔ 默认实现」绑定，monitor_type 是主键维度必填——PRD 口径合理，不改；
+  4. **监控对象类型不可手填** = monitor_type 是闭环枚举（`models/monitor_type.go` 9 项），驱动实例候选收敛（DeriveResourceFilter）/ 指标库分组 / 标签模板过滤；用户自带采集器（如 Spring Boot）归 `application_http`（PRD L594 免安装确认）。「自定义监控对象类型元管理」未设计，属 v0.2+；
+  5. **登记端口 vs 默认采集配置端口** = 分层语义（模板=官方默认值参考 L332；映射=实际生效，决策 46 `LoadExporterPort` 映射层优先），F-26 起映射抽屉已从模板预填，默认一致、允许按环境覆盖——用户「应保持一致」的诉求即「默认一致」，已满足；路径（metrics_path）同构。
+- **已落地优化（用户拍板 A+B+C）**：
+  - **A（前端）**：模板行新增「删除」按钮（Popconfirm 二次确认；仅非内置显示，内置/被引用由后端 forbidden 兜底）；
+  - **B（前端）**：MappingDrawer 采集器下拉按 `supported_monitor_types` 对齐所选 monitor_type（未标注的模板放行；已选中模板始终保留避免回显裸 ID；编辑态不过滤；空态引导「先登记采集器」）；
+  - **C（后端）**：建/改映射校验——采集器 `supported_monitor_types` 非空且不含所选 `monitor_type` 时 bad_request（`ensureExporterSupportsType`；update 路径按最终生效值校验；`verifyExporter` 重构为 `loadExporterByID`）。
+- **D（产品方向，待设计侧决策）**：用户提出——① 开放 `source=official/third_party` 用户登记（自定义端口变体不再借道 internal）；② 待「监控对象类型映射关系管理」功能设计落地后，平台预置采集器降级为初始数据（seed 写入、用户可改可删，`is_builtin` 从只读锁降级为来源标记）。本轮未动，登记待 design 分支修订 PRD §5.2。
+- **验证**：后端 `go test ./platform/...` 全绿 + `go vet`（新增 `TestMappingExporterSupportTypeGuard`）；前端 `pnpm test` 327/328（新增删除入口、下拉过滤 2 用例；唯一失败仍为改动前已存在的 `resources.test.ts` jsdom `Response.stream`）、`tsc --noEmit`、`pnpm lint` 通过。
+- **影响模块**：M01 采集器管理 / 默认采集配置。
+- **发现场景**：用户系统性测试采集器管理功能并追问设计意图。
+
+### F-29：登记采集器 internal error——软删残留占用 name 唯一索引（② 类实现偏差，已修复）
+
+- **类别**：② 实现偏差（软删残留导致唯一索引冲突 500），已修复
+- **PRD 章节 / 文件位置**：源码 `platform/strategy/exporter-template/{create,delete}.go`、`platform/strategy/exporter-template/exporter_template_test.go`；前端 `ui-custom/web/src/pages/strategy/ExporterTemplateDrawer.tsx`
+- **问题**：登记采集器点击保存返回「登记失败 internal error」（500）。根因：采集器删除走软删（`deleted_at`），name 唯一索引仍被软删行占用；GORM 默认作用域（`deleted_at IS NULL`）查询不到软删行，导致同名重建时 INSERT 命中 DB 唯一约束，抛 500。
+- **修复**：`create.go` 重复检查改 `Unscoped()` 连软删行一起查——仅软删残留时先物理清理旧行释放索引，再允许重建同名采集器；活跃同名仍返回 409 Conflict。与 scrapejob 软删重建行为对齐。
+- **验证**：新增回归测试 `TestCreateExporterTemplateRecreateAfterSoftDelete`（软删→重建同名 200 成功→再建活跃同名 409）；`go test ./platform/...` 全绿；重新编译 metric-center 后登记功能恢复正常。
+- **影响模块**：M01 采集器管理 / 登记采集器。
+- **发现场景**：用户实测「删除采集器后重新登记同名」点击保存报 internal error。
+- **状态**：closed（修复已合入源码，待重启 metric-center 生效）
+
+### F-30：默认采集配置列表「端口/路径/协议」列渲染优先级反了——mapping 覆盖值被 template 遮蔽（② 类实现偏差，已修复）
+
+- **类别**：② 实现偏差（列渲染逻辑优先级错误），已修复
+- **PRD 章节 / 文件位置**：前端 `ui-custom/web/src/pages/strategy/CollectorTemplatesTab.tsx`（`default_port`/`metrics_path`/`scheme` 列 render）
+- **问题**：用户在默认采集配置（MappingDrawer）编辑端口后界面提示「已更新」，但列表仍显示采集器登记时的原始端口。根因：三列的 render 对 mapping 行优先取 `template.default_port`，template 存在时 mapping 自身的覆盖值被完全遮蔽，用户永远看不到 mapping 实际生效的参数。
+- **修复**：将三列优先级修正为「mapping 覆盖优先，无覆盖值才回落 template 继承」——`default_port`：mapping 值 > 0 时显示，否则回落 template；`metrics_path`/`scheme`：mapping 非空时显示，否则回落 template。与 F-28 稀疏覆盖语义一致。
+- **验证**：`vitest run CollectorTemplatesTab.test.tsx` 14/14 通过；`tsc --noEmit`、`eslint` 通过。
+- **影响模块**：M01 采集器管理 / 默认采集配置列表展示。
+- **发现场景**：用户编辑默认采集配置端口后列表不刷新。
+- **状态**：closed（前端修复已落地，需前端 dev server 刷新生效）

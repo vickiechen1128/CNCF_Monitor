@@ -1354,7 +1354,7 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
 - **45-3 后端补校验归因字段，对齐原型**（用户确认）
   - `ConfigDraft` 增 `validation_cause`（`user_config` 用户配置可修复 / `platform_fault` 平台技术故障自动重试）与 `validation_details`（`[{file,line,message}]` 结构化定位）；
   - 判定：configgen 产物 schema 校验类失败（targets_json_schema / intersection_job_metric / protected_label 等）→ `user_config`；依赖工具不可用（promtool / blackbox_exporter）→ `platform_fault`。
-  - MVP 范围：前端先用分层展示（`failed` 才有行内 Popover/跳 M01），`platform_fault` 不展示「重新校验」（自动重试），仅 `user_config` 展示。
+  - **MVP 范围修订（2026-08-26，用户确认）**：`platform_fault` 同样展示「重新校验」手动自愈出口。修订原因：决策 39-3 承诺的校验层自动重试（指数退避）**尚未在实现层落地**，若隐藏按钮则 promtool 恢复可用后草稿仍永久卡死 pending（前端无按钮、后端无自动重试，形成死锁）。修订后 `canRevalidate = isPending && !validationPassed` 覆盖全部非 passed 态（含 `platform_fault` / `failed` / `pending`），环境就绪后用户手动重校恢复可确认；归因仍用于展示（`platform_fault` → warning 提示、不提供「前往修改」引导，仅 `user_config` 提供）。
 - **45-4 第一层（源数据输入）静态校验**：M07 标签模板/采集目标表单对「可预判失败」的目标标签（`job`/`scheme`/`__*`）即时红框提示；**`composite→instance` 例外放行**（默认模板内置合法映射），手动映射 `instance`（非 composite 来源）才拦截。M07 PRD §5.12/§5.13 已定义，落地到 M07 前端实现。
 
 ### 与既有决策的关系

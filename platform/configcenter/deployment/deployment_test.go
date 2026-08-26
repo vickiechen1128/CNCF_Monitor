@@ -32,6 +32,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(
 		&models.NetworkDomain{},
 		&models.ScrapeJob{},
+		&models.MonitoringRule{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 	))
@@ -140,6 +141,22 @@ func seedJobWithDraft(t *testing.T, db *gorm.DB, domainID string, changeStatus m
 	}
 	require.NoError(t, db.Create(j).Error)
 	return j
+}
+
+// seedRule 构造一条规则（全局 scope=central），用于规则 change_status 回写断言（#18）。
+func seedRule(t *testing.T, db *gorm.DB, name string, changeStatus models.ChangeStatus, draftStatus string) *models.MonitoringRule {
+	t.Helper()
+	r := &models.MonitoringRule{
+		Name:         name,
+		ContentMode:  models.RuleContentModeYAMLPassthrough,
+		RuleContent:  "groups:\n  - name: test\n    rules: []\n",
+		Scope:        models.ScopeTypeCentral,
+		Enabled:      true,
+		DraftStatus:  draftStatus,
+		ChangeStatus: changeStatus,
+	}
+	require.NoError(t, db.Create(r).Error)
+	return r
 }
 
 // newMemDBNoJobTable 迁移时不建 ScrapeJob 表，用于模拟 writeback 目标表故障
@@ -314,6 +331,27 @@ func TestWritebackChangeStatusFiltersDraftReady(t *testing.T) {
 	assert.Equal(t, models.ChangeStatusDeployed, ready.ChangeStatus, "ready 的 pending Job 应回写 deployed")
 	require.NoError(t, db.First(&draft, draft.ID).Error)
 	assert.Equal(t, models.ChangeStatusPending, draft.ChangeStatus, "draft 态 pending Job 不应被回写")
+}
+
+// TestWritebackRuleChangeStatus 覆盖 #18：下发成功后规则 change_status 同步
+// pending → deployed（全局 scope=central 全量回写）；draft 态 / none 不扰动。
+func TestWritebackRuleChangeStatus(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-012")
+	ready := seedRule(t, db, "rule-ready", models.ChangeStatusPending, "ready")
+	draft := seedRule(t, db, "rule-draft", models.ChangeStatusPending, "draft")
+	none := seedRule(t, db, "rule-none", models.ChangeStatusNone, "ready")
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(&ready, ready.ID).Error)
+	assert.Equal(t, models.ChangeStatusDeployed, ready.ChangeStatus, "ready 的 pending 规则应回写 deployed")
+	require.NoError(t, db.First(&draft, draft.ID).Error)
+	assert.Equal(t, models.ChangeStatusPending, draft.ChangeStatus, "draft 态 pending 规则不应被回写")
+	require.NoError(t, db.First(&none, none.ID).Error)
+	assert.Equal(t, models.ChangeStatusNone, none.ChangeStatus, "none 规则不应被扰动")
 }
 
 func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T) {

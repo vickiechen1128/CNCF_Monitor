@@ -301,4 +301,34 @@ describe('ResourceFormDrawer', () => {
       custom_labels: { region: 'cn-north', role: 'db' },
     })
   })
+
+  // #19 通病（v1.35 规范）：antd Drawer 首次打开时内容惰性挂载（rc-drawer 动画期晚于
+  // useEffect(open) 的 setFieldsValue），字段注册前 setFieldsValue 被吞、编辑回显首次为空；
+  // forceRender 保证 Form 常驻挂载后，关闭→打开切换（刷新后首次点「编辑」）即正确回显。
+  it('edit mode echoes fields on first open (closed → open switch)', async () => {
+    const { rerender } = render(
+      <ResourceFormDrawer
+        open={false}
+        mode="edit"
+        category="host"
+        record={hostRecord()}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    rerender(
+      <ResourceFormDrawer
+        open
+        mode="edit"
+        category="host"
+        record={hostRecord()}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    // 首次打开即回显实例名/主机名/IP，而非空表单
+    expect(await screen.findByDisplayValue('prod-web-01')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('prod-web-01.volc')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('10.0.1.11')).toBeInTheDocument()
+  })
 })

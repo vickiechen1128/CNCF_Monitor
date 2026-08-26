@@ -104,7 +104,10 @@ export function DomainFormModal({ open, mode, domain, onCancel, onSuccess }: Dom
       confirmLoading={submitting}
       okText="提交"
       cancelText="取消"
-      destroyOnClose
+      // forceRender（替代 destroyOnClose）：Modal 首次打开时内容惰性挂载，导致
+      // useEffect(open) 的 setFieldsValue 在 Form 字段注册前执行被吞、编辑回显首次为空；
+      // forceRender 保证 Form 常驻挂载、每次打开由 effect reset+回显（#19 通病，网域登记弹窗）。
+      forceRender
       width={560}
     >
       {dictError && (

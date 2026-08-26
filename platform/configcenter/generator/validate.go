@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -142,7 +143,7 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "blackbox_exporter 不可调用，待环境就绪后重校"
 		}
 	}
-	if ok, msg := toolCheckerFn(ca.PrometheusYML, ca.BlackboxYML, includeBlackbox); !ok {
+	if ok, msg := toolCheckerFn(ca, includeBlackbox); !ok {
 		return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
 			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg}},
 			fmt.Sprintf("外部校验未通过: %s", msg)
@@ -152,30 +153,49 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 
 // runToolChecks 实际调用 promtool check config 与 blackbox --config.check。
 // 失败返回 (false, 错误摘要)；成功返回 (true, "")。
-func runToolChecks(promYAML, blackboxYAML string, includeBlackbox bool) (bool, string) {
-	if err := runPromtoolCheck(promYAML); err != nil {
+func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string) {
+	if err := runPromtoolCheck(ca); err != nil {
 		return false, fmt.Sprintf("promtool check config 失败: %v", err)
 	}
-	if includeBlackbox && blackboxYAML != "" {
-		if err := runBlackboxCheck(blackboxYAML); err != nil {
+	if includeBlackbox && ca.BlackboxYML != "" {
+		if err := runBlackboxCheck(ca.BlackboxYML); err != nil {
 			return false, fmt.Sprintf("blackbox --config.check 失败: %v", err)
 		}
 	}
 	return true, ""
 }
 
-func runPromtoolCheck(promYAML string) error {
-	f, err := os.CreateTemp("", "promcheck-*.yml")
+// runPromtoolCheck 将配置产物按真实下发目录结构写入临时目录
+// （prometheus.yml + rules.yml + targets/*.json，与 deployment.writeStructural 一致），
+// 再执行 promtool check config。prometheus.yml 通过 rule_files 引用同目录 rules.yml、
+// file_sd_configs 引用 targets/*.json，缺文件会导致校验误报
+// 「does not point to an existing file」，因此必须先把被引用文件写齐。
+func runPromtoolCheck(ca *ConfigArtifacts) error {
+	dir, err := os.MkdirTemp("", "promcheck-*")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.WriteString(promYAML); err != nil {
-		f.Close()
+	defer os.RemoveAll(dir)
+	if err := os.WriteFile(filepath.Join(dir, "prometheus.yml"), []byte(ca.PrometheusYML), 0o644); err != nil {
 		return err
 	}
-	f.Close()
-	cmd := exec.Command("promtool", "check", "config", f.Name())
+	if ca.RulesYML != "" {
+		if err := os.WriteFile(filepath.Join(dir, "rules.yml"), []byte(ca.RulesYML), 0o644); err != nil {
+			return err
+		}
+	}
+	if len(ca.TargetsFiles) > 0 {
+		targetsDir := filepath.Join(dir, "targets")
+		if err := os.MkdirAll(targetsDir, 0o755); err != nil {
+			return err
+		}
+		for name, content := range ca.TargetsFiles {
+			if err := os.WriteFile(filepath.Join(targetsDir, name), []byte(content), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	cmd := exec.Command("promtool", "check", "config", filepath.Join(dir, "prometheus.yml"))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s", strings.TrimSpace(string(out)))

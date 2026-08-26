@@ -461,7 +461,10 @@ export function NetworkDomainsPage() {
         width={520}
         open={editOpen}
         onClose={() => setEditOpen(false)}
-        destroyOnHidden
+        // forceRender（替代 destroyOnHidden）：Drawer 首次打开时内容惰性挂载，导致
+        // EditDomainForm 的 useEffect(domain) setFieldsValue 在字段注册前执行被吞、
+        // 编辑回显首次为空；forceRender 保证内容常驻挂载、打开即正确回显（#19 通病，网域编辑抽屉）。
+        forceRender
       >
         {editingDomain && (
           <EditDomainForm

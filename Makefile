@@ -82,7 +82,11 @@ endif
 PNPM_BIN := $(PNPM_DIR)/bin/pnpm
 
 # 注：Windows 下 Node 解压到顶层（node.exe / npm），故 PATH 同时加入 $(NODE_DIR)
-export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PATH)
+# 同时加入 upstream/prometheus 与 upstream/blackbox_exporter：M09 配置草稿校验
+# 通过 exec.LookPath("promtool"/"blackbox_exporter") 调用上游二进制，须保证
+# metric-center 进程的 PATH 能定位到 build-prometheus / build-promtool /
+# build-blackbox-exporter 的产物路径（决策 42-2）。
+export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PROJECT_ROOT)/upstream/prometheus:$(PROJECT_ROOT)/upstream/blackbox_exporter:$(PATH)
 
 # 显式锁定 GOROOT 到项目级工具链：屏蔽系统/用户环境里残留的 GOROOT（如手动安装的
 # ~/sdk/goX.Y.Z），否则会出现 "compile: version goX does not match go tool version goY"。
@@ -265,6 +269,14 @@ build-prometheus: ensure-go ensure-pnpm
 	@echo ">>> Building upstream Prometheus"
 	@cd "$(PROJECT_ROOT)/upstream/prometheus" && { [ -d web/ui/static ] || ( cd web/ui && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build:mantine-ui ); } && "$(GO_BIN)" build -o prometheus$(EXE) ./cmd/prometheus
 
+# 构建 upstream promtool：M09 配置草稿校验（ValidateArtifacts）通过
+# exec.LookPath("promtool") 调用本二进制做 promtool check config；缺失时
+# 校验返回 pending + platform_fault（决策 42-2）。GOPROXY 走国内代理避免
+# jsondiff 等新增依赖拉取超时。
+build-promtool: ensure-go
+	@echo ">>> Building upstream promtool"
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o promtool$(EXE) ./cmd/promtool
+
 build-ui: ensure-pnpm
 	@echo ">>> Building Custom UI"
 	@cd "$(PROJECT_ROOT)/ui-custom/web" && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build
@@ -309,7 +321,7 @@ build-all: build-metric-center build-prometheus build-ui
 # 运行
 # -----------------------------------------------------------------------------
 
-run-metric-center: build-metric-center
+run-metric-center: build-metric-center build-promtool
 	@echo ">>> Starting metric-center"
 	@cd "$(PROJECT_ROOT)" && ./platform/cmd/metric-center/metric-center$(EXE) \
 		--config.reload-url=http://localhost:9090/-/reload
@@ -325,7 +337,10 @@ run-prometheus: build-prometheus
 		cp "$(PROJECT_ROOT)/upstream/prometheus/prometheus.yml" \
 			"$(PROJECT_ROOT)/config-output/prometheus.yml"; \
 	fi
-	@cd "$(PROJECT_ROOT)" && ./upstream/prometheus/prometheus$(EXE) \
+	# 非嵌入模式从 CWD 读取 Web UI，须在 upstream/prometheus 下启动才能加载
+	# mantine-ui 静态资源；config.file 为绝对路径，file_sd 相对路径按其所在
+	# directory（config-output）解析，均不受 CWD 影响。
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && ./prometheus$(EXE) \
 		--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
 		--web.enable-lifecycle \
 		--web.listen-address=:9090

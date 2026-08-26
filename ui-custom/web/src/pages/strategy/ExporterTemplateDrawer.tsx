@@ -27,12 +27,8 @@ interface ExporterTemplateDrawerProps {
   initialMonitorTypes?: MonitorType[]
 }
 
-/** 登记采集器来源 */
-const SOURCE_OPTIONS = [
-  { value: 'official', label: '官方（内置）' },
-  { value: 'third_party', label: '第三方' },
-  { value: 'internal', label: '内部自建' },
-]
+/** 登记采集器来源：用户登记仅允许内部自建；official/third_party 由平台预置、只读维护（PRD §5.2 L334，F-26） */
+const SOURCE_OPTIONS = [{ value: 'internal', label: '内部自建' }]
 
 /**
  * 登记采集器抽屉（Module_01 §9.1 / api-contract-snapshot §3）。
@@ -87,6 +83,10 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
       open={open}
       onClose={submitting ? undefined : onCancel}
       width={520}
+      // forceRender：Drawer 首次打开时内容惰性挂载（rc-drawer 动画期先于父组件
+      // useEffect 的 setFieldsValue 完成挂载），导致发起上下文预填首次打开丢失；
+      // forceRender 保证 Form 常驻挂载，首次打开即正确预填（#19 同源问题，登记抽屉）。
+      forceRender
       footer={
         <div style={{ textAlign: 'right' }}>
           <Space>
@@ -122,6 +122,7 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
               label="来源"
               name="source"
               rules={[{ required: true, message: '请选择来源' }]}
+              extra="官方 / 第三方采集器由平台预置、只读维护；用户登记仅支持内部自建（PRD §5.2）"
             >
               <Select placeholder="请选择来源">
                 {SOURCE_OPTIONS.map((s) => (

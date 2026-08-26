@@ -1,6 +1,7 @@
 // Package deployment implements Module_09 配置下发与历史（config deployment）：
 // confirm 触发 local 写盘 reload、下发记录、重试、回滚，以及成功下发后对 M01
-// ScrapeJob.change_status 的回写（决策 31-M2）；agent_pull 通道 MVP 仅登记占位。
+// ScrapeJob / MonitoringRule.change_status 的回写（决策 31-M2；#18 补规则）。
+// agent_pull 通道 MVP 仅登记占位。
 // 参见 docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md
 //   §3.5 配置下发与历史 / §5.6 ConfigDeployment / §6.6.3 / 决策 42-3、决策 31-M2。
 package deployment
@@ -163,10 +164,10 @@ func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.Net
 	if err := db.Create(dep).Error; err != nil {
 		return nil, fmt.Errorf("record deployment: %w", err)
 	}
-	// 成功下发后回写 M01 ScrapeJob.change_status=deployed（决策 31-M2）。
+	// 成功下发后回写 M01 change_status=deployed（决策 31-M2；#18 补规则回写）。
 	// MEDIUM-1 review-fix：writeback 失败与投递成功解耦——降级记录到 error_message，
 	// 不整链 500（避免客户端在部署已成功后因回写失败而重复下发）。
-	if err := writebackChangeStatus(db, version.NetworkDomainID); err != nil {
+	if err := writebackChangeStatuses(db, version.NetworkDomainID); err != nil {
 		dep.ErrorMessage = fmt.Sprintf("writeback change_status failed: %v", err)
 		if uerr := db.Model(dep).Update("error_message", dep.ErrorMessage).Error; uerr != nil {
 			return nil, fmt.Errorf("record writeback failure: %w", uerr)

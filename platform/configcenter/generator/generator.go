@@ -19,7 +19,7 @@ const GeneratorVersion = "0.1.0"
 // ConfigArtifacts 是一次配置生成的可验证产物集合。
 //
 //	PrometheusYML  prometheus.yml 文本（global.external_labels + scrape_configs 骨架）
-//	RulesYML       rules.yml 文本（scope=central yaml_passthrough 规则原样并入，可为空）
+//	RulesYML       rules.yml 文本（scope=central yaml_passthrough 规则解析合并 groups 为单文档，可为空）
 //	BlackboxYML    blackbox.yml 文本（存在 blackbox job 时生成，可为空）
 //	TargetsFiles   targets/<job>.json → 文件内容（file_sd 目标）
 type ConfigArtifacts struct {
@@ -73,6 +73,12 @@ func (a *ConfigArtifacts) Checksum() string {
 // ArtifactsChanged 判定新产物与某生效版本 checksum 是否一致（一致视为无实质变化）。
 func (a *ConfigArtifacts) ArtifactsChanged(activeChecksum string) bool {
 	return activeChecksum == "" || a.Checksum() != activeChecksum
+}
+
+// NormalizeJobFilename 导出 normalizeJobFilename，供 draft 等包做 targets 文件 diff 时
+// 按同一口径反查 job 对应的 targets 文件名。
+func NormalizeJobFilename(jobName string) string {
+	return normalizeJobFilename(jobName)
 }
 
 // normalizeJobFilename 将 job 名规范化为平台内部 targets 文件名（小写、非字母数字转 -）。

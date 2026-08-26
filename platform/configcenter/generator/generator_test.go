@@ -8,6 +8,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -76,6 +77,60 @@ func TestAssembleRulesYAMLPassthrough(t *testing.T) {
 	assert.Contains(t, ca.RulesYML, "name: a")
 	assert.Contains(t, ca.RulesYML, "name: b")
 	assert.Contains(t, ca.RulesYML, "alert: B")
+	// 多条规则记录解析合并为单个 groups 文档：重新解析应合法且恰含 2 个 group，
+	// 不得出现重复顶层 groups 键（拼接语义下会生成非法 YAML）。
+	assert.Equal(t, 1, strings.Count(ca.RulesYML, "groups:"))
+	var parsed struct {
+		Groups []struct {
+			Name string `yaml:"name"`
+		} `yaml:"groups"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(ca.RulesYML), &parsed))
+	require.Len(t, parsed.Groups, 2)
+	assert.Equal(t, "a", parsed.Groups[0].Name)
+	assert.Equal(t, "b", parsed.Groups[1].Name)
+	// 有规则内容时 prometheus.yml 必须注入 rule_files 引用 rules.yml（否则 Prometheus 不加载规则）。
+	assert.Contains(t, ca.PrometheusYML, "rule_files:")
+	assert.Contains(t, ca.PrometheusYML, "- rules.yml")
+}
+
+func TestAssembleRuleFilesOmittedWhenNoRules(t *testing.T) {
+	ca, err := Assemble("default", "", "", nil, nil)
+	require.NoError(t, err)
+	// 无规则时不注入 rule_files，避免指向不存在的文件导致 Prometheus 配置加载失败。
+	assert.NotContains(t, ca.PrometheusYML, "rule_files")
+	assert.Equal(t, "", ca.RulesYML)
+}
+
+// F-28：scrape_interval/scrape_timeout 必须真实写入 prometheus.yml；
+// Job 留空（存量/异常数据）时按全局兜底常量回填。
+func TestAssembleRendersScrapeIntervalTimeout(t *testing.T) {
+	ca, err := Assemble("default", "", "", []JobBuild{
+		{Job: models.ScrapeJob{JobName: "with-params", ScrapeInterval: "30s", ScrapeTimeout: "20s", MetricsPath: "/metrics", Scheme: "http"}},
+		{Job: models.ScrapeJob{JobName: "sparse"}},
+	}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, ca.PrometheusYML, "scrape_interval: 30s")
+	assert.Contains(t, ca.PrometheusYML, "scrape_timeout: 20s")
+	// 留空字段按全局兜底回填，保证 scrape_config 参数完整显式。
+	assert.Contains(t, ca.PrometheusYML, "scrape_interval: "+models.DefaultScrapeInterval)
+	assert.Contains(t, ca.PrometheusYML, "scrape_timeout: "+models.DefaultScrapeTimeout)
+	assert.Contains(t, ca.PrometheusYML, "metrics_path: "+models.DefaultMetricsPath)
+	assert.Contains(t, ca.PrometheusYML, "scheme: "+models.DefaultScheme)
+
+	// 逐 job 解析校验：sparse 任务的配置块含兜底值。
+	var parsed struct {
+		ScrapeConfigs []struct {
+			JobName        string `yaml:"job_name"`
+			ScrapeInterval string `yaml:"scrape_interval"`
+			ScrapeTimeout  string `yaml:"scrape_timeout"`
+		} `yaml:"scrape_configs"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(ca.PrometheusYML), &parsed))
+	require.Len(t, parsed.ScrapeConfigs, 2)
+	assert.Equal(t, "30s", parsed.ScrapeConfigs[0].ScrapeInterval)
+	assert.Equal(t, models.DefaultScrapeInterval, parsed.ScrapeConfigs[1].ScrapeInterval)
+	assert.Equal(t, models.DefaultScrapeTimeout, parsed.ScrapeConfigs[1].ScrapeTimeout)
 }
 
 func TestAssembleBlackbox(t *testing.T) {
@@ -130,11 +185,85 @@ func TestResolveTargetsOfflineExclusion(t *testing.T) {
 
 	job := models.ScrapeJob{JobName: "node-prod", ResourceType: models.ResourceTypeHost, NetworkDomainID: "d",
 		SelectedInstanceIDs: []string{"srv-online", "srv-offline"}}
-	groups, err := ResolveJobTargets(db, job, tmpl)
+	groups, err := ResolveJobTargets(db, job, tmpl, 9100)
 	require.NoError(t, err)
 	require.Len(t, groups, 1, "offline 实例必须被排除")
-	assert.Equal(t, "10.0.1.1", groups[0].Targets[0])
+	assert.Equal(t, "10.0.1.1:9100", groups[0].Targets[0], "host 抓取地址须拼接 exporter 端口（决策 42-4）")
 	assert.Equal(t, "pay", groups[0].Labels["app"])
+}
+
+// ---- T09-04: target 端口解析（决策 42-4：host/database/middleware 拼 exporter 端口）----
+
+func TestResolveTargetsExporterPort(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{}, &models.Database{}, &models.Middleware{},
+		&models.Application{}, &models.GenericTarget{},
+	))
+
+	require.NoError(t, db.Create(&models.Host{ResourceID: "h1", NetworkDomainID: "d", PrivateIP: "10.0.1.1", Status: "online"}).Error)
+	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{ResourceID: "db1", NetworkDomainID: "d", Status: "online"}, InstanceIP: "10.0.1.2", Port: 3306}).Error)
+	require.NoError(t, db.Create(&models.Middleware{ResourceID: "mw1", NetworkDomainID: "d", Status: "online", InstanceIP: "10.0.1.3", Port: 6379}).Error)
+	require.NoError(t, db.Create(&models.Application{ResourceID: "app1", NetworkDomainID: "d", Status: "online", HealthCheckURL: "http://10.0.1.4:8080/metrics"}).Error)
+	require.NoError(t, db.Create(&models.GenericTarget{ResourceBase: models.ResourceBase{ResourceID: "gt1", NetworkDomainID: "d", Status: "online"}, InstanceIP: "10.0.1.5", Port: 161}).Error)
+
+	tmpl := &models.LabelTemplate{Name: "t", ResourceCategory: models.ResourceCategoryHost, IsDefault: true,
+		Mappings: []models.LabelMapping{{SourceField: "instance_ip:port", SourceType: models.LabelSourceTypeComposite, TargetLabel: "instance", Enabled: true}}}
+	require.NoError(t, db.Create(tmpl).Error)
+
+	t.Run("host 拼接 exporter 端口且 instance 组合字段带端口", func(t *testing.T) {
+		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"h1"}}, tmpl, 9100)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, "10.0.1.1:9100", groups[0].Targets[0])
+		assert.Equal(t, "10.0.1.1:9100", groups[0].Labels["instance"])
+	})
+	t.Run("database 优先 exporter 端口而非业务端口", func(t *testing.T) {
+		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"db1"}}, tmpl, 9104)
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.1.2:9104", groups[0].Targets[0])
+	})
+	t.Run("middleware 优先 exporter 端口而非业务端口", func(t *testing.T) {
+		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"mw1"}}, tmpl, 9121)
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.1.3:9121", groups[0].Targets[0])
+	})
+	t.Run("exporter 端口为 0 时 database/middleware 回落业务端口", func(t *testing.T) {
+		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"db1", "mw1"}}, tmpl, 0)
+		require.NoError(t, err)
+		assert.Equal(t, "10.0.1.2:3306", groups[0].Targets[0])
+		assert.Equal(t, "10.0.1.3:6379", groups[1].Targets[0])
+	})
+	t.Run("application 用健康检查 URL、generic_target 用服务端口", func(t *testing.T) {
+		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app1", "gt1"}}, tmpl, 9100)
+		require.NoError(t, err)
+		assert.Equal(t, "http://10.0.1.4:8080/metrics", groups[0].Targets[0])
+		assert.Equal(t, "10.0.1.5:161", groups[1].Targets[0])
+	})
+}
+
+func TestLoadExporterPortPriority(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.CITypeExporterMapping{}, &models.ExporterTemplate{}))
+
+	require.NoError(t, db.Create(&models.ExporterTemplate{Name: "node-exporter", DefaultPort: 9100}).Error)
+	require.NoError(t, db.Create(&models.CITypeExporterMapping{MonitorType: "host_linux", IsDefault: true, DefaultPort: 19100}).Error)
+
+	t.Run("映射 default_port 优先", func(t *testing.T) {
+		port, err := LoadExporterPort(db, models.ScrapeJob{MonitorType: "host_linux"})
+		require.NoError(t, err)
+		assert.Equal(t, 19100, port)
+	})
+	t.Run("无映射回落采集器模板", func(t *testing.T) {
+		port, err := LoadExporterPort(db, models.ScrapeJob{ExporterTemplateID: "1"})
+		require.NoError(t, err)
+		assert.Equal(t, 9100, port)
+	})
+	t.Run("映射模板均缺返回 0", func(t *testing.T) {
+		port, err := LoadExporterPort(db, models.ScrapeJob{})
+		require.NoError(t, err)
+		assert.Equal(t, 0, port)
+	})
 }
 
 func TestMergeLabelsPriority(t *testing.T) {
@@ -180,7 +309,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 	oldLook := execLookPath
 	oldChecker := toolCheckerFn
 	execLookPath = func(string) (string, error) { return "promtool", nil }
-	toolCheckerFn = func(a, b string, ib bool) (bool, string) { return true, "" }
+	toolCheckerFn = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
 	t.Cleanup(func() { execLookPath = oldLook; toolCheckerFn = oldChecker })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil)

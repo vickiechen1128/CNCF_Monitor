@@ -10,7 +10,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuProps } from 'antd'
 
 const { Header, Sider, Content } = Layout
@@ -36,6 +36,20 @@ interface ModuleDef {
   path: string
   subItems?: MenuProps['items']
 }
+
+/**
+ * config-center 二级导航中两个可折叠子菜单（SubMenu）的 key 及各自路由。
+ * 「网域与节点管理」为低频接入面、「配置下发」为高频查看面，均默认折叠，
+ * 首次进入各自路由时自动展开一次，之后尊重用户手动开合（见 MainLayout 折叠逻辑）。
+ */
+const ACCESS_PLANE_KEY = 'access-plane'
+const DELIVERY_PLANE_KEY = 'delivery-plane'
+
+/** 可折叠子菜单组定义：key 与归属路由（用于首次进入自动展开判断） */
+const COLLAPSIBLE_GROUPS = [
+  { key: ACCESS_PLANE_KEY, routes: ['/domain-onboarding', '/node-status'] },
+  { key: DELIVERY_PLANE_KEY, routes: ['/config-preview', '/deployments'] },
+]
 
 const MODULES: ModuleDef[] = [
   { key: 'home', label: '首页', path: '/', subItems: [] },
@@ -73,16 +87,21 @@ const MODULES: ModuleDef[] = [
     path: '/domain-onboarding',
     subItems: [
       {
-        type: 'group',
+        // 「网域与节点管理」为低频折叠子菜单（SubMenu）：默认折叠，
+        // 激活路由落在该组时自动展开（见 MainLayout 折叠逻辑）。
+        key: ACCESS_PLANE_KEY,
         label: '网域与节点管理',
+        icon: <AppstoreOutlined />,
         children: [
           { key: '/domain-onboarding', label: '网域纳管', icon: <CloudServerOutlined /> },
           { key: '/node-status', label: '采集节点状态', icon: <DesktopOutlined /> },
         ],
       },
       {
-        type: 'group',
+        // 「配置下发」同样为可折叠子菜单（SubMenu）：默认折叠，进入配置面自动展开。
+        key: DELIVERY_PLANE_KEY,
         label: '配置下发',
+        icon: <SendOutlined />,
         children: [
           { key: '/config-preview', label: '配置变更确认', icon: <FileSearchOutlined /> },
           { key: '/deployments', label: '下发记录', icon: <SendOutlined /> },
@@ -156,6 +175,24 @@ export function MainLayout({ children }: MainLayoutProps) {
     ? location.pathname
     : leafKeys[0]
 
+  // 可折叠子菜单展开态（「网域与节点管理」/「配置下发」）：默认折叠；
+  // 首次进入某个折叠组的路由时自动展开该组，之后完全尊重用户手动开合（点击折叠按钮即可收起）。
+  const activeGroup =
+    COLLAPSIBLE_GROUPS.find((g) =>
+      g.routes.some((r) => location.pathname.startsWith(r)),
+    )?.key ?? null
+  const [userOpenKeys, setUserOpenKeys] = useState<string[]>([])
+  const prevGroup = useRef<string | null>(null)
+  useEffect(() => {
+    if (activeGroup && activeGroup !== prevGroup.current) {
+      setUserOpenKeys((keys) =>
+        keys.includes(activeGroup) ? keys : [...keys, activeGroup],
+      )
+    }
+    prevGroup.current = activeGroup
+  }, [activeGroup])
+  const openKeys = userOpenKeys
+
   const handleModuleSwitch = (key: string) => {
     const target = MODULES.find((m) => m.key === key)
     if (target && target.key !== active.key) navigate(target.path)
@@ -189,6 +226,8 @@ export function MainLayout({ children }: MainLayoutProps) {
             <Menu
               mode="inline"
               selectedKeys={[selectedSubKey ?? '']}
+              openKeys={openKeys}
+              onOpenChange={(keys) => setUserOpenKeys(keys)}
               onClick={({ key }) => navigate(key)}
               items={active.subItems as MenuProps['items']}
             />

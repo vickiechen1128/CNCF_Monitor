@@ -224,6 +224,57 @@ func TestGenerateDraftPropagatesLoadFailure(t *testing.T) {
 	require.Error(t, err, "rules 加载失败不得静默生成空草稿")
 }
 
+// TestGenerateDraftDiffRemoveOnDisableJob 覆盖「变更清单按产物 diff 派生」（PRD §3.4）：
+// 禁用唯一已生效 Job → 新草稿含「移除采集 Job（高风险）」变更项，
+// 不再出现「产物变了但摘要显示本次无配置变更」的误导。
+func TestGenerateDraftDiffRemoveOnDisableJob(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-diff", true)
+	seedHost(t, db, "edge-diff", "res-1")
+	job := seedJob(t, db, "edge-diff", "job1")
+
+	// 首版生成并确认，形成生效版本基线。
+	d1, err := GenerateDraft(db, "edge-diff")
+	require.NoError(t, err)
+	require.NoError(t, db.Model(d1).Update("validation_status", string(models.ValidationStatusPassed)).Error)
+	_, err = ConfirmDraft(db, d1.ChangeNo, "admin")
+	require.NoError(t, err)
+
+	// 用户禁用该 Job（绕过 handler 的 pending 守卫，直接落库）。
+	require.NoError(t, db.Model(job).Update("enabled", false).Error)
+
+	// 重新生成草稿：变更清单应含「移除采集 Job job1」高风险项。
+	d2, err := GenerateDraft(db, "edge-diff")
+	require.NoError(t, err)
+	var items []models.ConfigChangeItem
+	require.NoError(t, json.Unmarshal([]byte(d2.ChangeItems), &items))
+	require.Len(t, items, 1)
+	assert.Equal(t, string(models.ChangeItemTypeDelete), items[0].Type)
+	assert.Equal(t, string(models.ChangeItemTargetScrapeJob), items[0].Target)
+	assert.Equal(t, string(models.RiskHigh), items[0].Risk)
+	assert.Contains(t, items[0].Description, "移除采集 Job job1")
+	assert.Contains(t, d2.Summary, "移除采集 Job 1 个")
+}
+
+// TestGenerateDraftNoDiffReturnsErrNoChanges 覆盖决策 44-3 扩展：源数据 touch 但产物
+// 与生效版本一致（如仅改动禁用对象字段的空跑，PRD §3.3.3）→ 不生成噪声变更单。
+func TestGenerateDraftNoDiffReturnsErrNoChanges(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-nodiff", true)
+	seedHost(t, db, "edge-nodiff", "res-1")
+	seedJob(t, db, "edge-nodiff", "job1")
+
+	d1, err := GenerateDraft(db, "edge-nodiff")
+	require.NoError(t, err)
+	require.NoError(t, db.Model(d1).Update("validation_status", string(models.ValidationStatusPassed)).Error)
+	_, err = ConfirmDraft(db, d1.ChangeNo, "admin")
+	require.NoError(t, err)
+
+	// 源数据无实质变化 → ErrNoChanges，不再生成「本次无配置变更」的草稿。
+	_, err = GenerateDraft(db, "edge-nodiff")
+	assert.ErrorIs(t, err, ErrNoChanges)
+}
+
 // TestGenerateDraftBackfillsSourceVersion 覆盖 T09-05 review-fix：生成草稿时回填
 // source_version = 该网域上一已确认 ConfigVersion 的 change_no（用于版本对比 Tab）。
 // 无历史版本时保持空（前端据此显示「无历史版本可对比」）。
@@ -248,6 +299,10 @@ func TestGenerateDraftBackfillsSourceVersion(t *testing.T) {
 		PrometheusYml:   "global:\n  scrape_interval: 5s\n",
 	}).Error)
 
+	// 变更清单按产物 diff 派生（决策 44-3）：需新增一个 ready job 形成实质差异，
+	// 否则与上一版本无变化 → ErrNoChanges。
+	seedJob(t, db, "edge-sv", "job2")
+
 	// 已有上一版本 → source_version 回填为其 change_no。
 	d2, err := GenerateDraft(db, "edge-sv")
 	require.NoError(t, err)
@@ -267,6 +322,10 @@ func TestConfirmDraftKeepsSourceVersion(t *testing.T) {
 		ChangeNo:        "CHG-PREV-002",
 		PrometheusYml:   "global:\n  scrape_interval: 5s\n",
 	}).Error)
+
+	// 变更清单按产物 diff 派生（决策 44-3）：seed 一个 ready job 形成实质差异。
+	seedHost(t, db, "edge-sv2", "res-1")
+	seedJob(t, db, "edge-sv2", "job1")
 
 	// 生成草稿 → source_version 回填为上一版本 change_no。
 	d, err := GenerateDraft(db, "edge-sv2")

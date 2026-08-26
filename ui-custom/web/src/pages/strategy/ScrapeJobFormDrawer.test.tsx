@@ -184,6 +184,44 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.enabled).toBe(true)
   })
 
+  it('leaves scrape params optional with inheritance placeholders and submits sparse values (F-28)', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { id: 11, job_name: 'sparse-job', job_type: 'standard' } })
+    mappingListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { id: 1, monitor_type: 'mysql', exporter_template_id: 'exp-1', scrape_interval: '30s', scrape_timeout: '20s', metrics_path: '/m', scheme: 'https', label_template_id: undefined },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    renderDrawer()
+
+    await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'sparse-job')
+    await selectCategoryAndType('数据库', 'MySQL')
+
+    // F-28：映射默认值以 placeholder 提示，不再值预填进表单
+    expect(await screen.findByPlaceholderText('留空继承默认采集配置（30s）')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('留空继承默认采集配置（/m）')).toBeInTheDocument()
+
+    // 选择网域后直接提交生效（采集参数全部留空 = 继承）
+    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
+    await selectAntdOption('网域A')
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    const body = createMock.mock.calls[0][0] as Record<string, unknown>
+    // 留空字段显式归一为 '' 提交，由后端按 映射→模板→全局 链解析生效快照
+    expect(body.scrape_interval).toBe('')
+    expect(body.scrape_timeout).toBe('')
+    expect(body.metrics_path).toBe('')
+    expect(body.scheme).toBe('')
+    // 默认采集器仍自动带出
+    expect(body.exporter_template_id).toBe('exp-1')
+  })
+
   it('renders label template as card filtered by resource category (F1-4)', async () => {
     labelListMock.mockResolvedValue({
       status: 'success',
@@ -321,6 +359,50 @@ describe('ScrapeJobFormDrawer', () => {
     // 标签模板卡片选中已挂模板「MySQL 标准标签」（value=7），label_template_id 未被默认映射清空
     expect(await screen.findByText('MySQL 标准标签')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /MySQL 标准标签/ })).toBeChecked()
+  })
+
+  // 回归：#19 同源问题（采集 Job 抽屉）。用户实测「刷新页面后，勾选多选框再点编辑才有回显；
+  // 不勾选直接点编辑内容为空」——根因是 antd Drawer 首次打开时内容惰性挂载（rc-drawer 动画期
+  // 晚于父组件 useEffect 的 setFieldsValue），字段注册前 setFieldsValue 被吞；forceRender 保证
+  // Form 常驻挂载后，首次打开（含刷新后第一次点编辑）即正确回显，不再依赖勾选等交互垫时序。
+  it('edit mode echoes fields when drawer transitions from closed to open (first open)', async () => {
+    const record = {
+      id: 1,
+      job_name: 'job-mysql-1',
+      job_type: 'standard',
+      monitor_type: 'mysql',
+      network_domain_id: 'mc-a',
+      scrape_interval: '15s',
+      scrape_timeout: '10s',
+      metrics_path: '/metrics',
+      scheme: 'http',
+      auth_type: 'none',
+      tls_skip_verify: false,
+    }
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/scrape-jobs']}>
+        <Routes>
+          <Route
+            path="/scrape-jobs"
+            element={<ScrapeJobFormDrawer open={false} record={null} onCancel={() => {}} onSuccess={() => {}} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+    rerender(
+      <MemoryRouter initialEntries={['/scrape-jobs']}>
+        <Routes>
+          <Route
+            path="/scrape-jobs"
+            element={<ScrapeJobFormDrawer open record={record as never} onCancel={() => {}} onSuccess={() => {}} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 首次打开即回显 job_name 与采集参数，而非空表单
+    expect(await screen.findByDisplayValue('job-mysql-1')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('15s')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('/metrics')).toBeInTheDocument()
   })
 
   it('opens collector register drawer from inline button only in empty state (C1)', async () => {
