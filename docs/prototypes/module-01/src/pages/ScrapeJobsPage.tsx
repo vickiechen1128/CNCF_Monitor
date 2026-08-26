@@ -1068,7 +1068,7 @@ export default function ScrapeJobsPage() {
   }
 
   // {v3.22} 决策 D29：批量提交生效（v0.2）——勾选多条 Job 一键生成变更并提交；
-  // 草稿不可勾选（勾选框置灰）；已停用项给出失败原因；成功项乐观置「待下发」，弹结果抽屉逐错误清单
+  // {v3.xx} F-16：批量提交面向「草稿」——草稿提交后进入下发管线（置为已提交 pending）；已生效/待下发项无需重复提交、已停用项须先启用
   const handleBatchSubmit = () => {
     const selected = jobs.filter((j) => selectedRowKeys.includes(j.job_id))
     if (selected.length === 0) return
@@ -1076,15 +1076,21 @@ export default function ScrapeJobsPage() {
     const fail: { name: string; reason: string }[] = []
     selected.forEach((j) => {
       const s = getJobStatus(j)
-      if (s === 'draft') fail.push({ name: j.job_name, reason: '草稿未提交，不能批量提交生效' })
+      if (s === 'draft') ok.push(j.job_name)
       else if (s === 'disabled') fail.push({ name: j.job_name, reason: '已停用，请先启用后再提交生效' })
-      else ok.push(j.job_name)
+      else fail.push({ name: j.job_name, reason: '已生效或在待下发中，无需重复提交生效' })
     })
-    // 乐观更新：成功项本地标为「待下发」，等待 M09 变更单确认
+    // 乐观更新：草稿提交后置为已提交 + 待下发，等待 M09 变更单确认
     setJobs((prev) =>
       prev.map((j) =>
         selectedRowKeys.includes(j.job_id) && !fail.some((f) => f.name === j.job_name)
-          ? { ...j, change_status: 'pending' as const, updated_at: now() }
+          ? {
+              ...j,
+              draft_status: 'submitted' as const,
+              enabled: true,
+              change_status: 'pending' as const,
+              updated_at: now(),
+            }
           : j
       )
     )
@@ -1408,24 +1414,39 @@ export default function ScrapeJobsPage() {
       title: '启用',
       dataIndex: 'enabled',
       key: 'enabled',
-      render: (value: boolean, record: ScrapeJob) => (
-        <Switch
-          checked={value}
-          size="small"
-          onChange={(checked) => handleToggleEnabled(record, checked)}
-        />
-      ),
+      // {v3.xx} F-19：存在待确认变更单（change_status=pending）的 Job 启停置为禁用态，需先到配置变更确认页处理
+      render: (value: boolean, record: ScrapeJob) =>
+        record.change_status === 'pending' ? (
+          <Tooltip title="存在待确认变更单，请先前往配置变更确认页处理">
+            <Switch checked={value} size="small" disabled />
+          </Tooltip>
+        ) : (
+          <Switch
+            checked={value}
+            size="small"
+            onChange={(checked) => handleToggleEnabled(record, checked)}
+          />
+        ),
     },
     {
       title: '操作',
       key: 'actions',
       // {v3.13} 收敛：高频「编辑」保留文字按钮；「详情」「删除」收成图标按钮（Tooltip 说明），降低行宽
       // {v3.22} 决策 D29：新增「克隆」（v0.2 角标）——复制源 Job 参数新建同/跨网域变体
+      // {v3.xx} F-19：待确认（change_status=pending）Job 的「编辑 / 删除」置为禁用态，避免在有未处理变更单时叠加新变更
       render: (_: unknown, record: ScrapeJob) => (
         <Space size={2}>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-            编辑
-          </Button>
+          <Tooltip title={record.change_status === 'pending' ? '存在待确认变更单，请先前往配置变更确认页处理' : '编辑'}>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              disabled={record.change_status === 'pending'}
+              onClick={() => openEdit(record)}
+            >
+              编辑
+            </Button>
+          </Tooltip>
           <Tooltip title="克隆（v0.2 交付）：复制源 Job 采集参数新建；跨网域克隆时实例需重新选择、安装确认需重新进行">
             <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => openClone(record)}>
               克隆<V02Badge />
@@ -1434,8 +1455,15 @@ export default function ScrapeJobsPage() {
           <Tooltip title="查看详情">
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => setDetailJob(record)} />
           </Tooltip>
-          <Tooltip title="删除">
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
+          <Tooltip title={record.change_status === 'pending' ? '存在待确认变更单，请先前往配置变更确认页处理' : '删除'}>
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              disabled={record.change_status === 'pending'}
+              onClick={() => handleDelete(record)}
+            />
           </Tooltip>
         </Space>
       ),
@@ -1863,11 +1891,21 @@ export default function ScrapeJobsPage() {
               >
                 新增 Job
               </Button>
-              {/* {v3.22} 决策 D29：批量提交生效（v0.2）——勾选多条 Job 一键生成变更并提交，弹结果抽屉逐错误清单 */}
-              <Tooltip title="v0.2 交付：对勾选的多条 Job 批量生成配置变更并提交生效（MVP 演示）">
+              {/* {v3.22} 决策 D29：批量提交生效（v0.2）——勾选多条 Job 一键生成变更并提交，弹结果抽屉逐错误清单
+                  {v3.xx} F-16：批量提交生效仅当选中项含「草稿」时可用（草稿不入下发管线，需手动提交生效；已生效/待下发项无需重复提交） */}
+              <Tooltip
+                title={
+                  selectedRowKeys.length === 0
+                    ? '请先勾选采集 Job（草稿）后再批量提交生效'
+                    : '仅当选中项含草稿（draft）时可用：把多条草稿一起提交，进入 M09 下发管线'
+                }
+              >
                 <Button
                   icon={<SendOutlined />}
-                  disabled={selectedRowKeys.length === 0}
+                  disabled={
+                    selectedRowKeys.length === 0 ||
+                    !jobs.some((j) => selectedRowKeys.includes(j.job_id) && j.draft_status === 'draft')
+                  }
                   onClick={handleBatchSubmit}
                 >
                   批量提交生效<V02Badge />
@@ -1918,10 +1956,10 @@ export default function ScrapeJobsPage() {
           scroll={{ x: 1240 }}
           pagination={{ pageSize: 5 }}
           rowSelection={{
-            // {v3.22} 决策 D29：多选批量提交；草稿不可勾选（草稿未提交，不能批量提交生效）
+            // {v3.22} 决策 D29：多选批量提交；{v3.xx} F-16：草稿可勾选（批量提交生效仅当选中项含草稿时可用，
+            // 用于把多条草稿一起提交进入下发管线）
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys),
-            getCheckboxProps: (record: ScrapeJob) => ({ disabled: record.draft_status === 'draft' }),
           }}
         />
       </Card>
@@ -2078,20 +2116,22 @@ export default function ScrapeJobsPage() {
             </Select>
           </Form.Item>
           {/* {v3.27} F-11：MappingDrawer 完全移除 label_template_id 字段（PRD §5.1）；标签模板唯一变更入口 = 列表「更换/补配」轻量抽屉（LabelTemplateSelectDrawer），见下方 Drawer */}
+          {/* {v3.27} F-28：层叠默认 + 稀疏覆盖——默认采集配置采集参数字段可留空，留空=继承采集器模板/全局默认（15s/10s//metrics/http）；编辑态清空某字段 = 恢复继承 */}
+          <Alert type="info" showIcon style={{ marginBottom: 12 }} message="采集参数可留空" description="任一项留空 = 继承采集器模板默认参数；保存时解析为该配置生效快照。" />
           <Row gutter={16}>
             <Col span={8}>
-              <Form.Item label="默认端口" name="default_port" rules={[{ required: true, message: '请输入端口' }]} extra="预置参数 = 官方默认值参考；自研采集器请按实际部署填写">
-                <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+              <Form.Item label="默认端口" name="default_port">
+                <InputNumber min={1} max={65535} placeholder="留空=继承采集器默认端口" style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item label="采集路径" name="metrics_path" rules={[{ required: true, message: '请输入路径' }]}>
-                <Input placeholder="/metrics" />
+              <Form.Item label="采集路径" name="metrics_path">
+                <Input placeholder="/metrics（留空=继承）" />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item label="协议" name="scheme" rules={[{ required: true }]}>
-                <Select>
+              <Form.Item label="协议" name="scheme">
+                <Select allowClear placeholder="http（留空=继承）">
                   {SCHEMES.map((s) => (
                     <Option key={s} value={s}>{s.toUpperCase()}</Option>
                   ))}
@@ -2101,13 +2141,13 @@ export default function ScrapeJobsPage() {
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item label="采集间隔" name="scrape_interval" rules={[{ required: true, message: '请输入间隔' }]}>
-                <Input placeholder="15s" />
+              <Form.Item label="采集间隔" name="scrape_interval">
+                <Input placeholder="15s（留空=继承全局默认）" />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item label="采集超时" name="scrape_timeout" rules={[{ required: true, message: '请输入超时' }]}>
-                <Input placeholder="10s" />
+              <Form.Item label="采集超时" name="scrape_timeout">
+                <Input placeholder="10s（留空=继承全局默认）" />
               </Form.Item>
             </Col>
           </Row>
@@ -2808,9 +2848,10 @@ export default function ScrapeJobsPage() {
               <Form.Item
                 label={renderFieldLabel('scrape_interval', '采集/拨测间隔')}
                 name="scrape_interval"
-                rules={[{ required: true, message: '请选择间隔' }]}
+                // {v3.27} F-28：层叠默认 + 稀疏覆盖——采参数字段可留空，留空=继承下一层（默认采集配置 → 采集器模板 → 全局 15s）
+                extra="留空=继承默认采集配置"
               >
-                <Select>
+                <Select allowClear placeholder="15s（留空=继承）">
                   <Option value="15s">15s</Option>
                   <Option value="30s">30s</Option>
                   <Option value="60s">60s</Option>
@@ -2821,9 +2862,10 @@ export default function ScrapeJobsPage() {
               <Form.Item
                 label={renderFieldLabel('scrape_timeout', '超时')}
                 name="scrape_timeout"
-                rules={[{ required: true, message: '请选择超时' }]}
+                // {v3.27} F-28：留空=继承默认采集配置
+                extra="留空=继承默认采集配置"
               >
-                <Select>
+                <Select allowClear placeholder="10s（留空=继承）">
                   <Option value="5s">5s</Option>
                   <Option value="10s">10s</Option>
                   <Option value="30s">30s</Option>
@@ -2835,8 +2877,9 @@ export default function ScrapeJobsPage() {
           {!isBlackbox && (
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label={renderFieldLabel('scheme', '协议')} name="scheme" rules={[{ required: true, message: '请选择协议' }]}>
-                  <Select>
+                {/* {v3.27} F-28：协议留空=继承 */}
+                <Form.Item label={renderFieldLabel('scheme', '协议')} name="scheme" extra="留空=继承">
+                  <Select allowClear placeholder="http（留空=继承）">
                     {SCHEMES.map((s) => (
                       <Option key={s} value={s}>
                         {s}
@@ -2846,12 +2889,13 @@ export default function ScrapeJobsPage() {
                 </Form.Item>
               </Col>
               <Col span={12}>
+                {/* {v3.27} F-28：指标路径留空=继承（采集器模板默认 /metrics） */}
                 <Form.Item
                   label={renderFieldLabel('metrics_path', '指标路径')}
                   name="metrics_path"
-                  rules={[{ required: true, message: '请输入指标路径' }]}
+                  extra="留空=继承"
                 >
-                  <Input placeholder="/metrics" />
+                  <Input placeholder="/metrics（留空=继承）" />
                 </Form.Item>
               </Col>
             </Row>
@@ -3384,6 +3428,10 @@ export default function ScrapeJobsPage() {
                   <Title level={5} style={{ marginTop: 16 }}>
                     已选实例（{detailJob.selected_instance_ids.length}）
                   </Title>
+                  {/* {v3.27} F-17：提示每个实例最终生成的 target labels 由标签模板按 资源实例属性 映射而来 */}
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                    各实例生成 Prometheus target 时的 labels 由标签模板（{detailJob.label_template_id ? labelNameMap.get(detailJob.label_template_id) : '（未绑定，则按实例属性直接生成）'}）按资源实例属性映射而来，不在此处展示。
+                  </Text>
                   <List
                     bordered
                     size="small"
