@@ -318,14 +318,45 @@ describe('ScrapeJobListPage', () => {
 
     const editButtons = screen.getAllByRole('button', { name: /编\s*辑/ })
     const deleteButtons = screen.getAllByRole('button', { name: /删\s*除/ })
-    const switches = screen.getAllByRole('switch')
+    const toggleButtons = screen.getAllByRole('button', { name: '停用' })
 
     // 第一行（pending）全部禁用；第二行（deployed）可用。
     expect(editButtons[0]).toBeDisabled()
     expect(deleteButtons[0]).toBeDisabled()
-    expect(switches[0]).toBeDisabled()
+    expect(toggleButtons[0]).toBeDisabled()
     expect(editButtons[1]).not.toBeDisabled()
     expect(deleteButtons[1]).not.toBeDisabled()
-    expect(switches[1]).not.toBeDisabled()
+    expect(toggleButtons[1]).not.toBeDisabled()
+  })
+
+  // M01 PRD（破坏性操作二次确认）：停用需 Popconfirm 确认并提示监控中断影响，
+  // 确认后才调用 update(enabled: false)。
+  it('disabling a job requires Popconfirm with impact hint before calling update', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [job(1, { change_status: 'deployed', enabled: true })],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    renderPage()
+    expect(await screen.findByText('job-1')).toBeInTheDocument()
+
+    // 点击「停用」仅弹出二次确认，不直接调用接口。
+    fireEvent.click(screen.getByRole('button', { name: '停用' }))
+    expect(await screen.findByText(/相关监控中断/)).toBeInTheDocument()
+    expect(updateMock).not.toHaveBeenCalled()
+
+    // 确认后才以 enabled: false 调用 update。
+    fireEvent.click(screen.getByRole('button', { name: '确认停用' }))
+    await vi.waitFor(() => expect(updateMock).toHaveBeenCalledTimes(1))
+    expect(updateMock).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ job_name: 'job-1', enabled: false }),
+    )
   })
 })

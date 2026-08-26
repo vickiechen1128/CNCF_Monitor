@@ -271,9 +271,9 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     expect(screen.getByText(/本单已自动废弃/)).toBeInTheDocument()
   })
 
-  // 决策 45-1/45-3：pending 且 platform_fault（如 promtool 不可用）——待校验禁确认，
-  // 不展示「重新校验」（平台故障自动重试），仍有「废弃」出口。
-  it('pending+platform_fault 禁确认、不展示重新校验、保留废弃', async () => {
+  // 决策 45-1 / 45-3 修订：pending 且 platform_fault（如 promtool 不可用）——待校验禁确认，
+  // 但展示「重新校验」手动自愈出口（后端自动重试未落地，环境就绪后需手动重校），保留「废弃」。
+  it('pending+platform_fault 禁确认、展示重新校验、保留废弃', async () => {
     useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
     draftApiMock.get.mockResolvedValue({
       status: 'success',
@@ -287,7 +287,7 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
     const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
     expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByRole('button', { name: /重新校验/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /重新校验/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /废弃变更/ })).toBeInTheDocument()
     expect(await screen.findByText(/promtool 不可调用/)).toBeInTheDocument()
   })

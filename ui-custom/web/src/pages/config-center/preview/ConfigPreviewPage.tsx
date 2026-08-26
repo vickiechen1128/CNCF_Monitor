@@ -245,13 +245,14 @@ export function ConfigPreviewPage() {
 
   // 决策 45-1：仅 passed 可确认下发；pending/failed/rejected 均不可确认。
   // 重新校验 / 废弃出口对「非 passed 且非已确认/已废弃」的待办单可用。
-  // 决策 45-3：platform_fault（如 promtool 不可用）属平台技术故障，不提供「重新校验」（自动重试）。
+  // 决策 45-3 修订：platform_fault（如 promtool 不可用）同样展示「重新校验」——
+  // 后端校验层自动重试（决策 39-3 指数退避）尚未落地，须由用户在运维环境就绪后
+  // 手动重校恢复可确认，避免草稿永久卡死 pending（决策 45-1 自愈入口覆盖全部非 passed 态）。
   const isPending = detail?.status === 'pending'
   const validationPassed = detail?.validation_status === 'passed'
   const validationFailed = detail?.validation_status === 'failed'
-  const isPlatformFault = detail?.validation_cause === 'platform_fault'
   const canConfirm = isPending && validationPassed
-  const canRevalidate = isPending && !validationPassed && !isPlatformFault
+  const canRevalidate = isPending && !validationPassed
   // failed + user_config 时可提供「前往修改」引导（源数据输入层，决策 45-4）
   const canFixUserConfig = isPending && validationFailed && detail?.validation_cause === 'user_config'
 
