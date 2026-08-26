@@ -8,6 +8,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -76,6 +77,18 @@ func TestAssembleRulesYAMLPassthrough(t *testing.T) {
 	assert.Contains(t, ca.RulesYML, "name: a")
 	assert.Contains(t, ca.RulesYML, "name: b")
 	assert.Contains(t, ca.RulesYML, "alert: B")
+	// 多条规则记录解析合并为单个 groups 文档：重新解析应合法且恰含 2 个 group，
+	// 不得出现重复顶层 groups 键（拼接语义下会生成非法 YAML）。
+	assert.Equal(t, 1, strings.Count(ca.RulesYML, "groups:"))
+	var parsed struct {
+		Groups []struct {
+			Name string `yaml:"name"`
+		} `yaml:"groups"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(ca.RulesYML), &parsed))
+	require.Len(t, parsed.Groups, 2)
+	assert.Equal(t, "a", parsed.Groups[0].Name)
+	assert.Equal(t, "b", parsed.Groups[1].Name)
 	// 有规则内容时 prometheus.yml 必须注入 rule_files 引用 rules.yml（否则 Prometheus 不加载规则）。
 	assert.Contains(t, ca.PrometheusYML, "rule_files:")
 	assert.Contains(t, ca.PrometheusYML, "- rules.yml")
@@ -87,6 +100,37 @@ func TestAssembleRuleFilesOmittedWhenNoRules(t *testing.T) {
 	// 无规则时不注入 rule_files，避免指向不存在的文件导致 Prometheus 配置加载失败。
 	assert.NotContains(t, ca.PrometheusYML, "rule_files")
 	assert.Equal(t, "", ca.RulesYML)
+}
+
+// F-28：scrape_interval/scrape_timeout 必须真实写入 prometheus.yml；
+// Job 留空（存量/异常数据）时按全局兜底常量回填。
+func TestAssembleRendersScrapeIntervalTimeout(t *testing.T) {
+	ca, err := Assemble("default", "", "", []JobBuild{
+		{Job: models.ScrapeJob{JobName: "with-params", ScrapeInterval: "30s", ScrapeTimeout: "20s", MetricsPath: "/metrics", Scheme: "http"}},
+		{Job: models.ScrapeJob{JobName: "sparse"}},
+	}, nil)
+	require.NoError(t, err)
+	assert.Contains(t, ca.PrometheusYML, "scrape_interval: 30s")
+	assert.Contains(t, ca.PrometheusYML, "scrape_timeout: 20s")
+	// 留空字段按全局兜底回填，保证 scrape_config 参数完整显式。
+	assert.Contains(t, ca.PrometheusYML, "scrape_interval: "+models.DefaultScrapeInterval)
+	assert.Contains(t, ca.PrometheusYML, "scrape_timeout: "+models.DefaultScrapeTimeout)
+	assert.Contains(t, ca.PrometheusYML, "metrics_path: "+models.DefaultMetricsPath)
+	assert.Contains(t, ca.PrometheusYML, "scheme: "+models.DefaultScheme)
+
+	// 逐 job 解析校验：sparse 任务的配置块含兜底值。
+	var parsed struct {
+		ScrapeConfigs []struct {
+			JobName        string `yaml:"job_name"`
+			ScrapeInterval string `yaml:"scrape_interval"`
+			ScrapeTimeout  string `yaml:"scrape_timeout"`
+		} `yaml:"scrape_configs"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(ca.PrometheusYML), &parsed))
+	require.Len(t, parsed.ScrapeConfigs, 2)
+	assert.Equal(t, "30s", parsed.ScrapeConfigs[0].ScrapeInterval)
+	assert.Equal(t, models.DefaultScrapeInterval, parsed.ScrapeConfigs[1].ScrapeInterval)
+	assert.Equal(t, models.DefaultScrapeTimeout, parsed.ScrapeConfigs[1].ScrapeTimeout)
 }
 
 func TestAssembleBlackbox(t *testing.T) {

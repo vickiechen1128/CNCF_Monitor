@@ -23,6 +23,8 @@ type cfgFile struct {
 
 type scrapeConf struct {
 	JobName        string              `yaml:"job_name"`
+	ScrapeInterval string              `yaml:"scrape_interval,omitempty"`
+	ScrapeTimeout  string              `yaml:"scrape_timeout,omitempty"`
 	MetricsPath    string              `yaml:"metrics_path,omitempty"`
 	Params         map[string][]string `yaml:"params,omitempty"`
 	Scheme         string              `yaml:"scheme,omitempty"`
@@ -68,7 +70,8 @@ type JobBuild struct {
 //   - prometheus.yml：global.external_labels（仅 network_domain_id/zone_type/replica）
 //     + scrape_configs 骨架（file_sd_configs 引用 targets/<job>.json 不内联）；
 //   - targets/<job>.json：由调用方预解析的 Targets 生成；
-//   - rules.yml：scope=central 且 content_mode=yaml_passthrough 的规则原样并入；
+//   - rules.yml：scope=central 且 content_mode=yaml_passthrough 的规则解析合并 groups
+//     为单文档（renderRules）；
 //   - blackbox.yml：存在 blackbox job 时按所用模块生成。
 func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule) (*ConfigArtifacts, error) {
 	ext := buildExternalLabels(domainID, zoneType, replica)
@@ -118,14 +121,17 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 }
 
 // jobScrapeConfig 将 ScrapeJob 结构映射为 scrape_config 骨架
-// （metrics_path/scheme/认证/TLS 最小集透传，决策 31）。
+// （scrape_interval/scrape_timeout/metrics_path/scheme/认证/TLS 最小集透传，决策 31）。
+// F-28：Job 参数字段自 F-28 起可稀疏留空（留空=继承），保存时已被
+// resolveJobScrapeParams 解析为生效快照；此处对空值再按全局兜底常量回填，
+// 作为存量/异常数据的防线，保证写出的 scrape_config 参数完整且显式。
 func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error) {
-	sc := scrapeConf{JobName: job.JobName}
-	if job.MetricsPath != "" {
-		sc.MetricsPath = job.MetricsPath
-	}
-	if job.Scheme != "" {
-		sc.Scheme = job.Scheme
+	sc := scrapeConf{
+		JobName:       job.JobName,
+		ScrapeInterval: orDefault(job.ScrapeInterval, models.DefaultScrapeInterval),
+		ScrapeTimeout:  orDefault(job.ScrapeTimeout, models.DefaultScrapeTimeout),
+		MetricsPath:    orDefault(job.MetricsPath, models.DefaultMetricsPath),
+		Scheme:         orDefault(job.Scheme, models.DefaultScheme),
 	}
 
 	if job.AuthType == models.AuthTypeBasic {
@@ -150,9 +156,26 @@ func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error) {
 	return sc, nil
 }
 
-// renderRules 将 yaml_passthrough 规则原样并入 rules.yml（不解析不重排）。
+// orDefault 返回 v，v 为空时返回兜底值 d（F-28 层叠默认链末端的全局兜底）。
+func orDefault(v, d string) string {
+	if strings.TrimSpace(v) == "" {
+		return d
+	}
+	return v
+}
+
+// ruleGroupsFile 是 rules.yml 的顶层结构（仅 groups 键，节点级保留各 group 内容）。
+type ruleGroupsFile struct {
+	Groups []yaml.Node `yaml:"groups"`
+}
+
+// renderRules 将 yaml_passthrough 规则解析合并为单文档 rules.yml：
+// 逐条解析各规则内容的 groups 节点，按顺序追加到同一个顶层 groups 下，
+// 避免多记录各带顶层 groups 键拼接出非法 YAML（重复顶层键）。
+// 组名全局唯一由保存时校验保证（strategy/rule.validateGroupNamesAvailable），
+// 渲染期不做重名合并；解析失败的存量脏数据跳过，避免中断整体生成。
 func renderRules(rules []models.MonitoringRule) string {
-	var b strings.Builder
+	var groups []yaml.Node
 	for _, r := range rules {
 		if r.ContentMode != models.RuleContentModeYAMLPassthrough {
 			continue
@@ -160,12 +183,20 @@ func renderRules(rules []models.MonitoringRule) string {
 		if strings.TrimSpace(r.RuleContent) == "" {
 			continue
 		}
-		if b.Len() > 0 {
-			b.WriteString("\n")
+		var f ruleGroupsFile
+		if err := yaml.Unmarshal([]byte(r.RuleContent), &f); err != nil {
+			continue
 		}
-		b.WriteString(strings.TrimRight(r.RuleContent, "\n"))
+		groups = append(groups, f.Groups...)
 	}
-	return b.String()
+	if len(groups) == 0 {
+		return ""
+	}
+	out, err := yaml.Marshal(ruleGroupsFile{Groups: groups})
+	if err != nil {
+		return ""
+	}
+	return string(out)
 }
 
 // renderBlackbox 按用到的模块名生成最小 blackbox.yml（仅写实际引用模块，
