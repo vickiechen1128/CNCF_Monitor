@@ -97,7 +97,7 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/monitoring-rules` | `rule_type`、`enabled`、`keyword`、`page`、`page_size` | `{list,...}`；item 含 content_mode/name/enabled/change_status/draft_status | — | §6.2.4 |
-| POST | `/monitoring-rules` | `{content_mode=yaml_passthrough, rule_content(必填), name?, enabled}` | 创建后完整对象（draft_status=ready，change_status=pending） | `bad_request`：rule_content 空/YAML 非法（groups 非数组） | §6.2.4 |
+| POST | `/monitoring-rules` | `{content_mode=yaml_passthrough, rule_content(必填), name?, enabled?(缺省 true，创建默认启用 §8)}` | 创建后完整对象（draft_status=ready，change_status=pending） | `bad_request`：rule_content 空/YAML 非法（groups 非数组） | §6.2.4 |
 | PUT | `/monitoring-rules/:id` | `{name?, rule_content?, enabled?}` | 更新后完整对象 | `not_found`；`bad_request`：YAML 非法 | §6.2.4 |
 | DELETE | `/monitoring-rules/:id` | — | `{id}` | `not_found` | §6.2.4 |
 | POST | `/monitoring-rules/:id/validate-yaml` | `{rule_content}` | `{valid, error?}` | — | §6.2.4 |

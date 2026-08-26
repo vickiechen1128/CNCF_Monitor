@@ -42,8 +42,8 @@
 
 - **类别**：① 空白判定（MVP 硬约束第 11 条）
 - **PRD 章节 / 文件位置**：PRD §3.4 / 决策 42-2
-- **现状**：本环境无 promtool / blackbox 二进制，生成草稿校验返回 `validation_status=pending`，集成冒烟中以直接落库 passed 等价模拟 revalidate 通过。
-- **结论**：MVP 不阻断；生产需随中心 Prometheus 部署具备 promtool 才走真实校验。
+- **现状（2026-08-26 更新）**：Makefile 新增 `build-promtool` 目标（`upstream/prometheus/promtool`，GOPROXY 走国内代理），`run-metric-center` 依赖它并在 PATH 注入 `upstream/prometheus`，校验改为真实执行 `promtool check config`；生成草稿校验在 promtool 可用时返回 `passed`。本环境无 blackbox_exporter 时其校验仍走 pending（决策 42-2）。
+- **结论**：MVP 不阻断；生产需随中心 Prometheus 部署具备 promtool 才走真实校验（已由 `make run-metric-center` 自动保证）。
 - **影响模块**：后端
 - **发现场景**：T09 测试/验收环境。
 
@@ -197,6 +197,18 @@
 - **影响模块**：后端（draft/generator）、前端（ConfigPreviewPage.tsx、config-center.ts）
 - **发现场景**：方案 A 修复后 `instance` 不再误拦，重校验回到 `pending`，但详情页 pending 态「无操作按钮」且只剩无归因的错误 Tag。
 
+## 10. target 抓取地址缺 exporter 端口（2026-08-26，决策 46）
+
+- **类别**：② 实现偏差修正（target 端口语义错误）
+- **PRD 章节 / 文件位置**：`Module_07_Monitoring_Object_Management.md` §5.12C（target/instance 端口取 `CITypeExporterMapping.default_port`，对 `selected_instance_ids` 逐个拼接 `instance_ip:default_port`）；`Module_01` §5.1 端口一致性说明；源码 `platform/configcenter/generator/targets.go`、`data_source.go`、`draft/service.go`
+- **问题（联调实测）**：Host 类采集 Job 生成 targets 为 `["1.15.94.116"]`（无端口），Prometheus 默认 80 端口抓取报 `connection refused`；node_exporter 实际监听 9100。Database/Middleware 分支虽拼端口，但用的是**资源业务端口**（3306/6379）而非 exporter 监听端口（9104/9121），同样违反 §5.12C。
+- **根因**：`resolveResource` 未感知采集策略层端口；Host 分支只取 `PrivateIP`，Database/Middleware 分支取资源业务端口；`ScrapeJob` 无 port 字段、生成器也未解析映射/采集器 default_port。
+- **结论（决策 46，用户拍板最小方案）**：新增 `generator.LoadExporterPort`——优先 `CITypeExporterMapping.default_port`（monitor_type 默认映射），回落 `ExporterTemplate.default_port`（exporter_template_id）；`resolveResource` 对 Host/Database/Middleware 统一拼接 exporter 端口（Database/Middleware 在 exporter 端口为 0 时回落业务端口）；Application（健康检查 URL）/ GenericTarget（登记服务端口）不变；`instance` 组合标签随地址自动带端口。
+- **实现落库**：`generator/targets.go`（`exporterPortOr` / `resolveResource` 签名 + 端口拼接）、`generator/data_source.go`（`LoadExporterPort`）、`draft/service.go`（buildArtifacts 传 exporterPort）；单测 `TestResolveTargetsExporterPort` / `TestLoadExporterPortPriority`，存量 host 断言改为带端口。
+- **是否需设计侧确认**：需——PRD M01 §5.4 统一「端口是否进 ScrapeJob 字段 / mapping_overrides」口径（当前 416 行与字段表冲突，已列 M01 F-20）；v0.2+ 若做 Job 级端口快照则补 `ScrapeJob.port` 与前端表单端口输入。
+- **影响模块**：M09 配置生成、M01 采集 Job（端口快照规划）、M07 §5.12C（已按 default_port 对齐）
+- **发现场景**：用户对「配置生成 targets 与实例实际 exporter 端口」一致性的联调测试。
+
 ## 收割状态
 
 - [x] F-13 已修正（后单取代前单 + supersede 审计字段）
@@ -206,8 +218,58 @@
 - [ ] F-18 已补测试，待用户复现信息确认是否为版本/环境不一致
 - [x] F-19 已修正/实现（决策 44 系列；PRD §3.3.3 / §3.4 与 M01 pending 锁定语义待 design 分支同步）
 - [x] §8 instance 放行 + vMsg 透传 已修正/实现（方案 A；PRD 无需改动）
-- [ ] §9 pending 态操作出口 + 校验归因 待修正（决策 45 系列，本轮实现）
+- [x] §9 pending 态操作出口 + 校验归因 已修正（决策 45 系列）
   - [x] 45-1 操作区三态语义修正（非 passed 禁用确认，pending 也给出重新校验+废弃）
   - [x] 45-2 校验信息 Alert 分色（failed→error / pending→warning）
   - [x] 45-3 validation_cause / validation_details 归因字段（后端 + 契约 + 前端展示）
+  - [x] 45-3 修订（2026-08-26）：platform_fault 也展示「重新校验」手动自愈出口（后端自动重试未落地，隐藏按钮会死锁；见 design-decisions.md 45-3 修订注记）
   - [ ] 45-4 M07 源数据输入层静态校验（单独列 M07 前端任务，本轮不涉及 M09）
+
+## 2026-08-26（M01/M09 联调：变更清单未按产物 diff 派生 + 规则挂载默认启用）
+
+### F-21：禁用已生效 Job 后变更清单仍显示「本次无配置变更」（② 实现偏差，已修正）
+
+- **PRD 章节 / 文件位置**：`Module_09_Network_Domain_and_Edge_Config_Center.md` §3.4（变更类型：新增/修改/移除，按产物差异派生）、§8（删除目标/告警规则变更=high）；源码 `platform/configcenter/draft/service.go`（原 `buildChangeItems`）、`platform/configcenter/draft/change_items.go`（新增）
+- **问题（用户验收）**：在 Job 列表点击「停用」后，配置变更确认页摘要显示「本次配置无变化 / 无实际内容变化」，但「版本对比」Tab 能真实看到 scrape_config 被删除——两者自相矛盾，引发用户误解。
+- **根因**：原 `buildChangeItems` 不做新旧产物 diff，只罗列当前仍启用的 Job/规则并全部写死标为「新增」；被禁用 Job 已被 `LoadJobs` 过滤，永远不会以「移除」出现在清单中。禁用唯一 Job 时清单为空 → `buildSummary` 返回「本次无配置变更」。
+- **结论（PRD 无需改动）**：实现偏差，已修正。
+  - 新增 `change_items.go`：按「上一已确认 ConfigVersion 产物 vs 本次草稿产物」diff 派生 add/update/delete；生效版本中存在但本次产物已摘除的 Job → delete/high「移除采集 Job（监控断点风险）」；规则按 group name diff，变更即 high。
+  - `GenerateDraft` 前置 `lastConfirmedVersion` 作为 diff 基线；清单为空即 `ErrNoChanges`（抑制空跑噪声）。
+  - 前端 `ScrapeJobListPage` 启停改为有文字按钮 + Popconfirm 二次确认，停用提示监控中断影响。
+- **是否需设计侧确认**：否，PRD 口径已明确（§3.4/§8）。
+- **影响模块**：M09 变更清单生成、M01 Job 列表启停交互。
+- **发现场景**：用户禁用采集 Job 后查看配置变更确认页。
+
+### F-22：规则挂载「保存并下发」后规则状态显示「停用」（② 实现偏差，已修正）
+
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.5（`enabled=false` 规则从生成中摘除）、§8（创建默认启用）；源码 `platform/strategy/rule/create.go`、`ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx`
+- **问题（用户验收）**：规则挂载抽屉点击「保存并下发」后，规则列表显示「停用」，与「创建默认启用」及采集 Job 默认启用口径不一致。
+- **根因**：前端创建请求漏传 `enabled`；后端 `CreateMonitoringRuleRequest.Enabled` 为非指针 bool，零值 false 直接落库。
+- **结论（PRD 无需改动）**：
+  - 后端 `Enabled` 改为 `*bool`，缺省默认 `true`；
+  - 前端请求显式传 `enabled: true`，按钮文案「保存并下发」改为「提交生效」（实际需 M09 人工确认后下发，名实相符）。
+- **是否需设计侧确认**：否。
+- **影响模块**：M01 规则管理、M09 变更单生成。
+- **发现场景**：用户新增规则后返回列表查看生效状态。
+
+### F-23：Prometheus 不加载告警规则——prometheus.yml 缺 rule_files 引用（② 实现偏差，已修正）
+
+- **PRD 章节 / 文件位置**：`Module_09_Network_Domain_and_Edge_Config_Center.md` §3.2（配置产物：prometheus.yml + rules.yml）；`Module_01_Metric_Collection_Center.md` §5.5（规则生成与 rules.yml 组装）；源码 `platform/configcenter/generator/render.go`（`cfgFile` 结构 / `Assemble`）、`platform/configcenter/deployment/service.go`（`writeStructural` 同目录写盘）
+- **问题（用户验收）**：触发 Job 变更并挂载 rules.yaml 后，在配置文件中心确认下发，Prometheus 成功获取 targets 与 job，但 Rules 模块仍显示 "No rules found"。
+- **根因**：`render.go` 生成的 prometheus.yml 仅含 `global` / `scrape_configs`，**未注入 `rule_files`** 引用同目录下发的 `rules.yml`；Prometheus 仅在显式配置 `rule_files` 时才加载规则文件，故 rules.yml 虽已写盘（`deployment/service.go` `writeStructural` 与 prometheus.yml 同目录）却不被加载。
+- **结论（PRD 无需改动）**：实现偏差，已修正。`cfgFile` 增 `RuleFiles []string` 字段，渲染时「有规则内容才注入 `rule_files: ["rules.yml"]`，无规则不注入」——避免无规则时引用不存在的文件导致配置加载失败。
+- **实现落库**：`generator/render.go`（`cfgFile.RuleFiles` + `Assemble` 注入逻辑）；单测 `TestAssembleRulesYAMLPassthrough` 增 rule_files 断言、新增 `TestAssembleRuleFilesOmittedWhenNoRules`。
+- **是否需设计侧确认**：否。
+- **影响模块**：M09 配置生成（prometheus.yml 产物）。
+- **发现场景**：用户触发 Job 变更挂载 rules.yaml 下发后，查看 Prometheus Rules 模块发现 "No rules found"。
+
+### F-24：promtool 校验误报——check config 缺 rules.yml 引用文件（② 实现偏差，已修正）
+
+- **PRD 章节 / 文件位置**：`Module_09_Network_Domain_and_Edge_Config_Center.md` §3.2（配置产物：prometheus.yml + rules.yml）、§3.4（中心内容校验）；源码 `platform/configcenter/generator/validate.go`（`runPromtoolCheck` / `runToolChecks`）
+- **问题（用户验收）**：新增规则文件后触发校验，配置变更确认报 `promtool check config 失败: Checking .../promcheck-*.yml FAILED: ".../T/rules.yml" does not point to an existing file`。
+- **根因**：`runPromtoolCheck` 只把 `prometheus.yml` 写入临时文件就执行 `promtool check config`；F-23 修复后 `prometheus.yml` 通过 `rule_files: ["rules.yml"]`（相对路径）引用同目录规则文件，但校验临时目录中未写入 `rules.yml`（`file_sd` 引用的 `targets/*.json` 亦未写入），promtool 判定引用文件不存在而误报。属「生成器注入 rule_files 后，校验器未同步按真实下发目录结构落盘」的同型缺口（与 F-23 成对）。
+- **结论（PRD 无需改动）**：实现偏差，已修正。`runPromtoolCheck` 改为接收 `*ConfigArtifacts`，按真实下发目录结构（与 `deployment.writeStructural` 一致）写入临时目录——`prometheus.yml` + `rules.yml` + `targets/*.json`——再执行 `promtool check config`；附带收益是 `rules.yml` 语法现在真正被 promtool 校验（此前仅逐条 YAML passthrough 拼接，未经 promtool 验证）。
+- **实现落库**：`generator/validate.go`（`runPromtoolCheck` 签名改为 `*ConfigArtifacts` 并写齐被引用文件、`runToolChecks` / `toolCheckerFn` 同步改传 `*ConfigArtifacts`，新增 `path/filepath` 导入）；`generator/generator_test.go`（mock 签名同步）。
+- **是否需设计侧确认**：否。
+- **影响模块**：M09 配置校验（promtool 外部校验）。
+- **发现场景**：用户新增规则文件后配置变更确认校验报 rules.yml 引用缺失；重编译重启后对失败草稿 `CHG-20260826-015` 重校通过（validation_status=passed）。

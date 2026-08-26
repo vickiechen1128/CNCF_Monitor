@@ -197,3 +197,59 @@
 - **是否需设计侧确认**：需——M01 PRD §5.4 需补 pending 期间的锁定语义（编辑/删除/启停约束与引导文案）；原型需补 pending 行禁用态。
 - **影响模块**：M01 采集 Job 管理（前后端）、M09 变更单联动
 - **发现场景**：用户对「job 状态 / 生效状态 / 配置变更单」三者关系与数据流转的联调测试。
+
+## 2026-08-26（M09 联调：target 抓取地址缺端口，决策 46）
+
+### F-20：ScrapeJob 无 port 字段，Host 采集 target 落到 80 端口 / PRD §5.4 端口口径内部冲突（① 类，已决策最小方案）
+
+- **类别**：① PRD 空白 / 内部口径冲突；② 实现偏差
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.4（字段表 386-414 行无 `port` 字段；但 416 行「实际参数覆盖（端口 / 路径 / 协议 / 间隔 / 超时，快照 + 覆盖）」明确端口是 Job 参数覆盖项；`mapping_overrides` 可覆盖字段枚举（406 行）也未含 `port`）；`Module_07` §5.12C（instance 端口取 `CITypeExporterMapping.default_port`）；源码 `platform/configcenter/generator/targets.go`、`platform/models/scrape_job.go`、`ui-custom/web/src/api/scrapeJobs.ts`（`ScrapeJobInput` 无 port）
+- **问题（联调实测）**：添加采集 Job 后 Prometheus 抓取报 `Get "http://1.15.94.116/metrics": dial tcp 1.15.94.116:80: connect: connection refused`——target 生成无端口，Prometheus 默认 80；而 node_exporter 实际监听 9100（用户实测可达）。targets JSON 产物为 `["1.15.94.116"]`，`instance` 标签同为无端口。
+- **根因**：`resolveResource` 的 Host 分支 `Address = host.PrivateIP` 只取 IP；Database/Middleware 分支虽拼端口但用的是**资源业务端口**（3306/6379），按 PRD §5.12C 应为 exporter 监听端口（9104/9121）。`ScrapeJob` 模型与前端表单均无 `port` 字段，PRD §5.4 内部对「端口是否进 Job 快照」表述冲突（416 行 vs 字段表 / mapping_overrides）。
+- **结论（用户拍板，决策 46）**：MVP 先取**生成器层最小方案**——不新增 ScrapeJob.port 字段（PRD §5.4 字段表与 mapping_overrides 口径冲突另行列项，待设计侧统一后再评估 Job 级端口快照），由 M09 生成器解析策略层端口：
+  - `LoadExporterPort`：优先 `CITypeExporterMapping.default_port`（monitor_type 默认映射），回落 `ExporterTemplate.default_port`（exporter_template_id）；
+  - `resolveResource`：Host/Database/Middleware 抓取地址统一拼接 exporter 端口（Database/Middleware 在 exporter 端口为 0 时回落业务端口）；Application 用健康检查 URL、GenericTarget 用登记服务端口（不变）；
+  - `instance` 组合标签随地址自动带端口。
+- **实现落库**：`generator/targets.go`（`LoadExporterPort` / `resolveResource` / `ResolveJobTargets` 签名 + 端口拼接）、`generator/data_source.go`（`LoadExporterPort`）、`draft/service.go`（buildArtifacts 传入 exporterPort）；单测 `generator_test.go` 新增 `TestResolveTargetsExporterPort` / `TestLoadExporterPortPriority`，并修正存量 host 断言（`10.0.1.1:9100`）。
+- **是否需设计侧确认**：需——① PRD M01 §5.4 统一「端口是否进 ScrapeJob 字段 / mapping_overrides」口径；② 若确认 Job 级端口快照（v0.2+），补 ScrapeJob.port 字段与前端表单端口输入。
+- **影响模块**：M01 采集 Job（模型/表单端口字段规划）、M07 §5.12C 契约（已按 default_port 对齐）、M09 配置生成
+- **发现场景**：用户对「配置生成 targets 与实例实际 exporter 端口」一致性的联调测试。
+
+## 2026-08-26（user-verify-fix）
+
+### F-21：配置变更清单与产物 diff 不一致（M01 ↔ M09，② 实现偏差，已修正）
+
+- **类别**：② 实现偏差修正
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §8（`enabled=false` 不参与配置生成）；`Module_09_Network_Domain_and_Edge_Config_Center.md` §3.4（变更类型：新增/修改/移除，按产物差异派生）；源码 `platform/configcenter/draft/service.go`、`platform/configcenter/draft/change_items.go`、`ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`
+- **问题（用户验收）**：禁用已生效采集 Job 后，配置变更确认页显示「本次配置无变化」，但版本对比 Tab 显示 scrape_config 确实被删除，两者矛盾。
+- **根因**：`buildChangeItems` 仅罗列当前仍启用 Job 且全部标「新增」，不做新旧产物 diff；禁用后 Job 被过滤，清单为空 → `buildSummary` 误报「无变化」。
+- **结论（PRD 无需改动，实现修正）**：
+  - M09 后端：新增 `change_items.go`，按上一生效版本产物与本次产物 diff 派生 add/update/delete；移除已生效 Job 标记 high「监控断点风险」。
+  - M01 前端：`ScrapeJobListPage` 启停改为有文字按钮「停用/启用」+ Popconfirm 二次确认（停用提示监控中断影响）。
+- **影响模块**：M01 采集 Job 列表交互、M09 变更清单生成。
+- **发现场景**：用户禁用 Job 后查看配置变更确认页。
+
+### F-22：规则挂载「保存并下发」后规则状态为停用（② 实现偏差，已修正）
+
+- **类别**：② 实现偏差修正
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.5/§8（规则创建默认启用）；源码 `platform/strategy/rule/create.go`、`ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx`
+- **问题（用户验收）**：规则挂载抽屉点击「保存并下发」后，规则列表显示「停用」。
+- **根因**：前端创建请求漏传 `enabled`；后端 `Enabled` 为非指针 bool，缺省零值 false 落库。
+- **结论（PRD 无需改动，实现修正）**：
+  - 后端 `Enabled` 改为 `*bool`，缺省默认 `true`；
+  - 前端请求显式传 `enabled: true`，按钮文案改为「提交生效」（与 Job 抽屉一致，需 M09 人工确认后下发）。
+- **影响模块**：M01 规则管理。
+- **发现场景**：用户新增规则后查看列表生效状态。
+
+### F-23：规则编辑列表状态列与启停控件样式偏离原型（① 类，待 design 管道修复）
+
+- **类别**：① PRD / 原型待修订（UI 对齐采集 Job 列，需 design 更新原型）
+- **PRD 章节 / 文件位置**：原型 `docs/prototypes/module-01/src/pages/RulesPage.tsx`（「下发状态」Tooltip 列 L311-315 +「启用状态」Switch 列 L325-330）；生产 `ui-custom/web/src/pages/strategy/RulesPage.tsx`（列与启停控件）
+- **问题（用户验收）**：用户要求规则编辑列表按采集 Job UI 显示字段对齐——将「启用状态」「下发状态」两列改为「变更进度」「生效状态」，启停控件由 Switch 改为文字按钮「停用/启用」+ Popconfirm 二次确认。生产已按此对齐（复用采集 Job 的 `CHANGE_PROGRESS_MAP` / `aggregateJobStatus` / 文字按钮模式），与原型不一致。
+- **结论（chenrt，2026-08-26）**：生产先按采集 Job 同源同机制落地（F-21 对齐），原型不一致项登记待 design 管道修复。
+- **待 design 分支更新原型**：
+  1. 原型规则列表删除「下发状态」Tooltip 列与「启用状态」Switch 列；
+  2. 原型改为「变更进度」（无变更 / 待确认 / 已确认待下发 / 已下发）+「生效状态」（草稿 / 已停用 / 待生效 / 已生效）两列；
+  3. 原型操作列启停控件由 Switch 改为文字按钮「停用 / 启用」+ Popconfirm（与采集 Job 一致）。
+- **影响模块**：M01 规则编辑（前端 RulesPage 已实现对齐，3 用例通过 / tsc / eslint 通过）。
+- **发现场景**：用户要求规则编辑 UI 与采集 Job UI 字段、控件对齐。

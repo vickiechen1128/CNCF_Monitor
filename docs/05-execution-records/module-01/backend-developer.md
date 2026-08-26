@@ -58,3 +58,23 @@
 - 待建：`docs/05-execution-records/module-01/backend-developer.md` 以外的执行记录
   （frontend-developer 的 F 组任务不在本期后端范围）。
 - `scripts/review-precheck.sh` 的未提交改动来自上一会话（与后端开发无关），未纳入本期提交。
+## 2026-08-26（user-verify-fix）
+
+### 规则创建 enabled 缺省默认 true（修复「保存并下发后规则变停用」）
+
+#### 问题
+- 用户验收反馈：规则挂载抽屉点击「保存并下发」后，规则状态显示「停用」。与采集 Job「创建默认启用」（PRD §8）不一致；且 PRD §5.5 明确 `enabled=false` 的规则会被从生成的 rules.yml 摘除，「提交一个停用规则」语义自相矛盾。
+- 根因：前端 `RuleMountDrawer` 创建请求漏传 `enabled`；后端 `CreateMonitoringRuleRequest.Enabled` 为非指针 `bool` 且无默认值兜底，Go 零值 `false` 直接落库（`platform/strategy/rule/create.go`）。
+
+#### 修复
+- `platform/strategy/rule/create.go`：`Enabled` 改为 `*bool`，缺省（未传）默认 `true`（注释标注对齐 M01 PRD §8「创建默认启用」）；显式传 `false` 仍尊重调用方（停用挂载场景）。
+- 前端同步修复见 `frontend-developer.md`（创建请求显式携带 `enabled: true`，双保险）。
+
+#### 新增/修改测试（monitoring_rule_test.go）
+- 新增 `TestCreateMonitoringRuleDefaultEnabled`：不传 enabled → 落库 `enabled=true`；显式 `enabled=false` → 落库停用。
+
+#### 契约同步
+- `api-contract-snapshot.md` §7 POST `/monitoring-rules` 请求体 `enabled` 标注「缺省 true」。
+
+#### 验证
+- `go test ./platform/strategy/rule/...`、`go test ./platform/...` 全绿；`go vet ./platform/...` 通过。
