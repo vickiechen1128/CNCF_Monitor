@@ -76,9 +76,10 @@ describe('RulesPage', () => {
     expect(screen.getAllByText('文件透传').length).toBeGreaterThanOrEqual(1)
     // 两条 `- alert:` → 规则条数 2
     expect(screen.getAllByText('2').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('待下发').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('待确认').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('待生效').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('已生效').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('停用')).toBeInTheDocument()
+    expect(screen.getAllByText('停用').length).toBeGreaterThanOrEqual(1)
   })
 
   it('shows empty state 暂无规则', async () => {

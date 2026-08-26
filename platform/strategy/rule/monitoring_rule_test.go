@@ -105,6 +105,31 @@ func TestCreateMonitoringRule(t *testing.T) {
 	assert.Equal(t, string(models.ChangeStatusPending), string(out.Data.ChangeStatus))
 }
 
+// TestCreateMonitoringRuleDefaultEnabled 覆盖「创建默认启用」（M01 PRD §8，与采集
+// Job 对齐）：请求体不传 enabled 时必须默认 true，不得以零值 false 落库造成
+// 「保存并提交后规则变停用」。
+func TestCreateMonitoringRuleDefaultEnabled(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 不传 enabled → 默认启用。
+	body := fmt.Sprintf(`{"rule_content":%s,"name":"default-enabled"}`, jsonString(rulesFixture()))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Enabled, "缺省 enabled 应默认 true")
+
+	// 显式传 enabled=false → 尊重调用方（停用挂载场景）。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"explicit-disabled","enabled":false}`, jsonString(rulesFixture()))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.False(t, out.Data.Enabled, "显式 enabled=false 应落库为停用")
+}
+
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)

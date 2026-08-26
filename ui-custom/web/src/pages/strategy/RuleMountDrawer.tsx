@@ -49,6 +49,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess }: RuleMountDrawerPr
         content_mode: 'yaml_passthrough',
         rule_content: values.rule_content,
         name: values.name,
+        // 创建默认启用（M01 PRD §8，与采集 Job 对齐）；漏传会被后端零值 false 落库成「停用」
+        enabled: true,
       })
       message.success('规则已挂载，变更将由 M09 生成变更单并下发')
       setSubmitting(false)
@@ -73,7 +75,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess }: RuleMountDrawerPr
               取消
             </Button>
             <Button type="primary" loading={submitting} disabled={submitting} onClick={handleSubmit}>
-              保存并下发
+              提交生效
             </Button>
           </Space>
         </div>

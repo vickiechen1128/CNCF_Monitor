@@ -48,7 +48,7 @@ describe('RuleMountDrawer', () => {
 
     await userEvent.type(screen.getByTestId('rule-name'), 'my-rule')
     await userEvent.type(screen.getByTestId('rule-content'), 'invalid')
-    fireEvent.click(screen.getByText('保存并下发'))
+    fireEvent.click(screen.getByText('提交生效'))
 
     // 无效 YAML：Alert 提示、不调用 create
     expect(await screen.findByText(/缺少顶层 groups 数组/)).toBeInTheDocument()
@@ -64,13 +64,15 @@ describe('RuleMountDrawer', () => {
       screen.getByTestId('rule-content'),
       'groups:\n  - name: g\n    rules:\n      - alert: A',
     )
-    fireEvent.click(screen.getByText('保存并下发'))
+    fireEvent.click(screen.getByText('提交生效'))
 
     expect(await screen.findByText(/规则已挂载/)).toBeInTheDocument()
+    // 创建默认启用（M01 PRD §8）：必须显式携带 enabled: true
     expect(createMock).toHaveBeenCalledWith({
       content_mode: 'yaml_passthrough',
       rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
       name: 'my-rule',
+      enabled: true,
     })
   })
 })

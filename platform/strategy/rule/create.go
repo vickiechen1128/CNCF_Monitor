@@ -11,12 +11,14 @@ import (
 )
 
 // CreateMonitoringRuleRequest 是创建规则挂载的请求体（api-contract-snapshot §7）：
-// content_mode=yaml_passthrough、rule_content 必填、name 可空、enabled。
+// content_mode=yaml_passthrough、rule_content 必填、name 可空、enabled 可空。
+// Enabled 为指针：缺省（未传）按 true 处理，与采集 Job「创建默认启用」对齐
+// （M01 PRD §8）；非指针 bool 会在前端漏传时以零值 false 落库，造成「保存即停用」。
 type CreateMonitoringRuleRequest struct {
 	ContentMode models.RuleContentMode `json:"content_mode"`
 	RuleContent string                 `json:"rule_content"`
 	Name        string                 `json:"name"`
-	Enabled     bool                   `json:"enabled"`
+	Enabled     *bool                  `json:"enabled"`
 }
 
 // CreateMonitoringRule 是 POST /api/v2/platform/monitoring-rules 的 handler：
@@ -43,12 +45,18 @@ func CreateMonitoringRule(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// enabled 缺省默认启用（M01 PRD §8「创建默认启用」与采集 Job 对齐）。
+		enabled := true
+		if req.Enabled != nil {
+			enabled = *req.Enabled
+		}
+
 		r := &models.MonitoringRule{
 			Name:         req.Name,
 			ContentMode:  mode,
 			RuleContent:  req.RuleContent,
 			Scope:        models.ScopeTypeCentral,
-			Enabled:      req.Enabled,
+			Enabled:      enabled,
 			DraftStatus:  "ready",
 			ChangeStatus: models.ChangeStatusPending,
 		}
