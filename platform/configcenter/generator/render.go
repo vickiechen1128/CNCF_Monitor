@@ -17,6 +17,7 @@ type cfgGlobal struct {
 
 type cfgFile struct {
 	Global        cfgGlobal    `yaml:"global,omitempty"`
+	RuleFiles     []string     `yaml:"rule_files,omitempty"`
 	ScrapeConfigs []scrapeConf `yaml:"scrape_configs,omitempty"`
 }
 
@@ -95,12 +96,17 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 		targets[fname] = content
 	}
 
+	// 规则文件与 prometheus.yml 同目录下发（deployment/service.go writeStructural），
+	// 有规则内容时才注入 rule_files 引用 rules.yml；无规则时不引用，避免指向不存在的文件。
+	rulesYAML := renderRules(rules)
+	if strings.TrimSpace(rulesYAML) != "" {
+		cfg.RuleFiles = []string{"rules.yml"}
+	}
 	promYAML, err := yaml.Marshal(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal prometheus.yml: %w", err)
 	}
 
-	rulesYAML := renderRules(rules)
 	blackboxYAML := renderBlackbox(modules)
 
 	return &ConfigArtifacts{

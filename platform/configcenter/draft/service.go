@@ -81,20 +81,24 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return nil, err
 	}
 
-	items := buildChangeItems(jobs, rules)
+	// T09-05 review-fix：source_version 回填为该网域「上一已确认 ConfigVersion」的
+	// change_no（契约 §4 语义「基于哪个 ConfigVersion」，供版本对比 Tab 拉基线版本）。
+	// 无历史版本保持空，前端据此显示「无历史版本可对比」。
+	// 同时作为变更清单 diff 的对比基线（PRD §3.4：按新旧产物差异派生变更项）。
+	baseVersion, err := lastConfirmedVersion(db, domainID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
 	checksum := artifacts.Checksum()
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
 
 	// 决策 44-3：抑制「配置无变化」的噪声变更单。
-	// 无任何变更项且该网域从未产生已生效版本时，不生成草稿，直接返回 ErrNoChanges。
+	// 变更清单按产物 diff 派生，为空即产物与上一生效版本（或空基线）无实质差异
+	// （含「仅改动禁用对象字段」的空跑，PRD §3.3.3），不生成草稿，直接返回 ErrNoChanges。
 	if len(items) == 0 {
-		baseVersion, err := lastConfirmedVersion(db, domainID)
-		if err != nil {
-			return nil, err
-		}
-		if baseVersion == nil {
-			return nil, ErrNoChanges
-		}
+		return nil, ErrNoChanges
 	}
 
 	meta := models.ConfigDraftMetadata{
@@ -125,13 +129,6 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return nil, err
 	}
 
-	// T09-05 review-fix：source_version 回填为该网域「上一已确认 ConfigVersion」的
-	// change_no（契约 §4 语义「基于哪个 ConfigVersion」，供版本对比 Tab 拉基线版本）。
-	// 无历史版本保持空，前端据此显示「无历史版本可对比」。
-	baseVersion, err := lastConfirmedVersion(db, domainID)
-	if err != nil {
-		return nil, err
-	}
 	sourceVersionRef := ""
 	if baseVersion != nil {
 		sourceVersionRef = baseVersion.ChangeNo
@@ -178,7 +175,13 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		targets, err := generator.ResolveJobTargets(db, job, tmpl)
+		// 采集策略层端口：host/database/middleware 抓取地址拼接 exporter 端口
+		// （PRD M07 §5.12C，target 缺端口修复，决策 42-4）。
+		exporterPort, err := generator.LoadExporterPort(db, job)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		targets, err := generator.ResolveJobTargets(db, job, tmpl, exporterPort)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -261,7 +264,12 @@ func reconcileWithExistingPending(
 		return nil, err
 	}
 
-	items := buildChangeItems(jobs, rules)
+	baseVersion, err := lastConfirmedVersion(db, existing.NetworkDomainID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
 
 	changeNo, err := nextChangeNo(db)
@@ -269,10 +277,6 @@ func reconcileWithExistingPending(
 		return nil, err
 	}
 
-	baseVersion, err := lastConfirmedVersion(db, existing.NetworkDomainID)
-	if err != nil {
-		return nil, err
-	}
 	sourceVersionRef := ""
 	if baseVersion != nil {
 		sourceVersionRef = baseVersion.ChangeNo
@@ -358,37 +362,6 @@ func lastConfirmedVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, 
 	return &v, nil
 }
 
-// buildChangeItems 依据参与生成的 jobs / rules 生成结构化变更清单。
-// 规则：删除目标 / 告警规则变更 = high，新增采集 Job / 目标 = low（契约 §8）。
-func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule) []models.ConfigChangeItem {
-	items := make([]models.ConfigChangeItem, 0, len(jobs)+len(rules))
-	for i, job := range jobs {
-		aFiles := []string{string(models.AffectedFilePrometheus), string(models.AffectedFileTargets)}
-		if job.JobType == models.JobTypeBlackbox {
-			aFiles = append(aFiles, string(models.AffectedFileBlackbox))
-		}
-		items = append(items, models.ConfigChangeItem{
-			ID:            fmt.Sprintf("ci-%d", i+1),
-			Type:          string(models.ChangeItemTypeAdd),
-			Target:        string(models.ChangeItemTargetScrapeJob),
-			Description:   "新增采集 Job " + job.JobName,
-			AffectedFiles: aFiles,
-			Risk:          string(models.RiskLow),
-		})
-	}
-	for i, r := range rules {
-		items = append(items, models.ConfigChangeItem{
-			ID:            fmt.Sprintf("ci-job-%d", i+1),
-			Type:          string(models.ChangeItemTypeAdd),
-			Target:        string(models.ChangeItemTargetMonitoringRule),
-			Description:   "新增告警/记录规则 " + jobNameOr(r.Name, fmt.Sprintf("rule-%d", i+1)),
-			AffectedFiles: []string{string(models.AffectedFileRules)},
-			Risk:          string(models.RiskHigh),
-		})
-	}
-	return items
-}
-
 // jobNameOr 返回非空名称，否则回退默认名。
 func jobNameOr(name, fallback string) string {
 	if name != "" {
@@ -431,31 +404,49 @@ func affectedFiles(items []models.ConfigChangeItem) []string {
 	return out
 }
 
-// buildSummary 生成人话变更摘要（PRD §9.1）。
+// buildSummary 生成人话变更摘要（PRD §9.1）：按「变更类型 + 变更对象」聚合计数，
+// 如实反映 新增/变更/移除（移除项即监控断点，标注高风险）。
 func buildSummary(items []models.ConfigChangeItem) string {
 	if len(items) == 0 {
 		return "本次无配置变更"
 	}
-	jobN, ruleN := 0, 0
+	type aggKey struct{ typ, target string }
+	counts := map[aggKey]int{}
+	order := []aggKey{}
 	for _, it := range items {
-		switch it.Target {
-		case string(models.ChangeItemTargetScrapeJob):
-			jobN++
-		case string(models.ChangeItemTargetMonitoringRule):
-			ruleN++
+		k := aggKey{it.Type, it.Target}
+		if _, ok := counts[k]; !ok {
+			order = append(order, k)
 		}
+		counts[k]++
 	}
-	parts := []string{}
-	if jobN > 0 {
-		parts = append(parts, fmt.Sprintf("采集 Job %d 个", jobN))
+	parts := make([]string, 0, len(order))
+	for _, k := range order {
+		label, unit := summaryTarget(k.target)
+		verb := map[string]string{
+			string(models.ChangeItemTypeAdd):    "新增",
+			string(models.ChangeItemTypeUpdate): "变更",
+			string(models.ChangeItemTypeDelete): "移除",
+		}[k.typ]
+		s := fmt.Sprintf("%s%s %d %s", verb, label, counts[k], unit)
+		if k.typ == string(models.ChangeItemTypeDelete) {
+			s += "（高风险）"
+		}
+		parts = append(parts, s)
 	}
-	if ruleN > 0 {
-		parts = append(parts, fmt.Sprintf("告警规则 %d 条", ruleN))
+	return "本次配置变更：" + join(parts, "、")
+}
+
+// summaryTarget 返回变更对象的人话标签与量词。
+func summaryTarget(target string) (label, unit string) {
+	switch target {
+	case string(models.ChangeItemTargetScrapeJob):
+		return "采集 Job", "个"
+	case string(models.ChangeItemTargetMonitoringRule):
+		return "告警规则", "条"
+	default:
+		return target, "项"
 	}
-	if len(parts) == 0 {
-		parts = append(parts, fmt.Sprintf("变更项 %d 个", len(items)))
-	}
-	return "本次配置变更涉及 " + join(parts, "、")
 }
 
 // join 拼接字符串切片（避免引入额外依赖）。
