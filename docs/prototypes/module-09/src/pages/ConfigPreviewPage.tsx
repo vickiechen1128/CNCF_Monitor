@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Alert, Empty, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented, Popover, type TableColumnsType } from 'antd'
+import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Alert, Empty, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented, Popover, Modal, type TableColumnsType } from 'antd'
 import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined, CopyOutlined, InfoCircleOutlined, HistoryOutlined, ReloadOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { ReviewNote } from '../components/ReviewNote'
@@ -239,10 +239,11 @@ function computeDiff(oldText: string, newText: string) {
 }
 
 /**
- * {v1.39 决策 39-1} 校验失败详情行内 Popover（失败文件 + 行号 + 错误信息 + 归因分类 + 对应引导）：
- * 用户配置问题 →「前往修改」跳 M01 对应采集 Job / 规则修复源数据；平台技术故障 → 仅提示自动重试 / 联系平台侧
+ * {v1.39 决策 39-1 / v1.50 决策 45-1} 校验失败详情行内 Popover（失败文件 + 行号 + 错误信息 + 归因分类 + 对应引导）：
+ * 用户配置问题 →「前往修改」跳 M01 对应采集 Job / 规则修复源数据；
+ * 平台技术故障 → 校验层已自动重试（指数退避，用户无感），同时提供手动「重新校验」自愈出口（决策 45-1，pending/failed 均提供「重新校验 + 废弃」）
  */
-function renderValidationFailPopover(record: ConfigDraft) {
+function renderValidationFailPopover(record: ConfigDraft, onRevalidate?: (target: ConfigDraft) => void) {
   const cause = record.validation_cause ?? 'user_config'
   const details = record.validation_details ?? []
   return (
@@ -279,12 +280,67 @@ function renderValidationFailPopover(record: ConfigDraft) {
           </Text>
         </Space>
       ) : (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          平台技术故障：校验层已自动重试（30s / 2min / 5min 指数退避，用户无感）；持续失败请联系平台侧 / 查看日志
-        </Text>
+        <>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            平台技术故障：校验层已自动重试（30s / 2min / 5min 指数退避，用户无感）；持续失败可点击「重新校验」手动自愈
+          </Text>
+          {onRevalidate && (
+            <div style={{ marginTop: 8 }}>
+              <Button size="small" type="primary" ghost onClick={() => onRevalidate(record)}>
+                重新校验
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
+}
+
+/**
+ * {v1.50 决策 43} 废弃回写分类判定（原型模拟后端 discard-impact）：
+ * 废弃不是「数据不动只废单」——full-render 模型下不处理源数据必然导致鬼影复现（下一轮轮询因「源版本 > 基线」重新生成内容相同的变更单）。
+ * 废弃前先计算影响分类，前端弹窗「分类知情告知」后再确认（new_reverted / modified_kept / deleted_restored / missing）。
+ */
+type DiscardImpactCategory = 'new_reverted' | 'modified_kept' | 'deleted_restored' | 'missing'
+
+const DISCARD_IMPACT_META: Record<DiscardImpactCategory, { label: string; color: string; description: string }> = {
+  new_reverted: {
+    label: '新建未生效',
+    color: 'gold',
+    description: '新建未生效 Job 随单回退 draft（撤回「提交生效」，等待下次提交）',
+  },
+  modified_kept: {
+    label: '已生效修改',
+    color: 'blue',
+    description: '已生效 Job 的修改将不生效，将随复现变更单再次进入确认（deployed_snapshot + 随单回滚登记至 v0.3）',
+  },
+  deleted_restored: {
+    label: '删除停用',
+    color: 'purple',
+    description: '删除 / 停用型将自动恢复（删除恢复启用 / 停用恢复启用）',
+  },
+  missing: {
+    label: '未命中',
+    color: 'default',
+    description: '部分源对象未命中分类，保持当前生效配置不变',
+  },
+}
+
+/** 由变更清单项派生废弃影响分类（原型模拟后端 discard-impact，真实场景由 discard 接口返回） */
+function computeDiscardImpact(draft: ConfigDraft): { category: DiscardImpactCategory; count: number }[] {
+  const items = draft?.change_items ?? []
+  if (items.length === 0) return [{ category: 'missing', count: 0 }]
+  const byType: Record<DiscardImpactCategory, number> = { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 }
+  items.forEach((i) => {
+    if (i.type === 'add') byType.new_reverted++
+    else if (i.type === 'modify') byType.modified_kept++
+    else if (i.type === 'remove') byType.deleted_restored++
+    else byType.missing++
+  })
+  return (Object.keys(byType) as DiscardImpactCategory[])
+    .filter((c) => byType[c] > 0)
+    .map((c) => ({ category: c, count: byType[c] }))
 }
 
 /** 配置产物形态分层（决策 6 / 决策 32）：channel=local（如 default）=本地文件集（无 zip/metadata.json），channel=agent_pull=zip 配置包（含 metadata.json） */
@@ -345,6 +401,8 @@ export function ConfigPreviewPage() {
   const [draftList, setDraftList] = useState<ConfigDraft[]>(() => [...configDrafts])
   /** {v1.39 决策 39-1} 正在重新校验中的变更单 ID 集合（按钮原地转 loading） */
   const [revalidatingIds, setRevalidatingIds] = useState<Set<string>>(new Set())
+  /** {v1.50 决策 43} 废弃分类知情告知 Modal 的待废弃草稿（null=未打开）：废弃前先算影响分类、弹窗告知再确认 */
+  const [discardTarget, setDiscardTarget] = useState<ConfigDraft | null>(null)
   const [viewMode, setViewMode] = useState<'preview' | 'diff'>('preview')
   const [activeFile, setActiveFile] = useState<PreviewFileKey>('prometheus.yml')
   /** 用户是否手动选择过预览文件 Tab（决策 19）：未手动选择时默认聚焦第一个受影响文件；用户选择后跟随用户 */
@@ -580,8 +638,28 @@ export function ConfigPreviewPage() {
   }
 
   const handleDiscard = () => {
-    message.info(`变更单 ${draft?.change_no} 已废弃，保持当前生效配置不变`)
+    // {v1.50 决策 43} 废弃前先弹「分类知情告知」Modal（由后端 discard-impact 计算影响分类），确认后才执行源数据分类回写
+    if (!draft) return
+    setDiscardTarget(draft)
+  }
+
+  /** {v1.50 决策 43} 确认废弃：变更单置 discarded + 源数据分类回写（原型模拟；真实场景由 discard 接口按分类回写源数据，
+   *  new_reverted 回退 draft / modified_kept 保留并随复现变更单再次确认 / deleted_restored 自动恢复；change_status 清理、不残留 pending） */
+  const confirmDiscard = () => {
+    if (!discardTarget) return
+    const impacts = computeDiscardImpact(discardTarget)
+    const modifiedKept = impacts.some((i) => i.category === 'modified_kept')
+    setDraftList((prev) => prev.map((d) => (d.id === discardTarget.id ? { ...d, status: 'discarded' as const } : d)))
     setDetailDraft(null)
+    setDiscardTarget(null)
+    message.info(
+      `变更单 ${discardTarget.change_no} 已废弃：${impacts
+        .map((i) => `${DISCARD_IMPACT_META[i.category].label}×${i.count}`)
+        .join('、')}，源数据已按分类回写，保持当前生效配置不变`
+    )
+    if (modifiedKept) {
+      message.warning('已生效 Job 的修改不生效，将随复现变更单再次进入确认（deployed_snapshot + 随单回滚登记至 v0.3）', 4)
+    }
   }
 
   /** {v1.39 决策 39-1} 校验失败行内「重新校验」——点击后什么都不弹，按钮原地转 loading，行内「校验」列原地刷新结果；
@@ -868,7 +946,7 @@ export function ConfigPreviewPage() {
                     <Space size={4}>
                       {status === 'failed' ? (
                         <Popover
-                          content={renderValidationFailPopover(record)}
+                          content={renderValidationFailPopover(record, (target) => handleRevalidate(target))}
                           title="校验失败原因"
                           trigger="click"
                           placement="right"
@@ -887,9 +965,9 @@ export function ConfigPreviewPage() {
                           <Tag color={validationColor[status]}>{validationLabel[status]}</Tag>
                         </Tooltip>
                       )}
-                      {/* {v1.39} 决策 39-1/39-3：校验失败「重新校验」仅用户配置问题展示（点击后按钮原地转 loading，行内结果原地刷新）；
-                          平台技术故障自动重试、用户无感，不展示「重新校验」 */}
-                      {status === 'failed' && record.validation_cause === 'user_config' && (
+                      {/* {v1.39 决策 39-1 / v1.50 决策 45-1} 校验失败「重新校验」行内出口：用户配置问题先到 M01 修正源数据再回来重校；
+                          平台技术故障亦提供手动「重新校验」自愈（决策 45-1，pending/failed 均提供「重新校验 + 废弃」两出口，仅 passed 可确认） */}
+                      {status === 'failed' && (
                         <Button
                           size="small"
                           type="link"
@@ -1196,6 +1274,29 @@ export function ConfigPreviewPage() {
                 ]}
               />
 
+              {/* {v1.50 决策 42-1 / 44-2} 被同域更晚 pending 取代的旧单详情：提示「已被新变更单取代」——无需确认，保持当前生效配置不变
+                  （列表状态列已标「已取代」Tag；PRD §3.4 语义用轻量 banner 承载，遵守「用户主区 Alert ≤ 2」的结构约束） */}
+              {draft?.metadata.superseded_by_change_no && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'flex-start',
+                    padding: '8px 12px',
+                    marginBottom: 16,
+                    background: 'rgba(22,119,255,0.06)',
+                    border: '1px solid rgba(22,119,255,0.35)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <InfoCircleOutlined style={{ color: '#1677ff', marginTop: 3 }} />
+                  <div style={{ fontSize: 13 }}>
+                    <Text strong>{`此变更单已被同域更晚的变更单 ${draft.metadata.superseded_by_change_no} 取代（superseded）`}</Text>
+                    <div style={{ marginTop: 2, color: 'rgba(0,0,0,0.65)' }}>无需确认，保持当前生效配置不变；请到列表中处理新变更单。</div>
+                  </div>
+                </div>
+              )}
+
               {/* {v1.39} 决策 39-1：抽屉只承载变更清单 / Diff / 确认/废弃操作——校验失败时最多留一行 Alert 摘要，
                   详细校验信息（失败文件 + 行号 + 归因 + 引导）一律在列表「下发前校验」列行内查看，不进抽屉 */}
               {validationFailed && draft && (
@@ -1426,6 +1527,44 @@ export function ConfigPreviewPage() {
           )}
         </Drawer>
       </Card>
+
+      {/* {v1.50 决策 43} 废弃变更单「分类知情告知」Modal：废弃前由后端 discard-impact 计算影响分类并弹窗告知，
+          确认后才执行源数据分类回写（new_reverted 回退 draft / modified_kept 保留并随复现变更单再次确认 / deleted_restored 自动恢复），
+          change_status 统一回写、不残留 pending；废弃后下一轮轮询因「源版本=基线」不再复现内容相同的变更单 */}
+      <Modal
+        title="废弃变更单（源数据分类回写告知）"
+        open={discardTarget !== null}
+        onCancel={() => setDiscardTarget(null)}
+        onOk={confirmDiscard}
+        okText="确认废弃"
+        okButtonProps={{ danger: true, icon: <DeleteOutlined /> }}
+        cancelText="取消"
+        width={560}
+      >
+        {discardTarget && (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>{`变更单 ${discardTarget.change_no} 将被废弃，本次变更将保持当前生效配置不变`}</Text>
+              <div style={{ marginTop: 4, fontSize: 13, color: 'rgba(0,0,0,0.65)' }}>
+                废弃不是「只废单不动数据」——为避免下一轮检测重新生成内容相同的变更单（鬼影复现），源数据将按以下分类自动回写：
+              </div>
+            </div>
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              {computeDiscardImpact(discardTarget).map(({ category, count }) => (
+                <div key={category} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <Tag color={DISCARD_IMPACT_META[category].color} style={{ flex: 'none', marginTop: 2 }}>
+                    {DISCARD_IMPACT_META[category].label} ×{count}
+                  </Tag>
+                  <Text style={{ fontSize: 13, color: 'rgba(0,0,0,0.75)' }}>{DISCARD_IMPACT_META[category].description}</Text>
+                </div>
+              ))}
+            </Space>
+            <div style={{ marginTop: 12, fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
+              废弃后相关源对象 change_status 统一回写清除（不残留 pending）；废弃审计历史由本变更单承载。确认后将执行分类回写，且不可撤销。
+            </div>
+          </div>
+        )}
+      </Modal>
     </MainLayout>
   )
 }
