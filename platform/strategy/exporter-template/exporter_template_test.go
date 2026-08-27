@@ -160,7 +160,7 @@ func TestCreateExporterTemplateNameMetricsPathSchemeRequired(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestCreateExporterTemplateRejectsBuiltinAndNonInternal(t *testing.T) {
+func TestCreateExporterTemplateRejectsBuiltinButAllowsOfficialThirdParty(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 
@@ -168,8 +168,21 @@ func TestCreateExporterTemplateRejectsBuiltinAndNonInternal(t *testing.T) {
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"x","default_port":1,"metrics_path":"/m","scheme":"http","source":"internal","is_builtin":true}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
-	// source=official 拒绝登记（平台预置只读）。
-	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"x","default_port":1,"metrics_path":"/m","scheme":"http","source":"official"}`)
+	// source=official 允许登记（用户登记的官方采集器恒非内置，仅 name 与 seed 区分）。
+	for _, src := range []string{"official", "third_party"} {
+		w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+			fmt.Sprintf(`{"name":"%s-usr","default_port":9100,"metrics_path":"/m","scheme":"http","source":"%s"}`, src, src))
+		require.Equal(t, http.StatusOK, w.Code, "source=%s 应允许登记", src)
+		var out struct {
+			Status string                  `json:"status"`
+			Data   models.ExporterTemplate `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		assert.False(t, out.Data.IsBuiltin, "用户登记的 official/third_party 恒非内置")
+	}
+
+	// 非法 source 拒绝。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"y","default_port":1,"metrics_path":"/m","scheme":"http","source":"community"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -266,6 +279,21 @@ func TestCreateExporterTemplateDownloadURLValidation(t *testing.T) {
 	// 未提供 download_url 通过（可选字段）。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"agent-nourl","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"}`)
 	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestCreateExporterTemplateWithDescription(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 登记时提交 description 应被持久化并回显。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+		`{"name":"custom-agent","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal","description":"自定义采集器描述"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ExporterTemplate `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "自定义采集器描述", out.Data.Description)
 }
 
 func TestUpdateExporterTemplateDownloadURLValidation(t *testing.T) {
