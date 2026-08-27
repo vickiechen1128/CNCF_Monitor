@@ -129,7 +129,9 @@ export function MappingDrawer({ open, record, initialTemplate, onCancel, onSucce
         message.success('默认采集配置已更新')
       } else {
         await ciExporterMappingApi.create({ ...(body as CITypeExporterMappingInput), monitor_type: body.monitor_type! })
-        message.success('默认采集配置已新增')
+        // F-30 消除「消失感」：明确告知采集器已并入默认配置行（列表按 PRD D22 的「登记即入池」展示）
+        const name = selectedTemplate?.name ?? '该采集器'
+        message.success(`默认采集配置已新增：${name} 已并入默认配置行，点击该行「查看」可看登记详情`)
       }
       setSubmitting(false)
       onSuccess()
