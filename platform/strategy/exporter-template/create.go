@@ -23,16 +23,18 @@ type CreateExporterTemplateRequest struct {
 	DownloadURL           string                `json:"download_url"`
 	Homepage              string                `json:"homepage"`
 	InstallGuide          string                `json:"install_guide"`
+	Description           string                `json:"description"`
 	Source                models.ExporterSource `json:"source"`
 	IsBuiltin             *bool                 `json:"is_builtin"`
 }
 
 // CreateExporterTemplate 是 POST /api/v2/platform/exporter-templates 的 handler：
-// 登记自建采集器（source=internal），登记即入池。
+// 登记采集器（source=official/third_party/internal 均可，登记即入池；用户登记的
+// official/third_party 非平台预置，恒 is_builtin=false，与 seed 内置行仅靠 name 唯一区分）。
 //
-// 校验（api-contract-snapshot §10）：name/metrics_path/scheme 必填；source=internal
-// 追加 default_port 必填；source=official|third_party 为平台预置只读，拒绝登记
-// （bad_request）；is_builtin 强制 false 且显式传 true 拒绝（bad_request）。
+// 校验（api-contract-snapshot §10）：name/default_port/metrics_path/scheme 必填；
+// source 为三枚举之一；与预置 seed 同名返回 409 conflict；is_builtin 强制 false
+// 且显式传 true 拒绝（bad_request）。
 func CreateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateExporterTemplateRequest
@@ -78,6 +80,7 @@ func CreateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 			DownloadURL:           req.DownloadURL,
 			Homepage:              req.Homepage,
 			InstallGuide:          req.InstallGuide,
+			Description:           req.Description,
 			Source:                req.Source,
 			IsBuiltin:             false, // 登记恒非内置
 		}
@@ -89,19 +92,21 @@ func CreateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// validateCreateExporterTemplate 校验登记请求：source 必填且为 internal
-// （official/third_party 平台预置只读）；name/metrics_path/scheme 必填；
-// source=internal 追加 default_port 必填；is_builtin 显式 true 拒绝。
+// validateCreateExporterTemplate 校验登记请求：source 为三枚举之一
+// （official/third_party/internal，均允许用户登记；与 seed 同名由 name 唯一索引防重合）；
+// name/default_port/metrics_path/scheme 必填；is_builtin 显式 true 拒绝。
 func validateCreateExporterTemplate(req *CreateExporterTemplateRequest) error {
 	if strings.TrimSpace(req.Name) == "" {
 		return fmt.Errorf("name 不能为空")
 	}
-	// 用户登记仅允许 internal（official/third_party 平台预置只读）。
-	if req.Source != models.ExporterSourceInternal {
-		return fmt.Errorf("source 必须为 internal（official/third_party 为平台预置只读）")
+	// source 校验：仅接受三枚举，避免非法值入库。
+	switch req.Source {
+	case models.ExporterSourceOfficial, models.ExporterSourceThirdParty, models.ExporterSourceInternal:
+	default:
+		return fmt.Errorf("source 必须为 official/third_party/internal 之一")
 	}
 	if req.DefaultPort <= 0 {
-		return fmt.Errorf("source=internal 时 default_port 必填且大于 0")
+		return fmt.Errorf("default_port 必填且大于 0")
 	}
 	if strings.TrimSpace(req.MetricsPath) == "" {
 		return fmt.Errorf("metrics_path 不能为空")

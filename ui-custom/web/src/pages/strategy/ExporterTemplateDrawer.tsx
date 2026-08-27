@@ -27,12 +27,20 @@ interface ExporterTemplateDrawerProps {
   initialMonitorTypes?: MonitorType[]
 }
 
-/** 登记采集器来源：用户登记仅允许内部自建；official/third_party 由平台预置、只读维护（PRD §5.2 L334，F-26） */
-const SOURCE_OPTIONS = [{ value: 'internal', label: '内部自建' }]
+/**
+ * 登记采集器来源：official/third_party/internal 均可由用户登记（F-29 D 拍板放开）。
+ * 与平台预置 seed 仅靠 name 唯一区分：与内置采集器同名返回 409；用户登记的行恒非内置、
+ * 可编辑可删除。internal 仍为自建采集器入口。
+ */
+const SOURCE_OPTIONS = [
+  { value: 'official', label: '官方' },
+  { value: 'third_party', label: '第三方' },
+  { value: 'internal', label: '内部自建' },
+]
 
 /**
  * 登记采集器抽屉（Module_01 §9.1 / api-contract-snapshot §3）。
- * source=internal 时 default_port/metrics_path/scheme 必填；登记即入池。
+ * 任何来源登记均须提供 default_port/metrics_path/scheme（入库需完整采集参数）；登记即入池。
  */
 export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonitorTypes }: ExporterTemplateDrawerProps) {
   const [form] = Form.useForm<ExporterTemplateInput>()
@@ -48,8 +56,7 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
     })
   }, [open, initialMonitorTypes, form])
 
-  // source=internal（内部自建）时 default_port/metrics_path/scheme 为动态必填（契约 §3），其余来源可选
-  const source = (Form.useWatch('source', form) ?? 'internal') as ExporterTemplateInput['source']
+  // 登记入库需完整采集参数，default_port/metrics_path/scheme 对所有来源恒必填（F-29 D 放开来源后不再区分）
 
   const handleSubmit = async () => {
     let values: ExporterTemplateInput
@@ -122,7 +129,7 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
               label="来源"
               name="source"
               rules={[{ required: true, message: '请选择来源' }]}
-              extra="官方 / 第三方采集器由平台预置、只读维护；用户登记仅支持内部自建（PRD §5.2）"
+              extra="官方 / 第三方 / 内部自建均可登记（F-29 D）；与平台预置同名将冲突，恒非内置、可编辑可删除"
             >
               <Select placeholder="请选择来源">
                 {SOURCE_OPTIONS.map((s) => (
@@ -153,7 +160,7 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
               label="默认端口"
               name="default_port"
               rules={[
-                ...(source === 'internal' ? [{ required: true, message: '请输入默认端口' }] : []),
+                { required: true, message: '请输入默认端口' },
                 { type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' },
               ]}
             >
@@ -161,22 +168,14 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item
-              label="采集路径"
-              name="metrics_path"
-              rules={source === 'internal' ? [{ required: true, message: '请输入采集路径' }] : []}
-            >
+            <Form.Item label="采集路径" name="metrics_path" rules={[{ required: true, message: '请输入采集路径' }]}>
               <Input placeholder="/metrics（默认）" maxLength={128} />
             </Form.Item>
           </Col>
         </Row>
         <Row gutter={16}>
           <Col span={12}>
-            <Form.Item
-              label="协议"
-              name="scheme"
-              rules={source === 'internal' ? [{ required: true, message: '请选择协议' }] : []}
-            >
+            <Form.Item label="协议" name="scheme" rules={[{ required: true, message: '请选择协议' }]}>
               <Select placeholder="请选择协议">
                 <Select.Option value="http">http</Select.Option>
                 <Select.Option value="https">https</Select.Option>
@@ -184,17 +183,41 @@ export function ExporterTemplateDrawer({ open, onCancel, onSuccess, initialMonit
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item label="操作系统" name="os">
-              <Select allowClear placeholder="linux / windows / any">
+            <Form.Item label="适用操作系统" name="os" initialValue="any">
+              <Select>
                 <Select.Option value="linux">linux</Select.Option>
                 <Select.Option value="windows">windows</Select.Option>
                 <Select.Option value="any">any</Select.Option>
               </Select>
             </Form.Item>
           </Col>
+          <Col span={12}>
+            <Form.Item label="适用架构" name="arch" initialValue="any">
+              <Select>
+                <Select.Option value="amd64">amd64</Select.Option>
+                <Select.Option value="arm64">arm64</Select.Option>
+                <Select.Option value="any">any</Select.Option>
+              </Select>
+            </Form.Item>
+          </Col>
         </Row>
-        <Form.Item label="安装指引" name="install_guide">
-          <TextArea rows={3} placeholder="安装部署说明（可选）" maxLength={512} />
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item label="下载地址" name="download_url" extra="内部制品库地址或内网下载链接">
+              <Input placeholder="https://..." maxLength={500} />
+            </Form.Item>
+          </Col>
+          <Col span={12}>
+            <Form.Item label="官方文档 / 主页" name="homepage">
+              <Input placeholder="https://..." maxLength={500} />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item label="安装指南" name="install_guide">
+          <TextArea rows={3} placeholder="离线 / 隔离网域安装说明" maxLength={512} />
+        </Form.Item>
+        <Form.Item label="描述" name="description">
+          <TextArea rows={2} placeholder="采集器用途与能力说明" maxLength={512} />
         </Form.Item>
       </Form>
     </Drawer>

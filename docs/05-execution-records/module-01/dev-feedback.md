@@ -384,3 +384,53 @@
 - **影响模块**：M01 采集器管理 / 默认采集配置列表展示。
 - **发现场景**：用户编辑默认采集配置端口后列表不刷新。
 - **状态**：closed（前端修复已落地，需前端 dev server 刷新生效）
+
+### F-31：采集器管理与默认采集配置「不拆页」决策落地——分页 bug 修复 + 行类型标识 + 并入提示（② 类，已落地）
+
+- **类别**：② 交互优化（用户裁决不拆页，落低成本改进三项）
+- **PRD 章节 / 文件位置**：前端 `ui-custom/web/src/pages/strategy/CollectorTemplatesTab.tsx`、`MappingDrawer.tsx` 及对应测试
+- **背景 / 决策**：用户曾质疑「登记采集器与默认采集配置是否应拆成 2 个页面」，经事实澄清（两者本就是两张表两套 API、ExporterTemplate 一对多被 mapping 引用、列表按 PRD D22「登记即入池」展示、mapping 行可查看登记详情），**裁决不拆页**——拆页解决错问题（痛点来自行类型无标识/无反馈而非双概念同页），数据规模（内置 6 个 template、登记量级几十）撑不起两套页面，且两个概念生命周期强耦合（去配置动线从行发起）。仅当模板登记成高频操作或两类数据出现不同权限边界时才值得拆。
+- **落地改动（A+B+C）**：
+  - **A（真 bug，已修复）**：`unreferencedTemplates` 的 referenced 判定原基于**当前页** `sourceFilteredMappings`，mapping 分页后被其他页引用的 template 会在当前页误显示为「未被引用」。现改为基于**全量** `allMappings`（load 时并行拉 `page_size=100` 全量映射仅用于判定，当前页仍用于行展示）。
+  - **B（消除「消失感」）**：MappingDrawer 新增成功后 toast 改为「默认采集配置已新增：{采集器名} 已并入默认配置行，点击该行『查看』可看登记详情」，明确告知采集器并未删除、登记详情仍可查。
+  - **C（消除「谁的端口」混淆）**：表格新增「行类型」列（Tag：`默认配置` / `未引用采集器`）；端口列按行语义化——mapping 行标注「生效端口（默认）」（覆盖生效值），template 行标注「登记默认端口」（登记原始值）。
+- **验证**：`vitest run CollectorTemplatesTab.test.tsx` 15/15（新增 F-30 分页 bug 回归用例）、`MappingDrawer.test.tsx` 5/5；`tsc --noEmit`、`eslint` 通过。
+- **影响模块**：M01 采集器管理 / 默认采集配置列表。
+- **发现场景**：用户实测登记/删除/重建采集器后，追问两类数据的关系与页面组织方式。
+- **状态**：closed（前端改动已落地，需前端 dev server 刷新生效）
+
+### F-32：登记采集器来源放开——official / third_party / internal 均可登记（① 产品方向拍板落地，② 已实现）
+
+- **类别**：① 产品方向拍板（F-29 D ① 项正式落地）+ ② 实现
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.2（L323 source 枚举 / L334 预置只读）；源码 `platform/strategy/exporter-template/create.go`、`ui-custom/web/src/pages/strategy/ExporterTemplateDrawer.tsx` 及对应测试；契约快照 `api-contract-snapshot.md` §3/§10
+- **背景 / 用户问答**：用户提出登记采集器来源不应限于「内部自建」，应放开官方 / 第三方供用户登记（只要不与预置 seed 重合）。用户同时指出矛盾点——「用户有这个需求一定是监控对象类型超出了平台内置」，而当前监控对象类型未放开自定义。**经评估（已获用户认可）**：放开来源与「监控对象类型自定义」是**两个正交功能**——
+  1. 放开来源解决「同一监控类型下的备选采集器」（如 MySQL 不用内置 mysqld-exporter，改用社区/厂商版）+ 来源标注准确性（不再被迫标「内部自建」），**不依赖**监控对象类型自定义，现在就有独立价值；
+  2. 「新监控类型」场景（MongoDB/Oracle/PG 等超出内置 9 类）需等后续放开监控对象类型自定义才能闭环，二者不冲突、不阻塞。
+- **落地改动**：
+  - **后端（create.go）**：`validateCreateExporterTemplate` 放宽 source 校验——三枚举（official/third_party/internal）均可登记，非法值 bad_request；`default_port` 必填从「source=internal 追加」改为**所有来源必填**（登记入库需完整采集参数）；与预置 seed 同名由既有 name 唯一索引返回 409 conflict（天然防重合），用户登记行恒 `is_builtin=false`、可编辑可删除。
+  - **前端（ExporterTemplateDrawer.tsx）**：`SOURCE_OPTIONS` 增加「官方」「第三方」；`default_port`/`metrics_path`/`scheme` 必填去掉 source 条件（恒必填）；来源字段 extra 文案更新为放开语义。
+  - **契约快照**：`api-contract-snapshot.md` §3 POST 业务错误与 §10 必填口径同步。
+- **验证**：后端 `go test ./platform/strategy/exporter-template/...` 全绿（`TestCreateExporterTemplateRejectsBuiltinButAllowsOfficialThirdParty` 覆盖 official/third_party 成功登记 + 非法 source 拒绝 + is_builtin 拒绝）；前端 `vitest run ExporterTemplateDrawer.test.tsx` 通过（来源三选项用例更新）、`tsc --noEmit`、`eslint` 通过。
+- **影响模块**：M01 采集器管理 / 登记采集器。
+- **发现场景**：用户提出放宽登记来源需求，要求评估放开时机。
+- **状态**：closed（源码 + 契约已更新，待重新编译 metric-center 与前端 dev server 生效）
+
+### F-33：采集器管理列表展示优化——架构列瘦身 / 端口列语义强化 / 补来源列 / 去默认列（② 已实现）
+
+- **类别**：② 实现（用户逐项审查列表列后的展示迭代）
+- **PRD 章节 / 文件位置**：`Module_01_Metric_Collection_Center.md` §5.2 / §6.2.1；源码 `ui-custom/web/src/pages/strategy/CollectorTemplatesTab.tsx` 及 `CollectorTemplatesTab.test.tsx`
+- **背景 / 用户问答**：用户逐项审查采集器管理列表列，提出 4 项展示问题并逐项拍板：
+  1. **「平台 / 架构」列**：架构（arm/x86）为安装选包关键信息必须保留；OS（linux/windows）非必需，**可去掉**；
+  2. **「默认端口」列**：「生效端口（默认）」vs「登记默认端口」区分不显眼，用户选择 **方案 A（彩色语义 Tag + 端口加粗）**——mapping 行绿色 Tag「生效端口」+ 加粗端口值，template 行橙色 Tag「登记默认」+ 加粗端口值，Tooltip 说明继承规则；
+  3. **「来源」展示**：列表缺来源字段，用户选择**新增来源列**（官方蓝 / 第三方紫 / 内部自建灰 Tag；内置行 Tooltip 标注「平台内置采集器（只读）」）；
+  4. **「默认」列**：用户判断无含义——**确认去除**（mapping 行本身就是默认配置、恒「默认」，template 行恒「-」，无区分度；「行类型」列蓝色 Tag「默认配置」已表达语义）。
+- **落地改动**：
+  - **架构列**：列名「平台 / 架构」→「架构」，仅渲染 `arch`（缺省 any），移除 `os`；列宽收窄到 90。
+  - **端口列**：mapping 行 `<Tag color="green">生效端口</Tag>` + `<Text strong>{effective}</Text>`，template 行 `<Tag color="orange">登记默认</Tag>` + `<Text strong>{default_port}</Text>`，均包 Tooltip 说明「生效端口：默认采集配置覆盖值，未覆盖时继承采集器登记默认端口」。
+  - **来源列**：新增 `source` 列（宽 100），按枚举上色，`is_builtin` 行加 Tooltip「平台内置采集器（只读）」，与用户登记的官方/第三方采集器区分。
+  - **去「默认」列**：删除 `is_default` 列（宽 80 释放）。
+  - **过时文案修正（F-32 关联）**：Steps 引导「登记内部自建采集器（官方/第三方由平台预置）」→「登记官方 / 第三方 / 内部自建采集器（F-29 D 放开来源，与内置同名冲突）」；空态按钮「登记内部自建采集器」→「登记采集器」。
+- **验证**：`vitest run CollectorTemplatesTab.test.tsx` 15/15（新增来源列断言；修复空态/右上角「登记采集器」按钮同名、来源列「官方」Tag 干扰下拉选项定位导致的 4 处断言失败）；`tsc --noEmit`、`eslint` 通过。
+- **影响模块**：M01 采集器管理 / 默认采集配置列表。
+- **发现场景**：用户逐项审查采集器管理列表列后的展示迭代。
+- **状态**：closed（前端改动已落地，需前端 dev server 刷新生效）
