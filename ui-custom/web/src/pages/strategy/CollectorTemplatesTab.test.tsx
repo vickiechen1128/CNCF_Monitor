@@ -62,6 +62,7 @@ function template(id: number, name: string, source = 'official') {
     download_url: '',
     homepage: '',
     install_guide: '',
+    description: '',
     is_builtin: true,
     source,
     created_at: '2026-08-23T00:00:00Z',
@@ -114,7 +115,12 @@ describe('CollectorTemplatesTab', () => {
     expect(await screen.findByText('mysqld-exporter')).toBeInTheDocument()
     expect(screen.getByText('redis-exporter')).toBeInTheDocument()
     expect(screen.getByText('MySQL')).toBeInTheDocument()
-    expect(screen.getAllByText('默认').length).toBeGreaterThanOrEqual(1)
+    // 「默认」列已移除（mapping 行恒为默认配置、template 行恒「-」，无区分度；行类型列已表达语义）
+    // 默认端口列：生效端口（绿色语义 Tag）+ 加粗端口值（F1-6 展示增强）
+    expect(screen.getAllByText('生效端口').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('9104').length).toBeGreaterThanOrEqual(2)
+    // 来源列（F-32 放开后补）：两模板均 source=official → 「官方」Tag
+    expect(screen.getAllByText('官方').length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows 未被引用 tag when is_referenced=false and 待配置 badge when no label template', async () => {
@@ -159,9 +165,10 @@ describe('CollectorTemplatesTab', () => {
     render(<CollectorTemplatesTab />)
     await screen.findByText('mysqld-exporter')
 
-    // 置 official 后仅保留 mysql 行
+    // 置 official 后仅保留 mysql 行（来源列已渲染「官方」Tag，下拉选项需限定在 dropdown 内点击）
     fireEvent.mouseDown(screen.getByText('全部来源'))
-    fireEvent.click(await screen.findByText('官方'))
+    const dropdown = document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)') as HTMLElement
+    fireEvent.click(await within(dropdown).findByText('官方'))
 
     expect(screen.getByText('mysqld-exporter')).toBeInTheDocument()
     expect(screen.queryByText('redis-exporter')).toBeNull()
@@ -176,29 +183,31 @@ describe('CollectorTemplatesTab', () => {
 
     expect(await screen.findByText('暂无默认采集配置')).toBeInTheDocument()
     expect(screen.getByText('池中没有需要的采集器？')).toBeInTheDocument()
-    expect(screen.getByText('登记内部自建采集器')).toBeInTheDocument()
+    // 「登记采集器」同时出现在右上角按钮与空态内联按钮，容忍多处
+    expect(screen.getAllByText('登记采集器').length).toBeGreaterThanOrEqual(1)
   })
 
   it('opens registration drawer on 登记采集器 click', async () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
     render(<CollectorTemplatesTab />)
-    // 「登记采集器」同时出现在 Steps 标题与右上按钮，点击右上按钮打开抽屉
-    fireEvent.click(screen.getByRole('button', { name: /登记采集器/ }))
+    // 「登记采集器」同时出现在右上角按钮与（数据加载前的）空态按钮，取第一个打开抽屉
+    fireEvent.click(screen.getAllByRole('button', { name: /登记采集器/ })[0])
 
     // 抽屉打开后展示登记表单（采集器名称必填输入 + antd 两字按钮自动加空格「登 记」）
     expect(screen.getByPlaceholderText('例如：mysql-exporter')).toBeInTheDocument()
     expect(screen.getByText('登 记')).toBeInTheDocument()
   })
 
-  it('requires default_port/metrics_path/scheme when source=internal on register', async () => {
+  it('requires default_port/metrics_path/scheme on register (F-32 放开来源后恒必填)', async () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
     render(<CollectorTemplatesTab />)
-    fireEvent.click(screen.getByRole('button', { name: /登记采集器/ }))
+    // 「登记采集器」同时出现在右上角按钮与（数据加载前的）空态按钮，取第一个打开抽屉
+    fireEvent.click(screen.getAllByRole('button', { name: /登记采集器/ })[0])
     await screen.findByPlaceholderText('例如：mysql-exporter')
 
-    // source 默认 internal（内部自建）：default_port/metrics_path/scheme 动态必填
+    // default_port/metrics_path/scheme 对任何来源登记均必填（登记入库需完整采集参数）
     const drawer = screen.getByPlaceholderText('例如：mysql-exporter').closest('.ant-drawer') as HTMLElement
     fireEvent.click(within(drawer).getByRole('button', { name: /登\s*记/ }))
     expect(await screen.findByText('请输入默认端口')).toBeInTheDocument()
@@ -322,7 +331,7 @@ describe('CollectorTemplatesTab', () => {
     tmplListMock.mockResolvedValue({
       status: 'success',
       data: {
-        list: [{ ...template(1, 'mysqld-exporter'), supported_monitor_types: ['mysql'] }],
+        list: [{ ...template(1, 'mysqld-exporter'), supported_monitor_types: ['mysql'], description: 'MySQL 指标采集器' }],
         total: 1,
         page: 1,
         page_size: 100,
@@ -339,7 +348,10 @@ describe('CollectorTemplatesTab', () => {
     // 只读详情抽屉：来源 / 支持的监控对象类型 / 端口 / 路径 / 协议全字段回显
     expect(await screen.findByText('采集器详情：mysqld-exporter')).toBeInTheDocument()
     expect(screen.getByText('支持的监控对象类型')).toBeInTheDocument()
-    expect(screen.getByText('官方')).toBeInTheDocument()
+    // 「官方」同时出现在列表来源列与详情抽屉，容忍多处
+    expect(screen.getAllByText('官方').length).toBeGreaterThanOrEqual(1)
+    // 描述内容（Drawer 内容区可能出现多处，容忍）
+    expect(screen.getAllByText('MySQL 指标采集器').length).toBeGreaterThanOrEqual(1)
     // Descriptions 内容区内 MySQL 标签（监控类型列也有 MySQL，容忍多处）
     expect(screen.getAllByText('MySQL').length).toBeGreaterThanOrEqual(1)
   })
@@ -365,12 +377,16 @@ describe('CollectorTemplatesTab', () => {
     render(<CollectorTemplatesTab />)
 
     await screen.findByText('mysqld-exporter')
-    // 安装/文档列按钮存在（点击展开 Popover 图标链）
-    const btn = screen.getAllByText('安装指南')[0]
-    expect(btn).toBeInTheDocument()
-    fireEvent.click(btn)
-    expect(await screen.findByText('下载')).toBeInTheDocument()
-    expect(screen.getByText('文档')).toBeInTheDocument()
+    // 安装指南/下载/文档 图标按钮存在（F1-6 图标链，对齐原型 v3.13：图标 + Tooltip）
+    expect(screen.getByLabelText('read')).toBeInTheDocument()
+    expect(screen.getByLabelText('download')).toBeInTheDocument()
+    expect(screen.getByLabelText('file-text')).toBeInTheDocument()
+    // 点击安装指南图标展开 Popover 展示安装指南内容
+    fireEvent.click(screen.getByLabelText('read'))
+    expect(await screen.findByText('a,b,c')).toBeInTheDocument()
+    // 架构列仅展示 arch（arm/x86 为安装选包关键信息）；OS 不再展示
+    expect(screen.getAllByText('amd64').length).toBeGreaterThanOrEqual(1)
+    expect(screen.queryByText('linux')).toBeNull()
   })
 
   // ---- Q1b：更换/补配独立轻量抽屉（仅改标签模板，不进入采集参数编辑） ----
@@ -423,5 +439,31 @@ describe('CollectorTemplatesTab', () => {
     expect(mappingUpdateMock.mock.calls[0][0]).toBe(1)
     // 载荷仅包含 label_template_id，不含采集参数
     expect(mappingUpdateMock.mock.calls[0][1]).toEqual({ label_template_id: '7' })
+  })
+
+  // ---- F-30 分页 bug：referenced 基于全量 mapping（跨分页），其他页引用的模板不在本页误显示为「未被引用」 ----
+  it('does not treat templates referenced on other mapping pages as unreferenced (F-30 pagination bug)', async () => {
+    // 当前页只返回一条 mapping（引用 t1）；全量拉取（第二页）包含 t2 的引用
+    mappingListMock
+      .mockResolvedValueOnce({
+        status: 'success',
+        data: { list: [mapping(1, 'mysql', 1, {})], total: 2, page: 1, page_size: 20 },
+      })
+      .mockResolvedValueOnce({
+        status: 'success',
+        data: { list: [mapping(1, 'mysql', 1, {}), mapping(2, 'redis', 2, {})], total: 2, page: 1, page_size: 100 },
+      })
+    tmplListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [template(1, 'mysqld-exporter'), template(2, 'redis-exporter'), template(3, 'snmp-exporter')], total: 3, page: 1, page_size: 100 },
+    })
+
+    render(<CollectorTemplatesTab />)
+    await screen.findByText('mysqld-exporter')
+
+    // t2 已被第二页的 mapping 引用 → 不应作为「未被引用」采集器行出现；
+    // t3 未被任何页引用 → 并入为「未引用采集器」行（bug 存在时会额外多出 t2 行，断言数量=1）
+    await screen.findByText('snmp-exporter')
+    await waitFor(() => expect(screen.getAllByText('未引用采集器')).toHaveLength(1))
   })
 })

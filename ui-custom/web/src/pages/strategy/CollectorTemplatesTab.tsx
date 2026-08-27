@@ -14,6 +14,7 @@ import {
   Steps,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -21,6 +22,7 @@ import {
   DownloadOutlined,
   FileTextOutlined,
   PlusOutlined,
+  ReadOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -56,35 +58,47 @@ type CollectorRow =
   | { kind: 'mapping'; key: string; mapping: CITypeExporterMapping; template?: ExporterTemplate }
   | { kind: 'template'; key: string; template: ExporterTemplate }
 
-/** 安装指南 / 下载 / 文档 Popover 图标链（F1-6） */
+/** 安装指南 / 下载 / 文档 图标链（F1-6，对齐原型 v3.13 收敛：图标 + Tooltip 文字链） */
 function InstallLinks({ template }: { template?: ExporterTemplate }) {
   if (!template) return <Text type="secondary">-</Text>
+  if (!template.install_guide && !template.download_url && !template.homepage) return <Text type="secondary">-</Text>
   return (
-    <Popover
-      title="安装 / 下载 / 文档"
-      trigger="click"
-      content={
-        <Space direction="vertical" size={4}>
-          {template.install_guide ? <Text style={{ maxWidth: 260, whiteSpace: 'pre-wrap' }}>{template.install_guide}</Text> : <Text type="secondary">暂无安装指南</Text>}
-          <Space size={8}>
-            {template.download_url && (
-              <a href={template.download_url} target="_blank" rel="noreferrer">
-                <DownloadOutlined /> 下载
-              </a>
-            )}
-            {template.homepage && (
-              <a href={template.homepage} target="_blank" rel="noreferrer">
-                <FileTextOutlined /> 文档
-              </a>
-            )}
-          </Space>
-        </Space>
-      }
-    >
-      <Button type="link" size="small" icon={<FileTextOutlined />}>
-        安装指南
-      </Button>
-    </Popover>
+    <Space size={2}>
+      {template.install_guide && (
+        <Popover
+          placement="topLeft"
+          trigger="click"
+          title={`${template.name} 安装指南`}
+          content={<Text style={{ fontSize: 12, maxWidth: 380, display: 'block', whiteSpace: 'pre-wrap' }}>{template.install_guide}</Text>}
+        >
+          <Tooltip title="安装指南">
+            <Button type="link" size="small" icon={<ReadOutlined />} style={{ paddingInline: 4 }} />
+          </Tooltip>
+        </Popover>
+      )}
+      {template.download_url && (
+        <Tooltip title="下载">
+          <Button
+            type="link"
+            size="small"
+            icon={<DownloadOutlined />}
+            style={{ paddingInline: 4 }}
+            onClick={() => window.open(template.download_url!, '_blank')}
+          />
+        </Tooltip>
+      )}
+      {template.homepage && (
+        <Tooltip title="文档">
+          <Button
+            type="link"
+            size="small"
+            icon={<FileTextOutlined />}
+            style={{ paddingInline: 4 }}
+            onClick={() => window.open(template.homepage!, '_blank')}
+          />
+        </Tooltip>
+      )}
+    </Space>
   )
 }
 
@@ -96,6 +110,8 @@ function InstallLinks({ template }: { template?: ExporterTemplate }) {
  */
 export function CollectorTemplatesTab() {
   const [mappings, setMappings] = useState<CITypeExporterMapping[]>([])
+  // 全量映射（跨分页）仅用于「未被引用」集合判定，避免分页后其他页引用的模板被误判为未引用（F-30 分页 bug）
+  const [allMappings, setAllMappings] = useState<CITypeExporterMapping[]>([])
   const [templates, setTemplates] = useState<ExporterTemplate[]>([])
   const [labelTemplates, setLabelTemplates] = useState<LabelTemplateListItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -143,12 +159,15 @@ export function CollectorTemplatesTab() {
         page,
         page_size: pageSize,
       }
-      const [mappingRes, tmplRes, lblRes] = await Promise.all([
+      const [mappingRes, allMappingRes, tmplRes, lblRes] = await Promise.all([
         ciExporterMappingApi.list(params),
+        // 全量映射（page_size 上限 100）用于「未被引用」判定；当前页仅用于表格行展示
+        ciExporterMappingApi.list({ monitor_type: filters.monitor_type, page: 1, page_size: 100 }),
         exporterTemplateApi.list({ page: 1, page_size: 100 }),
         labelTemplateApi.list({ page: 1, page_size: 100 }),
       ])
       setMappings(mappingRes.data?.list ?? [])
+      setAllMappings(allMappingRes.data?.list ?? [])
       setTotal(mappingRes.data?.total ?? 0)
       setTemplates(tmplRes.data?.list ?? [])
       setLabelTemplates(lblRes.data?.list ?? [])
@@ -228,14 +247,21 @@ export function CollectorTemplatesTab() {
     return mappings.filter((m) => templateById.get(Number(m.exporter_template_id))?.source === filters.source)
   }, [mappings, filters.source, templateById])
 
-  // 「未被引用」模板池行：未被任何默认映射引用，且（若选来源）匹配来源（F1-5）
+  // 「未被引用」模板池行：未被任何默认映射引用，且（若选来源）匹配来源（F1-5）。
+  // referenced 必须基于全量 allMappings（跨分页），而非当前页 sourceFilteredMappings——
+  // 否则一旦 mapping 分页，被其他页引用的 template 会在当前页误显示为「未被引用」（F-30 分页 bug）。
+  const referencedTemplateIds = useMemo(() => {
+    const s = new Set<string>()
+    allMappings.forEach((m) => s.add(String(m.exporter_template_id)))
+    return s
+  }, [allMappings])
+
   const unreferencedTemplates = useMemo(() => {
-    const referenced = new Set(sourceFilteredMappings.map((m) => String(m.exporter_template_id)))
     return templates.filter((t) => {
       if (filters.source && t.source !== filters.source) return false
-      return !referenced.has(String(t.id))
+      return !referencedTemplateIds.has(String(t.id))
     })
-  }, [templates, sourceFilteredMappings, filters.source])
+  }, [templates, referencedTemplateIds, filters.source])
 
   // 合并行：默认采集配置行 + 未被引用模板行
   const rows = useMemo<CollectorRow[]>(() => {
@@ -250,6 +276,14 @@ export function CollectorTemplatesTab() {
   }, [sourceFilteredMappings, unreferencedTemplates, templateById])
 
   const columns: ColumnsType<CollectorRow> = [
+    {
+      // F-30 行类型标识：消除「行消失 / 谁的端口」混淆——同表双概念（默认配置行 vs 未引用采集器行）
+      title: '行类型',
+      key: 'row_kind',
+      width: 110,
+      render: (_, row) =>
+        row.kind === 'mapping' ? <Tag color="blue">默认配置</Tag> : <Tag>未引用采集器</Tag>,
+    },
     {
       title: '监控类型',
       key: 'monitor_type',
@@ -267,14 +301,46 @@ export function CollectorTemplatesTab() {
       },
     },
     {
+      // 来源列（F-32 放开三来源登记后补）：官方/第三方/内部自建；内置行 Tooltip 标注「平台内置，只读」
+      title: '来源',
+      key: 'source',
+      width: 100,
+      render: (_, row) => {
+        const tmpl = row.kind === 'mapping' ? row.template : row.template
+        if (!tmpl) return <Text type="secondary">-</Text>
+        const color = tmpl.source === 'official' ? 'blue' : tmpl.source === 'third_party' ? 'purple' : 'default'
+        const label = SOURCE_MAP[tmpl.source] ?? tmpl.source
+        const tag = <Tag color={color}>{label}</Tag>
+        return tmpl.is_builtin ? <Tooltip title="平台内置采集器（只读）">{tag}</Tooltip> : tag
+      },
+    },
+    {
+      // F-30 端口语义区分：mapping 行「生效端口（默认）」（覆盖生效），template 行「登记默认端口」（采集器登记值）。
+      // 彩色语义 Tag + 加粗端口值：生效端口用绿色、登记默认用橙色，一眼区分端口来源（F1-6 展示增强）
       title: '默认端口',
       key: 'default_port',
       render: (_, row) => {
-        if (row.kind === 'template') return row.template.default_port ?? '-'
+        if (row.kind === 'template') {
+          return (
+            <Tooltip title="登记默认端口：采集器登记时填写的默认端口">
+              <Space size={4}>
+                <Tag color="orange">登记默认</Tag>
+                <Text strong>{row.template.default_port ?? '-'}</Text>
+              </Space>
+            </Tooltip>
+          )
+        }
         // mapping：有覆盖值优先，无则继承 template 默认
         const port = row.mapping.default_port
-        if (port && port > 0) return port
-        return row.template?.default_port ?? '-'
+        const effective = port && port > 0 ? port : row.template?.default_port
+        return (
+          <Tooltip title="生效端口（默认）：默认采集配置的覆盖值，未覆盖时继承采集器登记默认端口">
+            <Space size={4}>
+              <Tag color="green">生效端口</Tag>
+              <Text strong>{effective ?? '-'}</Text>
+            </Space>
+          </Tooltip>
+        )
       },
     },
     {
@@ -308,12 +374,6 @@ export function CollectorTemplatesTab() {
         ) : (
           <Text type="secondary">-</Text>
         ),
-    },
-    {
-      title: '默认',
-      key: 'is_default',
-      width: 80,
-      render: (_, row) => (row.kind === 'mapping' && row.mapping.is_default ? <Tag color="green">默认</Tag> : '-'),
     },
     {
       title: '引用状态',
@@ -358,10 +418,20 @@ export function CollectorTemplatesTab() {
         ),
     },
     {
-      title: '安装/文档',
+      title: '安装指南 / 下载 / 文档',
       key: 'install',
-      width: 120,
+      width: 130,
       render: (_, row) => <InstallLinks template={row.kind === 'mapping' ? row.template : row.template} />,
+    },
+    {
+      // 架构列：arm vs x86 为安装选包关键信息；OS（linux/windows）非必需，不占列宽
+      title: '架构',
+      key: 'arch',
+      width: 90,
+      render: (_, row) => {
+        const tmpl = row.kind === 'mapping' ? row.template : row.template
+        return tmpl ? <Tag>{tmpl.arch || 'any'}</Tag> : <Text type="secondary">-</Text>
+      },
     },
     {
       title: '操作',
@@ -474,7 +544,7 @@ export function CollectorTemplatesTab() {
             size="small"
             current={-1}
             items={[
-              { title: '登记采集器', description: '登记内部自建采集器（官方/第三方由平台预置）' },
+              { title: '登记采集器', description: '登记官方 / 第三方 / 内部自建采集器（F-29 D 放开来源，与内置同名冲突）' },
               { title: '配置默认采集', description: '为监控类型配置默认采集实现与参数' },
               { title: '创建 Job 确认安装', description: '创建采集任务并确认实例安装' },
             ]}
@@ -529,7 +599,7 @@ export function CollectorTemplatesTab() {
               <Space direction="vertical">
                 <Text type="secondary">池中没有需要的采集器？</Text>
                 <Button icon={<PlusOutlined />} onClick={() => setTmplOpen(true)}>
-                  登记内部自建采集器
+                  登记采集器
                 </Button>
               </Space>
             </Empty>
@@ -581,6 +651,9 @@ export function CollectorTemplatesTab() {
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="名称">{viewTemplate.name}</Descriptions.Item>
             <Descriptions.Item label="版本">{viewTemplate.version || '-'}</Descriptions.Item>
+            <Descriptions.Item label="描述">
+              {viewTemplate.description ? <Text style={{ whiteSpace: 'pre-wrap' }}>{viewTemplate.description}</Text> : '-'}
+            </Descriptions.Item>
             <Descriptions.Item label="来源">
               <Space size={4}>
                 <span>{SOURCE_MAP[viewTemplate.source] ?? viewTemplate.source}</span>
@@ -625,6 +698,13 @@ export function CollectorTemplatesTab() {
             <Descriptions.Item label="安装指南">
               {viewTemplate.install_guide ? (
                 <Text style={{ whiteSpace: 'pre-wrap' }}>{viewTemplate.install_guide}</Text>
+              ) : (
+                '-'
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="描述">
+              {viewTemplate.description ? (
+                <Text style={{ whiteSpace: 'pre-wrap' }}>{viewTemplate.description}</Text>
               ) : (
                 '-'
               )}
