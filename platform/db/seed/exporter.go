@@ -18,11 +18,39 @@ func runExporters(db *gorm.DB) error {
 	// reference the ExporterTemplate.ID instead of its name.
 	exporterIDByName := make(map[string]string, len(models.BuiltinExporterTemplates()))
 	for _, t := range models.BuiltinExporterTemplates() {
-		exporter := t // take address of a loop-local copy
-		if err := firstOrCreate(db, &exporter, "name = ?", exporter.Name); err != nil {
+		item := t
+		var existing models.ExporterTemplate
+		err := db.Where("name = ?", item.Name).First(&existing).Error
+		switch err {
+		case nil:
+			// 内置采集器只读，种子为其权威数据源：存量库启动时对齐回填
+			// （description/download_url/homepage/install_guide 等新增或修正字段），
+			// 与 runZoneTypes 的存量对齐模式一致。
+			existing.Version = item.Version
+			existing.DefaultPort = item.DefaultPort
+			existing.MetricsPath = item.MetricsPath
+			existing.Scheme = item.Scheme
+			existing.SupportedMonitorTypes = item.SupportedMonitorTypes
+			existing.OS = item.OS
+			existing.Arch = item.Arch
+			existing.DownloadURL = item.DownloadURL
+			existing.Homepage = item.Homepage
+			existing.InstallGuide = item.InstallGuide
+			existing.Description = item.Description
+			existing.IsBuiltin = true
+			existing.Source = item.Source
+			if err := db.Save(&existing).Error; err != nil {
+				return err
+			}
+			item = existing
+		case gorm.ErrRecordNotFound:
+			if err := db.Create(&item).Error; err != nil {
+				return err
+			}
+		default:
 			return err
 		}
-		exporterIDByName[exporter.Name] = strconv.FormatUint(uint64(exporter.ID), 10)
+		exporterIDByName[item.Name] = strconv.FormatUint(uint64(item.ID), 10)
 	}
 
 	// 2) Default CITypeExporterMappings keyed by monitor_type + exporter ID.

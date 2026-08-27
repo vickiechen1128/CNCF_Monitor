@@ -119,6 +119,10 @@ func TestRunSeedsExportersAndMappings(t *testing.T) {
 		var e models.ExporterTemplate
 		require.NoError(t, db.Where("name = ?", name).First(&e).Error)
 		assert.True(t, e.IsBuiltin)
+		// 内置 seed 补齐：下载地址 / 官方文档 / 描述非空，保证前端图标链与详情展示有数据
+		assert.NotEmpty(t, e.DownloadURL, "%s download_url 应非空", name)
+		assert.NotEmpty(t, e.Homepage, "%s homepage 应非空", name)
+		assert.NotEmpty(t, e.Description, "%s description 应非空", name)
 	}
 
 	for _, mt := range []string{"host_linux", "host_windows", "mysql", "redis", "kafka", "snmp"} {
@@ -134,6 +138,24 @@ func TestRunSeedsExportersAndMappings(t *testing.T) {
 		assert.True(t, e.IsBuiltin)
 		assert.Equal(t, strconv.FormatUint(uint64(e.ID), 10), m.ExporterTemplateID)
 	}
+}
+
+func TestRunExportersBackfillsBuiltinCanonicalFields(t *testing.T) {
+	db := newTestDB(t)
+
+	// 首次 seed 后清空内置行的新增字段，模拟存量库（旧数据无 download_url/homepage/description）。
+	require.NoError(t, Run(db))
+	require.NoError(t, db.Model(&models.ExporterTemplate{}).
+		Where("is_builtin = ?", true).
+		Updates(map[string]interface{}{"download_url": "", "homepage": "", "description": ""}).Error)
+
+	// 再次 Run：内置行应按权威 seed 数据回填。
+	require.NoError(t, Run(db))
+	var e models.ExporterTemplate
+	require.NoError(t, db.Where("name = ?", "node-exporter").First(&e).Error)
+	assert.NotEmpty(t, e.DownloadURL, "存量内置行 download_url 应被回填")
+	assert.NotEmpty(t, e.Homepage, "存量内置行 homepage 应被回填")
+	assert.NotEmpty(t, e.Description, "存量内置行 description 应被回填")
 }
 
 func TestRunIsIdempotent(t *testing.T) {
