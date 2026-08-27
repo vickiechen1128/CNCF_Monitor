@@ -41,6 +41,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import type { LabelTemplate, Mapping, TemplateInstanceItem } from '../../types/label'
 import {
+  INSTANCE_LEVEL_CUSTOM_CATEGORIES,
   INSTANCE_STATUS_MAP,
   INSTANCE_STATUS_OPTIONS,
   RESOURCE_TYPE_MAP,
@@ -82,6 +83,10 @@ export default function TemplateDetailTabs({
   onMappingsChange,
 }: TemplateDetailTabsProps) {
   const templateId = template?.id ?? null
+
+  // 双场景治理边界（PRD §3.3/§5.2/§6.2）：仅允许实例级自定义的类别（application）展示「关联实例」，
+  // 静态资源实例级标签只读、无实例级能力，隐藏该 Tab（F-34）。
+  const canShowInstances = template != null && INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(template.resource_category)
 
   // 右栏 Tab / 映射抽屉 / 影响反馈 Alert
   const [detailTab, setDetailTab] = useState<DetailTabKey>('mappings')
@@ -134,11 +139,11 @@ export default function TemplateDetailTabs({
   }, [])
 
   useEffect(() => {
-    if (templateId == null) return
+    if (templateId == null || !canShowInstances) return
     // 数据请求回调内在异步完成后才 setState；沿用本模块既有抓取 effect 模式
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadInstances(templateId, page)
-  }, [templateId, page, loadInstances])
+  }, [templateId, page, loadInstances, canShowInstances])
 
   // ---------- 映射分组（Tab1） ----------
   const mappingGroups = useMemo<{ key: string; label: string; items: GroupedMapping[] }[]>(() => {
@@ -408,86 +413,90 @@ export default function TemplateDetailTabs({
               </Space>
             ),
           },
-          {
-            key: 'instances',
-            label: `关联实例（${instanceTotal}）`,
-            children: (
-              <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                <Text style={{ fontSize: 13 }}>
-                  本模板适用于「{RESOURCE_TYPE_MAP[template.resource_category]}」类型，该类型下所有{' '}
-                  <Text strong>{instanceTotal}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
-                  如需查看具体实例清单，请浏览下方列表。
-                </Text>
-                <FilterBar>
-                  <FilterItem label="搜索" width={360}>
-                    <Input.Search
-                      placeholder="搜索实例名 / 资源 ID"
-                      allowClear
-                      value={instanceSearch}
-                      onChange={(e) => {
-                        setInstanceSearch(e.target.value)
-                        setPage(1)
-                      }}
-                      style={{ width: 300 }}
-                    />
-                  </FilterItem>
-                  <FilterItem label="状态" width={240}>
-                    <Select
-                      placeholder="按状态筛选"
-                      allowClear
-                      style={{ width: 180 }}
-                      value={instanceStatus}
-                      onChange={(v) => {
-                        setInstanceStatus(v ?? 'all')
-                        setPage(1)
-                      }}
-                      options={INSTANCE_STATUS_OPTIONS}
-                    />
-                  </FilterItem>
-                </FilterBar>
-                {instancesError ? (
-                  <Alert
-                    type="error"
-                    showIcon
-                    message="关联实例加载失败，请稍后重试"
-                    description={instancesError}
-                    action={
-                      <Button
-                        size="small"
-                        icon={<ReloadOutlined />}
-                        onClick={() => {
-                          if (templateId != null) void loadInstances(templateId, page)
-                        }}
-                      >
-                        重新加载
-                      </Button>
-                    }
-                  />
-                ) : instancesLoading && instances.length === 0 ? (
-                  <Skeleton active paragraph={{ rows: 4 }} />
-                ) : instanceTotal === 0 ? (
-                  <Empty description="该类型下暂无实例" />
-                ) : (
-                  <Table
-                    rowKey="resource_id"
-                    size="small"
-                    dataSource={displayedInstances}
-                    columns={instanceColumns}
-                    loading={instancesLoading}
-                    pagination={{
-                      current: page,
-                      pageSize: INSTANCE_PAGE_SIZE,
-                      total: instanceTotal,
-                      showSizeChanger: false,
-                      onChange: (p) => setPage(p),
-                    }}
-                    locale={{ emptyText: '无匹配实例' }}
-                    scroll={TABLE_SCROLL_X}
-                  />
-                )}
-              </Space>
-            ),
-          },
+          ...(canShowInstances
+            ? [
+                {
+                  key: 'instances',
+                  label: `关联实例（${instanceTotal}）`,
+                  children: (
+                    <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                      <Text style={{ fontSize: 13 }}>
+                        本模板适用于「{RESOURCE_TYPE_MAP[template.resource_category]}」类型，该类型下所有{' '}
+                        <Text strong>{instanceTotal}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
+                        如需查看具体实例清单，请浏览下方列表。
+                      </Text>
+                      <FilterBar>
+                        <FilterItem label="搜索" width={360}>
+                          <Input.Search
+                            placeholder="搜索实例名 / 资源 ID"
+                            allowClear
+                            value={instanceSearch}
+                            onChange={(e) => {
+                              setInstanceSearch(e.target.value)
+                              setPage(1)
+                            }}
+                            style={{ width: 300 }}
+                          />
+                        </FilterItem>
+                        <FilterItem label="状态" width={240}>
+                          <Select
+                            placeholder="按状态筛选"
+                            allowClear
+                            style={{ width: 180 }}
+                            value={instanceStatus}
+                            onChange={(v) => {
+                              setInstanceStatus(v ?? 'all')
+                              setPage(1)
+                            }}
+                            options={INSTANCE_STATUS_OPTIONS}
+                          />
+                        </FilterItem>
+                      </FilterBar>
+                      {instancesError ? (
+                        <Alert
+                          type="error"
+                          showIcon
+                          message="关联实例加载失败，请稍后重试"
+                          description={instancesError}
+                          action={
+                            <Button
+                              size="small"
+                              icon={<ReloadOutlined />}
+                              onClick={() => {
+                                if (templateId != null) void loadInstances(templateId, page)
+                              }}
+                            >
+                              重新加载
+                            </Button>
+                          }
+                        />
+                      ) : instancesLoading && instances.length === 0 ? (
+                        <Skeleton active paragraph={{ rows: 4 }} />
+                      ) : instanceTotal === 0 ? (
+                        <Empty description="该类型下暂无实例" />
+                      ) : (
+                        <Table
+                          rowKey="resource_id"
+                          size="small"
+                          dataSource={displayedInstances}
+                          columns={instanceColumns}
+                          loading={instancesLoading}
+                          pagination={{
+                            current: page,
+                            pageSize: INSTANCE_PAGE_SIZE,
+                            total: instanceTotal,
+                            showSizeChanger: false,
+                            onChange: (p) => setPage(p),
+                          }}
+                          locale={{ emptyText: '无匹配实例' }}
+                          scroll={TABLE_SCROLL_X}
+                        />
+                      )}
+                    </Space>
+                  ),
+                },
+              ]
+            : []),
           {
             key: 'jobs',
             label: `被引用采集 Job（${referencingJobCount}）`,
