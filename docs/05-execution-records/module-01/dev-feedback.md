@@ -434,3 +434,38 @@
 - **影响模块**：M01 采集器管理 / 默认采集配置列表。
 - **发现场景**：用户逐项审查采集器管理列表列后的展示迭代。
 - **状态**：closed（前端改动已落地，需前端 dev server 刷新生效）
+
+## 2026-08-27（标签模板「关联实例」双场景治理边界整改，用户裁定方案 A）
+
+### F-34：静态资源（host/database/middleware/generic_target）隐藏标签模板「关联实例」（② 实现偏差，已按方案 A 落地，① PRD 已明确待 design 同步）
+
+- **类别**：② 实现偏差（PRD 双场景治理边界已明确，生产未对齐）+ ① 建议设计侧同步原型/PRD
+- **PRD 章节 / 文件位置**：`Module_07_Monitoring_Object_Management.md` §3.3 / §5.2 / §6.2（双场景治理边界）；源码 `ui-custom/web/src/pages/label-templates/labelTemplateConstants.ts`、`TemplateDetailTabs.tsx`、`TemplateList.tsx` 及对应测试
+- **背景 / 用户问答**：用户结合 PRD 分析指出——标签模板「关联实例」对静态资源无意义：
+  - 静态资源（host / database / middleware / generic_target）的标签治理在 **CMDB 侧**，平台只读展示，**不允许在实例级别自定义映射字段**，无需展示「关联实例」；
+  - 实例级自定义字段是**预留给微服务 / 业务属性字段**的，仅业务类型资源（application）允许实例级打标，只有这一类应展示「关联实例」。
+  - 用户裁定采用 **方案 A：静态资源隐藏关联实例**（隐藏「关联实例」Tab 及左栏关联实例 badge）。
+- **落地改动**：
+  - `labelTemplateConstants.ts` 新增 `INSTANCE_LEVEL_CUSTOM_CATEGORIES: ResourceCategory[] = ['application']`，集中定义允许实例级自定义的资源类别（未来微服务 / 业务属性类型开放时加入本集合即可）。
+  - `TemplateDetailTabs.tsx`：`canShowInstances = template != null && INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(template.resource_category)`；静态资源不加载实例数据（useEffect 提前 return）且 Tabs items 条件展开，不包含「关联实例」Tab。
+  - `TemplateList.tsx`：左栏模板描述区仅 `INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(tpl.resource_category)` 时渲染「关联实例 N」badge。
+  - 测试：`TemplateDetailTabs.test.tsx` 新增「静态资源（host）隐藏关联实例 Tab 且不请求实例数据，仍保留映射明细/被引用 Job 两 Tab」用例，原实例加载/表格/筛选用例限定为 application 模板；`LabelTemplatesPage.test.tsx` 新增「静态资源（host/database）隐藏 badge、application 显示」用例，原 badge 用例改 application。
+- **验证**：`vitest run TemplateDetailTabs.test.tsx` 与 `LabelTemplatesPage.test.tsx` 通过；`tsc --noEmit`、`eslint` 通过。
+- **影响模块**：M07 标签模板列表与详情（映射明细 / 关联实例 / 被引用 Job 三 Tab 结构受条件渲染影响）。
+- **发现场景**：用户结合 PRD 分析「关联实例」对静态资源的合理性后裁定方案 A。
+- **状态**：closed（前端已按方案 A 落地；建议 design 侧在 PRD §3.3/§5.2/§6.2 及原型明确「关联实例仅业务类型资源展示」，并同步「未来微服务/业务属性类型开放实例级能力」方向）
+
+### F-35：标签模板资源类别 Tab 切换残留上一类别选中模板与列表（② 实现偏差，已修复）
+
+- **类别**：② 实现偏差
+- **PRD 章节 / 文件位置**：`Module_07_Monitoring_Object_Management.md` §3.2（资源类别 Tab + 左右联动）；源码 `ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx`、`TemplateList.tsx`
+- **背景 / 用户问答**：用户点击数据库模板后切到中间件，右栏仍显示数据库模板。定位为两处残留：
+  1. `LabelTemplatesPage` 切换资源类别 Tab 未清空 `selectedTemplate`，右栏详情停留在上一类别选中模板；
+  2. `TemplateList` 切换 `activeType` 只重置 page/loading 未清空 `items`，而 loading 条件渲染是 `loading && items.length === 0`，旧类别列表会残留到新数据返回——用户切 Tab 后看到的仍是旧类别模板列表，点击到的是旧类别模板，右栏自然不切换。
+- **落地改动**：
+  - `TemplateList.tsx`：切换 activeType 时 `setItems([])`（配合既有 `setPage(1)`/`setLoading(true)`），旧列表立即清空并显示骨架屏，避免残留列表被误点。
+  - `LabelTemplatesPage.tsx`：Tabs `onChange` 中追加 `setSelectedTemplate(null)`，切 Tab 后右栏回到「请选择左侧模板查看详情」占位。
+- **验证**：`LabelTemplatesPage.test.tsx` 新增回归用例「clears selected template and leftover list when switching resource tab (F-35)」——点击主机模板后右栏展示映射明细，切中间件后右栏回到占位且按新类别重新加载；LabelTemplatesPage + TemplateList 共 18/18 通过；`tsc --noEmit`、`eslint` 通过。
+- **影响模块**：M07 标签模板管理页（资源类别 Tab 切换联动）。
+- **发现场景**：用户实测数据库模板 → 中间件 Tab 切换后右栏未联动。
+- **状态**：closed（前端已修复，需前端 dev server 刷新生效）
