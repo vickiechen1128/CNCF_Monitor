@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
@@ -117,6 +118,7 @@ func main() {
 
 func setupRouter(promURL *url.URL) *gin.Engine {
 	r := gin.Default()
+	r.Use(cors.Default())
 
 	apiV1 := r.Group("/api/v1")
 	registerHealthRoutes(apiV1)
