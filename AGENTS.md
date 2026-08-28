@@ -380,8 +380,9 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 模型。
 
+- **双轨制（v2.0 起）**：需求由 Orchestrator 按「五问」对话判定走 **Track A**（核心差异化功能：完整 PRD + 高保真原型 + ready 门禁）或 **Track B/B+**（通用标准能力：轻量 PRD 增量 + `dev-ready` 直派开发；B+ 涉安全敏感，强制 security-reviewer）；权威定义见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` §1.0 与 `.kimi/agents/orchestrator.md`「需求分轨」。
 - **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，用于写 PRD、改原型。
-- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX-<功能名>` 做 Vibe Coding（并行推进多模块时可在开发空间额外 `git worktree add` 多目录）。
+- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX-<功能名>` 做 Vibe Coding，**默认串行**（一个时间只开一个 feat 分支）；仅当零耦合任务确需并行时才额外 `git worktree add` 多目录（按需手段，用完即删）。
 
 1. **需求阶段**：`prototype-designer` 在设计空间产出 PRD 和可点击原型，分支 `design/module-mvp-demo`。
 2. **规划阶段**：`planner` 从 ready PRD 派生 L2（实现地图 + 代码实施计划）和 L3（`task-sequence.yaml`）。

@@ -3,7 +3,7 @@
 > 文档类型：产品需求文档 / 实施规划  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.26 · Module_06 v2.2 · Module_07 v2.21 · Module_09 v1.50
+> **各模块 PRD 版本**：Module_01 v3.26 · Module_06 v2.3 · Module_07 v2.21 · Module_09 v1.50 · Module_03 v1.2（Track B+ 增量，决策 44）
 >
 > Plan 版本：v2026-08-21  
 > 更新日期：2026-08-21
@@ -101,7 +101,7 @@
 | 登记归属与授权租户 | `tenant_id` 创建后不可变、`authorized_tenant_ids` | ❌ 无 | 字段校验 + 授权列表 | 低 | 低 | L4 |
 | 跨模块联动 | 禁用网域时 M07 拒绝新资源、M01 拒绝新建 Job / 新增实例、M09 不生成新变更单 | ❌ 无 | 状态机 + 各模块校验 | 中 | 低 | L4 |
 
-> **关键判断**：MVP 内 M06 只落地「网域登记管理」子集，租户生命周期 / RBAC / 审计放到 v0.2 及以后。网域是部署级资源，登记所有权归 `platform_admin`，可授权给多租户共享（授权 ≠ 拥有）。
+> **关键判断**：MVP 内 M06 落地「网域登记管理」+「租户/用户管理单租户子集（轻量认证，决策 44，Track B 增量）」；完整租户生命周期 / RBAC / 审计放到 v0.2 及以后（轻量登录 + 单租户管理 ≠ 完整 RBAC）。网域是部署级资源，登记所有权归 `platform_admin`，可授权给多租户共享（授权 ≠ 拥有）。
 
 ### 2.5 Module_02：查询中心（MVP 不新增开发）
 
@@ -409,7 +409,7 @@ Module_09 网域与边缘配置中心
 
 1. **后端最重的部分**：Module_07 五类资源表 + Excel 导入 + `ResourceLabel` 合并、Module_09 配置生成器、Module_01 `ScrapeJob` 与冻结网域联动。
 2. **后端最轻的部分**：Module_06 网域登记行政 CRUD、Module_09 `default` 域 local reload、Module_01 规则文件挂载。
-3. **MVP 应该避开**：字段化规则编辑 UI、Alertmanager 配置管理、完整多租户 RBAC、外部 CMDB 同步、复杂 Dashboard、Edge Agent 完整能力。
+3. **MVP 应该避开**：字段化规则编辑 UI、Alertmanager 配置管理、完整多租户 RBAC、外部 CMDB 同步、复杂 Dashboard、Edge Agent 完整能力（注：决策 44 已将**轻量登录 + 单租户/用户管理**纳入 MVP，与「完整多租户 RBAC」区分——前者只认证不授权，后者仍后移）。
 4. **新增自研点**：`NetworkDomain` 行政模型 + `zone_type` 字典、五类资源模型 + `biz_code`、`CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob` 认证/TLS、`MonitoringRule` 文件挂载、`ConfigDraft`/`ConfigVersion`/`ConfigDeployment`、冻结网域跨模块校验。
 5. **最大杠杆点**：充分利用 Prometheus / Blackbox 的原生能力，MetricCenter 只做「配置翻译」和「门户展示」。
 6. **跨模块契约**：M06 是网域行政 Owner；M07 只读取 `network_domain_id`；M01 的 ScrapeJob 必须绑定 M09 已纳管网域；M09 生成配置时排除 `offline` 资源并注入部署级 `external_labels`。

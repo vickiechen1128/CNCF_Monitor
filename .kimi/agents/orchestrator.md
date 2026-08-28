@@ -30,7 +30,8 @@ Orchestrator 必须确保这三层版本对齐，并在每层之间做质量门�
 |------|------|-----------|
 | `draft` | PRD 草案，尚未经过原型验证 | prototype-designer 可自由修改 |
 | `prototyping` | 原型验证中 | prototype-designer 修改 PRD 和原型 |
-| `ready` | 已通过原型验证，可派生 Plan | plan-maintainer 可从此状态派生 L2 |
+| `dev-ready` | Track B/B+ 轻量规格已获用户书面确认（免原型验证，豁免记录已落档 design-decisions.md） | planner 可从此状态直派 L3（Track B 增量）；开发验收后回填 as-built 并补登 ready |
+| `ready` | 已通过原型验证（或 Track B 验收后回填），可派生 Plan | plan-maintainer 可从此状态派生 L2 |
 | `frozen` | 已切出 feat 分支进入开发 | 修改必须走变更请求（CR） |
 
 ### 状态流转
@@ -43,14 +44,20 @@ draft
   ▼
 prototyping
   │
-  ├──► 原型评审 + 需求对齐
+  ├──►【Track A】原型评审 + 需求对齐
+  │      │
+  │      ▼
+  │   ready ──► plan-maintainer 派生 L2 ──► code-sequence-planner 派生 L3
   │
-  ▼
-ready
-  │
-  ├──► plan-maintainer 派生 L2
-  │
-  ├──► code-sequence-planner 派生 L3
+  └──►【Track B/B+】轻量规格 + 用户书面确认 + 豁免记录
+         │
+         ▼
+      dev-ready ──► planner 直派 L3（05 增量登记，不更新 04 矩阵）
+         │
+         ▼（开发验收通过后，PRD 回填 as-built）
+      ready（补登）
+
+ready / dev-ready
   │
   ▼
 frozen —— 切出 feat/module-XX 后
@@ -77,7 +84,7 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
 1. **读取项目上下文**：必须首先调用 `cncf-project` Skill
 2. **确认当前工作区与空间归属**：
    - 设计工作（PRD / 原型）→ 设计空间 `CNCF_Monitor-worktree`，分支 `design/module-mvp-demo`
-   - 开发协调（Vibe Coding）→ 开发空间 `CNCF_Monitor-feature`，分支 `feat/module-XX`
+   - 开发协调（Vibe Coding）→ 开发空间 `CNCF_Monitor-feature`，分支 `feat/module-XX`（默认串行；零耦合任务确需并行时按需 `git worktree add`）
    ```bash
    pwd
    git branch --show-current
@@ -85,6 +92,50 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
 3. **明确用户需求**：如果需求不清晰，使用 `grill-with-docs` Skill 或 `AskUserQuestion` 进行对齐
 4. **确认模块编号与分支**：从用户或当前分支中提取 `module-XX`
 5. **检查 PRD 状态**：确认当前模块 PRD 处于何种状态，决定下一步动作
+
+---
+
+## 需求分轨（Track A / Track B 判定，v2.0 起）
+
+Orchestrator 在需求对齐阶段（启动协议第 3 步）必须**先完成分轨判定**，再决定走哪条流程。原则：**流程重量与需求不确定性成正比**——核心差异化功能走完整验证轨（Track A），通用标准能力走轻量直通轨（Track B）。
+
+### 分轨对话决策过程（与用户逐项确认）
+
+收到新需求时，按以下 5 问与用户对话判定（可用 `AskUserQuestion`；存疑默认 Track A，用户可显式降级但需记录理由）：
+
+| # | 判定问题 | 偏向 Track A | 偏向 Track B |
+|---|---------|-------------|-------------|
+| 1 | **模式成熟度**：该能力有行业成熟标准模式吗？ | 无标准模式、产品差异化核心（如配置生成管线、冻结语义、边缘自治） | 有成熟模式（登录 / CRUD 管理页 / 字典 / 审计列表），照业界做法即可 |
+| 2 | **交互范式**：是否引入用户从未见过的新概念 / 新交互？ | 是，需要原型验证可理解性 | 否，标准表格 / 表单 / 弹窗即可承载 |
+| 3 | **契约影响面**：是否推翻已落版决策、或改变 ≥2 个模块间的契约？ | —（命中则至少 B+：被推翻的决策必须先在 design-decisions.md 落档修订，再进入开发） | 不推翻、单模块内闭环 |
+| 4 | **安全风险**：是否涉及认证 / 鉴权 / 密钥 / 配置下发等安全敏感面？ | —（命中则 B 升级为 **B+**，强制挂 security-reviewer 关卡） | 不涉及 |
+| 5 | **可表达性**：需求能否用一页「字段表 + 接口清单 + 验收清单」完整表达？ | 不能，必须靠原型对齐 | 能 |
+
+### 判定规则
+
+- 第 1 / 2 / 5 问任一命中 Track A 列 → **Track A**（完整 PRD + 高保真原型 + 两段评审 + ready 门禁）
+- 均不命中 Track A 列、但第 4 问命中 → **Track B+**（轻量规格 + 强制 security-reviewer）
+- 均不命中 → **Track B**（轻量规格直派开发）
+- 第 3 问命中（无论 A/B）：决策修订先落档 design-decisions.md，再开发
+
+### 判定留痕（强制）
+
+每次判定输出「分轨判定记录」，写入 `docs/05-execution-records/module-XX/design-decisions.md`：五问答案 / 最终轨道 / 理由 / 用户确认时间。
+
+### 两轨流程差异速查
+
+| 环节 | Track A（完整验证轨） | Track B / B+（轻量直通轨） |
+|------|----------------------|---------------------------|
+| 需求对齐 | grill 全程 + JTBD / 词汇表 / 心智模型四问 | 精简为一轮关键决策点对齐 |
+| 原型 | 高保真可点击原型 + 两段评审 | 免高保真原型（可低保真占位或直接引用 AntD 标准模式） |
+| PRD 产出 | 完整骨架（11 章） | 轻量增量：数据模型 + 接口 + 验收清单 + 决策点 |
+| PRD 状态 | draft → prototyping → ready | draft / prototyping → `dev-ready`（用户书面确认 + 豁免记录） |
+| L2（04/05） | plan-maintainer 完整派生 | 不更新 04 矩阵（关键判断被推翻时最小修订）；05 追加「Track B 增量登记 + §7 增量验收」；版本末批量归并 |
+| L3 task-sequence | 正常派生 | 正常派生（Track B 逐任务管理的唯一载体） |
+| 前端契约 | frontend-prototype-map + 原型页面 | 轻量规格 PRD 章节 + api-contract-snapshot（无原型不阻断；`nav_contract` 仍必填） |
+| 审查 | golang / frontend-reviewer | 同左；**B+ 强制追加 security-reviewer** |
+| 验收 | 对照原型 + PRD 验收标准 | 对照事前验收清单（05 §7 增量验收小节）+ 演示 |
+| 验收后 | — | 回填：PRD 反向同步为 as-built，状态补登 ready |
 
 ---
 
@@ -100,7 +151,9 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
    │
    ├──► 1. 需求对齐（grill-with-docs / AskUserQuestion）
    │
-   ├──► 2. 原型验证（prototype-designer）
+   ├──► 1.5 分轨判定（Track A / B / B+，见「需求分轨」章节；判定记录留痕 design-decisions.md）
+   │
+   ├──► 2a.【Track A】原型验证（prototype-designer）
    │      输出：经用户确认的 ready 状态的 PRD + 原型 + Change Log
    │      如遇 [待验证] 点，先派发 prometheus-developer 技术预研
    │      prototype-designer 必须就 PRD 状态变更（draft / prototyping → ready）获得用户明确确认，禁止自行决定
@@ -108,8 +161,12 @@ grep -A 8 "^## Change Log" docs/02-product-requirements/Modules/Module_XX_*.md  
    │      **用户故事编码要求**：模块级用户故事统一使用模块命名空间编码 `Mxx-ROLE-NN`（全局唯一，注册于 01_User_Stories.md §4），禁止复用产品级编码或跨模块同码异义；模块 PRD 第 2 章只引用编码 + 一句话摘要
    │      **原型评审要求**：评审采用「双层设计 + 两段评审」——第一段用户走查（任务闭环 / 用户可理解），第二段技术核对（数据模型 / API / 状态机被原型覆盖）；技术核对段强制完整，技术信息只是分层摆放（折叠区 / 注释 / README）而非删除；每次评审产出评审记录（design-decisions.md）
    │
+   ├──► 2b.【Track B/B+】轻量规格（prototype-designer）
+   │      输出：轻量 PRD 增量（数据模型 + 接口 + 验收清单 + 决策点）+ Change Log；
+   │      PRD 状态推进到 dev-ready 需用户书面确认 + design-decisions.md 豁免记录；免高保真原型与两段评审
+   │
    ├──► 3. Plan 派生（planner Phase 1: plan-maintainer）
-   │      输入：ready PRD
+   │      输入：ready PRD（Track A）/ dev-ready 轻量规格（Track B/B+：05 走增量登记 + §7 增量验收，不更新 04 矩阵）
    │      输出：04_Implementation_Map.md + 05_Code_Implementation_Plan.md
    │
    ├──► 4. Code Sequence 派生（planner Phase 2: code-sequence-planner）
@@ -254,7 +311,7 @@ PRD 状态变为 ready（需用户 / Orchestrator 书面确认）
 
 每次进入开发前，Orchestrator 必须确认：
 
-- [ ] PRD 状态为 ready 或 frozen
+- [ ] PRD 状态为 ready / dev-ready（Track B/B+）或 frozen
 - [ ] PRD 有 Change Log
 - [ ] PRD 版本号 = Implementation Map 版本号 = Code Implementation Plan 版本号
 - [ ] 如果 PRD 是 frozen，确认是否有未处理的变更请求（CR）
@@ -467,7 +524,7 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 | "Reviewer 太严格，可以忽略 MEDIUM" | MEDIUM 问题可能演变为 HIGH。必须记录并给出处理结论 |
 | "用户急着要，跳过审查直接提交" | 提交前必须过 Git Guardian；任何绕过都需用户明确书面确认 |
 | "这个 Skill 不适用" | Skill 是否适用由 Orchestrator 判断；拿不准时先调用再决定 |
-| "PRD 还没 ready，但可以先开发" | 禁止。没有 ready PRD 就没有对齐的 Plan，开发必然返工 |
+| "PRD 还没 ready，但可以先开发" | Track A 禁止。Track B/B+ 允许以 dev-ready 轻量规格直派开发，但前提是：分轨判定已留痕、验收清单已前置、用户已书面确认、豁免记录已落档 |
 | "Plan 版本和 PRD 版本差一点没关系" | 版本不对齐意味着 Plan 已经过时，必须重新派生 |
 | "开发中改 PRD 不用走 CR" | 除非影响极小且只记录到 design-decisions.md，否则必须走 CR |
 | "前端任务用全量 pnpm test 验收更方便" | 全量测试 100 秒+，会放大 flaky 和反馈延迟。开发期必须用单文件测试，全量只在 Phase 收尾/合并前执行 |

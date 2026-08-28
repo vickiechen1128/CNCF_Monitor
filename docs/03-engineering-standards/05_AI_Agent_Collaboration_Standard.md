@@ -14,7 +14,8 @@
 本项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 的协作模式。
 
 - **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，写 PRD、改原型。
-- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX` 做 Vibe Coding（并行推进多模块时额外 `git worktree add` 多目录）。
+- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX` 做 Vibe Coding，**默认串行**——一个时间只开一个 feat 分支，任务按 task-sequence 先后顺序执行，保持线性历史，便于功能级回退。
+- **并行是按需手段，不是默认流程**：仅当两个以上零耦合任务确需同时开发时，才额外 `git worktree add` 独立目录，用完即 `git worktree remove`。
 
 ```
 Orchestrator 接收需求
@@ -30,6 +31,23 @@ Orchestrator 接收需求
 ```
 
 > 各环节的**任务卡格式与子 Agent 只读规则见 `.kimi/agents/orchestrator.md`**；详细分支策略与回退机制见 [`06_Gitflow_Branch_and_Rollback_Guide.md`](06_Gitflow_Branch_and_Rollback_Guide.md)。
+
+### 1.0 双轨制：Track A / Track B（v2.0 起）
+
+流程重量与需求不确定性成正比。Orchestrator 接收需求后先做**分轨判定**（五问对话决策过程，权威定义见 `.kimi/agents/orchestrator.md`「需求分轨」）：
+
+| 轨道 | 适用 | 流程 |
+|------|------|------|
+| **Track A 完整验证轨** | 核心差异化功能（配置生成管线、冻结语义、边缘自治等无行业标准模式的能力） | 完整 PRD + 高保真原型 + 两段评审 → `ready` → L2 完整派生（04/05）→ L3 → 开发 |
+| **Track B 轻量直通轨** | 通用标准能力（登录 / CRUD 管理页 / 字典 / 审计列表等有成熟模式的能力） | 轻量 PRD 增量（数据模型 + 接口 + 验收清单 + 决策点）+ 一轮决策对齐 → `dev-ready`（免原型，用户书面确认 + 豁免记录）→ planner 直派 L3 → 开发 → 按事前验收清单验收 → PRD 回填 as-built 补登 ready |
+| **Track B+** | 通用但安全敏感（认证 / 密钥 / 配置下发） | 同 Track B，强制追加 security-reviewer 审查关卡 |
+
+关键边界：
+
+- **验收标准前置不可省**：Track B 省的是高保真原型与两段评审，不是契约；没有事前验收清单的需求禁止进入开发。
+- **04/05 的分轨定位**：`04_Implementation_Map.md`（难度 / 优先级矩阵）主要服务 Track A，Track B 仅在其「关键判断 / 关键结论」被推翻时做最小修订；`05_Code_Implementation_Plan.md` 的 §7 验收清单是**两轨共用的单一验收来源**，Track B 以「增量登记 + 增量验收」小节汇入，版本末（integration 切出前）由 plan-maintainer 批量归并入 Phase 结构。
+- **L3（task-sequence.yaml + api-contract-snapshot.md）两轨共用**，是 Track B 逐任务管理的唯一载体。
+- 判定记录留痕于 `docs/05-execution-records/module-XX/design-decisions.md`；推翻已落版决策的，决策修订先落档再开发。
 
 ### 1.1 Orchestrator 与执行者分工
 

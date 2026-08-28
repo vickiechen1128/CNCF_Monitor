@@ -1,0 +1,236 @@
+# Track B/B+ 增量（决策 44：轻量认证 + 租户/用户管理）
+# PRD 来源：Module_06 v2.3（dev-ready）/ Module_03 v1.2（dev-ready）
+# L2 登记：05_Code_Implementation_Plan.md §6.4 Track B 增量登记
+phase: "Track B 增量（决策 44）"
+module: module-06-tenant-user-auth
+plan_version: "05 v2026-08-21 + Track B 增量登记 2026-08-28"
+branch: feat/module-06-domain-registry  # 复用既有分支名（2026-08-28 用户决策）；该分支已合入 develop，须从最新 develop 重建同名分支
+assumptions:
+  - "轻量认证：用户名+密码登录 + 不透明 Token（服务端 sessions 表，12h 过期）；认证中间件只认证不授权（决策 44 修订决策 8）"
+  - "MVP 单租户 platform_admin；租户管理仅查看/编辑，不开放新建与禁用"
+  - "既有 module-01/06/07/09 task-sequence 中「MVP 无鉴权（决策 8）」假设自本增量起被决策 44 修订；本分支合入 develop 后，后续 L3 派生须按「轻量认证、无授权隔离」口径"
+  - "Track B+ 强制关卡：tu-05/au-01/au-02/f-01 涉及密码、会话、登录，合并前必须过 security-reviewer"
+tasks:
+  - task_id: tu-01
+    name: User / Session / LoginLog 模型定义与迁移
+    agent: backend-developer
+    status: pending
+    commit_group: models-layer
+    prd: "Module_06 §5.3/§5.4；Module_03 §4.0"
+    depends_on: []
+    estimated_files_changed: 2
+    estimated_test_cases: 6
+    shared_files: "是：platform/models/ 与 platform/db/db.go 迁移清单"
+    input_files:
+      - docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - platform/models/user.go
+      - platform/db/db.go
+    verify_commands:
+      - go test ./platform/models/... ./platform/db/...
+      - go vet ./platform/models/... ./platform/db/...
+    acceptance_criteria: User/Session/LoginLog 字段与 PRD §5.3/5.4 一致，可通过 GORM 自动迁移建表；password_hash 无 JSON 输出标签
+
+  - task_id: tu-02
+    name: 初始管理员 admin 种子 upsert
+    agent: backend-developer
+    status: pending
+    commit_group: seed
+    prd: "Module_06 §5.3（初始管理员）/ §9.2"
+    depends_on: [tu-01]
+    estimated_files_changed: 2
+    estimated_test_cases: 4
+    shared_files: "是：platform/db/seed/"
+    input_files:
+      - platform/models/user.go
+    output_files:
+      - platform/db/seed/admin.go
+    verify_commands:
+      - go test ./platform/db/...
+    acceptance_criteria: 后端启动幂等预置 admin（bcrypt 哈希，初始密码取部署配置、默认 admin123），重复启动不报错不重置已改密码
+
+  - task_id: tu-03
+    name: 用户管理 + 登录日志 API
+    agent: backend-developer
+    status: pending
+    commit_group: user-admin-api
+    prd: "Module_06 §6.3"
+    depends_on: [tu-01]
+    estimated_files_changed: 4
+    estimated_test_cases: 12
+    shared_files: "否（新建 platform/admin/user/）"
+    input_files:
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/03-engineering-standards/03_API_Standard.md
+    output_files:
+      - platform/admin/user/handler.go
+      - platform/admin/user/service.go
+      - platform/admin/user/repository.go
+    verify_commands:
+      - go test ./platform/admin/user/...
+      - go vet ./platform/admin/user/...
+    acceptance_criteria: users CRUD / status / password 与 login-logs 查询可用；username 唯一且创建后不可变；禁用用户会话立即失效；响应不含 password_hash
+
+  - task_id: tu-04
+    name: 租户管理 MVP 子集 API（GET 列表/详情 + PUT 编辑）
+    agent: backend-developer
+    status: pending
+    commit_group: tenant-readonly-api
+    prd: "Module_06 §6.1"
+    depends_on: [tu-01]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "否（新建 platform/admin/tenant/；Tenant 模型复用既有 platform/models/，缺则补）"
+    input_files:
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - platform/admin/tenant/handler.go
+      - platform/admin/tenant/service.go
+    verify_commands:
+      - go test ./platform/admin/tenant/...
+      - go vet ./platform/admin/tenant/...
+    acceptance_criteria: GET 列表/详情与 PUT 编辑（name/multi_site_enabled）可用；POST 与 PATCH status 返回 forbidden
+
+  - task_id: au-01
+    name: 认证 API（login / logout / me / 自助改密）
+    agent: backend-developer
+    status: pending
+    commit_group: auth-api
+    prd: "Module_03 §4.0"
+    depends_on: [tu-01, tu-02]
+    estimated_files_changed: 4
+    estimated_test_cases: 12
+    shared_files: "否（新建 platform/gateway/auth/）"
+    input_files:
+      - docs/02-product-requirements/Modules/Module_03_Gateway_and_Auth.md
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - platform/gateway/auth/handler.go
+      - platform/gateway/auth/service.go
+      - platform/gateway/auth/token.go
+    verify_commands:
+      - go test ./platform/gateway/auth/...
+      - go vet ./platform/gateway/auth/...
+    acceptance_criteria: login 成功签发 Token 并写 LoginLog、失败统一 401 不区分原因；logout/me/password 可用；改密后旧会话失效；bcrypt 校验
+
+  - task_id: au-02
+    name: 认证中间件与路由挂接（401 拒绝匿名）
+    agent: backend-developer
+    status: pending
+    commit_group: auth-middleware
+    prd: "Module_03 §4.0（机制约定）"
+    depends_on: [au-01]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：platform/cmd/metric-center/main.go 路由注册"
+    input_files:
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - platform/gateway/auth/middleware.go
+      - platform/cmd/metric-center/main.go
+    verify_commands:
+      - go test ./platform/gateway/auth/...
+      - go build ./platform/cmd/metric-center/
+    acceptance_criteria: 除 POST auth/login 与 /api/v1/health* 外匿名请求一律 401；持有效 Token 正常访问；中间件无任何授权/角色校验逻辑
+
+  - task_id: f-01
+    name: 登录页 + 路由守卫 + 401 拦截
+    agent: frontend-developer
+    status: pending
+    commit_group: login-page
+    prd: "Module_03 §4.0；Module_06 §11.1（登录页状态）"
+    depends_on: [au-01]
+    parallel_note: "契约快照就绪即可用 mock 并行，联调在 au-02 完成后"
+    estimated_files_changed: 4
+    estimated_test_cases: 5
+    shared_files: "是：ui-custom/web/src/api/client.ts（401 拦截）、src/App.tsx（路由守卫）"
+    input_files:
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - ui-custom/web/src/pages/login/LoginPage.tsx
+      - ui-custom/web/src/api/client.ts
+      - ui-custom/web/src/App.tsx
+    verify_commands:
+      - cd ui-custom/web && pnpm vitest run src/pages/login
+      - cd ui-custom/web && pnpm lint
+    acceptance_criteria: 未登录跳登录页、成功登录回跳原页面；Token 存 localStorage 并随请求携带；401 统一跳登录；登录失败提示不区分原因
+
+  - task_id: f-02
+    name: 用户管理页
+    agent: frontend-developer
+    status: pending
+    commit_group: user-admin-page
+    prd: "Module_06 §6.3 / §11.1（用户管理状态）"
+    depends_on: [tu-03]
+    parallel_note: "契约快照就绪即可用 mock 并行"
+    estimated_files_changed: 3
+    estimated_test_cases: 4
+    shared_files: "否"
+    input_files:
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - ui-custom/web/src/pages/admin/users/UsersPage.tsx
+    verify_commands:
+      - cd ui-custom/web && pnpm vitest run src/pages/admin/users
+      - cd ui-custom/web && pnpm lint
+    acceptance_criteria: 用户列表 / 创建 / 编辑 / 禁用启用 / 重置密码可用；禁用二次确认；加载/空态/错误状态覆盖
+
+  - task_id: f-03
+    name: 租户管理查看/编辑页（无新建、无禁用入口）
+    agent: frontend-developer
+    status: pending
+    commit_group: tenant-page
+    prd: "Module_06 §6.1 / §9.1"
+    depends_on: [tu-04]
+    parallel_note: "契约快照就绪即可用 mock 并行"
+    estimated_files_changed: 2
+    estimated_test_cases: 3
+    shared_files: "否"
+    input_files:
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - ui-custom/web/src/pages/admin/tenants/TenantsPage.tsx
+    verify_commands:
+      - cd ui-custom/web && pnpm vitest run src/pages/admin/tenants
+      - cd ui-custom/web && pnpm lint
+    acceptance_criteria: 可查看/编辑 platform_admin 租户（name/multi_site_enabled）；页面无「新建租户」与「禁用」入口
+
+  - task_id: f-04
+    name: 登录日志页
+    agent: frontend-developer
+    status: pending
+    commit_group: login-logs-page
+    prd: "Module_06 §6.3 / §11.1（登录日志状态）"
+    depends_on: [tu-03]
+    parallel_note: "契约快照就绪即可用 mock 并行"
+    estimated_files_changed: 2
+    estimated_test_cases: 3
+    shared_files: "否"
+    input_files:
+      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+    output_files:
+      - ui-custom/web/src/pages/admin/login-logs/LoginLogsPage.tsx
+    verify_commands:
+      - cd ui-custom/web && pnpm vitest run src/pages/admin/login-logs
+      - cd ui-custom/web && pnpm lint
+    acceptance_criteria: 登录日志列表按时间倒序、分页、按账号/结果筛选可用
+
+  - task_id: sec-01
+    name: Track B+ 强制安全审查（登录/会话/密码链路）
+    agent: security-reviewer
+    status: pending
+    commit_group: security-review
+    prd: "Module_03 §4.0（Track B+ 注）"
+    depends_on: [au-01, au-02, f-01]
+    estimated_files_changed: 0
+    estimated_test_cases: 0
+    shared_files: "否"
+    input_files:
+      - platform/gateway/auth/
+      - platform/admin/user/
+      - ui-custom/web/src/pages/login/
+    output_files: []
+    verify_commands:
+      - bash scripts/review-precheck.sh -m module-06-tenant-user-auth
+    acceptance_criteria: 密码哈希、Token 生成强度、会话失效、时序攻击面、登录失败信息泄露逐项过审；CRITICAL/HIGH 清零

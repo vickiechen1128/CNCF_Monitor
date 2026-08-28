@@ -31,8 +31,15 @@
     │
     ├──► 需求对齐（grill-with-docs）
     │
-    ▼
-可开发版本 (ready)
+    ├──►【Track A】原型验证 + 两段评审
+    │       │
+    │       ▼
+    │    可开发版本 (ready)
+    │
+    └──►【Track B/B+】轻量规格 + 用户书面确认 + 豁免记录
+            │
+            ▼
+         轻量可开发 (dev-ready) ──► 开发验收后回填 as-built ──► ready（补登）
     │
     ▼
 已冻结 (frozen) —— 切出 feat/module-XX 后由 Orchestrator 标记
@@ -40,10 +47,39 @@
 
 **关键规则**：
 
-- 只有状态为 **ready** 的 PRD，才能触发 plan-maintainer 派生 Implementation Plan。
+- 只有状态为 **ready** 的 PRD，才能触发 plan-maintainer 派生 Implementation Plan（L2 完整派生）。
+- **dev-ready（Track B/B+ 专用，v2.0 起）**：轻量规格（数据模型 + 接口 + 验收清单 + 决策点）获用户书面确认后标记，免高保真原型；planner 从此状态直派 L3（05 增量登记，不更新 04 矩阵）。设置 `dev-ready` 同样禁止 prototype-designer 自行决定，且必须在 `design-decisions.md` 落档免原型豁免记录。
 - 状态为 **frozen** 的 PRD，修改必须走变更请求（CR）流程。
 - 状态为 **draft** 或 **prototyping** 的 PRD，prototype-designer 可以自由修改。
 - **版本对齐（v1.26）**：PRD 版本与原型版本随迭代轮次递增（每轮 +1），与 design PR 编号一一对应；修订表已「冻结」行只增不改，变更一律新增行（见 06 Gitflow §2.5）。
+
+---
+
+## Track B 轻量规格模式（v2.0 起）
+
+当 Orchestrator 的分轨判定为 **Track B / B+**（通用标准能力，判定过程见 `orchestrator.md`「需求分轨」）时，prototype-designer 不走完整的 Phase 1~8，改用轻量规格模式：
+
+### 产出物（替代完整 PRD 迭代 + 高保真原型）
+
+1. **轻量 PRD 增量**（仍写入 `docs/02-product-requirements/Modules/Module_XX_*.md` 对应章节）：
+   - 数据模型字段表（含「UI 展示名」列，与 Track A 同规）
+   - 接口清单（路径 / 方法 / 请求响应要点）
+   - **验收清单**（checklist 形式，分用户验收 / 技术验收，标注 P0/P1/P2）——这是用户事后验收的唯一依据，**禁止省略**
+   - 关键决策点（grill 精简为一轮关键决策对齐的结果）
+   - Change Log 同步更新（规则不变：没有 Change Log，planner 拒绝派生）
+2. **免高保真原型**：可产出低保真占位页，或直接引用 Ant Design 标准模式（CRUD 表格 + 表单弹窗）；不强制在 `docs/prototypes/module-XX/` 新增页面、不强制两段评审。
+3. **豁免记录**：在 `docs/05-execution-records/module-XX/design-decisions.md` 登记「Track B 豁免」：五问判定结果、免原型理由、用户确认时间与方式。
+
+### 状态推进与回填义务
+
+- 轻量规格经用户书面确认后，PRD 状态设为 `dev-ready`（**同样禁止自行决定**，确认规则与 ready 一致）。
+- 开发验收通过后，prototype-designer 执行**回填**：PRD 反向同步为 as-built（以实际实现为准修正字段 / 接口 / 文案），状态补登 `ready`，Change Log 记录「Track B 验收回填」。
+
+### 不变的红线
+
+- 只写 `docs/02-product-requirements/` 与 `docs/prototypes/`，不碰 `platform/` / `ui-custom/web/`；
+- 安全敏感能力（Track B+）不免除 security-reviewer 关卡（由 Orchestrator 在开发阶段挂载）；
+- 涉及推翻已落版决策的，决策修订必须先落档 design-decisions.md，再写轻量规格。
 
 ---
 
@@ -459,6 +495,7 @@ Module_09 反复踩坑后固化的禁区清单。生成原型时逐条对照，�
 | "设计分支可以顺便改平台代码" | 禁止。设计分支只能改 PRD 和原型目录 |
 | "PRD 改一点不用写 Change Log" | 任何修改都可能影响 Implementation Plan。没有 Change Log 就不派生 |
 | "先把 PRD 写完美再出原型" | 完美 PRD 不存在。先出原型验证理解，再迭代 PRD 到 ready |
+| "通用 CRUD 也要做高保真原型" | 不一定。先由 Orchestrator 做分轨判定；Track B/B+ 走轻量规格 + dev-ready，把原型投入留给差异化功能（见「Track B 轻量规格模式」） |
 | "原型和 PRD 一致了，我直接改状态为 ready" | PRD 状态变更必须由用户 / Orchestrator 书面确认，禁止 prototype-designer 自行决定 |
 | "统一入口的白屏不重要，dev 模式能看就行" | GitHub Pages 和统一入口是业务验收的主要方式，构建产物必须在统一视图下正常显示 |
 | "这些技术字段用户也该看看" | 用户要的是「变更该不该上线」，不是「checksum 是多少 / 数据版本是什么」。技术信息放折叠区与注释，用户层讲人话（见设计反模式清单 #2） |
