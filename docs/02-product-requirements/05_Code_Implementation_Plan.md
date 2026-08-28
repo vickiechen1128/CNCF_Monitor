@@ -3,7 +3,7 @@
 > 文档类型：工程实施计划  
 > 依赖文档：[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[04_Implementation_Map.md](04_Implementation_Map.md)、[00_Product_Vision.md](00_Product_Vision.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.26 · Module_06 v2.2 · Module_07 v2.21 · Module_09 v1.50
+> **各模块 PRD 版本**：Module_01 v3.26 · Module_06 v2.3 · Module_07 v2.21 · Module_09 v1.50 · Module_03 v1.2（Track B+ 增量，决策 44）
 >
 > Plan 版本：v2026-08-21  
 > 更新日期：2026-08-21
@@ -177,16 +177,17 @@ Orchestrator（你）
 本项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 模式。
 
 - **设计空间** `CNCF_Monitor-worktree`：固定分支 `design/module-mvp-demo`，写 PRD、改原型。
-- **开发空间** `CNCF_Monitor-feature`：`develop` + `feat/module-XX-<功能名>`，做 Vibe Coding（独立克隆，与设计空间物理隔离）。
+- **开发空间** `CNCF_Monitor-feature`：`develop` + `feat/module-XX-<功能名>`，做 Vibe Coding（与设计空间物理隔离），**默认串行**——一个时间只开一个 feat 分支，任务按 task-sequence 先后顺序执行，保持线性历史，便于功能级回退。
+- **并行是按需手段，不是默认流程**：仅当两个以上零耦合任务确需同时开发时，额外 `git worktree add` 独立目录，合并后即删。
 
 ```bash
-# 开发空间一次性初始化（克隆远程仓库）
-cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
-git clone <远程仓库地址> .
-git checkout develop
+# 开发空间初始化（主仓库 CNCF_Monitor 的 worktree，共享 .git 对象；等价于独立克隆的物理隔离）
+cd "/Users/chenrt/S-03Python/03 AIopsAgent-study/CNCF_Monitor"
+git worktree add ../CNCF_Monitor-feature develop
 
-# 开始某个模块时，从 develop 切出对应 feature 分支
-git checkout -b feat/module-XX-<功能名> origin/develop
+# 开始某个模块时，从最新 develop 切出对应 feature 分支（串行：同一时间只开一个）
+cd ../CNCF_Monitor-feature
+git fetch origin && git checkout -b feat/module-XX-<功能名> origin/develop
 ```
 
 ##### Gitflow 分支约定
@@ -210,7 +211,7 @@ git checkout -b feat/module-XX-<功能名> origin/develop
 - 每个功能子模块对应一个 feature 分支，分支内只包含该模块的改动
 - 模块完成后，Orchestrator 将当前 feature 分支以 `--no-ff` 合并回 `develop`
 - 严禁 feature 分支直接合入 `main`
-- 开发空间 `CNCF_Monitor-feature` 克隆固定复用，通过切换 feat 分支完成不同模块开发
+- 开发空间 `CNCF_Monitor-feature` 固定复用、**串行**切换 feat 分支完成不同模块开发（一个时间只开一个 feat 分支）；并行仅为按需 `git worktree add` 手段
 - 回退策略详见 [06_Gitflow_Branch_and_Rollback_Guide.md](../03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md)
 
 Agent 进入开发空间后必须先执行启动协议：
@@ -924,6 +925,17 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 | 5 | 规划 Phase 5；本地 Prometheus 联调 | Phase 4：配置生成/下发 | Phase 4：配置中心页 + agent_pull 占位 | security-reviewer 审查配置下发 |
 | 6 | Phase 5 收尾；端到端验收 | 配合首页聚合数据 API | Phase 5：门户串联、首页、E2E | build-resolver 处理构建问题 |
 
+### 6.4 Track B 增量登记（v2.0 起）
+
+> Track B/B+ 需求不重排既有 Phase 结构，在此登记增量；**版本末（integration/vX.Y 切出前）由 plan-maintainer 批量归并**进 Phase 结构并对齐 Plan 版本号。Track B 期间 Plan 主版本号保持不变，各增量项标注自身 PRD 版本。
+
+| 登记日期 | 能力 | 模块 / PRD 版本 | 轨道 | feat 分支 | L3 路径 | 状态 |
+|----------|------|----------------|------|-----------|---------|------|
+| 2026-08-28 | 租户管理（单租户查看/编辑）+ 用户管理 + 登录日志 | Module_06 v2.3 | Track B | `feat/module-06-domain-registry`（复用既有分支名） | `docs/05-execution-records/module-06-tenant-user-auth/task-sequence.yaml` | 待开发 |
+| 2026-08-28 | 轻量认证（登录 / 会话 / 认证中间件 / 登录页） | Module_03 v1.2 | Track B+（强制 security-reviewer） | 同上（同一验收闭环，共用分支避免跨分支模型依赖） | 同上 | 待开发 |
+
+> 分支说明：M03 认证依赖 M06 User 模型，二者构成同一验收闭环（登录 → 用户/租户管理），合并为单一 feat 分支。按用户决策（2026-08-28）**复用既有分支名 `feat/module-06-domain-registry`**——该分支已 `--no-ff` 合入 develop，复用时必须**从最新 develop 重建同名分支**（删除旧分支后重新切出），禁止在已合并的旧分支基线上继续提交。分支名与实际范围（租户/用户/认证）不完全对应，属已登记豁免。开发顺序：模型/种子 → 用户与认证 API → 认证中间件 → 前端页面（前端在契约快照就绪后可并行 mock 开发）。
+
 ---
 
 ## 7. MVP 验收清单
@@ -977,6 +989,18 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 - [ ] 首页展示资源数量、待确认草稿数等聚合数据
 - [ ] `go test ./platform/...`、`go vet ./platform/...`、`pnpm test`、`pnpm lint` 全部通过
 - [ ] 后端服务能启动，关键接口返回 200；前端 dev server 能启动，首页返回 200
+
+### 7.6 Track B 增量验收（决策 44：轻量认证 + 租户/用户管理）
+
+- [ ] 登录页可用 `admin` / 初始密码登录；未登录访问任何页面跳转登录页，登录成功后回跳原页面
+- [ ] 匿名请求（除 `POST /api/v2/platform/auth/login` 与 `/api/v1/health*` 外）被认证中间件拒绝并返回 401；持有效 Token 可正常访问
+- [ ] 「用户管理」页可创建 / 编辑 / 禁用 / 启用用户并重置密码；被禁用用户无法登录且已有会话失效
+- [ ] 「租户管理」页可查看 / 编辑 `platform_admin` 租户；无「新建租户」与「禁用」入口
+- [ ] 「登录日志」页可查看账号 / 时间 / 来源 IP / 成败结果
+- [ ] 密码 bcrypt 哈希存储，任何接口 / 日志不返回明文或哈希；Token 不透明、12h 过期，登出 / 改密 / 禁用即失效
+- [ ] 无授权隔离：所有登录用户等价（MVP 已知风险，决策 44）
+- [ ] 初始管理员 `admin` 由后端启动 migration upsert 幂等预置，重复启动不报错
+- [ ] 登录 / 会话 / 密码相关代码已通过 security-reviewer 审查（Track B+ 强制关卡）
 
 ---
 
