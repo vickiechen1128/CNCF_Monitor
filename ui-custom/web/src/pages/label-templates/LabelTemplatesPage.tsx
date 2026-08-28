@@ -102,7 +102,11 @@ export function LabelTemplatesPage() {
             <Col>
               <Tabs
                 activeKey={activeType}
-                onChange={(key) => setActiveType(key as ResourceCategory)}
+                onChange={(key) => {
+                  setActiveType(key as ResourceCategory)
+                  // 资源类别 Tab 切换时清空右栏选中模板，避免残留上一类别模板详情（F-35）
+                  setSelectedTemplate(null)
+                }}
                 items={RESOURCE_TYPES.map((type) => ({ key: type, label: RESOURCE_TYPE_MAP[type] }))}
               />
             </Col>
