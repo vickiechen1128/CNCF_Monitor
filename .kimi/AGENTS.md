@@ -245,7 +245,7 @@ docs/05-execution-records/module-XX/task-sequence.yaml
     - Orchestrator 协调从 `develop` 切出 `integration/vX.Y`（如 `integration/v0.1`）
     - 联调记录统一写入 `docs/05-execution-records/integration/v0.1/`（README / plan / issues / e2e-results）
     - 已合并的 `feat/module-XX` 在联调窗口内冻结；所有联调修复只进 `integration/vX.Y`
-    - 验收通过后，由 chenrt 以 `--no-ff` 合并 `integration/vX.Y` → `develop`，随后删除该分支
+    - 验收通过后，由 chenrt 以 `--no-ff` 合并 `integration/vX.Y` → `develop`；在合并点打版本基线 tag `baseline/vX.Y-*`（annotated，消息含各模块 PRD 冻结版本 + PR 编号 + 验收日期，规则见 Gitflow 指南 §2.5/§6.6），push 后删除该分支
 16. 开发空间 `CNCF_Monitor-feature` 保留供下一模块复用（在克隆内切到新的 `feat/module-XX` 分支）
 
 ---

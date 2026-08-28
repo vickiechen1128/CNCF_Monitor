@@ -426,6 +426,6 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 - `patches/` 目录尚未创建；Makefile 已预留 `make apply-patches` 命令。
 - `upstream/alertmanager/` 与 `upstream/blackbox_exporter/` 已添加为 Git 子模块，支撑 MVP 的 M08 通知收敛与 M01/M09 blackbox 拨测；`upstream/node_exporter/` 保留子模块但当前不默认构建。
 - `platform/` 中部分目录（gateway、discovery、collector、storage、config）为预留结构，等待后续模块实现。
-- 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop` 并删除；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md`。
+- 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop`、在合并点打版本基线 tag `baseline/vX.Y-*`（annotated，作为整版回退锚点）并删除分支；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md` 与 `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` §2.5/§6.6。
 - 已新增代码定位机制：`scripts/repo-map`（Go AST + TS 导出正则）生成 `docs/04-source-architecture/repo-map.md` 符号地图（覆盖 `platform/` 与 `ui-custom/web/src/`，刻意排除 `upstream/`）；`.kimi/skills/code-navigation/` 定义「地图 → 符号 → 全文扫」的搜索升级阶梯，所有读写代码的 Agent 必须遵守。
 - 地图新鲜度已流程化强制：`scripts/check-repo-map.sh` 重新生成并对比（忽略时间戳行）；pre-commit hook（`make install-git-hooks` / `setup.sh` 启用）与 CI（`.github/workflows/check-repo-map.yml`）双重门禁，`review-precheck.sh` 报告同步包含新鲜度项。
