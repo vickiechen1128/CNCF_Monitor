@@ -71,6 +71,7 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | Skill | 用途 | 对应 Agent |
 |-------|------|-----------|
 | `cncf-project` | 项目上下文、技术栈、常用命令 | 所有 Agent |
+| `code-navigation` | 代码定位纪律：地图 → 符号 → 全文扫的升级阶梯 | 所有读写代码的 Agent |
 | `cncf-git-workflow` | Gitflow、双文件夹隔离（设计/开发空间）、目录隔离、commit 规范 | 所有 Agent |
 | `grill-with-docs` | 需求对齐、设计决策拷问 | orchestrator、prototype-designer |
 | `golang-coding-style` | Go 编码规范 | backend-developer |
@@ -149,6 +150,19 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | `block-oversized.sh` | PreToolUse | 阻止写入超过 800 行的文件 |
 | `protect-env.sh` | PreToolUse | 阻止修改 `.env`、密钥等敏感文件 |
 | `stop-verify.sh` | Stop | 会话结束前自动运行测试和 vet |
+
+---
+
+## 代码定位纪律
+
+所有需要读代码的 Agent 必须遵守 [`.kimi/skills/code-navigation/SKILL.md`](skills/code-navigation/SKILL.md) 的搜索升级阶梯：
+
+```
+L2/L3 文档地图 → repo-map.md 符号定位 → 定点 Grep → 限定域全文扫（兜底）
+```
+
+- 符号地图：`docs/04-source-architecture/repo-map.md`，由 `make repo-map` 生成，禁止手改；新鲜度由 pre-commit hook（`make install-git-hooks` 启用）与 CI（`check-repo-map.yml`）强制校验，过期会被拒绝提交/合并。
+- `upstream/` 默认排除在搜索域外；Prometheus 架构结论优先查 `prometheus-architecture` Skill 与 `docs/04-source-architecture/`。
 
 ---
 
