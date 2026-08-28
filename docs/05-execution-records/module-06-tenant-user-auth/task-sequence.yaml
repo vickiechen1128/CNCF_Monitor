@@ -14,7 +14,7 @@ tasks:
   - task_id: tu-01
     name: User / Session / LoginLog 模型定义与迁移
     agent: backend-developer
-    status: pending
+    status: done  # d3e1e678
     commit_group: models-layer
     prd: "Module_06 §5.3/§5.4；Module_03 §4.0"
     depends_on: []
