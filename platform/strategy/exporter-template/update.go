@@ -24,6 +24,7 @@ type UpdateExporterTemplateRequest struct {
 	DownloadURL           *string                `json:"download_url"`
 	Homepage              *string                `json:"homepage"`
 	InstallGuide          *string                `json:"install_guide"`
+	Description           *string                `json:"description"`
 	Source                *models.ExporterSource `json:"source"`
 }
 
@@ -108,6 +109,9 @@ func UpdateExporterTemplate(db *gorm.DB) gin.HandlerFunc {
 		}
 		if req.InstallGuide != nil {
 			tmpl.InstallGuide = *req.InstallGuide
+		}
+		if req.Description != nil {
+			tmpl.Description = *req.Description
 		}
 		if req.Source != nil {
 			tmpl.Source = *req.Source

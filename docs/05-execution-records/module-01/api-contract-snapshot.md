@@ -48,11 +48,11 @@
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/exporter-templates` | `monitor_type`、`source`(official/third_party/internal)、`page`、`page_size` | `{list,total,page,page_size}`，item=§5.2 字段 | — | §5.2/6.1 |
-| POST | `/exporter-templates` | `ExporterTemplateInput` | 创建的完整对象 | `bad_request`：source=internal 缺 default_port/metrics_path/scheme；is_builtin 只读拒绝 | §5.2/9.1 |
+| POST | `/exporter-templates` | `ExporterTemplateInput` | 创建的完整对象 | `bad_request`：缺 default_port/metrics_path/scheme 或 source 非三枚举；is_builtin 只读拒绝；`conflict`：与预置 seed 同名 | §5.2/9.1 |
 | PUT | `/exporter-templates/:id` | 部分可改字段 | 更新后完整对象 | `not_found`；`forbidden`：内置 | §5.2 |
 | DELETE | `/exporter-templates/:id` | — | `{id}` | `not_found`；`forbidden`：内置/被映射引用 | §5.2 |
 
-字段：`name`(唯一)/`version`/`default_port`/`metrics_path`(默认 /metrics)/`scheme`(默认 http)/`supported_monitor_types[]`/`os`(linux/windows/any)/`arch`(amd64/arm64/any)/`download_url`/`homepage`/`install_guide`(唯一持有方)/`source`/`is_builtin`。
+字段：`name`(唯一)/`version`/`default_port`/`metrics_path`(默认 /metrics)/`scheme`(默认 http)/`supported_monitor_types[]`/`os`(linux/windows/any)/`arch`(amd64/arm64/any)/`download_url`/`homepage`/`install_guide`(唯一持有方)/`description`(用途与能力说明)/`source`/`is_builtin`。
 
 ## 4. CITypeExporterMapping API
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
@@ -134,7 +134,7 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | `scope` | `central`(固定)/`edge`/`both`(v0.4+) | 求值范围 |
 
 ## 10. 字段必填口径
-- **ExporterTemplate 创建**：name/metrics_path/scheme 必填；source=internal 追加 default_port 必填；source=official|third_party 平台预置只读。
+- **ExporterTemplate 创建**：name/default_port/metrics_path/scheme 必填（任何来源）；source∈{official, third_party, internal} 均可由用户登记（F-29 D 拍板放开，与预置 seed 同名返回 conflict；用户登记行恒非内置、可编辑可删除）。
 - **CITypeExporterMapping 创建**：monitor_type/exporter_template_id 必填；default_port/metrics_path/scheme/scrape_interval/scrape_timeout 均可留空（F-28 稀疏覆盖：留空=继承采集器模板/全局默认，填写=覆盖）；label_template_id 可选；每类型至多一个 is_default。
 - **ScrapeJob 创建**：job_name/monitor_type/network_domain_id(已纳管非冻结)/instance_selection_mode 必填；**scrape_interval/scrape_timeout/metrics_path/scheme 可留空（F-28：留空=继承，保存时按 映射→采集器模板→全局兜底 解析为生效快照落库；清空字段再保存=恢复继承）**；auth_type 默认 none；basic→username+password 必填、bearer→token 必填；job_type=blackbox→blackbox_module+blackbox_targets 必填、monitor_type/exporter 置空；selected_instance_ids 可选（manual 校验同域）。
 - **ScrapeJob 更新**：均允许改（含 job_type/instance_selection_mode，支持 blackbox↔standard 双向切换）；仅约束冻结域禁止新增该域实例、认证TLS/blackbox 组合校验一致。job_type 切换按创建同口径校验：切 blackbox 时清空 monitor_type/exporter 且 blackbox_module+blackbox_targets 必填；切回 standard 需显式提供 monitor_type（security 修复：internal 错误仅回显「internal error」，password/token 经 `json:"-"` 不回显）。

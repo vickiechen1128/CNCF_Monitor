@@ -71,9 +71,18 @@ describe('TemplateDetailTabs', () => {
     expect(resourcesMock).not.toHaveBeenCalled()
   })
 
-  it('loads instances on mount with template id and page/page_size=10', async () => {
-    renderTabs(template())
+  it('loads instances on mount with template id and page/page_size=10 (application only)', async () => {
+    renderTabs(template({ resource_category: 'application' }))
     await waitFor(() => expect(resourcesMock).toHaveBeenCalledWith(1, { page: 1, page_size: 10 }))
+  })
+
+  it('hides instances tab and does not fetch for static resource categories (host)', async () => {
+    renderTabs(template())
+    await waitFor(() => expect(resourcesMock).not.toHaveBeenCalled())
+    expect(screen.queryByRole('tab', { name: /关联实例/ })).not.toBeInTheDocument()
+    // 静态资源仍保留「映射明细 / 被引用采集 Job」两 Tab
+    expect(screen.getByRole('tab', { name: /映射明细/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /被引用采集 Job/ })).toBeInTheDocument()
   })
 
   it('groups mappings by source type in Tab1', async () => {
@@ -96,7 +105,7 @@ describe('TemplateDetailTabs', () => {
     resourcesMock.mockResolvedValue(
       instancePage([instanceItem('r1', 'web-01', 'online'), instanceItem('r2', 'db-01', 'offline')]),
     )
-    renderTabs(template())
+    renderTabs(template({ resource_category: 'application' }))
     fireEvent.click(await screen.findByRole('tab', { name: /关联实例/ }))
     expect(await screen.findByText('web-01')).toBeInTheDocument()
     expect(screen.getByText('db-01')).toBeInTheDocument()
@@ -110,7 +119,7 @@ describe('TemplateDetailTabs', () => {
     resourcesMock.mockResolvedValue(
       instancePage([instanceItem('r1', 'web-01', 'online'), instanceItem('r2', 'db-01', 'offline')]),
     )
-    renderTabs(template())
+    renderTabs(template({ resource_category: 'application' }))
     fireEvent.click(await screen.findByRole('tab', { name: /关联实例/ }))
     await screen.findByText('web-01')
     // 状态筛选选「维护中」（数据无维护中实例 → 无匹配）
