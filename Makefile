@@ -96,7 +96,8 @@ export GOROOT := $(GO_DIR)
         install-gcc install-promu ensure-cgo \
         ensure-go ensure-node ensure-pnpm \
         apply-patches build-metric-center build-prometheus build-ui build-all \
-        run-metric-center run-prometheus dev-ui test-platform clean \
+        run-metric-center run-prometheus dev-ui test-platform clean repo-map \
+        check-repo-map install-git-hooks \
         check-prd-hygiene check-prototype-notes check-prototype
 
 all: build-all
@@ -114,6 +115,9 @@ help:
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
 	@echo "  make test-platform      运行 platform/ 测试"
+	@echo "  make repo-map           生成业务代码符号地图 -> docs/04-source-architecture/repo-map.md"
+	@echo "  make check-repo-map     校验符号地图是否与当前代码一致（pre-commit hook 与 CI 已强制）"
+	@echo "  make install-git-hooks  启用项目级 git hooks（pre-commit 强制 repo-map 新鲜度）"
 	@echo "  make check-prd-hygiene  检查 PRD 去历史化与章节冻结"
 	@echo "  make check-prototype-notes  检查原型用户可见文案是否泄漏评审标记"
 	@echo "  make check-prototype  检查原型标记泄漏 + 结构反模式（Alert 滥用/列数/筛选布局）"
@@ -375,6 +379,26 @@ clean:
 	@rm -f "$(PROJECT_ROOT)/upstream/blackbox_exporter/blackbox_exporter$(EXE)"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/dist"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/node_modules"
+
+# -----------------------------------------------------------------------------
+# 文档与符号地图
+# -----------------------------------------------------------------------------
+
+# 生成业务代码符号地图（platform/ + ui-custom/web/src/），供 Agent 排障时
+# 按「符号 → 文件」快速定位；upstream/ 上游子模块刻意不索引。
+repo-map: ensure-go
+	@echo ">>> Generating repo map"
+	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" run ./scripts/repo-map -o docs/04-source-architecture/repo-map.md
+
+# 校验符号地图新鲜度（重新生成并对比，忽略头部时间戳行）。
+# 已被 pre-commit hook 与 CI（check-repo-map.yml）强制调用。
+check-repo-map: ensure-go
+	@echo ">>> Checking repo map freshness"
+	@bash "$(PROJECT_ROOT)/scripts/check-repo-map.sh"
+
+# 启用项目级 git hooks（core.hooksPath=scripts/git-hooks）
+install-git-hooks:
+	@bash "$(PROJECT_ROOT)/scripts/install-git-hooks.sh"
 
 # -----------------------------------------------------------------------------
 # 文档与原型规范检查
