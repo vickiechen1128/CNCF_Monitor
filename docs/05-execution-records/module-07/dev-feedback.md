@@ -11,6 +11,8 @@
 | PRD 版本 | v2.21 |
 
 > **设计侧回改（2026-08-26）**：F-1、F-2、§7、§9 四项需产品/设计确认的开放性口均已由设计侧收割并落档（`docs/05-execution-records/module-07/design-decisions.md` 决策 3.53/3.54/3.55），PRD 与原型已同步更新（**版本号不变**：PRD v2.21、原型 v2.8）。详见各条「⑤ 设计侧回改」标注。
+>
+> **设计侧回改（2026-08-28，integration 收割）**：联调问题 `docs/05-execution-records/integration/v0.1/issues.md` #9「labels 归属层级决策：挂 target 级（决策 D43）」同步到 M07 PRD §5.15 机制 A——标签模板映射产出自 M09 生成配置时按 `label_template_id` 转换为 **target 级 labels**（`targets/*.json` 每个 target 的 `labels`，Job 级仅保留系统字段），修正原「写入 `static_configs[].labels`」表述与 PRD §5.12 A「target 级 tenant 标签」及 M09 口径的一致性（**版本号不变**：PRD v2.21）。原型无对应展示改动（契约在 M09 配置产物层，同模块 UI 不变）。同批 #8 决策 45-4「M07 源数据静态校验」属 M07 独立任务立项（详见设计决策 45-4），PRD 契约暂不改动，落本节「遗留风险」追踪。
 
 ---
 
@@ -70,6 +72,7 @@
 | L-5 | Host 模型 legacy 字段依赖字段映射 helper 归一化 | ✅ 已由 e2e 冒烟覆盖：`TestEndToEndSmoke` 经真实路由验证 `private_ip`/`image`/`env_flag`/`sub_app_code`/`app_code` → 前端规范字段名闭环 |
 | L-6 | 分页默认值两套口径 | 资源/模板 50（T07-03）、导入记录 20（API 标准），前端已按各自契约取值 |
 | L-7 | 端到端联调冒烟未做 | ✅ 已补：`TestEndToEndSmoke` 串联资源创建（legacy 归一化）、列表 biz_code/status 筛选、标签模板实例 keyword/status 筛选关键链路 |
+| L-8 | M07 源数据静态校验立项（integration #8 决策 45-4） | 联调发现配置中心需校验 M07 源数据可采集性（资源字段合法性），已立项为 **M07 独立任务**（详见 design-decisions 决策 45-4）；PRD 契约本轮不改，后续按任务落地时评估是否补 §9.2 技术验收 |
 
 ## 6. 新增单测
 

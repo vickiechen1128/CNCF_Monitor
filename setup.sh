@@ -240,6 +240,10 @@ if [ -f "install-hooks.sh" ]; then
     bash install-hooks.sh
 fi
 
+# 9. 启用项目级 git hooks（pre-commit 强制 repo-map 新鲜度，防止符号地图过期）
+echo ">>> Installing project git hooks (pre-commit: repo-map freshness)"
+make install-git-hooks
+
 echo ">>> CNCF_Monitor setup completed"
 echo ""
 echo "Next steps:"

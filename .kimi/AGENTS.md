@@ -71,6 +71,7 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | Skill | 用途 | 对应 Agent |
 |-------|------|-----------|
 | `cncf-project` | 项目上下文、技术栈、常用命令 | 所有 Agent |
+| `code-navigation` | 代码定位纪律：地图 → 符号 → 全文扫的升级阶梯 | 所有读写代码的 Agent |
 | `cncf-git-workflow` | Gitflow、双文件夹隔离（设计/开发空间）、目录隔离、commit 规范 | 所有 Agent |
 | `grill-with-docs` | 需求对齐、设计决策拷问 | orchestrator、prototype-designer |
 | `golang-coding-style` | Go 编码规范 | backend-developer |
@@ -149,6 +150,19 @@ PRD（L1） → Implementation Plan（L2） → Code Sequence（L3） → Code
 | `block-oversized.sh` | PreToolUse | 阻止写入超过 800 行的文件 |
 | `protect-env.sh` | PreToolUse | 阻止修改 `.env`、密钥等敏感文件 |
 | `stop-verify.sh` | Stop | 会话结束前自动运行测试和 vet |
+
+---
+
+## 代码定位纪律
+
+所有需要读代码的 Agent 必须遵守 [`.kimi/skills/code-navigation/SKILL.md`](skills/code-navigation/SKILL.md) 的搜索升级阶梯：
+
+```
+L2/L3 文档地图 → repo-map.md 符号定位 → 定点 Grep → 限定域全文扫（兜底）
+```
+
+- 符号地图：`docs/04-source-architecture/repo-map.md`，由 `make repo-map` 生成，禁止手改；新鲜度由 pre-commit hook（`make install-git-hooks` 启用）与 CI（`check-repo-map.yml`）强制校验，过期会被拒绝提交/合并。
+- `upstream/` 默认排除在搜索域外；Prometheus 架构结论优先查 `prometheus-architecture` Skill 与 `docs/04-source-architecture/`。
 
 ---
 
@@ -231,7 +245,7 @@ docs/05-execution-records/module-XX/task-sequence.yaml
     - Orchestrator 协调从 `develop` 切出 `integration/vX.Y`（如 `integration/v0.1`）
     - 联调记录统一写入 `docs/05-execution-records/integration/v0.1/`（README / plan / issues / e2e-results）
     - 已合并的 `feat/module-XX` 在联调窗口内冻结；所有联调修复只进 `integration/vX.Y`
-    - 验收通过后，由 chenrt 以 `--no-ff` 合并 `integration/vX.Y` → `develop`，随后删除该分支
+    - 验收通过后，由 chenrt 以 `--no-ff` 合并 `integration/vX.Y` → `develop`；在合并点打版本基线 tag `baseline/vX.Y-*`（annotated，消息含各模块 PRD 冻结版本 + PR 编号 + 验收日期，规则见 Gitflow 指南 §2.5/§6.6），push 后删除该分支
 16. 开发空间 `CNCF_Monitor-feature` 保留供下一模块复用（在克隆内切到新的 `feat/module-XX` 分支）
 
 ---

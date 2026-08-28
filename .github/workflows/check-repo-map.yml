@@ -1,0 +1,45 @@
+name: Check Repo Map Freshness
+
+# repo-map 新鲜度门禁：业务代码（platform/、ui-custom/web/src/）或地图本身变更时，
+# 重新生成符号地图并与提交版本对比（忽略头部时间戳行），不一致则阻断合并。
+# 本地等效命令：make check-repo-map（pre-commit hook 已强制）。
+
+on:
+  pull_request:
+    paths:
+      - 'platform/**'
+      - 'ui-custom/web/src/**'
+      - 'scripts/repo-map/**'
+      - 'scripts/check-repo-map.sh'
+      - 'docs/04-source-architecture/repo-map.md'
+      - '.github/workflows/check-repo-map.yml'
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'platform/**'
+      - 'ui-custom/web/src/**'
+      - 'scripts/repo-map/**'
+      - 'scripts/check-repo-map.sh'
+      - 'docs/04-source-architecture/repo-map.md'
+      - '.github/workflows/check-repo-map.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-map:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check repo-map freshness
+        run: bash scripts/check-repo-map.sh

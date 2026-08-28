@@ -84,7 +84,7 @@ CNCF_Monitor-worktree/
 │   ├── 04-source-architecture/     # 源码架构分析
 │   ├── 05-execution-records/       # Agent 执行记录
 │   └── prototypes/                 # 可点击原型（module-01 ~ module-10）
-├── scripts/                        # 构建与辅助脚本
+├── scripts/                        # 构建与辅助脚本（含 repo-map 符号地图生成器）
 ├── Makefile                        # 统一构建入口
 ├── setup.sh                        # 跨平台一键初始化脚本
 ├── SETUP_WINDOWS.md                # Windows 环境初始化指南
@@ -188,6 +188,9 @@ pnpm lint        # eslint . --ext ts,tsx
 
 ```bash
 make apply-patches         # 应用 patches/prometheus/*.patch 到上游源码
+make repo-map              # 生成业务代码符号地图 -> docs/04-source-architecture/repo-map.md（Agent 排障定位入口）
+make check-repo-map        # 校验符号地图新鲜度（pre-commit hook 与 CI 已强制）
+make install-git-hooks     # 启用项目级 git hooks（core.hooksPath=scripts/git-hooks；setup.sh 已集成）
 make clean                 # 清理构建产物
 bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报告 -> docs/05-execution-records/module-XX/review-precheck.md
 ```
@@ -313,6 +316,7 @@ pnpm lint     # eslint
 - [ ] `go test ./platform/...` 通过
 - [ ] `go vet ./platform/...` 通过
 - [ ] 前端 `pnpm test`、`pnpm lint` 通过
+- [ ] `make check-repo-map` 通过（涉及 `platform/` 或 `ui-custom/web/src/` 变更时；pre-commit hook 与 CI 已强制）
 - [ ] 后端服务能启动，`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 返回 200
 - [ ] 前端 dev server 能启动，首页返回 200
 - [ ] 验证完成后停止服务并释放端口
@@ -408,6 +412,7 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/prototypes/module-XX/` | 可点击原型 |
 | `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
 | `docs/06-mvp-e2e-testing/README.md` | MVP 配置下发闭环 API 测试指导手册（local 通道，curl 动线 + 成功判据 + 排查表） |
+| `docs/04-source-architecture/repo-map.md` | 业务代码符号地图（`make repo-map` 生成，禁止手改）；Agent 排障按「符号 → 文件」定位的第一入口 |
 | `.kimi/AGENTS.md` | Kimi Agent 团队角色与工作流速查 |
 | `.kimi/agents/*.md` | 各 Agent 详细行为规则 |
 
@@ -421,4 +426,6 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 - `patches/` 目录尚未创建；Makefile 已预留 `make apply-patches` 命令。
 - `upstream/alertmanager/` 与 `upstream/blackbox_exporter/` 已添加为 Git 子模块，支撑 MVP 的 M08 通知收敛与 M01/M09 blackbox 拨测；`upstream/node_exporter/` 保留子模块但当前不默认构建。
 - `platform/` 中部分目录（gateway、discovery、collector、storage、config）为预留结构，等待后续模块实现。
-- 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop` 并删除；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md`。
+- 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop`、在合并点打版本基线 tag `baseline/vX.Y-*`（annotated，作为整版回退锚点）并删除分支；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md` 与 `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` §2.5/§6.6。
+- 已新增代码定位机制：`scripts/repo-map`（Go AST + TS 导出正则）生成 `docs/04-source-architecture/repo-map.md` 符号地图（覆盖 `platform/` 与 `ui-custom/web/src/`，刻意排除 `upstream/`）；`.kimi/skills/code-navigation/` 定义「地图 → 符号 → 全文扫」的搜索升级阶梯，所有读写代码的 Agent 必须遵守。
+- 地图新鲜度已流程化强制：`scripts/check-repo-map.sh` 重新生成并对比（忽略时间戳行）；pre-commit hook（`make install-git-hooks` / `setup.sh` 启用）与 CI（`.github/workflows/check-repo-map.yml`）双重门禁，`review-precheck.sh` 报告同步包含新鲜度项。

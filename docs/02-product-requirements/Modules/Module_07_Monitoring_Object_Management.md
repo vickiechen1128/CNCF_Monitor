@@ -675,7 +675,7 @@ type ResourceStatusMapping struct {
 
 **关联机制（机制 A 为主 + 机制 B 兜底）**：
 
-- **机制 A：抓取时注入（推荐，MVP 主路径）**——所有资源类型在录入/导入时维护 `biz_code` 字段，默认标签模板为每一类资源生成 `app` / `biz` / `env` / `cluster` 等标签（`biz_code → biz` 为全资源类型通用映射）；Module\_09 生成 `prometheus.yml` 时写入 `static_configs[].labels`，Prometheus 抓取时自动附加到该 target 全部序列（资源指标自动带业务标签，**零业务侧成本**）。
+- **机制 A：抓取时注入（推荐，MVP 主路径）**——所有资源类型在录入/导入时维护 `biz_code` 字段，默认标签模板为每一类资源生成 `app` / `biz` / `env` / `cluster` 等标签（`biz_code → biz` 为全资源类型通用映射）；Module\_09 生成配置时，按 `label_template_id` 将每个 target（实例）的资源属性转换为 **target 级 labels**（写入 `targets/*.json` 每个 target 的 `labels`，决策 D43；Job 级 labels 仅保留系统字段），Prometheus 抓取时自动附加到该 target 全部序列（资源指标自动带业务标签，**零业务侧成本**）。
 - **机制 B：业务埋点标签 + relabel 归一化（兜底）**——业务侧代码埋点直出指标时，按本规范携带 `app`（值 = 平台 `app_name`）等关联标签；平台侧用 `metric_relabel_configs` 归一化兜底（如业务侧 `biz` / `service` 标签重命名为 `app`）。**关键限制**：`metric_relabel_configs` 只能操作指标自带标签、无法引入资源侧数据，关联键值一致性依赖业务侧按规范埋点（或平台侧治理校验）。
 - **查询时 join（可选）**：PromQL `on(app)` / `group_left` join 资源维度，用于聚合场景；依赖前两步标签一致。
 

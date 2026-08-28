@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# scripts/git-hooks/pre-commit
+# 提交涉及业务代码（platform/、ui-custom/web/src/）或 repo-map 本身时，
+# 强制校验符号地图新鲜度；过期则拒绝提交并给出修复命令。
+# 通过 `make install-git-hooks`（core.hooksPath=scripts/git-hooks）启用。
+
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+if git diff --cached --name-only --diff-filter=ACMR \
+    | grep -Eq '^(platform/|ui-custom/web/src/|docs/04-source-architecture/repo-map\.md)'; then
+  bash scripts/check-repo-map.sh
+fi

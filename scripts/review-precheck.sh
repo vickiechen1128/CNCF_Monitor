@@ -200,6 +200,15 @@ check_upload() {
   fi
 }
 
+# Repo map freshness（符号地图是否与当前代码一致）
+check_repo_map_freshness() {
+  if bash scripts/check-repo-map.sh >/dev/null 2>&1; then
+    echo "- **repo-map 新鲜度**：通过"
+  else
+    echo "- **repo-map 新鲜度**：过期或缺失，需执行 \`make repo-map\` 并将 \`docs/04-source-architecture/repo-map.md\` 一并提交"
+  fi
+}
+
 # Contract snapshot presence
 SNAPSHOT="docs/05-execution-records/$MODULE/api-contract-snapshot.md"
 if [[ -f "$SNAPSHOT" ]]; then
@@ -243,6 +252,9 @@ fi
   check_ssrf
   check_injection
   check_upload
+  echo ""
+  echo "## 代码地图"
+  check_repo_map_freshness
   echo ""
   echo "## 审查预检结论"
   echo "- 预检报告用于 reviewer 快速采信；命中项需要 reviewer 人工确认，未命中项不替代 LLM 对鉴权/越权/业务安全的判断。"
