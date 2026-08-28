@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -35,6 +36,41 @@ func TestInitDefaultPath(t *testing.T) {
 
 	_, err := os.Stat(dbPath)
 	assert.NoError(t, err)
+}
+
+func TestAuthTablesMigrated(t *testing.T) {
+	t.Setenv("METRIC_CENTER_DB_DSN", "file::memory:?cache=shared")
+	require.NoError(t, Init())
+	require.NotNil(t, DB)
+
+	// tu-01: users / sessions / login_logs must be created by AutoMigrate.
+	wantTables := []string{"users", "sessions", "login_logs"}
+	for _, table := range wantTables {
+		var cnt int64
+		err := DB.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&cnt).Error
+		require.NoError(t, err, "query table %q", table)
+		assert.Equal(t, int64(1), cnt, "table %q should exist", table)
+	}
+
+	// Round-trip: create a user, unique username constraint must reject duplicates.
+	u := models.User{
+		ID:           "u-test-1",
+		TenantID:     models.PlatformAdminTenantID,
+		Username:     "tu01_test_user",
+		PasswordHash: "hash-placeholder",
+		DisplayName:  "测试用户",
+		Status:       models.UserStatusActive,
+	}
+	require.NoError(t, DB.Create(&u).Error)
+
+	dup := u
+	dup.ID = "u-test-2"
+	assert.Error(t, DB.Create(&dup).Error, "duplicate username must be rejected")
+
+	var got models.User
+	require.NoError(t, DB.Where("username = ?", "tu01_test_user").First(&got).Error)
+	assert.Equal(t, "u-test-1", got.ID)
+	assert.Equal(t, "测试用户", got.DisplayName)
 }
 
 func TestHealthWithoutInit(t *testing.T) {

@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-08-28 16:23 · commit: `aa48bf18`
+> 生成时间: 2026-08-29 00:19 · commit: `78ad1bcb`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1174,6 +1174,7 @@
 - `func TestInitWithEnvDSN(t *testing.T)`
 - `func TestAutoMigrate(t *testing.T)`
 - `func TestInitDefaultPath(t *testing.T)`
+- `func TestAuthTablesMigrated(t *testing.T)`
 - `func TestHealthWithoutInit(t *testing.T)`
 - `func TestSharedTablesCreatedAndHealthOK(t *testing.T)`
 
@@ -1534,6 +1535,25 @@
 - `type TenantStatus = string`
 - `type Tenant struct`
 - `method (Tenant) TableName() string`
+
+### `platform/models/user.go`
+
+- `type UserStatus = string`
+- `type User struct`
+- `method (User) TableName() string`
+- `type Session struct`
+- `method (Session) TableName() string`
+- `type LoginLog struct`
+- `method (LoginLog) TableName() string`
+
+### `platform/models/user_test.go`
+
+- `func TestUserTableNames(t *testing.T)`
+- `func TestUserJSONDoesNotExposePasswordHash(t *testing.T)`
+- `func TestUserStatusConstants(t *testing.T)`
+- `func TestSessionTTLSemantic(t *testing.T)`
+- `func TestSessionJSONContract(t *testing.T)`
+- `func TestLoginLogJSONContract(t *testing.T)`
 
 ### `platform/models/zone_type.go`
 

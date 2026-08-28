@@ -58,6 +58,10 @@ func AutoMigrate() error {
 		&models.NetworkDomain{},
 		&models.ZoneType{},
 		&models.ResourceStatusMapping{},
+		// 用户认证（Module_06 §5.3/§5.4，Module_03 §4.0）
+		&models.User{},
+		&models.Session{},
+		&models.LoginLog{},
 		// 五类资源
 		&models.Host{},
 		&models.Database{},
