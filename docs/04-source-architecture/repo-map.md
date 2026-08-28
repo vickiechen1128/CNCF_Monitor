@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-08-28 10:24 · commit: `1decf541`
+> 生成时间: 2026-08-28 16:23 · commit: `aa48bf18`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1204,6 +1204,7 @@
 - `func TestRunSeedsZoneTypes(t *testing.T)`
 - `func TestRunSeedsLabelTemplates(t *testing.T)`
 - `func TestRunSeedsExportersAndMappings(t *testing.T)`
+- `func TestRunExportersBackfillsBuiltinCanonicalFields(t *testing.T)`
 - `func TestRunIsIdempotent(t *testing.T)`
 - `func TestRunNilDBReturnsError(t *testing.T)`
 - `func TestRunSeedsMetricLibrary(t *testing.T)`
@@ -1617,12 +1618,13 @@
 - `func TestListExporterTemplatesMonitoredTypeAndSourceFilter(t *testing.T)`
 - `func TestCreateExporterTemplateInternal(t *testing.T)`
 - `func TestCreateExporterTemplateNameMetricsPathSchemeRequired(t *testing.T)`
-- `func TestCreateExporterTemplateRejectsBuiltinAndNonInternal(t *testing.T)`
+- `func TestCreateExporterTemplateRejectsBuiltinButAllowsOfficialThirdParty(t *testing.T)`
 - `func TestCreateExporterTemplateDuplicateName(t *testing.T)`
 - `func TestCreateExporterTemplateRecreateAfterSoftDelete(t *testing.T)`
 - `func TestUpdateExporterTemplateInternal(t *testing.T)`
 - `func TestUpdateExporterTemplateBuiltinForbiddenAndNotFound(t *testing.T)`
 - `func TestCreateExporterTemplateDownloadURLValidation(t *testing.T)`
+- `func TestCreateExporterTemplateWithDescription(t *testing.T)`
 - `func TestUpdateExporterTemplateDownloadURLValidation(t *testing.T)`
 - `func TestDeleteExporterTemplateInternalOK(t *testing.T)`
 - `func TestDeleteExporterTemplateBuiltinAndReferencedForbidden(t *testing.T)`
@@ -2109,6 +2111,7 @@
 ### `ui-custom/web/src/pages/label-templates/labelTemplateConstants.ts`
 
 - `const RESOURCE_TYPE_MAP`
+- `const INSTANCE_LEVEL_CUSTOM_CATEGORIES`
 - `const INSTANCE_STATUS_MAP`
 - `const INSTANCE_STATUS_OPTIONS`
 - `const SOURCE_TYPE_LABEL`
