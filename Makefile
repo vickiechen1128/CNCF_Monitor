@@ -110,7 +110,8 @@ help:
 	@echo "  make build-metric-center  编译 MetricCenter 控制面后端"
 	@echo "  make build-prometheus   编译上游 Prometheus"
 	@echo "  make build-ui           构建 Custom UI"
-	@echo "  make build-all          编译后端 + 前端"
+	@echo "  make build-all          编译后端 + Prometheus + 前端"
+	@echo "  make package-center     打包中心一体化交付产物 -> dist/metric-center-bundle-*.tar.gz"
 	@echo "  make run-metric-center  编译并启动 MetricCenter 控制面"
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
@@ -321,6 +322,12 @@ build-center: build-metric-center build-prometheus build-alertmanager build-blac
 
 build-all: build-metric-center build-prometheus build-ui
 
+# Package the center bundle into dist/metric-center-bundle-<os>-<arch>-<timestamp>.tar.gz.
+# Supports cross-compilation via CROSS=linux/amd64 (requires zig for CGO).
+package-center:
+	@echo ">>> Packaging center bundle"
+	@bash "$(PROJECT_ROOT)/scripts/package-center.sh"
+
 # -----------------------------------------------------------------------------
 # 运行
 # -----------------------------------------------------------------------------
@@ -337,8 +344,8 @@ run-prometheus: build-prometheus
 	@echo ">>> Starting Prometheus"
 	@mkdir -p "$(PROJECT_ROOT)/config-output"
 	@if [ ! -f "$(PROJECT_ROOT)/config-output/prometheus.yml" ]; then \
-		echo ">>> Seeding config-output/prometheus.yml from upstream default"; \
-		cp "$(PROJECT_ROOT)/upstream/prometheus/prometheus.yml" \
+		echo ">>> Seeding config-output/prometheus.yml from project template (deploy/prometheus/prometheus.yml)"; \
+		cp "$(PROJECT_ROOT)/deploy/prometheus/prometheus.yml" \
 			"$(PROJECT_ROOT)/config-output/prometheus.yml"; \
 	fi
 	# 非嵌入模式从 CWD 读取 Web UI，须在 upstream/prometheus 下启动才能加载

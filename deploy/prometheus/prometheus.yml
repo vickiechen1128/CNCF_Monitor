@@ -1,0 +1,21 @@
+# MetricCenter local-dev seed for Prometheus (data plane)
+# Copied by `make run-prometheus` into config-output/prometheus.yml on first run.
+# This is a bootstrap placeholder; the control plane (M09 DiskApplier) overwrites
+# it with the generated config on the first配置下发.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    network_domain: default
+
+scrape_configs:
+  # self-scrape so the Prometheus target shows UP in the UI before any下发
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+  # M09-generated targets are written as config-output/targets/<job>.json
+  # and auto-loaded after /-/reload (relative to this config file's dir).
+  - job_name: file-sd-targets
+    file_sd_configs:
+      - files: ['targets/*.json']
+        refresh_interval: 15s

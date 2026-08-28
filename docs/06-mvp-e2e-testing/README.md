@@ -26,7 +26,7 @@
 
 4. **两个启动参数已固化进 Makefile**（2026-08-25 修复）：
    - `make run-prometheus`：`--config.file` 指向 `config-output/prometheus.yml`（首次自动从
-     `upstream/prometheus/prometheus.yml` seed），并开启 `--web.enable-lifecycle`；
+     项目自有模板 `deploy/prometheus/prometheus.yml` seed），并开启 `--web.enable-lifecycle`；
    - `make run-metric-center`：默认传 `--config.reload-url=http://localhost:9090/-/reload`。
    少任何一个都会出现「下发 failed」或「假 success」（生成的 file_sd 用相对路径
    `targets/<job>.json`，按配置文件所在目录解析，`config.file` 指错目录时 targets 永远加载不到）。
