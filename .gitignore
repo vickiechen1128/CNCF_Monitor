@@ -9,6 +9,7 @@ upstream/prometheus/prometheus
 upstream/prometheus/promtool
 upstream/node_exporter/node_exporter
 *.exe
+dist/
 
 # UI 构建产物
 ui-custom/web/node_modules/

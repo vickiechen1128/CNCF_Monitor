@@ -1,6 +1,8 @@
 import type { ApiResponse, ApiStatus } from '../types/api'
 
-const BASE_URL = ''
+// Vite 构建期可通过 VITE_API_BASE_URL 注入后端地址；不注入时默认使用相对路径
+//（此时需要前端与后端同域部署，或由 nginx 做反向代理）。
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   params?: Record<string, string | number | boolean | undefined>
