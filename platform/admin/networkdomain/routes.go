@@ -11,7 +11,6 @@ import (
 // under an `/api/v2/platform` sub-group (the caller passes the platform group).
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	platform.GET("/zone-types", ListZoneTypes(db))
-	platform.GET("/tenants", ListTenants(db))
 	platform.GET("/network-domains", ListNetworkDomains(db))
 	platform.POST("/network-domains", CreateNetworkDomain(db))
 	platform.GET("/network-domains/:id", GetNetworkDomain(db))
