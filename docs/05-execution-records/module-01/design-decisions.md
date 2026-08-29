@@ -1883,6 +1883,59 @@ CMDB bk_obj_id（细粒度，资源本质轴：mysql / redis / 达梦）
 
 ---
 
+## 补充对齐：2026-08-28（第三十一轮：采集状态回显前置——知情权替代人工确认闸门，决策 47）
+
+- **参与 Agent**：用户（产品拍板）、orchestrator（分析与落版）
+- **触发原因**：用户提出 M02「采集目标状态展示」的落点重估——配置采集 Job 时（M01）与资源台账（M07）的状态回显和 M02 同等重要；以真实采集状态（up/down）替代人工「Exporter 安装确认」作为知情权载体，提醒用户关注未采到数据的 target 是否安装了采集器；M02 独立目标状态页的前端必要性随之下降。
+- **关联模块**：Module_01（拆确认闸门 + Job 上下文回显）、Module_02（targets 代理 API 保留、独立页面降级、三态 API 提前）、Module_07（采集状态 badge 三态化）
+
+### 关键决策 47：采集状态回显前置与安装确认降级
+
+**47-1 安装确认拆闸门：选中即生成 target，确认降级为可选登记**
+
+- **决策（用户拍板）**：`ExporterInstallationConfirmation` 由「生成 target 的前置闸门」降级为**可选登记**（「状态登记 + 人工背书」定位不变，客户流程无强制追责背书需求）——`unconfirmed` 不再阻断 target 生成；M09 配置生成只看 `selected_instance_ids`（+ `offline` 排除 + `enabled` + `draft_status`）。修订 M01 §9.1 原 P0 验收「未确认实例不生成 target」。
+- **actual_port 新家（用户授权自选）**：仍挂在可选登记表单上（`ExporterInstallationConfirmation.actual_port`，P1 不变）——确认记录实体保留，仅失去闸门语义；端口一致性提示逻辑（与生效端口不一致则提示、不自动改配置）不变。
+- **理由**：人工确认是「口头背书」不是事实，`up/down` 才是事实；闸门藏拙（未确认实例不出现在配置里）反而剥夺了用户发现问题的机会。down 噪音在有了状态回显后变成可操作信息。
+
+**47-2 M01 Job 上下文采集状态回显（只读消费 M02）**
+
+- **决策（用户拍板）**：「采集 Job」详情/编辑抽屉的实例列表新增「采集状态」列 + 外层汇总指标（在线数 / 实例总数 / 待采集数）：
+  - 存量已生效实例显示真实 up / down；
+  - 新保存 / 新勾选、变更单未确认下发的实例显示「待采集」，在线数不变；
+  - 变更已确认下发但仍 down（采集器未装 / 网络故障）时，提醒「配置已下发但未采集到数据，请检查采集器安装与网络连通」，引导用户关注采集器状态。
+- **数据源**：Module_02 `GET /api/v1/targets` 代理（按 Job 过滤），M01 不直连 Prometheus；回显为展示口径、非持久状态。
+- **时序说明**：采集状态只在「M09 变更单确认下发 → Prometheus reload → 首次抓取」之后存在，故回显是「保存后验证」闭环而非选择时辅助；「待采集」为显式状态，避免用户把 unknown 误读为异常。
+
+**47-3 M07 资源列表采集状态 badge 三态化（修订决策 31-M1）**
+
+- **决策（用户拍板）**：M07 资源列表「采集状态」列由「未监控」二元筛选（决策 31-M1，`is_monitored` 选中关系）升级为**三态 badge**：`采集中`（被 Job 选中且 target up）/ `已下发未采到`（被选中但 down 或待首次抓取）/ `未监控`（未被任何 Job 选中）；三态数据 = M01 选中关系（`is_monitored`）+ M02 健康度/覆盖率 API（`up` 聚合，按 `resource_id` 标签回连资源），M07 只读消费、**不直连时序数据**（M02/M07 边界不变）。
+- **配套**：M02「采集健康度/覆盖率查询 API」由 v0.2 **提前到 MVP**；资源↔target 回连依赖 LabelTemplate 默认模板含 `resource_id` 稳定身份标签（M01 §9.1 已有 P0 验收）；列表级查询必须走聚合 API，禁止逐行查询（TQ-6 N+1 教训）。
+
+**47-4 M02 目标状态：API 保留 MVP，独立页面降级 P1**
+
+- **决策（用户拍板）**：`GET /api/v1/targets` 代理**保留 MVP P0**（M01 回显与 M07 badge 的共同数据源，租户/网域注入仍由 M02 承担）；**独立「目标状态页」前端由 P0/MVP 降为 P1**（极简列表即可），其价值收敛为「跨 Job 全局排障入口」（按 health / 网域聚合过滤，与配置场景、资产场景互补），不再是唯一的状态知情入口。
+
+### 已确认项（2026-08-28）
+
+- [x] 47-1 ~ 47-4 全部经用户拍板（本轮对话逐条确认）。
+- [x] M01 PRD v3.27 / M02 PRD v1.4 / M07 PRD v2.22 / 全局用户故事库已落版。
+
+### 仍待确认项 / 跟进
+
+- [ ] 原型对齐：module-01（Job 实例列表采集状态列 + 在线数汇总 + 安装确认改可选登记）、module-07（资源列表采集状态三态 badge）、module-02（目标状态页降 P1 标注）原型同步。
+- [ ] 开发侧影响：integration/v0.1 已按「未确认实例不生成 target」实现——闸门拆除需排期 rework（M09 configgen 不再过滤未确认实例；M01 回显消费 M02 targets API；M07 badge 消费 M02 健康度 API）。
+- [ ] 决策 31-M1 被 47-3 修订（二元筛选 → 三态 badge）；决策 7 相关「安装确认」语义以 47-1 为准。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（v3.27）
+- `docs/02-product-requirements/Modules/Module_02_Query_Center.md`（v1.4）
+- `docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`（v2.22）
+- `docs/02-product-requirements/01_User_Stories.md`（ARCH-03 落点说明、M01-OPS-04、M01-OPS-08、M02-OPS-08）
+- `docs/05-execution-records/module-02/design-decisions.md` / `docs/05-execution-records/module-07/design-decisions.md`（决策 47 交叉引用）
+
+---
+
 ## Change Log（完整历史）
 
 > v2.4 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v3.18 及以前的逐版完整变更详情（业务沟通决策记录）。2026-08-18 结构改造后，PRD 仅保留 v3.19-v3.21 最近 3 版，v3.16 / v3.17 / v3.18 本轮补迁入本表。

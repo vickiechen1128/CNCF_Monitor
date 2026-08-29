@@ -91,6 +91,15 @@
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（3.3.1 `external_labels`、4.2/4.3 EdgeAgent 心跳）
 - `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v0.3 alerts 对齐，版本面待同步）
 
+### 决策 6：目标状态展示落点重估——API 保留 MVP、独立页面降 P1（2026-08-28，决策 47-4）
+
+- **触发**：用户提出采集状态回显前置（决策 47，全文见 module-01 design-decisions）——M01 Job 配置上下文与 M07 资源台账都需要真实采集状态回显，M02 独立「目标状态页」不再是唯一知情入口。
+- **结论**：
+  1. `GET /api/v1/targets` 代理**保留 MVP P0**——是 M01 Job 回显与 M07 badge 的共同数据源，租户/网域注入职责不变；
+  2. 独立「目标状态页」前端由 P0/MVP **降为 P1**（极简列表），定位收敛为「跨 Job 全局排障入口」；
+  3. 「采集健康度/覆盖率查询 API」（三态，供 M07 badge 消费）由 **v0.2 提前到 MVP**（修订决策 4.7）。
+- **影响范围**：Module_02 PRD v1.4（§1 版本分布、§3.1 功能清单、§3.2、§6 接口、§11 验收、§12 边界）。
+
 ---
 
 ## Change Log（完整历史）

@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
-> **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.21
+> **PRD 状态**: `设计中`（v2.22 需求变更待原型对齐后回归 ready）
+> **PRD 版本**: v2.23
 > **产品版本覆盖**: MVP / v0.4 / v1.0
-> **原型版本**: v2.21（已对齐）
-> **更新日期**: 2026-08-21
+> **原型版本**: v2.21（未对齐，待按 v2.22 修订）
+> **更新日期**: 2026-08-28
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -52,7 +52,8 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 - **M07-OPS-07**：为资源类型创建/编辑标签模板，定义字段到监控标签的映射（完整条目见全局库 §4.7）
 - **M07-OPS-08**：为资源维护业务归属（`biz_code`，全类型必填，字典下拉选择），如支付业务、数据接口业务（完整条目见全局库 §4.7）
 - **M07-OPS-09**：为应用服务资源添加自定义标签（业务类型资源可写，静态资源只读）（完整条目见全局库 §4.7）
-- **ARCH-03**：查看平台整体采集覆盖率（完整条目见全局库 §2.2；落点：M01 实例选择器「未纳入任何 Job」筛选 + M02 目标状态页，M07 不展示采集状态）
+- **M07-OPS-10**：在业务管理页登记/维护业务分组（biz_code / biz_name / 状态），biz_code 创建后不可改、停用不删除（决策 48，完整条目见全局库 §4.7）
+- **ARCH-03**：查看平台整体采集覆盖率（完整条目见全局库 §2.2；落点：M01 实例选择器「未纳入任何 Job」筛选 + M01 Job 详情采集状态回显 + **M07 资源列表三态采集状态 badge**（决策 47-3））
 
 > 已移除：M07-OPS-06（Blackbox 拨测配置）、M07-ARCH-04（配置生成器注入 remote\_write），分别由 Module\_01 与 Module\_09 承接。
 
@@ -75,10 +76,10 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | **展示字段控制**          | 按资源类型固定展示列、默认排序                                                                                                                                                     | P0               |
 | **列显隐配置**           | 资源列表支持用户勾选显示 / 隐藏列（含中间件类型、网域、来源等），满足不同用户查看不同字段的诉求                                                                                                                   | P1               |
 | **资源状态管理**          | online / offline / maintenance 状态维护；状态行为语义见 8.1（排除 `offline` 为目标语义、实现于 M09 targets 生成——offline 后下一配置生成周期即从 targets 移除、不触发 reload，决策 29 MVP 必实现） | P0               |
-| **采集状态归 M01 / M02** | M07 资源列表提供「未监控」筛选（`is_monitored=false`，字段由 M01 维护、M07 只读映射，决策 31-M1），作为「未纳入任何 Job」的列表级识别入口；「采集成功」详情不展示，归 M02 目标状态页查看（见 5.2 采集状态口径） | —                |
+| **采集状态 badge（三态）** | M07 资源列表「采集状态」列展示**三态 badge**：`采集中`（被 Job 选中且 target up）/ `已下发未采到`（被选中但 down 或待首次抓取）/ `未监控`（未被任何 Job 选中）（决策 47-3，修订决策 31-M1 的二元「未监控」筛选）；数据 = M01 选中关系（`is_monitored`，M07 只读映射）+ M02 采集健康度/覆盖率 API（up 聚合，按 `resource_id` 回连，MVP 起提供）；支持按采集状态筛选；异常驱动展示（仅「已下发未采到」高饱和） | P0               |
 | **适用模板展示**          | 资源详情显示「适用模板」（该资源类型对应的默认标签模板名 + 模板 ID），与 system 标签来源标注呼应，让用户看见"此实例由哪个模板产生标签"                                                                                  | P0               |
 | **网域归属**            | 资源按 `network_domain_id` 分组；网域生命周期由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。**本模块不采用顶部「当前网域」全局上下文切换器**，而是在资源列表内提供「网域」筛选器（默认记忆上次选择、始终可切换为「全部网域」以支持跨域搜索）；**单网域模式下 Resource 列表仍展示「网域」列**，网域作为云区域概念从 CMDB/Excel 代入，不可隐藏 | P0（MVP 至少一个默认网域） |
-| **业务分组字典** | 维护业务编码 `biz_code`（字典主键）与展示名 `biz_name`、`description`、状态（enabled/disabled），为资源录入/Excel 导入提供下拉选项；**MVP 由配置文件预置，不提供维护页面**；v0.2+ 评估维护入口，开放时须遵守红线：**只允许改 `biz_name` / `description` / 状态，`biz_code` 永不可改、停用不删除**（决策 17/21/22）。**MVP 运维口径**：字典配置文件约定为 `platform/config/business_domains.yaml`，改动后**热加载生效**（无需重启，P0 验收项）；初始字典编码上线前必须经**命名评审**（`biz_code` 永不可改，属一次性不可逆决策）；**强制预置兜底条目 `infra`**（公共基础设施），无业务归属的设备类资源统一挂 `infra`，避免必填逼出假业务污染 `biz` 聚合 | P0 |
+| **业务分组字典** | 维护业务编码 `biz_code`（字典主键）与展示名 `biz_name`、`description`、状态（enabled/disabled），为资源录入/Excel 导入提供下拉选项；**MVP 提供业务管理页**（列表 + 登记 + 受限编辑 + 停用，见 5.18），字典落 platform DB（决策 48）；红线在 UI/服务端硬化：**只允许改 `biz_name` / `description` / 状态，`biz_code` 永不可改（创建时编码规范校验 + 醒目提示）、停用不删除、`infra` 兜底条目禁止停用/删除**（决策 17/21/22/48）。**存储口径**：`platform/config/business_domains.yaml` 降级为**首次启动 seed**（DB 为空时导入初始字典 + `infra` 兜底，热加载退役），之后 DB 为唯一权威；**强制预置兜底条目 `infra`**（公共基础设施），无业务归属的设备类资源统一挂 `infra`，避免必填逼出假业务污染 `biz` 聚合 | P0 |
 | **CMDB 接入源**        | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 `ExcelProvider` / `SQLiteProvider` 维护资源；v0.4+ 由 [Module\_04](Module_04_Custom_Discovery.md) 实现外部 CMDB 同步                 | P0 / P2          |
 | **资源关系**            | 应用-实例-集群关系、依赖拓扑（未来）                                                                                                                                                 | P2               |
 
@@ -271,7 +272,7 @@ const (
 
 > **`app_name` / `cluster` 必填标注（✅\*）**：按资源类别差异化——application / database / middleware 必填；host / generic\_target 可空（设备类资源无应用归属，强制必填会逼填假数据污染 `app` / `cluster` 标签聚合）；空值不注入对应标签（与 5.15 规则 4「`biz` 空值语义」对齐）。
 >
-> **采集状态口径**：M07 是**资产台账**，不展示「是否被 ScrapeJob 选中 / 是否采集成功」类状态（原 `is_monitored` 已取消，避免「被引用」被误读为「在监控中」）。「哪些资源未纳入任何采集 Job」在 **M01 实例选择器**（「未纳入任何 Job」筛选）查看；「选中了但没采到数据」在 **M02 目标状态页**（`up` / target 状态）查看。**注意**：以上两个落点为目标口径，其实际交付以 M01 / M02 各自 PRD 与排期为准（随 M01 节奏落地，MVP 不保证可用，见 design-decisions.md「评审结论（2026-08-19 第三轮讨论）」K 组）。
+> **采集状态口径（决策 47-3，修订决策 31-M1 与 v2.16 取消结论）**：M07 是**资产台账**，但「采集状态」列升级为**三态真实状态 badge**——`采集中`（被 ScrapeJob 选中且 target `up`）/ `已下发未采到`（被选中但 `down` 或待首次抓取）/ `未监控`（未被任何 Job 选中）。数据由两处只读消费拼成：选中关系 `is_monitored` 由 M01 维护；up/down 聚合由 M02 采集健康度/覆盖率 API 提供（MVP 起，按 `resource_id` 稳定身份标签回连资源）。**M07 不直连时序数据**，列表查询必须走 M02 聚合 API、禁止逐行查询（TQ-6 N+1 教训）。原决策顾虑（「被引用」被误读为「在监控中」）由三态区分解决——badge 表达的是真实采集结果而非选中关系。「未纳入任何 Job」同步可在 M01 实例选择器筛选（辅助落点）；跨 Job 全局排障视图归 M02 目标状态页（P1）。
 >
 > **状态 → 运行状态（决策 32）**：资源列表「状态」列 UI 更名「**运行状态**」，表意更贴近其取值（运行中 / 已停止 / 维护中），并与「采集状态」列、资源「来源」列区分。`Resource.status` 字段不变。**「运行状态」数据来源非 M07 自身功能**（由 CMDB 同步 / Excel 导入 / 用户手动维护），列头数据来源以**隐藏样式**（hover 提示）标注，不占用列宽、不干扰用户（原型见 ResourcesPage.tsx 状态列头 Tooltip）。
 
@@ -737,7 +738,7 @@ network_domain | target_name | instance_ip | port | metrics_path | scheme | expo
 > - 「下载模板」**由后端生成静态 xlsx**（MVP 不做 dataValidation 下拉——SheetJS 社区版不支持、前端生成成本高），改为模板内置「**取值说明 sheet**」：`network_domain` / `biz_code` / `env` / `status` 等列的合法值清单（实时取自 M06 网域清单与业务分组字典），引导用户照单填写；dataValidation 下拉挪 v0.2+ 评估；
 > - 导入校验发现不存在的网域名时，报错文案必须引导闭环：「网域 xxx 未登记，请先到『系统设置 → 网域管理』登记后重新导入」（M06 入口）；
 > - v0.4+ CMDB 同步场景同理：`bk_cloud_id` → `NetworkDomain` 的映射表维护在 M06/M09 侧，匹配不上的资源进入「待分类」队列，不自动建档。
-> - `biz_code` 列**只允许引用已登记的业务分组字典条目**（合法值见模板「取值说明 sheet」），不接受自由文本；导入校验发现未登记的业务编码时，报错文案给出可执行指引：「业务 xxx 未登记，请联系平台管理员在业务分组字典配置（`platform/config/business_domains.yaml`）中添加后重新导入」（MVP 字典由配置文件预置、热加载生效，无维护页面，见 3.1）。
+> - `biz_code` 列**只允许引用已登记的业务分组字典条目**（合法值见模板「取值说明 sheet」），不接受自由文本；导入校验发现未登记的业务编码时，报错文案给出可执行指引：「业务 xxx 未登记，请到『业务管理』页登记后重新导入」（字典由业务管理页维护、落 DB，配置文件仅首次启动 seed，见 3.1 / 5.18，决策 48）。
 
 #### 5.16.2 数据校验
 
@@ -821,6 +822,23 @@ status: "online"
 
 > 完整的采集模板（含 `default_scrape_interval`、`default_metrics_path`、`default_port` 等）已移至 [Module\_01](Module_01_Metric_Collection_Center.md) 的 Exporter 模板管理章节。
 
+### 5.18 业务分组字典（BusinessDomain）
+
+> 决策依据：design-decisions.md 决策 17 / 21 / 22 / 48
+
+> **定位（决策 48）**：业务分组字典是 `biz_code → biz` 标签的**取值权威**——本产品预留的业务属性关联映射字段（业务域聚合键，供将来对接微服务 / 自定义采集器暴露的业务属性）；与资源属性 `app_name → app`（应用服务实例级）是两个粒度，不混用。MVP 起字典**落 platform DB 并提供业务管理页**；`platform/config/business_domains.yaml` 降级为**首次启动 seed**（DB 为空时导入初始字典 + `infra` 兜底条目），之后 DB 为唯一权威，热加载机制退役。
+
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|----------|------|
+| biz\_code | string | ✅ | 业务编码 | 字典主键，**创建后不可变**；编码规范：小写字母、数字、连字符，长度 ≤ 64（服务端校验）；创建表单醒目提示「编码创建后不可改」 |
+| biz\_name | string | ✅ | 业务名 | 展示名，仅 UI 展示；**修改不触发监控配置重新生成 / 下发**（label 存 `biz_code`，决策 6/21） |
+| description | string | ❌ | 描述 | 业务说明 |
+| status | enum | ✅ | 状态 | `enabled` / `disabled`；**停用不删除**——停用条目不可被新资源/编辑选用，存量资源保留历史值并以「业务名（已停用）」标识 |
+| created\_at / updated\_at | datetime | ✅ | 仅技术信息 | 创建 / 更新时间 |
+
+> **红线（UI/服务端硬化）**：①`biz_code` 永不可改（编辑接口不接收该字段）；②仅 `biz_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**`infra` 兜底条目禁止停用 / 删除**（无业务归属设备的统一挂载点，破除则必填逼出假业务）。
+>
+> **消费链路不变**：资源录入表单 / Excel 导入校验仍只读消费本字典（`GET /api/v2/platform/business-domains`）；M01 业务指标库 `business_domain` 与本字典对齐（同名同值）。
 ***
 
 ## 6. 接口设计
@@ -833,13 +851,15 @@ status: "online"
 
 | 方法     | 路径                                                   | 说明                                                                                                                    |
 | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/v2/platform/resources`                                  | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `is_monitored`（决策 31-M1：`false` 筛选「未监控」，字段由 M01 维护、M07 只读映射）/ `page` / `page_size`（MVP 分页从简，默认 50） |
+| GET    | `/api/v2/platform/resources`                                  | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `collection_status`（决策 47-3：三态筛选 `up`（采集中）/ `down`（已下发未采到）/ `unmonitored`（未监控）；选中关系 `is_monitored` 由 M01 维护、M07 只读映射，up/down 聚合来自 M02 健康度 API）/ `page` / `page_size`（MVP 分页从简，默认 50） |
 | POST   | `/api/v2/platform/resources`                                  | 创建资源（source\_type=manual）                                                                                             |
 | PUT    | `/api/v2/platform/resources/{resource_id}`                    | 更新资源                                                                                                                  |
 | DELETE | `/api/v2/platform/resources/{resource_id}`                    | 删除资源（被 Job 引用时由 Module\_01 关联校验并**在报错中列出引用 Job 名单 + 跳转**，见 6.6.1）                                                    |
 | POST   | `/api/v2/platform/resources/import`                           | Excel 导入（multipart，返回 5.16.3 导入结果结构）；Form 参数 `mode=create_only / upsert`（默认 create\_only，upsert 语义见 5.16.2）       |
 | GET    | `/api/v2/platform/resources/import-templates/{resource_category}` | 下载固定列模板（返回列定义 JSON，前端渲染为可下载模板）                                                                                        |
-| GET    | `/api/v2/platform/business-domains`                           | 业务分组字典列表（MVP 只读，供资源录入 / Excel 校验下拉使用；数据来自配置文件预置） |
+| GET    | `/api/v2/platform/business-domains`                           | 业务分组字典列表（供资源录入 / Excel 校验下拉与业务管理页使用；数据来自 DB，配置文件仅首次启动 seed，决策 48） |
+| POST   | `/api/v2/platform/business-domains`                           | 登记业务分组（决策 48）：`biz_code`（编码规范：小写字母/数字/连字符 ≤ 64，创建后不可变）、`biz_name`、`description`；`bad_request`：编码重复 / 编码不规范 |
+| PUT    | `/api/v2/platform/business-domains/{biz_code}`                | 受限编辑业务分组（决策 48）：**仅 `biz_name` / `description` / `status` 可改**（请求体不接收 `biz_code`）；`bad_request`：`infra` 兜底条目禁止停用；不提供删除入口（停用不删除） |
 
 ### 6.2 资源标签 API（ResourceLabel）
 
@@ -881,7 +901,7 @@ status: "online"
 ### 6.5 只读消费契约（Module\_01 / Module\_09）
 
 - Module\_01 与 Module\_09 **仅通过上述 GET 接口只读消费** Resource、ResourceLabel、LabelTemplate 数据，不经过本模块写接口；
-- **采集状态不反向依赖**：M07 不调用 M01 查询「是否被选中 / 采集状态」（原 `is_monitored` 已取消）；「未纳入任何 Job」在 M01 实例选择器查看、「选中但无数据」在 M02 目标状态页查看（见 5.2 采集状态口径）；
+- **采集状态三态来源（决策 47-3）**：M07 资源列表「采集状态」badge 数据 = M01 维护的选中关系（`is_monitored`）+ M02 采集健康度/覆盖率 API（up 聚合，按 `resource_id` 回连）；M07 对两者均为**只读消费、不直连时序数据**，列表级查询走 M02 聚合 API（禁止逐行查询，TQ-6）；
 - **被引用 Job 查询**：标签模板页「被引用采集 Job N 个」数据由 Module\_01 的只读接口提供（`GET /api/v2/platform/scrape-jobs?label_template_id={template_id}`），M07 不直接暴露此聚合接口，以避免被动数据提供方反向依赖策略模块；
 - 本模块不提供 `prometheus.yml` 生成 / 下发类接口（职责在 Module\_09）。
 
@@ -963,7 +983,7 @@ v0.4+ 实现（由 Module\_04 负责）：
 
 - `platform/models/`：Resource、LabelTemplate、ResourceLabel 模型定义
 - `platform/discovery/`：CMDB Provider 接口与 Excel/SQLite 实现
-- [Module\_01](Module_01_Metric_Collection_Center.md)：消费 Resource、LabelTemplate、ResourceLabel 数据；采集状态（未纳入 Job / 采集成败）由 M01 实例选择器与 M02 目标状态页承接（M07 不维护）
+- [Module\_01](Module_01_Metric_Collection_Center.md)：消费 Resource、LabelTemplate、ResourceLabel 数据；采集状态由 M07 资源列表三态 badge（消费 M01 选中关系 + M02 健康度 API，决策 47-3）与 M01 Job 详情回显（决策 47-2）承接
 - [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md)：读取 Resource、LabelTemplate、ResourceLabel 数据生成并下发配置
 
 ***
@@ -1044,6 +1064,8 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 - [ ] {P0} 所有资源类型新增/编辑时**必填** `biz_code`（业务），详情页展示业务展示名 `biz_name`；停用业务以「业务名（已停用）」标识
 - [ ] {P0} 应用服务资源开放「自定义标签」编辑（user 来源）；非 application 资源标签编辑入口隐藏/禁用
 - [ ] {P0} 标签模板可新增 `biz_code → biz` 映射；所有资源类型默认模板包含 `biz_code → biz` 映射；业务指标经抓取注入带 `app` / `biz` 标签，可按业务类型聚合
+- [ ] {P0} 资源列表「采集状态」列展示三态 badge（采集中 / 已下发未采到 / 未监控，决策 47-3），支持按采集状态筛选（`collection_status`）；「已下发未采到」高饱和展示，引导用户关注采集器安装与网络连通；badge 数据只读消费 M01 选中关系 + M02 健康度 API
+- [ ] {P0} 业务管理页可查看业务分组列表并登记新业务（`biz_code` 编码规范校验 + 醒目提示「编码创建后不可改」）；编辑仅开放 `biz_name` / `description` / 状态；不提供删除入口；`infra` 兜底条目禁止停用（决策 48）
 
 ### 9.2 技术验收（后端/契约可验证）
 
@@ -1059,8 +1081,10 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 - [ ] {P1} {v0.4+} 资源模型预留 `cmdb_ci_id`、`cmdb_business_path`、`cmdb_module_path`、`cmdb_maintainer` 字段
 - [ ] {P0} ResourceLabel 写接口（POST / PUT / DELETE）按 `resource_category` 校验：仅 `application` 可写 user 标签，host / middleware / generic\_target 返回 403
 - [ ] {P1} `biz_code` 字段与 `biz_code → biz` 映射写入 5.12 A 契约；5.15 业务指标标签规范（关联键 `app` / `biz`、机制 A 注入 + 机制 B relabel 兜底）作为 Module\_01/09 生成配置的标签注入依据
-- [ ] {P1} 业务分组字典提供只读接口（MVP 无写接口）；业务存在性校验「`biz_code` 必须对应**启用**条目」；停用条目不可被新增/编辑选用，存量资源保留历史值（决策 22）
+- [ ] {P0} 业务分组字典落 DB（`BusinessDomain` 实体），`business_domains.yaml` 仅作首次启动 seed（DB 为空时导入，含 `infra` 兜底条目）；`POST /api/v2/platform/business-domains` 校验编码规范（小写字母/数字/连字符 ≤ 64）与重复；`PUT` 仅接受 `biz_name` / `description` / `status`（不接收 `biz_code`）；`infra` 停用返回 `bad_request`；`biz_name` 修改不触发配置重新生成（决策 48 / 6 / 21）
+- [ ] {P1} 业务存在性校验「`biz_code` 必须对应**启用**条目」；停用条目不可被新增/编辑选用，存量资源保留历史值（决策 22）
 - [ ] {P1} `biz_code` 编码创建后不可变，字典展示名 `biz_name` 修改不触发配置重新生成 / 下发（决策 6/21）；MVP 单租户下 `tenant_id → tenant` 映射可选、默认模板不注入（决策 19）
+- [ ] {P0} 采集状态三态数据链路可验证（决策 47-3）：`is_monitored` 选中关系由 M01 维护、M07 只读映射；up/down 聚合来自 M02 `/api/v1/health/coverage`（按 `resource_id` 标签回连资源）；资源列表查询走聚合 API 一次性获取，**禁止逐行调用**（TQ-6 N+1 教训）
 
 ***
 
@@ -1083,12 +1107,14 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 | `ResourceLabel.source`                | 标签来源         | cmdb / user / system；system = 模板生成（对应字段来源：资源字段+组合字段）、user = 实例级自定义、cmdb = v0.4+ 预留（MVP 占位展示）                                        |
 | `Mapping.source_type`                 | 映射字段来源       | resource\_field / composite / cmdb\_field / prometheus\_builtin；生成关系：system 标签 ← 资源字段+组合字段，cmdb 标签 ← cmdb\_field（v0.4+），user 标签不走模板 |
 | `status`                              | 运行状态         | 运行中 / 已停止 / 维护中（+ v0.4+ 孤儿）；UI 展示名「运行状态」，数据来源（CMDB / Excel / 手动）以列头隐藏提示标注（决策 32）                                        |
+| 采集状态（badge）                       | 采集状态         | 三态：采集中（被 Job 选中且 up）/ 已下发未采到（被选中但 down 或待首次抓取）/ 未监控（未被任何 Job 选中）；数据 = M01 选中关系 + M02 健康度 API，只读（决策 47-3） |
 | `orphan`                              | 孤儿资源         | 仅技术信息（v0.4+，CMDB 同步失败保留 7 天）                                                                                                        |
 | Excel 状态映射                            | 仅技术信息        | Excel 中文状态（运行中/已停止/维护中）→ 枚举映射规则                                                                                                     |
 | `cmdb_ci_id` / `cmdb_business_path` 等 | 仅技术信息        | CMDB 预留字段（v0.4+，Excel 模板保留列）                                                                                                        |
 | `network_domain_id`                   | 网域           | 资源归属网域（对应 CMDB 云区域，v0.4+）                                                                                                           |
 | `biz_code`                     | 业务        | 业务归属**不可变编码**（如 payment、data-api），对业务分组字典主键；展示名 `biz_name` 仅 UI 展示；经标签模板映射为 `biz` label；停用条目不可新选，存量资源保留历史值                                                           |
 | `biz_name`                     | 业务名        | 业务分组字典展示名，仅 UI 展示，修改不触发监控配置重新生成 / 下发；停用业务以「业务名（已停用）」标识                                                           |
+| 业务管理                        | 业务管理        | 业务分组字典维护页（决策 48）：列表 + 登记 + 受限编辑（仅 biz_name / description / 状态）+ 停用；字典落 DB，`business_domains.yaml` 仅首次启动 seed；`biz_code` 创建后不可改、停用不删除、`infra` 禁止停用/删除 |
 | `biz`（label）                        | 业务标签        | 业务聚合标签：值 = 资源 `biz_code` 不可变编码；`biz_name` 仅 UI 展示，修改展示名不影响监控配置                                                                                            |
 | 业务指标标签规范（5.15）                   | 仅技术信息        | 业务指标 ↔ 静态资源关联契约：`app` / `biz` 关联键、机制 A 抓取注入 + 机制 B relabel 兜底、业务维度标签不参与资源关联                                        |
 | `PROTECTED_PROMETHEUS_LABELS`         | 仅技术信息        | 保护 label（instance / job 等），用户禁止覆盖                                                                                                   |
@@ -1137,6 +1163,11 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 | 导入记录 | 空态 | 「暂无导入记录」，提供「下载模板」+「上传 Excel」引导 |
 | 导入记录 | 接口错误 | Alert 提示「导入记录加载失败，请稍后重试」，提供「重新加载」按钮 |
 | 导入记录 | 数据超量 | 表格分页，支持按资源类型 / 状态筛选 |
+| 业务管理 | 加载中 | 表格骨架屏 |
+| 业务管理 | 空态 | 「暂无业务分组」，提供「登记业务」引导（正常启动后 seed 已导入 `infra` 兜底条目，空态仅出现在 seed 前或异常场景） |
+| 业务管理 | 接口错误 | Alert 提示「业务分组加载失败，请稍后重试」，提供「重新加载」按钮 |
+| 业务管理 | 登记校验失败 | 编码不规范 / 重复时字段下方提示「编码仅允许小写字母、数字、连字符（≤ 64 字符）」/「该业务编码已存在」；表单醒目提示「编码创建后不可改」 |
+| 业务管理 | 停用受限 | 对 `infra` 兜底条目点停用时提示「infra 为无业务归属设备的兜底分组，不可停用」 |
 
 ### 11.2 全局行为规则
 
@@ -1146,13 +1177,14 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 - **表单校验错误位置**：字段校验失败时错误提示置于字段下方；全局错误使用 Alert 置顶展示。
 - **提交中防重复**：创建 / 编辑 / 保存按钮在提交期间置为 loading 并禁用，等待接口返回后再恢复。
 - **网域列默认展示且单网域模式不可隐藏**：即使单网域模式（`multi_site_enabled=false`），资源列表 / 详情 / Excel 模板仍保留「网域」列；网域作为云区域概念从 CMDB / Excel 带入，列显隐配置中隐藏需用户主动关闭（见 5.4「网域列展示策略」）。
-- **业务列默认展示**：资源列表与资源详情页展示「业务」列，显示业务字典 `biz_name`；**停用业务在列/详情中以「业务名（已停用）」标识**（存量资源保留历史值、仍可显示）；`biz_code` 字段在新增/编辑表单中为必填下拉选择（下拉仅含启用条目，停用条目不可选）；MVP 不提供业务分组管理页面，业务字典由配置文件预置。
+- **业务列默认展示**：资源列表与资源详情页展示「业务」列，显示业务字典 `biz_name`；**停用业务在列/详情中以「业务名（已停用）」标识**（存量资源保留历史值、仍可显示）；`biz_code` 字段在新增/编辑表单中为必填下拉选择（下拉仅含启用条目，停用条目不可选）；MVP 起业务字典由「业务管理」页维护（落 DB，配置文件仅首次启动 seed，决策 48）。
+- **业务字典红线（决策 48）**：业务管理页表单与服务端共同硬化红线——`biz_code` 创建后不可改（创建时编码规范校验 + 醒目提示）；编辑仅开放 `biz_name` / `description` / 状态；不提供删除入口（停用不删除）；`infra` 兜底条目禁止停用/删除；`biz_name` 修改不触发监控配置重新生成 / 下发。
 - **「网域」筛选器记忆与切换**：资源列表「网域」筛选器默认记忆上次选择，始终提供「全部网域」选项支持跨域搜索；不采用顶部「当前网域」全局上下文切换器。
 - **Excel 导入空态引导**：导入记录空态提供「下载模板」引导（模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 枚举列合法值，见 5.16.1）；导入失败展示校验报告（行号 / 字段 / 原因），未登记网域报错引导闭环到 M06、未登记业务报错引导联系平台管理员维护业务字典配置（见 5.16.1）。
 - **静态资源标签只读提示**：静态资源（host / middleware / generic\_target）标签区只读展示来源（system / cmdb / Excel 带入），不提供实例级打标入口；写请求返回 403 时提示原因（见 3.3 / 6.2）。
 - **保存模板 / 映射后影响反馈**：模板 / 映射保存成功后给出影响反馈（替代单纯「保存成功」）——「本模板被 N 个采集 Job 引用（M 个网域），将按新映射重新生成标签」，并提供「查看引用 Job」入口；生效语义按版本区分（MVP = 重新生成并立即生效；v0.2+ = 前往配置中心确认后生效）（见 3.2「保存后影响提示」）；MVP 同时提示「**无版本回滚能力，修改立即生效**」——每次变更落只读修改快照（操作人 / 时间 / 旧值 / 新值），版本化切换 UI 为 P1（见 3.2 / 5.3）。
 - **跨模块跳转**：标签模板页「被引用 Job」数据由 Module\_01 只读接口提供（跳转查看）；删除资源 403 报错提供「查看引用 Job」跳转；网域登记跳转 Module\_06；配置变更确认跳转 Module\_09（v0.2+ 启用）。跨模块跳转由统一导航配置承载，原型可暂用相对路径演示。
-- **「未监控」筛选（决策 31-M1）**：资源列表提供「未监控」筛选器（`is_monitored=false`，字段由 M01 维护、M07 只读映射）；不展示「采集成功」详情（归 M02 目标状态页）；「未纳入任何 Job」同步在 M01 实例选择器可筛（见 5.2 采集状态口径）。
+- **采集状态三态 badge（决策 47-3）**：资源列表「采集状态」列展示三态（采集中 / 已下发未采到 / 未监控），支持筛选；异常驱动展示——仅「已下发未采到」高饱和并可附提醒「配置已下发但未采集到数据，请检查采集器安装与网络连通」；数据 = M01 选中关系（`is_monitored` 只读映射）+ M02 健康度/覆盖率 API（聚合调用，禁止逐行查询）；「未纳入任何 Job」同步在 M01 实例选择器可筛（见 5.2 采集状态口径）。
 
 ***
 
@@ -1162,6 +1194,8 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | --- |
+| v2.23 | 2026-08-28 | 修改 | 业务分组字典管理页提级 MVP（决策 48）：①§3.1 业务分组字典行改写——MVP 提供业务管理页（列表 + 登记 + 受限编辑 + 停用），`business_domains.yaml` 降级为首次启动 seed、热加载退役，红线硬化（`biz_code` 永不可改 / 停用不删除 / `infra` 禁止停用删除）；②新增 §5.18 `BusinessDomain` 实体（字段表 + 红线 + 消费链路说明），明确 `biz` 为预留业务属性关联映射字段、与 `app` 资源属性的粒度区分；③§5.16.1 导入报错文案改「前往业务管理登记」；④§6.1 新增 POST / PUT business-domains 接口（PUT 仅 biz_name/description/status）；⑤§9.1/§9.2 新增管理页与数据链路验收（原「MVP 无写接口」条目改写）；⑥§10 术语新增「业务管理」、§11.1 新增页面状态矩阵 5 行、§11.2 新增红线规则；⑦全局用户故事库新增 M07-OPS-10；原型业务管理页待补 | MVP | 设计中 |
+| v2.22 | 2026-08-28 | 修改 | 采集状态 badge 三态化（决策 47-3，修订决策 31-M1）：①§3.1「采集状态归 M01/M02」行改为「采集状态 badge（三态）」P0——采集中 / 已下发未采到 / 未监控，数据 = M01 `is_monitored` 选中关系 + M02 健康度/覆盖率 API（按 `resource_id` 回连，MVP 起）；②§5.2 采集状态口径整体改写（三态消解「被引用误读为在监控中」顾虑，M07 不直连时序数据不变，禁止逐行查询 TQ-6）；③§6.1 列表 Query `is_monitored` → `collection_status` 三态筛选；④§6.5 / §7 依赖表述同步；⑤§9.1 / §9.2 新增 badge 验收与数据链路验收；⑥§10 术语新增「采集状态」行、§11.2 全局行为改写；⑦ARCH-03 落点改指 M07 badge + M01 回显；原型 ResourcesPage 待对齐（头部原型版本标注未对齐） | MVP | 设计中 |
 | v2.21 | 2026-08-21 | 修改 | 资源列表可辨认性优化（决策 32）：①「状态」列 UI 更名「**运行状态**」（`Resource.status` 字段不变），表意贴近取值并与「采集状态」「来源」列区分（5.2 status 行 / 术语映射同步）；②「运行状态」数据来源（CMDB / Excel / 手动）非 M07 自身功能，列头以**隐藏样式**（hover 提示）标注、不占列宽（5.2 新增决策 32 说明），原型 ResourcesPage 状态列头同步隐藏化 | MVP | 设计中 |
 | v2.20 | 2026-08-21 | 修改 | 四模块 MVP 残余缺陷收敛落版（决策 29 / 31-M1，见 design-decisions.md 决策 28~31）：①offline 排除**提级 P0**——8.1「目标采集契约，MVP 不保证」措辞改写为「决策 29 MVP 必实现」，明确 M09 生成 targets 时过滤 `Resource.status=offline`、offline 后下一配置生成周期即从 targets 移除、不触发 reload，M01 候选实例显示但置灰（3.1 / 5.2 / 5.16.2 / 8.1 同步）；②资源列表新增「未监控」筛选（决策 31-M1）——`is_monitored` 字段由 M01 维护、M07 只读映射，`GET /api/v2/platform/resources` 增加 `is_monitored` query 参数，5.2 采集状态口径由「已取消」改为「弱依赖只读筛选」（3.1 / 6.x / 11 同步）；8.1 记录完整覆盖率视图归 v0.2+ 为已知裁剪 | MVP / v0.4 / v1.0 | 设计中 |
 | v2.19 | 2026-08-19 | 修改 | 评审结论落版（2026-08-19 第三轮讨论，见 design-decisions.md「评审结论（2026-08-19 第三轮讨论）」）：①跨模块契约延后随 M01 节奏——8.1 `offline` 排除语义与 5.2 采集状态口径降级为「目标语义，MVP 不保证」（3.1 / 5.2 status 行同步）；②biz_code 字典 MVP 运维口径补全——配置文件 `platform/config/business_domains.yaml` 热加载生效、报错文案改可执行指引、初始字典命名评审、强制预置兜底条目 `infra`（3.1 / 5.16.1）；③Excel 模板改后端生成静态 xlsx + 「取值说明 sheet」（MVP 不做 dataValidation 下拉）；④5.16.2 补 upsert 不删除声明与批量下线动线；⑤5.17.2 示例补 `biz_code`、`resource_id` 改 uuid 形态；⑥§2 M07-OPS-08 改全类型口径 | MVP / v0.4 / v1.0 | 设计中 |
