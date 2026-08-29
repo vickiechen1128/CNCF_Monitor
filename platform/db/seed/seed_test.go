@@ -28,6 +28,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.Tenant{},
 		&models.NetworkDomain{},
 		&models.ZoneType{},
+		&models.User{},
 		&models.LabelTemplate{},
 		&models.ExporterTemplate{},
 		&models.CITypeExporterMapping{},

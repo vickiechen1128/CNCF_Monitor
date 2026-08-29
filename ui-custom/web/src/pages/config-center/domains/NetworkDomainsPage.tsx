@@ -359,23 +359,23 @@ export function NetworkDomainsPage() {
                     <Space size={8}>
                       <InfoCircleOutlined style={{ color: '#1677ff' }} />
                       <Text strong>新网域接入操作流程（安装指引）</Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>点击展开（local 通道网域无需查看）</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>点击展开（中心直接采集的网域无需查看）</Text>
                     </Space>
                   ),
                   children: (
                     <div>
                       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                        适用于所有已纳管的 <Text code>agent_pull</Text> 通道网域（远端/隔离采集节点）；local 通道网域（如 default）由中心直接采集，
-                        无需安装 Edge Sync Agent。
+                        本流程适用于远端 / 隔离节点上的网域，这类网域需要部署采集代理（Edge Sync Agent）才能把数据送回平台；
+                        中心本地节点上的网域（如 default）无需部署，平台直接采集，可跳过本流程。
                       </Typography.Paragraph>
                       <Steps
                         size="small"
                         direction="vertical"
                         current={-1}
                         items={[
-                          { title: '在网域纳管页完成监控纳管', description: '成功后自动签发 Token 与 Remote Write URL' },
-                          { title: '下载边缘一体化离线包并部署', description: 'Edge Sync Agent 由 systemd 管理，自动拉起采集器与 exporter' },
-                          { title: 'Agent 心跳回连中心', description: '配置包自动拉取，运行态与心跳状态落到本页运行状态列' },
+                          { title: '纳管网域', description: '在网域列表点击「纳管」，平台自动生成接入凭证（Token）与数据上报地址（Remote Write URL）' },
+                          { title: '部署采集代理', description: '下载采集代理安装包并部署到该网域节点；安装后会自动拉起各采集器并在后台持续运行（Edge Sync Agent 由 systemd 守护）' },
+                          { title: '等待数据回连', description: '采集代理自动连接平台拉取配置，可在本页「运行状态」列随时查看心跳与运行情况' },
                         ]}
                       />
                     </div>

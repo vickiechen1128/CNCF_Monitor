@@ -48,6 +48,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NetworkDomain{},
 		&models.ZoneType{},
 		&models.ResourceStatusMapping{},
+		// 用户认证（Module_06 §5.3，tu-01；seed.Run 会写入初始管理员 admin）
+		&models.User{},
 		// 五类资源（M07）
 		&models.Host{},
 		&models.Database{},

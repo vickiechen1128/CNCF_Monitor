@@ -9,8 +9,10 @@
 ### POST /api/v2/platform/auth/login
 
 - 请求：`{"username": "admin", "password": "admin123"}`
-- 成功 200：`data = {"token": "<不透明随机串>", "expires_at": "2026-08-28T22:00:00+08:00", "user": {"id": "...", "username": "admin", "display_name": "系统管理员", "tenant_id": "platform_admin"}}`
+- 成功 200：`data = {"token": "<不透明随机串>", "expires_at": "2026-08-28T22:00:00+08:00", "user": {"id": "...", "username": "admin", "display_name": "系统管理员", "tenant_id": "platform_admin", "role": "admin"}}`
 - 失败 401：`errorType=unauthorized`，**统一「用户名或密码错误」，不区分账号不存在 / 密码错误**（防账号枚举）；成功与失败均写 LoginLog
+- 失败 429（sec-01/M-1 登录失败限流）：同一用户名连续失败 5 次 / 15 分钟窗口后锁定 15 分钟，锁定期内 `errorType=too_many_requests`、文案「尝试次数过多，请稍后再试」；成功登录解除失败计数
+- 登录失败 LoginLog（sec-01/M-2）：`message` 一律写入「用户名或密码错误」，不再区分「账号不存在 / 账号已禁用 / 密码错误」，避免 DB 泄露账号存在性
 
 ### POST /api/v2/platform/auth/logout
 
@@ -59,7 +61,8 @@
 
 ### GET /api/v2/platform/tenants
 
-- 成功 200：`data = {"items": [Tenant], "total": 1}`（MVP 仅 `platform_admin`）
+- 查询参数：`status`（可选，如 `active`/`suspended`，按状态筛选）
+- 成功 200：`data = {"items": [Tenant], "total": 1}`（MVP 仅 `platform_admin`）；列表信封 `{items, total}`（已从 `networkdomain` 收口统一到本接口，原 `{list, page, page_size}` 旧信封不再使用）
 
 ### GET /api/v2/platform/tenants/:id
 

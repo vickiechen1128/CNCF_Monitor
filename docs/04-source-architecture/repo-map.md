@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-08-28 16:23 · commit: `aa48bf18`
+> 生成时间: 2026-08-29 12:10 · commit: `7ce19629`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -110,19 +110,10 @@
 - `func TestInvalidStatusValue(t *testing.T)`
 - `func TestStatusNotFound(t *testing.T)`
 
-### `platform/admin/networkdomain/tenant.go`
-
-- `func ListTenants(db *gorm.DB) gin.HandlerFunc`
-
 ### `platform/admin/networkdomain/tenant_auth.go`
 
 - `func containsStr(list []string, s string) bool`
 - `func syncAuthorizedTenants(db *gorm.DB, domainID string, tenantIDs []string) error`
-
-### `platform/admin/networkdomain/tenant_test.go`
-
-- `func TestListTenantsSeeded(t *testing.T)`
-- `func TestListTenantsStatusFilter(t *testing.T)`
 
 ### `platform/admin/networkdomain/testutil_test.go`
 
@@ -156,6 +147,150 @@
 - `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
 - `func TestListZoneTypesEmpty(t *testing.T)`
 
+### `platform/admin/tenant/handler.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type Handler struct`
+- `func NewHandler(svc *Service) *Handler`
+- `type tenantDTO struct`
+- `func toTenantDTO(tn *models.Tenant) tenantDTO`
+- `type updateTenantRequest struct`
+- `method (*Handler) ListTenants(c *gin.Context)`
+- `method (*Handler) GetTenant(c *gin.Context)`
+- `method (*Handler) UpdateTenant(c *gin.Context)`
+- `method (*Handler) CreateTenantNotAllowed(c *gin.Context)`
+- `method (*Handler) UpdateTenantStatusNotAllowed(c *gin.Context)`
+- `func writeError(c *gin.Context, err error)`
+- `func errInvalidPayload(err error) error`
+- `func parsePage(c *gin.Context) (int, int)`
+- `func parseIntDefault(raw string, def int) int`
+
+### `platform/admin/tenant/handler_test.go`
+
+- `func openTestDB(t *testing.T) *gorm.DB`
+- `func seedTenant(t *testing.T, db *gorm.DB, id, name string, multiSite bool) models.Tenant`
+- `func newTestRouter(db *gorm.DB) *gin.Engine`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `type envelope struct`
+- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
+- `func TestListTenants_Success(t *testing.T)`
+- `func TestListTenants_Pagination(t *testing.T)`
+- `func TestListTenants_StatusFilter(t *testing.T)`
+- `func TestGetTenant_Success(t *testing.T)`
+- `func TestGetTenant_NotFound(t *testing.T)`
+- `func TestUpdateTenant_Success(t *testing.T)`
+- `func TestUpdateTenant_Validation(t *testing.T)`
+- `func TestUpdateTenant_NotFound(t *testing.T)`
+- `func TestCreateTenant_Forbidden(t *testing.T)`
+- `func TestUpdateTenantStatus_Forbidden(t *testing.T)`
+- `func TestTenantFieldsConformToContract(t *testing.T)`
+
+### `platform/admin/tenant/repository.go`
+
+- `type Repository struct`
+- `func NewRepository(db *gorm.DB) *Repository`
+- `method (*Repository) FindByID(id string) (*models.Tenant, error)`
+- `method (*Repository) ListTenants(page, pageSize int, status string) ([]models.Tenant, int64, error)`
+- `method (*Repository) Save(tn *models.Tenant) error`
+
+### `platform/admin/tenant/service.go`
+
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `func newValidationError(format string, args ...interface{}) *ValidationError`
+- `type Service struct`
+- `func NewService(repo *Repository) *Service`
+- `method (*Service) ListTenants(page, pageSize int, status string) ([]models.Tenant, int64, error)`
+- `method (*Service) GetTenant(id string) (*models.Tenant, error)`
+- `method (*Service) UpdateTenant(id string, name *string, multiSiteEnabled *bool) (*models.Tenant, error)`
+
+### `platform/admin/user/handler.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type Handler struct`
+- `func NewHandler(svc *Service) *Handler`
+- `type userDTO struct`
+- `func toUserDTO(u *models.User) userDTO`
+- `type loginLogDTO struct`
+- `func toLoginLogDTO(l *models.LoginLog) loginLogDTO`
+- `type createUserRequest struct`
+- `type updateUserRequest struct`
+- `type updateStatusRequest struct`
+- `type resetPasswordRequest struct`
+- `method (*Handler) CreateUser(c *gin.Context)`
+- `method (*Handler) ListUsers(c *gin.Context)`
+- `method (*Handler) UpdateUser(c *gin.Context)`
+- `method (*Handler) UpdateUserStatus(c *gin.Context)`
+- `method (*Handler) DeleteUser(c *gin.Context)`
+- `method (*Handler) ResetPassword(c *gin.Context)`
+- `method (*Handler) ListLoginLogs(c *gin.Context)`
+- `func writeError(c *gin.Context, err error)`
+- `func errInvalidPayload(err error) error`
+- `func parsePage(c *gin.Context) (int, int)`
+- `func parseIntDefault(raw string, def int) int`
+
+### `platform/admin/user/handler_test.go`
+
+- `func openTestDB(t *testing.T) *gorm.DB`
+- `func newTestRouter(db *gorm.DB) *gin.Engine`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `type envelope struct`
+- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
+- `func seedSession(t *testing.T, db *gorm.DB, userID, token string)`
+- `func countSessions(t *testing.T, db *gorm.DB, userID string) int64`
+- `func createUserViaAPI(t *testing.T, r *gin.Engine, username, displayName, password string) map[string]interface{}`
+- `func TestCreateUser_Success(t *testing.T)`
+- `func TestCreateUser_ResponseNeverLeaksPasswordHash(t *testing.T)`
+- `func TestCreateUser_DuplicateUsername(t *testing.T)`
+- `func TestCreateUser_Validation(t *testing.T)`
+- `func TestDeleteUser_RemoveOrdinaryUser(t *testing.T)`
+- `func TestDeleteUser_AdminForbidden(t *testing.T)`
+- `func TestDeleteUser_NotFound(t *testing.T)`
+- `func TestListUsers_PaginationAndFields(t *testing.T)`
+- `func TestUpdateUser_DisplayName(t *testing.T)`
+- `func TestUpdateUser_UsernameImmutable(t *testing.T)`
+- `func TestUpdateUser_NotFound(t *testing.T)`
+- `func TestUpdateUserStatus_DisableInvalidatesSessions(t *testing.T)`
+- `func TestUpdateUserStatus_InvalidValue(t *testing.T)`
+- `func TestUpdateUserStatus_NotFound(t *testing.T)`
+- `func TestResetPassword_UpdatesHashAndInvalidatesSessions(t *testing.T)`
+- `func TestResetPassword_ValidationAndNotFound(t *testing.T)`
+- `func TestListLoginLogs_FilterOrderPagination(t *testing.T)`
+
+### `platform/admin/user/repository.go`
+
+- `type Repository struct`
+- `func NewRepository(db *gorm.DB) *Repository`
+- `method (*Repository) ExistsByUsername(username string) (bool, error)`
+- `method (*Repository) Create(u *models.User) error`
+- `method (*Repository) FindByID(id string) (*models.User, error)`
+- `method (*Repository) ListUsers(page, pageSize int) ([]models.User, int64, error)`
+- `method (*Repository) Save(u *models.User) error`
+- `method (*Repository) Delete(id string) error`
+- `method (*Repository) DeleteSessionsByUserID(userID string) error`
+- `method (*Repository) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
+- `func isUniqueConstraintError(err error) bool`
+
+### `platform/admin/user/service.go`
+
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `func newValidationError(format string, args ...interface{}) *ValidationError`
+- `type Service struct`
+- `func NewService(repo *Repository) *Service`
+- `type CreateUserInput struct`
+- `func normalizeRole(role string) (string, error)`
+- `method (*Service) CreateUser(in CreateUserInput) (*models.User, error)`
+- `method (*Service) ListUsers(page, pageSize int) ([]models.User, int64, error)`
+- `method (*Service) UpdateDisplayName(id, displayName string) (*models.User, error)`
+- `method (*Service) UpdateRole(id, role string) (*models.User, error)`
+- `method (*Service) UpdateStatus(id string, status models.UserStatus) (*models.User, error)`
+- `method (*Service) ResetPassword(id, newPassword string) error`
+- `method (*Service) DeleteUser(id string) error`
+- `method (*Service) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
+- `func validatePassword(password string) error`
+- `func newUserID() (string, error)`
+
 ### `platform/api/response/response.go`
 
 - `type Response struct`
@@ -167,6 +302,7 @@
 - `func Unauthorized(c *gin.Context, message string)`
 - `func Forbidden(c *gin.Context, message string)`
 - `func NotFound(c *gin.Context, message string)`
+- `func TooManyRequests(c *gin.Context, message string)`
 - `func InternalServerError(c *gin.Context, err error)`
 - `func strError(message string) error`
 - `type strErr = string`
@@ -1174,8 +1310,21 @@
 - `func TestInitWithEnvDSN(t *testing.T)`
 - `func TestAutoMigrate(t *testing.T)`
 - `func TestInitDefaultPath(t *testing.T)`
+- `func TestAuthTablesMigrated(t *testing.T)`
 - `func TestHealthWithoutInit(t *testing.T)`
 - `func TestSharedTablesCreatedAndHealthOK(t *testing.T)`
+
+### `platform/db/seed/admin.go`
+
+- `func runAdminUser(db *gorm.DB) error`
+
+### `platform/db/seed/admin_test.go`
+
+- `func TestRunSeedsAdminUser(t *testing.T)`
+- `func TestRunAdminIsIdempotent(t *testing.T)`
+- `func TestRunAdminKeepsModifiedPassword(t *testing.T)`
+- `func TestRunAdminPasswordFromEnv(t *testing.T)`
+- `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
 
 ### `platform/db/seed/exporter.go`
 
@@ -1225,6 +1374,127 @@
 - `func init()`
 - `func main()`
 - `func simulateMetrics()`
+
+### `platform/gateway/auth/admin_middleware.go`
+
+- `func RequireAdmin() gin.HandlerFunc`
+
+### `platform/gateway/auth/admin_middleware_test.go`
+
+- `func ctxUserRouter(u *models.User, noContext bool) *gin.Engine`
+- `func TestRequireAdmin_AdminAllowed(t *testing.T)`
+- `func TestRequireAdmin_RegularUserRejected(t *testing.T)`
+- `func TestRequireAdmin_NoUserInContextRejected(t *testing.T)`
+- `func TestRequireAdmin_DisabledAdminRejected(t *testing.T)`
+- `func TestRequireAdmin_WrongContextTypeRejected(t *testing.T)`
+
+### `platform/gateway/auth/handler.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type Handler struct`
+- `func NewHandler(svc *Service) *Handler`
+- `type loginUserDTO struct`
+- `type meDTO struct`
+- `type loginRequest struct`
+- `type changePasswordRequest struct`
+- `method (*Handler) Login(c *gin.Context)`
+- `method (*Handler) Logout(c *gin.Context)`
+- `method (*Handler) Me(c *gin.Context)`
+- `method (*Handler) ChangePassword(c *gin.Context)`
+- `func bearerToken(c *gin.Context) string`
+- `func writeError(c *gin.Context, err error)`
+- `func errInvalidPayload(err error) error`
+
+### `platform/gateway/auth/handler_test.go`
+
+- `func openTestDB(t *testing.T) *gorm.DB`
+- `func newTestRouter(db *gorm.DB) *gin.Engine`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body, token string) *httptest.ResponseRecorder`
+- `type envelope struct`
+- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
+- `func seedUser(t *testing.T, db *gorm.DB, id, username, displayName, password string) *models.User`
+- `func loginAndToken(t *testing.T, r *gin.Engine, username, password string) string`
+- `func countSessions(t *testing.T, db *gorm.DB, userID string) int64`
+- `func countLoginLogs(t *testing.T, db *gorm.DB, username string) int64`
+- `func TestLogin_Success(t *testing.T)`
+- `func TestLogin_Failure_UnifiedAndLogged(t *testing.T)`
+- `func TestLogin_DisabledUser(t *testing.T)`
+- `func TestLogin_ResponseNeverLeaksPasswordHash(t *testing.T)`
+- `func TestLogin_MalformedJSON(t *testing.T)`
+- `func TestLogout_Idempotent(t *testing.T)`
+- `func TestLogout_MissingToken(t *testing.T)`
+- `func TestMe_ValidToken(t *testing.T)`
+- `func TestMe_InvalidOrMissingToken(t *testing.T)`
+- `func TestMe_ExpiredSession(t *testing.T)`
+- `func TestMe_DisabledUserSessionInvalid(t *testing.T)`
+- `func TestChangePassword_SuccessInvalidatesSessions(t *testing.T)`
+- `func TestChangePassword_WrongOldPassword(t *testing.T)`
+- `func TestChangePassword_Validation(t *testing.T)`
+- `func TestAuthenticate_ReuseFixture(t *testing.T)`
+- `func TestGenerateToken_StrengthAndUniqueness(t *testing.T)`
+
+### `platform/gateway/auth/middleware.go`
+
+- `func AuthMiddleware(svc *Service) gin.HandlerFunc`
+
+### `platform/gateway/auth/middleware_test.go`
+
+- `func newMiddlewareRouter(db *gorm.DB) *gin.Engine`
+- `func loginToken(t *testing.T, db *gorm.DB, username, password string) string`
+- `func unmarshalData(t *testing.T, raw json.RawMessage, v interface{})`
+- `func TestMiddleware_AnonymousProtectedRejected(t *testing.T)`
+- `func TestMiddleware_LoginAndHealthBypass(t *testing.T)`
+- `func TestMiddleware_ValidTokenPasses(t *testing.T)`
+- `func TestMiddleware_ExpiredLogoutDisabledRejected(t *testing.T)`
+- `func TestMiddleware_OptionsPreflightPasses(t *testing.T)`
+- `func TestMiddleware_NoAuthorization(t *testing.T)`
+
+### `platform/gateway/auth/ratelimit_test.go`
+
+- `func TestLoginRateLimiter_ThresholdLocksAndExpires(t *testing.T)`
+- `func TestLoginRateLimiter_WindowSlidingReset(t *testing.T)`
+- `func TestLoginRateLimiter_ResetClears(t *testing.T)`
+- `func TestLogin_RateLimitLocksAfterThreshold(t *testing.T)`
+- `func TestLogin_RateLimitResetAfterSuccess(t *testing.T)`
+
+### `platform/gateway/auth/repository.go`
+
+- `type Repository struct`
+- `func NewRepository(db *gorm.DB) *Repository`
+- `method (*Repository) FindUserByUsername(username string) (*models.User, error)`
+- `method (*Repository) FindUserByID(id string) (*models.User, error)`
+- `method (*Repository) SaveUser(u *models.User) error`
+- `method (*Repository) CreateSession(sess *models.Session) error`
+- `method (*Repository) FindSessionByToken(token string) (*models.Session, error)`
+- `method (*Repository) DeleteSessionByToken(token string) error`
+- `method (*Repository) DeleteSessionsByUserID(userID string) error`
+- `method (*Repository) CreateLoginLog(log *models.LoginLog) error`
+
+### `platform/gateway/auth/service.go`
+
+- `type loginAttempt struct`
+- `type loginRateLimiter struct`
+- `func newLoginRateLimiter() *loginRateLimiter`
+- `method (*loginRateLimiter) checkLocked(username string, now time.Time) bool`
+- `method (*loginRateLimiter) recordFailure(username string, now time.Time) bool`
+- `method (*loginRateLimiter) reset(username string)`
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `func newValidationError(format string, args ...interface{}) *ValidationError`
+- `type Service struct`
+- `func NewService(repo *Repository) *Service`
+- `type LoginResult struct`
+- `method (*Service) Login(username, password, ip string) (*LoginResult, error)`
+- `method (*Service) Logout(token string) error`
+- `method (*Service) Authenticate(token string) (*models.User, error)`
+- `method (*Service) ChangePassword(token, oldPassword, newPassword string) error`
+- `method (*Service) logLogin(username string, success bool, message, ip string)`
+- `func validatePassword(password string) error`
+
+### `platform/gateway/auth/token.go`
+
+- `func generateToken() (string, error)`
+- `func newID() (string, error)`
 
 ### `platform/models/blackbox_probe.go`
 
@@ -1535,6 +1805,25 @@
 - `type Tenant struct`
 - `method (Tenant) TableName() string`
 
+### `platform/models/user.go`
+
+- `type UserStatus = string`
+- `type User struct`
+- `method (User) TableName() string`
+- `type Session struct`
+- `method (Session) TableName() string`
+- `type LoginLog struct`
+- `method (LoginLog) TableName() string`
+
+### `platform/models/user_test.go`
+
+- `func TestUserTableNames(t *testing.T)`
+- `func TestUserJSONDoesNotExposePasswordHash(t *testing.T)`
+- `func TestUserStatusConstants(t *testing.T)`
+- `func TestSessionTTLSemantic(t *testing.T)`
+- `func TestSessionJSONContract(t *testing.T)`
+- `func TestLoginLogJSONContract(t *testing.T)`
+
 ### `platform/models/zone_type.go`
 
 - `type ZoneTypeCode = string`
@@ -1834,6 +2123,18 @@
 
 ## ui-custom/web/src/（React 前端）
 
+### `ui-custom/web/src/App.tsx`
+
+- `function RequireAuth`
+
+### `ui-custom/web/src/api/admin.ts`
+
+- `interface UsersListParams`
+- `interface LoginLogsListParams`
+- `const userApi`
+- `const loginLogApi`
+- `const tenantAdminApi`
+
 ### `ui-custom/web/src/api/ciExporterMappings.ts`
 
 - `interface CITypeExporterMappingListParams`
@@ -1843,6 +2144,12 @@
 
 ### `ui-custom/web/src/api/client.ts`
 
+- `function getToken`
+- `function setToken`
+- `function clearToken`
+- `function setStoredUser`
+- `function getStoredUser`
+- `function setUnauthorizedNavigate`
 - `class ApiError`
 - `function isApiError`
 - `function request`
@@ -1979,6 +2286,51 @@
 - `type DomainFilters`
 - `interface UseDomainsResult`
 - `function useDomains`
+
+### `ui-custom/web/src/pages/admin/login-logs/LoginLogsPage.tsx`
+
+- `function LoginLogsPage`
+
+### `ui-custom/web/src/pages/admin/login-logs/useLoginLogs.ts`
+
+- `interface LoginLogFilters`
+- `interface UseLoginLogsResult`
+- `function useLoginLogs`
+
+### `ui-custom/web/src/pages/admin/tenants/TenantDetailDrawer.tsx`
+
+- `function TenantDetailDrawer`
+
+### `ui-custom/web/src/pages/admin/tenants/TenantEditModal.tsx`
+
+- `function TenantEditModal`
+
+### `ui-custom/web/src/pages/admin/tenants/TenantsPage.tsx`
+
+- `function TenantsPage`
+
+### `ui-custom/web/src/pages/admin/tenants/useTenants.ts`
+
+- `interface TenantFilters`
+- `interface UseTenantsResult`
+- `function useTenants`
+
+### `ui-custom/web/src/pages/admin/users/ResetPasswordModal.tsx`
+
+- `function ResetPasswordModal`
+
+### `ui-custom/web/src/pages/admin/users/UserFormModal.tsx`
+
+- `function UserFormModal`
+
+### `ui-custom/web/src/pages/admin/users/UsersPage.tsx`
+
+- `function UsersPage`
+
+### `ui-custom/web/src/pages/admin/users/useUsers.ts`
+
+- `interface UseUsersResult`
+- `function useUsers`
 
 ### `ui-custom/web/src/pages/alerts/AlertsPage.tsx`
 
@@ -2124,6 +2476,10 @@
 - `const CMDB_FIELD_OPTIONS`
 - `const PROMETHEUS_BUILTIN_OPTIONS`
 
+### `ui-custom/web/src/pages/login/LoginPage.tsx`
+
+- `function LoginPage`
+
 ### `ui-custom/web/src/pages/query/QueryPage.tsx`
 
 - `function QueryPage`
@@ -2252,6 +2608,17 @@
 - `const volcengineTokens`
 - `const volcengineTheme`
 
+### `ui-custom/web/src/types/admin.ts`
+
+- `type UserStatus`
+- `interface UserItem`
+- `interface LoginLogItem`
+- `interface UserCreateInput`
+- `interface UserUpdateInput`
+- `interface ResetPasswordInput`
+- `interface TenantEditInput`
+- `interface ItemsResult`
+
 ### `ui-custom/web/src/types/api.ts`
 
 - `type ApiStatus`
@@ -2259,6 +2626,11 @@
 - `interface ApiErrorResponse`
 - `type ApiError`
 - `interface Paginated`
+
+### `ui-custom/web/src/types/auth.ts`
+
+- `interface AuthUser`
+- `interface LoginResult`
 
 ### `ui-custom/web/src/types/config-center.ts`
 

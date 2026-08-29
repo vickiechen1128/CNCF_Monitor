@@ -1,8 +1,24 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../test/antdTestUtils'
 import { MainLayout } from './MainLayout'
+
+// 顶部栏右上角展示依赖 api/client.getStoredUser（jsdom 无 localStorage 可用），
+// 此处 mock 返回一个已登录的管理员账号。
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>()
+  return {
+    ...actual,
+    getStoredUser: () => ({
+      id: 'admin',
+      username: 'admin',
+      display_name: '系统管理员',
+      tenant_id: 'platform_admin',
+      role: 'admin',
+    }),
+  }
+})
 
 describe('MainLayout', () => {
   setupAntdTest()
@@ -28,6 +44,23 @@ describe('MainLayout', () => {
     expect(collectorsIdx).toBeGreaterThan(-1)
     expect(collectorsIdx).toBeLessThan(jobsIdx)
     expect(screen.getByText('collector-content')).toBeInTheDocument()
+  })
+
+  it('navigates to /collectors (首个子项) when top-module 采集策略 clicked', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<MainLayout>home-content</MainLayout>} />
+          <Route path="/collectors" element={<MainLayout>collector-content</MainLayout>} />
+          <Route path="/scrape-jobs" element={<MainLayout>jobs-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('home-content')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('采集策略'))
+    // 点击一级 tab 应默认定位到第一个子项「采集器管理」（/collectors），而非「采集 Job」
+    await waitFor(() => expect(screen.getByText('collector-content')).toBeInTheDocument())
+    expect(screen.queryByText('jobs-content')).toBeNull()
   })
 
   it('navigates to /collectors when 采集器管理 sub-item clicked', () => {
@@ -57,18 +90,18 @@ describe('MainLayout', () => {
     // 顶部一级 tab：M09 独立为「网域与边缘配置中心」顶级模块
     expect(screen.getByText('网域与边缘配置中心')).toBeInTheDocument()
     expect(screen.getByText('系统与平台管理')).toBeInTheDocument()
-    // 「网域与节点管理」为可折叠子菜单：默认折叠，子项不常驻 Sider
+    // 「网域与节点管理」为低频折叠子菜单：默认折叠（/deployments 非其激活路由），子项不显示
     expect(screen.getByText('网域与节点管理')).toBeInTheDocument()
     expect(screen.queryByText('网域纳管')).toBeNull()
     expect(screen.queryByText('采集节点状态')).toBeNull()
-    // 「配置下发」同为可折叠子菜单：位于 /deployments（配置面路由）时自动展开，子项可见
+    // 「配置下发」为激活折叠组（/deployments 配置面路由）时自动展开，子项可见
     expect(screen.getByText('配置下发')).toBeInTheDocument()
     expect(await screen.findByText('配置变更确认')).toBeInTheDocument()
     expect(screen.getByText('下发记录')).toBeInTheDocument()
     expect(screen.getByText('deployments-content')).toBeInTheDocument()
   })
 
-  it('expands 网域与节点管理 submenu on click（低频接入面可折叠）', () => {
+  it('toggles 网域与节点管理 submenu on click（低频接入面可折叠）', async () => {
     render(
       <MemoryRouter initialEntries={['/deployments']}>
         <Routes>
@@ -76,9 +109,12 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
+    // /deployments 不激活「网域与节点管理」，默认折叠，子项不显示
     expect(screen.queryByText('网域纳管')).toBeNull()
+    expect(screen.queryByText('采集节点状态')).toBeNull()
+    // 点击组标题展开
     fireEvent.click(screen.getByText('网域与节点管理'))
-    expect(screen.getByText('网域纳管')).toBeInTheDocument()
+    expect(await screen.findByText('网域纳管')).toBeInTheDocument()
     expect(screen.getByText('采集节点状态')).toBeInTheDocument()
   })
 
@@ -93,10 +129,11 @@ describe('MainLayout', () => {
         </Routes>
       </MemoryRouter>,
     )
+    // 激活路由归属「网域与节点管理」：自动展开，子项可见
     expect(screen.getByText('网域与节点管理')).toBeInTheDocument()
     expect(await screen.findByText('网域纳管')).toBeInTheDocument()
     expect(screen.getByText('采集节点状态')).toBeInTheDocument()
-    // 「配置下发」在非配置面路由下保持折叠，子项不显示
+    // 「配置下发」非激活：默认折叠，子项不显示
     expect(screen.queryByText('配置变更确认')).toBeNull()
     expect(screen.queryByText('下发记录')).toBeNull()
     expect(screen.getByText('onboarding-content')).toBeInTheDocument()
@@ -165,5 +202,19 @@ describe('MainLayout', () => {
       .find((el) => (el.textContent || '').includes('网域与边缘配置中心'))
     expect(tab?.className ?? '').toContain('active')
     expect(screen.getByText('preview-content')).toBeInTheDocument()
+  })
+
+  it('shows role + username info in the header top-right when signed in', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<MainLayout>home-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 右上角：管理员角色标签 + 用户名（精简版，不含显示名称）
+    expect(screen.getByText('管理员')).toBeInTheDocument()
+    expect(screen.getByText('admin')).toBeInTheDocument()
+    expect(screen.getByText('home-content')).toBeInTheDocument()
   })
 })

@@ -1,4 +1,4 @@
-import { Layout, Menu, Typography } from 'antd'
+import { Layout, Menu, Tag, Typography } from 'antd'
 import {
   AppstoreOutlined,
   CloudServerOutlined,
@@ -12,6 +12,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuProps } from 'antd'
+import { getStoredUser } from '../api/client'
 
 const { Header, Sider, Content } = Layout
 const { Title } = Typography
@@ -58,7 +59,10 @@ const MODULES: ModuleDef[] = [
     label: '系统与平台管理',
     path: '/admin/domains',
     subItems: [
+      { key: '/admin/tenants', label: '租户管理', icon: <CloudServerOutlined /> },
       { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
+      { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
+      { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },
     ],
   },
   {
@@ -73,7 +77,7 @@ const MODULES: ModuleDef[] = [
   {
     key: 'monitoring-strategy',
     label: '采集策略',
-    path: '/scrape-jobs',
+    path: '/collectors',
     subItems: [
       { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
       { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
@@ -137,11 +141,17 @@ function findModuleByKey(key: string): ModuleDef {
 
 /**
  * 依据当前路由推断激活的一级模块。
- * /admin/domains → 系统与平台管理；/domain-onboarding、/node-status、/config-preview、/deployments → 网域与边缘配置中心；
+ * /admin/domains、/admin/users、/admin/tenants、/admin/login-logs → 系统与平台管理；/domain-onboarding、/node-status、/config-preview、/deployments → 网域与边缘配置中心；
  * /resources、/label-templates → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
-  if (locationPath.startsWith('/admin/domains')) return findModuleByKey('platform-admin')
+  if (
+    locationPath.startsWith('/admin/domains') ||
+    locationPath.startsWith('/admin/users') ||
+    locationPath.startsWith('/admin/tenants') ||
+    locationPath.startsWith('/admin/login-logs')
+  )
+    return findModuleByKey('platform-admin')
   if (
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
@@ -175,8 +185,8 @@ export function MainLayout({ children }: MainLayoutProps) {
     ? location.pathname
     : leafKeys[0]
 
-  // 可折叠子菜单展开态（「网域与节点管理」/「配置下发」）：默认折叠；
-  // 首次进入某个折叠组的路由时自动展开该组，之后完全尊重用户手动开合（点击折叠按钮即可收起）。
+  // 可折叠子菜单展开态（「网域与节点管理」/「配置下发」）：默认折叠，
+  // 激活路由归属的折叠组自动展开，并尊重用户手动开合（点击折叠按钮即可收起）。
   const activeGroup =
     COLLAPSIBLE_GROUPS.find((g) =>
       g.routes.some((r) => location.pathname.startsWith(r)),
@@ -184,6 +194,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [userOpenKeys, setUserOpenKeys] = useState<string[]>([])
   const prevGroup = useRef<string | null>(null)
   useEffect(() => {
+    // 默认折叠：自动展开当前激活路由归属的折叠组，其余保持折叠
     if (activeGroup && activeGroup !== prevGroup.current) {
       setUserOpenKeys((keys) =>
         keys.includes(activeGroup) ? keys : [...keys, activeGroup],
@@ -197,6 +208,10 @@ export function MainLayout({ children }: MainLayoutProps) {
     const target = MODULES.find((m) => m.key === key)
     if (target && target.key !== active.key) navigate(target.path)
   }
+
+  // 顶部栏右上角：统一展示当前登录账号的角色与账号信息（数据来自 login /auth/me 返回的 AuthUser）。
+  const authUser = getStoredUser()
+  const roleLabel = authUser?.role === 'admin' ? '管理员' : authUser?.role === 'user' ? '普通用户' : ''
 
   return (
     <Layout className="app-layout">
@@ -219,6 +234,19 @@ export function MainLayout({ children }: MainLayoutProps) {
             ))}
           </nav>
         </div>
+        {authUser ? (
+          <div className="app-header-right">
+            {roleLabel && (
+              <Tag
+                className="app-header-role"
+                color={authUser?.role === 'admin' ? 'gold' : 'default'}
+              >
+                {roleLabel}
+              </Tag>
+            )}
+            <span className="app-header-account">{authUser.username}</span>
+          </div>
+        ) : null}
       </Header>
       {active.subItems && active.subItems.length > 0 ? (
         <Layout>
