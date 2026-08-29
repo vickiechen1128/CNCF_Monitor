@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest, selectAntdOption } from '../../test/antdTestUtils'
 import { CollectorTemplatesTab } from './CollectorTemplatesTab'
 
@@ -110,7 +111,11 @@ describe('CollectorTemplatesTab', () => {
       },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
 
     expect(await screen.findByText('mysqld-exporter')).toBeInTheDocument()
     expect(screen.getByText('redis-exporter')).toBeInTheDocument()
@@ -134,7 +139,11 @@ describe('CollectorTemplatesTab', () => {
       },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
 
     // 等待异步数据渲染完成（mysql mapping 行出现）后再断言
     await screen.findByText('MySQL')
@@ -162,7 +171,11 @@ describe('CollectorTemplatesTab', () => {
       data: { list: [template(1, 'mysqld-exporter', 'official'), template(2, 'redis-exporter', 'third_party')], total: 2, page: 1, page_size: 100 },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     await screen.findByText('mysqld-exporter')
 
     // 置 official 后仅保留 mysql 行（来源列已渲染「官方」Tag，下拉选项需限定在 dropdown 内点击）
@@ -179,7 +192,11 @@ describe('CollectorTemplatesTab', () => {
     // 空态需采集器池也为空（F1-5：池有模板时以「未被引用」行并入，不显空态）
     tmplListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
 
     expect(await screen.findByText('暂无默认采集配置')).toBeInTheDocument()
     expect(screen.getByText('池中没有需要的采集器？')).toBeInTheDocument()
@@ -190,7 +207,11 @@ describe('CollectorTemplatesTab', () => {
   it('opens registration drawer on 登记采集器 click', async () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     // 「登记采集器」同时出现在右上角按钮与（数据加载前的）空态按钮，取第一个打开抽屉
     fireEvent.click(screen.getAllByRole('button', { name: /登记采集器/ })[0])
 
@@ -202,7 +223,11 @@ describe('CollectorTemplatesTab', () => {
   it('requires default_port/metrics_path/scheme on register (F-32 放开来源后恒必填)', async () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     // 「登记采集器」同时出现在右上角按钮与（数据加载前的）空态按钮，取第一个打开抽屉
     fireEvent.click(screen.getAllByRole('button', { name: /登记采集器/ })[0])
     await screen.findByPlaceholderText('例如：mysql-exporter')
@@ -216,18 +241,49 @@ describe('CollectorTemplatesTab', () => {
     expect(screen.getAllByText('请选择协议').length).toBeGreaterThanOrEqual(1)
   })
 
-  // ---- F10 增强：Steps 动线 / 未被引用模板行并入+去配置 / 安装与文档入口 ----
-  it('renders Steps three-step flow (A4)', async () => {
+  // ---- F10 增强：Steps 使用指引 / 未被引用模板行并入+去配置 / 安装与文档入口 ----
+  it('renders Steps three-step flow with navigable step (A4)', async () => {
     mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
     tmplListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
 
-    expect(await screen.findByText('部署动线')).toBeInTheDocument()
+    expect(await screen.findByText('配置指引')).toBeInTheDocument()
     // 「登记采集器」同时出现在 Steps 标题与右上按钮，容忍多处
     expect(screen.getAllByText('登记采集器').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('配置默认采集')).toBeInTheDocument()
-    expect(screen.getByText('创建 Job 确认安装')).toBeInTheDocument()
+    // 第 3 步：跳转「采集 Job」的可点击按钮（不再用纯文字，直接以按钮代替）
+    expect(screen.getByText('创建采集 Job')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /前\s*往/ })).toBeInTheDocument()
+  })
+
+  it('collapses and re-expands by clicking the guide header (与网域纳管一致，header 常驻)', async () => {
+    mappingListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
+    tmplListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 100 } })
+
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
+    await screen.findByText('配置指引')
+
+    // 默认展开：item 带 ant-collapse-item-active，Steps 主体可见
+    expect(screen.getAllByText('配置默认采集').length).toBeGreaterThanOrEqual(1)
+    expect(document.querySelector('.ant-collapse-item-active')).not.toBeNull()
+
+    // 点击 header 收起：header 常驻，item 移除 active（内容区隐藏）
+    fireEvent.click(screen.getByText('配置指引'))
+    await waitFor(() => expect(document.querySelector('.ant-collapse-item-active')).toBeNull())
+
+    // 再次点击 header 重新展开：item 恢复 active，主体恢复
+    fireEvent.click(screen.getByText('配置指引'))
+    await waitFor(() => expect(document.querySelector('.ant-collapse-item-active')).not.toBeNull())
+    expect(screen.getAllByText('配置默认采集').length).toBeGreaterThanOrEqual(1)
   })
 
   it('merges unreferenced template rows with 去配置 action (F1-5)', async () => {
@@ -250,7 +306,11 @@ describe('CollectorTemplatesTab', () => {
       },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
 
     // 未被引用的池中模板 snmp-exporter 并入为行（引用 t2 及被引用的 t1 通过 mapping 行呈现）
     await screen.findByText('mysqld-exporter')
@@ -278,7 +338,11 @@ describe('CollectorTemplatesTab', () => {
     })
     tmplRemoveMock.mockResolvedValue({ status: 'success', data: { id: 2 } })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     await screen.findByText('custom-exporter')
 
     // 仅自建（非内置）模板行有「删除」
@@ -310,7 +374,11 @@ describe('CollectorTemplatesTab', () => {
     })
     mappingRemoveMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     await screen.findByText('mysqld-exporter')
 
     // 操作列「删除」按钮仅出现在非内置映射行（模板池行为空，无其他删除入口）
@@ -338,7 +406,11 @@ describe('CollectorTemplatesTab', () => {
       },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     await screen.findByText('mysqld-exporter')
 
     // 行内有两个「查看」（标签模板列 + 操作列），取操作列（行内最后一个）
@@ -374,7 +446,11 @@ describe('CollectorTemplatesTab', () => {
       },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
 
     await screen.findByText('mysqld-exporter')
     // 安装指南/下载/文档 图标按钮存在（F1-6 图标链，对齐原型 v3.13：图标 + Tooltip）
@@ -396,7 +472,11 @@ describe('CollectorTemplatesTab', () => {
       data: { list: [mapping(1, 'mysql', 1, { has_label_template: true, label_template_id: '7' })], total: 1, page: 1, page_size: 20 },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     await screen.findByText('mysqld-exporter')
 
     fireEvent.click(screen.getAllByText('更换')[0])
@@ -423,7 +503,11 @@ describe('CollectorTemplatesTab', () => {
       data: { list: [mapping(1, 'mysql', 1, { has_label_template: false })], total: 1, page: 1, page_size: 20 },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     await screen.findByText('mysqld-exporter')
 
     fireEvent.click(screen.getAllByText('补配')[0])
@@ -458,7 +542,11 @@ describe('CollectorTemplatesTab', () => {
       data: { list: [template(1, 'mysqld-exporter'), template(2, 'redis-exporter'), template(3, 'snmp-exporter')], total: 3, page: 1, page_size: 100 },
     })
 
-    render(<CollectorTemplatesTab />)
+    render(
+      <MemoryRouter>
+        <CollectorTemplatesTab />
+      </MemoryRouter>,
+    )
     await screen.findByText('mysqld-exporter')
 
     // t2 已被第二页的 mapping 引用 → 不应作为「未被引用」采集器行出现；
