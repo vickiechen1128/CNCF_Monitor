@@ -35,7 +35,7 @@ tasks:
   - task_id: tu-02
     name: 初始管理员 admin 种子 upsert
     agent: backend-developer
-    status: pending
+    status: done  # 7ce19629
     commit_group: seed
     prd: "Module_06 §5.3（初始管理员）/ §9.2"
     depends_on: [tu-01]
@@ -53,7 +53,7 @@ tasks:
   - task_id: tu-03
     name: 用户管理 + 登录日志 API
     agent: backend-developer
-    status: pending
+    status: done  # 工作区既有实现，orchestrator 复核：go build/vet ok，14 例单测通过
     commit_group: user-admin-api
     prd: "Module_06 §6.3"
     depends_on: [tu-01]
@@ -75,7 +75,7 @@ tasks:
   - task_id: tu-04
     name: 租户管理 MVP 子集 API（GET 列表/详情 + PUT 编辑）
     agent: backend-developer
-    status: pending
+    status: done
     commit_group: tenant-readonly-api
     prd: "Module_06 §6.1"
     depends_on: [tu-01]
@@ -95,7 +95,7 @@ tasks:
   - task_id: au-01
     name: 认证 API（login / logout / me / 自助改密）
     agent: backend-developer
-    status: pending
+    status: done
     commit_group: auth-api
     prd: "Module_03 §4.0"
     depends_on: [tu-01, tu-02]
@@ -117,7 +117,7 @@ tasks:
   - task_id: au-02
     name: 认证中间件与路由挂接（401 拒绝匿名）
     agent: backend-developer
-    status: pending
+    status: done
     commit_group: auth-middleware
     prd: "Module_03 §4.0（机制约定）"
     depends_on: [au-01]
@@ -137,7 +137,7 @@ tasks:
   - task_id: f-01
     name: 登录页 + 路由守卫 + 401 拦截
     agent: frontend-developer
-    status: pending
+    status: done
     commit_group: login-page
     prd: "Module_03 §4.0；Module_06 §11.1（登录页状态）"
     depends_on: [au-01]
@@ -159,7 +159,7 @@ tasks:
   - task_id: f-02
     name: 用户管理页
     agent: frontend-developer
-    status: pending
+    status: done  # 工作区既有实现，frontend-developer 复核：12 例单测通过 + lint 通过
     commit_group: user-admin-page
     prd: "Module_06 §6.3 / §11.1（用户管理状态）"
     depends_on: [tu-03]
@@ -179,7 +179,7 @@ tasks:
   - task_id: f-03
     name: 租户管理查看/编辑页（无新建、无禁用入口）
     agent: frontend-developer
-    status: pending
+    status: done  # 工作区既有实现，frontend-developer 复核：8 例单测通过 + lint 通过
     commit_group: tenant-page
     prd: "Module_06 §6.1 / §9.1"
     depends_on: [tu-04]
@@ -199,7 +199,7 @@ tasks:
   - task_id: f-04
     name: 登录日志页
     agent: frontend-developer
-    status: pending
+    status: done  # 工作区既有实现，frontend-developer 复核：6 例单测通过 + lint 通过
     commit_group: login-logs-page
     prd: "Module_06 §6.3 / §11.1（登录日志状态）"
     depends_on: [tu-03]
@@ -219,7 +219,7 @@ tasks:
   - task_id: sec-01
     name: Track B+ 强制安全审查（登录/会话/密码链路）
     agent: security-reviewer
-    status: pending
+    status: done  # 2026-08-29 通过；初轮 FAIL(2 HIGH) → 修复 H-1/H-2/M-1/M-2 → 定向复审通过；L 级记遗留风险
     commit_group: security-review
     prd: "Module_03 §4.0（Track B+ 注）"
     depends_on: [au-01, au-02, f-01]
@@ -234,3 +234,4 @@ tasks:
     verify_commands:
       - bash scripts/review-precheck.sh -m module-06-tenant-user-auth
     acceptance_criteria: 密码哈希、Token 生成强度、会话失效、时序攻击面、登录失败信息泄露逐项过审；CRITICAL/HIGH 清零
+    notes: "sec-01 修复（backend-developer，track-B+）：H-1 生产模式 METRIC_CENTER_ENV=production 未配置 METRIC_CENTER_ADMIN_PASSWORD 时拒绝默认密码、seed 报错使启动失败；H-2 决策44无角色体系加固——User 增加 Role(admin/user)、seed/新建用户分别定角色、新增 RequireAdmin 中间件并挂到 /users*、/tenants* 管理后台、DTO 输出 role；M-1 登录失败进程内限流（5次/15分钟窗口→锁定15分钟，429 too_many_requests，稳定；成功登录解除）；M-2 登录失败 LoginLog 统一写入『用户名或密码错误』防泄露账号存在性"
