@@ -26,6 +26,9 @@ const (
 	ErrorTypeForbidden = "forbidden"
 	// ErrorTypeNotFound represents a missing resource error.
 	ErrorTypeNotFound = "not_found"
+	// ErrorTypeTooManyRequests represents transient rate-limiting rejection
+	// (M-1 登录失败限流：HTTP 429）。
+	ErrorTypeTooManyRequests = "too_many_requests"
 	// ErrorTypeInternal represents a server-side internal error.
 	ErrorTypeInternal = "internal"
 )
@@ -112,6 +115,12 @@ func Forbidden(c *gin.Context, message string) {
 // NotFound writes a not found response to the gin context.
 func NotFound(c *gin.Context, message string) {
 	c.JSON(http.StatusNotFound, Fail(ErrorTypeNotFound, strError(message)))
+}
+
+// TooManyRequests writes a rate-limit rejection (HTTP 429) to the gin context
+// (M-1：登录失败限流触发锁定）。
+func TooManyRequests(c *gin.Context, message string) {
+	c.JSON(http.StatusTooManyRequests, Fail(ErrorTypeTooManyRequests, strError(message)))
 }
 
 // InternalServerError writes an internal server error response to the gin context.

@@ -28,6 +28,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
+	"github.com/metriccenter/metriccenter/platform/admin/tenant"
+	"github.com/metriccenter/metriccenter/platform/admin/user"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
@@ -36,15 +38,16 @@ import (
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 )
 
 var (
-	listenAddr          = flag.String("listen-address", ":8080", "MetricCenter HTTP 监听地址")
-	prometheusURL       = flag.String("prometheus.url", "http://localhost:9090", "Prometheus 查询地址")
-	businessDomainsFile = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
-	configDir           = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
-	configReloadURL     = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
+	listenAddr              = flag.String("listen-address", ":8080", "MetricCenter HTTP 监听地址")
+	prometheusURL           = flag.String("prometheus.url", "http://localhost:9090", "Prometheus 查询地址")
+	businessDomainsFile     = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
+	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
+	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
 	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 120*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
 )
@@ -120,6 +123,11 @@ func setupRouter(promURL *url.URL) *gin.Engine {
 	r := gin.Default()
 	r.Use(cors.Default())
 
+	// au-02 全局认证中间件（交集：POST /api/v2/platform/auth/login、
+	// /api/v1/health* 与 OPTIONS 预检放行，其余 /api/* 须携带有效 Bearer token）。
+	// 中间件仅认证、不授权（无角色/权限点校验）。
+	r.Use(auth.AuthMiddleware(auth.NewService(auth.NewRepository(db.DB))))
+
 	apiV1 := r.Group("/api/v1")
 	registerHealthRoutes(apiV1)
 	registerPrometheusProxyRoutes(apiV1, promURL)
@@ -149,6 +157,22 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
 	networkdomain.RegisterRoutes(platform, db.DB)
+
+	// H-2：管理后台接口（/users*、/login-logs*、/tenants*）额外挂载 RequireAdmin
+	// 最小授权门，仅平台管理员可访问；/auth/* 及其它模块保持仅全局认证（au-02）。
+	admin := platform.Group("")
+	admin.Use(auth.RequireAdmin())
+
+	// Module 06 (tu-03): user administration + login-log query.
+	user.RegisterRoutes(admin, db.DB)
+
+	// Module 06 (au-02): tenant administration + auth endpoints. 路由分别为
+	// /tenants* 与 /auth/*，与既有 user(/users*、/login-logs)、
+	// networkdomain(/network-domains*、/zone-types*) 无路径冲突；旧
+	// networkdomain 中的 /tenants 已移除。租户管理属管理后台，挂 RequireAdmin；
+	// 认证 endpoints（/auth/*）仍注册在 platform 根组（仅全局认证）。
+	tenant.RegisterRoutes(admin, db.DB)
+	auth.RegisterRoutes(platform, db.DB)
 
 	// Module 07 (T07-18 收口): business-domain dictionary (read-only, yaml preset
 	// + hot reload), resource CRUD / Excel template & import / resource labels /
