@@ -16,20 +16,30 @@ const (
 	UserStatusDisabled UserStatus = "disabled"
 )
 
+// 用户角色常量（决策 44：MVP 无角色/权限点体系，仅两级——平台管理员与普通用户）。
+// 供 H-2 RequireAdmin 最小授权门判定「是否管理员」时比对结构体 Role 字段使用。
+const (
+	// UserRoleAdmin 为平台管理员（唯一可访问管理接口 /users*、/tenants* 等）。
+	UserRoleAdmin = "admin"
+	// UserRoleUser 为普通用户（不含任何管理接口授权）。
+	UserRoleUser = "user"
+)
+
 // SessionTTL is the server-side session lifetime (12 hours), aligned with
 // Module_03 §4.0. Sessions also become invalid on logout, password change,
 // or when the owning user is disabled.
 const SessionTTL = 12 * time.Hour
 
 // User represents a platform login account, aligned with Module_06 §5.3.
-// MVP fixes TenantID to platform_admin; role / permission fields are not
-// introduced until v1.0+. PasswordHash must never be serialized to JSON.
+// MVP fixes TenantID to platform_admin; role is two-level (admin / user,
+// 决策 44). PasswordHash must never be serialized to JSON.
 type User struct {
 	ID           string     `gorm:"primarykey;size:64" json:"id"`
 	TenantID     string     `gorm:"size:64;not null;index" json:"tenant_id"` // MVP 固定 platform_admin
 	Username     string     `gorm:"size:64;not null;uniqueIndex" json:"username"`
 	PasswordHash string     `gorm:"size:100;not null" json:"-"` // bcrypt 哈希，禁止任何接口/日志输出
 	DisplayName  string     `gorm:"size:100;not null" json:"display_name"`
+	Role         string     `gorm:"size:20;not null;default:'user'" json:"role"` // admin / user（决策 44）
 	Status       UserStatus `gorm:"size:20;not null" json:"status"`
 	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`

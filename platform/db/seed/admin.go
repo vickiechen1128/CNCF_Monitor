@@ -22,8 +22,15 @@ const (
 	// variable, consistent with METRIC_CENTER_DB_DSN / CONFIG_* style in
 	// platform/cmd/metric-center/main.go) carrying the initial admin password.
 	AdminPasswordEnv = "METRIC_CENTER_ADMIN_PASSWORD"
+	// AppEnvEnv 声明当前运行环境的环境变量名（METRIC_CENTER_ENV）。
+	// Seed 据此在 production 模式下强制要求显式配置初始管理员密码，从而拒绝
+	// 生产环境使用内置默认密码 admin123（H-1）。非生产环境仍回退默认密码。
+	AppEnvEnv = "METRIC_CENTER_ENV"
+	// EnvProduction 是 AppEnvEnv 的取值之一，表示生产运行模式。
+	EnvProduction = "production"
 	// DefaultAdminPassword is the initial admin password used when
 	// AdminPasswordEnv is not configured. 首次登录后应引导改密。
+	// 注意：仅在非生产模式（METRIC_CENTER_ENV != production）下作为回退。
 	DefaultAdminPassword = "admin123"
 )
 
@@ -41,9 +48,16 @@ func runAdminUser(db *gorm.DB) error {
 	}
 
 	password := os.Getenv(AdminPasswordEnv)
+	// 生产模式（H-1）：必须显式配置初始管理员密码，拒绝使用内置默认密码 admin123，
+	// 使生产启动在 db.Init -> seed.Run 处失败（经 main.Fatalf 终止），从而避免
+	// 生产环境携带弱默认凭据被入侵。非生产模式仍安全回退到 DefaultAdminPassword。
+	if password == "" && os.Getenv(AppEnvEnv) == EnvProduction {
+		return errors.New("METRIC_CENTER_ADMIN_PASSWORD must be configured in production mode; refusing insecure default")
+	}
 	if password == "" {
 		password = DefaultAdminPassword
 	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return fmt.Errorf("hash admin password: %w", err)
@@ -55,6 +69,7 @@ func runAdminUser(db *gorm.DB) error {
 		Username:     AdminUsername,
 		PasswordHash: string(hash),
 		DisplayName:  "系统管理员",
+		Role:         models.UserRoleAdmin, // H-2：初始管理员角色必须是 admin
 		Status:       models.UserStatusActive,
 	}
 	if err := db.Create(user).Error; err != nil {

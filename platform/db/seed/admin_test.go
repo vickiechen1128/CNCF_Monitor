@@ -76,3 +76,30 @@ func TestRunAdminPasswordFromEnv(t *testing.T) {
 	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte("s3cret-deploy")))
 	assert.Error(t, bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(DefaultAdminPassword)))
 }
+
+// TestAdminUser_ProductionRequiresEnvPassword verifies H-1: in production mode
+// (METRIC_CENTER_ENV=production) the initial admin password must be explicitly
+// configured via METRIC_CENTER_ADMIN_PASSWORD; seeding must fail and no admin
+// row may be created when it is absent. Non-production keeps the default fallback.
+func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T) {
+	db := newTestDB(t)
+	// 显式置空密码并声明 production 环境。
+	t.Setenv(AdminPasswordEnv, "")
+	t.Setenv(AppEnvEnv, EnvProduction)
+
+	err := Run(db)
+	require.Error(t, err, "生产模式未配置密码必须报错并拒绝启动")
+	assert.Contains(t, err.Error(), AdminPasswordEnv)
+
+	// 失败时不得创建 admin 用户。
+	var n int64
+	countRows(t, db, &models.User{}, &n)
+	assert.Equal(t, int64(0), n, "生产模式未配置密码时不得创建 admin")
+
+	// 配置密码后再次 seed 应成功，且初始管理员 Role 为 admin（H-2）。
+	t.Setenv(AdminPasswordEnv, "prod-secret-4711")
+	require.NoError(t, Run(db))
+	var u models.User
+	require.NoError(t, db.Where("username = ?", "admin").First(&u).Error)
+	assert.Equal(t, models.UserRoleAdmin, u.Role, "初始管理员角色必须是 admin")
+}
