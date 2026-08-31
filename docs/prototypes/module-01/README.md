@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.27
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.28
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.27
+> **原型版本**: v3.28
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,12 @@
 > ```
 >
 > **访问地址**: http://localhost:5175/
+
+## 本次 v3.28 相对 v3.27 的关键变更（决策 53 filter 选择模式提前 v0.2 + 决策 54 Job 网域绑定放宽为网域集合）
+
+- **{v3.28} Job 网域绑定放宽为网域集合（决策 54）**：`network_domain_id` 演进为 `network_domain_ids: string[]`——一个逻辑 Job 可勾选多个已纳管网域，`selected_instance_ids` / 拨测目标按各自资源归属网域自动归组，M09 按域拆分扇出（每域独立 `scrape_configs`/`targets`/变更单）。跨网域复用不再依赖手工克隆；MVP 存量单值自动迁移为单元素集合。表单「归属网域」Select 改为多选（冻结域仍置灰不可选），列表/详情、克隆校验、实例候选集均按「任一已选网域归属」判定，克隆时网域集合不一致则清空实例重选。
+- **{v3.28} filter 选择模式提前 v0.2（决策 53）**：`instance_selection_mode` 支持 `filter`——以 **Resource 属性字段**（`env` / `cluster` / `app_name` / `business_domain`）构建筛选条件（等于 / 不等于 / 包含，多条件「且」），**每个配置生成周期实时求值**，M07 后续新增匹配资源**无需编辑 Job 即自动纳入 targets**；筛选**不写任何标签**、与标签管理正交（选择器 vs 描述器）。表单内联条件构建器 + 匹配结果实时预览（同类型 + 归属任一已选网域 + 非 offline）。新增演示 Job `job-filter-demo`（`network_domain_ids=['default','gov-cloud-a']` + `env=prod` 且 `business_domain=order`）。
+- 对齐 Module_01 PRD v3.28 / 原型 v3.28；本轮为原型行为同步，与 PRD 落版同步提交。
 
 ## 本次 v3.27 相对 v3.26 的关键变更（决策 47：实例采集状态回显 + Exporter 安装登记可选化）
 

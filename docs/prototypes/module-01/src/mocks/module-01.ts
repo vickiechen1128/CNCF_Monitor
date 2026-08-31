@@ -829,12 +829,16 @@ export interface ScrapeJob {
   resource_type?: CiType
   /** standard job 必填；{v3.16} blackbox job 留空（决策 D21） */
   exporter_template_id?: string
-  network_domain_id: string
+  /** {v3.28} 决策 54：Job 网域绑定放宽为「网域集合」——一个逻辑 Job 可勾选多个已纳管网域；
+   *  selected_instance_ids / 拨测目标按各自资源归属网域自动归组，M09 按域拆分扇出（每域独立 scrape_configs/targets/变更单）；
+   *  MVP 存量单值自动迁移为单元素集合。跨网域复用不再依赖手工克隆 */
+  network_domain_ids: string[]
   /** Job 类型：standard 标准采集 / blackbox 拨测（PRD v2.0） */
   job_type: ScrapeJobType
   instance_selection_mode: InstanceSelectionMode
   selected_instance_ids: string[]
-  /** filter 模式下的筛选条件（v0.3+ 预留，MVP mock 为 null） */
+  /** {v3.28} 决策 53：filter 选择模式提前至 v0.2——筛选条件（Resource 属性字段：env/cluster/app_name/business_domain/service_name 等）；
+   *  每配置生成周期实时求值，M07 新增匹配资源自动纳入 targets（无需编辑 Job）；筛选不写任何标签、与标签管理正交 */
   instance_filter: Record<string, unknown> | null
   scrape_interval: string
   scrape_timeout: string
@@ -876,7 +880,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-hosts-linux',
     resource_type: 'host_linux',
     exporter_template_id: 'et-node',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-001'],
@@ -902,7 +906,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-hosts-windows',
     resource_type: 'host_windows',
     exporter_template_id: 'et-windows',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-002'],
@@ -928,7 +932,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'demo-hosts-linux',
     resource_type: 'host_linux',
     exporter_template_id: 'et-node',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-003'],
@@ -953,7 +957,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-redis',
     resource_type: 'redis',
     exporter_template_id: 'et-redis',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-001'],
@@ -974,7 +978,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-mysql',
     resource_type: 'mysql',
     exporter_template_id: 'et-mysql',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-002'],
@@ -995,7 +999,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'staging-apps',
     resource_type: 'application_http',
     exporter_template_id: 'et-app',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-app-002'],
@@ -1018,7 +1022,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'network-snmp',
     resource_type: 'snmp',
     exporter_template_id: 'et-snmp',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-gen-001', 'res-gen-002'],
@@ -1041,7 +1045,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-nginx',
     resource_type: 'nginx',
     exporter_template_id: 'et-nginx',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-004'],
@@ -1066,7 +1070,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-go-microservices',
     resource_type: 'application_http',
     exporter_template_id: 'et-app-go',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-app-003'],
@@ -1089,7 +1093,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-001',
     job_name: 'blackbox-http-default',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
     selected_instance_ids: [],
@@ -1111,7 +1115,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-002',
     job_name: 'blackbox-tcp-default',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
     selected_instance_ids: [],
@@ -1131,7 +1135,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-003',
     job_name: 'blackbox-icmp-gov',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
     selected_instance_ids: [],
@@ -1155,7 +1159,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'draft-redis-cluster',
     resource_type: 'redis',
     exporter_template_id: 'et-redis',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-001'],
@@ -1180,7 +1184,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-hosts-linux-gov-clone',
     resource_type: 'host_linux',
     exporter_template_id: 'et-node',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-004'],
@@ -1196,6 +1200,38 @@ export const mockScrapeJobs: ScrapeJob[] = [
     change_status: 'pending',
     created_at: '2026-08-18T10:00:00Z',
     updated_at: '2026-08-18T10:00:00Z',
+  },
+  // {v3.28} 决策 53+54 演示 Job：同时展示「filter 选择模式」与「网域集合」——
+  // 1) 决策 54：network_domain_ids=['default','gov-cloud-a'] 绑定两个网域，一个逻辑 Job 跨域复用，无需手工克隆；
+  // 2) 决策 53：instance_selection_mode='filter'，instance_filter 以 Resource 属性（env=prod 且 business_domain=order）动态筛选，
+  //    每个配置生成周期实时求值；M07 后续新增的 host_linux + env=prod + order 资源无需编辑 Job 即自动纳入 targets。
+  //    选中实例集（selected_instance_ids）为空——由筛选表达式实时决定，不写任何标签（选择器 vs 描述器，与标签管理正交）。
+  {
+    job_id: 'job-filter-demo',
+    job_name: 'prod-hosts-linux-filter',
+    resource_type: 'host_linux',
+    exporter_template_id: 'et-node',
+    network_domain_ids: ['default', 'gov-cloud-a'],
+    job_type: 'standard',
+    instance_selection_mode: 'filter',
+    selected_instance_ids: [],
+    instance_filter: {
+      conditions: [
+        { field: 'env', op: 'eq', value: 'prod' },
+        { field: 'business_domain', op: 'eq', value: 'order' },
+      ],
+    },
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: 'lt-h-001',
+    relabel_configs: [],
+    enabled: true,
+    exporter_status: {},
+    change_status: 'confirmed',
+    created_at: '2026-08-20T09:00:00Z',
+    updated_at: '2026-08-20T09:00:00Z',
   },
 ]
 
