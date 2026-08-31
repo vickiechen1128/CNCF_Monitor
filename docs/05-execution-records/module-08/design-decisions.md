@@ -78,3 +78,17 @@
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`
 - `docs/05-execution-records/module-01/design-decisions.md`（决策 3.57）
 - `docs/05-execution-records/module-09/design-decisions.md`
+
+---
+
+## 补充对齐：2026-08-31（告警收敛与派发组件选型锁定，决策 49）
+
+- **触发**：MVP 收口评估中用户提出「告警的收敛与派发」是 Prometheus 原生不具备的缺口，选型未定，候选为 Alertmanager / Grafana Alerting / 夜莺（Nightingale），需锁定方向再排原型与开发。
+- **结论**：告警收敛与派发组件**锁定 Alertmanager**，不引入 Grafana Alerting 或夜莺：
+  1. **配置模型匹配**：Alertmanager 为声明式文件配置（`alertmanager.yml`），与 M08「UI 配置 → 生成文件 → reload」及 M09 配置生成流水线天然兼容；Grafana Alerting 的规则与通知策略存于 Grafana 自身 DB、由 UI 驱动，无法纳入平台配置生成闭环；夜莺是完整监控平台（自采/自存/自告警/自带 UI），引入等于整体替换架构，且其告警规则同样为 DB 驱动。
+  2. **租户/网域隔离**：Grafana / 夜莺自带独立查询与告警路径，会绕开 Module_02 的注入代理，v0.2 多租户启用后构成隔离缺口。
+  3. **易用性诉求由 M08 承接**：「Alertmanager 手写 YAML 难用」的痛点正是 M08 的价值——接收人/路由/静默/抑制的 UI 化管理，用户不接触 YAML，无需为此换组件。
+  4. **已有工程资产**：`upstream/alertmanager/` 子模块已入库，`make build-center` 已纳入一体化交付包，推翻选型将废弃这部分资产。
+- **范围确认**：M08 职责边界不变（Alertmanager 域：接收人/路由/静默/抑制/通知状态；规则创作归 M01、`rules.yml` 生成下发归 M09）；MVP 落地范围按 PRD §3.1 功能表执行。
+- **影响范围**：Module_08 PRD v1.4（§1 新增「组件选型决策」、Change Log）。
+- **关联决策**：决策 50（可视化方案：大屏走 Grafana iframe 嵌入、数据源必须指向 M02 查询代理，全文见 module-02 design-decisions）——同一轮缺口的另一部分。

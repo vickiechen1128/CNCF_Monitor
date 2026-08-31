@@ -931,7 +931,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 | 登记日期 | 能力 | 模块 / PRD 版本 | 轨道 | feat 分支 | L3 路径 | 状态 |
 |----------|------|----------------|------|-----------|---------|------|
-| 2026-08-28 | 租户管理（单租户查看/编辑）+ 用户管理 + 登录日志 | Module_06 v2.3 | Track B | `feat/module-06-domain-registry`（复用既有分支名） | `docs/05-execution-records/module-06-tenant-user-auth/task-sequence.yaml` | 待开发 |
+| 2026-08-28 | 租户管理（单租户查看/编辑）+ 用户管理 + 登录日志 | Module_06 v2.3 | Track B | `feat/module-06-domain-registry`（复用既有分支名） | `docs/05-execution-records/module-06/track-b-increment-decision-44/task-sequence.yaml` | 待开发 |
 | 2026-08-28 | 轻量认证（登录 / 会话 / 认证中间件 / 登录页） | Module_03 v1.2 | Track B+（强制 security-reviewer） | 同上（同一验收闭环，共用分支避免跨分支模型依赖） | 同上 | 待开发 |
 
 > 分支说明：M03 认证依赖 M06 User 模型，二者构成同一验收闭环（登录 → 用户/租户管理），合并为单一 feat 分支。按用户决策（2026-08-28）**复用既有分支名 `feat/module-06-domain-registry`**——该分支已 `--no-ff` 合入 develop，复用时必须**从最新 develop 重建同名分支**（删除旧分支后重新切出），禁止在已合并的旧分支基线上继续提交。分支名与实际范围（租户/用户/认证）不完全对应，属已登记豁免。开发顺序：模型/种子 → 用户与认证 API → 认证中间件 → 前端页面（前端在契约快照就绪后可并行 mock 开发）。
