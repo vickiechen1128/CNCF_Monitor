@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.23
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.24
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.23
+> **原型版本**: v2.24
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,14 @@
 > ```
 >
 > **访问地址**: http://localhost:5174/
+
+## v2.24 变更说明（决策 52：网域归属四级解析链 + 网域可留空推导 + 来源标注）
+
+1. **网域字段可留空由平台推导（决策 52）**：资源新增 / 编辑表单「网域」改为可选（去必填、`allowClear`，占位「留空则由平台按归属自动推导」）；新增 / 编辑保存时网域留空则按归属解析链自动推导——显式指定 > 冲突告警 > 按资源 IP 与网域已登记网段最长前缀匹配 > 默认网域兜底；Blackbox 拨测目标取发起侧（采集 Job）网域、不参与推导。
+2. **归属四级解析链 UI + 来源标注（决策 52）**：资源列表「网域」列旁新增「归属来源」列（列头 hover 提示解析链），按资源解析来源并着色 Tag（显式指定 / 冲突待处理 / 网段推导 / 默认兜底 / 发起侧指定），Tooltip 展示该来源的解析依据；资源详情抽屉同步标注「归属来源」。
+3. **Excel 导入可留空推导（决策 52）**：导入模板说明由「未填写网域时自动归属默认网域」改为「网域列可留空、留空时按归属解析链自动推导」；导入结果弹窗校验项与推导说明同步更新，向用户预告网段推导 / 默认兜底 / 发起侧三类归属去向。
+4. **mock 契约**：M07 `NetworkDomain` 新增 `ip_cidrs`（契约来自 Module_06 v2.5），新增 `DomainAttributionSource` / `DOMAIN_SOURCE_LABELS` / `DOMAIN_SOURCE_HINTS` 与 `resolveDomainFromIP` / `resolveDomainAttribution` 解析函数（最长前缀 + 冲突判歧义 + 默认兜底 + blackbox 例外）；新增 blackbox 拨测目标 mock（`res-gen-003`）演示「发起侧指定」来源。
+5. **ReviewNote**：决策清单补 3.24（决策 52：网域归属解析链 + blackbox 例外 + 来源标注）。
 
 ## v2.23 变更说明（决策 47-3 三态 badge + 决策 48 业务管理页）
 

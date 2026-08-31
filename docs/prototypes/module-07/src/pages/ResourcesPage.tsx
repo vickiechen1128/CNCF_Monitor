@@ -69,10 +69,15 @@ import {
   resolveCollectionStatus,
   isBizDisabled,
   resolveBizName,
+  // {v2.24} 决策 52：网域归属来源解析链（显式指定 > 冲突告警 > IP 推导 > 默认兜底；blackbox 例外 = 发起侧）
+  DOMAIN_SOURCE_LABELS,
+  resolveDomainFromIP,
+  resolveDomainAttribution,
 } from '../mocks/module-07'
 import type {
   AppProtocol,
   CollectionStatus,
+  DomainAttributionSource,
   Env,
   ImportError,
   Resource,
@@ -348,7 +353,7 @@ export default function ResourcesPage() {
     setEditingResource(null)
     resourceForm.resetFields()
     resourceForm.setFieldsValue({
-      network_domain_id: 'default',
+      // {v2.24} 决策 52：网域可留空，保存时按归属解析链自动推导（IP 网段推导 → 默认兜底）；blackbox 拨测取发起侧
       env: 'prod',
       status: 'online',
       metrics_path: '/metrics',
@@ -377,9 +382,20 @@ export default function ResourcesPage() {
     })
   }
 
+  // {v2.24} 决策 52：网域留空时按归属解析链自动推导——Blackbox 拨测取发起侧（不推导，落入所选/默认），
+  // 其余资源用 IP + 网域已登记网段最长前缀推导（resolveDomainFromIP），均未匹配归默认兜底。
+  const resolveNewDomainId = (type: ResourceCategory, values: Record<string, unknown>): string => {
+    const explicitDomain = values.network_domain_id as string | undefined
+    if (explicitDomain) return explicitDomain
+    const isBlackbox =
+      type === 'generic_target' && (values.exporter_type as string | undefined) === 'blackbox_exporter'
+    if (isBlackbox) return 'default'
+    return resolveDomainFromIP(values.instance_ip as string | undefined).domain_id
+  }
+
   const buildNewResource = (type: ResourceCategory, values: Record<string, unknown>): Resource => {
     const base = {
-      network_domain_id: (values.network_domain_id as string) || 'default',
+      network_domain_id: resolveNewDomainId(type, values),
       // {v2.18} 业务必填：来自业务分组字典下拉（决策 13/14/17/21），存不可变编码 biz_code
       biz_code: values.biz_code as string | undefined,
       source_type: 'manual' as const,
@@ -461,7 +477,8 @@ export default function ResourcesPage() {
 
   const buildEditedResource = (record: Resource, values: Record<string, unknown>): Resource => {
     const common = {
-      network_domain_id: (values.network_domain_id as string) || 'default',
+      // {v2.24} 决策 52：网域留空同样按归属解析链推导（同新增动线）
+      network_domain_id: resolveNewDomainId(record.resource_category, values),
       // {v2.18} 业务必填：来自业务分组字典下拉（决策 13/14/17/21），存不可变编码 biz_code
       biz_code: values.biz_code as string | undefined,
       app_name: values.app_name as string | undefined,
@@ -873,10 +890,9 @@ export default function ResourcesPage() {
           <Form.Item
             label="网域"
             name="network_domain_id"
-            rules={[{ required: true, message: '请选择网域' }]}
-            extra="网域作为资源属性由 CMDB / Excel / 手动录入带入；M07 不维护网域生命周期，列表内可用网域筛选器收敛视图"
+            extra="可留空：留空时平台按归属解析链自动推导——显式指定（如已填）> 冲突告警 > 按资源 IP 与网域网段最长前缀推导 > 默认网域兜底；Blackbox 拨测目标取发起侧网域、不参与推导"
           >
-            <Select placeholder="请选择">
+            <Select placeholder="留空则由平台按归属自动推导" allowClear>
               {mockNetworkDomains.map((d) => (
                 <Option key={d.id} value={d.id}>
                   {d.name}（{d.id}）
@@ -929,6 +945,34 @@ export default function ResourcesPage() {
       dataIndex: 'network_domain_id',
       key: 'network_domain_id',
       render: (value: string) => <Tag color="cyan">{value}</Tag>,
+    }
+    // {v2.24} 决策 52：归属来源列——标注网域归属由哪条解析路径确定（显式指定 / 冲突 / 网段推导 / 默认兜底 / 发起侧），列头 hover 提示解析链
+    const domainSourceColumn = {
+      title: (
+        <span>
+          <Tooltip title="网域归属解析链：显式指定 > 冲突告警 > 按 IP 与网域网段推导 > 默认兜底；Blackbox 拨测取发起侧（采集 Job）网域、不参与推导">
+            归属来源
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
+      key: 'domain_source',
+      width: 120,
+      render: (_: unknown, record: Resource) => {
+        const att = resolveDomainAttribution(record)
+        const color: Record<DomainAttributionSource, string> = {
+          explicit: 'blue',
+          conflict: 'red',
+          ip_derived: 'purple',
+          default: 'default',
+          blackbox: 'green',
+        }
+        return (
+          <Tooltip title={att.hint}>
+            <Tag color={color[att.source]}>{DOMAIN_SOURCE_LABELS[att.source]}</Tag>
+          </Tooltip>
+        )
+      },
     }
     // {v2.18} 业务列：展示业务字典 biz_name，停用业务加「已停用」标识（网域与业务双归属正交维度，决策 13/14/17/21）
     const businessColumn = {
@@ -1067,6 +1111,7 @@ export default function ResourcesPage() {
             ),
           },
           domainColumn,
+          domainSourceColumn,
           businessColumn,
           sourceColumn,
           statusColumn,
@@ -1097,6 +1142,7 @@ export default function ResourcesPage() {
             render: (_: unknown, record: Resource) => (isDatabaseResource(record) ? record.version || '-' : '-'),
           },
           domainColumn,
+          domainSourceColumn,
           businessColumn,
           sourceColumn,
           statusColumn,
@@ -1126,6 +1172,7 @@ export default function ResourcesPage() {
             render: (_: unknown, record: Resource) => (isMiddlewareResource(record) ? record.version || '-' : '-'),
           },
           domainColumn,
+          domainSourceColumn,
           businessColumn,
           sourceColumn,
           statusColumn,
@@ -1167,6 +1214,7 @@ export default function ResourcesPage() {
             render: (_: unknown, record: Resource) => (isApplicationResource(record) ? record.port ?? '-' : '-'),
           },
           domainColumn,
+          domainSourceColumn,
           businessColumn,
           sourceColumn,
           statusColumn,
@@ -1220,6 +1268,7 @@ export default function ResourcesPage() {
               ),
           },
           domainColumn,
+          domainSourceColumn,
           businessColumn,
           sourceColumn,
           statusColumn,
@@ -1494,6 +1543,10 @@ export default function ResourcesPage() {
               <Tag color="blue">{SOURCE_TYPE_MAP[selectedResource.source_type]}</Tag>
               <Tag>{RESOURCE_TYPE_MAP[selectedResource.resource_category]}</Tag>
               <Tag>网域：{selectedResource.network_domain_id}</Tag>
+              {/* {v2.24} 决策 52：详情标注归属来源（解析链派生信息） */}
+              <Tooltip title={resolveDomainAttribution(selectedResource).hint}>
+                <Tag color="purple">归属来源：{DOMAIN_SOURCE_LABELS[resolveDomainAttribution(selectedResource).source]}</Tag>
+              </Tooltip>
             </Space>
             <Descriptions
               column={2}
@@ -1786,7 +1839,7 @@ export default function ResourcesPage() {
         width={560}
       >
         <Text style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-          <Text strong>固定列模板：</Text>按资源类别提供固定列模板；未填写网域时自动归属默认网域。{/* {v2.19} 模板由后端生成静态 xlsx，内置「取值说明 sheet」列出合法值清单（5.16.1） */}
+          <Text strong>固定列模板：</Text>按资源类别提供固定列模板；网域列可留空——留空时平台按归属解析链自动推导（显式指定 &gt; 冲突告警 &gt; 按 IP 与网域网段最长前缀推导 &gt; 默认网域兜底）；Blackbox 拨测目标取发起侧网域、不推导。{/* {v2.19} 模板由后端生成静态 xlsx，内置「取值说明 sheet」列出合法值清单（5.16.1）；{v2.24} 决策 52：网域可留空推导 */}
         </Text>
         <Table
           size="small"
@@ -1830,7 +1883,11 @@ export default function ResourcesPage() {
           ))}
         </Space>
         <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
-          导入校验项：必填字段（含 biz_code 必填） · 网域存在性 · 业务存在性（仅限启用条目，不可自由文本） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+          导入校验项：必填字段（含 biz_code 必填） · 网域存在性（可留空，留空时按归属解析链推导） · 业务存在性（仅限启用条目，不可自由文本） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+        </Text>
+        {/* {v2.24} 决策 52：导入阶段网域归属来源说明（Color 区分来源类别） */}
+        <Text style={{ fontSize: 12, color: '#722ED1', display: 'block', marginBottom: 12 }}>
+          网域归属推导：网域列留空行将按资源 IP 与网域已登记网段最长前缀匹配自动归属（来源标注「网段推导」），无匹配归默认网域（「默认兜底」）；Blackbox 拨测目标取发起侧网域（「发起侧指定」），不参与推导。
         </Text>
         <Text style={{ fontSize: 12, color: '#00B0F0', display: 'block', marginBottom: 12 }}>
           导入按行增量更新，不会删除资源，Excel 中已消失的行不会被自动清理。如需停止采集某批资源，请将目标行的「运行状态」改为「已停止」后重新导入，已停止资源将不再被采集。
