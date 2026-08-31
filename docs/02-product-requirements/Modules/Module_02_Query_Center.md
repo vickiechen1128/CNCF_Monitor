@@ -1,10 +1,10 @@
 # Module 02: 查询中心
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.4
+> **PRD 版本**: v1.6
 > **产品版本覆盖**: MVP / v0.2 / v0.3
-> **原型版本**: v1.2（未对齐，待按 v1.4 修订）
-> **更新日期**: 2026-08-28
+> **原型版本**: v1.2（未对齐，待按 v1.6 修订）
+> **更新日期**: 2026-08-31
 > **对应原型**: `docs/prototypes/module-02/`
 > **副标题**: 带租户/网域上下文注入的 Prometheus Query API 代理 + 采集目标状态展示
 
@@ -38,6 +38,8 @@ Module_02 提供统一的指标查询入口，定位为**带租户/网域上下�
 - **与 Module_01 的边界**：`ScrapeTarget` / `ScrapeLog` 数据模型由 Module_01 定义（Module_01 5.7 / 5.8），Module_02 **只读展示**，不维护其定义；MVP 直接代理 Prometheus 原生 `/api/v1/targets`（含 `health` / `lastScrape` / `lastError`），**同时作为 M01 Job 详情/编辑抽屉实例采集状态回显的数据源**（M01 只读消费、按 Job 过滤，决策 47-2），`ScrapeLog` 独立日志存储与展示放 v0.3（Prometheus 无原生 ScrapeLog API，MVP 不实现独立存储，避免过度设计）。
 - **与 Module_07 的边界**：M07 资源列表「采集状态」badge 为**三态**（采集中 / 已下发未采到 / 未监控，决策 47-3）：`is_monitored` 选中关系由 Module_01 维护，up/down 聚合由 Module_02 **采集健康度/覆盖率查询 API**（MVP 起提供，按 `resource_id` 标签回连资源）输出，Module_07 只读消费。Module_07 不直连时序数据。
 - **与 Module_10 的边界（v0.2+ 预留）**：外部异构监控源数据经 Module_10 标签归一化后写入中心，Module_02 查询需覆盖外部源数据，并支持按监控源筛选（v0.3 告警状态支持按网域/监控源筛选）；标签语义对齐由 Module_10 负责。
+- **与可视化组件的边界（决策 50，v1.5 新增）**：MetricCenter **不自研**拖拽式面板编辑器与可视化大屏；大屏/复杂看板需求通过 **Grafana iframe 嵌入**满足，但 Grafana 的数据源**必须配置为 M02 查询代理地址**（`/api/v1/query*`），禁止直连 Prometheus——否则租户/网域注入被绕过，v0.2 多租户启用后构成跨租户数据泄露。门户内轻量实时图表（首屏指标卡、资源详情趋势图）使用 ECharts/AntV 消费本模块 `query_range` 接口，与 v0.3「首页 Dashboard 数据」共用查询链路。**三层归属（决策 51，v1.6 补充）**：嵌入入口 / 新用户引导 / 预置模板展示归 Module_05；Grafana 自身配置（datasource、anonymous/auth、provisioning 目录）由一体化交付包在安装期静态下发，不进运行态模块；Dashboard-as-Code 治理（API 管 dashboard、版本化、按租户分发）预留 M11，v0.4+ 评估。**跨网域业务看板不受网域注入影响**：注入语义为「授权集合收敛」（§7.2），用户 PromQL 不含网域 matcher 时默认覆盖全部授权网域，跨网域聚合（如 `sum by (biz)`）天然成立，网域仅作可选下钻维度（dashboard variable）。
+- **blackbox 拨测的网域语义（决策 52，v1.6 新增）**：拨测指标（`probe_success` 等）上的 `network_domain` 标签表示「**从哪个网域发起拨测**」（探测路径），而非「目标在哪」；查询与看板筛选拨测数据时按发起侧网域聚合，目标归属不参与网域推导（M07 四级解析链不适用于 blackbox target）。
 
 ---
 
@@ -72,7 +74,7 @@ Module_02 提供统一的指标查询入口，定位为**带租户/网域上下�
 | **首页 Dashboard 数据** | 为 Custom UI 门户（Module_05）首页提供聚合数据接口 | **P1 / v0.3** |
 | **Open API** | RESTful API 供外部系统/AI 应用调用，v0.3 完善 API Key 鉴权与限流配额 | **P1 / v0.3** |
 | **临时目标验证** | 对临时目标执行抓取并查看结果（Module_01 移交） | P2 / v0.3+ |
-| **复杂 Dashboard** | 拖拽式面板编辑器 | P2（不做） |
+| **复杂 Dashboard / 可视化大屏** | **不自研**拖拽式面板编辑器；可视化大屏走 Grafana iframe 嵌入（决策 50），Grafana 数据源必须指向本模块查询代理（`/api/v1/query*`），禁止直连 Prometheus；门户内轻量实时图表用 ECharts/AntV 消费 `query_range`（随 v0.3「首页 Dashboard 数据」落地） | P2（不自研）；轻量图表 v0.3 |
 
 ### 3.2 目标状态展示说明（MVP）
 
@@ -270,6 +272,8 @@ Module_02 将 Prometheus 原始响应包裹为统一 envelope，在不污染 Pro
 - **`central_scrape`**：中心 Prometheus 直接抓取目标。适用于单网域场景，或中心网络可达的目标，数据延迟低。
 - **`edge_remote_write`（v0.2+）**：Edge Agent 在边缘网域抓取目标后，通过 remote write 异步回写到中心 Prometheus。适用于多网域/隔离网域场景，可能存在分钟级延迟。**MVP 恒为 `central_scrape`。**
 
+> **MVP envelope 最小实现口径（v1.5 明确）**：MVP 阶段 envelope 元数据按最小集落地——`data_source` 恒为 `central_scrape`、`network_domains` 恒为 `["default"]`、`freshness_at` 取查询结果中最新样本的时间戳（结果为空时为 `null`）。envelope 结构在 MVP 即固定，避免 v0.2 细化（多网域/多数据源）时改动调用方。
+
 ### 8.3 数据新鲜度与 M09 联动（v0.2+）
 
 - 当 `data_source` 为 `edge_remote_write` 时，UI 应提示用户数据为边缘异步写入，可能存在延迟；
@@ -402,11 +406,10 @@ Module_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 ## Change Log
 
-> **Change Log 定位（v1.3）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.1 及以前逐版详情）已迁移至 `docs/05-execution-records/module-02/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 6.x 接口 / 10.x 状态机 / 11 验收标准 / 13 术语映射）。
+> **Change Log 定位（v1.3）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.3 及以前逐版详情）已迁移至 `docs/05-execution-records/module-02/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 6.x 接口 / 10.x 状态机 / 11 验收标准 / 13 术语映射）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.6 | 2026-08-31 | 新增 | 决策 51/52 交叉落版：①§1 可视化边界补**三层归属**（决策 51）——嵌入入口/引导/模板归 M05、Grafana 自身配置归交付包安装期 provisioning、Dashboard-as-Code 治理预留 M11（v0.4+ 评估）；并明确**跨网域业务看板不受网域注入影响**（授权集合收敛语义下 `sum by (biz)` 跨域聚合天然成立，网域仅作可选下钻维度）；②§1 新增 **blackbox 拨测网域语义**（决策 52）——拨测指标的 `network_domain` 表示发起侧网域（探测路径），目标归属不参与网域推导；原型待对齐 | 模块边界 | v0.2 / v0.3 | 设计中 |
+| v1.5 | 2026-08-31 | 修改 | 决策 50 落版（可视化方案收敛）：①§1 新增「与可视化组件的边界」——不自研拖拽面板编辑器/大屏，大屏走 Grafana iframe 嵌入且**数据源必须指向 M02 查询代理**（禁止直连 Prometheus，否则租户/网域注入失效），门户轻量图表用 ECharts/AntV 消费 `query_range`（随 v0.3 首页 Dashboard 数据）；②§3.1「复杂 Dashboard」行改写为「复杂 Dashboard / 可视化大屏」并承载决策 50；③§8.2 补 MVP envelope 最小实现口径（`data_source` 恒 `central_scrape`、`network_domains` 恒 `["default"]`、`freshness_at` 取最新样本时间戳），MVP 即固定 envelope 结构；④v1.2 两行 Change Log 迁移至 design-decisions.md 完整历史；原型待对齐 | 模块边界、功能清单、envelope | MVP / v0.3 | 设计中 |
 | v1.4 | 2026-08-28 | 修改 | 决策 47 落版（采集状态回显前置）：①目标状态能力拆层——`/api/v1/targets` 代理 API 保留 P0/MVP 并明确为 M01 Job 回显（47-2）与 M07 badge（47-3）的共同数据源；**独立目标状态页由 P0 降为 P1**（极简列表，定位收敛为跨 Job 全局排障入口，47-4）；②**采集健康度/覆盖率查询 API 由 v0.2 提前到 MVP**（三态，按 `resource_id` 回连资源，供 M07 badge）；③§1 版本分布 / §2 M02-OPS-08 / §3.1 功能清单 / §3.2 说明 / §6 接口（coverage 移入 6.1）/ §11 验收（拆 3 / 3a，#11 改 P0/MVP）/ §12 边界（M01/M07 行）同步；原型待对齐（头部原型版本标注未对齐） | 模块目标、功能清单、接口设计、验收标准、模块边界 | MVP | 设计中 |
-| v1.3 | 2026-08-07 | 新增 | 按 prototype-designer PRD 骨架规范补齐：第 2 章用户故事引用全局库（M02- 编码）、新增 4.x 核心流程、5.x 数据模型加「UI 展示名」列、10.x 数据模型状态机、验收标准分层（11.1 用户 / 11.2 技术）+ P0/P1 标注、新增第 13 章「术语映射」、Change Log 精简（完整历史迁移 design-decisions.md） | 文档自身 | 文档自身 | 设计中 |
-| v1.2 | 2026-08-06 | 新增 | 原型升级对齐 PRD v1.2（docs/prototypes/module-02/）：目标状态展示增强（采集时长 / 拨测结果 / 采集诊断 Drawer / 覆盖率统计卡 v0.2）；envelope 多值 `network_domains` 展示；自动注入提示（单/多网域）；数据来源与新鲜度演示（v0.2 联动 Module_09）；告警状态页 v0.3 占位标注；查询辅助 v0.3 标注；全局导航壳与 `Tenant.multi_site_enabled` 模式开关；原型版本 v1.1 → v1.2，package.json version 1.2.0，新增 README.md（含导航映射表与模块边界标注） | 原型目录、UI/UX、文档自身 | 文档自身 | 设计中 |
-| v1.2 | 2026-08-06 | 修改 | 版本对齐路线图与 M01/M07/M08/M09 边界交叉确认：① `/api/v1/alerts` 代理由 MVP 移至 **v0.3**（与 Module_08 对齐）；② 租户/网域注入机制 MVP 落地、多租户/多网域语义 v0.2 启用；③ PromQL 校验/指标预览接口随 Module_01 规则编辑 UI 移至 **v0.3**（路线图 2.4 MVP 不做告警规则编辑 UI）；④ **修复注入标签 key 契约**：统一为 `network_domain` / `tenant_id`（与 Module_09 3.3.1 external_labels 对齐），删除 v1.1 的 `network_domain_id` 表述，并区分对象字段与 Prometheus 标签；⑤ 新增 MVP「目标状态展示」（代理 `/api/v1/targets`，承接 Module_01 3.3 移交）；⑥ envelope 修订：`network_domain` 单值 → `network_domains` 多值、`data_source` 细化到网域、v0.2 联动 Module_09 心跳/WAL 提示数据延迟；⑦ 新增 v0.2：采集健康度/覆盖率查询 API（Module_07 三态 badge 联动）、批量查询语义预留、labels/series 租户隔离、AST 解析注入；⑧ 新增 v0.3：`/api/v1/rules` 只读代理、`validate`/`preview` 接口、查询辅助（联动 M01 指标库 + M07 LabelTemplate）、Open API 鉴权限流、Dashboard 数据；⑨ 新增「模块边界交叉确认」章节 | 模块目标、功能清单、接口设计、注入规则、envelope、验收标准、模块边界 | MVP / v0.2 / v0.3 | 设计中 |

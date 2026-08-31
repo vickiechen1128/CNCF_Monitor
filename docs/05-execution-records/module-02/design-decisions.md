@@ -100,14 +100,36 @@
   3. 「采集健康度/覆盖率查询 API」（三态，供 M07 badge 消费）由 **v0.2 提前到 MVP**（修订决策 4.7）。
 - **影响范围**：Module_02 PRD v1.4（§1 版本分布、§3.1 功能清单、§3.2、§6 接口、§11 验收、§12 边界）。
 
+### 决策 7：可视化方案收敛——大屏走 Grafana 嵌入、门户轻量图表自研（2026-08-31，决策 50）
+
+- **触发**：MVP 收口评估中发现两个非 Prometheus 原生的能力缺口，其中「可视化大屏进行指标实时展示」需要明确方案与边界，避免与 M02「不自研拖拽面板编辑器」的既有结论冲突。
+- **结论**：
+  1. **不自研**拖拽式面板编辑器与可视化大屏（维持 P2 不做）；
+  2. 大屏/复杂看板需求通过 **Grafana iframe 嵌入**满足（anonymous 模式 + share/embed 链接；AGPL 对嵌入使用无限制）；
+  3. **红线**：Grafana 的数据源必须配置为 M02 查询代理地址（`/api/v1/query*`），**禁止直连 Prometheus**——否则租户/网域注入被绕过，v0.2 多租户启用后构成跨租户数据泄露；
+  4. 门户内轻量实时图表（首屏指标卡、资源详情趋势图）使用 ECharts/AntV 消费 M02 `query_range`，与 v0.3「首页 Dashboard 数据」共用查询链路。
+- **配套澄清**：MVP envelope 按最小集落地（`data_source` 恒 `central_scrape`、`network_domains` 恒 `["default"]`、`freshness_at` 取最新样本时间戳），结构在 MVP 即固定，v0.2 只做取值细化不改结构。
+- **依据**：Grafana/夜莺等外部组件自带独立查询路径，只有强制其走 M02 代理，M02 的注入隔离才对全部查询消费方生效；自研面板编辑器投入产出比低。
+- **影响范围**：Module_02 PRD v1.5（§1 新增可视化组件边界、§3.1「复杂 Dashboard / 可视化大屏」行、§8.2 envelope MVP 口径）。
+- **关联决策**：决策 49（告警组件选型锁定 Alertmanager，全文见 module-08 design-decisions）——同一轮缺口的另一部分。
+
 ---
 
 ## Change Log（完整历史）
 
-> v1.3 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.1 及以前的逐版完整变更详情（业务沟通决策记录）。
+> v1.3 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.3 及以前的逐版完整变更详情（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.3 | 2026-08-07 | 新增 | 按 prototype-designer PRD 骨架规范补齐：第 2 章用户故事引用全局库（M02- 编码）、新增 4.x 核心流程、5.x 数据模型加「UI 展示名」列、10.x 数据模型状态机、验收标准分层（11.1 用户 / 11.2 技术）+ P0/P1 标注、新增第 13 章「术语映射」、Change Log 精简（完整历史迁移 design-decisions.md） | 文档自身 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-06 | 新增 | 原型升级对齐 PRD v1.2（docs/prototypes/module-02/）：目标状态展示增强（采集时长 / 拨测结果 / 采集诊断 Drawer / 覆盖率统计卡 v0.2）；envelope 多值 `network_domains` 展示；自动注入提示（单/多网域）；数据来源与新鲜度演示（v0.2 联动 Module_09）；告警状态页 v0.3 占位标注；查询辅助 v0.3 标注；全局导航壳与 `Tenant.multi_site_enabled` 模式开关；原型版本 v1.1 → v1.2，package.json version 1.2.0，新增 README.md（含导航映射表与模块边界标注） | 原型目录、UI/UX、文档自身 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-06 | 修改 | 版本对齐路线图与 M01/M07/M08/M09 边界交叉确认：① `/api/v1/alerts` 代理由 MVP 移至 **v0.3**（与 Module_08 对齐）；② 租户/网域注入机制 MVP 落地、多租户/多网域语义 v0.2 启用；③ PromQL 校验/指标预览接口随 Module_01 规则编辑 UI 移至 **v0.3**（路线图 2.4 MVP 不做告警规则编辑 UI）；④ **修复注入标签 key 契约**：统一为 `network_domain` / `tenant_id`（与 Module_09 3.3.1 external_labels 对齐），删除 v1.1 的 `network_domain_id` 表述，并区分对象字段与 Prometheus 标签；⑤ 新增 MVP「目标状态展示」（代理 `/api/v1/targets`，承接 Module_01 3.3 移交）；⑥ envelope 修订：`network_domain` 单值 → `network_domains` 多值、`data_source` 细化到网域、v0.2 联动 Module_09 心跳/WAL 提示数据延迟；⑦ 新增 v0.2：采集健康度/覆盖率查询 API（Module_07 三态 badge 联动）、批量查询语义预留、labels/series 租户隔离、AST 解析注入；⑧ 新增 v0.3：`/api/v1/rules` 只读代理、`validate`/`preview` 接口、查询辅助（联动 M01 指标库 + M07 LabelTemplate）、Open API 鉴权限流、Dashboard 数据；⑨ 新增「模块边界交叉确认」章节 | 模块目标、功能清单、接口设计、注入规则、envelope、验收标准、模块边界 | MVP / v0.2 / v0.3 | 设计中 |
 | v1.1 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
 | v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.2 / v0.3 | draft |
+### 决策 8：跨模块决策交叉引用（2026-08-31，决策 51/52/53/54）
+
+- **决策 51（Grafana 集成三层归属）**：全文见 module-05 design-decisions。本模块落点：可视化边界补充三层归属（M05 嵌入 / 交付包 provisioning / M11 预留），并明确**跨网域业务看板不受网域注入影响**——注入语义为「授权集合收敛」（PRD §7.2），`sum by (biz)` 跨域聚合天然成立，网域仅作可选下钻维度。
+- **决策 52（网域归属解析链）**：全文见 module-07 design-decisions。本模块落点：blackbox 拨测网域语义——拨测指标 `network_domain` 表示**发起侧网域**（探测路径），目标归属不参与推导。
+- **决策 53/54（filter 模式 + Job 网域扇出）**：全文见 module-01 design-decisions。本模块无直接改动；采集状态回显（决策 47-2）对 filter 模式自动纳入的新实例同样生效（「待采集」语义不变）。
+- **影响范围**：Module_02 PRD v1.6（§1 边界两条）。

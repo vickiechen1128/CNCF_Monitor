@@ -131,6 +131,13 @@ export function QueryPage() {
                   description="v0.2：freshness_at 滞后于当前时间，UI 需区分「无数据」与「数据旧」；联动 Module_09 心跳，该网域数据已延迟约 3 分钟（WAL 积压 12MB）。"
                 />
               )}
+              {/* 决策 50 / v1.5：MVP envelope 最小实现口径——data_source 恒 central_scrape、network_domains 恒 ["default"]、freshness_at 取最新样本时间戳（空结果 null） */}
+              <Alert
+                type="info"
+                showIcon
+                message="MVP envelope 最小口径（决策 50 / PRD §8.2）"
+                description="MVP 阶段 envelope 元数据按最小集落地：data_source 恒为 central_scrape、network_domains 恒为 [default]、freshness_at 取查询结果中最新的样本时间戳（结果为空时为 null）；v0.2 起细化到网域/多数据源，结构在 MVP 即固定，避免下游改动。"
+              />
               <Descriptions
                 size="small"
                 column={1}
@@ -149,7 +156,7 @@ export function QueryPage() {
                         {displayEnvelope.meta.network_domains.map((d) => (
                           <Tag key={d} color="purple">{d}</Tag>
                         ))}
-                        <Text type="secondary">（v1.2：由单值 network_domain 调整为数组）</Text>
+                        <Text type="secondary">（MVP 单网域恒为 [default]；v1.2 由单值 network_domain 调整为数组，适配多网域）</Text>
                       </Space>
                     ),
                   },
