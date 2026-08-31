@@ -1,6 +1,6 @@
 /**
  * 认证 / 用户相关类型（对齐 module-06 契约快照 §1 认证）。
- * 参考 docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md。
+ * 参考 docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md。
  */
 
 /** 当前登录用户信息（GET /api/v2/platform/auth/me；login.data.user 复用） */

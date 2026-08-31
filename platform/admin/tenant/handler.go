@@ -1,6 +1,6 @@
 // Package tenant implements Module_06 租户管理 MVP 子集 API（决策 44 修订）
 // — 参见 docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md §6.1
-// 与 docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md §3。
+// 与 docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md §3。
 // MVP 仅开放查看与编辑：GET 列表/详情 + PUT 编辑 name/multi_site_enabled；
 // POST 新建与 PATCH status 禁用一律返回 forbidden（前端无入口，后端兜底拒绝）。
 package tenant

@@ -1,6 +1,6 @@
 // Package user implements Module_06 用户管理与登录日志查询 API（MVP，决策 44）
 // — 参见 docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md §6.3
-// 与 docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md §2。
+// 与 docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md §2。
 package user
 
 import (

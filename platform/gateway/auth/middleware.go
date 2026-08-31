@@ -2,6 +2,7 @@ package auth
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
@@ -24,6 +25,8 @@ var healthPaths = map[string]struct{}{
 // AuthMiddleware enforces the contract-wide authentication gate for /api/*
 // requests. It only authenticates—never authorizes (no role / permission
 // checks). It lets through:
+//   - every non-/api/* request (frontend static assets and SPA routes when the
+//     control plane hosts the UI itself, see deploy topology A2);
 //   - OPTIONS preflight requests;
 //   - POST /api/v2/platform/auth/login;
 //   - the /api/v1/health*, /api/v1/status public health endpoints.
@@ -35,6 +38,13 @@ var healthPaths = map[string]struct{}{
 func AuthMiddleware(svc *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
+		// 非 /api/* 请求（A2 同源托管的前端静态资源与前端 history 路由）不在本
+		// 中间件认证范围内：契约 §4 约束的是 /api/*。若不放行，浏览器加载
+		// index.html 与 assets/*.js 会被 401 拦截，页面根本打不开。
+		if !strings.HasPrefix(path, "/api/") {
+			c.Next()
+			return
+		}
 		if c.Request.Method == http.MethodOptions {
 			c.Next()
 			return
