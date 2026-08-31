@@ -28,7 +28,18 @@ function buildMenu(): MenuItem[] {
       label: '查询中心（Module_02）',
       children: [
         { key: '/query', icon: <AppstoreOutlined />, label: 'PromQL 查询' },
-        { key: '/targets', icon: <AppstoreOutlined />, label: '目标状态' },
+        {
+          key: '/targets',
+          icon: <AppstoreOutlined />,
+          label: (
+            <Space size={4}>
+              目标状态
+              <Tag color="purple" style={{ fontSize: 10, lineHeight: '16px', marginInlineEnd: 0 }}>
+                P1
+              </Tag>
+            </Space>
+          ),
+        },
         {
           key: '/alert-status',
           icon: <AppstoreOutlined />,
@@ -157,11 +168,15 @@ export function MainLayout({ children }: MainLayoutProps) {
                   <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }}>
                     页面文案面向运维工程师，不含实现细节；设计决策与 PRD 引用详见
                     docs/05-execution-records/module-02/design-decisions.md 与 Module_02 PRD（对应原型目录上级）。
-                    决策清单（决策 4 版本落位，2026-08-06）：4.1 /api/v1/alerts 代理 v0.3；4.2 PromQL 校验 / 指标实时预览 v0.3；
-                    4.3 租户 / 网域上下文注入 MVP 机制、多网域语义 v0.2；4.4 注入标签 key 统一 network_domain / tenant_id（MVP）；
-                    4.5 目标状态展示新增 MVP（承接 M01 3.3 移交）；4.6 envelope 支持多网域数组、data_source 细化到网域；
-                    4.7 采集健康度 / 覆盖率 v0.2（M07 三态 badge）；4.8 批量查询 / 查询辅助 / Dashboard 数据 / Open API 鉴权 v0.3；
-                    4.9 目标详情 ScrapeLog 独立日志存储 v0.3。
+                    决策清单（对齐 PRD v1.5，决策 47/50，2026-08-31）：
+                    4.1 /api/v1/alerts 代理 v0.3（与 Module_08 对齐）；4.2 PromQL 校验 / 指标实时预览 v0.3（随 M01 规则编辑 UI）；
+                    4.3 租户 / 网域上下文注入 MVP 落地骨架（恒 `default` 网域 + `platform_admin` 租户）、多租户/多网域语义 v0.2；
+                    4.4 注入标签 key 统一 `network_domain` / `tenant_id`（与 Module_09 external_labels 对齐，MVP，决策 47-2）；
+                    4.5 `/api/v1/targets` 代理 P0/MVP、承接 M01 移交，同时作 M01 Job 实例回显（47-2）与 M07 三态 badge（47-3）数据源；独立目标状态页降 P1（极简全局排障列表，47-4）；
+                    4.6 envelope 支持多网域数组 `network_domains` + `data_source` 网域细化（v1.2）；MVP envelope 最小口径（决策 50 / v1.5）：`data_source` 恒 `central_scrape`、`network_domains` 恒 `["default"]`、`freshness_at` 取最新样本时间戳；
+                    4.7 采集健康度 / 覆盖率查询 API 由 v0.2 提前到 MVP（决策 47-3，供 M07 三态 badge）；
+                    4.8 批量查询 / 查询辅助 / Dashboard 数据 / Open API 鉴权 v0.3；目标详情 ScrapeLog 独立日志存储 v0.3；
+                    4.9 决策 50（v1.5）：不自研拖拽式面板编辑器 / 可视化大屏，大屏走 Grafana iframe 嵌入且数据源必须指向 M02 查询代理（禁止直连 Prometheus）。
                     实现细节与数据契约见 PRD 对应章节与代码注释。
                   </Typography.Paragraph>
                 ),

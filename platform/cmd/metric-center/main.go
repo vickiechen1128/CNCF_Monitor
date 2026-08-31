@@ -20,7 +20,10 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -48,6 +51,7 @@ var (
 	businessDomainsFile     = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
 	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
 	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
+	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
 	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 120*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
 )
@@ -100,7 +104,10 @@ func main() {
 	// M09 §3.3.3：启动自适应配置变更检测轮询（方案 A，闭环补缺），随 ctx 优雅退出。
 	change.Start(ctx, db.DB, *changeDetectMinInterval, *changeDetectMaxInterval)
 
-	r := setupRouter(promURL)
+	r, err := setupRouter(promURL, *webStaticDir)
+	if err != nil {
+		log.Fatalf("failed to setup router: %v", err)
+	}
 
 	srv := &http.Server{Addr: *listenAddr, Handler: r}
 	go func() {
@@ -119,8 +126,11 @@ func main() {
 	}
 }
 
-func setupRouter(promURL *url.URL) *gin.Engine {
+// setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
+func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	r := gin.Default()
+	// A2 同源部署下 CORS 中间件实际不生效（前后端同域），保留仅为兼容 S2 拆分前
+	// 的直连场景与开发态跨端口调试；演进到 S2（nginx 反代）后应移除或收紧为白名单。
 	r.Use(cors.Default())
 
 	// au-02 全局认证中间件（交集：POST /api/v2/platform/auth/login、
@@ -135,7 +145,15 @@ func setupRouter(promURL *url.URL) *gin.Engine {
 	apiV2 := r.Group("/api/v2")
 	registerPlatformConfigRoutes(apiV2)
 
-	return r
+	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
+	if staticDir != "" {
+		if err := registerSPA(r, staticDir); err != nil {
+			return nil, err
+		}
+		log.Printf(">>> serving frontend static files from %s", staticDir)
+	}
+
+	return r, nil
 }
 
 func registerHealthRoutes(g *gin.RouterGroup) {
@@ -192,6 +210,57 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
 	platform.GET("/dashboard/summary", dashboard.SummaryHandler(db.DB))
+}
+
+// registerSPA 在 Gin 上托管前端构建产物，实现 UI 与 API 同源（部署拓扑方案 A2，
+// 见 docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md）。
+//
+// 路由优先级与行为：
+//   - 已注册的 /api/* 路由在 NoRoute 之前命中，不受影响；
+//   - 未命中的 /api/* 请求返回 404 JSON，**不**落入静态兜底——否则会把 API 404
+//     伪装成 200 + index.html，前端按 JSON 解析失败且掩盖真实问题。
+//     注意 auth.AuthMiddleware 先于本兜底执行，因此未携带 token 的 /api/* 请求
+//     会先拿到 401，404 分支对已认证请求生效。这是更安全的分层：匿名请求无法
+//     通过「404 vs 401」探测哪些 API 路径真实存在。
+//   - 存在对应文件的路径（如 /assets/index-*.js）直接返回文件（含目录穿越防护）；
+//   - 其余路径（含 / 与前端 history 子路由）fallback 到 index.html，交给前端路由。
+func registerSPA(r *gin.Engine, dir string) error {
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("resolve web.static-dir %q: %w", dir, err)
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("web.static-dir %q: %w", root, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("web.static-dir %q: not a directory", root)
+	}
+	indexPath := filepath.Join(root, "index.html")
+	if _, err := os.Stat(indexPath); err != nil {
+		return fmt.Errorf("web.static-dir %q: %w", root, err)
+	}
+
+	fileServer := http.FileServer(http.Dir(root))
+	inside := root + string(os.PathSeparator)
+
+	r.NoRoute(func(c *gin.Context) {
+		reqPath := c.Request.URL.Path
+		if reqPath == "/api" || strings.HasPrefix(reqPath, "/api/") {
+			response.NotFound(c, "api route not found: "+reqPath)
+			return
+		}
+		// path.Clean 归一化 .. 后再拼接，配合前缀校验阻断目录穿越。
+		target := filepath.Join(root, filepath.FromSlash(path.Clean(reqPath)))
+		if strings.HasPrefix(target, inside) {
+			if fi, err := os.Stat(target); err == nil && !fi.IsDir() {
+				fileServer.ServeHTTP(c.Writer, c.Request)
+				return
+			}
+		}
+		c.File(indexPath)
+	})
+	return nil
 }
 
 func healthHandler(c *gin.Context) {

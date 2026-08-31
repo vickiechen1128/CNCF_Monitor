@@ -1,8 +1,8 @@
 # MetricCenter Module 02 原型
 
-> **验证的 PRD 版本**: [Module_02_Query_Center.md](../../02-product-requirements/Modules/Module_02_Query_Center.md) v1.2
+> **验证的 PRD 版本**: [Module_02_Query_Center.md](../../02-product-requirements/Modules/Module_02_Query_Center.md) v1.5
 > **覆盖的产品版本**: MVP / v0.2 / v0.3
-> **原型版本**: v1.2
+> **原型版本**: v1.5
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,19 @@
 > ```
 >
 > **访问地址**: http://localhost:5176/
+
+## 本次 v1.5 相对 v1.4 的关键变更（决策 50：可视化收敛 + MVP envelope 最小口径；四类 MVP 欠债项落版）
+
+- **{v1.5} 响应 envelope MVP 最小口径（决策 50 / PRD §8.2）**：查询页响应 Envelope 卡片新增 MVP 最小实现口径说明——`data_source` 恒为 `central_scrape`、`network_domains` 恒为 `["default"]`、`freshness_at` 取查询结果中最新的样本时间戳（结果为空时为 `null`）；`edge_remote_write` / `data_source_by_domain` 多网域细化明确标注为 v0.2 演示 overlay，MVP 即固定 envelope 结构，避免下游改动。
+- **{v1.5} 可视化收敛（决策 50）**：MetricCenter 不自研拖拽式面板编辑器 / 可视化大屏——大屏走 Grafana iframe 嵌入且数据源必须指向 M02 查询代理（`/api/v1/query*`），禁止直连 Prometheus（防止绕过租户/网域注入）；门户轻量实时图表用 ECharts/AntV 消费 `query_range`（随 v0.3 首页 Dashboard 数据）。原型查询页「简单折线」Tab 即该轻量图表占位。
+- 四类 MVP 欠债项已按既有契约落版原型并随 v1.5 对齐（见下节能力清单）：**placeholder 代理 `/api/v1/targets`**（字段 + 按网域/Job/health 筛选）、**采集健康度/覆盖率查询 API**（三态，决策 47-3 提前）、**响应 envelope**（决策 50 最小口径）、**租户/网域注入骨架**（MVP 恒 default 网域 + platform_admin 租户，注入 key `network_domain`/`tenant_id` 与 M09 external_labels 对齐）。
+- 对齐 Module_02 PRD v1.5 / 原型 v1.5；本轮为原型行为同步，与 PRD 落版同步提交。
+
+## 本次 v1.4 相对 v1.2 的关键变更（决策 47-3 / 47-4，与 M01 / M07 采集状态能力协同）
+
+- **{v1.4} 独立目标状态页降为 P1（决策 47-4）**：本页定位收敛为「跨 Job 全局排障入口」——配置场景的实例采集状态知情权由 Module_01 Job 详情/编辑抽屉回显承接（M01 §5.10），资产场景的采集状态由 Module_07 资源列表三态 badge 承接；菜单「目标状态」加 `P1` 标记、页内新增定位说明 banner，极简列表即可，去 P0 唯一状态入口语义。
+- **{v1.4} 采集健康度/覆盖率查询 API 提前到 MVP（决策 47-3）**：原 v0.2 交付的「已监控且 up / 已监控但 down / 未监控」三态健康度/覆盖率查询提前至 MVP，作为 Module_07 badge（M07 §采集状态）与 M01 实例状态回显的共同数据来源；「监控覆盖率」卡片与说明的版本标注由 v0.2 改为 MVP。
+- 对齐 Module_02 PRD v1.4 / 原型 v1.4；本轮为原型行为同步，与 PRD 落版同步提交。
 
 ## 构建产物验证
 
@@ -37,12 +50,12 @@ python3 -m http.server 8080
 
 ## 原型目标
 
-验证 [Module 02: 查询中心](../../02-product-requirements/Modules/Module_02_Query_Center.md) v1.2 的核心能力（与 PRD v1.2 对齐）：
+验证 [Module 02: 查询中心](../../02-product-requirements/Modules/Module_02_Query_Center.md) v1.4 的核心能力（与 PRD v1.4 对齐）：
 
 1. **PromQL 查询代理（MVP）**：instant/range 查询、表格/JSON/折线视图；**自动注入提示**——单网域模式注入 `tenant_id="tenant-a"` + `network_domain="default"`（对用户透明）；多网域模式注入 `network_domain=~"default|gov-cloud-a"` 并提示「当前查询范围覆盖 N 个网域」（PRD 5.2）。
 2. **响应 Envelope（MVP / v0.2）**：`network_domains` **多值数组**（v1.2 由单值调整）；`data_source` 演示切换（central_scrape MVP 默认 / edge_remote_write v0.2），后者提示「边缘异步写入可能存在延迟」并联动 Module_09 心跳（数据延迟 X 分钟、WAL 积压）；`data_source_by_domain` 展示数据来源细化到网域（v0.2）。
-3. **目标状态展示（MVP，承接 Module_01 移交）**：代理 `/api/v1/targets` 语义；按网域/Job/状态筛选；列含 health、last_scrape、**采集时长**、**拨测结果**（probe_success / probe_duration，仅 blackbox Job）、last_error；行点击打开**采集诊断 Drawer**（lastError / HTTP 状态码 / 采集时长 / 标签）。
-4. **监控覆盖率（v0.2 演示）**：三态统计卡（已监控且 Up / 已监控但 Down / 未监控），基于 `up` 指标聚合，标注「v0.2 交付 · M07 三态 badge 联动」。
+3. **目标状态页（P1 / MVP，决策 47-4）**：跨 Job 全局排障入口；按网域/Job/状态筛选；列含 health、last_scrape、**采集时长**、**拨测结果**（probe_success / probe_duration，仅 blackbox Job）、last_error；行点击打开**采集诊断 Drawer**（lastError / HTTP 状态码 / 采集时长 / 标签）。本页降为 P1——配置场景知情权由 Module_01 Job 回显承接、资产场景由 Module_07 badge 承接，页内提供定位说明 banner。
+4. **监控覆盖率（MVP，决策 47-3 提前）**：三态统计卡（已监控且 Up / 已监控但 Down / 未监控），基于 `up` 指标聚合，标注「MVP · M07 三态 badge 联动」。
 5. **告警状态查看（v0.3 占位）**：菜单与页面标注 `v0.3`，页面顶部提示「该能力由 Module_02 代理 Prometheus /api/v1/alerts，与 Module_08 对齐，MVP 不提供」；内容保留演示。
 6. **查询辅助（v0.3 标注）**：常用查询模板区标注「查询辅助 v0.3」（指标名补全 / 标签建议 / 常用模板）。
 7. **单网域/多网域模式**：Header 提供 `Tenant.multi_site_enabled` 租户级开关（与 Module_09 一致）；单网域模式仅展示 default 网域数据、网域筛选禁用；多网域模式展示全部授权网域。
@@ -65,12 +78,12 @@ python3 -m http.server 8080
 - **注入标签 key 契约**：自动注入使用 `network_domain` / `tenant_id`，与 Module_09 `external_labels` 注入 key 对齐（v1.2 修复，v1.1 的 `network_domain_id` 已弃用）。
 - **目标/拨测/采集诊断**：`ScrapeTarget` / `ScrapeLog` 模型由 Module_01 定义，Module_02 只读展示；MVP 使用 `/api/v1/targets` 代理语义（health / lastScrape / lastError），独立 ScrapeLog 日志存储 v0.3。
 - **告警状态**：v0.3 由 Module_02 代理 Prometheus `/api/v1/alerts`；Alertmanager 通知状态（分组/静默/抑制/接收人）归 Module_08；边缘本地告警（P2）经 Module_09 EdgeHeartbeat 上报，不归 Module_02。
-- **监控覆盖率**：v0.2 由 Module_02 提供 `up` 聚合 API，Module_07 `is_monitored` badge 三态增强消费（MVP badge 保持二元）。
+- **监控覆盖率**：MVP 起由 Module_02 提供 `up` 聚合/健康度 API（决策 47-3 从 v0.2 提前），Module_07 采集状态三态 badge 消费。
 
 ## 核心页面
 
 - `/query`：PromQL 查询中心（注入提示 + Envelope/新鲜度演示 + 表格/JSON/折线）
-- `/targets`：目标状态（覆盖率统计卡 v0.2 + 目标列表 + 采集诊断 Drawer）
+- `/targets`：目标状态（全局排障入口 P1 · 覆盖率统计卡 MVP + 目标列表 + 采集诊断 Drawer）
 - `/alert-status`：当前告警（v0.3 占位演示）
 
 ## 已知限制

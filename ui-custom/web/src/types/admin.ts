@@ -1,6 +1,6 @@
 /**
- * 平台管理领域类型（对齐 module-06-tenant-user-auth 契约快照 §2 用户 / §2 登录日志 / §3 租户）。
- * 参考 docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md。
+ * 平台管理领域类型（对齐 module-06 Track B 增量契约快照 §2 用户 / §2 登录日志 / §3 租户）。
+ * 参考 docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md。
  */
 import type { Tenant } from './domain'
 

@@ -21,9 +21,11 @@ import {
   mockNetworkDomains,
   mockResources,
   mockScrapeJobs,
+  mockTargetsCollection,
+  collectionStatsOf,
 } from './module-01'
 
-describe('module-01 mocks（对齐 PRD v3.26）', () => {
+describe('module-01 mocks（对齐 PRD v3.27）', () => {
   const templateIds = new Set(mockExporterTemplates.map((t) => t.exporter_template_id))
   const resourceIds = new Set(mockResources.map((r) => r.resource_id))
   const metricNames = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
@@ -339,6 +341,42 @@ describe('module-01 mocks（对齐 PRD v3.26）', () => {
           if (t.url) expect(typeof t.url).toBe('string')
         })
       })
+  })
+
+  it('{v3.27} 决策 47-2：mockTargetsCollection 采集状态枚举合法，且异常态需可解释（up 必带最后抓取时间）', () => {
+    const valid: Array<'pending' | 'up' | 'down' | 'unknown'> = ['pending', 'up', 'down', 'unknown']
+    mockScrapeJobs.forEach((j) => {
+      j.selected_instance_ids.forEach((id) => {
+        const s = mockTargetsCollection[id]?.status ?? 'unknown'
+        expect(valid).toContain(s)
+        // up 表示「采集中」，必须携带最后抓取时间；异常态 down 携带失败原因
+        if (s === 'up') expect(mockTargetsCollection[id]?.last_scrape).toBeTruthy()
+        if (s === 'down') {
+          expect(
+            (mockTargetsCollection[id]?.last_error ?? '').length > 0 ||
+              (mockTargetsCollection[id]?.last_scrape ?? '') === ''
+          ).toBe(true)
+        }
+      })
+    })
+  })
+
+  it('{v3.27} 决策 47-2：collectionStatsOf 按实例集合聚合四态计数且总数等于入参长度', () => {
+    const job = mockScrapeJobs.find((j) => j.job_id === 'job-001') ?? mockScrapeJobs[0]
+    const stats = collectionStatsOf(job.selected_instance_ids, mockTargetsCollection)
+    const total = stats.up + stats.down + stats.pending + stats.unknown
+    expect(total).toBe(job.selected_instance_ids.length)
+    // 汇总必为非负整数
+    Object.values(stats).forEach((v) => expect(Number.isInteger(v)).toBe(true))
+    expect(stats.up).toBeGreaterThan(0)
+  })
+
+  it('{v3.27} 决策 47-1：安装登记键维度为 resource_id × exporter_template_id，登记与否不影响 target 生成（纯留痕）', () => {
+    // mock 安装登记均可选：resource_id / exporter_template_id 均指向合法资源与采集器，且不含「生成 target」断言
+    mockExporterInstallations.forEach((c) => {
+      expect(resourceIds.has(c.resource_id)).toBe(true)
+      expect(templateIds.has(c.exporter_template_id)).toBe(true)
+    })
   })
 
   it('ScrapeJob 的 mapping_overrides 字段名在映射继承参数候选集内（PRD v2.0 决策 14）', () => {

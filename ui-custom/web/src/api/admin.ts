@@ -1,6 +1,6 @@
 /**
  * 平台管理 API（/api/v2/platform/...）
- * 覆盖 module-06-tenant-user-auth 契约快照 §2 用户 / §2 登录日志 / §3 租户：
+ * 覆盖 module-06 Track B 增量契约快照 §2 用户 / §2 登录日志 / §3 租户：
  * - 用户：GET/POST users、PUT/:id、PATCH/:id/status、PUT/:id/password
  * - 登录日志：GET /login-logs（分页 + username/success 筛选）
  * - 租户：GET /tenants、GET /tenants/:id、PUT /tenants/:id（MVP 无新建/禁用）

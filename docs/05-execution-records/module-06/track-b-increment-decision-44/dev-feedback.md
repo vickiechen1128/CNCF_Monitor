@@ -1,4 +1,6 @@
-# dev-feedback：module-06-tenant-user-auth
+# dev-feedback：module-06 Track B 增量（决策 44：轻量认证 + 租户/用户管理）
+
+> **设计侧回改（2026-08-29，收割）**：FB-04~07 四项需产品/设计确认的开放性口与措辞订正已由设计侧收割并落档 `Module_06_Multi_Tenant.md` v2.4 + 原型 v2.4（Track B 低保真拉齐）。涵盖：①FB-04 安全整改（H-1 生产拒默认密码 / H-2 RequireAdmin 最小授权门 / M-1 登录限流 / M-2 失败原因统一入库）全部落 PRD §5.3/§9.2；②FB-05 删除用户：PRD §6.3 补 `DELETE /api/v2/platform/users/:id`、原型 UsersPage 补删除按钮（Popconfirm 二次确认，admin/当前账号不可删）；③FB-06 措辞订正：PRD 由「无角色体系」订正为「无**业务**角色/权限体系，MVP 仅保留 `admin`/`user` 两级访问控制门（H-2）」，原型 ReviewNote 同步说明；④FB-07 侧边栏命名统一为「租户管理/网域管理/用户管理/登录日志」，审计日志/平台配置标注 P2 **MVP 不占位**（PRD §11.0、原型侧边栏注释）。FB-01~03 为 ① 类自定留痕，无需 PRD 改动（Session 字段集属 Module_03 认证契约）。原型构建验证通过（`pnpm build`）。
 
 ## FB-01：Session 模型字段集为 PRD 空白（① 类，自定留痕）
 

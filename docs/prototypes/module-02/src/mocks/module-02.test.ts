@@ -11,7 +11,7 @@ import {
   type AlertSeverity,
 } from './module-02'
 
-describe('module-02 mocks（对齐 PRD v1.3）', () => {
+describe('module-02 mocks（对齐 PRD v1.4）', () => {
   it('tenant 为单网域默认模式（multi_site_enabled=false）', () => {
     expect(tenant.multi_site_enabled).toBe(false)
     expect(tenant.tenant_id).toBe('tenant-a')
@@ -56,7 +56,7 @@ describe('module-02 mocks（对齐 PRD v1.3）', () => {
     downTargets.forEach((t) => expect(t.last_error.length).toBeGreaterThan(0))
   })
 
-  it('覆盖率按网域统计且三态字段非负（v0.2，M07 三态 badge 数据来源）', () => {
+  it('覆盖率按网域统计且三态字段非负（决策 47-3 提前到 MVP，M07 三态 badge 数据来源）', () => {
     coverageStats.forEach((s) => {
       expect(s.domain).toBeTruthy()
       expect(s.monitored_up).toBeGreaterThanOrEqual(0)

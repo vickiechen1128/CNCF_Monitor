@@ -734,7 +734,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   },
 ]
 
-// ---------- Exporter 安装/注册确认（PRD 5.6） ----------
+// ---------- Exporter 安装/注册登记（可选，PRD 5.6 {v3.27} 决策 47-1） ----------
+// 决策 47-1：安装登记从「确认闸门」降级为「可选留痕」——不作为生成 target 的前置，仅留痕/背书定位不变，实际端口字段仍挂登记表单。
 export interface ExporterInstallationConfirmation {
   id: string
   resource_id: string
@@ -1903,6 +1904,63 @@ export const INSTALL_STATUS_CYCLE: ExporterInstallStatus[] = [
   'not_installed',
   'unregistered',
 ]
+
+// ---------- {v3.27} 实例采集状态回显（决策 47-2，数据源 = M02 `/api/v1/targets` 代理，本模块只读） ----------
+export type CollectionRunStatus = 'pending' | 'up' | 'down' | 'unknown'
+
+export interface InstanceCollectionStatus {
+  status: CollectionRunStatus
+  /** 最后抓取时间（展示文本） */
+  last_scrape?: string
+  /** 抓取失败原因摘要（down 时展示） */
+  last_error?: string
+  /** 本次抓取耗时（秒） */
+  scrape_duration_seconds?: number
+}
+
+/** M02 /api/v1/targets 聚合 mock，按 resource_id 回连（与 M07 badge 同源）；M01 只读消费，不做写入 */
+export const mockTargetsCollection: Record<string, InstanceCollectionStatus> = {
+  'res-host-001': { status: 'up', last_scrape: '2026-08-29 15:00:21', scrape_duration_seconds: 0.41 },
+  'res-host-002': { status: 'up', last_scrape: '2026-08-29 15:00:21', scrape_duration_seconds: 0.52 },
+  'res-host-003': { status: 'up', last_scrape: '2026-08-29 15:00:23', scrape_duration_seconds: 0.38 },
+  'res-host-004': { status: 'up', last_scrape: '2026-08-29 15:00:23', scrape_duration_seconds: 0.45 },
+  'res-host-005': { status: 'down', last_scrape: '2026-08-29 15:00:23', last_error: 'server returned HTTP status 403 Forbidden' },
+  'res-mw-001': { status: 'up', last_scrape: '2026-08-29 15:00:25', scrape_duration_seconds: 0.30 },
+  // {v3.27} 决策 47-2：res-mw-002 演示「已下发未采到」异常——配置已下发但采集器未就绪/网络不通
+  'res-mw-002': { status: 'down', last_scrape: '', last_error: 'connect: connection refused' },
+  // {v3.27} 决策 47-2：res-mw-003 演示「待采集」——变更已保存但未下发或未首次抓取
+  'res-mw-003': { status: 'pending', last_scrape: '' },
+  'res-mw-004': { status: 'unknown', last_scrape: '' },
+  'res-mw-005': { status: 'unknown', last_scrape: '' },
+  'res-app-002': { status: 'down', last_scrape: '2026-08-29 15:00:27', last_error: 'dial tcp 192.168.3.12:8080: connect: connection refused' },
+  'res-app-003': { status: 'up', last_scrape: '2026-08-29 15:00:28', scrape_duration_seconds: 0.33 },
+  'res-gen-001': { status: 'up', last_scrape: '2026-08-29 15:00:29', scrape_duration_seconds: 0.27 },
+  'res-gen-002': { status: 'pending', last_scrape: '' },
+}
+
+/** 采集状态用户可见元数据：正常低饱和、已下发未采到高饱和（异常驱动） */
+export const COLLECTION_STATUS_META: Record<
+  CollectionRunStatus,
+  { label: string; color: string; anomaly?: boolean }
+> = {
+  up: { label: '采集正常', color: 'green' },
+  down: { label: '已下发未采到', color: '#FF4C3A', anomaly: true },
+  pending: { label: '待采集', color: 'orange' },
+  unknown: { label: '未知', color: 'default' },
+}
+
+/** 给定实例集合，聚合「在线 / 待采集 / 已下发未采到 / 未知」计数（模拟 M02 按 Job 过滤的聚合，决策 47-2） */
+export function collectionStatsOf(
+  instanceIds: string[],
+  lookup: Record<string, InstanceCollectionStatus> = mockTargetsCollection,
+): { up: number; down: number; pending: number; unknown: number } {
+  const counts = { up: 0, down: 0, pending: 0, unknown: 0 }
+  instanceIds.forEach((id) => {
+    const s = lookup[id]?.status ?? 'unknown'
+    counts[s] += 1
+  })
+  return counts
+}
 
 export const RULE_TYPE_MAP: Record<RuleType, { text: string; color: string }> = {
   alerting: { text: '告警', color: '#FF4C3A' },

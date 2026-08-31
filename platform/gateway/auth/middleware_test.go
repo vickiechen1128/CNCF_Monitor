@@ -172,3 +172,28 @@ func TestMiddleware_NoAuthorization(t *testing.T) {
 	w2 := perform(t, r, http.MethodGet, "/api/v1/protected", "", "")
 	require.Equal(t, http.StatusUnauthorized, w2.Code)
 }
+
+// TestMiddleware_NonAPIPathBypassesAuth 锁定 A2 同源部署的前提：控制面自己托管
+// 前端产物时，静态资源与前端 history 路由必须匿名可达。若不放行，浏览器加载
+// index.html / assets/*.js 会被 401 拦截，页面根本打不开（前端拿不到 HTML 与
+// JS，自然也无从携带 token）。契约 §4 约束的是 /api/*，非 /api 不在其列。
+func TestMiddleware_NonAPIPathBypassesAuth(t *testing.T) {
+	db := openTestDB(t)
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	r.Use(AuthMiddleware(NewService(NewRepository(db))))
+	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "index.html") })
+	r.GET("/assets/app.js", func(c *gin.Context) { c.String(http.StatusOK, "js") })
+	r.GET("/resources", func(c *gin.Context) { c.String(http.StatusOK, "index.html") })
+	r.GET("/api/v1/protected", func(c *gin.Context) { response.OK(c, gin.H{"ok": true}) })
+
+	for _, path := range []string{"/", "/assets/app.js", "/resources"} {
+		w := perform(t, r, http.MethodGet, path, "", "")
+		require.Equal(t, http.StatusOK, w.Code, "path %s must bypass the auth gate", path)
+	}
+
+	// 放行非 /api 路径不应削弱 /api/* 的认证强度：受保护接口仍须 401。
+	protected := perform(t, r, http.MethodGet, "/api/v1/protected", "", "")
+	require.Equal(t, http.StatusUnauthorized, protected.Code)
+}
