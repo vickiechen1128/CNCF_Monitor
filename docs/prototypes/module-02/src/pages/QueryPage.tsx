@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Card, Input, Button, Table, Tabs, Select, Space, Tag, Empty, message, Alert, Typography, Descriptions } from 'antd'
 import { HistoryOutlined, PlayCircleOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
 import { useTenant } from '../contexts/TenantContext'
 import { queryEnvelope, queryTemplates, type QueryRecord, type DataSourceType } from '../mocks/module-02'
 
@@ -11,10 +12,13 @@ export function QueryPage() {
   const [expr, setExpr] = useState('node_cpu_seconds_total{mode="idle"}')
   const [activeTab, setActiveTab] = useState('table')
   const [dataSourceDemo, setDataSourceDemo] = useState<DataSourceType>('central_scrape')
+  const [authScope, setAuthScope] = useState<'all' | 'subset'>('all')
   const { multiSiteEnabled } = useTenant()
 
   const dataSource = queryEnvelope.data.result as QueryRecord[]
   const allowedDomains = multiSiteEnabled ? ['default', 'gov-cloud-a'] : ['default']
+  // 网域授权集合收敛（决策 56 语义）：授权=全部网域时信封回显全部授权网域；仅授权部分网域时信封只回显已授权网域
+  const envelopeDomains = authScope === 'all' ? allowedDomains : ['gov-cloud-a']
 
   // 动态 envelope：MVP 恒 central_scrape；v0.2 演示 edge_remote_write（数据来源细化到网域）
   const displayEnvelope = {
@@ -22,7 +26,7 @@ export function QueryPage() {
     meta: {
       ...queryEnvelope.meta,
       data_source: dataSourceDemo,
-      network_domains: allowedDomains,
+      network_domains: envelopeDomains,
     },
   }
 
@@ -50,34 +54,74 @@ export function QueryPage() {
     setExpr(value)
   }
 
-  const injectedSelector = multiSiteEnabled
-    ? `network_domain=~"${allowedDomains.join('|')}"`
-    : `network_domain="${allowedDomains[0]}"`
-
   return (
     <MainLayout>
       <Card title="PromQL 查询中心">
         <Space direction="vertical" size="large" style={{ display: 'flex' }}>
-          {/* 自动注入提示（PRD 5.2：系统注入 = 权限隔离） */}
-          <Alert
-            type="info"
-            showIcon
-            message={multiSiteEnabled ? '多网域场景：默认查询全部授权网域' : '单网域场景：网域注入对用户透明'}
-            description={
-              <Space direction="vertical" size={4}>
-                <Space wrap>
-                  <Text strong>自动注入：</Text>
-                  <Tag color="blue">tenant_id="tenant-a"</Tag>
-                  <Tag color="purple">{injectedSelector}</Tag>
-                </Space>
-                {multiSiteEnabled && (
-                  <Text type="secondary">
-                    当前查询范围覆盖 {allowedDomains.length} 个网域；可在 PromQL 中进一步使用 network_domain matcher 手动筛选（用户过滤 = 业务筛选）。
-                  </Text>
-                )}
+          {/* 自动注入提示（PRD 5.2：系统注入 = 权限隔离；决策 56 注入三层语义） */}
+          <Card
+            size="small"
+            title="查询上下文注入（服务端强制）"
+            extra={
+              <Space>
+                <span className="text-secondary">网域授权范围：</span>
+                <Select
+                  value={authScope}
+                  onChange={setAuthScope}
+                  style={{ width: 180 }}
+                  options={[
+                    { value: 'all', label: '授权全部网域' },
+                    { value: 'subset', label: '仅授权部分网域' },
+                  ]}
+                />
               </Space>
             }
-          />
+          >
+            <Space direction="vertical" size={8} style={{ display: 'flex' }}>
+              <Space wrap>
+                <Tag color="red" style={{ fontWeight: 600 }}>
+                  租户隔离（硬边界）
+                </Tag>
+                <Tag color="red">tenant_id="tenant-a"</Tag>
+                <Text type="secondary">服务端强制注入，用户不可见、不可改，始终生效</Text>
+              </Space>
+              <Space wrap>
+                <Tag color="purple" style={{ fontWeight: 600 }}>
+                  网域授权（软边界）
+                </Tag>
+                {authScope === 'all' ? (
+                  <>
+                    <Tag color="green">不注入网域 matcher</Tag>
+                    <Text type="secondary">
+                      授权=全部网域，与裸查 Prometheus 一致，跨网域业务聚合（如 sum by (biz)）天然成立
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Tag color="purple">network_domain=~"gov-cloud-a"</Tag>
+                    <Text type="secondary">收敛到已授权网域，超出部分服务端过滤、返回空</Text>
+                  </>
+                )}
+              </Space>
+              <Space wrap>
+                <Tag color="blue" style={{ fontWeight: 600 }}>
+                  前端网域筛选
+                </Tag>
+                <Text type="secondary">纯交互体验，在已授权网域内下钻/聚合，不承担任何安全职责</Text>
+              </Space>
+            </Space>
+          </Card>
+
+          <ReviewNote title="设计说明：注入三层语义与上下游边界">
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              <li>租户隔离：tenant_id 服务端强制注入，是平台硬隔离边界，用户不可见不可改；MVP 恒为 tenant-a，v0.2 多租户启用后由登录身份自动解析。</li>
+              <li>网域授权集合收敛：服务端强制校验「查询结果不得越出用户授权网域集合」。授权集合=全部网域时不注入任何 matcher，与裸查 Prometheus 一致，跨网域业务聚合天然成立；用户显式 matcher 收敛于授权集合，越权部分返回空。</li>
+              <li>前端筛选 = 视觉遮蔽（curl 即绕过），不构成权限；安全必须服务端执行（红线）。</li>
+              <li>告警语义（决策 55）：告警状态页归 Module_08「告警域工作台」；Module_02 仅交付 /api/v1/alerts 注入代理 API，告警完全退出本模块 UI 叙事（原「当前告警」改为跨模块入口跳转 M08）。</li>
+              <li>M08 侧约束（决策 56 托盘）：AM 代理读路径服务端强制注入授权 filter，写路径创建静默/抑制时校验 matcher 收敛于授权网域（防跨租户写武器），不信任前端传参。</li>
+              <li>拓扑与存储（决策 57）：「1 控制面 + N 采集节点」扁平拓扑；中心存储预留替换 VictoriaMetrics——M02 注入代理作防腐层，替换时消费方零改动；隔离契约保持标签制（tenant_id/network_domain 由 M09 external_labels 写入侧打标、M02 查询侧校验），换存储不改契约；M08 前期维持文件化配置形态。</li>
+            </ul>
+          </ReviewNote>
 
           <Space.Compact style={{ width: '100%' }}>
             <Select
@@ -108,6 +152,16 @@ export function QueryPage() {
             <Tag color="orange">查询辅助 v0.3</Tag>
           </Space>
 
+          <ReviewNote title="设计说明：查询能力归属边界与跨网域语义">
+            {/* 决策 51 / v1.6：三层归属（自研查询=M02 / 大屏嵌入=M05 / 告警规则=M08）+ 跨网域看板不受注入影响 */}
+            <ul style={{ margin: 0, paddingLeft: 20 }}>
+              <li>自研查询（M02）：门户 PromQL 查询页 + 轻量实时图表（ECharts / AntV）消费 query_range；指标查询与轻量图表归本模块，复杂面板不自研。</li>
+              <li>大屏 / 复杂看板嵌入（M05）：Grafana iframe 嵌入「监控大屏」入口；Grafana 数据源必须指向 M02 查询代理，禁止直连 Prometheus（否则租户 / 网域注入被绕过）。</li>
+              <li>告警规则（M08）：规则求值、通知与分组静默，深链接入规则编辑；告警规则不引向 Grafana 看板，由规则模块独立承接。</li>
+              <li>跨网域业务看板不受网域注入影响：系统注入用于权限收敛，未显式写网域筛选时查询默认覆盖全部授权网域，跨网域聚合（如 sum by (biz) 按业务维度汇总）天然成立；网域仅作为可选下钻维度使用。</li>
+            </ul>
+          </ReviewNote>
+
           {/* 数据来源与新鲜度演示（PRD 6.2/6.3） */}
           <Card size="small" title="响应 Envelope 与数据新鲜度">
             <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
@@ -128,16 +182,9 @@ export function QueryPage() {
                   type="warning"
                   showIcon
                   message="数据为边缘异步写入，可能存在延迟"
-                  description="v0.2：freshness_at 滞后于当前时间，UI 需区分「无数据」与「数据旧」；联动 Module_09 心跳，该网域数据已延迟约 3 分钟（WAL 积压 12MB）。"
+                  description="区别于即时抓取，异步写入会导致 freshness_at 滞后；此时 UI 需要区分「无数据」与「数据旧」两种状态。"
                 />
               )}
-              {/* 决策 50 / v1.5：MVP envelope 最小实现口径——data_source 恒 central_scrape、network_domains 恒 ["default"]、freshness_at 取最新样本时间戳（空结果 null） */}
-              <Alert
-                type="info"
-                showIcon
-                message="MVP envelope 最小口径（决策 50 / PRD §8.2）"
-                description="MVP 阶段 envelope 元数据按最小集落地：data_source 恒为 central_scrape、network_domains 恒为 [default]、freshness_at 取查询结果中最新的样本时间戳（结果为空时为 null）；v0.2 起细化到网域/多数据源，结构在 MVP 即固定，避免下游改动。"
-              />
               <Descriptions
                 size="small"
                 column={1}
@@ -176,6 +223,14 @@ export function QueryPage() {
               />
             </Space>
           </Card>
+
+          <ReviewNote title="设计说明：响应 envelope 元数据语义">
+            {/* 决策 50 / v1.5 / PRD §8.2：MVP envelope 最小口径 */}
+            <p style={{ margin: 0 }}>
+              MVP 阶段 envelope 元数据按最小集落地：data_source 恒为 central_scrape、network_domains 恒为 [default]、freshness_at
+              取查询结果中最新的样本时间戳（结果为空时为 null）；v0.2 起细化到网域 / 多数据源，结构在 MVP 即固定，避免下游改动。
+            </p>
+          </ReviewNote>
 
           <Tabs
             activeKey={activeTab}
