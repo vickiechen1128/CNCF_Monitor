@@ -114,25 +114,44 @@ build_metric_center() {
 build_prometheus() {
     echo ">>> Building prometheus -> $TARGET_OS/$TARGET_ARCH"
     local prom_dir="$PROJECT_ROOT/upstream/prometheus"
+    # 1) Web UI 静态资源（与平台无关，必须先构建）
+    if [ ! -d "$prom_dir/web/ui/static" ]; then
+        echo ">>> Building Prometheus Web UI assets"
+        ( cd "$prom_dir/web/ui" && "$PNPM_BIN" install && "$PNPM_BIN" run build:mantine-ui )
+    fi
+    # 2) 生成 embed.go：将静态资源编译进二进制（builtinassets），
+    #    使交付包自包含，不再依赖运行时 CWD 下的 ./static 目录。
+    #    该文件在 upstream/prometheus/web/ui/.gitignore 中（已忽略），不会污染 git。
+    if [ ! -f "$prom_dir/web/ui/embed.go" ]; then
+        cat > "$prom_dir/web/ui/embed.go" <<'EOF'
+//go:build builtinassets
+package ui
+
+import "embed"
+
+//go:embed static
+var EmbedFS embed.FS
+EOF
+    fi
+    # 3) 编译（含 builtinassets，资源内嵌）
     if [ "$IS_CROSS" -eq 0 ]; then
         make -C "$PROJECT_ROOT" build-prometheus
     else
-        # 静态资源需要先行构建（与平台无关）
-        if [ ! -d "$prom_dir/web/ui/static" ]; then
-            echo ">>> Building Prometheus Web UI assets first"
-            cd "$prom_dir/web/ui" && "$PNPM_BIN" install && "$PNPM_BIN" run build:mantine-ui
-        fi
         cd "$prom_dir"
         CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
         GOPROXY="${GOPROXY:-https://goproxy.io,direct}" \
-            "$GO_BIN" build -o prometheus ./cmd/prometheus
+            "$GO_BIN" build -tags builtinassets -o prometheus ./cmd/prometheus
     fi
 }
 
 build_ui() {
     echo ">>> Building Custom UI"
-    # 产物包中前端静态资源直接请求本机 8080 后端（metric-center）
-    export VITE_API_BASE_URL="http://127.0.0.1:8080"
+    # A2 部署拓扑：不注入 VITE_API_BASE_URL，前端产物走相对路径，由 metric-center
+    # 通过 --web.static-dir 直接托管，UI 与 API 共用 8080 端口。
+    # 产物因此与部署 IP / 域名解耦：换环境无需重新打包，也不存在跨域。
+    # 这里用 unset 而非「不设置」，避免宿主 shell 残留的同名变量被误注入产物。
+    # 见 docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md
+    unset VITE_API_BASE_URL
     make -C "$PROJECT_ROOT" build-ui
 }
 
@@ -179,10 +198,8 @@ collect_bundle() {
         cp -r "$PROJECT_ROOT/ui-custom/web/dist" "$BUNDLE_DIR/web/ui-custom"
     fi
 
-    # Prometheus 自带 Web UI 静态资源（启动时从 CWD 读取 web/ui/static）
-    if [ -d "$PROJECT_ROOT/upstream/prometheus/web/ui/static" ]; then
-        cp -r "$PROJECT_ROOT/upstream/prometheus/web/ui/static" "$BUNDLE_DIR/web/ui/static"
-    fi
+    # 注：Prometheus 自带 Web UI 资源已通过 -tags builtinassets 编译进二进制
+    # （见 build_prometheus），无需再拷贝 web/ui/static，交付包自包含。
 
     # 示例配置
     # 使用项目级 Prometheus 种子配置作为示例
@@ -215,27 +232,20 @@ nohup ./bin/prometheus \
     > logs/prometheus.log 2>&1 &
 echo $! > logs/prometheus.pid
 
-echo ">>> Starting metric-center on :8080"
+echo ">>> Starting metric-center on :8080 (UI + API 同源)"
 nohup ./bin/metric-center \
     --config.reload-url=http://127.0.0.1:9090/-/reload \
+    --web.static-dir="$ROOT/web/ui-custom" \
     > logs/metric-center.log 2>&1 &
 echo $! > logs/metric-center.pid
 
-if command -v python3 >/dev/null 2>&1; then
-    echo ">>> Starting Custom UI static server on :5173"
-    nohup python3 -m http.server 5173 --directory "$ROOT/web/ui-custom" \
-        > logs/ui.log 2>&1 &
-    echo $! > logs/ui.pid
-else
-    echo ">>> WARN: python3 not found, Custom UI static server will not start."
-    echo "    Install python3 or serve web/ui-custom/ with your own static server."
-fi
-
 echo "MetricCenter started."
-echo "  Custom UI:     http://127.0.0.1:5173"
-echo "  Prometheus UI: http://127.0.0.1:9090"
-echo "  MetricCenter:  http://127.0.0.1:8080"
+echo "  Custom UI:     http://<服务器IP>:8080"
+echo "  Prometheus UI: http://<服务器IP>:9090"
+echo "  MetricCenter:  http://<服务器IP>:8080"
 echo "  Logs:          $ROOT/logs/"
+echo
+echo "把 <服务器IP> 换成部署机实际可达的 IP 或域名；本机访问可用 127.0.0.1。"
 EOF
     chmod +x "$BUNDLE_DIR/scripts/start.sh"
 
@@ -250,8 +260,6 @@ for pidfile in logs/*.pid; do
     kill "$pid" 2>/dev/null || true
     rm -f "$pidfile"
 done
-# 兜底：清理可能残留的 python http.server 进程
-pkill -f "http.server 5173" 2>/dev/null || true
 echo "MetricCenter stopped."
 EOF
     chmod +x "$BUNDLE_DIR/scripts/stop.sh"
@@ -283,12 +291,14 @@ cd "$BUNDLE_NAME"
 
 ## 访问
 
-- **Custom UI**: http://127.0.0.1:5173
-- **Prometheus UI**: http://127.0.0.1:9090
-- **MetricCenter API**: http://127.0.0.1:8080
-- **Health**: http://127.0.0.1:8080/api/v1/health
+把 \`<服务器IP>\` 换成部署机实际可达的 IP 或域名（本机访问可用 \`127.0.0.1\`）。
 
-> 说明：前端静态资源由 \`start.sh\` 通过 python3 \`http.server\` 在 5173 端口提供，API 请求已固定指向本机 8080（\`VITE_API_BASE_URL=http://127.0.0.1:8080\`）。
+- **Custom UI（同源）**: http://<服务器IP>:8080
+- **Prometheus UI**: http://<服务器IP>:9090
+- **MetricCenter API**: http://<服务器IP>:8080/api
+- **Health**: http://<服务器IP>:8080/api/v1/health
+
+> 说明：前端产物由 \`metric-center\` 通过 \`--web.static-dir\` 直接托管，UI 与 API 共用 8080 端口（部署拓扑方案 A2）。构建时**不注入** \`VITE_API_BASE_URL\`，页面内的 API 请求走相对路径，会自适应当前访问的 IP / 域名——同一份产物可部署到任意机器而无需重新打包，也不存在跨域问题。
 
 ## 平台
 

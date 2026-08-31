@@ -271,8 +271,8 @@ build-metric-center: ensure-go ensure-cgo
 	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" build -o platform/cmd/metric-center/metric-center$(EXE) ./platform/cmd/metric-center
 
 build-prometheus: ensure-go ensure-pnpm
-	@echo ">>> Building upstream Prometheus"
-	@cd "$(PROJECT_ROOT)/upstream/prometheus" && { [ -d web/ui/static ] || ( cd web/ui && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build:mantine-ui ); } && "$(GO_BIN)" build -o prometheus$(EXE) ./cmd/prometheus
+	@echo ">>> Building upstream Prometheus (Web UI assets embedded via builtinassets)"
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && { [ -d web/ui/static ] || ( cd web/ui && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build:mantine-ui ); } && { [ -f web/ui/embed.go ] || printf '//go:build builtinassets\npackage ui\n\nimport "embed"\n\n//go:embed static\nvar EmbedFS embed.FS\n' > web/ui/embed.go; } && "$(GO_BIN)" build -tags builtinassets -o prometheus$(EXE) ./cmd/prometheus
 
 # 构建 upstream promtool：M09 配置草稿校验（ValidateArtifacts）通过
 # exec.LookPath("promtool") 调用本二进制做 promtool check config；缺失时

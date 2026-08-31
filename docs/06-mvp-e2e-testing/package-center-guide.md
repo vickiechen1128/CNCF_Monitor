@@ -7,6 +7,7 @@
 > - `scripts/package-center.sh`
 > - `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`
 > - `docs/06-mvp-e2e-testing/README.md`
+> - `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md`（前端访问后端的拓扑决策：当前 A2、未来 nginx 反代）
 
 ---
 
@@ -80,14 +81,14 @@ cd metric-center-bundle-linux-amd64-*/
 ./scripts/start.sh
 ```
 
-访问：
+访问（把 `<服务器IP>` 换成部署机实际可达的 IP 或域名，本机访问可用 `127.0.0.1`）：
 
-- **Custom UI：http://127.0.0.1:5173**
-- Prometheus UI：http://127.0.0.1:9090
-- MetricCenter API：http://127.0.0.1:8080
-- 健康检查：http://127.0.0.1:8080/api/v1/health
+- **Custom UI：http://<服务器IP>:8080**（UI 与 API 同源，单端口）
+- Prometheus UI：http://<服务器IP>:9090
+- MetricCenter API：http://<服务器IP>:8080/api
+- 健康检查：http://<服务器IP>:8080/api/v1/health
 
-> `start.sh` 会自动用 `python3 -m http.server` 在 5173 端口提供前端静态资源；前端构建时已注入 `VITE_API_BASE_URL=http://127.0.0.1:8080`，页面内的 API 请求会直接打到本机 8080 的 `metric-center`。
+> 前端产物由 `metric-center` 通过 `--web.static-dir` 直接托管（部署拓扑方案 A2），不再单独起 5173 静态服务。构建时**不注入** `VITE_API_BASE_URL`，页面内 API 请求走相对路径，自适应当前访问的 IP / 域名——同一份产物可部署到任意机器，无需重新打包，也无跨域问题。详见 `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md`。
 
 停止：
 
@@ -214,11 +215,17 @@ ls web/ui-custom/index.html
 # 3. 启动脚本可执行
 chmod +x scripts/start.sh scripts/stop.sh
 
-# 4. 启动并检查健康/前端
+# 4. 启动并检查健康/前端（UI 与 API 同为 8080）
 ./scripts/start.sh
 curl -s http://127.0.0.1:8080/api/v1/health | jq .
+curl -s http://127.0.0.1:8080/ | head -1           # 期望返回 HTML（index.html）
+curl -s http://127.0.0.1:8080/resources | head -1  # 子路由刷新同样返回 HTML，不应 404
+curl -s http://127.0.0.1:8080/api/v9/unknown | jq .  # 未注册 API 返回 JSON 错误，不返回 HTML
 curl -s http://127.0.0.1:9090/-/reload -o /dev/null -w '%{http_code}\n'
-curl -s http://127.0.0.1:5173 | head -1   # 期望返回 HTML
+
+# 5. 非本机浏览器验证（关键回归点）
+# 在另一台电脑访问 http://<服务器IP>:8080/ ，DevTools 中确认 API 请求地址为
+# http://<服务器IP>:8080/api/...（相对路径自适应），状态 200，无 ERR_CONNECTION_REFUSED。
 ```
 
 ---

@@ -413,6 +413,7 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/prototypes/module-XX/` | 可点击原型 |
 | `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
 | `docs/06-mvp-e2e-testing/README.md` | MVP 配置下发闭环 API 测试指导手册（local 通道，curl 动线 + 成功判据 + 排查表） |
+| `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md` | 前端访问后端部署拓扑决策：当前单机走 A2（相对路径 + metric-center 托管静态文件），未来前后端分离走 nginx 反代；含打包改造清单 |
 | `docs/04-source-architecture/repo-map.md` | 业务代码符号地图（`make repo-map` 生成，禁止手改）；Agent 排障按「符号 → 文件」定位的第一入口 |
 | `.kimi/AGENTS.md` | Kimi Agent 团队角色与工作流速查 |
 | `.kimi/agents/*.md` | 各 Agent 详细行为规则 |

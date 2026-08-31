@@ -2,6 +2,8 @@
 # scripts/git-hooks/pre-commit
 # 提交涉及业务代码（platform/、ui-custom/web/src/）或 repo-map 本身时，
 # 强制校验符号地图新鲜度；过期则拒绝提交并给出修复命令。
+# 提交涉及 PRD（docs/02-product-requirements/Modules/）时，校验 PRD 去历史化
+# 与章节冻结（含 Change Log ≤ 3 条收敛）；违规则拒绝提交。
 # 通过 `make install-git-hooks`（core.hooksPath=scripts/git-hooks）启用。
 
 set -euo pipefail
@@ -11,4 +13,14 @@ cd "$(git rev-parse --show-toplevel)"
 if git diff --cached --name-only --diff-filter=ACMR \
     | grep -Eq '^(platform/|ui-custom/web/src/|docs/04-source-architecture/repo-map\.md)'; then
   bash scripts/check-repo-map.sh
+fi
+
+# PRD 变更：仅校验本次暂存的 PRD 文件（避免被其他模块的存量违规连坐阻断）。
+# 门禁只卡 Change Log 收敛（≤3 条），正文去历史化/章节等独立规则由手动
+# `make check-prd-hygiene` 全量检查，不在此处阻断提交。
+prd_files=$(git diff --cached --name-only --diff-filter=ACMR \
+    | grep -E '^docs/02-product-requirements/Modules/Module_.*\.md$' || true)
+if [ -n "$prd_files" ]; then
+  # shellcheck disable=SC2086
+  bash scripts/check-prd-hygiene.sh --changelog-only $prd_files
 fi
