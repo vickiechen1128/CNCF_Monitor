@@ -1,9 +1,9 @@
 # MetricCenter Module 09 原型
 
-> **验证的 PRD 版本**: [Module_09_Network_Domain_and_Edge_Config_Center.md](../../02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) v1.50
+> **验证的 PRD 版本**: [Module_09_Network_Domain_and_Edge_Config_Center.md](../../02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md) v1.51
 > **覆盖的产品版本**: MVP / v0.2 / v1.0
-> **原型版本**: v1.50
-> **更新日期**: 2026-08-21
+> **原型版本**: v1.51
+> **更新日期**: 2026-08-31
 > **本地启动命令**:
 >
 > ```bash
@@ -13,6 +13,12 @@
 > ```
 >
 > **访问地址**: http://localhost:5178/
+
+## v1.51 变更说明（决策 54/53：配置按域拆分扇出 + filter 实时求值写入实例过滤契约，2026-08-31）
+
+- **配置生成改为按域拆分扇出（决策 54，v0.2 起）**：M01 逻辑采集 Job 可一次绑定多个已纳管网域，配置生成器按网域自动拆分——为每个目标网域分别生成独立的 `scrape_configs` 片段 / `targets/*.json` / 变更单，各自进入本域的变更检测 / 校验 / 确认 / 下发流程；**无需为每个网域手工克隆 Job**。待确认列表天然按网域分组，多域 Job 的变更摘要标记来源逻辑 Job（purple Tag）。新增演示：逻辑 Job「prod-server-exporter」绑定 {gov-cloud-a, finance-dmz}，本周期生成两份独立待确认草稿 `draft-gov-005`（CHG-20260803-011）+ `draft-finance-002`（CHG-20260803-012）。
+- **filter 模式实时求值写入实例过滤契约（决策 53，由 v0.3+ 提前到 v0.2）**：条件式采集策略（`instance_selection_mode=filter`）不持有静态实例清单，每次配置生成周期对条件表达式实时求值——监控对象新增 / 同步进来只要匹配条件即自动纳入 targets（无需编辑策略），下线 / 属性变化不再匹配时自动移出。配置产物结构说明 / 检测状态用户语 / 变更摘要均新增说明；`ConfigDraft` 新增可选字段 `selection_mode` / `source_logical_job` / `filter_condition`。
+- 本批为 M01/M07 契约的同步呈现 + 契约声明，v0.2 随开发节奏实现；版本声明 / ReviewNote / 原型版本同步 v1.51。
 
 ## v1.50 变更说明（决策 31/30/31-M2/31-M3：M01/M07 契约的同步呈现，2026-08-21）
 

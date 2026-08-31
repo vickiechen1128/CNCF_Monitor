@@ -21,6 +21,8 @@ import {
   authTlsPassthroughNote,
   frozenDomainExclusionNote,
   defaultFallbackRemovalNote,
+  jobDomainFanoutNote,
+  filterRealTimeEvaluationNote,
   channelLabel,
   channelTip,
   type Channel,
@@ -790,6 +792,14 @@ export function ConfigPreviewPage() {
             <li>
               冻结（禁用）网域不生成新变更单（{'{v1.50 决策 30}'}）：{frozenDomainExclusionNote}——冻结域的变更不再进入本页待确认列表。
             </li>
+            <li>
+              配置生成按域拆分扇出（{'{v1.51 决策 54}'}，v0.2 起）：{jobDomainFanoutNote}——下方待确认列表天然按网域分组、
+              每域独立的变更单，多域绑定的逻辑 Job 无需在本页手工克隆。
+            </li>
+            <li>
+              filter 模式实时求值（{'{v1.51 决策 53}'}，由 v0.3+ 提前到 v0.2）：{filterRealTimeEvaluationNote}——
+              条件式采集策略的变更单其 targets 由条件实时展开，本页「变更摘要 / 变更清单」会标注「自动纳入 / 自动移出」。
+            </li>
           </ul>
         </ReviewNote>
 
@@ -839,6 +849,10 @@ export function ConfigPreviewPage() {
           {/* {v1.43} 草稿对象不生成配置变更（联动 M01 草稿，PRD 3.3）：解释为什么编辑中的 Job 不出现在变更单里 */}
           <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
             草稿对象（draft）不生成配置变更：仅「已提交」的 Job / 规则提交生效后才进入变更检测——编辑中的 Job 不会出现在变更单里。
+          </Text>
+          {/* {v1.51 决策 54/53} 按域扇出 + filter 实时纳入的用户语说明：解释多域 Job 如何自动拆分、条件式纳入为何无需编辑策略 */}
+          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            {jobDomainFanoutNote} {filterRealTimeEvaluationNote}（本批下拉列表中的条件式采集变更单即按此自动纳入演示）。
           </Text>
           {detectionStatus && (
             <Collapse
@@ -902,10 +916,23 @@ export function ConfigPreviewPage() {
                 },
                 {
                   // 决策 18：变更摘要（人话）回答「为什么变更」；详情（变更清单）在抽屉中查看（决策 20）
+                  // {v1.51 决策 54/53} 变更摘要标记：filter 条件式采集标「条件式」、多域扇出标来源逻辑 Job（无需手工克隆）
                   title: '变更摘要',
                   key: 'summary',
                   render: (_: unknown, record: ConfigDraft) => (
-                    <Text ellipsis style={{ maxWidth: 380 }}>{record.summary}</Text>
+                    <Space size={6} wrap={false} style={{ maxWidth: 420 }}>
+                      {record.selection_mode === 'filter' && (
+                        <Tooltip title={`条件式采集（instance_selection_mode=filter）：targets 由条件实时求值，条件：${record.filter_condition ?? '-'}`}>
+                          <Tag color="gold" style={{ marginInlineEnd: 0 }}>条件式</Tag>
+                        </Tooltip>
+                      )}
+                      {record.source_logical_job && (
+                        <Tooltip title={`多域扇出：由逻辑采集 Job ${record.source_logical_job} 按网域自动拆分，每域独立变更单`}>
+                          <Tag color="purple" style={{ marginInlineEnd: 0 }}>{record.source_logical_job}</Tag>
+                        </Tooltip>
+                      )}
+                      <Text ellipsis style={{ maxWidth: 300 }}>{record.summary}</Text>
+                    </Space>
                   ),
                 },
                 {
