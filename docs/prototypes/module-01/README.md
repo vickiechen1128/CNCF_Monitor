@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.26
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.27
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.26
+> **原型版本**: v3.27
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,12 @@
 > ```
 >
 > **访问地址**: http://localhost:5175/
+
+## 本次 v3.27 相对 v3.26 的关键变更（决策 47：实例采集状态回显 + Exporter 安装登记可选化）
+
+- **{v3.27} Job 实例采集状态回显（决策 47-2，数据源 = Module_02 `/api/v1/targets` 代理，本模块只读）**：采集 Job 详情 / 编辑抽屉的已选实例列表新增「采集状态」列与顶部在线数汇总（在线 / 待采集 / 已下发未采到 / 未知 四态）；**采集 Job 列表页同样新增「实例采集状态」列**——对每个 Job 的已选实例做聚合计数（在线 N · 待采集 N · 已下发未采到 N · 未知 N），存在「待采集 / 已下发未采到」实例时整格高饱和并附 Tooltip，便于在列表层一眼定位失联 Job。数据源为 M01 选中关系 + M02 targets 聚合 mock，按 `resource_id` 回连（与 M07 badge 同源）；每 20s 自动刷新 + 手动刷新，刷新不阻断编辑与保存。异常态（`down` 标「已下发未采到」、`pending` 标「待采集」）以高饱和色 + Tooltip 展示抓取失败原因，定位收敛为「配置闭环」的判断依据。
+- **{v3.27} Exporter 安装登记可选化（决策 47-1）**：原「安装确认」由「生成 target 的前置闸门」降级为**可选登记**——`unconfirmed` 实例照常生成 target，不再阻断下发；登记为纯留痕与人工背书（谁承诺装好、工单号），「是否采到数据」的事实反馈由采集状态回显承担。Job 详情「Exporter 安装登记」区文案与交互同步为可选登记语义。
+- 对齐 Module_01 PRD v3.27 / 原型 v3.27；本轮为原型行为同步，与 PRD 落版同步提交。
 
 ## 本次 v3.26 相对 v3.25 的关键变更（决策 30 冻结网域校验 + 决策 31 采集认证/TLS 最小集）
 

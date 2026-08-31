@@ -71,6 +71,9 @@ import {
   BIZ_DOMAINS,
   INSTALL_STATUS_MAP,
   INSTALL_STATUS_CYCLE,
+  COLLECTION_STATUS_META,
+  mockTargetsCollection,
+  collectionStatsOf,
   BLACKBOX_MODULES,
   BLACKBOX_MODULE_LABEL,
   BLACKBOX_PROTOCOL_BY_MODULE,
@@ -93,6 +96,8 @@ import type {
   ExporterTemplate,
   LabelTemplate,
   AuthType,
+  CollectionRunStatus,
+  InstanceCollectionStatus,
 } from '../mocks/module-01'
 
 const { Title, Text } = Typography
@@ -207,6 +212,15 @@ export default function ScrapeJobsPage() {
   const [submitErrors, setSubmitErrors] = useState<{ field: string; msg: string }[]>([])
   const [confirmForm] = Form.useForm()
   const [form] = Form.useForm()
+
+  // {v3.27} 决策 47-2：Job 实例采集状态回显——数据源 = M02 /api/v1/targets 代理（只读），20s 自动刷新 + 手动刷新，不阻断编辑与保存
+  const [statusUpdatedAt, setStatusUpdatedAt] = useState<string>('')
+  useEffect(() => {
+    const touch = () => setStatusUpdatedAt(new Date().toLocaleTimeString())
+    touch()
+    const id = setInterval(touch, 20000)
+    return () => clearInterval(id)
+  }, [])
 
   // {v3.12} 采集 Job 列表网域查询条件（取代顶部全局网域切换器）
   // {v3.27} F-09：支持 URL 预选网域（来自 M09「去配置采集 Job」跳转：/scrape-jobs?network_domain=<id>，决策 D27-2）；视图由 pathname 派生，不再用 ?view=
@@ -482,6 +496,12 @@ export default function ScrapeJobsPage() {
     mockNetworkDomains.forEach((d) => map.set(d.id, d.name))
     return map
   }, [])
+
+  // {v3.27} 决策 47-2：Job 详情实例采集状态聚合（在线/待采集/已下发未采到/未知），数据源 = M02 targets 代理
+  const detailStats = useMemo(
+    () => (detailJob ? collectionStatsOf(detailJob.selected_instance_ids, mockTargetsCollection) : null),
+    [detailJob],
+  )
 
   // mockLabelTemplates 为模块常量（从不变化），Map 索引无需 useMemo；React Compiler 亦无法保留其记忆化
   const labelNameMap = new Map<string, string>()
@@ -1327,6 +1347,52 @@ export default function ScrapeJobsPage() {
       },
     },
     {
+      // {v3.27}/{v3.28} 决策 47-2：Job 列表「实例采集状态」——简化为「在线 x / 总数 y」。
+      // 数据源 = M02 targets 聚合 mock（列表级按 Job 过滤，只读消费，20s 自动刷新）；
+      // 存在「待采集 / 已下发未采到」实例时整格高饱和；整格可点击进入详情抽屉查看各实例具体原因。
+      title: (
+        <Tooltip title="在线实例数 / 已选实例总数（数据由「查询中心」M02 按 Job 回显，本模块只读，约 20s 自动刷新）；存在未在线实例时整格高亮，点击查看详情原因">
+          <Space size={4}>
+            实例采集状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'collectionStatus',
+      width: 190,
+      render: (_: unknown, record: ScrapeJob) => {
+        if (record.job_type === 'blackbox') return <Text type="secondary">-</Text>
+        const st = collectionStatsOf(record.selected_instance_ids, mockTargetsCollection)
+        const total = record.selected_instance_ids.length
+        // {v3.28} 简化展示为「在线 x / 总数 y」，整格可点击进入详情抽屉查看各实例具体未在线原因（决策 47-2）
+        const anomaly = st.down > 0 || st.pending > 0
+        const onClick = () => setDetailJob(record)
+        const text = `在线 ${st.up} / 总数 ${total}`
+        if (total === 0) return <Text type="secondary">-</Text>
+        return anomaly ? (
+          <Tooltip title="存在「待采集 / 已下发未采到」实例，点击查看详情确认失败原因">
+            <Tag
+              color="#FF4C3A"
+              style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
+              onClick={onClick}
+            >
+              {text}
+            </Tag>
+          </Tooltip>
+        ) : (
+          <Tooltip title="点击查看各实例采集状态详情">
+            <Tag
+              color="green"
+              style={{ marginInlineEnd: 0, cursor: 'pointer' }}
+              onClick={onClick}
+            >
+              {text}
+            </Tag>
+          </Tooltip>
+        )
+      },
+    },
+    {
       // {v3.19} 下发状态（决策 D27-2，MVP）：pending=待确认（存在 M09 待确认变更单）→ 点击跳转配置变更确认；
       // confirmed=已确认；none/空=无变更。数据由 M09 变更单状态回写（pull 模式）
       title: (
@@ -1952,8 +2018,8 @@ export default function ScrapeJobsPage() {
           dataSource={visibleJobs}
           columns={columns}
           // {v3.17} 列数多超出窗口：固定最小宽度、横向滚动，避免列挤压换行拉高行高
-          // {v3.22} 新增「状态」列 + 多选列，最小宽度上浮
-          scroll={{ x: 1240 }}
+          // {v3.22} 决策 D29：新增「状态」列 + 多选列，最小宽度上浮；{v3.28} 新增「实例采集状态」列，最小宽度再上浮
+          scroll={{ x: 1450 }}
           pagination={{ pageSize: 5 }}
           rowSelection={{
             // {v3.22} 决策 D29：多选批量提交；{v3.xx} F-16：草稿可勾选（批量提交生效仅当选中项含草稿时可用，
@@ -3162,9 +3228,9 @@ export default function ScrapeJobsPage() {
 
         {editingJob && editingJob.job_type === 'standard' && editingJob.selected_instance_ids.length > 0 && (
           <>
-            <Title level={5}>Exporter 安装确认</Title>
+            <Title level={5}>Exporter 安装登记（可选）</Title>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              点击状态徽标可修改安装状态并填写确认信息；未确认实例不生成 target
+              登记为可选项，不影响采集生效；采集状态以「采集状态」列为准。点击状态徽标填写安装登记信息。
             </Text>
             <Space direction="vertical" style={{ width: '100%', marginTop: 8 }}>
               {editingJob.selected_instance_ids.map((id) => {
@@ -3428,9 +3494,33 @@ export default function ScrapeJobsPage() {
                   <Title level={5} style={{ marginTop: 16 }}>
                     已选实例（{detailJob.selected_instance_ids.length}）
                   </Title>
+                  {/* {v3.27} 决策 47-2：实例采集状态回显——顶部汇总「在线 X / 总数 Y · 待采集 Z」+ 只读、20s 自动刷新 + 手动刷新；数据源 = M02 /api/v1/targets 代理 */}
+                  <Space style={{ display: 'flex', flexWrap: 'wrap', marginBottom: 8 }} size={8}>
+                    <Text strong style={{ fontSize: 12 }}>
+                      在线 {detailStats?.up ?? 0} / 总数 {detailJob.selected_instance_ids.length}
+                      {' · '}待采集 {detailStats?.pending ?? 0}
+                      {(detailStats?.down ?? 0) > 0 && (
+                        <Text type="danger" style={{ fontSize: 12 }}>
+                          {' · '}已下发未采到 {detailStats?.down}
+                        </Text>
+                      )}
+                    </Text>
+                    <Button
+                      size="small"
+                      icon={<SyncOutlined />}
+                      onClick={() => setStatusUpdatedAt(new Date().toLocaleTimeString())}
+                    >
+                      刷新
+                    </Button>
+                    {statusUpdatedAt && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        已更新 {statusUpdatedAt} · 20s 自动刷新
+                      </Text>
+                    )}
+                  </Space>
                   {/* {v3.27} F-17：提示每个实例最终生成的 target labels 由标签模板按 资源实例属性 映射而来 */}
                   <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
-                    各实例生成 Prometheus target 时的 labels 由标签模板（{detailJob.label_template_id ? labelNameMap.get(detailJob.label_template_id) : '（未绑定，则按实例属性直接生成）'}）按资源实例属性映射而来，不在此处展示。
+                    各实例生成 Prometheus target 时的 labels 由标签模板（{detailJob.label_template_id ? labelNameMap.get(detailJob.label_template_id) : '（未绑定，则按实例属性直接生成）'}）按资源实例属性映射而来，不在此处展示。采集状态来自查询中心目标状态 API，本页只读。
                   </Text>
                   <List
                     bordered
@@ -3438,16 +3528,32 @@ export default function ScrapeJobsPage() {
                     dataSource={detailJob.selected_instance_ids}
                     renderItem={(id) => {
                       const r = mockResources.find((res) => res.resource_id === id)
-                      const meta = INSTALL_STATUS_MAP[detailJob.exporter_status[id] ?? 'unregistered']
+                      const runStatus = (mockTargetsCollection[id]?.status ?? 'unknown') as CollectionRunStatus
+                      const runMeta = COLLECTION_STATUS_META[runStatus]
+                      const run = mockTargetsCollection[id] as InstanceCollectionStatus | undefined
+                      const statusTag =
+                        runMeta.anomaly || runStatus === 'pending' ? (
+                          <Tooltip
+                            title={
+                              runStatus === 'pending'
+                                ? '待采集：已保存变更尚未下发或未首次抓取'
+                                : `已下发未采到：${run?.last_error ?? ''}；配置已下发但未采集到数据，请检查采集器安装与网络连通`.trim()
+                            }
+                          >
+                            <Tag color={runMeta.color}>{runMeta.label}</Tag>
+                          </Tooltip>
+                        ) : (
+                          <Tag color={runMeta.color}>{runMeta.label}</Tag>
+                        )
                       return (
-                        <List.Item key={id}>
-                          <Space>
+                        <List.Item key={id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                          <Space wrap>
                             <Text strong>{r?.instance_name ?? id}</Text>
                             <Text type="secondary" style={{ fontSize: 12 }}>
                               {r?.instance_ip}
                             </Text>
-                            <Badge color={meta.color} text={meta.text} />
                           </Space>
+                          {statusTag}
                         </List.Item>
                       )
                     }}
