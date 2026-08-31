@@ -1,4 +1,4 @@
-# API 契约快照：module-06-tenant-user-auth（Track B/B+ 增量，决策 44）
+# API 契约快照：module-06 Track B 增量（决策 44：轻量认证 + 租户/用户管理）
 
 > 来源：Module_06 v2.3 §5.3 / §5.4 / §6.1 / §6.3；Module_03 v1.2 §4.0；`docs/03-engineering-standards/03_API_Standard.md`
 > 统一响应格式：`{status, data, errorType, error}`（`platform/api/response`）

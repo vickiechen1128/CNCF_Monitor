@@ -1,4 +1,4 @@
-# backend-developer 执行记录：module-06-tenant-user-auth
+# backend-developer 执行记录：module-06 Track B 增量（决策 44：轻量认证 + 租户/用户管理）
 
 ## tu-01 — User / Session / LoginLog 模型定义与迁移
 
@@ -9,8 +9,8 @@
 
 - `docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md` §5.3（User）/ §5.4（LoginLog）
 - `docs/02-product-requirements/Modules/Module_03_Gateway_and_Auth.md` §4.0（轻量认证机制约定）
-- `docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md`
-- `docs/05-execution-records/module-06-tenant-user-auth/task-sequence.yaml`（tu-01）
+- `docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md`
+- `docs/05-execution-records/module-06/track-b-increment-decision-44/task-sequence.yaml`（tu-01）
 
 ### 新增 / 修改文件
 
@@ -68,7 +68,7 @@
 ### 输入文档
 
 - `docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md` §5.3（初始管理员）/ §9.2（技术验收）
-- `docs/05-execution-records/module-06-tenant-user-auth/task-sequence.yaml`（tu-02）
+- `docs/05-execution-records/module-06/track-b-increment-decision-44/task-sequence.yaml`（tu-02）
 - `platform/models/user.go`（tu-01 产物）、`platform/models/tenant.go`（PlatformAdminTenantID）
 - `platform/db/seed/seed.go` / `ten_domain.go`（既有种子机制与幂等原语）
 
@@ -129,7 +129,7 @@
 
 ### 输入文档
 
-- `docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md` §2（用户管理 / 登录日志契约）
+- `docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md` §2（用户管理 / 登录日志契约）
 - `docs/03-engineering-standards/03_API_Standard.md`（统一响应信封 / errorType 枚举 / 分页 §7.2）
 - `docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md` §6.3
 

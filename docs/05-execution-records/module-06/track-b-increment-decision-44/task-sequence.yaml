@@ -2,7 +2,7 @@
 # PRD 来源：Module_06 v2.3（dev-ready）/ Module_03 v1.2（dev-ready）
 # L2 登记：05_Code_Implementation_Plan.md §6.4 Track B 增量登记
 phase: "Track B 增量（决策 44）"
-module: module-06-tenant-user-auth
+module: module-06  # Track B 增量（决策 44）记录子目录：docs/05-execution-records/module-06/track-b-increment-decision-44/
 plan_version: "05 v2026-08-21 + Track B 增量登记 2026-08-28"
 branch: feat/module-06-domain-registry  # 复用既有分支名（2026-08-28 用户决策）；该分支已合入 develop，须从最新 develop 重建同名分支
 assumptions:
@@ -23,7 +23,7 @@ tasks:
     shared_files: "是：platform/models/ 与 platform/db/db.go 迁移清单"
     input_files:
       - docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - platform/models/user.go
       - platform/db/db.go
@@ -61,7 +61,7 @@ tasks:
     estimated_test_cases: 12
     shared_files: "否（新建 platform/admin/user/）"
     input_files:
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
       - docs/03-engineering-standards/03_API_Standard.md
     output_files:
       - platform/admin/user/handler.go
@@ -83,7 +83,7 @@ tasks:
     estimated_test_cases: 6
     shared_files: "否（新建 platform/admin/tenant/；Tenant 模型复用既有 platform/models/，缺则补）"
     input_files:
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - platform/admin/tenant/handler.go
       - platform/admin/tenant/service.go
@@ -104,7 +104,7 @@ tasks:
     shared_files: "否（新建 platform/gateway/auth/）"
     input_files:
       - docs/02-product-requirements/Modules/Module_03_Gateway_and_Auth.md
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - platform/gateway/auth/handler.go
       - platform/gateway/auth/service.go
@@ -125,7 +125,7 @@ tasks:
     estimated_test_cases: 6
     shared_files: "是：platform/cmd/metric-center/main.go 路由注册"
     input_files:
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - platform/gateway/auth/middleware.go
       - platform/cmd/metric-center/main.go
@@ -146,7 +146,7 @@ tasks:
     estimated_test_cases: 5
     shared_files: "是：ui-custom/web/src/api/client.ts（401 拦截）、src/App.tsx（路由守卫）"
     input_files:
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - ui-custom/web/src/pages/login/LoginPage.tsx
       - ui-custom/web/src/api/client.ts
@@ -168,7 +168,7 @@ tasks:
     estimated_test_cases: 4
     shared_files: "否"
     input_files:
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - ui-custom/web/src/pages/admin/users/UsersPage.tsx
     verify_commands:
@@ -188,7 +188,7 @@ tasks:
     estimated_test_cases: 3
     shared_files: "否"
     input_files:
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - ui-custom/web/src/pages/admin/tenants/TenantsPage.tsx
     verify_commands:
@@ -208,7 +208,7 @@ tasks:
     estimated_test_cases: 3
     shared_files: "否"
     input_files:
-      - docs/05-execution-records/module-06-tenant-user-auth/api-contract-snapshot.md
+      - docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md
     output_files:
       - ui-custom/web/src/pages/admin/login-logs/LoginLogsPage.tsx
     verify_commands:
@@ -232,6 +232,6 @@ tasks:
       - ui-custom/web/src/pages/login/
     output_files: []
     verify_commands:
-      - bash scripts/review-precheck.sh -m module-06-tenant-user-auth
+      - bash scripts/review-precheck.sh -m module-06
     acceptance_criteria: 密码哈希、Token 生成强度、会话失效、时序攻击面、登录失败信息泄露逐项过审；CRITICAL/HIGH 清零
     notes: "sec-01 修复（backend-developer，track-B+）：H-1 生产模式 METRIC_CENTER_ENV=production 未配置 METRIC_CENTER_ADMIN_PASSWORD 时拒绝默认密码、seed 报错使启动失败；H-2 决策44无角色体系加固——User 增加 Role(admin/user)、seed/新建用户分别定角色、新增 RequireAdmin 中间件并挂到 /users*、/tenants* 管理后台、DTO 输出 role；M-1 登录失败进程内限流（5次/15分钟窗口→锁定15分钟，429 too_many_requests，稳定；成功登录解除）；M-2 登录失败 LoginLog 统一写入『用户名或密码错误』防泄露账号存在性"

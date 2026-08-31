@@ -1,9 +1,9 @@
 # MetricCenter Module 06 原型
 
-> **验证的 PRD 版本**: [Module_06_Multi_Tenant.md](../../02-product-requirements/Modules/Module_06_Multi_Tenant.md) v2.2
+> **验证的 PRD 版本**: [Module_06_Multi_Tenant.md](../../02-product-requirements/Modules/Module_06_Multi_Tenant.md) v2.4
 > **覆盖的产品版本**: MVP / v0.2 / v0.4 / v1.0
-> **原型版本**: v2.3
-> **更新日期**: 2026-08-21
+> **原型版本**: v2.4
+> **更新日期**: 2026-08-29
 > **本地启动命令**:
 >
 > ```bash
@@ -13,6 +13,13 @@
 > ```
 >
 > **访问地址**: http://localhost:5182/
+
+## v2.4 变更说明（同步 PRD v2.4，dev-feedback FB-04~07 收割，2026-08-29 低保真拉齐）
+
+1. **用户管理命名统一（FB-07）**：「用户与权限」→「用户管理」；侧边栏与页面标题、README 导航映射同步。
+2. **删除用户能力（FB-05）**：操作列对「非当前、且非 admin」的用户显示「删除」按钮（Popconfirm 二次确认），删除提示「将使其全部会话失效」；admin / 当前登录取消删除入口（PRD §11.2）。
+3. **admin/user 两级访问控制门表述（FB-06）**：页面 ReviewNote 说明 MVP 仅 admin/user 两级访问控制门（管理后台接口受限、无业务权限点/租户隔离），4 级角色为 v1.0+ / 外部 IAM 演示占位（原型表结构与角色选择保留）。
+4. **审计日志 / 平台配置 MVP 备注（FB-07）**：侧边栏注释标注二者为 P2、MVP 侧栏不占位（PRD §11.0），页面保留作 v1.0+ 演示。
 
 ## v2.3 变更说明（两段式评审返工 R1~R5，2026-08-21）
 
@@ -72,11 +79,11 @@ python3 -m http.server 8080
 
 ## 原型目标
 
-验证 [Module 06: 系统与平台管理（含多租户）](../../02-product-requirements/Modules/Module_06_Multi_Tenant.md) 的核心交互（基于 PRD v2.2）：
+验证 [Module 06: 系统与平台管理（含多租户）](../../02-product-requirements/Modules/Module_06_Multi_Tenant.md) 的核心交互（基于 PRD v2.4）：
 
 1. **租户管理**：租户生命周期（创建 / 编辑 / 禁用）与「被授权网域」分配；`multi_site_enabled` 行政能力开关（关闭时仅被授权单个网域，但不影响 default 网域查看）；租户为权限/管理边界，不承载业务映射。
 2. **网域管理（M06 行政 Owner）**：网域行政登记（名称 / 登记归属 / 授权租户 / `zone_type` / 状态，ID 按部署级前缀自动生成 `nd-<名称>`），网域为部署级资源、可跨租户共享（授权 ≠ 拥有），`default` 管理域不可禁用；监控纳管（Edge Agent / 凭据）由 Module_09 执行；`network_domain_id` 全局唯一、登记归属创建后不可变更；禁用 = 冻结（二次确认展示影响范围、拒绝新登记与新纳管、存量不受影响）；空网域可删除（软删）、非空网域引导走禁用。
-3. **用户与权限（v1.0+ / 外部 IAM 承接）**：租户内角色分配占位。
+3. **用户管理（MVP，决策 44）**：租户内用户列表与操作。MVP 仅 **admin/user 两级访问控制门**（管理后台接口受限）；页面 4 级角色（平台管理员 / 租户管理员 / 运维工程师 / 只读用户）为 v1.0+ / 外部 IAM 演示占位，MVP 不落地。删除为 MVP 补充能力（软删普通用户并令其全部会话失效，admin 不可删）。
 4. **审计日志与平台配置**：操作 / 变更 / 登录日志，TSDB Retention / Remote Write / 全局 scrape 限制。
 
 ## 全局导航映射
@@ -85,7 +92,7 @@ python3 -m http.server 8080
 |--------|----------|----------|--------------|
 | 系统设置-租户管理 | Module_06 | MVP / v0.2 | 当前原型 `/tenants` |
 | 系统设置-网域管理 | Module_06 | MVP | 当前原型 `/network-domains` |
-| 系统设置-用户与权限 | Module_06 | v1.0+ | 当前原型 `/users` |
+| 系统设置-用户管理 | Module_06 | MVP | 当前原型 `/users` |
 | 系统设置-审计日志 | Module_06 | v0.2+ | 当前原型 `/audit-logs` |
 | 系统设置-平台配置 | Module_06 | v0.2+ | 当前原型 `/platform-settings` |
 | 配置中心-网域纳管 | Module_09 | MVP / v0.2 | `docs/prototypes/module-09/` |
@@ -94,7 +101,7 @@ python3 -m http.server 8080
 
 - `/tenants`：租户管理 — 租户列表与新建/编辑表单（租户名称 / 被授权网域 / 多网域能力 / 状态），被授权网域数据源为网域管理页行政记录，选项标注纳管状态；网域可跨租户共享（授权 ≠ 拥有）。
 - `/network-domains`：网域管理（行政登记）— 网域列表与新建/编辑表单（名称 / 登记归属 / 授权租户 / `zone_type` / 状态），`default` 不可禁用；登记归属 MVP 固定 platform_admin，授权租户支持多选（multi_site_enabled=false 的租户仅可被授权单个网域）。
-- `/users`：用户与权限 — 用户列表与角色分配（平台管理员 / 租户管理员 / 运维工程师 / 只读用户）。
+- `/users`：用户管理 — 用户列表与操作（MVP 为 admin/user 两级访问控制门；4 级角色为 v1.0+ 演示占位；删除普通用户二次确认、admin 不可删）。
 - `/audit-logs`：审计日志 — 操作 / 资源 / 操作人 / 变更 Diff 查看。
 - `/platform-settings`：平台配置 — TSDB 保留 / Remote Write 转发 / 全局 scrape 限制。
 
