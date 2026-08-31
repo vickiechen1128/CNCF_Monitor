@@ -66,11 +66,13 @@ import {
   mockNetworkDomains,
   mockResourceLabels,
   mockResources,
+  resolveCollectionStatus,
   isBizDisabled,
   resolveBizName,
 } from '../mocks/module-07'
 import type {
   AppProtocol,
+  CollectionStatus,
   Env,
   ImportError,
   Resource,
@@ -91,6 +93,28 @@ const STATUS_COLOR: Record<ResourceStatus, string> = {
   offline: '#FF4C3A',
   maintenance: '#FA8C16',
   orphan: '#86909C',
+}
+
+// {v2.22} 决策 47-3：采集状态三态——采集中 / 已下发未采到 / 未监控。
+// 异常驱动展示：仅「已下发未采到」高饱和并附提醒（配置已下发但未采集到数据）。
+// 数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（聚合调用，禁止逐行查询 TQ-6）。
+const COLLECTION_STATUS_META: Record<CollectionStatus, { label: string; color: string; tooltip: string; anomaly?: boolean }> = {
+  up: {
+    label: '采集中',
+    color: 'green',
+    tooltip: '已被采集 Job 纳入监控，且当前采集到数据',
+  },
+  down: {
+    label: '已下发未采到',
+    color: '#FF4C3A',
+    tooltip: '配置已下发但未采集到数据，请检查采集器安装与网络连通',
+    anomaly: true,
+  },
+  unmonitored: {
+    label: '未监控',
+    color: 'default',
+    tooltip: '未被任何采集 Job 选中，未纳入监控',
+  },
 }
 
 const IPV4_RE = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/
@@ -183,8 +207,8 @@ export default function ResourcesPage() {
   const [filterDomain, setFilterDomain] = useState<string>('all')
   // {v2.17} 业务作为资源列表筛选器（网域与业务是两个正交维度，资源双归属）
   const [filterBusiness, setFilterBusiness] = useState<string>('all')
-  // {v2.20} 决策 31-M1：采集状态筛选器（全部 / 未监控）。is_monitored 由 M01 维护、M07 只读；勾选「未监控」仅显示 is_monitored=false 的资源
-  const [filterMonitored, setFilterMonitored] = useState<string>('all')
+  // {v2.22} 决策 47-3（修订 31-M1）：采集状态筛选器（全部 / 采集中 / 已下发未采到 / 未监控）。三态由 is_monitored（M01 只读）+ 健康度（M02 聚合 API）解析，M07 不计算/不写回
+  const [filterCollection, setFilterCollection] = useState<string>('all')
   const [resources, setResources] = useState<Resource[]>(mockResources)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
@@ -203,8 +227,8 @@ export default function ResourcesPage() {
       if (item.resource_category !== activeType) return false
       if (filterDomain !== 'all' && item.network_domain_id !== filterDomain) return false
       if (filterBusiness !== 'all' && item.biz_code !== filterBusiness) return false
-      // {v2.20} 决策 31-M1：未监控筛选 = is_monitored=false（只读映射，不据此计算）
-      if (filterMonitored === 'unmonitored' && item.is_monitored !== false) return false
+      // {v2.22} 决策 47-3（修订 31-M1）：采集状态三态筛选 = resolveCollectionStatus（is_monitored + 健康度）
+      if (filterCollection !== 'all' && resolveCollectionStatus(item) !== filterCollection) return false
       if (!keyword) return true
       const texts: (string | undefined)[] = [
         item.instance_name,
@@ -222,7 +246,7 @@ export default function ResourcesPage() {
       if (isGenericTargetResource(item)) texts.push(item.target_name, item.exporter_type)
       return texts.some((t) => (t ?? '').toLowerCase().includes(keyword))
     })
-  }, [resources, activeType, search, filterDomain, filterBusiness, filterMonitored])
+  }, [resources, activeType, search, filterDomain, filterBusiness, filterCollection])
 
   // ---------- 详情抽屉：标签管理 ----------
   const handleOpenDetail = (record: Resource) => {
@@ -364,8 +388,8 @@ export default function ResourcesPage() {
       cluster: values.cluster as string | undefined,
       owner: values.owner as string | undefined,
       status: (values.status as ResourceStatus) || 'online',
-      // {v2.20} 决策 31-M1：新建资源 is_monitored 默认 true（Mock 简化：M07 不计算；真实由 M01 注册采集后置 true，M07 只读）
-      is_monitored: true,
+      // {v2.22} 决策 47-3：新建资源 is_monitored 默认 false——新资源尚未被任何 Job 选中，采集状态应展示「未监控」（真实由 M01 注册采集后置 true，M07 只读）
+      is_monitored: false,
       created_at: nowStr(),
       updated_at: nowStr(),
     }
@@ -939,20 +963,30 @@ export default function ResourcesPage() {
       key: 'status',
       render: (value: ResourceStatus) => <Badge color={STATUS_COLOR[value]} text={STATUS_MAP[value]} />,
     }
-    // {v2.20} 决策 31-M1：采集状态列——is_monitored 由 M01 维护、M07 只读映射，不做计算/回写
+    // {v2.22} 决策 47-3（修订 31-M1）：采集状态三态 badge——采集中 / 已下发未采到 / 未监控。
+    // 数据 = M01 is_monitored（只读映射）+ M02 健康度/覆盖率聚合 API；异常驱动：仅「已下发未采到」高饱和。
     const monitoredColumn = {
       title: (
         <span>
-          <Tooltip title="采集状态数据来源：由「监控策略」模块（M01）计算，本模块只读展示">
+          <Tooltip title="采集状态数据来源：选中关系由「监控策略」模块（M01）维护、健康度由「查询中心」（M02）聚合计算，本模块只读展示">
             采集状态
             <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
           </Tooltip>
         </span>
       ),
-      dataIndex: 'is_monitored',
-      key: 'is_monitored',
-      render: (value: boolean) =>
-        value === false ? <Tag color="red">未监控</Tag> : <Tag color="#0ECDEB">已监控</Tag>,
+      key: 'collection_status',
+      render: (_: unknown, record: Resource) => {
+        const status = resolveCollectionStatus(record)
+        const meta = COLLECTION_STATUS_META[status]
+        const tag = <Tag color={meta.color}>{meta.label}</Tag>
+        return meta.anomaly ? (
+          <Tooltip title={meta.tooltip}>
+            <span>{tag}</span>
+          </Tooltip>
+        ) : (
+          tag
+        )
+      },
     }
     const actionColumn = {
       title: '操作',
@@ -1035,8 +1069,8 @@ export default function ResourcesPage() {
           domainColumn,
           businessColumn,
           sourceColumn,
-          monitoredColumn,
           statusColumn,
+          monitoredColumn,
           actionColumn,
         ]
         return cols
@@ -1065,8 +1099,8 @@ export default function ResourcesPage() {
           domainColumn,
           businessColumn,
           sourceColumn,
-          monitoredColumn,
           statusColumn,
+          monitoredColumn,
           actionColumn,
         ]
         return cols
@@ -1094,8 +1128,8 @@ export default function ResourcesPage() {
           domainColumn,
           businessColumn,
           sourceColumn,
-          monitoredColumn,
           statusColumn,
+          monitoredColumn,
           actionColumn,
         ]
         return cols
@@ -1135,8 +1169,8 @@ export default function ResourcesPage() {
           domainColumn,
           businessColumn,
           sourceColumn,
-          monitoredColumn,
           statusColumn,
+          monitoredColumn,
           actionColumn,
         ]
         return cols
@@ -1188,8 +1222,8 @@ export default function ResourcesPage() {
           domainColumn,
           businessColumn,
           sourceColumn,
-          monitoredColumn,
           statusColumn,
+          monitoredColumn,
           actionColumn,
         ]
         return cols
@@ -1279,8 +1313,8 @@ export default function ResourcesPage() {
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
-          <li>{'{v2.20} 决策 31-M1'}：采集状态（已监控 / 未监控）由 M01 维护、M07 只读映射，本页「采集状态」列只读展示并提供「未监控」筛选；is_monitored=false 不代表 status=offline，两者维度独立，M07 不据此计算 / 不写回。</li>
-          <li>采集成功 / 目标数据归 M01 / M02：「未纳入任何 Job」在 M01 实例选择器筛选、「选中但无数据」在 M02 目标状态页查看。</li>
+          <li>{'{v2.22} 决策 47-3（修订 31-M1）'}：采集状态三态 badge——采集中 / 已下发未采到 / 未监控，只读展示并提供三态筛选。数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合调用，禁止逐行查询 TQ-6）；M07 不直连时序数据、不据此计算 / 不写回，is_monitored 与 status 维度独立。</li>
+          <li>采集成功 / 目标状态数据归 M01 / M02：本页展示的是三态聚合结果（采集中 / 已下发未采到 / 未监控）；目标明细（up / down / scrape 详情）在 M02 目标状态页查看，选中关系在 M01 实例选择器查看。</li>
           <li>标签来源口径：模板映射生成 = 「系统」标签；手工添加 = 「用户」标签；CMDB 字段（v0.4+）= 「CMDB」标签。</li>
           <li>列显隐配置为 P1 占位，MVP 版本列表列固定展示，可在「列设置」查看后续规划。</li>
           <li>Excel 导入：状态中文值按内置状态映射转换（本页只读展示，配置入口 P2）；枚举列（env / protocol / scheme）要求与字典一致，否则报错。</li>
@@ -1337,16 +1371,18 @@ export default function ResourcesPage() {
                 .map((d) => ({ value: d.biz_code, label: `${d.biz_name} (${d.biz_code})` }))}
             />
           </FilterItem>
-          {/* {v2.20} 决策 31-M1：采集状态筛选——is_monitored 由 M01 维护、M07 只读映射；勾选「未监控」仅显示 is_monitored=false 的资源 */}
+          {/* {v2.22} 决策 47-3（修订 31-M1）：采集状态三态筛选——采集中 / 已下发未采到 / 未监控，由 is_monitored + 健康度解析 */}
           <FilterItem label="采集状态" width={240}>
             <Select
               placeholder="全部"
               allowClear
-              value={filterMonitored === 'all' ? undefined : filterMonitored}
-              onChange={(v) => setFilterMonitored(v ?? 'all')}
+              value={filterCollection === 'all' ? undefined : filterCollection}
+              onChange={(v) => setFilterCollection(v ?? 'all')}
               style={{ width: 180 }}
               options={[
                 { value: 'all', label: '全部' },
+                { value: 'up', label: '采集中' },
+                { value: 'down', label: '已下发未采到' },
                 { value: 'unmonitored', label: '未监控' },
               ]}
             />
@@ -1361,18 +1397,62 @@ export default function ResourcesPage() {
           </FilterItem>
         </FilterBar>
 
+        {/* {v2.22} 决策 47-3（修订 31-M1）：采集状态概览横幅——把原塞在 CI Tab 标签右侧的状态计数抽出来，
+            独立成当前类型下可点击筛选的徽标行：采集中 / 已下发未采到（异常高饱和）/ 未监控；点击某态即在当前 CI 内联动筛选，
+            Tab 标签因此回归「类型 (总数)」简洁样式。 */}
+        <Row align="middle" gutter={12} style={{ marginBottom: 12 }}>
+          <Col>
+            <Text type="secondary" style={{ fontSize: 13, marginRight: 4 }}>
+              采集状态概览：
+            </Text>
+          </Col>
+          <Col>
+            <Space size={8} wrap>
+              <Tag
+                color={filterCollection === 'up' ? 'blue' : 'green'}
+                style={{ cursor: 'pointer', marginInlineEnd: 0 }}
+                onClick={() =>
+                  setFilterCollection((prev) => (prev === 'up' ? 'all' : 'up'))
+                }
+              >
+                采集中 {resources.filter((r) => r.resource_category === activeType && resolveCollectionStatus(r) === 'up').length}
+              </Tag>
+              <Tag
+                color={filterCollection === 'down' ? 'blue' : '#FF4C3A'}
+                style={{ cursor: 'pointer', marginInlineEnd: 0, fontWeight: filterCollection === 'down' ? 600 : 400 }}
+                onClick={() =>
+                  setFilterCollection((prev) => (prev === 'down' ? 'all' : 'down'))
+                }
+              >
+                已下发未采到 {resources.filter((r) => r.resource_category === activeType && resolveCollectionStatus(r) === 'down').length}
+              </Tag>
+              <Tag
+                color={filterCollection === 'unmonitored' ? 'blue' : 'default'}
+                style={{ cursor: 'pointer', marginInlineEnd: 0 }}
+                onClick={() =>
+                  setFilterCollection((prev) => (prev === 'unmonitored' ? 'all' : 'unmonitored'))
+                }
+              >
+                未监控 {resources.filter((r) => r.resource_category === activeType && resolveCollectionStatus(r) === 'unmonitored').length}
+              </Tag>
+            </Space>
+          </Col>
+          <Col flex="auto">
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              点击某一状态即在当前 CI 内筛选；「已下发未采到」为异常，需检查采集器安装与网络连通。
+            </Text>
+          </Col>
+        </Row>
+
         <Tabs
           activeKey={activeType}
           onChange={(key) => setActiveType(key as ResourceCategory)}
           items={RESOURCE_TYPES.map((type) => {
             const total = resources.filter((r) => r.resource_category === type).length
-            // {v2.20} 决策 31-M1：Tab 标题展示该类型未监控资源数，配合「采集状态=未监控」筛选动线
-            const unmonitored = resources.filter(
-              (r) => r.resource_category === type && r.is_monitored === false,
-            ).length
+            // {v2.22} 决策 47-3（修订 31-M1）：Tab 只保留类型与总数；该类型采集状态计数移入下方「采集状态概览」横幅（可点击筛选）
             return {
               key: type,
-              label: `${RESOURCE_TYPE_MAP[type]} (${total}${unmonitored ? ` · 未监控 ${unmonitored}` : ''})`,
+              label: `${RESOURCE_TYPE_MAP[type]} (${total})`,
             }
           })}
           style={{ marginBottom: 16 }}
@@ -1386,7 +1466,10 @@ export default function ResourcesPage() {
           scroll={TABLE_SCROLL_X}
           pagination={TABLE_PAGINATION}
           locale={{
-            emptyText: filterMonitored === 'unmonitored' ? '当前类型下暂无未监控资源' : undefined,
+            emptyText:
+              filterCollection !== 'all'
+                ? `当前类型下暂无「${COLLECTION_STATUS_META[filterCollection as CollectionStatus]?.label ?? '采集状态'}」资源`
+                : undefined,
           }}
           onRow={(record) => ({
             onClick: () => handleOpenDetail(record),
@@ -1420,7 +1503,16 @@ export default function ResourcesPage() {
                 { key: 'instance_name', label: '实例名', children: selectedResource.instance_name || '-' },
                 { key: 'hostname', label: '主机名', children: selectedResource.hostname || '-' },
                 { key: 'instance_ip', label: 'IP 地址', children: selectedResource.instance_ip || '-' },
-                { key: 'biz_code', label: '业务', children: resolveBizName(selectedResource.biz_code) },
+                // {v2.18}/{v2.22} 业务：展示 biz_name，停用业务加「（已停用）」标识（决策 21/22/48）
+                {
+                  key: 'biz_code',
+                  label: '业务',
+                  children: selectedResource.biz_code
+                    ? isBizDisabled(selectedResource.biz_code)
+                      ? `${resolveBizName(selectedResource.biz_code)}（已停用）`
+                      : resolveBizName(selectedResource.biz_code)
+                    : '-',
+                },
                 { key: 'app_name', label: '应用', children: selectedResource.app_name || '-' },
                 // {v2.3} 适用模板：该资源类别默认模板（模板按 resource_category 隐式关联）
                 {

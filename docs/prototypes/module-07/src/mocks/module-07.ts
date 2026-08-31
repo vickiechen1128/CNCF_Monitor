@@ -1,8 +1,10 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.20（Module_07_Monitoring_Object_Management.md）
-// 决策 13/14/17/19/21/22：业务分组字典 + biz_code 全资源必填（biz 标签只承载不可变编码），展示取 biz_name；强制预置兜底条目 infra
-// 决策 31-M1：is_monitored 由 M01 维护、M07 只读映射（原「已监控/未监控」列恢复为只读采集状态，MVP 资源列表仅按 is_monitored 筛选，M07 不计算）
+// 对齐 PRD v2.23（Module_07_Monitoring_Object_Management.md）
+// 决策 13/14/17/19/21/22/48：业务分组字典 + biz_code 全资源必填（biz 标签只承载不可变编码），展示取 biz_name；强制预置兜底条目 infra
+//   决策 48：字典落 DB + 业务管理页（列表/登记/受限编辑/停用），business_domains.yaml 仅首次启动 seed；biz_code 创建后不可改、停用不删除、infra 禁止停用/删除
+// 决策 47-3（修订 31-M1）：采集状态三态 badge——采集中（is_monitored=true 且 up）/ 已下发未采到（is_monitored=true 但 down 或待首次抓取）/ 未监控（is_monitored=false）
+//   is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连，列表级禁止逐行查询 TQ-6）
 // 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真，见 STATUS_MAPPING 注释）
 // ============================================================
 
@@ -149,8 +151,9 @@ export const mockNetworkDomains: NetworkDomain[] = [
   { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online' },
 ]
 
-// ---------- 业务分组字典（PRD 5.2 / 决策 13/14/17） ----------
-// MVP 由配置文件预置，只读，不提供维护页面；v0.2+ 评估维护入口（code 不可变、停用不删除）
+// ---------- 业务分组字典（PRD 5.2 / 5.18 / 决策 13/14/17/48） ----------
+// {v2.22} 决策 48：字典由「配置文件预置只读」提级为「业务管理页维护（落 DB）」；business_domains.yaml 仅首次启动 seed。
+// biz_code 创建后不可变（编码规范：小写字母/数字/连字符 ≤ 64）；仅 biz_name/description/status 可编辑；停用不删除；infra 禁止停用/删除。
 export interface BusinessDomain {
   /** 业务编码，进 biz 标签，创建后不可变 */
   biz_code: string
@@ -167,7 +170,7 @@ export const mockBusinessDomains: BusinessDomain[] = [
   { biz_code: 'infra', biz_name: '基础设施', description: '公共基础设施资源（INF 兜底，设备类无业务归属资源挂此）', status: 'enabled' },
   { biz_code: 'data-api', biz_name: '数据接口', description: '数据接口服务资源', status: 'enabled' },
   { biz_code: 'retired-biz', biz_name: '已下线业务', description: '停用中，不可再被资源引用', status: 'disabled' },
-  // 注：settlement / after-sale 等未登记编码刻意不预置，用于演示「业务未登记 → 引导联系平台管理员」误导入场景（§5.16.1/§11.2）
+  // 注：settlement / after-sale 等未登记编码刻意不预置，用于演示「业务未登记 → 前往业务管理登记」误导入场景（§5.16.1/§11.2）
 ]
 
 /** 业务字典展示名解析：code → biz_name；未登记或空值返回 code 本身或 '-' */
@@ -180,6 +183,35 @@ export function resolveBizName(code?: string): string {
 export function isBizDisabled(code?: string): boolean {
   if (!code) return false
   return mockBusinessDomains.find((d) => d.biz_code === code)?.status === 'disabled'
+}
+
+/** 业务编码规范（决策 48）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
+export const BIZ_CODE_RE = /^[a-z0-9-]{1,64}$/
+
+// ---------- 采集状态三态（PRD 5.2 / 决策 47-3） ----------
+// is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连）。
+// 三态取值：up（采集中）/ down（已下发未采到）/ unmonitored（未监控）。
+export type CollectionHealth = 'up' | 'down'
+export type CollectionStatus = 'up' | 'down' | 'unmonitored'
+
+// M02 健康度/覆盖率聚合 mock：仅 is_monitored=true 的资源有健康数据；缺失一律视为 down（待首次抓取 / 已下发未采到）。
+// （真实场景：M07 列表查询走聚合 API 一次性取回，禁止逐行查询 TQ-6。）
+export const mockCollectionHealth: Record<string, CollectionHealth> = {
+  // 采集中（选中且 up）
+  'res-host-003': 'up',
+  'res-db-001': 'up',
+  'res-db-002': 'up',
+  'res-app-001': 'up',
+  'res-gen-001': 'up',
+  // 已下发未采到（选中但 down，异常驱动高亮演示）
+  'res-host-001': 'down',
+  'res-mw-002': 'down',
+}
+
+/** 解析单资源采集状态三态（决策 47-3）：未选中 → unmonitored；选中按健康度 up/down（缺失按 down） */
+export function resolveCollectionStatus(r: { resource_id: string; is_monitored: boolean }): CollectionStatus {
+  if (!r.is_monitored) return 'unmonitored'
+  return mockCollectionHealth[r.resource_id] ?? 'down'
 }
 
 // ---------- 标签模板（PRD 5.10 / 5.11） ----------

@@ -38,6 +38,7 @@ function buildMenu(): MenuItem[] {
       icon: <AppstoreOutlined />,
       label: '监控对象管理',
       children: [
+        { key: '/business-management', icon: <AppstoreOutlined />, label: '业务管理 {v2.23}' },
         { key: '/resources', icon: <AppstoreOutlined />, label: '资源管理' },
         { key: '/label-templates', icon: <AppstoreOutlined />, label: '标签模板' },
         { key: '/import-history', icon: <AppstoreOutlined />, label: '导入记录' },
@@ -178,7 +179,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Content className="app-content">
             <ReviewNote title="设计意图（面向产品 / 技术评审）" style={{ margin: '16px 16px 0' }}>
               本模块维护监控对象（资源）、资源标签与标签模板数据，作为监控策略与配置中心的数据提供方：
-              采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责，「已监控 / 未监控」状态由监控策略模块计算、本页只读展示。
+              采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责，「采集状态（采集中 / 已下发未采到 / 未监控）」由监控策略与查询中心模块计算、本页只读展示；业务分组字典由「业务管理」页维护。
               标签模板按资源类别定义「字段 → 监控标签」的映射，模板按资源类别隐式关联该类型全部实例；
               静态资源（主机 / 中间件 / 通用目标）标签由 CMDB / Excel 治理、平台只读，应用服务资源开放实例级自定义标签。
             </ReviewNote>
@@ -211,6 +212,8 @@ export function MainLayout({ children }: MainLayoutProps) {
                 3.19 prometheus_builtin MVP 隐藏、数据模型保留。
                 3.20 {'{v2.20}'} 决策 31-M1：is_monitored 由 M01 维护、M07 只读映射（资源列表「采集状态」列只读展示 + 「未监控」筛选，M07 不计算不写回，且 is_monitored 与 status 维度独立）；
                 3.21 {'{v2.20}'} 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真）。
+                3.22 {'{v2.23}'} 决策 47-3（修订 31-M1）：资源列表「采集状态」升级为三态 badge——采集中 / 已下发未采到 / 未监控；数据 = M01 选中关系（is_monitored）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合、禁止逐行查询 TQ-6）。
+                3.23 {'{v2.23}'} 决策 48：业务分组字典提级 MVP——新增「业务管理」页（列表 / 登记 / 受限编辑 / 停用），字典落 DB、business_domains.yaml 仅首次启动 seed；红线：biz_code 创建后不可改、仅 biz_name/description/status 可编辑、停用不删除、infra 禁止停用/删除。
                 实现细节与数据契约见 PRD 对应章节（6 接口设计 / 5.12 C 组合字段 / 12 验收标准）与代码注释。
               </Typography.Paragraph>
             </ReviewNote>

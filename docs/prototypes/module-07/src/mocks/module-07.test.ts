@@ -12,12 +12,16 @@ import {
   RESOURCE_FIELD_OPTIONS,
   STATUS_MAPPING_RULES,
   STATUS_VALUES,
+  BIZ_CODE_RE,
+  mockBusinessDomains,
+  mockCollectionHealth,
   mockImportHistory,
   mockLabelTemplates,
   mockNetworkDomains,
   mockResourceLabels,
   mockResources,
   mockStatusMappingConfig,
+  resolveCollectionStatus,
   isApplicationResource,
   isGenericTargetResource,
   isHostResource,
@@ -46,6 +50,52 @@ describe('module-07 mocks（对齐 PRD v2.20）', () => {
     expect(unmonitored.some((r) => r.status !== 'offline')).toBe(true)
     // 已监控里至少有一个 status === online（正常被采集）
     expect(monitored.some((r) => r.status === 'online')).toBe(true)
+  })
+
+  // ========== 采集状态三态（决策 47-3，修订决策 31-M1） ==========
+
+  it('采集状态三态全覆盖：采集中 / 已下发未采到 / 未监控 三种取值均存在（决策 47-3）', () => {
+    const statuses = mockResources.map((r) => resolveCollectionStatus(r))
+    expect(statuses).toContain('unmonitored')
+    expect(statuses).toContain('up')
+    expect(statuses).toContain('down')
+  })
+
+  it('resolveCollectionStatus：未选中一律未监控；选中按健康度 up/down，缺失按 down（决策 47-3）', () => {
+    mockResources.forEach((r) => {
+      if (!r.is_monitored) {
+        expect(resolveCollectionStatus(r)).toBe('unmonitored')
+      } else {
+        const health = mockCollectionHealth[r.resource_id] ?? 'down'
+        expect(resolveCollectionStatus(r)).toBe(health)
+      }
+    })
+  })
+
+  it('mockCollectionHealth 仅覆盖 is_monitored=true 的资源（健康度只对被选中资源有意义）', () => {
+    Object.keys(mockCollectionHealth).forEach((id) => {
+      const res = mockResources.find((r) => r.resource_id === id)
+      expect(res).toBeTruthy()
+      expect(res!.is_monitored).toBe(true)
+    })
+  })
+
+  // ========== 业务管理（决策 48） ==========
+
+  it('业务字典编码规范：启用条目 biz_code 均符合小写字母/数字/连字符 ≤64（决策 48）', () => {
+    mockBusinessDomains.forEach((d) => {
+      expect(BIZ_CODE_RE.test(d.biz_code)).toBe(true)
+    })
+  })
+
+  it('业务字典必含 infra 兜底条目且为启用态（决策 48：生成即预置、禁止停用/删除）', () => {
+    const infra = mockBusinessDomains.find((d) => d.biz_code === 'infra')
+    expect(infra).toBeTruthy()
+    expect(infra!.status).toBe('enabled')
+  })
+
+  it('业务字典含停用条目（决策 48：停用不删除，演示「业务名（已停用）」标识）', () => {
+    expect(mockBusinessDomains.some((d) => d.status === 'disabled')).toBe(true)
   })
 
   it('资源 env 取值均在 dev/test/staging/prod 枚举内（PRD 7.2）', () => {
