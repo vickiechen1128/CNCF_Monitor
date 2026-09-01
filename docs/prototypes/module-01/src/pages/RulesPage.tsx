@@ -377,13 +377,9 @@ function FileMountView() {
         </Col>
       </Row>
 
-      <Alert
-        type="info"
-        showIcon
-        message="规则文件挂载（MVP）"
-        description="本页通过上传 / 粘贴完整的规则文件来挂载告警与记录规则。保存 / 启停 / 删除后，变更进入配置中心的变更确认流程，确认后统一下发生效；右上角可切换「字段化编辑」查看 v0.3 的逐条编辑预览。"
-        style={{ marginBottom: 16 }}
-      />
+      <FieldGuide title="规则文件挂载（MVP）">
+        <Text>本页通过上传 / 粘贴完整的规则文件来挂载告警与记录规则。保存 / 启停 / 删除后，变更进入配置中心的变更确认流程，确认后统一下发生效；右上角可切换「字段化编辑」查看 v0.3 的逐条编辑预览。</Text>
+      </FieldGuide>
 
       <Table
         rowKey="rule_id"
@@ -455,12 +451,9 @@ function FileMountView() {
               style={{ marginBottom: 16 }}
             />
           )}
-          <Alert
-            type="info"
-            showIcon
-            message="挂载后的配置闭环"
-            description="挂载保存后，M09 下一轮询周期检测到 MonitoringRule 变化 → 生成 rules.yml 草稿（rule_content 原样并入）→ 在「配置变更确认」页人工确认后下发生效；本页列表「下发状态」随 M09 变更单状态回写（与采集 Job 同源同机制）。"
-          />
+          <FieldGuide title="挂载后的配置闭环">
+            <Text>挂载保存后，M09 下一轮询周期检测到 MonitoringRule 变化 → 生成 rules.yml 草稿（rule_content 原样并入）→ 在「配置变更确认」页人工确认后下发生效；本页列表「下发状态」随 M09 变更单状态回写（与采集 Job 同源同机制）。</Text>
+          </FieldGuide>
         </Form>
       </Drawer>
 
@@ -1077,13 +1070,9 @@ function StructuredEditView() {
         </Col>
       </Row>
 
-      <Alert
-        type="info"
-        showIcon
-        message="v0.3 字段化编辑预览（content_mode=structured）"
-        description="本视图为 v0.3 规划的类 YAML 字段化编辑（expr / for / labels / annotations），MVP 通过左侧「文件挂载」视图整文件透传 rules.yml；v0.3 落地后逐条写入 MonitoringRule（structured），同样经 M09 生成 rules.yml → 变更单人工确认 → 下发。"
-        style={{ marginBottom: 16 }}
-      />
+      <FieldGuide title="v0.3 字段化编辑预览（content_mode=structured）">
+        <Text>本视图为 v0.3 规划的类 YAML 字段化编辑（expr / for / labels / annotations），MVP 通过左侧「文件挂载」视图整文件透传 rules.yml；v0.3 落地后逐条写入 MonitoringRule（structured），同样经 M09 生成 rules.yml → 变更单人工确认 → 下发。</Text>
+      </FieldGuide>
 
       <Tabs defaultActiveKey="alerting">
         <TabPane tab="告警规则" key="alerting">
@@ -1245,13 +1234,9 @@ function StructuredEditView() {
             />
           )}
 
-          <Alert
-            type="info"
-            showIcon
-            message="规则不绑定网域"
-            description="告警/记录规则针对全部网域的聚合数据统一求值，因此无需（也不应）绑定单一网域；如需限定到某网域，请在表达式中按「网域」标签过滤。"
-            style={{ marginBottom: 16 }}
-          />
+          <FieldGuide title="规则不绑定网域">
+            <Text>告警/记录规则针对全部网域的聚合数据统一求值，因此无需（也不应）绑定单一网域；如需限定到某网域，请在表达式中按「网域」标签过滤。</Text>
+          </FieldGuide>
 
           <Row gutter={16}>
             <Col span={12}>
@@ -1308,13 +1293,22 @@ function StructuredEditView() {
           </Form.Item>
 
           {validationResult && (
-            <Alert
-              type={validationResult.status === 'success' ? 'success' : 'error'}
-              showIcon
-              message={validationResult.status === 'success' ? 'PromQL 校验通过' : 'PromQL 校验失败'}
-              description={validationResult.message}
-              style={{ marginBottom: 16 }}
-            />
+            <div
+              style={{
+                marginBottom: 16,
+                padding: '8px 12px',
+                borderRadius: 6,
+                background: validationResult.status === 'success' ? '#F6FFED' : '#FFF1F0',
+                border: `1px solid ${validationResult.status === 'success' ? '#B7EB8F' : '#FFA39E'}`,
+              }}
+            >
+              <Text strong style={{ color: validationResult.status === 'success' ? '#52C41A' : '#CF1322' }}>
+                {validationResult.status === 'success' ? 'PromQL 校验通过' : 'PromQL 校验失败'}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                {validationResult.message}
+              </Text>
+            </div>
           )}
 
           {previewVisible && (
@@ -1368,8 +1362,7 @@ export default function RulesPage() {
       <div className="page-header">
         <Title level={4}>规则编辑</Title>
         <Text type="secondary">
-          MVP 通过上传 / 粘贴整文件 rules.yml 挂载告警 / 记录规则（不绕过 M09：保存 / 启停 / 删除后由配置中心生成
-          rules.yml → 人工确认 → 下发）；v0.3 升级为字段化编辑（PromQL 校验 + 指标预览）。
+          MVP 挂载整文件 rules.yml（不绕过 M09：保存 / 启停 / 删除后生成 → 人工确认 → 下发）；v0.3 升级字段化编辑。
         </Text>
       </div>
       <Card className="page-card">
@@ -1385,7 +1378,7 @@ export default function RulesPage() {
             />
           </Col>
           <Col>
-            <ReviewNote title="规则内容形态（PRD 5.5 / 3.1 / 3.2）">
+            <ReviewNote title="规则内容形态">
               MVP 默认 <Text code>content_mode=yaml_passthrough</Text>——规则经「规则编辑」页上传 / 粘贴整文件
               rules.yml 落库 MonitoringRule（rule_content），保存 / 启停 / 删除即触发 M09 变更检测 → 生成 rules.yml →
               变更单人工确认 → 下发，回写 change_status（与采集 Job 同源同机制）；v0.3 升级为{' '}

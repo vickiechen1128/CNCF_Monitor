@@ -2175,12 +2175,9 @@ export default function ScrapeJobsPage() {
       >
         {batchResult && (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Alert
-              type={batchResult.fail.length > 0 ? 'warning' : 'success'}
-              showIcon
-              message={`成功 ${batchResult.ok.length} 条 / 失败 ${batchResult.fail.length} 条`}
-              description="提交成功的 Job 已乐观标为「待下发」，将由 M09 生成变更单，需确认后生效"
-            />
+            <FieldGuide title={`批量处理结果：成功 ${batchResult.ok.length} 条 / 失败 ${batchResult.fail.length} 条`}>
+              <Text>提交成功的 Job 已乐观标为「待下发」，将由 M09 生成变更单，需确认后生效</Text>
+            </FieldGuide>
             {batchResult.ok.length > 0 && (
               <div>
                 <Text strong>成功（{batchResult.ok.length}）：</Text>
@@ -2237,13 +2234,9 @@ export default function ScrapeJobsPage() {
         <Form form={presetForm} layout="vertical" style={{ marginTop: 8 }}>
           {/* {v3.27} F-11：编辑态快照语义提示——变更仅影响新建 Job，不影响已存在 Job；存量 Job 采用新参数需到采集 Job 内手动「同步映射默认值」 */}
           {editingPreset && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="编辑默认采集配置的影响范围"
-              description="本修改仅影响新建采集 Job（创建时自动套用新默认值）；已存在的 Job 不会自动变更。如需存量 Job 采用新参数，请在对应采集 Job 内手动「同步映射默认值」。"
-            />
+            <FieldGuide title="编辑默认采集配置的影响范围">
+              <Text>本修改仅影响新建采集 Job（创建时自动套用新默认值）；已存在的 Job 不会自动变更。如需存量 Job 采用新参数，请在对应采集 Job 内手动「同步映射默认值」。</Text>
+            </FieldGuide>
           )}
           <Row gutter={16}>
             <Col span={12}>
@@ -2317,7 +2310,9 @@ export default function ScrapeJobsPage() {
           </Form.Item>
           {/* {v3.27} F-11：MappingDrawer 完全移除 label_template_id 字段（PRD §5.1）；标签模板唯一变更入口 = 列表「更换/补配」轻量抽屉（LabelTemplateSelectDrawer），见下方 Drawer */}
           {/* {v3.27} F-28：层叠默认 + 稀疏覆盖——默认采集配置采集参数字段可留空，留空=继承采集器模板/全局默认（15s/10s//metrics/http）；编辑态清空某字段 = 恢复继承 */}
-          <Alert type="info" showIcon style={{ marginBottom: 12 }} message="采集参数可留空" description="任一项留空 = 继承采集器模板默认参数；保存时解析为该配置生效快照。" />
+          <FieldGuide title="采集参数可留空">
+            <Text>任一项留空 = 继承采集器模板默认参数；保存时解析为该配置生效快照。</Text>
+          </FieldGuide>
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item label="默认端口" name="default_port">
@@ -2407,21 +2402,16 @@ export default function ScrapeJobsPage() {
                   为该默认采集配置更换 / 补配标签模板（按资源类别过滤，由 Module_07 维护）：
                 </Text>
                 {candidates.length === 0 ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="该资源类别尚无标签模板"
-                    description={
-                      <Space direction="vertical" size={4}>
-                        <Text style={{ fontSize: 12 }}>
-                          请先到 Module_07 创建该资源类别的标签模板，创建后采集 Job 将自动继承。
-                        </Text>
-                        <Typography.Link href={MODULE_LINKS.module07} style={{ fontSize: 12 }}>
-                          前往标签模板管理（Module_07）→
-                        </Typography.Link>
-                      </Space>
-                    }
-                  />
+                  <FieldGuide title="该资源类别尚无标签模板">
+                    <Space direction="vertical" size={4}>
+                      <Text style={{ fontSize: 12 }}>
+                        请先到 Module_07 创建该资源类别的标签模板，创建后采集 Job 将自动继承。
+                      </Text>
+                      <Typography.Link href={MODULE_LINKS.module07} style={{ fontSize: 12 }}>
+                        前往标签模板管理（Module_07）→
+                      </Typography.Link>
+                    </Space>
+                  </FieldGuide>
                 ) : (
                   <List
                     size="small"
@@ -2534,24 +2524,16 @@ export default function ScrapeJobsPage() {
           )}
           {/* {v3.22} 决策 D29：克隆提示——同网域直接改选实例分组；跨网域实例清空重选、安装确认需重新进行 */}
           {cloneSource && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message={`克隆自「${cloneSource.job_name}」`}
-              description={
-                <Space direction="vertical" size={4}>
-                  <Text>已复制源 Job 的采集参数（采集器 / 间隔 / 超时 / 路径 / 协议 / 标签模板）。</Text>
-                  {buildIdentical(watchNetworkDomainId, cloneSource?.network_domain_ids) ? (
-                    <Text type="secondary">同网域克隆：可直接调整实例分组后提交生效。</Text>
-                  ) : (
-                    <Text type="warning">
-                      跨网域克隆：实例已清空重选，所选实例的「安装确认」需重新进行。
-                    </Text>
-                  )}
-                </Space>
-              }
-            />
+            <FieldGuide title={`克隆自「${cloneSource.job_name}」`}>
+              <Space direction="vertical" size={4}>
+                <Text>已复制源 Job 的采集参数（采集器 / 间隔 / 超时 / 路径 / 协议 / 标签模板）。</Text>
+                {buildIdentical(watchNetworkDomainId, cloneSource?.network_domain_ids) ? (
+                  <Text type="secondary">同网域克隆：可直接调整实例分组后提交生效。</Text>
+                ) : (
+                  <Text type="warning">跨网域克隆：实例已清空重选，所选实例的「安装确认」需重新进行。</Text>
+                )}
+              </Space>
+            </FieldGuide>
           )}
           {editingJob && editingJob.job_type === 'standard' && isMappingChanged(editingJob) && (
             <Alert
@@ -2944,16 +2926,12 @@ export default function ScrapeJobsPage() {
                         </Space>
                       ) : (
                         // 无标签模板时展示创建引导；区分「映射未配置模板（引导先补配采集映射，Job 自动继承）」与「用户未选择模板」
-                        <Alert
-                          type={mappingMissingTemplate ? 'warning' : 'info'}
-                          showIcon
-                          style={{ marginTop: 4 }}
-                          message={
-                            mappingMissingTemplate ? (
-                              <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                                <Text style={{ fontSize: 12 }}>
-                                  该监控对象类型的默认采集配置尚未关联标签模板，监控数据将缺少归属标签（instance / app / env 等）。
-                                </Text>
+                        <FieldGuide title={mappingMissingTemplate ? '默认采集配置尚未关联标签模板' : '请选择标签模板'}>
+                          {mappingMissingTemplate ? (
+                            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                              <Text style={{ fontSize: 12 }}>
+                                该监控对象类型的默认采集配置尚未关联标签模板，监控数据将缺少归属标签（instance / app / env 等）。
+                              </Text>
                                 <Space size={12} wrap>
                                   {/* {v3.18} D26：主按钮带 edit 参数跳转，落位自动打开映射编辑抽屉（不再是空跳转） */}
                                   <Button
@@ -2984,7 +2962,7 @@ export default function ScrapeJobsPage() {
                               </Space>
                             )
                           }
-                        />
+                        </FieldGuide>
                       )}
                     </Space>
                   }
@@ -3118,12 +3096,9 @@ export default function ScrapeJobsPage() {
                 label: <Text strong>认证与 TLS</Text>,
                 children: (
                   <div>
-                    <Alert
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 12 }}
-                      message="认证/TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs"
-                    />
+                    <FieldGuide title="认证与 TLS 生效范围">
+                      <Text>认证 / TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs。</Text>
+                    </FieldGuide>
                     <Row gutter={16}>
                       <Col span={12}>
                         <Form.Item
@@ -3298,28 +3273,22 @@ export default function ScrapeJobsPage() {
               </Space>
 
               {/* {v3.28} 决策 53：实时求值预览——匹配实例清单（在线数）+ 新纳管自动纳入标注 */}
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 4 }}
-                message={`匹配 ${filterMatching.matched.length} 个实例（在线，同类型 + 归属任一已选网域）`}
-                description={
-                  filterMatching.matched.length > 0 ? (
-                    <Text style={{ fontSize: 12 }}>
-                      命中：{filterMatching.matched.slice(0, 8).map((r) => r.instance_name).join('、')}
-                      {filterMatching.matched.length > 8 ? ` 等 ${filterMatching.matched.length} 个` : ''}
-                    </Text>
-                  ) : (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      当前条件下暂无匹配实例，请调整筛选条件或先确认已选网域下存在该类型的已纳管资源
-                    </Text>
-                  )
-                }
-              />
+              <FieldGuide title={`匹配 ${filterMatching.matched.length} 个实例（在线，同类型 + 归属任一已选网域）`}>
+                {filterMatching.matched.length > 0 ? (
+                  <Text style={{ fontSize: 12 }}>
+                    命中：{filterMatching.matched.slice(0, 8).map((r) => r.instance_name).join('、')}
+                    {filterMatching.matched.length > 8 ? ` 等 ${filterMatching.matched.length} 个` : ''}
+                  </Text>
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    当前条件下暂无匹配实例，请调整筛选条件或先确认已选网域下存在该类型的已纳管资源
+                  </Text>
+                )}
+              </FieldGuide>
               <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
                 自动纳入：M07 后续新导入 / 同步的资源如匹配上述条件，将在配置中心下一配置生成周期自动进入本次采集，无需编辑 Job。
               </Text>
-              <ReviewNote title="过滤规则（决策 53 v0.2 提前）">
+              <ReviewNote title="过滤规则">
                 <ul style={{ paddingLeft: 18, margin: 0 }}>
                   <li>
                     `instance_filter` 筛选字段 = **Resource 属性字段**（env / cluster / app_name / business_domain），`label` 仅作 UI 别名（由标签模板映射只读派生），筛选**不写任何标签**、与标签管理正交（选择器 vs 描述器）。
