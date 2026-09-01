@@ -1,6 +1,6 @@
 # MetricCenter Module 02 原型
 
-> **验证的 PRD 版本**: [Module\_02\_Query\_Center.md](../../02-product-requirements/Modules/Module_02_Query_Center.md) v1.6
+> **验证的 PRD 版本**: [Module\_02\_Query\_Center.md](../../02-product-requirements/Modules/Module_02_Query_Center.md) v1.7
 > **覆盖的产品版本**: MVP / v0.2 / v0.3
 > **原型版本**: v1.6
 > **本地启动命令**:
