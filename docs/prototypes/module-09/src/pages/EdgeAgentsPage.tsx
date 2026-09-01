@@ -569,20 +569,6 @@ export function EdgeAgentsPage() {
                   },
                 },
                 {
-                  title: 'WAL 积压',
-                  key: 'wal',
-                  width: 100,
-                  render: (_: unknown, record: EdgeAgent) => (
-                    <Text>{record.wal_backlog_bytes > 0 ? formatBytes(record.wal_backlog_bytes) : '0 B'}</Text>
-                  ),
-                },
-                {
-                  title: '最后心跳',
-                  key: 'last-heartbeat',
-                  width: 140,
-                  render: (_: unknown, record: EdgeAgent) => <Text>{record.last_heartbeat}</Text>,
-                },
-                {
                   title: '操作',
                   key: 'action',
                   width: 80,

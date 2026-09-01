@@ -1,7 +1,7 @@
 {
   "name": "metric-center-prototype-module-09",
   "private": true,
-  "version": "1.51.0",
+  "version": "1.52.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

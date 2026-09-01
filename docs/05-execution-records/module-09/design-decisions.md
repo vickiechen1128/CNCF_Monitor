@@ -504,6 +504,7 @@
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.49 | 2026-08-21 | 修改 | M09 网域契约结构性对齐（决策 28）+ offline 排除提级 P0（决策 29）：①§1 / §3.1.1 / §5.1 删除「1 租户 : N 网域」「禁止跨租户共享网域」「租户前缀」「tenant_id=所属租户」「未指定继承 default」等旧语义，明确「NetworkDomain 行政模型以 Module_06 为单一事实来源」、ID 规则置 M06（id / tenant_id 字段只读引用、归属约束改为行政约束引用、MVP 处理去掉租户继承语义、§9.1/§9.2 同步）；②§3.3「实例过滤」与 9.2 验收将 `offline` 排除提级 MVP 必实现——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤，`offline` 后下一配置生成周期即从 targets 移除；本轮为 PRD 契约落版，不涉及原型行为变更 | 1 / 3.1.1 / 3.3 / 5.1 / 9 | MVP / v0.2 | prototyping |
 | v1.48 | 2026-08-21 | 修改 | 对齐 Module_01 v3.24「规则文件挂载」补充 `rule_content` 透传并入契约：①§3.3「按网域生成配置」新增 `content_mode` 分形态并入逻辑——`yaml_passthrough`（MVP）将 `rule_content`（完整 rules.yml 含 groups）原样并入，`structured`（v0.3+）按字段化生成；②§3.3 配置文件映射语义补充 `rules.yml` = 规则级（MonitoringRule）层级；③9.2 验收「规则组织与交付」补透传表述 | 3.3 配置生成 / 9 验收 | MVP / v0.3 | prototyping |
 | v1.47 | 2026-08-21 | 修改 | MVP 缺憾补漏（决策 42 系列）：①同域 `pending` 草稿「后单取代前单」（superseded）防堆积——3.3.3 补第三层裁决、8 状态机、5.4 metadata `superseded_by_change_no`；②校验失败草稿补「重新校验 / 废弃」闭环——3.5.1、6.6.2 新增 revalidate 接口、8 pending 流转；③`local` 通道 failed 下发记录补「重试」入口——3.5、6.6.3 新增 retry 接口（`agent_pull` 不提供）；④configgen 生成异常补「生成失败」态且不推进版本、下轮重试——3.3.3 检测状态可观测、3.4 变更检测状态；⑤9.1/9.2 MVP 验收范围收敛并补 4 项闭环验收（决策 42-1~42-4） | 3.3.3 / 3.4 / 3.5 / 3.5.1 / 5.4 / 6.6.2 / 6.6.3 / 8 / 9 | MVP / v0.2 | prototyping |
 | v1.46 | 2026-08-19 | 修改 | 回写跨模块契约（Module_07 8.1 / 第三轮评审 K 组）：§3.3「实例过滤」声明 `offline` 排除为**目标语义、MVP 不保证、随 M01 开发节奏落地**——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤已下线实例；本轮为契约声明，不涉及原型行为变更 | 3.3 配置生成 / 实例过滤 | MVP / v0.2 | prototyping |
@@ -1397,3 +1398,11 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
 - **触发与结论**：见 module-01 design-decisions 决策 53/54 全文（filter 模式提前 v0.2 + 新增资源自动纳入；Job 网域绑定放宽为集合、M09 按域扇出）。
 - **本模块落点**：配置生成器 v0.2 起承担两个新行为——①逻辑 Job 绑定网域集合时**按网域自动拆分**生成各域 scrape_configs / targets / 变更单，分别进入各域变更检测 / 校验 / 确认 / 下发（现有流程不变）；②`instance_selection_mode=filter` 的 Job 在**每次生成周期对条件表达式实时求值**，M07 资源变化自动反映到 targets。`bk_cloud_id` → 网域映射为归属解析链第①级（决策 52，§5.7 交叉引用）。
 - **影响范围**：Module_09 PRD v1.51（§3.3 生成配置 / 实例过滤、§5.7）。
+
+---
+
+## 补充对齐：2026-08-31（alertmanager.yml 纳入变更确认，决策 60 交叉引用）
+
+- **触发与结论**：见 module-08 design-decisions 决策 60 全文（统一变更纪律：M08 为内容 Owner、M09 为管道 Owner；管理域 scope、不扇出）。
+- **本模块落点**：①配置产物类型增加 `alertmanager.yml`，**scope 恒为管理域（`default`）**——变更单网域固定 `default`，不参与按网域拆分扇出、不进入 `agent_pull` 配置包；②MVP `local` 通道确认后写中心 Alertmanager 配置路径并触发其 reload（SIGHUP / `POST /-/reload`），`change_status` 回写 M08；③预留按配置类型风险分级（告警配置后续可降为低风险自动确认），MVP 统一人工确认。
+- **影响范围**：Module_09 PRD v1.52（§1 / §3.3 / §3.4 / §3.11 / §6.5 / §9.2）。

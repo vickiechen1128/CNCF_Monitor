@@ -111,9 +111,10 @@ export type ConfigChangeTarget =
   | 'alert_rule' // 告警规则（MonitoringRule）
   | 'blackbox_target' // 拨测目标（blackbox ScrapeJob 的 target）
   | 'label_template' // 标签模板（LabelTemplate）
+  | 'alertmanager_config' // 通知配置（alertmanager.yml，Module_08 文件挂载提交，管理域 default scope，决策 60）
 
 /** 影响的配置文件（决策 22）：configgen 对比「当前生效版本」与「新草稿」产物差异派生的维度 */
-export type AffectedConfigFile = 'prometheus.yml' | 'targets' | 'rules.yml' | 'blackbox.yml'
+export type AffectedConfigFile = 'prometheus.yml' | 'targets' | 'rules.yml' | 'blackbox.yml' | 'alertmanager.yml'
 
 /**
  * 结构化变更清单项（决策 18「变更确认心智」/ 22）：
@@ -442,21 +443,22 @@ export const validationLayeringNote = {
 }
 
 /**
- * 审批分级策略（{v1.32} M01/M08/M09 告警规则职责重构，PRD 3.4）：
+ * 审批分级策略（{v1.32} M01/M08/M09 告警规则职责重构，PRD 3.4；{决策 60} alertmanager.yml 口径反转）：
  * - 人工确认（go/no-go）：prometheus.yml、targets/*.json、rules.yml、blackbox.yml 的变更进入待确认列表；
- * - 自动生效：alertmanager.yml 由 Module_08 直接写文件并触发 Alertmanager reload，不进入本模块 ConfigDraft / 配置变更确认流程；
- * - 混单规则：若某次变更同时涉及人工确认文件与 alertmanager.yml（防御性说明），按高风险文件走人工确认。
- * 原因：通知路由/接收人/静默/抑制调整频繁、风险低（仅影响告警体验，不影响采集/规则求值），且 M08 是 Alertmanager 配置的唯一 Owner。
+ * - alertmanager.yml（决策 60）：由 Module_08 文件挂载提交，作为管理域（default）scope 产物纳入本模块变更确认——
+ *   人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写 M08；
+ *   不参与按网域扇出，不进入 agent_pull 配置包；
+ * - 职责分工：Module_08 是 Alertmanager 配置的唯一内容 Owner，本模块是变更确认与下发管道 Owner。
  */
 export const approvalTieringNote = {
   manual:
     '人工确认（go/no-go）：prometheus.yml、targets/*.json、rules.yml、blackbox.yml 的变更进入待确认列表，由运维审批后发布',
   auto:
-    '自动生效：alertmanager.yml 由 Module_08（告警收敛与通知管理）直接写文件并触发 Alertmanager reload，不进入本模块变更单 / 配置变更确认流程',
+    'alertmanager.yml（由 Module_08 文件挂载提交）：作为管理域 default scope 产物纳入本模块变更确认——人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写 Module_08',
   mixed:
-    '混单规则：若某次变更同时涉及人工确认文件与 alertmanager.yml（防御性说明），按高风险文件走人工确认',
+    'agent_pull 配置包 / 按网域扇出不包含 alertmanager.yml：alertmanager.yml 仅作用于中心 Alertmanager（管理域 default scope），不随任何边缘网域配置包下发',
   reason:
-    '原因：通知路由 / 接收人 / 静默 / 抑制调整频繁、风险低（仅影响告警体验，不影响采集 / 规则求值），且 Module_08 是 Alertmanager 配置的唯一 Owner',
+    '职责分工：Module_08（告警收敛与通知管理）是 Alertmanager 配置的唯一内容 Owner（接收人 / 路由 / 静默 / 抑制），本模块是变更确认与下发管道 Owner（人工确认 → 写中心配置路径 → reload → change_status 回写）',
 }
 
 /**
@@ -1883,6 +1885,47 @@ export const configDrafts: ConfigDraft[] = [
     created_at: '2026-08-03 15:03:00',
     updated_at: '2026-08-03 15:03:00',
   },
+  {
+    // {决策 60} alertmanager.yml 变更单演示（口径反转）：alertmanager.yml 作为管理域（default）scope 产物
+    // 纳入本模块变更确认——Module_08 文件挂载提交 → 本模块人工确认 → 写中心 Alertmanager 配置路径并触发 reload，
+    // change_status 回写 Module_08；不参与按网域扇出、不进入 agent_pull 配置包。
+    // 与 Module_08 原型 mockConfigVersions 的 acv-004（change_status=pending）呼应：M08「待确认」点击跳转本页确认。
+    // Prometheus 侧采集产物（prometheus.yml / targets / rules.yml / blackbox.yml）均不变，变更内容仅为 alertmanager.yml。
+    id: 'draft-default-am-001',
+    change_no: 'CHG-20260831-013',
+    network_domain_id: 'default',
+    source_version: 'cv-default-003',
+    prometheus_yml: prometheusYmlDefault,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefaultV3,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: 'alertmanager.yml 文件挂载提交（管理域 default scope，来源 Module_08）',
+      source_data_version: '2026-08-31 11:20:00',
+      trigger_summary: 'AlertmanagerConfigVersion#acv-004 挂载提交（2026-08-31 11:20:00，Module_08）触发变更单',
+      checksum: computeJointChecksum(prometheusYmlDefault, rulesYml, blackboxYml, targetsDefaultV3),
+      source_summary:
+        'alertmanager.yml（管理域 default scope）：政务云路由通知节奏调整（group_wait 30s→15s、group_interval 5m→2m）；Prometheus 采集产物不变',
+    },
+    status: 'pending',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: 'alertmanager.yml 更新（政务云路由通知节奏调整），确认后写中心 Alertmanager 配置路径并触发 reload',
+    change_items: [
+      {
+        type: 'modify',
+        target: 'alertmanager_config',
+        description:
+          'alertmanager.yml（管理域 default scope，不参与按网域扇出 / 不进 agent_pull 配置包）：政务云路由 group_wait 30s→15s、group_interval 5m→2m；确认后写中心 Alertmanager 配置路径并触发 reload，change_status 回写告警通知模块',
+        risk: 'low',
+        affected_files: ['alertmanager.yml'],
+      },
+    ],
+    created_at: '2026-08-31 11:21:00',
+    updated_at: '2026-08-31 11:21:00',
+  },
 ]
 
 export const configVersions: ConfigVersion[] = [
@@ -2119,17 +2162,22 @@ export const configDeployments: ConfigDeployment[] = [
 export const changeDetectionStatus: ChangeDetectionStatus[] = [
   {
     network_domain_id: 'default',
-    last_checked_at: '2026-08-03 14:22:30',
-    source_data_version: '2026-08-03 14:20:00',
+    last_checked_at: '2026-08-31 11:21:30',
+    source_data_version: '2026-08-31 11:20:00',
     outcome: 'changes_found',
     generated_drafts: [
       {
         id: 'draft-default-003',
         trigger_summary: 'ScrapeJob#plc-gateway updated_at 变更（2026-08-03 14:20:00）触发重算',
       },
+      {
+        // {决策 60} alertmanager.yml 变更单（管理域 default scope，Module_08 文件挂载提交）
+        id: 'draft-default-am-001',
+        trigger_summary: 'AlertmanagerConfigVersion#acv-004 挂载提交（2026-08-31 11:20:00，Module_08）触发变更单',
+      },
     ],
     summary:
-      '本轮检测到变更：生成 draft-default-003（新增 plc-gateway 采集），进入确认列表（targets schema 校验失败，待修复）',
+      '本轮检测到变更：draft-default-003（新增 plc-gateway 采集，targets schema 校验失败待修复）与 draft-default-am-001（alertmanager.yml 管理域 default scope，确认后写中心 Alertmanager 配置路径并 reload）进入确认列表',
   },
   {
     network_domain_id: 'gov-cloud-a',

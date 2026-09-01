@@ -149,7 +149,7 @@ export function MainLayout({ children }: MainLayoutProps) {
             运维在「配置变更确认」页做发布审批（go/no-go）——平台保证生成内容与策略一致，
             运维确认变更影响后决定是否发布到监控。配置按网域生成（prometheus.yml + targets/*.json + rules.yml + blackbox.yml），
             下发通道按采集节点位置分层：local 通道走本地文件集，agent_pull 通道走 zip 配置包；
-            alertmanager.yml 由告警收敛与通知管理模块直接管理，不进入本模块变更确认流程。
+            alertmanager.yml 作为管理域 default scope 产物纳入本模块变更确认（告警通知模块文件挂载提交），人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，不参与按网域扇出、不进入 agent_pull 配置包。
             菜单结构：「网域与节点管理」（接入面：网域纳管 / 采集节点状态）与「配置下发」（配置面：配置变更确认 / 下发记录）两个一级组，
             采集节点状态子菜单常驻，无实例时展示空态引导。
           </ReviewNote>
