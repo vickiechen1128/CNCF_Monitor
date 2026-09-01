@@ -26,6 +26,90 @@ export interface AgentStatus {
   targets: number
 }
 
+// —— 决策 51：Grafana 监控大屏（iframe 嵌入）mock ——
+
+/** Grafana 数据源红线：必须指向 M02 查询代理，禁止直连 Prometheus（见 Module_02 §1 可视化边界） */
+export interface GrafanaDatasource {
+  name: string
+  type: string
+  url: string
+  readonly: boolean
+  redLine: string
+}
+
+/** 预置仪表盘模板（读模板只读、可克隆；克隆后自由编辑；升级覆盖模板不影响用户副本） */
+export interface DashboardTemplate {
+  id: string
+  name: string
+  ciType: string
+  description: string
+  readonly: boolean
+  cloneable: boolean
+  tags: string[]
+  updatedAt: string
+}
+
+export interface GovernanceDrilldown {
+  networkDomain: string
+  bizCode: string
+  app: string
+  instance: string
+}
+
+export const mockGrafanaDatasource: GrafanaDatasource = {
+  name: 'metric-center-proxy',
+  type: 'Prometheus',
+  url: 'http://metric-center:8080/api/v1',
+  readonly: true,
+  redLine: '数据源必须指向 M02 查询代理（metric-center:8080），禁止直连 Prometheus 实例（租户/网域注入红线）。',
+}
+
+export const mockDashboardTemplates: DashboardTemplate[] = [
+  {
+    id: 'tpl-host',
+    name: '主机基础监控',
+    ciType: '主机',
+    description: 'CPU / 内存 / 磁盘 / 网络四维总览，按网域 → 业务 → 应用 → 实例下钻。',
+    readonly: true,
+    cloneable: true,
+    tags: ['主机', '系统', 'base'],
+    updatedAt: '2026-08-31',
+  },
+  {
+    id: 'tpl-mysql',
+    name: 'MySQL 性能监控',
+    ciType: '中间件',
+    description: '连接数、慢查询、缓冲池命中率等核心指标。',
+    readonly: true,
+    cloneable: true,
+    tags: ['MySQL', '数据库', 'base'],
+    updatedAt: '2026-08-31',
+  },
+  {
+    id: 'tpl-probe',
+    name: '拨测可用性',
+    ciType: '拨测',
+    description: 'HTTP / TCP / ICMP 探针可用性与延迟分布。',
+    readonly: true,
+    cloneable: true,
+    tags: ['拨测', 'blackbox', '可用性'],
+    updatedAt: '2026-08-31',
+  },
+]
+
+/** 四层下钻的治理标签默认值（dashboard variables 的 label_values 查询走 M02 代理） */
+export const mockGovernanceOptions: GovernanceDrilldown = {
+  networkDomain: 'default',
+  bizCode: 'Iaas',
+  app: 'nginx-prod',
+  instance: '10.0.0.11:9100',
+}
+
+export const mockNetworkDomains = ['default', 'edge', 'finance']
+export const mockBizCodes = ['Iaas', 'PaaS', 'Saas']
+export const mockApps = ['nginx-prod', 'mysql-master', 'order-service']
+export const mockInstances = ['10.0.0.11:9100', '10.0.0.12:9100', '10.0.1.5:9100']
+
 export const mockDashboardStats: DashboardStats = {
   totalResources: 1248,
   monitoredCount: 986,

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Card,
   Col,
@@ -8,6 +9,8 @@ import {
   Tag,
   Typography,
   Badge,
+  Button,
+  Space,
 } from 'antd'
 import {
   CloudServerOutlined,
@@ -16,6 +19,8 @@ import {
   BellOutlined,
   GlobalOutlined,
   ApiOutlined,
+  FundOutlined,
+  FullscreenOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import {
@@ -64,6 +69,7 @@ const statCards = [
 
 export function DashboardPage() {
   const [stats] = useState(mockDashboardStats)
+  const navigate = useNavigate()
 
   const alertColumns = [
     {
@@ -155,6 +161,43 @@ export function DashboardPage() {
           欢迎回到 MetricCenter，当前 default 网域运行正常。
         </Text>
       </div>
+      <Card
+        className="page-card"
+        style={{ marginBottom: 16, background: 'linear-gradient(90deg,#0B1B2A 0%,#11324A 100%)', border: 'none' }}
+      >
+        <Row align="middle" gutter={[16, 16]}>
+          <Col flex="auto">
+            <Space>
+              <FundOutlined style={{ fontSize: 24, color: '#0ECDEB' }} />
+              <div>
+                <Title level={5} style={{ color: '#fff', margin: 0 }}>
+                  可视化大屏
+                </Title>
+                <Text type="secondary">
+                  Grafana 内嵌面板（数据源走 M02 查询代理），支持全屏 / 新窗口。
+                </Text>
+              </div>
+            </Space>
+          </Col>
+          <Col>
+            <Space>
+              <a href="../module-08/index.html#/alerts">
+                <Button type="link" icon={<BellOutlined />} style={{ color: '#fff' }}>
+                  Web 告警列表
+                </Button>
+              </a>
+              <Button
+                type="primary"
+                icon={<FullscreenOutlined />}
+                style={{ background: '#0ECDEB', borderColor: '#0ECDEB', color: '#0B1B2A', fontWeight: 600 }}
+                onClick={() => navigate('/grafana-dashboard?fullscreen=1')}
+              >
+                进入可视化大屏
+              </Button>
+            </Space>
+          </Col>
+        </Row>
+      </Card>
       <Row gutter={[16, 16]}>
         {statCards.map((card) => (
           <Col xs={24} sm={12} md={8} lg={8} xl={4} key={card.valueKey}>

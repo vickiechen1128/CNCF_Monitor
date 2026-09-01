@@ -15,6 +15,7 @@ import {
 } from 'antd'
 import { CheckCircleOutlined, CloseCircleOutlined, QuestionCircleOutlined, LineChartOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
 import { useTenant } from '../contexts/TenantContext'
 import { scrapeTargets, coverageStats, type TargetStatus, type ScrapeTarget } from '../mocks/module-02'
 
@@ -164,6 +165,7 @@ export function TargetsPage() {
             rowKey="id"
             size="small"
             pagination={{ pageSize: 10 }}
+            scroll={{ x: 900 }}
             onRow={(record) => ({ onClick: () => setSelected(record), style: { cursor: 'pointer' } })}
             columns={[
               { title: 'Job', dataIndex: 'job', key: 'job' },
@@ -182,12 +184,6 @@ export function TargetsPage() {
                 },
               },
               { title: '最后采集', dataIndex: 'last_scrape', key: 'last_scrape' },
-              {
-                title: '采集时长',
-                dataIndex: 'scrape_duration_seconds',
-                key: 'scrape_duration_seconds',
-                render: (v: number) => <Text type="secondary">{v.toFixed(2)}s</Text>,
-              },
               {
                 title: '拨测结果',
                 key: 'probe',
@@ -237,6 +233,14 @@ export function TargetsPage() {
           />
         </Card>
       </Space>
+
+      <ReviewNote title="设计说明：拨测目标的网域语义">
+        {/* 决策 52 / v1.6：blackbox 拨测 network_domain=发起侧网域（探测路径），目标归属不参与推导 */}
+        <p style={{ margin: 0 }}>
+          blackbox 拨测的 probe_success 等指标，其网域标签表示「从哪个网域发起拨测」（探测路径），而非目标归属；因此查询 /
+          看板筛选拨测数据应按发起侧网域聚合，目标归属不参与网域推导。
+        </p>
+      </ReviewNote>
 
       {/* 采集诊断（PRD 3.2：lastError / HTTP 状态码 / 抓取时长） */}
       <Drawer title="目标详情 / 采集诊断" open={!!selected} onClose={() => setSelected(null)} width={480}>

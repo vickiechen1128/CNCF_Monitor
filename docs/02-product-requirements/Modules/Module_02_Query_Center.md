@@ -1,7 +1,7 @@
 # Module 02: 查询中心
 
 > **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.6
+> **PRD 版本**: v1.7
 > **产品版本覆盖**: MVP / v0.2 / v0.3
 > **原型版本**: v1.2（未对齐，待按 v1.6 修订）
 > **更新日期**: 2026-08-31
@@ -30,6 +30,8 @@ Module_02 提供统一的指标查询入口，定位为**带租户/网域上下�
 > - `/api/v1/alerts` 代理由 MVP 移至 **v0.3**：与 Module_08（v0.3 落地规则分组/静默/Alertmanager 配置）对齐，避免 M08 未就绪时 alerts 代理空转；
 > - 租户/网域注入**机制在 MVP 落地**（恒 `default` 网域 + `platform_admin` 租户），**多租户/多网域语义在 v0.2 启用**（M06 租户模型、M09 租户-网域关联均为 v0.2）；
 > - PromQL 校验/指标预览接口随 Module_01 规则编辑 UI 一同移至 **v0.3**（路线图 2.4：MVP 不做告警规则编辑 UI，规则手写 `rules.yml` + Alertmanager）。
+
+> **存储可替换性决策点（v1.7，决策 57）**：部署拓扑锁定为「1 控制面 + N 采集节点」扁平形态；中心存储预留从 Prometheus 替换为 VictoriaMetrics 的可能——本模块代理作为防腐层保证替换时消费方（UI / Grafana / Open API）零改动。**隔离契约保持标签制**（`tenant_id` / `network_domain` 由 M09 `external_labels` 写入侧打标、本模块查询侧校验，Prometheus 与 VM 通吃）；VM 集群版原生多租户（vmauth + accountID）作为 v0.2 开启多租户语义前的评审选项，暂定不采用（契约单一、可回切 Prometheus）。
 
 ### 与周边模块的边界
 
@@ -200,7 +202,7 @@ Module_02 作为查询代理，核心流程覆盖从用户发起查询到获得�
 
 ---
 
-## 7. 自动注入规则
+## 7. 注入与授权校验规则
 
 ### 7.1 注入标签 key 契约（v1.2 修订，关键）
 
@@ -215,22 +217,24 @@ Module_02 作为查询代理，核心流程覆盖从用户发起查询到获得�
 
 ### 7.2 注入规则
 
-Module_02 在代理查询时，必须根据认证用户从 [Module_06](Module_06_Multi_Tenant.md) 与 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 获取的租户-网域关联，自动注入以下标签选择器：
+Module_02 在代理查询时，必须根据认证用户从 [Module_06](Module_06_Multi_Tenant.md) 与 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 获取的租户-网域关联，执行以下注入/校验（v1.7 起按**三层语义**表述，决策 56）：
 
-1. **自动注入 `tenant_id`**
-   选择器为 `tenant_id="<用户所属租户 ID>"`。Module_02 不暴露跨租户查询能力，平台管理员也按租户维度管理。MVP 恒为 `tenant_id="platform_admin"`。
+1. **硬隔离边界：`tenant_id` 强制注入**
+   选择器为 `tenant_id="<用户所属租户 ID>"`，永远存在、用户不可见不可改。Module_02 不暴露跨租户查询能力，平台管理员也按租户维度管理。MVP 恒为 `tenant_id="platform_admin"`。
 
-2. **自动注入网域标签 `network_domain`**
-   值为该用户有权限的全部网域 ID。多网域时使用正则匹配：
-   ```promql
-   network_domain=~"domain-a|domain-b|domain-c"
-   ```
+2. **软授权边界：`network_domain` 授权集合收敛（非"锁定单网域"）**
+   `network_domain` 是部署拓扑维度，不是默认隔离边界——业务通常跨网域，跨网域聚合（如 `sum by (biz)`）必须天然成立。注入语义为**授权集合收敛**：
+   - 用户授权集合 = 租户全部网域时，**不注入任何 `network_domain` matcher**（零感知，与裸查 Prometheus 一致）；
+   - 用户授权集合为真子集时，注入授权集合 matcher，多网域使用正则匹配：
+     ```promql
+     network_domain=~"domain-a|domain-b|domain-c"
+     ```
 
 3. **单网域场景（MVP）**
-   若租户仅拥有 `default` 网域，Module_02 自动注入 `network_domain="default"`，对用户完全透明，无需在 PromQL 中显式写网域过滤。
+   若租户仅拥有 `default` 网域，授权集合即单元素，Module_02 注入 `network_domain="default"`，对用户完全透明，无需在 PromQL 中显式写网域过滤。
 
-4. **多网域场景（v0.2+）**
-   若用户拥有多个网域权限且未在 PromQL 中显式指定网域过滤，Module_02 默认查询其**所有有权限网域**的数据。前端 UI 应明确提示当前查询范围覆盖 N 个网域。
+4. **多网域默认行为（v0.2+）**
+   用户拥有多个网域权限且未在 PromQL 中显式指定网域过滤时，Module_02 默认查询其**所有授权网域**的数据。前端 UI 应明确提示当前查询范围覆盖 N 个网域；网域筛选/下钻为纯 UX 行为，**不承担任何安全职责**（安全约束由本节制 2/5 条在服务端强制执行，前端筛选可被 curl 绕过，不构成权限）。
 
 5. **用户显式 matcher 收敛（v0.2+，AST 解析）**
    用户 PromQL 已显式包含 `network_domain` matcher 时：
@@ -323,7 +327,7 @@ Module_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | 6 | 多网域租户默认查询全部授权网域，UI 提示当前查询范围覆盖 N 个网域 | P0 | v0.2 |
 | 7 | 用户显式指定 `network_domain` matcher 时，越权取值返回空结果 | P0 | v0.2 |
 | 8 | 断网网域的数据在 UI 上标注延迟提示，区分「无数据」与「数据旧」 | P1 | v0.2 |
-| 9 | 告警状态页展示当前 firing/pending 告警，支持按网域/监控源筛选（v0.3） | P0 | v0.3 |
+| 9 | `/api/v1/alerts` 代理返回注入租户/网域上下文后的 firing/pending 告警实例，支持按网域/监控源筛选，供 Module_08 告警状态页消费（**告警状态页归 M08**，本模块只交付 API，决策 55） | P0 | v0.3 |
 | 10 | 查询辅助提供指标名补全、标签建议、常用查询模板（v0.3） | P1 | v0.3 |
 
 ### 11.2 技术验收（后端/契约可验证）
@@ -410,6 +414,6 @@ Module_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.7 | 2026-08-31 | 修改 | 决策 55/56/57 落版（M02/M08 边界与注入语义澄清）：①§7 更名「注入与授权校验规则」，§7.2 改写为**三层语义**——`tenant_id` 硬隔离强制注入；`network_domain` **授权集合收敛**（授权=全部网域时不注入任何 matcher，跨网域业务聚合天然成立；授权为真子集时注入集合 matcher）；前端筛选纯 UX 不承担安全职责；②§11.1 验收项 9 收敛为 API 契约（**告警状态页归 M08**，本模块只交付注入代理 API）；③§1 新增**存储可替换性决策点**——1 控制面 + N 采集节点扁平拓扑、中心存储预留替换 VictoriaMetrics、隔离契约保持标签制（VM 原生多租户为 v0.2 评审选项）；设计思路全文见 `docs/05-execution-records/module-02/m02-vs-m08-boundary-and-injection-design.md`；原型待对齐 | 注入规则、验收标准、模块目标 | MVP / v0.2 / v0.3 | 设计中 |
 | v1.6 | 2026-08-31 | 新增 | 决策 51/52 交叉落版：①§1 可视化边界补**三层归属**（决策 51）——嵌入入口/引导/模板归 M05、Grafana 自身配置归交付包安装期 provisioning、Dashboard-as-Code 治理预留 M11（v0.4+ 评估）；并明确**跨网域业务看板不受网域注入影响**（授权集合收敛语义下 `sum by (biz)` 跨域聚合天然成立，网域仅作可选下钻维度）；②§1 新增 **blackbox 拨测网域语义**（决策 52）——拨测指标的 `network_domain` 表示发起侧网域（探测路径），目标归属不参与网域推导；原型待对齐 | 模块边界 | v0.2 / v0.3 | 设计中 |
 | v1.5 | 2026-08-31 | 修改 | 决策 50 落版（可视化方案收敛）：①§1 新增「与可视化组件的边界」——不自研拖拽面板编辑器/大屏，大屏走 Grafana iframe 嵌入且**数据源必须指向 M02 查询代理**（禁止直连 Prometheus，否则租户/网域注入失效），门户轻量图表用 ECharts/AntV 消费 `query_range`（随 v0.3 首页 Dashboard 数据）；②§3.1「复杂 Dashboard」行改写为「复杂 Dashboard / 可视化大屏」并承载决策 50；③§8.2 补 MVP envelope 最小实现口径（`data_source` 恒 `central_scrape`、`network_domains` 恒 `["default"]`、`freshness_at` 取最新样本时间戳），MVP 即固定 envelope 结构；④v1.2 两行 Change Log 迁移至 design-decisions.md 完整历史；原型待对齐 | 模块边界、功能清单、envelope | MVP / v0.3 | 设计中 |
-| v1.4 | 2026-08-28 | 修改 | 决策 47 落版（采集状态回显前置）：①目标状态能力拆层——`/api/v1/targets` 代理 API 保留 P0/MVP 并明确为 M01 Job 回显（47-2）与 M07 badge（47-3）的共同数据源；**独立目标状态页由 P0 降为 P1**（极简列表，定位收敛为跨 Job 全局排障入口，47-4）；②**采集健康度/覆盖率查询 API 由 v0.2 提前到 MVP**（三态，按 `resource_id` 回连资源，供 M07 badge）；③§1 版本分布 / §2 M02-OPS-08 / §3.1 功能清单 / §3.2 说明 / §6 接口（coverage 移入 6.1）/ §11 验收（拆 3 / 3a，#11 改 P0/MVP）/ §12 边界（M01/M07 行）同步；原型待对齐（头部原型版本标注未对齐） | 模块目标、功能清单、接口设计、验收标准、模块边界 | MVP | 设计中 |

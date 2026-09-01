@@ -22,6 +22,7 @@ import {
   mockTenants,
   ZONE_TYPE_OPTIONS,
   zoneTypeLabelOf,
+  IP_CIDR_HINT,
   type NetworkDomain,
 } from '../mocks/module-06'
 
@@ -89,6 +90,7 @@ export function NetworkDomainsPage() {
     setEditingDomain(record)
     // {v2.2} 登记归属创建后不可变更，编辑表单不含 tenant_id
     const { tenant_id, ...editableFields } = record
+    void tenant_id
     form.setFieldsValue(editableFields)
     setIsModalOpen(true)
   }
@@ -143,6 +145,8 @@ export function NetworkDomainsPage() {
         authorized_tenant_ids: selectedTenantIds,
         status: values.status || 'active',
         zone_type: values.zone_type || '',
+        // {v2.5} 网段（CIDR）可留空；非空时用于 M07 资源导入/同步按 IP 推导网域归属（归属解析链第③级）
+        ip_cidrs: values.ip_cidrs ?? [],
         // 新建网域仅完成行政登记，监控纳管由 Module_09 执行
         registration_status: 'created',
         created_at: now,
@@ -265,6 +269,24 @@ export function NetworkDomainsPage() {
         ),
     },
     {
+      // {v2.5} 网段（CIDR）（决策 52）：仅供 M07 资源导入时按 IP 推导网域归属；可留空
+      title: '网段（CIDR）',
+      dataIndex: 'ip_cidrs',
+      key: 'ip_cidrs',
+      render: (cidrs: string[] = []) =>
+        cidrs.length === 0 ? (
+          <Text type="secondary">未配置</Text>
+        ) : (
+          <Space size={[0, 4]} wrap>
+            {cidrs.map((cidr, idx) => (
+              <Tag key={idx} color="purple">
+                {cidr}
+              </Tag>
+            ))}
+          </Space>
+        ),
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -330,6 +352,8 @@ export function NetworkDomainsPage() {
           网络区域类型（zone_type）为部署级字典下拉（来自只读接口 GET /api/v2/platform/zone-types，政务云预置互联网区 / 政务外网区等，公有云预置区域），不开放自由文本，M09 纳管时只读引用。
           新建校验：被授权租户未开启多网域能力（multi_site_enabled=false）时仅可被授权单个网域；该开关不控制配置中心页面入口（入口由数据驱动）。
           禁用 = 冻结（决策 23）：禁用二次确认展示影响范围（资源引用数 / 已纳管 EdgeAgent 数），禁用后拒绝新登记与新纳管、存量资源与采集不受影响（停止采集由 Module_09 退纳管决定）；空网域可删除（软删），非空网域 / 管理域不可删除。
+          网段（CIDR，决策 52）：网域可选择登记其覆盖的 IP 段（可留空），供 M07 资源导入 / CMDB 同步时按 IP 自动推导网域归属（归属解析链第③级，最长前缀优先、同前缀跨网域判歧义）；纯平台侧数据，不回写 CMDB、不要求 CMDB 加字段，也可由 M07「待分配队列」规则化动作按未分配 IP 汇总一键生成候选网段。
+          网域心智原则（决策 52）：网域是部署拓扑属性，不是资产属性——「接入可见、消费隐藏」：接入侧（M07 导入 / 录入 / CMDB 同步）可见并可推导归属，消费侧（M02 查询 / M05 看板 / M08 告警路由 / M01 采集）默认不感知网域（权限注入 + 可选下钻），网域不做 CMDB 写回。
         </>
       }
     >
@@ -506,6 +530,19 @@ export function NetworkDomainsPage() {
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+          <Form.Item label="网段（CIDR）" extra={IP_CIDR_HINT}>
+            <Input.TextArea
+              rows={3}
+              placeholder={"每行一个网段，如 10.20.0.0/16；可留空（留空时由平台在资源导入时按 IP 自动推导归属）"}
+              value={(form.getFieldValue('ip_cidrs') as string[] | undefined)?.join('\n') ?? ''}
+              onChange={(e) =>
+                form.setFieldValue(
+                  'ip_cidrs',
+                  e.target.value.split('\n').filter((s) => s.trim())
+                )
+              }
+            />
           </Form.Item>
           <Form.Item
             label="网域 ID（自动生成）"

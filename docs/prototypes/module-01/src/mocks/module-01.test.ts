@@ -25,7 +25,7 @@ import {
   collectionStatsOf,
 } from './module-01'
 
-describe('module-01 mocks（对齐 PRD v3.27）', () => {
+describe('module-01 mocks（对齐 PRD v3.28）', () => {
   const templateIds = new Set(mockExporterTemplates.map((t) => t.exporter_template_id))
   const resourceIds = new Set(mockResources.map((r) => r.resource_id))
   const metricNames = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
@@ -52,17 +52,32 @@ describe('module-01 mocks（对齐 PRD v3.27）', () => {
       .forEach((d) => expect(d.frozen).toBeFalsy())
   })
 
-  it('ScrapeJob / Resource 的 network_domain_id 均在规范网域内', () => {
-    mockScrapeJobs.forEach((j) => expect(NETWORK_DOMAIN_IDS).toContain(j.network_domain_id))
+  it('{v3.28} 决策 54：ScrapeJob 绑定网域集合（network_domain_ids 均为规范网域）；Resource 的 network_domain_id 均在规范网域内', () => {
+    mockScrapeJobs.forEach((j) => {
+      expect(j.network_domain_ids.length).toBeGreaterThan(0)
+      j.network_domain_ids.forEach((id) => expect(NETWORK_DOMAIN_IDS).toContain(id))
+    })
     mockResources.forEach((r) => expect(NETWORK_DOMAIN_IDS).toContain(r.network_domain_id))
   })
 
-  it('MVP ScrapeJob 的 instance_selection_mode 均为 manual（filter 为 v0.3+）', () => {
-    expect(mockScrapeJobs.length).toBeGreaterThan(0)
-    mockScrapeJobs.forEach((j) => {
-      expect(j.instance_selection_mode).toBe('manual')
-      expect(j.instance_filter).toBeNull()
-    })
+  it('{v3.28} 决策 53：内置 1 个 filter 演示 Job（实例由筛选表达式运行时求值，selected_instance_ids 为空）', () => {
+    const filterJob = mockScrapeJobs.find((j) => j.job_id === 'job-filter-demo')
+    expect(filterJob).toBeTruthy()
+    expect(filterJob!.instance_selection_mode).toBe('filter')
+    expect(filterJob!.selected_instance_ids).toEqual([])
+    const conds = filterJob!.instance_filter as { conditions: { field: string; op: string; value: string }[] }
+    expect(conds.conditions.length).toBeGreaterThan(0)
+    // 筛选字段必须是对齐 Resource 的属性字段：env / cluster / app_name / business_domain
+    conds.conditions.forEach((c) =>
+      expect(['env', 'cluster', 'app_name', 'business_domain']).toContain(c.field)
+    )
+    // 其余 Job 默认为 manual 选择模式（filter 为 v0.2 演示，决策 53：运行时选择）
+    mockScrapeJobs
+      .filter((j) => j.job_id !== 'job-filter-demo')
+      .forEach((j) => {
+        expect(j.instance_selection_mode).toBe('manual')
+        expect(j.instance_filter).toBeNull()
+      })
   })
 
   it('ScrapeJob 必填 job_type 且仅允许 standard / blackbox（PRD v2.0）', () => {
