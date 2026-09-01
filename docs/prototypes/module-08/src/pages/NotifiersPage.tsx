@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import {
+  Alert,
   Button,
   Card,
   Form,
@@ -15,6 +16,7 @@ import {
 } from 'antd'
 import { EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import V03Badge from '../components/StageBadge'
 import {
   type Notifier,
   type NotifierConfig,
@@ -93,7 +95,7 @@ export default function NotifiersPage() {
             setNotifiers((prev) =>
               prev.map((n) => (n.id === record.id ? { ...n, enabled: checked } : n))
             )
-            message.success('接收人状态已更新，alertmanager.yml 已重新生成并 reload')
+            message.success('接收人状态已更新（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准')
           }}
         />
       ),
@@ -172,8 +174,8 @@ export default function NotifiersPage() {
         setIsModalOpen(false)
         message.success(
           editing
-            ? '接收人已更新，alertmanager.yml 已重新生成并 reload'
-            : '接收人已创建，alertmanager.yml 已重新生成并 reload'
+            ? '接收人已更新（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准'
+            : '接收人已创建（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准'
         )
       })
       .catch(() => {
@@ -191,12 +193,22 @@ export default function NotifiersPage() {
           维护 Alertmanager receiver：飞书 / 钉钉 / 邮件 / 企业微信 / Webhook
         </Text>
       </div>
+
+      {/* [DEV] v1.7 决策 59/60：接收人增删改表单为 v0.3 演示形态——MVP 以「配置管理」页文件挂载 + 配置中心（M09）变更确认为准，不直接 reload */}
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="接收人管理方式"
+        description="接收人的增删改用通用表单演示（面向后续版本的能力）；当前版本统一在「配置管理」页以文件挂载方式整份提交 alertmanager.yml，经配置中心变更单人工确认后下发生效，不边改边生效。"
+      />
       <Card className="page-card">
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Space>
             <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenModal}>
               新建接收人
             </Button>
+            <V03Badge />
             <Text type="secondary" style={{ fontSize: 13 }}>
               共 {notifiers.length} 个接收人，参数校验：URL / 邮箱 / Token 等
             </Text>
@@ -210,7 +222,12 @@ export default function NotifiersPage() {
         </Space>
       </Card>
       <Modal
-        title={editing ? '编辑接收人' : '新建接收人'}
+        title={
+          <Space>
+            {editing ? '编辑接收人' : '新建接收人'}
+            <V03Badge />
+          </Space>
+        }
         open={isModalOpen}
         onOk={handleOk}
         onCancel={() => setIsModalOpen(false)}
