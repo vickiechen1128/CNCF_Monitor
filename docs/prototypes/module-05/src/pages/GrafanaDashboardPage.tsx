@@ -221,8 +221,8 @@ export function GrafanaDashboardPage() {
           </Text>
         </div>
         <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-          原型阶段以占位呈现；交付后由门户菜单 iframe 加载 Grafana（anonymous / SSO），数据源为 M02 查询代理，
-          不锁 Grafana UI，用户可自建/编辑自有 dashboard。
+          原型阶段以占位呈现；交付后由门户 iframe 加载 Grafana（anonymous / SSO），数据源为 M02 查询代理，
+          不锁 UI，用户可自建 / 编辑 dashboard。
         </Text>
       </Card>
 

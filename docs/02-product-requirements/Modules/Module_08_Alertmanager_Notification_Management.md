@@ -1,9 +1,9 @@
 # Module 08: 告警收敛与通知管理
 
-> **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.5
+> **PRD 状态**: `ready`（可开发版本）
+> **PRD 版本**: v1.7
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v1.2（v1.4 修订后待升级对齐）
+> **原型版本**: v1.2（v1.7 修订后待升级对齐）
 > **更新日期**: 2026-08-31
 > **对应原型**: `docs/prototypes/module-08/`
 
@@ -31,7 +31,7 @@
 >   - [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责按网域分组规则、生成并下发 `rules.yml`。
 > - 本模块**不再负责**告警规则生命周期管理（启用/禁用、版本、按网域聚合）。规则启用状态由 M09 在生成 `rules.yml` 时消费；规则按网域/分组聚合由 M09 内部自动完成。
 > - 本模块聚焦 **Alertmanager 域**：`alertmanager.yml` 的接收人、路由、静默、抑制、通知状态。
-> - `alertmanager.yml` 由本模块直接管理并触发 Alertmanager reload；MVP 单域阶段**不进入** M09 配置变更确认流程（调整频繁、风险低，详见 [5.1 节](#51-alertmanager-配置管理)）。
+> - `alertmanager.yml` 内容由本模块生成（文件挂载提交 + `amtool check-config` 校验），**MVP 起纳入 M09 配置变更确认流水线**（决策 60，修订 v1.3「直接 reload」口径）：作为**管理域（`default`）scope** 的配置产物进入变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload；不参与按网域扇出（详见 [5.1 节](#51-alertmanager-配置管理)）。
 
 > **组件选型决策（v1.4，决策 49）**：告警收敛与派发组件**锁定 Alertmanager**，不引入 Grafana Alerting 或夜莺（Nightingale）：
 >
@@ -40,14 +40,20 @@
 > - **易用性诉求由本模块承接**：「Alertmanager 手写 YAML 难用」的痛点正是 M08 的价值——接收人 / 路由 / 静默 / 抑制的 UI 化管理（见第 3 章），用户不接触 YAML。
 > - **已有工程资产**：`upstream/alertmanager/` 子模块已入库，`make build-center` 已将其纳入一体化交付包。
 
+> **MVP 交付形态（v1.6，决策 59）**：MVP 必须把告警分发纳入前台闭环，否则「采集配置 → 规则下发 → 告警触发」链路在最后一环断裂（Alertmanager 无 route/receiver，firing 告警进黑洞）。按操作频率拆分交付形态：
+>
+> - **低频一次性配置（接收人 / 路由 / 抑制）**：MVP 走「**文件挂载**」——整文件上传/粘贴 `alertmanager.yml`，经 `amtool check-config` 校验后**提交 M09 变更确认**（人工确认 → 下发 → reload，决策 60），与 M01 规则文件挂载（决策 38-1）同构；接收人 / 路由的**表单化 UI 挪 v0.3**（原型中已有的通用表单设计不作为 MVP 依据——缺少业务流程支撑与确认，决策 60）。
+> - **高频临时操作（静默）**：静默是 Alertmanager 运行时 API 状态、文件挂载承载不了，MVP 提供**极简静默 UI**（创建 / 列表 / 删除，API 直调 Alertmanager）。
+> - MVP 前台告警动线由此闭环：「部署期挂载 `alertmanager.yml`（一次性）→ 日常静默管理（高频，UI）」。
+
 ---
 
 ## 2. 用户故事
 
 > {v1.3} 完整用户故事条目（角色 / 我希望 / 以便于）见**全局用户故事库 [01_User_Stories.md](../01_User_Stories.md) 4.8 节**；本模块用户故事使用模块命名空间编码（`M08-ROLE-NN`，全局唯一），仅在此列出编码与一句话摘要。
 
-- M08-OPS-01：配置 Alertmanager 接收人（飞书/钉钉/邮件/企业微信/Webhook），指定不同渠道名称与参数（MVP 起通过配置文件或简单 UI，v1.0 完整 UI）。
-- M08-OPS-02：配置告警路由规则，按 `severity`、`team`、`network_domain` 等标签决定告警通知到哪个接收人（MVP 起）。
+- M08-OPS-01：配置 Alertmanager 接收人（飞书/钉钉/邮件/企业微信/Webhook），指定不同渠道名称与参数（MVP 通过 `alertmanager.yml` 文件挂载承载，v0.3 提供表单化 UI，v1.0 完整 UI）。
+- M08-OPS-02：配置告警路由规则，按 `severity`、`team`、`network_domain` 等标签决定告警通知到哪个接收人（MVP 通过文件挂载承载，v0.3 起表单化）。
 - M08-OPS-03：查看当前被 Alertmanager 处理的告警通知状态（active / silenced / inhibited / unprocessed），判断告警是否已路由、是否被静默/抑制（v0.3 起）。
 - M08-OPS-04：创建临时静默规则，避免计划内变更或已知故障引发告警轰炸（MVP 起）。
 - M08-OPS-05：查看并删除正在生效的静默规则（MVP 起）。
@@ -64,10 +70,10 @@
 
 | 功能 | 说明 | 优先级 / 版本 |
 |------|------|---------------|
-| **Alertmanager 配置管理** | 维护 `alertmanager.yml`：全局参数、`route` 路由树、`receivers` 接收人、通知模板；MVP 单域阶段由 M08 直接写文件并 reload，不进入 M09 变更确认 | P0 / MVP |
-| **接收人管理** | 增删改查 Alertmanager `receiver`：飞书/钉钉/邮件/企业微信/Webhook；参数校验（URL/邮箱/Token 等） | P0 / MVP（基础配置），v1.0（完整 UI） |
-| **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间 | P0 / MVP（基础配置），v1.0（完整 UI） |
-| **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效 | P0 / MVP |
+| **Alertmanager 配置管理** | 维护 `alertmanager.yml`：全局参数、`route` 路由树、`receivers` 接收人、通知模板；**MVP 交付形态 = 文件挂载**（整文件上传/粘贴 + `amtool check-config` 校验，与 M01 规则文件挂载同构，决策 59）；**MVP 起进入 M09 变更确认流水线**（管理域 scope、不扇出，人工确认后由 M09 写文件并触发 Alertmanager reload，决策 60） | P0 / MVP（文件挂载） |
+| **接收人管理** | 增删改查 Alertmanager `receiver`：飞书/钉钉/邮件/企业微信/Webhook；参数校验（URL/邮箱/Token 等） | P0 / MVP（文件挂载承载），v0.3（表单 UI），v1.0（完整 UI） |
+| **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间 | P0 / MVP（文件挂载承载），v0.3（表单 UI），v1.0（完整 UI） |
+| **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效；**MVP 提供极简 UI**（创建/列表/删除三个动作，API 直调，决策 59）——静默是运行时状态、文件挂载承载不了 | P0 / MVP |
 | **告警抑制规则** | 自动生成 `inhibit_rules`：当网域整体离线时，抑制该网域 `inhibitable=true` 的告警风暴；支持手动调整抑制策略 | P0 / MVP |
 | **Alertmanager 通知状态** | 代理 Alertmanager `/api/v1/alerts`，展示告警经过路由、静默、抑制后的通知状态 | P0 / v0.3 |
 | **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，本模块不重复实现 | —（依赖 M02） |
@@ -110,7 +116,8 @@
 | 规则启用/禁用状态 | ✅（字段） | ✅（参与配置生成） | ❌ |
 | 规则按网域分组 / `rules.yml` 生成与下发 | ❌ | ✅ | ❌ |
 | 规则求值 | ❌ | ❌ | ❌（Prometheus / vmalert 原生执行） |
-| Alertmanager 配置（`alertmanager.yml`） | ❌ | ❌ | ✅ |
+| Alertmanager 配置内容生成（`alertmanager.yml`） | ❌ | ❌ | ✅ |
+| `alertmanager.yml` 变更确认与下发 | ❌ | ✅（管理域 scope，不扇出，决策 60） | ❌ |
 | 静默规则管理 | ❌ | ❌ | ✅ |
 | 告警抑制规则（`inhibit_rules`） | ❌ | ❌ | ✅（自动生成 + 手动策略） |
 | 通知接收人管理 | ❌ | ❌ | ✅ |
@@ -121,7 +128,7 @@
 > **数据流**：
 > 1. Module_01 编辑 UI → `MonitoringRule` 记录 → Module_09 按网域分组/生成 `rules.yml` → Prometheus / 边缘 vmalert 求值。
 > 2. Prometheus 告警 → Module_08 管理的 Alertmanager → 按路由/静默/抑制 → 通知接收人。
-> 3. `alertmanager.yml` 由 Module_08 直接管理并触发 reload；MVP 单域阶段不进入 Module_09 配置变更确认流程。
+> 3. `alertmanager.yml` 内容由 Module_08 生成（文件挂载 + amtool 校验），MVP 起进入 Module_09 变更确认流水线（管理域 scope，人工确认 → 下发 → reload，决策 60）。
 
 ---
 
@@ -130,6 +137,13 @@
 ### 5.1 Alertmanager 配置管理
 
 MVP 阶段直接维护 `upstream/prometheus/alertmanager.yml`（或中心 Alertmanager 实例的指定配置路径），Module_08 提供基于接收人/路由/静默/抑制策略的生成能力：
+
+> **MVP 文件挂载契约（决策 59）**：MVP 不提供接收人/路由的表单化 UI（挪 v0.3），改为「**文件挂载**」——在告警配置页上传或粘贴整份 `alertmanager.yml`：
+>
+> 1. 服务端落库前执行 `amtool check-config` 等价校验（YAML 语法 + route/receiver 引用闭合），校验失败返回行级错误、不落库不 reload；
+> 2. 校验通过则写入 `AlertmanagerConfigVersion`（内容侧留痕），并作为**管理域（`default`）scope 配置产物**提交 M09 变更检测 → 变更单**人工确认** → M09 写中心 Alertmanager 配置路径并触发 reload（SIGHUP / `POST /-/reload`）→ 回写 `change_status`（决策 60）；
+> 3. 页面展示当前生效配置的只读视图与历史版本（支持回滚到历史版本 = 重新挂载该版本内容）；
+> 4. 与 M01 规则文件挂载（决策 38-1，`content_mode=yaml_passthrough`）同构；MVP 起进入 M09 变更确认流水线（决策 60），M08/M09 关系对齐 M01/M09：M08 是内容 Owner，M09 是变更确认与下发管道 Owner。
 
 ```yaml
 global:
@@ -172,10 +186,10 @@ inhibit_rules:
       - network_domain
 ```
 
-> **MVP 单域直接 reload**：
-> - `alertmanager.yml` 由 Module_08 写文件后通过 SIGHUP 或 HTTP `POST /-/reload` 触发 Alertmanager 重载；
-> - 该文件**不进入** Module_09 的 `ConfigDraft → 人工确认 → ConfigVersion` 流程；
-> - 原因：通知路由/接收人/静默调整频繁、影响面可控（仅影响告警体验，不影响采集/规则求值），且 M08 是 Alertmanager 配置的唯一 Owner。
+> **MVP 变更确认（决策 60，修订 v1.3「直接 reload」口径）**：
+> - `alertmanager.yml` 作为**管理域（`default`）scope** 的配置产物进入 Module_09 的 `ConfigDraft → 人工确认 → ConfigVersion` 流水线；确认后由 M09 写中心 Alertmanager 配置路径并通过 SIGHUP 或 HTTP `POST /-/reload` 触发 Alertmanager 重载，`change_status` 回写 M08；
+> - **不参与按网域扇出**：中心 Alertmanager 是全局单例，每部署一份；按网域拆分扇出（决策 54）仅适用采集配置。仅 v0.4+ 边缘自治告警的边缘 `alertmanager.yml` 才进入按域下发；
+> - **低风险自动通过（预留）**：通知路由/接收人/静默调整频繁、影响面可控（仅影响告警体验，不影响采集/规则求值）；MVP 阶段与其他配置统一人工确认，后续版本由 M09 按配置类型风险分级将本类配置降为低风险自动确认。
 
 > **v0.4+ 多网域边缘**：
 > - 中心 Alertmanager 配置仍由 M08 直接管理；
@@ -325,10 +339,11 @@ inhibit_rules:
 | checksum | string | 校验和 | 配置内容 sha256 |
 | applied\_at | datetime | 生效时间 | 写入并 reload 成功时间 |
 | applied\_by | string | 操作人 | 应用人 |
-| status | enum | 状态 | applied / failed |
-| error\_msg | string | 错误信息 | reload 失败原因 |
+| status | enum | 状态 | applied（仅校验通过的挂载条目入库） |
 
-> 说明：M08 自身维护 `alertmanager.yml` 配置版本，用于审计与回滚；MVP 阶段不接入 M09 的 `ConfigVersion` 流程。
+> 说明：
+> 1. **校验失败不落库（决策 59/60）**：挂载内容必须先通过 `amtool check-config` 等价校验，校验失败仅向用户返回行级错误（不写 `AlertmanagerConfigVersion`、不进 M09 流水线）；只有校验通过的内容才写入本表留痕。因此本表 `status` 仅存在 `applied` 一种取值，不存在 `failed`、也不存 `error_msg`。
+> 2. MVP 起 `alertmanager.yml` 纳入 M09 变更确认流水线（决策 60）；本表降级为 **M08 内容侧留痕**（仅通过的挂载原文 + operation 信息），管道侧版本与下发状态以 M09 `ConfigDraft` / `ConfigVersion` 为准；内容留痕用于 M08 页面的「当前生效配置只读视图与历史版本回滚」（回滚 = 将历史版本内容重新挂载提交，再次走 M09 确认）。
 
 ---
 
@@ -364,25 +379,28 @@ inhibit_rules:
 ### 9.1 用户验收（用户可在 UI 感知/操作）
 
 - [ ] {P0} 模块名称与文档目录已更新为「告警收敛与通知管理」。
-- [ ] {P0} 可配置 Alertmanager 接收人（至少支持 webhook / 飞书 / 钉钉 / 邮件 / 企业微信中的一种）。
-- [ ] {P0} 可配置告警路由规则，按标签匹配并指定接收人、分组、等待/间隔/重复时间。
-- [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态。
+- [ ] {P0，决策 59/60} 可通过**文件挂载**配置 Alertmanager：上传/粘贴整份 `alertmanager.yml`，校验失败给出行级错误、不落库；校验通过后进入 M09 变更单（管理域 scope），人工确认后由 M09 下发并 reload 生效；页面提供当前生效配置只读视图与历史版本回滚。
+- [ ] {P0，决策 59} 端到端告警链路可验证：触发一条告警规则 → Alertmanager 按挂载配置路由 → 接收人 Webhook 实际收到通知。
+- [ ] {P0} 接收人可配置 webhook / 飞书 / 钉钉 / 邮件 / 企业微信中至少一种（MVP 经文件挂载承载）。
+- [ ] {v0.3} 接收人与路由规则提供表单化 UI（不再要求用户编写 YAML）。
+- [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态（MVP 极简 UI，API 直调 Alertmanager）。
 - [ ] {P0} 当网域整体离线时，自动生成 `inhibit_rules` 抑制该网域 `inhibitable=true` 的告警风暴（只保留根因告警）。
 - [ ] {P0} 可查看 Alertmanager 通知状态（active / silenced / inhibited / unprocessed）。
-- [ ] {P0} `alertmanager.yml` 由 M08 直接写文件并 reload，MVP 单域阶段不进入 M09 配置变更确认流程。
+- [ ] {P0，决策 60} `alertmanager.yml` 纳入 M09 变更确认流水线：生成管理域（`default`）scope 变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08；不参与按网域扇出。
 - [ ] {v0.3} 可通过 [Module\_02](Module_02_Query_Center.md) 查看当前 Prometheus 触发告警状态（firing / pending）。
 - [ ] {v1.0} 可配置通知模板与告警升级策略。
 - [ ] {v0.4+} 支持边缘本地 Alertmanager 通知通道配置（P2）。
 
 ### 9.2 技术验收（后端/契约可验证）
 
-- [ ] {P0} M08 生成的 `alertmanager.yml` 通过 `amtool check-config` 校验。
-- [ ] {P0} 修改接收人/路由/静默/抑制策略后，M08 触发 Alertmanager reload 成功。
+- [ ] {P0} M08 生成或挂载的 `alertmanager.yml` 通过 `amtool check-config` 等价校验。
+- [ ] {P0，决策 59/60} 文件挂载接口契约：上传内容校验通过 → 写入 `AlertmanagerConfigVersion`（内容留痕）→ 提交 M09 变更检测生成管理域变更单；校验失败返回行级错误，不落库、不进流水线。
+- [ ] {P0，决策 60} 修改接收人/路由/抑制策略（文件挂载提交）后，经 M09 变更单人工确认 → 下发 → Alertmanager reload 成功；静默规则为 Alertmanager 运行时 API 状态，不进 M09 流水线（API 直调即时生效）。
 - [ ] {P0} 静默规则通过 Alertmanager API 创建/删除，状态同步正确。
 - [ ] {P0} `inhibit_rules` 生成逻辑正确：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警。
 - [ ] {P0} Alertmanager `/api/v1/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
 - [ ] {P0} M08 不生成 `rules.yml`、不管理 `MonitoringRule` 内容；规则相关数据由 M01 写入、M09 生成配置。
-- [ ] {P0} M08 配置版本 `AlertmanagerConfigVersion` 记录每次 `alertmanager.yml` 变更，支持审计与回滚。
+- [ ] {P0} M08 `AlertmanagerConfigVersion` 仅留痕**校验通过**的 `alertmanager.yml` 挂载内容（校验失败不落库、仅返回行级错误，决策 59/60）；管道版本与下发状态以 M09 `ConfigVersion` 为准（决策 60）。
 - [ ] {P0} Alertmanager `/api/v1/alerts` 代理在服务端强制注入当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参（决策 56）。
 - [ ] {P0} 创建静默规则时服务端校验 matcher 收敛于当前用户授权网域集合，越权 matcher 拒绝（决策 56）。
 - [ ] {v0.4+} 边缘 Alertmanager 配置可随 M09 配置包下发或由 M08 初始化脚本推送（P2）。
@@ -407,10 +425,10 @@ inhibit_rules:
 
 ## Change Log
 
-> **Change Log 定位**：本表记录业务侧沟通决策与文档变更（保留最近 3 版一句话摘要；v1.2 及以前逐版详情已迁移至 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」小节）；开发契约见 6.x 数据模型 / 9 验收标准 / 10 术语映射。
+> **Change Log 定位**：本表记录业务侧沟通决策与文档变更（保留最近 3 版一句话摘要；v1.4 及以前逐版详情已迁移至 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」小节）；开发契约见 6.x 数据模型 / 9 验收标准 / 10 术语映射。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.7 | 2026-08-31 | 修改 | 决策 60 落版（alertmanager.yml 纳入 M09 变更确认）：①修订 v1.3「MVP 单域直接 reload、不进 M09」口径——`alertmanager.yml` 作为**管理域（`default`）scope** 配置产物进入 M09 `ConfigDraft → 人工确认 → 下发 → reload` 流水线，`change_status` 回写 M08；M08/M09 关系对齐 M01/M09（M08 内容 Owner、M09 管道 Owner）；②明确**不参与按网域扇出**（中心 Alertmanager 全局单例；仅 v0.4+ 边缘自治告警的边缘配置才按域下发）；③「低风险自动通过」降级为后续版本预留（M09 按配置类型风险分级），MVP 统一人工确认；④§1 范围说明、§3.1 功能表、§4 边界表（新增下发行）、§5.1 文件挂载契约、§6.6 版本留痕口径、§9.1/§9.2 验收同步；⑤决策 59 维持：MVP 交付形态仍为文件挂载（原型中的通用表单设计缺少业务流程支撑，不作为 MVP 依据），表单化 UI 仍归 v0.3 | 1 / 3.1 / 4 / 5.1 / 6.6 / 9 | MVP | 设计中 |
+| v1.6 | 2026-08-31 | 新增 | 决策 59 落版（MVP 告警分发最小闭环 = 文件挂载 + 静默 UI）：①§1 新增「MVP 交付形态」——按操作频率拆分：低频一次性配置（接收人 / 路由 / 抑制）MVP 走文件挂载（整文件上传/粘贴 + `amtool check-config` 校验 + 版本留痕 + 直接 reload，与 M01 规则挂载决策 38-1 同构），表单化 UI 挪 v0.3；高频静默 MVP 提供极简 UI（API 直调，文件挂载承载不了运行时状态）；②§2 M08-OPS-01/02、§3.1 功能表同步形态标注；③§5.1 新增文件挂载契约（校验失败不落库不 reload、只读视图 + 历史版本回滚）；④§9.1 新增文件挂载验收与端到端告警链路验收（触发规则 → 路由 → Webhook 实际收到通知）、表单 UI 验收挪 v0.3；⑤§9.2 补挂载接口契约验收；解决 MVP 前台「采集配置 → 规则下发」之后告警分发无操作步骤的闭环断裂；原型待对齐 | 1 / 2 / 3.1 / 5.1 / 9 | MVP / v0.3 | 设计中 |
 | v1.5 | 2026-08-31 | 修改 | 决策 55/56 落版（M02/M08 告警状态边界 + 授权集合过滤）：①§5.4 明确**告警状态页归属本模块**（告警域工作台，M02 只交付注入代理 API）；②§5.4 补 Alertmanager 通知状态代理**服务端授权集合过滤**（不信任前端传参，授权=全部网域时不附加 filter）；③§5.2 补**静默 matcher 授权校验**（静默全局生效，越权 matcher 服务端拒绝，防跨租户写武器）；④§9.2 技术验收补对应两条；⑤Change Log 去章节编号并收敛至 3 版（v1.2 及以前迁移 design-decisions.md）；设计思路全文见 `docs/05-execution-records/module-02/m02-vs-m08-boundary-and-injection-design.md`；原型待对齐 | MVP / v0.3 | 设计中 |
-| v1.4 | 2026-08-31 | 新增 | 决策 49 落版（告警收敛与派发组件选型锁定）：§1 新增「组件选型决策」——锁定 Alertmanager，明确不引入 Grafana Alerting（规则/通知策略 DB 驱动、UI 管理，不兼容配置生成流水线）与夜莺（完整监控平台，引入即整体替换架构，规则同样 DB 驱动）；两者自带独立查询路径会绕开 M02 注入代理，构成租户隔离缺口；「Alertmanager 难用」的易用性诉求由 M08 UI 化管理承接；原型待对齐 | 模块目标 | 无版本变更 | 设计中 |
-| v1.3 | 2026-08-15 | 重大修改 | M01/M08/M09 告警规则职责三轴重构：①模块名称由「告警规则管理」改为「告警收敛与通知管理」；②规则内容创作、规则记录、`rules.yml` 生成与下发全部剥离给 M01/M09；③M08 聚焦 Alertmanager 配置（路由/接收人/静默/抑制）、通知状态查询、告警抑制；④`alertmanager.yml` 由 M08 直接写文件并 reload，MVP 单域不进入 M09 配置变更确认；⑤重写 1/2/3/4/5/6/8/9/10/11 章节；⑥数据模型由 `AlertingRule`/`RuleGroup`/`RecordingRule` 改为 `Receiver`/`Route`/`Silence`/`InhibitionRule`/`AlertmanagerConfigVersion` | MVP / v0.3 / v1.0 | 设计中 |

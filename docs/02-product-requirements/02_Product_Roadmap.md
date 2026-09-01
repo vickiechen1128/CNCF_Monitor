@@ -1,9 +1,9 @@
 # MetricCenter 产品路线图
 
 > 文档类型：产品需求文档  
-> 版本：v1.9
+> 版本：v2.1
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
-> 更新日期：2026-08-21
+> 更新日期：2026-08-31
 
 ---
 
@@ -48,9 +48,9 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 |------|-----|------|------|------|------|
 | **Module_07 监控对象管理** | 五类资源 CRUD；Excel 导入（含 upsert 更新 + `network_domain_id` 强制必填，决策 31-M3）；状态映射（`offline` 排除语义，决策 29）；标签模板；`ResourceLabel` 体系；「未监控」筛选（`is_monitored` 由 M01 维护、M07 只读映射，决策 31-M1）；业务类型归属（`biz_code` → `biz` 标签聚合，静态资源标签只读） | 独立业务目录（业务类型实体 + 资源归属 + 业务类型自定义标签）；业务指标标签规范消费（relabel 归一化）；**网域归属 IP 推导**（决策 52：导入 `network_domain` 列可留空，按 M06 `ip_cidrs` 最长前缀匹配，歧义/失败标注「网域未决」） | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源；**归属四级解析链**（决策 52：CMDB 字段映射 > 同步通道绑定 > IP 推导 > 待分配队列，冲突告警不静默） | CMDB-ITIL/ITSM 映射 |
 | **Module_01 监控策略与指标管理** | CI↔默认采集器绑定（{v3.8}，原「Exporter 模板」）；ScrapeJob（实例选择 + 冻结（禁用）网域校验，决策 30）；**采集认证/TLS 最小集**（`auth_type` none/basic/bearer + `tls_skip_verify` + `ca_file`，决策 31）；Blackbox 拨测；静态指标库（按 CI 类型组织，锚点演进 v3.8）；application_http 业务指标端点采集（app/biz 标签注入）；业务指标库（BusinessMetric 登记表，业务负责人定义语义/阈值）；**规则文件挂载**（「规则编辑」页上传/粘贴整文件 `rules.yml` 透传落库 `MonitoringRule`，保存/启停/删除进入 M09 变更检测 → 生成 → 人工确认 → 下发，回写 `change_status=deployed`，不绕过 M09） | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」）；服务发现模式 `service_discovery`（微服务动态实例，prometheus_builtin + relabel）；业务健康度看板（业务负责人角色入口）；**实例属性筛选 `filter` 模式**（决策 53，由 v0.3 提前：按资源属性条件表达式筛选，每生成周期实时求值，M07 新增资源匹配即自动纳入，无需编辑 Job）；**Job 多网域绑定 + M09 按域扇出**（决策 54：一次定义、多域生效，替代手工克隆） | 规则编辑 UI（类 YAML 表单 + PromQL 校验/实时预览，依赖 Module_02 validate/preview；`content_mode=structured` 字段化写入，替代 MVP 的整文件透传挂载） | - | Recording Rules；指标库管理增强 |
-| **Module_09 网域与边缘配置中心** | 默认网域 `default`（行政登记归 M06）；单/多网域模式切换；配置生成/预览/Diff/下发（含 `offline` 排除，决策 29；认证/TLS 透传进 scrape_configs，决策 31；冻结域不生成新变更单，决策 30）；`external_labels` 注入；`change_status=deployed` 回写（决策 31-M2）；规则文件挂载生成 `rules.yml` | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数；**Job 网域扇出生成**（决策 54：逻辑 Job 绑定网域集合，按域自动拆分 scrape_configs / targets / 变更单）；**filter 模式实时求值**（决策 53：M07 新增资源匹配即自动纳入 targets） | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
+| **Module_09 网域与边缘配置中心** | 默认网域 `default`（行政登记归 M06）；单/多网域模式切换；配置生成/预览/Diff/下发（含 `offline` 排除，决策 29；认证/TLS 透传进 scrape_configs，决策 31；冻结域不生成新变更单，决策 30）；`external_labels` 注入；`change_status=deployed` 回写（决策 31-M2）；规则文件挂载生成 `rules.yml`；**alertmanager.yml 纳入变更确认**（M08 生成内容、管理域 scope、不扇出，决策 60） | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数；**Job 网域扇出生成**（决策 54：逻辑 Job 绑定网域集合，按域自动拆分 scrape_configs / targets / 变更单）；**filter 模式实时求值**（决策 53：M07 新增资源匹配即自动纳入 targets） | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
 | **Module_02 查询中心** | PromQL 查询代理；目标状态展示；响应 envelope | 租户/网域上下文注入 | 告警状态代理；查询辅助；首页 Dashboard 数据 | - | - |
-| **Module_08 告警收敛与通知管理** | - | - | 通知路由与接收人管理；静默管理；Alertmanager 配置生成（组件选型锁定 Alertmanager，决策 49） | - | 通知模板；告警升级；边缘本地告警状态展示 |
+| **Module_08 告警收敛与通知管理** | **告警分发最小闭环（决策 59）**：`alertmanager.yml` 文件挂载（接收人/路由/抑制低频一次性配置，整文件上传/粘贴 + `amtool check-config` 校验 + 版本留痕 + 直接 reload，与 M01 规则挂载同构）；静默管理极简 UI（创建/列表/删除，API 直调 Alertmanager——静默是运行时状态，文件挂载承载不了）；**alertmanager.yml 变更经 M09 变更确认下发**（管理域 scope、不扇出，决策 60） | - | 接收人 / 路由表单化 UI；告警状态页（Prometheus 触发告警 + Alertmanager 通知状态，决策 55）；告警抑制引擎（组件选型锁定 Alertmanager，决策 49） | - | 通知模板；告警升级；边缘本地告警状态展示 |
 | **Module_06 系统与平台管理** | 单租户默认模式（`platform_admin`）+ **网域登记管理**（网域 CRUD / 区域属性，M07 校验消费；行政属性归 M06，监控纳管归 M09） | 租户数据模型；租户-网域关联；`Tenant.multi_site_enabled`；**`NetworkDomain.ip_cidrs` 网段规则**（决策 52：供 M07 导入/同步按 IP 推导网域归属） | - | CMDB 业务/模块路径映射 | 用户/角色/权限；审计日志；平台配置；元数据迁移 PostgreSQL/MySQL |
 | **Module_10 监控源登记册** | - | 监控源 CRUD；外部 Prometheus Remote Write；Ingestion Gateway；标签注入 | - | Zabbix / 云监控 Adapter；标签归一化；Metric Drop Rules | 长期存储路由 VictoriaMetrics/Mimir |
 | **Module_04 自定义服务发现** | Excel Provider（由 Module_07 承载） | - | - | BlueKing / HTTP / Nacos Provider；CI 类型映射；待分类队列；孤儿资源 | - |
@@ -216,7 +216,7 @@ Phase 8: 企业级能力（v1.0）
 
 | 阶段 | 选型 | 说明 |
 |------|------|------|
-| MVP ~ v0.3 | **规则文件挂载 + Alertmanager** | 规则经「规则编辑」页上传/粘贴整文件 `rules.yml` 透传落库 `MonitoringRule`（`content_mode=yaml_passthrough`），由 M09 统一生成/确认/下发 `rules.yml`（不绕过 M09）；告警收敛/静默/通知走 Alertmanager；数据模型预留 `scope=central`、`inhibitable`；PromQL 创作 UI v0.3 提供（`content_mode=structured`） |
+| MVP ~ v0.3 | **规则文件挂载 + Alertmanager** | 规则经「规则编辑」页上传/粘贴整文件 `rules.yml` 透传落库 `MonitoringRule`（`content_mode=yaml_passthrough`），由 M09 统一生成/确认/下发 `rules.yml`（不绕过 M09）；告警收敛/静默/通知走 Alertmanager；**MVP 告警分发最小闭环（决策 59）**：`alertmanager.yml` 文件挂载（接收人/路由/抑制）+ 静默管理极简 UI（API 直调），接收人/路由表单化 UI 挪 v0.3；数据模型预留 `scope=central`、`inhibitable`；PromQL 创作 UI v0.3 提供（`content_mode=structured`） |
 | v0.3 | **告警状态查看** | 代理 `/api/v1/alerts` 到前端，支持按网域/监控源筛选 |
 | v0.3 | **告警抑制引擎** | 网域离线时自动生成 `inhibit_rules`，抑制次生告警 |
 | v0.4 ~ v1.0 | **告警规则 UI + 生成 `rules.yml` / `alertmanager.yml`** | 降低告警配置门槛；支持 `scope=central/edge/both` |
@@ -261,6 +261,8 @@ Phase 8: 企业级能力（v1.0）
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 |
 |------|------|----------|----------|----------|
+| v2.1 | 2026-08-31 | 修改 | 决策 60 落版同步：§1.5 矩阵 Module_08 MVP 列补「alertmanager.yml 变更经 M09 变更确认下发（管理域 scope、不扇出）」；Module_09 MVP 列补「alertmanager.yml 纳入变更确认」；修订此前「MVP 单域 M08 直接 reload」口径 |
+| v2.0 | 2026-08-31 | 修改 | 决策 59 落版（M08 MVP 告警分发最小闭环）：§1.5 矩阵 Module_08 MVP 列由「-」补为「alertmanager.yml 文件挂载（接收人/路由/抑制低频配置）+ 静默管理极简 UI（API 直调）」，v0.3 列改为接收人/路由表单化 UI + 告警状态页（决策 55）+ 告警抑制引擎；§4.5 告警 MVP~v0.3 行补文件挂载 + 静默 UI 说明；修正 M08 PRD（P0/MVP）与矩阵（MVP 空缺）的不一致 |
 | v1.9 | 2026-08-31 | 修改 | 决策 51~54 落版同步：①§1.5 矩阵 M01 v0.2 补 filter 模式（决策 53，由 v0.3 提前；新增资源自动纳入）与 Job 多网域扇出（决策 54），v0.3 列移除 filter（已提前）；M09 v0.2 补扇出生成与 filter 实时求值；M06 v0.2 补 `ip_cidrs`（决策 52）；M07 v0.2 补导入 IP 推导、v0.4 补归属四级解析链；M05 v0.3 补监控大屏（Grafana 嵌入）与首页轻量图表/引导，v1.0 列改 M11 预留（不再自研看板编辑器）；M08 行更名「告警收敛与通知管理」并标注决策 49；②§4.6 前端可视化 v0.3 改「Grafana iframe 嵌入 + ECharts/AntV」 | 功能-版本矩阵 / §4.6 |
 | v1.8 | 2026-08-21 | 修改 | 四模块评审前同步跨模块契约（决策 28~31/31-M1~M3）：§1.5 Module_07 行 MVP 补「未监控」筛选（is_monitored 由 M01 维护、M07 只读映射）、offline 排除（决策 29）、network_domain_id 强制必填（31-M3）；Module_01 行 MVP 补采集认证/TLS 最小集（决策 31）与冻结（禁用）网域校验（决策 30）、回写 change_status=deployed（31-M2）；Module_09 行 MVP 补 offline 排除 / 认证TLS 透传 / 冻结域不生成新变更单 / change_status 回写 / 规则挂载生成 rules.yml | 功能-版本矩阵 |
 | v1.7 | 2026-08-21 | 修改 | 对齐 M01 v3.24 / M09 v1.48「规则进入 M09 配置下发闭环」：§1.5 Module_01 行 MVP 补规则文件挂载（整文件透传落库 MonitoringRule → M09 生成/确认/下发，回写 change_status），v0.3 列补 `content_mode=structured` 字段化写入；§2.4 明确不做改为「告警规则字段化编辑 UI（PromQL 创作）」，说明 MVP 提供规则文件挂载、v0.3 提供类 YAML 字段化表单；§4.5 告警 MVP 选型由「手写 rules.yml」改为「规则文件挂载 + Alertmanager」 | 功能-版本矩阵 / §2.4 / §4.5 |

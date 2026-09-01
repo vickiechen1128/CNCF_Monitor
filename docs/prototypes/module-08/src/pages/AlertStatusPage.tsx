@@ -66,12 +66,14 @@ export default function AlertStatusPage() {
 
   return (
     <MainLayout>
+      {/* {v1.7} 决策 56：通知状态按授权网域集合过滤（授权=全部网域时不附加）；MVP 为骨架提示文案，不做真实过滤 */}
       <div className="page-header">
         <Typography.Title level={4} style={{ margin: 0 }}>
           告警状态
         </Typography.Title>
         <Text type="secondary">
-          Alertmanager 通知状态：告警经过路由、静默、抑制后的处理结果（谁正在被通知）
+          Alertmanager 通知状态：告警经过路由、静默、抑制后的处理结果（谁正在被通知）；
+          通知状态已按授权网域集合过滤（授权 = 全部网域时不附加过滤）
         </Text>
       </div>
 

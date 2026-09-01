@@ -169,3 +169,9 @@
 - **落点**：M02 PRD §1 新增「存储可替换性决策点」。
 
 - **影响范围**：Module_02 PRD v1.7；Module_08 PRD v1.5（交叉引用见 module-08 design-decisions）；`docs/05-execution-records/module-02/m02-vs-m08-boundary-and-injection-design.md`（新建）；`Modules/README.md` 版本行同步。
+
+---
+
+## 评审记录：2026-08-31（ready 回归确认）
+
+- PRD v1.7 原型已对齐（原型版本与 PRD 版本一致，check-prototype 无新增违规），经用户授权评审确认，PRD 状态 `设计中` → `ready`（可开发版本）。
