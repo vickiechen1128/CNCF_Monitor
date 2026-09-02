@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 14:49 · commit: `2bfbf6b1`
+> 生成时间: 2026-09-02 15:09 · commit: `b13d4945`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -290,6 +290,142 @@
 - `method (*Service) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
 - `func validatePassword(password string) error`
 - `func newUserID() (string, error)`
+
+### `platform/alertmanager/config/config_test.go`
+
+- `func newMemConfigDB(t *testing.T) *gorm.DB`
+- `func stubAmtoolAvailable(t *testing.T)`
+- `func stubAmtoolFails(t *testing.T)`
+- `func stubAmtoolUnavailable(t *testing.T)`
+- `func stubChangeTrigger(t *testing.T) *int32`
+- `func TestSubmitPersistsOnValid(t *testing.T)`
+- `func TestSubmitRejectsInvalidNoPersist(t *testing.T)`
+- `func TestSubmitRejectsEmptyContent(t *testing.T)`
+- `func TestSubmitAmtoolUnavailableValidationFails(t *testing.T)`
+- `func TestSubmitIdempotentOnSameChecksum(t *testing.T)`
+- `func TestLatestAppliedAndGetVersionByID(t *testing.T)`
+- `func TestErrValidationError(t *testing.T)`
+
+### `platform/alertmanager/config/handler.go`
+
+- `func queryPage(c *gin.Context) (page, pageSize int)`
+- `func parseID(c *gin.Context) (uint, error)`
+- `func SubmitHandler(db *gorm.DB) gin.HandlerFunc`
+- `func CurrentHandler(db *gorm.DB) gin.HandlerFunc`
+- `func ListVersionsHandler(db *gorm.DB) gin.HandlerFunc`
+- `func GetVersionHandler(db *gorm.DB) gin.HandlerFunc`
+- `func RemountHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondSubmitError(c *gin.Context, err error)`
+
+### `platform/alertmanager/config/service.go`
+
+- `type ErrValidation struct`
+- `method (*ErrValidation) Error() string`
+- `func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
+- `func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
+- `func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
+- `func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error)`
+- `func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
+- `func GetVersionByID(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
+
+### `platform/alertmanager/config/validate.go`
+
+- `func validateAlertmanagerConfig(content string) error`
+- `func runCheckConfig(content string) ([]models.ValidateErrorItem, error)`
+- `func isSuccess(output string) bool`
+- `func parseCheckErrors(output string) []models.ValidateErrorItem`
+- `func extractLine(line string) int`
+
+### `platform/alertmanager/config/version.go`
+
+- `type VersionListItem struct`
+- `func toListItem(v *models.AlertmanagerConfigVersion) VersionListItem`
+- `func formatTimeOrNil(t *time.Time) *string`
+- `func ListVersions(db *gorm.DB, page, pageSize int) ([]VersionListItem, int64, error)`
+- `func GetVersion(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
+
+### `platform/alertmanager/config/version_test.go`
+
+- `func newConfigRouter(db *gorm.DB) *gin.Engine`
+- `func do(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `func decodeResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{}`
+- `func TestSubmitEndpointCreatesVersion(t *testing.T)`
+- `func TestSubmitEndpointValidationFails(t *testing.T)`
+- `func TestCurrentEndpointEmptyThenAfterSubmit(t *testing.T)`
+- `func TestListVersionsEndpointPagination(t *testing.T)`
+- `func TestGetVersionEndpointDetail(t *testing.T)`
+- `func TestRemountEndpointCreatesNewVersion(t *testing.T)`
+- `func TestRemountEndpointNotFound(t *testing.T)`
+- `func TestRemountEndpointValidationFailsNoPersist(t *testing.T)`
+
+### `platform/alertmanager/silence/authorize.go`
+
+- `func AuthorizeMatchers(scope *models.AuthorizedMatcherScope, matchers []models.SilenceMatcher) error`
+- `func buildScopeForUser() *models.AuthorizedMatcherScope`
+
+### `platform/alertmanager/silence/handler.go`
+
+- `func queryPage(c *gin.Context) (page, pageSize int)`
+- `func ListHandler(svc *Service) gin.HandlerFunc`
+- `func CreateHandler(svc *Service) gin.HandlerFunc`
+- `func DeleteHandler(svc *Service) gin.HandlerFunc`
+- `func paginate(list []Silence, page, pageSize int) (int, []Silence)`
+
+### `platform/alertmanager/silence/proxy.go`
+
+- `type amMatcher struct`
+- `type amSilence struct`
+- `type amCreateSilenceRequest struct`
+- `type amCreateSilenceResponse struct`
+- `type amListResponse struct`
+- `type Proxy struct`
+- `func NewProxy(baseURL string) (*Proxy, error)`
+- `method (*Proxy) ListSilences(ctx context.Context) ([]amSilence, error)`
+- `method (*Proxy) CreateSilence(ctx context.Context, body []byte) (string, error)`
+- `method (*Proxy) GetSilence(ctx context.Context, id string) (*amSilence, error)`
+- `method (*Proxy) DeleteSilence(ctx context.Context, id string) error`
+- `func decodeList(resp *http.Response) ([]amSilence, error)`
+- `func sanitize(b []byte) string`
+
+### `platform/alertmanager/silence/service.go`
+
+- `type Silence struct`
+- `type Service struct`
+- `func NewService(proxy *Proxy) *Service`
+- `type CreateInput struct`
+- `method (*CreateInput) Validate() error`
+- `method (*Service) List(ctx context.Context, activeOnly bool) ([]Silence, error)`
+- `method (*Service) Create(ctx context.Context, scope *models.AuthorizedMatcherScope, in CreateInput) (*Silence, error)`
+- `method (*Service) Delete(ctx context.Context, id string) (string, error)`
+- `func toSilence(am amSilence) Silence`
+- `func silenceStatusAt(starts, ends time.Time) models.SilenceStatus`
+- `func buildCreateBody(in CreateInput) ([]byte, error)`
+
+### `platform/alertmanager/silence/silence_test.go`
+
+- `type fakeAM struct`
+- `method (*fakeAM) setList(s []amSilence)`
+- `method (*fakeAM) createdBodies() []amCreateSilenceRequest`
+- `method (*fakeAM) markNotFound(ids ...string)`
+- `method (*fakeAM) handler() http.Handler`
+- `func startFakeAM(t *testing.T, f *fakeAM) string`
+- `func boolp(b bool) *bool`
+- `func newTestService(t *testing.T) (*Service, *fakeAM)`
+- `func TestServiceListMapsActiveSilences(t *testing.T)`
+- `func TestServiceListEmpty(t *testing.T)`
+- `func TestServiceCreateValid(t *testing.T)`
+- `func TestServiceCreateValidatesMissingFields(t *testing.T)`
+- `func TestServiceCreateRejectsOutOfScopeMatcher(t *testing.T)`
+- `func TestServiceDeleteOK(t *testing.T)`
+- `func TestServiceDeleteNotFound(t *testing.T)`
+- `func TestNewProxyRejectsBadScheme(t *testing.T)`
+- `func TestPaginate(t *testing.T)`
+- `func newSilenceRouter(svc *Service) *gin.Engine`
+- `func silenceRequest(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `func TestListEndpoint(t *testing.T)`
+- `func TestCreateEndpointInvalidBody(t *testing.T)`
+- `func TestDeleteEndpointNotFound(t *testing.T)`
+- `func decodeAt(w *httptest.ResponseRecorder, path []string) string`
 
 ### `platform/api/response/response.go`
 
@@ -2490,6 +2626,15 @@
 
 - `function AlertsPage`
 
+### `ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx`
+
+- `interface CreateSilenceDrawerProps`
+- `function CreateSilenceDrawer`
+
+### `ui-custom/web/src/pages/alerts/SilencesPage.tsx`
+
+- `function SilencesPage`
+
 ### `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`
 
 - `const CURRENT_USER`
@@ -2509,6 +2654,11 @@
 
 - `interface UseAlertConfigResult`
 - `function useAlertConfig`
+
+### `ui-custom/web/src/pages/alerts/useSilences.ts`
+
+- `interface UseSilencesResult`
+- `function useSilences`
 
 ### `ui-custom/web/src/pages/collection/CollectionPage.tsx`
 
