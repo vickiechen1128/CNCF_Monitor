@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-08-29 12:10 · commit: `7ce19629`
+> 生成时间: 2026-09-02 10:32 · commit: `31f31352`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -331,10 +331,11 @@
 ### `platform/cmd/metric-center/main.go`
 
 - `func main()`
-- `func setupRouter(promURL *url.URL) *gin.Engine`
+- `func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error)`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
 - `func registerPlatformConfigRoutes(g *gin.RouterGroup)`
+- `func registerSPA(r *gin.Engine, dir string) error`
 - `func healthHandler(c *gin.Context)`
 - `func healthDBHandler(c *gin.Context)`
 - `func statusHandler(c *gin.Context)`
@@ -344,6 +345,18 @@
 - `func buildReloadFunc(reloadURL string) func() error`
 - `type safeResponseWriter struct`
 - `method (*safeResponseWriter) CloseNotify() <-chan bool`
+
+### `platform/cmd/metric-center/main_static_test.go`
+
+- `func newStaticTestDir(t *testing.T) string`
+- `func newSPAEngine(t *testing.T, dir string) *gin.Engine`
+- `func serve(t *testing.T, r *gin.Engine, path string) *httptest.ResponseRecorder`
+- `func TestRegisterSPA_ServesIndexAndAssets(t *testing.T)`
+- `func TestRegisterSPA_HistoryFallback(t *testing.T)`
+- `func TestRegisterSPA_APIRoutesTakePrecedence(t *testing.T)`
+- `func TestRegisterSPA_UnknownAPIReturns404NotHTML(t *testing.T)`
+- `func TestRegisterSPA_PathTraversalBlocked(t *testing.T)`
+- `func TestRegisterSPA_InvalidDir(t *testing.T)`
 
 ### `platform/cmd/metric-center/main_test.go`
 
@@ -1333,6 +1346,7 @@
 ### `platform/db/seed/label_template.go`
 
 - `func runLabelTemplates(db *gorm.DB) error`
+- `func ensureResourceIDMapping(db *gorm.DB, name string) error`
 
 ### `platform/db/seed/metric_library.go`
 
@@ -1352,6 +1366,7 @@
 - `func TestRunSeedsTenantAndDefaultDomain(t *testing.T)`
 - `func TestRunSeedsZoneTypes(t *testing.T)`
 - `func TestRunSeedsLabelTemplates(t *testing.T)`
+- `func TestRunLabelTemplatesBackfillsResourceID(t *testing.T)`
 - `func TestRunSeedsExportersAndMappings(t *testing.T)`
 - `func TestRunExportersBackfillsBuiltinCanonicalFields(t *testing.T)`
 - `func TestRunIsIdempotent(t *testing.T)`
@@ -1448,6 +1463,7 @@
 - `func TestMiddleware_ExpiredLogoutDisabledRejected(t *testing.T)`
 - `func TestMiddleware_OptionsPreflightPasses(t *testing.T)`
 - `func TestMiddleware_NoAuthorization(t *testing.T)`
+- `func TestMiddleware_NonAPIPathBypassesAuth(t *testing.T)`
 
 ### `platform/gateway/auth/ratelimit_test.go`
 
@@ -1657,6 +1673,7 @@
 - `func TestZoneTypePresetCodes(t *testing.T)`
 - `func TestResourceBaseAndLabel(t *testing.T)`
 - `func TestLabelTemplateByCategory(t *testing.T)`
+- `func TestDefaultTemplatesContainResourceID(t *testing.T)`
 - `func TestBuiltinTemplates(t *testing.T)`
 - `func TestScrapeJobAndMonitoringRule(t *testing.T)`
 - `func TestConfigModelsSmoke(t *testing.T)`

@@ -1,0 +1,334 @@
+phase: "Track B 增量（决策 59/60 告警分发 MVP 最小闭环）"
+module: "module-08-alert-dispatch"
+module_branch: "feat/module-08-alert-dispatch"
+plan_version: "v2026-09-01（决策 59/60，承接决策 47 之后另起一轮）"
+owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer / security-reviewer 执行"
+source:
+  - "docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md（v1.7：§1 MVP 形态 / §3.1 功能表 / §5.1 文件挂载契约 / §5.2 静默 / §5.4 告警状态 / §6.6 AlertmanagerConfigVersion / §9.1/9.2 验收）"
+  - "docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md（v1.52：§3.4 alertmanager.yml 管理域 scope 变更确认 / §5.4 change_items affected_files / §9.2 验收）"
+  - "docs/05-execution-records/module-08/design-decisions.md（决策 49 组件选型 / 决策 55/56 告警状态归属与授权过滤 / 决策 59 文件挂载+静默 UI / 决策 60 纳入 M09 变更确认）"
+  - "docs/05-execution-records/module-09/task-sequence.yaml（T09-60-* 追加任务，本序列的跨端依赖）"
+  - "docs/02-product-requirements/04_Implementation_Map.md（§2.6 M08 / §6 告警分层 / §8 MVP 闭环）"
+  - "docs/02-product-requirements/05_Code_Implementation_Plan.md（§7.8 决策 59/60 验收）"
+  - "docs/03-engineering-standards/03_API_Standard.md（§7 字段/分页/枚举契约）"
+  - "docs/03-engineering-standards/04_Testing_Standard.md（§4 提交前验证清单）"
+precondition:
+  - "worktree 已切到 feat/module-08-alert-dispatch；决策 47 批次（M01/M02/M07 采集状态回显）已合入 develop 并切出本轮分支"
+  - "M09 Phase 4 管道已落地：配置生成器（prometheus/rules/targets/blackbox）+ ConfigDraft→人工确认→下发→reload + change_status 回写 M01 均可用（platform/configcenter/ 已实现）"
+  - "models/ 下未引入 Alertmanager 配置模型；本序列新增 platform/models/alertmanager_config.go（AlertmanagerConfigVersion）"
+  - "中心 Alertmanager 二进制与配置路径由一体化交付包（make build-center / deployment）提供；amtool check-config 可在 PATH 调用（复用 M09 promtool 调用约定，缺省返回校验失败/记录，dev-feedback 登记）"
+  - "后端当前为单租户 + 认证（决策 44 轻量登录已合入）；告警/静默接口注册在 /api/v2/platform/*，命中认证中间件（MVP 单租户恒通过，决策 56 的 matcher 授权骨架保留）"
+  - "前端 cd ui-custom/web && pnpm install && pnpm lint 基线通过；MainLayout 已支持一级菜单组（M09 已落地 config-center），M08 复用该能力"
+go_tool: "`make test-platform`（等价 `.tools/go/bin/go test ./platform/...`）；单包验证 `go test ./platform/alertmanager/...` / `go vet ./platform/...`"
+fe_tool: "`cd ui-custom/web && pnpm test` / `pnpm lint` / `pnpm vitest run src/pages/alerts/<page>.test.tsx`；`pnpm dev` 验证页面"
+contract_snapshot: "docs/05-execution-records/module-08/api-contract-snapshot.md（前端任务契约第一权威）；跨端 M09 侧契约见 docs/05-execution-records/module-09/api-contract-snapshot.md（本序列仅消费其 ConfigDraft 追加字段，不重复定义）"
+
+# =====================================================================
+# 后端任务（models → config-mount service → silence proxy → handler → routes）
+# =====================================================================
+tasks:
+  - id: "T08-01"
+    title: "models：AlertmanagerConfigVersion + 挂载/静默枚举集中定义"
+    prd: "Module_08 §6.6（AlertmanagerConfigVersion 字段）/ §3.1 / §5.1 / §5.2；决策 60（校验失败不落库，status 仅 applied）"
+    group: "backend"
+    status: "pending"
+    commit_group: "models-alertmanager"
+    depends_on: []
+    input_files:
+      - "platform/models/config_center_rules.go"   # AffectedFile 枚举（本任务在 M09 侧扩展 alertmanager，见 T09-60-1）
+      - "platform/configcenter/draft/change_items.go"  # 变更项生成（本任务不直接改，供对齐契约）
+    output_files:
+      - "platform/models/alertmanager_config.go"   # AlertmanagerConfigVersion + 挂载态/静默 matcher DTO 枚举
+      - "platform/models/alertmanager_config_test.go"
+    estimated_files_changed: 2
+    estimated_test_cases: 6
+    shared_files: "是：platform/models/*.go 与 T08-02/03 共享；建议同一 backend-developer sub-agent 续作"
+    verify_commands:
+      - "go test ./platform/models/..."
+      - "go vet ./platform/models/..."
+    acceptance_criteria:
+      - "AlertmanagerConfigVersion 字段齐全：id/content(text，完整 alertmanager.yml)/checksum(sha256)/applied_at/applied_by/status(=applied)/uploads ours（created_at 供排序）"
+      - "状态枚举：仅 applied；不存在 failed / error_msg（决策 60——校验失败不落库，不进本表）"
+      - "静默 matcher DTO（name/value/isEqual/isRegex）+ 服务端授权网域集合校验输入载体就绪（决策 56 骨架）"
+      - "挂载校验失败返回类型（行级错集合：file/line/message）结构体就绪，供 T08-02 handler 映射"
+      - "models_test 增补：AlertmanagerConfigVersion 序列化往返、checksum 计算、status 唯一取值"
+
+  - id: "T08-02"
+    title: "Alertmanager 配置文件挂载服务：校验 + 落库留痕 + 提交变更检测"
+    prd: "Module_08 §5.1（文件挂载契约）/ §9.1 / §9.2；决策 59/60（校验失败不落库；持久化后触发 M09 变更检测）"
+    group: "backend"
+    status: "pending"
+    commit_group: "config-mount"
+    depends_on: ["T08-01"]
+    input_files:
+      - "platform/models/alertmanager_config.go"
+      - "platform/configcenter/change/watcher.go"   # M09 变更检测（pull 30s，写入即被下一轮纳入）
+      - "platform/configcenter/generator/data_source.go"  # M09 读取最新 AlertmanagerConfigVersion（T09-60-1 触点）
+    output_files:
+      - "platform/alertmanager/config/service.go"
+      - "platform/alertmanager/config/validate.go"   # amtool check-config 等价校验
+      - "platform/alertmanager/config/config_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 10
+    shared_files: "是：platform/alertmanager/config/ 与 T08-03 版本历史共用；写入与 M09 T09-60-1 configgen 读取同表"
+    verify_commands:
+      - "go test ./platform/alertmanager/config/..."
+      - "go vet ./platform/alertmanager/config/..."
+    acceptance_criteria:
+      - "提交挂载（content）：先 amtool check-config 等价校验（YAML 语法 + route/receiver 引用闭合）；校验失败返回行级错误（file/line/message）且不落库、不进 M09 流水线（决策 60）"
+      - "校验通过：计算 sha256 写入 AlertmanagerConfigVersion（content/checksum/status=applied）留痕（决策 59 内容留痕）"
+      - "写完后触发 M09 变更检测接入：管理域（default）scope——M09 下一轮 configgen 读取最新 AlertmanagerConfigVersion 纳入 alertmanager.yml 产物（T09-60-1）"
+      - "同 content 重复挂载幂等：checksum 相同不重复生成版本（可选，MVP 若保留多版本留痕则允许重复，视 PRD §6.6 语义——MVP 只留通过的挂载，约定保留版本历史供回滚）"
+      - "测试覆盖校验失败不落库、校验通过落库留痕、amtool 不可调用时校验失败返回 + dev-feedback 登记"
+
+  - id: "T08-03"
+    title: "Alertmanager 配置版本 API：当前生效只读视图 + 历史版本 + 重新挂载（回滚）"
+    prd: "Module_08 §6.6 / §5.1 / §9.1 P0（历史版本回滚「重新挂载此版本」）"
+    group: "backend"
+    status: "pending"
+    commit_group: "config-version"
+    depends_on: ["T08-02"]
+    input_files:
+      - "platform/models/alertmanager_config.go"
+      - "platform/alertmanager/config/service.go"
+    output_files:
+      - "platform/alertmanager/config/handler.go"
+      - "platform/alertmanager/config/version.go"    # 列表/详情/当前生效
+      - "platform/alertmanager/config/version_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "是：platform/alertmanager/config/ 本任务连续；路由注册在 T08-05 统一挂载"
+    verify_commands:
+      - "go test ./platform/alertmanager/config/..."
+      - "go vet ./platform/alertmanager/config/..."
+    acceptance_criteria:
+      - "GET /api/v2/platform/alertmanager/config/versions（page/page_size）列表：id/checksum/applied_at/applied_by/status"
+      - "GET /api/v2/platform/alertmanager/config/versions/{id}：完整 content 只读视图"
+      - "GET /api/v2/platform/alertmanager/config/current：当前生效配置只读视图（最近一条 applied 版本）"
+      - "POST .../versions/{id}/remount：将历史版本内容重新挂载提交（复用 T08-02 校验），再次走 M09 变更确认（P0 回滚动线，决策 59）"
+      - "测试覆盖列表分页、详情、当前生效取最近、remount 触发校验与提交"
+
+  - id: "T08-04"
+    title: "静默管理：代理 Alertmanager /api/v1/silences + matcher 授权收敛校验"
+    prd: "Module_08 §5.2 / §6.3 / §9.1 / §9.2；决策 56（写路径 matcher 授权校验）/ 决策 59（MVP 极简 UI：创建/列表/删除，API 直调）"
+    group: "backend"
+    status: "pending"
+    commit_group: "silence-proxy"
+    depends_on: ["T08-01"]
+    input_files:
+      - "platform/models/alertmanager_config.go"   # Silence matcher DTO / 授权载体
+      - "platform/gateway/auth/"                    # 认证/授权网域集合来源（MVP 单租户恒通过，读取当前用户授权集合）
+    output_files:
+      - "platform/alertmanager/silence/service.go"
+      - "platform/alertmanager/silence/handler.go"
+      - "platform/alertmanager/silence/proxy.go"    # 代理 Alertmanager /api/v1/silences
+      - "platform/alertmanager/silence/authorize.go" # 服务端 matcher 授权收敛（决策 56）
+      - "platform/alertmanager/silence/silence_test.go"
+    estimated_files_changed: 5
+    estimated_test_cases: 12
+    shared_files: "是：platform/alertmanager/silence/ 本任务独立包；AM 地址来源与 T08-02 共用配置（中心 endpoints）"
+    verify_commands:
+      - "go test ./platform/alertmanager/silence/..."
+      - "go vet ./platform/alertmanager/silence/..."
+    acceptance_criteria:
+      - "GET /api/v2/platform/alertmanager/silences：代理 AM 列表活跃静默（id/matchers/starts_at/ends_at/createdBy/status/comment）"
+      - "POST .../silences：创建静默；服务端校验 matcher 收敛于当前用户授权网域集合（越权 matcher 拒绝 bad_request，决策 56——MVP 单租户恒通过，骨架保留）"
+      - "DELETE .../silences/{silence_id}：删除静默（代理 AM）；不存在返回 not_found"
+      - "静默为 Alertmanager 运行时 API 状态：不进 M09 流水线、即时生效（决策 59 语义）"
+      - "测试覆盖 matcher 授权收敛、越权拒绝、列表映射、删除 not_found；AM 不可达时返回可观测错误"
+
+  - id: "T08-05"
+    title: "路由注册 + 全链路集成冒烟（文件挂载→提交 M09 变更单→确认→下发→change_status 回写）"
+    prd: "Module_08 §9.1/§9.2 / Module_09 §3.4；决策 60（管理域 scope 变更单确认下发 reload、change_status 回写 M08）"
+    group: "backend"
+    status: "pending"
+    commit_group: "routes"
+    depends_on: ["T08-03", "T08-04", "T09-60-3"]
+    input_files:
+      - "platform/alertmanager/config/handler.go"
+      - "platform/alertmanager/silence/handler.go"
+      - "platform/configcenter/deployment/callback.go"  # M09 侧 change_status 回写 M08（T09-60-3）
+      - "platform/cmd/metric-center/main.go"
+    output_files:
+      - "platform/alertmanager/register.go"
+      - "platform/cmd/metric-center/main.go"
+      - "platform/cmd/metric-center/main_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：platform/cmd/metric-center/main.go 全局入口（M06/M07/M01/M09 均挂载于此）；与 M09 T09-60-* 同分支联动，建议同一 backend-developer sub-agent 串联"
+    verify_commands:
+      - "go test ./platform/..."
+      - "go vet ./platform/..."
+      - "go build ./platform/..."
+    acceptance_criteria:
+      - "alertmanager.RegisterRoutes 在 main.go 挂载，全部 M08 API 注册至 /api/v2/platform/alertmanager/*，命中认证中间件"
+      - "make build-metric-center 通过；smoke：/api/v1/health 200 且 M08 路由已注册（TestEndToEndSmoke 覆盖）"
+      - "主链路走通：文件挂载 → 写 AlertmanagerConfigVersion → M09 生成管理域（default）变更单（含 alertmanager.yml）→ 人工 confirm → 下发写 AM 配置路径 + reload → change_status 回写 M08（applied）"
+      - "老 /api/v1/query 等代理不受影响；AM 地址配置项（ENV/启动参数）就绪并脱敏"
+
+# =====================================================================
+# 前端任务（types → api client → pages → nav）
+# =====================================================================
+
+  - id: "T08-F1"
+    title: "types + API client + 枚举/常量（alertmanager 契约落地）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "alert-api"
+    prd: "Module_08 §5.1/§5.2/§6.3/§6.6（契约 §1~§8）"
+    prototype_pages: []
+    ui_contract: "契约全量（配置挂载 / 版本历史 / 静默）；错误类型按契约 errorType 映射 ApiError（含行级校验错误渲染载体）"
+    nav_contract: "无新导航（辅助文件）；为 F2/F3 提供 types/api/constants"
+    clipping:
+      - item: "Alertmanager 通知状态四态页（active/silenced/inhibited/unprocessed）"
+        reason: "告警状态页归 v0.3（决策 55）；MVP 仅静默 + 配置挂载"
+    depends_on: []
+    estimated_files_changed: 3
+    estimated_test_cases: 4
+    shared_files: "是：src/types/alertmanager.ts + src/api/alertmanager.ts + alertmanagerConstants.ts 被 T08-F2/F3 共享；建议 T08-F1→F4 由同一 frontend-developer sub-agent 续作"
+    input_files:
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"
+      - "docs/05-execution-records/module-08/design-decisions.md"
+    output_files:
+      - "ui-custom/web/src/types/alertmanager.ts"
+      - "ui-custom/web/src/api/alertmanager.ts"
+      - "ui-custom/web/src/pages/alerts/alertmanagerConstants.ts"
+      - "ui-custom/web/src/pages/alerts/alertmanagerConstants.test.ts"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/alertmanagerConstants.test.ts"
+    acceptance_criteria:
+      - "types/alertmanager.ts 定义 AlertmanagerConfigVersion / ValidateErrorItem（file/line/message）/ Silence / SilenceMatcher"
+      - "api/alertmanager.ts 实现契约全部 API（submitAlertmanagerConfig/getConfigVersions/getConfigVersion/getCurrentConfig/remountConfigVersion/getSilences/createSilence/deleteSilence）"
+      - "constants 按契约 UI 展示名映射（status 等）+ 校验错误分区（语法错误/引用闭合）"
+      - "ApiError 按契约 errorType 抛出；validate 失败返回 line 级错集合供页内高亮/定位"
+
+  - id: "T08-F2"
+    title: "告警配置页（文件挂载）：上传/粘贴 + 行级校验错误 + 当前生效只读视图 + 历史回滚"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "config-page"
+    prd: "Module_08 §5.1 / §9.1 P0 / §9.2"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/pages/AlertConfigPage.tsx"
+    ui_contract: "PRD §5.1 文件挂载契约 + §9.1（校验失败行级报错不落库、当前生效只读、历史版本回滚「重新挂载此版本」）"
+    nav_contract: "顶部一级 tab「告警收敛与通知管理」（PRD 模块名）→ Sider 一级菜单组「告警配置」→ 二级「告警配置」（/alert-config）"
+    clipping:
+      - item: "接收人/路由/抑制表单化 UI、告警状态页、通知模板"
+        reason: "v0.3 / v1.0（决策 59：MVP 文件挂载承载；表单化 UI 缺业务流程据证不纳入 MVP）"
+    depends_on: ["T08-F1"]
+    estimated_files_changed: 5
+    estimated_test_cases: 12
+    shared_files: "是：src/pages/alerts/ 共享 + MainLayout/App（F4 统一挂载）；与 M09 配置挂载动线共用 configPreviewYaml 概念"
+    input_files:
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"
+      - "docs/prototypes/module-08/src/pages/AlertConfigPage.tsx"
+      - "docs/05-execution-records/module-08/design-decisions.md"
+    output_files:
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.tsx"
+      - "ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx"
+      - "ui-custom/web/src/pages/alerts/useAlertConfig.ts"
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/AlertConfigPage.test.tsx"
+    acceptance_criteria:
+      - "文件挂载区：上传 .yml / 粘贴文本；提交前大小/基础格式校验"
+      - "校验失败：行级错误列表展示（file/line/message），错误定位到行；明确提示「未保存、未生效、请修改后重试」；重新校验出口"
+      - "校验通过：写 AlertmanagerConfigVersion 留痕 + 引导「已提交 M09 变更单，请到配置变更确认页确认下发」（跨模块跳转 M09 /config-preview，携管理域 default 变更单）"
+      - "当前生效配置只读视图（最近 applied 版本 content 只读预览）"
+      - "历史版本列表 + 每条「重新挂载此版本」入口（P0 回滚动线，Modal 二次确认 + 触发重校验）"
+      - "状态矩阵覆盖加载/空态/接口错误/权限不足"
+
+  - id: "T08-F3"
+    title: "静默管理页（极简 UI）：创建 / 列表 / 删除"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "silence-page"
+    prd: "Module_08 §5.2 / §6.3 / §9.1 / §9.2（MVP 极简：API 直调 Alertmanager）"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/pages/SilencesPage.tsx"
+    ui_contract: "PRD §5.2（matcher 匹配/起止时间/原因）+ §9.1 静默规则三动作 + §11 UI 展示名（决策 56 授权提示骨架）"
+    nav_contract: "「告警收敛与通知管理」（一级 tab）→ Sider 菜单组「告警配置」→ 二级「静默管理」（/silences）"
+    clipping: []
+    depends_on: ["T08-F1"]
+    estimated_files_changed: 4
+    estimated_test_cases: 10
+    shared_files: "是：src/pages/alerts/ 共享 + MainLayout/App（F4 挂载）"
+    input_files:
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"
+      - "docs/prototypes/module-08/src/pages/SilencesPage.tsx"
+      - "docs/05-execution-records/module-08/design-decisions.md"
+    output_files:
+      - "ui-custom/web/src/pages/alerts/SilencesPage.tsx"
+      - "ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx"
+      - "ui-custom/web/src/pages/alerts/useSilences.ts"
+      - "ui-custom/web/src/pages/alerts/SilencesPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/SilencesPage.test.tsx"
+    acceptance_criteria:
+      - "列表：活跃静默（matchers/时段/原因/状态/创建人），支持删除（二次确认）"
+      - "创建抽屉：matcher 键值对（name/value/isEqual/isRegex）+ 起止时间 + 原因；提交即即时生效（API 直调 Alertmanager，不进 M09 变更单）"
+      - "决策 56 授权提示：MVP 单租户恒通过，页面保留「静默影响当前授权网域」说明；越权被拒时展示错误"
+      - "状态矩阵覆盖加载/空态/接口错误/权限不足"
+
+  - id: "T08-F4"
+    title: "导航与路由挂载：MainLayout 一级 tab + App 两路由"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "nav-mount"
+    prd: "Module_08 §9.1 / §10 术语 + 顶部 tab 文案规范（PRD 模块名）"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/layouts/MainLayout.tsx"
+    ui_contract: "PRD 导航结构 + §10 术语"
+    nav_contract: "顶部一级 tab「告警收敛与通知管理」（独立顶级模块，与 M01/M06/M07/M09 同级，PRD 模块名）→ Sider 菜单组「告警配置」=告警配置(/alert-config)、静默管理(/silences)；顶部 tab 文案必须用 PRD 模块名，禁止功能页名充当一级模块"
+    clipping: []
+    depends_on: ["T08-F2", "T08-F3"]
+    estimated_files_changed: 2
+    estimated_test_cases: 3
+    shared_files: "是：src/layouts/MainLayout.tsx + src/App.tsx 全站共享；M09 已落地一级菜单组能力，M08 复用；必须与 T08-F2/F3 同一 frontend-developer sub-agent 串联续作，禁止多 agent 并行改共享文件"
+    input_files:
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/App.tsx"
+      - "docs/prototypes/module-08/src/layouts/MainLayout.tsx"
+    output_files:
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/pages/alerts/alertRoutes.test.tsx（可选，路由/激活断言）"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+    acceptance_criteria:
+      - "MainLayout MODULES 新增独立顶级模块 alert（label「告警收敛与通知管理」）：resolveActiveModule 将 /alert-config、/silences 归入 alert，不再挂到已有顶级模块"
+      - "Sider 菜单组「告警配置」正确展示两子项且高亮当前"
+      - "App.tsx 注册两路由（懒加载）；访问 /alert-config 200"
+      - "一级 tab 文案用 PRD 模块名（告警收敛与通知管理），eslint/tsc/test 全绿"
+
+  - id: "T08-F5"
+    title: "前端集成验证与收尾"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "frontend-closeout"
+    prd: "Module_08 §9 / §11.2 全局行为规则"
+    prototype_pages: []
+    ui_contract: "§11.2 全局行为（二次确认/loading 防重复/跨模块跳转）；跨模块动线（告警配置→M09 配置变更确认确认下发→收到通知）"
+    nav_contract: "M08 两页在「告警收敛与通知管理」顶级 tab 下导航联动；跨模块跳转（告警配置→/config-preview、静默管理独立）"
+    clipping: []
+    depends_on: ["T08-F4"]
+    estimated_files_changed: 1
+    estimated_test_cases: 4
+    shared_files: "是：端到端共享文件回归；由负责 M08 前端的同一 sub-agent 收口"
+    input_files:
+      - "ui-custom/web/src/App.tsx"
+      - "docs/05-execution-records/module-08/design-decisions.md"
+    output_files:
+      - "ui-custom/web/src/pages/alerts/alertSmoke.test.tsx（可选端到端冒烟）"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+    acceptance_criteria:
+      - "默认/local 主链路在前端可走通：告警配置挂载 → 校验失败行级展示/修改重挂 → 成功留痕 → 跳 M09 配置变更确认确认下发 → change_status 回写 M08（applied）"
+      - "静默管理：创建（即时生效）→ 列表可见 → 删除"
+      - "前端 pnpm test（全量）通过、pnpm lint/tsc --noEmit 通过"
+      - "提交前验证清单（docs/03-engineering-standards/04_Testing_Standard.md §4）通过后停服释放端口"

@@ -472,3 +472,155 @@ tasks:
       - "前端 `pnpm test`（全量）通过、`pnpm lint`/`tsc --noEmit` 通过"
       - "跨模块深链：config-preview 携带 change_no/network_domain 到 /deployments 正确过滤；采集节点状态空态引导到网域纳管"
       - "提交前验证清单（docs/03-engineering-standards/04_Testing_Standard.md §4）通过后停服释放端口"
+
+# =====================================================================
+# 决策 60 增量（decision 60）：alertmanager.yml 纳入变更确认（管理域 default scope，不扇出）
+# 前置：M08 T08-02 已把 AlertmanagerConfigVersion 落库；M09 本轮把该内容纳入配置产物/变更单/下发/回写。
+# 关联 PRD：Module_09 v1.52（§3.4 alertmanager.yml 管理域 scope / §5.4 affected_files / §9.2 验收）+ Module_08 v1.7（决策 60）。
+# 跨端契约：docs/05-execution-records/module-08/api-contract-snapshot.md（M08 内容 Owner）；M09 契约在 module-09/api-contract-snapshot.md §12 追加（affected_files/change target/alertmanager_yml 字段）。
+# =====================================================================
+  - id: "T09-60-1"
+    title: "configgen 纳入 alertmanager.yml（管理域 default scope 产物，不扇出不进 agent_pull 包）"
+    prd: "Module_09 v1.52 §3.3/§3.4/§3.11；决策 60（内容由 M08 生成，M09 scope 建模为管理域 default；不按域扇出、不进 agent_pull 包）"
+    group: "backend"
+    status: "pending"
+    commit_group: "configgen-alertmanager"
+    depends_on: ["T08-01"]   # M08 AlertmanagerConfigVersion 模型落地
+    input_files:
+      - "platform/models/alertmanager_config.go"
+      - "platform/models/config_center_rules.go"   # AffectedFile 枚举扩展
+      - "platform/configcenter/generator/render.go"   # Assemble 增加 alertmanager.yml
+      - "platform/configcenter/generator/data_source.go"  # 读取最新 AlertmanagerConfigVersion
+      - "platform/configcenter/generator/validate.go"
+    output_files:
+      - "platform/configcenter/generator/render.go"
+      - "platform/configcenter/generator/data_source.go"
+      - "platform/configcenter/generator/validate.go"
+      - "platform/configcenter/generator/generator_test.go"
+    estimated_files_changed: 4
+    estimated_test_cases: 8
+    shared_files: "是：platform/configcenter/generator/ 与 T09-60-2 关联；与 M08 config-mount 同表（AlertmanagerConfigVersion）输入"
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+      - "go vet ./platform/configcenter/generator/..."
+    acceptance_criteria:
+      - "AffectedFile 枚举新增 `alertmanager`（models/config_center_rules.go，常量 AffectedFileAlertmanager='alertmanager'）"
+      - "configgen 读取最新一条 applied 的 AlertmanagerConfigVersion.content 组装为 `alertmanager.yml` 产物；仅当内容存在时注入（无告警配置则不产生该产物，避免空配置）"
+      - "`alertmanager.yml` 只在管理域（default，domain_type=management）scope 产物出现；**不参与按网域拆分扇出、不进 agent_pull 配置包**（决策 60）——与采集配置（prometheus/targets/rules/blackbox 按域）严格区分"
+      - "validate.go：存在 alertmanager.yml 时追加 amtool check-config 校验；失败行级错误归入 validation_details（user_config 归因，前端可「前往修改/重新校验」）"
+      - "联合 checksum 纳入 alertmanager.yml 内容（content 变化即触发变更检测）；测试覆盖 default 域含/不含 alertmanager 产物、不扇出到边缘域、checksum 裁决"
+
+  - id: "T09-60-2"
+    title: "ConfigDraft change_items/affected_files 扩展 + ConfigDraftDetail 增 alertmanager_yml + 变更检测"
+    prd: "Module_09 v1.52 §3.4/§5.4/§9.2；决策 60（alertmanager.yml 变更生成管理域变更单，变更对象/受影响文件枚举含 alertmanager）"
+    group: "backend"
+    status: "pending"
+    commit_group: "draft-alertmanager"
+    depends_on: ["T09-60-1"]
+    input_files:
+      - "platform/models/config_center_rules.go"
+      - "platform/configcenter/generator/change_detect.go"
+      - "platform/configcenter/draft/change_items.go"
+      - "platform/configcenter/draft/service.go"
+    output_files:
+      - "platform/configcenter/draft/change_items.go"
+      - "platform/configcenter/draft/service.go"
+      - "platform/configcenter/draft/draft_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "是：platform/configcenter/draft/ 与 T09-05/06 同包；change target/affected files 枚举与契约 §12 对齐"
+    verify_commands:
+      - "go test ./platform/configcenter/draft/..."
+      - "go vet ./platform/configcenter/draft/..."
+    acceptance_criteria:
+      - "change_items.target 枚举新增 `alertmanager_config`（告警配置）；affected_files 枚举含 `alertmanager`"
+      - "buildChangeItems：检测到 alertmanager.yml 内容差异时产出变更项（type add/update/delete、target=alertmanager_config、affected_files=[alertmanager]、risk=low——通知路由/接收人调整风险低，决策 60 风险分级预留统一人工确认）"
+      - "ConfigDraftDetail 增可选 `alertmanager_yml` 字段（内容预览 Tab；M09 PRD 遗留「抽屉多文件预览 Tab 不含 alertmanager.yml」的待澄清项本轮按字段实现）"
+      - "决策 44-3 抑制语义扩展：仅 alertmanager.yml 无采集配置变更时，default 域仍正常出单（告警配置变更不应被「无变更」抑制）；测试覆盖"
+      - "变更检测（change_detect.go）将 alertmanager.yml 纳入联合 checksum 裁决与 source_data_version 推进；测试覆盖仅告警配置变更出单"
+
+  - id: "T09-60-3"
+    title: "下发写 AM 配置路径 + reload + change_status 回写 M08（applied）"
+    prd: "Module_09 v1.52 §3.5/§9.2；Module_08 v1.7 §5.1（决策 60：人工确认后 M09 写中心 AM 配置路径并触发 reload → 回写 change_status）"
+    group: "backend"
+    status: "pending"
+    commit_group: "deployment-alertmanager"
+    depends_on: ["T09-60-2"]
+    input_files:
+      - "platform/configcenter/deployment/service.go"
+      - "platform/configcenter/deployment/callback.go"
+      - "platform/models/alertmanager_config.go"
+    output_files:
+      - "platform/configcenter/deployment/service.go"
+      - "platform/configcenter/deployment/callback.go"
+      - "platform/configcenter/deployment/deployment_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "是：platform/configcenter/deployment/ 承接 T09-60-2 confirm 产物；change_status 回写依赖 M08 AlertmanagerConfigVersion 模型"
+    verify_commands:
+      - "go test ./platform/configcenter/deployment/..."
+      - "go vet ./platform/configcenter/deployment/..."
+    acceptance_criteria:
+      - "confirm 触发 local 下发扩展：管理域（default）变更单确认后，将 alertmanager.yml 写中心 Alertmanager 配置路径并 reload（SIGHUP / POST /-/reload）；仅含 AM 产物的变更单单独决定是否 reload（无采集配置变化不改写 Prometheus 配置目录）"
+      - "alertmanager.yml 写入路径与 Prometheus 配置目录分离（中心 AM 配置目录）；原子写 + reload 失败记录 error_message（可 retry，复用 T09-06 local retry）"
+      - "callback.go：ConfigDeployment.status=success（default 域含 alertmanager.yml 下发）后，回写 M08——将最新 AlertmanagerConfigVersion 标记 applied（applied_at/applied_by 回填）；M08 页面「当前生效配置只读视图」源自在途最新 applied 版本"
+      - "测试覆盖 AM 下发路径、reload 失败 retry、change_status 回写 M08 applied、与采集配置独立（无采集变更不同时 reload Prometheus）"
+
+  - id: "T09-60-F1"
+    title: "配置变更确认页支持 alertmanager.yml（预览 Tab + 受影响文件 + 变更对象文案）"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "preview-alertmanager"
+    prd: "Module_09 v1.52 §3.4 配置预览（alertmanager.yml 条件 Tab + 受影响文件高亮）+ §9.1；Module_08 v1.7 决策 60"
+    prototype_pages:
+      - "docs/prototypes/module-09/src/pages/ConfigPreviewPage.tsx"
+    ui_contract: "配置预览多文件 Tab 增 `alertmanager.yml`（仅 default 域变更单含时显示）；受影响文件枚举/变更对象文案补「告警配置」；Confirm 时对含告警配置变更单提示（决策 60 低风险人工确认）"
+    nav_contract: "无新导航（augment 既有 /config-preview 页）"
+    clipping: []
+    depends_on: ["T09-F4", "T09-60-2"]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：src/pages/config-center/preview/ 与 T09-F4 共享；受 configPreviewYaml/枚举/受影响文件派生逻辑影响，建议与 M08 前端不同 sub-agent 时的串行顺序保证"
+    input_files:
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md（§12 决策 60 追加）"
+      - "ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx"
+      - "ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx"
+      - "ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts"
+      - "ui-custom/web/src/pages/config-center/preview/configPreviewYaml.test.ts"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/config-center/preview/configPreviewYaml.test.ts"
+    acceptance_criteria:
+      - "配置预览多文件 Tab 数据源含 `alertmanager.yml`（`ConfigDraftDetail.alertmanager_yml`）并条件渲染；default 域变更单受影响文件标 `alertmanager` + 「变更」标记"
+      - "变更清单「变更对象」文案映射新增：target=alertmanager_config ↔「告警配置」；受影响文件显示 alertmanager.yml"
+      - "确认动作保持变更单级；含 alertmanager 变更时按 low 风险展示（决策 60 风险分级预留但 MVP 统一人工确认按钮）"
+      - "pipeline：M08 挂载 → /config-preview（default 域）可见含 alertmanager 变更单 → 确认 → 下发记录 → 回 M08 applied"
+
+  - id: "T09-60-F2"
+    title: "决策 60 前端集成收尾"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "frontend-closeout-60"
+    prd: "Module_09 v1.52 §9/§11.2；Module_08 v1.7 §9.1（跨模块动线）"
+    prototype_pages: []
+    ui_contract: "跨模块闭环：M08 告警配置挂载 → M09 /config-preview 确认 → 下发记录 → M08 applied；全链路回归"
+    nav_contract: "不变（复用 M08/M09 既有导航）"
+    clipping: []
+    depends_on: ["T09-60-F1"]
+    estimated_files_changed: 1
+    estimated_test_cases: 3
+    shared_files: "是：端到端回归；由处理 M09 前端的同一 sub-agent 收口"
+    input_files:
+      - "ui-custom/web/src/App.tsx"
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/preview/alertmanagerSmoke.test.tsx（可选端到端冒烟）"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+    acceptance_criteria:
+      - "端到端：M08 挂载 alertmanager.yml → 校验 → M09 管理域变更单 → 确认下发 → AM reload → M08 change_status applied，前台一致"
+      - "前端 pnpm test / pnpm lint / tsc --noEmit 通过"
+      - "提交前验证清单通过后停服释放端口"

@@ -813,3 +813,74 @@ tasks:
       - "网域空态提示改为指向 M06（/admin/domains）的可点击引导（含「系统与平台管理→网域管理」语义文案），不再写 M07"
       - "跳转沿用用项目 router 导航（useNavigate 到 /admin/domains），不新开页/不开新窗口除非原型要求"
       - "单文件 vitest + eslint 全绿"
+
+  # ---------------------------------------------------------------------------
+  # Track B 增量（决策 47 系列：采集状态回显前置，derived for feat/module-08-alert-dispatch）
+  #   47-1：安装确认拆闸门（选中即生成 target，确认降级为可选登记）
+  #   47-2：Job 上下文采集状态回显（只读消费 M02 /api/v1/targets，决策 47-2）
+  #   依赖：M02 targets 代理 API（module-02 T02-01）需先就绪；M01 不直连 Prometheus
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-47-B1"
+    name: "（决策 47-1）拆除安装确认闸门：确认 configgen 从 selected_instance_ids 生成 target 不因未确认实例受阻 + confirm API 语义降级为可选登记"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "m01-install-gate-removal"
+    prd: "Module_01 §9.1（修订：原 P0『未确认实例不生成 target』废除，决策 47-1）/§5.6/§8④；decision-47-1 全文"
+    depends_on: []
+    estimated_files_changed: 4
+    estimated_test_cases: 8
+    shared_files: "是（platform/configcenter/generator/targets.go，唯一写者；与 M09 同仓仅核对）"
+    input_files:
+      - "platform/configcenter/generator/targets.go"      # ResolveJobTargets 仅按 selected_instance_ids + offline 过滤（核对现状合规，禁止引入确认检查）
+      - "platform/configcenter/generator/change_detect.go" # 基线表：ExporterInstallationConfirmation=false 不参与漂移（仅核对）
+      - "platform/strategy/scrapejob/installation.go"      # confirm/delete 语义注释改为可选登记
+      - "platform/configcenter/generator/generator_test.go"
+    output_files:
+      - "platform/configcenter/generator/targets.go"
+      - "platform/configcenter/generator/generator_test.go"
+      - "platform/strategy/scrapejob/installation.go"
+      - "platform/strategy/scrapejob/scrape_job_test.go"
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+      - "go test ./platform/strategy/scrapejob/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "configgen 生成 target 仅消费 selected_instance_ids（+ status=offline 排除 + enabled + draft_status），不读取 ExporterInstallationConfirmation —— 未确认实例不阻断、不被排除（决策 47-1）；generator_test 覆盖『未确认实例同样进入 target 组』"
+      - "ConfirmInstallation / delete confirm 保留为可选登记（POST confirmed_by 固定 platform_admin / DELETE 删除记录），语义注释更新为『可选登记，非生成闸门，不阻断 target』；不恢复任何确认校验"
+      - "change_detect 基线表仍含 ExporterInstallationConfirmation（false 不计入变更），登记记录本身不触发配置漂移"
+      - "go test ./platform/... 全绿，go vet 通过"
+
+  - task_id: "T01-47-F1"
+    name: "（决策 47-2）Job 实例『采集状态』回显：实例状态列 + 外层汇总（在线数/实例总数/待采集数），只读消费 M02 /api/v1/targets?job=<job_name>"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-m01-job-status-echo"
+    prd: "Module_01 §11.1/§5.4 + api-contract-snapshot.md（M01 §6 与 M02 §2.1）；decision-47-2 全文"
+    prototype_pages: "docs/prototypes/module-01/（Job 详情/编辑抽屉实例采集状态列 + 在线数汇总；原型已同步决策 47-2 采集状态列）"
+    ui_contract: "Job 详情/编辑抽屉实例列表新增『采集状态』列 + 外层 在线数/实例总数/待采集数 汇总；数据源 = targetsApi.list({job: job_name})（M02 T02-F1 产物），M01 只读展示不持久化；时序判定见验收"
+    nav_contract: "Job 详情/编辑抽屉内增强，不改导航归属；复用 module-02 的 src/api/targets.ts + src/types/query.ts"
+    clipping: "独立采集状态页归属 M02（P1，T02-F1）；M01 侧仅做抽屉内回显，不新增独立页/顶部 tab"
+    depends_on: ["T01-F4", "T01-F5", "T02-01"]   # M01 编辑抽屉/实例选择 + M02 targets 代理（后端）
+    estimated_files_changed: 4
+    estimated_test_cases: 14
+    shared_files: "是（ScrapeJobFormDrawer.tsx 由 F4 建 / ExporterInstallationPanel.tsx 由 F5 建，F47 在实例区新增状态列与汇总）"
+    input_files:
+      - "ui-custom/web/src/api/targets.ts"          # M02 targets client（T02-F1 产物）
+      - "ui-custom/web/src/types/query.ts"          # TargetItem
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/ExporterInstallationPanel.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.test.tsx"
+      - "ui-custom/web/src/pages/strategy/useScrapeJobStatus.ts"    # 拉取 M02 targets + 推导实例状态（可内联）
+      - "ui-custom/web/src/pages/strategy/useScrapeJobStatus.test.ts"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/ScrapeJobFormDrawer.test.tsx"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/useScrapeJobStatus.test.ts"
+    acceptance_criteria:
+      - "实例『采集状态』列时序规则（决策 47-2）：Job 变更未确认下发（change_status≠deployed）→ 全部实例显『待采集』（在线数不计）；变更已确认下发 → 调 targetsApi.list({job})，存量实例按 health 显 真实 up/down（绿/红 badge），无对应 target 或 unknown → 显『待采集』"
+      - "外层汇总：在线数 = 已生效且 up 实例数；实例总数 = selected_instance_ids.length；待采集数 = 待采集实例数"
+      - "已确认下发但仍 down 的实例行 Tooltip/文案『配置已下发但未采集到数据，请检查采集器安装与网络连通』（引导采集器状态）"
+      - "M01 不直连 Prometheus，不回持久化采集状态（展示口径）；重复打开抽屉重新拉取 M02 targets"
+      - "单文件 vitest + eslint 全绿"

@@ -155,5 +155,5 @@
 - **评审报告**：`docs/05-execution-records/module-08/review-round1.md`，结论「有条件通过」。
 - **阻塞项修复闭环**：①M09 跳转落点补 `#/config-preview`；②版本历史补「重新挂载此版本」入口（§9.1 P0 回滚动线）；③原型 package.json 0.1.0 → 1.7.0；④补 README.md（导航映射 + 模块边界 + 已知限制）。附带完成：校验失败 mock 补行号示例、告警状态页补授权过滤提示（决策 56 骨架）、M09 原型决策 60 口径对齐（变更单 draft-default-am-001 + 审批分级文案）、原型门户 index.html M08 条目更名。
 - **遗留（不阻塞）**：M09 抽屉多文件预览 Tab 不含 alertmanager.yml 内容预览（ConfigDraft 模型无字段，后续版本评估）；ConfigPage Alert 计数超阈为既有结构债；M09 mocks 存量测试断言已顺手修正（draft-finance-002 pending）。
-- **PRD 内部待澄清**：§9.2「校验失败不落库」与 §6.6「留痕含校验结果 + status=failed」口径需在下一轮统一（原型按 §6.6 实现）。
+- **PRD 内部待澄清（已闭环，2026-09-02）**：§9.2「校验失败不落库」与 §6.6「留痕含校验结果 + status=failed」的口径张力源于 v1.6 旧版 §6.6；PRD v1.7 已将 §6.6 说明 1 修订为「校验失败不落库、`status` 恒 `applied`、不存 `error_msg`」，与 §9.2 / 契约快照一致，无需再统一。失败留痕由 M09 管道侧承担（`ConfigDraft.validation_status=failed` + `validation_cause/details`，决策 45），M08 内容表不重复。原型 mock 已对齐（`acv-*` 均为 `applied`），README 旧措辞本次一并订正。
 - **状态变更**：M08 PRD `设计中` → `ready`（用户授权两段评审通过后回归，2026-08-31）。

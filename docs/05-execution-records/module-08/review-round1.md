@@ -40,7 +40,7 @@
 | 6.3 Silence | ✅ 全字段含 status 三态 | 无 |
 | 6.4 InhibitionRule | ✅ source/target/equal/is_builtin/enabled + 内置规则生成逻辑说明 | 无 |
 | 6.5 Matcher | ⚠️ 有 name/value/isRegex | **缺 `is_equal`（取反）字段**（建议项，原型简化可接受） |
-| 6.6 AlertmanagerConfigVersion | ✅ content/checksum/applied_at/applied_by/status/error_msg + 决策 60 扩展 change_status | ⚠️ mock `acv-001` 以「校验失败」落库留痕，与 §9.2「校验失败……不落库」存在口径张力（§6.6 留痕含校验结果 vs §9.2 不落库）——**PRD 内部需澄清，原型按 §6.6 实现不算错** |
+| 6.6 AlertmanagerConfigVersion | ✅ content/checksum/applied_at/applied_by/status/error_msg + 决策 60 扩展 change_status | ~~⚠️ mock `acv-001` 以「校验失败」落库留痕，与 §9.2「校验失败……不落库」存在口径张力~~ **已闭环（2026-09-02）**：该张力源于 v1.6 旧版 §6.6；PRD v1.7 §6.6 说明 1 已统一为「校验失败不落库、status 恒 applied」，原型 mock 与 README 已对齐 |
 
 ### §9 验收标准
 
@@ -88,7 +88,7 @@
 - SilencesPage：matchers 由裸 JSON 改为键/值行编辑（PRD §5.2 表单封装 + 活跃告警联想）；时间范围补「1 小时后 / 2 小时后」快捷选项；补 matcher 授权校验说明（MVP 恒通过，机制骨架）。
 - `Matcher` 类型补 `is_equal` 字段（PRD 6.5）。
 - **跨模块对齐（另派任务，非本原型改动）**：M09 原型 ConfigPreviewPage 及 README 仍是 v1.32「alertmanager.yml 不进 M09 变更确认」旧口径，需按决策 60 升级为「管理域 default scope、不扇出」并支持 alertmanager.yml 变更单演示。
-- **PRD 侧澄清**：§9.2「校验失败不落库」与 §6.6「留痕含校验结果 + status=failed」口径矛盾，建议在 PRD 中统一（原型 mock `acv-001` 按后者实现）。
+- ~~**PRD 侧澄清**：§9.2「校验失败不落库」与 §6.6「留痕含校验结果 + status=failed」口径矛盾，建议在 PRD 中统一（原型 mock `acv-001` 按后者实现）。~~ **已闭环（2026-09-02）**：PRD v1.7 §6.6 说明 1 已统一为「校验失败不落库、status 恒 applied」，原型 mock（`acv-*` 均 applied）与 README 措辞已对齐。
 - `docs/prototypes/index.html` 门户条目仍为「Module 08：告警规则管理 / 告警规则、规则组…」（v1.3 前旧口径），建议更新为「告警收敛与通知管理」及新描述。
 
 ---

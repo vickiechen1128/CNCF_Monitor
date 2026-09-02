@@ -238,3 +238,39 @@
 - 标准：`docs/03-engineering-standards/03_API_Standard.md` §7
 - 序列：`docs/05-execution-records/module-09/task-sequence.yaml`
 - 映射：`docs/05-execution-records/module-09/frontend-prototype-map.md`
+
+## 12. 决策 60 增量：alertmanager.yml 纳入变更确认（本快照在 feat/module-08-alert-dispatch 分支追加）
+
+> M08 内容 Owner、M09 管道 Owner（决策 60）。本小节对既有契约做**增量合并**，未覆盖的仍以 §1~§11 为准。来源：PRD Module_09 v1.52 §3.4/§5.4/§9.2 + Module_08 v1.7 决策 60。
+
+### 12.1 受影响文件 / 变更对象枚举扩展（§8 追加取值）
+
+| 枚举 | 追加取值 | 说明 |
+|------|---------|------|
+| 影响的配置文件 `affected_files` | `alertmanager` | 枚举 `prometheus / targets / rules / blackbox / alertmanager` |
+| 变更对象 `target` | `alertmanager_config` | 枚举 `... / alertmanager_config`；UI 展示名「告警配置」 |
+| `risk` | （复用 low） | alertmanager.yml 变更 risk=low（通知/接收人调整风险低，决策 60 风险分级预留统一人工确认） |
+
+### 12.2 ConfigDraftDetail 追加字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `alertmanager_yml` | string | 可选；管理域（default）变更单含时返回该产物内容（多文件预览 Tab 用之；PRD 遗留「抽屉多文件预览 Tab 不含 alertmanager.yml」本轮按字段实现） |
+
+> `DraftListItem.affected_files` 亦可能含 `alertmanager`；`change_items[].affected_files` 含 `alertmanager`、`change_items[].target` 可为 `alertmanager_config`。
+
+### 12.3 管理域 scope 语义（决策 60，前端约束）
+
+- `alertmanager.yml` 变更单网域恒为**管理域（`default`）**，与采集配置变更单相互独立、按变更单分别确认（§3.4 混单规则）。
+- 仅 `default` 域变更单 / 配置预览可能出现 `alertmanager.yml` Tab；边缘域（agent_pull）变更单不含（不按域扇出、不进 `agent_pull` 配置包）。
+- 确认动作仍为**变更单级**；含 alertmanager 变更时按 low 风险展示，MVP 统一人工确认（风险分级自动确认预留不进 MVP）。
+
+### 12.4 change_status 回写（决策 60）
+
+- M09 confirm→下发 reload 成功（default 域含 alertmanager.yml）后，回写 M08：最新 `AlertmanagerConfigVersion.applied_at/applied_by` 回填、`status=applied`；M08 页面「当前生效配置只读视图」自此版本读取。
+- 与 M01 `change_status` 回写并行（不互斥）；`ConfigDeployment` 关联 M08 侧回写时序见 `docs/05-execution-records/module-08/api-contract-snapshot.md` §5。
+
+### 12.5 本小节待对齐后随主库的项（记录）
+
+- 快照元信息 `来源` 当前仍列 PRD §3/§5/§6/§8/§9/§11；决策 60 追加后建议并入 §3.4/§5.4/§9.2 引用。
+- 前端 `configPreviewYaml`、受影响文件高亮派生逻辑须消费 `alertmanager` 枚举与 `alertmanager_yml` 字段（T09-60-F1）。

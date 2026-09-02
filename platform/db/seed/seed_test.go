@@ -98,8 +98,9 @@ func TestRunSeedsLabelTemplates(t *testing.T) {
 	assert.Equal(t, models.ResourceCategoryHost, tmpl.ResourceCategory)
 	assert.True(t, tmpl.IsDefault)
 
-	// 断言 default-host 含 biz_code→biz 与 instance_ip:port→instance 映射
-	for _, target := range []string{"biz", "instance"} {
+	// 断言 default-host 含 resource_id→resource_id（47-3 回连键）、biz_code→biz
+	// 与 instance_ip:port→instance 映射
+	for _, target := range []string{"resource_id", "biz", "instance"} {
 		found := false
 		for _, m := range tmpl.Mappings {
 			if m.TargetLabel == target {
@@ -109,6 +110,42 @@ func TestRunSeedsLabelTemplates(t *testing.T) {
 		}
 		assert.True(t, found, "default-host should contain mapping to label %q", target)
 	}
+}
+
+// TestRunLabelTemplatesBackfillsResourceID 覆盖存量库一次性修正（2026-09-02，
+// 决策 47-3 回连前置）：旧版种子（无 resource_id 映射）再次执行 Run 后应补齐
+// resource_id → resource_id 映射，且重复执行幂等、既有映射保留。
+func TestRunLabelTemplatesBackfillsResourceID(t *testing.T) {
+	db := newTestDB(t)
+
+	// 模拟存量库：手工落一个不含 resource_id 的旧版 default-host。
+	legacy := &models.LabelTemplate{
+		Name:             "default-host",
+		ResourceCategory: models.ResourceCategoryHost,
+		IsDefault:        true,
+		Mappings: []models.LabelMapping{
+			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+		},
+	}
+	require.NoError(t, db.Create(legacy).Error)
+
+	require.NoError(t, Run(db))
+	require.NoError(t, Run(db)) // 幂等
+
+	var tmpl models.LabelTemplate
+	require.NoError(t, db.Where("name = ?", "default-host").First(&tmpl).Error)
+	resourceIDCount := 0
+	foundApp := false
+	for _, m := range tmpl.Mappings {
+		if m.TargetLabel == "resource_id" {
+			resourceIDCount++
+		}
+		if m.TargetLabel == "app" {
+			foundApp = true
+		}
+	}
+	assert.Equal(t, 1, resourceIDCount, "resource_id 映射应被补齐且不重复")
+	assert.True(t, foundApp, "既有 app 映射应保留")
 }
 
 func TestRunSeedsExportersAndMappings(t *testing.T) {

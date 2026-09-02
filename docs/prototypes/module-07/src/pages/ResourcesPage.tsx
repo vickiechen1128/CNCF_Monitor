@@ -101,7 +101,9 @@ const STATUS_COLOR: Record<ResourceStatus, string> = {
 }
 
 // {v2.22} 决策 47-3：采集状态三态——采集中 / 已下发未采到 / 未监控。
-// 异常驱动展示：仅「已下发未采到」高饱和并附提醒（配置已下发但未采集到数据）。
+// {v2.25} 2026-09-02 口径修订：选中关系取 DB 当前值、不感知 M09 下发时序，
+// 「已下发未采到」含变更未确认下发情形；「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）。
+// 异常驱动展示：仅「已下发未采到」高饱和并附提醒（已选中但未采集到数据）。
 // 数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（聚合调用，禁止逐行查询 TQ-6）。
 const COLLECTION_STATUS_META: Record<CollectionStatus, { label: string; color: string; tooltip: string; anomaly?: boolean }> = {
   up: {
@@ -112,7 +114,7 @@ const COLLECTION_STATUS_META: Record<CollectionStatus, { label: string; color: s
   down: {
     label: '已下发未采到',
     color: '#FF4C3A',
-    tooltip: '配置已下发但未采集到数据，请检查采集器安装与网络连通',
+    tooltip: '已选中但未采集到数据（含变更未确认下发情形），请检查变更下发状态、采集器安装与网络连通',
     anomaly: true,
   },
   unmonitored: {
@@ -1362,7 +1364,7 @@ export default function ResourcesPage() {
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
-          <li>{'{v2.22} 决策 47-3（修订 31-M1）'}：采集状态三态 badge——采集中 / 已下发未采到 / 未监控，只读展示并提供三态筛选。数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合调用，禁止逐行查询 TQ-6）；M07 不直连时序数据、不据此计算 / 不写回，is_monitored 与 status 维度独立。</li>
+          <li>{'{v2.22} 决策 47-3（修订 31-M1）'}：采集状态三态 badge——采集中 / 已下发未采到 / 未监控，只读展示并提供三态筛选。数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合调用，禁止逐行查询 TQ-6）；M07 不直连时序数据、不据此计算 / 不写回，is_monitored 与 status 维度独立。{'{v2.25}'} 口径修订：选中关系不感知 M09 下发时序，「已下发未采到」含变更未确认下发情形，「待采集」细分归 M01 Job 回显。</li>
           <li>采集成功 / 目标状态数据归 M01 / M02：本页展示的是三态聚合结果（采集中 / 已下发未采到 / 未监控）；目标明细（up / down / scrape 详情）在 M02 目标状态页查看，选中关系在 M01 实例选择器查看。</li>
           <li>标签来源口径：模板映射生成 = 「系统」标签；手工添加 = 「用户」标签；CMDB 字段（v0.4+）= 「CMDB」标签。</li>
           <li>列显隐配置为 P1 占位，MVP 版本列表列固定展示，可在「列设置」查看后续规划。</li>
@@ -1488,7 +1490,7 @@ export default function ResourcesPage() {
           </Col>
           <Col flex="auto">
             <Text type="secondary" style={{ fontSize: 12 }}>
-              点击某一状态即在当前 CI 内筛选；「已下发未采到」为异常，需检查采集器安装与网络连通。
+              点击某一状态即在当前 CI 内筛选；「已下发未采到」为异常（含变更未确认下发情形），需检查变更下发状态、采集器安装与网络连通。
             </Text>
           </Col>
         </Row>
