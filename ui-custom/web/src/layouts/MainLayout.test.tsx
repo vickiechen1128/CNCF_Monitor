@@ -217,4 +217,31 @@ describe('MainLayout', () => {
     expect(screen.getByText('admin')).toBeInTheDocument()
     expect(screen.getByText('home-content')).toBeInTheDocument()
   })
+
+  it('renders M08 独立顶级模块「告警收敛与通知管理」及两个二级子项并高亮（/alert-config）', async () => {
+    render(
+      <MemoryRouter initialEntries={['/alert-config']}>
+        <Routes>
+          <Route path="/alert-config" element={<MainLayout>alert-config-content</MainLayout>} />
+          <Route path="/silences" element={<MainLayout>silences-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 顶部一级 tab 用 PRD 模块名「告警收敛与通知管理」，且处于 active
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab).toBeDefined()
+    expect(tab?.className ?? '').toContain('active')
+    // Sider 二级导航同时展示「告警配置 / 静默管理」，且当前路由高亮「告警配置」
+    expect(screen.getByText('告警配置')).toBeInTheDocument()
+    expect(screen.getByText('静默管理')).toBeInTheDocument()
+    await waitFor(() => {
+      const selected = screen
+        .getAllByRole('menuitem')
+        .find((el) => (el.textContent || '').includes('告警配置'))
+      expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    })
+    expect(screen.getByText('alert-config-content')).toBeInTheDocument()
+  })
 })

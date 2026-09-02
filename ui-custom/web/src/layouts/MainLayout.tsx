@@ -1,6 +1,7 @@
 import { Layout, Menu, Tag, Typography } from 'antd'
 import {
   AppstoreOutlined,
+  BellOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
@@ -113,6 +114,15 @@ const MODULES: ModuleDef[] = [
       },
     ],
   },
+  {
+    key: 'alert',
+    label: '告警收敛与通知管理',
+    path: '/alert-config',
+    subItems: [
+      { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
+      { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
+    ],
+  },
 ]
 
 /** 收集 Sider 菜单所有叶子 key（含嵌套一级菜单组的子项） */
@@ -168,6 +178,8 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/metric-library')
   )
     return findModuleByKey('monitoring-strategy')
+  if (locationPath.startsWith('/alert-config') || locationPath.startsWith('/silences'))
+    return findModuleByKey('alert')
   return MODULES[0]
 }
 

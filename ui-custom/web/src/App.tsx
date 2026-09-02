@@ -33,6 +33,14 @@ const TargetStatusPage = lazy(() =>
   import('./pages/query/TargetStatusPage').then((m) => ({ default: m.TargetStatusPage })),
 )
 
+// Module_08 告警收敛与通知管理路由，懒加载
+const AlertConfigPage = lazy(() =>
+  import('./pages/alerts/AlertConfigPage').then((m) => ({ default: m.AlertConfigPage })),
+)
+const SilencesPage = lazy(() =>
+  import('./pages/alerts/SilencesPage').then((m) => ({ default: m.SilencesPage })),
+)
+
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
  * 携带 redirect 便于登录后回跳原页面；有 Token 则渲染受保护的子路由。
@@ -76,6 +84,8 @@ function AppRoutes() {
           <Route path="/config-preview" element={<ConfigPreviewPage />} />
           <Route path="/deployments" element={<DeploymentsPage />} />
           <Route path="/targets" element={<TargetStatusPage />} />
+          <Route path="/alert-config" element={<AlertConfigPage />} />
+          <Route path="/silences" element={<SilencesPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
