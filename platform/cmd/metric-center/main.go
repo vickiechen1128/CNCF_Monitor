@@ -42,6 +42,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
@@ -96,6 +97,12 @@ func main() {
 
 	if err := db.Init(); err != nil {
 		log.Fatalf("failed to initialize database: %v", err)
+	}
+
+	// 决策 48：业务分组字典权威存储落 DB；business_domains.yaml 仅首次启动 seed
+	// （DB 空时导入 + infra 兜底条目），之后 DB 为唯一权威，热加载机制退役。
+	if err := seed.BusinessDomains(db.DB, *businessDomainsFile); err != nil {
+		log.Fatalf("failed to seed business domains: %v", err)
 	}
 
 	// HIGH-1 / T09-06 运行期装配：local 通道经 *DiskApplier 写中心 Prometheus 配置目录
@@ -217,10 +224,10 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	tenant.RegisterRoutes(admin, db.DB)
 	auth.RegisterRoutes(platform, db.DB)
 
-	// Module 07 (T07-18 收口): business-domain dictionary (read-only, yaml preset
-	// + hot reload), resource CRUD / Excel template & import / resource labels /
+	// Module 07 (T07-18 收口): business-domain dictionary (DB-backed, 决策 48),
+	// resource CRUD / Excel template & import / resource labels /
 	// import records / label-templates, all under /api/v2/platform/*.
-	businessStore := resource.NewBusinessDomainStore(*businessDomainsFile)
+	businessStore := resource.NewBusinessDomainStore(db.DB)
 	resource.RegisterRoutes(platform, db.DB, businessStore)
 	label.RegisterRoutes(platform, db.DB)
 

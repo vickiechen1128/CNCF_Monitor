@@ -51,6 +51,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NetworkDomain{},
 		&models.ZoneType{},
 		&models.ResourceStatusMapping{},
+		// 业务分组字典（决策 48）
+		&models.BusinessDomain{},
 		// 用户认证（Module_06 §5.3，tu-01；seed.Run 会写入初始管理员 admin）
 		&models.User{},
 		// 五类资源（M07）
@@ -93,8 +95,10 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	injectSeededAdmin(db, platform)
 	networkdomain.RegisterRoutes(platform, db)
 
-	// M07 收口（T07-18）：业务分组字典（真实 yaml）+ 资源 + 标签模板。
-	bizStore := resource.NewBusinessDomainStore(businessDomainsTestPath)
+	// M07 收口（T07-18）：业务分组字典（DB-backed，决策 48）+ 资源 + 标签模板。
+	// 先按决策 48 seed 业务字典（yaml 首次导入 + infra 兜底），再构造 DB store。
+	require.NoError(t, seed.BusinessDomains(db, businessDomainsTestPath))
+	bizStore := resource.NewBusinessDomainStore(db)
 	resource.RegisterRoutes(platform, db, bizStore)
 	label.RegisterRoutes(platform, db)
 
@@ -817,28 +821,67 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
-// TestEndToEndBusinessDomainsReadOnly 覆盖业务分组字典（验收要点 5）：只读返回
-// 全量条目（MVP 预置两条：authorized-ops / data-innovation-lab），无 POST/PUT/DELETE 写路由。
-func TestEndToEndBusinessDomainsReadOnly(t *testing.T) {
+// TestEndToEndBusinessDomains 覆盖业务分组字典（决策 48）端到端：seed 预置 +
+// GET 只读 + POST 登记 + PUT 受限编辑 + infra 禁停用 + 无 DELETE。
+func TestEndToEndBusinessDomains(t *testing.T) {
 	r, _ := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
 
+	// 1. GET：seed 预置 infra 兜底 + yaml 两条。
 	code, out := c.json("GET", "/api/v2/platform/business-domains", "")
 	require.Equal(t, http.StatusOK, code)
 	bdata := out["data"].(map[string]interface{})
-	assert.Equal(t, float64(2), bdata["total"], "MVP 字典含 authorized-ops / data-innovation-lab")
-	codes := make([]string, 0, 2)
+	assert.Equal(t, float64(3), bdata["total"], "seed 字典含 infra + authorized-ops + data-innovation-lab")
+	codes := make([]string, 0, 3)
 	for _, it := range listItems(out) {
 		codes = append(codes, it.(map[string]interface{})["code"].(string))
 	}
+	assert.Contains(t, codes, "infra")
 	assert.Contains(t, codes, "authorized-ops")
 	assert.Contains(t, codes, "data-innovation-lab")
 
-	// 只读：无写路由 → 404。
-	code, _ = c.json("POST", "/api/v2/platform/business-domains", `{"code":"x","name":"X"}`)
+	// 2. POST 登记：成功 → 200，默认 enabled=true。
+	code, out = c.json("POST", "/api/v2/platform/business-domains", `{"code":"risk-control","name":"风控业务","description":"风控业务域"}`)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "success", out["status"])
+	created := out["data"].(map[string]interface{})
+	assert.Equal(t, "risk-control", created["code"])
+	assert.Equal(t, "风控业务", created["name"])
+	assert.Equal(t, true, created["enabled"], "登记默认启用")
+
+	// 3. POST 编码不规范 → bad_request。
+	code, out = c.json("POST", "/api/v2/platform/business-domains", `{"code":"Bad_Ops","name":"非法编码"}`)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 4. POST 重复 code → bad_request。
+	code, out = c.json("POST", "/api/v2/platform/business-domains", `{"code":"risk-control","name":"重名"}`)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 5. PUT 受限编辑：改名 + 停用 risk-control → 200。
+	code, out = c.json("PUT", "/api/v2/platform/business-domains/risk-control", `{"name":"风控业务(新)","enabled":false}`)
+	require.Equal(t, http.StatusOK, code)
+	updated := out["data"].(map[string]interface{})
+	assert.Equal(t, "风控业务(新)", updated["name"])
+	assert.Equal(t, false, updated["enabled"])
+	assert.Equal(t, "risk-control", updated["code"], "code 不受请求体影响，保持不可改")
+
+	// 6. 停用后不再出现在启用列表，但 GET 全量仍可见。
+	code, out = c.json("GET", "/api/v2/platform/business-domains", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(4), out["data"].(map[string]interface{})["total"], "停用不删除，全量列表仍含 risk-control")
+
+	// 7. PUT infra 停用 → bad_request（决策 48 红线）。
+	code, out = c.json("PUT", "/api/v2/platform/business-domains/infra", `{"enabled":false}`)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 8. PUT 不存在条目 → not_found。
+	code, _ = c.json("PUT", "/api/v2/platform/business-domains/not-exist", `{"name":"X"}`)
 	assert.Equal(t, http.StatusNotFound, code)
-	code, _ = c.json("PUT", "/api/v2/platform/business-domains/infra", `{"name":"Y"}`)
-	assert.Equal(t, http.StatusNotFound, code)
+
+	// 9. 无 DELETE 入口（停用不删除）→ 404。
 	code, _ = c.json("DELETE", "/api/v2/platform/business-domains/infra", "")
 	assert.Equal(t, http.StatusNotFound, code)
 }

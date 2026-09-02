@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 17:51 · commit: `2820f546`
+> 生成时间: 2026-09-02 18:31 · commit: `98c7e2ff`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -515,7 +515,7 @@
 - `func TestEndToEndExcelImport(t *testing.T)`
 - `func TestEndToEndResourceLabels(t *testing.T)`
 - `func TestEndToEndLabelTemplates(t *testing.T)`
-- `func TestEndToEndBusinessDomainsReadOnly(t *testing.T)`
+- `func TestEndToEndBusinessDomains(t *testing.T)`
 - `func TestEndToEndConfigCenterSmoke(t *testing.T)`
 - `func TestBuildReloadFunc(t *testing.T)`
 - `type fakeAMState struct`
@@ -704,25 +704,50 @@
 
 - `type BusinessDomain struct`
 - `type BusinessDomainStore struct`
-- `func NewBusinessDomainStore(path string) *BusinessDomainStore`
+- `func NewBusinessDomainStore(db *gorm.DB) *BusinessDomainStore`
+- `func toBusinessDomain(m models.BusinessDomain) BusinessDomain`
 - `method (*BusinessDomainStore) List() ([]BusinessDomain, error)`
 - `method (*BusinessDomainStore) Lookup(code string) (BusinessDomain, bool, error)`
 - `method (*BusinessDomainStore) EnabledList() ([]BusinessDomain, error)`
 - `method (*BusinessDomainStore) GetEnabledMap() (map[string]BusinessDomain, error)`
-- `method (*BusinessDomainStore) ensureLoadedLocked() error`
-- `method (*BusinessDomainStore) reloadLocked(info os.FileInfo) error`
+- `method (*BusinessDomainStore) Create(m models.BusinessDomain) (BusinessDomain, error)`
+- `method (*BusinessDomainStore) Update(code string, req UpdateBusinessDomainRequest) (BusinessDomain, error)`
 - `func ListBusinessDomains(store *BusinessDomainStore) gin.HandlerFunc`
+
+### `platform/config/resource/business_domain_write.go`
+
+- `type CreateBusinessDomainRequest struct`
+- `type UpdateBusinessDomainRequest struct`
+- `func validateCreateBusinessDomain(req *CreateBusinessDomainRequest) error`
+- `func CreateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
+- `func UpdateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
+
+### `platform/config/resource/business_domain_write_test.go`
+
+- `func mountBusinessRouter(t *testing.T) (*gin.Engine, *BusinessDomainStore)`
+- `func postJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]interface{})`
+- `func putJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]interface{})`
+- `func TestCreateBusinessDomainSuccess(t *testing.T)`
+- `func TestCreateBusinessDomainInvalidCode(t *testing.T)`
+- `func TestCreateBusinessDomainEmptyName(t *testing.T)`
+- `func TestCreateBusinessDomainDuplicate(t *testing.T)`
+- `func TestUpdateBusinessDomainProfile(t *testing.T)`
+- `func TestUpdateBusinessDomainInfraDisableRejected(t *testing.T)`
+- `func TestUpdateBusinessDomainNotFound(t *testing.T)`
+- `func TestUpdateBusinessDomainEmptyNameRejected(t *testing.T)`
 
 ### `platform/config/resource/business_test.go`
 
-- `func writeDomains(t *testing.T, content string) string`
-- `func TestNewBusinessDomainStoreLoadsEntries(t *testing.T)`
-- `func TestInfraFallbackPresent(t *testing.T)`
-- `func TestDisabledEntryExcludedFromEnabledList(t *testing.T)`
-- `func TestHotReloadOnMtimeChange(t *testing.T)`
-- `func TestMissingFileReturnsErrorWithoutPanic(t *testing.T)`
-- `func TestLoadFailureKeepsLastSnapshot(t *testing.T)`
-- `func TestListBusinessDomainsHandler(t *testing.T)`
+- `func testBizFixtures() []models.BusinessDomain`
+- `func openBizTestDB(t *testing.T, fixtures ...models.BusinessDomain) *gorm.DB`
+- `func newBizStore(t *testing.T) *BusinessDomainStore`
+- `func TestStoreListPreservesOrder(t *testing.T)`
+- `func TestStoreLookup(t *testing.T)`
+- `func TestStoreEnabledListAndMapExcludeDisabled(t *testing.T)`
+- `func TestStoreCreateThenVisible(t *testing.T)`
+- `func TestStoreUpdateLimitedFields(t *testing.T)`
+- `func TestListBusinessDomainsHandlerDBBacked(t *testing.T)`
+- `func strPtrT(s string) *string`
 
 ### `platform/config/resource/create.go`
 
@@ -1073,7 +1098,6 @@
 
 ### `platform/config/resource/validate_test.go`
 
-- `func newBizStore(t *testing.T) *BusinessDomainStore`
 - `func alwaysExists(string) bool`
 - `func validHostInput() *ResourceInput`
 - `func TestValidateResourceInput_Host(t *testing.T)`
@@ -1505,6 +1529,25 @@
 - `func TestRunAdminPasswordFromEnv(t *testing.T)`
 - `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
 
+### `platform/db/seed/business_domain.go`
+
+- `type yamlBusinessDomain struct`
+- `func BusinessDomains(db *gorm.DB, path string) error`
+- `func readBusinessDomainsFile(path string) ([]yamlBusinessDomain, error)`
+- `func containsBizCode(entries []yamlBusinessDomain, code string) bool`
+
+### `platform/db/seed/business_domain_test.go`
+
+- `func openBizSeedTestDB(t *testing.T) *gorm.DB`
+- `func writeBizSeedYAML(t *testing.T, content string) string`
+- `func countBizCodes(t *testing.T, db *gorm.DB) []string`
+- `func TestBusinessDomainsSeedsYAMLPlusInfraFallback(t *testing.T)`
+- `func TestBusinessDomainsYAMLAlreadyHasInfra(t *testing.T)`
+- `func TestBusinessDomainsSkipsWhenNonEmpty(t *testing.T)`
+- `func TestBusinessDomainsIdempotent(t *testing.T)`
+- `func TestBusinessDomainsMissingFileFallsBackToInfra(t *testing.T)`
+- `func TestBusinessDomainsNilDBReturnsError(t *testing.T)`
+
 ### `platform/db/seed/exporter.go`
 
 - `func runExporters(db *gorm.DB) error`
@@ -1718,6 +1761,15 @@
 - `func ValidBlackboxTargetProtocols() []BlackboxTargetProtocol`
 - `func ValidBlackboxTargetProtocol(p string) bool`
 - `type BlackboxTarget struct`
+
+### `platform/models/business_domain.go`
+
+- `type BusinessDomain struct`
+
+### `platform/models/business_domain_test.go`
+
+- `func TestBusinessDomainJSONTags(t *testing.T)`
+- `func TestInfraBizCodeConstant(t *testing.T)`
 
 ### `platform/models/business_metric.go`
 

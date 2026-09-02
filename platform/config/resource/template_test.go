@@ -27,7 +27,7 @@ func fakeDomains() ([]DomainOption, error) {
 func setupTemplateRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
-	bizStore := NewBusinessDomainStore(writeDomains(t, sampleYAML))
+	bizStore := newBizStore(t)
 	r := gin.New()
 	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, fakeDomains))
 	return r
