@@ -7,6 +7,7 @@ const listMock = vi.fn()
 const removeMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
+const coverageListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   resourceApi: {
@@ -15,6 +16,13 @@ vi.mock('../../api/resources', () => ({
   },
   businessDomainApi: {
     list: (...args: unknown[]) => businessDomainListMock(...args),
+  },
+}))
+
+// 决策 47-3：采集状态 badge / 三态筛选，测试侧 mock M02 coverage 聚合接口
+vi.mock('../../api/coverage', () => ({
+  coverageApi: {
+    list: (...args: unknown[]) => coverageListMock(...args),
   },
 }))
 
@@ -86,6 +94,7 @@ describe('ResourcesPage', () => {
     removeMock.mockReset()
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
+    coverageListMock.mockReset()
     // 清理「网域/业务」筛选记忆（PRD §11.2），保证用例隔离；jsdom 环境能力不完整时降级跳过
     try {
       window.localStorage.removeItem('metriccenter:resources:filters')
@@ -98,6 +107,10 @@ describe('ResourcesPage', () => {
     })
     businessDomainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     removeMock.mockResolvedValue({ status: 'success', data: { resource_id: 'res-1' } })
+    coverageListMock.mockResolvedValue({
+      status: 'success',
+      data: { items: [], total: 0, summary: { total: 0, collecting: 0, pending_down: 0, not_monitored: 0, coverage_rate: 0 } },
+    })
   })
 
   it('shows table loading while fetching', () => {
@@ -260,5 +273,78 @@ describe('ResourcesPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('res-1'))
     await waitFor(() => expect(listMock).toHaveBeenCalledTimes(2))
+  })
+
+  // 决策 47-3：资源列表「采集状态」三态 badge / 三态筛选（数据源 M02 coverage，Map by resource_id）
+  it('renders collecting badge from coverage merged by resource_id', async () => {
+    coverageListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'res-1', resource_category: 'host', instance_name: 'prod-web-01', monitor_state: 'collecting', health: 'up' },
+          { resource_id: 'res-2', resource_category: 'host', instance_name: 'prod-web-02', monitor_state: 'not_monitored', health: null },
+        ],
+        total: 2,
+        summary: { total: 2, collecting: 1, pending_down: 0, not_monitored: 1, coverage_rate: 0.5 },
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01'), hostItem('res-2', 'prod-web-02')], total: 2, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('prod-web-01')).toBeInTheDocument()
+    expect(await screen.findByText('采集中')).toBeInTheDocument()
+    // 未命中 coverage 的 res-2 归一为「未监控」
+    expect(screen.getByText('未监控')).toBeInTheDocument()
+  })
+
+  it('renders pending_down badge with tooltip and falls back to not_monitored on empty cell', async () => {
+    coverageListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'res-2', resource_category: 'host', instance_name: 'prod-web-02', monitor_state: 'pending_down', health: 'down', last_error: 'connect refused' },
+        ],
+        total: 1,
+        summary: { total: 1, collecting: 0, pending_down: 1, not_monitored: 0, coverage_rate: 0 },
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01'), hostItem('res-2', 'prod-web-02')], total: 2, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('已下发未采到')).toBeInTheDocument()
+    expect(screen.getByText('未监控')).toBeInTheDocument()
+    // pending_down 的 Tooltip 展示 health / last_error
+    fireEvent.mouseEnter(screen.getByText('已下发未采到'))
+    expect(await screen.findByText('connect refused')).toBeInTheDocument()
+  })
+
+  it('filters rows by monitor state from three-state selector', async () => {
+    coverageListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { resource_id: 'res-1', resource_category: 'host', instance_name: 'prod-web-01', monitor_state: 'collecting', health: 'up' },
+          { resource_id: 'res-2', resource_category: 'host', instance_name: 'prod-web-02', monitor_state: 'pending_down', health: 'down' },
+        ],
+        total: 2,
+        summary: { total: 2, collecting: 1, pending_down: 1, not_monitored: 0, coverage_rate: 0.5 },
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01'), hostItem('res-2', 'prod-web-02')], total: 2, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    // 运行状态与采集状态占位均为「全部」，取最后一个（采集状态位于运行状态之后）
+    const placeholders = screen.getAllByText('全部')
+    fireEvent.mouseDown(placeholders[placeholders.length - 1])
+    fireEvent.click(await screen.findByTitle('采集中'))
+    expect(screen.getByText('prod-web-01')).toBeInTheDocument()
+    expect(screen.queryByText('prod-web-02')).toBeNull()
   })
 })

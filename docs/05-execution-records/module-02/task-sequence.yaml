@@ -110,7 +110,7 @@ tasks:
   - task_id: "T02-F1"
     name: "前端 query targets/coverage API client + types + 独立目标状态页（P1 极简列表）"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "fe-m02-status"
     prd: "Module_02 §5.3/§6.1 + api-contract-snapshot.md（契约第一权威，决策 47-4 独立页降 P1）"
     prototype_pages: "docs/prototypes/module-02/（目标状态页相关，P1 极简列表参考）"
