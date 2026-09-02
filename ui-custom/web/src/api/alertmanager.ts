@@ -3,7 +3,7 @@
  * 权威契约：docs/05-execution-records/module-08/api-contract-snapshot.md（第一权威）。
  * 统一返回 `ApiResponse<T>`；错误类型按契约 errorType 由 `request` 抛出 `ApiError`。
  */
-import { apiClient } from './client'
+import { apiClient, isApiError } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
   AlertmanagerConfigVersion,
@@ -11,7 +11,21 @@ import type {
   CreateSilencePayload,
   PaginatedItems,
   Silence,
+  ValidateErrorData,
 } from '../types/alertmanager'
+
+/**
+ * 从 ApiError 中提取行级校验错误 detail（契约 §3：bad_request，error.data 形如 `{ items, note }`）。
+ * 非校验类错误（或 payload 缺 data/items）返回 null，由调用方按通用错误处理。
+ */
+export function readValidateErrors(error: unknown): ValidateErrorData | null {
+  if (!isApiError(error) || error.errorType !== 'bad_request') return null
+  const data = (error as { payload?: { data?: unknown } }).payload?.data
+  if (data && typeof data === 'object' && Array.isArray((data as ValidateErrorData).items)) {
+    return data as ValidateErrorData
+  }
+  return null
+}
 
 /** M08 列表查询参数（snake_case + 分页） */
 export interface AlertmanagerListParams extends Record<string, string | number | undefined> {
