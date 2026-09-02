@@ -23,6 +23,7 @@
 | **D4** | 折叠子菜单 | 原型用父菜单折叠（采集/指标库各含子项） | **不采用**折叠子菜单；一级 tab + Sider 二级拍平（见 §4 导航 IA 与偏离 F1） | **已决策·不采纳**（F1） |
 | **D5** | 规则编辑视图形态 | 原型页内 Segmented「文件挂载（MVP）/ 字段化编辑（v0.3 预览）」 | 生产仅「文件挂载」列表 + RuleMountDrawer；字段化编辑为 v0.3 不入本期 | **已决策·裁剪 v0.3** |
 | **D6** | 「前往配置变更确认」跳转 | 原型 `window.open(M09)` 相对路径 | 生产 toast 文案占位，无真实跳转（M09 未落地） | **已决策·占位**（dev-feedback F-05） |
+| **D47-2** | Job 实例采集状态回显 | 原型「实例采集状态」列 + 详情抽屉聚合（在线 X / 总数 Y · 待采集 Z，决策 47-2） | Job 编辑/详情抽屉（`ExporterInstallationPanel`）实例列表「采集状态」列 + 顶部「实例总数 / 在线 n / 待采集 n」汇总；只读消费 M02 `GET /api/v1/targets`（`useScrapeJobStatus`，不直连 Prometheus、不回持久化）。`down` 实例不计入在线与待采集；变更未确认下发时全部「待采集」 | **已实现**（T01-47-F1，commit `b6157ebc` 前端 / `5c86b6e0` 后端，T01-47-B1） |
 
 > 需用户决策项（详见 §8）：D6 占位是否接受（等 M09）；生产「编辑态网域 disabled」与契约 §5/§10「PUT 允许改网域」（仅冻结域禁止新增实例）是否存在冲突。
 
@@ -41,7 +42,7 @@
 | `src/components/ReviewNote.tsx` / `ReviewNotesContext.tsx` / `ReviewNoteSwitch.tsx` | —（无） | ❌缺失 | 评审说明开关为原型演示态，不进入生产（合理裁剪） |
 | `src/mocks/module-01.ts` / `module-01.test.ts` | `src/api/*.ts` + `src/types/strategy.ts` + `strategyConstants.ts` + `*.test.ts(x)` | ✅对齐 | mock → API client + 类型契约映射（一致） |
 | `src/components/EllipsisText.tsx` / `FilterBar.tsx` / `tablePresets.ts` | 同名 `ui-custom/web/src/components/*` | ✅对齐 | 通用组件已复用 |
-| — | `ui-custom/web/src/pages/strategy/{CollectorTemplatesTab,MappingDrawer,ExporterTemplateDrawer,...}.test.tsx`、`jobStatus.ts`、`rulesYaml.ts` | ➕生产新增 | 生产新增测试与工具文件（原型无对应） |
+| — | `ui-custom/web/src/pages/strategy/{CollectorTemplatesTab,MappingDrawer,ExporterTemplateDrawer,...}.test.tsx`、`jobStatus.ts`、`rulesYaml.ts`、`useScrapeJobStatus.ts` | ➕生产新增 | 生产新增测试与工具文件（原型无对应）。`useScrapeJobStatus` 为 D47-2 采集状态回显 Hook（T01-47-F1，commit `b6157ebc`）。 |
 
 ---
 
@@ -82,6 +83,7 @@
 | 实例选择（原型 Transfer + offline 置灰 + 全选/反选 + 关键字） | InstanceSelector（Table+Checkbox + offline disabled + 全选/反选当前页 + 关键字） | ✅ | 表选替代 Transfer，语义等价（决策29 offline 置灰 ✓） |
 | Exporter 安装确认（勾选确认/取消） | ExporterInstallationPanel（仅编辑态，confirm/unconfirm） | ✅ | 契约 §6.2.5 对齐；新建未保存引导 `Alert`（生产 `!jobId` 分支） |
 | blackbox 拨测模块 + 目标 | blackbox_module Select + blackbox_targets Form.List | ✅ | 等价 |
+| 实例采集状态（决策 47-2：在线 X / 总数 Y · 待采集 Z；每实例 采集中/已下发未采到/待采集 状态） | `ExporterInstallationPanel` 顶部「实例总数 n · 在线 n · 待采集 n」汇总 + 每行 `SCRAPE_STATUS_META`（采集中=绿 / 已下发未采到=橙 Tooltip 显原因 / 待采集=灰）badge；数据源 `useScrapeJobStatus` 只读消费 M02 `GET /api/v1/targets?job=` | **➕ 新增（D47-2，T01-47-F1）** | 生产实例采集状态列与汇总落在安装确认面板（编辑态）；原型放 Job 列表列 + 详情抽屉。仅已确认下发时拉取 targets；未下发时全部「待采集」。 |
 
 ### 3.3 采集器管理（原型 collectors 视图 vs `CollectorTemplatesTab.tsx`）
 
@@ -245,6 +247,7 @@
 - [x] 标签模板列「待配置」橙 Tag 改异常驱动（正常继承不显示，仅 Job 未关联但映射已挂标签时显示）（O1，T01-F14）
 - [x] 采集器登记表单从 Job 表单发起时预填「支持监控类型=当前监控对象类型」（O2，T01-F15）
 - [x] 网域空态引导改指向 M06「网域管理」可点击链接（未纳管→M06，M06 纳管跳 M09）（O3，T01-F16）
+- [x] Job 编辑/详情抽屉实例「采集状态」回显（D47-2，T01-47-F1）：`ExporterInstallationPanel` 顶部在线/待采集汇总 + 每实例三态 badge，`useScrapeJobStatus` 只读消费 M02 `/api/v1/targets`；变更未确认下发时全部待采集
 - [ ] 规则页下发状态「待确认→配置变更确认」占位待 M09（dev F-05）
 - [ ] 全局：`make test-platform` + 前端 `pnpm test` / `pnpm lint` 通过
 - [ ] 全局：后端 run + 前端 dev 200，采集主链路（创建 Job → 选实例 → 安装确认 → preview）走通
