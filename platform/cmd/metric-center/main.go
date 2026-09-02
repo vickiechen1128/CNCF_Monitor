@@ -42,6 +42,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 )
 
@@ -141,6 +142,8 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	apiV1 := r.Group("/api/v1")
 	registerHealthRoutes(apiV1)
 	registerPrometheusProxyRoutes(apiV1, promURL)
+	// M02 采集状态路由（决策 47）：/api/v1/targets（代理）+ /api/v1/health/coverage（聚合）。
+	query.RegisterRoutes(apiV1, promURL)
 
 	apiV2 := r.Group("/api/v2")
 	registerPlatformConfigRoutes(apiV2)

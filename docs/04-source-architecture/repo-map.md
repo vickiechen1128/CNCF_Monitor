@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 10:32 · commit: `31f31352`
+> 生成时间: 2026-09-02 14:09 · commit: `19223b4c`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1845,6 +1845,36 @@
 
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
+
+### `platform/query/routes.go`
+
+- `func RegisterRoutes(g *gin.RouterGroup, promURL *url.URL)`
+
+### `platform/query/targets.go`
+
+- `type promTargetsData struct`
+- `func TargetsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func fetchTargets(ctx context.Context, client *http.Client, promURL *url.URL, state string) (*promTargetsData, error)`
+- `func resolveJob(t map[string]interface{}) string`
+- `func resolveLabel(t map[string]interface{}, key string) string`
+- `func asString(v interface{}) string`
+
+### `platform/query/targets_test.go`
+
+- `func promTargetsFixture() map[string]interface{}`
+- `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream)`
+- `func doTargets(t *testing.T, r *gin.Engine, query string) targetsResp`
+- `type targetsResp struct`
+- `func TestTargetsPassthroughAndEnrichment(t *testing.T)`
+- `func TestTargetsNetworkDomainFallbackDefault(t *testing.T)`
+- `func TestTargetsFilterJob(t *testing.T)`
+- `func TestTargetsFilterNetworkDomain(t *testing.T)`
+- `func TestTargetsFilterHealth(t *testing.T)`
+- `func TestTargetsFilterCombination(t *testing.T)`
+- `func TestTargetsInvalidHealthBadRequest(t *testing.T)`
+- `func TestTargetsFilterNoMatchEmptyActive(t *testing.T)`
+- `type fakeUpstream struct`
+- `func newFakeUpstream(payload map[string]interface{}) fakeUpstream`
 
 ### `platform/strategy/ci-exporter/ci_exporter_test.go`
 
