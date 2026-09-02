@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 14:40 · commit: `b6157ebc`
+> 生成时间: 2026-09-02 14:45 · commit: `f9d7f53f`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2231,6 +2231,14 @@
 - `const loginLogApi`
 - `const tenantAdminApi`
 
+### `ui-custom/web/src/api/alertmanager.ts`
+
+- `interface AlertmanagerListParams`
+- `interface SubmitAlertmanagerConfigInput`
+- `interface RemountConfigInput`
+- `const alertmanagerConfigApi`
+- `const alertmanagerSilenceApi`
+
 ### `ui-custom/web/src/api/ciExporterMappings.ts`
 
 - `interface CITypeExporterMappingListParams`
@@ -2445,6 +2453,21 @@
 ### `ui-custom/web/src/pages/alerts/AlertsPage.tsx`
 
 - `function AlertsPage`
+
+### `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`
+
+- `const CURRENT_USER`
+- `const CONFIG_PREVIEW_PATH`
+- `const configStatusLabel`
+- `const configStatusColor`
+- `const silenceStatusLabel`
+- `const silenceStatusColor`
+- `function shortChecksum`
+- `type ValidateSection`
+- `const validateSectionLabel`
+- `const validateSectionColor`
+- `function partitionValidateErrors`
+- `function formatMatchers`
 
 ### `ui-custom/web/src/pages/collection/CollectionPage.tsx`
 
@@ -2744,6 +2767,19 @@
 - `interface ResetPasswordInput`
 - `interface TenantEditInput`
 - `interface ItemsResult`
+
+### `ui-custom/web/src/types/alertmanager.ts`
+
+- `interface PaginatedItems`
+- `type AlertmanagerConfigStatus`
+- `type SilenceStatus`
+- `interface AlertmanagerConfigVersion`
+- `interface AlertmanagerConfigVersionListItem`
+- `interface ValidateErrorItem`
+- `interface ValidateErrorData`
+- `interface SilenceMatcher`
+- `interface Silence`
+- `interface CreateSilencePayload`
 
 ### `ui-custom/web/src/types/api.ts`
 
