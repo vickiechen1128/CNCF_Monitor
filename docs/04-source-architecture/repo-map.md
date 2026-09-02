@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 16:09 · commit: `f4046960`
+> 生成时间: 2026-09-02 17:51 · commit: `2820f546`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -501,6 +501,7 @@
 ### `platform/cmd/metric-center/main_test.go`
 
 - `func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB)`
+- `func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup)`
 - `type apiClient struct`
 - `method (*apiClient) json(method, path, body string) (int, map[string]interface{})`
 - `method (*apiClient) multipart(path string, fields map[string]string, fileField, fileName string, fileBytes []byte) (int, map[s…`
@@ -1160,6 +1161,7 @@
 - `func TestListDeploymentsFilter(t *testing.T)`
 - `func TestDeploymentHandlerRoutes(t *testing.T)`
 - `func mustJSON(t *testing.T, s string) *strings.Reader`
+- `func adminInjector() gin.HandlerFunc`
 
 ### `platform/configcenter/deployment/handler.go`
 
@@ -1287,6 +1289,7 @@
 - `func TestListDraftsFilterAndPagination(t *testing.T)`
 - `func TestListDraftsEmptyDomainReturnsAll(t *testing.T)`
 - `func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T)`
+- `func adminInjector() gin.HandlerFunc`
 - `func TestDraftHandlerRoutes(t *testing.T)`
 - `func TestDraftHandlerDiscardValidationFailed(t *testing.T)`
 - `func TestDiscardDraftImpactAndRollback(t *testing.T)`
@@ -1441,6 +1444,7 @@
 - `func instanceAddress(ip string, port int) string`
 - `func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, erro…`
 - `func MarshalTargetGroups(groups []TargetGroup) (string, error)`
+- `func EnsureTargetsFilename(name string) error`
 
 ### `platform/configcenter/generator/validate.go`
 
@@ -1612,6 +1616,8 @@
 
 ### `platform/gateway/auth/middleware.go`
 
+- `func CurrentUser(c *gin.Context) *models.User`
+- `func CurrentUsername(c *gin.Context) string`
 - `func AuthMiddleware(svc *Service) gin.HandlerFunc`
 
 ### `platform/gateway/auth/middleware_test.go`
@@ -1680,6 +1686,7 @@
 - `type AlertmanagerConfigVersion struct`
 - `method (AlertmanagerConfigVersion) TableName() string`
 - `method (AlertmanagerConfigVersion) MarshalJSON() ([]byte, error)`
+- `func formatAMTimeOrNil(t *time.Time) *string`
 - `func AlertmanagerConfigChecksum(content string) string`
 - `type SilenceMatcher struct`
 - `type SilenceStatus = string`
@@ -2078,6 +2085,7 @@
 - `func TestCoverageFilterState(t *testing.T)`
 - `func TestCoveragePagination(t *testing.T)`
 - `func TestCoveragePageSizeCap(t *testing.T)`
+- `func TestParseCoveragePageCap(t *testing.T)`
 - `func TestCoverageEmptyResources(t *testing.T)`
 - `func TestCoverageNoUpAggDependency(t *testing.T)`
 
@@ -2667,7 +2675,6 @@
 - `const configStatusColor`
 - `const silenceStatusLabel`
 - `const silenceStatusColor`
-- `function shortChecksum`
 - `type ValidateSection`
 - `const validateSectionLabel`
 - `const validateSectionColor`
@@ -2682,6 +2689,7 @@
 ### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
 - `interface UseSilencesResult`
+- `interface SilenceQuery`
 - `function useSilences`
 
 ### `ui-custom/web/src/pages/collection/CollectionPage.tsx`
@@ -2770,7 +2778,6 @@
 - `interface ArtifactSource`
 - `function fileTextByKey`
 - `function targetsText`
-- `function shortChecksum`
 - `type DiffRowType`
 - `interface DiffRow`
 - `function computeDiff`
@@ -3137,4 +3144,8 @@
 - `interface ExporterInstallationRecord`
 - `interface ScrapeJobInstanceItem`
 - `interface ScrapeJobMappingOverride`
+
+### `ui-custom/web/src/utils/shortChecksum.ts`
+
+- `function shortChecksum`
 

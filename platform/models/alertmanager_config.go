@@ -50,27 +50,40 @@ func (AlertmanagerConfigVersion) TableName() string { return "alertmanager_confi
 
 // MarshalJSON 将版本序列化为契约视图：id 输出为字符串（契约 §6.6 id: string），
 // 仅回显契约声明字段（含完整 content 供详情/当前生效）。deleted_at/updated_at 不回显。
+// review-fix F4：created_at/applied_at 统一输出 RFC3339 秒级文本，与历史版本列表
+// （config/version.go toListItem 用 time.RFC3339）精度对齐，避免详情/当前视图此前用
+// time.Time 原生 RFC3339Nano（纳秒）造成两级精度不一致。
 func (v AlertmanagerConfigVersion) MarshalJSON() ([]byte, error) {
 	type view struct {
 		ID             string  `json:"id"`
 		Content        string  `json:"content"`
 		Checksum       string  `json:"checksum"`
-		AppliedAt      *time.Time `json:"applied_at,omitempty"`
+		AppliedAt      *string `json:"applied_at,omitempty"`
 		AppliedBy      string  `json:"applied_by,omitempty"`
 		Status         string  `json:"status"`
-		CreatedAt      time.Time `json:"created_at"`
+		CreatedAt      string  `json:"created_at"`
 		SourceChangeNo string  `json:"source_change_no,omitempty"`
 	}
 	return json.Marshal(view{
 		ID:             strconv.FormatUint(uint64(v.ID), 10),
 		Content:        v.Content,
 		Checksum:       v.Checksum,
-		AppliedAt:      v.AppliedAt,
+		AppliedAt:      formatAMTimeOrNil(v.AppliedAt),
 		AppliedBy:      v.AppliedBy,
 		Status:         string(v.Status),
-		CreatedAt:      v.CreatedAt,
+		CreatedAt:      v.CreatedAt.Format(time.RFC3339),
 		SourceChangeNo: v.SourceChangeNo,
 	})
+}
+
+// formatAMTimeOrNil 将 *time.Time 输出为 RFC3339 文本；nil 返回 nil（模型层本地助手，
+// 与 config 包 formatTimeOrNil 口径一致；模型不下引 config 避免循环依赖）。
+func formatAMTimeOrNil(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.Format(time.RFC3339)
+	return &s
 }
 
 // AlertmanagerConfigChecksum 计算 alertmanager.yml 内容的 sha256（十六进制小写）。

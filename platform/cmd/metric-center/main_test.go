@@ -21,6 +21,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/configcenter"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 	"github.com/stretchr/testify/assert"
@@ -84,6 +85,12 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	platform := r.Group("/api/v2/platform")
+	// review-fix B：M08/M09 管理写端点挂 auth.RequireAdmin() 后才要求在 gin context
+	// 存在已认证管理员（ContextUserKey）。本集成测试未挂真实 AuthMiddleware（由 seed
+	// 预置 admin 账号），故注入等价中间件把种子管理员解析进 context，放行最小授权。
+	// 注意：资源标签「静态资源 403」等业务断言在处理器内完成、与用户身份无关，注入
+	// 管理员不影响这些既有断言（seed.Run 之后 AdminUsername 恒存在）。
+	injectSeededAdmin(db, platform)
 	networkdomain.RegisterRoutes(platform, db)
 
 	// M07 收口（T07-18）：业务分组字典（真实 yaml）+ 资源 + 标签模板。
@@ -102,6 +109,25 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	amURL := fakeAlertmanager(t).URL
 	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL))
 	return r, db
+}
+
+// injectSeededAdmin 以测试中间件把 seed 预置的初始管理员（seed.AdminUsername）解析
+// 进 gin context 的 ContextUserKey，模拟真实 AuthMiddleware 的最小解析语义，使挂接
+// auth.RequireAdmin() 的管理写端点在集成测试中放行。seed.Run() 已保证管理员恒存在；
+// 查询失败时兜底构造同名管理员对象，避免测试依赖具体 DB 行。
+func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup) {
+	var admin models.User
+	if err := db.Where("username = ?", seed.AdminUsername).First(&admin).Error; err != nil {
+		admin = models.User{
+			Username: seed.AdminUsername,
+			Role:     models.UserRoleAdmin,
+			Status:   models.UserStatusActive,
+		}
+	}
+	g.Use(func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, &admin)
+		c.Next()
+	})
 }
 
 // apiClient 封装对测试路由器的 HTTP 调用与统一响应信封解析。

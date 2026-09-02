@@ -77,11 +77,21 @@ func runCheckConfig(content string) ([]models.ValidateErrorItem, error) {
 	if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
 		return nil, err
 	}
-	output, _ := runAmtoolCheckCmd(amtool, cfgPath)
-	if isSuccess(output) && err == nil {
+	output, cmdErr := runAmtoolCheckCmd(amtool, cfgPath)
+	switch {
+	case isSuccess(output):
+		// SUCCESS 标记且无工具错误 → 校验通过。
 		return nil, nil
+	case cmdErr != nil && !strings.Contains(output, "FAILED"):
+		// review-fix F2：amtool 自身异常终止（工具崩溃/被信号杀死/超时被杀）且输出无
+		// FAILED 校验标记 → 归类为「工具不可用」而非普通行级配置错误：记录可观测失败 +
+		// dev-feedback，由上层按校验失败（不落库）处理，避免把工具崩溃误判为配置错误。
+		msg := amtoolUnavailableMsg + "：" + cmdErr.Error()
+		return []models.ValidateErrorItem{{File: "alertmanager.yml", Line: 0, Message: msg}}, errors.New(msg)
+	default:
+		// 正常校验失败：解析输出为行级错误（含 SUCCESS 缺失但输出带 FAILED 的情形）。
+		return parseCheckErrors(output), nil
 	}
-	return parseCheckErrors(output), nil
 }
 
 // isSuccess 依据 amtool check-config 输出中的 SUCCESS 标记判定校验通过。

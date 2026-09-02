@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -564,6 +565,9 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	g := r.Group("/api/v2/platform")
+	// review-fix B：RegisterRoutes 为写端点（retry/rollback）挂了 RequireAdmin；
+	// 测试未走 AuthMiddleware，注入已认证管理员身份以放行写端点。
+	g.Use(adminInjector())
 	RegisterRoutes(g, db)
 
 	w := httptest.NewRecorder()
@@ -588,4 +592,19 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 func mustJSON(t *testing.T, s string) *strings.Reader {
 	t.Helper()
 	return strings.NewReader(s)
+}
+
+// adminInjector 以测试中间件形式把已认证的管理员注入 gin context（equivalent 于
+// AuthMiddleware 的 ContextUserKey 注入）。本包 handler 测试直接挂 RegisterRoutes，
+// 未走真实 AuthMiddleware，而 review-fix B 为写端点挂了 auth.RequireAdmin()——
+// 缺此注入时写端点会回 403。测试态统一复用真实的管理员身份。
+func adminInjector() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, &models.User{
+			Username: "admin",
+			Role:     models.UserRoleAdmin,
+			Status:   models.UserStatusActive,
+		})
+		c.Next()
+	}
 }

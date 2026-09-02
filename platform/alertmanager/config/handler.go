@@ -63,13 +63,14 @@ func SubmitHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		v, err := Submit(db, req.Content, req.UploadedBy)
-		if err != nil {
-			respondSubmitError(c, err)
-			return
-		}
-		// 触发变更检测失败但挂载仍成功：仅记录日志不阻断。
+		// review-fix A：errChangeTrigger 时配置已校验并落库留痕（v 非 nil），仅触发
+		// M09 变更检测失败——须在通用 err 分支之前命中，记录日志并正常返回版本（不报
+		// 500，契约「校验失败不阻断挂载」；稳态 watcher 下一轮会兜底重试检测）。
 		if errors.Is(err, errChangeTrigger) {
 			log.Printf("[alertmanager-config] persist ok but trigger change detect failed: %v", err)
+		} else if err != nil {
+			respondSubmitError(c, err)
+			return
 		}
 		response.OK(c, v)
 	}
@@ -160,12 +161,13 @@ func RemountHandler(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		newV, err := Remount(db, old.Content, req.UploadedBy)
-		if err != nil {
-			respondSubmitError(c, err)
-			return
-		}
+		// review-fix A：errChangeTrigger 时内容已校验并重新落库留痕（newV 非 nil），
+		// 先于通用 err 分支命中，记录日志正常返回新版本（不报 500）。
 		if errors.Is(err, errChangeTrigger) {
 			log.Printf("[alertmanager-config] remount persist ok but trigger change detect failed: %v", err)
+		} else if err != nil {
+			respondSubmitError(c, err)
+			return
 		}
 		response.OK(c, newV)
 	}

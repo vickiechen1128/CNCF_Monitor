@@ -570,9 +570,18 @@ func TestConfirmAndCancelInstallation(t *testing.T) {
 	require.Len(t, out.Data.Items, 1)
 	assert.Equal(t, "confirmed", out.Data.Items[0].Status)
 
-	// confirmed_by 非法 → bad_request。
+	// review-fix C：confirmed_by 不再信任客户端传参（伪鉴权移除）——请求体携带伪造
+	// confirmed_by 会被忽略，操作人从认证上下文当前用户派生；本测试无认证用户，回落 "unknown"。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs/"+jobID+"/instances/host-1/confirm", `{"confirmed_by":"evil"}`)
-	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
+	var cfm struct {
+		Data struct {
+			ConfirmedBy string `json:"confirmed_by"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &cfm))
+	assert.NotEqual(t, "evil", cfm.Data.ConfirmedBy, "客户端伪造 confirmed_by 须被忽略")
+	assert.Equal(t, "unknown", cfm.Data.ConfirmedBy, "无认证用户时回落 unknown")
 
 	// 取消确认。
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+jobID+"/instances/host-1/confirm", "")

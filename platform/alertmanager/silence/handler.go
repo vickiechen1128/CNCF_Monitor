@@ -33,6 +33,8 @@ func queryPage(c *gin.Context) (page, pageSize int) {
 
 // ListHandler 处理 GET /api/v2/platform/alertmanager/silences
 // （契约 §4：分页信封，缺省仅返回活跃静默；空结果返回 []）。
+// review-fix E：由 svc.List 全量拉取 AM 静默后在内存分页（MVP 边界，见 Proxy.ListSilences），
+// active 过滤仅在服务层完成，未前置到 AM 侧——静默量日后增长时需升级为 AM filter/limit。
 func ListHandler(svc *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		activeOnly := strings.ToLower(c.DefaultQuery("active", "true")) != "false"

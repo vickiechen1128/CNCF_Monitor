@@ -91,6 +91,11 @@ func NewProxy(baseURL string) (*Proxy, error) {
 }
 
 // ListSilences 拉取 Alertmanager 全部静默（含 active/pending/expired）。
+//
+// review-fix E（保守处理）：MVP 采用「全量拉取 + 内存分页」，不做 AM 侧 filter/limit。
+// 静默量大时内存与网络开销线性增长，属已声明的 MVP 边界（golang-review MEDIUM）。
+// 演进方向为向 AM /api/v1/silences 传 filter/limit 参数或改服务端分页；短期可在
+// activeOnly 过滤前置到解码阶段减少内存滞留。MVP 单租户静默规模可控，暂不升级。
 func (p *Proxy) ListSilences(ctx context.Context) ([]amSilence, error) {
 	endpoint := p.baseURL + "/api/v1/silences"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

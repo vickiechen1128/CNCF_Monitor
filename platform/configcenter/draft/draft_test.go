@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -308,7 +309,8 @@ func TestGenerateDraftAlertmanagerChangeItem(t *testing.T) {
 	}
 	require.Len(t, amItems, 1, "管理域须派生告警收敛配置变更项")
 	assert.Equal(t, string(models.ChangeItemTypeAdd), amItems[0].Type)
-	assert.Equal(t, string(models.RiskLow), amItems[0].Risk)
+	// review-fix F5：告警收敛配置变更影响收敛链路，risk 为 high（契约 §8）。
+	assert.Equal(t, string(models.RiskHigh), amItems[0].Risk)
 	assert.Equal(t, []string{string(models.AffectedFileAlertmanager)}, amItems[0].AffectedFiles)
 }
 
@@ -508,6 +510,21 @@ func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T) {
 
 // ==================== HTTP layer ====================
 
+// adminInjector 以测试中间件形式把已认证的管理员注入 gin context（equivalent 于
+// AuthMiddleware 的 ContextUserKey 注入）。本包 handler 测试直接挂 RegisterRoutes，
+// 未走真实 AuthMiddleware，而决策 44 最小授权（review-fix B）为管理写端点挂了
+// auth.RequireAdmin()——缺此注入时写端点会回 403。测试态统一复用真实的管理员身份。
+func adminInjector() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, &models.User{
+			Username: "admin",
+			Role:     models.UserRoleAdmin,
+			Status:   models.UserStatusActive,
+		})
+		c.Next()
+	}
+}
+
 func TestDraftHandlerRoutes(t *testing.T) {
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "edge-h", true)
@@ -516,6 +533,7 @@ func TestDraftHandlerRoutes(t *testing.T) {
 
 	r := newGin()
 	g := r.Group("/api/v2/platform")
+	g.Use(adminInjector())
 	RegisterRoutes(g, db)
 
 	// POST 生成。
@@ -560,6 +578,7 @@ func TestDraftHandlerDiscardValidationFailed(t *testing.T) {
 
 	r := newGin()
 	g := r.Group("/api/v2/platform")
+	g.Use(adminInjector())
 	RegisterRoutes(g, db)
 
 	// 直接写入一张 validation_status=failed 的 pending 草稿。

@@ -62,7 +62,9 @@ func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.Co
 		Target:        string(models.ChangeItemTargetAlertmanagerCfg),
 		Description:   verb + " alertmanager.yml",
 		AffectedFiles: []string{string(models.AffectedFileAlertmanager)},
-		Risk:          string(models.RiskLow),
+		// review-fix F5：修正为 RiskHigh。告警收敛配置变更影响收敛链路（契约 §8 /
+		// PRD §3.4 高/低危分级），此前写死 RiskLow 与函数注释「一律 high」矛盾。
+		Risk: string(models.RiskHigh),
 	}}
 }
 

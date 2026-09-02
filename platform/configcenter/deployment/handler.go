@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -39,11 +40,18 @@ func queryPage(c *gin.Context) (page, pageSize int) {
 //   - POST /deployments/:deployment_id/retry      重试（仅 local + 原记录 failed）
 //   - POST /deployments/:config_version_id/rollback 回滚（目标版本存在且同网域 local）
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
+	// 读列表端点保留在平台根组（仅全局认证 au-02）。
 	platform.GET("/config-versions", ListVersionsHandler(db))
-	platform.GET("/config-versions/:id", GetVersionHandler(db))
 	platform.GET("/deployments", ListDeploymentsHandler(db))
-	platform.POST("/deployments/:id/retry", RetryDeploymentHandler(db))
-	platform.POST("/deployments/:id/rollback", RollbackDeploymentHandler(db))
+
+	// 写端点（retry/rollback 会确认下发 reload 中心配置 / 回滚）与版本详情端点（返回完整
+	// 配置产物，含凭据明文）统一挂 RequireAdmin 最小授权门（security-review B/C）。
+	// 严格复用 main.go /users /tenants 的挂法。
+	admin := platform.Group("")
+	admin.Use(auth.RequireAdmin())
+	admin.GET("/config-versions/:id", GetVersionHandler(db))
+	admin.POST("/deployments/:id/retry", RetryDeploymentHandler(db))
+	admin.POST("/deployments/:id/rollback", RollbackDeploymentHandler(db))
 }
 
 // ListVersionsHandler 处理 GET /api/v2/platform/config-versions。
@@ -93,14 +101,8 @@ func ListDeploymentsHandler(db *gorm.DB) gin.HandlerFunc {
 // RetryDeploymentHandler 处理 POST /api/v2/platform/deployments/{deployment_id}/retry。
 func RetryDeploymentHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct {
-			TriggeredBy string `json:"triggered_by" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
-			return
-		}
-		dep, err := Retry(db, c.Param("id"), req.TriggeredBy, DefaultApplier)
+		// review-fix C：triggered_by 取自动态认证上下文当前用户，不信任客户端传参。
+		dep, err := Retry(db, c.Param("id"), auth.CurrentUsername(c), DefaultApplier)
 		if err != nil {
 			respondDeploymentError(c, err)
 			return
@@ -112,14 +114,8 @@ func RetryDeploymentHandler(db *gorm.DB) gin.HandlerFunc {
 // RollbackDeploymentHandler 处理 POST /api/v2/platform/deployments/{config_version_id}/rollback。
 func RollbackDeploymentHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct {
-			TriggeredBy string `json:"triggered_by" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
-			return
-		}
-		dep, err := Rollback(db, c.Param("id"), req.TriggeredBy, DefaultApplier)
+		// review-fix C：triggered_by 取自动态认证上下文当前用户，不信任客户端传参。
+		dep, err := Rollback(db, c.Param("id"), auth.CurrentUsername(c), DefaultApplier)
 		if err != nil {
 			respondDeploymentError(c, err)
 			return

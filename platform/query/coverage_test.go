@@ -295,12 +295,22 @@ func TestCoveragePagination(t *testing.T) {
 }
 
 func TestCoveragePageSizeCap(t *testing.T) {
-	// page_size 上限 1000 钳制逻辑：传 2000 回退 500（元素不足，全部返回）。
+	// page_size 上限 maxCoveragePageSize=1000 钳制。本场景仅 5 个资源（不足上限），
+	// 传 2000 也被钳到 1000，故全部返回；精确钳制边界见 TestParseCoveragePageCap。
 	r, srv := setupCoverageScenario(t)
 	defer srv.Close()
 	out := doCoverage(t, r, "?page_size=2000")
 	require.Equal(t, 5, len(out.Data.Items))
 	require.Equal(t, 5, out.Data.Total)
+}
+
+func TestParseCoveragePageCap(t *testing.T) {
+	// review-fix F1：对 page_size 钳制上限做精确断言（避免仅依赖元素不足而掩盖钳制逻辑）。
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health/coverage?page_size=1500", nil)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = req
+	_, size := parseCoveragePage(c)
+	require.Equal(t, maxCoveragePageSize, size, "page_size=1500 应钳制到上限 1000")
 }
 
 func TestCoverageEmptyResources(t *testing.T) {

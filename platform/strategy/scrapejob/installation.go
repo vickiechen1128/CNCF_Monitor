@@ -2,10 +2,12 @@ package scrapejob
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -59,7 +61,8 @@ func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// confirmRequest 是安装确认的请求体（confirmed_by 必填固定 platform_admin，MVP 无鉴权）。
+// confirmRequest 是安装确认的请求体。confirmed_by 不再接受客户端传参（review-fix C）：
+// 由 handler 从认证上下文当前用户派生，字段保留仅为兼容旧客户端传参（被忽略）。
 // 决策 47-1：confirmation 已降级为「可选登记 / 人工背书」，非生成闸门、不阻断 target。
 type confirmRequest struct {
 	ConfirmedBy string `json:"confirmed_by"`
@@ -90,9 +93,11 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 			response.BadRequest(c, fmt.Errorf("invalid confirmation payload: %w", err))
 			return
 		}
-		if req.ConfirmedBy != "platform_admin" {
-			response.BadRequest(c, fmt.Errorf("confirmed_by 固定为 platform_admin（MVP 无鉴权）"))
-			return
+		// review-fix C：confirmed_by 取自动态认证上下文当前用户，不信任客户端传参（伪鉴权）。
+		// 取不到当前用户（理论上鉴权中间件保证恒有）时回落 "unknown" 并记日志兜底。
+		confirmedBy := auth.CurrentUsername(c)
+		if auth.CurrentUser(c) == nil {
+			log.Printf("[scrapejob] confirm installation: 认证上下文无当前用户，confirmed_by 回落 unknown")
 		}
 
 		var job models.ScrapeJob
@@ -134,7 +139,7 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 			ScrapeJobID:        id,
 			ExporterTemplateID: job.ExporterTemplateID,
 			Status:             models.InstallationStatusConfirmed,
-			ConfirmedBy:        req.ConfirmedBy,
+			ConfirmedBy:        confirmedBy,
 			ConfirmedAt:        &now,
 			Notes:              req.Notes,
 			ActualPort:         req.ActualPort,

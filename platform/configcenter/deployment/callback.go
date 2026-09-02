@@ -69,9 +69,12 @@ func writebackAlertmanagerApplied(db *gorm.DB, version *models.ConfigVersion, at
 	}
 	cfg.AppliedAt = &at
 	cfg.SourceChangeNo = version.ChangeNo
-	if err := db.Model(&cfg).
-		Update("applied_at", cfg.AppliedAt).
-		Update("source_change_no", cfg.SourceChangeNo).Error; err != nil {
+	// review-fix D：applied_at/source_change_no 用单条批量列更新（Updates(map)），
+	// 原子且少一次往返，消除链式 Update().Update() 两条非原子 SQL 的并发打断窗口。
+	if err := db.Model(&cfg).Updates(map[string]interface{}{
+		"applied_at":      cfg.AppliedAt,
+		"source_change_no": cfg.SourceChangeNo,
+	}).Error; err != nil {
 		return fmt.Errorf("writeback alertmanager applied: %w", err)
 	}
 	return nil

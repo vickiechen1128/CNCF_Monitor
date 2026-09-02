@@ -146,8 +146,12 @@ func main() {
 // setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
 func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	r := gin.Default()
-	// A2 同源部署下 CORS 中间件实际不生效（前后端同域），保留仅为兼容 S2 拆分前
-	// 的直连场景与开发态跨端口调试；演进到 S2（nginx 反代）后应移除或收紧为白名单。
+	// review-fix F7（安全 review LOW，保守处理——不变更 CORS 行为）：
+	// A2 同源部署下 CORS 中间件实际不生效（前后端同域）；保留 cors.Default()（全放开）
+	// 仅为兼容开发态跨端口调试（前端 dev :5173 → 后端 :8080 的预检/跨源读），移除或收紧
+	// 会直接破坏本地联调。配合 Bearer 令牌 + 服务端会话（非 Cookie），浏览器跨源不会自动
+	// 携带凭据，实际 CSRF 触发面低。产品演进到 S2（nginx 反代）后必须收紧为来源白名单
+	// 或移除本中间件（见 security-review-round1.md LOW「CORS 全放开」）。
 	r.Use(cors.Default())
 
 	// au-02 全局认证中间件（交集：POST /api/v2/platform/auth/login、

@@ -344,6 +344,11 @@ func (d *DiskApplier) writeTargets(files map[string]string) error {
 		return err
 	}
 	for name, content := range files {
+		// review-fix F6：落盘前二次断言纯文件名（写入点复用 map key 的防御纵深，
+		// 防 DB/下游脏 key 含 .. / 路径分隔符 越界写文件）。
+		if err := generator.EnsureTargetsFilename(name); err != nil {
+			return err
+		}
 		tmp, err := os.CreateTemp(targetsDir, ".tmp-*")
 		if err != nil {
 			return err

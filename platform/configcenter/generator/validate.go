@@ -202,6 +202,10 @@ func runPromtoolCheck(ca *ConfigArtifacts) error {
 			return err
 		}
 		for name, content := range ca.TargetsFiles {
+			// review-fix F6：落盘前二次断言纯文件名（写入点复用 map key 的防御纵深）。
+			if err := EnsureTargetsFilename(name); err != nil {
+				return err
+			}
 			if err := os.WriteFile(filepath.Join(targetsDir, name), []byte(content), 0o644); err != nil {
 				return err
 			}

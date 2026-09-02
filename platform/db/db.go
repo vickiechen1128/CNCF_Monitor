@@ -87,6 +87,8 @@ func AutoMigrate() error {
 		&models.ConfigDeployment{},
 		&models.ConfigChangeBaseline{},
 		&models.EdgeAgent{},
+		// 告警收敛与通知管理（Module_08，决策 59/60 alertmanager.yml 挂载留痕）
+		&models.AlertmanagerConfigVersion{},
 		// 预留
 		&models.BusinessMetric{},
 	)
