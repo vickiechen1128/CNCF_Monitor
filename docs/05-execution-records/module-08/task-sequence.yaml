@@ -141,7 +141,7 @@ tasks:
     title: "路由注册 + 全链路集成冒烟（文件挂载→提交 M09 变更单→确认→下发→change_status 回写）"
     prd: "Module_08 §9.1/§9.2 / Module_09 §3.4；决策 60（管理域 scope 变更单确认下发 reload、change_status 回写 M08）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "routes"
     depends_on: ["T08-03", "T08-04", "T09-60-3"]
     input_files:

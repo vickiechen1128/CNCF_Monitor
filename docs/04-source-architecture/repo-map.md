@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 15:34 · commit: `325a5bec`
+> 生成时间: 2026-09-02 16:09 · commit: `f4046960`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -358,6 +358,10 @@
 - `func TestRemountEndpointNotFound(t *testing.T)`
 - `func TestRemountEndpointValidationFailsNoPersist(t *testing.T)`
 
+### `platform/alertmanager/register.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error`
+
 ### `platform/alertmanager/silence/authorize.go`
 
 - `func AuthorizeMatchers(scope *models.AuthorizedMatcherScope, matchers []models.SilenceMatcher) error`
@@ -470,7 +474,7 @@
 - `func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error)`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
-- `func registerPlatformConfigRoutes(g *gin.RouterGroup)`
+- `func registerPlatformConfigRoutes(g *gin.RouterGroup) error`
 - `func registerSPA(r *gin.Engine, dir string) error`
 - `func healthHandler(c *gin.Context)`
 - `func healthDBHandler(c *gin.Context)`
@@ -513,6 +517,11 @@
 - `func TestEndToEndBusinessDomainsReadOnly(t *testing.T)`
 - `func TestEndToEndConfigCenterSmoke(t *testing.T)`
 - `func TestBuildReloadFunc(t *testing.T)`
+- `type fakeAMState struct`
+- `func newFakeAMState() *fakeAMState`
+- `func fakeAlertmanager(t *testing.T) *httptest.Server`
+- `func writeAMJSON(w http.ResponseWriter, v interface{})`
+- `func TestEndToEndAlertmanagerSmoke(t *testing.T)`
 
 ### `platform/cmd/metric-center/route_probe_test.go`
 
@@ -1114,6 +1123,7 @@
 - `func writebackChangeStatus(db *gorm.DB, domainID string) error`
 - `func writebackRuleChangeStatus(db *gorm.DB) error`
 - `func writebackChangeStatuses(db *gorm.DB, domainID string) error`
+- `func writebackAlertmanagerApplied(db *gorm.DB, version *models.ConfigVersion, at time.Time) error`
 
 ### `platform/configcenter/deployment/deployment_test.go`
 
@@ -1141,6 +1151,11 @@
 - `func TestWritebackChangeStatusFiltersDraftReady(t *testing.T)`
 - `func TestWritebackRuleChangeStatus(t *testing.T)`
 - `func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T)`
+- `func seedAlertmanagerApplied(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion`
+- `func TestDiskApplierWritesAlertmanagerReloadsSeparately(t *testing.T)`
+- `func TestDiskApplierSkipsAMWhenNoArtifact(t *testing.T)`
+- `func TestDispatchLocalWithAlertmanagerWritesBackApplied(t *testing.T)`
+- `func TestDispatchWithoutAlertmanagerSkipsAppliedWriteback(t *testing.T)`
 - `func TestListAndGetVersion(t *testing.T)`
 - `func TestListDeploymentsFilter(t *testing.T)`
 - `func TestDeploymentHandlerRoutes(t *testing.T)`
@@ -1184,10 +1199,12 @@
 - `func artifactsFromVersion(v *models.ConfigVersion) (*generator.ConfigArtifacts, error)`
 - `type DiskApplier struct`
 - `method (*DiskApplier) Apply(ca *generator.ConfigArtifacts) error`
+- `method (*DiskApplier) writeAlertmanagerAndReload(ca *generator.ConfigArtifacts) error`
 - `method (*DiskApplier) writeStructural(ca *generator.ConfigArtifacts) error`
 - `method (*DiskApplier) writeTargets(files map[string]string) error`
 - `func structuralChanged(ca *generator.ConfigArtifacts, dir string) (bool, error)`
 - `func writeFile(path, content string) error`
+- `func writeFileAtomic(path, content string) error`
 
 ### `platform/configcenter/domain/onboard.go`
 
@@ -1231,6 +1248,7 @@
 ### `platform/configcenter/draft/change_items.go`
 
 - `func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *mo…`
+- `func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
 - `func buildInitialChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule) []models.ConfigChangeItem`
 - `func diffJobItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Config…`
 - `func diffRuleItems(newRulesYML, baseRulesYML string) []models.ConfigChangeItem`
@@ -1257,6 +1275,7 @@
 - `func TestGenerateDraftPropagatesLoadFailure(t *testing.T)`
 - `func TestGenerateDraftDiffRemoveOnDisableJob(t *testing.T)`
 - `func TestGenerateDraftNoDiffReturnsErrNoChanges(t *testing.T)`
+- `func TestGenerateDraftAlertmanagerChangeItem(t *testing.T)`
 - `func TestGenerateDraftBackfillsSourceVersion(t *testing.T)`
 - `func TestConfirmDraftKeepsSourceVersion(t *testing.T)`
 - `func TestConfirmDraftRejectsUnpassedValidation(t *testing.T)`
@@ -1348,6 +1367,7 @@
 - `func LoadDefaultTemplate(db *gorm.DB, category models.ResourceCategory) (*models.LabelTemplate, error)`
 - `func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error)`
 - `func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error)`
+- `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
 - `type ErrNotFound struct`
 - `method (ErrNotFound) Error() string`
 
@@ -1385,6 +1405,9 @@
 - `func TestSourceDataVersionAndNeedsRegeneration(t *testing.T)`
 - `func TestExpandLabelTemplateComposite(t *testing.T)`
 - `func TestMarshalTargetGroupsJSON(t *testing.T)`
+- `func TestAssembleAlertmanagerYML(t *testing.T)`
+- `func TestLoadLatestAlertmanagerConfigContent(t *testing.T)`
+- `func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T)`
 
 ### `platform/configcenter/generator/labels.go`
 
@@ -1403,7 +1426,7 @@
 - `type fileSDConf struct`
 - `type relabelConf struct`
 - `type JobBuild struct`
-- `func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule) (*ConfigArtifacts, error)`
+- `func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML string) (*…`
 - `func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error)`
 - `func orDefault(v, d string) string`
 - `type ruleGroupsFile struct`
@@ -1429,6 +1452,7 @@
 - `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string)`
 - `func runPromtoolCheck(ca *ConfigArtifacts) error`
 - `func runBlackboxCheck(blackboxYAML string) error`
+- `func runAmmtoolCheck(alertmanagerYAML string) error`
 
 ### `platform/configcenter/register.go`
 

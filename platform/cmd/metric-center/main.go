@@ -33,6 +33,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
 	"github.com/metriccenter/metriccenter/platform/admin/tenant"
 	"github.com/metriccenter/metriccenter/platform/admin/user"
+	"github.com/metriccenter/metriccenter/platform/alertmanager"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
@@ -52,6 +53,9 @@ var (
 	businessDomainsFile     = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
 	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
 	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
+	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（静默代理 + AM 配置下发 reload 目标，M08）")
+	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录（决策 60，写 alertmanager.yml）；为空时复用 config.dir")
+	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址（如 http://localhost:9093/-/reload）；为空时默认 alertmanager.url 的 /-/reload")
 	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
 	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 120*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
@@ -97,9 +101,21 @@ func main() {
 	// HIGH-1 / T09-06 运行期装配：local 通道经 *DiskApplier 写中心 Prometheus 配置目录
 	// 并 trigger reload；未配置 reload 地址时走 buildReloadFunc 如实报错（不伪成功）。
 	// 默认 noopApplier 仅服务于内存/测试环境（集成测试不调用 main，仍为 no-op）。
+	// 决策 60（T09-60-3）：alertmanager.yml 单独写中心 Alertmanager 配置目录（config.am-dir，
+	// 缺省复用 config.dir）并触发独立 AM reload（config.am-reload-url，缺省 alertmanager.url /-/reload）。
+	amReloadURL := *configAMReloadURL
+	if amReloadURL == "" {
+		amReloadURL = strings.TrimRight(*alertmanagerURL, "/") + "/-/reload"
+	}
+	amDir := *configAMDir
+	if amDir == "" {
+		amDir = *configDir
+	}
 	deployment.DefaultApplier = &deployment.DiskApplier{
-		Dir:    *configDir,
-		Reload: buildReloadFunc(*configReloadURL),
+		Dir:      *configDir,
+		AMDir:    amDir,
+		Reload:   buildReloadFunc(*configReloadURL),
+		AMReload: buildReloadFunc(amReloadURL),
 	}
 
 	// M09 §3.3.3：启动自适应配置变更检测轮询（方案 A，闭环补缺），随 ctx 优雅退出。
@@ -146,7 +162,9 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	query.RegisterRoutes(apiV1, db.DB, promURL)
 
 	apiV2 := r.Group("/api/v2")
-	registerPlatformConfigRoutes(apiV2)
+	if err := registerPlatformConfigRoutes(apiV2); err != nil {
+		return nil, err
+	}
 
 	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
 	if staticDir != "" {
@@ -173,7 +191,7 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 	}
 }
 
-func registerPlatformConfigRoutes(g *gin.RouterGroup) {
+func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	platform := g.Group("/platform")
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
@@ -211,8 +229,15 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
 	configcenter.RegisterRoutes(platform, db.DB)
 
+	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
+	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
+	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL); err != nil {
+		return fmt.Errorf("register alertmanager routes: %w", err)
+	}
+
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
 	platform.GET("/dashboard/summary", dashboard.SummaryHandler(db.DB))
+	return nil
 }
 
 // registerSPA 在 Gin 上托管前端构建产物，实现 UI 与 API 同源（部署拓扑方案 A2，

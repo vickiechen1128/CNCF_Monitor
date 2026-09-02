@@ -483,7 +483,7 @@ tasks:
     title: "configgen 纳入 alertmanager.yml（管理域 default scope 产物，不扇出不进 agent_pull 包）"
     prd: "Module_09 v1.52 §3.3/§3.4/§3.11；决策 60（内容由 M08 生成，M09 scope 建模为管理域 default；不按域扇出、不进 agent_pull 包）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "configgen-alertmanager"
     depends_on: ["T08-01"]   # M08 AlertmanagerConfigVersion 模型落地
     input_files:
@@ -514,7 +514,7 @@ tasks:
     title: "ConfigDraft change_items/affected_files 扩展 + ConfigDraftDetail 增 alertmanager_yml + 变更检测"
     prd: "Module_09 v1.52 §3.4/§5.4/§9.2；决策 60（alertmanager.yml 变更生成管理域变更单，变更对象/受影响文件枚举含 alertmanager）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "draft-alertmanager"
     depends_on: ["T09-60-1"]
     input_files:
@@ -543,7 +543,7 @@ tasks:
     title: "下发写 AM 配置路径 + reload + change_status 回写 M08（applied）"
     prd: "Module_09 v1.52 §3.5/§9.2；Module_08 v1.7 §5.1（决策 60：人工确认后 M09 写中心 AM 配置路径并触发 reload → 回写 change_status）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "deployment-alertmanager"
     depends_on: ["T09-60-2"]
     input_files:

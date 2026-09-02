@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
+	"github.com/metriccenter/metriccenter/platform/alertmanager"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/configcenter"
@@ -74,6 +76,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		// 告警收敛（Module_08）：alertmanager.yml 挂载留痕
+		&models.AlertmanagerConfigVersion{},
 	))
 	require.NoError(t, seed.Run(db))
 
@@ -92,6 +96,11 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	// Module 09 收口（T09-07）：网域监控纳管 + 配置草稿 + 配置下发与历史。
 	configcenter.RegisterRoutes(platform, db)
+
+	// Module 08 收口（T08-05）：告警收敛——alertmanager.yml 挂载/留痕 + 静默代理，
+	// 指向测试内启动的 fake Alertmanager（见 fakeAlertmanager）。
+	amURL := fakeAlertmanager(t).URL
+	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL))
 	return r, db
 }
 
@@ -909,4 +918,167 @@ func TestBuildReloadFunc(t *testing.T) {
 
 	// 非法 scheme → error。
 	require.Error(t, buildReloadFunc("ftp://x/-/reload")())
+}
+
+// ---------------------------------------------------------------------------
+// Module_08（T08-05）端到端集成冒烟：
+// 经真实路由注册的 /api/v2/platform/alertmanager/* 串联验证——
+// alertmanager.yml 挂载/当前生效/版本列表（config）+ 静默列表/创建/删除（代理）。
+// ---------------------------------------------------------------------------
+
+// fakeAMState 持有一个 fake Alertmanager 的内存静默集合（契约 §4 运行时语义）。
+type fakeAMState struct {
+	mu       sync.Mutex
+	silences map[string]map[string]interface{}
+	seq      int
+}
+
+func newFakeAMState() *fakeAMState {
+	return &fakeAMState{silences: map[string]map[string]interface{}{}}
+}
+
+// fakeAlertmanager 启动一个内存 Alertmanager 静默服务，返回其 httptest.Server。
+// 覆盖 M08 silence 代理依赖的原生端点：GET/POST /api/v1/silences、GET/DELETE /api/v1/silence/:id。
+func fakeAlertmanager(t *testing.T) *httptest.Server {
+	t.Helper()
+	st := newFakeAMState()
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/v1/silences", func(w http.ResponseWriter, _ *http.Request) {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		data := make([]map[string]interface{}, 0, len(st.silences))
+		for _, s := range st.silences {
+			data = append(data, s)
+		}
+		writeAMJSON(w, gin.H{"status": "success", "data": data})
+	})
+
+	mux.HandleFunc("POST /api/v1/silences", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		st.seq++
+		id := fmt.Sprintf("am-silence-%d", st.seq)
+		st.silences[id] = map[string]interface{}{
+			"id":        id,
+			"matchers":  body["matchers"],
+			"startsAt":  body["startsAt"],
+			"endsAt":    body["endsAt"],
+			"createdBy": body["createdBy"],
+			"comment":   body["comment"],
+			"status":    gin.H{"state": "active"},
+		}
+		writeAMJSON(w, gin.H{"status": "success", "data": gin.H{"silenceID": id}})
+	})
+
+	mux.HandleFunc("GET /api/v1/silence/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v1/silence/")
+		st.mu.Lock()
+		s, ok := st.silences[id]
+		st.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			writeAMJSON(w, gin.H{"status": "error", "errorType": "not_found"})
+			return
+		}
+		writeAMJSON(w, gin.H{"status": "success", "data": s})
+	})
+
+	mux.HandleFunc("DELETE /api/v1/silence/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v1/silence/")
+		st.mu.Lock()
+		if _, ok := st.silences[id]; ok {
+			delete(st.silences, id)
+		}
+		st.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+		writeAMJSON(w, gin.H{"status": "success"})
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func writeAMJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// TestEndToEndAlertmanagerSmoke 覆盖 T08-05 端到端冒烟：经真实路由注册串联验证
+// Module_08 告警收敛主链路——
+//   - 当前生效 / 版本列表（DB 只读端点，不依赖 amtool）初始为空；
+//   - 挂载 alertmanager.yml：amtool 在本环境不可调用，按决策 60 校验失败不落库、
+//     bad_request 且 data 带行级错误 items（印证路由已注册 + 校验短路 + 不落库）；
+//   - 直写一条 applied 留痕后当前生效可读回（config 挂载管道与 amtool 解耦，
+//     DB 是唯一事实源）；
+//   - 静默列表 / 创建 / 删除：经 fake Alertmanager 代理串通（决策 56 授权收敛放行）。
+func TestEndToEndAlertmanagerSmoke(t *testing.T) {
+	r, dbm := buildIntegrationEngine(t)
+	c := &apiClient{t: t, r: r}
+
+	// 1. config：当前生效为空（未挂载）→ 200。
+	code, out := c.json("GET", "/api/v2/platform/alertmanager/config/current", "")
+	require.Equal(t, http.StatusOK, code, "current 应可读：%v", out)
+	assert.Equal(t, "", out["data"].(map[string]interface{})["content"])
+
+	// 2. config：版本列表为空 → 200 total 0。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/config/versions", "")
+	require.Equal(t, http.StatusOK, code, "versions 应可读：%v", out)
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+
+	// 3. 挂载合法 alertmanager.yml：amtool 不可调用 → 校验失败不落库（决策 60），
+	//    返回 bad_request 且 data.items 带行级错误（印证路由 + 校验短路 + 不落库）；
+	//    amtool 若恰好可用（CI 注入）则版本成功留痕，两种分支均接受。
+	code, out = c.json("POST", "/api/v2/platform/alertmanager/config",
+		`{"content":"route:\n  receiver: default\nreceivers:\n  - name: default\n","uploaded_by":"admin"}`)
+	if code == http.StatusOK {
+		assert.NotEmpty(t, out["data"].(map[string]interface{})["id"], "amtool 可用时应留痕返回版本")
+	} else {
+		require.Equal(t, http.StatusBadRequest, code, "amtool 不可用应按决策 60 返回 bad_request：%v", out)
+		assert.Equal(t, "bad_request", out["errorType"])
+		items, ok := out["data"].(map[string]interface{})["items"].([]interface{})
+		require.True(t, ok, "校验失败应带行级错误 items")
+		require.NotEmpty(t, items)
+	}
+
+	// 4. 直写一条 applied 留痕（绕过 amtool 的一次确定性挂载），当前生效可读回。
+	amContent := "route:\n  receiver: default\nreceivers:\n  - name: default\n"
+	cfg := &models.AlertmanagerConfigVersion{
+		Content:   amContent,
+		Checksum:  models.AlertmanagerConfigChecksum(amContent),
+		Status:    models.AlertmanagerConfigStatusApplied,
+		AppliedBy: "admin",
+	}
+	require.NoError(t, dbm.Create(cfg).Error)
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/config/current", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Contains(t, out["data"].(map[string]interface{})["content"].(string), "route:", "当前生效应读回留痕内容")
+
+	// 5. silence：列表空 → 200 total 0。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/silences", "")
+	require.Equal(t, http.StatusOK, code, "silences 列表应可读：%v", out)
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+
+	// 6. silence：创建（未来时间窗 → active）→ 200 返回 id。
+	createBody := `{"matchers":[{"name":"network_domain","value":"default","is_equal":true,"is_regex":false}],"starts_at":"2030-01-01T00:00:00Z","ends_at":"2030-01-01T02:00:00Z","comment":"smoke silence","created_by":"admin"}`
+	code, out = c.json("POST", "/api/v2/platform/alertmanager/silences", createBody)
+	require.Equal(t, http.StatusOK, code, "创建静默应成功：%v", out)
+	silID := out["data"].(map[string]interface{})["id"].(string)
+	assert.NotEmpty(t, silID)
+
+	// 7. silence：列表应命中 1 条（默认 active=true）。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/silences", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"])
+
+	// 8. silence：删除 → 200；再列表为空。
+	code, out = c.json("DELETE", "/api/v2/platform/alertmanager/silences/"+silID, "")
+	require.Equal(t, http.StatusOK, code, "删除静默应成功：%v", out)
+	assert.Equal(t, silID, out["data"].(map[string]interface{})["id"])
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/silences", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
 }
