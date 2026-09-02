@@ -604,6 +604,38 @@ func TestConfirmInstallationNotInSetRejected(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// TestListInstancesShowsUnconfirmedWithoutGate（决策 47-1：安装确认拆闸门）：
+// 未做任何确认登记的已选实例仍出现在实例列表中（状态 unconfirmed）——确认是可选登记、
+// 非生成闸门，未确认实例不被排除。
+func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"host-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// 未确认登记 → 实例仍在列表，状态为 unconfirmed（决策 47-1：不阻断实例展示）。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/"+jobID+"/instances", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Items []jobInstanceItem `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out.Data.Items, 1)
+	assert.Equal(t, "host-1", out.Data.Items[0].ResourceID)
+	assert.Equal(t, "unconfirmed", out.Data.Items[0].Status)
+}
+
 func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)

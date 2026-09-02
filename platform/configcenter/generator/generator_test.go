@@ -192,6 +192,35 @@ func TestResolveTargetsOfflineExclusion(t *testing.T) {
 	assert.Equal(t, "pay", groups[0].Labels["app"])
 }
 
+// TestResolveTargetsUnconfirmedIncluded（决策 47-1：安装确认拆闸门）：
+// 已选实例即使是 unconfirmed（存在未确认登记记录），也必须同样进入 target 组——
+// configgen 只消费 selected_instance_ids（+ offline 排除 + enabled + draft_status），
+// 不读取 ExporterInstallationConfirmation 做排除/校验。
+func TestResolveTargetsUnconfirmedIncluded(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Host{}, &models.LabelTemplate{}, &models.ExporterInstallationConfirmation{}))
+
+	// 未确认：选中实例且存在 Status=unconfirmed 的确认记录（未登记/未确认均不影响生成）。
+	require.NoError(t, db.Create(&models.Host{ServerID: "srv-u", ResourceID: "srv-u", NetworkDomainID: "d", PrivateIP: "10.0.1.9", Status: "online", AppCode: "pay"}).Error)
+	require.NoError(t, db.Create(&models.ExporterInstallationConfirmation{
+		ResourceID:  "srv-u",
+		ScrapeJobID: 1,
+		Status:      models.InstallationStatusUnconfirmed,
+	}).Error)
+
+	tmpl := &models.LabelTemplate{Name: "host-default", ResourceCategory: models.ResourceCategoryHost, IsDefault: true,
+		Mappings: []models.LabelMapping{{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true}}}
+	require.NoError(t, db.Create(tmpl).Error)
+
+	job := models.ScrapeJob{JobName: "node-prod", ResourceType: models.ResourceTypeHost, NetworkDomainID: "d",
+		DraftStatus: "ready", Enabled: true, SelectedInstanceIDs: []string{"srv-u"}}
+	groups, err := ResolveJobTargets(db, job, tmpl, 9100)
+	require.NoError(t, err)
+	require.Len(t, groups, 1, "未确认实例必须同样进入 target 组（决策 47-1）")
+	assert.Equal(t, "10.0.1.9:9100", groups[0].Targets[0])
+	assert.Equal(t, "pay", groups[0].Labels["app"])
+}
+
 // ---- T09-04: target 端口解析（决策 42-4：host/database/middleware 拼 exporter 端口）----
 
 func TestResolveTargetsExporterPort(t *testing.T) {

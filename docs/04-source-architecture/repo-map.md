@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 14:13 · commit: `a8aa86e3`
+> 生成时间: 2026-09-02 14:22 · commit: `3b505681`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -816,6 +816,7 @@
 - `func seedGenericTargetList(t *testing.T, db *gorm.DB, id, domain, name, ip string, port int, status string) *models.GenericT…`
 - `func TestListResourcesCategoryRequiredAndInvalid(t *testing.T)`
 - `func TestListResourcesEachCategory(t *testing.T)`
+- `func TestListResourcesResourceIDStableMergeKey(t *testing.T)`
 - `func TestListResourcesItemFields(t *testing.T)`
 - `func TestListResourcesGenericItemCustomLabels(t *testing.T)`
 - `func TestListResourcesNetworkDomainFilter(t *testing.T)`
@@ -1237,6 +1238,7 @@
 - `func TestNormalizeJobFilename(t *testing.T)`
 - `func TestChecksumConsistency(t *testing.T)`
 - `func TestResolveTargetsOfflineExclusion(t *testing.T)`
+- `func TestResolveTargetsUnconfirmedIncluded(t *testing.T)`
 - `func TestResolveTargetsExporterPort(t *testing.T)`
 - `func TestLoadExporterPortPriority(t *testing.T)`
 - `func TestMergeLabelsPriority(t *testing.T)`
@@ -2185,6 +2187,7 @@
 - `func TestInstanceCandidatesDatabaseSubtypeFilter(t *testing.T)`
 - `func TestConfirmAndCancelInstallation(t *testing.T)`
 - `func TestConfirmInstallationNotInSetRejected(t *testing.T)`
+- `func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T)`
 - `func TestPreviewTargetsStandardAndBlackbox(t *testing.T)`
 
 ### `platform/strategy/scrapejob/selection.go`
@@ -2254,6 +2257,11 @@
 - `const networkDomainMonitorApi`
 - `const configDraftApi`
 - `const deploymentApi`
+
+### `ui-custom/web/src/api/coverage.ts`
+
+- `interface CoverageListParams`
+- `const coverageApi`
 
 ### `ui-custom/web/src/api/dashboard.ts`
 
@@ -2331,6 +2339,11 @@
 - `interface ConfirmInstanceInput`
 - `interface PreviewTargetsResult`
 - `const scrapeJobApi`
+
+### `ui-custom/web/src/api/targets.ts`
+
+- `interface TargetsListParams`
+- `const targetsApi`
 
 ### `ui-custom/web/src/components/EllipsisText.tsx`
 
@@ -2577,6 +2590,10 @@
 
 - `function QueryPage`
 
+### `ui-custom/web/src/pages/query/TargetStatusPage.tsx`
+
+- `function TargetStatusPage`
+
 ### `ui-custom/web/src/pages/resources/ImportModal.tsx`
 
 - `function ImportModal`
@@ -2786,6 +2803,16 @@
 - `interface LabelTemplateUpdateInput`
 - `interface TemplateInstanceItem`
 - `interface LabelTemplateListItem`
+
+### `ui-custom/web/src/types/query.ts`
+
+- `type TargetHealth`
+- `interface TargetItem`
+- `interface TargetsResponse`
+- `type CoverageState`
+- `interface CoverageItem`
+- `interface CoverageSummary`
+- `interface CoverageListResponse`
 
 ### `ui-custom/web/src/types/resource.ts`
 

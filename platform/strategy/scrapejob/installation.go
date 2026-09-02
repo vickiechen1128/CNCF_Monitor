@@ -60,6 +60,7 @@ func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 }
 
 // confirmRequest 是安装确认的请求体（confirmed_by 必填固定 platform_admin，MVP 无鉴权）。
+// 决策 47-1：confirmation 已降级为「可选登记 / 人工背书」，非生成闸门、不阻断 target。
 type confirmRequest struct {
 	ConfirmedBy string `json:"confirmed_by"`
 	ActualPort  int    `json:"actual_port"`
@@ -67,9 +68,11 @@ type confirmRequest struct {
 }
 
 // ConfirmInstallation 是 POST /api/v2/platform/scrape-jobs/:id/instances/:resource_id/
-// confirm 的 handler：确认资源安装 Exporter，落 ExporterInstallationConfirmation
-// （status=confirmed）。校验资源在 Job selected_instance_ids 且同域（bad_request）；
-// Job 未命中 not_found（api-contract-snapshot §6）。
+// confirm 的 handler：可选登记该资源已安装 Exporter，落 ExporterInstallationConfirmation
+// （status=confirmed）。决策 47-1：本登记为「可选登记 / 人工背书」，**非生成闸门、不阻断
+// target 生成**——configgen 仍按 selected_instance_ids 生成 target（见 generator.ResolveJobTargets），
+// 是否登记不影响 target 组。校验资源在 Job selected_instance_ids 且同域（bad_request）；
+// Job 未命中 not_found（api-contract-snapshot §6）。商品语义与交互（端口一致性提示等）不变。
 func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseJobID(c)
@@ -146,8 +149,8 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 }
 
 // CancelInstallation 是 DELETE /api/v2/platform/scrape-jobs/:id/instances/:resource_id/
-// confirm 的 handler：删除确认记录。返回 `{resource_id, job_id}`；未命中 not_found
-// （api-contract-snapshot §6）。
+// confirm 的 handler：删除安装确认登记记录。返回 `{resource_id, job_id}`；未命中 not_found
+// （api-contract-snapshot §6）。决策 47-1：删除确认记录不影响 target 组，仅清空登记。
 func CancelInstallation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseJobID(c)

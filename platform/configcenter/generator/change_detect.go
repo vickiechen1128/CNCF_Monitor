@@ -21,6 +21,10 @@ var sourceTableScopes = []struct {
 	{&models.MonitoringRule{}, false},
 	{&models.LabelTemplate{}, false},
 	{&models.CITypeExporterMapping{}, false},
+	// 决策 47-1：ExporterInstallationConfirmation 仍保留在基线表中（domainScoped=false），
+	// 但已降级为「可选登记、非生成闸门」——ResolveJobTargets 不读取它，target 内容不受
+	// 确认记录影响；登记/删除确认记录不产生配置实质变化（生成物 checksum 不变 → 自动丢弃，
+	// 不计入漂移）。
 	{&models.ExporterInstallationConfirmation{}, false},
 }
 

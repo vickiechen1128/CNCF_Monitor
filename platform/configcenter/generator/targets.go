@@ -127,6 +127,11 @@ func instanceAddress(ip string, port int) string {
 //   - blackbox：将 ScrapeJob.blackbox_targets 展开为目标组（labels 空）。
 //
 // 每实例生成一个 TargetGroup（targets=[地址]，labels=模板展开标签）。
+//
+// 决策 47-1（安装确认拆闸门）：本函数**只消费 selected_instance_ids**（+ offline
+// 排除 + enabled + draft_status），**不读取、不排除、不阻塞 ExporterInstallationConfirmation**。
+// 未确认 / 已确认实例一律进入 target 组——安装确认已降级为「可选登记、非生成闸门」，
+// 真实采集状态（up/down）由 M02 targets/coverage 代理回显，M01 不直连 Prometheus。
 func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, error) {
 	if job.JobType == models.JobTypeBlackbox {
 		groups := make([]TargetGroup, 0, len(job.BlackboxTargets))
