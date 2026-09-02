@@ -175,7 +175,7 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
             }}
             loading={submitting}
           >
-            前置校验（服务端 amtool）
+            本地大小检查
           </Button>
           <Button
             type="primary"
@@ -194,8 +194,8 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
           <Alert
             type="success"
             showIcon
-            message="前置校验通过"
-            description="YAML 格式大小校验通过，提交后由服务端执行 amtool 等价校验并进入 M09 变更确认流程，人工确认后下发生效。"
+            message="本地检查通过"
+            description="仅完成本地非空与大小检查，提交后由服务端执行 amtool 等价校验并进入 M09 变更确认流程，人工确认后下发生效。"
           />
         )}
 

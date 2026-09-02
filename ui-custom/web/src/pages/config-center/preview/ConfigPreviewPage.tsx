@@ -483,7 +483,6 @@ export function ConfigPreviewPage() {
             ),
             children: (
               <pre
-                className="yaml-preview"
                 style={{ margin: 0, maxHeight: 480, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
               >
                 {previewFileText(detail, key) ?? '（当前无此产物）'}

@@ -15,7 +15,8 @@ const INSTALL_STATUS_MAP: Record<InstallationStatus, { label: string; status: 's
 
 /** 实例「采集状态」展示（决策 47-2：采集正常 / 已下发未采到 / 待采集） */
 const SCRAPE_STATUS_META: Record<JobInstanceScrapeStatus, { label: string; badge: 'success' | 'error' | 'default' }> = {
-  collecting: { label: '采集正常', badge: 'success' },
+  // 与 M07 MonitorStatusBadge 的「采集中」统一口径（LOW-3），同指绿色采集正常态
+  collecting: { label: '采集中', badge: 'success' },
   down: { label: '已下发未采到', badge: 'error' },
   pending: { label: '待采集', badge: 'default' },
 }

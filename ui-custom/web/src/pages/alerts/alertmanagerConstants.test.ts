@@ -4,12 +4,12 @@ import {
   configStatusColor,
   silenceStatusLabel,
   silenceStatusColor,
-  shortChecksum,
   partitionValidateErrors,
   formatMatchers,
   validateSectionLabel,
   validateSectionColor,
 } from './alertmanagerConstants'
+import { shortChecksum } from '../../utils/shortChecksum'
 import type { ValidateErrorItem } from '../../types/alertmanager'
 
 const err = (over: Partial<ValidateErrorItem> = {}): ValidateErrorItem => ({
@@ -45,9 +45,9 @@ describe('alertmanagerConstants（M08 枚举/常量/展示名映射）', () => {
     it('不超过 16 位时原样返回', () => {
       expect(shortChecksum('abc123')).toBe('abc123')
     })
-    it('空值返回空串', () => {
-      expect(shortChecksum('')).toBe('')
-      expect(shortChecksum(undefined)).toBe('')
+    it('空值返回占位 -', () => {
+      expect(shortChecksum('')).toBe('-')
+      expect(shortChecksum(undefined)).toBe('-')
     })
   })
 

@@ -31,15 +31,16 @@ import {
   CURRENT_USER,
   configStatusColor,
   configStatusLabel,
-  shortChecksum,
 } from './alertmanagerConstants'
+import { shortChecksum } from '../../utils/shortChecksum'
 
 const { Text, Title } = Typography
 
 export function AlertConfigPage() {
   const navigate = useNavigate()
   const { message } = App.useApp()
-  const { current, versions, total, loading, error, permissionDenied, reload, submit, remount } = useAlertConfig()
+  const { current, versions, total, loading, error, permissionDenied, reload, page, onPageSizeChange, submit, remount } =
+    useAlertConfig()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerOpenSeq, setDrawerOpenSeq] = useState(0)
@@ -188,7 +189,7 @@ export function AlertConfigPage() {
 
   return (
     <div>
-      <div className="page-header">
+      <div>
         <Title level={4} style={{ margin: 0 }}>
           告警配置
         </Title>
@@ -235,7 +236,6 @@ export function AlertConfigPage() {
       )}
 
       <Card
-        className="page-card"
         title={
           <Space size={8}>
             当前生效配置
@@ -257,7 +257,6 @@ export function AlertConfigPage() {
           </div>
         ) : current && current.content ? (
           <pre
-            className="yaml-preview"
             style={{ margin: 0, maxHeight: 420, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
           >
             {current.content}
@@ -268,7 +267,6 @@ export function AlertConfigPage() {
       </Card>
 
       <Card
-        className="page-card"
         title={
           <Space size={8}>
             <HistoryOutlined />
@@ -283,7 +281,12 @@ export function AlertConfigPage() {
           loading={loading}
           columns={columns}
           scroll={TABLE_SCROLL_X}
-          pagination={{ ...TABLE_PAGINATION, total }}
+          pagination={{
+            ...TABLE_PAGINATION,
+            current: page,
+            total,
+            onChange: (p, pz) => onPageSizeChange(p, pz),
+          }}
         />
       </Card>
 
@@ -322,7 +325,6 @@ export function AlertConfigPage() {
               </Descriptions.Item>
             </Descriptions>
             <pre
-              className="yaml-preview"
               style={{ margin: 0, maxHeight: 520, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
             >
               {detailLoaded?.id === detail.id ? detailLoaded.content : ''}

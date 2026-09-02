@@ -21,9 +21,18 @@ export interface UseSilencesResult {
   remove: (id: string) => Promise<void>
 }
 
+/** 静默列表服务端查询参数（契约 §1.4/§4：page/page_size；active=true 过滤活跃静默） */
+export interface SilenceQuery {
+  page?: number
+  page_size?: number
+  /** 契约 §4：`active=true` 过滤活跃静默（其余状态由服务端返回全量） */
+  active?: boolean
+}
+
 const EMPTY_PAGE: PaginatedItems<Silence> = { items: [], total: 0 }
 
-export function useSilences(): UseSilencesResult {
+export function useSilences(query: SilenceQuery = {}): UseSilencesResult {
+  const { page = 1, page_size = 20, active } = query
   const [data, setData] = useState<PaginatedItems<Silence>>(EMPTY_PAGE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -39,7 +48,11 @@ export function useSilences(): UseSilencesResult {
 
   const load = useCallback(async () => {
     try {
-      const res = await alertmanagerSilenceApi.getSilences({ page: 1, page_size: 20 })
+      const res = await alertmanagerSilenceApi.getSilences({
+        page,
+        page_size,
+        ...(active ? { active: 'true' } : {}),
+      })
       setData(res.data)
       setError(null)
       setPermissionDenied(false)
@@ -52,10 +65,10 @@ export function useSilences(): UseSilencesResult {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [page, page_size, active])
 
   useEffect(() => {
-    // 数据请求回调内在异步完成后才 setState；初始/刷新加载态由 useState(reload) 触发
+    // 数据请求回调内在异步完成后才 setState；初始/刷新/翻页/筛选加载态由 query 变化触发
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load, refresh])

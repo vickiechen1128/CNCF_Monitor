@@ -31,28 +31,55 @@ import { formatMatchers } from './alertmanagerConstants'
 
 const { Text, Title } = Typography
 
+/** 生效/失效时间展示：UTC ISO 转本地可读串（复用全仓既时区展示约定，不引入新依赖） */
+function formatTime(iso?: string): string {
+  return iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '-'
+}
+
 export function SilencesPage() {
   const { message } = App.useApp()
-  const { silences, total, loading, error, permissionDenied, reload, create, remove } = useSilences()
-
+  const [page, setPage] = useState(1)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerSeq, setDrawerSeq] = useState(0)
   const [kw, setKw] = useState('')
   const [status, setStatus] = useState<SilenceStatus | 'all'>('all')
 
-  const openCreate = () => {
-    setDrawerSeq((s) => s + 1)
-    setDrawerOpen(true)
-  }
+  // 服务端真实分页 + 筛选（契约 §1.4/§4）：page/page_size 透传后端，total 为真实总数；
+  // status=active 透传服务端 `active=true` 过滤活跃静默。
+  const { silences, total, loading, error, permissionDenied, reload, create, remove } = useSilences({
+    page,
+    page_size: TABLE_PAGINATION.pageSize,
+    active: status === 'active',
+  })
 
+  // 关键词 / pending / expired：契约未提供服务端过滤参数，保守处理为在已加载页内做客户端过滤，
+  // 切换这些筛选时回到第 1 页重新请求，避免跨分页越界（MVP 数据量小可接受）。
   const filtered = silences.filter((s) => {
-    if (status !== 'all' && s.status !== status) return false
+    if (status !== 'all' && status !== 'active' && s.status !== status) return false
     if (kw.trim()) {
       const haystack = `${formatMatchers(s.matchers)} ${s.comment} ${s.created_by ?? ''}`.toLowerCase()
       if (!haystack.includes(kw.trim().toLowerCase())) return false
     }
     return true
   })
+  // active 由服务端过滤、无额外条件时直接采用真实总数；客户端过滤时以过滤后条数驱动 total 避免翻页越界
+  const usingClientFilter = kw.trim() !== '' || (status !== 'all' && status !== 'active')
+  const tableTotal = usingClientFilter ? filtered.length : total
+
+  const changeStatus = (v: SilenceStatus | 'all') => {
+    setStatus(v)
+    setPage(1)
+  }
+
+  const changeKw = (v: string) => {
+    setKw(v)
+    setPage(1)
+  }
+
+  const openCreate = () => {
+    setDrawerSeq((s) => s + 1)
+    setDrawerOpen(true)
+  }
 
   const handleCreate: CreateSilenceDrawerProps['onSubmit'] = async (payload) => {
     await create(payload)
@@ -87,14 +114,14 @@ export function SilencesPage() {
       dataIndex: 'starts_at',
       key: 'starts_at',
       width: 180,
-      render: (v: string) => <Text>{v}</Text>,
+      render: (v: string) => <Text>{formatTime(v)}</Text>,
     },
     {
       title: '失效时间',
       dataIndex: 'ends_at',
       key: 'ends_at',
       width: 180,
-      render: (v: string) => <Text>{v}</Text>,
+      render: (v: string) => <Text>{formatTime(v)}</Text>,
     },
     {
       title: '原因',
@@ -140,7 +167,7 @@ export function SilencesPage() {
 
   return (
     <div>
-      <div className="page-header">
+      <div>
         <Title level={4} style={{ margin: 0 }}>
           静默管理
         </Title>
@@ -158,13 +185,13 @@ export function SilencesPage() {
         />
       )}
 
-      <Card className="page-card">
+      <Card>
         <FilterBar>
           <FilterItem label="静默状态">
             <Select
               style={{ width: 160 }}
               value={status}
-              onChange={setStatus}
+              onChange={changeStatus}
               options={[
                 { value: 'all', label: '全部' },
                 { value: 'active', label: '生效中' },
@@ -178,7 +205,7 @@ export function SilencesPage() {
               style={{ width: 240 }}
               placeholder="匹配条件 / 原因 / 创建人"
               value={kw}
-              onChange={(e) => setKw(e.target.value)}
+              onChange={(e) => changeKw(e.target.value)}
               allowClear
             />
           </FilterItem>
@@ -209,7 +236,12 @@ export function SilencesPage() {
           loading={loading}
           columns={columns}
           scroll={TABLE_SCROLL_X}
-          pagination={{ ...TABLE_PAGINATION, total }}
+          pagination={{
+            ...TABLE_PAGINATION,
+            current: page,
+            total: tableTotal,
+            onChange: (p) => setPage(p),
+          }}
         />
       </Card>
 

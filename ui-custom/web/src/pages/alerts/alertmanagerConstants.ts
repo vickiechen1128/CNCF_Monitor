@@ -2,6 +2,9 @@
  * Module_08 告警收敛与通知管理 枚举/常量/UI 展示名映射（alertmanager）。
  * 权威契约：docs/05-execution-records/module-08/api-contract-snapshot.md（§6 枚举字典 / §8 UI 展示名）。
  * 用户可见文案遵循 PRD §10 术语映射；技术字段（checksum 等）不下沉为 UI 文案。
+ *
+ * 待办：CURRENT_USER 为 MVP 预置的应用人/创建人硬编码（decision 19 文档化妥协）；
+ * M06 用户管理接入后应删除并改用真实登录账号（见设计决策 19），实现 login 前勿新增硬编码凭据/姓名。
  */
 import type {
   AlertmanagerConfigStatus,
@@ -36,12 +39,6 @@ export const silenceStatusColor: Record<SilenceStatus, string> = {
   active: 'success',
   pending: 'warning',
   expired: 'default',
-}
-
-/** sh256 校验和短显（首尾各 8 位省略中间） */
-export function shortChecksum(checksum?: string): string {
-  if (!checksum) return ''
-  return checksum.length > 16 ? `${checksum.slice(0, 8)}…${checksum.slice(-8)}` : checksum
 }
 
 /** 校验错误分区类型（契约 §3：行级错误集合，用于页内分组定位） */

@@ -109,7 +109,7 @@ describe('ExporterInstallationPanel', () => {
     expect(await screen.findByText('在线 1')).toBeInTheDocument()
     expect(screen.getByText(/实例总数 2/)).toBeInTheDocument()
     expect(screen.getByText(/待采集 0/)).toBeInTheDocument()
-    expect(screen.getByText('采集正常')).toBeInTheDocument()
+    expect(screen.getByText('采集中')).toBeInTheDocument()
     expect(screen.getByText('已下发未采到')).toBeInTheDocument()
     // antd Tooltip 内容挂载到 portal，需 hover 触发后断言引导文案
     fireEvent.mouseEnter(screen.getByText('已下发未采到'))

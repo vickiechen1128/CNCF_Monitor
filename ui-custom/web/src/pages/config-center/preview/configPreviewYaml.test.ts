@@ -113,7 +113,7 @@ describe('configPreviewYaml（配置预览 / Diff 工具）', () => {
   it('shortChecksum 长校验值短显、空值返回 -', () => {
     expect(shortChecksum()).toBe('-')
     expect(shortChecksum('abc')).toBe('abc')
-    expect(shortChecksum('0123456789abcdefghijklmnopqrstuvwxyz')).toContain('...')
+    expect(shortChecksum('0123456789abcdefghijklmnopqrstuvwxyz')).toContain('…')
   })
 
   it('computeDiff 区分相同/新增/移除行', () => {

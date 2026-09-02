@@ -20,6 +20,10 @@ export interface UseAlertConfigResult {
   loading: boolean
   error: string | null
   permissionDenied: boolean
+  /** 服务端分页参数（契约 §1.4：page/page_size，上限 100），版本历史超 20 条可翻页/回滚 */
+  page: number
+  pageSize: number
+  onPageSizeChange: (page: number, pageSize: number) => void
   reload: () => void
   /** 提交挂载：校验失败时抛出，由调用方按行级错误展示；成功后触发刷新 */
   submit: (content: string, uploaded_by?: string) => Promise<AlertmanagerConfigVersion>
@@ -35,6 +39,8 @@ export function useAlertConfig(): UseAlertConfigResult {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [permissionDenied, setPermissionDenied] = useState(false)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [refresh, setRefresh] = useState(0)
 
   const reload = useCallback(() => {
@@ -48,7 +54,7 @@ export function useAlertConfig(): UseAlertConfigResult {
     try {
       const [cur, ver] = await Promise.all([
         alertmanagerConfigApi.getCurrent(),
-        alertmanagerConfigApi.getVersions({ page: 1, page_size: 20 }),
+        alertmanagerConfigApi.getVersions({ page, page_size: pageSize }),
       ])
       setCurrent(cur.data)
       setVersions(ver.data)
@@ -63,10 +69,10 @@ export function useAlertConfig(): UseAlertConfigResult {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [page, pageSize])
 
   useEffect(() => {
-    // 数据请求回调内在异步完成后才 setState；初始/刷新加载态由 useState(reload) 触发
+    // 数据请求回调内在异步完成后才 setState；初始/刷新/翻页加载态由 state 触发
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
   }, [load, refresh])
@@ -83,5 +89,24 @@ export function useAlertConfig(): UseAlertConfigResult {
     return res.data
   }, [])
 
-  return { current, versions: versions.items, total: versions.total, loading, error, permissionDenied, reload, submit, remount }
+  const onPageSizeChange = useCallback((p: number, pz: number) => {
+    setPage(p)
+    setPageSize(pz)
+    setLoading(true)
+  }, [])
+
+  return {
+    current,
+    versions: versions.items,
+    total: versions.total,
+    page,
+    pageSize,
+    onPageSizeChange,
+    loading,
+    error,
+    permissionDenied,
+    reload,
+    submit,
+    remount,
+  }
 }

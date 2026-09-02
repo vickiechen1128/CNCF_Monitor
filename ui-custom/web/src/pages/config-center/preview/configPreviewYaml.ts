@@ -90,11 +90,8 @@ function withJSONSuffix(job: string): string {
   return job.endsWith('.json') ? job : `${job}.json`
 }
 
-/** 联合校验值短显（展示与复制分离，技术信息折叠区用） */
-export function shortChecksum(checksum?: string): string {
-  if (!checksum) return '-'
-  return checksum.length > 16 ? `${checksum.slice(0, 12)}...${checksum.slice(-8)}` : checksum
-}
+/** 联合校验值短显（展示与复制分离，技术信息折叠区用）；统一口径复用共享工具避免 M08/M09 漂移 */
+export { shortChecksum } from '../../../utils/shortChecksum'
 
 export type DiffRowType = 'same' | 'added' | 'removed' | 'empty'
 

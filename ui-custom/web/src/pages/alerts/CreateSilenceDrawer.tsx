@@ -127,7 +127,7 @@ export function CreateSilenceDrawer({ open, onClose, onSubmit }: CreateSilenceDr
         onFinish={handleFinish}
       >
         <div>
-          <Text strong>匹配条件（matchers）</Text>
+          <Text strong>匹配表达式</Text>
           <Divider style={{ margin: '8px 0 16px 0' }} />
           {matcherList.map((_, index) => (
             <Space key={index} align="start" style={{ marginBottom: 12 }}>
