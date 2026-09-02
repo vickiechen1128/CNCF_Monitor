@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Badge, Button, Card, Empty, Space, Spin, Typography, message } from 'antd'
+import { Alert, Badge, Button, Card, Empty, Space, Spin, Tooltip, Typography, message } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import type { InstallationStatus, ScrapeJobInstanceItem } from '../../types/strategy'
+import { useScrapeJobStatus, type JobInstanceScrapeStatus } from './useScrapeJobStatus'
 
 const { Text } = Typography
 
@@ -12,9 +13,23 @@ const INSTALL_STATUS_MAP: Record<InstallationStatus, { label: string; status: 's
   not_applicable: { label: '不适用', status: 'default' },
 }
 
+/** 实例「采集状态」展示（决策 47-2：采集正常 / 已下发未采到 / 待采集） */
+const SCRAPE_STATUS_META: Record<JobInstanceScrapeStatus, { label: string; badge: 'success' | 'error' | 'default' }> = {
+  collecting: { label: '采集正常', badge: 'success' },
+  down: { label: '已下发未采到', badge: 'error' },
+  pending: { label: '待采集', badge: 'default' },
+}
+
+/** 已下发未采到（down）的行内引导文案（决策 47-2） */
+export const DOWN_TOOLTIP = '配置已下发但未采集到数据，请检查采集器安装与网络连通'
+
 interface ExporterInstallationPanelProps {
   /** 采集 Job id（已保存后展示安装确认；新建未保存时为 0/空） */
   jobId: number
+  /** Job 名（决策 47-2：状态回显经 targetsApi.list({job}) 拉取；未传则不回显采集状态） */
+  jobName?: string
+  /** 变更是否已确认下发（change_status==deployed）；未下发时全部实例显「待采集」 */
+  deployed?: boolean
 }
 
 /**
@@ -22,11 +37,13 @@ interface ExporterInstallationPanelProps {
  * 展示 Job 已选实例的安装状态（unconfirmed/confirmed/not_applicable）；
  * 勾选触发 confirmInstance（confirmed_by 固定 platform_admin）；未确认实例生成配置前禁止由 UI 引导。
  */
-export function ExporterInstallationPanel({ jobId }: ExporterInstallationPanelProps) {
+export function ExporterInstallationPanel({ jobId, jobName, deployed }: ExporterInstallationPanelProps) {
   const [items, setItems] = useState<ScrapeJobInstanceItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [actingId, setActingId] = useState<string | null>(null)
+  // 决策 47-2：只读消费 M02 targets 回显实例采集状态（展示口径，非持久状态）
+  const { statusMap, summary, loading: statusLoading } = useScrapeJobStatus(jobName, deployed ?? false, items)
 
   const load = useCallback(async () => {
     if (!jobId) {
@@ -104,32 +121,52 @@ export function ExporterInstallationPanel({ jobId }: ExporterInstallationPanelPr
       ) : items.length === 0 ? (
         <Empty description="暂无已选实例" />
       ) : (
-        <Space direction="vertical" style={{ width: '100%' }} size={8}>
-          {items.map((it) => {
-            const s = INSTALL_STATUS_MAP[it.status] ?? INSTALL_STATUS_MAP.unconfirmed
-            return (
-              <div key={it.resource_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Space>
-                  <Badge status={s.status} />
-                  <Text>{it.instance_name}</Text>
-                  <Text type="secondary">{it.instance_ip}</Text>
-                </Space>
-                <Space size={8}>
-                  <Text type="secondary">{s.label}</Text>
-                  {it.status === 'unconfirmed' ? (
-                    <Button size="small" type="primary" loading={actingId === it.resource_id} onClick={() => void confirm(it.resource_id)}>
-                      确认安装
-                    </Button>
-                  ) : (
-                    <Button size="small" disabled={actingId === it.resource_id} onClick={() => void unconfirm(it.resource_id)}>
-                      取消
-                    </Button>
-                  )}
-                </Space>
-              </div>
-            )
-          })}
-        </Space>
+        <>
+          <Space style={{ marginBottom: 12 }}>
+            <Text strong>实例总数 {summary.total}</Text>
+            <Badge status="success" text={<Text type="secondary">在线 {summary.online}</Text>} />
+            {statusLoading && <Spin size="small" />}
+            <Text type="secondary">待采集 {summary.pending}</Text>
+          </Space>
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            {items.map((it) => {
+              const s = INSTALL_STATUS_MAP[it.status] ?? INSTALL_STATUS_MAP.unconfirmed
+              const scrape = SCRAPE_STATUS_META[statusMap[it.resource_id] ?? 'pending']
+              const statusNode =
+                scrape.badge === 'error' ? (
+                  <Tooltip title={DOWN_TOOLTIP}>
+                    <Badge status={scrape.badge} text={scrape.label} />
+                  </Tooltip>
+                ) : (
+                  <Badge status={scrape.badge} text={scrape.label} />
+                )
+              return (
+                <div key={it.resource_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <Badge status={s.status} />
+                    <Text>{it.instance_name}</Text>
+                    <Text type="secondary">{it.instance_ip}</Text>
+                  </Space>
+                  <Space size={12}>
+                    {statusNode}
+                    <Space size={8}>
+                      <Text type="secondary">{s.label}</Text>
+                      {it.status === 'unconfirmed' ? (
+                        <Button size="small" type="primary" loading={actingId === it.resource_id} onClick={() => void confirm(it.resource_id)}>
+                          确认安装
+                        </Button>
+                      ) : (
+                        <Button size="small" disabled={actingId === it.resource_id} onClick={() => void unconfirm(it.resource_id)}>
+                          取消
+                        </Button>
+                      )}
+                    </Space>
+                  </Space>
+                </div>
+              )
+            })}
+          </Space>
+        </>
       )}
     </Card>
   )
