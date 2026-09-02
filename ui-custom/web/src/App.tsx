@@ -6,6 +6,7 @@ import UsersPage from './pages/admin/users/UsersPage'
 import TenantsPage from './pages/admin/tenants/TenantsPage'
 import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
+import BusinessDomainPage from './pages/resources/BusinessDomainPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
 import ScrapeJobListPage from './pages/strategy/ScrapeJobListPage'
 import CollectorListPage from './pages/strategy/CollectorListPage'
@@ -75,6 +76,7 @@ function AppRoutes() {
           <Route path="/admin/login-logs" element={<LoginLogsPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/label-templates" element={<LabelTemplatesPage />} />
+          <Route path="/business-domains" element={<BusinessDomainPage />} />
           <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
           <Route path="/collectors" element={<CollectorListPage />} />
           <Route path="/rules" element={<RulesPage />} />

@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 18:46 · commit: `45eff29b`
+> 生成时间: 2026-09-02 19:01 · commit: `6a34bde6`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2581,6 +2581,8 @@
 - `interface BusinessDomainsResponse`
 - `interface ImportListParams`
 - `const resourceApi`
+- `interface BusinessDomainCreateInput`
+- `interface BusinessDomainUpdateInput`
 - `const businessDomainApi`
 - `const osOptionApi`
 - `const importApi`
@@ -2895,6 +2897,11 @@
 ### `ui-custom/web/src/pages/query/TargetStatusPage.tsx`
 
 - `function TargetStatusPage`
+
+### `ui-custom/web/src/pages/resources/BusinessDomainPage.tsx`
+
+- `function BusinessDomainPage`
+- `function BusinessDomainDrawer`
 
 ### `ui-custom/web/src/pages/resources/ImportModal.tsx`
 

@@ -73,6 +73,7 @@ const MODULES: ModuleDef[] = [
     subItems: [
       { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
       { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
+      { key: '/business-domains', label: '业务管理', icon: <AppstoreOutlined /> },
     ],
   },
   {
@@ -152,7 +153,7 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/domains、/admin/users、/admin/tenants、/admin/login-logs → 系统与平台管理；/domain-onboarding、/node-status、/config-preview、/deployments → 网域与边缘配置中心；
- * /resources、/label-templates → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
+ * /resources、/label-templates、/business-domains → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
   if (
@@ -169,7 +170,11 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/deployments')
   )
     return findModuleByKey('config-center')
-  if (locationPath.startsWith('/resources') || locationPath.startsWith('/label-templates'))
+  if (
+    locationPath.startsWith('/resources') ||
+    locationPath.startsWith('/label-templates') ||
+    locationPath.startsWith('/business-domains')
+  )
     return findModuleByKey('monitoring-object')
   if (
     locationPath.startsWith('/collectors') ||
