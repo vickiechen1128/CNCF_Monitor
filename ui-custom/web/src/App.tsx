@@ -28,6 +28,10 @@ const ConfigPreviewPage = lazy(() =>
 const DeploymentsPage = lazy(() =>
   import('./pages/config-center/deployments/DeploymentsPage').then((m) => ({ default: m.DeploymentsPage })),
 )
+// Module_02 决策 47-4：独立目标状态页（P1 极简列表，跨 Job 全局排障入口；不新增顶部一级 tab）
+const TargetStatusPage = lazy(() =>
+  import('./pages/query/TargetStatusPage').then((m) => ({ default: m.TargetStatusPage })),
+)
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -71,6 +75,7 @@ function AppRoutes() {
           <Route path="/node-status" element={<EdgeAgentsPage />} />
           <Route path="/config-preview" element={<ConfigPreviewPage />} />
           <Route path="/deployments" element={<DeploymentsPage />} />
+          <Route path="/targets" element={<TargetStatusPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
