@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 14:45 · commit: `f9d7f53f`
+> 生成时间: 2026-09-02 14:49 · commit: `2bfbf6b1`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1514,6 +1514,33 @@
 - `func generateToken() (string, error)`
 - `func newID() (string, error)`
 
+### `platform/models/alertmanager_config.go`
+
+- `type AlertmanagerConfigStatus = string`
+- `type AlertmanagerConfigVersion struct`
+- `method (AlertmanagerConfigVersion) TableName() string`
+- `method (AlertmanagerConfigVersion) MarshalJSON() ([]byte, error)`
+- `func AlertmanagerConfigChecksum(content string) string`
+- `type SilenceMatcher struct`
+- `type SilenceStatus = string`
+- `func ValidSilenceStatus() []string`
+- `type AuthorizedMatcherScope struct`
+- `method (*AuthorizedMatcherScope) Violations(matchers []SilenceMatcher) []SilenceMatcher`
+- `type ValidateErrorItem struct`
+
+### `platform/models/alertmanager_config_test.go`
+
+- `func TestAlertmanagerConfigStatusEnum(t *testing.T)`
+- `func TestAlertmanagerConfigChecksum(t *testing.T)`
+- `func TestAlertmanagerConfigVersionSerializationRoundTrip(t *testing.T)`
+- `type AlertmanagerConfigVersionView struct`
+- `func TestAlertmanagerConfigVersionAutoMigrate(t *testing.T)`
+- `func TestSilenceMatcherJSONRoundTrip(t *testing.T)`
+- `func TestSilenceStatusEnum(t *testing.T)`
+- `func TestAuthorizedMatcherScopeAllDomainsAlwaysPasses(t *testing.T)`
+- `func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T)`
+- `func TestValidateErrorItemJSON(t *testing.T)`
+
 ### `platform/models/blackbox_probe.go`
 
 - `type BlackboxProbeConfig struct`
@@ -2233,6 +2260,7 @@
 
 ### `ui-custom/web/src/api/alertmanager.ts`
 
+- `function readValidateErrors`
 - `interface AlertmanagerListParams`
 - `interface SubmitAlertmanagerConfigInput`
 - `interface RemountConfigInput`
@@ -2450,6 +2478,14 @@
 - `interface UseUsersResult`
 - `function useUsers`
 
+### `ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx`
+
+- `function AlertConfigDrawer`
+
+### `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`
+
+- `function AlertConfigPage`
+
 ### `ui-custom/web/src/pages/alerts/AlertsPage.tsx`
 
 - `function AlertsPage`
@@ -2468,6 +2504,11 @@
 - `const validateSectionColor`
 - `function partitionValidateErrors`
 - `function formatMatchers`
+
+### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
+
+- `interface UseAlertConfigResult`
+- `function useAlertConfig`
 
 ### `ui-custom/web/src/pages/collection/CollectionPage.tsx`
 
