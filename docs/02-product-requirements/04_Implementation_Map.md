@@ -3,10 +3,10 @@
 > 文档类型：产品需求文档 / 实施规划  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.26 · Module_06 v2.3 · Module_07 v2.21 · Module_09 v1.50 · Module_03 v1.2（Track B+ 增量，决策 44）
+> **各模块 PRD 版本**：Module_01 v3.29 · Module_02 v1.8（采集状态回显提前 MVP，决策 47）· Module_06 v2.3 · Module_07 v2.25 · Module_08 v1.7（告警分发 MVP 闭环，决策 59/60）· Module_09 v1.52（alertmanager.yml 纳入变更确认，决策 60）· Module_03 v1.2（Track B+ 增量，决策 44）
 >
 > Plan 版本：v2026-08-21  
-> 更新日期：2026-08-21
+> 更新日期：2026-09-01（决策 47 采集状态回显增量 + 决策 59/60 告警分发 MVP 闭环，见 §2.3 / §2.6 / §6 / §8 / §11）
 
 ---
 
@@ -49,7 +49,8 @@
 | 业务字典 `biz_code` | 所有资源必填 `biz_code`，展示名 `biz_name` | ❌ 无 | 部署级字典 + 存在性校验 | 低 | 低 | L4 |
 | `ResourceLabel` 管理 | `system` / `user` / `cmdb {v0.4+}` 来源、冲突合并 | ❌ 无 | 自研单表 + `source` 字段 + 优先级合并 | 中 | 中 | L4 |
 | 标签模板管理 | 字段映射 / transform；按粗粒度资源类别 | ✅ `relabel_configs` | 映射 UI → 生成 target labels | 中 | 中 | L2 |
-| 「未监控」筛选 | 列表支持 `is_monitored=false` 筛选 | ⚠️ 需关联 ScrapeJob | 字段由 M01 维护关联关系，M07 只读映射展示 | 低 | 低 | L3 |
+| 「采集状态」badge | 三态：采集中 / 已下发未采到（含变更未确认下发情形）/ 未监控（决策 47-3；2026-09-02 口径修订：选中关系取 DB 当前值、不感知 M09 下发时序） | ⚠️ 需 M02 聚合 | `is_monitored` 选中关系由 M01 维护，up/down 聚合由 M02 健康度/覆盖率 API（按 `resource_id` 标签回连资源）输出，M07 只读消费、**不直连时序数据** | 低 | 中 | L3 |
+| 「未监控」筛选 | 列表支持 `is_monitored=false` 筛选 | ⚠️ 需关联 ScrapeJob | 三态 badge 的「未监控」子集；`is_monitored` 由 M01 维护关联关系，M07 只读映射展示（决策 31-M1 被 47-3 修订为三态化） | 低 | 低 | L3 |
 | 状态映射字典 | Excel 中文状态 → `Resource.status` | ❌ 无 | 可配置规则表 + 正则匹配 | 低 | 低 | L4 |
 | CMDB 接入源 | Excel / HTTP / 蓝鲸（v0.4+） | ⚠️ file_sd 可作为输入 | Provider 适配器 + CI 类型映射 + 待分类队列 | 高 | 中 | L2/L4 |
 
@@ -65,7 +66,8 @@
 | 实例选择 | 手动勾选（MVP）；按属性筛选（v0.3+） | ⚠️ 通过 static_configs 间接支持 | 查询资源 + 组装 `selected_instance_ids` | 中 | 低 | L3 |
 | 认证 / TLS 最小集 | `auth_type` none/basic/bearer + `tls_skip_verify` + `ca_file` | ✅ 原生支持 | 透传进 `scrape_configs` | 低 | 低 | L2 |
 | 冻结网域校验 | 禁用网域禁止新建 Job / 新增该域实例 | ❌ 无 | M06 状态联动校验 | 低 | 低 | L4 |
-| Exporter 安装/注册确认 | `ExporterInstallationConfirmation` 状态维护 | ❌ 无 | 自研状态表；未确认不生成 target | 低 | 低 | L4 |
+| Exporter 安装/注册确认 | `ExporterInstallationConfirmation` 可选登记（决策 47-1） | ❌ 无 | 自研状态表；**可选登记、不阻断 target 生成**（选中即生成；`actual_port` P1） | 低 | 低 | L4 |
+| Job 实例采集状态回显 | Job 详情/编辑抽屉实例「采集状态」列 + 在线数/实例总数/待采集数汇总（决策 47-2） | ⚠️ 需 M02 代理 | 只读消费 M02 `GET /api/v1/targets` 代理（按 Job 过滤），**M01 不直连 Prometheus**；回显为展示口径、非持久状态 | 低 | 中 | L3 |
 | Blackbox 拨测配置 | Blackbox 配置生成 | ✅ Blackbox Exporter | 生成 blackbox scrape_config / `blackbox.yml` | 中 | 中 | L2 |
 | 指标静态库 | `ExporterMetricLibrary` 内置常见 exporter 指标 | ❌ 无 | 静态库表 + 用户扩展机制 | 中 | 中 | L4 |
 | 规则文件挂载 | 整文件 `rules.yml` 透传落库 `MonitoringRule` | ✅ `rule_files` + Rule Manager | 文件上传/粘贴 + YAML 语法校验 + 随 M09 生成/确认/下发 | 低 | 中 | L2 |
@@ -86,9 +88,10 @@
 | 配置校验 | YAML/语义校验、promtool、blackbox config check | ✅ `promtool check config` | 调用 promtool / blackbox check | 低 | 低 | L1/L2 |
 | 配置下发 | `channel=local` 写盘 + reload；`agent_pull` 生成 zip 包 | ✅ 原生支持热重载 | 写文件 + 触发 reload + `ConfigDeployment` 记录 | 中 | 低 | L1/L4 |
 | `change_status` 回写 | 下发成功后回写 M01 `ScrapeJob.change_status=deployed` | ❌ 无 | 下发记录成功后异步回写 | 低 | 低 | L3 |
+| `alertmanager.yml` 纳入变更确认（决策 60） | 管理域（`default`）scope 配置产物；不按网域扇出、不进 `agent_pull` 配置包；确认后写中心 Alertmanager 配置路径 + reload，`change_status` 回写 M08 | ✅ `amtool check-config` + SIGHUP/`/-/reload` | configgen 纳入 M08 `AlertmanagerConfigVersion` 源 → 变更项/受影响文件枚举扩展（`alertmanager`）→ 下发写 AM 配置路径 + reload + 回写 M08 | 中 | 中 | L2/L3 |
 | 配置版本 / 下发历史 | `ConfigVersion` / `ConfigDeployment` 查询 | ❌ 无 | 版本表 + 下发记录表 | 中 | 低 | L4 |
 
-> **关键判断**：MVP 内 M09 的主干是 **default 域 + local 通道的配置生成 / 预览 / 确认 / reload 全链路**。`agent_pull` 网域纳管 UI 保留占位页，但 Edge Agent 心跳、配置包拉取、WAL 监控等完整能力放到 v0.2。`external_labels` 不再注入 `tenant_id`，只注入部署级元数据 `network_domain_id` / `zone_type` / `replica`。
+> **关键判断**：MVP 内 M09 的主干是 **default 域 + local 通道的配置生成 / 预览 / 确认 / reload 全链路**；**决策 60 起 `alertmanager.yml` 也纳入该流水线**——作为管理域（`default`）scope 配置产物进入 `ConfigDraft → 人工确认 → 下发 → reload`，`change_status` 回写 M08（M08=内容 Owner、M09=管道 Owner，对齐 M01/M09）。告警变更单网域恒为 `default`、与采集变更单相互独立；MVP 统一人工确认（低风险自动通过留作后续版本）。`agent_pull` 网域纳管 UI 保留占位页，但 Edge Agent 心跳、配置包拉取、WAL 监控等完整能力放到 v0.2。`external_labels` 不再注入 `tenant_id`，只注入部署级元数据 `network_domain_id` / `zone_type` / `replica`。
 
 ### 2.4 Module_06：系统与平台管理（网域登记）
 
@@ -103,26 +106,33 @@
 
 > **关键判断**：MVP 内 M06 落地「网域登记管理」+「租户/用户管理单租户子集（轻量认证，决策 44，Track B 增量）」；完整租户生命周期 / RBAC / 审计放到 v0.2 及以后（轻量登录 + 单租户管理 ≠ 完整 RBAC）。网域是部署级资源，登记所有权归 `platform_admin`，可授权给多租户共享（授权 ≠ 拥有）。
 
-### 2.5 Module_02：查询中心（MVP 不新增开发）
+### 2.5 Module_02：查询中心（决策 47：采集状态回显提前 MVP，Track B 增量）
 
-| 一级功能 | 二级功能 | 当前状态 | 后续安排 |
-|----------|----------|----------|----------|
-| PromQL 查询代理 | Instant / Range，注入 `tenant` / `network_domain` | 已有 `/api/v1/query*` 代理骨架 | v0.2 补全多租户注入语义 |
-| 目标状态展示 | `/api/v1/targets` 代理 | 已有代理 | v0.2 增强按网域/Job 筛选 |
-| 响应 envelope | `data_source` / `freshness_at` / `network_domains` | 预留字段 | v0.2 细化多网域来源 |
-| 告警状态 / PromQL 校验 | `/api/v1/alerts`、`/api/v1/query/validate` | 未实现 | v0.3 随 M08 / M01 字段化规则编辑启用 |
+| 一级功能 | 二级功能 | Prometheus 原生支持 | MetricCenter 需做 | 后端难度 | 前端难度 | 实施层 |
+|----------|----------|---------------------|-------------------|----------|----------|--------|
+| PromQL 查询代理 | Instant / Range，注入 `tenant` / `network_domain` | ✅ | 已有 `/api/v1/query*` 代理骨架 | 低 | 低 | L1 |
+| 目标状态 API | `/api/v1/targets` 代理（决策 47-4，MVP P0） | ✅ | 代理 + 按 `job`（M01 回显）/ `network_domain` / `health` 过滤 + 网域/租户注入 | 中 | 低 | L1/L3 |
+| 采集健康度/覆盖率聚合 | `/api/v1/health/coverage` 三态聚合（决策 47-3，v0.2 提前 MVP） | ⚠️ 基于 `up` 指标聚合 | 按 `resource_id` 标签回连五类资源，输出 采集中/已下发未采到/未监控 三态 + 覆盖率汇总；供 M07 badge 消费；选中关系取 DB 当前值、不感知 M09 下发时序（2026-09-02 口径修订） | 中 | 低 | L3 |
+| 独立目标状态页 | 跨 Job 全局排障入口（决策 47-4） | — | 极简列表（按 health / 网域过滤），MVP 降级 **P1** | — | 低 | L3 |
+| 响应 envelope | `data_source` / `freshness_at` / `network_domains` | 预留字段 | v0.2 细化多网域来源 | 中 | 低 | L3 |
+| 告警状态 / PromQL 校验 | `/api/v1/alerts`、`/api/v1/query/validate` | 未实现 | v0.3 随 M08 / M01 字段化规则编辑启用 | — | — | L4 |
 
-> **关键判断**：MVP 不新增查询中心开发任务，现有 `/api/v1/query*` 代理保留运行。注入逻辑在 v0.2 随 M06 租户-网域关联一起落地。
+> **关键判断（决策 47）**：`/api/v1/targets` 代理**保留 MVP P0**，是 M01 Job 实例采集状态回显与 M07 资源三态 badge 的**共同数据源**（租户/网域注入仍由 M02 承担）；**采集健康度/覆盖率聚合 API 由 v0.2 提前到 MVP**（M07 badge 上游）；独立「目标状态页」前端降 **P1**（极简列表，定位收敛为「跨 Job 全局排障入口」）。原 §2.5「MVP 不新增开发」声明被本版取代。
 
-### 2.6 Module_08：告警收敛与通知管理（MVP 不做）
+### 2.6 Module_08：告警收敛与通知管理（决策 59/60：告警分发 MVP 最小闭环 = 文件挂载 + 静默 UI）
 
-| 一级功能 | 当前状态 | 后续安排 |
-|----------|----------|----------|
-| Alertmanager 配置生成 / 路由 / 静默 / 抑制 | 未实现 | v0.3 起逐步落地 |
-| 告警状态查看（Prometheus `/api/v1/alerts`） | 由 M02 代理，MVP 不开发页面 | v0.3 随 M02 / M05 门户化 |
-| 通知渠道 / 通知模板 | 未实现 | v1.0 |
+> 告警收敛与派发组件锁定 **Alertmanager**（决策 49）。告警分发是监控闭环「采得到 → 查得到 → 告得出」的最后一环（决策 59），MVP 按操作频率拆分交付形态：
 
-> **关键判断**：MVP 阶段告警规则通过 M01「规则文件挂载」生成 `rules.yml`，由 Prometheus 原生求值；通知收敛 / 静默 / 路由 / Alertmanager 配置管理全部后移。
+| 一级功能 | 二级功能 | Prometheus/AM 原生支持 | MetricCenter 需做 | 后端难度 | 前端难度 | 实施层 |
+|----------|----------|------------------------|-------------------|----------|----------|--------|
+| Alertmanager 配置管理（MVP=文件挂载） | 整文件上传/粘贴 `alertmanager.yml`，`amtool check-config` 校验（失败行级报错、不落库）→ 写 `AlertmanagerConfigVersion`（内容留痕）→ 提交 M09 变更单（管理域 scope）→ 人工确认 → M09 下发 reload → `change_status` 回写（决策 59/60） | ✅ `amtool check-config` + reload | 挂载校验 + 版本留痕 + 触发 M09 变更检测；当前生效配置只读视图 + 历史版本回滚 | 中 | 中 | L2/L1 |
+| 静默管理（MVP） | 创建 / 列表 / 删除静默，API 直调 Alertmanager（运行时状态，文件挂载承载不了）；服务端 matcher 授权集合校验（决策 56，MVP 单租户恒通过） | ✅ Alertmanager API | 代理 AM `/api/v1/silences` + 服务端 matcher 收敛校验 | 低 | 中 | L1/L3 |
+| 接收人 / 路由 / 抑制表单化 UI | Receiver / Route / InhibitionRule 表单化配置管理 | ✅ Alertmanager 语义 | 表单 → 生成 `alertmanager.yml` | 中 | 高 | L2 |
+| 告警抑制规则自动生成 | 网域离线抑制 `inhibitable=true` 告警风暴（源 `EdgeSiteOffline`、equal `network_domain`） | ✅ `inhibit_rules` | 生成 `inhibit_rules`（MVP 由挂载文件承载，自动生成随 v0.3 表单化） | 中 | 中 | L2 |
+| 告警状态查看（AM 通知状态） | active / silenced / inhibited / unprocessed 四态；服务端授权网域过滤（决策 55/56） | ✅ AM `/api/v1/alerts` | 代理 `/api/v1/alerts` + 服务端注入授权网域 filter | 中 | 中 | L1/L3 |
+| Prometheus 触发告警状态 | firing / pending 双视图 | —（M02 代理） | v0.3 随 M02 能力消费 | — | — | L3 |
+
+> **关键判断（决策 59/60）**：MVP 前台告警动线 = 「部署期挂载 `alertmanager.yml`（一次性）→ 日常静默管理（高频，UI）」，用户全程不碰 YAML 除非初始化。**M08 是 `alertmanager.yml` 内容 Owner，M09 是变更确认与下发管道 Owner**（关系对齐 M01/M09）；`alertmanager.yml` 作为**管理域（`default`）scope** 配置产物进入 M09 `ConfigDraft → 人工确认 → 下发 → reload` 流水线，`change_status` 回写 M08，**不按网域扇出、不进 `agent_pull` 配置包**。接收人 / 路由表单化 UI、告警状态页归 v0.3；通知模板 / 升级策略归 v1.0。
 
 ### 2.7 Module_05：自定义前端门户（MVP 不做独立分支）
 
@@ -317,11 +327,12 @@ scrape_configs:
 |------|-----|-------|------|
 | 告警规则内容创作 | ❌ 不做字段化编辑 | 字段化 UI + PromQL 校验 | 完整编辑器 |
 | `rules.yml` 生成与下发 | ✅ 通过 M01 规则文件挂载 + M09 生成 | 结构化生成 | 结构化 + 边缘 scope |
-| Alertmanager 配置（路由/接收人/静默/抑制） | ❌ 不做 | 基础配置 | 完整 UI |
-| 告警状态查看 | ❌ 不做 | 由 M02 代理 `/api/v1/alerts` | 完整告警中心 |
+| Alertmanager 配置（路由/接收人/静默/抑制） | ✅ **文件挂载**（决策 59/60）：M08 上传/粘贴 `alertmanager.yml` → amtool 校验 → 留痕 → 进 M09 管理域变更单确认下发；接收人/路由为文件承载、无表单 UI | 接收人/路由/抑制表单化 UI | 完整 UI |
+| 静默管理 | ✅ **极简 UI**（创建/列表/删除，API 直调 Alertmanager，决策 59） | 活跃告警联想 + 相对时间快捷 | 完整静默管理 |
+| 告警状态查看 | ❌ 不做（归属 M08、v0.3 起，决策 55） | AM 通知状态四态 + M02 代理 firing/pending 双视图 | 完整告警中心 |
 | 边缘自治告警 | ❌ 不做 | ❌ 不做 | v0.4+ / v1.0 |
 
-> MVP 阶段告警规则通过「规则文件挂载」进入 Prometheus Rule Manager，通知收敛/静默/路由完全依赖原生 Alertmanager，MetricCenter 不做配置管理。
+> MVP 阶段告警规则通过「规则文件挂载」进入 Prometheus Rule Manager；`alertmanager.yml` 由 M08 文件挂载生成（内容 Owner）、**MVP 起纳入 M09 变更确认为管理域（`default`）scope 产物**（管道 Owner，决策 60），人工确认后由 M09 写中心 Alertmanager 配置路径并 reload，`change_status` 回写 M08。静默为运行时 API 状态，MVP 用极简 UI 直调 Alertmanager。
 
 ---
 
@@ -398,10 +409,18 @@ Module_09 网域与边缘配置中心
     ┌─────────┴─────────┐
     ▼                   ▼
   M02 查询代理          跨模块联调验收
-（保留现有能力）      （无独立 portal 分支）
+（保留现有能力 +       （无独立 portal 分支）
+ targets 代理 / 覆盖率
+ 聚合 API，决策 47）
+        │
+        ▼
+Module_08 告警收敛与通知管理（决策 59/60）
+    ├──► 文件挂载 alertmanager.yml + amtool 校验 + AlertmanagerConfigVersion 留痕
+    ├──► 提交 M09 管理域（default）变更单 → 人工确认 → 下发 reload → change_status 回写
+    └──► 静默管理（创建/列表/删除，API 直调）
 ```
 
-> **模块边界**：MVP 闭环终点是「M09 下发后中心 Prometheus 成功 reload 并产生指标」。M02 查询代理保留现有能力但不新增开发；M08 告警收敛/通知管理不在 MVP；M05 门户不保留独立 feature 分支，联调阶段用现有页面串链。
+> **模块边界**：MVP 闭环终点是「M09 下发后中心 Prometheus 成功 reload 并产生指标」，并**延伸告警分发闭环**（决策 59/60）：M08 文件挂载 `alertmanager.yml`（内容 Owner）→ M09 管理域（default）scope 变更单确认下发 reload → change_status 回写，形成「采得到 → 查得到 → 告得出」完整闭环。M02 保留 query* 代理现有能力，并新增 `/api/v1/targets` 代理（M01 回显 / M07 badge 共同数据源）与 `/api/v1/health/coverage` 三态聚合（决策 47，Track B 增量）；M05 门户不保留独立 feature 分支，联调阶段用现有页面串链。
 
 ---
 
@@ -409,10 +428,10 @@ Module_09 网域与边缘配置中心
 
 1. **后端最重的部分**：Module_07 五类资源表 + Excel 导入 + `ResourceLabel` 合并、Module_09 配置生成器、Module_01 `ScrapeJob` 与冻结网域联动。
 2. **后端最轻的部分**：Module_06 网域登记行政 CRUD、Module_09 `default` 域 local reload、Module_01 规则文件挂载。
-3. **MVP 应该避开**：字段化规则编辑 UI、Alertmanager 配置管理、完整多租户 RBAC、外部 CMDB 同步、复杂 Dashboard、Edge Agent 完整能力（注：决策 44 已将**轻量登录 + 单租户/用户管理**纳入 MVP，与「完整多租户 RBAC」区分——前者只认证不授权，后者仍后移）。
-4. **新增自研点**：`NetworkDomain` 行政模型 + `zone_type` 字典、五类资源模型 + `biz_code`、`CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob` 认证/TLS、`MonitoringRule` 文件挂载、`ConfigDraft`/`ConfigVersion`/`ConfigDeployment`、冻结网域跨模块校验。
+3. **MVP 应该避开**：字段化规则编辑 UI、Alertmanager 配置**表单化** UI（文件挂载已纳入 MVP，决策 59/60；表单化 UI 挪 v0.3）、完整多租户 RBAC、外部 CMDB 同步、复杂 Dashboard、Edge Agent 完整能力（注：决策 44 已将**轻量登录 + 单租户/用户管理**纳入 MVP，与「完整多租户 RBAC」区分——前者只认证不授权，后者仍后移）。
+4. **新增自研点**：`NetworkDomain` 行政模型 + `zone_type` 字典、五类资源模型 + `biz_code`、`CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob` 认证/TLS、`MonitoringRule` 文件挂载、`ConfigDraft`/`ConfigVersion`/`ConfigDeployment`、`AlertmanagerConfigVersion`（M08 文件挂载留痕）+ 静默 API 代理、冻结网域跨模块校验。
 5. **最大杠杆点**：充分利用 Prometheus / Blackbox 的原生能力，MetricCenter 只做「配置翻译」和「门户展示」。
-6. **跨模块契约**：M06 是网域行政 Owner；M07 只读取 `network_domain_id`；M01 的 ScrapeJob 必须绑定 M09 已纳管网域；M09 生成配置时排除 `offline` 资源并注入部署级 `external_labels`。
+6. **跨模块契约**：M06 是网域行政 Owner；M07 只读取 `network_domain_id`；M01 的 ScrapeJob 必须绑定 M09 已纳管网域；M09 生成配置时排除 `offline` 资源并注入部署级 `external_labels`；M08 是 `alertmanager.yml` 内容 Owner、M09 是变更确认与下发管道 Owner（管理域 default scope、不扇出，决策 60）。
 7. **多租户原则**：MVP 以单租户 `platform_admin` 运行；租户/业务标签不进入 `external_labels`，通过 M07 LabelTemplate 以 target 级标签注入，隔离优先在 v0.2 后的查询网关实现。
 
 ---
@@ -441,5 +460,8 @@ Module_09 网域与边缘配置中心
 
 | 日期 | 变更内容 | 变更人 |
 |------|----------|--------|
+| 2026-09-02 | coverage 三态口径修订（Track B 增量内闭环，用户拍板 A 方案）：coverage/M07 badge 选中关系取 DB 当前值、不感知 M09 下发时序，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显；§2.1/§2.5 同步；M07 默认模板补 `resource_id` 稳定身份映射（代码 `DefaultMappingBuilders` + 种子迁移同轮落地）；PRD 版本对齐 M01 v3.29 / M02 v1.8 / M07 v2.25 | — |
+| 2026-09-01 | 决策 59/60 告警分发 MVP 闭环（Track B 增量）：§2.3 M09 新增 `alertmanager.yml` 管理域（default）scope 产物行（不扇出、不进 agent_pull 包，变更项/受影响文件枚举扩展 `alertmanager`，`change_status` 回写 M08）；§2.6 M08 由「MVP 不做」改为「MVP=文件挂载 + 静默 UI」（AlertmanagerConfigVersion 内容留痕 + 提交 M09 变更单 + change_status 回写；接收人/路由/抑制表单化 UI、告警状态页归 v0.3）；§6 告警分层 MVP 列补齐文件挂载 + 静默；§8 MVP 闭环末尾追加 M08 告警分发；§9 更新 MVP 避开项与新增自研点；PRD 版本对齐 M08 v1.7 / Module_09 v1.52（决策 60） | — |
+| 2026-09-01 | 决策 47 采集状态回显增量（Track B）：§2.1 M07 资源「采集状态」三态 badge + 「未监控」筛选收敛为其子集；§2.2 M01 Exporter 安装确认降级可选登记（不阻断 target）+ Job 实例采集状态回显；§2.5 M02 新增 `/api/v1/targets` 代理（MVP P0）与 `/api/v1/health/coverage` 三态聚合（v0.2 提前 MVP）、独立目标状态页降 P1；§8 MVP 闭环补 M02 采集状态数据源；PRD 版本对齐 M01 v3.28 / M02 v1.7 / M07 v2.24 | — |
 | 2026-08-21 | 按用户决策重派生 MVP 实施路线图：MVP 范围收缩为 M01/M06/M07/M09；模块顺序改为 Phase 0 → M06 → M07 → M01 → M09 → 跨模块联调；M01 规则编辑改为规则文件挂载；M06 网域登记纳入 MVP；M09 裁剪到 default/local 通道闭环；M02/M05/M08 移出 MVP；资源模型改五类；新增 `biz_code`、`zone_type`、冻结网域、`external_labels` 仅注入 network_domain_id/zone_type/replica 等关键字段；重写 MVP 最小闭环图与数据模型表 | — |
 | 2026-07-31 | 按监控策略管理方案决策记录重新划分模块职责：Module_01 改名为「监控策略与指标管理」、Module_07 改名为「监控对象管理」、Module_09 改名为「网域与边缘配置中心」；更新各模块实施矩阵；新增数据模型设计任务章节 | — |

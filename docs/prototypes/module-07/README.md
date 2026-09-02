@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.24
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.25
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.24
+> **原型版本**: v2.25
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,13 @@
 > ```
 >
 > **访问地址**: http://localhost:5174/
+
+## v2.25 变更说明（coverage 三态口径修订 + 默认模板 resource_id 补齐，2026-09-02）
+
+1. **coverage 三态口径修订（planner 阻塞项闭环，用户拍板 A 方案）**：选中关系取 DB 当前值、不感知 M09 下发时序——「已下发未采到」覆盖「down / 待首次抓取 / 变更未确认下发」全部选中未采到情形；「待采集 vs 已下发未采到」的细分归 M01 Job 上下文回显（M01 §5.10），本模块 badge 保持三态。
+2. **提醒文案同步**：「已下发未采到」badge Tooltip 与概览横幅说明改为「已选中但未采集到数据（含变更未确认下发情形），请检查变更下发状态、采集器安装与网络连通」。
+3. **默认模板稳定身份标签**：PRD §5.13 五类默认标签模板补 `resource_id → resource_id` 映射（决策 47-3 coverage 回连前置）；原型为只读 mock 演示，映射数据由后端种子承载，本原型不涉及模板数据变更。
+4. **ReviewNote**：决策清单补 3.25。
 
 ## v2.24 变更说明（决策 52：网域归属四级解析链 + 网域可留空推导 + 来源标注）
 

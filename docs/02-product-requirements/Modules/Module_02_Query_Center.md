@@ -1,10 +1,10 @@
 # Module 02: 查询中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.7
+> **PRD 版本**: v1.8
 > **产品版本覆盖**: MVP / v0.2 / v0.3
-> **原型版本**: v1.2（未对齐，待按 v1.7 修订）
-> **更新日期**: 2026-08-31
+> **原型版本**: v1.2（未对齐，待按 v1.8 修订）
+> **更新日期**: 2026-09-02
 > **对应原型**: `docs/prototypes/module-02/`
 > **副标题**: 带租户/网域上下文注入的 Prometheus Query API 代理 + 采集目标状态展示
 
@@ -77,6 +77,8 @@ Module_02 提供统一的指标查询入口，定位为**带租户/网域上下�
 | **Open API** | RESTful API 供外部系统/AI 应用调用，v0.3 完善 API Key 鉴权与限流配额 | **P1 / v0.3** |
 | **临时目标验证** | 对临时目标执行抓取并查看结果（Module_01 移交） | P2 / v0.3+ |
 | **复杂 Dashboard / 可视化大屏** | **不自研**拖拽式面板编辑器；可视化大屏走 Grafana iframe 嵌入（决策 50），Grafana 数据源必须指向本模块查询代理（`/api/v1/query*`），禁止直连 Prometheus；门户内轻量实时图表用 ECharts/AntV 消费 `query_range`（随 v0.3「首页 Dashboard 数据」落地） | P2（不自研）；轻量图表 v0.3 |
+
+> **coverage 三态判定口径（v1.8，2026-09-02 修订）**：`/api/v1/health/coverage` **不感知 M09 下发时序**——选中关系取 DB 当前 `selected_instance_ids`（`draft_status=ready` 且 `enabled=true` 的 Job，不问 `change_status`），采集事实取 Prometheus 实际 target / `up`。已选中但未采到数据的实例（含变更未确认下发、已下发未 reload、待首次抓取、采集器未装）统一归 `pending_down`（已下发未采到）；「待采集（未下发）vs 已下发未采到」的细分由 M01 Job 上下文回显承担（M01 持有 `change_status`，见 M01 §5.10），M07 badge 保持三态不区分。
 
 ### 3.2 目标状态展示说明（MVP）
 
@@ -361,7 +363,7 @@ Module_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | 协作模块 | 边界约定 | 版本 |
 |----------|----------|------|
 | Module_01 | `ScrapeTarget` / `ScrapeLog` 模型由 M01 定义，M02 只读展示；MVP 用 `/api/v1/targets` 代理（health/lastScrape/lastError），**同时作为 M01 Job 实例采集状态回显的数据源（决策 47-2）**，ScrapeLog 独立存储 v0.3；validate/指标预览接口随 M01 规则编辑 UI 于 v0.3 启用 | MVP / v0.3 |
-| Module_07 | MVP 起：M02 提供 up 健康度/覆盖率查询 API（决策 47-3 提前），M07 只读消费做三态 badge（采集中 / 已下发未采到 / 未监控），M07 不直连时序数据 | MVP |
+| Module_07 | MVP 起：M02 提供 up 健康度/覆盖率查询 API（决策 47-3 提前），M07 只读消费做三态 badge（采集中 / 已下发未采到 / 未监控），M07 不直连时序数据；三态判定不感知 M09 下发时序——选中关系取 DB 当前值，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显（2026-09-02 口径修订） | MVP |
 | Module_08 | alerts 代理 v0.3 与 M08 对齐；M02 只代理中心求值告警实例，Alertmanager 通知状态（分组/静默/抑制/接收人）归 M08；v0.4+ `scope=edge`/`both` 边缘自治告警在边缘 vmalert 本地求值，不在中心 alerts 内 | v0.3 |
 | Module_09 | 注入 key 契约对齐 `network_domain` / `tenant_id`（M09 external_labels）；M09 管监控基础设施健康（EdgeAgent/WAL/配置同步），M02 管被监控对象指标；M02 数据新鲜度信息源来自 M09 心跳 | MVP / v0.2 |
 | Module_10 | v0.2+ 外部监控源数据经 M10 标签归一化后写入中心，M02 查询覆盖并按监控源筛选；标签语义对齐归 M10 | v0.2 / v0.3 |
@@ -414,6 +416,6 @@ Module_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.8 | 2026-09-02 | 修改 | coverage 三态判定口径修订（用户拍板 A 方案）：`/api/v1/health/coverage` **不感知 M09 下发时序**——选中关系取 DB 当前 `selected_instance_ids`（`draft_status=ready` 且 `enabled=true` 的 Job，不问 `change_status`），采集事实取 Prometheus 实际 target/`up`；选中未采到统一归 `pending_down`（含变更未确认下发/未 reload/待首次抓取/采集器未装），「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）；§3.1 新增口径说明、§12 M07 边界行同步；契约快照 `module-02/api-contract-snapshot.md` §2.2.1/§5 同步闭环；原型行为不变 | 功能清单、模块边界 | MVP | 设计中 |
 | v1.7 | 2026-08-31 | 修改 | 决策 55/56/57 落版（M02/M08 边界与注入语义澄清）：①§7 更名「注入与授权校验规则」，§7.2 改写为**三层语义**——`tenant_id` 硬隔离强制注入；`network_domain` **授权集合收敛**（授权=全部网域时不注入任何 matcher，跨网域业务聚合天然成立；授权为真子集时注入集合 matcher）；前端筛选纯 UX 不承担安全职责；②§11.1 验收项 9 收敛为 API 契约（**告警状态页归 M08**，本模块只交付注入代理 API）；③§1 新增**存储可替换性决策点**——1 控制面 + N 采集节点扁平拓扑、中心存储预留替换 VictoriaMetrics、隔离契约保持标签制（VM 原生多租户为 v0.2 评审选项）；设计思路全文见 `docs/05-execution-records/module-02/m02-vs-m08-boundary-and-injection-design.md`；原型待对齐 | 注入规则、验收标准、模块目标 | MVP / v0.2 / v0.3 | 设计中 |
 | v1.6 | 2026-08-31 | 新增 | 决策 51/52 交叉落版：①§1 可视化边界补**三层归属**（决策 51）——嵌入入口/引导/模板归 M05、Grafana 自身配置归交付包安装期 provisioning、Dashboard-as-Code 治理预留 M11（v0.4+ 评估）；并明确**跨网域业务看板不受网域注入影响**（授权集合收敛语义下 `sum by (biz)` 跨域聚合天然成立，网域仅作可选下钻维度）；②§1 新增 **blackbox 拨测网域语义**（决策 52）——拨测指标的 `network_domain` 表示发起侧网域（探测路径），目标归属不参与网域推导；原型待对齐 | 模块边界 | v0.2 / v0.3 | 设计中 |
-| v1.5 | 2026-08-31 | 修改 | 决策 50 落版（可视化方案收敛）：①§1 新增「与可视化组件的边界」——不自研拖拽面板编辑器/大屏，大屏走 Grafana iframe 嵌入且**数据源必须指向 M02 查询代理**（禁止直连 Prometheus，否则租户/网域注入失效），门户轻量图表用 ECharts/AntV 消费 `query_range`（随 v0.3 首页 Dashboard 数据）；②§3.1「复杂 Dashboard」行改写为「复杂 Dashboard / 可视化大屏」并承载决策 50；③§8.2 补 MVP envelope 最小实现口径（`data_source` 恒 `central_scrape`、`network_domains` 恒 `["default"]`、`freshness_at` 取最新样本时间戳），MVP 即固定 envelope 结构；④v1.2 两行 Change Log 迁移至 design-decisions.md 完整历史；原型待对齐 | 模块边界、功能清单、envelope | MVP / v0.3 | 设计中 |

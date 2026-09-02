@@ -720,14 +720,14 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	code, _ = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", customID), `{"resource_category":"host"}`)
 	assert.Equal(t, http.StatusBadRequest, code)
 
-	// 5. 克隆默认模板：新名派生、is_default=false、mappings 全量复制（application 默认 6 条）。
+	// 5. 克隆默认模板：新名派生、is_default=false、mappings 全量复制（application 默认 7 条，含 resource_id）。
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID)+"/clone", "")
 	require.Equal(t, http.StatusOK, code)
 	clone := out["data"].(map[string]interface{})
 	cloneID := clone["id"].(float64)
 	assert.Equal(t, "default-application 副本", clone["name"])
 	assert.Equal(t, false, clone["is_default"])
-	assert.Len(t, clone["mappings"].([]interface{}), 6)
+	assert.Len(t, clone["mappings"].([]interface{}), 7)
 
 	// 6. 默认模板禁止删除 → 400。
 	code, _ = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID), "")
@@ -742,20 +742,20 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings",
 		mustJSON(t, map[string]interface{}{"source_type": "composite", "source_field": "instance_ip:port"}))
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 7, "新增 composite→instance 映射")
+	assert.Len(t, out["data"].([]interface{}), 8, "新增 composite→instance 映射")
 
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings",
 		mustJSON(t, map[string]interface{}{"source_type": "resource_field", "source_field": "owner", "target_label": "owner"}))
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 8)
+	assert.Len(t, out["data"].([]interface{}), 9)
 
 	// 8. 更新 / 删除 mapping。
-	code, out = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/7", `{"source_field":"instance_ip:port"}`)
+	code, out = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/8", `{"source_field":"instance_ip:port"}`)
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 8)
-	code, out = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/8", "")
+	assert.Len(t, out["data"].([]interface{}), 9)
+	code, out = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/9", "")
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, float64(8), out["data"].(map[string]interface{})["mapping_id"])
+	assert.Equal(t, float64(9), out["data"].(map[string]interface{})["mapping_id"])
 
 	// 9. 默认模板 mappings 只读 → 400。
 	code, _ = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID)+"/mappings",

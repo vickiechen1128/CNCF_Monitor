@@ -215,6 +215,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 3.22 {'{v2.23}'} 决策 47-3（修订 31-M1）：资源列表「采集状态」升级为三态 badge——采集中 / 已下发未采到 / 未监控；数据 = M01 选中关系（is_monitored）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合、禁止逐行查询 TQ-6）。
                 3.23 {'{v2.23}'} 决策 48：业务分组字典提级 MVP——新增「业务管理」页（列表 / 登记 / 受限编辑 / 停用），字典落 DB、business_domains.yaml 仅首次启动 seed；红线：biz_code 创建后不可改、仅 biz_name/description/status 可编辑、停用不删除、infra 禁止停用/删除。
                 3.24 {'{v2.24}'} 决策 52：网域归属四级解析链——显式指定 &gt; 冲突告警 &gt; 按 IP 与网域已登记网段（ip_cidrs，契约 M06 v2.5）最长前缀推导 &gt; 默认兜底；网域字段可留空由平台推导；Blackbox 拨测例外 = 取发起侧（采集 Job）网域、不推导。列表与详情标注「归属来源」（显式/冲突/网段推导/默认/发起侧）以显性化该平台派生信息。
+                3.25 {'{v2.25}'} coverage 三态口径修订（2026-09-02，planner 阻塞项闭环）：选中关系取 DB 当前值、不感知 M09 下发时序；「已下发未采到」含变更未确认下发情形，提醒文案同步；「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）。五类默认标签模板补 resource_id → resource_id 稳定身份映射（决策 47-3 coverage 回连前置）。
                 实现细节与数据契约见 PRD 对应章节（6 接口设计 / 5.12 C 组合字段 / 12 验收标准）与代码注释。
               </Typography.Paragraph>
             </ReviewNote>

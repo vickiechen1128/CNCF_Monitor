@@ -308,8 +308,26 @@ func TestLabelTemplateByCategory(t *testing.T) {
 		if m.TargetLabel == "instance" && m.SourceType == LabelSourceTypeComposite {
 			assert.Equal(t, "instance_ip:port", m.SourceField)
 		}
+		if m.TargetLabel == "resource_id" {
+			assert.Equal(t, "resource_id", m.SourceField)
+			assert.Equal(t, LabelSourceTypeResourceField, m.SourceType)
+		}
 	}
 	assert.True(t, found, "default host template must map biz_code -> biz")
+}
+
+// TestDefaultTemplatesContainResourceID 覆盖 Module_01 v3.29 §9.1 验收收紧：
+// 五类默认模板必须含 resource_id 稳定身份标签（决策 47-3 coverage 回连键）。
+func TestDefaultTemplatesContainResourceID(t *testing.T) {
+	for _, cat := range ValidResourceCategories() {
+		found := false
+		for _, m := range DefaultMappingBuilders(cat) {
+			if m.TargetLabel == "resource_id" && m.SourceField == "resource_id" && m.SourceType == LabelSourceTypeResourceField && m.Enabled {
+				found = true
+			}
+		}
+		assert.True(t, found, "default template for %q must contain resource_id -> resource_id", cat)
+	}
 }
 
 func TestBuiltinTemplates(t *testing.T) {

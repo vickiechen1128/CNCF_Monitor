@@ -768,3 +768,62 @@ tasks:
       - "App 注册 `/resources` 与 `/label-templates` 路由，渲染 ResourcesPage 与 LabelTemplatesPage（替换现有占位 ResourcePage）"
       - "MainLayout MODULES 增加一级模块「监控对象管理」（含二级：资源管理 / 标签模板），与「系统与平台管理」并列；resolveActiveModule 覆盖新路径（对齐 M06 导航模式，不引入跨模块职责）"
       - "`pnpm lint`、`pnpm test` 通过；`pnpm dev` 首页/资源管理/标签模板页均 200"
+
+  # ---------------------------------------------------------------------------
+  # Track B 增量（决策 47-3：资源列表『采集状态』三态 badge，derived for feat/module-08-alert-dispatch）
+  #   修订决策 31-M1（『未监控』二元筛选 → 三态 badge）
+  #   数据源 = M01 选中关系（is_monitored）+ M02 /api/v1/health/coverage 聚合（up 按 resource_id 回连）
+  #   M07 只读消费、不直连时序数据；依赖 module-02 T02-02（coverage 聚合 API）先就绪
+  # ---------------------------------------------------------------------------
+  - id: "T07-47-B1"
+    title: "（决策 47-3）资源列表 API 核对与状态数据源标注：确认五类列表返回稳定 resource_id、三态数据源指向 M02 coverage，更新 monitored.go 透传注释"
+    prd: "Module_07 §6.1/§6.6.1 + decision-47-3：『未监控』二元筛选升级三态；M02 /api/v1/health/coverage 供 badge 消费；M07 不反向查 ScrapeJob、不直连时序" 
+    group: "backend"
+    status: "pending"
+    commit_group: "m07-coverage-source"
+    depends_on: ["T07-05"]
+    input_files:
+      - "platform/config/resource/monitored.go"    # is_monitored 透传注释更新为『三态数据源=M02 coverage，本接口不内嵌状态字段』
+      - "platform/config/resource/list.go"
+      - "platform/config/resource/routes.go"
+    output_files:
+      - "platform/config/resource/monitored.go"
+      - "platform/config/resource/list.go"
+      - "platform/config/resource/list_test.go"
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "五类资源列表 item 稳定返回 `resource_id`（与 M02 coverage item.resource_id 同键），供前端按 resource_id 合并 badge；不新增时序字段"
+      - "monitored.go 解析 is_monitored 的注释更新为『三态采集状态数据源为 M02 GET /api/v1/health/coverage；本接口不内嵌 up/down 状态，前端经 coverage 聚合合并（决策 47-3，修订决策 31-M1）』"
+      - "复核列表接口不反向查询 ScrapeJob/时序（维护 M07-M02 边界）；错误/空集行为不变"
+      - "go test ./platform/... 全绿，go vet 通过"
+
+  - id: "T07-47-F1"
+    title: "资源列表『采集状态』三态 badge + 三态筛选：消费 M02 /api/v1/health/coverage 聚合，按 resource_id 与列表行合并渲染（采集中/已下发未采到/未监控）"
+    prd: "Module_07 §11.1/§11.2 + api-contract-snapshot.md（M02 §2.2 coverage / M07 §5.2）；decision-47-3"
+    group: "frontend"
+    status: "pending"
+    commit_group: "fe-m07-status-badge"
+    prototype_pages: "docs/prototypes/module-07/（资源列表『采集状态』三态 badge + 三态筛选；原型已同步二态改三态）"
+    ui_contract: "资源列表『采集状态』列渲染三态 badge（采集中=绿 / 已下发未采到=橙 / 未监控=灰）；『未监控』筛选升级为三态筛选器；数据源 = coverageApi.list（module-02 T02-F1 产物）一次性拉取 → 前端 Map by resource_id 合并，禁止逐行查询（TQ-6）"
+    nav_contract: "资源管理页内列/筛选增强，不改导航归属；复用 module-02 的 src/api/coverage.ts + src/types/query.ts"
+    clipping: "三态明细下钻（target 列表）归 M02 独立目标状态页（P1，T02-F1）；M07 仅 row 级 badge"
+    depends_on: ["T07-F3", "T02-02"]   # M07 资源列表页 + M02 coverage 聚合 API（后端）
+    input_files:
+      - "ui-custom/web/src/api/coverage.ts"         # M02 coverage client（T02-F1 产物）
+      - "ui-custom/web/src/types/query.ts"          # CoverageItem / CoverageSummary
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/types/resource.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.test.tsx"
+      - "ui-custom/web/src/components/MonitorStatusBadge.tsx"   # 三态 badge 通用组件（可选）
+      - "ui-custom/web/src/pages/resources/useResourceCoverage.ts"  # 拉取 coverage + Map by resource_id（可内联）
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ResourcesPage.test.tsx"
+    acceptance_criteria:
+      - "『采集状态』列三态 badge：coverage.items 按 resource_id 命中 → collecting 显『采集中』（绿）/ pending_down 显『已下发未采到』（橙，Tooltip 显示 health/last_error）；未命中（∉ 任何 Job）→ 显『未监控』（灰）"
+      - "『未监控』二元筛选升级为三态筛选器：全部/采集中/已下发未采到/未监控，前端按 coverage.monitor_state 过滤或透传 state 至 coverageApi（决策 47-3 修订决策 31-M1）"
+      - "列表级一次拉取 coverageApi.list（按当前 resource_category 过滤），Map 合并到行，禁止逐行调 targets/query（TQ-6）；coverage 加载失败时列降级为『-』并记录错误态，不影响资源列表主渲染"
+      - "空态/加载/错误态与既有资源列表一致；编辑/删除资源后 badge 重新拉取"
+      - "单文件 vitest + eslint 全绿"

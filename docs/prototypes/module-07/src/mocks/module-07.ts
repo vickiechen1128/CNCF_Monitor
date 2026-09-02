@@ -3,7 +3,8 @@
 // 对齐 PRD v2.23（Module_07_Monitoring_Object_Management.md）
 // 决策 13/14/17/19/21/22/48：业务分组字典 + biz_code 全资源必填（biz 标签只承载不可变编码），展示取 biz_name；强制预置兜底条目 infra
 //   决策 48：字典落 DB + 业务管理页（列表/登记/受限编辑/停用），business_domains.yaml 仅首次启动 seed；biz_code 创建后不可改、停用不删除、infra 禁止停用/删除
-// 决策 47-3（修订 31-M1）：采集状态三态 badge——采集中（is_monitored=true 且 up）/ 已下发未采到（is_monitored=true 但 down 或待首次抓取）/ 未监控（is_monitored=false）
+// 决策 47-3（修订 31-M1）：采集状态三态 badge——采集中（is_monitored=true 且 up）/ 已下发未采到（is_monitored=true 但未采到数据：down / 待首次抓取 / 变更未确认下发）/ 未监控（is_monitored=false）
+// {v2.25} 2026-09-02 口径修订：选中关系取 DB 当前值、不感知 M09 下发时序；「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）
 //   is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连，列表级禁止逐行查询 TQ-6）
 // 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真，见 STATUS_MAPPING 注释）
 // ============================================================
