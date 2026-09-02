@@ -47,6 +47,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		&models.AlertmanagerConfigVersion{},
 	))
 	return db
 }
@@ -273,6 +274,42 @@ func TestGenerateDraftNoDiffReturnsErrNoChanges(t *testing.T) {
 	// 源数据无实质变化 → ErrNoChanges，不再生成「本次无配置变更」的草稿。
 	_, err = GenerateDraft(db, "edge-nodiff")
 	assert.ErrorIs(t, err, ErrNoChanges)
+}
+
+// TestGenerateDraftAlertmanagerChangeItem 覆盖决策 60（T09-60-2）：管理域 default 纳入
+// alertmanager.yml，其内容变化须派生「告警收敛配置」变更项，且草稿持久化 alertmanager_yml
+// 供预览；edge 域不纳入告警配置（不产出该变更项）。
+func TestGenerateDraftAlertmanagerChangeItem(t *testing.T) {
+	db := newMemDB(t)
+	// 管理域（management）已纳管。
+	mgmt := &models.NetworkDomain{
+		ID: "default", Name: "管理域", DomainType: models.DomainTypeManagement,
+		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
+		ZoneType: "central", Channel: models.ChannelTypeAgentPull, IsMonitored: true,
+	}
+	require.NoError(t, db.Create(mgmt).Error)
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:  "route:\n  receiver: default\n",
+		Checksum: models.AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
+		Status:   models.AlertmanagerConfigStatusApplied,
+	}).Error)
+
+	d, err := GenerateDraft(db, "default")
+	require.NoError(t, err)
+	assert.Equal(t, "route:\n  receiver: default\n", d.AlertmanagerYml, "草稿须持久化 alertmanager_yml 供预览")
+
+	var items []models.ConfigChangeItem
+	require.NoError(t, json.Unmarshal([]byte(d.ChangeItems), &items))
+	var amItems []models.ConfigChangeItem
+	for _, it := range items {
+		if it.Target == string(models.ChangeItemTargetAlertmanagerCfg) {
+			amItems = append(amItems, it)
+		}
+	}
+	require.Len(t, amItems, 1, "管理域须派生告警收敛配置变更项")
+	assert.Equal(t, string(models.ChangeItemTypeAdd), amItems[0].Type)
+	assert.Equal(t, string(models.RiskLow), amItems[0].Risk)
+	assert.Equal(t, []string{string(models.AffectedFileAlertmanager)}, amItems[0].AffectedFiles)
 }
 
 // TestGenerateDraftBackfillsSourceVersion 覆盖 T09-05 review-fix：生成草稿时回填
