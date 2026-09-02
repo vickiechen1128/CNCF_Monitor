@@ -11,6 +11,7 @@ import {
   Popconfirm,
   Select,
   Space,
+  Spin,
   Table,
   Tag,
   Tooltip,
@@ -31,8 +32,9 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
-import { JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { DOWN_TOOLTIP, JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, SCRAPE_STATUS_META } from './strategyConstants'
 import { useScrapeJobs } from './useScrapeJobs'
+import { useJobScrapeStatus } from './useJobScrapeStatus'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { aggregateJobStatus } from './jobStatus'
 
@@ -68,6 +70,8 @@ function JobsTab() {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ScrapeJob | null>(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
+  // 决策 47-2 per-job 形态：按当前页 Job 聚合「采集状态」（采集中/已下发未采到/待采集）
+  const scrapeStatusByJob = useJobScrapeStatus(data.list)
 
   // 已纳管（is_monitored=true）且非冻结（status=enabled）的网域下拉（§5.4 / §11.1）
   useEffect(() => {
@@ -269,6 +273,27 @@ function JobsTab() {
       key: 'selected_instance_ids',
       width: 100,
       render: (v?: string[]) => v?.length ?? 0,
+    },
+    {
+      title: '采集状态',
+      key: 'scrape_status',
+      width: 150,
+      // 决策 47-2 per-job 形态：按 Job 聚合（采集中/已下发未采到/待采集），
+      // 复用 ExporterInstallationPanel SCRAPE_STATUS_META 口径与 DOWN_TOOLTIP 引导；
+      // down 态 Tooltip 提示采集器安装/网络排查。
+      render: (_: unknown, r: ScrapeJob) => {
+        const v = scrapeStatusByJob[r.id]
+        if (!v) return <Spin size="small" />
+        const meta = SCRAPE_STATUS_META[v.state]
+        const text = `${meta.label} ${v.online}/${v.total}`
+        return meta.badge === 'error' ? (
+          <Tooltip title={DOWN_TOOLTIP}>
+            <Badge status={meta.badge} text={text} />
+          </Tooltip>
+        ) : (
+          <Badge status={meta.badge} text={text} />
+        )
+      },
     },
     { title: '间隔', dataIndex: 'scrape_interval', key: 'scrape_interval', width: 90, render: (v?: string) => v || '-' },
     {

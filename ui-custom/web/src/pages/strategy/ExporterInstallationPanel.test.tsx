@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { setupAntdTest } from '../../test/antdTestUtils'
-import { ExporterInstallationPanel, DOWN_TOOLTIP } from './ExporterInstallationPanel'
+import { ExporterInstallationPanel } from './ExporterInstallationPanel'
+import { DOWN_TOOLTIP } from './strategyConstants'
 
 const instancesMock = vi.fn()
 const confirmMock = vi.fn()

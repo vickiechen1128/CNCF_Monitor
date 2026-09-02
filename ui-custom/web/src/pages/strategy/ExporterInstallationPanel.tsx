@@ -3,7 +3,8 @@ import { Alert, Badge, Button, Card, Empty, Space, Spin, Tooltip, Typography, me
 import { ReloadOutlined } from '@ant-design/icons'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import type { InstallationStatus, ScrapeJobInstanceItem } from '../../types/strategy'
-import { useScrapeJobStatus, type JobInstanceScrapeStatus } from './useScrapeJobStatus'
+import { useScrapeJobStatus } from './useScrapeJobStatus'
+import { DOWN_TOOLTIP, SCRAPE_STATUS_META } from './strategyConstants'
 
 const { Text } = Typography
 
@@ -12,17 +13,6 @@ const INSTALL_STATUS_MAP: Record<InstallationStatus, { label: string; status: 's
   confirmed: { label: '已确认', status: 'success' },
   not_applicable: { label: '不适用', status: 'default' },
 }
-
-/** 实例「采集状态」展示（决策 47-2：采集正常 / 已下发未采到 / 待采集） */
-const SCRAPE_STATUS_META: Record<JobInstanceScrapeStatus, { label: string; badge: 'success' | 'error' | 'default' }> = {
-  // 与 M07 MonitorStatusBadge 的「采集中」统一口径（LOW-3），同指绿色采集正常态
-  collecting: { label: '采集中', badge: 'success' },
-  down: { label: '已下发未采到', badge: 'error' },
-  pending: { label: '待采集', badge: 'default' },
-}
-
-/** 已下发未采到（down）的行内引导文案（决策 47-2） */
-export const DOWN_TOOLTIP = '配置已下发但未采集到数据，请检查采集器安装与网络连通'
 
 interface ExporterInstallationPanelProps {
   /** 采集 Job id（已保存后展示安装确认；新建未保存时为 0/空） */
