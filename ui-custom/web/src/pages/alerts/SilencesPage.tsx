@@ -9,6 +9,7 @@ import {
   App,
   Button,
   Card,
+  ConfigProvider,
   Empty,
   Modal,
   Space,
@@ -18,18 +19,20 @@ import {
   Tag,
   Typography,
 } from 'antd'
+import config from 'antd/locale/zh_CN'
 import { BellOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { MainLayout } from '../../layouts/MainLayout'
 import type { Silence, SilenceStatus } from '../../types/alertmanager'
 import { useSilences } from './useSilences'
 import { CreateSilenceDrawer, type CreateSilenceDrawerProps } from './CreateSilenceDrawer'
 import { silenceStatusColor, silenceStatusLabel } from './alertmanagerConstants'
 import { formatMatchers } from './alertmanagerConstants'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 /** 生效/失效时间展示：UTC ISO 转本地可读串（复用全仓既时区展示约定，不引入新依赖） */
 function formatTime(iso?: string): string {
@@ -159,98 +162,104 @@ export function SilencesPage() {
 
   if (permissionDenied) {
     return (
-      <Card>
-        <Empty description="当前账号无此页面查看权限" />
-      </Card>
+      <MainLayout>
+        <Card>
+          <Empty description="当前账号无此页面查看权限" />
+        </Card>
+      </MainLayout>
     )
   }
 
   return (
-    <div>
-      <div>
-        <Title level={4} style={{ margin: 0 }}>
-          静默管理
-        </Title>
-        <Text type="secondary">创建主动静默，屏蔽特定告警的通知；本操作即时生效，不影响配置下发</Text>
-      </div>
-
-      {error && (
-        <Alert
-          type="error"
-          showIcon
+    <MainLayout>
+      <ConfigProvider locale={config}>
+        <Card
+          title="静默管理"
+          extra={
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              创建静默
+            </Button>
+          }
           style={{ marginBottom: 16 }}
-          message="静默列表加载失败，请稍后重试"
-          description={error}
-          action={<Button size="small" onClick={reload}>重新加载</Button>}
+        >
+          <Text type="secondary">创建主动静默，屏蔽特定告警的通知；本操作即时生效，不影响配置下发</Text>
+        </Card>
+
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="静默列表加载失败，请稍后重试"
+            description={error}
+            action={<Button size="small" onClick={reload}>重新加载</Button>}
+          />
+        )}
+
+        <Card>
+          <FilterBar>
+            <FilterItem label="静默状态">
+              <Select
+                style={{ width: 160 }}
+                value={status}
+                onChange={changeStatus}
+                options={[
+                  { value: 'all', label: '全部' },
+                  { value: 'active', label: '生效中' },
+                  { value: 'pending', label: '待生效' },
+                  { value: 'expired', label: '已过期' },
+                ]}
+              />
+            </FilterItem>
+            <FilterItem label="关键词">
+              <Input
+                style={{ width: 240 }}
+                placeholder="匹配条件 / 原因 / 创建人"
+                value={kw}
+                onChange={(e) => changeKw(e.target.value)}
+                allowClear
+              />
+            </FilterItem>
+          </FilterBar>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <Space size={8}>
+              <BellOutlined />
+              <Text>主动静默</Text>
+              <Tag color="processing">即时生效</Tag>
+            </Space>
+          </div>
+
+          <Alert
+            type="info"
+            showIcon
+            message="静默影响当前授权网域"
+            description="本页创建与展示的静默均在当前登录账号授权网域范围内生效（决策 56）；越权条件会被服务端拒绝。"
+            style={{ marginBottom: 16 }}
+          />
+
+          <Table<Silence>
+            rowKey="id"
+            dataSource={filtered}
+            loading={loading}
+            columns={columns}
+            scroll={TABLE_SCROLL_X}
+            pagination={{
+              ...TABLE_PAGINATION,
+              current: page,
+              total: tableTotal,
+              onChange: (p) => setPage(p),
+            }}
+          />
+        </Card>
+
+        <CreateSilenceDrawer
+          key={`${drawerSeq}`}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          onSubmit={handleCreate}
         />
-      )}
-
-      <Card>
-        <FilterBar>
-          <FilterItem label="静默状态">
-            <Select
-              style={{ width: 160 }}
-              value={status}
-              onChange={changeStatus}
-              options={[
-                { value: 'all', label: '全部' },
-                { value: 'active', label: '生效中' },
-                { value: 'pending', label: '待生效' },
-                { value: 'expired', label: '已过期' },
-              ]}
-            />
-          </FilterItem>
-          <FilterItem label="关键词">
-            <Input
-              style={{ width: 240 }}
-              placeholder="匹配条件 / 原因 / 创建人"
-              value={kw}
-              onChange={(e) => changeKw(e.target.value)}
-              allowClear
-            />
-          </FilterItem>
-        </FilterBar>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-          <Space size={8}>
-            <BellOutlined />
-            <Text>主动静默</Text>
-            <Tag color="processing">即时生效</Tag>
-          </Space>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            创建静默
-          </Button>
-        </div>
-
-        <Alert
-          type="info"
-          showIcon
-          message="静默影响当前授权网域"
-          description="本页创建与展示的静默均在当前登录账号授权网域范围内生效（决策 56）；越权条件会被服务端拒绝。"
-          style={{ marginBottom: 16 }}
-        />
-
-        <Table<Silence>
-          rowKey="id"
-          dataSource={filtered}
-          loading={loading}
-          columns={columns}
-          scroll={TABLE_SCROLL_X}
-          pagination={{
-            ...TABLE_PAGINATION,
-            current: page,
-            total: tableTotal,
-            onChange: (p) => setPage(p),
-          }}
-        />
-      </Card>
-
-      <CreateSilenceDrawer
-        key={`${drawerSeq}`}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onSubmit={handleCreate}
-      />
-    </div>
+      </ConfigProvider>
+    </MainLayout>
   )
 }

@@ -8,7 +8,6 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { App } from 'antd'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
-import { MainLayout } from '../../layouts/MainLayout'
 import { AlertConfigPage } from './AlertConfigPage'
 import { SilencesPage } from './SilencesPage'
 
@@ -37,8 +36,9 @@ function renderM08(initialPath: string) {
     <App>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
-          <Route path="/alert-config" element={<MainLayout><AlertConfigPage /></MainLayout>} />
-          <Route path="/silences" element={<MainLayout><SilencesPage /></MainLayout>} />
+          {/* 页面组件自带 MainLayout（与其他模块一致），路由层不再包裹，避免双布局 */}
+          <Route path="/alert-config" element={<AlertConfigPage />} />
+          <Route path="/silences" element={<SilencesPage />} />
         </Routes>
       </MemoryRouter>
     </App>,

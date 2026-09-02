@@ -97,7 +97,8 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
       result({ current: { id: 'acv-1', content: 'global:\n  resolve_timeout: 30s', checksum: 'abc', status: 'applied' }, versions: [versionRow()], total: 1 }),
     )
     renderPage()
-    expect(await screen.findByText('acv-1')).toBeInTheDocument()
+    // 「当前生效配置」结构化 Descriptions 与「配置版本历史」表格行均展示版本 ID acv-1
+    expect((await screen.findAllByText('acv-1')).length).toBeGreaterThan(0)
     expect(screen.getByText(/resolve_timeout/)).toBeInTheDocument()
     expect(screen.getByText('CHG-20260831-001')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重新挂载此版本/ })).toBeInTheDocument()

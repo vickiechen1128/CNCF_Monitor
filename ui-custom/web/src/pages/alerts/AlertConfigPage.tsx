@@ -10,6 +10,7 @@ import {
   App,
   Button,
   Card,
+  ConfigProvider,
   Descriptions,
   Drawer,
   Empty,
@@ -19,6 +20,7 @@ import {
   Tag,
   Typography,
 } from 'antd'
+import config from 'antd/locale/zh_CN'
 import { EyeOutlined, HistoryOutlined, UploadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { alertmanagerConfigApi, readValidateErrors } from '../../api/alertmanager'
@@ -33,8 +35,9 @@ import {
   configStatusLabel,
 } from './alertmanagerConstants'
 import { shortChecksum } from '../../utils/shortChecksum'
+import { MainLayout } from '../../layouts/MainLayout'
 
-const { Text, Title } = Typography
+const { Text } = Typography
 
 export function AlertConfigPage() {
   const navigate = useNavigate()
@@ -181,157 +184,183 @@ export function AlertConfigPage() {
 
   if (permissionDenied) {
     return (
-      <Card>
-        <Empty description="当前账号无此页面查看权限" />
-      </Card>
+      <MainLayout>
+        <Card>
+          <Empty description="当前账号无此页面查看权限" />
+        </Card>
+      </MainLayout>
     )
   }
 
   return (
-    <div>
-      <div>
-        <Title level={4} style={{ margin: 0 }}>
-          告警配置
-        </Title>
-        <Text type="secondary">
-          通过文件挂载整份 alertmanager.yml，校验通过后提交配置中心（M09）变更单，确认后统一下发生效
-        </Text>
-      </div>
-
-      {error && (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="配置信息加载失败，请稍后重试"
-          description={error}
-          action={<Button size="small" onClick={reload}>重新加载</Button>}
-        />
-      )}
-
-      {remountErrors && remountErrors.length > 0 && (
-        <Alert
-          type="error"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="重新挂载校验失败，未保存、未生效，请修改后重试"
-          description={
-            <div>
-              <Text>请在下方定位行级错误：</Text>
-              <ul style={{ paddingLeft: 20, margin: '8px 0 0 0' }}>
-                {remountErrors.map((err, idx) => (
-                  <li key={idx} style={{ marginBottom: 4 }}>
-                    <Tag style={{ marginInlineEnd: 8 }}>
-                      {err.file}
-                      {err.line > 0 ? `:${err.line}` : ''}
-                    </Tag>
-                    {err.message}
-                  </li>
-                ))}
-              </ul>
-            </div>
+    <MainLayout>
+      <ConfigProvider locale={config}>
+        <Card
+          title="告警配置"
+          extra={
+            <Button type="primary" icon={<UploadOutlined />} onClick={() => openMount()}>
+              挂载新配置
+            </Button>
           }
-          action={<Button size="small" onClick={() => setRemountErrors(null)}>关闭</Button>}
-        />
-      )}
+          style={{ marginBottom: 16 }}
+        >
+          <Text type="secondary">
+            通过文件挂载整份 alertmanager.yml，校验通过后提交配置中心（M09）变更单，确认后统一下发生效
+          </Text>
+        </Card>
 
-      <Card
-        title={
-          <Space size={8}>
-            当前生效配置
-            {current && current.applied_at && (
-              <Tag color="processing">生效于 {current.applied_at} 由 {current.applied_by ?? '-'} 提交</Tag>
-            )}
-          </Space>
-        }
-        extra={
-          <Button type="primary" icon={<UploadOutlined />} onClick={() => openMount()}>
-            挂载新配置
-          </Button>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 40 }}>
-            <Text type="secondary">加载中…</Text>
-          </div>
-        ) : current && current.content ? (
-          <pre
-            style={{ margin: 0, maxHeight: 420, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
-          >
-            {current.content}
-          </pre>
-        ) : (
-          <Empty description="当前无生效配置，点击「挂载新配置」上传或粘贴 alertmanager.yml" />
+        {error && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="配置信息加载失败，请稍后重试"
+            description={error}
+            action={<Button size="small" onClick={reload}>重新加载</Button>}
+          />
         )}
-      </Card>
 
-      <Card
-        title={
-          <Space size={8}>
-            <HistoryOutlined />
-            配置版本历史
-            <Tag>内容侧留痕</Tag>
-          </Space>
-        }
-      >
-        <Table<AlertmanagerConfigVersionListItem>
-          rowKey="id"
-          dataSource={versions}
-          loading={loading}
-          columns={columns}
-          scroll={TABLE_SCROLL_X}
-          pagination={{
-            ...TABLE_PAGINATION,
-            current: page,
-            total,
-            onChange: (p, pz) => onPageSizeChange(p, pz),
-          }}
-        />
-      </Card>
-
-      <AlertConfigDrawer
-        key={`${drawerOpenSeq}-${drawerName}`}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        initialContent={drawerContent}
-        mountName={drawerName}
-        onSubmit={handleSubmit}
-      />
-
-      <Drawer
-        title={detail ? `配置版本 ${detail.id} 内容` : '配置版本内容'}
-        width={760}
-        open={detail !== null}
-        loading={detailLoading}
-        onClose={() => setDetail(null)}
-      >
-        {detail && (
-          <>
-            <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} style={{ marginBottom: 16 }}>
-              <Descriptions.Item label="版本 ID">
-                <Text code>{detail.id}</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="状态">
-                <Tag color={configStatusColor[detail.status]}>{configStatusLabel[detail.status]}</Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label="生效时间">{detail.applied_at ?? '-'}</Descriptions.Item>
-              <Descriptions.Item label="应用人">{detail.applied_by ?? '-'}</Descriptions.Item>
-              <Descriptions.Item label="M09 变更单">
-                {detail.source_change_no ? <Text code>{detail.source_change_no}</Text> : '-'}
-              </Descriptions.Item>
-              <Descriptions.Item label="校验和（sha256）">
-                <Text code style={{ fontSize: 12 }}>{shortChecksum(detail.checksum)}</Text>
-              </Descriptions.Item>
-            </Descriptions>
-            <pre
-              style={{ margin: 0, maxHeight: 520, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
-            >
-              {detailLoaded?.id === detail.id ? detailLoaded.content : ''}
-            </pre>
-          </>
+        {remountErrors && remountErrors.length > 0 && (
+          <Alert
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="重新挂载校验失败，未保存、未生效，请修改后重试"
+            description={
+              <div>
+                <Text>请在下方定位行级错误：</Text>
+                <ul style={{ paddingLeft: 20, margin: '8px 0 0 0' }}>
+                  {remountErrors.map((err, idx) => (
+                    <li key={idx} style={{ marginBottom: 4 }}>
+                      <Tag style={{ marginInlineEnd: 8 }}>
+                        {err.file}
+                        {err.line > 0 ? `:${err.line}` : ''}
+                      </Tag>
+                      {err.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            }
+            action={<Button size="small" onClick={() => setRemountErrors(null)}>关闭</Button>}
+          />
         )}
-      </Drawer>
-    </div>
+
+        <Card
+          title={
+            <Space size={8}>
+              当前生效配置
+              {current && current.applied_at && (
+                <Tag color="processing">生效于 {current.applied_at} 由 {current.applied_by ?? '-'} 提交</Tag>
+              )}
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <Text type="secondary">加载中…</Text>
+            </div>
+          ) : current && current.content ? (
+            <>
+              <Descriptions size="small" column={{ xs: 1, md: 2 }} style={{ marginBottom: 12 }}>
+                <Descriptions.Item label="版本 ID">
+                  <Text code>{current.id}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="状态">
+                  <Tag color={configStatusColor[current.status]}>{configStatusLabel[current.status]}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="生效时间">{current.applied_at ?? '-'}</Descriptions.Item>
+                <Descriptions.Item label="应用人">{current.applied_by ?? '-'}</Descriptions.Item>
+                <Descriptions.Item label="M09 变更单">
+                  {current.source_change_no ? <Text code>{current.source_change_no}</Text> : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="校验和（sha256）">
+                  <Text code style={{ fontSize: 12 }}>{shortChecksum(current.checksum)}</Text>
+                </Descriptions.Item>
+              </Descriptions>
+              <Space size={8} style={{ marginBottom: 8 }}>
+                <Text strong>完整配置</Text>
+                <Tag>只读</Tag>
+              </Space>
+              <pre
+                style={{ margin: 0, maxHeight: 420, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
+              >
+                {current.content}
+              </pre>
+            </>
+          ) : (
+            <Empty description="当前无生效配置，点击「挂载新配置」上传或粘贴 alertmanager.yml" />
+          )}
+        </Card>
+
+        <Card
+          title={
+            <Space size={8}>
+              <HistoryOutlined />
+              配置版本历史
+              <Tag>内容侧留痕</Tag>
+            </Space>
+          }
+        >
+          <Table<AlertmanagerConfigVersionListItem>
+            rowKey="id"
+            dataSource={versions}
+            loading={loading}
+            columns={columns}
+            scroll={TABLE_SCROLL_X}
+            pagination={{
+              ...TABLE_PAGINATION,
+              current: page,
+              total,
+              onChange: (p, pz) => onPageSizeChange(p, pz),
+            }}
+          />
+        </Card>
+
+        <AlertConfigDrawer
+          key={`${drawerOpenSeq}-${drawerName}`}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          initialContent={drawerContent}
+          mountName={drawerName}
+          onSubmit={handleSubmit}
+        />
+
+        <Drawer
+          title={detail ? `配置版本 ${detail.id} 内容` : '配置版本内容'}
+          width={760}
+          open={detail !== null}
+          loading={detailLoading}
+          onClose={() => setDetail(null)}
+        >
+          {detail && (
+            <>
+              <Descriptions bordered size="small" column={{ xs: 1, md: 2 }} style={{ marginBottom: 16 }}>
+                <Descriptions.Item label="版本 ID">
+                  <Text code>{detail.id}</Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="状态">
+                  <Tag color={configStatusColor[detail.status]}>{configStatusLabel[detail.status]}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="生效时间">{detail.applied_at ?? '-'}</Descriptions.Item>
+                <Descriptions.Item label="应用人">{detail.applied_by ?? '-'}</Descriptions.Item>
+                <Descriptions.Item label="M09 变更单">
+                  {detail.source_change_no ? <Text code>{detail.source_change_no}</Text> : '-'}
+                </Descriptions.Item>
+                <Descriptions.Item label="校验和（sha256）">
+                  <Text code style={{ fontSize: 12 }}>{shortChecksum(detail.checksum)}</Text>
+                </Descriptions.Item>
+              </Descriptions>
+              <pre
+                style={{ margin: 0, maxHeight: 520, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
+              >
+                {detailLoaded?.id === detail.id ? detailLoaded.content : ''}
+              </pre>
+            </>
+          )}
+        </Drawer>
+      </ConfigProvider>
+    </MainLayout>
   )
 }

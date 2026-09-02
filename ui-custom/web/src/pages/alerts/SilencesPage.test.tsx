@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
 import { SilencesPage } from './SilencesPage'
@@ -41,9 +42,11 @@ function result(over: Record<string, unknown> = {}) {
 
 function renderPage() {
   return render(
-    <App>
-      <SilencesPage />
-    </App>,
+    <MemoryRouter>
+      <App>
+        <SilencesPage />
+      </App>
+    </MemoryRouter>,
   )
 }
 
@@ -62,7 +65,8 @@ describe('SilencesPage（静默管理）', () => {
   it('加载中提示', () => {
     useSilencesMock.mockReturnValue(result({ loading: true }))
     renderPage()
-    expect(screen.getByText('静默管理')).toBeInTheDocument()
+    // MainLayout 侧边栏二级菜单 + 页面 Card 标题均出现「静默管理」
+    expect(screen.getAllByText('静默管理').length).toBeGreaterThan(0)
     expect(screen.getByText('主动静默')).toBeInTheDocument()
   })
 
