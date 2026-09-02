@@ -270,7 +270,14 @@ export function BusinessDomainDrawer({ open, record, onCancel, onSuccess }: Busi
   }, [open, record, form])
 
   const handleSubmit = async () => {
-    const values = await form.validateFields()
+    let values: BusinessDomainFormValues
+    // antd 校验拒签属预期（字段内联报错由 Form 自展示）；捕获后直接返回，
+    // 避免 `void handleSubmit()` 下的 Unhandled Rejection（决策 48 编码规范校验用例）
+    try {
+      values = await form.validateFields()
+    } catch {
+      return
+    }
     setSubmitting(true)
     setSubmitError(null)
     try {
