@@ -569,7 +569,7 @@ tasks:
   - id: "T09-60-F1"
     title: "配置变更确认页支持 alertmanager.yml（预览 Tab + 受影响文件 + 变更对象文案）"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "preview-alertmanager"
     prd: "Module_09 v1.52 §3.4 配置预览（alertmanager.yml 条件 Tab + 受影响文件高亮）+ §9.1；Module_08 v1.7 决策 60"
     prototype_pages:
@@ -601,7 +601,7 @@ tasks:
   - id: "T09-60-F2"
     title: "决策 60 前端集成收尾"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "frontend-closeout-60"
     prd: "Module_09 v1.52 §9/§11.2；Module_08 v1.7 §9.1（跨模块动线）"
     prototype_pages: []
