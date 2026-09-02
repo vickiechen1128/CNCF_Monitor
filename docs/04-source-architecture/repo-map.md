@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 14:09 · commit: `19223b4c`
+> 生成时间: 2026-09-02 14:13 · commit: `a8aa86e3`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1846,9 +1846,55 @@
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
 
+### `platform/query/coverage.go`
+
+- `type CoverageItem struct`
+- `type CoverageSummary struct`
+- `type coverageResource struct`
+- `type upAggregation struct`
+- `func CoverageHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func loadResources(db *gorm.DB, netDomain, category string) ([]coverageResource, error)`
+- `func queryCategoryResources(db *gorm.DB, cat models.ResourceCategory, netDomain string) ([]coverageResource, error)`
+- `func loadSelectedInstances(db *gorm.DB) map[string]bool`
+- `func fetchUpAgg(ctx context.Context, client *http.Client, promURL *url.URL) (*upAggregation, error)`
+- `func fetchLastErrors(ctx context.Context, client *http.Client, promURL *url.URL) map[string]string`
+- `func buildCoverageItems(resources []coverageResource, selected map[string]bool, upState *upAggregation, lastErrors map[strin…`
+- `func summarize(items []CoverageItem) CoverageSummary`
+- `func parseCoveragePage(c *gin.Context) (int, int)`
+- `type promSeries struct`
+- `func queryInstantVector(ctx context.Context, client *http.Client, promURL *url.URL, expr string) ([]promSeries, error)`
+- `func parseIntQuery(raw string, def int) int`
+- `func validCategories() []models.ResourceCategory`
+- `func categoryList() []string`
+- `func validCategory(c models.ResourceCategory) bool`
+- `func instanceIPPort(ip string, port int) string`
+
+### `platform/query/coverage_test.go`
+
+- `func openCoverageTestDB(t *testing.T) *gorm.DB`
+- `func seedCoverageHost(t *testing.T, db *gorm.DB, id, domain, name string)`
+- `func seedCoverageJob(t *testing.T, db *gorm.DB, jobName string, selected []string)`
+- `func coverageUpFixture() map[string]interface{}`
+- `func coverageTargetsFixture() map[string]interface{}`
+- `func newCoverageRouter(t *testing.T, db *gorm.DB, up, targets map[string]interface{}) (*gin.Engine, *httptest.Server)`
+- `func doCoverage(t *testing.T, r *gin.Engine, query string) coverageResp`
+- `type coverageResp struct`
+- `type coverageItemJSON struct`
+- `type coverageSummaryJSON struct`
+- `func mustJSON(v interface{}) string`
+- `func setupCoverageScenario(t *testing.T) (*gin.Engine, *httptest.Server)`
+- `func TestCoverageTriState(t *testing.T)`
+- `func TestCoverageFilterNetworkDomain(t *testing.T)`
+- `func TestCoverageFilterResourceCategory(t *testing.T)`
+- `func TestCoverageFilterState(t *testing.T)`
+- `func TestCoveragePagination(t *testing.T)`
+- `func TestCoveragePageSizeCap(t *testing.T)`
+- `func TestCoverageEmptyResources(t *testing.T)`
+- `func TestCoverageNoUpAggDependency(t *testing.T)`
+
 ### `platform/query/routes.go`
 
-- `func RegisterRoutes(g *gin.RouterGroup, promURL *url.URL)`
+- `func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL)`
 
 ### `platform/query/targets.go`
 

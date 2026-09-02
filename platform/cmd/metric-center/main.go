@@ -143,7 +143,7 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	registerHealthRoutes(apiV1)
 	registerPrometheusProxyRoutes(apiV1, promURL)
 	// M02 采集状态路由（决策 47）：/api/v1/targets（代理）+ /api/v1/health/coverage（聚合）。
-	query.RegisterRoutes(apiV1, promURL)
+	query.RegisterRoutes(apiV1, db.DB, promURL)
 
 	apiV2 := r.Group("/api/v2")
 	registerPlatformConfigRoutes(apiV2)
