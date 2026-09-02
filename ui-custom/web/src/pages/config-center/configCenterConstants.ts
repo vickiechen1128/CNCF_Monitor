@@ -146,21 +146,23 @@ export const changeTypeColor: Record<ChangeType, string> = {
   delete: 'red',
 }
 
-/** 变更对象（源数据对象，对应 PRD §10） */
+/** 变更对象（源数据对象，对应 PRD §10；决策 60 追加 alertmanager_config） */
 export const changeTargetLabel: Record<ChangeTarget, string> = {
   scrape_job: '采集 Job',
   target_instance: '采集目标',
   monitoring_rule: '告警规则',
   probe_target: '拨测目标',
   label_template: '标签模板',
+  alertmanager_config: '告警配置',
 }
 
-/** 影响的配置文件（对应 PRD §10） */
+/** 影响的配置文件（对应 PRD §10；决策 60 追加 alertmanager） */
 export const affectedFileLabel: Record<AffectedFile, string> = {
   prometheus: 'prometheus.yml',
   targets: 'targets/*.json',
   rules: 'rules.yml',
   blackbox: 'blackbox.yml',
+  alertmanager: 'alertmanager.yml',
 }
 
 export const affectedFileColor: Record<AffectedFile, string> = {
@@ -168,6 +170,7 @@ export const affectedFileColor: Record<AffectedFile, string> = {
   targets: 'purple',
   rules: 'orange',
   blackbox: 'cyan',
+  alertmanager: 'magenta',
 }
 
 /** 下发记录状态 */

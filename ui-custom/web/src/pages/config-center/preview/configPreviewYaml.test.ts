@@ -3,7 +3,9 @@ import {
   affectedFileSet,
   computeDiff,
   fileTextByKey,
+  PREVIEW_TABS,
   previewFileText,
+  previewTabsFor,
   shortChecksum,
   targetsText,
 } from './configPreviewYaml'
@@ -61,6 +63,51 @@ describe('configPreviewYaml（配置预览 / Diff 工具）', () => {
     expect(previewFileText(draft, 'prometheus.yml')).toBe('global:')
     expect(previewFileText(draft, 'targets')).toContain('# job.json')
     expect(previewFileText(draft, 'blackbox.yml')).toBeUndefined()
+  })
+
+  // === 决策 60：alertmanager.yml 纳入配置预览 ===
+  it('PREVIEW_TABS 含 alertmanager.yml 条件 Tab（决策 60）', () => {
+    const am = PREVIEW_TABS.find((t) => t.key === 'alertmanager.yml')
+    expect(am).toBeDefined()
+    expect(am?.label).toBe('alertmanager.yml')
+    expect(am?.affectedKey).toBe('alertmanager')
+  })
+
+  it('previewTabsFor 仅变更单含 alertmanager_yml 时展示 alertmanager.yml Tab（条件渲染）', () => {
+    expect(previewTabsFor(base).find((t) => t.key === 'alertmanager.yml')).toBeUndefined()
+    const withAm: ConfigDraft = { ...base, alertmanager_yml: 'route:' }
+    const tabs = previewTabsFor(withAm)
+    expect(tabs.find((t) => t.key === 'alertmanager.yml')).toBeDefined()
+    // 不含 AM 时仍保留其余预览 Tab
+    expect(previewTabsFor(base).find((t) => t.key === 'prometheus.yml')).toBeDefined()
+  })
+
+  it('previewFileText 读取 alertmanager_yml 产物', () => {
+    const withAm: ConfigDraft = { ...base, alertmanager_yml: 'route:\n  receiver: web' }
+    expect(previewFileText(withAm, 'alertmanager.yml')).toBe('route:\n  receiver: web')
+    expect(previewFileText(base, 'alertmanager.yml')).toBeUndefined()
+  })
+
+  it('affectedFileSet 聚合含 alertmanager 的受影响文件（决策 60）', () => {
+    const set = affectedFileSet({
+      ...base,
+      affected_files: ['alertmanager'],
+      change_items: [
+        { id: 'c1', type: 'update', target: 'alertmanager_config', description: '', affected_files: ['alertmanager'], risk: 'low' },
+      ],
+    })
+    expect(set.has('alertmanager')).toBe(true)
+  })
+
+  it('fileTextByKey 兼容读取 alertmanager_yml（版本对比 Tab 复用的源）', () => {
+    const version: ConfigVersion = {
+      id: 'cv-1',
+      network_domain_id: 'default',
+      alertmanager_yml: 'global:',
+    }
+    expect(fileTextByKey(version, 'alertmanager.yml')).toBe('global:')
+    const draft: ConfigDraft = { ...base, alertmanager_yml: 'route:' }
+    expect(fileTextByKey(draft, 'alertmanager.yml')).toBe('route:')
   })
 
   it('shortChecksum 长校验值短显、空值返回 -', () => {

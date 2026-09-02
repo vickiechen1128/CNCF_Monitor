@@ -94,19 +94,20 @@ export interface ValidationDetail {
 /** 风险等级 */
 export type Risk = 'low' | 'high'
 
-/** 变更对象（源数据对象） */
+/** 变更对象（源数据对象；决策 60 追加 alertmanager_config 告警配置） */
 export type ChangeTarget =
   | 'scrape_job'
   | 'target_instance'
   | 'monitoring_rule'
   | 'probe_target'
   | 'label_template'
+  | 'alertmanager_config'
 
 /** 变更类型 */
 export type ChangeType = 'add' | 'update' | 'delete'
 
-/** 影响的配置文件 */
-export type AffectedFile = 'prometheus' | 'targets' | 'rules' | 'blackbox'
+/** 影响的配置文件（决策 60 追加 alertmanager） */
+export type AffectedFile = 'prometheus' | 'targets' | 'rules' | 'blackbox' | 'alertmanager'
 
 /** 结构化变更清单项 */
 export interface ConfigChangeItem {
@@ -155,6 +156,8 @@ export interface ConfigDraft {
   prometheus_yml?: string
   rules_yml?: string
   blackbox_yml?: string
+  /** 告警配置产物（决策 60：仅管理域 default 变更单含 alertmanager.yml 时返回，多文件预览 Tab 用） */
+  alertmanager_yml?: string
   targets_files?: Record<string, string>
   metadata?: ConfigDraftMetadata
   change_items?: ConfigChangeItem[]
@@ -169,6 +172,7 @@ export interface ConfigVersion {
   prometheus_yml?: string
   rules_yml?: string
   blackbox_yml?: string
+  alertmanager_yml?: string
   targets_files?: Record<string, string>
   created_at?: string
 }

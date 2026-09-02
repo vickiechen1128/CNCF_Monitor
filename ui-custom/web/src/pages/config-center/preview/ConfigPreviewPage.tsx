@@ -35,7 +35,7 @@ import type { ConfigDraft, ConfigChangeItem, ConfigVersion, DiscardImpact, Draft
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { useConfigDrafts, fetchMonitoredDomains, ALL_DOMAINS_ID } from './useConfigDrafts'
-import { affectedFileSet, computeDiff, fileTextByKey, previewFileText, PREVIEW_TABS, shortChecksum } from './configPreviewYaml'
+import { affectedFileSet, computeDiff, fileTextByKey, previewFileText, previewTabsFor, shortChecksum } from './configPreviewYaml'
 import {
   CURRENT_USER,
   affectedFileColor,
@@ -170,11 +170,13 @@ export function ConfigPreviewPage() {
   const handleConfirm = () => {
     if (!detail) return
     const isAgentPull = channelByDomainId.get(detail.network_domain_id)?.channel === 'agent_pull'
+    // 决策 60：含告警配置（alertmanager.yml）的变更单在确认时提示——低风险人工确认，发布后立即 reload 并在 M08 回写「已生效」
+    const hasAlertmanager = affectedFileSet(detail).has('alertmanager')
     Modal.confirm({
       title: `确认发布变更单 ${detail.change_no}？`,
       content: isAgentPull
         ? '确认后发布为配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）。可在「采集节点状态」页查看配置同步与生效进度。'
-        : '确认后由中心写盘并 reload 立即生效。',
+        : `确认后由中心写盘并 reload 立即生效。${hasAlertmanager ? ' 本变更含告警配置（alertmanager.yml），发布后同步 reload Alertmanager，并在「告警收敛与通知管理」回写「已生效」。' : ''}`,
       okText: '确认发布',
       cancelText: '取消',
       async onOk() {
@@ -455,9 +457,10 @@ export function ConfigPreviewPage() {
   const renderPreviewTab = () => {
     if (!detail) return null
     const affected = affectedFileSet(detail)
-    const ordered = [...PREVIEW_TABS]
+    // 决策 60：alertmanager.yml 条件渲染——仅变更单含该产物（管理域 default）时展示
+    const tabs = previewTabsFor(detail)
     // 默认聚焦首受影响文件（PRD §9.1）
-    const firstAffected = ordered.find((t) => t.affectedKey && affected.has(t.affectedKey))
+    const firstAffected = tabs.find((t) => t.affectedKey && affected.has(t.affectedKey))
     const defaultTab = firstAffected?.key ?? 'prometheus.yml'
     return (
       <div>
@@ -465,12 +468,12 @@ export function ConfigPreviewPage() {
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`本次变更影响 ${affected.size}/${PREVIEW_TABS.length} 个配置文件（受影响文件 Tab 带「变更」标记，默认聚焦首受影响）`}
+          message={`本次变更影响 ${affected.size}/${tabs.length} 个配置文件（受影响文件 Tab 带「变更」标记，默认聚焦首受影响）`}
         />
         <Tabs
           defaultActiveKey={defaultTab}
           type="card"
-          items={PREVIEW_TABS.map(({ key, label, affectedKey }) => ({
+          items={tabs.map(({ key, label, affectedKey }) => ({
             key,
             label: (
               <Space size={4}>
@@ -515,7 +518,7 @@ export function ConfigPreviewPage() {
         />
       )
     }
-    const fileTabs = PREVIEW_TABS.map(({ key, label }) => {
+    const fileTabs = previewTabsFor(detail).map(({ key, label }) => {
       const newText = previewFileText(detail, key)
       const oldText = fileTextByKey(sourceOrigin, key)
       const rows = computeDiff(oldText, newText)
