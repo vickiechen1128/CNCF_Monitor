@@ -823,7 +823,7 @@ tasks:
   - task_id: "T01-47-B1"
     name: "（决策 47-1）拆除安装确认闸门：确认 configgen 从 selected_instance_ids 生成 target 不因未确认实例受阻 + confirm API 语义降级为可选登记"
     agent: "backend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "m01-install-gate-removal"
     prd: "Module_01 §9.1（修订：原 P0『未确认实例不生成 target』废除，决策 47-1）/§5.6/§8④；decision-47-1 全文"
     depends_on: []

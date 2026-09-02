@@ -779,7 +779,7 @@ tasks:
     title: "（决策 47-3）资源列表 API 核对与状态数据源标注：确认五类列表返回稳定 resource_id、三态数据源指向 M02 coverage，更新 monitored.go 透传注释"
     prd: "Module_07 §6.1/§6.6.1 + decision-47-3：『未监控』二元筛选升级三态；M02 /api/v1/health/coverage 供 badge 消费；M07 不反向查 ScrapeJob、不直连时序" 
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "m07-coverage-source"
     depends_on: ["T07-05"]
     input_files:
