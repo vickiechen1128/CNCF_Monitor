@@ -3,6 +3,7 @@ package deployment
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
@@ -47,4 +48,31 @@ func writebackChangeStatuses(db *gorm.DB, domainID string) error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// writebackAlertmanagerApplied 在 ConfigDeployment.status=success（管理域 default 含
+// alertmanager.yml 下发 + AM reload 成功）后回写 M08（决策 60 / 决策 59）：
+// 将最新一条 applied 的 AlertmanagerConfigVersion 标记已随 M09 下发
+// （applied_at / source_change_no 回填）。M08 页面「当前生效配置只读视图」源自在途
+// 最新 applied 版本。无 AM 产物或无非 applied 留痕时为空操作。
+func writebackAlertmanagerApplied(db *gorm.DB, version *models.ConfigVersion, at time.Time) error {
+	if version.AlertmanagerYml == "" {
+		return nil
+	}
+	var cfg models.AlertmanagerConfigVersion
+	if err := db.Where("status = ?", models.AlertmanagerConfigStatusApplied).
+		Order("created_at DESC, id DESC").First(&cfg).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil // 无非 applied 留痕，无内容可回写
+		}
+		return fmt.Errorf("load latest alertmanager config version: %w", err)
+	}
+	cfg.AppliedAt = &at
+	cfg.SourceChangeNo = version.ChangeNo
+	if err := db.Model(&cfg).
+		Update("applied_at", cfg.AppliedAt).
+		Update("source_change_no", cfg.SourceChangeNo).Error; err != nil {
+		return fmt.Errorf("writeback alertmanager applied: %w", err)
+	}
+	return nil
 }

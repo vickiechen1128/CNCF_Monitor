@@ -35,6 +35,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.MonitoringRule{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		&models.AlertmanagerConfigVersion{},
 	))
 	return db
 }
@@ -385,6 +386,106 @@ func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T) 
 	content, err = os.ReadFile(filepath.Join(dir, "targets", "node-exporter.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "5.6.7.8:9100")
+}
+
+// seedAlertmanagerApplied seeds the latest applied AlertmanagerConfigVersion留痕
+// （决策 59/60：校验失败不落库，恒 applied），用于 writebackApplied 断言。
+func seedAlertmanagerApplied(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion {
+	t.Helper()
+	cfg := &models.AlertmanagerConfigVersion{
+		Content:  content,
+		Checksum: models.AlertmanagerConfigChecksum(content),
+		Status:   models.AlertmanagerConfigStatusApplied,
+		AppliedBy: "admin",
+	}
+	require.NoError(t, db.Create(cfg).Error)
+	return cfg
+}
+
+// TestDiskApplierWritesAlertmanagerReloadsSeparately 覆盖决策 60：alertmanager.yml
+// 单独写中心 Alertmanager 配置路径并触发独立 AM reload；仅在内容变化时写 / reload；
+// 无 AM 产物时 AMDir 未配置不报错。
+func TestDiskApplierWritesAlertmanagerReloadsSeparately(t *testing.T) {
+	dir := t.TempDir()
+	amDir := filepath.Join(dir, "alertmanager")
+	var pmReloads, amReloads int32
+	app := &DiskApplier{
+		Dir:    dir,
+		AMDir:  amDir,
+		Reload: func() error { atomic.AddInt32(&pmReloads, 1); return nil },
+		AMReload: func() error { atomic.AddInt32(&amReloads, 1); return nil },
+	}
+
+	amContent := "route:\n  receiver: default\nreceivers:\n  - name: default\n"
+	ca := &generator.ConfigArtifacts{
+		PrometheusYML:   "global:\n  scrape_interval: 15s\n",
+		RulesYML:        "",
+		BlackboxYML:     "",
+		TargetsFiles:    map[string]string{},
+		AlertmanagerYML: amContent,
+	}
+	require.NoError(t, app.Apply(ca))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&amReloads), "首次 AM 内容写入触发独立 reload")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&pmReloads), "首次结构文件写入触发 Prometheus reload")
+	assert.FileExists(t, filepath.Join(amDir, "alertmanager.yml"))
+
+	// 内容未变化 → 不再写盘 / reload（幂等）。
+	require.NoError(t, app.Apply(&generator.ConfigArtifacts{
+		PrometheusYML:   "global:\n  scrape_interval: 15s\n",
+		TargetsFiles:    map[string]string{},
+		AlertmanagerYML: amContent,
+	}))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&amReloads), "AM 内容未变化不重复 reload")
+}
+
+// TestDiskApplierSkipsAMWhenNoArtifact 覆盖决策 60：产物不含 alertmanager.yml 时
+// AMDir 未配置也成功（仅 Prometheus 结构变更 reload，不触碰 AM 路径）。
+func TestDiskApplierSkipsAMWhenNoArtifact(t *testing.T) {
+	dir := t.TempDir()
+	app := &DiskApplier{
+		Dir:    dir,
+		Reload: func() error { return nil },
+		// AMDir 刻意为空：无 AM 产物时不可触发 AM 分支。
+	}
+	ca := &generator.ConfigArtifacts{
+		PrometheusYML: "global:\n  scrape_interval: 15s\n",
+		TargetsFiles:  map[string]string{},
+	}
+	require.NoError(t, app.Apply(ca))
+}
+
+// TestDispatchLocalWithAlertmanagerWritesBackApplied 覆盖决策 60：管理域 default 含
+// alertmanager.yml 下发成功后，最新 applied 留痕回填 applied_at / source_change_no。
+func TestDispatchLocalWithAlertmanagerWritesBackApplied(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	cfg := seedAlertmanagerApplied(t, db, "route:\n  receiver: default\n")
+	v := seedVersion(t, db, "default", "CHG-20240901-100")
+	v.AlertmanagerYml = "route:\n  receiver: default\n"
+	require.NoError(t, db.Model(v).Update("alertmanager_yml", v.AlertmanagerYml).Error)
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(&cfg, cfg.ID).Error)
+	require.NotNil(t, cfg.AppliedAt, "下发成功后应回填 applied_at")
+	assert.Equal(t, v.ChangeNo, cfg.SourceChangeNo, "下发成功后应回填 source_change_no")
+}
+
+// TestDispatchWithoutAlertmanagerSkipsAppliedWriteback 覆盖决策 60：版本无 AM 产物时
+// 不触碰 M08 留痕（applied_at 保持空），回写为空操作。
+func TestDispatchWithoutAlertmanagerSkipsAppliedWriteback(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	cfg := seedAlertmanagerApplied(t, db, "route:\n  receiver: default\n")
+	v := seedVersion(t, db, "default", "CHG-20240901-101") // 无 AlertmanagerYml
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(&cfg, cfg.ID).Error)
+	assert.Nil(t, cfg.AppliedAt, "无 AM 产物不应回填 applied_at")
+	assert.Empty(t, cfg.SourceChangeNo)
 }
 
 func TestListAndGetVersion(t *testing.T) {
