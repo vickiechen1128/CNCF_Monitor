@@ -129,6 +129,22 @@ func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error) {
 	return 0, nil
 }
 
+// LoadLatestAlertmanagerConfigContent 读取最新一条已留痕（status=applied）的
+// AlertmanagerConfigVersion.content（决策 60 / T09-60-1，M08 源数据只读）。
+// 无告警配置留痕返回空字符串（不产生空 alertmanager.yml 产物）。
+func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error) {
+	var cfg models.AlertmanagerConfigVersion
+	err := db.Where("status = ?", models.AlertmanagerConfigStatusApplied).
+		Order("created_at DESC, id DESC").First(&cfg).Error
+	if err == gorm.ErrRecordNotFound {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("load latest alertmanager config: %w", err)
+	}
+	return cfg.Content, nil
+}
+
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。
 type ErrNotFound struct {
 	Resource string

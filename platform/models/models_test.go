@@ -793,10 +793,10 @@ func TestConfigCenterValidationStatus(t *testing.T) {
 }
 
 func TestConfigCenterEnumCollections(t *testing.T) {
-	assert.Equal(t, []string{"scrape_job", "target_instance", "monitoring_rule", "probe_target", "label_template"}, ValidChangeItemTargets())
+	assert.Equal(t, []string{"scrape_job", "target_instance", "monitoring_rule", "probe_target", "label_template", "alertmanager_config"}, ValidChangeItemTargets())
 	assert.Equal(t, []string{"add", "update", "delete"}, ValidChangeItemTypes())
 	assert.Equal(t, []string{"low", "high"}, ValidRisks())
-	assert.Equal(t, []string{"prometheus", "targets", "rules", "blackbox"}, ValidAffectedFiles())
+	assert.Equal(t, []string{"prometheus", "targets", "rules", "blackbox", "alertmanager"}, ValidAffectedFiles())
 	assert.True(t, IsValidRisk("high"))
 	assert.False(t, IsValidRisk("medium"))
 
