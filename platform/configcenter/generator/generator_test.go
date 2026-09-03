@@ -25,7 +25,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 func TestAssemblePrometheusExternalLabels(t *testing.T) {
 	ca, err := Assemble("gov-cloud-a", "extranet", "replica-0", []JobBuild{
 		{Job: models.ScrapeJob{JobName: "node-exporter-prod", MetricsPath: "/metrics", Scheme: "http"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}},
-	}, nil)
+	}, nil, "")
 	require.NoError(t, err)
 
 	assert.Contains(t, ca.PrometheusYML, "network_domain_id: gov-cloud-a")
@@ -35,7 +35,7 @@ func TestAssemblePrometheusExternalLabels(t *testing.T) {
 	assert.NotContains(t, ca.PrometheusYML, "tenant_id")
 	assert.NotContains(t, ca.PrometheusYML, "biz:")
 	// zone_type 未登记时不再注入。
-	caNoZone, err := Assemble("gov-cloud-a", "", "replica-0", nil, nil)
+	caNoZone, err := Assemble("gov-cloud-a", "", "replica-0", nil, nil, "")
 	require.NoError(t, err)
 	assert.NotContains(t, caNoZone.PrometheusYML, "zone_type")
 }
@@ -43,7 +43,7 @@ func TestAssemblePrometheusExternalLabels(t *testing.T) {
 func TestAssembleFileSDNotInline(t *testing.T) {
 	ca, err := Assemble("default", "", "", []JobBuild{
 		{Job: models.ScrapeJob{JobName: "node-exporter-prod", MetricsPath: "/metrics", Scheme: "http"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}},
-	}, nil)
+	}, nil, "")
 	require.NoError(t, err)
 	// scrape_config 用 file_sd_configs 引用 targets/*.json，不内联实例地址。
 	assert.Contains(t, ca.PrometheusYML, "file_sd_configs")
@@ -58,7 +58,7 @@ func TestAssembleAuthTLSPassthrough(t *testing.T) {
 	bearer := models.ScrapeJob{JobName: "bearer", MetricsPath: "/m", Scheme: "http", AuthType: models.AuthTypeBearer, Token: "tok-123"}
 	tls := models.ScrapeJob{JobName: "tls", MetricsPath: "/m", Scheme: "https", TLSSkipVerify: true, CAFile: "/etc/ca.pem"}
 
-	ca, err := Assemble("default", "", "", []JobBuild{{Job: basic}, {Job: bearer}, {Job: tls}}, nil)
+	ca, err := Assemble("default", "", "", []JobBuild{{Job: basic}, {Job: bearer}, {Job: tls}}, nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "basic_auth")
 	assert.Contains(t, ca.PrometheusYML, "username: monitor")
@@ -72,7 +72,7 @@ func TestAssembleRulesYAMLPassthrough(t *testing.T) {
 		{Name: "r-a", ContentMode: models.RuleContentModeYAMLPassthrough, RuleContent: "groups:\n  - name: a\n    rules: [{alert: A, expr: up == 0}]"},
 		{Name: "r-b", ContentMode: models.RuleContentModeYAMLPassthrough, RuleContent: "groups:\n  - name: b\n    rules: [{alert: B, expr: up == 1}]"},
 	}
-	ca, err := Assemble("default", "", "", nil, rules)
+	ca, err := Assemble("default", "", "", nil, rules, "")
 	require.NoError(t, err)
 	assert.Contains(t, ca.RulesYML, "name: a")
 	assert.Contains(t, ca.RulesYML, "name: b")
@@ -95,7 +95,7 @@ func TestAssembleRulesYAMLPassthrough(t *testing.T) {
 }
 
 func TestAssembleRuleFilesOmittedWhenNoRules(t *testing.T) {
-	ca, err := Assemble("default", "", "", nil, nil)
+	ca, err := Assemble("default", "", "", nil, nil, "")
 	require.NoError(t, err)
 	// 无规则时不注入 rule_files，避免指向不存在的文件导致 Prometheus 配置加载失败。
 	assert.NotContains(t, ca.PrometheusYML, "rule_files")
@@ -108,7 +108,7 @@ func TestAssembleRendersScrapeIntervalTimeout(t *testing.T) {
 	ca, err := Assemble("default", "", "", []JobBuild{
 		{Job: models.ScrapeJob{JobName: "with-params", ScrapeInterval: "30s", ScrapeTimeout: "20s", MetricsPath: "/metrics", Scheme: "http"}},
 		{Job: models.ScrapeJob{JobName: "sparse"}},
-	}, nil)
+	}, nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "scrape_interval: 30s")
 	assert.Contains(t, ca.PrometheusYML, "scrape_timeout: 20s")
@@ -141,7 +141,7 @@ func TestAssembleBlackbox(t *testing.T) {
 	}
 	ca, err := Assemble("default", "", "", []JobBuild{
 		{Job: job, Targets: []TargetGroup{{Targets: []string{"https://api.example.com/health"}}}},
-	}, nil)
+	}, nil, "")
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "metrics_path: /probe")
 	assert.Contains(t, ca.PrometheusYML, "__param_target")
@@ -158,15 +158,15 @@ func TestNormalizeJobFilename(t *testing.T) {
 }
 
 func TestChecksumConsistency(t *testing.T) {
-	a1, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil)
-	a2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil)
+	a1, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil, "")
+	a2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil, "")
 	require.NoError(t, nil)
 	assert.Equal(t, a1.Checksum(), a2.Checksum(), "同内容 checksum 必须一致")
 	assert.False(t, a1.ArtifactsChanged(a2.Checksum()), "checksum 一致判定为无实质变化（自动丢弃）")
 	assert.True(t, a1.ArtifactsChanged(""), "无生效版本视为有变化")
 
 	// 目标变化 → checksum 变化。
-	a3, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.2"}}}}}, nil)
+	a3, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.2"}}}}}, nil, "")
 	assert.NotEqual(t, a1.Checksum(), a3.Checksum())
 }
 
@@ -189,6 +189,35 @@ func TestResolveTargetsOfflineExclusion(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, groups, 1, "offline 实例必须被排除")
 	assert.Equal(t, "10.0.1.1:9100", groups[0].Targets[0], "host 抓取地址须拼接 exporter 端口（决策 42-4）")
+	assert.Equal(t, "pay", groups[0].Labels["app"])
+}
+
+// TestResolveTargetsUnconfirmedIncluded（决策 47-1：安装确认拆闸门）：
+// 已选实例即使是 unconfirmed（存在未确认登记记录），也必须同样进入 target 组——
+// configgen 只消费 selected_instance_ids（+ offline 排除 + enabled + draft_status），
+// 不读取 ExporterInstallationConfirmation 做排除/校验。
+func TestResolveTargetsUnconfirmedIncluded(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Host{}, &models.LabelTemplate{}, &models.ExporterInstallationConfirmation{}))
+
+	// 未确认：选中实例且存在 Status=unconfirmed 的确认记录（未登记/未确认均不影响生成）。
+	require.NoError(t, db.Create(&models.Host{ServerID: "srv-u", ResourceID: "srv-u", NetworkDomainID: "d", PrivateIP: "10.0.1.9", Status: "online", AppCode: "pay"}).Error)
+	require.NoError(t, db.Create(&models.ExporterInstallationConfirmation{
+		ResourceID:  "srv-u",
+		ScrapeJobID: 1,
+		Status:      models.InstallationStatusUnconfirmed,
+	}).Error)
+
+	tmpl := &models.LabelTemplate{Name: "host-default", ResourceCategory: models.ResourceCategoryHost, IsDefault: true,
+		Mappings: []models.LabelMapping{{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true}}}
+	require.NoError(t, db.Create(tmpl).Error)
+
+	job := models.ScrapeJob{JobName: "node-prod", ResourceType: models.ResourceTypeHost, NetworkDomainID: "d",
+		DraftStatus: "ready", Enabled: true, SelectedInstanceIDs: []string{"srv-u"}}
+	groups, err := ResolveJobTargets(db, job, tmpl, 9100)
+	require.NoError(t, err)
+	require.Len(t, groups, 1, "未确认实例必须同样进入 target 组（决策 47-1）")
+	assert.Equal(t, "10.0.1.9:9100", groups[0].Targets[0])
 	assert.Equal(t, "pay", groups[0].Labels["app"])
 }
 
@@ -293,11 +322,11 @@ func TestValidateTargetGroups(t *testing.T) {
 }
 
 func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
-	old := execLookPath
-	execLookPath = func(string) (string, error) { return "", errToolMissing }
-	t.Cleanup(func() { execLookPath = old })
+	old := ToolLookPath
+	ToolLookPath = func(string) (string, error) { return "", errToolMissing }
+	t.Cleanup(func() { ToolLookPath = old })
 
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil)
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "")
 	status, cause, details, msg := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusPending, status)
 	assert.Equal(t, models.ValidationCausePlatformFault, cause, "promtool 缺失应归因为平台故障")
@@ -306,13 +335,13 @@ func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
 }
 
 func TestValidateArtifactsPassed(t *testing.T) {
-	oldLook := execLookPath
-	oldChecker := toolCheckerFn
-	execLookPath = func(string) (string, error) { return "promtool", nil }
-	toolCheckerFn = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
-	t.Cleanup(func() { execLookPath = oldLook; toolCheckerFn = oldChecker })
+	oldLook := ToolLookPath
+	oldChecker := ToolChecker
+	ToolLookPath = func(string) (string, error) { return "promtool", nil }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil)
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "")
 	status, cause, details, _ := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusPassed, status)
 	assert.Empty(t, cause)
@@ -320,7 +349,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 }
 
 func TestValidateArtifactsFailedSchema(t *testing.T) {
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil)
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "")
 	ca.TargetsFiles["j.json"] = "not-json"
 	status, cause, details, _ := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusFailed, status)
@@ -328,7 +357,7 @@ func TestValidateArtifactsFailedSchema(t *testing.T) {
 	assert.Len(t, details, 1)
 	assert.Equal(t, "j.json", details[0].File)
 	// 保护标签冲突亦归因 user_config 且带结构化定位。
-	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil)
+	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "")
 	ca2.TargetsFiles["a.json"] = `[{"targets":["10.0.1.10"],"labels":{"job":"x"}}]`
 	status2, cause2, details2, _ := ValidateArtifacts(ca2, false)
 	assert.Equal(t, models.ValidationStatusFailed, status2)
@@ -373,4 +402,65 @@ func TestMarshalTargetGroupsJSON(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(content), &out))
 	assert.Equal(t, "10.0.1.10", out[0]["targets"].([]interface{})[0].(string))
 	assert.True(t, strings.Contains(content, "app"))
+}
+
+// ---- T09-60-1: alertmanager.yml 纳入生成（决策 60：仅管理域 default 范围）----
+
+func TestAssembleAlertmanagerYML(t *testing.T) {
+	// 传入告警配置内容 → 产物携带，且 checksum 受其影响（内容变化触发变更检测）。
+	ca, err := Assemble("default", "", "", nil, nil, "global:\n  resolve_timeout: 5m\nroute:\n  receiver: default\n")
+	require.NoError(t, err)
+	assert.Equal(t, "global:\n  resolve_timeout: 5m\nroute:\n  receiver: default\n", ca.AlertmanagerYML)
+
+	ca2, err := Assemble("default", "", "", nil, nil, "route:\n  receiver: default\n")
+	require.NoError(t, err)
+	assert.NotEqual(t, ca.Checksum(), ca2.Checksum(), "alertmanager.yml 内容变化必须影响联合 checksum")
+
+	// 无告警配置传空串 → 不产生空产物。
+	caEmpty, err := Assemble("default", "", "", nil, nil, "")
+	require.NoError(t, err)
+	assert.Equal(t, "", caEmpty.AlertmanagerYML)
+}
+
+func TestLoadLatestAlertmanagerConfigContent(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.AlertmanagerConfigVersion{}))
+
+	// 无留痕 → 空串。
+	got, err := LoadLatestAlertmanagerConfigContent(db)
+	require.NoError(t, err)
+	assert.Equal(t, "", got)
+
+	// 存在已留痕（applied）版本 → 返回最新一条 content（决策 60 / T09-60-1）。
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:        "route:\n  receiver: first\n",
+		Checksum:       models.AlertmanagerConfigChecksum("route:\n  receiver: first\n"),
+		Status:         models.AlertmanagerConfigStatusApplied,
+	}).Error)
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:        "route:\n  receiver: latest\n",
+		Checksum:       models.AlertmanagerConfigChecksum("route:\n  receiver: latest\n"),
+		Status:         models.AlertmanagerConfigStatusApplied,
+	}).Error)
+
+	got2, err := LoadLatestAlertmanagerConfigContent(db)
+	require.NoError(t, err)
+	assert.Equal(t, "route:\n  receiver: latest\n", got2, "须返回最新留痕（applied）配置")
+}
+
+func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T) {
+	old := ToolLookPath
+	ToolLookPath = func(name string) (string, error) {
+		if name == "amtool" {
+			return "", errToolMissing
+		}
+		return name, nil
+	}
+	t.Cleanup(func() { ToolLookPath = old })
+
+	ca, _ := Assemble("d", "", "", nil, nil, "route:\n  receiver: default\n")
+	status, cause, details, _ := ValidateArtifacts(ca, false)
+	assert.Equal(t, models.ValidationStatusPending, status)
+	assert.Equal(t, models.ValidationCausePlatformFault, cause, "amtool 缺失应归因为平台故障")
+	assert.Empty(t, details)
 }

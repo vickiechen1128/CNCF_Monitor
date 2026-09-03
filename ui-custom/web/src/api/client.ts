@@ -131,12 +131,15 @@ async function parseResponse<T>(res: Response): Promise<ApiResponse<T>> {
 export class ApiError extends Error {
   code: number
   errorType?: string
+  /** 完整业务响应（含 data 等）：供调用方读取行级错误等结构化 detail（如 M08 校验失败 items）。 */
+  payload?: unknown
 
-  constructor(message: string, code: number, errorType?: string) {
+  constructor(message: string, code: number, errorType?: string, payload?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.code = code
     this.errorType = errorType
+    this.payload = payload
   }
 }
 
@@ -173,7 +176,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   if (!res.ok || data.status === 'error') {
-    throw new ApiError(data.error || res.statusText, res.status, data.errorType)
+    throw new ApiError(data.error || res.statusText, res.status, data.errorType, data)
   }
 
   return data

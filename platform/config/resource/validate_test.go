@@ -11,13 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// newBizStore 构造一个加载 sampleYAML 的业务字典（sampleYAML/writeDomains 定义于
-// business_test.go，同包复用）：含启用项 infra/payment/data-api 与停用项 legacy。
-func newBizStore(t *testing.T) *BusinessDomainStore {
-	t.Helper()
-	return NewBusinessDomainStore(writeDomains(t, sampleYAML))
-}
-
 // alwaysExists 是 networkDomainExists 的全通过桩。
 func alwaysExists(string) bool { return true }
 

@@ -8,18 +8,23 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
+	"github.com/metriccenter/metriccenter/platform/alertmanager"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/configcenter"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,6 +53,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.NetworkDomain{},
 		&models.ZoneType{},
 		&models.ResourceStatusMapping{},
+		// 业务分组字典（决策 48）
+		&models.BusinessDomain{},
 		// 用户认证（Module_06 §5.3，tu-01；seed.Run 会写入初始管理员 admin）
 		&models.User{},
 		// 五类资源（M07）
@@ -74,16 +81,26 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		// 告警收敛（Module_08）：alertmanager.yml 挂载留痕
+		&models.AlertmanagerConfigVersion{},
 	))
 	require.NoError(t, seed.Run(db))
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	platform := r.Group("/api/v2/platform")
+	// review-fix B：M08/M09 管理写端点挂 auth.RequireAdmin() 后才要求在 gin context
+	// 存在已认证管理员（ContextUserKey）。本集成测试未挂真实 AuthMiddleware（由 seed
+	// 预置 admin 账号），故注入等价中间件把种子管理员解析进 context，放行最小授权。
+	// 注意：资源标签「静态资源 403」等业务断言在处理器内完成、与用户身份无关，注入
+	// 管理员不影响这些既有断言（seed.Run 之后 AdminUsername 恒存在）。
+	injectSeededAdmin(db, platform)
 	networkdomain.RegisterRoutes(platform, db)
 
-	// M07 收口（T07-18）：业务分组字典（真实 yaml）+ 资源 + 标签模板。
-	bizStore := resource.NewBusinessDomainStore(businessDomainsTestPath)
+	// M07 收口（T07-18）：业务分组字典（DB-backed，决策 48）+ 资源 + 标签模板。
+	// 先按决策 48 seed 业务字典（yaml 首次导入 + infra 兜底），再构造 DB store。
+	require.NoError(t, seed.BusinessDomains(db, businessDomainsTestPath))
+	bizStore := resource.NewBusinessDomainStore(db)
 	resource.RegisterRoutes(platform, db, bizStore)
 	label.RegisterRoutes(platform, db)
 
@@ -92,7 +109,45 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	// Module 09 收口（T09-07）：网域监控纳管 + 配置草稿 + 配置下发与历史。
 	configcenter.RegisterRoutes(platform, db)
+
+	// Module 08 收口（T08-05）：告警收敛——alertmanager.yml 挂载/留痕 + 静默代理，
+	// 指向测试内启动的 fake Alertmanager（见 fakeAlertmanager）。
+	amURL := fakeAlertmanager(t).URL
+	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL))
+
+	// M02 采集状态路由收口（决策 47 / T02-03）：与生产 main.go（registerPlatformConfigRoutes
+	// 上方的 apiV1 组）保持一致，M02 目标/覆盖端点挂在 /api/v1 组下（仅全局认证、不授权），
+	// 而非本引擎既有的 /api/v2/platform 组。fakePromUpstream 提供按路径分发的伪 Prometheus
+	// 上游（/api/v1/query + /api/v1/targets），夹具与 platform/query/coverage_test.go 的
+	// coverageUp/targetsFixture 对齐，便于集成层直接断言三态与过滤。该路由与 /api/v2/platform/*
+	// 无路径冲突；本引擎不挂 SPA 静态兜底（NoRoute 即 404），故 /api/v1 端点 200 即证明已真实挂载、
+	// 未被兜底吞掉。
+	promUp := fakePromUpstream(t)
+	promURL, err := url.Parse(promUp.URL)
+	require.NoError(t, err)
+	apiV1 := r.Group("/api/v1")
+	query.RegisterRoutes(apiV1, db, promURL)
+
 	return r, db
+}
+
+// injectSeededAdmin 以测试中间件把 seed 预置的初始管理员（seed.AdminUsername）解析
+// 进 gin context 的 ContextUserKey，模拟真实 AuthMiddleware 的最小解析语义，使挂接
+// auth.RequireAdmin() 的管理写端点在集成测试中放行。seed.Run() 已保证管理员恒存在；
+// 查询失败时兜底构造同名管理员对象，避免测试依赖具体 DB 行。
+func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup) {
+	var admin models.User
+	if err := db.Where("username = ?", seed.AdminUsername).First(&admin).Error; err != nil {
+		admin = models.User{
+			Username: seed.AdminUsername,
+			Role:     models.UserRoleAdmin,
+			Status:   models.UserStatusActive,
+		}
+	}
+	g.Use(func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, &admin)
+		c.Next()
+	})
 }
 
 // apiClient 封装对测试路由器的 HTTP 调用与统一响应信封解析。
@@ -782,28 +837,67 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, code)
 }
 
-// TestEndToEndBusinessDomainsReadOnly 覆盖业务分组字典（验收要点 5）：只读返回
-// 全量条目（MVP 预置两条：authorized-ops / data-innovation-lab），无 POST/PUT/DELETE 写路由。
-func TestEndToEndBusinessDomainsReadOnly(t *testing.T) {
+// TestEndToEndBusinessDomains 覆盖业务分组字典（决策 48）端到端：seed 预置 +
+// GET 只读 + POST 登记 + PUT 受限编辑 + infra 禁停用 + 无 DELETE。
+func TestEndToEndBusinessDomains(t *testing.T) {
 	r, _ := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
 
+	// 1. GET：seed 预置 infra 兜底 + yaml 两条。
 	code, out := c.json("GET", "/api/v2/platform/business-domains", "")
 	require.Equal(t, http.StatusOK, code)
 	bdata := out["data"].(map[string]interface{})
-	assert.Equal(t, float64(2), bdata["total"], "MVP 字典含 authorized-ops / data-innovation-lab")
-	codes := make([]string, 0, 2)
+	assert.Equal(t, float64(3), bdata["total"], "seed 字典含 infra + authorized-ops + data-innovation-lab")
+	codes := make([]string, 0, 3)
 	for _, it := range listItems(out) {
 		codes = append(codes, it.(map[string]interface{})["code"].(string))
 	}
+	assert.Contains(t, codes, "infra")
 	assert.Contains(t, codes, "authorized-ops")
 	assert.Contains(t, codes, "data-innovation-lab")
 
-	// 只读：无写路由 → 404。
-	code, _ = c.json("POST", "/api/v2/platform/business-domains", `{"code":"x","name":"X"}`)
+	// 2. POST 登记：成功 → 200，默认 enabled=true。
+	code, out = c.json("POST", "/api/v2/platform/business-domains", `{"code":"risk-control","name":"风控业务","description":"风控业务域"}`)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, "success", out["status"])
+	created := out["data"].(map[string]interface{})
+	assert.Equal(t, "risk-control", created["code"])
+	assert.Equal(t, "风控业务", created["name"])
+	assert.Equal(t, true, created["enabled"], "登记默认启用")
+
+	// 3. POST 编码不规范 → bad_request。
+	code, out = c.json("POST", "/api/v2/platform/business-domains", `{"code":"Bad_Ops","name":"非法编码"}`)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 4. POST 重复 code → bad_request。
+	code, out = c.json("POST", "/api/v2/platform/business-domains", `{"code":"risk-control","name":"重名"}`)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 5. PUT 受限编辑：改名 + 停用 risk-control → 200。
+	code, out = c.json("PUT", "/api/v2/platform/business-domains/risk-control", `{"name":"风控业务(新)","enabled":false}`)
+	require.Equal(t, http.StatusOK, code)
+	updated := out["data"].(map[string]interface{})
+	assert.Equal(t, "风控业务(新)", updated["name"])
+	assert.Equal(t, false, updated["enabled"])
+	assert.Equal(t, "risk-control", updated["code"], "code 不受请求体影响，保持不可改")
+
+	// 6. 停用后不再出现在启用列表，但 GET 全量仍可见。
+	code, out = c.json("GET", "/api/v2/platform/business-domains", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(4), out["data"].(map[string]interface{})["total"], "停用不删除，全量列表仍含 risk-control")
+
+	// 7. PUT infra 停用 → bad_request（决策 48 红线）。
+	code, out = c.json("PUT", "/api/v2/platform/business-domains/infra", `{"enabled":false}`)
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 8. PUT 不存在条目 → not_found。
+	code, _ = c.json("PUT", "/api/v2/platform/business-domains/not-exist", `{"name":"X"}`)
 	assert.Equal(t, http.StatusNotFound, code)
-	code, _ = c.json("PUT", "/api/v2/platform/business-domains/infra", `{"name":"Y"}`)
-	assert.Equal(t, http.StatusNotFound, code)
+
+	// 9. 无 DELETE 入口（停用不删除）→ 404。
 	code, _ = c.json("DELETE", "/api/v2/platform/business-domains/infra", "")
 	assert.Equal(t, http.StatusNotFound, code)
 }
@@ -909,4 +1003,368 @@ func TestBuildReloadFunc(t *testing.T) {
 
 	// 非法 scheme → error。
 	require.Error(t, buildReloadFunc("ftp://x/-/reload")())
+}
+
+// ---------------------------------------------------------------------------
+// Module_08（T08-05）端到端集成冒烟：
+// 经真实路由注册的 /api/v2/platform/alertmanager/* 串联验证——
+// alertmanager.yml 挂载/当前生效/版本列表（config）+ 静默列表/创建/删除（代理）。
+// ---------------------------------------------------------------------------
+
+// fakeAMState 持有一个 fake Alertmanager 的内存静默集合（契约 §4 运行时语义）。
+type fakeAMState struct {
+	mu       sync.Mutex
+	silences map[string]map[string]interface{}
+	seq      int
+}
+
+func newFakeAMState() *fakeAMState {
+	return &fakeAMState{silences: map[string]map[string]interface{}{}}
+}
+
+// fakeAlertmanager 启动一个内存 Alertmanager 静默服务，返回其 httptest.Server。
+// 覆盖 M08 silence 代理依赖的原生端点：GET/POST /api/v2/silences、GET/DELETE /api/v2/silence/:id。
+func fakeAlertmanager(t *testing.T) *httptest.Server {
+	t.Helper()
+	st := newFakeAMState()
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		data := make([]map[string]interface{}, 0, len(st.silences))
+		for _, s := range st.silences {
+			data = append(data, s)
+		}
+		// v2 列表为裸数组。
+		writeAMJSON(w, data)
+	})
+
+	mux.HandleFunc("POST /api/v2/silences", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		st.mu.Lock()
+		defer st.mu.Unlock()
+		st.seq++
+		id := fmt.Sprintf("am-silence-%d", st.seq)
+		st.silences[id] = map[string]interface{}{
+			"id":        id,
+			"matchers":  body["matchers"],
+			"startsAt":  body["startsAt"],
+			"endsAt":    body["endsAt"],
+			"createdBy": body["createdBy"],
+			"comment":   body["comment"],
+			"status":    gin.H{"state": "active"},
+		}
+		// v2 创建直接返回 {"silenceID":"..."}。
+		writeAMJSON(w, gin.H{"silenceID": id})
+	})
+
+	mux.HandleFunc("GET /api/v2/silence/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v2/silence/")
+		st.mu.Lock()
+		s, ok := st.silences[id]
+		st.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			writeAMJSON(w, gin.H{"status": "error", "errorType": "not_found"})
+			return
+		}
+		// v2 单条为裸对象。
+		writeAMJSON(w, s)
+	})
+
+	mux.HandleFunc("DELETE /api/v2/silence/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v2/silence/")
+		st.mu.Lock()
+		if _, ok := st.silences[id]; ok {
+			delete(st.silences, id)
+		}
+		st.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func writeAMJSON(w http.ResponseWriter, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// TestEndToEndAlertmanagerSmoke 覆盖 T08-05 端到端冒烟：经真实路由注册串联验证
+// Module_08 告警收敛主链路——
+//   - 当前生效 / 版本列表（DB 只读端点，不依赖 amtool）初始为空；
+//   - 挂载 alertmanager.yml：amtool 在本环境不可调用，按决策 60 校验失败不落库、
+//     bad_request 且 data 带行级错误 items（印证路由已注册 + 校验短路 + 不落库）；
+//   - 直写一条 applied 留痕后当前生效可读回（config 挂载管道与 amtool 解耦，
+//     DB 是唯一事实源）；
+//   - 静默列表 / 创建 / 删除：经 fake Alertmanager 代理串通（决策 56 授权收敛放行）。
+func TestEndToEndAlertmanagerSmoke(t *testing.T) {
+	r, dbm := buildIntegrationEngine(t)
+	c := &apiClient{t: t, r: r}
+
+	// 1. config：当前生效为空（未挂载）→ 200。
+	code, out := c.json("GET", "/api/v2/platform/alertmanager/config/current", "")
+	require.Equal(t, http.StatusOK, code, "current 应可读：%v", out)
+	assert.Equal(t, "", out["data"].(map[string]interface{})["content"])
+
+	// 2. config：版本列表为空 → 200 total 0。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/config/versions", "")
+	require.Equal(t, http.StatusOK, code, "versions 应可读：%v", out)
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+
+	// 3. 挂载合法 alertmanager.yml：amtool 不可调用 → 校验失败不落库（决策 60），
+	//    返回 bad_request 且 data.items 带行级错误（印证路由 + 校验短路 + 不落库）；
+	//    amtool 若恰好可用（CI 注入）则版本成功留痕，两种分支均接受。
+	code, out = c.json("POST", "/api/v2/platform/alertmanager/config",
+		`{"content":"route:\n  receiver: default\nreceivers:\n  - name: default\n","uploaded_by":"admin"}`)
+	if code == http.StatusOK {
+		assert.NotEmpty(t, out["data"].(map[string]interface{})["id"], "amtool 可用时应留痕返回版本")
+	} else {
+		require.Equal(t, http.StatusBadRequest, code, "amtool 不可用应按决策 60 返回 bad_request：%v", out)
+		assert.Equal(t, "bad_request", out["errorType"])
+		items, ok := out["data"].(map[string]interface{})["items"].([]interface{})
+		require.True(t, ok, "校验失败应带行级错误 items")
+		require.NotEmpty(t, items)
+	}
+
+	// 4. 直写一条 applied 留痕（绕过 amtool 的一次确定性挂载），当前生效可读回。
+	amContent := "route:\n  receiver: default\nreceivers:\n  - name: default\n"
+	cfg := &models.AlertmanagerConfigVersion{
+		Content:   amContent,
+		Checksum:  models.AlertmanagerConfigChecksum(amContent),
+		Status:    models.AlertmanagerConfigStatusApplied,
+		AppliedBy: "admin",
+	}
+	require.NoError(t, dbm.Create(cfg).Error)
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/config/current", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Contains(t, out["data"].(map[string]interface{})["content"].(string), "route:", "当前生效应读回留痕内容")
+
+	// 5. silence：列表空 → 200 total 0。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/silences", "")
+	require.Equal(t, http.StatusOK, code, "silences 列表应可读：%v", out)
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+
+	// 6. silence：创建（未来时间窗 → active）→ 200 返回 id。
+	createBody := `{"matchers":[{"name":"network_domain","value":"default","is_equal":true,"is_regex":false}],"starts_at":"2030-01-01T00:00:00Z","ends_at":"2030-01-01T02:00:00Z","comment":"smoke silence","created_by":"admin"}`
+	code, out = c.json("POST", "/api/v2/platform/alertmanager/silences", createBody)
+	require.Equal(t, http.StatusOK, code, "创建静默应成功：%v", out)
+	silID := out["data"].(map[string]interface{})["id"].(string)
+	assert.NotEmpty(t, silID)
+
+	// 7. silence：列表应命中 1 条（默认 active=true）。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/silences", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"])
+
+	// 8. silence：删除 → 200；再列表为空。
+	code, out = c.json("DELETE", "/api/v2/platform/alertmanager/silences/"+silID, "")
+	require.Equal(t, http.StatusOK, code, "删除静默应成功：%v", out)
+	assert.Equal(t, silID, out["data"].(map[string]interface{})["id"])
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/silences", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+}
+
+// ---------------------------------------------------------------------------
+// Module_02（决策 47 / T02-03）采集状态路由收口集成验收：
+// 经真实主路由树（/api/v1 组）验证 targets 代理 + coverage 三态聚合可命中，
+// 且与其它路由不冲突、不被 SPA 静态兜底吞掉。夹具与 platform/query/coverage_test.go
+// 的 coverageUpFixture / coverageTargetsFixture 对齐。
+// ---------------------------------------------------------------------------
+
+// fakePromUpstream 启动一个内存 Prometheus 上游，按路径分发 /api/v1/query 与
+// /api/v1/targets，返回与 coverage_test.go 一致的场景夹具：
+//   - up 样本：srv-1=1（up）、srv-2=0（down 有样本）、srv-3 无 series；
+//   - targets：srv-2 down 且 lastError=connection refused。
+func fakePromUpstream(t *testing.T) *httptest.Server {
+	t.Helper()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/query":
+			fmt.Fprintln(w, mustJSON(t, map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "vector",
+					"result": []map[string]interface{}{
+						{"metric": map[string]string{"resource_id": "srv-1", "job": "job-a"}, "value": []interface{}{float64(1725000000), "1"}},
+						{"metric": map[string]string{"resource_id": "srv-2", "job": "job-a"}, "value": []interface{}{float64(1725000000), "0"}},
+					},
+				},
+			}))
+		case "/api/v1/targets":
+			fmt.Fprintln(w, mustJSON(t, map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"activeTargets": []map[string]interface{}{
+						{
+							"scrapePool": "job-a",
+							"labels": map[string]interface{}{
+								"job":         "job-a",
+								"instance":    "10.0.0.2:9100",
+								"resource_id": "srv-2",
+							},
+							"health":    "down",
+							"lastError": "connection refused",
+						},
+					},
+					"droppedTargets": []interface{}{},
+					"targetsByJob":   map[string]interface{}{},
+				},
+			}))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// seedIntegrationHost 落一条 host fixture（与 fakePromUpstream 夹具对齐）。ResourceID
+// 与 ServerID 保持一致以共存多条（同 coverage_test.go 约定）。
+func seedIntegrationHost(t *testing.T, dbm *gorm.DB, id, domain, name string) {
+	t.Helper()
+	h := &models.Host{
+		ResourceID:       id,
+		ServerID:         id,
+		ResourceCategory: models.ResourceCategoryHost,
+		NetworkDomainID:  domain,
+		BizCode:          "infra",
+		SourceType:       models.SourceTypeManual,
+		InstanceName:     name,
+		Status:           "online",
+		Region:           "cn",
+		ZoneEnv:          "dev",
+		InstanceSpec:     "2c4g",
+		Image:            "linux",
+		VPC:              "vpc-1",
+		SecurityGroup:    "sg-1",
+		PrivateIP:        "",
+	}
+	require.NoError(t, dbm.Create(h).Error)
+}
+
+// seedIntegrationJob 落一个 ready+enabled 的采集 job（selected 为选中的实例）。
+func seedIntegrationJob(t *testing.T, dbm *gorm.DB, jobName string, selected []string) {
+	t.Helper()
+	j := &models.ScrapeJob{
+		JobName:               jobName,
+		JobType:               models.JobTypeStandard,
+		ResourceType:          models.ResourceTypeHost,
+		NetworkDomainID:       "default",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs:   selected,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "10s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              models.AuthTypeNone,
+		DraftStatus:           "ready",
+		ChangeStatus:          models.ChangeStatusConfirmed,
+		Enabled:               true,
+	}
+	require.NoError(t, dbm.Create(j).Error)
+}
+
+// TestEndToEndQueryCoverageRoutes 覆盖 M02 采集状态路由（决策 47 / T02-03）收口集成态：
+// 经 buildIntegrationEngine 的真实主路由树（/api/v1 组）断言——
+//   - GET /api/v1/targets 透传并本地过滤返回 activeTargets（含 job/network_domain/resource_id 补全）；
+//   - GET /api/v1/health/coverage 在预置 host + ScrapeJob.selected_instance_ids + 伪 up 下游
+//     按 resource_id 正确输出 collecting/pending_down/not_monitored 三态、last_error 与 coverage_rate；
+//   - 上述端点与既有 /api/v2/platform/* 路由无冲突；本引擎不挂 SPA 静态兜底（未挂载端点 NoRoute 即
+//     404），端点返回 200 即证明已真实挂载、未被静态兜底吞掉。
+func TestEndToEndQueryCoverageRoutes(t *testing.T) {
+	r, dbm := buildIntegrationEngine(t)
+	c := &apiClient{t: t, r: r}
+
+	// 0. 预置与 fakePromUpstream 夹具对齐的 5 台 host + 1 个 ready+enabled 选中 job。
+	for _, h := range []struct{ id, domain, name string }{
+		{"srv-1", "default", "host-1"},
+		{"srv-2", "default", "host-2"},
+		{"srv-3", "default", "host-3"},
+		{"srv-4", "default", "host-4"},
+		{"dmz-x", "dmz", "host-dmz"},
+	} {
+		seedIntegrationHost(t, dbm, h.id, h.domain, h.name)
+	}
+	seedIntegrationJob(t, dbm, "job-a", []string{"srv-1", "srv-2", "srv-3"})
+
+	// 1. /api/v1/targets：透传 + 本地过滤 + 补全。
+	code, out := c.json("GET", "/api/v1/targets", "")
+	require.Equal(t, http.StatusOK, code, "targets 应可命中：%v", out)
+	data := out["data"].(map[string]interface{})
+	active := data["activeTargets"].([]interface{})
+	require.Len(t, active, 1, "夹具仅 1 个 active target")
+	t0 := active[0].(map[string]interface{})
+	assert.Equal(t, "down", t0["health"])
+	assert.Equal(t, "srv-2", t0["resource_id"], "应补全 resource_id 标签")
+	assert.Equal(t, "job-a", t0["job"], "应补全 job 标签")
+	assert.Equal(t, "default", t0["network_domain"], "缺失 network_domain 回落 default")
+
+	// health 本地过滤。
+	code, out = c.json("GET", "/api/v1/targets?health=down", "")
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, out["data"].(map[string]interface{})["activeTargets"].([]interface{}), 1)
+	code, out = c.json("GET", "/api/v1/targets?health=up", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, out["data"].(map[string]interface{})["activeTargets"].([]interface{}), 0,
+		"夹具无 up target，health=up 应过滤为空")
+
+	// job 本地过滤：非 job-a 应为空。
+	code, out = c.json("GET", "/api/v1/targets?job=other-job", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, out["data"].(map[string]interface{})["activeTargets"].([]interface{}), 0)
+
+	// 非法 health 参数 → bad_request。
+	code, out = c.json("GET", "/api/v1/targets?health=bogus", "")
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 2. /api/v1/health/coverage：三态 + summary.coverage_rate。
+	code, out = c.json("GET", "/api/v1/health/coverage", "")
+	require.Equal(t, http.StatusOK, code, "coverage 应可命中：%v", out)
+	cd := out["data"].(map[string]interface{})
+	items := cd["items"].([]interface{})
+	require.Len(t, items, 5, "5 台 host 全量覆盖")
+	byID := map[string]map[string]interface{}{}
+	for _, it := range items {
+		m := it.(map[string]interface{})
+		byID[m["resource_id"].(string)] = m
+	}
+
+	assert.Equal(t, "collecting", byID["srv-1"]["monitor_state"], "选中 + up → collecting")
+	assert.Equal(t, "up", byID["srv-1"]["health"])
+	assert.Equal(t, "pending_down", byID["srv-2"]["monitor_state"], "选中 + down → pending_down")
+	assert.Equal(t, "down", byID["srv-2"]["health"])
+	assert.Equal(t, "connection refused", byID["srv-2"]["last_error"], "last_error 应回填")
+	assert.Equal(t, "pending_down", byID["srv-3"]["monitor_state"], "选中 + 无 up 样本 → pending_down")
+	assert.Equal(t, "unknown", byID["srv-3"]["health"])
+	assert.Equal(t, "not_monitored", byID["srv-4"]["monitor_state"], "未选中 → not_monitored")
+	assert.Nil(t, byID["srv-4"]["health"], "未监控 health 应为 null")
+	assert.Equal(t, "not_monitored", byID["dmz-x"]["monitor_state"])
+
+	summary := cd["summary"].(map[string]interface{})
+	assert.Equal(t, float64(5), summary["total"])
+	assert.Equal(t, float64(1), summary["collecting"])
+	assert.Equal(t, float64(2), summary["pending_down"])
+	assert.Equal(t, float64(2), summary["not_monitored"])
+	assert.Equal(t, 0.2, summary["coverage_rate"], "coverage_rate = 1/5 = 0.2")
+
+	// state 过滤走真实路由。
+	code, out = c.json("GET", "/api/v1/health/coverage?state=not_monitored", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, out["data"].(map[string]interface{})["items"].([]interface{}), 2)
+
+	// network_domain 过滤走真实路由。
+	code, out = c.json("GET", "/api/v1/health/coverage?network_domain=dmz", "")
+	require.Equal(t, http.StatusOK, code)
+	items = out["data"].(map[string]interface{})["items"].([]interface{})
+	require.Len(t, items, 1)
+	assert.Equal(t, "dmz-x", items[0].(map[string]interface{})["resource_id"])
 }

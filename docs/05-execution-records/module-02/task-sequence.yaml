@@ -25,7 +25,7 @@ tasks:
   - task_id: "T02-01"
     name: "GET /api/v1/targets 采集目标状态代理（加入代理通道 + job/network_domain/health 本地过滤 + network_domain 补全）"
     agent: "backend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "m02-targets-proxy"
     prd: "Module_02 §5.3/§6.1/§7/§8 验收第 3 条；决策 47-4"
     depends_on: []
@@ -52,7 +52,7 @@ tasks:
   - task_id: "T02-02"
     name: "GET /api/v1/health/coverage 采集健康度/覆盖率三态聚合 API（按 resource_id 回连，供 M07 badge）"
     agent: "backend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "m02-coverage"
     prd: "Module_02 §6.1（决策 47-3 提前 MVP）/§7 与 Module_07 边界/§8 验收第 11 条；contract snapshot §2.2"
     depends_on: ["T02-01"]
@@ -81,7 +81,7 @@ tasks:
   - task_id: "T02-03"
     name: "M02 路由收口与集成验收（query.RegisterRoutes + main.go 接入 + 与既有 prox 路由不冲突）"
     agent: "backend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "m02-routes-integration"
     prd: "Module_02 §6.1；03_API_Standard §3"
     depends_on: ["T02-01", "T02-02"]
@@ -110,7 +110,7 @@ tasks:
   - task_id: "T02-F1"
     name: "前端 query targets/coverage API client + types + 独立目标状态页（P1 极简列表）"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "fe-m02-status"
     prd: "Module_02 §5.3/§6.1 + api-contract-snapshot.md（契约第一权威，决策 47-4 独立页降 P1）"
     prototype_pages: "docs/prototypes/module-02/（目标状态页相关，P1 极简列表参考）"

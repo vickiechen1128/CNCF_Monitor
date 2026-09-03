@@ -33,6 +33,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
 	"github.com/metriccenter/metriccenter/platform/admin/tenant"
 	"github.com/metriccenter/metriccenter/platform/admin/user"
+	"github.com/metriccenter/metriccenter/platform/alertmanager"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
@@ -41,7 +42,9 @@ import (
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
+	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
+	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 )
 
@@ -51,6 +54,9 @@ var (
 	businessDomainsFile     = flag.String("business-domains.file", "platform/config/business_domains.yaml", "业务分组字典 yaml 路径")
 	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
 	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
+	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（静默代理 + AM 配置下发 reload 目标，M08）")
+	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录（决策 60，写 alertmanager.yml）；为空时复用 config.dir")
+	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址（如 http://localhost:9093/-/reload）；为空时默认 alertmanager.url 的 /-/reload")
 	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
 	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 120*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
@@ -93,12 +99,30 @@ func main() {
 		log.Fatalf("failed to initialize database: %v", err)
 	}
 
+	// 决策 48：业务分组字典权威存储落 DB；business_domains.yaml 仅首次启动 seed
+	// （DB 空时导入 + infra 兜底条目），之后 DB 为唯一权威，热加载机制退役。
+	if err := seed.BusinessDomains(db.DB, *businessDomainsFile); err != nil {
+		log.Fatalf("failed to seed business domains: %v", err)
+	}
+
 	// HIGH-1 / T09-06 运行期装配：local 通道经 *DiskApplier 写中心 Prometheus 配置目录
 	// 并 trigger reload；未配置 reload 地址时走 buildReloadFunc 如实报错（不伪成功）。
 	// 默认 noopApplier 仅服务于内存/测试环境（集成测试不调用 main，仍为 no-op）。
+	// 决策 60（T09-60-3）：alertmanager.yml 单独写中心 Alertmanager 配置目录（config.am-dir，
+	// 缺省复用 config.dir）并触发独立 AM reload（config.am-reload-url，缺省 alertmanager.url /-/reload）。
+	amReloadURL := *configAMReloadURL
+	if amReloadURL == "" {
+		amReloadURL = strings.TrimRight(*alertmanagerURL, "/") + "/-/reload"
+	}
+	amDir := *configAMDir
+	if amDir == "" {
+		amDir = *configDir
+	}
 	deployment.DefaultApplier = &deployment.DiskApplier{
-		Dir:    *configDir,
-		Reload: buildReloadFunc(*configReloadURL),
+		Dir:      *configDir,
+		AMDir:    amDir,
+		Reload:   buildReloadFunc(*configReloadURL),
+		AMReload: buildReloadFunc(amReloadURL),
 	}
 
 	// M09 §3.3.3：启动自适应配置变更检测轮询（方案 A，闭环补缺），随 ctx 优雅退出。
@@ -129,8 +153,12 @@ func main() {
 // setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
 func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	r := gin.Default()
-	// A2 同源部署下 CORS 中间件实际不生效（前后端同域），保留仅为兼容 S2 拆分前
-	// 的直连场景与开发态跨端口调试；演进到 S2（nginx 反代）后应移除或收紧为白名单。
+	// review-fix F7（安全 review LOW，保守处理——不变更 CORS 行为）：
+	// A2 同源部署下 CORS 中间件实际不生效（前后端同域）；保留 cors.Default()（全放开）
+	// 仅为兼容开发态跨端口调试（前端 dev :5173 → 后端 :8080 的预检/跨源读），移除或收紧
+	// 会直接破坏本地联调。配合 Bearer 令牌 + 服务端会话（非 Cookie），浏览器跨源不会自动
+	// 携带凭据，实际 CSRF 触发面低。产品演进到 S2（nginx 反代）后必须收紧为来源白名单
+	// 或移除本中间件（见 security-review-round1.md LOW「CORS 全放开」）。
 	r.Use(cors.Default())
 
 	// au-02 全局认证中间件（交集：POST /api/v2/platform/auth/login、
@@ -141,9 +169,13 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	apiV1 := r.Group("/api/v1")
 	registerHealthRoutes(apiV1)
 	registerPrometheusProxyRoutes(apiV1, promURL)
+	// M02 采集状态路由（决策 47）：/api/v1/targets（代理）+ /api/v1/health/coverage（聚合）。
+	query.RegisterRoutes(apiV1, db.DB, promURL)
 
 	apiV2 := r.Group("/api/v2")
-	registerPlatformConfigRoutes(apiV2)
+	if err := registerPlatformConfigRoutes(apiV2); err != nil {
+		return nil, err
+	}
 
 	// A2 部署拓扑：静态兜底必须最后注册，保证所有 /api/* 路由优先命中。
 	if staticDir != "" {
@@ -170,7 +202,7 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 	}
 }
 
-func registerPlatformConfigRoutes(g *gin.RouterGroup) {
+func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	platform := g.Group("/platform")
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
@@ -192,10 +224,10 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	tenant.RegisterRoutes(admin, db.DB)
 	auth.RegisterRoutes(platform, db.DB)
 
-	// Module 07 (T07-18 收口): business-domain dictionary (read-only, yaml preset
-	// + hot reload), resource CRUD / Excel template & import / resource labels /
+	// Module 07 (T07-18 收口): business-domain dictionary (DB-backed, 决策 48),
+	// resource CRUD / Excel template & import / resource labels /
 	// import records / label-templates, all under /api/v2/platform/*.
-	businessStore := resource.NewBusinessDomainStore(*businessDomainsFile)
+	businessStore := resource.NewBusinessDomainStore(db.DB)
 	resource.RegisterRoutes(platform, db.DB, businessStore)
 	label.RegisterRoutes(platform, db.DB)
 
@@ -208,8 +240,15 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) {
 	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
 	configcenter.RegisterRoutes(platform, db.DB)
 
+	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
+	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
+	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL); err != nil {
+		return fmt.Errorf("register alertmanager routes: %w", err)
+	}
+
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
 	platform.GET("/dashboard/summary", dashboard.SummaryHandler(db.DB))
+	return nil
 }
 
 // registerSPA 在 Gin 上托管前端构建产物，实现 UI 与 API 同源（部署拓扑方案 A2，

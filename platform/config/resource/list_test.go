@@ -236,6 +236,45 @@ func TestListResourcesEachCategory(t *testing.T) {
 	}
 }
 
+// TestListResourcesResourceIDStableMergeKey（decision 47-3）：五类资源列表 item 稳定
+// 返回非空 `resource_id`，与 M02 coverage item.resource_id 同键——前端据此把三态采集
+// 状态 badge 按 resource_id 合并到列表行；本接口不内嵌 up/down 时序字段。
+func TestListResourcesResourceIDStableMergeKey(t *testing.T) {
+	db := openListTestDB(t)
+	r := mountListResources(t, db)
+
+	seedHostList(t, db, "host-1", "default", "web-01", "10.0.0.1", "online")
+	seedDatabaseList(t, db, "db-1", "default", "10.0.0.2", 3306, "online")
+	seedMiddlewareList(t, db, "mw-1", "default", "10.0.0.3", 9092, "online")
+	seedApplicationList(t, db, "app-1", "default", "pay-service", "10.0.0.4:8080", "online")
+	seedGenericTargetList(t, db, "gt-1", "default", "switch-1", "10.0.0.5", 161, "offline")
+
+	for _, tc := range []struct {
+		category string
+		wantID   string
+	}{
+		{"host", "host-1"},
+		{"database", "db-1"},
+		{"middleware", "mw-1"},
+		{"application", "app-1"},
+		{"generic_target", "gt-1"},
+	} {
+		t.Run(tc.category, func(t *testing.T) {
+			_, out := doResourceList(t, r, "?resource_category="+tc.category)
+			require.Len(t, out.Data.List, 1)
+			rid, ok := out.Data.List[0]["resource_id"].(string)
+			require.True(t, ok, "resource_id 应为稳定字符串键")
+			assert.Equal(t, tc.wantID, rid)
+			assert.NotEmpty(t, rid, "resource_id 不得为空（merge key）")
+			// 本接口不内嵌时序/up 状态字段：仅暴露 resource_id 供 M02 coverage 合并。
+			_, hasUp := out.Data.List[0]["up"]
+			_, hasHealthy := out.Data.List[0]["health"]
+			assert.False(t, hasUp, "不内嵌 up 时序字段（decision 47-3）")
+			assert.False(t, hasHealthy, "不内嵌 health 字段（decision 47-3）")
+		})
+	}
+}
+
 // TestListResourcesItemFields 验证 item 字段对齐 §5.2 共享字段与 host 差异化字段。
 func TestListResourcesItemFields(t *testing.T) {
 	db := openListTestDB(t)

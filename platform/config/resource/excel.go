@@ -247,7 +247,7 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, networkDom
 	}
 	if _, ok := enabled[in.BizCode]; !ok {
 		return fieldErr(row, "biz_code", in.BizCode,
-			fmt.Sprintf("业务 %s 未登记，请联系平台管理员在业务分组字典配置（platform/config/business_domains.yaml）中添加后重新导入", in.BizCode))
+			fmt.Sprintf("业务 %s 未登记，请到『业务管理』页登记后重新导入", in.BizCode))
 	}
 
 	// 4. 非数字 port（ParseExcel 置 -1 哨兵）。

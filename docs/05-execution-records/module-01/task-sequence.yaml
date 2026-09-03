@@ -823,7 +823,7 @@ tasks:
   - task_id: "T01-47-B1"
     name: "（决策 47-1）拆除安装确认闸门：确认 configgen 从 selected_instance_ids 生成 target 不因未确认实例受阻 + confirm API 语义降级为可选登记"
     agent: "backend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "m01-install-gate-removal"
     prd: "Module_01 §9.1（修订：原 P0『未确认实例不生成 target』废除，决策 47-1）/§5.6/§8④；decision-47-1 全文"
     depends_on: []
@@ -853,7 +853,7 @@ tasks:
   - task_id: "T01-47-F1"
     name: "（决策 47-2）Job 实例『采集状态』回显：实例状态列 + 外层汇总（在线数/实例总数/待采集数），只读消费 M02 /api/v1/targets?job=<job_name>"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "fe-m01-job-status-echo"
     prd: "Module_01 §11.1/§5.4 + api-contract-snapshot.md（M01 §6 与 M02 §2.1）；decision-47-2 全文"
     prototype_pages: "docs/prototypes/module-01/（Job 详情/编辑抽屉实例采集状态列 + 在线数汇总；原型已同步决策 47-2 采集状态列）"

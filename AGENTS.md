@@ -152,6 +152,7 @@ make build-prometheus      # 编译上游 Prometheus（首次会自动构建 Web
 make build-ui              # 构建 Custom UI -> ui-custom/web/dist
 make build-all             # 编译后端 + Prometheus + 前端
 make build-alertmanager    # 编译上游 Alertmanager -> upstream/alertmanager/alertmanager
+make build-amtool          # 编译上游 amtool（AM 配置校验命令行）-> upstream/alertmanager/amtool
 make build-blackbox-exporter  # 编译上游 blackbox_exporter -> upstream/blackbox_exporter/blackbox_exporter
 make build-center          # 编译中心一体化交付包（metric-center + prometheus + alertmanager + blackbox_exporter + ui）
 make build-edge-agent      # {v0.2} 编译边缘采集客户端 -> platform/edge-sync-agent/edge-sync-agent
@@ -163,10 +164,11 @@ make build-edge-package    # {v0.2} 组装边缘一体化离线包
 ```bash
 make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080；已默认传 --config.reload-url=http://localhost:9090/-/reload）
 make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090；--config.file 指向 config-output/prometheus.yml（首次自动 seed）并开启 --web.enable-lifecycle）
+make run-alertmanager      # 编译并启动 Alertmanager（默认 http://localhost:9093；--config.file 指向 config-output/alertmanager.yml（首次自动 seed），M08 静默代理/配置挂载依赖）
 make dev-ui                # 启动前端开发服务器（默认 http://localhost:5173）
 ```
 
-> 注意：`make run-metric-center` 会重新编译并启动新二进制；Makefile 已把 `upstream/prometheus`、`upstream/blackbox_exporter` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`。后端代码改动后旧进程不会自动加载新逻辑，需先停止旧进程再执行 `make run-metric-center`。若手动启动二进制，必须显式导出 `PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$PATH"`，否则草稿校验会卡在 `pending`（提示「promtool 不可调用」）。
+> 注意：`make run-metric-center` 会重新编译并启动新二进制；Makefile 已把 `upstream/prometheus`、`upstream/blackbox_exporter`、`upstream/alertmanager` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`，M08 的 Alertmanager 配置挂载校验才能找到 `amtool`。后端代码改动后旧进程不会自动加载新逻辑，需先停止旧进程再执行 `make run-metric-center`。若手动启动二进制，必须显式导出 `PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)/upstream/alertmanager:$PATH"`，否则草稿校验会卡在 `pending`（提示「promtool / amtool 不可调用」）。
 > 另外，旧逻辑生成的 `pending` 草稿会按 checksum 幂等返回；要验证新逻辑，需先废弃旧单，再重新触发变更。废弃会按决策 43 回滚源数据（如把禁用的 Job 恢复启用），典型验证动线：废弃旧单 → 重新禁用 → 生成新单 → 重校/确认。
 
 ### 5.3 测试
@@ -349,6 +351,9 @@ make run-prometheus
 make run-metric-center
 
 # 终端 3
+make run-alertmanager   # M08 场景（静默代理 / AM 配置挂载）需要；MVP 前端页面无需
+
+# 终端 4
 make dev-ui
 ```
 

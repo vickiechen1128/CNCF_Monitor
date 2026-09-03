@@ -58,6 +58,8 @@ func AutoMigrate() error {
 		&models.NetworkDomain{},
 		&models.ZoneType{},
 		&models.ResourceStatusMapping{},
+		// 业务分组字典（决策 48）
+		&models.BusinessDomain{},
 		// 用户认证（Module_06 §5.3/§5.4，Module_03 §4.0）
 		&models.User{},
 		&models.Session{},
@@ -87,6 +89,8 @@ func AutoMigrate() error {
 		&models.ConfigDeployment{},
 		&models.ConfigChangeBaseline{},
 		&models.EdgeAgent{},
+		// 告警收敛与通知管理（Module_08，决策 59/60 alertmanager.yml 挂载留痕）
+		&models.AlertmanagerConfigVersion{},
 		// 预留
 		&models.BusinessMetric{},
 	)

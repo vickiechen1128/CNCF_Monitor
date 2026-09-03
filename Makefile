@@ -85,8 +85,9 @@ PNPM_BIN := $(PNPM_DIR)/bin/pnpm
 # 同时加入 upstream/prometheus 与 upstream/blackbox_exporter：M09 配置草稿校验
 # 通过 exec.LookPath("promtool"/"blackbox_exporter") 调用上游二进制，须保证
 # metric-center 进程的 PATH 能定位到 build-prometheus / build-promtool /
-# build-blackbox-exporter 的产物路径（决策 42-2）。
-export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PROJECT_ROOT)/upstream/prometheus:$(PROJECT_ROOT)/upstream/blackbox_exporter:$(PATH)
+# build-blackbox-exporter 的产物；upstream/alertmanager 同理供
+# exec.LookPath("amtool")（M08 AM 配置校验）定位 build-amtool 产物。
+export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PROJECT_ROOT)/upstream/prometheus:$(PROJECT_ROOT)/upstream/alertmanager:$(PROJECT_ROOT)/upstream/blackbox_exporter:$(PATH)
 
 # 显式锁定 GOROOT 到项目级工具链：屏蔽系统/用户环境里残留的 GOROOT（如手动安装的
 # ~/sdk/goX.Y.Z），否则会出现 "compile: version goX does not match go tool version goY"。
@@ -282,6 +283,13 @@ build-promtool: ensure-go
 	@echo ">>> Building upstream promtool"
 	@cd "$(PROJECT_ROOT)/upstream/prometheus" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o promtool$(EXE) ./cmd/promtool
 
+# build-amtool: 构建上游 amtool（Alertmanager 配置校验命令行）；M08 Alertmanager
+# 配置挂载校验通过 exec.LookPath("amtool") 调用本二进制做 amtool check-config，
+# 缺失时校验返回校验失败并提示用户启动 Alertmanager 环境。
+build-amtool: ensure-go
+	@echo ">>> Building upstream amtool"
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
+
 build-ui: ensure-pnpm
 	@echo ">>> Building Custom UI"
 	@cd "$(PROJECT_ROOT)/ui-custom/web" && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build
@@ -311,6 +319,7 @@ build-alertmanager: ensure-go
 			npm ci && npm run build; \
 		fi
 	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o alertmanager$(EXE) ./cmd/alertmanager
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
 
 build-blackbox-exporter: ensure-go
 	@echo ">>> Building upstream blackbox_exporter"
@@ -332,7 +341,7 @@ package-center:
 # 运行
 # -----------------------------------------------------------------------------
 
-run-metric-center: build-metric-center build-promtool
+run-metric-center: build-metric-center build-promtool build-amtool
 	@echo ">>> Starting metric-center"
 	@cd "$(PROJECT_ROOT)" && ./platform/cmd/metric-center/metric-center$(EXE) \
 		--config.reload-url=http://localhost:9090/-/reload
@@ -355,6 +364,24 @@ run-prometheus: build-prometheus
 		--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
 		--web.enable-lifecycle \
 		--web.listen-address=:9090
+
+# 启动中心 Alertmanager（M08 静默代理 + AM 配置挂载 reload 目标）：控制面
+# --alertmanager.url 缺省 http://localhost:9093；静默列表依赖本服务在线。
+# config.file 指向 config-output/alertmanager.yml（DiskApplier 写盘目录）；
+# Alertmanager 与 Prometheus 不同，无 --web.enable-lifecycle，配置变更由其在
+# --config.file 写入后自动热加载（fsnotify 监视文件变更），/-/reload 亦可触发。
+# amtool 已由依赖 build-alertmanager 一并构建，供 AM 配置校验使用。
+run-alertmanager: build-alertmanager
+	@echo ">>> Starting Alertmanager"
+	@mkdir -p "$(PROJECT_ROOT)/config-output"
+	@if [ ! -f "$(PROJECT_ROOT)/config-output/alertmanager.yml" ]; then \
+		echo ">>> Seeding config-output/alertmanager.yml from project template (deploy/alertmanager/alertmanager.yml)"; \
+		cp "$(PROJECT_ROOT)/deploy/alertmanager/alertmanager.yml" \
+			"$(PROJECT_ROOT)/config-output/alertmanager.yml"; \
+	fi
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && ./alertmanager$(EXE) \
+		--config.file="$(PROJECT_ROOT)/config-output/alertmanager.yml" \
+		--web.listen-address=:9093
 
 dev-ui:
 	@echo ">>> Starting Custom UI dev server"
@@ -381,6 +408,7 @@ clean:
 	@rm -f "$(PROJECT_ROOT)/platform/cmd/metric-center/metric-center$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/prometheus/prometheus$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/prometheus/promtool"
+	@rm -f "$(PROJECT_ROOT)/upstream/alertmanager/amtool"
 	@rm -f "$(PROJECT_ROOT)/upstream/node_exporter/node_exporter$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/alertmanager/alertmanager$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/blackbox_exporter/blackbox_exporter$(EXE)"

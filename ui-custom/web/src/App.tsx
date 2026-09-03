@@ -6,6 +6,7 @@ import UsersPage from './pages/admin/users/UsersPage'
 import TenantsPage from './pages/admin/tenants/TenantsPage'
 import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
+import BusinessDomainPage from './pages/resources/BusinessDomainPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
 import ScrapeJobListPage from './pages/strategy/ScrapeJobListPage'
 import CollectorListPage from './pages/strategy/CollectorListPage'
@@ -27,6 +28,18 @@ const ConfigPreviewPage = lazy(() =>
 )
 const DeploymentsPage = lazy(() =>
   import('./pages/config-center/deployments/DeploymentsPage').then((m) => ({ default: m.DeploymentsPage })),
+)
+// Module_02 决策 47-4：独立目标状态页（P1 极简列表，跨 Job 全局排障入口；不新增顶部一级 tab）
+const TargetStatusPage = lazy(() =>
+  import('./pages/query/TargetStatusPage').then((m) => ({ default: m.TargetStatusPage })),
+)
+
+// Module_08 告警收敛与通知管理路由，懒加载
+const AlertConfigPage = lazy(() =>
+  import('./pages/alerts/AlertConfigPage').then((m) => ({ default: m.AlertConfigPage })),
+)
+const SilencesPage = lazy(() =>
+  import('./pages/alerts/SilencesPage').then((m) => ({ default: m.SilencesPage })),
 )
 
 /**
@@ -63,6 +76,7 @@ function AppRoutes() {
           <Route path="/admin/login-logs" element={<LoginLogsPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/label-templates" element={<LabelTemplatesPage />} />
+          <Route path="/business-domains" element={<BusinessDomainPage />} />
           <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
           <Route path="/collectors" element={<CollectorListPage />} />
           <Route path="/rules" element={<RulesPage />} />
@@ -71,6 +85,9 @@ function AppRoutes() {
           <Route path="/node-status" element={<EdgeAgentsPage />} />
           <Route path="/config-preview" element={<ConfigPreviewPage />} />
           <Route path="/deployments" element={<DeploymentsPage />} />
+          <Route path="/targets" element={<TargetStatusPage />} />
+          <Route path="/alert-config" element={<AlertConfigPage />} />
+          <Route path="/silences" element={<SilencesPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import config from 'antd/locale/zh_CN'
 import { MainLayout } from '../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
@@ -38,8 +38,11 @@ import { networkDomainApi } from '../../api/domain'
 import { businessDomainApi, resourceApi } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type { BusinessDomain, ResourceCategory } from '../../types/resource'
+import type { CoverageState } from '../../types/query'
+import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
 import { useResources } from './useResources'
 import type { ResourceListItem } from './useResources'
+import { useResourceCoverage } from './useResourceCoverage'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
@@ -122,6 +125,21 @@ export function ResourcesPage() {
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
+  const {
+    coverageByResource,
+    loading: coverageLoading,
+    error: coverageError,
+  } = useResourceCoverage(category)
+  // 决策 47-3：三态筛选（全部/采集中/已下发未采到/未监控），前端按 coverage.monitor_state 过滤
+  const [monitorState, setMonitorState] = useState<CoverageState | undefined>()
+  // 三态筛选后的行（覆盖既有的 biz/status 客户端过滤后的 filteredList）
+  const coveredList = useMemo(() => {
+    if (!monitorState) return filteredList
+    return filteredList.filter(
+      (r) => (coverageByResource[r.resource_id]?.monitor_state ?? 'not_monitored') === monitorState,
+    )
+  }, [filteredList, monitorState, coverageByResource])
   // 资源新增/编辑抽屉（T07-F4）：复用 create/edit 双模式，编辑态携带行 record
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create')
@@ -267,6 +285,25 @@ export function ResourcesPage() {
         </Space>
       ),
     }
+    // 决策 47-3：采集状态三态 badge 列（数据源 M02 coverage，按 resource_id 合并；coverage 失败降级为 '-'）
+    const monitorColumn: ColumnsType<ResourceListItem>[number] = {
+      title: '采集状态',
+      key: 'monitor_state',
+      width: 120,
+      render: (_: unknown, record: ResourceListItem) => {
+        const coverage = coverageByResource[record.resource_id]
+        const state = coverage?.monitor_state ?? 'not_monitored'
+        return coverageError ? (
+          <Text type="secondary">-</Text>
+        ) : (
+          <MonitorStatusBadge
+            state={state}
+            health={coverage?.health ?? null}
+            lastError={coverage?.last_error}
+          />
+        )
+      },
+    }
 
     switch (type) {
       case 'host':
@@ -302,10 +339,12 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'database':
         return [
+          monitorColumn,
           { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '数据库类型',
@@ -320,10 +359,12 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'middleware':
         return [
+          monitorColumn,
           { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '中间件类型',
@@ -338,10 +379,12 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'application':
         return [
+          monitorColumn,
           {
             title: '服务名',
             dataIndex: 'service_name',
@@ -362,10 +405,12 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'generic_target':
         return [
+          monitorColumn,
           {
             title: '目标名称',
             dataIndex: 'target_name',
@@ -395,6 +440,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
     }
@@ -490,15 +536,17 @@ export function ResourcesPage() {
                   <Select.Option value="maintenance">维护中</Select.Option>
                 </Select>
               </FilterItem>
-              <FilterItem label="采集状态" width={200}>
+              <FilterItem label="采集状态" width={240}>
                 <Select
                   placeholder="全部"
                   allowClear
-                  style={{ width: 120 }}
-                  value={filters.is_monitored === false ? 'unmonitored' : undefined}
-                  onChange={(v) => setFilters({ ...filters, is_monitored: v === 'unmonitored' ? false : undefined })}
+                  style={{ width: 180 }}
+                  value={monitorState}
+                  onChange={(v) => setMonitorState(v as CoverageState | undefined)}
                 >
-                  <Select.Option value="unmonitored">未监控</Select.Option>
+                  <Select.Option value="collecting">采集中</Select.Option>
+                  <Select.Option value="pending_down">已下发未采到</Select.Option>
+                  <Select.Option value="not_monitored">未监控</Select.Option>
                 </Select>
               </FilterItem>
               <FilterItem label="搜索" width={340}>
@@ -520,8 +568,8 @@ export function ResourcesPage() {
 
             <Table<ResourceListItem>
               rowKey="resource_id"
-              dataSource={filteredList}
-              loading={loading}
+              dataSource={coveredList}
+              loading={loading || coverageLoading}
               columns={buildColumns(category)}
               size="small"
               scroll={TABLE_SCROLL_X}

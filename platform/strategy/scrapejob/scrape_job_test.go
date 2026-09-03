@@ -570,9 +570,18 @@ func TestConfirmAndCancelInstallation(t *testing.T) {
 	require.Len(t, out.Data.Items, 1)
 	assert.Equal(t, "confirmed", out.Data.Items[0].Status)
 
-	// confirmed_by 非法 → bad_request。
+	// review-fix C：confirmed_by 不再信任客户端传参（伪鉴权移除）——请求体携带伪造
+	// confirmed_by 会被忽略，操作人从认证上下文当前用户派生；本测试无认证用户，回落 "unknown"。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs/"+jobID+"/instances/host-1/confirm", `{"confirmed_by":"evil"}`)
-	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
+	var cfm struct {
+		Data struct {
+			ConfirmedBy string `json:"confirmed_by"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &cfm))
+	assert.NotEqual(t, "evil", cfm.Data.ConfirmedBy, "客户端伪造 confirmed_by 须被忽略")
+	assert.Equal(t, "unknown", cfm.Data.ConfirmedBy, "无认证用户时回落 unknown")
 
 	// 取消确认。
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+jobID+"/instances/host-1/confirm", "")
@@ -602,6 +611,40 @@ func TestConfirmInstallationNotInSetRejected(t *testing.T) {
 	// host-2 不在选中集 → bad_request。
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs/"+strconv.FormatUint(uint64(job.ID), 10)+"/instances/host-2/confirm", `{"confirmed_by":"platform_admin"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestListInstancesShowsUnconfirmedWithoutGate（决策 47-1：安装确认拆闸门）：
+// 未做任何确认登记的已选实例仍出现在实例列表中（状态 unconfirmed）——确认是可选登记、
+// 非生成闸门，未确认实例不被排除。
+func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"host-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// 未确认登记 → 实例仍在列表，状态为 unconfirmed（决策 47-1：不阻断实例展示）。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/"+jobID+"/instances", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Items []jobInstanceItem `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out.Data.Items, 1)
+	assert.Equal(t, "host-1", out.Data.Items[0].ResourceID)
+	assert.Equal(t, "host-host-1", out.Data.Items[0].InstanceName)
+	assert.Equal(t, "10.0.1.1", out.Data.Items[0].InstanceIP)
+	assert.Equal(t, "unconfirmed", out.Data.Items[0].Status)
 }
 
 func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {

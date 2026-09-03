@@ -99,3 +99,21 @@
 
 ### 验证
 - `pnpm test` 全量 334/335（唯一失败仍为改动前已存在的 `resources.test.ts` jsdom `Response.stream` 问题）；`tsc --noEmit`、`pnpm lint` 通过。
+
+## 2026-09-02（决策 47-2：采集 Job 列表「采集状态」聚合列 T01-47-B2）
+
+### 背景
+- 契约要求采集 Job 列表按 Job 聚合展示「采集状态」（采集中 / 已下发未采到 / 待采集）；coverage 接口 item 无 job 维度，需按 per-job 拉取 instances + targets 聚合。
+
+### 实现
+- `src/pages/strategy/useJobScrapeStatus.ts`（新增）：按 Job 聚合三态 status 的数据读取/聚合 Hook——`scrapeJobApi.instances({job_id})` 得在线实例，`targetsApi.list({job})` 得已下发目标，按 jobStatus.ts 口径归一为 `collecting`（采集中）/ `pending_down`（已下发未采到）/ `pending`（待采集）。
+- `src/pages/strategy/ScrapeJobListPage.tsx`：新增「采集状态」列，复用聚合 Hook，三态视觉对齐 `MonitorStatusBadge`。
+- `src/pages/strategy/strategyConstants.ts`：`SCRAPE_STATUS_META` / `DOWN_TOOLTIP` 由 `ExporterInstallationPanel.tsx` 迁出，供 Scrape Job 列表与面板共同复用（消除 `react-refresh/only-export-components` 告警）。
+- `src/pages/strategy/ExporterInstallationPanel.tsx`：改为引用 `strategyConstants`。
+
+### 新增/修改测试
+- `src/pages/strategy/useJobScrapeStatus.test.ts`（新增）：三态聚合、空值归一、在线/已下发未采到/待采集映射断言。
+- `ExporterInstallationPanel.test.tsx`：常量迁移后同步更新。
+
+### 验证
+- `pnpm vitest run`（useJobScrapeStatus / ScrapeJobListPage / ExporterInstallationPanel）通过；`pnpm lint` 通过。

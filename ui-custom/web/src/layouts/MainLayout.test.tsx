@@ -139,6 +139,25 @@ describe('MainLayout', () => {
     expect(screen.getByText('onboarding-content')).toBeInTheDocument()
   })
 
+  it('exposes 监控目标状态 under 网域与节点管理 for /targets route (M02 P1 临时挂载, F-1)', async () => {
+    render(
+      <MemoryRouter initialEntries={['/targets']}>
+        <Routes>
+          <Route path="/targets" element={<MainLayout>targets-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 激活路由归属「网域与节点管理」：自动展开，临时挂载的「监控目标状态」可见
+    expect(await screen.findByText('监控目标状态')).toBeInTheDocument()
+    expect(screen.getByText('采集节点状态')).toBeInTheDocument()
+    expect(screen.getByText('targets-content')).toBeInTheDocument()
+    // 顶部一级 tab「网域与边缘配置中心」处于 active（/targets 归 M09）
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('网域与边缘配置中心'))
+    expect(tab?.className ?? '').toContain('active')
+  })
+
   it('collapses 网域与节点管理 on manual toggle even when active route is in that group（激活页可手动折叠）', async () => {
     render(
       <MemoryRouter initialEntries={['/domain-onboarding']}>
@@ -216,5 +235,32 @@ describe('MainLayout', () => {
     expect(screen.getByText('管理员')).toBeInTheDocument()
     expect(screen.getByText('admin')).toBeInTheDocument()
     expect(screen.getByText('home-content')).toBeInTheDocument()
+  })
+
+  it('renders M08 独立顶级模块「告警收敛与通知管理」及两个二级子项并高亮（/alert-config）', async () => {
+    render(
+      <MemoryRouter initialEntries={['/alert-config']}>
+        <Routes>
+          <Route path="/alert-config" element={<MainLayout>alert-config-content</MainLayout>} />
+          <Route path="/silences" element={<MainLayout>silences-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 顶部一级 tab 用 PRD 模块名「告警收敛与通知管理」，且处于 active
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab).toBeDefined()
+    expect(tab?.className ?? '').toContain('active')
+    // Sider 二级导航同时展示「告警配置 / 静默管理」，且当前路由高亮「告警配置」
+    expect(screen.getByText('告警配置')).toBeInTheDocument()
+    expect(screen.getByText('静默管理')).toBeInTheDocument()
+    await waitFor(() => {
+      const selected = screen
+        .getAllByRole('menuitem')
+        .find((el) => (el.textContent || '').includes('告警配置'))
+      expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    })
+    expect(screen.getByText('alert-config-content')).toBeInTheDocument()
   })
 })

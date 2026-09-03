@@ -6,12 +6,39 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/models"
 )
 
 // ContextUserKey is the gin context key under which AuthMiddleware stores the
 // authenticated user (*models.User). Later handlers (e.g. GET /auth/me) can
 // read the current user from the request context instead of re-querying.
 const ContextUserKey = "authUser"
+
+// CurrentUser 返回 gin context 中的已认证用户（*models.User，由 AuthMiddleware 注入到
+// ContextUserKey）。未认证 / 上下文类型异常时返回 nil，供 handler 安全派生操作者字段
+// （confirmed_by / triggered_by），避免对上下文做 MustGet 强转导致 panic。
+func CurrentUser(c *gin.Context) *models.User {
+	v, ok := c.Get(ContextUserKey)
+	if !ok {
+		return nil
+	}
+	u, ok := v.(*models.User)
+	if !ok {
+		return nil
+	}
+	return u
+}
+
+// CurrentUsername 返回当前已认证用户的 username，作为操作者字段（confirmed_by /
+// triggered_by）的派生来源（review-fix C：不信任客户端传参，取自动态认证上下文）。
+// 未认证 / 异常时兜底返回 "unknown"，由调用方决定是否记日志。
+func CurrentUsername(c *gin.Context) string {
+	u := CurrentUser(c)
+	if u == nil || u.Username == "" {
+		return "unknown"
+	}
+	return u.Username
+}
 
 // healthPaths are the public health endpoints that must remain anonymous.
 // 契约 §4「横切约定」：除 POST /api/v2/platform/auth/login 与 /api/v1/health*

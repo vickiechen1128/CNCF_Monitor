@@ -31,7 +31,7 @@ tasks:
     title: "models：AlertmanagerConfigVersion + 挂载/静默枚举集中定义"
     prd: "Module_08 §6.6（AlertmanagerConfigVersion 字段）/ §3.1 / §5.1 / §5.2；决策 60（校验失败不落库，status 仅 applied）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "models-alertmanager"
     depends_on: []
     input_files:
@@ -57,7 +57,7 @@ tasks:
     title: "Alertmanager 配置文件挂载服务：校验 + 落库留痕 + 提交变更检测"
     prd: "Module_08 §5.1（文件挂载契约）/ §9.1 / §9.2；决策 59/60（校验失败不落库；持久化后触发 M09 变更检测）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "config-mount"
     depends_on: ["T08-01"]
     input_files:
@@ -85,7 +85,7 @@ tasks:
     title: "Alertmanager 配置版本 API：当前生效只读视图 + 历史版本 + 重新挂载（回滚）"
     prd: "Module_08 §6.6 / §5.1 / §9.1 P0（历史版本回滚「重新挂载此版本」）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "config-version"
     depends_on: ["T08-02"]
     input_files:
@@ -112,7 +112,7 @@ tasks:
     title: "静默管理：代理 Alertmanager /api/v1/silences + matcher 授权收敛校验"
     prd: "Module_08 §5.2 / §6.3 / §9.1 / §9.2；决策 56（写路径 matcher 授权校验）/ 决策 59（MVP 极简 UI：创建/列表/删除，API 直调）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "silence-proxy"
     depends_on: ["T08-01"]
     input_files:
@@ -141,7 +141,7 @@ tasks:
     title: "路由注册 + 全链路集成冒烟（文件挂载→提交 M09 变更单→确认→下发→change_status 回写）"
     prd: "Module_08 §9.1/§9.2 / Module_09 §3.4；决策 60（管理域 scope 变更单确认下发 reload、change_status 回写 M08）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "routes"
     depends_on: ["T08-03", "T08-04", "T09-60-3"]
     input_files:
@@ -173,7 +173,7 @@ tasks:
   - id: "T08-F1"
     title: "types + API client + 枚举/常量（alertmanager 契约落地）"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "alert-api"
     prd: "Module_08 §5.1/§5.2/§6.3/§6.6（契约 §1~§8）"
     prototype_pages: []
@@ -206,7 +206,7 @@ tasks:
   - id: "T08-F2"
     title: "告警配置页（文件挂载）：上传/粘贴 + 行级校验错误 + 当前生效只读视图 + 历史回滚"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "config-page"
     prd: "Module_08 §5.1 / §9.1 P0 / §9.2"
     prototype_pages:
@@ -243,7 +243,7 @@ tasks:
   - id: "T08-F3"
     title: "静默管理页（极简 UI）：创建 / 列表 / 删除"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "silence-page"
     prd: "Module_08 §5.2 / §6.3 / §9.1 / §9.2（MVP 极简：API 直调 Alertmanager）"
     prototype_pages:
@@ -276,7 +276,7 @@ tasks:
   - id: "T08-F4"
     title: "导航与路由挂载：MainLayout 一级 tab + App 两路由"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "nav-mount"
     prd: "Module_08 §9.1 / §10 术语 + 顶部 tab 文案规范（PRD 模块名）"
     prototype_pages:
@@ -308,7 +308,7 @@ tasks:
   - id: "T08-F5"
     title: "前端集成验证与收尾"
     agent: "frontend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "frontend-closeout"
     prd: "Module_08 §9 / §11.2 全局行为规则"
     prototype_pages: []
