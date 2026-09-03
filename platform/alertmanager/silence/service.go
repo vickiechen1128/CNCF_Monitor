@@ -151,7 +151,7 @@ func silenceStatusAt(starts, ends time.Time) models.SilenceStatus {
 	}
 }
 
-// buildCreateBody 构造 Alertmanager POST /api/v1/silences 原始 JSON（matcher camelCase）。
+// buildCreateBody 构造 Alertmanager POST /api/v2/silences 原始 JSON（matcher camelCase）。
 func buildCreateBody(in CreateInput) ([]byte, error) {
 	matchers := make([]amMatcher, 0, len(in.Matchers))
 	for _, m := range in.Matchers {

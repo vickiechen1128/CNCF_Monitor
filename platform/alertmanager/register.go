@@ -1,7 +1,7 @@
 // Package alertmanager 汇总 Module_08 告警收敛与通知管理的控制面路由装载。
 // 统一挂载到 /api/v2/platform/alertmanager/*：
 //   - /config*：alertmanager.yml 文件挂载 / 当前生效 / 版本列表与详情 / 重新挂载（M08 config）；
-//   - /silences*：静默管理——服务端代理 Alertmanager 原生 /api/v1/silences，
+//   - /silences*：静默管理——服务端代理 Alertmanager 原生 /api/v2/silences，
 //     写路径带决策 56 matcher 授权收敛（即时生效、不入 M09 流水线，决策 59）。
 //
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md

@@ -40,7 +40,9 @@ func ListHandler(svc *Service) gin.HandlerFunc {
 		activeOnly := strings.ToLower(c.DefaultQuery("active", "true")) != "false"
 		list, err := svc.List(c.Request.Context(), activeOnly)
 		if err != nil {
-			response.InternalServerError(c, err)
+			// 静默列表完全依赖中心 Alertmanager（决策 59 直调、不入 M09 流水线）；
+			// AM 未启动/不可达属上游依赖故障，回 502 + 可执行引导，而非掩蔽的 internal error。
+			response.BadGateway(c, err, "中心 Alertmanager 服务不可达或未启动，无法加载静默列表，请先启动中心 Alertmanager")
 			return
 		}
 		page, pageSize := queryPage(c)
@@ -80,7 +82,8 @@ func DeleteHandler(svc *Service) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			response.InternalServerError(c, err)
+			// 删除亦依赖中心 Alertmanager（先查询再删除）；AM 未启动/不可达同回 502 引导。
+			response.BadGateway(c, err, "中心 Alertmanager 服务不可达或未启动，无法删除静默，请先启动中心 Alertmanager")
 			return
 		}
 		response.OK(c, gin.H{"id": deletedID})

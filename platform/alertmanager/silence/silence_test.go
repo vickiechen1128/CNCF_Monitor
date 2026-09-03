@@ -41,10 +41,11 @@ func (f *fakeAM) handler() http.Handler {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/silences":
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "success", "data": f.silences})
-		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/silence/"):
-			id := strings.TrimPrefix(r.URL.Path, "/api/v1/silence/")
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2/silences":
+			// v2 列表为裸数组。
+			_ = json.NewEncoder(w).Encode(f.silences)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v2/silence/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/v2/silence/")
 			for _, nf := range f.notFoundAIDs {
 				if nf == id {
 					w.WriteHeader(http.StatusNotFound)
@@ -53,29 +54,28 @@ func (f *fakeAM) handler() http.Handler {
 			}
 			for _, s := range f.silences {
 				if s.ID == id {
-					_ = json.NewEncoder(w).Encode(map[string]interface{}{"status": "success", "data": s})
+					// v2 单条为裸对象。
+					_ = json.NewEncoder(w).Encode(s)
 					return
 				}
 			}
 			w.WriteHeader(http.StatusNotFound)
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/silences":
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2/silences":
 			var body amCreateSilenceRequest
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.created = append(f.created, body)
 			id := "am-" + time.Now().Format("150405.000000000")
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"status": "success",
-				"data":   map[string]string{"silenceID": id},
-			})
-		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/silence/"):
-			id := strings.TrimPrefix(r.URL.Path, "/api/v1/silence/")
+			// v2 创建直接返回 {"silenceID":"..."}。
+			_ = json.NewEncoder(w).Encode(map[string]string{"silenceID": id})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2/silence/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/v2/silence/")
 			for _, nf := range f.notFoundAIDs {
 				if nf == id {
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+			w.WriteHeader(http.StatusOK)
 		default:
 			http.NotFound(w, r)
 		}

@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/db/seed"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,6 +114,20 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	// 指向测试内启动的 fake Alertmanager（见 fakeAlertmanager）。
 	amURL := fakeAlertmanager(t).URL
 	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL))
+
+	// M02 采集状态路由收口（决策 47 / T02-03）：与生产 main.go（registerPlatformConfigRoutes
+	// 上方的 apiV1 组）保持一致，M02 目标/覆盖端点挂在 /api/v1 组下（仅全局认证、不授权），
+	// 而非本引擎既有的 /api/v2/platform 组。fakePromUpstream 提供按路径分发的伪 Prometheus
+	// 上游（/api/v1/query + /api/v1/targets），夹具与 platform/query/coverage_test.go 的
+	// coverageUp/targetsFixture 对齐，便于集成层直接断言三态与过滤。该路由与 /api/v2/platform/*
+	// 无路径冲突；本引擎不挂 SPA 静态兜底（NoRoute 即 404），故 /api/v1 端点 200 即证明已真实挂载、
+	// 未被兜底吞掉。
+	promUp := fakePromUpstream(t)
+	promURL, err := url.Parse(promUp.URL)
+	require.NoError(t, err)
+	apiV1 := r.Group("/api/v1")
+	query.RegisterRoutes(apiV1, db, promURL)
+
 	return r, db
 }
 
@@ -1007,23 +1023,24 @@ func newFakeAMState() *fakeAMState {
 }
 
 // fakeAlertmanager 启动一个内存 Alertmanager 静默服务，返回其 httptest.Server。
-// 覆盖 M08 silence 代理依赖的原生端点：GET/POST /api/v1/silences、GET/DELETE /api/v1/silence/:id。
+// 覆盖 M08 silence 代理依赖的原生端点：GET/POST /api/v2/silences、GET/DELETE /api/v2/silence/:id。
 func fakeAlertmanager(t *testing.T) *httptest.Server {
 	t.Helper()
 	st := newFakeAMState()
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /api/v1/silences", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
 		st.mu.Lock()
 		defer st.mu.Unlock()
 		data := make([]map[string]interface{}, 0, len(st.silences))
 		for _, s := range st.silences {
 			data = append(data, s)
 		}
-		writeAMJSON(w, gin.H{"status": "success", "data": data})
+		// v2 列表为裸数组。
+		writeAMJSON(w, data)
 	})
 
-	mux.HandleFunc("POST /api/v1/silences", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/v2/silences", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		st.mu.Lock()
@@ -1039,11 +1056,12 @@ func fakeAlertmanager(t *testing.T) *httptest.Server {
 			"comment":   body["comment"],
 			"status":    gin.H{"state": "active"},
 		}
-		writeAMJSON(w, gin.H{"status": "success", "data": gin.H{"silenceID": id}})
+		// v2 创建直接返回 {"silenceID":"..."}。
+		writeAMJSON(w, gin.H{"silenceID": id})
 	})
 
-	mux.HandleFunc("GET /api/v1/silence/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/api/v1/silence/")
+	mux.HandleFunc("GET /api/v2/silence/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v2/silence/")
 		st.mu.Lock()
 		s, ok := st.silences[id]
 		st.mu.Unlock()
@@ -1052,18 +1070,18 @@ func fakeAlertmanager(t *testing.T) *httptest.Server {
 			writeAMJSON(w, gin.H{"status": "error", "errorType": "not_found"})
 			return
 		}
-		writeAMJSON(w, gin.H{"status": "success", "data": s})
+		// v2 单条为裸对象。
+		writeAMJSON(w, s)
 	})
 
-	mux.HandleFunc("DELETE /api/v1/silence/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/api/v1/silence/")
+	mux.HandleFunc("DELETE /api/v2/silence/", func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimPrefix(r.URL.Path, "/api/v2/silence/")
 		st.mu.Lock()
 		if _, ok := st.silences[id]; ok {
 			delete(st.silences, id)
 		}
 		st.mu.Unlock()
 		w.WriteHeader(http.StatusOK)
-		writeAMJSON(w, gin.H{"status": "success"})
 	})
 
 	srv := httptest.NewServer(mux)
@@ -1150,4 +1168,203 @@ func TestEndToEndAlertmanagerSmoke(t *testing.T) {
 	code, out = c.json("GET", "/api/v2/platform/alertmanager/silences", "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, float64(0), out["data"].(map[string]interface{})["total"])
+}
+
+// ---------------------------------------------------------------------------
+// Module_02（决策 47 / T02-03）采集状态路由收口集成验收：
+// 经真实主路由树（/api/v1 组）验证 targets 代理 + coverage 三态聚合可命中，
+// 且与其它路由不冲突、不被 SPA 静态兜底吞掉。夹具与 platform/query/coverage_test.go
+// 的 coverageUpFixture / coverageTargetsFixture 对齐。
+// ---------------------------------------------------------------------------
+
+// fakePromUpstream 启动一个内存 Prometheus 上游，按路径分发 /api/v1/query 与
+// /api/v1/targets，返回与 coverage_test.go 一致的场景夹具：
+//   - up 样本：srv-1=1（up）、srv-2=0（down 有样本）、srv-3 无 series；
+//   - targets：srv-2 down 且 lastError=connection refused。
+func fakePromUpstream(t *testing.T) *httptest.Server {
+	t.Helper()
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/query":
+			fmt.Fprintln(w, mustJSON(t, map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "vector",
+					"result": []map[string]interface{}{
+						{"metric": map[string]string{"resource_id": "srv-1", "job": "job-a"}, "value": []interface{}{float64(1725000000), "1"}},
+						{"metric": map[string]string{"resource_id": "srv-2", "job": "job-a"}, "value": []interface{}{float64(1725000000), "0"}},
+					},
+				},
+			}))
+		case "/api/v1/targets":
+			fmt.Fprintln(w, mustJSON(t, map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"activeTargets": []map[string]interface{}{
+						{
+							"scrapePool": "job-a",
+							"labels": map[string]interface{}{
+								"job":         "job-a",
+								"instance":    "10.0.0.2:9100",
+								"resource_id": "srv-2",
+							},
+							"health":    "down",
+							"lastError": "connection refused",
+						},
+					},
+					"droppedTargets": []interface{}{},
+					"targetsByJob":   map[string]interface{}{},
+				},
+			}))
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// seedIntegrationHost 落一条 host fixture（与 fakePromUpstream 夹具对齐）。ResourceID
+// 与 ServerID 保持一致以共存多条（同 coverage_test.go 约定）。
+func seedIntegrationHost(t *testing.T, dbm *gorm.DB, id, domain, name string) {
+	t.Helper()
+	h := &models.Host{
+		ResourceID:       id,
+		ServerID:         id,
+		ResourceCategory: models.ResourceCategoryHost,
+		NetworkDomainID:  domain,
+		BizCode:          "infra",
+		SourceType:       models.SourceTypeManual,
+		InstanceName:     name,
+		Status:           "online",
+		Region:           "cn",
+		ZoneEnv:          "dev",
+		InstanceSpec:     "2c4g",
+		Image:            "linux",
+		VPC:              "vpc-1",
+		SecurityGroup:    "sg-1",
+		PrivateIP:        "",
+	}
+	require.NoError(t, dbm.Create(h).Error)
+}
+
+// seedIntegrationJob 落一个 ready+enabled 的采集 job（selected 为选中的实例）。
+func seedIntegrationJob(t *testing.T, dbm *gorm.DB, jobName string, selected []string) {
+	t.Helper()
+	j := &models.ScrapeJob{
+		JobName:               jobName,
+		JobType:               models.JobTypeStandard,
+		ResourceType:          models.ResourceTypeHost,
+		NetworkDomainID:       "default",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs:   selected,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "10s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              models.AuthTypeNone,
+		DraftStatus:           "ready",
+		ChangeStatus:          models.ChangeStatusConfirmed,
+		Enabled:               true,
+	}
+	require.NoError(t, dbm.Create(j).Error)
+}
+
+// TestEndToEndQueryCoverageRoutes 覆盖 M02 采集状态路由（决策 47 / T02-03）收口集成态：
+// 经 buildIntegrationEngine 的真实主路由树（/api/v1 组）断言——
+//   - GET /api/v1/targets 透传并本地过滤返回 activeTargets（含 job/network_domain/resource_id 补全）；
+//   - GET /api/v1/health/coverage 在预置 host + ScrapeJob.selected_instance_ids + 伪 up 下游
+//     按 resource_id 正确输出 collecting/pending_down/not_monitored 三态、last_error 与 coverage_rate；
+//   - 上述端点与既有 /api/v2/platform/* 路由无冲突；本引擎不挂 SPA 静态兜底（未挂载端点 NoRoute 即
+//     404），端点返回 200 即证明已真实挂载、未被静态兜底吞掉。
+func TestEndToEndQueryCoverageRoutes(t *testing.T) {
+	r, dbm := buildIntegrationEngine(t)
+	c := &apiClient{t: t, r: r}
+
+	// 0. 预置与 fakePromUpstream 夹具对齐的 5 台 host + 1 个 ready+enabled 选中 job。
+	for _, h := range []struct{ id, domain, name string }{
+		{"srv-1", "default", "host-1"},
+		{"srv-2", "default", "host-2"},
+		{"srv-3", "default", "host-3"},
+		{"srv-4", "default", "host-4"},
+		{"dmz-x", "dmz", "host-dmz"},
+	} {
+		seedIntegrationHost(t, dbm, h.id, h.domain, h.name)
+	}
+	seedIntegrationJob(t, dbm, "job-a", []string{"srv-1", "srv-2", "srv-3"})
+
+	// 1. /api/v1/targets：透传 + 本地过滤 + 补全。
+	code, out := c.json("GET", "/api/v1/targets", "")
+	require.Equal(t, http.StatusOK, code, "targets 应可命中：%v", out)
+	data := out["data"].(map[string]interface{})
+	active := data["activeTargets"].([]interface{})
+	require.Len(t, active, 1, "夹具仅 1 个 active target")
+	t0 := active[0].(map[string]interface{})
+	assert.Equal(t, "down", t0["health"])
+	assert.Equal(t, "srv-2", t0["resource_id"], "应补全 resource_id 标签")
+	assert.Equal(t, "job-a", t0["job"], "应补全 job 标签")
+	assert.Equal(t, "default", t0["network_domain"], "缺失 network_domain 回落 default")
+
+	// health 本地过滤。
+	code, out = c.json("GET", "/api/v1/targets?health=down", "")
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, out["data"].(map[string]interface{})["activeTargets"].([]interface{}), 1)
+	code, out = c.json("GET", "/api/v1/targets?health=up", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, out["data"].(map[string]interface{})["activeTargets"].([]interface{}), 0,
+		"夹具无 up target，health=up 应过滤为空")
+
+	// job 本地过滤：非 job-a 应为空。
+	code, out = c.json("GET", "/api/v1/targets?job=other-job", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, out["data"].(map[string]interface{})["activeTargets"].([]interface{}), 0)
+
+	// 非法 health 参数 → bad_request。
+	code, out = c.json("GET", "/api/v1/targets?health=bogus", "")
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 2. /api/v1/health/coverage：三态 + summary.coverage_rate。
+	code, out = c.json("GET", "/api/v1/health/coverage", "")
+	require.Equal(t, http.StatusOK, code, "coverage 应可命中：%v", out)
+	cd := out["data"].(map[string]interface{})
+	items := cd["items"].([]interface{})
+	require.Len(t, items, 5, "5 台 host 全量覆盖")
+	byID := map[string]map[string]interface{}{}
+	for _, it := range items {
+		m := it.(map[string]interface{})
+		byID[m["resource_id"].(string)] = m
+	}
+
+	assert.Equal(t, "collecting", byID["srv-1"]["monitor_state"], "选中 + up → collecting")
+	assert.Equal(t, "up", byID["srv-1"]["health"])
+	assert.Equal(t, "pending_down", byID["srv-2"]["monitor_state"], "选中 + down → pending_down")
+	assert.Equal(t, "down", byID["srv-2"]["health"])
+	assert.Equal(t, "connection refused", byID["srv-2"]["last_error"], "last_error 应回填")
+	assert.Equal(t, "pending_down", byID["srv-3"]["monitor_state"], "选中 + 无 up 样本 → pending_down")
+	assert.Equal(t, "unknown", byID["srv-3"]["health"])
+	assert.Equal(t, "not_monitored", byID["srv-4"]["monitor_state"], "未选中 → not_monitored")
+	assert.Nil(t, byID["srv-4"]["health"], "未监控 health 应为 null")
+	assert.Equal(t, "not_monitored", byID["dmz-x"]["monitor_state"])
+
+	summary := cd["summary"].(map[string]interface{})
+	assert.Equal(t, float64(5), summary["total"])
+	assert.Equal(t, float64(1), summary["collecting"])
+	assert.Equal(t, float64(2), summary["pending_down"])
+	assert.Equal(t, float64(2), summary["not_monitored"])
+	assert.Equal(t, 0.2, summary["coverage_rate"], "coverage_rate = 1/5 = 0.2")
+
+	// state 过滤走真实路由。
+	code, out = c.json("GET", "/api/v1/health/coverage?state=not_monitored", "")
+	require.Equal(t, http.StatusOK, code)
+	assert.Len(t, out["data"].(map[string]interface{})["items"].([]interface{}), 2)
+
+	// network_domain 过滤走真实路由。
+	code, out = c.json("GET", "/api/v1/health/coverage?network_domain=dmz", "")
+	require.Equal(t, http.StatusOK, code)
+	items = out["data"].(map[string]interface{})["items"].([]interface{})
+	require.Len(t, items, 1)
+	assert.Equal(t, "dmz-x", items[0].(map[string]interface{})["resource_id"])
 }
