@@ -130,6 +130,7 @@ Makefile 会自动将 `.tools/go/bin`、`.tools/node/bin`、`.tools/pnpm/bin` �
 | **环境准备** | `make install-tools` | 安装 Go / Node.js / pnpm 工具链到 `.tools/`（每位协作者首次只需一次） | 通用 |
 | **本地开发** | `make run-metric-center` | 编译并启动控制面（默认 `:8080`） | MVP / 后续 |
 |  | `make run-prometheus` | 编译并启动 Prometheus（默认 `:9090`） | MVP / 后续 |
+|  | `make run-alertmanager` | 编译并启动 Alertmanager（默认 `:9093`，M08 静默代理/配置挂载依赖） | MVP / 后续 |
 |  | `make dev-ui` | 启动前端开发服务器（默认 `:5173`） | MVP / 后续 |
 | **测试验证** | `make test-platform` | 运行 `platform/` 下所有 Go 测试 | MVP / 后续 |
 |  | `cd ui-custom/web && pnpm test` | 前端单元测试 | MVP / 后续 |
@@ -138,6 +139,7 @@ Makefile 会自动将 `.tools/go/bin`、`.tools/node/bin`、`.tools/pnpm/bin` �
 |  | `make build-prometheus` | 编译上游 Prometheus | MVP / 后续 |
 |  | `make build-ui` | 构建前端静态资源 | MVP / 后续 |
 |  | `make build-alertmanager` | 编译上游 Alertmanager | MVP / 后续 |
+|  | `make build-amtool` | 编译上游 amtool（AM 配置校验命令行，`amtool check-config`） | MVP / 后续 |
 |  | `make build-blackbox-exporter` | 编译上游 blackbox_exporter | MVP / 后续 |
 |  | `make build-center` | 组装中心一体化交付包（metric-center + prometheus + alertmanager + blackbox_exporter + UI） | MVP / 后续 |
 | **边缘交付（未来版本）** | `make build-edge-agent` | 编译边缘采集客户端 | v0.2 |
@@ -234,14 +236,14 @@ make build-metric-center
 make run-metric-center
 ```
 
-`make run-metric-center` 会自动把 `upstream/prometheus` 和 `upstream/blackbox_exporter` 加入 `PATH`，因此 M09 草稿校验能找到 `promtool` / `blackbox_exporter`。若手动起二进制，必须显式导出：
+`make run-metric-center` 会自动把 `upstream/prometheus`、`upstream/blackbox_exporter` 和 `upstream/alertmanager` 加入 `PATH`，因此 M09 草稿校验能找到 `promtool` / `blackbox_exporter`，M08 的 Alertmanager 配置挂载校验能找到 `amtool`。若手动起二进制，必须显式导出：
 
 ```bash
-export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$PATH"
+export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)/upstream/alertmanager:$PATH"
 ./platform/cmd/metric-center/metric-center --config.reload-url=http://localhost:9090/-/reload
 ```
 
-否则变更单会卡在 `validation_status=pending`，提示「promtool 不可调用」。
+否则变更单会卡在 `validation_status=pending`，提示「promtool / amtool 不可调用」。
 
 另外，若旧逻辑已生成一张 `pending` 草稿，即使换了新二进制，`GenerateDraft` 也会按 checksum 幂等返回旧草稿（保活设计）。要看到新的 diff / 变更清单，需要先**废弃**旧草稿，再重新触发变更。废弃会按决策 43 回滚源数据（例如被禁用的 Job 会被恢复启用），因此典型验证动线是：**废弃旧单 → 重新禁用 Job → 生成新单 → 重校/确认**。
 
@@ -254,7 +256,7 @@ export PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$PATH"
 - [ ] 已安装 `make`、`curl`、`git`（Windows 缺失的 `make` 由 setup.sh 自动获取）
 - [ ] 已执行 `make install-tools` 且 `.tools/` 目录生成成功
 - [ ] 已阅读 [`00_Product_Vision.md`](docs/02-product-requirements/00_Product_Vision.md) 和 [`00_Global_Architecture.md`](docs/02-product-requirements/00_Global_Architecture.md)
-- [ ] 本地开发验证：`make run-metric-center` + `make run-prometheus` + `make dev-ui` 均可启动
+- [ ] 本地开发验证：`make run-metric-center` + `make run-prometheus` + `make run-alertmanager`（M08 场景）+ `make dev-ui` 均可启动
 - [ ] 后端改动后重新编译并重启控制面（见 4.7）
 - [ ] 测试验证：`make test-platform` 与 `pnpm test` / `pnpm lint` 通过
 - [ ] 编译打包验证：`make build-center` 可完成（如需预生产/测试环境交付）
