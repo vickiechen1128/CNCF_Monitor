@@ -13,11 +13,12 @@ import (
 	"github.com/metriccenter/metriccenter/platform/models"
 )
 
-// execLookPath / toolCheckerFn 可注入，便于测试模拟外部校验工具
-// （promtool / blackbox_exporter）的可用性与执行结果。
+// ToolLookPath / ToolChecker 可注入，便于测试（含跨包测试，如 configcenter/draft）
+// 模拟外部校验工具（promtool / blackbox_exporter）的可用性与执行结果。
+// 测试替换后须用 t.Cleanup 恢复；包级变量非并发安全，勿与 t.Parallel 混用。
 var (
-	execLookPath  = exec.LookPath
-	toolCheckerFn = runToolChecks
+	ToolLookPath = exec.LookPath
+	ToolChecker  = runToolChecks
 	// errToolMissing 表示外部校验工具（promtool / blackbox_exporter）不可调用，
 	// 此时中心内容校验返回 validation_status=pending（决策 42-2）。
 	errToolMissing = errors.New("external validation tool not found")
@@ -135,21 +136,21 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 				fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
 		}
 	}
-	if _, err := execLookPath("promtool"); err != nil {
+	if _, err := ToolLookPath("promtool"); err != nil {
 		return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "promtool 不可调用，待运维环境就绪后重校"
 	}
 	if includeBlackbox && ca.BlackboxYML != "" {
-		if _, err := execLookPath("blackbox_exporter"); err != nil {
+		if _, err := ToolLookPath("blackbox_exporter"); err != nil {
 			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "blackbox_exporter 不可调用，待环境就绪后重校"
 		}
 	}
 	// 决策 60：存在 alertmanager.yml 时需 amtool 校验（管理域 default 范围）。
 	if ca.AlertmanagerYML != "" {
-		if _, err := execLookPath("amtool"); err != nil {
+		if _, err := ToolLookPath("amtool"); err != nil {
 			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "amtool 不可调用，待环境就绪后重校"
 		}
 	}
-	if ok, msg := toolCheckerFn(ca, includeBlackbox); !ok {
+	if ok, msg := ToolChecker(ca, includeBlackbox); !ok {
 		return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
 			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg}},
 			fmt.Sprintf("外部校验未通过: %s", msg)

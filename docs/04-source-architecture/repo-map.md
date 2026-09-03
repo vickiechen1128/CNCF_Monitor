@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-03 17:17 · commit: `37ca9826`
+> 生成时间: 2026-09-03 18:04 · commit: `79cc11dd`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1290,6 +1290,8 @@
 
 ### `platform/configcenter/draft/draft_test.go`
 
+- `func TestMain(m *testing.M)`
+- `func stubValidationTools(t *testing.T)`
 - `func newMemDB(t *testing.T) *gorm.DB`
 - `func seedMonitoredDomain(t *testing.T, db *gorm.DB, id string, monitored bool)`
 - `func seedDraftWithStatus(t *testing.T, db *gorm.DB, changeNo, domainID, status string, valStatus string) *models.ConfigDraft`
@@ -1297,6 +1299,7 @@
 - `func perform(t *testing.T, r *gin.Engine, method, path string, body string) *httptest.ResponseRecorder`
 - `func unmarshalData(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{}`
 - `func TestGenerateDraftCreatesPending(t *testing.T)`
+- `func TestGenerateDraftPassedWhenToolsAvailable(t *testing.T)`
 - `func TestGenerateDraftReturnsExistingLivePending(t *testing.T)`
 - `func TestGenerateDraftRejectsNotMonitored(t *testing.T)`
 - `func TestGenerateDraftRejectsFrozenDomain(t *testing.T)`
@@ -1319,6 +1322,7 @@
 - `func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T)`
 - `func adminInjector() gin.HandlerFunc`
 - `func TestDraftHandlerRoutes(t *testing.T)`
+- `func TestDraftHandlerConfirmWhenValidationPassed(t *testing.T)`
 - `func TestDraftHandlerDiscardValidationFailed(t *testing.T)`
 - `func TestDiscardDraftImpactAndRollback(t *testing.T)`
 - `func TestDiscardDraftRevertsNewJobOnFirstDeploy(t *testing.T)`

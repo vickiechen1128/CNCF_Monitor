@@ -322,9 +322,9 @@ func TestValidateTargetGroups(t *testing.T) {
 }
 
 func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
-	old := execLookPath
-	execLookPath = func(string) (string, error) { return "", errToolMissing }
-	t.Cleanup(func() { execLookPath = old })
+	old := ToolLookPath
+	ToolLookPath = func(string) (string, error) { return "", errToolMissing }
+	t.Cleanup(func() { ToolLookPath = old })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "")
 	status, cause, details, msg := ValidateArtifacts(ca, false)
@@ -335,11 +335,11 @@ func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
 }
 
 func TestValidateArtifactsPassed(t *testing.T) {
-	oldLook := execLookPath
-	oldChecker := toolCheckerFn
-	execLookPath = func(string) (string, error) { return "promtool", nil }
-	toolCheckerFn = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
-	t.Cleanup(func() { execLookPath = oldLook; toolCheckerFn = oldChecker })
+	oldLook := ToolLookPath
+	oldChecker := ToolChecker
+	ToolLookPath = func(string) (string, error) { return "promtool", nil }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "")
 	status, cause, details, _ := ValidateArtifacts(ca, false)
@@ -449,14 +449,14 @@ func TestLoadLatestAlertmanagerConfigContent(t *testing.T) {
 }
 
 func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T) {
-	old := execLookPath
-	execLookPath = func(name string) (string, error) {
+	old := ToolLookPath
+	ToolLookPath = func(name string) (string, error) {
 		if name == "amtool" {
 			return "", errToolMissing
 		}
 		return name, nil
 	}
-	t.Cleanup(func() { execLookPath = old })
+	t.Cleanup(func() { ToolLookPath = old })
 
 	ca, _ := Assemble("d", "", "", nil, nil, "route:\n  receiver: default\n")
 	status, cause, details, _ := ValidateArtifacts(ca, false)

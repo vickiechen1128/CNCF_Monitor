@@ -7,12 +7,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +23,42 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+// TestMain 将 PATH 指向一个空目录，保证「测试环境无 promtool/amtool/blackbox_exporter」
+// 这一前置假设成立：Makefile 会把 upstream/prometheus、upstream/alertmanager 等目录
+// 注入 PATH（草稿校验逻辑据此能真正调起外部校验工具），若测试进程继承该 PATH，
+// 依赖 validation_status=pending 的断言（如 TestGenerateDraftCreatesPending、
+// TestDraftHandlerRoutes）会因工具实际可用而失败。本包测试不需要任何外部可执行文件；
+// 「工具可用 → passed」分支由 stubValidationTools 通过 generator 注入点确定性覆盖。
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "draft-test-empty-path-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "draft tests: create empty PATH dir:", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(dir)
+	if err := os.Setenv("PATH", dir); err != nil {
+		fmt.Fprintln(os.Stderr, "draft tests: override PATH:", err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
+// stubValidationTools 将外部校验工具（promtool / blackbox_exporter / amtool）模拟为
+// 「可用且校验通过」，使测试可确定性覆盖 validation_status=passed 分支，
+// 与 TestMain 保证的「工具缺失 → pending」默认环境互补。
+// generator.ToolLookPath / ToolChecker 是包级注入点，非并发安全；本包测试均未使用
+// t.Parallel，替换后由 t.Cleanup 恢复。
+func stubValidationTools(t *testing.T) {
+	t.Helper()
+	oldLook := generator.ToolLookPath
+	oldChecker := generator.ToolChecker
+	generator.ToolLookPath = func(name string) (string, error) { return name, nil }
+	generator.ToolChecker = func(ca *generator.ConfigArtifacts, includeBlackbox bool) (bool, string) {
+		return true, ""
+	}
+	t.Cleanup(func() { generator.ToolLookPath = oldLook; generator.ToolChecker = oldChecker })
+}
 
 var memDBCounter int64
 
@@ -133,6 +171,27 @@ func TestGenerateDraftCreatesPending(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(d.Metadata), &meta))
 	assert.NotEmpty(t, meta.Checksum)
 	assert.Equal(t, generatorVersionPlaceholder, meta.GeneratorVersion)
+}
+
+// TestGenerateDraftPassedWhenToolsAvailable 与 TestGenerateDraftCreatesPending 互补：
+// 外部校验工具可用且校验通过时，草稿直接落 validation_status=passed
+// （决策 42-2 的另一分支），confirm 不再被「未通过校验」拦截。
+func TestGenerateDraftPassedWhenToolsAvailable(t *testing.T) {
+	stubValidationTools(t)
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-gp", true)
+	seedHost(t, db, "edge-gp", "res-1")
+	seedJob(t, db, "edge-gp", "job1")
+
+	d, err := GenerateDraft(db, "edge-gp")
+	require.NoError(t, err)
+	assert.Equal(t, models.DraftStatusPending, d.Status, "草稿生命周期状态仍为 pending，待人工确认")
+	assert.Equal(t, string(models.ValidationStatusPassed), d.ValidationStatus, "工具可用且校验通过 → passed")
+
+	// passed 草稿可直接 confirm，无需手动改库模拟重校。
+	v, err := ConfirmDraft(db, d.ChangeNo, "admin")
+	require.NoError(t, err)
+	assert.Equal(t, d.ChangeNo, v.ChangeNo)
 }
 
 func TestGenerateDraftReturnsExistingLivePending(t *testing.T) {
@@ -570,6 +629,37 @@ func TestDraftHandlerRoutes(t *testing.T) {
 	// 详情 not_found。
 	w = perform(t, r, http.MethodGet, "/api/v2/platform/config-drafts/CHG-NOPE", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestDraftHandlerConfirmWhenValidationPassed 与 TestDraftHandlerRoutes 的
+// 「pending → confirm 400」分支互补：工具可用且校验通过（passed）时，
+// HTTP 链路 confirm 直接成功并生成版本。
+func TestDraftHandlerConfirmWhenValidationPassed(t *testing.T) {
+	stubValidationTools(t)
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-hp", true)
+	seedHost(t, db, "edge-hp", "res-1")
+	seedJob(t, db, "edge-hp", "job1")
+
+	r := newGin()
+	g := r.Group("/api/v2/platform")
+	g.Use(adminInjector())
+	RegisterRoutes(g, db)
+
+	// POST 生成：工具可用 → validation_status=passed。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/config/drafts", `{"network_domain_id":"edge-hp"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	data := unmarshalData(t, w)
+	assert.Equal(t, string(models.ValidationStatusPassed), data["validation_status"])
+	changeNo := data["change_no"].(string)
+
+	// confirm：passed → 200。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/config-drafts/"+changeNo+"/confirm", `{"confirmed_by":"admin"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var draft models.ConfigDraft
+	require.NoError(t, db.Where("change_no = ?", changeNo).First(&draft).Error)
+	assert.Equal(t, models.DraftStatusConfirmed, draft.Status)
 }
 
 func TestDraftHandlerDiscardValidationFailed(t *testing.T) {
