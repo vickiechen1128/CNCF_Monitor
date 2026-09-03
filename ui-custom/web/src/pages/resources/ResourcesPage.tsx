@@ -308,7 +308,6 @@ export function ResourcesPage() {
     switch (type) {
       case 'host':
         return [
-          monitorColumn,
           {
             title: '实例名 / 主机名',
             key: 'name',
@@ -340,6 +339,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'database':
@@ -359,6 +359,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'middleware':
@@ -378,6 +379,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'application':
@@ -403,6 +405,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'generic_target':
@@ -437,6 +440,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
     }

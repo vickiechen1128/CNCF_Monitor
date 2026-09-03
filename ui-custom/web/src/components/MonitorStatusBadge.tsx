@@ -26,8 +26,14 @@ const META = {
 export function MonitorStatusBadge({ state, health, lastError }: MonitorStatusBadgeProps) {
   const meta = META[state]
   if (state === 'pending_down') {
+    // health=unknown 表示「待首抓 / 变更未确认下发 / 未 reload」（coverage.go 三态判定），
+    // 对用户无可执行信息，落到 PRD M07 §11.2 指引文案；仅 down 等有诊断值的状态才展示 health。
     const tip =
-      lastError || (health ? `health=${health}` : '配置已下发但未采集到数据，请检查采集器安装与网络连通')
+      lastError ||
+      (health && health !== 'unknown'
+        ? `health=${health}`
+        : // PRD M07 §11.2 口径：coverage 不感知 M09 下发时序，「含变更未确认下发情形」须显式提示
+          '已选中但未采集到数据（含变更未确认下发情形），请检查变更下发状态、采集器安装与网络连通')
     return (
       <Tooltip title={tip}>
         <Badge status={meta.badge} text={meta.label} />

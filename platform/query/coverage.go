@@ -95,6 +95,12 @@ func CoverageHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.Han
 			return
 		}
 
+		// 资源为空时短路返回空集：此时无需 up 聚合依据（review：避免上游故障掩蔽空数据）。
+		if len(resources) == 0 {
+			response.OK(c, gin.H{"items": []CoverageItem{}, "total": 0, "summary": CoverageSummary{}})
+			return
+		}
+
 		// 一次性拉取：选中关系（DB）+ up 聚合（Prometheus）+ lastError（尽力而为）。
 		selected := loadSelectedInstances(db)
 		upState, err := fetchUpAgg(c.Request.Context(), client, promURL)

@@ -299,6 +299,23 @@ describe('ResourcesPage', () => {
     expect(screen.getByText('未监控')).toBeInTheDocument()
   })
 
+  it('degrades collection-status column to "-" when coverage fetch fails, while resource list still renders', async () => {
+    // review M1：coverage 接口失败降级为 '-'，不影响资源列表主渲染
+    coverageListMock.mockRejectedValue(new Error('coverage upstream down'))
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01'), hostItem('res-2', 'prod-web-02')], total: 2, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('prod-web-01')).toBeInTheDocument()
+    expect(screen.getByText('prod-web-02')).toBeInTheDocument()
+    // 两行采集状态列均降级为 '-'
+    expect(screen.getAllByText('-').length).toBe(2)
+    // 不渲染三态文案
+    expect(screen.queryByText('采集中')).not.toBeInTheDocument()
+    expect(screen.queryByText('未监控')).not.toBeInTheDocument()
+  })
+
   it('renders pending_down badge with tooltip and falls back to not_monitored on empty cell', async () => {
     coverageListMock.mockResolvedValue({
       status: 'success',

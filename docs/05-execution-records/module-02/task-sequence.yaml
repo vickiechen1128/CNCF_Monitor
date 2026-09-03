@@ -81,7 +81,7 @@ tasks:
   - task_id: "T02-03"
     name: "M02 路由收口与集成验收（query.RegisterRoutes + main.go 接入 + 与既有 prox 路由不冲突）"
     agent: "backend-developer"
-    status: "pending"
+    status: "done"
     commit_group: "m02-routes-integration"
     prd: "Module_02 §6.1；03_API_Standard §3"
     depends_on: ["T02-01", "T02-02"]
