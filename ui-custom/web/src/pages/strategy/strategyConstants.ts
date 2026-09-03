@@ -106,3 +106,15 @@ export const SCRAPE_STATUS_META: Record<JobInstanceScrapeStatus, { label: string
 
 /** 已下发未采到（down）的行内引导文案（决策 47-2） */
 export const DOWN_TOOLTIP = '配置已下发但未采集到数据，请检查采集器安装与网络连通'
+
+/** 列表「实例采集状态」列头角标（Job 列表专用，F-36 后简洁口径） */
+export const COLLECTION_STATUS_TOOLTIP =
+  '正常采到数据的实例数 / 你勾选的实例总数。有实例没采到数据时整格变红，点开可看原因；约 20 秒自动刷新'
+
+/** 列表「生效状态」列头角标（Job 列表 / 规则列表共用，F-37 后简洁口径） */
+export const EFFECTIVE_STATUS_TOOLTIP =
+  '这份配置当前是否真正生效。刚保存不会立刻生效，需到「配置变更确认」页点一次确认后才会更新'
+
+/** 列表「变更进度」列头角标（Job 列表 / 规则列表共用，F-37 后简洁口径） */
+export const CHANGE_PROGRESS_TOOLTIP =
+  '配置下发到哪一步：待确认 / 已确认待下发 / 已下发 / 无变更。可等所有监控配置调好后再一次性确认下发'

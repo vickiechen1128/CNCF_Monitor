@@ -642,6 +642,8 @@ func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
 	require.Len(t, out.Data.Items, 1)
 	assert.Equal(t, "host-1", out.Data.Items[0].ResourceID)
+	assert.Equal(t, "host-host-1", out.Data.Items[0].InstanceName)
+	assert.Equal(t, "10.0.1.1", out.Data.Items[0].InstanceIP)
 	assert.Equal(t, "unconfirmed", out.Data.Items[0].Status)
 }
 

@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-03 11:22 · commit: `f5871569`
+> 生成时间: 2026-09-03 17:17 · commit: `37ca9826`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -381,7 +381,6 @@
 - `type amSilence struct`
 - `type amCreateSilenceRequest struct`
 - `type amCreateSilenceResponse struct`
-- `type amListResponse struct`
 - `type Proxy struct`
 - `func NewProxy(baseURL string) (*Proxy, error)`
 - `method (*Proxy) ListSilences(ctx context.Context) ([]amSilence, error)`
@@ -524,6 +523,10 @@
 - `func fakeAlertmanager(t *testing.T) *httptest.Server`
 - `func writeAMJSON(w http.ResponseWriter, v interface{})`
 - `func TestEndToEndAlertmanagerSmoke(t *testing.T)`
+- `func fakePromUpstream(t *testing.T) *httptest.Server`
+- `func seedIntegrationHost(t *testing.T, dbm *gorm.DB, id, domain, name string)`
+- `func seedIntegrationJob(t *testing.T, dbm *gorm.DB, jobName string, selected []string)`
+- `func TestEndToEndQueryCoverageRoutes(t *testing.T)`
 
 ### `platform/cmd/metric-center/route_probe_test.go`
 
@@ -2388,6 +2391,7 @@
 ### `platform/strategy/scrapejob/installation.go`
 
 - `type jobInstanceItem struct`
+- `func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool)`
 - `func ListJobInstances(db *gorm.DB) gin.HandlerFunc`
 - `type confirmRequest struct`
 - `func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc`
@@ -3021,6 +3025,9 @@
 - `const AUTH_TYPE_MAP`
 - `const SCRAPE_STATUS_META`
 - `const DOWN_TOOLTIP`
+- `const COLLECTION_STATUS_TOOLTIP`
+- `const EFFECTIVE_STATUS_TOOLTIP`
+- `const CHANGE_PROGRESS_TOOLTIP`
 
 ### `ui-custom/web/src/pages/strategy/useJobScrapeStatus.ts`
 

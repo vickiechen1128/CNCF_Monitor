@@ -139,6 +139,25 @@ describe('MainLayout', () => {
     expect(screen.getByText('onboarding-content')).toBeInTheDocument()
   })
 
+  it('exposes 监控目标状态 under 网域与节点管理 for /targets route (M02 P1 临时挂载, F-1)', async () => {
+    render(
+      <MemoryRouter initialEntries={['/targets']}>
+        <Routes>
+          <Route path="/targets" element={<MainLayout>targets-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 激活路由归属「网域与节点管理」：自动展开，临时挂载的「监控目标状态」可见
+    expect(await screen.findByText('监控目标状态')).toBeInTheDocument()
+    expect(screen.getByText('采集节点状态')).toBeInTheDocument()
+    expect(screen.getByText('targets-content')).toBeInTheDocument()
+    // 顶部一级 tab「网域与边缘配置中心」处于 active（/targets 归 M09）
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('网域与边缘配置中心'))
+    expect(tab?.className ?? '').toContain('active')
+  })
+
   it('collapses 网域与节点管理 on manual toggle even when active route is in that group（激活页可手动折叠）', async () => {
     render(
       <MemoryRouter initialEntries={['/domain-onboarding']}>

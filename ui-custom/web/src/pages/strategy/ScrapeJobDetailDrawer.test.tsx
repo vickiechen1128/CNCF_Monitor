@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
 import type { ScrapeJob } from '../../types/strategy'
@@ -14,6 +15,19 @@ vi.mock('../../api/scrapeJobs', () => ({
 vi.mock('../../api/targets', () => ({
   targetsApi: { list: (...args: unknown[]) => targetsListMock(...args) },
 }))
+
+// 抽屉内「查看全部监控目标状态」用 useNavigate 跳转 /targets，需在 Router 上下文中渲染。
+// 包裹模式对齐 ResourceDetailDrawer.test：MemoryRouter + Routes 供 /targets 跳转断言。
+function renderDrawer(element: React.ReactNode) {
+  return render(
+    <MemoryRouter initialEntries={['/scrape-jobs']}>
+      <Routes>
+        <Route path="/scrape-jobs" element={element} />
+        <Route path="/targets" element={<div>targets-page</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
 
 const job = (over: Partial<ScrapeJob> = {}): ScrapeJob =>
   ({
@@ -72,7 +86,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
       data: { activeTargets: [target('a', 'up'), target('b', 'down', 'connect refused')], droppedTargets: [], targetsByJob: {} },
     })
 
-    render(
+    renderDrawer(
       <ScrapeJobDetailDrawer
         open
         job={job()}
@@ -124,7 +138,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('a')], total: 1 } })
     targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [target('a', 'up')], droppedTargets: [], targetsByJob: {} } })
 
-    render(
+    renderDrawer(
       <ScrapeJobDetailDrawer open job={job({ selected_instance_ids: ['a'], id: 1 })} onClose={() => {}} resolveDomainName={() => '网域A'} getDefaultMapping={() => undefined} />,
     )
 
@@ -137,7 +151,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
   })
 
   it('blackbox Job 展示拨测目标列表，不展示实例采集状态区块（B4）', async () => {
-    render(
+    renderDrawer(
       <ScrapeJobDetailDrawer
         open
         job={job({ job_type: 'blackbox', blackbox_module: 'http_2xx', blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }], selected_instance_ids: [] })}
@@ -151,5 +165,26 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     expect(screen.getByText('HTTPS')).toBeInTheDocument()
     expect(screen.getByText('https://example.com')).toBeInTheDocument()
     expect(screen.queryByText('已选实例')).toBeNull()
+  })
+
+  it('数据面目标状态 API 失败时降级提示并保留实例名/IP，可跳转监控目标状态', async () => {
+    instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('a')], total: 1 } })
+    // 复现「internal error」场景：数据面未就绪（Prometheus 不可达），targets 请求失败
+    targetsListMock.mockRejectedValue(new Error('internal error'))
+
+    renderDrawer(
+      <ScrapeJobDetailDrawer open job={job({ selected_instance_ids: ['a'], id: 1 })} onClose={() => {}} resolveDomainName={() => '网域A'} getDefaultMapping={() => undefined} />,
+    )
+
+    // 实例信息（名称/IP，原型对齐字段）不因数据面故障而丢失
+    expect(await screen.findByText('srv-a')).toBeInTheDocument()
+    expect(screen.getByText('10.0.0.a')).toBeInTheDocument()
+    // 数据面降级：友好提示 + 不回显笼统 internal error，也不显示误导性的在线/待采集汇总
+    expect(screen.getByText('采集状态暂不可用')).toBeInTheDocument()
+    expect(screen.queryByText(/在线 \d+ \/ 总数 \d+/)).toBeNull()
+    expect(screen.queryByText('internal error')).toBeNull()
+    // 引导跳转「监控目标状态」页（/targets）
+    fireEvent.click(screen.getByRole('button', { name: '查看全部监控目标状态' }))
+    expect(screen.getByText('targets-page')).toBeInTheDocument()
   })
 })

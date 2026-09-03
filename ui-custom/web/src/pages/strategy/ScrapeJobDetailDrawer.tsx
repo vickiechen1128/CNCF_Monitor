@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Badge, Button, Descriptions, Drawer, Empty, List, Space, Switch, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Badge, Button, Descriptions, Drawer, Empty, List, Space, Switch, Tag, Tooltip, Typography } from 'antd'
 import { SyncOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import { targetsApi } from '../../api/targets'
 import type { ScrapeJob, ScrapeJobInstanceItem, BlackboxTargetProtocol, CITypeExporterMapping } from '../../types/strategy'
@@ -137,26 +138,44 @@ export function ScrapeJobDetailDrawer({
   const [items, setItems] = useState<ScrapeJobInstanceItem[]>([])
   const [targets, setTargets] = useState<TargetItem[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // 实例信息来自控制面 DB（可靠）；目标采集状态来自数据面目标状态 API（数据面未就绪时单独降级，不影响实例列表展示）。
+  const [instanceError, setInstanceError] = useState<string | null>(null)
+  const [targetsError, setTargetsError] = useState<string | null>(null)
   // 决策 47-2：顶部「已更新 {time} · 20s 自动刷新」注记（每次拉取/刷新时更新）
   const [statusUpdatedAt, setStatusUpdatedAt] = useState<string | undefined>(undefined)
+  const navigate = useNavigate()
 
   const deployed = !!job && job.change_status === 'deployed' && job.enabled !== false
 
   const load = useCallback(async () => {
     if (!job) return
     setLoading(true)
-    setError(null)
+    setInstanceError(null)
+    setTargetsError(null)
+    // Promise.allSettled：两个请求独立处理结果，任一失败只降级对应区块，不拖垮整页。
     try {
-      const [insRes, tgtRes] = await Promise.all([
+      const [insRes, tgtRes] = await Promise.allSettled([
         scrapeJobApi.instances(job.id),
         targetsApi.list({ job: job.job_name }),
       ])
-      setItems(insRes.data?.items ?? [])
-      setTargets(tgtRes.data?.activeTargets ?? [])
-      setStatusUpdatedAt(new Date().toLocaleTimeString())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : '实例采集状态加载失败')
+      if (insRes.status === 'fulfilled') {
+        setItems(insRes.value?.data?.items ?? [])
+      } else {
+        setItems([])
+        setInstanceError('实例信息加载失败，请稍后重试')
+      }
+      if (tgtRes.status === 'fulfilled') {
+        setTargets(tgtRes.value?.data?.activeTargets ?? [])
+        setTargetsError(null)
+        setStatusUpdatedAt(new Date().toLocaleTimeString())
+      } else {
+        setTargets([])
+        setTargetsError('数据面（查询中心）目标状态 API 未就绪，在线/离线状态暂不可用')
+      }
+    } catch {
+      setItems([])
+      setTargets([])
+      setInstanceError('实例信息加载失败，请稍后重试')
     } finally {
       setLoading(false)
     }
@@ -313,9 +332,9 @@ export function ScrapeJobDetailDrawer({
             </Descriptions.Item>
           </Descriptions>
 
-          {error && (
+          {instanceError && (
             <Typography.Paragraph type="danger" style={{ marginTop: 12 }}>
-              {error}
+              {instanceError}
             </Typography.Paragraph>
           )}
 
@@ -346,16 +365,32 @@ export function ScrapeJobDetailDrawer({
                   已选实例（{items.length}）
                 </Text>
                 {/* 决策 47-2：实例采集状态回显——顶部汇总「在线 X / 总数 Y · 待采集 Z」+ 手动/20s 自动刷新；数据源 = M02 /api/v1/targets 代理 */}
+                {targetsError && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 8, marginBottom: 8 }}
+                    message="采集状态暂不可用"
+                    description={targetsError}
+                    action={
+                      <Button size="small" onClick={() => navigate('/targets')}>
+                        查看全部监控目标状态
+                      </Button>
+                    }
+                  />
+                )}
                 <Space size={8} wrap style={{ marginTop: 8, marginBottom: 8 }}>
-                  <Text style={{ fontSize: 12 }} strong>
-                    在线 {online} / 总数 {items.length}
-                    {' · '}待采集 {pending}
-                    {down > 0 && (
-                      <Text type="danger" style={{ fontSize: 12 }}>
-                        {' · '}已下发未采到 {down}
-                      </Text>
-                    )}
-                  </Text>
+                  {!targetsError && (
+                    <Text style={{ fontSize: 12 }} strong>
+                      在线 {online} / 总数 {items.length}
+                      {' · '}待采集 {pending}
+                      {down > 0 && (
+                        <Text type="danger" style={{ fontSize: 12 }}>
+                          {' · '}已下发未采到 {down}
+                        </Text>
+                      )}
+                    </Text>
+                  )}
                   <Button size="small" icon={<SyncOutlined />} onClick={() => void load()} disabled={loading}>
                     刷新
                   </Button>
@@ -365,12 +400,6 @@ export function ScrapeJobDetailDrawer({
                     </Text>
                   )}
                 </Space>
-                {/* 决策 47-2 / 原型 F-17：每个实例 target labels 由标签模板按实例属性映射而来，不在此展示 */}
-                <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
-                  各实例生成 Prometheus target 时的 labels 由标签模板（
-                  {job.label_template_id ? (resolveLabelTemplateName?.(job.label_template_id) ?? job.label_template_id) : '（未绑定，则按实例属性直接生成）'}
-                  ）按资源实例属性映射而来，不在此处展示。采集状态来自查询中心目标状态 API，本页只读。
-                </Text>
                 {rows.length === 0 ? (
                   <Empty description={loading ? '加载中…' : '暂无已选实例'} />
                 ) : (
@@ -379,23 +408,28 @@ export function ScrapeJobDetailDrawer({
                     size="small"
                     dataSource={rows}
                     renderItem={(r) => {
-                      const meta = INSTANCE_STATUS_TAG[r.status]
-                      const statusTag =
-                        r.status === 'down' || r.status === 'pending' ? (
-                          <Tooltip
-                            title={
-                              r.status === 'pending'
-                                ? PENDING_TOOLTIP
-                                : `已下发未采到：${r.target?.lastError ?? ''}；配置已下发但未采集到数据，请检查采集器安装与网络连通`.trim()
-                            }
-                          >
-                            <Tag color={meta.color} style={{ cursor: 'pointer' }}>
-                              {meta.label}
-                            </Tag>
-                          </Tooltip>
-                        ) : (
-                          <Tag color={meta.color}>{meta.label}</Tag>
-                        )
+                      const statusTag = targetsError ? (
+                        <Tag>状态不可用</Tag>
+                      ) : (
+                        (() => {
+                          const meta = INSTANCE_STATUS_TAG[r.status]
+                          return r.status === 'down' || r.status === 'pending' ? (
+                            <Tooltip
+                              title={
+                                r.status === 'pending'
+                                  ? PENDING_TOOLTIP
+                                  : `已下发未采到：${r.target?.lastError ?? ''}；配置已下发但未采集到数据，请检查采集器安装与网络连通`.trim()
+                              }
+                            >
+                              <Tag color={meta.color} style={{ cursor: 'pointer' }}>
+                                {meta.label}
+                              </Tag>
+                            </Tooltip>
+                          ) : (
+                            <Tag color={meta.color}>{meta.label}</Tag>
+                          )
+                        })()
+                      )
                       return (
                         <List.Item key={r.it.resource_id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                           <Space wrap>

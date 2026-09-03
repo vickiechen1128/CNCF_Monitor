@@ -32,7 +32,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
-import { JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, COLLECTION_STATUS_TOOLTIP, EFFECTIVE_STATUS_TOOLTIP, CHANGE_PROGRESS_TOOLTIP } from './strategyConstants'
 import { useScrapeJobs } from './useScrapeJobs'
 import { useJobScrapeStatus } from './useJobScrapeStatus'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
@@ -55,9 +55,11 @@ const CHANGE_PROGRESS_MAP: Record<string, string> = {
 /**
  * 采集 Job Tab 页（Module_01 §3.1/§5.4/§8/§11.1/§11.2，F3）。
  * - 网域（仅已纳管 is_monitored=true 且 status=enabled）/ 监控类型（两级级联）/ 关键字筛选，分页默认 20/页；
- * - 列：Job名 / 类型 / 网域 / 采集器 / 已选实例数 / 间隔 / 变更进度 / 生效状态 / 参数同步 / 操作；
+ * - 列：Job名 / 类型 / 网域 / 采集器 / 已选实例数 / 间隔 / 生效状态 / 变更进度 / 参数同步 / 操作；
  * - 「生效状态」= 用户视角生命周期（草稿 / 待生效（原待下发）/ 已生效 / 已停用）；「变更进度」= M09 管线视角
- *   （待确认 / 已确认待下发 / 已下发 / 无变更）；参数同步列展示 mapping_overrides.length 概览；
+ *   （待确认 / 已确认待下发 / 已下发 / 无变更）；两列均带头部角标指引——先看「生效状态」是否已真正生效，
+ *   再看「变更进度」在哪一环；确认不必逐次进行，可待所有监控配置调整完后再到 M09 一次性批量确认；
+ *   参数同步列展示 mapping_overrides.length 概览；
  * - 启停 / 删除二次确认；成功提示「变更将由 M09 生成变更单」+「前往配置变更确认」跳转；
  * - 加载骨架 / 空态「暂无采集任务」/ 错误态。
  */
@@ -282,7 +284,7 @@ function JobsTab() {
       // 数据源 = M02 targets 聚合（useJobScrapeStatus 只读消费 /api/v1/targets 按 job 过滤，约 20s 自动刷新）；
       // 存在「待采集 / 已下发未采到」实例时整格高饱和红；整格（Tag）可点击进入 Job 详情查看各实例具体原因。
       title: (
-        <Tooltip title="在线实例数 / 已选实例总数（数据由「查询中心」M02 按 Job 回显，本模块只读，约 20s 自动刷新）；存在未在线实例时整格高亮，点击查看详情原因">
+        <Tooltip title={COLLECTION_STATUS_TOOLTIP}>
           <Space size={4}>
             实例采集状态
             <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -302,7 +304,7 @@ function JobsTab() {
         const onClick = () => setViewing(r)
         const text = `在线 ${v.online} / 总数 ${total}`
         return anomaly ? (
-          <Tooltip title="存在「待采集 / 已下发未采到」实例，点击查看详情确认失败原因">
+          <Tooltip title="有实例没采到数据，点一下查看是哪些实例、失败原因">
             <Tag
               color="#FF4C3A"
               style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
@@ -312,7 +314,7 @@ function JobsTab() {
             </Tag>
           </Tooltip>
         ) : (
-          <Tooltip title="点击查看各实例采集状态详情">
+          <Tooltip title="点击查看各实例的采集情况">
             <Tag color="green" style={{ marginInlineEnd: 0, cursor: 'pointer' }} onClick={onClick}>
               {text}
             </Tag>
@@ -322,16 +324,18 @@ function JobsTab() {
     },
     { title: '间隔', dataIndex: 'scrape_interval', key: 'scrape_interval', width: 90, render: (v?: string) => v || '-' },
     {
-      title: '变更进度',
-      dataIndex: 'change_status',
-      key: 'change_status',
-      width: 110,
-      render: (v: string) => CHANGE_PROGRESS_MAP[v] ?? v,
-    },
-    {
-      title: '生效状态',
+      // 相对「变更进度」靠前：先回答用户「当前是否已真正生效」，再看挂在 M09 管线哪一环。
+      // 角标指引：配置保存后不会立即生效，需到 M09「配置变更确认」页手动确认一次才会写入并生效。
+      title: (
+        <Tooltip title={EFFECTIVE_STATUS_TOOLTIP}>
+          <Space size={4}>
+            生效状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
       key: 'status',
-      width: 100,
+      width: 120,
       render: (_: unknown, r: ScrapeJob) => {
         const s = aggregateJobStatus(r)
         return (
@@ -341,6 +345,21 @@ function JobsTab() {
           />
         )
       },
+    },
+    {
+      // 角标指引：确认不必跟随单个 Job 逐次进行，可待所有监控配置调整完毕后一次性到 M09 批量确认。
+      title: (
+        <Tooltip title={CHANGE_PROGRESS_TOOLTIP}>
+          <Space size={4}>
+            变更进度
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      dataIndex: 'change_status',
+      key: 'change_status',
+      width: 110,
+      render: (v: string) => CHANGE_PROGRESS_MAP[v] ?? v,
     },
     {
       title: '参数同步',

@@ -6,6 +6,7 @@ import {
   DatabaseOutlined,
   DesktopOutlined,
   FileSearchOutlined,
+  RadarChartOutlined,
   SendOutlined,
   TagsOutlined,
   ThunderboltOutlined,
@@ -29,7 +30,7 @@ interface MainLayoutProps {
  * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 网域与边缘配置中心 / 监控对象管理 / 采集策略」等一级模块；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
  * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），含两个一级菜单组（N2-1）：
- * 组「网域与节点管理」（网域纳管 / 采集节点状态）、组「配置下发」（配置变更确认 / 下发记录）；
+ * 组「网域与节点管理」（网域纳管 / 采集节点状态 / 监控目标状态）、组「配置下发」（配置变更确认 / 下发记录）；
  * 既有 M06「网域管理」保留在「系统与平台管理」下并与「网域纳管」并存。
  */
 interface ModuleDef {
@@ -49,7 +50,7 @@ const DELIVERY_PLANE_KEY = 'delivery-plane'
 
 /** 可折叠子菜单组定义：key 与归属路由（用于首次进入自动展开判断） */
 const COLLAPSIBLE_GROUPS = [
-  { key: ACCESS_PLANE_KEY, routes: ['/domain-onboarding', '/node-status'] },
+  { key: ACCESS_PLANE_KEY, routes: ['/domain-onboarding', '/node-status', '/targets'] },
   { key: DELIVERY_PLANE_KEY, routes: ['/config-preview', '/deployments'] },
 ]
 
@@ -71,9 +72,11 @@ const MODULES: ModuleDef[] = [
     label: '监控对象管理',
     path: '/resources',
     subItems: [
+      // 原型对齐（Module_07 MainLayout §3.23）：业务分组字典为资源录入/导入的取值权威，
+      // 故「业务管理」前置，位于「资源管理」之上。
+      { key: '/business-domains', label: '业务管理', icon: <AppstoreOutlined /> },
       { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
       { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
-      { key: '/business-domains', label: '业务管理', icon: <AppstoreOutlined /> },
     ],
   },
   {
@@ -101,6 +104,9 @@ const MODULES: ModuleDef[] = [
         children: [
           { key: '/domain-onboarding', label: '网域纳管', icon: <CloudServerOutlined /> },
           { key: '/node-status', label: '采集节点状态', icon: <DesktopOutlined /> },
+          // M02 目标状态页（P1）：M09 网域与节点管理下增「监控目标状态」暂挂入口
+          // （与 PRD 决策 47-4 不符，见 module-02/dev-feedback.md F-1，待设计侧收割）。
+          { key: '/targets', label: '监控目标状态', icon: <RadarChartOutlined /> },
         ],
       },
       {
@@ -152,7 +158,7 @@ function findModuleByKey(key: string): ModuleDef {
 
 /**
  * 依据当前路由推断激活的一级模块。
- * /admin/domains、/admin/users、/admin/tenants、/admin/login-logs → 系统与平台管理；/domain-onboarding、/node-status、/config-preview、/deployments → 网域与边缘配置中心；
+ * /admin/domains、/admin/users、/admin/tenants、/admin/login-logs → 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
  * /resources、/label-templates、/business-domains → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
@@ -166,6 +172,7 @@ function resolveActiveModule(locationPath: string): ModuleDef {
   if (
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
+    locationPath.startsWith('/targets') ||
     locationPath.startsWith('/config-preview') ||
     locationPath.startsWith('/deployments')
   )

@@ -12,11 +12,54 @@ import (
 	"gorm.io/gorm"
 )
 
-// jobInstanceItem 是 Job 实例列表项：已选实例 + 安装状态（unconfirmed/confirmed）。
+// jobInstanceItem 是 Job 实例列表项：已选实例 + 资源实例名/IP + 安装状态
+// （unconfirmed/confirmed）。instance_name/instance_ip 由 resolveResourceMeta 按
+// resource_id 从资源表解析（原型对齐：详情展示实例名称与 IP）。
 type jobInstanceItem struct {
-	ResourceID string `json:"resource_id"`
+	ResourceID   string `json:"resource_id"`
+	InstanceName string `json:"instance_name"`
+	InstanceIP   string `json:"instance_ip"`
 	// 未找到该实例的确认记录时 status 为 unconfirmed（默认）。
 	Status string `json:"status"`
+}
+
+// resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP。口径对齐
+// instance-candidates：host=InstanceName/PrivateIP，database=ResourceID/InstanceIP，
+// middleware=AppName/InstanceIP，application=ServiceName/HealthCheckURL，
+// generic_target=TargetName/InstanceIP。未命中返回空串。
+func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool) {
+	lookups := []struct {
+		dest    any
+		getMeta func(any) (string, string)
+	}{
+		{&models.Host{}, func(m any) (string, string) {
+			r := m.(*models.Host)
+			return r.InstanceName, r.PrivateIP
+		}},
+		{&models.Database{}, func(m any) (string, string) {
+			r := m.(*models.Database)
+			return r.GetResourceID(), r.InstanceIP
+		}},
+		{&models.Middleware{}, func(m any) (string, string) {
+			r := m.(*models.Middleware)
+			return r.AppName, r.InstanceIP
+		}},
+		{&models.Application{}, func(m any) (string, string) {
+			r := m.(*models.Application)
+			return r.ServiceName, r.HealthCheckURL
+		}},
+		{&models.GenericTarget{}, func(m any) (string, string) {
+			r := m.(*models.GenericTarget)
+			return r.TargetName, r.InstanceIP
+		}},
+	}
+	for _, l := range lookups {
+		if err := db.Where("resource_id = ?", resourceID).First(l.dest).Error; err == nil {
+			n, i := l.getMeta(l.dest)
+			return n, i, true
+		}
+	}
+	return "", "", false
 }
 
 // ListJobInstances 是 GET /api/v2/platform/scrape-jobs/:id/instances 的 handler：
@@ -55,7 +98,8 @@ func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 			if !ok {
 				st = string(models.InstallationStatusUnconfirmed)
 			}
-			items = append(items, jobInstanceItem{ResourceID: rid, Status: st})
+			name, ip, _ := resolveResourceMeta(db, rid)
+			items = append(items, jobInstanceItem{ResourceID: rid, InstanceName: name, InstanceIP: ip, Status: st})
 		}
 		response.OK(c, gin.H{"items": items, "total": len(items)})
 	}
