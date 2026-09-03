@@ -18,7 +18,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { InfoCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType, TableRowSelection } from 'antd/es/table/interface'
 import { networkDomainApi } from '../../api/domain'
 import { scrapeJobApi } from '../../api/scrapeJobs'
@@ -32,10 +32,11 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
-import { DOWN_TOOLTIP, JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, SCRAPE_STATUS_META } from './strategyConstants'
+import { JOB_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 import { useScrapeJobs } from './useScrapeJobs'
 import { useJobScrapeStatus } from './useJobScrapeStatus'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
+import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
 import { aggregateJobStatus } from './jobStatus'
 
 const { Text } = Typography
@@ -69,8 +70,10 @@ function JobsTab() {
   const [defaultMappings, setDefaultMappings] = useState<CITypeExporterMapping[]>([])
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<ScrapeJob | null>(null)
+  // 决策 47-2 Job 实例级下钻：『查看』抽屉展示该 Job 各实例/目标的具体采集状态
+  const [viewing, setViewing] = useState<ScrapeJob | null>(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
-  // 决策 47-2 per-job 形态：按当前页 Job 聚合「采集状态」（采集中/已下发未采到/待采集）
+  // 决策 47-2 per-job 形态：按当前页 Job 聚合「实例采集状态」（在线/待采集/已下发未采到），约 20s 自动刷新
   const scrapeStatusByJob = useJobScrapeStatus(data.list)
 
   // 已纳管（is_monitored=true）且非冻结（status=enabled）的网域下拉（§5.4 / §11.1）
@@ -275,23 +278,45 @@ function JobsTab() {
       render: (v?: string[]) => v?.length ?? 0,
     },
     {
-      title: '采集状态',
-      key: 'scrape_status',
-      width: 150,
-      // 决策 47-2 per-job 形态：按 Job 聚合（采集中/已下发未采到/待采集），
-      // 复用 ExporterInstallationPanel SCRAPE_STATUS_META 口径与 DOWN_TOOLTIP 引导；
-      // down 态 Tooltip 提示采集器安装/网络排查。
+      // 决策 47-2：实例采集状态列对齐原型。
+      // 数据源 = M02 targets 聚合（useJobScrapeStatus 只读消费 /api/v1/targets 按 job 过滤，约 20s 自动刷新）；
+      // 存在「待采集 / 已下发未采到」实例时整格高饱和红；整格（Tag）可点击进入 Job 详情查看各实例具体原因。
+      title: (
+        <Tooltip title="在线实例数 / 已选实例总数（数据由「查询中心」M02 按 Job 回显，本模块只读，约 20s 自动刷新）；存在未在线实例时整格高亮，点击查看详情原因">
+          <Space size={4}>
+            实例采集状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'collection_status',
+      width: 190,
       render: (_: unknown, r: ScrapeJob) => {
+        // blackbox 拨测 Job 无实例维度采集状态；未选任何实例时显示 '-'
+        if (r.job_type === 'blackbox') return <Text type="secondary">-</Text>
+        const total = r.selected_instance_ids.length
+        if (total === 0) return <Text type="secondary">-</Text>
         const v = scrapeStatusByJob[r.id]
         if (!v) return <Spin size="small" />
-        const meta = SCRAPE_STATUS_META[v.state]
-        const text = `${meta.label} ${v.online}/${v.total}`
-        return meta.badge === 'error' ? (
-          <Tooltip title={DOWN_TOOLTIP}>
-            <Badge status={meta.badge} text={text} />
+        const anomaly = v.down > 0 || v.pending > 0
+        const onClick = () => setViewing(r)
+        const text = `在线 ${v.online} / 总数 ${total}`
+        return anomaly ? (
+          <Tooltip title="存在「待采集 / 已下发未采到」实例，点击查看详情确认失败原因">
+            <Tag
+              color="#FF4C3A"
+              style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
+              onClick={onClick}
+            >
+              {text}
+            </Tag>
           </Tooltip>
         ) : (
-          <Badge status={meta.badge} text={text} />
+          <Tooltip title="点击查看各实例采集状态详情">
+            <Tag color="green" style={{ marginInlineEnd: 0, cursor: 'pointer' }} onClick={onClick}>
+              {text}
+            </Tag>
+          </Tooltip>
         )
       },
     },
@@ -363,6 +388,12 @@ function JobsTab() {
         const pendingTip = '该 Job 存在待确认变更单，请先前往配置变更确认页处理'
         return (
           <Space size={0}>
+            {/* 决策 47-2：查看该 Job 各实例/目标的具体采集状态（原型对齐的 Job 内下钻入口） */}
+            <Tooltip title="查看各实例采集状态详情">
+              <Button type="link" size="small" onClick={() => setViewing(r)}>
+                查看
+              </Button>
+            </Tooltip>
             <Tooltip title={isPending ? pendingTip : undefined}>
               <Button type="link" size="small" disabled={isPending} onClick={() => openEdit(r)}>
                 编辑
@@ -531,6 +562,16 @@ function JobsTab() {
           setFormOpen(false)
           reload()
         }}
+      />
+      {/* 决策 47-2 Job 详情抽屉（原型对齐）：『实例采集状态』格与操作列『查看』共用同一入口 */}
+      <ScrapeJobDetailDrawer
+        open={!!viewing}
+        job={viewing}
+        onClose={() => setViewing(null)}
+        resolveDomainName={(id) => domainById.get(id)?.name ?? id}
+        resolveTemplateName={(ref) => templateByRef.get(String(ref))?.name ?? String(ref)}
+        resolveLabelTemplateName={(id) => labelTemplateById.get(String(id))?.name ?? String(id)}
+        getDefaultMapping={(m) => (m ? defaultMappingByMonitorType.get(m) : undefined)}
       />
     </Card>
   )

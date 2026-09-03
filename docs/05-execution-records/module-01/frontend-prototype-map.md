@@ -23,7 +23,7 @@
 | **D4** | 折叠子菜单 | 原型用父菜单折叠（采集/指标库各含子项） | **不采用**折叠子菜单；一级 tab + Sider 二级拍平（见 §4 导航 IA 与偏离 F1） | **已决策·不采纳**（F1） |
 | **D5** | 规则编辑视图形态 | 原型页内 Segmented「文件挂载（MVP）/ 字段化编辑（v0.3 预览）」 | 生产仅「文件挂载」列表 + RuleMountDrawer；字段化编辑为 v0.3 不入本期 | **已决策·裁剪 v0.3** |
 | **D6** | 「前往配置变更确认」跳转 | 原型 `window.open(M09)` 相对路径 | 生产 toast 文案占位，无真实跳转（M09 未落地） | **已决策·占位**（dev-feedback F-05） |
-| **D47-2** | Job 实例采集状态回显 | 原型「实例采集状态」列 + 详情抽屉聚合（在线 X / 总数 Y · 待采集 Z，决策 47-2） | Job 编辑/详情抽屉（`ExporterInstallationPanel`）实例列表「采集状态」列 + 顶部「实例总数 / 在线 n / 待采集 n」汇总；只读消费 M02 `GET /api/v1/targets`（`useScrapeJobStatus`，不直连 Prometheus、不回持久化）。`down` 实例不计入在线与待采集；变更未确认下发时全部「待采集」 | **已实现**（T01-47-F1，commit `b6157ebc` 前端 / `5c86b6e0` 后端，T01-47-B1） |
+| **D47-2** | Job 实例采集状态回显 | 原型「实例采集状态」列 + 详情抽屉聚合（在线 X / 总数 Y · 待采集 Z，决策 47-2） | **双载体实现**：① Job 列表「实例采集状态」列（`ScrapeJobListPage.tsx`）——green Tag「在线 x / 总数 y」，存在异常（down/pending>0）时整格换红、点击打开 Job 详情抽屉；blackbox / 未选实例显示 `-`。② Job 详情抽屉（`ScrapeJobDetailDrawer.tsx`）——Descriptions 概览 + 已选实例三态（采集中/待采集/已下发未采到）+ 顶部「在线 X / 总数 Y · 待采集 Z」汇总 + 手动/20s 自动刷新。数据源只读消费 M02 `GET /api/v1/targets`（`useJobScrapeStatus`，不直连 Prometheus、不回持久化）。变更未确认下发或未首次抓取时全部「待采集」；`down` 不计入在线与待采集。20s 自动刷新由 `useJobScrapeStatus` tickizer + 抽屉内 `setInterval(20s)` 实现 | **已实现**（D47-2 B1 基础 + **T01-47-B3/B4 原型对齐**：`ScrapeJobStatusDrawer` 重写为 `ScrapeJobDetailDrawer`，列表实例采集状态列对齐原型三态 Tag；commit `b6157ebc` 前端 / `5c86b6e0` 后端） |
 
 > 需用户决策项（详见 §8）：D6 占位是否接受（等 M09）；生产「编辑态网域 disabled」与契约 §5/§10「PUT 允许改网域」（仅冻结域禁止新增实例）是否存在冲突。
 
@@ -42,7 +42,7 @@
 | `src/components/ReviewNote.tsx` / `ReviewNotesContext.tsx` / `ReviewNoteSwitch.tsx` | —（无） | ❌缺失 | 评审说明开关为原型演示态，不进入生产（合理裁剪） |
 | `src/mocks/module-01.ts` / `module-01.test.ts` | `src/api/*.ts` + `src/types/strategy.ts` + `strategyConstants.ts` + `*.test.ts(x)` | ✅对齐 | mock → API client + 类型契约映射（一致） |
 | `src/components/EllipsisText.tsx` / `FilterBar.tsx` / `tablePresets.ts` | 同名 `ui-custom/web/src/components/*` | ✅对齐 | 通用组件已复用 |
-| — | `ui-custom/web/src/pages/strategy/{CollectorTemplatesTab,MappingDrawer,ExporterTemplateDrawer,...}.test.tsx`、`jobStatus.ts`、`rulesYaml.ts`、`useScrapeJobStatus.ts` | ➕生产新增 | 生产新增测试与工具文件（原型无对应）。`useScrapeJobStatus` 为 D47-2 采集状态回显 Hook（T01-47-F1，commit `b6157ebc`）。 |
+| — | `ui-custom/web/src/pages/strategy/{CollectorTemplatesTab,MappingDrawer,ExporterTemplateDrawer,...}.test.tsx`、`jobStatus.ts`、`rulesYaml.ts`、`useScrapeJobStatus.ts`、`useJobScrapeStatus.ts`、`ScrapeJobDetailDrawer.tsx`、`ScrapeJobDetailDrawer.test.tsx`、`useJobScrapeStatus.test.ts` | ➕生产新增 | 生产新增测试与工具文件（原型无对应）。`useScrapeJobStatus` 为 D47-2 编辑面板采集状态 Hook（T01-47-F1，commit `b6157ebc`）；`useJobScrapeStatus`（Job 维度聚合 + 20s 自动刷新）与 `ScrapeJobDetailDrawer.tsx`（Job 详情抽屉，重写原 `ScrapeJobStatusDrawer`）为 T01-47-B3/B4 原型对齐新增。 |
 
 ---
 
@@ -62,6 +62,7 @@
 | 网域（Tag） | 网域（domainById 映射名） | ✅ | 等价 |
 | 实例选择 / 拨测目标（standard「手动·N实例」、blackbox「N个目标」） | 已选实例（数组长度计数） | ⚠️ D15 | 生产简化：无「手动/过滤」模式合并、blackbox 无目标数专列 |
 | 参数同步（异常驱动：映射默认值已变更/已同步+Tooltip） | 参数同步（三态：已覆盖 n 项蓝 / 待同步橙 / 已同步；Backblk 显「同步」） | ✅（F1-2，T01-F12） | 生产实现异常驱动三态；后端不落 mapping_overrides 时按默认映射快照对比（dev F-03） |
+| 实例采集状态（green「在线 x / 总数 y」，down/pending 换红，点击开详情；决策 47-2） | 实例采集状态（`ScrapeJobListPage.tsx` green/red Tag + Tooltip + 点击开 `ScrapeJobDetailDrawer`；blackbox / 未选实例显 `-`；约 20s 自动刷新） | ✅（**T01-47-B3/B4**） | 生产已实现原型三态 Tag；异常格（down/pending>0）整格高亮换红可点开详情；数据源 `useJobScrapeStatus` 只读消费 M02 `/api/v1/targets`（见 D47-2/§7） |
 | 下发状态（待确认=可点击跳 M09 / 已确认 / 无变更） | 下发状态（CHANGE_STATUS_MAP 纯文本） | ⚠️ F5（dev F-05） | 生产无「待确认→跳配置变更确认」点击入口 |
 | 标签模板（模板名+待配置橙 Tag 可点击补配 / 未关联） | 标签模板（label_template_id 命中→模板名 + 待配置橙 Tag 可点击补配引导；未关联渲染 '-'） | ✅（F1-1，T01-F9） | 生产已补该列 |
 | 启用（Switch） | 操作用启停 Switch | ✅ | 生产并入操作列 |
@@ -248,6 +249,8 @@
 - [x] 采集器登记表单从 Job 表单发起时预填「支持监控类型=当前监控对象类型」（O2，T01-F15）
 - [x] 网域空态引导改指向 M06「网域管理」可点击链接（未纳管→M06，M06 纳管跳 M09）（O3，T01-F16）
 - [x] Job 编辑/详情抽屉实例「采集状态」回显（D47-2，T01-47-F1）：`ExporterInstallationPanel` 顶部在线/待采集汇总 + 每实例三态 badge，`useScrapeJobStatus` 只读消费 M02 `/api/v1/targets`；变更未确认下发时全部待采集
+- [x] Job 列表「实例采集状态」格对齐原型（T01-47-B3）：green/red Tag（在线 x / 总数 y）+ Tooltip + 点击开详情；异常格换红高亮；blackbox/未选实例显 `-`；约 20s 自动刷新
+- [x] Job 详情对齐原型（T01-47-B4）：重写 `ScrapeJobStatusDrawer` 为 `ScrapeJobDetailDrawer`（Descriptions 概览 + 已选实例三态 + 在线 X/总数 Y·待采集 Z 汇总 + 手动/20s 自动刷新 + 只读消费 M02）
 - [ ] 规则页下发状态「待确认→配置变更确认」占位待 M09（dev F-05）
 - [ ] 全局：`make test-platform` + 前端 `pnpm test` / `pnpm lint` 通过
 - [ ] 全局：后端 run + 前端 dev 200，采集主链路（创建 Job → 选实例 → 安装确认 → preview）走通
