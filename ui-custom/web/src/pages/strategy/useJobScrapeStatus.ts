@@ -61,14 +61,22 @@ function aggregateView(deployed: boolean, items: ScrapeJobInstanceItem[], target
 }
 
 /**
- * 采集 Job 列表『采集状态』聚合数据源。
+ * 采集 Job 列表『实例采集状态』聚合数据源。
  * 输入当前页 Job 列表，逐个拉取实例 +（已下发时）targets，返回 job.id → 采集状态视图。
- * job 维度变更（new/add/change_status/enabled）驱动重新聚合。
+ * job 维度变更（new/add/change_status/enabled）与刷新 tick 驱动重新聚合。
+ * 决策 47-2 只读消费 M02 /api/v1/targets：约 20s 自动刷新（原型「在线 x / 总数 y」列的刷新节奏）。
  */
-export function useJobScrapeStatus(jobs: ScrapeJob[]): Record<number, JobScrapeStatusView> {
+export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record<number, JobScrapeStatusView> {
   const [map, setMap] = useState<Record<number, JobScrapeStatusView>>({})
+  const [tick, setTick] = useState(0)
 
   const jobsKey = jobs.map((j) => `${j.id}:${j.job_name}:${j.change_status}:${j.enabled}`).join('|')
+
+  // 20s 自动刷新 tickizer：每次 tick 递增触发重新聚合（默认 20s，测试可传其他值/关闭）
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), refreshMs)
+    return () => clearInterval(id)
+  }, [refreshMs])
 
   useEffect(() => {
     if (jobs.length === 0) return
@@ -104,7 +112,7 @@ export function useJobScrapeStatus(jobs: ScrapeJob[]): Record<number, JobScrapeS
       active = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobsKey])
+  }, [jobsKey, tick])
 
   return map
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { renderHook, waitFor, cleanup } from '@testing-library/react'
 import { useJobScrapeStatus } from './useJobScrapeStatus'
 import type { ScrapeJob } from '../../types/strategy'
 
@@ -61,6 +61,11 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合）', () => {
     targetsListMock.mockReset()
   })
 
+  // 20s 自动刷新 interval：确保每个用例卸载释放定时器
+  afterEach(() => {
+    cleanup()
+  })
+
   it('空列表时立即返回空映射且不发起请求', () => {
     const { result } = renderHook(() => useJobScrapeStatus([]))
     expect(Object.keys(result.current)).toHaveLength(0)
@@ -104,5 +109,18 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合）', () => {
     const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
     await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
     expect(result.current[1]).toMatchObject({ state: 'pending', online: 0, total: 0 })
+  })
+
+  it('20s 自动刷新触发重新聚合（决策 47-2 只读消费，短周期传参验证）', async () => {
+    instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('srv-1')], total: 1 } })
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: { activeTargets: [target()], droppedTargets: [], targetsByJob: {} },
+    })
+    // 用短周期 refreshMs 快速触发 tick 递增以验证自动刷新；业务默认 20000ms
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })], 30))
+    await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
+    // 自动刷新（短周期 30ms）会持续重新聚合：等待出现至少第二次调用即可证明 tick 驱动刷新
+    await waitFor(() => expect(instancesMock.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 2000 })
   })
 })

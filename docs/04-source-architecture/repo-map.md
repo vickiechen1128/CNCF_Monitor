@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-02 19:13 · commit: `8eb37786`
+> 生成时间: 2026-09-03 11:22 · commit: `f5871569`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -444,6 +444,7 @@
 - `func NotFound(c *gin.Context, message string)`
 - `func TooManyRequests(c *gin.Context, message string)`
 - `func InternalServerError(c *gin.Context, err error)`
+- `func BadGateway(c *gin.Context, err error, message string)`
 - `func strError(message string) error`
 - `type strErr = string`
 - `method (strErr) Error() string`
@@ -2982,6 +2983,11 @@
 ### `ui-custom/web/src/pages/strategy/RulesPage.tsx`
 
 - `function RulesPage`
+
+### `ui-custom/web/src/pages/strategy/ScrapeJobDetailDrawer.tsx`
+
+- `interface ScrapeJobDetailDrawerProps`
+- `function ScrapeJobDetailDrawer`
 
 ### `ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`
 
