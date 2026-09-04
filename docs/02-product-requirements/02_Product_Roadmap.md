@@ -1,9 +1,9 @@
 # MetricCenter 产品路线图
 
 > 文档类型：产品需求文档  
-> 版本：v2.1
+> 版本：v2.2
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)、[04_Implementation_Map.md](04_Implementation_Map.md)  
-> 更新日期：2026-08-31
+> 更新日期：2026-09-02
 
 ---
 
@@ -31,8 +31,8 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 | 里程碑 | 目标 | 核心交付 | 技术栈 | 时间（预估） |
 |--------|------|----------|--------|-------------|
 | **MVP** | 五类资源管理 + 网域登记 + 采集/拨测配置 + 配置下发 + 指标查询（单机模式） | 可运行的配置管理中心；网域登记管理（Module_06，预置默认 `default`）；主机/数据库/中间件/应用服务/通用指标目标五类资源管理（`resource_id` 稳定唯一键，`instance_name` / `hostname` 可读展示名）；`ResourceLabel` 标签体系（`system` / `user` 来源，CMDB 来源预留）；标签模板；采集 Job；Blackbox 拨测；prometheus.yml 生成与下发；PromQL 查询代理 | SQLite + Prometheus TSDB + Prometheus Server + Blackbox Exporter | 待重估（原 3 ~ 4 周，网域登记 / 五类资源 / 导入 upsert / 模板快照纳入后需重新估算） |
-| **v0.2** | 多网域 Edge-Cloud 架构落地 + 租户-网域关联 | 网域生命周期与 Token 管理；租户数据模型与租户-网域关联；Edge Sync Agent、按网域配置拉取、vmagent / Prometheus Agent Mode 接入；中心 VictoriaMetrics 汇聚；边缘 Agent 状态监控与诊断；外部 Prometheus Remote Write 接入；监控源登记册 | SQLite + VictoriaMetrics + vmagent/Prometheus Agent + Edge Sync Agent + Ingestion Gateway | 4 ~ 5 周 |
-| **v0.3** | 门户化查询与告警状态 | Custom UI 门户、PromQL 查询页、告警状态查看（代理 `/api/v1/alerts`）、按网域/监控源筛选、告警抑制引擎 | 保持 v0.2 技术栈 | 2 ~ 3 周 |
+| **v0.2** | 多网域 Edge-Cloud 架构落地 + 租户-网域关联 | 网域生命周期与 Token 管理；租户数据模型与租户-网域关联；Edge Sync Agent、按网域配置拉取、vmagent / Prometheus Agent Mode 接入；中心 VictoriaMetrics 汇聚；边缘 Agent 状态监控与诊断；Job 多网域绑定与按域扇出（决策 54）、filter 实例筛选（决策 53）；网域级采集覆盖表 `CITypeExporterMappingOverride` + 实例级端口覆盖（`Resource.scrape_port`）；cAdvisor 容器资源监控；租户/网域查询上下文注入 | SQLite + VictoriaMetrics + vmagent/Prometheus Agent + Edge Sync Agent | 4 ~ 5 周 |
+| **v0.3** | 门户化查询与告警状态 + 异构接入与采集增强（v0.2 批次 B 后移并入） | Custom UI 门户、PromQL 查询页、告警状态查看（代理 `/api/v1/alerts`）、按网域/监控源筛选、告警抑制引擎；监控源登记册、外部 Prometheus Remote Write 接入、Ingestion Gateway（M10）；统一入口与 Ingestion 路由（M03）；克隆 Job（移出 v0.2 待评估）、草稿/批量提交、service_discovery（docker_sd / K8s SD，直采容器内应用指标场景）、业务健康度看板（M01）；网域归属 IP 推导、业务目录聚合视图（M07）、`ip_cidrs`（M06） | 保持 v0.2 技术栈 + Ingestion Gateway | 待重估（原 2 ~ 3 周，批次 B 并入后需重新估算，必要时再拆分） |
 | **v0.4** | 外部 CMDB 集成与异构监控接入 | 外部 CMDB 同步（BlueKing / HTTP / Nacos）：事件触发 + 15 分钟轮询、CI 类型映射表、待分类 CI 队列；`ResourceLabel.source=cmdb` 注入；异构监控源登记册；Zabbix / 云监控 Adapter；mTLS、证书轮转、Token 轮换 | PostgreSQL / MySQL 预研 | 3 ~ 4 周 |
 | **v1.0** | 企业级可用 | 告警规则 UI、Alertmanager 配置生成、多租户、权限、边缘自治告警（vmalert） | PostgreSQL / MySQL + VictoriaMetrics/Mimir + vmagent + vmalert | 4 ~ 6 周 |
 
@@ -46,15 +46,15 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 
 | 模块 | MVP | v0.2 | v0.3 | v0.4 | v1.0 |
 |------|-----|------|------|------|------|
-| **Module_07 监控对象管理** | 五类资源 CRUD；Excel 导入（含 upsert 更新 + `network_domain_id` 强制必填，决策 31-M3）；状态映射（`offline` 排除语义，决策 29）；标签模板；`ResourceLabel` 体系；「未监控」筛选（`is_monitored` 由 M01 维护、M07 只读映射，决策 31-M1）；业务类型归属（`biz_code` → `biz` 标签聚合，静态资源标签只读） | 独立业务目录（业务类型实体 + 资源归属 + 业务类型自定义标签）；业务指标标签规范消费（relabel 归一化）；**网域归属 IP 推导**（决策 52：导入 `network_domain` 列可留空，按 M06 `ip_cidrs` 最长前缀匹配，歧义/失败标注「网域未决」） | - | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源；**归属四级解析链**（决策 52：CMDB 字段映射 > 同步通道绑定 > IP 推导 > 待分配队列，冲突告警不静默） | CMDB-ITIL/ITSM 映射 |
-| **Module_01 监控策略与指标管理** | CI↔默认采集器绑定（{v3.8}，原「Exporter 模板」）；ScrapeJob（实例选择 + 冻结（禁用）网域校验，决策 30）；**采集认证/TLS 最小集**（`auth_type` none/basic/bearer + `tls_skip_verify` + `ca_file`，决策 31）；Blackbox 拨测；静态指标库（按 CI 类型组织，锚点演进 v3.8）；application_http 业务指标端点采集（app/biz 标签注入）；业务指标库（BusinessMetric 登记表，业务负责人定义语义/阈值）；**规则文件挂载**（「规则编辑」页上传/粘贴整文件 `rules.yml` 透传落库 `MonitoringRule`，保存/启停/删除进入 M09 变更检测 → 生成 → 人工确认 → 下发，回写 `change_status=deployed`，不绕过 M09） | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」）；服务发现模式 `service_discovery`（微服务动态实例，prometheus_builtin + relabel）；业务健康度看板（业务负责人角色入口）；**实例属性筛选 `filter` 模式**（决策 53，由 v0.3 提前：按资源属性条件表达式筛选，每生成周期实时求值，M07 新增资源匹配即自动纳入，无需编辑 Job）；**Job 多网域绑定 + M09 按域扇出**（决策 54：一次定义、多域生效，替代手工克隆） | 规则编辑 UI（类 YAML 表单 + PromQL 校验/实时预览，依赖 Module_02 validate/preview；`content_mode=structured` 字段化写入，替代 MVP 的整文件透传挂载） | - | Recording Rules；指标库管理增强 |
-| **Module_09 网域与边缘配置中心** | 默认网域 `default`（行政登记归 M06）；单/多网域模式切换；配置生成/预览/Diff/下发（含 `offline` 排除，决策 29；认证/TLS 透传进 scrape_configs，决策 31；冻结域不生成新变更单，决策 30）；`external_labels` 注入；`change_status=deployed` 回写（决策 31-M2）；规则文件挂载生成 `rules.yml`；**alertmanager.yml 纳入变更确认**（M08 生成内容、管理域 scope、不扇出，决策 60） | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数；**Job 网域扇出生成**（决策 54：逻辑 Job 绑定网域集合，按域自动拆分 scrape_configs / targets / 变更单）；**filter 模式实时求值**（决策 53：M07 新增资源匹配即自动纳入 targets） | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
+| **Module_07 监控对象管理** | 五类资源 CRUD；Excel 导入（含 upsert 更新 + `network_domain_id` 强制必填，决策 31-M3）；状态映射（`offline` 排除语义，决策 29）；标签模板；`ResourceLabel` 体系；「未监控」筛选（`is_monitored` 由 M01 维护、M07 只读映射，决策 31-M1）；业务类型归属（`biz_code` → `biz` 标签聚合，静态资源标签只读） | 资源可选采集端口字段 `scrape_port`（实例级端口覆盖；登记/编辑/Excel 导入可选列，留空走 M09 端口解析链） | 网域归属 IP 推导（决策 52/58：导入 `network_domain` 列可留空，按 M06 `ip_cidrs` 最长前缀匹配，歧义/失败标注「网域未决」，配套规则化动作与未匹配 IP 对账视图；由 v0.2 后移）；独立业务目录聚合视图（成员 + 健康度 + 采集覆盖；业务字典/归属/自定义标签 MVP 已交付）；业务指标标签规范消费（relabel 归一化） | CMDB 同步（BlueKing/HTTP/Nacos）；CI 类型映射；待分类队列；孤儿资源；**归属四级解析链**（决策 52：CMDB 字段映射 > 同步通道绑定 > IP 推导 > 待分配队列，冲突告警不静默） | CMDB-ITIL/ITSM 映射 |
+| **Module_01 监控策略与指标管理** | CI↔默认采集器绑定（{v3.8}，原「Exporter 模板」）；ScrapeJob（实例选择 + 冻结（禁用）网域校验，决策 30）；**采集认证/TLS 最小集**（`auth_type` none/basic/bearer + `tls_skip_verify` + `ca_file`，决策 31）；Blackbox 拨测；静态指标库（按 CI 类型组织，锚点演进 v3.8）；application_http 业务指标端点采集（app/biz 标签注入）；业务指标库（BusinessMetric 登记表，业务负责人定义语义/阈值）；**规则文件挂载**（「规则编辑」页上传/粘贴整文件 `rules.yml` 透传落库 `MonitoringRule`，保存/启停/删除进入 M09 变更检测 → 生成 → 人工确认 → 下发，回写 `change_status=deployed`，不绕过 M09） | 网域级覆盖表 `CITypeExporterMappingOverride`（按网域差异化默认采集参数）；参数继承/同步（创建时快照 + 手动「同步映射默认值」）；**实例属性筛选 `filter` 模式**（决策 53：按资源属性条件表达式筛选，每生成周期实时求值，M07 新增资源匹配即自动纳入，无需编辑 Job）；**Job 多网域绑定 + M09 按域扇出**（决策 54：一次定义、多域生效，替代手工克隆）；**实例级端口覆盖**（Resource `scrape_port`，M09 生成期解析，优先级高于网域覆盖表）；容器资源监控（cAdvisor：每虚机一个 exporter，经 filter 自动纳入主机，平台不感知容器个体） | 规则编辑 UI（类 YAML 表单 + PromQL 校验/实时预览，依赖 Module_02 validate/preview；`content_mode=structured` 字段化写入，替代 MVP 的整文件透传挂载）；克隆 Job（移出 v0.2，后续再评估）；草稿/批量提交生效；服务发现模式 `service_discovery`（docker_sd / K8s SD，直采容器内应用指标场景，prometheus_builtin + relabel）；业务健康度看板（业务负责人角色入口） | - | Recording Rules；指标库管理增强 |
+| **Module_09 网域与边缘配置中心** | 默认网域 `default`（行政登记归 M06）；单/多网域模式切换；配置生成/预览/Diff/下发（含 `offline` 排除，决策 29；认证/TLS 透传进 scrape_configs，决策 31；冻结域不生成新变更单，决策 30）；`external_labels` 注入；`change_status=deployed` 回写（决策 31-M2）；规则文件挂载生成 `rules.yml`；**alertmanager.yml 纳入变更确认**（M08 生成内容、管理域 scope、不扇出，决策 60） | 网域生命周期与 Token；Edge Sync Agent；按网域配置拉取；Agent 状态列表；Remote Write 参数；**Job 网域扇出生成**（决策 54：逻辑 Job 绑定网域集合，按域自动拆分 scrape_configs / targets / 变更单）；**filter 模式实时求值**（决策 53：M07 新增资源匹配即自动纳入 targets）；**target 端口解析链**（`Resource.scrape_port` > 网域覆盖表 > 映射默认） | - | - | mTLS 证书轮转；Token 轮换；边缘自治告警配置包 |
 | **Module_02 查询中心** | PromQL 查询代理；目标状态展示；响应 envelope | 租户/网域上下文注入 | 告警状态代理；查询辅助；首页 Dashboard 数据 | - | - |
 | **Module_08 告警收敛与通知管理** | **告警分发最小闭环（决策 59）**：`alertmanager.yml` 文件挂载（接收人/路由/抑制低频一次性配置，整文件上传/粘贴 + `amtool check-config` 校验 + 版本留痕 + 直接 reload，与 M01 规则挂载同构）；静默管理极简 UI（创建/列表/删除，API 直调 Alertmanager——静默是运行时状态，文件挂载承载不了）；**alertmanager.yml 变更经 M09 变更确认下发**（管理域 scope、不扇出，决策 60） | - | 接收人 / 路由表单化 UI；告警状态页（Prometheus 触发告警 + Alertmanager 通知状态，决策 55）；告警抑制引擎（组件选型锁定 Alertmanager，决策 49） | - | 通知模板；告警升级；边缘本地告警状态展示 |
-| **Module_06 系统与平台管理** | 单租户默认模式（`platform_admin`）+ **网域登记管理**（网域 CRUD / 区域属性，M07 校验消费；行政属性归 M06，监控纳管归 M09） | 租户数据模型；租户-网域关联；`Tenant.multi_site_enabled`；**`NetworkDomain.ip_cidrs` 网段规则**（决策 52：供 M07 导入/同步按 IP 推导网域归属） | - | CMDB 业务/模块路径映射 | 用户/角色/权限；审计日志；平台配置；元数据迁移 PostgreSQL/MySQL |
-| **Module_10 监控源登记册** | - | 监控源 CRUD；外部 Prometheus Remote Write；Ingestion Gateway；标签注入 | - | Zabbix / 云监控 Adapter；标签归一化；Metric Drop Rules | 长期存储路由 VictoriaMetrics/Mimir |
+| **Module_06 系统与平台管理** | 单租户默认模式（`platform_admin`）+ **网域登记管理**（网域 CRUD / 区域属性，M07 校验消费；行政属性归 M06，监控纳管归 M09） | 租户数据模型；租户-网域关联；`Tenant.multi_site_enabled` | `NetworkDomain.ip_cidrs` 网段规则（决策 52：供 M07 导入按 IP 推导网域归属；由 v0.2 后移） | CMDB 业务/模块路径映射 | 用户/角色/权限；审计日志；平台配置；元数据迁移 PostgreSQL/MySQL |
+| **Module_10 监控源登记册** | - | - | 监控源 CRUD；外部 Prometheus Remote Write；Ingestion Gateway；标签注入（由 v0.2 后移） | Zabbix / 云监控 Adapter；标签归一化；Metric Drop Rules | 长期存储路由 VictoriaMetrics/Mimir |
 | **Module_04 自定义服务发现** | Excel Provider（由 Module_07 承载） | - | - | BlueKing / HTTP / Nacos Provider；CI 类型映射；待分类队列；孤儿资源 | - |
-| **Module_03 网关与认证** | - | 统一入口路由；Ingestion 路由 | - | - | 认证鉴权中间件；请求级审计；多租户路由 |
+| **Module_03 网关与认证** | - | - | 统一入口路由；Ingestion 路由（由 v0.2 后移） | - | 认证鉴权中间件；请求级审计；多租户路由 |
 | **Module_05 自定义前端门户** | - | - | Custom UI 门户；PromQL 查询页；告警状态页；**监控大屏（Grafana iframe 嵌入 + 预置仪表盘模板，决策 51）**；首页轻量图表（ECharts/AntV）+ 新用户引导 | - | Dashboard-as-Code 治理（M11 预留：dashboard 版本化 / 按租户分发） |
 
 > **P0/P1/P2 说明**：本矩阵只标注该版本是否包含某模块能力；模块内部的优先级（P0/P1/P2）详见各模块 PRD 功能范围表。
@@ -73,7 +73,7 @@ MVP 聚焦 **"五类资源管理 + 网域登记 + 采集/拨测配置 + promethe
 |---|---|---|---|
 | **单网域模式（默认）** | `Tenant.multi_site_enabled=false` | 单网域默认 `default`，资源网域列保留（默认填 `default`）；提供网域登记（Module_06）；隐藏「Agent 状态」与边缘能力入口 | 仅存在 `default` 管理域（可登记其他网域） |
 | **多网域模式** | `Tenant.multi_site_enabled=true` | 展示「网域管理」、Edge Agent、边缘诊断、按网域配置下发 | 多网域 |
-| **集成模式** | `Tenant.heterogeneous_ingestion_enabled=true` {v0.2} | 展示「监控源登记册」、外部 Prometheus / Zabbix 接入 | 多网域 + MonitoringSource |
+| **集成模式** | `Tenant.heterogeneous_ingestion_enabled=true` {v0.3} | 展示「监控源登记册」、外部 Prometheus / Zabbix 接入 | 多网域 + MonitoringSource |
 
 > 多站点模式与集成模式在 MVP 阶段默认关闭，数据模型已预留，避免对单机用户造成认知负担。
 
@@ -149,7 +149,7 @@ Phase 4: 网域与边缘 Agent（Module 09）— v0.2
 ├── 边缘 Agent 在线状态、配置同步、WAL 积压监控
 └── 边缘诊断看板（RTT、队列状态、最近错误）
 
-Phase 5: 监控源登记册与异构接入（Module 10）— v0.2
+Phase 5: 监控源登记册与异构接入（Module 10）— v0.3（由 v0.2 后移）
 ├── MonitoringSource 数据模型
 ├── Ingestion Gateway（鉴权、限流、标签注入）
 ├── 外部 Prometheus Remote Write 接入
@@ -234,8 +234,8 @@ Phase 8: 企业级能力（v1.0）
 
 | 阶段 | 选型 | 说明 |
 |------|------|------|
-| MVP | **无** | 单机模式，不启用 |
-| v0.2 | **Monitoring Source Registry + Ingestion Gateway + 外部 Prometheus Remote Write** | 客户现有 Prometheus 借道汇聚 |
+| MVP ~ v0.2 | **无** | 单机 / 边云架构阶段，不启用 |
+| v0.3 | **Monitoring Source Registry + Ingestion Gateway + 外部 Prometheus Remote Write** | 客户现有 Prometheus 借道汇聚（由 v0.2 批次 B 后移） |
 | v0.4 ~ v1.0 | **Zabbix Adapter + 云监控 Puller** | Zabbix / 云监控统一接入 |
 
 ### 4.8 资源模型与 CMDB 集成
@@ -261,7 +261,7 @@ Phase 8: 企业级能力（v1.0）
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 |
 |------|------|----------|----------|----------|
-| v2.1 | 2026-08-31 | 修改 | 决策 60 落版同步：§1.5 矩阵 Module_08 MVP 列补「alertmanager.yml 变更经 M09 变更确认下发（管理域 scope、不扇出）」；Module_09 MVP 列补「alertmanager.yml 纳入变更确认」；修订此前「MVP 单域 M08 直接 reload」口径 |
+| v2.2 | 2026-09-02 | 修改 | v0.2 范围定版（2026-09-02 v0.2 规划评审，与产品负责人逐项确认）：①M03（统一入口/Ingestion 路由）与 M10（监控源登记册/外部 Remote Write/Ingestion Gateway）整体后移 v0.3——外联需求优先级低；②M01 克隆 Job（移出待评估）/草稿批量提交/业务健康度看板/service_discovery 后移 v0.3，filter（决策 53）/Job 多网域扇出（决策 54）/网域覆盖表保留 v0.2，新增实例级端口覆盖（`Resource.scrape_port`）与 cAdvisor 容器资源监控口径（docker_sd 降级 v0.3+ 预留）；③M09 保留扇出/filter，补 target 端口解析链与 K8s 划域备忘（overlay CNI 独立建域、VPC 原生 CNI 可并入）；④M07 IP 推导（决策 52/58）后移 v0.3、新增 `scrape_port` 字段；M06 `ip_cidrs` 后移 v0.3、新增划域指导原则；⑤§1 里程碑/§1.5 矩阵/§2.2 集成模式开关 {v0.3}/§3 Phase 5/§4.7 同步 | 全文档 | 决策 60 落版同步：§1.5 矩阵 Module_08 MVP 列补「alertmanager.yml 变更经 M09 变更确认下发（管理域 scope、不扇出）」；Module_09 MVP 列补「alertmanager.yml 纳入变更确认」；修订此前「MVP 单域 M08 直接 reload」口径 |
 | v2.0 | 2026-08-31 | 修改 | 决策 59 落版（M08 MVP 告警分发最小闭环）：§1.5 矩阵 Module_08 MVP 列由「-」补为「alertmanager.yml 文件挂载（接收人/路由/抑制低频配置）+ 静默管理极简 UI（API 直调）」，v0.3 列改为接收人/路由表单化 UI + 告警状态页（决策 55）+ 告警抑制引擎；§4.5 告警 MVP~v0.3 行补文件挂载 + 静默 UI 说明；修正 M08 PRD（P0/MVP）与矩阵（MVP 空缺）的不一致 |
 | v1.9 | 2026-08-31 | 修改 | 决策 51~54 落版同步：①§1.5 矩阵 M01 v0.2 补 filter 模式（决策 53，由 v0.3 提前；新增资源自动纳入）与 Job 多网域扇出（决策 54），v0.3 列移除 filter（已提前）；M09 v0.2 补扇出生成与 filter 实时求值；M06 v0.2 补 `ip_cidrs`（决策 52）；M07 v0.2 补导入 IP 推导、v0.4 补归属四级解析链；M05 v0.3 补监控大屏（Grafana 嵌入）与首页轻量图表/引导，v1.0 列改 M11 预留（不再自研看板编辑器）；M08 行更名「告警收敛与通知管理」并标注决策 49；②§4.6 前端可视化 v0.3 改「Grafana iframe 嵌入 + ECharts/AntV」 | 功能-版本矩阵 / §4.6 |
 | v1.8 | 2026-08-21 | 修改 | 四模块评审前同步跨模块契约（决策 28~31/31-M1~M3）：§1.5 Module_07 行 MVP 补「未监控」筛选（is_monitored 由 M01 维护、M07 只读映射）、offline 排除（决策 29）、network_domain_id 强制必填（31-M3）；Module_01 行 MVP 补采集认证/TLS 最小集（决策 31）与冻结（禁用）网域校验（决策 30）、回写 change_status=deployed（31-M2）；Module_09 行 MVP 补 offline 排除 / 认证TLS 透传 / 冻结域不生成新变更单 / change_status 回写 / 规则挂载生成 rules.yml | 功能-版本矩阵 |

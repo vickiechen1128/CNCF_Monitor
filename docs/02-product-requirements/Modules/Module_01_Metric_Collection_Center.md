@@ -1,9 +1,9 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v3.29
+> **PRD 版本**: v3.30
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.28（已对齐；v3.29 为契约收紧与边界声明，原型行为不变）
+> **原型版本**: v3.28（已对齐；v3.29 / v3.30 为契约收紧与 v0.2 范围收敛，原型行为不变）
 > **更新日期**: 2026-09-02
 > **对应原型**: `docs/prototypes/module-01/`
 
@@ -46,9 +46,9 @@
 - M01-OPS-08：在采集 Job 详情/编辑抽屉直接看到已选实例的采集状态（在线数 / 待采集 / up / down）与「已下发未采到」提醒（决策 47-2）。
 - M01-OPS-05：查看并维护指标库（counter/gauge/histogram/summary、HELP、UNIT）以及 Exporter 内置指标库，为规则编写提供指标提示。
 - M01-OPS-06：MVP 通过「规则编辑」页上传 / 粘贴完整 `rules.yml`（**整文件透传**）挂载告警/记录规则，保存 / 启停 / 删除后进入 Module\_09 生成与交付流程（变更单**人工确认**后下发，不绕过 M09）；v0.3 升级为类 YAML 表单编辑（expr / for / labels / annotations），编辑时获得 PromQL 校验与指标实时预览，同样进入 Module\_09 规则生成与交付流程。
-- M01-OPS-07：v0.2+ 通过服务发现（K8s / Nacos 等）自动接入动态实例（微服务扩缩容），无需手动勾选（完整条目见全局库 §4.1）。
+- M01-OPS-07：v0.3+ 通过服务发现（K8s / Nacos 等）自动接入动态实例（微服务扩缩容），无需手动勾选（完整条目见全局库 §4.1）。
 - M01-BIZ-01：业务负责人在业务指标库登记业务指标（名称/语义/阈值/所属业务域/负责人），把业务监控诉求明确传递给运维（完整条目见全局库 §4.1）。
-- M01-BIZ-02：业务负责人 v0.2+ 按业务域查看业务指标健康度看板（完整条目见全局库 §4.1）。
+- M01-BIZ-02：业务负责人 v0.3+ 按业务域查看业务指标健康度看板（完整条目见全局库 §4.1）。
 - M01-BIZ-03：运维接业务负责人工单后代登记业务指标（owner 必填指向业务负责人），代办后请业务负责人确认语义（完整条目见全局库 §4.1）。
 - M01-ARCH-01：快速发现未被任何 `ScrapeJob` 选中的实例——主落点为 [Module_07](Module_07_Monitoring_Object_Management.md) 资源列表三态「采集状态」badge 与筛选（决策 47-3）；本模块实例选择器「未纳入任何 Job」筛选为辅助落点（**目标语义，MVP 不保证，随本模块开发节奏落地**）。
 - M01-ARCH-02：v0.4+ 基于外部 CMDB 自动发现实例并推荐监控策略（自动规则生成），但仍由工程师在策略模块确认后生效。
@@ -68,14 +68,14 @@
 | 标签模板创建引导       | 新增默认采集配置时，系统检测该监控对象类型是否已有标签模板；无模板时弹出轻量提示引导用户创建，支持「立即创建」（预填推荐映射）或「稍后再说」（列表显示待配置 badge）                              | P0         |
 | 标签模板展示列        | 默认采集配置列表新增「标签模板」列，展示模板名称 + 默认/自定义标记 + 类别·模板ID；支持查看（只读预览抽屉）、更换（**同资源类别**其他模板）、补配（重新触发创建流程）                        | P0         |
 | ScrapeJob 管理            | Job 创建/编辑、命名、启用/禁用、关联监控对象类型与默认采集器、实例选择模式、标签模板引用；**MVP：Job 必须绑定且仅绑定单一已纳管网域**（未在 M09 完成监控纳管的网域不可选）；**v0.2 起放宽为网域集合（决策 54）**：一个逻辑 Job 可勾选多个已纳管网域，M09 生成器按网域自动拆分扇出（每域独立 scrape_configs / targets / 变更单），跨网域复用不再依赖手工克隆；**创建时自动套用该监控对象类型的默认采集配置**（页内「采集器管理」Tab 可维护预设与安装指南）；**选中实例即生成 target，实例采集状态在 Job 详情/编辑抽屉回显（5.10，决策 47-2）；Exporter 安装登记为可选（5.6，决策 47-1）**                                                            | P0         |
-| ScrapeJob 草稿与批量提交生效 | **MVP 提级**：**新建 Job**支持「保存草稿」与「提交生效」两种保存模式（**默认「提交生效」**）：草稿态仅做基础校验（字段类型 / 名称唯一性等），不进入 M09 配置生成，允许创建过程半成品暂存；提交生效时做完整校验（含必填项 / 网域已纳管 / 实例同域），状态转 `ready` 后进入 M09 变更检测管线；**草稿仅存在于新建阶段，对象一旦提交生效（`ready`）不再回退草稿态**，已生效对象的后续修改直接走正常变更管线（保存 → M09 变更单确认）；列表支持多选「批量提交生效」（draft→ready 单向，失败项保留 draft、成功项转 ready）；状态列按四态展示（草稿 / 待下发 / 已生效 / 已停用） | P0 |
-| 克隆 Job | v0.2 起支持将已有 Job **一次性克隆**为新 Job（同网域或跨网域）：复制 `job_name`（自动追加后缀）、监控对象类型、采集实现、采集参数、标签模板；`network_domain_id` 可改选（跨网域克隆场景）；**`selected_instance_ids` 不携带**（Resource 是网域内对象），克隆后按目标网域自动收敛候选并需重新勾选；**Exporter 安装登记（可选）不携带，需对新实例重新登记**；克隆产物是独立 Job，与源 Job 无持续绑定；**不引入「Job 模板」持久实体**——复用通过一次性克隆完成，与 Job 参数快照保护语义（映射变更不穿透已存 Job）保持一致。**注（决策 54）**：跨网域复用场景自 v0.2 起优先使用 Job 网域集合 + M09 扇出（一次定义、多域生效），克隆降级为「参数相近但需独立演进」场景的复制便利 | P0 / v0.2  |
+| ScrapeJob 草稿与批量提交生效 | **v0.3 开放用户交互**（`draft_status` / `ready` 字段本身 MVP 已落库、默认 `ready`，不变；挪到 v0.3 的仅是「保存草稿 + 批量提交生效」UI/交互能力）：**新建 Job**支持「保存草稿」与「提交生效」两种保存模式（**默认「提交生效」**）：草稿态仅做基础校验（字段类型 / 名称唯一性等），不进入 M09 配置生成，允许创建过程半成品暂存；提交生效时做完整校验（含必填项 / 网域已纳管 / 实例同域），状态转 `ready` 后进入 M09 变更检测管线；**草稿仅存在于新建阶段，对象一旦提交生效（`ready`）不再回退草稿态**，已生效对象的后续修改直接走正常变更管线（保存 → M09 变更单确认）；列表支持多选「批量提交生效」（draft→ready 单向，失败项保留 draft、成功项转 ready）；状态列按四态展示（草稿 / 待下发 / 已生效 / 已停用） | P0 / v0.3 |
+| 克隆 Job | **移出 v0.2 范围，后续版本再评估是否提供**（决策 54 网域集合 + M09 按域扇出已覆盖跨网域复用主场景）。原方案要点（保留备查）：将已有 Job **一次性克隆**为新 Job（同网域或跨网域）——复制 `job_name`（自动追加后缀）、监控对象类型、采集实现、采集参数、标签模板；`network_domain_id` 可改选（跨网域克隆场景）；**`selected_instance_ids` 不携带**（Resource 是网域内对象），克隆后按目标网域自动收敛候选并需重新勾选；**Exporter 安装登记（可选）不携带，需对新实例重新登记**；克隆产物是独立 Job，与源 Job 无持续绑定；**不引入「Job 模板」持久实体**——复用通过一次性克隆完成，与 Job 参数快照保护语义（映射变更不穿透已存 Job）保持一致 | P0 / v0.3+ 待评估  |
 | 实例选择                    | MVP 支持「按类型+网域自动收敛候选 + 手动勾选」（候选一键全选/反选、关键字筛选）；**`offline` 排除（MVP 必实现）**——候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（`maintenance` 排除口径与 [Module_07 8.1](Module_07_Monitoring_Object_Management.md) 一并对齐、MVP 不保证）；已选实例转 `offline` 后 M09 配置生成跳过（见下方「实例选择方式」与 [Module_07 8.1](Module_07_Monitoring_Object_Management.md)）；**v0.2 起支持 `filter` 模式（决策 53，由 v0.3+ 提前）**——按资源属性（网域 / 环境 / 应用 / 业务类型等）条件表达式筛选并预览匹配结果，**每次配置生成周期实时求值**：M07 新导入/同步的资源匹配条件即自动纳入采集，无需编辑 Job；筛选字段为 Resource 属性字段，label 仅作 UI 别名，不写标签 | P0 / v0.2 |
 | Exporter 安装/注册登记（可选）        | 在 Resource × Job 维度登记 exporter 安装/注册情况（`confirmed_by` / `notes` / `actual_port`），**纯留痕与人工背书，不作为生成 target 的前置**（决策 47-1）；未登记实例照常生成 target                                                                                    | P1         |
 | 实例采集状态回显        | Job 详情/编辑抽屉的实例列表新增「采集状态」列 + 外层汇总（**在线数 up / 实例总数 / 待采集数**）：存量实例显示真实 up / down；新保存未下发的实例显示「待采集」；已下发但 down 时提醒「配置已下发但未采集到数据，请检查采集器安装与网络连通」（决策 47-2，设计见 5.10；数据源 = Module_02 `/api/v1/targets` 代理，只读消费）                                                                                    | P0         |
 | ScrapeJob blackbox 类型支持 | Blackbox 拨测作为 `ScrapeJob` 的一种类型，通过 `job_type`、`blackbox_module`、`blackbox_targets` 配置；不再维护独立 `BlackboxTarget` 实体                        | P0         |
 | 技术指标库管理 | 平台可识别的指标元数据（指标名 / 类型 counter/gauge/histogram/summary / HELP/UNIT），回答「能采到什么」；**分组锚点为监控对象类型（monitor_type，多对多、关联带来源采集器标注，见 5.3）**、规则编辑按监控对象类型提示指标与 PromQL 校验；与业务指标库（业务语义契约）**并列互补**——技术库回答"指标是什么"、业务库回答"业务要什么"，两者 UI 互链、动线归组于「指标库」 | P1 |
-| 业务指标库 | 业务指标登记表（BusinessMetric）：业务负责人定义语义 / 阈值 / 所属业务域 / 负责人（owner 必填）；**登记不绑定角色——业务负责人自录或运维接工单代办（owner 仍指向业务负责人）**；运维消费后落地采集并标记「已上线」；登记表补「采集落地」列（online 显示关联 Job，语义契约 → 采集落地链路显性化）；**业务视图**（MVP 轻量聚合）：按 business_domain 聚合成员（微服务/中间件/主机）+ 业务指标 + 采集落地状态，语义层不改变采集配置逻辑；MVP 轻量版，v0.2+ 独立业务负责人角色入口 + 业务健康度看板 + 独立业务目录聚合视图 | P0 / v0.2+ |
+| 业务指标库 | 业务指标登记表（BusinessMetric）：业务负责人定义语义 / 阈值 / 所属业务域 / 负责人（owner 必填）；**登记不绑定角色——业务负责人自录或运维接工单代办（owner 仍指向业务负责人）**；运维消费后落地采集并标记「已上线」；登记表补「采集落地」列（online 显示关联 Job，语义契约 → 采集落地链路显性化）；**业务视图**（MVP 轻量聚合）：按 business_domain 聚合成员（微服务/中间件/主机）+ 业务指标 + 采集落地状态，语义层不改变采集配置逻辑；MVP 轻量版，v0.3+ 独立业务负责人角色入口 + 业务健康度看板 + 独立业务目录聚合视图 | P0 / v0.3+ |
 | 规则文件挂载 | MVP 规则管理入口（承载于独立「规则编辑」页，导航位于「指标库」之后）：上传 / 粘贴完整 `rules.yml`（**整文件透传**，`content_mode=yaml_passthrough`）→ YAML 语法校验 → 落库 `MonitoringRule`（`draft_status=ready`）→ 触发 M09 变更检测，由 M09 生成 / 确认 / 下发 `rules.yml`（**人工确认档**，对齐决策 38-1）——**保证规则变更与采集 Job 一样走 M09 统一配置下发闭环，不绕过 M09**；列表展示规则名 / 规则条数 / 更新时间 / 启用状态 / 下发状态（`change_status`）；支持启停 / 删除 / 详情（YAML 只读视图）；**不做字段级 PromQL 创作编辑**（v0.3 升级 `structured` 字段化表单，见 3.2） | P0         |
 | Exporter 指标库            | 静态内置库覆盖常见采集实现（node-exporter、mysqld-exporter、redis-exporter 等）的指标，按监控对象类型组织，并提供用户扩展入口（自定义指标集挂监控对象类型）；完整管理页面放 P1/P2                                              | P1 / P2    |
 | 高级 Relabel 管理           | 标签丢弃/保留/重写、正则替换、hashmod（未来）                                                                                                             | P2         |
@@ -123,7 +123,7 @@
 本模块的核心用户流程为「**监控对象类型接入 → 创建采集 Job → 配置生成下发 → 运行时采集**」：
 
 1. **监控对象类型接入**：运维工程师选择资源类别 → 细粒度监控对象类型，创建/复用默认采集配置（含默认采集参数与标签模板；新监控对象类型无标签模板时触发创建引导，v0.4+ CMDB 新类型经 Module\_04 待分类队列进入同一流程）；
-2. **创建采集 Job**：基于映射创建 ScrapeJob（快照继承默认参数），选择实例——MVP 手动勾选（同类型同网域候选收敛）→ v0.3+ 条件筛选（filter）→ v0.2+ 服务发现（service_discovery，微服务动态实例）；
+2. **创建采集 Job**：基于映射创建 ScrapeJob（快照继承默认参数），选择实例——MVP 手动勾选（同类型同网域候选收敛）→ v0.2 条件筛选（filter，决策 53）→ v0.3+ 服务发现（service_discovery，微服务动态实例）；
 3. **配置生成与人工确认下发**：Module\_09 轮询感知策略变更（pull 模式——M01 写库仅维护 `updated_at`、不主动通知，**非"保存即触发生成草稿"**），生成 `prometheus.yml`（含 `static_configs[].labels` 注入 app/biz）**草稿**，**经人工确认后**下发（见 Module\_09 3.x）；
 4. **运行时采集**：Prometheus/Edge Agent 抓取，全局目标状态与采集诊断视图由 Module\_02 提供；**Job 上下文采集状态回显**（实例 up / down / 待采集 + 在线数汇总）经 Module\_02 `/api/v1/targets` 代理回流到本模块 Job 详情/编辑抽屉（决策 47-2），闭合「配置 → 下发 → 验证」动线。
 
@@ -207,7 +207,7 @@
 > - **三层解决手段**：
 >   1. **映射层（MVP 已有）**：`CITypeExporterMapping.default_port` 在映射表单中可编辑（选 Exporter 后自动填充、可覆盖），解决"某监控对象类型普遍使用非标端口"；
 >   2. **网域级覆盖（v0.2，已预留）**：`CITypeExporterMappingOverride` 按网域覆盖 `default_port`，解决"某网域统一非标端口"；
->   3. **实例级端口覆盖（v0.2+，建议新增）**：同一监控对象类型下个别实例端口不同（如 node\_exporter 一个 9100 一个 19100）时，支持按实例覆盖端口；MVP 不实现，v0.2+ 随多网域能力评估落地方式（Resource 增加可选 `scrape_port` 或 Job 级 target 端口映射）。
+>   3. **实例级端口覆盖（v0.2，Resource 级 `scrape_port`）**：同一监控对象类型下个别实例端口不同（如 node\_exporter 一个 9100 一个 19100）时，支持按实例覆盖端口——方案定为 **Resource 级 `scrape_port`**：M07 Resource 增加**可选 `scrape_port` 字段**（M07 PRD 同步定义，本模块从 M01 视角引用）；M09 生成 target 时端口解析优先级：`Resource.scrape_port`（实例自带）→ 网域覆盖表 `CITypeExporterMappingOverride` → 映射默认 `CITypeExporterMapping.default_port`（回落 `ExporterTemplate.default_port`）；端口在 M07 资源登记 / 编辑 / Excel 导入时可选填写（留空走默认解析链），**M01 建 Job 动线不变**，Job 实例列表可只读回显「生效端口」；典型场景：同一主机运行多个同类实例（如两个 MySQL 3306/3307），M07 登记为两行资源各带各的端口。**Job 级端口映射表不做**——与 filter / service_discovery 动态纳入模式天然冲突（动态实例无法预配端口），且「台账归别人管、采集团队只有 Job 配置权限」的组织场景经确认不存在。
 > - **Exporter 安装登记的职责边界**：安装登记（5.6，可选）是"状态登记 + 人工背书"，**不承担端口编辑**（登记主键维度为 `resource_id` × `scrape_job_id`，端口解决见第 1/2/3 层，不作为安装登记的可写字段）；可增量登记**实际监听端口**（仅记录，配置生成时若与生效端口不一致则提示，不自动改配置）。
 
 > **参数继承与同步策略（创建时快照 + 显式覆盖 + 手动同步）**：
@@ -404,7 +404,7 @@
 | monitor\_type            | enum      | Module\_07（资源类别 + 子类型推导）            | 监控对象类型           | 关联监控对象类型（派生的策略维度）                                                           |
 | exporter\_template\_id    | string    | CITypeExporterMapping | 默认采集器     | 关联默认采集器（采集实现）；可空（手填模式不选采集器，直接填采集参数）                     |
 | network\_domain\_id       | string    | Module\_09            | 网域              | 归属网域；**必填**，MVP 所有 ScrapeJob 必须绑定且仅绑定单一**已纳管网域**（未在 M09 完成监控纳管的网域不可选，保存时校验）；**v0.2 起扩展为网域集合（决策 54）**——一个逻辑 Job 可勾选多个已纳管网域，M09 生成器按域拆分扇出（每域独立 scrape_configs / targets / 变更单），MVP 存量单值自动迁移为单元素集合；「采集 Job」列表页提供网域查询条件（选项 = 已纳管网域） |
-| instance\_selection\_mode | enum      | 策略配置                  | 实例选择方式        | manual（MVP）/ **filter（v0.2，决策 53：条件表达式每生成周期实时求值，M07 新增资源匹配即自动纳入，无需编辑 Job）** / service_discovery（v0.2+ 预留）                                         |
+| instance\_selection\_mode | enum      | 策略配置                  | 实例选择方式        | manual（MVP）/ **filter（v0.2，决策 53：条件表达式每生成周期实时求值，M07 新增资源匹配即自动纳入，无需编辑 Job）** / service_discovery（v0.3+ 预留）                                         |
 | selected\_instance\_ids   | \[]string | Module\_07            | 已选实例           | 手动勾选模式下选中的 Resource ID 列表                                          |
 | instance\_filter          | object    | 策略配置                  | 实例筛选条件        | filter 模式下的筛选条件（v0.3+）                                             |
 | scrape\_interval          | duration  | 继承/覆盖                 | 采集间隔          | 默认来自 CITypeExporterMapping                                         |
@@ -423,7 +423,7 @@
 | blackbox\_module          | string    | 策略配置                  | 拨测模块          | `job_type=blackbox` 时必填，引用 `blackbox.yml` 模块名，如 `http_2xx`         |
 | blackbox\_targets         | \[]BlackboxTarget | 策略配置                  | 拨测目标          | `job_type=blackbox` 时必填；探测目标对象列表（含目标地址、协议、完整 URL），结构见下方「BlackboxTarget 结构」 |
 | enabled                   | bool      | 用户                    | 启用状态          | 是否启用；与 `draft_status` 正交：草稿也可标记启用意图，但 `draft_status=draft` 时不参与配置生成                                       |
-| draft\_status             | enum      | 用户/策略配置            | 草稿状态          | `draft`（编辑中，MVP 已开放保存草稿）/ `ready`（待下发）；默认 `ready`（**默认「提交生效」**）；**draft 单向流转 draft→ready，ready 不再回退**（仅新建阶段可为 `draft`，提交生效转 `ready`）；**例外：新建未生效 Job 随 M09 变更单废弃时，由系统自动回退为 `draft`**（决策 43-3）；已生效对象的后续修改直接更新主字段、走正常变更管线；仅 `ready` 状态的对象进入 M09 配置生成候选集 |
+| draft\_status             | enum      | 用户/策略配置            | 草稿状态          | `draft`（编辑中；**字段 MVP 已落库、默认 `ready`，「保存草稿」交互 v0.3 开放**）/ `ready`（待下发）；默认 `ready`（**默认「提交生效」**）；**draft 单向流转 draft→ready，ready 不再回退**（仅新建阶段可为 `draft`，提交生效转 `ready`）；**例外：新建未生效 Job 随 M09 变更单废弃时，由系统自动回退为 `draft`**（决策 43-3）；已生效对象的后续修改直接更新主字段、走正常变更管线；仅 `ready` 状态的对象进入 M09 配置生成候选集 |
 | change\_status            | enum      | Module\_09（回写）      | 下发状态          | `pending`（存在 M09 待确认变更单）/ `confirmed`（变更单已确认，待下发）/ `deployed`（已下发生效）/ `none`（无在途变更）；**MVP 阶段 M09 回写 `pending/confirmed/none/deployed`**（`deployed` 提前到 MVP，决策 31-M2），M09 依据 ConfigDeployment success 记录回写，消除「已生效 vs 无变更」歧义 |
 | created\_at / updated\_at | datetime  | 平台                    | 仅技术信息         | 创建/更新时间；保存草稿同样更新 `updated_at`，但 M09 仅当 `draft_status=ready` 时才纳入源数据版本触发重算                            |
 
@@ -431,7 +431,7 @@
 
 > **网域约束（技术约束，不是管理偏好）**：
 >
-> - **网域绑定是技术约束，不是管理偏好**：隔离网域内目标只能被本网域的边缘采集器 / Prometheus 抓取（网络可达性）；Module_09 按网域生成并下发配置、断网自治——Job 不绑网域则配置无处下发。共性监控对象类型跨网域重复配置的痛点由既有机制收敛：映射层为网域无关全局预设（见 5.1）+ v0.2 网域覆盖表 + v0.2「克隆 Job」（同网域 / 跨网域一次性复制，见 3.1）。
+> - **网域绑定是技术约束，不是管理偏好**：隔离网域内目标只能被本网域的边缘采集器 / Prometheus 抓取（网络可达性）；Module_09 按网域生成并下发配置、断网自治——Job 不绑网域则配置无处下发。共性监控对象类型跨网域重复配置的痛点由既有机制收敛：映射层为网域无关全局预设（见 5.1）+ v0.2 网域覆盖表 + v0.2 Job 网域集合 + M09 按域扇出（决策 54，跨网域复用主场景）。
 > - 所有 ScrapeJob（`job_type=standard` 与 `job_type=blackbox`）必须绑定且仅绑定一个**已纳管网域**的 `network_domain_id`，禁止跨网域共享采集目标/拨测目标；未在 M09 完成监控纳管的网域不可作为 Job 归属网域（保存时校验，提示用户「请先到网域管理完成纳管」）。
 > - `instance_selection_mode=manual` 实例选择模式下，`selected_instance_ids` 选中的 Resource 必须与 Job 同属一个网域，保存时校验。
 > - **v0.2 起（决策 54）**：单网域约束放宽为「网域集合」——Job 可勾选多个已纳管网域；`selected_instance_ids` / 拨测目标按各自资源归属网域自动归组，M09 生成器按域拆分扇出（每域独立 scrape_configs / targets / 变更单）；实例与网域的匹配校验由「全域同域」变为「逐域同域」（语义不变）。MVP 行为不变（单网域）。
@@ -455,11 +455,13 @@
 > - 筛选结果预览（匹配实例清单）后写入 `instance_filter`，`instance_selection_mode=filter` 时生成配置按表达式实时求值（v0.2）；
 > - **新增资源自动纳入（决策 53 核心语义）**：filter 模式下 Job 不持有静态实例清单，M09 每次配置生成周期对条件表达式重新求值——M07 新导入 / 同步的资源匹配条件即自动进入 targets（无需编辑 Job），资源下线或属性变化导致不再匹配时自动移出；「待采集」回显（5.10）对自动纳入的新实例同样生效。
 
-> **v0.2+ 服务发现模式预留（微服务动态实例）**：微服务（K8s 扩缩容、实例漂移）场景下，静态 `selected_instance_ids` 手动勾选无法覆盖动态目标。预留演进（v0.2+ 落地，与 Module\_07 5.12 B `prometheus_builtin` / Module\_04 `KubernetesProvider` 对齐）：
+> **v0.3+ 服务发现模式预留（微服务动态实例）**：微服务（K8s 扩缩容、实例漂移）场景下，静态 `selected_instance_ids` 手动勾选无法覆盖动态目标。预留演进（v0.3+ 落地，与 Module\_07 5.12 B `prometheus_builtin` / Module\_04 `KubernetesProvider` 对齐）：
 >
 > - `instance_selection_mode` 扩展 **`service_discovery`**：Job 绑定服务发现源（K8s Service / Endpoints / Nacos 等），目标由发现结果 + `relabel_configs`（`__meta_*` → `app` / `service` 标签）动态生成，**不落 `selected_instance_ids`**；
 > - 默认采集配置（类型 → 采集实现 + 标签模板）**采集实现层复用**——映射与"目标从哪来（静态 / 服务发现）"解耦，服务发现模式仅替换 Job 的目标选择方式；
 > - 关联键沿用稳定业务标识（`app` / `biz`，不用 `instance`），与 Module\_07 5.15 业务指标标签规范一致。
+> - **容器实例资源监控定位（v0.2 口径）**：v0.2 容器实例资源监控走 **cAdvisor 方案**——每台虚机部署 cAdvisor exporter，作为一个普通采集 Job 绑定主机类资源 + filter 模式自动纳入新主机；容器发现由 cAdvisor 在宿主机内部完成，平台不感知容器个体，**不需要 docker_sd**；
+> - `docker_sd_configs` / `kubernetes_sd_configs` 降级为 v0.3+ 预留，仅当需要**直采容器内应用的 /metrics**（容器已发布端口或 host network 场景）时启用。
 
 > **blackbox Job 说明**：
 >
@@ -486,7 +488,7 @@
 
 > **默认采集器显式模式**：`exporter_template_id` **可空**（`application_http` / `blackbox` / 手填场景），但 UI **不能是"下拉留空"**——Job 表单中采集器选择为「**使用默认采集器（推荐）**」/「**手填采集参数**」显式二选一（Radio 切换），避免用户把"下拉留空"理解为"不需要采集器"；手填模式不选采集器、直接填写采集参数（间隔 / 超时 / 协议 / 路径）。
 
-> **端口不在 Job 层的理由**：`scrape` 端口**不纳入 `ScrapeJob` 可覆盖字段**——端口是 target 级参数，且直接影响 Prometheus 的 `instance` 标签（ip:port），端口 / 漂移会使其不稳定；`instance` 仅作为 **Prometheus 抓取目标身份**，不作为业务关联身份（业务关联走 `app` / `biz` / 稳定资源身份标签，见 5.1）。**端口口径（MVP，决策 46）**：MVP 端口**不进 `ScrapeJob` 快照**（`mapping_overrides` 亦**不含 `port`**），由 M09 生成器按 `CITypeExporterMapping.default_port` **→ 回落 `ExporterTemplate.default_port`** 解析；**Job 级端口快照留待 v0.2+ 评估**。端口分层解决网域 / 实例级差异：v0.2 通过 `CITypeExporterMappingOverride` 解决网域级端口（含安全 / 高危端口场景）；v0.2+ 再评估实例级端口覆盖。Job 表单只提供 Job 级统一参数：间隔、超时、协议、指标路径。
+> **端口不在 Job 层的理由**：`scrape` 端口**不纳入 `ScrapeJob` 可覆盖字段**——端口是 target 级参数，且直接影响 Prometheus 的 `instance` 标签（ip:port），端口 / 漂移会使其不稳定；`instance` 仅作为 **Prometheus 抓取目标身份**，不作为业务关联身份（业务关联走 `app` / `biz` / 稳定资源身份标签，见 5.1）。**端口口径（MVP 决策 46 + v0.2 实例级覆盖落地）**：端口**不进 `ScrapeJob` 快照**（`mapping_overrides` 亦**不含 `port`**），由 M09 生成器按 **`Resource.scrape_port`（实例自带，v0.2）→ 网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port`** 优先级解析；**Job 级端口映射表明确不做**——与 filter / service_discovery 动态纳入模式天然冲突（动态实例无法预配端口），且「台账归别人管、采集团队只有 Job 配置权限」的组织场景经确认不存在。端口分层解决网域 / 实例级差异：v0.2 通过 `CITypeExporterMappingOverride` 解决网域级端口（含安全 / 高危端口场景），实例级端口由 M07 Resource 可选 `scrape_port` 承载（v0.2，见 5.1「端口一致性说明」第 3 层）。Job 表单只提供 Job 级统一参数：间隔、超时、协议、指标路径。
 
 > **网域选择器空态引导**：`network_domain_id` 下拉选项**仅包含 M09 已纳管网域**（`is_monitored=true`）。若当前无已纳管网域，选择器空态显示「暂无已纳管网域，请先到网域管理完成纳管」并**内联跳转 M09**；保存时仍保留 `bad_request` 校验作为兜底（见 6.2.2）。
 
@@ -524,7 +526,7 @@
 >
 > - **保存/启停/删除成功提示**：由纯 toast 改为「**变更将由 M09 生成变更单，需确认后生效**」+「**前往配置变更确认**」跳转按钮（引导到 M09 完成发布审批）；
 > - **「状态」聚合列（MVP 四态占位）**：「采集 Job」列表新增「状态」聚合列，按以下规则展示四态：
->   - **草稿**（`draft_status=draft`，MVP 阶段无实例，状态列标签灰显并 Tooltip「v0.2 支持保存草稿」，状态筛选器中「草稿」选项禁用；v0.2 起真实草稿对象显示为正常 Tag 且可筛选）；
+>   - **草稿**（`draft_status=draft`，MVP 阶段无实例，状态列标签灰显并 Tooltip「v0.3 支持保存草稿」，状态筛选器中「草稿」选项禁用；v0.3 起真实草稿对象显示为正常 Tag 且可筛选）；
 >   - **待下发**（`draft_status=ready` 且 `enabled=true` 且 `change_status=pending/confirmed`：存在 M09 待确认或已确认但未最终下发的变更单）；
 >   - **已生效**（`draft_status=ready` 且 `enabled=true` 且 `change_status=none/deployed`：无在途变更或已确认并下发成功；`deployed` 提前到 MVP（决策 31-M2），确认下发成功后由 M09 依据 ConfigDeployment success 回写 `deployed`）；
 >   - **已停用**（`enabled=false`）；
@@ -620,7 +622,7 @@
 
 > 该状态可作为独立表存在，也可在 Resource 上冗余展示。MVP 提供可选的「标记已安装」登记动作，不强制。
 
-> **职责边界**：安装登记是"状态登记 + 人工背书"，**不承担端口编辑**（登记主键维度为 `resource_id` × `scrape_job_id`）；实际监听端口仅作登记与一致性提示，端口不一致的解决手段见 5.1「端口一致性说明」（映射层 default\_port 可编辑 → 网域覆盖 v0.2 → 实例级端口覆盖 v0.2+）。
+> **职责边界**：安装登记是"状态登记 + 人工背书"，**不承担端口编辑**（登记主键维度为 `resource_id` × `scrape_job_id`）；实际监听端口仅作登记与一致性提示，端口不一致的解决手段见 5.1「端口一致性说明」（映射层 default\_port 可编辑 → 网域覆盖 v0.2 → 实例级端口覆盖 v0.2，Resource 级 `scrape_port`）。
 
 > 该登记针对**独立进程型采集实现**（含平台内置 Exporter 与用户登记的自研采集器）；`job_type=blackbox` 的拨测 Job 以及 `application_http` 业务指标端点抓取**不涉及目标实例的安装登记**（前者由 blackbox exporter 自身进程负责，后者无独立 exporter 进程，`not_applicable`）。边缘 blackbox exporter 进程/容器实例的健康状态由 [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 的 EdgeAgent 维护。
 
@@ -673,7 +675,7 @@
 | description | string | ✅ | 指标语义 | **业务人话**说明（如"支付成功率 = 支付成功笔数 / 支付总笔数"），由业务负责人填写 |
 | metric\_type | enum | ✅ | 指标类型 | counter / gauge / histogram / summary |
 | unit | string | ❌ | 单位 | 如 % / 笔 / 元 |
-| business\_domain | string | ✅ | 所属业务域 | 归属业务类型（payment / data-api），与 Module\_07 `business_domain` 对齐（v0.2+ 关联独立业务目录实体） |
+| business\_domain | string | ✅ | 所属业务域 | 归属业务类型（payment / data-api），与 Module\_07 `business_domain` 对齐（v0.3+ 关联独立业务目录实体） |
 | app\_name | string | ❌ | 关联应用 | 产出该指标的关联应用服务（值 = 平台 `app_name`） |
 | threshold\_suggestion | string | ❌ | 建议阈值 | 业务负责人建议的告警阈值（如"成功率 ≥ 99.9%"），作为 v0.3+ 规则编辑的参考输入 |
 | owner | string | ✅ | 业务负责人 | 指标语义责任人（**必填**，语义所有权不随录入者转移） |
@@ -685,11 +687,11 @@
 
 > **登记模式（登记动作 ≠ 语义所有权）**：登记不绑定角色——**业务负责人自录（`self`）或运维接工单代办（`agent`）均可**；`owner` 字段必填且指向业务负责人（语义所有权不随录入者转移）；运维代录后可选「请业务负责人确认语义」，业务人员不熟悉平台时由运维代录、语义责任不丢失。
 
-> **业务域聚合视图版本归属**：MVP 提供**轻量业务视图**（业务指标库页内 Tab「登记表 / 业务视图」）——按 `business_domain` 自动聚合成员（应用服务/微服务 + 中间件 + 主机，从 Resource.business_domain 归并）+ 业务指标清单 + 埋点/采集落地状态，把"微服务是业务域的实现载体、业务域是微服务的语义聚合"在 MVP 即可感知；**v0.2+ 独立业务目录**（Module\_07 决策 3.46）提供完整业务域聚合视图——成员列表 + 健康度看板（M01-BIZ-02）+ 采集覆盖视图。**业务语义层不改变采集配置逻辑**（采集仍按监控对象类型 + 实例选择），仅影响视图 / 查询聚合（`biz`）/ 告警分组（v0.3+）/ 批量操作入口。
+> **业务域聚合视图版本归属**：MVP 提供**轻量业务视图**（业务指标库页内 Tab「登记表 / 业务视图」）——按 `business_domain` 自动聚合成员（应用服务/微服务 + 中间件 + 主机，从 Resource.business_domain 归并）+ 业务指标清单 + 埋点/采集落地状态，把"微服务是业务域的实现载体、业务域是微服务的语义聚合"在 MVP 即可感知；**v0.3+ 独立业务目录**（Module\_07 决策 3.46）提供完整业务域聚合视图——成员列表 + 健康度看板（M01-BIZ-02）+ 采集覆盖视图。**业务语义层不改变采集配置逻辑**（采集仍按监控对象类型 + 实例选择），仅影响视图 / 查询聚合（`biz`）/ 告警分组（v0.3+）/ 批量操作入口。
 
 > **采集落地链路**：登记表「采集落地」列与业务视图展示业务指标 → 关联应用（`app_name`）→ 采集 Job（`ScrapeJob.selected_instance_ids` 覆盖该应用资源）→ 指标可查（查询中心）的落地链路，`online` 状态显示关联 Job；无关联 Job 的 `online` 仅标注"已上线 · 指标可查"。
 
-> **MVP / v0.2+ 分层**：MVP = 最小登记表（自录 + 代办均可，`owner` 必填保证职责可溯）；v0.2+ = 独立业务负责人角色入口（配合 Module\_06 权限）+ 业务健康度看板 + 业务域聚合视图。
+> **MVP / v0.3+ 分层**：MVP = 最小登记表（自录 + 代办均可，`owner` 必填保证职责可溯）；v0.3+ = 独立业务负责人角色入口（配合 Module\_06 权限）+ 业务健康度看板 + 业务域聚合视图。
 
 ### 5.10 Job 实例采集状态回显（只读消费 Module_02）
 
@@ -731,7 +733,7 @@
 | 方向 | 接口 | 说明 |
 |------|------|------|
 | 写（本模块） | `POST/PUT/DELETE /api/v1/ci-exporter-mappings` | 默认采集配置 CRUD（采集实现层，每类型可多行，不绑网域） |
-| 写（本模块） | `POST/PUT/DELETE /api/v1/scrape-jobs` | ScrapeJob CRUD（含 instance_selection_mode / filter 表达式 / service_discovery 配置，v0.3+/v0.2+ 扩展字段） |
+| 写（本模块） | `POST/PUT/DELETE /api/v1/scrape-jobs` | ScrapeJob CRUD（含 instance_selection_mode / filter 表达式（v0.2）/ service_discovery 配置（v0.3+ 预留）等扩展字段） |
 | 写（本模块） | `POST/PUT/DELETE /api/v1/monitoring-rules` | MonitoringRule CRUD（MVP 整文件透传：`content_mode` / `rule_content`；列表含下发状态 `change_status`，来自 M09 变更单） |
 | 读（本模块） | `GET /api/v1/exporter-templates`、`GET /api/v1/metric-library` | 采集实现（ExporterTemplate）与指标库查询（指标库按监控对象类型过滤） |
 | 读（本模块） | `GET /api/v1/scrape-jobs` | ScrapeJob 列表；Query 支持 `label_template_id` 反查引用本模板的 Job（含下发状态 `change_status`，MVP，来自 M09 变更单状态） |
@@ -740,7 +742,7 @@
 | 只读消费（本模块 ← Module\_02） | `GET /api/v1/targets`（M02 代理） | Job 实例采集状态回显（5.10，决策 47-2）：按 Job 过滤取 health / lastScrape / lastError，本模块不直连 Prometheus |
 | 调用（v0.3+） | Module\_02 `validate` / `preview` | 规则编辑时 PromQL 校验与指标预览 |
 
-> **跨模块契约要点**：①`label_template_id` 为跨模块唯一 FK（Module\_07 维护）；②`instance_filter` 筛选字段仅限 Resource 属性字段（label 名仅 UI 别名，不落表达式，见 5.4）；③v0.2+ `service_discovery` 目标由发现结果 + relabel 动态生成（不落 `selected_instance_ids`）。
+> **跨模块契约要点**：①`label_template_id` 为跨模块唯一 FK（Module\_07 维护）；②`instance_filter` 筛选字段仅限 Resource 属性字段（label 名仅 UI 别名，不落表达式，见 5.4）；③v0.3+ `service_discovery` 目标由发现结果 + relabel 动态生成（不落 `selected_instance_ids`）。
 
 ### 6.2 管理面 REST API 详细契约
 
@@ -772,7 +774,7 @@
 | POST | `/api/v1/scrape-jobs` | 5.2 / 5.4 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`network_domain_id` 未在 M09 完成监控纳管；**创建到冻结（禁用）网域**（决策 30）；`instance_selection_mode=manual` 但 `selected_instance_ids` 与监控对象类型/网域不匹配；`auth_type=basic` 缺 `username/password` 或 `auth_type=bearer` 缺 `token`（决策 31） |
 | PUT | `/api/v1/scrape-jobs/{id}` | 5.2 / 5.4 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：网域未纳管 / 冻结网域禁止新增该域实例（决策 30，允许移除/删减）/ 实例不一致 / 认证、TLS 组合非法 |
 | DELETE | `/api/v1/scrape-jobs/{id}` | — | `{ id }` | `not_found` |
-| POST | `/api/v1/scrape-jobs/{id}/clone` | `{ job_name?: string, network_domain_id?: string }`（v0.2；缺省 `job_name` 自动追加后缀，缺省网域 = 源网域） | 克隆产物的完整对象 | `not_found`；`bad_request`：目标网域未纳管 |
+| POST | `/api/v1/scrape-jobs/{id}/clone` | `{ job_name?: string, network_domain_id?: string }`（**v0.3+ 待评估**，已移出 v0.2 范围——决策 54 扇出已覆盖跨网域复用主场景；缺省 `job_name` 自动追加后缀，缺省网域 = 源网域） | 克隆产物的完整对象 | `not_found`；`bad_request`：目标网域未纳管 |
 | GET | `/api/v1/scrape-jobs?label_template_id={template_id}` | Query: `label_template_id`（必填） | `{ items: [...] }`：引用该标签模板的 Job 列表，item 含 `change_status`（pending/confirmed/none/deployed，**MVP**，来自 M09 变更单状态，deployed 由 M09 依据 ConfigDeployment success 回写） | `not_found`：模板不存在 |
 
 > **UI 空态引导优先**：除 `bad_request` 外，UI 层应优先通过网域选择器空态引导（「暂无已纳管网域，前往网域管理完成纳管」+ 内联跳转 M09）避免用户进入保存失败路径；`bad_request` 仅作兜底（见 3.1「空态依赖引导规范」）。
@@ -881,7 +883,7 @@ manual（MVP：手动勾选，候选按类型+网域收敛）
    │
    ├──► filter（v0.2，决策 53：按资源属性条件筛选，label 仅 UI 别名；每生成周期实时求值，新增资源自动纳入）
    │
-   └──► service_discovery（v0.2+：服务发现 + relabel 动态生成，不落 selected_instance_ids）
+   └──► service_discovery（v0.3+：服务发现 + relabel 动态生成，不落 selected_instance_ids）
 ```
 
 > 三种模式互斥（同一 Job 仅一种）；演进向后兼容——manual 是 MVP 基线，filter / service_discovery 是扩展模式，均不影响标签管理（筛选/发现只决定"哪些实例被采集"，不写标签）。
@@ -926,7 +928,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 
 > **登记粒度**：`resource_id` × `ScrapeJob` 维度；同一实例被多个 Job 选中时分别登记。
 
-**⑤ ScrapeJob.draft_status（草稿状态，v0.2）**
+**⑤ ScrapeJob.draft_status（草稿状态；字段 MVP 已落库、默认 `ready`，「保存草稿 / 提交生效 / 批量提交」交互 v0.3 开放）**
 
 ```text
         新建对象点「保存草稿」（基础校验通过）
@@ -994,6 +996,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 - [ ] {P0} Job 详情/编辑抽屉实例列表展示「采集状态」列（待采集 / up / down / unknown）与外层汇总（在线数 up / 实例总数 / 待采集数）；新保存未下发的实例显示「待采集」、在线数不变；变更下发并完成首次抓取后状态自动转为 up / down（决策 47-2）。
 - [ ] {P0} 已下发但 down 的实例展示提醒「配置已下发但未采集到数据，请检查采集器安装与网络连通」，并附 `lastError` 摘要（决策 47-2）。
 - [ ] {P1} 安装登记时可登记实例上 exporter 实际监听端口（actual\_port）；配置生成时与生效端口不一致时提示，不自动改配置。
+- [ ] {P0 / v0.2} 实例级端口覆盖生效：M07 Resource 可选 `scrape_port` 字段登记 / 编辑 / Excel 导入（留空走默认解析链）；M09 生成 target 时端口解析优先级为 `Resource.scrape_port`（实例自带）→ 网域覆盖表 `CITypeExporterMappingOverride` → 映射默认 `CITypeExporterMapping.default_port`（回落 `ExporterTemplate.default_port`）；`scrape_port` 留空时按默认解析链回落；Job 实例列表只读回显「生效端口」；**不提供 Job 级端口映射表**
 - [ ] {P0} {v0.3} 规则编辑 UI 支持类 YAML 表单（expr / for / labels / annotations），调用查询中心进行 PromQL 校验，并提供指标实时预览。
 - [ ] {P0} 指标库可注册/查看，包含 metric\_type、help、unit。
 - [ ] {P0} MVP 指标库最小集按监控对象类型组织（`host_linux` / `host_windows` / mysql / redis / kafka / snmp / application\_http）预置：node-exporter、windows-exporter、mysqld-exporter、redis-exporter、kafka-exporter、snmp-exporter 与 HTTP 抓取（application\_http）的指标，规则编辑时可提示指标名与标签。
@@ -1052,15 +1055,15 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 - [ ] {P0} 补配入口收敛：Job 表单缺模板 Alert 主按钮 / 映射列表「补配」/「待配置」badge 均打开该映射行「更换 / 补配」轻量抽屉（`LabelTemplateSelectDrawer`，带入监控对象类型 / 资源类别 / 默认采集器只读上下文）；「前往标签模板管理」仅保留在轻量抽屉空态
 - [ ] {P0} Job 表单缺模板 Alert 按缺口类型区分文案（映射未关联 →「立即补配」；类别无模板 →「前往创建模板」），且为软引导不阻塞保存
 - [ ] {P0} 采集 Job 保存/启停/删除成功后，提示「变更将由 M09 生成变更单，需确认后生效」并提供「前往配置变更确认」跳转按钮
-- [ ] {P0} 「采集 Job」列表「状态」聚合列展示四态：草稿 / 待下发 / 已生效 / 已停用；MVP 阶段「草稿」态无实例，标签灰显并 Tooltip 提示「v0.2 支持保存草稿」，状态筛选器中「草稿」选项禁用；`change_status` 支持 `pending` / `confirmed` / `deployed` / `none` 四枚举（MVP 阶段 M09 回写 `pending/confirmed/none`，v0.2 起扩展 `deployed`）
+- [ ] {P0} 「采集 Job」列表「状态」聚合列展示四态：草稿 / 待下发 / 已生效 / 已停用；MVP 阶段「草稿」态无实例，标签灰显并 Tooltip 提示「v0.3 支持保存草稿」，状态筛选器中「草稿」选项禁用；`change_status` 支持 `pending` / `confirmed` / `deployed` / `none` 四枚举（MVP 阶段 M09 回写 `pending/confirmed/none`，v0.2 起扩展 `deployed`）
 - [ ] {P0} 「规则编辑」页支持上传 / 粘贴完整 `rules.yml`（**整文件透传**，`content_mode=yaml_passthrough`）挂载规则：YAML 语法非法时给出错误提示（至少校验 `groups` 存在且为数组）；保存即 `draft_status=ready` 进入 M09 变更检测管线
 - [ ] {P0} 规则列表展示规则名 / 规则条数 / 更新时间 / 启用状态 / 下发状态（`change_status`），支持启停 / 删除 / 详情（YAML 只读视图）
 - [ ] {P0} 规则文件挂载保存/启停/删除成功后，提示「变更将由 M09 生成变更单，需确认后生效」并提供「前往配置变更确认」跳转按钮；规则列表「下发状态」列展示 `change_status`（与采集 Job 同源同机制，MVP 起）
 - [ ] {P0} 规则挂载后，M09 生成的 `rules.yml` 草稿包含该透传规则内容，支持变更单**人工确认**后下发生效（决策 38-1，与采集 Job 同动线）；下发后规则状态回写 `change_status`
-- [ ] {P0} {v0.2} 采集 Job 新建表单提供「保存草稿」与「提交生效」两个主操作：「保存草稿」仅做基础校验，允许半成品暂存；「提交生效」做完整校验（含必填项、网域已纳管、实例同域等），通过后 `draft_status` 转 `ready` 并进入 M09 变更检测管线；已生效 Job 的编辑仅提供普通「保存」，直接走 M09 变更单确认管线（不做草稿快照）
-- [ ] {P0} {v0.2} 采集 Job 列表支持多选「批量提交生效」：选中的 `draft_status=draft` 对象逐条校验，失败的给出逐条错误清单，成功的批量转 `ready`
-- [ ] {P0} {v0.2} 采集 Job 列表操作列提供「克隆」入口：打开新建抽屉并预填源 Job 的采集参数 / 监控对象类型 / 采集实现 / 标签模板；同网域克隆可直接改选实例，跨网域克隆需改选目标网域、实例清空重选，并提示安装登记（可选）需重新进行
-- [ ] {P0} {v0.2} 克隆产物为独立 Job，与源 Job 无绑定关系（源 Job 后续变更不影响克隆产物），不引入「Job 模板」持久实体
+- [ ] {P0} {v0.3} 采集 Job 新建表单提供「保存草稿」与「提交生效」两个主操作：「保存草稿」仅做基础校验，允许半成品暂存；「提交生效」做完整校验（含必填项、网域已纳管、实例同域等），通过后 `draft_status` 转 `ready` 并进入 M09 变更检测管线；已生效 Job 的编辑仅提供普通「保存」，直接走 M09 变更单确认管线（不做草稿快照）
+- [ ] {P0} {v0.3} 采集 Job 列表支持多选「批量提交生效」：选中的 `draft_status=draft` 对象逐条校验，失败的给出逐条错误清单，成功的批量转 `ready`
+- [ ] {P0} {v0.3+ 待评估} 采集 Job 列表操作列提供「克隆」入口：打开新建抽屉并预填源 Job 的采集参数 / 监控对象类型 / 采集实现 / 标签模板；同网域克隆可直接改选实例，跨网域克隆需改选目标网域、实例清空重选，并提示安装登记（可选）需重新进行
+- [ ] {P0} {v0.3+ 待评估} 克隆产物为独立 Job，与源 Job 无绑定关系（源 Job 后续变更不影响克隆产物），不引入「Job 模板」持久实体
 - [ ] {P0} {v0.3} 规则编辑 UI 同样提供「保存草稿」与「提交生效」（仅新建阶段）；草稿态允许 PromQL 半成品，提交生效时调用 Module_02 做 PromQL 校验
 
 ### 9.2 技术验收（后端/契约可验证）
@@ -1072,16 +1075,16 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 - [ ] {P0} M09 配置生成**不再过滤未登记安装的实例**（决策 47-1）：target 生成只取决于 `selected_instance_ids`（+ `offline` 排除 + `enabled` + `draft_status`）。
 - [ ] {P1} v0.4+ 支持基于外部 CMDB 自动发现实例并推荐监控策略；v1.0 支持与 ITIL 流程联动校验监控策略覆盖率。
 - [ ] {P1} `instance_filter`（v0.3+）筛选字段仅允许 Resource 属性字段（label 名仅作 UI 别名、由模板 Mapping 只读派生，不落筛选表达式）；筛选不写标签，与 Module\_07「标签配置唯一入口原则」一致。
-- [ ] {P1} v0.2+ `service_discovery` 模式：目标由服务发现结果 + `relabel_configs` 动态生成（不落 `selected_instance_ids`），关联键沿用 `app` / `biz`（不用 `instance`），默认采集配置采集实现层复用。
+- [ ] {P1} v0.3+ `service_discovery` 模式：目标由服务发现结果 + `relabel_configs` 动态生成（不落 `selected_instance_ids`），关联键沿用 `app` / `biz`（不用 `instance`），默认采集配置采集实现层复用。
 - [ ] {P1} `BusinessMetric.owner` 必填校验；`business_domain` 与 Module\_07 资源 `business_domain` 对齐（同名同值）；状态机 `pending → instrumented → online` 流转可验证
 - [ ] {P0} `ExporterTemplate` 增加 `os / arch / download_url / homepage` 字段并落库；`host` 粗粒度资源按 `os_type` 映射为 `host_linux` / `host_windows` 细粒度监控对象类型；自研采集器（`is_builtin=false`）可创建、查询并在「采集器管理」页面展示。
 - [ ] {P0} `ExporterTemplate.source` 枚举（`official` / `third_party` / `internal`）落库；`source=internal` 创建时 `default_port` / `metrics_path` / `scheme` 必填校验；「采集 Job」列表接口支持 `network_domain_id` 查询参数（仅接受已纳管网域）。
 - [ ] {P0} `GET /api/v1/scrape-jobs` 返回 item 级 `change_status`（`pending` / `confirmed` / `deployed` / `none`；MVP 阶段 M09 回写 `pending/confirmed/none`，v0.2 起扩展 `deployed`；由 M09 变更单 / 下发记录状态回写；pull 模式，M01 不主动通知）
-- [ ] {P0} {v0.2} `ScrapeJob` / `MonitoringRule` 均新增 `draft_status`（`draft`/`ready`）字段；MVP 阶段所有对象默认 `ready`，字段已落库但 UI 仅展示 `ready` 相关三态
-- [ ] {P0} {v0.2} [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 配置生成候选集**仅包含** `draft_status=ready` 的 `ScrapeJob` / `MonitoringRule`；`draft_status=draft` 对象及 `enabled=false` 对象均不参与配置生成
-- [ ] {P0} {v0.2} 保存草稿时仅更新 `draft_status`/`updated_at`，**不触发** M09 源数据版本重算；提交生效时 `updated_at` 变化且 `draft_status=ready`，M09 下一周期将其纳入源数据版本并生成配置草稿
-- [ ] {P0} {v0.2} `GET /api/v1/scrape-jobs` 返回 `draft_status`，前端据此与 `change_status` 聚合状态列「草稿」态
-- [ ] {P0} {v0.2} `POST /api/v1/scrape-jobs/{id}/clone` 复制源 Job 的采集参数 / `job_type` / 监控对象类型 / 采集实现 / 标签模板，**不携带** `selected_instance_ids` 与安装登记记录；跨网域克隆时校验目标网域已纳管
+- [ ] {P0} `ScrapeJob` / `MonitoringRule` 均含 `draft_status`（`draft`/`ready`）字段：**MVP 已落库、所有对象默认 `ready`**，MVP 阶段 UI 仅展示 `ready` 相关三态；「保存草稿 / 批量提交生效」交互 v0.3 开放
+- [ ] {P0} [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 配置生成候选集**仅包含** `draft_status=ready` 的 `ScrapeJob` / `MonitoringRule`；`draft_status=draft` 对象及 `enabled=false` 对象均不参与配置生成（字段机制 MVP 已生效）
+- [ ] {P0} {v0.3} 保存草稿时仅更新 `draft_status`/`updated_at`，**不触发** M09 源数据版本重算；提交生效时 `updated_at` 变化且 `draft_status=ready`，M09 下一周期将其纳入源数据版本并生成配置草稿
+- [ ] {P0} {v0.3} `GET /api/v1/scrape-jobs` 返回 `draft_status`，前端据此与 `change_status` 聚合状态列「草稿」态
+- [ ] {P0} {v0.3+ 待评估} `POST /api/v1/scrape-jobs/{id}/clone` 复制源 Job 的采集参数 / `job_type` / 监控对象类型 / 采集实现 / 标签模板，**不携带** `selected_instance_ids` 与安装登记记录；跨网域克隆时校验目标网域已纳管
 - [ ] {P0} `MonitoringRule` 新增 `content_mode`（`yaml_passthrough` / `structured`）与 `rule_content` 字段并落库；`content_mode=yaml_passthrough` 保存时校验 `rule_content` 非空且 YAML 合法（至少 `groups` 存在且为数组）
 - [ ] {P0} Module\_09 生成 `rules.yml` 时，`content_mode=yaml_passthrough` 的规则将 `rule_content` **原样并入**；规则保存 / 启停 / 删除引起 `updated_at` 变化后，M09 下一轮询周期检测并重新生成 `rules.yml` 草稿，经变更单**人工确认**后下发（pull 模式，M01 不主动通知；对齐决策 38-1）
 - [ ] {P0} {v0.3} `MonitoringRule` 草稿机制与 `ScrapeJob` 一致（仅新建阶段），提交生效时调用 Module_02 PromQL 校验接口
@@ -1105,10 +1108,10 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 | `ExporterTemplate.source`             | 采集器来源             | `official`（开源官方）/ `third_party`（第三方）/ `internal`（自研）；登记 / 编辑表单按来源引导（自研时默认端口 / 采集路径 / 协议必填并提示按实际部署填写）；登记即入池，与预置采集器同动线 |
 | `ScrapeJob`                           | 采集 Job           | 实际采集任务（实例层），绑定单一网域                                        |
 | `change_status`                       | 下发状态           | 采集 Job / 规则的变更下发状态：`pending`（存在 M09 待确认变更单）/ `confirmed`（变更单已确认，待下发）/ `deployed`（已下发生效，v0.2 起由 M09 下发记录回写）/ `none`（无在途变更）；MVP 阶段回写 `pending/confirmed/none`，v0.2 起扩展 `deployed` |
-| `draft_status`                        | 草稿状态           | `draft`（编辑中，不参与配置生成）/ `ready`（待下发，进入 M09 配置生成候选集）；默认 `ready`；**仅新建阶段可为 `draft`**，`ready` 后不回退；MVP 阶段 UI 仅展示 `ready` 相关三态，v0.2 开放用户保存草稿 |
+| `draft_status`                        | 草稿状态           | `draft`（编辑中，不参与配置生成）/ `ready`（待下发，进入 M09 配置生成候选集）；默认 `ready`；**仅新建阶段可为 `draft`**，`ready` 后不回退；**字段 MVP 已落库、默认 `ready`**，MVP 阶段 UI 仅展示 `ready` 相关三态，v0.3 开放用户保存草稿 |
 | 保存草稿                              | 保存草稿           | 仅新建对象可用：将当前表单内容持久化并标记 `draft_status=draft`，仅做基础校验，允许半成品暂存 |
 | 提交生效                              | 提交生效           | 对草稿对象做完整校验（含必填项，规则含 PromQL），通过后 `draft_status` 转 `ready` 且不再回退，进入 M09 变更检测与发布管线 |
-| 克隆 Job                              | 克隆 Job           | {v0.2} 一次性复制源 Job 的采集参数 / 监控对象类型 / 采集实现 / 标签模板生成新 Job（非持久模板、与源 Job 无绑定）；实例选择与安装登记（可选）重做，跨网域克隆时目标网域改选 |
+| 克隆 Job                              | 克隆 Job           | {v0.3+ 待评估} 一次性复制源 Job 的采集参数 / 监控对象类型 / 采集实现 / 标签模板生成新 Job（非持久模板、与源 Job 无绑定）；实例选择与安装登记（可选）重做，跨网域克隆时目标网域改选；**已移出 v0.2 范围**（决策 54 扇出已覆盖跨网域复用主场景） |
 | `job_type`                            | 采集 / 拨测           | `standard`=标准采集；`blackbox`=拨测                                |
 | `blackbox_module`                     | 拨测模块             | 引用 `blackbox.yml` 模块名，如 `http_2xx` / `icmp_ping`             |
 | `blackbox_targets`                    | 拨测目标             | 探测目标列表（地址 / 协议 / 完整 URL）                                  |
@@ -1120,7 +1123,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 | 自定义指标集 | 自定义指标集         | 业务服务（Go/Python/自研）仍属 application_http，自定义指标**直接挂监控对象类型**（`monitor_types` 多对多 + `source_exporter` 来源标注），无需模板 / 无需登记市场 |
 | `register_source`                     | 登记来源             | 业务指标登记来源：`self`（业务负责人自录）/ `agent`（运维工单代办，owner 仍指向业务负责人） |
 | 业务负责人（Business Owner）             | 业务负责人            | 业务指标语义所有权角色：定义语义 / 阈值 / 看板；语义编辑权不随录入者转移 |
-| 业务域聚合视图                            | 仅技术信息            | v0.2+ 独立业务目录视图：成员列表（应用/微服务+中间件+主机）+ 健康度看板 + 采集覆盖；语义层不改变采集配置逻辑 |
+| 业务域聚合视图                            | 仅技术信息            | v0.3+ 独立业务目录视图：成员列表（应用/微服务+中间件+主机）+ 健康度看板 + 采集覆盖；语义层不改变采集配置逻辑 |
 | `metric_type`                         | 指标类型             | counter / gauge / histogram / summary / unknown               |
 | `MetricLibraryItem.category`          | 语义域             | 可选（P1 增强）：cpu / memory / disk / network 等，指标分组浏览与提示聚类维度；按「语义域 +监控对象类型」组织，不按 Exporter |
 | `MonitoringRule`                      | 告警 / 记录规则        | 规则编辑模型（MVP 起：整文件透传挂载 `content_mode=yaml_passthrough` + `rule_content`，保存即进入 M09 变更检测与下发；v0.3 起字段化 UI 逐条写入 `structured`）                    |
@@ -1135,7 +1138,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 | `ScrapeTarget` / `ScrapeLog`          | 仅技术信息            | 运行时采集数据，独立状态页与诊断视图由 Module\_02 承担；Job 上下文只读回显见 5.10                               |
 | `MONITOR_TYPE_DERIVATION_MAP`                | 仅技术信息            | 粗粒度类别（含 `os_type` / `database_type` / `middleware_type`） → 细粒度监控对象类型映射表；`host + linux` → `host_linux`，`host + windows` → `host_windows`，`database + mysql` → mysql |
 | `instance_filter`                     | 实例筛选条件           | v0.3+ 条件筛选表达式：筛选字段 = Resource 属性字段（label 仅作 UI 别名，由模板映射只读派生），筛选不写标签 |
-| `service_discovery`                   | 服务发现             | v0.2+ 实例选择模式：目标由服务发现结果 + relabel 动态生成（微服务动态实例），不落手动勾选 |
+| `service_discovery`                   | 服务发现             | v0.3+ 实例选择模式：目标由服务发现结果 + relabel 动态生成（微服务动态实例），不落手动勾选 |
 | `application_http`                    | HTTP 应用 / 业务指标采集 | application 细粒度监控对象类型：业务指标端点 HTTP 抓取（无独立 exporter，应用自带 /metrics，默认标签映射 app/biz）；业务服务（含自定义微服务）仍属本类型，形态差异用手填采集参数 / 多个可选采集实现覆盖，自定义指标直接挂本类型（来源标注），无需新增监控对象类型 |
 | `instance_selection_mode=manual`      | 手动选择（实例）        | 手动勾选具体实例（候选按类型 + 网域自动收敛后手动调整）；**不是**手动选择采集器——采集器选择是「使用默认 / 手填参数」二选一 |
 | `ExporterTemplate.os` / `arch`        | 适用平台 / 架构        | 制品维度，**不决定监控对象类型**——发行版 / 架构差异下沉到采集器层；同一采集器多平台按 os/arch 多行登记 |
@@ -1183,13 +1186,13 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 | 规则编辑（文件挂载·MVP） | 接口错误 | Alert 提示「规则列表加载失败，请稍后重试」 |
 | 规则编辑（文件挂载·MVP） | 保存成功 | Toast「已挂载，将由 M09 生成变更单」+「前往配置变更确认」跳转按钮 |
 | 规则编辑（文件挂载·MVP） | 保存失败（YAML 非法） | Alert 置顶提示 YAML 语法错误（至少校验 `groups` 存在且为数组），表单保持当前内容 |
-| 采集 Job 列表 | 草稿态占位 | MVP 阶段状态列展示「草稿」标签但无实例，标签灰显并 Tooltip「v0.2 支持保存草稿」，状态筛选器中「草稿」选项禁用；v0.2 起真实草稿对象显示为橙色 Tag 且可筛选 |
-| 采集 Job 编辑 | 草稿保存成功 | Toast「草稿已保存，当前配置不会进入下发管线」；表单保持打开，可继续编辑 |
-| 采集 Job 编辑 | 提交生效成功 | Toast「已提交生效，将由 M09 生成变更单」+「前往配置变更确认」跳转按钮 |
-| 采集 Job 编辑 | 提交生效失败 | Alert 置顶展示逐条校验错误（含必填项 / 网域 / 实例同域 / 规则 PromQL 等），表单保持当前值 |
-| 采集 Job 列表 | 批量提交结果 | 抽屉展示批量提交结果：成功 N 条（已转 ready）、失败 N 条（仍 draft，附逐条错误） |
-| 采集 Job 列表 | 批量提交生效 | 工具栏「批量提交生效」：多选草稿态对象后提交，`draft→ready` 单向（成功项转 `ready`、失败项保留 `draft` 并附逐条错误；`ready` 不再回退） |
-| 采集 Job 列表 | 克隆（v0.2） | 操作列「克隆」→ 打开新建抽屉并预填源 Job 参数；跨网域克隆时目标网域需改选、实例清空重选，并提示「安装登记（可选）需在新 Job 中重新进行」 |
+| 采集 Job 列表 | 草稿态占位 | MVP 阶段状态列展示「草稿」标签但无实例，标签灰显并 Tooltip「v0.3 支持保存草稿」，状态筛选器中「草稿」选项禁用；v0.3 起真实草稿对象显示为橙色 Tag 且可筛选 |
+| 采集 Job 编辑（v0.3） | 草稿保存成功 | Toast「草稿已保存，当前配置不会进入下发管线」；表单保持打开，可继续编辑 |
+| 采集 Job 编辑（v0.3） | 提交生效成功 | Toast「已提交生效，将由 M09 生成变更单」+「前往配置变更确认」跳转按钮 |
+| 采集 Job 编辑（v0.3） | 提交生效失败 | Alert 置顶展示逐条校验错误（含必填项 / 网域 / 实例同域 / 规则 PromQL 等），表单保持当前值 |
+| 采集 Job 列表（v0.3） | 批量提交结果 | 抽屉展示批量提交结果：成功 N 条（已转 ready）、失败 N 条（仍 draft，附逐条错误） |
+| 采集 Job 列表（v0.3） | 批量提交生效 | 工具栏「批量提交生效」：多选草稿态对象后提交，`draft→ready` 单向（成功项转 `ready`、失败项保留 `draft` 并附逐条错误；`ready` 不再回退） |
+| 采集 Job 列表 | 克隆（v0.3+ 待评估） | 操作列「克隆」→ 打开新建抽屉并预填源 Job 参数；跨网域克隆时目标网域需改选、实例清空重选，并提示「安装登记（可选）需在新 Job 中重新进行」 |
 | 规则编辑（v0.3 字段化） | 空态 | 「暂无规则」，提供「新建规则」引导 |
 | 规则编辑（v0.3 字段化） | 草稿保存成功 | Toast「规则草稿已保存」；允许 PromQL 半成品暂存 |
 | 规则编辑（v0.3 字段化） | 提交生效失败 | 校验失败时 Alert 置顶，PromQL 错误定位到 expr 字段下方 |
@@ -1211,15 +1214,15 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
   - 认证类型 `auth_type` 三选一（无认证 / Basic / Bearer）；选 Basic 展开 `username`/`password`（password 掩码输入、提交后不回显明文、支持「重新设置或清除」）；选 Bearer 展开 `token` 输入；
   - TLS 区提供 `tls_skip_verify` 开关与 `ca_file` 输入（可选）；折叠面板内联说明「认证/TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs」；
   - 全部字段可选、默认 `auth_type=none` + `tls_skip_verify=false`，与既有裸 http 采集完全兼容。
-- **草稿与提交生效双按钮（MVP 提级，仅新建对象）**：新建 Job 表单底部固定「保存草稿」（次级按钮）与「提交生效」（主按钮）：
+- **草稿与提交生效双按钮（v0.3，仅新建对象）**：新建 Job 表单底部固定「保存草稿」（次级按钮）与「提交生效」（主按钮）：
   - 点「保存草稿」→ 基础校验通过即持久化，`draft_status=draft`；
   - 点「提交生效」→ 做完整校验（含必填项 / 网域已纳管 / 实例同域），通过后 `draft_status=ready` 且不再回退，进入 M09 变更检测管线；
   - 已生效对象的编辑仅提供普通「保存」，直接走 M09 变更单确认管线（不做草稿快照）。
 - **草稿态不参与下发**：`draft_status=draft` 的对象不进入 M09 配置生成；前端状态列通过 `draft_status` 与 `change_status` 聚合，草稿态对象不展示 M09 `change_status`。
 - **保存后乐观更新（MVP 起）**：Job / 规则保存成功后，前端本地先将该对象状态标记为「待下发」，无需等待 M09 轮询回写；下次列表刷新时以 M09 回写的 `change_status` 校准。
-- **批量提交生效（MVP 提级，draft→ready 单向）**：列表支持多选草稿态对象，toolbar 展示「批量提交生效」；提交失败项保留 `draft` 并给出逐条错误，成功项转 `ready`；`ready` 不再回退；批量提交不阻塞已成功的项。
+- **批量提交生效（v0.3，draft→ready 单向）**：列表支持多选草稿态对象，toolbar 展示「批量提交生效」；提交失败项保留 `draft` 并给出逐条错误，成功项转 `ready`；`ready` 不再回退；批量提交不阻塞已成功的项。
 - **规则编辑草稿（v0.3）**：规则编辑表单同样提供「保存草稿」/「提交生效」（仅新建阶段）；草稿态允许 PromQL 半成品；提交生效时调用 Module_02 PromQL 校验，失败后定位到 `expr` 字段。
-- **克隆 Job（v0.2）**：列表操作列提供「克隆」入口 → 打开新建抽屉并预填源 Job 的采集参数 / 监控对象类型 / 采集实现 / 标签模板；同网域克隆可直接改选实例，跨网域克隆需改选目标网域、实例清空重选，并提示「安装登记（可选）需重新进行」；克隆产物为独立 Job，不引入「Job 模板」持久实体。
+- **克隆 Job（v0.3+ 待评估，已移出 v0.2 范围，决策 54 扇出已覆盖跨网域复用主场景）**：列表操作列提供「克隆」入口 → 打开新建抽屉并预填源 Job 的采集参数 / 监控对象类型 / 采集实现 / 标签模板；同网域克隆可直接改选实例，跨网域克隆需改选目标网域、实例清空重选，并提示「安装登记（可选）需重新进行」；克隆产物为独立 Job，不引入「Job 模板」持久实体。
 - **实例采集状态回显（决策 47-2）**：Job 详情/编辑抽屉实例区展示「在线 X / 总数 Y · 待采集 Z」汇总与实例级「采集状态」列；回显只读、异常驱动展示（正常低饱和、异常高饱和并附 `lastError` 摘要与「配置已下发但未采集到数据，请检查采集器安装与网络连通」提醒）；数据来自 Module_02 `/api/v1/targets` 代理，定时刷新（15~30s）+ 手动刷新，不阻断编辑与保存。
 
 ***
@@ -1230,8 +1233,8 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v3.30 | 2026-09-02 | 修改 | v0.2 范围收敛决策落版：①**克隆 Job 移出 v0.2 范围**，后续版本再评估是否提供（决策 54 网域集合 + M09 按域扇出已覆盖跨网域复用主场景）——§3.1 克隆行 / §5.4 / §6.2.2 clone 接口 / §9 验收 / §10 术语 / §11 前端契约同步标注 {v0.3+ 待评估}；②**草稿与批量提交生效交互挪 v0.3**（`draft_status` / `ready` 字段本身 MVP 已落库、默认 `ready` 不变，挪移的仅是「开放用户保存草稿 + 批量提交生效」UI/交互能力）——§3.1 / §5.4 / §8 ⑤ / §9 / §10 / §11 同步；③**业务健康度看板 / 业务负责人角色入口 / 业务域聚合视图**由 v0.2+ 挪 v0.3+——§2 M01-BIZ-02 / §3.1 / §5.9 / §10 同步；④**`service_discovery` 服务模式降级 v0.3+ 预留**——v0.2 容器实例资源监控明确走 cAdvisor 方案（每台虚机部署 cAdvisor exporter，作为普通采集 Job 绑定主机类资源 + filter 模式自动纳入新主机，容器发现由 cAdvisor 在宿主机内部完成、平台不感知容器个体，不需要 docker_sd），`docker_sd_configs` / `kubernetes_sd_configs` 仅当需直采容器内应用 /metrics（容器已发布端口或 host network）时在 v0.3+ 启用；⑤filter（决策 53）/ Job 多网域绑定 + M09 扇出（决策 54）/ 网域覆盖表 `CITypeExporterMappingOverride` 维持 v0.2 不变；⑥**新增实例级端口覆盖 v0.2 落地**——M07 Resource 增加可选 `scrape_port`，M09 端口解析优先级 = `Resource.scrape_port` → 网域覆盖表 → 映射默认（回落 `ExporterTemplate.default_port`），明确「Job 级端口映射表不做」（与动态纳入模式冲突、相关组织场景经确认不存在），§9.1 新增 {P0 / v0.2} 验收 | 2 / 3.1 / 5.1 / 5.4 / 5.6 / 5.9 / 6 / 8 / 9 / 10 / 11 | v0.2 / v0.3 | 设计中 |
 | v3.29 | 2026-09-02 | 修改 | coverage 口径修订 + 默认模板身份标签收紧（联动 M02 v1.8 / M07 v2.25）：①§5.10 行为规则新增「与 coverage 三态的边界」——coverage/M07 badge 不感知 M09 下发时序、不区分「待采集」，「待采集 vs 已下发未采到」细分仅由本模块 Job 回显承担（本模块持有 `change_status`）；②§9.1 默认标签模板稳定身份标签验收由「`resource_id` / `hostname` 二选一」收紧为**必须含 `resource_id`**（决策 47-3 coverage 回连键，`hostname` 仅为可读别名）；纯契约收紧，原型行为不变 | 5.10 / 9.1 | MVP | 设计中 |
 | v3.28 | 2026-08-31 | 新增 | 决策 53/54 落版（v0.2 契约）：①**filter 选择模式提前至 v0.2（决策 53）**——§3.1 实例选择行 / §5.4 字段表 `instance_selection_mode` / filter 模式字段语义 / §8 ② 状态机同步；核心语义：每生成周期实时求值，M07 新增资源匹配即自动纳入 targets、无需编辑 Job；②**Job 网域绑定放宽为网域集合（决策 54）**——§3.1 ScrapeJob 管理行 / §5.4 网域字段与约束 / 克隆 Job 行同步：一个逻辑 Job 可勾选多个已纳管网域，M09 按域拆分扇出（每域独立 scrape_configs / targets / 变更单），跨网域复用不再依赖手工克隆（克隆降级为复制便利），MVP 存量单值自动迁移为单元素集合；③§9.1 新增 2 条 v0.2 验收；MVP 行为不变；原型待对齐 | 3.1 / 5.4 / 8 / 9.1 | v0.2 | 设计中 |
-| v3.27 | 2026-08-28 | 修改 | 决策 47 落版（采集状态回显前置）：①**安装确认拆闸门**（47-1）——§5.6 安装确认降级为可选登记（留痕/背书定位不变，`actual_port` 仍挂登记表单），`unconfirmed` 不再阻断 target 生成，§9.1 原「未确认实例不生成 target」验收改写、§9.2 新增「M09 不再过滤未登记实例」；②**Job 实例采集状态回显**（47-2）——新增 §5.10 + §8 ⑥ 状态机：实例状态列（待采集/up/down/unknown）+ 在线数/待采集汇总 + down 提醒文案，数据源 = M02 `/api/v1/targets` 代理（只读，不直连 Prometheus），§3.1 功能行 / §6.1 接口 / §9.1 验收 / §10 术语 / §11 前端契约同步；③M07 badge 三态化（47-3）跨模块口径同步（§7.2 边界表、§9.1 M07 badge 验收）；④M01-OPS-04 改写 + 新增 M01-OPS-08、M01-ARCH-01 落点改指 M07 三态 badge；原型待对齐（头部原型版本标注未对齐） | MVP / v0.2 | 设计中 |
 
 > 完整 Change Log 历史（v3.25 及以前）见 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」。
