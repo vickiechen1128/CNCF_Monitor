@@ -5,17 +5,20 @@
 #   metric-center-bundle-<os>-<arch>-<timestamp>/
 #   ├── bin/
 #   │   ├── metric-center          # 控制面二进制（CGO，依赖平台）
-#   │   └── prometheus             # 上游 Prometheus 二进制
+#   │   ├── prometheus             # 上游 Prometheus 二进制
+#   │   ├── promtool               # 常驻：M09 草稿校验依赖（exec.LookPath("promtool")）
+#   │   └── amtool                 # WITH_ALERTMANAGER 时随包：M08 AM 配置校验依赖
 #   ├── web/
 #   │   └── ui/                    # Custom UI 静态资源 + Prometheus Web UI 静态资源
 #   ├── config/
 #   │   ├── metric-center.yml      # 控制面示例配置
 #   │   ├── prometheus.yml.example # Prometheus 初始配置模板
-#   │   └── alertmanager.yml(.example)  # WITH_ALERTMANAGER 时写入，M08 AM 配置落点
+#   │   ├── alertmanager.yml(.example)  # WITH_ALERTMANAGER 时写入，M08 AM 配置落点
+#   │   └── blackbox.yml(.example) # WITH_BLACKBOX 时写入，M01/M09 探测模块种子配置
 #   ├── scripts/
-#   │   ├── start.sh               # 一键启动 metric-center + prometheus（+alertmanager）
-#   │   └── stop.sh                # 优雅停止（遍历 logs/*.pid，自动覆盖 alertmanager）
-#   └── README.md                  # 部署说明（含 M08 段落，按 WITH_ALERTMANAGER 注入）
+#   │   ├── start.sh               # 一键启动 metric-center + prometheus（+alertmanager +blackbox）
+#   │   └── stop.sh                # 优雅停止（遍历 logs/*.pid，自动覆盖全部随包组件）
+#   └── README.md                  # 部署说明（含 M08/M09 段落，按 WITH_* 注入）
 #
 # 用法：
 #   bash scripts/package-center.sh                    # 本机平台产物
@@ -25,12 +28,16 @@
 #   DIST_DIR          产物输出目录（默认 ./dist）
 #   BUNDLE_NAME       自定义包名（默认自动生成）
 #   CROSS             交叉编译目标，如 linux/amd64、linux/arm64
-#   WITH_ALERTMANAGER 非空时随包交付 alertmanager（非 MVP 默认）。除 bin/ 外还会：
+#   WITH_ALERTMANAGER 非空时随包交付 alertmanager + amtool（非 MVP 默认）。除 bin/ 外还会：
 #                     ① 写入 config/alertmanager.yml（＋ .example 模板）；
 #                     ② start.sh 注入 :9093 启动段并写出 logs/alertmanager.pid；
 #                     ③ metric-center 追加 --config.am-dir / --config.am-reload-url，
 #                        使 M08 下发写盘与 AM 读取指向同一份文件，闭环生效。
-#   WITH_BLACKBOX     非空时额外打包 blackbox_exporter（非 MVP 默认）
+#   WITH_BLACKBOX     非空时随包交付 blackbox_exporter（非 MVP 默认）。除 bin/ 外还会：
+#                     ① 写入 config/blackbox.yml（＋ .example 模板）；
+#                     ② start.sh 注入 :9115 启动段并写出 logs/blackbox_exporter.pid；
+#                     ③ 给 metric-center 追加 --config.dir，并保证 blackbox.yml 与
+#                        prometheus.yml 同目录下发、同文件读取。
 
 set -e
 
@@ -161,6 +168,19 @@ build_ui() {
 }
 
 build_optional() {
+    # promtool：M09 配置草稿校验（ValidateArtifacts）通过 exec.LookPath("promtool")
+    # 调用做 `promtool check config`；它是控制面在部署服务器上的校验依赖，必须随包。
+    # 不依赖 WITH_* 开关——prometheus 本就常驻交付包。
+    echo ">>> Building promtool -> $TARGET_OS/$TARGET_ARCH"
+    if [ "$IS_CROSS" -eq 0 ]; then
+        make -C "$PROJECT_ROOT" build-promtool
+    else
+        cd "$PROJECT_ROOT/upstream/prometheus"
+        CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
+            GOPROXY="${GOPROXY:-https://goproxy.io,direct}" \
+            "$GO_BIN" build -o promtool ./cmd/promtool
+    fi
+
     if [ -n "$WITH_ALERTMANAGER" ]; then
         echo ">>> Building alertmanager -> $TARGET_OS/$TARGET_ARCH"
         if [ "$IS_CROSS" -eq 0 ]; then
@@ -169,6 +189,12 @@ build_optional() {
             cd "$PROJECT_ROOT/upstream/alertmanager"
             CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
                 "$GO_BIN" build -o alertmanager ./cmd/alertmanager
+            # amtool：M08 Alertmanager 配置挂载校验通过 exec.LookPath("amtool")
+            # 调用做 `amtool check-config`；与 alertmanager 同源，交叉编译时必须显式构建
+            # （非交叉路径走 make build-alertmanager，已在 Makefile:322 一并产出 amtool）。
+            CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
+                GOPROXY="${GOPROXY:-https://goproxy.io,direct}" \
+                "$GO_BIN" build -o amtool ./cmd/amtool
         fi
     fi
     if [ -n "$WITH_BLACKBOX" ]; then
@@ -190,12 +216,25 @@ collect_bundle() {
 
     cp "$PROJECT_ROOT/platform/cmd/metric-center/metric-center" "$BUNDLE_DIR/bin/"
     cp "$PROJECT_ROOT/upstream/prometheus/prometheus" "$BUNDLE_DIR/bin/"
+    # promtool：M09 草稿校验依赖（exec.LookPath("promtool")）；随包常驻。
+    # start.sh 已 export PATH="$ROOT/bin:$PATH"，部署机上即可被控制面命中。
+    if [ -f "$PROJECT_ROOT/upstream/prometheus/promtool" ]; then
+        cp "$PROJECT_ROOT/upstream/prometheus/promtool" "$BUNDLE_DIR/bin/"
+    else
+        echo ">>> WARNING: promtool not built, skip (M09 草稿校验将 pending)"
+    fi
 
     # 是否随包交付 Alertmanager（M08 告警分发）：决定 bin/、config/ 与 start.sh 的 AM 段
     AM_ENABLED=0
     if [ -n "$WITH_ALERTMANAGER" ] && [ -f "$PROJECT_ROOT/upstream/alertmanager/alertmanager" ]; then
         AM_ENABLED=1
         cp "$PROJECT_ROOT/upstream/alertmanager/alertmanager" "$BUNDLE_DIR/bin/"
+        # amtool：M08 AM 配置挂载校验依赖（exec.LookPath("amtool")）；随包常驻
+        if [ -f "$PROJECT_ROOT/upstream/alertmanager/amtool" ]; then
+            cp "$PROJECT_ROOT/upstream/alertmanager/amtool" "$BUNDLE_DIR/bin/"
+        else
+            echo ">>> WARNING: amtool not built, skip (M08 AM 校验将 pending)"
+        fi
         # M08：写入中心 Alertmanager 配置——它是决策 60 里 AM 配置下发（--config.am-dir）的落盘目标，
         # 也是 alertmanager 进程 --config.file 读取的文件，二者必须指向同一份。
         # - config/alertmanager.yml          开箱即用，解压后启动即生效
@@ -220,8 +259,31 @@ EOF
             cp "$BUNDLE_DIR/config/alertmanager.yml" "$BUNDLE_DIR/config/alertmanager.yml.example"
         fi
     fi
+    # 是否随包交付 blackbox_exporter（M01/M09 拨测）
+    BB_ENABLED=0
     if [ -n "$WITH_BLACKBOX" ] && [ -f "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" ]; then
+        BB_ENABLED=1
         cp "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" "$BUNDLE_DIR/bin/"
+        # M01/M09：blackbox.yml 是 blackbox_exporter 进程 --config.file 读取的文件，
+        # 也是控制面下发探测模块（blackbox.yml）的落盘目标，二者必须指向同一份。
+        # - config/blackbox.yml          开箱即用，解压后启动即生效
+        # - config/blackbox.yml.example  默认模板，供误改后恢复
+        if [ -f "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox.yml" ]; then
+            cp "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox.yml" "$BUNDLE_DIR/config/blackbox.yml"
+            cp "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox.yml" "$BUNDLE_DIR/config/blackbox.yml.example"
+        else
+            echo ">>> WARNING: upstream/blackbox_exporter/blackbox.yml missing, generating minimal fallback"
+            cat > "$BUNDLE_DIR/config/blackbox.yml" <<'EOF'
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: [200]
+      method: GET
+EOF
+            cp "$BUNDLE_DIR/config/blackbox.yml" "$BUNDLE_DIR/config/blackbox.yml.example"
+        fi
     fi
 
     # Custom UI 产物
@@ -255,6 +317,7 @@ EOF
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+export PATH="$ROOT/bin:$PATH"
 mkdir -p data logs config/prometheus
 [ -f config/prometheus/prometheus.yml ] || cp config/prometheus.yml.example config/prometheus/prometheus.yml
 
@@ -296,10 +359,25 @@ echo $! > logs/alertmanager.pid
 EOF
     fi
 
+    if [ "$BB_ENABLED" -eq 1 ]; then
+        cat >> "$start_sh" <<'EOF'
+
+echo ">>> Starting blackbox_exporter on :9115"
+[ -f config/prometheus/blackbox.yml ] || cp config/blackbox.yml.example config/prometheus/blackbox.yml
+nohup ./bin/blackbox_exporter \
+    --config.file="$ROOT/config/prometheus/blackbox.yml" \
+    --config.enable-auto-reload \
+    --web.listen-address=:9115 \
+    > logs/blackbox_exporter.log 2>&1 &
+echo $! > logs/blackbox_exporter.pid
+EOF
+    fi
+
     cat >> "$start_sh" <<'EOF'
 
 echo ">>> Starting metric-center on :8080 (UI + API 同源)"
 nohup ./bin/metric-center \
+    --config.dir="$ROOT/config/prometheus" \
     --config.reload-url=http://127.0.0.1:9090/-/reload \
     --web.static-dir="$ROOT/web/ui-custom" \
     $AM_ARGS \
@@ -317,6 +395,12 @@ echo "  Alertmanager:  http://<服务器IP>:9093"
 EOF
     fi
 
+    if [ "$BB_ENABLED" -eq 1 ]; then
+        cat >> "$start_sh" <<'EOF'
+echo "  Blackbox:      http://<服务器IP>:9115"
+EOF
+    fi
+
     cat >> "$start_sh" <<'EOF'
 echo "  MetricCenter:  http://<服务器IP>:8080"
 echo "  Logs:          $ROOT/logs/"
@@ -329,8 +413,8 @@ EOF
 #!/usr/bin/env bash
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
-# 通用停止：遍历 logs/ 下全部 pid 文件。启用 Alertmanager（M08）时 start.sh 会写出
-# logs/alertmanager.pid，因此 AM 无需在此单独列举也会被一并停止。
+# 通用停止：遍历 logs/ 下全部 pid 文件。启用 Alertmanager（M08）/ blackbox_exporter（M09）时
+# start.sh 会写出 logs/alertmanager.pid / logs/blackbox_exporter.pid，因此无需单独列举。
 for pidfile in logs/*.pid; do
     [ -f "$pidfile" ] || continue
     pid=$(cat "$pidfile")
@@ -351,7 +435,7 @@ EOF
 
 ## 目录说明
 
-- bin/           可执行二进制
+- bin/           可执行二进制（含 promtool / amtool：控制面 M08/M09 草稿校验依赖，由 start.sh 注入的 PATH 自动命中）
 - config/        配置文件模板
 - scripts/       启动/停止脚本
 - web/           前端静态资源与 Prometheus Web UI 静态资源
@@ -385,6 +469,12 @@ EOF
 EOF
     fi
 
+    if [ "$BB_ENABLED" -eq 1 ]; then
+        cat >> "$readme" <<'EOF'
+- **Blackbox exporter**: http://<服务器IP>:9115
+EOF
+    fi
+
     cat >> "$readme" <<EOF
 - **MetricCenter API**: http://<服务器IP>:8080/api
 - **Health**: http://<服务器IP>:8080/api/v1/health
@@ -401,6 +491,19 @@ EOF
 - 配置落点为 `config/alertmanager.yml`（默认模板见同目录 `alertmanager.yml.example`）。
 - 控制面以 `--config.am-dir=config` + `--config.am-reload-url=http://127.0.0.1:9093/-/reload` 启动，
   因此 M08 下发的 alertmanager.yml 会直接写入上述文件并触发 AM reload，形成闭环。
+EOF
+    fi
+
+    if [ "$BB_ENABLED" -eq 1 ]; then
+        cat >> "$readme" <<'EOF'
+
+## M01/M09 拨测（Blackbox exporter）
+
+- blackbox_exporter 随包提供，由 `scripts/start.sh` 在 **:9115** 一并拉起，无需手动启动。
+- 配置落点为 `config/prometheus/blackbox.yml`（默认模板见 `config/blackbox.yml.example`）。
+- 控制面以 `--config.dir=$ROOT/config/prometheus` 启动，因此 M09 下发的 blackbox.yml 与
+  Prometheus 的 prometheus.yml、targets/*.json 落在同一目录；blackbox_exporter 通过
+  `--config.enable-auto-reload` 自动感知配置变更，形成闭环。
 EOF
     fi
 
