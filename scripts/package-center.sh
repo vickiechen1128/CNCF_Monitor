@@ -10,11 +10,12 @@
 #   │   └── ui/                    # Custom UI 静态资源 + Prometheus Web UI 静态资源
 #   ├── config/
 #   │   ├── metric-center.yml      # 控制面示例配置
-#   │   └── prometheus.yml.example # Prometheus 初始配置模板
+#   │   ├── prometheus.yml.example # Prometheus 初始配置模板
+#   │   └── alertmanager.yml(.example)  # WITH_ALERTMANAGER 时写入，M08 AM 配置落点
 #   ├── scripts/
-#   │   ├── start.sh               # 一键启动 metric-center + prometheus
-#   │   └── stop.sh                # 优雅停止
-#   └── README.md                  # 部署说明
+#   │   ├── start.sh               # 一键启动 metric-center + prometheus（+alertmanager）
+#   │   └── stop.sh                # 优雅停止（遍历 logs/*.pid，自动覆盖 alertmanager）
+#   └── README.md                  # 部署说明（含 M08 段落，按 WITH_ALERTMANAGER 注入）
 #
 # 用法：
 #   bash scripts/package-center.sh                    # 本机平台产物
@@ -24,7 +25,11 @@
 #   DIST_DIR          产物输出目录（默认 ./dist）
 #   BUNDLE_NAME       自定义包名（默认自动生成）
 #   CROSS             交叉编译目标，如 linux/amd64、linux/arm64
-#   WITH_ALERTMANAGER 非空时额外打包 alertmanager（非 MVP 默认）
+#   WITH_ALERTMANAGER 非空时随包交付 alertmanager（非 MVP 默认）。除 bin/ 外还会：
+#                     ① 写入 config/alertmanager.yml（＋ .example 模板）；
+#                     ② start.sh 注入 :9093 启动段并写出 logs/alertmanager.pid；
+#                     ③ metric-center 追加 --config.am-dir / --config.am-reload-url，
+#                        使 M08 下发写盘与 AM 读取指向同一份文件，闭环生效。
 #   WITH_BLACKBOX     非空时额外打包 blackbox_exporter（非 MVP 默认）
 
 set -e
@@ -186,8 +191,34 @@ collect_bundle() {
     cp "$PROJECT_ROOT/platform/cmd/metric-center/metric-center" "$BUNDLE_DIR/bin/"
     cp "$PROJECT_ROOT/upstream/prometheus/prometheus" "$BUNDLE_DIR/bin/"
 
+    # 是否随包交付 Alertmanager（M08 告警分发）：决定 bin/、config/ 与 start.sh 的 AM 段
+    AM_ENABLED=0
     if [ -n "$WITH_ALERTMANAGER" ] && [ -f "$PROJECT_ROOT/upstream/alertmanager/alertmanager" ]; then
+        AM_ENABLED=1
         cp "$PROJECT_ROOT/upstream/alertmanager/alertmanager" "$BUNDLE_DIR/bin/"
+        # M08：写入中心 Alertmanager 配置——它是决策 60 里 AM 配置下发（--config.am-dir）的落盘目标，
+        # 也是 alertmanager 进程 --config.file 读取的文件，二者必须指向同一份。
+        # - config/alertmanager.yml          开箱即用，解压后启动即生效
+        # - config/alertmanager.yml.example  默认模板，供误改后恢复
+        if [ -f "$PROJECT_ROOT/deploy/alertmanager/alertmanager.yml" ]; then
+            cp "$PROJECT_ROOT/deploy/alertmanager/alertmanager.yml" "$BUNDLE_DIR/config/alertmanager.yml"
+            cp "$PROJECT_ROOT/deploy/alertmanager/alertmanager.yml" "$BUNDLE_DIR/config/alertmanager.yml.example"
+        else
+            echo ">>> WARNING: deploy/alertmanager/alertmanager.yml missing, generating minimal fallback"
+            cat > "$BUNDLE_DIR/config/alertmanager.yml" <<'EOF'
+global:
+  resolve_timeout: 5m
+route:
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+receivers:
+  - name: 'default'
+EOF
+            cp "$BUNDLE_DIR/config/alertmanager.yml" "$BUNDLE_DIR/config/alertmanager.yml.example"
+        fi
     fi
     if [ -n "$WITH_BLACKBOX" ] && [ -f "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" ]; then
         cp "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" "$BUNDLE_DIR/bin/"
@@ -215,7 +246,11 @@ prometheus:
 EOF
 
     # 启动脚本
-    cat > "$BUNDLE_DIR/scripts/start.sh" <<'EOF'
+    # 分段生成的理由：AM_ARGS 与 alertmanager 段由「打包期」的 WITH_ALERTMANAGER 决定，
+    # 而 $ROOT 等变量必须留到「运行期」在部署机上展开。因此各段统一用 quoted heredoc
+    # （<<'EOF'）保持 $ 原样，仅 AM_ARGS 一行用 printf 注入（构建期求值）。
+    local start_sh="$BUNDLE_DIR/scripts/start.sh"
+    cat > "$start_sh" <<'EOF'
 #!/usr/bin/env bash
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -223,6 +258,19 @@ cd "$ROOT"
 mkdir -p data logs config/prometheus
 [ -f config/prometheus/prometheus.yml ] || cp config/prometheus.yml.example config/prometheus/prometheus.yml
 
+# M08 告警分发：中心 Alertmanager 配置下发目录 + reload 地址
+# 由 scripts/package-center.sh 依据 WITH_ALERTMANAGER 注入；未打包 Alertmanager 时为空。
+EOF
+
+    if [ "$AM_ENABLED" -eq 1 ]; then
+        # AM 配置下发落盘目录必须与 alertmanager --config.file 所在目录一致（均为 $ROOT/config），
+        # 否则 M08 下发的 alertmanager.yml 写不到 AM 正在读取的文件上，reload 后不生效。
+        printf 'AM_ARGS="--config.am-dir=$ROOT/config --config.am-reload-url=http://127.0.0.1:9093/-/reload"\n\n' >> "$start_sh"
+    else
+        printf 'AM_ARGS=""\n\n' >> "$start_sh"
+    fi
+
+    cat >> "$start_sh" <<'EOF'
 echo ">>> Starting prometheus on :9090"
 nohup ./bin/prometheus \
     --config.file="$ROOT/config/prometheus/prometheus.yml" \
@@ -231,28 +279,58 @@ nohup ./bin/prometheus \
     --web.listen-address=:9090 \
     > logs/prometheus.log 2>&1 &
 echo $! > logs/prometheus.pid
+EOF
+
+    if [ "$AM_ENABLED" -eq 1 ]; then
+        cat >> "$start_sh" <<'EOF'
+
+echo ">>> Starting alertmanager on :9093"
+mkdir -p data/alertmanager
+[ -f config/alertmanager.yml ] || cp config/alertmanager.yml.example config/alertmanager.yml
+nohup ./bin/alertmanager \
+    --config.file="$ROOT/config/alertmanager.yml" \
+    --storage.path="$ROOT/data/alertmanager" \
+    --web.listen-address=:9093 \
+    > logs/alertmanager.log 2>&1 &
+echo $! > logs/alertmanager.pid
+EOF
+    fi
+
+    cat >> "$start_sh" <<'EOF'
 
 echo ">>> Starting metric-center on :8080 (UI + API 同源)"
 nohup ./bin/metric-center \
     --config.reload-url=http://127.0.0.1:9090/-/reload \
     --web.static-dir="$ROOT/web/ui-custom" \
+    $AM_ARGS \
     > logs/metric-center.log 2>&1 &
 echo $! > logs/metric-center.pid
 
 echo "MetricCenter started."
 echo "  Custom UI:     http://<服务器IP>:8080"
 echo "  Prometheus UI: http://<服务器IP>:9090"
+EOF
+
+    if [ "$AM_ENABLED" -eq 1 ]; then
+        cat >> "$start_sh" <<'EOF'
+echo "  Alertmanager:  http://<服务器IP>:9093"
+EOF
+    fi
+
+    cat >> "$start_sh" <<'EOF'
 echo "  MetricCenter:  http://<服务器IP>:8080"
 echo "  Logs:          $ROOT/logs/"
 echo
 echo "把 <服务器IP> 换成部署机实际可达的 IP 或域名；本机访问可用 127.0.0.1。"
 EOF
-    chmod +x "$BUNDLE_DIR/scripts/start.sh"
+    chmod +x "$start_sh"
 
     cat > "$BUNDLE_DIR/scripts/stop.sh" <<'EOF'
 #!/usr/bin/env bash
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
+# 通用停止：遍历 logs/ 下全部 pid 文件。启用 Alertmanager（M08）时 start.sh 会写出
+# logs/alertmanager.pid，因此 AM 无需在此单独列举也会被一并停止。
 for pidfile in logs/*.pid; do
     [ -f "$pidfile" ] || continue
     pid=$(cat "$pidfile")
@@ -264,7 +342,11 @@ echo "MetricCenter stopped."
 EOF
     chmod +x "$BUNDLE_DIR/scripts/stop.sh"
 
-    cat > "$BUNDLE_DIR/README.md" <<EOF
+    # README 同样分段：Alertmanager 访问条目与 M08 说明段按 AM_ENABLED 条件注入。
+    # 含 ${TARGET_OS} / ${BUNDLE_NAME} 的段落用 unquoted heredoc（构建期展开，反引号需转义）；
+    # 纯文本段落用 quoted heredoc，反引号可直接书写。
+    local readme="$BUNDLE_DIR/README.md"
+    cat > "$readme" <<EOF
 # MetricCenter MVP 交付包
 
 ## 目录说明
@@ -295,10 +377,34 @@ cd "$BUNDLE_NAME"
 
 - **Custom UI（同源）**: http://<服务器IP>:8080
 - **Prometheus UI**: http://<服务器IP>:9090
+EOF
+
+    if [ "$AM_ENABLED" -eq 1 ]; then
+        cat >> "$readme" <<'EOF'
+- **Alertmanager**: http://<服务器IP>:9093
+EOF
+    fi
+
+    cat >> "$readme" <<EOF
 - **MetricCenter API**: http://<服务器IP>:8080/api
 - **Health**: http://<服务器IP>:8080/api/v1/health
 
 > 说明：前端产物由 \`metric-center\` 通过 \`--web.static-dir\` 直接托管，UI 与 API 共用 8080 端口（部署拓扑方案 A2）。构建时**不注入** \`VITE_API_BASE_URL\`，页面内的 API 请求走相对路径，会自适应当前访问的 IP / 域名——同一份产物可部署到任意机器而无需重新打包，也不存在跨域问题。
+EOF
+
+    if [ "$AM_ENABLED" -eq 1 ]; then
+        cat >> "$readme" <<'EOF'
+
+## M08 告警分发
+
+- Alertmanager 随包提供，由 `scripts/start.sh` 在 **:9093** 一并拉起，无需手动启动。
+- 配置落点为 `config/alertmanager.yml`（默认模板见同目录 `alertmanager.yml.example`）。
+- 控制面以 `--config.am-dir=config` + `--config.am-reload-url=http://127.0.0.1:9093/-/reload` 启动，
+  因此 M08 下发的 alertmanager.yml 会直接写入上述文件并触发 AM reload，形成闭环。
+EOF
+    fi
+
+    cat >> "$readme" <<EOF
 
 ## 平台
 
