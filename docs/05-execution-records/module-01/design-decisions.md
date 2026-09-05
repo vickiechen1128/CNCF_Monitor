@@ -664,7 +664,7 @@
 - **问题清单与处理结果**：
   - **返工**：RulesPage 文件挂载页顶部信息 Alert 暴露 `content_mode=yaml_passthrough` + `决策 38-1`（违反 PRD §10 提示分区），应改讲人话或折叠进底部 ReviewNote；
   - **建议**：①mock 指标库锚点字段名 `resource_types`/`supported_resource_types` 与 PRD `monitor_types`/`supported_monitor_types` 对齐；②mock `change_status` 缺 `deployed` 样本（deployed 回写仅经聚合「已生效」隐式呈现，未用真实数据演示）；③BusinessViewPage Alert 的 `business_domain`/`biz`/`CI 类型` 术语下沉。
-- **遗留项**：①PRD v3.26 内部一致性：§5.4 字段表 / Change Log（决策 31-M2：`deployed` 提前 MVP）与 §9.1 第 970 行、§9.2 第 993 行（仍写「MVP 回写 pending/confirmed/none、v0.2 扩展 deployed」）表述冲突，需 PRD 修订统一（本轮仅记录、未改 PRD）；②`ca_file`/认证 TLS 组合合法性后端 `bad_request` 兜底的具体错误文案待实现期对齐；③跨模块端到端串联演示（M07→M01→M09）P2 遗留。
+- **遗留项**：①PRD v3.26 内部一致性：§5.4 字段表 / Change Log（决策 31-M2：`deployed` 提前 MVP）与 §9.1 第 970 行、§9.2 第 993 行（仍写「MVP 回写 pending/confirmed/none、v0.2 扩展 deployed」）表述冲突，需 PRD 修订统一（本轮仅记录、未改 PRD）——**2026-09-05 终验已闭环**：PRD v3.37 重写 §9 验收项（F-37 拆列）并修订 §10 术语映射，统一为「MVP 回写 pending/confirmed/none/deployed」，与决策 31-M2 / §5.4 字段表一致；②`ca_file`/认证 TLS 组合合法性后端 `bad_request` 兜底的具体错误文案待实现期对齐；③跨模块端到端串联演示（M07→M01→M09）P2 遗留。
 - **评审结论**：MVP 范围评审通过（PRD v3.26 与原型 v3.25 对齐，含决策 30/31 / deployed 回写 / 规则文件挂载）；含 1 项返工（RulesPage 可见 Alert 术语裸暴露）与 4 项建议见上；PRD 状态推进（ready / 已冻结）仍需用户书面确认，当前保持「设计中」。
 
 ---
@@ -1942,6 +1942,12 @@ CMDB bk_obj_id（细粒度，资源本质轴：mysql / redis / 达梦）
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                   | 影响范围                | 产品版本影响            | 状态    |
 | ---- | ---------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | ----------------- | ----- |
+| v3.33 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（接入期→配置期→联调期→优化期）与 6 个真实场景（含来源标注）；将抽象功能描述转化为循序渐进的业务叙事 | 0 | 文档自身 | 设计中 |
+| v3.32 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（批量接入/参数调整/规则管理）与涉及用户故事编码索引；不改变技术契约 | 0 | 文档自身 | 设计中 |
+| v3.31 | 2026-09-04 | 修改 | 开发反馈 F-32 落版：采集器登记来源由「仅 `internal` 开放」修正为 **MVP 即开放 `official` / `third_party` / `internal` 三种来源**——解决同一监控对象类型下用户需选用社区/厂商采集器作为备选的场景，名称与平台预置 seed 冲突时由唯一索引返回 409 Conflict；同步更新 §3.1 动线引导、§5.2 字段表与来源口径说明、§9.1 技术验收、§10 术语映射 | 3.1 / 5.2 / 9.1 / 10 | MVP | 设计中 |
+| v3.30 | 2026-09-02 | 修改 | v0.2 范围收敛决策落版：①**克隆 Job 移出 v0.2 范围**，后续版本再评估是否提供（决策 54 网域集合 + M09 按域扇出已覆盖跨网域复用主场景）——§3.1 克隆行 / §5.4 / §6.2.2 clone 接口 / §9 验收 / §10 术语 / §11 前端契约同步标注 {v0.3+ 待评估}；②**草稿与批量提交生效交互挪 v0.3**（`draft_status` / `ready` 字段本身 MVP 已落库、默认 `ready` 不变，挪移的仅是「开放用户保存草稿 + 批量提交生效」UI/交互能力）——§3.1 / §5.4 / §8 ⑤ / §9 / §10 / §11 同步；③**业务健康度看板 / 业务负责人角色入口 / 业务域聚合视图**由 v0.2+ 挪 v0.3+——§2 M01-BIZ-02 / §3.1 / §5.9 / §10 同步；④**`service_discovery` 服务模式降级 v0.3+ 预留**——v0.2 容器实例资源监控明确走 cAdvisor 方案（每台虚机部署 cAdvisor exporter，作为普通采集 Job 绑定主机类资源 + filter 模式自动纳入新主机，容器发现由 cAdvisor 在宿主机内部完成、平台不感知容器个体，不需要 docker_sd），`docker_sd_configs` / `kubernetes_sd_configs` 仅当需直采容器内应用 /metrics（容器已发布端口或 host network）时在 v0.3+ 启用；⑤filter（决策 53）/ Job 多网域绑定 + M09 扇出（决策 54）/ 网域覆盖表 `CITypeExporterMappingOverride` 维持 v0.2 不变；⑥**新增实例级端口覆盖 v0.2 落地**——M07 Resource 增加可选 `scrape_port`，M09 端口解析优先级 = `Resource.scrape_port` → 网域覆盖表 → 映射默认（回落 `ExporterTemplate.default_port`），明确「Job 级端口映射表不做」（与动态纳入模式冲突、相关组织场景经确认不存在），§9.1 新增 {P0 / v0.2} 验收 | 2 / 3.1 / 5.1 / 5.4 / 5.6 / 5.9 / 6 / 8 / 9 / 10 / 11 | v0.2 / v0.3 | 设计中 |
+| v3.29 | 2026-09-02 | 修改 | coverage 口径修订 + 默认模板身份标签收紧（联动 M02 v1.8 / M07 v2.25）：①§5.10 行为规则新增「与 coverage 三态的边界」——coverage/M07 badge 不感知 M09 下发时序、不区分「待采集」，「待采集 vs 已下发未采到」细分仅由本模块 Job 回显承担（本模块持有 `change_status`）；②§9.1 默认标签模板稳定身份标签验收由「`resource_id` / `hostname` 二选一」收紧为**必须含 `resource_id`**（决策 47-3 coverage 回连键，`hostname` 仅为可读别名）；纯契约收紧，原型行为不变 | 5.10 / 9.1 | MVP | 设计中 |
+| v3.27 | 2026-08-28 | 修改 | 决策 47 落版（采集状态回显前置）：①**安装确认拆闸门**（47-1）——§5.6 安装确认降级为可选登记（留痕/背书定位不变，`actual_port` 仍挂登记表单），`unconfirmed` 不再阻断 target 生成，§9.1 原「未确认实例不生成 target」验收改写、§9.2 新增「M09 不再过滤未登记实例」；②**Job 实例采集状态回显**（47-2）——新增 §5.10 + §8 ⑥ 状态机：实例状态列（待采集/up/down/unknown）+ 在线数/待采集汇总 + down 提醒文案，数据源 = M02 `/api/v1/targets` 代理（只读，不直连 Prometheus），§3.1 功能行 / §6.1 接口 / §9.1 验收 / §10 术语 / §11 前端契约同步；③M07 badge 三态化（47-3）跨模块口径同步（§7.2 边界表、§9.1 M07 badge 验收）；④M01-OPS-04 改写 + 新增 M01-OPS-08、M01-ARCH-01 落点改指 M07 三态 badge；原型待对齐（头部原型版本标注未对齐） | MVP / v0.2 / v0.3 | MVP / v0.2 | 设计中 |
 | v3.26 | 2026-08-21 | 修改 | 决策 30/31 落版：①采集认证/TLS 最小集（决策 31，MVP 必实现）——ScrapeJob 新增 `auth_type`（none/basic/bearer，默认 none）/`username`/`password`/`token`/`tls_skip_verify`（默认 false）/`ca_file`，全部可选、默认无认证；§5.4 字段表、§6.2.2 POST/PUT 错误契约（认证/TLS 组合校验）、§11.2 表单「认证与 TLS」折叠面板、§9 P0 验收同步，M09 configgen 透明映射 `basic_auth`/`authorization`/`tls_config`；②网域冻结校验（决策 30）——冻结网域禁止新建 Job、存量 Job 禁止新增该域实例（允许移除/禁用/编辑），§5.4 网域约束 + §6.2.2 + §9 P0 验收；③`change_status=deployed` 回写提前到 MVP（决策 31-M2），M09 依据 ConfigDeployment success 回写 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v3.25 | 2026-08-21 | 修改 | `offline` 排除提级 MVP 必实现（决策 29）：①§3.1「实例选择」行与实例选择方式说明——候选集中 `Resource.status=offline` 实例**显示但置灰不可选**（保证下线台账可见、不可勾选），删除「MVP 不保证」表述；②§5.4 实例候选自动收敛新增「`offline` 实例显示但置灰不可选」条款，已选实例转 `offline` 后 M09 配置生成跳过；③§8 状态语义将 `offline` 排除提级 MVP 必实现（`maintenance` 排除口径仍与 Module_07 8.1 一并对齐、MVP 不保证）；④§9 验收新增「实例候选集中 offline 实例显示但置灰不可选」P0 验收项；本轮为 PRD 契约落版，不涉及原型行为变更 | MVP / v0.2 / v0.3 / v1.0 | 设计中 |
 | v3.24 | 2026-08-20 | 新增 | **规则进入 M09 配置下发闭环**（解决手写 `rules.yml` 绕过 M09 的契约空白）：新增「规则文件挂载」——MVP 通过「规则编辑」页上传/粘贴完整 `rules.yml`（整文件透传 `content_mode=yaml_passthrough` + `rule_content`）落库 `MonitoringRule`，YAML 校验（至少 `groups` 存在且为数组）后保存即 `draft_status=ready`；规则保存/启停/删除触发 M09 变更检测 → 生成 `rules.yml` → 变更单**人工确认**（决策 38-1）→ 下发，回写 `change_status`，与采集 Job 同源同机制；`MonitoringRule` 新增 `content_mode` / `rule_content` / `change_status` 字段，新增 6.2.4 规则 CRUD 契约，3.1 新增功能行、5.5 修订模型、9 验收与 11 前端契约同步；v0.3 升级为 `structured` 字段化编辑 UI | MVP / v0.3 / v1.0 | 设计中 |
@@ -1999,3 +2005,12 @@ CMDB bk_obj_id（细粒度，资源本质轴：mysql / redis / 达梦）
 ## 评审记录：2026-08-31（ready 回归确认）
 
 - PRD v3.28 原型已对齐（原型版本与 PRD 版本一致，check-prototype 无新增违规），经用户授权评审确认，PRD 状态 `设计中` → `ready`（可开发版本）。
+
+---
+
+## 补充对齐：2026-09-05（导航分组以生产为准，决策 63）
+
+- **背景**：F-09（采集器管理 / 采集 Job 拆独立页面）主决策已全链路落地；但 2026-08-23 的**补充裁定**（「取消『采集策略』一级分组、采集器管理 / 采集 Job / 规则编辑提升为 Sider 一级导航项」）只在 PRD/原型落地，生产 `ui-custom/web/src/layouts/MainLayout.tsx` 仍保留「采集策略」一级模块（Sider 二级四项：采集器管理 / 采集 Job / 规则编辑 / 指标库）。终验核对时两侧不一致（module-01 dev-feedback F-09）。
+- **结论（决策 63，2026-09-05，chenrt 终验拍板）**：**以生产导航为准**——保留「采集策略」一级分组，撤销补充裁定的「取消分组」部分；主决策（两独立页面 `/collectors` + `/scrape-jobs`）不变。
+- **落点**：Module_01 PRD v3.36（§5.1 入口与命名 / §9 验收 / §10 术语映射）；原型 module-01 {v3.36}（MainLayout 回改 + README 导航描述）；module-01 dev-feedback F-09 裁定修订注记。
+- **依据**：生产导航已随用户多轮验收稳定使用，且「采集策略」分组承载四项采集域功能的 IA 认知一致性优于扁平一级；契约层只需保证「两个独立页面」这一主决策，分组层级属实现侧 IA 细节。

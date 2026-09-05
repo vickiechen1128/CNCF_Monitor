@@ -7,17 +7,20 @@ import { validateYamlClient } from './rulesYaml'
 
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const validateYamlMock = vi.fn()
 
 vi.mock('../../api/monitoringRules', () => ({
   monitoringRuleApi: {
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
+    validateYaml: (...args: unknown[]) => validateYamlMock(...args),
   },
 }))
 
 beforeEach(() => {
   createMock.mockReset()
   updateMock.mockReset()
+  validateYamlMock.mockReset()
 })
 
 describe('validateYamlClient', () => {
@@ -47,6 +50,7 @@ describe('RuleMountDrawer', () => {
 
   it('blocks submit with invalid YAML and keeps content', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
+    validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: false, error: '缺少顶层 groups 数组' } })
     renderDrawer()
 
     await userEvent.type(screen.getByTestId('rule-name'), 'my-rule')
@@ -58,8 +62,26 @@ describe('RuleMountDrawer', () => {
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  it('submits valid YAML and calls create with yaml_passthrough', async () => {
+  it('F-04: falls back to local YAML validation when validate-yaml API fails', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
+    validateYamlMock.mockRejectedValue(new Error('network error'))
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    renderDrawer()
+
+    await userEvent.type(screen.getByTestId('rule-name'), 'my-rule')
+    await userEvent.type(screen.getByTestId('rule-content'), 'invalid')
+    fireEvent.click(screen.getByText('提交生效'))
+
+    // 接口异常回落本地校验：仍按本地规则拦截非法 YAML
+    expect(await screen.findByText(/缺少顶层 groups 数组/)).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
+  it('F-04: submits valid YAML validated by backend validate-yaml in create mode', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
+    validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true } })
     renderDrawer()
 
     await userEvent.type(screen.getByTestId('rule-name'), 'my-rule')
@@ -70,6 +92,8 @@ describe('RuleMountDrawer', () => {
     fireEvent.click(screen.getByText('提交生效'))
 
     expect(await screen.findByText(/规则已挂载/)).toBeInTheDocument()
+    // 新建场景走后端校验（id 占位 0，body 仅含 rule_content）
+    expect(validateYamlMock).toHaveBeenCalledWith(0, 'groups:\n  - name: g\n    rules:\n      - alert: A')
     // 创建默认启用（M01 PRD §8）：必须显式携带 enabled: true
     expect(createMock).toHaveBeenCalledWith({
       content_mode: 'yaml_passthrough',
@@ -81,6 +105,7 @@ describe('RuleMountDrawer', () => {
 
   it('cascades monitor type by resource category and submits monitor_type', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
+    validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true } })
     renderDrawer()
 
     // 选中资源类别=数据库 → 监控对象类型候选按类别收敛（不含主机类型）
@@ -137,6 +162,8 @@ describe('RuleMountDrawer', () => {
       monitor_type: 'mysql',
       rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
     })
+    // 编辑模式保持本地 YAML 预检，不调用后端 validate-yaml
+    expect(validateYamlMock).not.toHaveBeenCalled()
     expect(createMock).not.toHaveBeenCalled()
   })
 

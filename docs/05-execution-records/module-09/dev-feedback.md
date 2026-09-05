@@ -68,7 +68,8 @@
 - **类别**：① 空白判定 / 契约口径确认
 - **PRD 章节 / 文件位置**：Module_09 §3.1 字段语义（行政区状态由 M06 维护、纳管状态由 M09 维护）；Module_06「网域管理」；源码 `platform/models/network_domain.go`（`Status` vs `IsMonitored`）
 - **现状**：在「网域管理」（M06）将边缘域禁用（`Status=disabled`）后，M09「网域纳管」页该域**仍显示「已纳管」**并保留监控参数 / Token。根因：`NetworkDomain.Status`（M06 行政启用状态）与 `IsMonitored`（M09 监控纳管状态）是**独立字段**，M06 禁用操作不联动取消 M09 纳管，且 PRD 未对「禁用是否应取消纳管 / 冻结 Token」作出规定。
-- **建议 / 结论**：认定为契约口径空白（用户判定其违反契约，属产品口径待决），先登记后评审，暂不改动。候选口径——① 禁用即取消纳管并冻结 Token；② 禁用仅行政停用、纳管与 Token 保留（当前行为）。需在后续评审中拍板。
+- **建议 / 结论**：认定为契约口径空白（用户判定其违反契约，属产品口径待决），先登记后评审，暂不改动。候选口径——① 禁用即取消纳管并冻结 Token；② 禁用仅行政停用、纳管与 Token 保留（当前行为）。
+- **决策（2026-09-05，chenrt 拍板）**：**MVP 保持现状，采用口径②**（禁用仅行政停用，`IsMonitored` 与 Token 保留）；口径①（禁用联动取消纳管并冻结 Token）纳入 **v0.2 多网域版本**实现并届时评审。已落档：M09 PRD §1「MVP 阶段」注记（v1.57）+ module-09 design-decisions 决策 62。
 - **影响模块**：前端（网域管理 → 网域纳管状态联动）、后端（M06 网域状态变更钩子）
 - **发现场景**：M09 测试，禁用边缘域后观察网域纳管状态
 
@@ -144,7 +145,7 @@
   - `platform/configcenter/draft/draft_test.go` 新增 `TestDraftHandlerDiscardValidationFailed`：直接写入 `status=pending, validation_status=failed` 的草稿，断言 `GET /config-drafts/:change_no/discard-impact` 与 `POST /config-drafts/:change_no/discard` 均返回 200，且草稿最终状态为 `discarded`。测试通过。
   - `ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.test.tsx` 新增「校验失败态草稿仍可废弃」用例，覆盖前端弹窗路径。测试通过。
 - **当前结论**：当前代码与测试均无法复现 404；用户现场若仍复现，最可能原因是旧构建/前后端版本不一致、或请求时 `change_no` 已被后单取代/删除。
-- **待用户补充**：浏览器 Network 面板截图或后端 `DiscardDraft` 日志，以进一步定位。
+- **待用户补充**：~~浏览器 Network 面板截图或后端 `DiscardDraft` 日志，以进一步定位~~ **已闭环（2026-09-05）**：用户确认当时系旧构建 / 前后端版本不一致，非代码缺陷；防护单测保留。
 
 
 ### F-19：pending 期间源数据锁定 / watcher 取代时机 / 空变更单抑制（决策 44 系列）
@@ -218,10 +219,11 @@
 - [x] F-14 已修正（skipped_pending 不推进基线）
 - [x] F-15 已修正/实现（自适应退避已落库 + 启动参数）—— **已收割于 v1.50**（PRD §3.3.3 已按自适应退避 min 5s / max 120s + `--change-detect.min/max-interval` 可覆盖同步）
 - [x] F-17 已修正/实现（DiscardDraft 分类回写 + 废弃弹窗分类告知）—— **已收割于 v1.50**（PRD §3.5 / §8 已按决策 43 系列补废弃回写语义；M01 PRD §5.4「系统随单回退例外」由 M01 design 侧收割）
-- [ ] F-18 已补测试，待用户复现信息确认是否为版本/环境不一致
+- [x] F-18 已闭环（2026-09-05 用户确认：当时 404 系旧构建 / 前后端版本不一致所致；前后端「校验失败态可正常废弃」防护单测保留，本条关闭）
 - [x] F-19 已修正/实现（决策 44 系列）—— **已收割于 v1.50**（M09 PRD §3.3.3 改「checksum 比较取代」、§3.4 补空变更单抑制与 superseded_by 提示；M01 PRD §5.4「pending 期锁定」已同步）
 - [x] §6 自动变更检测（30s 轮询 + 保存后跳转）—— **已收割于 v1.50**（PRD §3.3.3 已补「保存后即时触发 + 前往配置变更确认跳转」即时性表述）
 - [x] §8 instance 放行 + vMsg 透传 已修正/实现（方案 A；PRD 无需改动）
+- [x] §5 禁用网域↔纳管联动口径 —— **已决策**（2026-09-05 chenrt 拍板：MVP 保持现状（口径②：禁用仅行政停用、`IsMonitored` 与 Token 保留）；口径①「禁用联动取消纳管并冻结 Token」纳入 v0.2 多网域版本实现并届时评审；PRD §1 v1.57 注记 + design-decisions 决策 62 已落档）
 - [x] §9 pending 态操作出口 + 校验归因 已修正（决策 45 系列）—— **已收割于 v1.50**（PRD §3.5.1 补三态操作出口与 `validation_cause`/`validation_details` 归因；原型 platform_fault 手动重校同步）
   - [x] 45-1 操作区三态语义修正（非 passed 禁用确认，pending 也给出重新校验+废弃）
   - [x] 45-2 校验信息 Alert 分色（failed→error / pending→warning）

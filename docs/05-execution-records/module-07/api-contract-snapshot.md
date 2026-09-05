@@ -13,9 +13,9 @@
 | Phase | Phase 2 |
 | 模块 | module-07-resource-management |
 | 分支 | feat/module-07-resource-management |
-| 版本 | v2026-08-23（M07 回填） |
-| 生成方式 | 由已落地后端路由 + 前端类型反向回填，供后续 Phase 复用格式 |
-| 来源 | PRD `Module_07_Monitoring_Object_Management.md` §3/§5/§6/§8/§11；`03_API_Standard.md` §7；`task-sequence.yaml`；`platform/config/{resource,label}/routes.go` |
+| 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v2.30） |
+| 生成方式 | v2026-08-23 由已落地后端路由 + 前端类型反向回填；**v2026-09-05 重派生**覆盖决策 47-3 `collection_status` 三态筛选（PRD v2.22~v2.25 口径收敛）与 v0.2 `Resource.scrape_port`（v2.26 范围收敛落版） |
+| 来源 | PRD `Module_07_Monitoring_Object_Management.md` v2.30 §3/§5/§6/§8/§9/§11；`03_API_Standard.md` §7；`task-sequence.yaml`；`platform/config/{resource,label}/routes.go` |
 
 ## 1. 通用契约
 
@@ -57,12 +57,14 @@
 
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
-| GET | `/resources` | `resource_category`（必填）、`network_domain_id`、`keyword`（名称+IP 模糊）、`is_monitored`（透传预留，M01 未实现时不生效）、`page`、`page_size` | `{list,total,page,page_size}`，item = §5.2 字段 | `bad_request`：resource_category 缺失/非法 | §6.1/6.6.1 |
+| GET | `/resources` | `resource_category`（必填）、`network_domain_id`、`keyword`（名称+IP 模糊）、`collection_status`（决策 47-3 三态筛选：`up`=采集中 / `down`=已下发未采到 / `unmonitored`=未监控）、`is_monitored`（透传预留，M01 未实现时不生效）、`page`、`page_size` | `{list,total,page,page_size}`，item = §5.2 字段 + 派生采集状态（见下注） | `bad_request`：resource_category 缺失/非法 | §6.1/6.6.1 |
 | POST | `/resources` | `ResourceCreateInput`（见 §10） | 创建后的完整对象 | `bad_request`：必填缺失 / `network_domain_id` 不存在（M06 行政记录） | §6.6.1 |
 | PUT | `/resources/:resource_id` | `ResourceUpdateInput`（resource_category/source_type 创建后不可改，不随请求体） | 更新后的完整对象 | `not_found`；`bad_request` | §6.6.1 |
 | DELETE | `/resources/:resource_id` | — | `{ resource_id }` | `not_found`；`forbidden`：被 Module_01 的 ScrapeJob 引用时禁止删除（报错 data 返回引用 Job 名单） | §6.1/6.6.1 |
 | GET | `/resources/:resource_category/template` | — | Excel 模板下载（含「取值说明」sheet：M06 网域清单） | `not_found`：未知资源类型 | §6.1 |
 | POST | `/resources/:resource_category/import` | multipart：`file` + `resource_category` + `mode` | `ImportResult`（`{total,success,updated?,failed,errors[]}`，errors item = `{row,field,value?,reason}`） | `bad_request`：文件格式/必填列缺失/非法 mode | §5.16/6.6.1 |
+
+> **采集状态三态（决策 47-3；口径收敛 2026-09-02，PRD v2.25/v2.30）**：列表「采集状态」列展示三态 badge——`采集中`（被 ScrapeJob 选中且 target `up`）/ `已下发未采到`（被选中但未采到数据：`down` / 待首次抓取 / **变更未确认下发**）/ `未监控`（未被任何 Job 选中）。数据 = M01 选中关系 `is_monitored`（取 DB 当前 `selected_instance_ids`、ready+enabled Job，**不问 M09 `change_status`、不感知下发时序**）+ M02 健康度/覆盖率 API（`up` 聚合，按 `resource_id` 稳定身份标签回连，MVP 起提供）。**M07 只读消费、不直连时序数据**：列表级查询走 M02 聚合 API 一次性获取，**禁止逐行查询**（TQ-6 N+1 教训）；响应 item 上的采集状态为**派生字段**（如 `collection_status`），非 Resource 落库字段。「待采集 vs 已下发未采到」细分由 M01 Job 回显承担（M01 §5.10/快照 §6）；「未纳入任何 Job」同步可在 M01 实例选择器筛选；异常驱动展示——仅「已下发未采到」高饱和。
 
 ## 4. 资源标签 API
 
@@ -119,6 +121,7 @@
 |------|------|------|
 | `resource_category` | `host` / `database` / `middleware` / `application` / `generic_target` | 五类权威枚举；UI 展示名「资源类型」 |
 | `resource_status` | `online` / `offline` / `maintenance` | UI 展示名「运行状态」；Excel 外部状态经 `status_mapping` 映射到该枚举 |
+| `collection_status`（派生） | `up`（采集中）/ `down`（已下发未采到）/ `unmonitored`（未监控） | 采集状态三态筛选/展示枚举（决策 47-3），**非落库字段**；数据 = M01 选中关系 + M02 健康度聚合 |
 | `source_type` | `manual`（创建恒为 manual）/ `import` / `cmdb` | `resource_category` 创建后不可改 |
 | `label_source` | `system` / `user` / `cmdb` | 排序优先级 system > user > cmdb（v0.4+） |
 | `import_mode` | `create_only`（默认）/ `upsert` | |
@@ -136,13 +139,13 @@
 ### 10.1 资源创建（POST /resources）
 
 - 必填：`resource_category`（创建必传）、`network_domain_id`（M06 网域，须存在）、`biz_code`（全类型必填）、`env`
-- 可选：`app_name`、`cluster`、`owner`、`status`（默认 `online`）
+- 可选：`app_name`、`cluster`、`owner`、`status`（默认 `online`）、`scrape_port`（{v0.2} 实例级采集端口覆盖，可选；留空由 M09 按「网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → `ExporterTemplate.default_port`」解析，见 Module_01 §5.1 端口一致性）
 - 服务端固定：`source_type=manual`、`tenant_id=platform_admin`、`resource_id`（M07 生成 uuid）
 - 差异化字段按类型：host（`instance_name`/`instance_ip`/`os_type?`）、database（`database_type`/`instance_ip`/`port`/`version?`）、middleware（`middleware_type`/`instance_ip`/`port`/`version?`）、application（`service_name`/`endpoint`/`health_check_url?`/`protocol?`/`port?`）、generic_target（`target_name`/`instance_ip`/`port?`/`metrics_path?`/`scheme?`/`exporter_type?`/`custom_labels?`）
 
 ### 10.2 资源更新（PUT /resources/:resource_id）
 
-- 仅可更新：`network_domain_id`/`biz_code`/`app_name`/`env`/`cluster`/`owner`/`status` + 各类型差异化字段
+- 仅可更新：`network_domain_id`/`biz_code`/`app_name`/`env`/`cluster`/`owner`/`status`/`scrape_port` + 各类型差异化字段
 - 不可改：`resource_category`、`source_type`（不随请求体）
 
 ### 10.3 标签模板
@@ -172,6 +175,8 @@
 | `target_label` | 目标标签 | |
 | `source_field` / `source_type` | 来源字段 / 来源类型 | |
 | `instance_count` | 关联实例数 | |
+| `scrape_port` | 采集端口 | {v0.2} 实例级采集端口覆盖；留空由 M09 解析链取默认 |
+| `collection_status` | 采集状态 | 三态 badge（采集中 / 已下发未采到 / 未监控，决策 47-3）；「已下发未采到」高饱和展示 |
 
 ## 12. 来源对照表
 

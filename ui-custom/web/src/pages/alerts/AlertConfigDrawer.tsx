@@ -97,7 +97,7 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
       width={760}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         {mountName.startsWith('remount-') && (

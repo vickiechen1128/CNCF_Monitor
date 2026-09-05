@@ -462,6 +462,62 @@ func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T) {
 	require.Equal(t, http.StatusConflict, w.Code)
 }
 
+// F-03：mapping_overrides 持久化——创建时透传落库，GET 列表可读回；
+// 更新时修改 mapping_overrides 后读回为新值。
+func TestScrapeJobMappingOverridesRoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+
+	// 创建（草稿路径，仅基础校验）带 mapping_overrides。
+	body := `{"job_name":"ov-job","job_type":"standard","network_domain_id":"default","draft_status":"draft","enabled":true,"mapping_overrides":[{"field":"scrape_interval","value":"30s"},{"field":"scheme","value":"https"}]}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.Len(t, created.Data.MappingOverrides, 2)
+	assert.Equal(t, models.MappingOverride{Field: "scrape_interval", Value: "30s"}, created.Data.MappingOverrides[0])
+
+	// GET 列表读回持久化值。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs?keyword=ov-job", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var list struct {
+		Data struct {
+			List []models.ScrapeJob `json:"list"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
+	require.Len(t, list.Data.List, 1)
+	require.Len(t, list.Data.List[0].MappingOverrides, 2)
+	assert.Equal(t, "https", list.Data.List[0].MappingOverrides[1].Value)
+
+	// 更新 mapping_overrides → 读回为新值（PUT 走完整校验链路，种子用 change_status=none 的
+	// 完整合法 Job，避免草稿 Job 参数不全被校验拦截）。
+	job := &models.ScrapeJob{
+		JobName: "ov-job-2", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"mapping_overrides":[{"field":"metrics_path","value":"/custom"}]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var updated struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &updated))
+	require.Len(t, updated.Data.MappingOverrides, 1)
+	assert.Equal(t, models.MappingOverride{Field: "metrics_path", Value: "/custom"}, updated.Data.MappingOverrides[0])
+
+	var reloaded models.ScrapeJob
+	require.NoError(t, db.First(&reloaded, job.ID).Error)
+	require.Len(t, reloaded.MappingOverrides, 1)
+	assert.Equal(t, "metrics_path", reloaded.MappingOverrides[0].Field)
+}
+
 // 决策 44-1：change_status=pending 的 job 已挂起待确认变更单，编辑/删除均拒绝（409）。
 func TestUpdateDeletePendingJobRejected(t *testing.T) {
 	db := openTestDB(t)

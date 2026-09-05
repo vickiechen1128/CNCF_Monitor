@@ -1,10 +1,10 @@
 phase: "Track B（决策 47 采集状态回显，derived for feat/module-08-alert-dispatch）"
 module: "module-02-query-center（采集状态回显 API 子集）"
 module_branch: "feat/module-08-alert-dispatch（决策 47 批次先行；告警决策 59/60 另立一轮，不混入）"
-plan_version: "v2026-08-21（Track B 增量）"
+plan_version: "v2026-09-05（Track B 增量）"
 owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer 执行"
 source:
-  - "docs/02-product-requirements/Modules/Module_02_Query_Center.md v1.8（§5.3 目标状态字段 / §6.1 MVP 接口 / §7 注入规则 / §8 验收）"
+  - "docs/02-product-requirements/Modules/Module_02_Query_Center.md v1.11（§5.3 目标状态字段 / §6.1 MVP 接口 / §7 注入规则 / §8 验收）"
   - "docs/05-execution-records/module-01/design-decisions.md（决策 47-2/47-3/47-4 全文）"
   - "docs/02-product-requirements/04_Implementation_Map.md（§2.5 Module_02，决策 47 增量）"
   - "docs/03-engineering-standards/03_API_Standard.md（§3 统一响应 / §7.2 分页）"

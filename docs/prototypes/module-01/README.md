@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.28
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.37
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.28
+> **原型版本**: v3.37
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,12 @@
 > ```
 >
 > **访问地址**: http://localhost:5175/
+
+## 本次 v3.37 相对 v3.28 的关键变更（F-36 / F-37：列表状态列对齐生产口径）
+
+- **{v3.37} 采集 Job 列表「状态」聚合列拆分为「生效状态」+「变更进度」两列（F-37，对齐生产 ScrapeJobListPage）**：原「状态」四态聚合列（{v3.22}）与「下发状态」列（{v3.19}）合并重构为两列，列序对齐生产——实例选择 / 拨测目标 → 生效状态 → 变更进度 → 参数同步。「生效状态」= 草稿（灰显）/ 已停用（error）/ 待生效（warning，变更单待确认或已确认未下发）/ 已生效（success），与生产 `aggregateJobStatus` 同源；「变更进度」= 无变更 / 待确认 / 已确认待下发 / 已下发（mock 仅建模 none/pending/confirmed 三态，confirmed 归为「已确认待下发」），待确认仍为可点击跳转 M09「配置变更确认」的操作入口。两列列头均带 Tooltip 角标，文案与生产 `strategyConstants.EFFECTIVE_STATUS_TOOLTIP` / `CHANGE_PROGRESS_TOOLTIP` 一致。原四态聚合逻辑保留服务于列表状态筛选器与乐观更新 toast；规则编辑页字段化预览的同名拆分（F-23/F-24）已先行落地，本次仅收敛采集 Job 列表。
+- **{v3.37} 采集 Job 列表「实例采集状态」列头 Tooltip 对齐生产文案（F-36）**：Tooltip 统一为生产 `strategyConstants.COLLECTION_STATUS_TOOLTIP` 简洁口径——「正常采到数据的实例数 / 你勾选的实例总数。有实例没采到数据时整格变红，点开可看原因；约 20 秒自动刷新」。
+- 对齐 Module_01 PRD v3.37 / 原型 v3.37；本轮为原型行为同步，与 PRD 落版同步提交。
 
 ## 本次 v3.28 相对 v3.27 的关键变更（决策 53 filter 选择模式提前 v0.2 + 决策 54 Job 网域绑定放宽为网域集合）
 
@@ -54,7 +60,7 @@
 - **{v3.22} Job / 规则表单双按钮（决策 D29 原型侧）**：「保存草稿（v0.2，基础校验，草稿不入下发管线）/ 提交生效（完整校验）」。Job 保存草稿后表单保持打开；提交生效失败时 Alert 置顶逐条错误。规则页（v0.3 预览）草稿允许 PromQL 半成品暂存，提交生效失败错误定位到 expr 字段下方。
 - **{v3.22} mock 数据补 draft_status / change_status**：Job / 规则对象补 `draft_status`、`change_status` 字段；新增 1-2 条 `draft_status=draft` 草稿演示数据与 1 条克隆演示数据（跨网域克隆 `prod-hosts-linux-gov-clone`）；MVP 演示态下 `change_status` 仅用 pending / confirmed / none。
 - **{v3.20} 规则编辑引导确认（决策 D28）**：规则保存 / 启停 / 删除成功提示改为「变更将由 M09 生成变更单，需确认后生效」+ 内联「前往配置变更确认」跳转（rules.yml 变更必须 reload、走 M09 人工确认档，决策 38-1）；规则列表新增「下发状态」列（待确认 / 已确认 / 无变更，mock 以 `change_status` 承载，rule-001 已确认 / rule-004 待确认演示）；保存 / 启停 / 删除后规则置「待确认」。
-- **{v3.19} 下发状态感知（决策 D27-2）**：采集 Job 列表新增「下发状态」列（待确认 / 已确认 / 无变更，来自 M09 变更单状态，mock 以 `change_status` 承载）；保存 / 启停 / 删除成功提示改为「变更将由 M09 生成变更单，需确认后生效」+ 内联「前往配置变更确认」跳转（跨模块链接 module-09）；保存 / 启停 / 删除后 Job 置「待确认」；支持 URL 预选网域（`?view=jobs&network_domain=<id>`，供 M09「去配置采集 Job」跳转）；`currentTenant.multi_site_enabled=false`（单域 MVP 演示）。
+- **{v3.19} 下发状态感知（决策 D27-2）**：采集 Job 列表新增「下发状态」列（待确认 / 已确认 / 无变更，来自 M09 变更单状态，mock 以 `change_status` 承载）；保存 / 启停 / 删除成功提示改为「变更将由 M09 生成变更单，需确认后生效」+ 内联「前往配置变更确认」跳转（跨模块链接 module-09）；保存 / 启停 / 删除后 Job 置「待确认」；支持 URL 预选网域（`?network_domain=<id>`，供 M09「去配置采集 Job」跳转，{v3.27} 起不再使用 `?view=`）；`currentTenant.multi_site_enabled=false`（单域 MVP 演示）。
 - **对齐 PRD v3.13**：主机 CI 类型按 OS 平台拆分为 `host_linux` / `host_windows`；ExporterTemplate 增加 `os`、`arch`、`download_url`、`homepage`、`source`（official / third_party / internal）字段与对应 mock 数据。
 - **网域呈现收敛（v3.12）**：移除顶部全局网域切换器 / 多网域开关；Header 仅保留角色切换器，网域作为采集 Job 列表查询条件与 Job 表单必填字段。
 - **采集器管理增强**：增加 `application_http` 引导卡、按 CI 类型 + 来源筛选、「登记采集器」Modal（自研采集器登记后进入 `exporterTemplates` 池）。
@@ -86,7 +92,7 @@ python3 -m http.server 8080
 
 验证 [Module 01: 监控策略与指标管理](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) 的核心交互：
 
-1. **采集器管理（{v3.8} 入口合一，导航「采集」分组子项 + 采集 Job 页内下拉视图）**：每个 CI 类型的默认采集器 + 采集参数 + 安装指南预设（采集实现层，每 CI 类型可多行、`is_default` 标记默认）；导航「**采集**」父分组下「**采集器管理**」/「**采集 Job**」子项（样式对齐指标库分组，`?view=` 区分，采集器管理默认、安装动线起点），页内下拉切换视图；安装指南 Popover 明显展示（**类型级采集器指引**：该装什么、怎么装）；创建 Job 时选 CI 类型自动套用默认值（决策 14）；**实例级安装确认在选实例时进行（5.6），此处不做确认避免重复**。**标签模板关联**：预设列表「标签模板」列以两行卡片展示（名称+默认/自定义标记 / 类别·模板ID），点击模板名打开只读预览抽屉查看映射明细；表单内选中模板后以紧凑卡片展示映射，并提供「前往标签模板管理」跨模块跳转（模板 CRUD 归属 Module_07）。
+1. **采集器管理（{v3.8} 独立页面，{v3.36} 决策 63 起导航收进「采集策略」分组）**：每个 CI 类型的默认采集器 + 采集参数 + 安装指南预设（采集实现层，每 CI 类型可多行、`is_default` 标记默认）；导航「**采集策略**」分组（Sider 二级：采集器管理、采集 Job、规则编辑；指标库为独立分组）下「**采集器管理**」子项（独立页面 /collectors，安装动线起点），与采集 Job 为两个独立页面；安装指南 Popover 明显展示（**类型级采集器指引**：该装什么、怎么装）；创建 Job 时选 CI 类型自动套用默认值（决策 14）；**实例级安装确认在选实例时进行（5.6），此处不做确认避免重复**。**标签模板关联**：预设列表「标签模板」列以两行卡片展示（名称+默认/自定义标记 / 类别·模板ID），点击模板名打开只读预览抽屉查看映射明细；表单内选中模板后以紧凑卡片展示映射，并提供「前往标签模板管理」跨模块跳转（模板 CRUD 归属 Module_07）。
 2. **采集 Job 管理**：Job 增/改/删，关联 CI 类型、默认采集器（{v3.8}，可空手填模式）、网域；CI 类型两级级联选择（先选资源类别，再选 MySQL/Redis 等细粒度类型，选中后自动带出映射默认采集器，可换/可空手填采集参数）；`job_type=standard/blackbox`，blackbox 拨测目标内嵌在 Job 中（`BlackboxTarget[]` 对象数组：target / protocol / url）；实例选择 MVP 手动勾选，v0.3+ 预留 `instance_filter`；Exporter 安装确认（点状态徽标循环 + 弹窗填确认人/备注/实际监听端口 `actual_port` {P1}）；**详情只读视图**（列表「详情」按钮打开只读 Descriptions，区分编辑抽屉）；**参数继承与同步演示**：创建 Job 时从 CI 类型默认采集器继承默认参数（间隔/超时/路径/协议/标签模板）并快照，用户手动修改过的字段记录到 `mapping_overrides`；映射默认值变更后 Job 列表显示「映射默认值已变更」Tag、编辑抽屉提供「同步映射默认值」按钮手动刷新（**仅刷新未手动覆盖字段，覆盖字段保持用户值**）。
 3. **规则编辑**：告警 / 记录规则编辑，`rule_type=recording` 时隐藏 `duration` 与 `annotations`；Labels/Annotations key-value 动态表单；资源类型两级级联选择，选中 CI 类型后自动带出映射默认采集器（可覆盖）；PromQL 保存前强制校验，expr 引用的指标必须存在于指标库（失败给具体错误如「未知指标名 xxx」；{v3.8} 按 CI 类型校验，同名指标显示来源区分）；指标库数据基于**当前页面状态**（用户新增/禁用实时生效）；{v3.8} 选中 CI 类型后按该类型指标集过滤预览；P1「规则模板一键填充」占位按钮。**{v3.13} 规则生命周期职责拆分**：M01 负责规则 CRUD 与 PromQL 语义校验；M09 将规则渲染为对应网域的 `rules.yml` 并下发；M08 负责启用/禁用、分组、静默、Alertmanager 路由与告警收敛。
 4. **技术指标库（{v3.7 改名}/{v3.8 锚点演进}）**：**按 CI 类型分组**（主锚点 = `MetricLibraryItem.resource_types`，多对多、关联带来源采集器标注；可选语义域 `category` 筛选）；支持「资源类别 → CI 类型」两级筛选与 metric_type / 语义域筛选；新增/编辑用户扩展指标（`is_builtin=false`，表单选「所属 CI 类型」多选 + 来源采集器 + 语义域）；内置指标禁止编辑/删除；`enabled` 切换（禁用指标不参与规则提示）；MVP 内置库只读，必须先有指标库才能编写 PromQL；顶部说明两库关系（技术元数据「能采到什么」 vs 业务语义契约「业务关心什么」）并提供跳转业务指标库。
@@ -119,7 +125,7 @@ python3 -m http.server 8080
 
 ## 核心页面
 
-- `/scrape-jobs`：采集 Job 管理（导航「采集」分组 → 子项「采集器管理」/「采集 Job」，页内下拉切换视图（样式对齐指标库筛选）——采集器管理默认（类型级采集器指引 + 安装指南 + 预设维护，安装动线起点）/ 采集 Job（Transfer 实例选择 + Exporter 安装确认，{v3.8} 入口合一））
+- `/scrape-jobs`：采集 Job 管理（{v3.36} 决策 63 起导航「采集策略」分组 → Sider 二级「采集 Job」，独立页面；与采集器管理为两个独立页面——采集器管理 /collectors（类型级采集器指引 + 安装指南 + 预设维护，安装动线起点）/ 采集 Job（Transfer 实例选择 + Exporter 安装确认，{v3.8} 入口合一））
 - `/rules`：告警 / 记录规则编辑（PromQL 校验 + 指标预览 + Labels/Annotations key-value 动态表单；{v3.8} 按 CI 类型指标集提示）
 - `/metric-library`：技术指标库（按 CI 类型分组 + 来源采集器标注 + 语义域筛选 + 用户扩展，{v3.8}）
 - `/business-metrics`：业务指标库（登记表：登记/代办登记 + 采集落地列 + 状态推进；Header 角色切换器演示业务负责人 / 运维两动线）

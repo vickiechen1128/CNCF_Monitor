@@ -82,7 +82,7 @@ CNCF_Monitor-worktree/
 │   ├── 02-product-requirements/    # PRD、模块需求（Modules/Module_XX_*.md）
 │   ├── 03-engineering-standards/   # 工程标准（必读）
 │   ├── 04-source-architecture/     # 源码架构分析
-│   ├── 05-execution-records/       # Agent 执行记录
+│   ├── 05-execution-records/       # Agent 执行记录（含 design-proposals/ 功能详细设计提案）
 │   └── prototypes/                 # 可点击原型（module-01 ~ module-10）
 ├── scripts/                        # 构建与辅助脚本（含 repo-map 符号地图生成器）
 ├── Makefile                        # 统一构建入口
@@ -395,6 +395,17 @@ docker run -p 9090:9090 prom/prometheus:latest
 4. **审查阶段**：`golang-reviewer`、`frontend-reviewer`、`security-reviewer` 独立审查。
 5. **合并阶段**：Orchestrator 在验证通过后以 `--no-ff` 合并到 `develop`。
 6. **验证阶段**：在 `develop` 重复执行测试和服务启动验证。
+
+### 功能详细设计提案（Design Proposal）
+
+当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 PRD 时，使用 **design-proposal** 机制：
+
+- **位置**：`docs/05-execution-records/module-XX/design-proposals/<feature-name>.md`
+- **状态标记**：文档头部标注 `状态：draft / reviewing / approved / merged`
+- **评审**：由 Orchestrator 或 prototype-designer 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
+- **合并**：批准后由 prototype-designer 或原作者在 `design/module-mvp-demo` 分支将内容合并进主 PRD，PRD 版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
+- **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`，作为历史追溯
+- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 PRD 差异点 / 合并计划」
 
 Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`。
 

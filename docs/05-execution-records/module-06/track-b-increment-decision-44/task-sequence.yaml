@@ -3,7 +3,7 @@
 # L2 登记：05_Code_Implementation_Plan.md §6.4 Track B 增量登记
 phase: "Track B 增量（决策 44）"
 module: module-06  # Track B 增量（决策 44）记录子目录：docs/05-execution-records/module-06/track-b-increment-decision-44/
-plan_version: "05 v2026-08-21 + Track B 增量登记 2026-08-28"
+plan_version: "05 v2026-09-05 + Track B 增量登记 2026-08-28"
 branch: feat/module-06-domain-registry  # 复用既有分支名（2026-08-28 用户决策）；该分支已合入 develop，须从最新 develop 重建同名分支
 assumptions:
   - "轻量认证：用户名+密码登录 + 不透明 Token（服务端 sessions 表，12h 过期）；认证中间件只认证不授权（决策 44 修订决策 8）"

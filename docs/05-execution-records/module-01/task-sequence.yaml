@@ -1,11 +1,11 @@
 phase: "Phase 3"
 module: "module-01-strategy"
 module_branch: "feat/module-01-strategy"
-plan_version: "v2026-08-21"
+plan_version: "v2026-09-05"
 owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer 执行"
 source:
   - "docs/02-product-requirements/05_Code_Implementation_Plan.md（Phase 3；后端目录 platform/strategy/{exporter-template,ci-exporter,scrapejob,rule,metric-library}/）"
-  - "docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md v3.26（§3 核心功能 / §5 数据模型 / §6 接口设计 / §8 状态机 / §9 验收标准 / §10 术语映射 / §11 前端交互契约）"
+  - "docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md v3.36（§3 核心功能 / §5 数据模型 / §6 接口设计 / §8 状态机 / §9 验收标准 / §10 术语映射 / §11 前端交互契约）"
   - "docs/02-product-requirements/04_Implementation_Map.md（Module_01 相关章节）"
   - "docs/03-engineering-standards/03_API_Standard.md（§3 统一响应 / §7.2 分页 list 键，默认 page_size=20 上限 100）"
 precondition:
@@ -88,11 +88,11 @@ tasks:
   # 后端 B 组：ExporterTemplate + CITypeExporterMapping
   # ---------------------------------------------------------------------------
   - task_id: "T01-03"
-    name: "ExporterTemplate API（列表筛选 / 登记 source=internal / 编辑 / 软删 + 内置只读）"
+    name: "ExporterTemplate API（列表筛选 / 登记 source=official|third_party|internal（F-32 三来源开放）/ 编辑 / 软删 + 内置只读）"
     agent: "backend-developer"
     status: "pending"
     commit_group: "ci-exporter"
-    prd: "Module_01 §5.2/§6.1/§6.2/§9"
+    prd: "Module_01 §5.2/§6.1/§6.2/§9；F-32（v3.31）：采集器登记来源 MVP 即开放 official / third_party / internal 三种，不再仅 internal"
     depends_on: ["T01-01", "T01-02"]
     estimated_files_changed: 6
     estimated_test_cases: 14
@@ -112,7 +112,7 @@ tasks:
       - "go vet ./platform/strategy/exporter-template/..."
     acceptance_criteria:
       - "GET /exporter-templates：Query monitor_type/source/page/page_size；返回 {list,total,page,page_size}"
-      - "POST：source=internal 时 default_port/metrics_path/scheme 必填；is_builtin=true 拒绝写（bad_request）；登记即入池"
+      - "POST：source ∈ {official, third_party, internal} 三种来源均开放登记（F-32 / v3.31，不再仅 internal）；各来源下 default_port/metrics_path/scheme 必填；名称与平台预置 seed 冲突时由唯一索引返回 409 Conflict；is_builtin=true 拒绝写（bad_request）；登记即入池"
       - "PUT /:id：内部可改；内置只读拒绝；未命中 not_found"
       - "DELETE /:id：软删；被 CITypeExporterMapping 引用 forbidden；未命中 not_found"
 
@@ -355,7 +355,7 @@ tasks:
     commit_group: "fe-collectors-tab"
     prd: "Module_01 §3.1/§5.1/§5.2/§9.1/§11.1"
     prototype_pages: "pages/ScrapeJobsPage.tsx CollectorsView/CollectorRow（含 Steps ~315-820 / Endpoint 合并 / 空态登记 ~1000）"
-    ui_contract: "登记抽屉 source=internal 时 default_port/metrics_path/scheme 动态必填（契约 §3）；标签模板两行卡片（查看/更换/补配）+ 待配置 badge；未被引用标记（is_referenced=false）"
+    ui_contract: "登记抽屉 source 三选（official / third_party / internal，F-32），default_port/metrics_path/scheme 动态必填（契约 §3）；标签模板两行卡片（查看/更换/补配）+ 待配置 badge；未被引用标记（is_referenced=false）"
     nav_contract: "承载于采集 Job 页内 Tab ?tab=collectors（D2：非独立导航项，替代原型折叠父菜单）"
     clipping: "已裁剪：Steps 三步动线（A4）、安装指南/下载/文档列（F1-6）、未被引用行并入 + 模板去配置（F1-5）、空态内联登记（A9）→ 于 T01-F10 修复（P1）；Endpoint/来源合并（D15/F5 P2）"
     depends_on: ["T01-F1"]

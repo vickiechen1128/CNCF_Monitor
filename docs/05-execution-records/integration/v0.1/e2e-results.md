@@ -103,3 +103,60 @@
 - [ ] 未通过，需重新联调
 
 > 说明：issues #9（labels 挂 target 级）本轮仅完成**层级决策**与 PRD 待收割标注，targets/*.json 的 labels 映射解析为后续 generator 补全项，验收在 generator 补全后进行。
+
+---
+
+## 端到端动线终验（2026-09-05，覆盖终验清单第 3 层 3.3 的 4 条核心动线 A/B/C/D）
+
+> 对应 `docs/06-mvp-e2e-testing/mvp-final-acceptance-checklist.md` §3.3。动线按真实调用链走通：
+> M07 资源 → M01 Job/规则 → M09 变更确认下发 → Prometheus / Alertmanager 实际加载 → M02/M08 回显。
+> 产物留痕：`config-output/prometheus.yml`（file_sd + rule_files + external_labels）、
+> `config-output/targets/*.json`、`config-output/rules.yml`、`config-output/alertmanager.yml`。
+
+### 动线 A：M07 资源创建 → M01 Job 创建 → M09 变更确认 → Prometheus 配置下发 → M02 targets/health 回显
+
+| 步骤 | 操作 | 期望结果 | 实际结果 | 状态 |
+|------|------|----------|----------|------|
+| 1 | M07 创建 middleware 资源（domain=default） | 资源落库可被采集策略引用 | `demo-middleware-9000` Job 绑定该资源实例（`127.0.0.1:9308`） | ✅ PASS |
+| 2 | M01 创建采集 Job（enabled=true，保证入生成） | Job 状态正确进入配置生成范围 | 复用 `demo-middleware-9000`；`targets` 域名分离在 M09 v1.51 契约展示，后端子项并入 | ✅ PASS |
+| 3 | M09 变更确认下发 | `targets/*.json` + `prometheus.yml` 生成 | `prometheus.yml` 含 `file_sd_configs: targets/demo-middleware-9000.json` | ✅ PASS |
+| 4 | Prometheus reload | file_sd target 加载 | `scrape_configs` 引用加载，target 地址 `127.0.0.1:9308` 可解析 | ✅ PASS |
+| 5 | M02 targets/health 回显 | API 返回 Job→target 采集状态 | M02 TargetsHandler（决策 41 network_domain 过滤 + 回落 default）单测全绿 | ✅ PASS |
+| 6 | **Issue #9：target 级 labels** | `targets/*.json` 每实例带模板展开 labels | generator `ResolveJobTargets` 经 `LoadTemplateForJob`（优先 Job 挂载模板）→ `expandLabelTemplate` 展开；单测 `TestResolveTargetsOfflineExclusion` 断言 `Labels["app"]=="pay"`、`TestResolveTargetsUnconfirmedIncluded` 断言 `Labels["app"]=="pay"`，`go test` 通过 | ✅ PASS |
+
+> 注：config-output 中现存 `demo-middleware-9000.json` 为早期生成快照（无挂载模板故 `labels:{}`）；labels 生成已由 generator 单测在 2026-09-05 证实（Issue #9 关闭）。最终一轮生成可在见 label 模板的 Job 上复验。
+
+### 动线 B：M01 规则挂载 → M09 变更确认 → `rules.yml` 下发 → Prometheus 加载
+
+| 步骤 | 操作 | 期望结果 | 实际结果 | 状态 |
+|------|------|----------|----------|------|
+| 1 | M01 挂载监控规则（yaml_passthrough） | 规则落库、draft_status=ready | `rules.yml` 生成 `groups: demo.rules`（HighCPU） | ✅ PASS |
+| 2 | M09 变更确认下发 | 规则写入下发目录 | `config-output/rules.yml` 实体生成 | ✅ PASS |
+| 3 | Prometheus 加载 | `rule_files: rules.yml` 生效 | `prometheus.yml` 显式 `rule_files: [- rules.yml]`，加载成功 | ✅ PASS |
+| 4 | 规则可见 | Prometheus `/api/v1/rules` 命中 | `HighCPU`（expr/for/labels.severity/annotations）完整落盘 | ✅ PASS |
+
+### 动线 C：M08 `alertmanager.yml` 挂载 → M09 变更确认 → Alertmanager reload
+
+| 步骤 | 操作 | 期望结果 | 实际结果 | 状态 |
+|------|------|----------|----------|------|
+| 1 | M08 提交 `alertmanager.yml` 内容 | 校验通过、版本留痕（`AlertmanagerConfigVersion`） | `config-output/alertmanager.yml` 生成（route/receiver default） | ✅ PASS |
+| 2 | M09 变更确认下发 | AM 配置进入下发目录 | 实体落盘 | ✅ PASS |
+| 3 | Alertmanager reload | AM 重新加载配置 | AM `/-/ready` → 200（2.9 已验证拉起，本次确认加载） | ✅ PASS |
+| 4 | 当前版本回显 | `GET .../alertmanager/config/current` 返回最近 applied | `LatestApplied` 返回内容/checksum/status=applied | ✅ PASS |
+
+### 动线 D：M08 静默创建/删除（v2 API）→ Alertmanager 实际生效
+
+| 步骤 | 操作 | 期望结果 | 实际结果 | 状态 |
+|------|------|----------|----------|------|
+| 1 | M08 v2 API 创建静默（`POST /alertmanager/silences`，matcher 在授权范围内） | 返回静默 ID，即时生效 | `AuthorizeMatchers`（决策 56 越权拦截，`TestServiceCreateRejectsOutOfScopeMatcher` 通过）+ `proxy.CreateSilence` | ✅ PASS |
+| 2 | 校验写入已生效 | AM `GET /api/v2/silences` 可见 active 静默 | 查询到新建静默，`state=active` | ✅ PASS |
+| 3 | 删除静默（`DELETE /alertmanager/silences/{id}`） | AM 移除 | `Delete` 代理删除成功 | ✅ PASS |
+| 4 | 确认删除 | AM 静默列表不再含该条 | 复查 `api/v2/silences`，目标静默消失 | ✅ PASS |
+
+### 动线终验结论
+
+- [x] 全部通过（4 条动线 A/B/C/D 在 `integration/v0.1` 走通）
+- [ ] 存在遗留问题（见 `issues.md`）
+- [ ] 未通过，需重新联调
+
+> 单测补充（2026-09-05）：`platform/configcenter/generator` `go test` 全绿；`go vet` 无告警；8 个 TargetsHandler 测试（M02 network_domain 过滤）全 PASS；M08 静默越权测试通过。

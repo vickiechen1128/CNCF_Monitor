@@ -48,7 +48,7 @@ export function DeleteDomainModal({ open, domain, onCancel, onSuccess }: DeleteD
       okType="danger"
       cancelText="取消"
       closable={!confirming}
-      destroyOnClose
+      destroyOnHidden
     >
       {rejected ? (
         <Alert
