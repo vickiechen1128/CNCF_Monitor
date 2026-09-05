@@ -504,6 +504,10 @@
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.54 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（网域纳管/变更确认/Agent 监控）与涉及用户故事编码索引；不改变技术契约 | 0 | 文档自身 | ready |
+| v1.53 | 2026-09-02 | 修改 | v0.2 规划决策落版（2026-09-02 v0.2 版本范围最终口径）：①§3.3 端口解析链新增实例级 `Resource.scrape_port` 优先级——`Resource.scrape_port`（实例级覆盖，M07 资源可选字段）→ 网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port`；实例级端口在配置生成期解析、无需用户在 Job 层操作，「Job 级端口映射表」明确不做（与 filter / service_discovery 动态纳入模式冲突）；②§5.1 新增 K8s 划域备忘——overlay CNI（Calico/Flannel）下集群独立建网域（zone_type 增加 k8s）、集群内以 Deployment/DaemonSet 部署 vmagent（Agent Mode）复用 `agent_pull` 机制（配置包/Token/心跳/Remote Write 零改动），VPC 原生 CNI 可并入所在 VM 网域；③Job 网域扇出（决策 54）/ filter 实时求值（决策 53）维持 v0.2 不变 | 3.3 / 5.1 | v0.2 | ready |
+| v1.52 | 2026-08-31 | 修改 | 决策 60 落版（alertmanager.yml 纳入 M09 变更确认）：①修订「alertmanager.yml 由 M08 直接管理、不进 M09」口径——M08 生成内容（文件挂载 + amtool 校验，决策 59），MVP 起作为**管理域（`default`）scope** 配置产物进入本模块 `ConfigDraft → 人工确认 → 下发 → reload` 流水线，`change_status` 回写 M08；②明确**不参与按网域扇出、不进入 `agent_pull` 配置包**（中心 Alertmanager 全局单例；边缘自治告警的本地配置为 v0.4+）；MVP `local` 通道确认后写中心 Alertmanager 配置路径并触发 reload；③风险分级预留：后续版本可按配置类型将告警配置降为低风险自动确认；④§1 草稿与预览、§3.3 生成配置行、§3.4 审批分级策略、§3.11 配置产物形态、§6.5 边缘流程、§9.2 验收同步 | 1 / 3.3 / 3.4 / 3.11 / 6.5 / 9 | MVP | ready |
+| v1.51 | 2026-08-31 | 新增 | 决策 53/54 落版（v0.2 契约）：①§3.3「按网域生成配置」补 **Job 网域扇出**——M01 逻辑 Job 可绑定网域集合，生成器按网域自动拆分为各域 scrape_configs / targets / 变更单，分别走各域变更检测 / 校验 / 确认 / 下发（流程不变，跨网域复用不再依赖手工克隆）；②§3.3「实例过滤」补 **filter 模式实时求值**（决策 53 由 v0.3+ 提前 v0.2）——每次生成周期按条件表达式求值，M07 新增资源匹配即自动纳入 targets、属性变化自动移出；③§5.7 补资源网域归属四级解析链交叉引用（决策 52，`bk_cloud_id` 映射为第①级）；本轮为 v0.2 契约落版，MVP 行为不变 | 3.3 / 5.7 | v0.2 | prototyping |
 | v1.50 | 2026-08-26 | 修改 | **版本号保持 v1.50（同步联调已拍板决策，非升版）**——按 `module-09/dev-feedback.md`（F-15/F-17/F-19/§8/§9）与 `integration/v0.1/issues.md`（#5/#8/#9/#18）同步正文：①§3.3.3 轮询改**自适应退避**（min 5s / max 120s，`--change-detect.min/max-interval` 可覆盖）、同域 pending 改 **checksum 比较取代**（相同不推基线 / 不同取代并 `supersedes_change_no` 互记）、补**保存后即时触发 + 前往配置变更确认跳转**、空变更抑制（`ErrNoChanges` 不落库）；②§3.4 变更详情补 superseded 旧单「已被新变更单取代」Alert、草稿废弃补**分类回写知情告知**（决策 43）、targets labels **target 级**来源说明（决策 D43）；③§3.5 补**废弃回写语义**（新建回退 draft / 已生效修改提示+复现备注 v0.3 / 删除停用自动恢复 / change_status 防 pending 残留 / 规则回写同口径）；④§3.5.1 补**校验三态操作出口**（仅 passed 可确认，pending 亦禁确认给「重新校验+废弃」）与 **`validation_cause` / `validation_details` 归因**（决策 45）；⑤§5.4 ConfigDraft 字段表补 `validation_status` / `validation_cause` / `validation_details`、metadata 补 `supersedes_change_no`；⑥§8 ConfigDraft 状态机补空变更抑制 / supersede 互记 / 废弃回写流转；⑦§9.1/§9.2/§11.2 验收与轮询表述对齐并补决策 43/44/45 验收项 | 3.3.3 / 3.4 / 3.5 / 3.5.1 / 5.4 / 8 / 9 / 11.2 | MVP / v0.2 | prototyping |
 | v1.49 | 2026-08-21 | 修改 | M09 网域契约结构性对齐（决策 28）+ offline 排除提级 P0（决策 29）：①§1 / §3.1.1 / §5.1 删除「1 租户 : N 网域」「禁止跨租户共享网域」「租户前缀」「tenant_id=所属租户」「未指定继承 default」等旧语义，明确「NetworkDomain 行政模型以 Module_06 为单一事实来源」、ID 规则置 M06（id / tenant_id 字段只读引用、归属约束改为行政约束引用、MVP 处理去掉租户继承语义、§9.1/§9.2 同步）；②§3.3「实例过滤」与 9.2 验收将 `offline` 排除提级 MVP 必实现——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤，`offline` 后下一配置生成周期即从 targets 移除；本轮为 PRD 契约落版，不涉及原型行为变更 | 1 / 3.1.1 / 3.3 / 5.1 / 9 | MVP / v0.2 | prototyping |
 | v1.48 | 2026-08-21 | 修改 | 对齐 Module_01 v3.24「规则文件挂载」补充 `rule_content` 透传并入契约：①§3.3「按网域生成配置」新增 `content_mode` 分形态并入逻辑——`yaml_passthrough`（MVP）将 `rule_content`（完整 rules.yml 含 groups）原样并入，`structured`（v0.3+）按字段化生成；②§3.3 配置文件映射语义补充 `rules.yml` = 规则级（MonitoringRule）层级；③9.2 验收「规则组织与交付」补透传表述 | 3.3 配置生成 / 9 验收 | MVP / v0.3 | prototyping |
@@ -1407,3 +1411,13 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
 - **触发与结论**：见 module-08 design-decisions 决策 60 全文（统一变更纪律：M08 为内容 Owner、M09 为管道 Owner；管理域 scope、不扇出）。
 - **本模块落点**：①配置产物类型增加 `alertmanager.yml`，**scope 恒为管理域（`default`）**——变更单网域固定 `default`，不参与按网域拆分扇出、不进入 `agent_pull` 配置包；②MVP `local` 通道确认后写中心 Alertmanager 配置路径并触发其 reload（SIGHUP / `POST /-/reload`），`change_status` 回写 M08；③预留按配置类型风险分级（告警配置后续可降为低风险自动确认），MVP 统一人工确认。
 - **影响范围**：Module_09 PRD v1.52（§1 / §3.3 / §3.4 / §3.11 / §6.5 / §9.2）。
+
+---
+
+## 补充对齐：2026-09-05（禁用网域与监控纳管联动口径，决策 62）
+
+- **背景**：`NetworkDomain.Status`（M06 行政启用状态）与 `IsMonitored`（M09 监控纳管状态）为独立字段，M06 禁用网域不联动 M09 纳管——禁用后 M09 纳管页仍显示「已纳管」并保留监控参数 / Token。PRD 未规定「禁用是否应取消纳管 / 冻结 Token」，属契约口径空白（module-09 dev-feedback §5）。
+- **候选口径**：① 禁用即取消纳管并冻结 Token；② 禁用仅行政停用、纳管与 Token 保留（MVP 当前行为）。
+- **结论（决策 62，2026-09-05，chenrt 拍板）**：**MVP 采用口径②（保持现状）**；口径①（禁用联动取消纳管 / 冻结 Token）纳入 **v0.2 多网域版本**实现，届时随多域场景一并评审（含禁用后 `agent_pull` 通道 Edge Agent 的行为、Token 冻结与恢复流程）。
+- **落点**：Module_09 PRD §1「MVP 阶段」注记（v1.57）；module-09 dev-feedback §5 决策注记。
+- **影响范围**：M06 网域状态变更钩子（v0.2）、M09 纳管页状态展示与 Token 生命周期（v0.2）。

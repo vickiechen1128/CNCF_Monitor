@@ -13,15 +13,15 @@
 | Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）                                                                                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-01（新建）                                                                                                                                                                                                                                             |
-| 生成方式  | planner 派生（决策 59/60，承接决策 47）                                                                                                                                                                                                                                |
-| 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.7）§1/§3.1/§5.1/§5.2/§6.3/§6.6/§9；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8；`task-sequence.yaml` |
+| 版本    | v2026-09-04（v2 silence API 迁移）                                                                                                                                                                                                                                             |
+| 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2）                                                                                                                                                                                                                                |
+| 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.8）§1/§3.1/§5.1/§5.2/§6.3/§6.6/§9；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8；`task-sequence.yaml` |
 
 ## 1. 通用契约
 
 ### 1.1 前缀与响应
 
-- 管理面前缀：`/api/v2/platform/alertmanager/*`（本模块全部 REST 管理接口）；代理 Alertmanager 原生 `/api/v1/silences` 亦由本模块服务端承载，前端不直连 AM。
+- 管理面前缀：`/api/v2/platform/alertmanager/*`（本模块全部 REST 管理接口）；代理 Alertmanager 原生 **v2 silence API**（`/api/v2/silences`、`/api/v2/silence/{id}`）由本模块服务端承载，前端不直连 AM。Alertmanager ≥0.27 已移除 v1 silence 端点，禁止调用 `/api/v1/silences`。
 
 - 统一响应：`{status: success, data}` / `{status: error, errorType, error}`（沿用 `platform/api/response`）。
 
@@ -95,13 +95,15 @@
 
 > 前端按行定位高亮/列表展示；`file` 恒为 `alertmanager.yml`（单文件挂载），`line` 为 0 表示无行号。
 
-## 4. 静默管理 API（silence service，代理 Alertmanager）
+## 4. 静默管理 API（silence service，代理 Alertmanager v2）
+
+> 背景：Alertmanager ≥0.27 已移除 v1 silence 端点（返回 410 Gone），本模块代理必须走 **v2 API**。v2 与 v1 响应形状不同：列表为裸数组、单条为裸对象、创建成功返回 `{"silenceID": "..."}`。
 
 | 方法     | 路径                                                    | Query / 请求体                                                              | 响应 data                        | 业务错误                             | PRD 源        |
 | ------ | ----------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------ | -------------------------------- | ------------ |
-| GET    | `/api/v2/platform/alertmanager/silences`              | Query: `page`、`page_size`（服务端可追加 `active=true` 过滤活跃静默）                   | `{ items: [Silence], total }`  | —                                | §5.2         |
-| POST   | `/api/v2/platform/alertmanager/silences`              | body `{ matchers: [Matcher], starts_at, ends_at, comment, created_by? }` | 创建的 `Silence`（含 AM silence ID） | `bad_request`：matcher 越权 / 参数不合法 | §5.2 / 决策 56 |
-| DELETE | `/api/v2/platform/alertmanager/silences/{silence_id}` | —                                                                        | 删除成功的静默 ID                     | `not_found`：不存在                  | §5.2         |
+| GET    | `/api/v2/platform/alertmanager/silences`              | Query: `page`、`page_size`（服务端可追加 `active=true` 过滤活跃静默；转发至 AM `/api/v2/silences`）                   | `{ items: [Silence], total }`  | —                                | §5.2         |
+| POST   | `/api/v2/platform/alertmanager/silences`              | body `{ matchers: [Matcher], starts_at, ends_at, comment, created_by? }`（转发至 AM `/api/v2/silences`） | 创建的 `Silence`（含 AM silence ID；由 AM `/api/v2/silences` 返回的 `silenceID` 构造） | `bad_request`：matcher 越权 / 参数不合法 | §5.2 / 决策 56 |
+| DELETE | `/api/v2/platform/alertmanager/silences/{silence_id}` | —（转发至 AM `/api/v2/silence/{silence_id}`）                                                                        | 删除成功的静默 ID                     | `not_found`：不存在                  | §5.2         |
 
 ### Silence
 
@@ -166,11 +168,11 @@
 
 ## 9. 来源对照表
 
-- PRD：`docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v1.7）§1/§3.1/§5.1/§5.2/§6.3/§6.6/§9
+- PRD：`docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v1.8）§1/§3.1/§5.1/§5.2/§6.3/§6.6/§9
 
 - M09 联动：`docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.52）§3.4/§5.4/§9.2
 
-- 决策：`docs/05-execution-records/module-08/design-decisions.md`（决策 49/55/56/59/60）
+- 决策：`docs/05-execution-records/module-08/design-decisions.md`（决策 49/55/56/59/60/61）
 
 - 标准：`docs/03-engineering-standards/03_API_Standard.md` §7
 

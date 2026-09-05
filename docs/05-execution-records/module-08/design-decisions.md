@@ -106,12 +106,31 @@
 
 ---
 
+## 补充对齐：2026-09-04（静默管理 API v1 → v2 迁移，决策 61）
+
+- **触发**：`feat/module-08-alert-dispatch` 分支开发实测中，静默列表/创建/删除均返回 502；排查后发现 Alertmanager（≥0.27）已移除 v1 silence 端点（`GET/POST /api/v1/silences`、`GET/DELETE /api/v1/silence/{id}`），调用即返回 **410 Gone**；此前 PRD/契约快照仍按 v1 书写。
+- **结论**：
+  1. MVP 静默代理必须统一迁移到 **Alertmanager v2 silence API**：List/Create 走 `/api/v2/silences`，Get/Delete 单条走 `/api/v2/silence/{id}`；
+  2. v2 响应形状与 v1 不同——列表为裸数组、单条为裸对象、创建成功返回 `{"silenceID": "..."}`，服务端 DTO 与测试 fake 同步调整；
+  3. 通知状态查询（`/api/v1/alerts`）不受影响，仍维持 v1；
+  4. 本决策作为开发期技术修正，纳入 design-decisions 决策序列 61。
+- **影响范围**：
+  - `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v1.8）：§5.2 示例与说明、§7 边界表、§9.2 技术验收；
+  - `docs/05-execution-records/module-08/api-contract-snapshot.md`（v2026-09-04）：§1.1 前缀说明、§4 静默 API 路径与响应形状；
+  - 源码 `platform/alertmanager/silence/proxy.go`、`silence/service.go`、`silence_test.go`、`platform/cmd/metric-center/main_test.go` fake Alertmanager（已在开发分支完成修复）。
+- **验证**：`go test ./platform/alertmanager/silence/...`、`go test ./platform/cmd/metric-center/... -run TestEndToEndAlertmanagerSmoke`、`go test ./platform/...` 全量通过。
+
+---
+
 ## Change Log（完整历史）
 
 > v1.5 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.4 及以前的逐版完整变更详情（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.8 | 2026-09-04 | 修改 | 决策 61 落版（静默 API v1→v2 迁移）：Alertmanager ≥0.27 已移除 `/api/v1/silences` 等 v1 silence 端点（返回 410 Gone），MVP 必须调用 `/api/v2/silences` / `/api/v2/silence/{id}`；同步更新 §5.2 示例与说明、§7 边界表、§9.2 技术验收；v2 响应结构（裸数组/裸对象/`silenceID`）与 v1 不同，实现已按 v2 落地 | 5.2 / 7 / 9.2 | MVP | 设计中 |
+| v1.7 | 2026-08-31 | 修改 | 决策 60 落版（alertmanager.yml 纳入 M09 变更确认）：①修订 v1.3「MVP 单域直接 reload、不进 M09」口径——`alertmanager.yml` 作为**管理域（`default`）scope** 配置产物进入 M09 `ConfigDraft → 人工确认 → 下发 → reload` 流水线，`change_status` 回写 M08；M08/M09 关系对齐 M01/M09（M08 内容 Owner、M09 管道 Owner）；②明确**不参与按网域扇出**（中心 Alertmanager 全局单例；仅 v0.4+ 边缘自治告警的边缘配置才按域下发）；③「低风险自动通过」降级为后续版本预留（M09 按配置类型风险分级），MVP 统一人工确认；④§1 范围说明、§3.1 功能表、§4 边界表（新增下发行）、§5.1 文件挂载契约、§6.6 版本留痕口径、§9.1/§9.2 验收同步；⑤决策 59 维持：MVP 交付形态仍为文件挂载（原型中的通用表单设计缺少业务流程支撑，不作为 MVP 依据），表单化 UI 仍归 v0.3 | 1 / 3.1 / 4 / 5.1 / 6.6 / 9 | MVP | 设计中 |
+| v1.6 | 2026-08-31 | 新增 | 决策 59 落版（MVP 告警分发最小闭环 = 文件挂载 + 静默 UI）：①§1 新增「MVP 交付形态」——按操作频率拆分：低频一次性配置（接收人 / 路由 / 抑制）MVP 走文件挂载（整文件上传/粘贴 + `amtool check-config` 校验 + 版本留痕 + 直接 reload，与 M01 规则挂载决策 38-1 同构），表单化 UI 挪 v0.3；高频静默 MVP 提供极简 UI（API 直调，文件挂载承载不了运行时状态）；②§2 M08-OPS-01/02、§3.1 功能表同步形态标注；③§5.1 新增文件挂载契约（校验失败不落库不 reload、只读视图 + 历史版本回滚）；④§9.1 新增文件挂载验收与端到端告警链路验收（触发规则 → 路由 → Webhook 实际收到通知）、表单 UI 验收挪 v0.3；⑤§9.2 补挂载接口契约验收；解决 MVP 前台「采集配置 → 规则下发」之后告警分发无操作步骤的闭环断裂；原型待对齐 | 1 / 2 / 3.1 / 5.1 / 9 | MVP / v0.3 | 设计中 |
 | v1.4 | 2026-08-31 | 新增 | 决策 49 落版（告警收敛与派发组件选型锁定）：§1 新增「组件选型决策」——锁定 Alertmanager，明确不引入 Grafana Alerting（规则/通知策略 DB 驱动、UI 管理，不兼容配置生成流水线）与夜莺（完整监控平台，引入即整体替换架构，规则同样 DB 驱动）；两者自带独立查询路径会绕开 M02 注入代理，构成租户隔离缺口；「Alertmanager 难用」的易用性诉求由 M08 UI 化管理承接；原型待对齐 | 模块目标 | 无版本变更 | 设计中 |
 | v1.3 | 2026-08-15 | 重大修改 | M01/M08/M09 告警规则职责三轴重构：①模块名称由「告警规则管理」改为「告警收敛与通知管理」；②规则内容创作、规则记录、`rules.yml` 生成与下发全部剥离给 M01/M09；③M08 聚焦 Alertmanager 配置（路由/接收人/静默/抑制）、通知状态查询、告警抑制；④`alertmanager.yml` 由 M08 直接写文件并 reload，MVP 单域不进入 M09 配置变更确认；⑤重写 1/2/3/4/5/6/8/9/10/11 章节；⑥数据模型由 `AlertingRule`/`RuleGroup`/`RecordingRule` 改为 `Receiver`/`Route`/`Silence`/`InhibitionRule`/`AlertmanagerConfigVersion` | MVP / v0.3 / v1.0 | 设计中 |
 | v1.2 | 2026-08-06 | 修改 | 版本对齐：告警状态查看（Prometheus `/api/v1/alerts`）由 M02 代理的启用版本统一标注为 v0.3；「5. 实现方式」章节标题及 5.1/5.2/5.3 内「MVP 阶段」统一改为 v0.3 交付；范围调整说明、边界说明、用户故事、3.1 功能表、8 依赖、9 验收标准同步标注 v0.3 | v0.3 / v1.0 | 设计中 |

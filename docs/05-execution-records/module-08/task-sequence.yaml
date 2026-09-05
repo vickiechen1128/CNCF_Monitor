@@ -1,11 +1,11 @@
 phase: "Track B 增量（决策 59/60 告警分发 MVP 最小闭环）"
 module: "module-08-alert-dispatch"
 module_branch: "feat/module-08-alert-dispatch"
-plan_version: "v2026-09-01（决策 59/60，承接决策 47 之后另起一轮）"
+plan_version: "v2026-09-05（决策 59/60，承接决策 47 之后另起一轮）"
 owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer / security-reviewer 执行"
 source:
-  - "docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md（v1.7：§1 MVP 形态 / §3.1 功能表 / §5.1 文件挂载契约 / §5.2 静默 / §5.4 告警状态 / §6.6 AlertmanagerConfigVersion / §9.1/9.2 验收）"
-  - "docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md（v1.52：§3.4 alertmanager.yml 管理域 scope 变更确认 / §5.4 change_items affected_files / §9.2 验收）"
+  - "docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md（v1.11：§1 MVP 形态 / §3.1 功能表 / §5.1 文件挂载契约 / §5.2 静默 / §5.4 告警状态 / §6.6 AlertmanagerConfigVersion / §9.1/9.2 验收）"
+  - "docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md（v1.57：§3.4 alertmanager.yml 管理域 scope 变更确认 / §5.4 change_items affected_files / §9.2 验收）"
   - "docs/05-execution-records/module-08/design-decisions.md（决策 49 组件选型 / 决策 55/56 告警状态归属与授权过滤 / 决策 59 文件挂载+静默 UI / 决策 60 纳入 M09 变更确认）"
   - "docs/05-execution-records/module-09/task-sequence.yaml（T09-60-* 追加任务，本序列的跨端依赖）"
   - "docs/02-product-requirements/04_Implementation_Map.md（§2.6 M08 / §6 告警分层 / §8 MVP 闭环）"
@@ -109,8 +109,8 @@ tasks:
       - "测试覆盖列表分页、详情、当前生效取最近、remount 触发校验与提交"
 
   - id: "T08-04"
-    title: "静默管理：代理 Alertmanager /api/v1/silences + matcher 授权收敛校验"
-    prd: "Module_08 §5.2 / §6.3 / §9.1 / §9.2；决策 56（写路径 matcher 授权校验）/ 决策 59（MVP 极简 UI：创建/列表/删除，API 直调）"
+    title: "静默管理：代理 Alertmanager /api/v2/silences + matcher 授权收敛校验（决策 61：v1 端点已移除，410 Gone）"
+    prd: "Module_08 §5.2 / §6.3 / §9.1 / §9.2；决策 56（写路径 matcher 授权校验）/ 决策 59（MVP 极简 UI：创建/列表/删除，API 直调）/ 决策 61（v1→v2 迁移）"
     group: "backend"
     status: "done"
     commit_group: "silence-proxy"
@@ -121,7 +121,7 @@ tasks:
     output_files:
       - "platform/alertmanager/silence/service.go"
       - "platform/alertmanager/silence/handler.go"
-      - "platform/alertmanager/silence/proxy.go"    # 代理 Alertmanager /api/v1/silences
+      - "platform/alertmanager/silence/proxy.go"    # 代理 Alertmanager /api/v2/silences（决策 61：v1 已移除）
       - "platform/alertmanager/silence/authorize.go" # 服务端 matcher 授权收敛（决策 56）
       - "platform/alertmanager/silence/silence_test.go"
     estimated_files_changed: 5

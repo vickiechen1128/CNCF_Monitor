@@ -22,15 +22,9 @@
 
 - **矛盾点**：该入口归属 **M09** 而非 M02，且与决策 47-4「独立页不纳入本期导航」的既定契约**不符**——属**前端为可达性做的临时挂载**，非正式导航规划。
 
-- **请求结论**：请设计侧确认优先级：
+- **请求结论 / 已决策**：采用 **方案 B**——维持 M09 临时挂载作为 MVP 占位，并在 `docs/05-execution-records/module-02/design-decisions.md` 补决策 10 豁免记录；PRD Module_02 当前不新增正式导航描述，维持决策 47-4「独立目标状态页 P1、无强制导航入口」口径。
 
-  - **方案 A（推荐，对齐 PRD）**：补「查询中心（一级 tab）→ 目标状态（二级）」正式导航归属，将「监控目标状态」从 M09 迁出，并按正式 tab 契约恢复决策 47-4 前的可达性口径；或
-
-  - **方案 B**：维持 M09 临时挂载作为 MVP 占位，并在 design-decisions.md 补一条豁免记录；或
-
-  - **方案 C**：维持当前「无导航、URL 直达」的 P1 口径，前端回滚本次 M09 挂载改动。
-
-- **影响面**：`ui-custom/web/src/layouts/MainLayout.tsx`（导航菜单 + 路由分组）；PRD Module\_02（若走 A）及前端导航契约（`nav_contract`）。
+- **影响面**：`ui-custom/web/src/layouts/MainLayout.tsx`（导航菜单 + 路由分组，M09 组下二级菜单「监控目标状态」保留）；`docs/05-execution-records/module-02/design-decisions.md` 决策 10。
 
 ## 2. 遗留风险 / P1 记账（评审建议，非本轮缺陷）
 

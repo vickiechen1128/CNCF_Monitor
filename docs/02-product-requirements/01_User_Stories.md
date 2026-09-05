@@ -19,47 +19,49 @@
 
 ## 2. 用户故事列表
 
+> **「详细场景」列说明（v1.32 起）**：本列为可选扩展，指向对应模块 PRD §0「需求背景与典型场景」章节，供产品经理 / 新工程师阅读业务上下文；未填写时默认以模块 PRD §0 为权威。
+
 ### 2.1 运维工程师（OPS）
 
-| 故事 ID | 作为 | 我希望 | 以便于 |
-|---------|------|--------|--------|
-| OPS-01 | 运维工程师 | 通过 Web 门户查看所有采集目标状态 | 快速发现采集失败 |
-| OPS-02 | 运维工程师 | 从 CMDB 批量导入采集目标 | 减少手动配置 |
-| OPS-03 | 运维工程师 | 在门户中执行 PromQL 查询 | 无需记忆 Prometheus URL |
-| OPS-04 | 运维工程师 | 查看目标的采集日志与失败原因 | 快速定位问题 |
-| OPS-05 | 运维工程师 | 临时添加一个采集目标 | 验证新业务指标 |
-| OPS-06 | 运维工程师 | 为资源手动添加/覆盖 Label，并看到 Label 来源 | 补充 CMDB 未覆盖的维度 |
-| OPS-07 | 运维工程师 | 通过 Excel 导入资源时保留 CMDB 预留字段 | 为后续 CMDB 同步做准备 |
+| 故事 ID | 作为 | 我希望 | 以便于 | 详细场景 |
+|---------|------|--------|--------|----------|
+| OPS-01 | 运维工程师 | 通过 Web 门户查看所有采集目标状态 | 快速发现采集失败 | [Module_02 §0](Modules/Module_02_Query_Center.md#需求背景与典型场景) |
+| OPS-02 | 运维工程师 | 从 CMDB 批量导入采集目标 | 减少手动配置 | [Module_07 §0](Modules/Module_07_Monitoring_Object_Management.md#需求背景与典型场景) |
+| OPS-03 | 运维工程师 | 在门户中执行 PromQL 查询 | 无需记忆 Prometheus URL | [Module_02 §0](Modules/Module_02_Query_Center.md#需求背景与典型场景) |
+| OPS-04 | 运维工程师 | 查看目标的采集日志与失败原因 | 快速定位问题 | [Module_01 §0](Modules/Module_01_Metric_Collection_Center.md#需求背景与典型场景) |
+| OPS-05 | 运维工程师 | 临时添加一个采集目标 | 验证新业务指标 | [Module_07 §0](Modules/Module_07_Monitoring_Object_Management.md#需求背景与典型场景) |
+| OPS-06 | 运维工程师 | 为资源手动添加/覆盖 Label，并看到 Label 来源 | 补充 CMDB 未覆盖的维度 | [Module_07 §0](Modules/Module_07_Monitoring_Object_Management.md#需求背景与典型场景) |
+| OPS-07 | 运维工程师 | 通过 Excel 导入资源时保留 CMDB 预留字段 | 为后续 CMDB 同步做准备 | [Module_07 §0](Modules/Module_07_Monitoring_Object_Management.md#需求背景与典型场景) |
 
 ### 2.2 运维架构师（ARCH）
 
-| 故事 ID | 作为 | 我希望 | 以便于 |
-|---------|------|--------|--------|
-| ARCH-01 | 运维架构师 | 创建和管理租户 | 为不同团队隔离数据 |
-| ARCH-02 | 运维架构师 | 配置数据保留策略 | 控制存储成本 |
-| ARCH-03 | 运维架构师 | 查看平台整体采集覆盖率 | 评估监控完整性 |
-| ARCH-04 | 运维架构师 | 配置 Remote Write 转发 | 对接长期存储 |
-| ARCH-05 | 运维架构师 | 管理用户权限与角色 | 控制数据访问范围 |
-| ARCH-06 | 运维架构师 | 配置 CMDB CI 类型到资源类型的映射，并处理待分类 CI | 保证外部 CMDB 同步准确且不阻塞 |
+| 故事 ID | 作为 | 我希望 | 以便于 | 详细场景 |
+|---------|------|--------|--------|----------|
+| ARCH-01 | 运维架构师 | 创建和管理租户 | 为不同团队隔离数据 | [Module_06 §0](Modules/Module_06_Multi_Tenant.md#需求背景与典型场景) |
+| ARCH-02 | 运维架构师 | 配置数据保留策略 | 控制存储成本 | [Module_09 §0](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md#需求背景与典型场景) |
+| ARCH-03 | 运维架构师 | 查看平台整体采集覆盖率 | 评估监控完整性 | [Module_01 §0](Modules/Module_01_Metric_Collection_Center.md#需求背景与典型场景) / [Module_07 §0](Modules/Module_07_Monitoring_Object_Management.md#需求背景与典型场景) |
+| ARCH-04 | 运维架构师 | 配置 Remote Write 转发 | 对接长期存储 | [Module_09 §0](Modules/Module_09_Network_Domain_and_Edge_Config_Center.md#需求背景与典型场景) |
+| ARCH-05 | 运维架构师 | 管理用户权限与角色 | 控制数据访问范围 | [Module_06 §0](Modules/Module_06_Multi_Tenant.md#需求背景与典型场景) |
+| ARCH-06 | 运维架构师 | 配置 CMDB CI 类型到资源类型的映射，并处理待分类 CI | 保证外部 CMDB 同步准确且不阻塞 | [Module_07 §0](Modules/Module_07_Monitoring_Object_Management.md#需求背景与典型场景) |
 
 > **落点说明（2026-08-18，M07 评审结论；2026-08-21 决策 31-M1 修订；2026-08-28 决策 47-3 修订）**：ARCH-03（采集覆盖率）的实现落点为 **M01 实例选择器（「未纳入任何 Job」筛选 + offline 排除）+ M01 Job 详情/编辑抽屉采集状态回显（在线数 / 待采集 / up / down）+ M07 资源列表三态采集状态 badge**（`is_monitored` 由 Module_01 维护、`up` 聚合由 Module_02 健康度 API 提供，M07 只读消费）；M02 保留 `/api/v1/targets` 代理 API 作为共同数据源，独立目标状态页降为 P1（跨 Job 全局排障入口）。
 
 ### 2.3 AI 应用开发工程师（AI-DEV）
 
-| 故事 ID | 作为 | 我希望 | 以便于 |
-|---------|------|--------|--------|
-| AI-01 | AI 应用开发工程师 | 通过稳定 API 获取指标数据 | 构建 AIOps 模型 |
-| AI-02 | AI 应用开发工程师 | 批量查询多个时间序列 | 进行异常检测 |
-| AI-03 | AI 应用开发工程师 | 获取元数据（指标名、标签） | 理解数据结构 |
-| AI-04 | AI 应用开发工程师 | 订阅指标变化或告警事件 | 触发自动化流程 |
+| 故事 ID | 作为 | 我希望 | 以便于 | 详细场景 |
+|---------|------|--------|--------|----------|
+| AI-01 | AI 应用开发工程师 | 通过稳定 API 获取指标数据 | 构建 AIOps 模型 | [Module_02 §0](Modules/Module_02_Query_Center.md#需求背景与典型场景) |
+| AI-02 | AI 应用开发工程师 | 批量查询多个时间序列 | 进行异常检测 | [Module_02 §0](Modules/Module_02_Query_Center.md#需求背景与典型场景) |
+| AI-03 | AI 应用开发工程师 | 获取元数据（指标名、标签） | 理解数据结构 | [Module_02 §0](Modules/Module_02_Query_Center.md#需求背景与典型场景) |
+| AI-04 | AI 应用开发工程师 | 订阅指标变化或告警事件 | 触发自动化流程 | [Module_08 §0](Modules/Module_08_Alertmanager_Notification_Management.md#需求背景与典型场景) |
 
 ### 2.4 业务研发工程师（DEV）
 
-| 故事 ID | 作为 | 我希望 | 以便于 |
-|---------|------|--------|--------|
-| DEV-01 | 业务研发工程师 | 查看我负责服务的指标看板 | 了解服务健康度 |
-| DEV-02 | 业务研发工程师 | 导出指标图表 | 写入报告或分享 |
-| DEV-03 | 业务研发工程师 | 设置简单的阈值告警 | 及时发现问题 |
+| 故事 ID | 作为 | 我希望 | 以便于 | 详细场景 |
+|---------|------|--------|--------|----------|
+| DEV-01 | 业务研发工程师 | 查看我负责服务的指标看板 | 了解服务健康度 | [Module_05 §0](Modules/Module_05_Custom_UI.md#需求背景与典型场景) |
+| DEV-02 | 业务研发工程师 | 导出指标图表 | 写入报告或分享 | [Module_05 §0](Modules/Module_05_Custom_UI.md#需求背景与典型场景) |
+| DEV-03 | 业务研发工程师 | 设置简单的阈值告警 | 及时发现问题 | [Module_08 §0](Modules/Module_08_Alertmanager_Notification_Management.md#需求背景与典型场景) |
 
 ---
 

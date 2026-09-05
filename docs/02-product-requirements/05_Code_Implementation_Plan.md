@@ -3,10 +3,12 @@
 > 文档类型：工程实施计划  
 > 依赖文档：[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[04_Implementation_Map.md](04_Implementation_Map.md)、[00_Product_Vision.md](00_Product_Vision.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.29 · Module_02 v1.8（采集状态回显提前 MVP，决策 47）· Module_06 v2.3 · Module_07 v2.25 · Module_08 v1.7（告警分发 MVP 闭环，决策 59/60）· Module_09 v1.52（alertmanager.yml 纳入变更确认，决策 60）· Module_03 v1.2（Track B+ 增量，决策 44）
+> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.11（采集状态回显提前 MVP，决策 47）· Module_06 v2.9（v0.2 范围收敛：`ip_cidrs` 与 IP 推导挪 v0.3 + K8s 划域指导原则）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.11（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61）· Module_09 v1.56（alertmanager.yml 纳入变更确认，决策 60；v0.2 端口解析链 + K8s 划域备忘）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
 >
-> Plan 版本：v2026-08-21（Track B 增量登记，决策 47 采集状态回显 + 决策 59/60 告警分发 MVP 闭环，Phase 主版本号不变）
-> 更新日期：2026-09-01
+> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。（本串与 `04_Implementation_Map.md` 头部逐字一致，终验 1.1 要求两处版本号相同）
+>
+> Plan 版本：**v2026-09-05**（v0.2 范围收敛重派生，对齐 `02_Product_Roadmap.md` v2.2——Phase 6.4 监控源登记册后移 v0.3、v0.2 补实例级 `scrape_port` 端口解析链与 K8s 划域、移出克隆 Job / 草稿批量提交 / 业务健康度看板 / `service_discovery` / IP 推导 / `ip_cidrs`；各模块 `task-sequence.yaml` 的 `plan_version` 同步统一）
+> 更新日期：2026-09-05（Plan 版本重派生 + 版本清单刷新：各模块 PRD 版本对齐至 2026-09-04 最新修订版，与 `04_Implementation_Map.md` 同步，满足终验 1.1）
 
 ---
 
@@ -633,9 +635,17 @@ GET         /api/v2/platform/edge/config?network_domain=
 
 ---
 
-### Phase 6：多网域 Edge-Cloud 与监控源登记册（v0.2，第 5 ~ 8 周）
+### Phase 6：多网域 Edge-Cloud 与采集参数差异化（v0.2，第 5 ~ 8 周）
 
-本阶段对应 [02_Product_Roadmap.md](02_Product_Roadmap.md) 的 **v0.2** 里程碑：多网域 Edge-Cloud 架构落地、租户-网域关联、外部 Prometheus Remote Write 接入、中心 VictoriaMetrics 汇聚。建议拆分为 4 个并行的子 Phase。
+本阶段对应 [02_Product_Roadmap.md](02_Product_Roadmap.md) 的 **v0.2** 里程碑：多网域 Edge-Cloud 架构落地、租户-网域关联、中心 VictoriaMetrics 汇聚、采集参数按网域/实例差异化。
+
+> **v0.2 范围边界（2026-09-05 重派生，对齐 `02_Product_Roadmap.md` v2.2 定版口径；本段取代本阶段早期「含外部 Remote Write 接入」的范围描述）**
+>
+> **纳入 v0.2**：多网域 Edge-Cloud 架构落地；租户数据模型与租户-网域关联；按网域配置分发与 Edge Sync Agent 接入；中心 VictoriaMetrics 汇聚；边缘 Agent 状态监控与诊断；M01 Job 多网域绑定 + M09 按域扇出（决策 54）、实例属性筛选 `filter` 实时求值（决策 53）、网域级采集覆盖表 `CITypeExporterMappingOverride`、实例级端口覆盖（`Resource.scrape_port`）、cAdvisor 容器资源监控；M06 划域指导原则（K8s overlay CNI 独立建域）；租户/网域查询上下文注入。
+>
+> **移出 v0.2 → v0.3**：监控源登记册与外部 Prometheus Remote Write / Ingestion Gateway（M10）、统一入口与 Ingestion 路由（M03）、克隆 Job（移出待评估）、草稿/批量提交生效交互、`service_discovery`（docker_sd / K8s SD）、业务健康度看板（M01）、网域归属 IP 推导与业务目录聚合视图（M07）、`NetworkDomain.ip_cidrs`（M06）。
+>
+> 建议拆分为 5 个子 Phase：6.1 ~ 6.3、6.5 属 v0.2；**6.4 已后移 v0.3**（仅保留占位以留痕范围变更）。
 
 #### Phase 6.1：查询中心（v0.2）
 
@@ -646,6 +656,7 @@ GET         /api/v2/platform/edge/config?network_domain=
 **主要任务**：
 - Query 代理 API：`platform/query/proxy.go`
 - PromQL AST 注入 `tenant` / `network_domain`
+- 租户/网域查询上下文注入与越权拦截（按会话上下文定界，跨网域查询拒绝）
 - `/api/v1/targets` 代理与目标状态聚合
 - 响应 envelope：`meta.data_source` / `meta.freshness_at` / `meta.network_domains`
 
@@ -655,13 +666,14 @@ GET         /api/v2/platform/edge/config?network_domain=
 
 **对应模块分支**：`feat/module-06-tenant-management`
 
-**目标**：落地租户数据模型与 `NetworkDomain.tenant_id` / `authorized_tenant_ids` 关联，支撑多站点模式。
+**目标**：落地租户数据模型与 `NetworkDomain.tenant_id` / `authorized_tenant_ids` 关联，支撑多站点模式；同步落地划域指导原则。
 
 **主要任务**：
 - Tenant CRUD：`platform/admin/tenant/`
 - 租户-网域授权校验
 - `multi_site_enabled` 能力开关
 - 默认租户/网域数据迁移
+- 划域指导原则落地（Module_06 v2.6）：以**可达性同质性 + 故障自治单元**划域，禁止按业务/团队建域；`zone_type` 字典新增 `k8s` 项；overlay CNI（Calico/Flannel）K8s 集群独立建域，VPC 原生 CNI 可并入所在 VM 网域、不独立建域
 
 **依赖**：Phase 4
 
@@ -677,10 +689,13 @@ GET         /api/v2/platform/edge/config?network_domain=
 - 配置版本比对与 304 返回
 - Remote Write 参数注入
 - Agent 状态列表页完整实现
+- K8s 划域支撑（Module_09 v1.53）：overlay CNI 独立建域场景下，集群内以 Deployment/DaemonSet 部署 vmagent（Agent Mode）作该域边缘采集节点，复用既有 `agent_pull` 机制——配置包 / Token / 心跳 / Remote Write **零改动**
 
 **依赖**：Phase 6.2、Phase 4
 
-#### Phase 6.4：监控源登记册与 Ingestion Gateway（v0.2）
+#### Phase 6.4：监控源登记册与 Ingestion Gateway（**v0.3**，由 v0.2 后移）
+
+> **范围变更留痕**：本子 Phase 在 Plan v2026-09-05 重派生时由 v0.2 后移至 v0.3，对齐 `02_Product_Roadmap.md` v2.2（M10 监控源登记册与 M03 Ingestion 路由整体后移，外联需求优先级低）。v0.3 执行时按下方任务范围开展。
 
 **对应模块分支**：`feat/module-10-source-registry`
 
@@ -693,6 +708,22 @@ GET         /api/v2/platform/edge/config?network_domain=
 - 接入源健康状态
 
 **依赖**：Phase 4
+
+#### Phase 6.5：采集参数差异化与实例级端口覆盖（v0.2，本次重派生新增）
+
+**对应模块分支**：`feat/module-01-strategy`（M01 主导）+ `feat/module-07-resource-management`（M07 字段）+ `feat/module-09-edge-cloud`（M09 生成期解析）
+
+**目标**：让采集参数（尤其端口）可按网域、按实例差异化覆盖，消除「改端口就要克隆 Job」的重复配置负担。
+
+**主要任务**：
+- M07 `Resource` 新增可选 `scrape_port`（实例级端口覆盖；资源登记/编辑/Excel 导入均为可选列，留空走 M09 解析链）
+- M09 端口解析链（生成期解析，优先级由高到低）：`Resource.scrape_port` → 网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port`；**Job 级端口映射表明确不做**（与 filter / 动态纳入模式冲突）
+- M01 网域级覆盖表 `CITypeExporterMappingOverride` + 参数继承/同步（创建时快照 + 手动「同步映射默认值」）
+- M01 Job 多网域绑定 + M09 按域扇出（决策 54）：一次定义、多域生效，按网域自动拆分 scrape_configs / targets / 变更单，各域独立走变更检测 → 校验 → 确认 → 下发
+- M01 实例属性筛选 `filter` 模式实时求值（决策 53）：每生成周期按条件表达式求值，M07 新增资源匹配即自动纳入 targets、属性变化自动移出
+- cAdvisor 容器资源监控：每虚机部署一个 cAdvisor exporter，作为普通采集 Job 绑定主机类资源 + filter 模式自动纳入新主机；容器发现由 cAdvisor 在宿主机内部完成，**平台不感知容器个体**
+
+**依赖**：Phase 4（M09 生成器）、Phase 6.2（网域/租户上下文）、Phase 6.3（按域分发）
 
 ---
 
@@ -931,6 +962,8 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 | 登记日期 | 能力 | 模块 / PRD 版本 | 轨道 | feat 分支 | L3 路径 | 状态 |
 |----------|------|----------------|------|-----------|---------|------|
+| 2026-09-04 | 开发反馈 F-32 落版（采集器登记三来源开放）：采集器登记来源由「仅 `internal` 开放」修正为 **MVP 即开放 `official` / `third_party` / `internal` 三种**——解决同一监控对象类型下用户需选用社区/厂商采集器作为备选的场景；名称与平台预置 seed 冲突时由唯一索引返回 409 Conflict。影响点：`ExporterTemplate.source` 枚举开放、登记校验与 seed 预置、采集器管理 Tab 登记抽屉三选、§9.1 验收 | Module_01 v3.31 | Track B | `feat/module-01-strategy` | `docs/05-execution-records/module-01/task-sequence.yaml`（T01-03 / 采集器管理 Tab 已加注） | 待开发 |
+| 2026-09-04 | 开发反馈 F-34 / L-2 落版（静态资源标签治理）：①**静态资源（host / database / middleware / generic_target）隐藏「关联实例」Tab 与 badge**——实例级标签在 CMDB 侧只读治理，标签模板页不展示「关联实例」入口，右栏 Tab 动态 2~3 个、左栏 badge 仅业务类型资源展示；②**`LabelTemplate.description` 必须落库**——创建/更新请求体 `description` 变更须持久化，不再静默丢弃 | Module_07 v2.27 | Track B | `feat/module-07-resource-management` | `docs/05-execution-records/module-07/task-sequence.yaml`（T07-15 / T07-F7 / T07-F8 已加注） | 待开发 |
 | 2026-09-02 | coverage 三态口径修订 + 默认模板 `resource_id` 补齐（planner 阻塞项闭环，用户拍板 A 方案）：①coverage 不感知 M09 下发时序——选中关系取 DB 当前 `selected_instance_ids`（ready+enabled、不问 `change_status`），选中未采到统一归「已下发未采到」，「待采集」细分归 M01 回显（M02 v1.8 / M07 v2.25 / M01 v3.29 契约同步）；②五类默认 LabelTemplate 补 `resource_id → resource_id` 映射（47-3 回连前置，`platform/models/label_template.go` + 种子迁移） | Module_01 v3.29 / Module_02 v1.8 / Module_07 v2.25 | Track B | `feat/module-08-alert-dispatch`（决策 47 批次内闭环） | `docs/05-execution-records/module-02/task-sequence.yaml` | 待开发 |
 | 2026-08-28 | 租户管理（单租户查看/编辑）+ 用户管理 + 登录日志 | Module_06 v2.3 | Track B | `feat/module-06-domain-registry`（复用既有分支名） | `docs/05-execution-records/module-06/track-b-increment-decision-44/task-sequence.yaml` | 待开发 |
 | 2026-08-28 | 轻量认证（登录 / 会话 / 认证中间件 / 登录页） | Module_03 v1.2 | Track B+（强制 security-reviewer） | 同上（同一验收闭环，共用分支避免跨分支模型依赖） | 同上 | 待开发 |
@@ -1069,6 +1102,21 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 ---
 
 ## 9. 变更记录
+
+### v2026-09-05（v0.2 范围收敛重派生）
+
+- **Plan 版本 v2026-08-21 → v2026-09-05**：产品负责人确认重派生。v0.2 范围收敛（M01 v3.30 / M06 v2.6 / M07 v2.26 / M09 v1.53）已实质改变 v0.2 任务范围，Plan 需重新派生并与 `02_Product_Roadmap.md` v2.2 定版口径对齐。
+- **§Phase 6 重写**：新增「v0.2 范围边界」声明（纳入 / 移出清单）；**Phase 6.4 监控源登记册与 Ingestion Gateway 由 v0.2 后移 v0.3**（M10 / M03 整体后移，对齐 Roadmap v2.2，原 05 仍挂 v0.2 属漂移）；Phase 6.1 补租户/网域查询上下文注入与越权拦截；Phase 6.2 补划域指导原则（`zone_type` 增 `k8s`、overlay CNI 独立建域、禁止按业务/团队建域）；Phase 6.3 补 K8s 划域下 vmagent Agent Mode 复用 `agent_pull`（配置包/Token/心跳/Remote Write 零改动）；**新增 Phase 6.5 采集参数差异化与实例级端口覆盖**（M07 `Resource.scrape_port`、M09 端口解析链、M01 网域级覆盖表 + Job 按域扇出 + filter 实时求值 + cAdvisor 容器监控）。
+- **各模块 `task-sequence.yaml` 的 `plan_version` 统一为 v2026-09-05**：原值混乱（module-00/01/06 = v2026-08-21、module-07 = v2026-08-22、module-09 = v2026-08-23、module-08 = v2026-09-01）；module-02「Track B 增量」与 module-08「决策 59/60，承接决策 47 之后另起一轮」后缀保留。
+- **Track B 增量登记（§6.4）补 2 条**：M01 F-32 采集器登记三来源开放（v3.31）、M07 F-34 / L-2 静态资源标签治理（v2.27）——此前均未登记；已在对应任务序列加注（M01 T01-03 + 采集器管理 Tab；M07 T07-15 / T07-F7 / T07-F8）。
+- `04_Implementation_Map.md` 头部 Plan 版本与 §11 变更日志同步。
+
+### 版本清单刷新（2026-09-05，同日与 Plan 重派生一并完成）
+
+- **头部「各模块 PRD 版本」对齐至各 PRD 2026-09-04 最新修订版**：M01 v3.29→**v3.35** / M02 v1.8→**v1.11** / M06 v2.3→**v2.9** / M07 v2.25→**v2.30** / M08 v1.7→**v1.11** / M09 v1.52→**v1.56** / M03 v1.2→**v1.3**。
+- 与 `04_Implementation_Map.md` 头部逐字同步，满足终验清单 1.1「各模块 PRD 版本号 = 实施地图版本号 = 代码计划版本号」。
+- 本轮仅版本号对齐，§1~§8 正文技术条款未改动（M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0 业务叙事层补充，产品版本影响 0）。
+- **遗留待确认 → 已解决（2026-09-05 同日闭环）**：经产品负责人确认重派生，Plan 版本 v2026-08-21 → **v2026-09-05**，各模块 `task-sequence.yaml` 的 `plan_version` 同步统一；Phase 6 按 Roadmap v2.2 重写。详见上文「v2026-09-05（v0.2 范围收敛重派生）」。
 
 ### v2026-08-21（Track B 增量登记 2026-09-01：决策 47 采集状态回显）
 

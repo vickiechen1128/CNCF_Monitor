@@ -3,10 +3,12 @@
 > 文档类型：产品需求文档 / 实施规划  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.29 · Module_02 v1.8（采集状态回显提前 MVP，决策 47）· Module_06 v2.3 · Module_07 v2.25 · Module_08 v1.7（告警分发 MVP 闭环，决策 59/60）· Module_09 v1.52（alertmanager.yml 纳入变更确认，决策 60）· Module_03 v1.2（Track B+ 增量，决策 44）
+> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.11（采集状态回显提前 MVP，决策 47）· Module_06 v2.9（v0.2 范围收敛：`ip_cidrs` 与 IP 推导挪 v0.3 + K8s 划域指导原则）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.11（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61）· Module_09 v1.56（alertmanager.yml 纳入变更确认，决策 60；v0.2 端口解析链 + K8s 划域备忘）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
 >
-> Plan 版本：v2026-08-21  
-> 更新日期：2026-09-01（决策 47 采集状态回显增量 + 决策 59/60 告警分发 MVP 闭环，见 §2.3 / §2.6 / §6 / §8 / §11）
+> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。
+>
+> Plan 版本：**v2026-09-05**（v0.2 范围收敛重派生，对齐 `02_Product_Roadmap.md` v2.2；`05_Code_Implementation_Plan.md` 同步——Phase 6.4 监控源登记册后移 v0.3，v0.2 补实例级 `scrape_port` 端口解析链与 K8s 划域，移出克隆 Job / 草稿批量提交 / 业务健康度看板 / `service_discovery` / IP 推导 / `ip_cidrs`；各模块 `task-sequence.yaml` 的 `plan_version` 同步统一）  
+> 更新日期：2026-09-05（Plan 版本重派生 + 版本清单刷新：各模块 PRD 版本对齐至 2026-09-04 最新修订版，见 §11 变更日志；此前 2026-09-01 为决策 47 采集状态回显增量 + 决策 59/60 告警分发 MVP 闭环，见 §2.3 / §2.6 / §6 / §8 / §11）
 
 ---
 
@@ -460,6 +462,7 @@ Module_08 告警收敛与通知管理（决策 59/60）
 
 | 日期 | 变更内容 | 变更人 |
 |------|----------|--------|
+| 2026-09-05 | **版本清单刷新（终验前置）**：§头部「各模块 PRD 版本」对齐至各 PRD 2026-09-04 最新修订版——M01 v3.29→v3.35、M02 v1.8→v1.11、M06 v2.3→v2.9、M07 v2.25→v2.30、M08 v1.7→v1.11、M09 v1.52→v1.56、M03 v1.2→v1.3；同步 `05_Code_Implementation_Plan.md` 同一版本串（终验 1.1 要求两处逐字一致）。本轮仅版本号对齐，正文技术条款未改动。**同日追加（已闭环）**：产品负责人确认重派生——Plan 版本 v2026-08-21 → **v2026-09-05**，各模块 `task-sequence.yaml` 的 `plan_version` 同步统一；`05_Code_Implementation_Plan.md` 的 Phase 6 按 `02_Product_Roadmap.md` v2.2 重写（6.4 监控源登记册后移 v0.3、新增 6.5 采集参数差异化与实例级端口覆盖）、§6.4 Track B 补登记 M01 F-32 / M07 F-34·L-2（详见 05 §9「v2026-09-05」条目） | prototype-designer |
 | 2026-09-02 | coverage 三态口径修订（Track B 增量内闭环，用户拍板 A 方案）：coverage/M07 badge 选中关系取 DB 当前值、不感知 M09 下发时序，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显；§2.1/§2.5 同步；M07 默认模板补 `resource_id` 稳定身份映射（代码 `DefaultMappingBuilders` + 种子迁移同轮落地）；PRD 版本对齐 M01 v3.29 / M02 v1.8 / M07 v2.25 | — |
 | 2026-09-01 | 决策 59/60 告警分发 MVP 闭环（Track B 增量）：§2.3 M09 新增 `alertmanager.yml` 管理域（default）scope 产物行（不扇出、不进 agent_pull 包，变更项/受影响文件枚举扩展 `alertmanager`，`change_status` 回写 M08）；§2.6 M08 由「MVP 不做」改为「MVP=文件挂载 + 静默 UI」（AlertmanagerConfigVersion 内容留痕 + 提交 M09 变更单 + change_status 回写；接收人/路由/抑制表单化 UI、告警状态页归 v0.3）；§6 告警分层 MVP 列补齐文件挂载 + 静默；§8 MVP 闭环末尾追加 M08 告警分发；§9 更新 MVP 避开项与新增自研点；PRD 版本对齐 M08 v1.7 / Module_09 v1.52（决策 60） | — |
 | 2026-09-01 | 决策 47 采集状态回显增量（Track B）：§2.1 M07 资源「采集状态」三态 badge + 「未监控」筛选收敛为其子集；§2.2 M01 Exporter 安装确认降级可选登记（不阻断 target）+ Job 实例采集状态回显；§2.5 M02 新增 `/api/v1/targets` 代理（MVP P0）与 `/api/v1/health/coverage` 三态聚合（v0.2 提前 MVP）、独立目标状态页降 P1；§8 MVP 闭环补 M02 采集状态数据源；PRD 版本对齐 M01 v3.28 / M02 v1.7 / M07 v2.24 | — |
