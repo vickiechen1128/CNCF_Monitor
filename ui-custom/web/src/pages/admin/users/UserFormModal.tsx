@@ -17,7 +17,7 @@ interface UserFormModalProps {
  * 用户创建 / 编辑表单（Module_06 §6.3）。
  * - 创建态 create：username / display_name / password 均可编辑；
  * - 编辑态 edit：仅 display_name 可编辑，username 显示为不可变（契约 §2 规定 username 创建后不可变更）。
- * - forceRender 替代 destroyOnClose：保证每次打开由 effect reset+回显（网域登记弹窗同款通病修复）。
+ * - forceRender 替代 destroyOnHidden：保证每次打开由 effect reset+回显（网域登记弹窗同款通病修复）。
  */
 export function UserFormModal({ open, mode, user, onCancel, onSuccess }: UserFormModalProps) {
   const [form] = Form.useForm()

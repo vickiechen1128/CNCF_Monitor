@@ -638,7 +638,7 @@ export function ResourcesPage() {
         width={1000}
         onCancel={() => setRecordsOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <ImportRecordsPanel
           onDownloadTemplate={openImportModal}

@@ -20,7 +20,7 @@ export function TenantDetailDrawer({ open, tenant, onClose }: TenantDetailDrawer
       width={720}
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
     >
       {tenant && (
         <Descriptions column={1} bordered size="middle">
