@@ -104,8 +104,8 @@
 - **影响模块**：M01/M09 配置生成器（`platform/configcenter/generator/`）、M07 标签模板映射服务。
 - **涉及文件**：`generator/`（targets 生成）、`scrape_job.go`。
 - **负责人**：backend-developer（generator 补全 target 级 labels 映射解析）
-- **状态**：open（实现缺漏待补；M09 PRD §3.2/§9.1 需补 `targets/*.json[].labels` 来源说明）
-- **待 design 分支收割**：M01 PRD §5.4 明确 Job 级引用→target 级产物；M09 PRD §3.2/§9.1 补产物 labels 来源。
+- **状态**：closed（2026-09-05 复核：代码与 PRD 两侧均已闭环）——代码侧 `ResolveJobTargets` 经 `expandLabelTemplate` 生成 target 级 labels，`LoadTemplateForJob` 优先解析 Job 挂载的 `label_template_id`（P1-1 修复）并经 `draft/service.go` 接入；单测 `TestResolveTargetsOfflineExclusion` 断言 `Labels["app"]=="pay"` 通过；PRD 侧 §3.2/§3.3/§9（决策 D43）已载明 target 级 labels 来源与产物形态
+- **待 design 分支收割**：~~M01 PRD §5.4 明确 Job 级引用→target 级产物；M09 PRD §3.2/§9.1 补产物 labels 来源~~（已同步落档）
 
 ### 10. 批量提交生效提级 MVP + pending 期间 job 锁定（决策 D28 / 44）
 - **问题**：（1）PRD 将「保存草稿/提交生效」批量下发定位 v0.2，MVP 仅有四态占位，初次配置 job 量大时缺批量承载；（2）「待生效」job 仍可编辑/删除，保存报内部错误、产生幽灵单。

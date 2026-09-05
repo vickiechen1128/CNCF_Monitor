@@ -3,6 +3,8 @@
 > 适用版本：MVP（v0.1）。目标：用 curl 走完「资源录入 → 采集 Job → 配置草稿 → 确认下发 →
 > Prometheus 真正加载并采到数据」的完整链路，覆盖 M01 / M06 / M07 / M09 的联动。
 > 所有端点均已对照 `platform/` 源码核实；如手册与源码冲突，以源码为准并更新本手册。
+> MVP 收尾整体验请走 [MVP 终验核对清单](mvp-final-acceptance-checklist.md)（五层闭环，按序执行）。
+> 组件口径：中心一体化交付包含 **metric-center + prometheus + alertmanager + blackbox_exporter + Custom UI** 五件套（`make build-center` 全量编译；`make package-center` 默认最小集，`WITH_ALERTMANAGER=1 WITH_BLACKBOX=1` 扩为全量，见 [package-center-guide.md](package-center-guide.md)）。本手册的采集下发闭环只需 metric-center + prometheus；M08 `alertmanager.yml` 挂载下发需 Alertmanager + amtool（终端 5），拨测下发需 blackbox_exporter（可选）。
 
 ---
 
@@ -54,6 +56,14 @@ make dev-ui
 
 # 终端 4：样本采集端（:9100，暴露 /metrics，供"UP"判据使用；simple-agent 是独立 Go module，须在其目录内启动）
 cd platform/examples/simple-agent && ../../../.tools/go/bin/go run . -listen-address ":9100" -app-name "demo-app" -env "test"
+
+# 终端 5（可选，M08 场景）：Alertmanager（:9093）。
+# M08 的 alertmanager.yml 挂载下发、静默代理依赖它；amtool 配置校验由 Makefile 自动把
+# upstream/alertmanager 加入 PATH 命中（见 §1 事实 5 的 PATH 说明）
+make run-alertmanager
+
+# blackbox_exporter（M01/M09 拨测场景可选，:9115）：
+# make build-blackbox-exporter 后手动启动；若用一体化交付包验证，start.sh 会一并拉起全部随包组件
 ```
 
 > 也可以用 `upstream/node_exporter` 替代 simple-agent，端口同样保持 9100。
