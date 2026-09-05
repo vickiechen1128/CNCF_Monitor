@@ -80,7 +80,20 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
       return
     }
     // 提交前 YAML 预检：非法则以 Alert 提示并保持内容
-    const check = validateYamlClient(values.rule_content)
+    // F-04：新建场景优先走后端 validate-yaml（服务端校验，id 为占位、仅读 body 的 rule_content）；
+    // 网络失败 / 接口异常时回落本地 validateYamlClient 并告警提示
+    let check: { valid: boolean; error?: string }
+    if (editingRule) {
+      check = validateYamlClient(values.rule_content)
+    } else {
+      try {
+        const res = await monitoringRuleApi.validateYaml(0, values.rule_content)
+        check = res.data
+      } catch (err) {
+        console.warn('[RuleMountDrawer] 后端 validate-yaml 校验不可用，回落本地 YAML 校验：', err)
+        check = validateYamlClient(values.rule_content)
+      }
+    }
     if (!check.valid) {
       setSubmitError(check.error ?? 'YAML 校验未通过')
       return

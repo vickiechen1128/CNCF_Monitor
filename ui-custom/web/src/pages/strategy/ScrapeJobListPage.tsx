@@ -365,7 +365,7 @@ function JobsTab() {
       title: '参数同步',
       key: 'params',
       width: 110,
-      // F1-2：三态回显（异常驱动）。优先按持久化 mapping_overrides（后端当前不落库，dev F-03）
+      // F1-2：三态回显（异常驱动）。优先按持久化 mapping_overrides（F-03：后端已落库）
       // 显示「已覆盖 n 项」；否则对比当前默认映射快照——不一致显「待同步」，一致显「已同步」。
       render: (_: unknown, r: ScrapeJob) => {
         if (r.job_type === 'blackbox') return <Text type="secondary">同步</Text>
