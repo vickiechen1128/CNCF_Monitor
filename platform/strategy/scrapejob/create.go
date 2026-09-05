@@ -32,6 +32,7 @@ type CreateScrapeJobRequest struct {
 	LabelTemplateID        string                    `json:"label_template_id"`
 	BlackboxModule         string                    `json:"blackbox_module"`
 	BlackboxTargets        []models.BlackboxTarget   `json:"blackbox_targets"`
+	MappingOverrides       []models.MappingOverride  `json:"mapping_overrides"`
 	Enabled                bool                      `json:"enabled"`
 	// DraftStatus = "draft" 时仅做基础校验并保存为草稿（MVP 方案 C，决策 D28-2）；
 	// 空或其他值按 "ready" 处理，执行完整校验并进入 M09 变更管线。
@@ -104,6 +105,7 @@ func CreateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 			LabelTemplateID:       req.LabelTemplateID,
 			BlackboxModule:        req.BlackboxModule,
 			BlackboxTargets:       req.BlackboxTargets,
+			MappingOverrides:      req.MappingOverrides,
 			Enabled:               req.Enabled,
 			DraftStatus:           draftStatus,
 			ChangeStatus:          models.ChangeStatusPending,

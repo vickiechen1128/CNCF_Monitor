@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-03 18:04 · commit: `79cc11dd`
+> 生成时间: 2026-09-05 13:58 · commit: `c493b80f`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2063,6 +2063,7 @@
 - `type JobType = string`
 - `type AuthType = string`
 - `type ChangeStatus = string`
+- `type MappingOverride struct`
 - `type InstanceSelectionMode = string`
 - `type ScrapeJob struct`
 
@@ -2343,6 +2344,7 @@
 - `func TestCreateMonitoringRuleGroupNameConflict(t *testing.T)`
 - `func TestCreateMonitoringRuleMonitorType(t *testing.T)`
 - `func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T)`
+- `func TestUpdateDeletePendingRuleRejected(t *testing.T)`
 
 ### `platform/strategy/rule/routes.go`
 
@@ -2438,6 +2440,7 @@
 - `func TestUpdateScrapeJobJobTypeSwitch(t *testing.T)`
 - `func TestUpdateAndDeleteScrapeJob(t *testing.T)`
 - `func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T)`
+- `func TestScrapeJobMappingOverridesRoundTrip(t *testing.T)`
 - `func TestUpdateDeletePendingJobRejected(t *testing.T)`
 - `func TestInstanceCandidatesHostOfflineGrey(t *testing.T)`
 - `func TestInstanceCandidatesDatabaseSubtypeFilter(t *testing.T)`
