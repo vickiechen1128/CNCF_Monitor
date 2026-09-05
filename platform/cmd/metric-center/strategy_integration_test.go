@@ -93,7 +93,7 @@ func TestEndToEndStrategyScrapeJob(t *testing.T) {
 // TestEndToEndStrategyRuleAndMetricLibrary 覆盖规则挂载（YAML 透传 + validate-yaml）
 // 与技术指标库（内置只读 + 用户扩展）的端到端验收（T01-09）。
 func TestEndToEndStrategyRuleAndMetricLibrary(t *testing.T) {
-	r, _ := buildIntegrationEngine(t)
+	r, db := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
 
 	// 1. 技术指标库：seed 内置 application_http 拨测三件套存在。
@@ -154,7 +154,12 @@ func TestEndToEndStrategyRuleAndMetricLibrary(t *testing.T) {
 	assert.Equal(t, false, out["data"].(map[string]interface{})["valid"])
 	assert.NotEmpty(t, out["data"].(map[string]interface{})["error"])
 
-	// 删除规则返回 {id}。
+	// 删除规则返回 {id}。F-25：新建规则 change_status=pending，挂起待确认
+	// 变更单期间删除被拒（409）；模拟 M09 变更单确认下发后放行删除。
+	code, _ = c.json("DELETE", rulePath, "")
+	require.Equal(t, http.StatusConflict, code, "pending 规则禁止删除（F-25）")
+	db.Model(&models.MonitoringRule{}).Where("id = ?", uint(ruleID)).
+		Update("change_status", models.ChangeStatusDeployed)
 	code, out = c.json("DELETE", rulePath, "")
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, ruleID, out["data"].(map[string]interface{})["id"].(float64))
