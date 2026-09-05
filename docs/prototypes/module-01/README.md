@@ -1,8 +1,8 @@
 # MetricCenter Module 01 原型
 
-> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.28
+> **验证的 PRD 版本**: [Module_01_Metric_Collection_Center.md](../../02-product-requirements/Modules/Module_01_Metric_Collection_Center.md) v3.37
 > **覆盖的产品版本**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.28
+> **原型版本**: v3.37
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,12 @@
 > ```
 >
 > **访问地址**: http://localhost:5175/
+
+## 本次 v3.37 相对 v3.28 的关键变更（F-36 / F-37：列表状态列对齐生产口径）
+
+- **{v3.37} 采集 Job 列表「状态」聚合列拆分为「生效状态」+「变更进度」两列（F-37，对齐生产 ScrapeJobListPage）**：原「状态」四态聚合列（{v3.22}）与「下发状态」列（{v3.19}）合并重构为两列，列序对齐生产——实例选择 / 拨测目标 → 生效状态 → 变更进度 → 参数同步。「生效状态」= 草稿（灰显）/ 已停用（error）/ 待生效（warning，变更单待确认或已确认未下发）/ 已生效（success），与生产 `aggregateJobStatus` 同源；「变更进度」= 无变更 / 待确认 / 已确认待下发 / 已下发（mock 仅建模 none/pending/confirmed 三态，confirmed 归为「已确认待下发」），待确认仍为可点击跳转 M09「配置变更确认」的操作入口。两列列头均带 Tooltip 角标，文案与生产 `strategyConstants.EFFECTIVE_STATUS_TOOLTIP` / `CHANGE_PROGRESS_TOOLTIP` 一致。原四态聚合逻辑保留服务于列表状态筛选器与乐观更新 toast；规则编辑页字段化预览的同名拆分（F-23/F-24）已先行落地，本次仅收敛采集 Job 列表。
+- **{v3.37} 采集 Job 列表「实例采集状态」列头 Tooltip 对齐生产文案（F-36）**：Tooltip 统一为生产 `strategyConstants.COLLECTION_STATUS_TOOLTIP` 简洁口径——「正常采到数据的实例数 / 你勾选的实例总数。有实例没采到数据时整格变红，点开可看原因；约 20 秒自动刷新」。
+- 对齐 Module_01 PRD v3.37 / 原型 v3.37；本轮为原型行为同步，与 PRD 落版同步提交。
 
 ## 本次 v3.28 相对 v3.27 的关键变更（决策 53 filter 选择模式提前 v0.2 + 决策 54 Job 网域绑定放宽为网域集合）
 

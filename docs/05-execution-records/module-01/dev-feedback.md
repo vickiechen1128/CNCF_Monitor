@@ -212,9 +212,9 @@
 
 - [x] F-02 已收割（chenrt 修订 PRD §5.4 / §9：`is_monitored` 由 M09 维护、MVP seed 预置已纳管过渡说明）
 
-- [ ] F-03 已登记（MVP 功能裁剪，`mapping_overrides` 不持久化）（2026-09-05 终验核验：`platform/` 仍无该字段，维持裁剪，未闭环）
+- [x] F-03 已闭环（2026-09-05 终验落地：解除 MVP 裁剪，`platform/models/scrape_job.go` 新增 `MappingOverrides []MappingOverride`（gorm json serializer，AutoMigrate 自动加列），create/update DTO 透传（`scrapejob/create.go`、`scrapejob/update.go`），`scrape_job_test.go` 新增 round-trip 用例；前端注释同步更新。注：Go 侧为 `[{field,value}]` 对象数组，与前端已提交 body 兼容，语义同 PRD §5.4「手动覆盖过映射默认值的字段名列表」）
 
-- [ ] F-04 已登记（契约偏差，新建场景退化为本地预检）（2026-09-05 终验核验：前端仍本地预检；后端 validate-yaml 已支持纯 content 校验、新建场景可升级复用接口，未闭环）
+- [x] F-04 已闭环（2026-09-05 终验落地：`RuleMountDrawer.tsx` 新建场景 YAML 预检改调 `monitoringRuleApi.validateYaml`（id 传占位 0，后端仅读 body），网络失败回落本地 `validateYamlClient` 并 console.warn；编辑场景保持本地校验；`RuleMountDrawer.test.tsx` 补 3 个用例，9/9 通过）
 
 - [x] F-05 已闭环（2026-09-05 终验核验：真实跳转已落地——`ScrapeJobFormDrawer.tsx:309` 保存成功可点击跳转 `/config-preview`，路由已注册（`App.tsx:86`）、页面完整实现；原「M09 未落地占位」登记核销）
 
@@ -240,7 +240,7 @@
 
 - [x] F-24 已修正/实现 + 已收割（代码已落库；design 已落 PRD §5.5 多记录合并单份 rules.yml + 组名全局唯一，原型补资源类别/监控对象类型级联字段）
 
-- [x] F-25 已决策 + 已收割 PRD（MVP 实现「停用可编辑」；规则草稿推迟 v0.3 不提前实现；PRD §5.5 已补规则 pending 期锁定语义同采集 Job；**规则后端 pending 409 兜底仍待开发侧跟进**）（2026-09-05 终验核验：`rule/update.go` PUT/DELETE 仍无 pending 锁定与 409，确认未实现，待开发跟进后方可核销）
+- [x] F-25 已决策 + 已收割 PRD + 已闭环（MVP 实现「停用可编辑」；规则草稿推迟 v0.3 不提前实现；PRD §5.5 已补规则 pending 期锁定语义同采集 Job；2026-09-05 终验落地：`rule/update.go` Update/Delete 补 `change_status=pending` → 409（文案镜像 scrapejob 侧「规则 %q 存在待确认变更单，禁止编辑/删除；请先前往配置变更确认页处理」），`monitoring_rule_test.go` 新增 pending 拒绝 + 三态放行用例，`go test ./platform/...` 全绿）
 
 - [x] F-26 已修正/实现 + 已收割（代码已落库：来源下拉仅内部自建 / exporter\_template\_id 字符串契约修复 / 登记→配置动线预填；design 已统一 PRD §5.2 L81↔L334 矛盾——用户登记仅 internal；**后续 F-32 已推翻本口径，MVP 开放三来源登记**）
 
@@ -767,7 +767,7 @@
 
 > 以下两项均属 **① 空白判定 / ③ 技术优化**——PRD §5.4/§5.10 与原型 D29 只规定「单一状态列（草稿/待下发/已生效/已停用）」及详情抽屉的实例采集状态回显，未规定列表列 Tooltip 文案、分列角标、列序与「确认不必逐次」的批量口径；开发落地时按用户要求补齐，留痕供 design 侧同步。
 
-### F-36：采集 Job 列表「实例采集状态」列 Tooltip 文案改为用户可操作的引导（① 空白判定；2026-09-05 终验：生产文案已落 `strategyConstants.ts:110-112`，原型 `ScrapeJobsPage.tsx:1488` 仍是旧文案，design 待同步）
+### F-36：采集 Job 列表「实例采集状态」列 Tooltip 文案改为用户可操作的引导（① 空白判定；2026-09-05 终验已闭环：原型 `ScrapeJobsPage.tsx` 已对齐生产文案 {v3.37}）
 
 - **类别**：① 空白判定（列 Tooltip 文案 PRD/原型未规定，原型文案对用户不友好）
 
@@ -783,7 +783,7 @@
 
 - **状态**：closed（前端已改，待前端 dev server 刷新生效；建议 design 侧同步原型文案）
 
-### F-37：生效状态 / 变更进度两列拆分属开发侧解释并补齐角标、列序与批量确认口径（① 空白判定；2026-09-05 终验：生产前端已拆列，但 PRD 契约层 §5.4/§11 未落拆列与批量确认口径、原型未同步，design 待补）
+### F-37：生效状态 / 变更进度两列拆分属开发侧解释并补齐角标、列序与批量确认口径（① 空白判定；2026-09-05 终验已闭环：PRD 契约层 §5.4/§9 落版 v3.37，原型同步拆列 {v3.37}）
 
 - **类别**：① 空白判定（PRD/原型为「单一状态列」，拆两列 + 角标 + 顺序 + 批量确认指引均属开发侧补充）
 

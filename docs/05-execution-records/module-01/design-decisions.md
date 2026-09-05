@@ -664,7 +664,7 @@
 - **问题清单与处理结果**：
   - **返工**：RulesPage 文件挂载页顶部信息 Alert 暴露 `content_mode=yaml_passthrough` + `决策 38-1`（违反 PRD §10 提示分区），应改讲人话或折叠进底部 ReviewNote；
   - **建议**：①mock 指标库锚点字段名 `resource_types`/`supported_resource_types` 与 PRD `monitor_types`/`supported_monitor_types` 对齐；②mock `change_status` 缺 `deployed` 样本（deployed 回写仅经聚合「已生效」隐式呈现，未用真实数据演示）；③BusinessViewPage Alert 的 `business_domain`/`biz`/`CI 类型` 术语下沉。
-- **遗留项**：①PRD v3.26 内部一致性：§5.4 字段表 / Change Log（决策 31-M2：`deployed` 提前 MVP）与 §9.1 第 970 行、§9.2 第 993 行（仍写「MVP 回写 pending/confirmed/none、v0.2 扩展 deployed」）表述冲突，需 PRD 修订统一（本轮仅记录、未改 PRD）；②`ca_file`/认证 TLS 组合合法性后端 `bad_request` 兜底的具体错误文案待实现期对齐；③跨模块端到端串联演示（M07→M01→M09）P2 遗留。
+- **遗留项**：①PRD v3.26 内部一致性：§5.4 字段表 / Change Log（决策 31-M2：`deployed` 提前 MVP）与 §9.1 第 970 行、§9.2 第 993 行（仍写「MVP 回写 pending/confirmed/none、v0.2 扩展 deployed」）表述冲突，需 PRD 修订统一（本轮仅记录、未改 PRD）——**2026-09-05 终验已闭环**：PRD v3.37 重写 §9 验收项（F-37 拆列）并修订 §10 术语映射，统一为「MVP 回写 pending/confirmed/none/deployed」，与决策 31-M2 / §5.4 字段表一致；②`ca_file`/认证 TLS 组合合法性后端 `bad_request` 兜底的具体错误文案待实现期对齐；③跨模块端到端串联演示（M07→M01→M09）P2 遗留。
 - **评审结论**：MVP 范围评审通过（PRD v3.26 与原型 v3.25 对齐，含决策 30/31 / deployed 回写 / 规则文件挂载）；含 1 项返工（RulesPage 可见 Alert 术语裸暴露）与 4 项建议见上；PRD 状态推进（ready / 已冻结）仍需用户书面确认，当前保持「设计中」。
 
 ---

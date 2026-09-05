@@ -79,6 +79,8 @@ import {
   BLACKBOX_PROTOCOL_BY_MODULE,
   EXPORTER_SOURCE_LABEL,
   EXPORTER_SOURCES,
+  CHANGE_PROGRESS_MAP,
+  CHANGE_PROGRESS_BY_CHANGE_STATUS,
 } from '../mocks/module-01'
 import type {
   CiType,
@@ -150,11 +152,30 @@ type MappingOverrideField = (typeof MAPPING_OVERRIDE_FIELDS)[number]
 
 // {v3.22} 状态列四态聚合（决策 D29）：草稿(draft) > 待下发(pending) > 已生效(active) > 已停用(disabled)
 // 草稿=draft_status=draft（不入下发管线）；待下发=存在 M09 待确认变更单；已生效=启用且无待下发；已停用=未启用
+// {v3.37} F-37：列表「状态」聚合列拆分为「生效状态」+「变更进度」两列后，四态逻辑仍服务于列表状态筛选器与乐观更新 toast
 type JobStatus = 'draft' | 'pending' | 'active' | 'disabled'
 const getJobStatus = (j: ScrapeJob): JobStatus => {
   if (j.draft_status === 'draft') return 'draft'
   if (j.change_status === 'pending') return 'pending'
   return j.enabled ? 'active' : 'disabled'
+}
+
+// {v3.37} F-37：「生效状态」列聚合（与生产 aggregateJobStatus 同源）——
+// 草稿（灰显）> 已停用（enabled=false）> 待生效（change_status=pending/confirmed，尚未真正下发）> 已生效
+type JobEffectiveStatus = 'draft' | 'disabled' | 'pending_effect' | 'active'
+const getJobEffectiveStatus = (j: ScrapeJob): JobEffectiveStatus => {
+  if (j.draft_status === 'draft') return 'draft'
+  if (!j.enabled) return 'disabled'
+  return j.change_status === 'pending' || j.change_status === 'confirmed' ? 'pending_effect' : 'active'
+}
+const JOB_EFFECTIVE_STATUS_META: Record<
+  JobEffectiveStatus,
+  { label: string; badge: 'default' | 'error' | 'warning' | 'success' }
+> = {
+  draft: { label: '草稿', badge: 'default' },
+  disabled: { label: '已停用', badge: 'error' },
+  pending_effect: { label: '待生效', badge: 'warning' },
+  active: { label: '已生效', badge: 'success' },
 }
 
 // {v3.28} 决策 53：filter 选择模式提前 v0.2——筛选条件表达式；筛选字段 = Resource 属性字段（label 名仅 UI 别名，由标签模板映射只读派生，不落表达式）
@@ -1369,26 +1390,6 @@ export default function ScrapeJobsPage() {
       ),
     },
     {
-      // {v3.22} 状态列聚合四态（决策 D29）：草稿 / 待下发 / 已生效 / 已停用；
-      // 草稿 MVP 无真实实例（v0.2 支持保存草稿）——灰显 + Tooltip；「待下发」与下发状态列联动
-      title: '状态',
-      key: 'status',
-      width: 96,
-      render: (_: unknown, record: ScrapeJob) => {
-        const s = getJobStatus(record)
-        if (s === 'draft') {
-          return (
-            <Tooltip title="v0.2 支持保存草稿：草稿不入下发管线，可继续编辑后提交生效">
-              <Tag style={{ color: 'rgba(0,0,0,0.45)', background: '#fafafa', borderColor: '#d9d9d9' }}>草稿</Tag>
-            </Tooltip>
-          )
-        }
-        if (s === 'pending') return <Tag color="gold">待下发</Tag>
-        if (s === 'active') return <Tag color="green">已生效</Tag>
-        return <Tag>已停用</Tag>
-      },
-    },
-    {
       title: '监控对象类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
@@ -1453,6 +1454,68 @@ export default function ScrapeJobsPage() {
         ),
     },
     {
+      // {v3.37} F-37：原「状态」聚合列（{v3.22} 四态）拆分为「生效状态」+「变更进度」两列，本列为生效状态
+      // （与生产 aggregateJobStatus 同源：草稿灰显 / 已停用 error / 待生效 warning / 已生效 success）；
+      // 角标文案对齐生产 strategyConstants.EFFECTIVE_STATUS_TOOLTIP
+      title: (
+        <Tooltip title="这份配置当前是否真正生效。刚保存不会立刻生效，需到「配置变更确认」页点一次确认后才会更新">
+          <Space size={4}>
+            生效状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'effectiveStatus',
+      width: 110,
+      render: (_: unknown, record: ScrapeJob) => {
+        const k = getJobEffectiveStatus(record)
+        const s = JOB_EFFECTIVE_STATUS_META[k]
+        return (
+          <Badge
+            status={s.badge}
+            text={<Text type={k === 'draft' || k === 'disabled' ? 'secondary' : undefined}>{s.label}</Text>}
+          />
+        )
+      },
+    },
+    {
+      // {v3.37} F-37：变更进度（原「下发状态」列 {v3.19} 收窄而来）——无变更 / 待确认 / 已确认待下发 / 已下发；
+      // mock 仅建模 none/pending/confirmed 三态（confirmed 归为「已确认待下发」），待确认可点击跳转 M09；
+      // 角标文案对齐生产 strategyConstants.CHANGE_PROGRESS_TOOLTIP
+      title: (
+        <Tooltip title="配置下发到哪一步：待确认 / 已确认待下发 / 已下发 / 无变更。可等所有监控配置调好后再一次性确认下发">
+          <Space size={4}>
+            变更进度
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'changeProgress',
+      width: 130,
+      render: (_: unknown, record: ScrapeJob) => {
+        const progKey = CHANGE_PROGRESS_BY_CHANGE_STATUS[record.change_status ?? 'none']
+        const c = CHANGE_PROGRESS_MAP[progKey]
+        if (progKey === 'pending') {
+          // {v3.20} 样式调整：原 warning Tag 易被误读为静态状态、看不出可点击；
+          // 改为 link 型 Button + 箭头图标，明确「这是可前往确认的操作入口」
+          return (
+            <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
+              <Button
+                type="link"
+                size="small"
+                icon={<ArrowRightOutlined />}
+                style={{ padding: 0, height: 'auto', fontSize: 13 }}
+                onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
+              >
+                {c.text}
+              </Button>
+            </Tooltip>
+          )
+        }
+        return <Tag color={c.color}>{c.text}</Tag>
+      },
+    },
+    {
       title: '参数同步',
       key: 'mappingSync',
       // {v3.13} 异常驱动：正常态只显示低饱和「已同步」单行（自定义字段数收进 Tooltip）；
@@ -1484,8 +1547,9 @@ export default function ScrapeJobsPage() {
       // {v3.27}/{v3.28} 决策 47-2：Job 列表「实例采集状态」——简化为「在线 x / 总数 y」。
       // 数据源 = M02 targets 聚合 mock（列表级按 Job 过滤，只读消费，20s 自动刷新）；
       // 存在「待采集 / 已下发未采到」实例时整格高饱和；整格可点击进入详情抽屉查看各实例具体原因。
+      // {v3.37} F-36：列头 Tooltip 文案对齐生产（strategyConstants.COLLECTION_STATUS_TOOLTIP 简洁口径）
       title: (
-        <Tooltip title="在线实例数 / 已选实例总数（数据由「查询中心」M02 按 Job 回显，本模块只读，约 20s 自动刷新）；存在未在线实例时整格高亮，点击查看详情原因">
+        <Tooltip title="正常采到数据的实例数 / 你勾选的实例总数。有实例没采到数据时整格变红，点开可看原因；约 20 秒自动刷新">
           <Space size={4}>
             实例采集状态
             <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -1524,41 +1588,6 @@ export default function ScrapeJobsPage() {
             </Tag>
           </Tooltip>
         )
-      },
-    },
-    {
-      // {v3.19} 下发状态（决策 D27-2，MVP）：pending=待确认（存在 M09 待确认变更单）→ 点击跳转配置变更确认；
-      // confirmed=已确认；none/空=无变更。数据由 M09 变更单状态回写（pull 模式）
-      title: (
-        <Tooltip title="变更下发状态（来自 M09 变更单）：待确认=有变更单待你在「配置变更确认」页确认发布；已确认=变更单已确认；无变更=未产生变更单">
-          <Space size={4}>
-            下发状态
-            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
-          </Space>
-        </Tooltip>
-      ),
-      key: 'changeStatus',
-      width: 130,
-      render: (_: unknown, record: ScrapeJob) => {
-        if (record.change_status === 'pending') {
-          // {v3.20} 样式调整：原 warning Tag 易被误读为静态状态、看不出可点击；
-          // 改为 link 型 Button + 箭头图标，明确「这是可前往确认的操作入口」
-          return (
-            <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
-              <Button
-                type="link"
-                size="small"
-                icon={<ArrowRightOutlined />}
-                style={{ padding: 0, height: 'auto', fontSize: 13 }}
-                onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
-              >
-                待确认
-              </Button>
-            </Tooltip>
-          )
-        }
-        if (record.change_status === 'confirmed') return <Tag color="success">已确认</Tag>
-        return <Text type="secondary">-</Text>
       },
     },
     // {v3.2} 标签模板列：展示继承模板名 / 「标签待配置」提示（引导先补配 CI-Exporter 映射）
@@ -2153,7 +2182,8 @@ export default function ScrapeJobsPage() {
           columns={columns}
           // {v3.17} 列数多超出窗口：固定最小宽度、横向滚动，避免列挤压换行拉高行高
           // {v3.22} 决策 D29：新增「状态」列 + 多选列，最小宽度上浮；{v3.28} 新增「实例采集状态」列，最小宽度再上浮
-          scroll={{ x: 1450 }}
+          // {v3.37} F-37：「状态」聚合列拆为「生效状态」+「变更进度」两列（净 +14px），最小宽度同步上浮
+          scroll={{ x: 1464 }}
           pagination={{ pageSize: 5 }}
           rowSelection={{
             // {v3.22} 决策 D29：多选批量提交；{v3.xx} F-16：草稿可勾选（批量提交生效仅当选中项含草稿时可用，
