@@ -3908,7 +3908,7 @@ export default function ScrapeJobsPage() {
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item label="来源" name="source" rules={[{ required: true }]} initialValue="internal">
+          <Form.Item label="来源" name="source" rules={[{ required: true }]} initialValue="internal" extra="官方/第三方/自研采集器均可登记；与平台预置采集器同名时由系统返回冲突提示">
             <Select
               placeholder="请选择"
               options={EXPORTER_SOURCES.map((s) => ({ value: s, label: EXPORTER_SOURCE_LABEL[s] }))}
@@ -3920,7 +3920,7 @@ export default function ScrapeJobsPage() {
                 label="默认端口"
                 name="default_port"
                 rules={[{ required: true, message: '请输入端口' }]}
-                extra="自研采集器按实际部署填写"
+                extra="按实际部署填写"
               >
                 <InputNumber min={1} max={65535} style={{ width: '100%' }} />
               </Form.Item>
@@ -3930,7 +3930,7 @@ export default function ScrapeJobsPage() {
                 label="采集路径"
                 name="metrics_path"
                 rules={[{ required: true, message: '请输入路径' }]}
-                extra="自研采集器按实际部署填写"
+                extra="按实际部署填写"
               >
                 <Input placeholder="/metrics" />
               </Form.Item>

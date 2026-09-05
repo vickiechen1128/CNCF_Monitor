@@ -46,6 +46,10 @@ const { Option } = Select
 
 const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
 
+// {v2.27} 允许实例级自定义标签的资源类别：仅业务类型资源展示「关联实例」Tab 与 badge；
+// 静态资源（host/database/middleware/generic_target）在 CMDB 侧只读治理，不开放实例级标签写入口
+const INSTANCE_LEVEL_CUSTOM_CATEGORIES: ResourceCategory[] = ['application']
+
 // MVP 字段来源：prometheus_builtin 由 Prometheus 原生注入无需映射，隐藏（数据模型保留，v0.2+ 服务发现启用）；
 // {v2.5} composite（组合字段）为 MVP 内部默认（自动生成 instance = 资源 IP + 端口，Prometheus 默认行为一致），前台不可新增，v0.2+ 身份定制（代理抓取/端口覆盖/服务发现）开放；cmdb_field v0.4+ 预留
 const SOURCE_TYPE_OPTIONS: { value: LabelTemplateSource; label: string; disabled?: boolean }[] = [
@@ -642,11 +646,15 @@ export default function LabelTemplatesPage() {
                                 <Text type="secondary" style={{ fontSize: 12 }}>
                                   {tpl.mappings.length} 条映射
                                 </Text>
-                                {/* {v2.3} 关联实例数 badge：不弹窗，点击选中后右侧 Tab「关联实例」查看明细 */}
-                                <Badge count={relatedResourcesOf(tpl).length} showZero color="#0F6E56" />
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                  关联实例 {relatedResourcesOf(tpl).length}
-                                </Text>
+                                {/* {v2.27} 关联实例数 badge：仅业务类型资源展示；静态资源不展示 */}
+                                {INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(tpl.resource_category) && (
+                                  <>
+                                    <Badge count={relatedResourcesOf(tpl).length} showZero color="#0F6E56" />
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      关联实例 {relatedResourcesOf(tpl).length}
+                                    </Text>
+                                  </>
+                                )}
                                 {/* {v2.7} 被引用 Job 数 badge：模板变更影响哪些采集任务，右侧 Tab「被引用采集 Job」查看明细 */}
                                 <Badge count={referencingJobsOf(tpl).length} showZero color="#7F77DD" />
                                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -712,7 +720,7 @@ export default function LabelTemplatesPage() {
                     保护标签（不可作为目标标签）：{PROTECTED_PROMETHEUS_LABELS.join(', ')}
                   </Text>
                 </Space>
-                {/* {v2.3} 右栏 Tab 化：映射明细 / 关联实例（实例用完整 Table 承载，支持分页/搜索/状态筛选） */}
+                {/* {v2.27} 右栏 Tab 化：映射明细 / 关联实例（仅业务类型资源） / 被引用采集 Job */}
                 <Tabs
                   activeKey={detailTab}
                   onChange={setDetailTab}
@@ -722,53 +730,57 @@ export default function LabelTemplatesPage() {
                       label: `映射明细（${selectedTemplate.mappings.length}）`,
                       children: renderMappingsGrouped(selectedTemplate),
                     },
-                    {
-                      key: 'instances',
-                      label: `关联实例（${relatedResourcesOf(selectedTemplate).length}）`,
-                      children: (
-                        <Space direction="vertical" style={{ width: '100%' }} size={12}>
-                          {/* {v2.5} 隐式关联说明：让用户理解模板通过 resource_category 自动关联，无需手动逐台配置 */}
-                          <Text style={{ fontSize: 13 }}>
-                            本模板适用于「{RESOURCE_TYPE_MAP[selectedTemplate.resource_category]}」类型，该类型下所有{' '}
-                            <Text strong>{relatedResourcesOf(selectedTemplate).length}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
-                            如需查看具体实例清单，请浏览下方列表。
-                          </Text>
-                          <FilterBar>
-                            <FilterItem label="搜索" width={360}>
-                              <Input.Search
-                                placeholder="搜索实例名 / IP / 应用"
-                                allowClear
-                                value={instanceSearch}
-                                onChange={(e) => setInstanceSearch(e.target.value)}
-                                style={{ width: 300 }}
-                              />
-                            </FilterItem>
-                            <FilterItem label="状态" width={240}>
-                              <Select
-                                placeholder="按状态筛选"
-                                allowClear
-                                style={{ width: 180 }}
-                                value={instanceStatusFilter}
-                                onChange={(v) => setInstanceStatusFilter(v ?? 'all')}
-                              >
-                                <Option value="all">全部状态</Option>
-                                <Option value="online">运行中</Option>
-                                <Option value="offline">已停止</Option>
-                                <Option value="maintenance">维护中</Option>
-                              </Select>
-                            </FilterItem>
-                          </FilterBar>
-                          <Table
-                            rowKey="resource_id"
-                            size="small"
-                            dataSource={relatedInstances}
-                            columns={instanceColumns}
-                            pagination={{ pageSize: 10, showSizeChanger: false }}
-                            locale={{ emptyText: '无关联实例' }}
-                          />
-                        </Space>
-                      ),
-                    },
+                    ...(INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(selectedTemplate.resource_category)
+                      ? [
+                          {
+                            key: 'instances',
+                            label: `关联实例（${relatedResourcesOf(selectedTemplate).length}）`,
+                            children: (
+                              <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                                {/* {v2.5} 隐式关联说明：让用户理解模板通过 resource_category 自动关联，无需手动逐台配置 */}
+                                <Text style={{ fontSize: 13 }}>
+                                  本模板适用于「{RESOURCE_TYPE_MAP[selectedTemplate.resource_category]}」类型，该类型下所有{' '}
+                                  <Text strong>{relatedResourcesOf(selectedTemplate).length}</Text> 个实例自动适用本模板的标签映射，无需手动关联。
+                                  如需查看具体实例清单，请浏览下方列表。
+                                </Text>
+                                <FilterBar>
+                                  <FilterItem label="搜索" width={360}>
+                                    <Input.Search
+                                      placeholder="搜索实例名 / IP / 应用"
+                                      allowClear
+                                      value={instanceSearch}
+                                      onChange={(e) => setInstanceSearch(e.target.value)}
+                                      style={{ width: 300 }}
+                                    />
+                                  </FilterItem>
+                                  <FilterItem label="状态" width={240}>
+                                    <Select
+                                      placeholder="按状态筛选"
+                                      allowClear
+                                      style={{ width: 180 }}
+                                      value={instanceStatusFilter}
+                                      onChange={(v) => setInstanceStatusFilter(v ?? 'all')}
+                                    >
+                                      <Option value="all">全部状态</Option>
+                                      <Option value="online">运行中</Option>
+                                      <Option value="offline">已停止</Option>
+                                      <Option value="maintenance">维护中</Option>
+                                    </Select>
+                                  </FilterItem>
+                                </FilterBar>
+                                <Table
+                                  rowKey="resource_id"
+                                  size="small"
+                                  dataSource={relatedInstances}
+                                  columns={instanceColumns}
+                                  pagination={{ pageSize: 10, showSizeChanger: false }}
+                                  locale={{ emptyText: '无关联实例' }}
+                                />
+                              </Space>
+                            ),
+                          },
+                        ]
+                      : []),
                     {
                       // {v2.7} 被引用采集 Job Tab：模板变更影响哪些采集任务（规则层 → 策略层显性化）
                       key: 'jobs',

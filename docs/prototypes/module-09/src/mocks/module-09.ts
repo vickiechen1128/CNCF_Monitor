@@ -376,13 +376,33 @@ function demoChecksum(seed: string): string {
 }
 
 /**
+ * 将单个 targets 文件条目序列化为缩进 JSON，并把数组元素逐个独立成行：
+ * `targets`（IP 列表）与 `labels` 的每个键值对均换行展开，便于在前端配置预览中阅读
+ * （原 JSON.stringify 会把同一 targets 数组内的多个 IP 挤在同一行）。
+ */
+function serializeTargetsEntry(entry: TargetsFileEntry): string {
+  const targets =
+    entry.targets.length === 0
+      ? '    "targets": []'
+      : `    "targets": [\n${entry.targets.map((t) => `      ${JSON.stringify(t)}`).join(',\n')}\n    ]`
+  const labels =
+    Object.keys(entry.labels).length === 0
+      ? '    "labels": {}'
+      : `    "labels": {\n${Object.entries(entry.labels)
+          .map(([k, v]) => `      ${JSON.stringify(k)}: ${JSON.stringify(v)}`)
+          .join(',\n')}\n    }`
+  return `  {\n${targets},\n${labels}\n  }`
+}
+
+/**
  * 将 targets_files 序列化为每个 job 落盘的原始文本（targets/<job_name>.json 内容，PRD 6.2）：
- * 结构化条目序列化为缩进 JSON；string 特殊值（校验失败演示）原样透传。
+ * 结构化条目序列化为「逐个换行」的缩进 JSON（IP / 标签各占一行，便于阅读）；
+ * string 特殊值（校验失败演示）原样透传。
  */
 export function targetsFilesToText(targetsFiles: ConfigTargetsFiles | undefined): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [job, content] of Object.entries(targetsFiles ?? {})) {
-    out[job] = typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+    out[job] = typeof content === 'string' ? content : `[\n${content.map(serializeTargetsEntry).join(',\n')}\n]`
   }
   return out
 }
