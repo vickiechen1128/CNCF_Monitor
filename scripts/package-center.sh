@@ -28,22 +28,43 @@
 #   DIST_DIR          产物输出目录（默认 ./dist）
 #   BUNDLE_NAME       自定义包名（默认自动生成）
 #   CROSS             交叉编译目标，如 linux/amd64、linux/arm64
-#   WITH_ALERTMANAGER 非空时随包交付 alertmanager + amtool（非 MVP 默认）。除 bin/ 外还会：
+#   WITH_ALERTMANAGER 默认 1：随包交付 alertmanager + amtool（M08 依赖）。除 bin/ 外还会：
 #                     ① 写入 config/alertmanager.yml（＋ .example 模板）；
 #                     ② start.sh 注入 :9093 启动段并写出 logs/alertmanager.pid；
 #                     ③ metric-center 追加 --config.am-dir / --config.am-reload-url，
 #                        使 M08 下发写盘与 AM 读取指向同一份文件，闭环生效。
-#   WITH_BLACKBOX     非空时随包交付 blackbox_exporter（非 MVP 默认）。除 bin/ 外还会：
+#                     显式设为 0 / no / false 时才裁剪（如 WITH_ALERTMANAGER=0）。
+#   WITH_BLACKBOX     默认 1：随包交付 blackbox_exporter（M01/M09 依赖）。除 bin/ 外还会：
 #                     ① 写入 config/blackbox.yml（＋ .example 模板）；
 #                     ② start.sh 注入 :9115 启动段并写出 logs/blackbox_exporter.pid；
 #                     ③ 给 metric-center 追加 --config.dir，并保证 blackbox.yml 与
 #                        prometheus.yml 同目录下发、同文件读取。
+#                     显式设为 0 / no / false 时才裁剪。
+#
+# 完整性保证：collect_bundle 末尾 verify_bundle_bins 强制核对 bin/ 必含
+#   metric-center / prometheus / promtool（＋启用时的 alertmanager / amtool /
+#   blackbox_exporter），缺任何一个即报错中止，杜绝「WARNING 跳过、带病交付」。
 
 set -e
 
 PROJECT_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 DIST_DIR=${DIST_DIR:-"$PROJECT_ROOT/dist"}
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+
+# 默认全量交付：M08/M09 校验依赖 amtool / blackbox_exporter 必须随包。
+# 历史事故：裸跑 `make package-center` 时 WITH_ALERTMANAGER 未设置，包内缺 amtool，
+# 部署机 M08 挂载校验报「amtool check-config 不可调用」。因此改为默认开启，
+# 仅当显式设为 0 / no / false 时才裁剪。
+WITH_ALERTMANAGER=${WITH_ALERTMANAGER:-1}
+WITH_BLACKBOX=${WITH_BLACKBOX:-1}
+
+# enabled 判定开关是否生效：空 / 0 / no / false 视为关闭，其余视为开启。
+enabled() {
+    case "$1" in
+        ""|0|no|false) return 1 ;;
+        *) return 0 ;;
+    esac
+}
 
 # 国内/受限网络下优先使用 goproxy.io，避免交叉编译时下载新依赖超时
 # 如需要可覆盖：GOPROXY=https://proxy.golang.org,direct make package-center
@@ -181,7 +202,7 @@ build_optional() {
             "$GO_BIN" build -o promtool ./cmd/promtool
     fi
 
-    if [ -n "$WITH_ALERTMANAGER" ]; then
+    if enabled "$WITH_ALERTMANAGER"; then
         echo ">>> Building alertmanager -> $TARGET_OS/$TARGET_ARCH"
         if [ "$IS_CROSS" -eq 0 ]; then
             make -C "$PROJECT_ROOT" build-alertmanager
@@ -197,7 +218,7 @@ build_optional() {
                 "$GO_BIN" build -o amtool ./cmd/amtool
         fi
     fi
-    if [ -n "$WITH_BLACKBOX" ]; then
+    if enabled "$WITH_BLACKBOX"; then
         echo ">>> Building blackbox_exporter -> $TARGET_OS/$TARGET_ARCH"
         if [ "$IS_CROSS" -eq 0 ]; then
             make -C "$PROJECT_ROOT" build-blackbox-exporter
@@ -216,25 +237,28 @@ collect_bundle() {
 
     cp "$PROJECT_ROOT/platform/cmd/metric-center/metric-center" "$BUNDLE_DIR/bin/"
     cp "$PROJECT_ROOT/upstream/prometheus/prometheus" "$BUNDLE_DIR/bin/"
-    # promtool：M09 草稿校验依赖（exec.LookPath("promtool")）；随包常驻。
+    # promtool：M09 草稿校验依赖（exec.LookPath("promtool")）；随包常驻，缺失即中止。
     # start.sh 已 export PATH="$ROOT/bin:$PATH"，部署机上即可被控制面命中。
     if [ -f "$PROJECT_ROOT/upstream/prometheus/promtool" ]; then
         cp "$PROJECT_ROOT/upstream/prometheus/promtool" "$BUNDLE_DIR/bin/"
     else
-        echo ">>> WARNING: promtool not built, skip (M09 草稿校验将 pending)"
+        echo ">>> ERROR: promtool not built（build_optional 应已产出），打包中止"
+        exit 1
     fi
 
-    # 是否随包交付 Alertmanager（M08 告警分发）：决定 bin/、config/ 与 start.sh 的 AM 段
+    # 是否随包交付 Alertmanager（M08 告警分发）：决定 bin/、config/ 与 start.sh 的 AM 段。
+    # 默认开启（见文件头 enabled 说明）；启用时 alertmanager/amtool 必须已构建，
+    # 缺失即中止，不再 WARNING 跳过——避免部署机 M08 校验报「amtool 不可调用」。
     AM_ENABLED=0
-    if [ -n "$WITH_ALERTMANAGER" ] && [ -f "$PROJECT_ROOT/upstream/alertmanager/alertmanager" ]; then
+    if enabled "$WITH_ALERTMANAGER"; then
         AM_ENABLED=1
-        cp "$PROJECT_ROOT/upstream/alertmanager/alertmanager" "$BUNDLE_DIR/bin/"
-        # amtool：M08 AM 配置挂载校验依赖（exec.LookPath("amtool")）；随包常驻
-        if [ -f "$PROJECT_ROOT/upstream/alertmanager/amtool" ]; then
-            cp "$PROJECT_ROOT/upstream/alertmanager/amtool" "$BUNDLE_DIR/bin/"
-        else
-            echo ">>> WARNING: amtool not built, skip (M08 AM 校验将 pending)"
-        fi
+        for b in alertmanager amtool; do
+            if [ ! -f "$PROJECT_ROOT/upstream/alertmanager/$b" ]; then
+                echo ">>> ERROR: $b not built（build_optional 应已产出），打包中止"
+                exit 1
+            fi
+            cp "$PROJECT_ROOT/upstream/alertmanager/$b" "$BUNDLE_DIR/bin/"
+        done
         # M08：写入中心 Alertmanager 配置——它是决策 60 里 AM 配置下发（--config.am-dir）的落盘目标，
         # 也是 alertmanager 进程 --config.file 读取的文件，二者必须指向同一份。
         # - config/alertmanager.yml          开箱即用，解压后启动即生效
@@ -259,10 +283,14 @@ EOF
             cp "$BUNDLE_DIR/config/alertmanager.yml" "$BUNDLE_DIR/config/alertmanager.yml.example"
         fi
     fi
-    # 是否随包交付 blackbox_exporter（M01/M09 拨测）
+    # 是否随包交付 blackbox_exporter（M01/M09 拨测）：默认开启，缺失即中止。
     BB_ENABLED=0
-    if [ -n "$WITH_BLACKBOX" ] && [ -f "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" ]; then
+    if enabled "$WITH_BLACKBOX"; then
         BB_ENABLED=1
+        if [ ! -f "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" ]; then
+            echo ">>> ERROR: blackbox_exporter not built（build_optional 应已产出），打包中止"
+            exit 1
+        fi
         cp "$PROJECT_ROOT/upstream/blackbox_exporter/blackbox_exporter" "$BUNDLE_DIR/bin/"
         # M01/M09：blackbox.yml 是 blackbox_exporter 进程 --config.file 读取的文件，
         # 也是控制面下发探测模块（blackbox.yml）的落盘目标，二者必须指向同一份。
@@ -515,6 +543,26 @@ EOF
 EOF
 }
 
+# verify_bundle_bins 交付前最后防线：核对 bin/ 必含全部预期二进制。
+# 缺任何一个即报错中止并删除残缺产物，杜绝「缺 amtool/promtool 的包流出」。
+verify_bundle_bins() {
+    local required=(metric-center prometheus promtool)
+    [ "$AM_ENABLED" -eq 1 ] && required+=(alertmanager amtool)
+    [ "$BB_ENABLED" -eq 1 ] && required+=(blackbox_exporter)
+    local missing=()
+    local b
+    for b in "${required[@]}"; do
+        [ -f "$BUNDLE_DIR/bin/$b" ] || missing+=("$b")
+    done
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo ">>> ERROR: bundle 缺少必含二进制: ${missing[*]}"
+        echo ">>> 打包中止，已清理残缺产物 $BUNDLE_DIR"
+        rm -rf "$BUNDLE_DIR"
+        exit 1
+    fi
+    echo ">>> Bundle bin/ 完整: ${required[*]}"
+}
+
 archive_bundle() {
     cd "$DIST_DIR"
     tar -czf "$(basename "$TARBALL")" "$(basename "$BUNDLE_DIR")"
@@ -530,6 +578,7 @@ main() {
     build_ui
     build_optional
     collect_bundle
+    verify_bundle_bins
     archive_bundle
 }
 

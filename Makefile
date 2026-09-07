@@ -112,7 +112,7 @@ help:
 	@echo "  make build-prometheus   编译上游 Prometheus"
 	@echo "  make build-ui           构建 Custom UI"
 	@echo "  make build-all          编译后端 + Prometheus + 前端"
-	@echo "  make package-center     打包中心一体化交付产物 -> dist/metric-center-bundle-*.tar.gz"
+	@echo "  make package-center     打包中心一体化交付产物 -> dist/metric-center-bundle-*.tar.gz（默认全量含 alertmanager/amtool/blackbox_exporter；WITH_ALERTMANAGER=0 / WITH_BLACKBOX=0 可裁剪）"
 	@echo "  make run-metric-center  编译并启动 MetricCenter 控制面"
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
