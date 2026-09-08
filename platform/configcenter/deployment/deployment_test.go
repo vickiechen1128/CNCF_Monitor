@@ -279,21 +279,80 @@ func TestRetryRejectsNotFailed(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFailed)
 }
 
-func TestRollbackCreatesSuccessDeployment(t *testing.T) {
+// TestRollbackCreatesRolledBackDeployment 覆盖 PRD §8 / §5.6：回滚动作生成的新记录
+// 成功时 status=rolled_back（与正常发布 success 可区分）；rolled_back 视同 success，
+// change_status 回写与 M08 applied 回写照常执行；被回滚的历史记录保持不变（台账不可变）。
+func TestRollbackCreatesRolledBackDeployment(t *testing.T) {
 	db := newMemDB(t)
 	seedLocalDomain(t, db, "default")
 	v := seedVersion(t, db, "default", "CHG-20240101-009")
 	pending := seedJob(t, db, "default", models.ChangeStatusPending)
+	// 被回滚的历史发布记录（success），应保持不变。
+	orig := seedDeployment(t, db, "default", v, models.DeploymentStatusSuccess, "")
 
 	app := &applyRecorder{}
 	dep, err := Rollback(db, idStr(v.ID), "admin", app)
 	require.NoError(t, err)
-	assert.Equal(t, models.DeploymentStatusSuccess, dep.Status)
+	assert.Equal(t, models.DeploymentStatusRolledBack, dep.Status)
 	assert.Equal(t, idStr(v.ID), dep.ConfigVersionID)
 	assert.Equal(t, 1, app.applied)
-	// 回滚成功同样回写 change_status。
+	assert.NotNil(t, dep.CompletedAt)
+
+	// rolled_back 视同 success：change_status 照常回写（pending → deployed）。
 	require.NoError(t, db.First(&pending, pending.ID).Error)
 	assert.Equal(t, models.ChangeStatusDeployed, pending.ChangeStatus)
+
+	// 被回滚的历史记录状态保持不变（台账不可变）。
+	require.NoError(t, db.First(&orig, orig.ID).Error)
+	assert.Equal(t, models.DeploymentStatusSuccess, orig.Status)
+}
+
+// TestRollbackFailureRecordsFailed 覆盖 PRD §6.5.3：回滚投递失败时新记录 status=failed
+// 并记录 error_message，不落 rolled_back。
+func TestRollbackFailureRecordsFailed(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-010")
+	pending := seedJob(t, db, "default", models.ChangeStatusPending)
+
+	app := &applyRecorder{err: errors.New("reload failed")}
+	dep, err := Rollback(db, idStr(v.ID), "admin", app)
+	require.NoError(t, err)
+	assert.Equal(t, models.DeploymentStatusFailed, dep.Status)
+	assert.Contains(t, dep.ErrorMessage, "reload failed")
+	// 失败不回写 change_status。
+	require.NoError(t, db.First(&pending, pending.ID).Error)
+	assert.Equal(t, models.ChangeStatusPending, pending.ChangeStatus)
+}
+
+// TestRolledBackCountsAsLatestSuccess 覆盖 PRD §8 口径：rolled_back 视同 success 参与
+// 「最近成功版本」判定——列表筛选 success 或 rolled_back 均能命中回滚产生的记录，
+// 且不混入 failed。
+func TestRolledBackCountsAsLatestSuccess(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-011")
+
+	// 正常发布 success → 回滚生成 rolled_back。
+	seedDeployment(t, db, "default", v, models.DeploymentStatusFailed, "boom")
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+	rb, err := Rollback(db, idStr(v.ID), "admin", &applyRecorder{})
+	require.NoError(t, err)
+	require.Equal(t, models.DeploymentStatusRolledBack, rb.Status)
+
+	// 成功口径集合（success ∪ rolled_back）应含回滚记录，且排除 failed。
+	items, total, err := ListDeployments(db, "default", "rolled_back", "", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Equal(t, rb.ID, items[0].ID)
+
+	var successLike int64
+	require.NoError(t, db.Model(&models.ConfigDeployment{}).
+		Where("network_domain_id = ? AND status IN ?", "default",
+			[]models.DeploymentStatus{models.DeploymentStatusSuccess, models.DeploymentStatusRolledBack}).
+		Count(&successLike).Error)
+	assert.Equal(t, int64(2), successLike, "最近成功版本判定应把 rolled_back 视同 success")
 }
 
 func TestRollbackVersionNotFound(t *testing.T) {

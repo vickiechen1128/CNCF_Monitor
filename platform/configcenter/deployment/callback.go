@@ -9,8 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// writebackChangeStatus 在 ConfigDeployment.status=success（local reload 成功后）
-// 回写 M01 ScrapeJob.change_status：pending → deployed（决策 31-M2 / PRD §3.5 / §5.6）。
+// writebackChangeStatus 在下发投递成功（ConfigDeployment.status=success；回滚动作
+// 为 rolled_back，PRD §8 视同 success，local reload 成功后）回写 M01
+// ScrapeJob.change_status：pending → deployed（决策 31-M2 / PRD §3.5 / §5.6）。
 // 仅更新已确认待下发（change_status=pending）且已就绪（draft_status=ready）的采集 Job；
 // 与其状态不变的 Job（draft 态待下发 / none/confirmed/deployed）不扰动。
 func writebackChangeStatus(db *gorm.DB, domainID string) error {
@@ -23,8 +24,9 @@ func writebackChangeStatus(db *gorm.DB, domainID string) error {
 	return nil
 }
 
-// writebackRuleChangeStatus 在 ConfigDeployment.status=success（local reload 成功后）
-// 回写 M01 MonitoringRule.change_status：pending → deployed（#18 补缺，对齐决策 31-M2）。
+// writebackRuleChangeStatus 在下发投递成功（status=success；回滚动作为 rolled_back，
+// 视同 success，local reload 成功后）回写 M01 MonitoringRule.change_status：
+// pending → deployed（#18 补缺，对齐决策 31-M2）。
 // 规则为全局 scope=central、无网域列，按「有变更被下发」全量回写；
 // 仅更新已确认待下发（change_status=pending）且已就绪（draft_status=ready）的规则。
 func writebackRuleChangeStatus(db *gorm.DB) error {
@@ -50,8 +52,9 @@ func writebackChangeStatuses(db *gorm.DB, domainID string) error {
 	return errors.Join(errs...)
 }
 
-// writebackAlertmanagerApplied 在 ConfigDeployment.status=success（管理域 default 含
-// alertmanager.yml 下发 + AM reload 成功）后回写 M08（决策 60 / 决策 59）：
+// writebackAlertmanagerApplied 在下发投递成功（status=success；回滚动作为 rolled_back，
+// 视同 success；管理域 default 含 alertmanager.yml 下发 + AM reload 成功）后回写 M08
+// （决策 60 / 决策 59）：
 // 将最新一条 applied 的 AlertmanagerConfigVersion 标记已随 M09 下发
 // （applied_at / source_change_no 回填）。M08 页面「当前生效配置只读视图」源自在途
 // 最新 applied 版本。无 AM 产物或无非 applied 留痕时为空操作。
