@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.57
+> **PRD 版本**: v1.58
 > **产品版本覆盖**: MVP / v0.2 / v1.0
 > **原型版本**: v1.52（决策 60 待原型对齐；以 `docs/prototypes/module-09/package.json` 为准）
-> **更新日期**: 2026-09-04
+> **更新日期**: 2026-09-08
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -380,9 +380,10 @@ Module_09 采用**「源数据版本触发预筛 + 生成后 checksum 裁决」*
 | 功能 | 说明 | 优先级 |
 |------|------|--------|
 | **`local` 通道 Reload** | `channel=local` 网域（含默认 `default`）：确认后由中心将配置产物写中心 Prometheus 配置目录，执行 SIGHUP 或 POST `/-/reload` | **P0** |
-| **下发记录** | 记录每次发布与回滚的**来源变更单号（`source_change_no`，自动生成：经 `config_version_id` → `ConfigVersion.change_no` 透传）**、配置版本、目标、操作人、时间、结果、失败原因；部署 ID（`deploy-xxx`）与配置版本号（`cv-xxx`）均为系统自动生成，用户不可手填 | **P0** |
+| **下发记录** | 记录每次发布与回滚的**来源变更单号（`source_change_no`，自动生成：经 `config_version_id` → `ConfigVersion.change_no` 透传）**、配置版本、目标、操作人、时间、结果、失败原因；**回滚动作生成的记录状态为 `rolled_back`**（与正常发布 `success` 可区分，列表/详情以「已回滚」标签标识）；部署 ID（`deploy-xxx`）与配置版本号（`cv-xxx`）均为系统自动生成，用户不可手填 | **P0** |
 | **变更状态回写 M01** | 配置生成 / 确认 / 下发全链路回写 `ScrapeJob` / `MonitoringRule` 的 `change_status`：生成 `ConfigDraft` 后回写 `pending`；确认后生成 `ConfigVersion` 回写 `confirmed`；`local` 通道 reload 成功或 `agent_pull` 通道配置包被 Edge Agent 成功应用后回写 `deployed`；无相关在途变更回写 `none`（**MVP 起即包含 `deployed`**，决策 31-M2——`ConfigDeployment.status=success` 即回写，消除「已生效 vs 无变更」歧义；v0.2 起 Job、v0.3 起规则精确按对象回写） | **P0** |
-| **版本回滚** | 支持选择历史 `ConfigVersion` 重新下发，覆盖当前生效配置（回滚动作本身也生成一条下发记录，状态 rolled_back） | **P0** |
+| **版本回滚** | 支持选择历史 `ConfigVersion` 重新下发，覆盖当前生效配置（回滚动作本身生成一条新下发记录，状态 `rolled_back`；被回滚的历史记录保持不变，历史台账不可变）；回滚确认弹窗文案与实际行为一致——「回滚到所选版本 `cv-xxx`（来自变更单 `CHG-xxx`）」，不得使用「上一可用版本」等与实际行为不符的表述 | **P0** |
+| **下发记录查看版本配置内容** | 下发记录详情（抽屉）提供**「查看版本配置」**入口，调用 `GET /api/v2/platform/config-versions/{id}` 只读展示该次下发的 `ConfigVersion` 完整配置产物（`prometheus.yml` / `rules.yml` / `blackbox.yml` / `targets/*.json`，按文件分 Tab 代码块展示）；回滚后用户可直接在新产生的 `rolled_back` 记录上查看回滚生效的具体配置内容；该接口产物含凭据明文，按管理员级权限开放（与现有 RequireAdmin 口径一致），非管理员隐藏入口 | **P0** |
 | **`local` 重试下发** | 下发记录页对 `status=failed` 的 **`local` 通道**下发记录提供**「重试」按钮**（决策 42-3）：复用最近一次该版本的下发动作（重新写盘 + reload），生成新的 `ConfigDeployment` 记录；`agent_pull` 通道**不提供重试**（中心不主动触达边缘，拉包/生效由边缘心跳驱动，见 6.1 / 决策 40-2） | **P0** |
 | **回滚异步生效提示** | 回滚的生效语义**按下发通道区分**：`local` 通道 = 重新下发后**立即 reload 生效**；**`agent_pull` 通道 = 重新发布历史 `ConfigVersion`（生成对应配置包），生效依赖 Edge Sync Agent 下次心跳拉取（准实时 30s）**；UI 在回滚动作后给出对应提示——`local`「已回滚，配置已 reload 生效」、`agent_pull`「已发布历史版本，待 Edge Sync Agent 下次心跳拉取生效」；生效进度由 `config_sync_status`（out_of_sync → in_sync）表达，采集节点状态列表可见（见 5.2） | **P0** |
 | **多目标分发** | 按网域分发到对应 Edge Sync Agent；支持批量选择网域下发 | P1 |
@@ -806,7 +807,7 @@ MetricCenter 通过 [Module_06](Module_06_Multi_Tenant.md) 的**租户级行政�
 > - `ConfigDraft` 生成后，M09 根据 `change_items` 中涉及的源数据对象（`ScrapeJob` / `MonitoringRule`），将其 `change_status` 回写为 `pending`；
 > - `ConfigDraft` 确认并生成 `ConfigVersion` 后，回写为 `confirmed`；
 > - `ConfigDeployment.status=success`（`local` 通道 reload 成功 / `agent_pull` 通道配置包被 Agent 成功应用）后，回写为 `deployed`（v0.2 起 Job、v0.3 起规则；MVP 阶段 `deployed` 由 `none` 占位，即确认下发成功后直接回写 `none`）；
-> - 回滚到历史 `ConfigVersion` 同样生成新的 `ConfigDeployment`，成功后回写为 `deployed`；
+> - 回滚到历史 `ConfigVersion` 同样生成新的 `ConfigDeployment`（成功时 `status=rolled_back`，见 §8 状态机），其回写语义视同 `success`——成功后回写为 `deployed`；
 > - 无相关在途变更时回写为 `none`；
 > - 回写为异步 pull 模式（M09 不主动推送，M01 读取时由 M09 接口返回或 M01 本地冗余字段展示）。
 
@@ -1016,9 +1017,9 @@ edge-config-<network_domain_id>.zip
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
 | GET | `/api/v2/platform/config-versions` | Query: `network_domain_id`、`change_no?`、`page`、`page_size` | `{ items: [...], total: N }` | — |
-| GET | `/api/v2/platform/config-versions/{id}` | — | 配置版本详情（含完整产物，用于 diff） | `not_found` |
+| GET | `/api/v2/platform/config-versions/{id}` | — | 配置版本详情（含完整产物，用于 diff 与下发记录详情「查看版本配置」）；产物含凭据明文，按管理员级权限开放（RequireAdmin） | `not_found` |
 | GET | `/api/v2/platform/deployments` | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.6 | — |
-| POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | `{ triggered_by: string }` | 新的 `ConfigDeployment`（`status=success`，回滚目标版本） | `not_found`；`bad_request`：目标版本不存在或不是同一网域 |
+| POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | `{ triggered_by: string }` | 新的 `ConfigDeployment`（成功时 `status=rolled_back`，回滚目标版本；失败时 `status=failed` 并记录 `error_message`）；被回滚的历史记录保持不变 | `not_found`；`bad_request`：目标版本不存在或不是同一网域 |
 | POST | `/api/v2/platform/deployments/{deployment_id}/retry` | `{ triggered_by: string }` | 重新执行该下发（仅 `local` 通道，复用最近一次版本的下发动作），生成新的 `ConfigDeployment` | `bad_request`：非 `local` 通道 / 原记录非 failed；`not_found` |
 
 #### 6.5.4 采集节点状态查询
@@ -1124,8 +1125,10 @@ edge-config-<network_domain_id>.zip
 **② ConfigDeployment（下发记录）状态机**
 
 ```text
-pending（待执行）──► running（执行中）──► success（成功）──► rolled_back（已回滚）
-                        │
+pending（待执行）──► running（执行中）──► success（成功）
+                        │                    │
+                        │                    └── 对该版本执行回滚：生成一条新记录，成功即 rolled_back
+                        │                        （原 success 记录保持不变，历史台账不可变）
                         └──► failed（失败，记录错误信息）
 ```
 
@@ -1133,9 +1136,9 @@ pending（待执行）──► running（执行中）──► success（成功
 |------|------|---------|---------|
 | pending | 待执行 | 确认发布后创建下发任务 | 执行 → running |
 | running | 执行中 | 下发动作开始（reload / 推送 Agent） | 成功 → success；失败 → failed |
-| success | 成功 | 下发成功 | 可被回滚 → rolled_back |
-| failed | 失败 | 下发失败（记录 `error_message` / 校验失败） | 可重试 |
-| rolled_back | 已回滚 | 对 success 版本执行回滚（回滚动作本身也生成一条 rolled_back 记录） | 终态 |
+| success | 成功 | 下发成功 | 可作为回滚目标；自身状态不再变化 |
+| failed | 失败 | 下发失败（记录 `error_message` / 校验失败）；回滚动作失败也进入 failed | 可重试 |
+| rolled_back | 已回滚 | 回滚动作生成的新记录下发成功（`status=rolled_back` 仅标记「该记录由回滚动作产生」，与正常发布区分；其下发结果语义等同 success，参与 `change_status` 回写与「最近成功版本」判定） | 终态；可再次作为回滚目标 |
 
 **③ 配置同步状态（config_sync_status）状态机**
 
@@ -1180,7 +1183,7 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P0} **网域纳管页列收敛 + 详情抽屉**：网域纳管列表列收敛为 7 列——网域（名称+ID 两行合并）、**网络区域类型（zone_type，Tag 展示，为网域身份并列识别维度——政务云按网络区域、公有云按 region）**、纳管状态、下发通道、运行状态（状态+心跳合并，仅 `agent_pull` 展示）、凭据（脱敏 Token+复制图标，仅 `agent_pull` 展示）、操作（**三槽位固定结构：主操作=纳管/编辑随行状态变化（文本链接样式）+ 详情常驻 + 更多仅 agent_pull 已纳管行显示重置 Token+二次确认，local 行和未纳管行隐藏**）；中心接入地址、Remote Write URL、Agent 类型、描述等配置字段全部进右侧详情 Drawer
 - [ ] {P0} **采集节点状态页改节点平铺表 + 组件分区抽屉 + 错误详情 Modal**：主对象改为「采集节点」，一行一个节点——节点（主机名/IP）、网域、整体状态（三档聚合）、采集器状态、拨测器状态、配置同步（含引导按钮）、WAL 积压、最后心跳；组件明细进「查看」右侧抽屉——**按组件类型分区展示（Edge Sync Agent / vmagent / blackbox exporter 各一独立分区，实例名截断+Tooltip）**，**最近错误仅显示一句话摘要（截断~80 字符）+「查看错误详情」按钮**，点击用 **Modal 弹窗**展示完整错误详情（等宽字体、可复制、含所属组件/关联配置版本/发生时间）；页面顶部**可关闭 Alert 组件关系横幅，默认展示，关闭后记住用户选择**；五维筛选全部作用于平铺列
 - [ ] {P0} **采集节点状态页组件关系说明**：页面顶部**可关闭 Alert 横幅，默认展示，关闭后记住用户选择**——「一次安装 = 三个进程：Edge Sync Agent（管理进程）+ 采集器 vmagent（采集指标）+ 拨测器 blackbox（可选）。Edge Sync Agent 负责拉取配置并守护另外两个进程，某个进程异常会被自动重启并在此处展示。」；组件抽屉内附「Agent 是管理进程，负责拉取配置和守护另外两个进程」说明
-- [ ] {P0} 下发记录 `ConfigDeployment` 可查询成功/失败历史，支持查看失败原因
+- [ ] {P0} 下发记录 `ConfigDeployment` 可查询成功/失败历史，支持查看失败原因；详情抽屉提供「查看版本配置」入口，可只读查看该次下发版本的完整配置产物（含回滚产生的记录）
 - [ ] {P1} 平台明确允许本地手工兜底，并在 UI 中展示 `manual_override` 状态
 - [ ] {P0} 网域纳管页从 M06 已存在的网域中选择，提供安装指引，明确「边缘节点 = Edge Sync Agent（必装独立组件）+ 采集器（vmagent / prometheus-agent）+ blackbox exporter（可选）」组件构成与部署步骤（离线交付、校验和、`NETWORK_DOMAIN_ID` / `TOKEN` 环境变量、systemd），并消除「Agent 是中心内置」误解；纳管时登记的 `agent_type` 为采集器类型，Edge Sync Agent 无需登记
 - [ ] {P0} 网域安装指引为 **3 步人工步骤**（① 下载并校验一体化离线包 ② 配置 `NETWORK_DOMAIN_ID` / `TOKEN` 环境变量 ③ 启动 Edge Sync Agent），采集器与 blackbox exporter 由 Agent 启动后自动部署（并入第③步描述，不单列为人工步骤），无需手动分步安装
@@ -1204,6 +1207,8 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P0} **变更列表支持状态筛选**：按变更状态筛选（待确认 / 已确认 / 已废弃 / 全部，默认待确认），替代原「待确认 / 历史」二分切换；状态维度清晰、可扩展
 - [ ] {P0} / **按网域组织确认视图**：变更确认页按网域组织视图，提供「选择网域」切换器，列表展示当前选中网域的变更单（行内保留下发通道标记：`local` / `agent_pull`）；确认动作仍为变更单级（与网域切换无关）；确认抽屉标注发布通道——`local`「确认后立即 reload 生效」、`agent_pull`「发布为配置包，待 Edge Agent 下次心跳拉取生效」
 - [ ] {P0} / **回滚异步生效提示**：回滚 `local` 通道网域后提示「已回滚，配置已 reload 生效」；回滚 `agent_pull` 通道网域后提示「已发布历史版本，待 Edge Agent 下次心跳拉取生效」，生效进度经 `config_sync_status`（out_of_sync → in_sync）在 采集节点状态列表可见
+- [ ] {P0} **下发记录详情可查看版本配置内容**：下发记录详情抽屉提供「查看版本配置」入口，只读展示该次下发 `ConfigVersion` 的完整配置产物（`prometheus.yml` / `rules.yml` / `blackbox.yml` / `targets/*.json`，按文件分 Tab 展示）；回滚产生的新记录同样可查看，用户可直接确认回滚后生效的具体配置内容；非管理员不展示该入口（产物含凭据明文）
+- [ ] {P0} **回滚记录可辨识**：回滚动作生成的新下发记录状态为 `rolled_back`，列表与详情以「已回滚」标签标识，与正常发布记录可区分；回滚确认弹窗文案与实际行为一致（「回滚到所选版本 `cv-xxx`」，不出现「上一可用版本」等误导表述）
 - [ ] {P0} **变更单号自动生成**：configgen 生成草稿时自动分配（用户不可手填），格式 `CHG-{YYYYMMDD}-{当日序列}`（如 `CHG-20260803-003`），全局唯一
 - [ ] {P0} **提示分区规范**：用户可见文案不含「决策 X」「PRD X.X」等实现层引用；设计决策依据集中折叠在页面底部「原型与实现说明（面向产品 / 技术评审）」区（默认折叠）；代码注释与 PRD 承载实现细节供开发 / AI 参考
 - [ ] {P2} P1/P2 阶段，边缘诊断看板可展示 WAL 积压趋势、Remote Write 队列状态、最近错误、24h 断网时长等图表
@@ -1277,6 +1282,7 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P0} **校验归因字段（决策 45-3）**：`ConfigDraft` 持久化 `validation_cause`（`user_config` / `platform_fault`）与 `validation_details`（`[{file,line,message}]`），detail / revalidate 失败响应透传具体校验信息（替代无具象文案）
 - [ ] {P0} **targets labels target 级（决策 D43）**：`targets/*.json` 每个 target 的 `labels` 由 `label_template_id` 按对应资源属性转换（target 级），Job 级 labels 仅保留系统字段；标签模板变更 → 命中引用 Job 的 target labels → 触发 `targets/*.json` 重写与变更单
 - [ ] {P0} **规则 change_status 回写（决策 31-M2 / issue #18）**：确认下发成功后 `MonitoringRule.change_status` 同步回写 `deployed`（与采集 Job 同口径），废弃场景规则回滚登记待 v0.3
+- [ ] {P0} **回滚 `rolled_back` 状态落地（状态机对齐，见 §8）**：回滚动作生成的新 `ConfigDeployment` 成功时 `status=rolled_back`（失败时 `failed` 并记录原因），被回滚的历史记录状态保持不变（台账不可变）；`rolled_back` 视同 `success` 参与 M01 `change_status` 回写与「最近成功版本」判定，下游消费方（同步状态、`deployed` 回写）不受影响
 
 ## 10. 术语映射（用户词汇表）
 
@@ -1356,8 +1362,8 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 > 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v1.54 及以前）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.58 | 2026-09-08 | 修改 | MVP 体验修复（Track B，源自 MVP 试用反馈）：① §3.5 新增「下发记录查看版本配置内容」P0——下发记录详情抽屉提供「查看版本配置」入口（复用 `GET /config-versions/{id}`，管理员级），回滚后可直接查看生效配置；② `rolled_back` 状态落地——回滚动作生成的新记录成功即 `rolled_back`（原记录不变，台账不可变），§5.6/§6.5.3/§8/§9 同步对齐，回滚记录在列表可辨识；③ 回滚确认弹窗文案与实际行为对齐（「回滚到所选版本 cv-xxx」，禁止「上一可用版本」误导表述） | 3 | MVP | ready |
 | v1.57 | 2026-09-05 | 修改 | §1「MVP 阶段」补注记：M06 行政禁用网域不联动 M09 纳管状态（`IsMonitored` 独立维护；决策 62，2026-09-05 拍板——MVP 保持现状，「禁用联动取消纳管 / 冻结 Token」纳入 v0.2 多网域版本实现并届时评审）；不改 MVP 技术契约 | 1 | v0.2 | ready |
 | v1.56 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移 | 0 | 文档自身 | ready |
-| v1.55 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（配置生成→变更管控→边缘接入→一致性保障→废弃回滚）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「配置变更自动检测」「变更单废弃后状态回写」「配置校验失败归因」真实场景 | 0 | 文档自身 | ready |
 
 

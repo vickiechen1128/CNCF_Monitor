@@ -1,10 +1,10 @@
 # Module 08: 告警收敛与通知管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.11
+> **PRD 版本**: v1.12
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
 > **原型版本**: v1.7（v1.10 修订后待升级对齐；决策 61 静默 API v1→v2 文案已改、版本号未提；以 `docs/prototypes/module-08/package.json` 为准）
-> **更新日期**: 2026-09-04
+> **更新日期**: 2026-09-08
 > **对应原型**: `docs/prototypes/module-08/`
 
 > **模块类型**: 扩展能力模块
@@ -46,7 +46,7 @@
 **阶段 5：状态可视化期——「告警到底通知了没有？」**
 - 用户需要知道告警是否已路由、是否被静默/抑制
 - 痛点：Prometheus 告警状态与 Alertmanager 通知状态分离，用户需要两个视图对照
-- 对应能力：告警状态页（v0.3，M08 归属）+ Alertmanager `/api/v1/alerts` 代理
+- 对应能力：告警状态页（M08 归属，v1.12 起由 v0.3 提前至 MVP 交付）+ Alertmanager `/api/v2/alerts` 代理
 
 ### 不同技术背景用户的痛点分层
 
@@ -80,9 +80,9 @@
 
 1. **通知路由与接收人管理（MVP / v1.0）**：维护 Alertmanager 的 `route` / `receiver` 配置，按告警标签（如 `severity`、`team`、`network_domain`）决定通知渠道与接收人。
 2. **静默与抑制管理（MVP / v1.0）**：提供静默规则 UI（创建/查询/删除）和自动抑制规则（如网域离线时抑制该网域 `inhibitable=true` 的可达性风暴），调用 Alertmanager API 生效。
-3. **告警状态查看（v0.3 起）**：
+3. **告警状态查看（MVP 起，v1.12 由 v0.3 提前——MVP 试用反馈：前台缺少查看当前告警的入口）**：
    - 通过 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例（回答「当前触发了哪些规则」）。
-   - 本模块直接代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态（回答「告警正在通知给谁、是否被静默/抑制」）。
+   - 本模块直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态（回答「告警正在通知给谁、是否被静默/抑制」）。
 4. **通知渠道与模板（v1.0）**：维护飞书/钉钉/邮件/企业微信/Webhook 等接收人模板，支撑告警通知内容格式化。
 
 > **范围调整说明（v1.3）**：
@@ -115,7 +115,7 @@
 
 - M08-OPS-01：配置 Alertmanager 接收人（飞书/钉钉/邮件/企业微信/Webhook），指定不同渠道名称与参数（MVP 通过 `alertmanager.yml` 文件挂载承载，v0.3 提供表单化 UI，v1.0 完整 UI）。
 - M08-OPS-02：配置告警路由规则，按 `severity`、`team`、`network_domain` 等标签决定告警通知到哪个接收人（MVP 通过文件挂载承载，v0.3 起表单化）。
-- M08-OPS-03：查看当前被 Alertmanager 处理的告警通知状态（active / silenced / inhibited / unprocessed），判断告警是否已路由、是否被静默/抑制（v0.3 起）。
+- M08-OPS-03：查看当前被 Alertmanager 处理的告警通知状态（active / silenced / inhibited / unprocessed），判断告警是否已路由、是否被静默/抑制（MVP 起，v1.12 由 v0.3 提前）。
 - M08-OPS-04：创建临时静默规则，避免计划内变更或已知故障引发告警轰炸（MVP 起）。
 - M08-OPS-05：查看并删除正在生效的静默规则（MVP 起）。
 - M08-OPS-06：配置告警通知模板（summary / description 格式），使通知内容清晰可读（v1.0）。
@@ -136,15 +136,15 @@
 | **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间 | P0 / MVP（文件挂载承载），v0.3（表单 UI），v1.0（完整 UI） |
 | **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效；**MVP 提供极简 UI**（创建/列表/删除三个动作，API 直调，决策 59）——静默是运行时状态、文件挂载承载不了 | P0 / MVP |
 | **告警抑制规则** | 自动生成 `inhibit_rules`：当网域整体离线时，抑制该网域 `inhibitable=true` 的告警风暴；支持手动调整抑制策略 | P0 / MVP |
-| **Alertmanager 通知状态** | 代理 Alertmanager `/api/v1/alerts`，展示告警经过路由、静默、抑制后的通知状态 | P0 / v0.3 |
-| **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，本模块不重复实现 | —（依赖 M02） |
+| **Alertmanager 通知状态** | 代理 Alertmanager `/api/v2/alerts`，展示告警经过路由、静默、抑制后的通知状态 | P0 / MVP（v1.12 由 v0.3 提前） |
+| **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（MVP 起交付，v1.12 同步提前），本模块不重复实现，告警状态页只读消费 | —（依赖 M02） |
 | **通知模板管理** | 管理告警通知的 title / body 模板，支持变量（`{{ $labels }}`、`{{ $value }}`、`{{ $annotations }}`） | P2 / v1.0 |
 | **告警升级与降噪** | 升级策略（未确认超时升级）、值班组、告警降噪（合并相似告警） | P2 / v1.0 |
 | **边缘本地通知通道** | 断网场景下边缘 Alertmanager 使用本地 webhook 通知（v0.4+ 多网域） | P2 / v0.4+ |
 
 ### 3.2 Prometheus 告警状态 vs Alertmanager 通知状态
 
-| 维度 | Prometheus `/api/v1/alerts` | Alertmanager `/api/v1/alerts` / 通知状态 API |
+| 维度 | Prometheus `/api/v1/alerts` | Alertmanager `/api/v2/alerts` / 通知状态 API |
 |------|------------------------------|-----------------------------------------------|
 | 语义 | 「什么出了问题」—— 告警规则求值状态 | 「谁正在被通知」—— 路由、静默、抑制后的通知状态 |
 | 数据来源 | Prometheus 规则管理器求值结果 | Alertmanager 接收到的告警及处理结果 |
@@ -325,8 +325,8 @@ inhibit_rules:
 ### 5.4 告警状态查看
 
 - **页面归属（v1.5，决策 55）**：「告警状态页」归属**本模块**（告警域工作台），用户动线为「什么出了问题 → 通知了谁/是否被静默 → 加静默/调路由」的连续任务链；Module_02 只交付注入代理 API，不出告警相关页面。
-- **Prometheus 当前触发告警（v0.3 起）**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`（已注入租户/网域上下文），本模块告警状态页只读消费，展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
-- **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。**授权过滤（v1.5，决策 56）**：代理时必须在**服务端**强制注入当前用户的授权网域集合 filter（不信任前端传参）；授权集合 = 全部网域时不附加 filter。前端筛选只承担 UX，不构成权限。
+- **Prometheus 当前触发告警（MVP 起，v1.12 由 v0.3 提前）**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`（已注入租户/网域上下文），本模块告警状态页只读消费，展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
+- **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。**授权过滤（v1.5，决策 56）**：代理时必须在**服务端**强制注入当前用户的授权网域集合 filter（不信任前端传参）；授权集合 = 全部网域时不附加 filter。前端筛选只承担 UX，不构成权限。
 - **边缘本地告警状态（P2）**：通过 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 
 ---
@@ -420,7 +420,7 @@ inhibit_rules:
 | 静默 | 调用 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询 | 原生 silence 管理 |
 | 通知路由 | 生成 `alertmanager.yml` 的 `route` / `receiver` | 原生 route 执行 |
 | 通知发送 | 可扩展 Webhook 接收器 | 飞书/钉钉/邮件等实际发送 |
-| 通知状态查询 | Module_08 代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API | 原生提供告警处理状态 |
+| 通知状态查询 | Module_08 代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API | 原生提供告警处理状态 |
 | `rules.yml` 生成与下发 | 不介入 | 不介入 |
 
 ---
@@ -428,7 +428,7 @@ inhibit_rules:
 ## 8. 依赖
 
 - [Module\_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)（规则内容来源；`inhibitable` 等标签约定来自规则编辑）
-- [Module\_02: 查询中心](Module_02_Query_Center.md)（v0.3 起代理 Prometheus `/api/v1/alerts`，展示当前 firing/pending 告警实例）
+- [Module\_02: 查询中心](Module_02_Query_Center.md)（MVP 起代理 Prometheus `/api/v1/alerts`，展示当前 firing/pending 告警实例；v1.12 由 v0.3 提前）
 - [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)（v0.4+ 边缘 Alertmanager 配置分发；EdgeAgent 心跳上报边缘本地告警状态）
 - `upstream/prometheus/alertmanager/`（Alertmanager 二进制与配置）
 - `platform/config/alertmanager/`（Alertmanager 配置生成与版本管理）
@@ -450,7 +450,7 @@ inhibit_rules:
 - [ ] {P0} 当网域整体离线时，自动生成 `inhibit_rules` 抑制该网域 `inhibitable=true` 的告警风暴（只保留根因告警）。
 - [ ] {P0} 可查看 Alertmanager 通知状态（active / silenced / inhibited / unprocessed）。
 - [ ] {P0，决策 60} `alertmanager.yml` 纳入 M09 变更确认流水线：生成管理域（`default`）scope 变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08；不参与按网域扇出。
-- [ ] {v0.3} 可通过 [Module\_02](Module_02_Query_Center.md) 查看当前 Prometheus 触发告警状态（firing / pending）。
+- [ ] {P0} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）可查看当前告警：Prometheus 触发告警（firing / pending，经 [Module\_02](Module_02_Query_Center.md) 代理 `/api/v1/alerts`）与 Alertmanager 通知状态双视图展示，支持按 `network_domain` 筛选（v1.12 由 v0.3 提前至 MVP）。
 - [ ] {v1.0} 可配置通知模板与告警升级策略。
 - [ ] {v0.4+} 支持边缘本地 Alertmanager 通知通道配置（P2）。
 
@@ -461,10 +461,10 @@ inhibit_rules:
 - [ ] {P0，决策 60} 修改接收人/路由/抑制策略（文件挂载提交）后，经 M09 变更单人工确认 → 下发 → Alertmanager reload 成功；静默规则为 Alertmanager 运行时 API 状态，不进 M09 流水线（API 直调即时生效）。
 - [ ] {P0} 静默规则通过 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询，状态同步正确；禁止调用已移除的 v1 silence 端点。
 - [ ] {P0} `inhibit_rules` 生成逻辑正确：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警。
-- [ ] {P0} Alertmanager `/api/v1/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
+- [ ] {P0} Alertmanager `/api/v2/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
 - [ ] {P0} M08 不生成 `rules.yml`、不管理 `MonitoringRule` 内容；规则相关数据由 M01 写入、M09 生成配置。
 - [ ] {P0} M08 `AlertmanagerConfigVersion` 仅留痕**校验通过**的 `alertmanager.yml` 挂载内容（校验失败不落库、仅返回行级错误，决策 59/60）；管道版本与下发状态以 M09 `ConfigVersion` 为准（决策 60）。
-- [ ] {P0} Alertmanager `/api/v1/alerts` 代理在服务端强制注入当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参（决策 56）。
+- [ ] {P0} Alertmanager `/api/v2/alerts` 代理在服务端强制注入当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参（决策 56）。
 - [ ] {P0} 创建静默规则时服务端校验 matcher 收敛于当前用户授权网域集合，越权 matcher 拒绝（决策 56）。
 - [ ] {v0.4+} 边缘 Alertmanager 配置可随 M09 配置包下发或由 M08 初始化脚本推送（P2）。
 
@@ -492,7 +492,7 @@ inhibit_rules:
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.12 | 2026-09-08 | 修改 | 范围调整（MVP 试用反馈：前台缺少查看当前告警入口）：告警状态查看由 v0.3 提前至 MVP——§1 目标 3、§2 M08-OPS-03、§3.1 功能表、§5.4、§8 依赖、§9.1 验收同步调整；「告警状态页」MVP 交付（Prometheus firing/pending 视图依赖 M02 代理 `/api/v1/alerts` 同步提前，见 Module_02 对应版本口径）；顺手修正 Alertmanager 告警代理端点为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 端点在 AM ≥0.27 已移除） | 0 | 功能提前至 MVP | ready |
 | v1.11 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移 | 0 | 文档自身 | 设计中 |
 | v1.10 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（通知接入→变更管控→静默管理→风暴抑制→状态可视化）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「告警配置变更确认」「静默 API 版本迁移」「查看告警通知状态」真实场景 | 0 | 文档自身 | 设计中 |
-| v1.9 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（通知渠道配置/临时静默/告警风暴抑制）与涉及用户故事编码索引；不改变技术契约 | 0 | 文档自身 | 设计中 |
 
