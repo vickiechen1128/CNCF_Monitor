@@ -1,10 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ApiError } from './client'
+import { ApiError, clearToken, setToken } from './client'
 import { resourceApi, businessDomainApi, importApi } from './resources'
+
+// vitest jsdom 环境的 window.localStorage 存储行为不可靠，用内存 Map 替换（与 client.test.ts 一致）。
+const storageMap = new Map<string, string>()
+const localStorageMock: Storage = {
+  get length() {
+    return storageMap.size
+  },
+  clear: () => storageMap.clear(),
+  getItem: (key) => storageMap.get(key) ?? null,
+  key: (index) => Array.from(storageMap.keys())[index] ?? null,
+  removeItem: (key) => storageMap.delete(key),
+  setItem: (key, value) => storageMap.set(key, String(value)),
+}
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
 
 describe('resources API', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
+    clearToken()
   })
 
   afterEach(() => {
@@ -176,6 +191,30 @@ describe('resources API', () => {
     await expect(resourceApi.template('generic_target')).rejects.toThrow(ApiError)
   })
 
+  // 回归：模板下载 / Excel 导入走 rawRequest，必须携带 Authorization Bearer Token，
+  // 否则后端 au-02 认证中间件会以 401「未认证或会话已失效」拒绝。
+  it('resourceApi.template attaches Authorization Bearer token', async () => {
+    setToken('tok-m07')
+    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(new Blob(['x']), { status: 200 }),
+    )
+
+    await resourceApi.template('host')
+
+    const headers = (lastFetchCall()[1]?.headers ?? {}) as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer tok-m07')
+  })
+
+  it('resourceApi.importExcel attaches Authorization Bearer token', async () => {
+    setToken('tok-m07')
+    mockFetch({ status: 'success', data: { total: 0, success: 0, failed: 0, errors: [] } })
+
+    await resourceApi.importExcel('host', new File(['x'], 'hosts.xlsx'), 'create_only')
+
+    const headers = (lastFetchCall()[1]?.headers ?? {}) as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer tok-m07')
+  })
+
   it('resourceApi.importExcel builds FormData(file+mode) and posts multipart', async () => {
     mockFetch({
       status: 'success',
@@ -191,8 +230,9 @@ describe('resources API', () => {
     const url = new URL(String(call[0]), window.location.origin)
     expect(url.pathname).toBe('/api/v2/platform/resources/host/import')
     expect(call[1]?.method).toBe('POST')
-    // 不手动设置 Content-Type：浏览器自动带 multipart boundary
-    expect(call[1]?.headers).toBeUndefined()
+    // 不手动设置 Content-Type：浏览器自动带 multipart boundary（rawRequest 只注入认证头）
+    const headers = (call[1]?.headers ?? {}) as Record<string, string>
+    expect(headers['Content-Type']).toBeUndefined()
     const body = call[1]?.body
     expect(body).toBeInstanceOf(FormData)
     const formData = body as FormData

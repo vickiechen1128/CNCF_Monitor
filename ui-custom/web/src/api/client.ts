@@ -147,6 +147,27 @@ export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError
 }
 
+/**
+ * 原生 fetch 的认证变体：自动附加 Authorization Bearer Token，并在 401 时统一
+ * 清 Token 跳登录（auth/login 除外），语义与 request 一致。
+ * 供二进制下载 / multipart 上传等无法走 JSON 序列化的请求复用（resources.ts）。
+ * 注意：不设置 Content-Type，由调用方/浏览器按 body 形态自行决定（如 FormData 边界）。
+ */
+export async function rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
+  const token = getToken()
+  const res = await fetch(buildUrl(path), {
+    ...init,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init.headers,
+    },
+  })
+  if (res.status === 401 && path !== LOGIN_ENDPOINT) {
+    handleUnauthorized()
+  }
+  return res
+}
+
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
   const { params, body, headers, ...rest } = options
   const url = buildUrl(path, params)

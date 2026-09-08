@@ -4,9 +4,9 @@
  * Module_07 §6 / T07-F1：五类资源 CRUD、Excel 模板下载 / 导入、资源标签、
  * 业务分组字典与导入记录。CRUD / 标签 / 字典走统一信封 `apiClient`；
  * 模板下载（二进制流）与 Excel 导入（multipart FormData）因请求 / 响应
- * 形态特殊走原生 fetch。
+ * 形态特殊走 `rawRequest`（原生 fetch + 认证 Token + 401 统一处理）。
  */
-import { apiClient, ApiError } from './client'
+import { apiClient, ApiError, rawRequest } from './client'
 import type { ApiResponse, ApiStatus, Paginated } from '../types/api'
 import type {
   BusinessDomain,
@@ -104,7 +104,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 /** multipart/form-data POST：浏览器自动携带 Content-Type 与 boundary，不做 JSON 序列化（§6.1/T07-10） */
 async function requestMultipart<T>(url: string, formData: FormData): Promise<ApiResponse<T>> {
-  const res = await fetch(url, { method: 'POST', body: formData })
+  const res = await rawRequest(url, { method: 'POST', body: formData })
   const data = await parseEnvelope<T>(res)
   if (!res.ok || data.status === 'error') {
     throw new ApiError(data.error || res.statusText, res.status, data.errorType)
@@ -114,7 +114,7 @@ async function requestMultipart<T>(url: string, formData: FormData): Promise<Api
 
 /** 下载二进制文件流（Excel 模板，§6.1/T07-08；响应不是统一 JSON 信封） */
 async function downloadBlob(url: string): Promise<Blob> {
-  const res = await fetch(url, { method: 'GET' })
+  const res = await rawRequest(url, { method: 'GET' })
   if (!res.ok) {
     throw await toApiError(res)
   }

@@ -221,6 +221,34 @@ func TestResolveTargetsUnconfirmedIncluded(t *testing.T) {
 	assert.Equal(t, "pay", groups[0].Labels["app"])
 }
 
+// TestResolveTargetsInjectsResourceID（决策 47-3 回归）：
+// resource_id 是 M02 coverage 三态判定的回连键，必须作为 system 层身份标签
+// 强制注入到每个 target 组——不依赖是否挂载标签模板，也不可被模板映射覆盖。
+// 此前 labels 完全依赖模板展开且字段视图缺 resource_id，导致 up 序列无
+// resource_id 标签，coverage 恒判「已下发未采到」。
+func TestResolveTargetsInjectsResourceID(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Host{}, &models.LabelTemplate{}))
+	require.NoError(t, db.Create(&models.Host{ServerID: "srv-1", ResourceID: "srv-1", NetworkDomainID: "d", PrivateIP: "10.0.1.1", Status: "online"}).Error)
+
+	t.Run("无标签模板也注入 resource_id", func(t *testing.T) {
+		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"srv-1"}}, nil, 9100)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, "srv-1", groups[0].Labels["resource_id"])
+	})
+
+	t.Run("模板映射不可覆盖 resource_id", func(t *testing.T) {
+		tmpl := &models.LabelTemplate{Name: "t", ResourceCategory: models.ResourceCategoryHost, Mappings: []models.LabelMapping{
+			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
+		}}
+		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"srv-1"}}, tmpl, 9100)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, "srv-1", groups[0].Labels["resource_id"], "system 身份标签不可被模板覆盖")
+	})
+}
+
 // ---- T09-04: target 端口解析（决策 42-4：host/database/middleware 拼 exporter 端口）----
 
 func TestResolveTargetsExporterPort(t *testing.T) {

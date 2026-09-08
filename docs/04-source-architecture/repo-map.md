@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-05 13:58 · commit: `c493b80f`
+> 生成时间: 2026-09-07 17:37 · commit: `c8382175`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1430,6 +1430,7 @@
 - `func TestChecksumConsistency(t *testing.T)`
 - `func TestResolveTargetsOfflineExclusion(t *testing.T)`
 - `func TestResolveTargetsUnconfirmedIncluded(t *testing.T)`
+- `func TestResolveTargetsInjectsResourceID(t *testing.T)`
 - `func TestResolveTargetsExporterPort(t *testing.T)`
 - `func TestLoadExporterPortPriority(t *testing.T)`
 - `func TestMergeLabelsPriority(t *testing.T)`
@@ -1448,7 +1449,7 @@
 
 - `func mergeLabels(system, user, cmdb map[string]string) map[string]string`
 - `func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, address string) map[string]string`
-- `func mergeIntoLabels(templateLabels map[string]string) map[string]string`
+- `func mergeIntoLabels(system, templateLabels map[string]string) map[string]string`
 
 ### `platform/configcenter/generator/render.go`
 
@@ -2516,6 +2517,7 @@
 - `function setUnauthorizedNavigate`
 - `class ApiError`
 - `function isApiError`
+- `function rawRequest`
 - `function request`
 - `const apiClient`
 

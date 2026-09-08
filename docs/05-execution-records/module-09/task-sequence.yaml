@@ -624,3 +624,47 @@ tasks:
       - "端到端：M08 挂载 alertmanager.yml → 校验 → M09 管理域变更单 → 确认下发 → AM reload → M08 change_status applied，前台一致"
       - "前端 pnpm test / pnpm lint / tsc --noEmit 通过"
       - "提交前验证清单通过后停服释放端口"
+
+  # =====================================================================
+  # MVP 试用反馈热修（Track B）：回滚可见性 + rolled_back 状态落地
+  # =====================================================================
+  - id: "T09-BE-FIX-02"
+    title: "M09-BE-FIX-02：回滚 rolled_back 状态落地 + 下发记录详情查看版本配置 + 回滚弹窗文案修正"
+    prd: "Module_09 v1.58 §3.5 / §5.6 / §6.5.3 / §8 / §9.1 / §9.2（MVP 试用反馈：回滚后看不到回滚后的配置文件具体内容）"
+    group: "backend"
+    agent: "backend-developer / frontend-developer"
+    status: "done"
+    commit_group: "deployment-rollback-fix"
+    depends_on: ["T09-06", "T09-F5"]
+    input_files:
+      - "platform/configcenter/deployment/service.go"
+      - "platform/configcenter/deployment/callback.go"
+      - "platform/configcenter/deployment/deployment_test.go"
+      - "ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.tsx"
+      - "ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.test.tsx"
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+    output_files:
+      - "platform/configcenter/deployment/service.go"
+      - "platform/configcenter/deployment/callback.go"
+      - "platform/configcenter/deployment/deployment_test.go"
+      - "ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.tsx"
+      - "ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.test.tsx"
+      - "docs/05-execution-records/module-09/api-contract-snapshot.md"
+    estimated_files_changed: 7
+    estimated_test_cases: 7
+    shared_files: "是：DeploymentsPage.tsx 与 T09-F5 共享同页；service.go dispatchVersion 与 T09-06 共用"
+    verify_commands:
+      - "make test-platform"
+      - ".tools/go/bin/go vet ./platform/..."
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+      - "cd ui-custom/web && pnpm exec tsc --noEmit"
+      - "make repo-map && make check-repo-map"
+    acceptance_criteria:
+      - "回滚动作生成的新 ConfigDeployment 成功时 status=rolled_back（失败时 failed + error_message）；被回滚历史记录状态不变"
+      - "rolled_back 视同 success 参与 M01 change_status 回写与最近成功版本判定；全库 grep DeploymentStatusSuccess 无遗漏消费点"
+      - "下发记录详情抽屉提供「查看版本配置」入口，只读展示 prometheus.yml / targets / rules.yml / blackbox.yml / alertmanager.yml（含时），带加载/错误/重试态"
+      - "回滚确认弹窗文案与实际行为一致：「回滚到所选版本 cv-xxx（来自变更单 CHG-xxx）」"
+      - "rolled_back 记录显示「已回滚」标签，且可作为回滚目标；pending/running/failed 禁用回滚按钮"
+      - "api-contract-snapshot.md rollback 响应描述同步为 rolled_back/failed 口径"
+      - "repo-map 已重新生成并通过新鲜度校验"

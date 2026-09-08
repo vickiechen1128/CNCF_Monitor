@@ -121,3 +121,41 @@
 - **口径边界**：纯拼写错误且不含任何家族关键字（如 `ubutund`）无法自动映射——这正是用下拉+字典规避的点。若需兼容更多 Linux 写法，在 `osDict` 增补规范名即可（家族映射一并生效）。
 - **请求结论**：请设计侧确认是否将 Module_07 §5.6 的 `os_type` 描述改为「内置字典选择（参考 `/os-options`），可按需扩展规范名」，并在 PRD 中说明字典口径，便于 M01/M09 采集候选匹配对齐。
 - **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——PRD §5.2/§5.6 `os_type` 已明确为「内置字典选择（AutoComplete 下拉，可搜索/自定义），参考 `/api/v2/platform/os-options`，规范名可按需扩展」，按「规范名→家族」归一化（decision 3.53）；原型 host 表单同步改必填 + AutoComplete 下拉。
+
+## 10. 用户实测问题闭环（2026-09-07 热修）
+
+### F-3. M07「下载模板」报 401「未认证或会话已失效」
+
+- **触发**：用户在已登录状态下点击资源管理页「下载模板」，接口返回 401。
+- **根因**：`ui-custom/web/src/api/resources.ts` 中模板下载（`downloadBlob`）与 Excel 导入（`requestMultipart`）为了处理二进制流 / multipart 请求，走了原生 `fetch`，但**没有附加 `Authorization: Bearer <token>` 认证头**；而 `/api/v2/platform/*` 全量受 Module 06 决策 44 的 au-02 认证中间件保护，缺少 token 即被拒绝。
+- **修复**：
+  - `ui-custom/web/src/api/client.ts` 新增导出 `rawRequest()`：原生 fetch 的认证变体，自动附加 Bearer Token，401 时统一清 token 跳转登录（与 `request` 语义一致）。
+  - `ui-custom/web/src/api/resources.ts` 的模板下载与 Excel 导入改走 `rawRequest`。
+- **新增单测**：
+  - `src/api/resources.test.ts`：`resourceApi.template attaches Authorization Bearer token`
+  - `src/api/resources.test.ts`：`resourceApi.importExcel attaches Authorization Bearer token`
+
+### F-4. targets 已采集但 M07 状态仍显示「已下发未采到」
+
+- **触发**：用户反馈 Prometheus targets 已 up，但 M07 资源列表「采集状态」badge 始终为「已下发未采到」。
+- **根因**：M02 `/api/v1/health/coverage` 三态判定依赖 Prometheus `up` 序列上的 `resource_id` 标签回连资源（PRD §5.13、决策 47-3）。PRD 已要求五类默认标签模板包含 `resource_id → resource_id` 映射，实现中也存在该映射（`platform/models/label_template.go`），但 `platform/configcenter/generator/targets.go` 的 `resolveResource` 在构造标签模板字段视图时**漏了 `resource_id` 键**，导致 M09 生成 `targets/*.json` 时每个 target 的 `labels` 里没有 `resource_id`（如 `demo-middleware-9000.json` 中 `labels: {}`），`up{resource_id=...}` 不存在，coverage 恒判为 `pending_down`（已下发未采到）。
+- **修复**：
+  - `platform/configcenter/generator/targets.go`：将 `resource_id` 作为 **system 层身份标签强制注入**每个 target 组的 `labels`，不依赖 Job 是否挂载标签模板，也不可被模板映射覆盖。
+  - `platform/configcenter/generator/labels.go`：调整 `mergeIntoLabels` 语义为 `system + templateLabels` 两层合并，复用 `mergeLabels` 的 system 保护逻辑。
+- **新增单测**：
+  - `platform/configcenter/generator/generator_test.go`：`TestResolveTargetsInjectsResourceID`（无模板也注入 resource_id；模板映射不可覆盖 resource_id）。
+- **生效提示**：已下发的旧 Prometheus 配置里 targets 仍无 `resource_id` 标签，部署修复后需**废弃旧 pending 单并重新触发变更 → 确认下发**，使 Prometheus 重新加载新配置。
+
+
+> 触发：用户反馈「操作系统填自由文本（如拼写错误的 `ubutund`）时，采集 Job 选 Linux 主机找不到对应实例」→ 结论需在采集端建立稳定匹配口径，故做内置字典。
+
+- **原设计**：`os_type` 为自由文本 Input（§7 已修必填，但仍允许任意输入）。采集 Job 候选筛选靠 `monitor_type.go` 的 `OSKeywords` 做脆性 LOWER LIKE 匹配，**拼错或填带版本全名即匹配不到**，用户无法稳定把主机归入 `host_linux`/`host_windows` 候选。
+- **已落地（开发侧，单一权威字典）**：
+  - 后端 `platform/models/os_dict.go`：内置字典 `规范名 → 家族`（Ubuntu/CentOS/RedHat/openEuler/Kylin/AIX/Solaris…→linux；Windows Server 2016~2022/Windows 10/11…→windows）；
+  - `NormalizeOSType`：精确名 → 前缀+版本归一（"ubuntu 22.04 LTS"→"Ubuntu"）→ 家族 token 回落（含 linux/unix/windows 的非字典值→"Linux"/"Windows"）→ 否则保留自定义；
+  - `monitor_type.go` host 候选关键字改为字典动态推导 `OSKeywordsForLinux/Windows()`，替代硬编码 `OSKeywords`；
+  - 配置接口 `GET /api/v2/platform/os-options`（`platform/config/resource/os_options.go`）；
+  - 前端 host 表单「操作系统」改用 antd AutoComplete 下拉选择（可搜索、可自定义），写入后端归一化。
+- **口径边界**：纯拼写错误且不含任何家族关键字（如 `ubutund`）无法自动映射——这正是用下拉+字典规避的点。若需兼容更多 Linux 写法，在 `osDict` 增补规范名即可（家族映射一并生效）。
+- **请求结论**：请设计侧确认是否将 Module_07 §5.6 的 `os_type` 描述改为「内置字典选择（参考 `/os-options`），可按需扩展规范名」，并在 PRD 中说明字典口径，便于 M01/M09 采集候选匹配对齐。
+- **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——PRD §5.2/§5.6 `os_type` 已明确为「内置字典选择（AutoComplete 下拉，可搜索/自定义），参考 `/api/v2/platform/os-options`，规范名可按需扩展」，按「规范名→家族」归一化（decision 3.53）；原型 host 表单同步改必填 + AutoComplete 下拉。

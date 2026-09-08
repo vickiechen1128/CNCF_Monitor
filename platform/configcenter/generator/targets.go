@@ -134,6 +134,10 @@ func instanceAddress(ip string, port int) string {
 // 排除 + enabled + draft_status），**不读取、不排除、不阻塞 ExporterInstallationConfirmation**。
 // 未确认 / 已确认实例一律进入 target 组——安装确认已降级为「可选登记、非生成闸门」，
 // 真实采集状态（up/down）由 M02 targets/coverage 代理回显，M01 不直连 Prometheus。
+//
+// 决策 47-3：resource_id 是 coverage 三态判定（M02 /health/coverage 按 up 的
+// resource_id 标签回连资源）的稳定身份回连键，作为 system 层标签强制注入——
+// 不依赖 Job 是否挂载标签模板，也不可被模板映射覆盖。
 func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, error) {
 	if job.JobType == models.JobTypeBlackbox {
 		groups := make([]TargetGroup, 0, len(job.BlackboxTargets))
@@ -158,7 +162,9 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 			continue
 		}
 		templateLabels := expandLabelTemplate(tmpl, rt.Fields, rt.Address)
-		labels := mergeIntoLabels(templateLabels)
+		// 决策 47-3：resource_id 作为 system 层身份标签强制注入（不可被模板覆盖），
+		// 保证 M02 coverage 能按 up{resource_id} 回连资源，与是否挂载标签模板无关。
+		labels := mergeIntoLabels(map[string]string{"resource_id": rt.ResourceID}, templateLabels)
 		groups = append(groups, TargetGroup{Targets: []string{rt.Address}, Labels: labels})
 	}
 	return groups, nil
