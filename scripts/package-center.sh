@@ -35,13 +35,13 @@
 #   CROSS             交叉编译目标，如 linux/amd64、linux/arm64
 #   WITH_ALERTMANAGER 默认 1：随包交付 alertmanager + amtool（M08 依赖）。除 bin/ 外还会：
 #                     ① 写入 config/alertmanager.yml（＋ .example 模板）；
-#                     ② start.sh 注入 :9093 启动段并写出 logs/alertmanager.pid；
+#                     ② start.sh 注入 :9093 启动段并写出 pid（生产模式 $DATA_ROOT/run/，解压即用模式 logs/）；
 #                     ③ metric-center 追加 --config.am-dir / --config.am-reload-url，
 #                        使 M08 下发写盘与 AM 读取指向同一份文件，闭环生效。
 #                     显式设为 0 / no / false 时才裁剪（如 WITH_ALERTMANAGER=0）。
 #   WITH_BLACKBOX     默认 1：随包交付 blackbox_exporter（M01/M09 依赖）。除 bin/ 外还会：
 #                     ① 写入 config/blackbox.yml（＋ .example 模板）；
-#                     ② start.sh 注入 :9115 启动段并写出 logs/blackbox_exporter.pid；
+#                     ② start.sh 注入 :9115 启动段并写出 pid（生产模式 $DATA_ROOT/run/，解压即用模式 logs/）；
 #                     ③ 给 metric-center 追加 --config.dir，并保证 blackbox.yml 与
 #                        prometheus.yml 同目录下发、同文件读取。
 #                     显式设为 0 / no / false 时才裁剪。
@@ -374,19 +374,32 @@ mkdir -p "$DATA_ROOT/config-output" "$DATA_ROOT/run" "$LOG_ROOT"
 # 保留策略默认值（env.sh 未定义时使用）
 PROM_RETENTION_TIME=${PROM_RETENTION_TIME:-15d}
 PROM_RETENTION_SIZE=${PROM_RETENTION_SIZE:-10GB}
+# 组件端口默认值（env.sh 未定义时使用）
+PROM_PORT=${PROM_PORT:-9090}
+AM_PORT=${AM_PORT:-9093}
+BB_PORT=${BB_PORT:-9115}
+MC_PORT=${MC_PORT:-8080}
+AM_CLUSTER_PORT=${AM_CLUSTER_PORT:-9094}
 # SQLite DSN：未指定时落数据根（生产 /opt/data/metric-center，解压即用 data/）
 export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-"$DATA_ROOT/metric_center.db"}
 
-# 从 conf/ 种子活配置（DATA_ROOT/config-output 缺失时）——两种模式均生效
+# 从种子配置恢复活配置（DATA_ROOT/config-output 缺失时）——两种模式均生效
+# 种子源目录：解压即用模式为包内 config/；生产 install.sh 入驻后为 conf/（规范名）。
+CONF_DIR="$ROOT/config"
+[ -d "$CONF_DIR" ] || CONF_DIR="$ROOT/conf"
+# 注意：seed 必须用 if 结构。若写成 `[..] && [..] && cp`，当目标已存在时该链条会一次短路
+# 返回非零，在文件头 set -e 的 start.sh 里会导致「stop 后二次启动」提前静默退出、进程拉不起来。
 seed() {
-    [ -f "$2" ] && [ ! -f "$1" ] && cp "$2" "$1"
+    if [ -f "$2" ] && [ ! -f "$1" ]; then
+        cp "$2" "$1"
+    fi
 }
-seed "$DATA_ROOT/config-output/prometheus.yml" "$ROOT/config/prometheus.yml.example"
-if [ -f "$ROOT/config/alertmanager.yml.example" ]; then
-    seed "$DATA_ROOT/config-output/alertmanager.yml" "$ROOT/config/alertmanager.yml.example"
+seed "$DATA_ROOT/config-output/prometheus.yml" "$CONF_DIR/prometheus.yml.example"
+if [ -f "$CONF_DIR/alertmanager.yml.example" ]; then
+    seed "$DATA_ROOT/config-output/alertmanager.yml" "$CONF_DIR/alertmanager.yml.example"
 fi
-if [ -f "$ROOT/config/blackbox.yml.example" ]; then
-    seed "$DATA_ROOT/config-output/blackbox.yml" "$ROOT/config/blackbox.yml.example"
+if [ -f "$CONF_DIR/blackbox.yml.example" ]; then
+    seed "$DATA_ROOT/config-output/blackbox.yml" "$CONF_DIR/blackbox.yml.example"
 fi
 
 # M08 告警分发：中心 Alertmanager 配置下发目录（$DATA_ROOT/config-output）+ reload 地址
@@ -397,20 +410,20 @@ EOF
         # AM 配置下发落盘目录必须与 alertmanager --config.file 所在目录一致
         #（均为 $DATA_ROOT/config-output），否则 M08 下发的 alertmanager.yml 写不到
         # AM 正在读取的文件上，reload 后不生效。
-        printf 'AM_ARGS="--config.am-dir=$DATA_ROOT/config-output --config.am-reload-url=http://127.0.0.1:9093/-/reload"\n\n' >> "$start_sh"
+        printf 'AM_ARGS="--config.am-dir=$DATA_ROOT/config-output --config.am-reload-url=http://127.0.0.1:${AM_PORT}/-/reload --alertmanager.url=http://127.0.0.1:${AM_PORT}"\n\n' >> "$start_sh"
     else
         printf 'AM_ARGS=""\n\n' >> "$start_sh"
     fi
 
     cat >> "$start_sh" <<'EOF'
-echo ">>> Starting prometheus on :9090"
+echo ">>> Starting prometheus on :${PROM_PORT}"
 nohup "$ROOT/bin/prometheus" \
     --config.file="$DATA_ROOT/config-output/prometheus.yml" \
     --storage.tsdb.path="$DATA_ROOT/prometheus" \
     --storage.tsdb.retention.time="$PROM_RETENTION_TIME" \
     --storage.tsdb.retention.size="$PROM_RETENTION_SIZE" \
     --web.enable-lifecycle \
-    --web.listen-address=:9090 \
+    --web.listen-address=":${PROM_PORT}" \
     > "$LOG_ROOT/prometheus.log" 2>&1 &
 echo $! > "$PID_DIR/prometheus.pid"
 EOF
@@ -418,12 +431,13 @@ EOF
     if [ "$AM_ENABLED" -eq 1 ]; then
         cat >> "$start_sh" <<'EOF'
 
-echo ">>> Starting alertmanager on :9093"
+echo ">>> Starting alertmanager on :${AM_PORT}"
 mkdir -p "$DATA_ROOT/alertmanager"
 nohup "$ROOT/bin/alertmanager" \
     --config.file="$DATA_ROOT/config-output/alertmanager.yml" \
     --storage.path="$DATA_ROOT/alertmanager" \
-    --web.listen-address=:9093 \
+    --web.listen-address=":${AM_PORT}" \
+    --cluster.listen-address=":${AM_CLUSTER_PORT}" \
     > "$LOG_ROOT/alertmanager.log" 2>&1 &
 echo $! > "$PID_DIR/alertmanager.pid"
 EOF
@@ -432,11 +446,11 @@ EOF
     if [ "$BB_ENABLED" -eq 1 ]; then
         cat >> "$start_sh" <<'EOF'
 
-echo ">>> Starting blackbox_exporter on :9115"
+echo ">>> Starting blackbox_exporter on :${BB_PORT}"
 nohup "$ROOT/bin/blackbox_exporter" \
     --config.file="$DATA_ROOT/config-output/blackbox.yml" \
     --config.enable-auto-reload \
-    --web.listen-address=:9115 \
+    --web.listen-address=":${BB_PORT}" \
     > "$LOG_ROOT/blackbox_exporter.log" 2>&1 &
 echo $! > "$PID_DIR/blackbox_exporter.pid"
 EOF
@@ -444,34 +458,36 @@ EOF
 
     cat >> "$start_sh" <<'EOF'
 
-echo ">>> Starting metric-center on :8080 (UI + API 同源)"
+echo ">>> Starting metric-center on :${MC_PORT} (UI + API 同源)"
 nohup "$ROOT/bin/metric-center" \
+    --listen-address=":${MC_PORT}" \
+    --prometheus.url="http://127.0.0.1:${PROM_PORT}" \
     --config.dir="$DATA_ROOT/config-output" \
-    --config.reload-url=http://127.0.0.1:9090/-/reload \
+    --config.reload-url="http://127.0.0.1:${PROM_PORT}/-/reload" \
     --web.static-dir="$ROOT/web/ui-custom" \
     $AM_ARGS \
     > "$LOG_ROOT/metric-center.log" 2>&1 &
 echo $! > "$PID_DIR/metric-center.pid"
 
 echo "MetricCenter started."
-echo "  Custom UI:     http://<服务器IP>:8080"
-echo "  Prometheus UI: http://<服务器IP>:9090"
+echo "  Custom UI:     http://<服务器IP>:${MC_PORT}"
+echo "  Prometheus UI: http://<服务器IP>:${PROM_PORT}"
 EOF
 
     if [ "$AM_ENABLED" -eq 1 ]; then
         cat >> "$start_sh" <<'EOF'
-echo "  Alertmanager:  http://<服务器IP>:9093"
+echo "  Alertmanager:  http://<服务器IP>:${AM_PORT}"
 EOF
     fi
 
     if [ "$BB_ENABLED" -eq 1 ]; then
         cat >> "$start_sh" <<'EOF'
-echo "  Blackbox:      http://<服务器IP>:9115"
+echo "  Blackbox:      http://<服务器IP>:${BB_PORT}"
 EOF
     fi
 
     cat >> "$start_sh" <<'EOF'
-echo "  MetricCenter:  http://<服务器IP>:8080"
+echo "  MetricCenter:  http://<服务器IP>:${MC_PORT}"
 echo "  Data:          $DATA_ROOT"
 echo "  Logs:          $LOG_ROOT"
 echo
@@ -514,6 +530,12 @@ export DATA_ROOT=${DATA_ROOT:-/opt/data/metric-center}     # 数据根（TSDB / 
 export LOG_ROOT=${LOG_ROOT:-/opt/log/metric-center}        # 日志根
 export PROM_RETENTION_TIME=${PROM_RETENTION_TIME:-15d}     # TSDB 时间保留（--storage.tsdb.retention.time）
 export PROM_RETENTION_SIZE=${PROM_RETENTION_SIZE:-10GB}    # TSDB 容量兜底（--storage.tsdb.retention.size）
+# 组件端口（端口冲突时改这里，start.sh 全部引用）
+export PROM_PORT=${PROM_PORT:-9090}                        # Prometheus
+export AM_PORT=${AM_PORT:-9093}                            # Alertmanager
+export BB_PORT=${BB_PORT:-9115}                            # blackbox_exporter
+export MC_PORT=${MC_PORT:-8080}                            # metric-center（UI + API 同源）
+export AM_CLUSTER_PORT=${AM_CLUSTER_PORT:-9094}            # Alertmanager gossip 集群端口（单机也必须独占）
 # SQLite 数据库 DSN（控制面持久化；默认落数据根）
 export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-$DATA_ROOT/metric_center.db}
 EOF
@@ -534,7 +556,7 @@ APP_DIR=${APP_DIR:-/opt/apps/metric-center}
 DATA_DIR=${DATA_DIR:-/opt/data/metric-center}
 LOG_DIR=${LOG_DIR:-/opt/log/metric-center}
 APP_USER=${APP_USER:-app-metric-center}
-APP_GROUP=${APP_GROUP:-app-metric-center}
+APP_GROUP=${APP_GROUP:-app-group}
 YUNWEI_GROUP=${YUNWEI_GROUP:-yunwei-group}
 
 echo ">>> 目标目录:"
@@ -566,21 +588,29 @@ else
 fi
 
 # 4) 从 conf/*.example 种子活配置到数据区 config-output（缺失才生成）
+# 与 start.sh 同因：seed 必须用 if 结构，目标已存在时不能返回非零（install.sh 头部 set -e），
+# 否则二次安装会静默中断。
 seed() {
-    [ -f "$APP_DIR/conf/$2" ] && [ ! -f "$DATA_DIR/config-output/$1" ] && cp "$APP_DIR/conf/$2" "$DATA_DIR/config-output/$1"
+    if [ -f "$APP_DIR/conf/$2" ] && [ ! -f "$DATA_DIR/config-output/$1" ]; then
+        cp "$APP_DIR/conf/$2" "$DATA_DIR/config-output/$1"
+    fi
 }
 seed prometheus.yml  prometheus.yml.example
 seed alertmanager.yml alertmanager.yml.example
 seed blackbox.yml    blackbox.yml.example
 
-# 5) 权限：程序目录 root:APP_GROUP(2750，只读)；数据/日志 app-metric-center:YUNWEI_GROUP(2750)
+# 5) 权限：程序目录 root:APP_GROUP（目录 2750 只读 + SGID 继承属组）；数据/日志 APP_USER:YUNWEI_GROUP
+#    注意按「目录/文件」分开设权限——chmod -R 2750 会把普通文件也加上执行位。
 if id -u "$APP_USER" >/dev/null 2>&1; then
     chown -R "root:$APP_GROUP" "$APP_DIR" 2>/dev/null || echo ">>> WARNING: chown $APP_DIR 失败，请人工核对属主"
-    chmod -R 2750 "$APP_DIR" 2>/dev/null || true
+    find "$APP_DIR" -type d -exec chmod 2750 {} + 2>/dev/null || true
+    find "$APP_DIR" -type f -exec chmod 0640 {} + 2>/dev/null || true
+    chmod 0750 "$APP_DIR"/bin/* "$APP_DIR"/script/*.sh 2>/dev/null || true
     chown -R "$APP_USER:$YUNWEI_GROUP" "$DATA_DIR" "$LOG_DIR" 2>/dev/null || {
         echo ">>> WARNING: chown $DATA_DIR/$LOG_DIR 失败，请人工核对属主/所属组"
     }
-    chmod -R 2750 "$DATA_DIR" "$LOG_DIR" 2>/dev/null || true
+    find "$DATA_DIR" "$LOG_DIR" -type d -exec chmod 2750 {} + 2>/dev/null || true
+    find "$DATA_DIR" "$LOG_DIR" -type f -exec chmod 0640 {} + 2>/dev/null || true
 else
     echo ">>> WARNING: 未找到账户 $APP_USER，跳过属主设置。请先创建账户/组后再执行。"
 fi
@@ -665,7 +695,7 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 ```
 
 - `scripts/install.sh` 幂等入驻目录树、复制 bin/config/web、由 `env/env.sh.example` 生成 `env/env.sh`（已存在不覆盖）、把种子配置 seed 到数据区 `config-output/`，并按账户设置属主。
-- `env/env.sh` 集中定义：`DATA_ROOT`(`/opt/data/metric-center`)、`LOG_ROOT`(`/opt/log/metric-center`)、`PROM_RETENTION_TIME`(`15d`)、`PROM_RETENTION_SIZE`(`10GB`)、`METRIC_CENTER_DB_DSN`。运维改盘与保留策略只改这一个文件。
+- `env/env.sh` 集中定义：`DATA_ROOT`(`/opt/data/metric-center`)、`LOG_ROOT`(`/opt/log/metric-center`)、`PROM_RETENTION_TIME`(`15d`)、`PROM_RETENTION_SIZE`(`10GB`)、`PROM_PORT`/`AM_PORT`/`BB_PORT`/`MC_PORT`、`METRIC_CENTER_DB_DSN`。运维改盘、保留策略与端口只改这一个文件。
 - 数据/日志根由 `env.sh` 决定；M09/M08 下发的活配置落 `$DATA_ROOT/config-output/`（程序账户可写），不进只读的程序 `conf/`。
 - 日志轮转示例：`scripts/logrotate.conf.example`（daily / rotate 14 / compress）。是否写入 `/etc/logrotate.d/` 由运维决定（/etc 属系统保留区，默认不碰）。
 
