@@ -9,16 +9,21 @@
 #   │   ├── promtool               # 常驻：M09 草稿校验依赖（exec.LookPath("promtool")）
 #   │   └── amtool                 # WITH_ALERTMANAGER 时随包：M08 AM 配置校验依赖
 #   ├── web/
-#   │   └── ui/                    # Custom UI 静态资源 + Prometheus Web UI 静态资源
+#   │   └── ui-custom/             # Custom UI 静态资源 + Prometheus Web UI 静态资源
 #   ├── config/
 #   │   ├── metric-center.yml      # 控制面示例配置
 #   │   ├── prometheus.yml.example # Prometheus 初始配置模板
-#   │   ├── alertmanager.yml(.example)  # WITH_ALERTMANAGER 时写入，M08 AM 配置落点
+#   │   ├── alertmanager.yml(.example)  # WITH_ALERTMANAGER 时写入，M08 AM 种子配置
 #   │   └── blackbox.yml(.example) # WITH_BLACKBOX 时写入，M01/M09 探测模块种子配置
+#   ├── env/
+#   │   └── env.sh.example         # 生产集中环境配置模板（install.sh → env/env.sh）
 #   ├── scripts/
-#   │   ├── start.sh               # 一键启动 metric-center + prometheus（+alertmanager +blackbox）
-#   │   └── stop.sh                # 优雅停止（遍历 logs/*.pid，自动覆盖全部随包组件）
-#   └── README.md                  # 部署说明（含 M08/M09 段落，按 WITH_* 注入）
+#   │   ├── start.sh               # 双模式启动：有 env/env.sh 走 /opt 生产路径，否则解压即用；
+#   │   │                          #   组件 --config.file/--storage 指向 $DATA_ROOT/config-output
+#   │   ├── stop.sh                # 优雅停止（遍历 $DATA_ROOT/run 或 $ROOT/logs 下的 *.pid）
+#   │   ├── install.sh             # 生产安装（root/sudo）：入驻 /opt 三目录 + 建账 + seed 活配置
+#   │   └── logrotate.conf.example # 日志轮转示例（daily/rotate 14/compress）
+#   └── README.md                  # 部署说明（快速启动 + 生产安装，含 M08/M09 段落，按 WITH_* 注入）
 #
 # 用法：
 #   bash scripts/package-center.sh                    # 本机平台产物
@@ -233,7 +238,7 @@ build_optional() {
 collect_bundle() {
     echo ">>> Assembling bundle: $BUNDLE_DIR"
     rm -rf "$BUNDLE_DIR"
-    mkdir -p "$BUNDLE_DIR"/{bin,config/prometheus,scripts,web/ui}
+    mkdir -p "$BUNDLE_DIR"/{bin,config,env,scripts,web/ui}
 
     cp "$PROJECT_ROOT/platform/cmd/metric-center/metric-center" "$BUNDLE_DIR/bin/"
     cp "$PROJECT_ROOT/upstream/prometheus/prometheus" "$BUNDLE_DIR/bin/"
@@ -327,12 +332,14 @@ EOF
     cp "$PROJECT_ROOT/deploy/prometheus/prometheus.yml" "$BUNDLE_DIR/config/prometheus.yml.example"
     cat > "$BUNDLE_DIR/config/metric-center.yml" <<EOF
 # MetricCenter 控制面示例配置（MVP）
+# 实际运行以 start.sh 传参为准：db 走 METRIC_CENTER_DB_DSN 环境变量（见 env/env.sh.example），
+# --config.dir / --config.am-dir 指向 \$DATA_ROOT/config-output 下的活配置。
 listen: :8080
 db: data/metric_center.db
 prometheus:
   query_url: http://127.0.0.1:9090
   reload_url: http://127.0.0.1:9090/-/reload
-  config_dir: ./config/prometheus
+  config_dir: ./config-output
 EOF
 
     # 启动脚本
@@ -342,48 +349,83 @@ EOF
     local start_sh="$BUNDLE_DIR/scripts/start.sh"
     cat > "$start_sh" <<'EOF'
 #!/usr/bin/env bash
+# start.sh — 一键启动 metric-center + prometheus（+alertmanager +blackbox）
+# 双模式（对齐 docs/06-mvp-e2e-testing/package-center-guide.md §2.4 / 决策 64）：
+#   - 存在 $ROOT/env/env.sh → 生产模式：路径/保留策略/端口取自 env.sh（/opt 三目录）
+#   - 无 env.sh               → 解压即用模式：数据/日志落同目录下 data/、logs/
 set -e
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(dirname "$SCRIPT_DIR")
 cd "$ROOT"
 export PATH="$ROOT/bin:$PATH"
-mkdir -p data logs config/prometheus
-[ -f config/prometheus/prometheus.yml ] || cp config/prometheus.yml.example config/prometheus/prometheus.yml
 
-# M08 告警分发：中心 Alertmanager 配置下发目录 + reload 地址
+# 生产模式：加载集中环境定义（env/env.sh）；未安装则回落包内 data/ logs/
+PROD=0
+if [ -f "$ROOT/env/env.sh" ]; then
+    PROD=1
+    . "$ROOT/env/env.sh"
+fi
+DATA_ROOT=${DATA_ROOT:-"$ROOT/data"}
+LOG_ROOT=${LOG_ROOT:-"$ROOT/logs"}
+# pid 落点：生产模式 → $DATA_ROOT/run；解压即用模式 → $ROOT/logs
+if [ "$PROD" -eq 1 ]; then PID_DIR="$DATA_ROOT/run"; else PID_DIR="$ROOT/logs"; fi
+mkdir -p "$DATA_ROOT/config-output" "$DATA_ROOT/run" "$LOG_ROOT"
+
+# 保留策略默认值（env.sh 未定义时使用）
+PROM_RETENTION_TIME=${PROM_RETENTION_TIME:-15d}
+PROM_RETENTION_SIZE=${PROM_RETENTION_SIZE:-10GB}
+# SQLite DSN：未指定时落数据根（生产 /opt/data/metric-center，解压即用 data/）
+export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-"$DATA_ROOT/metric_center.db"}
+
+# 从 conf/ 种子活配置（DATA_ROOT/config-output 缺失时）——两种模式均生效
+seed() {
+    [ -f "$2" ] && [ ! -f "$1" ] && cp "$2" "$1"
+}
+seed "$DATA_ROOT/config-output/prometheus.yml" "$ROOT/config/prometheus.yml.example"
+if [ -f "$ROOT/config/alertmanager.yml.example" ]; then
+    seed "$DATA_ROOT/config-output/alertmanager.yml" "$ROOT/config/alertmanager.yml.example"
+fi
+if [ -f "$ROOT/config/blackbox.yml.example" ]; then
+    seed "$DATA_ROOT/config-output/blackbox.yml" "$ROOT/config/blackbox.yml.example"
+fi
+
+# M08 告警分发：中心 Alertmanager 配置下发目录（$DATA_ROOT/config-output）+ reload 地址
 # 由 scripts/package-center.sh 依据 WITH_ALERTMANAGER 注入；未打包 Alertmanager 时为空。
 EOF
 
     if [ "$AM_ENABLED" -eq 1 ]; then
-        # AM 配置下发落盘目录必须与 alertmanager --config.file 所在目录一致（均为 $ROOT/config），
-        # 否则 M08 下发的 alertmanager.yml 写不到 AM 正在读取的文件上，reload 后不生效。
-        printf 'AM_ARGS="--config.am-dir=$ROOT/config --config.am-reload-url=http://127.0.0.1:9093/-/reload"\n\n' >> "$start_sh"
+        # AM 配置下发落盘目录必须与 alertmanager --config.file 所在目录一致
+        #（均为 $DATA_ROOT/config-output），否则 M08 下发的 alertmanager.yml 写不到
+        # AM 正在读取的文件上，reload 后不生效。
+        printf 'AM_ARGS="--config.am-dir=$DATA_ROOT/config-output --config.am-reload-url=http://127.0.0.1:9093/-/reload"\n\n' >> "$start_sh"
     else
         printf 'AM_ARGS=""\n\n' >> "$start_sh"
     fi
 
     cat >> "$start_sh" <<'EOF'
 echo ">>> Starting prometheus on :9090"
-nohup ./bin/prometheus \
-    --config.file="$ROOT/config/prometheus/prometheus.yml" \
-    --storage.tsdb.path="$ROOT/data" \
+nohup "$ROOT/bin/prometheus" \
+    --config.file="$DATA_ROOT/config-output/prometheus.yml" \
+    --storage.tsdb.path="$DATA_ROOT/prometheus" \
+    --storage.tsdb.retention.time="$PROM_RETENTION_TIME" \
+    --storage.tsdb.retention.size="$PROM_RETENTION_SIZE" \
     --web.enable-lifecycle \
     --web.listen-address=:9090 \
-    > logs/prometheus.log 2>&1 &
-echo $! > logs/prometheus.pid
+    > "$LOG_ROOT/prometheus.log" 2>&1 &
+echo $! > "$PID_DIR/prometheus.pid"
 EOF
 
     if [ "$AM_ENABLED" -eq 1 ]; then
         cat >> "$start_sh" <<'EOF'
 
 echo ">>> Starting alertmanager on :9093"
-mkdir -p data/alertmanager
-[ -f config/alertmanager.yml ] || cp config/alertmanager.yml.example config/alertmanager.yml
-nohup ./bin/alertmanager \
-    --config.file="$ROOT/config/alertmanager.yml" \
-    --storage.path="$ROOT/data/alertmanager" \
+mkdir -p "$DATA_ROOT/alertmanager"
+nohup "$ROOT/bin/alertmanager" \
+    --config.file="$DATA_ROOT/config-output/alertmanager.yml" \
+    --storage.path="$DATA_ROOT/alertmanager" \
     --web.listen-address=:9093 \
-    > logs/alertmanager.log 2>&1 &
-echo $! > logs/alertmanager.pid
+    > "$LOG_ROOT/alertmanager.log" 2>&1 &
+echo $! > "$PID_DIR/alertmanager.pid"
 EOF
     fi
 
@@ -391,26 +433,25 @@ EOF
         cat >> "$start_sh" <<'EOF'
 
 echo ">>> Starting blackbox_exporter on :9115"
-[ -f config/prometheus/blackbox.yml ] || cp config/blackbox.yml.example config/prometheus/blackbox.yml
-nohup ./bin/blackbox_exporter \
-    --config.file="$ROOT/config/prometheus/blackbox.yml" \
+nohup "$ROOT/bin/blackbox_exporter" \
+    --config.file="$DATA_ROOT/config-output/blackbox.yml" \
     --config.enable-auto-reload \
     --web.listen-address=:9115 \
-    > logs/blackbox_exporter.log 2>&1 &
-echo $! > logs/blackbox_exporter.pid
+    > "$LOG_ROOT/blackbox_exporter.log" 2>&1 &
+echo $! > "$PID_DIR/blackbox_exporter.pid"
 EOF
     fi
 
     cat >> "$start_sh" <<'EOF'
 
 echo ">>> Starting metric-center on :8080 (UI + API 同源)"
-nohup ./bin/metric-center \
-    --config.dir="$ROOT/config/prometheus" \
+nohup "$ROOT/bin/metric-center" \
+    --config.dir="$DATA_ROOT/config-output" \
     --config.reload-url=http://127.0.0.1:9090/-/reload \
     --web.static-dir="$ROOT/web/ui-custom" \
     $AM_ARGS \
-    > logs/metric-center.log 2>&1 &
-echo $! > logs/metric-center.pid
+    > "$LOG_ROOT/metric-center.log" 2>&1 &
+echo $! > "$PID_DIR/metric-center.pid"
 
 echo "MetricCenter started."
 echo "  Custom UI:     http://<服务器IP>:8080"
@@ -431,22 +472,32 @@ EOF
 
     cat >> "$start_sh" <<'EOF'
 echo "  MetricCenter:  http://<服务器IP>:8080"
-echo "  Logs:          $ROOT/logs/"
+echo "  Data:          $DATA_ROOT"
+echo "  Logs:          $LOG_ROOT"
 echo
 echo "把 <服务器IP> 换成部署机实际可达的 IP 或域名；本机访问可用 127.0.0.1。"
+echo "生产部署请先执行 scripts/install.sh（参考 README「生产安装」节）。"
 EOF
     chmod +x "$start_sh"
 
     cat > "$BUNDLE_DIR/scripts/stop.sh" <<'EOF'
 #!/usr/bin/env bash
-ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# stop.sh — 优雅停止全部随包组件
+# 与 start.sh 环境检测一致：存在 env/env.sh → 生产模式，pid 在 $DATA_ROOT/run；
+# 否则解压即用模式，pid 在 $ROOT/logs。
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT=$(dirname "$SCRIPT_DIR")
 cd "$ROOT"
-# 通用停止：遍历 logs/ 下全部 pid 文件。启用 Alertmanager（M08）/ blackbox_exporter（M09）时
-# start.sh 会写出 logs/alertmanager.pid / logs/blackbox_exporter.pid，因此无需单独列举。
-for pidfile in logs/*.pid; do
+if [ -f "$ROOT/env/env.sh" ]; then
+    . "$ROOT/env/env.sh"
+    PID_DIR="${DATA_ROOT:-$ROOT/data}/run"
+else
+    PID_DIR="$ROOT/logs"
+fi
+for pidfile in "$PID_DIR"/*.pid; do
     [ -f "$pidfile" ] || continue
     pid=$(cat "$pidfile")
-    echo ">>> Stopping $pidfile (PID $pid)"
+    echo ">>> Stopping $(basename "$pidfile") (PID $pid)"
     kill "$pid" 2>/dev/null || true
     rm -f "$pidfile"
 done
@@ -454,42 +505,179 @@ echo "MetricCenter stopped."
 EOF
     chmod +x "$BUNDLE_DIR/scripts/stop.sh"
 
+    # 生产环境集中配置模板（env/env.sh.example → install.sh 复制为 env/env.sh）
+    cat > "$BUNDLE_DIR/env/env.sh.example" <<'EOF'
+# MetricCenter 生产环境集中配置
+# 安装时由 scripts/install.sh 复制到 /opt/apps/metric-center/env/env.sh（已存在则不覆盖）。
+# 运维只需调整本文件即可改盘与保留策略；start.sh 启动时加载，不污染全局环境。
+export DATA_ROOT=${DATA_ROOT:-/opt/data/metric-center}     # 数据根（TSDB / SQLite / config-output / run）
+export LOG_ROOT=${LOG_ROOT:-/opt/log/metric-center}        # 日志根
+export PROM_RETENTION_TIME=${PROM_RETENTION_TIME:-15d}     # TSDB 时间保留（--storage.tsdb.retention.time）
+export PROM_RETENTION_SIZE=${PROM_RETENTION_SIZE:-10GB}    # TSDB 容量兜底（--storage.tsdb.retention.size）
+# SQLite 数据库 DSN（控制面持久化；默认落数据根）
+export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-$DATA_ROOT/metric_center.db}
+EOF
+
+    # 生产安装脚本（必须以 root/sudo 运行；入驻 /opt 三目录，对齐决策 64 与包中心指南 §2.4）
+    cat > "$BUNDLE_DIR/scripts/install.sh" <<'EOF'
+#!/usr/bin/env bash
+# install.sh — MetricCenter 生产环境安装（root/sudo 提权执行）
+# 将解压包入驻 /opt 三目录基线；活配置种子化到数据区 config-output，程序目录保持只读。
+# 用法：sudo bash scripts/install.sh
+set -e
+
+[ "$(id -u)" -eq 0 ] || { echo ">>> ERROR: install.sh 必须以 root/sudo 权限运行"; exit 1; }
+
+BUNDLE_DIR=$(cd "$(dirname "$0")/.." && pwd)
+
+APP_DIR=${APP_DIR:-/opt/apps/metric-center}
+DATA_DIR=${DATA_DIR:-/opt/data/metric-center}
+LOG_DIR=${LOG_DIR:-/opt/log/metric-center}
+APP_USER=${APP_USER:-app-metric-center}
+APP_GROUP=${APP_GROUP:-app-metric-center}
+YUNWEI_GROUP=${YUNWEI_GROUP:-yunwei-group}
+
+echo ">>> 目标目录:"
+echo "  APP: $APP_DIR"
+echo "  DATA: $DATA_DIR"
+echo "  LOG:  $LOG_DIR"
+
+# 1) 幂等创建目录结构
+mkdir -p "$APP_DIR"/{bin,conf,env,script,web}
+mkdir -p "$DATA_DIR"/{prometheus,alertmanager,config-output,run}
+mkdir -p "$LOG_DIR"
+
+# 2) 复制文件（config→conf、scripts→script：对齐生产 script/ 规范名）
+cp -f  "$BUNDLE_DIR"/bin/*        "$APP_DIR"/bin/
+rm -rf "$APP_DIR"/conf/*
+cp -rf "$BUNDLE_DIR"/config/*    "$APP_DIR"/conf/
+rm -rf "$APP_DIR"/script/*
+cp -f  "$BUNDLE_DIR"/scripts/*.sh "$APP_DIR"/script/
+cp -f  "$BUNDLE_DIR"/scripts/logrotate.conf.example "$APP_DIR"/script/ 2>/dev/null || true
+rm -rf "$APP_DIR"/web/ui-custom
+cp -rf "$BUNDLE_DIR"/web/ui-custom "$APP_DIR"/web/
+
+# 3) env/env.sh.example → env/env.sh（目标存在则跳过，不覆盖运维已调整配置）
+if [ ! -f "$APP_DIR/env/env.sh" ]; then
+    cp "$BUNDLE_DIR/env/env.sh.example" "$APP_DIR/env/env.sh"
+    echo ">>> 已生成 $APP_DIR/env/env.sh（请按需调整 DATA_ROOT / 保留策略）"
+else
+    echo ">>> 跳过（已存在）: $APP_DIR/env/env.sh"
+fi
+
+# 4) 从 conf/*.example 种子活配置到数据区 config-output（缺失才生成）
+seed() {
+    [ -f "$APP_DIR/conf/$2" ] && [ ! -f "$DATA_DIR/config-output/$1" ] && cp "$APP_DIR/conf/$2" "$DATA_DIR/config-output/$1"
+}
+seed prometheus.yml  prometheus.yml.example
+seed alertmanager.yml alertmanager.yml.example
+seed blackbox.yml    blackbox.yml.example
+
+# 5) 权限：程序目录 root:APP_GROUP(2750，只读)；数据/日志 app-metric-center:YUNWEI_GROUP(2750)
+if id -u "$APP_USER" >/dev/null 2>&1; then
+    chown -R "root:$APP_GROUP" "$APP_DIR" 2>/dev/null || echo ">>> WARNING: chown $APP_DIR 失败，请人工核对属主"
+    chmod -R 2750 "$APP_DIR" 2>/dev/null || true
+    chown -R "$APP_USER:$YUNWEI_GROUP" "$DATA_DIR" "$LOG_DIR" 2>/dev/null || {
+        echo ">>> WARNING: chown $DATA_DIR/$LOG_DIR 失败，请人工核对属主/所属组"
+    }
+    chmod -R 2750 "$DATA_DIR" "$LOG_DIR" 2>/dev/null || true
+else
+    echo ">>> WARNING: 未找到账户 $APP_USER，跳过属主设置。请先创建账户/组后再执行。"
+fi
+
+# 6) SOP 部署验证提示
+cat <<NOTE
+
+=== 安装完成，部署验证 SOP ===
+1) 以程序账户拉起（确保以 $APP_USER 运行）：
+     sudo -u $APP_USER $APP_DIR/script/start.sh
+   进程/账户核对：
+     ps -ef | grep -E 'metric-center|prometheus|alertmanager|blackbox'
+2) 健康检查：
+     curl -s http://127.0.0.1:8080/api/v1/health
+3) 查看日志（含 SQLite DSN 落点在 \$DATA_ROOT/metric_center.db）：
+     tail -f $LOG_DIR/*.log
+4) 停止：
+     $APP_DIR/script/stop.sh
+5) 日志轮转（可选：/etc 属系统保留区，是否应用由运维决定）：
+     cp $APP_DIR/script/logrotate.conf.example /etc/logrotate.d/metric-center
+6) 扩容：把 $DATA_DIR 作为独立挂载点，加盘 = 挂载 + rsync + 重启；程序与日志目录不动。
+NOTE
+EOF
+    chmod +x "$BUNDLE_DIR/scripts/install.sh"
+
+    # 日志轮转示例（daily / rotate 14 / compress / copytruncate）
+    cat > "$BUNDLE_DIR/scripts/logrotate.conf.example" <<'EOF'
+/opt/log/metric-center/*.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+EOF
+
     # README 同样分段：Alertmanager 访问条目与 M08 说明段按 AM_ENABLED 条件注入。
     # 含 ${TARGET_OS} / ${BUNDLE_NAME} 的段落用 unquoted heredoc（构建期展开，反引号需转义）；
     # 纯文本段落用 quoted heredoc，反引号可直接书写。
     local readme="$BUNDLE_DIR/README.md"
-    cat > "$readme" <<EOF
+    # README 用引号 heredoc（反引号与 $DATA_ROOT 等无需转义），动态值（bundle 名/目标平台）
+    # 通过末尾 __BUNDLE_NAME__ / __TARGET__ 占位符 + sed 注入，避免与反引号/转义互相干扰。
+    cat > "$readme" <<'R1'
 # MetricCenter MVP 交付包
 
 ## 目录说明
 
 - bin/           可执行二进制（含 promtool / amtool：控制面 M08/M09 草稿校验依赖，由 start.sh 注入的 PATH 自动命中）
-- config/        配置文件模板
-- scripts/       启动/停止脚本
+- config/        种子配置模板（prometheus.yml.example / alertmanager.yml.example / blackbox.yml.example / metric-center.yml）
+- env/           生产环境集中配置（env.sh.example → 安装后 env/env.sh，集中定义 DATA_ROOT / 保留策略 / 端口）
+- scripts/       启动/停止/安装脚本（start.sh / stop.sh / install.sh / logrotate.conf.example）
 - web/           前端静态资源与 Prometheus Web UI 静态资源
-- data/          运行时生成：SQLite 数据库、Prometheus TSDB 数据
-- logs/          运行时生成：进程日志与 pid 文件
+- data/          [解压即用模式运行时生成] SQLite 数据库、Prometheus TSDB 数据
+- logs/          [解压即用模式运行时生成] 进程日志与 pid 文件
 
-## 快速启动
+## 快速启动（解压即用）
 
-\`\`\`bash
-cd "$BUNDLE_NAME"
+> 未安装（无 `env/env.sh`）时自动回落「解压即用」模式：数据/日志落在本目录 `data/`、`logs/`，无需 root。
+
+```bash
+cd "__BUNDLE_NAME__"
 ./scripts/start.sh
-\`\`\`
+```
 
 ## 停止
 
-\`\`\`bash
+```bash
 ./scripts/stop.sh
-\`\`\`
+```
+
+## 生产安装（/opt 三目录，对齐决策 64）
+
+> 生产环境对齐《业务软件标准化目录与权限配置操作手册》三目录基线，需 **root/sudo** 执行：程序目录 `/opt/apps/metric-center`(root:app-group，`2750` 只读)、数据目录 `/opt/data/metric-center`(数据账户可写，含 `config-output/` 活配置)、日志目录 `/opt/log/metric-center`。
+
+```bash
+# 解压包内执行（sudo 提权）
+sudo bash scripts/install.sh
+
+# 安装完成后，以程序账户拉起（env/env.sh 已生成并加载）
+sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
+```
+
+- `scripts/install.sh` 幂等入驻目录树、复制 bin/config/web、由 `env/env.sh.example` 生成 `env/env.sh`（已存在不覆盖）、把种子配置 seed 到数据区 `config-output/`，并按账户设置属主。
+- `env/env.sh` 集中定义：`DATA_ROOT`(`/opt/data/metric-center`)、`LOG_ROOT`(`/opt/log/metric-center`)、`PROM_RETENTION_TIME`(`15d`)、`PROM_RETENTION_SIZE`(`10GB`)、`METRIC_CENTER_DB_DSN`。运维改盘与保留策略只改这一个文件。
+- 数据/日志根由 `env.sh` 决定；M09/M08 下发的活配置落 `$DATA_ROOT/config-output/`（程序账户可写），不进只读的程序 `conf/`。
+- 日志轮转示例：`scripts/logrotate.conf.example`（daily / rotate 14 / compress）。是否写入 `/etc/logrotate.d/` 由运维决定（/etc 属系统保留区，默认不碰）。
 
 ## 访问
 
-把 \`<服务器IP>\` 换成部署机实际可达的 IP 或域名（本机访问可用 \`127.0.0.1\`）。
+把 `<服务器IP>` 换成部署机实际可达的 IP 或域名（本机访问可用 `127.0.0.1`）。
 
 - **Custom UI（同源）**: http://<服务器IP>:8080
 - **Prometheus UI**: http://<服务器IP>:9090
-EOF
+R1
+    # 注入动态值：bundle 目录名（sed 兼容 BSD/GNU，.bak 兜底后删除）
+    sed -i'.bak' "s|__BUNDLE_NAME__|$BUNDLE_NAME|g" "$readme" && rm -f "$readme.bak"
 
     if [ "$AM_ENABLED" -eq 1 ]; then
         cat >> "$readme" <<'EOF'
@@ -516,8 +704,8 @@ EOF
 ## M08 告警分发
 
 - Alertmanager 随包提供，由 `scripts/start.sh` 在 **:9093** 一并拉起，无需手动启动。
-- 配置落点为 `config/alertmanager.yml`（默认模板见同目录 `alertmanager.yml.example`）。
-- 控制面以 `--config.am-dir=config` + `--config.am-reload-url=http://127.0.0.1:9093/-/reload` 启动，
+- 活配置落点为 `$DATA_ROOT/config-output/alertmanager.yml`（种子模板见 `config/alertmanager.yml.example`）。
+- 控制面以 `--config.am-dir=$DATA_ROOT/config-output` + `--config.am-reload-url=http://127.0.0.1:9093/-/reload` 启动，
   因此 M08 下发的 alertmanager.yml 会直接写入上述文件并触发 AM reload，形成闭环。
 EOF
     fi
@@ -528,8 +716,8 @@ EOF
 ## M01/M09 拨测（Blackbox exporter）
 
 - blackbox_exporter 随包提供，由 `scripts/start.sh` 在 **:9115** 一并拉起，无需手动启动。
-- 配置落点为 `config/prometheus/blackbox.yml`（默认模板见 `config/blackbox.yml.example`）。
-- 控制面以 `--config.dir=$ROOT/config/prometheus` 启动，因此 M09 下发的 blackbox.yml 与
+- 活配置落点为 `$DATA_ROOT/config-output/blackbox.yml`（种子模板见 `config/blackbox.yml.example`）。
+- 控制面以 `--config.dir=$DATA_ROOT/config-output` 启动，因此 M09 下发的 blackbox.yml 与
   Prometheus 的 prometheus.yml、targets/*.json 落在同一目录；blackbox_exporter 通过
   `--config.enable-auto-reload` 自动感知配置变更，形成闭环。
 EOF

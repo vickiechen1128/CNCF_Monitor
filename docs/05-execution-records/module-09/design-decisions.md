@@ -504,6 +504,8 @@
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.57 | 2026-09-05 | 修改 | §1「MVP 阶段」补注记：M06 行政禁用网域不联动 M09 纳管状态（`IsMonitored` 独立维护；决策 62，2026-09-05 拍板——MVP 保持现状，「禁用联动取消纳管 / 冻结 Token」纳入 v0.2 多网域版本实现并届时评审）；不改 MVP 技术契约（自 PRD Change Log 轮转迁入） | 1 | v0.2 | ready |
+| v1.56 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | ready |
 | v1.55 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（配置生成→变更管控→边缘接入→一致性保障→废弃回滚）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「配置变更自动检测」「变更单废弃后状态回写」「配置校验失败归因」真实场景（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | ready |
 | v1.54 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（网域纳管/变更确认/Agent 监控）与涉及用户故事编码索引；不改变技术契约 | 0 | 文档自身 | ready |
 | v1.53 | 2026-09-02 | 修改 | v0.2 规划决策落版（2026-09-02 v0.2 版本范围最终口径）：①§3.3 端口解析链新增实例级 `Resource.scrape_port` 优先级——`Resource.scrape_port`（实例级覆盖，M07 资源可选字段）→ 网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port`；实例级端口在配置生成期解析、无需用户在 Job 层操作，「Job 级端口映射表」明确不做（与 filter / service_discovery 动态纳入模式冲突）；②§5.1 新增 K8s 划域备忘——overlay CNI（Calico/Flannel）下集群独立建网域（zone_type 增加 k8s）、集群内以 Deployment/DaemonSet 部署 vmagent（Agent Mode）复用 `agent_pull` 机制（配置包/Token/心跳/Remote Write 零改动），VPC 原生 CNI 可并入所在 VM 网域；③Job 网域扇出（决策 54）/ filter 实时求值（决策 53）维持 v0.2 不变 | 3.3 / 5.1 | v0.2 | ready |
@@ -1421,4 +1423,35 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
 - **候选口径**：① 禁用即取消纳管并冻结 Token；② 禁用仅行政停用、纳管与 Token 保留（MVP 当前行为）。
 - **结论（决策 62，2026-09-05，chenrt 拍板）**：**MVP 采用口径②（保持现状）**；口径①（禁用联动取消纳管 / 冻结 Token）纳入 **v0.2 多网域版本**实现，届时随多域场景一并评审（含禁用后 `agent_pull` 通道 Edge Agent 的行为、Token 冻结与恢复流程）。
 - **落点**：Module_09 PRD §1「MVP 阶段」注记（v1.57）；module-09 dev-feedback §5 决策注记。
+
+---
+
+## 补充对齐：2026-09-08（回滚语义边界与分裂态治理，决策 63）
+
+- **背景（MVP 试用反馈，chenrt 提出）**：用户在下发记录页点击「回滚」后发现，回滚只恢复了配置文件内容，而 M01/M08 中的源数据状态（Job 停用、规则停用、`alertmanager.yml` 挂载）不随回滚改变——产生「生效配置 ≠ 源数据期望」的隐性分裂态：M01 显示「已停用」但 Prometheus 实际在采；更危险的是回滚后下一轮变更检测会自动产出「再次停用该 Job」的对齐型变更单，用户习惯性确认即静默抵消回滚。用户质疑 M09 回滚功能的存在必要性。
+- **候选方案**：
+  - ① 回滚联动恢复源数据状态（M09 越权改 M01/M08 的 enabled 字段）——被否决：启停是人为显式操作，配置层不得越权改回；操作入口与审计应在源模块；
+  - ② 砍掉 M09 回滚，全部走 M01/M08 逐项恢复——被否决：配置出错不一定来自源数据操作（生成器 bug、手工挂载写错、采集风暴），源模块没有对应撤销入口，且应急止损要求一键回到可运行版本；
+  - ③（采纳）**回滚语义收窄为配置产物级应急恢复 + 分裂态显式化治理**。
+- **结论（决策 63，2026-09-08，chenrt 拍板）**：M09 回滚保留，定位为「配置产物应急恢复」（回滚「跑什么」，不回滚「要什么」）；分裂态三步治理：
+  1. **回滚前差异知情（MVP，P0）**：回滚确认弹窗展示「目标版本 vs 当前生效版本」之间的源数据操作差异清单（经两版本 `change_no` → 变更单 `change_items` 推导），固定提示「回滚不恢复 M01/M08 中的启停状态」；
+  2. **分裂态显式化（v0.2）**：`out_of_sync_cause` 新增 `rollback_diverged`（标签「已回滚·待源数据对齐」），引导前往 M01/M08 核对源数据，对齐后产生新变更单收敛；
+  3. **防「自动反悔」（v0.2）**：回滚后变更检测产出的对齐型变更单不抑制（源数据是真相源），但必须带「回滚后源数据对齐」醒目标记与说明文案，避免静默抵消回滚。
+- **未来联动**：M01/M08 操作审计日志落地后（各模块操作留痕 + Module_06 全局审计），回滚记录与源数据操作记录经 `change_no` 链互相关联，支持「回滚时引用了哪些源数据操作」的完整追溯。
+- **落点**：Module_09 PRD v1.59（§3.5 版本回滚行与决策 63 注记、§8 状态机 ③ 增 `rollback_diverged`、§9.1/§9.2 验收）；本决策与 PRD 同步落版。
 - **影响范围**：M06 网域状态变更钩子（v0.2）、M09 纳管页状态展示与 Token 生命周期（v0.2）。
+
+---
+
+## 补充对齐：2026-09-08（中心一体化交付包生产目录规范，决策 64）
+
+- **背景（生产环境磁盘治理诉求，chenrt 提出）**：MVP 交付包运行后 TSDB / SQLite / 进程日志全部生成在包目录内（`data/`、`logs/`），日志无轮转无限增长、TSDB 仅按时间保留（默认 15d）无容量上限；生产环境《业务软件标准化目录与权限配置操作手册》（`docs/06-mvp-e2e-testing/业务软件标准化目录与权限配置操作手册.md`）要求程序（`/opt/apps`）、数据（`/opt/data`）、日志（`/opt/log`）三目录分离 + SGID 权限模型，且程序目录对程序账户**只读**。
+- **关键冲突与解法**：程序目录只读红线 vs M08/M09「控制面主动写配置」闭环（DiskApplier 写 prometheus.yml/targets、M08 下发 alertmanager.yml）。解法 = **配置分两层**：`/opt/apps/metric-center/conf/` 存种子/引导配置（只读）；M09/M08 下发的**活配置属平台管理的数据**，落 `/opt/data/metric-center/config-output/`（程序账户可写），Prometheus / Alertmanager / blackbox 的 `--config.file` 指向活配置。与仓库既有 `deploy/`（模板）vs `config-output/`（活配置）分层同构。
+- **结论（决策 64，2026-09-08，chenrt 拍板）**：
+  1. 生产三目录 `/opt/apps/metric-center/`、`/opt/data/metric-center/`、`/opt/log/metric-center/` **由运维统一预建**；交付包脚本只做核验与幂等兜底（`create_dirs` 核验逻辑并入 `install.sh`，不单独交付阶段一脚本）；
+  2. 交付包新增 `env/env.sh` 集中定义：`DATA_ROOT` / `LOG_ROOT` / `PROM_RETENTION_TIME`（默认 15d）/ `PROM_RETENTION_SIZE`（默认 10GB，容量兜底）/ 各组件端口；调盘调保留策略只改这一个文件；
+  3. `start.sh` / `stop.sh` 双模式：检测到生产 env.sh 走 `/opt/*` 路径，否则回落包内 `data/` / `logs/`（开发/试用解压即用模式不受影响）；pid 文件归 `DATA_ROOT/run/`；
+  4. Prometheus 启动显式携带 `--storage.tsdb.retention.time/.size`（值来自 env.sh）；
+  5. **systemd 注册不在 MVP 范围**（默认 start.sh）；日志轮转随包提供 logrotate 示例片段，是否写入 `/etc/logrotate.d/` 由运维决定（手册将 /etc 列为系统保留区，默认不碰）；
+  6. SQLite 经 `METRIC_CENTER_DB_DSN` 指向 `/opt/data/metric-center/metric_center.db`。
+- **落点**：Module_09 PRD v1.60（§1「MVP 中心部署目录规范」注记）；`docs/06-mvp-e2e-testing/package-center-guide.md` 增补「生产标准化部署」章节；脚本侧改造（`scripts/package-center.sh` + 新增 install.sh / env.sh 模板）在开发空间 feat 分支落地。

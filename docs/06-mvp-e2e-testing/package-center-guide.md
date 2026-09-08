@@ -95,6 +95,60 @@ cd metric-center-bundle-linux-amd64-*/
 ./scripts/start.sh
 ```
 
+### 2.4 生产标准化部署（/opt 三目录，决策 64）
+
+生产环境对齐《业务软件标准化目录与权限配置操作手册》（`业务软件标准化目录与权限配置操作手册.md`）三目录基线。**前提：`/opt/apps/metric-center/`、`/opt/data/metric-center/`、`/opt/log/metric-center/` 三目录由运维统一预建**（含 SGID 2750 与属组），安装脚本只做核验与幂等兜底。
+
+目标布局：
+
+```text
+/opt/apps/metric-center/          # 程序 + 种子配置（程序账户只读）
+├── bin/      二进制（metric-center / prometheus / promtool / alertmanager / amtool / blackbox_exporter）
+├── conf/     种子配置（prometheus.yml.example / alertmanager.yml.example / metric-center.yml）
+├── env/env.sh                    # 集中定义数据/日志根、TSDB 保留策略、端口
+├── script/   start.sh / stop.sh / install.sh
+└── web/ui-custom/
+
+/opt/data/metric-center/          # 数据（程序账户可写）
+├── prometheus/                   # TSDB（磁盘扩容就挂这层）
+├── alertmanager/
+├── config-output/                # M09/M08 下发的活配置（prometheus.yml / targets/ / rules.yml / alertmanager.yml / blackbox.yml）
+├── metric_center.db              # SQLite
+└── run/*.pid
+
+/opt/log/metric-center/           # 日志
+└── prometheus.log / alertmanager.log / blackbox_exporter.log / metric-center.log
+```
+
+> **关键边界**：M09/M08 下发的活配置属「平台管理的数据」，落 `/opt/data/metric-center/config-output/`（程序账户可写），**不进只读的 `/opt/apps/.../conf/`**——否则配置下发闭环与程序目录只读红线冲突（决策 64）。各组件 `--config.file` 与 metric-center 的 `--config.dir` / `--config.am-dir` 均指向 config-output 下的活文件。
+
+安装与启动（`sudo` 提权执行）：
+
+```bash
+cd metric-center-bundle-linux-amd64-*/
+sudo bash scripts/install.sh        # 核验三目录 → 入驻 /opt/apps/metric-center → 生成 env/env.sh → seed 活配置
+sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
+```
+
+`env/env.sh` 集中定义（运维调整磁盘与保留策略只改这一个文件）：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `METRIC_CENTER_DATA_ROOT` | `/opt/data/metric-center` | 数据根（TSDB / SQLite / config-output / run） |
+| `METRIC_CENTER_LOG_ROOT` | `/opt/log/metric-center` | 日志根 |
+| `PROM_RETENTION_TIME` | `15d` | TSDB 时间保留（`--storage.tsdb.retention.time`） |
+| `PROM_RETENTION_SIZE` | `10GB` | TSDB 容量兜底（`--storage.tsdb.retention.size`，到量淘汰最旧 block） |
+| `METRIC_CENTER_DB_DSN` | `$DATA_ROOT/metric_center.db` | SQLite 路径 |
+
+**双模式**：`start.sh` 检测到 `env/env.sh` 走 `/opt/*` 生产路径；未安装（无 env.sh）时回落包内 `data/` / `logs/`，解压即用模式不受影响。systemd 注册不在 MVP 范围，默认 start.sh。
+
+**磁盘清理与扩容 SOP**：
+
+- **日志清理**：随包 `scripts/logrotate.conf.example`（daily / rotate 14 / compress），是否写入 `/etc/logrotate.d/` 由运维决定（手册将 /etc 列为系统保留区，默认不碰）；手动清理直接清空 `/opt/log/metric-center/*.log` 即可；
+- **TSDB 瘦身**：调 `env.sh` 的 `PROM_RETENTION_TIME` / `PROM_RETENTION_SIZE` 后重启 Prometheus 生效；紧急释放空间可停服后删除 `/opt/data/metric-center/prometheus/` 下的旧 block 目录（`01J*` 开头的过期 block），勿删 `wal/` 与当前 head block；
+- **磁盘扩容**：把 `/opt/data/metric-center` 作为独立挂载点；加盘 = 新盘挂载 → 停服 → `rsync -a` 迁移 → 改挂载 → 启服，程序与日志目录不动；
+- **SQLite**：增长缓慢；如需收缩，停服后 `sqlite3 metric_center.db 'VACUUM;'`。
+
 访问（把 `<服务器IP>` 换成部署机实际可达的 IP 或域名，本机访问可用 `127.0.0.1`）：
 
 - **Custom UI：http://<服务器IP>:8080**（UI 与 API 同源，单端口）
@@ -272,6 +326,6 @@ curl -s http://127.0.0.1:9115/     -o /dev/null -w '%{http_code}\n'   # Blackbox
 1. **必须本机构建或使用 zig 交叉**：`metric-center` 的 SQLite 驱动依赖 CGO，不能直接用 `GOOS=linux go build` 在 macOS 上完成。
 2. **Prometheus Web UI 已内嵌二进制**：`build-prometheus` 通过 `-tags builtinassets` 把 `web/ui/static` 编译进 prometheus，交付包无需附带静态文件，也不再要求从特定目录启动 Prometheus。
 3. **首次启动会自动 seed 配置**：`start.sh` 会在 `config/prometheus/` 下复制示例配置（含 `WITH_BLACKBOX` 时的 `blackbox.yml`），无需手动准备。
-4. **数据目录会生成在包内**：运行后会出现 `data/`（SQLite + TSDB + Alertmanager storage）和 `logs/`，如需持久化，建议把包部署到固定目录。
+4. **数据目录默认生成在包内**：解压即用模式下运行后会出现 `data/`（SQLite + TSDB + Alertmanager storage）和 `logs/`，如需持久化，建议把包部署到固定目录；**生产环境请走 §2.4 生产标准化部署**（/opt 三目录分离，决策 64）。
 5. **M08/M09 闭环依赖随包组件**：`alertmanager.yml` 下发（决策 60）需要 `WITH_ALERTMANAGER=1` 产物，否则 M08 配置挂载校验会因找不到 `amtool`/AM 环境而 pending；拨测下发需要 `WITH_BLACKBOX=1` 产物。
 6. **交叉打包后须重建本机二进制**：`CROSS=...` 打包会把源码目录二进制覆盖为 ELF，macOS 本地 `make run-*` 会失败；重跑原生 `make build-center` 恢复（详见 §3 副作用提示）。

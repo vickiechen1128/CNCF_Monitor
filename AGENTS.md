@@ -358,6 +358,8 @@ make dev-ui
 ```
 
 > 测试/生产环境建议将 `metric-center` 与 Prometheus 作为「一体化交付包」同机部署：一个安装包内同时包含两个二进制，由 systemd / supervisor / 启动脚本统一拉起，但二者仍是独立进程。M09 `local` 下发通道要求控制面能直接写 Prometheus 配置目录并触发 reload。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
+>
+> **生产目录规范（决策 64）**：生产部署对齐《业务软件标准化目录与权限配置操作手册》三目录基线——程序/种子配置 `/opt/apps/metric-center/`（只读）、数据 `/opt/data/metric-center/`（TSDB / SQLite / config-output 活配置）、日志 `/opt/log/metric-center/`，三目录由运维预建；交付包 `env/env.sh` 集中定义 `DATA_ROOT` / `LOG_ROOT` / TSDB 保留策略，`start.sh` 双模式（有 env.sh 走生产路径，否则回落包内 data/logs 解压即用）；活配置落 `/opt/data/.../config-output/` 以兼容程序目录只读红线。详见 `docs/06-mvp-e2e-testing/package-center-guide.md` §2.4。
 
 ### 10.2 Vercel 预览
 
