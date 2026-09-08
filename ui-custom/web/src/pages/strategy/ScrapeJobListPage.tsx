@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Key } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import {
   Alert,
   Badge,
@@ -38,6 +38,7 @@ import { useJobScrapeStatus } from './useJobScrapeStatus'
 import { ScrapeJobFormDrawer } from './ScrapeJobFormDrawer'
 import { ScrapeJobDetailDrawer } from './ScrapeJobDetailDrawer'
 import { aggregateJobStatus } from './jobStatus'
+import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 
 const { Text } = Typography
 
@@ -60,10 +61,11 @@ const CHANGE_PROGRESS_MAP: Record<string, string> = {
  *   （待确认 / 已确认待下发 / 已下发 / 无变更）；两列均带头部角标指引——先看「生效状态」是否已真正生效，
  *   再看「变更进度」在哪一环；确认不必逐次进行，可待所有监控配置调整完后再到 M09 一次性批量确认；
  *   参数同步列展示 mapping_overrides.length 概览；
- * - 启停 / 删除二次确认；成功提示「变更将由 M09 生成变更单」+「前往配置变更确认」跳转；
+ * - 启停 / 删除二次确认；成功后同步触发变更单生成，提示变更单号 +「前往配置变更确认」跳转；
  * - 加载骨架 / 空态「暂无采集任务」/ 错误态。
  */
 function JobsTab() {
+  const navigate = useNavigate()
   const { data, loading, error, filters, setFilters, page, pageSize, onPageChange, onPageSizeChange, reload } =
     useScrapeJobs()
   const [domains, setDomains] = useState<NetworkDomain[]>([])
@@ -141,9 +143,14 @@ function JobsTab() {
     message.info('标签模板补配请前往「采集器默认配置」维护（M07）')
   }, [])
 
-  const notifyChangeGuide = useCallback(() => {
-    message.success('变更将由 M09 生成变更单并下发')
-  }, [])
+  // 保存成功后同步触发对应网域的变更单生成（best-effort；失败/漏触发由 30s 自动检测兜底）。
+  // GenerateDraft 幂等：无实质变更返回 no_changes，已有活 pending 按 checksum reconcile（决策 42-1）。
+  const triggerDraft = useCallback(
+    (domainIds: string[]) => {
+      void triggerConfigDrafts(domainIds, { onNavigate: () => navigate('/config-preview') })
+    },
+    [navigate],
+  )
 
   const toggleEnabled = useCallback(async (job: ScrapeJob, enabled: boolean) => {
     try {
@@ -154,34 +161,39 @@ function JobsTab() {
         ...(job.monitor_type ? { monitor_type: job.monitor_type as MonitorType } : {}),
         enabled,
       })
-      notifyChangeGuide()
+      triggerDraft([job.network_domain_id])
       reload()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '操作失败，请稍后重试')
     }
-  }, [notifyChangeGuide, reload])
+  }, [triggerDraft, reload])
 
   const removeJob = useCallback(async (job: ScrapeJob) => {
     try {
       await scrapeJobApi.remove(job.id)
-      notifyChangeGuide()
+      triggerDraft([job.network_domain_id])
       reload()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '删除失败，请稍后重试')
     }
-  }, [notifyChangeGuide, reload])
+  }, [triggerDraft, reload])
 
   const batchSubmitReady = useCallback(async () => {
     if (selectedRowKeys.length === 0) return
     try {
       await scrapeJobApi.batchSubmitReady({ ids: selectedRowKeys as number[] })
       message.success('已批量提交生效')
+      // 跨页勾选时只能取到当前页行的网域；未覆盖到的网域由 30s 自动检测兜底
+      const domainIds = data.list
+        .filter((j) => selectedRowKeys.includes(j.id))
+        .map((j) => j.network_domain_id)
+      triggerDraft(domainIds)
       setSelectedRowKeys([])
       reload()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '批量提交生效失败，请稍后重试')
     }
-  }, [selectedRowKeys, reload])
+  }, [selectedRowKeys, data.list, triggerDraft, reload])
 
   const rowSelection = useMemo<TableRowSelection<ScrapeJob>>(
     () => ({

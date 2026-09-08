@@ -32,8 +32,10 @@ const (
 
 var (
 	// 默认最小/最大检测间隔；Start 参数可覆盖。
+	// max 30s：写路径已改为保存后同步触发生成（见 triggerConfigDraft 前端调用链），
+	// 轮询仅作旁路写入兜底，上限收紧避免用户长时间等待。
 	defaultMinInterval = 5 * time.Second
-	defaultMaxInterval = 120 * time.Second
+	defaultMaxInterval = 30 * time.Second
 )
 
 // Start 在独立 goroutine 中启动全量域变更检测轮询。

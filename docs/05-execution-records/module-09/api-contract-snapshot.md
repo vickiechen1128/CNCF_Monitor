@@ -137,7 +137,7 @@
 | GET | `/api/v2/platform/config-versions/{id}` | — | ConfigVersion 详情（含完整产物，供 diff）。`{id}` 兼容两种 ref：纯数字按主键 id 命中；否则按 `change_no` 命中（source_version 透传为 change_no 时直接命中） | `not_found` | §6.5.3 |
 | GET | `/api/v2/platform/deployments` | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [ConfigDeployment], total }` | — | §6.5.3 |
 | POST | `/api/v2/platform/deployments/{deployment_id}/retry` | body `{ triggered_by }` | 新的 ConfigDeployment | `bad_request`：非 local / 原记录非 failed；`not_found` | §6.5.3 / 决策 42-3 |
-| POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | body `{ triggered_by }` | 新的 ConfigDeployment（回滚目标版本） | `not_found`；`bad_request`：目标版本不存在/不同网域 | §6.5.3 |
+| POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | body `{ triggered_by }` | 新的 ConfigDeployment（回滚目标版本；成功时 `status=rolled_back`，失败时 `status=failed` 并记录 `error_message`；被回滚的历史记录保持不变） | `not_found`；`bad_request`：目标版本不存在/不同网域 | §6.5.3 |
 
 ### ConfigDeployment（下发记录）
 

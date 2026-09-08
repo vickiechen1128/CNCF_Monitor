@@ -64,7 +64,7 @@ func Dispatch(db *gorm.DB, version *models.ConfigVersion, triggeredBy string, ap
 	if err != nil {
 		return nil, err
 	}
-	return dispatchVersion(db, version, dom, triggeredBy, app)
+	return dispatchVersion(db, version, dom, triggeredBy, app, false)
 }
 
 // DeployConfirmedVersion 经 DefaultApplier 下发已确认版本（供 draft.confirm 集成调用）。
@@ -99,11 +99,14 @@ func Retry(db *gorm.DB, deploymentID, triggeredBy string, app Applier) (*models.
 	if dom.Channel != models.ChannelTypeLocal {
 		return nil, ErrNotLocal
 	}
-	return dispatchVersion(db, version, dom, triggeredBy, app)
+	return dispatchVersion(db, version, dom, triggeredBy, app, false)
 }
 
-// Rollback 回滚到目标 ConfigVersion（契约 §5）：目标版本存在且属于 local 通道网域时，
-// 重新写盘 + reload 该版本，生成一条新的 ConfigDeployment（status 按投递结果）。
+// Rollback 回滚到目标 ConfigVersion（契约 §5 / PRD §8）：目标版本存在且属于 local 通道
+// 网域时，重新写盘 + reload 该版本，生成一条新的 ConfigDeployment——成功时
+// status=rolled_back（仅标记「该记录由回滚动作产生」，下发结果语义等同 success，
+// 仍参与 change_status 回写）；失败时 status=failed 并记录 error_message。
+// 被回滚的历史记录保持不变（台账不可变）。
 func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.ConfigDeployment, error) {
 	version, err := loadVersion(db, versionID)
 	if err != nil {
@@ -116,13 +119,14 @@ func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.
 	if dom.Channel != models.ChannelTypeLocal {
 		return nil, ErrNotLocal
 	}
-	return dispatchVersion(db, version, dom, triggeredBy, app)
+	return dispatchVersion(db, version, dom, triggeredBy, app, true)
 }
 
 // dispatchVersion 执行一次版本投递并落记录：
 //   - 提取产物 → agent_pull 直接落 pending 占位；
-//   - local 经 Applier 投递 → success/failed。
-func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier) (*models.ConfigDeployment, error) {
+//   - local 经 Applier 投递 → success/failed；rollback=true（回滚动作产生）时成功落
+//     rolled_back（PRD §8：rolled_back 视同 success，change_status / AM applied 回写不变）。
+func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier, rollback bool) (*models.ConfigDeployment, error) {
 	now := time.Now()
 	dep := &models.ConfigDeployment{
 		NetworkDomainID:   version.NetworkDomainID,
@@ -160,6 +164,11 @@ func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.Net
 	}
 
 	dep.Status = models.DeploymentStatusSuccess
+	if rollback {
+		// PRD §8：回滚动作生成的新记录成功时落 rolled_back（与正常发布可区分）；
+		// 其下发结果语义等同 success，下方 change_status / AM applied 回写照常执行。
+		dep.Status = models.DeploymentStatusRolledBack
+	}
 	dep.CompletedAt = &now
 	if err := db.Create(dep).Error; err != nil {
 		return nil, fmt.Errorf("record deployment: %w", err)
