@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-07 17:37 · commit: `c8382175`
+> 生成时间: 2026-09-08 13:08 · commit: `fb77d4af`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1174,7 +1174,9 @@
 - `func TestRetryLocalFailed(t *testing.T)`
 - `func TestRetryRejectsNonLocal(t *testing.T)`
 - `func TestRetryRejectsNotFailed(t *testing.T)`
-- `func TestRollbackCreatesSuccessDeployment(t *testing.T)`
+- `func TestRollbackCreatesRolledBackDeployment(t *testing.T)`
+- `func TestRollbackFailureRecordsFailed(t *testing.T)`
+- `func TestRolledBackCountsAsLatestSuccess(t *testing.T)`
 - `func TestRollbackVersionNotFound(t *testing.T)`
 - `func TestDispatchWritebackFailureDegrades(t *testing.T)`
 - `func TestWritebackChangeStatusFiltersDraftReady(t *testing.T)`
@@ -1221,7 +1223,7 @@
 - `func DeployConfirmedVersion(db *gorm.DB, version *models.ConfigVersion, triggeredBy string) (*models.ConfigDeployment, error)`
 - `func Retry(db *gorm.DB, deploymentID, triggeredBy string, app Applier) (*models.ConfigDeployment, error)`
 - `func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.ConfigDeployment, error)`
-- `func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier)…`
+- `func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier,…`
 - `func applySafe(app Applier, ca *generator.ConfigArtifacts) error`
 - `func localReloadURL(dom *models.NetworkDomain) string`
 - `func loadDomain(db *gorm.DB, id string) (*models.NetworkDomain, error)`
@@ -2849,6 +2851,13 @@
 - `type DiffRowType`
 - `interface DiffRow`
 - `function computeDiff`
+
+### `ui-custom/web/src/pages/config-center/preview/triggerConfigDraft.ts`
+
+- `const CONFIG_PREVIEW_PATH`
+- `interface TriggerDraftOptions`
+- `function triggerConfigDrafts`
+- `function triggerConfigDraftsForAllDomains`
 
 ### `ui-custom/web/src/pages/config-center/preview/useConfigDrafts.ts`
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { setupAntdTest, selectAntdOption } from '../../test/antdTestUtils'
 import { RuleMountDrawer } from './RuleMountDrawer'
 import { validateYamlClient } from './rulesYaml'
@@ -8,6 +9,7 @@ import { validateYamlClient } from './rulesYaml'
 const createMock = vi.fn()
 const updateMock = vi.fn()
 const validateYamlMock = vi.fn()
+const triggerAllMock = vi.fn()
 
 vi.mock('../../api/monitoringRules', () => ({
   monitoringRuleApi: {
@@ -17,10 +19,16 @@ vi.mock('../../api/monitoringRules', () => ({
   },
 }))
 
+// 变更单同步触发走公共 helper（内部依赖网域列表接口），此处 mock 聚焦抽屉行为
+vi.mock('../config-center/preview/triggerConfigDraft', () => ({
+  triggerConfigDraftsForAllDomains: (...args: unknown[]) => triggerAllMock(...args),
+}))
+
 beforeEach(() => {
   createMock.mockReset()
   updateMock.mockReset()
   validateYamlMock.mockReset()
+  triggerAllMock.mockReset()
 })
 
 describe('validateYamlClient', () => {
@@ -38,7 +46,11 @@ describe('RuleMountDrawer', () => {
   setupAntdTest()
 
   function renderDrawer() {
-    render(<RuleMountDrawer open onCancel={() => {}} onSuccess={() => {}} />)
+    render(
+      <MemoryRouter>
+        <RuleMountDrawer open onCancel={() => {}} onSuccess={() => {}} />
+      </MemoryRouter>,
+    )
   }
 
   it('renders mount drawer with paste area and upload', async () => {
@@ -91,7 +103,10 @@ describe('RuleMountDrawer', () => {
     )
     fireEvent.click(screen.getByText('提交生效'))
 
-    expect(await screen.findByText(/规则已挂载/)).toBeInTheDocument()
+    // 保存成功：同步触发全部已纳管网域的变更单生成
+    await waitFor(() =>
+      expect(triggerAllMock).toHaveBeenCalledWith(expect.objectContaining({ prefix: '规则已挂载' })),
+    )
     // 新建场景走后端校验（id 占位 0，body 仅含 rule_content）
     expect(validateYamlMock).toHaveBeenCalledWith(0, 'groups:\n  - name: g\n    rules:\n      - alert: A')
     // 创建默认启用（M01 PRD §8）：必须显式携带 enabled: true
@@ -122,7 +137,9 @@ describe('RuleMountDrawer', () => {
     )
     fireEvent.click(screen.getByText('提交生效'))
 
-    expect(await screen.findByText(/规则已挂载/)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(triggerAllMock).toHaveBeenCalledWith(expect.objectContaining({ prefix: '规则已挂载' })),
+    )
     const body = createMock.mock.calls[0][0] as Record<string, unknown>
     expect(body.monitor_type).toBe('mysql')
     // resource_category 仅用于表单级联，不进入提交载荷
@@ -133,20 +150,22 @@ describe('RuleMountDrawer', () => {
   it('edit mode pre-fills fields and submits via update without changing enabled', async () => {
     updateMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
     render(
-      <RuleMountDrawer
-        open
-        onCancel={() => {}}
-        onSuccess={() => {}}
-        editingRule={
-          {
-            id: 1,
-            name: 'my-rule',
-            content_mode: 'yaml_passthrough',
-            monitor_type: 'mysql',
-            rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
-          } as unknown as import('../../types/strategy').MonitoringRule
-        }
-      />,
+      <MemoryRouter>
+        <RuleMountDrawer
+          open
+          onCancel={() => {}}
+          onSuccess={() => {}}
+          editingRule={
+            {
+              id: 1,
+              name: 'my-rule',
+              content_mode: 'yaml_passthrough',
+              monitor_type: 'mysql',
+              rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
+            } as unknown as import('../../types/strategy').MonitoringRule
+          }
+        />
+      </MemoryRouter>,
     )
 
     expect(screen.getByText('编辑规则')).toBeInTheDocument()
@@ -155,7 +174,9 @@ describe('RuleMountDrawer', () => {
     expect(screen.getByText('MySQL')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('保存变更'))
-    expect(await screen.findByText(/规则已更新/)).toBeInTheDocument()
+    await waitFor(() =>
+      expect(triggerAllMock).toHaveBeenCalledWith(expect.objectContaining({ prefix: '规则已更新' })),
+    )
     // 编辑模式：PUT update，不携带 enabled，不改启停状态
     expect(updateMock).toHaveBeenCalledWith(1, {
       name: 'my-rule',
@@ -171,23 +192,29 @@ describe('RuleMountDrawer', () => {
   // 根因：antd Drawer 首次打开时内容惰性挂载，父组件 useEffect 里 setFieldsValue
   // 先于 Form 字段注册执行被吞；forceRender 保证 Form 常驻挂载后首次打开即回显。
   it('edit mode echoes fields when drawer transitions from closed to open (first open)', () => {
-    const { rerender } = render(<RuleMountDrawer open={false} onCancel={() => {}} onSuccess={() => {}} />)
+    const { rerender } = render(
+      <MemoryRouter>
+        <RuleMountDrawer open={false} onCancel={() => {}} onSuccess={() => {}} />
+      </MemoryRouter>,
+    )
 
     rerender(
-      <RuleMountDrawer
-        open
-        onCancel={() => {}}
-        onSuccess={() => {}}
-        editingRule={
-          {
-            id: 1,
-            name: 'my-rule',
-            content_mode: 'yaml_passthrough',
-            monitor_type: 'mysql',
-            rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
-          } as unknown as import('../../types/strategy').MonitoringRule
-        }
-      />,
+      <MemoryRouter>
+        <RuleMountDrawer
+          open
+          onCancel={() => {}}
+          onSuccess={() => {}}
+          editingRule={
+            {
+              id: 1,
+              name: 'my-rule',
+              content_mode: 'yaml_passthrough',
+              monitor_type: 'mysql',
+              rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
+            } as unknown as import('../../types/strategy').MonitoringRule
+          }
+        />
+      </MemoryRouter>,
     )
 
     expect((screen.getByTestId('rule-name') as HTMLInputElement).value).toBe('my-rule')

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import type { ReactElement } from 'react'
 import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 import { DeploymentsPage } from './DeploymentsPage'
 import type { ConfigDeployment } from '../../../types/config-center'
@@ -11,6 +12,7 @@ const deploymentApiMock = {
   list: vi.fn(),
   retry: vi.fn(),
   rollback: vi.fn(),
+  getConfigVersion: vi.fn(),
 }
 const reloadMock = vi.fn()
 
@@ -23,6 +25,7 @@ vi.mock('../../../api/configCenter', () => ({
     list: (...a: unknown[]) => deploymentApiMock.list(...a),
     retry: (...a: unknown[]) => deploymentApiMock.retry(...a),
     rollback: (...a: unknown[]) => deploymentApiMock.rollback(...a),
+    getConfigVersion: (...a: unknown[]) => deploymentApiMock.getConfigVersion(...a),
   },
 }))
 vi.mock('antd/locale/zh_CN', () => ({ default: {} }))
@@ -74,6 +77,7 @@ describe('DeploymentsPage（下发记录）', () => {
     deploymentApiMock.list.mockReset()
     deploymentApiMock.retry.mockReset()
     deploymentApiMock.rollback.mockReset()
+    deploymentApiMock.getConfigVersion.mockReset()
     reloadMock.mockReset()
     fetchAllDomainsMock.mockReset()
     fetchAllDomainsMock.mockResolvedValue([{ id: 'default', name: '默认域' }])
@@ -166,6 +170,111 @@ describe('DeploymentsPage（下发记录）', () => {
     await onOk()
     expect(deploymentApiMock.rollback).toHaveBeenCalledWith('cv-20260823-001', expect.any(String))
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+  })
+
+  it('回滚确认弹窗文案指向所选版本（PRD §3.5：不出现「上一可用版本」误导表述）', async () => {
+    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
+    const modal = mockAntdModal()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /回滚/ }))
+    const content = modal.confirm.mock.calls[0][0].content as ReactElement
+    const { container } = render(<MemoryRouter>{content}</MemoryRouter>)
+    expect(container.textContent).toContain('回滚到所选版本')
+    expect(container.textContent).toContain('cv-20260823-001')
+    expect(container.textContent).toContain('CHG-20260823-001')
+    expect(container.textContent).not.toContain('上一可用配置版本')
+  })
+
+  it('rolled_back 记录渲染「已回滚」标签且回滚按钮可点（PRD §8：可再次作为回滚目标）', async () => {
+    useDeploymentsMock.mockReturnValue(
+      result({
+        data: {
+          items: [
+            deploymentRow({ id: 'deploy-rb', status: 'rolled_back' }),
+            deploymentRow({ id: 'deploy-ok', status: 'success' }),
+          ],
+          total: 2,
+        },
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('已回滚')).toBeInTheDocument()
+    // rolled_back 行回滚按钮可用
+    const rbRow = screen.getByText('deploy-rb').closest('tr') as HTMLElement
+    const rbBtn = Array.from(rbRow.querySelectorAll('button')).find((b) => b.textContent?.replace(/\s/g, '') === '回滚')
+    expect(rbBtn).toBeDefined()
+    expect(rbBtn).not.toBeDisabled()
+    // success 行同样可点；failed/pending 禁用
+    const okRow = screen.getByText('deploy-ok').closest('tr') as HTMLElement
+    const okBtn = Array.from(okRow.querySelectorAll('button')).find((b) => b.textContent?.replace(/\s/g, '') === '回滚')
+    expect(okBtn).not.toBeDisabled()
+  })
+
+  it('failed / pending 记录回滚按钮保持禁用', async () => {
+    useDeploymentsMock.mockReturnValue(
+      result({
+        data: {
+          items: [
+            deploymentRow({ id: 'deploy-failed', status: 'failed', error_message: '写盘失败' }),
+            deploymentRow({ id: 'deploy-pending', status: 'pending' }),
+          ],
+          total: 2,
+        },
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('deploy-failed')).toBeInTheDocument()
+    for (const id of ['deploy-failed', 'deploy-pending']) {
+      const row = screen.getByText(id).closest('tr') as HTMLElement
+      const btn = Array.from(row.querySelectorAll('button')).find((b) => b.textContent?.replace(/\s/g, '') === '回滚')
+      expect(btn).toBeDisabled()
+    }
+  })
+
+  it('详情抽屉「查看版本配置」：展开时懒加载并按文件分 Tab 只读展示', async () => {
+    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
+    deploymentApiMock.getConfigVersion.mockResolvedValue({
+      status: 'success',
+      data: {
+        id: 'cv-20260823-001',
+        network_domain_id: 'default',
+        prometheus_yml: 'global:\n  scrape_interval: 15s\n',
+        rules_yml: 'groups: []\n',
+        targets_files: { 'node-exporter.json': '[{"targets":["1.2.3.4:9100"]}]' },
+      },
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /查看详情/ }))
+    expect(await screen.findByText('下发记录详情：deploy-001')).toBeInTheDocument()
+    // 展开前不调用（懒加载）
+    expect(deploymentApiMock.getConfigVersion).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText(/查看版本配置/))
+    await waitFor(() =>
+      expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledWith('cv-20260823-001'),
+    )
+    expect(await screen.findByText(/scrape_interval: 15s/)).toBeInTheDocument()
+    expect(screen.getByText('rules.yml')).toBeInTheDocument()
+    expect(screen.getByText('targets/*.json')).toBeInTheDocument()
+  })
+
+  it('详情抽屉「查看版本配置」加载失败展示错误态，可重试', async () => {
+    useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
+    deploymentApiMock.getConfigVersion
+      .mockRejectedValueOnce(new Error('网络异常'))
+      .mockResolvedValueOnce({
+        status: 'success',
+        data: { id: 'cv-20260823-001', network_domain_id: 'default', prometheus_yml: 'global: {}\n' },
+      })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /查看详情/ }))
+    fireEvent.click(await screen.findByText(/查看版本配置/))
+    expect(await screen.findByText('版本配置加载失败')).toBeInTheDocument()
+    expect(screen.getByText('网络异常')).toBeInTheDocument()
+    // 错误态重试（抽屉内唯一的「重试」按钮）
+    const retryBtn = screen.getAllByRole('button').find((b) => b.textContent?.replace(/\s/g, '') === '重试')
+    fireEvent.click(retryBtn as HTMLElement)
+    await waitFor(() => expect(deploymentApiMock.getConfigVersion).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(/global: \{\}/)).toBeInTheDocument()
   })
 
   it('重试：local failed 行 Modal 二次确认后调用 retry 并 reload', async () => {
