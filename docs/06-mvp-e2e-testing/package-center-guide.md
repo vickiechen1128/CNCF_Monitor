@@ -134,10 +134,11 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `METRIC_CENTER_DATA_ROOT` | `/opt/data/metric-center` | 数据根（TSDB / SQLite / config-output / run） |
-| `METRIC_CENTER_LOG_ROOT` | `/opt/log/metric-center` | 日志根 |
+| `DATA_ROOT` | `/opt/data/metric-center` | 数据根（TSDB / SQLite / config-output / run） |
+| `LOG_ROOT` | `/opt/log/metric-center` | 日志根 |
 | `PROM_RETENTION_TIME` | `15d` | TSDB 时间保留（`--storage.tsdb.retention.time`） |
 | `PROM_RETENTION_SIZE` | `10GB` | TSDB 容量兜底（`--storage.tsdb.retention.size`，到量淘汰最旧 block） |
+| `PROM_PORT` / `AM_PORT` / `BB_PORT` / `MC_PORT` | `9090` / `9093` / `9115` / `8080` | 组件端口（端口冲突时只改这里，start.sh 全部引用） |
 | `METRIC_CENTER_DB_DSN` | `$DATA_ROOT/metric_center.db` | SQLite 路径 |
 
 **双模式**：`start.sh` 检测到 `env/env.sh` 走 `/opt/*` 生产路径；未安装（无 env.sh）时回落包内 `data/` / `logs/`，解压即用模式不受影响。systemd 注册不在 MVP 范围，默认 start.sh。
