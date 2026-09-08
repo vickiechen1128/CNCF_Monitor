@@ -24,6 +24,7 @@ import config from 'antd/locale/zh_CN'
 import { EyeOutlined, HistoryOutlined, UploadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { alertmanagerConfigApi, readValidateErrors } from '../../api/alertmanager'
+import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { AlertmanagerConfigVersionListItem, ValidateErrorItem } from '../../types/alertmanager'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { useAlertConfig } from './useAlertConfig'
@@ -63,13 +64,10 @@ export function AlertConfigPage() {
   }
 
   const handleSubmit = async (content: string) => {
-    const created = await submit(content, CURRENT_USER)
+    await submit(content, CURRENT_USER)
     setRemountErrors(null)
-    message.success({
-      content: `配置已挂载并提交变更单${created.source_change_no ? `（${created.source_change_no}）` : ''}：已进入配置中心变更确认流程，请确认后下发生效`,
-      onClick: () => navigate(CONFIG_PREVIEW_PATH),
-      duration: 5,
-    })
+    // 决策 60：告警配置仅作用于管理域 default；挂载成功后同步触发变更单生成
+    void triggerConfigDrafts(['default'], { prefix: '配置已挂载', onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
     reload()
   }
 
@@ -96,13 +94,9 @@ export function AlertConfigPage() {
       async onOk() {
         setRemounting(true)
         try {
-          const created = await remount(record.id, CURRENT_USER)
+          await remount(record.id, CURRENT_USER)
           setRemountErrors(null)
-          message.success({
-            content: `版本 ${record.id} 已重新挂载并提交变更单${created.source_change_no ? `（${created.source_change_no}）` : ''}：请到配置变更确认页确认下发`,
-            onClick: () => navigate(CONFIG_PREVIEW_PATH),
-            duration: 5,
-          })
+          void triggerConfigDrafts(['default'], { prefix: `版本 ${record.id} 已重新挂载`, onNavigate: () => navigate(CONFIG_PREVIEW_PATH) })
           reload()
         } catch (e) {
           const detail = readValidateErrors(e)

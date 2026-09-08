@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Drawer, Form, Input, Select, Space, Typography, Upload, message } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { monitoringRuleApi } from '../../api/monitoringRules'
 import type { ResourceCategory } from '../../types/resource'
 import type { MonitorType, MonitoringRule } from '../../types/strategy'
 import { CATEGORY_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 import { validateYamlClient } from './rulesYaml'
+import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
 const { TextArea } = Input
 
@@ -36,11 +38,13 @@ function categoryOfType(t?: string): ResourceCategory | undefined {
 /**
  * 规则挂载 / 编辑抽屉（Module_01 §3.1/§5.5/§6.2.4/§11.1，F6）。
  * 上传 / 粘贴 rules.yml（content_mode=yaml_passthrough），提交前 YAML 预检（validate-yaml），
- * YAML 非法以 Alert 提示并保留内容；保存成功提示 M09 变更引导 + 乐观待下发。
+ * YAML 非法以 Alert 提示并保留内容；保存成功同步触发变更单生成（全局 scope 全量网域）。
  * - 新增模式：创建默认启用（enabled: true）；
- * - 编辑模式：回显已有规则，提交走 update（不携带 enabled，启停由列表操作独立负责）。
+ * - 编辑模式：回显已有规则，提交走 update（不携带 enabled，启停由列表操作独立负责）；
+ * - 保存成功后同步触发全部已纳管网域的变更单生成（规则为全局 scope），提示变更单号并可点击跳转。
  */
 export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: RuleMountDrawerProps) {
+  const navigate = useNavigate()
   const [form] = Form.useForm<MountFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -107,7 +111,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           monitor_type: values.monitor_type,
           rule_content: values.rule_content,
         })
-        message.success('规则已更新，变更将由 M09 生成变更单并下发')
+        // 规则为全局 scope，对全部已纳管网域同步触发变更单生成（best-effort）
+        void triggerConfigDraftsForAllDomains({ prefix: '规则已更新', onNavigate: () => navigate('/config-preview') })
       } else {
         await monitoringRuleApi.create({
           content_mode: 'yaml_passthrough',
@@ -117,7 +122,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           // 创建默认启用（M01 PRD §8，与采集 Job 对齐）；漏传会被后端零值 false 落库成「停用」
           enabled: true,
         })
-        message.success('规则已挂载，变更将由 M09 生成变更单并下发')
+        void triggerConfigDraftsForAllDomains({ prefix: '规则已挂载', onNavigate: () => navigate('/config-preview') })
       }
       setSubmitting(false)
       onSuccess()

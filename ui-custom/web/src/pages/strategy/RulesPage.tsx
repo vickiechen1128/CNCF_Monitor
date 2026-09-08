@@ -16,6 +16,7 @@ import {
   message,
 } from 'antd'
 import { PlusOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { monitoringRuleApi } from '../../api/monitoringRules'
 import type { ApiResponse } from '../../types/api'
@@ -27,6 +28,7 @@ import { MainLayout } from '../../layouts/MainLayout'
 import { CONTENT_MODE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, EFFECTIVE_STATUS_TOOLTIP, CHANGE_PROGRESS_TOOLTIP } from './strategyConstants'
 import { aggregateJobStatus } from './jobStatus'
 import { RuleMountDrawer } from './RuleMountDrawer'
+import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
 const { Text } = Typography
 
@@ -68,6 +70,7 @@ const EMPTY_RULES: RulesState = { list: [], total: 0 }
  * - 保存成功提示 M09 变更引导 + 乐观待下发；加载 / 空态「暂无规则」/ 错误态。
  */
 export function RulesPage() {
+  const navigate = useNavigate()
   const [rules, setRules] = useState<RulesState>(EMPTY_RULES)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -109,9 +112,11 @@ export function RulesPage() {
 
   const reload = useCallback(() => setRefresh((n) => n + 1), [])
 
+  // 规则为全局 scope（central/both），保存后对全部已纳管网域同步触发变更单生成
+  // （best-effort；失败/漏触发由 30s 自动检测兜底，决策 42-1 幂等保活）。
   const notifyChangeGuide = useCallback(() => {
-    message.success('变更将由 M09 生成变更单并下发')
-  }, [])
+    void triggerConfigDraftsForAllDomains({ onNavigate: () => navigate('/config-preview') })
+  }, [navigate])
 
   const openDetail = async (record: MonitoringRule) => {
     try {
