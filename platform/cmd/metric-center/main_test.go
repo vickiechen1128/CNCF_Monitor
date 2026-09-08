@@ -1040,6 +1040,27 @@ func fakeAlertmanager(t *testing.T) *httptest.Server {
 		writeAMJSON(w, data)
 	})
 
+	// T08-07：通知状态代理上游（契约 §10.2）——GET /api/v2/alerts 裸数组夹具，
+	// 覆盖 active / silenced(suppressed+silencedBy) 两态。
+	mux.HandleFunc("GET /api/v2/alerts", func(w http.ResponseWriter, _ *http.Request) {
+		writeAMJSON(w, []map[string]interface{}{
+			{
+				"labels":      map[string]string{"alertname": "HighCPU", "severity": "critical", "network_domain": "default", "instance": "10.0.0.1:9100"},
+				"annotations": map[string]string{"summary": "cpu high"},
+				"startsAt":    "2026-09-08T01:00:00Z",
+				"endsAt":      "2026-09-08T03:00:00Z",
+				"status":      gin.H{"state": "active", "silencedBy": []string{}, "inhibitedBy": []string{}},
+			},
+			{
+				"labels":      map[string]string{"alertname": "DiskFull", "severity": "warning", "network_domain": "dmz", "instance": "10.0.0.2:9100"},
+				"annotations": map[string]string{"summary": "disk full"},
+				"startsAt":    "2026-09-08T02:00:00Z",
+				"endsAt":      "2026-09-08T04:00:00Z",
+				"status":      gin.H{"state": "suppressed", "silencedBy": []string{"sil-1"}, "inhibitedBy": []string{}},
+			},
+		})
+	})
+
 	mux.HandleFunc("POST /api/v2/silences", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&body)
@@ -1217,6 +1238,30 @@ func fakePromUpstream(t *testing.T) *httptest.Server {
 					"targetsByJob":   map[string]interface{}{},
 				},
 			}))
+		case "/api/v1/alerts":
+			// T08-06：当前触发告警代理上游（契约 §10.1）——firing（default 网域）
+			// + pending（dmz 网域）两条实例。
+			fmt.Fprintln(w, mustJSON(t, map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"alerts": []map[string]interface{}{
+						{
+							"labels":      map[string]string{"alertname": "HighCPU", "severity": "critical", "network_domain": "default", "instance": "10.0.0.1:9100"},
+							"annotations": map[string]string{"summary": "cpu high"},
+							"state":       "firing",
+							"activeAt":    "2026-09-08T01:00:00Z",
+							"value":       "98",
+						},
+						{
+							"labels":      map[string]string{"alertname": "QueueLag", "severity": "warning", "network_domain": "dmz", "instance": "10.0.0.3:9100"},
+							"annotations": map[string]string{"summary": "queue lag"},
+							"state":       "pending",
+							"activeAt":    "2026-09-08T02:00:00Z",
+							"value":       "12",
+						},
+					},
+				},
+			}))
 		default:
 			http.NotFound(w, r)
 		}
@@ -1367,4 +1412,57 @@ func TestEndToEndQueryCoverageRoutes(t *testing.T) {
 	items = out["data"].(map[string]interface{})["items"].([]interface{})
 	require.Len(t, items, 1)
 	assert.Equal(t, "dmz-x", items[0].(map[string]interface{})["resource_id"])
+}
+
+// ---------------------------------------------------------------------------
+// 告警状态查看（T08-06 / T08-07，契约快照 §10）端到端集成冒烟：
+// 经真实路由注册串联验证双视图只读代理——
+//   - M02 侧 GET /api/v1/alerts（Prometheus firing/pending + network_domain 过滤）；
+//   - M08 侧 GET /api/v2/platform/alertmanager/alerts（AM 通知状态四态归一）。
+// ---------------------------------------------------------------------------
+
+// TestEndToEndAlertStatusSmoke 覆盖告警状态双视图代理走真实路由树可命中，
+// 且字段子集 / network_domain 过滤 / 四态归一符合契约 §10。
+func TestEndToEndAlertStatusSmoke(t *testing.T) {
+	r, _ := buildIntegrationEngine(t)
+	c := &apiClient{t: t, r: r}
+
+	// 1. M02 侧：/api/v1/alerts 透传 firing/pending 实例字段子集。
+	code, out := c.json("GET", "/api/v1/alerts", "")
+	require.Equal(t, http.StatusOK, code, "prom alerts 应可命中：%v", out)
+	alerts := out["data"].(map[string]interface{})["alerts"].([]interface{})
+	require.Len(t, alerts, 2)
+	a0 := alerts[0].(map[string]interface{})
+	assert.Equal(t, "firing", a0["state"])
+	assert.Equal(t, "98", a0["value"])
+	assert.Equal(t, "HighCPU", a0["labels"].(map[string]interface{})["alertname"])
+	assert.Equal(t, "cpu high", a0["annotations"].(map[string]interface{})["summary"])
+
+	// network_domain 服务端本地过滤（前端不重复过滤）。
+	code, out = c.json("GET", "/api/v1/alerts?network_domain=dmz", "")
+	require.Equal(t, http.StatusOK, code)
+	alerts = out["data"].(map[string]interface{})["alerts"].([]interface{})
+	require.Len(t, alerts, 1)
+	assert.Equal(t, "pending", alerts[0].(map[string]interface{})["state"])
+
+	// 2. M08 侧：/api/v2/platform/alertmanager/alerts 通知状态四态归一。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/alerts", "")
+	require.Equal(t, http.StatusOK, code, "am alerts 应可命中：%v", out)
+	items := out["data"].(map[string]interface{})["items"].([]interface{})
+	require.Len(t, items, 2)
+	byName := map[string]map[string]interface{}{}
+	for _, it := range items {
+		m := it.(map[string]interface{})
+		byName[m["labels"].(map[string]interface{})["alertname"].(string)] = m
+	}
+	assert.Equal(t, "active", byName["HighCPU"]["notify_status"])
+	assert.Equal(t, "silenced", byName["DiskFull"]["notify_status"], "suppressed+silencedBy 应归一为 silenced")
+	assert.NotEmpty(t, byName["DiskFull"]["starts_at"])
+
+	// network_domain UX 筛选透传。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/alerts?network_domain=dmz", "")
+	require.Equal(t, http.StatusOK, code)
+	items = out["data"].(map[string]interface{})["items"].([]interface{})
+	require.Len(t, items, 1)
+	assert.Equal(t, "DiskFull", items[0].(map[string]interface{})["labels"].(map[string]interface{})["alertname"])
 }

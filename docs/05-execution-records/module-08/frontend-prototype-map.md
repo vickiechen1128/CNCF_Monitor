@@ -2,9 +2,9 @@
 
 > 依据 `frontend-developer.md` Step 3.5 六项核对，解决「原型视觉 / 列 / 入口与生产实现断层」问题。
 > 本表作为 L3 规划与前端代码 review 的逐项勾验载体，反向从 `docs/prototypes/module-08` 与 `ui-custom/web/src/pages/alerts` 生成。
-> 覆盖范围：前端 T08-F1 \~ T08-F5（告警配置页 / 静默页 / 顶级 tab「告警收敛与通知管理」/ 两条路由 / alertmanager 契约类型与 API client / 决策 55/59/60）。
+> 覆盖范围：前端 T08-F1 \~ T08-F5（告警配置页 / 静默页 / 顶级 tab「告警收敛与通知管理」/ 两条路由 / alertmanager 契约类型与 API client / 决策 55/59/60）；**v1.12 增量追加 T08-F6 / T08-F7**（告警状态页双视图 `/alert-status`，见「八、告警状态页映射（v1.12 MVP 增量）」）。
 >
-> 后端契约对账源：`docs/05-execution-records/module-08/api-contract-snapshot.md` 与决策 55/59/60（PRD v1.7）。
+> 后端契约对账源：`docs/05-execution-records/module-08/api-contract-snapshot.md`（v2026-09-08，含 §10 告警状态查看）与决策 55/56/59/60/61（PRD v1.12）。
 
 ## 一、决策落版
 
@@ -27,7 +27,7 @@
 | `App.tsx`                                                            | `src/App.tsx`                                                                                           | **复制 + 裁剪**      | 1 路由         | 生产注册 `/alert-config`（AlertConfigPage）、`/silences`（SilencesPage）两条路由（懒加载，T08-F4 commit `1f18cc94`）。                                                                                                                                                                                   |
 | `pages/ConfigPage.tsx`                                               | `src/pages/alerts/AlertConfigPage.tsx` + `AlertConfigDrawer.tsx` + `useAlertConfig.ts`                  | **复制 + 拆分 + 替换** | 2 / 3 / 4    | 原型单文件（挂载/校验/版本历史/回滚/跨模块跳转）按 T08-F2 拆为：页面壳 `AlertConfigPage.tsx`（当前生效 + 版本历史 + 详情 Drawer）、`AlertConfigDrawer.tsx`（Upload/粘贴 + amtool 校验 + 提交）、`useAlertConfig.ts`（数据 Hook：current/versions/remount）。**mock 替换为** `alertmanagerConfigApi` 真实调用；校验行为由原型前端正则模拟改为后端校验失败行级错误不落库（决策 59/60）。 |
 | `pages/SilencesPage.tsx`                                             | `src/pages/alerts/SilencesPage.tsx` + `CreateSilenceDrawer.tsx` + `useSilences.ts`                      | **复制 + 拆分 + 替换** | 2 / 3 / 4    | 原型 Modal 新建表单拆为独立 `CreateSilenceDrawer.tsx`（T08-F3）；列出独立 `SilencesPage.tsx` + `useSilences.ts`。**mock 替换为** Alertmanager API 直调（创建/列表/删除即时生效）；新增决策 56 授权提示 + 决策 59「不进 M09 变更单」说明、越权创建被拒展示。`dayjs` 新增依赖（T08-F3）。                                                                      |
-| `pages/AlertStatusPage.tsx`                                          | —（无）                                                                                                    | **删除（独立页）**      | 3 导航 IA / 裁剪 | 「告警状态四态页」（active/silenced/inhibited/unprocessed）决策 55 标注归 v0.3/v1.0，MVP 裁剪（见「六、裁剪清单」）。                                                                                                                                                                                               |
+| `pages/AlertStatusPage.tsx`                                          | `src/pages/alerts/AlertStatusPage.tsx` + `useAlertStatus.ts`（**v1.12 提前 MVP，T08-F6**）                                    | **复制 + 拆分 + 替换** | 2 / 3 / 4    | ~~决策 55 归 v0.3~~ 已由 v1.12 修订提前至 MVP：生产落地为**双 Tab**（AM 通知状态 + Prometheus 当前触发告警），mock 替换为真实 API（契约快照 §10）。详见「八、告警状态页映射」。                                                                                                                                                 |
 | `pages/NotifiersPage.tsx` / `RoutesPage.tsx` / `InhibitionsPage.tsx` | —（无）                                                                                                    | **删除（独立页）**      | D4 裁剪        | 通知渠道 / 路由规则 / 告警抑制的字段化编辑 UI 归 v0.3/v1.0，MVP 由整份 `alertmanager.yml` 文件挂载承载（决策 59）。                                                                                                                                                                                                    |
 | `mocks/module-08.ts`                                                 | `src/api/alertmanager.ts` / `src/types/alertmanager.ts` / `src/pages/alerts/alertmanagerConstants.ts`   | **替换**           | 4 数据契约       | mock 类型（Matcher / Silence / AlertmanagerConfigVersion / ChangeStatus / NotificationStatus 等）落到 `types/alertmanager.ts`；mock 数据替换为真实 API。                                                                                                                                             |
 | `components/StageBadge.tsx`                                          | —（无）                                                                                                    | **删除**           | 实现基底裁剪       | 原型阶段角标，不进入生产。                                                                                                                                                                                                                                                                        |
@@ -93,7 +93,7 @@
 
 | 原型 Sider 项           | 生产现状  | 备注                                   |
 | -------------------- | ----- | ------------------------------------ |
-| 告警状态（`/alerts`）      | ❌ 未注册 | 四态页归 v0.3/v1.0（决策 55）。               |
+| 告警状态（`/alerts`）      | ✅ 已注册为 `/alert-status`（T08-F7） | **已撤销裁剪**：v1.12 提前至 MVP（双视图，见「八」）；生产路由用 `/alert-status` 以避开原型占位语义。 |
 | 路由规则（`/routes`）      | ❌ 未注册 | 字段化 UI 归 v0.3/v1.0，MVP 走文件挂载（决策 59）。 |
 | 通知渠道（`/notifiers`）   | ❌ 未注册 | 同上。                                  |
 | 告警抑制（`/inhibitions`） | ❌ 未注册 | 同上。                                  |
@@ -117,7 +117,7 @@
 
 | 原型项                                             | 生产处理        | 理由                                                                  |
 | ----------------------------------------------- | ----------- | ------------------------------------------------------------------- |
-| 告警状态四态页（active/silenced/inhibited/unprocessed）  | 裁剪          | 决策 55：告警状态页归 v0.3/v1.0「告警域工作台」，MVP 不展开。                             |
+| 告警状态四态页（active/silenced/inhibited/unprocessed）  | ~~裁剪~~ **已撤销：v1.12 提前 MVP 交付（双视图）** | 决策 55 原标注归 v0.3/v1.0；M08/M02 PRD v1.12 提前至 MVP（MVP 试用反馈：前台缺少查看当前告警入口），落地映射见「八」。 |
 | 通知渠道 / 路由规则 / 告警抑制 字段化编辑 UI                     | 裁剪，统入文件挂载   | 决策 55/59：接收人/路由/抑制以整份 `alertmanager.yml` 挂载承载，字段化表单 UI 归 v0.3/v1.0。 |
 | 角色切换（ops/arch Select）+ 网域模式 Switch + 「原型验证版」Tag | 删除          | 原型脚手架，不进入生产（单租户 / M09 处理网域）。                                        |
 | `StageBadge` 阶段角标                               | 删除          | 原型产物。                                                               |
@@ -146,5 +146,57 @@
 
 - [ ] 全局：`make test-platform` + 前端 `pnpm test` / `pnpm lint` 通过；后端 run + 前端 dev 200，T08-F1\~F5 主链路走通。
 
-- [ ] TODO：四态页 / 通知渠道 / 路由 / 抑制字段化 UI 是否在 v0.3/v1.0 回归，届时据此表补列模块与路由。
+- [ ] TODO：~~四态页~~ / 通知渠道 / 路由 / 抑制字段化 UI 是否在 v0.3/v1.0 回归，届时据此表补列模块与路由。（四态页已于 v1.12 提前 MVP，见「八」；剩余待回归项 = 通知渠道 / 路由 / 抑制字段化 UI）
+
+## 八、告警状态页映射（v1.12 MVP 增量，T08-F6 / T08-F7）
+
+> 决策 55 原口径「告警状态页归 v0.3」已由 M08/M02 PRD v1.12 修订提前至 MVP（MVP 试用反馈：前台缺少查看当前告警入口）；分轨 Track B+，强制 security-reviewer。契约第一权威：`api-contract-snapshot.md` §10。
+
+### 8.1 文件级映射
+
+| 原型文件（`docs/prototypes/module-08/src/`） | 生产对应（`ui-custom/web/src/`） | 处理 | 说明 |
+| ---- | ---- | ---- | ---- |
+| `pages/AlertStatusPage.tsx` | `src/pages/alerts/AlertStatusPage.tsx` + `useAlertStatus.ts` | **复制 + 拆分 + 替换** | 原型为单视图（AM 通知状态四态，mock）；生产落地**双 Tab**：Tab 1「Alertmanager 通知状态」（对应原型主体）+ Tab 2「Prometheus 当前触发告警」（无原型对应，以契约快照 §10.1 为准）。mock `mockAlertNotifications` 全部替换为真实 API（`alertmanagerApi` 扩展），禁止残留。 |
+| —（类型/客户端扩展） | `src/types/alertmanager.ts` / `src/api/alertmanager.ts` / `src/pages/alerts/alertmanagerConstants.ts` | ➕扩展（T08-F1 已交付物上增量） | 新增 `PromAlertItem` / `AmAlertItem` / `notify_status` 四态与 `state`（firing/pending）枚举、展示名/颜色映射、`getPromAlerts` / `getAmAlerts` 客户端方法。 |
+| `layouts/MainLayout.tsx` / `App.tsx` | 同名生产文件 | **修改**（T08-F7） | alert 顶级模块 Sider 菜单组「告警配置」新增二级「告警状态」（`/alert-status`）；`resolveActiveModule` 将 `/alert-status` 归入 `alert`；App 注册路由（懒加载）。 |
+
+### 8.2 列 / 区块对照（原型 AlertStatusPage.tsx vs 生产 AlertStatusPage.tsx）
+
+| #  | 原型列 / 区块 | 生产处理 | 理由 |
+| -- | ---- | ---- | ---- |
+| 1  | 页面头「告警状态」+ 副标题（AM 通知状态语义说明 + 授权过滤提示） | 对齐 | 决策 56 授权提示保留（MVP 恒通过：「通知状态已按授权网域集合过滤（授权 = 全部网域时不附加过滤）」）。 |
+| 2  | Alert 提示条「本页 vs Prometheus 触发告警」 | 调整 | 双 Tab 后语义改为 Tab 间说明（两视图语义区分，PRD §3.2 建议），不再提示「本模块不重复实现」。 |
+| 3  | 四态 Statistic 统计卡片（active/silenced/inhibited/unprocessed 计数） | 对齐（AM Tab 内） | 视觉 Token 沿用全站（§五）。 |
+| 4  | 列「Alertname」 | 对齐 | `labels.alertname` → UI 展示名「告警名称」。 |
+| 5  | 列「通知状态」（四态 Tag + Tooltip） | 对齐 | 生产消费服务端归一 `notify_status`（active=通知中 / silenced=静默 / inhibited=抑制 / unprocessed=待处理），映射逻辑在后端（契约 §10.2）。 |
+| 6  | 列「接收人」 | **裁剪** | AM v2 `/api/v2/alerts` 响应**无 receiver 归属字段**（路由计算结果不回传），MVP 无数据源支撑（已登记 T08-F6 clipping；后续版本如需要须先补契约）。 |
+| 7  | 列「网域」/「实例」 | 对齐 | `labels.network_domain` / `labels.instance`。 |
+| 8  | 列「激活时间」 | 对齐（改名） | AM 视图取 `starts_at`（「开始时间」）；Prometheus 视图取 `activeAt`（「激活时间」）。 |
+| 9  | 列「说明」 | 对齐 | `annotations.summary`（摘要）。 |
+| 10 | 筛选「通知状态 + 网域」 | 对齐 + 扩展 | 网域筛选两视图均支持（后端过滤，Query `network_domain` 透传）；状态筛选随 Tab 切换枚举（AM 四态 / Prometheus firing·pending）。 |
+| 11 | —（无原型对应） | ➕生产新增 | Tab 2「Prometheus 当前触发告警」：列 = 告警名称 / 状态（firing=触发中、pending=待处理）/ 网域 / 实例 / 激活时间 / 摘要 / 当前值（契约 §10.1）。 |
+
+### 8.3 文案对照
+
+| 原型文案 | 生产文案 | 备注 |
+| ---- | ---- | ---- |
+| `Active（通知中）` / `Silenced（静默）` / `Inhibited（抑制）` / `Unprocessed（待处理）` | 通知中 / 已静默 / 已抑制 / 待处理 | 沿用原型四态语义；生产落 `alertmanagerConstants.ts` 统一映射（UI 展示名以契约 §10.2 为准）。 |
+| —（无） | 触发中（firing）/ 待处理（pending） | Prometheus 视图新增（M02 §13 术语）。 |
+| 「静默影响当前授权网域」类提示（v1.7 评审补充） | 保留 | 决策 56 骨架提示，MVP 恒通过。 |
+
+### 8.4 裁剪说明（本轮登记，防偏离）
+
+| 原型项 / 潜在项 | 处理 | 理由 |
+| ---- | ---- | ---- |
+| 列「接收人」 | 裁剪 | AM v2 API 无 receiver 字段（见 8.2 #6）。 |
+| 通知渠道模板、告警升级策略 | 不做 | P2 / v1.0（PRD §3.1）。 |
+| 边缘本地告警状态视图 | 不做 | P2 / v0.4+（PRD §5.4 边缘条目，经 M09 EdgeHeartbeat 上报）。 |
+| Prometheus 规则求值详情（`/api/v1/rules`） | 不做 | v0.3（Module_02 §6.3），本轮仅 alerts 实例列表。 |
+
+### 8.5 开发验证待办（追加）
+
+- [ ] 双 Tab 切换与两视图语义说明条正确；四态 / firing·pending Tag 颜色与全站 Token 一致。
+- [ ] 网域筛选两视图生效（Query 透传，后端过滤）；空态 / 接口错误 / 权限不足矩阵覆盖。
+- [ ] `mockAlertNotifications` 无残留；`/alert-status` 路由注册且 resolveActiveModule 归入 alert。
+- [ ] 收尾挂 security-reviewer（Track B+ 强制：决策 56 授权骨架 + 代理 SSRF 面）。
 

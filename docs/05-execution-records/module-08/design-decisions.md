@@ -177,3 +177,19 @@
 - **遗留（不阻塞）**：M09 抽屉多文件预览 Tab 不含 alertmanager.yml 内容预览（ConfigDraft 模型无字段，后续版本评估）；ConfigPage Alert 计数超阈为既有结构债；M09 mocks 存量测试断言已顺手修正（draft-finance-002 pending）。
 - **PRD 内部待澄清（已闭环，2026-09-02）**：§9.2「校验失败不落库」与 §6.6「留痕含校验结果 + status=failed」的口径张力源于 v1.6 旧版 §6.6；PRD v1.7 已将 §6.6 说明 1 修订为「校验失败不落库、`status` 恒 `applied`、不存 `error_msg`」，与 §9.2 / 契约快照一致，无需再统一。失败留痕由 M09 管道侧承担（`ConfigDraft.validation_status=failed` + `validation_cause/details`，决策 45），M08 内容表不重复。原型 mock 已对齐（`acv-*` 均为 `applied`），README 旧措辞本次一并订正。
 - **状态变更**：M08 PRD `设计中` → `ready`（用户授权两段评审通过后回归，2026-08-31）。
+
+---
+
+## 分轨判定记录：2026-09-08（告警状态展示 MVP 提前，PRD v1.12）
+
+- **需求**：「告警状态」展示功能 MVP 版本——告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）双视图：Prometheus 当前触发告警（firing/pending，经 M02 代理 `/api/v1/alerts`，v1.12 同步提前）+ Alertmanager 通知状态（active/silenced/inhibited/unprocessed，M08 代理 AM `/api/v2/alerts`），支持按 `network_domain` 筛选。
+- **触发**：MVP 试用反馈「前台缺少查看当前告警入口」（PRD v1.12 Change Log），用户在设计空间将 PRD 直接推进至 ready（v1.12）并明确开工指令。
+- **五问判定**：
+  1. 模式成熟度：告警列表双视图为行业成熟模式（Prometheus/Alertmanager 原生 UI 即此形态）→ 偏 B。
+  2. 交互范式：无新概念，标准表格 + Tab + 筛选即可承载；原型 `docs/prototypes/module-08/src/pages/AlertStatusPage.tsx` 既有资产已含该页（v1.7 评审遗留「告警状态页补授权过滤提示」已闭环）→ 偏 B。
+  3. 契约影响面：不推翻已落版决策（49/55/56/59/60/61 均维持）；新增 M02 侧 `/api/v1/alerts` 代理与 M08 侧 AM `/api/v2/alerts` 代理两条**新增只读 API**，不改既有契约 → 单模块内闭环。
+  4. 安全风险：读路径涉及决策 56 授权过滤骨架（服务端强制注入授权网域集合 filter，MVP 单租户恒通过）——**命中第 4 问（鉴权敏感面）→ 升级 B+，强制挂 security-reviewer**。
+  5. 可表达性：能——字段表（Prometheus Alert / AM GettableAlert 子集）+ 接口清单（2 条只读代理）+ 验收清单（PRD §9.1/§9.2 已有对应条目）一页可表达。
+- **最终轨道**：**Track B+**（轻量增量直派开发 + 强制 security-reviewer）。PRD 已由用户推进至 `ready` v1.12（完整骨架 + 既有原型资产），不走 dev-ready 豁免路径；本记录替代「免原型」豁免登记——原型资产在 v1.7 评审中已覆盖该页，无需补做。
+- **用户确认**：2026-09-08，用户在开发空间 feat/module-08-alert-dispatch 直接下达「根据 PRD 要求进行告警状态展示功能 MVP 开发」指令，视为书面确认。
+- **审查要求**：本轮收尾必须挂 security-reviewer（决策 56 授权过滤骨架 + 代理 SSRF 面核查）。

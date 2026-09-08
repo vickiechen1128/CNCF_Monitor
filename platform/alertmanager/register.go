@@ -2,16 +2,19 @@
 // 统一挂载到 /api/v2/platform/alertmanager/*：
 //   - /config*：alertmanager.yml 文件挂载 / 当前生效 / 版本列表与详情 / 重新挂载（M08 config）；
 //   - /silences*：静默管理——服务端代理 Alertmanager 原生 /api/v2/silences，
-//     写路径带决策 56 matcher 授权收敛（即时生效、不入 M09 流水线，决策 59）。
+//     写路径带决策 56 matcher 授权收敛（即时生效、不入 M09 流水线，决策 59）；
+//   - /alerts：通知状态查看——服务端代理 Alertmanager 原生 /api/v2/alerts（v2 口径，
+//     决策 61），notify_status 四态归一 + 决策 56 读路径授权过滤骨架（T08-07，契约 §10.2）。
 //
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
-//   §6.3 / §9.1 / §9.2；docs/05-execution-records/module-08/api-contract-snapshot.md §3/§4。
+//   §6.3 / §9.1 / §9.2；docs/05-execution-records/module-08/api-contract-snapshot.md §3/§4/§10。
 package alertmanager
 
 import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/alerts"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/silence"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
@@ -53,5 +56,14 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error 
 	adminSil.Use(auth.RequireAdmin())
 	adminSil.POST("", silence.CreateHandler(silSvc))
 	adminSil.DELETE("/:silence_id", silence.DeleteHandler(silSvc))
+
+	// M08 告警状态查看（T08-07，契约 §10.2）：代理 Alertmanager GET /api/v2/alerts，
+	// notify_status 四态归一 + 决策 56 读路径授权过滤骨架。只读端点保留在根组
+	// （仅全局认证，同静默列表挂法）。
+	alertsProxy, err := alerts.NewProxy(amURL)
+	if err != nil {
+		return fmt.Errorf("init alertmanager alerts proxy: %w", err)
+	}
+	am.GET("/alerts", alerts.ListHandler(alerts.NewService(alertsProxy)))
 	return nil
 }

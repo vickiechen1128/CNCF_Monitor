@@ -3,9 +3,9 @@
 > 文档类型：产品需求文档 / 实施规划  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.11（采集状态回显提前 MVP，决策 47）· Module_06 v2.9（v0.2 范围收敛：`ip_cidrs` 与 IP 推导挪 v0.3 + K8s 划域指导原则）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.11（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61）· Module_09 v1.56（alertmanager.yml 纳入变更确认，决策 60；v0.2 端口解析链 + K8s 划域备忘）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
+> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.12（采集状态回显提前 MVP，决策 47；`/api/v1/alerts` 告警状态代理同步提前回 MVP，v1.12）· Module_06 v2.9（v0.2 范围收敛：`ip_cidrs` 与 IP 推导挪 v0.3 + K8s 划域指导原则）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.12（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61；告警状态查看提前 MVP，v1.12）· Module_09 v1.56（alertmanager.yml 纳入变更确认，决策 60；v0.2 端口解析链 + K8s 划域备忘）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
 >
-> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。
+> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。2026-09-08：M02 v1.11→v1.12 / M08 v1.11→v1.12 为**实质范围调整**（告警状态查看由 v0.3 提前至 MVP，新增两条只读代理契约），见 §2.5 / §2.6 / §6 / §8 与 §11。
 >
 > Plan 版本：**v2026-09-05**（v0.2 范围收敛重派生，对齐 `02_Product_Roadmap.md` v2.2；`05_Code_Implementation_Plan.md` 同步——Phase 6.4 监控源登记册后移 v0.3，v0.2 补实例级 `scrape_port` 端口解析链与 K8s 划域，移出克隆 Job / 草稿批量提交 / 业务健康度看板 / `service_discovery` / IP 推导 / `ip_cidrs`；各模块 `task-sequence.yaml` 的 `plan_version` 同步统一）  
 > 更新日期：2026-09-05（Plan 版本重派生 + 版本清单刷新：各模块 PRD 版本对齐至 2026-09-04 最新修订版，见 §11 变更日志；此前 2026-09-01 为决策 47 采集状态回显增量 + 决策 59/60 告警分发 MVP 闭环，见 §2.3 / §2.6 / §6 / §8 / §11）
@@ -117,11 +117,12 @@
 | 采集健康度/覆盖率聚合 | `/api/v1/health/coverage` 三态聚合（决策 47-3，v0.2 提前 MVP） | ⚠️ 基于 `up` 指标聚合 | 按 `resource_id` 标签回连五类资源，输出 采集中/已下发未采到/未监控 三态 + 覆盖率汇总；供 M07 badge 消费；选中关系取 DB 当前值、不感知 M09 下发时序（2026-09-02 口径修订） | 中 | 低 | L3 |
 | 独立目标状态页 | 跨 Job 全局排障入口（决策 47-4） | — | 极简列表（按 health / 网域过滤），MVP 降级 **P1** | — | 低 | L3 |
 | 响应 envelope | `data_source` / `freshness_at` / `network_domains` | 预留字段 | v0.2 细化多网域来源 | 中 | 低 | L3 |
-| 告警状态 / PromQL 校验 | `/api/v1/alerts`、`/api/v1/query/validate` | 未实现 | v0.3 随 M08 / M01 字段化规则编辑启用 | — | — | L4 |
+| 告警状态代理 | `/api/v1/alerts`（firing/pending，供 M08 告警状态页消费，v1.12 由 v0.3 提前至 MVP） | ✅ | 代理 + 注入租户/网域上下文骨架（MVP 恒通过）+ `network_domain` 可选筛选 | 低 | 无 | L1 |
+| PromQL 校验 | `/api/v1/query/validate` | 未实现 | v0.3 随 M01 字段化规则编辑启用 | — | — | L4 |
 
-> **关键判断（决策 47）**：`/api/v1/targets` 代理**保留 MVP P0**，是 M01 Job 实例采集状态回显与 M07 资源三态 badge 的**共同数据源**（租户/网域注入仍由 M02 承担）；**采集健康度/覆盖率聚合 API 由 v0.2 提前到 MVP**（M07 badge 上游）；独立「目标状态页」前端降 **P1**（极简列表，定位收敛为「跨 Job 全局排障入口」）。原 §2.5「MVP 不新增开发」声明被本版取代。
+> **关键判断（决策 47）**：`/api/v1/targets` 代理**保留 MVP P0**，是 M01 Job 实例采集状态回显与 M07 资源三态 badge 的**共同数据源**（租户/网域注入仍由 M02 承担）；**采集健康度/覆盖率聚合 API 由 v0.2 提前到 MVP**（M07 badge 上游）；独立「目标状态页」前端降 **P1**（极简列表，定位收敛为「跨 Job 全局排障入口」）。原 §2.5「MVP 不新增开发」声明被本版取代。**v1.12 起 `/api/v1/alerts` 代理同步提前回 MVP**（M08 告警状态页 MVP 交付的依赖；MVP 试用反馈：前台缺少查看当前告警入口）；`/api/v1/rules`、PromQL 校验仍留 v0.3。
 
-### 2.6 Module_08：告警收敛与通知管理（决策 59/60：告警分发 MVP 最小闭环 = 文件挂载 + 静默 UI）
+### 2.6 Module_08：告警收敛与通知管理（决策 59/60：告警分发 MVP 最小闭环 = 文件挂载 + 静默 UI；v1.12 告警状态查看提前 MVP）
 
 > 告警收敛与派发组件锁定 **Alertmanager**（决策 49）。告警分发是监控闭环「采得到 → 查得到 → 告得出」的最后一环（决策 59），MVP 按操作频率拆分交付形态：
 
@@ -131,10 +132,10 @@
 | 静默管理（MVP） | 创建 / 列表 / 删除静默，API 直调 Alertmanager（运行时状态，文件挂载承载不了）；服务端 matcher 授权集合校验（决策 56，MVP 单租户恒通过） | ✅ Alertmanager API | 代理 AM `/api/v1/silences` + 服务端 matcher 收敛校验 | 低 | 中 | L1/L3 |
 | 接收人 / 路由 / 抑制表单化 UI | Receiver / Route / InhibitionRule 表单化配置管理 | ✅ Alertmanager 语义 | 表单 → 生成 `alertmanager.yml` | 中 | 高 | L2 |
 | 告警抑制规则自动生成 | 网域离线抑制 `inhibitable=true` 告警风暴（源 `EdgeSiteOffline`、equal `network_domain`） | ✅ `inhibit_rules` | 生成 `inhibit_rules`（MVP 由挂载文件承载，自动生成随 v0.3 表单化） | 中 | 中 | L2 |
-| 告警状态查看（AM 通知状态） | active / silenced / inhibited / unprocessed 四态；服务端授权网域过滤（决策 55/56） | ✅ AM `/api/v1/alerts` | 代理 `/api/v1/alerts` + 服务端注入授权网域 filter | 中 | 中 | L1/L3 |
-| Prometheus 触发告警状态 | firing / pending 双视图 | —（M02 代理） | v0.3 随 M02 能力消费 | — | — | L3 |
+| 告警状态查看（AM 通知状态，**v1.12 提前至 MVP**） | active / silenced / inhibited / unprocessed 四态；服务端授权网域过滤（决策 55/56，MVP 单租户恒通过、骨架保留） | ✅ AM `/api/v2/alerts`（v1 端点已移除，对齐决策 61 的 v2 API 口径） | 代理 AM `/api/v2/alerts` + 服务端强制注入授权网域集合 filter（不信任前端传参） | 低 | 中 | L1/L3 |
+| Prometheus 触发告警状态（**v1.12 提前至 MVP**） | firing / pending（与 AM 通知状态同页双视图） | —（M02 代理） | 只读消费 M02 `/api/v1/alerts` 代理（同步提前回 MVP），本模块不重复实现 | —（M02 承担） | 中 | L3 |
 
-> **关键判断（决策 59/60）**：MVP 前台告警动线 = 「部署期挂载 `alertmanager.yml`（一次性）→ 日常静默管理（高频，UI）」，用户全程不碰 YAML 除非初始化。**M08 是 `alertmanager.yml` 内容 Owner，M09 是变更确认与下发管道 Owner**（关系对齐 M01/M09）；`alertmanager.yml` 作为**管理域（`default`）scope** 配置产物进入 M09 `ConfigDraft → 人工确认 → 下发 → reload` 流水线，`change_status` 回写 M08，**不按网域扇出、不进 `agent_pull` 配置包**。接收人 / 路由表单化 UI、告警状态页归 v0.3；通知模板 / 升级策略归 v1.0。
+> **关键判断（决策 59/60）**：MVP 前台告警动线 = 「部署期挂载 `alertmanager.yml`（一次性）→ 日常静默管理（高频，UI）」，用户全程不碰 YAML 除非初始化。**M08 是 `alertmanager.yml` 内容 Owner，M09 是变更确认与下发管道 Owner**（关系对齐 M01/M09）；`alertmanager.yml` 作为**管理域（`default`）scope** 配置产物进入 M09 `ConfigDraft → 人工确认 → 下发 → reload` 流水线，`change_status` 回写 M08，**不按网域扇出、不进 `agent_pull` 配置包**。**告警状态查看（双视图）v1.12 起由 v0.3 提前至 MVP**（M02 `/api/v1/alerts` 代理 firing/pending + M08 代理 AM `/api/v2/alerts` 四态，菜单归「告警收敛与通知管理 → 告警配置组 → 告警状态」）；接收人 / 路由表单化 UI 归 v0.3；通知模板 / 升级策略归 v1.0。
 
 ### 2.7 Module_05：自定义前端门户（MVP 不做独立分支）
 
@@ -331,7 +332,7 @@ scrape_configs:
 | `rules.yml` 生成与下发 | ✅ 通过 M01 规则文件挂载 + M09 生成 | 结构化生成 | 结构化 + 边缘 scope |
 | Alertmanager 配置（路由/接收人/静默/抑制） | ✅ **文件挂载**（决策 59/60）：M08 上传/粘贴 `alertmanager.yml` → amtool 校验 → 留痕 → 进 M09 管理域变更单确认下发；接收人/路由为文件承载、无表单 UI | 接收人/路由/抑制表单化 UI | 完整 UI |
 | 静默管理 | ✅ **极简 UI**（创建/列表/删除，API 直调 Alertmanager，决策 59） | 活跃告警联想 + 相对时间快捷 | 完整静默管理 |
-| 告警状态查看 | ❌ 不做（归属 M08、v0.3 起，决策 55） | AM 通知状态四态 + M02 代理 firing/pending 双视图 | 完整告警中心 |
+| 告警状态查看 | ✅ **MVP 交付**（v1.12 提前，归属 M08，决策 55）：告警状态页双视图——AM 通知状态四态（M08 代理 `/api/v2/alerts` + 决策 56 授权过滤骨架）+ M02 代理 firing/pending（`/api/v1/alerts`） | 边缘本地告警状态视图（v0.4+） | 完整告警中心 |
 | 边缘自治告警 | ❌ 不做 | ❌ 不做 | v0.4+ / v1.0 |
 
 > MVP 阶段告警规则通过「规则文件挂载」进入 Prometheus Rule Manager；`alertmanager.yml` 由 M08 文件挂载生成（内容 Owner）、**MVP 起纳入 M09 变更确认为管理域（`default`）scope 产物**（管道 Owner，决策 60），人工确认后由 M09 写中心 Alertmanager 配置路径并 reload，`change_status` 回写 M08。静默为运行时 API 状态，MVP 用极简 UI 直调 Alertmanager。
@@ -419,10 +420,11 @@ Module_09 网域与边缘配置中心
 Module_08 告警收敛与通知管理（决策 59/60）
     ├──► 文件挂载 alertmanager.yml + amtool 校验 + AlertmanagerConfigVersion 留痕
     ├──► 提交 M09 管理域（default）变更单 → 人工确认 → 下发 reload → change_status 回写
-    └──► 静默管理（创建/列表/删除，API 直调）
+    ├──► 静默管理（创建/列表/删除，API 直调）
+    └──► 告警状态页双视图（M02 /api/v1/alerts firing/pending + AM /api/v2/alerts 四态，v1.12 提前 MVP）
 ```
 
-> **模块边界**：MVP 闭环终点是「M09 下发后中心 Prometheus 成功 reload 并产生指标」，并**延伸告警分发闭环**（决策 59/60）：M08 文件挂载 `alertmanager.yml`（内容 Owner）→ M09 管理域（default）scope 变更单确认下发 reload → change_status 回写，形成「采得到 → 查得到 → 告得出」完整闭环。M02 保留 query* 代理现有能力，并新增 `/api/v1/targets` 代理（M01 回显 / M07 badge 共同数据源）与 `/api/v1/health/coverage` 三态聚合（决策 47，Track B 增量）；M05 门户不保留独立 feature 分支，联调阶段用现有页面串链。
+> **模块边界**：MVP 闭环终点是「M09 下发后中心 Prometheus 成功 reload 并产生指标」，并**延伸告警分发闭环**（决策 59/60）：M08 文件挂载 `alertmanager.yml`（内容 Owner）→ M09 管理域（default）scope 变更单确认下发 reload → change_status 回写，形成「采得到 → 查得到 → 告得出」完整闭环。M02 保留 query* 代理现有能力，并新增 `/api/v1/targets` 代理（M01 回显 / M07 badge 共同数据源）、`/api/v1/health/coverage` 三态聚合（决策 47，Track B 增量）与 `/api/v1/alerts` 告警状态代理（v1.12 提前 MVP，M08 告警状态页数据源，Track B+ 增量）；M05 门户不保留独立 feature 分支，联调阶段用现有页面串链。
 
 ---
 
@@ -462,6 +464,7 @@ Module_08 告警收敛与通知管理（决策 59/60）
 
 | 日期 | 变更内容 | 变更人 |
 |------|----------|--------|
+| 2026-09-08 | **告警状态查看提前 MVP（Track B+ 增量，强制 security-reviewer；MVP 试用反馈：前台缺少查看当前告警入口）**：§2.5 M02 新增 `/api/v1/alerts` 代理行（firing/pending + 注入骨架恒通过 + `network_domain` 可选筛选）；§2.6 M08「告警状态查看（AM 通知状态）/ Prometheus 触发告警状态」两行由「v0.3」修订为 **MVP**，AM 代理端点修正为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 已移除）；§6 告警分层 MVP 列补齐告警状态查看（双视图）；§8 MVP 闭环 M08 块追加告警状态页双视图、M02 增量清单补 `/api/v1/alerts`；PRD 版本对齐 Module_02 v1.11→v1.12 / Module_08 v1.11→v1.12；同步 `05_Code_Implementation_Plan.md`（§6.4 Track B+ 登记 + §7.9 验收 + 头部版本串逐字一致） | planner |
 | 2026-09-05 | **版本清单刷新（终验前置）**：§头部「各模块 PRD 版本」对齐至各 PRD 2026-09-04 最新修订版——M01 v3.29→v3.35、M02 v1.8→v1.11、M06 v2.3→v2.9、M07 v2.25→v2.30、M08 v1.7→v1.11、M09 v1.52→v1.56、M03 v1.2→v1.3；同步 `05_Code_Implementation_Plan.md` 同一版本串（终验 1.1 要求两处逐字一致）。本轮仅版本号对齐，正文技术条款未改动。**同日追加（已闭环）**：产品负责人确认重派生——Plan 版本 v2026-08-21 → **v2026-09-05**，各模块 `task-sequence.yaml` 的 `plan_version` 同步统一；`05_Code_Implementation_Plan.md` 的 Phase 6 按 `02_Product_Roadmap.md` v2.2 重写（6.4 监控源登记册后移 v0.3、新增 6.5 采集参数差异化与实例级端口覆盖）、§6.4 Track B 补登记 M01 F-32 / M07 F-34·L-2（详见 05 §9「v2026-09-05」条目） | prototype-designer |
 | 2026-09-02 | coverage 三态口径修订（Track B 增量内闭环，用户拍板 A 方案）：coverage/M07 badge 选中关系取 DB 当前值、不感知 M09 下发时序，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显；§2.1/§2.5 同步；M07 默认模板补 `resource_id` 稳定身份映射（代码 `DefaultMappingBuilders` + 种子迁移同轮落地）；PRD 版本对齐 M01 v3.29 / M02 v1.8 / M07 v2.25 | — |
 | 2026-09-01 | 决策 59/60 告警分发 MVP 闭环（Track B 增量）：§2.3 M09 新增 `alertmanager.yml` 管理域（default）scope 产物行（不扇出、不进 agent_pull 包，变更项/受影响文件枚举扩展 `alertmanager`，`change_status` 回写 M08）；§2.6 M08 由「MVP 不做」改为「MVP=文件挂载 + 静默 UI」（AlertmanagerConfigVersion 内容留痕 + 提交 M09 变更单 + change_status 回写；接收人/路由/抑制表单化 UI、告警状态页归 v0.3）；§6 告警分层 MVP 列补齐文件挂载 + 静默；§8 MVP 闭环末尾追加 M08 告警分发；§9 更新 MVP 避开项与新增自研点；PRD 版本对齐 M08 v1.7 / Module_09 v1.52（决策 60） | — |

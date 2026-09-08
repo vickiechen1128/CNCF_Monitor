@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-08 13:08 · commit: `fb77d4af`
+> 生成时间: 2026-09-08 15:03 · commit: `0a31d8fd`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -291,6 +291,51 @@
 - `func validatePassword(password string) error`
 - `func newUserID() (string, error)`
 
+### `platform/alertmanager/alerts/alerts_test.go`
+
+- `type fakeAMAlerts struct`
+- `func startFakeAMAlerts(t *testing.T, f *fakeAMAlerts) string`
+- `func amFixture() []amAlert`
+- `func newTestService(t *testing.T, f *fakeAMAlerts) *Service`
+- `func TestNewProxyRejectsBadTarget(t *testing.T)`
+- `func TestServiceListNotifyStatusFourStates(t *testing.T)`
+- `func TestNotifyStatusPriority(t *testing.T)`
+- `func TestServiceListAuthorizedScopeFilter(t *testing.T)`
+- `func TestServiceListNetworkDomainUXFilter(t *testing.T)`
+- `func TestServiceListAMUnreachable(t *testing.T)`
+- `func newAlertsRouter(svc *Service) *gin.Engine`
+- `type alertsResp struct`
+- `func doListAlerts(t *testing.T, r *gin.Engine, query string) (int, alertsResp)`
+- `func TestListEndpointHappy(t *testing.T)`
+- `func TestListEndpointUXFilter(t *testing.T)`
+- `func TestListEndpointEmptyNotNull(t *testing.T)`
+- `func TestListEndpointAMError(t *testing.T)`
+
+### `platform/alertmanager/alerts/handler.go`
+
+- `func ListHandler(svc *Service) gin.HandlerFunc`
+- `func authorizedScopeForUser(_ *gin.Context) *models.AuthorizedMatcherScope`
+
+### `platform/alertmanager/alerts/proxy.go`
+
+- `type amAlertStatus struct`
+- `type amAlert struct`
+- `type Proxy struct`
+- `func NewProxy(baseURL string) (*Proxy, error)`
+- `method (*Proxy) ListAlerts(ctx context.Context) ([]amAlert, error)`
+- `func sanitize(b []byte) string`
+
+### `platform/alertmanager/alerts/service.go`
+
+- `type AlertStatus struct`
+- `type AlertItem struct`
+- `type Service struct`
+- `func NewService(proxy *Proxy) *Service`
+- `method (*Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope, networkDomain string) ([]AlertItem, error)`
+- `func domainInScope(scope *models.AuthorizedMatcherScope, domain string) bool`
+- `func toAlertItem(am amAlert) AlertItem`
+- `func normalizeNotifyStatus(st amAlertStatus) string`
+
 ### `platform/alertmanager/config/config_test.go`
 
 - `func newMemConfigDB(t *testing.T) *gorm.DB`
@@ -527,6 +572,7 @@
 - `func seedIntegrationHost(t *testing.T, dbm *gorm.DB, id, domain, name string)`
 - `func seedIntegrationJob(t *testing.T, dbm *gorm.DB, jobName string, selected []string)`
 - `func TestEndToEndQueryCoverageRoutes(t *testing.T)`
+- `func TestEndToEndAlertStatusSmoke(t *testing.T)`
 
 ### `platform/cmd/metric-center/route_probe_test.go`
 
@@ -2106,6 +2152,28 @@
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
 
+### `platform/query/alerts.go`
+
+- `type promAlert struct`
+- `func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func fetchAlerts(ctx context.Context, client *http.Client, promURL *url.URL) ([]promAlert, error)`
+- `func tenantAuthorizedDomains(_ *gin.Context) []string`
+- `func alertDomainAllowed(authorized []string, domain string) bool`
+
+### `platform/query/alerts_test.go`
+
+- `func promAlertsFixture() map[string]interface{}`
+- `type alertsResp struct`
+- `func newAlertsRouter(t *testing.T, upstream http.Handler) *gin.Engine`
+- `func newAlertsRouterOK(t *testing.T) *gin.Engine`
+- `func doAlerts(t *testing.T, r *gin.Engine, query string) (int, alertsResp)`
+- `func TestAlertsPassthroughFields(t *testing.T)`
+- `func TestAlertsFilterNetworkDomain(t *testing.T)`
+- `func TestAlertsNetworkDomainFallbackDefault(t *testing.T)`
+- `func TestAlertsEmptyNotNull(t *testing.T)`
+- `func TestAlertsUpstreamError(t *testing.T)`
+- `func TestAlertsTenantScopeSkeleton(t *testing.T)`
+
 ### `platform/query/coverage.go`
 
 - `type CoverageItem struct`
@@ -2501,6 +2569,8 @@
 - `interface RemountConfigInput`
 - `const alertmanagerConfigApi`
 - `const alertmanagerSilenceApi`
+- `interface AlertStatusQuery`
+- `const alertStatusApi`
 
 ### `ui-custom/web/src/api/ciExporterMappings.ts`
 
@@ -2724,6 +2794,10 @@
 
 - `function AlertConfigPage`
 
+### `ui-custom/web/src/pages/alerts/AlertStatusPage.tsx`
+
+- `function AlertStatusPage`
+
 ### `ui-custom/web/src/pages/alerts/AlertsPage.tsx`
 
 - `function AlertsPage`
@@ -2750,11 +2824,24 @@
 - `const validateSectionColor`
 - `function partitionValidateErrors`
 - `function formatMatchers`
+- `const notifyStatusLabel`
+- `const notifyStatusColor`
+- `const notifyStatusTip`
+- `const promAlertStateLabel`
+- `const promAlertStateColor`
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
 
 - `interface UseAlertConfigResult`
 - `function useAlertConfig`
+
+### `ui-custom/web/src/pages/alerts/useAlertStatus.ts`
+
+- `interface AlertViewState`
+- `interface DomainOption`
+- `function useAmAlerts`
+- `function usePromAlerts`
+- `function useNetworkDomains`
 
 ### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
@@ -3100,6 +3187,13 @@
 - `interface SilenceMatcher`
 - `interface Silence`
 - `interface CreateSilencePayload`
+- `type PromAlertState`
+- `interface PromAlertItem`
+- `interface PromAlertsData`
+- `type NotifyStatus`
+- `interface AmAlertStatus`
+- `interface AmAlertItem`
+- `interface AmAlertsData`
 
 ### `ui-custom/web/src/types/api.ts`
 
