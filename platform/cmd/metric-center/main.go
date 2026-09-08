@@ -59,7 +59,7 @@ var (
 	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址（如 http://localhost:9093/-/reload）；为空时默认 alertmanager.url 的 /-/reload")
 	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
-	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 120*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
+	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 30*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
 )
 
 func main() {

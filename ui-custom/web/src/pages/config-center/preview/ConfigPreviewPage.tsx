@@ -291,6 +291,14 @@ export function ConfigPreviewPage() {
       },
     },
     {
+      title: '状态',
+      key: 'status',
+      width: 100,
+      render: (_: unknown, r: ConfigDraft) => (
+        <Tag color={draftStatusColor[r.status]}>{draftStatusLabel[r.status]}</Tag>
+      ),
+    },
+    {
       title: '风险等级',
       key: 'risk',
       width: 100,

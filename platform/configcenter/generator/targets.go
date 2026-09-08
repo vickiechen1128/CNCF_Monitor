@@ -165,11 +165,13 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 }
 
 // MarshalTargetGroups 将目标组序列化为 file_sd JSON 文件内容（顶层数组）。
+// 使用缩进格式输出：内容同时落盘到 targets/*.json 并存入下发记录的
+// targets_files 快照，单行压缩格式在文件与记录页中均不便阅读/核对。
 func MarshalTargetGroups(groups []TargetGroup) (string, error) {
 	if groups == nil {
 		groups = []TargetGroup{}
 	}
-	b, err := json.Marshal(groups)
+	b, err := json.MarshalIndent(groups, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal target groups: %w", err)
 	}
