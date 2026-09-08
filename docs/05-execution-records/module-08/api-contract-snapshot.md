@@ -4,18 +4,18 @@
 >
 > 快照再生成条件：PRD 第 5/6 章变更、`03_API_Standard.md` 变更、后端模型字段变更、或进入新 Phase 前。发生任一变更时旧版快照作废，必须重新派生。
 >
-> MVP 边界：本快照覆盖 **决策 59/60 告警分发闭环** 的三块能力——①`alertmanager.yml` 文件挂载（+版本留痕/回滚）；②静默极简 UI（创建/列表/删除，API 直调 Alertmanager）；③跨端 M09 变更确认联动（内容 Owner=M08，管道 Owner=M09）。接收人/路由/抑制**表单化 UI**、告警状态页（active/silenced/inhibited/unprocessed）均归 **v0.3**，不在本快照。
+> MVP 边界：本快照覆盖 **决策 59/60 告警分发闭环** 的三块能力——①`alertmanager.yml` 文件挂载（+版本留痕/回滚）；②静默极简 UI（创建/列表/删除，API 直调 Alertmanager）；③跨端 M09 变更确认联动（内容 Owner=M08，管道 Owner=M09）。**v1.12 增量**：告警状态查看由 v0.3 提前至 MVP——M02 代理 Prometheus `/api/v1/alerts`（firing/pending）+ M08 代理 Alertmanager `/api/v2/alerts`（通知状态四态），契约见 §10。接收人/路由/抑制**表单化 UI** 仍归 **v0.3**，不在本快照。
 
 ## 0. 快照元信息
 
 | 项     | 值                                                                                                                                                                                                                                                           |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）                                                                                                                                                                                                                          |
+| Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）+ Track B+ 增量（v1.12 告警状态查看提前 MVP，强制 security-reviewer）                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-04（v2 silence API 迁移）                                                                                                                                                                                                                                             |
-| 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2）                                                                                                                                                                                                                                |
-| 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.8）§1/§3.1/§5.1/§5.2/§6.3/§6.6/§9；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8；`task-sequence.yaml` |
+| 版本    | v2026-09-08（告警状态查看 MVP 增量：追加 §10；M08/M02 PRD 对齐 v1.12）                                                                                                                                                                                                                                             |
+| 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP）                                                                                                                                                                                                                                |
+| 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61 + 分轨判定记录 2026-09-08；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
 
 ## 1. 通用契约
 
@@ -168,13 +168,74 @@
 
 ## 9. 来源对照表
 
-- PRD：`docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v1.8）§1/§3.1/§5.1/§5.2/§6.3/§6.6/§9
+- PRD：`docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9
+
+- PRD（v1.12 增量）：`docs/02-product-requirements/Modules/Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11.1#9/§11.2#5/#14
 
 - M09 联动：`docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.52）§3.4/§5.4/§9.2
 
-- 决策：`docs/05-execution-records/module-08/design-decisions.md`（决策 49/55/56/59/60/61）
+- 决策：`docs/05-execution-records/module-08/design-decisions.md`（决策 49/55/56/59/60/61 + 分轨判定记录 2026-09-08）
 
 - 标准：`docs/03-engineering-standards/03_API_Standard.md` §7
 
 - 序列：`docs/05-execution-records/module-08/task-sequence.yaml`；M09 侧：`docs/05-execution-records/module-09/task-sequence.yaml`（T09-60-\*）
+
+## 10. 告警状态查看 API（v1.12 MVP 增量，Track B+）
+
+> 背景：MVP 试用反馈「前台缺少查看当前告警入口」，告警状态查看由 v0.3 提前至 MVP（M08 PRD v1.12 / M02 PRD v1.12）。告警状态页归属 M08（决策 55），双视图：Prometheus 触发告警（M02 代理，本节 §10.1）+ Alertmanager 通知状态（M08 代理，本节 §10.2）。两条均为**只读代理**，不改既有契约；分轨 Track B+，强制 security-reviewer。
+
+### 10.1 M02 侧：Prometheus 当前触发告警代理
+
+| 项 | 内容 |
+|----|------|
+| 方法 / 路径 | `GET /api/v1/alerts`（注册在 `/api/v1` 组，命中认证中间件；与决策 47 批次 `/api/v1/targets` 代理同构，`platform/query/`） |
+| 上游 | Prometheus `GET /api/v1/alerts` |
+| Query | `network_domain`（可选）：按告警 `labels.network_domain` 服务端本地过滤（缺失标签回落 `default`，与 targets 代理同构）；后端承担过滤，前端不重复过滤 |
+| 注入 | 租户/网域上下文注入骨架 MVP 恒通过、机制保留（M02 §11.2#5）；**不代理 Alertmanager 通知状态**（M02 §11.2#14 边界） |
+| 业务错误 | `internal`：上游不可达 / 非 success |
+
+响应 `data`：`{ alerts: [PromAlertItem] }`（空结果返回 `[]` 而非 `null`）。`PromAlertItem` 为 Prometheus Alert 字段子集：
+
+| 字段 | 类型 | UI 展示名 | 说明 |
+|------|------|-----------|------|
+| `labels` | map | — | 告警标签（含 `alertname` / `severity` / `network_domain` / `instance`） |
+| `labels.alertname` | string | 告警名称 | 规则名 |
+| `annotations` | map | — | 告警注解（`summary` / `description`） |
+| `annotations.summary` | string | 摘要 | 页内说明列 |
+| `state` | enum | 状态 | `firing`（触发中）/ `pending`（待处理） |
+| `activeAt` | datetime | 激活时间 | 进入 pending 的时间 |
+| `value` | string | 当前值 | 告警表达式当前求值 |
+| `labels.network_domain` | string | 网域 | 缺失回落 `default` |
+| `labels.instance` | string | 实例 | 告警实例 |
+
+### 10.2 M08 侧：Alertmanager 通知状态代理
+
+| 项 | 内容 |
+|----|------|
+| 方法 / 路径 | `GET /api/v2/platform/alertmanager/alerts`（管理面前缀，命中认证中间件；读路径仅认证，挂法同静默列表） |
+| 上游 | Alertmanager `GET /api/v2/alerts`（**v2 口径**，决策 61 对齐；v1 端点已移除，禁止调用） |
+| Query | `network_domain`（可选，UX 筛选透传）；**授权过滤由服务端强制注入**（决策 56：当前用户授权网域集合 filter，授权=全部网域时不附加，不信任前端传参；MVP 单租户恒通过，骨架保留） |
+| 业务错误 | `internal`：AM 不可达 / 非 2xx |
+
+响应 `data`：`{ items: [AmAlertItem] }`（空结果返回 `[]` 而非 `null`）。`AmAlertItem` 为 AM v2 GettableAlert 字段子集 + 服务端归一 `notify_status`：
+
+| 字段 | 类型 | UI 展示名 | 说明 |
+|------|------|-----------|------|
+| `labels` | map | — | 告警标签（`alertname` / `severity` / `network_domain` / `instance`，UI 展示名同 §10.1） |
+| `annotations` | map | — | 告警注解（`summary` / `description`） |
+| `starts_at` | datetime | 开始时间 | 告警进入 AM 时间 |
+| `ends_at` | datetime | 结束时间 | 告警预计结束时间 |
+| `status.state` | enum | — | AM 原始态：`unprocessed` / `active` / `suppressed`（输入，不直接外露） |
+| `status.silenced_by` | []string | — | 命中静默 ID 列表（输入） |
+| `status.inhibited_by` | []string | — | 命中抑制告警 ID 列表（输入） |
+| `notify_status` | enum | 通知状态 | **服务端归一四态**：`active`（通知中，state=active）/ `silenced`（静默，suppressed 且 silencedBy 非空）/ `inhibited`（抑制，suppressed 且 inhibitedBy 非空）/ `unprocessed`（待处理，state=unprocessed） |
+
+> 四态映射优先级：`silenced` / `inhibited` 判定优先于 `active`；AM 侧 `suppressed` 不外露，由 silencedBy / inhibitedBy 拆解。原型既有「接收人」列在 AM v2 响应中**无数据源**（路由归属不回传），本轮裁剪（见 `frontend-prototype-map.md` §八）。
+
+### 10.3 与既有章节的 diff
+
+- 新增两条只读代理 API，既有 §3（配置挂载/版本）/ §4（静默）/ §5（M09 联动）契约不变。
+- §1.3 授权利令的「读路径」条款自本节起有实际承载端点（此前仅静默写路径）。
+- 枚举字典（§6）追加：`notify_status` = `active` / `silenced` / `inhibited` / `unprocessed`；Prometheus `state` = `firing` / `pending`。
+- 来源：M08 PRD v1.12 §5.4/§9.1/§9.2；M02 PRD v1.12 §6.1/§11；决策 55/56/61。
 

@@ -8,6 +8,8 @@
  */
 import type {
   AlertmanagerConfigStatus,
+  NotifyStatus,
+  PromAlertState,
   SilenceMatcher,
   SilenceStatus,
   ValidateErrorItem,
@@ -87,4 +89,42 @@ export function formatMatchers(matchers: SilenceMatcher[]): string {
       return `${m.name}${op}${regex}"${m.value}"`
     })
     .join(', ')
+}
+
+// =====================================================================
+// 告警状态查看（v1.12 MVP 增量，契约快照 §10 / 映射表 §8.3 文案对照）
+// =====================================================================
+
+/** AM 通知状态四态展示名（服务端归一 notify_status；UI 展示名以契约 §10.2 为准） */
+export const notifyStatusLabel: Record<NotifyStatus, string> = {
+  active: '通知中',
+  silenced: '已静默',
+  inhibited: '已抑制',
+  unprocessed: '待处理',
+}
+
+export const notifyStatusColor: Record<NotifyStatus, string> = {
+  active: 'error',
+  silenced: 'gold',
+  inhibited: 'purple',
+  unprocessed: 'default',
+}
+
+/** 四态语义说明（统计卡片 / Tag Tooltip 用，沿用原型四态语义） */
+export const notifyStatusTip: Record<NotifyStatus, string> = {
+  active: '已通过路由计算，正在通知接收人',
+  silenced: '被静默规则命中，通知被屏蔽',
+  inhibited: '被抑制规则抑制（存在根因告警）',
+  unprocessed: '刚进入 Alertmanager，尚未完成路由 / 静默 / 抑制计算',
+}
+
+/** Prometheus 当前触发告警状态展示名（契约 §10.1：firing=触发中 / pending=待处理） */
+export const promAlertStateLabel: Record<PromAlertState, string> = {
+  firing: '触发中',
+  pending: '待处理',
+}
+
+export const promAlertStateColor: Record<PromAlertState, string> = {
+  firing: 'error',
+  pending: 'warning',
 }

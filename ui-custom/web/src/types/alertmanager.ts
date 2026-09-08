@@ -97,3 +97,59 @@ export interface CreateSilencePayload {
   comment: string
   created_by?: string
 }
+
+// =====================================================================
+// 告警状态查看（v1.12 MVP 增量，契约快照 §10，Track B+）
+// =====================================================================
+
+/** Prometheus 当前触发告警状态（契约 §10.1）：firing=触发中 / pending=待处理 */
+export type PromAlertState = 'firing' | 'pending'
+
+/** Prometheus 当前触发告警实例（M02 代理 GET /api/v1/alerts，data.alerts[] 字段子集） */
+export interface PromAlertItem {
+  /** 告警标签（含 alertname / severity / network_domain / instance） */
+  labels: Record<string, string>
+  /** 告警注解（summary / description） */
+  annotations: Record<string, string>
+  /** firing（触发中）/ pending（待处理） */
+  state: PromAlertState
+  /** 激活时间（进入 pending 的时间） */
+  activeAt: string
+  /** 当前值（告警表达式当前求值） */
+  value?: string
+}
+
+/** GET /api/v1/alerts 响应 data 信封（空结果返回 [] 而非 null） */
+export interface PromAlertsData {
+  alerts: PromAlertItem[]
+}
+
+/** AM 通知状态四态（服务端归一，契约 §10.2，映射逻辑在后端，前端不重复映射） */
+export type NotifyStatus = 'active' | 'silenced' | 'inhibited' | 'unprocessed'
+
+/** AM v2 GettableAlert 状态子集（输入字段，不直接外露；notify_status 已服务端归一） */
+export interface AmAlertStatus {
+  state?: string
+  silenced_by?: string[]
+  inhibited_by?: string[]
+}
+
+/** Alertmanager 通知状态告警项（M08 代理 GET /api/v2/platform/alertmanager/alerts，data.items[]） */
+export interface AmAlertItem {
+  /** 告警标签（alertname / severity / network_domain / instance，UI 展示名同契约 §10.1） */
+  labels: Record<string, string>
+  /** 告警注解（summary / description） */
+  annotations: Record<string, string>
+  /** 开始时间（告警进入 AM 时间） */
+  starts_at: string
+  /** 结束时间（告警预计结束时间） */
+  ends_at?: string
+  status?: AmAlertStatus
+  /** 通知状态四态（服务端归一）：active=通知中 / silenced=已静默 / inhibited=已抑制 / unprocessed=待处理 */
+  notify_status: NotifyStatus
+}
+
+/** GET /api/v2/platform/alertmanager/alerts 响应 data 信封（空结果返回 [] 而非 null） */
+export interface AmAlertsData {
+  items: AmAlertItem[]
+}

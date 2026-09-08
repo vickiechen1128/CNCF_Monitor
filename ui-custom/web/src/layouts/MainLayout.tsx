@@ -128,6 +128,8 @@ const MODULES: ModuleDef[] = [
     subItems: [
       { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
       { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
+      // M08 v1.12 增量：告警状态双视图页（T08-F7，与 /alert-config、/silences 同组）
+      { key: '/alert-status', label: '告警状态', icon: <RadarChartOutlined /> },
     ],
   },
 ]
@@ -159,7 +161,8 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/domains、/admin/users、/admin/tenants、/admin/login-logs → 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
- * /resources、/label-templates、/business-domains → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
+ * /resources、/label-templates、/business-domains → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /alert-config、/silences、/alert-status → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
   if (
@@ -190,7 +193,11 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/metric-library')
   )
     return findModuleByKey('monitoring-strategy')
-  if (locationPath.startsWith('/alert-config') || locationPath.startsWith('/silences'))
+  if (
+    locationPath.startsWith('/alert-config') ||
+    locationPath.startsWith('/silences') ||
+    locationPath.startsWith('/alert-status')
+  )
     return findModuleByKey('alert')
   return MODULES[0]
 }

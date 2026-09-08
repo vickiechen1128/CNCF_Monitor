@@ -8,8 +8,10 @@ import type { ApiResponse } from '../types/api'
 import type {
   AlertmanagerConfigVersion,
   AlertmanagerConfigVersionListItem,
+  AmAlertsData,
   CreateSilencePayload,
   PaginatedItems,
+  PromAlertsData,
   Silence,
   ValidateErrorData,
 } from '../types/alertmanager'
@@ -91,5 +93,25 @@ export const alertmanagerSilenceApi = {
     return apiClient.delete<{ id: string }>(
       `/api/v2/platform/alertmanager/silences/${encodeURIComponent(silenceId)}`,
     )
+  },
+}
+
+/** 告警状态查询参数（契约 §10：network_domain 可选，UX 筛选透传；过滤由后端承担，前端不重复过滤） */
+export interface AlertStatusQuery extends Record<string, string | number | boolean | undefined> {
+  network_domain?: string
+}
+
+/**
+ * 告警状态查看 API（v1.12 MVP 增量，契约快照 §10，Track B+；两条均为只读代理）。
+ * 授权过滤由服务端强制注入（决策 56），前端 Query 仅作 UX 筛选透传，不构成权限依据。
+ */
+export const alertStatusApi = {
+  /** Prometheus 当前触发告警（M02 代理 GET /api/v1/alerts，firing/pending 实例） */
+  getPromAlerts(params?: AlertStatusQuery): Promise<ApiResponse<PromAlertsData>> {
+    return apiClient.get<PromAlertsData>('/api/v1/alerts', { params })
+  },
+  /** Alertmanager 通知状态（M08 代理 GET /api/v2/platform/alertmanager/alerts，服务端归一四态） */
+  getAlertmanagerAlerts(params?: AlertStatusQuery): Promise<ApiResponse<AmAlertsData>> {
+    return apiClient.get<AmAlertsData>('/api/v2/platform/alertmanager/alerts', { params })
   },
 }

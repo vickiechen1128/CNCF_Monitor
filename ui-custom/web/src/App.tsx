@@ -41,6 +41,10 @@ const AlertConfigPage = lazy(() =>
 const SilencesPage = lazy(() =>
   import('./pages/alerts/SilencesPage').then((m) => ({ default: m.SilencesPage })),
 )
+// M08 v1.12 增量：告警状态双视图页（T08-F7）
+const AlertStatusPage = lazy(() =>
+  import('./pages/alerts/AlertStatusPage').then((m) => ({ default: m.AlertStatusPage })),
+)
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -88,6 +92,7 @@ function AppRoutes() {
           <Route path="/targets" element={<TargetStatusPage />} />
           <Route path="/alert-config" element={<AlertConfigPage />} />
           <Route path="/silences" element={<SilencesPage />} />
+          <Route path="/alert-status" element={<AlertStatusPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

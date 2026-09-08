@@ -4,7 +4,8 @@ module_branch: "feat/module-08-alert-dispatch"
 plan_version: "v2026-09-05（决策 59/60，承接决策 47 之后另起一轮）"
 owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer / security-reviewer 执行"
 source:
-  - "docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md（v1.11：§1 MVP 形态 / §3.1 功能表 / §5.1 文件挂载契约 / §5.2 静默 / §5.4 告警状态 / §6.6 AlertmanagerConfigVersion / §9.1/9.2 验收）"
+  - "docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md（v1.12：§1 MVP 形态 / §3.1 功能表 / §5.1 文件挂载契约 / §5.2 静默 / §5.4 告警状态（v1.12 提前 MVP）/ §6.6 AlertmanagerConfigVersion / §9.1/9.2 验收）"
+  - "docs/02-product-requirements/Modules/Module_02_Query_Center.md（v1.12：§3.1 功能表 / §6.1 MVP 接口（/api/v1/alerts）/ §11.1#9 / §11.2#5/#14——告警状态代理同步提前回 MVP）"
   - "docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md（v1.57：§3.4 alertmanager.yml 管理域 scope 变更确认 / §5.4 change_items affected_files / §9.2 验收）"
   - "docs/05-execution-records/module-08/design-decisions.md（决策 49 组件选型 / 决策 55/56 告警状态归属与授权过滤 / 决策 59 文件挂载+静默 UI / 决策 60 纳入 M09 变更确认）"
   - "docs/05-execution-records/module-09/task-sequence.yaml（T09-60-* 追加任务，本序列的跨端依赖）"
@@ -332,3 +333,150 @@ tasks:
       - "静默管理：创建（即时生效）→ 列表可见 → 删除"
       - "前端 pnpm test（全量）通过、pnpm lint/tsc --noEmit 通过"
       - "提交前验证清单（docs/03-engineering-standards/04_Testing_Standard.md §4）通过后停服释放端口"
+
+# =====================================================================
+# 第三轮：告警状态查看提前 MVP（v1.12，Track B+，强制 security-reviewer）
+# =====================================================================
+
+  - id: "T08-06"
+    title: "M02 侧：代理 Prometheus GET /api/v1/alerts（firing/pending 实例 + network_domain 筛选）"
+    prd: "Module_02 v1.12 §3.1 功能表 / §6.1（/api/v1/alerts）/ §11.1#9 / §11.2#5/#14；Module_08 v1.12 §5.4；契约快照 §10.1"
+    group: "backend"
+    status: "done"
+    commit_group: "m02-alerts-proxy"
+    depends_on: []
+    input_files:
+      - "platform/query/targets.go"        # 同构落位参照：上游拉取 + 本地过滤 + 标签补全（network_domain 缺失回落 default）
+      - "platform/query/routes.go"         # M02 路由收口（决策 47 批次已建，本任务追加 /alerts）
+      - "platform/cmd/metric-center/main.go"  # query.RegisterRoutes 挂载点（apiV1 组，命中认证中间件）
+      - "docs/02-product-requirements/Modules/Module_02_Query_Center.md"
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"   # §10.1
+    output_files:
+      - "platform/query/alerts.go"         # 新增：AlertsHandler（代理 /api/v1/alerts + network_domain 本地过滤）
+      - "platform/query/alerts_test.go"    # 新增
+      - "platform/query/routes.go"         # 修改：注册 GET /alerts
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：platform/query/routes.go 与决策 47 批次（T02-01/02）共享；与 T08-07 同分支串行，建议同一 backend-developer sub-agent 续作"
+    verify_commands:
+      - "go test ./platform/query/..."
+      - "go vet ./platform/query/..."
+    acceptance_criteria:
+      - "GET /api/v1/alerts 注册在 apiV1 组（命中认证中间件），与既有 /targets 代理同构"
+      - "代理中心 Prometheus /api/v1/alerts，返回 data.alerts 的 firing/pending 告警实例字段子集：labels（含 alertname/severity/network_domain）/annotations/state/activeAt/value"
+      - "Query network_domain 可选筛选（后端本地过滤 labels.network_domain，缺失回落 default，与 targets.go 同构；前端不重复过滤）"
+      - "租户/网域注入骨架 MVP 恒通过、机制保留；不代理 Alertmanager 通知状态（M02 §11.2#14 边界）"
+      - "上游不可达/非 success 返回 internal 可观测错误；空结果返回空数组而非 null"
+
+  - id: "T08-07"
+    title: "M08 侧：代理 Alertmanager GET /api/v2/alerts（通知状态四态映射 + 决策 56 授权过滤骨架）+ 路由注册"
+    prd: "Module_08 v1.12 §5.4 / §9.2；决策 56（读路径服务端强制注入授权网域集合 filter）/ 决策 61（v2 API 口径）；契约快照 §10.2"
+    group: "backend"
+    status: "done"
+    commit_group: "am-alerts-proxy"
+    depends_on: []
+    input_files:
+      - "platform/alertmanager/silence/proxy.go"   # 同构落位参照：NewProxy（scheme/host 校验，SSRF 防护）+ v2 裸响应解码
+      - "platform/alertmanager/silence/service.go"
+      - "platform/alertmanager/silence/handler.go"
+      - "platform/alertmanager/register.go"        # RegisterRoutes(platform, db, amURL) 已装配 amURL，本任务在其内追加 alerts 路由
+      - "platform/gateway/auth/"                   # 授权网域集合来源（MVP 单租户恒通过，骨架保留）
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"   # §10.2
+    output_files:
+      - "platform/alertmanager/alerts/proxy.go"    # 新增：AM /api/v2/alerts 客户端（v2 裸数组解码）
+      - "platform/alertmanager/alerts/service.go"  # 新增：四态映射 + 授权过滤骨架（决策 56）
+      - "platform/alertmanager/alerts/handler.go"  # 新增：GET /api/v2/platform/alertmanager/alerts
+      - "platform/alertmanager/alerts/alerts_test.go"
+      - "platform/alertmanager/register.go"        # 修改：挂载 alerts 只读路由（读路径仅认证；见 register.go 现有挂法）
+    estimated_files_changed: 5
+    estimated_test_cases: 8
+    shared_files: "是：platform/alertmanager/register.go 与 T08-05 路由注册共享（main.go 调用签名不变，无需改 main.go）；AM 地址来源与 T08-02/04 共用（--alertmanager.url）；建议与 T08-06 由同一 backend-developer sub-agent 串联续作"
+    verify_commands:
+      - "go test ./platform/alertmanager/..."
+      - "go vet ./platform/alertmanager/..."
+      - "go test ./platform/cmd/metric-center/... -run TestEndToEnd"
+    acceptance_criteria:
+      - "GET /api/v2/platform/alertmanager/alerts 代理 AM GET /api/v2/alerts（v2 口径，禁止 v1——已移除，决策 61）"
+      - "响应字段映射 AM GettableAlert 子集：labels/annotations/startsAt/endsAt/status{state,silencedBy,inhibitedBy}，服务端归一为 notify_status 四态：active（state=active）/ silenced（suppressed 且 silencedBy 非空）/ inhibited（suppressed 且 inhibitedBy 非空）/ unprocessed（state=unprocessed）"
+      - "决策 56 授权过滤骨架：服务端强制注入当前用户授权网域集合 filter（不信任前端传参；授权=全部网域时不附加）；MVP 单租户恒通过，机制骨架保留并有测试锚点"
+      - "前端 Query network_domain 仅作 UX 筛选透传，不构成权限依据"
+      - "AM 不可达返回可观测错误；空结果返回空数组而非 null"
+
+  - id: "T08-F6"
+    title: "前端 types/api 扩展 + 告警状态页双视图（Prometheus 触发告警 + AM 通知状态）"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "alert-status-page"
+    prd: "Module_08 v1.12 §3.1/§5.4/§9.1；Module_02 v1.12 §6.1/§11.1#9；契约快照 §10"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/pages/AlertStatusPage.tsx"
+    ui_contract: "PRD §5.4（双视图：Prometheus firing/pending + AM 通知状态四态；network_domain 筛选）+ §9.1 告警状态页验收条目；契约快照 §10（字段子集 + 四态映射 + UI 展示名）"
+    nav_contract: "顶部一级 tab「告警收敛与通知管理」（PRD 模块名）→ Sider 菜单组「告警配置」→ 二级新增「告警状态」（/alert-status，与 /alert-config、/silences 并列）；本任务不挂载路由（F7 统一挂载）"
+    clipping:
+      - item: "原型「接收人」列"
+        reason: "AM v2 /api/v2/alerts 响应不含 receiver 归属字段（路由计算结果不回传），MVP 无数据源支撑，裁剪；后续版本如需要由 PRD 增补契约"
+      - item: "通知渠道模板、告警升级策略"
+        reason: "P2 / v1.0（PRD §3.1），不在本轮"
+      - item: "边缘本地告警状态视图"
+        reason: "P2 / v0.4+（PRD §5.4 边缘条目），不在本轮"
+      - item: "Prometheus 规则求值详情视图（/api/v1/rules）"
+        reason: "v0.3（Module_02 §6.3），本轮仅 alerts 实例列表"
+    depends_on: ["T08-06", "T08-07", "T08-F1"]
+    estimated_files_changed: 6
+    estimated_test_cases: 10
+    shared_files: "是：src/types/alertmanager.ts + src/api/alertmanager.ts + alertmanagerConstants.ts 与 T08-F1 已交付物共享（扩展而非新建）；src/pages/alerts/ 目录共享；必须与 T08-F1~F5 同一 frontend-developer sub-agent 串联续作"
+    input_files:
+      - "docs/05-execution-records/module-08/frontend-prototype-map.md"   # §八 告警状态页映射
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"    # §10
+      - "docs/prototypes/module-08/src/pages/AlertStatusPage.tsx"
+      - "ui-custom/web/src/types/alertmanager.ts"
+      - "ui-custom/web/src/api/alertmanager.ts"
+      - "ui-custom/web/src/pages/alerts/alertmanagerConstants.ts"
+    output_files:
+      - "ui-custom/web/src/types/alertmanager.ts"          # 扩展：PromAlertItem / AmAlertItem / 四态枚举
+      - "ui-custom/web/src/api/alertmanager.ts"            # 扩展：getPromAlerts（/api/v1/alerts）/ getAmAlerts（/api/v2/platform/alertmanager/alerts）
+      - "ui-custom/web/src/pages/alerts/alertmanagerConstants.ts"  # 扩展：四态 + firing/pending 展示名/颜色映射
+      - "ui-custom/web/src/pages/alerts/AlertStatusPage.tsx"       # 新增：双 Tab 页面壳
+      - "ui-custom/web/src/pages/alerts/useAlertStatus.ts"         # 新增：双视图数据 Hook
+      - "ui-custom/web/src/pages/alerts/AlertStatusPage.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/AlertStatusPage.test.tsx"
+    acceptance_criteria:
+      - "双 Tab：「Prometheus 当前触发告警」（firing=触发中/pending=待处理）+「Alertmanager 通知状态」（active=通知中/silenced=静默/inhibited=抑制/unprocessed=待处理），Tab 说明区明确两视图语义区分（原型 Alert 提示条语义保留并适配双 Tab）"
+      - "两视图均支持按 network_domain 筛选（后端过滤，前端透传 Query）"
+      - "列集合与 frontend-prototype-map §八 对照一致；决策 56 授权过滤提示保留（MVP 恒通过：「通知状态已按授权网域集合过滤」）"
+      - "状态矩阵覆盖加载/空态/接口错误/权限不足；ApiError 按契约 errorType 映射"
+      - "mock 全部替换为真实 API 调用（禁止残留 mockAlertNotifications）"
+
+  - id: "T08-F7"
+    title: "导航挂载 + 集成收尾（MainLayout 二级菜单 + App 路由 /alert-status）"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "alert-status-nav"
+    prd: "Module_08 v1.12 §9.1（菜单「告警收敛与通知管理 → 告警状态」）/ §10 术语"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/layouts/MainLayout.tsx"
+    ui_contract: "PRD §9.1 告警状态页验收条目 + §11.2 全局行为规则（跨模块一致性）"
+    nav_contract: "顶部一级 tab「告警收敛与通知管理」（PRD 模块名，禁止功能页名充当一级模块）→ Sider 菜单组「告警配置」= 告警配置（/alert-config）、静默管理（/silences）、**告警状态（/alert-status，新增）**；resolveActiveModule 将 /alert-status 归入 alert 顶级模块"
+    clipping: []
+    depends_on: ["T08-F6"]
+    estimated_files_changed: 3
+    estimated_test_cases: 4
+    shared_files: "是：src/layouts/MainLayout.tsx + src/App.tsx 全站共享（与 T08-F4 同文件）；必须由负责 M08 前端的同一 sub-agent 串联续作，禁止多 agent 并行改共享文件"
+    input_files:
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/App.tsx"
+      - "docs/05-execution-records/module-08/frontend-prototype-map.md"
+    output_files:
+      - "ui-custom/web/src/layouts/MainLayout.tsx"   # 修改：alert 模块 Sider 增「告警状态」
+      - "ui-custom/web/src/App.tsx"                  # 修改：注册 /alert-status（懒加载）
+      - "ui-custom/web/src/pages/alerts/alertRoutes.test.tsx"  # 扩展路由/激活断言（或并入既有用例）
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+    acceptance_criteria:
+      - "访问 /alert-status 200；Sider「告警配置」组三子项正确展示且高亮当前；resolveActiveModule 归类正确"
+      - "告警状态页双视图加载真实 API 走通（M02 /api/v1/alerts + M08 /api/v2/platform/alertmanager/alerts）"
+      - "前端 pnpm test（全量）/ pnpm lint / tsc --noEmit 通过；存量页面无回归"
+      - "收尾挂 security-reviewer（Track B+ 强制：决策 56 授权骨架 + 代理 SSRF 面核查）；提交前验证清单（04_Testing_Standard.md §4）通过后停服释放端口"

@@ -3,9 +3,9 @@
 > 文档类型：工程实施计划  
 > 依赖文档：[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[04_Implementation_Map.md](04_Implementation_Map.md)、[00_Product_Vision.md](00_Product_Vision.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.11（采集状态回显提前 MVP，决策 47）· Module_06 v2.9（v0.2 范围收敛：`ip_cidrs` 与 IP 推导挪 v0.3 + K8s 划域指导原则）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.11（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61）· Module_09 v1.56（alertmanager.yml 纳入变更确认，决策 60；v0.2 端口解析链 + K8s 划域备忘）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
+> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.12（采集状态回显提前 MVP，决策 47；`/api/v1/alerts` 告警状态代理同步提前回 MVP，v1.12）· Module_06 v2.9（v0.2 范围收敛：`ip_cidrs` 与 IP 推导挪 v0.3 + K8s 划域指导原则）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.12（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61；告警状态查看提前 MVP，v1.12）· Module_09 v1.56（alertmanager.yml 纳入变更确认，决策 60；v0.2 端口解析链 + K8s 划域备忘）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
 >
-> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。（本串与 `04_Implementation_Map.md` 头部逐字一致，终验 1.1 要求两处版本号相同）
+> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。2026-09-08：M02 v1.11→v1.12 / M08 v1.11→v1.12 为**实质范围调整**（告警状态查看由 v0.3 提前至 MVP，新增两条只读代理契约），见 §6.4 / §7.9 与 §9。（本串与 `04_Implementation_Map.md` 头部逐字一致，终验 1.1 要求两处版本号相同）
 >
 > Plan 版本：**v2026-09-05**（v0.2 范围收敛重派生，对齐 `02_Product_Roadmap.md` v2.2——Phase 6.4 监控源登记册后移 v0.3、v0.2 补实例级 `scrape_port` 端口解析链与 K8s 划域、移出克隆 Job / 草稿批量提交 / 业务健康度看板 / `service_discovery` / IP 推导 / `ip_cidrs`；各模块 `task-sequence.yaml` 的 `plan_version` 同步统一）
 > 更新日期：2026-09-05（Plan 版本重派生 + 版本清单刷新：各模块 PRD 版本对齐至 2026-09-04 最新修订版，与 `04_Implementation_Map.md` 同步，满足终验 1.1）
@@ -962,6 +962,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 | 登记日期 | 能力 | 模块 / PRD 版本 | 轨道 | feat 分支 | L3 路径 | 状态 |
 |----------|------|----------------|------|-----------|---------|------|
+| 2026-09-08 | M08 告警状态查看提前 MVP（MVP 试用反馈：前台缺少查看当前告警入口）：①M02 代理 Prometheus `GET /api/v1/alerts`（firing/pending 实例，注入租户/网域上下文骨架 MVP 恒通过，支持 `network_domain` 筛选）；②M08 代理 Alertmanager `GET /api/v2/alerts`（通知状态四态 active/silenced/inhibited/unprocessed，服务端强制注入授权网域集合 filter、不信任前端传参，决策 56，MVP 单租户恒通过、骨架保留）；③前端告警状态页双视图 Tab（菜单「告警收敛与通知管理 → 告警配置组 → 告警状态」，`/alert-status`）。AM 代理端点按 v2 口径（v1 已移除，对齐决策 61） | Module_02 v1.12 / Module_08 v1.12 | Track B+（强制 security-reviewer，分轨判定记录见 `docs/05-execution-records/module-08/design-decisions.md` 2026-09-08） | `feat/module-08-alert-dispatch`（承接决策 59/60 之后新一轮，同分支串行） | `docs/05-execution-records/module-08/task-sequence.yaml`（T08-06 / T08-07 / T08-F6 / T08-F7）；契约快照 `docs/05-execution-records/module-08/api-contract-snapshot.md` §10 | 待开发 |
 | 2026-09-04 | 开发反馈 F-32 落版（采集器登记三来源开放）：采集器登记来源由「仅 `internal` 开放」修正为 **MVP 即开放 `official` / `third_party` / `internal` 三种**——解决同一监控对象类型下用户需选用社区/厂商采集器作为备选的场景；名称与平台预置 seed 冲突时由唯一索引返回 409 Conflict。影响点：`ExporterTemplate.source` 枚举开放、登记校验与 seed 预置、采集器管理 Tab 登记抽屉三选、§9.1 验收 | Module_01 v3.31 | Track B | `feat/module-01-strategy` | `docs/05-execution-records/module-01/task-sequence.yaml`（T01-03 / 采集器管理 Tab 已加注） | 待开发 |
 | 2026-09-04 | 开发反馈 F-34 / L-2 落版（静态资源标签治理）：①**静态资源（host / database / middleware / generic_target）隐藏「关联实例」Tab 与 badge**——实例级标签在 CMDB 侧只读治理，标签模板页不展示「关联实例」入口，右栏 Tab 动态 2~3 个、左栏 badge 仅业务类型资源展示；②**`LabelTemplate.description` 必须落库**——创建/更新请求体 `description` 变更须持久化，不再静默丢弃 | Module_07 v2.27 | Track B | `feat/module-07-resource-management` | `docs/05-execution-records/module-07/task-sequence.yaml`（T07-15 / T07-F7 / T07-F8 已加注） | 待开发 |
 | 2026-09-02 | coverage 三态口径修订 + 默认模板 `resource_id` 补齐（planner 阻塞项闭环，用户拍板 A 方案）：①coverage 不感知 M09 下发时序——选中关系取 DB 当前 `selected_instance_ids`（ready+enabled、不问 `change_status`），选中未采到统一归「已下发未采到」，「待采集」细分归 M01 回显（M02 v1.8 / M07 v2.25 / M01 v3.29 契约同步）；②五类默认 LabelTemplate 补 `resource_id → resource_id` 映射（47-3 回连前置，`platform/models/label_template.go` + 种子迁移） | Module_01 v3.29 / Module_02 v1.8 / Module_07 v2.25 | Track B | `feat/module-08-alert-dispatch`（决策 47 批次内闭环） | `docs/05-execution-records/module-02/task-sequence.yaml` | 待开发 |
@@ -1063,6 +1064,18 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 - [ ] 告警分发前台动线走通：「部署期挂载 `alertmanager.yml`（一次性）→ 日常静默管理（高频 UI）」，用户全程不碰 YAML 除非初始化（决策 59）
 - [ ] 端到端闭环：`alertmanager.yml` 变更 → M09 `ConfigDraft → 人工确认 → 下发 reload → change_status 回写` 全链路；`amtool check-config` 校验失败的可观测 + 修改后重挂载/重校验出口
 
+### 7.9 Track B+ 增量验收：M08 告警状态查看（v1.12 提前 MVP）
+
+> 来源：Module_08 PRD v1.12 §9.1/§9.2 + Module_02 PRD v1.12 §11.1#9 / §11.2#5/#14；分轨判定 Track B+（`docs/05-execution-records/module-08/design-decisions.md` 2026-09-08），收尾强制挂 security-reviewer（决策 56 授权过滤骨架 + 代理 SSRF 面）。
+
+- [ ] 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警配置组 → 告警状态」，路由 `/alert-status`）可查看当前告警：**双视图**展示——Prometheus 触发告警（firing / pending，经 M02 代理 `/api/v1/alerts`）+ Alertmanager 通知状态（M08 §9.1）
+- [ ] 双视图均支持按 `network_domain` 筛选（M08 §9.1；M02 §11.1#9）
+- [ ] M02 `GET /api/v1/alerts` 代理返回注入租户/网域上下文后的 firing/pending 告警实例；MVP 阶段注入骨架恒通过、授权过滤机制保留；**不代理 Alertmanager 通知状态**（AM 侧由 M08 `/api/v2/alerts` 代理承载）（M02 §11.2#5/#14）
+- [ ] M08 `GET /api/v2/platform/alertmanager/alerts` 代理 AM `/api/v2/alerts`，通知状态正确映射为四态：**active（通知中）/ silenced（静默）/ inhibited（抑制）/ unprocessed（待处理）**（M08 §9.2）
+- [ ] M08 alerts 代理在**服务端强制注入**当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参（决策 56；MVP 单租户恒通过，骨架保留）（M08 §9.2）
+- [ ] 状态矩阵覆盖加载 / 空态 / 接口错误 / 权限不足；决策 56 授权过滤提示保留（MVP 恒通过，提示「通知状态已按授权网域集合过滤」）
+- [ ] 本轮收尾已通过 security-reviewer 审查（Track B+ 强制关卡）
+
 ---
 
 ## 8. 风险与规避
@@ -1102,6 +1115,14 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 ---
 
 ## 9. 变更记录
+
+### v2026-09-05（Track B+ 增量登记 2026-09-08：M08 告警状态查看提前 MVP）
+
+- **Track B+ 增量登记（§6.4）**：告警状态查看由 v0.3 提前至 MVP（MVP 试用反馈：前台缺少查看当前告警入口）——M02 `/api/v1/alerts` 代理（注入骨架恒通过 + `network_domain` 筛选）+ M08 代理 AM `/api/v2/alerts` 四态（决策 56 服务端授权过滤骨架）+ 前端告警状态页双视图（`/alert-status`）。Track B+，强制 security-reviewer。
+- **PRD 版本对齐**：Module_02 v1.11→v1.12 / Module_08 v1.11→v1.12（04/05 头部版本串逐字同步）。
+- **§7 MVP 验收清单**：新增 §7.9 告警状态查看增量验收（双视图 / 网域筛选 / 四态映射 / 决策 56 授权骨架 / 安全审查关卡）。
+- **Plan 主版本号不变**（Track B+ 期间保持 v2026-09-05，版本末批量归并）。
+- 对应 04_Implementation_Map.md 已同步（§2.5 / §2.6 / §6 / §8 / §11）。
 
 ### v2026-09-05（v0.2 范围收敛重派生）
 
