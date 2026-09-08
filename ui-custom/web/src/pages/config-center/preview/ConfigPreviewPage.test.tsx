@@ -115,13 +115,14 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     expect(screen.getByText(/加载中/)).toBeInTheDocument()
   })
 
-  it('渲染变更列表：变更单号 + 变更摘要 + 风险/确认人生成时间', async () => {
+  it('渲染变更列表：变更单号 + 变更摘要 + 状态 + 风险/确认人生成时间', async () => {
     useConfigDraftsMock.mockReturnValue(
       result({ data: { items: [draftRow()], total: 1 } }),
     )
     renderPage()
     expect(await screen.findByText('CHG-20260823-001')).toBeInTheDocument()
     expect(screen.getByText(/新增采集目标 app-biz-01/)).toBeInTheDocument()
+    expect(screen.getAllByText('待确认')[0]).toBeInTheDocument()
     expect(screen.getByText('低风险')).toBeInTheDocument()
   })
 
