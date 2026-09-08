@@ -15,7 +15,7 @@ import {
   Typography,
   message,
 } from 'antd'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { monitoringRuleApi } from '../../api/monitoringRules'
 import type { ApiResponse } from '../../types/api'
@@ -24,7 +24,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
-import { CONTENT_MODE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { CONTENT_MODE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP, EFFECTIVE_STATUS_TOOLTIP, CHANGE_PROGRESS_TOOLTIP } from './strategyConstants'
 import { aggregateJobStatus } from './jobStatus'
 import { RuleMountDrawer } from './RuleMountDrawer'
 
@@ -199,16 +199,17 @@ export function RulesPage() {
         render: (v: string) => <Text type="secondary">{formatTime(v)}</Text>,
       },
       {
-        title: '变更进度',
-        dataIndex: 'change_status',
-        key: 'change_progress',
-        width: 110,
-        render: (v: string) => CHANGE_PROGRESS_MAP[v] ?? v,
-      },
-      {
-        title: '生效状态',
+        // 相对「变更进度」靠前：先回答用户「当前是否已真正生效」，再看挂在 M09 管线哪一环（与采集 Job 列表对齐）。
+        title: (
+          <Tooltip title={EFFECTIVE_STATUS_TOOLTIP}>
+            <Space size={4}>
+              生效状态
+              <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+            </Space>
+          </Tooltip>
+        ),
         key: 'status',
-        width: 100,
+        width: 120,
         render: (_: unknown, r: MonitoringRule) => {
           const s = aggregateJobStatus(r)
           return (
@@ -218,6 +219,21 @@ export function RulesPage() {
             />
           )
         },
+      },
+      {
+        // 角标指引：确认不必逐条规则进行，可待所有监控配置调好后一次性到 M09 批量确认（与采集 Job 列表对齐）。
+        title: (
+          <Tooltip title={CHANGE_PROGRESS_TOOLTIP}>
+            <Space size={4}>
+              变更进度
+              <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+            </Space>
+          </Tooltip>
+        ),
+        dataIndex: 'change_status',
+        key: 'change_progress',
+        width: 110,
+        render: (v: string) => CHANGE_PROGRESS_MAP[v] ?? v,
       },
       {
         title: '操作',

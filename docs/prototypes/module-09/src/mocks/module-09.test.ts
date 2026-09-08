@@ -446,8 +446,8 @@ describe('module-09 mocks', () => {
     expect(configDrafts.some((d) => d.network_domain_id === 'gov-cloud-a' && d.status === 'pending')).toBe(true)
     // {v1.37} manufacturing-edge 未纳管：不再生成草稿（原 draft-mfg-001 已迁至 default 域，断点修复）
     expect(configDrafts.some((d) => d.network_domain_id === 'manufacturing-edge')).toBe(false)
-    // finance 域仅 discarded → 默认视图为空态，历史视图有内容
-    expect(configDrafts.some((d) => d.network_domain_id === 'finance-dmz' && d.status === 'pending')).toBe(false)
+    // finance 域：draft-finance-001 discarded + draft-finance-002 pending（{v1.51 决策 54} 按域扇出演示）→ 默认视图与历史视图均有内容
+    expect(configDrafts.some((d) => d.network_domain_id === 'finance-dmz' && d.status === 'pending')).toBe(true)
     expect(configDrafts.some((d) => d.network_domain_id === 'finance-dmz' && d.status === 'discarded')).toBe(true)
   })
 
@@ -645,8 +645,8 @@ describe('module-09 mocks', () => {
   })
 
   it('should unify change object as source-data-object enum and derive affected config files (决策 22 变更对象与影响文件)', () => {
-    const validTargets: ConfigChangeTarget[] = ['scrape_job', 'scrape_target', 'alert_rule', 'blackbox_target', 'label_template']
-    const validFiles: AffectedConfigFile[] = ['prometheus.yml', 'targets', 'rules.yml', 'blackbox.yml']
+    const validTargets: ConfigChangeTarget[] = ['scrape_job', 'scrape_target', 'alert_rule', 'blackbox_target', 'label_template', 'alertmanager_config']
+    const validFiles: AffectedConfigFile[] = ['prometheus.yml', 'targets', 'rules.yml', 'blackbox.yml', 'alertmanager.yml']
     // 所有变更项的变更对象均为统一枚举，且必须携带非空、合法的「影响的配置文件」
     configDrafts.forEach((draft) => {
       draft.change_items.forEach((item) => {
@@ -666,6 +666,10 @@ describe('module-09 mocks', () => {
     expect(jobAdd?.change_items[0].target).toBe('scrape_job')
     expect(jobAdd?.change_items[0].affected_files).toContain('prometheus.yml')
     expect(jobAdd?.change_items[0].affected_files).toContain('targets')
+    // 决策 60：alertmanager.yml 变更单（管理域 default scope，Module_08 文件挂载提交）→ 通知配置 / 仅 alertmanager.yml
+    const amChange = configDrafts.find((d) => d.id === 'draft-default-am-001')
+    expect(amChange?.change_items[0].target).toBe('alertmanager_config')
+    expect(amChange?.change_items[0].affected_files).toEqual(['alertmanager.yml'])
   })
 
   it('should trace full chain: change_no → config version → deployment (决策 22 全链路关联)', () => {
@@ -731,22 +735,23 @@ describe('module-09 mocks', () => {
     expect(deriveConfigDownloadUrl(defaultDomain!)).toBe('')
   })
 
-  it('should describe approval tiering: alertmanager.yml managed by Module_08, not in M09 flow (PRD 3.4 / {v1.32})', () => {
+  it('should describe approval tiering: alertmanager.yml enters M09 change confirm as management-domain default scope artifact (决策 60 / PRD 3.4)', () => {
     // 人工确认：prometheus.yml / targets / rules.yml / blackbox.yml
     expect(approvalTieringNote.manual).toContain('prometheus.yml')
     expect(approvalTieringNote.manual).toContain('targets')
     expect(approvalTieringNote.manual).toContain('rules.yml')
     expect(approvalTieringNote.manual).toContain('blackbox.yml')
     expect(approvalTieringNote.manual).toContain('人工确认')
-    // 自动生效：alertmanager.yml 由 Module_08 直接管理，不进入本模块变更确认流程
+    // alertmanager.yml（决策 60 口径反转）：纳入本模块变更确认，确认后写中心 Alertmanager 配置路径并 reload，change_status 回写 M08
     expect(approvalTieringNote.auto).toContain('alertmanager.yml')
-    expect(approvalTieringNote.auto).toContain('Module_08')
-    expect(approvalTieringNote.auto).toContain('不进入')
-    // 混单规则：按高风险文件走人工确认
-    expect(approvalTieringNote.mixed).toContain('高风险文件')
-    // 原因：通知路由调整频繁、风险低、M08 是 Alertmanager 唯一 Owner
-    expect(approvalTieringNote.reason).toContain('唯一 Owner')
-    // 配置产物不包含 alertmanager.yml（ConfigDraft / 配置包均不含，PRD 6.2 / 3.11）
+    expect(approvalTieringNote.auto).toContain('纳入本模块变更确认')
+    expect(approvalTieringNote.auto).toContain('管理域')
+    // 不参与按网域扇出、不进入 agent_pull 配置包
+    expect(approvalTieringNote.mixed).toContain('agent_pull')
+    expect(approvalTieringNote.mixed).toContain('不包含 alertmanager.yml')
+    // 职责分工：M08 是 Alertmanager 配置唯一内容 Owner，M09 是变更确认与下发管道 Owner
+    expect(approvalTieringNote.reason).toContain('唯一内容 Owner')
+    // 采集产物字段不包含 alertmanager 内容（alertmanager.yml 变更仅体现在变更单 / 变更清单维度，PRD 6.2 / 3.11）
     configDrafts.forEach((draft) => {
       expect(draft.prometheus_yml).not.toContain('alertmanager')
       expect(draft.rules_yml).not.toContain('alertmanager')

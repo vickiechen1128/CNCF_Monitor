@@ -560,7 +560,13 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
             <Card size="small" title="选择实例" style={{ marginBottom: 12 }}>
               <InstanceSelector monitorType={monitorType} networkDomainId={networkDomainId} selectedIds={selectedIds} onChange={setSelectedIds} />
             </Card>
-            {isEdit && <ExporterInstallationPanel jobId={record!.id} />}
+            {isEdit && (
+              <ExporterInstallationPanel
+                jobId={record!.id}
+                jobName={record!.job_name}
+                deployed={record!.change_status === 'deployed'}
+              />
+            )}
           </>
         ) : (
           <>

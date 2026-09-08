@@ -72,8 +72,10 @@ type JobBuild struct {
 //   - targets/<job>.json：由调用方预解析的 Targets 生成；
 //   - rules.yml：scope=central 且 content_mode=yaml_passthrough 的规则解析合并 groups
 //     为单文档（renderRules）；
-//   - blackbox.yml：存在 blackbox job 时按所用模块生成。
-func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule) (*ConfigArtifacts, error) {
+//   - blackbox.yml：存在 blackbox job 时按所用模块生成；
+//   - alertmanager.yml：决策 60，由调用方按「管理域 default 范围」透传 M08 已留痕
+//     源配置内容（无告警配置时传空串，不产生空产物）。
+func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML string) (*ConfigArtifacts, error) {
 	ext := buildExternalLabels(domainID, zoneType, replica)
 
 	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}}
@@ -113,10 +115,11 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 	blackboxYAML := renderBlackbox(modules)
 
 	return &ConfigArtifacts{
-		PrometheusYML: string(promYAML),
-		RulesYML:      rulesYAML,
-		BlackboxYML:   blackboxYAML,
-		TargetsFiles:  targets,
+		PrometheusYML:   string(promYAML),
+		RulesYML:        rulesYAML,
+		BlackboxYML:     blackboxYAML,
+		TargetsFiles:    targets,
+		AlertmanagerYML: alertmanagerYML,
 	}, nil
 }
 

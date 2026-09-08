@@ -1,7 +1,7 @@
 // Package seed provides idempotent upsert of the Phase 0 seed data:
 // platform_admin tenant, default network domain, zone_type dictionary,
 // default LabelTemplates and built-in ExporterTemplates with default
-// CITypeExporterMappings.
+// CITypeExporterMappings, plus the initial admin user (Module_06 §5.3).
 package seed
 
 import (
@@ -31,6 +31,9 @@ func Run(db *gorm.DB) error {
 	}
 	if err := runMetricLibrary(db); err != nil {
 		return fmt.Errorf("seed metric library: %w", err)
+	}
+	if err := runAdminUser(db); err != nil {
+		return fmt.Errorf("seed admin user: %w", err)
 	}
 	return nil
 }

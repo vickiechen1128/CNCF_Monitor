@@ -11,11 +11,11 @@
 | Phase | Phase 3（MVP 子集） |
 | 模块 | module-01-strategy |
 | 分支 | feat/module-01-strategy |
-| 版本 | v2026-08-23（新建 / 第 1 版） |
-| 生成方式 | planner Phase 2 派生（code-sequence-planner） |
-| 来源 | PRD `Module_01_Metric_Collection_Center.md` v3.26 §3/§5/§6/§8/§9/§10/§11；`03_API_Standard.md` §3/§7；`task-sequence.yaml` |
+| 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v3.35） |
+| 生成方式 | planner Phase 2 派生（code-sequence-planner）；v2026-09-05 重派生覆盖 v3.27~v3.31 契约变更（决策 47-1/47-2 安装确认拆闸门 + 实例采集状态回显、决策 53/54 filter 与网域扇出挪移口径、v3.29 coverage 边界、F-32 三来源登记），v3.32~v3.35 为 §0 叙事层、无契约影响 |
+| 来源 | PRD `Module_01_Metric_Collection_Center.md` v3.35 §3/§5/§6/§8/§9/§10/§11；`03_API_Standard.md` §3/§7；`task-sequence.yaml` |
 
-> **本期范围外**：BusinessMetric 业务指标库（P2，无 API/UI）、字段化规则编辑 + PromQL 校验/预览（v0.3）、v0.2 能力（草稿 draft api/clone/批量提交/网域覆盖表/service_discovery）。
+> **本期范围外**：BusinessMetric 业务指标库（P2，无 API/UI）、字段化规则编辑 + PromQL 校验/预览（v0.3）；**v0.2 能力**（快照不展开，契约见 `05_Code_Implementation_Plan.md` Phase 6.5 与 M07/M09 快照）：filter 实例筛选（决策 53）、Job 多网域绑定 + M09 按域扇出（决策 54）、网域级覆盖表 `CITypeExporterMappingOverride`、实例级端口覆盖（M07 `Resource.scrape_port`）、cAdvisor 容器资源监控；**v0.3+**：草稿保存 + 批量提交生效交互（字段已落库，仅 UI 交互挪移）、克隆 Job（v0.3+ 待评估）、业务健康度看板、`service_discovery`（docker_sd / kubernetes_sd 预留）。
 
 ## 1. 通用契约
 
@@ -88,10 +88,18 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | DELETE | `/scrape-jobs/:id/instances/:resource_id/confirm` | — | `{resource_id, job_id}` | `not_found` | §6.2.5 |
 | POST | `/scrape-jobs/:id/preview-targets` | — | 解析后的目标清单（standard→实例地址；blackbox→targets） | `not_found` | L2 接口预览 |
 
-**安装确认维度（用户决策）**：ExporterInstallationConfirmation 的 **PK = (resource_id, scrape_job_id)**，FK scrape_job_id→ScrapeJob.id；`exporter_template_id` 为冗余缓存（来自 ScrapeJob，不参与唯一性）；status∈{unconfirmed, confirmed, not_applicable}（blackbox/application_http 用 not_applicable，不落确认记录）。PRD §5.6 主键维度为过时表述，实施以本行 + §6.2.5/§8④ 为准（PRD 待修订，见 dev-feedback）。
+**安装确认维度（用户决策）**：ExporterInstallationConfirmation 的 **PK = (resource_id, scrape_job_id)**，FK scrape_job_id→ScrapeJob.id；`exporter_template_id` 为冗余缓存（来自 ScrapeJob，不参与唯一性）；status∈{unconfirmed, confirmed, not_applicable}（blackbox/application_http 用 not_applicable，不落确认记录）。PRD §5.6/§8 ④ 主键维度已于 v3.27（决策 47-1）修订一致，实施以本行 + §6.2.5/§8④ 为准。
 
 实例候选自动收敛：同 monitor_type（推导到资源类别）+ 同网域；offline 显示但置灰不可选（决策29）。
 安装确认状态机（§8 ④）：unconfirmed → confirmed；not_applicable 用于 blackbox/application。
+
+> **安装确认拆闸门（决策 47-1，PRD v3.27）**：登记已降级为**可选留痕 / 人工背书**，不再作为生成 target 的前置——`unconfirmed` 实例照常进入 M09 配置生成；target 生成只取决于 `selected_instance_ids`（+ `offline` 排除 + `enabled` + `draft_status`）。「是否采到数据」的事实反馈由下述采集状态回显承担（登记只是口头背书，up/down 才是真相反馈）。
+
+> **实例采集状态回显（决策 47-2，PRD §5.10 / §6.2.5，只读消费 Module_02 `/api/v1/targets`）**：
+> - **外层汇总**（Job 详情/编辑抽屉实例区顶部）：在线数 = 当前 `up` 实例数 / 实例总数（如「在线 5 / 10」）；待采集数 = 已保存但变更单未确认下发、或刚下发尚未完成首次抓取的实例数（在线数不含待采集实例）。
+> - **实例级「采集状态」列**（四态，枚举值见 §9）：`pending`（待采集：已入选 `selected_instance_ids` 但 target 未在 Prometheus 生效——新勾选/新保存实例默认进入）/ `up`（正常：M02 targets 返回 `health=up`，低饱和展示）/ `down`（异常：`health=down`，高饱和 + 附 `lastError` 摘要，提醒「配置已下发但未采集到数据，请检查采集器安装与网络连通」）/ `unknown`（已生效但暂无抓取结果，展示 `-` 附最后抓取时间）。
+> - 前端定时刷新（建议 15~30s）或手动刷新，只读不阻断编辑保存；blackbox 拨测目标同口径（up/down 对应 `probe_success`），不涉及安装登记；本模块不直连 Prometheus、不落持久状态。
+> - **与 coverage 三态的边界（决策 47-3 + PRD v3.29 口径）**：M02 `/api/v1/health/coverage` 与 M07 三态 badge **不区分「待采集」**——选中关系取 DB 当前值、不感知 M09 下发时序，选中未采到统一归「已下发未采到」；「待采集 vs 已下发未采到」细分**仅由本模块回显承担**（本模块持有 `change_status`，可对「变更未确认下发」单独标识）。
 
 ## 7. MonitoringRule（MVP 文件挂载）API
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
@@ -123,12 +131,13 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | `auth_type` | `none`(默认)/`basic`/`bearer` | 决策31 |
 | `blackbox_module` | `http_2xx`/`icmp_ping`/`tcp_connect`/`dns_query` 等 | blackbox.yml 模块名 |
 | `BlackboxTarget.protocol` | `http`/`https`/`tcp`/`icmp`/`dns` | 拨测目标协议 |
-| `instance_selection_mode` | `manual`(MVP)/`filter`(v0.3+) | |
+| `instance_selection_mode` | `manual`(MVP)/`filter`(v0.2，决策 53，非 MVP) | |
 | `source`(ExporterTemplate) | `official`/`third_party`/`internal` | 采集器来源 |
 | `change_status` | `pending`/`confirmed`/`deployed`/`none` | 下发状态，M09 回写 |
 | `draft_status` | `draft`/`ready` | MVP 默认 ready |
 | `metric_type` | `counter`/`gauge`/`histogram`/`summary`/`unknown` | 指标类型 |
-| `ExporterInstallation.status` | `unconfirmed`/`confirmed`/`not_applicable` | 安装确认状态（§8 统一枚举） |
+| `ExporterInstallation.status` | `unconfirmed`/`confirmed`/`not_applicable` | 安装确认状态（§8 统一枚举；`unconfirmed` 不阻断 target 生成，决策 47-1） |
+| 实例采集状态（派生，§5.10） | `pending`(待采集)/`up`(正常)/`down`(异常)/`unknown`(未知) | Job 实例区只读回显枚举，非落库字段（决策 47-2）；`down` 附 lastError 摘要 |
 | `confirmed_by` | 固定 `platform_admin` | MVP 无鉴权 |
 | `content_mode` | `yaml_passthrough`(MVP)/`structured`(v0.3+) | 规则内容形态 |
 | `scope` | `central`(固定)/`edge`/`both`(v0.4+) | 求值范围 |

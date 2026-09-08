@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Alert,
   Badge,
   Button,
   Card,
+  Collapse,
   Descriptions,
   Drawer,
   Empty,
@@ -20,7 +22,9 @@ import {
 } from 'antd'
 import {
   DownloadOutlined,
+  ExportOutlined,
   FileTextOutlined,
+  InfoCircleOutlined,
   PlusOutlined,
   ReadOutlined,
   ReloadOutlined,
@@ -104,11 +108,12 @@ function InstallLinks({ template }: { template?: ExporterTemplate }) {
 
 /**
  * 采集器管理 Tab（承载于采集 Job 页，不独立导航，Module_01 §9.1 / TaskDesc F2 / F10 增强）。
- * - 顶部 Steps 三步动线（登记采集器 → 配置默认采集 → 创建 Job 确认安装），可收起（A4，P1 修复）；
+ * - 顶部 Steps 三步配置指引（登记采集器 → 配置默认采集 → 创建采集 Job），可收起且留有恢复入口（A4，P1 修复）；
  * - 列表 = 默认采集配置（CITypeExporterMapping）+ 「未被引用」采集器模板（ExporterTemplate）池行（F1-5）；
  * - 模板行展示 安装指南/下载/文档（Popover 图标链，F1-6）；空态内联登记（A9）；模板行「去配置」（F1-5）+ 自建模板「删除」（F-27 A）；
  */
 export function CollectorTemplatesTab() {
+  const navigate = useNavigate()
   const [mappings, setMappings] = useState<CITypeExporterMapping[]>([])
   // 全量映射（跨分页）仅用于「未被引用」集合判定，避免分页后其他页引用的模板被误判为未引用（F-30 分页 bug）
   const [allMappings, setAllMappings] = useState<CITypeExporterMapping[]>([])
@@ -121,7 +126,6 @@ export function CollectorTemplatesTab() {
   const [pageSize, setPageSize] = useState(20)
   const [total, setTotal] = useState(0)
   const [refresh, setRefresh] = useState(0)
-  const [stepsVisible, setStepsVisible] = useState(true)
 
   // 登记采集器 / 新增默认采集配置 / 编辑（补配）抽屉
   const [tmplOpen, setTmplOpen] = useState(false)
@@ -524,33 +528,54 @@ export function CollectorTemplatesTab() {
         />
       )}
 
-      {/* A4：Steps 三步动线（登记采集器 → 配置默认采集 → 创建 Job 确认安装），可收起 */}
-      {stepsVisible && (
-        <div
-          style={{
-            background: 'var(--color-bg-layout, #fafafa)',
-            borderRadius: 8,
-            padding: '16px 24px',
-            marginBottom: 16,
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text strong>部署动线</Text>
-            <Button type="link" size="small" onClick={() => setStepsVisible(false)}>
-              收起
-            </Button>
-          </div>
-          <Steps
-            size="small"
-            current={-1}
-            items={[
-              { title: '登记采集器', description: '登记官方 / 第三方 / 内部自建采集器（F-29 D 放开来源，与内置同名冲突）' },
-              { title: '配置默认采集', description: '为监控类型配置默认采集实现与参数' },
-              { title: '创建 Job 确认安装', description: '创建采集任务并确认实例安装' },
-            ]}
-          />
-        </div>
-      )}
+      {/* 配置指引：Steps 三步操作流程，前两步在本页完成，第 3 步跳转「采集 Job」；
+          与网域纳管处一致使用 Collapse（ghost）折叠，header 常驻，默认展开，随时可点标题收起/展开 */}
+      <Collapse
+        ghost
+        size="small"
+        defaultActiveKey={['collector-guide']}
+        style={{ marginBottom: 16 }}
+        items={[
+          {
+            key: 'collector-guide',
+            label: (
+              <Space size={8}>
+                <InfoCircleOutlined style={{ color: '#1677ff' }} />
+                <Text strong>配置指引</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  点击标题可收起或展开
+                </Text>
+              </Space>
+            ),
+            children: (
+              <Steps
+                size="small"
+                current={-1}
+                items={[
+                  { title: '登记采集器', description: '把采集器模板登记进系统（官方/第三方/内部自建）' },
+                  { title: '配置默认采集', description: '为监控类型指定默认采集模板，创建任务自动套用' },
+                  {
+                    title: '创建采集 Job',
+                    description: (
+                      <Space direction="vertical" size={4}>
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<ExportOutlined />}
+                          onClick={() => navigate('/scrape-jobs')}
+                        >
+                          前往采集 Job
+                        </Button>
+                        <span>在采集 Job 页创建采集任务，并确认各实例安装与抓取是否正常。</span>
+                      </Space>
+                    ),
+                  },
+                ]}
+              />
+            ),
+          },
+        ]}
+      />
 
       <FilterBar>
         <FilterItem label="监控类型" width={220}>

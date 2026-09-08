@@ -3,6 +3,8 @@ package generator
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
@@ -127,6 +129,11 @@ func instanceAddress(ip string, port int) string {
 //   - blackbox：将 ScrapeJob.blackbox_targets 展开为目标组（labels 空）。
 //
 // 每实例生成一个 TargetGroup（targets=[地址]，labels=模板展开标签）。
+//
+// 决策 47-1（安装确认拆闸门）：本函数**只消费 selected_instance_ids**（+ offline
+// 排除 + enabled + draft_status），**不读取、不排除、不阻塞 ExporterInstallationConfirmation**。
+// 未确认 / 已确认实例一律进入 target 组——安装确认已降级为「可选登记、非生成闸门」，
+// 真实采集状态（up/down）由 M02 targets/coverage 代理回显，M01 不直连 Prometheus。
 func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, error) {
 	if job.JobType == models.JobTypeBlackbox {
 		groups := make([]TargetGroup, 0, len(job.BlackboxTargets))
@@ -167,4 +174,18 @@ func MarshalTargetGroups(groups []TargetGroup) (string, error) {
 		return "", fmt.Errorf("marshal target groups: %w", err)
 	}
 	return string(b), nil
+}
+
+// EnsureTargetsFilename 校验 targets 文件名为纯文件名（review-fix F6 防御纵深）。
+// 正常 key 由 normalizeJobFilename 归一为安全名，但写入点复用 map key：若 DB/下游存入
+// 脏 key（含 .. / 路径分隔符）可越界写文件。落盘前在各写入点二次断言兜底。
+// 允许 base 名等于自身（无嵌套路径）且不含 '/' 与 '\'；拒绝空 / "." / ".."。
+func EnsureTargetsFilename(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("unsafe targets filename: %q", name)
+	}
+	if filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("unsafe targets filename (path separators): %q", name)
+	}
+	return nil
 }

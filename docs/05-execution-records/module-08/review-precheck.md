@@ -1,0 +1,241 @@
+# 审查预检报告：module-08
+
+## 执行元数据
+- base branch: develop (resolved: origin/develop)
+- current branch：feat/module-08-alert-dispatch
+- commit range：origin/develop...HEAD
+- 变更范围来源：committed (origin/develop...HEAD)
+- generated at：2026-09-02T08:41:49Z
+- changed files count：93
+- 契约快照：存在 (path: docs/05-execution-records/module-08/api-contract-snapshot.md)
+
+## 变更文件清单
+- docs/04-source-architecture/repo-map.md
+- docs/05-execution-records/module-01/frontend-prototype-map.md
+- docs/05-execution-records/module-01/task-sequence.yaml
+- docs/05-execution-records/module-02/frontend-prototype-map.md
+- docs/05-execution-records/module-02/task-sequence.yaml
+- docs/05-execution-records/module-07/frontend-prototype-map.md
+- docs/05-execution-records/module-07/task-sequence.yaml
+- docs/05-execution-records/module-08/frontend-prototype-map.md
+- docs/05-execution-records/module-08/task-sequence.yaml
+- docs/05-execution-records/module-09/task-sequence.yaml
+- platform/alertmanager/config/config_test.go
+- platform/alertmanager/config/handler.go
+- platform/alertmanager/config/service.go
+- platform/alertmanager/config/validate.go
+- platform/alertmanager/config/version.go
+- platform/alertmanager/config/version_test.go
+- platform/alertmanager/register.go
+- platform/alertmanager/silence/authorize.go
+- platform/alertmanager/silence/handler.go
+- platform/alertmanager/silence/proxy.go
+- platform/alertmanager/silence/service.go
+- platform/alertmanager/silence/silence_test.go
+- platform/cmd/metric-center/main.go
+- platform/cmd/metric-center/main_test.go
+- platform/config/resource/list.go
+- platform/config/resource/list_test.go
+- platform/config/resource/monitored.go
+- platform/configcenter/deployment/callback.go
+- platform/configcenter/deployment/deployment_test.go
+- platform/configcenter/deployment/service.go
+- platform/configcenter/draft/change_items.go
+- platform/configcenter/draft/draft_test.go
+- platform/configcenter/draft/service.go
+- platform/configcenter/generator/change_detect.go
+- platform/configcenter/generator/data_source.go
+- platform/configcenter/generator/generator.go
+- platform/configcenter/generator/generator_test.go
+- platform/configcenter/generator/render.go
+- platform/configcenter/generator/targets.go
+- platform/configcenter/generator/validate.go
+- platform/models/alertmanager_config.go
+- platform/models/alertmanager_config_test.go
+- platform/models/config.go
+- platform/models/config_center_rules.go
+- platform/models/models_test.go
+- platform/query/coverage.go
+- platform/query/coverage_test.go
+- platform/query/routes.go
+- platform/query/targets.go
+- platform/query/targets_test.go
+- platform/strategy/scrapejob/installation.go
+- platform/strategy/scrapejob/scrape_job_test.go
+- ui-custom/web/package.json
+- ui-custom/web/pnpm-lock.yaml
+- ui-custom/web/src/App.tsx
+- ui-custom/web/src/api/alertmanager.ts
+- ui-custom/web/src/api/client.ts
+- ui-custom/web/src/api/coverage.test.ts
+- ui-custom/web/src/api/coverage.ts
+- ui-custom/web/src/api/targets.test.ts
+- ui-custom/web/src/api/targets.ts
+- ui-custom/web/src/components/MonitorStatusBadge.tsx
+- ui-custom/web/src/layouts/MainLayout.test.tsx
+- ui-custom/web/src/layouts/MainLayout.tsx
+- ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx
+- ui-custom/web/src/pages/alerts/AlertConfigPage.test.tsx
+- ui-custom/web/src/pages/alerts/AlertConfigPage.tsx
+- ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx
+- ui-custom/web/src/pages/alerts/SilencesPage.test.tsx
+- ui-custom/web/src/pages/alerts/SilencesPage.tsx
+- ui-custom/web/src/pages/alerts/alertSmoke.test.tsx
+- ui-custom/web/src/pages/alerts/alertmanagerConstants.test.ts
+- ui-custom/web/src/pages/alerts/alertmanagerConstants.ts
+- ui-custom/web/src/pages/alerts/useAlertConfig.ts
+- ui-custom/web/src/pages/alerts/useSilences.ts
+- ui-custom/web/src/pages/config-center/configCenterConstants.ts
+- ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx
+- ui-custom/web/src/pages/config-center/preview/alertmanagerSmoke.test.tsx
+- ui-custom/web/src/pages/config-center/preview/configPreviewYaml.test.ts
+- ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts
+- ui-custom/web/src/pages/query/TargetStatusPage.test.tsx
+- ui-custom/web/src/pages/query/TargetStatusPage.tsx
+- ui-custom/web/src/pages/resources/ResourcesPage.test.tsx
+- ui-custom/web/src/pages/resources/ResourcesPage.tsx
+- ui-custom/web/src/pages/resources/useResourceCoverage.ts
+- ui-custom/web/src/pages/strategy/ExporterInstallationPanel.test.tsx
+- ui-custom/web/src/pages/strategy/ExporterInstallationPanel.tsx
+- ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx
+- ui-custom/web/src/pages/strategy/useScrapeJobStatus.test.ts
+- ui-custom/web/src/pages/strategy/useScrapeJobStatus.ts
+- ui-custom/web/src/types/alertmanager.ts
+- ui-custom/web/src/types/config-center.ts
+- ui-custom/web/src/types/query.ts
+
+## 目录隔离检查
+- **backend-reviewer** 目录隔离：检测到越界文件
+- docs/04-source-architecture/repo-map.md
+- docs/05-execution-records/module-01/frontend-prototype-map.md
+- docs/05-execution-records/module-01/task-sequence.yaml
+- docs/05-execution-records/module-02/frontend-prototype-map.md
+- docs/05-execution-records/module-02/task-sequence.yaml
+- docs/05-execution-records/module-07/frontend-prototype-map.md
+- docs/05-execution-records/module-07/task-sequence.yaml
+- docs/05-execution-records/module-08/frontend-prototype-map.md
+- docs/05-execution-records/module-08/task-sequence.yaml
+- docs/05-execution-records/module-09/task-sequence.yaml
+- ui-custom/web/package.json
+- ui-custom/web/pnpm-lock.yaml
+- ui-custom/web/src/App.tsx
+- ui-custom/web/src/api/alertmanager.ts
+- ui-custom/web/src/api/client.ts
+- ui-custom/web/src/api/coverage.test.ts
+- ui-custom/web/src/api/coverage.ts
+- ui-custom/web/src/api/targets.test.ts
+- ui-custom/web/src/api/targets.ts
+- ui-custom/web/src/components/MonitorStatusBadge.tsx
+- ui-custom/web/src/layouts/MainLayout.test.tsx
+- ui-custom/web/src/layouts/MainLayout.tsx
+- ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx
+- ui-custom/web/src/pages/alerts/AlertConfigPage.test.tsx
+- ui-custom/web/src/pages/alerts/AlertConfigPage.tsx
+- ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx
+- ui-custom/web/src/pages/alerts/SilencesPage.test.tsx
+- ui-custom/web/src/pages/alerts/SilencesPage.tsx
+- ui-custom/web/src/pages/alerts/alertSmoke.test.tsx
+- ui-custom/web/src/pages/alerts/alertmanagerConstants.test.ts
+- ui-custom/web/src/pages/alerts/alertmanagerConstants.ts
+- ui-custom/web/src/pages/alerts/useAlertConfig.ts
+- ui-custom/web/src/pages/alerts/useSilences.ts
+- ui-custom/web/src/pages/config-center/configCenterConstants.ts
+- ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx
+- ui-custom/web/src/pages/config-center/preview/alertmanagerSmoke.test.tsx
+- ui-custom/web/src/pages/config-center/preview/configPreviewYaml.test.ts
+- ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts
+- ui-custom/web/src/pages/query/TargetStatusPage.test.tsx
+- ui-custom/web/src/pages/query/TargetStatusPage.tsx
+- ui-custom/web/src/pages/resources/ResourcesPage.test.tsx
+- ui-custom/web/src/pages/resources/ResourcesPage.tsx
+- ui-custom/web/src/pages/resources/useResourceCoverage.ts
+- ui-custom/web/src/pages/strategy/ExporterInstallationPanel.test.tsx
+- ui-custom/web/src/pages/strategy/ExporterInstallationPanel.tsx
+- ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx
+- ui-custom/web/src/pages/strategy/useScrapeJobStatus.test.ts
+- ui-custom/web/src/pages/strategy/useScrapeJobStatus.ts
+- ui-custom/web/src/types/alertmanager.ts
+- ui-custom/web/src/types/config-center.ts
+- ui-custom/web/src/types/query.ts
+- **frontend-reviewer** 目录隔离：检测到越界文件
+- docs/04-source-architecture/repo-map.md
+- docs/05-execution-records/module-01/frontend-prototype-map.md
+- docs/05-execution-records/module-01/task-sequence.yaml
+- docs/05-execution-records/module-02/frontend-prototype-map.md
+- docs/05-execution-records/module-02/task-sequence.yaml
+- docs/05-execution-records/module-07/frontend-prototype-map.md
+- docs/05-execution-records/module-07/task-sequence.yaml
+- docs/05-execution-records/module-08/frontend-prototype-map.md
+- docs/05-execution-records/module-08/task-sequence.yaml
+- docs/05-execution-records/module-09/task-sequence.yaml
+- platform/alertmanager/config/config_test.go
+- platform/alertmanager/config/handler.go
+- platform/alertmanager/config/service.go
+- platform/alertmanager/config/validate.go
+- platform/alertmanager/config/version.go
+- platform/alertmanager/config/version_test.go
+- platform/alertmanager/register.go
+- platform/alertmanager/silence/authorize.go
+- platform/alertmanager/silence/handler.go
+- platform/alertmanager/silence/proxy.go
+- platform/alertmanager/silence/service.go
+- platform/alertmanager/silence/silence_test.go
+- platform/cmd/metric-center/main.go
+- platform/cmd/metric-center/main_test.go
+- platform/config/resource/list.go
+- platform/config/resource/list_test.go
+- platform/config/resource/monitored.go
+- platform/configcenter/deployment/callback.go
+- platform/configcenter/deployment/deployment_test.go
+- platform/configcenter/deployment/service.go
+- platform/configcenter/draft/change_items.go
+- platform/configcenter/draft/draft_test.go
+- platform/configcenter/draft/service.go
+- platform/configcenter/generator/change_detect.go
+- platform/configcenter/generator/data_source.go
+- platform/configcenter/generator/generator.go
+- platform/configcenter/generator/generator_test.go
+- platform/configcenter/generator/render.go
+- platform/configcenter/generator/targets.go
+- platform/configcenter/generator/validate.go
+- platform/models/alertmanager_config.go
+- platform/models/alertmanager_config_test.go
+- platform/models/config.go
+- platform/models/config_center_rules.go
+- platform/models/models_test.go
+- platform/query/coverage.go
+- platform/query/coverage_test.go
+- platform/query/routes.go
+- platform/query/targets.go
+- platform/query/targets_test.go
+- platform/strategy/scrapejob/installation.go
+- platform/strategy/scrapejob/scrape_job_test.go
+- **security-reviewer** 目录隔离：检测到越界文件
+- docs/04-source-architecture/repo-map.md
+- docs/05-execution-records/module-01/frontend-prototype-map.md
+- docs/05-execution-records/module-01/task-sequence.yaml
+- docs/05-execution-records/module-02/frontend-prototype-map.md
+- docs/05-execution-records/module-02/task-sequence.yaml
+- docs/05-execution-records/module-07/frontend-prototype-map.md
+- docs/05-execution-records/module-07/task-sequence.yaml
+- docs/05-execution-records/module-08/frontend-prototype-map.md
+- docs/05-execution-records/module-08/task-sequence.yaml
+- docs/05-execution-records/module-09/task-sequence.yaml
+
+## 安全预检
+- **敏感信息预检**：未命中
+- **SSRF 预检**：命中
+- platform/query/routes.go: 存在 URL 解析/请求入口，未在文件中同时发现 scheme/host 校验关键词
+- platform/query/targets.go: 存在 URL 解析/请求入口，未在文件中同时发现 scheme/host 校验关键词
+- platform/query/targets_test.go: 存在 URL 解析/请求入口，未在文件中同时发现 scheme/host 校验关键词
+- **注入风险预检**：命中
+- platform/alertmanager/config/validate.go: 存在潜在注入/命令执行模式（fmt.Sprintf+SQL 或 exec.Command/os.Command）
+- platform/configcenter/generator/validate.go: 存在潜在注入/命令执行模式（fmt.Sprintf+SQL 或 exec.Command/os.Command）
+- **文件上传预检**：未命中
+
+## 代码地图
+- **repo-map 新鲜度**：通过
+
+## 审查预检结论
+- 预检报告用于 reviewer 快速采信；命中项需要 reviewer 人工确认，未命中项不替代 LLM 对鉴权/越权/业务安全的判断。
+- 文件路径：docs/05-execution-records/module-08/review-precheck.md

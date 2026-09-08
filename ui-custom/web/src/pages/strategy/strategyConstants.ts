@@ -6,6 +6,7 @@
  */
 import type { ResourceCategory } from '../../types/resource'
 import type { MonitorType, RuleContentMode, ScopeType } from '../../types/strategy'
+import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
 
 /** monitor_type 细粒度展示名（§11.1 监控对象类型） */
 export const MONITOR_TYPE_MAP: Record<MonitorType, string> = {
@@ -94,3 +95,26 @@ export const AUTH_TYPE_MAP: Record<string, string> = {
   basic: '用户名密码',
   bearer: 'Bearer Token',
 }
+
+/** 实例「采集状态」展示（决策 47-2：采集正常 / 已下发未采到 / 待采集） */
+export const SCRAPE_STATUS_META: Record<JobInstanceScrapeStatus, { label: string; badge: 'success' | 'error' | 'default' }> = {
+  // 与 M07 MonitorStatusBadge 的「采集中」统一口径（LOW-3），同指绿色采集正常态
+  collecting: { label: '采集中', badge: 'success' },
+  down: { label: '已下发未采到', badge: 'error' },
+  pending: { label: '待采集', badge: 'default' },
+}
+
+/** 已下发未采到（down）的行内引导文案（决策 47-2） */
+export const DOWN_TOOLTIP = '配置已下发但未采集到数据，请检查采集器安装与网络连通'
+
+/** 列表「实例采集状态」列头角标（Job 列表专用，F-36 后简洁口径） */
+export const COLLECTION_STATUS_TOOLTIP =
+  '正常采到数据的实例数 / 你勾选的实例总数。有实例没采到数据时整格变红，点开可看原因；约 20 秒自动刷新'
+
+/** 列表「生效状态」列头角标（Job 列表 / 规则列表共用，F-37 后简洁口径） */
+export const EFFECTIVE_STATUS_TOOLTIP =
+  '这份配置当前是否真正生效。刚保存不会立刻生效，需到「配置变更确认」页点一次确认后才会更新'
+
+/** 列表「变更进度」列头角标（Job 列表 / 规则列表共用，F-37 后简洁口径） */
+export const CHANGE_PROGRESS_TOOLTIP =
+  '配置下发到哪一步：待确认 / 已确认待下发 / 已下发 / 无变更。可等所有监控配置调好后再一次性确认下发'

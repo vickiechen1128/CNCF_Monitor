@@ -18,15 +18,17 @@ const GeneratorVersion = "0.1.0"
 
 // ConfigArtifacts 是一次配置生成的可验证产物集合。
 //
-//	PrometheusYML  prometheus.yml 文本（global.external_labels + scrape_configs 骨架）
-//	RulesYML       rules.yml 文本（scope=central yaml_passthrough 规则解析合并 groups 为单文档，可为空）
-//	BlackboxYML    blackbox.yml 文本（存在 blackbox job 时生成，可为空）
-//	TargetsFiles   targets/<job>.json → 文件内容（file_sd 目标）
+//	PrometheusYML   prometheus.yml 文本（global.external_labels + scrape_configs 骨架）
+//	RulesYML        rules.yml 文本（scope=central yaml_passthrough 规则解析合并 groups 为单文档，可为空）
+//	BlackboxYML     blackbox.yml 文本（存在 blackbox job 时生成，可为空）
+//	TargetsFiles    targets/<job>.json → 文件内容（file_sd 目标）
+//	AlertmanagerYML alertmanager.yml 文本（决策 60：仅管理域 default scope，无告警配置时为空）
 type ConfigArtifacts struct {
-	PrometheusYML string
-	RulesYML      string
-	BlackboxYML   string
-	TargetsFiles  map[string]string
+	PrometheusYML   string
+	RulesYML        string
+	BlackboxYML     string
+	TargetsFiles    map[string]string
+	AlertmanagerYML string
 }
 
 // TargetGroup 是 file_sd 目标文件的单组目标（targets + labels）。
@@ -49,8 +51,9 @@ func buildExternalLabels(domainID, zoneType, replica string) map[string]string {
 }
 
 // Checksum 计算配置产物联合 checksum：
-// sha256(prometheus.yml + rules_yml + blackbox_yml + targets 内容按固定顺序拼接)，
-// 缺失文件按空串处理（PRD §3.3.3 决策 42-4）。
+// sha256(prometheus.yml + rules_yml + blackbox_yml + alertmanager_yml + targets 内容按固定顺序拼接)，
+// 缺失文件按空串处理（PRD §3.3.3 决策 42-4）。alertmanager.yml 内容参与联合裁决，
+// 其内容变化即触发变更检测（决策 60 / T09-60-1）。
 func (a *ConfigArtifacts) Checksum() string {
 	type kv struct{ k, v string }
 	sorted := make([]kv, 0, len(a.TargetsFiles))
@@ -63,6 +66,7 @@ func (a *ConfigArtifacts) Checksum() string {
 	b.WriteString(a.PrometheusYML)
 	b.WriteString(a.RulesYML)
 	b.WriteString(a.BlackboxYML)
+	b.WriteString(a.AlertmanagerYML)
 	for _, item := range sorted {
 		b.WriteString(item.v)
 	}

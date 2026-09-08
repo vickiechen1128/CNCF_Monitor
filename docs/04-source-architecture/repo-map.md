@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-08-28 16:23 · commit: `aa48bf18`
+> 生成时间: 2026-09-05 13:58 · commit: `c493b80f`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -110,19 +110,10 @@
 - `func TestInvalidStatusValue(t *testing.T)`
 - `func TestStatusNotFound(t *testing.T)`
 
-### `platform/admin/networkdomain/tenant.go`
-
-- `func ListTenants(db *gorm.DB) gin.HandlerFunc`
-
 ### `platform/admin/networkdomain/tenant_auth.go`
 
 - `func containsStr(list []string, s string) bool`
 - `func syncAuthorizedTenants(db *gorm.DB, domainID string, tenantIDs []string) error`
-
-### `platform/admin/networkdomain/tenant_test.go`
-
-- `func TestListTenantsSeeded(t *testing.T)`
-- `func TestListTenantsStatusFilter(t *testing.T)`
 
 ### `platform/admin/networkdomain/testutil_test.go`
 
@@ -156,6 +147,289 @@
 - `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
 - `func TestListZoneTypesEmpty(t *testing.T)`
 
+### `platform/admin/tenant/handler.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type Handler struct`
+- `func NewHandler(svc *Service) *Handler`
+- `type tenantDTO struct`
+- `func toTenantDTO(tn *models.Tenant) tenantDTO`
+- `type updateTenantRequest struct`
+- `method (*Handler) ListTenants(c *gin.Context)`
+- `method (*Handler) GetTenant(c *gin.Context)`
+- `method (*Handler) UpdateTenant(c *gin.Context)`
+- `method (*Handler) CreateTenantNotAllowed(c *gin.Context)`
+- `method (*Handler) UpdateTenantStatusNotAllowed(c *gin.Context)`
+- `func writeError(c *gin.Context, err error)`
+- `func errInvalidPayload(err error) error`
+- `func parsePage(c *gin.Context) (int, int)`
+- `func parseIntDefault(raw string, def int) int`
+
+### `platform/admin/tenant/handler_test.go`
+
+- `func openTestDB(t *testing.T) *gorm.DB`
+- `func seedTenant(t *testing.T, db *gorm.DB, id, name string, multiSite bool) models.Tenant`
+- `func newTestRouter(db *gorm.DB) *gin.Engine`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `type envelope struct`
+- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
+- `func TestListTenants_Success(t *testing.T)`
+- `func TestListTenants_Pagination(t *testing.T)`
+- `func TestListTenants_StatusFilter(t *testing.T)`
+- `func TestGetTenant_Success(t *testing.T)`
+- `func TestGetTenant_NotFound(t *testing.T)`
+- `func TestUpdateTenant_Success(t *testing.T)`
+- `func TestUpdateTenant_Validation(t *testing.T)`
+- `func TestUpdateTenant_NotFound(t *testing.T)`
+- `func TestCreateTenant_Forbidden(t *testing.T)`
+- `func TestUpdateTenantStatus_Forbidden(t *testing.T)`
+- `func TestTenantFieldsConformToContract(t *testing.T)`
+
+### `platform/admin/tenant/repository.go`
+
+- `type Repository struct`
+- `func NewRepository(db *gorm.DB) *Repository`
+- `method (*Repository) FindByID(id string) (*models.Tenant, error)`
+- `method (*Repository) ListTenants(page, pageSize int, status string) ([]models.Tenant, int64, error)`
+- `method (*Repository) Save(tn *models.Tenant) error`
+
+### `platform/admin/tenant/service.go`
+
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `func newValidationError(format string, args ...interface{}) *ValidationError`
+- `type Service struct`
+- `func NewService(repo *Repository) *Service`
+- `method (*Service) ListTenants(page, pageSize int, status string) ([]models.Tenant, int64, error)`
+- `method (*Service) GetTenant(id string) (*models.Tenant, error)`
+- `method (*Service) UpdateTenant(id string, name *string, multiSiteEnabled *bool) (*models.Tenant, error)`
+
+### `platform/admin/user/handler.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type Handler struct`
+- `func NewHandler(svc *Service) *Handler`
+- `type userDTO struct`
+- `func toUserDTO(u *models.User) userDTO`
+- `type loginLogDTO struct`
+- `func toLoginLogDTO(l *models.LoginLog) loginLogDTO`
+- `type createUserRequest struct`
+- `type updateUserRequest struct`
+- `type updateStatusRequest struct`
+- `type resetPasswordRequest struct`
+- `method (*Handler) CreateUser(c *gin.Context)`
+- `method (*Handler) ListUsers(c *gin.Context)`
+- `method (*Handler) UpdateUser(c *gin.Context)`
+- `method (*Handler) UpdateUserStatus(c *gin.Context)`
+- `method (*Handler) DeleteUser(c *gin.Context)`
+- `method (*Handler) ResetPassword(c *gin.Context)`
+- `method (*Handler) ListLoginLogs(c *gin.Context)`
+- `func writeError(c *gin.Context, err error)`
+- `func errInvalidPayload(err error) error`
+- `func parsePage(c *gin.Context) (int, int)`
+- `func parseIntDefault(raw string, def int) int`
+
+### `platform/admin/user/handler_test.go`
+
+- `func openTestDB(t *testing.T) *gorm.DB`
+- `func newTestRouter(db *gorm.DB) *gin.Engine`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `type envelope struct`
+- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
+- `func seedSession(t *testing.T, db *gorm.DB, userID, token string)`
+- `func countSessions(t *testing.T, db *gorm.DB, userID string) int64`
+- `func createUserViaAPI(t *testing.T, r *gin.Engine, username, displayName, password string) map[string]interface{}`
+- `func TestCreateUser_Success(t *testing.T)`
+- `func TestCreateUser_ResponseNeverLeaksPasswordHash(t *testing.T)`
+- `func TestCreateUser_DuplicateUsername(t *testing.T)`
+- `func TestCreateUser_Validation(t *testing.T)`
+- `func TestDeleteUser_RemoveOrdinaryUser(t *testing.T)`
+- `func TestDeleteUser_AdminForbidden(t *testing.T)`
+- `func TestDeleteUser_NotFound(t *testing.T)`
+- `func TestListUsers_PaginationAndFields(t *testing.T)`
+- `func TestUpdateUser_DisplayName(t *testing.T)`
+- `func TestUpdateUser_UsernameImmutable(t *testing.T)`
+- `func TestUpdateUser_NotFound(t *testing.T)`
+- `func TestUpdateUserStatus_DisableInvalidatesSessions(t *testing.T)`
+- `func TestUpdateUserStatus_InvalidValue(t *testing.T)`
+- `func TestUpdateUserStatus_NotFound(t *testing.T)`
+- `func TestResetPassword_UpdatesHashAndInvalidatesSessions(t *testing.T)`
+- `func TestResetPassword_ValidationAndNotFound(t *testing.T)`
+- `func TestListLoginLogs_FilterOrderPagination(t *testing.T)`
+
+### `platform/admin/user/repository.go`
+
+- `type Repository struct`
+- `func NewRepository(db *gorm.DB) *Repository`
+- `method (*Repository) ExistsByUsername(username string) (bool, error)`
+- `method (*Repository) Create(u *models.User) error`
+- `method (*Repository) FindByID(id string) (*models.User, error)`
+- `method (*Repository) ListUsers(page, pageSize int) ([]models.User, int64, error)`
+- `method (*Repository) Save(u *models.User) error`
+- `method (*Repository) Delete(id string) error`
+- `method (*Repository) DeleteSessionsByUserID(userID string) error`
+- `method (*Repository) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
+- `func isUniqueConstraintError(err error) bool`
+
+### `platform/admin/user/service.go`
+
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `func newValidationError(format string, args ...interface{}) *ValidationError`
+- `type Service struct`
+- `func NewService(repo *Repository) *Service`
+- `type CreateUserInput struct`
+- `func normalizeRole(role string) (string, error)`
+- `method (*Service) CreateUser(in CreateUserInput) (*models.User, error)`
+- `method (*Service) ListUsers(page, pageSize int) ([]models.User, int64, error)`
+- `method (*Service) UpdateDisplayName(id, displayName string) (*models.User, error)`
+- `method (*Service) UpdateRole(id, role string) (*models.User, error)`
+- `method (*Service) UpdateStatus(id string, status models.UserStatus) (*models.User, error)`
+- `method (*Service) ResetPassword(id, newPassword string) error`
+- `method (*Service) DeleteUser(id string) error`
+- `method (*Service) ListLoginLogs(username string, success *bool, page, pageSize int) ([]models.LoginLog, int64, error)`
+- `func validatePassword(password string) error`
+- `func newUserID() (string, error)`
+
+### `platform/alertmanager/config/config_test.go`
+
+- `func newMemConfigDB(t *testing.T) *gorm.DB`
+- `func stubAmtoolAvailable(t *testing.T)`
+- `func stubAmtoolFails(t *testing.T)`
+- `func stubAmtoolUnavailable(t *testing.T)`
+- `func stubChangeTrigger(t *testing.T) *int32`
+- `func TestSubmitPersistsOnValid(t *testing.T)`
+- `func TestSubmitRejectsInvalidNoPersist(t *testing.T)`
+- `func TestSubmitRejectsEmptyContent(t *testing.T)`
+- `func TestSubmitAmtoolUnavailableValidationFails(t *testing.T)`
+- `func TestSubmitIdempotentOnSameChecksum(t *testing.T)`
+- `func TestLatestAppliedAndGetVersionByID(t *testing.T)`
+- `func TestErrValidationError(t *testing.T)`
+
+### `platform/alertmanager/config/handler.go`
+
+- `func queryPage(c *gin.Context) (page, pageSize int)`
+- `func parseID(c *gin.Context) (uint, error)`
+- `func SubmitHandler(db *gorm.DB) gin.HandlerFunc`
+- `func CurrentHandler(db *gorm.DB) gin.HandlerFunc`
+- `func ListVersionsHandler(db *gorm.DB) gin.HandlerFunc`
+- `func GetVersionHandler(db *gorm.DB) gin.HandlerFunc`
+- `func RemountHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondSubmitError(c *gin.Context, err error)`
+
+### `platform/alertmanager/config/service.go`
+
+- `type ErrValidation struct`
+- `method (*ErrValidation) Error() string`
+- `func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
+- `func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
+- `func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
+- `func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error)`
+- `func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
+- `func GetVersionByID(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
+
+### `platform/alertmanager/config/validate.go`
+
+- `func validateAlertmanagerConfig(content string) error`
+- `func runCheckConfig(content string) ([]models.ValidateErrorItem, error)`
+- `func isSuccess(output string) bool`
+- `func parseCheckErrors(output string) []models.ValidateErrorItem`
+- `func extractLine(line string) int`
+
+### `platform/alertmanager/config/version.go`
+
+- `type VersionListItem struct`
+- `func toListItem(v *models.AlertmanagerConfigVersion) VersionListItem`
+- `func formatTimeOrNil(t *time.Time) *string`
+- `func ListVersions(db *gorm.DB, page, pageSize int) ([]VersionListItem, int64, error)`
+- `func GetVersion(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
+
+### `platform/alertmanager/config/version_test.go`
+
+- `func newConfigRouter(db *gorm.DB) *gin.Engine`
+- `func do(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `func decodeResponse(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{}`
+- `func TestSubmitEndpointCreatesVersion(t *testing.T)`
+- `func TestSubmitEndpointValidationFails(t *testing.T)`
+- `func TestCurrentEndpointEmptyThenAfterSubmit(t *testing.T)`
+- `func TestListVersionsEndpointPagination(t *testing.T)`
+- `func TestGetVersionEndpointDetail(t *testing.T)`
+- `func TestRemountEndpointCreatesNewVersion(t *testing.T)`
+- `func TestRemountEndpointNotFound(t *testing.T)`
+- `func TestRemountEndpointValidationFailsNoPersist(t *testing.T)`
+
+### `platform/alertmanager/register.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error`
+
+### `platform/alertmanager/silence/authorize.go`
+
+- `func AuthorizeMatchers(scope *models.AuthorizedMatcherScope, matchers []models.SilenceMatcher) error`
+- `func buildScopeForUser() *models.AuthorizedMatcherScope`
+
+### `platform/alertmanager/silence/handler.go`
+
+- `func queryPage(c *gin.Context) (page, pageSize int)`
+- `func ListHandler(svc *Service) gin.HandlerFunc`
+- `func CreateHandler(svc *Service) gin.HandlerFunc`
+- `func DeleteHandler(svc *Service) gin.HandlerFunc`
+- `func paginate(list []Silence, page, pageSize int) (int, []Silence)`
+
+### `platform/alertmanager/silence/proxy.go`
+
+- `type amMatcher struct`
+- `type amSilence struct`
+- `type amCreateSilenceRequest struct`
+- `type amCreateSilenceResponse struct`
+- `type Proxy struct`
+- `func NewProxy(baseURL string) (*Proxy, error)`
+- `method (*Proxy) ListSilences(ctx context.Context) ([]amSilence, error)`
+- `method (*Proxy) CreateSilence(ctx context.Context, body []byte) (string, error)`
+- `method (*Proxy) GetSilence(ctx context.Context, id string) (*amSilence, error)`
+- `method (*Proxy) DeleteSilence(ctx context.Context, id string) error`
+- `func decodeList(resp *http.Response) ([]amSilence, error)`
+- `func sanitize(b []byte) string`
+
+### `platform/alertmanager/silence/service.go`
+
+- `type Silence struct`
+- `type Service struct`
+- `func NewService(proxy *Proxy) *Service`
+- `type CreateInput struct`
+- `method (*CreateInput) Validate() error`
+- `method (*Service) List(ctx context.Context, activeOnly bool) ([]Silence, error)`
+- `method (*Service) Create(ctx context.Context, scope *models.AuthorizedMatcherScope, in CreateInput) (*Silence, error)`
+- `method (*Service) Delete(ctx context.Context, id string) (string, error)`
+- `func toSilence(am amSilence) Silence`
+- `func silenceStatusAt(starts, ends time.Time) models.SilenceStatus`
+- `func buildCreateBody(in CreateInput) ([]byte, error)`
+
+### `platform/alertmanager/silence/silence_test.go`
+
+- `type fakeAM struct`
+- `method (*fakeAM) setList(s []amSilence)`
+- `method (*fakeAM) createdBodies() []amCreateSilenceRequest`
+- `method (*fakeAM) markNotFound(ids ...string)`
+- `method (*fakeAM) handler() http.Handler`
+- `func startFakeAM(t *testing.T, f *fakeAM) string`
+- `func boolp(b bool) *bool`
+- `func newTestService(t *testing.T) (*Service, *fakeAM)`
+- `func TestServiceListMapsActiveSilences(t *testing.T)`
+- `func TestServiceListEmpty(t *testing.T)`
+- `func TestServiceCreateValid(t *testing.T)`
+- `func TestServiceCreateValidatesMissingFields(t *testing.T)`
+- `func TestServiceCreateRejectsOutOfScopeMatcher(t *testing.T)`
+- `func TestServiceDeleteOK(t *testing.T)`
+- `func TestServiceDeleteNotFound(t *testing.T)`
+- `func TestNewProxyRejectsBadScheme(t *testing.T)`
+- `func TestPaginate(t *testing.T)`
+- `func newSilenceRouter(svc *Service) *gin.Engine`
+- `func silenceRequest(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `func TestListEndpoint(t *testing.T)`
+- `func TestCreateEndpointInvalidBody(t *testing.T)`
+- `func TestDeleteEndpointNotFound(t *testing.T)`
+- `func decodeAt(w *httptest.ResponseRecorder, path []string) string`
+
 ### `platform/api/response/response.go`
 
 - `type Response struct`
@@ -167,7 +441,9 @@
 - `func Unauthorized(c *gin.Context, message string)`
 - `func Forbidden(c *gin.Context, message string)`
 - `func NotFound(c *gin.Context, message string)`
+- `func TooManyRequests(c *gin.Context, message string)`
 - `func InternalServerError(c *gin.Context, err error)`
+- `func BadGateway(c *gin.Context, err error, message string)`
 - `func strError(message string) error`
 - `type strErr = string`
 - `method (strErr) Error() string`
@@ -195,10 +471,11 @@
 ### `platform/cmd/metric-center/main.go`
 
 - `func main()`
-- `func setupRouter(promURL *url.URL) *gin.Engine`
+- `func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error)`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
-- `func registerPlatformConfigRoutes(g *gin.RouterGroup)`
+- `func registerPlatformConfigRoutes(g *gin.RouterGroup) error`
+- `func registerSPA(r *gin.Engine, dir string) error`
 - `func healthHandler(c *gin.Context)`
 - `func healthDBHandler(c *gin.Context)`
 - `func statusHandler(c *gin.Context)`
@@ -209,9 +486,22 @@
 - `type safeResponseWriter struct`
 - `method (*safeResponseWriter) CloseNotify() <-chan bool`
 
+### `platform/cmd/metric-center/main_static_test.go`
+
+- `func newStaticTestDir(t *testing.T) string`
+- `func newSPAEngine(t *testing.T, dir string) *gin.Engine`
+- `func serve(t *testing.T, r *gin.Engine, path string) *httptest.ResponseRecorder`
+- `func TestRegisterSPA_ServesIndexAndAssets(t *testing.T)`
+- `func TestRegisterSPA_HistoryFallback(t *testing.T)`
+- `func TestRegisterSPA_APIRoutesTakePrecedence(t *testing.T)`
+- `func TestRegisterSPA_UnknownAPIReturns404NotHTML(t *testing.T)`
+- `func TestRegisterSPA_PathTraversalBlocked(t *testing.T)`
+- `func TestRegisterSPA_InvalidDir(t *testing.T)`
+
 ### `platform/cmd/metric-center/main_test.go`
 
 - `func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB)`
+- `func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup)`
 - `type apiClient struct`
 - `method (*apiClient) json(method, path, body string) (int, map[string]interface{})`
 - `method (*apiClient) multipart(path string, fields map[string]string, fileField, fileName string, fileBytes []byte) (int, map[s…`
@@ -225,9 +515,18 @@
 - `func TestEndToEndExcelImport(t *testing.T)`
 - `func TestEndToEndResourceLabels(t *testing.T)`
 - `func TestEndToEndLabelTemplates(t *testing.T)`
-- `func TestEndToEndBusinessDomainsReadOnly(t *testing.T)`
+- `func TestEndToEndBusinessDomains(t *testing.T)`
 - `func TestEndToEndConfigCenterSmoke(t *testing.T)`
 - `func TestBuildReloadFunc(t *testing.T)`
+- `type fakeAMState struct`
+- `func newFakeAMState() *fakeAMState`
+- `func fakeAlertmanager(t *testing.T) *httptest.Server`
+- `func writeAMJSON(w http.ResponseWriter, v interface{})`
+- `func TestEndToEndAlertmanagerSmoke(t *testing.T)`
+- `func fakePromUpstream(t *testing.T) *httptest.Server`
+- `func seedIntegrationHost(t *testing.T, dbm *gorm.DB, id, domain, name string)`
+- `func seedIntegrationJob(t *testing.T, dbm *gorm.DB, jobName string, selected []string)`
+- `func TestEndToEndQueryCoverageRoutes(t *testing.T)`
 
 ### `platform/cmd/metric-center/route_probe_test.go`
 
@@ -409,25 +708,50 @@
 
 - `type BusinessDomain struct`
 - `type BusinessDomainStore struct`
-- `func NewBusinessDomainStore(path string) *BusinessDomainStore`
+- `func NewBusinessDomainStore(db *gorm.DB) *BusinessDomainStore`
+- `func toBusinessDomain(m models.BusinessDomain) BusinessDomain`
 - `method (*BusinessDomainStore) List() ([]BusinessDomain, error)`
 - `method (*BusinessDomainStore) Lookup(code string) (BusinessDomain, bool, error)`
 - `method (*BusinessDomainStore) EnabledList() ([]BusinessDomain, error)`
 - `method (*BusinessDomainStore) GetEnabledMap() (map[string]BusinessDomain, error)`
-- `method (*BusinessDomainStore) ensureLoadedLocked() error`
-- `method (*BusinessDomainStore) reloadLocked(info os.FileInfo) error`
+- `method (*BusinessDomainStore) Create(m models.BusinessDomain) (BusinessDomain, error)`
+- `method (*BusinessDomainStore) Update(code string, req UpdateBusinessDomainRequest) (BusinessDomain, error)`
 - `func ListBusinessDomains(store *BusinessDomainStore) gin.HandlerFunc`
+
+### `platform/config/resource/business_domain_write.go`
+
+- `type CreateBusinessDomainRequest struct`
+- `type UpdateBusinessDomainRequest struct`
+- `func validateCreateBusinessDomain(req *CreateBusinessDomainRequest) error`
+- `func CreateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
+- `func UpdateBusinessDomain(store *BusinessDomainStore) gin.HandlerFunc`
+
+### `platform/config/resource/business_domain_write_test.go`
+
+- `func mountBusinessRouter(t *testing.T) (*gin.Engine, *BusinessDomainStore)`
+- `func postJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]interface{})`
+- `func putJSON(t *testing.T, r *gin.Engine, path, body string) (int, map[string]interface{})`
+- `func TestCreateBusinessDomainSuccess(t *testing.T)`
+- `func TestCreateBusinessDomainInvalidCode(t *testing.T)`
+- `func TestCreateBusinessDomainEmptyName(t *testing.T)`
+- `func TestCreateBusinessDomainDuplicate(t *testing.T)`
+- `func TestUpdateBusinessDomainProfile(t *testing.T)`
+- `func TestUpdateBusinessDomainInfraDisableRejected(t *testing.T)`
+- `func TestUpdateBusinessDomainNotFound(t *testing.T)`
+- `func TestUpdateBusinessDomainEmptyNameRejected(t *testing.T)`
 
 ### `platform/config/resource/business_test.go`
 
-- `func writeDomains(t *testing.T, content string) string`
-- `func TestNewBusinessDomainStoreLoadsEntries(t *testing.T)`
-- `func TestInfraFallbackPresent(t *testing.T)`
-- `func TestDisabledEntryExcludedFromEnabledList(t *testing.T)`
-- `func TestHotReloadOnMtimeChange(t *testing.T)`
-- `func TestMissingFileReturnsErrorWithoutPanic(t *testing.T)`
-- `func TestLoadFailureKeepsLastSnapshot(t *testing.T)`
-- `func TestListBusinessDomainsHandler(t *testing.T)`
+- `func testBizFixtures() []models.BusinessDomain`
+- `func openBizTestDB(t *testing.T, fixtures ...models.BusinessDomain) *gorm.DB`
+- `func newBizStore(t *testing.T) *BusinessDomainStore`
+- `func TestStoreListPreservesOrder(t *testing.T)`
+- `func TestStoreLookup(t *testing.T)`
+- `func TestStoreEnabledListAndMapExcludeDisabled(t *testing.T)`
+- `func TestStoreCreateThenVisible(t *testing.T)`
+- `func TestStoreUpdateLimitedFields(t *testing.T)`
+- `func TestListBusinessDomainsHandlerDBBacked(t *testing.T)`
+- `func strPtrT(s string) *string`
 
 ### `platform/config/resource/create.go`
 
@@ -667,6 +991,7 @@
 - `func seedGenericTargetList(t *testing.T, db *gorm.DB, id, domain, name, ip string, port int, status string) *models.GenericT…`
 - `func TestListResourcesCategoryRequiredAndInvalid(t *testing.T)`
 - `func TestListResourcesEachCategory(t *testing.T)`
+- `func TestListResourcesResourceIDStableMergeKey(t *testing.T)`
 - `func TestListResourcesItemFields(t *testing.T)`
 - `func TestListResourcesGenericItemCustomLabels(t *testing.T)`
 - `func TestListResourcesNetworkDomainFilter(t *testing.T)`
@@ -777,7 +1102,6 @@
 
 ### `platform/config/resource/validate_test.go`
 
-- `func newBizStore(t *testing.T) *BusinessDomainStore`
 - `func alwaysExists(string) bool`
 - `func validHostInput() *ResourceInput`
 - `func TestValidateResourceInput_Host(t *testing.T)`
@@ -828,6 +1152,7 @@
 - `func writebackChangeStatus(db *gorm.DB, domainID string) error`
 - `func writebackRuleChangeStatus(db *gorm.DB) error`
 - `func writebackChangeStatuses(db *gorm.DB, domainID string) error`
+- `func writebackAlertmanagerApplied(db *gorm.DB, version *models.ConfigVersion, at time.Time) error`
 
 ### `platform/configcenter/deployment/deployment_test.go`
 
@@ -855,10 +1180,16 @@
 - `func TestWritebackChangeStatusFiltersDraftReady(t *testing.T)`
 - `func TestWritebackRuleChangeStatus(t *testing.T)`
 - `func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T)`
+- `func seedAlertmanagerApplied(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion`
+- `func TestDiskApplierWritesAlertmanagerReloadsSeparately(t *testing.T)`
+- `func TestDiskApplierSkipsAMWhenNoArtifact(t *testing.T)`
+- `func TestDispatchLocalWithAlertmanagerWritesBackApplied(t *testing.T)`
+- `func TestDispatchWithoutAlertmanagerSkipsAppliedWriteback(t *testing.T)`
 - `func TestListAndGetVersion(t *testing.T)`
 - `func TestListDeploymentsFilter(t *testing.T)`
 - `func TestDeploymentHandlerRoutes(t *testing.T)`
 - `func mustJSON(t *testing.T, s string) *strings.Reader`
+- `func adminInjector() gin.HandlerFunc`
 
 ### `platform/configcenter/deployment/handler.go`
 
@@ -898,10 +1229,12 @@
 - `func artifactsFromVersion(v *models.ConfigVersion) (*generator.ConfigArtifacts, error)`
 - `type DiskApplier struct`
 - `method (*DiskApplier) Apply(ca *generator.ConfigArtifacts) error`
+- `method (*DiskApplier) writeAlertmanagerAndReload(ca *generator.ConfigArtifacts) error`
 - `method (*DiskApplier) writeStructural(ca *generator.ConfigArtifacts) error`
 - `method (*DiskApplier) writeTargets(files map[string]string) error`
 - `func structuralChanged(ca *generator.ConfigArtifacts, dir string) (bool, error)`
 - `func writeFile(path, content string) error`
+- `func writeFileAtomic(path, content string) error`
 
 ### `platform/configcenter/domain/onboard.go`
 
@@ -945,6 +1278,7 @@
 ### `platform/configcenter/draft/change_items.go`
 
 - `func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *mo…`
+- `func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
 - `func buildInitialChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule) []models.ConfigChangeItem`
 - `func diffJobItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Config…`
 - `func diffRuleItems(newRulesYML, baseRulesYML string) []models.ConfigChangeItem`
@@ -956,6 +1290,8 @@
 
 ### `platform/configcenter/draft/draft_test.go`
 
+- `func TestMain(m *testing.M)`
+- `func stubValidationTools(t *testing.T)`
 - `func newMemDB(t *testing.T) *gorm.DB`
 - `func seedMonitoredDomain(t *testing.T, db *gorm.DB, id string, monitored bool)`
 - `func seedDraftWithStatus(t *testing.T, db *gorm.DB, changeNo, domainID, status string, valStatus string) *models.ConfigDraft`
@@ -963,6 +1299,7 @@
 - `func perform(t *testing.T, r *gin.Engine, method, path string, body string) *httptest.ResponseRecorder`
 - `func unmarshalData(t *testing.T, w *httptest.ResponseRecorder) map[string]interface{}`
 - `func TestGenerateDraftCreatesPending(t *testing.T)`
+- `func TestGenerateDraftPassedWhenToolsAvailable(t *testing.T)`
 - `func TestGenerateDraftReturnsExistingLivePending(t *testing.T)`
 - `func TestGenerateDraftRejectsNotMonitored(t *testing.T)`
 - `func TestGenerateDraftRejectsFrozenDomain(t *testing.T)`
@@ -971,6 +1308,7 @@
 - `func TestGenerateDraftPropagatesLoadFailure(t *testing.T)`
 - `func TestGenerateDraftDiffRemoveOnDisableJob(t *testing.T)`
 - `func TestGenerateDraftNoDiffReturnsErrNoChanges(t *testing.T)`
+- `func TestGenerateDraftAlertmanagerChangeItem(t *testing.T)`
 - `func TestGenerateDraftBackfillsSourceVersion(t *testing.T)`
 - `func TestConfirmDraftKeepsSourceVersion(t *testing.T)`
 - `func TestConfirmDraftRejectsUnpassedValidation(t *testing.T)`
@@ -982,7 +1320,9 @@
 - `func TestListDraftsFilterAndPagination(t *testing.T)`
 - `func TestListDraftsEmptyDomainReturnsAll(t *testing.T)`
 - `func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T)`
+- `func adminInjector() gin.HandlerFunc`
 - `func TestDraftHandlerRoutes(t *testing.T)`
+- `func TestDraftHandlerConfirmWhenValidationPassed(t *testing.T)`
 - `func TestDraftHandlerDiscardValidationFailed(t *testing.T)`
 - `func TestDiscardDraftImpactAndRollback(t *testing.T)`
 - `func TestDiscardDraftRevertsNewJobOnFirstDeploy(t *testing.T)`
@@ -1062,6 +1402,7 @@
 - `func LoadDefaultTemplate(db *gorm.DB, category models.ResourceCategory) (*models.LabelTemplate, error)`
 - `func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error)`
 - `func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error)`
+- `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
 - `type ErrNotFound struct`
 - `method (ErrNotFound) Error() string`
 
@@ -1088,6 +1429,7 @@
 - `func TestNormalizeJobFilename(t *testing.T)`
 - `func TestChecksumConsistency(t *testing.T)`
 - `func TestResolveTargetsOfflineExclusion(t *testing.T)`
+- `func TestResolveTargetsUnconfirmedIncluded(t *testing.T)`
 - `func TestResolveTargetsExporterPort(t *testing.T)`
 - `func TestLoadExporterPortPriority(t *testing.T)`
 - `func TestMergeLabelsPriority(t *testing.T)`
@@ -1098,6 +1440,9 @@
 - `func TestSourceDataVersionAndNeedsRegeneration(t *testing.T)`
 - `func TestExpandLabelTemplateComposite(t *testing.T)`
 - `func TestMarshalTargetGroupsJSON(t *testing.T)`
+- `func TestAssembleAlertmanagerYML(t *testing.T)`
+- `func TestLoadLatestAlertmanagerConfigContent(t *testing.T)`
+- `func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T)`
 
 ### `platform/configcenter/generator/labels.go`
 
@@ -1116,7 +1461,7 @@
 - `type fileSDConf struct`
 - `type relabelConf struct`
 - `type JobBuild struct`
-- `func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule) (*ConfigArtifacts, error)`
+- `func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML string) (*…`
 - `func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error)`
 - `func orDefault(v, d string) string`
 - `type ruleGroupsFile struct`
@@ -1131,6 +1476,7 @@
 - `func instanceAddress(ip string, port int) string`
 - `func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, erro…`
 - `func MarshalTargetGroups(groups []TargetGroup) (string, error)`
+- `func EnsureTargetsFilename(name string) error`
 
 ### `platform/configcenter/generator/validate.go`
 
@@ -1142,6 +1488,7 @@
 - `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string)`
 - `func runPromtoolCheck(ca *ConfigArtifacts) error`
 - `func runBlackboxCheck(blackboxYAML string) error`
+- `func runAmmtoolCheck(alertmanagerYAML string) error`
 
 ### `platform/configcenter/register.go`
 
@@ -1174,8 +1521,40 @@
 - `func TestInitWithEnvDSN(t *testing.T)`
 - `func TestAutoMigrate(t *testing.T)`
 - `func TestInitDefaultPath(t *testing.T)`
+- `func TestAuthTablesMigrated(t *testing.T)`
 - `func TestHealthWithoutInit(t *testing.T)`
 - `func TestSharedTablesCreatedAndHealthOK(t *testing.T)`
+
+### `platform/db/seed/admin.go`
+
+- `func runAdminUser(db *gorm.DB) error`
+
+### `platform/db/seed/admin_test.go`
+
+- `func TestRunSeedsAdminUser(t *testing.T)`
+- `func TestRunAdminIsIdempotent(t *testing.T)`
+- `func TestRunAdminKeepsModifiedPassword(t *testing.T)`
+- `func TestRunAdminPasswordFromEnv(t *testing.T)`
+- `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
+
+### `platform/db/seed/business_domain.go`
+
+- `type yamlBusinessDomain struct`
+- `func BusinessDomains(db *gorm.DB, path string) error`
+- `func readBusinessDomainsFile(path string) ([]yamlBusinessDomain, error)`
+- `func containsBizCode(entries []yamlBusinessDomain, code string) bool`
+
+### `platform/db/seed/business_domain_test.go`
+
+- `func openBizSeedTestDB(t *testing.T) *gorm.DB`
+- `func writeBizSeedYAML(t *testing.T, content string) string`
+- `func countBizCodes(t *testing.T, db *gorm.DB) []string`
+- `func TestBusinessDomainsSeedsYAMLPlusInfraFallback(t *testing.T)`
+- `func TestBusinessDomainsYAMLAlreadyHasInfra(t *testing.T)`
+- `func TestBusinessDomainsSkipsWhenNonEmpty(t *testing.T)`
+- `func TestBusinessDomainsIdempotent(t *testing.T)`
+- `func TestBusinessDomainsMissingFileFallsBackToInfra(t *testing.T)`
+- `func TestBusinessDomainsNilDBReturnsError(t *testing.T)`
 
 ### `platform/db/seed/exporter.go`
 
@@ -1184,6 +1563,7 @@
 ### `platform/db/seed/label_template.go`
 
 - `func runLabelTemplates(db *gorm.DB) error`
+- `func ensureResourceIDMapping(db *gorm.DB, name string) error`
 
 ### `platform/db/seed/metric_library.go`
 
@@ -1203,6 +1583,7 @@
 - `func TestRunSeedsTenantAndDefaultDomain(t *testing.T)`
 - `func TestRunSeedsZoneTypes(t *testing.T)`
 - `func TestRunSeedsLabelTemplates(t *testing.T)`
+- `func TestRunLabelTemplatesBackfillsResourceID(t *testing.T)`
 - `func TestRunSeedsExportersAndMappings(t *testing.T)`
 - `func TestRunExportersBackfillsBuiltinCanonicalFields(t *testing.T)`
 - `func TestRunIsIdempotent(t *testing.T)`
@@ -1226,6 +1607,158 @@
 - `func main()`
 - `func simulateMetrics()`
 
+### `platform/gateway/auth/admin_middleware.go`
+
+- `func RequireAdmin() gin.HandlerFunc`
+
+### `platform/gateway/auth/admin_middleware_test.go`
+
+- `func ctxUserRouter(u *models.User, noContext bool) *gin.Engine`
+- `func TestRequireAdmin_AdminAllowed(t *testing.T)`
+- `func TestRequireAdmin_RegularUserRejected(t *testing.T)`
+- `func TestRequireAdmin_NoUserInContextRejected(t *testing.T)`
+- `func TestRequireAdmin_DisabledAdminRejected(t *testing.T)`
+- `func TestRequireAdmin_WrongContextTypeRejected(t *testing.T)`
+
+### `platform/gateway/auth/handler.go`
+
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `type Handler struct`
+- `func NewHandler(svc *Service) *Handler`
+- `type loginUserDTO struct`
+- `type meDTO struct`
+- `type loginRequest struct`
+- `type changePasswordRequest struct`
+- `method (*Handler) Login(c *gin.Context)`
+- `method (*Handler) Logout(c *gin.Context)`
+- `method (*Handler) Me(c *gin.Context)`
+- `method (*Handler) ChangePassword(c *gin.Context)`
+- `func bearerToken(c *gin.Context) string`
+- `func writeError(c *gin.Context, err error)`
+- `func errInvalidPayload(err error) error`
+
+### `platform/gateway/auth/handler_test.go`
+
+- `func openTestDB(t *testing.T) *gorm.DB`
+- `func newTestRouter(db *gorm.DB) *gin.Engine`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body, token string) *httptest.ResponseRecorder`
+- `type envelope struct`
+- `func decodeEnvelope(t *testing.T, w *httptest.ResponseRecorder) envelope`
+- `func seedUser(t *testing.T, db *gorm.DB, id, username, displayName, password string) *models.User`
+- `func loginAndToken(t *testing.T, r *gin.Engine, username, password string) string`
+- `func countSessions(t *testing.T, db *gorm.DB, userID string) int64`
+- `func countLoginLogs(t *testing.T, db *gorm.DB, username string) int64`
+- `func TestLogin_Success(t *testing.T)`
+- `func TestLogin_Failure_UnifiedAndLogged(t *testing.T)`
+- `func TestLogin_DisabledUser(t *testing.T)`
+- `func TestLogin_ResponseNeverLeaksPasswordHash(t *testing.T)`
+- `func TestLogin_MalformedJSON(t *testing.T)`
+- `func TestLogout_Idempotent(t *testing.T)`
+- `func TestLogout_MissingToken(t *testing.T)`
+- `func TestMe_ValidToken(t *testing.T)`
+- `func TestMe_InvalidOrMissingToken(t *testing.T)`
+- `func TestMe_ExpiredSession(t *testing.T)`
+- `func TestMe_DisabledUserSessionInvalid(t *testing.T)`
+- `func TestChangePassword_SuccessInvalidatesSessions(t *testing.T)`
+- `func TestChangePassword_WrongOldPassword(t *testing.T)`
+- `func TestChangePassword_Validation(t *testing.T)`
+- `func TestAuthenticate_ReuseFixture(t *testing.T)`
+- `func TestGenerateToken_StrengthAndUniqueness(t *testing.T)`
+
+### `platform/gateway/auth/middleware.go`
+
+- `func CurrentUser(c *gin.Context) *models.User`
+- `func CurrentUsername(c *gin.Context) string`
+- `func AuthMiddleware(svc *Service) gin.HandlerFunc`
+
+### `platform/gateway/auth/middleware_test.go`
+
+- `func newMiddlewareRouter(db *gorm.DB) *gin.Engine`
+- `func loginToken(t *testing.T, db *gorm.DB, username, password string) string`
+- `func unmarshalData(t *testing.T, raw json.RawMessage, v interface{})`
+- `func TestMiddleware_AnonymousProtectedRejected(t *testing.T)`
+- `func TestMiddleware_LoginAndHealthBypass(t *testing.T)`
+- `func TestMiddleware_ValidTokenPasses(t *testing.T)`
+- `func TestMiddleware_ExpiredLogoutDisabledRejected(t *testing.T)`
+- `func TestMiddleware_OptionsPreflightPasses(t *testing.T)`
+- `func TestMiddleware_NoAuthorization(t *testing.T)`
+- `func TestMiddleware_NonAPIPathBypassesAuth(t *testing.T)`
+
+### `platform/gateway/auth/ratelimit_test.go`
+
+- `func TestLoginRateLimiter_ThresholdLocksAndExpires(t *testing.T)`
+- `func TestLoginRateLimiter_WindowSlidingReset(t *testing.T)`
+- `func TestLoginRateLimiter_ResetClears(t *testing.T)`
+- `func TestLogin_RateLimitLocksAfterThreshold(t *testing.T)`
+- `func TestLogin_RateLimitResetAfterSuccess(t *testing.T)`
+
+### `platform/gateway/auth/repository.go`
+
+- `type Repository struct`
+- `func NewRepository(db *gorm.DB) *Repository`
+- `method (*Repository) FindUserByUsername(username string) (*models.User, error)`
+- `method (*Repository) FindUserByID(id string) (*models.User, error)`
+- `method (*Repository) SaveUser(u *models.User) error`
+- `method (*Repository) CreateSession(sess *models.Session) error`
+- `method (*Repository) FindSessionByToken(token string) (*models.Session, error)`
+- `method (*Repository) DeleteSessionByToken(token string) error`
+- `method (*Repository) DeleteSessionsByUserID(userID string) error`
+- `method (*Repository) CreateLoginLog(log *models.LoginLog) error`
+
+### `platform/gateway/auth/service.go`
+
+- `type loginAttempt struct`
+- `type loginRateLimiter struct`
+- `func newLoginRateLimiter() *loginRateLimiter`
+- `method (*loginRateLimiter) checkLocked(username string, now time.Time) bool`
+- `method (*loginRateLimiter) recordFailure(username string, now time.Time) bool`
+- `method (*loginRateLimiter) reset(username string)`
+- `type ValidationError struct`
+- `method (*ValidationError) Error() string`
+- `func newValidationError(format string, args ...interface{}) *ValidationError`
+- `type Service struct`
+- `func NewService(repo *Repository) *Service`
+- `type LoginResult struct`
+- `method (*Service) Login(username, password, ip string) (*LoginResult, error)`
+- `method (*Service) Logout(token string) error`
+- `method (*Service) Authenticate(token string) (*models.User, error)`
+- `method (*Service) ChangePassword(token, oldPassword, newPassword string) error`
+- `method (*Service) logLogin(username string, success bool, message, ip string)`
+- `func validatePassword(password string) error`
+
+### `platform/gateway/auth/token.go`
+
+- `func generateToken() (string, error)`
+- `func newID() (string, error)`
+
+### `platform/models/alertmanager_config.go`
+
+- `type AlertmanagerConfigStatus = string`
+- `type AlertmanagerConfigVersion struct`
+- `method (AlertmanagerConfigVersion) TableName() string`
+- `method (AlertmanagerConfigVersion) MarshalJSON() ([]byte, error)`
+- `func formatAMTimeOrNil(t *time.Time) *string`
+- `func AlertmanagerConfigChecksum(content string) string`
+- `type SilenceMatcher struct`
+- `type SilenceStatus = string`
+- `func ValidSilenceStatus() []string`
+- `type AuthorizedMatcherScope struct`
+- `method (*AuthorizedMatcherScope) Violations(matchers []SilenceMatcher) []SilenceMatcher`
+- `type ValidateErrorItem struct`
+
+### `platform/models/alertmanager_config_test.go`
+
+- `func TestAlertmanagerConfigStatusEnum(t *testing.T)`
+- `func TestAlertmanagerConfigChecksum(t *testing.T)`
+- `func TestAlertmanagerConfigVersionSerializationRoundTrip(t *testing.T)`
+- `type AlertmanagerConfigVersionView struct`
+- `func TestAlertmanagerConfigVersionAutoMigrate(t *testing.T)`
+- `func TestSilenceMatcherJSONRoundTrip(t *testing.T)`
+- `func TestSilenceStatusEnum(t *testing.T)`
+- `func TestAuthorizedMatcherScopeAllDomainsAlwaysPasses(t *testing.T)`
+- `func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T)`
+- `func TestValidateErrorItemJSON(t *testing.T)`
+
 ### `platform/models/blackbox_probe.go`
 
 - `type BlackboxProbeConfig struct`
@@ -1236,6 +1769,15 @@
 - `func ValidBlackboxTargetProtocols() []BlackboxTargetProtocol`
 - `func ValidBlackboxTargetProtocol(p string) bool`
 - `type BlackboxTarget struct`
+
+### `platform/models/business_domain.go`
+
+- `type BusinessDomain struct`
+
+### `platform/models/business_domain_test.go`
+
+- `func TestBusinessDomainJSONTags(t *testing.T)`
+- `func TestInfraBizCodeConstant(t *testing.T)`
 
 ### `platform/models/business_metric.go`
 
@@ -1387,6 +1929,7 @@
 - `func TestZoneTypePresetCodes(t *testing.T)`
 - `func TestResourceBaseAndLabel(t *testing.T)`
 - `func TestLabelTemplateByCategory(t *testing.T)`
+- `func TestDefaultTemplatesContainResourceID(t *testing.T)`
 - `func TestBuiltinTemplates(t *testing.T)`
 - `func TestScrapeJobAndMonitoringRule(t *testing.T)`
 - `func TestConfigModelsSmoke(t *testing.T)`
@@ -1520,6 +2063,7 @@
 - `type JobType = string`
 - `type AuthType = string`
 - `type ChangeStatus = string`
+- `type MappingOverride struct`
 - `type InstanceSelectionMode = string`
 - `type ScrapeJob struct`
 
@@ -1535,10 +2079,106 @@
 - `type Tenant struct`
 - `method (Tenant) TableName() string`
 
+### `platform/models/user.go`
+
+- `type UserStatus = string`
+- `type User struct`
+- `method (User) TableName() string`
+- `type Session struct`
+- `method (Session) TableName() string`
+- `type LoginLog struct`
+- `method (LoginLog) TableName() string`
+
+### `platform/models/user_test.go`
+
+- `func TestUserTableNames(t *testing.T)`
+- `func TestUserJSONDoesNotExposePasswordHash(t *testing.T)`
+- `func TestUserStatusConstants(t *testing.T)`
+- `func TestSessionTTLSemantic(t *testing.T)`
+- `func TestSessionJSONContract(t *testing.T)`
+- `func TestLoginLogJSONContract(t *testing.T)`
+
 ### `platform/models/zone_type.go`
 
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
+
+### `platform/query/coverage.go`
+
+- `type CoverageItem struct`
+- `type CoverageSummary struct`
+- `type coverageResource struct`
+- `type upAggregation struct`
+- `func CoverageHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func loadResources(db *gorm.DB, netDomain, category string) ([]coverageResource, error)`
+- `func queryCategoryResources(db *gorm.DB, cat models.ResourceCategory, netDomain string) ([]coverageResource, error)`
+- `func loadSelectedInstances(db *gorm.DB) map[string]bool`
+- `func fetchUpAgg(ctx context.Context, client *http.Client, promURL *url.URL) (*upAggregation, error)`
+- `func fetchLastErrors(ctx context.Context, client *http.Client, promURL *url.URL) map[string]string`
+- `func buildCoverageItems(resources []coverageResource, selected map[string]bool, upState *upAggregation, lastErrors map[strin…`
+- `func summarize(items []CoverageItem) CoverageSummary`
+- `func parseCoveragePage(c *gin.Context) (int, int)`
+- `type promSeries struct`
+- `func queryInstantVector(ctx context.Context, client *http.Client, promURL *url.URL, expr string) ([]promSeries, error)`
+- `func parseIntQuery(raw string, def int) int`
+- `func validCategories() []models.ResourceCategory`
+- `func categoryList() []string`
+- `func validCategory(c models.ResourceCategory) bool`
+- `func instanceIPPort(ip string, port int) string`
+
+### `platform/query/coverage_test.go`
+
+- `func openCoverageTestDB(t *testing.T) *gorm.DB`
+- `func seedCoverageHost(t *testing.T, db *gorm.DB, id, domain, name string)`
+- `func seedCoverageJob(t *testing.T, db *gorm.DB, jobName string, selected []string)`
+- `func coverageUpFixture() map[string]interface{}`
+- `func coverageTargetsFixture() map[string]interface{}`
+- `func newCoverageRouter(t *testing.T, db *gorm.DB, up, targets map[string]interface{}) (*gin.Engine, *httptest.Server)`
+- `func doCoverage(t *testing.T, r *gin.Engine, query string) coverageResp`
+- `type coverageResp struct`
+- `type coverageItemJSON struct`
+- `type coverageSummaryJSON struct`
+- `func mustJSON(v interface{}) string`
+- `func setupCoverageScenario(t *testing.T) (*gin.Engine, *httptest.Server)`
+- `func TestCoverageTriState(t *testing.T)`
+- `func TestCoverageFilterNetworkDomain(t *testing.T)`
+- `func TestCoverageFilterResourceCategory(t *testing.T)`
+- `func TestCoverageFilterState(t *testing.T)`
+- `func TestCoveragePagination(t *testing.T)`
+- `func TestCoveragePageSizeCap(t *testing.T)`
+- `func TestParseCoveragePageCap(t *testing.T)`
+- `func TestCoverageEmptyResources(t *testing.T)`
+- `func TestCoverageNoUpAggDependency(t *testing.T)`
+
+### `platform/query/routes.go`
+
+- `func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL)`
+
+### `platform/query/targets.go`
+
+- `type promTargetsData struct`
+- `func TargetsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func fetchTargets(ctx context.Context, client *http.Client, promURL *url.URL, state string) (*promTargetsData, error)`
+- `func resolveJob(t map[string]interface{}) string`
+- `func resolveLabel(t map[string]interface{}, key string) string`
+- `func asString(v interface{}) string`
+
+### `platform/query/targets_test.go`
+
+- `func promTargetsFixture() map[string]interface{}`
+- `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream)`
+- `func doTargets(t *testing.T, r *gin.Engine, query string) targetsResp`
+- `type targetsResp struct`
+- `func TestTargetsPassthroughAndEnrichment(t *testing.T)`
+- `func TestTargetsNetworkDomainFallbackDefault(t *testing.T)`
+- `func TestTargetsFilterJob(t *testing.T)`
+- `func TestTargetsFilterNetworkDomain(t *testing.T)`
+- `func TestTargetsFilterHealth(t *testing.T)`
+- `func TestTargetsFilterCombination(t *testing.T)`
+- `func TestTargetsInvalidHealthBadRequest(t *testing.T)`
+- `func TestTargetsFilterNoMatchEmptyActive(t *testing.T)`
+- `type fakeUpstream struct`
+- `func newFakeUpstream(payload map[string]interface{}) fakeUpstream`
 
 ### `platform/strategy/ci-exporter/ci_exporter_test.go`
 
@@ -1704,6 +2344,7 @@
 - `func TestCreateMonitoringRuleGroupNameConflict(t *testing.T)`
 - `func TestCreateMonitoringRuleMonitorType(t *testing.T)`
 - `func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T)`
+- `func TestUpdateDeletePendingRuleRejected(t *testing.T)`
 
 ### `platform/strategy/rule/routes.go`
 
@@ -1756,6 +2397,7 @@
 ### `platform/strategy/scrapejob/installation.go`
 
 - `type jobInstanceItem struct`
+- `func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool)`
 - `func ListJobInstances(db *gorm.DB) gin.HandlerFunc`
 - `type confirmRequest struct`
 - `func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc`
@@ -1798,11 +2440,13 @@
 - `func TestUpdateScrapeJobJobTypeSwitch(t *testing.T)`
 - `func TestUpdateAndDeleteScrapeJob(t *testing.T)`
 - `func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T)`
+- `func TestScrapeJobMappingOverridesRoundTrip(t *testing.T)`
 - `func TestUpdateDeletePendingJobRejected(t *testing.T)`
 - `func TestInstanceCandidatesHostOfflineGrey(t *testing.T)`
 - `func TestInstanceCandidatesDatabaseSubtypeFilter(t *testing.T)`
 - `func TestConfirmAndCancelInstallation(t *testing.T)`
 - `func TestConfirmInstallationNotInSetRejected(t *testing.T)`
+- `func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T)`
 - `func TestPreviewTargetsStandardAndBlackbox(t *testing.T)`
 
 ### `platform/strategy/scrapejob/selection.go`
@@ -1834,6 +2478,27 @@
 
 ## ui-custom/web/src/（React 前端）
 
+### `ui-custom/web/src/App.tsx`
+
+- `function RequireAuth`
+
+### `ui-custom/web/src/api/admin.ts`
+
+- `interface UsersListParams`
+- `interface LoginLogsListParams`
+- `const userApi`
+- `const loginLogApi`
+- `const tenantAdminApi`
+
+### `ui-custom/web/src/api/alertmanager.ts`
+
+- `function readValidateErrors`
+- `interface AlertmanagerListParams`
+- `interface SubmitAlertmanagerConfigInput`
+- `interface RemountConfigInput`
+- `const alertmanagerConfigApi`
+- `const alertmanagerSilenceApi`
+
 ### `ui-custom/web/src/api/ciExporterMappings.ts`
 
 - `interface CITypeExporterMappingListParams`
@@ -1843,6 +2508,12 @@
 
 ### `ui-custom/web/src/api/client.ts`
 
+- `function getToken`
+- `function setToken`
+- `function clearToken`
+- `function setStoredUser`
+- `function getStoredUser`
+- `function setUnauthorizedNavigate`
 - `class ApiError`
 - `function isApiError`
 - `function request`
@@ -1854,6 +2525,11 @@
 - `const networkDomainMonitorApi`
 - `const configDraftApi`
 - `const deploymentApi`
+
+### `ui-custom/web/src/api/coverage.ts`
+
+- `interface CoverageListParams`
+- `const coverageApi`
 
 ### `ui-custom/web/src/api/dashboard.ts`
 
@@ -1917,6 +2593,8 @@
 - `interface BusinessDomainsResponse`
 - `interface ImportListParams`
 - `const resourceApi`
+- `interface BusinessDomainCreateInput`
+- `interface BusinessDomainUpdateInput`
 - `const businessDomainApi`
 - `const osOptionApi`
 - `const importApi`
@@ -1932,6 +2610,11 @@
 - `interface PreviewTargetsResult`
 - `const scrapeJobApi`
 
+### `ui-custom/web/src/api/targets.ts`
+
+- `interface TargetsListParams`
+- `const targetsApi`
+
 ### `ui-custom/web/src/components/EllipsisText.tsx`
 
 - `function EllipsisText`
@@ -1944,6 +2627,10 @@
 ### `ui-custom/web/src/components/LoadingPlaceholder.tsx`
 
 - `function LoadingPlaceholder`
+
+### `ui-custom/web/src/components/MonitorStatusBadge.tsx`
+
+- `function MonitorStatusBadge`
 
 ### `ui-custom/web/src/components/tablePresets.ts`
 
@@ -1980,9 +2667,96 @@
 - `interface UseDomainsResult`
 - `function useDomains`
 
+### `ui-custom/web/src/pages/admin/login-logs/LoginLogsPage.tsx`
+
+- `function LoginLogsPage`
+
+### `ui-custom/web/src/pages/admin/login-logs/useLoginLogs.ts`
+
+- `interface LoginLogFilters`
+- `interface UseLoginLogsResult`
+- `function useLoginLogs`
+
+### `ui-custom/web/src/pages/admin/tenants/TenantDetailDrawer.tsx`
+
+- `function TenantDetailDrawer`
+
+### `ui-custom/web/src/pages/admin/tenants/TenantEditModal.tsx`
+
+- `function TenantEditModal`
+
+### `ui-custom/web/src/pages/admin/tenants/TenantsPage.tsx`
+
+- `function TenantsPage`
+
+### `ui-custom/web/src/pages/admin/tenants/useTenants.ts`
+
+- `interface TenantFilters`
+- `interface UseTenantsResult`
+- `function useTenants`
+
+### `ui-custom/web/src/pages/admin/users/ResetPasswordModal.tsx`
+
+- `function ResetPasswordModal`
+
+### `ui-custom/web/src/pages/admin/users/UserFormModal.tsx`
+
+- `function UserFormModal`
+
+### `ui-custom/web/src/pages/admin/users/UsersPage.tsx`
+
+- `function UsersPage`
+
+### `ui-custom/web/src/pages/admin/users/useUsers.ts`
+
+- `interface UseUsersResult`
+- `function useUsers`
+
+### `ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx`
+
+- `function AlertConfigDrawer`
+
+### `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`
+
+- `function AlertConfigPage`
+
 ### `ui-custom/web/src/pages/alerts/AlertsPage.tsx`
 
 - `function AlertsPage`
+
+### `ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx`
+
+- `interface CreateSilenceDrawerProps`
+- `function CreateSilenceDrawer`
+
+### `ui-custom/web/src/pages/alerts/SilencesPage.tsx`
+
+- `function SilencesPage`
+
+### `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`
+
+- `const CURRENT_USER`
+- `const CONFIG_PREVIEW_PATH`
+- `const configStatusLabel`
+- `const configStatusColor`
+- `const silenceStatusLabel`
+- `const silenceStatusColor`
+- `type ValidateSection`
+- `const validateSectionLabel`
+- `const validateSectionColor`
+- `function partitionValidateErrors`
+- `function formatMatchers`
+
+### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
+
+- `interface UseAlertConfigResult`
+- `function useAlertConfig`
+
+### `ui-custom/web/src/pages/alerts/useSilences.ts`
+
+- `interface UseSilencesResult`
+- `interface SilenceQuery`
+- `function useSilences`
 
 ### `ui-custom/web/src/pages/collection/CollectionPage.tsx`
 
@@ -2064,12 +2838,12 @@
 ### `ui-custom/web/src/pages/config-center/preview/configPreviewYaml.ts`
 
 - `const PREVIEW_TABS`
+- `function previewTabsFor`
 - `function affectedFileSet`
 - `function previewFileText`
 - `interface ArtifactSource`
 - `function fileTextByKey`
 - `function targetsText`
-- `function shortChecksum`
 - `type DiffRowType`
 - `interface DiffRow`
 - `function computeDiff`
@@ -2124,9 +2898,22 @@
 - `const CMDB_FIELD_OPTIONS`
 - `const PROMETHEUS_BUILTIN_OPTIONS`
 
+### `ui-custom/web/src/pages/login/LoginPage.tsx`
+
+- `function LoginPage`
+
 ### `ui-custom/web/src/pages/query/QueryPage.tsx`
 
 - `function QueryPage`
+
+### `ui-custom/web/src/pages/query/TargetStatusPage.tsx`
+
+- `function TargetStatusPage`
+
+### `ui-custom/web/src/pages/resources/BusinessDomainPage.tsx`
+
+- `function BusinessDomainPage`
+- `function BusinessDomainDrawer`
 
 ### `ui-custom/web/src/pages/resources/ImportModal.tsx`
 
@@ -2151,6 +2938,11 @@
 ### `ui-custom/web/src/pages/resources/ResourcesPage.tsx`
 
 - `function ResourcesPage`
+
+### `ui-custom/web/src/pages/resources/useResourceCoverage.ts`
+
+- `interface UseResourceCoverageResult`
+- `function useResourceCoverage`
 
 ### `ui-custom/web/src/pages/resources/useResources.ts`
 
@@ -2203,6 +2995,11 @@
 
 - `function RulesPage`
 
+### `ui-custom/web/src/pages/strategy/ScrapeJobDetailDrawer.tsx`
+
+- `interface ScrapeJobDetailDrawerProps`
+- `function ScrapeJobDetailDrawer`
+
 ### `ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx`
 
 - `function ScrapeJobFormDrawer`
@@ -2233,6 +3030,23 @@
 - `const SCOPE_MAP`
 - `const METRIC_TYPE_MAP`
 - `const AUTH_TYPE_MAP`
+- `const SCRAPE_STATUS_META`
+- `const DOWN_TOOLTIP`
+- `const COLLECTION_STATUS_TOOLTIP`
+- `const EFFECTIVE_STATUS_TOOLTIP`
+- `const CHANGE_PROGRESS_TOOLTIP`
+
+### `ui-custom/web/src/pages/strategy/useJobScrapeStatus.ts`
+
+- `type JobScrapeAggState`
+- `interface JobScrapeStatusView`
+- `function useJobScrapeStatus`
+
+### `ui-custom/web/src/pages/strategy/useScrapeJobStatus.ts`
+
+- `type JobInstanceScrapeStatus`
+- `interface JobScrapeStatusSummary`
+- `function useScrapeJobStatus`
 
 ### `ui-custom/web/src/pages/strategy/useScrapeJobs.ts`
 
@@ -2252,6 +3066,30 @@
 - `const volcengineTokens`
 - `const volcengineTheme`
 
+### `ui-custom/web/src/types/admin.ts`
+
+- `type UserStatus`
+- `interface UserItem`
+- `interface LoginLogItem`
+- `interface UserCreateInput`
+- `interface UserUpdateInput`
+- `interface ResetPasswordInput`
+- `interface TenantEditInput`
+- `interface ItemsResult`
+
+### `ui-custom/web/src/types/alertmanager.ts`
+
+- `interface PaginatedItems`
+- `type AlertmanagerConfigStatus`
+- `type SilenceStatus`
+- `interface AlertmanagerConfigVersion`
+- `interface AlertmanagerConfigVersionListItem`
+- `interface ValidateErrorItem`
+- `interface ValidateErrorData`
+- `interface SilenceMatcher`
+- `interface Silence`
+- `interface CreateSilencePayload`
+
 ### `ui-custom/web/src/types/api.ts`
 
 - `type ApiStatus`
@@ -2259,6 +3097,11 @@
 - `interface ApiErrorResponse`
 - `type ApiError`
 - `interface Paginated`
+
+### `ui-custom/web/src/types/auth.ts`
+
+- `interface AuthUser`
+- `interface LoginResult`
 
 ### `ui-custom/web/src/types/config-center.ts`
 
@@ -2322,6 +3165,16 @@
 - `interface TemplateInstanceItem`
 - `interface LabelTemplateListItem`
 
+### `ui-custom/web/src/types/query.ts`
+
+- `type TargetHealth`
+- `interface TargetItem`
+- `interface TargetsResponse`
+- `type CoverageState`
+- `interface CoverageItem`
+- `interface CoverageSummary`
+- `interface CoverageListResponse`
+
 ### `ui-custom/web/src/types/resource.ts`
 
 - `type ResourceCategory`
@@ -2377,4 +3230,8 @@
 - `interface ExporterInstallationRecord`
 - `interface ScrapeJobInstanceItem`
 - `interface ScrapeJobMappingOverride`
+
+### `ui-custom/web/src/utils/shortChecksum.ts`
+
+- `function shortChecksum`
 

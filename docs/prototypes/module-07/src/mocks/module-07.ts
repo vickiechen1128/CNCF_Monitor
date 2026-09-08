@@ -1,8 +1,11 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.20（Module_07_Monitoring_Object_Management.md）
-// 决策 13/14/17/19/21/22：业务分组字典 + biz_code 全资源必填（biz 标签只承载不可变编码），展示取 biz_name；强制预置兜底条目 infra
-// 决策 31-M1：is_monitored 由 M01 维护、M07 只读映射（原「已监控/未监控」列恢复为只读采集状态，MVP 资源列表仅按 is_monitored 筛选，M07 不计算）
+// 对齐 PRD v2.23（Module_07_Monitoring_Object_Management.md）
+// 决策 13/14/17/19/21/22/48：业务分组字典 + biz_code 全资源必填（biz 标签只承载不可变编码），展示取 biz_name；强制预置兜底条目 infra
+//   决策 48：字典落 DB + 业务管理页（列表/登记/受限编辑/停用），business_domains.yaml 仅首次启动 seed；biz_code 创建后不可改、停用不删除、infra 禁止停用/删除
+// 决策 47-3（修订 31-M1）：采集状态三态 badge——采集中（is_monitored=true 且 up）/ 已下发未采到（is_monitored=true 但未采到数据：down / 待首次抓取 / 变更未确认下发）/ 未监控（is_monitored=false）
+// {v2.25} 2026-09-02 口径修订：选中关系取 DB 当前值、不感知 M09 下发时序；「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）
+//   is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连，列表级禁止逐行查询 TQ-6）
 // 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真，见 STATUS_MAPPING 注释）
 // ============================================================
 
@@ -142,15 +145,108 @@ export interface NetworkDomain {
   id: string
   name: string
   status: 'online' | 'offline' | 'unknown'
+  /**
+   * {v2.24} 网段（CIDR）列表（决策 52，契约来自 Module_06 v2.5 的 ip_cidrs 字段）：
+   * 该网域覆盖的 IP 段（如 10.0.0.0/8）；M07 在网域留空时按 IP 推导归属（归属解析链第③级），
+   * 最长前缀优先、同前缀跨网域判「冲突」。纯平台侧数据，不回写 CMDB。
+   */
+  ip_cidrs?: string[]
 }
 
 export const mockNetworkDomains: NetworkDomain[] = [
-  { id: 'default', name: '默认网域', status: 'online' },
-  { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online' },
+  { id: 'default', name: '默认网域', status: 'online', ip_cidrs: ['10.0.0.0/8'] },
+  { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online', ip_cidrs: ['192.168.0.0/16', '172.16.0.0/16'] },
 ]
 
-// ---------- 业务分组字典（PRD 5.2 / 决策 13/14/17） ----------
-// MVP 由配置文件预置，只读，不提供维护页面；v0.2+ 评估维护入口（code 不可变、停用不删除）
+/**
+ * {v2.24} 网域归属来源（决策 52）：标注资源的网域归属是哪条路径解析/指定的。
+ * 归属四级解析链：显式指定 > 冲突告警 > IP 推导 > 默认兜底；blackbox 例外 = 取发起侧（采集 Job）网域，不推导。
+ * 本字段为平台派生信息，纯展示标注（列头 hover 提示）、与 network_domain_id 同生同息，用户可据此判断可信度。
+ */
+export type DomainAttributionSource = 'explicit' | 'conflict' | 'ip_derived' | 'default' | 'blackbox'
+
+export const DOMAIN_SOURCE_LABELS: Record<DomainAttributionSource, string> = {
+  explicit: '显式指定',
+  conflict: '冲突待处理',
+  ip_derived: '网段推导',
+  default: '默认兜底',
+  blackbox: '发起侧指定',
+}
+
+export const DOMAIN_SOURCE_HINTS: Record<DomainAttributionSource, string> = {
+  explicit: '归属由 CMDB / Excel / 录入显式指定（解析链第①级）',
+  conflict: '同一 IP 命中多个网域的最长前缀、存在歧义，需人工处理（解析链第②级）',
+  ip_derived: '网域留空，按资源 IP 与网域已登记网段最长前缀匹配推导（解析链第③级）',
+  default: '无匹配网段且未显式指定，归入默认网域兜底（解析链第④级）',
+  blackbox: 'Blackbox 拨测目标：归属取发起侧（采集 Job）网域，不参与归属推导（决策 52 例外）',
+}
+
+/** IPv4 是否落在 CIDR 网段内（PM 式推导演示用简版实现） */
+export function ipInCidr(ip: string, cidr: string): boolean {
+  const [net, maskStr] = cidr.split('/')
+  const mask = maskStr ? parseInt(maskStr, 10) : 32
+  if (!net || Number.isNaN(mask)) return false
+  const ipInt = ipv4ToInt(ip)
+  const netInt = ipv4ToInt(net)
+  if (ipInt === -1 || netInt === -1) return false
+  if (mask === 0) return true
+  const shift = 32 - mask
+  return (ipInt >>> shift) === (netInt >>> shift)
+}
+
+function ipv4ToInt(ip: string): number {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return -1
+  return ((parts[0] * 256 + parts[1]) * 256 + parts[2]) * 256 + parts[3]
+}
+
+/**
+ * {v2.24} 按 IP 推导网域归属（归属解析链第③级，决策 52）：
+ * 遍历所有网域的 ip_cidrs，命中取最长前缀者；同前缀跨网域命中判「冲突」；
+ * 均未命中归默认网域兜底（第④级）。返回推导网域 + 来源。
+ */
+export function resolveDomainFromIP(ip?: string): { domain_id: string; source: DomainAttributionSource } {
+  if (!ip) return { domain_id: 'default', source: 'default' }
+  const hits: { domain: NetworkDomain; prefix: number; cidr: string }[] = []
+  for (const d of mockNetworkDomains) {
+    for (const cidr of d.ip_cidrs ?? []) {
+      if (ipInCidr(ip, cidr)) {
+        const mask = parseInt(cidr.split('/')[1] ?? '32', 10)
+        hits.push({ domain: d, prefix: Number.isNaN(mask) ? 0 : mask, cidr })
+      }
+    }
+  }
+  if (hits.length === 0) return { domain_id: 'default', source: 'default' }
+  const maxPrefix = Math.max(...hits.map((h) => h.prefix))
+  const best = hits.filter((h) => h.prefix === maxPrefix)
+  if (new Set(best.map((h) => h.domain.id)).size > 1) {
+    return { domain_id: 'default', source: 'conflict' }
+  }
+  return { domain_id: best[0].domain.id, source: 'ip_derived' }
+}
+
+/**
+ * {v2.24} 资源网域归属来源解析（决策 52，四级解析链 + blackbox 例外）：
+ * blackbox 拨测目标取发起侧网域（不推导，返回 blackbox 来源）> 显式指定（非默认）> 按 IP 推导 > 默认兜底。
+ */
+export function resolveDomainAttribution(r: Resource): { source: DomainAttributionSource; hint: string } {
+  if (r.resource_category === 'generic_target' && r.exporter_type === 'blackbox_exporter') {
+    return { source: 'blackbox', hint: DOMAIN_SOURCE_HINTS.blackbox }
+  }
+  if (r.network_domain_id && r.network_domain_id !== 'default') {
+    return { source: 'explicit', hint: DOMAIN_SOURCE_HINTS.explicit }
+  }
+  const ip = r.instance_ip
+  const res = resolveDomainFromIP(ip)
+  return {
+    source: res.source,
+    hint: res.source === 'default' ? DOMAIN_SOURCE_HINTS.default : DOMAIN_SOURCE_HINTS[res.source],
+  }
+}
+
+// ---------- 业务分组字典（PRD 5.2 / 5.18 / 决策 13/14/17/48） ----------
+// {v2.22} 决策 48：字典由「配置文件预置只读」提级为「业务管理页维护（落 DB）」；business_domains.yaml 仅首次启动 seed。
+// biz_code 创建后不可变（编码规范：小写字母/数字/连字符 ≤ 64）；仅 biz_name/description/status 可编辑；停用不删除；infra 禁止停用/删除。
 export interface BusinessDomain {
   /** 业务编码，进 biz 标签，创建后不可变 */
   biz_code: string
@@ -167,7 +263,7 @@ export const mockBusinessDomains: BusinessDomain[] = [
   { biz_code: 'infra', biz_name: '基础设施', description: '公共基础设施资源（INF 兜底，设备类无业务归属资源挂此）', status: 'enabled' },
   { biz_code: 'data-api', biz_name: '数据接口', description: '数据接口服务资源', status: 'enabled' },
   { biz_code: 'retired-biz', biz_name: '已下线业务', description: '停用中，不可再被资源引用', status: 'disabled' },
-  // 注：settlement / after-sale 等未登记编码刻意不预置，用于演示「业务未登记 → 引导联系平台管理员」误导入场景（§5.16.1/§11.2）
+  // 注：settlement / after-sale 等未登记编码刻意不预置，用于演示「业务未登记 → 前往业务管理登记」误导入场景（§5.16.1/§11.2）
 ]
 
 /** 业务字典展示名解析：code → biz_name；未登记或空值返回 code 本身或 '-' */
@@ -180,6 +276,35 @@ export function resolveBizName(code?: string): string {
 export function isBizDisabled(code?: string): boolean {
   if (!code) return false
   return mockBusinessDomains.find((d) => d.biz_code === code)?.status === 'disabled'
+}
+
+/** 业务编码规范（决策 48）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
+export const BIZ_CODE_RE = /^[a-z0-9-]{1,64}$/
+
+// ---------- 采集状态三态（PRD 5.2 / 决策 47-3） ----------
+// is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连）。
+// 三态取值：up（采集中）/ down（已下发未采到）/ unmonitored（未监控）。
+export type CollectionHealth = 'up' | 'down'
+export type CollectionStatus = 'up' | 'down' | 'unmonitored'
+
+// M02 健康度/覆盖率聚合 mock：仅 is_monitored=true 的资源有健康数据；缺失一律视为 down（待首次抓取 / 已下发未采到）。
+// （真实场景：M07 列表查询走聚合 API 一次性取回，禁止逐行查询 TQ-6。）
+export const mockCollectionHealth: Record<string, CollectionHealth> = {
+  // 采集中（选中且 up）
+  'res-host-003': 'up',
+  'res-db-001': 'up',
+  'res-db-002': 'up',
+  'res-app-001': 'up',
+  'res-gen-001': 'up',
+  // 已下发未采到（选中但 down，异常驱动高亮演示）
+  'res-host-001': 'down',
+  'res-mw-002': 'down',
+}
+
+/** 解析单资源采集状态三态（决策 47-3）：未选中 → unmonitored；选中按健康度 up/down（缺失按 down） */
+export function resolveCollectionStatus(r: { resource_id: string; is_monitored: boolean }): CollectionStatus {
+  if (!r.is_monitored) return 'unmonitored'
+  return mockCollectionHealth[r.resource_id] ?? 'down'
 }
 
 // ---------- 标签模板（PRD 5.10 / 5.11） ----------
@@ -645,6 +770,30 @@ export const mockResources: Resource[] = [
     is_monitored: false,
     created_at: '2026-07-11 10:00:00',
     updated_at: '2026-07-30 09:10:00',
+  },
+  // {v2.24} Blackbox 拨测目标（决策 52 例外）：归属取发起侧（采集 Job）网域，不参与归属推导（来源标注「发起侧指定」）
+  {
+    resource_id: 'res-gen-003',
+    resource_category: 'generic_target',
+    network_domain_id: 'default',
+    source_type: 'import',
+    instance_name: 'https-probe-order',
+    biz_code: 'order',
+    target_name: '订单服务拨测',
+    instance_ip: 'order.example.com',
+    port: 443,
+    metrics_path: '/probe',
+    scheme: 'https',
+    exporter_type: 'blackbox_exporter',
+    custom_labels: 'probe_type=https;tag=web',
+    app_name: '订单服务',
+    env: 'prod',
+    cluster: 'probe-cluster',
+    owner: '郑十',
+    status: 'online',
+    is_monitored: true,
+    created_at: '2026-07-12 10:00:00',
+    updated_at: '2026-07-31 09:10:00',
   },
 ]
 

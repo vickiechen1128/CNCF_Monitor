@@ -38,3 +38,11 @@
 
 - `docs/02-product-requirements/Modules/Module_10_Monitoring_Source_Registry.md`
 - `docs/prototypes/module-10/`
+## Change Log（完整历史）
+
+> 完整逐版详情（含影响范围）；主文档仅保留最近 3 版一句话摘要。
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | v0.2 / v0.4 / v1.0 | draft | |

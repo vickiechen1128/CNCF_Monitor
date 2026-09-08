@@ -82,7 +82,7 @@ CNCF_Monitor-worktree/
 │   ├── 02-product-requirements/    # PRD、模块需求（Modules/Module_XX_*.md）
 │   ├── 03-engineering-standards/   # 工程标准（必读）
 │   ├── 04-source-architecture/     # 源码架构分析
-│   ├── 05-execution-records/       # Agent 执行记录
+│   ├── 05-execution-records/       # Agent 执行记录（含 design-proposals/ 功能详细设计提案）
 │   └── prototypes/                 # 可点击原型（module-01 ~ module-10）
 ├── scripts/                        # 构建与辅助脚本（含 repo-map 符号地图生成器）
 ├── Makefile                        # 统一构建入口
@@ -152,6 +152,7 @@ make build-prometheus      # 编译上游 Prometheus（首次会自动构建 Web
 make build-ui              # 构建 Custom UI -> ui-custom/web/dist
 make build-all             # 编译后端 + Prometheus + 前端
 make build-alertmanager    # 编译上游 Alertmanager -> upstream/alertmanager/alertmanager
+make build-amtool          # 编译上游 amtool（AM 配置校验命令行）-> upstream/alertmanager/amtool
 make build-blackbox-exporter  # 编译上游 blackbox_exporter -> upstream/blackbox_exporter/blackbox_exporter
 make build-center          # 编译中心一体化交付包（metric-center + prometheus + alertmanager + blackbox_exporter + ui）
 make build-edge-agent      # {v0.2} 编译边缘采集客户端 -> platform/edge-sync-agent/edge-sync-agent
@@ -163,10 +164,11 @@ make build-edge-package    # {v0.2} 组装边缘一体化离线包
 ```bash
 make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080；已默认传 --config.reload-url=http://localhost:9090/-/reload）
 make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090；--config.file 指向 config-output/prometheus.yml（首次自动 seed）并开启 --web.enable-lifecycle）
+make run-alertmanager      # 编译并启动 Alertmanager（默认 http://localhost:9093；--config.file 指向 config-output/alertmanager.yml（首次自动 seed），M08 静默代理/配置挂载依赖）
 make dev-ui                # 启动前端开发服务器（默认 http://localhost:5173）
 ```
 
-> 注意：`make run-metric-center` 会重新编译并启动新二进制；Makefile 已把 `upstream/prometheus`、`upstream/blackbox_exporter` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`。后端代码改动后旧进程不会自动加载新逻辑，需先停止旧进程再执行 `make run-metric-center`。若手动启动二进制，必须显式导出 `PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$PATH"`，否则草稿校验会卡在 `pending`（提示「promtool 不可调用」）。
+> 注意：`make run-metric-center` 会重新编译并启动新二进制；Makefile 已把 `upstream/prometheus`、`upstream/blackbox_exporter`、`upstream/alertmanager` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`，M08 的 Alertmanager 配置挂载校验才能找到 `amtool`。后端代码改动后旧进程不会自动加载新逻辑，需先停止旧进程再执行 `make run-metric-center`。若手动启动二进制，必须显式导出 `PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)/upstream/alertmanager:$PATH"`，否则草稿校验会卡在 `pending`（提示「promtool / amtool 不可调用」）。
 > 另外，旧逻辑生成的 `pending` 草稿会按 checksum 幂等返回；要验证新逻辑，需先废弃旧单，再重新触发变更。废弃会按决策 43 回滚源数据（如把禁用的 Job 恢复启用），典型验证动线：废弃旧单 → 重新禁用 → 生成新单 → 重校/确认。
 
 ### 5.3 测试
@@ -349,6 +351,9 @@ make run-prometheus
 make run-metric-center
 
 # 终端 3
+make run-alertmanager   # M08 场景（静默代理 / AM 配置挂载）需要；MVP 前端页面无需
+
+# 终端 4
 make dev-ui
 ```
 
@@ -391,6 +396,17 @@ docker run -p 9090:9090 prom/prometheus:latest
 5. **合并阶段**：Orchestrator 在验证通过后以 `--no-ff` 合并到 `develop`。
 6. **验证阶段**：在 `develop` 重复执行测试和服务启动验证。
 
+### 功能详细设计提案（Design Proposal）
+
+当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 PRD 时，使用 **design-proposal** 机制：
+
+- **位置**：`docs/05-execution-records/module-XX/design-proposals/<feature-name>.md`
+- **状态标记**：文档头部标注 `状态：draft / reviewing / approved / merged`
+- **评审**：由 Orchestrator 或 prototype-designer 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
+- **合并**：批准后由 prototype-designer 或原作者在 `design/module-mvp-demo` 分支将内容合并进主 PRD，PRD 版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
+- **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`，作为历史追溯
+- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 PRD 差异点 / 合并计划」
+
 Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`。
 
 ---
@@ -413,6 +429,7 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/prototypes/module-XX/` | 可点击原型 |
 | `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
 | `docs/06-mvp-e2e-testing/README.md` | MVP 配置下发闭环 API 测试指导手册（local 通道，curl 动线 + 成功判据 + 排查表） |
+| `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md` | 前端访问后端部署拓扑决策：当前单机走 A2（相对路径 + metric-center 托管静态文件），未来前后端分离走 nginx 反代；含打包改造清单 |
 | `docs/04-source-architecture/repo-map.md` | 业务代码符号地图（`make repo-map` 生成，禁止手改）；Agent 排障按「符号 → 文件」定位的第一入口 |
 | `.kimi/AGENTS.md` | Kimi Agent 团队角色与工作流速查 |
 | `.kimi/agents/*.md` | 各 Agent 详细行为规则 |

@@ -26,8 +26,15 @@ const (
 	ErrorTypeForbidden = "forbidden"
 	// ErrorTypeNotFound represents a missing resource error.
 	ErrorTypeNotFound = "not_found"
+	// ErrorTypeTooManyRequests represents transient rate-limiting rejection
+	// (M-1 登录失败限流：HTTP 429）。
+	ErrorTypeTooManyRequests = "too_many_requests"
 	// ErrorTypeInternal represents a server-side internal error.
 	ErrorTypeInternal = "internal"
+	// ErrorTypeBadGateway represents an upstream dependency (e.g. center
+	// Alertmanager) being unreachable / failing, so the gateway proxy cannot
+	// fulfil the request.
+	ErrorTypeBadGateway = "bad_gateway"
 )
 
 // Response is the unified JSON response structure.
@@ -114,9 +121,29 @@ func NotFound(c *gin.Context, message string) {
 	c.JSON(http.StatusNotFound, Fail(ErrorTypeNotFound, strError(message)))
 }
 
+// TooManyRequests writes a rate-limit rejection (HTTP 429) to the gin context
+// (M-1：登录失败限流触发锁定）。
+func TooManyRequests(c *gin.Context, message string) {
+	c.JSON(http.StatusTooManyRequests, Fail(ErrorTypeTooManyRequests, strError(message)))
+}
+
 // InternalServerError writes an internal server error response to the gin context.
 func InternalServerError(c *gin.Context, err error) {
 	c.JSON(http.StatusInternalServerError, Error(err))
+}
+
+// BadGateway writes a 502 Bad Gateway response for an upstream dependency failure.
+// 安全原则与 ErrorTypeInternal 一致：真实 cause（err）只写日志，不回显给客户端；
+// Error 字段回显固定且可执行的引导文案（如「中心 Alertmanager 未启动」），避免
+// 泄露内网地址 / 超时细节，也避免用户误读为平台自身崩溃。
+func BadGateway(c *gin.Context, err error, message string) {
+	if err != nil {
+		log.Printf("upstream dependency error: %v", err)
+	}
+	if message == "" {
+		message = "上游依赖服务不可达，请稍后重试"
+	}
+	c.JSON(http.StatusBadGateway, Fail(ErrorTypeBadGateway, strError(message)))
 }
 
 // strError converts a plain message string into a non-nil error.

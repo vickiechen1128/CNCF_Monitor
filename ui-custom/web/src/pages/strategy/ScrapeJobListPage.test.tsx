@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ScrapeJobListPage } from './ScrapeJobListPage'
@@ -7,17 +7,25 @@ import { ScrapeJobListPage } from './ScrapeJobListPage'
 const listMock = vi.fn()
 const updateMock = vi.fn()
 const removeMock = vi.fn()
+const instancesMock = vi.fn()
 const domainListMock = vi.fn()
 const tmplListMock = vi.fn()
 const labelListMock = vi.fn()
 const mappingListMock = vi.fn()
+const targetsListMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
     list: (...args: unknown[]) => listMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
     remove: (...args: unknown[]) => removeMock(...args),
+    instances: (...args: unknown[]) => instancesMock(...args),
   },
+}))
+
+// 决策 47-2：实例采集状态聚合只读消费 M02 /api/v1/targets（按 job 过滤）
+vi.mock('../../api/targets', () => ({
+  targetsApi: { list: (...args: unknown[]) => targetsListMock(...args) },
 }))
 
 vi.mock('../../api/domain', () => ({
@@ -48,6 +56,12 @@ vi.mock('./ScrapeJobFormDrawer', () => ({
     ),
 }))
 
+// B4 Job 详情抽屉单独测（本文件二路线索：断言状态格点击/『查看』都能打开详情）
+vi.mock('./ScrapeJobDetailDrawer', () => ({
+  ScrapeJobDetailDrawer: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="job-detail-drawer">detail</div> : null,
+}))
+
 function job(id: number, extra: Record<string, unknown> = {}) {
   return {
     id,
@@ -75,10 +89,15 @@ beforeEach(() => {
   listMock.mockReset()
   updateMock.mockReset()
   removeMock.mockReset()
+  instancesMock.mockReset()
   domainListMock.mockReset()
   tmplListMock.mockReset()
   labelListMock.mockReset()
   mappingListMock.mockReset()
+  targetsListMock.mockReset()
+  // 默认：实例拉取无可用 => 聚合 pending 降级（实例拉取失败等价）；targets 返回空
+  instancesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
+  targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [], droppedTargets: [], targetsByJob: {} } })
   domainListMock.mockResolvedValue({
     status: 'success',
     data: { list: [{ id: 'mc-a', name: '网域A', is_monitored: true, status: 'enabled' }], total: 1, page: 1, page_size: 100 },
@@ -123,6 +142,11 @@ function renderPage() {
 
 describe('ScrapeJobListPage', () => {
   setupAntdTest()
+
+  // useJobScrapeStatus 挂载后启动 20s 自动刷新 interval：确保每个用例树卸载释放定时器
+  afterEach(() => {
+    cleanup()
+  })
 
   it('renders jobs with aggregate status and override tag', async () => {
     listMock.mockResolvedValue({
@@ -358,5 +382,74 @@ describe('ScrapeJobListPage', () => {
       1,
       expect.objectContaining({ job_name: 'job-1', enabled: false }),
     )
+  })
+
+  // === T01-47-B3：实例采集状态列对齐原型（在线 x / 总数 y · 红/绿/'-' 三态 + 点击打开 Job 详情） ===
+
+  function jobInstance(resourceId: string) {
+    return { resource_id: resourceId, instance_name: `srv-${resourceId}`, instance_ip: `10.0.0.${resourceId.slice(-1)}`, status: 'confirmed' }
+  }
+
+  function jobTarget(resourceId: string, health: string) {
+    return { scrapePool: 'job-x', job: 'job-x', instance: `10.0.0.${resourceId.slice(-1)}:9104`, network_domain: 'default', health, resource_id: resourceId }
+  }
+
+  it('实例采集状态列 green Tag（在线 x / 总数 y），点击打开 Job 详情（B3/B4）', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [job(1, { change_status: 'deployed', enabled: true, selected_instance_ids: ['a', 'b'] })], total: 1, page: 1, page_size: 20 },
+    })
+    instancesMock.mockResolvedValue({ status: 'success', data: { items: [jobInstance('a'), jobInstance('b')], total: 2 } })
+    targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [jobTarget('a', 'up'), jobTarget('b', 'up')], droppedTargets: [], targetsByJob: {} } })
+
+    renderPage()
+
+    expect(await screen.findByText('在线 2 / 总数 2')).toBeInTheDocument()
+    // 点击 green Tag 打开 Job 详情
+    fireEvent.click(screen.getByText('在线 2 / 总数 2'))
+    expect(await screen.findByTestId('job-detail-drawer')).toBeInTheDocument()
+  })
+
+  it('实例采集状态列 red Tag（存在待采集/已下发未采到），点击打开 Job 详情（B3/B4）', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [job(1, { change_status: 'deployed', enabled: true, selected_instance_ids: ['a', 'b'] })], total: 1, page: 1, page_size: 20 },
+    })
+    instancesMock.mockResolvedValue({ status: 'success', data: { items: [jobInstance('a'), jobInstance('b')], total: 2 } })
+    targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [jobTarget('a', 'up'), jobTarget('b', 'down')], droppedTargets: [], targetsByJob: {} } })
+
+    renderPage()
+
+    // 一个 up + 一个 down → 待采集 down>0 → 高饱和红（#FF4C3A）
+    expect(await screen.findByText('在线 1 / 总数 2')).toBeInTheDocument()
+    const redTag = screen.getByText('在线 1 / 总数 2').closest('.ant-tag')
+    // antd 将 #FF4C3A 归一化为 rgb(255,76,58) 内联背景色
+    expect(redTag?.getAttribute('style')).toContain('rgb(255, 76, 58)')
+    fireEvent.click(screen.getByText('在线 1 / 总数 2'))
+    expect(await screen.findByTestId('job-detail-drawer')).toBeInTheDocument()
+  })
+
+  it('实例采集状态列 blackbox / total=0 显示「-」', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          job(1, { job_type: 'blackbox', selected_instance_ids: ['a'] }),
+          job(2, { change_status: 'deployed', enabled: true, selected_instance_ids: [] }),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 20,
+      },
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('job-1')).toBeInTheDocument()
+    const row1 = screen.getByText('job-1').closest('tr') as HTMLElement
+    const row2 = screen.getByText('job-2').closest('tr') as HTMLElement
+    // 记录原型锚点：实例采集状态列两行均渲染 '-'（blackbox 无实例维度、total=0）
+    expect(within(row1).getAllByText('-').length).toBeGreaterThanOrEqual(1)
+    expect(within(row2).getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
 })

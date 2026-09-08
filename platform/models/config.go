@@ -28,6 +28,7 @@ type ConfigDraft struct {
 	PrometheusYml   string     `gorm:"type:text" json:"prometheus_yml"`
 	RulesYml        string     `gorm:"type:text" json:"rules_yml,omitempty"`
 	BlackboxYml     string     `gorm:"type:text" json:"blackbox_yml,omitempty"`
+	AlertmanagerYml string     `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：仅管理域 default scope
 	TargetsFiles    string     `gorm:"type:text" json:"targets_files,omitempty"` // JSON 载体
 	Metadata        string     `gorm:"type:text" json:"metadata,omitempty"`       // JSON 载体（含 checksum）
 	Summary         string     `gorm:"size:1000" json:"summary,omitempty"`
@@ -81,6 +82,7 @@ func (d ConfigDraft) MarshalJSON() ([]byte, error) {
 		PrometheusYml    string           `json:"prometheus_yml,omitempty"`
 		RulesYml         string           `json:"rules_yml,omitempty"`
 		BlackboxYml      string           `json:"blackbox_yml,omitempty"`
+		AlertmanagerYml  string           `json:"alertmanager_yml,omitempty"`
 		TargetsFiles     *json.RawMessage `json:"targets_files,omitempty"`
 		Metadata         *json.RawMessage `json:"metadata,omitempty"`
 		Summary          string           `json:"summary,omitempty"`
@@ -104,6 +106,7 @@ func (d ConfigDraft) MarshalJSON() ([]byte, error) {
 		PrometheusYml:     d.PrometheusYml,
 		RulesYml:          d.RulesYml,
 		BlackboxYml:       d.BlackboxYml,
+		AlertmanagerYml:   d.AlertmanagerYml,
 		TargetsFiles:      jsonCarrier(d.TargetsFiles),
 		Metadata:          jsonCarrier(d.Metadata),
 		Summary:           d.Summary,
@@ -128,6 +131,7 @@ type ConfigVersion struct {
 	PrometheusYml   string `gorm:"type:text" json:"prometheus_yml"`
 	RulesYml        string `gorm:"type:text" json:"rules_yml,omitempty"`
 	BlackboxYml     string `gorm:"type:text" json:"blackbox_yml,omitempty"`
+	AlertmanagerYml string `gorm:"type:text" json:"alertmanager_yml,omitempty"` // 决策 60：仅管理域 default scope
 	TargetsFiles    string `gorm:"type:text" json:"targets_files,omitempty"` // JSON 载体
 	Metadata        string `gorm:"type:text" json:"metadata,omitempty"`       // JSON 载体（含 checksum）
 }
@@ -149,6 +153,7 @@ func (v ConfigVersion) MarshalJSON() ([]byte, error) {
 		PrometheusYml   string           `json:"prometheus_yml,omitempty"`
 		RulesYml        string           `json:"rules_yml,omitempty"`
 		BlackboxYml     string           `json:"blackbox_yml,omitempty"`
+		AlertmanagerYml string           `json:"alertmanager_yml,omitempty"`
 		TargetsFiles    *json.RawMessage `json:"targets_files,omitempty"`
 		Metadata        *json.RawMessage `json:"metadata,omitempty"`
 	}
@@ -163,6 +168,7 @@ func (v ConfigVersion) MarshalJSON() ([]byte, error) {
 		PrometheusYml:   v.PrometheusYml,
 		RulesYml:        v.RulesYml,
 		BlackboxYml:     v.BlackboxYml,
+		AlertmanagerYml: v.AlertmanagerYml,
 		TargetsFiles:    jsonCarrier(v.TargetsFiles),
 		Metadata:        jsonCarrier(v.Metadata),
 	})

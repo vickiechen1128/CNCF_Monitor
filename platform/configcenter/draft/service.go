@@ -141,6 +141,7 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		PrometheusYml:    artifacts.PrometheusYML,
 		RulesYml:         artifacts.RulesYML,
 		BlackboxYml:      artifacts.BlackboxYML,
+		AlertmanagerYml:  artifacts.AlertmanagerYML,
 		TargetsFiles:     string(targetsJSON),
 		Metadata:         string(metaJSON),
 		Summary:          buildSummary(items),
@@ -189,7 +190,16 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	}
 
 	// replica 无独立数据源，MVP 不注入（external_labels 仅 network_domain_id/zone_type）。
-	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules)
+	// 决策 60：alertmanager.yml 仅管理域 default 范围纳入；edge 域不纳入告警配置。
+	alertmanagerYML := ""
+	if dom.IsManagement() {
+		if am, err := generator.LoadLatestAlertmanagerConfigContent(db); err != nil {
+			return nil, nil, nil, err
+		} else {
+			alertmanagerYML = am
+		}
+	}
+	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -313,6 +323,7 @@ func reconcileWithExistingPending(
 		PrometheusYml:     artifacts.PrometheusYML,
 		RulesYml:          artifacts.RulesYML,
 		BlackboxYml:       artifacts.BlackboxYML,
+		AlertmanagerYml:   artifacts.AlertmanagerYML,
 		TargetsFiles:      string(targetsJSON),
 		Metadata:          string(newMetaJSON),
 		Summary:           buildSummary(items),
@@ -548,6 +559,7 @@ func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVers
 			PrometheusYml:   d.PrometheusYml,
 			RulesYml:        d.RulesYml,
 			BlackboxYml:     d.BlackboxYml,
+			AlertmanagerYml: d.AlertmanagerYml,
 			TargetsFiles:    d.TargetsFiles,
 			Metadata:        d.Metadata,
 		}
@@ -794,9 +806,10 @@ func artifactsFromDraft(d *models.ConfigDraft) (*generator.ConfigArtifacts, erro
 		}
 	}
 	return &generator.ConfigArtifacts{
-		PrometheusYML: d.PrometheusYml,
-		RulesYML:      d.RulesYml,
-		BlackboxYML:   d.BlackboxYml,
-		TargetsFiles:  targets,
+		PrometheusYML:   d.PrometheusYml,
+		RulesYML:        d.RulesYml,
+		BlackboxYML:     d.BlackboxYml,
+		TargetsFiles:    targets,
+		AlertmanagerYML: d.AlertmanagerYml,
 	}, nil
 }

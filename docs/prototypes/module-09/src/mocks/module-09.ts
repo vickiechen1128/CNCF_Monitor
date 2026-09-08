@@ -111,9 +111,10 @@ export type ConfigChangeTarget =
   | 'alert_rule' // 告警规则（MonitoringRule）
   | 'blackbox_target' // 拨测目标（blackbox ScrapeJob 的 target）
   | 'label_template' // 标签模板（LabelTemplate）
+  | 'alertmanager_config' // 通知配置（alertmanager.yml，Module_08 文件挂载提交，管理域 default scope，决策 60）
 
 /** 影响的配置文件（决策 22）：configgen 对比「当前生效版本」与「新草稿」产物差异派生的维度 */
-export type AffectedConfigFile = 'prometheus.yml' | 'targets' | 'rules.yml' | 'blackbox.yml'
+export type AffectedConfigFile = 'prometheus.yml' | 'targets' | 'rules.yml' | 'blackbox.yml' | 'alertmanager.yml'
 
 /**
  * 结构化变更清单项（决策 18「变更确认心智」/ 22）：
@@ -253,6 +254,15 @@ export interface ConfigDraft {
   summary: string
   /** 结构化变更清单（决策 18）：变更类型 / 对象 / 人话描述 / 风险等级，是「变更确认」页的核心决策信息 */
   change_items: ConfigChangeItem[]
+  /**
+   * {v1.51 决策 53/54} 实例选择模式（可选，仅 filter 模式草稿填写）：`manual`=静态勾选（其余草稿默认）
+   * / `filter`=条件表达式筛选，每次配置生成周期实时求值（决策 53）。MVP 存量 Job 均为 manual。
+   */
+  selection_mode?: 'manual' | 'filter'
+  /** {v1.51 决策 54} 来源逻辑采集 Job（fan-out 源）：一个逻辑 Job 绑定多网域 → 每目标域自动拆分一份变更单 */
+  source_logical_job?: string
+  /** {v1.51 决策 53} filter 模式条件表达式（Resource 属性筛选），每次配置生成周期实时求值 */
+  filter_condition?: string
   created_at: string
   updated_at: string
   confirmed_by?: string
@@ -366,13 +376,33 @@ function demoChecksum(seed: string): string {
 }
 
 /**
+ * 将单个 targets 文件条目序列化为缩进 JSON，并把数组元素逐个独立成行：
+ * `targets`（IP 列表）与 `labels` 的每个键值对均换行展开，便于在前端配置预览中阅读
+ * （原 JSON.stringify 会把同一 targets 数组内的多个 IP 挤在同一行）。
+ */
+function serializeTargetsEntry(entry: TargetsFileEntry): string {
+  const targets =
+    entry.targets.length === 0
+      ? '    "targets": []'
+      : `    "targets": [\n${entry.targets.map((t) => `      ${JSON.stringify(t)}`).join(',\n')}\n    ]`
+  const labels =
+    Object.keys(entry.labels).length === 0
+      ? '    "labels": {}'
+      : `    "labels": {\n${Object.entries(entry.labels)
+          .map(([k, v]) => `      ${JSON.stringify(k)}: ${JSON.stringify(v)}`)
+          .join(',\n')}\n    }`
+  return `  {\n${targets},\n${labels}\n  }`
+}
+
+/**
  * 将 targets_files 序列化为每个 job 落盘的原始文本（targets/<job_name>.json 内容，PRD 6.2）：
- * 结构化条目序列化为缩进 JSON；string 特殊值（校验失败演示）原样透传。
+ * 结构化条目序列化为「逐个换行」的缩进 JSON（IP / 标签各占一行，便于阅读）；
+ * string 特殊值（校验失败演示）原样透传。
  */
 export function targetsFilesToText(targetsFiles: ConfigTargetsFiles | undefined): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [job, content] of Object.entries(targetsFiles ?? {})) {
-    out[job] = typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+    out[job] = typeof content === 'string' ? content : `[\n${content.map(serializeTargetsEntry).join(',\n')}\n]`
   }
   return out
 }
@@ -433,21 +463,22 @@ export const validationLayeringNote = {
 }
 
 /**
- * 审批分级策略（{v1.32} M01/M08/M09 告警规则职责重构，PRD 3.4）：
+ * 审批分级策略（{v1.32} M01/M08/M09 告警规则职责重构，PRD 3.4；{决策 60} alertmanager.yml 口径反转）：
  * - 人工确认（go/no-go）：prometheus.yml、targets/*.json、rules.yml、blackbox.yml 的变更进入待确认列表；
- * - 自动生效：alertmanager.yml 由 Module_08 直接写文件并触发 Alertmanager reload，不进入本模块 ConfigDraft / 配置变更确认流程；
- * - 混单规则：若某次变更同时涉及人工确认文件与 alertmanager.yml（防御性说明），按高风险文件走人工确认。
- * 原因：通知路由/接收人/静默/抑制调整频繁、风险低（仅影响告警体验，不影响采集/规则求值），且 M08 是 Alertmanager 配置的唯一 Owner。
+ * - alertmanager.yml（决策 60）：由 Module_08 文件挂载提交，作为管理域（default）scope 产物纳入本模块变更确认——
+ *   人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写 M08；
+ *   不参与按网域扇出，不进入 agent_pull 配置包；
+ * - 职责分工：Module_08 是 Alertmanager 配置的唯一内容 Owner，本模块是变更确认与下发管道 Owner。
  */
 export const approvalTieringNote = {
   manual:
     '人工确认（go/no-go）：prometheus.yml、targets/*.json、rules.yml、blackbox.yml 的变更进入待确认列表，由运维审批后发布',
   auto:
-    '自动生效：alertmanager.yml 由 Module_08（告警收敛与通知管理）直接写文件并触发 Alertmanager reload，不进入本模块变更单 / 配置变更确认流程',
+    'alertmanager.yml（由 Module_08 文件挂载提交）：作为管理域 default scope 产物纳入本模块变更确认——人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写 Module_08',
   mixed:
-    '混单规则：若某次变更同时涉及人工确认文件与 alertmanager.yml（防御性说明），按高风险文件走人工确认',
+    'agent_pull 配置包 / 按网域扇出不包含 alertmanager.yml：alertmanager.yml 仅作用于中心 Alertmanager（管理域 default scope），不随任何边缘网域配置包下发',
   reason:
-    '原因：通知路由 / 接收人 / 静默 / 抑制调整频繁、风险低（仅影响告警体验，不影响采集 / 规则求值），且 Module_08 是 Alertmanager 配置的唯一 Owner',
+    '职责分工：Module_08（告警收敛与通知管理）是 Alertmanager 配置的唯一内容 Owner（接收人 / 路由 / 静默 / 抑制），本模块是变更确认与下发管道 Owner（人工确认 → 写中心配置路径 → reload → change_status 回写）',
 }
 
 /**
@@ -491,6 +522,26 @@ export const defaultFallbackRemovalNote =
  */
 export const authTlsPassthroughNote =
   '采集认证 / TLS 透传映射（{v1.50} 决策 31，MVP 必实现）：认证 / TLS 由 Module_01（ScrapeJob）配置、本模块仅透传映射、无新机制——auth_type=basic → basic_auth（username/password）、auth_type=bearer → authorization（Bearer token）、tls_skip_verify → tls_config.insecure_skip_verify、ca_file → tls_config.ca_file；全部可选、默认不启用；blackbox 拨测 HTTP / HTTPS 模块同理透传 tls_config'
+
+/**
+ * Job 网域扇出契约（{v1.51 决策 54，v0.2 起））：M01 逻辑 ScrapeJob 的网域绑定由「单一网域」放宽为
+ * **网域集合**（用户一次定义逻辑 Job 并勾选多个已纳管网域）；M09 生成器**按网域自动拆分扇出**——
+ * 为每个目标网域生成各自的 scrape_configs 片段与 targets 文件，分别进入各域的变更检测 / 校验 /
+ * 确认 / 下发流程（现有流程不变，无需用户按网域克隆 Job）；克隆 Job 的跨网域复用职责由扇出取代，克隆降级
+ * 为「参数相近但需独立演进」场景的复制便利。实例与网域匹配校验由「全域同域」变为「逐域同域」。
+ * MVP 存量单值 `network_domain_id` 自动迁移为单元素集合。关联：决策 52（网域心智「接入可见、消费隐藏」）。
+ */
+export const jobDomainFanoutNote =
+  'Job 网域扇出（决策 54，{v1.51}，v0.2 起）：M01 逻辑采集 Job 可一次绑定多个已纳管网域，配置生成器按网域自动拆分——为每个目标网域生成各自的 scrape_configs 片段与 targets 文件，分别进入各域的变更检测 / 校验 / 确认 / 下发流程；无需为每个网域手工克隆 Job（克隆降级为「参数相近但需独立演进」场景的复制便利）'
+
+/**
+ * filter 模式实时求值契约（{v1.51 决策 53，由 v0.3+ 提前到 v0.2））：`instance_selection_mode=filter`
+ * 的 Job 不持有静态实例清单，按 Resource 属性条件表达式在**每次配置生成周期实时求值**——
+ * M07 新导入 / 同步进来的资源只要匹配条件即自动纳入 targets（无需编辑 Job），下线 / 属性变化不再匹配时
+ * 自动移出；「待采集」回显对自动纳入实例同样生效。filter 与扇出为组合拳（决策 53/54）：定义一次、永久免维护。
+ */
+export const filterRealTimeEvaluationNote =
+  'filter 模式实时求值（决策 53，{v1.51}，由 v0.3+ 提前到 v0.2）：条件式采集策略（instance_selection_mode=filter）不持有静态实例清单，每次配置生成周期对条件表达式实时求值——监控对象新增 / 同步进来只要匹配条件即自动纳入 targets（无需编辑策略），下线 / 属性变化不再匹配时自动移出；「待采集」回显对自动纳入实例同样生效'
 
 /**
  * 网闸 / 隔离区连接约束（{v1.31}，强制，PRD §6）：在政务云等网闸隔离场景
@@ -1154,6 +1205,9 @@ scrape_configs:
 // {v1.49 决策 29} offline 排除（MVP 必实现）：configgen 生成 targets/*.json 时按 Resource.status=offline 过滤已下线实例——
 // offline 不进入 targets，offline 后下一配置生成周期即从 targets 移除（对齐 Module_07 8.1 / Module_01 3.1）；
 // 下方各 targets 快照默认均已剔除 offline 实例（系统中存在 offline 资源但不进产物）。maintenance 口径与 Module_07 一并对齐（MVP 不保证）。
+// {v1.51 决策 53} filter 实时求值纳入：下方 gov-cloud-a / finance-dmz 的 targets_GovFilter／FinanceFilter 演示「条件式采集策略
+// （instance_selection_mode=filter）」——每次配置生成周期对条件表达式实时求值，M07 新导入且匹配条件的资源自动纳入 targets、
+// 下线 / 属性变化不再匹配时自动移出；扇出的多域 targets 由决策 54 按网域分别生成（见新增待确认草稿 draft-gov-005 / draft-finance-002）。
 const targetsDefault: ConfigTargetsFiles = {
   'node-exporter': [
     {
@@ -1209,6 +1263,47 @@ const targetsFinance: ConfigTargetsFiles = {
   'node-exporter': [
     {
       targets: ['10.0.3.20:9100'],
+      labels: { network_domain: 'finance-dmz', app: 'app-finance-pay', biz: 'payment', env: 'prod' },
+    },
+  ],
+}
+
+// {v1.51 决策 54/53} 按域扇出 + filter 实时纳入演示 targets：
+// 逻辑采集 Job「prod-server-exporter」绑定网域集合 {gov-cloud-a, finance-dmz}，instance_selection_mode=filter
+// （条件：resource_type='server' && env='prod'）。每次配置生成周期实时求值——本周期 M07 新导入并匹配条件的
+// 两台 prod 服务器（gov 域 10.0.1.12 / finance 域 10.0.3.21）被自动纳入，M09 按网域自动拆分生成两份独立变更单：
+// gov-cloud-a（draft-gov-005，CHG-20260803-011）与 finance-dmz（draft-finance-002，CHG-20260803-012）。
+const targetsGovFilterDraft: ConfigTargetsFiles = {
+  'node-exporter': [
+    {
+      targets: ['10.0.1.10:9100'],
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
+    },
+    {
+      targets: ['10.0.1.11:9100'],
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-db', biz: 'data-api', env: 'prod' },
+    },
+    {
+      targets: ['10.0.1.12:9100'],
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-risk', biz: 'risk', env: 'prod' },
+    },
+  ],
+  'blackbox-http': [
+    {
+      targets: ['https://api.example.com/health'],
+      labels: { network_domain: 'gov-cloud-a', app: 'app-gov-web', biz: 'data-api', env: 'prod' },
+    },
+  ],
+}
+
+const targetsFinanceFilterDraft: ConfigTargetsFiles = {
+  'node-exporter': [
+    {
+      targets: ['10.0.3.20:9100'],
+      labels: { network_domain: 'finance-dmz', app: 'app-finance-pay', biz: 'payment', env: 'prod' },
+    },
+    {
+      targets: ['10.0.3.21:9100'],
       labels: { network_domain: 'finance-dmz', app: 'app-finance-pay', biz: 'payment', env: 'prod' },
     },
   ],
@@ -1727,6 +1822,130 @@ export const configDrafts: ConfigDraft[] = [
     created_at: '2026-08-03 13:30:00',
     updated_at: '2026-08-03 13:45:00',
   },
+  // {v1.51 决策 54/53} 按域扇出 + filter 实时纳入演示（组合拳）：逻辑采集 Job「prod-server-exporter」绑定网域集合
+  // {gov-cloud-a, finance-dmz}，instance_selection_mode=filter（条件：resource_type=='server' && env=='prod'）。
+  // 本配置生成周期 M07 新导入并匹配条件的两台 prod 服务器自动纳入，M09 按网域自动拆分生成两份独立变更单：
+  // gov-cloud-a（draft-gov-005，CHG-20260803-011）与 finance-dmz（draft-finance-002，CHG-20260803-012），
+  // 每域各自进入本域的变更检测 / 校验 / 确认 / 下发流程（无需手工克隆 Job）。
+  {
+    id: 'draft-gov-005',
+    change_no: 'CHG-20260803-011',
+    network_domain_id: 'gov-cloud-a',
+    source_version: 'cv-gov-002',
+    prometheus_yml: prometheusYmlGov,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsGovFilterDraft,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: 'filter 条件实时求值命中 + 多域扇出',
+      source_data_version: '2026-08-03 15:02:00',
+      trigger_summary:
+        'Resource#R-1030 新导入（resource_type=server、env=prod，匹配 prod-server-exporter 条件）触发 filter 实时求值 + 按域扇出（2026-08-03 15:02:00）',
+      checksum: computeJointChecksum(prometheusYmlGov, rulesYml, blackboxYml, targetsGovFilterDraft),
+      source_summary:
+        '逻辑 Job prod-server-exporter 绑定 {gov-cloud-a, finance-dmz}，本周期按条件实时纳入 10.0.1.12（gov 域），仅 targets/node-exporter.json 更新',
+    },
+    status: 'pending',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: '条件式采集自动纳入 1 台生产服务器（10.0.1.12）· 多域扇出（prod-server-exporter）',
+    change_items: [
+      {
+        type: 'add',
+        target: 'scrape_target',
+        description: 'prod-server-exporter（条件式采集）自动纳入 10.0.1.12:9100（gov-cloud-a 域，匹配 resource_type=server && env=prod）',
+        risk: 'low',
+        affected_files: ['targets'],
+      },
+    ],
+    selection_mode: 'filter',
+    source_logical_job: 'prod-server-exporter',
+    filter_condition: "resource_type=='server' && env=='prod'",
+    created_at: '2026-08-03 15:03:00',
+    updated_at: '2026-08-03 15:03:00',
+  },
+  {
+    id: 'draft-finance-002',
+    change_no: 'CHG-20260803-012',
+    network_domain_id: 'finance-dmz',
+    source_version: 'cv-finance-001',
+    prometheus_yml: prometheusYmlFinance,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsFinanceFilterDraft,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: 'filter 条件实时求值命中 + 多域扇出',
+      source_data_version: '2026-08-03 15:02:00',
+      trigger_summary:
+        'Resource#R-1031 新导入（resource_type=server、env=prod，匹配 prod-server-exporter 条件）触发 filter 实时求值 + 按域扇出（2026-08-03 15:02:00）',
+      checksum: computeJointChecksum(prometheusYmlFinance, rulesYml, blackboxYml, targetsFinanceFilterDraft),
+      source_summary:
+        '逻辑 Job prod-server-exporter 绑定 {gov-cloud-a, finance-dmz}，本周期按条件实时纳入 10.0.3.21（finance 域），仅 targets/node-exporter.json 更新',
+    },
+    status: 'pending',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: '条件式采集自动纳入 1 台生产服务器（10.0.3.21）· 多域扇出（prod-server-exporter）',
+    change_items: [
+      {
+        type: 'add',
+        target: 'scrape_target',
+        description: 'prod-server-exporter（条件式采集）自动纳入 10.0.3.21:9100（finance-dmz 域，匹配 resource_type=server && env=prod）',
+        risk: 'low',
+        affected_files: ['targets'],
+      },
+    ],
+    selection_mode: 'filter',
+    source_logical_job: 'prod-server-exporter',
+    filter_condition: "resource_type=='server' && env=='prod'",
+    created_at: '2026-08-03 15:03:00',
+    updated_at: '2026-08-03 15:03:00',
+  },
+  {
+    // {决策 60} alertmanager.yml 变更单演示（口径反转）：alertmanager.yml 作为管理域（default）scope 产物
+    // 纳入本模块变更确认——Module_08 文件挂载提交 → 本模块人工确认 → 写中心 Alertmanager 配置路径并触发 reload，
+    // change_status 回写 Module_08；不参与按网域扇出、不进入 agent_pull 配置包。
+    // 与 Module_08 原型 mockConfigVersions 的 acv-004（change_status=pending）呼应：M08「待确认」点击跳转本页确认。
+    // Prometheus 侧采集产物（prometheus.yml / targets / rules.yml / blackbox.yml）均不变，变更内容仅为 alertmanager.yml。
+    id: 'draft-default-am-001',
+    change_no: 'CHG-20260831-013',
+    network_domain_id: 'default',
+    source_version: 'cv-default-003',
+    prometheus_yml: prometheusYmlDefault,
+    rules_yml: rulesYml,
+    blackbox_yml: blackboxYml,
+    targets_files: targetsDefaultV3,
+    metadata: {
+      generated_by: 'system',
+      generator_version: 'configgen v1.7.0',
+      reason: 'alertmanager.yml 文件挂载提交（管理域 default scope，来源 Module_08）',
+      source_data_version: '2026-08-31 11:20:00',
+      trigger_summary: 'AlertmanagerConfigVersion#acv-004 挂载提交（2026-08-31 11:20:00，Module_08）触发变更单',
+      checksum: computeJointChecksum(prometheusYmlDefault, rulesYml, blackboxYml, targetsDefaultV3),
+      source_summary:
+        'alertmanager.yml（管理域 default scope）：政务云路由通知节奏调整（group_wait 30s→15s、group_interval 5m→2m）；Prometheus 采集产物不变',
+    },
+    status: 'pending',
+    validation_status: 'passed',
+    validation_error: '',
+    summary: 'alertmanager.yml 更新（政务云路由通知节奏调整），确认后写中心 Alertmanager 配置路径并触发 reload',
+    change_items: [
+      {
+        type: 'modify',
+        target: 'alertmanager_config',
+        description:
+          'alertmanager.yml（管理域 default scope，不参与按网域扇出 / 不进 agent_pull 配置包）：政务云路由 group_wait 30s→15s、group_interval 5m→2m；确认后写中心 Alertmanager 配置路径并触发 reload，change_status 回写告警通知模块',
+        risk: 'low',
+        affected_files: ['alertmanager.yml'],
+      },
+    ],
+    created_at: '2026-08-31 11:21:00',
+    updated_at: '2026-08-31 11:21:00',
+  },
 ]
 
 export const configVersions: ConfigVersion[] = [
@@ -1963,17 +2182,22 @@ export const configDeployments: ConfigDeployment[] = [
 export const changeDetectionStatus: ChangeDetectionStatus[] = [
   {
     network_domain_id: 'default',
-    last_checked_at: '2026-08-03 14:22:30',
-    source_data_version: '2026-08-03 14:20:00',
+    last_checked_at: '2026-08-31 11:21:30',
+    source_data_version: '2026-08-31 11:20:00',
     outcome: 'changes_found',
     generated_drafts: [
       {
         id: 'draft-default-003',
         trigger_summary: 'ScrapeJob#plc-gateway updated_at 变更（2026-08-03 14:20:00）触发重算',
       },
+      {
+        // {决策 60} alertmanager.yml 变更单（管理域 default scope，Module_08 文件挂载提交）
+        id: 'draft-default-am-001',
+        trigger_summary: 'AlertmanagerConfigVersion#acv-004 挂载提交（2026-08-31 11:20:00，Module_08）触发变更单',
+      },
     ],
     summary:
-      '本轮检测到变更：生成 draft-default-003（新增 plc-gateway 采集），进入确认列表（targets schema 校验失败，待修复）',
+      '本轮检测到变更：draft-default-003（新增 plc-gateway 采集，targets schema 校验失败待修复）与 draft-default-am-001（alertmanager.yml 管理域 default scope，确认后写中心 Alertmanager 配置路径并 reload）进入确认列表',
   },
   {
     network_domain_id: 'gov-cloud-a',

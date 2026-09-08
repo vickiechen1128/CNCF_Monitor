@@ -7,12 +7,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +23,42 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+// TestMain 将 PATH 指向一个空目录，保证「测试环境无 promtool/amtool/blackbox_exporter」
+// 这一前置假设成立：Makefile 会把 upstream/prometheus、upstream/alertmanager 等目录
+// 注入 PATH（草稿校验逻辑据此能真正调起外部校验工具），若测试进程继承该 PATH，
+// 依赖 validation_status=pending 的断言（如 TestGenerateDraftCreatesPending、
+// TestDraftHandlerRoutes）会因工具实际可用而失败。本包测试不需要任何外部可执行文件；
+// 「工具可用 → passed」分支由 stubValidationTools 通过 generator 注入点确定性覆盖。
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "draft-test-empty-path-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "draft tests: create empty PATH dir:", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(dir)
+	if err := os.Setenv("PATH", dir); err != nil {
+		fmt.Fprintln(os.Stderr, "draft tests: override PATH:", err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
+// stubValidationTools 将外部校验工具（promtool / blackbox_exporter / amtool）模拟为
+// 「可用且校验通过」，使测试可确定性覆盖 validation_status=passed 分支，
+// 与 TestMain 保证的「工具缺失 → pending」默认环境互补。
+// generator.ToolLookPath / ToolChecker 是包级注入点，非并发安全；本包测试均未使用
+// t.Parallel，替换后由 t.Cleanup 恢复。
+func stubValidationTools(t *testing.T) {
+	t.Helper()
+	oldLook := generator.ToolLookPath
+	oldChecker := generator.ToolChecker
+	generator.ToolLookPath = func(name string) (string, error) { return name, nil }
+	generator.ToolChecker = func(ca *generator.ConfigArtifacts, includeBlackbox bool) (bool, string) {
+		return true, ""
+	}
+	t.Cleanup(func() { generator.ToolLookPath = oldLook; generator.ToolChecker = oldChecker })
+}
 
 var memDBCounter int64
 
@@ -47,6 +86,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		&models.AlertmanagerConfigVersion{},
 	))
 	return db
 }
@@ -131,6 +171,27 @@ func TestGenerateDraftCreatesPending(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(d.Metadata), &meta))
 	assert.NotEmpty(t, meta.Checksum)
 	assert.Equal(t, generatorVersionPlaceholder, meta.GeneratorVersion)
+}
+
+// TestGenerateDraftPassedWhenToolsAvailable 与 TestGenerateDraftCreatesPending 互补：
+// 外部校验工具可用且校验通过时，草稿直接落 validation_status=passed
+// （决策 42-2 的另一分支），confirm 不再被「未通过校验」拦截。
+func TestGenerateDraftPassedWhenToolsAvailable(t *testing.T) {
+	stubValidationTools(t)
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-gp", true)
+	seedHost(t, db, "edge-gp", "res-1")
+	seedJob(t, db, "edge-gp", "job1")
+
+	d, err := GenerateDraft(db, "edge-gp")
+	require.NoError(t, err)
+	assert.Equal(t, models.DraftStatusPending, d.Status, "草稿生命周期状态仍为 pending，待人工确认")
+	assert.Equal(t, string(models.ValidationStatusPassed), d.ValidationStatus, "工具可用且校验通过 → passed")
+
+	// passed 草稿可直接 confirm，无需手动改库模拟重校。
+	v, err := ConfirmDraft(db, d.ChangeNo, "admin")
+	require.NoError(t, err)
+	assert.Equal(t, d.ChangeNo, v.ChangeNo)
 }
 
 func TestGenerateDraftReturnsExistingLivePending(t *testing.T) {
@@ -273,6 +334,43 @@ func TestGenerateDraftNoDiffReturnsErrNoChanges(t *testing.T) {
 	// 源数据无实质变化 → ErrNoChanges，不再生成「本次无配置变更」的草稿。
 	_, err = GenerateDraft(db, "edge-nodiff")
 	assert.ErrorIs(t, err, ErrNoChanges)
+}
+
+// TestGenerateDraftAlertmanagerChangeItem 覆盖决策 60（T09-60-2）：管理域 default 纳入
+// alertmanager.yml，其内容变化须派生「告警收敛配置」变更项，且草稿持久化 alertmanager_yml
+// 供预览；edge 域不纳入告警配置（不产出该变更项）。
+func TestGenerateDraftAlertmanagerChangeItem(t *testing.T) {
+	db := newMemDB(t)
+	// 管理域（management）已纳管。
+	mgmt := &models.NetworkDomain{
+		ID: "default", Name: "管理域", DomainType: models.DomainTypeManagement,
+		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
+		ZoneType: "central", Channel: models.ChannelTypeAgentPull, IsMonitored: true,
+	}
+	require.NoError(t, db.Create(mgmt).Error)
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:  "route:\n  receiver: default\n",
+		Checksum: models.AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
+		Status:   models.AlertmanagerConfigStatusApplied,
+	}).Error)
+
+	d, err := GenerateDraft(db, "default")
+	require.NoError(t, err)
+	assert.Equal(t, "route:\n  receiver: default\n", d.AlertmanagerYml, "草稿须持久化 alertmanager_yml 供预览")
+
+	var items []models.ConfigChangeItem
+	require.NoError(t, json.Unmarshal([]byte(d.ChangeItems), &items))
+	var amItems []models.ConfigChangeItem
+	for _, it := range items {
+		if it.Target == string(models.ChangeItemTargetAlertmanagerCfg) {
+			amItems = append(amItems, it)
+		}
+	}
+	require.Len(t, amItems, 1, "管理域须派生告警收敛配置变更项")
+	assert.Equal(t, string(models.ChangeItemTypeAdd), amItems[0].Type)
+	// review-fix F5：告警收敛配置变更影响收敛链路，risk 为 high（契约 §8）。
+	assert.Equal(t, string(models.RiskHigh), amItems[0].Risk)
+	assert.Equal(t, []string{string(models.AffectedFileAlertmanager)}, amItems[0].AffectedFiles)
 }
 
 // TestGenerateDraftBackfillsSourceVersion 覆盖 T09-05 review-fix：生成草稿时回填
@@ -471,6 +569,21 @@ func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T) {
 
 // ==================== HTTP layer ====================
 
+// adminInjector 以测试中间件形式把已认证的管理员注入 gin context（equivalent 于
+// AuthMiddleware 的 ContextUserKey 注入）。本包 handler 测试直接挂 RegisterRoutes，
+// 未走真实 AuthMiddleware，而决策 44 最小授权（review-fix B）为管理写端点挂了
+// auth.RequireAdmin()——缺此注入时写端点会回 403。测试态统一复用真实的管理员身份。
+func adminInjector() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, &models.User{
+			Username: "admin",
+			Role:     models.UserRoleAdmin,
+			Status:   models.UserStatusActive,
+		})
+		c.Next()
+	}
+}
+
 func TestDraftHandlerRoutes(t *testing.T) {
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "edge-h", true)
@@ -479,6 +592,7 @@ func TestDraftHandlerRoutes(t *testing.T) {
 
 	r := newGin()
 	g := r.Group("/api/v2/platform")
+	g.Use(adminInjector())
 	RegisterRoutes(g, db)
 
 	// POST 生成。
@@ -517,12 +631,44 @@ func TestDraftHandlerRoutes(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
 
+// TestDraftHandlerConfirmWhenValidationPassed 与 TestDraftHandlerRoutes 的
+// 「pending → confirm 400」分支互补：工具可用且校验通过（passed）时，
+// HTTP 链路 confirm 直接成功并生成版本。
+func TestDraftHandlerConfirmWhenValidationPassed(t *testing.T) {
+	stubValidationTools(t)
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "edge-hp", true)
+	seedHost(t, db, "edge-hp", "res-1")
+	seedJob(t, db, "edge-hp", "job1")
+
+	r := newGin()
+	g := r.Group("/api/v2/platform")
+	g.Use(adminInjector())
+	RegisterRoutes(g, db)
+
+	// POST 生成：工具可用 → validation_status=passed。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/config/drafts", `{"network_domain_id":"edge-hp"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	data := unmarshalData(t, w)
+	assert.Equal(t, string(models.ValidationStatusPassed), data["validation_status"])
+	changeNo := data["change_no"].(string)
+
+	// confirm：passed → 200。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/config-drafts/"+changeNo+"/confirm", `{"confirmed_by":"admin"}`)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var draft models.ConfigDraft
+	require.NoError(t, db.Where("change_no = ?", changeNo).First(&draft).Error)
+	assert.Equal(t, models.DraftStatusConfirmed, draft.Status)
+}
+
 func TestDraftHandlerDiscardValidationFailed(t *testing.T) {
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "edge-h-fail", true)
 
 	r := newGin()
 	g := r.Group("/api/v2/platform")
+	g.Use(adminInjector())
 	RegisterRoutes(g, db)
 
 	// 直接写入一张 validation_status=failed 的 pending 草稿。

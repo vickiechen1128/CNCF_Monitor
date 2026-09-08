@@ -59,6 +59,19 @@ Orchestrator 接收需求
 
 > zhangwq 的具体执行 SOP 见 [`../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md`](../01-team-collaboration/05_Vibe_Coding_Playbook_for_Zhangwq.md)。
 
+### 1.2 功能详细设计提案（Design Proposal）
+
+当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 PRD 时，使用 **design-proposal** 机制：
+
+- **位置**：`docs/05-execution-records/module-XX/design-proposals/<feature-name>.md`
+- **状态标记**：文档头部标注 `状态：draft / reviewing / approved / merged`
+- **评审**：由 Orchestrator 或 prototype-designer 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
+- **合并**：批准后由 prototype-designer 或原作者在 `design/module-mvp-demo` 分支将内容合并进主 PRD，PRD 版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
+- **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`，作为历史追溯
+- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 PRD 差异点 / 合并计划」
+
+> 设计提案是 PRD 的「前哨站」，避免工程师直接改动主 PRD 造成契约漂移；同时让详细设计有独立评审与版本追溯空间。
+
 ---
 
 ## 2. 项目文档导航（人视角参考）

@@ -26,6 +26,26 @@
   gap: 16px;
 }
 
+/* 顶部栏右上角：当前登录账号的角色标签 + 用户名（对齐原型深色头部白字） */
+.app-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.app-header-role {
+  margin: 0;
+}
+
+.app-header-account {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
 /* AWS 式「横向文字 tab + 选中下划线」一级模块导航（紧跟品牌右侧，深色头部白字） */
 .app-module-nav {
   display: flex;

@@ -309,7 +309,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
 		err := ValidateImportRow(&row, store, ok, nil)
 		rerr := assertRowError(t, err, 2, "biz_code", "legacy")
-		assert.Contains(t, rerr.Detail.Reason, "业务 legacy 未登记，请联系平台管理员在业务分组字典配置（platform/config/business_domains.yaml）中添加后重新导入")
+		assert.Contains(t, rerr.Detail.Reason, "业务 legacy 未登记，请到『业务管理』页登记后重新导入")
 	})
 
 	t.Run("malformed biz_code fails", func(t *testing.T) {

@@ -20,15 +20,52 @@ import (
 // 不再出现「产物变了但清单为空 → 本次无配置变更」的误导。
 func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem {
 	if base == nil {
-		return buildInitialChangeItems(jobs, rules)
+		items := buildInitialChangeItems(jobs, rules)
+		items = append(items, diffAlertmanagerItems(artifacts, nil)...)
+		for i := range items {
+			items[i].ID = fmt.Sprintf("ci-%d", i+1)
+		}
+		return items
 	}
 	items := make([]models.ConfigChangeItem, 0)
 	items = append(items, diffJobItems(jobs, artifacts, base)...)
 	items = append(items, diffRuleItems(artifacts.RulesYML, base.RulesYml)...)
+	items = append(items, diffAlertmanagerItems(artifacts, base)...)
 	for i := range items {
 		items[i].ID = fmt.Sprintf("ci-%d", i+1)
 	}
 	return items
+}
+
+// diffAlertmanagerItems 对比新旧 alertmanager.yml 内容，产出告警收敛配置变更项
+// （决策 60：仅管理域 default scope 产生该产物）。base 为 nil（网域首次生成版本）时
+// 以空为基线：有告警配置即记新增；内容变化记变更；配置被移除记删除。告警通知配置
+// 变更影响收敛链路，一律 high（契约 §8；决策 44-3 抑制逻辑不受影响：此处仅在内容
+// 实质变化时产出项，产物不变仍返回空避免噪声变更单）。
+func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem {
+	newAM := artifacts.AlertmanagerYML
+	baseAM := ""
+	if base != nil {
+		baseAM = base.AlertmanagerYml
+	}
+	if newAM == baseAM {
+		return nil
+	}
+	typ, verb := models.ChangeItemTypeAdd, "新增告警收敛配置"
+	if baseAM != "" && strings.TrimSpace(newAM) != "" {
+		typ, verb = models.ChangeItemTypeUpdate, "变更告警收敛配置"
+	} else if baseAM != "" {
+		typ, verb = models.ChangeItemTypeDelete, "移除告警收敛配置"
+	}
+	return []models.ConfigChangeItem{{
+		Type:          string(typ),
+		Target:        string(models.ChangeItemTargetAlertmanagerCfg),
+		Description:   verb + " alertmanager.yml",
+		AffectedFiles: []string{string(models.AffectedFileAlertmanager)},
+		// review-fix F5：修正为 RiskHigh。告警收敛配置变更影响收敛链路（契约 §8 /
+		// PRD §3.4 高/低危分级），此前写死 RiskLow 与函数注释「一律 high」矛盾。
+		Risk: string(models.RiskHigh),
+	}}
 }
 
 // buildInitialChangeItems 无历史版本时的初始变更清单：当前参与生成的 jobs/rules 全部

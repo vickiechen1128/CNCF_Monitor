@@ -91,14 +91,104 @@
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（3.3.1 `external_labels`、4.2/4.3 EdgeAgent 心跳）
 - `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`（v0.3 alerts 对齐，版本面待同步）
 
+### 决策 6：目标状态展示落点重估——API 保留 MVP、独立页面降 P1（2026-08-28，决策 47-4）
+
+- **触发**：用户提出采集状态回显前置（决策 47，全文见 module-01 design-decisions）——M01 Job 配置上下文与 M07 资源台账都需要真实采集状态回显，M02 独立「目标状态页」不再是唯一知情入口。
+- **结论**：
+  1. `GET /api/v1/targets` 代理**保留 MVP P0**——是 M01 Job 回显与 M07 badge 的共同数据源，租户/网域注入职责不变；
+  2. 独立「目标状态页」前端由 P0/MVP **降为 P1**（极简列表），定位收敛为「跨 Job 全局排障入口」；
+  3. 「采集健康度/覆盖率查询 API」（三态，供 M07 badge 消费）由 **v0.2 提前到 MVP**（修订决策 4.7）。
+- **影响范围**：Module_02 PRD v1.4（§1 版本分布、§3.1 功能清单、§3.2、§6 接口、§11 验收、§12 边界）。
+
+### 决策 7：可视化方案收敛——大屏走 Grafana 嵌入、门户轻量图表自研（2026-08-31，决策 50）
+
+- **触发**：MVP 收口评估中发现两个非 Prometheus 原生的能力缺口，其中「可视化大屏进行指标实时展示」需要明确方案与边界，避免与 M02「不自研拖拽面板编辑器」的既有结论冲突。
+- **结论**：
+  1. **不自研**拖拽式面板编辑器与可视化大屏（维持 P2 不做）；
+  2. 大屏/复杂看板需求通过 **Grafana iframe 嵌入**满足（anonymous 模式 + share/embed 链接；AGPL 对嵌入使用无限制）；
+  3. **红线**：Grafana 的数据源必须配置为 M02 查询代理地址（`/api/v1/query*`），**禁止直连 Prometheus**——否则租户/网域注入被绕过，v0.2 多租户启用后构成跨租户数据泄露；
+  4. 门户内轻量实时图表（首屏指标卡、资源详情趋势图）使用 ECharts/AntV 消费 M02 `query_range`，与 v0.3「首页 Dashboard 数据」共用查询链路。
+- **配套澄清**：MVP envelope 按最小集落地（`data_source` 恒 `central_scrape`、`network_domains` 恒 `["default"]`、`freshness_at` 取最新样本时间戳），结构在 MVP 即固定，v0.2 只做取值细化不改结构。
+- **依据**：Grafana/夜莺等外部组件自带独立查询路径，只有强制其走 M02 代理，M02 的注入隔离才对全部查询消费方生效；自研面板编辑器投入产出比低。
+- **影响范围**：Module_02 PRD v1.5（§1 新增可视化组件边界、§3.1「复杂 Dashboard / 可视化大屏」行、§8.2 envelope MVP 口径）。
+- **关联决策**：决策 49（告警组件选型锁定 Alertmanager，全文见 module-08 design-decisions）——同一轮缺口的另一部分。
+
 ---
 
 ## Change Log（完整历史）
 
-> v1.3 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.1 及以前的逐版完整变更详情（业务沟通决策记录）。
+> v1.3 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.4 及以前的逐版完整变更详情（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.9 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（指标查询/目标状态/AI 数据消费）与涉及用户故事编码索引；不改变技术契约（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
+| v1.8 | 2026-09-02 | 修改 | coverage 三态判定口径修订（用户拍板 A 方案）：`/api/v1/health/coverage` **不感知 M09 下发时序**——选中关系取 DB 当前 `selected_instance_ids`（`draft_status=ready` 且 `enabled=true` 的 Job，不问 `change_status`），采集事实取 Prometheus 实际 target/`up`；选中未采到统一归 `pending_down`（含变更未确认下发/未 reload/待首次抓取/采集器未装），「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）；§3.1 新增口径说明、§12 M07 边界行同步；契约快照 `module-02/api-contract-snapshot.md` §2.2.1/§5 同步闭环；原型行为不变 | 功能清单、模块边界 | MVP | 设计中 |
+| v1.7 | 2026-08-31 | 修改 | 决策 55/56/57 落版（M02/M08 边界与注入语义澄清）：①§7 更名「注入与授权校验规则」，§7.2 改写为**三层语义**——`tenant_id` 硬隔离强制注入；`network_domain` **授权集合收敛**（授权=全部网域时不注入任何 matcher，跨网域业务聚合天然成立；授权为真子集时注入集合 matcher）；前端筛选纯 UX 不承担安全职责；②§11.1 验收项 9 收敛为 API 契约（**告警状态页归 M08**，本模块只交付注入代理 API）；③§1 新增**存储可替换性决策点**——1 控制面 + N 采集节点扁平拓扑、中心存储预留替换 VictoriaMetrics、隔离契约保持标签制（VM 原生多租户为 v0.2 评审选项）；设计思路全文见 `docs/05-execution-records/module-02/m02-vs-m08-boundary-and-injection-design.md`；原型待对齐 | 注入规则、验收标准、模块目标 | MVP / v0.2 / v0.3 | 设计中 |
+| v1.6 | 2026-08-31 | 新增 | 决策 51/52 交叉落版：①§1 可视化边界补**三层归属**（决策 51）——嵌入入口/引导/模板归 M05、Grafana 自身配置归交付包安装期 provisioning、Dashboard-as-Code 治理预留 M11（v0.4+ 评估）；并明确**跨网域业务看板不受网域注入影响**（授权集合收敛语义下 `sum by (biz)` 跨域聚合天然成立，网域仅作可选下钻维度）；②§1 新增 **blackbox 拨测网域语义**（决策 52）——拨测指标的 `network_domain` 表示发起侧网域（探测路径），目标归属不参与网域推导；原型待对齐 | 模块边界 | v0.2 / v0.3 | 设计中 |
+| v1.5 | 2026-08-31 | 修改 | 决策 50 落版（可视化方案收敛）：①§1 新增「与可视化组件的边界」——不自研拖拽面板编辑器/大屏，大屏走 Grafana iframe 嵌入且**数据源必须指向 M02 查询代理**（禁止直连 Prometheus，否则租户/网域注入失效），门户轻量图表用 ECharts/AntV 消费 `query_range`（随 v0.3 首页 Dashboard 数据）；②§3.1「复杂 Dashboard」行改写为「复杂 Dashboard / 可视化大屏」并承载决策 50；③§8.2 补 MVP envelope 最小实现口径（`data_source` 恒 `central_scrape`、`network_domains` 恒 `["default"]`、`freshness_at` 取最新样本时间戳），MVP 即固定 envelope 结构；④v1.2 两行 Change Log 迁移至 design-decisions.md 完整历史；原型待对齐 | 模块边界、功能清单、envelope | MVP / v0.3 | 设计中 |
+| v1.4 | 2026-08-28 | 修改 | 决策 47 落版（采集状态回显前置）：①目标状态能力拆层——`/api/v1/targets` 代理 API 保留 P0/MVP 并明确为 M01 Job 回显（47-2）与 M07 badge（47-3）的共同数据源；**独立目标状态页由 P0 降为 P1**（极简列表，定位收敛为跨 Job 全局排障入口，47-4）；②**采集健康度/覆盖率查询 API 由 v0.2 提前到 MVP**（三态，按 `resource_id` 回连资源，供 M07 badge）；③§1 版本分布 / §2 M02-OPS-08 / §3.1 功能清单 / §3.2 说明 / §6 接口（coverage 移入 6.1）/ §11 验收（拆 3 / 3a，#11 改 P0/MVP）/ §12 边界（M01/M07 行）同步；原型待对齐（头部原型版本标注未对齐） | 模块目标、功能清单、接口设计、验收标准、模块边界 | MVP | 设计中 |
+| v1.3 | 2026-08-07 | 新增 | 按 prototype-designer PRD 骨架规范补齐：第 2 章用户故事引用全局库（M02- 编码）、新增 4.x 核心流程、5.x 数据模型加「UI 展示名」列、10.x 数据模型状态机、验收标准分层（11.1 用户 / 11.2 技术）+ P0/P1 标注、新增第 13 章「术语映射」、Change Log 精简（完整历史迁移 design-decisions.md） | 文档自身 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-06 | 新增 | 原型升级对齐 PRD v1.2（docs/prototypes/module-02/）：目标状态展示增强（采集时长 / 拨测结果 / 采集诊断 Drawer / 覆盖率统计卡 v0.2）；envelope 多值 `network_domains` 展示；自动注入提示（单/多网域）；数据来源与新鲜度演示（v0.2 联动 Module_09）；告警状态页 v0.3 占位标注；查询辅助 v0.3 标注；全局导航壳与 `Tenant.multi_site_enabled` 模式开关；原型版本 v1.1 → v1.2，package.json version 1.2.0，新增 README.md（含导航映射表与模块边界标注） | 原型目录、UI/UX、文档自身 | 文档自身 | 设计中 |
+| v1.2 | 2026-08-06 | 修改 | 版本对齐路线图与 M01/M07/M08/M09 边界交叉确认：① `/api/v1/alerts` 代理由 MVP 移至 **v0.3**（与 Module_08 对齐）；② 租户/网域注入机制 MVP 落地、多租户/多网域语义 v0.2 启用；③ PromQL 校验/指标预览接口随 Module_01 规则编辑 UI 移至 **v0.3**（路线图 2.4 MVP 不做告警规则编辑 UI）；④ **修复注入标签 key 契约**：统一为 `network_domain` / `tenant_id`（与 Module_09 3.3.1 external_labels 对齐），删除 v1.1 的 `network_domain_id` 表述，并区分对象字段与 Prometheus 标签；⑤ 新增 MVP「目标状态展示」（代理 `/api/v1/targets`，承接 Module_01 3.3 移交）；⑥ envelope 修订：`network_domain` 单值 → `network_domains` 多值、`data_source` 细化到网域、v0.2 联动 Module_09 心跳/WAL 提示数据延迟；⑦ 新增 v0.2：采集健康度/覆盖率查询 API（Module_07 三态 badge 联动）、批量查询语义预留、labels/series 租户隔离、AST 解析注入；⑧ 新增 v0.3：`/api/v1/rules` 只读代理、`validate`/`preview` 接口、查询辅助（联动 M01 指标库 + M07 LabelTemplate）、Open API 鉴权限流、Dashboard 数据；⑨ 新增「模块边界交叉确认」章节 | 模块目标、功能清单、接口设计、注入规则、envelope、验收标准、模块边界 | MVP / v0.2 / v0.3 | 设计中 |
 | v1.1 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
 | v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | MVP / v0.2 / v0.3 | draft |
+### 决策 8：跨模块决策交叉引用（2026-08-31，决策 51/52/53/54）
+
+- **决策 51（Grafana 集成三层归属）**：全文见 module-05 design-decisions。本模块落点：可视化边界补充三层归属（M05 嵌入 / 交付包 provisioning / M11 预留），并明确**跨网域业务看板不受网域注入影响**——注入语义为「授权集合收敛」（PRD §7.2），`sum by (biz)` 跨域聚合天然成立，网域仅作可选下钻维度。
+- **决策 52（网域归属解析链）**：全文见 module-07 design-decisions。本模块落点：blackbox 拨测网域语义——拨测指标 `network_domain` 表示**发起侧网域**（探测路径），目标归属不参与推导。
+- **决策 53/54（filter 模式 + Job 网域扇出）**：全文见 module-01 design-decisions。本模块无直接改动；采集状态回显（决策 47-2）对 filter 模式自动纳入的新实例同样生效（「待采集」语义不变）。
+- **影响范围**：Module_02 PRD v1.6（§1 边界两条）。
+
+### 决策 9：M02/M08 告警状态归属切分 + 注入三层语义 + 存储可替换性（2026-08-31，决策 55/56/57）
+
+- **触发**：用户评审提出四问——①M02「当前告警」与 M08「告警状态」是否重复；②M02 偏后台 API、为全局排障做准备，是否应单独成模块；③注入代理的必要性，M08 直连 Alertmanager 是否可以，去掉注入是否利于未来对接夜莺；④`tenant_id` 强制注入可接受，但 `network_domain` 是部署拓扑、业务通常跨网域，不应强制注入，安全场景能否由前端筛选承担。**全部结论经用户确认**。
+- **设计思路全文**：`docs/05-execution-records/module-02/m02-vs-m08-boundary-and-injection-design.md`（含功能异同对照表、用户动线分析、被否备选方案）。
+
+**决策 55（告警状态归属切分）**：
+
+- **结论**：「当前告警」能力按层切分——**API 层归 M02**（代理 Prometheus `/api/v1/alerts`，注入租户/网域上下文，v0.3）；**页面层归 M08**（告警状态页 = 告警域工作台，同页展示 Prometheus firing/pending + Alertmanager 通知状态）。
+- **依据（用户动线/心智）**：告警处理链「什么出了问题 → 通知了谁/是否被静默 → 加静默/调路由」是连续任务，语境全在告警域，按数据源拆页会迫使用户来回跳转；M02 自有动线是「查询与排障链」（指标异常 → PromQL 验证 → target 采集状态），两类心智任务不应混在一个页面叙事里。
+- **落点**：M02 PRD §11.1 验收项 9 收敛为 API 契约（删「页」）；M08 PRD §5.4 明确页面归属。
+
+**决策 56（注入三层语义 + AM 侧授权约束）**：
+
+- **结论**：注入语义明确为三层——
+  1. `tenant_id`：**硬隔离边界**，服务端强制注入，永远存在、用户不可见不可改；
+  2. `network_domain` 授权集合：**软授权边界**，服务端强制校验——授权集合 = 租户全部网域时**不注入任何 matcher**（零感知，`sum by (biz)` 跨网域聚合天然成立）；授权为真子集时注入集合 matcher；用户显式 matcher 收敛于授权集合、越权返回空；
+  3. `network_domain` 筛选：**纯 UX**，授权集合内自由下钻，不承担安全职责。
+- **红线**：安全必须服务端执行。「只被允许看某网域」是授权要求时，前端筛选 = 视觉遮蔽（curl 即绕过），不构成权限。用户已确认接受该约束。
+- **AM 侧同步约束（M08 落点）**：M08 直连 Alertmanager 可以，但①读路径：代理 AM `/api/v1/alerts` 服务端强制注入授权集合 filter（不信任前端传参）；②写路径：静默全局生效，创建时服务端校验 matcher 收敛于授权集合，否则构成跨租户写武器。
+- **依据**：`network_domain` 是部署拓扑维度而非默认隔离边界（业务通常跨网域，与决策 51 补充一致）；Prometheus/Alertmanager 原生零多租户，隔离必须外挂且服务端执行。
+- **落点**：M02 PRD §7 更名「注入与授权校验规则」、§7.2 改写三层语义；M08 PRD §5.2 / §5.4 / §9.2 补授权约束。
+
+**决策 57（扁平拓扑 + 中心存储可替换 + 隔离契约保持标签制）**：
+
+- **结论**：
+  1. 部署拓扑锁定「**1 控制面 + N 采集节点**」扁平形态（用户明确）；
+  2. 中心存储**预留替换 VictoriaMetrics**——M02 代理作为防腐层保证替换时消费方（UI/Grafana/Open API）零改动；
+  3. **隔离契约保持标签制**（`tenant_id`/`network_domain` 由 M09 `external_labels` 写入侧打标、M02 查询侧校验），Prometheus 与 VM 通吃、边缘 remote_write 已按此打标、换存储不改契约；
+  4. VM 集群版原生多租户（vmauth + accountID 路由，M02 退化为 user→accountID 映射）列为 **v0.2 架构评审选项**，暂定不采用（契约单一、可回切 Prometheus）；
+  5. 告警分发前期维持 M08「UI 生成 alertmanager.yml + reload」文件化形态（与决策 49 闭环一致），不引入 DB 驱动方案。
+- **对「去代理对接夜莺」的回应**：代理不是对接夜莺的障碍（M09 文件化配置流水线 + Alertmanager 选型才是真正耦合点）；代理是防腐层，去掉反而把平台焊死在 Prometheus 上。
+- **落点**：M02 PRD §1 新增「存储可替换性决策点」。
+
+- **影响范围**：Module_02 PRD v1.7；Module_08 PRD v1.5（交叉引用见 module-08 design-decisions）；`docs/05-execution-records/module-02/m02-vs-m08-boundary-and-injection-design.md`（新建）；`Modules/README.md` 版本行同步。
+
+### 决策 10：目标状态页导航临时挂载 M09 豁免（2026-09-04，`feat/module-08-alert-dispatch` 开发期修正，方案 B）
+
+- **触发**：决策 47-4 将 M02「独立目标状态页」降为 P1，明确「本期仅注册 API client 与可选极简页，**不新增顶部一级 tab / 不占导航位**」。`feat/module-08-alert-dispatch` 分支开发时，为便于 MVP 演示期可达，前端临时将 `/targets`（`TargetStatusPage`）挂在 **M09「网域与边缘配置中心 → 网域与节点管理」** 二级菜单下（图标 `RadarChart`、与「采集节点状态」同级）。该归属与决策 47-4 的「不新增导航入口」口径冲突。
+- **决策（方案 B）**：
+  1. **保留 M09 临时挂载作为 MVP 占位**，不在本期新增「查询中心」一级 tab；
+  2. 在 `docs/05-execution-records/module-02/design-decisions.md` 补本豁免记录，明确该入口为**临时可达性方案**，非正式导航规划；
+  3. PRD 本身不新增正式导航描述，维持「独立目标状态页 P1、无强制导航入口」口径；未来若产品侧决定提升为正式入口，再走 Track A 设计流程，将「监控目标状态」迁回 M02 导航并同步 PRD/原型。
+- **影响范围**：
+  - `ui-custom/web/src/layouts/MainLayout.tsx`（临时挂载，M09 导航组下二级菜单「监控目标状态」，路由 `/targets`）；
+  - 本 design-decisions.md 豁免记录；
+  - PRD `Module_02_Query_Center.md` 当前不改动，维持决策 47-4 口径。
+
+---
+
+## 评审记录：2026-08-31（ready 回归确认）
+
+- PRD v1.7 原型已对齐（原型版本与 PRD 版本一致，check-prototype 无新增违规），经用户授权评审确认，PRD 状态 `设计中` → `ready`（可开发版本）。

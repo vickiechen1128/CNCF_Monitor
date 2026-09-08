@@ -176,10 +176,32 @@ export const resourceApi = {
   },
 }
 
-/** 业务分组字典（MVP 只读，供资源录入 / Excel 校验下拉，§3.1/T07-02） */
+/** 业务分组字典登记输入（决策 48：code 创建后不可改，默认 enabled=true） */
+export interface BusinessDomainCreateInput {
+  code: string
+  name: string
+  description?: string
+}
+
+/** 业务分组字典受限编辑输入（决策 48：仅 name/description/enabled 可改，不接收 code） */
+export interface BusinessDomainUpdateInput {
+  name?: string
+  description?: string
+  enabled?: boolean
+}
+
+/** 业务分组字典（决策 48 起落 DB 可写，供资源录入 / Excel 校验下拉与业务管理页维护，§3.1/T07-02/§11.1） */
 export const businessDomainApi = {
   list(): Promise<ApiResponse<BusinessDomainsResponse>> {
     return apiClient.get<BusinessDomainsResponse>('/api/v2/platform/business-domains')
+  },
+  /** 登记业务分组（POST，§6.1/T07、决策 48）：{code,name,description}，默认启用 */
+  create(input: BusinessDomainCreateInput): Promise<ApiResponse<BusinessDomain>> {
+    return apiClient.post<BusinessDomain>('/api/v2/platform/business-domains', { body: input })
+  },
+  /** 受限编辑业务分组（PUT :code，决策 48）：仅 name/description/enabled；无 DELETE（停用不删除） */
+  update(code: string, input: BusinessDomainUpdateInput): Promise<ApiResponse<BusinessDomain>> {
+    return apiClient.put<BusinessDomain>(`/api/v2/platform/business-domains/${encodeURIComponent(code)}`, { body: input })
   },
 }
 

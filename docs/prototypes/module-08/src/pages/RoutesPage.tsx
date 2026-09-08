@@ -21,6 +21,7 @@ import {
 import { DeleteOutlined, EditOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { MainLayout } from '../layouts/MainLayout'
+import V03Badge from '../components/StageBadge'
 import {
   type Matcher,
   type NotifierType,
@@ -155,7 +156,7 @@ export default function RoutesPage() {
           checked={enabled}
           onChange={(checked) => {
             setRoutes((prev) => prev.map((r) => (r.id === record.id ? { ...r, enabled: checked } : r)))
-            message.success('路由规则已更新并触发 Alertmanager reload')
+            message.success('路由规则已更新（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准')
           }}
         />
       ),
@@ -213,7 +214,7 @@ export default function RoutesPage() {
 
   function handleDelete(id: string) {
     setRoutes((prev) => prev.filter((r) => r.id !== id))
-    message.success('路由规则已删除，alertmanager.yml 已重新生成并 reload')
+    message.success('路由规则已删除（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准')
   }
 
   function handleOk() {
@@ -236,14 +237,14 @@ export default function RoutesPage() {
         if (editing) {
           const updated: Route = { ...editing, ...base }
           setRoutes((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
-          message.success(`路由规则「${updated.name}」已更新，alertmanager.yml 已重新生成并 reload`)
+          message.success(`路由规则「${updated.name}」已更新（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准`)
         } else {
           const created: Route = {
             id: `rt-${dayjs().format('HHmmss')}-${Date.now()}`,
             ...base,
           }
           setRoutes((prev) => [...prev, created])
-          message.success(`路由规则「${created.name}」已创建，alertmanager.yml 已重新生成并 reload`)
+          message.success(`路由规则「${created.name}」已创建（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准`)
         }
         setIsModalOpen(false)
       })
@@ -263,12 +264,13 @@ export default function RoutesPage() {
         </Text>
       </div>
 
+      {/* [DEV] v1.7 决策 59/60：路由增删改表单为 v0.3 演示形态——MVP 以「配置管理」页文件挂载 + 配置中心（M09）变更确认为准，不直接 reload */}
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
         message="路由规则对应 Alertmanager route 配置"
-        description="保存后由 Module_08 直接生成 alertmanager.yml 并触发 Alertmanager reload，MVP 单域阶段不进入 Module_09 配置变更确认流程（调整频繁、影响面可控）。告警规则内容创作（expr / for / labels）在 Module_01 监控策略维护。"
+        description="路由规则的增删改用通用表单演示（面向后续版本的能力）；当前版本的接收人、路由、抑制统一以「配置管理」页文件挂载方式管理：整份提交 alertmanager.yml，经配置中心变更单人工确认后下发生效，不边改边生效。告警规则的内容创作（表达式 / 触发条件 / 标签）在「监控策略」维护。"
       />
 
       <Card className="page-card">
@@ -277,6 +279,7 @@ export default function RoutesPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenModal}>
               新建路由规则
             </Button>
+            <V03Badge />
             <Tooltip title="当前为路由树展示：根路由匹配所有告警，子路由按标签条件逐级匹配（支持 continue 继续匹配）">
               <Text type="secondary" style={{ fontSize: 13 }}>
                 共 {routes.length} 条路由规则
@@ -294,7 +297,12 @@ export default function RoutesPage() {
       </Card>
 
       <Modal
-        title={editing ? '编辑路由规则' : '新建路由规则'}
+        title={
+          <Space>
+            {editing ? '编辑路由规则' : '新建路由规则'}
+            <V03Badge />
+          </Space>
+        }
         open={isModalOpen}
         onOk={handleOk}
         onCancel={() => setIsModalOpen(false)}

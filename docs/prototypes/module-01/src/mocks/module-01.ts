@@ -734,7 +734,8 @@ export const mockCITypeExporterMappings: CITypeExporterMapping[] = [
   },
 ]
 
-// ---------- Exporter 安装/注册确认（PRD 5.6） ----------
+// ---------- Exporter 安装/注册登记（可选，PRD 5.6 {v3.27} 决策 47-1） ----------
+// 决策 47-1：安装登记从「确认闸门」降级为「可选留痕」——不作为生成 target 的前置，仅留痕/背书定位不变，实际端口字段仍挂登记表单。
 export interface ExporterInstallationConfirmation {
   id: string
   resource_id: string
@@ -828,12 +829,16 @@ export interface ScrapeJob {
   resource_type?: CiType
   /** standard job 必填；{v3.16} blackbox job 留空（决策 D21） */
   exporter_template_id?: string
-  network_domain_id: string
+  /** {v3.28} 决策 54：Job 网域绑定放宽为「网域集合」——一个逻辑 Job 可勾选多个已纳管网域；
+   *  selected_instance_ids / 拨测目标按各自资源归属网域自动归组，M09 按域拆分扇出（每域独立 scrape_configs/targets/变更单）；
+   *  MVP 存量单值自动迁移为单元素集合。跨网域复用不再依赖手工克隆 */
+  network_domain_ids: string[]
   /** Job 类型：standard 标准采集 / blackbox 拨测（PRD v2.0） */
   job_type: ScrapeJobType
   instance_selection_mode: InstanceSelectionMode
   selected_instance_ids: string[]
-  /** filter 模式下的筛选条件（v0.3+ 预留，MVP mock 为 null） */
+  /** {v3.28} 决策 53：filter 选择模式提前至 v0.2——筛选条件（Resource 属性字段：env/cluster/app_name/business_domain/service_name 等）；
+   *  每配置生成周期实时求值，M07 新增匹配资源自动纳入 targets（无需编辑 Job）；筛选不写任何标签、与标签管理正交 */
   instance_filter: Record<string, unknown> | null
   scrape_interval: string
   scrape_timeout: string
@@ -875,7 +880,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-hosts-linux',
     resource_type: 'host_linux',
     exporter_template_id: 'et-node',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-001'],
@@ -901,7 +906,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-hosts-windows',
     resource_type: 'host_windows',
     exporter_template_id: 'et-windows',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-002'],
@@ -927,7 +932,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'demo-hosts-linux',
     resource_type: 'host_linux',
     exporter_template_id: 'et-node',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-003'],
@@ -952,7 +957,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-redis',
     resource_type: 'redis',
     exporter_template_id: 'et-redis',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-001'],
@@ -973,7 +978,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-mysql',
     resource_type: 'mysql',
     exporter_template_id: 'et-mysql',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-002'],
@@ -994,7 +999,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'staging-apps',
     resource_type: 'application_http',
     exporter_template_id: 'et-app',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-app-002'],
@@ -1017,7 +1022,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'network-snmp',
     resource_type: 'snmp',
     exporter_template_id: 'et-snmp',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-gen-001', 'res-gen-002'],
@@ -1040,7 +1045,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-nginx',
     resource_type: 'nginx',
     exporter_template_id: 'et-nginx',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-004'],
@@ -1065,7 +1070,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-go-microservices',
     resource_type: 'application_http',
     exporter_template_id: 'et-app-go',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-app-003'],
@@ -1088,7 +1093,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-001',
     job_name: 'blackbox-http-default',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
     selected_instance_ids: [],
@@ -1110,7 +1115,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-002',
     job_name: 'blackbox-tcp-default',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
     selected_instance_ids: [],
@@ -1130,7 +1135,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
   {
     job_id: 'job-bb-003',
     job_name: 'blackbox-icmp-gov',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'blackbox',
     instance_selection_mode: 'manual',
     selected_instance_ids: [],
@@ -1154,7 +1159,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'draft-redis-cluster',
     resource_type: 'redis',
     exporter_template_id: 'et-redis',
-    network_domain_id: 'default',
+    network_domain_ids: ['default'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-mw-001'],
@@ -1179,7 +1184,7 @@ export const mockScrapeJobs: ScrapeJob[] = [
     job_name: 'prod-hosts-linux-gov-clone',
     resource_type: 'host_linux',
     exporter_template_id: 'et-node',
-    network_domain_id: 'gov-cloud-a',
+    network_domain_ids: ['gov-cloud-a'],
     job_type: 'standard',
     instance_selection_mode: 'manual',
     selected_instance_ids: ['res-host-004'],
@@ -1195,6 +1200,38 @@ export const mockScrapeJobs: ScrapeJob[] = [
     change_status: 'pending',
     created_at: '2026-08-18T10:00:00Z',
     updated_at: '2026-08-18T10:00:00Z',
+  },
+  // {v3.28} 决策 53+54 演示 Job：同时展示「filter 选择模式」与「网域集合」——
+  // 1) 决策 54：network_domain_ids=['default','gov-cloud-a'] 绑定两个网域，一个逻辑 Job 跨域复用，无需手工克隆；
+  // 2) 决策 53：instance_selection_mode='filter'，instance_filter 以 Resource 属性（env=prod 且 business_domain=order）动态筛选，
+  //    每个配置生成周期实时求值；M07 后续新增的 host_linux + env=prod + order 资源无需编辑 Job 即自动纳入 targets。
+  //    选中实例集（selected_instance_ids）为空——由筛选表达式实时决定，不写任何标签（选择器 vs 描述器，与标签管理正交）。
+  {
+    job_id: 'job-filter-demo',
+    job_name: 'prod-hosts-linux-filter',
+    resource_type: 'host_linux',
+    exporter_template_id: 'et-node',
+    network_domain_ids: ['default', 'gov-cloud-a'],
+    job_type: 'standard',
+    instance_selection_mode: 'filter',
+    selected_instance_ids: [],
+    instance_filter: {
+      conditions: [
+        { field: 'env', op: 'eq', value: 'prod' },
+        { field: 'business_domain', op: 'eq', value: 'order' },
+      ],
+    },
+    scrape_interval: '15s',
+    scrape_timeout: '10s',
+    metrics_path: '/metrics',
+    scheme: 'http',
+    label_template_id: 'lt-h-001',
+    relabel_configs: [],
+    enabled: true,
+    exporter_status: {},
+    change_status: 'confirmed',
+    created_at: '2026-08-20T09:00:00Z',
+    updated_at: '2026-08-20T09:00:00Z',
   },
 ]
 
@@ -1903,6 +1940,63 @@ export const INSTALL_STATUS_CYCLE: ExporterInstallStatus[] = [
   'not_installed',
   'unregistered',
 ]
+
+// ---------- {v3.27} 实例采集状态回显（决策 47-2，数据源 = M02 `/api/v1/targets` 代理，本模块只读） ----------
+export type CollectionRunStatus = 'pending' | 'up' | 'down' | 'unknown'
+
+export interface InstanceCollectionStatus {
+  status: CollectionRunStatus
+  /** 最后抓取时间（展示文本） */
+  last_scrape?: string
+  /** 抓取失败原因摘要（down 时展示） */
+  last_error?: string
+  /** 本次抓取耗时（秒） */
+  scrape_duration_seconds?: number
+}
+
+/** M02 /api/v1/targets 聚合 mock，按 resource_id 回连（与 M07 badge 同源）；M01 只读消费，不做写入 */
+export const mockTargetsCollection: Record<string, InstanceCollectionStatus> = {
+  'res-host-001': { status: 'up', last_scrape: '2026-08-29 15:00:21', scrape_duration_seconds: 0.41 },
+  'res-host-002': { status: 'up', last_scrape: '2026-08-29 15:00:21', scrape_duration_seconds: 0.52 },
+  'res-host-003': { status: 'up', last_scrape: '2026-08-29 15:00:23', scrape_duration_seconds: 0.38 },
+  'res-host-004': { status: 'up', last_scrape: '2026-08-29 15:00:23', scrape_duration_seconds: 0.45 },
+  'res-host-005': { status: 'down', last_scrape: '2026-08-29 15:00:23', last_error: 'server returned HTTP status 403 Forbidden' },
+  'res-mw-001': { status: 'up', last_scrape: '2026-08-29 15:00:25', scrape_duration_seconds: 0.30 },
+  // {v3.27} 决策 47-2：res-mw-002 演示「已下发未采到」异常——配置已下发但采集器未就绪/网络不通
+  'res-mw-002': { status: 'down', last_scrape: '', last_error: 'connect: connection refused' },
+  // {v3.27} 决策 47-2：res-mw-003 演示「待采集」——变更已保存但未下发或未首次抓取
+  'res-mw-003': { status: 'pending', last_scrape: '' },
+  'res-mw-004': { status: 'unknown', last_scrape: '' },
+  'res-mw-005': { status: 'unknown', last_scrape: '' },
+  'res-app-002': { status: 'down', last_scrape: '2026-08-29 15:00:27', last_error: 'dial tcp 192.168.3.12:8080: connect: connection refused' },
+  'res-app-003': { status: 'up', last_scrape: '2026-08-29 15:00:28', scrape_duration_seconds: 0.33 },
+  'res-gen-001': { status: 'up', last_scrape: '2026-08-29 15:00:29', scrape_duration_seconds: 0.27 },
+  'res-gen-002': { status: 'pending', last_scrape: '' },
+}
+
+/** 采集状态用户可见元数据：正常低饱和、已下发未采到高饱和（异常驱动） */
+export const COLLECTION_STATUS_META: Record<
+  CollectionRunStatus,
+  { label: string; color: string; anomaly?: boolean }
+> = {
+  up: { label: '采集正常', color: 'green' },
+  down: { label: '已下发未采到', color: '#FF4C3A', anomaly: true },
+  pending: { label: '待采集', color: 'orange' },
+  unknown: { label: '未知', color: 'default' },
+}
+
+/** 给定实例集合，聚合「在线 / 待采集 / 已下发未采到 / 未知」计数（模拟 M02 按 Job 过滤的聚合，决策 47-2） */
+export function collectionStatsOf(
+  instanceIds: string[],
+  lookup: Record<string, InstanceCollectionStatus> = mockTargetsCollection,
+): { up: number; down: number; pending: number; unknown: number } {
+  const counts = { up: 0, down: 0, pending: 0, unknown: 0 }
+  instanceIds.forEach((id) => {
+    const s = lookup[id]?.status ?? 'unknown'
+    counts[s] += 1
+  })
+  return counts
+}
 
 export const RULE_TYPE_MAP: Record<RuleType, { text: string; color: string }> = {
   alerting: { text: '告警', color: '#FF4C3A' },

@@ -21,7 +21,10 @@ var sourceTableScopes = []struct {
 	{&models.MonitoringRule{}, false},
 	{&models.LabelTemplate{}, false},
 	{&models.CITypeExporterMapping{}, false},
-	{&models.ExporterInstallationConfirmation{}, false},
+	// review-fix F3：ExporterInstallationConfirmation 移出源数据版本聚合。决策 47-1 已使其
+	// 降级为「可选登记、非生成闸门」——ResolveJobTargets 不读取它，target 内容不受确认
+	// 记录影响；登记/删除确认记录不再推高 SourceDataVersion、也不触发无谓变更检测预筛，
+	// 从源头消除低频无谓轮询（审计用途由本表自身 updated_at 独立承载）。
 }
 
 // SourceDataVersion 聚合参与配置生成的各源表 max(updated_at) 为「源数据版本」

@@ -151,6 +151,11 @@ func TestListUpdateDeleteMonitoringRule(t *testing.T) {
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
 		require.Equal(t, http.StatusOK, w.Code)
 	}
+	// 新建规则 change_status=pending（F-25 禁止编辑/删除），此处测的是常规
+	// CRUD 链路，先将状态流转为非 pending（模拟 M09 变更单已确认下发）。
+	require.NoError(t, db.Model(&models.MonitoringRule{}).
+		Where("change_status = ?", models.ChangeStatusPending).
+		Update("change_status", models.ChangeStatusDeployed).Error)
 
 	// 关键字筛选。
 	w := perform(t, r, http.MethodGet, "/api/v2/platform/monitoring-rules?keyword=cpu", "")
@@ -343,6 +348,11 @@ func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T) {
 	}
 	idA := create("rule-a", "grp-a")
 	idB := create("rule-b", "grp-b")
+	// 新建规则 change_status=pending（F-25 禁止编辑/删除），此处测的是常规更新
+	// 校验链路，先将状态流转为非 pending（模拟 M09 变更单已确认下发）。
+	require.NoError(t, db.Model(&models.MonitoringRule{}).
+		Where("change_status = ?", models.ChangeStatusPending).
+		Update("change_status", models.ChangeStatusDeployed).Error)
 
 	// 自身内容不变、仅改名字 → 排除自身，不应误判冲突。
 	w := perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), `{"name":"rule-b-v2"}`)
@@ -372,4 +382,53 @@ func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), body)
 	require.Equal(t, http.StatusOK, w.Code)
+}
+
+// F-25 / 决策 44-1：change_status=pending 的规则已挂起待确认变更单，编辑/删除
+// 均拒绝（409），与采集 Job 侧一致；none/confirmed/deployed 状态不受影响。
+func TestUpdateDeletePendingRuleRejected(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	seedRule := func(name string, status models.ChangeStatus) uint {
+		rule := &models.MonitoringRule{
+			Name:         name,
+			ContentMode:  models.RuleContentModeYAMLPassthrough,
+			RuleContent:  rulesFixtureGroup(name + "-grp"),
+			Scope:        models.ScopeTypeCentral,
+			Enabled:      false, // 停用，规避 group 名全局唯一校验，聚焦 409 语义。
+			DraftStatus:  "ready",
+			ChangeStatus: status,
+		}
+		require.NoError(t, db.Create(rule).Error)
+		return rule.ID
+	}
+
+	pendingID := seedRule("rule-pending", models.ChangeStatusPending)
+
+	// 编辑 → 409 conflict，且字段未被修改。
+	w := perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", pendingID), `{"name":"rule-pending-v2"}`)
+	require.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "待确认变更单")
+	var reloaded models.MonitoringRule
+	require.NoError(t, db.First(&reloaded, pendingID).Error)
+	assert.Equal(t, "rule-pending", reloaded.Name, "pending 规则不得被修改")
+
+	// 删除 → 409 conflict，且记录仍在。
+	w = perform(t, r, http.MethodDelete, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", pendingID), "")
+	require.Equal(t, http.StatusConflict, w.Code)
+	require.NoError(t, db.First(&reloaded, pendingID).Error, "pending 规则不得被删除")
+
+	// none / confirmed / deployed 状态编辑、删除均放行。
+	for _, status := range []models.ChangeStatus{
+		models.ChangeStatusNone,
+		models.ChangeStatusConfirmed,
+		models.ChangeStatusDeployed,
+	} {
+		id := seedRule("rule-"+string(status), status)
+		w := perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", id), `{"name":"renamed"}`)
+		require.Equal(t, http.StatusOK, w.Code, "status=%s 应允许编辑", status)
+		w = perform(t, r, http.MethodDelete, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", id), "")
+		require.Equal(t, http.StatusOK, w.Code, "status=%s 应允许删除", status)
+	}
 }

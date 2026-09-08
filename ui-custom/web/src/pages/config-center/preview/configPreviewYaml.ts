@@ -11,7 +11,19 @@ export const PREVIEW_TABS: { key: string; label: string; affectedKey: AffectedFi
   { key: 'targets', label: 'targets/*.json', affectedKey: 'targets' },
   { key: 'rules.yml', label: 'rules.yml', affectedKey: 'rules' },
   { key: 'blackbox.yml', label: 'blackbox.yml', affectedKey: 'blackbox' },
+  // 决策 60：alertmanager.yml 仅管理域 default 变更单含时展示（条件渲染见 previewTabsFor）
+  { key: 'alertmanager.yml', label: 'alertmanager.yml', affectedKey: 'alertmanager' },
 ]
+
+/**
+ * 某变更单详情可见的预览 Tab（决策 60 条件渲染）。
+ * alertmanager.yml 仅在变更单含该产物（ConfigDraftDetail.alertmanager_yml）时展示；
+ * 边缘域（agent_pull）/不产生 AM 产物的变更单不含（管理域 default scope，不按域扇出）。
+ */
+export function previewTabsFor(draft: ConfigDraft): typeof PREVIEW_TABS {
+  const hasAlertmanager = Boolean(draft.alertmanager_yml)
+  return PREVIEW_TABS.filter((t) => t.key !== 'alertmanager.yml' || hasAlertmanager)
+}
 
 /** 从 ConfigDraft 派生出「受影响的配置文件」集合（PRD §9.1：受影响文件高亮依据） */
 export function affectedFileSet(draft: ConfigDraft): Set<AffectedFile> {
@@ -21,7 +33,7 @@ export function affectedFileSet(draft: ConfigDraft): Set<AffectedFile> {
   return set
 }
 
-/** 产物文本读取：prometheus/rules/blackbox 单文件；targets 为 <job>.json 映射的 JSON 序列化 */
+/** 产物文本读取：prometheus/rules/blackbox/alertmanager 单文件；targets 为 <job>.json 映射的 JSON 序列化 */
 export function previewFileText(draft: ConfigDraft, key: string): string | undefined {
   switch (key) {
     case 'prometheus.yml':
@@ -30,6 +42,8 @@ export function previewFileText(draft: ConfigDraft, key: string): string | undef
       return draft.rules_yml
     case 'blackbox.yml':
       return draft.blackbox_yml
+    case 'alertmanager.yml':
+      return draft.alertmanager_yml
     case 'targets':
       return targetsText(draft.targets_files)
     default:
@@ -42,6 +56,7 @@ export interface ArtifactSource {
   prometheus_yml?: string
   rules_yml?: string
   blackbox_yml?: string
+  alertmanager_yml?: string
   targets_files?: Record<string, string>
 }
 
@@ -53,6 +68,8 @@ export function fileTextByKey(src: ArtifactSource, key: string): string | undefi
       return src.rules_yml
     case 'blackbox.yml':
       return src.blackbox_yml
+    case 'alertmanager.yml':
+      return src.alertmanager_yml
     case 'targets':
       return targetsText(src.targets_files)
     default:
@@ -73,11 +90,8 @@ function withJSONSuffix(job: string): string {
   return job.endsWith('.json') ? job : `${job}.json`
 }
 
-/** 联合校验值短显（展示与复制分离，技术信息折叠区用） */
-export function shortChecksum(checksum?: string): string {
-  if (!checksum) return '-'
-  return checksum.length > 16 ? `${checksum.slice(0, 12)}...${checksum.slice(-8)}` : checksum
-}
+/** 联合校验值短显（展示与复制分离，技术信息折叠区用）；统一口径复用共享工具避免 M08/M09 漂移 */
+export { shortChecksum } from '../../../utils/shortChecksum'
 
 export type DiffRowType = 'same' | 'added' | 'removed' | 'empty'
 

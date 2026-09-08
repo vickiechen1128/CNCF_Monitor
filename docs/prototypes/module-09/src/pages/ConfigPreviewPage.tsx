@@ -21,6 +21,8 @@ import {
   authTlsPassthroughNote,
   frozenDomainExclusionNote,
   defaultFallbackRemovalNote,
+  jobDomainFanoutNote,
+  filterRealTimeEvaluationNote,
   channelLabel,
   channelTip,
   type Channel,
@@ -150,6 +152,7 @@ const changeTargetLabel: Record<ConfigChangeTarget, string> = {
   alert_rule: '告警规则',
   blackbox_target: '拨测目标',
   label_template: '标签模板',
+  alertmanager_config: '通知配置',
 }
 
 const changeTargetTip: Record<ConfigChangeTarget, string> = {
@@ -158,6 +161,8 @@ const changeTargetTip: Record<ConfigChangeTarget, string> = {
   alert_rule: '告警 / 记录规则，在监控策略模块规则编辑维护',
   blackbox_target: '拨测目标（URL / 域名 / IP:Port），内嵌于 blackbox 采集 Job',
   label_template: '标签模板，在监控对象模块维护',
+  // {决策 60} alertmanager.yml：管理域 default scope 产物，由告警通知模块文件挂载提交，本模块负责变更确认与下发
+  alertmanager_config: 'alertmanager.yml（接收人 / 路由 / 静默 / 抑制），在告警通知模块以文件挂载维护，管理域 default scope',
 }
 
 /** 影响的配置文件（决策 22）：configgen 产物差异派生，帮助用户理解该行变更影响哪个配置文件 */
@@ -166,6 +171,7 @@ const affectedFileLabel: Record<AffectedConfigFile, string> = {
   targets: 'targets/*.json',
   'rules.yml': 'rules.yml',
   'blackbox.yml': 'blackbox.yml',
+  'alertmanager.yml': 'alertmanager.yml',
 }
 
 const affectedFileColor: Record<AffectedConfigFile, string> = {
@@ -173,6 +179,7 @@ const affectedFileColor: Record<AffectedConfigFile, string> = {
   targets: 'purple',
   'rules.yml': 'orange',
   'blackbox.yml': 'cyan',
+  'alertmanager.yml': 'magenta',
 }
 
 /** 变更状态筛选（决策 21）：默认待确认，可选已确认 / 已废弃 / 全部，替代原「待确认 / 历史」二分切换 */
@@ -372,7 +379,8 @@ ${targetsLines}
 ├── rules.yml
 └── blackbox.yml${hasBlackbox ? '' : '（当前无 blackbox Job，不生成）'}
 
-# alertmanager.yml 由告警通知模块管理，不属于本模块配置产物`}
+# alertmanager.yml 为管理域 default scope 产物：纳入本模块变更确认，确认后写中心 Alertmanager 配置路径并 reload；
+# 不参与按网域扇出、不进入 agent_pull 配置包（本树为采集产物）`}
       </pre>
     )
   }
@@ -387,7 +395,8 @@ ${targetsLines}
 ├── rules.yml
 └── metadata.json
 
-# alertmanager.yml 由告警通知模块管理，不进入本配置包`}
+# alertmanager.yml 不进入本配置包：仅作为管理域 default scope 产物纳入本模块变更确认，
+# 确认后写中心 Alertmanager 配置路径并 reload，不参与按网域扇出`}
     </pre>
   )
 }
@@ -758,7 +767,7 @@ export function ConfigPreviewPage() {
               （平台保证生成内容与策略一致）；本页汇总待发布变更，确认对象是「要不要上线」，而非「配置怎么生成」。
             </li>
             <li>
-              审批分级（{'{v1.32}'} 决策 32）：
+              审批分级（{'{v1.32}'}；决策 60 起 alertmanager.yml 纳入本页确认）：
               <ul style={{ paddingLeft: 18, margin: 0 }}>
                 <li>{approvalTieringNote.manual}</li>
                 <li>{approvalTieringNote.auto}</li>
@@ -790,6 +799,14 @@ export function ConfigPreviewPage() {
             <li>
               冻结（禁用）网域不生成新变更单（{'{v1.50 决策 30}'}）：{frozenDomainExclusionNote}——冻结域的变更不再进入本页待确认列表。
             </li>
+            <li>
+              配置生成按域拆分扇出（{'{v1.51 决策 54}'}，v0.2 起）：{jobDomainFanoutNote}——下方待确认列表天然按网域分组、
+              每域独立的变更单，多域绑定的逻辑 Job 无需在本页手工克隆。
+            </li>
+            <li>
+              filter 模式实时求值（{'{v1.51 决策 53}'}，由 v0.3+ 提前到 v0.2）：{filterRealTimeEvaluationNote}——
+              条件式采集策略的变更单其 targets 由条件实时展开，本页「变更摘要 / 变更清单」会标注「自动纳入 / 自动移出」。
+            </li>
           </ul>
         </ReviewNote>
 
@@ -802,7 +819,7 @@ export function ConfigPreviewPage() {
               agent_pull 通道：产物为 zip 配置包，含 metadata.json（config_version、生成时间、agent_type、联合 checksum sha256），供 Edge Agent 拉取后完整性校验。
             </li>
             <li>
-              rules.yml（{'{v1.48 决策 38-1 规则文件挂载}'}）：MVP 由 Module_01 规则编辑页「文件挂载」的 `MonitoringRule.rule_content`（content_mode=yaml_passthrough，整份 rules.yml）**原样透传并入**，group 随文件自带、不按字段派生；保存 / 启停 / 删除规则后进入变更检测 → 变更单人工确认 → 下发，`change_status` 全链路回写 M01（不绕过配置中心）。v0.3 字段级编辑（structured）后改为按字段派生分组。external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（tenant / biz 由标签模板以 target 级注入）；alertmanager.yml 由告警通知模块管理，不进入本模块产物。
+              rules.yml（{'{v1.48 决策 38-1 规则文件挂载}'}）：MVP 由 Module_01 规则编辑页「文件挂载」的 `MonitoringRule.rule_content`（content_mode=yaml_passthrough，整份 rules.yml）**原样透传并入**，group 随文件自带、不按字段派生；保存 / 启停 / 删除规则后进入变更检测 → 变更单人工确认 → 下发，`change_status` 全链路回写 M01（不绕过配置中心）。v0.3 字段级编辑（structured）后改为按字段派生分组。external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（tenant / biz 由标签模板以 target 级注入）；alertmanager.yml（决策 60）作为管理域 default scope 产物纳入本模块变更确认——由告警通知模块文件挂载提交，人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写告警通知模块；不参与按网域扇出，不进入 agent_pull 配置包。
             </li>
             <li>
               targets/*.json 中每个 target 的 labels 由 LabelTemplate 静态展开（含 business_domain→biz、tenant_id→tenant 等映射）——biz / tenant 等 target 级标签不经 external_labels 注入；业务与网域正交，一个网域可承载多个业务的资源。
@@ -839,6 +856,10 @@ export function ConfigPreviewPage() {
           {/* {v1.43} 草稿对象不生成配置变更（联动 M01 草稿，PRD 3.3）：解释为什么编辑中的 Job 不出现在变更单里 */}
           <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
             草稿对象（draft）不生成配置变更：仅「已提交」的 Job / 规则提交生效后才进入变更检测——编辑中的 Job 不会出现在变更单里。
+          </Text>
+          {/* {v1.51 决策 54/53} 按域扇出 + filter 实时纳入的用户语说明：解释多域 Job 如何自动拆分、条件式纳入为何无需编辑策略 */}
+          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            {jobDomainFanoutNote} {filterRealTimeEvaluationNote}（本批下拉列表中的条件式采集变更单即按此自动纳入演示）。
           </Text>
           {detectionStatus && (
             <Collapse
@@ -902,10 +923,23 @@ export function ConfigPreviewPage() {
                 },
                 {
                   // 决策 18：变更摘要（人话）回答「为什么变更」；详情（变更清单）在抽屉中查看（决策 20）
+                  // {v1.51 决策 54/53} 变更摘要标记：filter 条件式采集标「条件式」、多域扇出标来源逻辑 Job（无需手工克隆）
                   title: '变更摘要',
                   key: 'summary',
                   render: (_: unknown, record: ConfigDraft) => (
-                    <Text ellipsis style={{ maxWidth: 380 }}>{record.summary}</Text>
+                    <Space size={6} wrap={false} style={{ maxWidth: 420 }}>
+                      {record.selection_mode === 'filter' && (
+                        <Tooltip title={`条件式采集（instance_selection_mode=filter）：targets 由条件实时求值，条件：${record.filter_condition ?? '-'}`}>
+                          <Tag color="gold" style={{ marginInlineEnd: 0 }}>条件式</Tag>
+                        </Tooltip>
+                      )}
+                      {record.source_logical_job && (
+                        <Tooltip title={`多域扇出：由逻辑采集 Job ${record.source_logical_job} 按网域自动拆分，每域独立变更单`}>
+                          <Tag color="purple" style={{ marginInlineEnd: 0 }}>{record.source_logical_job}</Tag>
+                        </Tooltip>
+                      )}
+                      <Text ellipsis style={{ maxWidth: 300 }}>{record.summary}</Text>
+                    </Space>
                   ),
                 },
                 {
@@ -1319,7 +1353,7 @@ export function ConfigPreviewPage() {
                     [DECISION D32/{v1.32}] rules.yml 分组由配置中心自动派生（见 rulesGroupDerivationNote）；external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（{v1.45} / PRD 3.3.1，不注入 tenant_id / 业务标签）；
                     [DECISION D32/{v1.44}/{v1.45}] targets/*.json 中每个 target 的 labels 为 LabelTemplate 静态展开的资源标签（含 business_domain→biz、tenant_id→tenant 等映射，
                     即 static_configs[].labels 注入）——biz / tenant 等 target 级标签不经过 external_labels，见「本抽屉设计说明」；
-                    审批分级（{v1.32}）：alertmanager.yml 由 Module_08 直接管理并触发 Alertmanager reload，不进入本模块变更确认流程，产物中均不包含；
+                    审批分级（{v1.32} / 决策 60）：alertmanager.yml 作为管理域 default scope 产物纳入本模块变更确认（Module_08 文件挂载提交），人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写 Module_08；不参与按网域扇出、不进入 agent_pull 配置包（本树为采集产物，故不包含）；
                     targets 变化仅原子重写 targets/*.json（临时文件 + rename），不触发采集器 reload；仅 prometheus.yml 结构变化才触发 reload（reload 策略分离）；
                     blackbox.yml 在网域存在 job_type=blackbox 的 ScrapeJob 时必含，且必须随 prometheus.yml 一同下发。 */}
               </Card>

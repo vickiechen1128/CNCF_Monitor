@@ -1,16 +1,22 @@
 /**
  * Module_08「告警收敛与通知管理」原型 mock 数据
  *
- * 数据模型对齐 PRD v1.3（2026-08-15）：
+ * 数据模型对齐 PRD v1.7（2026-08-31，决策 59 / 60）：
  * - 接收人（Receiver / Alertmanager receiver）
  * - 路由规则（Route / alertmanager.yml route 树）
- * - 静默规则（Silence，状态 active / expired / pending）
+ * - 静默规则（Silence，状态 active / expired / pending，MVP 极简 UI）
  * - 告警抑制规则（InhibitionRule，含自动生成的内置规则）
  * - Alertmanager 通知状态（active / silenced / inhibited / unprocessed）
- * - Alertmanager 配置版本（AlertmanagerConfigVersion）
+ * - Alertmanager 配置版本（AlertmanagerConfigVersion，M08 内容侧留痕）
  *
  * 职责边界（PRD 第 4 章）：告警规则内容创作（expr / for / labels）归 Module_01，
  * rules.yml 生成与下发归 Module_09，本模块聚焦 Alertmanager 域，不再维护 AlertingRule / RuleGroup。
+ *
+ * // [DECISION 59] MVP 交付形态：接收人/路由/抑制走「文件挂载」（整文件上传/粘贴 alertmanager.yml +
+ * // amtool check-config 校验 + 内容侧留痕），静默提供极简 UI（API 直调）。
+ * // [DECISION 60] alertmanager.yml 作为管理域（default）scope 配置产物进入 M09 ConfigDraft → 人工确认 →
+ * // 下发 → reload 流水线，change_status 回写 M08 本表；M08 是内容 Owner、M09 是管道 Owner。
+ * // 本表 AlertmanagerConfigVersion 仅承载内容侧留痕；管道版本与下发状态以 M09 ConfigVersion 为准。
  */
 export type NotifierType = 'feishu' | 'dingtalk' | 'email' | 'wecom' | 'webhook'
 export type NotifierConfig = Record<string, unknown>
@@ -86,7 +92,13 @@ export interface AlertNotification {
   note: string
 }
 
-/** Alertmanager 配置版本，对应 PRD 6.6 */
+/** M09 变更单回写的下发状态（决策 60）——管道状态以 M09 ConfigVersion 为准 */
+export type ChangeStatus = 'pending' | 'confirmed' | 'deployed' | 'rejected'
+
+/** Alertmanager 配置版本（M08 内容侧留痕，对应 PRD 6.6）
+ *  // [DECISION 60] 管道版本与下发状态以 M09 ConfigVersion 为准；本表仅承载挂载原文 +
+ *  // 操作人（内容侧留痕）。校验失败不落库（决策 59/60）：仅返回行级错误，不写入本表，
+ *  // 因此 status 恒为 applied。change_status 由 M09 变更单回写 */
 export interface AlertmanagerConfigVersion {
   id: string
   version: string
@@ -94,8 +106,10 @@ export interface AlertmanagerConfigVersion {
   checksum: string
   applied_at: string
   applied_by: string
-  status: 'applied' | 'failed'
-  error_msg?: string
+  /** M08 内容侧留痕状态：仅校验通过的挂载条目入库（决策 59/60） */
+  status: 'applied'
+  /** M09 变更单回写的下发状态（决策 60）；内容留痕存在但尚未/不进入 M09 时为 undefined */
+  change_status?: ChangeStatus
 }
 
 const now = new Date()
@@ -331,7 +345,7 @@ export const mockAlertNotifications: AlertNotification[] = [
   },
 ]
 
-export const currentAlertmanagerYaml = `# 由 Module_08 生成并直接写文件 + reload（MVP 单域阶段不进入 M09 配置变更确认）
+export const currentAlertmanagerYaml = `# 由 Module_08 内容生成（文件挂载 + amtool check-config 校验），提交 M09 变更单人工确认后下发 reload（决策 59 / 60）
 global:
   smtp_smarthost: 'localhost:587'
 
@@ -374,6 +388,54 @@ inhibit_rules:
 
 export const mockConfigVersions: AlertmanagerConfigVersion[] = [
   {
+    id: 'acv-004',
+    version: 'v4',
+    content: `# v4：调整政务云路由 timeouts（最新提交，M09 变更单待确认，决策 60）
+route:
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+  routes:
+    - match:
+        severity: critical
+      receiver: 'sre-critical'
+      group_by: ['alertname', 'network_domain']
+      continue: true
+    - match_re:
+        network_domain: gov-cloud-a|gov-cloud-b
+      receiver: 'gov-ops'
+      group_wait: 15s
+      group_interval: 2m
+
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://metric-center:8080/api/v1/webhooks/feishu'
+  - name: 'sre-critical'
+    webhook_configs:
+      - url: 'https://open.feishu.cn/open-apis/bot/v2/hook/xxx'
+  - name: 'gov-ops'
+    dingtalk_configs:
+      - webhook_url: 'https://oapi.dingtalk.com/robot/send?access_token=xxx'
+
+inhibit_rules:
+  - source_matchers:
+      - alertname = "EdgeSiteOffline"
+    target_matchers:
+      - network_domain = "gov-cloud-a"
+      - inhibitable = "true"
+    equal:
+      - network_domain
+`,
+    checksum: '7e1b4d9c2a6f8e0d3b9a1c5e7f2d4b8c',
+    applied_at: '2026-08-31 11:20:00',
+    applied_by: '张伟（运维）',
+    status: 'applied',
+    change_status: 'pending',
+  },
+  {
     id: 'acv-003',
     version: 'v3',
     content: currentAlertmanagerYaml,
@@ -381,6 +443,7 @@ export const mockConfigVersions: AlertmanagerConfigVersion[] = [
     applied_at: '2026-08-15 09:32:00',
     applied_by: '张伟（运维）',
     status: 'applied',
+    change_status: 'deployed',
   },
   {
     id: 'acv-002',
@@ -412,24 +475,7 @@ receivers:
     applied_at: '2026-08-12 14:05:00',
     applied_by: '张伟（运维）',
     status: 'applied',
-  },
-  {
-    id: 'acv-001',
-    version: 'v1',
-    content: `# v1：初始配置
-route:
-  receiver: 'default'
-
-receivers:
-  - name: 'default'
-    webhook_configs:
-      - url: 'http://metric-center:8080/api/v1/webhooks/feishu'
-`,
-    checksum: 'd4f8c2a6e9b1d7f0a3c5e7b9d1f3a5c7',
-    applied_at: '2026-07-28 10:00:00',
-    applied_by: '李娜（SRE）',
-    status: 'failed',
-    error_msg: 'amtool check-config 校验失败：route 下子路由引用的 receiver "gov-ops" 未定义',
+    change_status: 'deployed',
   },
 ]
 

@@ -20,6 +20,7 @@ import {
 } from 'antd'
 import { DeleteOutlined, EditOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import V03Badge from '../components/StageBadge'
 import { type InhibitionRule, type Matcher, mockInhibitions } from '../mocks/module-08'
 
 const { Text } = Typography
@@ -92,7 +93,7 @@ export default function InhibitionsPage() {
           checked={enabled}
           onChange={(checked) => {
             setRules((prev) => prev.map((r) => (r.id === record.id ? { ...r, enabled: checked } : r)))
-            message.success('抑制规则已更新并触发 Alertmanager reload')
+            message.success('抑制规则已更新（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准')
           }}
         />
       ),
@@ -148,7 +149,7 @@ export default function InhibitionsPage() {
 
   function handleDelete(id: string) {
     setRules((prev) => prev.filter((r) => r.id !== id))
-    message.success('抑制规则已删除，alertmanager.yml 已重新生成并 reload')
+    message.success('抑制规则已删除（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准')
   }
 
   function handleOk() {
@@ -166,7 +167,7 @@ export default function InhibitionsPage() {
         if (editing) {
           const updated: InhibitionRule = { ...editing, ...base }
           setRules((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
-          message.success(`抑制规则「${updated.name}」已更新，alertmanager.yml 已重新生成并 reload`)
+          message.success(`抑制规则「${updated.name}」已更新（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准`)
         } else {
           const created: InhibitionRule = {
             id: `in-${Date.now()}`,
@@ -174,7 +175,7 @@ export default function InhibitionsPage() {
             ...base,
           }
           setRules((prev) => [...prev, created])
-          message.success(`抑制规则「${created.name}」已创建，alertmanager.yml 已重新生成并 reload`)
+          message.success(`抑制规则「${created.name}」已创建（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准`)
         }
         setIsModalOpen(false)
       })
@@ -221,6 +222,15 @@ export default function InhibitionsPage() {
         </Text>
       </div>
 
+      {/* [DEV] v1.7 决策 59/60：手动抑制规则增删改表单为 v0.3 演示形态——MVP 以「配置管理」页文件挂载 + 配置中心（M09）变更确认为准，不直接 reload */}
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="手动抑制规则管理方式"
+        description="手动抑制规则的增删改用通用表单演示（面向后续版本的能力）；当前版本统一在「配置管理」页以文件挂载方式整份提交 alertmanager.yml，经配置中心变更单人工确认后下发生效，不边改边生效。"
+      />
+
       <Alert
         type="info"
         showIcon
@@ -259,7 +269,7 @@ export default function InhibitionsPage() {
                   size="small"
                   onChange={(checked) => {
                     setRules((prev) => prev.map((r) => (r.id === rule.id ? { ...r, enabled: checked } : r)))
-                    message.success('内置抑制规则已更新并触发 Alertmanager reload')
+                    message.success('内置抑制规则已更新（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准')
                   }}
                 />
               </Space>
@@ -285,6 +295,7 @@ export default function InhibitionsPage() {
           <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenModal}>
             新建抑制规则
           </Button>
+          <V03Badge />
           <Table
             rowKey="id"
             dataSource={manualRules}
@@ -321,7 +332,12 @@ export default function InhibitionsPage() {
       </Card>
 
       <Modal
-        title={editing ? '编辑抑制规则' : '新建抑制规则'}
+        title={
+          <Space>
+            {editing ? '编辑抑制规则' : '新建抑制规则'}
+            <V03Badge />
+          </Space>
+        }
         open={isModalOpen}
         onOk={handleOk}
         onCancel={() => setIsModalOpen(false)}

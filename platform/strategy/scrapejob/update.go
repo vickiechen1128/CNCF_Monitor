@@ -33,6 +33,7 @@ type UpdateScrapeJobRequest struct {
 	LabelTemplateID       *string                       `json:"label_template_id"`
 	BlackboxModule        *string                       `json:"blackbox_module"`
 	BlackboxTargets       []models.BlackboxTarget       `json:"blackbox_targets"`
+	MappingOverrides      []models.MappingOverride      `json:"mapping_overrides"`
 	Enabled               *bool                         `json:"enabled"`
 }
 
@@ -149,6 +150,9 @@ func applyJobUpdate(job *models.ScrapeJob, req UpdateScrapeJobRequest) {
 	}
 	if req.BlackboxTargets != nil {
 		job.BlackboxTargets = req.BlackboxTargets
+	}
+	if req.MappingOverrides != nil {
+		job.MappingOverrides = req.MappingOverrides
 	}
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled

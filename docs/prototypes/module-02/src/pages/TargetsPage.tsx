@@ -15,6 +15,7 @@ import {
 } from 'antd'
 import { CheckCircleOutlined, CloseCircleOutlined, QuestionCircleOutlined, LineChartOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { ReviewNote } from '../components/ReviewNote'
 import { useTenant } from '../contexts/TenantContext'
 import { scrapeTargets, coverageStats, type TargetStatus, type ScrapeTarget } from '../mocks/module-02'
 
@@ -50,7 +51,7 @@ export function TargetsPage() {
     })
   }, [statusFilter, jobFilter, effectiveDomains, activeDomain])
 
-  // 采集覆盖率（PRD 3.1，v0.2 交付：M07 三态 badge 数据来源）
+  // 采集覆盖率（PRD 3.1，决策 47-3 提前到 MVP：M07 三态 badge 数据来源）
   const coverage = useMemo(() => {
     return coverageStats
       .filter((s) => effectiveDomains.includes(s.domain))
@@ -69,8 +70,16 @@ export function TargetsPage() {
   return (
     <MainLayout>
       <Space direction="vertical" size="large" style={{ display: 'flex' }}>
-        {/* 采集覆盖率（v0.2：三态健康度） */}
-        <Card size="small" title="监控覆盖率" extra={<Tag color="orange">v0.2 交付 · M07 三态 badge 联动</Tag>}>
+        {/* 决策 47-4：目标状态页由 P0 → P1（配置场景知情权由 M01 回显、资产场景由 M07 badge 承接），本页收敛为跨 Job 全局排障入口 */}
+        <Alert
+          type="info"
+          showIcon
+          message="本页为跨 Job 全局排障入口"
+          description="单个 Job 的实例采集状态请在「监控策略（Module_01）」Job 详情/编辑抽屉中查看；资源维度的采集状态请在「资源列表（Module_07）」查看。两类场景均有专属入口后，本页定位收敛为全局排障视图。"
+        />
+
+        {/* 采集覆盖率（决策 47-3：健康度/覆盖率查询 API 由 v0.2 提前到 MVP） */}
+        <Card size="small" title="监控覆盖率" extra={<Tag color="blue">MVP · M07 三态 badge 联动</Tag>}>
           <Row gutter={16}>
             <Col span={8}>
               <Card size="small" className="bg-success-light">
@@ -105,7 +114,7 @@ export function TargetsPage() {
           </Row>
           <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
             覆盖率：{((coverage.monitored_up + coverage.monitored_down) / Math.max(coverageTotal, 1)) * 100}% ｜ 基于
-            `up` 指标聚合，v0.2 起由 Module_02 提供查询 API，Module_07 Resource 列表消费做三态 badge。
+            `up` 指标聚合，MVP 起由 Module_02 提供查询 API（决策 47-3 提前），Module_07 Resource 列表消费做三态 badge。
           </Text>
         </Card>
 
@@ -156,6 +165,7 @@ export function TargetsPage() {
             rowKey="id"
             size="small"
             pagination={{ pageSize: 10 }}
+            scroll={{ x: 900 }}
             onRow={(record) => ({ onClick: () => setSelected(record), style: { cursor: 'pointer' } })}
             columns={[
               { title: 'Job', dataIndex: 'job', key: 'job' },
@@ -174,12 +184,6 @@ export function TargetsPage() {
                 },
               },
               { title: '最后采集', dataIndex: 'last_scrape', key: 'last_scrape' },
-              {
-                title: '采集时长',
-                dataIndex: 'scrape_duration_seconds',
-                key: 'scrape_duration_seconds',
-                render: (v: number) => <Text type="secondary">{v.toFixed(2)}s</Text>,
-              },
               {
                 title: '拨测结果',
                 key: 'probe',
@@ -229,6 +233,14 @@ export function TargetsPage() {
           />
         </Card>
       </Space>
+
+      <ReviewNote title="设计说明：拨测目标的网域语义">
+        {/* 决策 52 / v1.6：blackbox 拨测 network_domain=发起侧网域（探测路径），目标归属不参与推导 */}
+        <p style={{ margin: 0 }}>
+          blackbox 拨测的 probe_success 等指标，其网域标签表示「从哪个网域发起拨测」（探测路径），而非目标归属；因此查询 /
+          看板筛选拨测数据应按发起侧网域聚合，目标归属不参与网域推导。
+        </p>
+      </ReviewNote>
 
       {/* 采集诊断（PRD 3.2：lastError / HTTP 状态码 / 抓取时长） */}
       <Drawer title="目标详情 / 采集诊断" open={!!selected} onClose={() => setSelected(null)} width={480}>

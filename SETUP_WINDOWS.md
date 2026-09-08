@@ -391,6 +391,8 @@ go env -w GOSUMDB=sum.golang.google.cn
 **Q6：路径过长导致构建失败（Prometheus 依赖深）**
 A：以管理员身份运行 `git config --system core.longpaths true`，或把仓库放到较短路径（如 `C:\dev\CNCF_Monitor`）。
 
+> **Alertmanager 补充**：上游 Alertmanager 的 ElM UI 构建（`make build-alertmanager` 中的 `ui/app`）依赖 `vite-plugin-elm` 读取 `src/Main.elm`，对含空格/异常路径的 repo 位置解析不稳，Windows 更易踩中。当前 `build-alertmanager` 已改为「`ui/app/dist` 已存在则跳过 UI 构建」，因此预置一份构建好的 `ui/app/dist` 即可绕过该构建；首次从零构建时请把仓库放到无空格的短路径。
+
 ---
 
 ## 附录 A：Makefile 的 Windows / 项目级支持（已实现）

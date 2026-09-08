@@ -46,6 +46,12 @@ export interface NetworkDomain {
    */
   zone_type: string
   /**
+   * {v2.5} 网段（CIDR）列表（决策 52）：该网域覆盖的 IP 段，如 10.20.0.0/16。
+   * 仅供 M07 资源导入 / CMDB 同步时按 IP 推导网域归属（归属解析链第③级），最长前缀优先、同前缀跨网域判歧义；
+   * 纯平台侧数据，不回写 CMDB、不要求 CMDB 加字段；由管理员维护，也可由 M07「待分配队列」规则化动作一键生成。
+   */
+  ip_cidrs?: string[]
+  /**
    * 监控纳管状态：只读展示字段，由 Module_09 的纳管动作维护；
    * created = 行政已创建未纳管；monitored = 已由 M09 完成监控纳管
    */
@@ -196,6 +202,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'internet',
+    ip_cidrs: ['10.20.0.0/16'],
     registration_status: 'monitored',
     created_at: '2026-07-10 00:00:00',
     updated_at: '2026-08-10 09:00:00',
@@ -209,6 +216,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     authorized_tenant_ids: ['t-finance'],
     status: 'disabled',
     zone_type: 'private-line',
+    ip_cidrs: ['10.30.0.0/16'],
     registration_status: 'created',
     created_at: '2026-07-12 00:00:00',
     updated_at: '2026-08-01 10:00:00',
@@ -227,6 +235,10 @@ export const mockNetworkDomains: NetworkDomain[] = [
     updated_at: '2026-08-10 09:00:00',
   },
 ]
+
+// {v2.5} 网段输入提示（决策 52）：下拉候选 + 最长前缀优先语义提示；供 NetworkDomainsPage 表单使用
+export const IP_CIDR_HINT =
+  '可为空。维护该网域覆盖的网段（如 10.20.0.0/16），用于在资源导入/同步时按 IP 自动推导网域归属；同 IP 命中多个网段时按最长前缀优先，同前缀跨网域冲突标注「歧义」待人工处理。'
 
 export const mockUsers: User[] = [
   {

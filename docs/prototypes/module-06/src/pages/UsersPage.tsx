@@ -8,20 +8,29 @@ import {
   Modal,
   Form,
   Select,
+  Popconfirm,
   message,
 } from 'antd'
-import { EditOutlined } from '@ant-design/icons'
+import { EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { mockUsers, mockTenants, ROLE_LABELS, type User, type UserRole } from '../mocks/module-06'
 
 const { Title, Text } = Typography
 const { Option } = Select
 
+/** 当前登录用户（MVP 判定删除可用性用）。admin 为唯一管理入口，原型的 admin 角色不可删除 */
+const CURRENT_USER_ID = 'u-001'
+
 export function UsersPage() {
   const [users, setUsers] = useState<User[]>(mockUsers)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [form] = Form.useForm()
+
+  const handleDelete = (record: User) => {
+    setUsers((prev) => prev.filter((item) => item.id !== record.id))
+    message.success(`已删除用户 ${record.username}，其全部会话已失效`)
+  }
 
   const showAssignRole = (record: User) => {
     setEditingUser(record)
@@ -93,17 +102,41 @@ export function UsersPage() {
       title: '操作',
       key: 'action',
       render: (_: unknown, record: User) => (
-        <Button type="link" icon={<EditOutlined />} onClick={() => showAssignRole(record)}>
-          分配角色
-        </Button>
+        <>
+          <Button type="link" icon={<EditOutlined />} onClick={() => showAssignRole(record)}>
+            分配角色
+          </Button>
+          {record.id !== CURRENT_USER_ID && record.role !== 'platform_admin' && (
+            <Popconfirm
+              title="删除用户"
+              description={`删除用户 ${record.username} 将使其全部会话失效，是否继续？`}
+              onConfirm={() => handleDelete(record)}
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              <Button type="link" danger icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
+          )}
+        </>
       ),
     },
   ]
 
   return (
-    <MainLayout>
+    <MainLayout
+      reviewNotes={
+        <>
+          MVP 落地为 <b>admin / user 两级访问控制门</b>（管理后台接口受限，无业务权限点 / 租户隔离）。
+          本页 4 级角色（平台管理员 / 租户管理员 / 运维工程师 / 只读用户）为 v1.0+ / 外部 IAM 承接的演示占位，MVP 不落地。
+          删除为 MVP 补充能力：删除普通用户即软删并令其全部会话失效；admin 账号与当前登录用户不提供删除入口。
+        </>
+      }
+    >
       <div className="page-header">
-        <Title level={4}>用户与权限</Title>
+        <Title level={4}>用户管理</Title>
       </div>
       <Card className="page-card">
         <Table

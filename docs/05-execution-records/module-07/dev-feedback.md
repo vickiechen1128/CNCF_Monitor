@@ -66,7 +66,7 @@
 | 编号 | 项 | 说明 |
 | --- | --- | --- |
 | L-1 | 模板变更主操作与快照写入非事务 | ✅ 已解决：全部 7 处调用点（create/update/delete/clone/mappings×3）已用 `db.Transaction` 包裹，快照失败回滚主操作；回滚单测 TestCreateLabelTemplateRollbackOnSnapshotFailure |
-| L-2 | `LabelTemplate.description` 静默丢弃 | 模型 TODO 未落库，前端传了无效果无提示；建议落库或从契约移除 |
+| L-2 | `LabelTemplate.description` 静默丢弃 | ✅ **已闭环**——PRD v2.27 / §6.6.3 明确 `description` 创建/更新必须落库，不再静默丢弃；后端需补模型落库（若尚未实现） |
 | L-3 | 并发重复标签竞态 | ✅ 已解决：`ResourceLabel` 已加 `(resource_id, key, source)` 唯一索引（resource_label.go），并发直插兜底；单测 TestResourceLabelUniqueIndex |
 | L-4 | `connection_string`/`os_version` 无 API 维护入口 | PRD §5.6/§5.7 契约字段模型存在但 `ResourceInput` 未暴露；MVP 接受，需确认产品口径 |
 | L-5 | Host 模型 legacy 字段依赖字段映射 helper 归一化 | ✅ 已由 e2e 冒烟覆盖：`TestEndToEndSmoke` 经真实路由验证 `private_ip`/`image`/`env_flag`/`sub_app_code`/`app_code` → 前端规范字段名闭环 |

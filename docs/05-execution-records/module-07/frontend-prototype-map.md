@@ -13,6 +13,7 @@
 | D4 缺列补法 | **b 逐列核对** | 任何列删减必须在「理由」列标注。例如「采集状态」列因后端列表暂不返回 `is_monitored` 而裁剪，仅保留「未监控」筛选器。 |
 | D5 顶部 tab 模块名 | **a PRD 模块名** | 顶部一级 tab 用「监控对象管理」，不用功能页名「资源管理」；功能页名下沉为 Sider 二级。 |
 | D6 共享组件复用 | **a 强制** | 筛选区 / 表格 / 长文本复用原型 `FilterBar` / `FilterItem` / `tablePresets` / `EllipsisText`，禁止散点手写 `<Space wrap>` 与 `style={{ maxWidth }}`。 |
+| **D47-3 采集状态三态** | **a 已实现（修订）** | **修订决策 31-M1 的『未监控二元筛选』为『三态 badge + 三态筛选器』**：资源列表「采集状态」列由 v1.24 期「裁剪（仅筛选器）」改为**已实现三态 badge（采集中 / 已下发未采到 / 未监控）**。数据源为 M02 `GET /api/v1/health/coverage`（决策 47-3，commit `59e93fd1` 后端稳定返回 `resource_id` + `monitored.go` 三态标注），前端 `useResourceCoverage` Map by resource_id 行合并 + `MonitorStatusBadge` 渲染，并新增三态筛选器（前端按 `monitor_state` 过滤）。前端实现 commit `f9d7f53f`（T07-47-F1）。 |
 
 ## 二、文件级映射
 
@@ -57,7 +58,7 @@
 | 15 | 网域 | ✅ 已有 | — | 原型展示 `network_domain_id` Tag；生产通过 M06 接口解析为域名，未匹配时兜底显示 ID。 |
 | 16 | 业务 | ✅ 已有 | — | 原型本地 mock `biz_name`；生产通过 `businessDomainApi.list` 解析，停用业务显示「业务名（已停用）」。 |
 | 17 | 来源 | ✅ 已有 | — | `source_type` → `手动录入 / Excel 导入 / CMDB 同步`。 |
-| 18 | **采集状态**（is_monitored） | ⏭️ 缺失（列） | **暂裁** | 后端列表接口暂不返回 `is_monitored`（决策 31-M1，M01 未实现）。仅保留「未监控」筛选器，列待 M01 接入后补。 |
+| 18 | **采集状态**（is_monitored） | ✅ 已实现（三态 badge + 三态筛选） | **由「暂裁」修订为已实现** | **D47-3 修订决策 31-M1**：后端 `list.go` 稳定返回 `resource_id`（commit `59e93fd1`），前端 `useResourceCoverage` 一次拉取 M02 coverage Map by resource_id 行合并，`MonitorStatusBadge` 渲染三态（采集中=绿 / 已下发未采到=橙，Tooltip 显 health/last_error / 未监控=灰）；并新增三态筛选器（前端按 `monitor_state` 过滤，coverage 失败降级 `-`）。实现 commit `f9d7f53f`（T07-47-F1）。 |
 | 19 | 运行状态 | ✅ 已有 | 对齐列头 | 列头 hover 提示数据来源，UI 展示名「运行状态」（PRD 决策 32）。 |
 | 20 | 操作（详情 / 编辑 / 删除） | ✅ 已有 | 对齐 | 生产用 `Popconfirm` 二次确认；原型用 `Modal.confirm`。 |
 | 21 | Tab 标题计数（含未监控数） | ❌ 缺失 | **裁剪** | 原型 Tab 显示「主机（N · 未监控 M）」；生产仅显示类别名。后端未返回聚合计数，MVP 可接受。 |
@@ -148,7 +149,7 @@
 | `<ReviewNote>` / `<ReviewNoteSwitch>` / `ReviewNotesContext` | 删除 | 原型评审脚手架，不进入生产。 |
 | `mock/module-07.ts` 全量 mock | 替换为 API 调用 | MVP 必须对接后端。 |
 | `ImportHistoryPage` 独立页面 | 删除独立页，功能并入 `ImportModal` / `ImportRecordsPanel` | 减少导航层级，与资源导入动线保持一致。 |
-| 资源列表「采集状态」列 | 列裁剪，仅保留筛选器 | 后端列表暂不返回 `is_monitored`（决策 31-M1，M01 未实现）。 |
+| ~~资源列表「采集状态」列~~ | **已实现，移出裁剪清单** | **D47-3 修订**：该列由「列裁剪，仅保留筛选器」改为已实现三态 badge（采集中/已下发未采到/未监控）+ 三态筛选器（commit `59e93fd1` 后端 / `f9d7f53f` 前端），不再裁剪。 |
 | Tab 标题中的资源总数 / 未监控数 | 裁剪 | 后端未提供聚合计数接口；MVP 先展示纯类别名。 |
 | 被引用采集 Job 表格 | 空态占位 | 数据源为 M01 `GET /api/v1/scrape-jobs?label_template_id=`，尚未接入。 |
 | 标签模板「克隆」成功后自动切换选中 | 保留功能 | 生产已实现，与原型一致。 |
@@ -165,7 +166,7 @@
 - [ ] D5：确认 `MainLayout` 顶部一级 tab 文案为「监控对象管理」；Sider 二级为「资源管理 / 标签模板」（导入记录当前内嵌，如需独立页面后续补路由）。
 - [ ] D6：确认 `ResourcesPage`、`LabelTemplatesPage`、`ImportRecordsPanel` 的筛选区均使用 `FilterBar/FilterItem`；表格使用 `TABLE_SCROLL_X`，长文本使用 `EllipsisText`。
 - [ ] 路由：确认 `src/App.tsx` 注册了 `/resources`、`/label-templates`，未注册 `/import-history`（与内嵌设计一致）。
-- [ ] 资源列表：五类资源 Tab 切换时请求后端并刷新；列集合与上方「3.1」表一致；「未监控」筛选器能正确透传 `is_monitored=false`。
+- [ ] 资源列表：五类资源 Tab 切换时请求后端并刷新；列集合与上方「3.1」表一致；**「采集状态」三态筛选器（采集中 / 已下发未采到 / 未监控）按 `monitor_state` 过滤正确，`MonitorStatusBadge` 行渲染与 `useResourceCoverage` Map by resource_id 合并一致（D47-3，T07-47-F1）**。
 - [ ] 资源新增/编辑抽屉：`ResourceFormDrawer` 按 `resource_category` 差异化渲染字段；`biz_code` 必填且下拉仅启用业务；编辑态展示只读 `resource_id / 资源类别 / 来源`。
 - [ ] 资源详情抽屉：`ResourceDetailDrawer` 展示基础信息、类型字段、适用模板、标签管理；仅 `application` 资源开放 user 标签编辑入口；静态资源写标签返回 403 时提示正确。
 - [ ] Excel 导入：`ImportModal` 模板下载、文件上传、导入模式选择、结果统计（total/success/updated/failed）、错误行表格正常。

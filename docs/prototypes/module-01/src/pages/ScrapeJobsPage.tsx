@@ -71,11 +71,16 @@ import {
   BIZ_DOMAINS,
   INSTALL_STATUS_MAP,
   INSTALL_STATUS_CYCLE,
+  COLLECTION_STATUS_META,
+  mockTargetsCollection,
+  collectionStatsOf,
   BLACKBOX_MODULES,
   BLACKBOX_MODULE_LABEL,
   BLACKBOX_PROTOCOL_BY_MODULE,
   EXPORTER_SOURCE_LABEL,
   EXPORTER_SOURCES,
+  CHANGE_PROGRESS_MAP,
+  CHANGE_PROGRESS_BY_CHANGE_STATUS,
 } from '../mocks/module-01'
 import type {
   CiType,
@@ -93,6 +98,9 @@ import type {
   ExporterTemplate,
   LabelTemplate,
   AuthType,
+  CollectionRunStatus,
+  InstanceCollectionStatus,
+  InstanceSelectionMode,
 } from '../mocks/module-01'
 
 const { Title, Text } = Typography
@@ -144,11 +152,85 @@ type MappingOverrideField = (typeof MAPPING_OVERRIDE_FIELDS)[number]
 
 // {v3.22} 状态列四态聚合（决策 D29）：草稿(draft) > 待下发(pending) > 已生效(active) > 已停用(disabled)
 // 草稿=draft_status=draft（不入下发管线）；待下发=存在 M09 待确认变更单；已生效=启用且无待下发；已停用=未启用
+// {v3.37} F-37：列表「状态」聚合列拆分为「生效状态」+「变更进度」两列后，四态逻辑仍服务于列表状态筛选器与乐观更新 toast
 type JobStatus = 'draft' | 'pending' | 'active' | 'disabled'
 const getJobStatus = (j: ScrapeJob): JobStatus => {
   if (j.draft_status === 'draft') return 'draft'
   if (j.change_status === 'pending') return 'pending'
   return j.enabled ? 'active' : 'disabled'
+}
+
+// {v3.37} F-37：「生效状态」列聚合（与生产 aggregateJobStatus 同源）——
+// 草稿（灰显）> 已停用（enabled=false）> 待生效（change_status=pending/confirmed，尚未真正下发）> 已生效
+type JobEffectiveStatus = 'draft' | 'disabled' | 'pending_effect' | 'active'
+const getJobEffectiveStatus = (j: ScrapeJob): JobEffectiveStatus => {
+  if (j.draft_status === 'draft') return 'draft'
+  if (!j.enabled) return 'disabled'
+  return j.change_status === 'pending' || j.change_status === 'confirmed' ? 'pending_effect' : 'active'
+}
+const JOB_EFFECTIVE_STATUS_META: Record<
+  JobEffectiveStatus,
+  { label: string; badge: 'default' | 'error' | 'warning' | 'success' }
+> = {
+  draft: { label: '草稿', badge: 'default' },
+  disabled: { label: '已停用', badge: 'error' },
+  pending_effect: { label: '待生效', badge: 'warning' },
+  active: { label: '已生效', badge: 'success' },
+}
+
+// {v3.28} 决策 53：filter 选择模式提前 v0.2——筛选条件表达式；筛选字段 = Resource 属性字段（label 名仅 UI 别名，由标签模板映射只读派生，不落表达式）
+type FilterField = 'env' | 'cluster' | 'app_name' | 'business_domain'
+type FilterOp = 'eq' | 'neq' | 'contains'
+interface FilterCond {
+  field: FilterField
+  op: FilterOp
+  value: string
+}
+// 筛选字段展示名（label 别名由模板映射派生，见 PRD 5.4）
+const FILTER_FIELD_LABEL: Record<FilterField, string> = {
+  env: '环境',
+  cluster: '集群',
+  app_name: '应用',
+  business_domain: '业务类型（biz）',
+}
+const FILTER_FIELD_SELECTIONS: { value: FilterField; label: string }[] = [
+  { value: 'env', label: '环境' },
+  { value: 'cluster', label: '集群' },
+  { value: 'app_name', label: '应用' },
+  { value: 'business_domain', label: '业务类型（biz）' },
+]
+
+// {v3.28} 决策 53：instance_filter <-> FilterCond[] 互转（实例筛选条件，字段 = Resource 属性字段）
+const parseFilterConds = (filter: Record<string, unknown> | null | undefined): FilterCond[] => {
+  if (!filter || !Array.isArray(filter.conditions)) return []
+  return (filter.conditions as FilterCond[]).filter(
+    (c) =>
+      c &&
+      c.value !== '' &&
+      FILTER_FIELD_SELECTIONS.some((f) => f.value === c.field)
+  )
+}
+
+// {v3.28} 决策 53：单条筛选条件是否命中某资源（字段 = Resource 属性字段）
+const condMatches = (r: (typeof mockResources)[number], c: FilterCond): boolean => {
+  const v = String(r[c.field] ?? '')
+  switch (c.op) {
+    case 'eq':
+      return v === c.value
+    case 'neq':
+      return v !== c.value && v !== ''
+    case 'contains':
+      return v.includes(c.value)
+    default:
+      return false
+  }
+}
+
+// {v3.28} 决策 54：两个字符串数组按集合等价比较（顺序无关）——用于克隆时判定网域集合是否一致
+const buildIdentical = (a?: string[] | undefined, b?: string[] | undefined): boolean => {
+  const na = [...(a ?? [])].sort()
+  const nb = [...(b ?? [])].sort()
+  return na.length === nb.length && na.every((v, i) => v === nb[i])
 }
 
 // {v3.26} 决策 30：判断网域是否已冻结（禁用）——仅「已纳管且 frozen=true」的网络域视为冻结，禁止新建 Job/新增该域实例
@@ -188,6 +270,8 @@ export default function ScrapeJobsPage() {
   const [filterEnv, setFilterEnv] = useState<string | undefined>(undefined)
   // {v3.4} 实例筛选补业务类型（label 别名 biz，见 PRD 5.4 filter 字段语义）
   const [filterBusinessDomain, setFilterBusinessDomain] = useState<string | undefined>(undefined)
+  // {v3.28} 决策 53：filter 选择模式提前 v0.2——筛选条件（表达式构建，每生成周期实时求值）
+  const [filterConds, setFilterConds] = useState<FilterCond[]>([])
   const [blackboxTargets, setBlackboxTargets] = useState<BlackboxTarget[]>([])
   const [confirmTarget, setConfirmTarget] = useState<ExporterInstallationConfirmation | null>(null)
   const [detailJob, setDetailJob] = useState<ScrapeJob | null>(null)
@@ -207,6 +291,15 @@ export default function ScrapeJobsPage() {
   const [submitErrors, setSubmitErrors] = useState<{ field: string; msg: string }[]>([])
   const [confirmForm] = Form.useForm()
   const [form] = Form.useForm()
+
+  // {v3.27} 决策 47-2：Job 实例采集状态回显——数据源 = M02 /api/v1/targets 代理（只读），20s 自动刷新 + 手动刷新，不阻断编辑与保存
+  const [statusUpdatedAt, setStatusUpdatedAt] = useState<string>('')
+  useEffect(() => {
+    const touch = () => setStatusUpdatedAt(new Date().toLocaleTimeString())
+    touch()
+    const id = setInterval(touch, 20000)
+    return () => clearInterval(id)
+  }, [])
 
   // {v3.12} 采集 Job 列表网域查询条件（取代顶部全局网域切换器）
   // {v3.27} F-09：支持 URL 预选网域（来自 M09「去配置采集 Job」跳转：/scrape-jobs?network_domain=<id>，决策 D27-2）；视图由 pathname 派生，不再用 ?view=
@@ -483,6 +576,12 @@ export default function ScrapeJobsPage() {
     return map
   }, [])
 
+  // {v3.27} 决策 47-2：Job 详情实例采集状态聚合（在线/待采集/已下发未采到/未知），数据源 = M02 targets 代理
+  const detailStats = useMemo(
+    () => (detailJob ? collectionStatsOf(detailJob.selected_instance_ids, mockTargetsCollection) : null),
+    [detailJob],
+  )
+
   // mockLabelTemplates 为模块常量（从不变化），Map 索引无需 useMemo；React Compiler 亦无法保留其记忆化
   const labelNameMap = new Map<string, string>()
   mockLabelTemplates.forEach((t) => labelNameMap.set(t.template_id, t.name))
@@ -490,7 +589,8 @@ export default function ScrapeJobsPage() {
   const watchJobType = Form.useWatch('job_type', form) as ScrapeJobType | undefined
   const watchResourceType = Form.useWatch('resource_type', form)
   const watchResourceCategory = Form.useWatch('resource_category', form)
-  const watchNetworkDomainId = Form.useWatch('network_domain_id', form)
+  // {v3.28} 决策 54：网域集合（多选）——表单选中网域 id 数组
+  const watchNetworkDomainId = Form.useWatch('network_domain_ids', form) as string[] | undefined
   const watchMode = Form.useWatch('instance_selection_mode', form)
   const watchedLabelTemplateId = Form.useWatch('label_template_id', form)
   // {v3.14} 决策 D2：采集器模式显式二选一（使用默认采集器 / 手填采集参数），避免"下拉留空"歧义
@@ -533,7 +633,8 @@ export default function ScrapeJobsPage() {
     ? CI_TYPES_BY_CATEGORY[watchResourceCategory as ResourceCategory]
     : []
 
-  // Transfer 数据源：按当前 resource_type + Job 网域 + 环境 + 业务类型筛选（{v3.4} 业务类型 = 筛选字段，label 名 biz 作 UI 别名）
+  // Transfer 数据源：按当前 resource_type + Job 网域集合 + 环境 + 业务类型筛选（{v3.4} 业务类型 = 筛选字段，label 名 biz 作 UI 别名）
+  // {v3.28} 决策 54：候选集收敛为「同类型 + 归属任一已选网域」的资源
   // {v3.25} offline 排除提级 MVP 必实现（决策 29，对齐 Module_07 8.1 / Module_09 3.3）：
   // 候选集中 Resource.status=offline 实例「显示但置灰不可选」——仍展示（保证下线台账可见），但 disabled 禁止勾选；
   // 已选实例事后转 offline 后由 M09 配置生成跳过（离线后下一配置生成周期即从 targets 移除）。
@@ -541,9 +642,11 @@ export default function ScrapeJobsPage() {
   const transferData = useMemo<TransferItem[]>(() => {
     const rt = watchResourceType as CiType | undefined
     if (!rt) return []
+    const domains = watchNetworkDomainId ?? []
+    if (domains.length === 0) return []
     return mockResources
       .filter((r) => r.resource_type === rt)
-      .filter((r) => r.network_domain_id === watchNetworkDomainId)
+      .filter((r) => domains.includes(r.network_domain_id))
       .filter((r) => (filterEnv ? r.env === filterEnv : true))
       .filter((r) => (filterBusinessDomain ? r.business_domain === filterBusinessDomain : true))
       .map((r) => ({
@@ -555,11 +658,33 @@ export default function ScrapeJobsPage() {
       }))
   }, [watchResourceType, watchNetworkDomainId, filterEnv, filterBusinessDomain, domainNameMap])
 
+  // {v3.28} 决策 53：filter 模式实时求值预览——按「监控对象类型 + 归属任一已选网域 + 筛选条件」求值；
+  // 演示「M07 新增匹配资源自动纳入 targets」：预览强调仅脚本模拟了「新纳管资源会在保存后的下一配置生成周期自动纳入」语义（实际由 M09 每周期求值）
+  const filterMatching = useMemo(() => {
+    const rt = watchResourceType as CiType | undefined
+    if (!rt) return { matched: [], total: 0, underDomain: 0 }
+    const domains = watchNetworkDomainId ?? []
+    return mockResources.reduce<{ matched: (typeof mockResources)[number][]; total: number; underDomain: number }>(
+      (acc, r) => {
+        if (r.resource_type !== rt) return acc
+        acc.total += 1
+        if (!domains.includes(r.network_domain_id)) return acc
+        acc.underDomain += 1
+        const allMatch = filterConds.length > 0 && filterConds.every((c) => condMatches(r, c))
+        // offline 实例不纳入采集，但计入预览展示（与手动模式一致：显示但置灰）
+        if (allMatch && r.status !== 'offline') acc.matched.push(r)
+        return acc
+      },
+      { matched: [], total: 0, underDomain: 0 }
+    )
+  }, [watchResourceType, watchNetworkDomainId, filterConds])
+
   // {v3.22} 列表可见 Job：网域 + 状态（四态）双查询条件过滤
   const visibleJobs = useMemo(
     () =>
       jobs.filter((j) => {
-        if (listDomainFilter && j.network_domain_id !== listDomainFilter) return false
+        // {v3.28} 决策 54：Job 绑定网域集合——命中任一网域即入围
+        if (listDomainFilter && !j.network_domain_ids.includes(listDomainFilter)) return false
         if (statusFilter !== 'all' && getJobStatus(j) !== statusFilter) return false
         return true
       }),
@@ -574,6 +699,7 @@ export default function ScrapeJobsPage() {
     setTargetKeys([])
     setBlackboxTargets([])
     setFilterEnv(undefined)
+    setFilterConds([])
     setOverriddenFields([])
     form.setFieldsValue({
       job_type: 'standard',
@@ -584,7 +710,8 @@ export default function ScrapeJobsPage() {
       scrape_timeout: '10s',
       metrics_path: '/metrics',
       enabled: true,
-      network_domain_id: 'default',
+      // {v3.28} 决策 54：网域集合多选默认选中首个已纳管网域
+      network_domain_ids: ['default'],
       // {v3.26} 决策 31：认证/TLS 默认无认证 + 跳过校验默认关
       auth_type: 'none',
       tls_skip_verify: false,
@@ -605,7 +732,7 @@ export default function ScrapeJobsPage() {
       resource_type: record.resource_type,
       exporter_template_id: record.exporter_template_id,
       collector_mode: record.exporter_template_id ? 'use_default' : 'manual',
-      network_domain_id: record.network_domain_id,
+      network_domain_ids: record.network_domain_ids,
       instance_selection_mode: record.instance_selection_mode,
       scrape_interval: record.scrape_interval,
       scrape_timeout: record.scrape_timeout,
@@ -625,6 +752,8 @@ export default function ScrapeJobsPage() {
     setTargetKeys([...record.selected_instance_ids])
     setBlackboxTargets(record.blackbox_targets ? [...record.blackbox_targets] : [])
     setFilterEnv(undefined)
+    // {v3.28} 决策 53：filter 模式回填筛选条件
+    setFilterConds(parseFilterConds(record.instance_filter))
     setOverriddenFields(
       (record.mapping_overrides ?? []).filter((f) =>
         (MAPPING_OVERRIDE_FIELDS as readonly string[]).includes(f)
@@ -643,6 +772,8 @@ export default function ScrapeJobsPage() {
     setTargetKeys([...source.selected_instance_ids])
     setBlackboxTargets(source.blackbox_targets ? [...source.blackbox_targets] : [])
     setFilterEnv(undefined)
+    // {v3.28} 决策 53：克隆复制筛选条件
+    setFilterConds(parseFilterConds(source.instance_filter))
     setOverriddenFields(
       (source.mapping_overrides ?? []).filter((f) =>
         (MAPPING_OVERRIDE_FIELDS as readonly string[]).includes(f)
@@ -655,7 +786,7 @@ export default function ScrapeJobsPage() {
       resource_type: source.resource_type,
       exporter_template_id: source.exporter_template_id,
       collector_mode: source.exporter_template_id ? 'use_default' : 'manual',
-      network_domain_id: source.network_domain_id,
+      network_domain_ids: source.network_domain_ids,
       instance_selection_mode: source.instance_selection_mode,
       scrape_interval: source.scrape_interval,
       scrape_timeout: source.scrape_timeout,
@@ -683,6 +814,7 @@ export default function ScrapeJobsPage() {
     setTargetKeys([])
     setBlackboxTargets([])
     setOverriddenFields([])
+    setFilterConds([])
   }
 
   // 选择 Exporter 模板后自动填充采集参数（standard）：优先取映射默认值（决策 14：创建时快照）
@@ -811,18 +943,19 @@ export default function ScrapeJobsPage() {
     )
   }
 
+  // {v3.28} 决策 54：网域校验由「全域同域」变为「逐域同域」——选中的每个实例只要归属 Job 任一网域即可
   const validateDomainConsistency = (
-    networkDomainId: string,
+    networkDomainIds: string[],
     selectedIds: string[]
   ): string | null => {
+    if (networkDomainIds.length === 0) return '请至少选择一个归属网域'
     const mismatched = selectedIds
       .map((id) => mockResources.find((r) => r.resource_id === id))
       .filter((r): r is (typeof mockResources)[number] => !!r)
-      .filter((r) => r.network_domain_id !== networkDomainId)
+      .filter((r) => !networkDomainIds.includes(r.network_domain_id))
     if (mismatched.length > 0) {
-      return `实例 ${mismatched.map((r) => r.instance_name).join('、')} 不属于网域「${
-        domainNameMap.get(networkDomainId) ?? networkDomainId
-      }」，请移除或切换网域`
+      const domains = networkDomainIds.map((d) => domainNameMap.get(d) ?? d).join('、')
+      return `实例 ${mismatched.map((r) => r.instance_name).join('、')} 不属于任一归属网域（${domains}），请移除或补充网域`
     }
     return null
   }
@@ -831,7 +964,8 @@ export default function ScrapeJobsPage() {
   const FIELD_LABEL: Record<string, string> = {
     job_name: 'Job 名称',
     job_type: 'Job 类型',
-    network_domain_id: '归属网域',
+    // {v3.28} 决策 54：多网域集合字段
+    network_domain_ids: '归属网域',
     resource_category: '资源类别',
     resource_type: '监控对象类型',
     exporter_template_id: '默认采集器',
@@ -856,11 +990,23 @@ export default function ScrapeJobsPage() {
     form.validateFields().then(
       (values) => {
         const jobType = values.job_type as ScrapeJobType
-        const networkDomainId = values.network_domain_id as string
+        // {v3.28} 决策 54：网域集合（多选）
+        const networkDomainIds = (values.network_domain_ids ?? []) as string[]
+        // {v3.28} 决策 53：filter 模式——无静态实例清单，selected_instance_ids 置空；instance_filter 写入条件表达式
+        const selMode = (values.instance_selection_mode as InstanceSelectionMode) ?? 'manual'
+        const isFilterMode = selMode === 'filter'
+        const effInstanceFilter: Record<string, unknown> | null = isFilterMode
+          ? filterConds.length > 0
+            ? { conditions: filterConds }
+            : null
+          : null
+        const effSelectedIds = jobType === 'standard' ? (isFilterMode ? [] : targetKeys) : []
 
         // {v3.26} 决策 30：冻结（禁用）网域禁止新建 Job——提交时兜底校验（表单 Select 已置灰，此处防克隆/程序化命中）
-        if (isFrozenDomain(networkDomainId)) {
-          const msg = `归属网域「${domainNameMap.get(networkDomainId) ?? networkDomainId}」已冻结（禁用），禁止新建采集 Job`
+        // {v3.28} 决策 54：任一选中网域被冻结即阻止新建
+        const frozenHit = networkDomainIds.find((id) => isFrozenDomain(id))
+        if (frozenHit) {
+          const msg = `归属网域「${domainNameMap.get(frozenHit) ?? frozenHit}」已冻结（禁用），禁止新建采集 Job`
           setSubmitErrors([{ field: '归属网域', msg }])
           message.error(msg)
           return
@@ -873,11 +1019,14 @@ export default function ScrapeJobsPage() {
             return
           }
         } else {
-          const domainErr = validateDomainConsistency(networkDomainId, targetKeys)
-          if (domainErr) {
-            setSubmitErrors([{ field: '实例选择', msg: domainErr }])
-            message.error(domainErr)
-            return
+          // {v3.28} 决策 54：多网域校验；决策 53：filter 模式无静态实例清单，不做实例一致性校验（实时求值）
+          if (values.instance_selection_mode === 'manual') {
+            const domainErr = validateDomainConsistency(networkDomainIds, targetKeys)
+            if (domainErr) {
+              setSubmitErrors([{ field: '实例选择', msg: domainErr }])
+              message.error(domainErr)
+              return
+            }
           }
         }
 
@@ -933,18 +1082,23 @@ export default function ScrapeJobsPage() {
           }
           return JSON.stringify(oldAuth) !== JSON.stringify(newAuth)
         })()
+        const configKeys: (keyof ScrapeJob)[] = [
+          'job_name', 'resource_type',
+          'scrape_interval', 'scrape_timeout', 'metrics_path', 'scheme', 'label_template_id',
+        ]
+        const configChanged = configKeys.some(
+          (k) => JSON.stringify(editingJob[k]) !== JSON.stringify(values[k])
+        )
         const onlyTargetsChanged = (() => {
+          // {v3.28} 决策 53：filter 模式——实例变化 = 筛选表达式变化（targets 由 M09 每周期实时求值，走 file_sd 自动热加载）
+          if (isFilterMode) {
+            const filterChanged =
+              JSON.stringify(editingJob.instance_filter ?? null) !== JSON.stringify(effInstanceFilter)
+            return !configChanged && !authChanged && (filterChanged || (effInstanceFilter ?? null) !== null)
+          }
           const oldInst = [...editingJob.selected_instance_ids].sort()
           const newInst = [...targetKeys].sort()
           if (JSON.stringify(oldInst) !== JSON.stringify(newInst)) {
-            // 仅比对表单可编辑、且会写入 prometheus.yml 的采集参数（exporter_template_id 由 resource_type 派生、非表单字段，不在此列）
-            const configKeys: (keyof ScrapeJob)[] = [
-              'job_name', 'resource_type',
-              'scrape_interval', 'scrape_timeout', 'metrics_path', 'scheme', 'label_template_id',
-            ]
-            const configChanged = configKeys.some(
-              (k) => JSON.stringify(editingJob[k]) !== JSON.stringify(values[k])
-            )
             return !configChanged && !authChanged
           }
           return false
@@ -955,7 +1109,11 @@ export default function ScrapeJobsPage() {
           ...jobValues,
           resource_type: values.resource_type as CiType,
           scheme: values.scheme as Scheme,
-          selected_instance_ids: jobType === 'standard' ? targetKeys : [],
+          // {v3.28} 决策 54：网域集合；决策 53：filter 模式无静态实例清单
+          network_domain_ids: networkDomainIds,
+          instance_selection_mode: selMode,
+          selected_instance_ids: effSelectedIds,
+          instance_filter: effInstanceFilter,
           blackbox_targets: jobType === 'blackbox' ? blackboxTargets : undefined,
           blackbox_module: jobType === 'blackbox' ? (values.blackbox_module as BlackboxModule) : undefined,
           exporter_status: exporterStatus,
@@ -975,10 +1133,11 @@ export default function ScrapeJobsPage() {
           job_type: jobType,
           resource_type: values.resource_type as CiType,
           exporter_template_id: exporterTemplateId,
-          network_domain_id: networkDomainId,
-          instance_selection_mode: values.instance_selection_mode as 'manual' | 'filter',
-          selected_instance_ids: jobType === 'standard' ? targetKeys : [],
-          instance_filter: null,
+          // {v3.28} 决策 54：网域集合；决策 53：filter 模式无静态实例清单
+          network_domain_ids: networkDomainIds,
+          instance_selection_mode: selMode,
+          selected_instance_ids: effSelectedIds,
+          instance_filter: effInstanceFilter,
           scrape_interval: values.scrape_interval as string,
           scrape_timeout: values.scrape_timeout as string,
           metrics_path: values.metrics_path as string,
@@ -1032,16 +1191,19 @@ export default function ScrapeJobsPage() {
     }
     setSubmitErrors([])
     const jobType = (form.getFieldValue('job_type') as ScrapeJobType) ?? 'standard'
+    // {v3.28} 决策 54：网域集合（多选）；filter 模式无静态实例清单、selected_instance_ids 置空
+    const draftSelMode = (form.getFieldValue('instance_selection_mode') as InstanceSelectionMode) ?? 'manual'
+    const draftDomainIds = (form.getFieldValue('network_domain_ids') as string[] | undefined) ?? ['default']
     const draftJob: ScrapeJob = {
       job_id: editingJob?.job_id ?? `job-draft-${Date.now()}`,
       job_name: name.trim(),
       job_type: jobType,
       resource_type: (form.getFieldValue('resource_type') as CiType) ?? 'host_linux',
       exporter_template_id: form.getFieldValue('exporter_template_id') as string | undefined,
-      network_domain_id: (form.getFieldValue('network_domain_id') as string) ?? 'default',
-      instance_selection_mode: (form.getFieldValue('instance_selection_mode') as 'manual' | 'filter') ?? 'manual',
-      selected_instance_ids: jobType === 'standard' ? targetKeys : [],
-      instance_filter: null,
+      network_domain_ids: draftDomainIds,
+      instance_selection_mode: draftSelMode,
+      selected_instance_ids: jobType === 'standard' && draftSelMode !== 'filter' ? targetKeys : [],
+      instance_filter: draftSelMode === 'filter' && filterConds.length > 0 ? { conditions: filterConds } : null,
       scrape_interval: (form.getFieldValue('scrape_interval') as string) ?? '15s',
       scrape_timeout: (form.getFieldValue('scrape_timeout') as string) ?? '10s',
       metrics_path: (form.getFieldValue('metrics_path') as string) ?? '/metrics',
@@ -1228,26 +1390,6 @@ export default function ScrapeJobsPage() {
       ),
     },
     {
-      // {v3.22} 状态列聚合四态（决策 D29）：草稿 / 待下发 / 已生效 / 已停用；
-      // 草稿 MVP 无真实实例（v0.2 支持保存草稿）——灰显 + Tooltip；「待下发」与下发状态列联动
-      title: '状态',
-      key: 'status',
-      width: 96,
-      render: (_: unknown, record: ScrapeJob) => {
-        const s = getJobStatus(record)
-        if (s === 'draft') {
-          return (
-            <Tooltip title="v0.2 支持保存草稿：草稿不入下发管线，可继续编辑后提交生效">
-              <Tag style={{ color: 'rgba(0,0,0,0.45)', background: '#fafafa', borderColor: '#d9d9d9' }}>草稿</Tag>
-            </Tooltip>
-          )
-        }
-        if (s === 'pending') return <Tag color="gold">待下发</Tag>
-        if (s === 'active') return <Tag color="green">已生效</Tag>
-        return <Tag>已停用</Tag>
-      },
-    },
-    {
       title: '监控对象类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
@@ -1281,22 +1423,97 @@ export default function ScrapeJobsPage() {
     },
     {
       title: '网域',
-      dataIndex: 'network_domain_id',
-      key: 'network_domain_id',
-      render: (value: string) => <Tag>{domainNameMap.get(value) ?? value}</Tag>,
+      key: 'network_domain_ids',
+      // {v3.28} 决策 54：网域集合——按归属网域展示多个 Tag（跨网域复用）
+      render: (_: unknown, record: ScrapeJob) => (
+        <Space size={4} wrap>
+          {record.network_domain_ids.map((id) => (
+            <Tag key={id}>{domainNameMap.get(id) ?? id}</Tag>
+          ))}
+        </Space>
+      ),
     },
     {
       title: '实例选择 / 拨测目标',
       key: 'selection',
       // {v3.13} 收敛：standard 模式 + 实例数合成一个 Tag（「手动 · 12 实例」），比单看模式信息量更高
+      // {v3.28} 决策 53：filter 模式显示「过滤 · N 条件（动态）」，不持有静态实例数
       render: (_: unknown, record: ScrapeJob) =>
         record.job_type === 'blackbox' ? (
           <Text type="secondary">{record.blackbox_targets?.length ?? 0} 个目标</Text>
+        ) : record.instance_selection_mode === 'manual' ? (
+          <Tag color="purple">
+            手动 · {record.selected_instance_ids.length} 实例
+          </Tag>
         ) : (
-          <Tag color={record.instance_selection_mode === 'manual' ? 'purple' : 'geekblue'}>
-            {record.instance_selection_mode === 'manual' ? '手动' : '过滤'} · {record.selected_instance_ids.length} 实例
+          <Tag color="geekblue">
+            过滤 · {(record.instance_filter && Array.isArray(record.instance_filter.conditions))
+              ? record.instance_filter.conditions.length
+              : 0} 条件（动态）
           </Tag>
         ),
+    },
+    {
+      // {v3.37} F-37：原「状态」聚合列（{v3.22} 四态）拆分为「生效状态」+「变更进度」两列，本列为生效状态
+      // （与生产 aggregateJobStatus 同源：草稿灰显 / 已停用 error / 待生效 warning / 已生效 success）；
+      // 角标文案对齐生产 strategyConstants.EFFECTIVE_STATUS_TOOLTIP
+      title: (
+        <Tooltip title="这份配置当前是否真正生效。刚保存不会立刻生效，需到「配置变更确认」页点一次确认后才会更新">
+          <Space size={4}>
+            生效状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'effectiveStatus',
+      width: 110,
+      render: (_: unknown, record: ScrapeJob) => {
+        const k = getJobEffectiveStatus(record)
+        const s = JOB_EFFECTIVE_STATUS_META[k]
+        return (
+          <Badge
+            status={s.badge}
+            text={<Text type={k === 'draft' || k === 'disabled' ? 'secondary' : undefined}>{s.label}</Text>}
+          />
+        )
+      },
+    },
+    {
+      // {v3.37} F-37：变更进度（原「下发状态」列 {v3.19} 收窄而来）——无变更 / 待确认 / 已确认待下发 / 已下发；
+      // mock 仅建模 none/pending/confirmed 三态（confirmed 归为「已确认待下发」），待确认可点击跳转 M09；
+      // 角标文案对齐生产 strategyConstants.CHANGE_PROGRESS_TOOLTIP
+      title: (
+        <Tooltip title="配置下发到哪一步：待确认 / 已确认待下发 / 已下发 / 无变更。可等所有监控配置调好后再一次性确认下发">
+          <Space size={4}>
+            变更进度
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      key: 'changeProgress',
+      width: 130,
+      render: (_: unknown, record: ScrapeJob) => {
+        const progKey = CHANGE_PROGRESS_BY_CHANGE_STATUS[record.change_status ?? 'none']
+        const c = CHANGE_PROGRESS_MAP[progKey]
+        if (progKey === 'pending') {
+          // {v3.20} 样式调整：原 warning Tag 易被误读为静态状态、看不出可点击；
+          // 改为 link 型 Button + 箭头图标，明确「这是可前往确认的操作入口」
+          return (
+            <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
+              <Button
+                type="link"
+                size="small"
+                icon={<ArrowRightOutlined />}
+                style={{ padding: 0, height: 'auto', fontSize: 13 }}
+                onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
+              >
+                {c.text}
+              </Button>
+            </Tooltip>
+          )
+        }
+        return <Tag color={c.color}>{c.text}</Tag>
+      },
     },
     {
       title: '参数同步',
@@ -1327,38 +1544,50 @@ export default function ScrapeJobsPage() {
       },
     },
     {
-      // {v3.19} 下发状态（决策 D27-2，MVP）：pending=待确认（存在 M09 待确认变更单）→ 点击跳转配置变更确认；
-      // confirmed=已确认；none/空=无变更。数据由 M09 变更单状态回写（pull 模式）
+      // {v3.27}/{v3.28} 决策 47-2：Job 列表「实例采集状态」——简化为「在线 x / 总数 y」。
+      // 数据源 = M02 targets 聚合 mock（列表级按 Job 过滤，只读消费，20s 自动刷新）；
+      // 存在「待采集 / 已下发未采到」实例时整格高饱和；整格可点击进入详情抽屉查看各实例具体原因。
+      // {v3.37} F-36：列头 Tooltip 文案对齐生产（strategyConstants.COLLECTION_STATUS_TOOLTIP 简洁口径）
       title: (
-        <Tooltip title="变更下发状态（来自 M09 变更单）：待确认=有变更单待你在「配置变更确认」页确认发布；已确认=变更单已确认；无变更=未产生变更单">
+        <Tooltip title="正常采到数据的实例数 / 你勾选的实例总数。有实例没采到数据时整格变红，点开可看原因；约 20 秒自动刷新">
           <Space size={4}>
-            下发状态
+            实例采集状态
             <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
           </Space>
         </Tooltip>
       ),
-      key: 'changeStatus',
-      width: 130,
+      key: 'collectionStatus',
+      width: 190,
       render: (_: unknown, record: ScrapeJob) => {
-        if (record.change_status === 'pending') {
-          // {v3.20} 样式调整：原 warning Tag 易被误读为静态状态、看不出可点击；
-          // 改为 link 型 Button + 箭头图标，明确「这是可前往确认的操作入口」
-          return (
-            <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
-              <Button
-                type="link"
-                size="small"
-                icon={<ArrowRightOutlined />}
-                style={{ padding: 0, height: 'auto', fontSize: 13 }}
-                onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
-              >
-                待确认
-              </Button>
-            </Tooltip>
-          )
-        }
-        if (record.change_status === 'confirmed') return <Tag color="success">已确认</Tag>
-        return <Text type="secondary">-</Text>
+        if (record.job_type === 'blackbox') return <Text type="secondary">-</Text>
+        const st = collectionStatsOf(record.selected_instance_ids, mockTargetsCollection)
+        const total = record.selected_instance_ids.length
+        // {v3.28} 简化展示为「在线 x / 总数 y」，整格可点击进入详情抽屉查看各实例具体未在线原因（决策 47-2）
+        const anomaly = st.down > 0 || st.pending > 0
+        const onClick = () => setDetailJob(record)
+        const text = `在线 ${st.up} / 总数 ${total}`
+        if (total === 0) return <Text type="secondary">-</Text>
+        return anomaly ? (
+          <Tooltip title="存在「待采集 / 已下发未采到」实例，点击查看详情确认失败原因">
+            <Tag
+              color="#FF4C3A"
+              style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
+              onClick={onClick}
+            >
+              {text}
+            </Tag>
+          </Tooltip>
+        ) : (
+          <Tooltip title="点击查看各实例采集状态详情">
+            <Tag
+              color="green"
+              style={{ marginInlineEnd: 0, cursor: 'pointer' }}
+              onClick={onClick}
+            >
+              {text}
+            </Tag>
+          </Tooltip>
+        )
       },
     },
     // {v3.2} 标签模板列：展示继承模板名 / 「标签待配置」提示（引导先补配 CI-Exporter 映射）
@@ -1952,8 +2181,9 @@ export default function ScrapeJobsPage() {
           dataSource={visibleJobs}
           columns={columns}
           // {v3.17} 列数多超出窗口：固定最小宽度、横向滚动，避免列挤压换行拉高行高
-          // {v3.22} 新增「状态」列 + 多选列，最小宽度上浮
-          scroll={{ x: 1240 }}
+          // {v3.22} 决策 D29：新增「状态」列 + 多选列，最小宽度上浮；{v3.28} 新增「实例采集状态」列，最小宽度再上浮
+          // {v3.37} F-37：「状态」聚合列拆为「生效状态」+「变更进度」两列（净 +14px），最小宽度同步上浮
+          scroll={{ x: 1464 }}
           pagination={{ pageSize: 5 }}
           rowSelection={{
             // {v3.22} 决策 D29：多选批量提交；{v3.xx} F-16：草稿可勾选（批量提交生效仅当选中项含草稿时可用，
@@ -1975,12 +2205,9 @@ export default function ScrapeJobsPage() {
       >
         {batchResult && (
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
-            <Alert
-              type={batchResult.fail.length > 0 ? 'warning' : 'success'}
-              showIcon
-              message={`成功 ${batchResult.ok.length} 条 / 失败 ${batchResult.fail.length} 条`}
-              description="提交成功的 Job 已乐观标为「待下发」，将由 M09 生成变更单，需确认后生效"
-            />
+            <FieldGuide title={`批量处理结果：成功 ${batchResult.ok.length} 条 / 失败 ${batchResult.fail.length} 条`}>
+              <Text>提交成功的 Job 已乐观标为「待下发」，将由 M09 生成变更单，需确认后生效</Text>
+            </FieldGuide>
             {batchResult.ok.length > 0 && (
               <div>
                 <Text strong>成功（{batchResult.ok.length}）：</Text>
@@ -2037,13 +2264,9 @@ export default function ScrapeJobsPage() {
         <Form form={presetForm} layout="vertical" style={{ marginTop: 8 }}>
           {/* {v3.27} F-11：编辑态快照语义提示——变更仅影响新建 Job，不影响已存在 Job；存量 Job 采用新参数需到采集 Job 内手动「同步映射默认值」 */}
           {editingPreset && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 12 }}
-              message="编辑默认采集配置的影响范围"
-              description="本修改仅影响新建采集 Job（创建时自动套用新默认值）；已存在的 Job 不会自动变更。如需存量 Job 采用新参数，请在对应采集 Job 内手动「同步映射默认值」。"
-            />
+            <FieldGuide title="编辑默认采集配置的影响范围">
+              <Text>本修改仅影响新建采集 Job（创建时自动套用新默认值）；已存在的 Job 不会自动变更。如需存量 Job 采用新参数，请在对应采集 Job 内手动「同步映射默认值」。</Text>
+            </FieldGuide>
           )}
           <Row gutter={16}>
             <Col span={12}>
@@ -2117,7 +2340,9 @@ export default function ScrapeJobsPage() {
           </Form.Item>
           {/* {v3.27} F-11：MappingDrawer 完全移除 label_template_id 字段（PRD §5.1）；标签模板唯一变更入口 = 列表「更换/补配」轻量抽屉（LabelTemplateSelectDrawer），见下方 Drawer */}
           {/* {v3.27} F-28：层叠默认 + 稀疏覆盖——默认采集配置采集参数字段可留空，留空=继承采集器模板/全局默认（15s/10s//metrics/http）；编辑态清空某字段 = 恢复继承 */}
-          <Alert type="info" showIcon style={{ marginBottom: 12 }} message="采集参数可留空" description="任一项留空 = 继承采集器模板默认参数；保存时解析为该配置生效快照。" />
+          <FieldGuide title="采集参数可留空">
+            <Text>任一项留空 = 继承采集器模板默认参数；保存时解析为该配置生效快照。</Text>
+          </FieldGuide>
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item label="默认端口" name="default_port">
@@ -2207,21 +2432,16 @@ export default function ScrapeJobsPage() {
                   为该默认采集配置更换 / 补配标签模板（按资源类别过滤，由 Module_07 维护）：
                 </Text>
                 {candidates.length === 0 ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="该资源类别尚无标签模板"
-                    description={
-                      <Space direction="vertical" size={4}>
-                        <Text style={{ fontSize: 12 }}>
-                          请先到 Module_07 创建该资源类别的标签模板，创建后采集 Job 将自动继承。
-                        </Text>
-                        <Typography.Link href={MODULE_LINKS.module07} style={{ fontSize: 12 }}>
-                          前往标签模板管理（Module_07）→
-                        </Typography.Link>
-                      </Space>
-                    }
-                  />
+                  <FieldGuide title="该资源类别尚无标签模板">
+                    <Space direction="vertical" size={4}>
+                      <Text style={{ fontSize: 12 }}>
+                        请先到 Module_07 创建该资源类别的标签模板，创建后采集 Job 将自动继承。
+                      </Text>
+                      <Typography.Link href={MODULE_LINKS.module07} style={{ fontSize: 12 }}>
+                        前往标签模板管理（Module_07）→
+                      </Typography.Link>
+                    </Space>
+                  </FieldGuide>
                 ) : (
                   <List
                     size="small"
@@ -2334,24 +2554,16 @@ export default function ScrapeJobsPage() {
           )}
           {/* {v3.22} 决策 D29：克隆提示——同网域直接改选实例分组；跨网域实例清空重选、安装确认需重新进行 */}
           {cloneSource && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message={`克隆自「${cloneSource.job_name}」`}
-              description={
-                <Space direction="vertical" size={4}>
-                  <Text>已复制源 Job 的采集参数（采集器 / 间隔 / 超时 / 路径 / 协议 / 标签模板）。</Text>
-                  {watchNetworkDomainId && watchNetworkDomainId !== cloneSource.network_domain_id ? (
-                    <Text type="warning">
-                      跨网域克隆：实例已清空重选，所选实例的「安装确认」需重新进行。
-                    </Text>
-                  ) : (
-                    <Text type="secondary">同网域克隆：可直接调整实例分组后提交生效。</Text>
-                  )}
-                </Space>
-              }
-            />
+            <FieldGuide title={`克隆自「${cloneSource.job_name}」`}>
+              <Space direction="vertical" size={4}>
+                <Text>已复制源 Job 的采集参数（采集器 / 间隔 / 超时 / 路径 / 协议 / 标签模板）。</Text>
+                {buildIdentical(watchNetworkDomainId, cloneSource?.network_domain_ids) ? (
+                  <Text type="secondary">同网域克隆：可直接调整实例分组后提交生效。</Text>
+                ) : (
+                  <Text type="warning">跨网域克隆：实例已清空重选，所选实例的「安装确认」需重新进行。</Text>
+                )}
+              </Space>
+            </FieldGuide>
           )}
           {editingJob && editingJob.job_type === 'standard' && isMappingChanged(editingJob) && (
             <Alert
@@ -2445,14 +2657,16 @@ export default function ScrapeJobsPage() {
             <Col span={isBlackbox ? 24 : 12}>
               <Form.Item
                 label="归属网域"
-                name="network_domain_id"
-                rules={[{ required: true, message: '请选择网域' }]}
-                extra="所有 ScrapeJob 必须绑定且仅绑定单一已纳管网域；未纳管网域需先到配置中心完成纳管"
+                name="network_domain_ids"
+                rules={[{ required: true, message: '请至少选择一个网域' }]}
+                // {v3.28} 决策 54：网域集合放宽——一个逻辑 Job 可勾选多个已纳管网域，M09 按域拆分扇出，跨网域复用不再依赖手工克隆
+                extra="可勾选多个已纳管网域；实例/拨测目标按各自归属网域自动归组，配置中心按域拆分生成配置；未纳管网域需先到配置中心完成纳管"
               >
                 {/* {v3.14} 决策 D1：网域选择器空态 = 说明文案 + 内联跳转 M09，避免等保存时才报错 */}
                 <Select
-                  placeholder="请选择"
-                  disabled={!!editingJob}
+                  mode="multiple"
+                  placeholder="请选择一个或多个网域"
+                  // {v3.28} 决策 54：允许编辑阶段调整网域集合（跨网域复用），不再禁用
                   // {v3.17} 网域空态两步指引：M06 创建网域（行政）→ M09 完成纳管（监控），两个跳转入口
                   notFoundContent={
                     <Space direction="vertical" size={4} style={{ padding: '8px 0' }}>
@@ -2467,13 +2681,14 @@ export default function ScrapeJobsPage() {
                       </Typography.Link>
                     </Space>
                   }
-                  onChange={(v) => {
+                  onChange={(v: string[]) => {
                     setTargetKeys([])
-                    // {v3.22} 决策 D29：克隆跨网域时实例清空重选 + 安装确认需重新进行
-                    if (cloneSource && v !== cloneSource.network_domain_id) {
-                      message.warning('跨网域克隆：实例已清空，请重新选择该网域实例；「安装确认」需对所选实例重新进行')
+                    // {v3.22} 决策 D29：跨网域克隆时实例清空重选 + 安装确认需重新进行
+                    // {v3.28} 决策 54：网域集合比较
+                    if (cloneSource && v.join(',') !== cloneSource.network_domain_ids.join(',')) {
+                      message.warning('跨网域克隆：实例已清空，请重新选择目标网域实例；「安装确认」需对所选实例重新进行')
                     } else {
-                      message.info('切换网域后已选实例已清空，实例必须与 Job 同域')
+                      message.info('切换网域后已选实例已清空，实例必须归属任一已选网域')
                     }
                   }}
                 >
@@ -2741,16 +2956,12 @@ export default function ScrapeJobsPage() {
                         </Space>
                       ) : (
                         // 无标签模板时展示创建引导；区分「映射未配置模板（引导先补配采集映射，Job 自动继承）」与「用户未选择模板」
-                        <Alert
-                          type={mappingMissingTemplate ? 'warning' : 'info'}
-                          showIcon
-                          style={{ marginTop: 4 }}
-                          message={
-                            mappingMissingTemplate ? (
-                              <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                                <Text style={{ fontSize: 12 }}>
-                                  该监控对象类型的默认采集配置尚未关联标签模板，监控数据将缺少归属标签（instance / app / env 等）。
-                                </Text>
+                        <FieldGuide title={mappingMissingTemplate ? '默认采集配置尚未关联标签模板' : '请选择标签模板'}>
+                          {mappingMissingTemplate ? (
+                            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                              <Text style={{ fontSize: 12 }}>
+                                该监控对象类型的默认采集配置尚未关联标签模板，监控数据将缺少归属标签（instance / app / env 等）。
+                              </Text>
                                 <Space size={12} wrap>
                                   {/* {v3.18} D26：主按钮带 edit 参数跳转，落位自动打开映射编辑抽屉（不再是空跳转） */}
                                   <Button
@@ -2781,7 +2992,7 @@ export default function ScrapeJobsPage() {
                               </Space>
                             )
                           }
-                        />
+                        </FieldGuide>
                       )}
                     </Space>
                   }
@@ -2834,13 +3045,12 @@ export default function ScrapeJobsPage() {
                 label="选择模式"
                 name="instance_selection_mode"
                 // {v3.14} 决策 D16：「手动选择」= 手动勾选具体实例（非手动选择采集器）
-                extra="手动选择 = 手动勾选具体实例（候选按类型 + 网域自动收敛）；与采集器「使用默认 / 手填参数」二选一是两回事"
+                // {v3.28} 决策 53：filter 选择模式提前 v0.2 开放
+                extra="手动选择 = 手动勾选具体实例（候选按类型 + 网域自动收敛）；过滤规则 = 按资源属性条件筛选，新纳管匹配资源自动纳入采集，无需编辑 Job"
               >
                 <Select disabled={isBlackbox}>
                   <Option value="manual">手动选择（实例）</Option>
-                  <Option value="filter" disabled>
-                    过滤规则（v0.3+）
-                  </Option>
+                  <Option value="filter">过滤规则（动态）</Option>
                 </Select>
               </Form.Item>
             </Col>
@@ -2916,12 +3126,9 @@ export default function ScrapeJobsPage() {
                 label: <Text strong>认证与 TLS</Text>,
                 children: (
                   <div>
-                    <Alert
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 12 }}
-                      message="认证/TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs"
-                    />
+                    <FieldGuide title="认证与 TLS 生效范围">
+                      <Text>认证 / TLS 仅对 https 或需鉴权的目标生效，配置后由 M09 映射进 scrape_configs。</Text>
+                    </FieldGuide>
                     <Row gutter={16}>
                       <Col span={12}>
                         <Form.Item
@@ -3015,11 +3222,114 @@ export default function ScrapeJobsPage() {
           />
 
           {watchMode === 'filter' && !isBlackbox && (
-            <FieldGuide title="按网域/环境/应用/标签筛选">
-              <Text style={{ fontSize: 12 }}>
-                支持基于条件的动态筛选与匹配结果预览（逐步开放）。
+            <>
+              <FieldGuide title="过滤规则（动态）">
+                <Text style={{ fontSize: 12 }}>
+                  按资源属性条件动态筛选实例；保存后配置中心每次配置生成周期对条件表达式**实时求值**，新纳管且匹配的资源自动进入采集，无需编辑 Job；不再匹配的资源自动移出。
+                </Text>
+              </FieldGuide>
+              {/* {v3.28} 决策 53：条件表达式构建——字段 = Resource 属性字段（label 仅 UI 别名）；筛选不写任何标签、与标签管理正交 */}
+              <Space direction="vertical" size={8} style={{ width: '100%', marginBottom: 8 }}>
+                {filterConds.map((c, idx) => (
+                  <Space key={idx} wrap align="center">
+                    {/* AND 连接符（多条件之间为且） */}
+                    {idx > 0 && <Text type="secondary" style={{ fontSize: 12 }}>且</Text>}
+                    <Select
+                      size="small"
+                      style={{ width: 150 }}
+                      value={c.field}
+                      onChange={(f: FilterField) =>
+                        setFilterConds((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, field: f } : x))
+                        )
+                      }
+                      options={FILTER_FIELD_SELECTIONS}
+                    />
+                    <Select
+                      size="small"
+                      style={{ width: 110 }}
+                      value={c.op}
+                      onChange={(op: FilterOp) =>
+                        setFilterConds((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, op } : x))
+                        )
+                      }
+                      options={[
+                        { value: 'eq', label: '等于' },
+                        { value: 'neq', label: '不等于' },
+                        { value: 'contains', label: '包含' },
+                      ]}
+                    />
+                    <Input
+                      size="small"
+                      style={{ width: 180 }}
+                      placeholder={`输入 ${FILTER_FIELD_LABEL[c.field]} 值`}
+                      value={c.value}
+                      onChange={(e) =>
+                        setFilterConds((prev) =>
+                          prev.map((x, i) => (i === idx ? { ...x, value: e.target.value } : x))
+                        )
+                      }
+                    />
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<DeleteOutlined />}
+                      onClick={() => setFilterConds((prev) => prev.filter((_, i) => i !== idx))}
+                    />
+                  </Space>
+                ))}
+                <Space wrap>
+                  <Button
+                    size="small"
+                    type="dashed"
+                    icon={<PlusOutlined />}
+                    disabled={!watchResourceType}
+                    onClick={() =>
+                      setFilterConds((prev) => [
+                        ...prev,
+                        { field: 'env', op: 'eq', value: '' },
+                      ])
+                    }
+                  >
+                    添加条件
+                  </Button>
+                  {filterConds.length > 0 && (
+                    <Button size="small" type="link" onClick={() => setFilterConds([])}>
+                      清空条件
+                    </Button>
+                  )}
+                </Space>
+              </Space>
+
+              {/* {v3.28} 决策 53：实时求值预览——匹配实例清单（在线数）+ 新纳管自动纳入标注 */}
+              <FieldGuide title={`匹配 ${filterMatching.matched.length} 个实例（在线，同类型 + 归属任一已选网域）`}>
+                {filterMatching.matched.length > 0 ? (
+                  <Text style={{ fontSize: 12 }}>
+                    命中：{filterMatching.matched.slice(0, 8).map((r) => r.instance_name).join('、')}
+                    {filterMatching.matched.length > 8 ? ` 等 ${filterMatching.matched.length} 个` : ''}
+                  </Text>
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    当前条件下暂无匹配实例，请调整筛选条件或先确认已选网域下存在该类型的已纳管资源
+                  </Text>
+                )}
+              </FieldGuide>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                自动纳入：M07 后续新导入 / 同步的资源如匹配上述条件，将在配置中心下一配置生成周期自动进入本次采集，无需编辑 Job。
               </Text>
-            </FieldGuide>
+              <ReviewNote title="过滤规则">
+                <ul style={{ paddingLeft: 18, margin: 0 }}>
+                  <li>
+                    `instance_filter` 筛选字段 = **Resource 属性字段**（env / cluster / app_name / business_domain），`label` 仅作 UI 别名（由标签模板映射只读派生），筛选**不写任何标签**、与标签管理正交（选择器 vs 描述器）。
+                  </li>
+                  <li>保存后 `instance_selection_mode=filter`，`selected_instance_ids` 置空（不持有静态实例清单）；M09 每配置生成周期对条件表达式实时求值，新匹配资源自动纳入 targets、不再匹配自动移出。
+                  </li>
+                  <li>筛选结果预览后写入 `instance_filter`（`{'{ conditions: [...] }'}`）；MVP 存量 single-domain Job 迁移为单元素 `network_domain_ids` 集合（决策 54）。
+                  </li>
+                </ul>
+              </ReviewNote>
+            </>
           )}
         </Form>
 
@@ -3080,11 +3390,13 @@ export default function ScrapeJobsPage() {
             </Button>
           </>
         ) : (
-          watchResourceType && (
+          // {v3.28} 决策 53：过滤模式无「手动勾选」清单（实时求值），仅手动选择模式渲染 Transfer
+          watchMode === 'manual' &&
+            watchResourceType && (
             <>
               <FieldGuide title="实例选择（自动带出候选）">
                 <Text style={{ fontSize: 12 }}>
-                  已按「资源类型 + Job 归属网域」自动收敛可选实例；支持一键全选 / 反选与关键字搜索；跨网域实例不可被同一 Job 选中。
+                  已按「资源类型 + Job 归属网域集合」自动收敛可选实例；支持一键全选 / 反选与关键字搜索；实例必须归属任一已选网域。
                 </Text>
               </FieldGuide>
               {/* {v3.25} offline 排除提级 MVP 必实现（决策 29，对齐 Module_07 8.1 / Module_09 3.3）：候选集 offline 实例「显示但置灰不可选」；已选实例转 offline 后 M09 配置生成跳过；「未纳入任何 Job」筛选器为目标语义、MVP 不保证（或统一改指 Module_02 目标状态页） */}
@@ -3136,14 +3448,19 @@ export default function ScrapeJobsPage() {
                 onChange={(next) => {
                   const nextKeys = next as string[]
                   // {v3.26} 决策 30：冻结（禁用）网域禁止新增该域实例（允许移除/禁用/编辑存量）——仅放行移除，拦截新增
-                  if (isFrozenDomain(watchNetworkDomainId)) {
-                    const prevKeys = new Set(targetKeys)
-                    const added = nextKeys.filter((k) => !prevKeys.has(k))
-                    if (added.length > 0) {
-                      message.warning('网域已冻结（禁用），禁止新增该域实例；仅允许移除或调整存量')
-                      setTargetKeys(targetKeys.filter((k) => !nextKeys.includes(k)))
-                      return
-                    }
+                  // {v3.28} 决策 54：逐域判定——新增实例若归属冻结网域则拦截
+                  const prevKeys = new Set(targetKeys)
+                  const addedRes = nextKeys
+                    .filter((k) => !prevKeys.has(k))
+                    .map((k) => mockResources.find((r) => r.resource_id === k))
+                    .filter((r): r is (typeof mockResources)[number] => !!r)
+                  const frozenAdded = addedRes.filter((r) => isFrozenDomain(r.network_domain_id))
+                  if (frozenAdded.length > 0) {
+                    message.warning(
+                      `网域「${frozenAdded.map((r) => domainNameMap.get(r.network_domain_id) ?? r.network_domain_id).join('、') || ''}」已冻结（禁用），禁止新增该域实例；仅允许移除或调整存量`
+                    )
+                    setTargetKeys(targetKeys.filter((k) => !nextKeys.includes(k)))
+                    return
                   }
                   setTargetKeys(nextKeys)
                 }}
@@ -3162,9 +3479,9 @@ export default function ScrapeJobsPage() {
 
         {editingJob && editingJob.job_type === 'standard' && editingJob.selected_instance_ids.length > 0 && (
           <>
-            <Title level={5}>Exporter 安装确认</Title>
+            <Title level={5}>Exporter 安装登记（可选）</Title>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              点击状态徽标可修改安装状态并填写确认信息；未确认实例不生成 target
+              登记为可选项，不影响采集生效；采集状态以「采集状态」列为准。点击状态徽标填写安装登记信息。
             </Text>
             <Space direction="vertical" style={{ width: '100%', marginTop: 8 }}>
               {editingJob.selected_instance_ids.map((id) => {
@@ -3301,7 +3618,12 @@ export default function ScrapeJobsPage() {
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="归属网域">
-                <Tag>{domainNameMap.get(detailJob.network_domain_id) ?? detailJob.network_domain_id}</Tag>
+                {/* {v3.28} 决策 54：网域集合展示 */}
+                <Space size={4} wrap>
+                  {detailJob.network_domain_ids.map((id) => (
+                    <Tag key={id}>{domainNameMap.get(id) ?? id}</Tag>
+                  ))}
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label="监控对象类型">
                 {detailJob.job_type === 'blackbox' || !detailJob.resource_type ? (
@@ -3352,7 +3674,21 @@ export default function ScrapeJobsPage() {
                 ) : detailJob.instance_selection_mode === 'manual' ? (
                   '手动勾选'
                 ) : (
-                  '过滤规则（v0.3+）'
+                  // {v3.28} 决策 53：filter 模式展示条件表达式文案（不暴露「v0.3+」遗留）
+                  <Space size={4} wrap>
+                    <Tag color="geekblue">过滤 · 动态</Tag>
+                    {detailJob.instance_filter && Array.isArray(detailJob.instance_filter.conditions)
+                      ? (detailJob.instance_filter.conditions as FilterCond[])
+                          .filter((c) => c && c.value !== '')
+                          .map((c, i) => (
+                            <Text key={i} type="secondary" style={{ fontSize: 12 }}>
+                              {FILTER_FIELD_LABEL[c.field] ?? c.field}
+                              {c.op === 'eq' ? '=' : c.op === 'neq' ? '≠' : '包含'}
+                              {c.value}
+                            </Text>
+                          ))
+                      : null}
+                  </Space>
                 )}
               </Descriptions.Item>
               <Descriptions.Item label="标签模板">
@@ -3428,9 +3764,33 @@ export default function ScrapeJobsPage() {
                   <Title level={5} style={{ marginTop: 16 }}>
                     已选实例（{detailJob.selected_instance_ids.length}）
                   </Title>
+                  {/* {v3.27} 决策 47-2：实例采集状态回显——顶部汇总「在线 X / 总数 Y · 待采集 Z」+ 只读、20s 自动刷新 + 手动刷新；数据源 = M02 /api/v1/targets 代理 */}
+                  <Space style={{ display: 'flex', flexWrap: 'wrap', marginBottom: 8 }} size={8}>
+                    <Text strong style={{ fontSize: 12 }}>
+                      在线 {detailStats?.up ?? 0} / 总数 {detailJob.selected_instance_ids.length}
+                      {' · '}待采集 {detailStats?.pending ?? 0}
+                      {(detailStats?.down ?? 0) > 0 && (
+                        <Text type="danger" style={{ fontSize: 12 }}>
+                          {' · '}已下发未采到 {detailStats?.down}
+                        </Text>
+                      )}
+                    </Text>
+                    <Button
+                      size="small"
+                      icon={<SyncOutlined />}
+                      onClick={() => setStatusUpdatedAt(new Date().toLocaleTimeString())}
+                    >
+                      刷新
+                    </Button>
+                    {statusUpdatedAt && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        已更新 {statusUpdatedAt} · 20s 自动刷新
+                      </Text>
+                    )}
+                  </Space>
                   {/* {v3.27} F-17：提示每个实例最终生成的 target labels 由标签模板按 资源实例属性 映射而来 */}
                   <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
-                    各实例生成 Prometheus target 时的 labels 由标签模板（{detailJob.label_template_id ? labelNameMap.get(detailJob.label_template_id) : '（未绑定，则按实例属性直接生成）'}）按资源实例属性映射而来，不在此处展示。
+                    各实例生成 Prometheus target 时的 labels 由标签模板（{detailJob.label_template_id ? labelNameMap.get(detailJob.label_template_id) : '（未绑定，则按实例属性直接生成）'}）按资源实例属性映射而来，不在此处展示。采集状态来自查询中心目标状态 API，本页只读。
                   </Text>
                   <List
                     bordered
@@ -3438,16 +3798,32 @@ export default function ScrapeJobsPage() {
                     dataSource={detailJob.selected_instance_ids}
                     renderItem={(id) => {
                       const r = mockResources.find((res) => res.resource_id === id)
-                      const meta = INSTALL_STATUS_MAP[detailJob.exporter_status[id] ?? 'unregistered']
+                      const runStatus = (mockTargetsCollection[id]?.status ?? 'unknown') as CollectionRunStatus
+                      const runMeta = COLLECTION_STATUS_META[runStatus]
+                      const run = mockTargetsCollection[id] as InstanceCollectionStatus | undefined
+                      const statusTag =
+                        runMeta.anomaly || runStatus === 'pending' ? (
+                          <Tooltip
+                            title={
+                              runStatus === 'pending'
+                                ? '待采集：已保存变更尚未下发或未首次抓取'
+                                : `已下发未采到：${run?.last_error ?? ''}；配置已下发但未采集到数据，请检查采集器安装与网络连通`.trim()
+                            }
+                          >
+                            <Tag color={runMeta.color}>{runMeta.label}</Tag>
+                          </Tooltip>
+                        ) : (
+                          <Tag color={runMeta.color}>{runMeta.label}</Tag>
+                        )
                       return (
-                        <List.Item key={id}>
-                          <Space>
+                        <List.Item key={id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                          <Space wrap>
                             <Text strong>{r?.instance_name ?? id}</Text>
                             <Text type="secondary" style={{ fontSize: 12 }}>
                               {r?.instance_ip}
                             </Text>
-                            <Badge color={meta.color} text={meta.text} />
                           </Space>
+                          {statusTag}
                         </List.Item>
                       )
                     }}
@@ -3562,7 +3938,7 @@ export default function ScrapeJobsPage() {
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item label="来源" name="source" rules={[{ required: true }]} initialValue="internal">
+          <Form.Item label="来源" name="source" rules={[{ required: true }]} initialValue="internal" extra="官方/第三方/自研采集器均可登记；与平台预置采集器同名时由系统返回冲突提示">
             <Select
               placeholder="请选择"
               options={EXPORTER_SOURCES.map((s) => ({ value: s, label: EXPORTER_SOURCE_LABEL[s] }))}
@@ -3574,7 +3950,7 @@ export default function ScrapeJobsPage() {
                 label="默认端口"
                 name="default_port"
                 rules={[{ required: true, message: '请输入端口' }]}
-                extra="自研采集器按实际部署填写"
+                extra="按实际部署填写"
               >
                 <InputNumber min={1} max={65535} style={{ width: '100%' }} />
               </Form.Item>
@@ -3584,7 +3960,7 @@ export default function ScrapeJobsPage() {
                 label="采集路径"
                 name="metrics_path"
                 rules={[{ required: true, message: '请输入路径' }]}
-                extra="自研采集器按实际部署填写"
+                extra="按实际部署填写"
               >
                 <Input placeholder="/metrics" />
               </Form.Item>

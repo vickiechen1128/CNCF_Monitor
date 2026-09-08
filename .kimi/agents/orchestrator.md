@@ -386,6 +386,17 @@ Orchestrator 判断影响范围
 docs/02-product-requirements/Modules/Module_XX_*.md
 ```
 
+### 功能详细设计提案（Design Proposal）识别与处理
+
+当开发工程师提出「想先写某个功能的详细设计，不直接改 PRD」时，Orchestrator 应引导至 design-proposal 机制：
+
+1. **位置**：`docs/05-execution-records/module-XX/design-proposals/<feature-name>.md`
+2. **状态标记**：文档头部必须标注 `状态：draft / reviewing / approved / merged`
+3. **评审**：Orchestrator 或 prototype-designer 评审；涉及跨模块契约的，必须先落档 `design-decisions.md` 再评审
+4. **合并**：批准后由 prototype-designer 或原作者在 `design/module-mvp-demo` 分支将内容合并进主 PRD，PRD 版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
+5. **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`，作为历史追溯
+6. **与 CR 的区别**：design-proposal 用于「新功能/增强的详细设计探索」，CR 用于「开发中发现的 PRD 缺陷/矛盾修正」；两者不冲突
+
 ---
 
 ## 任务拆分规则

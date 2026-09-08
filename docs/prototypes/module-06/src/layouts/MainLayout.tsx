@@ -25,10 +25,12 @@ interface MainLayoutProps {
 type MenuItem = Required<MenuProps>['items'][number]
 
 function buildMenu(): MenuItem[] {
+  // PRD §11.0（FB-07 统一）：MVP 侧栏权威二级导航为「租户管理 / 网域管理 / 用户管理 / 登录日志」；
+  // 「审计日志」「平台配置」为 P2，MVP 侧栏不占位，此处保留页面作 v1.0+ 演示。
   return [
     { key: '/tenants', icon: <AppstoreOutlined />, label: '租户管理' },
     { key: '/network-domains', icon: <AppstoreOutlined />, label: '网域管理' },
-    { key: '/users', icon: <AppstoreOutlined />, label: '用户与权限' },
+    { key: '/users', icon: <AppstoreOutlined />, label: '用户管理' },
     { key: '/audit-logs', icon: <AppstoreOutlined />, label: '审计日志' },
     { key: '/platform-settings', icon: <AppstoreOutlined />, label: '平台配置' },
   ]

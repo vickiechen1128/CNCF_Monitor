@@ -37,6 +37,12 @@ func UpdateMonitoringRule(db *gorm.DB) gin.HandlerFunc {
 		if !ok {
 			return
 		}
+		// 决策 44-1（F-25）：change_status=pending 的规则已挂起待确认变更单，
+		// 禁止编辑，避免变更单内容与源数据脱节（与采集 Job 侧 409 模式对齐）。
+		if r.ChangeStatus == models.ChangeStatusPending {
+			response.Conflict(c, fmt.Errorf("规则 %q 存在待确认变更单，禁止编辑；请先前往配置变更确认页处理", r.Name))
+			return
+		}
 		if req.Name != nil {
 			r.Name = *req.Name
 		}
@@ -83,6 +89,12 @@ func DeleteMonitoringRule(db *gorm.DB) gin.HandlerFunc {
 		}
 		r, ok := readRuleByID(c, db, id)
 		if !ok {
+			return
+		}
+		// 决策 44-1（F-25）：change_status=pending 的规则已挂起待确认变更单，
+		// 禁止删除，避免变更单成为幽灵单（与采集 Job 侧 409 模式对齐）。
+		if r.ChangeStatus == models.ChangeStatusPending {
+			response.Conflict(c, fmt.Errorf("规则 %q 存在待确认变更单，禁止删除；请先前往配置变更确认页处理", r.Name))
 			return
 		}
 		if err := db.Delete(r).Error; err != nil {

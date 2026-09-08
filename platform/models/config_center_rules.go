@@ -67,6 +67,7 @@ const (
 	ChangeItemTargetMonitoringRule   ChangeItemTarget = "monitoring_rule"   // 告警规则
 	ChangeItemTargetProbeTarget      ChangeItemTarget = "probe_target"      // 拨测目标
 	ChangeItemTargetLabelTemplate    ChangeItemTarget = "label_template"    // 标签模板
+	ChangeItemTargetAlertmanagerCfg  ChangeItemTarget = "alertmanager_config" // 告警收敛配置（决策 60：管理域 default scope）
 )
 
 // ChangeItemType 表示变更类型。
@@ -93,10 +94,11 @@ type AffectedFile string
 
 // 受影响配置文件常量。
 const (
-	AffectedFilePrometheus AffectedFile = "prometheus" // prometheus.yml
-	AffectedFileTargets    AffectedFile = "targets"     // targets/*.json
-	AffectedFileRules      AffectedFile = "rules"       // rules.yml
-	AffectedFileBlackbox   AffectedFile = "blackbox"    // blackbox.yml
+	AffectedFilePrometheus   AffectedFile = "prometheus"   // prometheus.yml
+	AffectedFileTargets      AffectedFile = "targets"      // targets/*.json
+	AffectedFileRules        AffectedFile = "rules"        // rules.yml
+	AffectedFileBlackbox     AffectedFile = "blackbox"     // blackbox.yml
+	AffectedFileAlertmanager AffectedFile = "alertmanager" // alertmanager.yml（决策 60：管理域 default scope）
 )
 
 // ConfigChangeItem 是变更列表中的一条结构化变更项（PRD §3.4，契约 §4）。
@@ -151,6 +153,7 @@ func ValidChangeItemTargets() []string {
 		string(ChangeItemTargetMonitoringRule),
 		string(ChangeItemTargetProbeTarget),
 		string(ChangeItemTargetLabelTemplate),
+		string(ChangeItemTargetAlertmanagerCfg),
 	}
 }
 
@@ -173,6 +176,7 @@ func ValidAffectedFiles() []string {
 		string(AffectedFileTargets),
 		string(AffectedFileRules),
 		string(AffectedFileBlackbox),
+		string(AffectedFileAlertmanager),
 	}
 }
 

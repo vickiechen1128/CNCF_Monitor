@@ -27,7 +27,23 @@ normalize_title() {
 
 status=0
 
-for file in "$PRD_DIR"/Module_*.md; do
+# 支持 --changelog-only：仅做 Change Log 收敛检查（供 pre-commit 门禁使用，
+# 避免被正文内联标注 / 章节等独立的去历史化规则连坐阻断）。
+focus_changelog=0
+if [ "${1:-}" = "--changelog-only" ]; then
+  focus_changelog=1
+  shift
+fi
+
+# 若传入文件参数，则只检查这些文件（供 pre-commit 仅校验暂存 PRD）；
+# 否则检查目录下全部 Module PRD（供手动 `make check-prd-hygiene`）。
+if [ "$#" -gt 0 ]; then
+  files=("$@")
+else
+  files=("$PRD_DIR"/Module_*.md)
+fi
+
+for file in "${files[@]}"; do
   [ -f "$file" ] || continue
   name=$(basename "$file")
 
@@ -45,55 +61,57 @@ for file in "$PRD_DIR"/Module_*.md; do
   body=$(awk '/^## Change Log/{exit} {print}' "$file")
 
   # 1. 内联决策/版本标注计数（按出现次数而非行数）
-  decision_count=$(grep -oE '决策[[:space:]]*[0-9]' <<< "$body" 2>/dev/null | wc -l | awk '{print $1}') || true
-  version_count=$(grep -oE '\{v[0-9]+\.[^}]+\}' <<< "$body" 2>/dev/null | wc -l | awk '{print $1}') || true
-  decision_count=${decision_count:-0}
-  version_count=${version_count:-0}
-  echo "  内联决策标注数: $decision_count"
-  echo "  内联版本标记数: $version_count"
-  if [ "$decision_count" -gt 0 ] || [ "$version_count" -gt 0 ]; then
-    status=1
-  fi
-
-  # 2. 章节结构核对：收集所有 "## N. 标题" 行
-  echo "  章节结构:"
-  actual_titles=()
-  for ((i = 0; i <= ${#EXPECTED_CHAPTERS[@]}; i++)); do
-    actual_titles+=("")
-  done
-  changelog_numbered=0
-
-  while IFS= read -r line; do
-    chap_num=$(echo "$line" | sed -E 's/^[0-9]+:## ([0-9]+)\. .*/\1/')
-    chap_title=$(echo "$line" | sed -E 's/^[0-9]+:## [0-9]+\. //')
-    normalized=$(normalize_title "$chap_title")
-    if [ "$normalized" = "Change Log" ]; then
-      changelog_numbered=1
-      continue
-    fi
-    if [ "$chap_num" -ge 1 ] && [ "$chap_num" -le ${#EXPECTED_CHAPTERS[@]} ]; then
-      actual_titles[$chap_num]="$normalized"
-    fi
-  done < <(grep -nE '^## [0-9]+\. ' "$file" || true)
-
-  for i in "${!EXPECTED_CHAPTERS[@]}"; do
-    idx=$((i + 1))
-    expected_title="${EXPECTED_CHAPTERS[$i]}"
-    actual_title="${actual_titles[$idx]}"
-    if [ -z "$actual_title" ]; then
-      echo "    [缺] 第 $idx 章 $expected_title"
+  if [ "$focus_changelog" -eq 0 ]; then
+    decision_count=$(grep -oE '决策[[:space:]]*[0-9]' <<< "$body" 2>/dev/null | wc -l | awk '{print $1}') || true
+    version_count=$(grep -oE '\{v[0-9]+\.[^}]+\}' <<< "$body" 2>/dev/null | wc -l | awk '{print $1}') || true
+    decision_count=${decision_count:-0}
+    version_count=${version_count:-0}
+    echo "  内联决策标注数: $decision_count"
+    echo "  内联版本标记数: $version_count"
+    if [ "$decision_count" -gt 0 ] || [ "$version_count" -gt 0 ]; then
       status=1
-    elif [ "$actual_title" != "$expected_title" ]; then
-      echo "    [偏] 第 $idx 章期望: $expected_title, 实际: $actual_title"
-      status=1
-    else
-      echo "    [OK] $idx. $actual_title"
     fi
-  done
 
-  if [ "$changelog_numbered" -eq 1 ]; then
-    echo "    [偏] Change Log 作为编号章节出现；应为 ## Change Log（无编号）"
-    status=1
+    # 2. 章节结构核对：收集所有 "## N. 标题" 行
+    echo "  章节结构:"
+    actual_titles=()
+    for ((i = 0; i <= ${#EXPECTED_CHAPTERS[@]}; i++)); do
+      actual_titles+=("")
+    done
+    changelog_numbered=0
+
+    while IFS= read -r line; do
+      chap_num=$(echo "$line" | sed -E 's/^[0-9]+:## ([0-9]+)\. .*/\1/')
+      chap_title=$(echo "$line" | sed -E 's/^[0-9]+:## [0-9]+\. //')
+      normalized=$(normalize_title "$chap_title")
+      if [ "$normalized" = "Change Log" ]; then
+        changelog_numbered=1
+        continue
+      fi
+      if [ "$chap_num" -ge 1 ] && [ "$chap_num" -le ${#EXPECTED_CHAPTERS[@]} ]; then
+        actual_titles[$chap_num]="$normalized"
+      fi
+    done < <(grep -nE '^## [0-9]+\. ' "$file" || true)
+
+    for i in "${!EXPECTED_CHAPTERS[@]}"; do
+      idx=$((i + 1))
+      expected_title="${EXPECTED_CHAPTERS[$i]}"
+      actual_title="${actual_titles[$idx]}"
+      if [ -z "$actual_title" ]; then
+        echo "    [缺] 第 $idx 章 $expected_title"
+        status=1
+      elif [ "$actual_title" != "$expected_title" ]; then
+        echo "    [偏] 第 $idx 章期望: $expected_title, 实际: $actual_title"
+        status=1
+      else
+        echo "    [OK] $idx. $actual_title"
+      fi
+    done
+
+    if [ "$changelog_numbered" -eq 1 ]; then
+      echo "    [偏] Change Log 作为编号章节出现；应为 ## Change Log（无编号）"
+      status=1
+    fi
   fi
 
   # 3. Change Log 存在性
@@ -102,10 +120,35 @@ for file in "$PRD_DIR"/Module_*.md; do
     status=1
   fi
 
+  # 4. Change Log 收敛检查：版本条目（表格行）应 ≤ 3，超出部分迁 design-decisions.md
+  cl_count=0
+  in_cl=0
+  while IFS= read -r line; do
+    if [ "$in_cl" -eq 0 ]; then
+      if echo "$line" | grep -qE '^## Change Log'; then in_cl=1; fi
+      continue
+    fi
+    # Change Log 为文末章节；遇下一段落标题即停止
+    if echo "$line" | grep -qE '^## '; then break; fi
+    # 版本数据行：首单元格为 vX.Y（排除表头「版本」与分隔线）
+    if echo "$line" | grep -qE '^\|[[:space:]]*v[0-9]+(\.[0-9]+)*[[:space:]]*\|'; then
+      cl_count=$((cl_count + 1))
+    fi
+  done < "$file"
+  echo "  Change Log 版本条目数: $cl_count"
+  if [ "$cl_count" -gt 3 ]; then
+    echo "    [偏] Change Log 版本条目数 $cl_count > 3；主 PRD 仅保留最近 3 个版本，更早版本应迁至 design-decisions.md"
+    status=1
+  fi
+
   echo ""
 done
 
 if [ "$status" -ne 0 ]; then
-  echo "发现需整改项。请按 prototype-designer.md v1.27 规范进行 PRD 去历史化与章节对齐。"
+  if [ "$focus_changelog" -eq 1 ]; then
+    echo "发现 Change Log 收敛问题：主 PRD 仅保留最近 3 个版本，更早版本应迁至对应 design-decisions.md「Change Log（完整历史）」小节。"
+  else
+    echo "发现需整改项。请按 prototype-designer.md v1.27 规范进行 PRD 去历史化与章节对齐。"
+  fi
 fi
 exit "$status"

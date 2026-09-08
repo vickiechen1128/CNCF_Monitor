@@ -370,3 +370,48 @@
 ## 遗留风险 / 待确认
 
 - 无阻塞项。后续 Phase 5 统一导航（M05 自定义门户）落地后可收口 MODULES，移除本阶段 D3 占位导航。
+
+---
+
+## 任务 T07-48-B：业务管理页「业务分组字典」CRUD 闭环
+
+- 角色：frontend-developer
+- 任务 ID：T07-48-B（决策 48：业务分组字典维护，列表+登记+受限编辑+停用）
+- 分支：`feat/module-08-alert-dispatch`
+- 日期：2026-09-02
+- 后端配合：`45eff29b`（登记 POST /api/v2/platform/business-domains、受限编辑 PUT /:code，字段 code/name/description/enabled）
+
+## 输入文档
+
+- PRD：`docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md` §11.1/§11.2（页面状态矩阵 + 交互契约）
+- 契约权威：`docs/05-execution-records/module-07/api-contract-snapshot.md`（如存在）；决策 48
+- 工程标准：`docs/03-engineering-standards/02_Frontend_Standard.md`（复用 FilterBar / tablePresets / EllipsisText，禁止散点 Space wrap）
+
+## 改动文件列表
+
+- 扩展 `ui-custom/web/src/api/resources.ts` 的 `businessDomainApi`：`create`（POST /business-domains {code,name,description}）、`update`（PUT /:code {name,description,enabled}）
+- 新建 `ui-custom/web/src/pages/resources/BusinessDomainPage.tsx`（业务分组字典维护页）
+- 新建 `ui-custom/web/src/pages/resources/BusinessDomainPage.test.tsx`（156 行单测）
+- 挂载 `ui-custom/web/src/layouts/MainLayout.tsx`「监控对象管理」二级导航「业务管理」（/business-domains）
+- 路由 `ui-custom/web/src/App.tsx` 注册 `/business-domains`
+
+## 关键实现说明
+
+- 登记表单：code 校验 `^[a-z0-9-]{1,64}`，字段提示「编码创建后不可改」（编辑态 code 只读）；编辑仅开放 name/description/状态
+- 不提供删除；`infra` 条目禁用「停用」按钮并提示「infra 为无业务归属设备的兜底分组，不可停用」
+- 停用业务列表以「name（已停用）」标识
+- 状态矩阵：加载骨架 / 空态「暂无业务分组」+ 登记引导 / 接口错误 Alert
+- 交互组件复用 FilterBar / tablePresets / EllipsisText；Form 抽屉 forceRender
+- 归属模块 JSDoc：Module_07
+
+## 遇到的问题与解决
+
+- **Drawer 提交按钮定位失败**：antd 动画时序 + 中文按钮自动插空，改用 `findByText(/提\s*交/ / 保\s*存/)` 正则匹配并直接渲染 Drawer 断言。
+
+## 验证结果
+
+- `pnpm vitest run`（BusinessDomainPage）+ `pnpm lint` 通过；dev server 验证 /business-domains 200（`curl --noproxy '*'`）。
+
+## 遗留风险 / 待确认
+
+- 无阻塞项。

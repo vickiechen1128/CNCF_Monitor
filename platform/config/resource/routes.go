@@ -21,7 +21,8 @@ import (
 //   - POST            /resources/:resource_id/import（Excel 导入）
 //   - GET/POST        /resources/:resource_id/labels
 //   - PUT/DELETE      /resources/:resource_id/labels/:label_id
-//   - GET             /business-domains（业务分组字典，只读）
+//   - GET/POST       /business-domains（业务分组字典：只读列表 + 登记，决策 48）
+//   - PUT            /business-domains/:code（业务分组受限编辑；无 DELETE，决策 48）
 //   - GET             /imports
 //   - GET             /imports/:import_id
 //
@@ -51,6 +52,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDo
 	}
 
 	platform.GET("/business-domains", ListBusinessDomains(bizStore))
+	// 业务分组字典写路由（决策 48）：登记 + 受限编辑；无 DELETE（停用不删除）。
+	platform.POST("/business-domains", CreateBusinessDomain(bizStore))
+	platform.PUT("/business-domains/:code", UpdateBusinessDomain(bizStore))
 	// 操作系统内置字典（只读，供 M07 采集入口/资源表单下拉；位于 platform 层，
 	// 避免与 /resources/:resource_id 通配符冲突，见 RegisterRoutes 注释）。
 	platform.GET("/os-options", ListOSOptions())
