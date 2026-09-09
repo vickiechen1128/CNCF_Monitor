@@ -117,6 +117,8 @@ export interface PromAlertItem {
   activeAt: string
   /** 当前值（告警表达式当前求值） */
   value?: string
+  /** 后端聚合的实例展示字段（instance/instance_ip/hostname/nodename/device 依次回落）；聚合告警为空 */
+  instance_display?: string
 }
 
 /** GET /api/v1/alerts 响应 data 信封（空结果返回 [] 而非 null） */
