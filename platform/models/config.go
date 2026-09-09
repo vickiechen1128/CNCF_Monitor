@@ -189,6 +189,9 @@ const (
 // ConfigDeployment records a config delivery attempt, aligned with Module_09 §5.6.
 type ConfigDeployment struct {
 	BaseModel
+	// DeploymentID 是面向 API/UI 的下发记录唯一标识，格式 deploy-YYYYMMDD-NNN。
+	// 内部自增 ID 仍作为 DB 主键，但对外以 DeploymentID 为业务 ID。
+	DeploymentID      string           `gorm:"size:64;uniqueIndex" json:"-"`
 	NetworkDomainID   string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	ConfigVersionID   string           `gorm:"size:64;not null" json:"config_version_id"`
 	SourceChangeNo    string           `gorm:"size:64;not null" json:"source_change_no"`
@@ -205,3 +208,66 @@ type ConfigDeployment struct {
 
 // TableName returns the GORM table name.
 func (ConfigDeployment) TableName() string { return "config_deployments" }
+
+// VersionRef 是配置版本的轻量引用（用于回滚预览等场景）。
+type VersionRef struct {
+	ID       string `json:"id"`
+	ChangeNo string `json:"change_no"`
+}
+
+// RollbackDiffItem 表示回滚预览中的单条源数据操作差异。
+type RollbackDiffItem struct {
+	Side          string   `json:"side"` // target / current / both
+	Type          string   `json:"type"`
+	Target        string   `json:"target"`
+	Description   string   `json:"description"`
+	AffectedFiles []string `json:"affected_files"`
+	Risk          string   `json:"risk"`
+}
+
+// RollbackPreview 是回滚确认前的差异预览（决策 63 P0）。
+type RollbackPreview struct {
+	TargetVersion  VersionRef         `json:"target_version"`
+	CurrentVersion *VersionRef        `json:"current_version,omitempty"`
+	DiffItems      []RollbackDiffItem `json:"diff_items"`
+	Warning        string             `json:"warning"`
+}
+
+// MarshalJSON 将 ConfigDeployment 序列化，对外暴露的业务 ID 为 DeploymentID（deploy-xxx），
+// 隐藏内部自增主键，与契约 §5 / UI 展示名「部署 ID」保持一致。
+func (d ConfigDeployment) MarshalJSON() ([]byte, error) {
+	type deploymentView struct {
+		ID               string           `json:"id"`
+		NetworkDomainID  string           `json:"network_domain_id"`
+		ConfigVersionID  string           `json:"config_version_id"`
+		SourceChangeNo   string           `json:"source_change_no"`
+		Channel          ChannelType      `json:"channel"`
+		TargetAddress    string           `json:"target_address,omitempty"`
+		Status           DeploymentStatus `json:"status"`
+		ValidationStatus string           `json:"validation_status"`
+		IncludesBlackbox bool             `json:"includes_blackbox"`
+		ErrorMessage     string           `json:"error_message,omitempty"`
+		TriggeredBy      string           `json:"triggered_by"`
+		TriggeredAt      *time.Time       `json:"triggered_at,omitempty"`
+		CompletedAt      *time.Time       `json:"completed_at,omitempty"`
+		CreatedAt        time.Time        `json:"created_at"`
+		UpdatedAt        time.Time        `json:"updated_at"`
+	}
+	return json.Marshal(deploymentView{
+		ID:               d.DeploymentID,
+		NetworkDomainID:  d.NetworkDomainID,
+		ConfigVersionID:  d.ConfigVersionID,
+		SourceChangeNo:   d.SourceChangeNo,
+		Channel:          d.Channel,
+		TargetAddress:    d.TargetAddress,
+		Status:           d.Status,
+		ValidationStatus: d.ValidationStatus,
+		IncludesBlackbox: d.IncludesBlackbox,
+		ErrorMessage:     d.ErrorMessage,
+		TriggeredBy:      d.TriggeredBy,
+		TriggeredAt:      d.TriggeredAt,
+		CompletedAt:      d.CompletedAt,
+		CreatedAt:        d.CreatedAt,
+		UpdatedAt:        d.UpdatedAt,
+	})
+}

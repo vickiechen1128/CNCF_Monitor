@@ -140,6 +140,7 @@ func seed(t *testing.T, db *gorm.DB) {
 		ts := now.Add(-time.Duration(i) * time.Hour)
 		require.NoError(t, db.Create(&models.ConfigDeployment{
 			BaseModel:         models.BaseModel{CreatedAt: ts},
+			DeploymentID:      fmt.Sprintf("deploy-%03d", i),
 			NetworkDomainID:   "default",
 			ConfigVersionID:   fmt.Sprintf("%d", i),
 			SourceChangeNo:    fmt.Sprintf("CHG-DEP-%03d", i),

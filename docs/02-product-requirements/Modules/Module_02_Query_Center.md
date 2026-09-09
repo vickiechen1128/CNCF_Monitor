@@ -1,10 +1,10 @@
 # Module 02: 查询中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.12
+> **PRD 版本**: v1.13
 > **产品版本覆盖**: MVP / v0.2 / v0.3
-> **原型版本**: v1.7（未对齐，待按 v1.10 修订；以 `docs/prototypes/module-02/package.json` 为准）
-> **更新日期**: 2026-09-08
+> **原型版本**: v1.7（未对齐，待按 v1.10 修订；v1.13 为 Track B 轻量增量「历史告警 API」，免高保真原型，豁免记录见 `docs/05-execution-records/module-02/design-decisions.md`；以 `docs/prototypes/module-02/package.json` 为准）
+> **更新日期**: 2026-09-09
 > **对应原型**: `docs/prototypes/module-02/`
 > **副标题**: 带租户/网域上下文注入的 Prometheus Query API 代理 + 采集目标状态展示
 
@@ -98,7 +98,7 @@ Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下
 
 | 版本       | 交付能力                                                                                                                                                                                       |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **MVP**  | PromQL 查询代理（含注入骨架）；采集目标状态 API（代理 `/api/v1/targets`，为 M01 Job 回显与 M07 badge 的共同数据源，决策 47-4）；采集健康度/覆盖率查询 API（三态，供 M07 badge 消费，由 v0.2 提前，决策 47-3）；**告警状态代理（`/api/v1/alerts`，由 v0.3 提前，v1.12——M08 告警状态页 MVP 交付的依赖）**；响应 envelope；**独立目标状态页降为 P1（极简列表，决策 47-4）** |
+| **MVP**  | PromQL 查询代理（含注入骨架）；采集目标状态 API（代理 `/api/v1/targets`，为 M01 Job 回显与 M07 badge 的共同数据源，决策 47-4）；采集健康度/覆盖率查询 API（三态，供 M07 badge 消费，由 v0.2 提前，决策 47-3）；**告警状态代理（`/api/v1/alerts`，由 v0.3 提前，v1.12——M08 告警状态页 MVP 交付的依赖）**；**告警历史代理（`/api/v1/alerts/history`，v1.13 新增——M08 历史告警页 MVP 交付的依赖）**；响应 envelope；**独立目标状态页降为 P1（极简列表，决策 47-4）** |
 | **v0.2** | 租户/网域上下文注入（多租户 + 多网域语义）；labels/series 租户隔离；批量查询语义预留；envelope 多网域/多数据源细化                                                                                                                    |
 | **v0.3** | PromQL 校验与指标实时预览（支撑规则编辑 UI）；查询辅助；首页 Dashboard 数据；Open API 完善                                                                                                      |
 
@@ -156,6 +156,7 @@ Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下
 | **采集健康度/覆盖率查询 API**                | 基于 `up` 指标聚合，输出「已监控且 up / 已监控但 down / 未监控」三态数据（按 `resource_id` 标签回连资源），供 Module\_07 badge 三态展示（决策 47-3，由 v0.2 提前）                                                                | **P0 / MVP**          |
 | **批量查询**                           | 一次查询多个表达式（多表达式、统一时间窗、单次响应聚合）；v0.2 固定接口语义，v0.3 完善                                                                                                                                 | P2 预留 / **P1 / v0.3** |
 | **`/api/v1/alerts`** **代理**        | 代理 Prometheus 当前触发/待处理告警实例，注入租户/网域上下文，支持按网域/监控源筛选；供 Module\_08 告警状态页消费（v1.12 由 v0.3 提前至 MVP）                                                                                                           | **P0 / MVP**         |
+| **`/api/v1/alerts/history`** **代理**  | 基于 Prometheus `ALERTS` 时间序列 `query_range` 重建规则级告警触发/恢复区间，输出历史告警列表（含已恢复）；注入租户/网域上下文，支持按网域/告警名/实例/状态/时间范围筛选与分页；供 Module\_08 历史告警页消费（v1.13 新增）                                                                                                           | **P0 / MVP**         |
 | **`/api/v1/rules`** **只读代理**       | 代理 Prometheus 规则求值状态（只读），供 Module\_08 展示，避免其直连 Prometheus 绕过租户隔离                                                                                                                 | **P1 / v0.3**         |
 | **PromQL 校验 + 指标实时预览**             | 提供 `validate` 接口（语法校验）与带默认时间窗的指标预览；支撑 Module\_01 规则编辑 UI（随规则编辑 UI 移至 v0.3）                                                                                                       | **P0 / v0.3**         |
 | **查询辅助**                           | 指标名补全（联动 Module\_01 指标库 + `/api/v1/label/__name__/values`）、标签建议（叠加 Module\_07 LabelTemplate 预置标签）、常用查询模板                                                                         | **P1 / v0.3**         |
@@ -263,6 +264,22 @@ Module\_02 作为查询代理，核心流程覆盖从用户发起查询到获得
 | `lastError`      | string    | 最后错误   | 最近一次采集的错误信息，空表示无错误                  |
 | `scrapeDuration` | duration  | 采集耗时   | 单次采集的耗时                             |
 
+### 5.4 告警历史记录字段（`/api/v1/alerts/history`，v1.13 新增）
+
+| 字段 | 类型 | UI 展示名 | 说明 |
+|------|------|-----------|------|
+| `alertname` | string | 告警名称 | 告警规则名（来自 `ALERTS` 序列 `alertname` 标签） |
+| `instance` | string | 实例 | 告警实例标识；聚合告警无实例标签时由前端展示「全局/聚合」 |
+| `network_domain` | string | 网域 | 告警归属网域（缺失回落 `default`，与 `/api/v1/alerts` 同口径） |
+| `state` | string | 状态 | `firing`（查询窗口结束时仍在触发）/ `resolved`（触发区间已结束，即已恢复） |
+| `fired_at` | timestamp | 触发时间 | 触发区间第一个 firing 样本时间 |
+| `resolved_at` | timestamp | 恢复时间（按 Prometheus 求值） | 触发区间最后一个 firing 样本时间 + 一个求值步长；`state=firing` 时为 `null`；为求值视角近似值，不等同于故障真实恢复时间 |
+| `duration_seconds` | number | 持续时长 | `resolved_at - fired_at` 的秒数；`state=firing` 时为「查询窗口结束时间 - fired_at」 |
+| `summary` | string | 摘要 | 告警注解 `summary` |
+| `value` | string | 当前值 | 触发区间最后一个 firing 样本值（`ALERTS` 恒为 1，主要供排查展示） |
+
+> **重建口径**：后端以 `query_range` 查询 `ALERTS{alertstate="firing"}`，按 `alertname + instance + 其余 labels` 分组，连续 firing 样本合成同一触发区间；样本中断超过 `2 × step` 视为区间结束。`step` 默认 30s、最小 15s；默认时间窗 24h、最大 7d；历史深度受 Prometheus TSDB 保留策略限制。
+
 ***
 
 ## 6. 接口设计
@@ -279,6 +296,9 @@ Module\_02 作为查询代理，核心流程覆盖从用户发起查询到获得
 | /api/v1/label/:name/values | GET  | 获取 label 所有值（注入租户/网域上下文）                                                         |
 | /api/v1/series             | GET  | 查询匹配的 series（注入租户/网域上下文）                                                         |
 | /api/v1/alerts             | GET  | 获取当前告警状态（firing/pending 实例，注入租户/网域上下文；供 Module\_08 告警状态页消费，v1.12 由 v0.3 提前） |
+| /api/v1/alerts/history     | GET  | 获取历史告警（含已恢复）：基于 `ALERTS` 时间序列重建触发/恢复区间，注入租户/网域上下文；供 Module\_08 历史告警页消费（v1.13 新增） |
+
+> `/api/v1/alerts/history` 请求参数：`network_domain`（可选，授权集合收敛校验）、`alertname`、`instance`、`state`（`all`/`firing`/`resolved`，默认 `all`）、`start`/`end`（RFC3339，默认最近 24h，最大 7d）、`page`/`page_size`（默认 1/50，`page_size` 上限 200）。响应为统一 envelope：`{status, data:{list, total, page, page_size}}`，空结果 `list=[]`（非 `null`）。
 
 ### 6.2 v0.2 新增/增强
 
@@ -439,6 +459,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | 7  | 用户显式指定 `network_domain` matcher 时，越权取值返回空结果                                                                                  | P0  | v0.2 |
 | 8  | 断网网域的数据在 UI 上标注延迟提示，区分「无数据」与「数据旧」                                                                                            | P1  | v0.2 |
 | 9  | `/api/v1/alerts` 代理返回注入租户/网域上下文后的 firing/pending 告警实例，支持按网域/监控源筛选，供 Module\_08 告警状态页消费（**告警状态页归 M08**，本模块只交付 API，决策 55）      | P0  | MVP（v1.12 提前） |
+| 9a | `/api/v1/alerts/history` 返回规则级告警触发/恢复历史（含已恢复），支持按网域/告警名/实例/状态/时间范围筛选与分页，供 Module\_08 历史告警页消费（本模块只交付 API，v1.13 新增）      | P0  | MVP |
 | 10 | 查询辅助提供指标名补全、标签建议、常用查询模板（v0.3）                                                                                                | P1  | v0.3 |
 
 ### 11.2 技术验收（后端/契约可验证）
@@ -459,6 +480,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | 12 | 与 Module\_09 心跳/WAL 联动，对断网网域提示数据延迟                                                                | P1  | v0.2 |
 | 13 | 批量查询接口语义固定（多表达式、统一时间窗）                                                                            | P1  | v0.2 |
 | 14 | `/api/v1/alerts` 代理注入租户/网域上下文，不代理 Alertmanager 通知状态（Alertmanager 侧由 M08 `/api/v2/alerts` 代理承载）      | P0  | MVP（v1.12 提前） |
+| 14a | `/api/v1/alerts/history` 基于 `ALERTS{alertstate="firing"}` 的 `query_range` 重建触发/恢复区间：`state` 枚举 `firing`/`resolved`，`resolved_at` 为最后一个 firing 样本时间 + 一个 step，`state=firing` 时 `resolved_at=null`；`step` 默认 30s、最小 15s，时间窗默认 24h、最大 7d；空结果 `list=[]`；注入租户/网域上下文，授权过滤服务端强制执行      | P0  | MVP（v1.13 新增） |
 | 15 | `/api/v1/rules` 只读代理规则求值状态                                                                        | P1  | v0.3 |
 | 16 | `validate` 接口校验 PromQL 语法并返回错误定位；`preview` 接口返回最近样本                                               | P0  | v0.3 |
 | 17 | 查询辅助联动 Module\_01 指标库与 Module\_07 LabelTemplate                                                   | P1  | v0.3 |
@@ -473,7 +495,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
 | Module\_01 | `ScrapeTarget` / `ScrapeLog` 模型由 M01 定义，M02 只读展示；MVP 用 `/api/v1/targets` 代理（health/lastScrape/lastError），**同时作为 M01 Job 实例采集状态回显的数据源（决策 47-2）**，ScrapeLog 独立存储 v0.3；validate/指标预览接口随 M01 规则编辑 UI 于 v0.3 启用 | MVP / v0.3  |
 | Module\_07 | MVP 起：M02 提供 up 健康度/覆盖率查询 API（决策 47-3 提前），M07 只读消费做三态 badge（采集中 / 已下发未采到 / 未监控），M07 不直连时序数据；三态判定不感知 M09 下发时序——选中关系取 DB 当前值，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显（2026-09-02 口径修订）                     | MVP         |
-| Module\_08 | alerts 代理 v0.3 与 M08 对齐；M02 只代理中心求值告警实例，Alertmanager 通知状态（分组/静默/抑制/接收人）归 M08；v0.4+ `scope=edge`/`both` 边缘自治告警在边缘 vmalert 本地求值，不在中心 alerts 内                                                                | v0.3        |
+| Module\_08 | alerts 代理 v0.3 与 M08 对齐（v1.12 提前至 MVP）；M02 只代理中心求值告警实例与告警历史（`/api/v1/alerts` + `/api/v1/alerts/history`，后者 v1.13 新增），Alertmanager 通知状态（分组/静默/抑制/接收人）归 M08；v0.4+ `scope=edge`/`both` 边缘自治告警在边缘 vmalert 本地求值，不在中心 alerts 内                                                                | MVP / v0.3        |
 | Module\_09 | 注入 key 契约对齐 `network_domain` / `tenant_id`（M09 external\_labels）；M09 管监控基础设施健康（EdgeAgent/WAL/配置同步），M02 管被监控对象指标；M02 数据新鲜度信息源来自 M09 心跳                                                                      | MVP / v0.2  |
 | Module\_10 | v0.2+ 外部监控源数据经 M10 标签归一化后写入中心，M02 查询覆盖并按监控源筛选；标签语义对齐归 M10                                                                                                                                                  | v0.2 / v0.3 |
 
@@ -500,10 +522,13 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | `edge_remote_write`   | 边缘异步写入      | Edge Agent 在边缘网域抓取后异步回写，可能存在分钟级延迟      |
 | `firing`              | 触发中         | 告警规则当前处于触发状态                           |
 | `pending`             | 待处理         | 告警规则已满足条件但尚未超过持续时间阈值                   |
+| `resolved`（历史告警）     | 已恢复         | 历史告警状态：触发区间已结束（恢复时间为 Prometheus 求值近似值） |
+| `fired_at` / `resolved_at` | 触发时间 / 恢复时间（按 Prometheus 求值） | 由 `ALERTS` 时间序列重建的触发区间起止 |
 | `/api/v1/query`       | 查询接口        | 执行 PromQL 即时查询的 API                    |
 | `/api/v1/query_range` | 范围查询接口      | 执行 PromQL 范围查询的 API                    |
 | `/api/v1/targets`     | 目标状态接口      | 查看所有采集目标运行状态的 API                      |
 | `/api/v1/alerts`      | 告警状态接口      | 查看当前触发/待处理告警的 API（v0.3）                |
+| `/api/v1/alerts/history` | 历史告警接口   | 查看告警触发/恢复历史（含已恢复）的 API（MVP，v1.13 新增） |
 
 ***
 
@@ -525,7 +550,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 | 版本    | 日期         | 变更类型 | 变更内容                                                                                                                                                                     | 影响范围 | 产品版本影响 | 状态  |
 | ----- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------ | --- |
+| v1.13 | 2026-09-09 | 新增   | 历史告警 API MVP 增量（Track B，用户书面确认，随 Module_08 v1.13）：新增 `/api/v1/alerts/history`——基于 Prometheus `ALERTS{alertstate="firing"}` 的 `query_range` 重建规则级触发/恢复区间（恢复时间为求值近似值），支持按网域/告警名/实例/状态/时间范围筛选与分页（默认 24h、最大 7d）；§1 版本分布、§3.1 功能表、§5.4 数据模型、§6.1 接口、§11.1/11.2 验收（9a/14a）、§12 M08 边界、§13 术语同步；免高保真原型（豁免记录见 design-decisions.md） | 0    | MVP   | ready |
 | v1.12 | 2026-09-08 | 修改   | 范围调整（随 Module_08 v1.12，MVP 试用反馈）：`/api/v1/alerts` 代理由 v0.3 提前回 **MVP**——§1 版本分布、版本决策注记、§2 M02-OPS-07、§3 功能表、§6.1 接口（自 §6.3 挪入）、§13 术语、§11.1/11.2 验收同步调整；MVP 阶段注入骨架恒通过、授权过滤机制保留；`/api/v1/rules`、PromQL 校验/预览仍留 v0.3 | 0    | 功能提前至 MVP   | ready |
 | v1.11 | 2026-09-04 | 修改   | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移                                                                              | 0    | 文档自身   | 设计中 |
-| v1.10 | 2026-09-04 | 修改   | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（基础查询→状态感知→权限收敛→告警联动→开放集成）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「多租户数据隔离」「告警状态查看」「目标状态页导航」真实场景 | 0    | 文档自身   | 设计中 |
 

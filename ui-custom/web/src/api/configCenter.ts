@@ -14,6 +14,7 @@ import type {
   NetworkDomain,
   PaginatedItems,
   ResetTokenResult,
+  RollbackPreview,
 } from '../types/config-center'
 
 /** M09 列表查询参数（snake_case + 分页） */
@@ -107,6 +108,12 @@ export const deploymentApi = {
     return apiClient.post<ConfigDeployment>(
       `/api/v2/platform/deployments/${encodeURIComponent(config_version_id)}/rollback`,
       { body: { triggered_by } },
+    )
+  },
+  /** 回滚预览（决策 63 P0）：回滚确认前展示目标版本与当前生效版本的源数据操作差异。 */
+  rollbackPreview(config_version_id: string): Promise<ApiResponse<RollbackPreview>> {
+    return apiClient.get<RollbackPreview>(
+      `/api/v2/platform/config-versions/${encodeURIComponent(config_version_id)}/rollback-preview`,
     )
   },
 }

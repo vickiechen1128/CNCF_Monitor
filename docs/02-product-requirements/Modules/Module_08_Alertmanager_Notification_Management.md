@@ -1,10 +1,10 @@
 # Module 08: 告警收敛与通知管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.12
+> **PRD 版本**: v1.13
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v1.7（v1.10 修订后待升级对齐；决策 61 静默 API v1→v2 文案已改、版本号未提；以 `docs/prototypes/module-08/package.json` 为准）
-> **更新日期**: 2026-09-08
+> **原型版本**: v1.7（v1.13 为 Track B 轻量增量「历史告警」，免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；以 `docs/prototypes/module-08/package.json` 为准）
+> **更新日期**: 2026-09-09
 > **对应原型**: `docs/prototypes/module-08/`
 
 > **模块类型**: 扩展能力模块
@@ -83,6 +83,7 @@
 3. **告警状态查看（MVP 起，v1.12 由 v0.3 提前——MVP 试用反馈：前台缺少查看当前告警的入口）**：
    - 通过 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例（回答「当前触发了哪些规则」）。
    - 本模块直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态（回答「告警正在通知给谁、是否被静默/抑制」）。
+   - **历史告警（MVP 起，v1.13 新增）**：通过 Module\_02 新增的 `/api/v1/alerts/history`（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发/恢复区间），展示规则级告警的触发时间、恢复时间与持续时长（回答「这条告警什么时候触发、什么时候恢复」）。恢复时间为 Prometheus 求值视角的近似值，不等同于故障真实恢复时间。
 4. **通知渠道与模板（v1.0）**：维护飞书/钉钉/邮件/企业微信/Webhook 等接收人模板，支撑告警通知内容格式化。
 
 > **范围调整说明（v1.3）**：
@@ -120,6 +121,7 @@
 - M08-OPS-05：查看并删除正在生效的静默规则（MVP 起）。
 - M08-OPS-06：配置告警通知模板（summary / description 格式），使通知内容清晰可读（v1.0）。
 - M08-OPS-07：配置告警升级策略（如 5 分钟未确认升级给主管）（v1.0）。
+- M08-OPS-08：查看历史告警（含已恢复），确认某条告警何时触发、何时恢复（MVP 起，基于 Prometheus `ALERTS` 时间序列重建触发/恢复区间，恢复时间为求值视角近似值）。
 - M08-ARCH-01：当某个网域整体离线时，自动抑制该网域内 `inhibitable=true` 的可达性告警风暴，只保留 `EdgeSiteOffline` 根因告警（MVP 起，通过 Alertmanager `inhibit_rules` 自动生成）。
 - M08-ARCH-02：在边缘网域断网场景下，边缘本地 Alertmanager 继续通过本地通知通道（本地飞书/钉钉 webhook）发送自治告警（v0.4+，与 M09 边缘配置下发配合）。
 
@@ -138,6 +140,7 @@
 | **告警抑制规则** | 自动生成 `inhibit_rules`：当网域整体离线时，抑制该网域 `inhibitable=true` 的告警风暴；支持手动调整抑制策略 | P0 / MVP |
 | **Alertmanager 通知状态** | 代理 Alertmanager `/api/v2/alerts`，展示告警经过路由、静默、抑制后的通知状态 | P0 / MVP（v1.12 由 v0.3 提前） |
 | **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（MVP 起交付，v1.12 同步提前），本模块不重复实现，告警状态页只读消费 | —（依赖 M02） |
+| **历史告警** | 独立页面展示规则级告警的触发/恢复历史（含已恢复）：触发时间、恢复时间（按 Prometheus 求值近似）、持续时长、实例、网域、摘要；数据由 [Module\_02: 查询中心](Module_02_Query_Center.md) `/api/v1/alerts/history` 提供，本模块只读消费 | P0 / MVP |
 | **通知模板管理** | 管理告警通知的 title / body 模板，支持变量（`{{ $labels }}`、`{{ $value }}`、`{{ $annotations }}`） | P2 / v1.0 |
 | **告警升级与降噪** | 升级策略（未确认超时升级）、值班组、告警降噪（合并相似告警） | P2 / v1.0 |
 | **边缘本地通知通道** | 断网场景下边缘 Alertmanager 使用本地 webhook 通知（v0.4+ 多网域） | P2 / v0.4+ |
@@ -327,6 +330,7 @@ inhibit_rules:
 - **页面归属（v1.5，决策 55）**：「告警状态页」归属**本模块**（告警域工作台），用户动线为「什么出了问题 → 通知了谁/是否被静默 → 加静默/调路由」的连续任务链；Module_02 只交付注入代理 API，不出告警相关页面。
 - **Prometheus 当前触发告警（MVP 起，v1.12 由 v0.3 提前）**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`（已注入租户/网域上下文），本模块告警状态页只读消费，展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
 - **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。**授权过滤（v1.5，决策 56）**：代理时必须在**服务端**强制注入当前用户的授权网域集合 filter（不信任前端传参）；授权集合 = 全部网域时不附加 filter。前端筛选只承担 UX，不构成权限。
+- **历史告警（MVP 起，v1.13 新增）**：作为独立页面「历史告警」交付（菜单「告警收敛与通知管理 → 历史告警」），不复用「当前告警状态」列表语义——当前视图只回答「现在有哪些告警」，历史视图回答「某条告警何时触发、何时恢复」。数据由 Module\_02 `/api/v1/alerts/history` 提供（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发区间），支持按 `network_domain` / `alertname` / `instance` / 状态（触发中 / 已恢复）/ 时间范围筛选；默认时间窗 24h，最大 7d。恢复时间为 Prometheus 求值视角的近似值（最后一次 firing 样本时间 + 一个求值步长），UI 列名必须标注「恢复时间（按 Prometheus 求值）」，不得表述为「故障恢复时间」。
 - **边缘本地告警状态（P2）**：通过 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 
 ---
@@ -451,6 +455,7 @@ inhibit_rules:
 - [ ] {P0} 可查看 Alertmanager 通知状态（active / silenced / inhibited / unprocessed）。
 - [ ] {P0，决策 60} `alertmanager.yml` 纳入 M09 变更确认流水线：生成管理域（`default`）scope 变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08；不参与按网域扇出。
 - [ ] {P0} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）可查看当前告警：Prometheus 触发告警（firing / pending，经 [Module\_02](Module_02_Query_Center.md) 代理 `/api/v1/alerts`）与 Alertmanager 通知状态双视图展示，支持按 `network_domain` 筛选（v1.12 由 v0.3 提前至 MVP）。
+- [ ] {P0，v1.13} 历史告警页（菜单「告警收敛与通知管理 → 历史告警」）可查看规则级告警触发/恢复历史：列表展示告警名称、实例、网域、状态（触发中 / 已恢复）、触发时间、恢复时间（按 Prometheus 求值）、持续时长、摘要，支持按 `network_domain` / `alertname` / `instance` / 状态 / 时间范围筛选，默认时间窗 24h、最大 7d，提供手动刷新；历史深度受 Prometheus TSDB 保留策略限制，页面需有对应提示。
 - [ ] {v1.0} 可配置通知模板与告警升级策略。
 - [ ] {v0.4+} 支持边缘本地 Alertmanager 通知通道配置（P2）。
 
@@ -462,6 +467,7 @@ inhibit_rules:
 - [ ] {P0} 静默规则通过 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询，状态同步正确；禁止调用已移除的 v1 silence 端点。
 - [ ] {P0} `inhibit_rules` 生成逻辑正确：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警。
 - [ ] {P0} Alertmanager `/api/v2/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
+- [ ] {P0，v1.13} 历史告警页消费 Module\_02 `/api/v1/alerts/history`：返回字段含 `alertname` / `instance` / `network_domain` / `state`（firing/resolved）/ `fired_at` / `resolved_at` / `duration_seconds` / `summary` / `value`，空结果返回 `[]` 而非 `null`；授权网域过滤由服务端强制注入（决策 56 同口径）。
 - [ ] {P0} M08 不生成 `rules.yml`、不管理 `MonitoringRule` 内容；规则相关数据由 M01 写入、M09 生成配置。
 - [ ] {P0} M08 `AlertmanagerConfigVersion` 仅留痕**校验通过**的 `alertmanager.yml` 挂载内容（校验失败不落库、仅返回行级错误，决策 59/60）；管道版本与下发状态以 M09 `ConfigVersion` 为准（决策 60）。
 - [ ] {P0} Alertmanager `/api/v2/alerts` 代理在服务端强制注入当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参（决策 56）。
@@ -481,6 +487,8 @@ inhibit_rules:
 | `AlertmanagerConfigVersion` | 配置版本 | M08 自身维护的 `alertmanager.yml` 版本记录，用于审计回滚 |
 | `alertmanager.yml` | Alertmanager 配置 | 由 M08 管理，包含路由、接收人、抑制、静默模板等 |
 | `active` / `silenced` / `inhibited` / `unprocessed` | 通知状态 | Alertmanager 对告警的处理状态 |
+| `firing` / `resolved`（历史告警） | 触发中 / 已恢复 | 历史告警页状态：`firing`=查询窗口结束时仍在触发；`resolved`=触发区间已结束（恢复时间为 Prometheus 求值近似值） |
+| `fired_at` / `resolved_at` | 触发时间 / 恢复时间（按 Prometheus 求值） | 由 Module\_02 `/api/v1/alerts/history` 基于 `ALERTS` 时间序列重建 |
 | `MonitoringRule` | 告警 / 记录规则 | 由 M01 负责内容创作，M08 不直接管理 |
 | `rules.yml` | 告警规则文件 | 由 M09 按网域分组生成并下发，M08 不生成 |
 
@@ -492,7 +500,7 @@ inhibit_rules:
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.13 | 2026-09-09 | 新增 | 历史告警 MVP 增量（Track B，用户书面确认）：新增独立页面「历史告警」——基于 Prometheus `ALERTS` 时间序列重建规则级触发/恢复区间（恢复时间为求值近似值），展示触发时间/恢复时间/持续时长/实例/网域/摘要，支持按网域/告警名/实例/状态/时间范围筛选（默认 24h、最大 7d）；数据由 Module_02 新增 `/api/v1/alerts/history` 提供；§1 目标 3、§2 M08-OPS-08、§3.1 功能表、§5.4、§9.1/§9.2 验收、§10 术语同步；免高保真原型（豁免记录见 design-decisions.md） | 1 / 2 / 3.1 / 5.4 / 9 / 10 | MVP | ready |
 | v1.12 | 2026-09-08 | 修改 | 范围调整（MVP 试用反馈：前台缺少查看当前告警入口）：告警状态查看由 v0.3 提前至 MVP——§1 目标 3、§2 M08-OPS-03、§3.1 功能表、§5.4、§8 依赖、§9.1 验收同步调整；「告警状态页」MVP 交付（Prometheus firing/pending 视图依赖 M02 代理 `/api/v1/alerts` 同步提前，见 Module_02 对应版本口径）；顺手修正 Alertmanager 告警代理端点为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 端点在 AM ≥0.27 已移除） | 0 | 功能提前至 MVP | ready |
 | v1.11 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移 | 0 | 文档自身 | 设计中 |
-| v1.10 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（通知接入→变更管控→静默管理→风暴抑制→状态可视化）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「告警配置变更确认」「静默 API 版本迁移」「查看告警通知状态」真实场景 | 0 | 文档自身 | 设计中 |
 

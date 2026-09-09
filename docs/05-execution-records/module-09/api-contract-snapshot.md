@@ -135,6 +135,7 @@
 |------|------|----------------|-----------|----------|--------|
 | GET | `/api/v2/platform/config-versions` | Query: `network_domain_id`、`change_no?`、`page`、`page_size` | `{ items: [ConfigVersion], total }` | — | §6.5.3 |
 | GET | `/api/v2/platform/config-versions/{id}` | — | ConfigVersion 详情（含完整产物，供 diff）。`{id}` 兼容两种 ref：纯数字按主键 id 命中；否则按 `change_no` 命中（source_version 透传为 change_no 时直接命中） | `not_found` | §6.5.3 |
+| GET | `/api/v2/platform/config-versions/{id}/rollback-preview` | — | RollbackPreview（决策 63 P0）：目标版本、当前生效版本、源数据操作差异清单、固定警告文案 | `not_found` | §6.5.3 / 决策 63 |
 | GET | `/api/v2/platform/deployments` | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [ConfigDeployment], total }` | — | §6.5.3 |
 | POST | `/api/v2/platform/deployments/{deployment_id}/retry` | body `{ triggered_by }` | 新的 ConfigDeployment | `bad_request`：非 local / 原记录非 failed；`not_found` | §6.5.3 / 决策 42-3 |
 | POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | body `{ triggered_by }` | 新的 ConfigDeployment（回滚目标版本；成功时 `status=rolled_back`，失败时 `status=failed` 并记录 `error_message`；被回滚的历史记录保持不变） | `not_found`；`bad_request`：目标版本不存在/不同网域 | §6.5.3 |
@@ -155,6 +156,26 @@
 | `triggered_by` | string | 操作人 |
 | `triggered_at` | datetime | 开始时间 |
 | `completed_at` | datetime | |
+
+### RollbackPreview（回滚预览，决策 63 P0）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `target_version` | VersionRef | 回滚目标版本 `{ id, change_no }` |
+| `current_version` | VersionRef? | 当前生效版本；网域尚无成功下发时为 null |
+| `diff_items` | [RollbackDiffItem] | 源数据操作差异清单 |
+| `warning` | string | 固定文案「回滚不恢复 M01/M08 中的启停状态」 |
+
+#### RollbackDiffItem
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `side` | enum | `target`（仅目标版本有）/ `current`（仅当前生效版本有）/ `both`（两侧均有） |
+| `type` | enum | add / update / delete |
+| `target` | enum | scrape_job / target_instance / monitoring_rule / probe_target / label_template / alertmanager_config |
+| `description` | string | 人话变更说明 |
+| `affected_files` | [string] | 影响的配置文件枚举 |
+| `risk` | enum | low / high |
 
 ### ConfigVersion
 

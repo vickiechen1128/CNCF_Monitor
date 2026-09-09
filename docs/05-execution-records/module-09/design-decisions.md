@@ -1455,3 +1455,16 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
   5. **systemd 注册不在 MVP 范围**（默认 start.sh）；日志轮转随包提供 logrotate 示例片段，是否写入 `/etc/logrotate.d/` 由运维决定（手册将 /etc 列为系统保留区，默认不碰）；
   6. SQLite 经 `METRIC_CENTER_DB_DSN` 指向 `/opt/data/metric-center/metric_center.db`。
 - **落点**：Module_09 PRD v1.60（§1「MVP 中心部署目录规范」注记）；`docs/06-mvp-e2e-testing/package-center-guide.md` 增补「生产标准化部署」章节；脚本侧改造（`scripts/package-center.sh` + 新增 install.sh / env.sh 模板）在开发空间 feat 分支落地。
+
+---
+
+## 决策登记：2026-09-09（rules.yml 规则 job 引用校验口径，用户已确认，PRD 落版待下一轮）
+
+- **触发**：MVP 试用发现种子 `rules.yml` 中 `HostTargetsMissing` 规则表达式 `absent(up{job=~"node|node-exporter|linux"})` 与实际生效 Job（`job_name=ceshi`）不匹配，导致规则持续 firing、机器恢复后仍显示「触发中」。用户确认在 M09 配置校验阶段增加「规则引用的 job 存在性检查」。
+- **结论（口径已确认，PRD 增量待落版）**：
+  1. 在 ConfigDraft 校验阶段（现有 `promtool check rules` 语法校验之外）新增**语义校验**：解析 `rules.yml` 中 `job="..."` / `job=~"..."` matcher，与本网域生成的 `prometheus.yml` 的 `scrape_configs[].job_name` 列表比对；
+  2. 分级处置——使用 `up` / `absent(up)` 的存活类规则引用不存在的 job：**error，阻止确认**（该类规则 job 不匹配必然持续误报/漏报）；其他规则引用不存在的 job：**warning，允许确认但高亮提示**（兼容「先挂规则、后建 Job」的合法流程）；
+  3. 该校验是部署期护栏，不解决 Job 改名后的运行时漂移；长期方向为规则匹配平台稳定标签（`resource_id` / `network_domain` / `monitor_type` 等）或由 M01 提供规则模板，与 job 名解耦。
+- **用户确认**：2026-09-09，用户在开发空间 `feat/module-09-config-center` 书面确认（「我接受『up/absent(up) 规则 job 不匹配 = error，其他 job 引用不匹配 = warning』这个口径」）。
+- **影响范围（待落版）**：Module_09 PRD 下一轮增量（§3.3 配置生成服务校验、§3.4 校验归因展示、§9 验收标准）；实现落点为 configgen/校验管线。
+- **关联**：module-08 design-decisions 2026-09-09 历史告警 MVP 增量（PRD v1.13）。

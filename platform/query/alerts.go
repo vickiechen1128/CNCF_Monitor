@@ -34,6 +34,9 @@ type promAlert struct {
 	State       string            `json:"state"`
 	ActiveAt    time.Time         `json:"activeAt"`
 	Value       string            `json:"value"`
+	// InstanceDisplay 是面向 UI 的实例展示字段：依次尝试 instance/instance_ip/hostname/
+	// nodename/device 标签，均缺失时返回空串（前端据此显示「全局/聚合」）。
+	InstanceDisplay string `json:"instance_display"`
 }
 
 // AlertsHandler 是 GET /api/v1/alerts 的 handler：
@@ -67,6 +70,7 @@ func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
 			if netDomain != "" && domain != netDomain {
 				continue
 			}
+			a.InstanceDisplay = instanceDisplayOf(a.Labels)
 			out = append(out, a)
 		}
 
@@ -132,4 +136,16 @@ func alertDomainAllowed(authorized []string, domain string) bool {
 		}
 	}
 	return false
+}
+
+// instanceDisplayOf 从告警标签中提取面向 UI 的实例展示值。
+// 聚合告警（如 HostTargetsMissing）无 instance 标签，返回空串由前端展示为「全局/聚合」。
+func instanceDisplayOf(labels map[string]string) string {
+	keys := []string{"instance", "instance_ip", "hostname", "nodename", "device"}
+	for _, k := range keys {
+		if v := labels[k]; v != "" {
+			return v
+		}
+	}
+	return ""
 }

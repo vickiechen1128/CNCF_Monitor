@@ -205,3 +205,27 @@ export interface ConfigDeployment {
   triggered_at: string
   completed_at?: string
 }
+
+/** 版本轻量引用（回滚预览用） */
+export interface VersionRef {
+  id: string
+  change_no: string
+}
+
+/** 回滚预览单条源数据操作差异 */
+export interface RollbackDiffItem {
+  side: 'target' | 'current' | 'both'
+  type: ChangeType
+  target: ChangeTarget
+  description: string
+  affected_files: AffectedFile[]
+  risk: Risk
+}
+
+/** 回滚确认前差异预览（决策 63 P0） */
+export interface RollbackPreview {
+  target_version: VersionRef
+  current_version?: VersionRef
+  diff_items: RollbackDiffItem[]
+  warning: string
+}

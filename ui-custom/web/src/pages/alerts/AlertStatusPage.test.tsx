@@ -90,8 +90,8 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(await screen.findByRole('tab', { name: /Alertmanager 通知状态/ })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /Prometheus 当前触发告警/ })).toBeInTheDocument()
     // 语义区分：Prometheus 视图=规则求值触发（firing/pending）；AM 视图=路由/静默/抑制后的通知结果
-    expect(screen.getByText(/规则求值结果/)).toBeInTheDocument()
-    expect(screen.getByText(/路由、静默、抑制后的通知处理结果/)).toBeInTheDocument()
+    expect(screen.getByText(/告警规则实时求值结果/)).toBeInTheDocument()
+    expect(screen.getByText(/路由、静默、\s*抑制后的处理结果/)).toBeInTheDocument()
   })
 
   it('AM 视图渲染行字段：告警名称 / 通知状态 / 网域 / 实例 / 摘要', async () => {
@@ -147,6 +147,29 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(screen.getByText('0.98')).toBeInTheDocument()
   })
 
+  it('Prometheus 聚合告警实例回退 + 当前值科学计数法可读化', async () => {
+    usePromAlertsMock.mockReturnValue(
+      promState({
+        items: [
+          promRow({
+            labels: { alertname: 'HostTargetsMissing', network_domain: 'default', severity: 'critical' },
+            annotations: { summary: '主机监控目标全部丢失' },
+            value: '1e+00',
+          }),
+        ],
+      }),
+    )
+    renderPage()
+    fireEvent.click(await screen.findByRole('tab', { name: /Prometheus 当前触发告警/ }))
+    expect(await screen.findByText('HostTargetsMissing')).toBeInTheDocument()
+    // 聚合告警无 instance/instance_ip/hostname 标签，回退展示「全局/聚合」
+    expect(screen.getByText('全局/聚合')).toBeInTheDocument()
+    // 科学计数法 1e+00 格式化为 1（在告警行内断言，避免命中统计卡片/分页中的 1）
+    const alertRow = screen.getByText('HostTargetsMissing').closest('tr')
+    expect(alertRow).not.toBeNull()
+    expect(within(alertRow as HTMLElement).getByText('1')).toBeInTheDocument()
+  })
+
   it('加载中：表格展示加载态', async () => {
     useAmAlertsMock.mockReturnValue(amState({ loading: true }))
     const { container } = renderPage()
@@ -166,6 +189,20 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(await screen.findByText('告警列表加载失败，请稍后重试')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重新加载/ }))
     expect(amReloadMock).toHaveBeenCalled()
+  })
+
+  it('手动刷新：AM 与 Prometheus 视图按钮分别触发各自 reload', async () => {
+    renderPage()
+    // AM 视图默认激活
+    const amRefresh = await screen.findByRole('button', { name: /刷新/ })
+    fireEvent.click(amRefresh)
+    expect(amReloadMock).toHaveBeenCalledTimes(1)
+
+    // 切到 Prometheus 视图后再点刷新
+    fireEvent.click(screen.getByRole('tab', { name: /Prometheus 当前触发告警/ }))
+    const promRefresh = await screen.findByRole('button', { name: /刷新/ })
+    fireEvent.click(promRefresh)
+    expect(promReloadMock).toHaveBeenCalledTimes(1)
   })
 
   it('权限不足：整页展示无权限空态', async () => {

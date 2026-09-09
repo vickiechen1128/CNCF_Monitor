@@ -29,6 +29,7 @@ import {
   ClockCircleOutlined,
   FireOutlined,
   PauseCircleOutlined,
+  ReloadOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -68,6 +69,31 @@ function formatTime(iso?: string): string {
 /** 告警标签读取（缺失标签回落：network_domain 缺失按契约回落 default 由后端承担，前端兜底 '-'） */
 function labelOf(item: { labels: Record<string, string> }, key: string): string {
   return item.labels[key] || '-'
+}
+
+/** 实例展示：优先后端 instance_display，否则按常见标签键依次回落；聚合告警显示「全局/聚合」 */
+function instanceDisplay(item: { labels: Record<string, string>; instance_display?: string }): string {
+  if (item.instance_display) return item.instance_display
+  const keys = ['instance', 'instance_ip', 'hostname', 'nodename', 'device']
+  for (const k of keys) {
+    const v = item.labels[k]
+    if (v) return v
+  }
+  return '全局/聚合'
+}
+
+/** 告警当前值展示：科学计数法转可读数值，保留原始字符串兜底 */
+function formatAlertValue(v?: string): string {
+  if (!v) return '-'
+  const n = Number(v)
+  if (!Number.isFinite(n)) return v
+  // 大数 / 小数科学计数法转普通表示，最多 6 位有效数字
+  if (Math.abs(n) >= 1e6 || (Math.abs(n) > 0 && Math.abs(n) < 1e-3)) {
+    return n.toPrecision(4).replace(/\.?0+e/, 'e')
+  }
+  // 整数直接展示，小数保留 4 位有效数字
+  if (Number.isInteger(n)) return n.toString()
+  return n.toPrecision(4).replace(/\.?0+$/, '')
 }
 
 /** 视图内错误提示（接口错误态：错误 Alert + 重试入口） */
@@ -227,6 +253,11 @@ function AmAlertsView({
           />
         </FilterItem>
         <DomainFilter value={domain} onChange={onDomainChange} domains={domains} />
+        <FilterItem label="操作">
+          <Button icon={<ReloadOutlined />} onClick={state.reload} loading={state.loading}>
+            刷新
+          </Button>
+        </FilterItem>
       </FilterBar>
       <Table<AmAlertItem>
         rowKey={(r) => `${labelOf(r, 'alertname')}|${labelOf(r, 'instance')}|${r.starts_at}`}
@@ -284,7 +315,7 @@ function PromAlertsView({
       title: '实例',
       key: 'instance',
       width: 170,
-      render: (_, r) => <EllipsisText maxWidth={150}>{labelOf(r, 'instance')}</EllipsisText>,
+      render: (_, r) => <EllipsisText maxWidth={150}>{instanceDisplay(r)}</EllipsisText>,
     },
     {
       title: '激活时间',
@@ -302,8 +333,8 @@ function PromAlertsView({
       title: '当前值',
       dataIndex: 'value',
       key: 'value',
-      width: 100,
-      render: (v?: string) => <Text>{v ?? '-'}</Text>,
+      width: 110,
+      render: (v?: string) => <Text code>{formatAlertValue(v)}</Text>,
     },
   ]
 
@@ -324,9 +355,14 @@ function PromAlertsView({
           />
         </FilterItem>
         <DomainFilter value={domain} onChange={onDomainChange} domains={domains} />
+        <FilterItem label="操作">
+          <Button icon={<ReloadOutlined />} onClick={state.reload} loading={state.loading}>
+            刷新
+          </Button>
+        </FilterItem>
       </FilterBar>
       <Table<PromAlertItem>
-        rowKey={(r) => `${labelOf(r, 'alertname')}|${labelOf(r, 'instance')}|${r.activeAt}`}
+        rowKey={(r) => `${labelOf(r, 'alertname')}|${instanceDisplay(r)}|${r.activeAt}`}
         dataSource={filtered}
         loading={state.loading}
         columns={columns}
@@ -378,9 +414,12 @@ export function AlertStatusPage() {
           message="两个视图的语义区别"
           description={
             <span>
-              「Prometheus 当前触发告警」展示规则求值结果（触发中 / 待处理），反映当前哪些告警规则被触发；
-              「Alertmanager 通知状态」展示告警经过路由、静默、抑制后的通知处理结果（通知中 / 已静默 / 已抑制 / 待处理）。
-              同一告警在两个视图中的语义不同，请按需切换查看。
+              <strong>「Prometheus 当前触发告警」</strong>回答「什么出了问题」：展示告警规则实时求值结果
+              （触发中 = 规则已满足条件、待处理 = 规则满足条件但未达持续时间）。
+              <br />
+              <strong>「Alertmanager 通知状态」</strong>回答「通知是否已发出/被收敛」：展示告警经过路由、静默、
+              抑制后的处理结果（通知中 / 已静默 / 已抑制 / 待处理）。
+              同一告警在两个视图中的含义不同，请按排查目标切换。
             </span>
           }
         />
@@ -392,12 +431,20 @@ export function AlertStatusPage() {
             items={[
               {
                 key: 'am',
-                label: 'Alertmanager 通知状态',
+                label: (
+                  <Tooltip title="告警经路由/静默/抑制后的通知处理结果">
+                    Alertmanager 通知状态
+                  </Tooltip>
+                ),
                 children: <AmAlertsView state={am} domain={domain} onDomainChange={setDomain} domains={domains} />,
               },
               {
                 key: 'prom',
-                label: 'Prometheus 当前触发告警',
+                label: (
+                  <Tooltip title="Prometheus 告警规则实时求值结果">
+                    Prometheus 当前触发告警
+                  </Tooltip>
+                ),
                 children: <PromAlertsView state={prom} domain={domain} onDomainChange={setDomain} domains={domains} />,
               },
             ]}
