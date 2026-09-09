@@ -34,11 +34,12 @@ func queryPage(c *gin.Context) (page, pageSize int) {
 }
 
 // RegisterRoutes 将 Module_09 配置版本与下发记录端点挂到 /api/v2/platform 子组：
-//   - GET  /config-versions                   配置版本列表（网域 + change_no + 分页）
-//   - GET  /config-versions/:id               配置版本详情（供 diff）
-//   - GET  /deployments                       下发记录列表（网域 + status + change_no + 分页）
-//   - POST /deployments/:deployment_id/retry      重试（仅 local + 原记录 failed）
-//   - POST /deployments/:config_version_id/rollback 回滚（目标版本存在且同网域 local）
+//   - GET  /config-versions                           配置版本列表（网域 + change_no + 分页）
+//   - GET  /config-versions/:id                       配置版本详情（供 diff）
+//   - GET  /config-versions/:id/rollback-preview        回滚预览（决策 63 P0）
+//   - GET  /deployments                               下发记录列表（网域 + status + change_no + 分页）
+//   - POST /deployments/:deployment_id/retry          重试（仅 local + 原记录 failed）
+//   - POST /deployments/:config_version_id/rollback   回滚（目标版本存在且同网域 local）
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	// 读列表端点保留在平台根组（仅全局认证 au-02）。
 	platform.GET("/config-versions", ListVersionsHandler(db))
@@ -50,6 +51,7 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	admin := platform.Group("")
 	admin.Use(auth.RequireAdmin())
 	admin.GET("/config-versions/:id", GetVersionHandler(db))
+	admin.GET("/config-versions/:id/rollback-preview", RollbackPreviewHandler(db))
 	admin.POST("/deployments/:id/retry", RetryDeploymentHandler(db))
 	admin.POST("/deployments/:id/rollback", RollbackDeploymentHandler(db))
 }
@@ -79,6 +81,18 @@ func GetVersionHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		response.OK(c, v)
+	}
+}
+
+// RollbackPreviewHandler 处理 GET /api/v2/platform/config-versions/{id}/rollback-preview。
+func RollbackPreviewHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		preview, err := RollbackPreview(db, c.Param("id"))
+		if err != nil {
+			respondDeploymentError(c, err)
+			return
+		}
+		response.OK(c, preview)
 	}
 }
 
