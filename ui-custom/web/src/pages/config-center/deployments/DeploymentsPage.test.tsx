@@ -12,6 +12,7 @@ const deploymentApiMock = {
   list: vi.fn(),
   retry: vi.fn(),
   rollback: vi.fn(),
+  rollbackPreview: vi.fn(),
   getConfigVersion: vi.fn(),
 }
 const reloadMock = vi.fn()
@@ -25,6 +26,7 @@ vi.mock('../../../api/configCenter', () => ({
     list: (...a: unknown[]) => deploymentApiMock.list(...a),
     retry: (...a: unknown[]) => deploymentApiMock.retry(...a),
     rollback: (...a: unknown[]) => deploymentApiMock.rollback(...a),
+    rollbackPreview: (...a: unknown[]) => deploymentApiMock.rollbackPreview(...a),
     getConfigVersion: (...a: unknown[]) => deploymentApiMock.getConfigVersion(...a),
   },
 }))
@@ -77,6 +79,7 @@ describe('DeploymentsPage（下发记录）', () => {
     deploymentApiMock.list.mockReset()
     deploymentApiMock.retry.mockReset()
     deploymentApiMock.rollback.mockReset()
+    deploymentApiMock.rollbackPreview.mockReset()
     deploymentApiMock.getConfigVersion.mockReset()
     reloadMock.mockReset()
     fetchAllDomainsMock.mockReset()
@@ -160,29 +163,58 @@ describe('DeploymentsPage（下发记录）', () => {
     expect(screen.getByText('操作人')).toBeInTheDocument()
   })
 
-  it('回滚：Modal 二次确认后调用 rollback 并 reload', async () => {
+  it('回滚：受控 Modal 展示差异预览，确认后调用 rollback 并 reload', async () => {
     useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
+    deploymentApiMock.rollbackPreview.mockResolvedValue({
+      status: 'success',
+      data: {
+        target_version: { id: 'cv-20260823-001', change_no: 'CHG-20260823-001' },
+        current_version: { id: 'cv-20260823-000', change_no: 'CHG-20260823-000' },
+        diff_items: [
+          {
+            side: 'target',
+            type: 'add',
+            target: 'scrape_job',
+            description: '新增采集 Job node-exporter',
+            affected_files: ['prometheus', 'targets'],
+            risk: 'low',
+          },
+        ],
+        warning: '回滚不恢复 M01/M08 中的启停状态',
+      },
+    })
     deploymentApiMock.rollback.mockResolvedValue({ status: 'success', data: deploymentRow() })
-    const modal = mockAntdModal()
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /回滚/ }))
-    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
-    await onOk()
-    expect(deploymentApiMock.rollback).toHaveBeenCalledWith('cv-20260823-001', expect.any(String))
+    expect(await screen.findByText('回滚配置')).toBeInTheDocument()
+    // 差异预览加载后展示清单内容
+    expect(await screen.findByText('新增采集 Job node-exporter')).toBeInTheDocument()
+    expect(screen.getByText('回滚不恢复 M01/M08 中的启停状态')).toBeInTheDocument()
+    // 点击确认回滚
+    const okBtn = screen.getAllByRole('button').find((b) => b.textContent?.replace(/\s/g, '') === '确认回滚')
+    expect(okBtn).toBeDefined()
+    fireEvent.click(okBtn as HTMLElement)
+    await waitFor(() => expect(deploymentApiMock.rollback).toHaveBeenCalledWith('cv-20260823-001', expect.any(String)))
     await waitFor(() => expect(reloadMock).toHaveBeenCalled())
   })
 
   it('回滚确认弹窗文案指向所选版本（PRD §3.5：不出现「上一可用版本」误导表述）', async () => {
     useDeploymentsMock.mockReturnValue(result({ data: { items: [deploymentRow()], total: 1 } }))
-    const modal = mockAntdModal()
+    deploymentApiMock.rollbackPreview.mockResolvedValue({
+      status: 'success',
+      data: {
+        target_version: { id: 'cv-20260823-001', change_no: 'CHG-20260823-001' },
+        current_version: null,
+        diff_items: [],
+        warning: '回滚不恢复 M01/M08 中的启停状态',
+      },
+    })
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /回滚/ }))
-    const content = modal.confirm.mock.calls[0][0].content as ReactElement
-    const { container } = render(<MemoryRouter>{content}</MemoryRouter>)
-    expect(container.textContent).toContain('回滚到所选版本')
-    expect(container.textContent).toContain('cv-20260823-001')
-    expect(container.textContent).toContain('CHG-20260823-001')
-    expect(container.textContent).not.toContain('上一可用配置版本')
+    expect(await screen.findByText('回滚配置')).toBeInTheDocument()
+    expect(screen.getByText('回滚到所选版本').closest('.ant-modal-body')?.textContent).toContain('cv-20260823-001')
+    expect(screen.getByText('回滚到所选版本').closest('.ant-modal-body')?.textContent).toContain('CHG-20260823-001')
+    expect(screen.getByText('回滚到所选版本').closest('.ant-modal-body')?.textContent).not.toContain('上一可用配置版本')
   })
 
   it('rolled_back 记录渲染「已回滚」标签且回滚按钮可点（PRD §8：可再次作为回滚目标）', async () => {

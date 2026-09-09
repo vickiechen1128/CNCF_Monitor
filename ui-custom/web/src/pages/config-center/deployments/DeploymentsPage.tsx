@@ -22,7 +22,7 @@ import config from 'antd/locale/zh_CN'
 import type { ColumnsType } from 'antd/es/table'
 import { EyeOutlined, QuestionCircleOutlined, ReloadOutlined, RollbackOutlined } from '@ant-design/icons'
 import { deploymentApi } from '../../../api/configCenter'
-import type { Channel, ConfigDeployment, ConfigVersion, DeploymentStatus } from '../../../types/config-center'
+import type { Channel, ConfigDeployment, ConfigVersion, DeploymentStatus, RollbackDiffItem, RollbackPreview } from '../../../types/config-center'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { EllipsisText } from '../../../components/EllipsisText'
 import { MainLayout } from '../../../layouts/MainLayout'
@@ -30,11 +30,18 @@ import { useDeployments, fetchAllDomains } from './useDeployments'
 import { fileTextByKey } from '../preview/configPreviewYaml'
 import {
   CURRENT_USER,
+  affectedFileColor,
+  affectedFileLabel,
   channelColor,
   channelLabel,
   channelTip,
+  changeTargetLabel,
+  changeTypeColor,
+  changeTypeLabel,
   deploymentStatusColor,
   deploymentStatusLabel,
+  riskColor,
+  riskLabel,
 } from '../configCenterConstants'
 
 const { Text } = Typography
@@ -79,6 +86,14 @@ export function DeploymentsPage() {
     error: null,
     data: null,
   })
+  // 回滚确认弹窗：决策 63 P0 要求展示目标版本 vs 当前生效版本的源数据操作差异清单。
+  const [rollbackModal, setRollbackModal] = useState<{
+    open: boolean
+    record: ConfigDeployment | null
+    preview: RollbackPreview | null
+    loading: boolean
+    error: string | null
+  }>({ open: false, record: null, preview: null, loading: false, error: null })
 
   useEffect(() => {
     fetchAllDomains()
@@ -140,50 +155,145 @@ export function DeploymentsPage() {
     })
   }
 
-  /** 回滚：回滚到被点击行的所选版本（PRD §3.5/§8：回滚动作生成 rolled_back 新记录，被回滚记录不变）；
-   * local 同步 reload 生效；agent_pull 异步（待 Edge Sync Agent 心跳拉取，约 30s） */
-  const handleRollback = (record: ConfigDeployment) => {
+  /** 加载回滚预览（决策 63 P0）：目标版本 vs 当前生效版本的源数据操作差异清单。 */
+  const loadRollbackPreview = async (record: ConfigDeployment) => {
+    setRollbackModal((m) => ({ ...m, loading: true, error: null, preview: null }))
+    try {
+      const res = await deploymentApi.rollbackPreview(record.config_version_id)
+      setRollbackModal((m) => ({ ...m, preview: res.data, loading: false }))
+    } catch (e) {
+      setRollbackModal((m) => ({
+        ...m,
+        loading: false,
+        error: e instanceof Error ? e.message : '差异清单加载失败',
+      }))
+    }
+  }
+
+  /** 打开回滚确认弹窗并拉取差异预览。 */
+  const openRollbackModal = (record: ConfigDeployment) => {
+    setRollbackModal({ open: true, record, preview: null, loading: true, error: null })
+    void loadRollbackPreview(record)
+  }
+
+  /** 关闭回滚确认弹窗。 */
+  const closeRollbackModal = () => {
+    setRollbackModal({ open: false, record: null, preview: null, loading: false, error: null })
+  }
+
+  /** 执行回滚（PRD §3.5/§8：回滚动作生成 rolled_back 新记录，被回滚记录不变）；
+   * local 同步 reload 生效；agent_pull 异步（待 Edge Sync Agent 心跳拉取，约 30s）。 */
+  const executeRollback = async () => {
+    const record = rollbackModal.record
+    if (!record) return
     const isAgentPull = record.channel === 'agent_pull'
-    Modal.confirm({
-      title: '回滚配置',
-      content: (
-        <>
-          确定将网域 <Text strong>{domainMap.get(record.network_domain_id) ?? record.network_domain_id}</Text>{' '}
-          回滚到所选版本 <Text code>{record.config_version_id}</Text>（来自变更单 {record.source_change_no}）吗？
-          {isAgentPull ? (
-            <div style={{ marginTop: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                agent_pull 通道回滚（异步生效）：确认后重新发布所选版本配置包，待 Edge Sync Agent 下次心跳拉取后生效（约 30s），进度可在「采集节点状态」页查看。
-              </Text>
-            </div>
-          ) : (
-            <div style={{ marginTop: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                local 通道回滚（同步生效）：确认后重新下发所选版本，中心写盘并 reload，立即生效。
-              </Text>
-            </div>
-          )}
-        </>
-      ),
-      okText: '确认回滚',
-      okType: 'primary',
-      onOk: async () => {
-        setActionLoading(true)
-        try {
-          const res = await deploymentApi.rollback(record.config_version_id, CURRENT_USER)
-          message.success(
-            isAgentPull
-              ? `已回滚：所选版本 ${res.data.config_version_id} 待 Edge Sync Agent 拉取生效（约 30s）`
-              : '已回滚到所选版本，配置已 reload 生效',
-          )
-          reload()
-        } catch (e) {
-          message.error(e instanceof Error ? e.message : '回滚失败，请稍后重试')
-        } finally {
-          setActionLoading(false)
-        }
-      },
-    })
+    setActionLoading(true)
+    try {
+      const res = await deploymentApi.rollback(record.config_version_id, CURRENT_USER)
+      message.success(
+        isAgentPull
+          ? `已回滚：所选版本 ${res.data.config_version_id} 待 Edge Sync Agent 拉取生效（约 30s）`
+          : '已回滚到所选版本，配置已 reload 生效',
+      )
+      closeRollbackModal()
+      reload()
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '回滚失败，请稍后重试')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  /** 渲染回滚差异清单（决策 63 P0）。 */
+  const renderRollbackDiff = () => {
+    const { preview, loading, error } = rollbackModal
+    if (loading) {
+      return (
+        <div style={{ textAlign: 'center', padding: 24 }}>
+          <Spin size="small" /> <Text type="secondary">正在加载回滚差异清单…</Text>
+        </div>
+      )
+    }
+    if (error) {
+      return (
+        <Alert
+          type="warning"
+          showIcon
+          message="差异清单加载失败"
+          description={error}
+          action={<Button size="small" onClick={() => rollbackModal.record && loadRollbackPreview(rollbackModal.record)}>重试</Button>}
+        />
+      )
+    }
+    if (!preview || preview.diff_items.length === 0) {
+      return <Alert type="info" showIcon message="未检测到源数据操作差异" description="目标版本与当前生效版本在源数据层面无差异，或差异推导信息不可用。" />
+    }
+    return (
+      <Table
+        size="small"
+        rowKey={(item) => `${item.side}-${item.type}-${item.target}-${item.description}`}
+        pagination={false}
+        dataSource={preview.diff_items}
+        columns={[
+          {
+            title: '范围',
+            dataIndex: 'side',
+            key: 'side',
+            width: 90,
+            render: (side: RollbackDiffItem['side']) => {
+              const map = {
+                target: { label: '目标版本', color: 'blue' },
+                current: { label: '当前版本', color: 'default' },
+                both: { label: '两侧共有', color: 'purple' },
+              } as const
+              return <Tag color={map[side].color}>{map[side].label}</Tag>
+            },
+          },
+          {
+            title: '类型',
+            dataIndex: 'type',
+            key: 'type',
+            width: 70,
+            render: (type: RollbackDiffItem['type']) => <Tag color={changeTypeColor[type]}>{changeTypeLabel[type]}</Tag>,
+          },
+          {
+            title: '对象',
+            dataIndex: 'target',
+            key: 'target',
+            width: 100,
+            render: (target: RollbackDiffItem['target']) => changeTargetLabel[target],
+          },
+          {
+            title: '说明',
+            dataIndex: 'description',
+            key: 'description',
+            ellipsis: { showTitle: true },
+          },
+          {
+            title: '风险',
+            dataIndex: 'risk',
+            key: 'risk',
+            width: 80,
+            render: (risk: RollbackDiffItem['risk']) => <Tag color={riskColor[risk]}>{riskLabel[risk]}</Tag>,
+          },
+          {
+            title: '影响文件',
+            dataIndex: 'affected_files',
+            key: 'affected_files',
+            width: 140,
+            render: (files: RollbackDiffItem['affected_files']) => (
+              <Space size={4} wrap>
+                {files.map((f) => (
+                  <Tag key={f} color={affectedFileColor[f]} style={{ fontSize: 12 }}>
+                    {affectedFileLabel[f]}
+                  </Tag>
+                ))}
+              </Space>
+            ),
+          },
+        ]}
+      />
+    )
   }
 
   /** 详情抽屉「查看版本配置」区块内容：加载 / 错误（可重试）/ 按文件分 Tab 只读展示 */
@@ -300,7 +410,7 @@ export function DeploymentsPage() {
             size="small"
             icon={<RollbackOutlined />}
             disabled={!ROLLBACKABLE.includes(record.status)}
-            onClick={() => handleRollback(record)}
+            onClick={() => openRollbackModal(record)}
           >
             回滚
           </Button>
@@ -390,7 +500,7 @@ export function DeploymentsPage() {
                 icon={<RollbackOutlined />}
                 loading={actionLoading}
                 disabled={!ROLLBACKABLE.includes(detail.status)}
-                onClick={() => handleRollback(detail)}
+                onClick={() => openRollbackModal(detail)}
               >
                 回滚
               </Button>
@@ -443,6 +553,69 @@ export function DeploymentsPage() {
           />
         )}
       </Drawer>
+
+      <Modal
+        title="回滚配置"
+        open={rollbackModal.open}
+        onCancel={closeRollbackModal}
+        onOk={executeRollback}
+        okText="确认回滚"
+        okButtonProps={{ danger: true, loading: actionLoading }}
+        cancelText="取消"
+        width={720}
+        destroyOnClose
+      >
+        {rollbackModal.record && (
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <div>
+              确定将网域{' '}
+              <Text strong>
+                {domainMap.get(rollbackModal.record.network_domain_id) ?? rollbackModal.record.network_domain_id}
+              </Text>{' '}
+              回滚到所选版本 <Text code>{rollbackModal.record.config_version_id}</Text>（来源变更单{' '}
+              <Text code>{rollbackModal.record.source_change_no}</Text>）吗？
+            </div>
+            {rollbackModal.preview?.current_version && (
+              <Alert
+                type="info"
+                showIcon
+                message="当前生效版本"
+                description={
+                  <>
+                    <Text code>{rollbackModal.preview.current_version.id}</Text>（来源变更单{' '}
+                    <Text code>{rollbackModal.preview.current_version.change_no}</Text>）
+                  </>
+                }
+              />
+            )}
+            <div>
+              <Text strong>源数据操作差异清单</Text>
+              <div style={{ marginTop: 8 }}>{renderRollbackDiff()}</div>
+            </div>
+            <Alert
+              type="warning"
+              showIcon
+              message="回滚不恢复 M01/M08 中的启停状态"
+              description="回滚仅恢复配置产物（采集器/告警器在跑什么）。若此前在采集 Job、告警规则或 Alertmanager 配置中做过启停/挂载等人为操作，回滚后不会自动改回，如需一致请前往对应模块核对。"
+            />
+            {rollbackModal.record.channel === 'agent_pull' ? (
+              <Alert
+                type="info"
+                showIcon
+                message="agent_pull 通道回滚（异步生效）"
+                description="确认后重新发布所选版本配置包，待 Edge Sync Agent 下次心跳拉取后生效（约 30s），进度可在「采集节点状态」页查看。"
+              />
+            ) : (
+              <Alert
+                type="info"
+                showIcon
+                message="local 通道回滚（同步生效）"
+                description="确认后重新下发所选版本，中心写盘并 reload，立即生效。"
+              />
+            )}
+          </Space>
+        )}
+      </Modal>
       </ConfigProvider>
     </MainLayout>
   )
