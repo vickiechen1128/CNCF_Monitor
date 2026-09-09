@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-08 15:03 · commit: `0a31d8fd`
+> 生成时间: 2026-09-09 16:39 · commit: `80c2bb40`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1208,6 +1208,7 @@
 - `func seedVersion(t *testing.T, db *gorm.DB, domainID, changeNo string) *models.ConfigVersion`
 - `func seedDeployment(t *testing.T, db *gorm.DB, domainID string, v *models.ConfigVersion, status models.DeploymentStatus, err…`
 - `func idStr(id uint) string`
+- `func nextDeploymentIDForTest(t *testing.T, db *gorm.DB) string`
 - `func seedJob(t *testing.T, db *gorm.DB, domainID string, changeStatus models.ChangeStatus) *models.ScrapeJob`
 - `func seedJobWithDraft(t *testing.T, db *gorm.DB, domainID string, changeStatus models.ChangeStatus, draftStatus string) *mod…`
 - `func seedRule(t *testing.T, db *gorm.DB, name string, changeStatus models.ChangeStatus, draftStatus string) *models.Monitori…`
@@ -1236,6 +1237,11 @@
 - `func TestListAndGetVersion(t *testing.T)`
 - `func TestListDeploymentsFilter(t *testing.T)`
 - `func TestDeploymentHandlerRoutes(t *testing.T)`
+- `func TestDispatchAssignsDeploymentID(t *testing.T)`
+- `func TestRollbackPreview(t *testing.T)`
+- `func TestRollbackPreviewNoCurrentVersion(t *testing.T)`
+- `func TestRollbackPreviewVersionNotFound(t *testing.T)`
+- `func mustJSONItems(t *testing.T, items []models.ConfigChangeItem) string`
 - `func mustJSON(t *testing.T, s string) *strings.Reader`
 - `func adminInjector() gin.HandlerFunc`
 
@@ -1245,6 +1251,7 @@
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 - `func ListVersionsHandler(db *gorm.DB) gin.HandlerFunc`
 - `func GetVersionHandler(db *gorm.DB) gin.HandlerFunc`
+- `func RollbackPreviewHandler(db *gorm.DB) gin.HandlerFunc`
 - `func ListDeploymentsHandler(db *gorm.DB) gin.HandlerFunc`
 - `func RetryDeploymentHandler(db *gorm.DB) gin.HandlerFunc`
 - `func RollbackDeploymentHandler(db *gorm.DB) gin.HandlerFunc`
@@ -1259,6 +1266,13 @@
 - `func ListDeployments(db *gorm.DB, domainID, status, changeNo string, page, pageSize int) ([]models.ConfigDeployment, int64, …`
 - `func pagedVersions(db *gorm.DB, q *gorm.DB, page, pageSize int) ([]models.ConfigVersion, int64, error)`
 - `func pagedDeployments(db *gorm.DB, q *gorm.DB, page, pageSize int) ([]models.ConfigDeployment, int64, error)`
+
+### `platform/configcenter/deployment/rollback_preview.go`
+
+- `func RollbackPreview(db *gorm.DB, versionID string) (*models.RollbackPreview, error)`
+- `func currentEffectiveVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
+- `func changeItemsOfVersion(db *gorm.DB, v *models.ConfigVersion) ([]models.ConfigChangeItem, error)`
+- `func deriveRollbackDiff(targetItems, currentItems []models.ConfigChangeItem) []models.RollbackDiffItem`
 
 ### `platform/configcenter/deployment/service.go`
 
@@ -1282,6 +1296,7 @@
 - `method (*DiskApplier) writeTargets(files map[string]string) error`
 - `func structuralChanged(ca *generator.ConfigArtifacts, dir string) (bool, error)`
 - `func writeFile(path, content string) error`
+- `func nextDeploymentID(db *gorm.DB) (string, error)`
 - `func writeFileAtomic(path, content string) error`
 
 ### `platform/configcenter/domain/onboard.go`
@@ -1854,6 +1869,10 @@
 - `type DeploymentStatus = string`
 - `type ConfigDeployment struct`
 - `method (ConfigDeployment) TableName() string`
+- `type VersionRef struct`
+- `type RollbackDiffItem struct`
+- `type RollbackPreview struct`
+- `method (ConfigDeployment) MarshalJSON() ([]byte, error)`
 
 ### `platform/models/config_center_rules.go`
 
@@ -2159,6 +2178,7 @@
 - `func fetchAlerts(ctx context.Context, client *http.Client, promURL *url.URL) ([]promAlert, error)`
 - `func tenantAuthorizedDomains(_ *gin.Context) []string`
 - `func alertDomainAllowed(authorized []string, domain string) bool`
+- `func instanceDisplayOf(labels map[string]string) string`
 
 ### `platform/query/alerts_test.go`
 
@@ -2172,6 +2192,7 @@
 - `func TestAlertsNetworkDomainFallbackDefault(t *testing.T)`
 - `func TestAlertsEmptyNotNull(t *testing.T)`
 - `func TestAlertsUpstreamError(t *testing.T)`
+- `func TestAlertsInstanceDisplay(t *testing.T)`
 - `func TestAlertsTenantScopeSkeleton(t *testing.T)`
 
 ### `platform/query/coverage.go`
@@ -2232,6 +2253,8 @@
 - `func fetchTargets(ctx context.Context, client *http.Client, promURL *url.URL, state string) (*promTargetsData, error)`
 - `func resolveJob(t map[string]interface{}) string`
 - `func resolveLabel(t map[string]interface{}, key string) string`
+- `func resolveInstance(t map[string]interface{}) string`
+- `func hostPortFromURL(raw string) string`
 - `func asString(v interface{}) string`
 
 ### `platform/query/targets_test.go`
@@ -2248,6 +2271,7 @@
 - `func TestTargetsFilterCombination(t *testing.T)`
 - `func TestTargetsInvalidHealthBadRequest(t *testing.T)`
 - `func TestTargetsFilterNoMatchEmptyActive(t *testing.T)`
+- `func TestTargetsInstanceFallback(t *testing.T)`
 - `type fakeUpstream struct`
 - `func newFakeUpstream(payload map[string]interface{}) fakeUpstream`
 
@@ -3235,6 +3259,9 @@
 - `type DeploymentStatus`
 - `interface DiscardImpact`
 - `interface ConfigDeployment`
+- `interface VersionRef`
+- `interface RollbackDiffItem`
+- `interface RollbackPreview`
 
 ### `ui-custom/web/src/types/config.ts`
 
