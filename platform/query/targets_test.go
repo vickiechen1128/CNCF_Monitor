@@ -12,10 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// promTargetsFixture 为 /api/v1/targets 提供一个预置的上游响应。返回三个 target：
-//   - job-a 的 t1（up，network_domain=default，resource_id=srv-1）
-//   - job-b 的 t2（down，无 network_domain 标签 → 回落 default，无 resource_id）
-//   - job-a 的 t3（unknown，network_domain=dmz，resource_id=srv-2）
+// promTargetsFixture 为 /api/v1/targets 提供一个预置的上游响应。返回四个 target：
+//   - job-a 的 t1（up，network_domain=default，resource_id=srv-1，labels.instance）
+//   - job-b 的 t2（down，无 network_domain 标签 → 回落 default，无 resource_id，labels.instance）
+//   - job-a 的 t3（unknown，network_domain=dmz，resource_id=srv-2，labels.instance）
+//   - job-c 的 t4（up，模拟真实 Prometheus 结构：labels 无 instance，仅有 __address__，
+//     顶层 scrapeUrl 兜底 → 应解析为 "192.168.1.10:9100"）。
 func promTargetsFixture() map[string]interface{} {
 	return map[string]interface{}{
 		"status": "success",
@@ -50,6 +52,16 @@ func promTargetsFixture() map[string]interface{} {
 						"resource_id":    "srv-2",
 					},
 					"health": "unknown",
+				},
+				{
+					"scrapePool": "job-c",
+					"labels": map[string]interface{}{
+						"job":       "job-c",
+						"__address__": "192.168.1.10:9100",
+					},
+					"scrapeUrl": "http://192.168.1.10:9100/metrics",
+					"health":    "up",
+					"lastError": "",
 				},
 			},
 			"droppedTargets": []interface{}{},
@@ -97,13 +109,14 @@ func TestTargetsPassthroughAndEnrichment(t *testing.T) {
 	out := doTargets(t, r, "")
 
 	require.Equal(t, "success", out.Status)
-	require.Len(t, out.Data.ActiveTargets, 3)
+	require.Len(t, out.Data.ActiveTargets, 4)
 
-	// t1 补全：job / network_domain / resource_id 均注入。
+	// t1 补全：job / network_domain / resource_id / instance 均注入。
 	t1 := out.Data.ActiveTargets[0]
 	require.Equal(t, "job-a", t1["job"])
 	require.Equal(t, "default", t1["network_domain"])
 	require.Equal(t, "srv-1", t1["resource_id"])
+	require.Equal(t, "10.0.0.1:9100", t1["instance"])
 	// 原始字段透传保留。
 	require.Equal(t, "10.0.0.1:9100", t1["labels"].(map[string]interface{})["instance"])
 	require.Equal(t, "up", t1["health"])
@@ -112,7 +125,7 @@ func TestTargetsPassthroughAndEnrichment(t *testing.T) {
 func TestTargetsNetworkDomainFallbackDefault(t *testing.T) {
 	r, _ := newTargetsRouter(t)
 	out := doTargets(t, r, "")
-	require.Len(t, out.Data.ActiveTargets, 3)
+	require.Len(t, out.Data.ActiveTargets, 4)
 
 	// t2 无 network_domain 标签 → 回落 default。
 	var t2 map[string]interface{}
@@ -125,6 +138,7 @@ func TestTargetsNetworkDomainFallbackDefault(t *testing.T) {
 	require.Equal(t, "default", t2["network_domain"])
 	require.Equal(t, "", t2["resource_id"]) // 无 resource_id 标签 → 留空
 	require.Equal(t, "job-b", t2["job"])    // labels.job 解析
+	require.Equal(t, "10.0.0.2:9100", t2["instance"])
 }
 
 func TestTargetsFilterJob(t *testing.T) {
@@ -170,6 +184,23 @@ func TestTargetsFilterNoMatchEmptyActive(t *testing.T) {
 	out := doTargets(t, r, "?job=no-such-job")
 	require.Equal(t, "success", out.Status)
 	require.Empty(t, out.Data.ActiveTargets) // [] 而非 null
+}
+
+// TestTargetsInstanceFallback 验证当 labels.instance 缺失时，后端按 __address__ /
+// scrapeUrl 解析出顶层 instance 字段，供前端 TargetStatusPage 直接显示。
+func TestTargetsInstanceFallback(t *testing.T) {
+	r, _ := newTargetsRouter(t)
+	out := doTargets(t, r, "")
+
+	var t4 map[string]interface{}
+	for _, a := range out.Data.ActiveTargets {
+		if a["job"] == "job-c" {
+			t4 = a
+		}
+	}
+	require.NotNil(t, t4)
+	require.Equal(t, "192.168.1.10:9100", t4["instance"])
+	require.Equal(t, "default", t4["network_domain"])
 }
 
 // fakeUpstream 是一个可复用的伪 Prometheus 上游：可按路径返回固定 JSON。

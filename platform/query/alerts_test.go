@@ -199,6 +199,51 @@ func TestAlertsUpstreamError(t *testing.T) {
 	assert.Equal(t, "internal", out3.ErrorType)
 }
 
+// TestAlertsInstanceDisplay 覆盖 instance_display 聚合字段：有 instance 标签时透传，
+// 无 instance 标签时按 instance_ip/hostname/nodename/device 依次回落，均缺失时为空串。
+func TestAlertsInstanceDisplay(t *testing.T) {
+	r := newAlertsRouterOK(t)
+	code, out := doAlerts(t, r, "")
+	require.Equal(t, http.StatusOK, code)
+
+	// a1 有 instance 标签。
+	assert.Equal(t, "10.0.0.1:9100", out.Data.Alerts[0]["instance_display"])
+
+	// 无 instance 标签但含 instance_ip。
+	fixture := promAlertsFixture()
+	fixture["data"].(map[string]interface{})["alerts"] = []map[string]interface{}{
+		{
+			"labels": map[string]interface{}{
+				"alertname":   "ByIP",
+				"instance_ip": "10.0.0.10",
+			},
+			"annotations": map[string]interface{}{"summary": "by ip"},
+			"state":       "firing",
+			"activeAt":    "2026-09-08T01:00:00Z",
+			"value":       "1",
+		},
+		{
+			"labels": map[string]interface{}{
+				"alertname": "Aggregate",
+				"severity":  "critical",
+			},
+			"annotations": map[string]interface{}{"summary": "aggregate alert"},
+			"state":       "firing",
+			"activeAt":    "2026-09-08T02:00:00Z",
+			"value":       "1",
+		},
+	}
+	body, _ := json.Marshal(fixture)
+	r2 := newAlertsRouter(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+	_, out2 := doAlerts(t, r2, "")
+	require.Len(t, out2.Data.Alerts, 2)
+	assert.Equal(t, "10.0.0.10", out2.Data.Alerts[0]["instance_display"])
+	assert.Equal(t, "", out2.Data.Alerts[1]["instance_display"])
+}
+
 // TestAlertsTenantScopeSkeleton 是租户/网域注入骨架（M02 §11.2#5）的测试锚点：
 // MVP 单租户恒通过（nil 集合=不过滤）；非空集合时按网域收敛，机制保留。
 func TestAlertsTenantScopeSkeleton(t *testing.T) {

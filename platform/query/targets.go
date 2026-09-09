@@ -96,6 +96,9 @@ func TargetsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
 			t["job"] = resJob
 			t["network_domain"] = resDomain
 			t["resource_id"] = resID // 可选，无 resource_id 标签时为空串
+			// 实例地址透传：Prometheus targets 将 instance 放在 labels 内，此处提升为顶层字段
+			// 供前端直接消费；缺失时按 __address__ / scrapeUrl 兜底解析。
+			t["instance"] = resolveInstance(t)
 			active = append(active, t)
 		}
 		data.ActiveTargets = active
@@ -158,6 +161,33 @@ func resolveLabel(t map[string]interface{}, key string) string {
 		return ""
 	}
 	return asString(labels[key])
+}
+
+// resolveInstance 提取 target 的实例地址：优先 labels.instance，缺失回退 __address__，
+// 再缺失从 scrapeUrl / globalUrl 解析 host:port。均不可得返回空串（前端显示 '-'）。
+func resolveInstance(t map[string]interface{}) string {
+	if s := resolveLabel(t, "instance"); s != "" {
+		return s
+	}
+	if s := resolveLabel(t, "__address__"); s != "" {
+		return s
+	}
+	if s := asString(t["scrapeUrl"]); s != "" {
+		return hostPortFromURL(s)
+	}
+	if s := asString(t["globalUrl"]); s != "" {
+		return hostPortFromURL(s)
+	}
+	return ""
+}
+
+// hostPortFromURL 从 URL 中提取 host:port（如 "http://1.2.3.4:9100/metrics" → "1.2.3.4:9100"）。
+func hostPortFromURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
 }
 
 // asString 安全将任意值转字符串（非 string 返回空串）。
