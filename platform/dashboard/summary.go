@@ -19,7 +19,7 @@ const recentDeploymentLimit = 5
 
 // DeploymentItem 是 recent_deployments 单条下发记录摘要。
 type DeploymentItem struct {
-	ID                uint       `json:"id"`
+	ID                string     `json:"id"`
 	ChangeNo          string     `json:"change_no"`
 	NetworkDomainName string     `json:"network_domain_name"`
 	Status            string     `json:"status"`
@@ -79,7 +79,7 @@ func Build(db *gorm.DB) (*Summary, error) {
 	}
 	for _, r := range rows {
 		s.RecentDeployments = append(s.RecentDeployments, DeploymentItem{
-			ID:                r.ID,
+			ID:                r.DeploymentID,
 			ChangeNo:          r.SourceChangeNo,
 			NetworkDomainName: r.NetworkDomainName,
 			Status:            string(r.Status),

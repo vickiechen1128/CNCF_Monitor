@@ -34,6 +34,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.NetworkDomain{},
 		&models.ScrapeJob{},
 		&models.MonitoringRule{},
+		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 		&models.AlertmanagerConfigVersion{},
@@ -87,6 +88,7 @@ func seedVersion(t *testing.T, db *gorm.DB, domainID, changeNo string) *models.C
 func seedDeployment(t *testing.T, db *gorm.DB, domainID string, v *models.ConfigVersion, status models.DeploymentStatus, errMsg string) *models.ConfigDeployment {
 	t.Helper()
 	dep := &models.ConfigDeployment{
+		DeploymentID:     nextDeploymentIDForTest(t, db),
 		NetworkDomainID:  domainID,
 		ConfigVersionID:  fmt.Sprint(v.ID),
 		SourceChangeNo:   v.ChangeNo,
@@ -101,6 +103,22 @@ func seedDeployment(t *testing.T, db *gorm.DB, domainID string, v *models.Config
 }
 
 func idStr(id uint) string { return fmt.Sprint(id) }
+
+// nextDeploymentIDForTest 在测试里生成唯一 deploy-xxx ID（不依赖 nextDeploymentID 的并发安全）。
+func nextDeploymentIDForTest(t *testing.T, db *gorm.DB) string {
+	t.Helper()
+	var last models.ConfigDeployment
+	prefix := "deploy-test-"
+	err := db.Where("deployment_id LIKE ?", prefix+"%").Order("deployment_id desc").First(&last).Error
+	seq := 1
+	if err == nil {
+		var n int
+		if _, scanErr := fmt.Sscanf(last.DeploymentID, prefix+"%d", &n); scanErr == nil {
+			seq = n + 1
+		}
+	}
+	return fmt.Sprintf("%s%03d", prefix, seq)
+}
 
 func seedJob(t *testing.T, db *gorm.DB, domainID string, changeStatus models.ChangeStatus) *models.ScrapeJob {
 	t.Helper()
@@ -171,6 +189,7 @@ func newMemDBNoJobTable(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.NetworkDomain{},
+		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 	))
@@ -248,11 +267,12 @@ func TestRetryLocalFailed(t *testing.T) {
 	orig := seedDeployment(t, db, "default", v, models.DeploymentStatusFailed, "boom")
 
 	app := &applyRecorder{}
-	dep, err := Retry(db, idStr(orig.ID), "admin", app)
+	dep, err := Retry(db, orig.DeploymentID, "admin", app)
 	require.NoError(t, err)
 	assert.Equal(t, models.DeploymentStatusSuccess, dep.Status)
 	assert.Equal(t, idStr(v.ID), dep.ConfigVersionID)
 	assert.Equal(t, 1, app.applied)
+	assert.NotEmpty(t, dep.DeploymentID)
 
 	// 原记录保持 failed。
 	require.NoError(t, db.First(&orig, orig.ID).Error)
@@ -265,7 +285,7 @@ func TestRetryRejectsNonLocal(t *testing.T) {
 	v := seedVersion(t, db, "edge-a", "CHG-20240101-001")
 	orig := seedDeployment(t, db, "edge-a", v, models.DeploymentStatusFailed, "boom")
 
-	_, err := Retry(db, idStr(orig.ID), "admin", &applyRecorder{})
+	_, err := Retry(db, orig.DeploymentID, "admin", &applyRecorder{})
 	assert.ErrorIs(t, err, ErrNotLocal)
 }
 
@@ -275,7 +295,7 @@ func TestRetryRejectsNotFailed(t *testing.T) {
 	v := seedVersion(t, db, "default", "CHG-20240101-001")
 	orig := seedDeployment(t, db, "default", v, models.DeploymentStatusSuccess, "")
 
-	_, err := Retry(db, idStr(orig.ID), "admin", &applyRecorder{})
+	_, err := Retry(db, orig.DeploymentID, "admin", &applyRecorder{})
 	assert.ErrorIs(t, err, ErrNotFailed)
 }
 
@@ -635,7 +655,7 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodPost, "/api/v2/platform/deployments/"+idStr(orig.ID)+"/retry", mustJSON(t, `{"triggered_by":"admin"}`))
+	req, _ = http.NewRequest(http.MethodPost, "/api/v2/platform/deployments/"+orig.DeploymentID+"/retry", mustJSON(t, `{"triggered_by":"admin"}`))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
@@ -646,7 +666,100 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 }
 
+// TestDispatchAssignsDeploymentID 验证每次下发落库时生成 deploy-xxx 业务 ID，
+// 且 JSON 序列化对外暴露 DeploymentID 而非内部自增 ID。
+func TestDispatchAssignsDeploymentID(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-020")
+
+	dep, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+	assert.NotEmpty(t, dep.DeploymentID)
+	assert.Regexp(t, `^deploy-\d{8}-\d{3}$`, dep.DeploymentID)
+
+	// JSON 中 id 字段应为 deploy-xxx。
+	b, err := json.Marshal(dep)
+	require.NoError(t, err)
+	var view map[string]interface{}
+	require.NoError(t, json.Unmarshal(b, &view))
+	assert.Equal(t, dep.DeploymentID, view["id"])
+	assert.NotContains(t, view, "deployment_id")
+}
+
+// TestRollbackPreview 覆盖决策 63 P0：回滚预览返回目标版本、当前生效版本、
+// 源数据操作差异清单及固定警告文案。
+func TestRollbackPreview(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+
+	// 当前生效版本 V1（change_no=CHG-001，新增 job A）。
+	v1 := seedVersion(t, db, "default", "CHG-20240101-001")
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID:  "default",
+		ChangeNo:         v1.ChangeNo,
+		Status:           models.DraftStatusConfirmed,
+		ValidationStatus: string(models.ValidationStatusPassed),
+		ChangeItems:      mustJSONItems(t, []models.ConfigChangeItem{{Type: "add", Target: "scrape_job", Description: "新增采集 Job A", AffectedFiles: []string{"prometheus", "targets"}, Risk: "low"}}),
+	}).Error)
+	_, err := Dispatch(db, v1, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	// 目标版本 V2（change_no=CHG-002，删除 job A）。
+	v2 := seedVersion(t, db, "default", "CHG-20240101-002")
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID:  "default",
+		ChangeNo:         v2.ChangeNo,
+		Status:           models.DraftStatusConfirmed,
+		ValidationStatus: string(models.ValidationStatusPassed),
+		ChangeItems:      mustJSONItems(t, []models.ConfigChangeItem{{Type: "delete", Target: "scrape_job", Description: "移除采集 Job A（监控断点风险）", AffectedFiles: []string{"prometheus", "targets"}, Risk: "high"}}),
+	}).Error)
+
+	preview, err := RollbackPreview(db, idStr(v2.ID))
+	require.NoError(t, err)
+	assert.Equal(t, idStr(v2.ID), preview.TargetVersion.ID)
+	assert.Equal(t, v2.ChangeNo, preview.TargetVersion.ChangeNo)
+	require.NotNil(t, preview.CurrentVersion)
+	assert.Equal(t, idStr(v1.ID), preview.CurrentVersion.ID)
+	assert.Equal(t, v1.ChangeNo, preview.CurrentVersion.ChangeNo)
+	assert.Equal(t, "回滚不恢复 M01/M08 中的启停状态", preview.Warning)
+	require.Len(t, preview.DiffItems, 2)
+}
+
+// TestRollbackPreviewNoCurrentVersion 验证网域尚无成功下发时，回滚预览 current_version 为空。
+func TestRollbackPreviewNoCurrentVersion(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-003")
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID:  "default",
+		ChangeNo:         v.ChangeNo,
+		Status:           models.DraftStatusConfirmed,
+		ValidationStatus: string(models.ValidationStatusPassed),
+		ChangeItems:      mustJSONItems(t, []models.ConfigChangeItem{{Type: "add", Target: "scrape_job", Description: "新增采集 Job B", AffectedFiles: []string{"prometheus", "targets"}, Risk: "low"}}),
+	}).Error)
+
+	preview, err := RollbackPreview(db, idStr(v.ID))
+	require.NoError(t, err)
+	assert.Nil(t, preview.CurrentVersion)
+	assert.Len(t, preview.DiffItems, 1)
+}
+
+// TestRollbackPreviewVersionNotFound 验证目标版本不存在时返回 not_found。
+func TestRollbackPreviewVersionNotFound(t *testing.T) {
+	db := newMemDB(t)
+	_, err := RollbackPreview(db, "cv-missing")
+	assert.ErrorIs(t, err, ErrVersionNotFound)
+}
+
 // ==== helpers ====
+
+func mustJSONItems(t *testing.T, items []models.ConfigChangeItem) string {
+	t.Helper()
+	b, err := json.Marshal(items)
+	require.NoError(t, err)
+	return string(b)
+}
 
 func mustJSON(t *testing.T, s string) *strings.Reader {
 	t.Helper()

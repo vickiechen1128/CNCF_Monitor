@@ -76,7 +76,7 @@ func DeployConfirmedVersion(db *gorm.DB, version *models.ConfigVersion, triggere
 // 写盘 + reload，生成一条新的 ConfigDeployment。
 func Retry(db *gorm.DB, deploymentID, triggeredBy string, app Applier) (*models.ConfigDeployment, error) {
 	var orig models.ConfigDeployment
-	if err := db.Where("id = ?", deploymentID).First(&orig).Error; err != nil {
+	if err := db.Where("deployment_id = ?", deploymentID).First(&orig).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, ErrNotFound
 		}
@@ -127,8 +127,13 @@ func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.
 //   - local 经 Applier 投递 → success/failed；rollback=true（回滚动作产生）时成功落
 //     rolled_back（PRD §8：rolled_back 视同 success，change_status / AM applied 回写不变）。
 func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier, rollback bool) (*models.ConfigDeployment, error) {
+	deploymentID, err := nextDeploymentID(db)
+	if err != nil {
+		return nil, fmt.Errorf("allocate deployment id: %w", err)
+	}
 	now := time.Now()
 	dep := &models.ConfigDeployment{
+		DeploymentID:      deploymentID,
 		NetworkDomainID:   version.NetworkDomainID,
 		ConfigVersionID:   fmt.Sprint(version.ID),
 		SourceChangeNo:    version.ChangeNo,
@@ -412,6 +417,23 @@ func writeFile(path, content string) error {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
+}
+
+// nextDeploymentID 生成全局唯一下发记录 ID deploy-YYYYMMDD-NNN（当日自增）。
+func nextDeploymentID(db *gorm.DB) (string, error) {
+	prefix := "deploy-" + time.Now().Format("20060102") + "-"
+	var last models.ConfigDeployment
+	err := db.Where("deployment_id LIKE ?", prefix+"%").Order("deployment_id desc").First(&last).Error
+	seq := 1
+	if err == nil {
+		var n int
+		if _, scanErr := fmt.Sscanf(last.DeploymentID, prefix+"%d", &n); scanErr == nil {
+			seq = n + 1
+		}
+	} else if err != gorm.ErrRecordNotFound {
+		return "", fmt.Errorf("query latest deployment_id: %w", err)
+	}
+	return fmt.Sprintf("%s%03d", prefix, seq), nil
 }
 
 // writeFileAtomic 原子写文件（临时文件 + rename，避免读到半写内容），用于 alertmanager.yml。
