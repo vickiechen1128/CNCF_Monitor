@@ -742,6 +742,22 @@ func TestDiscardDraftImpactAndRollback(t *testing.T) {
 		require.NoError(t, db.Create(j).Error)
 	}
 
+	// rule-pending：挂起待确认变更（ready+pending），废弃须清除锁 → deployed（决策 43-6）。
+	rulePending := &models.MonitoringRule{
+		Name: "rule-pending", ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: cpu\n    rules:\n      - alert: HighCPU\n", Scope: models.ScopeTypeCentral,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	// rule-draft：从未就绪（draft+pending），不在待确认口径，不应被回写。
+	ruleDraft := &models.MonitoringRule{
+		Name: "rule-draft", ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: io\n    rules:\n      - alert: HighIO\n", Scope: models.ScopeTypeCentral,
+		DraftStatus: "draft", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	for _, rl := range []*models.MonitoringRule{rulePending, ruleDraft} {
+		require.NoError(t, db.Create(rl).Error)
+	}
+
 	draft := seedDraftWithStatus(t, db, "CHG-DISCARD-001", "edge-discard", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
 	draft.SourceVersion = version.ChangeNo
 	require.NoError(t, db.Save(draft).Error)
@@ -778,6 +794,13 @@ func TestDiscardDraftImpactAndRollback(t *testing.T) {
 	require.NoError(t, db.First(&dJob, jobD.ID).Error)
 	assert.Equal(t, "draft", dJob.DraftStatus)
 	assert.Equal(t, models.ChangeStatusNone, dJob.ChangeStatus)
+
+	// 规则回写断言（决策 43-6：pending 不残留）。
+	var rp, rd models.MonitoringRule
+	require.NoError(t, db.First(&rp, rulePending.ID).Error)
+	assert.Equal(t, models.ChangeStatusDeployed, rp.ChangeStatus, "ready+pending 规则废弃后应清除锁 → deployed")
+	require.NoError(t, db.First(&rd, ruleDraft.ID).Error)
+	assert.Equal(t, models.ChangeStatusPending, rd.ChangeStatus, "draft 态 pending 规则不应被回写")
 }
 
 func TestDiscardDraftRevertsNewJobOnFirstDeploy(t *testing.T) {

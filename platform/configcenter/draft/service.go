@@ -661,6 +661,15 @@ func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardIm
 				return fmt.Errorf("update job %d on discard: %w", j.ID, err)
 			}
 		}
+		// 决策 43-6（禁止 pending 残留）：废弃同样需清理 MonitoringRule 上挂起的
+		// pending 锁，否则规则 change_status 残留 pending，M01 侧 409 阻塞后续编辑。
+		// 规则 scope=central 无网域列，回写口径与 deployment.writebackRuleChangeStatus
+		// 一致做全量回写；保留规则当前源数据（discard 不自动回滚规则内容），仅清除锁。
+		if err := tx.Model(&models.MonitoringRule{}).
+			Where("change_status = ? AND draft_status = ?", models.ChangeStatusPending, "ready").
+			Update("change_status", models.ChangeStatusDeployed).Error; err != nil {
+			return fmt.Errorf("reset rule change_status on discard: %w", err)
+		}
 		if err := tx.Model(d).Update("status", models.DraftStatusDiscarded).Error; err != nil {
 			return fmt.Errorf("discard config draft: %w", err)
 		}
