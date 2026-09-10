@@ -4,7 +4,7 @@
  * 历史版本列表 + 重新挂载回滚（Modal 二次确认 + 触发重校验）；跨模块跳转 M09 配置变更确认。
  */
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Alert,
   App,
@@ -150,7 +150,14 @@ export function AlertConfigPage() {
       dataIndex: 'source_change_no',
       key: 'source_change_no',
       width: 170,
-      render: (v?: string) => (v ? <Text code>{v}</Text> : <Text type="secondary">-</Text>),
+      // 决策 69-③（决策 60 补充块）：变更单号直达 M09 该单详情（?change_no= 深链）。
+      // 纯展示层增强——source_change_no 字段既已存在，不引入 change_status 依赖、不新增路由。
+      render: (v?: string) =>
+        v ? (
+          <Link to={`${CONFIG_PREVIEW_PATH}?change_no=${encodeURIComponent(v)}`}>{v}</Link>
+        ) : (
+          <Text type="secondary">-</Text>
+        ),
     },
     {
       title: '校验和（sha256）',
