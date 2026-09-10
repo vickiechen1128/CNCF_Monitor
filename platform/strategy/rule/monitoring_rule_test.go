@@ -252,9 +252,72 @@ func TestValidateYAMLEndpoint(t *testing.T) {
 	assert.NotEmpty(t, badResp.Data.Error)
 }
 
+// TestValidateYamlGroupNameConflict 覆盖决策 69-1：组名全局唯一性并入 validate-yaml 预检，
+// 且与提交侧**同口径**——仅生效规则占用组名、编辑排除自身、停用规则不校验。
+// 「检查通过 ⇒ 提交不会被组名冲突打回」的判定基础即由本用例固化。
+func TestValidateYamlGroupNameConflict(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 先建一条生效规则，占用 shared-grp。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"rule-a"}`, jsonString(rulesFixtureGroup("shared-grp"))))
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.NotZero(t, created.Data.ID)
+
+	// 预检辅助：HTTP 恒 200（预检不是提交），成败由 data.valid 表达。
+	validate := func(id uint, content string) (bool, string) {
+		t.Helper()
+		w := perform(t, r, http.MethodPost,
+			fmt.Sprintf("/api/v2/platform/monitoring-rules/%d/validate-yaml", id),
+			fmt.Sprintf(`{"rule_content":%s}`, jsonString(content)))
+		require.Equal(t, http.StatusOK, w.Code)
+		var out struct {
+			Data struct {
+				Valid bool   `json:"valid"`
+				Error string `json:"error"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		return out.Data.Valid, out.Data.Error
+	}
+
+	// ① 新建（:id=0）撞名 → valid=false + error 点名占用方。
+	valid, errMsg := validate(0, rulesFixtureGroup("shared-grp"))
+	assert.False(t, valid, "与生效规则组名冲突 → 预检不通过")
+	assert.Contains(t, errMsg, "shared-grp")
+	assert.Contains(t, errMsg, "rule-a")
+
+	// ② 编辑同一条规则（:id 命中自身）→ 排除自身 → 通过。
+	valid, _ = validate(created.Data.ID, rulesFixtureGroup("shared-grp"))
+	assert.True(t, valid, "编辑自身不得因自身占用而报冲突")
+
+	// ③ 编辑一条停用规则，组名与生效规则重复 → 提交侧同样跳过（update.go 的
+	//    enabled && draft_status=ready 条件），预检须一致放行，否则用户失去唯一出口。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"rule-c","enabled":false}`, jsonString(rulesFixtureGroup("shared-grp"))))
+	require.Equal(t, http.StatusOK, w.Code)
+	var disabled struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &disabled))
+	require.False(t, disabled.Data.Enabled)
+	valid, _ = validate(disabled.Data.ID, rulesFixtureGroup("shared-grp"))
+	assert.True(t, valid, "停用规则不下发、不参与合并，预检须镜像提交侧跳过")
+
+	// ④ 不冲突的新组名 → 通过。
+	valid, _ = validate(0, rulesFixtureGroup("brand-new-grp"))
+	assert.True(t, valid)
+}
+
 // TestValidateYamlJobRef 覆盖决策 66：validate-yaml 在 YAML 语法通过后追加 job 引用
 // 语义校验。生效（enabled+ready）Job 命中 → 无问题；缺失 job → error（up 存活类）/
-// warning（非存活类）；但 valid 恒为 true（M01 编辑期不阻断保存）。
+// warning（非存活类）；但 valid 恒为 true——job 引用是另一根可经逃生门覆盖的轴
+// （决策 67-2），不改写 valid。
 func TestValidateYamlJobRef(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
