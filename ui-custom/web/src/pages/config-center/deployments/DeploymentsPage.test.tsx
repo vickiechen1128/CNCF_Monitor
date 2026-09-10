@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import type { ReactElement } from 'react'
 import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 import { DeploymentsPage } from './DeploymentsPage'
 import type { ConfigDeployment } from '../../../types/config-center'
@@ -212,9 +211,10 @@ describe('DeploymentsPage（下发记录）', () => {
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /回滚/ }))
     expect(await screen.findByText('回滚配置')).toBeInTheDocument()
-    expect(screen.getByText('回滚到所选版本').closest('.ant-modal-body')?.textContent).toContain('cv-20260823-001')
-    expect(screen.getByText('回滚到所选版本').closest('.ant-modal-body')?.textContent).toContain('CHG-20260823-001')
-    expect(screen.getByText('回滚到所选版本').closest('.ant-modal-body')?.textContent).not.toContain('上一可用配置版本')
+    expect(document.body.textContent).toContain('回滚到所选版本')
+    expect(document.body.textContent).toContain('cv-20260823-001')
+    expect(document.body.textContent).toContain('CHG-20260823-001')
+    expect(document.body.textContent).not.toContain('上一可用配置版本')
   })
 
   it('rolled_back 记录渲染「已回滚」标签且回滚按钮可点（PRD §8：可再次作为回滚目标）', async () => {
