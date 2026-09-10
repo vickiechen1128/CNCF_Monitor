@@ -364,4 +364,39 @@ describe('ResourcesPage', () => {
     expect(screen.getByText('prod-web-01')).toBeInTheDocument()
     expect(screen.queryByText('prod-web-02')).toBeNull()
   })
+
+  // 决策 47-4：五类 Tab 的「采集状态」列唯一且位于「运行状态」之后（修复非 host tab 重复列回归）
+  it('places collection-status column right after running-status and only once, across all five tabs', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByRole('tab', { name: '主机' })
+    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+      const collectCount = headers.filter((t) => t.trim() === '采集状态').length
+      expect(collectCount, `${name} tab：采集状态应恰好出现一次`).toBe(1)
+      const atRunning = headers.findIndex((t) => t.includes('运行状态'))
+      const atCollect = headers.findIndex((t) => t.trim() === '采集状态')
+      expect(atCollect, `${name} tab：采集状态应位于运行状态之后`).toBeGreaterThan(atRunning)
+    }
+  })
+
+  // 决策 47-4：主机 tab「实例名」列头提示角标（实例名即主机名）
+  it('shows a hint badge on host instance-name column header', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    const nameHeader = screen.getByRole('columnheader', { name: /实例名/ })
+    const badge = nameHeader.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText('主机资源的实例名即主机名')).toBeInTheDocument()
+  })
 })

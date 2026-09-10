@@ -500,10 +500,11 @@
 
 ## Change Log（完整历史）
 
-> v1.24 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.21 及以前的逐版完整变更详情 + Change Log 轮转迁出的版本（v1.33 / v1.34 / v1.35）（业务沟通决策记录）。
+> v1.24 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.21 及以前的逐版完整变更详情 + 历次 Change Log 轮转迁出的版本（v1.33 起，逐版见表内「自 PRD Change Log 轮转迁入」标注）（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.60 | 2026-09-08 | 修改 | 中心部署目录规范（决策 64，源自生产环境磁盘治理诉求）：§1 新增「MVP 中心部署目录规范」注记——对齐《业务软件标准化目录与权限配置操作手册》三目录基线（`/opt/apps` 程序只读 / `/opt/data` 数据含 config-output 活配置 / `/opt/log` 日志），运维预建目录、交付包 `env/env.sh` 集中定义数据/日志根与 TSDB 保留策略、`start.sh` 双模式（生产路径 / 包内回落）、systemd 不在 MVP 范围；明确「活配置属平台管理的数据、落 /opt/data」以兼容程序目录只读红线（自 PRD Change Log 轮转迁入） | 1 | MVP | ready |
 | v1.57 | 2026-09-05 | 修改 | §1「MVP 阶段」补注记：M06 行政禁用网域不联动 M09 纳管状态（`IsMonitored` 独立维护；决策 62，2026-09-05 拍板——MVP 保持现状，「禁用联动取消纳管 / 冻结 Token」纳入 v0.2 多网域版本实现并届时评审）；不改 MVP 技术契约（自 PRD Change Log 轮转迁入） | 1 | v0.2 | ready |
 | v1.56 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | ready |
 | v1.55 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（配置生成→变更管控→边缘接入→一致性保障→废弃回滚）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「配置变更自动检测」「变更单废弃后状态回写」「配置校验失败归因」真实场景（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | ready |
@@ -1468,3 +1469,70 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
 - **用户确认**：2026-09-09，用户在开发空间 `feat/module-09-config-center` 书面确认（「我接受『up/absent(up) 规则 job 不匹配 = error，其他 job 引用不匹配 = warning』这个口径」）。
 - **影响范围（待落版）**：Module_09 PRD 下一轮增量（§3.3 配置生成服务校验、§3.4 校验归因展示、§9 验收标准）；实现落点为 configgen/校验管线。
 - **关联**：module-08 design-decisions 2026-09-09 历史告警 MVP 增量（PRD v1.13）。
+
+---
+
+## 决策登记：2026-09-09（规则粒度与模块边界对齐——per-instance 规则归属与 M09 不涉及项，用户已确认）
+
+- **触发**：MVP 试用发现告警状态页/历史告警页中聚合规则（如 `HostTargetsMissing`）的「实例」列显示「全局/聚合」，用户希望看到故障实例 IP/名称。讨论后明确：该限制源于规则本身为 job 级聚合（`absent(up{job=...})` 无 instance 标签），非前端展示缺陷。需要决策 per-instance 规则的用户入口、可视化编辑归属，以及 M09 是否涉及。
+- **结论（决策 65，2026-09-09，chenrt 拍板）**：
+  1. **规则内容编辑（含 per-instance 规则）入口在 M01**：M01 是监控策略与指标管理模块，负责规则编辑 UI 与规则内容记录（`MonitoringRule`）。MVP 为文件挂载（`yaml_passthrough`），v0.3 为字段化编辑。M08 仅负责 Alertmanager 通知策略，不涉及告警规则内容本身。
+  2. **per-instance 规则可视化编辑归属 M01（v0.3 规划）**：按实例分组、标签映射、聚合粒度选择等复杂交互在 M01 规则编辑 UI 中实现，不由 M08/M09 承担。
+  3. **job 名称校验在 M09 做（与决策 64 口径一致）**：M01 管「编辑态」，M09 管「生效态」。M09 在生成 `rules.yml` 时校验 job 引用（`up`/`absent(up)` 规则 job 不匹配 = error，其他 job 引用不匹配 = warning）。
+  4. **M09 不涉及 per-instance 机制**：M09 只负责生成/校验/下发，不感知规则粒度（聚合 vs per-instance）。规则是 `absent(up{job=...})` 还是 `up == 0`，对下发链路透明。
+  5. **MVP 种子规则补充 per-instance 规则**：在 `config-output/rules.yml` 中增加 `HostDown: up == 0` 等 per-instance 规则，与聚合规则并存，覆盖「实例级告警」场景。这不是机制改动，只是规则配置补充。
+- **影响范围**：
+  - Module_01 PRD：§3.2 规则编辑 UI（v0.3）补充 per-instance 规则模板/可视化编辑规划；§5.5 规则编辑模型补充 per-instance 规则说明。
+  - Module_09 PRD：§3.3 配置生成服务补充 job 校验决策注记（决策 65 交叉引用）。
+  - Module_08 PRD：不需要修改（M08 不涉及规则内容）。
+  - `config-output/rules.yml`：种子规则补充 per-instance 规则。
+- **关联**：module-08 design-decisions 2026-09-09 历史告警 MVP 增量（PRD v1.13）；module-09 design-decisions 2026-09-09 决策 64（rules.yml 规则 job 引用校验口径）。
+
+### 决策登记：2026-09-09（规则 job 引用校验的双层模型与 M01 编辑期校验入口——用户已确认）
+
+- **编号**：决策 66
+- **触发**：用户提出两点疑问：① MVP 的 yaml 直接挂载入口是否应长期保留；② 若保留，M09 校验失败时用户动线是否会回 M01 修改，是否违反「内容合规性校验入口应在 M01」的既有方向。
+- **结论（用户已确认）**：
+  1. **MVP 的 yaml 直接挂载入口长期保留**：与 v0.3 字段化规则 UI 双轨并存，yaml 作为底层权威格式与高级用户逃生门，UI 作为主流低门槛入口；保留成本极低，且 M09 部署期校验作为安全网兜底。
+  2. **规则 job 引用校验采用「编辑期 + 发布期」双层模型**：
+     - **M01 编辑期校验（fail-fast，提示不阻断）**：规则保存/编辑时解析 `job="..."` / `job=~"..."` matcher，与当前生效 `ScrapeJob` 列表比对；`up` / `absent(up)` 类不匹配 = error，其他 = warning；error/warning 均行内提示，**不阻止保存**（兼容「先挂规则、后建 Job」合法时序）。
+     - **M09 发布期校验（部署期护栏，强制阻断）**：ConfigDraft 生成 `rules.yml` 后使用**同一套判定逻辑**复验；`up` / `absent(up)` 类不匹配 = error，阻断确认发布；其他 = warning，允许确认但高亮提示。
+  3. **判定逻辑单一实现**：由后端共享函数/服务提供，M01 保存校验、M01「校验」按钮、M09 ConfigDraft 校验三处调用同一实现，避免口径漂移；规则与 Job 均为 M01 源数据，M01 侧校验不依赖 M09。
+  4. **推荐动线为先 Job 后规则，但不强制**：UI 空态/校验提示引导用户先创建采集 Job；「先挂规则、后建 Job」仍是合法流程，仅触发 warning，由 M09 发布期决定是否真正允许发布。
+  5. **M09 校验失败仍保留回 M01 修改的动线**：变更单校验失败详情行内提供「前往规则编辑修改」跳转（带规则名/ID query 参数，MVP 最小可不带参数仅跳转），与决策 45-2「用户侧错误引导回 M01 修正源数据」一致。
+- **⚠️ 已被决策 67 修订（2026-09-10）**：
+  - **第 2 条第 1 项修订**：M01 编辑期从「error/warning 均提示、**一律不阻断保存**」改为「**error 默认阻断**『提交生效』/『保存变更』+ **显式覆盖逃生门**（勾选「已知晓：先挂规则，稍后补建 Job」后放行并降级为 warning 留痕）；warning 维持只提示」。
+  - **第 4 条修订**：「先挂规则、后建 Job」仍是合法流程，但**默认路径被阻断、需显式覆盖**；M09 发布期门禁不变。
+  - **第 3 条补充**：单一实现之外需统一**输入集**——抽 `effectiveJobNames(db, scope, domainID)`（MVP 单域 = 现状；v0.2 central → 全域 job 并集）。
+  - 第 1 条（yaml 挂载入口长期保留）与第 5 条（失败回 M01 动线）不变，第 5 条细化「前往修改」按来源路由。
+  - 详见决策 67 与 `rule-jobref-validation-lifecycle-fix.md` 附录 A（修订对照表）。
+- **影响范围**：
+  - Module_01 PRD：§3.1「规则文件挂载」补充编辑期 job 引用校验；§3.2「规则编辑 UI（v0.3）」PromQL 校验行同步说明；可新增全局注记说明双层校验模型。
+  - Module_09 PRD：§3.3「规则 job 引用校验」明确为发布期强制门禁，并说明与 M01 编辑期校验同口径、同实现；§11.2 全局行为规则补充跨模块跳转动线。
+  - Module_08 PRD：不需要修改。
+- **关联**：决策 64（rules.yml 规则 job 引用校验口径）、决策 65（规则粒度与模块边界）、决策 45-2（校验失败动线）。
+
+---
+
+### 决策登记：2026-09-10（规则 job 引用校验的动线修复——失败单解锁 + 提交分级门 + 来源路由，用户已确认）
+
+- **编号**：决策 67
+- **触发**：MVP 试用现场动线死锁——M01 规则「校验没成功」仍可点「提交生效」→ M09 生成 `validation_status=failed` 变更单 → failed 单不可确认、却按 `pending` 锁死规则 → M01 报「存在待确认变更单，禁止编辑」→ 唯一出路是「废弃」→ 改完再存再 failed。用户要求给方案（先不改代码），并要求落成文档 + 同步 PRD。
+- **核实结论（单域背景，修正上一轮定性）**：
+  1. **L1「M01/M09 名单口径漂移」在单域下不成立**：M01 用全库 `enabled AND draft_status=ready`（`strategy/rule/validate.go:105-115`），M09 用本域 `network_domain_id=? AND enabled AND draft_status=ready`（`generator/data_source.go:41-51`）；单域下同集。渲染不丢 job（`generator/render.go:85-95` 对每个 job 均入 `scrape_configs`）。**故现场 M01 的报错是正确的**（引用的 job 确实不存在/未 ready/被禁用），问题在于它拦不住、且拦不住之后把用户锁死。
+  2. **真正的事故链是 L2 + L3**：报错仍可提交（前后端均放行：`RuleMountDrawer.tsx:101-140`、`update.go:117-119`、`jobref.go:7`）+ failed 单锁死源数据（`service.go:149/331` 草稿恒 `pending`、`:548` 仅 passed 可确认、`:611-673` 仅废弃可解锁）。
+  3. **L1 是 v0.2 多域的潜伏地雷**：`MonitoringRule` 全局无网域列、`LoadRules` 不按域过滤（`data_source.go:53-66`），规则会进每个域 `rules.yml`；而 M09 按本域名单逐域校验 → 引用 A 域 job 的规则在 B 域必然 failed。数据模型已埋钩子（`MonitoringRule.Scope`；`jobref.Validate` 名单本为参数），留口子成本低。
+- **结论（用户已确认，2026-09-10）**：
+  1. **67-1（P0）failed 单不再锁死源数据**：草稿落到 `validation_status=failed AND validation_cause=user_config` 时，按 `DiscardDraft` 同口径**自动清除**规则 `change_status` 锁；**草稿保留**（可重校、可废弃，审计链不断）。`platform_fault` **不清锁**（非用户可修，环境就绪后重校即通过）。落地于 `GenerateDraft` / `reconcileWithExistingPending` / `RevalidateDraft` 三处落 failed 后。用户修改后保存即触发既有 reconcile 取代旧单（决策 42-1），死循环消除。**两条实现红线**：① 清锁写入**不得推进 `updated_at`**（否则触发「清锁→版本前进→重算→再 failed」自激循环），用 `UpdateColumn`；② 清锁目标态建议 **`none`**（该规则从未成功下发，写 `deployed` 会误导为「已生效」），若复用现成 where 走 `deployed` 则须在 UI 注明仅表示「无在途变更」。
+  2. **67-2（P0，修订决策 66 第 2/4 条）「提交生效」分级门 + 逃生门**：M01 编辑期校验由「一律不阻断」改为「**error 默认阻断**（存活类 `up`/`absent(up)` 缺 job，展示逐条问题清单）+ **显式覆盖逃生门**（勾选「已知晓：先挂规则，稍后补建 Job」后放行、降级为 warning 留痕）；warning 维持只提示。适用新建「提交生效」与编辑「保存变更」；v0.3 草稿态保存不受门禁。
+  3. **67-3（P0）「前往修改」按来源路由**：`validation_details` 增来源标识（建议 `source`：`rule`/`scrape_job`/`targets`），前端据此分流 `/rules` 或 `/scrape-jobs`；修正现硬编码（`ConfigPreviewPage.tsx:681`）。
+  4. **67-4（P1，纯设计）v0.2 口径口子**：抽唯一 scope 感知函数 `effectiveJobNames(db, scope, domainID)`（MVP central 单域 = 现状；v0.2 central → 全域 job 并集、edge/both → 本域），M01/M09 同调，把决策 66 的「单一实现」补完为「**单一实现 + 同一输入集**」。v0.2 约定：central 规则按全域并集校验；逐域配置包对 central 规则单独门禁、不按单域名单误报；`change_status` 标量锁保留（规则为全局资源，不建逐域锁表），陈旧草稿由 reconcile-on-save 兜底。
+  5. **明确不做**（相对上一轮方案的减法）：逐域 UI 分组、逐域锁表、M01 逐域校验改造——单域下均为过度设计。
+- **影响范围**：
+  - Module_01 PRD：§3.1「规则文件挂载」+ 双层模型注记（编辑期 error 默认阻断 + 逃生门）、§3.2 校验行、§5.5「规则 pending 期锁定」补失败自动清锁、§11.2 全局行为规则；Change Log v3.40。
+  - Module_09 PRD：§3.4 / §3.5.1（failed + user_config 自动清锁）、§5.4 ConfigDraft（`status` / `validation_cause` 语义补清锁）、§8 状态机①、§11.2（来源路由）；Change Log v1.63。
+  - Module_08 PRD：不需要修改。
+  - 契约：`module-01/api-contract-snapshot.md` §7（validate-yaml 门禁语义）、`module-09/api-contract-snapshot.md`（决策 67 增量）。
+  - 设计记录：新增 `docs/05-execution-records/module-09/rule-jobref-validation-lifecycle-fix.md`（含证据索引与修订对照）。
+- **实现落点（本轮仅文档，代码在开发分支执行）**：`platform/configcenter/draft/service.go`（新增 failed 清锁）、`platform/configcenter/deployment/callback.go`（口径核对）、`platform/strategy/rule/validate.go`（`effectiveJobNames`）、`platform/strategy/rule/update.go` / `jobref/jobref.go`（文案与预留字段）、前端 `RuleMountDrawer.tsx` / `ConfigPreviewPage.tsx` / 对应测试。
+- **关联**：决策 66（双层校验模型，被本决策修订第 2/4 条）、决策 42-1（pending 取代）、决策 42-2 / 45-1（校验失败三态出口）、决策 43 系列（废弃回写）、决策 44-1（pending 期锁定）、决策 45-2 / 45-3（失败引导与归因）、决策 54（v0.2 多网域 Job）。

@@ -28,11 +28,24 @@ const (
 	ValidationCausePlatformFault ValidationCause = "platform_fault" // 平台技术故障，自动重试、用户不可见
 )
 
+// ValidationSource 表示校验问题的来源，驱动「前往修改」按来源分流跳转（决策 67-3）：
+// rule → Module_01 规则编辑页；scrape_job / targets → 采集 Job 页。缺省（旧数据）按
+// scrape_job 回落。
+type ValidationSource string
+
+// Validation source 常量。
+const (
+	ValidationSourceRule      ValidationSource = "rule"       // 规则 job 引用（决策 66/67）
+	ValidationSourceScrapeJob ValidationSource = "scrape_job" // 采集 Job / prometheus.yml 外部校验
+	ValidationSourceTargets   ValidationSource = "targets"    // targets 实例（file_sd 内容）
+)
+
 // ValidationDetail 表示结构化校验失败定位（对齐原型 validation_details）。
 type ValidationDetail struct {
-	File    string `json:"file,omitempty"`    // 受影响的配置文件/目标文件
-	Line    int    `json:"line,omitempty"`    // 行号（0 = 无行号信息）
-	Message string `json:"message"`           // 具体错误说明
+	File    string           `json:"file,omitempty"`   // 受影响的配置文件/目标文件
+	Line    int              `json:"line,omitempty"`   // 行号（0 = 无行号信息）
+	Message string           `json:"message"`          // 具体错误说明
+	Source  ValidationSource `json:"source,omitempty"` // 问题来源，驱动「前往修改」分流（决策 67-3）
 }
 
 // ConfigSyncStatus 表示边缘 Agent 配置同步状态（v0.2，MVP 仅占位常量）。

@@ -11,7 +11,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -248,6 +250,219 @@ func TestValidateYAMLEndpoint(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &badResp))
 	assert.False(t, badResp.Data.Valid)
 	assert.NotEmpty(t, badResp.Data.Error)
+}
+
+// TestValidateYamlJobRef 覆盖决策 66：validate-yaml 在 YAML 语法通过后追加 job 引用
+// 语义校验。生效（enabled+ready）Job 命中 → 无问题；缺失 job → error（up 存活类）/
+// warning（非存活类）；但 valid 恒为 true（M01 编辑期不阻断保存）。
+func TestValidateYamlJobRef(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	db, err := gorm.Open(sqlite.Open("file:jobref?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.MonitoringRule{}))
+	RegisterRoutes(r.Group("/api/v2/platform"), db)
+
+	job := &models.ScrapeJob{
+		JobName: "ceshi", JobType: models.JobTypeStandard,
+		ResourceType: models.ResourceTypeHost, NetworkDomainID: "d1",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+		Scheme: "http", AuthType: models.AuthTypeNone,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusDeployed, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	content := `
+groups:
+- name: g
+  rules:
+  - alert: HostDown
+    expr: absent(up{job="miss"})
+  - alert: HighCPU
+    expr: node_cpu_usage{job="mysql"} > 0.9
+  - alert: OK
+    expr: up{job="ceshi"}
+`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules/1/validate-yaml",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(content)))
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Valid  bool           `json:"valid"`
+			JobRef []jobref.Issue `json:"job_ref"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Valid, "job 引用不阻断 valid（编辑期仅提示）")
+	require.Len(t, out.Data.JobRef, 2, "仅两条缺失 job 的问题：HostDown error、HighCPU warning")
+	sev := map[string]bool{}
+	for _, it := range out.Data.JobRef {
+		sev[string(it.Severity)] = true
+	}
+	assert.True(t, sev[string(jobref.SeverityError)], "absent(up) 缺失 job → error")
+	assert.True(t, sev[string(jobref.SeverityWarning)], "非存活类缺失 job → warning")
+}
+
+// TestValidateYamlJobRefAllExisting 覆盖决策 66：引用的 job 全部生效 → job_ref 为空。
+func TestValidateYamlJobRefAllExisting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	db, err := gorm.Open(sqlite.Open("file:jobref_ok?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.MonitoringRule{}))
+	RegisterRoutes(r.Group("/api/v2/platform"), db)
+	job := &models.ScrapeJob{
+		JobName: "ceshi", JobType: models.JobTypeStandard,
+		ResourceType: models.ResourceTypeHost, NetworkDomainID: "d1",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+		Scheme: "http", AuthType: models.AuthTypeNone,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusDeployed, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules/1/validate-yaml",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(fixtureForJobRef("ceshi"))))
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Valid  bool           `json:"valid"`
+			JobRef []jobref.Issue `json:"job_ref"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Valid)
+	assert.Len(t, out.Data.JobRef, 0, "引用的 job 存在 → 无 job 引用问题")
+}
+
+// TestCreateMonitoringRuleJobRefGate 覆盖决策 67-2：error 级（存活类缺 job）默认阻断
+// 创建，返回 400 + errorType=job_ref_unresolved（区别于普通 bad_request）；携带逃生门
+// ack_job_ref_errors=true 时放行；warning 级（非存活类缺 job）不阻断。
+func TestCreateMonitoringRuleJobRefGate(t *testing.T) {
+	db := openTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}))
+	r := mountRoutes(t, db)
+
+	errContent := `
+groups:
+- name: grp-err
+  rules:
+  - alert: HostDown
+    expr: absent(up{job="miss"})
+`
+	resp := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"r-err"}`, jsonString(errContent)))
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	var out struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	assert.Equal(t, "error", out.Status)
+	assert.Equal(t, response.ErrorTypeJobRefUnresolved, out.ErrorType,
+		"error 级 job 引用须以专用 errorType 拒绝，供前端识别逃生门可重试")
+	assert.Contains(t, out.Error, "miss")
+
+	// 逃生门：用户显式确认「先挂规则，稍后补建 Job」→ 放行
+	resp = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"r-err","ack_job_ref_errors":true}`, jsonString(errContent)))
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// warning 级（非存活类缺 job）不阻断提交
+	warnContent := `
+groups:
+- name: grp-warn
+  rules:
+  - alert: Cpu
+    expr: node_cpu_usage{job="ghost"} > 0.9
+`
+	resp = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"r-warn"}`, jsonString(warnContent)))
+	require.Equal(t, http.StatusOK, resp.Code)
+}
+
+// TestUpdateMonitoringRuleJobRefGate 覆盖决策 67-2 的编辑侧门禁：仅当请求携
+// rule_content 时执行（避免列表页启停/改名被历史数据意外阻断）；error 级默认阻断，
+// 逃生门放行。
+func TestUpdateMonitoringRuleJobRefGate(t *testing.T) {
+	db := openTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}))
+	r := mountRoutes(t, db)
+
+	// 建一条无 job 引用的规则，并复位 change_status（pending 规则按决策 44-1 禁止编辑）
+	body := fmt.Sprintf(`{"rule_content":%s,"name":"r1"}`, jsonString(rulesFixtureGroup("upd-grp")))
+	resp := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.NoError(t, db.Model(&models.MonitoringRule{}).Where("name = ?", "r1").
+		Update("change_status", models.ChangeStatusNone).Error)
+
+	errContent := `
+groups:
+- name: upd-grp
+  rules:
+  - alert: HostDown
+    expr: absent(up{job="miss"})
+`
+	resp = perform(t, r, http.MethodPut, "/api/v2/platform/monitoring-rules/1",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(errContent)))
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	var out struct {
+		ErrorType string `json:"errorType"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	assert.Equal(t, response.ErrorTypeJobRefUnresolved, out.ErrorType)
+
+	// 逃生门放行
+	resp = perform(t, r, http.MethodPut, "/api/v2/platform/monitoring-rules/1",
+		fmt.Sprintf(`{"rule_content":%s,"ack_job_ref_errors":true}`, jsonString(errContent)))
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// 不带 rule_content 的改名请求：不触达门禁（内容未变，不应因历史数据被阻断）
+	resp = perform(t, r, http.MethodPut, "/api/v2/platform/monitoring-rules/1", `{"name":"r1-renamed"}`)
+	require.Equal(t, http.StatusOK, resp.Code)
+}
+
+// TestEffectiveJobNamesScope 覆盖决策 67-4 的统一输入集：central（规则为全局资源）
+// 取全域并集；edge 取本域；网域为空时不判定。MVP 单域下 central 即全库，与历史等价。
+func TestEffectiveJobNamesScope(t *testing.T) {
+	db := openTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}))
+	newJob := func(name, domain, draftStatus string, enabled bool) *models.ScrapeJob {
+		return &models.ScrapeJob{
+			JobName: name, JobType: models.JobTypeStandard,
+			ResourceType: models.ResourceTypeHost, NetworkDomainID: domain,
+			InstanceSelectionMode: models.InstanceSelectionManual,
+			ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+			Scheme: "http", AuthType: models.AuthTypeNone,
+			DraftStatus: draftStatus, ChangeStatus: models.ChangeStatusDeployed, Enabled: enabled,
+		}
+	}
+	require.NoError(t, db.Create(newJob("job-a", "d1", "ready", true)).Error)
+	require.NoError(t, db.Create(newJob("job-b", "d2", "ready", true)).Error)
+	require.NoError(t, db.Create(newJob("job-off", "d1", "ready", false)).Error)
+	require.NoError(t, db.Create(newJob("job-draft", "d1", "draft", true)).Error)
+
+	// central：全域并集（规则会进入每个网域的 rules.yml）
+	require.ElementsMatch(t, []string{"job-a", "job-b"}, effectiveJobNames(db, models.ScopeTypeCentral, ""))
+	// edge：仅本域（disabled / draft 均不计入）
+	require.Equal(t, []string{"job-a"}, effectiveJobNames(db, models.ScopeTypeEdge, "d1"))
+	// edge 未指定网域：不判定（返回空集合）
+	require.Nil(t, effectiveJobNames(db, models.ScopeTypeEdge, ""))
+}
+
+// fixtureForJobRef 返回引用指定 job_name 的合法规则 YAML。
+func fixtureForJobRef(jobName string) string {
+	return fmt.Sprintf(`
+groups:
+- name: g
+  rules:
+  - alert: OK
+    expr: up{%s} != 0
+  - alert: Cpu
+    expr: node_cpu_usage{%s} > 0.9
+`, fmt.Sprintf("job=%q", jobName), fmt.Sprintf("job=%q", jobName))
 }
 // TestExtractGroupNames 覆盖 group 名提取：空 name、文件内重名均报错。
 func TestExtractGroupNames(t *testing.T) {

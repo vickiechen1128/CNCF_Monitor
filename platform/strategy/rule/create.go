@@ -22,6 +22,9 @@ type CreateMonitoringRuleRequest struct {
 	Name        string                 `json:"name"`
 	Enabled     *bool                  `json:"enabled"`
 	MonitorType string                 `json:"monitor_type"`
+	// AckJobRefErrors 为决策 67-2 的逃生门：存在 error 级 job 引用时，默认拒绝创建；
+	// 置 true 表示用户已显式确认「先挂规则，稍后补建 Job」，放行落库留痕。
+	AckJobRefErrors bool `json:"ack_job_ref_errors"`
 }
 
 // CreateMonitoringRule 是 POST /api/v2/platform/monitoring-rules 的 handler：
@@ -62,6 +65,11 @@ func CreateMonitoringRule(db *gorm.DB) gin.HandlerFunc {
 		if enabled {
 			if err := validateGroupNamesAvailable(db, req.RuleContent, 0); err != nil {
 				response.BadRequest(c, err)
+				return
+			}
+			// 决策 67-2：error 级 job 引用默认阻断提交（禁用规则不下发，不校验）。
+			if err := checkRuleJobRefGate(db, req.RuleContent, req.AckJobRefErrors); err != nil {
+				response.BadRequestWithType(c, response.ErrorTypeJobRefUnresolved, err)
 				return
 			}
 		}

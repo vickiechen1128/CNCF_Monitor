@@ -152,8 +152,16 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		ValidationCause:   string(cause),
 		ValidationDetails: string(detailsJSON),
 	}
-	if err := db.Create(draft).Error; err != nil {
-		return nil, fmt.Errorf("create config draft: %w", err)
+	// 草稿创建与「失败单自动清锁」（决策 67-1）同事务：failed + user_config 时清除
+	// M01 源数据 pending 锁，避免失败单锁死源数据形成死循环。
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(draft).Error; err != nil {
+			return fmt.Errorf("create config draft: %w", err)
+		}
+		return unlockSourceDataOnFailed(tx, draft)
+	})
+	if err != nil {
+		return nil, err
 	}
 	return draft, nil
 }
@@ -351,7 +359,9 @@ func reconcileWithExistingPending(
 		if err := tx.Create(newDraft).Error; err != nil {
 			return fmt.Errorf("create superseding draft: %w", err)
 		}
-		return nil
+		// 决策 67-1：取代生成的新单若落 failed + user_config，同样自动清 M01 源数据锁
+		//（否则用户改完规则被锁 → 新单仍 failed → 再次死循环）。
+		return unlockSourceDataOnFailed(tx, newDraft)
 	})
 	if err != nil {
 		return nil, err
@@ -608,6 +618,48 @@ type DiscardImpact struct {
 //   - 新建且从未生效的 job：回退 draft_status=draft，change_status=none；
 //   - 已生效 job 的修改：保留修改值，change_status=deployed（MVP 不自动回滚，弹窗已告知）；
 //   - 已生效 job 的删除/停用/草稿化：恢复（undelete + enabled + ready），change_status=deployed。
+// unlockSourceDataOnFailed 在草稿落到 validation_status=failed 且归因 user_config 时，
+// **自动清除** M01 源数据（MonitoringRule）的 change_status=pending 锁（决策 67-1）。
+//
+// 背景（现场动线死锁）：failed 草稿既不可确认（ConfirmDraft 要求 passed），又会因
+// status=pending 按决策 44-1 锁死源数据（M01 编辑/删除 409），用户唯一出路是「废弃」，
+// 而废弃会连带撤销用户内容 → 改完再存再 failed，形成死循环。本函数让失败态草稿不再
+// 锁死源数据；**草稿本身保留**（仍在待确认列表、可重校、可废弃，审计链不断），用户可
+// 直接回 M01 修改，改后保存即由同域 pending 取代机制（决策 42-1）生成新单重校。
+//
+// 两条实现红线：
+//  1. 用 UpdateColumn 跳过 GORM 的 updated_at 自动刷新——updated_at 是 M09「源数据
+//     版本触发预筛」的输入，推进它会形成「清锁 → 版本前进 → 重算 → 再 failed → 再清锁」
+//     的自激循环；
+//  2. 目标态取 none（无在途变更），而非沿用废弃分支的 deployed——该规则内容从未成功
+//     下发，写 deployed 会让 M01 列表误显示「已下发生效」。
+//
+// 不清锁：validation_cause=platform_fault（promtool/amtool 不可用等环境问题，非用户
+// 可修，环境就绪后重校即通过）。
+func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error {
+	if d == nil ||
+		d.ValidationStatus != string(models.ValidationStatusFailed) ||
+		d.ValidationCause != string(models.ValidationCauseUserConfig) {
+		return nil
+	}
+	// 规则 scope=central 无网域列（M09 PRD §3.3），MVP 单域下与「清全部 pending+ready
+	// 规则」等价，沿用 DiscardDraft 的现成 where 口径；v0.2 多域需收敛为「本次草稿实际
+	// 引用的规则」（决策 67-4 附带项）。
+	if err := tx.Model(&models.MonitoringRule{}).
+		Where("change_status = ? AND draft_status = ?", models.ChangeStatusPending, "ready").
+		UpdateColumn("change_status", models.ChangeStatusNone).Error; err != nil {
+		return fmt.Errorf("unlock rule change_status on failed draft: %w", err)
+	}
+	return nil
+}
+
+// DiscardDraft 废弃一张 pending 草稿（决策 42-2 / 43）：按分类回写源数据（新建未生效
+// Job 回退 draft、删除/停用型自动恢复、已生效修改保留并清 pending），并将规则侧
+// change_status 从 pending 复位（决策 43-6「不允许 pending 残留」）。
+//
+// 与 unlockSourceDataOnFailed 的区别：废弃是**变更单级终态**、会按决策 43 分类回写
+// 源数据（job 表 deployed 语义 = 回到已生效基线）；失败自动清锁是**非终态**（草稿仍
+// 存活可重校），仅清锁、不撤销源数据，故目标态取 none。二者语义不同，刻意不共用常量。
 func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardImpact, error) {
 	d, err := GetDraftDetail(db, changeNo)
 	if err != nil {
@@ -660,6 +712,15 @@ func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardIm
 			if err := tx.Unscoped().Model(j).Updates(updates).Error; err != nil {
 				return fmt.Errorf("update job %d on discard: %w", j.ID, err)
 			}
+		}
+		// 决策 43-6（禁止 pending 残留）：废弃同样需清理 MonitoringRule 上挂起的
+		// pending 锁，否则规则 change_status 残留 pending，M01 侧 409 阻塞后续编辑。
+		// 规则 scope=central 无网域列，回写口径与 deployment.writebackRuleChangeStatus
+		// 一致做全量回写；保留规则当前源数据（discard 不自动回滚规则内容），仅清除锁。
+		if err := tx.Model(&models.MonitoringRule{}).
+			Where("change_status = ? AND draft_status = ?", models.ChangeStatusPending, "ready").
+			Update("change_status", models.ChangeStatusDeployed).Error; err != nil {
+			return fmt.Errorf("reset rule change_status on discard: %w", err)
 		}
 		if err := tx.Model(d).Update("status", models.DraftStatusDiscarded).Error; err != nil {
 			return fmt.Errorf("discard config draft: %w", err)
@@ -783,13 +844,21 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	d.ValidationMessage = vMsg
 	d.ValidationCause = string(cause)
 	d.ValidationDetails = string(detailsJSON)
-	if err := db.Model(d).Updates(map[string]interface{}{
-		"validation_status":   d.ValidationStatus,
-		"validation_message":  d.ValidationMessage,
-		"validation_cause":    d.ValidationCause,
-		"validation_details":  d.ValidationDetails,
-	}).Error; err != nil {
-		return nil, fmt.Errorf("update draft validation: %w", err)
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(d).Updates(map[string]interface{}{
+			"validation_status":  d.ValidationStatus,
+			"validation_message": d.ValidationMessage,
+			"validation_cause":   d.ValidationCause,
+			"validation_details": d.ValidationDetails,
+		}).Error; err != nil {
+			return fmt.Errorf("update draft validation: %w", err)
+		}
+		// 决策 67-1：重校后仍 failed + user_config 时，保持源数据不处于锁死态
+		//（例如上一次重校为 platform_fault 未清锁，本次环境就绪但内容仍错）。
+		return unlockSourceDataOnFailed(tx, d)
+	})
+	if err != nil {
+		return nil, err
 	}
 	if validation == models.ValidationStatusFailed {
 		return d, fmt.Errorf("%w: %s", ErrValidationStillFailed, vMsg)

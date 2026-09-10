@@ -257,6 +257,10 @@ export function ConfigPreviewPage() {
   const canRevalidate = isPending && !validationPassed
   // failed + user_config 时可提供「前往修改」引导（源数据输入层，决策 45-4）
   const canFixUserConfig = isPending && validationFailed && detail?.validation_cause === 'user_config'
+  // 决策 67-3：「前往修改」按校验明细 source 分流——规则 job 引用问题回 Module_01
+  // 规则编辑页（/rules），采集 Job / targets 问题回采集 Job 页（/scrape-jobs）；
+  // 旧数据无 source 时按 scrape_job 回落（保持历史行为）。
+  const fixTarget = detail?.validation_details?.some((vd) => vd.source === 'rule') ? '/rules' : '/scrape-jobs'
 
   const columns: ColumnsType<ConfigDraft> = [
     {
@@ -678,7 +682,7 @@ export function ConfigPreviewPage() {
                       icon={<EditOutlined />}
                       onClick={() => {
                         setDetail(null)
-                        navigate(`/scrape-jobs`)
+                        navigate(fixTarget)
                       }}
                     >
                       前往修改

@@ -5,6 +5,13 @@ import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 import { ConfigPreviewPage } from './ConfigPreviewPage'
 import type { ConfigDraft } from '../../../types/config-center'
 
+// 决策 67-3：「前往修改」按来源分流跳转，此处捕获 navigate 目标断言路由
+const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }))
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>()
+  return { ...actual, useNavigate: () => navigateSpy }
+})
+
 const useConfigDraftsMock = vi.fn()
 const fetchMonitoredDomainsMock = vi.fn()
 const draftApiMock = {
@@ -101,6 +108,7 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     reloadMock.mockReset()
     setDomainIdMock.mockReset()
     setStatusMock.mockReset()
+    navigateSpy.mockReset()
     fetchMonitoredDomainsMock.mockReset()
     fetchMonitoredDomainsMock.mockResolvedValue([
       { id: 'default', name: '默认域', channel: 'local', is_monitored: true },
@@ -313,5 +321,45 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     expect(screen.getByRole('button', { name: /前往修改/ })).toBeInTheDocument()
     // 结构化细节定位展示（全角冒号分隔 file 与 message）
     expect(await screen.findByText(/a\.json\s*：\s*禁止覆盖内置标签/)).toBeInTheDocument()
+  })
+
+  // 决策 67-3：校验明细来源为「规则 job 引用」（source=rule）时，「前往修改」跳
+  // Module_01 规则编辑页（/rules），而非硬编码的采集 Job 页。
+  it('决策 67-3：source=rule 的「前往修改」跳 /rules', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'failed',
+        validation_cause: 'user_config',
+        validation_message: 'rules.yml 规则 job 引用校验未通过',
+        validation_details: [
+          { file: 'rules.yml', message: '规则 "HostDown" 引用的 job "miss" 不存在', source: 'rule' },
+        ],
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /前往修改/ }))
+    expect(navigateSpy).toHaveBeenCalledWith('/rules')
+  })
+
+  // 决策 67-3：来源为采集 Job / targets（含旧数据缺省 source）时跳 /scrape-jobs。
+  it('决策 67-3：source=targets 与缺省旧数据均跳 /scrape-jobs', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'failed',
+        validation_cause: 'user_config',
+        validation_message: 'targets 文件 a.json 非法',
+        // 无 source：模拟决策 67-3 之前的旧数据，应按 scrape_job 回落
+        validation_details: [{ file: 'a.json', message: '禁止覆盖内置标签 "job"' }],
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /前往修改/ }))
+    expect(navigateSpy).toHaveBeenCalledWith('/scrape-jobs')
   })
 })

@@ -7,6 +7,7 @@
  * M06 用户管理接入后应删除并改用真实登录账号（见设计决策 19），实现 login 前勿新增硬编码凭据/姓名。
  */
 import type {
+  AlertHistoryState,
   AlertmanagerConfigStatus,
   NotifyStatus,
   PromAlertState,
@@ -127,4 +128,19 @@ export const promAlertStateLabel: Record<PromAlertState, string> = {
 export const promAlertStateColor: Record<PromAlertState, string> = {
   firing: 'error',
   pending: 'warning',
+}
+
+// =====================================================================
+// 历史告警（v1.13 MVP 增量，M02 §5.4 / M08 §3.1）
+// =====================================================================
+
+/** 历史告警状态展示名：firing=触发中 / resolved=已恢复 */
+export const alertHistoryStateLabel: Record<AlertHistoryState, string> = {
+  firing: '触发中',
+  resolved: '已恢复',
+}
+
+export const alertHistoryStateColor: Record<AlertHistoryState, string> = {
+  firing: 'error',
+  resolved: 'success',
 }

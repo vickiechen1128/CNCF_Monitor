@@ -45,6 +45,10 @@ const SilencesPage = lazy(() =>
 const AlertStatusPage = lazy(() =>
   import('./pages/alerts/AlertStatusPage').then((m) => ({ default: m.AlertStatusPage })),
 )
+// M08 v1.13 增量：历史告警独立页（Track B+）
+const HistoryAlertsPage = lazy(() =>
+  import('./pages/alerts/HistoryAlertsPage').then((m) => ({ default: m.HistoryAlertsPage })),
+)
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -93,6 +97,7 @@ function AppRoutes() {
           <Route path="/alert-config" element={<AlertConfigPage />} />
           <Route path="/silences" element={<SilencesPage />} />
           <Route path="/alert-status" element={<AlertStatusPage />} />
+          <Route path="/alert-history" element={<HistoryAlertsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

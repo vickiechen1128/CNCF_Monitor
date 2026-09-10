@@ -155,3 +155,32 @@ export interface AmAlertItem {
 export interface AmAlertsData {
   items: AmAlertItem[]
 }
+
+// =====================================================================
+// 历史告警（M02 v1.13 + M08 v1.13，Track B+）
+// =====================================================================
+
+/** 历史告警状态：firing=查询窗口结束时仍在触发 / resolved=触发区间已结束 */
+export type AlertHistoryState = 'firing' | 'resolved'
+
+/** 历史告警记录（M02 §5.4 / M08 §3.1） */
+export interface AlertHistoryItem {
+  alertname: string
+  instance: string
+  network_domain: string
+  state: AlertHistoryState
+  fired_at: string
+  resolved_at?: string
+  duration_seconds: number
+  summary: string
+  value: string
+  instance_display?: string
+}
+
+/** GET /api/v1/alerts/history 响应 data 信封（空结果 list=[] 非 null） */
+export interface AlertHistoryData {
+  list: AlertHistoryItem[]
+  total: number
+  page: number
+  page_size: number
+}

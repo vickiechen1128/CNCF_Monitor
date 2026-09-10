@@ -84,11 +84,21 @@ export type DraftValidationStatus = 'passed' | 'failed' | 'pending' | 'rejected'
 /** 校验失败归因（决策 45-3） */
 export type DraftValidationCause = 'user_config' | 'platform_fault'
 
+/**
+ * 校验问题来源（决策 67-3）：驱动「前往修改」按来源分流。
+ * - rule：规则 job 引用问题 → Module_01 规则编辑页（/rules）；
+ * - scrape_job / targets：采集 Job、prometheus.yml 外部校验、targets 实例 → /scrape-jobs。
+ * 缺省（旧数据）按 scrape_job 回落。
+ */
+export type ValidationSource = 'rule' | 'scrape_job' | 'targets'
+
 /** 结构化校验失败定位（对齐原型 validation_details） */
 export interface ValidationDetail {
   file?: string
   line?: number
   message: string
+  /** 问题来源，驱动「前往修改」分流跳转（决策 67-3） */
+  source?: ValidationSource
 }
 
 /** 风险等级 */

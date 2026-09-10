@@ -35,6 +35,11 @@ const (
 	// Alertmanager) being unreachable / failing, so the gateway proxy cannot
 	// fulfil the request.
 	ErrorTypeBadGateway = "bad_gateway"
+	// ErrorTypeJobRefUnresolved represents a request rejected because the rule
+	// carries error-level unresolvable job references without an explicit
+	// acknowledgement (决策 67-2). HTTP 400，errorType 供前端区分「可勾选逃生门
+	// 重试」与普通参数错误。
+	ErrorTypeJobRefUnresolved = "job_ref_unresolved"
 )
 
 // Response is the unified JSON response structure.
@@ -104,6 +109,13 @@ func OK(c *gin.Context, data interface{}) {
 // BadRequest writes a bad request response to the gin context.
 func BadRequest(c *gin.Context, err error) {
 	c.JSON(http.StatusBadRequest, Fail(ErrorTypeBadRequest, err))
+}
+
+// BadRequestWithType writes a 400 response with a caller-specified errorType,
+// 保持统一信封的同时让前端可区分可预期的业务拒绝（如 job_ref_unresolved，
+// 决策 67-2）。仅用于 400 族，勿传 ErrorTypeInternal（会走内部错误脱敏路径）。
+func BadRequestWithType(c *gin.Context, errorType string, err error) {
+	c.JSON(http.StatusBadRequest, Fail(errorType, err))
 }
 
 // Unauthorized writes an unauthorized response to the gin context.

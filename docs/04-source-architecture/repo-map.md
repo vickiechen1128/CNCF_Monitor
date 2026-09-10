@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-09 16:39 · commit: `80c2bb40`
+> 生成时间: 2026-09-10 16:14 · commit: `e1582e21`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -483,6 +483,7 @@
 - `func Error(err error) Response`
 - `func OK(c *gin.Context, data interface{})`
 - `func BadRequest(c *gin.Context, err error)`
+- `func BadRequestWithType(c *gin.Context, errorType string, err error)`
 - `func Unauthorized(c *gin.Context, message string)`
 - `func Forbidden(c *gin.Context, message string)`
 - `func NotFound(c *gin.Context, message string)`
@@ -1383,6 +1384,10 @@
 - `func TestListDraftsFilterAndPagination(t *testing.T)`
 - `func TestListDraftsEmptyDomainReturnsAll(t *testing.T)`
 - `func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T)`
+- `func seedPendingRule(t *testing.T, db *gorm.DB, name string) *models.MonitoringRule`
+- `func TestRevalidateDraftFailedUnlocksSourceRule(t *testing.T)`
+- `func TestGenerateDraftFailedUnlocksSourceRule(t *testing.T)`
+- `func TestUnlockSourceDataOnFailedGuards(t *testing.T)`
 - `func adminInjector() gin.HandlerFunc`
 - `func TestDraftHandlerRoutes(t *testing.T)`
 - `func TestDraftHandlerConfirmWhenValidationPassed(t *testing.T)`
@@ -1426,6 +1431,7 @@
 - `func GetDraftDetail(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVersion, error)`
 - `type DiscardImpact struct`
+- `func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error`
 - `func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardImpact, error)`
 - `func GetDiscardImpact(db *gorm.DB, changeNo string) (*DiscardImpact, error)`
 - `func computeDiscardImpact(db *gorm.DB, d *models.ConfigDraft) (*DiscardImpact, error)`
@@ -1507,6 +1513,11 @@
 - `func TestAssembleAlertmanagerYML(t *testing.T)`
 - `func TestLoadLatestAlertmanagerConfigContent(t *testing.T)`
 - `func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T)`
+- `func stubPassingTools(t *testing.T)`
+- `func TestValidateArtifactsJobRefErrorBlocks(t *testing.T)`
+- `func TestValidateArtifactsJobRefWarningPasses(t *testing.T)`
+- `func TestValidateArtifactsJobRefAllExisting(t *testing.T)`
+- `func TestScrapeConfigJobNames(t *testing.T)`
 
 ### `platform/configcenter/generator/labels.go`
 
@@ -1549,6 +1560,7 @@
 - `func validTargetHost(host string) bool`
 - `func validateLabelName(name string) error`
 - `func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, models.ValidationCause, []models…`
+- `func scrapeConfigJobNames(prometheusYML string) []string`
 - `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string)`
 - `func runPromtoolCheck(ca *ConfigArtifacts) error`
 - `func runBlackboxCheck(blackboxYAML string) error`
@@ -1878,6 +1890,7 @@
 
 - `type ValidationStatus = string`
 - `type ValidationCause = string`
+- `type ValidationSource = string`
 - `type ValidationDetail struct`
 - `type ConfigSyncStatus = string`
 - `type OutOfSyncCause = string`
@@ -2180,6 +2193,37 @@
 - `func alertDomainAllowed(authorized []string, domain string) bool`
 - `func instanceDisplayOf(labels map[string]string) string`
 
+### `platform/query/alerts_history.go`
+
+- `type AlertHistoryItem struct`
+- `type alertHistoryQuery struct`
+- `func AlertsHistoryHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error)`
+- `func fetchAlertHistory(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]AlertHistoryItem,…`
+- `type promMatrixSample struct`
+- `func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]promMatrixSample, …`
+- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string) []AlertHistoryItem`
+- `func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[s…`
+- `type rulesAPIResponse struct`
+- `func fetchRulesAnnotations(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
+- `func paginateHistory(items []AlertHistoryItem, page, pageSize int) ([]AlertHistoryItem, int)`
+
+### `platform/query/alerts_history_test.go`
+
+- `func historyMatrixFixture() map[string]interface{}`
+- `func historyRulesFixture() map[string]interface{}`
+- `func newHistoryRouter(t *testing.T, upstream http.Handler) *gin.Engine`
+- `func doHistory(t *testing.T, r *gin.Engine, query string) (int, map[string]interface{})`
+- `func TestAlertHistoryRebuildsIntervals(t *testing.T)`
+- `func TestAlertHistoryFilterByNetworkDomain(t *testing.T)`
+- `func TestAlertHistoryFilterByState(t *testing.T)`
+- `func TestAlertHistoryFilterByStateFiring(t *testing.T)`
+- `func TestAlertHistoryPagination(t *testing.T)`
+- `func TestAlertHistoryTimeWindowClamped(t *testing.T)`
+- `func TestAlertHistoryEmptyNotNull(t *testing.T)`
+- `func TestAlertHistoryUpstreamError(t *testing.T)`
+- `func TestAlertHistoryInvalidState(t *testing.T)`
+
 ### `platform/query/alerts_test.go`
 
 - `func promAlertsFixture() map[string]interface{}`
@@ -2418,6 +2462,29 @@
 - `func readRuleByID(c *gin.Context, db *gorm.DB, id uint) (*models.MonitoringRule, bool)`
 - `func parseRuleID(c *gin.Context) (uint, bool)`
 
+### `platform/strategy/rule/jobref/jobref.go`
+
+- `type Severity = string`
+- `type Issue struct`
+- `type ruleEntry struct`
+- `type ruleGroup struct`
+- `type rulesFile struct`
+- `func Validate(rulesContent string, jobNames []string) []Issue`
+- `func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issue`
+- `func jobExists(jobs map[string]struct{}, op, ref string) (hit bool, determinable bool)`
+
+### `platform/strategy/rule/jobref/jobref_test.go`
+
+- `func TestValidateMatchesExistingJobs(t *testing.T)`
+- `func TestValidateLiteralMissingIsWarning(t *testing.T)`
+- `func TestValidateUpIsError(t *testing.T)`
+- `func TestValidateRegexMissingIsErrorForUp(t *testing.T)`
+- `func TestValidateRegexMatchesAnyJob(t *testing.T)`
+- `func TestValidateInvalidYAMLReturnsNil(t *testing.T)`
+- `func TestValidateNoJobMatcherSkips(t *testing.T)`
+- `func TestValidateDedupesRepeatedMatcher(t *testing.T)`
+- `func TestValidateInvalidRegexSkipped(t *testing.T)`
+
 ### `platform/strategy/rule/list.go`
 
 - `func ListMonitoringRules(db *gorm.DB) gin.HandlerFunc`
@@ -2435,6 +2502,12 @@
 - `func jsonString(s string) string`
 - `func TestListUpdateDeleteMonitoringRule(t *testing.T)`
 - `func TestValidateYAMLEndpoint(t *testing.T)`
+- `func TestValidateYamlJobRef(t *testing.T)`
+- `func TestValidateYamlJobRefAllExisting(t *testing.T)`
+- `func TestCreateMonitoringRuleJobRefGate(t *testing.T)`
+- `func TestUpdateMonitoringRuleJobRefGate(t *testing.T)`
+- `func TestEffectiveJobNamesScope(t *testing.T)`
+- `func fixtureForJobRef(jobName string) string`
 - `func TestExtractGroupNames(t *testing.T)`
 - `func TestCreateMonitoringRuleGroupNameConflict(t *testing.T)`
 - `func TestCreateMonitoringRuleMonitorType(t *testing.T)`
@@ -2460,6 +2533,11 @@
 - `type groupNamesFile struct`
 - `func extractGroupNames(content string) ([]string, error)`
 - `func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) error`
+- `func effectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
+- `func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue`
+- `func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue`
+- `func FindRuleJobRefErrors(db *gorm.DB, content string) []jobref.Issue`
+- `func checkRuleJobRefGate(db *gorm.DB, content string, ack bool) error`
 
 ### `platform/strategy/scrapejob/batch.go`
 
@@ -2594,6 +2672,7 @@
 - `const alertmanagerConfigApi`
 - `const alertmanagerSilenceApi`
 - `interface AlertStatusQuery`
+- `interface AlertHistoryQuery`
 - `const alertStatusApi`
 
 ### `ui-custom/web/src/api/ciExporterMappings.ts`
@@ -2680,6 +2759,8 @@
 - `interface MonitoringRuleListParams`
 - `interface MonitoringRuleInput`
 - `interface YamlValidationResult`
+- `type JobRefSeverity`
+- `interface JobRefIssue`
 - `const monitoringRuleApi`
 
 ### `ui-custom/web/src/api/resources.ts`
@@ -2831,6 +2912,10 @@
 - `interface CreateSilenceDrawerProps`
 - `function CreateSilenceDrawer`
 
+### `ui-custom/web/src/pages/alerts/HistoryAlertsPage.tsx`
+
+- `function HistoryAlertsPage`
+
 ### `ui-custom/web/src/pages/alerts/SilencesPage.tsx`
 
 - `function SilencesPage`
@@ -2853,6 +2938,8 @@
 - `const notifyStatusTip`
 - `const promAlertStateLabel`
 - `const promAlertStateColor`
+- `const alertHistoryStateLabel`
+- `const alertHistoryStateColor`
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
 
@@ -2866,6 +2953,15 @@
 - `function useAmAlerts`
 - `function usePromAlerts`
 - `function useNetworkDomains`
+
+### `ui-custom/web/src/pages/alerts/useHistoryAlerts.ts`
+
+- `interface HistoryAlertsQuery`
+- `interface HistoryAlertsResult`
+- `interface DomainOption`
+- `function useHistoryAlerts`
+- `function useNetworkDomains`
+- `function defaultTimeRange`
 
 ### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
@@ -3218,6 +3314,9 @@
 - `interface AmAlertStatus`
 - `interface AmAlertItem`
 - `interface AmAlertsData`
+- `type AlertHistoryState`
+- `interface AlertHistoryItem`
+- `interface AlertHistoryData`
 
 ### `ui-custom/web/src/types/api.ts`
 
@@ -3247,6 +3346,7 @@
 - `type DraftStatus`
 - `type DraftValidationStatus`
 - `type DraftValidationCause`
+- `type ValidationSource`
 - `interface ValidationDetail`
 - `type Risk`
 - `type ChangeTarget`

@@ -309,7 +309,14 @@ export function ResourcesPage() {
       case 'host':
         return [
           {
-            title: '实例名 / 主机名',
+            title: (
+              <span>
+                实例名
+                <Tooltip title="主机资源的实例名即主机名">
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+                </Tooltip>
+              </span>
+            ),
             key: 'name',
             render: (_: unknown, record: ResourceListItem) => (
               <Space direction="vertical" size={0}>
@@ -344,7 +351,6 @@ export function ResourcesPage() {
         ]
       case 'database':
         return [
-          monitorColumn,
           { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '数据库类型',
@@ -364,7 +370,6 @@ export function ResourcesPage() {
         ]
       case 'middleware':
         return [
-          monitorColumn,
           { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '中间件类型',
@@ -384,7 +389,6 @@ export function ResourcesPage() {
         ]
       case 'application':
         return [
-          monitorColumn,
           {
             title: '服务名',
             dataIndex: 'service_name',
@@ -410,7 +414,6 @@ export function ResourcesPage() {
         ]
       case 'generic_target':
         return [
-          monitorColumn,
           {
             title: '目标名称',
             dataIndex: 'target_name',

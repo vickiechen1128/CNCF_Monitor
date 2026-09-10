@@ -567,6 +567,136 @@ func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T) {
 	assert.Contains(t, reloaded.ValidationDetails, "禁止覆盖内置标签")
 }
 
+// ==================== 决策 67-1：失败草稿自动清源数据锁 ====================
+
+// seedPendingRule 落一条「已并入本次变更单、源数据被锁」的中心规则（决策 44-1 语义：
+// change_status=pending 的规则在 M01 侧不可编辑/删除）。规则内容为存活类表达式
+// （absent(up{...})）且引用不存在的 job，用于让 M09 发布期 job 引用门禁判为 error。
+func seedPendingRule(t *testing.T, db *gorm.DB, name string) *models.MonitoringRule {
+	t.Helper()
+	r := &models.MonitoringRule{
+		Name:        name,
+		ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: g-" + name + "\n    rules:\n" +
+			"      - alert: HostDown\n        expr: absent(up{job=\"miss\"})\n",
+		Scope:        models.ScopeTypeCentral,
+		Enabled:      true,
+		DraftStatus:  "ready",
+		ChangeStatus: models.ChangeStatusPending,
+	}
+	require.NoError(t, db.Create(r).Error)
+	return r
+}
+
+// TestRevalidateDraftFailedUnlocksSourceRule 覆盖决策 67-1 的重校分支：草稿重校仍落
+// failed + user_config 时，必须解除源规则的 pending 锁——否则用户回 M01 改不动，
+// 唯一出路是废弃变更单并连带丢失已填内容，形成「改完再存再 failed」死循环。
+//
+// 同时钉死两条实现红线：
+//   - 清锁不得推进 updated_at（updated_at 是 M09 源数据版本预筛输入，推进它会形成
+//     「清锁 → 版本前进 → 重算 → 再 failed → 再清锁」的自激循环）；
+//   - 草稿本身保留（非终态，仍在待确认列表，可重校/可废弃，审计链不断）。
+func TestRevalidateDraftFailedUnlocksSourceRule(t *testing.T) {
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "dom-u1", true)
+	d := seedDraftWithStatus(t, db, "CHG-U0001", "dom-u1", "pending", "failed")
+	r := seedPendingRule(t, db, "rule-u1")
+
+	// 时间戳基线从库中取，避免内存值精度与 SQLite 落库精度不一致导致的假失败。
+	var before models.MonitoringRule
+	require.NoError(t, db.First(&before, r.ID).Error)
+
+	// 覆盖 targets_files 为含内置保护标签的非法内容 → schema 失败、归因 user_config。
+	targets := map[string]string{
+		"a.json": `[{"targets":["10.0.1.10"],"labels":{"job":"x"}}]`,
+	}
+	b, err := json.Marshal(targets)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(d).Update("targets_files", string(b)).Error)
+
+	_, err = RevalidateDraft(db, d.ChangeNo)
+	require.ErrorIs(t, err, ErrValidationStillFailed)
+
+	var after models.MonitoringRule
+	require.NoError(t, db.First(&after, r.ID).Error)
+	assert.Equal(t, models.ChangeStatusNone, after.ChangeStatus,
+		"failed + user_config 草稿须自动解除源规则 pending 锁，让用户可回 M01 修改")
+	assert.True(t, after.UpdatedAt.Equal(before.UpdatedAt),
+		"清锁走 UpdateColumn，不得推进 updated_at（否则触发 M09 版本预筛自激循环）")
+
+	// 草稿保留（非终态）：仍可查询、可重校、可废弃。
+	var stillThere models.ConfigDraft
+	require.NoError(t, db.Where("change_no = ?", d.ChangeNo).First(&stillThere).Error)
+	assert.Equal(t, string(models.ValidationStatusFailed), stillThere.ValidationStatus)
+}
+
+// TestGenerateDraftFailedUnlocksSourceRule 覆盖决策 67-1 的生成分支（现场死锁动线）：
+// 规则引用不存在的存活类 job → M09 发布期门禁判 error → 新单落 failed + user_config，
+// 此时必须同事务解除该规则 pending 锁，用户可立即回 M01 修改，无需先废弃变更单。
+func TestGenerateDraftFailedUnlocksSourceRule(t *testing.T) {
+	stubValidationTools(t) // 外部工具校验通过后，才能推进到规则 job 引用门禁
+	db := newMemDB(t)
+	seedMonitoredDomain(t, db, "dom-u2", true)
+	seedHost(t, db, "dom-u2", "res-1")
+	seedJob(t, db, "dom-u2", "job1") // 有实质变更项，避免 ErrNoChanges
+	r := seedPendingRule(t, db, "rule-u2")
+
+	var before models.MonitoringRule
+	require.NoError(t, db.First(&before, r.ID).Error)
+
+	d, err := GenerateDraft(db, "dom-u2")
+	require.NoError(t, err, "校验失败单仍是正常生成的产物，须返回供列表展示与重校")
+	assert.Equal(t, string(models.ValidationStatusFailed), d.ValidationStatus)
+	assert.Equal(t, string(models.ValidationCauseUserConfig), d.ValidationCause)
+	assert.Contains(t, d.ValidationMessage, "规则 job 引用错误", "失败摘要应指明是规则 job 引用问题")
+	// 具体缺失的 job 名落在结构化明细（供前端「前往修改」按 source=rule 分流到 /rules）。
+	assert.Contains(t, d.ValidationDetails, "miss", "结构化明细应指向缺失的 job")
+	assert.Contains(t, d.ValidationDetails, string(models.ValidationSourceRule))
+
+	var after models.MonitoringRule
+	require.NoError(t, db.First(&after, r.ID).Error)
+	assert.Equal(t, models.ChangeStatusNone, after.ChangeStatus,
+		"失败单不得把源规则锁在 pending（否则用户只能废弃并丢失内容）")
+	assert.True(t, after.UpdatedAt.Equal(before.UpdatedAt), "清锁不得推进 updated_at")
+}
+
+// TestUnlockSourceDataOnFailedGuards 钉死 unlockSourceDataOnFailed 的「不清锁」守卫：
+// 非 failed 状态一律不动；failed 但归因 platform_fault（promtool/amtool 等环境问题，
+// 用户不可修，环境就绪后重校即通过）也不清锁。
+func TestUnlockSourceDataOnFailedGuards(t *testing.T) {
+	cases := []struct {
+		name         string
+		status       string
+		cause        string
+		wantUnlocked bool
+	}{
+		{"passed 不清锁", string(models.ValidationStatusPassed), string(models.ValidationCauseUserConfig), false},
+		{"pending 不清锁", string(models.ValidationStatusPending), string(models.ValidationCauseUserConfig), false},
+		{"failed+platform_fault 不清锁", string(models.ValidationStatusFailed), string(models.ValidationCausePlatformFault), false},
+		{"failed+user_config 清锁", string(models.ValidationStatusFailed), string(models.ValidationCauseUserConfig), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newMemDB(t)
+			r := seedPendingRule(t, db, "rule-g")
+			d := &models.ConfigDraft{
+				ChangeNo:         "CHG-G0001",
+				ValidationStatus: tc.status,
+				ValidationCause:  tc.cause,
+			}
+			require.NoError(t, unlockSourceDataOnFailed(db, d))
+
+			var after models.MonitoringRule
+			require.NoError(t, db.First(&after, r.ID).Error)
+			want := models.ChangeStatusPending
+			if tc.wantUnlocked {
+				want = models.ChangeStatusNone
+			}
+			assert.Equal(t, want, after.ChangeStatus)
+		})
+	}
+}
+
 // ==================== HTTP layer ====================
 
 // adminInjector 以测试中间件形式把已认证的管理员注入 gin context（equivalent 于
@@ -742,6 +872,22 @@ func TestDiscardDraftImpactAndRollback(t *testing.T) {
 		require.NoError(t, db.Create(j).Error)
 	}
 
+	// rule-pending：挂起待确认变更（ready+pending），废弃须清除锁 → deployed（决策 43-6）。
+	rulePending := &models.MonitoringRule{
+		Name: "rule-pending", ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: cpu\n    rules:\n      - alert: HighCPU\n", Scope: models.ScopeTypeCentral,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	// rule-draft：从未就绪（draft+pending），不在待确认口径，不应被回写。
+	ruleDraft := &models.MonitoringRule{
+		Name: "rule-draft", ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: io\n    rules:\n      - alert: HighIO\n", Scope: models.ScopeTypeCentral,
+		DraftStatus: "draft", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	for _, rl := range []*models.MonitoringRule{rulePending, ruleDraft} {
+		require.NoError(t, db.Create(rl).Error)
+	}
+
 	draft := seedDraftWithStatus(t, db, "CHG-DISCARD-001", "edge-discard", string(models.DraftStatusPending), string(models.ValidationStatusPassed))
 	draft.SourceVersion = version.ChangeNo
 	require.NoError(t, db.Save(draft).Error)
@@ -778,6 +924,13 @@ func TestDiscardDraftImpactAndRollback(t *testing.T) {
 	require.NoError(t, db.First(&dJob, jobD.ID).Error)
 	assert.Equal(t, "draft", dJob.DraftStatus)
 	assert.Equal(t, models.ChangeStatusNone, dJob.ChangeStatus)
+
+	// 规则回写断言（决策 43-6：pending 不残留）。
+	var rp, rd models.MonitoringRule
+	require.NoError(t, db.First(&rp, rulePending.ID).Error)
+	assert.Equal(t, models.ChangeStatusDeployed, rp.ChangeStatus, "ready+pending 规则废弃后应清除锁 → deployed")
+	require.NoError(t, db.First(&rd, ruleDraft.ID).Error)
+	assert.Equal(t, models.ChangeStatusPending, rd.ChangeStatus, "draft 态 pending 规则不应被回写")
 }
 
 func TestDiscardDraftRevertsNewJobOnFirstDeploy(t *testing.T) {

@@ -492,3 +492,93 @@ func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T) {
 	assert.Equal(t, models.ValidationCausePlatformFault, cause, "amtool 缺失应归因为平台故障")
 	assert.Empty(t, details)
 }
+
+// stubPassingTools 将外部校验工具模拟为可用且通过、不落真实文件系统，聚焦决策 66
+// 规则 job 引用门禁的判定（generator 包内唯一）。
+func stubPassingTools(t *testing.T) {
+	t.Helper()
+	oldLook := ToolLookPath
+	oldChecker := ToolChecker
+	ToolLookPath = func(name string) (string, error) { return name, nil }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
+}
+
+// TestValidateArtifactsJobRefErrorBlocks 覆盖决策 66 发布期门禁：存活类规则
+// （absent(up)）引用 scrape_configs 不存在的 job → failed（user_config），details
+// 定位到 rules.yml，阻断确认。
+func TestValidateArtifactsJobRefErrorBlocks(t *testing.T) {
+	stubPassingTools(t)
+	ca := &ConfigArtifacts{
+		PrometheusYML: "scrape_configs:\n  - job_name: existing\n",
+		RulesYML: `
+groups:
+- name: g
+  rules:
+  - alert: Down
+    expr: absent(up{job="missing"})
+`,
+	}
+	status, cause, details, msg := ValidateArtifacts(ca, false)
+	assert.Equal(t, models.ValidationStatusFailed, status)
+	assert.Equal(t, models.ValidationCauseUserConfig, cause, "job 引用 error 应归因用户配置")
+	require.Len(t, details, 1)
+	assert.Equal(t, string(models.AffectedFileRules), details[0].File)
+	assert.Contains(t, details[0].Message, "missing")
+	assert.Contains(t, msg, "Module_01")
+}
+
+// TestValidateArtifactsJobRefWarningPasses 覆盖决策 66：非存活类规则引用缺失 job →
+// passed（不阻断）+ 携 warning details 与提示 message（允许确认但高亮）。
+func TestValidateArtifactsJobRefWarningPasses(t *testing.T) {
+	stubPassingTools(t)
+	ca := &ConfigArtifacts{
+		PrometheusYML: "scrape_configs:\n  - job_name: existing\n",
+		RulesYML: `
+groups:
+- name: g
+  rules:
+  - alert: HighCPU
+    expr: node_cpu_usage{job="ghost"} > 0.9
+`,
+	}
+	status, cause, details, msg := ValidateArtifacts(ca, false)
+	assert.Equal(t, models.ValidationStatusPassed, status)
+	assert.Empty(t, cause)
+	require.Len(t, details, 1, "warning 级问题应在 details 呈现供前端高亮")
+	assert.Equal(t, string(models.AffectedFileRules), details[0].File)
+	assert.Contains(t, msg, "告警")
+}
+
+// TestValidateArtifactsJobRefAllExisting 覆盖决策 66：规则引用的 job 全部现身于
+// scrape_configs → 无门禁问题，passed + 空 details。
+func TestValidateArtifactsJobRefAllExisting(t *testing.T) {
+	stubPassingTools(t)
+	ca := &ConfigArtifacts{
+		PrometheusYML: "scrape_configs:\n  - job_name: existing\n",
+		RulesYML: `
+groups:
+- name: g
+  rules:
+  - alert: OK
+    expr: absent(up{job="existing"})
+`,
+	}
+	status, cause, details, msg := ValidateArtifacts(ca, false)
+	assert.Equal(t, models.ValidationStatusPassed, status)
+	assert.Empty(t, cause)
+	assert.Empty(t, details)
+	assert.Equal(t, "", msg)
+}
+
+// TestScrapeConfigJobNames 覆盖 prometheus.yml scrape_configs job_name 提取（决策 66）。
+func TestScrapeConfigJobNames(t *testing.T) {
+	yml := "scrape_configs:\n  - job_name: a\n  - job_name: b\n"
+	assert.Equal(t, []string{"a", "b"}, scrapeConfigJobNames(yml))
+
+	assert.Empty(t, scrapeConfigJobNames("not yaml: ["), "解析失败返回空集合，不阻断")
+
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j", MetricsPath: "/m", Scheme: "http"}}}, nil, "")
+	got := scrapeConfigJobNames(ca.PrometheusYML)
+	require.Contains(t, got, "j", "生成出的 prometheus.yml 应含 job_name 供引用校验")
+}

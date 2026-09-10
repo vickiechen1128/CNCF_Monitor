@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
+	"gopkg.in/yaml.v3"
 )
 
 // ToolLookPath / ToolChecker 可注入，便于测试（含跨包测试，如 configcenter/draft）
@@ -127,12 +129,12 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 		var groups []TargetGroup
 		if err := json.Unmarshal([]byte(content), &groups); err != nil {
 			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
-				[]models.ValidationDetail{{File: name, Message: fmt.Sprintf("解析失败: %v", err)}},
+				[]models.ValidationDetail{{File: name, Message: fmt.Sprintf("解析失败: %v", err), Source: models.ValidationSourceTargets}},
 				fmt.Sprintf("targets 文件 %s 解析失败: %v", name, err)
 		}
 		if err := ValidateTargetGroups(groups); err != nil {
 			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
-				[]models.ValidationDetail{{File: name, Message: err.Error()}},
+				[]models.ValidationDetail{{File: name, Message: err.Error(), Source: models.ValidationSourceTargets}},
 				fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
 		}
 	}
@@ -152,10 +154,59 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 	}
 	if ok, msg := ToolChecker(ca, includeBlackbox); !ok {
 		return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
-			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg}},
+			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg, Source: models.ValidationSourceScrapeJob}},
 			fmt.Sprintf("外部校验未通过: %s", msg)
 	}
+	// 决策 66：发布期规则 job 引用门禁。判定逻辑与 M01 编辑期同源（rule/jobref，
+	// 单一实现 + 同一输入集，决策 67-4）：
+	//   - error 级（存活类缺 job）→ failed（user_config），阻断确认，前端展示前往 M01 修改；
+	//   - warning 级 → passed + 告警 details，允许确认但高亮提示。
+	if ca.RulesYML != "" {
+		issues := jobref.Validate(ca.RulesYML, scrapeConfigJobNames(ca.PrometheusYML))
+		var fatal, warn []models.ValidationDetail
+		for _, it := range issues {
+			// 决策 67-3：标记来源为规则，配置确认页「前往修改」据此跳 /rules 而非 /scrape-jobs。
+			d := models.ValidationDetail{
+				File:    string(models.AffectedFileRules),
+				Message: it.Message,
+				Source:  models.ValidationSourceRule,
+			}
+			if it.Severity == jobref.SeverityError {
+				fatal = append(fatal, d)
+			} else {
+				warn = append(warn, d)
+			}
+		}
+		if len(fatal) > 0 {
+			return models.ValidationStatusFailed, models.ValidationCauseUserConfig, fatal,
+				fmt.Sprintf("存在 %d 条规则 job 引用错误：请先在 Module_01 创建对应采集 Job 或修正规则，再重校确认", len(fatal))
+		}
+		if len(warn) > 0 {
+			return models.ValidationStatusPassed, "", warn,
+				fmt.Sprintf("配置校验通过，但存在 %d 条规则 job 引用告警（允许确认，建议核对）", len(warn))
+		}
+	}
 	return models.ValidationStatusPassed, "", nil, ""
+}
+
+// scrapeConfigJobNames 解析 prometheus.yml 顶层的 scrape_configs[].job_name，作为
+// 发布期规则 job 引用校验（决策 66）的生效 Job 集合。解析失败返回空集合。
+func scrapeConfigJobNames(prometheusYML string) []string {
+	var doc struct {
+		ScrapeConfigs []struct {
+			JobName string `yaml:"job_name"`
+		} `yaml:"scrape_configs"`
+	}
+	if err := yaml.Unmarshal([]byte(prometheusYML), &doc); err != nil {
+		return nil
+	}
+	var names []string
+	for _, sc := range doc.ScrapeConfigs {
+		if strings.TrimSpace(sc.JobName) != "" {
+			names = append(names, sc.JobName)
+		}
+	}
+	return names
 }
 
 // runToolChecks 实际调用 promtool check config 与 blackbox --config.check。
