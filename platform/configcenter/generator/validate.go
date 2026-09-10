@@ -129,12 +129,12 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 		var groups []TargetGroup
 		if err := json.Unmarshal([]byte(content), &groups); err != nil {
 			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
-				[]models.ValidationDetail{{File: name, Message: fmt.Sprintf("解析失败: %v", err)}},
+				[]models.ValidationDetail{{File: name, Message: fmt.Sprintf("解析失败: %v", err), Source: models.ValidationSourceTargets}},
 				fmt.Sprintf("targets 文件 %s 解析失败: %v", name, err)
 		}
 		if err := ValidateTargetGroups(groups); err != nil {
 			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
-				[]models.ValidationDetail{{File: name, Message: err.Error()}},
+				[]models.ValidationDetail{{File: name, Message: err.Error(), Source: models.ValidationSourceTargets}},
 				fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
 		}
 	}
@@ -154,17 +154,23 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 	}
 	if ok, msg := ToolChecker(ca, includeBlackbox); !ok {
 		return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
-			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg}},
+			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg, Source: models.ValidationSourceScrapeJob}},
 			fmt.Sprintf("外部校验未通过: %s", msg)
 	}
-	// 决策 66：发布期规则 job 引用门禁。判定逻辑与 M01 编辑期同源（shared/jobref）：
+	// 决策 66：发布期规则 job 引用门禁。判定逻辑与 M01 编辑期同源（rule/jobref，
+	// 单一实现 + 同一输入集，决策 67-4）：
 	//   - error 级（存活类缺 job）→ failed（user_config），阻断确认，前端展示前往 M01 修改；
 	//   - warning 级 → passed + 告警 details，允许确认但高亮提示。
 	if ca.RulesYML != "" {
 		issues := jobref.Validate(ca.RulesYML, scrapeConfigJobNames(ca.PrometheusYML))
 		var fatal, warn []models.ValidationDetail
 		for _, it := range issues {
-			d := models.ValidationDetail{File: string(models.AffectedFileRules), Message: it.Message}
+			// 决策 67-3：标记来源为规则，配置确认页「前往修改」据此跳 /rules 而非 /scrape-jobs。
+			d := models.ValidationDetail{
+				File:    string(models.AffectedFileRules),
+				Message: it.Message,
+				Source:  models.ValidationSourceRule,
+			}
 			if it.Severity == jobref.SeverityError {
 				fatal = append(fatal, d)
 			} else {
