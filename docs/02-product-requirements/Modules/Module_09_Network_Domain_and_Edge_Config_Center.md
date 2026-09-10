@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.60
+> **PRD 版本**: v1.62
 > **产品版本覆盖**: MVP / v0.2 / v1.0
 > **原型版本**: v1.52（决策 60 待原型对齐；以 `docs/prototypes/module-09/package.json` 为准）
-> **更新日期**: 2026-09-08
+> **更新日期**: 2026-09-09
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -180,12 +180,20 @@
 | **草稿生成** | 生成后先写入 `ConfigDraft`，不直接覆盖生效版本 | **P0** |
 | **差异检测（版本触发 + checksum 裁决）** | 生成后计算配置内容联合 checksum，与当前生效 `ConfigVersion` 的 checksum 对比：内容一致则不生成新草稿 / 自动丢弃；不一致才进入待确认 | **P0** |
 | **规则作用域过滤与分组** | `rules.yml` 按 `MonitoringRule` 字段自动派生 `group`（默认按 `resource_type` 或 `rule_type` 聚类，MVP 不暴露用户可管理分组）；下发到边缘时仅包含 `scope=edge`/`both` 的规则；中心仅包含 `scope=central`/`both` | P1 |
+| **规则 job 引用校验** | 生成 `rules.yml` 时校验规则表达式中 `job="..."` / `job=~"..."` matcher 引用的 job 是否在本网域生效 Job 列表中（决策 64/65/66）：`up` / `absent(up)` 存活类规则 job 不匹配 = **error 阻止确认**；其他规则 job 引用不匹配 = **warning 允许确认但高亮提示**；**本校验为发布期强制门禁，与 M01 编辑期校验使用同一套判定逻辑**（M01 编辑期提示不阻断保存，M09 发布期 error 阻断发布） | **P0** |
 | **blackbox 配置生成** | 当网域存在 `job_type=blackbox` 的 ScrapeJob 时，生成并打包 `blackbox.yml` | **P0** |
 | **认证/TLS 透传** | 将 `ScrapeJob` 的认证/TLS 最小集映射进对应 `scrape_configs`：`auth_type=basic` → `basic_auth`（username/password）、`auth_type=bearer` → `authorization`（Bearer token）、`tls_skip_verify` → `tls_config.insecure_skip_verify`、`ca_file` → `tls_config.ca_file`；全部可选、默认不启用（无认证裸 http 场景不受影响）——M09 仅透传映射、无新机制（决策 31）；blackbox 拨测的 HTTP/HTTPS 模块同理透传 `tls_config` | **P0** |
 
 > **target 端口解析链（2026-09-02 v0.2 规划决策，对齐 M01 决策 46）**：生成 `targets/*.json` 目标地址时按以下优先级解析端口——①`Resource.scrape_port`（实例级覆盖，v0.2 新增，M07 资源可选字段）→ ②网域覆盖表 `CITypeExporterMappingOverride`（v0.2）→ ③`CITypeExporterMapping.default_port` → ④回落 `ExporterTemplate.default_port`。实例级端口在配置生成期解析、无需用户在 Job 层操作；**「Job 级端口映射表」明确不做**——与 filter 实时求值（决策 53）/ `service_discovery` 动态纳入模式冲突（Job 级静态映射无法覆盖动态纳入的实例）。
 
 > **scope 业务场景**：MVP~v0.3 阶段 `scope` 固定 `central`（中心统一求值，用户无需配置 scope）；`edge`/`both` 为 v0.4+（P2）预留，核心场景为**断网自治告警**（边缘 vmalert 本地求值 + 本地通知通道）；`both` 用于边缘快速响应 + 中心聚合（需以标签区分求值域去重）；`central` 用于跨域/全局聚合规则。本模块按 `scope` 决定 `rules.yml` 随哪个网域配置包下发。详见 [Module_01 5.5 scope 字段说明](Module_01_Metric_Collection_Center.md#55-规则编辑模型monitoringrule)。
+
+> **规则粒度与 M09 的关系（决策 65）**：规则按求值粒度分为**聚合规则**（如 `absent(up{job=...})`，无 `instance` 标签，前端显示「全局/聚合」）与 **per-instance 规则**（如 `up == 0`，携带 `instance` 标签，前端显示实例 IP/名称）两类。**M09 对两类规则一视同仁**——生成 `rules.yml` 时不感知粒度差异，仅按 `MonitoringRule.rule_content` 原样并入（透传模式）或按字段化生成（structured 模式）。规则内容编辑（含 per-instance 规则）入口在 Module_01，per-instance 规则可视化编辑为 M01 v0.3 规划。
+>
+> **规则 job 引用校验的双层模型（决策 66）**：
+> - **M01 编辑期校验**：规则在 Module_01 保存/编辑时即进行 job 引用比对（`up`/`absent(up)` 不匹配 = error，其他 = warning），**仅提示、不阻断保存**，兼容「先挂规则、后建 Job」的合法流程；判定逻辑与 M09 发布期校验为同一实现。
+> - **M09 发布期校验（本行）**：ConfigDraft 生成 `rules.yml` 后按同一逻辑复验，**error 阻断确认发布**；是部署期最终护栏，防止规则保存后 Job 改名/停用/删除等时序漂移导致配置错误上线。
+> - **校验失败动线**：error/warning 详情行内展示具体规则名、引用 job、缺失 job 清单；error 状态提供「前往 Module_01 规则编辑修改」跳转入口（决策 45-2），修复后重新生成草稿即可再次校验。
 
 > **配置文件 × 源数据映射语义**：按网域生成的配置结果按「层级」分为两类文件，驱动源不同：
 >
@@ -1368,15 +1376,15 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - **破坏性操作二次确认**：重置 Token、废弃变更单、回滚配置版本操作前弹出 Modal 要求用户二次确认，并明确提示影响范围。
 - **表单校验提示位置**：表单字段校验失败时，错误提示置于字段下方；全局错误使用 Alert 置顶展示。
 - **提交中防重复**：确认发布、重试下发、重置 Token 等按钮在提交期间置为 loading 并禁用，等待接口返回后再恢复。
-- **跨模块跳转与网域预选**：从采集节点状态页点击「去配置采集 Job」跳转 Module_01 采集 Job 页并预选当前网域；点击「前往配置确认」跳转配置变更确认页并预选当前网域。
+- **跨模块跳转与网域预选**：从采集节点状态页点击「去配置采集 Job」跳转 Module_01 采集 Job 页并预选当前网域；点击「前往配置确认」跳转配置变更确认页并预选当前网域；**规则 job 引用校验 error 时，变更单校验详情提供「前往 Module_01 规则编辑」跳转入口（决策 45-2 / 决策 66），MVP 最小实现跳转至规则编辑页，v0.2 增强携带规则名/ID query 参数并自动定位**。
 
 ## Change Log
 
 > 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v1.54 及以前）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.62 | 2026-09-09 | 修改 | 规则 job 引用校验双层模型（决策 66）：§3.3「规则 job 引用校验」明确为发布期强制门禁，与 M01 编辑期校验使用同一套判定逻辑；新增「双层校验模型」注记（M01 编辑期提示不阻断 + M09 发布期 error 阻断）与校验失败跨模块跳转动线；§11.2 全局行为规则补充「规则 job 引用校验 error 时跳转 Module_01 规则编辑」入口 | 3 / 11.2 | MVP | ready |
+| v1.61 | 2026-09-09 | 修改 | 规则 job 引用校验与规则粒度边界（决策 64/65，源自 MVP 试用反馈：规则引用的 job 名与当前生效 Job 不匹配导致 `absent()` 恒 firing、告警 instance 显示「全局/聚合」）：① §3.3 新增「规则 job 引用校验」P0——生成 rules.yml 时将规则与当前生效 Job 列表绑定：`up` / `absent(up)` 类规则 job 不匹配 = error（阻断确认发布），其他 job 引用不匹配 = warning；② 新增「规则粒度与 M09 的关系」注记——M09 不感知规则粒度（聚合 vs per-instance），per-instance 规则归属 M01 v0.3 规则 UI | 3 | MVP | ready |
 | v1.60 | 2026-09-08 | 修改 | 中心部署目录规范（决策 64，源自生产环境磁盘治理诉求）：§1 新增「MVP 中心部署目录规范」注记——对齐《业务软件标准化目录与权限配置操作手册》三目录基线（`/opt/apps` 程序只读 / `/opt/data` 数据含 config-output 活配置 / `/opt/log` 日志），运维预建目录、交付包 `env/env.sh` 集中定义数据/日志根与 TSDB 保留策略、`start.sh` 双模式（生产路径 / 包内回落）、systemd 不在 MVP 范围；明确「活配置属平台管理的数据、落 /opt/data」以兼容程序目录只读红线 | 1 | MVP | ready |
-| v1.59 | 2026-09-08 | 修改 | 回滚语义收窄与分裂态治理（决策 63，源自 MVP 试用反馈：回滚后 M01/M08 源数据状态不随配置回滚，存在隐性分裂态）：① §3.5「版本回滚」语义收窄为**配置产物级应急恢复**，明确不回滚 M01/M08 源数据状态；② MVP 落地「回滚前差异知情」——回滚确认弹窗展示与当前生效版本之间的源数据操作差异清单（change_no → change_items 推导）；③ v0.2 规划分裂态显式化（`out_of_sync_cause=rollback_diverged`「已回滚·待源数据对齐」）与防「自动反悔」变更单标记；§8 状态机 ③、§9.1/§9.2 验收同步 | 3 | MVP / v0.2 | ready |
-| v1.58 | 2026-09-08 | 修改 | MVP 体验修复（Track B，源自 MVP 试用反馈）：① §3.5 新增「下发记录查看版本配置内容」P0——下发记录详情抽屉提供「查看版本配置」入口（复用 `GET /config-versions/{id}`，管理员级），回滚后可直接查看生效配置；② `rolled_back` 状态落地——回滚动作生成的新记录成功即 `rolled_back`（原记录不变，台账不可变），§5.6/§6.5.3/§8/§9 同步对齐，回滚记录在列表可辨识；③ 回滚确认弹窗文案与实际行为对齐（「回滚到所选版本 cv-xxx」，禁止「上一可用版本」误导表述） | 3 | MVP | ready |
 
 
