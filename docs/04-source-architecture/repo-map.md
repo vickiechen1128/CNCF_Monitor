@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-10 14:33 · commit: `3699eaec`
+> 生成时间: 2026-09-10 16:14 · commit: `e1582e21`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -483,6 +483,7 @@
 - `func Error(err error) Response`
 - `func OK(c *gin.Context, data interface{})`
 - `func BadRequest(c *gin.Context, err error)`
+- `func BadRequestWithType(c *gin.Context, errorType string, err error)`
 - `func Unauthorized(c *gin.Context, message string)`
 - `func Forbidden(c *gin.Context, message string)`
 - `func NotFound(c *gin.Context, message string)`
@@ -1383,6 +1384,10 @@
 - `func TestListDraftsFilterAndPagination(t *testing.T)`
 - `func TestListDraftsEmptyDomainReturnsAll(t *testing.T)`
 - `func TestRevalidateDraftPersistsAndExposesMessage(t *testing.T)`
+- `func seedPendingRule(t *testing.T, db *gorm.DB, name string) *models.MonitoringRule`
+- `func TestRevalidateDraftFailedUnlocksSourceRule(t *testing.T)`
+- `func TestGenerateDraftFailedUnlocksSourceRule(t *testing.T)`
+- `func TestUnlockSourceDataOnFailedGuards(t *testing.T)`
 - `func adminInjector() gin.HandlerFunc`
 - `func TestDraftHandlerRoutes(t *testing.T)`
 - `func TestDraftHandlerConfirmWhenValidationPassed(t *testing.T)`
@@ -1426,6 +1431,7 @@
 - `func GetDraftDetail(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVersion, error)`
 - `type DiscardImpact struct`
+- `func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error`
 - `func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardImpact, error)`
 - `func GetDiscardImpact(db *gorm.DB, changeNo string) (*DiscardImpact, error)`
 - `func computeDiscardImpact(db *gorm.DB, d *models.ConfigDraft) (*DiscardImpact, error)`
@@ -1884,6 +1890,7 @@
 
 - `type ValidationStatus = string`
 - `type ValidationCause = string`
+- `type ValidationSource = string`
 - `type ValidationDetail struct`
 - `type ConfigSyncStatus = string`
 - `type OutOfSyncCause = string`
@@ -2464,7 +2471,7 @@
 - `type rulesFile struct`
 - `func Validate(rulesContent string, jobNames []string) []Issue`
 - `func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issue`
-- `func jobExists(jobs map[string]struct{}, op, ref string) bool`
+- `func jobExists(jobs map[string]struct{}, op, ref string) (hit bool, determinable bool)`
 
 ### `platform/strategy/rule/jobref/jobref_test.go`
 
@@ -2476,6 +2483,7 @@
 - `func TestValidateInvalidYAMLReturnsNil(t *testing.T)`
 - `func TestValidateNoJobMatcherSkips(t *testing.T)`
 - `func TestValidateDedupesRepeatedMatcher(t *testing.T)`
+- `func TestValidateInvalidRegexSkipped(t *testing.T)`
 
 ### `platform/strategy/rule/list.go`
 
@@ -2496,6 +2504,9 @@
 - `func TestValidateYAMLEndpoint(t *testing.T)`
 - `func TestValidateYamlJobRef(t *testing.T)`
 - `func TestValidateYamlJobRefAllExisting(t *testing.T)`
+- `func TestCreateMonitoringRuleJobRefGate(t *testing.T)`
+- `func TestUpdateMonitoringRuleJobRefGate(t *testing.T)`
+- `func TestEffectiveJobNamesScope(t *testing.T)`
 - `func fixtureForJobRef(jobName string) string`
 - `func TestExtractGroupNames(t *testing.T)`
 - `func TestCreateMonitoringRuleGroupNameConflict(t *testing.T)`
@@ -2522,8 +2533,11 @@
 - `type groupNamesFile struct`
 - `func extractGroupNames(content string) ([]string, error)`
 - `func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) error`
-- `func activeScrapeJobNames(db *gorm.DB) []string`
+- `func effectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
 - `func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue`
+- `func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue`
+- `func FindRuleJobRefErrors(db *gorm.DB, content string) []jobref.Issue`
+- `func checkRuleJobRefGate(db *gorm.DB, content string, ack bool) error`
 
 ### `platform/strategy/scrapejob/batch.go`
 
@@ -3332,6 +3346,7 @@
 - `type DraftStatus`
 - `type DraftValidationStatus`
 - `type DraftValidationCause`
+- `type ValidationSource`
 - `interface ValidationDetail`
 - `type Risk`
 - `type ChangeTarget`
