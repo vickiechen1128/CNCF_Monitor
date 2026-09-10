@@ -6,6 +6,7 @@
 import { apiClient, isApiError } from './client'
 import type { ApiResponse } from '../types/api'
 import type {
+  AlertHistoryData,
   AlertmanagerConfigVersion,
   AlertmanagerConfigVersionListItem,
   AmAlertsData,
@@ -101,6 +102,18 @@ export interface AlertStatusQuery extends Record<string, string | number | boole
   network_domain?: string
 }
 
+/** 历史告警查询参数（M02 §6.1 / M08 §3.1） */
+export interface AlertHistoryQuery extends Record<string, string | number | boolean | undefined> {
+  network_domain?: string
+  alertname?: string
+  instance?: string
+  state?: 'all' | 'firing' | 'resolved'
+  start?: string
+  end?: string
+  page?: number
+  page_size?: number
+}
+
 /**
  * 告警状态查看 API（v1.12 MVP 增量，契约快照 §10，Track B+；两条均为只读代理）。
  * 授权过滤由服务端强制注入（决策 56），前端 Query 仅作 UX 筛选透传，不构成权限依据。
@@ -113,5 +126,9 @@ export const alertStatusApi = {
   /** Alertmanager 通知状态（M08 代理 GET /api/v2/platform/alertmanager/alerts，服务端归一四态） */
   getAlertmanagerAlerts(params?: AlertStatusQuery): Promise<ApiResponse<AmAlertsData>> {
     return apiClient.get<AmAlertsData>('/api/v2/platform/alertmanager/alerts', { params })
+  },
+  /** 历史告警（M02 v1.13 新增）：基于 ALERTS 时间序列重建规则级触发/恢复区间（含已恢复） */
+  getAlertHistory(params?: AlertHistoryQuery): Promise<ApiResponse<AlertHistoryData>> {
+    return apiClient.get<AlertHistoryData>('/api/v1/alerts/history', { params })
   },
 }

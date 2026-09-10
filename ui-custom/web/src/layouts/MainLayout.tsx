@@ -2,6 +2,7 @@ import { Layout, Menu, Tag, Typography } from 'antd'
 import {
   AppstoreOutlined,
   BellOutlined,
+  ClockCircleOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
@@ -130,6 +131,8 @@ const MODULES: ModuleDef[] = [
       { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
       // M08 v1.12 增量：告警状态双视图页（T08-F7，与 /alert-config、/silences 同组）
       { key: '/alert-status', label: '告警状态', icon: <RadarChartOutlined /> },
+      // M08 v1.13 增量：历史告警独立页（Track B+）
+      { key: '/alert-history', label: '历史告警', icon: <ClockCircleOutlined /> },
     ],
   },
 ]
@@ -196,7 +199,8 @@ function resolveActiveModule(locationPath: string): ModuleDef {
   if (
     locationPath.startsWith('/alert-config') ||
     locationPath.startsWith('/silences') ||
-    locationPath.startsWith('/alert-status')
+    locationPath.startsWith('/alert-status') ||
+    locationPath.startsWith('/alert-history')
   )
     return findModuleByKey('alert')
   return MODULES[0]
