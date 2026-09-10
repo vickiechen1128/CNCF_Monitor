@@ -105,14 +105,19 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/monitoring-rules` | `rule_type`、`enabled`、`monitor_type`、`keyword`、`page`、`page_size` | `{list,...}`；item 含 content_mode/name/monitor_type/enabled/change_status/draft_status | — | §6.2.4 |
-| POST | `/monitoring-rules` | `{content_mode=yaml_passthrough, rule_content(必填), name?, monitor_type?, enabled?(缺省 true，创建默认启用 §8)}` | 创建后完整对象（draft_status=ready，change_status=pending） | `bad_request`：rule_content 空/YAML 非法（groups 非数组）；monitor_type 非法；group 名与已生效规则冲突 | §6.2.4 |
-| PUT | `/monitoring-rules/:id` | `{name?, rule_content?, enabled?, monitor_type?}` | 更新后完整对象 | `not_found`；`bad_request`：YAML 非法；monitor_type 非法；group 名冲突（排除自身） | §6.2.4 |
+| POST | `/monitoring-rules` | `{content_mode=yaml_passthrough, rule_content(必填), name?, monitor_type?, enabled?(缺省 true，创建默认启用 §8), ack_job_ref_errors?(默认 false，决策 67-2)}` | 创建后完整对象（draft_status=ready，change_status=pending） | `bad_request`：rule_content 空/YAML 非法（groups 非数组）；monitor_type 非法；group 名与已生效规则冲突；**存在 error 级 job 引用且未置 `ack_job_ref_errors=true`（`job_ref_unresolved`，决策 67-2）** | §6.2.4 |
+| PUT | `/monitoring-rules/:id` | `{name?, rule_content?, enabled?, monitor_type?, ack_job_ref_errors?(默认 false，决策 67-2)}` | 更新后完整对象 | `not_found`；`bad_request`：YAML 非法；monitor_type 非法；group 名冲突（排除自身）；**存在 error 级 job 引用且未置 `ack_job_ref_errors=true`（决策 67-2）** | §6.2.4 |
 | DELETE | `/monitoring-rules/:id` | — | `{id}` | `not_found` | §6.2.4 |
 | POST | `/monitoring-rules/:id/validate-yaml` | `{rule_content}` | `{valid, error?, job_ref?}` | — | §6.2.4 |
 
 字段：`content_mode∈{yaml_passthrough, structured}`、`rule_content`（yaml_passthrough 必填）、`name`(可空)、`monitor_type`(可空，非空须为 §9 合法监控对象类型)、`scope=central`(固定)、`enabled`、`draft_status`(默认 ready)、`change_status`。structured 字段（rule_type/expr/duration/labels/annotations）v0.3 用，本期不在请求体。
 > YAML 校验至少校验 `groups` 存在且为数组；不做 PromQL 语义校验（v0.3）。
-> **规则 job 引用校验（决策 66，2026-09-10）**：`validate-yaml` 在 YAML 语法通过后追加 job 引用语义校验，响应 `job_ref` 数组（元素 `{group, rule_name, expr, matcher, referenced_job, type, severity, message}`，`severity∈{error,warning}`）。判定：存活类规则（expr 含 `up`）引用不存在的 job = `error`，其余 = `warning`；与当前生效采集 Job（`enabled=true AND draft_status=ready`）比对。**error/warning 均不改写 `valid`**（M01 编辑期仅提示、不阻断保存）；同一逻辑在 M09 发布期被复用为门禁（error 阻断确认、warning 允许确认）。判定实现见 `platform/strategy/rule/jobref`。
+> **规则 job 引用校验（决策 66，2026-09-10；门禁口径经决策 67-2 修订）**：`validate-yaml` 在 YAML 语法通过后追加 job 引用语义校验，响应 `job_ref` 数组（元素 `{group, rule_name, expr, matcher, referenced_job, type, severity, message}`，`severity∈{error,warning}`）。判定：存活类规则（expr 含 `up`）引用不存在的 job = `error`，其余 = `warning`；与当前生效采集 Job（`enabled=true AND draft_status=ready`）比对。判定实现见 `platform/strategy/rule/jobref`。
+>
+> **`valid` 语义不变**：`valid` **仅反映 YAML 语法**，`error` / `warning` 级 job 引用问题**不改写** `valid`（响应形状向后兼容）。门禁由提交侧承担：
+> - **前端（决策 67-2）**：新建「提交生效」/ 编辑「保存变更」在存在 `severity=error` 问题时**默认阻断**并展示逐条问题清单；用户勾选逃生门「已知晓：先挂规则，稍后补建 Job」后方可提交（问题降级为 warning 落库留痕）。
+> - **后端兜底（决策 67-2 落地契约，待实现）**：POST/PUT 请求体的可选 `ack_job_ref_errors`（默认 `false`）；存在 `error` 级 job 引用且未置 `true` → `bad_request`（`errorType=job_ref_unresolved`，消息汇总问题条数）。`warning` 级不受影响；v0.3 草稿态「保存草稿」不受本门禁约束。
+> - **与发布期一致**：同一判定逻辑在 M09 发布期复用为门禁（error 阻断确认、warning 允许确认）；v0.2 起两侧统一改用 scope 感知的 job 名单（决策 67-4，central → 全域并集）。
 > **合并语义（F-24，2026-08-26）**：所有生效规则（`enabled=true AND draft_status=ready`）由生成器按 groups 解析合并为**单份 rules.yml**，故保存时（POST/PUT 且规则生效）校验 group 名**全局唯一**——文件内重名 / 空 name / 与其他生效规则撞名均 `bad_request`（错误文案点名占用方）；停用规则不下发、不校验，停用后组名释放。同名多组规则请写在同一条 `rule_content` 内。
 
 ## 8. 技术指标库（ExporterMetricLibrary）API
