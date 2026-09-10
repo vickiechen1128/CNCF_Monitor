@@ -196,6 +196,61 @@ func TestServiceListNetworkDomainUXFilter(t *testing.T) {
 	require.Len(t, items, 2)
 }
 
+// TestServiceListNetworkDomainWriteBack 覆盖「网域」列的取值链路修复（契约 §10.2 展示名同 §10.1）：
+// AM 侧标签经 Prometheus 通知链路附加 external_labels 后构成，键为写入侧
+// network_domain_id（M09 决策 19）；代理需归一为消费侧 network_domain 并补齐回落值，
+// 否则前端「网域」列恒渲染 '-'。缺失标签的告警应回写 default。
+func TestServiceListNetworkDomainWriteBack(t *testing.T) {
+	f := &fakeAMAlerts{payload: amFixture()}
+	svc := newTestService(t, f)
+
+	items, err := svc.List(context.Background(), &models.AuthorizedMatcherScope{AllDomains: true}, "")
+	require.NoError(t, err)
+	require.Len(t, items, 5)
+
+	byName := map[string]AlertItem{}
+	for _, it := range items {
+		byName[it.Labels["alertname"]] = it
+	}
+	assert.Equal(t, "default", byName["HighCPU"].Labels["network_domain"], "显式标签原值透传")
+	assert.Equal(t, "default", byName["DiskFull"].Labels["network_domain"], "缺失标签回写回落值")
+	assert.Equal(t, "dmz", byName["NodeDown"].Labels["network_domain"])
+	assert.Equal(t, "hr", byName["HROnly"].Labels["network_domain"])
+}
+
+// TestServiceListNetworkDomainFromExternalLabelKey 覆盖写入侧 external_labels 键的读取：
+// 告警携带 network_domain_id（M09 决策 19）时归一为消费侧 network_domain 并回写。
+func TestServiceListNetworkDomainFromExternalLabelKey(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	alert := amAlert{
+		Labels: map[string]string{
+			"alertname":         "HighCPU",
+			"network_domain_id": "gov-cloud-a",
+			"instance":          "10.0.0.1:9100",
+		},
+		Annotations: map[string]string{"summary": "cpu high"},
+		StartsAt:    now.Add(-time.Hour),
+		EndsAt:      now.Add(time.Hour),
+	}
+	alert.Status.State = "active"
+
+	f := &fakeAMAlerts{payload: []amAlert{alert}}
+	svc := newTestService(t, f)
+	items, err := svc.List(context.Background(), &models.AuthorizedMatcherScope{AllDomains: true}, "")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, "gov-cloud-a", items[0].Labels["network_domain"])
+
+	// 授权过滤 / UX 筛选均按归一后的网域收敛。
+	items, err = svc.List(context.Background(), &models.AuthorizedMatcherScope{Domains: []string{"gov-cloud-a"}}, "")
+	require.NoError(t, err)
+	assert.Len(t, items, 1)
+
+	items, err = svc.List(context.Background(), &models.AuthorizedMatcherScope{Domains: []string{"default"}}, "")
+	require.NoError(t, err)
+	assert.Empty(t, items)
+}
+
 // TestServiceListAMUnreachable 覆盖 AM 不可达 → 可观测错误。
 func TestServiceListAMUnreachable(t *testing.T) {
 	proxy, err := NewProxy("http://127.0.0.1:1")

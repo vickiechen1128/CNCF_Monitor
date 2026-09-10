@@ -173,6 +173,57 @@ func TestAlertHistoryFilterByNetworkDomain(t *testing.T) {
 	assert.Equal(t, float64(0), data["total"])
 }
 
+// TestAlertHistoryNetworkDomainFromExternalLabelKey 覆盖写入侧 external_labels 键的读取：
+// ALERTS 序列在中心 TSDB 中由边缘网域 remote_write 回传时携带 M09 external_labels
+// 键 network_domain_id（决策 19），历史告警网域需按它解析而非回落 default。
+func TestAlertHistoryNetworkDomainFromExternalLabelKey(t *testing.T) {
+	now := time.Now().Unix()
+	r := newHistoryRouter(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Path {
+		case "/api/v1/query_range":
+			body, _ := json.Marshal(map[string]interface{}{
+				"status": "success",
+				"data": map[string]interface{}{
+					"resultType": "matrix",
+					"result": []map[string]interface{}{
+						{
+							"metric": map[string]interface{}{
+								"__name__":          "ALERTS",
+								"alertname":         "HostDown",
+								"alertstate":        "firing",
+								"network_domain_id": "gov-cloud-a",
+								"instance":          "10.0.0.9:9100",
+							},
+							"values": [][2]interface{}{
+								{float64(now - 90), "1"},
+								{float64(now - 60), "1"},
+								{float64(now - 30), "1"},
+							},
+						},
+					},
+				},
+			})
+			_, _ = w.Write(body)
+		case "/api/v1/rules":
+			_, _ = w.Write([]byte(`{"status":"success","data":{"groups":[]}}`))
+		}
+	}))
+
+	code, out := doHistory(t, r, "")
+	require.Equal(t, http.StatusOK, code)
+	data := out["data"].(map[string]interface{})
+	list := data["list"].([]interface{})
+	require.Len(t, list, 1)
+	assert.Equal(t, "gov-cloud-a", list[0].(map[string]interface{})["network_domain"])
+
+	// 网域筛选按解析结果收敛。
+	_, filtered := doHistory(t, r, "?network_domain=gov-cloud-a")
+	assert.Len(t, filtered["data"].(map[string]interface{})["list"], 1)
+	_, miss := doHistory(t, r, "?network_domain=default")
+	assert.Empty(t, miss["data"].(map[string]interface{})["list"])
+}
+
 func TestAlertHistoryFilterByState(t *testing.T) {
 	r := newHistoryRouter(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

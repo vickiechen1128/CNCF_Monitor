@@ -2,6 +2,8 @@
 // 代理中心 Prometheus GET /api/v1/alerts，返回 firing/pending 告警实例字段子集
 // （labels/annotations/state/activeAt/value），并支持 network_domain 服务端本地过滤
 // （缺失标签回落 default，与 targets.go 同构）。后端承担过滤，前端不重复过滤；
+// 网域解析统一走 models.ResolveNetworkDomain（network_domain → network_domain_id
+// → default），并把结果回写进响应 labels.network_domain，供前端「网域」列展示；
 // 租户/网域注入骨架 MVP 恒通过、机制保留（Module_02 §11.2#5）；
 // 不代理 Alertmanager 通知状态（Module_02 §11.2#14 边界，归 M08 /api/v2/platform/alertmanager/alerts）。
 // 参见 docs/05-execution-records/module-08/api-contract-snapshot.md §10.1。
@@ -18,6 +20,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/models"
 )
 
 // Prometheus 告警实例状态枚举（契约快照 §10.1 / §6）。
@@ -58,10 +61,7 @@ func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
 
 		out := make([]promAlert, 0, len(alerts))
 		for _, a := range alerts {
-			domain := a.Labels["network_domain"]
-			if domain == "" {
-				domain = DefaultNetworkDomain
-			}
+			domain := models.ResolveNetworkDomain(a.Labels)
 			// 租户/网域授权骨架：MVP 授权集合为 nil（全部通过），机制保留。
 			if !alertDomainAllowed(tenantAuthorizedDomains(c), domain) {
 				continue
@@ -70,6 +70,13 @@ func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
 			if netDomain != "" && domain != netDomain {
 				continue
 			}
+			// 回写 labels.network_domain（契约快照 §10.1 的 UI 展示字段）：上游
+			// Prometheus GET /api/v1/alerts 返回的是规则求值标签，**不含**
+			// external_labels（Prometheus 仅在 remote write / federation / 发往
+			// Alertmanager 时附加），因此告警标签里通常没有网域键；必须在此把
+			// 「解析 + 回落 default」的结果回写进响应，否则前端「网域」列恒为空。
+			// 与 targets.go 回写 t["network_domain"] 的代理语义同构。
+			a.Labels = models.EnsureNetworkDomain(a.Labels, domain)
 			a.InstanceDisplay = instanceDisplayOf(a.Labels)
 			out = append(out, a)
 		}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/models"
 )
 
 // 历史告警时间序列常量。
@@ -281,11 +282,9 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 		if len(series.Values) == 0 {
 			continue
 		}
+		// 网域归属在 buildHistoryItem 内统一解析（models.ResolveNetworkDomain，
+		// network_domain → network_domain_id → default）。
 		labels := series.Metric
-		domain := labels["network_domain"]
-		if domain == "" {
-			domain = DefaultNetworkDomain
-		}
 
 		// 连续样本合成区间：间隔超过 2×step 视为中断。
 		var intervalStart int64
@@ -320,10 +319,7 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 
 // buildHistoryItem 将单个触发区间转换为 AlertHistoryItem。
 func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[string]string) AlertHistoryItem {
-	domain := labels["network_domain"]
-	if domain == "" {
-		domain = DefaultNetworkDomain
-	}
+	domain := models.ResolveNetworkDomain(labels)
 	alertname := labels["alertname"]
 	instance := labels["instance"]
 

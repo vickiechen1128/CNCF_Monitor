@@ -150,6 +150,72 @@ func TestAlertsNetworkDomainFallbackDefault(t *testing.T) {
 	assert.Contains(t, names, "DiskFull")
 }
 
+// TestAlertsNetworkDomainWriteBack 覆盖「网域」列的取值链路修复（契约快照 §10.1）：
+// 上游 Prometheus /api/v1/alerts 的标签是规则求值标签，不含 external_labels，
+// 因此代理必须把解析 + 回落结果回写进响应 labels.network_domain——
+// 否则前端「网域」列对每一行都渲染为 '-'（本次缺陷根因）。
+func TestAlertsNetworkDomainWriteBack(t *testing.T) {
+	r := newAlertsRouterOK(t)
+	code, out := doAlerts(t, r, "")
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, out.Data.Alerts, 3)
+
+	byName := map[string]map[string]interface{}{}
+	for _, a := range out.Data.Alerts {
+		labels := a["labels"].(map[string]interface{})
+		byName[labels["alertname"].(string)] = labels
+	}
+
+	// a1 显式携带 → 原值透传。
+	assert.Equal(t, "default", byName["HighCPU"]["network_domain"])
+	// a2 缺失 → 回写回落值 default（修复前该键不存在，前端渲染 '-'）。
+	assert.Equal(t, "default", byName["DiskFull"]["network_domain"])
+	// a3 显式携带 dmz → 原值透传。
+	assert.Equal(t, "dmz", byName["NodeDown"]["network_domain"])
+}
+
+// TestAlertsNetworkDomainFromExternalLabelKey 覆盖写入侧 external_labels 键的读取：
+// 边缘网域经 vmagent remote_write 回传的序列（及发往 Alertmanager 的告警）携带的是
+// M09 external_labels 键 network_domain_id（决策 19），代理需归一为消费侧
+// network_domain 再回写，前端才能显示真实网域而非 default。
+func TestAlertsNetworkDomainFromExternalLabelKey(t *testing.T) {
+	fixture := map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"alerts": []map[string]interface{}{
+				{
+					"labels": map[string]interface{}{
+						"alertname":         "HighCPU",
+						"network_domain_id": "gov-cloud-a",
+						"instance":          "10.0.0.1:9100",
+					},
+					"annotations": map[string]interface{}{"summary": "cpu high"},
+					"state":       "firing",
+					"activeAt":    "2026-09-08T01:00:00Z",
+					"value":       "98",
+				},
+			},
+		},
+	}
+	body, err := json.Marshal(fixture)
+	require.NoError(t, err)
+	r := newAlertsRouter(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}))
+
+	_, out := doAlerts(t, r, "")
+	require.Len(t, out.Data.Alerts, 1)
+	labels := out.Data.Alerts[0]["labels"].(map[string]interface{})
+	assert.Equal(t, "gov-cloud-a", labels["network_domain"], "应归一为消费侧契约键")
+
+	// 服务端本地过滤按归一后的网域生效。
+	_, filtered := doAlerts(t, r, "?network_domain=gov-cloud-a")
+	assert.Len(t, filtered.Data.Alerts, 1)
+	_, miss := doAlerts(t, r, "?network_domain=default")
+	assert.Empty(t, miss.Data.Alerts)
+}
+
 // TestAlertsEmptyNotNull 覆盖空结果返回 [] 而非 null。
 func TestAlertsEmptyNotNull(t *testing.T) {
 	r := newAlertsRouter(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

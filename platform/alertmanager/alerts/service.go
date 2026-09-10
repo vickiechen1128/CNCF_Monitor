@@ -52,7 +52,9 @@ func NewService(proxy *Proxy) *Service {
 //  1. 决策 56 读路径授权过滤骨架：服务端强制注入授权网域集合 filter——
 //     scope 非全量（AllDomains=false）时按 labels.network_domain（缺失回落 default）
 //     收敛；AllDomains / nil（MVP 单租户）恒通过、不附加；
-//  2. networkDomain 为前端 UX 筛选透传（在授权过滤之后本地过滤，不构成权限依据）。
+//  2. networkDomain 为前端 UX 筛选透传（在授权过滤之后本地过滤，不构成权限依据）；
+//  3. 网域解析统一走 models.ResolveNetworkDomain（network_domain → network_domain_id
+//     → default），并把结果回写进 labels.network_domain 供前端展示（契约 §10.2）。
 //
 // 空结果返回空切片（[] 而非 null）。
 func (s *Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope, networkDomain string) ([]AlertItem, error) {
@@ -62,10 +64,7 @@ func (s *Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope
 	}
 	out := make([]AlertItem, 0, len(list))
 	for _, am := range list {
-		domain := am.Labels["network_domain"]
-		if domain == "" {
-			domain = models.DefaultDomainID
-		}
+		domain := models.ResolveNetworkDomain(am.Labels)
 		// 决策 56：授权过滤由服务端强制执行，不信任前端传参。
 		if !domainInScope(scope, domain) {
 			continue
@@ -73,6 +72,11 @@ func (s *Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope
 		if networkDomain != "" && domain != networkDomain {
 			continue
 		}
+		// 回写 labels.network_domain（契约快照 §10.2，展示名同 §10.1）：AM 侧标签由
+		// Prometheus 通知链路附加 external_labels 后构成，键为写入侧 network_domain_id
+		// （M09 决策 19）；此处统一归一为消费侧 network_domain 并补齐回落值，
+		// 避免前端「网域」列恒为空。
+		am.Labels = models.EnsureNetworkDomain(am.Labels, domain)
 		out = append(out, toAlertItem(am))
 	}
 	return out, nil
