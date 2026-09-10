@@ -541,7 +541,7 @@ POST        /api/v2/platform/monitoring-rules/:id/validate-yaml
 > **边界说明**：
 > - Module_09 读取 Module_01 的 `ScrapeJob` / `MonitoringRule` 与 Module_07 的 `Resource` / `LabelTemplate`，轮询生成配置草稿。
 > - 配置草稿需人工确认后再生成 `ConfigVersion` 并触发下发，防止平台 bug 导致监控整体失效。
-> - `external_labels` 只注入 `network_domain_id` / `zone_type` / `replica`，不注入 `tenant_id` 与业务标签。
+> - `external_labels` 只注入 `network_domain` / `zone_type` / `replica`（网域键名经决策 68-1 收敛），**不注入租户标签 `tenant` 与业务标签**（租户标签由 M07 LabelTemplate target 级注入——决策 68-5）。
 
 **Agent 分工**：
 - `planner`：规划配置生成器输入/输出、下发方式、校验策略、NetworkDomain 监控纳管契约
@@ -962,6 +962,7 @@ Phase 0 → Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
 | 登记日期 | 能力 | 模块 / PRD 版本 | 轨道 | feat 分支 | L3 路径 | 状态 |
 |----------|------|----------------|------|-----------|---------|------|
+| 2026-09-10 | 决策 68 落档的三项契约收敛（源自 F-07 网域列缺陷评审）：①**网域标签键收敛**——`generator.go:43` 的 `external_labels` 键 `network_domain_id` → `network_domain`（决策 68-1；消费侧双读永久保留）；②**`alerting` 投递接线**——中心 `prometheus.yml` 生成 `alerting.alertmanagers`（条件注入 / AM 地址由 `env/env.sh` 注入 / 仅中心，边缘包不生成），补齐决策 59/60 缺失的 Prometheus→AM 投递环（决策 68-2）；③**租户标签键定版**——M02 注入 matcher 名 `tenant_id` → `tenant` + 同源常量 `models.TenantLabelKey` + fail-closed 严格派 + M09 生成期门禁（标签模板缺 `tenant` 映射则 `failed`）+ M07 默认映射内置 `tenant_id → tenant`（决策 68-5，v0.2 生效）。**本轮仅落文档，代码待授权后在开发分支执行** | Module_02 v1.15 / Module_06 v2.10 / Module_07 v2.31 / Module_09 v1.65 / Module_08 v1.14 | Track B + v0.2 预留 | `feat/module-08-alert-dispatch`（① ② 随 M09 分支；③ 的 v0.2 语义另排） | `docs/05-execution-records/module-09/design-decisions.md` 决策 68；设计记录 `docs/05-execution-records/module-09/network-domain-label-key-convergence-and-alerting-wiring.md`（§2 网域键 / §3 alerting / §9 租户键）；契约快照 `module-08/api-contract-snapshot.md` §10 | 待开发 |
 | 2026-09-08 | M08 告警状态查看提前 MVP（MVP 试用反馈：前台缺少查看当前告警入口）：①M02 代理 Prometheus `GET /api/v1/alerts`（firing/pending 实例，注入租户/网域上下文骨架 MVP 恒通过，支持 `network_domain` 筛选）；②M08 代理 Alertmanager `GET /api/v2/alerts`（通知状态四态 active/silenced/inhibited/unprocessed，服务端强制注入授权网域集合 filter、不信任前端传参，决策 56，MVP 单租户恒通过、骨架保留）；③前端告警状态页双视图 Tab（菜单「告警收敛与通知管理 → 告警配置组 → 告警状态」，`/alert-status`）。AM 代理端点按 v2 口径（v1 已移除，对齐决策 61） | Module_02 v1.12 / Module_08 v1.12 | Track B+（强制 security-reviewer，分轨判定记录见 `docs/05-execution-records/module-08/design-decisions.md` 2026-09-08） | `feat/module-08-alert-dispatch`（承接决策 59/60 之后新一轮，同分支串行） | `docs/05-execution-records/module-08/task-sequence.yaml`（T08-06 / T08-07 / T08-F6 / T08-F7）；契约快照 `docs/05-execution-records/module-08/api-contract-snapshot.md` §10 | 待开发 |
 | 2026-09-04 | 开发反馈 F-32 落版（采集器登记三来源开放）：采集器登记来源由「仅 `internal` 开放」修正为 **MVP 即开放 `official` / `third_party` / `internal` 三种**——解决同一监控对象类型下用户需选用社区/厂商采集器作为备选的场景；名称与平台预置 seed 冲突时由唯一索引返回 409 Conflict。影响点：`ExporterTemplate.source` 枚举开放、登记校验与 seed 预置、采集器管理 Tab 登记抽屉三选、§9.1 验收 | Module_01 v3.31 | Track B | `feat/module-01-strategy` | `docs/05-execution-records/module-01/task-sequence.yaml`（T01-03 / 采集器管理 Tab 已加注） | 待开发 |
 | 2026-09-04 | 开发反馈 F-34 / L-2 落版（静态资源标签治理）：①**静态资源（host / database / middleware / generic_target）隐藏「关联实例」Tab 与 badge**——实例级标签在 CMDB 侧只读治理，标签模板页不展示「关联实例」入口，右栏 Tab 动态 2~3 个、左栏 badge 仅业务类型资源展示；②**`LabelTemplate.description` 必须落库**——创建/更新请求体 `description` 变更须持久化，不再静默丢弃 | Module_07 v2.27 | Track B | `feat/module-07-resource-management` | `docs/05-execution-records/module-07/task-sequence.yaml`（T07-15 / T07-F7 / T07-F8 已加注） | 待开发 |

@@ -40,7 +40,7 @@
 | 4.1 | `/api/v1/alerts` 代理 | MVP P0 → **v0.3** | 与 M08（v0.3 落地规则分组/静默/Alertmanager 配置）对齐，避免 M08 未就绪时 alerts 代理空转；**用户已确认** |
 | 4.2 | PromQL 校验 / 指标实时预览（`validate` / `preview`） | MVP → **v0.3** | M01 规则编辑 UI 随路线图 2.4「MVP 不做告警规则编辑 UI」挪至 v0.3；**用户已确认** |
 | 4.3 | 租户/网域上下文注入 | 机制 MVP（恒 `default` + `platform_admin`），多租户/多网域语义 **v0.2** | M06 租户模型、M09 租户-网域关联均为 v0.2 |
-| 4.4 | 注入标签 key 契约 | **MVP 修复**：统一 `network_domain` / `tenant_id` | 与 M09 3.3.1 `external_labels` 对齐；v1.1 的 `network_domain_id` 会导致注入匹配不到数据（权限隔离失效） |
+| 4.4 | 注入标签 key 契约 | **MVP 修复**：统一 `network_domain` / `tenant` | 与 M09 3.3.1 `external_labels` 对齐；v1.1 的 `network_domain_id` 会导致注入匹配不到数据（权限隔离失效）。**✅ 经决策 68 复核确认为最终口径（2026-09-10）**：M09 侧 `external_labels` 键名由 `network_domain_id` 收敛为 **`network_domain`**，本行成为全平台标签键唯一权威；消费侧保留 `network_domain` → 兼容 `network_domain_id` → `default` 的双读过渡层。**✅ 租户键经决策 68-5 定版（2026-09-10）**：本行原写的 `tenant_id` 修正为 **`tenant`**——写入侧由 M07 LabelTemplate 以 **target 级**注入（**不经 M09 `external_labels`**，决策 19 结论维持），并确立通用命名规约「**标签键一律不带 `_id` 后缀**（`_id` 只属 DB 列 / API 字段）」+ fail-closed **严格派**语义（无 `tenant` 标签 = 普通租户不可见；平台自身 Job 显式 `tenant="platform_admin"`）；v0.2 配套同源常量 `models.TenantLabelKey` + M09 生成期门禁。详见 `docs/05-execution-records/module-09/design-decisions.md`「决策登记：2026-09-10（网域标签键收敛 + 租户标签键统一 + Prometheus→Alertmanager 投递接线）」与 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md` |
 | 4.5 | 目标状态展示（`/api/v1/targets` 代理） | **新增 MVP** | 承接 M01 3.3 移交（目标列表/拨测结果/采集诊断）；路线图 MVP 已含「目标状态展示」 |
 | 4.6 | envelope：`network_domain` 单值 → `network_domains` 数组、`data_source` 细化到网域 | MVP 结构 / v0.2 语义 | 多网域聚合查询需表达来源网域集合 |
 | 4.7 | 采集健康度/覆盖率查询 API（M07 三态 badge） | **v0.2** | M07 `is_monitored` badge MVP 保持二元（M01 选中关系）；v0.2 由 M02 提供 `up` 聚合，M07 只读消费 |
@@ -117,10 +117,12 @@
 
 ## Change Log（完整历史）
 
-> v1.3 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.4 及以前的逐版完整变更详情（业务沟通决策记录）。
+> v1.3 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.4 及以前（**含 v1.12 起历次轮转迁入**）的逐版完整变更详情（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.12 | 2026-09-08 | 修改 | 范围调整（随 Module_08 v1.12，MVP 试用反馈）：`/api/v1/alerts` 代理由 v0.3 提前回 **MVP**——§1 版本分布、版本决策注记、§2 M02-OPS-07、§3 功能表、§6.1 接口（自 §6.3 挪入）、§13 术语、§11.1/11.2 验收同步调整；MVP 阶段注入骨架恒通过、授权过滤机制保留；`/api/v1/rules`、PromQL 校验/预览仍留 v0.3（自 PRD Change Log 轮转迁入） | 0 | 功能提前至 MVP | ready |
+| v1.11 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
 | v1.10 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（基础查询→状态感知→权限收敛→告警联动→开放集成）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「多租户数据隔离」「告警状态查看」「目标状态页导航」真实场景（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
 | v1.9 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（指标查询/目标状态/AI 数据消费）与涉及用户故事编码索引；不改变技术契约（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
 | v1.8 | 2026-09-02 | 修改 | coverage 三态判定口径修订（用户拍板 A 方案）：`/api/v1/health/coverage` **不感知 M09 下发时序**——选中关系取 DB 当前 `selected_instance_ids`（`draft_status=ready` 且 `enabled=true` 的 Job，不问 `change_status`），采集事实取 Prometheus 实际 target/`up`；选中未采到统一归 `pending_down`（含变更未确认下发/未 reload/待首次抓取/采集器未装），「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）；§3.1 新增口径说明、§12 M07 边界行同步；契约快照 `module-02/api-contract-snapshot.md` §2.2.1/§5 同步闭环；原型行为不变 | 功能清单、模块边界 | MVP | 设计中 |

@@ -1,10 +1,10 @@
 # Module 08: 告警收敛与通知管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.13
+> **PRD 版本**: v1.14
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
 > **原型版本**: v1.7（v1.13 为 Track B 轻量增量「历史告警」，免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；以 `docs/prototypes/module-08/package.json` 为准）
-> **更新日期**: 2026-09-09
+> **更新日期**: 2026-09-10
 > **对应原型**: `docs/prototypes/module-08/`
 
 > **模块类型**: 扩展能力模块
@@ -448,6 +448,7 @@ inhibit_rules:
 - [ ] {P0} 模块名称与文档目录已更新为「告警收敛与通知管理」。
 - [ ] {P0，决策 59/60} 可通过**文件挂载**配置 Alertmanager：上传/粘贴整份 `alertmanager.yml`，校验失败给出行级错误、不落库；校验通过后进入 M09 变更单（管理域 scope），人工确认后由 M09 下发并 reload 生效；页面提供当前生效配置只读视图与历史版本回滚。
 - [ ] {P0，决策 59} 端到端告警链路可验证：触发一条告警规则 → Alertmanager 按挂载配置路由 → 接收人 Webhook 实际收到通知。
+- [ ] {P0，决策 68-2} **告警可投递到 Alertmanager**（补齐决策 59/60 缺失的最后一环）：触发一条测试告警规则 → 中心 Alertmanager `GET /api/v2/alerts` 返回非空 → 本页「Alertmanager 通知状态」视图可见该告警。投递由 M09 生成的 `alerting.alertmanagers` 段承载（**仅中心生成、条件注入、AM 地址由 `env/env.sh` 注入**，见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §3.3.1.1）；此前未接线时本视图恒为空。
 - [ ] {P0} 接收人可配置 webhook / 飞书 / 钉钉 / 邮件 / 企业微信中至少一种（MVP 经文件挂载承载）。
 - [ ] {v0.3} 接收人与路由规则提供表单化 UI（不再要求用户编写 YAML）。
 - [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态（MVP 极简 UI，API 直调 Alertmanager）。
@@ -462,6 +463,7 @@ inhibit_rules:
 ### 9.2 技术验收（后端/契约可验证）
 
 - [ ] {P0} M08 生成或挂载的 `alertmanager.yml` 通过 `amtool check-config` 等价校验。
+- [ ] {P0，决策 68-2} **投递链路**：中心 `prometheus.yml` 含 `alerting.alertmanagers[].static_configs[].targets` 且指向注入的 AM 地址（**非硬编码**）；`alertmanager.yml` 无产物时中心不生成 `alerting` 段；边缘配置包不含 `alerting` / `rule_files`（vmagent / prometheus-agent 硬限制）；`promtool check config` 对含 `alerting` 段的产物校验通过。承载方为 M09 生成器（见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §3.3.1.1）。
 - [ ] {P0，决策 59/60} 文件挂载接口契约：上传内容校验通过 → 写入 `AlertmanagerConfigVersion`（内容留痕）→ 提交 M09 变更检测生成管理域变更单；校验失败返回行级错误，不落库、不进流水线。
 - [ ] {P0，决策 60} 修改接收人/路由/抑制策略（文件挂载提交）后，经 M09 变更单人工确认 → 下发 → Alertmanager reload 成功；静默规则为 Alertmanager 运行时 API 状态，不进 M09 流水线（API 直调即时生效）。
 - [ ] {P0} 静默规则通过 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询，状态同步正确；禁止调用已移除的 v1 silence 端点。
@@ -496,11 +498,11 @@ inhibit_rules:
 
 ## Change Log
 
-> **Change Log 定位**：本表记录业务侧沟通决策与文档变更（保留最近 3 版一句话摘要；v1.8 及以前逐版详情已迁移至 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」小节）；开发契约见 6.x 数据模型 / 9 验收标准 / 10 术语映射。
+> **Change Log 定位**：本表记录业务侧沟通决策与文档变更（保留最近 3 版一句话摘要；v1.11 及以前逐版详情已迁移至 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」小节）；开发契约见 6.x 数据模型 / 9 验收标准 / 10 术语映射。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.14 | 2026-09-10 | 修改 | Prometheus→Alertmanager 投递接线验收补齐（决策 68-2，源自 F-07 网域列缺陷评审）：§9.1 新增 P0「告警可投递到 Alertmanager」——触发测试告警 → 中心 AM `GET /api/v2/alerts` 非空 → 本页「Alertmanager 通知状态」可见（此前 decision 59/60「告警分发最小闭环」只完成 AM 侧配置挂载，Prometheus→AM 投递从未接线，本视图恒空）；§9.2 新增 P0 投递链路技术验收（中心 `prometheus.yml` 含 `alerting.alertmanagers`、AM 地址非硬编码、无 `alertmanager.yml` 产物时不生成、边缘包不含 `alerting`/`rule_files`、`promtool check config` 通过）。承载方为 M09 生成器（见 Module_09 §3.3.1.1）。不改本模块接口契约 | 9 | MVP | ready |
 | v1.13 | 2026-09-09 | 新增 | 历史告警 MVP 增量（Track B，用户书面确认）：新增独立页面「历史告警」——基于 Prometheus `ALERTS` 时间序列重建规则级触发/恢复区间（恢复时间为求值近似值），展示触发时间/恢复时间/持续时长/实例/网域/摘要，支持按网域/告警名/实例/状态/时间范围筛选（默认 24h、最大 7d）；数据由 Module_02 新增 `/api/v1/alerts/history` 提供；§1 目标 3、§2 M08-OPS-08、§3.1 功能表、§5.4、§9.1/§9.2 验收、§10 术语同步；免高保真原型（豁免记录见 design-decisions.md） | 1 / 2 / 3.1 / 5.4 / 9 / 10 | MVP | ready |
 | v1.12 | 2026-09-08 | 修改 | 范围调整（MVP 试用反馈：前台缺少查看当前告警入口）：告警状态查看由 v0.3 提前至 MVP——§1 目标 3、§2 M08-OPS-03、§3.1 功能表、§5.4、§8 依赖、§9.1 验收同步调整；「告警状态页」MVP 交付（Prometheus firing/pending 视图依赖 M02 代理 `/api/v1/alerts` 同步提前，见 Module_02 对应版本口径）；顺手修正 Alertmanager 告警代理端点为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 端点在 AM ≥0.27 已移除） | 0 | 功能提前至 MVP | ready |
-| v1.11 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移 | 0 | 文档自身 | 设计中 |
 

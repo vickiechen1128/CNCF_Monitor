@@ -85,7 +85,8 @@
 | `default` 管理域 | 固定 `channel=local`，中心直接写盘 reload | ✅ SIGHUP / `/-/reload` | 默认网域初始化 + 本地文件下发 | 低 | 低 | L2 |
 | `agent_pull` 网域 UI 占位 | 安装指引、Token 复制、采集节点状态页空态 | ❌ 无 | 占位页面 + 3 步安装指引文案 | 低 | 低 | L4 |
 | 配置生成服务 | 轮询 M01/M07 数据，按网域生成 `prometheus.yml` / `targets/*.json` / `rules.yml` | ⚠️ Prometheus 解析但不生成 | 按网域组装配置 + file_sd + external_labels | 高 | 中 | L2/L3 |
-| `external_labels` 注入 | 注入 `network_domain_id` / `zone_type` / `replica` | ✅ `global.external_labels` | 配置生成时按网域写入 | 低 | 无 | L2 |
+| `external_labels` 注入 | 注入 `network_domain` / `zone_type` / `replica`（键名经决策 68-1 收敛；不注入租户/业务标签） | ✅ `global.external_labels` | 配置生成时按网域写入 | 低 | 无 | L2 |
+| `alerting` 投递接线 | 中心 `prometheus.yml` 生成 `alerting.alertmanagers`（决策 68-2，仅中心、条件注入、AM 地址由 `env/env.sh` 注入） | ✅ 原生 `alerting` 段 | 配置生成时按产物条件写入 | 低 | 无 | L2 |
 | 配置草稿 / Diff / 确认 | `ConfigDraft` 预览、与 `ConfigVersion` diff、人工确认 | ❌ 无 | 自研草稿表 + Diff 逻辑 | 中 | 中 | L4 |
 | 配置校验 | YAML/语义校验、promtool、blackbox config check | ✅ `promtool check config` | 调用 promtool / blackbox check | 低 | 低 | L1/L2 |
 | 配置下发 | `channel=local` 写盘 + reload；`agent_pull` 生成 zip 包 | ✅ 原生支持热重载 | 写文件 + 触发 reload + `ConfigDeployment` 记录 | 中 | 低 | L1/L4 |
@@ -93,7 +94,7 @@
 | `alertmanager.yml` 纳入变更确认（决策 60） | 管理域（`default`）scope 配置产物；不按网域扇出、不进 `agent_pull` 配置包；确认后写中心 Alertmanager 配置路径 + reload，`change_status` 回写 M08 | ✅ `amtool check-config` + SIGHUP/`/-/reload` | configgen 纳入 M08 `AlertmanagerConfigVersion` 源 → 变更项/受影响文件枚举扩展（`alertmanager`）→ 下发写 AM 配置路径 + reload + 回写 M08 | 中 | 中 | L2/L3 |
 | 配置版本 / 下发历史 | `ConfigVersion` / `ConfigDeployment` 查询 | ❌ 无 | 版本表 + 下发记录表 | 中 | 低 | L4 |
 
-> **关键判断**：MVP 内 M09 的主干是 **default 域 + local 通道的配置生成 / 预览 / 确认 / reload 全链路**；**决策 60 起 `alertmanager.yml` 也纳入该流水线**——作为管理域（`default`）scope 配置产物进入 `ConfigDraft → 人工确认 → 下发 → reload`，`change_status` 回写 M08（M08=内容 Owner、M09=管道 Owner，对齐 M01/M09）。告警变更单网域恒为 `default`、与采集变更单相互独立；MVP 统一人工确认（低风险自动通过留作后续版本）。`agent_pull` 网域纳管 UI 保留占位页，但 Edge Agent 心跳、配置包拉取、WAL 监控等完整能力放到 v0.2。`external_labels` 不再注入 `tenant_id`，只注入部署级元数据 `network_domain_id` / `zone_type` / `replica`。
+> **关键判断**：MVP 内 M09 的主干是 **default 域 + local 通道的配置生成 / 预览 / 确认 / reload 全链路**；**决策 60 起 `alertmanager.yml` 也纳入该流水线**——作为管理域（`default`）scope 配置产物进入 `ConfigDraft → 人工确认 → 下发 → reload`，`change_status` 回写 M08（M08=内容 Owner、M09=管道 Owner，对齐 M01/M09）。告警变更单网域恒为 `default`、与采集变更单相互独立；MVP 统一人工确认（低风险自动通过留作后续版本）。`agent_pull` 网域纳管 UI 保留占位页，但 Edge Agent 心跳、配置包拉取、WAL 监控等完整能力放到 v0.2。`external_labels` **不注入租户 / 业务标签**，只注入部署级元数据 `network_domain` / `zone_type` / `replica`（键名经决策 68-1 收敛为 `network_domain`；租户标签 `tenant` 的唯一来源是 M07 LabelTemplate 的 **target 级注入**，决策 68-5）。
 
 ### 2.4 Module_06：系统与平台管理（网域登记）
 
@@ -401,7 +402,8 @@ Module_09 网域与边缘配置中心
     │
     ├──► 配置生成器：读取 M01/M07 数据
     ├──► 按 network_domain 生成 prometheus.yml + targets/*.json + rules.yml
-    ├──► external_labels 注入 network_domain_id / zone_type / replica
+    ├──► external_labels 注入 network_domain / zone_type / replica（决策 68-1 键名收敛）
+    ├──► 中心 prometheus.yml 生成 alerting.alertmanagers（决策 68-2，仅中心 / 条件注入 / 地址由 env.sh 注入）
     ├──► 配置预览 / Diff / 人工确认
     ├──► local 通道：写盘 + reload 中心 Prometheus
     └──► agent_pull 通道：UI 占位（v0.2 实现拉包）
@@ -464,6 +466,8 @@ Module_08 告警收敛与通知管理（决策 59/60）
 
 | 日期 | 变更内容 | 变更人 |
 |------|----------|--------|
+| 2026-09-10 | **租户标签键定版 + 通用命名规约（决策 68-5）**：§2.3 关键判断补「`external_labels` 不注入租户 / 业务标签、租户标签 `tenant` 唯一来源为 M07 LabelTemplate target 级注入」并修正同段残留的旧网域键名（`network_domain_id` → `network_domain`）；§2.3 M09 能力清单「PromQL 查询代理 — 注入 `tenant` / `network_domain`」口径确认（标签键不带 `_id` 后缀）；**通用命名规约**：Prometheus 标签键及对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀，`_id` 只属 DB 列与 API JSON 字段（`network_domain`/`network_domain_id`、`tenant`/`tenant_id` 三层自洽）。同步：M02 PRD v1.14→**v1.15**、M07 PRD v2.30→**v2.31**、M09 PRD v1.64→**v1.65**；`03_Functional_Architecture.md` v3.4→v3.5。详见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md` §9 | planner |
+| 2026-09-10 | **标签键收敛 + `alerting` 投递接线（决策 68，源自 F-07 网域列缺陷评审）**：§2.3 M09 能力清单「`external_labels` 注入」行键名改为 **`network_domain`**（决策 68-1；决策 19 键名 supersede，字段清单结论不变，对象/API 字段仍用 `network_domain_id`），并新增「`alerting` 投递接线」行（决策 68-2：中心 `prometheus.yml` 生成 `alerting.alertmanagers`，仅中心 / 条件注入 / AM 地址由 `env/env.sh` 注入，边缘包不生成）；§8 MVP 闭环图同步标签键与 `alerting` 生成步骤。**本轮仅修正本决策直接相关的标签键与投递行**；§头部「各模块 PRD 版本」串的既有陈旧（M02 v1.12 / M08 v1.12 / M09 v1.56 等）不在本轮范围，另案刷新（详见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md` §8） | planner |
 | 2026-09-08 | **告警状态查看提前 MVP（Track B+ 增量，强制 security-reviewer；MVP 试用反馈：前台缺少查看当前告警入口）**：§2.5 M02 新增 `/api/v1/alerts` 代理行（firing/pending + 注入骨架恒通过 + `network_domain` 可选筛选）；§2.6 M08「告警状态查看（AM 通知状态）/ Prometheus 触发告警状态」两行由「v0.3」修订为 **MVP**，AM 代理端点修正为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 已移除）；§6 告警分层 MVP 列补齐告警状态查看（双视图）；§8 MVP 闭环 M08 块追加告警状态页双视图、M02 增量清单补 `/api/v1/alerts`；PRD 版本对齐 Module_02 v1.11→v1.12 / Module_08 v1.11→v1.12；同步 `05_Code_Implementation_Plan.md`（§6.4 Track B+ 登记 + §7.9 验收 + 头部版本串逐字一致） | planner |
 | 2026-09-05 | **版本清单刷新（终验前置）**：§头部「各模块 PRD 版本」对齐至各 PRD 2026-09-04 最新修订版——M01 v3.29→v3.35、M02 v1.8→v1.11、M06 v2.3→v2.9、M07 v2.25→v2.30、M08 v1.7→v1.11、M09 v1.52→v1.56、M03 v1.2→v1.3；同步 `05_Code_Implementation_Plan.md` 同一版本串（终验 1.1 要求两处逐字一致）。本轮仅版本号对齐，正文技术条款未改动。**同日追加（已闭环）**：产品负责人确认重派生——Plan 版本 v2026-08-21 → **v2026-09-05**，各模块 `task-sequence.yaml` 的 `plan_version` 同步统一；`05_Code_Implementation_Plan.md` 的 Phase 6 按 `02_Product_Roadmap.md` v2.2 重写（6.4 监控源登记册后移 v0.3、新增 6.5 采集参数差异化与实例级端口覆盖）、§6.4 Track B 补登记 M01 F-32 / M07 F-34·L-2（详见 05 §9「v2026-09-05」条目） | prototype-designer |
 | 2026-09-02 | coverage 三态口径修订（Track B 增量内闭环，用户拍板 A 方案）：coverage/M07 badge 选中关系取 DB 当前值、不感知 M09 下发时序，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显；§2.1/§2.5 同步；M07 默认模板补 `resource_id` 稳定身份映射（代码 `DefaultMappingBuilders` + 种子迁移同轮落地）；PRD 版本对齐 M01 v3.29 / M02 v1.8 / M07 v2.25 | — |
