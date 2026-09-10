@@ -25,7 +25,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 func TestAssemblePrometheusExternalLabels(t *testing.T) {
 	ca, err := Assemble("gov-cloud-a", "extranet", "replica-0", []JobBuild{
 		{Job: models.ScrapeJob{JobName: "node-exporter-prod", MetricsPath: "/metrics", Scheme: "http"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}},
-	}, nil, "")
+	}, nil, "", "", true)
 	require.NoError(t, err)
 
 	assert.Contains(t, ca.PrometheusYML, "network_domain_id: gov-cloud-a")
@@ -35,7 +35,7 @@ func TestAssemblePrometheusExternalLabels(t *testing.T) {
 	assert.NotContains(t, ca.PrometheusYML, "tenant_id")
 	assert.NotContains(t, ca.PrometheusYML, "biz:")
 	// zone_type 未登记时不再注入。
-	caNoZone, err := Assemble("gov-cloud-a", "", "replica-0", nil, nil, "")
+	caNoZone, err := Assemble("gov-cloud-a", "", "replica-0", nil, nil, "", "", true)
 	require.NoError(t, err)
 	assert.NotContains(t, caNoZone.PrometheusYML, "zone_type")
 }
@@ -43,7 +43,7 @@ func TestAssemblePrometheusExternalLabels(t *testing.T) {
 func TestAssembleFileSDNotInline(t *testing.T) {
 	ca, err := Assemble("default", "", "", []JobBuild{
 		{Job: models.ScrapeJob{JobName: "node-exporter-prod", MetricsPath: "/metrics", Scheme: "http"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}},
-	}, nil, "")
+	}, nil, "", "", true)
 	require.NoError(t, err)
 	// scrape_config 用 file_sd_configs 引用 targets/*.json，不内联实例地址。
 	assert.Contains(t, ca.PrometheusYML, "file_sd_configs")
@@ -58,7 +58,7 @@ func TestAssembleAuthTLSPassthrough(t *testing.T) {
 	bearer := models.ScrapeJob{JobName: "bearer", MetricsPath: "/m", Scheme: "http", AuthType: models.AuthTypeBearer, Token: "tok-123"}
 	tls := models.ScrapeJob{JobName: "tls", MetricsPath: "/m", Scheme: "https", TLSSkipVerify: true, CAFile: "/etc/ca.pem"}
 
-	ca, err := Assemble("default", "", "", []JobBuild{{Job: basic}, {Job: bearer}, {Job: tls}}, nil, "")
+	ca, err := Assemble("default", "", "", []JobBuild{{Job: basic}, {Job: bearer}, {Job: tls}}, nil, "", "", true)
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "basic_auth")
 	assert.Contains(t, ca.PrometheusYML, "username: monitor")
@@ -72,7 +72,7 @@ func TestAssembleRulesYAMLPassthrough(t *testing.T) {
 		{Name: "r-a", ContentMode: models.RuleContentModeYAMLPassthrough, RuleContent: "groups:\n  - name: a\n    rules: [{alert: A, expr: up == 0}]"},
 		{Name: "r-b", ContentMode: models.RuleContentModeYAMLPassthrough, RuleContent: "groups:\n  - name: b\n    rules: [{alert: B, expr: up == 1}]"},
 	}
-	ca, err := Assemble("default", "", "", nil, rules, "")
+	ca, err := Assemble("default", "", "", nil, rules, "", "", true)
 	require.NoError(t, err)
 	assert.Contains(t, ca.RulesYML, "name: a")
 	assert.Contains(t, ca.RulesYML, "name: b")
@@ -95,7 +95,7 @@ func TestAssembleRulesYAMLPassthrough(t *testing.T) {
 }
 
 func TestAssembleRuleFilesOmittedWhenNoRules(t *testing.T) {
-	ca, err := Assemble("default", "", "", nil, nil, "")
+	ca, err := Assemble("default", "", "", nil, nil, "", "", true)
 	require.NoError(t, err)
 	// 无规则时不注入 rule_files，避免指向不存在的文件导致 Prometheus 配置加载失败。
 	assert.NotContains(t, ca.PrometheusYML, "rule_files")
@@ -108,7 +108,7 @@ func TestAssembleRendersScrapeIntervalTimeout(t *testing.T) {
 	ca, err := Assemble("default", "", "", []JobBuild{
 		{Job: models.ScrapeJob{JobName: "with-params", ScrapeInterval: "30s", ScrapeTimeout: "20s", MetricsPath: "/metrics", Scheme: "http"}},
 		{Job: models.ScrapeJob{JobName: "sparse"}},
-	}, nil, "")
+	}, nil, "", "", true)
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "scrape_interval: 30s")
 	assert.Contains(t, ca.PrometheusYML, "scrape_timeout: 20s")
@@ -141,7 +141,7 @@ func TestAssembleBlackbox(t *testing.T) {
 	}
 	ca, err := Assemble("default", "", "", []JobBuild{
 		{Job: job, Targets: []TargetGroup{{Targets: []string{"https://api.example.com/health"}}}},
-	}, nil, "")
+	}, nil, "", "", true)
 	require.NoError(t, err)
 	assert.Contains(t, ca.PrometheusYML, "metrics_path: /probe")
 	assert.Contains(t, ca.PrometheusYML, "__param_target")
@@ -158,15 +158,15 @@ func TestNormalizeJobFilename(t *testing.T) {
 }
 
 func TestChecksumConsistency(t *testing.T) {
-	a1, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil, "")
-	a2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil, "")
+	a1, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil, "", "", true)
+	a2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.1"}}}}}, nil, "", "", true)
 	require.NoError(t, nil)
 	assert.Equal(t, a1.Checksum(), a2.Checksum(), "同内容 checksum 必须一致")
 	assert.False(t, a1.ArtifactsChanged(a2.Checksum()), "checksum 一致判定为无实质变化（自动丢弃）")
 	assert.True(t, a1.ArtifactsChanged(""), "无生效版本视为有变化")
 
 	// 目标变化 → checksum 变化。
-	a3, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.2"}}}}}, nil, "")
+	a3, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.2"}}}}}, nil, "", "", true)
 	assert.NotEqual(t, a1.Checksum(), a3.Checksum())
 }
 
@@ -354,7 +354,7 @@ func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
 	ToolLookPath = func(string) (string, error) { return "", errToolMissing }
 	t.Cleanup(func() { ToolLookPath = old })
 
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "")
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
 	status, cause, details, msg := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusPending, status)
 	assert.Equal(t, models.ValidationCausePlatformFault, cause, "promtool 缺失应归因为平台故障")
@@ -369,7 +369,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "")
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
 	status, cause, details, _ := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusPassed, status)
 	assert.Empty(t, cause)
@@ -377,7 +377,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 }
 
 func TestValidateArtifactsFailedSchema(t *testing.T) {
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "")
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
 	ca.TargetsFiles["j.json"] = "not-json"
 	status, cause, details, _ := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusFailed, status)
@@ -385,7 +385,7 @@ func TestValidateArtifactsFailedSchema(t *testing.T) {
 	assert.Len(t, details, 1)
 	assert.Equal(t, "j.json", details[0].File)
 	// 保护标签冲突亦归因 user_config 且带结构化定位。
-	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "")
+	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
 	ca2.TargetsFiles["a.json"] = `[{"targets":["10.0.1.10"],"labels":{"job":"x"}}]`
 	status2, cause2, details2, _ := ValidateArtifacts(ca2, false)
 	assert.Equal(t, models.ValidationStatusFailed, status2)
@@ -436,16 +436,16 @@ func TestMarshalTargetGroupsJSON(t *testing.T) {
 
 func TestAssembleAlertmanagerYML(t *testing.T) {
 	// 传入告警配置内容 → 产物携带，且 checksum 受其影响（内容变化触发变更检测）。
-	ca, err := Assemble("default", "", "", nil, nil, "global:\n  resolve_timeout: 5m\nroute:\n  receiver: default\n")
+	ca, err := Assemble("default", "", "", nil, nil, "global:\n  resolve_timeout: 5m\nroute:\n  receiver: default\n", "", true)
 	require.NoError(t, err)
 	assert.Equal(t, "global:\n  resolve_timeout: 5m\nroute:\n  receiver: default\n", ca.AlertmanagerYML)
 
-	ca2, err := Assemble("default", "", "", nil, nil, "route:\n  receiver: default\n")
+	ca2, err := Assemble("default", "", "", nil, nil, "route:\n  receiver: default\n", "", true)
 	require.NoError(t, err)
 	assert.NotEqual(t, ca.Checksum(), ca2.Checksum(), "alertmanager.yml 内容变化必须影响联合 checksum")
 
 	// 无告警配置传空串 → 不产生空产物。
-	caEmpty, err := Assemble("default", "", "", nil, nil, "")
+	caEmpty, err := Assemble("default", "", "", nil, nil, "", "", true)
 	require.NoError(t, err)
 	assert.Equal(t, "", caEmpty.AlertmanagerYML)
 }
@@ -486,7 +486,7 @@ func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T) {
 	}
 	t.Cleanup(func() { ToolLookPath = old })
 
-	ca, _ := Assemble("d", "", "", nil, nil, "route:\n  receiver: default\n")
+	ca, _ := Assemble("d", "", "", nil, nil, "route:\n  receiver: default\n", "", true)
 	status, cause, details, _ := ValidateArtifacts(ca, false)
 	assert.Equal(t, models.ValidationStatusPending, status)
 	assert.Equal(t, models.ValidationCausePlatformFault, cause, "amtool 缺失应归因为平台故障")
@@ -578,7 +578,83 @@ func TestScrapeConfigJobNames(t *testing.T) {
 
 	assert.Empty(t, scrapeConfigJobNames("not yaml: ["), "解析失败返回空集合，不阻断")
 
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j", MetricsPath: "/m", Scheme: "http"}}}, nil, "")
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j", MetricsPath: "/m", Scheme: "http"}}}, nil, "", "", true)
 	got := scrapeConfigJobNames(ca.PrometheusYML)
 	require.Contains(t, got, "j", "生成出的 prometheus.yml 应含 job_name 供引用校验")
+}
+
+// ---- 决策 68-2：Prometheus → Alertmanager 投递接线 ----
+
+// TestAlertmanagerTargetFromURL 覆盖 --alertmanager.url → Prometheus alertmanager
+// target（host:port）的解析：剥离 scheme 与路径；容忍已是 host:port 的入参；
+// 空串 / 非法值返回空串（调用方据此不生成 alerting 段，避免写出悬空目标）。
+func TestAlertmanagerTargetFromURL(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"http://localhost:9093", "localhost:9093"},
+		{"http://127.0.0.1:9093/", "127.0.0.1:9093"},
+		{"https://am.example.com:9093", "am.example.com:9093"},
+		{"localhost:9093", "localhost:9093"},
+		{"  http://localhost:9093  ", "localhost:9093"},
+		{"", ""},
+		{"http://", ""},
+	}
+	for _, c := range cases {
+		assert.Equal(t, c.want, AlertmanagerTargetFromURL(c.in), "input=%q", c.in)
+	}
+}
+
+// TestAssembleAlertingSectionConditional 覆盖决策 68-2 的条件注入：alerting 段仅在
+// 「中心求值器 + alertmanager.yml 非空 + AM 地址非空」三者同时满足时生成；target 为
+// 注入地址（禁止硬编码 127.0.0.1:9093）。
+func TestAssembleAlertingSectionConditional(t *testing.T) {
+	const amYML = "route:\n  receiver: default\n"
+	const amAddr = "am-center:9093"
+
+	// 1. 中心 + AM 内容 + 地址 → 生成 alerting 段。
+	ca, err := Assemble("default", "", "", nil, nil, amYML, amAddr, true)
+	require.NoError(t, err)
+	assert.Contains(t, ca.PrometheusYML, "alerting:")
+	assert.Contains(t, ca.PrometheusYML, "alertmanagers:")
+	assert.Contains(t, ca.PrometheusYML, "static_configs:")
+	assert.Contains(t, ca.PrometheusYML, "- "+amAddr, "target 须为注入地址")
+	assert.NotContains(t, ca.PrometheusYML, "127.0.0.1:9093", "AM 地址必须参数化，不得硬编码")
+
+	// 2. 中心 + AM 内容 + 空地址 → 不生成（避免悬空目标）。
+	caNoAddr, err := Assemble("default", "", "", nil, nil, amYML, "", true)
+	require.NoError(t, err)
+	assert.NotContains(t, caNoAddr.PrometheusYML, "alerting:")
+
+	// 3. 中心 + 无 AM 挂载内容 + 地址 → 不生成（避免指向不存在的 Alertmanager）。
+	caNoAM, err := Assemble("default", "", "", nil, nil, "", amAddr, true)
+	require.NoError(t, err)
+	assert.NotContains(t, caNoAM.PrometheusYML, "alerting:")
+
+	// 4. 边缘通道（agent_pull → centerEvaluator=false）→ 即便两者齐备也不生成。
+	caEdge, err := Assemble("edge-a", "", "", nil, nil, amYML, amAddr, false)
+	require.NoError(t, err)
+	assert.NotContains(t, caEdge.PrometheusYML, "alerting:")
+}
+
+// TestAssembleRuleFilesAndAlertingShareCenterSwitch 覆盖约定纪律（决策 68-2/68-3）：
+// rule_files 与 alerting 必须由同一个「是否中心」判定驱动——中心两者皆生成，
+// 边缘两者皆不生成，不得出现「一段生成了、另一段没生成」的半残配置。
+func TestAssembleRuleFilesAndAlertingShareCenterSwitch(t *testing.T) {
+	rules := []models.MonitoringRule{
+		{Name: "r", ContentMode: models.RuleContentModeYAMLPassthrough,
+			RuleContent: "groups:\n  - name: g\n    rules: [{alert: A, expr: up == 0}]"},
+	}
+	const amYML = "route:\n  receiver: default\n"
+
+	center, err := Assemble("default", "", "", nil, rules, amYML, "am:9093", true)
+	require.NoError(t, err)
+	assert.Contains(t, center.PrometheusYML, "rule_files:")
+	assert.Contains(t, center.PrometheusYML, "alerting:")
+
+	edge, err := Assemble("edge-a", "", "", nil, rules, amYML, "am:9093", false)
+	require.NoError(t, err)
+	assert.NotContains(t, edge.PrometheusYML, "rule_files")
+	assert.NotContains(t, edge.PrometheusYML, "alerting")
 }

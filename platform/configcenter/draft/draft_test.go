@@ -999,6 +999,57 @@ func TestDiscardImpactHandler(t *testing.T) {
 	assert.EqualValues(t, 0, data["deleted_restored"])
 }
 
+// TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting 覆盖决策 68-2 / 68-3 的端到端
+// 接线：中心求值器（channel=local）的 prometheus.yml 注入 alerting（target 为注入地址）
+// 并引用 rules.yml；边缘通道（agent_pull）即便有规则也不生成 rule_files / alerting
+// ——两者由同一个「是否中心」判定驱动（约定纪律，禁止半残配置）。
+func TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting(t *testing.T) {
+	oldTarget := AlertmanagerTarget
+	AlertmanagerTarget = "am-center:9093"
+	t.Cleanup(func() { AlertmanagerTarget = oldTarget })
+
+	// --- 中心：management + local + AM 留痕 ---
+	db := newMemDB(t)
+	center := &models.NetworkDomain{
+		ID: models.DefaultDomainID, Name: "管理域", DomainType: models.DomainTypeManagement,
+		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
+		ZoneType: "central", Channel: models.ChannelTypeLocal, IsMonitored: true,
+	}
+	require.NoError(t, db.Create(center).Error)
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:  "route:\n  receiver: default\n",
+		Checksum: models.AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
+		Status:   models.AlertmanagerConfigStatusApplied,
+	}).Error)
+	require.NoError(t, db.Create(&models.MonitoringRule{
+		Name: "cpu-high", ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: cpu\n    rules:\n      - alert: HighCPU\n",
+		Scope:       models.ScopeTypeCentral, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}).Error)
+
+	dCenter, err := GenerateDraft(db, models.DefaultDomainID)
+	require.NoError(t, err)
+	assert.Contains(t, dCenter.PrometheusYml, "alerting:", "中心须接线 alerting")
+	assert.Contains(t, dCenter.PrometheusYml, "am-center:9093", "alerting target 须为注入地址")
+	assert.Contains(t, dCenter.PrometheusYml, "rule_files:", "中心须引用 rules.yml")
+
+	// --- 边缘：agent_pull + 规则 ---
+	db2 := newMemDB(t)
+	seedMonitoredDomain(t, db2, "edge-am", true)
+	require.NoError(t, db2.Create(&models.MonitoringRule{
+		Name: "edge-rule", ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: e\n    rules:\n      - alert: E\n",
+		Scope:       models.ScopeTypeCentral, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}).Error)
+
+	dEdge, err := GenerateDraft(db2, "edge-am")
+	require.NoError(t, err)
+	assert.NotContains(t, dEdge.PrometheusYml, "rule_files", "边缘不得引用 rules.yml")
+	assert.NotContains(t, dEdge.PrometheusYml, "alerting", "边缘不得接线 alerting")
+}
+
 // generatorVersionPlaceholder 仅用于断言 metadata.generator_version 非空占位。
 const generatorVersionPlaceholder = "0.1.0"
 

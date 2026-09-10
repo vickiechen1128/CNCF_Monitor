@@ -40,6 +40,8 @@ import (
 	"github.com/metriccenter/metriccenter/platform/configcenter"
 	"github.com/metriccenter/metriccenter/platform/configcenter/change"
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
+	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
@@ -124,6 +126,12 @@ func main() {
 		Reload:   buildReloadFunc(*configReloadURL),
 		AMReload: buildReloadFunc(amReloadURL),
 	}
+
+	// 决策 68-2：中心求值器 prometheus.yml 的 alerting.alertmanagers 投递目标由
+	// --alertmanager.url 解析为 host:port 注入（禁止硬编码 127.0.0.1:9093），接线
+	// Prometheus → Alertmanager，使 M08 Tab1「Alertmanager 通知状态」可端到端验收；
+	// 解析为空时不生成 alerting 段（M09 生成期静默降级，不阻断其它产物）。
+	draft.AlertmanagerTarget = generator.AlertmanagerTargetFromURL(*alertmanagerURL)
 
 	// M09 §3.3.3：启动自适应配置变更检测轮询（方案 A，闭环补缺），随 ctx 优雅退出。
 	change.Start(ctx, db.DB, *changeDetectMinInterval, *changeDetectMaxInterval)
