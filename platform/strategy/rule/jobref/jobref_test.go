@@ -113,3 +113,17 @@ groups:
 	issues := Validate(content, []string{"existing"})
 	require.Len(t, issues, 1)
 }
+
+// TestValidateInvalidRegexSkipped 覆盖决策 67-2 的口径收紧：无法编译的正则（如
+// job=~"(?<bad"）在判定上不可确定，必须跳过而不是报 error——否则在「error 默认
+// 阻断提交」的门禁下会把一条合法规则永久挡死。
+func TestValidateInvalidRegexSkipped(t *testing.T) {
+	content := `
+groups:
+- name: g
+  rules:
+  - alert: Down
+    expr: absent(up{job=~"(?<bad"})
+`
+	require.Empty(t, Validate(content, []string{"ceshi"}))
+}

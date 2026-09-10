@@ -4,6 +4,7 @@
 package rule
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -102,21 +103,84 @@ func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) er
 	return nil
 }
 
-// activeScrapeJobNames 返回当前生效（enabled=true AND draft_status=ready）的采集 Job 名，
-// 用于规则 job 引用校验（决策 66）。查询失败返回空集合（不阻断，仅导致引用视为不存在）。
-func activeScrapeJobNames(db *gorm.DB) []string {
+// effectiveJobNames 返回指定规则 scope 下「校验用」的生效 Job 名集合（决策 67-4）：
+//   - central（MVP 单域 / v0.2 多域）：**全域 job 并集**——规则是全局资源、会进入每个
+//     网域的 rules.yml，故不能按单域名单判定（否则 v0.2 下引用 A 域 job 的规则在 B 域
+//     必然被误判 error → failed）；
+//   - edge / both（v0.4+）：本网域 job 名单（domainID 为空则不判定）。
+//
+// MVP 单域下 central 的「全域并集」= 全库查询，与历史实现等价、不改变现有行为。
+// 本函数是 M01 保存校验与 M09 发布期校验的**统一输入集**，把决策 66 的「单一实现」
+// 补完为「单一实现 + 同一输入集」。查询失败返回空集合（仅导致引用视为不存在）。
+func effectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string {
+	query := db.Model(&models.ScrapeJob{}).
+		Where("enabled = ? AND draft_status = ?", true, "ready")
+	if scope == models.ScopeTypeEdge || scope == models.ScopeTypeBoth {
+		if strings.TrimSpace(domainID) == "" {
+			return nil
+		}
+		query = query.Where("network_domain_id = ?", domainID)
+	}
 	var names []string
-	if err := db.Model(&models.ScrapeJob{}).
-		Where("enabled = ? AND draft_status = ?", true, "ready").
-		Pluck("job_name", &names).Error; err != nil {
+	if err := query.Pluck("job_name", &names).Error; err != nil {
 		return nil
 	}
 	return names
 }
 
 // ValidateRuleJobRefs 对 rule_content 执行 job 引用语义校验（决策 66），返回
-// error/warning 两级问题；YAML 解析失败返回 nil。M01 编辑期仅提示、不阻断保存。
-// 判定逻辑为单一实现（shared/jobref），与 M09 发布期校验同口径。
+// error/warning 两级问题；YAML 解析失败返回 nil。判定逻辑为单一实现（rule/jobref），
+// 与 M09 发布期校验同口径、同输入集（决策 67-4：central 规则按全域 job 并集）。
 func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue {
-	return jobref.Validate(content, activeScrapeJobNames(db))
+	return ValidateRuleJobRefsForScope(db, content, models.ScopeTypeCentral, "")
+}
+
+// ValidateRuleJobRefsForScope 同 ValidateRuleJobRefs，但显式指定规则 scope 与网域
+// （v0.2 逐域配置包校验用；MVP 恒 central + 空 domainID）。
+func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue {
+	return jobref.Validate(content, effectiveJobNames(db, scope, domainID))
+}
+
+// FindRuleJobRefErrors 返回 rule_content 中 severity=error 的 job 引用问题
+// （决策 67-2 提交门禁的判定入口）。
+func FindRuleJobRefErrors(db *gorm.DB, content string) []jobref.Issue {
+	var errs []jobref.Issue
+	for _, it := range ValidateRuleJobRefs(db, content) {
+		if it.Severity == jobref.SeverityError {
+			errs = append(errs, it)
+		}
+	}
+	return errs
+}
+
+// ErrJobRefUnresolved 标记「存在 error 级 job 引用且用户未显式确认」的提交门禁拒绝
+// （决策 67-2）。HTTP 层据此返回 errorType=job_ref_unresolved，与普通 bad_request 区分。
+var ErrJobRefUnresolved = errors.New("规则存在未确认的 job 引用错误")
+
+// checkRuleJobRefGate 执行决策 67-2 的 M01 提交门禁：存在 error 级（存活类缺 job）
+// job 引用且未显式确认（ack=false）时返回包装 ErrJobRefUnresolved 的错误；
+// warning 级与 ack=true（逃生门）不阻断。
+//
+// 这是后端兜底（防绕过前端门禁）；前端门禁负责即时提示与逃生门勾选，两者共用
+// 同一判定实现（FindRuleJobRefErrors → jobref.Validate）。
+func checkRuleJobRefGate(db *gorm.DB, content string, ack bool) error {
+	if ack {
+		return nil
+	}
+	errs := FindRuleJobRefErrors(db, content)
+	if len(errs) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(errs))
+	refs := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if _, dup := seen[e.ReferencedJob]; dup {
+			continue
+		}
+		seen[e.ReferencedJob] = struct{}{}
+		refs = append(refs, e.ReferencedJob)
+	}
+	return fmt.Errorf(
+		"%w：存在 %d 条存活类规则的 job 引用错误（引用了不存在的 job：%s）；请先创建对应采集 Job 或修正规则；如确认「先挂规则，稍后补建 Job」，请勾选「已知晓」后重新提交",
+		ErrJobRefUnresolved, len(errs), strings.Join(refs, "、"))
 }

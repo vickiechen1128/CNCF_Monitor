@@ -1,11 +1,13 @@
-// Package jobref 提供「规则 job 引用」的单一判定实现（决策 66）。
+// Package jobref 提供「规则 job 引用」的单一判定实现（决策 66，门禁口径经决策 67-2 修订）。
 //
 // 目标：解析规则 PromQL 中的 job="..." / job=~"..." matcher，与当前生效的
 // 采集 Job 比对，输出 error / warning 两级问题：
 //   - 存活类规则（expr 含 up，如 up{job="x"} / absent(up{job=~"x"})）引用不存在的
 //     job = error；其余规则引用不存在 job = warning；
-//   - M01 编辑期：error/warning 均行内提示、不阻断保存（兼容「先挂规则、后建 Job」）；
-//   - M09 发布期：error 阻断确认发布；warning 允许确认但高亮提示。
+//   - M01 编辑期（决策 67-2 修订）：error **默认阻断**「提交生效」/「保存变更」，
+//     用户可经逃生门（ack_job_ref_errors=true）显式覆盖后放行并降级为 warning 留痕；
+//     warning 维持只提示；
+//   - M09 发布期：error 阻断确认发布；warning 允许确认但高亮提示（不变）。
 //
 // 该判定为单一实现，被两处复用（M01 validate-yaml 预检 + M09 ConfigDraft 校验），
 // 避免口径漂移。包级依赖仅 yaml.v3 + regexp，不引 gorm，避免在 M09 configcenter
@@ -40,6 +42,10 @@ type Issue struct {
 	Type          string   `json:"type"`           // literal 精确 / regex 正则
 	Severity      Severity `json:"severity"`       // error / warning
 	Message       string   `json:"message"`
+	// NetworkDomainID / NetworkDomainName 为 v0.2 多域预留（决策 67-4）：MVP 单域下恒为空，
+	// 前端留空不渲染。多域落地后由 scope 感知的名单函数按域回填，用于逐域问题定位。
+	NetworkDomainID   string `json:"network_domain_id,omitempty"`
+	NetworkDomainName string `json:"network_domain_name,omitempty"`
 }
 
 var (
@@ -111,7 +117,11 @@ func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issu
 			continue
 		}
 		seen[op+":"+ref] = struct{}{}
-		if jobExists(jobs, op, ref) {
+		hit, determinable := jobExists(jobs, op, ref)
+		if !determinable {
+			continue // 非法正则无法判定，跳过不误报（否则会在决策 67-2 下误阻断保存）
+		}
+		if hit {
 			continue
 		}
 		jtype := "literal"
@@ -119,12 +129,15 @@ func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issu
 			jtype = "regex"
 		}
 		sev := SeverityWarning
+		msg := fmt.Sprintf(
+			"规则 %q 的查询表达式引用的 job %q 不存在；建议先创建对应采集 Job（仅提示，不阻断提交）",
+			name, ref)
 		if liveness {
 			sev = SeverityError
+			msg = fmt.Sprintf(
+				"规则 %q 的查询表达式引用的 job %q 不存在；存活类规则缺 job 会导致告警恒触发，提交将被阻断（如确认「先挂规则、后建 Job」，可勾选逃生门后放行，但 M09 发布确认前仍会阻断）",
+				name, ref)
 		}
-		msg := fmt.Sprintf(
-			"规则 %q 的查询表达式引用的 job %q 不存在；建议先创建对应采集 Job（job 引用不影响保存，error 级将在 M09 发布确认前被阻断）",
-			name, ref)
 		out = append(out, Issue{
 			Group: group, RuleName: name, Matcher: m[0], ReferencedJob: ref,
 			Expr: rule.Expr, Type: jtype, Severity: sev, Message: msg,
@@ -134,19 +147,20 @@ func validateRule(group string, rule ruleEntry, jobs map[string]struct{}) []Issu
 }
 
 // jobExists 判断 op（= 精确 / =~ 正则）下的引用 ref 是否命中任一 job 名。
-func jobExists(jobs map[string]struct{}, op, ref string) bool {
+// determinable=false 表示该引用无法判定（正则无法编译），调用方应跳过、不误报。
+func jobExists(jobs map[string]struct{}, op, ref string) (hit bool, determinable bool) {
 	if op == "=" {
-		_, ok := jobs[ref]
-		return ok
+		_, hit = jobs[ref]
+		return hit, true
 	}
 	re, err := regexp.Compile(ref)
 	if err != nil {
-		return false // 非法正则无法判定，跳过不误报
+		return false, false // 非法正则无法判定，跳过不误报
 	}
 	for name := range jobs {
 		if re.MatchString(name) {
-			return true
+			return true, true
 		}
 	}
-	return false
+	return false, true
 }
