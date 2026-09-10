@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -248,6 +249,103 @@ func TestValidateYAMLEndpoint(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &badResp))
 	assert.False(t, badResp.Data.Valid)
 	assert.NotEmpty(t, badResp.Data.Error)
+}
+
+// TestValidateYamlJobRef 覆盖决策 66：validate-yaml 在 YAML 语法通过后追加 job 引用
+// 语义校验。生效（enabled+ready）Job 命中 → 无问题；缺失 job → error（up 存活类）/
+// warning（非存活类）；但 valid 恒为 true（M01 编辑期不阻断保存）。
+func TestValidateYamlJobRef(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	db, err := gorm.Open(sqlite.Open("file:jobref?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.MonitoringRule{}))
+	RegisterRoutes(r.Group("/api/v2/platform"), db)
+
+	job := &models.ScrapeJob{
+		JobName: "ceshi", JobType: models.JobTypeStandard,
+		ResourceType: models.ResourceTypeHost, NetworkDomainID: "d1",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+		Scheme: "http", AuthType: models.AuthTypeNone,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusDeployed, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	content := `
+groups:
+- name: g
+  rules:
+  - alert: HostDown
+    expr: absent(up{job="miss"})
+  - alert: HighCPU
+    expr: node_cpu_usage{job="mysql"} > 0.9
+  - alert: OK
+    expr: up{job="ceshi"}
+`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules/1/validate-yaml",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(content)))
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Valid  bool           `json:"valid"`
+			JobRef []jobref.Issue `json:"job_ref"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Valid, "job 引用不阻断 valid（编辑期仅提示）")
+	require.Len(t, out.Data.JobRef, 2, "仅两条缺失 job 的问题：HostDown error、HighCPU warning")
+	sev := map[string]bool{}
+	for _, it := range out.Data.JobRef {
+		sev[string(it.Severity)] = true
+	}
+	assert.True(t, sev[string(jobref.SeverityError)], "absent(up) 缺失 job → error")
+	assert.True(t, sev[string(jobref.SeverityWarning)], "非存活类缺失 job → warning")
+}
+
+// TestValidateYamlJobRefAllExisting 覆盖决策 66：引用的 job 全部生效 → job_ref 为空。
+func TestValidateYamlJobRefAllExisting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	db, err := gorm.Open(sqlite.Open("file:jobref_ok?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.MonitoringRule{}))
+	RegisterRoutes(r.Group("/api/v2/platform"), db)
+	job := &models.ScrapeJob{
+		JobName: "ceshi", JobType: models.JobTypeStandard,
+		ResourceType: models.ResourceTypeHost, NetworkDomainID: "d1",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+		Scheme: "http", AuthType: models.AuthTypeNone,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusDeployed, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules/1/validate-yaml",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(fixtureForJobRef("ceshi"))))
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Valid  bool           `json:"valid"`
+			JobRef []jobref.Issue `json:"job_ref"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Valid)
+	assert.Len(t, out.Data.JobRef, 0, "引用的 job 存在 → 无 job 引用问题")
+}
+
+// fixtureForJobRef 返回引用指定 job_name 的合法规则 YAML。
+func fixtureForJobRef(jobName string) string {
+	return fmt.Sprintf(`
+groups:
+- name: g
+  rules:
+  - alert: OK
+    expr: up{%s} != 0
+  - alert: Cpu
+    expr: node_cpu_usage{%s} > 0.9
+`, fmt.Sprintf("job=%q", jobName), fmt.Sprintf("job=%q", jobName))
 }
 // TestExtractGroupNames 覆盖 group 名提取：空 name、文件内重名均报错。
 func TestExtractGroupNames(t *testing.T) {

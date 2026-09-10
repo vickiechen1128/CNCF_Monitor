@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
 	"gorm.io/gorm"
 )
 
@@ -111,7 +112,9 @@ type ValidateRuleYAMLRequest struct {
 }
 
 // ValidateRuleYAML 是 POST /api/v2/platform/monitoring-rules/:id/validate-yaml 的
-// handler：body {rule_content}，返回 `{valid, error?}`（不做持久化）。
+// handler：body {rule_content}，返回 `{valid, error?, job_ref?}`（不做持久化）。
+// YAML 语法错误 → valid=false+error；语法通过后追加 job 引用语义校验（决策 66）：
+// error/warning 均不改写 valid（M01 编辑期不阻断），仅在 job_ref 数组返回供前端提示。
 func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ValidateRuleYAMLRequest
@@ -120,9 +123,13 @@ func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if err := validateRuleYAML(req.RuleContent); err != nil {
-			response.OK(c, gin.H{"valid": false, "error": err.Error()})
+			response.OK(c, gin.H{"valid": false, "error": err.Error(), "job_ref": []jobref.Issue{}})
 			return
 		}
-		response.OK(c, gin.H{"valid": true})
+		issues := ValidateRuleJobRefs(db, req.RuleContent)
+		if issues == nil {
+			issues = []jobref.Issue{}
+		}
+		response.OK(c, gin.H{"valid": true, "job_ref": issues})
 	}
 }

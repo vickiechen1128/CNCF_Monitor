@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
@@ -99,4 +100,23 @@ func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) er
 		}
 	}
 	return nil
+}
+
+// activeScrapeJobNames 返回当前生效（enabled=true AND draft_status=ready）的采集 Job 名，
+// 用于规则 job 引用校验（决策 66）。查询失败返回空集合（不阻断，仅导致引用视为不存在）。
+func activeScrapeJobNames(db *gorm.DB) []string {
+	var names []string
+	if err := db.Model(&models.ScrapeJob{}).
+		Where("enabled = ? AND draft_status = ?", true, "ready").
+		Pluck("job_name", &names).Error; err != nil {
+		return nil
+	}
+	return names
+}
+
+// ValidateRuleJobRefs 对 rule_content 执行 job 引用语义校验（决策 66），返回
+// error/warning 两级问题；YAML 解析失败返回 nil。M01 编辑期仅提示、不阻断保存。
+// 判定逻辑为单一实现（shared/jobref），与 M09 发布期校验同口径。
+func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue {
+	return jobref.Validate(content, activeScrapeJobNames(db))
 }
