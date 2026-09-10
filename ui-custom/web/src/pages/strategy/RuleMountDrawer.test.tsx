@@ -45,10 +45,14 @@ describe('validateYamlClient', () => {
 describe('RuleMountDrawer', () => {
   setupAntdTest()
 
-  function renderDrawer() {
+  function renderDrawer(props?: { onCancel?: () => void; onSuccess?: () => void }) {
     render(
       <MemoryRouter>
-        <RuleMountDrawer open onCancel={() => {}} onSuccess={() => {}} />
+        <RuleMountDrawer
+          open
+          onCancel={props?.onCancel ?? (() => {})}
+          onSuccess={props?.onSuccess ?? (() => {})}
+        />
       </MemoryRouter>,
     )
   }
@@ -89,6 +93,101 @@ describe('RuleMountDrawer', () => {
     expect(createMock).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
+  })
+
+  // 决策 66：validate-yaml 返回 job 引用问题（error + warning）→ 抽屉行内提示，
+  // 但不阻断保存（保存仍成功、仍触发变更单生成）。
+  it('shows job-ref hints but does not block save (decision 66)', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
+    validateYamlMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        valid: true,
+        job_ref: [
+          {
+            group: 'g',
+            rule_name: 'HostDown',
+            expr: 'absent(up{job="miss"})',
+            referenced_job: 'miss',
+            severity: 'error',
+            message: '规则 "HostDown" 的查询表达式引用的 job "miss" 不存在',
+          },
+          {
+            group: 'g',
+            rule_name: 'HighCPU',
+            expr: 'node_cpu_usage{job="ghost"} > 0.9',
+            referenced_job: 'ghost',
+            severity: 'warning',
+            message: '规则 "HighCPU" 的查询表达式引用的 job "ghost" 不存在',
+          },
+        ],
+      },
+    })
+    renderDrawer()
+
+    await userEvent.type(
+      screen.getByTestId('rule-content'),
+      'groups:\n  - name: g\n    rules:\n      - alert: HostDown',
+    )
+    fireEvent.click(screen.getByText('提交生效'))
+
+    // 行内提示出现（error/warning 两色文案）
+    expect(await screen.findByText(/规则 job 引用提示/)).toBeInTheDocument()
+    expect(screen.getByText(/\[错误\]/)).toBeInTheDocument()
+    expect(screen.getByText(/\[告警\]/)).toBeInTheDocument()
+    // 提示不影响保存：仍调用 create
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    // 决策 66 回归：存在 job 引用提示时抽屉保持打开，不自动关闭（否则提示一闪而过）
+    expect(screen.getByText(/已保存，存在规则 job 引用提示/)).toBeInTheDocument()
+  })
+
+  // 决策 66 回归：job 引用提示下保存成功 → 不自动关闭抽屉（避免「红色提示一闪而过」）。
+  it('keeps drawer open on flagged save', async () => {
+    const onCancel = vi.fn()
+    const onSuccess = vi.fn()
+    createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
+    validateYamlMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        valid: true,
+        job_ref: [{ group: 'g', rule_name: 'Down', expr: 'absent(up{job="miss"})', referenced_job: 'miss', severity: 'error', message: 'j1' }],
+      },
+    })
+    renderDrawer({ onCancel, onSuccess })
+    await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: A')
+    fireEvent.click(screen.getByText('提交生效'))
+    expect(await screen.findByText(/已保存，存在规则 job 引用提示/)).toBeInTheDocument()
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  // 决策 66 回归：干净保存（无 job 引用问题）→ 自动关闭抽屉。
+  it('closes drawer on clean save', async () => {
+    const onCancel = vi.fn()
+    const onSuccess = vi.fn()
+    createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
+    validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true, job_ref: [] } })
+    renderDrawer({ onCancel, onSuccess })
+    await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: A')
+    fireEvent.click(screen.getByText('提交生效'))
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    await waitFor(() => expect(onCancel).toHaveBeenCalled())
+  })
+
+  // 决策 66：job 引用全部命中 → 不展示提示区，正常提交。
+  it('does not render job-ref hint when no issues', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
+    validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true, job_ref: [] } })
+    renderDrawer()
+
+    await userEvent.type(
+      screen.getByTestId('rule-content'),
+      'groups:\n  - name: g\n    rules:\n      - alert: A',
+    )
+    fireEvent.click(screen.getByText('提交生效'))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(screen.queryByText(/规则 job 引用提示/)).toBeNull()
   })
 
   it('F-04: submits valid YAML validated by backend validate-yaml in create mode', async () => {
@@ -183,8 +282,8 @@ describe('RuleMountDrawer', () => {
       monitor_type: 'mysql',
       rule_content: 'groups:\n  - name: g\n    rules:\n      - alert: A',
     })
-    // 编辑模式保持本地 YAML 预检，不调用后端 validate-yaml
-    expect(validateYamlMock).not.toHaveBeenCalled()
+    // 决策 66：编辑模式统一走后端 validate-yaml（含 job 引用校验），id 用编辑目标
+    expect(validateYamlMock).toHaveBeenCalledWith(1, 'groups:\n  - name: g\n    rules:\n      - alert: A')
     expect(createMock).not.toHaveBeenCalled()
   })
 

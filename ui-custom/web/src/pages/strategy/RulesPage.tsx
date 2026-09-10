@@ -402,9 +402,9 @@ export function RulesPage() {
           setEditingRule(null)
         }}
         onSuccess={() => {
-          setMountOpen(false)
-          setEditingRule(null)
           reload()
+          // 抽屉内部决定何时关闭：干净保存在保存分支直接 onCancel；
+          // 存在规则 job 引用提示（决策 66）时保持抽屉打开供阅读，用户手动关闭。
         }}
         editingRule={editingRule}
       />

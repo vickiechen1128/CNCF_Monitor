@@ -3,6 +3,7 @@ import { Alert, Button, Drawer, Form, Input, Select, Space, Typography, Upload, 
 import { InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { monitoringRuleApi } from '../../api/monitoringRules'
+import type { JobRefIssue } from '../../api/monitoringRules'
 import type { ResourceCategory } from '../../types/resource'
 import type { MonitorType, MonitoringRule } from '../../types/strategy'
 import { CATEGORY_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
@@ -48,6 +49,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
   const [form] = Form.useForm<MountFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [jobRefIssues, setJobRefIssues] = useState<JobRefIssue[]>([])
+  const [saveDone, setSaveDone] = useState(false)
   const isEdit = Boolean(editingRule)
 
   // 资源类别 → 监控对象类型两级级联（对齐 MappingDrawer/ScrapeJobFormDrawer F1-8）：
@@ -70,9 +73,10 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
     } else {
       form.resetFields()
     }
-    // 重置上次提交错误；仅在抽屉打开 / 编辑目标切换时初始化一次
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubmitError(null)
+    setJobRefIssues([])
+    setSaveDone(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingRule])
 
@@ -83,21 +87,19 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
     } catch {
       return
     }
-    // 提交前 YAML 预检：非法则以 Alert 提示并保持内容
-    // F-04：新建场景优先走后端 validate-yaml（服务端校验，id 为占位、仅读 body 的 rule_content）；
-    // 网络失败 / 接口异常时回落本地 validateYamlClient 并告警提示
-    let check: { valid: boolean; error?: string }
-    if (editingRule) {
+    // 提交前预检：新增与编辑统一走后端 validate-yaml（服务端校验，含决策 66 的
+    // job 引用语义校验 job_ref）；网络失败 / 接口异常时回落本地 validateYamlClient
+    //（仅 YAML 语法，无 job_ref）并告警提示
+    let check: { valid: boolean; error?: string; job_ref?: JobRefIssue[] | null }
+    try {
+      const res = await monitoringRuleApi.validateYaml(editingRule?.id ?? 0, values.rule_content)
+      check = res.data
+    } catch (err) {
+      console.warn('[RuleMountDrawer] 后端 validate-yaml 校验不可用，回落本地 YAML 校验：', err)
       check = validateYamlClient(values.rule_content)
-    } else {
-      try {
-        const res = await monitoringRuleApi.validateYaml(0, values.rule_content)
-        check = res.data
-      } catch (err) {
-        console.warn('[RuleMountDrawer] 后端 validate-yaml 校验不可用，回落本地 YAML 校验：', err)
-        check = validateYamlClient(values.rule_content)
-      }
     }
+    const jobRefs = check.job_ref ?? []
+    setJobRefIssues(jobRefs)
     if (!check.valid) {
       setSubmitError(check.error ?? 'YAML 校验未通过')
       return
@@ -126,7 +128,14 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
       }
       setSubmitting(false)
       onSuccess()
-      onCancel()
+      if (jobRefs.length === 0) {
+        // 干净保存：直接关抽屉
+        onCancel()
+      } else {
+        // 存在规则 job 引用提示（决策 66）：保持抽屉打开，避免「红色提示一闪而过」
+        // 无法阅读；用户读完提示后手动关闭，列表已由 onSuccess 刷新。
+        setSaveDone(true)
+      }
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : '保存失败，请稍后重试')
       setSubmitting(false)
@@ -163,6 +172,36 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           message="YAML 校验未通过"
           description={submitError}
           style={{ marginBottom: 16 }}
+        />
+      )}
+      {jobRefIssues.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message={saveDone ? '已保存，存在规则 job 引用提示（发布前请处理）' : '规则 job 引用提示'}
+          style={{ marginBottom: 16, borderColor: '#faad14' }}
+          description={
+            <div>
+              {jobRefIssues.map((it) => (
+                <div
+                  key={`${it.severity}-${it.referenced_job}-${it.rule_name}`}
+                  style={{
+                    color: it.severity === 'error' ? '#cf1322' : '#ad6800',
+                    marginBottom: 4,
+                    fontSize: 13,
+                  }}
+                >
+                  {it.severity === 'error' ? '[错误] ' : '[告警] '}
+                  {it.message}
+                </div>
+              ))}
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                {saveDone ? '本次已保存成功，可继续编辑或点击「取消」关闭；' : ''}
+                建议先创建对应采集 Job，再挂载规则（不强制）；job 引用不影响本次保存，error
+                类将在「配置变更确认」（M09）发布前被阻断，可前往规则编辑修改。
+              </Typography.Text>
+            </div>
+          }
         />
       )}
       <Form
