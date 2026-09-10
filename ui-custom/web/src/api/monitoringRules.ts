@@ -27,10 +27,28 @@ export interface MonitoringRuleInput {
   monitor_type?: string
 }
 
-/** validate-yaml 预检输出（§7：{valid, error?}） */
+/** validate-yaml 预检输出（§7：{valid, error?, job_ref?}） */
 export interface YamlValidationResult {
   valid: boolean
   error?: string
+  /** 决策 66：规则 job 引用语义校验问题（error/warning 均不阻断保存，M01 编辑期仅提示） */
+  job_ref?: JobRefIssue[] | null
+}
+
+/** 规则 job 引用问题的严重级（决策 66） */
+export type JobRefSeverity = 'error' | 'warning'
+
+/** 规则 job 引用校验的一条问题（对齐后端 platform/strategy/rule/jobref.Issue） */
+export interface JobRefIssue {
+  group: string
+  rule_name: string
+  expr: string
+  matcher: string
+  referenced_job: string
+  /** literal 精确 / regex 正则 */
+  type: 'literal' | 'regex'
+  severity: JobRefSeverity
+  message: string
 }
 
 /** 监控规则管理（CRUD + validate-yaml + 详情，§7） */
