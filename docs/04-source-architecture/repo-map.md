@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-10 17:26 · commit: `6f0cc358`
+> 生成时间: 2026-09-10 18:11 · commit: `efea4da5`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2525,6 +2525,7 @@
 - `func jsonString(s string) string`
 - `func TestListUpdateDeleteMonitoringRule(t *testing.T)`
 - `func TestValidateYAMLEndpoint(t *testing.T)`
+- `func TestValidateYamlGroupNameConflict(t *testing.T)`
 - `func TestValidateYamlJobRef(t *testing.T)`
 - `func TestValidateYamlJobRefAllExisting(t *testing.T)`
 - `func TestCreateMonitoringRuleJobRefGate(t *testing.T)`
@@ -2547,6 +2548,7 @@
 - `func UpdateMonitoringRule(db *gorm.DB) gin.HandlerFunc`
 - `func DeleteMonitoringRule(db *gorm.DB) gin.HandlerFunc`
 - `type ValidateRuleYAMLRequest struct`
+- `func ruleIDFromContext(raw string) uint`
 - `func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc`
 
 ### `platform/strategy/rule/validate.go`
@@ -2556,6 +2558,7 @@
 - `type groupNamesFile struct`
 - `func extractGroupNames(content string) ([]string, error)`
 - `func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) error`
+- `func validateGroupNamesForCheck(db *gorm.DB, content string, excludeID uint) error`
 - `func effectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
 - `func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue`
 - `func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue`
