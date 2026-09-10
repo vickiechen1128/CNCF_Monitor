@@ -25,13 +25,22 @@ export interface MonitoringRuleInput {
   name?: string
   enabled?: boolean
   monitor_type?: string
+  /**
+   * 决策 67-2 逃生门：存在 error 级 job 引用时默认拒绝提交；
+   * 置 true 表示用户已显式确认「先挂规则，稍后补建 Job」，放行落库留痕。
+   */
+  ack_job_ref_errors?: boolean
 }
 
 /** validate-yaml 预检输出（§7：{valid, error?, job_ref?}） */
 export interface YamlValidationResult {
   valid: boolean
   error?: string
-  /** 决策 66：规则 job 引用语义校验问题（error/warning 均不阻断保存，M01 编辑期仅提示） */
+  /**
+   * 决策 66：规则 job 引用语义校验问题。
+   * 决策 67-2：`valid` 仅反映 YAML 语法，job_ref 的 error 级**由提交侧阻断**
+   *（前端门禁 + 后端 ack_job_ref_errors 兜底），不再「不阻断保存」。
+   */
   job_ref?: JobRefIssue[] | null
 }
 
@@ -49,6 +58,9 @@ export interface JobRefIssue {
   type: 'literal' | 'regex'
   severity: JobRefSeverity
   message: string
+  /** v0.2 多域预留（决策 67-4）：MVP 单域恒为空，留空不渲染 */
+  network_domain_id?: string
+  network_domain_name?: string
 }
 
 /** 监控规则管理（CRUD + validate-yaml + 详情，§7） */
