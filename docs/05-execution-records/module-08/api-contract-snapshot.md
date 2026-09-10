@@ -13,8 +13,8 @@
 | Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）+ Track B+ 增量（v1.12 告警状态查看提前 MVP，强制 security-reviewer）                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-08（告警状态查看 MVP 增量：追加 §10；M08/M02 PRD 对齐 v1.12）                                                                                                                                                                                                                                             |
-| 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP）                                                                                                                                                                                                                                |
+| 版本    | v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
+| 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP；2026-09-10 决策 68-1 键名口径收敛）                                                                                                                                                                                                                                |
 | 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61 + 分轨判定记录 2026-09-08；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
 
 ## 1. 通用契约
@@ -205,8 +205,20 @@
 | `state` | enum | 状态 | `firing`（触发中）/ `pending`（待处理） |
 | `activeAt` | datetime | 激活时间 | 进入 pending 的时间 |
 | `value` | string | 当前值 | 告警表达式当前求值 |
-| `labels.network_domain` | string | 网域 | 缺失回落 `default` |
+| `labels.network_domain` | string | 网域 | 缺失回落 `default`；**由服务端回写**（见下方「网域取值口径」） |
 | `labels.instance` | string | 实例 | 告警实例 |
+
+> **网域取值口径（2026-09-10 缺陷修复 F-07；键名经决策 68-1 收敛）**：上游 Prometheus `GET /api/v1/alerts` 返回的是**规则求值标签**——Prometheus 仅在 remote write / federation / 发往 Alertmanager 时附加 `global.external_labels`，因此告警标签中通常**不含**网域键。代理若只做 `labels["network_domain"]` 读取，前端「网域」列对每一行都渲染 `-`（本次缺陷根因）。
+>
+> 服务端解析顺序（`models.ResolveNetworkDomain`，**唯一入口，双读为常驻过渡层**）：
+>
+> 1. `labels.network_domain`——**全平台唯一标签键口径**（M02 决策 4.4 注入标签 key 契约；M09 侧 `external_labels` 键名经**决策 68-1** 于 2026-09-10 由 `network_domain_id` 收敛为 `network_domain`，决策 19 的键名选择被 supersede），调用方已归一或显式注入时优先；
+> 2. `labels.network_domain_id`——**历史/兼容键**：覆盖 2026-09-10 之前生成的部署级 `external_labels` 以及边缘网域经 vmagent `remote_write` 回传的存量序列所携带的网域；因存量序列会长期存在，本分支**永久保留、不随收敛删除**；
+> 3. 兜底 `default`。
+>
+> 解析结果（含兜底值）**必须回写进响应 `labels.network_domain`**，语义与 `/api/v1/targets` 回写 `t["network_domain"]` 同构；否则前端无值可渲染。Query `network_domain` 过滤与授权收敛均以解析后的网域为准。
+>
+> **命名空间区分（不得混用）**：`network_domain_id` 仍是**对象 / API 字段**（`NetworkDomain.id`、`Resource.network_domain_id`、M09 管理面 Query 参数、`ConfigDraft` / `ConfigVersion` 字段），只是**不再是 Prometheus 标签键**。详见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md`。
 
 ### 10.2 M08 侧：Alertmanager 通知状态代理
 
@@ -222,6 +234,7 @@
 | 字段 | 类型 | UI 展示名 | 说明 |
 |------|------|-----------|------|
 | `labels` | map | — | 告警标签（`alertname` / `severity` / `network_domain` / `instance`，UI 展示名同 §10.1） |
+| `labels.network_domain` | string | 网域 | 缺失回落 `default`；**由服务端归一后回写**，解析顺序同 §10.1（`network_domain` → `network_domain_id` → `default`） |
 | `annotations` | map | — | 告警注解（`summary` / `description`） |
 | `starts_at` | datetime | 开始时间 | 告警进入 AM 时间 |
 | `ends_at` | datetime | 结束时间 | 告警预计结束时间 |
@@ -238,4 +251,6 @@
 - §1.3 授权利令的「读路径」条款自本节起有实际承载端点（此前仅静默写路径）。
 - 枚举字典（§6）追加：`notify_status` = `active` / `silenced` / `inhibited` / `unprocessed`；Prometheus `state` = `firing` / `pending`。
 - 来源：M08 PRD v1.12 §5.4/§9.1/§9.2；M02 PRD v1.12 §6.1/§11；决策 55/56/61。
+- **2026-09-10 修正（F-07，§10.1/§10.2 网域取值口径）**：`labels.network_domain` 明确为「服务端解析 + 回写」字段，解析顺序 `network_domain` → `network_domain_id` → `default`。字段名与响应形状不变（无破坏性变更），仅补齐此前缺失的实现约定；同口径同步至 `/api/v1/alerts/history`（字段为顶层 `network_domain`）与 `/api/v1/targets` 的既有回写语义。
+- **2026-09-10 收敛（决策 68-1，§10.1/§10.2 键名口径）**：M09 生成侧 `external_labels` 键名由 `network_domain_id` 收敛为 `network_domain`，§10.1/§10.2 的解析顺序**不变**，但第 2 项 `labels.network_domain_id` 定位由「写入侧当前键」修订为「**历史/兼容键（永久保留）**」；`network_domain` 明确为全平台唯一 Prometheus 标签键，`network_domain_id` 自此仅作对象 / API 字段。字段名与响应形状仍不变（无破坏性变更）。本决策同时补齐 M08 PRD §9.1/§9.2 的投递接线验收（Prometheus → AM `alerting.alertmanagers`，承载方 M09），见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md`。
 
