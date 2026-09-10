@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-10 16:14 · commit: `e1582e21`
+> 生成时间: 2026-09-10 16:52 · commit: `c00826ce`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -302,6 +302,8 @@
 - `func TestNotifyStatusPriority(t *testing.T)`
 - `func TestServiceListAuthorizedScopeFilter(t *testing.T)`
 - `func TestServiceListNetworkDomainUXFilter(t *testing.T)`
+- `func TestServiceListNetworkDomainWriteBack(t *testing.T)`
+- `func TestServiceListNetworkDomainFromExternalLabelKey(t *testing.T)`
 - `func TestServiceListAMUnreachable(t *testing.T)`
 - `func newAlertsRouter(svc *Service) *gin.Engine`
 - `type alertsResp struct`
@@ -2064,6 +2066,16 @@
 - `method (*NetworkDomain) AfterFind(tx *gorm.DB) error`
 - `method (NetworkDomain) TableName() string`
 
+### `platform/models/network_domain_label.go`
+
+- `func ResolveNetworkDomain(labels map[string]string) string`
+- `func EnsureNetworkDomain(labels map[string]string, domain string) map[string]string`
+
+### `platform/models/network_domain_label_test.go`
+
+- `func TestResolveNetworkDomain(t *testing.T)`
+- `func TestEnsureNetworkDomain(t *testing.T)`
+
 ### `platform/models/os_dict.go`
 
 - `type OSOption struct`
@@ -2216,6 +2228,7 @@
 - `func doHistory(t *testing.T, r *gin.Engine, query string) (int, map[string]interface{})`
 - `func TestAlertHistoryRebuildsIntervals(t *testing.T)`
 - `func TestAlertHistoryFilterByNetworkDomain(t *testing.T)`
+- `func TestAlertHistoryNetworkDomainFromExternalLabelKey(t *testing.T)`
 - `func TestAlertHistoryFilterByState(t *testing.T)`
 - `func TestAlertHistoryFilterByStateFiring(t *testing.T)`
 - `func TestAlertHistoryPagination(t *testing.T)`
@@ -2234,6 +2247,8 @@
 - `func TestAlertsPassthroughFields(t *testing.T)`
 - `func TestAlertsFilterNetworkDomain(t *testing.T)`
 - `func TestAlertsNetworkDomainFallbackDefault(t *testing.T)`
+- `func TestAlertsNetworkDomainWriteBack(t *testing.T)`
+- `func TestAlertsNetworkDomainFromExternalLabelKey(t *testing.T)`
 - `func TestAlertsEmptyNotNull(t *testing.T)`
 - `func TestAlertsUpstreamError(t *testing.T)`
 - `func TestAlertsInstanceDisplay(t *testing.T)`
