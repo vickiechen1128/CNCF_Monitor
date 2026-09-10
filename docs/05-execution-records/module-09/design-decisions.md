@@ -1573,3 +1573,31 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
   - 设计记录：新增 `docs/05-execution-records/module-09/network-domain-label-key-convergence-and-alerting-wiring.md`（含证据索引、v0.2 口径约定与代码落点；§9 由「遗留待决」升级为决策 68-5）。
 - **实现落点（本轮仅文档，代码在开发分支 / v0.2 执行）**：`platform/configcenter/generator/render.go`（`cfgFile` 增 `Alerting`、`Assemble` 增 `alertmanagerAddr` 入参 + 条件注入 + 仅中心开关）、`platform/configcenter/generator/generator.go:43`（标签键）、`platform/configcenter/draft/service.go:210`（传入 AM 地址 + 通道判定）、`scripts/package-center.sh`（如需新增 env 变量则复用既有 `AM_PORT` / `--alertmanager.url`）；**`platform/models/network_domain_label.go` 不动**（双读永久保留），**68-5 追加**：按同一模式增 `TenantLabelKey = "tenant"` 常量；**v0.2**：`platform/query/alerts.go` 注入侧引用 `TenantLabelKey`（禁止硬编码）+ fail-closed 严格派；`platform/models/label_template.go` `DefaultMappingBuilders` 增 `tenant_id → tenant`；`platform/configcenter/generator/` 生成期门禁（缺 `tenant` 映射 → `validation_status=failed`）。
 - **关联**：决策 19（`external_labels` 字段清单，**键名被本决策 68-1 supersede**、**「`tenant` 标签走 target 级」被 68-5 定版确认**；登记于 `module-06/2026-08-19-business-registration-and-domain-business-orthogonality.md` 结论 8）、M02 决策 4.4（注入标签 key 契约，**经本决策复核确认为最终口径**，68-5 追加租户键定版）、决策 55 / 56（告警状态归属与授权过滤）、决策 59 / 60（告警分发 MVP 闭环，本决策补其缺失的投递接线）、决策 61（AM v2 API 口径）、决策 64（`env/env.sh` 集中环境定义）、决策 66 / 67（规则 job 引用校验，本决策引用 67-4 教训与「生成期门禁同模式」）、F-07（M08 网域列缺陷修复）。
+
+---
+
+### 决策登记：2026-09-10（M01 规则挂载：独立「检查」与提交按钮状态机 + M08→M09 变更单深链——用户已确认）
+
+- **编号**：决策 69（子决策 **69-1** `validate-yaml` 并入组名全局唯一性 / **69-2** 提交按钮改为「检查通过后出现」的状态机 / **69-3** 错误与结果面板位置；另有跨模块项 **③ M08 操作列路由**，挂决策 60 作补充块、不新开编号）
+- **触发**：决策 67-2 已把「error 级 job 引用默认阻断 + 逃生门」落地为**提交期**行为，但用户复核现场动线后指出三处待决 UI 决策（① 规则挂载「本地检查」的检查范围；② 逃生门通过后是否直接解锁提交按钮；③ M08 操作列路由 2A/2B）。用户对逐条代码事实核实后拍板方案并给出关键定性：**①② 不是新功能，是在已有提交期流程上做交互重排**——逃生门已实现（`RuleMountDrawer.tsx:55-56,126,140,260-265`，含「内容变更后 ack 失效须重勾」防呆，`:281`），因此判定逻辑一律不动，只重排交互。
+- **核实结论**：
+  1. **`validate-yaml` 不是「提交校验的全量」**：`ValidateRuleYAML`（`update.go:129-146`）= YAML 语法 + `groups` 结构 + job 引用；**组名全局唯一性 `validateGroupNamesAvailable` 只在 create/update 调用**（`create.go:66` / `update.go:72`）。若「检查」直接复用现状，会出现「检查全绿 → 提交被 400 组名冲突打回」的最坏组合。
+  2. **前端本地兜底不构成检查能力**：`validateYamlClient`（`rulesYaml.ts:5-13`）只有一条 `/^\s*groups\s*:/m` 正则，连 YAML 语法都不真解析，且不返回 `job_ref`。
+  3. **M08 参照物是浅检，规则侧学不了**：`AlertConfigDrawer.tsx:156-200` 的「本地**大小**检查」只做非空 + 100KB，并通过绿色 Alert 显式声明免责边界（「提交后由服务端执行 amtool 等价校验」）。规则要承载 job 引用硬约束，必须是服务端口径的检查。
+  4. **A/B 二选一的矛盾不存在**：勾选框不提交任何东西、只参与「提交按钮是否出现」的计算，物理上仍是两次点击（检查 → 提交），A 的「勾选动作语义变重」风险不适用、B 的「知情与下令分离」完整保留。
+  5. **③ 的 2B 不推荐**：为跨页跳转重新引入 `change_status` 两态路由会触碰决策 60 冻结口径（M08 不驱动下发状态）；而 2A 纯维持现状又留下「pending 期页面内无入口」的断点（toast 数秒即消失）。折中方案证据扎实：`source_change_no` 列**已展示**（`AlertConfigPage.tsx:148-154`），渲染为链接属纯展示层增强；`?change_no=` 深链是既有约定（`ConfigPreviewPage.tsx:712` → `/deployments?change_no=...`；`DeploymentsPage.tsx:54`），不新增路由、不碰决策 60。
+- **结论（用户已确认，2026-09-10）**：
+  1. **69-1（P0，前置条件）`validate-yaml` 并入组名全局唯一性**：在 YAML 语法通过后、job 引用校验前追加，与提交侧**同实现、同输入集**——仅当目标规则生效（`enabled=true AND draft_status='ready'`）时校验，**停用规则不校验**（镜像 `update.go:71`，避免「检查红、提交能过」的反向不一致）；`:id` 为真实规则 ID 时**排除自身**，为 `0`（新建）时按默认启用处理。响应形状 `{valid, error?, job_ref?}` **不变**，但 **`valid` 语义由「仅反映 YAML 语法」扩展为「预检是否可提交」**：`valid=false` = 不可覆盖的硬失败（语法 / `groups` 结构 / 组名冲突）；`job_ref.severity=error` = 可经逃生门覆盖的阻断（不改写 `valid`）。由此门禁收敛为两根轴，前端状态机可由两个信号直接驱动。
+  2. **69-2（P0，交互重排）提交按钮按状态出现**：`canSubmit = 检查通过(valid=true) 且（无 error 级 job 引用 或 已勾选逃生门）`；「检查」按钮常驻，提交按钮**条件渲染而非 disabled**；新建与编辑统一文案「**提交并进入变更确认**」（原「提交生效」/「保存变更」）；**规则内容变更**时检查结论与 ack 一并作废、提交按钮重新隐藏（非内容字段变更不重置）；逃生门提前到检查阶段展示；`validate-yaml` 不可用时的本地兜底路径与后端 `job_ref_unresolved` 兜底路径保留。
+  3. **69-3（P1，布局）错误与结果面板下移**：面板从表单上方移到表单下方、操作按钮上方；三类面板互斥（检查未通过红 / 检查通过绿含「服务端复核」边界说明 / job 引用提示红=阻断黄=提示）。
+  4. **③（跨模块，挂决策 60 补充块）**：`AlertConfigPage` 的 `source_change_no` 渲染为跳转链接 → `/config-preview?change_no=xxx`；`ConfigPreviewPage` 支持该 query 参数，落地时自动展开对应变更单详情抽屉（消费后清除参数，避免刷新反复弹出）。不新增路由、不引入 `change_status` 依赖、不触碰决策 60 语义。
+  5. **明确不做**：不改后端判定逻辑（`checkRuleJobRefGate` / `ErrorTypeJobRefUnresolved` / `ack_job_ref_errors` 语义与触发条件一律不变）；不引入 v0.3「保存草稿」；不做字段化规则编辑与 PromQL 语义校验。
+- **影响范围**：
+  - Module_01 PRD：**待办**——v3.41 增量须把头部「⚠️ v3.40 待原型同步（67-2 逃生门）」**扩大为 67-2 + 69 一并同步**（独立「检查」按钮 + 提交按钮条件出现 + 面板下移 + 文案改为「提交并进入变更确认」）；按 PRD 冻结门禁须与原型同步同轮完成。
+  - Module_08 PRD：**待办**——§5 版本历史「M09 变更单」列由纯文本升级为跳转链接（展示层增强），随本轮或下一轮 PRD 增量登记。
+  - Module_09 PRD：不需要修改（`?change_no=` 深链为既有约定，`/deployments` 已用同模式）。
+  - 契约：`module-01/api-contract-snapshot.md` §7（`validate-yaml` 响应语义 + 组名唯一性注记 + 前端门禁交互口径）。
+  - 设计记录：新增 `docs/05-execution-records/module-01/rule-mount-local-check-and-escape-hatch.md`（含决策 67-2 边界对照表与证据索引）；`module-08/design-decisions.md` 决策 60 追加补充块。
+- **实现落点**：`platform/strategy/rule/validate.go`（新增 `validateGroupNamesForCheck`）、`platform/strategy/rule/update.go`（`ValidateRuleYAML` 插入组名校验）、`platform/strategy/rule/monitoring_rule_test.go`（新增用例）；前端 `ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx` + `.test.tsx`（检查按钮与状态机）、`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（`source_change_no` 链接）、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`（`?change_no=` 深链）+ 两页测试。
+- **关联**：决策 43（提交 ≠ 直接生效，故按钮文案改「提交并进入变更确认」）、决策 45-1 / 45-2（校验失败三态出口与 M01 引导）、决策 **59 / 60**（告警配置进 M09 变更确认与 M08 网域口径，③ 为其补充块）、决策 **66**（双层校验模型）、决策 **67-2**（提交分级门 + 逃生门，本决策在其上做交互重排、**判定逻辑不变**）、决策 67-3（「前往修改」按来源路由，同属跨模块动线补全）。
+

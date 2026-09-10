@@ -169,6 +169,21 @@
 - **影响范围**：Module_08 PRD v1.7（§1 范围说明、§3.1 功能表、§4 边界表新增下发行、§5.1 文件挂载契约、§6.6 版本留痕口径、§9.1/§9.2 验收）；Module_09 PRD v1.52（§1 草稿与预览、§3.3 生成配置行、§3.4 审批分级策略、§3.11 配置产物形态、§6.5 边缘流程、§9.2 验收）；Roadmap v2.1（§1.5 矩阵 M08/M09 MVP 列）。
 - **关联决策**：决策 59（文件挂载形态）、决策 49（Alertmanager 选型）、决策 38-1（M01 规则挂载同构）、决策 54（按域扇出——告警配置为例外）。
 
+### 决策 60 补充块：跨模块跳转（M08 变更单号 → M09 详情深链），2026-09-10（决策 69-③）
+
+> **定位**：决策 60 的**边界补充**，不新开编号、不修改决策 60 任何结论（尤其「M08 不驱动下发状态」的冻结口径）。
+
+- **触发**：决策 69 讨论 M08 操作列路由时确认——挂载/重新挂载成功后，**pending 期间页面内没有任何入口**能跳到刚生成的那张变更单：引导只存在于一个数秒后消失的 message toast（`AlertConfigPage.tsx:70,99` → `navigate(CONFIG_PREVIEW_PATH)`），用户要自己去 M09 列表里翻。
+- **排除的方案（2B）**：按 `change_status` 在操作列/状态列做**两态路由**（`pending` → 「前往配置确认」）。**不采纳**——它要求 `AlertConfigPage` 重新引入 `change_status` 依赖，直接触碰决策 60 的冻结口径（下发状态以 M09 为准、M08 不驱动）；且 M09 侧只有 `/config-preview` 一个路由（`App.tsx:94`），「跳到具体那一单」仍需新增 query/子路由，改动面远大于收益。
+- **结论（决策 69-③）**：
+  1. **列表侧**：`AlertConfigPage` 版本历史「M09 变更单」列的 `source_change_no` 由纯 `<Text code>` 渲染为**跳转链接** → `/config-preview?change_no=xxx`（`AlertConfigPage.tsx:148-154`）。该字段**已存在且已展示**，属**纯展示层增强**：不新增状态依赖、不新增路由、不触碰决策 60 语义。
+  2. **落地侧**：`ConfigPreviewPage` 支持 `?change_no=` query 参数，挂载后自动调用既有的 `openDetail` 拉取并展开该变更单详情抽屉（`ConfigPreviewPage.tsx:144-168` 已有实现），**消费后立即清除参数**（`replace`），避免关闭抽屉或刷新时反复自动弹出。
+  3. **约定复用**：`?change_no=` 是既有深链约定——`ConfigPreviewPage.tsx:712` 已用 `/deployments?change_no=...&network_domain=...` 跳转，`DeploymentsPage.tsx:54` 已把该约定写入注释。本次是**同一约定的反向使用**（M09 → M08 方向已有，本次补 M08 → M09 方向）。
+  4. **「新增配置」场景同等覆盖**：挂载成功即生成变更单，`source_change_no` 随即有值，无需另设入口。
+- **影响范围**：Module_08 PRD **待办**——§5 版本历史「M09 变更单」列表述由文本升级为链接（可随下一轮 PRD 增量登记）；Module_09 PRD 不修改（深链为既有约定）。
+- **实现落点**：`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（`source_change_no` 列 → `Link`）、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`（`useSearchParams` 消费 `change_no`）+ 两页测试。
+- **关联决策**：决策 60（本补充块的母决策，结论不变）、决策 69（①② 属 M01 规则挂载交互重排，③ 为本补充块）、决策 59（文件挂载形态）、决策 45 系列（校验失败三态出口——本次仅补「正向动线」的入口，不改失败态动线）。
+
 ---
 
 ## 评审记录：2026-08-31（M08 PRD v1.7 两段评审 → ready 回归）
