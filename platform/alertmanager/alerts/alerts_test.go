@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 // fakeAMAlerts 是一个可脚本化的 Alertmanager /api/v2/alerts 桩服务。
@@ -76,7 +79,7 @@ func newTestService(t *testing.T, f *fakeAMAlerts) *Service {
 	t.Helper()
 	proxy, err := NewProxy(startFakeAMAlerts(t, f))
 	require.NoError(t, err)
-	return NewService(proxy)
+	return NewService(proxy, nil)
 }
 
 // --- Proxy 基础 ---
@@ -255,7 +258,7 @@ func TestServiceListNetworkDomainFromExternalLabelKey(t *testing.T) {
 func TestServiceListAMUnreachable(t *testing.T) {
 	proxy, err := NewProxy("http://127.0.0.1:1")
 	require.NoError(t, err)
-	svc := NewService(proxy)
+	svc := NewService(proxy, nil)
 	_, err = svc.List(context.Background(), nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "alerts")
@@ -364,8 +367,97 @@ func TestListEndpointAMError(t *testing.T) {
 	// AM 不可达（连接拒绝）。
 	proxy, err := NewProxy("http://127.0.0.1:1")
 	require.NoError(t, err)
-	r2 := newAlertsRouter(NewService(proxy))
+	r2 := newAlertsRouter(NewService(proxy, nil))
 	code2, out2 := doListAlerts(t, r2, "")
 	assert.Equal(t, http.StatusInternalServerError, code2)
 	assert.Equal(t, "internal", out2.ErrorType)
+}
+
+// --- 实例字段回连（M08 v1.15 决策 70） ---
+
+var amAlertsDBCounter int64
+
+// openAlertsIdentityDB 打开逐测试独享的内存 SQLite 并迁移五类资源表（回连 M01 用）。
+func openAlertsIdentityDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	dsn := fmt.Sprintf("file:am_alerts_%d?mode=memory&cache=shared", atomic.AddInt64(&amAlertsDBCounter, 1))
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{},
+		&models.Database{},
+		&models.Middleware{},
+		&models.Application{},
+		&models.GenericTarget{},
+	))
+	return db
+}
+
+// TestServiceListInstanceFieldsResolvedFromM01 覆盖 M08 v1.15 决策 70：AM 通知状态链路
+// 同样按 labels.resource_id 只读回连 M01 五类资源表回填实例名；instance_address 恒为
+// 采集地址（instance 标签），instance_display 兼容字段优先取可读实例名。
+func TestServiceListInstanceFieldsResolvedFromM01(t *testing.T) {
+	db := openAlertsIdentityDB(t)
+	require.NoError(t, db.Create(&models.Host{
+		ResourceID:       "res-1",
+		ServerID:         "res-1",
+		ResourceCategory: models.ResourceCategoryHost,
+		NetworkDomainID:  "default",
+		BizCode:          "infra",
+		SourceType:       models.SourceTypeManual,
+		InstanceName:     "ceshi",
+		Status:           "online",
+		Region:           "cn",
+		ZoneEnv:          "dev",
+		InstanceSpec:     "2c4g",
+		Image:            "linux",
+		VPC:              "vpc-1",
+		SecurityGroup:    "sg-1",
+		PrivateIP:        "1.15.94.116",
+	}).Error)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	f := &fakeAMAlerts{payload: []amAlert{{
+		Labels: map[string]string{
+			"alertname":   "HighCPU",
+			"instance":    "1.15.94.116:9100",
+			"resource_id": "res-1",
+		},
+		Annotations: map[string]string{"summary": "cpu high"},
+		StartsAt:    now.Add(-time.Hour),
+		EndsAt:      now.Add(time.Hour),
+		Status:      amAlertStatus{State: "active"},
+	}}}
+	proxy, err := NewProxy(startFakeAMAlerts(t, f))
+	require.NoError(t, err)
+	svc := NewService(proxy, db)
+
+	items, err := svc.List(context.Background(), nil, "")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+
+	got := items[0]
+	assert.Equal(t, "1.15.94.116:9100", got.InstanceAddress)
+	assert.Equal(t, "ceshi", got.ResourceName)
+	assert.Equal(t, "ceshi", got.InstanceDisplay)
+	assert.Equal(t, "res-1", got.ResourceID)
+	assert.Equal(t, "host", got.ResourceCategory)
+	assert.Equal(t, "1.15.94.116", got.ResourceIP)
+	assert.Equal(t, 0, got.ResourcePort)
+	assert.Equal(t, "default", got.Labels["network_domain"], "网域回写不受实例字段影响")
+}
+
+// TestServiceListInstanceFieldsWithoutResourceID 覆盖无 resource_id 的例外路径
+// （拨测 Job 的 target 组无标签）：实例名为空、采集地址保留原值。
+func TestServiceListInstanceFieldsWithoutResourceID(t *testing.T) {
+	f := &fakeAMAlerts{payload: amFixture()}
+	svc := newTestService(t, f)
+
+	items, err := svc.List(context.Background(), nil, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, items)
+
+	assert.Equal(t, "10.0.0.1:9100", items[0].InstanceAddress)
+	assert.Empty(t, items[0].ResourceName, "无 resource_id 时实例名为空（前端显示 -）")
+	assert.Equal(t, "10.0.0.1:9100", items[0].InstanceDisplay, "兼容字段回落为地址")
 }

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/query"
+	"gorm.io/gorm"
 )
 
 // 通知状态四态枚举（契约快照 §10.2 / §6：服务端归一，AM 原始 suppressed 不外露）。
@@ -36,16 +38,23 @@ type AlertItem struct {
 	EndsAt       time.Time         `json:"ends_at"`
 	Status       AlertStatus       `json:"status"`
 	NotifyStatus string            `json:"notify_status"`
+	// InstanceFields 是实例展示字段组（M08 v1.15 决策 70，与 M02 告警代理同构、平铺）：
+	// 采集地址 + 按 labels.resource_id 回连 M01 得到的实例名 / 类别 / IP / 端口。
+	// 复用 M02 查询包的回连解析器（只读、批量、禁 N+1），语义见契约快照 §10.2。
+	query.InstanceFields
 }
 
-// Service 编排通知状态读取：拉取 AM 告警 → 决策 56 授权过滤 → UX 筛选 → 四态映射。
+// Service 编排通知状态读取：拉取 AM 告警 → 决策 56 授权过滤 → UX 筛选 → 四态映射
+// → 实例字段回连回填（决策 70）。
 type Service struct {
 	proxy *Proxy
+	db    *gorm.DB
 }
 
-// NewService 创建通知状态服务，绑定 Alertmanager 代理。
-func NewService(proxy *Proxy) *Service {
-	return &Service{proxy: proxy}
+// NewService 创建通知状态服务，绑定 Alertmanager 代理与平台 DB（db 用于按
+// resource_id 只读回连 M01 资源表；传 nil 时实例字段自动退化为标签回落）。
+func NewService(proxy *Proxy, db *gorm.DB) *Service {
+	return &Service{proxy: proxy, db: db}
 }
 
 // List 拉取并映射 Alertmanager 告警列表（契约 §10.2）：
@@ -54,7 +63,9 @@ func NewService(proxy *Proxy) *Service {
 //     收敛；AllDomains / nil（MVP 单租户）恒通过、不附加；
 //  2. networkDomain 为前端 UX 筛选透传（在授权过滤之后本地过滤，不构成权限依据）；
 //  3. 网域解析统一走 models.ResolveNetworkDomain（network_domain → network_domain_id
-//     → default），并把结果回写进 labels.network_domain 供前端展示（契约 §10.2）。
+//     → default），并把结果回写进 labels.network_domain 供前端展示（契约 §10.2）；
+//  4. 决策 70：按 labels.resource_id 一次性批量回连 M01 五类资源表（每类表一条 IN
+//     查询，禁 N+1），回填实例名字段；回连失败降级为空 map，字段走标签回落链。
 //
 // 空结果返回空切片（[] 而非 null）。
 func (s *Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope, networkDomain string) ([]AlertItem, error) {
@@ -62,6 +73,14 @@ func (s *Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope
 	if err != nil {
 		return nil, err
 	}
+
+	// 决策 70：批量回连 M01（在授权过滤之前收集，避免过滤分支漏掉 ids 收集逻辑）。
+	ids := make([]string, 0, len(list))
+	for i := range list {
+		ids = append(ids, list[i].Labels["resource_id"])
+	}
+	identities := query.ResolveResourceIdentitiesSafe(s.db, ids)
+
 	out := make([]AlertItem, 0, len(list))
 	for _, am := range list {
 		domain := models.ResolveNetworkDomain(am.Labels)
@@ -77,7 +96,7 @@ func (s *Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope
 		// （M09 决策 19）；此处统一归一为消费侧 network_domain 并补齐回落值，
 		// 避免前端「网域」列恒为空。
 		am.Labels = models.EnsureNetworkDomain(am.Labels, domain)
-		out = append(out, toAlertItem(am))
+		out = append(out, toAlertItem(am, identities))
 	}
 	return out, nil
 }
@@ -96,8 +115,9 @@ func domainInScope(scope *models.AuthorizedMatcherScope, domain string) bool {
 	return false
 }
 
-// toAlertItem 将 Alertmanager 原生载体映射为契约视图（含 notify_status 归一）。
-func toAlertItem(am amAlert) AlertItem {
+// toAlertItem 将 Alertmanager 原生载体映射为契约视图（含 notify_status 归一 +
+// 实例字段回连回填，决策 70）。
+func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) AlertItem {
 	return AlertItem{
 		Labels:      am.Labels,
 		Annotations: am.Annotations,
@@ -108,7 +128,8 @@ func toAlertItem(am amAlert) AlertItem {
 			SilencedBy:  am.Status.SilencedBy,
 			InhibitedBy: am.Status.InhibitedBy,
 		},
-		NotifyStatus: normalizeNotifyStatus(am.Status),
+		NotifyStatus:   normalizeNotifyStatus(am.Status),
+		InstanceFields: query.InstanceFieldsOf(am.Labels, identities),
 	}
 }
 

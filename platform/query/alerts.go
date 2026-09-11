@@ -5,6 +5,8 @@
 // 网域解析统一走 models.ResolveNetworkDomain（network_domain → network_domain_id
 // → default），并把结果回写进响应 labels.network_domain，供前端「网域」列展示；
 // 租户/网域注入骨架 MVP 恒通过、机制保留（Module_02 §11.2#5）；
+// 按告警标签 resource_id 批量回连 M01 五类资源表，回填「实例名」等展示字段
+// （M08 v1.15 决策 70，见 resource_identity.go）；
 // 不代理 Alertmanager 通知状态（Module_02 §11.2#14 边界，归 M08 /api/v2/platform/alertmanager/alerts）。
 // 参见 docs/05-execution-records/module-08/api-contract-snapshot.md §10.1。
 package query
@@ -21,6 +23,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"gorm.io/gorm"
 )
 
 // Prometheus 告警实例状态枚举（契约快照 §10.1 / §6）。
@@ -37,19 +40,22 @@ type promAlert struct {
 	State       string            `json:"state"`
 	ActiveAt    time.Time         `json:"activeAt"`
 	Value       string            `json:"value"`
-	// InstanceDisplay 是面向 UI 的实例展示字段：依次尝试 instance/instance_ip/hostname/
-	// nodename/device 标签，均缺失时返回空串（前端据此显示「全局/聚合」）。
-	InstanceDisplay string `json:"instance_display"`
+	// InstanceFields 是实例展示字段组（v1.15 决策 70）：采集地址 + 回连 M01 得到的
+	// 实例名 / 类别 / IP / 端口。匿名字段在 JSON 中平铺（instance_address /
+	// instance_display / resource_id / resource_name / resource_category /
+	// resource_ip / resource_port），语义见契约快照 §10.1。
+	InstanceFields
 }
 
 // AlertsHandler 是 GET /api/v1/alerts 的 handler：
 //  1. 透传调用上游 Prometheus GET /api/v1/alerts；
 //  2. network_domain Query 可选：服务端按 labels.network_domain 本地过滤（缺失回落 default）；
 //  3. 租户/网域注入骨架（alertDomainAllowed）：MVP 单租户恒通过，机制保留；
-//  4. 上游不可达 / 非 success → internal 可观测错误；空结果返回 [] 而非 null。
+//  4. 按告警标签 resource_id 批量回连 M01 五类资源表（v1.15 决策 70），回填实例名字段；
+//  5. 上游不可达 / 非 success → internal 可观测错误；空结果返回 [] 而非 null。
 //
 // 响应 envelope 为控制面统一响应：{status, data:{alerts: [...]}}（契约快照 §10.1）。
-func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
+func AlertsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		netDomain := c.Query("network_domain")
 
@@ -58,6 +64,14 @@ func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
 			response.InternalServerError(c, err)
 			return
 		}
+
+		// 决策 70：一次性收集 resource_id 批量回连 M01（每类表一条 IN 查询，禁 N+1）。
+		// 回连失败降级为空 map，实例字段走标签回落链，不阻塞告警主链路。
+		ids := make([]string, 0, len(alerts))
+		for i := range alerts {
+			ids = append(ids, alerts[i].Labels["resource_id"])
+		}
+		identities := ResolveResourceIdentitiesSafe(db, ids)
 
 		out := make([]promAlert, 0, len(alerts))
 		for _, a := range alerts {
@@ -77,7 +91,7 @@ func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
 			// 「解析 + 回落 default」的结果回写进响应，否则前端「网域」列恒为空。
 			// 与 targets.go 回写 t["network_domain"] 的代理语义同构。
 			a.Labels = models.EnsureNetworkDomain(a.Labels, domain)
-			a.InstanceDisplay = instanceDisplayOf(a.Labels)
+			a.InstanceFields = InstanceFieldsOf(a.Labels, identities)
 			out = append(out, a)
 		}
 
@@ -143,16 +157,4 @@ func alertDomainAllowed(authorized []string, domain string) bool {
 		}
 	}
 	return false
-}
-
-// instanceDisplayOf 从告警标签中提取面向 UI 的实例展示值。
-// 聚合告警（如 HostTargetsMissing）无 instance 标签，返回空串由前端展示为「全局/聚合」。
-func instanceDisplayOf(labels map[string]string) string {
-	keys := []string{"instance", "instance_ip", "hostname", "nodename", "device"}
-	for _, k := range keys {
-		if v := labels[k]; v != "" {
-			return v
-		}
-	}
-	return ""
 }

@@ -58,12 +58,13 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error 
 	adminSil.DELETE("/:silence_id", silence.DeleteHandler(silSvc))
 
 	// M08 告警状态查看（T08-07，契约 §10.2）：代理 Alertmanager GET /api/v2/alerts，
-	// notify_status 四态归一 + 决策 56 读路径授权过滤骨架。只读端点保留在根组
+	// notify_status 四态归一 + 决策 56 读路径授权过滤骨架；db 用于按 resource_id
+	// 批量只读回连 M01 五类资源表回填实例名字段（v1.15 决策 70）。只读端点保留在根组
 	// （仅全局认证，同静默列表挂法）。
 	alertsProxy, err := alerts.NewProxy(amURL)
 	if err != nil {
 		return fmt.Errorf("init alertmanager alerts proxy: %w", err)
 	}
-	am.GET("/alerts", alerts.ListHandler(alerts.NewService(alertsProxy)))
+	am.GET("/alerts", alerts.ListHandler(alerts.NewService(alertsProxy, db)))
 	return nil
 }

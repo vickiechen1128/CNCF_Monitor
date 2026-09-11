@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // promAlertsFixture 为 /api/v1/alerts 提供预置上游响应（Prometheus 信封）。三条告警：
@@ -73,15 +74,21 @@ type alertsResp struct {
 }
 
 // newAlertsRouter 以指定上游处理器挂载 AlertsHandler。
-func newAlertsRouter(t *testing.T, upstream http.Handler) *gin.Engine {
+// dbs 可选：传入非 nil 时用于按 resource_id 回连 M01 的实例字段测试（决策 70）；
+// 不传表示只测试代理透传与网域链路（回连自动降级为空结果）。
+func newAlertsRouter(t *testing.T, upstream http.Handler, dbs ...*gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	var db *gorm.DB
+	if len(dbs) > 0 {
+		db = dbs[0]
+	}
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 	r := gin.New()
-	r.GET("/api/v1/alerts", AlertsHandler(u, http.DefaultClient))
+	r.GET("/api/v1/alerts", AlertsHandler(db, u, http.DefaultClient))
 	return r
 }
 
@@ -259,14 +266,15 @@ func TestAlertsUpstreamError(t *testing.T) {
 	u, err := url.Parse("http://127.0.0.1:1")
 	require.NoError(t, err)
 	r3 := gin.New()
-	r3.GET("/api/v1/alerts", AlertsHandler(u, &http.Client{Timeout: time.Second}))
+	r3.GET("/api/v1/alerts", AlertsHandler(nil, u, &http.Client{Timeout: time.Second}))
 	code3, out3 := doAlerts(t, r3, "")
 	assert.Equal(t, http.StatusInternalServerError, code3)
 	assert.Equal(t, "internal", out3.ErrorType)
 }
 
-// TestAlertsInstanceDisplay 覆盖 instance_display 聚合字段：有 instance 标签时透传，
-// 无 instance 标签时按 instance_ip/hostname/nodename/device 依次回落，均缺失时为空串。
+// TestAlertsInstanceDisplay 覆盖 instance_display 兼容字段（v1.15 决策 70 语义修订）：
+// resource_name 为空时按 instance → instance_ip → service_name → nodename → device
+// 回落（已删除死键 hostname），均缺失时为空串（前端展示「全局/聚合」）。
 func TestAlertsInstanceDisplay(t *testing.T) {
 	r := newAlertsRouterOK(t)
 	code, out := doAlerts(t, r, "")
@@ -319,4 +327,64 @@ func TestAlertsTenantScopeSkeleton(t *testing.T) {
 	// 骨架语义：非空集合按网域收敛（未来多租户启用）。
 	assert.True(t, alertDomainAllowed([]string{"finance", "default"}, "finance"))
 	assert.False(t, alertDomainAllowed([]string{"finance"}, "hr"))
+}
+
+// TestAlertsInstanceFieldsWriteBack 覆盖 v1.15 决策 70 的端到端回连：
+// 告警标签 resource_id 命中 M01 host 资源 → 响应回填 resource_name / category /
+// resource_ip / resource_port，且 instance_address 恒为采集地址（instance 标签原值）。
+func TestAlertsInstanceFieldsWriteBack(t *testing.T) {
+	db := openResourceIdentityTestDB(t)
+	seedIdentityHost(t, db, "res-1", "ceshi", "1.15.94.116")
+
+	fixture := map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"alerts": []map[string]interface{}{
+				{
+					"labels": map[string]interface{}{
+						"alertname":   "HighCPU",
+						"instance":    "1.15.94.116:9100",
+						"resource_id": "res-1",
+					},
+					"annotations": map[string]interface{}{"summary": "cpu high"},
+					"state":       "firing",
+					"activeAt":    "2026-09-11T01:00:00Z",
+					"value":       "98",
+				},
+			},
+		},
+	}
+	body, err := json.Marshal(fixture)
+	require.NoError(t, err)
+	r := newAlertsRouter(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	}), db)
+
+	code, out := doAlerts(t, r, "")
+	require.Equal(t, http.StatusOK, code)
+	require.Len(t, out.Data.Alerts, 1)
+
+	row := out.Data.Alerts[0]
+	assert.Equal(t, "1.15.94.116:9100", row["instance_address"], "采集地址 = instance 标签原值")
+	assert.Equal(t, "ceshi", row["resource_name"], "实例名来自 M01 资源清单")
+	assert.Equal(t, "ceshi", row["instance_display"], "兼容字段优先取可读实例名")
+	assert.Equal(t, "res-1", row["resource_id"])
+	assert.Equal(t, "host", row["resource_category"])
+	assert.Equal(t, "1.15.94.116", row["resource_ip"])
+	assert.Equal(t, float64(0), row["resource_port"], "host 无业务端口")
+}
+
+// TestAlertsInstanceFieldsWithoutResourceID 覆盖无 resource_id 的例外路径
+// （拨测 / 聚合 / 自写规则）：实例名不回落成地址、采集地址保留原值。
+func TestAlertsInstanceFieldsWithoutResourceID(t *testing.T) {
+	r := newAlertsRouterOK(t)
+	_, out := doAlerts(t, r, "")
+	require.Len(t, out.Data.Alerts, 3)
+
+	row := out.Data.Alerts[0]
+	assert.Equal(t, "10.0.0.1:9100", row["instance_address"])
+	assert.Equal(t, "", row["resource_id"])
+	assert.Equal(t, "", row["resource_name"], "无 resource_id 时实例名为空（前端显示 -）")
+	assert.Equal(t, "10.0.0.1:9100", row["instance_display"], "兼容字段回落为地址")
 }

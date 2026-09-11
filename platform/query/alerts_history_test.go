@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 // historyMatrixFixture 构造 Prometheus query_range 上游响应（matrix 信封）。
@@ -87,15 +88,20 @@ func historyRulesFixture() map[string]interface{} {
 }
 
 // newHistoryRouter 以指定上游处理器挂载 AlertsHistoryHandler。
-func newHistoryRouter(t *testing.T, upstream http.Handler) *gin.Engine {
+// dbs 可选：传入非 nil 时用于按 resource_id 回连 M01 的实例字段测试（决策 70）。
+func newHistoryRouter(t *testing.T, upstream http.Handler, dbs ...*gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
+	var db *gorm.DB
+	if len(dbs) > 0 {
+		db = dbs[0]
+	}
 	srv := httptest.NewServer(upstream)
 	t.Cleanup(srv.Close)
 	u, err := url.Parse(srv.URL)
 	require.NoError(t, err)
 	r := gin.New()
-	r.GET("/api/v1/alerts/history", AlertsHistoryHandler(u, http.DefaultClient))
+	r.GET("/api/v1/alerts/history", AlertsHistoryHandler(db, u, http.DefaultClient))
 	return r
 }
 
@@ -348,6 +354,89 @@ func TestAlertHistoryInvalidState(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "error", out["status"])
 	assert.Equal(t, "bad_request", out["errorType"])
+}
+
+// historyIdentityFixture 构造带 resource_id 的 matrix fixture（用于回连 M01 测试）。
+func historyIdentityFixture() map[string]interface{} {
+	now := time.Now().Unix()
+	return map[string]interface{}{
+		"status": "success",
+		"data": map[string]interface{}{
+			"resultType": "matrix",
+			"result": []map[string]interface{}{
+				{
+					"metric": map[string]interface{}{
+						"__name__":    "ALERTS",
+						"alertname":   "HighCPU",
+						"alertstate":  "firing",
+						"instance":    "10.0.0.1:9100",
+						"resource_id": "res-1",
+						"severity":    "critical",
+					},
+					"values": [][2]interface{}{
+						{float64(now - 90), "1"},
+						{float64(now - 60), "1"},
+						{float64(now - 30), "1"},
+					},
+				},
+			},
+		},
+	}
+}
+
+// newHistoryIdentityRouter 挂载带 db（回连 M01）的历史告警路由。
+func newHistoryIdentityRouter(t *testing.T, db *gorm.DB) *gin.Engine {
+	t.Helper()
+	return newHistoryRouter(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch req.URL.Path {
+		case "/api/v1/query_range":
+			body, _ := json.Marshal(historyIdentityFixture())
+			_, _ = w.Write(body)
+		case "/api/v1/rules":
+			body, _ := json.Marshal(historyRulesFixture())
+			_, _ = w.Write(body)
+		}
+	}), db)
+}
+
+// TestAlertHistoryInstanceFieldsWriteBack 覆盖 v1.15 决策 70：历史告警同样按
+// resource_id 回连回填实例名，且 instance_address 恒为采集地址。
+func TestAlertHistoryInstanceFieldsWriteBack(t *testing.T) {
+	db := openResourceIdentityTestDB(t)
+	seedIdentityHost(t, db, "res-1", "ceshi", "10.0.0.1")
+
+	code, out := doHistory(t, newHistoryIdentityRouter(t, db), "")
+	require.Equal(t, http.StatusOK, code)
+	list := out["data"].(map[string]interface{})["list"].([]interface{})
+	require.Len(t, list, 1)
+
+	row := list[0].(map[string]interface{})
+	assert.Equal(t, "10.0.0.1:9100", row["instance_address"])
+	assert.Equal(t, "ceshi", row["resource_name"])
+	assert.Equal(t, "ceshi", row["instance_display"])
+	assert.Equal(t, "host", row["resource_category"])
+	assert.Equal(t, "10.0.0.1", row["resource_ip"])
+}
+
+// TestAlertHistoryFilterByInstanceName 覆盖「实例」筛选同时匹配实例名与采集地址
+// （v1.15 决策 70）：展示改造后用户按 M01 实例名 `ceshi` 也必须能搜到。
+func TestAlertHistoryFilterByInstanceName(t *testing.T) {
+	db := openResourceIdentityTestDB(t)
+	seedIdentityHost(t, db, "res-1", "ceshi", "10.0.0.1")
+	r := newHistoryIdentityRouter(t, db)
+
+	// 按实例名命中。
+	_, byName := doHistory(t, r, "?instance=ceshi")
+	assert.Len(t, byName["data"].(map[string]interface{})["list"], 1)
+
+	// 按采集地址命中。
+	_, byAddr := doHistory(t, r, "?instance=10.0.0.1%3A9100")
+	assert.Len(t, byAddr["data"].(map[string]interface{})["list"], 1)
+
+	// 不匹配时为空。
+	_, miss := doHistory(t, r, "?instance=no-such")
+	assert.Empty(t, miss["data"].(map[string]interface{})["list"])
 }
 
 // 注意：strconv 仅在最后一个测试用例使用；为保持简洁放在文件顶部统一 import。
