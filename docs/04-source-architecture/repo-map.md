@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-11 13:13 · commit: `2a9d635b`
+> 生成时间: 2026-09-11 17:31 · commit: `f57a2fd0`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -424,6 +424,27 @@
 - `func CreateHandler(svc *Service) gin.HandlerFunc`
 - `func DeleteHandler(svc *Service) gin.HandlerFunc`
 - `func paginate(list []Silence, page, pageSize int) (int, []Silence)`
+
+### `platform/alertmanager/silence/label_options.go`
+
+- `type LabelOption struct`
+- `type LabelOptionGroup struct`
+- `func BuildLabelOptionGroups(db *gorm.DB) []LabelOptionGroup`
+- `func targetSystemGroup() LabelOptionGroup`
+- `func templateGroup(db *gorm.DB) LabelOptionGroup`
+- `func ruleGroup(db *gorm.DB) LabelOptionGroup`
+- `func externalGroup() LabelOptionGroup`
+- `func LabelOptionsHandler(db *gorm.DB) gin.HandlerFunc`
+
+### `platform/alertmanager/silence/label_options_test.go`
+
+- `func newLabelOptionsTestDB(t *testing.T) *gorm.DB`
+- `func performLabelOptions(t *testing.T, db *gorm.DB) (*httptest.ResponseRecorder, map[string]any)`
+- `func groupBySource(t *testing.T, data map[string]any, source string) []LabelOption`
+- `func TestLabelOptionsEmptyDB(t *testing.T)`
+- `func TestLabelOptionsTemplateGroupReflectsReadyJobs(t *testing.T)`
+- `func TestLabelOptionsRuleGroup(t *testing.T)`
+- `func TestLabelOptionsNilDB(t *testing.T)`
 
 ### `platform/alertmanager/silence/proxy.go`
 
@@ -3067,6 +3088,7 @@
 - `function deriveRemoteWriteUrl`
 - `function highestRisk`
 - `function formatRelativeTime`
+- `function formatLocalTime`
 
 ### `ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.tsx`
 
@@ -3369,6 +3391,9 @@
 - `interface SilenceMatcher`
 - `interface Silence`
 - `interface CreateSilencePayload`
+- `interface SilenceLabelOption`
+- `interface SilenceLabelOptionGroup`
+- `interface SilenceLabelOptionsData`
 - `interface AlertInstanceFields`
 - `type PromAlertState`
 - `interface PromAlertItem`
