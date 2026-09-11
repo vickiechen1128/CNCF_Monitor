@@ -81,6 +81,9 @@ const (
 	ChangeItemTargetProbeTarget      ChangeItemTarget = "probe_target"      // 拨测目标
 	ChangeItemTargetLabelTemplate    ChangeItemTarget = "label_template"    // 标签模板
 	ChangeItemTargetAlertmanagerCfg  ChangeItemTarget = "alertmanager_config" // 告警收敛配置（决策 60：管理域 default scope）
+	// 决策 68-2 补丁：prometheus.yml 的 alerting 段由生成器注入（不来自 M01/M08 源数据），
+	// 须参与变更清单 diff，否则「仅 alerting 变化」被 ErrNoChanges 抑制、配置永远无法重新下发。
+	ChangeItemTargetPromAlerting ChangeItemTarget = "prom_alerting" // Prometheus 告警投递配置（alerting 段）
 )
 
 // ChangeItemType 表示变更类型。
@@ -167,6 +170,7 @@ func ValidChangeItemTargets() []string {
 		string(ChangeItemTargetProbeTarget),
 		string(ChangeItemTargetLabelTemplate),
 		string(ChangeItemTargetAlertmanagerCfg),
+		string(ChangeItemTargetPromAlerting),
 	}
 }
 

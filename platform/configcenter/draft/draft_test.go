@@ -373,6 +373,58 @@ func TestGenerateDraftAlertmanagerChangeItem(t *testing.T) {
 	assert.Equal(t, []string{string(models.AffectedFileAlertmanager)}, amItems[0].AffectedFiles)
 }
 
+// TestGenerateDraftAlertingSectionChangeItem 覆盖决策 68-2 补丁：alerting 段由生成器
+// 注入、不来自源数据，若不参与变更清单 diff，「仅 alerting 变化」（生成器升级首次注入）
+// 会被 ErrNoChanges 抑制，带 alerting 段的 prometheus.yml 永远无法通过 M09 重新下发。
+// 基线版本 prometheus.yml 无 alerting 段 → 重新生成必须产出 prom_alerting 新增变更项。
+func TestGenerateDraftAlertingSectionChangeItem(t *testing.T) {
+	db := newMemDB(t)
+	// 管理域（management）+ 中心求值器（local 通道）。
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: "default", Name: "管理域", DomainType: models.DomainTypeManagement,
+		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
+		ZoneType: "central", Channel: models.ChannelTypeLocal, IsMonitored: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:  "route:\n  receiver: default\n",
+		Checksum: models.AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
+		Status:   models.AlertmanagerConfigStatusApplied,
+	}).Error)
+	seedHost(t, db, "default", "res-1")
+	seedJob(t, db, "default", "job1")
+	// 与 cmd/metric-center 启动行为一致：--alertmanager.url 解析注入包级地址；
+	// 地址为空时 Assemble 按防御条件不生成 alerting（避免悬空投递目标）。
+	oldTarget := AlertmanagerTarget
+	AlertmanagerTarget = generator.AlertmanagerTargetFromURL("http://localhost:9093")
+	t.Cleanup(func() { AlertmanagerTarget = oldTarget })
+
+	// 基线版本：旧生成器产物 —— prometheus.yml 无 alerting 段（决策 68-2 之前）。
+	require.NoError(t, db.Create(&models.ConfigVersion{
+		NetworkDomainID: "default",
+		DraftID:         "draft-prev",
+		ChangeNo:        "CHG-PREV-ALERTING",
+		PrometheusYml:   "global:\n  scrape_interval: 15s\nscrape_configs:\n  - job_name: job1\n",
+	}).Error)
+
+	// 源数据无任何变化，但生成器现在会注入 alerting 段。
+	d, err := GenerateDraft(db, "default")
+	require.NoError(t, err, "仅 alerting 段变化也必须能生成草稿（不得被 ErrNoChanges 抑制）")
+
+	assert.Contains(t, d.PrometheusYml, "alerting:", "草稿 prometheus.yml 须含 alerting 段")
+	var items []models.ConfigChangeItem
+	require.NoError(t, json.Unmarshal([]byte(d.ChangeItems), &items))
+	var alItems []models.ConfigChangeItem
+	for _, it := range items {
+		if it.Target == string(models.ChangeItemTargetPromAlerting) {
+			alItems = append(alItems, it)
+		}
+	}
+	require.Len(t, alItems, 1, "须派生 prom_alerting 变更项")
+	assert.Equal(t, string(models.ChangeItemTypeAdd), alItems[0].Type)
+	assert.Equal(t, string(models.RiskHigh), alItems[0].Risk)
+	assert.Equal(t, []string{string(models.AffectedFilePrometheus)}, alItems[0].AffectedFiles)
+}
+
 // TestGenerateDraftBackfillsSourceVersion 覆盖 T09-05 review-fix：生成草稿时回填
 // source_version = 该网域上一已确认 ConfigVersion 的 change_no（用于版本对比 Tab）。
 // 无历史版本时保持空（前端据此显示「无历史版本可对比」）。

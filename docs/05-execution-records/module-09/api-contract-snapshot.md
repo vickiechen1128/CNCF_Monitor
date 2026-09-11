@@ -328,3 +328,26 @@
 
 - 前端 `validation_details` 消费处需同步 `source` 字段；`source` 缺省（旧数据）时跳转目标回落 `scrape_jobs` 并保持现状。
 - `unlockSourceDataOnFailed` 的日志/审计落点（是否在草稿 `metadata` 留痕「已自动解锁源数据」）待实现时定。
+---
+
+## 14. 决策 68-2 增量：prometheus.yml `alerting` 段参与变更清单（本快照在 feat/module-08-alert-dispatch 分支追加）
+
+> 依据：决策 68-2（alerting 段由 M09 生成器注入）的实测缺口修复。**不新增/变更任何接口路径**，为枚举与行为增量。
+
+### 14.1 问题（2026-09-11 本机实测复现）
+
+`alerting` 段由生成器按 `centerEvaluator` 注入、**不来自 M01/M08 源数据**；而变更清单 diff（PRD §3.4 / 决策 44-3）此前只覆盖 scrape_configs+targets、rules.yml 组、alertmanager.yml 三块 —— 「仅 alerting 段变化」（生成器升级首次注入、AM 地址参数变化、edge→local 通道切换）时 `buildChangeItems` 返回空 → `ErrNoChanges` 抑制 → **带 alerting 段的 prometheus.yml 永远无法通过 M09 流程重新下发**，形成死锁。
+
+### 14.2 枚举扩展（§8 追加取值，同 §12.1 模式）
+
+| 枚举 | 追加取值 | 说明 |
+|------|---------|------|
+| 变更对象 `target` | `prom_alerting` | UI 展示名「告警投递」；`description` 形如「新增/变更/移除 Prometheus 告警投递配置（alerting 段）」 |
+| `affected_files` | （复用 `prometheus`） | 仅 alerting 段变化时受影响文件为 prometheus.yml |
+| `risk` | `high` | 影响告警投递链路，与 alertmanager_config 变更同级 |
+
+### 14.3 行为增量
+
+- `GenerateDraft` / `RevalidateDraft` 的变更清单新增 `diffPromAlertingItems`：按 `alerting` 段规范化内容对比新旧产物（键序无关），实质变化才产出变更项（无变化仍返回空，不产生噪声单，决策 44-3 不受影响）。
+- `rule_files` 与 `alerting` 由同一 `centerEvaluator` 判定（决策 68-2 约定）；alerting 段出现/消失必然伴随产物 checksum 变化，但变更项仅由本 diff 派生。
+- 前端 `ChangeTarget` 联合类型与 `changeTargetLabel` 映射已同步追加 `prom_alerting: '告警投递'`（`types/config-center.ts` / `configCenterConstants.ts`）。
