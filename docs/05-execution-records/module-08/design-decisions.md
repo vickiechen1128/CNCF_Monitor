@@ -128,6 +128,7 @@
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.13 | 2026-09-09 | 新增 | 历史告警 MVP 增量（Track B，用户书面确认）：新增独立页面「历史告警」——基于 Prometheus `ALERTS` 时间序列重建规则级触发/恢复区间（恢复时间为求值近似值），展示触发时间/恢复时间/持续时长/实例/网域/摘要，支持按网域/告警名/实例/状态/时间范围筛选（默认 24h、最大 7d）；数据由 Module_02 新增 `/api/v1/alerts/history` 提供；§1 目标 3、§2 M08-OPS-08、§3.1 功能表、§5.4、§9.1/§9.2 验收、§10 术语同步；免高保真原型（豁免记录见 design-decisions.md）（自 PRD Change Log 轮转迁入，v1.16） | 1 / 2 / 3.1 / 5.4 / 9 / 10 | MVP | ready |
 | v1.12 | 2026-09-08 | 修改 | 范围调整（MVP 试用反馈：前台缺少查看当前告警入口）：告警状态查看由 v0.3 提前至 MVP——§1 目标 3、§2 M08-OPS-03、§3.1 功能表、§5.4、§8 依赖、§9.1 验收同步调整；「告警状态页」MVP 交付（Prometheus firing/pending 视图依赖 M02 代理 `/api/v1/alerts` 同步提前，见 Module_02 对应版本口径）；顺手修正 Alertmanager 告警代理端点为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 端点在 AM ≥0.27 已移除）（随 v1.15 增量自 PRD Change Log 轮转迁入） | 0 | 功能提前至 MVP | ready |
 | v1.11 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
 | v1.10 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（通知接入→变更管控→静默管理→风暴抑制→状态可视化）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「告警配置变更确认」「静默 API 版本迁移」「查看告警通知状态」真实场景（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
@@ -259,3 +260,26 @@
 - **影响范围**：Module_08 PRD v1.15（§1 目标 3、§3.1 功能表、§5.4、§9.1/§9.2、§10）；M08 `api-contract-snapshot.md` §10.1/§10.2/§10.3；Module_07 PRD §5.12 A 括注与 §5.2 矛盾修正；M02 契约快照交叉登记；M08 `dev-feedback.md`（M01 三处偏差）。
 - **关联决策**：决策 47-3（`resource_id` 强制注入，本方案的回连钥匙）、决策 55/56（告警状态归属与授权过滤，不受影响）、决策 60（M08 不驱动下发状态，冻结口径不变——本决策只改展示层与只读回连）、决策 68-2（投递接线，本决策不改）、M07 §5.12 A / §5.13（标签映射权威口径）。
 - **用户确认**：2026-09-11，用户在开发空间 `feat/module-08-alert-dispatch` 书面确认「我同意这个方案，请你完善到 M08 的 PRD 和 decision 等，然后进行代码开发工作」。
+
+---
+
+## 补充对齐：2026-09-11（静默 matcher 编写口径：可匹配标签四层并集 + 分组联想 + 实例级静默，决策 71）
+
+- **触发**：用户试用发现创建静默抽屉「点击匹配条件无任何内容」（前端渲染死锁，见 dev-feedback 第 10 条）后连续追问：①可匹配的告警标签是否 = 当前所有已生效模板的集合？②是否还有其他来源？③能否做成便于用户筛选的框？④匹配条件除告警标签层外，是否允许到实例层？诊断确认根因后用户拍板「先落档 decision + PRD，然后修改代码」。
+- **可匹配标签的精确口径（四层并集）**：AM 静默 matcher 匹配的是 **AM 收到告警时携带的标签全集**，逐层如下——
+  1. **目标层（file_sd target labels，`configcenter/generator/targets.go` + `labels.go`）**：system 层 `resource_id`（决策 47-3 强制注入，不挂模板也在、模板不可覆盖）∪ **被 `enabled + draft_status=ready` 的 ScrapeJob（`data_source.go:44`）实际引用的标签模板中 enabled mappings** 展开的键（`instance`=composite `instance_ip:port`、`app`/`biz`/`env`/`cluster`/`service_name`/`health_check_url` 等；模板解析口径同 `LoadTemplateForJob`：显式挂载 → 类别默认模板）∪ Prometheus 自动附加的 `job`。**不是「所有已生效模板的集合」**——LabelTemplate 无独立状态字段（`label_template.go:28-34`），模板的「生效」是间接的（被生效 Job 引用且该网域配置已下发）；未被引用 / 未下发模板的键不可匹配。
+  2. **采集机制层**：`job`（Prometheus job_name 自动附加）、`alertname`（规则求值自动附加）。
+  3. **规则层（rules.yml labels）**：`severity` 及规则编辑自定义标签（`MonitoringRule.Labels` 自由 map；`enabled + draft_status=ready + scope central/both`，同 `LoadRules` 口径）。
+  4. **external_labels（发往 AM 出口附加，upstream notifier `relabelAlerts`）**：`network_domain_id` / `zone_type`（M09 决策 19 键名，**不是** `network_domain`——M02 决策 4.4 消费键收敛未完成，键名双读口径见 `platform/models/network_domain_label.go`）。⚠️ 此层在 Prom `/api/v1/alerts`（ALERTS 序列）中**不可见**，但 AM 收到的告警携带 → **AM 静默可以按网域匹配，键为 `network_domain_id`**。
+  - **例外**：blackbox Job 的 `TargetGroup.Labels` 为空 map（`targets.go:148`）→ 拨测类告警无目标层标签，仅规则层 + external 可匹配。
+- **结论（决策 71）**：
+  1. **标签名分组联想框（方案 A，采纳）**：新增只读聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`，服务端按上述四层口径聚合返回 `groups: [{source, label, items: [{name, description}]}]`（target_system / template / rule / external 四组，与口径逐层对应）；前端 matcher 标签名用按来源分组的 AutoComplete。被否方案：活跃告警实况聚合（当前无告警时选项为空，仅保留作后续「值联想」增量）；Prom `/api/v1/labels` 全 series 代理（含全部 metric 维度标签，噪声远大于告警标签集）。
+  2. **正则预检**：`is_regex=true` 时前端以 `new RegExp(value)` 预校验（AM 侧 400 兜底保留）——正则非法属于「提交即失败」的低成本拦截，而「正则合法但永不匹配」靠联想框描述软引导，不做硬校验。
+  3. **实例级静默：已天然支持，补 UX 一等入口**。`instance` / `resource_id` 均在标签全集内，matcher 直写即实例级，**无需新匹配机制**。UX 提供「按实例选择」：复用 M01 资源列表 API（`GET /api/v2/platform/resources`，keyword 搜索），选中后自动生成 **`resource_id` matcher**（UUID 稳定、不随 IP / 端口变化，与决策 70 实例名回连展示同源）；直接手填 `instance` 有「值 = ip:exporter端口，填业务端口 → 静默空集」陷阱（决策 70），表单对该键给出提示。
+  4. **多 matcher AND 语义提示**：同一静默内多条 matcher 为 AND 关系，表单明示（`alertname + resource_id` = 静默某实例的某类告警；单 `resource_id` = 静默该实例全部告警）。
+  5. **渲染死锁修复（F-26，本决策的前置 bug）**：`CreateSilenceDrawer` 原用 `Form.useWatch('matchers', form) || []` 驱动行渲染，而 rc-field-form `useWatch` 内部经 `getFieldsValue()` 取值（**只返回已挂载 Field 路径上的值**，`useForm.js` `cloneByNamePathList`）→ 行不渲染 → `['matchers', i, ...]` Field 永不挂载 → watch 恒空 → 点「添加」写 store 也不触发 re-render，永久卡死。改用 antd **`Form.List`** 官方动态行动线；顺带修复模块层 `initialValues`（含 `dayjs()`）冻结导致默认起止时间随 SPA 停留漂移的问题（移入组件内每次挂载重建）。
+  6. **不做**：matcher 标签名硬校验（拼错键静默空集靠联想框 + 描述软引导，不阻塞——自定义键属合法能力）；方案 B 值联想暂缓，列为后续增量。
+- **实现落点**：后端 `platform/alertmanager/silence/label_options.go`（聚合）+ `handler.go`（Handler）+ `register.go`（路由，只读挂根组）；前端 `ui-custom/web/src/api/alertmanager.ts`、`pages/alerts/CreateSilenceDrawer.tsx`；契约快照 §4 / §4 Matcher 小节；M08 PRD v1.16 §5.2。
+- **影响范围**：Module_08 PRD v1.16（§5.2、§6.5、§9.1、§9.2、§10）；`api-contract-snapshot.md` §4 / §8；`dev-feedback.md` 第 10 条。
+- **关联决策**：决策 47-3（resource_id 强制注入，实例级静默的钥匙）、决策 55/56（静默授权收敛，不变）、决策 59（静默 API 直调即时生效，不变）、决策 61（v2 API 口径，不变）、决策 70（instance 取值口径与 resource_id 实例名回连，实例选择器同源）、M02 决策 4.4 / M09 决策 19（网域键名双读，未收敛）。
+- **用户确认**：2026-09-11，用户在开发空间 `feat/module-08-alert-dispatch` 书面确认「我同意可以，先把我这个需求落档 M08 的 decision（详细记录可匹配标签的精确口径是四层并集）和 prd，然后开始修改代码」。

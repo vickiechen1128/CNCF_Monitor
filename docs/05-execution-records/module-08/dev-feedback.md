@@ -133,3 +133,34 @@
 - **影响模块**：M08 前端三个页面 + 两个抽屉；不改任何 API / 契约数据结构（页签 key `am` / `prom` 不变，仅展示名变化）。
 - **发现场景**：用户试用反馈（2026-09-11 两轮：先要求参考 M01 折叠栏收敛蓝条，后确认说明大框整体没有必要）。
 - **状态**：closed（如 PRD §3.2 语义说明条表述需回写，待设计侧下版 PRD 迭代收割）
+
+## 10. 创建静默抽屉「匹配条件」渲染死锁 + 默认时间冻结（① 缺陷，已修复，随决策 71 一并落地）
+
+- **类别**：① 缺陷判定（PRD/契约未规定实现层缺陷，前端实现 bug，随决策 71 修复）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §5.2/§5.2.1（v1.16，决策 71）；源码 `ui-custom/web/src/pages/alerts/CreateSilenceDrawer.tsx`
+- **现状 / 根因**：用户实测「抽屉中点击匹配条件（添加行），没有弹出任何内容」。两个叠加 bug：
+  1. **渲染死锁**：原实现用 `Form.useWatch('matchers', form) || []` 驱动 matcher 行渲染，形成鸡生蛋——rc-field-form 的 `useWatch` 内部经 `getFieldsValue()` 取值，而 `cloneByNamePathList` **只返回已挂载 Field 路径上的值**；初始 0 行 → `['matchers', i, ...]` Field 永不挂载 → watch 恒空 → `setFieldValue` 写入 store 后 notifyWatch 回调里 `getFieldsValue()` 仍取到 `{}` → stringify 相等不触发 re-render（对照：`getFieldValue` 直读 store 有值）。4 个临时 vitest 探针实证（初始 0 行、点击无反应、最小无 Drawer 复现、生命周期仅渲染 1 次）。
+  2. **默认时间冻结（次生）**：`initialValues` 含 `dayjs()` 在模块层求值，值随 SPA 停留时长漂移——抽屉打开时刻 ≠ 组件模块加载时刻。
+- **结论 / 修复（决策 71 第 5 条）**：
+  1. matcher 行渲染改用 antd **`Form.List`**（render prop 天然随行数 re-render，绕开 useWatch 注册实体过滤）；
+  2. `initialValues` 改为 `useState(makeInitialValues)` 工厂模式，每次组件挂载重建（`dayjs()` 在挂载时求值）。
+- **测试补充**：原 `SilencesPage.test` 完全未覆盖抽屉交互（死锁逃逸原因）；新增 `CreateSilenceDrawer.test.tsx` 6 用例，首条即死锁回归（「打开即渲染 1 行匹配条件，点『添加匹配条件』出现第 2 行」），另覆盖 payload 组装 / AND 提示 / 分组联想 / 正则预检 / 按实例选择。
+- **验证**：`tsc --noEmit` 通过；eslint 干净；`vitest run src/pages/alerts` 7 文件 64 例全绿。
+- **影响模块**：M08 前端静默管理（CreateSilenceDrawer）；不改 API / 契约。
+- **发现场景**：用户实测静默管理抽屉（2026-09-11）；测试逃逸原因 = 原测试零抽屉交互覆盖。
+- **状态**：closed（随决策 71 落地；`Form.useWatch` 驱动动态 Form.List 行渲染是通用反模式，其他模块同构代码可按此排查）
+## 11. 静默「创建成功」却报 `message.success is not a function`：生产入口缺 antd App 上下文（② 实现缺陷，已修复）
+
+- **类别**：② 实现缺陷（前端，已修复）
+- **PRD 章节位置**：§5 静默管理（创建反馈提示）；§9.2 技术验收
+- **现状**：用户对主机 ceshi 创建静默，抽屉报「创建失败 message.success is not a function」，但静默实际已生效。故障链路：抽屉 `handleFinish` → 页面 `create(payload)` 成功 → 页面成功 toast `message.success(...)` 抛 TypeError → 冒泡被抽屉 catch 当作创建失败展示（`e.message` 直接进错误 Alert）。
+- **根因**：`App.useApp()`（antd）必须处于 antd `<App>` 组件树内，否则解构出的 `message/notification/modal` 为 `undefined`。生产入口 `main.tsx` 只渲染了项目路由组件 `<App />`（`./App.tsx`），从未包裹 antd `<App>`；而所有相关测试（`SilencesPage.test` / `CreateSilenceDrawer.test` / `AlertConfigPage.test` / `alertSmoke.test`）都显式包裹了 `<App>`，故全部通过——典型的「测试补齐了生产缺失的上下文」逃逸。同链路 `AlertConfigPage.tsx:45` 同样受影响（页面内任何 message 调用都会炸）。
+- **结论 / 修复**：
+  1. `main.tsx` 以 antd `<AntApp>` 包裹应用根组件（ConfigProvider 内层）；
+  2. 去除双重成功 toast（页面 `handleCreate` 与抽屉各弹一次，保留抽屉侧，页面只 `await create`）；
+  3. 新增入口静态断言守卫 `src/antdAppContext.test.ts`（断言 main.tsx 含 `<AntApp>` 且在外层）——页面级测试无法拦截此类逃逸，只能守入口。
+- **验证**：`tsc --noEmit` / eslint 干净；`vitest src/pages/alerts` + 新守卫用例全绿。
+- **影响模块**：M08 前端（SilencesPage / CreateSilenceDrawer / AlertConfigPage）、应用入口 main.tsx；不改 API / 契约。
+- **发现场景**：用户实测创建静默（2026-09-11）；测试逃逸原因 = 测试环境显式包裹 antd `<App>`、生产入口未包裹。
+- **状态**：closed（约定：凡使用 `App.useApp()` 的新页面，须确认入口 `<AntApp>` 守卫仍在；同构风险：其他若将来引入静态 `message` 与 `useApp` 混用需注意渲染上下文一致性）
+
