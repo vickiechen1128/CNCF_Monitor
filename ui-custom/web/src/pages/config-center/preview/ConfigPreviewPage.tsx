@@ -50,6 +50,7 @@ import {
   draftStatusLabel,
   riskColor,
   riskLabel,
+  formatLocalTime,
   validationColor,
   validationLabel,
 } from '../configCenterConstants'
@@ -332,7 +333,7 @@ export function ConfigPreviewPage() {
       width: 130,
       render: (_: unknown, r: ConfigDraft) =>
         r.status === 'confirmed' && r.confirmed_by ? (
-          <Tooltip title={`确认时间：${r.confirmed_at ?? '-'}`}>
+          <Tooltip title={`确认时间：${formatLocalTime(r.confirmed_at)}`}>
             <Text>{r.confirmed_by}</Text>
           </Tooltip>
         ) : r.status === 'discarded' ? (
@@ -346,7 +347,8 @@ export function ConfigPreviewPage() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (v: string) => <Text type="secondary">{v}</Text>,
+      // 时间展示对齐 M08 口径（formatLocalTime）：RFC3339 原串含 T/Z/纳秒，不可读
+      render: (v: string) => <Text type="secondary">{formatLocalTime(v)}</Text>,
     },
     {
       title: '操作',
@@ -398,7 +400,7 @@ export function ConfigPreviewPage() {
             />
           </Descriptions.Item>
         ) : null}
-        <Descriptions.Item label="生成时间">{detail?.created_at}</Descriptions.Item>
+        <Descriptions.Item label="生成时间">{formatLocalTime(detail?.created_at)}</Descriptions.Item>
         <Descriptions.Item label="变更摘要" span={2}>{detail?.summary}</Descriptions.Item>
       </Descriptions>
       <Collapse

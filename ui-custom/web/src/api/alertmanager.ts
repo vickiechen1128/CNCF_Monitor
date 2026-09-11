@@ -14,6 +14,7 @@ import type {
   PaginatedItems,
   PromAlertsData,
   Silence,
+  SilenceLabelOptionsData,
   ValidateErrorData,
 } from '../types/alertmanager'
 
@@ -94,6 +95,13 @@ export const alertmanagerSilenceApi = {
     return apiClient.delete<{ id: string }>(
       `/api/v2/platform/alertmanager/silences/${encodeURIComponent(silenceId)}`,
     )
+  },
+  /**
+   * matcher 标签选项聚合（契约 §4 / 决策 71）：四层并集分组键集，
+   * 供创建静默表单做分组联想。只读、不代理 AM。
+   */
+  getLabelOptions(): Promise<ApiResponse<SilenceLabelOptionsData>> {
+    return apiClient.get<SilenceLabelOptionsData>('/api/v2/platform/alertmanager/silences/label-options')
   },
 }
 

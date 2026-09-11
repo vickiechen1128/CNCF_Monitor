@@ -32,12 +32,14 @@ func queryPage(c *gin.Context) (page, pageSize int) {
 }
 
 // ListHandler 处理 GET /api/v2/platform/alertmanager/silences
-// （契约 §4：分页信封，缺省仅返回活跃静默；空结果返回 []）。
+// （契约 §4：分页信封，缺省返回全量（含 pending/expired）；显式 active=true 仅返回活跃静默；
+// 空结果返回 []）。缺省全量是 2026-09-11 修复：原缺省 active=true 导致前端「待生效」条目
+// 创建后永远不可见（定时生效静默在列表中消失）。
 // review-fix E：由 svc.List 全量拉取 AM 静默后在内存分页（MVP 边界，见 Proxy.ListSilences），
 // active 过滤仅在服务层完成，未前置到 AM 侧——静默量日后增长时需升级为 AM filter/limit。
 func ListHandler(svc *Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		activeOnly := strings.ToLower(c.DefaultQuery("active", "true")) != "false"
+		activeOnly := strings.ToLower(c.DefaultQuery("active", "false")) == "true"
 		list, err := svc.List(c.Request.Context(), activeOnly)
 		if err != nil {
 			// 静默列表完全依赖中心 Alertmanager（决策 59 直调、不入 M09 流水线）；

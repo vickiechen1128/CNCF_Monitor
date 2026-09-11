@@ -51,6 +51,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error 
 	silSvc := silence.NewService(proxy)
 	// 列表端点保留在根组（仅全局认证 au-02）。
 	sil.GET("", silence.ListHandler(silSvc))
+	// matcher 标签选项聚合（契约 §4 / 决策 71）：只读、本地 DB 聚合（不代理 AM），
+	// 供创建静默表单做分组联想；挂根组（仅全局认证，同静默列表挂法）。
+	sil.GET("/label-options", silence.LabelOptionsHandler(db))
 	// 静默写操作（创建/删除，破坏性删除）为管理操作，挂 RequireAdmin（security-review B）。
 	adminSil := sil.Group("")
 	adminSil.Use(auth.RequireAdmin())

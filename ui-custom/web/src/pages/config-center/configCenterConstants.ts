@@ -217,3 +217,14 @@ export function formatRelativeTime(dateStr?: string): string {
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays} 天前`
 }
+
+/**
+ * 绝对时间本地化展示（口径对齐 M08 告警页 formatTime：zh-CN 24 小时制，
+ * 如「2026/9/11 17:01:26」）。后端时间为 RFC3339（含纳秒/时区），直接原样展示
+ * 会出现 T/Z/纳秒等机器格式，此函数统一转为本地可读串；缺省或非法值返回 '-'。
+ */
+export function formatLocalTime(iso?: string | null): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('zh-CN', { hour12: false })
+}

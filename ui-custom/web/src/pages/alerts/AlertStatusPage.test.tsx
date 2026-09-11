@@ -72,28 +72,33 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     useNetworkDomainsMock.mockReturnValue([])
   })
 
-  it('默认展示通知状态视图：四态统计卡片 + 两视图语义折叠栏（默认展开）', async () => {
+  it('默认展示通知状态视图：四态统计卡片 + 语义折叠栏（默认收起），无独立标题卡片', async () => {
     useAmAlertsMock.mockReturnValue(amState({ items: [amRow()] }))
-    renderPage()
-    // 页面标题与四态统计卡片（原型 AlertStatusPage 对齐，文案以契约 §10.2 展示名为准）
-    expect(await screen.findAllByText('告警状态')).not.toHaveLength(0)
-    expect(screen.getAllByText('通知中').length).toBeGreaterThan(0)
+    const { container } = renderPage()
+    // 四态统计卡片（原型 AlertStatusPage 对齐，文案以契约 §10.2 展示名为准）
+    expect(await screen.findAllByText('通知中')).not.toHaveLength(0)
     expect(screen.getAllByText('已静默').length).toBeGreaterThan(0)
     expect(screen.getAllByText('已抑制').length).toBeGreaterThan(0)
     expect(screen.getAllByText('待处理').length).toBeGreaterThan(0)
-    // 折叠栏指引（默认展开）：两视图语义 + 授权网域约束，友好化文案
-    expect(screen.getByText(/两个页签分别看什么/)).toBeInTheDocument()
-    expect(screen.getByText(/通知发出去没有、为什么没发/)).toBeInTheDocument()
-    expect(screen.getByText(/仅展示你有权限查看的网域/)).toBeInTheDocument()
+    // 页头独立标题卡片移除（用户反馈 2026-09-11：截图圈选的顶部大标题 Card 不要；
+    // 选择器取 h4——原页标题为 level 4，避开 MainLayout 头部 h3 应用名）
+    expect(container.querySelector('h4.ant-typography')).toBeNull()
+    // 折叠栏默认收起：仅可见标题，说明内容不在 DOM；点击展开后可见（口语化新文案）
+    expect(screen.getByText(/「通知状态」和「当前告警」有什么区别/)).toBeInTheDocument()
+    expect(screen.queryByText(/现在有什么问题/)).toBeNull()
+    fireEvent.click(screen.getByText(/「通知状态」和「当前告警」有什么区别/))
+    expect(await screen.findByText(/现在有什么问题/)).toBeInTheDocument()
+    expect(screen.queryByText(/两个页签分别看什么/)).toBeNull()
   })
 
   it('双 Tab 就位且页签名为友好化文案（PRD §3.2 语义区分由折叠栏承载）', async () => {
     renderPage()
     expect(await screen.findByRole('tab', { name: '通知状态' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '当前告警' })).toBeInTheDocument()
-    // 语义区分（折叠栏默认展开）：当前告警=哪里出了问题；通知状态=通知发出去没有、为什么没发
-    expect(screen.getByText(/哪里出了问题/)).toBeInTheDocument()
-    expect(screen.getByText(/通知发出去没有、为什么没发/)).toBeInTheDocument()
+    // 语义区分（折叠栏展开后）：当前告警=现在有什么问题；通知状态=告警的通知送到没有
+    fireEvent.click(screen.getByText(/「通知状态」和「当前告警」有什么区别/))
+    expect(await screen.findByText(/告警的通知送到没有/)).toBeInTheDocument()
+    expect(screen.getByText(/现在有什么问题/)).toBeInTheDocument()
   })
 
   it('AM 视图渲染行字段：告警名称 / 通知状态 / 网域 / 实例 / 摘要', async () => {

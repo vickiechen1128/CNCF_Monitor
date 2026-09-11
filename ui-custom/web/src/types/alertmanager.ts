@@ -98,6 +98,28 @@ export interface CreateSilencePayload {
   created_by?: string
 }
 
+/** 静默 matcher 标签选项（契约 §4 LabelOptionGroup.items，v1.16 决策 71） */
+export interface SilenceLabelOption {
+  name: string
+  description?: string
+}
+
+/**
+ * 标签选项分组（契约 §4 LabelOptionGroup）。
+ * source 枚举：target_system（系统与采集标签）/ template（标签模板产出）/
+ * rule（规则标签）/ external（网域标识）——对应决策 71 四层并集。
+ */
+export interface SilenceLabelOptionGroup {
+  source: 'target_system' | 'template' | 'rule' | 'external'
+  label: string
+  items: SilenceLabelOption[]
+}
+
+/** GET /silences/label-options 响应 data */
+export interface SilenceLabelOptionsData {
+  groups: SilenceLabelOptionGroup[]
+}
+
 // =====================================================================
 // 告警状态查看（v1.12 MVP 增量，契约快照 §10，Track B+）
 // =====================================================================

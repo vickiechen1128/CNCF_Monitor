@@ -13,7 +13,7 @@
 | Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）+ Track B+ 增量（v1.12 告警状态查看提前 MVP，强制 security-reviewer）                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
+| 版本    | v2026-09-11b（§4 新增 `GET /silences/label-options` 静默 matcher 标签选项聚合端点 + LabelOptionGroup 响应结构，Matcher 补 AND 语义与正则预检说明，v1.16 决策 71）叠加 v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
 | 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP；2026-09-10 决策 68-1 键名口径收敛）                                                                                                                                                                                                                                |
 | 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61 + 分轨判定记录 2026-09-08；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
 
@@ -101,9 +101,10 @@
 
 | 方法     | 路径                                                    | Query / 请求体                                                              | 响应 data                        | 业务错误                             | PRD 源        |
 | ------ | ----------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------ | -------------------------------- | ------------ |
-| GET    | `/api/v2/platform/alertmanager/silences`              | Query: `page`、`page_size`（服务端可追加 `active=true` 过滤活跃静默；转发至 AM `/api/v2/silences`）                   | `{ items: [Silence], total }`  | —                                | §5.2         |
+| GET    | `/api/v2/platform/alertmanager/silences`              | Query: `page`、`page_size`；**缺省返回全量（含 pending/expired）**，显式 `active=true` 过滤活跃静默（转发至 AM `/api/v2/silences`） | `{ items: [Silence], total }`  | —                                | §5.2         |
 | POST   | `/api/v2/platform/alertmanager/silences`              | body `{ matchers: [Matcher], starts_at, ends_at, comment, created_by? }`（转发至 AM `/api/v2/silences`） | 创建的 `Silence`（含 AM silence ID；由 AM `/api/v2/silences` 返回的 `silenceID` 构造） | `bad_request`：matcher 越权 / 参数不合法 | §5.2 / 决策 56 |
 | DELETE | `/api/v2/platform/alertmanager/silences/{silence_id}` | —（转发至 AM `/api/v2/silence/{silence_id}`）                                                                        | 删除成功的静默 ID                     | `not_found`：不存在                  | §5.2         |
+| GET    | `/api/v2/platform/alertmanager/silences/label-options` | —（只读聚合端点，仅认证；不代理 AM）                                            | `{ groups: [LabelOptionGroup] }` | —                                | §5.2.1 / 决策 71 |
 
 ### Silence
 
@@ -120,10 +121,31 @@
 
 | 字段         | 类型     | 说明                      |
 | ---------- | ------ | ----------------------- |
-| `name`     | string | 标签名（如 `network_domain`） |
+| `name`     | string | 标签名（如 `alertname`；可匹配键全集见下方「标签选项（决策 71）」） |
 | `value`    | string | 匹配值                     |
 | `is_equal` | bool   | true=`=`（相等）false=`!=`  |
-| `is_regex` | bool   | true=正则匹配               |
+| `is_regex` | bool   | true=正则匹配（前端预校验合法性，AM 侧 400 兜底） |
+
+> 多条 matcher 之间为 **AND** 关系（同一静默内同时满足才命中）。
+
+### LabelOptionGroup（静默 matcher 标签选项，v1.16 决策 71）
+
+`GET /api/v2/platform/alertmanager/silences/label-options` 响应：`{ groups: [LabelOptionGroup] }`。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `source` | enum | 分组来源：`target_system` / `template` / `rule` / `external` |
+| `label` | string | 分组展示名（系统与采集标签 / 标签模板产出 / 规则标签 / 网域标识） |
+| `items` | \[LabelOption] | 该组可匹配键；`{ name, description }` |
+
+聚合口径（**可匹配标签 = AM 收到告警时携带的标签全集，四层并集**，完整论证见 `design-decisions.md` 决策 71）：
+
+1. `target_system`（固定清单）：`resource_id`（决策 47-3 system 强制，实例级静默推荐键）、`instance`（采集地址 `ip:exporter端口`，决策 70）、`job`。
+2. `template`（动态）：**被 `enabled + draft_status=ready` 的 ScrapeJob 实际引用的标签模板中 enabled mappings 的 `target_label`**（模板解析同生成器 `LoadTemplateForJob`：显式挂载 → 类别默认模板；跨网域去重）；**不是「所有已生效模板的集合」**——未被生效 Job 引用 / 未下发模板的键不可匹配。该组随生效 Job 覆盖面变化，可为空。
+3. `rule`（动态）：`alertname`（自动附加）∪ `enabled + draft_status=ready + scope central/both` 规则的 `severity` 与自定义 `labels` 键（同生成器 `LoadRules` 口径）。
+4. `external`（固定清单）：`network_domain_id`、`zone_type`（发往 AM 出口附加的 external_labels；**AM 静默可按网域匹配**，但该层在 Prom `/api/v1/alerts` 中不可见）。
+
+例外：blackbox Job 目标层 labels 为空 → 拨测类告警仅规则层 + external 键可匹配。
 
 ## 5. 跨端 M09 变更确认联动（决策 60，前端只读消费）
 

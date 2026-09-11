@@ -291,6 +291,25 @@ M08 提供 UI 表单封装：
 
 > **静默 matcher 授权校验（v1.5，决策 56）**：Alertmanager 静默**全局生效**——租户 A 的宽 matcher 静默会摁掉租户 B 的告警，构成跨租户写武器。因此创建静默时 M08 必须在**服务端校验** matcher 收敛于当前用户的授权网域集合（越权 matcher 直接拒绝），不得依赖前端表单约束。MVP 单租户单网域阶段校验恒通过（机制骨架保留）。
 
+#### 5.2.1 matcher 编写口径：可匹配标签四层并集（v1.16，决策 71）
+
+matcher 匹配的是 **AM 收到告警时携带的标签全集**，精确口径为四层并集（完整论证见 `design-decisions.md` 决策 71）：
+
+| 层 | 可匹配标签 | 来源口径 |
+|---|---|---|
+| 目标层 | `resource_id`（system 强制，不挂模板也在）、`instance`、`app`/`biz`/`env`/`cluster`/`service_name` 等 | **被 `enabled + draft_status=ready` 的采集 Job 实际引用的标签模板中 enabled mappings**（模板解析：显式挂载 → 类别默认模板）∪ system 强制标签；**不是「所有已生效模板的集合」**——未被生效 Job 引用 / 未下发模板的键不可匹配 |
+| 采集机制层 | `job`、`alertname` | Prometheus / 规则求值自动附加 |
+| 规则层 | `severity` 及自定义键 | 规则编辑自定义 labels（enabled + ready + central/both 规则） |
+| external 层 | `network_domain_id`、`zone_type` | 发往 AM 出口附加；**AM 静默可按网域匹配，键为 `network_domain_id`**（该层在 Prometheus 告警查询中不可见） |
+
+例外：拨测（blackbox）类告警无目标层标签，仅规则层 + external 可匹配。
+
+UI 编写引导（表单）：
+- **标签名分组联想框**：按上述四层分组提示可匹配键（`GET /api/v2/platform/alertmanager/silences/label-options` 聚合端点），拼错键「静默空集且无报错」的陷阱由联想 + 键描述软引导兜底，不做硬校验（自定义键属合法能力）；
+- **正则预检**：`is_regex=true` 时前端预校验正则合法性（AM 侧 400 兜底保留）；
+- **实例级静默**：`instance` / `resource_id` 均在标签全集内，matcher 直写即实例级；表单提供「按实例选择」入口——复用 M01 资源列表搜索，选中后自动生成 **`resource_id` matcher**（UUID 稳定，不随 IP / 端口变化）；手填 `instance` 须提示其值为 `ip:exporter端口`（决策 70）；
+- **AND 语义提示**：同一静默内多条 matcher 为 AND 关系（`alertname + resource_id` = 静默某实例的某类告警；单 `resource_id` = 静默该实例全部告警）。
+
 ### 5.3 告警抑制规则
 
 当某个网域整体离线时，该网域内数百台主机的 `up=0` 告警会瞬间形成告警风暴。MetricCenter 通过自动生成 Alertmanager `inhibit_rules` 来抑制此类次生告警。
@@ -400,10 +419,12 @@ inhibit_rules:
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| name | string | 标签名 |
+| name | string | 标签名（可匹配键全集见 §5.2.1 四层并集，v1.16 决策 71） |
 | value | string | 标签值 |
-| is\_regex | bool | 是否正则匹配 |
+| is\_regex | bool | 是否正则匹配（true 时前端预校验正则合法性，AM 侧 400 兜底） |
 | is\_equal | bool | 是否等于（false 表示取反） |
+
+> 多条 matcher 之间为 **AND** 关系（同一静默内同时满足才命中）。
 
 ### 6.6 Alertmanager 配置版本（AlertmanagerConfigVersion）
 
@@ -466,6 +487,7 @@ inhibit_rules:
 - [ ] {P0} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）可查看当前告警：Prometheus 触发告警（firing / pending，经 [Module\_02](Module_02_Query_Center.md) 代理 `/api/v1/alerts`）与 Alertmanager 通知状态双视图展示，支持按 `network_domain` 筛选（v1.12 由 v0.3 提前至 MVP）。
 - [ ] {P0，v1.13} 历史告警页（菜单「告警收敛与通知管理 → 历史告警」）可查看规则级告警触发/恢复历史：列表展示告警名称、实例、网域、状态（触发中 / 已恢复）、触发时间、恢复时间（按 Prometheus 求值）、持续时长、摘要，支持按 `network_domain` / `alertname` / `instance` / 状态 / 时间范围筛选，默认时间窗 24h、最大 7d，提供手动刷新；历史深度受 Prometheus TSDB 保留策略限制，页面需有对应提示。
 - [ ] {P0，v1.15，决策 70} 告警状态页两个视图与历史告警页的「实例」列均拆为**「实例名」+「采集地址」两列**：实例名显示用户在 M01 资源清单中填写的名字（如主机 `ceshi`），采集地址显示采集器地址（如 `1.15.94.116:9100`）且表头提示「采集器地址，非业务端口」；M01 中改名后告警列实时跟随；无 `resource_id` 的告警（拨测 / 聚合 / 自写规则）实例名显示 `-`、不回落成地址；聚合 / 全局规则采集地址显示「全局/聚合」；历史告警页「实例」筛选框输入实例名或采集地址均可命中。
+- [ ] {P0，v1.16，决策 71} 创建静默表单提供 matcher 编写引导：①标签名输入框按「系统与采集 / 标签模板 / 规则标签 / 网域标识」四组联想可匹配键（§5.2.1 四层并集，聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`）；②勾选正则时前端预校验正则合法性（非法正则提交前拦截）；③提供「按实例选择」入口——从 M01 资源清单搜索选中后自动生成 `resource_id` 匹配条件（实例级静默），手填 `instance` 时提示其值为采集地址 `ip:exporter端口`；④表单明示多条匹配条件为 AND 关系。
 - [ ] {v1.0} 可配置通知模板与告警升级策略。
 - [ ] {v0.4+} 支持边缘本地 Alertmanager 通知通道配置（P2）。
 
@@ -485,6 +507,7 @@ inhibit_rules:
 - [ ] {P0} M08 `AlertmanagerConfigVersion` 仅留痕**校验通过**的 `alertmanager.yml` 挂载内容（校验失败不落库、仅返回行级错误，决策 59/60）；管道版本与下发状态以 M09 `ConfigVersion` 为准（决策 60）。
 - [ ] {P0} Alertmanager `/api/v2/alerts` 代理在服务端强制注入当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参（决策 56）。
 - [ ] {P0} 创建静默规则时服务端校验 matcher 收敛于当前用户授权网域集合，越权 matcher 拒绝（决策 56）。
+- [ ] {P0，v1.16，决策 71} 静默 matcher 标签联想聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`（只读、仅认证）：按四层并集口径返回分组键集——target_system 固定清单（`resource_id`/`instance`/`job`）∪ 被 `enabled + draft_status=ready` Job 实际引用模板（显式挂载 → 类别默认，同 `LoadTemplateForJob` 口径）的 enabled mappings TargetLabel ∪ `enabled + ready + central/both` 规则的 `alertname` / `severity` / 自定义 labels 键 ∪ external 固定清单（`network_domain_id`/`zone_type`）；分组与键去重、模板键缺失时对应组为空；不改既有静默三端点契约。
 - [ ] {v0.4+} 边缘 Alertmanager 配置可随 M09 配置包下发或由 M08 初始化脚本推送（P2）。
 
 ---
@@ -507,6 +530,8 @@ inhibit_rules:
 | `instance_display` | 实例展示值（兼容字段） | `resource_name` 非空取之，否则取 `instance_address`；两者皆空表示聚合 / 全局告警 |
 | `MonitoringRule` | 告警 / 记录规则 | 由 M01 负责内容创作，M08 不直接管理 |
 | `rules.yml` | 告警规则文件 | 由 M09 按网域分组生成并下发，M08 不生成 |
+| matcher 标签四层并集（§5.2.1） | 可匹配的告警标签 | AM 收到告警时携带的标签全集：目标层（系统强制 + 生效 Job 引用模板展开）+ 采集机制层（`job`/`alertname`）+ 规则层（`severity` + 自定义）+ 网域标识（`network_domain_id`/`zone_type`，v1.16 决策 71） |
+| `resource_id` matcher | 按实例静默 | 实例级静默推荐写法：UUID 稳定不随 IP/端口变化；UI「按实例选择」自动生成（v1.16 决策 71） |
 
 ---
 
@@ -516,7 +541,7 @@ inhibit_rules:
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.16 | 2026-09-11 | 修改 | 静默 matcher 编写口径与引导（决策 71，源自用户反馈「创建静默抽屉点击匹配条件无内容」+ 四连问「可匹配标签是否=已生效模板集合 / 其他来源 / 能否做筛选框 / 能否到实例层」）：§5.2 新增 **§5.2.1 可匹配标签四层并集**（目标层=被生效 Job 引用模板 enabled mappings ∪ system 强制、机制层 `job`/`alertname`、规则层 `severity`+自定义、external 层 `network_domain_id`/`zone_type`——AM 静默可按网域匹配；blackbox 无目标层标签例外）；新增只读聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`（分组联想框数据源）；§6.5 补 AND 语义与正则预检；§9.1/§9.2 验收；§10 术语。实例级静默天然支持（`instance`/`resource_id` matcher），UI 补「按实例选择」生成 `resource_id` matcher；渲染死锁（`Form.useWatch` 驱动行渲染鸡生蛋）修复见 dev-feedback 第 10 条 | 5.2 / 6.5 / 9 / 10 | MVP | ready |
 | v1.15 | 2026-09-11 | 修改 | 告警「实例」列口径对齐 M01 资源清单（决策 70，源自用户反馈「历史告警/状态告警的实例字段是实例名还是 IP+端口，建议与 M01 对齐」）：§1 目标 3、§3.1 功能表、§5.4 新增「实例列口径」段、§9.1/§9.2 验收、§10 术语同步——三个视图统一拆为**「实例名 + 采集地址」两列**，实例名由服务端按标签 `resource_id` 批量回连 M01 五类资源表回填（覆盖存量告警、与改名实时一致），采集地址即 `instance` 标签（exporter 端口，表头须提示非业务端口）；无 `resource_id` 时不回落成地址；历史告警「实例」筛选同时匹配实例名与采集地址；不做实例→M01 深链。响应新增 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_address`，`instance_display` 语义修订（向后兼容，不删旧字段）。标签侧补 `instance_name`（M07 §5.12 A 已声明未实现的映射）降为三期、范围收窄至 4 类静态资源 | 1 / 3.1 / 5.4 / 9 / 10 | MVP | ready |
 | v1.14 | 2026-09-10 | 修改 | Prometheus→Alertmanager 投递接线验收补齐（决策 68-2，源自 F-07 网域列缺陷评审）：§9.1 新增 P0「告警可投递到 Alertmanager」——触发测试告警 → 中心 AM `GET /api/v2/alerts` 非空 → 本页「Alertmanager 通知状态」可见（此前 decision 59/60「告警分发最小闭环」只完成 AM 侧配置挂载，Prometheus→AM 投递从未接线，本视图恒空）；§9.2 新增 P0 投递链路技术验收（中心 `prometheus.yml` 含 `alerting.alertmanagers`、AM 地址非硬编码、无 `alertmanager.yml` 产物时不生成、边缘包不含 `alerting`/`rule_files`、`promtool check config` 通过）。承载方为 M09 生成器（见 Module_09 §3.3.1.1）。不改本模块接口契约 | 9 | MVP | ready |
-| v1.13 | 2026-09-09 | 新增 | 历史告警 MVP 增量（Track B，用户书面确认）：新增独立页面「历史告警」——基于 Prometheus `ALERTS` 时间序列重建规则级触发/恢复区间（恢复时间为求值近似值），展示触发时间/恢复时间/持续时长/实例/网域/摘要，支持按网域/告警名/实例/状态/时间范围筛选（默认 24h、最大 7d）；数据由 Module_02 新增 `/api/v1/alerts/history` 提供；§1 目标 3、§2 M08-OPS-08、§3.1 功能表、§5.4、§9.1/§9.2 验收、§10 术语同步；免高保真原型（豁免记录见 design-decisions.md） | 1 / 2 / 3.1 / 5.4 / 9 / 10 | MVP | ready |
 

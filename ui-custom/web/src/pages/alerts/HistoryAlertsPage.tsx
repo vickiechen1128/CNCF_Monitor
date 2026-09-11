@@ -4,7 +4,7 @@
  * 列表：告警名称、状态、网域、实例名、采集地址、触发时间、恢复时间（估算）、持续时长、摘要。
  * 筛选：网域 / 告警名 / 实例 / 状态 / 时间范围；默认 24h、最大 7d；手动刷新。
  * 提示：恢复时间为估算值（默认收起的折叠栏 + 列头角标 hover 双入口），
- * 历史深度受 Prometheus TSDB 保留策略限制。
+ * 历史深度受 Prometheus TSDB 保留策略限制；页头独立标题卡片移除（用户反馈 2026-09-11）。
  */
 import { useMemo, useState } from 'react'
 import {
@@ -207,14 +207,8 @@ export function HistoryAlertsPage() {
   return (
     <MainLayout>
       <ConfigProvider locale={config}>
-        <Card style={{ marginBottom: 16 }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            历史告警
-          </Typography.Title>
-        </Card>
-
-        {/* 恢复时间估算口径 / 历史保留深度：低频须知，默认收起的折叠栏指引
-            （用户反馈 2026-09-11：页头独立说明板块不需要，折叠栏指引需要）。
+        {/* 页头不带独立标题卡片（用户反馈 2026-09-11：顶部大标题 Card 移除，侧栏菜单已含页名）。
+            恢复时间估算口径 / 历史保留深度：默认收起的折叠栏 + 列头角标 hover 双入口。
             实现细节（ALERTS 序列重建、求值步长、TSDB 保留策略）仅留代码注释，不下沉为用户文案。 */}
         <Collapse
           ghost
