@@ -102,11 +102,35 @@ export interface CreateSilencePayload {
 // 告警状态查看（v1.12 MVP 增量，契约快照 §10，Track B+）
 // =====================================================================
 
+/**
+ * 实例展示字段组（M08 v1.15 决策 70，契约快照 §10.1/§10.2）：
+ * 三条告警读取链路（Prom 当前告警 / 历史告警 / AM 通知状态）同构，JSON 平铺。
+ */
+export interface AlertInstanceFields {
+  /**
+   * 采集地址：Prometheus 抓取地址 `ip:exporter端口`（拨测 / application 为 URL）。
+   * **不是实例名、端口不是业务端口**，UI 表头须提示；聚合 / 全局告警为空串。
+   */
+  instance_address?: string
+  /** 兼容字段（后端保留）：resource_name 非空取之，否则取标签回落链 */
+  instance_display?: string
+  /** M01 资源 ID（告警标签 resource_id，决策 47-3 强制注入） */
+  resource_id?: string
+  /** M01 资源清单口径的实例名（host=instance_name、database/middleware=instance_ip 等）；无 resource_id 时为空串 */
+  resource_name?: string
+  /** 五类资源枚举（host / database / middleware / application / generic_target）；未命中为空串 */
+  resource_category?: string
+  /** 资源 IP；未命中为空串 */
+  resource_ip?: string
+  /** 资源业务端口（与采集地址中的 exporter 端口不同）；0 表示该类别无业务端口 */
+  resource_port?: number
+}
+
 /** Prometheus 当前触发告警状态（契约 §10.1）：firing=触发中 / pending=待处理 */
 export type PromAlertState = 'firing' | 'pending'
 
 /** Prometheus 当前触发告警实例（M02 代理 GET /api/v1/alerts，data.alerts[] 字段子集） */
-export interface PromAlertItem {
+export interface PromAlertItem extends AlertInstanceFields {
   /** 告警标签（含 alertname / severity / network_domain / instance） */
   labels: Record<string, string>
   /** 告警注解（summary / description） */
@@ -117,8 +141,6 @@ export interface PromAlertItem {
   activeAt: string
   /** 当前值（告警表达式当前求值） */
   value?: string
-  /** 后端聚合的实例展示字段（instance/instance_ip/hostname/nodename/device 依次回落）；聚合告警为空 */
-  instance_display?: string
 }
 
 /** GET /api/v1/alerts 响应 data 信封（空结果返回 [] 而非 null） */
@@ -137,7 +159,7 @@ export interface AmAlertStatus {
 }
 
 /** Alertmanager 通知状态告警项（M08 代理 GET /api/v2/platform/alertmanager/alerts，data.items[]） */
-export interface AmAlertItem {
+export interface AmAlertItem extends AlertInstanceFields {
   /** 告警标签（alertname / severity / network_domain / instance，UI 展示名同契约 §10.1） */
   labels: Record<string, string>
   /** 告警注解（summary / description） */
@@ -164,7 +186,7 @@ export interface AmAlertsData {
 export type AlertHistoryState = 'firing' | 'resolved'
 
 /** 历史告警记录（M02 §5.4 / M08 §3.1） */
-export interface AlertHistoryItem {
+export interface AlertHistoryItem extends AlertInstanceFields {
   alertname: string
   instance: string
   network_domain: string
@@ -174,7 +196,6 @@ export interface AlertHistoryItem {
   duration_seconds: number
   summary: string
   value: string
-  instance_display?: string
 }
 
 /** GET /api/v1/alerts/history 响应 data 信封（空结果 list=[] 非 null） */

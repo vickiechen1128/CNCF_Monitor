@@ -28,6 +28,7 @@ import config from 'antd/locale/zh_CN'
 import {
   ClockCircleOutlined,
   FireOutlined,
+  InfoCircleOutlined,
   PauseCircleOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
@@ -71,15 +72,44 @@ function labelOf(item: { labels: Record<string, string> }, key: string): string 
   return item.labels[key] || '-'
 }
 
-/** 实例展示：优先后端 instance_display，否则按常见标签键依次回落；聚合告警显示「全局/聚合」 */
-function instanceDisplay(item: { labels: Record<string, string>; instance_display?: string }): string {
+/**
+ * 实例名展示（M08 v1.15 决策 70）：M01 资源清单口径，由后端按告警标签 resource_id
+ * 回连资源表回填。无 resource_id（拨测 / 聚合 / 自写规则）时显示 '-'——
+ * **不回落成地址**，否则与「采集地址」列同值，复刻旧毛病。
+ */
+function instanceNameOf(item: { resource_name?: string }): string {
+  return item.resource_name || '-'
+}
+
+/**
+ * 采集地址展示（原「实例」列的取值）：优先后端语义化字段 instance_address，
+ * 回落兼容字段 instance_display，再回落常见标签键；聚合 / 全局告警显示「全局/聚合」。
+ */
+function instanceAddressOf(item: {
+  labels?: Record<string, string>
+  instance_address?: string
+  instance_display?: string
+}): string {
+  if (item.instance_address) return item.instance_address
   if (item.instance_display) return item.instance_display
-  const keys = ['instance', 'instance_ip', 'hostname', 'nodename', 'device']
+  const keys = ['instance', 'instance_ip', 'service_name', 'nodename', 'device']
   for (const k of keys) {
-    const v = item.labels[k]
+    const v = item.labels?.[k]
     if (v) return v
   }
   return '全局/聚合'
+}
+
+/** 「采集地址」列表头：挂提示直接消解 `:9100`（exporter 端口）被误读为业务端口 */
+function InstanceAddressTitle() {
+  return (
+    <span>
+      采集地址
+      <Tooltip title="采集器地址，非业务端口（如 :9100 为 exporter 监听端口，不是您填写的业务端口）">
+        <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+      </Tooltip>
+    </span>
+  )
 }
 
 /** 告警当前值展示：科学计数法转可读数值，保留原始字符串兜底 */
@@ -217,10 +247,16 @@ function AmAlertsView({
       render: (_, r) => <Text>{labelOf(r, 'network_domain')}</Text>,
     },
     {
-      title: '实例',
-      key: 'instance',
+      title: '实例名',
+      key: 'resource_name',
+      width: 150,
+      render: (_, r) => <EllipsisText maxWidth={130}>{instanceNameOf(r)}</EllipsisText>,
+    },
+    {
+      title: <InstanceAddressTitle />,
+      key: 'instance_address',
       width: 170,
-      render: (_, r) => <EllipsisText maxWidth={150}>{labelOf(r, 'instance')}</EllipsisText>,
+      render: (_, r) => <EllipsisText maxWidth={150}>{instanceAddressOf(r)}</EllipsisText>,
     },
     {
       title: '开始时间',
@@ -260,7 +296,7 @@ function AmAlertsView({
         </FilterItem>
       </FilterBar>
       <Table<AmAlertItem>
-        rowKey={(r) => `${labelOf(r, 'alertname')}|${labelOf(r, 'instance')}|${r.starts_at}`}
+        rowKey={(r) => `${labelOf(r, 'alertname')}|${r.resource_id || instanceAddressOf(r)}|${r.starts_at}`}
         dataSource={filtered}
         loading={state.loading}
         columns={columns}
@@ -312,10 +348,16 @@ function PromAlertsView({
       render: (_, r) => <Text>{labelOf(r, 'network_domain')}</Text>,
     },
     {
-      title: '实例',
-      key: 'instance',
+      title: '实例名',
+      key: 'resource_name',
+      width: 150,
+      render: (_, r) => <EllipsisText maxWidth={130}>{instanceNameOf(r)}</EllipsisText>,
+    },
+    {
+      title: <InstanceAddressTitle />,
+      key: 'instance_address',
       width: 170,
-      render: (_, r) => <EllipsisText maxWidth={150}>{instanceDisplay(r)}</EllipsisText>,
+      render: (_, r) => <EllipsisText maxWidth={150}>{instanceAddressOf(r)}</EllipsisText>,
     },
     {
       title: '激活时间',
@@ -362,7 +404,7 @@ function PromAlertsView({
         </FilterItem>
       </FilterBar>
       <Table<PromAlertItem>
-        rowKey={(r) => `${labelOf(r, 'alertname')}|${instanceDisplay(r)}|${r.activeAt}`}
+        rowKey={(r) => `${labelOf(r, 'alertname')}|${r.resource_id || instanceAddressOf(r)}|${r.activeAt}`}
         dataSource={filtered}
         loading={state.loading}
         columns={columns}

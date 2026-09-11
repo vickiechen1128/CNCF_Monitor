@@ -106,6 +106,39 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(screen.queryByText('接收人')).toBeNull()
   })
 
+  it('决策 70：AM 视图「实例名」由 resource_name 回填，「采集地址」展示 instance_address', async () => {
+    useAmAlertsMock.mockReturnValue(
+      amState({ items: [amRow({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' })] }),
+    )
+    renderPage()
+    const row = (await screen.findByText('HighCPU')).closest('tr')
+    expect(row).not.toBeNull()
+    const cells = within(row as HTMLElement).getAllByRole('cell')
+    // 列序（AmAlertsView）：告警名称 / 通知状态 / 网域 / 实例名 / 采集地址 / 开始时间 / 摘要
+    expect(cells[3]).toHaveTextContent('prod-db-01')
+    expect(cells[4]).toHaveTextContent('10.0.0.1:9100')
+  })
+
+  it('决策 70：无 resource_id（拨测 / 聚合 / 自写规则）时实例名显示 -，不回落为地址', async () => {
+    // 仅有标签 instance，后端不产出 resource_name —— 实例名列必须为 '-'，否则两列同值
+    useAmAlertsMock.mockReturnValue(amState({ items: [amRow()] }))
+    renderPage()
+    const row = (await screen.findByText('HighCPU')).closest('tr')
+    expect(row).not.toBeNull()
+    const cells = within(row as HTMLElement).getAllByRole('cell')
+    expect(cells[3]).toHaveTextContent('-')
+    expect(cells[4]).toHaveTextContent('10.0.0.1:9100')
+  })
+
+  it('决策 70：「采集地址」列头挂提示角标，消解 :9100 被误读为业务端口', async () => {
+    renderPage()
+    const header = await screen.findByRole('columnheader', { name: /采集地址/ })
+    const badge = header.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText(/采集器地址，非业务端口/)).toBeInTheDocument()
+  })
+
   it('AM 视图状态筛选（客户端过滤）：选择「已静默」只保留静默行', async () => {
     useAmAlertsMock.mockReturnValue(
       amState({
@@ -162,7 +195,8 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     renderPage()
     fireEvent.click(await screen.findByRole('tab', { name: /Prometheus 当前触发告警/ }))
     expect(await screen.findByText('HostTargetsMissing')).toBeInTheDocument()
-    // 聚合告警无 instance/instance_ip/hostname 标签，回退展示「全局/聚合」
+    // 聚合告警无 instance/instance_ip/service_name/nodename/device 标签，回退展示「全局/聚合」
+    // （决策 70 修订回落链：删除死键 hostname、补 service_name）
     expect(screen.getByText('全局/聚合')).toBeInTheDocument()
     // 科学计数法 1e+00 格式化为 1（在告警行内断言，避免命中统计卡片/分页中的 1）
     const alertRow = screen.getByText('HostTargetsMissing').closest('tr')
