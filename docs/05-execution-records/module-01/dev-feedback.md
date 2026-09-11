@@ -813,3 +813,27 @@
 
 - **状态**：closed（前端已落地，需前端 dev server 刷新生效；建议 design 侧确认「状态列拆两列 + 批量确认口径」是否纳入 PRD/原型）
 
+## 2026-09-11（M08 实例列对齐 M01 资源清单：M01 侧三处既有偏差，用户拍板同批修复）
+
+### F-38：M01 资源列表实例相关列的三处既有偏差（② 实现偏差，已修复）
+
+- **类别**：② 实现偏差（PRD 展示口径 ↔ 实现不一致；其中第 3 项为规格回归）
+- **PRD 章节 / 文件位置**：`Module_07_Monitoring_Object_Management.md` §5.2 字段表 / §5.12 A 标签映射表；权威展示口径 `docs/05-execution-records/module-07/task-sequence.yaml:445`（「item 的『实例名』按类型取展示字段：host=`instance_name`、application=`service_name`、database/middleware=`instance_ip`、generic=`target_name`，与 PRD §5 展示口径一致」）；源码 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`、`platform/config/resource/list.go:152-161`、`platform/query/alerts.go`（回落链）
+- **触发**：M08「告警实例列与 M01 资源清单对齐」方案实施（M08 决策 70）期间，为确认对齐目标逐 Tab 核对 M01 资源列表实现，发现三处偏差。修完后 M01 与 M08 的实例相关列收敛为**同一结构（名称列 + 地址列）**，用户只适应一次；若拆两批则同一处形态要改两次、回归面更大——用户 2026-09-11 拍板**同批修复**。
+- **偏差与修复**：
+  1. **database / middleware Tab 的「实例名」列恒显示 `-`**
+     - 现状：列绑 `dataIndex: 'instance_name'`（`ResourcesPage.tsx:354/373`），但 `buildListItem` 对该两类资源**不产出该键**（`list.go:152-161` 只产出 `database_type` / `middleware_type` / `instance_ip` / `port` / `version`），字段清单亦不支持它。
+     - 修复：前端这两列改绑 `instance_ip`，与 `task-sequence.yaml:445` 展示口径一致（**不动 API 形状**，后端不新增 `instance_name` 键）。
+     - 备注：`Database` / `Middleware` 模型本身**没有** `instance_name` 字段（`platform/models/database.go`、`platform/models/resource.go`），故修复后该列与相邻「IP 地址」列同值——根因在数据模型层。建议 design 侧下一轮 PRD 迭代决定该列改语义（如展示业务别名）或与「IP 地址」列合并。
+  2. **host Tab 的副行与主行同值**
+     - 现状：主行渲染 `instance_name`、副行渲染 `hostname`（`ResourcesPage.tsx:324-328`），而 `hostname` 即 `InstanceName`（`platform/models/host.go`）→ 实际渲染为 `ceshi` / `ceshi` 两行同值。
+     - 修复：**直接删除副行**。host Tab 已有独立的「IP 地址」列，副行无任何信息增量；删后该列只剩主行，与 M08「实例名」列逐字对应。
+  3. **告警实例回落链含死键、漏真键**（代码落点在 M02 告警代理 `platform/query/alerts.go`）
+     - 现状：`instanceDisplayOf` 键序为 `instance → instance_ip → hostname → nodename → device`——其中 `hostname` 是**死键**（默认标签模板从不产出），而 application 实际产出的 `service_name` **未纳入**。
+     - 修复：键序修订为 `instance_name → instance → instance_ip → service_name → nodename → device`。
+     - 备注：该处与 M08 v1.15 **三期**「标签侧补 `instance_name` 映射」（M07 §5.12 A 已声明、`DefaultMappingBuilders` 从未实现）**共用同一段代码，必须一起改**，否则三期生效后回落链仍读不到新标签。
+- **验证**：前端相关页面单测通过；后端 `go test ./platform/...` 全量通过、`go vet` 干净。
+- **影响模块**：M01 资源列表（database / middleware / host 三个 Tab 的实例名列）、M02 告警代理（`/api/v1/alerts` 与 `/api/v1/alerts/history` 的实例回落链）、M08 告警状态页与历史告警页（消费方）。
+- **发现场景**：M08 实例列对齐实施期逐 Tab 核对 M01 资源列表。
+- **状态**：closed（前端 + 后端已落地；第 3 项的键序修订为 M08 v1.15 三期增量的前置依赖）
+

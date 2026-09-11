@@ -103,6 +103,29 @@ func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) er
 	return nil
 }
 
+// validateGroupNamesForCheck 是 validate-yaml 的组名唯一性预检入口（决策 69-1）。
+//
+// 与提交侧**同口径**：仅当目标规则**生效**（enabled=true AND draft_status=ready）时才
+// 校验——停用规则不下发、不参与 rules.yml 合并，提交侧同样跳过（update.go:71）；若此处
+// 无条件校验，会出现「预检报错、提交却能过」的反向不一致，用户将失去唯一出口。
+//
+// excludeID 为路由 :id（新建场景为 0，无自身可排除）；>0 时读取目标规则的启停与草稿
+// 状态以镜像提交侧条件。目标规则不存在时按「新建」处理（enabled=true），与
+// create.go 的「创建默认启用」口径一致。
+func validateGroupNamesForCheck(db *gorm.DB, content string, excludeID uint) error {
+	enabled, draftStatus := true, "ready"
+	if excludeID > 0 {
+		var r models.MonitoringRule
+		if err := db.Select("enabled", "draft_status").First(&r, excludeID).Error; err == nil {
+			enabled, draftStatus = r.Enabled, r.DraftStatus
+		}
+	}
+	if !enabled || draftStatus != "ready" {
+		return nil
+	}
+	return validateGroupNamesAvailable(db, content, excludeID)
+}
+
 // effectiveJobNames 返回指定规则 scope 下「校验用」的生效 Job 名集合（决策 67-4）：
 //   - central（MVP 单域 / v0.2 多域）：**全域 job 并集**——规则是全局资源、会进入每个
 //     网域的 rules.yml，故不能按单域名单判定（否则 v0.2 下引用 A 域 job 的规则在 B 域

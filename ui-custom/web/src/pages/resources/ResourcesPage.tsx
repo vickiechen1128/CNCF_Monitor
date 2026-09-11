@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import config from 'antd/locale/zh_CN'
 import { MainLayout } from '../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
-import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import {
   Alert,
@@ -49,6 +48,27 @@ import { ImportModal } from './ImportModal'
 import { ImportRecordsPanel } from './ImportRecordsPanel'
 
 const { Text } = Typography
+
+/**
+ * 「实例名」列头（database / middleware Tab，决策 70 / F-38）。
+ *
+ * 这两类资源的模型（`platform/models/database.go`、`resource.go`）**没有独立名称字段**，
+ * `buildListItem`（`platform/config/resource/list.go:152-161`）也不产出 `instance_name`，
+ * 故此前该列恒显示 `-`。按 M07 §5.12 展示口径改绑 `instance_ip`
+ * （与 `module-07/task-sequence.yaml:445` 一致），即「实例标识 = 实例 IP」。
+ * 该列与相邻「IP 地址」列同值，属数据模型层根因，列语义待 PRD 下一轮迭代决定
+ * （见 `module-01/dev-feedback.md` F-38）。
+ */
+function InstanceNameTitle() {
+  return (
+    <span>
+      实例名
+      <Tooltip title="数据库 / 中间件资源暂无独立名称字段，按 M07 §5.12 以实例 IP 作为实例标识">
+        <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+      </Tooltip>
+    </span>
+  )
+}
 
 /** 五类资源类别（Module_07 §5.1 / 决策 D19） */
 const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
@@ -318,16 +338,10 @@ export function ResourcesPage() {
               </span>
             ),
             key: 'name',
-            render: (_: unknown, record: ResourceListItem) => (
-              <Space direction="vertical" size={0}>
-                <Text strong>{record.instance_name || '-'}</Text>
-                {record.hostname && (
-                  <EllipsisText type="secondary" maxWidth={180}>
-                    {record.hostname}
-                  </EllipsisText>
-                )}
-              </Space>
-            ),
+            // 决策 70 / F-38：原副行展示 `hostname`，其值与 `instance_name` 同源
+            // （host.go `Hostname()` 即 `InstanceName`），视觉上重复且无信息增量；
+            // 且本 Tab 已有独立「IP 地址」列 —— 直接删除副行，与 M08「实例名」列逐字对应。
+            render: (_: unknown, record: ResourceListItem) => <Text strong>{record.instance_name || '-'}</Text>,
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
@@ -351,7 +365,8 @@ export function ResourcesPage() {
         ]
       case 'database':
         return [
-          { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '数据库类型',
             dataIndex: 'database_type',
@@ -370,7 +385,8 @@ export function ResourcesPage() {
         ]
       case 'middleware':
         return [
-          { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '中间件类型',
             dataIndex: 'middleware_type',

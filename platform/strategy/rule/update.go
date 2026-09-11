@@ -2,6 +2,7 @@ package rule
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -121,11 +122,27 @@ type ValidateRuleYAMLRequest struct {
 	RuleContent string `json:"rule_content"`
 }
 
+// ruleIDFromContext 容错解析 validate-yaml 的 :id：空 / 非数字 / 0 一律返回 0
+// （「新建」语义，不排除自身）。该 :id 仅用于组名预检的「排除自身」，非法值不应中断
+// 预检，故不写响应（区别于 parseRuleID 的 bad_request）。
+func ruleIDFromContext(raw string) uint {
+	id, err := strconv.ParseUint(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return uint(id)
+}
+
 // ValidateRuleYAML 是 POST /api/v2/platform/monitoring-rules/:id/validate-yaml 的
 // handler：body {rule_content}，返回 `{valid, error?, job_ref?}`（不做持久化）。
-// YAML 语法错误 → valid=false+error；语法通过后追加 job 引用语义校验（决策 66）。
-// **`valid` 语义仅反映 YAML 语法**，error/warning 级 job 引用不改写它（响应形状向后
-// 兼容）；门禁由提交侧承担（决策 67-2：前端 error 默认阻断 + 逃生门；POST/PUT 后端兜底）。
+//
+// `valid` 语义（决策 69-1 修订）：表示**预检是否可提交**，`valid=false` 时 `error` 给出
+// 原因，属**不可覆盖的硬失败**，共两类：
+//  1. YAML 语法 / groups 结构非法；
+//  2. 组名全局唯一性冲突（与提交侧同实现、同输入集，见 validateGroupNamesForCheck）。
+//
+// `job_ref` 的 error / warning 级 job 引用问题**不改写 `valid`**——它是另一根可经
+// 「逃生门」（ack_job_ref_errors）覆盖的轴（决策 66 / 67-2）。响应形状向后兼容。
 func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req ValidateRuleYAMLRequest
@@ -134,6 +151,12 @@ func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if err := validateRuleYAML(req.RuleContent); err != nil {
+			response.OK(c, gin.H{"valid": false, "error": err.Error(), "job_ref": []jobref.Issue{}})
+			return
+		}
+		// 决策 69-1：组名全局唯一性并入预检（与提交侧同口径，停用规则不校验、编辑排除
+		// 自身），使「检查通过 ⇒ 提交不会被组名冲突打回」（仅剩 TOCTOU 竞态）。
+		if err := validateGroupNamesForCheck(db, req.RuleContent, ruleIDFromContext(c.Param("id"))); err != nil {
 			response.OK(c, gin.H{"valid": false, "error": err.Error(), "job_ref": []jobref.Issue{}})
 			return
 		}

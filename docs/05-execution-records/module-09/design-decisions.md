@@ -504,6 +504,8 @@
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.62 | 2026-09-09 | 修改 | 规则 job 引用校验双层模型（决策 66）：§3.3「规则 job 引用校验」明确为发布期强制门禁，与 M01 编辑期校验使用同一套判定逻辑；新增「双层校验模型」注记（M01 编辑期提示不阻断 + M09 发布期 error 阻断）与校验失败跨模块跳转动线；§11.2 全局行为规则补充「规则 job 引用校验 error 时跳转 Module_01 规则编辑」入口（自 PRD Change Log 轮转迁入） | 3 / 11.2 | MVP | ready |
+| v1.61 | 2026-09-09 | 修改 | 规则 job 引用校验与规则粒度边界（决策 64/65，源自 MVP 试用反馈：规则引用的 job 名与当前生效 Job 不匹配导致 `absent()` 恒 firing、告警 instance 显示「全局/聚合」）：① §3.3 新增「规则 job 引用校验」P0——生成 rules.yml 时将规则与当前生效 Job 列表绑定：`up` / `absent(up)` 类规则 job 不匹配 = error（阻断确认发布），其他 job 引用不匹配 = warning；② 新增「规则粒度与 M09 的关系」注记——M09 不感知规则粒度（聚合 vs per-instance），per-instance 规则归属 M01 v0.3 规则 UI（自 PRD Change Log 轮转迁入） | 3 | MVP | ready |
 | v1.60 | 2026-09-08 | 修改 | 中心部署目录规范（决策 64，源自生产环境磁盘治理诉求）：§1 新增「MVP 中心部署目录规范」注记——对齐《业务软件标准化目录与权限配置操作手册》三目录基线（`/opt/apps` 程序只读 / `/opt/data` 数据含 config-output 活配置 / `/opt/log` 日志），运维预建目录、交付包 `env/env.sh` 集中定义数据/日志根与 TSDB 保留策略、`start.sh` 双模式（生产路径 / 包内回落）、systemd 不在 MVP 范围；明确「活配置属平台管理的数据、落 /opt/data」以兼容程序目录只读红线（自 PRD Change Log 轮转迁入） | 1 | MVP | ready |
 | v1.57 | 2026-09-05 | 修改 | §1「MVP 阶段」补注记：M06 行政禁用网域不联动 M09 纳管状态（`IsMonitored` 独立维护；决策 62，2026-09-05 拍板——MVP 保持现状，「禁用联动取消纳管 / 冻结 Token」纳入 v0.2 多网域版本实现并届时评审）；不改 MVP 技术契约（自 PRD Change Log 轮转迁入） | 1 | v0.2 | ready |
 | v1.56 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | ready |
@@ -1536,3 +1538,66 @@ M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready
   - 设计记录：新增 `docs/05-execution-records/module-09/rule-jobref-validation-lifecycle-fix.md`（含证据索引与修订对照）。
 - **实现落点（本轮仅文档，代码在开发分支执行）**：`platform/configcenter/draft/service.go`（新增 failed 清锁）、`platform/configcenter/deployment/callback.go`（口径核对）、`platform/strategy/rule/validate.go`（`effectiveJobNames`）、`platform/strategy/rule/update.go` / `jobref/jobref.go`（文案与预留字段）、前端 `RuleMountDrawer.tsx` / `ConfigPreviewPage.tsx` / 对应测试。
 - **关联**：决策 66（双层校验模型，被本决策修订第 2/4 条）、决策 42-1（pending 取代）、决策 42-2 / 45-1（校验失败三态出口）、决策 43 系列（废弃回写）、决策 44-1（pending 期锁定）、决策 45-2 / 45-3（失败引导与归因）、决策 54（v0.2 多网域 Job）。
+
+---
+
+### 决策登记：2026-09-10（网域标签键收敛 + 租户标签键统一 + Prometheus→Alertmanager 投递接线——用户已确认）
+
+- **编号**：决策 68（子决策 68-1 网域标签键收敛 / 68-2 alerting 投递接线 / 68-3 v0.2 口径约定 / 68-4 落档纪律 / **68-5 租户标签键统一 + 命名规约泛化 + fail-closed 严格派**）
+- **触发**：2026-09-10 用户在 M08「Prometheus 当前触发告警」网域列缺陷（F-07）修复合入评审时，对修复说明抛出的两个遗留发现逐条核实并拍板：① `network_domain` vs `network_domain_id` 键名冲突；② `config-output/prometheus.yml` 缺 `alerting:` 段导致 Prometheus 不向 Alertmanager 投递。用户确认两问均已核实，要求**写收敛决策、文档落档、同步 PRD，先不修改代码**；并明确共性根因是「决策落档不同步」，要求以**一份** M09 设计记录把三件事与 v0.2 口径约定一并落档。
+  **追加（同日，决策 68-5）**：用户就本决策 §9 原「遗留待决」的第三处键名漂移（查询注入 matcher `tenant_id` vs 序列标签 `tenant`）再次核实，确认**两侧均无代码落地**——查询侧 `query/alerts.go:127-131 tenantAuthorizedDomains` 骨架恒返回 `nil`、`platform/query/*.go` 无任何 matcher 构造代码（grep 为空），写入侧 `models/label_template.go:38-63 DefaultMappingBuilders` 五类默认模板**均无 tenant 映射**（grep `tenant` 为空），`tenant_id → tenant` 仅是 M07 PRD §5.12 A 的**纸面约定**。据此判定属「**趁免费窗口把契约定版**」而非「改代码 + 迁数据」，要求**从遗留待决升级为正式决策（68-5）**，方案为：统一为 `tenant` + **命名规约泛化**（标签键一律不带 `_id` 后缀，`_id` 只属 DB 列 / API 字段）+ 三个配套（同源常量 / 生成期门禁 / matcher 注入强制化）+ fail-closed **严格派**产品语义（无 `tenant` 标签 = 普通租户不可见，平台自身 Job 显式 `tenant="platform_admin"`；明确否决「无标签即公共」共享派）。**本轮全为文档，仍不改代码。**
+- **核实结论**：
+  1. **键名分层已正确、无需重构**：写入侧唯一（`generator.go:42-51`）、消费侧唯一入口（`models/network_domain_label.go` 的 `ResolveNetworkDomain`），`query/alerts.go`、`query/alerts_history.go`、`alertmanager/alerts/service.go` 全走它——兼容逻辑未散落各处，属**永久容错层形态**，本决策不撤销。
+  2. **真正冲突只有「Prometheus 标签键」这一层**：DB 列 / API JSON 字段 `network_domain_id`（是 ID）保留无歧义；Query 参数 / Excel 列 / envelope / 静默 matcher **全为 `network_domain`**；孤例仅 M06 登记的决策 19 键名（并派生至 M09 PRD §3.3.1、`generator.go:43`、`04_Implementation_Map.md`、`03_Functional_Architecture.md`）。M02 决策 4.4 / PRD §7.1 早已预警「`network_domain_id` 会导致注入匹配不到数据」；M01 `tech-feasibility.md` §7.2 建议 3 当年向 M09 提的注入建议本就是 `network_domain`。
+  3. **`alerting` 缺口是缺口而非有意**：`render.go:18-22 cfgFile` 只有 `global` / `rule_files` / `scrape_configs`；M08 `design-decisions.md` 2026-09-09 已记录「未配置 `alerting.alertmanagers` 时 AM 完全无数据」，但那是**选告警历史数据源时的规避理由**；而 M08 PRD v1.12 已把「Alertmanager 通知状态」提前 MVP 且列 P0 验收——该验收项在当前生成器下**永远拿不到真实数据**（实测 `:9093/api/v2/alerts` 0 条）。决策 59/60 的「告警分发最小闭环」只完成了 AM 侧挂载，**Prometheus → AM 的投递接线从未生成**。
+  4. **租户标签键是网域键冲突的同类第三处，且同样零代码**：M02 PRD §7.1 表把租户标签 key 写作 `tenant_id`（来源误标「M09 `external_labels` 注入」）、§7.2 第 1 条注入 `tenant_id=` matcher；而 M06 结论 8（决策 19）/ M09 §3.3.1 / M07 §5.12 A 一致写 `tenant`（M07 以 target 级注入）。即**序列上的标签名 ≠ 查询注入 matcher 名**。与 ① 的区别：① 需改一处代码（`generator.go:43`），③ 连代码都没有——两侧均为骨架 / 纸面，**定版成本 ≈ 0**。
+- **结论（用户已确认，2026-09-10）**：
+  1. **68-1 标签键收敛到 `network_domain`**（M02 决策 4.4 为准）：代码改动**只有一处**——`generator.go:43` 的 `labels["network_domain_id"]` → `labels["network_domain"]`。**`ResolveNetworkDomain` 的双读永久保留**（历史 TSDB 序列与边缘 `remote_write` 回传仍带旧键 `network_domain_id`，双读即过渡层，不得删除）；三层命名空间边界（对象 / API 字段 `network_domain_id`、标签键与 Query 参数 `network_domain`）写入 M09 PRD §3.3.1。时序上现在改最便宜：无生产数据、`external_labels` 只影响新样本、无需迁移。**决策 19 的键名选择被本决策 supersede，其字段清单结论（移除 `tenant_id`、仅保留部署级物理维度元数据）不变。**
+  2. **68-2 `alerting` 投递接线纳入本期**：`cfgFile` 增 `alerting.alertmanagers[].static_configs[].targets`；**条件注入**（仅当 `alertmanagerYML` 非空，与 `rule_files` 条件注入 `render.go:104-109` 对称，避免指向不存在的 AM）；**AM 地址必须参数化**——`Assemble` 增 `alertmanagerAddr` 入参，**禁止硬编码 `127.0.0.1:9093`**；**仅中心生成**——边缘包（`agent_pull`）永不生成 `alerting` / `rule_files`（v0.2 硬约束：vmagent 不支持、prometheus-agent Agent Mode 禁止，见 M01 `tech-feasibility.md` §4.2 / §7.2）。校验链路不动（`promtool check config` 正常校验；草稿生成 / 重校自动覆盖）。与决策 67 规则锁修复**相互独立**，可同分支独立提交。
+  3. **68-3 v0.2 口径约定**：MVP 单机由 `env/env.sh` 注入（复用既有 `AM_PORT`，对齐决策 64「集中定义」）；v0.2 多域注入**中心 AM 地址**；`alerting` 与 `rule_files` 的生成条件**必须由同一处「是否中心」判定驱动**，禁止各自 `if`。
+  4. **68-4 落档纪律（治本项）**：跨模块决策若覆盖同一命名空间（键名 / 字段名 / 判定集合），**必须在两侧决策记录互标** supersede / 被 supersede 关系；「最小闭环」类决策必须写明**链路两端与验收动作**，不能只写单侧产物 Owner。本次据此为 M06 结论 8（决策 19）补 supersede 标注、为 M02 决策 4.4 补 confirmed 标注。
+  5. **68-5 租户标签键统一 + 命名规约泛化 + fail-closed 严格派**（原「遗留待决」升级，用户拍板「现在就定版，不等 v0.2」）：
+     - **68-5-1 通用命名规约**：**`_id` 后缀只用于 DB 列与 API JSON 字段；Prometheus 标签键及与之对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀。** 三层命名空间各自自洽——`network_domain`（标签）/ `network_domain_id`（字段）、`tenant`（标签）/ `tenant_id`（字段）。**目的：把「每次新增标签都要评审命名」换成可机械套用的规约，下次加标签无需再评审。** 写入 M02 §7.1 / M09 §3.3.1 / M07 §5.11 三处，作为跨模块共同基线。
+     - **68-5-2 统一为 `tenant`**：M02 §7.1 表租户行 key 改 `tenant`、来源由「M09 `external_labels` 注入」更正为「**M07 LabelTemplate target 级注入**」；§7.2 第 1 条 matcher 改 `tenant="<用户所属租户 ID>"`（**硬隔离语义不变**：永远存在、用户不可见不可改）；M07 §5.12/§5.13 把 `tenant_id → tenant` 升格为**内置默认映射前瞻口径**；M09 §3.3.1 注明 `external_labels` **不承担租户标签**（决策 19 结论维持），**租户标签唯一来源 = M07 target 级注入**；M06 结论 8 补「经决策 68-5 定版确认」。**与决策 19 的关系**：决策 19 已给出正确方向（`tenant` 走 target 级），但其键名被 68-1 supersede 的那次修订只改了网域键、未回头修正 M02 侧租户 matcher 名——68-5 补上这处遗漏，**不推翻决策 19 任何结论**。
+     - **68-5-3 三个配套（v0.2 落地）**：① **同源常量**——`platform/models` 增 `TenantLabelKey = "tenant"`（与既有 `NetworkDomainLabelKey` 同模式），M02 注入侧与 M07 模板校验侧均引用同一常量，**禁止在 M02 硬编码 matcher 名**；② **生成期门禁**——v0.2 开启多租户时 M09 生成期校验「被引用 Job 的标签模板含 `tenant` 映射」，**缺失则 `validation_status=failed`**（与 jobref 门禁同模式，接入决策 67 的 `validation_details.source` 路由，可「前往修改」跳回 M07），消除「模板没配映射 → 该 job 序列无 `tenant` 标签 → 租户查不到自己数据且无报错」的**静默丢失**；③ **matcher 注入强制化**——v0.2 时 `tenant="<当前租户>"` 永远存在、用户不可见不可改。
+     - **68-5-4 产品语义：fail-closed 严格派（用户拍板）**：**无 `tenant` 标签的序列 = 任何普通租户均不可见**（真 fail-closed）。平台基础设施自身指标（如监控平台自己的 `node_exporter`）的可见性由**显式** `tenant="platform_admin"` 承载——为中心 `default` 网域的平台自身 Job 单独注入该标签，**不得依赖「无标签即公共」的隐式放行**。**明确否决共享派**（matcher 写 `{tenant=~"|<当前租户>"}`）：隐式共享口一旦开启无法收回（用户原话：「v0.2 初期宁可让平台指标对普通租户不可见（平台管理员租户仍可见），也不要开一个『无标签即公共』的隐式共享口」）。
+     - **时序**：两侧均无代码、无存量序列标签、无已上线 matcher，**不涉及数据迁移与契约兼容**；v0.2 再定则须付「迁存量标签 + 处理已上线 matcher」的代价，故**现在定版**。
+- **影响范围**：
+  - Module_09 PRD：v1.64——§3.3 标签注入行 / §3.3.1 全节 / 配置文件映射语义 / 新增「alerting 投递接线」注记 / §6.3 配置包结构 / §7.1.4 边界表 / §9 验收 / §10 术语。**68-5 追加**：v1.65——§3.3.1 强化「`external_labels` 不承担租户标签、唯一来源 = M07 target 级」+ 命名规约 + 生成期门禁；§9 验收补门禁项；§10 术语。
+  - Module_08 PRD：v1.14——§9.1 / §9.2 增「触发测试告警 → AM `:9093` 可见」投递接线 E2E 验收。
+  - Module_02 PRD：v1.14——§7.1 注入标签 key 契约补决策 68 交叉引用。**68-5 追加**：v1.15——§7.1 租户行定版为 `tenant`（来源更正为 M07 target 级注入）、移除「遗留待决」注记改为**定版**、增命名规约注记；§7.2 第 1 条 matcher 名同步 + 补 fail-closed 严格派与生成期门禁；全文注入名校正。
+  - Module_07 PRD（68-5 新增）：v2.31——§5.11 补命名规约与 tenant 映射前瞻口径；§5.12 A 前置说明更新；§5.13 补「v0.2 起默认模板含 `tenant_id → tenant`」前瞻注记；§9 验收。
+  - 全局文档：`03_Functional_Architecture.md` §7 `external_labels` 口径修正 + 变更日志（68-5 追加注入名校正）；`04_Implementation_Map.md` L88 / L97 / L404 标签键修正 + 变更日志；`Modules/README.md` 跨模块快照。
+  - 治理留痕：`module-06/2026-08-19-...-orthogonality.md` 结论 8 补「经决策 68-5 定版确认」；`module-02/design-decisions.md` 决策 4.4 行补 68-5 标注。
+  - 契约：`module-08/api-contract-snapshot.md` §10.1 / §10.2「网域取值口径」按收敛后口径重写 + §10.3 diff。
+  - 设计记录：新增 `docs/05-execution-records/module-09/network-domain-label-key-convergence-and-alerting-wiring.md`（含证据索引、v0.2 口径约定与代码落点；§9 由「遗留待决」升级为决策 68-5）。
+- **实现落点（本轮仅文档，代码在开发分支 / v0.2 执行）**：`platform/configcenter/generator/render.go`（`cfgFile` 增 `Alerting`、`Assemble` 增 `alertmanagerAddr` 入参 + 条件注入 + 仅中心开关）、`platform/configcenter/generator/generator.go:43`（标签键）、`platform/configcenter/draft/service.go:210`（传入 AM 地址 + 通道判定）、`scripts/package-center.sh`（如需新增 env 变量则复用既有 `AM_PORT` / `--alertmanager.url`）；**`platform/models/network_domain_label.go` 不动**（双读永久保留），**68-5 追加**：按同一模式增 `TenantLabelKey = "tenant"` 常量；**v0.2**：`platform/query/alerts.go` 注入侧引用 `TenantLabelKey`（禁止硬编码）+ fail-closed 严格派；`platform/models/label_template.go` `DefaultMappingBuilders` 增 `tenant_id → tenant`；`platform/configcenter/generator/` 生成期门禁（缺 `tenant` 映射 → `validation_status=failed`）。
+- **关联**：决策 19（`external_labels` 字段清单，**键名被本决策 68-1 supersede**、**「`tenant` 标签走 target 级」被 68-5 定版确认**；登记于 `module-06/2026-08-19-business-registration-and-domain-business-orthogonality.md` 结论 8）、M02 决策 4.4（注入标签 key 契约，**经本决策复核确认为最终口径**，68-5 追加租户键定版）、决策 55 / 56（告警状态归属与授权过滤）、决策 59 / 60（告警分发 MVP 闭环，本决策补其缺失的投递接线）、决策 61（AM v2 API 口径）、决策 64（`env/env.sh` 集中环境定义）、决策 66 / 67（规则 job 引用校验，本决策引用 67-4 教训与「生成期门禁同模式」）、F-07（M08 网域列缺陷修复）。
+
+---
+
+### 决策登记：2026-09-10（M01 规则挂载：独立「检查」与提交按钮状态机 + M08→M09 变更单深链——用户已确认）
+
+- **编号**：决策 69（子决策 **69-1** `validate-yaml` 并入组名全局唯一性 / **69-2** 提交按钮改为「检查通过后出现」的状态机 / **69-3** 错误与结果面板位置；另有跨模块项 **③ M08 操作列路由**，挂决策 60 作补充块、不新开编号）
+- **触发**：决策 67-2 已把「error 级 job 引用默认阻断 + 逃生门」落地为**提交期**行为，但用户复核现场动线后指出三处待决 UI 决策（① 规则挂载「本地检查」的检查范围；② 逃生门通过后是否直接解锁提交按钮；③ M08 操作列路由 2A/2B）。用户对逐条代码事实核实后拍板方案并给出关键定性：**①② 不是新功能，是在已有提交期流程上做交互重排**——逃生门已实现（`RuleMountDrawer.tsx:55-56,126,140,260-265`，含「内容变更后 ack 失效须重勾」防呆，`:281`），因此判定逻辑一律不动，只重排交互。
+- **核实结论**：
+  1. **`validate-yaml` 不是「提交校验的全量」**：`ValidateRuleYAML`（`update.go:129-146`）= YAML 语法 + `groups` 结构 + job 引用；**组名全局唯一性 `validateGroupNamesAvailable` 只在 create/update 调用**（`create.go:66` / `update.go:72`）。若「检查」直接复用现状，会出现「检查全绿 → 提交被 400 组名冲突打回」的最坏组合。
+  2. **前端本地兜底不构成检查能力**：`validateYamlClient`（`rulesYaml.ts:5-13`）只有一条 `/^\s*groups\s*:/m` 正则，连 YAML 语法都不真解析，且不返回 `job_ref`。
+  3. **M08 参照物是浅检，规则侧学不了**：`AlertConfigDrawer.tsx:156-200` 的「本地**大小**检查」只做非空 + 100KB，并通过绿色 Alert 显式声明免责边界（「提交后由服务端执行 amtool 等价校验」）。规则要承载 job 引用硬约束，必须是服务端口径的检查。
+  4. **A/B 二选一的矛盾不存在**：勾选框不提交任何东西、只参与「提交按钮是否出现」的计算，物理上仍是两次点击（检查 → 提交），A 的「勾选动作语义变重」风险不适用、B 的「知情与下令分离」完整保留。
+  5. **③ 的 2B 不推荐**：为跨页跳转重新引入 `change_status` 两态路由会触碰决策 60 冻结口径（M08 不驱动下发状态）；而 2A 纯维持现状又留下「pending 期页面内无入口」的断点（toast 数秒即消失）。折中方案证据扎实：`source_change_no` 列**已展示**（`AlertConfigPage.tsx:148-154`），渲染为链接属纯展示层增强；`?change_no=` 深链是既有约定（`ConfigPreviewPage.tsx:712` → `/deployments?change_no=...`；`DeploymentsPage.tsx:54`），不新增路由、不碰决策 60。
+- **结论（用户已确认，2026-09-10）**：
+  1. **69-1（P0，前置条件）`validate-yaml` 并入组名全局唯一性**：在 YAML 语法通过后、job 引用校验前追加，与提交侧**同实现、同输入集**——仅当目标规则生效（`enabled=true AND draft_status='ready'`）时校验，**停用规则不校验**（镜像 `update.go:71`，避免「检查红、提交能过」的反向不一致）；`:id` 为真实规则 ID 时**排除自身**，为 `0`（新建）时按默认启用处理。响应形状 `{valid, error?, job_ref?}` **不变**，但 **`valid` 语义由「仅反映 YAML 语法」扩展为「预检是否可提交」**：`valid=false` = 不可覆盖的硬失败（语法 / `groups` 结构 / 组名冲突）；`job_ref.severity=error` = 可经逃生门覆盖的阻断（不改写 `valid`）。由此门禁收敛为两根轴，前端状态机可由两个信号直接驱动。
+  2. **69-2（P0，交互重排）提交按钮按状态出现**：`canSubmit = 检查通过(valid=true) 且（无 error 级 job 引用 或 已勾选逃生门）`；「检查」按钮常驻，提交按钮**条件渲染而非 disabled**；新建与编辑统一文案「**提交并进入变更确认**」（原「提交生效」/「保存变更」）；**规则内容变更**时检查结论与 ack 一并作废、提交按钮重新隐藏（非内容字段变更不重置）；逃生门提前到检查阶段展示；`validate-yaml` 不可用时的本地兜底路径与后端 `job_ref_unresolved` 兜底路径保留。
+  3. **69-3（P1，布局）错误与结果面板下移**：面板从表单上方移到表单下方、操作按钮上方；三类面板互斥（检查未通过红 / 检查通过绿含「服务端复核」边界说明 / job 引用提示红=阻断黄=提示）。
+  4. **③（跨模块，挂决策 60 补充块）**：`AlertConfigPage` 的 `source_change_no` 渲染为跳转链接 → `/config-preview?change_no=xxx`；`ConfigPreviewPage` 支持该 query 参数，落地时自动展开对应变更单详情抽屉（消费后清除参数，避免刷新反复弹出）。不新增路由、不引入 `change_status` 依赖、不触碰决策 60 语义。
+  5. **明确不做**：不改后端判定逻辑（`checkRuleJobRefGate` / `ErrorTypeJobRefUnresolved` / `ack_job_ref_errors` 语义与触发条件一律不变）；不引入 v0.3「保存草稿」；不做字段化规则编辑与 PromQL 语义校验。
+- **影响范围**：
+  - Module_01 PRD：**待办**——v3.41 增量须把头部「⚠️ v3.40 待原型同步（67-2 逃生门）」**扩大为 67-2 + 69 一并同步**（独立「检查」按钮 + 提交按钮条件出现 + 面板下移 + 文案改为「提交并进入变更确认」）；按 PRD 冻结门禁须与原型同步同轮完成。
+  - Module_08 PRD：**待办**——§5 版本历史「M09 变更单」列由纯文本升级为跳转链接（展示层增强），随本轮或下一轮 PRD 增量登记。
+  - Module_09 PRD：不需要修改（`?change_no=` 深链为既有约定，`/deployments` 已用同模式）。
+  - 契约：`module-01/api-contract-snapshot.md` §7（`validate-yaml` 响应语义 + 组名唯一性注记 + 前端门禁交互口径）。
+  - 设计记录：新增 `docs/05-execution-records/module-01/rule-mount-local-check-and-escape-hatch.md`（含决策 67-2 边界对照表与证据索引）；`module-08/design-decisions.md` 决策 60 追加补充块。
+- **实现落点**：`platform/strategy/rule/validate.go`（新增 `validateGroupNamesForCheck`）、`platform/strategy/rule/update.go`（`ValidateRuleYAML` 插入组名校验）、`platform/strategy/rule/monitoring_rule_test.go`（新增用例）；前端 `ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx` + `.test.tsx`（检查按钮与状态机）、`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（`source_change_no` 链接）、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`（`?change_no=` 深链）+ 两页测试。
+- **关联**：决策 43（提交 ≠ 直接生效，故按钮文案改「提交并进入变更确认」）、决策 45-1 / 45-2（校验失败三态出口与 M01 引导）、决策 **59 / 60**（告警配置进 M09 变更确认与 M08 网域口径，③ 为其补充块）、决策 **66**（双层校验模型）、决策 **67-2**（提交分级门 + 逃生门，本决策在其上做交互重排、**判定逻辑不变**）、决策 67-3（「前往修改」按来源路由，同属跨模块动线补全）。
+

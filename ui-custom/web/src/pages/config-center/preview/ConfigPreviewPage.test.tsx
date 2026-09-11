@@ -85,9 +85,9 @@ function result(over: Record<string, unknown> = {}) {
   }
 }
 
-function renderPage() {
+function renderPage(initialEntries: string[] = ['/']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <ConfigPreviewPage />
     </MemoryRouter>,
   )
@@ -162,6 +162,19 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
     expect(draftApiMock.get).toHaveBeenCalledWith('CHG-20260823-001')
     expect(await screen.findByRole('tab', { name: '变更摘要' })).toBeInTheDocument()
+  })
+
+  // 决策 69-③（决策 60 补充块）：M08 版本历史「M09 变更单」列跳入的 ?change_no= 深链，
+  // 落地即自动展开该变更单详情抽屉（无需在列表中找到该行）。
+  it('决策 69-③：?change_no= 深链落地即打开该变更单详情', async () => {
+    useConfigDraftsMock.mockReturnValue(result())
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ change_items: [] }) })
+    renderPage(['/config-preview?change_no=CHG-20260823-001'])
+    expect(draftApiMock.get).toHaveBeenCalledWith('CHG-20260823-001')
+    expect(await screen.findByRole('tab', { name: '变更摘要' })).toBeInTheDocument()
+    // 深链只驱动「打开哪一单」，不改列表筛选状态（不触碰决策 60 的 M08/M09 职责边界）
+    expect(setStatusMock).not.toHaveBeenCalled()
+    expect(setDomainIdMock).not.toHaveBeenCalled()
   })
 
   it('确认发布：Modal 二次确认后调用 confirm 并 reload', async () => {

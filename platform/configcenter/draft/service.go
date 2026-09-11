@@ -33,6 +33,13 @@ var (
 	ErrNoChanges = errors.New("no config changes to generate")
 )
 
+// AlertmanagerTarget 是中心求值器 prometheus.yml 中
+// alerting.alertmanagers[].static_configs[].targets 的投递目标（host:port，决策 68-2）。
+// 由 cmd/metric-center 从 --alertmanager.url 经 generator.AlertmanagerTargetFromURL
+// 解析注入（禁止硬编码 127.0.0.1:9093）；为空时即便存在 alertmanager.yml 挂载内容也
+// 不生成 alerting 段。可注入便于测试。
+var AlertmanagerTarget string
+
 // GenerateDraft 手动触发生成一条配置草稿（POST /api/v2/platform/config/drafts）。
 //
 // 约束（PRD §3.4 / 决策 42-1）：
@@ -207,7 +214,11 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 			alertmanagerYML = am
 		}
 	}
-	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML)
+	// 决策 68-2 / 68-3：仅中心求值器（channel=local）生成 rule_files 与 alerting；
+	// 边缘通道（agent_pull）的 vmagent / prometheus-agent 不支持这两段，必须不生成。
+	// 两者由同一个 centerEvaluator 判定驱动（约定纪律，禁止各自 if）。
+	centerEvaluator := dom.Channel == models.ChannelTypeLocal
+	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML, AlertmanagerTarget, centerEvaluator)
 	if err != nil {
 		return nil, nil, nil, err
 	}

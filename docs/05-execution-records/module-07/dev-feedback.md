@@ -146,16 +146,28 @@
   - `platform/configcenter/generator/generator_test.go`：`TestResolveTargetsInjectsResourceID`（无模板也注入 resource_id；模板映射不可覆盖 resource_id）。
 - **生效提示**：已下发的旧 Prometheus 配置里 targets 仍无 `resource_id` 标签，部署修复后需**废弃旧 pending 单并重新触发变更 → 确认下发**，使 Prometheus 重新加载新配置。
 
+---
 
-> 触发：用户反馈「操作系统填自由文本（如拼写错误的 `ubutund`）时，采集 Job 选 Linux 主机找不到对应实例」→ 结论需在采集端建立稳定匹配口径，故做内置字典。
+## 11. 新增登记（2026-09-11，M08 实例列对齐实施期发现）
 
-- **原设计**：`os_type` 为自由文本 Input（§7 已修必填，但仍允许任意输入）。采集 Job 候选筛选靠 `monitor_type.go` 的 `OSKeywords` 做脆性 LOWER LIKE 匹配，**拼错或填带版本全名即匹配不到**，用户无法稳定把主机归入 `host_linux`/`host_windows` 候选。
-- **已落地（开发侧，单一权威字典）**：
-  - 后端 `platform/models/os_dict.go`：内置字典 `规范名 → 家族`（Ubuntu/CentOS/RedHat/openEuler/Kylin/AIX/Solaris…→linux；Windows Server 2016~2022/Windows 10/11…→windows）；
-  - `NormalizeOSType`：精确名 → 前缀+版本归一（"ubuntu 22.04 LTS"→"Ubuntu"）→ 家族 token 回落（含 linux/unix/windows 的非字典值→"Linux"/"Windows"）→ 否则保留自定义；
-  - `monitor_type.go` host 候选关键字改为字典动态推导 `OSKeywordsForLinux/Windows()`，替代硬编码 `OSKeywords`；
-  - 配置接口 `GET /api/v2/platform/os-options`（`platform/config/resource/os_options.go`）；
-  - 前端 host 表单「操作系统」改用 antd AutoComplete 下拉选择（可搜索、可自定义），写入后端归一化。
-- **口径边界**：纯拼写错误且不含任何家族关键字（如 `ubutund`）无法自动映射——这正是用下拉+字典规避的点。若需兼容更多 Linux 写法，在 `osDict` 增补规范名即可（家族映射一并生效）。
-- **请求结论**：请设计侧确认是否将 Module_07 §5.6 的 `os_type` 描述改为「内置字典选择（参考 `/os-options`），可按需扩展规范名」，并在 PRD 中说明字典口径，便于 M01/M09 采集候选匹配对齐。
-- **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——PRD §5.2/§5.6 `os_type` 已明确为「内置字典选择（AutoComplete 下拉，可搜索/自定义），参考 `/api/v2/platform/os-options`，规范名可按需扩展」，按「规范名→家族」归一化（decision 3.53）；原型 host 表单同步改必填 + AutoComplete 下拉。
+### F-5. `instance_name` 标签映射：PRD 内部矛盾 + 适用范围建议（① 需设计确认）
+
+- **类别**：① 需产品/设计确认（PRD 内部自相矛盾 + 适用范围未限定）
+- **PRD 章节 / 文件位置**：`Module_07_Monitoring_Object_Management.md` §5.2 字段表 `instance_name` 行（L318）与 §5.12 A「Resource 字段」表 L621 行；实现侧 `platform/models/label_template.go` 的 `DefaultMappingBuilders`
+- **触发**：M08「告警实例列与 M01 资源清单对齐」方案实施（M08 决策 70）时核对标签映射实现，发现下述矛盾，且该矛盾直接影响 M08 v1.15 三期增量（标签侧补 `instance_name`）的实施口径。
+- **① PRD 内部矛盾（需择一为准）**：
+
+  | 位置 | 原文要点 | 指向的 Prometheus Label |
+  |------|----------|------------------------|
+  | §5.2 字段表 `instance_name` 行 | 「可读实例名/展示名；host 模板中必填，对应 Excel `instance_name`，**生成 `hostname` label**」 | `hostname` |
+  | §5.12 A 表通用行 | 「`instance_name` → **`instance_name`**；可读实例名；host 模板中必填」 | `instance_name` |
+
+  - 两处对同一来源字段给出**不同的目标标签**。实现侧 `DefaultMappingBuilders`（`label_template.go:38-62`）**两条都没有实现**（host 类默认模板实际仅有 `instance_ip:port→instance` / `resource_id` / `app_name→app` / `env` / `cluster` / `biz_code→biz`）；即 §5.2 所称「生成 hostname label」在默认模板中**从不产出**，是**死键**。
+  - 建议：以 §5.12 A 的「通用 `instance_name` → `instance_name`」为准，并同步修正 §5.2 的「生成 `hostname` label」表述；同时明确「主机 `hostname` → `hostname`」是否仍需保留（若保留应一并实现，否则应从 §5.12 A 表移除，避免第二处死键）。
+- **② 适用范围建议（补括注）**：§5.12 A 的通用行未限定适用范围。经逐资源类型评估（M08 决策 70），建议明确为**仅 4 类静态资源**（host / database / middleware / generic_target）：
+  - host 取 `InstanceName`；database / middleware **取 `InstanceIP`**（两个模型均无 `instance_name` 字段，与 `task-sequence.yaml:445` 展示口径一致）；generic_target 取 `TargetName`；
+  - **application 不适用**：其默认模板已有 `service_name → service_name`，再加 `instance_name` 属同义重复，会让「哪个才是名字」成为新的歧义源；
+  - 拨测（blackbox）URL 与容器类不在该表范围内，不适用。
+- **请求结论**：请设计侧在下一轮 PRD 迭代中（a）择定 `instance_name` 的目标标签并修正 §5.2 矛盾；（b）为 §5.12 A 通用行补适用范围括注（4 类静态资源 + db/mw 取 `InstanceIP`）。
+- **备注**：本次未直接修改 M07 PRD 正文与版本面——本分支为 M08 开发分支，避免触碰其他模块的 PRD 版本归口（跨模块冲突风险）；实现侧已按上述建议口径预留（M08 决策 70 三期范围收窄至 4 类静态资源）。
+- **状态**：open（待设计侧收割）

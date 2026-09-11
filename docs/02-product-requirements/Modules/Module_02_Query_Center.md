@@ -1,10 +1,10 @@
 # Module 02: 查询中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.13
+> **PRD 版本**: v1.15
 > **产品版本覆盖**: MVP / v0.2 / v0.3
 > **原型版本**: v1.7（未对齐，待按 v1.10 修订；v1.13 为 Track B 轻量增量「历史告警 API」，免高保真原型，豁免记录见 `docs/05-execution-records/module-02/design-decisions.md`；以 `docs/prototypes/module-02/package.json` 为准）
-> **更新日期**: 2026-09-09
+> **更新日期**: 2026-09-10
 > **对应原型**: `docs/prototypes/module-02/`
 > **副标题**: 带租户/网域上下文注入的 Prometheus Query API 代理 + 采集目标状态展示
 
@@ -46,7 +46,7 @@ Prometheus 原生的查询接口功能强大但使用门槛高：需要记忆复
 
 - 痛点：Prometheus 原生无多租户概念，直接暴露查询接口会导致跨租户数据泄露
 
-- 对应能力：租户/网域上下文注入（`tenant_id` + `network_domain` 授权集合收敛）
+- 对应能力：租户/网域上下文注入（`tenant` + `network_domain` 授权集合收敛）
 
 **阶段 4：告警联动期——「告警触发后，我需要知道当前状态」**
 
@@ -82,7 +82,7 @@ Prometheus 原生的查询接口功能强大但使用门槛高：需要记忆复
 | 执行指标查询    | 运维工程师      | 排查 CPU 使用率异常    | 输入 PromQL 查询指标趋势         | 查询结果正确返回，且只能看到有权限的网域数据                      | 原始需求    |
 | 查看采集目标状态  | 运维工程师      | 例行检查采集健康度       | 查看目标列表与采集状态              | 目标状态清晰展示，可按网域/Job 筛选                        | 决策 47-4 |
 | AI 应用消费指标 | AI 应用开发工程师 | 构建 AIOps 异常检测模型 | 通过稳定 API 批量获取指标数据        | API 返回格式统一，支持批量查询                           | 原始需求    |
-| 多租户数据隔离   | 运维架构师      | 平台引入多租户         | 确保用户只能查询被授权网域的数据         | 查询自动注入 `tenant_id` + `network_domain`，越权返回空 | 决策 56   |
+| 多租户数据隔离   | 运维架构师      | 平台引入多租户         | 确保用户只能查询被授权网域的数据         | 查询自动注入 `tenant` + `network_domain`，越权返回空 | 决策 56   |
 | 告警状态查看    | 运维工程师      | 告警触发后确认状态       | 查看当前 firing/pending 告警实例 | 告警状态与 M08 通知状态联动展示                          | 决策 55   |
 | 目标状态页导航   | 运维工程师      | 需要跨 Job 全局排障    | 通过导航进入目标状态页              | 目标状态页在 M09 下可访问（临时挂载，决策 47-4 豁免）            | F-1     |
 
@@ -92,7 +92,7 @@ Prometheus 原生的查询接口功能强大但使用门槛高：需要记忆复
 
 ## 1. 模块目标
 
-Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下文注入的 Prometheus Query API 代理**，并**承接** **[Module\_01](Module_01_Metric_Collection_Center.md)** **移交的采集运行时状态展示**。在将查询转发给中心 Prometheus 之前，必须根据当前认证用户的身份自动注入 `tenant_id` 与有权限的网域标签，以保证多租户数据隔离。
+Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下文注入的 Prometheus Query API 代理**，并**承接** **[Module\_01](Module_01_Metric_Collection_Center.md)** **移交的采集运行时状态展示**。在将查询转发给中心 Prometheus 之前，必须根据当前认证用户的身份自动注入 `tenant` 与有权限的网域标签，以保证多租户数据隔离。
 
 **按产品版本的功能分布（与** **[02\_Product\_Roadmap.md](../02_Product_Roadmap.md)** **1.5 功能-版本矩阵对齐）**：
 
@@ -110,7 +110,7 @@ Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下
 >
 > - PromQL 校验/指标预览接口随 Module\_01 规则编辑 UI 一同移至 **v0.3**（路线图 2.4：MVP 不做告警规则编辑 UI，规则手写 `rules.yml` + Alertmanager）。
 
-> **存储可替换性决策点（v1.7，决策 57）**：部署拓扑锁定为「1 控制面 + N 采集节点」扁平形态；中心存储预留从 Prometheus 替换为 VictoriaMetrics 的可能——本模块代理作为防腐层保证替换时消费方（UI / Grafana / Open API）零改动。**隔离契约保持标签制**（`tenant_id` / `network_domain` 由 M09 `external_labels` 写入侧打标、本模块查询侧校验，Prometheus 与 VM 通吃）；VM 集群版原生多租户（vmauth + accountID）作为 v0.2 开启多租户语义前的评审选项，暂定不采用（契约单一、可回切 Prometheus）。
+> **存储可替换性决策点（v1.7，决策 57）**：部署拓扑锁定为「1 控制面 + N 采集节点」扁平形态；中心存储预留从 Prometheus 替换为 VictoriaMetrics 的可能——本模块代理作为防腐层保证替换时消费方（UI / Grafana / Open API）零改动。**隔离契约保持标签制**（网域标签 `network_domain` 由 M09 `external_labels` 写入侧打标，租户标签 `tenant` 由 M07 LabelTemplate **target 级**注入打标，本模块查询侧校验，Prometheus 与 VM 通吃；决策 68-5 定版）；VM 集群版原生多租户（vmauth + accountID）作为 v0.2 开启多租户语义前的评审选项，暂定不采用（契约单一、可回切 Prometheus）。
 
 ### 与周边模块的边界
 
@@ -148,7 +148,7 @@ Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下
 
 | 功能                                 | 说明                                                                                                                                                                               | 优先级 / 版本              |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| **PromQL 代理**（含租户/网域注入骨架）          | 代理 instant / range 查询，自动注入 `tenant_id` 与有权限的网域标签                                                                                                                                 | **P0 / MVP**          |
+| **PromQL 代理**（含租户/网域注入骨架）          | 代理 instant / range 查询，自动注入 `tenant` 与有权限的网域标签                                                                                                                                 | **P0 / MVP**          |
 | **目标状态 API**（`/api/v1/targets` 代理） | 代理 `/api/v1/targets`，返回目标 health（up/down/unknown）、lastScrape、lastError、所属网域/Job，支持按网域/Job/health 过滤；承接 Module\_01 移交的目标列表职责；**同时作为 M01 Job 回显（决策 47-2）与 M07 badge（决策 47-3）的数据源** | **P0 / MVP**          |
 | **目标状态页**（独立页面）                    | 跨 Job 全局排障视图：全部 target 列表 + 按网域/Job/health 筛选 + 采集诊断 Drawer；**由 P0 降为 P1（极简列表即可，决策 47-4）**——配置场景的知情权由 M01 回显、资产场景的知情权由 M07 badge 承接，本页不再是唯一状态入口                                  | **P1 / MVP**          |
 | **响应 envelope**                    | 统一包裹 Prometheus 原始响应，暴露数据来源与新鲜度（结构见第 8 节）                                                                                                                                        | **P0 / MVP**          |
@@ -207,7 +207,7 @@ Module\_02 作为查询代理，核心流程覆盖从用户发起查询到获得
 ### 4.1 查询流程（MVP）
 
 1. **用户输入查询**：用户在查询页面输入 PromQL 表达式，选择查询类型（instant / range）及时间范围；
-2. **租户/网域注入**：Module\_02 根据当前认证用户身份，从 Module\_06 获取租户-网域关联，自动注入 `tenant_id` 与 `network_domain` 标签选择器；
+2. **租户/网域注入**：Module\_02 根据当前认证用户身份，从 Module\_06 获取租户-网域关联，自动注入 `tenant` 与 `network_domain` 标签选择器；
 3. **转发到 Prometheus**：将注入后的查询请求转发到中心 Prometheus Query API；
 4. **响应封装**：将 Prometheus 原始响应包裹为统一 envelope 格式（含 `data_source`、`freshness_at`、`network_domains` 元数据）；
 5. **返回结果**：将 envelope 响应返回给用户/UI。
@@ -321,23 +321,39 @@ Module\_02 作为查询代理，核心流程覆盖从用户发起查询到获得
 
 ## 7. 注入与授权校验规则
 
-### 7.1 注入标签 key 契约（v1.2 修订，关键）
+### 7.1 注入标签 key 契约（v1.2 修订，v1.15 定版，关键）
 
-**注入的标签 key 必须与** **[Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md)** **3.3.1** **`external_labels`** **注入的 key 完全一致**：
+**注入的标签 key 必须与采集侧实际注入的 key 完全一致**——网域键与 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) **3.3.1** `external_labels` 对齐，租户键与 [Module\_07](Module_07_Monitoring_Object_Management.md) **LabelTemplate target 级注入**对齐（§5.12 / §5.13）：
 
-| 标签 key           | 取值                        | 来源                                                                      |
-| ---------------- | ------------------------- | ----------------------------------------------------------------------- |
-| `network_domain` | `NetworkDomain.id`        | Module\_09 生成 `prometheus.yml` 时通过 `external_labels` 注入，采集端附加到每条 series |
-| `tenant_id`      | `NetworkDomain.tenant_id` | 同上                                                                      |
+| 标签 key           | 取值                        | 来源                                                                                                                              |
+| ---------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `network_domain` | `NetworkDomain.id`        | Module\_09 生成 `prometheus.yml` 时通过 `external_labels` 注入，采集端附加到每条 series                                                            |
+| `tenant`         | `NetworkDomain.tenant_id` | [Module\_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入（`tenant_id → tenant`），随 `targets/*.json` 的 `static_configs[].labels` 落盘；**M09 `external_labels` 不承担租户标签** |
 
 > **v1.2 修复说明**：v1.1 曾以 `network_domain_id` 作为查询注入标签（「决策中记为」），与 Module\_09 实际注入的 `network_domain` 不一致，会导致注入匹配不到数据（模块注入 = 权限隔离，失效即跨租户数据泄露或全空）。v1.2 起统一为 `network_domain`。注意区分：**对象属性** `Resource.network_domain_id`（Module\_07 数据字段）与 **Prometheus 标签** `network_domain`（Module\_09 external\_labels 注入）是两回事，不得混用。
+
+> **✅ 本表为全平台标签键权威口径（决策 68-1 / 68-5，2026-09-10）**
+>
+> - **网域键（68-1）**：Module\_09 侧 `external_labels` 键名由 `network_domain_id` 收敛为 **`network_domain`**（决策 19 的键名选择被 supersede，其「移除 `tenant_id`」的字段清单结论不变）。消费侧 `network_domain` → 兼容 `network_domain_id` → `default` 三级解析为**过渡层常驻**（`models.ResolveNetworkDomain`）。
+> - **租户键（68-5，v1.15 定版）**：本表租户行由 `tenant_id` 修正为 **`tenant`**——写入侧唯一来源是 **Module\_07 LabelTemplate 的 target 级注入**（M09 `external_labels` 不承担），matcher 名与本表一致（§7.2 第 1 条）。
+> - **通用命名规约（68-5-1）**：**`_id` 后缀只用于 DB 列与 API JSON 字段（ID 语义）；Prometheus 标签键、以及与之对齐的 Query 参数 / Excel 列 / envelope 字段，一律不带 `_id` 后缀。** 三层命名空间各自自洽——`network_domain`（标签）/ `network_domain_id`（字段）、`tenant`（标签）/ `tenant_id`（字段）。下次新增标签只要遵守此规约即自洽，**无需再逐次评审命名**。
+>
+> 详见 `docs/05-execution-records/module-09/design-decisions.md`「决策登记：2026-09-10（网域标签键收敛 + 租户标签键统一 + Prometheus→Alertmanager 投递接线）」与 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md`（§2 网域键 / §9 租户键）。
 
 ### 7.2 注入规则
 
 Module\_02 在代理查询时，必须根据认证用户从 [Module\_06](Module_06_Multi_Tenant.md) 与 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 获取的租户-网域关联，执行以下注入/校验（v1.7 起按**三层语义**表述，决策 56）：
 
-1. **硬隔离边界：`tenant_id`** **强制注入**
-   选择器为 `tenant_id="<用户所属租户 ID>"`，永远存在、用户不可见不可改。Module\_02 不暴露跨租户查询能力，平台管理员也按租户维度管理。MVP 恒为 `tenant_id="platform_admin"`。
+1. **硬隔离边界：`tenant`** **强制注入**
+   选择器为 `tenant="<用户所属租户 ID>"`，永远存在、用户不可见不可改。Module\_02 不暴露跨租户查询能力，平台管理员也按租户维度管理。MVP 恒为 `tenant="platform_admin"`。
+
+   > **matcher 名与标签名同源（决策 68-5）**：标签键为 **`tenant`**（Module\_07 target 级注入，§7.1），非 `tenant_id`——`tenant_id` 只作 DB 列 / API 字段（`NetworkDomain.tenant_id`、`Tenant.id`）。实现侧 matcher 名必须引用同源常量 `models.TenantLabelKey`，**禁止硬编码字符串**。
+   >
+   > **fail-closed 严格派（决策 68-5-4）**：**无 `tenant` 标签的序列 = 任何普通租户均不可见**（真 fail-closed）。平台基础设施自身指标（如监控平台自己的 `node_exporter`）的可见性由**显式** `tenant="platform_admin"` 承载（为中心 `default` 网域的平台自身 Job 单独注入该标签），**不得依赖「无标签即公共」的隐式放行**——明确否决共享派写法 `{tenant=~"|<当前租户>"}`（隐式共享口一旦开启无法收回）。
+   >
+   > **生成期门禁（决策 68-5-3②，v0.2）**：target 级注入依赖 LabelTemplate 配置，存在「模板未配 `tenant` 映射 → 该 job 序列无 `tenant` 标签 → 租户查不到自己的数据」的**静默丢失**风险。v0.2 开启多租户时，由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 生成期校验「被引用 Job 的标签模板含 `tenant` 映射」，缺失则 `validation_status=failed`（与规则 job 引用门禁同模式），「前往修改」跳回 Module\_07。
+   >
+   > **MVP 现状**：注入骨架恒通过（`tenantAuthorizedDomains` 恒返回空集合），不做实际 matcher 注入；上述语义于 v0.2 开启多租户时生效。
 
 2. **软授权边界：`network_domain`** **授权集合收敛（非"锁定单网域"）**
    `network_domain` 是部署拓扑维度，不是默认隔离边界——业务通常跨网域，跨网域聚合（如 `sum by (biz)`）必须天然成立。注入语义为**授权集合收敛**：
@@ -415,7 +431,7 @@ Module\_02 将 Prometheus 原始响应包裹为统一 envelope，在不污染 Pr
 
 - [Module\_06\_Multi\_Tenant.md](Module_06_Multi_Tenant.md)：租户-网域模型与用户权限（v0.2 多租户语义）
 
-- [Module\_09\_Network\_Domain\_and\_Edge\_Config\_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)：`external_labels` 注入（`network_domain` / `tenant_id` 契约）、EdgeAgent 心跳/WAL 状态（新鲜度信息源）
+- [Module\_09\_Network\_Domain\_and\_Edge\_Config\_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)：`external_labels` 注入（`network_domain` 契约；**租户标签 `tenant` 不由 M09 承担**，见 Module\_07 §5.12）、EdgeAgent 心跳/WAL 状态（新鲜度信息源）
 
 - [Module\_01\_Metric\_Collection\_Center.md](Module_01_Metric_Collection_Center.md)：ScrapeTarget/ScrapeLog 模型（只读展示）、指标库 ExporterMetricLibrary（v0.3 查询辅助联动）
 
@@ -466,7 +482,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 | #  | 验收项                                                                                               | 优先级 | 版本   |
 | -- | ------------------------------------------------------------------------------------------------- | --- | ---- |
-| 1  | PromQL instant / range 查询自动注入 `tenant_id` 与 `network_domain`，key 与 Module\_09 external\_labels 对齐 | P0  | MVP  |
+| 1  | PromQL instant / range 查询自动注入 `tenant` 与 `network_domain`，两键名均与采集侧实际标签对齐（`network_domain` ← M09 `external_labels`；`tenant` ← M07 LabelTemplate target 级注入） | P0  | MVP  |
 | 2  | 未授权租户/网域的数据不可见（注入即权限隔离）                                                                           | P0  | MVP  |
 | 3  | 代理 `/api/v1/targets` 返回目标列表，注入租户/网域上下文                                                            | P0  | MVP  |
 | 4  | 查询响应包含完整 envelope 元数据                                                                             | P0  | MVP  |
@@ -496,7 +512,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | Module\_01 | `ScrapeTarget` / `ScrapeLog` 模型由 M01 定义，M02 只读展示；MVP 用 `/api/v1/targets` 代理（health/lastScrape/lastError），**同时作为 M01 Job 实例采集状态回显的数据源（决策 47-2）**，ScrapeLog 独立存储 v0.3；validate/指标预览接口随 M01 规则编辑 UI 于 v0.3 启用 | MVP / v0.3  |
 | Module\_07 | MVP 起：M02 提供 up 健康度/覆盖率查询 API（决策 47-3 提前），M07 只读消费做三态 badge（采集中 / 已下发未采到 / 未监控），M07 不直连时序数据；三态判定不感知 M09 下发时序——选中关系取 DB 当前值，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显（2026-09-02 口径修订）                     | MVP         |
 | Module\_08 | alerts 代理 v0.3 与 M08 对齐（v1.12 提前至 MVP）；M02 只代理中心求值告警实例与告警历史（`/api/v1/alerts` + `/api/v1/alerts/history`，后者 v1.13 新增），Alertmanager 通知状态（分组/静默/抑制/接收人）归 M08；v0.4+ `scope=edge`/`both` 边缘自治告警在边缘 vmalert 本地求值，不在中心 alerts 内                                                                | MVP / v0.3        |
-| Module\_09 | 注入 key 契约对齐 `network_domain` / `tenant_id`（M09 external\_labels）；M09 管监控基础设施健康（EdgeAgent/WAL/配置同步），M02 管被监控对象指标；M02 数据新鲜度信息源来自 M09 心跳                                                                      | MVP / v0.2  |
+| Module\_09 | 网域注入 key 契约对齐 `network_domain`（M09 external\_labels）；**租户标签 `tenant` 来源为 Module\_07 target 级注入，非 M09**；M09 管监控基础设施健康（EdgeAgent/WAL/配置同步），M02 管被监控对象指标；M02 数据新鲜度信息源来自 M09 心跳                                                                      | MVP / v0.2  |
 | Module\_10 | v0.2+ 外部监控源数据经 M10 标签归一化后写入中心，M02 查询覆盖并按监控源筛选；标签语义对齐归 M10                                                                                                                                                  | v0.2 / v0.3 |
 
 ***
@@ -508,7 +524,8 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 | PromQL                | PromQL 查询语句 | Prometheus 查询语言，用于实时筛选和聚合指标数据          |
 | instant query         | 即时查询        | 查询当前时间点的指标值                            |
 | range query           | 范围查询        | 查询一段时间范围内的指标值序列                        |
-| `tenant_id`           | 租户 ID       | 多租户隔离的租户标识，系统自动注入                      |
+| `tenant`              | 租户标签        | 多租户隔离的 **Prometheus 标签键**（标签键不带 `_id` 后缀）；由 Module\_07 LabelTemplate 以 target 级注入，本模块查询侧注入同名 matcher |
+| `tenant_id`           | 租户 ID（字段）   | **DB 列 / API JSON 字段**（`Tenant.id`、`NetworkDomain.tenant_id`），**不是** Prometheus 标签名 |
 | `network_domain`      | 网域          | 网络隔离域标识，系统自动注入                         |
 | envelope              | 响应元数据       | 查询结果的外层包装信息，包含数据来源与新鲜度                 |
 | `data_source`         | 数据来源        | 指标数据的采集方式：中心抓取或边缘异步写入                  |
@@ -546,11 +563,11 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 ## Change Log
 
-> **Change Log 定位（v1.3）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.6 及以前逐版详情）已迁移至** **`docs/05-execution-records/module-02/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 6.x 接口 / 10.x 状态机 / 11 验收标准 / 13 术语映射）。
+> **Change Log 定位（v1.3）**：本表为业务沟通决策的精简记录（保留最近 3 版一句话摘要）；**完整历史（v1.11 及以前逐版详情）已迁移至** **`docs/05-execution-records/module-02/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 6.x 接口 / 10.x 状态机 / 11 验收标准 / 13 术语映射）。
 
 | 版本    | 日期         | 变更类型 | 变更内容                                                                                                                                                                     | 影响范围 | 产品版本影响 | 状态  |
 | ----- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- | ------ | --- |
+| v1.15 | 2026-09-10 | 修改   | **租户标签键定版（决策 68-5，源自 §7.1 原「遗留待决」升级）**：①§7.1 表租户行由 `tenant_id` 修正为 **`tenant`**，来源由「Module_09 `external_labels` 注入」更正为「**Module_07 LabelTemplate target 级注入**」；②**新增通用命名规约**——「`_id` 后缀只用于 DB 列与 API JSON 字段；Prometheus 标签键与对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀」，三层命名空间各自自洽（`network_domain`/`network_domain_id`、`tenant`/`tenant_id`），**下次新增标签无需再评审命名**；③§7.2 第 1 条 matcher 由 `tenant_id=` 改为 **`tenant=`**（硬隔离语义不变：永远存在、用户不可见不可改），补 **fail-closed 严格派**语义（无 `tenant` 标签 = 普通租户不可见；平台自身 Job 显式 `tenant="platform_admin"`；明确否决 `{tenant=~"\|\|..."}` 共享派）与 **生成期门禁**（v0.2 M09 校验标签模板含 `tenant` 映射，缺失则 `failed`）；④§7.2 / §1 / §3 / §6 / §11 / §12 / §13 全文注入名校正（`tenant_id` → `tenant`，`tenant_id` 保留为 DB 列 / API 字段语义）；⑤移除原「⚠️ 遗留待决」注记，改为**定版**。不改接口契约 | 7 / 13 | v0.2 | ready |
+| v1.14 | 2026-09-10 | 修改   | 标签键口径复核（决策 68-1，源自 F-07 网域列缺陷评审）：§7.1「注入标签 key 契约」新增权威口径注记——Module_09 侧 `external_labels` 键名由 `network_domain_id` 收敛为 **`network_domain`**，本表 `network_domain` 行成为全平台唯一标签键口径（决策 19 键名被 supersede，其「移除 `tenant_id`」字段清单结论不变）、消费侧三级解析为过渡层常驻；**并新增「遗留待决」发现**——本表 `tenant_id` 行来源标注自 2026-08-19 决策 19 起已失效（`external_labels` 已移除 `tenant_id`，租户标签改由 M07 以 target 级 `tenant` 注入），而 §7.2 第 1 条注入的是 `tenant_id` matcher，**序列标签名与注入 matcher 名不一致**，MVP 骨架恒通过无影响、v0.2 多租户定版前必须统一（本轮仅记录、不擅改语义）。不改接口契约 | 7 | v0.2 | ready |
 | v1.13 | 2026-09-09 | 新增   | 历史告警 API MVP 增量（Track B，用户书面确认，随 Module_08 v1.13）：新增 `/api/v1/alerts/history`——基于 Prometheus `ALERTS{alertstate="firing"}` 的 `query_range` 重建规则级触发/恢复区间（恢复时间为求值近似值），支持按网域/告警名/实例/状态/时间范围筛选与分页（默认 24h、最大 7d）；§1 版本分布、§3.1 功能表、§5.4 数据模型、§6.1 接口、§11.1/11.2 验收（9a/14a）、§12 M08 边界、§13 术语同步；免高保真原型（豁免记录见 design-decisions.md） | 0    | MVP   | ready |
-| v1.12 | 2026-09-08 | 修改   | 范围调整（随 Module_08 v1.12，MVP 试用反馈）：`/api/v1/alerts` 代理由 v0.3 提前回 **MVP**——§1 版本分布、版本决策注记、§2 M02-OPS-07、§3 功能表、§6.1 接口（自 §6.3 挪入）、§13 术语、§11.1/11.2 验收同步调整；MVP 阶段注入骨架恒通过、授权过滤机制保留；`/api/v1/rules`、PromQL 校验/预览仍留 v0.3 | 0    | 功能提前至 MVP   | ready |
-| v1.11 | 2026-09-04 | 修改   | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移                                                                              | 0    | 文档自身   | 设计中 |
 

@@ -1,7 +1,7 @@
 # Module 09: 网域与边缘配置中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.63
+> **PRD 版本**: v1.65
 > **产品版本覆盖**: MVP / v0.2 / v1.0
 > **原型版本**: v1.52（决策 60 待原型对齐；以 `docs/prototypes/module-09/package.json` 为准）
 > **更新日期**: 2026-09-10
@@ -142,7 +142,7 @@
 **「网域纳管」不能由「安装指引」替代**，两者是「先有身份、再接入」的两个串行步骤：
 
 1. **凭据前置签发**：Edge Sync Agent 启动时必须携带平台签发的 `NETWORK_DOMAIN_ID` 与 `TOKEN`（[[6.4](#64-edge-sync-agent-本地行为) 第 2 条），这两个值由网域在 M09 纳管时生成；未预纳管的网域没有可验证身份，Agent 首次心跳 / 拉包无法通过鉴权，更不可能「自动抓取」。
-2. **「自动注册」的对象是 Agent 实例而非网域**：Agent 首次成功握手后平台自动创建的是 `EdgeAgent` 运行态记录（上线 / 心跳 / 版本），而 `NetworkDomain`（网络边界 + 租户映射）必须先由 M06 创建并分配给租户——配置生成按网域分组并注入 `external_labels.network_domain_id`，依赖网域→租户映射先行落地。
+2. **「自动注册」的对象是 Agent 实例而非网域**：Agent 首次成功握手后平台自动创建的是 `EdgeAgent` 运行态记录（上线 / 心跳 / 版本），而 `NetworkDomain`（网络边界 + 租户映射）必须先由 M06 创建并分配给租户——配置生成按网域分组并注入 `external_labels.network_domain`，依赖网域→租户映射先行落地。
 3. **安全信任锚点**：不做「Agent 首包即自动建域」——陌生端点自报 domain_id 即可建域存在隐式信任问题，且与「网域 = CMDB 云区域 1:1」的边界约束冲突。
 4. **v0.4+ 演化而非取消**：网域与 CMDB 云区域 1:1 后，M06 的网域创建将演化为「从 CMDB 同步 / 校验」，M09 的纳管动作保留；v0.2 前 M06 手动创建网域仍是唯一来源。
 
@@ -175,7 +175,8 @@
 |------|------|--------|
 | **轮询策略数据** | 定时轮询 Module_01（ScrapeJobs、`MonitoringRule`）与 Module_07（Resources、LabelTemplates）；读取各源表 `max(updated_at)` 作为「源数据版本」，仅当源数据版本变化时触发重算（预筛，避免无谓轮询） | **P0** |
 | **按网域生成配置** | 为每个网域生成 `prometheus.yml`（含 scrape_configs、external_labels）与 `targets/*.json`（file_sd 目标文件）；scrape_configs 通过 `file_sd_configs` 引用本域 `targets/*.json`（固定文件名覆盖写），prometheus.yml 仅含 job 骨架（job_name、metrics_path、params、relabel、file_sd 引用），targets 列表统一放入 targets JSON 文件；**v0.2 起支持 Job 网域扇出（决策 54）**：M01 逻辑 Job 可绑定网域集合，生成器按网域自动拆分——为每个目标网域生成各自的 scrape_configs 片段与 targets 文件，分别进入各域的变更检测 / 校验 / 确认 / 下发流程（流程不变，无需用户按网域克隆 Job）；`rules.yml` 由 `MonitoringRule` 按 Prometheus `group` 语法组织（M09 内部自动派生规则分组，MVP 不暴露用户可管理的 RuleGroup 实体），按规则作用域与下发通道生成：所有 `scope=central`/`both` 的规则进入 `rules.yml` 候选集；`channel=local` 的网域直接包含候选集；`channel=agent_pull` 的网域在 v0.4+ 仅包含 `scope=edge`/`both` 规则（MVP 阶段 `scope` 固定 `central`，所有通道均包含同一套规则，中心统一求值）；**规则内容按 `content_mode` 分形态并入 `rules.yml`（MVP 起）：`content_mode=yaml_passthrough` 的规则将 `rule_content`（完整 `rules.yml` 内容，含 `groups`）原样并入；`content_mode=structured`（v0.3+）按字段化生成（对齐 [Module_01 5.5](Module_01_Metric_Collection_Center.md#55-规则编辑模型monitoringrule)）**；`alertmanager.yml` 内容由 Module_08 生成并提交（文件挂载，决策 59），**MVP 起纳入本模块变更确认与下发**（管理域 scope、不参与按网域扇出，决策 60）；**配置生成候选集仅包含 `draft_status=ready` 的 `ScrapeJob` / `MonitoringRule`（v0.2 起 Job、v0.3 起规则），`draft_status=draft` 对象不参与配置生成** | **P0** |
-| **标签注入** | 自动注入 `external_labels.network_domain_id`（登记 `zone_type` / 部署 `replica` 时同步注入）；实例级业务标签 `biz` 与租户标签 `tenant` 均由 M07 LabelTemplate 以 target 级注入（`business_domain → biz`、`tenant_id → tenant` 映射），注入 `targets/*.json` 的 `static_configs[].labels`，M09 不单独注入 | **P0** |
+| **标签注入** | 自动注入 `external_labels.network_domain`（键名经决策 68-1 收敛，2026-09-10；登记 `zone_type` / 部署 `replica` 时同步注入）；实例级业务标签 `biz` 与租户标签 `tenant` 均由 M07 LabelTemplate 以 target 级注入（`business_domain → biz`、`tenant_id → tenant` 映射），注入 `targets/*.json` 的 `static_configs[].labels`，M09 不单独注入 | **P0** |
+| **alerting 投递接线** | 在中心求值器的 `prometheus.yml` 中生成 `alerting.alertmanagers[].static_configs[].targets`，使 Prometheus 向中心 Alertmanager 投递告警（决策 68-2）。**三个约束**：① **条件注入**——仅当存在 `alertmanager.yml` 产物（M08 已挂载内容，决策 59/60）时生成，避免指向不存在的 AM；② **AM 地址参数化**——由 `env/env.sh` 集中注入（MVP 单机 `127.0.0.1:9093`，对齐决策 64），**禁止硬编码**；③ **仅中心生成**——边缘包（`channel=agent_pull`）**永不生成** `alerting` 与 `rule_files`（vmagent 不支持、prometheus-agent Agent Mode 禁止，见 [Module_01 技术可行性](../../05-execution-records/module-01/tech-feasibility.md) §4.2/§7.2），v0.2 多域注入**中心 AM 地址** | **P0** |
 | **实例过滤** | 根据 Job 中手动勾选的实例或筛选条件，从 Module_07 Resources 解析目标列表；**v0.2 起 `instance_selection_mode=filter`（决策 53，由 v0.3+ 提前）**：按 Resource 属性条件表达式在**每次配置生成周期实时求值**——M07 新导入/同步进来的资源只要匹配条件即自动纳入 targets（无需编辑 Job），下线/属性变化同理自动移出；**`offline` 排除（MVP 必实现）**——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤已下线实例，`offline` 后下一配置生成周期即从 targets 移除（跨模块契约，对齐 [Module_07 8.1](Module_07_Monitoring_Object_Management.md)）；`maintenance` 排除口径届时与 M01 一并对齐 | **P0** |
 | **草稿生成** | 生成后先写入 `ConfigDraft`，不直接覆盖生效版本 | **P0** |
 | **差异检测（版本触发 + checksum 裁决）** | 生成后计算配置内容联合 checksum，与当前生效 `ConfigVersion` 的 checksum 对比：内容一致则不生成新草稿 / 自动丢弃；不一致才进入待确认 | **P0** |
@@ -198,7 +199,7 @@
 
 > **配置文件 × 源数据映射语义**：按网域生成的配置结果按「层级」分为两类文件，驱动源不同：
 >
-> - `prometheus.yml` = **网域级 + job 结构级**：`global.external_labels`（network_domain_id / zone_type / replica）与 `remote_write` 由 `NetworkDomain`（`agent_type`、`remote_write_url`、`tenant_id` 等）驱动；scrape_configs 的 job 骨架（job_name、metrics_path、params、relabel_configs、file_sd 引用）由 `ScrapeJob`、`CITypeExporterMapping`、`ExporterInstallationConfirmation` 驱动；
+> - `prometheus.yml` = **网域级 + job 结构级**：`global.external_labels`（network_domain / zone_type / replica）与 `remote_write` 由 `NetworkDomain`（`agent_type`、`remote_write_url`、`tenant_id` 等）驱动；`alerting.alertmanagers`（决策 68-2，仅中心）由中心 Alertmanager 地址驱动；scrape_configs 的 job 骨架（job_name、metrics_path、params、relabel_configs、file_sd 引用）由 `ScrapeJob`、`CITypeExporterMapping`、`ExporterInstallationConfirmation` 驱动；
 > - `targets/*.json` = **资源级 + 标签模板级**：目标列表由 `Resource` 实例选择（Job 中手动勾选的实例或筛选条件）驱动；targets 中的 labels 由 `LabelTemplate` 静态展开驱动；
 > - `rules.yml` = **规则级（MonitoringRule）**：`content_mode=yaml_passthrough`（MVP）的规则将 `rule_content` 原样并入，`content_mode=structured`（v0.3+）按字段化生成；规则保存 / 启停 / 删除引起 `updated_at` 变化即触发本文件重算（pull 模式，对齐 Module_01 5.5「规则文件挂载」）。
 >
@@ -220,20 +221,55 @@ Module_09 在生成每个网域的 `prometheus.yml` 时，必须在该网域 Age
 ```yaml
 global:
   external_labels:
-    network_domain_id: "gov-cloud-a"
+    network_domain: "gov-cloud-a"
     zone_type: "extranet"     # 仅当网域登记了 zone_type 时注入
     replica: "replica-0"      # 部署级高可用副本标识
 ```
 
-- `network_domain_id`：取值对应 `NetworkDomain.id`，用于标识指标来源网域。
+- `network_domain`：取值对应 `NetworkDomain.id`，用于标识指标来源网域。
 - `zone_type`：网络区域类型（政务云 `internet` / `extranet` 等），仅当网域登记了 `zone_type` 时同步注入。
 - `replica`：部署级高可用副本标识，随部署拓扑注入。
 
 注入效果：
 
-- 边缘 Agent 抓取的所有指标在 Remote Write 到中心时都会自动携带 `network_domain_id` / `zone_type` / `replica` 标签。
-- Module_02 查询中心 Prometheus 时，可基于 `network_domain_id` 标签对用户有权限的网域做进一步过滤或展示来源网域。
-- **租户 / 业务标签不由 `external_labels` 注入**：租户标签 `tenant`（`tenant_id → tenant`）与实例级业务标签 `biz`（`business_domain → biz`）均由 [Module_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入，在生成 `targets/*.json` 时作为 `static_configs[].labels` 注入，M09 不单独注入；MVP 单租户下 `tenant` 映射可选、不强制注入，租户数据隔离优先在 API Gateway / 查询代理层通过 PromQL 注入实现（决策 19）。
+- 边缘 Agent 抓取的所有指标在 Remote Write 到中心时都会自动携带 `network_domain` / `zone_type` / `replica` 标签。
+- Module_02 查询中心 Prometheus 时，可基于 `network_domain` 标签对用户有权限的网域做进一步过滤或展示来源网域。
+- **租户 / 业务标签不由 `external_labels` 注入**：租户标签 `tenant`（`tenant_id → tenant`）与实例级业务标签 `biz`（`business_domain → biz`）均由 [Module_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入，在生成 `targets/*.json` 时作为 `static_configs[].labels` 注入，M09 不单独注入；MVP 单租户下 `tenant` 映射不注入、租户数据隔离在 API Gateway / 查询代理层通过 PromQL 注入实现（决策 19）。
+- **租户标签的唯一来源 = Module_07 target 级注入（决策 68-5 定版，2026-09-10）**：`external_labels` **不承担**租户标签，本模块**不生成**任何租户标签。这是「租户不进入采集拓扑」（决策 19）的落地口径，经决策 68-5 正式定版确认，**v0.2 起亦不变**。
+- **M09 的生成期门禁职责（决策 68-5-3②，v0.2）**：因租户隔离依赖 target 级 `tenant` 标签，而该标签由 Job 引用的 LabelTemplate 决定，存在「模板未配 `tenant` 映射 → 该 Job 序列无 `tenant` 标签 → 按 fail-closed 严格派对普通租户**静默不可见**」的风险。故 v0.2 开启多租户时，**M09 生成期必须校验「被引用 Job 的标签模板含 `tenant` 映射」，缺失则 `validation_status=failed`**（与规则 job 引用校验同一门禁模式，接入决策 67 的 `validation_details.source` 路由，「前往修改」跳回 Module_07 标签模板）。
+
+> **命名空间边界（决策 68-1，2026-09-10 标签键收敛）**：平台存在三个**互不相同**的命名空间，不得混用——本模块与所有消费方（M02 查询代理 / M08 告警代理 / M07 模板 / 静默 matcher）必须严格区分：
+>
+> | # | 命名空间 | 名称 | 说明 |
+> |---|----------|------|------|
+> | ① | 对象字段 / API JSON 字段 | `network_domain_id` | `NetworkDomain.id`、`Resource.network_domain_id`、M09 管理面 Query 参数 `network_domain_id`、`ConfigDraft` / `ConfigVersion` 字段——**它是 ID，保留不变** |
+> | ② | **Prometheus 标签键** | **`network_domain`** | `global.external_labels` 注入键、查询注入 matcher、静默 matcher、`targets/*.json` 标签回写、`/api/v1/alerts` 与 `/api/v1/alerts/history` 消费键——**全平台统一**（M02 决策 4.4 为权威口径） |
+> | ③ | Query 参数 / Excel 列 / envelope 字段 | `network_domain` | 筛选参数、导入模板列、`meta.network_domains` |
+>
+> **收敛过程**：v1.63 及以前本模块按 2026-08-19 决策 19 注入 `network_domain_id`，与 M02 决策 4.4（注入标签 key 契约，v1.2 起统一 `network_domain`）冲突。**决策 68-1 收敛为 `network_domain`**，决策 19 的键名选择被 supersede（其「移除 `tenant_id`、仅保留部署级物理维度元数据」的字段清单结论不变）。
+>
+> **兼容期（消费侧，永久保留）**：历史 TSDB 序列与边缘网域经 `remote_write` 回传的序列仍可能携带旧键 `network_domain_id`，故消费侧统一按 `network_domain` → 兼容 `network_domain_id` → 兜底 `default` 三级解析（`models.ResolveNetworkDomain`，唯一入口），并把解析结果回写到响应字段 `network_domain`。该双读是**过渡层常驻**，不得因「已收敛」而删除。
+
+> **租户键沿用同一分层（决策 68-5，2026-09-10 定版）**：`tenant` 与 `network_domain` 是同一命名规约的两个实例——① 字段层 `tenant_id`（`Tenant.id` / `NetworkDomain.tenant_id`）保留；② **Prometheus 标签键 `tenant`**（**由 [Module_07](Module_07_Monitoring_Object_Management.md) target 级注入，非本模块**）不带 `_id` 后缀；③ Query 参数 / envelope 字段同为 `tenant`。**通用命名规约（决策 68-5-1）**：**Prometheus 标签键、以及与之对齐的 Query 参数 / Excel 列 / envelope 字段，一律不带 `_id` 后缀；`_id` 后缀只用于 DB 列与 API JSON 字段。** 三层命名空间各自自洽，**下次新增标签只要遵守此规约即自洽，无需再逐次评审命名**。此前 M02 §7.1 曾把该标签键误写为 `tenant_id`，已由决策 68-5 修正。
+
+#### 3.3.1.1 `alerting` 投递接线（决策 68-2）
+
+中心求值器的 `prometheus.yml` 必须生成 `alerting` 段，使 Prometheus 把求值出的告警投递给中心 Alertmanager——这是 M08「告警分发最小闭环」（决策 59/60）**缺失的最后一环**（此前只完成了 AM 侧配置挂载与 reload，Prometheus → AM 的投递从未接线，导致 M08 告警状态页「Alertmanager 通知状态」永远为空）：
+
+```yaml
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]   # 值由 env/env.sh 注入，禁止硬编码
+```
+
+三个约束：
+
+1. **条件注入**：仅当存在 `alertmanager.yml` 产物（M08 已挂载内容，决策 59/60）时才生成 `alerting` 段——与 `rule_files` 的条件注入模式对称，避免指向不存在的 Alertmanager。
+2. **AM 地址参数化**：由 `env/env.sh` 集中注入（MVP 单机默认 `127.0.0.1:9093`，对齐决策 64「调盘只改这一个文件」）；**禁止在生成器中硬编码地址**。v0.2 多域时注入**中心 Alertmanager 地址**。
+3. **仅中心生成**：`alerting` 段**只进中心求值器**的 `prometheus.yml`；边缘配置包（`channel=agent_pull`）**永不生成** `alerting` 与 `rule_files`——vmagent 不支持 `alerting` / `rule_files` / `remote_read`，prometheus-agent Agent Mode 明确禁止这三个字段（证据见 [Module_01 技术可行性](../../05-execution-records/module-01/tech-feasibility.md) §4.2 与 §7.2）。`alerting` 与 `rule_files` 的生成条件**必须由同一处「是否中心」判定驱动**，禁止各自 `if`。
+
+> 校验链路不变：`promtool check config` 正常校验 `alerting` 段；草稿生成 / 重校路径自动覆盖。
 
 > **与 Module_10 的边界**：Module_09 只负责为**内部 Edge Agent**（vmagent / prometheus-agent）生成配置时注入 `external_labels`；Module_10 负责**外部异构监控源**（第三方 Prometheus、Zabbix、云监控等）接入时的标签归一化。详见 [[7.1.4 与 Module_10 的边界](#714-与-module-10-的边界)。
 
@@ -704,7 +740,7 @@ MetricCenter 通过 [Module_06](Module_06_Multi_Tenant.md) 的**租户级行政�
 >
 > **K8s 接入备忘（2026-09-02 v0.2 规划决策）**：K8s 集群按 CNI 选型决定建域方式——overlay CNI（Calico/Flannel）下 Pod 网段仅集群内可达，集群**独立建网域**（zone_type 增加 k8s），集群内以 Deployment/DaemonSet 部署 vmagent（Agent Mode）作为该域边缘采集节点，kubernetes_sd_configs 在集群内原生发现 Pod，配置包/Token/心跳/Remote Write 机制零改动复用（即复用 `agent_pull` 通道）；不建议用控制面节点承载采集负载。VPC 原生 CNI 下可并入所在 VM 网域。同一网域内多采集节点能力保持 v0.4+ 演化不变，K8s 场景不依赖该能力。
 >
-> **标签注入边界（2026-08-19 决策）**：本模块 `external_labels` 只注入**部署级、物理维度的不可变元数据**（`network_domain_id`、`zone_type`、`replica`），**不注入租户 / 业务标签**。租户标签 `tenant`（`tenant_id → tenant`）与实例级业务标签 `biz`（`business_domain → biz`）均由 [Module_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入 `targets/*.json` 的 `static_configs[].labels`，M09 不单独注入；MVP 单租户下 `tenant` 映射可选、不强制注入，租户数据隔离优先在查询网关层通过 PromQL 注入实现。
+> **标签注入边界（2026-08-19 决策；网域键名经 2026-09-10 决策 68-1 收敛、租户键经决策 68-5 定版）**：本模块 `external_labels` 只注入**部署级、物理维度的不可变元数据**（`network_domain`、`zone_type`、`replica`），**不注入租户 / 业务标签**。租户标签 `tenant`（`tenant_id → tenant`）与实例级业务标签 `biz`（`business_domain → biz`）均由 [Module_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入 `targets/*.json` 的 `static_configs[].labels`，M09 不单独注入；MVP 单租户下 `tenant` 映射不注入，租户数据隔离在查询网关层通过 PromQL 注入实现。**决策 68-5（2026-09-10）定版三点**：①**租户标签唯一来源 = M07 target 级注入**，`external_labels` 永久不承担（决策 19 结论维持）；②**标签键 `tenant` 不带 `_id` 后缀**（`_id` 只属 DB 列 / API 字段，通用命名规约见 §3.3.1）；③**v0.2 起 M09 承担生成期门禁**——被引用 Job 的标签模板缺 `tenant` 映射则 `validation_status=failed`（§3.3.1 注记）。
 >
 > **配置目录组织（MVP）**：配置产物**按 `network_domain` 分目录**组织（`edge-config-<network_domain_id>.zip` / 本地文件集，见 6.3）。**多租户命名空间（按 tenant + network_domain 分目录）为 {v0.2+} 占位**——原则：配置只随物理网域 / 采集目标变化而重新生成与下发，不因租户数量复制采集基础设施；详细目录 / 命名空间规则随多租户版本再定，MVP 不展开、不实现。
 
@@ -924,7 +960,7 @@ Content-Disposition: attachment; filename="edge-config-gov-cloud-a.zip"
 
 ```
 edge-config-<network_domain_id>.zip
-├── prometheus.yml          # 本域 scrape_configs（仅 job 骨架，已注入 external_labels.network_domain_id / zone_type / replica；以 file_sd_configs 引用 targets/*.json）
+├── prometheus.yml          # 本域 scrape_configs（仅 job 骨架，已注入 external_labels.network_domain / zone_type / replica；以 file_sd_configs 引用 targets/*.json；边缘包不含 alerting / rule_files）
 ├── targets/                # file_sd 目标文件（按 job 分文件，固定文件名覆盖写）
 │   └── <job_name>.json     # 如 node-exporter.json / blackbox-http.json（targets 列表 + labels）
 ├── blackbox.yml            # 本域 Blackbox 探测模块（可选）
@@ -1093,11 +1129,11 @@ edge-config-<network_domain_id>.zip
 
 | 职责 | Module_09（网域与边缘配置中心） | Module_10（外部监控源接入与标签归一化） |
 |------|--------------------------------|------------------------------------------|
-| 内部 Edge Agent 的 `external_labels` 注入 | ✅ 在生成 `prometheus.yml` 时注入 `network_domain_id` / `zone_type` / `replica` 等部署级元数据 | ❌ |
+| 内部 Edge Agent 的 `external_labels` 注入 | ✅ 在生成 `prometheus.yml` 时注入 `network_domain` / `zone_type` / `replica` 等部署级元数据（键名经决策 68-1 收敛） | ❌ |
 | 外部异构监控源（第三方 Prometheus/Zabbix/云监控）接入 | ❌ | ✅ 负责标签归一化、映射、补全 |
-| 外部来源的 `network_domain_id` / `tenant` 标签对齐 | ❌ 可提供网域/租户定义供引用 | ✅ 负责将外部指标映射到本网域模型 |
+| 外部来源的 `network_domain` / `tenant` 标签对齐 | ❌ 可提供网域/租户定义供引用 | ✅ 负责将外部指标映射到本网域模型 |
 
-> **原则**：Module_09 管「内部 Agent 出身标签」，Module_10 管「外部来源入场标签」。两者都可能在指标上产生 `network_domain_id` 等标签，但生成时机和 responsibility 不同：Module_09 通过 Agent 配置注入，Module_10 通过接入网关/转换器在数据入平台时打标或改写。
+> **原则**：Module_09 管「内部 Agent 出身标签」，Module_10 管「外部来源入场标签」。两者都可能在指标上产生 `network_domain` 等标签，但生成时机和 responsibility 不同：Module_09 通过 Agent 配置注入，Module_10 通过接入网关/转换器在数据入平台时打标或改写。
 
 ---
 
@@ -1263,7 +1299,10 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 - [ ] {P1} v0.2 阶段，Edge Sync Agent 可通过 Token 拉取本域配置包
 - [ ] {P1} v0.2 阶段，Edge Sync Agent 心跳可更新网域最后在线时间、配置版本、WAL 积压
 - [ ] {P1} Edge Agent 失联超过阈值（默认 5 分钟）时，触发 `EdgeSiteOffline` 告警
-- [ ] {P1} 配置包包含 `prometheus.yml`、`targets/*.json` 和 `metadata.json`，且 `prometheus.yml` 已注入 `external_labels.network_domain_id`（`zone_type` / `replica` 按网域登记 / 部署拓扑注入），**不注入 `tenant_id` 与业务标签**
+- [ ] {P1} 配置包包含 `prometheus.yml`、`targets/*.json` 和 `metadata.json`，且 `prometheus.yml` 已注入 `external_labels.network_domain`（`zone_type` / `replica` 按网域登记 / 部署拓扑注入），**不注入租户标签 `tenant`（其唯一来源为 M07 target 级注入）与业务标签**（网域键名经决策 68-1 收敛、租户标签来源经决策 68-5 定版；消费侧对历史 `network_domain_id` 键双读兼容）
+- [ ] {P0 / v0.2} **租户标签生成期门禁（决策 68-5-3②）**：开启多租户语义后，被引用 Job 的标签模板**缺 `tenant` 映射时生成期阻断**（`validation_status=failed`、`validation_details.source` 指向 Module_07），「前往修改」按 source 路由跳回标签模板；模板含映射时正常生成且 `targets/*.json` 的 `static_configs[].labels` 携带 `tenant`
+- [ ] {P0，决策 68-2} **`alerting` 投递接线**：中心求值器的 `prometheus.yml` 生成 `alerting.alertmanagers[].static_configs[].targets`，使 Prometheus 向中心 Alertmanager 投递告警；AM 地址由 `env/env.sh` 注入（禁止硬编码）；**仅当存在 `alertmanager.yml` 产物时生成**（条件注入）；**边缘配置包（`channel=agent_pull`）不含 `alerting` 与 `rule_files`**
+- [ ] {P0，决策 68-2} **端到端告警链路可验证**：触发一条测试告警规则 → 中心 Alertmanager `GET /api/v2/alerts` 返回非空 → M08 告警状态页「Alertmanager 通知状态」可见该告警（补齐决策 59/60 缺失的投递环节）
 - [ ] {P0} **规则组织与交付**：M09 按 `MonitoringRule` 字段自动派生 Prometheus `group` 生成 `rules.yml`；**规则内容按 `content_mode` 分形态并入：`content_mode=yaml_passthrough`（MVP）将 `rule_content` 原样并入（含 `groups`，M09 不解析/不重排），`content_mode=structured`（v0.3+）按字段化生成**（对齐 Module_01 5.5「规则文件挂载」）；MVP 所有 `channel` 均包含全部 `enabled=true` 规则（`scope` 固定 `central`，中心统一求值）；v0.4+ `channel=agent_pull` 的网域仅包含 `scope=edge`/`both` 规则，`channel=local` 网域仍包含全部规则
 - [ ] {P0，决策 60} **`alertmanager.yml` 纳入 M09 变更确认**：作为管理域（`default`）scope 配置产物进入 ConfigDraft / 变更单 / ConfigVersion；**不参与按网域扇出、不进入 `agent_pull` 配置包**；MVP `local` 通道确认后写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08
 - [ ] {P1} 心跳响应 `config_download_url` 为绝对地址（网域 `center_endpoint` + 相对路径合成）；网闸 / 隔离区场景下不存在中心→边缘的主动连接，所有交互由边缘发起
@@ -1343,7 +1382,10 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 | `metadata.json` | 仅技术信息 | 边缘配置包元数据（版本 / 校验值等） |
 | `EdgeHeartbeat` | 仅技术信息 | 边缘 Agent 心跳上报协议 |
 | `file_sd_configs` / `targets/*.json` | 仅技术信息 | 采集目标文件机制 |
-| `external_labels` | 仅技术信息 | 回写指标自动携带的网域 / 网络区域 / 副本标签 |
+| `external_labels` | 仅技术信息 | 回写指标自动携带的网域 / 网络区域 / 副本标签（注入键为 `network_domain` / `zone_type` / `replica`） |
+| `network_domain`（标签） / `network_domain_id`（字段） | 仅技术信息 | **两个不同命名空间**：`network_domain` 是 Prometheus 标签键与 Query/Excel 参数名；`network_domain_id` 是对象与 API 字段（`NetworkDomain.id`、`Resource.network_domain_id`）。不得混用（决策 68-1） |
+| `tenant`（标签） / `tenant_id`（字段） | 仅技术信息 | **两个不同命名空间**：`tenant` 是 Prometheus 标签键（**由 Module_07 LabelTemplate target 级注入，本模块不承担**）与 Query/Excel 参数名；`tenant_id` 是对象与 API 字段（`Tenant.id`、`NetworkDomain.tenant_id`）。**标签键不带 `_id` 后缀**（通用命名规约，决策 68-5） |
+| `alerting.alertmanagers` | 仅技术信息 | 中心求值器向 Alertmanager 投递告警的配置段（决策 68-2，仅中心生成、地址由 `env/env.sh` 注入） |
 
 ## 11. 前端交互契约
 
@@ -1383,10 +1425,10 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 
 ## Change Log
 
-> 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v1.60 及以前）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
+> 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v1.62 及以前）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.65 | 2026-09-10 | 修改 | **租户标签来源定版 + 生成期门禁（决策 68-5，源自 M02 §7.1 原「遗留待决」升级）**：①§3.3.1 新增两条——「**租户标签唯一来源 = Module_07 LabelTemplate target 级注入**」（`external_labels` **永久不承担**租户标签，决策 19 结论维持，v0.2 起亦不变）与「**M09 生成期门禁**」（v0.2 开启多租户时校验被引用 Job 的标签模板含 `tenant` 映射，缺失则 `validation_status=failed`，与规则 job 引用门禁同模式、经 `validation_details.source` 路由「前往修改」跳回 M07）；②§3.3.1「命名空间边界」注记追加**租户键分层**与**通用命名规约**——「Prometheus 标签键及对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀，`_id` 只属 DB 列与 API JSON 字段」（`network_domain`/`tenant` vs `network_domain_id`/`tenant_id`），下次新增标签无需再评审命名；③§7.1.4「标签注入边界」同步三点定版；④§9 验收新增生成期门禁 {P0 / v0.2} 项、配置包验收改「**不注入租户标签 `tenant`**（唯一来源 M07 target 级注入）」；⑤§10 术语新增 `tenant`（标签）/ `tenant_id`（字段）行。不改接口契约 | 3.3.1 / 7.1.4 / 9 / 10 | v0.2 | ready |
+| v1.64 | 2026-09-10 | 修改 | 网域标签键收敛 + `alerting` 投递接线（决策 68，源自 F-07 网域列缺陷评审的两个遗留发现）：① **标签键收敛为 `network_domain`**——§3.3「标签注入」行、§3.3.1 全节、配置文件映射语义、§6.3 配置包结构、§7.1.4 边界表、§9 验收、§10 术语同步；决策 19 的 `network_domain_id` **键名被 supersede**（其字段清单结论不变），**对象 / API 字段仍用 `network_domain_id`**（§3.3.1 新增三层命名空间边界表）；消费侧 `network_domain` → 兼容 `network_domain_id` → `default` 三级解析为**过渡层常驻**（唯一入口 `models.ResolveNetworkDomain`）；② 新增 §3.3.1.1「`alerting` 投递接线」——中心求值器 `prometheus.yml` 生成 `alerting.alertmanagers[].static_configs[].targets`，补齐决策 59/60 缺失的 **Prometheus → Alertmanager 投递环节**（**条件注入**：仅当存在 `alertmanager.yml` 产物；**AM 地址由 `env/env.sh` 注入、禁止硬编码**；**仅中心生成**，边缘包永不生成 `alerting` / `rule_files`）；§9 新增投递接线与端到端告警链路验收 | 3.3 / 3.3.1 / 3.3.1.1 / 6.3 / 7.1.4 / 9 / 10 | MVP / v0.2 | ready |
 | v1.63 | 2026-09-10 | 修改 | 规则 job 引用校验的动线修复（决策 67，源自动线死锁现场：M01 报错仍可提交 → M09 failed 草稿锁死规则 → 只能废弃解锁）：①§3.5.1 / §3.4 / §5.4 新增**失败单不锁死源数据**——`failed + user_config` 自动清除 M01 源数据 `pending` 锁、草稿保留（可重校/可废弃），`platform_fault` 不清锁，清锁不得推进源数据版本；②§5.4 `validation_details` 补 `source` 字段、草稿 `status` 与 `validation_status` 解耦说明；③§8 状态机① 补失败自动清锁流转；④§11.2「前往修改」按 `source` 分流 `/rules` / `/scrape-jobs`，禁止硬编码；⑤§3.3 双层模型注记同步修订（M01 编辑期 error 默认阻断 + 逃生门、失败动线按 `source` 路由）并落 v0.2 口径约定（central 规则按全域 job 并集校验、`change_status` 标量锁保留，决策 67-4） | 3.3 / 3.4 / 3.5.1 / 5.4 / 8 / 11.2 | MVP / v0.2 | ready |
-| v1.62 | 2026-09-09 | 修改 | 规则 job 引用校验双层模型（决策 66）：§3.3「规则 job 引用校验」明确为发布期强制门禁，与 M01 编辑期校验使用同一套判定逻辑；新增「双层校验模型」注记（M01 编辑期提示不阻断 + M09 发布期 error 阻断）与校验失败跨模块跳转动线；§11.2 全局行为规则补充「规则 job 引用校验 error 时跳转 Module_01 规则编辑」入口 | 3 / 11.2 | MVP | ready |
-| v1.61 | 2026-09-09 | 修改 | 规则 job 引用校验与规则粒度边界（决策 64/65，源自 MVP 试用反馈：规则引用的 job 名与当前生效 Job 不匹配导致 `absent()` 恒 firing、告警 instance 显示「全局/聚合」）：① §3.3 新增「规则 job 引用校验」P0——生成 rules.yml 时将规则与当前生效 Job 列表绑定：`up` / `absent(up)` 类规则 job 不匹配 = error（阻断确认发布），其他 job 引用不匹配 = warning；② 新增「规则粒度与 M09 的关系」注记——M09 不感知规则粒度（聚合 vs per-instance），per-instance 规则归属 M01 v0.3 规则 UI | 3 | MVP | ready |
 

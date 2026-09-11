@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-10 16:14 · commit: `e1582e21`
+> 生成时间: 2026-09-11 11:30 · commit: `c51cc4fa`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -302,6 +302,8 @@
 - `func TestNotifyStatusPriority(t *testing.T)`
 - `func TestServiceListAuthorizedScopeFilter(t *testing.T)`
 - `func TestServiceListNetworkDomainUXFilter(t *testing.T)`
+- `func TestServiceListNetworkDomainWriteBack(t *testing.T)`
+- `func TestServiceListNetworkDomainFromExternalLabelKey(t *testing.T)`
 - `func TestServiceListAMUnreachable(t *testing.T)`
 - `func newAlertsRouter(svc *Service) *gin.Engine`
 - `type alertsResp struct`
@@ -310,6 +312,9 @@
 - `func TestListEndpointUXFilter(t *testing.T)`
 - `func TestListEndpointEmptyNotNull(t *testing.T)`
 - `func TestListEndpointAMError(t *testing.T)`
+- `func openAlertsIdentityDB(t *testing.T) *gorm.DB`
+- `func TestServiceListInstanceFieldsResolvedFromM01(t *testing.T)`
+- `func TestServiceListInstanceFieldsWithoutResourceID(t *testing.T)`
 
 ### `platform/alertmanager/alerts/handler.go`
 
@@ -330,10 +335,10 @@
 - `type AlertStatus struct`
 - `type AlertItem struct`
 - `type Service struct`
-- `func NewService(proxy *Proxy) *Service`
+- `func NewService(proxy *Proxy, db *gorm.DB) *Service`
 - `method (*Service) List(ctx context.Context, scope *models.AuthorizedMatcherScope, networkDomain string) ([]AlertItem, error)`
 - `func domainInScope(scope *models.AuthorizedMatcherScope, domain string) bool`
-- `func toAlertItem(am amAlert) AlertItem`
+- `func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) AlertItem`
 - `func normalizeNotifyStatus(st amAlertStatus) string`
 
 ### `platform/alertmanager/config/config_test.go`
@@ -1395,6 +1400,7 @@
 - `func TestDiscardDraftImpactAndRollback(t *testing.T)`
 - `func TestDiscardDraftRevertsNewJobOnFirstDeploy(t *testing.T)`
 - `func TestDiscardImpactHandler(t *testing.T)`
+- `func TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting(t *testing.T)`
 - `func todaySuffix() string`
 
 ### `platform/configcenter/draft/handler.go`
@@ -1518,6 +1524,9 @@
 - `func TestValidateArtifactsJobRefWarningPasses(t *testing.T)`
 - `func TestValidateArtifactsJobRefAllExisting(t *testing.T)`
 - `func TestScrapeConfigJobNames(t *testing.T)`
+- `func TestAlertmanagerTargetFromURL(t *testing.T)`
+- `func TestAssembleAlertingSectionConditional(t *testing.T)`
+- `func TestAssembleRuleFilesAndAlertingShareCenterSwitch(t *testing.T)`
 
 ### `platform/configcenter/generator/labels.go`
 
@@ -1528,6 +1537,9 @@
 ### `platform/configcenter/generator/render.go`
 
 - `type cfgGlobal struct`
+- `type cfgAlerting struct`
+- `type cfgAlertmanager struct`
+- `type cfgStaticConfig struct`
 - `type cfgFile struct`
 - `type scrapeConf struct`
 - `type basicAuthConf struct`
@@ -1536,7 +1548,8 @@
 - `type fileSDConf struct`
 - `type relabelConf struct`
 - `type JobBuild struct`
-- `func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML string) (*…`
+- `func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmana…`
+- `func AlertmanagerTargetFromURL(raw string) string`
 - `func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error)`
 - `func orDefault(v, d string) string`
 - `type ruleGroupsFile struct`
@@ -2064,6 +2077,16 @@
 - `method (*NetworkDomain) AfterFind(tx *gorm.DB) error`
 - `method (NetworkDomain) TableName() string`
 
+### `platform/models/network_domain_label.go`
+
+- `func ResolveNetworkDomain(labels map[string]string) string`
+- `func EnsureNetworkDomain(labels map[string]string, domain string) map[string]string`
+
+### `platform/models/network_domain_label_test.go`
+
+- `func TestResolveNetworkDomain(t *testing.T)`
+- `func TestEnsureNetworkDomain(t *testing.T)`
+
 ### `platform/models/os_dict.go`
 
 - `type OSOption struct`
@@ -2187,23 +2210,23 @@
 ### `platform/query/alerts.go`
 
 - `type promAlert struct`
-- `func AlertsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func AlertsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
 - `func fetchAlerts(ctx context.Context, client *http.Client, promURL *url.URL) ([]promAlert, error)`
 - `func tenantAuthorizedDomains(_ *gin.Context) []string`
 - `func alertDomainAllowed(authorized []string, domain string) bool`
-- `func instanceDisplayOf(labels map[string]string) string`
 
 ### `platform/query/alerts_history.go`
 
 - `type AlertHistoryItem struct`
 - `type alertHistoryQuery struct`
-- `func AlertsHistoryHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func AlertsHistoryHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
 - `func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error)`
-- `func fetchAlertHistory(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]AlertHistoryItem,…`
+- `func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]Aler…`
 - `type promMatrixSample struct`
 - `func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]promMatrixSample, …`
-- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string) []AlertHistoryItem`
+- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string, identities map[string]Re…`
 - `func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[s…`
+- `func historyInstanceMatch(it AlertHistoryItem, keyword string) bool`
 - `type rulesAPIResponse struct`
 - `func fetchRulesAnnotations(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
 - `func paginateHistory(items []AlertHistoryItem, page, pageSize int) ([]AlertHistoryItem, int)`
@@ -2212,10 +2235,11 @@
 
 - `func historyMatrixFixture() map[string]interface{}`
 - `func historyRulesFixture() map[string]interface{}`
-- `func newHistoryRouter(t *testing.T, upstream http.Handler) *gin.Engine`
+- `func newHistoryRouter(t *testing.T, upstream http.Handler, dbs ...*gorm.DB) *gin.Engine`
 - `func doHistory(t *testing.T, r *gin.Engine, query string) (int, map[string]interface{})`
 - `func TestAlertHistoryRebuildsIntervals(t *testing.T)`
 - `func TestAlertHistoryFilterByNetworkDomain(t *testing.T)`
+- `func TestAlertHistoryNetworkDomainFromExternalLabelKey(t *testing.T)`
 - `func TestAlertHistoryFilterByState(t *testing.T)`
 - `func TestAlertHistoryFilterByStateFiring(t *testing.T)`
 - `func TestAlertHistoryPagination(t *testing.T)`
@@ -2223,21 +2247,29 @@
 - `func TestAlertHistoryEmptyNotNull(t *testing.T)`
 - `func TestAlertHistoryUpstreamError(t *testing.T)`
 - `func TestAlertHistoryInvalidState(t *testing.T)`
+- `func historyIdentityFixture() map[string]interface{}`
+- `func newHistoryIdentityRouter(t *testing.T, db *gorm.DB) *gin.Engine`
+- `func TestAlertHistoryInstanceFieldsWriteBack(t *testing.T)`
+- `func TestAlertHistoryFilterByInstanceName(t *testing.T)`
 
 ### `platform/query/alerts_test.go`
 
 - `func promAlertsFixture() map[string]interface{}`
 - `type alertsResp struct`
-- `func newAlertsRouter(t *testing.T, upstream http.Handler) *gin.Engine`
+- `func newAlertsRouter(t *testing.T, upstream http.Handler, dbs ...*gorm.DB) *gin.Engine`
 - `func newAlertsRouterOK(t *testing.T) *gin.Engine`
 - `func doAlerts(t *testing.T, r *gin.Engine, query string) (int, alertsResp)`
 - `func TestAlertsPassthroughFields(t *testing.T)`
 - `func TestAlertsFilterNetworkDomain(t *testing.T)`
 - `func TestAlertsNetworkDomainFallbackDefault(t *testing.T)`
+- `func TestAlertsNetworkDomainWriteBack(t *testing.T)`
+- `func TestAlertsNetworkDomainFromExternalLabelKey(t *testing.T)`
 - `func TestAlertsEmptyNotNull(t *testing.T)`
 - `func TestAlertsUpstreamError(t *testing.T)`
 - `func TestAlertsInstanceDisplay(t *testing.T)`
 - `func TestAlertsTenantScopeSkeleton(t *testing.T)`
+- `func TestAlertsInstanceFieldsWriteBack(t *testing.T)`
+- `func TestAlertsInstanceFieldsWithoutResourceID(t *testing.T)`
 
 ### `platform/query/coverage.go`
 
@@ -2285,6 +2317,30 @@
 - `func TestParseCoveragePageCap(t *testing.T)`
 - `func TestCoverageEmptyResources(t *testing.T)`
 - `func TestCoverageNoUpAggDependency(t *testing.T)`
+
+### `platform/query/resource_identity.go`
+
+- `type ResourceIdentity struct`
+- `type InstanceFields struct`
+- `func InstanceFieldsOf(labels map[string]string, identities map[string]ResourceIdentity) InstanceFields`
+- `func firstLabelOf(labels map[string]string, keys []string) string`
+- `func ResolveResourceIdentities(db *gorm.DB, ids []string) (map[string]ResourceIdentity, error)`
+- `func ResolveResourceIdentitiesSafe(db *gorm.DB, ids []string) map[string]ResourceIdentity`
+
+### `platform/query/resource_identity_test.go`
+
+- `func openResourceIdentityTestDB(t *testing.T) *gorm.DB`
+- `func seedIdentityHost(t *testing.T, db *gorm.DB, id, name, ip string)`
+- `func seedIdentityDatabase(t *testing.T, db *gorm.DB, id, ip string, port int)`
+- `func seedIdentityMiddleware(t *testing.T, db *gorm.DB, id, ip string, port int)`
+- `func seedIdentityApplication(t *testing.T, db *gorm.DB, id, serviceName string, port int)`
+- `func seedIdentityGenericTarget(t *testing.T, db *gorm.DB, id, targetName, ip string, port int)`
+- `type countingLogger struct`
+- `method (*countingLogger) Trace(_ context.Context, _ time.Time, _ func() (string, int64), _ error)`
+- `func TestResolveResourceIdentitiesFiveCategories(t *testing.T)`
+- `func TestResolveResourceIdentitiesUnmatchedAndEmpty(t *testing.T)`
+- `func TestResolveResourceIdentitiesIsBatched(t *testing.T)`
+- `func TestInstanceFieldsOf(t *testing.T)`
 
 ### `platform/query/routes.go`
 
@@ -2502,6 +2558,7 @@
 - `func jsonString(s string) string`
 - `func TestListUpdateDeleteMonitoringRule(t *testing.T)`
 - `func TestValidateYAMLEndpoint(t *testing.T)`
+- `func TestValidateYamlGroupNameConflict(t *testing.T)`
 - `func TestValidateYamlJobRef(t *testing.T)`
 - `func TestValidateYamlJobRefAllExisting(t *testing.T)`
 - `func TestCreateMonitoringRuleJobRefGate(t *testing.T)`
@@ -2524,6 +2581,7 @@
 - `func UpdateMonitoringRule(db *gorm.DB) gin.HandlerFunc`
 - `func DeleteMonitoringRule(db *gorm.DB) gin.HandlerFunc`
 - `type ValidateRuleYAMLRequest struct`
+- `func ruleIDFromContext(raw string) uint`
 - `func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc`
 
 ### `platform/strategy/rule/validate.go`
@@ -2533,6 +2591,7 @@
 - `type groupNamesFile struct`
 - `func extractGroupNames(content string) ([]string, error)`
 - `func validateGroupNamesAvailable(db *gorm.DB, content string, excludeID uint) error`
+- `func validateGroupNamesForCheck(db *gorm.DB, content string, excludeID uint) error`
 - `func effectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
 - `func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue`
 - `func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue`
@@ -3307,6 +3366,7 @@
 - `interface SilenceMatcher`
 - `interface Silence`
 - `interface CreateSilencePayload`
+- `interface AlertInstanceFields`
 - `type PromAlertState`
 - `interface PromAlertItem`
 - `interface PromAlertsData`

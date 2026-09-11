@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.30
+> **PRD 版本**: v2.31
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
 > **原型版本**: v2.25（✅ 已对齐 v2.25；v2.27 ~ v2.29 为关联实例展示边界、description 落库与 §0 深化，原型待对齐）
-> **更新日期**: 2026-09-04
+> **更新日期**: 2026-09-10
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -122,7 +122,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 
 ## 3. 核心功能
 
-> 决策依据：design-decisions.md 决策 3.32-3.42（模板↔实例隐式关联 / 标签模板动线）/ 3.43（标签来源口径）/ 3.44（模板变更影响反馈）/ 3.45（标签双场景治理）/ 3.46（业务类型）/ 设计对齐决策 13/14/17/21/22（业务分组字典、`biz_code` 必填改造与命名 / 停用治理、`tenant_id→tenant` 可选映射）
+> 决策依据：design-decisions.md 决策 3.32-3.42（模板↔实例隐式关联 / 标签模板动线）/ 3.43（标签来源口径）/ 3.44（模板变更影响反馈）/ 3.45（标签双场景治理）/ 3.46（业务类型）/ 设计对齐决策 13/14/17/21/22（业务分组字典、`biz_code` 必填改造与命名 / 停用治理、`tenant_id→tenant` 映射——**v0.2 起为内置默认前瞻口径**，决策 68-5）
 
 ### 3.1 资源管理
 
@@ -600,6 +600,14 @@ type ResourceStatusMapping struct {
 >
 > **映射校验规则**：目标标签不得为保护 label（`PROTECTED_PROMETHEUS_LABELS`，`composite→instance` 例外）；同一模板内 `target_label` 必须唯一，保存时校验并阻止重复。
 
+> **命名规约（决策 68-5-1，2026-09-10，跨模块基线）**：**`target_label` 一律不带 `_id` 后缀**——`_id` 后缀只属 DB 列与 API JSON 字段（ID 语义）。即「资源字段（①层，可带 `_id`）」→「标签（②层，不带 `_id`）」是本表的固有映射语义：`tenant_id → tenant`、`biz_code → biz`、`app_name → app` 皆是该规约的实例。新增映射时若来源字段带 `_id`，目标标签应去掉该后缀（`resource_id → resource_id` 为例外——它是 M02 coverage 三态聚合与 M07 badge 回连的**稳定身份键**，属约定俗成的保留名）。
+
+> **`tenant_id` → `tenant` 映射（内置默认前瞻口径，决策 19 + 68-5）**：MVP 单租户**不注入**（默认模板不含此映射，注入骨架恒通过）；**v0.2 起为五类默认模板的内置默认映射**——由 `DefaultMappingBuilders` 统一生成 `{SourceField: "tenant_id", TargetLabel: "tenant"}`，把资源字段 `tenant_id` 映射为 target 级 **`tenant`** 标签（写入 `targets/*.json` 的 `static_configs[].labels`）。
+>
+> **为什么必须内置默认**：Module\_02 多租户隔离的硬隔离边界 matcher 名为 **`tenant`**（§7.2 第 1 条，经决策 68-5 定版）。若某个 Job 引用的标签模板缺该映射，该 Job 的序列就没有 `tenant` 标签 → 按 fail-closed **严格派**语义对**所有普通租户不可见**（静默丢失）；而 M09 生成期门禁（决策 68-5-3②）会直接拦住这类模板。故默认模板**内置**该映射是让「门禁恒通过」的常规路径，而非可选项。
+>
+> **平台自身指标的特殊处理**：监控平台自身的 Job（中心 `default` 网域的 `node_exporter` 等平台基础设施）**必须显式获得 `tenant="platform_admin"`**，不得依赖「无标签即公共」——该隐式共享口已被决策 68-5-4 明确否决。
+
 ### 5.12 标签模板字段来源
 
 #### A. Resource 字段
@@ -621,8 +629,11 @@ type ResourceStatusMapping struct {
 | 通用 {v0.4+} | `cmdb_business_path` | `cmdb_business_path` | CMDB 接入后由 Module\_04 同步                          |
 | 通用 {v0.4+} | `cmdb_module_path`   | `cmdb_module_path`   | CMDB 接入后由 Module\_04 同步                          |
 | 通用 {v0.4+} | `cmdb_maintainer`    | `cmdb_maintainer`    | CMDB 接入后由 Module\_04 同步                          |
+| 通用 {v0.2+} | `tenant_id`          | `tenant`             | 租户归属；**v0.2 起为默认模板内置映射**（决策 68-5）；MVP 单租户不注入 |
 
-> **`tenant_id` → `tenant` 可选映射（决策 19）**：MVP 单租户不强制注入、默认模板不含此映射；未来多租户若需在指标上体现租户归属，由本映射将资源字段 `tenant_id` 映射为 target 级 `tenant` 标签（可选，随模板配置）。租户隔离优先在 API Gateway / 查询代理层通过 PromQL 注入实现，租户不进入采集拓扑。
+> **`tenant_id` → `tenant` 映射（决策 19，v0.2 起为内置默认前瞻口径 —— 决策 68-5）**：MVP 单租户不强制注入、默认模板不含此映射；**v0.2 起由 `DefaultMappingBuilders` 统一内置**，把资源字段 `tenant_id` 映射为 target 级 **`tenant`** 标签（写入 `targets/*.json` 的 `static_configs[].labels`）。
+>
+> **命名与语义要点（决策 68-5 定版）**：①**标签键为 `tenant`，不带 `_id` 后缀**——`tenant_id` 只作 DB 列 / API 字段（`Tenant.id`、`NetworkDomain.tenant_id`）；②**租户标签的唯一来源就是本映射**——M09 `external_labels` 不承担租户标签（决策 19 结论维持）；③Module\_02 查询侧按 fail-closed **严格派**注入 `tenant="<当前租户>"` matcher，**无 `tenant` 标签的序列对任何普通租户不可见**，故缺该映射的模板会被 M09 生成期门禁阻断（§5.11 注记）；④平台自身基础设施 Job 需显式 `tenant="platform_admin"`。租户隔离在 API Gateway / 查询代理层通过 PromQL 注入实现，租户不进入采集拓扑。
 
 #### B. Prometheus 内置字段
 
@@ -666,6 +677,12 @@ type ResourceStatusMapping struct {
 ### 5.13 默认标签模板
 
 按资源类型的默认映射：
+
+> **v0.2 前瞻：五类默认模板内置 `tenant_id → tenant`（决策 68-5，2026-09-10）**：MVP 单租户下五类默认模板**不含** tenant 映射（注入骨架恒通过、无实际影响）；**v0.2 开启多租户时，五类默认模板必须内置 `tenant_id → tenant` 映射**（`DefaultMappingBuilders` 统一生成），且前端**默认启用**（用户可关闭，但不默认关闭）。
+>
+> **依据**：Module\_02 的租户硬隔离 matcher 名为 `tenant`（M02 §7.2 第 1 条），序列上只有 target 级注入才能产生该标签；若默认模板不含此映射，则新建模板 → 新建 Job → 该 Job 序列无 `tenant` → 按 fail-closed **严格派**对所有普通租户不可见（静默丢失），并被 M09 生成期门禁（决策 68-5-3②）阻断。**故「内置」是让门禁走常规通过路径的前提，不是可选项。**
+>
+> 下表为 MVP 口径（**不含** tenant 行）；v0.2 起每类模板在此基础上追加 `resource_field tenant_id → tenant`。
 
 > **稳定资源身份标签（2026-09-02 补，决策 47-3 回连前置）**：五类默认模板均**必须包含 `resource_id → resource_id` 映射**——`resource_id` 是 coverage 三态聚合（M02 `/api/v1/health/coverage`）与 M07 badge 回连资源的唯一稳定键；`hostname` 仅为可读别名，不替代 `resource_id`；`instance`（ip:port）仅作 Prometheus 抓取目标身份，不作为业务稳定关联键（M01 §9.1 同步收紧）。
 
@@ -1184,7 +1201,7 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 - [ ] {P1} `biz_code` 字段与 `biz_code → biz` 映射写入 5.12 A 契约；5.15 业务指标标签规范（关联键 `app` / `biz`、机制 A 注入 + 机制 B relabel 兜底）作为 Module\_01/09 生成配置的标签注入依据
 - [ ] {P0} 业务分组字典落 DB（`BusinessDomain` 实体），`business_domains.yaml` 仅作首次启动 seed（DB 为空时导入，含 `infra` 兜底条目）；`POST /api/v2/platform/business-domains` 校验编码规范（小写字母/数字/连字符 ≤ 64）与重复；`PUT` 仅接受 `biz_name` / `description` / `status`（不接收 `biz_code`）；`infra` 停用返回 `bad_request`；`biz_name` 修改不触发配置重新生成（决策 48 / 6 / 21）
 - [ ] {P1} 业务存在性校验「`biz_code` 必须对应**启用**条目」；停用条目不可被新增/编辑选用，存量资源保留历史值（决策 22）
-- [ ] {P1} `biz_code` 编码创建后不可变，字典展示名 `biz_name` 修改不触发配置重新生成 / 下发（决策 6/21）；MVP 单租户下 `tenant_id → tenant` 映射可选、默认模板不注入（决策 19）
+- [ ] {P1} `biz_code` 编码创建后不可变，字典展示名 `biz_name` 修改不触发配置重新生成 / 下发（决策 6/21）；MVP 单租户下 `tenant_id → tenant` 映射**默认模板不注入**、注入骨架恒通过（决策 19）；**v0.2 起该映射为五类默认模板内置默认**（`DefaultMappingBuilders` 统一生成、前端默认启用），标签名为 `tenant`（**不带 `_id` 后缀**），缺失时由 M09 生成期门禁阻断（决策 68-5；命名规约见 §5.11）
 - [ ] {P0} 采集状态三态数据链路可验证（决策 47-3）：`is_monitored` 选中关系由 M01 维护、M07 只读映射；up/down 聚合来自 M02 `/api/v1/health/coverage`（按 `resource_id` 标签回连资源）；资源列表查询走聚合 API 一次性获取，**禁止逐行调用**（TQ-6 N+1 教训）
 
 ***
@@ -1293,11 +1310,11 @@ cmdb（v0.4+，Module_04 写入） > user（用户手动） > system（系统生
 
 ## Change Log
 
-> **Change Log 定位**：本表为业务沟通决策的精简记录（**保留最近 3 版**一句话摘要）；**完整历史（v2.25 及以前逐版详情）已迁移至** **`docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 8 状态机 / 9 验收标准）。
+> **Change Log 定位**：本表为业务沟通决策的精简记录（**保留最近 3 版**一句话摘要）；**完整历史（v2.25 及以前逐版详情，含 v2.28 起历次轮转迁入）已迁移至** **`docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 8 状态机 / 9 验收标准）。
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | --- |
+| v2.31 | 2026-09-10 | 修改 | **`tenant_id → tenant` 映射升格为内置默认前瞻口径（决策 68-5，源自 M02 §7.1 原「遗留待决」升级）**：①§5.11 新增**命名规约（跨模块基线）**——「目标标签一律不带 `_id` 后缀」（`tenant_id → tenant`、`biz_code → biz` 皆属该规约实例；`resource_id` 为约定俗成保留例外）；②§5.11 新增 `tenant_id → tenant` 映射的内置默认前瞻口径、必做理由（M02 硬隔离 matcher 名为 `tenant`，缺映射 = 序列无该标签 = 按 fail-closed 严格派对普通租户静默不可见）与平台自身指标特殊处理（显式 `tenant="platform_admin"`）；③§5.12 A 表新增 `tenant_id → tenant` 行、原「可选映射」注记升级为定版说明（唯一来源 = 本映射，M09 `external_labels` 不承担）；④§5.13 新增「v0.2 五类默认模板内置 `tenant_id → tenant`」前瞻注记；⑤§9 验收更新；⑥§5.x 决策依据行同步。不改接口契约 | 5 / 9 | v0.2 | ready |
 | v2.30 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移 | 0 | 文档自身 | 设计中 |
 | v2.29 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（数据接入→字段规范→标签治理→状态感知→业务归属）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「操作系统字段标准化」「业务分组管理」「静态资源标签治理」真实场景 | 0 | 文档自身 | 设计中 |
-| v2.28 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（批量导入/标签模板/采集状态查看）与涉及用户故事编码索引；不改变技术契约 | 0 | 文档自身 | 设计中 |
 

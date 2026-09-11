@@ -46,6 +46,10 @@ describe('validateYamlClient', () => {
 describe('RuleMountDrawer', () => {
   setupAntdTest()
 
+  /** 决策 69-2：抽屉为两段式，「检查」常驻、提交按钮按状态出现 */
+  const CHECK = '检查'
+  const SUBMIT = '提交并进入变更确认'
+
   function renderDrawer(props?: { onCancel?: () => void; onSuccess?: () => void }) {
     render(
       <MemoryRouter>
@@ -58,6 +62,16 @@ describe('RuleMountDrawer', () => {
     )
   }
 
+  /** 一条 error 级 job 引用问题（存活类缺 job） */
+  const errorJobRefIssue = {
+    group: 'g',
+    rule_name: 'HostDown',
+    expr: 'absent(up{job="miss"})',
+    referenced_job: 'miss',
+    severity: 'error' as const,
+    message: '规则 "HostDown" 的查询表达式引用的 job "miss" 不存在',
+  }
+
   it('renders mount drawer with paste area and upload', async () => {
     renderDrawer()
     expect(screen.getByText('挂载规则')).toBeInTheDocument()
@@ -65,17 +79,36 @@ describe('RuleMountDrawer', () => {
     expect(screen.getByText('从本地选择 rules.yml')).toBeInTheDocument()
   })
 
-  it('blocks submit with invalid YAML and keeps content', async () => {
+  // 「从本地选择 rules.yml」入口须在编辑框**上方**（16 行文本域会把下方的入口顶到
+  // 折叠线以下，用户需滚动才能发现）。
+  it('places the local file picker above the rule content editor', () => {
+    renderDrawer()
+    const upload = screen.getByTestId('rule-upload-btn')
+    const editor = screen.getByTestId('rule-content')
+    // DOCUMENT_POSITION_FOLLOWING：editor 在 upload 之后 → upload 在上
+    expect(upload.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  // 决策 69-2：未检查时不出现提交按钮（状态机而非 disabled）。
+  it('hides the submit button until the check passes (decision 69-2)', () => {
+    renderDrawer()
+    expect(screen.getByText(CHECK)).toBeInTheDocument()
+    expect(screen.queryByText(SUBMIT)).toBeNull()
+  })
+
+  // 决策 69-1/69-2：检查即暴露语法错误（不再等提交），且提交按钮不出现。
+  it('surfaces YAML syntax error on check and keeps the submit button hidden', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
     validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: false, error: '缺少顶层 groups 数组' } })
     renderDrawer()
 
     await userEvent.type(screen.getByTestId('rule-name'), 'my-rule')
     await userEvent.type(screen.getByTestId('rule-content'), 'invalid')
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
 
-    // 无效 YAML：Alert 提示、不调用 create
     expect(await screen.findByText(/缺少顶层 groups 数组/)).toBeInTheDocument()
+    expect(screen.getByText('规则检查未通过')).toBeInTheDocument()
+    expect(screen.queryByText(SUBMIT)).toBeNull()
     expect(createMock).not.toHaveBeenCalled()
   })
 
@@ -87,80 +120,58 @@ describe('RuleMountDrawer', () => {
 
     await userEvent.type(screen.getByTestId('rule-name'), 'my-rule')
     await userEvent.type(screen.getByTestId('rule-content'), 'invalid')
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
 
     // 接口异常回落本地校验：仍按本地规则拦截非法 YAML
     expect(await screen.findByText(/缺少顶层 groups 数组/)).toBeInTheDocument()
+    expect(screen.queryByText(SUBMIT)).toBeNull()
     expect(createMock).not.toHaveBeenCalled()
     expect(warnSpy).toHaveBeenCalled()
     warnSpy.mockRestore()
   })
 
-  // 决策 67-2：error 级 job 引用（存活类缺 job）默认阻断「提交生效」，
-  // 展示问题清单 + 逃生门，不调用 create。
-  it('blocks submit on error-level job-ref issues (decision 67-2)', async () => {
+  // 决策 67-2 + 69-2：error 级 job 引用（存活类缺 job）在**检查阶段**即阻断，
+  // 展示问题清单 + 逃生门，提交按钮不出现。
+  it('blocks on error-level job-ref issues at check time (decision 67-2/69-2)', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
     validateYamlMock.mockResolvedValue({
       status: 'success',
-      data: {
-        valid: true,
-        job_ref: [
-          {
-            group: 'g',
-            rule_name: 'HostDown',
-            expr: 'absent(up{job="miss"})',
-            referenced_job: 'miss',
-            severity: 'error',
-            message: '规则 "HostDown" 的查询表达式引用的 job "miss" 不存在',
-          },
-        ],
-      },
+      data: { valid: true, job_ref: [errorJobRefIssue] },
     })
     renderDrawer()
 
-    await userEvent.type(
-      screen.getByTestId('rule-content'),
-      'groups:\n  - name: g\n    rules:\n      - alert: HostDown',
-    )
-    fireEvent.click(screen.getByText('提交生效'))
+    await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: HostDown')
+    fireEvent.click(screen.getByText(CHECK))
 
-    // 阻断态：error 面板 + 逃生门勾选，未提交
+    // 阻断态：error 面板 + 逃生门勾选，提交按钮不出现、未提交
     expect(await screen.findByText(/规则 job 引用错误：提交已被阻断/)).toBeInTheDocument()
     expect(screen.getByText(/\[错误\]/)).toBeInTheDocument()
     expect(screen.getByTestId('rule-jobref-ack')).toBeInTheDocument()
+    expect(screen.queryByText(SUBMIT)).toBeNull()
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  // 决策 67-2 逃生门：勾选「已知晓」后放行提交，携带 ack_job_ref_errors=true；
-  // 保存成功后抽屉保持打开（问题留痕），不自动关闭。
-  it('allows submit after ack escape hatch and sends ack flag (decision 67-2)', async () => {
+  // 决策 67-2 逃生门 + 69-2 状态机：勾选「已知晓」后提交按钮出现，提交携带
+  // ack_job_ref_errors=true；保存成功后抽屉保持打开（问题留痕），不自动关闭。
+  it('reveals submit after ack escape hatch and sends ack flag (decision 67-2/69-2)', async () => {
     const onCancel = vi.fn()
     const onSuccess = vi.fn()
     createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
     validateYamlMock.mockResolvedValue({
       status: 'success',
-      data: {
-        valid: true,
-        job_ref: [
-          {
-            group: 'g',
-            rule_name: 'HostDown',
-            expr: 'absent(up{job="miss"})',
-            referenced_job: 'miss',
-            severity: 'error',
-            message: '规则 "HostDown" 的查询表达式引用的 job "miss" 不存在',
-          },
-        ],
-      },
+      data: { valid: true, job_ref: [errorJobRefIssue] },
     })
     renderDrawer({ onCancel, onSuccess })
 
     await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: HostDown')
-    fireEvent.click(screen.getByText('提交生效'))
-    await screen.findByTestId('rule-jobref-ack')
+    fireEvent.click(screen.getByText(CHECK))
+    const ack = await screen.findByTestId('rule-jobref-ack')
 
-    fireEvent.click(screen.getByTestId('rule-jobref-ack'))
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(ack)
+    // 勾选只参与「提交按钮是否出现」的计算，不提交任何东西（决策 69-2）
+    expect(await screen.findByText(SUBMIT)).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText(SUBMIT))
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     expect(createMock.mock.calls[0][0]).toMatchObject({ ack_job_ref_errors: true })
@@ -169,8 +180,8 @@ describe('RuleMountDrawer', () => {
     expect(onCancel).not.toHaveBeenCalled()
   })
 
-  // 决策 67-2：仅 warning 级 job 引用不阻断提交，正常保存且不上送 ack；
-  // 保存后抽屉保持打开以便阅读提示（决策 66 回归保留）。
+  // 决策 67-2：仅 warning 级 job 引用不阻断提交——检查通过后提交按钮直接出现，
+  // 「检查」按钮不做任何提交动作；保存后抽屉保持打开以便阅读提示（决策 66 回归保留）。
   it('does not block on warning-level job-ref issues (decision 67-2)', async () => {
     const onCancel = vi.fn()
     createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
@@ -193,7 +204,11 @@ describe('RuleMountDrawer', () => {
     renderDrawer({ onCancel })
 
     await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: HighCPU')
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
+
+    expect(await screen.findByText(SUBMIT)).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText(SUBMIT))
 
     await waitFor(() => expect(createMock).toHaveBeenCalled())
     expect(createMock.mock.calls[0][0]).not.toHaveProperty('ack_job_ref_errors')
@@ -202,9 +217,9 @@ describe('RuleMountDrawer', () => {
     expect(onCancel).not.toHaveBeenCalled()
   })
 
-  // 决策 67-2 后端兜底：validate-yaml 不可用（本地回落无 job_ref）时，
-  // POST 返回 errorType=job_ref_unresolved → 仍提供逃生门（而非不可自救的普通错误），
-  // 勾选后重试携带 ack 放行。
+  // 决策 67-2 后端兜底 + 69-2 状态机：validate-yaml 不可用（本地回落无 job_ref）时，
+  // 检查通过、提交按钮出现；POST 返回 errorType=job_ref_unresolved → 面板出现逃生门
+  // 且提交按钮重新隐藏，勾选后按钮再现、重试携带 ack 放行。
   it('surfaces backend job_ref_unresolved gate with escape hatch', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     validateYamlMock.mockRejectedValue(new Error('network error'))
@@ -220,57 +235,49 @@ describe('RuleMountDrawer', () => {
     renderDrawer()
 
     await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: A')
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
+    fireEvent.click(await screen.findByText(SUBMIT))
 
     expect(await screen.findByTestId('rule-jobref-ack')).toBeInTheDocument()
     // 后端兜底文案用的是全角冒号（job：miss），断言须与之对齐，否则匹配不到
     expect(screen.getByText(/引用了不存在的 job：miss/)).toBeInTheDocument()
     expect(createMock).toHaveBeenCalledTimes(1)
+    // 阻断态：提交按钮重新隐藏，须勾选逃生门后才再现
+    expect(screen.queryByText(SUBMIT)).toBeNull()
 
     fireEvent.click(screen.getByTestId('rule-jobref-ack'))
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(await screen.findByText(SUBMIT))
 
     await waitFor(() => expect(createMock).toHaveBeenCalledTimes(2))
     expect(createMock.mock.calls[1][0]).toMatchObject({ ack_job_ref_errors: true })
     warnSpy.mockRestore()
   })
 
-  // 决策 67-2：内容变更后先前的显式确认失效（防「确认 A 内容、提交 B 内容」）。
-  it('invalidates ack when rule content changes', async () => {
+  // 决策 67-2/69-2：规则内容变更后，先前的**检查结论与显式确认一并作废**，
+  // 提交按钮重新隐藏，须重新检查（防「确认 A 内容、提交 B 内容」）。
+  it('invalidates check result and ack when rule content changes', async () => {
     createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
     validateYamlMock.mockResolvedValue({
       status: 'success',
-      data: {
-        valid: true,
-        job_ref: [
-          {
-            group: 'g',
-            rule_name: 'HostDown',
-            expr: 'absent(up{job="miss"})',
-            referenced_job: 'miss',
-            severity: 'error',
-            message: 'job "miss" 不存在',
-          },
-        ],
-      },
+      data: { valid: true, job_ref: [errorJobRefIssue] },
     })
     renderDrawer()
 
     const content = screen.getByTestId('rule-content')
     await userEvent.type(content, 'groups:\n  - name: g\n    rules:\n      - alert: HostDown')
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
     const ack = await screen.findByTestId('rule-jobref-ack')
     fireEvent.click(ack)
-    await waitFor(() => expect((ack as HTMLInputElement).checked).toBe(true))
+    expect(await screen.findByText(SUBMIT)).toBeInTheDocument()
 
+    // 内容变更 → 检查结论与 ack 作废：逃生门消失、提交按钮重新隐藏
     await userEvent.type(content, '\n# changed')
-    await waitFor(() => expect((screen.getByTestId('rule-jobref-ack') as HTMLInputElement).checked).toBe(false))
-
-    fireEvent.click(screen.getByText('提交生效'))
+    await waitFor(() => expect(screen.queryByTestId('rule-jobref-ack')).toBeNull())
+    expect(screen.queryByText(SUBMIT)).toBeNull()
     expect(createMock).not.toHaveBeenCalled()
   })
 
-  // 决策 66 回归：干净保存（无 job 引用问题）→ 自动关闭抽屉。
+  // 决策 66 回归 + 决策 69-2：干净保存（检查通过且无 job 引用问题）→ 自动关闭抽屉。
   it('closes drawer on clean save', async () => {
     const onCancel = vi.fn()
     const onSuccess = vi.fn()
@@ -278,24 +285,22 @@ describe('RuleMountDrawer', () => {
     validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true, job_ref: [] } })
     renderDrawer({ onCancel, onSuccess })
     await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: A')
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
+    fireEvent.click(await screen.findByText(SUBMIT))
     await waitFor(() => expect(onSuccess).toHaveBeenCalled())
     await waitFor(() => expect(onCancel).toHaveBeenCalled())
   })
 
-  // 决策 66：job 引用全部命中 → 不展示提示区，正常提交。
-  it('does not render job-ref hint when no issues', async () => {
-    createMock.mockResolvedValue({ status: 'success', data: { id: 9 } })
+  // 决策 66 + 69-3：检查通过展示绿色「检查通过」（含服务端复核边界说明）。
+  it('shows a success hint with server-side recheck disclaimer when check passes', async () => {
     validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true, job_ref: [] } })
     renderDrawer()
 
-    await userEvent.type(
-      screen.getByTestId('rule-content'),
-      'groups:\n  - name: g\n    rules:\n      - alert: A',
-    )
-    fireEvent.click(screen.getByText('提交生效'))
+    await userEvent.type(screen.getByTestId('rule-content'), 'groups:\n  - name: g\n    rules:\n      - alert: A')
+    fireEvent.click(screen.getByText(CHECK))
 
-    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(await screen.findByText('检查通过')).toBeInTheDocument()
+    expect(screen.getByText(/服务端仍会复核/)).toBeInTheDocument()
     expect(screen.queryByText(/规则 job 引用提示/)).toBeNull()
   })
 
@@ -309,13 +314,15 @@ describe('RuleMountDrawer', () => {
       screen.getByTestId('rule-content'),
       'groups:\n  - name: g\n    rules:\n      - alert: A',
     )
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
+    fireEvent.click(await screen.findByText(SUBMIT))
 
     // 保存成功：同步触发全部已纳管网域的变更单生成
     await waitFor(() =>
       expect(triggerAllMock).toHaveBeenCalledWith(expect.objectContaining({ prefix: '规则已挂载' })),
     )
-    // 新建场景走后端校验（id 占位 0，body 仅含 rule_content）
+    // 新建场景走后端校验（id 占位 0，body 仅含 rule_content），且检查仅执行一次
+    expect(validateYamlMock).toHaveBeenCalledTimes(1)
     expect(validateYamlMock).toHaveBeenCalledWith(0, 'groups:\n  - name: g\n    rules:\n      - alert: A')
     // 创建默认启用（M01 PRD §8）：必须显式携带 enabled: true
     expect(createMock).toHaveBeenCalledWith({
@@ -343,7 +350,8 @@ describe('RuleMountDrawer', () => {
       screen.getByTestId('rule-content'),
       'groups:\n  - name: g\n    rules:\n      - alert: A',
     )
-    fireEvent.click(screen.getByText('提交生效'))
+    fireEvent.click(screen.getByText(CHECK))
+    fireEvent.click(await screen.findByText(SUBMIT))
 
     await waitFor(() =>
       expect(triggerAllMock).toHaveBeenCalledWith(expect.objectContaining({ prefix: '规则已挂载' })),
@@ -357,6 +365,7 @@ describe('RuleMountDrawer', () => {
 
   it('edit mode pre-fills fields and submits via update without changing enabled', async () => {
     updateMock.mockResolvedValue({ status: 'success', data: { id: 1 } })
+    validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true, job_ref: [] } })
     render(
       <MemoryRouter>
         <RuleMountDrawer
@@ -381,7 +390,8 @@ describe('RuleMountDrawer', () => {
     // 监控对象类型回显（级联反推资源类别=数据库）
     expect(screen.getByText('MySQL')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('保存变更'))
+    fireEvent.click(screen.getByText(CHECK))
+    fireEvent.click(await screen.findByText(SUBMIT))
     await waitFor(() =>
       expect(triggerAllMock).toHaveBeenCalledWith(expect.objectContaining({ prefix: '规则已更新' })),
     )

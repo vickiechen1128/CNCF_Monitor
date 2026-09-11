@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HistoryAlertsPage } from './HistoryAlertsPage'
 import type { AlertHistoryItem } from '../../types/alertmanager'
@@ -67,7 +67,7 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(screen.getByText(/恢复时间为 Prometheus 求值视角的近似值/)).toBeInTheDocument()
   })
 
-  it('渲染历史告警列表：告警名、实例、状态、触发/恢复时间、持续时长、摘要', async () => {
+  it('渲染历史告警列表：告警名、采集地址、状态、触发/恢复时间、持续时长、摘要', async () => {
     alertStatusApiMock.getAlertHistory.mockResolvedValue({
       status: 'success',
       data: { list: [historyItem()], total: 1, page: 1, page_size: 50 },
@@ -92,6 +92,59 @@ describe('HistoryAlertsPage（历史告警）', () => {
     renderPage()
     expect(await screen.findByText('HostTargetsMissing')).toBeInTheDocument()
     expect(screen.getByText('全局/聚合')).toBeInTheDocument()
+  })
+
+  it('决策 70：实例名 / 采集地址拆两列 —— resource_name 回填，无资源时实例名为 -', async () => {
+    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          historyItem({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' }),
+          historyItem({
+            alertname: 'HostTargetsMissing',
+            instance: '',
+            instance_address: '',
+            instance_display: '',
+            resource_name: '',
+          }),
+        ],
+        total: 2,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-db-01')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row as HTMLElement).getByText('10.0.0.1:9100')).toBeInTheDocument()
+
+    // 无 resource_id 的告警：实例名列 '-'（不回落成地址），采集地址列回退「全局/聚合」
+    const aggRow = screen.getByText('HostTargetsMissing').closest('tr')
+    expect(aggRow).not.toBeNull()
+    expect(within(aggRow as HTMLElement).getByText('-')).toBeInTheDocument()
+    expect(within(aggRow as HTMLElement).getByText('全局/聚合')).toBeInTheDocument()
+  })
+
+  it('决策 70：实例筛选框提示同时支持实例名与采集地址', async () => {
+    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByPlaceholderText('按实例名或采集地址筛选')).toBeInTheDocument()
+  })
+
+  it('决策 70：「采集地址」列头挂提示角标，消解 :9100 被误读为业务端口', async () => {
+    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 50 },
+    })
+    renderPage()
+    const header = await screen.findByRole('columnheader', { name: /采集地址/ })
+    const badge = header.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText(/采集器地址，非业务端口/)).toBeInTheDocument()
   })
 
   it('空结果展示「暂无历史告警」', async () => {

@@ -19,6 +19,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/models"
+	"gorm.io/gorm"
 )
 
 // 历史告警时间序列常量。
@@ -56,8 +58,8 @@ type AlertHistoryItem struct {
 	DurationSeconds float64 `json:"duration_seconds"`
 	Summary         string  `json:"summary"`
 	Value           string  `json:"value"`
-	// InstanceDisplay 是面向 UI 的实例展示字段（与 PromAlertItem 同构）。
-	InstanceDisplay string `json:"instance_display"`
+	// InstanceFields 是实例展示字段组（v1.15 决策 70，与 PromAlertItem 同构、平铺）。
+	InstanceFields
 }
 
 // alertHistoryQuery 解析后的历史告警查询参数。
@@ -79,10 +81,11 @@ type alertHistoryQuery struct {
 //   3. 按 alertname + instance + 其余 labels 分组，连续 firing 样本合成触发区间；
 //   4. 中断超过 2×step 视为区间结束；查询窗口末尾仍有样本则 state=firing；
 //   5. 从 Prometheus /api/v1/rules 获取告警注解 summary 回填；
-//   6. 本地过滤 network_domain/alertname/instance/state，内存分页后返回。
+//   6. 按告警标签 resource_id 批量回连 M01 五类资源表，回填实例名字段（v1.15 决策 70）；
+//   7. 本地过滤 network_domain/alertname/instance/state，内存分页后返回。
 //
 // 响应 envelope：{status, data:{list:[...], total, page, page_size}}，空结果 list=[] 非 null。
-func AlertsHistoryHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc {
+func AlertsHistoryHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		q, err := parseAlertHistoryQuery(c)
 		if err != nil {
@@ -90,7 +93,7 @@ func AlertsHistoryHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc
 			return
 		}
 
-		items, err := fetchAlertHistory(c.Request.Context(), client, promURL, q)
+		items, err := fetchAlertHistory(c.Request.Context(), db, client, promURL, q)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
@@ -179,7 +182,7 @@ func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error) {
 }
 
 // fetchAlertHistory 拉取 ALERTS 时间序列、重建区间并过滤。
-func fetchAlertHistory(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]AlertHistoryItem, error) {
+func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]AlertHistoryItem, error) {
 	matrix, err := queryRangeAlerts(ctx, client, promURL, q)
 	if err != nil {
 		return nil, err
@@ -191,7 +194,15 @@ func fetchAlertHistory(ctx context.Context, client *http.Client, promURL *url.UR
 		summaryMap = map[string]string{}
 	}
 
-	items := rebuildIntervals(matrix, q, summaryMap)
+	// 决策 70：一次性收集 resource_id 批量回连 M01（每类资源表一条 IN 查询，禁 N+1）。
+	// 回连失败降级为空 map，实例字段走标签回落链，不阻塞历史列表。
+	ids := make([]string, 0, len(matrix))
+	for i := range matrix {
+		ids = append(ids, matrix[i].Metric["resource_id"])
+	}
+	identities := ResolveResourceIdentitiesSafe(db, ids)
+
+	items := rebuildIntervals(matrix, q, summaryMap, identities)
 
 	// 本地过滤（MVP 单租户语义；未来可改为 PromQL matcher 注入）。
 	filtered := make([]AlertHistoryItem, 0, len(items))
@@ -202,7 +213,7 @@ func fetchAlertHistory(ctx context.Context, client *http.Client, promURL *url.UR
 		if q.Alertname != "" && !strings.Contains(it.Alertname, q.Alertname) {
 			continue
 		}
-		if q.Instance != "" && !strings.Contains(it.Instance, q.Instance) {
+		if q.Instance != "" && !historyInstanceMatch(it, q.Instance) {
 			continue
 		}
 		if q.State != "all" && it.State != q.State {
@@ -272,7 +283,7 @@ func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL
 }
 
 // rebuildIntervals 将 matrix 样本按 series 重建为触发/恢复区间。
-func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string) []AlertHistoryItem {
+func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string, identities map[string]ResourceIdentity) []AlertHistoryItem {
 	gapThreshold := int64(2 * q.Step.Seconds())
 	endUnix := q.End.Unix()
 
@@ -281,11 +292,9 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 		if len(series.Values) == 0 {
 			continue
 		}
+		// 网域归属在 buildHistoryItem 内统一解析（models.ResolveNetworkDomain，
+		// network_domain → network_domain_id → default）。
 		labels := series.Metric
-		domain := labels["network_domain"]
-		if domain == "" {
-			domain = DefaultNetworkDomain
-		}
 
 		// 连续样本合成区间：间隔超过 2×step 视为中断。
 		var intervalStart int64
@@ -303,7 +312,7 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 				continue
 			}
 			if int64(ts)-intervalEnd > gapThreshold {
-				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryMap))
+				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryMap, identities))
 				intervalStart = int64(ts)
 				intervalEnd = int64(ts)
 			} else {
@@ -311,7 +320,7 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 			}
 			// 最后一条样本结束后闭合区间。
 			if i == len(series.Values)-1 {
-				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryMap))
+				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryMap, identities))
 			}
 		}
 	}
@@ -319,11 +328,8 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 }
 
 // buildHistoryItem 将单个触发区间转换为 AlertHistoryItem。
-func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[string]string) AlertHistoryItem {
-	domain := labels["network_domain"]
-	if domain == "" {
-		domain = DefaultNetworkDomain
-	}
+func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[string]string, identities map[string]ResourceIdentity) AlertHistoryItem {
+	domain := models.ResolveNetworkDomain(labels)
 	alertname := labels["alertname"]
 	instance := labels["instance"]
 
@@ -358,8 +364,18 @@ func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix
 		DurationSeconds: math.Max(0, float64(duration)),
 		Summary:         summary,
 		Value:           "1",
-		InstanceDisplay: instanceDisplayOf(labels),
+		InstanceFields:  InstanceFieldsOf(labels, identities),
 	}
+}
+
+// historyInstanceMatch 判定历史告警是否命中「实例」筛选（v1.15 决策 70）：
+// 同时匹配采集地址（instance_address，含原 instance 字段）与 M01 实例名
+// （resource_name），任一命中即保留——否则「实例」列拆两列后，用户看到 `ceshi`
+// 却按 `ceshi` 搜不到。
+func historyInstanceMatch(it AlertHistoryItem, keyword string) bool {
+	return strings.Contains(it.InstanceAddress, keyword) ||
+		strings.Contains(it.Instance, keyword) ||
+		strings.Contains(it.ResourceName, keyword)
 }
 
 // rulesAPIResponse 是 Prometheus /api/v1/rules 响应的精简结构。

@@ -1,7 +1,10 @@
 # MetricCenter Git Ignore
 
 # 自动下载的工具链
-.tools/
+# 注意：不要写成 `.tools/`（尾斜杠只匹配目录）。本仓库的 `.tools` 常是指向兄弟工作树
+# 的符号链接，符号链接不是目录 → 会漏忽略，`git status` 长期显示 `?? .tools`，
+# 且 `git add -A` 会把该软链提交进版本库。
+.tools
 
 # 构建产物
 platform/cmd/metric-center/metric-center

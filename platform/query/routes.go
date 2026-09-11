@@ -23,6 +23,6 @@ func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL) {
 	client := &http.Client{Timeout: PrometheusTargetsTimeout}
 	g.GET("/targets", TargetsHandler(promURL, client))
 	g.GET("/health/coverage", CoverageHandler(db, promURL, client))
-	g.GET("/alerts", AlertsHandler(promURL, client))
-	g.GET("/alerts/history", AlertsHistoryHandler(promURL, client))
+	g.GET("/alerts", AlertsHandler(db, promURL, client))
+	g.GET("/alerts/history", AlertsHistoryHandler(db, promURL, client))
 }

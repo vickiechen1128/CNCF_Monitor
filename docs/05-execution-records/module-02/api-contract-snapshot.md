@@ -163,6 +163,7 @@
 | Module\_01（决策 47-2）      | 只读消费 `GET /api/v1/targets?job=<job_name>` 做 Job 抽屉实例采集状态回显；`job` 名来自 ScrapeJob `job_name`；「待采集」= 变更未确认下发或该实例无对应 target        |
 | Module\_07（决策 47-3）      | 只读消费 `GET /api/v1/health/coverage`（一次拉取全量或按 category/state 过滤），前端按 `resource_id` 与资源列表行合并渲染三态 badge；禁止逐行调 targets/query（TQ-6） |
 | Module\_01 安装确认（决策 47-1） | 未确认不影响 targets 生成；确认 API 语义降为「可选登记」，与 coverage 状态无耦合                                                                          |
+| Module\_08（决策 55/56/61/70） | `/api/v1/alerts` 与 `/api/v1/alerts/history` 两条告警读取代理的**字段清单与取值口径不在本快照重复登记**，权威承载在 `docs/05-execution-records/module-08/api-contract-snapshot.md` §10.1（含 v1.15 决策 70 新增的 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` 实例字段与回落链修订）；本快照仅登记路径归属与网域过滤口径 |
 
 ## 5. 仍待确认项（\[待确认]）
 

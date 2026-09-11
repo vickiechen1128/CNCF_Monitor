@@ -110,6 +110,15 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(screen.getByText('当前账号无此页面查看权限')).toBeInTheDocument()
   })
 
+  // 决策 69-③（决策 60 补充块）：版本历史「M09 变更单」列由静态文本升级为跳转链接，
+  // pending 期间用户可由页面内直达该变更单详情（此前仅有数秒即消失的 toast 引导）。
+  it('决策 69-③：版本历史的 M09 变更单号渲染为跳转链接', async () => {
+    useAlertConfigMock.mockReturnValue(result({ current: null, versions: [versionRow()], total: 1 }))
+    renderPage()
+    const link = await screen.findByRole('link', { name: 'CHG-20260831-001' })
+    expect(link).toHaveAttribute('href', '/config-preview?change_no=CHG-20260831-001')
+  })
+
   it('接口错误：Alert + 重新加载触发 reload', () => {
     const res = result({ error: 'boom' })
     useAlertConfigMock.mockReturnValue(res)

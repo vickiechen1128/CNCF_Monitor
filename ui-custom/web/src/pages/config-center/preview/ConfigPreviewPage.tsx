@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Alert,
   Button,
@@ -141,12 +141,12 @@ export function ConfigPreviewPage() {
   const pendingCount = data.items.filter((d) => d.status === 'pending').length
   const pendingHighRisk = data.items.some((d) => d.status === 'pending' && d.change_items?.some((i) => i.risk === 'high'))
 
-  const openDetail = useCallback(async (record: ConfigDraft) => {
+  const openDetail = useCallback(async (changeNo: string) => {
     setDetailLoading(true)
     setSourceOrigin(null)
     setActiveTab('summary')
     try {
-      const res = await configDraftApi.get(record.change_no)
+      const res = await configDraftApi.get(changeNo)
       setDetail(res.data)
       // MEDIUM-2：存在基础版本时拉取其产物供版本对比 Tab 做真实 diff
       if (res.data.source_version) {
@@ -166,6 +166,21 @@ export function ConfigPreviewPage() {
       setDetailLoading(false)
     }
   }, [])
+
+  // 决策 69-③：支持 `?change_no=` 深链（M08 版本历史「M09 变更单」列跳入）——落地即自动
+  // 打开该变更单详情抽屉；消费后立即清除参数（replace），避免关闭抽屉或刷新时反复弹出。
+  // 深链只驱动「打开哪一单」，不改列表筛选状态（不触碰决策 60 的 M08/M09 职责边界）。
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    const changeNo = searchParams.get('change_no')
+    if (!changeNo) return
+    // 沿用本页既有「effect 内发起拉取」模式（同 useConfigDrafts 的 load effect 注释）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void openDetail(changeNo)
+    const next = new URLSearchParams(searchParams)
+    next.delete('change_no')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams, openDetail])
 
   const handleConfirm = () => {
     if (!detail) return
@@ -236,7 +251,7 @@ export function ConfigPreviewPage() {
     try {
       const res = await configDraftApi.revalidate(detail.change_no)
       message.success(`变更单 ${detail.change_no} 已重新校验：${validationLabel[res.data.validation_status as keyof typeof validationLabel]}`)
-      await openDetail(detail)
+      await openDetail(detail.change_no)
       reload()
     } catch (e) {
       message.error(e instanceof Error ? e.message : '重新校验失败，请稍后重试')
@@ -339,7 +354,7 @@ export function ConfigPreviewPage() {
       width: 90,
       fixed: 'right',
       render: (_: unknown, r: ConfigDraft) => (
-        <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => openDetail(r)}>
+        <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => openDetail(r.change_no)}>
           详情
         </Button>
       ),

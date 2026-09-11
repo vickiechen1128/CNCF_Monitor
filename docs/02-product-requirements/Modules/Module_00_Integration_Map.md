@@ -215,7 +215,7 @@
 ### 3.19 查询中心
 
 - **功能 Owner**: Module_02
-- **核心职责**: 代理 Prometheus Query API，按认证用户自动注入 `tenant_id` 与有权限的 `network_domain` 标签；在返回结果外层包裹 envelope 元数据（`data_source`、`freshness_at`、`network_domain`），不污染 PromQL series 标签。
+- **核心职责**: 代理 Prometheus Query API，按认证用户自动注入 `tenant` 与有权限的 `network_domain` 标签（两键名均与采集侧实际标签同源，标签键不带 `_id` 后缀——决策 68-5）；在返回结果外层包裹 envelope 元数据（`data_source`、`freshness_at`、`network_domain`），不污染 PromQL series 标签。
 - **依赖模块**:
   - Module_06：租户-网域模型、用户权限与隔离策略（不存在跨租户全局管理员）。
   - Module_09：Edge Agent `external_labels` 注入，为按网域查询与租户隔离提供标签基础。

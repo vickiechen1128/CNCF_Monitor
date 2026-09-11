@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ResourcesPage } from './ResourcesPage'
 
@@ -76,6 +76,24 @@ function hostItem(resource_id: string, instance_name: string, extra: Record<stri
     hostname: `${instance_name}.volc`,
     instance_ip: '10.0.1.11',
     os_type: 'Linux',
+    ...extra,
+  }
+}
+
+/** database 列表 item 构造器（对齐 T07-05 列表契约字段，决策 70 / F-38 用） */
+function dbItem(resource_id: string, instance_ip: string, extra: Record<string, unknown> = {}) {
+  return {
+    resource_id,
+    resource_category: 'database',
+    network_domain_id: 'mc-a',
+    biz_code: 'infra',
+    env: 'prod',
+    status: 'online',
+    source_type: 'manual',
+    database_type: 'mysql',
+    instance_ip,
+    port: 3306,
+    version: '8.0',
     ...extra,
   }
 }
@@ -398,5 +416,53 @@ describe('ResourcesPage', () => {
     expect(badge).toBeTruthy()
     fireEvent.mouseEnter(badge!)
     expect(await screen.findByText('主机资源的实例名即主机名')).toBeInTheDocument()
+  })
+
+  // 决策 70 / F-38：主机 Tab 实例名列删除与 instance_name 同值的 hostname 副行
+  it('决策 70 / F-38：主机 Tab 实例名列不再渲染 hostname 副行', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('prod-web-01')).toBeInTheDocument()
+    // 副行 `hostname`（fixture 中为 `prod-web-01.volc`）已删除
+    expect(screen.queryByText('prod-web-01.volc')).toBeNull()
+  })
+
+  // 决策 70 / F-38：database / middleware Tab 实例名列改绑 instance_ip（原绑不产出的 instance_name → 恒 '-'）
+  it('决策 70 / F-38：数据库 Tab「实例名」列改绑 instance_ip', async () => {
+    listMock.mockImplementation((params: { resource_category?: string }) =>
+      Promise.resolve({
+        status: 'success',
+        data: {
+          list: params?.resource_category === 'database' ? [dbItem('res-db-1', '10.0.2.20')] : [],
+          total: 1,
+          page: 1,
+          page_size: 50,
+        },
+      }),
+    )
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getByText('数据库'))
+    const row = (await screen.findByText('mysql')).closest('tr')
+    expect(row).not.toBeNull()
+    // 列序：实例名 / 数据库类型 / IP 地址 / 端口 / 版本 ...
+    const cells = within(row as HTMLElement).getAllByRole('cell')
+    expect(cells[0]).toHaveTextContent('10.0.2.20')
+    expect(cells[2]).toHaveTextContent('10.0.2.20')
+  })
+
+  it('决策 70 / F-38：数据库 Tab「实例名」列头挂提示角标（模型无独立名称字段）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getByText('数据库'))
+    const header = await screen.findByRole('columnheader', { name: /实例名/ })
+    const badge = header.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText(/以实例 IP 作为实例标识/)).toBeInTheDocument()
   })
 })

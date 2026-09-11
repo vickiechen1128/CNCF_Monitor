@@ -132,9 +132,13 @@
 
 ### 结论 8：租户不进入采集拓扑，`tenant` 标签走 target 级（决策 19）
 
-- M09 `external_labels` 中**移除 `tenant_id`**；`external_labels` 只保留部署级、物理维度的不可变元数据（`network_domain_id`、`zone_type`、`replica` 等）。
-- 未来多租户若需在指标上体现租户归属，由 M07 LabelTemplate 把资源字段 `tenant_id` 映射为 target 级 `tenant` 标签。
-- MVP 单租户下此映射可选、不强制注入；租户隔离优先在 API Gateway / 查询代理层通过 PromQL 注入实现。
+> **⚠️ 部分被决策 68 supersede（2026-09-10）**：本结论关于 `external_labels` **键名**的选择（`network_domain_id`）已被 `docs/05-execution-records/module-09/design-decisions.md`「决策登记：2026-09-10（网域标签键收敛 + 租户标签键统一 + Prometheus→Alertmanager 投递接线）」**决策 68-1** 收敛为 **`network_domain`**（以 M02 决策 4.4 为准）。本结论的**字段清单**部分（移除 `tenant_id`、只保留部署级物理维度元数据）**继续有效、不变**。区分：`NetworkDomain.id` / `Resource.network_domain_id` 等**对象与 API 字段**仍用 `network_domain_id`，只有 **Prometheus 标签键**收敛为 `network_domain`。详见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md`。
+
+> **✅ 经决策 68-5 定版确认（2026-09-10）**：本结论「**`tenant` 标签走 target 级**」的定性被 `module-09/design-decisions.md` **决策 68-5** 正式定版——租户标签（Prometheus 标签键 **`tenant`**）**唯一来源**为 [Module_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 的 target 级注入，**不进入 `external_labels`**；配套确立通用命名规约「**标签键一律不带 `_id` 后缀**（`_id` 只属 DB 列 / API 字段）」与 fail-closed **严格派**语义（无 `tenant` 标签的序列 = 普通租户不可见）。此前 M02 §7.1 曾把该标签键误写为 `tenant_id`，已由决策 68-5 修正为 `tenant`。**本结论的字段清单与归属定性均无变化。**
+
+- M09 `external_labels` 中**移除 `tenant_id`**；`external_labels` 只保留部署级、物理维度的不可变元数据（~~`network_domain_id`~~ → **`network_domain`**（决策 68-1）、`zone_type`、`replica` 等）。
+- 未来多租户若需在指标上体现租户归属，由 M07 LabelTemplate 把资源字段 `tenant_id` 映射为 target 级 **`tenant`** 标签（**决策 68-5 定版**：v0.2 起为该映射的内置默认前瞻口径，见 M07 §5.13）。
+- MVP 单租户下此映射可选、不强制注入；租户隔离优先在 API Gateway / 查询代理层通过 PromQL 注入实现（**决策 68-5**：v0.2 开启多租户时 matcher 名为 `tenant`、注入强制化、缺映射由 M09 生成期门禁阻断）。
 - 目的：确保组织/租户调整不会触发采集配置重新生成与下发。
 
 ### 结论 9：多运维团队共享网域的三层隔离模型（决策 20）
@@ -153,7 +157,7 @@ MVP 单团队场景退化为：只有 `platform_admin` 一个租户，所有配�
 
 1. ~~`business_domain` 命名是否保留，还是统一为 `biz_code` + `biz_name` 以匹配 `zone_type` 字典风格？~~ → **已确认（决策 21）：改为 `biz_code` + `biz_name`，指标标签保持 `biz`**。
 2. ~~M04 v0.4+ 同步时，若 CMDB 业务被删除，本地业务字典条目是停用还是标记孤儿？资源上的 `business_domain` 是否保留历史值？~~ → **已确认（决策 22，用户拍板）：字典停用不删除、资源保留历史 `biz_code`；停用条目不可新选；同 `bk_biz_id` 重建时复用原条目并重新启用**。
-3. ~~决策 19 落地后，M09 `external_labels` 的最终字段清单需确认~~ → **已确认：移除 `tenant_id`，保留 `network_domain_id`、`zone_type`、`replica`**。
+3. ~~决策 19 落地后，M09 `external_labels` 的最终字段清单需确认~~ → **已确认：移除 `tenant_id`，保留 ~~`network_domain_id`~~ `network_domain`（键名经决策 68-1 收敛，2026-09-10）、`zone_type`、`replica`**。
 4. ~~决策 20 多团队场景下，配置命名空间的具体规则是否需要在 M09 中单独成章？~~ → **已确认：推迟到 v0.2+ 详细讨论，M09 PRD 仅留 {v0.2+} 占位说明，MVP 不实现**。
 
 ## 关联文档

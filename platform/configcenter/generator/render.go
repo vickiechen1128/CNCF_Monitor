@@ -2,6 +2,7 @@ package generator
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -15,8 +16,25 @@ type cfgGlobal struct {
 	ExternalLabels  map[string]string `yaml:"external_labels,omitempty"`
 }
 
+// cfgAlerting 是 prometheus.yml 的 alerting 段（决策 68-2）：把中心求值器产生的告警
+// 投递到 Alertmanager。仅中心求值器（channel=local）且存在 alertmanager.yml 挂载内容、
+// 且 AM 地址已注入时生成；边缘通道（agent_pull）的 vmagent / prometheus-agent 不支持
+// 该段，永不生成（tech-feasibility §4.2）。
+type cfgAlerting struct {
+	Alertmanagers []cfgAlertmanager `yaml:"alertmanagers"`
+}
+
+type cfgAlertmanager struct {
+	StaticConfigs []cfgStaticConfig `yaml:"static_configs"`
+}
+
+type cfgStaticConfig struct {
+	Targets []string `yaml:"targets"`
+}
+
 type cfgFile struct {
 	Global        cfgGlobal    `yaml:"global,omitempty"`
+	Alerting      *cfgAlerting `yaml:"alerting,omitempty"`
 	RuleFiles     []string     `yaml:"rule_files,omitempty"`
 	ScrapeConfigs []scrapeConf `yaml:"scrape_configs,omitempty"`
 }
@@ -69,13 +87,21 @@ type JobBuild struct {
 // Assemble 按网域组装配置产物：
 //   - prometheus.yml：global.external_labels（仅 network_domain_id/zone_type/replica）
 //     + scrape_configs 骨架（file_sd_configs 引用 targets/<job>.json 不内联）；
+//     中心求值器额外注入 rule_files 与 alerting（见 alertmanagerAddr / centerEvaluator）；
 //   - targets/<job>.json：由调用方预解析的 Targets 生成；
 //   - rules.yml：scope=central 且 content_mode=yaml_passthrough 的规则解析合并 groups
 //     为单文档（renderRules）；
 //   - blackbox.yml：存在 blackbox job 时按所用模块生成；
 //   - alertmanager.yml：决策 60，由调用方按「管理域 default 范围」透传 M08 已留痕
 //     源配置内容（无告警配置时传空串，不产生空产物）。
-func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML string) (*ConfigArtifacts, error) {
+//
+// 决策 68-2：alertmanagerAddr 是 alerting.alertmanagers[].static_configs[].targets 的
+// 投递目标（host:port，由 --alertmanager.url 解析注入，禁止硬编码）；centerEvaluator
+// 表示该产物是否属中心求值器（channel=local）。**rule_files 与 alerting 必须由同一个
+// centerEvaluator 判定驱动**（约定纪律：禁止各自 if，否则 v0.2 会出现「一段生成了、
+// 另一段没生成」的半残配置）。alerting 另有前置条件：alertmanagerYML 非空且地址非空，
+// 避免指向不存在的 Alertmanager。
+func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []models.MonitoringRule, alertmanagerYML, alertmanagerAddr string, centerEvaluator bool) (*ConfigArtifacts, error) {
 	ext := buildExternalLabels(domainID, zoneType, replica)
 
 	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}}
@@ -103,9 +129,25 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 
 	// 规则文件与 prometheus.yml 同目录下发（deployment/service.go writeStructural），
 	// 有规则内容时才注入 rule_files 引用 rules.yml；无规则时不引用，避免指向不存在的文件。
+	//
+	// 决策 68-2 / 68-3：rule_files 与 alerting 只进中心求值器（channel=local）的
+	// prometheus.yml，边缘通道（agent_pull）永不生成——两者由同一个 centerEvaluator
+	// 判定驱动，禁止各自 if（约定纪律，否则 v0.2 会出现「一段生成了、另一段没生成」
+	// 的半残配置）。
 	rulesYAML := renderRules(rules)
-	if strings.TrimSpace(rulesYAML) != "" {
-		cfg.RuleFiles = []string{"rules.yml"}
+	if centerEvaluator {
+		if strings.TrimSpace(rulesYAML) != "" {
+			cfg.RuleFiles = []string{"rules.yml"}
+		}
+		// 与 rule_files 对称：仅有 AM 挂载内容且地址已注入时才生成 alerting 段，
+		// 避免指向不存在的 Alertmanager（决策 68-2）。
+		if strings.TrimSpace(alertmanagerYML) != "" && strings.TrimSpace(alertmanagerAddr) != "" {
+			cfg.Alerting = &cfgAlerting{
+				Alertmanagers: []cfgAlertmanager{{
+					StaticConfigs: []cfgStaticConfig{{Targets: []string{alertmanagerAddr}}},
+				}},
+			}
+		}
 	}
 	promYAML, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -121,6 +163,28 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 		TargetsFiles:    targets,
 		AlertmanagerYML: alertmanagerYML,
 	}, nil
+}
+
+// AlertmanagerTargetFromURL 把 --alertmanager.url（如 http://localhost:9093）转换为
+// Prometheus `alerting.alertmanagers[].static_configs[].targets` 所需的 host:port
+// （如 localhost:9093，决策 68-2）。
+//
+// Prometheus 的 alertmanager target 只接受 host:port，不接受 scheme；故此处剥离
+// scheme 与路径。未带 scheme 时按原值返回（容忍已是 host:port 的入参）；空串或解析
+// 失败返回空串，调用方据此不生成 alerting 段，避免写出非法/悬空目标。
+func AlertmanagerTargetFromURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		return strings.Trim(raw, "/")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
 }
 
 // jobScrapeConfig 将 ScrapeJob 结构映射为 scrape_config 骨架
