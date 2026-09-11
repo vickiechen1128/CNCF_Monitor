@@ -9,6 +9,7 @@ import {
   App,
   Button,
   Card,
+  Collapse,
   ConfigProvider,
   Empty,
   Modal,
@@ -20,7 +21,7 @@ import {
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import { BellOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { BellOutlined, InfoCircleOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -230,12 +231,31 @@ export function SilencesPage() {
             </Space>
           </div>
 
-          <Alert
-            type="info"
-            showIcon
-            message="静默影响当前授权网域"
-            description="本页创建与展示的静默均在当前登录账号授权网域范围内生效（决策 56）；越权条件会被服务端拒绝。"
+          {/* 决策 56 授权约束：默认收起的折叠栏指引（用户反馈 2026-09-11：页头独立说明板块不需要，
+              折叠栏指引需要）；决策 56 内部编号不下沉为用户文案 */}
+          <Collapse
+            ghost
+            size="small"
             style={{ marginBottom: 16 }}
+            items={[
+              {
+                key: 'silence-scope-note',
+                label: (
+                  <span>
+                    <InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />
+                    <Text strong>静默只对你有权限的网域生效</Text>
+                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                      点击展开说明
+                    </Text>
+                  </span>
+                ),
+                children: (
+                  <Text>
+                    本页创建与展示的静默仅作用于你账号有权限的网域；若匹配条件包含权限之外的网域，创建会被系统拒绝。
+                  </Text>
+                ),
+              },
+            ]}
           />
 
           <Table<Silence>

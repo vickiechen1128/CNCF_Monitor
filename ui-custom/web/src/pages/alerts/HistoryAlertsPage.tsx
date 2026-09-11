@@ -1,15 +1,17 @@
 /**
  * 历史告警页（Module_08 v1.13 MVP 增量）。
  * 独立页面展示规则级告警触发/恢复历史（含已恢复），数据由 M02 /api/v1/alerts/history 提供。
- * 列表：告警名称、状态、网域、实例名、采集地址、触发时间、恢复时间（按 Prometheus 求值）、持续时长、摘要。
+ * 列表：告警名称、状态、网域、实例名、采集地址、触发时间、恢复时间（估算）、持续时长、摘要。
  * 筛选：网域 / 告警名 / 实例 / 状态 / 时间范围；默认 24h、最大 7d；手动刷新。
- * 提示：恢复时间为 Prometheus 求值视角近似值，历史深度受 Prometheus TSDB 保留策略限制。
+ * 提示：恢复时间为估算值（默认收起的折叠栏 + 列头角标 hover 双入口），
+ * 历史深度受 Prometheus TSDB 保留策略限制。
  */
 import { useMemo, useState } from 'react'
 import {
   Alert,
   Button,
   Card,
+  Collapse,
   ConfigProvider,
   DatePicker,
   Empty,
@@ -86,6 +88,22 @@ function InstanceAddressTitle() {
   )
 }
 
+/**
+ * 「恢复时间」列表头：估算口径 + 保留深度说明降级为列头角标
+ * （用户反馈 2026-09-11：独立说明大框没有必要；技术细节仅留本注释，
+ * 实现上恢复时间 = 最后一个 firing 样本时间 + 一个求值步长，基于 ALERTS 序列重建）。
+ */
+function RecoveryTimeTitle() {
+  return (
+    <span>
+      恢复时间（估算）
+      <Tooltip title="由系统根据告警最后一次触发状态自动推算，可能与实际恢复时间略有偏差；告警记录只保留一段时间，超过保留期的记录无法查询。">
+        <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+      </Tooltip>
+    </span>
+  )
+}
+
 export function HistoryAlertsPage() {
   const domains = useNetworkDomains()
   const [networkDomain, setNetworkDomain] = useState<string>('all')
@@ -155,7 +173,7 @@ export function HistoryAlertsPage() {
       render: (v: string) => <Text>{formatTime(v)}</Text>,
     },
     {
-      title: '恢复时间（按 Prometheus 求值）',
+      title: <RecoveryTimeTitle />,
       dataIndex: 'resolved_at',
       key: 'resolved_at',
       width: 200,
@@ -193,22 +211,35 @@ export function HistoryAlertsPage() {
           <Typography.Title level={4} style={{ margin: 0 }}>
             历史告警
           </Typography.Title>
-          <Text type="secondary">
-            查看规则级告警的触发与恢复历史（含已恢复），回答「这条告警什么时候触发、什么时候恢复」。
-          </Text>
         </Card>
 
-        <Alert
-          type="info"
-          showIcon
+        {/* 恢复时间估算口径 / 历史保留深度：低频须知，默认收起的折叠栏指引
+            （用户反馈 2026-09-11：页头独立说明板块不需要，折叠栏指引需要）。
+            实现细节（ALERTS 序列重建、求值步长、TSDB 保留策略）仅留代码注释，不下沉为用户文案。 */}
+        <Collapse
+          ghost
+          size="small"
           style={{ marginBottom: 16 }}
-          message="恢复时间为 Prometheus 求值视角的近似值"
-          description={
-            <span>
-              历史告警基于 Prometheus <code>ALERTS</code> 时间序列重建触发区间；「恢复时间」为最后一个 firing 样本时间加一个求值步长，
-              <strong>不等同于故障真实恢复时间</strong>。历史深度受中心 Prometheus TSDB 保留策略限制，超过保留期的告警将无法查询。
-            </span>
-          }
+          items={[
+            {
+              key: 'recovery-time-note',
+              label: (
+                <span>
+                  <InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />
+                  <Text strong>恢复时间是估算值，仅供参考</Text>
+                  <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                    点击展开说明
+                  </Text>
+                </span>
+              ),
+              children: (
+                <Text>
+                  「恢复时间」由系统根据告警最后一次触发状态自动推算，可能与实际恢复时间略有偏差；
+                  告警记录只保留一段时间（受系统存储策略限制），超过保留期的记录将无法查询。
+                </Text>
+              ),
+            },
+          ]}
         />
 
         {error && (

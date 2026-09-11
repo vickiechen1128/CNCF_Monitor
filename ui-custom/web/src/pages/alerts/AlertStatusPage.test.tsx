@@ -1,6 +1,6 @@
 /**
  * 告警状态页测试（Module_08 v1.12 MVP 增量，T08-F6，契约快照 §10）。
- * 双视图：Tab 1「Alertmanager 通知状态」（四态）+ Tab 2「Prometheus 当前触发告警」（firing/pending）。
+ * 双视图：Tab 1「通知状态」（四态）+ Tab 2「当前告警」（firing/pending）。
  * 通过 mock ./useAlertStatus 隔离真实 API；覆盖状态矩阵：加载 / 空态 / 接口错误 / 权限不足。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -72,7 +72,7 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     useNetworkDomainsMock.mockReturnValue([])
   })
 
-  it('默认展示 Alertmanager 通知状态视图：四态统计卡片 + 决策 56 授权过滤提示', async () => {
+  it('默认展示通知状态视图：四态统计卡片 + 两视图语义折叠栏（默认展开）', async () => {
     useAmAlertsMock.mockReturnValue(amState({ items: [amRow()] }))
     renderPage()
     // 页面标题与四态统计卡片（原型 AlertStatusPage 对齐，文案以契约 §10.2 展示名为准）
@@ -81,17 +81,19 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(screen.getAllByText('已静默').length).toBeGreaterThan(0)
     expect(screen.getAllByText('已抑制').length).toBeGreaterThan(0)
     expect(screen.getAllByText('待处理').length).toBeGreaterThan(0)
-    // 决策 56 授权过滤提示保留（MVP 恒通过）
-    expect(screen.getByText(/通知状态已按授权网域集合过滤/)).toBeInTheDocument()
+    // 折叠栏指引（默认展开）：两视图语义 + 授权网域约束，友好化文案
+    expect(screen.getByText(/两个页签分别看什么/)).toBeInTheDocument()
+    expect(screen.getByText(/通知发出去没有、为什么没发/)).toBeInTheDocument()
+    expect(screen.getByText(/仅展示你有权限查看的网域/)).toBeInTheDocument()
   })
 
-  it('双 Tab 就位且语义区分说明条明确两视图差异（PRD §3.2）', async () => {
+  it('双 Tab 就位且页签名为友好化文案（PRD §3.2 语义区分由折叠栏承载）', async () => {
     renderPage()
-    expect(await screen.findByRole('tab', { name: /Alertmanager 通知状态/ })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /Prometheus 当前触发告警/ })).toBeInTheDocument()
-    // 语义区分：Prometheus 视图=规则求值触发（firing/pending）；AM 视图=路由/静默/抑制后的通知结果
-    expect(screen.getByText(/告警规则实时求值结果/)).toBeInTheDocument()
-    expect(screen.getByText(/路由、静默、\s*抑制后的处理结果/)).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: '通知状态' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '当前告警' })).toBeInTheDocument()
+    // 语义区分（折叠栏默认展开）：当前告警=哪里出了问题；通知状态=通知发出去没有、为什么没发
+    expect(screen.getByText(/哪里出了问题/)).toBeInTheDocument()
+    expect(screen.getByText(/通知发出去没有、为什么没发/)).toBeInTheDocument()
   })
 
   it('AM 视图渲染行字段：告警名称 / 通知状态 / 网域 / 实例 / 摘要', async () => {
@@ -160,7 +162,7 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(screen.getByText('SilencedAlert')).toBeInTheDocument()
   })
 
-  it('切换到 Prometheus 当前触发告警视图：firing=触发中 / pending=待处理 + 当前值', async () => {
+  it('切换到当前告警视图：firing=触发中 / pending=待处理 + 当前值', async () => {
     usePromAlertsMock.mockReturnValue(
       promState({
         items: [
@@ -170,7 +172,7 @@ describe('AlertStatusPage（告警状态双视图）', () => {
       }),
     )
     renderPage()
-    fireEvent.click(await screen.findByRole('tab', { name: /Prometheus 当前触发告警/ }))
+    fireEvent.click(await screen.findByRole('tab', { name: /当前告警/ }))
     expect(await screen.findByText('HighCPU')).toBeInTheDocument()
     expect(screen.getByText('触发中')).toBeInTheDocument()
     // 「待处理」在 AM 面板统计卡片中同样出现（隐藏但保持挂载），按行内 Tag 断言
@@ -193,7 +195,7 @@ describe('AlertStatusPage（告警状态双视图）', () => {
       }),
     )
     renderPage()
-    fireEvent.click(await screen.findByRole('tab', { name: /Prometheus 当前触发告警/ }))
+    fireEvent.click(await screen.findByRole('tab', { name: /当前告警/ }))
     expect(await screen.findByText('HostTargetsMissing')).toBeInTheDocument()
     // 聚合告警无 instance/instance_ip/service_name/nodename/device 标签，回退展示「全局/聚合」
     // （决策 70 修订回落链：删除死键 hostname、补 service_name）
@@ -207,7 +209,7 @@ describe('AlertStatusPage（告警状态双视图）', () => {
   it('加载中：表格展示加载态', async () => {
     useAmAlertsMock.mockReturnValue(amState({ loading: true }))
     const { container } = renderPage()
-    expect(await screen.findByRole('tab', { name: /Alertmanager 通知状态/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /通知状态/ })).toBeInTheDocument()
     await waitFor(() => expect(container.querySelector('.ant-spin-spinning')).not.toBeNull())
   })
 
@@ -233,7 +235,7 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     expect(amReloadMock).toHaveBeenCalledTimes(1)
 
     // 切到 Prometheus 视图后再点刷新
-    fireEvent.click(screen.getByRole('tab', { name: /Prometheus 当前触发告警/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /当前告警/ }))
     const promRefresh = await screen.findByRole('button', { name: /刷新/ })
     fireEvent.click(promRefresh)
     expect(promReloadMock).toHaveBeenCalledTimes(1)
