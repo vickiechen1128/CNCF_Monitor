@@ -42,6 +42,7 @@ import {
   deploymentStatusLabel,
   riskColor,
   riskLabel,
+  formatLocalTime,
 } from '../configCenterConstants'
 
 const { Text } = Typography
@@ -389,7 +390,14 @@ export function DeploymentsPage() {
         )
       },
     },
-    { title: '开始时间', dataIndex: 'triggered_at', key: 'triggered_at', width: 170 },
+    {
+      title: '开始时间',
+      dataIndex: 'triggered_at',
+      key: 'triggered_at',
+      width: 170,
+      // 时间展示对齐 M08 口径（formatLocalTime）：RFC3339 原串含 T/Z/纳秒，不可读
+      render: (v: string) => <Text type="secondary">{formatLocalTime(v)}</Text>,
+    },
     {
       title: '操作',
       key: 'action',
@@ -533,8 +541,8 @@ export function DeploymentsPage() {
             </Descriptions.Item>
             <Descriptions.Item label="错误信息">{detail.error_message || '-'}</Descriptions.Item>
             <Descriptions.Item label="操作人">{detail.triggered_by}</Descriptions.Item>
-            <Descriptions.Item label="开始时间">{detail.triggered_at}</Descriptions.Item>
-            <Descriptions.Item label="结束时间">{detail.completed_at || '-'}</Descriptions.Item>
+            <Descriptions.Item label="开始时间">{formatLocalTime(detail.triggered_at)}</Descriptions.Item>
+            <Descriptions.Item label="结束时间">{formatLocalTime(detail.completed_at)}</Descriptions.Item>
           </Descriptions>
         )}
         {detail && (
