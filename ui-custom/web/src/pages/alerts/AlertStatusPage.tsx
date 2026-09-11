@@ -5,7 +5,8 @@
  * Tab 1「通知状态」：四态（通知中/已静默/已抑制/待处理，服务端归一 notify_status）；
  * Tab 2「当前告警」：firing=触发中 / pending=待处理（M02 代理 /api/v1/alerts）。
  * 页签名友好化（用户反馈 2026-09-11）：不再用「Alertmanager / Prometheus」技术组件名做页签，
- * 语义区分收敛为页头一句话 + 页签 hover 提示（原 PRD §3.2 说明框，见 dev-feedback）。
+ * 两视图语义区分由折叠栏 + 页签 hover 提示承载（原引导语「两个页签分别看什么？」已更换措辞）；
+ * 页头独立标题卡片移除（用户第二轮反馈：截图中顶部大标题 Card 不要）。
  * 裁剪：原型「接收人」列无 AM v2 数据源，不做（frontend-prototype-map §8.4）。
  */
 import { useMemo, useState, type ReactNode } from 'react'
@@ -441,18 +442,12 @@ export function AlertStatusPage() {
   return (
     <MainLayout>
       <ConfigProvider locale={config}>
-        <Card style={{ marginBottom: 16 }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            告警状态
-          </Typography.Title>
-        </Card>
-
-        {/* PRD §3.2：两视图语义差异保留折叠栏指引（用户反馈 2026-09-11：页头独立说明板块不需要，
-            折叠栏/悬停提示类指引需要；页签名已友好化「通知状态 / 当前告警」） */}
+        {/* 页头不带独立标题卡片（用户反馈 2026-09-11：顶部大标题 Card 移除，侧栏菜单已含页名）。
+            两视图语义差异保留折叠栏指引：默认收起（用户第三轮反馈），内容口语化、三行格式统一，
+            引导语不再用「两个页签分别看什么？」。页签名友好化「通知状态 / 当前告警」。 */}
         <Collapse
           ghost
           size="small"
-          defaultActiveKey={['view-guide']}
           style={{ marginBottom: 16 }}
           items={[
             {
@@ -460,26 +455,26 @@ export function AlertStatusPage() {
               label: (
                 <Space size={8}>
                   <InfoCircleOutlined style={{ color: '#1677ff' }} />
-                  <Text strong>两个页签分别看什么？</Text>
+                  <Text strong>「通知状态」和「当前告警」有什么区别？</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    点击标题可收起或展开
+                    点击展开说明
                   </Text>
                 </Space>
               ),
               children: (
                 <div>
                   <Text>
-                    <strong>「当前告警」</strong>回答「哪里出了问题」：
-                    触发中 = 已满足告警条件且持续到了规定时长；待处理 = 条件已满足但还没持续够时长，正在观察期内。
+                    <strong>「当前告警」= 现在有什么问题：</strong>
+                    触发中：问题已经出现一阵子了，确认不是误报；待处理：问题刚出现，系统还在观察，如果一直不恢复就会变成触发中。
                   </Text>
                   <br />
                   <Text>
-                    <strong>「通知状态」</strong>回答「通知发出去没有、为什么没发」：
-                    通知中 = 正在通知接收人；已静默 = 被静默规则挡住；已抑制 = 存在根因告警被合并；待处理 = 刚进入通知系统，还没算完。
+                    <strong>「通知状态」= 告警的通知送到没有：</strong>
+                    通知中：正在给负责人发通知；已静默：这条告警被静默规则暂时挡住了，不会发通知；已抑制：同类问题里更重要的那条已经发过了，这条就不重复发；待处理：通知刚进来，系统还在判断要不要发、发给谁。
                   </Text>
                   <br />
-                  <Text type="secondary">
-                    通知数据仅展示你有权限查看的网域。
+                  <Text>
+                    <strong>说明：</strong>这里只显示你有权限查看的网域。
                   </Text>
                 </div>
               ),

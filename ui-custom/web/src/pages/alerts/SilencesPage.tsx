@@ -1,6 +1,10 @@
 /**
  * 静默管理页（决策 59 静默 API 直调，即时生效，不进 M09 变更单）。
- * 能力：创建 / 列表 / 删除主动静默；决策 56 授权提示「静默影响当前授权网域」；
+ * 能力：创建 / 列表 / 按状态区分的行内操作（用户确认 2026-09-11，方案 A+B）：
+ *  - AM v2 API 无「提前结束」端点，删除即提前结束（Grafana Expire 同为 DELETE），
+ *    因此操作按钮按状态改文案消除歧义：生效中=「结束静默」/ 待生效=「取消静默」/ 已过期=「删除」；
+ *  - 失效时间列增加剩余时长副行（B）：剩余 X / X 后生效 / 已结束，强化静默有时效的心智；
+ * 决策 56 授权提示「静默影响当前授权网域」收敛到页头一句话与创建抽屉内折叠栏；
  * 越权创建被拒展示服务端错误；覆盖加载 / 空态 / 接口错误 / 权限不足。
  */
 import { useState } from 'react'
@@ -9,19 +13,18 @@ import {
   App,
   Button,
   Card,
-  Collapse,
   ConfigProvider,
   Empty,
   Modal,
-  Space,
   Table,
   Select,
   Input,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import { BellOutlined, InfoCircleOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, StopOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -38,6 +41,67 @@ const { Text } = Typography
 /** 生效/失效时间展示：UTC ISO 转本地可读串（复用全仓既时区展示约定，不引入新依赖） */
 function formatTime(iso?: string): string {
   return iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '-'
+}
+
+/** 时长口语化：分 → 小时 → 天（分钟级精度足够，不引入 dayjs duration 依赖） */
+function humanizeDuration(ms: number): string {
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return '不足 1 分钟'
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48) return `${hours} 小时`
+  return `${Math.floor(hours / 24)} 天`
+}
+
+/** 失效时间列副行（方案 B）：按状态给出相对时间，提示静默有时效、可提前干预 */
+function remainingText(r: Silence): string {
+  if (r.status === 'active') {
+    const ms = new Date(r.ends_at).getTime() - Date.now()
+    return ms <= 0 ? '已到期' : `剩余 ${humanizeDuration(ms)}`
+  }
+  if (r.status === 'pending') {
+    const ms = new Date(r.starts_at).getTime() - Date.now()
+    return ms <= 0 ? '即将生效' : `${humanizeDuration(ms)} 后生效`
+  }
+  return '已结束'
+}
+
+/**
+ * 行内操作文案与确认弹窗（方案 A）：AM 语义上删除 = 提前结束，
+ * 但用户语言须按状态区分——结束/取消传达「恢复通知」，删除仅是清理过期记录。
+ */
+const ACTION_META: Record<SilenceStatus, {
+  label: string
+  tooltip: string
+  confirmTitle: string
+  confirmContent: string
+  toast: string
+  icon: typeof DeleteOutlined
+}> = {
+  active: {
+    label: '结束静默',
+    tooltip: '结束后相关告警将立即恢复通知',
+    confirmTitle: '结束这条静默',
+    confirmContent: '结束后将立即停止静默，相关告警恢复通知。该操作不可恢复。',
+    toast: '静默已结束，相关告警已恢复通知',
+    icon: StopOutlined,
+  },
+  pending: {
+    label: '取消静默',
+    tooltip: '取消后该静默不会生效',
+    confirmTitle: '取消这条静默',
+    confirmContent: '取消后该静默不会生效，不会屏蔽任何通知。',
+    toast: '静默已取消',
+    icon: StopOutlined,
+  },
+  expired: {
+    label: '删除',
+    tooltip: '清理已过期的静默记录，不影响当前通知',
+    confirmTitle: '删除这条静默记录',
+    confirmContent: '该静默已过期，删除仅清理记录，不影响任何当前通知。',
+    toast: '静默记录已删除',
+    icon: DeleteOutlined,
+  },
 }
 
 export function SilencesPage() {
@@ -85,21 +149,22 @@ export function SilencesPage() {
     setDrawerOpen(true)
   }
 
+  // 成功 toast 由 CreateSilenceDrawer 内部统一弹出（此处再弹一次会双重提示）。
   const handleCreate: CreateSilenceDrawerProps['onSubmit'] = async (payload) => {
     await create(payload)
-    message.success('静默创建成功，已即时生效')
   }
 
-  const handleDelete = (silence: Silence) => {
+  const handleAction = (silence: Silence) => {
+    const meta = ACTION_META[silence.status]
     Modal.confirm({
-      title: `删除这条静默（${silence.id}）？`,
-      content: '删除后将立即停止静默，相关告警恢复通知。该操作不可恢复。',
-      okText: '删除',
-      cancelText: '取消',
+      title: `${meta.confirmTitle}（${silence.id}）？`,
+      content: meta.confirmContent,
+      okText: meta.label,
+      cancelText: '关闭',
       okButtonProps: { danger: true },
       async onOk() {
         await remove(silence.id)
-        message.success('静默已删除')
+        message.success(meta.toast)
         reload()
       },
     })
@@ -125,7 +190,14 @@ export function SilencesPage() {
       dataIndex: 'ends_at',
       key: 'ends_at',
       width: 180,
-      render: (v: string) => <Text>{formatTime(v)}</Text>,
+      // 方案 B：相对时长副行——剩余 X / X 后生效 / 已结束
+      render: (v: string, r: Silence) => (
+        <div>
+          <Text>{formatTime(v)}</Text>
+          <br />
+          <Text type="secondary" style={{ fontSize: 12 }}>{remainingText(r)}</Text>
+        </div>
+      ),
     },
     {
       title: '原因',
@@ -153,11 +225,18 @@ export function SilencesPage() {
       key: 'actions',
       width: 100,
       fixed: 'right',
-      render: (_: unknown, r: Silence) => (
-        <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r)}>
-          删除
-        </Button>
-      ),
+      // 方案 A：按钮按状态改文案消除「删除」歧义（AM 语义删除=提前结束，见 ACTION_META 注释）
+      render: (_: unknown, r: Silence) => {
+        const meta = ACTION_META[r.status]
+        const Icon = meta.icon
+        return (
+          <Tooltip title={meta.tooltip}>
+            <Button size="small" type="link" danger icon={<Icon />} onClick={() => handleAction(r)}>
+              {meta.label}
+            </Button>
+          </Tooltip>
+        )
+      },
     },
   ]
 
@@ -222,41 +301,6 @@ export function SilencesPage() {
               />
             </FilterItem>
           </FilterBar>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <Space size={8}>
-              <BellOutlined />
-              <Text>主动静默</Text>
-              <Tag color="processing">即时生效</Tag>
-            </Space>
-          </div>
-
-          {/* 决策 56 授权约束：默认收起的折叠栏指引（用户反馈 2026-09-11：页头独立说明板块不需要，
-              折叠栏指引需要）；决策 56 内部编号不下沉为用户文案 */}
-          <Collapse
-            ghost
-            size="small"
-            style={{ marginBottom: 16 }}
-            items={[
-              {
-                key: 'silence-scope-note',
-                label: (
-                  <span>
-                    <InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />
-                    <Text strong>静默只对你有权限的网域生效</Text>
-                    <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                      点击展开说明
-                    </Text>
-                  </span>
-                ),
-                children: (
-                  <Text>
-                    本页创建与展示的静默仅作用于你账号有权限的网域；若匹配条件包含权限之外的网域，创建会被系统拒绝。
-                  </Text>
-                ),
-              },
-            ]}
-          />
 
           <Table<Silence>
             rowKey="id"

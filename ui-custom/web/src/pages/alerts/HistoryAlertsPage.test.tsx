@@ -57,15 +57,16 @@ describe('HistoryAlertsPage（历史告警）', () => {
     networkDomainApiMock.list.mockResolvedValue({ data: { list: [{ id: 'default', name: '默认域' }] } })
   })
 
-  it('渲染标题、恢复时间估算折叠栏（默认收起）与列头角标', async () => {
+  it('渲染语义折叠栏（默认收起）与「恢复时间（估算）」列头角标，无独立标题卡片', async () => {
     alertStatusApiMock.getAlertHistory.mockResolvedValue({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 50 },
     })
-    renderPage()
-    expect(await screen.findByText('历史告警')).toBeInTheDocument()
+    const { container } = renderPage()
+    // 页头独立标题卡片已移除（用户反馈 2026-09-11）；页面以折叠栏 + 列表为主体
+    expect(await screen.findByText(/恢复时间是估算值，仅供参考/)).toBeInTheDocument()
+    expect(container.querySelector('h4.ant-typography')).toBeNull()
     // 折叠栏指引（默认收起）：仅可见标题，说明内容不在 DOM；点击展开后可见完整说明
-    expect(screen.getByText(/恢复时间是估算值，仅供参考/)).toBeInTheDocument()
     expect(screen.queryByText(/可能与实际恢复时间略有偏差/)).toBeNull()
     fireEvent.click(screen.getByText(/恢复时间是估算值，仅供参考/))
     expect(await screen.findByText(/可能与实际恢复时间略有偏差/)).toBeInTheDocument()

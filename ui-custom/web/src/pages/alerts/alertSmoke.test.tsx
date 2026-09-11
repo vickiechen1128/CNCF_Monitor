@@ -99,7 +99,7 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     renderM08('/silences')
     expect((await screen.findAllByText('静默管理')).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /创建静默/ })).toBeInTheDocument()
-    expect(screen.getAllByText('主动静默').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/屏蔽特定告警的通知/).length).toBeGreaterThan(0)
   })
 
   it('导航联动：从 /silences 点击「告警配置」二级菜单切回告警配置页', async () => {
@@ -128,7 +128,7 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     renderM08('/alert-status')
     expect(await screen.findByRole('tab', { name: /通知状态/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: /静默管理/ }))
-    expect((await screen.findAllByText('主动静默')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(/屏蔽特定告警的通知/)).length).toBeGreaterThan(0)
   })
 
   it('接口错误可观测：加载失败展示错误 Alert 与重新加载入口', async () => {
