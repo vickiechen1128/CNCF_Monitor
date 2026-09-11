@@ -111,9 +111,9 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
 
   it('告警状态链路前端可走通：/alert-status 加载双视图页，Sider 三子项就位且当前项高亮', async () => {
     renderM08('/alert-status')
-    // 双 Tab 就位（Alertmanager 通知状态 + Prometheus 当前触发告警）
-    expect(await screen.findByRole('tab', { name: /Alertmanager 通知状态/ })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /Prometheus 当前触发告警/ })).toBeInTheDocument()
+    // 双 Tab 就位（通知状态 + 当前告警）
+    expect(await screen.findByRole('tab', { name: /通知状态/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /当前告警/ })).toBeInTheDocument()
     // 顶级 tab 用 PRD 模块名
     expect(screen.getAllByText('告警收敛与通知管理').length).toBeGreaterThan(0)
     // Sider「告警配置」组三子项展示，当前路由项高亮
@@ -126,7 +126,7 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
 
   it('导航联动：从 /alert-status 点击「静默管理」二级菜单切换到静默页', async () => {
     renderM08('/alert-status')
-    expect(await screen.findByRole('tab', { name: /Alertmanager 通知状态/ })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /通知状态/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('menuitem', { name: /静默管理/ }))
     expect((await screen.findAllByText('主动静默')).length).toBeGreaterThan(0)
   })

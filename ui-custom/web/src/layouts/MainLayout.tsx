@@ -125,14 +125,16 @@ const MODULES: ModuleDef[] = [
   {
     key: 'alert',
     label: '告警收敛与通知管理',
-    path: '/alert-config',
+    path: '/alert-status',
+    // 原型对齐（Module_08 原型 MainLayout 左侧栏）：告警状态置顶（第一），
+    // 告警配置落底（最后）；中间为静默管理、历史告警。
     subItems: [
-      { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
-      { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
-      // M08 v1.12 增量：告警状态双视图页（T08-F7，与 /alert-config、/silences 同组）
+      // M08 v1.12 增量：告警状态双视图页（T08-F7），原型中为侧栏首项
       { key: '/alert-status', label: '告警状态', icon: <RadarChartOutlined /> },
+      { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
       // M08 v1.13 增量：历史告警独立页（Track B+）
       { key: '/alert-history', label: '历史告警', icon: <ClockCircleOutlined /> },
+      { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
     ],
   },
 ]

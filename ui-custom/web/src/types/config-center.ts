@@ -104,7 +104,7 @@ export interface ValidationDetail {
 /** 风险等级 */
 export type Risk = 'low' | 'high'
 
-/** 变更对象（源数据对象；决策 60 追加 alertmanager_config 告警配置） */
+/** 变更对象（源数据对象；决策 60 追加 alertmanager_config 告警配置；决策 68-2 补丁追加 prom_alerting） */
 export type ChangeTarget =
   | 'scrape_job'
   | 'target_instance'
@@ -112,6 +112,7 @@ export type ChangeTarget =
   | 'probe_target'
   | 'label_template'
   | 'alertmanager_config'
+  | 'prom_alerting'
 
 /** 变更类型 */
 export type ChangeType = 'add' | 'update' | 'delete'

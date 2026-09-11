@@ -22,6 +22,7 @@ func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, ar
 	if base == nil {
 		items := buildInitialChangeItems(jobs, rules)
 		items = append(items, diffAlertmanagerItems(artifacts, nil)...)
+		items = append(items, diffPromAlertingItems(artifacts, nil)...)
 		for i := range items {
 			items[i].ID = fmt.Sprintf("ci-%d", i+1)
 		}
@@ -31,6 +32,7 @@ func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, ar
 	items = append(items, diffJobItems(jobs, artifacts, base)...)
 	items = append(items, diffRuleItems(artifacts.RulesYML, base.RulesYml)...)
 	items = append(items, diffAlertmanagerItems(artifacts, base)...)
+	items = append(items, diffPromAlertingItems(artifacts, base)...)
 	for i := range items {
 		items[i].ID = fmt.Sprintf("ci-%d", i+1)
 	}
@@ -65,6 +67,50 @@ func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.Co
 		// review-fix F5：修正为 RiskHigh。告警收敛配置变更影响收敛链路（契约 §8 /
 		// PRD §3.4 高/低危分级），此前写死 RiskLow 与函数注释「一律 high」矛盾。
 		Risk: string(models.RiskHigh),
+	}}
+}
+
+// snapshotAlerting 从 prometheus.yml 文本提取 alerting 段（规范化序列化，键序无关）。
+// 缺失或解析失败返回空串（解析失败退化为「无 alerting」，与 snapshotScrapeConfigs
+// 的容错口径一致）。
+func snapshotAlerting(promYML string) string {
+	var f map[string]interface{}
+	if err := yaml.Unmarshal([]byte(promYML), &f); err != nil {
+		return ""
+	}
+	al, ok := f["alerting"]
+	if !ok {
+		return ""
+	}
+	return normalizeYAML(al)
+}
+
+// diffPromAlertingItems 对比新旧 prometheus.yml 的 alerting 段，产出「告警投递配置」
+// 变更项（决策 68-2 补丁）。alerting 段由生成器注入（centerEvaluator 判定），不属于
+// M01/M08 源数据 —— 若不参与 diff，「仅 alerting 变化」的场景（生成器升级首次注入、
+// AM 地址参数变化、edge→local 通道切换）会被决策 44-3 的 ErrNoChanges 抑制，
+// 新产物永远无法通过 M09 流程重新下发。影响投递链路，一律 high。
+func diffPromAlertingItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem {
+	newAL := snapshotAlerting(artifacts.PrometheusYML)
+	baseAL := ""
+	if base != nil {
+		baseAL = snapshotAlerting(base.PrometheusYml)
+	}
+	if newAL == baseAL {
+		return nil
+	}
+	typ, verb := models.ChangeItemTypeAdd, "新增"
+	if baseAL != "" && newAL != "" {
+		typ, verb = models.ChangeItemTypeUpdate, "变更"
+	} else if baseAL != "" {
+		typ, verb = models.ChangeItemTypeDelete, "移除"
+	}
+	return []models.ConfigChangeItem{{
+		Type:          string(typ),
+		Target:        string(models.ChangeItemTargetPromAlerting),
+		Description:   verb + " Prometheus 告警投递配置（alerting 段）",
+		AffectedFiles: []string{string(models.AffectedFilePrometheus)},
+		Risk:          string(models.RiskHigh),
 	}}
 }
 

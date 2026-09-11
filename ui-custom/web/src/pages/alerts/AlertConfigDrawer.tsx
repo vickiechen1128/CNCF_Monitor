@@ -194,8 +194,8 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
           <Alert
             type="success"
             showIcon
-            message="本地检查通过"
-            description="仅完成本地非空与大小检查，提交后由服务端执行 amtool 等价校验并进入 M09 变更确认流程，人工确认后下发生效。"
+            message="基础检查通过"
+            description="当前仅完成基础检查（非空与大小）；提交后系统会自动校验配置合法性，并在「配置变更确认」中人工确认后才正式生效。"
           />
         )}
 

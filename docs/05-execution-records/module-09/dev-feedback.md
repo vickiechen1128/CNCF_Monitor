@@ -280,3 +280,17 @@
 - **是否需设计侧确认**：否。
 - **影响模块**：M09 配置校验（promtool 外部校验）。
 - **发现场景**：用户新增规则文件后配置变更确认校验报 rules.yml 引用缺失；重编译重启后对失败草稿 `CHG-20260826-015` 重校通过（validation_status=passed）。
+
+## 2026-09-11（决策 68-2 收口：仅 alerting 段变化被 ErrNoChanges 抑制，无法重新下发）
+
+### F-25：alerting 段不参与变更清单 diff——生成器升级后带 alerting 的 prometheus.yml 永远无法通过 M09 下发（② 实现偏差，已修正）
+
+- **PRD 章节 / 文件位置**：`Module_09_Network_Domain_and_Edge_Config_Center.md` §3.4（变更清单按产物 diff 派生 / 决策 44-3 空变更单抑制）、§3.2（prometheus.yml 产物）；决策 68-2（`alerting` 段由 M09 生成器注入，`design-decisions.md`）；源码 `platform/configcenter/draft/change_items.go`（`buildChangeItems`）
+- **问题（本机实测复现，2026-09-11）**：决策 68-2 落地后，本机最后一次配置下发（09-10 16:49）早于 alerting 段代码提交（17:27），线上 prometheus.yml 无 `alerting:` 段 → Prometheus `activeAlertmanagers=[]`，告警不投递。此时源数据（Job/规则/alertmanager.yml）均无变化，用真实 DB 拷贝实测 `GenerateDraft` 返回 `ErrNoChanges` —— **M09 流程死锁**：alerting 段虽已会生成，但没有任何入口能把它带下去。
+- **根因**：`buildChangeItems` 的产物 diff 仅覆盖 scrape_configs+targets（`diffJobItems`）、rules.yml 组（`diffRuleItems`）、alertmanager.yml 内容（`diffAlertmanagerItems`）；`alerting` 段由生成器注入、不来自 M01/M08 源数据，不在任何 diff 范围内 → 「仅 alerting 段变化」时清单为空，被决策 44-3 的 `ErrNoChanges` 抑制。同型潜在盲区：`global.external_labels` 等生成器注入的前导段同样不参与 diff（本期不改，留观）。
+- **结论（PRD 无需改动）**：实现偏差，已修正。`change_items.go` 新增 `snapshotAlerting` + `diffPromAlertingItems`（按 alerting 段规范化内容键序无关对比，实质变化才产出项）；models 新增变更对象枚举 `prom_alerting`（risk=high、affected_files=prometheus）；前端 `ChangeTarget` / `changeTargetLabel` 同步追加（UI 展示名「告警投递」）。
+- **实现落库**：`platform/models/config_center_rules.go`（`ChangeItemTargetPromAlerting` + `ValidChangeItemTargets`）；`platform/configcenter/draft/change_items.go`（`snapshotAlerting` / `diffPromAlertingItems`，两分支接线）；`draft_test.go` 新增 `TestGenerateDraftAlertingSectionChangeItem`（基线无 alerting → 重新生成必须产出 prom_alerting 变更项，不得被 ErrNoChanges 抑制）；`ui-custom/web/src/types/config-center.ts` + `configCenterConstants.ts`。
+- **验证**：真实 DB 拷贝（`/tmp/live_check.db`）跑 `GenerateDraft("default")`，修复前 `ErrNoChanges`、修复后产出草稿 CHG-20260911-001 且 prometheus.yml 含 `alerting:` 段；`go test ./platform/configcenter/... ./platform/models/` 全绿。
+- **是否需设计侧确认**：否（属决策 68-2 的收口补丁，契约增量见 `api-contract-snapshot.md` §14）。
+- **影响模块**：M09 变更单生成与下发；消费方：M09 配置变更确认页（变更清单 Tag 新增一类）。
+- **发现场景**：M08 页面 Prometheus 触发告警显示 firing、但 Alertmanager 告警状态恒为空，排查发现 Prometheus 运行时配置无 `alerting:` 段且 M09 无法重新生成变更单。

@@ -7,6 +7,7 @@ import {
   Alert,
   App,
   Button,
+  Collapse,
   Drawer,
   Form,
   Input,
@@ -111,13 +112,30 @@ export function CreateSilenceDrawer({ open, onClose, onSubmit }: CreateSilenceDr
         </Button>
       }
     >
-      <Alert
-        type="info"
-        showIcon
-        icon={<InfoCircleOutlined />}
-        message="静默影响范围"
-        description="根据决策 56 授权规则：本静默仅作用于当前登录账号授权网域范围内的告警。越权匹配会被服务端拒绝创建。"
+      {/* 决策 56 授权约束：默认收起，点击展开，不挤占表单首屏（参考 M01 Collapse ghost 模式） */}
+      <Collapse
+        ghost
+        size="small"
         style={{ marginBottom: 24 }}
+        items={[
+          {
+            key: 'silence-scope-note',
+            label: (
+              <span>
+                <InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />
+                <Text strong>静默只对你有权限的网域生效</Text>
+                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                  点击展开说明
+                </Text>
+              </span>
+            ),
+            children: (
+              <Text>
+                本静默仅作用于你账号有权限的网域；若匹配条件包含权限之外的网域，创建会被系统拒绝。
+              </Text>
+            ),
+          },
+        ]}
       />
 
       <Form

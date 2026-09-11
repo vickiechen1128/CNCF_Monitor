@@ -2,8 +2,10 @@
  * 告警状态页（Module_08 v1.12 MVP 增量 §5.4，双视图）。
  * 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
  * 与 docs/05-execution-records/module-08/api-contract-snapshot.md §10。
- * Tab 1「Alertmanager 通知状态」：四态（通知中/已静默/已抑制/待处理，服务端归一 notify_status）；
- * Tab 2「Prometheus 当前触发告警」：firing=触发中 / pending=待处理（M02 代理 /api/v1/alerts）。
+ * Tab 1「通知状态」：四态（通知中/已静默/已抑制/待处理，服务端归一 notify_status）；
+ * Tab 2「当前告警」：firing=触发中 / pending=待处理（M02 代理 /api/v1/alerts）。
+ * 页签名友好化（用户反馈 2026-09-11）：不再用「Alertmanager / Prometheus」技术组件名做页签，
+ * 语义区分收敛为页头一句话 + 页签 hover 提示（原 PRD §3.2 说明框，见 dev-feedback）。
  * 裁剪：原型「接收人」列无 AM v2 数据源，不做（frontend-prototype-map §8.4）。
  */
 import { useMemo, useState, type ReactNode } from 'react'
@@ -11,6 +13,7 @@ import {
   Alert,
   Button,
   Card,
+  Collapse,
   Col,
   ConfigProvider,
   Empty,
@@ -442,28 +445,46 @@ export function AlertStatusPage() {
           <Typography.Title level={4} style={{ margin: 0 }}>
             告警状态
           </Typography.Title>
-          <Text type="secondary">
-            双视图查看当前告警：Alertmanager 通知状态（谁正在被通知）与 Prometheus 当前触发告警（哪些规则被触发）；
-            通知状态已按授权网域集合过滤（授权 = 全部网域时不附加过滤）
-          </Text>
         </Card>
 
-        {/* PRD §3.2：两视图语义差异用说明文案明确区分 */}
-        <Alert
-          type="info"
-          showIcon
+        {/* PRD §3.2：两视图语义差异保留折叠栏指引（用户反馈 2026-09-11：页头独立说明板块不需要，
+            折叠栏/悬停提示类指引需要；页签名已友好化「通知状态 / 当前告警」） */}
+        <Collapse
+          ghost
+          size="small"
+          defaultActiveKey={['view-guide']}
           style={{ marginBottom: 16 }}
-          message="两个视图的语义区别"
-          description={
-            <span>
-              <strong>「Prometheus 当前触发告警」</strong>回答「什么出了问题」：展示告警规则实时求值结果
-              （触发中 = 规则已满足条件、待处理 = 规则满足条件但未达持续时间）。
-              <br />
-              <strong>「Alertmanager 通知状态」</strong>回答「通知是否已发出/被收敛」：展示告警经过路由、静默、
-              抑制后的处理结果（通知中 / 已静默 / 已抑制 / 待处理）。
-              同一告警在两个视图中的含义不同，请按排查目标切换。
-            </span>
-          }
+          items={[
+            {
+              key: 'view-guide',
+              label: (
+                <Space size={8}>
+                  <InfoCircleOutlined style={{ color: '#1677ff' }} />
+                  <Text strong>两个页签分别看什么？</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    点击标题可收起或展开
+                  </Text>
+                </Space>
+              ),
+              children: (
+                <div>
+                  <Text>
+                    <strong>「当前告警」</strong>回答「哪里出了问题」：
+                    触发中 = 已满足告警条件且持续到了规定时长；待处理 = 条件已满足但还没持续够时长，正在观察期内。
+                  </Text>
+                  <br />
+                  <Text>
+                    <strong>「通知状态」</strong>回答「通知发出去没有、为什么没发」：
+                    通知中 = 正在通知接收人；已静默 = 被静默规则挡住；已抑制 = 存在根因告警被合并；待处理 = 刚进入通知系统，还没算完。
+                  </Text>
+                  <br />
+                  <Text type="secondary">
+                    通知数据仅展示你有权限查看的网域。
+                  </Text>
+                </div>
+              ),
+            },
+          ]}
         />
 
         <Card>
@@ -474,8 +495,8 @@ export function AlertStatusPage() {
               {
                 key: 'am',
                 label: (
-                  <Tooltip title="告警经路由/静默/抑制后的通知处理结果">
-                    Alertmanager 通知状态
+                  <Tooltip title="通知发出去了吗？谁在收到、谁被拦下了">
+                    通知状态
                   </Tooltip>
                 ),
                 children: <AmAlertsView state={am} domain={domain} onDomainChange={setDomain} domains={domains} />,
@@ -483,8 +504,8 @@ export function AlertStatusPage() {
               {
                 key: 'prom',
                 label: (
-                  <Tooltip title="Prometheus 告警规则实时求值结果">
-                    Prometheus 当前触发告警
+                  <Tooltip title="现在什么出了问题（系统实时检查结果）">
+                    当前告警
                   </Tooltip>
                 ),
                 children: <PromAlertsView state={prom} domain={domain} onDomainChange={setDomain} domains={domains} />,

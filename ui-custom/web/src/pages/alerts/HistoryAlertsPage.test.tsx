@@ -57,14 +57,21 @@ describe('HistoryAlertsPage（历史告警）', () => {
     networkDomainApiMock.list.mockResolvedValue({ data: { list: [{ id: 'default', name: '默认域' }] } })
   })
 
-  it('渲染标题与提示文案', async () => {
+  it('渲染标题、恢复时间估算折叠栏（默认收起）与列头角标', async () => {
     alertStatusApiMock.getAlertHistory.mockResolvedValue({
       status: 'success',
       data: { list: [], total: 0, page: 1, page_size: 50 },
     })
     renderPage()
     expect(await screen.findByText('历史告警')).toBeInTheDocument()
-    expect(screen.getByText(/恢复时间为 Prometheus 求值视角的近似值/)).toBeInTheDocument()
+    // 折叠栏指引（默认收起）：仅可见标题，说明内容不在 DOM；点击展开后可见完整说明
+    expect(screen.getByText(/恢复时间是估算值，仅供参考/)).toBeInTheDocument()
+    expect(screen.queryByText(/可能与实际恢复时间略有偏差/)).toBeNull()
+    fireEvent.click(screen.getByText(/恢复时间是估算值，仅供参考/))
+    expect(await screen.findByText(/可能与实际恢复时间略有偏差/)).toBeInTheDocument()
+    // 列头友好化：不再出现「按 Prometheus 求值」技术术语
+    expect(screen.getAllByText(/恢复时间（估算）/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/按 Prometheus 求值/)).toBeNull()
   })
 
   it('渲染历史告警列表：告警名、采集地址、状态、触发/恢复时间、持续时长、摘要', async () => {

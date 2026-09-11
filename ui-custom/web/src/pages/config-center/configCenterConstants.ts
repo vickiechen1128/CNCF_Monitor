@@ -149,7 +149,7 @@ export const changeTypeColor: Record<ChangeType, string> = {
   delete: 'red',
 }
 
-/** 变更对象（源数据对象，对应 PRD §10；决策 60 追加 alertmanager_config） */
+/** 变更对象（源数据对象，对应 PRD §10；决策 60 追加 alertmanager_config；决策 68-2 补丁追加 prom_alerting） */
 export const changeTargetLabel: Record<ChangeTarget, string> = {
   scrape_job: '采集 Job',
   target_instance: '采集目标',
@@ -157,6 +157,7 @@ export const changeTargetLabel: Record<ChangeTarget, string> = {
   probe_target: '拨测目标',
   label_template: '标签模板',
   alertmanager_config: '告警配置',
+  prom_alerting: '告警投递',
 }
 
 /** 影响的配置文件（对应 PRD §10；决策 60 追加 alertmanager） */
