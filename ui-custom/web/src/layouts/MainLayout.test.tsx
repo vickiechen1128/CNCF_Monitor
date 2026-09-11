@@ -263,4 +263,33 @@ describe('MainLayout', () => {
     })
     expect(screen.getByText('alert-config-content')).toBeInTheDocument()
   })
+
+  it('renders M08 alert sidebar in prototype order: 告警状态 first, 告警配置 last', async () => {
+    render(
+      <MemoryRouter initialEntries={['/alert-status']}>
+        <Routes>
+          <Route path="/alert-status" element={<MainLayout>alert-status-content</MainLayout>} />
+          <Route path="/silences" element={<MainLayout>silences-content</MainLayout>} />
+          <Route path="/alert-history" element={<MainLayout>alert-history-content</MainLayout>} />
+          <Route path="/alert-config" element={<MainLayout>alert-config-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 原型对齐（Module_08 原型 MainLayout）：告警状态置顶（第一），告警配置落底（最后）
+    const siderTexts = screen
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent ?? '')
+    const statusIdx = siderTexts.findIndex((t) => t.includes('告警状态'))
+    const silenceIdx = siderTexts.findIndex((t) => t.includes('静默管理'))
+    const historyIdx = siderTexts.findIndex((t) => t.includes('历史告警'))
+    const configIdx = siderTexts.findIndex((t) => t.includes('告警配置'))
+    // 四项均存在
+    expect([statusIdx, silenceIdx, historyIdx, configIdx]).not.toContain(-1)
+    // 告警状态 第一、告警配置 最后；中间保持 静默管理 → 历史告警
+    expect(statusIdx).toBe(0)
+    expect(configIdx).toBe(siderTexts.length - 1)
+    expect(statusIdx).toBeLessThan(silenceIdx)
+    expect(silenceIdx).toBeLessThan(historyIdx)
+    expect(historyIdx).toBeLessThan(configIdx)
+  })
 })
