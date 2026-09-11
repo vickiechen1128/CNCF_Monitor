@@ -124,10 +124,11 @@
 
 ## Change Log（完整历史）
 
-> v1.5 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.4 及以前的逐版完整变更详情（业务沟通决策记录）。
+> v1.5 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载主 PRD 轮转迁出的历史版本逐版完整变更详情（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.12 | 2026-09-08 | 修改 | 范围调整（MVP 试用反馈：前台缺少查看当前告警入口）：告警状态查看由 v0.3 提前至 MVP——§1 目标 3、§2 M08-OPS-03、§3.1 功能表、§5.4、§8 依赖、§9.1 验收同步调整；「告警状态页」MVP 交付（Prometheus firing/pending 视图依赖 M02 代理 `/api/v1/alerts` 同步提前，见 Module_02 对应版本口径）；顺手修正 Alertmanager 告警代理端点为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 端点在 AM ≥0.27 已移除）（随 v1.15 增量自 PRD Change Log 轮转迁入） | 0 | 功能提前至 MVP | ready |
 | v1.11 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
 | v1.10 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（通知接入→变更管控→静默管理→风暴抑制→状态可视化）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「告警配置变更确认」「静默 API 版本迁移」「查看告警通知状态」真实场景（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
 | v1.9 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（通知渠道配置/临时静默/告警风暴抑制）与涉及用户故事编码索引；不改变技术契约（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | 设计中 |
@@ -231,3 +232,30 @@
 - **用户确认**：2026-09-09，用户在开发空间 `feat/module-09-config-center` 书面确认（「做成独立『历史告警』页面」「我同意可以在当前分支让 prototype-designer 出 PRD 增量（M08 v1.13 + M02 v1.13）」）。
 - **影响范围**：Module_08 PRD v1.13（§1 目标 3、§2 M08-OPS-08、§3.1 功能表、§5.4、§9.1/§9.2、§10）；Module_02 PRD v1.13；全局用户故事库 `01_User_Stories.md` §4.8 新增 M08-OPS-08。
 - **关联决策**：决策 55/56（告警状态归属与授权过滤）；M09 规则 job 引用校验口径（`up`/`absent(up)` 规则 job 不匹配 = error、其他 job 引用不匹配 = warning，用户 2026-09-09 确认，M09 PRD 增量另行落版）。
+
+---
+
+## 补充对齐：2026-09-11（告警实例列对齐 M01 资源清单，决策 70）
+
+- **触发**：用户提问「M08 中历史告警和状态告警中的实例字段代表的是实例名还是实例的 IP+端口？建议与 M01 资源管理字段对齐，方便用户理解」。实测确认：M08「实例」= Prometheus `instance` 标签 = file_sd `targets[]` = `generator.instanceAddress(ip, exporterPort)`（`platform/configcenter/generator/targets.go:119`），即 **`ip:exporter端口`**（host/database/middleware 默认 `:9100`），**既不是实例名，端口也不是用户在 M01 里填的业务端口**。M01 里 MySQL 写 `10.0.0.1:3306`，M08 同一台机显示 `10.0.0.1:9100` —— 用户会当成两个东西；`:9100` 是从未填写过的采集器端口，会被误读为「监控配错了端口」。
+- **方案评估（A / B / C 三选）**：
+  - **A（采纳·主）：后端按 `resource_id` 回连 M01 回填实例名。** 钥匙已经存在——`resource_id` 由决策 47-3 强制注入为 system 层标签（`targets.go:167`、模板不可覆盖；本地实证 `config-output/targets/ceshi.json` 含该标签），而 M08 契约全文 `resource_id` **零引用**。A 是**唯一能覆盖存量告警**的方案（无需重新下发），且与 M01 改名**实时一致**；代价是三条 API + 契约要改、每次列表多一次批量 DB 查询（禁 N+1）。
+  - **B（不单独采纳）：仅前端拆列 / 加 tooltip。** 零后端风险但**没解决用户诉求**（仍看不到实例名），且端口语义错位反而更醒目。仅采纳其「统一两个 Tab 口径」的副产品（现状 AM Tab 裸读 `instance` 无回落、Prom Tab 走回落链，本身不一致）。
+  - **C（降为三期、范围收窄）：让标签真正带上 `instance_name`。** 这是**规格回归**——M07 PRD §5.12 A 明文写「通用 `instance_name → instance_name`，host 模板必填」，而 `DefaultMappingBuilders`（`platform/models/label_template.go:38-62`）从未实现该映射。**二轮修订（用户更正）**：原以「平台外可读性」（告警通知正文 / AM 原生 UI / Grafana 三条出口）论证 C 的必要性，**该论据撤回**——这三条通道由平台在 v0.2 统一完善，不存在「平台无法介入渲染」的前提。C 因此改为逐资源类型评估必要性，**范围收窄到 4 类静态资源**（host / database / middleware / generic_target）；**application 不加**（默认模板已有 `service_name → service_name`，再加是同义重复）、**拨测 URL 不加**（blackbox 生态口径本就要求把 `__param_target` relabel 成 `instance`，URL 自描述且 `BlackboxTarget` 无名称字段、`TargetGroup.Labels` 是空 map）、**容器不加**（Roadmap v0.2 明文「每虚机一个 exporter，平台不感知容器个体」；v0.3 K8s SD 的可读性由生态既有标签 `pod`/`namespace`/`container`/`node` 承担）。C 的剩余价值：①规格收口（PRD 写了要么实现要么改 PRD，不能悬空）；②历史留存（A 是实时回连，资源被删后查不到；标签值已固化进时序）；③v0.3 门户 PromQL 查询页 `by(instance_name)` 可读。
+- **结论（决策 70）**：
+  1. **主方案 A（本版落地）**：三条告警读取链路（M02 `/api/v1/alerts`、M02 `/api/v1/alerts/history`、M08 `/api/v2/platform/alertmanager/alerts`）由服务端按标签 `resource_id` **一次性批量**回连 M01 五类资源表，回填 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_address` 六个新增字段（**不删旧字段**，向后兼容）；`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」。回连为**只读**跨表查询（与 M02 coverage 按 `resource_id` 读五表同族，不算开新口子）。
+  2. **列形态：拆两列（非双行）**。「实例名」+「采集地址」两列，与 M01 各 Tab 的「名称列 + 地址列」多列结构**真同构**（M01 host/database/middleware/application/generic_target 五个 Tab 均为多列）；「双行」只对上了 M01 host 的**列内**写法，属局部同构。两列可分别排序 / 筛选，信息最全；代价是横向增宽约 150px（历史告警表固定列已 ≈1070px，须保留横向滚动）。
+  3. **「采集地址」表头必须挂 tooltip「采集器地址，非业务端口」** —— 直接消解 `:9100` 的误导，这是本决策的成本最低、收益最直接的一环。
+  4. **无 `resource_id` 时「实例名」显示 `-`，不回落成地址**：回落会让两列同值，复刻旧毛病。必须保留的例外：①blackbox Job 的 target 组 `Labels` 为空 map；②聚合 / 全局规则（`sum(...) by (...)` 抹掉 `instance` 与 `resource_id`）；③非 M01 来源的自写规则。
+  5. **历史告警「实例」筛选同时匹配实例名与采集地址**：展示改造后若只匹配地址，用户看到 `ceshi` 却搜不到。
+  6. **不做「点击实例跳 M01 资源详情」**（用户 2026-09-11 明确：没必要）。
+  7. **不改 `instance` 标签本身的取值**：它是 Prometheus 标准语义，且中心 `alertmanager.yml` 的 `group_by: ['alertname','instance']`（分组）与 `equal: ['instance']`（抑制）直接依赖，改成可读名会连带破坏告警分组与抑制。因此「可读化」只能走**平行标签**（即三期 C）——这也是 C 严格限定开放范围的原因。
+  8. **三期 C 范围收窄**（不阻塞本版）：`DefaultMappingBuilders` 仅对 4 类静态资源补 `instance_name → instance_name`（host 取 `InstanceName`、database/middleware 取 `InstanceIP`（模型无 `instance_name` 列，按 M07 §5.12 展示口径即取 IP）、generic_target 取 `TargetName`），`resolveResource` 字段视图同步补充；回落链同步扩项。交付判据：重新下发后 `targets/*.json` 的 4 类静态资源出现 `instance_name` 标签，application 产物**不出现**该标签。
+- **顺带修复的 3 处既有偏差（同批修，用户拍板）**：修完后 M01 与 M08 的实例相关列收敛为同一结构（名称列 + 地址列），用户只适应一次。
+  1. **M01 database / middleware Tab「实例名」列恒显示 `-`**：列绑 `instance_name`，但 `buildListItem`（`platform/config/resource/list.go:152-161`）对 Database / Middleware **不产出该键**，模型本身亦无 `instance_name` 字段 → 按 M07 §5.12 展示口径改绑 `instance_ip`（根因是模型无名称字段，故该列与相邻「IP 地址」列同值；已在 `dev-feedback.md` 留痕，供 PRD 后续迭代决定该列是否改为其他语义）。
+  2. **M01 host Tab 副行重复显示同一值**：主行 `instance_name`、副行 `hostname`，而 `hostname` 即 `InstanceName`（`host.go`）→ 渲染为 `ceshi` / `ceshi` 两行同值。**直接删除副行**（host Tab 已有独立「IP 地址」列，副行无信息增量）；改完 host Tab 的实例名列只剩主行，与 M08「实例名」列逐字对应。
+  3. **`instanceDisplayOf` 回落链含死键、漏真键**：`hostname` 是死键（默认标签模板从不产出；注意 M07 PRD §5.2 字段说明写「生成 `hostname` label」与 §5.12 A 写「生成 `instance_name` label」**自相矛盾**，本次以 §5.12 A 为准并已在 M07 PRD 修正该矛盾），`service_name`（application 实际产出）未纳入 → 修订为 `instance_name → instance → instance_ip → service_name → nodename → device`。**该处与三期 C 共用同一段代码，必须一起改**，否则 C 生效后回落链仍读不到新标签。
+- **实现落点**：`platform/query/`（新增 M01 资源身份批量解析器 + `alerts.go` / `alerts_history.go`）、`platform/alertmanager/alerts/`（`service.go` / `handler.go` / `register.go` 需接入 `*gorm.DB`）、前端 `ui-custom/web/src/types/alertmanager.ts`、`pages/alerts/AlertStatusPage.tsx`（两个 Tab）、`pages/alerts/HistoryAlertsPage.tsx`、`pages/resources/ResourcesPage.tsx`。
+- **影响范围**：Module_08 PRD v1.15（§1 目标 3、§3.1 功能表、§5.4、§9.1/§9.2、§10）；M08 `api-contract-snapshot.md` §10.1/§10.2/§10.3；Module_07 PRD §5.12 A 括注与 §5.2 矛盾修正；M02 契约快照交叉登记；M08 `dev-feedback.md`（M01 三处偏差）。
+- **关联决策**：决策 47-3（`resource_id` 强制注入，本方案的回连钥匙）、决策 55/56（告警状态归属与授权过滤，不受影响）、决策 60（M08 不驱动下发状态，冻结口径不变——本决策只改展示层与只读回连）、决策 68-2（投递接线，本决策不改）、M07 §5.12 A / §5.13（标签映射权威口径）。
+- **用户确认**：2026-09-11，用户在开发空间 `feat/module-08-alert-dispatch` 书面确认「我同意这个方案，请你完善到 M08 的 PRD 和 decision 等，然后进行代码开发工作」。

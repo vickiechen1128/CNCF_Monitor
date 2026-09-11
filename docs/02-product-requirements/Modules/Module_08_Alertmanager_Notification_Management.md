@@ -1,10 +1,10 @@
 # Module 08: 告警收敛与通知管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.14
+> **PRD 版本**: v1.15
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v1.7（v1.13 为 Track B 轻量增量「历史告警」，免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；以 `docs/prototypes/module-08/package.json` 为准）
-> **更新日期**: 2026-09-10
+> **原型版本**: v1.7（v1.13 为 Track B 轻量增量「历史告警」、v1.15 为「实例列口径」增量，均免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；以 `docs/prototypes/module-08/package.json` 为准）
+> **更新日期**: 2026-09-11
 > **对应原型**: `docs/prototypes/module-08/`
 
 > **模块类型**: 扩展能力模块
@@ -84,6 +84,7 @@
    - 通过 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例（回答「当前触发了哪些规则」）。
    - 本模块直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态（回答「告警正在通知给谁、是否被静默/抑制」）。
    - **历史告警（MVP 起，v1.13 新增）**：通过 Module\_02 新增的 `/api/v1/alerts/history`（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发/恢复区间），展示规则级告警的触发时间、恢复时间与持续时长（回答「这条告警什么时候触发、什么时候恢复」）。恢复时间为 Prometheus 求值视角的近似值，不等同于故障真实恢复时间。
+   - **实例口径（MVP 起，v1.15 新增）**：三个视图中的「实例」统一拆分为**「实例名」+「采集地址」两列**——「实例名」取 [Module\_07](Module_07_Monitoring_Object_Management.md) 资源清单的口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`），由服务端按告警标签 `resource_id` 回连 M01 资源表回填；「采集地址」为 Prometheus 抓取地址（`ip:exporter端口` 或拨测 URL，即 `instance` 标签值），表头必须标注「采集器地址，非业务端口」，避免用户把 `:9100`（exporter 端口）误读为业务端口（详见 [5.4 节](#54-告警状态查看)）。
 4. **通知渠道与模板（v1.0）**：维护飞书/钉钉/邮件/企业微信/Webhook 等接收人模板，支撑告警通知内容格式化。
 
 > **范围调整说明（v1.3）**：
@@ -138,9 +139,9 @@
 | **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间 | P0 / MVP（文件挂载承载），v0.3（表单 UI），v1.0（完整 UI） |
 | **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效；**MVP 提供极简 UI**（创建/列表/删除三个动作，API 直调，决策 59）——静默是运行时状态、文件挂载承载不了 | P0 / MVP |
 | **告警抑制规则** | 自动生成 `inhibit_rules`：当网域整体离线时，抑制该网域 `inhibitable=true` 的告警风暴；支持手动调整抑制策略 | P0 / MVP |
-| **Alertmanager 通知状态** | 代理 Alertmanager `/api/v2/alerts`，展示告警经过路由、静默、抑制后的通知状态 | P0 / MVP（v1.12 由 v0.3 提前） |
-| **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（MVP 起交付，v1.12 同步提前），本模块不重复实现，告警状态页只读消费 | —（依赖 M02） |
-| **历史告警** | 独立页面展示规则级告警的触发/恢复历史（含已恢复）：触发时间、恢复时间（按 Prometheus 求值近似）、持续时长、实例、网域、摘要；数据由 [Module\_02: 查询中心](Module_02_Query_Center.md) `/api/v1/alerts/history` 提供，本模块只读消费 | P0 / MVP |
+| **Alertmanager 通知状态** | 代理 Alertmanager `/api/v2/alerts`，展示告警经过路由、静默、抑制后的通知状态；实例列展示「实例名 + 采集地址」两列（v1.15） | P0 / MVP（v1.12 由 v0.3 提前） |
+| **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（MVP 起交付，v1.12 同步提前），本模块不重复实现，告警状态页只读消费；实例列口径同「实例名 + 采集地址」（v1.15） | —（依赖 M02） |
+| **历史告警** | 独立页面展示规则级告警的触发/恢复历史（含已恢复）：触发时间、恢复时间（按 Prometheus 求值近似）、持续时长、实例、网域、摘要；数据由 [Module\_02: 查询中心](Module_02_Query_Center.md) `/api/v1/alerts/history` 提供，本模块只读消费；实例列展示「实例名 + 采集地址」两列（v1.15） | P0 / MVP |
 | **通知模板管理** | 管理告警通知的 title / body 模板，支持变量（`{{ $labels }}`、`{{ $value }}`、`{{ $annotations }}`） | P2 / v1.0 |
 | **告警升级与降噪** | 升级策略（未确认超时升级）、值班组、告警降噪（合并相似告警） | P2 / v1.0 |
 | **边缘本地通知通道** | 断网场景下边缘 Alertmanager 使用本地 webhook 通知（v0.4+ 多网域） | P2 / v0.4+ |
@@ -331,6 +332,13 @@ inhibit_rules:
 - **Prometheus 当前触发告警（MVP 起，v1.12 由 v0.3 提前）**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`（已注入租户/网域上下文），本模块告警状态页只读消费，展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
 - **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。**授权过滤（v1.5，决策 56）**：代理时必须在**服务端**强制注入当前用户的授权网域集合 filter（不信任前端传参）；授权集合 = 全部网域时不附加 filter。前端筛选只承担 UX，不构成权限。
 - **历史告警（MVP 起，v1.13 新增）**：作为独立页面「历史告警」交付（菜单「告警收敛与通知管理 → 历史告警」），不复用「当前告警状态」列表语义——当前视图只回答「现在有哪些告警」，历史视图回答「某条告警何时触发、何时恢复」。数据由 Module\_02 `/api/v1/alerts/history` 提供（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发区间），支持按 `network_domain` / `alertname` / `instance` / 状态（触发中 / 已恢复）/ 时间范围筛选；默认时间窗 24h，最大 7d。恢复时间为 Prometheus 求值视角的近似值（最后一次 firing 样本时间 + 一个求值步长），UI 列名必须标注「恢复时间（按 Prometheus 求值）」，不得表述为「故障恢复时间」。
+- **实例列口径（v1.15 新增，决策 70，三个视图统一）**：告警列表原「实例」列展示的是 Prometheus 抓取地址（`instance` 标签 = `ip:exporter端口`，如 `1.15.94.116:9100`），**不是**用户在 [Module\_01](Module_01_Metric_Collection_Center.md) 资源清单里看到的实例名；且 `:9100` 是 exporter 监听端口，用户从未填写，极易被误读为「业务端口配错了」或「这是另一台机器」。v1.15 统一拆为两列：
+  - **「实例名」**：取资源清单口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`，与 [Module\_07](Module_07_Monitoring_Object_Management.md) §5.12 的展示口径一致）。服务端以告警标签 `resource_id`（决策 47-3 强制注入）**批量回连** M01 五类资源表回填，**与资源改名实时一致**、**覆盖存量告警**（无需重新下发）；**无 `resource_id` 时显示 `-`，不回落成地址**（否则两列同值，等于没修）。
+  - **「采集地址」**：`instance` 标签原文（原「实例」列的取值），表头必须挂 tooltip「采集器地址，非业务端口」。
+  - **例外与回落**（必须保留，不得假设一定有 `resource_id`）：① 拨测（blackbox）Job 的 target 组 `Labels` 为空 map、无 `resource_id`；② 聚合 / 全局规则（`sum(...) by (...)`）会抹掉 `instance` 与 `resource_id`；③ 用户自写规则若未选取 M01 下发的序列。以上三类「实例名」显示 `-`、「采集地址」显示原值，聚合 / 全局规则的「采集地址」沿用「全局/聚合」。
+  - **筛选口径**：历史告警页的「实例」筛选框**同时匹配实例名与采集地址**（展示改造后若只匹配地址，用户看到 `ceshi` 却搜不到）。
+  - **不做「点击实例跳转 M01 资源详情」**（用户 2026-09-11 明确无必要）。
+  - **规划中的三期增量（标签侧）**：让 `targets/*.json` 直接带上 `instance_name` 标签（补 [Module\_07](Module_07_Monitoring_Object_Management.md) §5.12 A 已声明但未实现的映射），范围仅 4 类静态资源（host / database / middleware / generic_target；application 已有 `service_name`、拨测 URL 与容器不加）。三期不阻塞本版回连方案，其价值是「资源删除后历史告警仍可读」与「PromQL 可读」。
 - **边缘本地告警状态（P2）**：通过 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 
 ---
@@ -457,6 +465,7 @@ inhibit_rules:
 - [ ] {P0，决策 60} `alertmanager.yml` 纳入 M09 变更确认流水线：生成管理域（`default`）scope 变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08；不参与按网域扇出。
 - [ ] {P0} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）可查看当前告警：Prometheus 触发告警（firing / pending，经 [Module\_02](Module_02_Query_Center.md) 代理 `/api/v1/alerts`）与 Alertmanager 通知状态双视图展示，支持按 `network_domain` 筛选（v1.12 由 v0.3 提前至 MVP）。
 - [ ] {P0，v1.13} 历史告警页（菜单「告警收敛与通知管理 → 历史告警」）可查看规则级告警触发/恢复历史：列表展示告警名称、实例、网域、状态（触发中 / 已恢复）、触发时间、恢复时间（按 Prometheus 求值）、持续时长、摘要，支持按 `network_domain` / `alertname` / `instance` / 状态 / 时间范围筛选，默认时间窗 24h、最大 7d，提供手动刷新；历史深度受 Prometheus TSDB 保留策略限制，页面需有对应提示。
+- [ ] {P0，v1.15，决策 70} 告警状态页两个视图与历史告警页的「实例」列均拆为**「实例名」+「采集地址」两列**：实例名显示用户在 M01 资源清单中填写的名字（如主机 `ceshi`），采集地址显示采集器地址（如 `1.15.94.116:9100`）且表头提示「采集器地址，非业务端口」；M01 中改名后告警列实时跟随；无 `resource_id` 的告警（拨测 / 聚合 / 自写规则）实例名显示 `-`、不回落成地址；聚合 / 全局规则采集地址显示「全局/聚合」；历史告警页「实例」筛选框输入实例名或采集地址均可命中。
 - [ ] {v1.0} 可配置通知模板与告警升级策略。
 - [ ] {v0.4+} 支持边缘本地 Alertmanager 通知通道配置（P2）。
 
@@ -470,6 +479,8 @@ inhibit_rules:
 - [ ] {P0} `inhibit_rules` 生成逻辑正确：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警。
 - [ ] {P0} Alertmanager `/api/v2/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
 - [ ] {P0，v1.13} 历史告警页消费 Module\_02 `/api/v1/alerts/history`：返回字段含 `alertname` / `instance` / `network_domain` / `state`（firing/resolved）/ `fired_at` / `resolved_at` / `duration_seconds` / `summary` / `value`，空结果返回 `[]` 而非 `null`；授权网域过滤由服务端强制注入（决策 56 同口径）。
+- [ ] {P0，v1.15，决策 70} 三条告警读取链路（M02 `/api/v1/alerts`、M02 `/api/v1/alerts/history`、M08 `/api/v2/platform/alertmanager/alerts`）的响应均新增 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_address` 字段：服务端按告警标签 `resource_id` **一次性批量**回连 M01 五类资源表（禁止逐条 N+1），`resource_name` 取值口径为 host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`；无 `resource_id` 或回连未命中时 `resource_name` 为空串、`instance_address` 保留原 `instance` 标签值（不丢失既有展示）；`instance_display`（兼容字段）语义修订为「`resource_name` 非空取之，否则取 `instance_address`」。回连为**只读**跨表查询，不写 M01 任何表。
+- [ ] {P0，v1.15，决策 70} 实例展示回落链修订为 `instance_name → instance → instance_ip → service_name → nodename → device`（删除默认标签模板从不产出的死键 `hostname`；补入 application 实际产出的 `service_name`）。
 - [ ] {P0} M08 不生成 `rules.yml`、不管理 `MonitoringRule` 内容；规则相关数据由 M01 写入、M09 生成配置。
 - [ ] {P0} M08 `AlertmanagerConfigVersion` 仅留痕**校验通过**的 `alertmanager.yml` 挂载内容（校验失败不落库、仅返回行级错误，决策 59/60）；管道版本与下发状态以 M09 `ConfigVersion` 为准（决策 60）。
 - [ ] {P0} Alertmanager `/api/v2/alerts` 代理在服务端强制注入当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参（决策 56）。
@@ -491,6 +502,9 @@ inhibit_rules:
 | `active` / `silenced` / `inhibited` / `unprocessed` | 通知状态 | Alertmanager 对告警的处理状态 |
 | `firing` / `resolved`（历史告警） | 触发中 / 已恢复 | 历史告警页状态：`firing`=查询窗口结束时仍在触发；`resolved`=触发区间已结束（恢复时间为 Prometheus 求值近似值） |
 | `fired_at` / `resolved_at` | 触发时间 / 恢复时间（按 Prometheus 求值） | 由 Module\_02 `/api/v1/alerts/history` 基于 `ALERTS` 时间序列重建 |
+| `resource_id` / `resource_name` / `resource_category` | 资源标识 / 实例名 / 资源类型 | 服务端按告警标签 `resource_id` 回连 Module\_01 资源表得到（v1.15，决策 70）；`resource_name` 即用户在资源清单中看到的实例名 |
+| `instance` 标签 / `instance_address` 字段 | 采集地址 | Prometheus 抓取地址 `ip:exporter端口`（拨测为 URL）；**不是业务端口、不是实例名**，UI 表头须提示「采集器地址，非业务端口」 |
+| `instance_display` | 实例展示值（兼容字段） | `resource_name` 非空取之，否则取 `instance_address`；两者皆空表示聚合 / 全局告警 |
 | `MonitoringRule` | 告警 / 记录规则 | 由 M01 负责内容创作，M08 不直接管理 |
 | `rules.yml` | 告警规则文件 | 由 M09 按网域分组生成并下发，M08 不生成 |
 
@@ -502,7 +516,7 @@ inhibit_rules:
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
+| v1.15 | 2026-09-11 | 修改 | 告警「实例」列口径对齐 M01 资源清单（决策 70，源自用户反馈「历史告警/状态告警的实例字段是实例名还是 IP+端口，建议与 M01 对齐」）：§1 目标 3、§3.1 功能表、§5.4 新增「实例列口径」段、§9.1/§9.2 验收、§10 术语同步——三个视图统一拆为**「实例名 + 采集地址」两列**，实例名由服务端按标签 `resource_id` 批量回连 M01 五类资源表回填（覆盖存量告警、与改名实时一致），采集地址即 `instance` 标签（exporter 端口，表头须提示非业务端口）；无 `resource_id` 时不回落成地址；历史告警「实例」筛选同时匹配实例名与采集地址；不做实例→M01 深链。响应新增 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_address`，`instance_display` 语义修订（向后兼容，不删旧字段）。标签侧补 `instance_name`（M07 §5.12 A 已声明未实现的映射）降为三期、范围收窄至 4 类静态资源 | 1 / 3.1 / 5.4 / 9 / 10 | MVP | ready |
 | v1.14 | 2026-09-10 | 修改 | Prometheus→Alertmanager 投递接线验收补齐（决策 68-2，源自 F-07 网域列缺陷评审）：§9.1 新增 P0「告警可投递到 Alertmanager」——触发测试告警 → 中心 AM `GET /api/v2/alerts` 非空 → 本页「Alertmanager 通知状态」可见（此前 decision 59/60「告警分发最小闭环」只完成 AM 侧配置挂载，Prometheus→AM 投递从未接线，本视图恒空）；§9.2 新增 P0 投递链路技术验收（中心 `prometheus.yml` 含 `alerting.alertmanagers`、AM 地址非硬编码、无 `alertmanager.yml` 产物时不生成、边缘包不含 `alerting`/`rule_files`、`promtool check config` 通过）。承载方为 M09 生成器（见 Module_09 §3.3.1.1）。不改本模块接口契约 | 9 | MVP | ready |
 | v1.13 | 2026-09-09 | 新增 | 历史告警 MVP 增量（Track B，用户书面确认）：新增独立页面「历史告警」——基于 Prometheus `ALERTS` 时间序列重建规则级触发/恢复区间（恢复时间为求值近似值），展示触发时间/恢复时间/持续时长/实例/网域/摘要，支持按网域/告警名/实例/状态/时间范围筛选（默认 24h、最大 7d）；数据由 Module_02 新增 `/api/v1/alerts/history` 提供；§1 目标 3、§2 M08-OPS-08、§3.1 功能表、§5.4、§9.1/§9.2 验收、§10 术语同步；免高保真原型（豁免记录见 design-decisions.md） | 1 / 2 / 3.1 / 5.4 / 9 / 10 | MVP | ready |
-| v1.12 | 2026-09-08 | 修改 | 范围调整（MVP 试用反馈：前台缺少查看当前告警入口）：告警状态查看由 v0.3 提前至 MVP——§1 目标 3、§2 M08-OPS-03、§3.1 功能表、§5.4、§8 依赖、§9.1 验收同步调整；「告警状态页」MVP 交付（Prometheus firing/pending 视图依赖 M02 代理 `/api/v1/alerts` 同步提前，见 Module_02 对应版本口径）；顺手修正 Alertmanager 告警代理端点为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 端点在 AM ≥0.27 已移除） | 0 | 功能提前至 MVP | ready |
 

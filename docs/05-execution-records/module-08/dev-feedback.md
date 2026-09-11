@@ -104,3 +104,17 @@
 - **发现场景**：M08 告警状态页「Prometheus 当前触发告警」实测（本地 Prometheus :9090 有 2 条 firing 告警，但「网域」列全空）
 - **状态**：closed（代码 + 契约快照 §10 + 测试已同步；需重启后端生效：`make run-metric-center`）
 - **发现场景**：M08 告警状态查看 security-reviewer 审查（LOW）
+
+## 8. 告警「实例」列口径对齐 M01 资源清单（① 空白判定 / ② 跨模块实现偏差，落地中）
+
+- **类别**：① 空白判定（契约未定义 `labels.instance` 语义）+ ② 跨模块实现偏差（详情见 M01 `dev-feedback.md` F-38）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §5.4/§9.1/§9.2/§10（v1.15 增量，决策 70）；`docs/05-execution-records/module-08/api-contract-snapshot.md` §10.1/§10.2/§10.3；源码 `platform/query/alerts.go`、`platform/query/alerts_history.go`、`platform/alertmanager/alerts/service.go`、`ui-custom/web/src/pages/alerts/{AlertStatusPage,HistoryAlertsPage}.tsx`
+- **现状 / 根因**：告警列表「实例」列直接展示 Prometheus `instance` 标签，取值链为 `_address__ = file_sd targets[] = generator.instanceAddress(ip, exporterPort)`，即 **`ip:exporter端口`**（host/database/middleware 默认 `:9100`）。两个问题叠加：① **不是实例名**——用户在 M01 看到的 `ceshi` 在告警里丢失；② **端口语义错位**——`:9100` 是采集器端口，用户从未填写，M01 里 MySQL 写 `3306`、告警里同一台机显示 `9100`，会被当成「配错了端口」或「另一台机器」。契约 §10.1/§10.2 原文对 `labels.instance` 的说明只有「告警实例」四字，**未定义语义**；且全文 grep `resource_id` = 0 次——回连 M01 的键（决策 47-3 强制注入）从未进入 M08 契约。
+- **结论（决策 70，用户 2026-09-11 书面确认）**：三个视图统一拆「实例名 + 采集地址」两列；服务端按 `resource_id` **批量**回连 M01 五类资源表回填 `resource_name`（A 方案，覆盖存量告警、与改名实时一致）；「采集地址」表头挂 tooltip「采集器地址，非业务端口」；无 `resource_id` 时不回落成地址；历史告警「实例」筛选同时匹配实例名与采集地址；**不改 `instance` 标签本身**（`alertmanager.yml` 的 `group_by` / `equal` 依赖它）；不做实例→M01 深链。标签侧补 `instance_name`（M07 §5.12 A 已声明未实现）降为三期、范围收窄至 4 类静态资源。
+- **跨模块连带（同批修复，详见 M01 `dev-feedback.md` F-38）**：
+  1. M01 database / middleware Tab「实例名」列恒显示 `-`（列绑后端不产出的键）→ 改绑 `instance_ip`；
+  2. M01 host Tab 副行 `hostname` 与主行 `instance_name` 同值 → 删除副行；
+  3. `instanceDisplayOf` 回落链含死键 `hostname`、漏真键 `service_name` → 键序修订为 `instance_name → instance → instance_ip → service_name → nodename → device`（与三期共用同一段代码）。
+- **影响模块**：M02 告警代理（`/api/v1/alerts`、`/api/v1/alerts/history`）、M08 告警状态页两视图 + 历史告警页、M01 资源列表三处（连带）、M07 PRD §5.12 A 口径澄清（已登记 M07 `dev-feedback.md` F-5，待设计侧收割）。
+- **发现场景**：用户提问「M08 历史告警与状态告警中的实例字段代表实例名还是 IP+端口？建议与 M01 对齐」，核对取值链与契约后发现契约缺口与端口误导。
+- **状态**：in_progress（契约快照 + PRD + 决策已落；代码与测试随本轮落地）

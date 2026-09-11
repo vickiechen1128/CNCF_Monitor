@@ -13,7 +13,7 @@
 | Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）+ Track B+ 增量（v1.12 告警状态查看提前 MVP，强制 security-reviewer）                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
+| 版本    | v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
 | 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP；2026-09-10 决策 68-1 键名口径收敛）                                                                                                                                                                                                                                |
 | 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61 + 分轨判定记录 2026-09-08；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
 
@@ -165,6 +165,8 @@
 | 校验错误 `line`                            | 行号     | 行级定位高亮                                 |
 | Silence.status                         | 静默状态   | active=生效中 / pending=待生效 / expired=已过期 |
 | 决策 56 授权                               | 静默影响范围 | 页面提示「静默影响当前授权网域」                       |
+| `resource_name`                           | 实例名    | M01 资源清单口径（host=`instance_name` 等）；无 `resource_id` 时显示 `-`（v1.15 决策 70） |
+| `labels.instance` / `instance_address`     | 采集地址   | Prometheus 抓取地址（`ip:exporter端口`）；表头须提示「采集器地址，非业务端口」（v1.15 决策 70） |
 
 ## 9. 来源对照表
 
@@ -206,7 +208,16 @@
 | `activeAt` | datetime | 激活时间 | 进入 pending 的时间 |
 | `value` | string | 当前值 | 告警表达式当前求值 |
 | `labels.network_domain` | string | 网域 | 缺失回落 `default`；**由服务端回写**（见下方「网域取值口径」） |
-| `labels.instance` | string | 实例 | 告警实例 |
+| `labels.instance` | string | 采集地址 | **Prometheus 抓取地址**：`ip:exporter端口`（host / database / middleware 默认 `:9100`）、generic_target 为 `ip:业务端口`、application / 拨测为完整 URL。**既不是实例名，端口也不是 M01 里用户填的业务端口**；UI 表头须提示「采集器地址，非业务端口」（v1.15） |
+| `instance_address` | string | 采集地址（语义化字段） | = `labels.instance` 原文；缺失时依次回落 `instance_ip` → `nodename` → `device`。与 `labels.instance` 同值，供前端列渲染取用（v1.15） |
+| `resource_id` | string | — | 告警标签 `resource_id`（决策 47-3 强制注入，system 层不可覆盖）；无则为空串。**服务端以此回连 M01 资源表**（v1.15） |
+| `resource_name` | string | 实例名 | **M01 资源清单口径的实例名**：host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`（对齐 M07 §5.12 展示口径）；无 `resource_id` 或回连未命中时为空串（前端显示 `-`，**不回落成地址**）（v1.15） |
+| `resource_category` | string | — | 五类资源枚举 `host` / `database` / `middleware` / `application` / `generic_target`；未命中为空串（v1.15） |
+| `resource_ip` | string | — | 资源 IP（host=`private_ip`、database/middleware/generic_target=`instance_ip`）；未命中为空串（v1.15） |
+| `resource_port` | int | — | 资源**业务**端口（与「采集地址」中的 exporter 端口不同）；`0` 表示该类别无业务端口（如 host）（v1.15） |
+| `instance_display` | string | 实例展示值（兼容字段） | **语义修订**：`resource_name` 非空取之，否则取 `instance_address`；两者皆空为空串（聚合 / 全局告警）。既有消费方无需改动（v1.15） |
+
+> **标签 `instance` 的语义（v1.15 决策 70）**：`instance` 是 Prometheus 标准语义的抓取目标地址，**本平台不改其取值**——中心 `alertmanager.yml` 的 `group_by: ['alertname','instance']`（聚合分组）与 `equal: ['instance']`（抑制规则）直接依赖它，改成可读名会破坏告警分组与抑制。因此「实例可读化」走**平行字段**（`resource_name` 回连回填），而非改写 `instance`。
 
 > **网域取值口径（2026-09-10 缺陷修复 F-07；键名经决策 68-1 收敛）**：上游 Prometheus `GET /api/v1/alerts` 返回的是**规则求值标签**——Prometheus 仅在 remote write / federation / 发往 Alertmanager 时附加 `global.external_labels`，因此告警标签中通常**不含**网域键。代理若只做 `labels["network_domain"]` 读取，前端「网域」列对每一行都渲染 `-`（本次缺陷根因）。
 >
@@ -233,7 +244,7 @@
 
 | 字段 | 类型 | UI 展示名 | 说明 |
 |------|------|-----------|------|
-| `labels` | map | — | 告警标签（`alertname` / `severity` / `network_domain` / `instance`，UI 展示名同 §10.1） |
+| `labels` | map | — | 告警标签（`alertname` / `severity` / `network_domain` / `instance`）；`labels.instance` 语义同 §10.1（**采集地址，非实例名**，v1.15） |
 | `labels.network_domain` | string | 网域 | 缺失回落 `default`；**由服务端归一后回写**，解析顺序同 §10.1（`network_domain` → `network_domain_id` → `default`） |
 | `annotations` | map | — | 告警注解（`summary` / `description`） |
 | `starts_at` | datetime | 开始时间 | 告警进入 AM 时间 |
@@ -244,6 +255,8 @@
 | `notify_status` | enum | 通知状态 | **服务端归一四态**：`active`（通知中，state=active）/ `silenced`（静默，suppressed 且 silencedBy 非空）/ `inhibited`（抑制，suppressed 且 inhibitedBy 非空）/ `unprocessed`（待处理，state=unprocessed） |
 
 > 四态映射优先级：`silenced` / `inhibited` 判定优先于 `active`；AM 侧 `suppressed` 不外露，由 silencedBy / inhibitedBy 拆解。原型既有「接收人」列在 AM v2 响应中**无数据源**（路由归属不回传），本轮裁剪（见 `frontend-prototype-map.md` §八）。
+>
+> **实例字段（v1.15 决策 70）**：本节响应同样包含 §10.1 的 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_display` 七个字段，语义与取值口径完全一致（服务端按 `labels.resource_id` 批量回连 M01 五类资源表；无 `resource_id` 时 `resource_name` 为空串）。M08 侧需在注册时把 `*gorm.DB` 传给 `alerts.NewService`，回连查询为只读、不写 M01 任何表。
 
 ### 10.3 与既有章节的 diff
 
@@ -252,5 +265,6 @@
 - 枚举字典（§6）追加：`notify_status` = `active` / `silenced` / `inhibited` / `unprocessed`；Prometheus `state` = `firing` / `pending`。
 - 来源：M08 PRD v1.12 §5.4/§9.1/§9.2；M02 PRD v1.12 §6.1/§11；决策 55/56/61。
 - **2026-09-10 修正（F-07，§10.1/§10.2 网域取值口径）**：`labels.network_domain` 明确为「服务端解析 + 回写」字段，解析顺序 `network_domain` → `network_domain_id` → `default`。字段名与响应形状不变（无破坏性变更），仅补齐此前缺失的实现约定；同口径同步至 `/api/v1/alerts/history`（字段为顶层 `network_domain`）与 `/api/v1/targets` 的既有回写语义。
+- **2026-09-11 扩展（决策 70，§10.1/§10.2 实例字段）**：三条告警读取链路（§10.1 `/api/v1/alerts`、`/api/v1/alerts/history`、§10.2 `/api/v2/platform/alertmanager/alerts`）新增 `instance_address` 与 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` 六个字段，同口径同步至 `/api/v1/alerts/history`（该接口字段为顶层 `alertname` / `instance` / `network_domain` …，新增字段与之平级）。`instance_display` 由「回落链取值」修订为「`resource_name` 非空取之，否则取 `instance_address`」，**旧字段全部保留、无破坏性变更**。UI 侧「实例」列拆为「实例名」（`resource_name`，无则 `-`）+「采集地址」（`instance_address`，表头提示「采集器地址，非业务端口」）；历史告警页「实例」筛选参数 `instance` 的服务端语义扩展为**同时匹配 `instance_address` 与 `resource_name`**（`strings.Contains`，任一命中即保留）。回落链同步修订为 `instance_name → instance → instance_ip → service_name → nodename → device`（删除默认标签模板从不产出的死键 `hostname`、补入 application 实际产出的 `service_name`）。
 - **2026-09-10 收敛（决策 68-1，§10.1/§10.2 键名口径）**：M09 生成侧 `external_labels` 键名由 `network_domain_id` 收敛为 `network_domain`，§10.1/§10.2 的解析顺序**不变**，但第 2 项 `labels.network_domain_id` 定位由「写入侧当前键」修订为「**历史/兼容键（永久保留）**」；`network_domain` 明确为全平台唯一 Prometheus 标签键，`network_domain_id` 自此仅作对象 / API 字段。字段名与响应形状仍不变（无破坏性变更）。本决策同时补齐 M08 PRD §9.1/§9.2 的投递接线验收（Prometheus → AM `alerting.alertmanagers`，承载方 M09），见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md`。
 
