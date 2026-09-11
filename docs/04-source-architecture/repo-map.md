@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-11 11:30 · commit: `c51cc4fa`
+> 生成时间: 2026-09-11 13:13 · commit: `2a9d635b`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1348,6 +1348,8 @@
 
 - `func buildChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule, artifacts *generator.ConfigArtifacts, base *mo…`
 - `func diffAlertmanagerItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
+- `func snapshotAlerting(promYML string) string`
+- `func diffPromAlertingItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
 - `func buildInitialChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule) []models.ConfigChangeItem`
 - `func diffJobItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Config…`
 - `func diffRuleItems(newRulesYML, baseRulesYML string) []models.ConfigChangeItem`
@@ -1378,6 +1380,7 @@
 - `func TestGenerateDraftDiffRemoveOnDisableJob(t *testing.T)`
 - `func TestGenerateDraftNoDiffReturnsErrNoChanges(t *testing.T)`
 - `func TestGenerateDraftAlertmanagerChangeItem(t *testing.T)`
+- `func TestGenerateDraftAlertingSectionChangeItem(t *testing.T)`
 - `func TestGenerateDraftBackfillsSourceVersion(t *testing.T)`
 - `func TestConfirmDraftKeepsSourceVersion(t *testing.T)`
 - `func TestConfirmDraftRejectsUnpassedValidation(t *testing.T)`
