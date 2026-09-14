@@ -15,6 +15,7 @@ import {
   Alert,
   Radio,
   Steps,
+  Collapse,
 } from 'antd'
 import {
   PlusOutlined,
@@ -46,8 +47,8 @@ import {
 const { Title, Text } = Typography
 const { Option } = Select
 
-/** 概念卡折叠状态存 localStorage 的 key（PRD §11.2：可关闭并记住） */
-const CONCEPT_CARD_DISMISSED_KEY = 'm06-network-domain-concept-card-dismissed'
+/** 概念卡 + 接入指引合并面板的折叠/关闭状态存 localStorage 的 key（PRD §11.2：可关闭并记住，决策 79） */
+const CONCEPT_PANEL_DISMISSED_KEY = 'm06-network-domain-guide-panel-dismissed'
 
 /** 接入进度四态列的 Tag 颜色（仅视觉分层，语义由文字承载） */
 const ACCESS_STEP_COLORS: Record<AccessStep, string> = {
@@ -66,6 +67,51 @@ const ACCESS_STEP_NEXT: Record<AccessStep, string> = {
 }
 
 /**
+ * {v2.13} 决策 79：「什么是网域」详解内容——外层概念面板与登记抽屉折叠入口共用。
+ * 两种域的区别 + 判断规则 + 三行拓扑 + 「登记不采集数据」说明。
+ */
+function DomainConceptContent() {
+  return (
+    <div>
+      <div style={{ marginBottom: 8 }}>
+        网域 = 一组<b>网络互通</b>的机器的集合（网络可达性区域）。平台中心<b>能不能直接访问</b>这些机器，决定要不要建网域：
+      </div>
+      <div style={{ marginBottom: 4 }}>
+        <CheckCircleOutlined style={{ color: '#00B578', marginRight: 6 }} />
+        <Text>
+          <b>能直接访问</b> → 不用建网域：机器统一放在「中心直连域」（default），由中心直接采集
+        </Text>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <StopOutlined style={{ color: '#FF8800', marginRight: 6 }} />
+        <Text>
+          <b>访问不到</b>（专网 / 隔离 DMZ / 另一个 VPC / K8s 集群）→ 登记一个网域（采集节点域），并在该网络内挑一台常开机器安装「采集节点」，由它把数据带回中心
+        </Text>
+      </div>
+      <div
+        style={{
+          background: '#F7F8FA',
+          border: '1px solid #E5E6EB',
+          borderRadius: 4,
+          padding: '8px 12px',
+          fontFamily: 'SFMono-Regular, Consolas, monospace',
+          fontSize: 12,
+          lineHeight: 1.9,
+          marginBottom: 8,
+        }}
+      >
+        <div>平台中心 ──直连──▶ 中心直连域（default）的机器 ──▶ 指标直达中心</div>
+        <div>平台中心 ──✕ 直达不通──▶ 采集节点域的机器 ◀──采集── 采集节点</div>
+        <div>采集节点 ──单向出站 HTTPS──▶ 平台中心（数据回传）</div>
+      </div>
+      <Text type="secondary">
+        登记网域本身不采集数据——它告诉平台两件事：这批机器由<b>哪个采集节点</b>去采；采回的数据打上<b>来源区域标签</b>，便于按区域筛选与定位故障。
+      </Text>
+    </div>
+  )
+}
+
+/**
  * {v2.0} M06 为 NetworkDomain 的行政 Owner（PRD v2.0，决策 18~20）：
  * 网域为部署级资源、可跨租户共享：登记归属（tenant_id）固定 platform_admin（登记 ≠ 独占），
  * 通过授权租户（authorized_tenant_ids）授权多个租户共享使用（授权 ≠ 拥有）。
@@ -76,13 +122,17 @@ const ACCESS_STEP_NEXT: Record<AccessStep, string> = {
  * {v2.2} PRD v2.2（决策 23）补漏：
  * - 登记归属（tenant_id）创建后不可变更（编辑表单不含该字段）；授权租户可选，缺省 = 登记归属租户（新建默认回填 platform_admin）；
  * - 禁用 = 冻结：禁用二次确认展示影响范围（资源引用数 / 已纳管采集节点数），禁用后拒绝新登记与新纳管、存量不受影响；
- * - 空网域（未纳管、无资源引用）可删除（软删），非空网域/中心直连区不可删除。
+ * - 空网域（未纳管、无资源引用）可删除（软删），非空网域/中心直连域不可删除。
  * {v2.11} 决策 73~77 落版：
  * - 页首概念卡（一句话定义 + 二选一判断规则 + 三行拓扑示意，可关闭记住）；
  * - 空态改提问式引导；新建表单第一问「中心能否直连」前置判断；
  * - 登记成功改结果行动卡（3 步预告 + 直达纳管）；
  * - 列表「监控纳管」二态列 →「接入进度」四态列（已登记→已纳管→采集节点已上线→已出数据；行内主操作=下一步动作）；
- * - 术语降噪：管理域→中心直连区、边缘域→隔离区（采集节点接入）、Edge Sync Agent→采集节点、domain_type→接入方式、zone_type→网络分区（可选）。
+ * - 术语降噪：管理域→中心直连域、边缘域→隔离区（采集节点接入）、Edge Sync Agent→采集节点、domain_type→接入方式、zone_type→网络分区（可选）。
+ * {v2.13} 决策 79 落版（chenrt 走查 v2.11 返工）：
+ * - 前置判断选「能」改硬劝阻终点（表单不展开、确认按钮禁用、无继续填写路径；删除「独立授权管理」放行出口——授权诉求走「授权租户」字段）；
+ * - 术语再修订：中心直连域→中心直连域、隔离区（采集节点接入）→采集节点域（枚举不变）；
+ * - 引导信息归位：页首概念卡 + 可折叠「怎么接入」四步生命周期合并为一个可折叠面板两区块；登记抽屉移除 3 步 Alert+Steps，改为身份说明「你正在登记一个采集节点域」+「什么是网域？」折叠详解；成功行动卡措辞与四步对齐。
  */
 export function NetworkDomainsPage() {
   const [domains, setDomains] = useState<NetworkDomain[]>(mockNetworkDomains)
@@ -98,7 +148,7 @@ export function NetworkDomainsPage() {
   const [filterAuthorizedTenant, setFilterAuthorizedTenant] = useState('all')
   // {v2.11} 页首概念卡显隐（可关闭并记住 localStorage）
   const [conceptCardHidden, setConceptCardHidden] = useState(
-    () => localStorage.getItem(CONCEPT_CARD_DISMISSED_KEY) === '1'
+    () => localStorage.getItem(CONCEPT_PANEL_DISMISSED_KEY) === '1'
   )
 
   const filteredDomains = useMemo(() => {
@@ -119,7 +169,7 @@ export function NetworkDomainsPage() {
   // {v2.11} 新建表单第一问（决策 75）：中心能否直连——能 → 提示通常无需建域；不能 → 展开登记字段
   const watchedCenterDirect = Form.useWatch('center_direct', form) as 'yes' | 'no' | undefined
 
-  /** PRD：network_domain_id 全局唯一，按 <deploy_code>-<domain_code> 自动生成（deploy_code 默认 mc）；default 中心直连区为历史预置、无前缀 */
+  /** PRD：network_domain_id 全局唯一，按 <deploy_code>-<domain_code> 自动生成（deploy_code 默认 mc）；default 中心直连域为历史预置、无前缀 */
   const suggestedId = (() => {
     if (editingDomain) return editingDomain.id
     const nameSlug = (watchedName ?? '').trim().toLowerCase().replace(/\s+/g, '-')
@@ -129,7 +179,7 @@ export function NetworkDomainsPage() {
 
   const dismissConceptCard = () => {
     setConceptCardHidden(true)
-    localStorage.setItem(CONCEPT_CARD_DISMISSED_KEY, '1')
+    localStorage.setItem(CONCEPT_PANEL_DISMISSED_KEY, '1')
   }
 
   const showAdd = () => {
@@ -217,7 +267,7 @@ export function NetworkDomainsPage() {
 
   const toggleStatus = (record: NetworkDomain) => {
     if (record.domain_type === 'management') {
-      message.error('系统预置的中心直连区（default）禁止禁用')
+      message.error('系统预置的中心直连域（default）禁止禁用')
       return
     }
     const nextStatus = record.status === 'active' ? 'disabled' : 'active'
@@ -248,10 +298,10 @@ export function NetworkDomainsPage() {
     })
   }
 
-  /** {v2.2} 删除网域：仅空网域可删（无资源引用且未纳管），软删；中心直连区禁止删除 */
+  /** {v2.2} 删除网域：仅空网域可删（无资源引用且未纳管），软删；中心直连域禁止删除 */
   const handleDelete = (record: NetworkDomain) => {
     if (record.domain_type === 'management') {
-      message.error('系统预置的中心直连区（default）禁止删除')
+      message.error('系统预置的中心直连域（default）禁止删除')
       return
     }
     if (record.registration_status === 'monitored') {
@@ -260,7 +310,7 @@ export function NetworkDomainsPage() {
     }
     Modal.confirm({
       title: '删除网域',
-      content: `确定删除空网域 "${record.name}" 吗？删除为软删，仅对未纳管、无资源引用的空网域生效；中心直连区（default）不可删除。`,
+      content: `确定删除空网域 "${record.name}" 吗？删除为软删，仅对未纳管、无资源引用的空网域生效；中心直连域（default）不可删除。`,
       okText: '确认删除',
       okType: 'danger',
       cancelText: '取消',
@@ -314,18 +364,18 @@ export function NetworkDomainsPage() {
       ),
     },
     {
-      // {v2.11} 决策 74：domain_type 用户侧呈现为「接入方式」（自动推导、不可选择），不再暴露管理域/边缘域分类
+      // {v2.11/13} 决策 74/79：domain_type 用户侧呈现为「接入方式」（自动推导、不可选择），叫法为中心直连域/采集节点域
       title: '接入方式',
       dataIndex: 'domain_type',
       key: 'domain_type',
       render: (type: NetworkDomain['domain_type']) =>
         type === 'management' ? (
-          <Tooltip title="中心自己所在的区（default），机器可被平台中心直接访问、由中心直接采集">
-            <Tag color="blue">中心直连</Tag>
+          <Tooltip title="中心自己所在的域（default），机器可被平台中心直接访问、由中心直接采集">
+            <Tag color="blue">中心直连域</Tag>
           </Tooltip>
         ) : (
-          <Tooltip title="中心无法直连的区域：由安装在该网域内的采集节点回传数据">
-            <Tag color="cyan">采集节点接入</Tag>
+          <Tooltip title="中心无法直连的域：由安装在该网域内的采集节点回传数据">
+            <Tag color="cyan">采集节点域</Tag>
           </Tooltip>
         ),
     },
@@ -457,12 +507,12 @@ export function NetworkDomainsPage() {
         <>
           M06 为网域的行政 Owner：本页只维护行政信息（名称 / 登记归属 / 授权租户 / 状态 / 网络分区），监控纳管（令牌、Remote Write、采集节点）由 Module_09 执行。
           网域为部署级资源、可跨租户共享（决策 18~20 落版）：登记归属固定平台运营部（platform_admin），登记 ≠ 独占，通过「授权租户」授权多个租户共享使用（授权 ≠ 拥有）；登记归属创建后不可变更（决策 23）。
-          网域定义为全平台唯一入口，下游模块（导入 / 纳管 / CMDB 同步）只引用 network_domain_id；ID 按 `&lt;deploy_code&gt;-&lt;domain_code&gt;` 自动生成且全局唯一（deploy_code 默认 `mc`；default 中心直连区为历史预置、无前缀）。
+          网域定义为全平台唯一入口，下游模块（导入 / 纳管 / CMDB 同步）只引用 network_domain_id；ID 按 `&lt;deploy_code&gt;-&lt;domain_code&gt;` 自动生成且全局唯一（deploy_code 默认 `mc`；default 中心直连域为历史预置、无前缀）。
           网段（CIDR，决策 52）：网域可选择登记其覆盖的 IP 段（可留空），供 M07 资源导入 / CMDB 同步时按 IP 自动推导网域归属（归属解析链第③级，最长前缀优先、同前缀跨网域判歧义）；纯平台侧数据，不回写 CMDB、不要求 CMDB 加字段，也可由 M07「待分配队列」规则化动作按未分配 IP 汇总一键生成候选网段。
           网域心智原则（决策 52）：网域是部署拓扑属性，不是资产属性——「接入可见、消费隐藏」：接入侧（M07 导入 / 录入 / CMDB 同步）可见并可推导归属，消费侧（M02 查询 / M05 看板 / M08 告警路由 / M01 采集）默认不感知网域（权限注入 + 可选下钻），网域不做 CMDB 写回。
           <b>本轮新增（决策 73~77）：</b>
           决策 73（网域用户侧定义）：网域 = 网络可达性区域——「中心能否直连」二选一判断规则落为页首概念卡与新建表单第一问；登记网域本身不采集数据，只完成「划片」（哪个采集节点去采 + 数据打来源区域标签）。
-          决策 74（术语降噪）：UI 展示名——管理域→「中心直连区」、边缘域→「隔离区（采集节点接入）」、Edge Sync Agent→「采集节点」、domain_type 呈现为只读「接入方式」、zone_type→「网络分区（可选）」；后端模型枚举不变。
+          决策 74（术语降噪，v2.13 决策 79 再修订）：UI 展示名——管理域→「中心直连域」、边缘域→「采集节点域」、Edge Sync Agent→「采集节点」、domain_type 呈现为只读「接入方式」、zone_type→「网络分区（可选）」；后端模型枚举不变。
           决策 75（引导四件套）：页首概念卡 + 提问式空态 / 新建前置判断问题（MVP）／登记成功行动卡（MVP）／接入进度四态列（v0.2，替代「监控纳管」二态列；进度数据由 M06 列表接口聚合 M09 纳管状态、Agent 心跳、生效配置得出，原型以 mock 模拟聚合结果）；M09 侧配套一键复制安装命令。
           决策 76（zone_type 语义）：纯分类标签、不影响采集、可留空；政务云 = 安全分区，公有云 = region；不做死枚举、不赋予行为语义。
           决策 77（K8s 集群）：不设第六资源类型，四归属——网络边界归 NetworkDomain（overlay 独立建域）、分组筛选归 cluster 标签、动态实例发现归 M04 服务发现源、集群自身监控归 generic_target。
@@ -474,50 +524,48 @@ export function NetworkDomainsPage() {
       </div>
       {!conceptCardHidden && (
         <Alert
-          /* {v2.11} 决策 73/75：页首概念卡——一句话定义 + 二选一判断规则 + 三行拓扑示意，可关闭并记住 */
+          /* {v2.13} 决策 79：概念卡 + 可折叠「网域接入指引」合并为一个可折叠面板两区块——
+             「什么是网域」+「怎么接入」（四步生命周期，同时解释列表「接入进度」四态列含义）；可关闭并记住 */
           type="info"
           showIcon
           closable
           onClose={dismissConceptCard}
           style={{ marginBottom: 16 }}
-          message="什么是「网域」？—— 一组网络互通的机器的集合"
+          message="网域概念与接入指引"
           description={
-            <div>
-              <div style={{ marginBottom: 8 }}>
-                平台中心<b>能不能直接访问</b>这些机器，决定要不要建网域：
-              </div>
-              <div style={{ marginBottom: 4 }}>
-                <CheckCircleOutlined style={{ color: '#00B578', marginRight: 6 }} />
-                <Text>
-                  <b>能直接访问</b> → 不用建网域：机器统一放在「中心直连区」（default），由中心直接采集
-                </Text>
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <StopOutlined style={{ color: '#FF8800', marginRight: 6 }} />
-                <Text>
-                  <b>访问不到</b>（专网 / 隔离 DMZ / 另一个 VPC / K8s 集群）→ 登记一个网域（隔离区），并在该网络内挑一台常开机器安装「采集节点」，由它把数据带回中心
-                </Text>
-              </div>
-              <div
-                style={{
-                  background: '#F7F8FA',
-                  border: '1px solid #E5E6EB',
-                  borderRadius: 4,
-                  padding: '8px 12px',
-                  fontFamily: 'SFMono-Regular, Consolas, monospace',
-                  fontSize: 12,
-                  lineHeight: 1.9,
-                  marginBottom: 8,
-                }}
-              >
-                <div>平台中心 ──直连──▶ 中心直连区（default）的机器 ──▶ 指标直达中心</div>
-                <div>平台中心 ──✕ 直达不通──▶ 隔离区的机器 ◀──采集── 采集节点</div>
-                <div>采集节点 ──单向出站 HTTPS──▶ 平台中心（数据回传）</div>
-              </div>
-              <Text type="secondary">
-                登记网域本身不采集数据——它告诉平台两件事：这批机器由<b>哪个采集节点</b>去采；采回的数据打上<b>来源区域标签</b>，便于按区域筛选与定位故障。
-              </Text>
-            </div>
+            <Collapse
+              size="small"
+              defaultActiveKey={['what']}
+              items={[
+                {
+                  key: 'what',
+                  label: '什么是网域？—— 一组网络互通的机器的集合',
+                  children: <DomainConceptContent />,
+                },
+                {
+                  key: 'how',
+                  label: '怎么接入？—— 四步生命周期（对应列表「接入进度」四态列）',
+                  children: (
+                    <div>
+                      <Steps
+                        size="small"
+                        direction="vertical"
+                        current={-1}
+                        items={[
+                          { title: '① 登记网域（本页行政登记）—— 对应「已登记」' },
+                          { title: '② 去纳管获取接入凭据（配置中心-网域纳管）—— 对应「已纳管」' },
+                          { title: '③ 在该网域一台常开机器上安装采集节点（M09 安装指引）—— 对应「采集节点已上线」' },
+                          { title: '④ 为该网域资源配置采集 Job，产出数据（M01 采集任务）—— 对应「已出数据」' },
+                        ]}
+                      />
+                      <Text type="secondary">
+                        列表「接入进度」列展示的四个状态与上面四步一一对应；行内主操作始终指向当前这一步。
+                      </Text>
+                    </div>
+                  ),
+                },
+              ]}
+            />
           }
         />
       )}
@@ -610,7 +658,7 @@ export function NetworkDomainsPage() {
                 </div>
                 <div style={{ marginBottom: 16 }}>
                   <Text type="secondary">
-                    能 → 无需新建网域（中心直连区 default 已覆盖）；不能 → 登记一个网域，用采集节点把数据带回中心
+                    能 → 无需新建网域（中心直连域 default 已覆盖）；不能 → 登记一个网域，用采集节点把数据带回中心
                   </Text>
                 </div>
                 <Button type="primary" icon={<PlusOutlined />} onClick={showAdd}>
@@ -628,6 +676,8 @@ export function NetworkDomainsPage() {
         onOk={() => form.submit()}
         width={640}
         destroyOnClose
+        /* {v2.13} 决策 79：前置判断未通过（选「能」或未答）时不提供提交路径——硬劝阻终点 */
+        okButtonProps={editingDomain ? undefined : { disabled: watchedCenterDirect !== 'no' }}
       >
         <Form form={form} layout="vertical" onFinish={handleSave}>
           {!editingDomain && (
@@ -645,33 +695,41 @@ export function NetworkDomainsPage() {
             </Form.Item>
           )}
           {!editingDomain && watchedCenterDirect === 'yes' && (
+            /* {v2.13} 决策 79：硬劝阻终点——表单不展开、确认按钮禁用、无继续填写路径。
+               删除 v2.11 的「仅当确有行政登记需要（如独立授权管理）时再继续填写」出口：
+               管理域全系统唯一不可登记 / 非 default 强制 agent_pull 与用户声明矛盾 / 能直连与建域语义互斥；
+               独立授权诉求走「授权租户」字段（决策 18~20）。 */
             <Alert
               type="warning"
               showIcon
               style={{ marginBottom: 16 }}
-              message="通常无需新建网域"
-              description="能被中心直接访问的机器统一放在「中心直连区」（default），由中心直接采集。仅当确有行政登记需要（如独立授权管理）时再继续填写；否则可关闭本窗口。"
+              message="无需新建网域"
+              description="能被中心直接访问的机器统一放在「中心直连域」（default），由中心直接采集。请关闭本窗口。"
             />
           )}
           {!editingDomain && watchedCenterDirect === 'no' && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="登记后还需 3 步才能产出数据"
-              description={
-                <Steps
-                  size="small"
-                  direction="vertical"
-                  current={-1}
-                  items={[
-                    { title: '去纳管获取接入凭据（配置中心-网域纳管）' },
-                    { title: '在该网域一台常开机器上安装采集节点' },
-                    { title: '采集节点上线后，为该网域资源配置采集' },
-                  ]}
-                />
-              }
-            />
+            <>
+              {/* {v2.13} 决策 79：身份说明前置——用户一眼知道登记的是什么 */}
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 8 }}
+                message="你正在登记一个采集节点域"
+                description="中心访问不到这个网络：登记后需在其中一台常开机器上安装采集节点，由它把数据带回中心。"
+              />
+              {/* {v2.13} 决策 79：「什么是网域？」详解折叠入口——解释在疑问现场可得，不强制阅读 */}
+              <Collapse
+                size="small"
+                style={{ marginBottom: 16 }}
+                items={[
+                  {
+                    key: 'what',
+                    label: '什么是网域？（点开查看详细解释）',
+                    children: <DomainConceptContent />,
+                  },
+                ]}
+              />
+            </>
           )}
           {(editingDomain || watchedCenterDirect === 'no') && (
             <>
@@ -710,20 +768,20 @@ export function NetworkDomainsPage() {
                 </Form.Item>
               )}
               <Form.Item
-                /* {v2.11} 决策 74：domain_type 用户侧呈现为只读「接入方式」，由第一问自动得出 */
+                /* {v2.11/13} 决策 74/79：domain_type 用户侧呈现为只读「接入方式」，由第一问自动得出 */
                 label="接入方式"
                 extra={
                   editingDomain
-                    ? '由「中心能否直连」自动得出，不可选择；中心直连区（default）为系统预置，由平台管理员维护'
-                    : '由第一问自动得出：中心访问不到的区域通过采集节点接入（安装在该网域一台常开机器上，回传数据）；中心直连区（default）为系统预置，无需登记'
+                    ? '由「中心能否直连」自动得出，不可选择；中心直连域（default）为系统预置，由平台管理员维护'
+                    : '由第一问自动得出：中心访问不到的域通过采集节点接入（安装在该网域一台常开机器上，回传数据）；中心直连域（default）为系统预置，无需登记'
                 }
               >
                 <Select
                   value={editingDomain?.domain_type === 'management' ? 'management' : 'edge'}
                   disabled
                   options={[
-                    { value: 'edge', label: '采集节点接入' },
-                    { value: 'management', label: '中心直连（系统预置）' },
+                    { value: 'edge', label: '采集节点域' },
+                    { value: 'management', label: '中心直连域（系统预置）' },
                   ]}
                 />
               </Form.Item>
@@ -784,7 +842,7 @@ export function NetworkDomainsPage() {
               </Form.Item>
               <Form.Item
                 label="网域 ID（自动生成）"
-                extra="按部署级前缀自动生成（&lt;deploy_code&gt;-&lt;domain_code&gt;，deploy_code 默认 mc；default 中心直连区无前缀），全局唯一、创建后不可修改"
+                extra="按部署级前缀自动生成（&lt;deploy_code&gt;-&lt;domain_code&gt;，deploy_code 默认 mc；default 中心直连域无前缀），全局唯一、创建后不可修改"
               >
                 <Input
                   value={suggestedId || '自动生成（请先填写名称）'}
@@ -800,7 +858,7 @@ export function NetworkDomainsPage() {
                 name="status"
                 initialValue="active"
                 rules={[{ required: true, message: '请选择状态' }]}
-                extra="禁用后网域不可被租户使用；系统预置的中心直连区不可禁用"
+                extra="禁用后网域不可被租户使用；系统预置的中心直连域不可禁用"
               >
                 <Select placeholder="请选择" disabled={editingDomain?.domain_type === 'management'}>
                   <Option value="active">启用</Option>
@@ -850,9 +908,9 @@ export function NetworkDomainsPage() {
               direction="vertical"
               current={-1}
               items={[
-                { title: '去纳管获取接入凭据（配置中心-网域纳管）' },
-                { title: '在该网域一台常开机器上安装采集节点' },
-                { title: '采集节点上线后，为该网域资源配置采集' },
+                { title: '① 去纳管获取接入凭据（配置中心-网域纳管）' },
+                { title: '② 安装采集节点（在该网域一台常开机器上）' },
+                { title: '③ 配置采集 Job，产出数据（M01 采集任务）' },
               ]}
             />
           </div>

@@ -213,7 +213,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
   {
     id: 'default',
     name: 'default',
-    description: '系统预置中心直连区，承载单机与中心采集模式',
+    description: '系统预置中心直连域，承载单机与中心采集模式',
     domain_type: 'management',
     tenant_id: 't-platform',
     authorized_tenant_ids: ['t-platform', 't-ecommerce'],
