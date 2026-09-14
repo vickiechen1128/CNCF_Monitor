@@ -1,0 +1,195 @@
+# Module 05 首页 MVP 子集（决策 72）任务序列
+# PRD: docs/02-product-requirements/Modules/Module_05_Custom_UI.md v1.3
+# 计划: docs/05-execution-records/module-05/05_Code_Implementation_Plan.md v1.3
+# 角色: frontend-developer
+# 约束: 零后端改动；跨文件共享文件（HomePage.tsx）的任务连续排列
+
+meta:
+  module: module-05
+  prd_version: v1.3
+  plan_version: v1.3
+  track: B
+  date: "2026-09-14"
+  total_tasks: 7
+
+tasks:
+  - id: M05-T1
+    role: frontend-developer
+    title: HomePage 结构重构：分离统计卡、告警数字卡、快速入口区、使用指引区、最近下发表
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/dashboard.ts
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 页面仍正确渲染既有统计卡（资源总数 / 待确认配置草稿数 / 已纳管网域数）
+      - 页面仍正确渲染最近下发记录表或空态
+      - 页面自上而下预留告警数字卡、快速入口区、使用指引区占位（可用注释或最小骨架）
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on: []
+    commit_unit: "M05-T1: HomePage 结构按决策 72 拆分"
+    notes: |
+      保持现有状态管理、mock 判断（VITE_STATIC_PREVIEW）与错误处理不变。
+      新区域按 PRD §3.1 顺序自上而下排列：统计卡 → 告警数字卡 → 系统快速入口区 → 使用指引区 → 最近下发表。
+      本次只做结构拆分，告警卡与入口区可先渲染占位文案，避免单 PR 过大。
+
+  - id: M05-T2
+    role: frontend-developer
+    title: 新增告警数字卡：调用 alertStatusApi 两个接口，展示主数字/次要行/小字，加空态引导
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/alertmanager.ts
+      - ui-custom/web/src/types/alertmanager.ts
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 非静态预览环境下并发请求 GET /api/v1/alerts 与 GET /api/v2/platform/alertmanager/alerts
+      - 主数字 = AM notify_status === 'active' 的计数（红色语义）
+      - 次要行展示已静默 / 已抑制计数
+      - 并列小字或 tooltip 展示 Prom firing / pending 计数
+      - AM 与 Prom 均为空时展示「尚未挂载通知配置，去配置 →」深链 /alert-config
+      - 接口错误时展示错误态与重试按钮
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on:
+      - M05-T1
+    commit_unit: "M05-T2: 首页告警状态数字卡（方案 A 零后端改动）"
+    notes: |
+      使用 alertStatusApi.getPromAlerts() 与 alertStatusApi.getAlertmanagerAlerts()。
+      两接口均无分页，直接取 alerts.length / items.length 计数。
+      notify_status 服务端已归一为 active/silenced/inhibited/unprocessed，主数字只取 active。
+      空态引导文案依据决策 68-2：AM 未挂载时 alerting 段不生成，AM 数字恒为 0。
+
+  - id: M05-T3
+    role: frontend-developer
+    title: 新增系统快速入口区组件与深链
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/App.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/QuickAccess.tsx
+    acceptance:
+      - 展示资源管理 / 采集 Job / 配置预览下发 / 指标查询 / 告警状态 5 个快捷卡片
+      - 每个卡片可点击跳转至对应页面（/resources、/scrape-jobs、/config-preview、/query、/alert-status）
+      - 卡片文案与图标清晰可辨识
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on:
+      - M05-T1
+    commit_unit: "M05-T3: 首页系统快速入口区"
+    notes: |
+      入口集合以 MVP 已上线页面为限（PRD §3.1）。
+      若 HomePage.tsx 过大，可拆出 QuickAccess.tsx；拆出时保持同一目录并在 HomePage 中导入。
+      配置预览下发卡片指向 /config-preview（M09 配置预览下发页）。
+
+  - id: M05-T4
+    role: frontend-developer
+    title: 新增使用指引区组件（五步，第 5 步深链 /query）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/App.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+    acceptance:
+      - 按五步开箱动线展示：登记网域 → 导入资源 → 建采集 Job → 下发 → 查指标
+      - 每步配深链与完成态标识（空/未完成视觉区分）
+      - 第 5 步「查指标」深链 /query
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on:
+      - M05-T1
+    commit_unit: "M05-T4: 首页五步使用指引区"
+    notes: |
+      使用 Ant Design Steps 或自定义步骤条实现（PRD §3.1；02_Frontend_Standard.md §8 多步流程建议独立页面 + Steps，本处为首页内轻量指引，可用 Steps 组件）。
+      完成态标识可先按静态未勾选展示；v0.3 可扩展为根据真实数据自动打勾。
+      若拆出 OnboardingSteps.tsx，保持同一目录并在 HomePage 中导入。
+
+  - id: M05-T5
+    role: frontend-developer
+    title: App.tsx 挂 /query 路由
+    input_paths:
+      - ui-custom/web/src/App.tsx
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/App.tsx
+    acceptance:
+      - 浏览器访问 /query 正确渲染 QueryPage
+      - 未登录状态下访问 /query 被 RequireAuth 重定向到 /login?redirect=...（继承现有行为）
+      - App.tsx 中无路由冲突或重复 path
+      - pnpm vitest run src/App.test.tsx 通过（若存在路由表相关断言需同步）
+      - pnpm lint 通过
+    status: pending
+    depends_on: []
+    commit_unit: "M05-T5: /query 路由挂载 QueryPage"
+    notes: |
+      QueryPage 组件已存在（src/pages/query/QueryPage.tsx），本任务只添加路由。
+      建议与现有路由风格一致：直接 import 或 lazy load；当前 App.tsx 中 QueryPage 未导入，本次选择直接 import 以简化。
+      注意 /query 与 M02 /targets 等路由不冲突。
+
+  - id: M05-T6
+    role: frontend-developer
+    title: HomePage.test.tsx 同步：mock 告警接口与路由断言
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/alertmanager.ts
+      - ui-custom/web/src/App.tsx
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+    acceptance:
+      - mock alertStatusApi.getPromAlerts 与 getAlertmanagerAlerts
+      - 覆盖告警数字主数字、次要行、Prom firing/pending 小字渲染
+      - 覆盖 AM + Prom 均为空时的空态引导与 /alert-config 深链
+      - 覆盖接口错误态
+      - 覆盖系统快速入口区 5 个卡片存在及 href 正确
+      - 覆盖使用指引区 5 步文案及第 5 步 /query 深链
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on:
+      - M05-T2
+      - M05-T3
+      - M05-T4
+    commit_unit: "M05-T6: HomePage 测试同步"
+    notes: |
+      当前测试 mock 的是 apiClient.get；若告警卡使用 alertStatusApi，可 mock 整个 alertmanager 模块或 apiClient。
+      保持现有 setupAntdTest() 与 MainLayout mock 不变。
+      注意 tsconfig.json 已排除 *.test.tsx 参与生产构建类型检查，不影响 pnpm build。
+
+  - id: M05-T7
+    role: frontend-developer
+    title: 全量 lint/build 验证
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/App.tsx
+      - ui-custom/web/src/pages/home/QuickAccess.tsx
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+    output_files: []
+    acceptance:
+      - pnpm install 完成
+      - pnpm test 全量通过
+      - pnpm lint 通过
+      - pnpm build 通过
+      - 可选：dev server 启动后 curl 首页与 /query 返回 200（验证完成后停止服务）
+    status: pending
+    depends_on:
+      - M05-T5
+      - M05-T6
+    commit_unit: "M05-T7: 首页 MVP 子集 lint/build 验证"
+    notes: |
+      本任务为收尾验证任务，不修改源码。
+      若前面任务已将 QuickAccess.tsx / OnboardingSteps.tsx 拆出，input_paths 中的对应文件需存在。
+      04_Testing_Standard.md §4 要求验证完成后停止服务并释放端口。
