@@ -2,9 +2,9 @@
 
 > **记录日期**: 2026-09-14  
 > **反馈来源**: 产品负责人（用户）在 feat/module-05-homepage-mvp 代码审查后提出的设计层面意见  
-> **关联 PRD**: `docs/02-product-requirements/Modules/Module_05_Custom_UI.md` v1.3  
-> **关联决策**: 决策 72（首页 MVP 子集）、决策 51（可视化三层归属）、决策 68-2（Prometheus→AM 投递接线）  
-> **处理原则**: 本文件仅登记意见与可行性分析，**不动代码**；后续由 prototype-designer 评估是否纳入 PRD v1.4 / 原型 v1.2 修订。
+> **关联 PRD**: `docs/02-product-requirements/Modules/Module_05_Custom_UI.md`（原始记录基线 v1.3；回填时 PRD 已至 v1.5）  
+> **关联决策**: 决策 72（首页 MVP 子集）、决策 72-1（六步指引 + 自定义 QueryPage）、决策 72-2（Dashboard 布局 + 视觉 Token）、决策 72-3（首页内容重构）、决策 51（可视化三层归属）、决策 68-2（Prometheus→AM 投递接线）  
+> **处理原则**: 本文件仅登记意见与可行性分析，**不动代码**；已由 prototype-designer 逐轮评估并纳入 PRD v1.4 / v1.5 与原型 1.2.1 修订（见文末「文档回填留痕」）。
 
 ---
 
@@ -94,6 +94,32 @@
 ### 建议处理
 - **prototype-designer 动作**：输出一份「Module 05 首页视觉 Token 规范」或直接在原型中给出高保真首页样式（即使 Track B 免原型，视觉规范仍可作为开发依据）。
 - **前端动作**（待规范后）：按规范调整 `HomePage.tsx`、`AlertStatusCard.tsx`、`QuickAccess.tsx`、`OnboardingSteps.tsx` 的样式，不改动交互逻辑与数据流。
+
+---
+
+## 文档回填留痕（2026-09-14，决策 72-3 首页内容重构）
+
+> 本节对应 `design-proposals/homepage-mvp-content-restructure.md` §7 第 4 项（dev-feedback clipping 留痕），随 PRD v1.5 回填一并登记。**两条均为产品口径裁剪，非实现缺失**。
+
+### clipping-1（关联评审 MEDIUM-2）：首页指标卡集合偏离原枚举
+
+| 项 | 内容 |
+|---|---|
+| **原枚举** | 决策 72 / 72-2（PRD v1.3~v1.4 §3.1）：资源总数 / 已监控 / 采集 Job / **活跃告警** / 网域数量 / **监控源**——含告警维与监控源维 |
+| **现口径** | 决策 72-3（PRD v1.5 §3.1）：资源总数 / 已监控 / 采集 Job / 已纳管网域 / 待确认草稿 / **采集覆盖率**——纯资产 / 治理进度六张，**不含任何告警数字** |
+| **裁剪性质** | 产品口径收敛：告警表达全部收敛到告警状态卡（首页唯一告警入口）；「监控源」卡不在本期首页口径内（MVP 不做） |
+| **留痕原因** | 评审 MEDIUM-2 指出「失败源仍渲染 `0`」与决策 68-2「取数失败必须与恒 0 区分」冲突；卡片集合收敛后，告警数字不再出现在指标卡，该类误读面随之消除 |
+| **影响** | PRD v1.5 §3.1「关键指标卡口径」表 + §6 验收；`HomePage.test.tsx` 断言 6 张卡且「指标卡区域不含告警数字」；`frontend-prototype-map.md` 偏离清单 |
+
+### clipping-2（本轮新增）：AM `unprocessed` 不计数、不进列表
+
+| 项 | 内容 |
+|---|---|
+| **裁剪内容** | AM `unprocessed` 不进入首页告警状态卡的计数与最新告警列表 |
+| **理由** | `unprocessed` 的治理闭环（指派人 / 工单）MVP 未实现，展示无对应动作（提案 §2.1 / §3.4 / §5） |
+| **降级呈现** | 仅当 `unprocessed > 0` 时显示一行 11px 灰字「另有 N 条告警仍在计算通知状态」（Tooltip 说明告警刚进入通知队列、系统仍在计算是否通知及通知对象）；页面任何位置**不出现「待处理」字样** |
+| **影响** | PRD v1.5 §3.1「告警状态数字」+ §6 验收；`AlertStatusCard.tsx` / `HomePage.test.tsx`（防误读用例） |
+| **跨模块建议** | M08 `alertmanagerConstants.ts` 中 `promAlertStateLabel.pending` 与 `notifyStatusLabel.unprocessed` 同为「待处理」，歧义源仍在共享字典；建议 M08 侧后续把 `pending` 展示名调整为「求值中」（**本轮不改 M08 契约文案**，首页已用本地常量 `PROM_EVAL_LABEL` 规避） |
 
 ---
 
