@@ -97,12 +97,36 @@
 
 ---
 
+## 决策登记：2026-09-14（首页内容重构 as-built 回填，决策 72-3）
+
+- **触发**：产品负责人对 `feat/module-05-homepage-mvp` 首页实现的第二、三轮设计评审（详见 `dev-feedback.md` 与 `design-proposals/homepage-mvp-content-restructure.md`），代码落地后回填 PRD v1.5 与执行记录。
+- **结论（决策 72-3，指标卡回归资产口径 + 告警卡承载最新告警）**：
+  1. **指标卡回归资产/治理进度口径（6 张）**：资源总数 / 已监控 / 采集 Job / 已纳管网域 / 待确认草稿 / 采集覆盖率；**移除「活跃告警」卡**（告警表达全部收敛到告警状态卡）；每张卡右上角 `ⓘ` 中文口径注释（禁止字段名），6 列网格（`Row gutter={[16,16]}`、`xl=4`），卡内横向排版（图标 32px 在左、数字 24px/700 与标签 13px 在右）。
+  2. **告警状态卡 = 首页唯一告警入口**：主数字「通知中」（AM `active`，红色语义）+ 状态分布「已静默 / 已抑制」+ 最新 **10 条**告警列表（表头 级别/告警名/实例名/相对时间/状态，单行五列左右贴边撑满，行间细分隔线，`resource_name` 为空显示 `-`）+ Prom 求值态仅 11px 灰字参考行（触发中 / 求值中）。
+  3. **「查看全部 →」深链 + 首页无分页器**：告警卡与最近下发记录标题右侧各加「查看全部 →」，分别深链 `/alert-status` 与 `/deployments`；两块列表均不引入分页器（M08 告警接口无分页能力）；告警中心入口只保留标题右侧「查看全部 →」，卡内不重复。
+  4. **放宽「零后端改动」约束**：`dashboard/summary` 新增 3 个计数字段——`monitored_count`（已监控资源数，口径 B：被 ≥1 个 `enabled=true` 且 `draft_status='ready'` 且 `job_type=standard` 的采集 Job 覆盖的资源数，去重）、`scrape_job_count`、`scrape_job_enabled_count`；接口增字段、向后兼容。
+  5. **`unprocessed` 裁剪**：AM `unprocessed` 不计数、不进列表；仅当 N>0 时显示一行 11px 灰字「另有 N 条告警仍在计算通知状态」；页面任何位置不出现「待处理」字样（`promAlertStateLabel.pending` 展示为「求值中」）。
+  6. **副标题与排版**：副标题改为描述本页视野的中性文案（如「欢迎回到 MetricCenter，这里汇总监控资源、采集任务与告警的整体运行情况」），不再写「按下方指引」等与实际内容不符的指代。
+- **口径细化（相对提案原始表述，代码落地时收敛）**：
+  - 已监控收严为 `enabled=true` **且** `draft_status='ready'`（与 `platform/query/coverage.go` 覆盖率三态「未监控」判定的补集同源，避免与 M07 覆盖率页口径不一致）。
+  - 指标卡失败态收严为**按源降级**：请求失败或字段缺失时显示 `-`（禁止 `NaN%` / `启用 undefined`）；告警卡在 AM 失败时主数字与状态分布显示 `-`、Prom 失败时参考行显示 `-`，最新告警区显示「取数失败，暂无法展示最新告警」。
+  - 最新告警排序用 `starts_at` 倒序取前 10；超长告警名省略并悬浮显示全文。
+  - Prom 参考行文案用首页本地常量（`pending` = 「求值中」），不复用 M08 字典（避免把「待处理」歧义词带回首页）。
+- **遗留（本轮不改跨模块代码）**：
+  - M07 侧：`platform/query/coverage.go` 的 `loadSelectedInstances` 缺 `job_type='standard'` 过滤，叠加 M01 改型 blackbox 不清空 `selected_instance_ids`，会使 M07 覆盖率页把残留 `resource_id` 计为已监控，与首页「已监控」存在偏差，需 M07 认领后收敛。
+  - M01 侧建议：改型为 blackbox 时清空 `selected_instance_ids`，从源头消除残留选区。
+- **影响范围**：Module_05 PRD v1.5（头部 / §1 / §3 首页行 / §3.1 首页交互契约 / §6 验收）；前端 `feat/module-05-homepage-mvp` 指标卡集合 + 告警卡列表 + 后端 `dashboard/summary` 三字段；原型对齐顺延（待 1.2.1）。
+- **关联文档**：`design-proposals/homepage-mvp-content-restructure.md`、`dev-feedback.md`、`api-contract-snapshot.md`（`dashboard/summary` 三字段登记，待补）、`frontend-prototype-map.md`（待补建）。
+
+---
+
 ## Change Log（完整历史）
 
-> v1.2 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.0 ~ v1.1 早期的完整变更详情。
+> v1.2 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.0 ~ v1.2 早期的完整变更详情。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.2 | 2026-08-31 | 新增 | 决策 51 落版（Grafana 集成三层归属与导航层级）：①§1 补 v0.3 两类可视化能力——可视化大屏页（Grafana iframe 嵌入 + 预置模板，一级导航第 2 位）与首页（概览 Dashboard + 新用户引导）；②§3 功能表「首页 / Dashboard」行拆分并补大屏快捷入口；③§3.1 新增「首页与可视化大屏导航层级」；④§6 验收同步导航与双入口；⑤§4 技术方案补 Grafana 嵌入与 provisioning（自 PRD Change Log 轮转迁入） | 首页/可视化大屏信息架构、导航 | MVP/v0.3 | dev-ready |
 | v1.1 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | PRD 状态 | 文档自身 | 设计中 |
 | v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
 | v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | v0.3 / v1.0 | draft |
