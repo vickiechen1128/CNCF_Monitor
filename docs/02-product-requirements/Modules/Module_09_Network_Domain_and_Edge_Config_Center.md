@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v1.65
+> **PRD 版本**: v1.66
 > **产品版本覆盖**: MVP / v0.2 / v1.0
 > **原型版本**: v1.52（决策 60 待原型对齐；以 `docs/prototypes/module-09/package.json` 为准）
-> **更新日期**: 2026-09-10
+> **更新日期**: 2026-09-14
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -132,7 +132,7 @@
 | **网域编辑** | 修改网域监控参数（Agent 类型、Remote Write 目标、描述）；**下发通道只读展示，MVP 不可编辑**：通道切换属 v0.4+ 演化场景，届时需定义历史版本与在途变更处理策略；网域名称/租户/状态等行政字段由 [Module_06](Module_06_Multi_Tenant.md) 维护；表单仅维护**监控配置字段**，运行态字段（状态 / 最后心跳）只读展示 | P1 |
 | **网域删除**（由 M06 承责） | 网域行政删除（含资源绑定约束）由 Module_06 「网域管理」执行；本页不提供删除，仅监控纳管状态切换 | — |
 | **Token 管理** | 仅对 `channel=agent_pull` 网域有效；查看/重置 Edge Sync Agent 认证 Token；Token 在 UI 中**完全脱敏展示**（不显示任何明文片段），完整值仅可通过「复制」按钮获取 | **P0** |
-| **安装指引** | **页面顶部常驻提示区**（而非每行入口/弹窗），**仅在 `channel=agent_pull` 时展示**：网域纳管页顶部展示「新网域接入操作流程」——**3 步人工步骤**① 下载并校验一体化离线包（含 Edge Sync Agent + 采集器 + blackbox exporter 可选）② 配置 `NETWORK_DOMAIN_ID` / `TOKEN` 环境变量 ③ 启动 Edge Sync Agent（systemd）（采集器与 blackbox exporter 由 Agent 启动后自动部署，并入第③步描述）；同时说明**边缘节点组件构成**（Edge Sync Agent 必装 + 采集器 + blackbox exporter 可选）与**凭据获取方式**（`NETWORK_DOMAIN_ID` = 对应网域 ID、`TOKEN` 经网域行内复制按钮获取，UI 完全脱敏）；**行内不再提供安装指引按钮** | P1 |
+| **安装指引** | **页面顶部常驻提示区**（而非每行入口/弹窗），**仅在 `channel=agent_pull` 时展示**：网域纳管页顶部展示「新网域接入操作流程」——**3 步人工步骤**① 下载并校验一体化离线包（含 Edge Sync Agent + 采集器 + blackbox exporter 可选）② 配置 `NETWORK_DOMAIN_ID` / `TOKEN` 环境变量 ③ 启动 Edge Sync Agent（systemd）（采集器与 blackbox exporter 由 Agent 启动后自动部署，并入第③步描述）；同时说明**边缘节点组件构成**（Edge Sync Agent 必装 + 采集器 + blackbox exporter 可选）与**凭据获取方式**（`NETWORK_DOMAIN_ID` = 对应网域 ID、`TOKEN` 经网域行内复制按钮获取，UI 完全脱敏）；**行内不再提供安装指引按钮**；**一键复制安装命令（决策 75 配套，2026-09-14）**：每个已纳管 `agent_pull` 网域在安装指引区提供「复制安装命令」——内容为 `NETWORK_DOMAIN_ID` / `TOKEN` 已预填该网域凭据的环境变量块 + systemd 部署步骤，用户无需理解 Agent 概念，只需「复制命令 → 到目标机器粘贴执行」；M06 网域管理列表对「已纳管未上线」网域提供「查看安装指引」深链至本页并定位该网域 | P1 |
 | **默认网域** | 系统初始化自动创建 `default` 网域，MVP 单网域场景无感知 | P0 |
 
 > **字段语义**：网域列表字段分两类——**监控配置字段**（**下发通道** / Agent 类型 / Token / Remote Write URL / 描述，纳管或编辑时设置）与**运行态字段**（状态 / 最后心跳，由 Edge Sync Agent 心跳自动上报更新，纳管 / 安装指引完成前为 `unknown` / `-`）。行政字段（ID / 名称 / 租户 / 域类型 / 启用状态）由 [Module_06](Module_06_Multi_Tenant.md) 维护。**Token、Agent 类型、最后心跳、安装指引等字段仅在 `channel=agent_pull` 时存在/展示；`channel=local` 的网域不生成 Token、不展示运行态心跳字段、不提供安装指引。** 纳管 / 编辑表单仅维护监控配置字段；运行态字段的来源与语义在列表列头与页脚标注，组件明细与诊断请查看「采集节点状态」页。
@@ -1370,12 +1370,13 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 | `wal_backlog_bytes` | WAL 积压 | 弱网 / 断网期间边缘暂存的待回传数据量 |
 | `job_type` | 采集 / 拨测 | `standard`=标准采集；`blackbox`=拨测 |
 | `agent_type` | Agent 类型 | `vmagent` / `prometheus-agent`（采集器类型） |
-| `domain_type` | 域类型 | 管理域 / 边缘域（行政分类，M06 维护） |
+| `domain_type` | 接入方式 | 管理域 / 边缘域（行政分类，M06 维护）；**用户侧叫法（决策 74）**：中心直连区 / 隔离区（采集节点接入），页面只读展示「接入方式：中心直连 / 采集节点接入」 |
+| `Edge Sync Agent` | 采集节点 | 网域内的采集执行单元（Edge Sync Agent 管理进程 + 采集器 + 可选拨测器）；用户文案一律称「采集节点」，Edge Sync Agent 仅保留在技术名 / 安装命令 / 文档（决策 74，M06 §10 同口径） |
 | `channel` | 下发通道 | `local`（中心同机写盘 + reload）/ `agent_pull`（Edge Sync Agent 心跳拉包）；决定 Token / Agent 字段 / 安装指引是否展示及配置产物形态 |
 | 「下发」（动词） | 下发语义分级 | 本文「下发」在不同上下文承载四个语义，讨论 / 实现时按「下发通道 + 环节」判定归属：**① 确认发布**（变更单 go/no-go 确认动作）；**② local 通道 reload**（`channel=local`：确认后 SIGHUP / `/-/reload` 立即生效）；**③ agent_pull 分发**（中心生成 zip 配置包并开放拉取接口）；**④ agent_pull 拉取**（Edge Sync Agent 心跳拉取 zip 应用）。④与②不重复——②是 `local` 通道、④是 `agent_pull` 通道，二者由同一份 `ConfigVersion` 产物衔接（见 6.5） |
 | `source_data_version` | 仅技术信息 | 各源表 `max(updated_at)` 聚合的触发版本 |
 | `center_endpoint` | 中心接入地址 | / 该网域视角的中心可达地址（网闸映射后地址），`channel=agent_pull` 时必填，用于合成配置包绝对下载地址 |
-| `zone_type` | 网络区域类型 | 网域行政分类（M06 登记）：互联网区 / 政务外网区 / region 等，部署级字典 |
+| `zone_type` | 网络分区（可选） | 网域行政分类标签（M06 登记；不影响采集、可留空，决策 76）：政务云 = 安全分区（互联网区 / 政务外网区等），公有云 = region；部署级字典 |
 | 联合 checksum | 仅技术信息 | 配置内容完整性校验值（草稿去重 + 拉包校验） |
 | `generator_version` | 仅技术信息 | 配置生成器版本 |
 | `trigger_summary` / `source_summary` | 仅技术信息 | 变更触发来源摘要 |
@@ -1399,7 +1400,7 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 | 网域纳管页 | 权限不足 | 页面级空态提示「当前账号无此网域查看权限」 |
 | 网域纳管页 | 数据超量 | 表格分页（默认 20 条/页）；支持按名称/网络区域类型筛选 |
 | 采集节点状态页 | 加载中 | 表格骨架屏；可关闭 Alert 组件关系横幅默认展示，关闭状态由 `localStorage` 决定 |
-| 采集节点状态页 | 空态 | 「尚未接入采集节点」引导卡片：提示先到「网域纳管」完成纳管并按安装指引接入 Edge Sync Agent |
+| 采集节点状态页 | 空态 | 「尚未接入采集节点」引导卡片：提示先到「网域纳管」完成纳管并按安装指引接入采集节点（复制预填凭据的安装命令到目标机器执行） |
 | 采集节点状态页 | 接口错误 | Alert 提示「节点状态加载失败，请稍后重试」；提供「重新加载」按钮 |
 | 采集节点状态页 | 权限不足 | 页面级空态提示「当前账号无此页面查看权限」 |
 | 采集节点状态页 | 数据超量 | 表格分页；支持按网域/组件类型/状态筛选 |
@@ -1425,10 +1426,10 @@ unknown（未部署/纳管后）──► online（Agent 心跳上线）──�
 
 ## Change Log
 
-> 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v1.62 及以前）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
+> 本表为业务沟通决策的精简记录，保留最近 3 版一句话摘要；更早版本（v1.63 及以前）的完整历史见 `docs/05-execution-records/module-09/design-decisions.md`「Change Log（完整历史）」小节。
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.66 | 2026-09-14 | 新增 | 网域概念用户化配套（决策 74 / 75 配套，M06 决策 73~77 跨模块落点，纯文档不改模型）：①§3.1 安装指引补「**一键复制安装命令**」——每个已纳管 `agent_pull` 网域提供 `NETWORK_DOMAIN_ID` / `TOKEN` 预填的环境变量块 + systemd 步骤，用户「复制命令 → 到目标机器粘贴执行」即可；承接 M06 列表「已纳管未上线 → 查看安装指引」深链；②§10 术语映射 `domain_type` 用户语言改「接入方式」（中心直连区 / 隔离区（采集节点接入））、`zone_type` 改「网络分区（可选）」（纯分类标签、不影响采集、可留空）、新增 `Edge Sync Agent` → 「采集节点」行；③§11.1 采集节点状态页空态文案改用户语言（不再裸出现 Edge Sync Agent） | 3.1 / 10 / 11.1 | MVP | ready |
 | v1.65 | 2026-09-10 | 修改 | **租户标签来源定版 + 生成期门禁（决策 68-5，源自 M02 §7.1 原「遗留待决」升级）**：①§3.3.1 新增两条——「**租户标签唯一来源 = Module_07 LabelTemplate target 级注入**」（`external_labels` **永久不承担**租户标签，决策 19 结论维持，v0.2 起亦不变）与「**M09 生成期门禁**」（v0.2 开启多租户时校验被引用 Job 的标签模板含 `tenant` 映射，缺失则 `validation_status=failed`，与规则 job 引用门禁同模式、经 `validation_details.source` 路由「前往修改」跳回 M07）；②§3.3.1「命名空间边界」注记追加**租户键分层**与**通用命名规约**——「Prometheus 标签键及对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀，`_id` 只属 DB 列与 API JSON 字段」（`network_domain`/`tenant` vs `network_domain_id`/`tenant_id`），下次新增标签无需再评审命名；③§7.1.4「标签注入边界」同步三点定版；④§9 验收新增生成期门禁 {P0 / v0.2} 项、配置包验收改「**不注入租户标签 `tenant`**（唯一来源 M07 target 级注入）」；⑤§10 术语新增 `tenant`（标签）/ `tenant_id`（字段）行。不改接口契约 | 3.3.1 / 7.1.4 / 9 / 10 | v0.2 | ready |
 | v1.64 | 2026-09-10 | 修改 | 网域标签键收敛 + `alerting` 投递接线（决策 68，源自 F-07 网域列缺陷评审的两个遗留发现）：① **标签键收敛为 `network_domain`**——§3.3「标签注入」行、§3.3.1 全节、配置文件映射语义、§6.3 配置包结构、§7.1.4 边界表、§9 验收、§10 术语同步；决策 19 的 `network_domain_id` **键名被 supersede**（其字段清单结论不变），**对象 / API 字段仍用 `network_domain_id`**（§3.3.1 新增三层命名空间边界表）；消费侧 `network_domain` → 兼容 `network_domain_id` → `default` 三级解析为**过渡层常驻**（唯一入口 `models.ResolveNetworkDomain`）；② 新增 §3.3.1.1「`alerting` 投递接线」——中心求值器 `prometheus.yml` 生成 `alerting.alertmanagers[].static_configs[].targets`，补齐决策 59/60 缺失的 **Prometheus → Alertmanager 投递环节**（**条件注入**：仅当存在 `alertmanager.yml` 产物；**AM 地址由 `env/env.sh` 注入、禁止硬编码**；**仅中心生成**，边缘包永不生成 `alerting` / `rule_files`）；§9 新增投递接线与端到端告警链路验收 | 3.3 / 3.3.1 / 3.3.1.1 / 6.3 / 7.1.4 / 9 / 10 | MVP / v0.2 | ready |
-| v1.63 | 2026-09-10 | 修改 | 规则 job 引用校验的动线修复（决策 67，源自动线死锁现场：M01 报错仍可提交 → M09 failed 草稿锁死规则 → 只能废弃解锁）：①§3.5.1 / §3.4 / §5.4 新增**失败单不锁死源数据**——`failed + user_config` 自动清除 M01 源数据 `pending` 锁、草稿保留（可重校/可废弃），`platform_fault` 不清锁，清锁不得推进源数据版本；②§5.4 `validation_details` 补 `source` 字段、草稿 `status` 与 `validation_status` 解耦说明；③§8 状态机① 补失败自动清锁流转；④§11.2「前往修改」按 `source` 分流 `/rules` / `/scrape-jobs`，禁止硬编码；⑤§3.3 双层模型注记同步修订（M01 编辑期 error 默认阻断 + 逃生门、失败动线按 `source` 路由）并落 v0.2 口径约定（central 规则按全域 job 并集校验、`change_status` 标量锁保留，决策 67-4） | 3.3 / 3.4 / 3.5.1 / 5.4 / 8 / 11.2 | MVP / v0.2 | ready |
 
