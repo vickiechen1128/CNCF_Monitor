@@ -6,11 +6,11 @@
 
 meta:
   module: module-05
-  prd_version: v1.3
-  plan_version: v1.3
+  prd_version: v1.4
+  plan_version: v1.4
   track: B
   date: "2026-09-14"
-  total_tasks: 7
+  total_tasks: 12
 
 tasks:
   - id: M05-T1
@@ -28,7 +28,7 @@ tasks:
       - 页面自上而下预留告警数字卡、快速入口区、使用指引区占位（可用注释或最小骨架）
       - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
       - pnpm lint 通过
-    status: pending
+    status: done
     depends_on: []
     commit_unit: "M05-T1: HomePage 结构按决策 72 拆分"
     notes: |
@@ -55,7 +55,7 @@ tasks:
       - 接口错误时展示错误态与重试按钮
       - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
       - pnpm lint 通过
-    status: pending
+    status: done
     depends_on:
       - M05-T1
     commit_unit: "M05-T2: 首页告警状态数字卡（方案 A 零后端改动）"
@@ -81,7 +81,7 @@ tasks:
       - 卡片文案与图标清晰可辨识
       - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
       - pnpm lint 通过
-    status: pending
+    status: done
     depends_on:
       - M05-T1
     commit_unit: "M05-T3: 首页系统快速入口区"
@@ -106,7 +106,7 @@ tasks:
       - 第 5 步「查指标」深链 /query
       - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
       - pnpm lint 通过
-    status: pending
+    status: done
     depends_on:
       - M05-T1
     commit_unit: "M05-T4: 首页五步使用指引区"
@@ -130,7 +130,7 @@ tasks:
       - App.tsx 中无路由冲突或重复 path
       - pnpm vitest run src/App.test.tsx 通过（若存在路由表相关断言需同步）
       - pnpm lint 通过
-    status: pending
+    status: done
     depends_on: []
     commit_unit: "M05-T5: /query 路由挂载 QueryPage"
     notes: |
@@ -157,7 +157,7 @@ tasks:
       - 覆盖使用指引区 5 步文案及第 5 步 /query 深链
       - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
       - pnpm lint 通过
-    status: pending
+    status: done
     depends_on:
       - M05-T2
       - M05-T3
@@ -184,7 +184,7 @@ tasks:
       - pnpm lint 通过
       - pnpm build 通过
       - 可选：dev server 启动后 curl 首页与 /query 返回 200（验证完成后停止服务）
-    status: pending
+    status: done
     depends_on:
       - M05-T5
       - M05-T6
@@ -193,3 +193,118 @@ tasks:
       本任务为收尾验证任务，不修改源码。
       若前面任务已将 QuickAccess.tsx / OnboardingSteps.tsx 拆出，input_paths 中的对应文件需存在。
       04_Testing_Standard.md §4 要求验证完成后停止服务并释放端口。
+
+  - id: M05-T8
+    role: frontend-developer
+    title: 首页布局重构：标题区 + 指标卡网格 + 告警治理态大卡片 + 快捷入口/最近下发分区
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+      - docs/05-execution-records/module-05/design-proposals/homepage-mvp-feedback-design-opinion.md
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 页面按标题区 → 指标卡网格 → 告警治理态大卡片 + 快捷入口/最近下发 → 使用指引顺序渲染
+      - 卡片圆角、阴影、间距符合 PRD §3.1 视觉 Token 规范
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on: []
+    commit_unit: "M05-T8: 首页布局与视觉 Token 应用"
+    notes: |
+      保持既有数据流不变，仅调整 JSX 结构与样式。
+      指标卡图标统一尺寸 32px，色彩收敛（仅告警类用红色语义）。
+
+  - id: M05-T9
+    role: frontend-developer
+    title: 使用指引区扩展为六步：新增「配置告警通知」步骤并更新深链
+    input_paths:
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+      - ui-custom/web/src/App.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+    acceptance:
+      - 展示六步：登记网域 → 导入资源 → 建采集 Job → 下发 → 配置告警通知 → 查指标/看告警
+      - 第 5 步深链 /alert-config
+      - 第 6 步深链 /query 或 /alert-status
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on:
+      - M05-T8
+    commit_unit: "M05-T9: 六步使用指引扩展"
+    notes: |
+      完成态标识可先静态展示，后续接入真实数据自动打勾。
+
+  - id: M05-T10
+    role: frontend-developer
+    title: QueryPage 最小 PromQL 查询能力实现
+    input_paths:
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+      - ui-custom/web/src/api/query.ts
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+    acceptance:
+      - 页面包含 PromQL 输入框与执行按钮
+      - 调用 M02 /api/v1/query 代理接口
+      - 结果以表格或 JSON 展示
+      - 处理加载中 / 空态 / 错误态
+      - pnpm vitest run src/pages/query/QueryPage.test.tsx 通过（若不存在可新建）
+      - pnpm lint 通过
+    status: pending
+    depends_on:
+      - M05-T5
+    commit_unit: "M05-T10: QueryPage 最小 PromQL 查询实现"
+    notes: |
+      若 src/api/query.ts 不存在，按 M02 契约新增 queryApi。
+      不引入图表库，结果以表格/JSON 为主。
+
+  - id: M05-T11
+    role: frontend-developer
+    title: HomePage.test.tsx 与 QueryPage.test.tsx 同步更新
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/query/QueryPage.test.tsx
+    acceptance:
+      - HomePage.test.tsx 覆盖新布局、六步指引深链、告警治理态大卡片
+      - QueryPage.test.tsx 覆盖输入、查询调用、结果展示、错误态
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm vitest run src/pages/query/QueryPage.test.tsx 通过
+      - pnpm lint 通过
+    status: pending
+    depends_on:
+      - M05-T8
+      - M05-T9
+      - M05-T10
+    commit_unit: "M05-T11: 测试同步"
+    notes: |
+      mock M02 /api/v1/query 与告警接口。
+      保持现有 setupAntdTest() 与 MainLayout mock 不变。
+
+  - id: M05-T12
+    role: frontend-developer
+    title: 单文件测试 + lint + build 验证（跳过全量 pnpm test）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+      - ui-custom/web/src/App.tsx
+    output_files: []
+    acceptance:
+      - pnpm install 完成
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm vitest run src/pages/query/QueryPage.test.tsx 通过
+      - pnpm lint 通过
+      - pnpm build 通过
+    status: pending
+    depends_on:
+      - M05-T11
+    commit_unit: "M05-T12: 验证收尾"
+    notes: |
+      按用户要求跳过全量 pnpm test，仅做单文件测试 + lint + build。

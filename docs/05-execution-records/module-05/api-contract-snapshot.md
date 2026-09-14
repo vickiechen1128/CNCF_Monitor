@@ -1,6 +1,6 @@
 > **模块**: Module 05 — 自定义前端门户  
-> **PRD 版本**: v1.3  
-> **计划版本**: v1.3（对应 `05_Code_Implementation_Plan.md` / `task-sequence.yaml`）  
+> **PRD 版本**: v1.4  
+> **计划版本**: v1.4（对应 `05_Code_Implementation_Plan.md` / `task-sequence.yaml`）  
 > **日期**: 2026-09-14  
 > **说明**: 本次首页 MVP 子集（决策 72）为前端增量，**不新增后端接口**，仅消费既有接口并在前端本地计数。本快照记录前端任务消费的既有 API 契约、新增前端路由与页面级深链。
 
