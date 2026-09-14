@@ -33,6 +33,7 @@ const ALERT_MOCK: AlertCounts = {
   active: 2,
   silenced: 1,
   inhibited: 0,
+  unprocessed: 0,
   firing: 3,
   pending: 1,
 }

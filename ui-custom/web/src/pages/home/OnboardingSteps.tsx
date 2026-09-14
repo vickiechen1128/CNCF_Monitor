@@ -1,4 +1,5 @@
 import { Card, Steps } from 'antd'
+import { Link } from 'react-router-dom'
 
 interface OnboardingStep {
   title: string
@@ -22,7 +23,7 @@ export function OnboardingSteps() {
         size="small"
         current={-1}
         items={ONBOARDING_STEPS.map((step) => ({
-          title: <a href={step.href}>{step.title}</a>,
+          title: <Link to={step.href}>{step.title}</Link>,
           description: step.description,
         }))}
       />

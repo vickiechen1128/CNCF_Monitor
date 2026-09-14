@@ -1,4 +1,5 @@
 import { Card, Row, Col, Typography } from 'antd'
+import { Link } from 'react-router-dom'
 import {
   DatabaseOutlined,
   CloudServerOutlined,
@@ -27,14 +28,14 @@ export function QuickAccess() {
       <Row gutter={[16, 16]}>
         {QUICK_LINKS.map((item) => (
           <Col key={item.href} xs={24} sm={12} md={8} lg={6} xl={4}>
-            <a href={item.href} style={{ display: 'block', textDecoration: 'none' }}>
+            <Link to={item.href} style={{ display: 'block', textDecoration: 'none' }}>
               <Card hoverable size="small">
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 24, marginBottom: 8 }}>{item.icon}</div>
                   <Typography.Text strong>{item.label}</Typography.Text>
                 </div>
               </Card>
-            </a>
+            </Link>
           </Col>
         ))}
       </Row>

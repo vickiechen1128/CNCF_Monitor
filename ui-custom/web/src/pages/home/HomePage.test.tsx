@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
 import { render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { HomePage } from './HomePage'
 import { setupAntdTest } from '../../test/antdTestUtils'
 
@@ -15,6 +16,14 @@ vi.mock('../../api/client', () => ({
 vi.mock('../../layouts/MainLayout', () => ({
   MainLayout: ({ children }: { children: ReactNode }) => <div data-testid="main-layout">{children}</div>,
 }))
+
+// 首页子组件（QuickAccess / OnboardingSteps / AlertStatusCard 空态引导）使用 react-router Link
+const renderPage = () =>
+  render(
+    <MemoryRouter>
+      <HomePage />
+    </MemoryRouter>,
+  )
 
 const STATUS_PATH = '/api/v1/status'
 const DASHBOARD_PATH = '/api/v2/platform/dashboard/summary'
@@ -92,6 +101,9 @@ const AM_ALERTS_OK = {
       { notify_status: 'active', labels: {}, annotations: {}, starts_at: '2026-09-14T00:00:00Z' },
       { notify_status: 'silenced', labels: {}, annotations: {}, starts_at: '2026-09-14T00:00:00Z' },
       { notify_status: 'inhibited', labels: {}, annotations: {}, starts_at: '2026-09-14T00:00:00Z' },
+      { notify_status: 'unprocessed', labels: {}, annotations: {}, starts_at: '2026-09-14T00:00:00Z' },
+      { notify_status: 'unprocessed', labels: {}, annotations: {}, starts_at: '2026-09-14T00:00:00Z' },
+      { notify_status: 'unprocessed', labels: {}, annotations: {}, starts_at: '2026-09-14T00:00:00Z' },
     ],
   },
 }
@@ -111,7 +123,7 @@ describe('HomePage', () => {
   it('renders system status and dashboard overview from API response', async () => {
     setupHomeMock()
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('版本 v0.1.0')).toBeInTheDocument()
@@ -135,7 +147,7 @@ describe('HomePage', () => {
   it('renders friendly empty state when there are no recent deployments', async () => {
     setupHomeMock({ [DASHBOARD_PATH]: DASHBOARD_EMPTY })
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('暂无下发记录')).toBeInTheDocument()
@@ -147,7 +159,7 @@ describe('HomePage', () => {
       [STATUS_PATH]: { status: 'error', data: null, error: 'status service unreachable' },
     })
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('状态加载失败：status service unreachable')).toBeInTheDocument()
@@ -157,7 +169,7 @@ describe('HomePage', () => {
   it('renders error message when request throws', async () => {
     mockGet.mockRejectedValue(new Error('network failure'))
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getAllByText('network failure').length).toBeGreaterThanOrEqual(1)
@@ -169,7 +181,7 @@ describe('HomePage', () => {
       [DASHBOARD_PATH]: { status: 'error', data: null, error: 'dashboard service unreachable' },
     })
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('dashboard service unreachable')).toBeInTheDocument()
@@ -182,7 +194,7 @@ describe('HomePage', () => {
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
     })
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('通知中')).toBeInTheDocument()
@@ -193,46 +205,103 @@ describe('HomePage', () => {
     expect(within(alertCard).getByText('2')).toBeInTheDocument()
     // 次要行：已静默 / 已抑制 = 1 / 1
     expect(within(alertCard).getByText('1 / 1')).toBeInTheDocument()
-    // Prom 触发 / 待处理 = 2 / 1
+    // AM 待处理（unprocessed，契约 §10.2 四态之一）= 3
+    expect(within(alertCard).getByText('待处理')).toBeInTheDocument()
+    expect(within(alertCard).getByText('3')).toBeInTheDocument()
+    // Prometheus 触发 / 待处理 = 2 / 1
     expect(within(alertCard).getByText('2 / 1')).toBeInTheDocument()
   })
 
-  it('renders empty alert guidance linking to /alert-config when both alert sources are empty', async () => {
+  it('does not show empty guidance when AM only has unprocessed alerts', async () => {
+    setupHomeMock({
+      [AM_ALERTS_PATH]: {
+        status: 'success',
+        data: {
+          items: [{ notify_status: 'unprocessed', labels: {}, annotations: {}, starts_at: '2026-09-14T00:00:00Z' }],
+        },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('待处理')).toBeInTheDocument()
+    })
+    // 仅有 unprocessed 告警时不是空态，不得引导「去配置通知规则」
+    expect(screen.queryByText(/去配置通知规则/)).not.toBeInTheDocument()
+  })
+
+  it('renders neutral empty guidance linking to /alert-config when both alert sources are empty', async () => {
     setupHomeMock({
       [PROM_ALERTS_PATH]: PROM_ALERTS_EMPTY,
       [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
     })
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('尚未挂载通知配置，去配置 →')).toBeInTheDocument()
+      expect(screen.getByText('暂无告警，去配置通知规则 →')).toBeInTheDocument()
     })
-    expect(screen.getByRole('link', { name: '尚未挂载通知配置，去配置 →' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '暂无告警，去配置通知规则 →' })).toHaveAttribute(
       'href',
       '/alert-config',
     )
   })
 
-  it('renders alert card error state with retry button', async () => {
+  it('renders warning but keeps successful data when one alert source fails', async () => {
     setupHomeMock({
       [PROM_ALERTS_PATH]: Promise.reject(new Error('alerts unreachable')),
-      [AM_ALERTS_PATH]: AM_ALERTS_EMPTY,
+      [AM_ALERTS_PATH]: AM_ALERTS_OK,
     })
 
-    render(<HomePage />)
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('部分告警数据加载失败')).toBeInTheDocument()
+    })
+    expect(screen.getByText('alerts unreachable')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
+    // Prom 链路失败，但 AM 已成功数据仍应展示（局部降级，不整卡报错）
+    const alertCard = screen.getByTestId('alert-status-card')
+    expect(within(alertCard).getByText('2')).toBeInTheDocument()
+  })
+
+  it('renders error state when alert APIs return business error envelopes', async () => {
+    setupHomeMock({
+      [PROM_ALERTS_PATH]: { status: 'error', data: null, error: 'prom alerts failed' },
+      [AM_ALERTS_PATH]: { status: 'error', data: null, error: 'alertmanager unreachable' },
+    })
+
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('告警状态加载失败')).toBeInTheDocument()
     })
-    expect(screen.getByText('alerts unreachable')).toBeInTheDocument()
+    // 业务错误信封必须显式呈现，不得静默吞成 0 + 空态引导
+    expect(screen.getByText(/alertmanager unreachable/)).toBeInTheDocument()
+    expect(screen.queryByText(/去配置通知规则/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
+  })
+
+  it('renders alert card error state with retry button', async () => {
+    setupHomeMock({
+      [PROM_ALERTS_PATH]: Promise.reject(new Error('alerts unreachable')),
+      [AM_ALERTS_PATH]: Promise.reject(new Error('am down')),
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('告警状态加载失败')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/alerts unreachable/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
 
   it('renders 5 quick access cards with correct links', async () => {
     setupHomeMock()
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('系统快速入口')).toBeInTheDocument()
@@ -258,7 +327,7 @@ describe('HomePage', () => {
   it('renders onboarding steps with step 5 linking to /query', async () => {
     setupHomeMock()
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('使用指引')).toBeInTheDocument()
@@ -281,7 +350,7 @@ describe('HomePage', () => {
   it('does not render visualization screen entry', async () => {
     setupHomeMock()
 
-    render(<HomePage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText('Dashboard 概览')).toBeInTheDocument()
