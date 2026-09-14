@@ -7,6 +7,10 @@ import type { DashboardSummary, RecentDeployment } from '../../api/dashboard'
 import { MainLayout } from '../../layouts/MainLayout'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
+import { AlertStatusCard } from './AlertStatusCard'
+import { QuickAccess } from './QuickAccess'
+import { OnboardingSteps } from './OnboardingSteps'
+import type { AlertCounts } from './AlertStatusCard'
 
 interface Status {
   version: string
@@ -23,6 +27,14 @@ const DASHBOARD_MOCK: DashboardSummary = {
   pending_draft_count: 0,
   recent_deployments: [],
   domain_count: 0,
+}
+
+const ALERT_MOCK: AlertCounts = {
+  active: 2,
+  silenced: 1,
+  inhibited: 0,
+  firing: 3,
+  pending: 1,
 }
 
 const IS_STATIC_PREVIEW = import.meta.env.VITE_STATIC_PREVIEW === 'true'
@@ -108,44 +120,48 @@ export function HomePage() {
 
   return (
     <MainLayout>
-      <Card title="Dashboard 概览" className="dashboard-card">
+      <Card title="Dashboard 概览" data-testid="dashboard-card" className="dashboard-card">
         {dashboardLoading && <Spin tip="加载中..." />}
         {dashboardError && <Alert message="请求失败" description={dashboardError} type="error" showIcon />}
         {dashboard && (
-          <div>
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <Card size="small">
-                  <Statistic title="资源总数" value={dashboard.resource_count} />
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <Card size="small">
-                  <Statistic title="待确认配置草稿数" value={dashboard.pending_draft_count} />
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} md={8} lg={6}>
-                <Card size="small">
-                  <Statistic title="已纳管网域数" value={dashboard.domain_count} />
-                </Card>
-              </Col>
-            </Row>
+          <Row gutter={[16, 16]}>
+            <Col xs={24} sm={12} md={8} lg={6}>
+              <Card size="small">
+                <Statistic title="资源总数" value={dashboard.resource_count} />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={6}>
+              <Card size="small">
+                <Statistic title="待确认配置草稿数" value={dashboard.pending_draft_count} />
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} md={8} lg={6}>
+              <Card size="small">
+                <Statistic title="已纳管网域数" value={dashboard.domain_count} />
+              </Card>
+            </Col>
+          </Row>
+        )}
+      </Card>
 
-            <Card title="最近下发记录" size="small" style={{ marginTop: 16 }}>
-              {recentDeployments.length === 0 ? (
-                <Typography.Text type="secondary">暂无下发记录</Typography.Text>
-              ) : (
-                <Table
-                  rowKey="id"
-                  size="small"
-                  columns={DEPLOYMENT_COLUMNS}
-                  dataSource={recentDeployments}
-                  pagination={false}
-                  scroll={TABLE_SCROLL_X}
-                />
-              )}
-            </Card>
-          </div>
+      <AlertStatusCard isStaticPreview={IS_STATIC_PREVIEW} mockCounts={ALERT_MOCK} />
+
+      <QuickAccess />
+
+      <OnboardingSteps />
+
+      <Card title="最近下发记录" size="small" style={{ marginTop: 16 }}>
+        {recentDeployments.length === 0 ? (
+          <Typography.Text type="secondary">暂无下发记录</Typography.Text>
+        ) : (
+          <Table
+            rowKey="id"
+            size="small"
+            columns={DEPLOYMENT_COLUMNS}
+            dataSource={recentDeployments}
+            pagination={false}
+            scroll={TABLE_SCROLL_X}
+          />
         )}
       </Card>
 

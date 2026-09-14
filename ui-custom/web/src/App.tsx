@@ -13,6 +13,7 @@ import CollectorListPage from './pages/strategy/CollectorListPage'
 import RulesPage from './pages/strategy/RulesPage'
 import MetricLibraryPage from './pages/strategy/MetricLibraryPage'
 import LoginPage from './pages/login/LoginPage'
+import QueryPage from './pages/query/QueryPage'
 import { getToken, setUnauthorizedNavigate } from './api/client'
 import './App.css'
 
@@ -94,6 +95,7 @@ function AppRoutes() {
           <Route path="/config-preview" element={<ConfigPreviewPage />} />
           <Route path="/deployments" element={<DeploymentsPage />} />
           <Route path="/targets" element={<TargetStatusPage />} />
+          <Route path="/query" element={<QueryPage />} />
           <Route path="/alert-config" element={<AlertConfigPage />} />
           <Route path="/silences" element={<SilencesPage />} />
           <Route path="/alert-status" element={<AlertStatusPage />} />
