@@ -130,6 +130,45 @@ export const promAlertStateColor: Record<PromAlertState, string> = {
   pending: 'warning',
 }
 
+/**
+ * 告警级别展示名（标签 labels.severity → 中文）。
+ * 权威取值：M09 规则 severity = error / warning（platform/strategy/rule/jobref/jobref.go）；
+ * 既有数据与 Alertmanager 侧可能带 critical / warn / info 写法，故做同义归并，
+ * 未命中回落原值（原值为空回落 '-'，不猜测语义）。
+ */
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: '严重',
+  error: '严重',
+  warning: '警告',
+  warn: '警告',
+  info: '提示',
+  notice: '提示',
+}
+
+/** 告警级别展示名（用户语言） */
+export function severityLabel(severity?: string): string {
+  const raw = (severity ?? '').trim()
+  if (!raw) return '-'
+  return SEVERITY_LABELS[raw.toLowerCase()] ?? raw
+}
+
+/** 告警级别 Tag 语义色：严重=红 / 警告=橙 / 提示=蓝 / 未命中=中性（不猜语义，沿用全站语义色名） */
+export function severityColor(severity?: string): string {
+  switch ((severity ?? '').trim().toLowerCase()) {
+    case 'critical':
+    case 'error':
+      return 'error'
+    case 'warning':
+    case 'warn':
+      return 'warning'
+    case 'info':
+    case 'notice':
+      return 'processing'
+    default:
+      return 'default'
+  }
+}
+
 // =====================================================================
 // 历史告警（v1.13 MVP 增量，M02 §5.4 / M08 §3.1）
 // =====================================================================

@@ -73,3 +73,41 @@ export interface CoverageListResponse {
   total: number
   summary: CoverageSummary
 }
+
+// =====================================================================
+// PromQL 即时查询（Module_05 首页第 6 步「查指标」深链目标，决策 72-1 / M05-T10）
+// =====================================================================
+
+/**
+ * Prometheus 即时查询结果类型（原生 resultType）：
+ * vector=瞬时向量 / matrix=区间向量 / scalar=标量 / string=字符串。
+ */
+export type PromQueryResultType = 'vector' | 'matrix' | 'scalar' | 'string'
+
+/** 单个样本：`[<unix 秒（可含小数）>, "<样本值>"]`（Prometheus 原生二元数组，值恒为字符串） */
+export type PromSamplePair = [number, string]
+
+/** vector 结果项：一条时间序列的瞬时样本 */
+export interface PromVectorItem {
+  /** 序列标签，`__name__` 为指标名，其余为普通标签 */
+  metric: Record<string, string>
+  value: PromSamplePair
+}
+
+/** matrix 结果项：一条时间序列的一段样本区间 */
+export interface PromMatrixItem {
+  metric: Record<string, string>
+  values: PromSamplePair[]
+}
+
+/**
+ * GET /api/v1/query 响应 data。
+ *
+ * M02 查询代理原生透传 Prometheus 响应体（不包平台信封），故 `result` 形态由
+ * `resultType` 判别：vector → PromVectorItem[]、matrix → PromMatrixItem[]、
+ * scalar / string → 单个 PromSamplePair。
+ */
+export type PromQueryData =
+  | { resultType: 'vector'; result: PromVectorItem[] }
+  | { resultType: 'matrix'; result: PromMatrixItem[] }
+  | { resultType: 'scalar' | 'string'; result: PromSamplePair }

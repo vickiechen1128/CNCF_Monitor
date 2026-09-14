@@ -29,6 +29,9 @@ describe('dashboardApi.getSummary', () => {
       status: 'success',
       data: {
         resource_count: 12,
+        monitored_count: 8,
+        scrape_job_count: 5,
+        scrape_job_enabled_count: 4,
         pending_draft_count: 3,
         domain_count: 4,
         recent_deployments: [],
@@ -42,6 +45,9 @@ describe('dashboardApi.getSummary', () => {
     expect(method).toBe('GET')
     expect(res.status).toBe('success')
     expect(res.data.resource_count).toBe(12)
+    expect(res.data.monitored_count).toBe(8)
+    expect(res.data.scrape_job_count).toBe(5)
+    expect(res.data.scrape_job_enabled_count).toBe(4)
     expect(res.data.recent_deployments).toEqual([])
   })
 
