@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-14 11:11 · commit: `cd8b75a1`
+> 生成时间: 2026-09-14 15:48 · commit: `d24aa12e`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1609,9 +1609,11 @@
 
 ### `platform/dashboard/summary.go`
 
+- `func resourceModels() []interface{}`
 - `type DeploymentItem struct`
 - `type Summary struct`
 - `func Build(db *gorm.DB) (*Summary, error)`
+- `func loadSelectedResourceIDs(db *gorm.DB) (map[string]bool, error)`
 - `func SummaryHandler(db *gorm.DB) gin.HandlerFunc`
 
 ### `platform/dashboard/summary_test.go`
@@ -1619,9 +1621,12 @@
 - `func strPtr(s string) *string`
 - `func newTestDB(t *testing.T) *gorm.DB`
 - `func seed(t *testing.T, db *gorm.DB)`
+- `func newJob(name string, jobType models.JobType, draftStatus string, enabled bool, selected []string) models.ScrapeJob`
+- `func seedScrapeJobs(t *testing.T, db *gorm.DB)`
 - `func runSummaryRequest(t *testing.T, db *gorm.DB) (int, Summary)`
 - `func TestSummaryHandler(t *testing.T)`
 - `func TestSummaryHandlerEmpty(t *testing.T)`
+- `func TestSummaryMonitoredCountExcludesDeletedResources(t *testing.T)`
 
 ### `platform/db/db.go`
 
@@ -2846,6 +2851,11 @@
 - `interface JobRefIssue`
 - `const monitoringRuleApi`
 
+### `ui-custom/web/src/api/query.ts`
+
+- `interface PromQueryParams`
+- `const queryApi`
+
 ### `ui-custom/web/src/api/resources.ts`
 
 - `interface ResourceListParams`
@@ -3021,6 +3031,8 @@
 - `const notifyStatusTip`
 - `const promAlertStateLabel`
 - `const promAlertStateColor`
+- `function severityLabel`
+- `function severityColor`
 - `const alertHistoryStateLabel`
 - `const alertHistoryStateColor`
 
@@ -3166,6 +3178,7 @@
 ### `ui-custom/web/src/pages/home/AlertStatusCard.tsx`
 
 - `interface AlertCounts`
+- `const LATEST_ALERT_LIMIT`
 - `function AlertStatusCard`
 
 ### `ui-custom/web/src/pages/home/HomePage.tsx`
@@ -3179,6 +3192,10 @@
 ### `ui-custom/web/src/pages/home/QuickAccess.tsx`
 
 - `function QuickAccess`
+
+### `ui-custom/web/src/pages/home/SurfaceCard.tsx`
+
+- `function SurfaceCard`
 
 ### `ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx`
 
@@ -3507,6 +3524,11 @@
 - `interface CoverageItem`
 - `interface CoverageSummary`
 - `interface CoverageListResponse`
+- `type PromQueryResultType`
+- `type PromSamplePair`
+- `interface PromVectorItem`
+- `interface PromMatrixItem`
+- `type PromQueryData`
 
 ### `ui-custom/web/src/types/resource.ts`
 
