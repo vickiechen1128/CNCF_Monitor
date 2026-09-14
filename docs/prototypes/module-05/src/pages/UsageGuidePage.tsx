@@ -4,6 +4,7 @@ import {
   ImportOutlined,
   ApiOutlined,
   SendOutlined,
+  BellOutlined,
   LineChartOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
@@ -27,13 +28,18 @@ const guideSteps = [
     icon: <ApiOutlined style={{ fontSize: 20, color: '#FA8C16' }} />,
   },
   {
-    title: '下发配置',
-    desc: '预览生成的 prometheus.yml，人工确认后下发至采集面。',
+    title: '下发',
+    desc: '预览生成的配置草稿，人工确认后下发至采集面。',
     icon: <SendOutlined style={{ fontSize: 20, color: '#722ED1' }} />,
   },
   {
-    title: '查指标',
-    desc: '在查询页执行 PromQL，或在可视化大屏查看实时面板。',
+    title: '配置告警通知',
+    desc: '挂载 Alertmanager 通知配置，打通告警投递闭环。',
+    icon: <BellOutlined style={{ fontSize: 20, color: '#FF4C3A' }} />,
+  },
+  {
+    title: '查指标 / 看告警',
+    desc: '在查询页执行 PromQL，或在告警状态查看当前告警。',
     icon: <LineChartOutlined style={{ fontSize: 20, color: '#0ECDEB' }} />,
   },
 ]
@@ -42,6 +48,7 @@ const quickLinks = [
   { label: '资源管理', href: '../module-07/index.html' },
   { label: '采集 Job', href: '../module-01/index.html' },
   { label: '查询中心', href: '../module-02/index.html' },
+  { label: '告警状态', href: '../module-08/index.html' },
   { label: '可视化大屏', href: '#/grafana-dashboard' },
 ]
 
@@ -49,9 +56,9 @@ export function UsageGuidePage() {
   return (
     <MainLayout>
       <div className="page-header">
-        <Title level={4}>使用引导</Title>
+        <Title level={3}>使用引导</Title>
         <Text type="secondary">
-          新用户开箱动线：登记网域 → 导入资源 → 建采集 Job → 下发 → 查指标。
+          新用户开箱动线：登记网域 → 导入资源 → 建采集 Job → 下发 → 配置告警通知 → 查指标 / 看告警。
         </Text>
       </div>
 
