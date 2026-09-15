@@ -13,9 +13,9 @@
 | Phase | Phase 1（MVP 子集：网域登记行政层）+ Track B（决策 44：轻量认证 / 租户 / 用户 / 登录日志） |
 | 模块 | module-06-domain-registry |
 | 分支 | feat/module-06-domain-registry |
-| 版本 | v2026-09-05（新建 / 第 1 版，对齐 PRD v2.9） |
-| 生成方式 | 按 PRD v2.9 §5/§6 重派生（planner 派生 → 复审：v2.4 DELETE users、v2.5/v2.6 `ip_cidrs` 纳入；v2.7~v2.9 为 §0 叙事层、无契约影响） |
-| 来源 | PRD `Module_06_Multi_Tenant.md` v2.9 §1/§3/§5/§6/§8/§9/§11；`03_API_Standard.md` §7；`task-sequence.yaml`（顶层 Phase 1 + track-b-increment-decision-44） |
+| 版本 | v2026-09-15（第 2 版，对齐 PRD v2.15；**决策 82 网域生命周期闭环**修订 §5 `PATCH .../status` 与 `DELETE` 两条契约） |
+| 生成方式 | 按 PRD v2.9 §5/§6 重派生（planner 派生 → 复审：v2.4 DELETE users、v2.5/v2.6 `ip_cidrs` 纳入；v2.7~v2.9 为 §0 叙事层、无契约影响）；v2.15 增量按 PRD v2.15 §6.2 复核（决策 82：删除硬拒绝收敛为「有 M07 资源引用」，已纳管改级联清退；禁用弹窗补强为前端提示，不改响应结构） |
+| 来源 | PRD `Module_06_Multi_Tenant.md` v2.15 §1/§3/§5/§6/§8/§9/§11；`03_API_Standard.md` §7；`task-sequence.yaml`（顶层 Phase 1 + track-b-increment-decision-44） |
 
 > **职责边界**：本快照只承载 M06 **行政面**契约（租户 / 网域行政字段 / 用户 / 登录日志 / zone-types 字典）。网域**监控纳管**字段与接口（`monitor` / `reset-token` / 运行态）归 Module_09 快照，不进入本文件；`NetworkDomain` 完整数据模型由 Module_09 §5.1 统一定义，本模块只维护行政字段。
 
@@ -80,7 +80,7 @@
 | GET | `/network-domains/:id` | — | `{NetworkDomain}` | `not_found` | §6.2 |
 | PUT | `/network-domains/:id` | `{name?, description?, zone_type?, authorized_tenant_ids?}`（**v0.3 起含 `ip_cidrs`**，决策 52）；**不含 `tenant_id`**（登记归属创建后不可变更，v0.2+ 调整走独立归属转移接口） | 更新后对象 | `not_found`；`bad_request` | §6.2 |
 | PATCH | `/network-domains/:id/status` | `{status: enabled|disabled}` | 更新后对象；**禁用时返回影响范围**（该网域下 M07 资源数 / 已纳管 EdgeAgent 数，供前端二次确认弹窗） | `bad_request`：管理域（`default`）不可禁用；`forbidden`：非 admin | §6.2 |
-| DELETE | `/network-domains/:id` | — | `{id}` | `bad_request`：管理域（`default`）禁止删除；`forbidden`：非空网域（有 M07 资源引用或有已纳管 EdgeAgent，拒绝并引导走「禁用」） | §6.2 |
+| DELETE | `/network-domains/:id` | — | `{id}`；**已纳管场景返回级联影响清单**（该网域已纳管 → N 个采集节点将断连、凭据将废止），执行后 M06 软删 + M09 级联清退纳管状态（废止 Token / 停止下发 / `EdgeAgent` 标 `retired`） | `bad_request`：管理域（`default`）禁止删除；`forbidden`：**仅当有 M07 资源引用时拒绝**（返回引用资源名单供 M07 跳转；**已纳管 EdgeAgent 不再拒绝，改级联清退**，决策 82-1） | §6.2 |
 
 **NetworkDomain 行政字段（§5.2，完整模型见 Module_09 §5.1）**：
 
@@ -150,7 +150,7 @@
 | 侧边栏二级导航 | 租户管理 / 网域管理 / 用户管理 / 登录日志 | §11.0 权威命名；审计日志 / 平台配置为 P2 **MVP 不占位** |
 | `domain_type` | 域类型 | management=管理域 / edge=边缘域 |
 | `zone_type` | 网络区域类型 | 下拉 = `GET /zone-types` |
-| `status`（网域） | 状态 | 禁用 = 冻结；禁用前二次确认弹窗展示影响范围 |
+| `status`（网域） | 状态 | 禁用 = 冻结（**行政态，不停止既有采集**）；禁用前二次确认弹窗展示影响范围，已纳管且存在在线 Agent 时追加「已接入的采集节点不会自动停止采集」提示；**删除 = 退场回收**（已纳管场景级联清退纳管状态，决策 82） |
 | `tenant_id` | 登记归属 | 仅技术信息/部署级登记方 |
 | `authorized_tenant_ids` | 授权租户 | 授权 ≠ 拥有 |
 | `role` | 角色 | admin / user（两级门） |
@@ -160,7 +160,7 @@
 
 ## 11. 来源对照表
 
-- PRD：`docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md` v2.9 §1/§3（心智原则与划域指导原则）/ §5（数据模型）/ §6（接口设计）/ §8（状态机）/ §9（验收）/ §11（前端交互契约）
+- PRD：`docs/02-product-requirements/Modules/Module_06_Multi_Tenant.md` v2.15 §1/§3（心智原则与划域指导原则/网域生命周期三动作语义边界，决策 82）/ §5（数据模型）/ §6（接口设计）/ §8（状态机）/ §9（验收）/ §11（前端交互契约）
 - 标准：`docs/03-engineering-standards/03_API_Standard.md` §7
 - 序列：`docs/05-execution-records/module-06/task-sequence.yaml`（Phase 1 网域登记）；`docs/05-execution-records/module-06/track-b-increment-decision-44/task-sequence.yaml`（决策 44 认证/租户/用户）
 - 相关：`docs/05-execution-records/module-06/track-b-increment-decision-44/api-contract-snapshot.md`（决策 44 增量同源契约）；`docs/05-execution-records/module-09/api-contract-snapshot.md`（网域监控纳管面）

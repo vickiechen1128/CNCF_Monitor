@@ -57,6 +57,13 @@ export interface NetworkDomain {
    */
   registration_status: 'created' | 'monitored'
   /**
+   * {v2.15} M07 资源引用数（决策 82-1）：统计当前归属该网域的 M07 监控资源条数。
+   * - > 0 → 删除被硬拒绝（资源是有主数据，须先在 M07 迁移或删除资源；删除项在「更多」菜单内直给原因 + 引导）；
+   * - = 0 → 允许删除（已纳管场景走级联清退，见 handleDelete）。
+   * 仅用于删除前置校验与禁用影响范围展示，不影响纳管与采集。
+   */
+  resource_ref_count?: number
+  /**
    * {v2.11} 接入进度聚合字段（决策 75，v0.2 接口扩展，原型模拟聚合结果）：
    * 生产环境由 M06 列表接口聚合 M09 纳管状态 / Edge Sync Agent 心跳 / M09 生效配置得出，
    * 前端不逐项维护。接入进度四态：已登记 → 已纳管 → 采集节点已上线 → 已出数据。
@@ -208,6 +215,11 @@ export const mockTenants: Tenant[] = [
  * - 登记归属（tenant_id）为部署级登记方，MVP 固定 t-platform；登记 ≠ 独占，通过 authorized_tenant_ids 授权多个租户共享使用
  * - registration_status 为只读演示字段，模拟「已由 Module_09 纳管」的回显，M06 页面不可编辑
  * - zone_type（v1.4）：由 M06 登记的行政字段；default 管理域由中心直接采集、无网闸拓扑，留空不适用
+ * - resource_ref_count（v2.15，决策 82-1）：删除前置校验用；本 mock 覆盖三种删除场景——
+ *   · mc-edge = 3（有 M07 资源引用 → 删除被硬拒绝，「更多」菜单内直给原因 + M07 引导）
+ *   · mc-finance = 0 且未纳管（空网域 → 常规二次确认删除）
+ *   · mc-manufacturing / mc-dmz = 0 且已纳管（→ 级联清退二次确认，展示级联影响清单；前者 Agent 未上线、后者在线）
+ *   · default = 管理域（既不删除也不禁用）
  */
 export const mockNetworkDomains: NetworkDomain[] = [
   {
@@ -236,6 +248,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     zone_type: 'internet',
     ip_cidrs: ['10.20.0.0/16'],
     registration_status: 'monitored',
+    resource_ref_count: 3,
     agent_online: true,
     has_data: true,
     created_at: '2026-07-10 00:00:00',
@@ -252,6 +265,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     zone_type: 'private-line',
     ip_cidrs: ['10.30.0.0/16'],
     registration_status: 'created',
+    resource_ref_count: 0,
     created_at: '2026-07-12 00:00:00',
     updated_at: '2026-08-01 10:00:00',
   },
@@ -265,6 +279,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     status: 'active',
     zone_type: 'extranet',
     registration_status: 'monitored',
+    resource_ref_count: 0,
     agent_online: false,
     created_at: '2026-07-20 00:00:00',
     updated_at: '2026-08-10 09:00:00',
@@ -279,6 +294,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     status: 'active',
     zone_type: 'dmz',
     registration_status: 'monitored',
+    resource_ref_count: 0,
     agent_online: true,
     has_data: false,
     created_at: '2026-08-01 00:00:00',

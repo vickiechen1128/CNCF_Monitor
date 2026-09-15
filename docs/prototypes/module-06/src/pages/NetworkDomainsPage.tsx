@@ -488,7 +488,7 @@ function AccessProgress({ record }: { record: NetworkDomain }) {
  * {v2.2} PRD v2.2（决策 23）补漏：
  * - 登记归属（tenant_id）创建后不可变更（编辑表单不含该字段）；授权租户可选，缺省 = 登记归属租户（新建默认回填 platform_admin）；
  * - 禁用 = 冻结：禁用二次确认展示影响范围（资源引用数 / 已纳管采集节点数），禁用后拒绝新登记与新纳管、存量不受影响；
- * - 空网域（未纳管、无资源引用）可删除（软删），非空网域/中心直连域不可删除。
+ * - 空网域（未纳管、无资源引用）可删除（软删）、中心直连域不可删除（**删除条件已被 v2.15 决策 82-1 修正，见下**）。
  * {v2.11} 决策 73~77 落版：页首概念卡 + 空态提问式引导 + 新建前置判断 + 登记成功行动卡 + 接入进度四态列 + 术语降噪。
  * {v2.13} 决策 79 落版：前置判断「能」改硬劝阻终点；术语再修订（中心直连域 / 采集节点域）；引导信息按时机归位。
  * {v2.14} 前端设计优化（chenrt 走查 v2.13 原型后返工，对齐《前端标准》§8/§9）：
@@ -499,6 +499,13 @@ function AccessProgress({ record }: { record: NetworkDomain }) {
  * - 列表列数 11 → 8（§9 列数治理），网域 ID / 授权租户明细 / 网段 / 描述 / 创建更新时间下沉详情 Drawer；
  * - 接入进度列移除「下一步」灰字旁注，四态由点阵承载；下一步动作与操作列主按钮合并（一一对应、唯一主按钮）；
  * - 状态列改 Badge；启用/禁用与删除收进「更多」菜单（系统预置 / 已纳管场景给出禁用原因文案）。
+ * {v2.15} 决策 82 落版（网域生命周期闭环——回收路径修正 + 禁用/纳管联动具象化）：
+ * - 删除约束修正（82-1）：硬拒绝条件收敛为「存在 Module_07 资源引用」单一条件；已纳管网域删除入口**保持可用**，
+ *   二次确认展示级联影响清单（1 个采集节点将断连 / 凭据将废止 / 节点侧无需线下操作、心跳鉴权失败后自动离线），
+ *   确认后 M06 软删 + M09 级联清退纳管状态；空网域走常规二次确认；管理域不提供删除；
+ * - 禁用弹窗补强（82-2）：已纳管且存在在线 Agent 时追加固定提示（行政冻结 ≠ 停采 + 引导改用「删除」/ v0.2+「退纳管」）；
+ * - 「更多」菜单不可操作原因修正：已纳管不再是拒绝理由，仅剩「系统预置网域」与「存在资源引用（N 条）」；
+ * - 三动作语义边界（82-4）：禁用 = 行政冻结 / 退纳管 = 停止监控（v0.2+）/ 删除 = 退场回收，三者正交不可互替。
  */
 export function NetworkDomainsPage() {
   const [domains, setDomains] = useState<NetworkDomain[]>(mockNetworkDomains)
@@ -654,17 +661,52 @@ export function NetworkDomainsPage() {
       return
     }
     const nextStatus = record.status === 'active' ? 'disabled' : 'active'
-    // {v2.2} 禁用 = 冻结：二次确认展示后端返回的影响范围（资源引用数 / 已纳管采集节点数）
-    const impactText =
-      record.registration_status === 'monitored'
-        ? `影响范围：M07 资源引用 N 条、已纳管采集节点 1 个。禁用后该网域不再接受新资源登记与新纳管，存量资源与采集配置不受影响、继续采集（停止采集由 Module_09 退纳管决定）。同时联动 Module_01（该网域禁止新建监控任务）与 Module_09（该网域不再生成新的变更单，存量下发与回滚不受影响）。`
-        : `影响范围：M07 资源引用 0 条、已纳管采集节点 0 个（空网域，可直接删除）。禁用后该网域不可被租户使用、不再接受新资源登记与新纳管。禁用语义同时联动 Module_01 与 Module_09（禁止新建监控任务、不再生成新变更单）。`
+    const refCount = record.resource_ref_count ?? 0
+    const isMonitored = record.registration_status === 'monitored'
+    // {v2.15} 决策 82-2 弹窗补强：已纳管且存在在线 Agent 时追加固定提示（行政冻结 ≠ 停采）
+    const showFreezeNote = isMonitored && !!record.agent_online
+    // {v2.2/v2.15} 禁用 = 冻结：二次确认展示影响范围（资源引用数 / 已纳管采集节点数），结构化排版便于扫读
     Modal.confirm({
       title: nextStatus === 'disabled' ? '禁用网域' : '启用网域',
+      width: 560,
       content:
-        nextStatus === 'disabled'
-          ? `确定禁用网域 "${record.name}" 吗？\n${impactText}`
-          : `确定重新启用网域 "${record.name}" 吗？`,
+        nextStatus === 'disabled' ? (
+          <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+            <div style={{ marginBottom: 8 }}>
+              影响范围：M07 资源引用 <Text strong>{refCount}</Text> 条、已纳管采集节点{' '}
+              <Text strong>{isMonitored ? 1 : 0}</Text> 个{isMonitored ? '' : '（空网域，可直接删除）'}。
+            </div>
+            <div style={{ marginBottom: showFreezeNote ? 10 : 12 }}>
+              禁用后该网域不再接受新资源登记与新纳管；
+              <Text strong>存量资源与采集配置不受影响、继续采集</Text>
+              （停止采集由 Module_09 退纳管决定）。同时联动 Module_01（该网域禁止新建监控任务）与 Module_09
+              （不再生成新变更单，存量下发与回滚不受影响）。
+            </div>
+            {showFreezeNote && (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: '8px 12px',
+                  background: CALLOUT_TONES.warning.bg,
+                  border: `1px solid ${CALLOUT_TONES.warning.border}`,
+                  borderRadius: 8,
+                }}
+              >
+                <Text strong style={{ color: CALLOUT_TONES.warning.color }}>
+                  【重要】禁用为行政冻结
+                </Text>
+                ：新资源登记与新纳管将被阻止，但
+                <Text strong>已接入的采集节点不会自动停止采集</Text>
+                。如需停止采集并回收网域，请使用「删除」（级联清退）；如需保留网域、仅停止采集，v0.2+ 提供「退纳管」。
+              </div>
+            )}
+            <div>
+              确定禁用网域 "<Text strong>{record.name}</Text>" 吗？
+            </div>
+          </div>
+        ) : (
+          `确定重新启用网域 "${record.name}" 吗？`
+        ),
       okText: nextStatus === 'disabled' ? '确认禁用' : '确认启用',
       okType: nextStatus === 'disabled' ? 'danger' : 'primary',
       cancelText: '取消',
@@ -681,25 +723,65 @@ export function NetworkDomainsPage() {
     })
   }
 
-  /** {v2.2} 删除网域：仅空网域可删（无资源引用且未纳管），软删；中心直连域禁止删除 */
+  /**
+   * {v2.15} 决策 82-1：删除 = 退场回收（软删）。
+   * 硬拒绝条件收敛为「存在 M07 资源引用」单一条件（资源是有主数据，须先在 M07 迁移或删除）；
+   * 已纳管网域**可删除**——二次确认展示级联影响清单，确认后 M09 纳管状态被级联清退
+   * （废止 Token / 停止配置下发 / 采集节点心跳鉴权失败后自动转离线）；
+   * 空网域（未纳管、无引用）走常规二次确认；管理域（default）不提供删除。
+   */
   const handleDelete = (record: NetworkDomain) => {
     if (record.domain_type === 'management') {
       message.error('系统预置的中心直连域（default）禁止删除')
       return
     }
-    if (record.registration_status === 'monitored') {
-      message.error(`网域 "${record.name}" 已纳管监控（存在资源引用/已纳管采集节点），不可删除，请改用「禁用」`)
+    const refCount = record.resource_ref_count ?? 0
+    // 唯一硬拒绝条件：存在 M07 资源引用
+    if (refCount > 0) {
+      message.error(
+        `网域 "${record.name}" 存在 ${refCount} 条 Module_07 资源引用，不可删除；请先在 Module_07 迁移或删除这些资源`
+      )
       return
     }
+    const isMonitored = record.registration_status === 'monitored'
     Modal.confirm({
-      title: '删除网域',
-      content: `确定删除空网域 "${record.name}" 吗？删除为软删，仅对未纳管、无资源引用的空网域生效；中心直连域（default）不可删除。`,
+      title: isMonitored ? '删除网域（退场回收）' : '删除网域',
+      width: 580,
+      content: isMonitored ? (
+        <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+          <div style={{ marginBottom: 8 }}>
+            确定删除网域 <Text strong>{record.name}</Text>（<Text code>{record.id}</Text>）吗？
+            该网域<Text strong>已纳管监控</Text>，删除将<Text strong>级联清退</Text>其在 Module_09 的纳管状态：
+          </div>
+          <ul style={{ margin: '0 0 8px', paddingInlineStart: 20 }}>
+            <li>
+              <Text strong>1 个采集节点将断连</Text>：接入凭据废止、停止配置下发
+            </li>
+            <li>
+              采集节点侧<Text type="secondary">无需线下操作</Text>，心跳鉴权失败后自动转离线
+            </li>
+            <li>
+              网域将从网域纳管页与采集节点状态页的<Text strong>可选范围中移除</Text>
+              ，既有采集节点历史记录保留供审计
+            </li>
+          </ul>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            删除为软删（与平台软删除体系一致），不可自助恢复。若需保留网域、仅停止采集，v0.2+ 提供「退纳管」。
+          </Text>
+        </div>
+      ) : (
+        `确定删除空网域 "${record.name}" 吗？该网域未纳管监控、无 Module_07 资源引用，删除为软删、不可自助恢复；中心直连域（default）不可删除。`
+      ),
       okText: '确认删除',
       okType: 'danger',
       cancelText: '取消',
       onOk: () => {
         setDomains((prev) => prev.filter((item) => item.id !== record.id))
-        message.success(`网域 "${record.name}" 已删除`)
+        message.success(
+          isMonitored
+            ? `网域 "${record.name}" 已删除，Module_09 纳管状态已级联清退（凭据废止、采集节点将转离线）`
+            : `网域 "${record.name}" 已删除`
+        )
       },
     })
   }
@@ -747,10 +829,11 @@ export function NetworkDomainsPage() {
     )
   }
 
-  /** {v2.14} 次要操作收进「更多」：系统预置 / 已纳管场景给出禁用原因文案，不以点击报错代替提示 */
+  /** {v2.15} 次要操作收进「更多」：不可操作原因仅在真实不可操作时给出
+   *  （系统预置网域 / 存在 M07 资源引用）；已纳管网域的删除入口保持可用（决策 82-1）。 */
   const buildMoreMenu = (record: NetworkDomain): MenuProps['items'] => {
     const isSystem = record.domain_type === 'management'
-    const isMonitored = record.registration_status === 'monitored'
+    const refCount = record.resource_ref_count ?? 0
     if (isSystem) {
       return [
         { key: 'detail', label: '查看详情', icon: <ProfileOutlined /> },
@@ -777,13 +860,13 @@ export function NetworkDomainsPage() {
       },
     ]
     items.push(
-      isMonitored
+      refCount > 0
         ? {
             key: 'delete-hint',
             disabled: true,
             label: (
               <Text type="secondary" style={{ fontSize: 12 }}>
-                已纳管网域不可删除，请改用禁用
+                存在资源引用（{refCount} 条），请先迁移或删除资源
               </Text>
             ),
           }
@@ -955,7 +1038,11 @@ export function NetworkDomainsPage() {
           ④抽屉内「你正在登记采集节点域」身份说明与「什么是网域？」详解统一为同一 Callout 容器（消除两种样式拼盘），详解在同一容器内就地展开。
           ⑤列表列数 11 → 8（§9 列数治理：默认只展示扫读必需列，其余下沉详情 Drawer）：保留 网域名称 / 接入方式 / 接入进度 / 状态 / 登记归属 / 授权租户 / 网络分区 / 操作；网域 ID、授权租户全量、网段（CIDR）、描述、创建与更新时间下沉详情抽屉；授权租户行内最多 2 个标签 + 「+N」折叠。
           ⑥接入进度列：移除「下一步：…」灰字旁注（占位且与操作列重复），四态改点阵 + 当前态文字，四步明细与下一步说明入悬浮；进度与操作列主按钮一一对应（已登记→去纳管 / 已纳管→安装采集节点 / 节点已上线→去配置采集 / 已出数据→查看采集任务），全行仅一个主按钮。
-          ⑦状态列由 Tag 改 Badge + 文字（§8 状态语义），禁用补「冻结」语义说明；启用 / 禁用 / 删除收进「更多」菜单，系统预置与已纳管场景在菜单内直接给出不可操作原因（不再以点击报错代替提示），主行仅保留 主操作 + 编辑 + 更多 三项。
+          ⑦状态列由 Tag 改 Badge + 文字（§8 状态语义），禁用补「冻结」语义说明；启用 / 禁用 / 删除收进「更多」菜单，系统预置场景在菜单内直接给出不可操作原因（不再以点击报错代替提示），主行仅保留 主操作 + 编辑 + 更多 三项。（「已纳管网域不可删除」已于 v2.15 决策 82-1 撤销，见下）
+          <b>v2.15 网域生命周期闭环（决策 82，回收路径修正 + 禁用/纳管联动具象化）：</b>
+          ①<b>删除约束修正（82-1）</b>：硬拒绝条件收敛为「存在 Module_07 资源引用」<b>单一条件</b>（该场景删除项在「更多」菜单内直给「存在资源引用（N 条），请先迁移或删除资源」，不以点击报错代替）；<b>已纳管网域的删除入口保持可用</b>，点击进入「退场回收」二次确认——弹窗展示<b>级联影响清单</b>（1 个采集节点将断连 / 接入凭据将废止 / 采集节点侧无需线下操作、心跳鉴权失败后自动离线 / 网域退出 M09 与采集节点状态页的可选范围、既有历史记录保留供审计），确认后 M06 软删 + M09 级联清退纳管状态；空网域（未纳管、无引用）走常规二次确认；管理域（default）不提供删除。
+          ②<b>禁用弹窗补强（82-2）</b>：已纳管且存在在线 Agent 时，除影响范围外追加固定提示——「禁用为行政冻结：新资源登记与新纳管将被阻止，但已接入的采集节点不会自动停止采集。如需停止采集并回收网域，请使用『删除』；如需保留网域、仅停止采集，v0.2+ 提供『退纳管』」。
+          ③<b>三动作语义边界（82-4）</b>：禁用 = 行政冻结（管准入）/ 退纳管 = 停止监控（管运行，v0.2+）/ 删除 = 退场回收（管存在性），三者<b>正交不可互替</b>，覆盖「不再使用某网域」的三种强度。
         </>
       }
     >
