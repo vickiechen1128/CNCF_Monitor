@@ -574,6 +574,16 @@ export function deriveConfigDownloadUrl(domain: Pick<NetworkDomain, 'id' | 'cent
   return `${domain.center_endpoint}/api/v2/platform/edge/config?network_domain=${domain.id}`
 }
 
+/** {v1.69} 演示数据相对时间（决策 70 遗留 #4 处置）：心跳类 mock 不再固定历史日期（原固定 2026-08-03，
+ *  页面长期显示「42 天前」、演示观感陈旧），改为相对当前时间生成，「x 分钟前 / x 小时前」始终新鲜。 */
+const nowMinus = (ms: number): string => {
+  const d = new Date(Date.now() - ms)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+const minutesAgo = (m: number) => nowMinus(m * 60_000)
+const hoursAgo = (h: number) => nowMinus(h * 3_600_000)
+
 export const networkDomains: NetworkDomain[] = [
   {
     id: 'default',
@@ -612,7 +622,7 @@ export const networkDomains: NetworkDomain[] = [
     agent_type: 'vmagent',
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:28:00',
+    last_heartbeat: minutesAgo(1),
     agent_version: 'v1.102.0',
     registration_status: 'monitored',
     created_at: '2026-07-10 00:00:00',
@@ -633,7 +643,7 @@ export const networkDomains: NetworkDomain[] = [
     agent_type: 'prometheus-agent',
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     status: 'offline',
-    last_heartbeat: '2026-08-03 13:50:00',
+    last_heartbeat: hoursAgo(26),
     agent_version: 'v2.54.0',
     registration_status: 'monitored',
     created_at: '2026-07-12 00:00:00',
@@ -684,6 +694,35 @@ export const channelTip: Record<Channel, string> = {
   agent_pull: '采集器位于远端/隔离节点，由 Edge Sync Agent 心跳拉取 zip 配置包（Token 认证 + checksum 校验）',
 }
 
+/**
+ * {v1.71 决策 74-3} mock 配置同步流转跨页桥（sessionStorage 持久化）：
+ * 「前往配置确认」的确认动作发生在「配置变更确认」页，而节点状态在本页 useState——
+ * 跨页即丢、无法演示「确认后 → 生效中 → 心跳自动流转已同步」。模块级内存对象会在
+ * 页面重载时重置，故落 sessionStorage（与页面横幅 localStorage 记忆同模式）。
+ * 键约定：agent id（立即同步 / 心跳流转事件，精确到节点）优先；domain id（配置确认事件，
+ * 影响该域 pending_draft 节点翻「生效中」）兜底。仅服务原型演示，真实实现由心跳上报驱动。
+ */
+export type SyncFlowOverride = { config_sync_status: ConfigSyncStatus; out_of_sync_cause?: OutOfSyncCause }
+const SYNC_FLOW_KEY = 'm09SyncFlowOverrides'
+
+export function readSyncFlowOverrides(): Record<string, SyncFlowOverride> {
+  try {
+    return JSON.parse(sessionStorage.getItem(SYNC_FLOW_KEY) || '{}') as Record<string, SyncFlowOverride>
+  } catch {
+    return {}
+  }
+}
+
+export function writeSyncFlowOverride(key: string, override: SyncFlowOverride) {
+  try {
+    const all = readSyncFlowOverrides()
+    all[key] = override
+    sessionStorage.setItem(SYNC_FLOW_KEY, JSON.stringify(all))
+  } catch {
+    // 原型演示：sessionStorage 不可用（如隐私模式）时静默降级，仅失去跨页流转演示
+  }
+}
+
 export const edgeAgents: EdgeAgent[] = [
   // 注意：default 管理域不部署 Edge Agent（中心直接采集，PRD 3.11 / 决策 16），
   // 因此不存在 network_domain_id='default' 的 EdgeAgent 实例；Agent 状态页仅展示有 Agent 的 edge 网域。
@@ -697,9 +736,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-gova-01',
     agent_ip: '10.20.1.11',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:28:00',
+    last_heartbeat: minutesAgo(1),
     heartbeat_rtt_ms: 45,
-    last_config_pull: '2026-08-03 14:20:00',
+    last_config_pull: minutesAgo(7),
     config_version: '20260803-141500',
     config_sync_status: 'in_sync',
     wal_backlog_bytes: 1048576,
@@ -741,9 +780,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-gova-02',
     agent_ip: '10.20.1.12',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:27:00',
+    last_heartbeat: minutesAgo(2),
     heartbeat_rtt_ms: 52,
-    last_config_pull: '2026-08-03 14:15:00',
+    last_config_pull: minutesAgo(12),
     config_version: '20260803-141500',
     // {v1.41} 采集器已停止（组件健康问题）：配置版本已同步（in_sync），不产生配置同步引导按钮；
     // 整体状态=部分异常，用户从详情抽屉查看组件错误 + 维修提示（进程异常 ≠ 配置未同步）
@@ -789,9 +828,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-finance-01',
     agent_ip: '10.30.2.21',
     status: 'offline',
-    last_heartbeat: '2026-08-03 13:50:00',
+    last_heartbeat: hoursAgo(26),
     heartbeat_rtt_ms: 120,
-    last_config_pull: '2026-08-03 13:45:00',
+    last_config_pull: hoursAgo(26),
     config_version: '20260803-130000',
     config_sync_status: 'unknown',
     wal_backlog_bytes: 5368709120,
@@ -827,9 +866,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-gova-03',
     agent_ip: '10.20.1.13',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:29:00',
+    last_heartbeat: minutesAgo(1),
     heartbeat_rtt_ms: 47,
-    last_config_pull: '2026-08-03 14:20:00',
+    last_config_pull: minutesAgo(7),
     config_version: '20260803-141500',
     // {v1.40} 决策 40-1 成因 C（local_reset）：Agent 本地 checksum 校验失败保留旧配置 →「立即同步」强制重新拉包（无视版本一致 304）
     config_sync_status: 'out_of_sync',
@@ -876,9 +915,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-gova-04',
     agent_ip: '10.20.1.14',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:31:00',
+    last_heartbeat: minutesAgo(2),
     heartbeat_rtt_ms: 50,
-    last_config_pull: '2026-08-03 14:12:00',
+    last_config_pull: minutesAgo(14),
     config_version: '20260803-141500',
     config_sync_status: 'manual_override',
     wal_backlog_bytes: 262144,
@@ -922,9 +961,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-gova-05',
     agent_ip: '10.20.1.15',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:32:00',
+    last_heartbeat: minutesAgo(1),
     heartbeat_rtt_ms: 49,
-    last_config_pull: '2026-08-03 14:02:00',
+    last_config_pull: minutesAgo(20),
     config_version: '',
     config_sync_status: 'no_version',
     wal_backlog_bytes: 131072,
@@ -967,9 +1006,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-gova-06',
     agent_ip: '10.20.1.16',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:33:00',
+    last_heartbeat: minutesAgo(3),
     heartbeat_rtt_ms: 48,
-    last_config_pull: '2026-08-03 14:18:00',
+    last_config_pull: minutesAgo(9),
     config_version: '20260803-141500',
     config_sync_status: 'out_of_sync',
     out_of_sync_cause: 'pending_draft',
@@ -1015,9 +1054,9 @@ export const edgeAgents: EdgeAgent[] = [
     hostname: 'edge-agent-gova-07',
     agent_ip: '10.20.1.17',
     status: 'online',
-    last_heartbeat: '2026-08-03 14:34:00',
+    last_heartbeat: minutesAgo(2),
     heartbeat_rtt_ms: 46,
-    last_config_pull: '2026-08-03 14:16:00',
+    last_config_pull: minutesAgo(11),
     config_version: '20260803-141500',
     config_sync_status: 'out_of_sync',
     out_of_sync_cause: 'pull_pending',
