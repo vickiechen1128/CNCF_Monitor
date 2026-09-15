@@ -187,7 +187,7 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 1. **截断**：表格文本列默认 `ellipsis: { showTitle: true }`（截断 + 悬浮全文）；描述 / 摘要类字段统一截断 + Tooltip，完整内容进详情 Drawer；优先复用 `src/components/` 共享件（如 `EllipsisText`），禁止散点手写 `maxWidth` 内联样式。
 2. **行高**：表格行内禁止渲染多行文本块；行内 Tag 最多 3 个，超出 `+n` 折叠（悬浮展示全部）。
 3. **列数过多 → 横向滚动**：表格列超出一屏时，设置 `scroll={{ x: ... }}` 启用底部横向滚动条，并将主标识列 `fixed: 'left'`、「操作」列 `fixed: 'right'`；**禁止**通过压缩列宽迫使单元格换行来适配——换行会撑高行高、破坏扫读。列宽按内容类型定宽（时间、状态等固定窄宽）。
-4. **列数治理**：列表页默认只展示扫读所需的关键列（建议 ≤8 列），其余字段下沉详情 Drawer（渐进式披露）。
+4. **列数治理**：列表页默认只展示扫读所需的关键列（建议 ≤8 列），其余字段下沉详情 Drawer（渐进式披露）。该条由 `scripts/check-prototype.py` 自动检查（阈值 8 列，超限输出结构警告）：它识别 `columns={[...]}`、`const cols: TableProps<X>['columns'] = [...]`、`const columns = [...]` 三种列定义形态，并**按列定义数组的顶层元素个数**计数——因此把列标题抽成列工厂（`identityColumn(...)`）不影响检测，但若列数组由函数动态返回（如 `columns={getColumns(type)}` 且数组定义在别处），需人工自查。
 
 ## 10. 页面状态处理规范（跨模块强制）
 
