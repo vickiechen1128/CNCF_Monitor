@@ -709,7 +709,10 @@ export function NetworkDomainsPage() {
     window.open(`../../module-09/dist/index.html#/domain-onboarding?network_domain=${encodeURIComponent(record.id)}`, '_blank')
   }
 
-  /** {v2.11} 决策 75：已纳管未上线 → 深链 Module_09 采集节点状态页（安装指引常驻页顶） */
+  /** {v2.11} 决策 75：已纳管未上线 → 深链 Module_09 采集节点状态页（node-status）。
+   *  注意：安装指引本体在 M09「网域纳管」页顶部常驻提示区，不在 node-status；
+   *  本落点动线为——node-status 按该网域预筛，空态给「去复制安装命令」引导、
+   *  链到网域纳管页顶部安装指引（M09 决策 72-3 / 74-3 深链与空态三支）。 */
   const jumpToInstallGuide = (record: NetworkDomain) => {
     window.open(`../../module-09/dist/index.html#/node-status?network_domain=${encodeURIComponent(record.id)}`, '_blank')
   }
