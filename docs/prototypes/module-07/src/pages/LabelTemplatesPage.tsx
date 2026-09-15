@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import {
-  Alert,
   App,
   Badge,
   Button,
@@ -23,8 +22,9 @@ import {
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
-import { CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { CopyOutlined, DeleteOutlined, EditOutlined, InfoCircleFilled, PlusOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { Callout } from '../components/Callout'
 import { FilterBar, FilterItem } from '../components/FilterBar'
 import { EllipsisText } from '../components/EllipsisText'
 import { ReviewNote } from '../components/ReviewNote'
@@ -36,6 +36,8 @@ import {
   RESOURCE_TYPE_MAP,
   STATUS_MAP,
   TEMPLATE_REFERENCING_JOBS,
+  TENANT_DEFAULT_MAPPING,
+  TENANT_MAPPING_NOTES,
   mockLabelTemplates,
   mockResources,
 } from '../mocks/module-07'
@@ -169,13 +171,20 @@ export default function LabelTemplatesPage() {
     return relatedResourcesOf(selectedTemplate).filter((r) => {
       if (instanceStatusFilter !== 'all' && r.status !== instanceStatusFilter) return false
       if (!kw) return true
-      return [r.instance_name, r.hostname, r.instance_ip, r.app_name].some((t) => (t ?? '').toLowerCase().includes(kw))
+      // {v2.32} 应用服务类无 instance_ip，地址由 endpoint 承载，搜索需一并覆盖
+      const addr = r.resource_category === 'application' ? r.endpoint : r.instance_ip
+      return [r.instance_name, r.hostname, r.app_name, addr].some((t) => (t ?? '').toLowerCase().includes(kw))
     })
   }, [selectedTemplate, instanceSearch, instanceStatusFilter])
 
   const instanceColumns: TableProps<Resource>['columns'] = [
     { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v: string, r) => <Text strong style={{ fontSize: 12 }}>{v || r.resource_id}</Text> },
-    { title: '目标 IP', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
+    {
+      // {v2.32} 应用服务类地址由 endpoint 承载（无 instance_ip），此处做回落，避免整列为空
+      title: '目标 IP / 端点',
+      key: 'instance_ip',
+      render: (_: unknown, r: Resource) => r.instance_ip || (r.resource_category === 'application' ? r.endpoint : undefined) || '-',
+    },
     { title: '环境', dataIndex: 'env', key: 'env', render: (v?: string) => v || '-' },
     { title: '应用', dataIndex: 'app_name', key: 'app_name', render: (v?: string) => v || '-' },
     {
@@ -219,7 +228,12 @@ export default function LabelTemplatesPage() {
     setEditingTemplate(tpl ?? null)
     templateForm.resetFields()
     if (tpl) {
-      templateForm.setFieldsValue({ name: tpl.name, resource_category: tpl.resource_category })
+      templateForm.setFieldsValue({
+        name: tpl.name,
+        resource_category: tpl.resource_category,
+        // {v2.27} 模板说明回填（description 已落库，编辑时不能丢）
+        description: tpl.description,
+      })
     } else {
       templateForm.setFieldsValue({ resource_category: activeType })
     }
@@ -240,6 +254,8 @@ export default function LabelTemplatesPage() {
       name: `${tpl.name}（副本）`,
       resource_category: tpl.resource_category,
       is_default: false,
+      // {v2.27} 克隆保留模板说明（description 属于模板内容的一部分）
+      description: tpl.description,
       mappings: tpl.mappings.map((m) => ({
         ...m,
         mapping_id: `mp-${tpl.resource_category}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -279,23 +295,32 @@ export default function LabelTemplatesPage() {
   const handleSaveTemplate = () => {
     templateForm.validateFields().then((values) => {
       const now = nowStr()
+      // {v2.27} description 必须落库（PRD 6.3：创建 / 更新请求体的该字段不再静默丢弃）
+      const description = (values.description as string | undefined)?.trim() || undefined
       if (editingTemplate) {
         setTemplates((prev) =>
           prev.map((t) =>
             t.template_id === editingTemplate.template_id
-              ? { ...t, name: values.name as string, resource_category: values.resource_category as ResourceCategory, updated_at: now }
+              ? {
+                  ...t,
+                  name: values.name as string,
+                  resource_category: values.resource_category as ResourceCategory,
+                  description,
+                  updated_at: now,
+                }
               : t
           )
         )
         closeTemplateDrawer()
         // {v2.7} 保存后影响反馈：模板被引用 Job 变更配置
-        notifyTemplateImpact({ ...editingTemplate, ...values } as LabelTemplate, '模板已更新')
+        notifyTemplateImpact({ ...editingTemplate, ...values, description } as LabelTemplate, '模板已更新')
       } else {
         const tpl: LabelTemplate = {
           template_id: `tpl-${values.resource_category}-${Date.now()}`,
           name: values.name as string,
           resource_category: values.resource_category as ResourceCategory,
           is_default: false,
+          description,
           mappings: [],
           created_at: now,
           updated_at: now,
@@ -471,12 +496,20 @@ export default function LabelTemplatesPage() {
     {
       title: '操作',
       key: 'actions',
+      width: 120,
+      // 操作层次（对齐《前端标准》§8/§9）：编辑为次级灰色文字操作、删除为危险色文字操作，
+      // 两者均为文字操作而非按钮块，避免行内出现多个同级实心按钮
       render: (_: unknown, record: Mapping) => (
-        <Space size={0}>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openMappingDrawer(record)}>
+        <Space size={12}>
+          <Button
+            type="link"
+            size="small"
+            style={{ color: '#4E5969', padding: 0 }}
+            onClick={() => openMappingDrawer(record)}
+          >
             编辑
           </Button>
-          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteMapping(record)}>
+          <Button type="link" size="small" danger style={{ padding: 0 }} onClick={() => handleDeleteMapping(record)}>
             删除
           </Button>
         </Space>
@@ -539,38 +572,73 @@ export default function LabelTemplatesPage() {
       </div>
 
       {/* 模块边界说明（用户语言，技术细节见 MainLayout 全局折叠区） */}
-      <Alert
-        type="info"
-        showIcon
-        closable
+      <Callout
+        tone="info"
+        icon={<InfoCircleFilled />}
+        title="标签模板怎么用"
         style={{ marginBottom: 16 }}
-        message="标签模板怎么用"
-        description={
-          <Space direction="vertical" size={4}>
-            <Text style={{ fontSize: 13 }}>
-              • 标签模板按资源类别定义「字段 → 监控标签」的映射，本页负责模板的创建与维护。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 字段来源支持「资源字段 / 组合字段」；CMDB 字段后续版本开放。监控任务自带的标签由采集系统原生注入，无需在此配置。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 每类资源预置一个默认模板，默认模板不可删除。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 状态映射（Excel 中文 → 运行中/已停止/维护中）为 Excel 导入的系统规则，规则明细见「导入记录」页。
-            </Text>
-          </Space>
-        }
-      />
+      >
+        <Space direction="vertical" size={4}>
+          <Text style={{ fontSize: 13 }}>
+            • 标签模板按资源类别定义「字段 → 监控标签」的映射，本页负责模板的创建与维护。
+          </Text>
+          <Text style={{ fontSize: 13 }}>
+            • 字段来源支持「资源字段 / 组合字段」；CMDB 字段后续版本开放。监控任务自带的标签由采集系统原生注入，无需在此配置。
+          </Text>
+          <Text style={{ fontSize: 13 }}>
+            • 每类资源预置一个默认模板（含资源唯一标识与业务归属等必备映射），默认模板不可删除。
+          </Text>
+          <Text style={{ fontSize: 13 }}>
+            • 状态映射（Excel 中文 → 运行中/已停止/维护中）为 Excel 导入的系统规则，规则明细见「导入记录」页。
+          </Text>
+        </Space>
+      </Callout>
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
-          <li>字段来源中的「prometheus_builtin」由 Prometheus 原生注入，无需映射，MVP 隐藏（数据模型保留，v0.2+ 服务发现启用）。</li>
+          <li>字段来源中的「prometheus_builtin」由 Prometheus 原生注入，无需映射，MVP 隐藏（数据模型保留，v0.3+ 服务发现启用）。</li>
           <li>组合字段 composite 为 MVP 内部默认（自动生成 instance = 资源 IP + 端口，Prometheus 默认行为一致），前台不可新增，v0.2+ 身份定制开放。</li>
           <li>保护标签（instance/job 等）不允许作为目标标签；composite → instance 为例外允许。</li>
           <li>同一模板内 target_label 唯一，保存时校验（编辑自身排除）。</li>
           <li>标签来源口径：模板映射生成的标签 = 资源详情中的「系统」标签；用户手工添加 = 「用户」标签（在资源详情添加，不在此配置）；CMDB 字段（v0.4+）= 「CMDB」标签。监控任务自带的标签由采集系统原生注入，无需在此配置。</li>
           <li>转换规则「prefix/replace」需参数，后续版本开放。</li>
+          <li>
+            <Text strong>{'{v2.25}'} 稳定身份映射</Text>：五类默认模板均内置{' '}
+            <Text code style={{ fontSize: 12 }}>resource_id → resource_id</Text>
+            ——它是覆盖率三态聚合（M02）与资源回连（M07 badge）的唯一稳定键；<Text code style={{ fontSize: 12 }}>hostname</Text> 仅为可读别名，不替代它。
+          </li>
+          <li>
+            <Text strong>{'{v2.27}'} 关联实例展示边界</Text>：静态资源（主机 / 数据库 / 中间件 / 通用目标）的实例级标签在 CMDB 侧只读治理，
+            故「关联实例」Tab 与左栏 badge <Text strong>仅业务类型资源（应用服务）展示</Text>；右栏 Tab 数量随类别动态 2~3 个。
+          </li>
+          <li>
+            <Text strong>{'{v2.27}'} 模板说明必须落库</Text>：<Text code style={{ fontSize: 12 }}>description</Text> 为模板可选字段，
+            创建 / 更新请求体的该字段必须持久化（不再静默丢弃），列表与详情展示「这个模板是干什么的」。
+          </li>
+          <li>
+            <Text strong>{'{v2.31}'} 命名规约（跨模块基线）</Text>：<Text code style={{ fontSize: 12 }}>target_label</Text> 一律不带{' '}
+            <Text code style={{ fontSize: 12 }}>_id</Text> 后缀——<Text code style={{ fontSize: 12 }}>_id</Text> 只属 DB 列与 API 字段。
+            本页字段选项已按规约预置（<Text code style={{ fontSize: 12 }}>biz_code → biz</Text>、
+            <Text code style={{ fontSize: 12 }}>tenant_id → tenant</Text>）；
+            <Text code style={{ fontSize: 12 }}>resource_id → resource_id</Text> 为约定俗成的稳定身份键例外。
+          </li>
+          <li>
+            <Text strong>{'{v2.31}'} 租户标签（v0.2 前瞻）</Text>：MVP 单租户<Text strong>不注入</Text>（默认模板不含该映射，注入骨架恒通过）；
+            <Text strong>v0.2 起五类默认模板统一内置</Text>{' '}
+            <Text code style={{ fontSize: 12 }}>{`${TENANT_DEFAULT_MAPPING.source_field} → ${TENANT_DEFAULT_MAPPING.target_label}`}</Text>{' '}
+            且前端默认启用（用户可关闭、不默认关闭）。
+          </li>
+          <li>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              <Text strong>{'{v2.31}'} 缺该映射的后果</Text>：{TENANT_MAPPING_NOTES}
+            </Text>
+          </li>
+          <li>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              偏离《前端标准》§8 说明：§8 规定 ≤6 字段表单用 Modal，本模块 PRD §11.2 明确「编辑类操作统一右侧抽屉」——
+              保留列表上下文以便对照映射内容，故模板级 / 映射级表单统一用 Drawer（已记录于本模块 design-decisions）。
+            </Text>
+          </li>
         </ul>
       </ReviewNote>
 
@@ -713,11 +781,18 @@ export default function LabelTemplatesPage() {
                 }
               >
                 <Space direction="vertical" size={2} style={{ marginBottom: 12 }}>
+                  {/* {v2.27} 模板说明（description 已落库）：让评审与用户一眼看清「这个模板是干什么的」 */}
+                  <Text style={{ fontSize: 13 }}>
+                    {selectedTemplate.description || '（未填写模板说明）'}
+                  </Text>
                   <Text style={{ fontSize: 13 }}>
                     标签模板只与资源类别绑定，不绑定具体采集任务；字段来源支持「资源字段 / 组合字段」，映射按来源类型分组展示。
                   </Text>
                   <Text style={{ fontSize: 12, color: '#86909C' }}>
                     保护标签（不可作为目标标签）：{PROTECTED_PROMETHEUS_LABELS.join(', ')}
+                  </Text>
+                  <Text style={{ fontSize: 12, color: '#86909C' }}>
+                    {'默认模板内置资源唯一标识（resource_id）与业务归属（biz）等必备映射，保证采集数据可回连资源。'}
                   </Text>
                 </Space>
                 {/* {v2.27} 右栏 Tab 化：映射明细 / 关联实例（仅业务类型资源） / 被引用采集 Job */}
@@ -819,7 +894,7 @@ export default function LabelTemplatesPage() {
       {/* 模板编辑抽屉 */}
       <Drawer
         title={editingTemplate ? '编辑模板' : '新增模板'}
-        width={400}
+        width={480}
         open={templateDrawerOpen}
         onClose={closeTemplateDrawer}
         extra={
@@ -839,6 +914,14 @@ export default function LabelTemplatesPage() {
             extra="模板名称用于展示，同一资源类别下名称可重复"
           >
             <Input placeholder="如 主机默认模板" />
+          </Form.Item>
+          {/* {v2.27} 模板说明：可选字段，创建 / 更新时随请求体提交并落库（不再静默丢弃） */}
+          <Form.Item
+            label="模板说明"
+            name="description"
+            extra="说明本模板的用途与适用范围，展示在模板详情头部；不参与标签生成"
+          >
+            <Input.TextArea rows={3} maxLength={200} showCount placeholder="如 主机类资源的通用标签契约（身份 + 业务归属 + 定位维度）" />
           </Form.Item>
           <Form.Item
             label="资源类别"
@@ -902,7 +985,7 @@ export default function LabelTemplatesPage() {
                 rules={[{ required: true, message: '请选择来源字段' }]}
                 extra={
                   watchedSourceType === 'resource_field'
-                    ? '从资源固定字段中选取'
+                    ? '从资源固定字段中选取；目标标签名不带 _id 后缀（如 tenant_id → tenant）'
                     : watchedSourceType === 'composite'
                     ? '组合字段，由多个字段拼接生成标签'
                     : watchedSourceType === 'cmdb_field'
@@ -920,6 +1003,13 @@ export default function LabelTemplatesPage() {
               </Form.Item>
             </Col>
           </Row>
+          {/* 租户字段就地说明（用户语言，不涉及版本标记）：MVP 单租户下该映射不生效，v0.2 起才由默认模板内置并默认启用 */}
+          {watchedSourceField === TENANT_DEFAULT_MAPPING.source_field && (
+            <Callout tone="info" icon={<InfoCircleFilled />} title="关于「租户」映射">
+              {`当前为单租户运行，该映射不会实际注入；开启多租户后由平台内置映射为 ${TENANT_DEFAULT_MAPPING.target_label} 标签并默认启用，`}
+              用于查询侧按租户隔离数据。平台自身基础设施指标需显式归属平台管理员租户。
+            </Callout>
+          )}
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item

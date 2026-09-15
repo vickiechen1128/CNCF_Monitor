@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Alert,
   App,
   Badge,
   AutoComplete,
@@ -11,6 +11,7 @@ import {
   Descriptions,
   Divider,
   Drawer,
+  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -27,8 +28,9 @@ import {
 import type { TableProps } from 'antd'
 import {
   DeleteOutlined,
+  DownOutlined,
   DownloadOutlined,
-  EditOutlined,
+  InfoCircleFilled,
   InfoCircleOutlined,
   LockOutlined,
   PlusOutlined,
@@ -36,6 +38,7 @@ import {
   UploadOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { Callout } from '../components/Callout'
 import { FilterBar, FilterItem } from '../components/FilterBar'
 import { EllipsisText } from '../components/EllipsisText'
 import { ReviewNote } from '../components/ReviewNote'
@@ -124,6 +127,13 @@ const COLLECTION_STATUS_META: Record<CollectionStatus, { label: string; color: s
   },
 }
 
+// 采集状态的 Badge 语义色（《前端标准》§8：状态语义统一用 Badge 语义色 + 文字标签，颜色不得作为唯一语义）
+const COLLECTION_BADGE_STATUS: Record<CollectionStatus, 'success' | 'error' | 'default'> = {
+  up: 'success',
+  down: 'error',
+  unmonitored: 'default',
+}
+
 const IPV4_RE = /^(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/
 const CUSTOM_LABELS_RE = /^([A-Za-z_][A-Za-z0-9_]*=[^;]+)(;([A-Za-z_][A-Za-z0-9_]*=[^;]+))*$/
 
@@ -185,6 +195,37 @@ function validateLabelKey(key: string): string | null {
 
 function nowStr(): string {
   return new Date().toISOString().slice(0, 19).replace('T', ' ')
+}
+
+/**
+ * 表单分组小标题（对齐《前端标准》§8：「>6 个字段或需分组」的表单用 Drawer + 分组小标题）。
+ * 资源新增 / 编辑表单字段数在 12 ~ 14 项之间，故统一使用 720px Drawer 并分组呈现。
+ */
+function FormSection({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 8,
+          paddingLeft: 10,
+          borderLeft: '3px solid #0ECDEB',
+          marginBottom: 12,
+        }}
+      >
+        <Text strong style={{ fontSize: 13.5 }}>
+          {title}
+        </Text>
+        {desc && (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {desc}
+          </Text>
+        )}
+      </div>
+      {children}
+    </div>
+  )
 }
 
 // {v2.2} 联动：按资源类别 + 标签 key 查找模板中对应的映射来源（用于 system 标签标注「来自 XX 模板 · app_name→app」）
@@ -941,11 +982,37 @@ export default function ResourcesPage() {
   }
 
   // ---------- 表格列（按资源类别固定展示，PRD 3.1） ----------
+  //
+  // {v2.32} 列数治理（对齐《前端标准》§9：列表只展示扫读所需关键列、建议 ≤8 列，其余字段下沉详情 Drawer）：
+  //   五类 Tab 统一为 **8 列**结构，保证跨类型扫读节奏一致 ——
+  //   主标识（fixed left）/ 类型或身份 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作（fixed right）
+  //   下沉详情 Drawer 的字段：端口 / 版本 / 操作系统 / 应用·环境·集群 / 健康检查 URL / 协议 / 端点 /
+  //   采集路径 / 自定义标签 / 数据来源 / 负责人 / CMDB 预留字段 —— 资源详情 Drawer 已逐项完整承载。
+  //   类型字段（数据库类型 / 中间件类型 / Exporter 类型）随主标识行内 Tag 呈现，不单独占列。
+  // {v2.25} 「采集状态」列口径：数据 = M01 选中关系（is_monitored 只读映射，取 DB 当前值、不感知 M09 下发时序）
+  //   + M02 健康度 / 覆盖率聚合 API（按 resource_id 回连，列表级聚合调用、禁止逐行查询 TQ-6）。
   const getColumns = (type: ResourceCategory): TableProps<Resource>['columns'] => {
+    /** 主标识列：单行呈现（§9 禁止行内多行文本块），可带一个行内类型 Tag */
+    const identityColumn = (title: string, cell: (r: Resource) => ReactNode) => ({
+      title,
+      key: 'identity',
+      fixed: 'left' as const,
+      width: 230,
+      render: (_: unknown, record: Resource) => <Space size={6}>{cell(record)}</Space>,
+    })
+    /** {v2.23} IP 地址列：主标识之后的第一扫读列（采集目标地址） */
+    const ipColumn = {
+      title: 'IP 地址',
+      dataIndex: 'instance_ip',
+      key: 'instance_ip',
+      width: 140,
+      render: (value?: string) => (value ? <Text style={{ fontSize: 12 }}>{value}</Text> : '-'),
+    }
     const domainColumn = {
       title: '网域',
       dataIndex: 'network_domain_id',
       key: 'network_domain_id',
+      width: 130,
       render: (value: string) => <Tag color="cyan">{value}</Tag>,
     }
     // {v2.24} 决策 52：归属来源列——标注网域归属由哪条解析路径确定（显式指定 / 冲突 / 网段推导 / 默认兜底 / 发起侧），列头 hover 提示解析链
@@ -959,7 +1026,7 @@ export default function ResourcesPage() {
         </span>
       ),
       key: 'domain_source',
-      width: 120,
+      width: 110,
       render: (_: unknown, record: Resource) => {
         const att = resolveDomainAttribution(record)
         const color: Record<DomainAttributionSource, string> = {
@@ -981,6 +1048,7 @@ export default function ResourcesPage() {
       title: '业务',
       dataIndex: 'biz_code',
       key: 'biz_code',
+      width: 140,
       render: (value?: string) =>
         value ? (
           <Tag color={isBizDisabled(value) ? 'default' : 'geekblue'}>
@@ -988,12 +1056,6 @@ export default function ResourcesPage() {
             {isBizDisabled(value) ? '（已停用）' : ''}
           </Tag>
         ) : '-',
-    }
-    const sourceColumn = {
-      title: '来源',
-      dataIndex: 'source_type',
-      key: 'source_type',
-      render: (value: string) => <Tag>{SOURCE_TYPE_MAP[value as keyof typeof SOURCE_TYPE_MAP] || value}</Tag>,
     }
     const statusColumn = {
       // {v2.21} 决策 32：「状态」更名「运行状态」；数据来源（CMDB / Excel / 手动）非 M07 自身功能，以列头 hover 隐藏提示标注、不占列宽
@@ -1007,10 +1069,11 @@ export default function ResourcesPage() {
       ),
       dataIndex: 'status',
       key: 'status',
+      width: 110,
       render: (value: ResourceStatus) => <Badge color={STATUS_COLOR[value]} text={STATUS_MAP[value]} />,
     }
-    // {v2.22} 决策 47-3（修订 31-M1）：采集状态三态 badge——采集中 / 已下发未采到 / 未监控。
-    // 数据 = M01 is_monitored（只读映射）+ M02 健康度/覆盖率聚合 API；异常驱动：仅「已下发未采到」高饱和。
+    // {v2.22} 决策 47-3（修订 31-M1）：采集状态三态——采集中 / 已下发未采到 / 未监控。
+    // 状态语义统一用 Badge 语义色 + 文字（《前端标准》§8：颜色不得作为唯一语义）；异常驱动：仅「已下发未采到」高饱和。
     const monitoredColumn = {
       title: (
         <span>
@@ -1021,30 +1084,33 @@ export default function ResourcesPage() {
         </span>
       ),
       key: 'collection_status',
+      width: 130,
       render: (_: unknown, record: Resource) => {
         const status = resolveCollectionStatus(record)
         const meta = COLLECTION_STATUS_META[status]
-        const tag = <Tag color={meta.color}>{meta.label}</Tag>
+        const badge = <Badge status={COLLECTION_BADGE_STATUS[status]} text={meta.label} />
         return meta.anomaly ? (
           <Tooltip title={meta.tooltip}>
-            <span>{tag}</span>
+            <span>{badge}</span>
           </Tooltip>
         ) : (
-          tag
+          badge
         )
       },
     }
+    // 操作层次（《前端标准》§8/§9）：主操作 = 品牌色文字 + 加粗、且全行唯一（「详情」）；
+    // 次要操作 = 灰色文字；低频操作（删除）收进「更多」菜单，避免行内出现多个同级入口。
     const actionColumn = {
       title: '操作',
       key: 'actions',
       fixed: 'right' as const,
-      width: 150,
+      width: 168,
       render: (_: unknown, record: Resource) => (
-        <Space size={0}>
+        <Space size={12}>
           <Button
             type="link"
             size="small"
-            icon={<InfoCircleOutlined />}
+            style={{ color: '#0ECDEB', fontWeight: 600, padding: 0 }}
             onClick={(e) => {
               e.stopPropagation()
               handleOpenDetail(record)
@@ -1055,7 +1121,7 @@ export default function ResourcesPage() {
           <Button
             type="link"
             size="small"
-            icon={<EditOutlined />}
+            style={{ color: '#4E5969', padding: 0 }}
             onClick={(e) => {
               e.stopPropagation()
               openEditModal(record)
@@ -1063,59 +1129,55 @@ export default function ResourcesPage() {
           >
             编辑
           </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDeleteResource(record)
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: 'delete',
+                  danger: true,
+                  icon: <DeleteOutlined />,
+                  label: '删除',
+                },
+              ],
+              onClick: ({ domEvent }) => {
+                domEvent.stopPropagation()
+                handleDeleteResource(record)
+              },
             }}
+            trigger={['click']}
           >
-            删除
-          </Button>
+            <Button
+              type="link"
+              size="small"
+              style={{ color: '#4E5969', padding: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              更多 <DownOutlined style={{ fontSize: 10 }} />
+            </Button>
+          </Dropdown>
         </Space>
       ),
     }
 
     switch (type) {
       case 'host': {
+        // 8 列：实例名·主机名 / IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 下沉详情：操作系统、系统版本、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
-          {
-            title: '实例名 / 主机名',
-            key: 'name',
-            render: (_: unknown, record: Resource) => (
-              <Space direction="vertical" size={0}>
+          identityColumn('实例名 / 主机名', (record) =>
+            isHostResource(record) ? (
+              <>
                 <Text strong>{record.instance_name}</Text>
-                <EllipsisText type="secondary" maxWidth={180}>
+                <EllipsisText type="secondary" maxWidth={110}>
                   {record.hostname}
                 </EllipsisText>
-              </Space>
-            ),
-          },
-          { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip' },
-          {
-            title: '操作系统',
-            dataIndex: 'os_type',
-            key: 'os_type',
-            render: (value?: string) => value || '-',
-          },
-          {
-            title: '应用 / 环境 / 集群',
-            key: 'app_env_cluster',
-            render: (_: unknown, record: Resource) => (
-              <Space wrap>
-                {record.app_name && <Tag>{record.app_name}</Tag>}
-                {record.env && <Tag color="blue">{record.env}</Tag>}
-                {record.cluster && <Tag color="purple">{record.cluster}</Tag>}
-              </Space>
-            ),
-          },
+              </>
+            ) : null
+          ),
+          ipColumn,
           domainColumn,
           domainSourceColumn,
           businessColumn,
-          sourceColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1124,29 +1186,21 @@ export default function ResourcesPage() {
       }
       case 'database': {
         // {v2.13} 数据库资源列表列（PRD 5.7.1，决策 D19）
+        // 8 列：实例名（含数据库类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 下沉详情：端口、版本、连接串、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
-          { title: '实例名', dataIndex: 'instance_name', key: 'instance_name' },
-          {
-            title: '数据库类型',
-            key: 'database_type',
-            render: (_: unknown, record: Resource) =>
-              isDatabaseResource(record) ? <Tag color="green">{record.database_type}</Tag> : '-',
-          },
-          { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip' },
-          {
-            title: '端口',
-            key: 'port',
-            render: (_: unknown, record: Resource) => (isDatabaseResource(record) ? record.port : '-'),
-          },
-          {
-            title: '版本',
-            key: 'version',
-            render: (_: unknown, record: Resource) => (isDatabaseResource(record) ? record.version || '-' : '-'),
-          },
+          identityColumn('实例名', (record) =>
+            isDatabaseResource(record) ? (
+              <>
+                <Text strong>{record.instance_name || record.resource_id}</Text>
+                <Tag color="green">{record.database_type}</Tag>
+              </>
+            ) : null
+          ),
+          ipColumn,
           domainColumn,
           domainSourceColumn,
           businessColumn,
-          sourceColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1154,29 +1208,21 @@ export default function ResourcesPage() {
         return cols
       }
       case 'middleware': {
+        // 8 列：实例名（含中间件类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 下沉详情：端口、版本、连接串、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
-          { title: '实例名', dataIndex: 'instance_name', key: 'instance_name' },
-          {
-            title: '中间件类型',
-            key: 'middleware_type',
-            render: (_: unknown, record: Resource) =>
-              isMiddlewareResource(record) ? <Tag color="geekblue">{record.middleware_type}</Tag> : '-',
-          },
-          { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip' },
-          {
-            title: '端口',
-            key: 'port',
-            render: (_: unknown, record: Resource) => (isMiddlewareResource(record) ? record.port : '-'),
-          },
-          {
-            title: '版本',
-            key: 'version',
-            render: (_: unknown, record: Resource) => (isMiddlewareResource(record) ? record.version || '-' : '-'),
-          },
+          identityColumn('实例名', (record) =>
+            isMiddlewareResource(record) ? (
+              <>
+                <Text strong>{record.instance_name || record.resource_id}</Text>
+                <Tag color="geekblue">{record.middleware_type}</Tag>
+              </>
+            ) : null
+          ),
+          ipColumn,
           domainColumn,
           domainSourceColumn,
           businessColumn,
-          sourceColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1184,87 +1230,19 @@ export default function ResourcesPage() {
         return cols
       }
       case 'application': {
+        // 8 列：服务名 / 端点 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 下沉详情：健康检查 URL、协议、端口、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
-          {
-            title: '服务名',
-            key: 'service_name',
-            render: (_: unknown, record: Resource) =>
-              isApplicationResource(record) ? <Text strong>{record.service_name}</Text> : '-',
-          },
-          {
-            title: '健康检查 URL',
-            key: 'health_check_url',
-            ellipsis: true,
-            render: (_: unknown, record: Resource) =>
-              isApplicationResource(record) ? record.health_check_url || '-' : '-',
-          },
-          {
-            title: '协议',
-            key: 'protocol',
-            render: (_: unknown, record: Resource) =>
-              isApplicationResource(record) ? record.protocol || '-' : '-',
-          },
+          identityColumn('服务名', (record) =>
+            isApplicationResource(record) ? <Text strong>{record.service_name}</Text> : null
+          ),
           {
             title: '端点',
             key: 'endpoint',
+            width: 190,
             render: (_: unknown, record: Resource) =>
-              isApplicationResource(record) ? record.endpoint || '-' : '-',
-          },
-          {
-            title: '端口',
-            key: 'port',
-            render: (_: unknown, record: Resource) => (isApplicationResource(record) ? record.port ?? '-' : '-'),
-          },
-          domainColumn,
-          domainSourceColumn,
-          businessColumn,
-          sourceColumn,
-          statusColumn,
-          monitoredColumn,
-          actionColumn,
-        ]
-        return cols
-      }
-      case 'generic_target': {
-        const cols: TableProps<Resource>['columns'] = [
-          {
-            title: '目标名称',
-            key: 'target_name',
-            render: (_: unknown, record: Resource) =>
-              isGenericTargetResource(record) ? <Text strong>{record.target_name}</Text> : '-',
-          },
-          {
-            title: 'Exporter 类型',
-            key: 'exporter_type',
-            render: (_: unknown, record: Resource) =>
-              isGenericTargetResource(record) ? record.exporter_type || '-' : '-',
-          },
-          { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip' },
-          {
-            title: '端口',
-            key: 'port',
-            render: (_: unknown, record: Resource) => (isGenericTargetResource(record) ? record.port ?? '-' : '-'),
-          },
-          {
-            title: '采集路径',
-            key: 'metrics_path',
-            render: (_: unknown, record: Resource) =>
-              isGenericTargetResource(record) ? record.metrics_path || '/metrics' : '-',
-          },
-          {
-            title: '协议',
-            key: 'scheme',
-            render: (_: unknown, record: Resource) => (isGenericTargetResource(record) ? record.scheme || 'http' : '-'),
-          },
-          {
-            title: '自定义标签',
-            key: 'custom_labels',
-            ellipsis: true,
-            render: (_: unknown, record: Resource) =>
-              isGenericTargetResource(record) && record.custom_labels ? (
-                <Text code style={{ fontSize: 12 }}>
-                  {record.custom_labels}
-                </Text>
+              isApplicationResource(record) ? (
+                <EllipsisText maxWidth={180}>{record.endpoint || '-'}</EllipsisText>
               ) : (
                 '-'
               ),
@@ -1272,7 +1250,28 @@ export default function ResourcesPage() {
           domainColumn,
           domainSourceColumn,
           businessColumn,
-          sourceColumn,
+          statusColumn,
+          monitoredColumn,
+          actionColumn,
+        ]
+        return cols
+      }
+      case 'generic_target': {
+        // 8 列：目标名称（含 Exporter 类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 下沉详情：端口、采集路径、协议、自定义标签、数据来源、负责人
+        const cols: TableProps<Resource>['columns'] = [
+          identityColumn('目标名称', (record) =>
+            isGenericTargetResource(record) ? (
+              <>
+                <Text strong>{record.target_name}</Text>
+                {record.exporter_type && <Tag>{record.exporter_type}</Tag>}
+              </>
+            ) : null
+          ),
+          ipColumn,
+          domainColumn,
+          domainSourceColumn,
+          businessColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1344,32 +1343,46 @@ export default function ResourcesPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>资源管理</Title>
-        <Text type="secondary">管理主机、中间件、应用及通用监控对象（监控对象管理）</Text>
+        <Text type="secondary">管理主机、数据库、中间件、应用及通用监控对象（监控对象管理）</Text>
       </div>
 
       {/* 模块边界说明（用户语言，技术细节见 MainLayout 全局折叠区） */}
-      <Alert
-        type="info"
-        showIcon
-        closable
+      <Callout
+        tone="info"
+        icon={<InfoCircleFilled />}
+        title="本页只维护监控对象数据"
         style={{ marginBottom: 16 }}
-        message="本页只维护监控对象数据"
-        description={
-          <span>
-            本页维护监控对象（资源）、资源标签与标签模板的数据，<strong>不生成采集配置、不配置采集任务、不下发配置</strong>。
-            采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责。
-          </span>
-        }
-      />
+      >
+        本页维护监控对象（资源）、资源标签与标签模板的数据，<Text strong>不生成采集配置、不配置采集任务、不下发配置</Text>。
+        采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责。
+      </Callout>
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
-          <li>{'{v2.22} 决策 47-3（修订 31-M1）'}：采集状态三态 badge——采集中 / 已下发未采到 / 未监控，只读展示并提供三态筛选。数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合调用，禁止逐行查询 TQ-6）；M07 不直连时序数据、不据此计算 / 不写回，is_monitored 与 status 维度独立。{'{v2.25}'} 口径修订：选中关系不感知 M09 下发时序，「已下发未采到」含变更未确认下发情形，「待采集」细分归 M01 Job 回显。</li>
+          <li>{'{v2.22} 决策 47-3（修订 31-M1）'}：采集状态三态——采集中 / 已下发未采到 / 未监控，只读展示并提供三态筛选。数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合调用，禁止逐行查询 TQ-6）；M07 不直连时序数据、不据此计算 / 不写回，is_monitored 与 status 维度独立。{'{v2.25}'} 口径修订：选中关系不感知 M09 下发时序，「已下发未采到」含变更未确认下发情形，「待采集」细分归 M01 Job 回显。</li>
           <li>采集成功 / 目标状态数据归 M01 / M02：本页展示的是三态聚合结果（采集中 / 已下发未采到 / 未监控）；目标明细（up / down / scrape 详情）在 M02 目标状态页查看，选中关系在 M01 实例选择器查看。</li>
           <li>标签来源口径：模板映射生成 = 「系统」标签；手工添加 = 「用户」标签；CMDB 字段（v0.4+）= 「CMDB」标签。</li>
+          <li>
+            <Text strong>{'{v2.32}'} 列表列数治理（对齐《前端标准》§9「列表建议 ≤8 列、其余下沉详情 Drawer」）</Text>：
+            五类 Tab 统一收敛为 <Text strong>8 列</Text> —— 主标识（fixed left）/ 类型或身份 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作（fixed right）。
+            原列表曾达 11 ~ 14 列（主机 11、数据库 / 中间件 / 应用 12、通用目标 14）。
+            下沉详情 Drawer 的字段：端口 / 版本 / 操作系统 / 应用·环境·集群 / 健康检查 URL / 协议 / 端点 / 采集路径 / 自定义标签 / 数据来源 / 负责人 / CMDB 预留字段；
+            类型字段（数据库类型 / 中间件类型 / Exporter 类型）改为随主标识行内 Tag 呈现、不单独占列。
+            配套：状态语义统一 Badge 语义色 + 文字（不再用彩色 Tag 承载状态）、主标识列 fixed left、操作列 fixed right。
+          </li>
+          <li>
+            <Text strong>{'{v2.32}'} 操作层次（对齐《前端标准》§8/§9）</Text>：主操作 = 品牌色加粗文字「详情」且全行唯一；
+            次要操作「编辑」为灰色文字；低频且破坏性的「删除」收进「更多」菜单，避免同行出现多个同级入口。
+          </li>
+          <li>{'{v2.21} 决策 32'}：运行状态数据来源（CMDB 同步 / Excel 导入 / 用户手动维护）以列头 hover 提示标注、不占列宽。{'运行状态用户语言按 PRD §10 术语表收敛为「运行中 / 已停止 / 维护中」（此前 mock 误用「在线 / 离线」）。'}</li>
           <li>列显隐配置为 P1 占位，MVP 版本列表列固定展示，可在「列设置」查看后续规划。</li>
           <li>Excel 导入：状态中文值按内置状态映射转换（本页只读展示，配置入口 P2）；枚举列（env / protocol / scheme）要求与字典一致，否则报错。</li>
           <li>{'{v2.20} 决策 29'}：目标状态 offline 后，配置中心（Module_09）下一配置生成周期即将其从 targets/*.json 移除、不触发采集器 reload，批量下线动线为真。</li>
+          <li>
+            <Text strong>{'{v2.32}'} K8s 集群归属注记（决策 77）</Text>：K8s 集群<Text strong>不设第六资源类型</Text>——五大类按采集形态分类，集群属部署形态。
+            集群诉求四归属：网络边界 → 独立建网域；分组维度 → <Text code style={{ fontSize: 12 }}>cluster</Text> 字段 / 标签；发现源 → M04 KubernetesProvider；集群健康监控 → 通用指标目标 + M01 <Text code style={{ fontSize: 12 }}>monitor_type=k8s</Text>。
+            「集群清单」按集群视图（展示层）承接，MVP 不做。
+          </li>
         </ul>
       </ReviewNote>
 
@@ -1529,10 +1542,10 @@ export default function ResourcesPage() {
         />
       </Card>
 
-      {/* 详情抽屉 + 标签管理（PRD 3.3 / 5.3） */}
+      {/* 详情抽屉 + 标签管理（PRD 3.3 / 5.3）；{v2.32} 宽度对齐《前端标准》§8「结构化详情 Drawer ≥720px」 */}
       <Drawer
         title="资源详情"
-        width={680}
+        width={720}
         open={drawerOpen}
         onClose={handleCloseDetail}
         extra={
@@ -1542,13 +1555,11 @@ export default function ResourcesPage() {
         {selectedResource && (
           <>
             <Space size={[8, 8]} wrap style={{ marginBottom: 16 }}>
-              <Tag color="blue">{SOURCE_TYPE_MAP[selectedResource.source_type]}</Tag>
+              {/* {v2.32} 数据来源 / 网域 / 归属来源已下沉到「基础信息」逐项呈现（避免同一信息两处重复） */}
               <Tag>{RESOURCE_TYPE_MAP[selectedResource.resource_category]}</Tag>
-              <Tag>网域：{selectedResource.network_domain_id}</Tag>
-              {/* {v2.24} 决策 52：详情标注归属来源（解析链派生信息） */}
-              <Tooltip title={resolveDomainAttribution(selectedResource).hint}>
-                <Tag color="purple">归属来源：{DOMAIN_SOURCE_LABELS[resolveDomainAttribution(selectedResource).source]}</Tag>
-              </Tooltip>
+              <Text code style={{ fontSize: 12 }}>
+                {selectedResource.resource_id}
+              </Text>
             </Space>
             <Descriptions
               column={2}
@@ -1595,6 +1606,38 @@ export default function ResourcesPage() {
                 { key: 'env', label: '环境', children: selectedResource.env || '-' },
                 { key: 'cluster', label: '集群', children: selectedResource.cluster || '-' },
                 { key: 'owner', label: '负责人', children: selectedResource.owner || '-' },
+                // {v2.32} 列数治理配套：列表下沉的「数据来源 / 网域 / 采集状态」在详情 Drawer 完整承载
+                {
+                  key: 'source_type',
+                  label: '数据来源',
+                  children: SOURCE_TYPE_MAP[selectedResource.source_type] || selectedResource.source_type,
+                },
+                {
+                  key: 'network_domain',
+                  label: '网域',
+                  children: (
+                    <Space size={6} wrap>
+                      <Tag color="cyan">{selectedResource.network_domain_id}</Tag>
+                      <Tooltip title={resolveDomainAttribution(selectedResource).hint}>
+                        <Tag color="purple">归属来源：{DOMAIN_SOURCE_LABELS[resolveDomainAttribution(selectedResource).source]}</Tag>
+                      </Tooltip>
+                    </Space>
+                  ),
+                },
+                {
+                  key: 'collection_status',
+                  label: '采集状态',
+                  children: (
+                    <Tooltip title={COLLECTION_STATUS_META[resolveCollectionStatus(selectedResource)].tooltip}>
+                      <span>
+                        <Badge
+                          status={COLLECTION_BADGE_STATUS[resolveCollectionStatus(selectedResource)]}
+                          text={COLLECTION_STATUS_META[resolveCollectionStatus(selectedResource)].label}
+                        />
+                      </span>
+                    </Tooltip>
+                  ),
+                },
                 {
                   key: 'status',
                   label: '运行状态',
@@ -1710,7 +1753,7 @@ export default function ResourcesPage() {
                   <Card
                     key={label.label_id}
                     size="small"
-                    bodyStyle={{ padding: 12 }}
+                    styles={{ body: { padding: 12 } }}
                     style={{
                       borderLeft: `4px solid ${
                         label.source === 'cmdb' ? '#1481FD' : label.source === 'user' ? '#0ECDEB' : '#86909C'
@@ -1795,10 +1838,10 @@ export default function ResourcesPage() {
         )}
       </Drawer>
 
-      {/* 新增 / 编辑资源（PRD 5.6~5.9 按类型渲染字段，v1.8 起改为右侧抽屉编辑） */}
+      {/* 新增 / 编辑资源（PRD 5.6~5.9 按类型渲染字段；{v2.32} 字段 12~14 项 → 720px Drawer + 分组，对齐《前端标准》§8） */}
       <Drawer
         title={`${editingResource ? '编辑资源' : '新增资源'} - ${RESOURCE_TYPE_MAP[editingResource?.resource_category ?? activeType]}`}
-        width={560}
+        width={720}
         open={editOpen}
         onClose={() => {
           setEditOpen(false)
@@ -1823,8 +1866,16 @@ export default function ResourcesPage() {
         }
       >
         <Form form={resourceForm} layout="vertical" style={{ marginTop: 8 }}>
-          {renderTypeFields(editingResource?.resource_category ?? activeType)}
-          {renderCommonFields()}
+          {/* {v2.32} 分组呈现（《前端标准》§8）：类型专属字段 / 归属与状态两类语义分区，避免 12~14 字段平铺 */}
+          <FormSection
+            title="资源信息"
+            desc={`${RESOURCE_TYPE_MAP[editingResource?.resource_category ?? activeType]}类型固定字段`}
+          >
+            {renderTypeFields(editingResource?.resource_category ?? activeType)}
+          </FormSection>
+          <FormSection title="归属与状态" desc="应用·环境·集群、网域与业务归属、运行状态">
+            {renderCommonFields()}
+          </FormSection>
         </Form>
       </Drawer>
 

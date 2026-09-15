@@ -1621,3 +1621,165 @@ system 标签（由标签模板自动生成）：
 ## 评审记录：2026-08-31（ready 回归确认）
 
 - PRD v2.24 原型已对齐（原型版本与 PRD 版本一致，check-prototype 无新增违规），经用户授权评审确认，PRD 状态 `设计中` → `ready`（可开发版本）。
+
+---
+
+## 补充对齐：2026-09-14（前端设计优化 + v2.27 / v2.31 / v2.32 契约对齐，原型 v2.25 → v2.32）
+
+> **触发**：chenrt「请继续优化 M09 和 M07 的原型」（承 2026-09-14 M06 决策 80 的同一套规范口径：先对齐《前端标准》§8 / §9，再谈审美）。
+> **执行 Agent**：prototype-designer。
+> **版本**：原型 `package.json` 2.25.0 → 2.32.0（PRD 版本不变，v2.32）；PRD 头部「原型版本」行同步为 v2.32 ✅ 已对齐。
+
+### 1. 本轮定位
+
+本轮把 M07 原型从「功能齐备」推进到「**按前端标准收敛**」，同时清掉三笔长期挂账的原型待对齐项（v2.25 的 `resource_id` 遗漏、v2.27 的 `description`、v2.31 的命名规约与 tenant 前瞻）。分两轴：
+
+| 轴 | 内容 | 依据 |
+| --- | --- | --- |
+| **A. 契约对齐** | `LabelTemplate.description` 落库；五类默认模板补齐 `resource_id → resource_id`；字段选项补 `resource_id` / `tenant_id` 并按命名规约组织；tenant 前瞻口径 | PRD 6.3 / 5.10 / 5.11 / 5.12 A / 5.13；决策 68-5、77；v2.25 / v2.27 / v2.31 / v2.32 |
+| **B. 设计规范对齐** | 列数治理（11~14 → 8 列）、状态语义 Badge、操作层次化、表单抽屉 720px + 分组、提示统一 Callout | 《前端标准》§8（交互组件选型决策表）/ §9（列表与长文本规范） |
+
+### 2. 关键设计决策
+
+**D-07-30 列表列数治理：五类 Tab 统一 8 列，不按类型差异化**
+
+- **背景**：治理前各类型列数不一（主机 11 / 数据库 12 / 中间件 12 / 应用 12 / 通用目标 14），远超《前端标准》§9 第 4 条的「建议 ≤8 列」，且「归属来源」「来源」等治理属性占了大量扫读带宽。
+- **选项**：
+  - A. 按类型各自收敛到 ≥8 列的最近可用集合（灵活性高，但跨 Tab 扫读节奏不一致，用户切 Tab 要重新找列）；
+  - B. **统一为同一 8 列骨架**（主标识 / 类型或身份 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作），类型专属信息以「主标识行内 Tag」或「下沉详情」承载。
+- **结论**：**取 B**。跨类型一致性优先——五类资源是同一张表的五个切片，列位置固定后用户无需重新定位；同时把「类型字段」（数据库类型 / 中间件类型 / Exporter 类型）从独立列降为行内 Tag，信息不丢、列数-1。
+- **影响**：`ResourcesPage.getColumns` 重写为共享列工厂（`identityColumn` / `ipColumn` / `domainColumn` / `domainSourceColumn` / `businessColumn` / `statusColumn` / `monitoredColumn` / `actionColumn`）+ 五个轻量 `switch` 分支；主标识列 `fixed: 'left'`、操作列 `fixed: 'right'`、`scroll={{ x: 'max-content' }}` 保留。
+- **下沉字段清单**（必须与详情 Drawer 对齐，避免「下沉即丢失」）：端口 / 版本 / 操作系统 / 应用·环境·集群 / 健康检查 URL / 协议 / 端点 / 采集路径 / 自定义标签 / **数据来源** / 负责人 / CMDB 预留字段。本轮同时在详情 Drawer「基础信息」补了 **数据来源 / 网域（含归属来源）/ 采集状态** 三行——原详情只展示网域与归属来源为顶部 Tag，`source_type` 与采集状态在列表下沉后会无处可看。
+
+**D-07-31 状态语义统一 Badge（采集状态由彩色 Tag 改 Badge）**
+
+- **背景**：`采集状态` 原用 `<Tag color>` 承载三态，其中「已下发未采到」用高饱和 `#FF4C3A`；同页「运行状态」却用 `<Badge color>`，两种状态表达风格并存。
+- **结论**：统一为 `Badge status`（`success` / `error` / `default`）+ 文字标签，新增 `COLLECTION_BADGE_STATUS` 常量。依据《前端标准》§8「状态语义 → Badge 语义色 + 文字标签，颜色不得作为唯一语义」。
+- **保留**：采集状态概览横幅（可点击筛选的计数 Tag）不改——它是**筛选控件**而非状态展示，语义不同。
+
+**D-07-32 操作层次化：主操作唯一 + 低频操作入「更多」**
+
+- **结论**：资源列表行内 → 主操作「详情」（品牌色 `#0ECDEB` + `fontWeight: 600`、全行唯一）+ 次要「编辑」（`#4E5969` 灰字）+ 「更多」菜单承载「删除」（`danger`）；业务管理页同理 → 「编辑」为主，「停用 / 启用」入「更多」，`infra` 兜底条目在菜单内直给原因（原为 `disabled` 按钮 + `Tooltip`，即「不可操作原因藏在悬停里」，改为菜单内可见文案）。
+- **依据**：《前端标准》§8/§9 与 M06 决策 80 的同一口径。
+- **例外**：标签模板页的**映射明细子表**（≤6 行 2 个操作）保留「编辑 + 删除」双文字操作，不强行收进菜单——子表是配置明细而非任务列表，收进菜单反而增加一次点击；此处偏离已在本页 ReviewNote 显式标注。
+
+**D-07-33 表单容器与分组：资源新增 / 编辑 560 → 720px + 两组分区**
+
+- **背景**：资源表单字段数 12 ~ 14 项（host 12 / database 13 / application 12 / generic_target 14），原为 560px 无分组平铺。
+- **结论**：720px + 新增 `FormSection` 局部组件分「**资源信息**（类型固定字段）/ **归属与状态**（应用·环境·集群 / 网域 / 业务 / 运行状态）」两组。依据《前端标准》§8「>6 个字段或需分组 → Drawer 内表单，分组多时可用 Tabs / Steps 分区」。
+- **详情抽屉**同步 680 → 720px（§8「查看详情（结构化、字段多）→ 右侧 Drawer，宽 ≥720px」）。
+- **偏离说明**：标签模板级表单（3 字段）与映射级表单（5 字段）按 §8 本应用 `Modal`，但本模块 **PRD §11.2 明确「编辑类操作统一右侧抽屉」**（保留列表上下文以对照映射内容），故保留 Drawer——属「模块 PRD 偏离标准表」情形，已在标签模板页 ReviewNote 显式标注理由。
+
+**D-07-34 提示统一 Callout 单块容器（替换 5 处 Alert）**
+
+- **结论**：新建 `src/components/Callout.tsx` + `calloutTones.ts`（与 module-06 / module-09 同款视觉语言，五色 brand / info / warning / success / error），替换 ResourcesPage / LabelTemplatesPage / BusinessManagementPage（2 处）/ ImportHistoryPage 共 5 处 `Alert`。
+- **拆分理由**：配色常量放 `calloutTones.ts` 而非 `Callout.tsx`，满足 `react-refresh/only-export-components`（组件文件只应导出组件）。
+
+**D-07-35 运行状态用户语言收敛为「运行中 / 已停止 / 维护中」（顺带修复的 PRD §10 偏离）**
+
+- **背景**：mock `STATUS_MAP` 用「在线 / 离线 / 维护中」，但 PRD §10 术语映射 `status` → 运行状态 → **运行中 / 已停止 / 维护中**；且同仓库内资源列表筛选器（运行中 / 已停止 / 维护中）、`STATUS_MAPPING_RULES`（运行中 / 已停止 / 维护中）、导入记录页文案（「已停止」）都用 PRD 口径——`STATUS_MAP` 是唯一孤例。
+- **结论**：按 PRD §10 收敛 `STATUS_MAP`，`orphan` 保持「孤儿 {v0.4+}」。属**原型自身缺陷修正**，PRD 无需改动。
+
+**D-07-36 `LabelTemplate.description` 落库（v2.27 / PRD 6.3）**
+
+- **结论**：`LabelTemplate` 加 `description?: string`；6 个 mock 模板补说明文案；新增 / 编辑模板抽屉加「模板说明」`Input.TextArea`（`maxLength 200` + `showCount`）并在 `openTemplateDrawer` 回填、`handleSaveTemplate` 提交（`trim` 后空串存 `undefined`）、`handleCloneTemplate` 保留；模板详情头部展示（空则显示「（未填写模板说明）」）。
+- **验收**：单测断言五类默认模板 `description` 为非空字符串。
+
+**D-07-37 五类默认模板补齐 `resource_id → resource_id`（v2.25 遗留缺陷）**
+
+- **背景**：PRD §5.13（v2.25）已要求「五类默认模板均必须包含 `resource_id → resource_id`」（coverage 三态聚合与 badge 回连的稳定身份键），README v1.49 也记「原型 v2.25」。**但 mock 中只有 `tpl-db-default` 含该映射**，host / middleware / application / generic_target 四个默认模板均缺失——属原型漏落，非口径问题。
+- **结论**：四个默认模板各补一条 `resource_field resource_id → resource_id, enabled: true`（新增 `mp-host-09` / `mp-mw-def-02` / `mp-app-07` / `mp-gen-08`）；同时把 `resource_id` 补进五类 `RESOURCE_FIELD_OPTIONS`——否则编辑该映射时下拉里没有这一项（原 db 模板的 `resource_id` 映射在编辑态会显示空白，属连带缺陷）。
+- **自定义模板 `tpl-mw-redis-ha` 不补**：PRD 的强约束只针对「默认模板」；自定义模板是用户自由，其合规性由 M09 生成期门禁（决策 68-5-3②）承担。
+
+**D-07-38 命名规约落页 + `tenant_id → tenant` v0.2 前瞻（v2.31 / 决策 68-5）**
+
+- **结论**：
+  1. `RESOURCE_FIELD_OPTIONS` 五类补 `tenant_id`；字段选项顺序按命名规约组织（`resource_id` 前置为稳定身份键）；
+  2. 新增常量 `TENANT_DEFAULT_MAPPING`（`{ source_field: 'tenant_id', target_label: 'tenant' }`）与 `TENANT_MAPPING_NOTES`（缺映射后果）；
+  3. 标签模板页 ReviewNote 追加两条（命名规约 / tenant v0.2 前瞻口径）；
+  4. 映射表单在来源字段 = `tenant_id` 时就地弹 `Callout`（用户语言，无版本标记）说明「当前单租户不实际注入、开启多租户后由平台内置映射为 `tenant` 并默认启用、平台自身指标需显式归属平台管理员租户」；
+  5. 单测断言「MVP 默认模板不含 `tenant` 映射」+「`tenant_id` 进入五类字段选项」+「`target_label` 不带 `_id` 后缀（`resource_id` 例外）」。
+- **为何不直接把 tenant 行加进 MVP 默认模板**：PRD §5.13 明确「下表为 MVP 口径（**不含** tenant 行）；v0.2 起每类模板在此基础上追加」。原型强行加行会与 MVP 口径冲突、并让演示数据与「注入骨架恒通过」的说明自相矛盾，故以「前瞻注记 + 常量 + 就地说明」承载。
+
+**D-07-39 K8s 四归属注记（v2.32 / 决策 77）**
+
+- **结论**：纯文档注记，原型行为不变；在资源页 ReviewNote 追加一条完整四归属说明（网络边界 → 独立建网域；分组维度 → `cluster` 字段 / 标签；发现源 → M04 KubernetesProvider；集群健康监控 → generic_target + M01 `monitor_type=k8s`），并注明「集群清单」按集群视图承接、MVP 不做。
+
+### 3. 文件变更清单
+
+| 文件 | 变更 |
+| --- | --- |
+| `docs/prototypes/module-07/package.json` | `version` 2.25.0 → 2.32.0 |
+| `src/components/Callout.tsx`（新增） | 统一提示容器（五色 tone） |
+| `src/components/calloutTones.ts`（新增） | 配色常量 + `CalloutTone` 类型 |
+| `src/mocks/module-07.ts` | `LabelTemplate.description`；6 模板补说明；4 个默认模板补 `resource_id → resource_id`；`RESOURCE_FIELD_OPTIONS` 补 `resource_id` / `tenant_id` 并补注释；新增 `TENANT_DEFAULT_MAPPING` / `TENANT_MAPPING_NOTES`；`STATUS_MAP` 按 PRD §10 收敛；头部对齐版本改 v2.32 |
+| `src/mocks/module-07.test.ts` | describe 对齐版本改 v2.32；「四类」→「五类」；新增 6 条（稳定身份映射 / 命名规约 / tenant 前置与字段选项 / description）；导入补 2 个常量。53 → 59 条 |
+| `src/pages/ResourcesPage.tsx` | `getColumns` 重写（列工厂 + 8 列 × 5 类）；新增 `COLLECTION_BADGE_STATUS`；操作列层次化 + `Dropdown`；详情 Drawer 补 3 行、宽 720、顶部 Tag 去重；新增 `FormSection` + 抽屉 720 分组；页首 `Alert` → `Callout`；ReviewNote 补 4 条 |
+| `src/pages/LabelTemplatesPage.tsx` | 模板说明字段（表单 / 回填 / 落库 / 克隆 / 详情展示）；映射表操作层次化；页首 `Alert` → `Callout`；ReviewNote 补 5 条（含偏离 §8 说明）；映射表单 tenant 就地 `Callout`；**关联实例表「目标 IP」列改「目标 IP / 端点」并回落 `endpoint`，搜索字段集同步覆盖**（见 §4.1） |
+| `src/pages/BusinessManagementPage.tsx` | 2 处 `Alert` → `Callout`；状态改 `Badge`；操作列层次化（`Dropdown` + `infra` 原因内联） |
+| `src/pages/ImportHistoryPage.tsx` | 1 处 `Alert` → `Callout` |
+| `src/layouts/MainLayout.tsx` | 决策清单追加 3.26 ~ 3.29 |
+| `scripts/check-prototype.py` | 列数检测重写：新增 `scan_balanced` / `split_top_level` / `count_array_elements` / `unwrap_array` / `COLUMN_ARRAY_RE` / `iter_column_counts`，覆盖三种列定义形态并按数组顶层元素计数；新增 `--all-src` 选项（见 §6） |
+| `Module_07` PRD 头部 | 原型版本行 → v2.32 ✅ 已对齐 |
+| `Modules/README.md` | §1 M07 行原型版本 v2.25 → v2.32、对齐改 ✅；表头日期版本 v1.63 → v1.64；§5 Change Log 追加 v1.64 |
+
+### 4. 校验结果
+
+- `pnpm build`（`tsc && vite build`）通过；
+- `pnpm lint`（`--max-warnings 0`）通过；
+- `pnpm test` 59 / 59 通过；
+- `pnpm check:prototype`（文案泄漏 + 结构反模式）OK；
+- `pnpm check:notes` OK；
+- headless Chrome + puppeteer-core 实测各页面（资源五类 Tab / 详情抽屉 / 编辑抽屉 / 标签模板页 / 业务管理 / 导入记录）。
+
+### 4.1 视觉自验发现并修复的问题（2 项）
+
+**（1）关联实例表「目标 IP」整列为空**（已修复）
+
+- **现象**：标签模板页 → 应用 Tab → 关联实例 Tab，`order-service-v2` / `pay-service-v1` 两行的「目标 IP」均渲染为 `-`。
+- **根因**：列定义取 `dataIndex: 'instance_ip'`，而 `ApplicationResource` 的地址由 `endpoint` 字段承载（`10.0.3.11:9100`），该类型**不产生 `instance_ip`**；`instance_ip` 是 `ResourceBase` 上的可选字段，host / database / middleware / generic_target 四类才有值。原型自身缺陷，非本轮引入。
+- **修法**：列改为「目标 IP / 端点」，渲染回落 `r.instance_ip || (resource_category === 'application' ? r.endpoint : undefined) || '-'`；同时**搜索字段集一并覆盖地址**（原 `[instance_name, hostname, instance_ip, app_name]` → 按类别取 `addr = application ? endpoint : instance_ip`），否则出现「列里有值但搜不到」的不一致。
+- **实证**：搜索 `10.0.3.11` → 仅 `order-service-v2`；搜索 `pay` → 仅 `pay-service-v1`；清空后恢复 2 行。
+- **口径确认**：关联实例 Tab 仅对 `INSTANCE_LEVEL_CUSTOM_CATEGORIES = ['application']` 渲染（v2.27 决策：仅业务类型资源），故主机 / 数据库等模板无此 Tab，**属设计现状而非缺陷**。
+
+**（2）`STATUS_MAP` 运行状态术语与 PRD §10 冲突**（见 §2 决策 3.27 附近，随本轮一并收敛）
+
+- 原 mock 用「在线 / 离线」，与 PRD §10 术语表（运行中 / 已停止 / 维护中）、资源列表筛选器、Excel 状态映射字典三处冲突，已按 PRD §10 统一。
+
+### 5. 遗留与建议
+
+1. ~~**`scripts/check-prototype.py` 的列数检测存在盲区**~~ → **本轮已修复**（见 §6）。原规则为 `re.finditer(r'columns\s*=\s*{', text)` + `scan_braces` 内数 `title:` 出现次数：实测在本页只命中 3 个 `columns={...}` 块（`title:` 计数 0 / 2 / 4，命中的是 `columns={getColumns(activeType)}` 这类简写，配平扫描只拿到函数调用表达式、不进入被引用的数组字面量），而真正的列定义写在 `const cols: TableProps<Resource>['columns'] = [...]`（治理前 5 处，块内 `title:` 计数 11 / 12 / 12 / 12 / 14），**该形态完全没有被规则覆盖**——这正是「列数超标最严重的文件反而检查通过」的原因。
+2. `RESOURCE_FIELD_OPTIONS` 中的 `os_version` / `connection_string` / `custom_labels` 等字段目前仅 host / database / middleware 等各自类别出现，与 PRD §5.12 A 表「通用 / 主机 / 数据库 / 中间件 / 应用服务」的分层列尚未一一映射；本轮未动，属既有差异。
+3. `.kimi/agents/prototype-designer.md` 中**并不存在**「列数治理」检查项（本轮 grep 确认：`.kimi/agents/` 全目录无 `列数` / `columns` 字样），故原第 3 条建议作废；列数治理目前仅由 `scripts/check-prototype.py` 与 `02_Frontend_Standard.md` §9.4 承载。
+
+### 6. 配套修复：`scripts/check-prototype.py` 列数检测（本轮）
+
+**改动**（`scripts/check-prototype.py`）：
+
+- 新增通用配平扫描 `scan_balanced(text, start, open_ch, close_ch)`、`skip_ws`、`split_top_level`、`count_array_elements`、`unwrap_array`；原 `scan_braces` 改为委托 `scan_balanced('{' , '}')`（行为等价，既有文案泄漏检测不受影响——全模块 markers 复跑无泄漏）。
+- 新增 `COLUMN_ARRAY_RE` + `iter_column_counts(text)`，覆盖**三种真实形态**：① JSX / 对象属性 `columns={` / `columns: [`；② 类型注解赋值 `const cols: TableProps<X>['columns'] = [`；③ 变量名语义 `const columns = [` / `const columnDefs = [`。按匹配位置去重。
+- **计数口径改变**：由「数数组内 `title:` 出现次数」改为「**按数组顶层元素个数**」。这样列工厂写法（`[identityColumn(...), ipColumn, ..., { title: '操作' }]`）也能正确计数——该形态下 `title:` 计数为 0~1，旧口径双向失效。
+- 新增 `--all-src` 选项：结构检查默认仍只扫 `src/pages/`（保持既有噪声基线），需要时可用 `--all-src` 覆盖整个 `src/`。
+
+**回归验证**（`git show HEAD:` 取治理前版本对比工作区版本）：
+
+| 对象 | 检测到的列数组 | 超标（>8） |
+| --- | --- | --- |
+| 治理前 `ResourcesPage.tsx` | L1084=11 · L1127=12 · L1157=12 · L1187=12 · L1229=14 · L1851=2 · L1923=4 | **5 处**（旧脚本全部漏检） |
+| 治理后 `ResourcesPage.tsx` | 5 × 8 列 + 2 个小表 | 无 ✅ |
+| `LabelTemplatesPage.tsx`（前后一致） | 5 / 4 / 6 列 | 无 ✅ |
+| M09 `NetworkDomainsPage.tsx` | 7 列 | 无 ✅ |
+
+**连带发现（存量，非本轮引入，未修）**：新规则在全模块跑出 4 处历史超标，旧脚本对这些文件一律报 OK——
+
+| 模块 | 文件:行 | 列数 | 形态 | 横向滚动 |
+| --- | --- | --- | --- | --- |
+| M01 | `pages/BusinessMetricsPage.tsx:141` | 10 | 变量名 | 缺 `scroll={{ x }}` |
+| M01 | `pages/MetricLibraryPage.tsx:210` | 10 | 变量名 | 缺 `scroll={{ x }}` |
+| M01 | `pages/ScrapeJobsPage.tsx:1367` | 13 | 变量名（`const columns = [`） | 有 |
+| M04 | `pages/SyncPoliciesPage.tsx:77` | 9 | 变量名（`const columns = [`） | 缺 `scroll={{ x }}` |
+
+- 这些属**警告**（脚本 `exit 0`），且 `scripts/git-hooks/pre-commit` 未挂该检查（仅 Makefile 有 `check-prototype` 目标），**不阻断提交**；`pnpm check:prototype` 的退出码亦不变。
+- 建议由 M01 / M04 认领治理（各模块原型的列数治理口径应与本模块一致），本轮未越界改动他人模块。
+- `--all-src` 与默认范围在全模块跑出的结果**完全一致**，说明现存列定义均位于 `pages/` 内，暂无 `components/` 下的共享表格超标。
+

@@ -1,11 +1,15 @@
 // ============================================================
 // Module_07 监控对象管理 - 数据模型与 mock 数据
-// 对齐 PRD v2.23（Module_07_Monitoring_Object_Management.md）
+// 对齐 PRD v2.32（Module_07_Monitoring_Object_Management.md）
 // 决策 13/14/17/19/21/22/48：业务分组字典 + biz_code 全资源必填（biz 标签只承载不可变编码），展示取 biz_name；强制预置兜底条目 infra
 //   决策 48：字典落 DB + 业务管理页（列表/登记/受限编辑/停用），business_domains.yaml 仅首次启动 seed；biz_code 创建后不可改、停用不删除、infra 禁止停用/删除
 // 决策 47-3（修订 31-M1）：采集状态三态 badge——采集中（is_monitored=true 且 up）/ 已下发未采到（is_monitored=true 但未采到数据：down / 待首次抓取 / 变更未确认下发）/ 未监控（is_monitored=false）
 // {v2.25} 2026-09-02 口径修订：选中关系取 DB 当前值、不感知 M09 下发时序；「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）
 //   is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连，列表级禁止逐行查询 TQ-6）
+//   {v2.25} 五类默认标签模板必含 resource_id → resource_id（稳定身份键，coverage 回连前置）
+// {v2.27} 静态资源隐藏「关联实例」Tab 与 badge（实例级标签在 CMDB 侧只读治理）；LabelTemplate.description 必须落库
+// {v2.31} 命名规约：target_label 不带 _id 后缀；tenant_id → tenant 为 v0.2 起五类默认模板的内置默认映射（MVP 不注入）
+// {v2.32} K8s 集群不设第六资源类型——集群四归属：网络边界→网域独立建域 / 分组维度→cluster 字段·标签 / 发现源→M04 KubernetesProvider / 集群健康→generic_target + M01 monitor_type=k8s
 // 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真，见 STATUS_MAPPING 注释）
 // ============================================================
 
@@ -322,6 +326,11 @@ export interface LabelTemplate {
   name: string
   resource_category: ResourceCategory
   is_default: boolean
+  /**
+   * {v2.27} 模板说明（PRD 6.3 标签模板 API）：创建 / 更新请求体的 `description` **必须落库**，
+   * 不再静默丢弃；用于模板列表与详情展示「这个模板是干什么的」，可选填。
+   */
+  description?: string
   mappings: Mapping[]
   created_at: string
   updated_at: string
@@ -453,14 +462,37 @@ export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceCategory, string[]> = {
   generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
 }
 
-/** 标签模板映射：Resource 字段选项（PRD 5.12 A；{v2.13} 新增 database 键；{v2.17} 全资源类补 biz_code → biz） */
+/**
+ * 标签模板映射：Resource 字段选项（PRD 5.12 A；{v2.13} 新增 database 键；{v2.17} 全资源类补 biz_code → biz）
+ *
+ * {v2.25} `resource_id` 为**稳定身份键**（覆盖率三态聚合与资源回连），五类默认模板必含 `resource_id → resource_id`，
+ * 故进入全部资源类别的字段选项（它是 Resource 基础字段、非某类专有）。
+ * 注：`resource_id → resource_id` 是命名规约的**约定俗成例外**（见 PRD 5.11 命名规约）。
+ *
+ * {v2.31} 命名规约（跨模块基线，决策 68-5-1）：`target_label` **一律不带 `_id` 后缀**——
+ * `_id` 后缀只属 DB 列与 API JSON 字段；资源字段带 `_id` 时目标标签应去掉后缀。
+ * 本表已按规约预置：`tenant_id → tenant`（v0.2 内置默认）、`biz_code → biz`（既有实例）。
+ *
+ * {v2.31} `tenant_id`：**MVP 单租户不注入**（默认模板不含该映射，注入骨架恒通过）；
+ * **v0.2 起为五类默认模板的内置默认映射**（`DefaultMappingBuilders` 统一生成 → target 级 `tenant` 标签），
+ * 且前端**默认启用**（用户可关闭，不默认关闭）。理由见 TENANT_MAPPING_NOTES。
+ */
 export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
-  host: ['instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  database: ['instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  middleware: ['instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  application: ['instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
-  generic_target: ['instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id'],
+  host: ['resource_id', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  database: ['resource_id', 'instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  middleware: ['resource_id', 'instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  application: ['resource_id', 'instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  generic_target: ['resource_id', 'instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
 }
+
+/** {v2.31} v0.2 内置默认映射前瞻：五类默认模板在 v0.2 开启多租户时统一追加 `tenant_id → tenant`，前端默认启用 */
+export const TENANT_DEFAULT_MAPPING = { source_field: 'tenant_id', target_label: 'tenant' } as const
+
+/** {v2.31} 缺该映射的后果说明（同步 PRD 5.11 / 5.12 A 的「为什么必须内置默认」） */
+export const TENANT_MAPPING_NOTES =
+  '查询中心的租户硬隔离 matcher 名为 tenant；若某采集 Job 引用的标签模板缺该映射，该 Job 的序列就没有 tenant 标签，' +
+  '按 fail-closed 严格语义对所有普通租户静默不可见，配置生成期门禁也会直接拦下这类模板。' +
+  '因此 v0.2 起由默认模板内置该映射，让门禁走常规通过路径；平台自身基础设施指标需显式 tenant="platform_admin"（不依赖「无标签即公共」）。'
 
 /** Prometheus 内置字段（PRD 5.12 B，不含 __name__） */
 export const PROMETHEUS_BUILTIN_OPTIONS = ['__address__', '__scheme__', '__metrics_path__', 'job', 'instance']
@@ -471,9 +503,14 @@ export const COMPOSITE_OPTIONS = ['instance_ip:port']
 /** v0.4+ CMDB 字段选项（PRD 5.12 A，预留） */
 export const CMDB_FIELD_OPTIONS = ['cmdb_ci_id', 'cmdb_business_path', 'cmdb_module_path', 'cmdb_maintainer']
 
+/**
+ * 运行状态用户语言（PRD §10 术语映射：`status` → 运行状态 → 运行中 / 已停止 / 维护中）。
+ * 此前 mock 误用「在线 / 离线」，与 PRD §10 用户词汇表、Excel 状态映射字典（运行中/已停止）
+ * 及资源列表筛选器文案不一致，本轮统一按 PRD §10 收敛。
+ */
 export const STATUS_MAP: Record<ResourceStatus, string> = {
-  online: '在线',
-  offline: '离线',
+  online: '运行中',
+  offline: '已停止',
   maintenance: '维护中',
   orphan: '孤儿 {v0.4+}',
 }
@@ -837,8 +874,11 @@ export const mockLabelTemplates: LabelTemplate[] = [
     name: '主机默认模板',
     resource_category: 'host',
     is_default: true,
+    description: '平台预置：主机类资源的通用标签契约（身份 + 业务归属 + 定位维度），适用于全部主机。',
     mappings: [
       { mapping_id: 'mp-host-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
+      // {v2.25} 稳定身份标签：resource_id 是覆盖率三态聚合与资源回连的唯一稳定键，五类默认模板必含
+      { mapping_id: 'mp-host-09', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-host-02', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-host-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-host-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
@@ -858,6 +898,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
     name: '数据库默认模板',
     resource_category: 'database',
     is_default: true,
+    description: '平台预置：数据库类资源的通用标签契约（身份 + 业务归属 + 数据库类型），适用于全部数据库实例。',
     mappings: [
       { mapping_id: 'mp-db-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
       { mapping_id: 'mp-db-02', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
@@ -876,8 +917,11 @@ export const mockLabelTemplates: LabelTemplate[] = [
     name: '中间件默认模板',
     resource_category: 'middleware',
     is_default: true,
+    description: '平台预置：中间件类资源的通用标签契约（身份 + 业务归属 + 中间件类型），适用于全部中间件实例。',
     mappings: [
       { mapping_id: 'mp-mw-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
+      // {v2.25} 稳定身份标签：五类默认模板必含 resource_id → resource_id
+      { mapping_id: 'mp-mw-def-02', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-02', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
@@ -894,6 +938,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
     // {v2.13} redis 归 database（决策 D19）
     resource_category: 'database',
     is_default: false,
+    description: 'Redis 高可用集群专用：在数据库默认模板基础上增加实例名（哨兵 / 集群分片定位）。',
     mappings: [
       { mapping_id: 'mp-mw-06', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-07', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
@@ -911,7 +956,10 @@ export const mockLabelTemplates: LabelTemplate[] = [
     name: '应用默认模板',
     resource_category: 'application',
     is_default: true,
+    description: '平台预置：应用服务类资源的通用标签契约（身份 + 业务归属 + 健康检查），适用于全部应用服务。',
     mappings: [
+      // {v2.25} 稳定身份标签：五类默认模板必含 resource_id → resource_id
+      { mapping_id: 'mp-app-07', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-app-01', source_field: 'service_name', source_type: 'resource_field', target_label: 'service_name', enabled: true, transform: '' },
       { mapping_id: 'mp-app-02', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-app-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
@@ -929,8 +977,11 @@ export const mockLabelTemplates: LabelTemplate[] = [
     name: '通用目标默认模板',
     resource_category: 'generic_target',
     is_default: true,
+    description: '平台预置：通用指标目标的通用标签契约（身份 + 业务归属 + 自定义标签透传），适用于 Exporter 类目标。',
     mappings: [
       { mapping_id: 'mp-gen-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
+      // {v2.25} 稳定身份标签：五类默认模板必含 resource_id → resource_id
+      { mapping_id: 'mp-gen-08', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-02', source_field: 'target_name', source_type: 'resource_field', target_label: 'target_name', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-03', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },

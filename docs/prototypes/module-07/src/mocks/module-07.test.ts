@@ -12,6 +12,7 @@ import {
   RESOURCE_FIELD_OPTIONS,
   STATUS_MAPPING_RULES,
   STATUS_VALUES,
+  TENANT_DEFAULT_MAPPING,
   BIZ_CODE_RE,
   mockBusinessDomains,
   mockCollectionHealth,
@@ -29,7 +30,7 @@ import {
 } from './module-07'
 import type { ResourceCategory } from './module-07'
 
-describe('module-07 mocks（对齐 PRD v2.20）', () => {
+describe('module-07 mocks（对齐 PRD v2.32）', () => {
   const domainIds = mockNetworkDomains.map((d) => d.id)
 
   // ========== 资源基础字段校验 ==========
@@ -181,13 +182,61 @@ describe('module-07 mocks（对齐 PRD v2.20）', () => {
 
   // ========== 标签模板 ==========
 
-  it('四类资源均预置默认标签模板且 mappings 非空（PRD 5.13）', () => {
-    const types: ResourceCategory[] = ['host', 'middleware', 'application', 'generic_target']
+  it('五大类资源均预置默认标签模板且 mappings 非空（PRD 5.13）', () => {
+    const types: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
       const defaults = mockLabelTemplates.filter((tpl) => tpl.resource_category === t && tpl.is_default)
       expect(defaults.length).toBeGreaterThanOrEqual(1)
       defaults.forEach((tpl) => expect(tpl.mappings.length).toBeGreaterThan(0))
     })
+  })
+
+  it('五类默认模板均含 resource_id → resource_id 稳定身份映射（{v2.25} PRD 5.13，coverage 回连前置）', () => {
+    const defaults = mockLabelTemplates.filter((tpl) => tpl.is_default)
+    expect(defaults).toHaveLength(5)
+    defaults.forEach((tpl) => {
+      const identity = tpl.mappings.find((m) => m.source_field === 'resource_id')
+      expect(identity, `${tpl.name} 缺少 resource_id 映射`).toBeDefined()
+      expect(identity?.target_label).toBe('resource_id')
+      expect(identity?.source_type).toBe('resource_field')
+      expect(identity?.enabled).toBe(true)
+    })
+  })
+
+  it('命名规约：target_label 不带 _id 后缀（{v2.31} 决策 68-5-1；resource_id 为约定俗成例外）', () => {
+    mockLabelTemplates.forEach((tpl) => {
+      tpl.mappings.forEach((m) => {
+        if (m.target_label === 'resource_id') return
+        expect(m.target_label.endsWith('_id'), `${tpl.name} 的 ${m.target_label} 违反命名规约`).toBe(false)
+      })
+    })
+  })
+
+  it('MVP 默认模板不含 tenant 映射，且 tenant_id 为 v0.2 内置默认（{v2.31} 决策 68-5）', () => {
+    // MVP 单租户：默认模板不含 tenant_id → tenant（注入骨架恒通过）
+    mockLabelTemplates.forEach((tpl) => {
+      expect(tpl.mappings.some((m) => m.target_label === 'tenant')).toBe(false)
+    })
+    // v0.2 前瞻口径常量：五类默认模板统一内置该映射
+    expect(TENANT_DEFAULT_MAPPING.source_field).toBe('tenant_id')
+    expect(TENANT_DEFAULT_MAPPING.target_label).toBe('tenant')
+  })
+
+  it('tenant_id 进入五类资源字段选项（v0.2 内置默认映射可选；{v2.31}）', () => {
+    const types: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
+    types.forEach((t) => {
+      expect(RESOURCE_FIELD_OPTIONS[t]).toContain('tenant_id')
+      expect(RESOURCE_FIELD_OPTIONS[t]).toContain('resource_id')
+    })
+  })
+
+  it('LabelTemplate.description 为可选字段且默认模板均给出说明（{v2.27} PRD 6.3 description 必须落库）', () => {
+    mockLabelTemplates
+      .filter((tpl) => tpl.is_default)
+      .forEach((tpl) => {
+        expect(typeof tpl.description).toBe('string')
+        expect((tpl.description ?? '').length).toBeGreaterThan(0)
+      })
   })
 
   it('默认标签模板不使用 v0.4+ 的 cmdb_field 来源（PRD 5.11/5.13）', () => {
