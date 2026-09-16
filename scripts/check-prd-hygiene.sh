@@ -198,10 +198,15 @@ for file in "${files[@]}"; do
 import sys
 for line in sys.stdin:
     line = line.rstrip('\n')
-    if not line.startswith('| **'):
+    if not line.startswith('|'):
         continue
-    for c in line.split('|')[1:-1]:
-        c = c.strip()
+    cells = [c.strip() for c in line.split('|')[1:-1]]
+    if not cells:
+        continue
+    # 跳过分隔线行（| --- | --- |）
+    if all(set(c) <= set('-: ') for c in cells):
+        continue
+    for c in cells:
         if len(c) > 400:
             print(f'{len(c)}|{c[:40]}...')
 ")
@@ -215,6 +220,102 @@ for line in sys.stdin:
       fi
     else
       echo "  §3 卫生: [跳过] 未找到「## 3. 核心功能」章节边界"
+    fi
+  fi
+
+  # 6. 核心章节形态检查（v1.37 要求 13：§1 / §4 / §5 / §7 / §8）
+  #    口径：存量 FAIL 是「迁移进度指标」（与检查 1 同性质），不阻断提交；
+  #    新改动或新注册模块须达标。pre-commit 钩子走 --changelog-only，本项不参与。
+  #    失败条件 = 4 项形态违规（多行引用块占章比 >20% / §5 字段表非 5 列 / §5 go fence /
+  #    §8 状态机节缺 stateDiagram-v2）；单章占比 >35% 只作「归属审计」诊断值、不判失败。
+  #    误报豁免：①「引用块占比」只统计**连续 ≥2 行**的引用块——单行引用块
+  #    （`> 决策依据…` / `> 说明…` / 要求 12 规定的 `> **用户价值**：`）是合规形态；
+  #    ②「字段表」严格判定首列 == `字段`（`| 内置字段 | 说明 |` 这类说明表不算字段表）；
+  #    ③ §5 的 fence 只把 `go`（Go struct 定义模型）计为失败条件，yaml/json 属产物示例、仅统计。
+  if [ "$focus_changelog" -eq 0 ]; then
+    # 注意：本段 python 以 exit 7 表达「偏」，而脚本有 set -e —— 直接调用会被 set -e
+    # 当作失败命令立即终止整个脚本（吞掉 [偏] 说明行、status 也不会置 1，最终退出码 7 而非 1）。
+    # 故用 `|| pyrc=$?` 把它放进 `||` 列表屏蔽 set -e。
+    pyrc=0
+    python3 - "$file" <<'PYEOF' || pyrc=$?
+import re, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+L = p.read_text(encoding='utf-8').split('\n')
+idx = [(int(m.group(1)), i) for i, l in enumerate(L, 1) if (m := re.match(r'^## (\d+)\.', l))]
+if not idx:
+    print("  核心章节形态: [跳过] 未找到「## N.」章节结构")
+    sys.exit(0)
+b = {n: (ln, idx[k+1][1]-1 if k+1 < len(idx) else len(L)) for k, (n, ln) in enumerate(idx)}
+def seg(n):
+    a, z = b[n]; return L[a-1:z]
+tot = len('\n'.join(L))
+
+# 6a 单章字符占比（>35% 触发归属审计；**不作失败条件**——机器无法区分「层放错」
+#    与「对象多」：M07 §5 = 49% 但 17 个子节分布均匀（最大 13.9%），属固有权重）
+big = []
+for n in sorted(b):
+    t = '\n'.join(seg(n))
+    if not t: continue
+    r = len(t) / tot * 100
+    if r > 35: big.append(f"§{n} {r:.1f}%")
+print(f"  [诊断] 单章字符占比 >35%（须做归属审计，非违规）: {len(big)}" + (f"  → {', '.join(big)}" if big else ""))
+
+# 6b 多行引用块占章字符比（>20% 视为引用块承载规格正文；单行引用块豁免）
+qbig = []
+for n in sorted(b):
+    lines = seg(n)
+    t = '\n'.join(lines)
+    if not t: continue
+    q = 0; run_start = None
+    for i, l in enumerate(list(lines) + ['']):
+        if l.strip().startswith('>'):
+            if run_start is None: run_start = i
+        else:
+            if run_start is not None:
+                if i - run_start >= 2:
+                    q += sum(len(x) + 1 for x in lines[run_start:i])
+                run_start = None
+    r = q / len(t) * 100
+    if r > 20: qbig.append(f"§{n} {r:.0f}%")
+print(f"  多行引用块占章比 >20%: {len(qbig)}" + (f"  → {', '.join(qbig)}" if qbig else ""))
+
+# 6c §5 字段表表头（首列 == `字段` 时固定 5 列：字段/类型/必填/UI 展示名/说明）
+bad_hdr = []
+if 5 in b:
+    s5 = seg(5)
+    for i in range(len(s5) - 1):
+        cur, nxt = s5[i].strip(), s5[i+1].strip()
+        if not cur.startswith('|') or not re.match(r'^\|[\s:|-]+\|$', nxt): continue
+        cols = [c.strip() for c in cur.strip('|').split('|')]
+        if cols and cols[0] == '字段' and len(cols) != 5:
+            bad_hdr.append(f"{len(cols)}列@L{b[5][0]+i}")
+print(f"  §5 字段表非 5 列表头: {len(bad_hdr)}" + (f"  → {', '.join(bad_hdr[:5])}" if bad_hdr else ""))
+
+# 6d §5 内模型定义类 code fence（go struct 计为失败条件；yaml/json 产物示例仅统计）
+go_fence = sample_fence = 0
+if 5 in b:
+    f5 = re.findall(r'^```(\w*)', '\n'.join(seg(5)), re.M)
+    go_fence = sum(1 for x in f5 if x == 'go')
+    sample_fence = sum(1 for x in f5 if x in ('yaml', 'json'))
+print(f"  §5 内 go fence（模型定义）: {go_fence}" + (f"  [产物示例 yaml/json: {sample_fence}，仅统计]" if sample_fence else ""))
+
+# 6e §8 状态机节缺 stateDiagram-v2
+miss = []
+if 8 in b:
+    s8 = seg(8)
+    marks = [(i, l.strip()) for i, l in enumerate(s8) if re.match(r'^### 8\.\d+', l)]
+    for k, (i, t) in enumerate(marks):
+        e = marks[k+1][0] if k+1 < len(marks) else len(s8)
+        if 'stateDiagram-v2' not in '\n'.join(s8[i:e]):
+            miss.append(t[:26])
+print(f"  §8 状态机节缺 stateDiagram-v2: {len(miss)}" + (f"  → {miss}" if miss else ""))
+
+if len(qbig) + len(bad_hdr) + go_fence + len(miss) > 0:
+    sys.exit(7)
+PYEOF
+    if [ "$pyrc" -ne 0 ]; then
+      echo "    [偏] 核心章节形态未达标（存量属迁移进度指标；新改动模块须达标，见要求 13）"
+      status=1
     fi
   fi
 
