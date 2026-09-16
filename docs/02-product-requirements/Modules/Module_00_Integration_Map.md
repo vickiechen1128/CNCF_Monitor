@@ -175,7 +175,7 @@
 - **用户手动 Label UI Owner**: Module_05（P0 标签编辑页面）
 - **引用方**: Module_01（策略配置时引用 `LabelTemplate` / `ResourceLabel`）、Module_09（配置生成时合并所有来源 label）、Module_10（标签归一化参考）
 - **权威定义**:
-  - Module_07: [5.2.2 节](Module_07_Monitoring_Object_Management.md#522-%E8%B5%84%E6%BA%90-label-resourcelabel)、[5.7 节](Module_07_Monitoring_Object_Management.md#57-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF-labeltemplate)、[5.8 节](Module_07_Monitoring_Object_Management.md#58-%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84-mapping)、[5.9 节](Module_07_Monitoring_Object_Management.md#59-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF%E5%AD%97%E6%AE%B5%E6%9D%A5%E6%BA%90)、[5.10 节](Module_07_Monitoring_Object_Management.md#510-%E9%BB%98%E8%AE%A4%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF)
+  - Module_07: [5.3 节](Module_07_Monitoring_Object_Management.md#53-%E8%B5%84%E6%BA%90-label-resourcelabel)、[5.10 节](Module_07_Monitoring_Object_Management.md#510-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF-labeltemplate)、[5.11 节](Module_07_Monitoring_Object_Management.md#511-%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84-mapping)、[5.12 节](Module_07_Monitoring_Object_Management.md#512-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF%E5%AD%97%E6%AE%B5%E6%9D%A5%E6%BA%90)、[5.13 节](Module_07_Monitoring_Object_Management.md#513-%E9%BB%98%E8%AE%A4%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF)
   - Module_04: [7.1 节](Module_04_Custom_Discovery.md#71-cmdb-ci-%E7%B1%BB%E5%9E%8B%E6%98%A0%E5%B0%84%E8%A1%A8)、[7.2 节](Module_04_Custom_Discovery.md#72-%E5%BE%85%E5%88%86%E7%B1%BB-ci-%E9%98%9F%E5%88%97)
 - **关键约束**:
   - Label 在 MetricCenter 内部按 `source` 分层：`system`（模板生成）/ `user`（用户手动）/ `cmdb {v0.4+}`（CMDB 同步）。
