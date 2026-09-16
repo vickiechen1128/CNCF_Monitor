@@ -232,6 +232,8 @@ for line in sys.stdin:
   #    （`> 决策依据…` / `> 说明…` / 要求 12 规定的 `> **用户价值**：`）是合规形态；
   #    ②「字段表」严格判定首列 == `字段`（`| 内置字段 | 说明 |` 这类说明表不算字段表）；
   #    ③ §5 的 fence 只把 `go`（Go struct 定义模型）计为失败条件，yaml/json 属产物示例、仅统计。
+  #    v1.38 新增：④ §6 编号层级禁止其他章节编号乱入；⑤ §5 必填列禁止 `✅/❌` 混写；
+  #    ⑥ §6 子节长度 >80 行须拆分。
   if [ "$focus_changelog" -eq 0 ]; then
     # 注意：本段 python 以 exit 7 表达「偏」，而脚本有 set -e —— 直接调用会被 set -e
     # 当作失败命令立即终止整个脚本（吞掉 [偏] 说明行、status 也不会置 1，最终退出码 7 而非 1）。
@@ -310,7 +312,142 @@ if 8 in b:
             miss.append(t[:26])
 print(f"  §8 状态机节缺 stateDiagram-v2: {len(miss)}" + (f"  → {miss}" if miss else ""))
 
-if len(qbig) + len(bad_hdr) + go_fence + len(miss) > 0:
+# 6f §6 编号层级：#### 子节编号必须形如 6.N.M，禁止其他章节编号乱入（要求 14-2）
+bad_s6 = []
+if 6 in b:
+    s6 = seg(6)
+    for i, l in enumerate(s6):
+        m = re.match(r'^#{4} (\d+)\.(\d+)', l.strip())
+        if m and m.group(1) != '6':
+            bad_s6.append(f"{m.group(1)}.{m.group(2)}@L{b[6][0]+i}")
+print(f"  §6 子节编号乱入其他章节编号: {len(bad_s6)}" + (f"  → {bad_s6}" if bad_s6 else ""))
+
+# 6g §5 必填列机读性（要求 13-3-bis）：字段表必填列禁止 `✅/❌` 混写
+mix_req = []
+if 5 in b:
+    s5 = seg(5)
+    for i in range(len(s5) - 1):
+        cur, nxt = s5[i].strip(), s5[i+1].strip()
+        if not cur.startswith('|') or not re.match(r'^\|[\s:|-]+\|$', nxt): continue
+        cols = [c.strip() for c in cur.strip('|').split('|')]
+        if not cols or cols[0] != '字段' or len(cols) < 3: continue
+        req_i = 2  # 固定第 3 列为必填（字段/类型/必填/…）
+        for j, row in enumerate(s5[i+2:i+200]):
+            if not row.strip().startswith('|'): break
+            if re.match(r'^\|[\s:|-]+\|$', row.strip()): continue
+            cells = [c.strip() for c in row.strip().strip('|').split('|')]
+            if len(cells) > req_i and re.search(r'✅.*❌|❌.*✅', cells[req_i]):
+                mix_req.append(f"L{b[5][0]+i+2+j}:{cells[0][:14]}")
+print(f"  §5 必填列 ✅/❌ 混写（应写「条件必填：<条件>」）: {len(mix_req)}" + (f"  → {mix_req[:6]}" if mix_req else ""))
+
+# 6h §6 子节长度 >80 行（要求 14-3 硬门槛）
+long_s6 = []
+if 6 in b:
+    s6 = seg(6)
+    marks6 = [(i, l.strip()) for i, l in enumerate(s6) if re.match(r'^#### 6\.\d+\.\d+', l)]
+    for k, (i, t) in enumerate(marks6):
+        e = marks6[k+1][0] if k+1 < len(marks6) else len(s6)
+        n = e - i
+        if n > 80:
+            long_s6.append(f"{t.split()[0]} {n}行")
+print(f"  §6 子节 >80 行（须拆分）: {len(long_s6)}" + (f"  → {long_s6}" if long_s6 else ""))
+
+# 6i Change Log「变更内容」列长度（目标 ≤120、硬上限 200 字符；v1.39 Change Log 规范）
+long_cl = []
+for i, l in enumerate(L, 1):
+    if not re.match(r'^\|\s*v\d+\.\d+\s*\|', l): continue
+    cells = [c.strip() for c in l.strip().strip('|').split('|')]
+    if len(cells) >= 4:
+        n = len(cells[3])          # 版本/日期/变更类型/变更内容 → 第 4 列
+        if n > 200:
+            long_cl.append(f"L{i} {n}字符")
+print(f"  Change Log「变更内容」列 >200 字符（应 ≤120）: {len(long_cl)}" + (f"  → {long_cl}" if long_cl else ""))
+
+# 6j §11 页面子节形态（要求 9 v1.39 六段模板：用户任务首行 / ≤50 行 / 反引号 ≤5 / 禁状态流转）
+bad_s11 = []
+if 11 in b:
+    s11 = seg(11)
+    marks11 = [(i, l.strip()) for i, l in enumerate(s11) if re.match(r'^### 11\.\d+', l)]
+    for k, (i, t) in enumerate(marks11):
+        e = marks11[k+1][0] if k+1 < len(marks11) else len(s11)
+        parts = t.split()
+        name = parts[1] if len(parts) > 1 else t[:8]   # 形如 11.3
+        n = e - i
+        # 11.1 页面状态矩阵 / 11.2 全局行为规则是两张总表，不适用页面子节模板
+        if name in ('11.1', '11.2'):
+            continue
+        # 去除 mermaid / code fence 内的行后再做形态判定
+        cleaned, infence = [], False
+        for x in s11[i+1:e]:
+            if x.strip().startswith('```'):
+                infence = not infence
+                continue
+            if not infence:
+                cleaned.append(x)
+        body = '\n'.join(cleaned)
+        # ① 必须以「**用户任务**」段开头
+        first = next((x.strip() for x in cleaned if x.strip()), '')
+        if not first.startswith('**用户任务**'):
+            bad_s11.append(f"{name} 缺「用户任务」首行")
+        # ② 单节 ≤50 行
+        if n > 50:
+            bad_s11.append(f"{name} {n}行>50")
+        # ③ 字段名反引号 ≤5 处（超出说明字段语义未归 §5）
+        toks = len(re.findall(r'`[^`\n]+`', body))
+        if toks > 5:
+            bad_s11.append(f"{name} 反引号{toks}处>5")
+        # ④ 禁止状态流转箭头铺陈（流转属 §8）
+        if re.search(r'`\w+`\s*(?:→|->)\s*`\w+`', body):
+            bad_s11.append(f"{name} 含状态流转箭头")
+print(f"  §11 页面子节形态违规（六段模板/≤50行/反引号≤5/禁流转箭头）: {len(bad_s11)}" + (f"  → {bad_s11[:6]}" if bad_s11 else ""))
+
+# 6k 表格末行后必须空行：表格行后紧邻非空非表格内容 = 缺空行，Markdown 渲染会把
+#     后续正文并进表格单元格（吞行成「超长格子」）；跳过 code fence 内内容避免误报。
+bad_tbl = []
+fence_open = False
+last_table = False
+for i, l in enumerate(L, 1):
+    s = l.strip()
+    if s.startswith('```'):
+        fence_open = not fence_open
+        last_table = False
+        continue
+    if fence_open:
+        last_table = False
+        continue
+    is_table = s.startswith('|')
+    # 豁免：引用行（'>' 开头）会明确终止表格；水平分隔线（***/---/___）单独成行也终止表格
+    hr = re.match(r'^(\*\*\*|---|___)\s*$', s) is not None
+    if last_table and s and not is_table and not s.startswith('>') and not hr:
+        bad_tbl.append(f"L{i-1}→L{i}:{s[:16]}")
+    last_table = is_table
+print(f"  表格末行后缺空行（正文被并进表格单元格）: {len(bad_tbl)}" + (f"  → {bad_tbl[:6]}" if bad_tbl else ""))
+
+# 6l 完全相同长文本块跨章节重复（第 1 类：逐字重抄的正文段落行）。
+#     低误报定位：只抓「去空白后 ≥40 字、且出现在 ≥2 个不同子节/章节」的完整正文行，
+#     忽略表格/引用/列表行，避免模板 / 既成分层外显误报。近义改写（第 2/3 类）不在此检测。
+occ, cur_key = {}, None
+for ln_i, l in enumerate(L, 1):
+    mc = re.match(r'^##+ (\d+(\.\d+)*)\.', l)
+    if mc:
+        cur_key = mc.group(1)
+        continue
+    if l.strip().startswith(('```', '|', '>', '-', '+', '*')):
+        continue
+    s = ' '.join(l.split())
+    if len(s) < 40:
+        continue
+    occ.setdefault(s, []).append((cur_key, ln_i))
+dup = []
+for key, hits in occ.items():
+    if len(hits) < 2:
+        continue
+    if len({h[0] for h in hits}) > 1:
+        dup.append(f"L{hits[0][1]}@{hits[0][0]} ×{len(hits)}: {key[:20]}")
+dup.sort()
+print(f"  完全相同长文本块跨章节重复（≥40字正文行）: {len(dup)}" + (f"  → {dup[:6]}" if dup else ""))
+
+if len(qbig) + len(bad_hdr) + go_fence + len(miss) + len(bad_s6) + len(mix_req) + len(long_s6) + len(long_cl) + len(bad_s11) + len(bad_tbl) + len(dup) > 0:
     sys.exit(7)
 PYEOF
     if [ "$pyrc" -ne 0 ]; then
