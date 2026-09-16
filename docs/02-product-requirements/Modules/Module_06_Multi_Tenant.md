@@ -199,7 +199,7 @@
 |-------------------|-------------------|----------|------|
 | Tenant | — | 行政维护 | 租户是 MetricCenter 内部权限边界，MVP 固定为 `platform_admin`；不与 BlueKing Business 强制映射 |
 | Business（`biz_code` / `biz_name`） | Business（业务） | 1:1（编码） | BlueKing `bk_biz_id` / `bk_biz_name` 映射为 [Module_07](Module_07_Monitoring_Object_Management.md) 业务分组字典的 `biz_code` / `biz_name`；资源通过 `biz_code` 字段归属业务 |
-| NetworkDomain | Cloud Area（云区域） | 1:1 | 网域对应蓝鲸云区域，具体由 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E7%BD%91%E5%9F%9Fnetworkdomain) 定义；v0.4 同步落地时归属解析按四级链执行（字段映射 > 通道绑定 > IP 推导 > 待分配，决策 52，见 [Module_07 5.16.4](Module_07_Monitoring_Object_Management.md)），本表映射即解析链第①级 |
+| NetworkDomain | Cloud Area（云区域） | 1:1 | 网域对应蓝鲸云区域，具体由 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain) 定义；v0.4 同步落地时归属解析按四级链执行（字段映射 > 通道绑定 > IP 推导 > 待分配，决策 52，见 [Module_07 5.16.4](Module_07_Monitoring_Object_Management.md)），本表映射即解析链第①级 |
 
 > **约束 {v1.0+}**：禁止绕过 CMDB 业务/模块路径直接在 MetricCenter 中定义业务归属；ITSM 服务目录必须通过显式 CMDB 业务/模块路径与监控对象关联。
 >
