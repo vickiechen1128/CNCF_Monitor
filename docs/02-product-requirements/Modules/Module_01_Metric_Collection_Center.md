@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v3.41
+> **PRD 版本**: v3.42
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v3.41（已完成规则挂载「检查 → 提交」两段式同步：独立「检查」按钮 + 提交按钮条件出现 + 组名唯一性并入预检 + job 引用分级阻断与逃生门提前）
-> **更新日期**: 2026-09-11
+> **原型版本**: v3.41（⚠️ 原型待同步 v3.42：决策 83 新增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd` 三个 monitor_type 枚举与 generic_target 端点子类型判别，{v0.2}；已完成规则挂载「检查 → 提交」两段式同步：独立「检查」按钮 + 提交按钮条件出现 + 组名唯一性并入预检 + job 引用分级阻断与逃生门提前）
+> **更新日期**: 2026-09-15
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -282,7 +282,7 @@
 
 > **端口一致性说明**：
 >
-> - **问题**：映射 `default_port` 决定 `instance` 标签端口（Module\_07 组合字段，见 Module\_07 5.12 C）；当它与实例上 exporter 实际监听端口不一致时，instance 标签会错（如映射 9100、实例实际 19100）。
+> - **问题**：映射 `default_port` 决定 `instance` 标签端口（Module\_07 组合字段，见 Module\_07 5.12.3）；当它与实例上 exporter 实际监听端口不一致时，instance 标签会错（如映射 9100、实例实际 19100）。
 > - **三层解决手段**：
 >   1. **映射层（MVP 已有）**：`CITypeExporterMapping.default_port` 在映射表单中可编辑（选 Exporter 后自动填充、可覆盖），解决"某监控对象类型普遍使用非标端口"；
 >   2. **网域级覆盖（v0.2，已预留）**：`CITypeExporterMappingOverride` 按网域覆盖 `default_port`，解决"某网域统一非标端口"；
@@ -340,7 +340,7 @@
 > **监控对象类型来源与映射（两套粒度体系 + CMDB 权威来源 + 术语分层）**：
 >
 > - [Module\_07](Module_07_Monitoring_Object_Management.md) 的 Resource 采用**粗粒度资源类别**（`resource_category`：host / database / middleware / application / generic\_target，五大类）+ **细粒度子类型** `database_type` / `middleware_type`（mysql / redis / kafka / ...）；
-> - 本模块 `monitor_type` 使用**细粒度监控对象类型**（`host_linux` / `host_windows` / mysql / redis / kafka / nginx / application\_http / snmp），直接映射 Exporter 绑定与指标库；
+> - 本模块 `monitor_type` 使用**细粒度监控对象类型**（`host_linux` / `host_windows` / mysql / redis / kafka / nginx / application\_http / snmp；{v0.2} 增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd`，决策 83），直接映射 Exporter 绑定与指标库；
 > - 映射表（`MONITOR_TYPE_DERIVATION_MAP`，监控对象类型**推导**表——名字即语义：这是由资源类别 + 子类型推导出来的策略维度，不是与 CMDB 的绑定；五大类 + 归类规则）：
 >
 > | Module\_07 粗粒度（resource\_category + database\_type / middleware\_type + os\_type） | Module\_01 细粒度 monitor\_type |
@@ -353,9 +353,14 @@
 > | middleware + elasticsearch | elasticsearch |
 > | middleware + nginx | nginx |
 > | application | application\_http |
-> | generic\_target | snmp |
+> | generic\_target + 端点子类型 `exporter_type=snmp_exporter`（网络设备 / 硬件默认） | `snmp`（MVP 可走完整映射） |
+> | generic\_target + `exporter_type=kubernetes-apiserver`（K8s 集群登记入口，决策 81） | `k8s_apiserver` {v0.2} |
+> | generic\_target + `exporter_type=kube-state-metrics` | `k8s_kube_state_metrics` {v0.2} |
+> | generic\_target + `exporter_type=etcd` | `k8s_etcd` {v0.2} |
+> | generic\_target + 其他 / 空 `exporter_type`（自定义 HTTP 指标端点等） | 无默认映射——Job 采集参数手填（不阻断资源登记与使用） |
 > | database + dm8（达梦，未来产品线示例，v0.4+ 随 CMDB 映射进入） | dm8 |
 >
+> - **generic\_target 端点子类型判别（决策 83，2026-09-15）**：generic\_target（M07 UI 名「其他监控目标」）的 `monitor_type` 不再单值映射 `snmp`，而以 M07 `GenericTarget.exporter_type`（**端点子类型判别值**：由 M07 登记表单的端点类型预设写入、对 M07 用户隐藏）为判别键。MVP 仅 `snmp_exporter → snmp` 可建 Job 走通完整映射（内置 ExporterTemplate / CITypeExporterMapping 种子已具备）；三个 k8s 监控对象类型 {v0.2} 随 M07 决策 81 K8s 集群登记双入口落地（内置 ExporterTemplate / CITypeExporterMapping 种子由本模块侧配置，模型不变、仅枚举值扩展 + 内置映射种子新增）；其他 / 空判别值无默认映射。blackbox 拨测不经本推导表——拨测 URL 由 `job_type=blackbox` Job 的 `blackbox_targets` 直接承载。跨模块主记录见 `docs/05-execution-records/module-07/design-decisions.md` 决策 83。
 > - **五大类归类规则**：以**数据存储/查询为主语义、按产品线分采集器** → `database`（mysql、redis、postgresql、oracle、达梦 dm8、sqlserver、mongodb）；**消息/网关/协调/搜索** → `middleware`（kafka、nginx、zookeeper、elasticsearch）。边界案例已定：**redis → database**（缓存，业界多数 CMDB 放数据库/缓存侧）；elasticsearch 留 middleware。该规则在 M07 / M04 同步维护，避免每来一个新产品线都争一次归属。
 > - **v0.4+ CMDB 接入**：CMDB CI 类型（`bk_obj_id`）为**唯一权威来源**；Module\_04 同步后向 Module\_07 写入五大类 + database\_type / middleware\_type，并向本模块**刷新 monitor\_type 映射**（推导链，见「监控对象类型推导表」）；MetricCenter **只维护映射、不增删类型**；新增产品线（如达梦）的动作是配两行映射（M04 映射表 + 本表），不改 CMDB 模型定义。
 
@@ -370,7 +375,7 @@
 > **application\_http 语义澄清**：`application_http` 对应"业务指标端点采集"（应用服务资源自带 `/metrics`，见 Module\_07 5.8 `endpoint`），其"采集实现"实为**HTTP 抓取**——业务应用无独立 exporter 进程，由 Prometheus client / 框架埋点暴露指标：
 >
 > - `default_port` 语义 = 业务指标端点端口（与实例 `endpoint` 的端口对应，可留空由实例 `endpoint` 决定）；
-> - 标签模板默认映射含 `app_name → app`、`business_domain → biz`（Module\_07 5.12 A / 5.15 业务指标标签规范：机制 A 抓取注入 `static_configs[].labels`），Job 引用含该映射的采集实现即可让业务指标自动带资源标签，**无需新增采集模型**；
+> - 标签模板默认映射含 `app_name → app`、`business_domain → biz`（Module\_07 5.12.1 / 5.15 业务指标标签规范：机制 A 抓取注入 `static_configs[].labels`），Job 引用含该映射的采集实现即可让业务指标自动带资源标签，**无需新增采集模型**；
 > - 业务维度标签（`path` / `method` / `status`）由指标自带，不参与资源关联（见 Module\_07 5.15）。
 > - **自定义微服务仍属 application\_http（给技术工程师的显性约束）**：平台**不按语言/框架拆分监控对象类型**——Go / Python / 自研框架埋点的业务服务仍选 `application_http`，形态差异（采集路径 `/metrics` 非 `/actuator/prometheus`、非标端口、协议）通过**手填采集参数 / 多个可选采集实现**覆盖（5.1 `is_default` 多行），**无需新增监控对象类型，也无需"为挂指标而造模板"**（指标直接挂监控对象类型，见 5.3）。UI 侧在默认采集配置区对 `application_http` 显性提示该约束（表单 extra + 页面 Alert），避免技术工程师误以为需为每种语言建监控对象类型。
 > - **application\_http 在「采集器管理」页面呈现为引导卡、不进登记流程**：`application_http` 不是采集器、无安装动作——页面内对该监控对象类型展示**引导卡**而非采集器登记入口：「业务应用自带 `/metrics` 端点，无需安装采集器；指标语义请前往业务指标库（5.9）登记；创建采集 Job 时端口 / 路径按应用实际 endpoint 手填」。避免用户把每个微服务登记成一个"采集器"。
@@ -534,7 +539,7 @@
 > - 筛选结果预览（匹配实例清单）后写入 `instance_filter`，`instance_selection_mode=filter` 时生成配置按表达式实时求值（v0.2）；
 > - **新增资源自动纳入（决策 53 核心语义）**：filter 模式下 Job 不持有静态实例清单，M09 每次配置生成周期对条件表达式重新求值——M07 新导入 / 同步的资源匹配条件即自动进入 targets（无需编辑 Job），资源下线或属性变化导致不再匹配时自动移出；「待采集」回显（5.10）对自动纳入的新实例同样生效。
 
-> **v0.3+ 服务发现模式预留（微服务动态实例）**：微服务（K8s 扩缩容、实例漂移）场景下，静态 `selected_instance_ids` 手动勾选无法覆盖动态目标。预留演进（v0.3+ 落地，与 Module\_07 5.12 B `prometheus_builtin` / Module\_04 `KubernetesProvider` 对齐）：
+> **v0.3+ 服务发现模式预留（微服务动态实例）**：微服务（K8s 扩缩容、实例漂移）场景下，静态 `selected_instance_ids` 手动勾选无法覆盖动态目标。预留演进（v0.3+ 落地，与 Module\_07 5.12.2 `prometheus_builtin` / Module\_04 `KubernetesProvider` 对齐）：
 >
 > - `instance_selection_mode` 扩展 **`service_discovery`**：Job 绑定服务发现源（K8s Service / Endpoints / Nacos 等），目标由发现结果 + `relabel_configs`（`__meta_*` → `app` / `service` 标签）动态生成，**不落 `selected_instance_ids`**；
 > - 默认采集配置（类型 → 采集实现 + 标签模板）**采集实现层复用**——映射与"目标从哪来（静态 / 服务发现）"解耦，服务发现模式仅替换 Job 的目标选择方式；
@@ -1206,7 +1211,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 | ------------------------------------- | ---------------- | ------------------------------------------------------------ |
 | `CITypeExporterMapping`               | 默认采集配置 / 采集器管理 | 监控对象类型 ↔ 默认采集器（采集实现）的绑定；采集实现层预设，不绑网域；每类型可多行、`is_default` 标记默认；含安装指南；入口为独立「采集器管理」页面（`/collectors`），与「采集 Job」页（`/scrape-jobs`）为「采集策略」一级模块下的 Sider 二级导航项（与「规则编辑」「指标库」并列，决策 63 以生产导航为准），承担类型级采集器指引（该装什么、怎么装），实例级安装登记（可选）在选实例时（5.6） |
 | `CITypeExporterMappingOverride`       | 网域级覆盖           | {v0.2} 按网域覆盖映射默认值（端口 / 协议 / 采集路径等），优先级高于映射默认值                |
-| `monitor_type`（细粒度）                | 监控对象类型     | `host_linux` / `host_windows` / mysql / redis / kafka / nginx / application\_http / snmp；派生的策略维度，只存在于监控平台内部、不回写 CMDB |
+| `monitor_type`（细粒度）                | 监控对象类型     | `host_linux` / `host_windows` / mysql / redis / kafka / nginx / application\_http / snmp；{v0.2} 增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd`（generic_target 按端点子类型 `exporter_type` 推导，决策 83）；派生的策略维度，只存在于监控平台内部、不回写 CMDB |
 | `resource_category`（粗粒度）                | 资源类别             | host / database / middleware / application / generic\_target（Module\_07 五大类） |
 | `middleware_type`                     | 中间件类型            | kafka / elasticsearch / nginx / zookeeper 等（细粒度子类型） |
 | `database_type`          | 数据库类型            | mysql / redis / postgresql / oracle / dm8（达梦）/ sqlserver / mongodb 等（细粒度子类型） |
@@ -1348,10 +1353,10 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 
 > **Change Log 定位**：本表为业务沟通决策的精简记录（**保留最近 3 版**一句话摘要）；**完整历史（v3.25 及以前的逐版变更详情）已迁移至 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」小节**。Change Log 主要记录业务侧沟通决策与文档变更，**不承载开发契约**（开发契约见 5.x 数据模型 / 9 验收标准 / 10 术语映射）。
 
-| 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
-|------|------|----------|----------|--------------|------|
+| 版本 | 日期 | 变更类型 | 变更内容 | 落点章节 | 产品版本影响 | 状态 |
+|------|------|----------|----------|--------------|--------------|------|
+| v3.42 | 2026-09-15 | 修改 | generic_target 端点子类型判别与 k8s 监控对象类型枚举扩展（决策 83，跨模块主记录 `docs/05-execution-records/module-07/design-decisions.md`）：①§5.1 推导表原单值行「generic_target → snmp」扩展为按 M07 `GenericTarget.exporter_type`（端点子类型判别值，M07 表单对用户隐藏）判别——`snmp_exporter → snmp`（MVP 可走完整映射）、`kubernetes-apiserver → k8s_apiserver`、`kube-state-metrics → k8s_kube_state_metrics`、`etcd → k8s_etcd`（三枚举 {v0.2} 随 M07 决策 81 K8s 集群登记双入口落地）、其他 / 空 → 无默认映射 Job 手填；②§5.1 枚举说明与 §10 术语 `monitor_type` 行同步补三 k8s 类型；③落地形态 = 枚举值扩展 + 内置 ExporterTemplate / CITypeExporterMapping 映射种子新增，**模型不变**；blackbox 拨测走 `blackbox_targets`、不经本推导表；M01 采集器登记与 M07 端点资产登记职责边界同步澄清；原型待同步 v3.42 | 5.1 / 10 | {v0.2}（snmp 判别为 MVP 文档澄清） | 设计中 |
 | v3.41 | 2026-09-11 | 修改 | 规则挂载「检查 → 提交」两段式落版（决策 69，交互重排；**修订 v3.40 的「提交期校验」为「检查期校验」**）：①§3.1「规则文件挂载」行与「双层模型」注记改为**两段式**——「检查」按钮常驻、`canSubmit = 检查通过 且（无 error 级 job 引用 或 已勾选逃生门）`、提交按钮**条件出现（非 disabled）**且文案统一「提交并进入变更确认」、逃生门提前到检查阶段、**规则内容变更即作废检查结论与 ack**（非内容字段不重置）；②**`valid` 语义由「仅 YAML 语法」扩展为「预检是否可提交」**（决策 69-1）——新增第三类**不可覆盖硬失败「组名全局唯一性冲突」**，与提交侧 `validateGroupNamesAvailable` 同实现同输入集（仅生效规则校验、停用不校验、编辑时排除自身），`job_ref.severity=error` 仍为可覆盖轴且不改写 `valid`；③§3.1 明确「从本地选择 rules.yml」入口位于**编辑框上方**（生产向原型回归）；④§3.2 明确 v0.3 字段化编辑**沿用同一状态机**（不另起一套）；⑤§5.5 新增「规则挂载『检查』与提交门禁」注记（两段式状态机 / `valid` 语义 / 重置规则 / 结果面板位置 / 逃生门与留痕）；⑥§6.2.4 补 `POST /monitoring-rules/{id}/validate-yaml` 契约行与语义说明，POST/PUT 补 `ack_job_ref_errors` 与组名冲突错误码；⑦§9.1 规则挂载验收由 1 条扩写为 6 条（两段式初始态 / 组名冲突 / 自排除 / 停用镜像 / job 分级阻断与逃生门 / 「检查通过 ≠ 提交必过」免责边界 / 内容变更重置）；⑧§9.2 新增 `validate-yaml` 语义与 `ack_job_ref_errors` 两条技术验收；⑨§11.1 新增 5 行检查态（未检查 / 未通过 / 通过 / job 分级 / 检查后改内容）；⑩§11.2 原「规则挂载『提交生效』分级门」重写为「规则挂载『检查 → 提交』两段式」，显式写入**用户可见的免责边界**；原型同步至 v3.41 | 3.1 / 3.2 / 5.5 / 6.2.4 / 9 / 11 | 文档自身 | 设计中 |
 | v3.40 | 2026-09-10 | 修改 | 规则 job 引用校验的动线修复（决策 67，修订决策 66 第 2/4 条）：①§3.1「规则文件挂载」与「双层模型」注记改为 **error 默认阻断「提交生效」/「保存变更」+ 显式覆盖逃生门**（勾选「已知晓：先挂规则，稍后补建 Job」后放行并降级 warning 留痕），warning 维持只提示；②§3.2 校验行同步；③§5.5 `change_status` 与「规则 pending 期锁定」补 **M09 草稿 `failed + user_config` 自动清锁**（草稿保留，防死循环；`platform_fault` 不清锁）；④§8 补注记：规则侧自动解锁路径 + 采集 Job 侧是否同等覆盖为未决项；⑤§11.2 新增「提交生效分级门」「失败单不锁死源数据」两条全局行为规则 | 3.1 / 3.2 / 5.5 / 8 / 11.2 | 文档自身 | 设计中 |
-| v3.39 | 2026-09-09 | 修改 | 规则 job 引用校验双层模型（决策 66）：§3.1「规则文件挂载」补充编辑期 job 引用语义校验（`up`/`absent(up)` 不匹配 = error，其他 = warning；提示不阻断保存）；§3.2 PromQL 校验行扩展为「PromQL 校验 + job 引用校验」；新增「双层校验模型（M01 编辑期提示 + M09 发布期门禁）」与「推荐先 Job 后规则、但不强制」注记 | 3.1 / 3.2 | 文档自身 | 设计中 |
 
 > 完整 Change Log 历史（v3.38 及以前）见 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」。
