@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 检查 PRD 是否满足 v1.27 规范：去历史化、章节编号冻结、前端交互契约。
+# 检查 PRD 是否满足规范：去历史化（v1.27）、章节编号冻结、前端交互契约、§3 防叠加（v1.34）。
 # 只检测，不自动改写；输出是非零当存在需整改项。
 set -euo pipefail
 
@@ -61,14 +61,24 @@ for file in "${files[@]}"; do
   body=$(awk '/^## Change Log/{exit} {print}' "$file")
 
   # 1. 内联决策/版本标注计数（按出现次数而非行数）
+  # 计数前须整行排除「豁免载体」，依据：规范 prototype-designer.md L226「门禁既有口径」
+  #   (a) 行首 '>' 的引用行——含要求 8 允许的章节开头「> 决策依据：」指针行，
+  #       以及要求 11 界定的备注 / 引用块（引用块本身不是违规载体）；
+  #   (b) 表格行——「章节表格『来源』列使用 决策 NN」属既定口径。
+  # 未排除的正文散文（列表项 / 段落）里出现的 决策 NN 才是真正的「内联决策标注」违规。
   if [ "$focus_changelog" -eq 0 ]; then
-    decision_count=$(grep -oE '决策[[:space:]]*[0-9]' <<< "$body" 2>/dev/null | wc -l | awk '{print $1}') || true
-    version_count=$(grep -oE '\{v[0-9]+\.[^}]+\}' <<< "$body" 2>/dev/null | wc -l | awk '{print $1}') || true
+    body_scan=$(grep -v -E '^[[:space:]]*[>]' <<< "$body" | grep -v -E '^[[:space:]]*[|]' || true)
+    decision_count=$(grep -oE '决策[[:space:]]*[0-9]' <<< "$body_scan" 2>/dev/null | wc -l | awk '{print $1}') || true
+    # 版本标记仅作可见性统计、不作失败条件：正则 \{vX.Y\} 匹配的正是要求 12-5 规定的
+    # 「花括号交付范围标记」（含 §9 验收标准中的 {vX.Y} 验收口径标记），该形态按 L226
+    # 「正文 {MVP} / {v0.x} / {v0.x+} 交付范围标记属既定口径，不视为违规」——凡被本正则
+    # 命中的形态本身就是合规的，作为失败条件必然误报（实测修复前 10 模块 9 个非零）。
+    version_count=$(grep -oE '\{v[0-9]+\.[^}]+\}' <<< "$body_scan" 2>/dev/null | wc -l | awk '{print $1}') || true
     decision_count=${decision_count:-0}
     version_count=${version_count:-0}
-    echo "  内联决策标注数: $decision_count"
-    echo "  内联版本标记数: $version_count"
-    if [ "$decision_count" -gt 0 ] || [ "$version_count" -gt 0 ]; then
+    echo "  内联决策标注数（豁免载体已排除）: $decision_count"
+    echo "  交付范围标记数（既定口径，仅统计）: $version_count"
+    if [ "$decision_count" -gt 0 ]; then
       status=1
     fi
 
@@ -141,6 +151,311 @@ for file in "${files[@]}"; do
     status=1
   fi
 
+  # 5. §3 核心功能卫生检查（v1.34 防叠加纪律）
+  # 仅在非 --changelog-only 模式下执行；快速扫描，不做结构感知深度分析（后者由 T4 流程完成）
+  if [ "$focus_changelog" -eq 0 ]; then
+    sec3_start=$(grep -n "^## 3\. 核心功能" "$file" | head -1 | cut -d: -f1)
+    sec3_end=$(awk 'NR>'"$sec3_start"' && /^## 4\./ {print NR; exit}' "$file")
+    if [ -n "$sec3_start" ] && [ -n "$sec3_end" ]; then
+      sec3_body=$(sed -n "$((sec3_start+1)),$((sec3_end-1))p" "$file")
+
+      fence_count=$(grep -cE '^```' <<< "$sec3_body" 2>/dev/null || true)
+      fence_count=$((fence_count / 2))
+      echo "  §3 内 code fence 数: $fence_count"
+      if [ "$fence_count" -gt 0 ]; then
+        echo "    [偏] §3 内存在 code fence（技术实现物不应出现在用户层章节，见要求 12）"
+        status=1
+      fi
+
+      api_count=$(grep -oE '(GET|POST|PUT|DELETE)\s+/api/' <<< "$sec3_body" 2>/dev/null | wc -l | awk '{print $1}' || true)
+      api_count=${api_count:-0}
+      echo "  §3 内 API 路径数: $api_count"
+      if [ "$api_count" -gt 0 ]; then
+        echo "    [偏] §3 内存在 API 路径（应归位 §6 接口设计，见要求 12）"
+        status=1
+      fi
+
+      neg_count=0
+      neg_lines=""
+      for w in "不再" "原先" "原列名" "替代原" "此前只" "不再单列" "历史表述"; do
+        hits=$(grep -n "$w" <<< "$sec3_body" 2>/dev/null || true)
+        if [ -n "$hits" ]; then
+          hit_c=$(echo "$hits" | wc -l | awk '{print $1}')
+          neg_count=$((neg_count + hit_c))
+          neg_lines="${neg_lines}${hits}"$'\n'
+        fi
+      done
+      echo "  §3 内否定式演变词命中: $neg_count"
+      if [ "$neg_count" -gt 0 ]; then
+        echo "    [偏] §3 内存在否定式/历史对照表述（应重写为当前结论句，见要求 12）："
+        echo "$neg_lines" | sed 's/^/      L/'
+        status=1
+      fi
+
+      # 5d. 功能表超长单元格检测（>400 字符硬上限，目标 ≤300；按字符数而非字节，
+      #     macOS awk length 按字节计数会误伤中文，故用 python3 计字符数）
+      long_cells=$(echo "$sec3_body" | python3 -c "
+import sys
+for line in sys.stdin:
+    line = line.rstrip('\n')
+    if not line.startswith('|'):
+        continue
+    cells = [c.strip() for c in line.split('|')[1:-1]]
+    if not cells:
+        continue
+    # 跳过分隔线行（| --- | --- |）
+    if all(set(c) <= set('-: ') for c in cells):
+        continue
+    for c in cells:
+        if len(c) > 400:
+            print(f'{len(c)}|{c[:40]}...')
+")
+      long_count=$(echo -n "$long_cells" | grep -c . 2>/dev/null || true)
+      long_count=${long_count:-0}
+      echo "  §3 功能表超长单元格(>400字符)数: $long_count"
+      if [ "$long_count" -gt 0 ]; then
+        echo "    [偏] §3 存在超长单元格（应拆为列表+内链下沉，见要求 12）："
+        echo "$long_cells" | head -5 | sed 's/^/      /'
+        status=1
+      fi
+    else
+      echo "  §3 卫生: [跳过] 未找到「## 3. 核心功能」章节边界"
+    fi
+  fi
+
+  # 6. 核心章节形态检查（v1.37 要求 13：§1 / §4 / §5 / §7 / §8）
+  #    口径：存量 FAIL 是「迁移进度指标」（与检查 1 同性质），不阻断提交；
+  #    新改动或新注册模块须达标。pre-commit 钩子走 --changelog-only，本项不参与。
+  #    失败条件 = 4 项形态违规（多行引用块占章比 >20% / §5 字段表非 5 列 / §5 go fence /
+  #    §8 状态机节缺 stateDiagram-v2）；单章占比 >35% 只作「归属审计」诊断值、不判失败。
+  #    误报豁免：①「引用块占比」只统计**连续 ≥2 行**的引用块——单行引用块
+  #    （`> 决策依据…` / `> 说明…` / 要求 12 规定的 `> **用户价值**：`）是合规形态；
+  #    ②「字段表」严格判定首列 == `字段`（`| 内置字段 | 说明 |` 这类说明表不算字段表）；
+  #    ③ §5 的 fence 只把 `go`（Go struct 定义模型）计为失败条件，yaml/json 属产物示例、仅统计。
+  #    v1.38 新增：④ §6 编号层级禁止其他章节编号乱入；⑤ §5 必填列禁止 `✅/❌` 混写；
+  #    ⑥ §6 子节长度 >80 行须拆分。
+  if [ "$focus_changelog" -eq 0 ]; then
+    # 注意：本段 python 以 exit 7 表达「偏」，而脚本有 set -e —— 直接调用会被 set -e
+    # 当作失败命令立即终止整个脚本（吞掉 [偏] 说明行、status 也不会置 1，最终退出码 7 而非 1）。
+    # 故用 `|| pyrc=$?` 把它放进 `||` 列表屏蔽 set -e。
+    pyrc=0
+    python3 - "$file" <<'PYEOF' || pyrc=$?
+import re, sys, pathlib
+p = pathlib.Path(sys.argv[1])
+L = p.read_text(encoding='utf-8').split('\n')
+idx = [(int(m.group(1)), i) for i, l in enumerate(L, 1) if (m := re.match(r'^## (\d+)\.', l))]
+if not idx:
+    print("  核心章节形态: [跳过] 未找到「## N.」章节结构")
+    sys.exit(0)
+b = {n: (ln, idx[k+1][1]-1 if k+1 < len(idx) else len(L)) for k, (n, ln) in enumerate(idx)}
+def seg(n):
+    a, z = b[n]; return L[a-1:z]
+tot = len('\n'.join(L))
+
+# 6a 单章字符占比（>35% 触发归属审计；**不作失败条件**——机器无法区分「层放错」
+#    与「对象多」：M07 §5 = 49% 但 17 个子节分布均匀（最大 13.9%），属固有权重）
+big = []
+for n in sorted(b):
+    t = '\n'.join(seg(n))
+    if not t: continue
+    r = len(t) / tot * 100
+    if r > 35: big.append(f"§{n} {r:.1f}%")
+print(f"  [诊断] 单章字符占比 >35%（须做归属审计，非违规）: {len(big)}" + (f"  → {', '.join(big)}" if big else ""))
+
+# 6b 多行引用块占章字符比（>20% 视为引用块承载规格正文；单行引用块豁免）
+qbig = []
+for n in sorted(b):
+    lines = seg(n)
+    t = '\n'.join(lines)
+    if not t: continue
+    q = 0; run_start = None
+    for i, l in enumerate(list(lines) + ['']):
+        if l.strip().startswith('>'):
+            if run_start is None: run_start = i
+        else:
+            if run_start is not None:
+                if i - run_start >= 2:
+                    q += sum(len(x) + 1 for x in lines[run_start:i])
+                run_start = None
+    r = q / len(t) * 100
+    if r > 20: qbig.append(f"§{n} {r:.0f}%")
+print(f"  多行引用块占章比 >20%: {len(qbig)}" + (f"  → {', '.join(qbig)}" if qbig else ""))
+
+# 6c §5 字段表表头（首列 == `字段` 时固定 5 列：字段/类型/必填/UI 展示名/说明）
+bad_hdr = []
+if 5 in b:
+    s5 = seg(5)
+    for i in range(len(s5) - 1):
+        cur, nxt = s5[i].strip(), s5[i+1].strip()
+        if not cur.startswith('|') or not re.match(r'^\|[\s:|-]+\|$', nxt): continue
+        cols = [c.strip() for c in cur.strip('|').split('|')]
+        if cols and cols[0] == '字段' and len(cols) != 5:
+            bad_hdr.append(f"{len(cols)}列@L{b[5][0]+i}")
+print(f"  §5 字段表非 5 列表头: {len(bad_hdr)}" + (f"  → {', '.join(bad_hdr[:5])}" if bad_hdr else ""))
+
+# 6d §5 内模型定义类 code fence（go struct 计为失败条件；yaml/json 产物示例仅统计）
+go_fence = sample_fence = 0
+if 5 in b:
+    f5 = re.findall(r'^```(\w*)', '\n'.join(seg(5)), re.M)
+    go_fence = sum(1 for x in f5 if x == 'go')
+    sample_fence = sum(1 for x in f5 if x in ('yaml', 'json'))
+print(f"  §5 内 go fence（模型定义）: {go_fence}" + (f"  [产物示例 yaml/json: {sample_fence}，仅统计]" if sample_fence else ""))
+
+# 6e §8 状态机节缺 stateDiagram-v2
+miss = []
+if 8 in b:
+    s8 = seg(8)
+    marks = [(i, l.strip()) for i, l in enumerate(s8) if re.match(r'^### 8\.\d+', l)]
+    for k, (i, t) in enumerate(marks):
+        e = marks[k+1][0] if k+1 < len(marks) else len(s8)
+        if 'stateDiagram-v2' not in '\n'.join(s8[i:e]):
+            miss.append(t[:26])
+print(f"  §8 状态机节缺 stateDiagram-v2: {len(miss)}" + (f"  → {miss}" if miss else ""))
+
+# 6f §6 编号层级：#### 子节编号必须形如 6.N.M，禁止其他章节编号乱入（要求 14-2）
+bad_s6 = []
+if 6 in b:
+    s6 = seg(6)
+    for i, l in enumerate(s6):
+        m = re.match(r'^#{4} (\d+)\.(\d+)', l.strip())
+        if m and m.group(1) != '6':
+            bad_s6.append(f"{m.group(1)}.{m.group(2)}@L{b[6][0]+i}")
+print(f"  §6 子节编号乱入其他章节编号: {len(bad_s6)}" + (f"  → {bad_s6}" if bad_s6 else ""))
+
+# 6g §5 必填列机读性（要求 13-3-bis）：字段表必填列禁止 `✅/❌` 混写
+mix_req = []
+if 5 in b:
+    s5 = seg(5)
+    for i in range(len(s5) - 1):
+        cur, nxt = s5[i].strip(), s5[i+1].strip()
+        if not cur.startswith('|') or not re.match(r'^\|[\s:|-]+\|$', nxt): continue
+        cols = [c.strip() for c in cur.strip('|').split('|')]
+        if not cols or cols[0] != '字段' or len(cols) < 3: continue
+        req_i = 2  # 固定第 3 列为必填（字段/类型/必填/…）
+        for j, row in enumerate(s5[i+2:i+200]):
+            if not row.strip().startswith('|'): break
+            if re.match(r'^\|[\s:|-]+\|$', row.strip()): continue
+            cells = [c.strip() for c in row.strip().strip('|').split('|')]
+            if len(cells) > req_i and re.search(r'✅.*❌|❌.*✅', cells[req_i]):
+                mix_req.append(f"L{b[5][0]+i+2+j}:{cells[0][:14]}")
+print(f"  §5 必填列 ✅/❌ 混写（应写「条件必填：<条件>」）: {len(mix_req)}" + (f"  → {mix_req[:6]}" if mix_req else ""))
+
+# 6h §6 子节长度 >80 行（要求 14-3 硬门槛）
+long_s6 = []
+if 6 in b:
+    s6 = seg(6)
+    marks6 = [(i, l.strip()) for i, l in enumerate(s6) if re.match(r'^#### 6\.\d+\.\d+', l)]
+    for k, (i, t) in enumerate(marks6):
+        e = marks6[k+1][0] if k+1 < len(marks6) else len(s6)
+        n = e - i
+        if n > 80:
+            long_s6.append(f"{t.split()[0]} {n}行")
+print(f"  §6 子节 >80 行（须拆分）: {len(long_s6)}" + (f"  → {long_s6}" if long_s6 else ""))
+
+# 6i Change Log「变更内容」列长度（目标 ≤120、硬上限 200 字符；v1.39 Change Log 规范）
+long_cl = []
+for i, l in enumerate(L, 1):
+    if not re.match(r'^\|\s*v\d+\.\d+\s*\|', l): continue
+    cells = [c.strip() for c in l.strip().strip('|').split('|')]
+    if len(cells) >= 4:
+        n = len(cells[3])          # 版本/日期/变更类型/变更内容 → 第 4 列
+        if n > 200:
+            long_cl.append(f"L{i} {n}字符")
+print(f"  Change Log「变更内容」列 >200 字符（应 ≤120）: {len(long_cl)}" + (f"  → {long_cl}" if long_cl else ""))
+
+# 6j §11 页面子节形态（要求 9 v1.39 六段模板：用户任务首行 / ≤50 行 / 反引号 ≤5 / 禁状态流转）
+bad_s11 = []
+if 11 in b:
+    s11 = seg(11)
+    marks11 = [(i, l.strip()) for i, l in enumerate(s11) if re.match(r'^### 11\.\d+', l)]
+    for k, (i, t) in enumerate(marks11):
+        e = marks11[k+1][0] if k+1 < len(marks11) else len(s11)
+        parts = t.split()
+        name = parts[1] if len(parts) > 1 else t[:8]   # 形如 11.3
+        n = e - i
+        # 11.1 页面状态矩阵 / 11.2 全局行为规则是两张总表，不适用页面子节模板
+        if name in ('11.1', '11.2'):
+            continue
+        # 去除 mermaid / code fence 内的行后再做形态判定
+        cleaned, infence = [], False
+        for x in s11[i+1:e]:
+            if x.strip().startswith('```'):
+                infence = not infence
+                continue
+            if not infence:
+                cleaned.append(x)
+        body = '\n'.join(cleaned)
+        # ① 必须以「**用户任务**」段开头
+        first = next((x.strip() for x in cleaned if x.strip()), '')
+        if not first.startswith('**用户任务**'):
+            bad_s11.append(f"{name} 缺「用户任务」首行")
+        # ② 单节 ≤50 行
+        if n > 50:
+            bad_s11.append(f"{name} {n}行>50")
+        # ③ 字段名反引号 ≤5 处（超出说明字段语义未归 §5）
+        toks = len(re.findall(r'`[^`\n]+`', body))
+        if toks > 5:
+            bad_s11.append(f"{name} 反引号{toks}处>5")
+        # ④ 禁止状态流转箭头铺陈（流转属 §8）
+        if re.search(r'`\w+`\s*(?:→|->)\s*`\w+`', body):
+            bad_s11.append(f"{name} 含状态流转箭头")
+print(f"  §11 页面子节形态违规（六段模板/≤50行/反引号≤5/禁流转箭头）: {len(bad_s11)}" + (f"  → {bad_s11[:6]}" if bad_s11 else ""))
+
+# 6k 表格末行后必须空行：表格行后紧邻非空非表格内容 = 缺空行，Markdown 渲染会把
+#     后续正文并进表格单元格（吞行成「超长格子」）；跳过 code fence 内内容避免误报。
+bad_tbl = []
+fence_open = False
+last_table = False
+for i, l in enumerate(L, 1):
+    s = l.strip()
+    if s.startswith('```'):
+        fence_open = not fence_open
+        last_table = False
+        continue
+    if fence_open:
+        last_table = False
+        continue
+    is_table = s.startswith('|')
+    # 豁免：引用行（'>' 开头）会明确终止表格；水平分隔线（***/---/___）单独成行也终止表格
+    hr = re.match(r'^(\*\*\*|---|___)\s*$', s) is not None
+    if last_table and s and not is_table and not s.startswith('>') and not hr:
+        bad_tbl.append(f"L{i-1}→L{i}:{s[:16]}")
+    last_table = is_table
+print(f"  表格末行后缺空行（正文被并进表格单元格）: {len(bad_tbl)}" + (f"  → {bad_tbl[:6]}" if bad_tbl else ""))
+
+# 6l 完全相同长文本块跨章节重复（第 1 类：逐字重抄的正文段落行）。
+#     低误报定位：只抓「去空白后 ≥40 字、且出现在 ≥2 个不同子节/章节」的完整正文行，
+#     忽略表格/引用/列表行，避免模板 / 既成分层外显误报。近义改写（第 2/3 类）不在此检测。
+occ, cur_key = {}, None
+for ln_i, l in enumerate(L, 1):
+    mc = re.match(r'^##+ (\d+(\.\d+)*)\.', l)
+    if mc:
+        cur_key = mc.group(1)
+        continue
+    if l.strip().startswith(('```', '|', '>', '-', '+', '*')):
+        continue
+    s = ' '.join(l.split())
+    if len(s) < 40:
+        continue
+    occ.setdefault(s, []).append((cur_key, ln_i))
+dup = []
+for key, hits in occ.items():
+    if len(hits) < 2:
+        continue
+    if len({h[0] for h in hits}) > 1:
+        dup.append(f"L{hits[0][1]}@{hits[0][0]} ×{len(hits)}: {key[:20]}")
+dup.sort()
+print(f"  完全相同长文本块跨章节重复（≥40字正文行）: {len(dup)}" + (f"  → {dup[:6]}" if dup else ""))
+
+if len(qbig) + len(bad_hdr) + go_fence + len(miss) + len(bad_s6) + len(mix_req) + len(long_s6) + len(long_cl) + len(bad_s11) + len(bad_tbl) + len(dup) > 0:
+    sys.exit(7)
+PYEOF
+    if [ "$pyrc" -ne 0 ]; then
+      echo "    [偏] 核心章节形态未达标（存量属迁移进度指标；新改动模块须达标，见要求 13）"
+      status=1
+    fi
+  fi
+
   echo ""
 done
 
@@ -148,7 +463,7 @@ if [ "$status" -ne 0 ]; then
   if [ "$focus_changelog" -eq 1 ]; then
     echo "发现 Change Log 收敛问题：主 PRD 仅保留最近 3 个版本，更早版本应迁至对应 design-decisions.md「Change Log（完整历史）」小节。"
   else
-    echo "发现需整改项。请按 prototype-designer.md v1.27 规范进行 PRD 去历史化与章节对齐。"
+    echo "发现需整改项。请按 prototype-designer.md 规范（v1.27 去历史化 + v1.34 §3 防叠加）进行 PRD 整改。"
   fi
 fi
 exit "$status"

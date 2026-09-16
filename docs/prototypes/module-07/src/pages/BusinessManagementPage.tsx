@@ -1,23 +1,23 @@
 import { useState } from 'react'
 import {
-  Alert,
   App,
+  Badge,
   Button,
   Card,
   Descriptions,
+  Dropdown,
   Form,
   Input,
   Modal,
   Select,
   Space,
   Table,
-  Tag,
-  Tooltip,
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
-import { EditOutlined, PlusOutlined } from '@ant-design/icons'
+import { DownOutlined, ExclamationCircleFilled, InfoCircleFilled, PlusOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import { Callout } from '../components/Callout'
 import { ReviewNote } from '../components/ReviewNote'
 import { TABLE_PAGINATION } from '../components/tablePresets'
 import { BIZ_CODE_RE, mockBusinessDomains } from '../mocks/module-07'
@@ -158,31 +158,51 @@ export default function BusinessManagementPage() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 100,
+      // 状态语义统一 Badge（《前端标准》§8：状态语义 = Badge 语义色 + 文字标签）
       render: (v: BusinessDomain['status']) =>
-        v === 'enabled' ? <Tag color="green">启用</Tag> : <Tag>停用</Tag>,
+        v === 'enabled' ? <Badge status="success" text="启用" /> : <Badge status="default" text="停用" />,
     },
     {
       title: '操作',
       key: 'actions',
-      width: 180,
-      render: (_: unknown, record) => (
-        <Space size={0}>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-            编辑
-          </Button>
-          {record.biz_code === 'infra' ? (
-            <Tooltip title="infra 为无业务归属设备的兜底分组，不可停用">
-              <Button type="link" size="small" disabled onClick={() => toggleStatus(record)}>
-                停用
-              </Button>
-            </Tooltip>
-          ) : (
-            <Button type="link" size="small" onClick={() => toggleStatus(record)}>
-              {record.status === 'enabled' ? '停用' : '启用'}
+      width: 140,
+      // 操作层次（《前端标准》§8/§9）：主操作「编辑」品牌色加粗且全行唯一；
+      // 低频状态操作（停用 / 启用）收进「更多」菜单；infra 兜底条目在菜单内直给不可操作原因。
+      render: (_: unknown, record) => {
+        const isInfra = record.biz_code === 'infra'
+        const actionText = record.status === 'enabled' ? '停用' : '启用'
+        return (
+          <Space size={12}>
+            <Button
+              type="link"
+              size="small"
+              style={{ color: '#0ECDEB', fontWeight: 600, padding: 0 }}
+              onClick={() => openEdit(record)}
+            >
+              编辑
             </Button>
-          )}
-        </Space>
-      ),
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'toggle',
+                    label: isInfra ? '停用（infra 兜底分组不可停用）' : actionText,
+                    danger: actionText === '停用',
+                    disabled: isInfra,
+                  },
+                ],
+                onClick: () => toggleStatus(record),
+              }}
+              trigger={['click']}
+            >
+              <Button type="link" size="small" style={{ color: '#4E5969', padding: 0 }}>
+                更多 <DownOutlined style={{ fontSize: 10 }} />
+              </Button>
+            </Dropdown>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -193,18 +213,15 @@ export default function BusinessManagementPage() {
         <Text type="secondary">维护业务分组字典，资源的业务归属（业务编码）在本页登记</Text>
       </div>
 
-      <Alert
-        type="info"
-        showIcon
+      <Callout
+        tone="info"
+        icon={<InfoCircleFilled />}
+        title="业务编码是资源归属业务域的权威标识"
         style={{ marginBottom: 16 }}
-        message="业务编码是资源归属业务域的权威标识"
-        description={
-          <span>
-            业务编码（<Text code>biz_code</Text>）会随资源标签一起用于按业务维度聚合监控，<strong>创建后不可修改</strong>；
-            停用业务不删除，仅不再可被新增 / 编辑资源选用，存量资源保留原归属。
-          </span>
-        }
-      />
+      >
+        业务编码（<Text code>biz_code</Text>）会随资源标签一起用于按业务维度聚合监控，<Text strong>创建后不可修改</Text>；
+        停用业务不删除，仅不再可被新增 / 编辑资源选用，存量资源保留原归属。
+      </Callout>
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
@@ -243,13 +260,14 @@ export default function BusinessManagementPage() {
         cancelText="取消"
         width={520}
       >
-        <Alert
-          type="warning"
-          showIcon
+        <Callout
+          tone="warning"
+          icon={<ExclamationCircleFilled />}
+          title="业务编码创建后不可修改"
           style={{ marginBottom: 16 }}
-          message="业务编码创建后不可修改"
-          description="业务编码由小写字母、数字、连字符组成且长度不超过 64；一旦创建即作为资源归属的唯一标识，随标签用于业务维度聚合，请谨慎填写。"
-        />
+        >
+          业务编码由小写字母、数字、连字符组成且长度不超过 64；一旦创建即作为资源归属的唯一标识，随标签用于业务维度聚合，请谨慎填写。
+        </Callout>
         <Form form={registerForm} layout="vertical" name="register-business">
           <Form.Item
             label="业务编码"

@@ -122,7 +122,7 @@ help:
 	@echo "  make install-git-hooks  启用项目级 git hooks（pre-commit 强制 repo-map 新鲜度）"
 	@echo "  make check-prd-hygiene  检查 PRD 去历史化与章节冻结"
 	@echo "  make check-prototype-notes  检查原型用户可见文案是否泄漏评审标记"
-	@echo "  make check-prototype  检查原型标记泄漏 + 结构反模式（Alert 滥用/列数/筛选布局）"
+	@echo "  make check-prototype  检查原型标记泄漏 + 结构反模式（Alert 滥用/表格列数>8/筛选布局）"
 	@echo "  make clean              清理构建产物"
 
 # -----------------------------------------------------------------------------

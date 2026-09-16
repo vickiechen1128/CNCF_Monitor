@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Alert, Empty, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented, Popover, Modal, type TableColumnsType } from 'antd'
-import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined, CopyOutlined, InfoCircleOutlined, HistoryOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Empty, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented, Popover, Modal, type TableColumnsType } from 'antd'
+import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined, CopyOutlined, InfoCircleOutlined, HistoryOutlined, ReloadOutlined, ExclamationCircleFilled, CheckCircleFilled } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { ReviewNote } from '../components/ReviewNote'
+import { Callout } from '../components/Callout'
 import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   configDrafts,
@@ -25,6 +26,7 @@ import {
   filterRealTimeEvaluationNote,
   channelLabel,
   channelTip,
+  writeSyncFlowOverride,
   type Channel,
   type ConfigSyncStatus,
   type ConfigDraftStatus,
@@ -635,12 +637,17 @@ export function ConfigPreviewPage() {
       return
     }
     // 决策 19：确认动作记录确认人（当前登录用户），历史变更可审计「谁确认了高风险变更」；MVP 预置，用户管理接入后同步（决策 20）
-    // {v1.33} 发布通道按下发通道提示：local 通道确认后立即 reload 生效；agent_pull 通道发布为配置包，待 Edge Sync Agent 下次心跳拉取生效
+    // {v1.33} 发布通道按下发通道提示：local 通道确认后立即 reload 生效；agent_pull 通道发布为配置包，待采集节点下次心跳拉取生效
     // {v1.40 决策 40-3} agent_pull 确认后动线引导：正常路径无需任何点击（心跳自动拉取，out_of_sync → in_sync 自动流转），仅成因 C（本地环境变化）才需要「立即同步」；补充「采集节点状态」页入口
     const isAgentPull = activeDomain?.channel === 'agent_pull'
+    // {v1.71} 决策 74-3：agent_pull 确认后写入 mock 跨页流转桥（sessionStorage 持久，domain 级兜底）——采集节点状态页
+    // 挂载时应用：该域 pending_draft 节点翻「生效中」，再由其心跳模拟定时器自动流转「已同步」；否则确认动作跨页即丢
+    if (isAgentPull && activeDomainId) {
+      writeSyncFlowOverride(activeDomainId, { config_sync_status: 'out_of_sync', out_of_sync_cause: 'pull_pending' })
+    }
     message.success(
       isAgentPull
-        ? `变更单 ${draft?.change_no} 已确认，已发布配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）。可在「采集节点状态」页查看配置同步状态并确认生效进度（确认人：${CURRENT_USER}）`
+        ? `变更单 ${draft?.change_no} 已确认，已发布配置包，待采集节点下次心跳拉取生效（准实时 30s）。可在「采集节点状态」页查看配置同步状态并确认生效进度（确认人：${CURRENT_USER}）`
         : `变更单 ${draft?.change_no} 已确认并发布到监控（确认人：${CURRENT_USER}）`
     )
     setDetailDraft(null)
@@ -754,7 +761,7 @@ export function ConfigPreviewPage() {
           <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
             发布通道：{channelLabel[activeDomain.channel]}（{activeDomain.name}）；
             {activeDomain.channel === 'agent_pull'
-              ? '确认后发布为配置包，待 Edge Agent 下次心跳拉取生效（准实时 30s）'
+              ? '确认后发布为配置包，待采集节点下次心跳拉取生效（准实时 30s）'
               : '确认后由中心写盘并 reload 立即生效'}
           </Text>
         )}
@@ -945,7 +952,7 @@ export function ConfigPreviewPage() {
                 {
                   // {v1.33} 行内保留下发通道标记（PRD 3.4）：local / agent_pull（与对应 NetworkDomain.channel 一致，决策 32）
                   title: (
-                    <Tooltip title="该变更所属网域的下发通道：local（中心直接 reload）/ agent_pull（Edge Sync Agent 心跳拉取配置包）；决定确认后生效方式">
+                    <Tooltip title="该变更所属网域的接入方式：中心直连（确认后中心直接 reload）/ 采集节点回传（采集节点心跳拉取配置包）；决定确认后的生效方式">
                       <Space size={4}>
                         下发通道
                         <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -1144,7 +1151,7 @@ export function ConfigPreviewPage() {
                         validationFailed
                           ? '下发前校验未通过，禁止下发'
                           : activeDomain?.channel === 'agent_pull'
-                          ? '确认后发布为配置包，待 Edge Sync Agent 下次心跳拉取生效'
+                          ? '确认后发布为配置包，待采集节点下次心跳拉取生效'
                           : '确认后立即 reload 生效'
                       }
                     >
@@ -1334,10 +1341,10 @@ export function ConfigPreviewPage() {
               {/* {v1.39} 决策 39-1：抽屉只承载变更清单 / Diff / 确认/废弃操作——校验失败时最多留一行 Alert 摘要，
                   详细校验信息（失败文件 + 行号 + 归因 + 引导）一律在列表「下发前校验」列行内查看，不进抽屉 */}
               {validationFailed && draft && (
-                <Alert
-                  message={`校验未通过（${validationCauseLabel[draft.validation_cause ?? 'user_config']}），请先在列表查看失败原因并处理`}
-                  type="error"
-                  showIcon
+                <Callout
+                  tone="error"
+                  icon={<ExclamationCircleFilled />}
+                  title={`校验未通过（${validationCauseLabel[draft.validation_cause ?? 'user_config']}），请先在列表查看失败原因并处理`}
                   style={{ marginBottom: 16 }}
                 />
               )}
@@ -1538,15 +1545,14 @@ export function ConfigPreviewPage() {
                 </ul>
               </ReviewNote>
 
-              {/* {v1.40 决策 40-3} agent_pull 确认后动线引导（确认抽屉底部入口）：已发布配置包 → 待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）；
+              {/* {v1.40 决策 40-3} agent_pull 确认后动线引导（确认抽屉底部入口）：已发布配置包 → 待采集节点下次心跳拉取生效（准实时 30s）；
                   正常路径无需任何点击（心跳自动 out_of_sync → in_sync 流转），仅成因 C（本地环境变化）才需要「立即同步」；提供「前往采集节点状态」入口查看生效进度 */}
               {isAgentPullDomain && (
-                <Alert
-                  message="agent_pull 确认后动线：已发布配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）"
-                  description="确认后可在「采集节点状态」页查看配置同步状态（config_sync_status）确认生效进度——正常路径无需任何点击（out_of_sync → in_sync 随心跳自动流转），仅本地环境/地址变化（成因 C）才需要在该页点击「立即同步」强制重新拉包。"
-                  type="success"
-                  showIcon
-                  action={
+                <Callout
+                  tone="success"
+                  icon={<CheckCircleFilled />}
+                  title="采集节点回传网域确认后动线：已发布配置包，待采集节点下次心跳拉取生效（准实时 30s）"
+                  extra={
                     <Button
                       size="small"
                       onClick={() => navigate(`/node-status?network_domain=${draft.network_domain_id}`)}
@@ -1555,7 +1561,10 @@ export function ConfigPreviewPage() {
                     </Button>
                   }
                   style={{ marginTop: 16 }}
-                />
+                >
+                  确认后可在「采集节点状态」页查看配置同步状态（config_sync_status）确认生效进度——正常路径无需任何点击
+                  （out_of_sync → in_sync 随心跳自动流转），仅本地环境 / 地址变化（成因 C）才需要在该页点击「立即同步」强制重新拉包。
+                </Callout>
               )}
             </>
           )}

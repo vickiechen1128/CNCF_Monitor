@@ -55,7 +55,7 @@ MetricCenter 使用三层版本体系，避免 PRD 迭代号与产品里程碑�
 | **Module_10 监控源登记册** | - | - | 监控源 CRUD；外部 Prometheus Remote Write；Ingestion Gateway；标签注入（由 v0.2 后移） | Zabbix / 云监控 Adapter；标签归一化；Metric Drop Rules | 长期存储路由 VictoriaMetrics/Mimir |
 | **Module_04 自定义服务发现** | Excel Provider（由 Module_07 承载） | - | - | BlueKing / HTTP / Nacos Provider；CI 类型映射；待分类队列；孤儿资源 | - |
 | **Module_03 网关与认证** | - | - | 统一入口路由；Ingestion 路由（由 v0.2 后移） | - | 认证鉴权中间件；请求级审计；多租户路由 |
-| **Module_05 自定义前端门户** | - | - | Custom UI 门户；PromQL 查询页；告警状态页；**监控大屏（Grafana iframe 嵌入 + 预置仪表盘模板，决策 51）**；首页轻量图表（ECharts/AntV）+ 新用户引导 | - | Dashboard-as-Code 治理（M11 预留：dashboard 版本化 / 按租户分发） |
+| **Module_05 自定义前端门户** | 首页 MVP 子集（决策 72）：系统快速入口 + 使用指引（五步开箱动线）+ 告警状态数字（AM 治理态为主，空态引导） | - | Custom UI 门户；PromQL 查询页；告警状态页；**监控大屏（Grafana iframe 嵌入 + 预置仪表盘模板，决策 51）**；首页升级概览 Dashboard（轻量图表 ECharts/AntV + 采集覆盖率卡片 + 大屏快捷入口） | - | Dashboard-as-Code 治理（M11 预留：dashboard 版本化 / 按租户分发） |
 
 > **P0/P1/P2 说明**：本矩阵只标注该版本是否包含某模块能力；模块内部的优先级（P0/P1/P2）详见各模块 PRD 功能范围表。
 

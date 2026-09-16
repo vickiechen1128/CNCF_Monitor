@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # 原型规范检查：① 用户可见文案泄漏决策/PRD/版本标记（多行 JSX 属性感知）
 #              ② 结构反模式（Alert 泛滥 / 表格列过多且无横向滚动 / 筛选组过多 / 灰色长文本）
-# 用法: check-prototype.py [module-XX] [--markers-only|--structure-only] [--strict]
+# 用法: check-prototype.py [module-XX] [--markers-only|--structure-only] [--strict] [--all-src]
 # 退出码: 有泄漏 → 1；仅结构警告 → 0（--strict 时警告也 → 1）
 import os
 import re
@@ -76,6 +76,11 @@ def scan_template(text, start):
 
 def scan_braces(text, start):
     """从 start（'{' 位置）做括号配平扫描，跳过字符串/模板/行注释，返回 (内容, 结束位置)。"""
+    return scan_balanced(text, start, '{', '}')
+
+
+def scan_balanced(text, start, open_ch, close_ch):
+    """从 start（open_ch 位置）做括号配平，跳过字符串/模板/注释，返回 (内容, 结束位置)。"""
     depth = 0
     i = start
     n = len(text)
@@ -95,14 +100,108 @@ def scan_braces(text, start):
             j = text.find('*/', i + 2)
             i = n if j == -1 else j + 2
             continue
-        if c == '{':
+        if c == open_ch:
             depth += 1
-        elif c == '}':
+        elif c == close_ch:
             depth -= 1
             if depth == 0:
                 return text[start:i + 1], i + 1
         i += 1
     return text[start:], n
+
+
+def skip_ws(text, i):
+    n = len(text)
+    while i < n and text[i] in ' \t\r\n':
+        i += 1
+    return i
+
+
+def split_top_level(inner):
+    """按顶层逗号切分数组/对象内部文本（跳过字符串/模板/注释/嵌套括号），返回非空元素列表。"""
+    parts = []
+    depth = 0
+    i = 0
+    n = len(inner)
+    start = 0
+    while i < n:
+        c = inner[i]
+        if c in '"\'':
+            _, i = scan_string(inner, i, c)
+            continue
+        if c == '`':
+            i = scan_template(inner, i)
+            continue
+        if c == '/' and i + 1 < n and inner[i + 1] == '/':
+            j = inner.find('\n', i)
+            i = n if j == -1 else j + 1
+            continue
+        if c == '/' and i + 1 < n and inner[i + 1] == '*':
+            j = inner.find('*/', i + 2)
+            i = n if j == -1 else j + 2
+            continue
+        if c in '([{':
+            depth += 1
+        elif c in ')]}':
+            depth -= 1
+        elif c == ',' and depth == 0:
+            parts.append(inner[start:i])
+            start = i + 1
+        i += 1
+    tail = inner[start:]
+    if tail.strip():
+        parts.append(tail)
+    return [p for p in parts if p.strip()]
+
+
+def count_array_elements(body):
+    """按顶层元素个数统计数组长度（元素可以是对象字面量、列工厂调用或标识符）。"""
+    return len(split_top_level(body))
+
+
+def unwrap_array(expr, pos):
+    """把 pos 起的表达式解析为数组字面量，返回 (元素个数, 结束位置)；不是数组字面量返回 (None, pos)。
+
+    可识别：`[{...}]`、`{[{...}]}`（JSX 属性）以及 `[...]`（变量赋值 / 类型注解赋值）。
+    列工厂写法（`[identityColumn(...), ipColumn, ...]`）按元素个数计数，
+    因此不依赖元素内部是否出现 `title:`——这正是旧规则漏检的形态。
+    """
+    i = skip_ws(expr, pos)
+    if i >= len(expr):
+        return None, pos
+    c = expr[i]
+    if c == '{':
+        block, _ = scan_balanced(expr, i, '{', '}')
+        inner = block[1:-1] if block.endswith('}') else block[1:]
+        return unwrap_array(inner, 0)
+    if c == '[':
+        arr, end = scan_balanced(expr, i, '[', ']')
+        body = arr[1:-1] if arr.endswith(']') else arr[1:]
+        return count_array_elements(body), end
+    return None, pos
+
+
+# 列定义数组的三种真实形态：
+#   ① JSX / 对象属性   columns={[...]}  ·  columns: [...]
+#   ② 类型注解赋值      const cols: TableProps<X>['columns'] = [...]
+#   ③ 变量名语义        const columns / const columnDefs = [...]
+COLUMN_ARRAY_RE = re.compile(
+    r'columns\s*[=:]\s*'
+    r"|\[\s*['\"]columns['\"]\s*\]\s*=\s*"
+    r'|\b(?:const|let|var)\s+[A-Za-z_$][\w$]*[Cc]olumns?\s*(?::[^\n=;]*)?=\s*'
+)
+
+
+def iter_column_counts(text):
+    """产出 (行号, 列数, 形态说明)：文件中每个可静态解析的列定义数组的列数。"""
+    seen = set()
+    for m in COLUMN_ARRAY_RE.finditer(text):
+        if m.start() in seen:
+            continue
+        seen.add(m.start())
+        count, _ = unwrap_array(text, m.end())
+        if count:
+            yield line_of(text, m.start()), count, m.group(0).strip()
 
 
 PROP_START_RE = re.compile(r'\b(' + '|'.join(USER_VISIBLE_PROPS) + r')\s*=\s*')
@@ -176,12 +275,13 @@ def remove_jsx_expressions(inner):
     return inner
 
 
-def check_structure(module_name, src_dir):
+def check_structure(module_name, src_dir, all_src=False):
     warnings = []
-    pages_dir = os.path.join(src_dir, 'pages')
-    if not os.path.isdir(pages_dir):
+    # 默认只扫 pages/（用户主区）；--all-src 时覆盖整个 src（含 components/ 内的共享表格）
+    scan_dir = src_dir if all_src else os.path.join(src_dir, 'pages')
+    if not os.path.isdir(scan_dir):
         return warnings
-    for path in iter_source_files(pages_dir):
+    for path in iter_source_files(scan_dir):
         if not path.endswith(('.tsx', '.jsx')):
             continue
         with open(path, encoding='utf-8') as f:
@@ -192,16 +292,14 @@ def check_structure(module_name, src_dir):
         if alert_count > MAX_ALERTS_PER_PAGE:
             warnings.append((path, None, f'Alert 组件 {alert_count} 个（>{MAX_ALERTS_PER_PAGE}）——用户主区最多保留 1 个用户级 Alert，其余进 ReviewNote / Empty / Tooltip'))
 
-        # 2. 表格列数与横向滚动
-        for m in re.finditer(r'columns\s*=\s*{', text):
-            block, _ = scan_braces(text, m.end() - 1)
-            col_count = len(re.findall(r'\btitle\s*:', block))
+        # 2. 表格列数与横向滚动（按列定义数组的顶层元素个数计数）
+        for line_no, col_count, form in iter_column_counts(text):
             if col_count > MAX_TABLE_COLUMNS:
                 has_scroll = re.search(r'scroll\s*=\s*\{\{[^}]*\bx\s*:', text)
-                msg = f'表格列数约 {col_count} 列（>{MAX_TABLE_COLUMNS}）——按前端标准第 9 章做列数治理（≤8 列，其余下沉详情 Drawer）'
+                msg = f'表格列数 {col_count} 列（>{MAX_TABLE_COLUMNS}）——按前端标准第 9 章做列数治理（建议 ≤8 列，其余下沉详情 Drawer）'
                 if not has_scroll:
                     msg += '，且缺少 scroll={{ x: ... }} 横向滚动'
-                warnings.append((path, line_of(text, m.start()), msg))
+                warnings.append((path, line_no, msg))
 
         # 3. 筛选组数量（仅对未使用 FilterBar 栅格的页面报警）
         filter_groups = text.count('placeholder="全部')
@@ -228,6 +326,7 @@ def main():
     markers_only = '--markers-only' in args
     structure_only = '--structure-only' in args
     strict = '--strict' in args
+    all_src = '--all-src' in args
     for a in args:
         if a.startswith('module-'):
             module_filter = a
@@ -247,7 +346,7 @@ def main():
                 for path, line, prop, marker in errors:
                     print(f'    {path}:{line}  [{prop}=] 命中 "{marker}"')
         if not markers_only:
-            warnings = check_structure(name, src_dir)
+            warnings = check_structure(name, src_dir, all_src=all_src)
             total_warnings += len(warnings)
             module_issues += len(warnings)
             if warnings:
