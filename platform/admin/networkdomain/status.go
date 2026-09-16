@@ -72,10 +72,11 @@ func UpdateDomainStatus(db *gorm.DB) gin.HandlerFunc {
 		}
 		// Flat impact scope, per the frontend contract.
 		response.OK(c, gin.H{
-			"id":                       id,
-			"status":                   models.DomainStatusDisabled,
-			"resource_count":           impact.ResourceCount,
-			"managed_edge_agent_count": impact.ManagedEdgeAgentCount,
+			"id":                         id,
+			"status":                     models.DomainStatusDisabled,
+			"resource_count":             impact.ResourceCount,
+			"managed_edge_agent_count":   impact.ManagedEdgeAgentCount,
+			"has_online_agents":          impact.HasOnlineAgents,
 		})
 	}
 }

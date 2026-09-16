@@ -54,10 +54,11 @@ func TestDeleteNonEmptyRejected(t *testing.T) {
 		VPC: "v", SecurityGroup: "sg",
 	}).Error)
 
+	// 决策 82-1：有 M07 资源引用时返回 403 forbidden（不是 409 conflict）
 	code, out := delDomain(t, db, "mc-busy")
-	assert.Equal(t, 409, code)
-	assert.Equal(t, "conflict", out["errorType"])
-	assert.Contains(t, out["error"].(string), "disable")
+	assert.Equal(t, 403, code)
+	assert.Equal(t, "forbidden", out["errorType"])
+	assert.Contains(t, out["error"].(string), "resource reference")
 
 	// row not deleted
 	var count int64
@@ -65,7 +66,7 @@ func TestDeleteNonEmptyRejected(t *testing.T) {
 	assert.Equal(t, int64(1), count)
 }
 
-func TestDeleteManagedAgentRejected(t *testing.T) {
+func TestDeleteManagedAgentCascadeImpact(t *testing.T) {
 	db := openTestDB(t)
 	insertDomain(t, db, &models.NetworkDomain{
 		ID: "mc-agents", Name: "有agent", DomainType: models.DomainTypeEdge,
@@ -76,8 +77,18 @@ func TestDeleteManagedAgentRejected(t *testing.T) {
 		NetworkDomainID: "mc-agents", AgentType: models.AgentTypeVMAgent, Status: "online",
 	}).Error)
 
-	code, _ := delDomain(t, db, "mc-agents")
-	assert.Equal(t, 409, code)
+	// 决策 82-1：已纳管 EdgeAgent 不再拒绝，改返回级联影响清单
+	code, out := delDomain(t, db, "mc-agents")
+	assert.Equal(t, 200, code)
+
+	// 验证返回级联影响清单
+	data := out["data"].(map[string]interface{})
+	assert.Equal(t, true, data["deleted"])
+	cascade := data["cascade_impact"].(map[string]interface{})
+	assert.Equal(t, float64(1), cascade["managed_edge_agent_count"])
+	assert.Equal(t, true, cascade["token_will_revoke"])
+	assert.Equal(t, true, cascade["config_push_will_stop"])
+	assert.Equal(t, float64(1), cascade["agents_will_retire"])
 }
 
 func TestDeleteManagementRejected(t *testing.T) {
@@ -88,9 +99,10 @@ func TestDeleteManagementRejected(t *testing.T) {
 		Status: models.DomainStatusEnabled,
 	})
 
+	// 决策 82-1：管理域禁止删除，返回 400 bad_request（不是 409 conflict）
 	code, out := delDomain(t, db, models.DefaultDomainID)
-	assert.Equal(t, 409, code)
-	assert.Equal(t, "conflict", out["errorType"])
+	assert.Equal(t, 400, code)
+	assert.Equal(t, "bad_request", out["errorType"])
 }
 
 func TestDeleteOfflineAgentDoesNotBlock(t *testing.T) {

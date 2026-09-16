@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-14 15:48 · commit: `d24aa12e`
+> 生成时间: 2026-09-16 18:43 · commit: `aed02f4`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -12,6 +12,20 @@
 - `func TestAuthorizedTenantsDefaultBackfill(t *testing.T)`
 - `func TestAuthorizedTenantsEditAddsAndRemoves(t *testing.T)`
 - `func TestAuthorizedTenantsClearToEmpty(t *testing.T)`
+
+### `platform/admin/networkdomain/cascade_retire.go`
+
+- `type CascadeRetireResult struct`
+- `func CascadeRetire(db *gorm.DB, domainID string) (*CascadeRetireResult, error)`
+
+### `platform/admin/networkdomain/cascade_retire_test.go`
+
+- `func setupTestDB(t *testing.T) *gorm.DB`
+- `func TestCascadeRetire_Success(t *testing.T)`
+- `func TestCascadeRetire_NoAgents(t *testing.T)`
+- `func TestCascadeRetire_MultipleAgents(t *testing.T)`
+- `func TestCascadeRetire_DomainNotFound(t *testing.T)`
+- `func TestCascadeRetire_RetiredStatusIsTerminal(t *testing.T)`
 
 ### `platform/admin/networkdomain/create.go`
 
@@ -45,7 +59,7 @@
 - `func delDomain(t *testing.T, db *gorm.DB, id string) (int, map[string]interface{})`
 - `func TestDeleteEmptyDomainSoftDeletes(t *testing.T)`
 - `func TestDeleteNonEmptyRejected(t *testing.T)`
-- `func TestDeleteManagedAgentRejected(t *testing.T)`
+- `func TestDeleteManagedAgentCascadeImpact(t *testing.T)`
 - `func TestDeleteManagementRejected(t *testing.T)`
 - `func TestDeleteOfflineAgentDoesNotBlock(t *testing.T)`
 
@@ -1966,6 +1980,8 @@
 
 ### `platform/models/edge_agent.go`
 
+- `func IsValidEdgeAgentStatus(status string) bool`
+- `func CanTransitionToEdgeAgentStatus(from, to string) error`
 - `type EdgeAgent struct`
 - `method (EdgeAgent) TableName() string`
 
@@ -3498,6 +3514,9 @@
 - `interface ZoneType`
 - `interface NetworkDomain`
 - `interface NetworkDomainImpact`
+- `interface CascadeImpact`
+- `interface CascadeRetireResult`
+- `interface NetworkDomainDeleteResult`
 - `interface NetworkDomainStatusResult`
 - `type TenantStatus`
 - `interface Tenant`

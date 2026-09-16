@@ -368,7 +368,7 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 		code, _ := exec("PATCH", "/api/v2/platform/network-domains/"+models.DefaultDomainID+"/status", `{"status":"disabled"}`)
 		assert.Equal(t, 409, code)
 		code2, _ := exec("DELETE", "/api/v2/platform/network-domains/"+models.DefaultDomainID, "")
-		assert.Equal(t, 409, code2)
+		assert.Equal(t, 400, code2) // 决策82-1：管理域禁止删除返回400（bad_request）
 	}
 
 	// 7. re-enable then delete the (now enabled, empty) domain

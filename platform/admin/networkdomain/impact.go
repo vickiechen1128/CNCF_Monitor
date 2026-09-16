@@ -13,6 +13,7 @@ import (
 type DomainImpact struct {
 	ResourceCount         int64 `json:"resource_count"`
 	ManagedEdgeAgentCount int64 `json:"managed_edge_agent_count"`
+	HasOnlineAgents     bool  `json:"has_online_agents"` // 决策 82-2：是否存在在线 Agent（供前端判断是否展示补强提示）
 }
 
 // resourceModels lists the five M07 resource tables that reference a network
@@ -62,5 +63,9 @@ func ComputeImpact(db *gorm.DB, domainID string) (*DomainImpact, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DomainImpact{ResourceCount: resources, ManagedEdgeAgentCount: agents}, nil
+	return &DomainImpact{
+		ResourceCount:         resources,
+		ManagedEdgeAgentCount: agents,
+		HasOnlineAgents:     agents > 0,
+	}, nil
 }
