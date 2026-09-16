@@ -608,7 +608,7 @@ export default function LabelTemplatesPage() {
             ——它是覆盖率三态聚合（M02）与资源回连（M07 badge）的唯一稳定键；<Text code style={{ fontSize: 12 }}>hostname</Text> 仅为可读别名，不替代它。
           </li>
           <li>
-            <Text strong>{'{v2.27}'} 关联实例展示边界</Text>：静态资源（主机 / 数据库 / 中间件 / 通用目标）的实例级标签在 CMDB 侧只读治理，
+            <Text strong>{'{v2.27}'} 关联实例展示边界</Text>：静态资源（主机 / 数据库 / 中间件 / 其他监控目标）的实例级标签在 CMDB 侧只读治理，
             故「关联实例」Tab 与左栏 badge <Text strong>仅业务类型资源（应用服务）展示</Text>；右栏 Tab 数量随类别动态 2~3 个。
           </li>
           <li>

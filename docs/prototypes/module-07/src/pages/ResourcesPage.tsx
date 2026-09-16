@@ -27,6 +27,8 @@ import {
 } from 'antd'
 import type { TableProps } from 'antd'
 import {
+  ApiOutlined,
+  ClusterOutlined,
   DeleteOutlined,
   DownOutlined,
   DownloadOutlined,
@@ -36,6 +38,7 @@ import {
   PlusOutlined,
   SettingOutlined,
   UploadOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { Callout } from '../components/Callout'
@@ -54,7 +57,6 @@ import {
   PROTOCOL_OPTIONS,
   PROTECTED_PROMETHEUS_LABELS,
   RESOURCE_TYPE_MAP,
-  SCHEME_OPTIONS,
   SOURCE_TYPE_MAP,
   STATUS_MAP,
   STATUS_MAPPING_RULES,
@@ -76,6 +78,13 @@ import {
   DOMAIN_SOURCE_LABELS,
   resolveDomainFromIP,
   resolveDomainAttribution,
+  // {v2.33} 决策 81：网域字段可达性引导（链路说明 + IP 推导预览）与 K8s 集群级端点预设
+  domainReachabilityText,
+  previewDomainByIP,
+  K8S_ENDPOINT_PRESETS,
+  // {v2.34} 决策 83：「其他监控目标」登记对象预设（去 exporter 化）+ 技术判别值反查中文名
+  DEVICE_ENDPOINT_PRESETS,
+  endpointTypeLabel,
 } from '../mocks/module-07'
 import type {
   AppProtocol,
@@ -87,7 +96,6 @@ import type {
   ResourceLabel,
   ResourceStatus,
   ResourceCategory,
-  TargetScheme,
 } from '../mocks/module-07'
 
 const { Title, Text } = Typography
@@ -268,6 +276,24 @@ export default function ResourcesPage() {
   const [templateModalOpen, setTemplateModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [resourceForm] = Form.useForm()
+  // {v2.33} 决策 81：instance_ip 实时驱动网域 ip_cidrs 推导预览（可达性引导）
+  const watchedInstanceIP = Form.useWatch('instance_ip', resourceForm) as string | undefined
+  // {v2.33} 网域显式选择值：推导命中且与当前选择不一致时提供「采用」快捷采纳
+  const watchedDomainId = Form.useWatch('network_domain_id', resourceForm) as string | undefined
+  // {v2.35} 决策 84：「其他监控目标」表单首问「登记对象」的当前值（非持久字段，驱动 K8s 集群级 / 标准端点表单分流）
+  const watchedDevicePreset = Form.useWatch('device_preset', resourceForm) as string | undefined
+
+  // 表单当前类型：编辑取记录类型，新增取入口落到的 activeType
+  const formType: ResourceCategory = editingResource?.resource_category ?? activeType
+  // {v2.35} 决策 84：K8s 集群级端点分流由表单首问「登记对象 = K8s 集群（集群级端点）」驱动
+  //   （决策 81 的双入口动线收编为表单内首问；新增入口收敛为 5 项、与列表 Tab 1:1）
+  const k8sMode = formType === 'generic_target' && watchedDevicePreset === 'k8s_cluster'
+  // {v2.33} 网域可达性推导预览：instance_ip 类采集端点（host / database / middleware / generic_target）参与；
+  // application 采集端点是 endpoint（IP:Port）、本原型不做拆分解析，故不展示预览。
+  const domainPreview = useMemo(
+    () => (formType === 'application' ? { kind: 'empty' as const } : previewDomainByIP(watchedInstanceIP)),
+    [watchedInstanceIP, formType]
+  )
 
   const filteredData = useMemo(() => {
     const keyword = search.trim().toLowerCase()
@@ -392,16 +418,56 @@ export default function ResourcesPage() {
   }
 
   // ---------- 新增 / 编辑资源 ----------
-  const openAddModal = () => {
+  // {v2.36} 决策 85：新增入口回归单一「新增资源」按钮，抽屉表单形态跟随当前资源类型 Tab（5 类 1:1）——
+  //   K8s 集群不占类型入口（K8s 集群非资源类型，决策 77/84），登记动线收编在
+  //   「其他监控目标」表单首问「登记对象」的 K8s 集群（集群级端点）子动线（决策 81/84）。
+  type AddEntry = 'host' | 'database' | 'middleware' | 'application' | 'generic_target'
+
+  /**
+   * K8s 集群组件预设联动：选择 API Server / kube-state-metrics / etcd 后仅写入 exporter_type 判别值；
+   * {v2.35} 决策 84：端口 / 路径 / 协议不再随表单带出（采集参数归 M01 默认采集配置，表单与详情不展示）。
+   */
+  const applyK8sPreset = (key: string) => {
+    const preset = K8S_ENDPOINT_PRESETS.find((p) => p.key === key)
+    if (!preset) return
+    resourceForm.setFieldsValue({ exporter_type: preset.exporter_type })
+  }
+
+  /**
+   * {v2.35} 决策 84：「其他监控目标」表单首问「登记对象」联动——
+   * 选 K8s 集群（集群级端点）切集群表单（默认 API Server 判别值）；选其余端点类型写入 exporter_type 判别值
+   * （供 M01 推导 monitor_type）。采集参数（端口 / 路径 / 协议）由 M01 默认采集配置按端点类型决定，
+   * 本表单不再出现（决策 83 折中保留的「高级采集设置」已删除，消除与 M01 的双头维护）。
+   */
+  const applyDevicePreset = (key: string) => {
+    if (key === 'k8s_cluster') {
+      resourceForm.setFieldsValue({
+        k8s_component: K8S_ENDPOINT_PRESETS[0].key,
+        exporter_type: K8S_ENDPOINT_PRESETS[0].exporter_type,
+      })
+      return
+    }
+    const preset = DEVICE_ENDPOINT_PRESETS.find((p) => p.key === key)
+    if (!preset) return
+    resourceForm.setFieldsValue({ exporter_type: preset.exporter_type })
+  }
+
+  const openAdd = (entry: AddEntry) => {
     setEditingResource(null)
+    // {v2.36} 决策 85：单一新增按钮、抽屉表单形态 = 当前 Tab；K8s 集群分流在「其他监控目标」表单首问
+    setActiveType(entry)
     resourceForm.resetFields()
     resourceForm.setFieldsValue({
       // {v2.24} 决策 52：网域可留空，保存时按归属解析链自动推导（IP 网段推导 → 默认兜底）；blackbox 拨测取发起侧
       env: 'prod',
       status: 'online',
-      metrics_path: '/metrics',
-      scheme: 'http',
     })
+    if (entry === 'generic_target') {
+      // {v2.35} 决策 84：默认选中首个登记对象（网络设备 SNMP），仅写入 exporter_type 判别值；
+      // K8s 集群（集群级端点）由用户在表单首问主动选择切换
+      resourceForm.setFieldsValue({ device_preset: DEVICE_ENDPOINT_PRESETS[0].key })
+      applyDevicePreset(DEVICE_ENDPOINT_PRESETS[0].key)
+    }
     setEditOpen(true)
   }
 
@@ -409,6 +475,19 @@ export default function ResourcesPage() {
     setEditingResource(record)
     resourceForm.resetFields()
     resourceForm.setFieldsValue({ ...record })
+    // {v2.35} 决策 84：按 exporter_type 判别值反查「登记对象」——
+    //   命中 K8s 组件预设 → 首问设为 K8s 集群（集群级端点），编辑态同样切集群表单形态；
+    //   命中标准端点预设 → 反查端点类型；都未命中（早期登记 / Excel 导入的非标端点、存量拨测目标）
+    //   不强制重选、不覆盖原判别值，表单首问留空
+    if (record.resource_category === 'generic_target') {
+      const k8sMatched = K8S_ENDPOINT_PRESETS.find((p) => p.exporter_type === record.exporter_type)
+      const deviceMatched = DEVICE_ENDPOINT_PRESETS.find((p) => p.exporter_type && p.exporter_type === record.exporter_type)
+      if (k8sMatched) {
+        resourceForm.setFieldsValue({ device_preset: 'k8s_cluster', k8s_component: k8sMatched.key })
+      } else if (deviceMatched) {
+        resourceForm.setFieldsValue({ device_preset: deviceMatched.key })
+      }
+    }
     setEditOpen(true)
   }
 
@@ -502,15 +581,15 @@ export default function ResourcesPage() {
           ...base,
         }
       case 'generic_target':
+        // {v2.35} 决策 84：port / metrics_path / scheme 不再随 M07 表单采集——
+        //   采集参数归 M01 默认采集配置（ExporterTemplate / CITypeExporterMapping），M09 生成配置时按解析链取值；
+        //   新资源不落这三项，exporter_type 判别值仍随表提交（供 M01 推导 monitor_type）
         return {
           resource_id: `res-gen-${Date.now()}`,
           resource_category: 'generic_target' as const,
           instance_name: values.instance_name as string | undefined,
           target_name: values.target_name as string,
           instance_ip: values.instance_ip as string,
-          port: values.port as number | undefined,
-          metrics_path: (values.metrics_path as string | undefined) || '/metrics',
-          scheme: (values.scheme as TargetScheme | undefined) || 'http',
           custom_labels: values.custom_labels as string | undefined,
           exporter_type: values.exporter_type as string | undefined,
           ...base,
@@ -573,14 +652,12 @@ export default function ResourcesPage() {
           port: values.port as number | undefined,
         }
       case 'generic_target':
+        // {v2.35} 决策 84：port / metrics_path / scheme 编辑态也不再从表单覆盖——存量值随 ...record 原样保留（只读、不再展示）
         return {
           ...record,
           ...common,
           target_name: values.target_name as string,
           instance_ip: values.instance_ip as string,
-          port: values.port as number | undefined,
-          metrics_path: (values.metrics_path as string | undefined) || '/metrics',
-          scheme: (values.scheme as TargetScheme | undefined) || 'http',
           custom_labels: values.custom_labels as string | undefined,
           exporter_type: values.exporter_type as string | undefined,
         }
@@ -610,6 +687,14 @@ export default function ResourcesPage() {
       case 'host':
         return (
           <>
+            {/* {v2.33} 决策 81「登记主机」入口引导：OS 层 node_exporter :9100；K8s 节点的 K8s 维度指标走集群入口 Job 动态发现，此处不重复登记 */}
+            {!editingResource && (
+              <Callout tone="info" icon={<InfoCircleFilled />} title="登记主机（OS 层监控 · node_exporter :9100）" style={{ marginBottom: 16 }}>
+                本入口逐台登记主机的 <Text strong>操作系统层</Text> 监控，采集端口固定 node_exporter <Text code style={{ fontSize: 12 }}>:9100</Text>。
+                若该机是 K8s 节点，其 K8s 维度指标（kubelet / cAdvisor / Pod）<Text strong>已由「其他监控目标」中登记的 K8s 集群端点对应的采集 Job（kubernetes_sd）动态发现</Text>，
+                本条记录只管 OS 层、无需重复登记。网域按 <Text code style={{ fontSize: 12 }}>:9100</Text> 可达侧（通常为管理网）选择。
+              </Callout>
+            )}
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="实例名" name="instance_name" rules={[{ required: true, message: '请输入实例名' }]} extra="主机模板必填，生成 hostname 标签">
@@ -631,7 +716,7 @@ export default function ResourcesPage() {
                     { required: true, message: '请输入管理 IP' },
                     { pattern: IPV4_RE, message: 'IPv4 格式不正确' },
                   ]}
-                  extra="作为采集目标地址"
+                  extra="采集端点 IP：node_exporter :9100 在哪个 IP 可达就填哪个（K8s 双网卡节点填管理网可达侧 IP），用于按网段推导网域"
                 >
                   <Input placeholder="如 10.0.1.11" />
                 </Form.Item>
@@ -832,55 +917,75 @@ export default function ResourcesPage() {
           </>
         )
       case 'generic_target':
+        // {v2.35} 决策 84：兜底类「其他监控目标」表单统一为首问「登记对象」分流（决策 81 双入口收编）——
+        //   K8s 集群（集群级端点）/ 网络设备（SNMP）/ GPU 服务器（DCGM）/ 自定义 HTTP 端点；
+        //   exporter_type 是隐藏的端点子类型判别值（供采集侧推导 monitor_type，决策 77/83）；
+        //   port / metrics_path / scheme 等采集参数归 M01 默认采集配置（ExporterTemplate / CITypeExporterMapping），
+        //   本表单与详情抽屉不再出现（决策 83 折中保留的「高级采集设置」删除，消除与 M01 双头维护）。
         return (
           <>
+            {k8sMode ? (
+              <Callout tone="info" icon={<ClusterOutlined />} title="登记 K8s 集群（仅集群级端点）" style={{ marginBottom: 16 }}>
+                选择集群组件（API Server / kube-state-metrics / etcd）登记为集群级监控目标。
+                <Text strong> 集群内节点、Pod、容器指标由该网域的 K8s 采集 Job（kubernetes_sd）动态发现，无需逐台登记。</Text>
+                网域请选<Text strong>集群所在网络可达区域</Text>（overlay 集群通常独立建域）；节点 OS 层监控请切换到「主机」Tab 新增资源登记。
+              </Callout>
+            ) : (
+              <Callout tone="info" icon={<ApiOutlined />} title="登记其他监控目标" style={{ marginBottom: 16 }}>
+                登记主机、数据库、中间件、应用服务之外，可通过 HTTP 端点暴露指标的对象（网络设备 / 硬件 / 自定义指标端点）。
+                采集端口、采集路径、协议等技术参数由平台「默认采集配置」统一决定，无需在此填写。
+              </Callout>
+            )}
             <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item label="目标名称" name="target_name" rules={[{ required: true, message: '请输入目标名称' }]}>
-                  <Input placeholder="如 核心交换-01" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label="Exporter 类型" name="exporter_type" extra="如 snmp_exporter / gpu_exporter / oracle_exporter">
-                  <Input placeholder="如 snmp_exporter / gpu_exporter" />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item label="目标 IP / 域名" name="instance_ip" rules={[{ required: true, message: '请输入目标 IP 或域名' }]} extra="必填且符合 IPv4/域名格式">
-                  <Input placeholder="如 172.16.0.1" />
-                </Form.Item>
-              </Col>
               <Col span={12}>
                 <Form.Item
-                  label="端口"
-                  name="port"
-                  rules={[{ type: 'number', min: 1, max: 65535, message: '端口范围 1~65535' }]}
-                  extra="留空时不生成实例标识（instance）"
+                  label="登记对象"
+                  name="device_preset"
+                  rules={editingResource ? [] : [{ required: true, message: '请选择登记对象' }]}
+                  extra={k8sMode ? '已切换为 K8s 集群（集群级端点）登记' : '选择登记对象；K8s 集群端点请选「K8s 集群」'}
                 >
-                  <InputNumber min={1} max={65535} style={{ width: '100%' }} placeholder="如 9116" />
+                  <Select
+                    placeholder="选择登记对象"
+                    onChange={(v) => applyDevicePreset(v)}
+                    options={[
+                      ...DEVICE_ENDPOINT_PRESETS.map((p) => ({ value: p.key, label: p.label })),
+                      { value: 'k8s_cluster', label: 'K8s 集群（集群级端点）' },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              {k8sMode && (
+                <Col span={12}>
+                  <Form.Item label="集群组件" name="k8s_component" rules={[{ required: true, message: '请选择集群组件' }]} extra="用于识别端点子类型（采集侧据此推导监控类型）">
+                    <Select
+                      placeholder="选择集群级组件"
+                      onChange={(v) => applyK8sPreset(v)}
+                      options={K8S_ENDPOINT_PRESETS.map((p) => ({ value: p.key, label: p.label }))}
+                    />
+                  </Form.Item>
+                </Col>
+              )}
+              <Col span={12}>
+                <Form.Item label="目标名称" name="target_name" rules={[{ required: true, message: '请输入目标名称' }]} extra={k8sMode ? '建议「集群名-组件」命名' : undefined}>
+                  <Input placeholder={k8sMode ? '如 prod-k8s-apiserver' : '如 核心交换-01'} />
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="采集路径" name="metrics_path" initialValue="/metrics">
-                  <Input placeholder="/metrics" />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label="协议" name="scheme" initialValue="http">
-                  <Select>
-                    {SCHEME_OPTIONS.map((s) => (
-                      <Option key={s} value={s}>
-                        {s}
-                      </Option>
-                    ))}
-                  </Select>
+                <Form.Item
+                  label="端点 IP / 域名"
+                  name="instance_ip"
+                  rules={[{ required: true, message: '请输入端点 IP 或域名' }]}
+                  extra={k8sMode ? '集群组件实际可达地址（API Server 常为 VIP / LB / 节点 IP），据此推导集群网域' : '该对象的指标在哪个 IP / 域名上可达，平台据此推导网域'}
+                >
+                  <Input placeholder={k8sMode ? '如 172.20.0.10' : '如 172.16.0.1'} />
                 </Form.Item>
               </Col>
             </Row>
+            {/* {v2.35} 决策 84：端口 / 采集路径 / 协议等采集参数不再出现在本表单——
+                由 M01 默认采集配置统一承载（解析链：Job 覆盖 → CITypeExporterMapping → ExporterTemplate），
+                实例偏差正规出口 = M01 映射端口编辑（MVP）/ Resource.scrape_port（{v0.2}），M07 不做第二配置点 */}
             <Form.Item
               label="自定义标签"
               name="custom_labels"
@@ -889,18 +994,30 @@ export default function ResourcesPage() {
             >
               <Input placeholder="如 device_type=snmp_switch;vendor=h3c" />
             </Form.Item>
+            {/* exporter_type 是对用户隐藏的端点子类型判别值（登记对象预设写入，供采集侧推导 monitor_type），随表隐藏提交 */}
+            <Form.Item name="exporter_type" hidden>
+              <Input />
+            </Form.Item>
           </>
         )
     }
   }
 
   const renderCommonFields = () => {
-    const appClusterRequired = ['application', 'database', 'middleware'].includes(activeType)
+    const appClusterRequired = ['application', 'database', 'middleware'].includes(formType)
+    // {v2.33} K8s 集群入口 cluster 必填（决策 77 集群诉求四归属：分组维度 → cluster 字段 / 标签）
+    const clusterRequired = appClusterRequired || k8sMode
+    // {v2.33} 决策 81：网域字段可达性引导——用用户语言提问，不问拓扑 / 行政归属
+    const domainQuestion = k8sMode
+      ? '该集群端点从哪条链路够得着？（overlay 集群通常独立建域；节点 / Pod 由该域 Job 自动发现）'
+      : formType === 'host'
+        ? '这台机器的采集端口（:9100）从哪条链路够得着？通常选管理网可达侧网域。'
+        : '这个目标的采集端口从哪条链路够得着？平台能直连选「中心直连域」，需经隔离区中转选对应「采集节点域」。'
     return (
     <>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="应用名" name="app_name" rules={appClusterRequired ? [{ required: true, message: '请输入应用名' }] : []} extra="应用服务 / 数据库 / 中间件必填；主机与通用目标可空，为空时不注入 app 标签">
+          <Form.Item label="应用名" name="app_name" rules={appClusterRequired ? [{ required: true, message: '请输入应用名' }] : []} extra="应用服务 / 数据库 / 中间件必填；主机与其他监控目标可空，为空时不注入 app 标签">
             <Input placeholder="如 订单服务" />
           </Form.Item>
         </Col>
@@ -918,8 +1035,17 @@ export default function ResourcesPage() {
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="集群" name="cluster" rules={appClusterRequired ? [{ required: true, message: '请输入集群' }] : []} extra="应用服务 / 数据库 / 中间件必填；主机场景下子应用编码为空时取 VPC；主机与通用目标可空">
-            <Input placeholder="如 k8s-prod" />
+          <Form.Item
+            label="集群"
+            name="cluster"
+            rules={clusterRequired ? [{ required: true, message: '请输入集群' }] : []}
+            extra={
+              k8sMode
+                ? 'K8s 集群入口必填：集群名作为 cluster 标签，用于按集群分组、与该集群动态发现的节点 / Pod 指标归并'
+                : '应用服务 / 数据库 / 中间件必填；主机场景下子应用编码为空时取 VPC；主机与其他监控目标可空'
+            }
+          >
+            <Input placeholder={k8sMode ? '如 prod-k8s（集群名，作为 cluster 标签）' : '如 k8s-prod'} />
           </Form.Item>
         </Col>
         <Col span={12}>
@@ -933,12 +1059,65 @@ export default function ResourcesPage() {
           <Form.Item
             label="网域"
             name="network_domain_id"
-            extra="可留空：留空时平台按归属解析链自动推导——显式指定（如已填）> 冲突告警 > 按资源 IP 与网域网段最长前缀推导 > 默认网域兜底；Blackbox 拨测目标取发起侧网域、不参与推导"
+            extra={
+              <Space direction="vertical" size={3} style={{ marginTop: 2, width: '100%' }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {domainQuestion}
+                </Text>
+                {/* {v2.33} instance_ip 实时 ip_cidrs 推导预览（仅辅助、不替代显式选择） */}
+                {domainPreview.kind === 'unique' && (
+                  <Text style={{ fontSize: 12, color: '#722ED1' }}>
+                    <InfoCircleOutlined style={{ marginRight: 4 }} />
+                    按当前 IP {watchedInstanceIP} 推导归属：{domainPreview.domain.name}（命中 {domainPreview.cidr}，最长前缀优先）
+                    {watchedDomainId !== domainPreview.domain.id && (
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0, height: 'auto', fontSize: 12, marginLeft: 6 }}
+                        onClick={() => resourceForm.setFieldValue('network_domain_id', domainPreview.domain.id)}
+                      >
+                        采用
+                      </Button>
+                    )}
+                  </Text>
+                )}
+                {domainPreview.kind === 'ambiguous' && (
+                  <Text style={{ fontSize: 12, color: '#FA8C16' }}>
+                    <WarningOutlined style={{ marginRight: 4 }} />
+                    当前 IP 同时命中多个网域（
+                    {domainPreview.hits.map((h) => `${h.domain.name} ${h.cidr}`).join('、')}
+                    ），地址段跨域重叠、无法自动判定，请人工选择。
+                  </Text>
+                )}
+                {domainPreview.kind === 'none' && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    当前 IP 未命中任何已登记网段，保存时将归入默认网域兜底；也可人工指定。
+                  </Text>
+                )}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  可留空：留空按归属解析链自动推导（显式指定 &gt; 冲突告警 &gt; 按 IP 与网域网段最长前缀推导 &gt; 默认兜底）；Blackbox 拨测目标取发起侧、不推导。
+                </Text>
+              </Space>
+            }
           >
-            <Select placeholder="留空则由平台按归属自动推导" allowClear>
+            <Select
+              placeholder="留空则由平台按归属自动推导"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              optionLabelProp="label"
+              popupMatchSelectWidth={340}
+            >
               {mockNetworkDomains.map((d) => (
-                <Option key={d.id} value={d.id}>
-                  {d.name}（{d.id}）
+                <Option key={d.id} value={d.id} label={`${d.name}（${d.id}）`}>
+                  <div style={{ lineHeight: 1.3, padding: '2px 0' }}>
+                    <div>
+                      {d.name}（{d.id}）
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {domainReachabilityText(d)}
+                    </Text>
+                  </div>
                 </Option>
               ))}
             </Select>
@@ -988,7 +1167,7 @@ export default function ResourcesPage() {
   //   主标识（fixed left）/ 类型或身份 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作（fixed right）
   //   下沉详情 Drawer 的字段：端口 / 版本 / 操作系统 / 应用·环境·集群 / 健康检查 URL / 协议 / 端点 /
   //   采集路径 / 自定义标签 / 数据来源 / 负责人 / CMDB 预留字段 —— 资源详情 Drawer 已逐项完整承载。
-  //   类型字段（数据库类型 / 中间件类型 / Exporter 类型）随主标识行内 Tag 呈现，不单独占列。
+  //   类型字段（数据库类型 / 中间件类型 / 端点类型）随主标识行内 Tag 呈现，不单独占列。
   // {v2.25} 「采集状态」列口径：数据 = M01 选中关系（is_monitored 只读映射，取 DB 当前值、不感知 M09 下发时序）
   //   + M02 健康度 / 覆盖率聚合 API（按 resource_id 回连，列表级聚合调用、禁止逐行查询 TQ-6）。
   const getColumns = (type: ResourceCategory): TableProps<Resource>['columns'] => {
@@ -1257,14 +1436,14 @@ export default function ResourcesPage() {
         return cols
       }
       case 'generic_target': {
-        // 8 列：目标名称（含 Exporter 类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 8 列：目标名称（含端点类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
         // 下沉详情：端口、采集路径、协议、自定义标签、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('目标名称', (record) =>
             isGenericTargetResource(record) ? (
               <>
                 <Text strong>{record.target_name}</Text>
-                {record.exporter_type && <Tag>{record.exporter_type}</Tag>}
+                {record.exporter_type && <Tag>{endpointTypeLabel(record.exporter_type)}</Tag>}
               </>
             ) : null
           ),
@@ -1325,10 +1504,8 @@ export default function ResourcesPage() {
     }
     return [
       { key: 'target_name', label: '目标名称', children: r.target_name },
-      { key: 'exporter_type', label: 'Exporter 类型', children: r.exporter_type || '-' },
-      { key: 'port', label: '端口', children: r.port ?? '-' },
-      { key: 'metrics_path', label: '采集路径', children: r.metrics_path || '/metrics' },
-      { key: 'scheme', label: '协议', children: r.scheme || 'http' },
+      { key: 'exporter_type', label: '端点类型', children: endpointTypeLabel(r.exporter_type) },
+      // {v2.35} 决策 84：port / metrics_path / scheme 采集参数归 M01 默认采集配置，详情抽屉不再展示
       {
         key: 'custom_labels',
         label: '自定义标签',
@@ -1343,7 +1520,7 @@ export default function ResourcesPage() {
     <MainLayout>
       <div className="page-header">
         <Title level={4}>资源管理</Title>
-        <Text type="secondary">管理主机、数据库、中间件、应用及通用监控对象（监控对象管理）</Text>
+        <Text type="secondary">管理主机、数据库、中间件、应用及其他监控目标（监控对象管理）</Text>
       </div>
 
       {/* 模块边界说明（用户语言，技术细节见 MainLayout 全局折叠区） */}
@@ -1360,14 +1537,49 @@ export default function ResourcesPage() {
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
         <ul style={{ paddingLeft: 18, margin: 0 }}>
           <li>{'{v2.22} 决策 47-3（修订 31-M1）'}：采集状态三态——采集中 / 已下发未采到 / 未监控，只读展示并提供三态筛选。数据 = M01 选中关系（is_monitored 只读映射）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合调用，禁止逐行查询 TQ-6）；M07 不直连时序数据、不据此计算 / 不写回，is_monitored 与 status 维度独立。{'{v2.25}'} 口径修订：选中关系不感知 M09 下发时序，「已下发未采到」含变更未确认下发情形，「待采集」细分归 M01 Job 回显。</li>
+          <li>
+            <Text strong>{'{v2.33}'} K8s 双域登记动线分流（决策 81；{'{v2.35}'} 决策 84 收编为表单首问）</Text>：「新增资源」曾改为双入口下拉——
+            <Text strong>登记主机</Text>（→ host，OS 层 node_exporter <Text code style={{ fontSize: 12 }}>:9100</Text>）与
+            <Text strong>登记 K8s 集群</Text>（→ generic_target 集群级端点：API Server / kube-state-metrics / etcd）语义互斥、置顶并各带链路说明；
+            集群入口明示「节点 / Pod / 容器由该域 K8s 采集 Job（kubernetes_sd）动态发现、无需逐台登记」，主机入口注明「K8s 节点 K8s 维度指标已由集群 Job 覆盖、只管 OS 层」。
+            从入口消除「K8s 节点算集群域还是主机域」的二选一；不改数据模型与接口契约。
+          </li>
+          <li>
+            <Text strong>{'{v2.34}'} 其他监控目标定位收窄与 M07/M01 字段边界（决策 83）</Text>：
+            <Text code style={{ fontSize: 12 }}>generic_target</Text> 展示名由「通用目标」改为<Text strong>「其他监控目标」</Text>（内部枚举值不变），定位为兜底类——
+            ① 网络设备与硬件（SNMP 交换机 / GPU 服务器等）② K8s 集群级端点（{'{v2.35}'} 起走「其他监控目标」表单首问「登记对象」）③ 自定义 HTTP 指标端点；容器 / Pod / K8s 节点仍由 K8s Job 动态发现、不登记。
+            标准入口表单<Text strong>去 exporter 化</Text>：只填端点地址 + 选择「端点类型」预设（网络设备 SNMP 9116·/snmp / GPU 服务器 DCGM 9400 / 自定义 HTTP 9100），
+            端口 / 采集路径 / 协议折叠进「高级采集设置（一般无需修改）」，自定义类型默认展开；
+            <Text code style={{ fontSize: 12 }}>exporter_type</Text> 收窄为对用户隐藏的端点子类型判别值（随表提交），供 M01 推导
+            <Text code style={{ fontSize: 12 }}>monitor_type</Text>：snmp_exporter→snmp 为 MVP 唯一完整映射；
+            k8s_apiserver / k8s_kube_state_metrics / k8s_etcd 为 {'{v0.2}'} 三枚举（M01 PRD v3.42 已落地、M01 原型待同步）。
+            边界：采集器软件登记 / 默认参数模板归 M01（ExporterTemplate 与默认采集配置），M07 不重复维护；Oracle 等数据库统一归 database 类（不再双入口）；
+            拨测 URL 由 M01 blackbox Job 的 blackbox_targets 承载、存量拨测资源不迁移。不改数据模型与接口契约。
+          </li>
+          <li>
+            <Text strong>{'{v2.35}'} 新增入口收敛与采集参数归位（决策 84）</Text>：
+            「新增资源」下拉由 6 项收敛为 <Text strong>5 项</Text>、与列表 Tab 1:1——「登记 K8s 集群」不再占类型入口（K8s 集群是部署形态而非资源类型），收编为「其他监控目标」表单首问「登记对象」（网络设备 / GPU 服务器 / 自定义 HTTP 端点 / K8s 集群）；
+            表单与详情抽屉删除「高级采集设置」（端口 / 采集路径 / 协议）——采集参数由平台默认采集配置统一承载，M07 不做第二配置点，实例偏差走默认采集配置的端口编辑（MVP）/ 实例级端口覆盖（{'{v0.2}'}）。不改数据模型与接口契约。
+          </li>
+          <li>
+            <Text strong>{'{v2.36}'} 新增入口回归单按钮（决策 85，用户拍板保持原设计风格）</Text>：
+            「新增资源」由下拉恢复为<Text strong>单一按钮</Text>，点击后按<Text strong>当前资源类型 Tab</Text>打开对应表单（5 类 Tab 1:1，切换 Tab 再点按钮即登记不同类型）；
+            决策 84 的实质保持不变——K8s 集群不占类型入口、经「其他监控目标」表单首问「登记对象」分流（网络设备 / GPU 服务器 / 自定义 HTTP 端点 / K8s 集群），端口 / 采集路径 / 协议等采集参数仍不在 M07 表单与详情出现。不改数据模型与接口契约。
+          </li>
+          <li>
+            <Text strong>{'{v2.33}'} 网域字段可达性引导（决策 81，对齐 M06 决策 73 用户语言）</Text>：
+            表单网域字段以「采集端口从哪条链路够得着？」提问，下拉选项第二行标注链路说明（中心直连：平台直接采集 / 采集节点域：经该域节点中转）；
+            填 <Text code style={{ fontSize: 12 }}>instance_ip</Text> 后实时给出 <Text code style={{ fontSize: 12 }}>ip_cidrs</Text> 推导预览——
+            唯一命中显示「推导归属：XX 域（命中网段）+ 采用」、同前缀跨域命中提示「命中多个网域、请人工选择」（mock 中两集群共用 10.244.0.0/16 演示歧义）、无命中提示默认兜底；预览仅辅助、不替代显式选择。
+          </li>
           <li>采集成功 / 目标状态数据归 M01 / M02：本页展示的是三态聚合结果（采集中 / 已下发未采到 / 未监控）；目标明细（up / down / scrape 详情）在 M02 目标状态页查看，选中关系在 M01 实例选择器查看。</li>
           <li>标签来源口径：模板映射生成 = 「系统」标签；手工添加 = 「用户」标签；CMDB 字段（v0.4+）= 「CMDB」标签。</li>
           <li>
             <Text strong>{'{v2.32}'} 列表列数治理（对齐《前端标准》§9「列表建议 ≤8 列、其余下沉详情 Drawer」）</Text>：
             五类 Tab 统一收敛为 <Text strong>8 列</Text> —— 主标识（fixed left）/ 类型或身份 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作（fixed right）。
-            原列表曾达 11 ~ 14 列（主机 11、数据库 / 中间件 / 应用 12、通用目标 14）。
+            原列表曾达 11 ~ 14 列（主机 11、数据库 / 中间件 / 应用 12、其他监控目标 14）。
             下沉详情 Drawer 的字段：端口 / 版本 / 操作系统 / 应用·环境·集群 / 健康检查 URL / 协议 / 端点 / 采集路径 / 自定义标签 / 数据来源 / 负责人 / CMDB 预留字段；
-            类型字段（数据库类型 / 中间件类型 / Exporter 类型）改为随主标识行内 Tag 呈现、不单独占列。
+            类型字段（数据库类型 / 中间件类型 / 端点类型）改为随主标识行内 Tag 呈现、不单独占列。
             配套：状态语义统一 Badge 语义色 + 文字（不再用彩色 Tag 承载状态）、主标识列 fixed left、操作列 fixed right。
           </li>
           <li>
@@ -1380,7 +1592,7 @@ export default function ResourcesPage() {
           <li>{'{v2.20} 决策 29'}：目标状态 offline 后，配置中心（Module_09）下一配置生成周期即将其从 targets/*.json 移除、不触发采集器 reload，批量下线动线为真。</li>
           <li>
             <Text strong>{'{v2.32}'} K8s 集群归属注记（决策 77）</Text>：K8s 集群<Text strong>不设第六资源类型</Text>——五大类按采集形态分类，集群属部署形态。
-            集群诉求四归属：网络边界 → 独立建网域；分组维度 → <Text code style={{ fontSize: 12 }}>cluster</Text> 字段 / 标签；发现源 → M04 KubernetesProvider；集群健康监控 → 通用指标目标 + M01 <Text code style={{ fontSize: 12 }}>monitor_type=k8s</Text>。
+            集群诉求四归属：网络边界 → 独立建网域；分组维度 → <Text code style={{ fontSize: 12 }}>cluster</Text> 字段 / 标签；发现源 → M04 KubernetesProvider；集群健康监控 → 其他监控目标 + M01 <Text code style={{ fontSize: 12 }}>monitor_type</Text> 三枚举（k8s_apiserver / k8s_kube_state_metrics / k8s_etcd，{'{v0.2}'}，决策 83）。
             「集群清单」按集群视图（展示层）承接，MVP 不做。
           </li>
         </ul>
@@ -1390,7 +1602,14 @@ export default function ResourcesPage() {
         <Row gutter={[16, 16]} align="middle" style={{ marginBottom: 16 }}>
           <Col>
             <Space wrap>
-              <Button type="primary" icon={<PlusOutlined />} style={{ backgroundColor: '#0ECDEB' }} onClick={openAddModal}>
+              {/* {v2.36} 决策 85：回归单一「新增资源」按钮——抽屉表单形态跟随当前资源类型 Tab（5 类 1:1）；
+                  K8s 集群登记仍收编在「其他监控目标」表单首问「登记对象」（决策 84 实质不变）。 */}
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                style={{ backgroundColor: '#0ECDEB' }}
+                onClick={() => openAdd(activeType as AddEntry)}
+              >
                 新增资源
               </Button>
               <Button icon={<UploadOutlined />} onClick={() => setImportModalOpen(true)}>
@@ -1681,7 +1900,7 @@ export default function ResourcesPage() {
                   </Space>
                   <Space wrap size={[4, 4]}>
                     <Tag color="cyan">用户</Tag>
-                    <Text style={{ fontSize: 12 }}>= 实例级自定义标签（含通用目标 custom_labels 透传）；仅应用服务资源可编辑 / 删除</Text>
+                    <Text style={{ fontSize: 12 }}>= 实例级自定义标签（含其他监控目标 custom_labels 透传）；仅应用服务资源可编辑 / 删除</Text>
                   </Space>
                   <Space wrap size={[4, 4]}>
                     <Tag>CMDB（v0.4+）</Tag>
@@ -1692,7 +1911,7 @@ export default function ResourcesPage() {
                     <Text style={{ fontSize: 12 }}>=
                       {selectedResource?.resource_category === 'application'
                         ? '业务类型资源：标签由平台治理，开放自定义标签（如核心链路、负责人）'
-                        : '静态资源（主机 / 中间件 / 通用目标）：标签由 CMDB / Excel 治理，平台只读，不提供实例级打标入口'}
+                        : '静态资源（主机 / 中间件 / 其他监控目标）：标签由 CMDB / Excel 治理，平台只读，不提供实例级打标入口'}
                     </Text>
                   </Space>
                   <Text style={{ fontSize: 12, color: '#86909C' }}>
@@ -1707,7 +1926,7 @@ export default function ResourcesPage() {
             {selectedResource?.resource_category !== 'application' ? (
               // {v2.8} 双场景治理：静态资源只读，不渲染添加输入（数据治理在 CMDB / Excel 侧）
               <Text style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
-                静态资源标签由 CMDB / Excel 治理，平台只读。主机、中间件、通用目标资源的标签由 CMDB 同步（MVP 阶段由 Excel 导入带入），数据治理在 CMDB 侧完成，本平台不引导二次打标。如需修改标签，请前往 CMDB 或更新导入数据。
+                静态资源标签由 CMDB / Excel 治理，平台只读。主机、中间件、其他监控目标资源的标签由 CMDB 同步（MVP 阶段由 Excel 导入带入），数据治理在 CMDB 侧完成，本平台不引导二次打标。如需修改标签，请前往 CMDB 或更新导入数据。
               </Text>
             ) : (
             <Space direction="vertical" style={{ width: '100%', marginBottom: 12 }}>
@@ -1840,7 +2059,7 @@ export default function ResourcesPage() {
 
       {/* 新增 / 编辑资源（PRD 5.6~5.9 按类型渲染字段；{v2.32} 字段 12~14 项 → 720px Drawer + 分组，对齐《前端标准》§8） */}
       <Drawer
-        title={`${editingResource ? '编辑资源' : '新增资源'} - ${RESOURCE_TYPE_MAP[editingResource?.resource_category ?? activeType]}`}
+        title={`${editingResource ? '编辑资源' : '新增资源'} - ${k8sMode ? 'K8s 集群（集群级端点）' : RESOURCE_TYPE_MAP[editingResource?.resource_category ?? activeType]}`}
         width={720}
         open={editOpen}
         onClose={() => {
@@ -1869,7 +2088,7 @@ export default function ResourcesPage() {
           {/* {v2.32} 分组呈现（《前端标准》§8）：类型专属字段 / 归属与状态两类语义分区，避免 12~14 字段平铺 */}
           <FormSection
             title="资源信息"
-            desc={`${RESOURCE_TYPE_MAP[editingResource?.resource_category ?? activeType]}类型固定字段`}
+            desc={k8sMode ? '集群级端点（generic_target）：API Server / kube-state-metrics / etcd，节点·Pod·容器自动发现' : `${RESOURCE_TYPE_MAP[editingResource?.resource_category ?? activeType]}类型固定字段`}
           >
             {renderTypeFields(editingResource?.resource_category ?? activeType)}
           </FormSection>

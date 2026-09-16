@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.25
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.36
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.25
+> **原型版本**: v2.36
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,36 @@
 > ```
 >
 > **访问地址**: http://localhost:5174/
+
+## v2.36 变更说明（新增入口回归单按钮，决策 85，2026-09-16）
+
+1. **「新增资源」恢复为单一按钮（决策 85，用户拍板保持原设计风格）**：点击后按**当前资源类型 Tab** 打开对应表单（5 类 Tab 1:1）——切换 Tab 再点按钮即登记不同类型，回归 v2.32 之前的单按钮 + 抽屉随 Tab 交互；移除 v2.35 的 5 项下拉入口。
+2. **决策 84 实质不变**：K8s 集群仍不占类型入口、经「其他监控目标」表单首问「登记对象」分流（网络设备 SNMP / GPU 服务器 / 自定义 HTTP 端点 / K8s 集群，集群组件必填、编辑按 exporter_type 判别值反查回显）；端口 / 采集路径 / 协议等采集参数仍不在 M07 表单与详情出现（归 M01 默认采集配置）。
+3. **文案与注释同步**：K8s 集群 Callout 引导语改为「节点 OS 层监控请切换到『主机』Tab 新增资源登记」；ReviewNote 补决策 85 条目；`package.json` 2.35.0→2.36.0；不改数据模型与接口契约。
+
+## v2.35 变更说明（新增入口收敛 + 采集参数归位，决策 84，2026-09-15）
+
+1. **新增入口收敛为 5 项、与列表 Tab 1:1**：「登记 K8s 集群」不再占类型入口（K8s 集群是部署形态而非资源类型），收编为「其他监控目标」表单首问「登记对象」的 K8s 集群子动线（决策 81 双入口收编）；入口 / Tab / 资源类型三层一致，消除「6 入口 vs 5 Tab」不对应感。
+2. **「高级采集设置」彻底删除（端口 / 采集路径 / 协议不再出现在 M07 表单与详情抽屉）**：采集参数归 M01 默认采集配置统一承载（解析链：Job 覆盖 → CITypeExporterMapping → ExporterTemplate），M07 不做第二配置点，消除与 M01 的双头维护；实例偏差正规出口 = M01 映射端口编辑（MVP）/ Resource.scrape_port（{v0.2}）。
+3. **预设精简**：`DEVICE_ENDPOINT_PRESETS` / `K8S_ENDPOINT_PRESETS` 仅承载 key / label / exporter_type 判别值，不再携带 default_port / metrics_path / scheme / custom / target_name_hint；保存逻辑不再写入 port / metrics_path / scheme（存量值随编辑原样保留但不展示）。
+4. **表单结构**：「其他监控目标」表单统一为首问「登记对象」——网络设备（SNMP）/ GPU 服务器 / 自定义 HTTP 端点 / K8s 集群（集群级端点）；选 K8s 集群切集群级表单（集群组件必填、API Server 默认）；编辑时按 exporter_type 判别值反查首问（K8s 组件 / 端点类型命中则回显，未命中留空不强制重选）。
+5. **mock 与测试**：单测断言同步改写（预设无采集参数字段 + K8s 集群子动线语义）；`package.json` 2.34.0→2.35.0；不改数据模型与接口契约。ReviewNote 补决策 84 条目。
+
+## v2.34 变更说明（其他监控目标定位收窄 + M07/M01 字段边界，决策 83，2026-09-15）
+
+1. **generic_target 展示名「通用目标」→「其他监控目标」（§5.9，内部枚举值不变）**：定位收窄为兜底类——① 网络设备与硬件（SNMP 交换机 / GPU 服务器等）② K8s 集群级端点（仍走「登记 K8s 集群」入口）③ 自定义 HTTP 指标端点；容器 / Pod / K8s 节点由 K8s Job 动态发现、不登记。列表 Tab、下拉项、详情抽屉、页头副标题、默认标签模板名同步更名。
+2. **标准入口表单去 exporter 化（§5.9 / §11.2）**：只填目标名称、端点 IP / 域名 + 选择「端点类型」（`DEVICE_ENDPOINT_PRESETS`：网络设备 SNMP 9116·`/snmp` / GPU 服务器 DCGM 9400 / 自定义 HTTP 9100）；端口、采集路径、协议折叠进「高级采集设置（一般无需修改）」，自定义类型默认展开。`exporter_type` 收窄为隐藏的端点子类型判别值（hidden 字段随表提交），不再要求用户填写；编辑存量非标端点（如 haproxy / blackbox）时不强制重选、不覆盖原值。
+3. **M07/M01 字段边界**：采集器软件登记、默认参数模板（ExporterTemplate / 默认采集配置）归 M01，M07 只登记端点资产；Oracle 等数据库统一归 database 类（不再双入口）；拨测 URL 由 M01 blackbox Job 的 blackbox_targets 承载、存量拨测资源不迁移。M01 §5.1 推导表扩展 k8s 三 monitor_type 枚举（k8s_apiserver / k8s_kube_state_metrics / k8s_etcd，{v0.2}，M01 PRD v3.42 已落地、M01 原型待同步）。
+4. **展示反查函数**：`endpointTypeLabel(exporter_type)`——设备 / 集群预设反查中文名，`blackbox_exporter` 显「拨测目标」，空值显「自定义 HTTP 指标端点」，未知非空值显「自定义端点」；列表行内 Tag 与详情抽屉统一使用，原始 exporter_type 不对用户可见。
+5. **mock 与测试**：新增 `DeviceEndpointPreset` / `DEVICE_ENDPOINT_PRESETS` / `endpointTypeLabel`；`RESOURCE_TYPE_MAP.generic_target` 改「其他监控目标」；存量 `res-gen-001/002/003`（snmp / haproxy / blackbox）保留不迁移；不改数据模型与接口契约。ReviewNote 补决策 83 条目。
+
+## v2.33 变更说明（K8s 双域登记动线 + 网域字段可达性引导，决策 81，2026-09-15）
+
+1. **资源新增双入口分流（§5.4 / §11.2，决策 81）**：「新增资源」改为下拉——置顶「登记主机」（→ host，OS 层 node_exporter `:9100`，含 K8s 节点主机 OS）与「登记 K8s 集群」（→ generic_target 集群级端点 API Server / kube-state-metrics / etcd），两入口语义互斥并各带链路说明；集群入口明示「节点 / Pod / 容器由该域 K8s 采集 Job（kubernetes_sd）动态发现、无需逐台登记」，主机入口注明只管 OS 层。从入口消除「K8s 节点算集群域还是主机域」的二选一。
+2. **K8s 集群专属表单**：集群组件选择器联动带出 exporter_type / 端口（6443 / 8080 / 2379）/ 协议 / 采集路径；集群名（cluster）在该入口必填；抽屉标题与分组说明区分「K8s 集群（集群级端点）」。
+3. **网域字段可达性引导（§5.4 / §11.2，对齐 M06 决策 73）**：网域字段以「采集端口从哪条链路够得着？」提问，下拉选项第二行标注链路说明（中心直连：平台直接采集 / 采集节点域：经该域节点中转）。
+4. **instance_ip 实时 `ip_cidrs` 推导预览**：唯一命中显示「推导归属：XX 域（命中网段，最长前缀优先）」并提供「采用」；同前缀跨网命中（mock 中生产 / 测试集群共用 `10.244.0.0/16`）提示「命中多个网域、请人工选择」；无命中提示保存归默认网域兜底。预览仅辅助、不替代显式选择。
+5. **mock 增补**：`NetworkDomain.domain_type`（management / edge）、生产 / 测试两个 K8s 集群网域、`domainReachabilityText()`、`previewDomainByIP()`、`K8S_ENDPOINT_PRESETS`；不改数据模型与接口契约。
 
 ## v2.25 变更说明（coverage 三态口径修订 + 默认模板 resource_id 补齐，2026-09-02）
 
