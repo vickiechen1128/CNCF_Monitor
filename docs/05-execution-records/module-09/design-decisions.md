@@ -2305,3 +2305,15 @@ Module\_09 在生成每个网域的 `prometheus.yml` 时，必须在该网域 Ag
 ```
 - **草稿状态过滤（{v0.2}/{v0.3}）**：生成配置时，`ScrapeJob` / `MonitoringRule` 候选集必须过滤为 `draft_status=ready` 且 `enabled=true`；`draft_status=draft` 或 `enabled=false` 的对象不参与配置生成，因此其 `updated_at` 变化不会触发有效配置变更；但 M09 仍可在 `source_data_version` 聚合中感知其变化，生成空跑后通过 checksum 裁决丢弃（内容无变化），避免草稿对象在确认页产生噪音。
 ```
+
+### 补充（同日）：§8.3/§8.4 补 5 列状态表 + ScrapeJob 草稿版本跨模块冲突（待裁决）
+
+**① §8.3/§8.4 补表**：对齐 §8.1/§8.5「stateDiagram + 5 列状态表」范式。状态标签来源：`no_version`=「未下发配置」、`out_of_sync`=「未同步」（§9 验收原文）、`manual_override`=「人工覆盖」（§3.8 原文）；`in_sync`=「已同步」、`unknown`=「未知」为本轮补全（文档无既有标签、原型未渲染，待 PM 复核）。§8.4 状态机补一条 `offline --> online: 心跳恢复`（原缺恢复边，心跳语义必然蕴含；待 PM 复核）。
+
+**② ScrapeJob 草稿能力版本跨模块冲突（未擅改，待 PM 裁决）**：
+- 证据 A（M01 §3 L135）：「ScrapeJob 草稿与批量提交生效」交付版本列 = **P0 / v0.3**；
+- 证据 B（M01 §5 L620）：MonitoringRule 生命周期「MVP 阶段无实例，Tooltip『v0.3 支持保存草稿』」；
+- 证据 C（M09 §9 / §6.8.2 / §6.9.1）：候选集过滤 ScrapeJob = **{v0.2}**、MonitoringRule = {v0.3}；
+- 证据 D（M09 DD v1.41，2026-08-18）：「联动 M01 草稿状态：候选集过滤 `draft_status=ready`」，未写 MVP 豁免。
+- 冲突点：ScrapeJob 草稿能力版本 M01=v0.3 vs M09 候选集={v0.2}。MVP 阶段两模块均无草稿实例，过滤条件恒真、用户不可观测，故 §3.5.2 标 MVP 不算错但需加注。
+- 选项：**A** 以 M01 为准（ScrapeJob 草稿 v0.3）→ M09 三处 {v0.2} 改 {v0.3}；**B** 以 M09 为准 → M01 L135 v0.3 改 v0.2（M01 属他线文件，需其会话执行）；**C** 维持现状，待版本化迭代轮统一。推荐 **A**（数据模型归口 M01），涉及对 v0.2 范围的收缩承诺，需 PM 确认。
