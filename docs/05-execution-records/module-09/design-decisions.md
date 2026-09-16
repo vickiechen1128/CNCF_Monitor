@@ -2293,3 +2293,15 @@ Module\_09 在生成每个网域的 `prometheus.yml` 时，必须在该网域 Ag
 ### §6.8.3 命名空间与标签键规约原文（改 §10.1 指针）
 
 **命名空间与标签键规约**：平台三个互不相同的命名空间（对象字段 / API JSON 字段 `network_domain_id`、Prometheus 标签键 `network_domain`、Query 参数 / Excel 列 / envelope 字段 `network_domain`）不得混用，消费侧对历史序列按 `network_domain` → 兼容 `network_domain_id` → 兜底 `default` 三级解析（`models.ResolveNetworkDomain`，唯一入口，过渡层常驻）；完整三层对照表与通用命名规约见 [10.1](#101-命名空间与标签键规约)。
+
+### 补充（同日）：§3.5 / §6.8 / §6.9 同源去重（一处定义、多处引用）
+
+> 权威定义归位：候选集过滤条件 = §6.8.2「输入与候选集」；规则 job 引用校验双层模型 = §7.1.1。§3.5.3「与 M01 编辑期共用同一判定」行与 §6.9.1「草稿状态过滤」条目改为一句话 + 指针。原文：
+
+```
+| 与 M01 编辑期共用同一判定  | M01 编辑期与 M09 发布期使用**同一套判定逻辑与实现**；M09 发布期是部署期最终护栏，防规则保存后 Job 改名 / 停用 / 删除等时序漂移导致错误上线                                               | P0  | MVP    |
+```
+
+```
+- **草稿状态过滤（{v0.2}/{v0.3}）**：生成配置时，`ScrapeJob` / `MonitoringRule` 候选集必须过滤为 `draft_status=ready` 且 `enabled=true`；`draft_status=draft` 或 `enabled=false` 的对象不参与配置生成，因此其 `updated_at` 变化不会触发有效配置变更；但 M09 仍可在 `source_data_version` 聚合中感知其变化，生成空跑后通过 checksum 裁决丢弃（内容无变化），避免草稿对象在确认页产生噪音。
+```
