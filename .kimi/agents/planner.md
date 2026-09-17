@@ -174,6 +174,21 @@ Track B/B+ 需求（dev-ready 轻量规格）派生时，L2 两份文档定位�
 - 工程标准文件
 - 当前 Phase 范围与已完成的 task 清单（由 Orchestrator 在任务卡中提供）
 
+### 基线差异分析（开发前 BLOCKING，v2026-09-17 起）
+
+Planner 在派生 L3 前，**必须按轨道执行基线差异分析**，产出差异矩阵并附于 L3 输入。参照物按轨道参数化：
+
+- **Track A（原型为第一参照）**：以 `docs/prototypes/module-XX/` 最新页面 + `frontend-prototype-map.md` 为基线，与当前前端实现（`ui-custom/web/src/`）做逐项差异矩阵，按 S/A/B 三级标注：
+  - **S（关键交互缺失/严重偏离，必改）**：原型有但前端无的核心交互（如接入进度列、登记自检引导）
+  - **A（明显交互或文案不符，应改）**：列集合/筛选器/操作按钮/文案与原型不一致
+  - **B（次要差异/风格，可改可不改）**：视觉微调、文案措辞差异
+  - 每条差异必须标注**数据源可用性**（该交互是否依赖后端数据源；若 MVP 无数据源，标记为「裁剪候选」并登记理由）
+- **Track B/B+（轻量规格为第一参照）**：以 `dev-ready` 轻量规格 PRD 章节（字段表 + 接口清单 + 验收清单）+ `api-contract-snapshot.md` 为基线，与当前实现做差异清单（不要求 S/A/B 分级，但必须标注缺失项与 MVP 裁剪项）
+
+**S 级差异未解决时，Planner 必须停止并报告 Orchestrator**，由 Orchestrator 协调 prototype-designer 或用户决策后再继续派生。差异矩阵写入 L3 汇报的「风险与阻塞点」节。
+
+> 本步骤与 `frontend-prototype-map.md` 的区别：后者是**事后**记录「生产 vs 原型」偏离的映射；本步骤是**事前**驱动计划的基线核对，防止带 S 级缺失开工。
+
 ### 输出格式
 
 Phase 2 必须输出两个固定产物，由 Orchestrator 落盘：
@@ -296,6 +311,7 @@ Planner 返回 L3 前必须逐项确认：
 - [ ] 后端任务 `verify_commands` 指向对应包/目录，不是全量 `go test ./platform/...`
 - [ ] 每个任务都有 `status: pending`、`commit_group`、`prd`
 - [ ] `clipping` 中不存在无理由条目；任何「后续版本」条目都标注了目标版本
+- [ ] **两轨通用：task-sequence 的 `ui_contract` / 接口结构与 `api-contract-snapshot.md` 已逐字段核对一致**（防契约漂移；Track B 无原型任务同样适用）
 
 ---
 

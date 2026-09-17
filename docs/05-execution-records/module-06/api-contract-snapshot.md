@@ -130,15 +130,19 @@
 ```typescript
 {
   cascade_impact: {
-    edge_agent_count: number;                    // 将退场的采集节点总数
-    will_retire_agents: Array<{                  // 将退场的 Agent 列表（最多展示 10 条，超出省略）
+    edge_agent_count: number;                    // 将退场的采集节点总数（= will_retire_agents 实际退役条数）
+    will_retire_agents: Array<{                  // 将退场的 Agent 明细（实际退役清单，含 offline）
       id: string;
       hostname: string;
-      status: 'online' | 'unknown';              // 当前状态
+      status: 'online' | 'unknown' | 'offline';  // 当前状态（offline 也一并退场）
     }>;
   }
 }
 ```
+
+> **清退范围覆盖 offline（决策 82-1）**：`will_retire_agents` 为实际将被 retire 的 Agent 明细，
+> 覆盖 `status ∈ (online, unknown, offline)`（offline 节点同样标记 `retired`），名单与实际退役数量口径一致
+> （MEDIUM-4：`edge_agent_count` 恒等于 `will_retire_agents.length`）。`retired` 终态节点不在此列。
 
 前端二次确认弹窗展示：
 - 标题：「确认删除网域 {name}？」

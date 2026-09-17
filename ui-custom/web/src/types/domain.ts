@@ -39,6 +39,8 @@ export interface NetworkDomain {
   authorized_tenant_ids: string[]
   cmdb_cloud_area_id: string
   cmdb_cloud_area_path: string
+  /** M06 R2：网段（CIDR），资源导入时按 IP 自动推导网域归属；可留空 */
+  ip_cidrs?: string[]
   // M09 纳管监控字段
   channel: ChannelType
   token?: string
@@ -49,6 +51,10 @@ export interface NetworkDomain {
   last_heartbeat?: string
   agent_version?: string
   is_monitored: boolean
+  /** M06 R2：是否存在 online 状态 EdgeAgent（决策 82-2；`has_online_agents` 仅基于 online 状态判断） */
+  has_online_agents?: boolean
+  /** M06 R2：接入进度四态（1 已登记 / 2 已纳管 / 3 采集节点已上线 / 4 已出数据），由后端聚合派生 */
+  access_step?: number
   status: DomainStatus
   created_at: string
   updated_at: string
@@ -70,30 +76,28 @@ export interface NetworkDomainImpact {
 
 /**
  * 决策 82-1：删除网域时返回的级联影响清单。
- * 已纳管场景（managed_edge_agent_count > 0）时展示级联清退详情。
+ * 已纳管场景（edge_agent_count > 0）时展示级联清退详情。
+ * 契约对齐：docs/05-execution-records/module-06/api-contract-snapshot.md §5.1.2。
  */
 export interface CascadeImpact {
-  managed_edge_agent_count: number
-  token_will_revoke: boolean
-  config_push_will_stop: boolean
-  agents_will_retire: number
-}
-
-/** 决策 82-1：级联清退执行结果 */
-export interface CascadeRetireResult {
-  agent_count: number
-  token_revoked: boolean
+  /** 将退场的采集节点总数 */
+  edge_agent_count: number
+  /** 将退场的 Agent 列表（最多展示 10 条，超出省略） */
+  will_retire_agents: Array<{
+    id: string
+    hostname: string
+    status: string
+  }>
 }
 
 /**
  * 决策 82-1：DELETE /network-domains/:id 响应结构。
- * 成功删除后返回级联影响清单与清退结果。
+ * 契约对齐：docs/05-execution-records/module-06/api-contract-snapshot.md §5.1.2。
+ * 无顶层 `deleted`、`cascade_retired` 字段。
  */
 export interface NetworkDomainDeleteResult {
   id: string
-  deleted: boolean
   cascade_impact: CascadeImpact
-  cascade_retired: CascadeRetireResult
 }
 
 /**
@@ -107,6 +111,8 @@ export interface NetworkDomainStatusResult {
   resource_count?: number
   managed_edge_agent_count?: number
   edge_agent_count?: number
+  /** 决策 82-2：平铺时也可能直接返回是否存在在线 Agent（仅在未嵌套 impact 时采信） */
+  has_online_agents?: boolean
 }
 
 /** 租户生命周期状态 */

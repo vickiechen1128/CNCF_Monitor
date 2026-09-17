@@ -39,6 +39,7 @@ export interface NetworkDomainCreateInput {
   zone_type?: string
   description?: string
   authorized_tenant_ids?: string[]
+  ip_cidrs?: string[]
 }
 
 /** 编辑网域（行政信息）输入；不含 tenant_id（登记归属创建后不可变更，Module_06 §6.2） */
@@ -47,6 +48,7 @@ export interface NetworkDomainUpdateInput {
   description?: string
   zone_type?: string
   authorized_tenant_ids?: string[]
+  ip_cidrs?: string[]
 }
 
 /**
@@ -104,7 +106,9 @@ export function resolveNetworkDomainImpact(
   if (data.impact) {
     return {
       ...data.impact,
-      has_online_agents: data.impact.has_online_agents ?? (data.impact.managed_edge_agent_count > 0),
+      // 决策 82-2：has_online_agents 的语义为「是否存在 online 状态 Agent」；
+      // 若后端已显式返回该布尔则直接采信，缺省不再用 计数>0 推断（计数>0 ≠ 存在在线 Agent）。
+      has_online_agents: data.impact.has_online_agents ?? false,
     }
   }
   const hasAny =
@@ -116,7 +120,7 @@ export function resolveNetworkDomainImpact(
   return {
     resource_count: data.resource_count ?? 0,
     managed_edge_agent_count: managedEdgeAgentCount,
-    has_online_agents: managedEdgeAgentCount > 0,
+    has_online_agents: data.has_online_agents ?? false,
   }
 }
 

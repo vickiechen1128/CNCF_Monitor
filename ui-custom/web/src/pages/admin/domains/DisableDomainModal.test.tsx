@@ -85,6 +85,37 @@ describe('DisableDomainModal', () => {
     expect(screen.queryByText('禁用已生效，影响范围如下')).toBeNull()
   })
 
+  it('resets result state when reopened on another domain', async () => {
+    const impactWithOnlineAgents = { ...impact, has_online_agents: true }
+    updateStatusMock.mockResolvedValue({ status: 'success', data: { impact: impactWithOnlineAgents } })
+    resolveImpactMock.mockReturnValue(impactWithOnlineAgents)
+
+    const { rerender } = render(
+      <DisableDomainModal open domain={edgeDomain()} onCancel={cancelMock} onSuccess={successMock} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /确认禁用/ }))
+    await waitFor(() => expect(screen.getByText('禁用已生效，影响范围如下')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /完\s*成/ }))
+    expect(updateStatusMock).toHaveBeenCalledWith('mc-a', 'disabled')
+
+    // 关闭后重开另一域
+    rerender(<DisableDomainModal open={false} domain={null} onCancel={cancelMock} onSuccess={successMock} />)
+    rerender(
+      <DisableDomainModal
+        open
+        domain={edgeDomain({ id: 'mc-other', name: '政务网C区' })}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+
+    // 回退到确认阶段（无残留结果视图 / 影响范围）
+    await waitFor(() => expect(screen.queryByText('禁用已生效，影响范围如下')).toBeNull())
+    expect(screen.getByText(/确定禁用网域「政务网C区」/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /确认禁用/ })).toBeInTheDocument()
+    expect(updateStatusMock).not.toHaveBeenCalledWith('mc-other', 'disabled')
+  })
+
   it('cancels without calling status update', () => {
     renderModal(edgeDomain())
     fireEvent.click(screen.getByRole('button', { name: /取\s*消/ }))

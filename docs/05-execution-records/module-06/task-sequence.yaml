@@ -308,7 +308,7 @@ tasks:
     acceptance_criteria:
       - "DELETE 前置校验：仅当跨五类资源表存在 network_domain_id 引用时拒绝（返回 errorType=forbidden + 引用资源名单供 M07 跳转）"
       - "已纳管 EdgeAgent（registration_status=monitored 或 status∈online/unknown）不再作为硬拒绝条件"
-      - "无 M07 引用时，返回级联影响清单 data.cascade_impact = {managed_edge_agent_count, token_will_revoke: true, config_push_will_stop: true, agents_will_retire: N}"
+      - "无 M07 引用时，返回级联影响清单 data.cascade_impact = {edge_agent_count, will_retire_agents: [{id, hostname, status}]}（权威契约见 api-contract-snapshot.md §5.1.2；旧扁平 draft={managed_edge_agent_count, token_will_revoke, config_push_will_stop, agents_will_retire} 已废弃）"
       - "management（default）域禁删不变"
       - "单测覆盖：①有 M07 引用被拒 ②已纳管但无 M07 引用→返回级联清单 ③空网域→级联清单为零 ④default 禁删"
     notes: "本任务只改造校验逻辑与返回结构，实际级联清退执行由 T06-82-02 实现。前端二次确认弹窗由 T06-F82-02 实现。"
@@ -331,7 +331,7 @@ tasks:
       - "级联清退步骤：①废止网域 Token（NetworkDomain.token 置空或标记 revoked） ②停止配置下发（ConfigDeployment 相关记录标记 stopped/revoked） ③EdgeAgent 记录 status 标 retired（终态，保留供审计） ④M06 软删 NetworkDomain（DeletedAt 置位）"
       - "事务性保障方案（待确认②，backend-developer 评估后定版）：方案 A——SQLite 本地事务（db.Transaction 包裹四步，任一步 error 全部回滚）；方案 B——补偿机制（正向执行 + 反向回滚函数链，失败时逐步补偿）；方案 C——混合（M06+M09 同 SQLite 实例走本地事务，跨进程场景预留补偿接口）"
       - "清退失败时 HTTP 响应 errorType=internal，error 文案明确失败步骤；M06 软删必须回滚（网域恢复原状）"
-      - "清退成功后 HTTP 200 返回 {id, cascade_retired: {agent_count, token_revoked: true}}"
+      - "清退成功后 HTTP 200 返回 {id, cascade_impact: {edge_agent_count, will_retire_agents: [{id, hostname, status}]}}（权威契约见 api-contract-snapshot.md §5.1.2；本节下文「{cascade_retired:{agent_count, token_revoked}}」为早期扁平草案，已废弃）"
       - "单测：①正常级联清退（mock M09 清退函数，断言四步均执行） ②M09 清退失败→M06 软删回滚（断言 NetworkDomain 未删除） ③EdgeAgent retired 状态断言"
     open_questions:
       - "待确认①：DELETE 本身是否即为确认？还是先 POST /network-domains/:id/preview-cascade 获取影响清单、前端二次确认后再 DELETE？推荐方案：DELETE 本身即为确认（与既有空网域删除语义一致），前端在调用 DELETE 前已展示级联影响清单（由 T06-82-01 返回或独立 preview 接口返回）。"

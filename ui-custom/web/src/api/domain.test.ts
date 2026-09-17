@@ -178,7 +178,7 @@ describe('domain API', () => {
       status: 'success',
       data: { id: 'mc-a', status: 'disabled', impact: { resource_count: 3, managed_edge_agent_count: 1 } },
     })
-    expect(impact).toEqual({ resource_count: 3, managed_edge_agent_count: 1, has_online_agents: true })
+    expect(impact).toEqual({ resource_count: 3, managed_edge_agent_count: 1, has_online_agents: false })
   })
 
   it('resolveNetworkDomainImpact reads flat data fields (incl. edge_agent_count alias)', () => {
@@ -186,7 +186,7 @@ describe('domain API', () => {
       status: 'success',
       data: { id: 'mc-a', resource_count: 7, edge_agent_count: 4 },
     })
-    expect(impact).toEqual({ resource_count: 7, managed_edge_agent_count: 4, has_online_agents: true })
+    expect(impact).toEqual({ resource_count: 7, managed_edge_agent_count: 4, has_online_agents: false })
   })
 
   it('resolveNetworkDomainImpact infers has_online_agents=false when no agents', () => {

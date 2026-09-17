@@ -18,6 +18,20 @@ interface DisableDomainModalProps {
  * 管理域（default）不可禁用（页面已置灰，此处双重防御）。
  */
 export function DisableDomainModal({ open, domain, onCancel, onSuccess }: DisableDomainModalProps) {
+  // H2：以 domain.id 作为 key，网域变化 / 关闭重开时整体重建弹窗状态，
+  // 避免 phase / impact / error 等跨打开残留（React key 重建模式）。
+  return (
+    <DisableDomainModalInner
+      key={domain?.id ?? '__closed__'}
+      open={open}
+      domain={domain}
+      onCancel={onCancel}
+      onSuccess={onSuccess}
+    />
+  )
+}
+
+function DisableDomainModalInner({ open, domain, onCancel, onSuccess }: DisableDomainModalProps) {
   const [confirming, setConfirming] = useState(false)
   const [phase, setPhase] = useState<'confirm' | 'result'>('confirm')
   const [impact, setImpact] = useState<NetworkDomainImpact | null>(null)

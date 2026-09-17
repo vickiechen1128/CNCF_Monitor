@@ -19,8 +19,9 @@ func validDomainStatus(s models.DomainStatus) bool {
 }
 
 // UpdateDomainStatus enables/disables a domain. Disabling is a freeze: the
-// response carries the flat impact scope `{resource_count,
-// managed_edge_agent_count}`. Management domains cannot be disabled.
+// response carries the nested impact scope `{impact: {resource_count,
+// managed_edge_agent_count, has_online_agents}}` (契约 §5.1.1).
+// Management domains cannot be disabled (400 bad_request).
 func UpdateDomainStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -57,7 +58,7 @@ func UpdateDomainStatus(db *gorm.DB) gin.HandlerFunc {
 
 		// Disabling (= freeze): management domains cannot be disabled.
 		if dom.IsManagement() {
-			response.Conflict(c, fmt.Errorf("management domain %q cannot be disabled", id))
+			response.BadRequest(c, fmt.Errorf("management domain %q cannot be disabled", id))
 			return
 		}
 
@@ -70,13 +71,16 @@ func UpdateDomainStatus(db *gorm.DB) gin.HandlerFunc {
 			response.InternalServerError(c, fmt.Errorf("disable network domain %q: %w", id, err))
 			return
 		}
-		// Flat impact scope, per the frontend contract.
+		// 禁用响应收敛为契约 §5.1.1 嵌套 impact 结构。
 		response.OK(c, gin.H{
-			"id":                         id,
-			"status":                     models.DomainStatusDisabled,
-			"resource_count":             impact.ResourceCount,
-			"managed_edge_agent_count":   impact.ManagedEdgeAgentCount,
-			"has_online_agents":          impact.HasOnlineAgents,
+			"id":     id,
+			"name":   dom.Name,
+			"status": models.DomainStatusDisabled,
+			"impact": gin.H{
+				"resource_count":           impact.ResourceCount,
+				"managed_edge_agent_count": impact.ManagedEdgeAgentCount,
+				"has_online_agents":        impact.HasOnlineAgents,
+			},
 		})
 	}
 }

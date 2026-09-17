@@ -53,6 +53,19 @@ func countManagedEdgeAgents(db *gorm.DB, domainID string) (int64, error) {
 	return n, nil
 }
 
+// countOnlineEdgeAgents counts EdgeAgents of a domain that are strictly online.
+// 决策 82-2 语义：has_online_agents 仅判断 status=online 的 Agent 数 > 0，剔除 unknown 误判为在线。
+func countOnlineEdgeAgents(db *gorm.DB, domainID string) (int64, error) {
+	var n int64
+	if err := db.Model(&models.EdgeAgent{}).
+		Where("network_domain_id = ?", domainID).
+		Where("status = ?", models.EdgeAgentStatusOnline).
+		Count(&n).Error; err != nil {
+		return 0, fmt.Errorf("count online edge agents for domain %q: %w", domainID, err)
+	}
+	return n, nil
+}
+
 // ComputeImpact returns the current impact scope of a network domain.
 func ComputeImpact(db *gorm.DB, domainID string) (*DomainImpact, error) {
 	resources, err := countResources(db, domainID)
@@ -63,9 +76,15 @@ func ComputeImpact(db *gorm.DB, domainID string) (*DomainImpact, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 决策 82-2：has_online_agents 独立判断「status=online 的 Agent 数 > 0」，
+	// unknown 不计为在线（ManagedEdgeAgentCount 仍统计 online/unknown 的已纳管数）。
+	onlineAgents, err := countOnlineEdgeAgents(db, domainID)
+	if err != nil {
+		return nil, err
+	}
 	return &DomainImpact{
 		ResourceCount:         resources,
 		ManagedEdgeAgentCount: agents,
-		HasOnlineAgents:     agents > 0,
+		HasOnlineAgents:       onlineAgents > 0,
 	}, nil
 }

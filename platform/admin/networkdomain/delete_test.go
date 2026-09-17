@@ -29,7 +29,14 @@ func TestDeleteEmptyDomainSoftDeletes(t *testing.T) {
 
 	code, out := delDomain(t, db, "mc-empty")
 	require.Equal(t, 200, code)
-	assert.Equal(t, true, out["data"].(map[string]interface{})["deleted"])
+	data := out["data"].(map[string]interface{})
+	assert.Equal(t, "mc-empty", data["id"])
+	// 契约 §5.1.2：空网域级联影响清单为零
+	cascade := data["cascade_impact"].(map[string]interface{})
+	assert.Equal(t, float64(0), cascade["edge_agent_count"])
+	retire, ok := cascade["will_retire_agents"].([]interface{})
+	assert.True(t, ok, "will_retire_agents should be an array")
+	assert.Len(t, retire, 0)
 
 	// soft-deleted: row still exists but not visible via quety
 	var count int64
@@ -74,21 +81,36 @@ func TestDeleteManagedAgentCascadeImpact(t *testing.T) {
 		Status: models.DomainStatusEnabled,
 	})
 	require.NoError(t, db.Create(&models.EdgeAgent{
-		NetworkDomainID: "mc-agents", AgentType: models.AgentTypeVMAgent, Status: "online",
+		NetworkDomainID: "mc-agents", AgentType: models.AgentTypeVMAgent, Status: "online", Hostname: "host-online",
+	}).Error)
+	require.NoError(t, db.Create(&models.EdgeAgent{
+		NetworkDomainID: "mc-agents", AgentType: models.AgentTypeVMAgent, Status: "offline", Hostname: "host-offline",
 	}).Error)
 
-	// 决策 82-1：已纳管 EdgeAgent 不再拒绝，改返回级联影响清单
+	// 决策 82-1：已纳管 EdgeAgent 不再拒绝，改返回级联影响清单（契约 §5.1.2）
 	code, out := delDomain(t, db, "mc-agents")
 	assert.Equal(t, 200, code)
 
-	// 验证返回级联影响清单
+	// 验证返回级联影响清单：edge_agent_count = 实际退役 Agent 明细长度（含 offline，MEDIUM-4）
 	data := out["data"].(map[string]interface{})
-	assert.Equal(t, true, data["deleted"])
+	assert.Empty(t, data["deleted"], "顶层 deleted 字段已移除")
+	assert.Empty(t, data["cascade_retired"], "顶层 cascade_retired 字段已移除")
 	cascade := data["cascade_impact"].(map[string]interface{})
-	assert.Equal(t, float64(1), cascade["managed_edge_agent_count"])
-	assert.Equal(t, true, cascade["token_will_revoke"])
-	assert.Equal(t, true, cascade["config_push_will_stop"])
-	assert.Equal(t, float64(1), cascade["agents_will_retire"])
+	assert.Equal(t, float64(2), cascade["edge_agent_count"])
+	retire := cascade["will_retire_agents"].([]interface{})
+	assert.Len(t, retire, 2)
+	statuses := map[string]bool{}
+	for _, it := range retire {
+		m := it.(map[string]interface{})
+		assert.NotEmpty(t, m["id"])
+		assert.NotEmpty(t, m["hostname"])
+		statuses[m["status"].(string)] = true
+	}
+	assert.True(t, statuses["online"], "will_retire_agents 应含 online 明细")
+	assert.True(t, statuses["offline"], "will_retire_agents 应含 offline 明细（offline 一并退场）")
+
+	// 口径一致：名单长度 = 实际退役 Agent 数
+	assert.Equal(t, cascade["edge_agent_count"], float64(len(retire)))
 }
 
 func TestDeleteManagementRejected(t *testing.T) {

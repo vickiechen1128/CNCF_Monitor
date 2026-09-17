@@ -41,36 +41,19 @@ func DeleteNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 查询已纳管 EdgeAgent（不再拒绝，改级联清退）
-		managedAgentCount, err := countManagedEdgeAgents(db, id)
-		if err != nil {
-			response.InternalServerError(c, err)
-			return
-		}
-
-		// 构建级联影响清单（预清退）
-		cascadeImpact := gin.H{
-			"managed_edge_agent_count": managedAgentCount,
-			"token_will_revoke":        managedAgentCount > 0,
-			"config_push_will_stop":    managedAgentCount > 0,
-			"agents_will_retire":       managedAgentCount,
-		}
-
-		// 执行级联清退（决策 82-1：废止Token + EdgeAgent标retired + 软删网域）
+		// 执行级联清退（决策 82-1：废止Token + EdgeAgent标retired + 软删网域，offline 一并退场）
 		retireResult, err := CascadeRetire(db, id)
 		if err != nil {
 			response.InternalServerError(c, fmt.Errorf("cascade retire network domain %q: %w", id, err))
 			return
 		}
 
-		// 返回级联清退结果
+		// 返回级联影响清单（契约 §5.1.2）：edge_agent_count 与实际退役名单口径一致
 		response.OK(c, gin.H{
-			"id":             id,
-			"deleted":        true,
-			"cascade_impact": cascadeImpact,
-			"cascade_retired": gin.H{
-				"agent_count":    retireResult.AgentCount,
-				"token_revoked":  retireResult.TokenRevoked,
+			"id": id,
+			"cascade_impact": gin.H{
+				"edge_agent_count":   retireResult.AgentCount,
+				"will_retire_agents": retireResult.WillRetireAgents,
 			},
 		})
 	}

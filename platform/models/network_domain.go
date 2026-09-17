@@ -56,6 +56,7 @@ type NetworkDomain struct {
 	ZoneType            string        `gorm:"size:50" json:"zone_type"`
 	TenantID            string        `gorm:"size:64;not null" json:"tenant_id"` // 登记归属（创建后不可变更）
 	AuthorizedTenantIDs []string      `gorm:"serializer:json" json:"authorized_tenant_ids"`
+	IPCIDRs             []string      `gorm:"serializer:json" json:"ip_cidrs"` // 网段（CIDR）；资源导入时按 IP 自动推导网域归属
 	CmdbCloudAreaID     string        `gorm:"size:100" json:"cmdb_cloud_area_id"`
 	CmdbCloudAreaPath   string        `gorm:"size:500" json:"cmdb_cloud_area_path"`
 
