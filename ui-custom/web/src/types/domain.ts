@@ -64,6 +64,36 @@ export interface NetworkDomainImpact {
   managed_edge_agent_count: number
   /** 兼容别名：后端可能以 `edge_agent_count` 命名已纳管 EdgeAgent 数（review 阶段按后端汇报对齐）。 */
   edge_agent_count?: number
+  /** 决策 82-2：是否存在在线 Agent（供前端判断是否展示「行政冻结」补强提示） */
+  has_online_agents?: boolean
+}
+
+/**
+ * 决策 82-1：删除网域时返回的级联影响清单。
+ * 已纳管场景（managed_edge_agent_count > 0）时展示级联清退详情。
+ */
+export interface CascadeImpact {
+  managed_edge_agent_count: number
+  token_will_revoke: boolean
+  config_push_will_stop: boolean
+  agents_will_retire: number
+}
+
+/** 决策 82-1：级联清退执行结果 */
+export interface CascadeRetireResult {
+  agent_count: number
+  token_revoked: boolean
+}
+
+/**
+ * 决策 82-1：DELETE /network-domains/:id 响应结构。
+ * 成功删除后返回级联影响清单与清退结果。
+ */
+export interface NetworkDomainDeleteResult {
+  id: string
+  deleted: boolean
+  cascade_impact: CascadeImpact
+  cascade_retired: CascadeRetireResult
 }
 
 /**

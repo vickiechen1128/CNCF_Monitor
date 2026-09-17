@@ -1,7 +1,7 @@
 phase: "Phase 1"
 module: "module-06-domain-registry"
 module_branch: "feat/module-06-domain-registry"
-plan_version: "v2026-09-05"
+plan_version: "v2026-09-16"
 owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer 执行"
 source:
   - "docs/02-product-requirements/05_Code_Implementation_Plan.md（Phase 1，§5.1/§5.2，§7.1 网域登记）"
@@ -289,3 +289,181 @@ tasks:
       - "MainLayout 增加最小导航（首页 / 网域管理）或 App 提供简单页面切换，使 DomainsPage 可在浏览器访问"
       - "网域管理入口常驻可用（部署级登记能力）；统一导航留给 Phase 5，不引入跨模块职责"
       - "`pnpm lint`、`pnpm test` 通过；`pnpm dev` 首页与网域管理页均 200"
+
+  # =================== 决策 82：网域生命周期闭环（MVP 部分 82-1/82-2/82-4；82-3 留 v0.2+） ===================
+
+  - id: "T06-82-01"
+    title: "DELETE 删除接口改造：硬拒绝收敛为「存在 M07 资源引用」+ 级联影响清单返回"
+    prd: "决策 82-1：DELETE /network-domains/:id 硬拒绝条件从「无 M07 资源引用 且 无已纳管 EdgeAgent」收敛为「存在 M07 资源引用」单一条件；已纳管场景不再拒绝，改为返回级联影响清单供前端二次确认弹窗展示"
+    decision: "82-1"
+    group: "backend"
+    scope: "M06"
+    layer: "L4"
+    input_files: ["platform/admin/networkdomain/delete.go", "platform/admin/networkdomain/delete_test.go"]
+    output_files:
+      - "platform/admin/networkdomain/delete.go"
+      - "platform/admin/networkdomain/delete_test.go"
+    depends_on: ["T06-08"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "DELETE 前置校验：仅当跨五类资源表存在 network_domain_id 引用时拒绝（返回 errorType=forbidden + 引用资源名单供 M07 跳转）"
+      - "已纳管 EdgeAgent（registration_status=monitored 或 status∈online/unknown）不再作为硬拒绝条件"
+      - "无 M07 引用时，返回级联影响清单 data.cascade_impact = {managed_edge_agent_count, token_will_revoke: true, config_push_will_stop: true, agents_will_retire: N}"
+      - "management（default）域禁删不变"
+      - "单测覆盖：①有 M07 引用被拒 ②已纳管但无 M07 引用→返回级联清单 ③空网域→级联清单为零 ④default 禁删"
+    notes: "本任务只改造校验逻辑与返回结构，实际级联清退执行由 T06-82-02 实现。前端二次确认弹窗由 T06-F82-02 实现。"
+
+  - id: "T06-82-02"
+    title: "删除级联清退执行：M06 软删 + M09 清退同事务保障"
+    prd: "决策 82-1：确认后 M06 软删 + M09 级联清退（废止 Token / 停止配置下发 / EdgeAgent 标 retired）在同一次请求内完成，失败回滚"
+    decision: "82-1"
+    group: "backend"
+    scope: "M06+M09"
+    layer: "L4"
+    input_files: ["platform/admin/networkdomain/delete.go", "platform/models/edge_agent.go"]
+    output_files:
+      - "platform/admin/networkdomain/cascade_retire.go"
+      - "platform/admin/networkdomain/cascade_retire_test.go"
+    depends_on: ["T06-82-01"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "DELETE 确认后（前端二次确认后发送 DELETE 请求，或约定 DELETE 本身即为确认——待确认①）触发级联清退流程"
+      - "级联清退步骤：①废止网域 Token（NetworkDomain.token 置空或标记 revoked） ②停止配置下发（ConfigDeployment 相关记录标记 stopped/revoked） ③EdgeAgent 记录 status 标 retired（终态，保留供审计） ④M06 软删 NetworkDomain（DeletedAt 置位）"
+      - "事务性保障方案（待确认②，backend-developer 评估后定版）：方案 A——SQLite 本地事务（db.Transaction 包裹四步，任一步 error 全部回滚）；方案 B——补偿机制（正向执行 + 反向回滚函数链，失败时逐步补偿）；方案 C——混合（M06+M09 同 SQLite 实例走本地事务，跨进程场景预留补偿接口）"
+      - "清退失败时 HTTP 响应 errorType=internal，error 文案明确失败步骤；M06 软删必须回滚（网域恢复原状）"
+      - "清退成功后 HTTP 200 返回 {id, cascade_retired: {agent_count, token_revoked: true}}"
+      - "单测：①正常级联清退（mock M09 清退函数，断言四步均执行） ②M09 清退失败→M06 软删回滚（断言 NetworkDomain 未删除） ③EdgeAgent retired 状态断言"
+    open_questions:
+      - "待确认①：DELETE 本身是否即为确认？还是先 POST /network-domains/:id/preview-cascade 获取影响清单、前端二次确认后再 DELETE？推荐方案：DELETE 本身即为确认（与既有空网域删除语义一致），前端在调用 DELETE 前已展示级联影响清单（由 T06-82-01 返回或独立 preview 接口返回）。"
+      - "待确认②：事务性保障方案选型。当前 M06/M09 共享同一 SQLite 实例，方案 A（本地事务）最简；但若 v0.2 EdgeAgent 部署到远端，需升级为方案 B/C。建议 MVP 走方案 A，预留 CascadeRetirer 接口便于 v0.2 替换实现。"
+
+  - id: "T06-82-03"
+    title: "EdgeAgent 模型 status 枚举新增 retired（终态）"
+    prd: "决策 82-1 配套：EdgeAgent.status 枚举新增 retired（终态，保留供审计追溯），级联清退时标记"
+    decision: "82-1"
+    group: "backend"
+    scope: "M09"
+    layer: "L4"
+    input_files: ["platform/models/edge_agent.go"]
+    output_files:
+      - "platform/models/edge_agent.go"
+      - "platform/models/edge_agent_test.go"
+    depends_on: []
+    verify_commands: ["go test ./platform/models/..."]
+    acceptance_criteria:
+      - "EdgeAgent.Status 枚举新增 retired 常量（models.EdgeAgentStatusRetired = \"retired\"）"
+      - "retired 为终态：不可从 retired 转回 online/unknown/offline（状态机校验）"
+      - "列表/详情接口 retired Agent 仍可见（审计追溯），但不再纳入「已纳管 EdgeAgent 数」的活跃计数（影响范围统计中 managed_edge_agent_count 应排除 retired）"
+      - "单测覆盖 retired 状态不可逆转"
+
+  - id: "T06-82-04"
+    title: "禁用接口影响范围补充纳管状态判断 + 前端提示触发条件"
+    prd: "决策 82-2：已纳管且存在在线 Agent 时，禁用弹窗追加固定提示。后端需在 PATCH status 响应中返回 is_managed_with_online_agents 布尔值，供前端判断是否展示补强提示"
+    decision: "82-2"
+    group: "backend"
+    scope: "M06"
+    layer: "L4"
+    input_files: ["platform/admin/networkdomain/status.go", "platform/admin/networkdomain/impact.go"]
+    output_files:
+      - "platform/admin/networkdomain/status.go"
+      - "platform/admin/networkdomain/status_test.go"
+    depends_on: ["T06-07"]
+    verify_commands: ["go test ./platform/admin/networkdomain/..."]
+    acceptance_criteria:
+      - "PATCH status=disabled 响应 data 新增字段 is_managed_with_online_agents（bool）：当网域 registration_status=monitored 且 EdgeAgent 中存在 status∈(online,unknown) 的记录时为 true"
+      - "影响范围 {resource_count, managed_edge_agent_count} 不变；新增 is_managed_with_online_agents 不影响既有契约"
+      - "单测覆盖：①已纳管+有在线 Agent→true ②已纳管+无在线 Agent（全 offline）→false ③未纳管→false"
+
+  - id: "T06-82-05"
+    title: "退纳管动作预留（v0.2+，M09 侧实现，M06 侧无 UI 入口）"
+    prd: "决策 82-3/82-4：退纳管=停止监控（管运行），与 M06 禁用正交。v0.2+ 随多域场景评审，MVP 仅落档不实现"
+    decision: "82-3, 82-4"
+    group: "backend"
+    scope: "M09"
+    layer: "L4"
+    input_files: []
+    output_files: []
+    depends_on: []
+    verify_commands: []
+    acceptance_criteria:
+      - "MVP 不实现代码；仅在 PRD 与契约快照中标注 v0.2+ 预留"
+      - "退纳管动作定义（v0.2+ 实现时参照）：废止 Token → 停止配置下发 → registration_status 归位 created → EdgeAgent 心跳鉴权失败转离线"
+      - "与 M06 禁用正交：禁用管准入（能不能新建），退纳管管运行（现有采集停不停）"
+    status: "v0.2+ 预留，MVP 不开发"
+
+  - id: "T06-82-06"
+    title: "集成验收：决策 82 全链路端到端"
+    prd: "决策 82 集成验收：已纳管网域删除级联清退全链路 + 禁用弹窗补强提示全链路"
+    decision: "82-1, 82-2, 82-4"
+    group: "backend"
+    scope: "M06+M09"
+    layer: "L4"
+    input_files: ["platform/cmd/metric-center/main_test.go"]
+    output_files:
+      - "platform/cmd/metric-center/main_test.go"
+    depends_on: ["T06-82-01", "T06-82-02", "T06-82-03", "T06-82-04", "T06-11"]
+    verify_commands: ["go test ./platform/...", "go vet ./platform/..."]
+    acceptance_criteria:
+      - "集成测试（memory DB + seed）：①登记网域 → 模拟纳管（设置 registration_status=monitored + 创建 EdgeAgent online）→ DELETE → 级联清退成功 → 断言 NetworkDomain 软删 + EdgeAgent retired + Token 废止 ②模拟 M09 清退失败 → 断言 NetworkDomain 未删除（回滚） ③有 M07 资源引用的网域 DELETE → forbidden + 引用名单 ④PATCH disabled → 已纳管+在线 Agent 时 is_managed_with_online_agents=true"
+      - "go test ./platform/... 全绿"
+
+  # =================== 前端：决策 82 增量 ===================
+
+  - id: "T06-F82-01"
+    title: "前端 API client 扩展：级联影响清单 + is_managed_with_online_agents 类型"
+    prd: "决策 82-1/82-2 前端数据契约：DELETE 响应新增 cascade_impact；PATCH status 响应新增 is_managed_with_online_agents"
+    decision: "82-1, 82-2"
+    group: "frontend"
+    scope: "M06"
+    layer: "L4"
+    input_files: ["ui-custom/web/src/api/domain.ts", "ui-custom/web/src/types/domain.ts"]
+    output_files:
+      - "ui-custom/web/src/api/domain.ts"
+      - "ui-custom/web/src/types/domain.ts"
+      - "ui-custom/web/src/api/domain.test.ts"
+    depends_on: ["T06-82-01", "T06-82-04", "T06-F1"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "types/domain.ts 新增 CascadeImpact { managed_edge_agent_count, token_will_revoke, config_push_will_stop, agents_will_retire } 与 CascadeRetireResult { id, cascade_retired: { agent_count, token_revoked } }"
+      - "NetworkDomainImpact 新增 is_managed_with_online_agents?: boolean"
+      - "domain.ts remove(id) 返回类型更新为 { id } | CascadeImpact（预确认阶段）/ CascadeRetireResult（确认后）——具体取决于待确认①的接口设计"
+      - "domain.test.ts 覆盖级联清单解析、is_managed_with_online_agents 解析"
+
+  - id: "T06-F82-02"
+    title: "删除二次确认弹窗改造：展示级联影响清单（已纳管场景）"
+    prd: "决策 82-1：已纳管网域删除时，二次确认弹窗展示级联影响清单（N 个采集节点将断连、凭据将废止），人工确认后才执行 DELETE"
+    decision: "82-1"
+    group: "frontend"
+    scope: "M06"
+    layer: "L4"
+    input_files: ["ui-custom/web/src/pages/admin/domains/DeleteDomainModal.tsx"]
+    output_files:
+      - "ui-custom/web/src/pages/admin/domains/DeleteDomainModal.tsx"
+      - "ui-custom/web/src/pages/admin/domains/DeleteDomainModal.test.tsx"
+    depends_on: ["T06-F82-01", "T06-F5"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "空网域删除弹窗保持既有（T06-F5）"
+      - "已纳管网域（managed_edge_agent_count > 0）删除弹窗展示级联影响清单：「该网域已纳管，删除后将：• N 个采集节点将断连 • 凭据（Token）将废止 • 配置下发将停止」"
+      - "用户输入网域名称确认 / 勾选二次确认后才可点击确认删除"
+      - "调用 DELETE 成功后刷新列表 + 提示「网域已删除，N 个采集节点已标记退役」"
+      - "单测覆盖空网域/已纳管级联/有 M07 引用被拒三种场景"
+
+  - id: "T06-F82-03"
+    title: "禁用二次确认弹窗补强：行政冻结固定提示"
+    prd: "决策 82-2：已纳管且存在在线 Agent 的网域，禁用弹窗追加「【重要】禁用为行政冻结……已接入的采集节点不会自动停止采集」固定提示"
+    decision: "82-2"
+    group: "frontend"
+    scope: "M06"
+    layer: "L4"
+    input_files: ["ui-custom/web/src/pages/admin/domains/DisableDomainModal.tsx"]
+    output_files:
+      - "ui-custom/web/src/pages/admin/domains/DisableDomainModal.tsx"
+      - "ui-custom/web/src/pages/admin/domains/DisableDomainModal.test.tsx"
+    depends_on: ["T06-F82-01", "T06-F4"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "调用 PATCH status=disabled 后，若响应 is_managed_with_online_agents=true，弹窗在既有影响范围下方追加 Alert 类型提示框：「【重要】禁用为行政冻结：新资源登记与新纳管将被阻止，但已接入的采集节点不会自动停止采集。如需停止采集并回收网域，请使用『删除』（级联清退）；如需保留网域仅停止采集，v0.2+ 提供『退纳管』。」"
+      - "is_managed_with_online_agents=false 时不展示该提示（保持既有弹窗）"
+      - "提示文案与 PRD §11.2 / ReviewNote 语义边界说明一致"
+      - "单测覆盖展示/不展示提示的分支"

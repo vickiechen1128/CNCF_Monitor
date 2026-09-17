@@ -19,7 +19,6 @@ import type { ColumnsType } from 'antd/es/table'
 import { networkDomainApi, tenantApi, zoneTypeApi } from '../../../api/domain'
 import type { NetworkDomain, Tenant, ZoneType } from '../../../types/domain'
 import { useDomains } from './useDomains'
-import { isVacantDomain } from './domainRules'
 import { DomainFormModal } from './DomainForm'
 import { DisableDomainModal } from './DisableDomainModal'
 import { DeleteDomainModal } from './DeleteDomainModal'
@@ -200,7 +199,6 @@ export function DomainsPage() {
       fixed: 'right',
       render: (_: unknown, record: NetworkDomain) => {
         const isManagement = record.domain_type === 'management'
-        const vacant = isVacantDomain(record)
         return (
           <Space size={8}>
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => showEdit(record)}>
@@ -233,7 +231,7 @@ export function DomainsPage() {
                 启用
               </Button>
             )}
-            {isManagement ? null : vacant ? (
+            {!isManagement && (
               <Button
                 type="link"
                 size="small"
@@ -243,12 +241,6 @@ export function DomainsPage() {
               >
                 删除
               </Button>
-            ) : (
-              <Tooltip title="存在资源引用 / 已纳管，请改用禁用">
-                <Button type="link" size="small" danger disabled icon={<DeleteOutlined />}>
-                  删除
-                </Button>
-              </Tooltip>
             )}
             {!record.is_monitored && (
               <Tooltip title="跳转 Module_09 网域纳管">

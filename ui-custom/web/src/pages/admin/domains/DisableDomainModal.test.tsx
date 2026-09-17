@@ -49,8 +49,9 @@ describe('DisableDomainModal', () => {
   })
 
   it('confirms then shows impact scope and completes', async () => {
-    updateStatusMock.mockResolvedValue({ status: 'success', data: { impact } })
-    resolveImpactMock.mockReturnValue(impact)
+    const impactWithOnlineAgents = { ...impact, has_online_agents: true }
+    updateStatusMock.mockResolvedValue({ status: 'success', data: { impact: impactWithOnlineAgents } })
+    resolveImpactMock.mockReturnValue(impactWithOnlineAgents)
     renderModal(edgeDomain())
     expect(screen.getByText(/确定禁用网域「政务网A区」/)).toBeInTheDocument()
 
@@ -58,11 +59,23 @@ describe('DisableDomainModal', () => {
     await waitFor(() => expect(screen.getByText('禁用已生效，影响范围如下')).toBeInTheDocument())
     expect(screen.getByText(/该网域下 M07 资源数：5/)).toBeInTheDocument()
     expect(screen.getByText(/已纳管 EdgeAgent 数：2/)).toBeInTheDocument()
+    expect(screen.getByText('【重要】禁用为行政冻结')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /完\s*成/ }))
     expect(successMock).toHaveBeenCalled()
     expect(cancelMock).toHaveBeenCalled()
     expect(updateStatusMock).toHaveBeenCalledWith('mc-a', 'disabled')
+  })
+
+  it('does not show administrative freeze alert when has_online_agents=false', async () => {
+    const impactWithoutOnlineAgents = { ...impact, has_online_agents: false }
+    updateStatusMock.mockResolvedValue({ status: 'success', data: { impact: impactWithoutOnlineAgents } })
+    resolveImpactMock.mockReturnValue(impactWithoutOnlineAgents)
+    renderModal(edgeDomain())
+
+    fireEvent.click(screen.getByRole('button', { name: /确认禁用/ }))
+    await waitFor(() => expect(screen.getByText('禁用已生效，影响范围如下')).toBeInTheDocument())
+    expect(screen.queryByText('【重要】禁用为行政冻结')).toBeNull()
   })
 
   it('does not allow disabling a management (default) domain', async () => {

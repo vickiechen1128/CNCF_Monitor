@@ -178,7 +178,7 @@ describe('domain API', () => {
       status: 'success',
       data: { id: 'mc-a', status: 'disabled', impact: { resource_count: 3, managed_edge_agent_count: 1 } },
     })
-    expect(impact).toEqual({ resource_count: 3, managed_edge_agent_count: 1 })
+    expect(impact).toEqual({ resource_count: 3, managed_edge_agent_count: 1, has_online_agents: true })
   })
 
   it('resolveNetworkDomainImpact reads flat data fields (incl. edge_agent_count alias)', () => {
@@ -186,7 +186,23 @@ describe('domain API', () => {
       status: 'success',
       data: { id: 'mc-a', resource_count: 7, edge_agent_count: 4 },
     })
-    expect(impact).toEqual({ resource_count: 7, managed_edge_agent_count: 4 })
+    expect(impact).toEqual({ resource_count: 7, managed_edge_agent_count: 4, has_online_agents: true })
+  })
+
+  it('resolveNetworkDomainImpact infers has_online_agents=false when no agents', () => {
+    const impact = resolveNetworkDomainImpact({
+      status: 'success',
+      data: { id: 'mc-a', resource_count: 3, managed_edge_agent_count: 0 },
+    })
+    expect(impact?.has_online_agents).toBe(false)
+  })
+
+  it('resolveNetworkDomainImpact preserves explicit has_online_agents from backend', () => {
+    const impact = resolveNetworkDomainImpact({
+      status: 'success',
+      data: { id: 'mc-a', status: 'disabled', impact: { resource_count: 0, managed_edge_agent_count: 2, has_online_agents: false } },
+    })
+    expect(impact?.has_online_agents).toBe(false)
   })
 
   it('resolveNetworkDomainImpact returns null when data is null', () => {
