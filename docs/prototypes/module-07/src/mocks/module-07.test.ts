@@ -12,20 +12,32 @@ import {
   RESOURCE_FIELD_OPTIONS,
   STATUS_MAPPING_RULES,
   STATUS_VALUES,
+  TENANT_DEFAULT_MAPPING,
+  BIZ_CODE_RE,
+  mockBusinessDomains,
+  mockCollectionHealth,
   mockImportHistory,
   mockLabelTemplates,
   mockNetworkDomains,
   mockResourceLabels,
   mockResources,
   mockStatusMappingConfig,
+  resolveCollectionStatus,
   isApplicationResource,
   isGenericTargetResource,
   isHostResource,
   isMiddlewareResource,
+  domainReachabilityText,
+  previewDomainByIP,
+  K8S_ENDPOINT_PRESETS,
+  // {v2.34} 决策 83：兜底类「其他监控目标」端点类型预设与技术判别值反查
+  DEVICE_ENDPOINT_PRESETS,
+  endpointTypeLabel,
+  RESOURCE_TYPE_MAP,
 } from './module-07'
 import type { ResourceCategory } from './module-07'
 
-describe('module-07 mocks（对齐 PRD v2.20）', () => {
+describe('module-07 mocks（对齐 PRD v2.36）', () => {
   const domainIds = mockNetworkDomains.map((d) => d.id)
 
   // ========== 资源基础字段校验 ==========
@@ -46,6 +58,52 @@ describe('module-07 mocks（对齐 PRD v2.20）', () => {
     expect(unmonitored.some((r) => r.status !== 'offline')).toBe(true)
     // 已监控里至少有一个 status === online（正常被采集）
     expect(monitored.some((r) => r.status === 'online')).toBe(true)
+  })
+
+  // ========== 采集状态三态（决策 47-3，修订决策 31-M1） ==========
+
+  it('采集状态三态全覆盖：采集中 / 已下发未采到 / 未监控 三种取值均存在（决策 47-3）', () => {
+    const statuses = mockResources.map((r) => resolveCollectionStatus(r))
+    expect(statuses).toContain('unmonitored')
+    expect(statuses).toContain('up')
+    expect(statuses).toContain('down')
+  })
+
+  it('resolveCollectionStatus：未选中一律未监控；选中按健康度 up/down，缺失按 down（决策 47-3）', () => {
+    mockResources.forEach((r) => {
+      if (!r.is_monitored) {
+        expect(resolveCollectionStatus(r)).toBe('unmonitored')
+      } else {
+        const health = mockCollectionHealth[r.resource_id] ?? 'down'
+        expect(resolveCollectionStatus(r)).toBe(health)
+      }
+    })
+  })
+
+  it('mockCollectionHealth 仅覆盖 is_monitored=true 的资源（健康度只对被选中资源有意义）', () => {
+    Object.keys(mockCollectionHealth).forEach((id) => {
+      const res = mockResources.find((r) => r.resource_id === id)
+      expect(res).toBeTruthy()
+      expect(res!.is_monitored).toBe(true)
+    })
+  })
+
+  // ========== 业务管理（决策 48） ==========
+
+  it('业务字典编码规范：启用条目 biz_code 均符合小写字母/数字/连字符 ≤64（决策 48）', () => {
+    mockBusinessDomains.forEach((d) => {
+      expect(BIZ_CODE_RE.test(d.biz_code)).toBe(true)
+    })
+  })
+
+  it('业务字典必含 infra 兜底条目且为启用态（决策 48：生成即预置、禁止停用/删除）', () => {
+    const infra = mockBusinessDomains.find((d) => d.biz_code === 'infra')
+    expect(infra).toBeTruthy()
+    expect(infra!.status).toBe('enabled')
+  })
+
+  it('业务字典含停用条目（决策 48：停用不删除，演示「业务名（已停用）」标识）', () => {
+    expect(mockBusinessDomains.some((d) => d.status === 'disabled')).toBe(true)
   })
 
   it('资源 env 取值均在 dev/test/staging/prod 枚举内（PRD 7.2）', () => {
@@ -131,13 +189,61 @@ describe('module-07 mocks（对齐 PRD v2.20）', () => {
 
   // ========== 标签模板 ==========
 
-  it('四类资源均预置默认标签模板且 mappings 非空（PRD 5.13）', () => {
-    const types: ResourceCategory[] = ['host', 'middleware', 'application', 'generic_target']
+  it('五大类资源均预置默认标签模板且 mappings 非空（PRD 5.13）', () => {
+    const types: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
     types.forEach((t) => {
       const defaults = mockLabelTemplates.filter((tpl) => tpl.resource_category === t && tpl.is_default)
       expect(defaults.length).toBeGreaterThanOrEqual(1)
       defaults.forEach((tpl) => expect(tpl.mappings.length).toBeGreaterThan(0))
     })
+  })
+
+  it('五类默认模板均含 resource_id → resource_id 稳定身份映射（{v2.25} PRD 5.13，coverage 回连前置）', () => {
+    const defaults = mockLabelTemplates.filter((tpl) => tpl.is_default)
+    expect(defaults).toHaveLength(5)
+    defaults.forEach((tpl) => {
+      const identity = tpl.mappings.find((m) => m.source_field === 'resource_id')
+      expect(identity, `${tpl.name} 缺少 resource_id 映射`).toBeDefined()
+      expect(identity?.target_label).toBe('resource_id')
+      expect(identity?.source_type).toBe('resource_field')
+      expect(identity?.enabled).toBe(true)
+    })
+  })
+
+  it('命名规约：target_label 不带 _id 后缀（{v2.31} 决策 68-5-1；resource_id 为约定俗成例外）', () => {
+    mockLabelTemplates.forEach((tpl) => {
+      tpl.mappings.forEach((m) => {
+        if (m.target_label === 'resource_id') return
+        expect(m.target_label.endsWith('_id'), `${tpl.name} 的 ${m.target_label} 违反命名规约`).toBe(false)
+      })
+    })
+  })
+
+  it('MVP 默认模板不含 tenant 映射，且 tenant_id 为 v0.2 内置默认（{v2.31} 决策 68-5）', () => {
+    // MVP 单租户：默认模板不含 tenant_id → tenant（注入骨架恒通过）
+    mockLabelTemplates.forEach((tpl) => {
+      expect(tpl.mappings.some((m) => m.target_label === 'tenant')).toBe(false)
+    })
+    // v0.2 前瞻口径常量：五类默认模板统一内置该映射
+    expect(TENANT_DEFAULT_MAPPING.source_field).toBe('tenant_id')
+    expect(TENANT_DEFAULT_MAPPING.target_label).toBe('tenant')
+  })
+
+  it('tenant_id 进入五类资源字段选项（v0.2 内置默认映射可选；{v2.31}）', () => {
+    const types: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
+    types.forEach((t) => {
+      expect(RESOURCE_FIELD_OPTIONS[t]).toContain('tenant_id')
+      expect(RESOURCE_FIELD_OPTIONS[t]).toContain('resource_id')
+    })
+  })
+
+  it('LabelTemplate.description 为可选字段且默认模板均给出说明（{v2.27} PRD 6.3 description 必须落库）', () => {
+    mockLabelTemplates
+      .filter((tpl) => tpl.is_default)
+      .forEach((tpl) => {
+        expect(typeof tpl.description).toBe('string')
+        expect((tpl.description ?? '').length).toBeGreaterThan(0)
+      })
   })
 
   it('默认标签模板不使用 v0.4+ 的 cmdb_field 来源（PRD 5.11/5.13）', () => {
@@ -407,5 +513,149 @@ describe('module-07 mocks（对齐 PRD v2.20）', () => {
     plannedProviders.forEach((p) => {
       expect(p.version).toBe('v0.4+')
     })
+  })
+})
+
+// ========== {v2.33} 决策 81：K8s 双入口动线 + 网域字段可达性引导 ==========
+
+describe('{v2.33} 决策 81 网域可达性引导与 K8s 双域 mock', () => {
+  const byId = (id: string) => mockNetworkDomains.find((d) => d.id === id)!
+
+  it('每个网域均声明 domain_type，default 为中心直连、其余为采集节点域', () => {
+    mockNetworkDomains.forEach((d) => expect(['management', 'edge']).toContain(d.domain_type))
+    expect(byId('default').domain_type).toBe('management')
+    expect(byId('gov-cloud-a').domain_type).toBe('edge')
+  })
+
+  it('为 K8s 双域动线预置集群网域，且集群网段与管理网可形成重叠演示', () => {
+    expect(byId('k8s-prod').domain_type).toBe('edge')
+    expect(byId('k8s-test').domain_type).toBe('edge')
+    // 两个集群默认共用 10.244.0.0/16（Calico/Flannel 默认 Pod 段），用于演示跨域同前缀歧义
+    expect(byId('k8s-prod').ip_cidrs).toContain('10.244.0.0/16')
+    expect(byId('k8s-test').ip_cidrs).toContain('10.244.0.0/16')
+  })
+
+  it('domainReachabilityText：中心直连域说「直接采集」，采集节点域说「中转」并带网域名', () => {
+    expect(domainReachabilityText(byId('default'))).toContain('中心直连')
+    const edgeText = domainReachabilityText(byId('k8s-prod'))
+    expect(edgeText).toContain('中转')
+    expect(edgeText).toContain('生产 K8s 集群域')
+  })
+
+  it('previewDomainByIP：唯一命中取最长前缀（集群 API 段 → k8s-prod；管理段 → default）', () => {
+    const api = previewDomainByIP('172.20.0.10')
+    expect(api.kind).toBe('unique')
+    if (api.kind === 'unique') {
+      expect(api.domain.id).toBe('k8s-prod')
+      expect(api.cidr).toBe('172.20.0.0/16')
+    }
+    const mgmt = previewDomainByIP('10.0.1.11')
+    expect(mgmt.kind).toBe('unique')
+    if (mgmt.kind === 'unique') expect(mgmt.domain.id).toBe('default')
+  })
+
+  it('previewDomainByIP：同最长前缀跨两个集群网域命中判歧义（10.244 重叠段，优先于 default /8）', () => {
+    const r = previewDomainByIP('10.244.0.5')
+    expect(r.kind).toBe('ambiguous')
+    if (r.kind === 'ambiguous') {
+      const ids = r.hits.map((h) => h.domain.id)
+      expect(ids).toContain('k8s-prod')
+      expect(ids).toContain('k8s-test')
+      expect(ids).not.toContain('default') // /8 短前缀让位给 /16
+    }
+  })
+
+  it('previewDomainByIP：无命中归 none；空值 / 域名不做 DNS 解析归 empty', () => {
+    expect(previewDomainByIP('8.8.8.8').kind).toBe('none')
+    expect(previewDomainByIP(undefined).kind).toBe('empty')
+    expect(previewDomainByIP('order.example.com').kind).toBe('empty')
+  })
+
+  it('K8S_ENDPOINT_PRESETS 覆盖 API Server / kube-state-metrics / etcd（{v2.35} 决策 84：仅端点子类型判别值，无采集参数）', () => {
+    const keys = K8S_ENDPOINT_PRESETS.map((p) => p.key)
+    expect(keys).toEqual(expect.arrayContaining(['apiserver', 'kube-state-metrics', 'etcd']))
+    K8S_ENDPOINT_PRESETS.forEach((p) => {
+      // 自定义集群级端点（key=custom）允许 exporter_type 留空，其余必须给出可被 M01 识别 monitor_type=k8s 的类型
+      if (p.key !== 'custom') expect(p.exporter_type).toBeTruthy()
+      // {v2.35} 决策 84：端口 / 采集路径 / 协议等采集参数归 M01 默认采集配置，预设不再携带
+      expect(p).not.toHaveProperty('default_port')
+      expect(p).not.toHaveProperty('metrics_path')
+      expect(p).not.toHaveProperty('scheme')
+    })
+  })
+})
+
+describe('{v2.34} 决策 83 其他监控目标定位收窄（generic_target 兜底类，M07/M01 字段边界；{v2.35} 决策 84 精简）', () => {
+  it('RESOURCE_TYPE_MAP.generic_target 展示名为「其他监控目标」（内部枚举值 generic_target 不变）', () => {
+    expect(RESOURCE_TYPE_MAP.generic_target).toBe('其他监控目标')
+    // 其余四类展示名不受影响
+    expect(RESOURCE_TYPE_MAP.host).toBeTruthy()
+    expect(RESOURCE_TYPE_MAP.database).toBeTruthy()
+    expect(RESOURCE_TYPE_MAP.middleware).toBeTruthy()
+    expect(RESOURCE_TYPE_MAP.application).toBeTruthy()
+  })
+
+  it('DEVICE_ENDPOINT_PRESETS 含网络设备 SNMP / GPU 服务器 / 自定义 HTTP 三预设，key 与顺序固定', () => {
+    expect(DEVICE_ENDPOINT_PRESETS.map((p) => p.key)).toEqual(['snmp_device', 'gpu_server', 'custom_http'])
+  })
+
+  it('{v2.35} 决策 84：预设仅承载 key / label / exporter_type 判别值，不再携带端口、采集路径、协议等采集参数', () => {
+    DEVICE_ENDPOINT_PRESETS.forEach((p) => {
+      expect(p.label.length).toBeGreaterThan(0)
+      expect(p).not.toHaveProperty('default_port')
+      expect(p).not.toHaveProperty('metrics_path')
+      expect(p).not.toHaveProperty('scheme')
+      expect(p).not.toHaveProperty('custom')
+      expect(p).not.toHaveProperty('target_name_hint')
+    })
+  })
+
+  it('snmp_device 预设判别值 snmp_exporter（MVP 唯一完整 monitor_type=snmp 映射）', () => {
+    const snmp = DEVICE_ENDPOINT_PRESETS.find((p) => p.key === 'snmp_device')!
+    expect(snmp.exporter_type).toBe('snmp_exporter')
+  })
+
+  it('gpu_server 预设判别值 dcgm_exporter；custom_http 预设 exporter_type 为空（无默认映射），非自定义预设必须带判别值', () => {
+    const gpu = DEVICE_ENDPOINT_PRESETS.find((p) => p.key === 'gpu_server')!
+    expect(gpu.exporter_type).toBe('dcgm_exporter')
+    const custom = DEVICE_ENDPOINT_PRESETS.find((p) => p.key === 'custom_http')!
+    expect(custom.exporter_type).toBe('')
+    DEVICE_ENDPOINT_PRESETS.filter((p) => p.key !== 'custom_http').forEach((p) => {
+      expect(p.exporter_type).toBeTruthy()
+    })
+  })
+
+  it('DEVICE_ENDPOINT_PRESETS 不得混入 K8s 集群组件（集群级端点 = 表单首问「登记对象」的 K8s 集群子动线）', () => {
+    const types = DEVICE_ENDPOINT_PRESETS.map((p) => p.exporter_type)
+    expect(types).not.toContain('kubernetes-apiserver')
+    expect(types).not.toContain('kube-state-metrics')
+    expect(types).not.toContain('etcd')
+  })
+
+  it('endpointTypeLabel：设备/集群预设反查中文名，blackbox 显「拨测目标」，空值回落自定义 HTTP，未知回落自定义端点', () => {
+    expect(endpointTypeLabel('snmp_exporter')).toContain('网络设备')
+    expect(endpointTypeLabel('dcgm_exporter')).toBe('GPU 服务器')
+    expect(endpointTypeLabel('kubernetes-apiserver')).toContain('API Server')
+    expect(endpointTypeLabel('blackbox_exporter')).toBe('拨测目标')
+    expect(endpointTypeLabel('')).toBe('自定义 HTTP 指标端点')
+    expect(endpointTypeLabel(undefined)).toBe('自定义 HTTP 指标端点')
+    expect(endpointTypeLabel(null)).toBe('自定义 HTTP 指标端点')
+    expect(endpointTypeLabel('haproxy_exporter')).toBe('自定义端点')
+  })
+
+  it('存量 mock 其他监控目标保留原 exporter_type 判别值（snmp/haproxy/blackbox 不迁移）', () => {
+    const gens = mockResources.filter(isGenericTargetResource)
+    const types = gens.map((r) => r.exporter_type)
+    expect(types).toContain('snmp_exporter')
+    expect(types).toContain('haproxy_exporter')
+    expect(types).toContain('blackbox_exporter')
+    expect(endpointTypeLabel(gens.find((r) => r.exporter_type === 'haproxy_exporter')!.exporter_type)).toBe('自定义端点')
+  })
+
+  it('generic_target 默认标签模板展示名同步「其他监控目标」且不含 Exporter 措辞', () => {
+    const tpl = mockLabelTemplates.find((t) => t.template_id === 'tpl-gen-default')!
+    expect(tpl.resource_category).toBe('generic_target')
+    expect(tpl.name).toBe('其他监控目标默认模板')
+    expect(tpl.description).not.toContain('Exporter')
   })
 })

@@ -27,6 +27,13 @@ func DeleteScrapeJob(db *gorm.DB) gin.HandlerFunc {
 			response.InternalServerError(c, fmt.Errorf("get scrape job %d: %w", id, err))
 			return
 		}
+
+		// 决策 44-1：change_status=pending 的 job 已挂起变更单，禁止删除，避免变更单成为幽灵单。
+		if job.ChangeStatus == models.ChangeStatusPending {
+			response.Conflict(c, fmt.Errorf("采集 Job %q 存在待确认变更单，禁止删除；请先前往配置变更确认页处理", job.JobName))
+			return
+		}
+
 		if err := db.Delete(&job).Error; err != nil {
 			response.InternalServerError(c, fmt.Errorf("delete scrape job %d: %w", id, err))
 			return

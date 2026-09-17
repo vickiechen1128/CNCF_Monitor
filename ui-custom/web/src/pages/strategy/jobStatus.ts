@@ -1,8 +1,9 @@
 import type { BadgeProps } from 'antd'
 
 /**
- * 采集 Job 状态聚合（Module_01 §8 状态机 / §11.1「状态聚合四态」，F3）。
- * 优先级：草稿（v0.2 灰显占位）> 已停用（enabled=false）> 下发状态（pending/confirmed/deployed）。
+ * 采集 Job「生效状态」聚合（Module_01 §8 状态机 / §11.1，F3）。
+ * 用户视角的生命周期，回答「这个 job 现在算不算数」：
+ * 草稿（v0.2 灰显占位）> 已停用（enabled=false）> 待生效（pending/confirmed，尚未真正下发）> 已生效（deployed）。
  */
 export interface JobStatusView {
   label: string
@@ -23,9 +24,8 @@ export function aggregateJobStatus(job: {
   }
   switch (job.change_status) {
     case 'pending':
-      return { label: '待下发', badgeStatus: 'warning', disabled: false }
     case 'confirmed':
-      return { label: '已确认', badgeStatus: 'processing', disabled: false }
+      return { label: '待生效', badgeStatus: 'warning', disabled: false }
     case 'deployed':
     default:
       return { label: '已生效', badgeStatus: 'success', disabled: false }

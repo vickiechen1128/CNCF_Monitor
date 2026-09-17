@@ -500,10 +500,42 @@
 
 ## Change Log（完整历史）
 
-> v1.24 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.21 及以前的逐版完整变更详情 + Change Log 轮转迁出的版本（v1.33 / v1.34 / v1.35）（业务沟通决策记录）。
+> v1.24 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.21 及以前的逐版完整变更详情 + 历次 Change Log 轮转迁出的版本（v1.33 起，逐版见表内「自 PRD Change Log 轮转迁入」标注）（业务沟通决策记录）。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v1.72 | 2026-09-15 | 修改 | **网域生命周期闭环——M09 侧义务落地（决策 82，跨模块落点，主记录在 module-06 design-decisions；纯文档不改数据模型；原型已同步 v1.72.0——仅网域纳管页第 3 列更名，退纳管与级联清退 MVP 无 UI 落点）**：①**网域删除级联清退（82-1，MVP）**——§3.1「网域删除」行改写：M06 删除已纳管网域时本模块承担**级联清退义务**（废止 Token / 停止配置下发 / `EdgeAgent` 标 `retired`，与 M06 软删在同一次请求内完成、任一环节失败整体回滚；采集节点侧无平台主动动作，Token 废止即失效、心跳鉴权失败自然离线），并明确清退后该网域不再出现在本页可选范围；②**退纳管动作定义（82-3，v0.2+）**——§3.1 功能表新增行（废止 Token → 停止配置下发 → `registration_status` 归位 `created` → 心跳鉴权失败转离线；与 M06 禁用**正交**、不互相触发）；**这是把 §1 MVP 注记（决策 62）中「口径①（禁用联动取消纳管 / 冻结 Token）」从原则具象为可实现动作**，并补齐 **Module_06 §6.2 早已许诺「是否停止采集由 M09 退纳管决定」、但本模块此前从未定义该动作**的契约悬空；③§1 MVP 注记补决策 82 推进说明；④**§8 新增 ⑤ 网域纳管状态（`registration_status`）状态机**（`created`（未纳管）⇄ `monitored`（已纳管）；**枚举名对齐原型代码**，退纳管 v0.2+ 归位 `created`），并补「三个『状态』分工」注记（M06 行政态 / 本模块纳管态 / 本模块运行态——维度不同、独立维护、不得互相推导，M06 禁用不改变本模块两状态）；**`retired` 归属澄清**——网域被删后本身软删、从列表消失，**不进入本状态机**（无需「已清退」态），`retired` 打在**该网域的 `EdgeAgent` 采集节点记录**上（该记录的生命周期终态、保留供审计，见 §3.1 / §9.2）；⑤§9.1 新增退纳管验收 {P1 / v0.2}；§9.2 新增级联清退与「M06 禁用不改变本模块状态」两条 {P0} 验收；⑥§10 术语表新增「退纳管」词条；⑦**网域纳管页第 3 列「运行状态」更名「采集节点在线」（决策 82 配套，chenrt 走查确认）**——明确该列为「本网域采集节点」的心跳状态（**网域粒度聚合视图**，与「纳管状态」列一为运行态、一为配置态，独立维护），节点与组件级诊断归「采集节点状态」页，两页构成「网域层概览 → 节点层诊断」的层级关系、**不是重复列**；原列名「运行状态」与节点页「整体状态」指代不同对象却同名，MVP 1 网域 : 1 采集节点使两者数值一致，极易被误判为冗余列，故更名 + 列头 tooltip 点明粒度；落点 §3.1 网域列表行 + §9.1 列收敛验收条。Change Log 轮转 v1.69 迁完整历史（自 PRD Change Log 轮转迁入，2026-09-15 去历史化精简） | 1 / 3.1 / 8 / 9 / 10 | MVP / v0.2 | ready |
+| v1.71 | 2026-09-15 | 修改 | 采集节点状态页两列与 M06 对齐裁定（决策 74，chenrt 拍板「接入方式列是否与 M06 同步、配置同步列是否对齐 M06 接入进度点阵」；原型同步落地）：①**网域列不展示接入方式 Tag（决策 74-1）**——本页实例按定义均属采集节点域（中心直连域不产生 `EdgeAgent` 实例、仅出现在空态说明），恒定信息不进列（原型原 Tag 还用裸枚举 `agent_pull`、口径也不符），接入方式归网域纳管页网域列（决策 70-1）；②**配置同步列形态定版 = Badge + 成因分档（决策 74-2）**，不采用 M06「接入进度」点阵——点阵表达单调递进生命周期，本列为循环状态机 + 成因分支（「生效中」是 `out_of_sync` 成因之一而非更靠后步骤），且状态由心跳自动流转无需人工推进；列头 Tooltip 一句短定义 + 每格悬浮该档明细（拆分原五档全口径列头）；③**mock 流转演示（决策 74-3，原型行为）**——跨页流转桥：配置确认页确认 agent_pull 变更后写入「生效中」，采集节点状态页重新挂载可见，约 10s 心跳模拟自动流转「已同步」，「立即同步」结果回写桥跨页不回退。落点：§3.2 节点平铺表行 / §3.2 新增形态定版注记 / §9 两条验收补充（自 PRD Change Log 轮转迁入，2026-09-15 去历史化精简） | 3.2 / 9 | MVP | ready |
+| v1.70 | 2026-09-15 | 修改 | **决策 70~72 九条 PRD 显性化回写**（原型先行内容追认，纯文档不改模型与契约；原型行为不变、版本轴对齐至 1.70.0）：①§3.1「网域列表」行 + §9 验收改 **5 列口径**（决策 70-1/70-2）——网域列**三合一**（名称 + 网域 ID 等宽字体（供与命令模板 `NETWORK_DOMAIN_ID` 逐字符核对）+ 接入方式 Tag），**接入方式不再单列**（并入网域列、按 `domain_type` 用户措辞「中心直连域 / 采集节点域」，`local`/`agent_pull` 保留为技术判据）、**zone_type 下沉详情 Drawer**；②§3.1「安装指引」行 + §9 验收**命令口径改静态模板**（决策 71-4）——「复制安装命令模板」不含真实凭据、`<网域 ID>`/`<凭据>` 占位符由用户行内复制填值，替换决策 75 原「预填该网域凭据」表述，并补**「纳管取凭据」为前置条件、不占 3 步编号**（决策 71-3）与**验收边界注记**（行内禁的是展示指引内容、复制动作不受限，决策 70-3）；③§9 新增三条验收：**网域详情抽屉不承载组件明细**（仅配置字段 + 网域粒度摘要，组件明细归采集节点状态页，决策 72-1）、**详情抽屉摘要区三态出口**（未纳管仅陈述 / 未上线页内指引 / 已上线跨页深链，决策 72-2）、**采集节点状态页 `network_domain` 深链**（惰性预筛 + 来源提示 + 空态三支，决策 72-3）；④§3.1 字段语义注记补三态出口描述、§3.2 功能表新增「跨页深链预筛」行（自 PRD Change Log 轮转迁入，2026-09-15 去历史化精简） | 3.1 / 3.2 / 9 | MVP | ready |
+| v1.69 | 2026-09-15 | 新增 | 网域-采集节点部署口径与两类地址用户指引（决策 73，纯文档不改模型与契约）（自 PRD Change Log 轮转迁入，v1.72 轮转）：①**MVP 单节点部署口径**——一个网域只需在网域内挑一台常开机器安装**一个**采集节点即可完成接入（域内互通、一台覆盖全域目标），安装指引不引导多节点部署；同域多采集节点（分片 / HA / 多探测点）维持 v0.4+ 演化，其驱动力为容量 / 可用性 / 拨测探测点语义而非连通性；`EdgeAgent` 模型天然 1:N，MVP 以单通道单采集组约束保证 1:1（§3.1 安装指引 / §3.1.1 新增注记 / §9 验收同步）；②**两类地址方向性指引**——`center_endpoint`（管理面：Agent 心跳 + 配置拉取）与 `remote_write_url`（数据面：指标回传）均登记在网域上、方向均为「采集节点 → 中心」，节点是使用者而非被指向者（节点身份 = `NETWORK_DOMAIN_ID` + `TOKEN`，平台不登记节点地址）；填写指引：直连填中心地址、经 nginx / 网闸转发填转发侧地址，回传地址通常可自动推导（§5.1 字段说明重写 / §3.1 纳管行补表单提示要求 / §9 新增验收）。原型表单 extra 文案待同步（原型维持 v1.52.0；**同日晚些时候已同步**，原型升 v1.69.0 对齐，见决策 73 原型同步轮） | 3.1 / 5.1 / 9 | MVP | ready |
+| v1.68 | 2026-09-14 | 修改 | 用户侧术语再修订（决策 79，M06 PRD v2.13 跨模块落点，修订决策 74 术语表，纯文档不改模型）（自 PRD Change Log 轮转迁入）：§10 `domain_type` 用户侧叫法由「中心直连区 / 隔离区（采集节点接入）」改为「**中心直连域 / 采集节点域**」（「域」与网域同族、「隔离区」政务场景安全合规联想过重、「采集节点域」名字直接回答怎么接入）；后端枚举 `management`/`edge` 与技术层「管理域/边缘域」不变，页面只读展示「接入方式：中心直连域 / 采集节点域」。原型行为不变（M09 原型待对齐项不变） | 10 | 文档自身 | ready |
+| v1.67 | 2026-09-14 | 新增 | 接入进度映射注记（决策 78，M06 PRD v2.12 跨模块落点，纯文档不改模型）（自 PRD Change Log 轮转迁入）：§3.1 字段语义补「**接入进度映射**」——M06 网域列表「接入进度」四态（已登记 → 已纳管 → 采集节点已上线 → 已出数据）为**聚合视图**（已纳管 = 本页纳管状态、采集节点已上线 = 本页运行状态 online、已出数据 = M01 生效配置聚合），数据流向 = M06 拉本模块 / M01 数据；**本页不对齐展示四态、不聚合「已出数据」**，保持「纳管状态 + 运行状态（含最后心跳）」原子粒度（运维诊断需心跳细节、反向聚合属职责倒置）；本页定位 = 纳管动作落地页 + 节点运行明细，全局接入动线由 M06 承载；用户可见在线态文案沿用「采集节点」口径（决策 74）。原型行为不变 | 3.1 | 文档自身 | ready |
+| v1.66 | 2026-09-14 | 新增 | 网域概念用户化配套（决策 74 / 75 配套，M06 决策 73~77 跨模块落点，纯文档不改模型）（自 PRD Change Log 轮转迁入）：①§3.1 安装指引补「**一键复制安装命令**」——每个已纳管 `agent_pull` 网域提供 `NETWORK_DOMAIN_ID` / `TOKEN` 预填的环境变量块 + systemd 步骤，用户「复制命令 → 到目标机器粘贴执行」即可；承接 M06 列表「已纳管未上线 → 查看安装指引」深链；②§10 术语映射 `domain_type` 用户语言改「接入方式」（中心直连区 / 隔离区（采集节点接入））、`zone_type` 改「网络分区（可选）」（纯分类标签、不影响采集、可留空）、新增 `Edge Sync Agent` → 「采集节点」行；③§11.1 采集节点状态页空态文案改用户语言（不再裸出现 Edge Sync Agent） | 3.1 / 10 / 11.1 | MVP | ready |
+| v1.65 | 2026-09-10 | 修改 | **租户标签来源定版 + 生成期门禁（决策 68-5，源自 M02 §7.1 原「遗留待决」升级）（自 PRD Change Log 轮转迁入）**：①§3.3.1 新增两条——「**租户标签唯一来源 = Module_07 LabelTemplate target 级注入**」（`external_labels` **永久不承担**租户标签，决策 19 结论维持，v0.2 起亦不变）与「**M09 生成期门禁**」（v0.2 开启多租户时校验被引用 Job 的标签模板含 `tenant` 映射，缺失则 `validation_status=failed`，与规则 job 引用门禁同模式、经 `validation_details.source` 路由「前往修改」跳回 M07）；②§3.3.1「命名空间边界」注记追加**租户键分层**与**通用命名规约**——「Prometheus 标签键及对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀，`_id` 只属 DB 列与 API JSON 字段」（`network_domain`/`tenant` vs `network_domain_id`/`tenant_id`），下次新增标签无需再评审命名；③§7.1.4「标签注入边界」同步三点定版；④§9 验收新增生成期门禁 {P0 / v0.2} 项、配置包验收改「**不注入租户标签 `tenant`**（唯一来源 M07 target 级注入）」；⑤§10 术语新增 `tenant`（标签）/ `tenant_id`（字段）行。不改接口契约 | 3.3.1 / 7.1.4 / 9 / 10 | v0.2 | ready |
+| v1.64 | 2026-09-10 | 修改 | 网域标签键收敛 + `alerting` 投递接线（决策 68，源自 F-07 网域列缺陷评审的两个遗留发现）（自 PRD Change Log 轮转迁入）：① **标签键收敛为 `network_domain`**——§3.3「标签注入」行、§3.3.1 全节、配置文件映射语义、§6.3 配置包结构、§7.1.4 边界表、§9 验收、§10 术语同步；决策 19 的 `network_domain_id` **键名被 supersede**（其字段清单结论不变），**对象 / API 字段仍用 `network_domain_id`**（§3.3.1 新增三层命名空间边界表）；消费侧 `network_domain` → 兼容 `network_domain_id` → `default` 三级解析为**过渡层常驻**（唯一入口 `models.ResolveNetworkDomain`）；② 新增 §3.3.1.1「`alerting` 投递接线」——中心求值器 `prometheus.yml` 生成 `alerting.alertmanagers[].static_configs[].targets`，补齐决策 59/60 缺失的 **Prometheus → Alertmanager 投递环节**（**条件注入**：仅当存在 `alertmanager.yml` 产物；**AM 地址由 `env/env.sh` 注入、禁止硬编码**；**仅中心生成**，边缘包永不生成 `alerting` / `rule_files`）；§9 新增投递接线与端到端告警链路验收 | 3.3 / 3.3.1 / 3.3.1.1 / 6.3 / 7.1.4 / 9 / 10 | MVP / v0.2 | ready |
+| v1.63 | 2026-09-10 | 修改 | 规则 job 引用校验的动线修复（决策 67，源自动线死锁现场：M01 报错仍可提交 → M09 failed 草稿锁死规则 → 只能废弃解锁）：①§3.5.1 / §3.4 / §5.4 新增**失败单不锁死源数据**——`failed + user_config` 自动清除 M01 源数据 `pending` 锁、草稿保留（可重校/可废弃），`platform_fault` 不清锁，清锁不得推进源数据版本；②§5.4 `validation_details` 补 `source` 字段、草稿 `status` 与 `validation_status` 解耦说明；③§8 状态机① 补失败自动清锁流转；④§11.2「前往修改」按 `source` 分流 `/rules` / `/scrape-jobs`，禁止硬编码；⑤§3.3 双层模型注记同步修订（M01 编辑期 error 默认阻断 + 逃生门、失败动线按 `source` 路由）并落 v0.2 口径约定（central 规则按全域 job 并集校验、`change_status` 标量锁保留，决策 67-4）（自 PRD Change Log 轮转迁入） | 3.3 / 3.4 / 3.5.1 / 5.4 / 8 / 11.2 | MVP / v0.2 | ready |
+| v1.62 | 2026-09-09 | 修改 | 规则 job 引用校验双层模型（决策 66）：§3.3「规则 job 引用校验」明确为发布期强制门禁，与 M01 编辑期校验使用同一套判定逻辑；新增「双层校验模型」注记（M01 编辑期提示不阻断 + M09 发布期 error 阻断）与校验失败跨模块跳转动线；§11.2 全局行为规则补充「规则 job 引用校验 error 时跳转 Module_01 规则编辑」入口（自 PRD Change Log 轮转迁入） | 3 / 11.2 | MVP | ready |
+| v1.61 | 2026-09-09 | 修改 | 规则 job 引用校验与规则粒度边界（决策 64/65，源自 MVP 试用反馈：规则引用的 job 名与当前生效 Job 不匹配导致 `absent()` 恒 firing、告警 instance 显示「全局/聚合」）：① §3.3 新增「规则 job 引用校验」P0——生成 rules.yml 时将规则与当前生效 Job 列表绑定：`up` / `absent(up)` 类规则 job 不匹配 = error（阻断确认发布），其他 job 引用不匹配 = warning；② 新增「规则粒度与 M09 的关系」注记——M09 不感知规则粒度（聚合 vs per-instance），per-instance 规则归属 M01 v0.3 规则 UI（自 PRD Change Log 轮转迁入） | 3 | MVP | ready |
+| v1.60 | 2026-09-08 | 修改 | 中心部署目录规范（决策 64，源自生产环境磁盘治理诉求）：§1 新增「MVP 中心部署目录规范」注记——对齐《业务软件标准化目录与权限配置操作手册》三目录基线（`/opt/apps` 程序只读 / `/opt/data` 数据含 config-output 活配置 / `/opt/log` 日志），运维预建目录、交付包 `env/env.sh` 集中定义数据/日志根与 TSDB 保留策略、`start.sh` 双模式（生产路径 / 包内回落）、systemd 不在 MVP 范围；明确「活配置属平台管理的数据、落 /opt/data」以兼容程序目录只读红线（自 PRD Change Log 轮转迁入） | 1 | MVP | ready |
+| v1.57 | 2026-09-05 | 修改 | §1「MVP 阶段」补注记：M06 行政禁用网域不联动 M09 纳管状态（`IsMonitored` 独立维护；决策 62，2026-09-05 拍板——MVP 保持现状，「禁用联动取消纳管 / 冻结 Token」纳入 v0.2 多网域版本实现并届时评审）；不改 MVP 技术契约（自 PRD Change Log 轮转迁入） | 1 | v0.2 | ready |
+| v1.56 | 2026-09-04 | 修改 | §0「需求背景与典型场景」结构优化：删除与 §2 重复的「涉及的用户故事」小节，改为结尾交叉引用「本模块覆盖的用户故事详见 §2」；§2 保持为用户故事唯一权威入口，避免双处维护漂移（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | ready |
+| v1.55 | 2026-09-04 | 修改 | §0「需求背景与典型场景」深化：基于 dev-feedback 与 design-decisions 真实记录，新增「用户需求的演进过程」（配置生成→变更管控→边缘接入→一致性保障→废弃回滚）与「不同技术背景用户的痛点分层」（4 类用户）；典型场景从 3 个扩展为 6 个，补充「配置变更自动检测」「变更单废弃后状态回写」「配置校验失败归因」真实场景（自 PRD Change Log 轮转迁入） | 0 | 文档自身 | ready |
+| v1.54 | 2026-09-04 | 新增 | 补充 §0「需求背景与典型场景」：面向产品经理/新工程师的业务叙事层，包含模块痛点、3 个典型场景（网域纳管/变更确认/Agent 监控）与涉及用户故事编码索引；不改变技术契约 | 0 | 文档自身 | ready |
+| v1.53 | 2026-09-02 | 修改 | v0.2 规划决策落版（2026-09-02 v0.2 版本范围最终口径）：①§3.3 端口解析链新增实例级 `Resource.scrape_port` 优先级——`Resource.scrape_port`（实例级覆盖，M07 资源可选字段）→ 网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port`；实例级端口在配置生成期解析、无需用户在 Job 层操作，「Job 级端口映射表」明确不做（与 filter / service_discovery 动态纳入模式冲突）；②§5.1 新增 K8s 划域备忘——overlay CNI（Calico/Flannel）下集群独立建网域（zone_type 增加 k8s）、集群内以 Deployment/DaemonSet 部署 vmagent（Agent Mode）复用 `agent_pull` 机制（配置包/Token/心跳/Remote Write 零改动），VPC 原生 CNI 可并入所在 VM 网域；③Job 网域扇出（决策 54）/ filter 实时求值（决策 53）维持 v0.2 不变 | 3.3 / 5.1 | v0.2 | ready |
+| v1.52 | 2026-08-31 | 修改 | 决策 60 落版（alertmanager.yml 纳入 M09 变更确认）：①修订「alertmanager.yml 由 M08 直接管理、不进 M09」口径——M08 生成内容（文件挂载 + amtool 校验，决策 59），MVP 起作为**管理域（`default`）scope** 配置产物进入本模块 `ConfigDraft → 人工确认 → 下发 → reload` 流水线，`change_status` 回写 M08；②明确**不参与按网域扇出、不进入 `agent_pull` 配置包**（中心 Alertmanager 全局单例；边缘自治告警的本地配置为 v0.4+）；MVP `local` 通道确认后写中心 Alertmanager 配置路径并触发 reload；③风险分级预留：后续版本可按配置类型将告警配置降为低风险自动确认；④§1 草稿与预览、§3.3 生成配置行、§3.4 审批分级策略、§3.11 配置产物形态、§6.5 边缘流程、§9.2 验收同步 | 1 / 3.3 / 3.4 / 3.11 / 6.5 / 9 | MVP | ready |
+| v1.51 | 2026-08-31 | 新增 | 决策 53/54 落版（v0.2 契约）：①§3.3「按网域生成配置」补 **Job 网域扇出**——M01 逻辑 Job 可绑定网域集合，生成器按网域自动拆分为各域 scrape_configs / targets / 变更单，分别走各域变更检测 / 校验 / 确认 / 下发（流程不变，跨网域复用不再依赖手工克隆）；②§3.3「实例过滤」补 **filter 模式实时求值**（决策 53 由 v0.3+ 提前 v0.2）——每次生成周期按条件表达式求值，M07 新增资源匹配即自动纳入 targets、属性变化自动移出；③§5.7 补资源网域归属四级解析链交叉引用（决策 52，`bk_cloud_id` 映射为第①级）；本轮为 v0.2 契约落版，MVP 行为不变 | 3.3 / 5.7 | v0.2 | prototyping |
+| v1.50 | 2026-08-26 | 修改 | **版本号保持 v1.50（同步联调已拍板决策，非升版）**——按 `module-09/dev-feedback.md`（F-15/F-17/F-19/§8/§9）与 `integration/v0.1/issues.md`（#5/#8/#9/#18）同步正文：①§3.3.3 轮询改**自适应退避**（min 5s / max 120s，`--change-detect.min/max-interval` 可覆盖）、同域 pending 改 **checksum 比较取代**（相同不推基线 / 不同取代并 `supersedes_change_no` 互记）、补**保存后即时触发 + 前往配置变更确认跳转**、空变更抑制（`ErrNoChanges` 不落库）；②§3.4 变更详情补 superseded 旧单「已被新变更单取代」Alert、草稿废弃补**分类回写知情告知**（决策 43）、targets labels **target 级**来源说明（决策 D43）；③§3.5 补**废弃回写语义**（新建回退 draft / 已生效修改提示+复现备注 v0.3 / 删除停用自动恢复 / change_status 防 pending 残留 / 规则回写同口径）；④§3.5.1 补**校验三态操作出口**（仅 passed 可确认，pending 亦禁确认给「重新校验+废弃」）与 **`validation_cause` / `validation_details` 归因**（决策 45）；⑤§5.4 ConfigDraft 字段表补 `validation_status` / `validation_cause` / `validation_details`、metadata 补 `supersedes_change_no`；⑥§8 ConfigDraft 状态机补空变更抑制 / supersede 互记 / 废弃回写流转；⑦§9.1/§9.2/§11.2 验收与轮询表述对齐并补决策 43/44/45 验收项 | 3.3.3 / 3.4 / 3.5 / 3.5.1 / 5.4 / 8 / 9 / 11.2 | MVP / v0.2 | prototyping |
+| v1.49 | 2026-08-21 | 修改 | M09 网域契约结构性对齐（决策 28）+ offline 排除提级 P0（决策 29）：①§1 / §3.1.1 / §5.1 删除「1 租户 : N 网域」「禁止跨租户共享网域」「租户前缀」「tenant_id=所属租户」「未指定继承 default」等旧语义，明确「NetworkDomain 行政模型以 Module_06 为单一事实来源」、ID 规则置 M06（id / tenant_id 字段只读引用、归属约束改为行政约束引用、MVP 处理去掉租户继承语义、§9.1/§9.2 同步）；②§3.3「实例过滤」与 9.2 验收将 `offline` 排除提级 MVP 必实现——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤，`offline` 后下一配置生成周期即从 targets 移除；本轮为 PRD 契约落版，不涉及原型行为变更 | 1 / 3.1.1 / 3.3 / 5.1 / 9 | MVP / v0.2 | prototyping |
+| v1.48 | 2026-08-21 | 修改 | 对齐 Module_01 v3.24「规则文件挂载」补充 `rule_content` 透传并入契约：①§3.3「按网域生成配置」新增 `content_mode` 分形态并入逻辑——`yaml_passthrough`（MVP）将 `rule_content`（完整 rules.yml 含 groups）原样并入，`structured`（v0.3+）按字段化生成；②§3.3 配置文件映射语义补充 `rules.yml` = 规则级（MonitoringRule）层级；③9.2 验收「规则组织与交付」补透传表述 | 3.3 配置生成 / 9 验收 | MVP / v0.3 | prototyping |
+| v1.47 | 2026-08-21 | 修改 | MVP 缺憾补漏（决策 42 系列）：①同域 `pending` 草稿「后单取代前单」（superseded）防堆积——3.3.3 补第三层裁决、8 状态机、5.4 metadata `superseded_by_change_no`；②校验失败草稿补「重新校验 / 废弃」闭环——3.5.1、6.6.2 新增 revalidate 接口、8 pending 流转；③`local` 通道 failed 下发记录补「重试」入口——3.5、6.6.3 新增 retry 接口（`agent_pull` 不提供）；④configgen 生成异常补「生成失败」态且不推进版本、下轮重试——3.3.3 检测状态可观测、3.4 变更检测状态；⑤9.1/9.2 MVP 验收范围收敛并补 4 项闭环验收（决策 42-1~42-4） | 3.3.3 / 3.4 / 3.5 / 3.5.1 / 5.4 / 6.6.2 / 6.6.3 / 8 / 9 | MVP / v0.2 | prototyping |
+| v1.46 | 2026-08-19 | 修改 | 回写跨模块契约（Module_07 8.1 / 第三轮评审 K 组）：§3.3「实例过滤」声明 `offline` 排除为**目标语义、MVP 不保证、随 M01 开发节奏落地**——生成 `targets/*.json` 时按 `Resource.status=offline` 过滤已下线实例；本轮为契约声明，不涉及原型行为变更 | 3.3 配置生成 / 实例过滤 | MVP / v0.2 | prototyping |
+| v1.45 | 2026-08-19 | 修改 | 按 2026-08-19 业务登记与网域-业务正交性决策（决策 19/23）收敛标签注入：①§3.3.1 `external_labels` 移除 `tenant_id`，最终保留 `network_domain_id` / `zone_type` / `replica` 部署级元数据；②§3.3 / §5 明确 `biz` 与 `tenant` 均由 M07 LabelTemplate 以 target 级注入（`business_domain → biz`、`tenant_id → tenant`），M09 不单独注入，MVP 单租户下 `tenant` 映射可选；③§5 配置目录 MVP 只写「按 `network_domain` 分目录」，多租户命名空间仅留 {v0.2+} 占位说明（原则一句话 + 详细规则多租户版本再定），不展开、不实现；④同步 §6.3 配置包结构 / §7.1.4 边界表 / §9 验收标准 / §10 术语映射；原型同步 external_labels 演示 | 3.3 配置生成 / 3.3.1 external_labels / 5.1 网域数据模型 / 6.3 / 7.1.4 / 9 / 10 / 原型 | MVP / v0.2 | prototyping |
+| v1.44 | 2026-08-19 | 修改 | 按 2026-08-19 业务登记与网域-业务正交性决策补充：①§5.1 网域数据模型增加「网域与业务正交」说明——网域与业务是两个正交维度、多业务共用 1 网域为正常状态、业务归属变更只触发 `targets/*.json` 原子重写；②原型同步业务归属变更演示（多业务共用 1 网域 + 10.0.1.11 业务 data-api→risk 仅重写 targets） | 5.1 网域数据模型 / 原型 | MVP / v0.2 | prototyping |
+| v1.43 | 2026-08-19 | 修改 | 按 design-decisions 决策 12~17 补充 `biz` 业务标签注入链路说明：①§3.3「标签注入」明确 `biz` 等实例级业务标签由 Module_07 LabelTemplate 注入 `targets/*.json` 的 `static_configs[].labels`，不由 M09 的 `external_labels` 注入；②§3.3.1 `external_labels` 注入说明增加与 M07 的标签边界说明 | 3.3 配置生成 / 3.3.1 external_labels | MVP / v0.2 | prototyping |
+| v1.42 | 2026-08-18 | 修改 | 未同步按成因分档标签化展示（待确认变更 / 生效中 / 本地校验失败）+ 进程异常醒目提示（行级高亮 + 抽屉高危横幅，与配置同步解耦）+ 平铺表新增 Edge Sync Agent 状态列 + manual_override 术语统一「人工覆盖」 | 采集节点状态页 / 3.2 / 3.6 / 3.8.1 | MVP / v0.2 | prototyping |
+| v1.41 | 2026-08-18 | 新增 | 联动 M01 草稿状态：配置生成候选集过滤 `draft_status=ready`；`change_status` 扩展为 `pending/confirmed/deployed/none` 并定义全链路回写 M01 规则；MVP 阶段 `deployed` 由 `none` 占位，v0.2 起精确回写 | 3.3 配置生成 / 3.4 配置确认 / 3.5 配置下发 / 5.6 下发记录 | MVP / v0.2 / v0.3 | prototyping |
+| v1.40 | 2026-08-17 | 修改 | out_of_sync 按成因区分引导 + 立即同步；agent_pull 下发记录只记发布动作且无重试按钮；确认后动线引导；页顶组件关系横幅改为可关闭 Alert；补全 no_version / out_of_sync_cause 枚举与进程维修文档化路径 | 采集节点状态页 / 下发记录页 / 配置变更确认页 | MVP / v0.2 | prototyping |
+| v1.39 | 2026-08-17 | 修改 | 校验失败行内闭环 + 两类失败分界 + 技术故障自动重试 | 配置变更确认页 / 网域纳管页 | MVP / v0.2 | prototyping |
 | v1.35 | 2026-08-16 | 修改 | 网域地位锚定 + 导航/命名/交互闭环优化（决策 34/35，自 PRD Change Log 轮转迁入）：①§1.0 开头补充「整体架构为中心控制面 + 网域级采集分组」；②§4.1 模型说明补充「NetworkDomain 是逻辑操作上下文 + 采集边界，不是控制面层级」；③§3.0 新增导航/菜单结构：一级「网域与节点管理」（子菜单网域纳管、采集节点状态）与一级「配置下发」（配置变更确认、下发记录）；④§3.1 页名/菜单名由「网域管理」改为「网域纳管」，移除右上角「纳管网域」按钮，仅保留行内「纳管」；⑤§3.2 页名/菜单名由「Agent 状态」改为「采集节点状态」，配置同步状态扩展为「未下发配置 / 未同步 / 已同步 / 人工覆盖」四档，增加「去配置采集 Job」「前往配置确认」引导按钮；⑥§3.8.1/§3.11 入口规则改为子菜单常驻 + 空态引导；⑦§6.5.1/§6.5.4 标题同步改名；⑧§9 验收标准同步更新 | 全部 | MVP / v0.2 | 设计中 |
 | v1.34 | 2026-08-15 | 重大修改 | MVP 通道边界确认（决策 33，用户确认，自 PRD Change Log 轮转迁入）：①MVP 不支持同一网域混合通道、不提供通道切换，`default` 固定 `local`、其他网域固定 `agent_pull`，单网域分布式采集推迟 v0.4+；②3.1 纳管/编辑表单通道只读，3.9/3.11/4.1/4.2/9.x 同步移除 MVP 阶段通道切换表述；③v0.4+ 演化影响落档决策 33「v0.4+ 演化影响备忘」；④决策编号修正：v1.33 引入的「决策 26/27」重编号为决策 31/32，全文引用同步 | 3.1/3.9/3.11/4.1/4.2/9.x/10 | MVP / v0.2 | 设计中 |
 | v1.33 | 2026-08-15 | 重大修改 | 入口数据驱动 + 下发通道按采集节点分层（决策 31/32，自 PRD Change Log 轮转迁入）：①移除原型 Header 单/多网域模式切换开关，`Tenant.multi_site_enabled` 退化为 M06 租户级行政开关；②3.1 网域管理入口常驻，字段按 `channel=agent_pull` 条件展示；③3.2/3.8.1 采集节点状态入口按是否存在 EdgeAgent 实例渐进呈现；④4.1 新增 `NetworkDomain.channel`；⑤3.11 重写为「网域能力开关与下发通道」；⑥3.4/3.5/4.6 发布通道与下发记录统一为 local/agent_pull；⑦6.2/9.x/10 同步；原型待同步 v1.24 | 全部 | MVP / v0.2 / v1.0 | 设计中 |
@@ -1150,3 +1182,1114 @@
 - `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（v1.46 → v1.47）
 - `docs/02-product-requirements/Modules/README.md`（版本对齐表）
 - `docs/prototypes/module-09/`（v1.46，本轮不改）
+
+---
+
+## 决策：targets/*.json 中 labels 的注入层级（2026-08-25）
+
+### 问题
+M09 配置预览生成的 `targets/*.json` 中 `labels` 应放在 file_sd 的 target 级，还是提升到 `prometheus.yml` 的 job 级（通过 `relabel_configs` 常量注入）？
+
+### 结论
+**保持 target 级注入为主，job 级注入仅作为未来可选扩展。**
+
+- M01 一个 ScrapeJob 可选择多个资源实例，每个实例的标签值天然不同（hostname、instance_name、instance_ip:port、app/biz 等）。target 级 labels 是 Prometheus file_sd 的标准做法，能正确表达 per-instance 标签，且热更新 targets 文件即可 reload。
+- `prometheus.yml` 的 job 级没有原生 labels 字段；若要做 job 级常量注入，只能通过 `relabel_configs` 的 `target_label + replacement`，这会把同一标签值硬编码到所有 target，不适合实例差异。
+- 网域/租户标识按 PRD §3.3.1 走 `prometheus.yml` 的 `external_labels`，不进 targets labels。
+
+### 未来扩展（非 MVP）
+可在 M07 `LabelTemplate.Mapping` 中增加 `scope` 字段（`instance` / `job`）：
+- `scope=instance` 的映射继续渲染到 `targets/*.json` 的 target group labels；
+- `scope=job` 的映射渲染到 `prometheus.yml` 对应 job 的 `relabel_configs` 常量注入。
+当前 P1 只修复 target 级标签未取到模板值的实现问题，不动注入层级。
+
+### 影响范围
+- `platform/configcenter/generator/labels.go`
+- `platform/configcenter/generator/targets.go`
+- PRD §3.3 / §3.3.3
+
+---
+
+## 决策：变更单废弃对源数据的回写语义（2026-08-25，决策 43 系列）
+
+- **参与方**：chenrt（拍板）、backend-developer（分析与实现）
+- **触发原因**：用户在方案 C（M01「保存草稿/提交生效」双按钮提级 MVP，见 module-01 design-decisions D28）讨论中追问：pending 变更单被废弃后，job 的数据状态是什么？并明确产品原则「采集 Job 功能本身不做日志记录，只保留干净的生效 job」。排查发现 `DiscardDraft` 实现存在语义缺口，需要系统性决策。
+- **关联模块**：Module_09（变更单状态机）、Module_01（draft_status / change_status 语义）
+
+### 背景：发现的实现缺口
+
+当前 `platform/configcenter/draft/service.go` 的 `DiscardDraft` 只做一件事：把变更单 `status` 置为 `discarded`。**不回写 job 的 `change_status`、不处理 job 数据、不推进 watcher 基线**。叠加决策 F-14（skipped_pending 不推进 SourceVersion）后净效果：
+
+1. 被废弃变更单涉及的 job，`change_status` 永远卡在 `pending`（脏标记残留）；
+2. 下一轮 watcher 检测到「源数据版本 > 基线」，**重新生成一张内容相同的变更单**——废弃操作等于白点，且用户会反复看到同一张单。
+
+### 前提：full-render 模型的硬约束
+
+M09 配置生成是**全量渲染**：每次拿 DB 中全部 `draft_status=ready` 对象渲染完整产物，与已生效 `ConfigVersion` 比 checksum。变更单不是「最近编辑的增量清单」，而是「**DB 期望态 vs 线上生效态的差异快照**」。
+
+由此推出铁律：**只要数据还在 DB 期望态里，差异就永远存在**。「废弃变更单但 job 数据不动」是伪选项——下一轮轮询、或任何无关变更触发的下一次全量渲染，都会把被「拒绝」的内容原样带回（下称**鬼影复现**）。
+
+因此废弃要真正生效，必须让 **DB 期望态与线上生效态重新一致**，只有两个方向：
+
+- **方向 A：回退 DB 数据**（把期望态改回线上态）——真正的「撤销」；
+- **方向 B：推进基线吞掉差异**——**否决**。下次无关变更触发全量渲染时差异照样复现，且制造「DB 与线上静默不一致」的隐患。
+
+结论：废弃必须伴随方向 A 的数据处理。但不同变更类型的「回退」可行性与含义不同，故有以下分类决策。
+
+#### 决策 43-1：废弃语义澄清——废弃 ≠ 撤销变更，但废弃必须伴随数据处理
+
+- **结论（用户确认）**：变更单「废弃」的产品语义 =「本次变更不发布，并将源数据恢复到与线上生效态一致」。不允许只改变更单状态而源数据不动（会产生鬼影复现与 `change_status` 脏残留）。
+- **依据**：full-render 硬约束（见前提）；pull 轮询是后台异步行为，静默不一致不可接受（对齐决策 42-4「失败可观测」原则）。
+
+#### 决策 43-2：日志职责归属——job 表只承载工作态，废弃历史归 M09
+
+- **结论（用户确认）**：M01 采集 Job 列表只保留工作态——`draft`（编辑中）/ `ready`（待下发或已生效），配合 `change_status` 表达在途情况；**不引入任何 `rejected` / `discarded` 等 job 级终态**。废弃/拒绝的审计历史完全由 M09 承载：`ConfigDraft.status=discarded` + change_no 时间线 + `superseded_by_change_no` / `supersedes_change_no` 取代链（决策 42-1 已有）。
+- **依据**：用户明确产品原则「采集 job 功能本身不要变成日志记录，只保留干净的生效的 job」；M09 变更单天然是审计层，双端重复记账只会制造状态一致性负担。
+
+#### 决策 43-3：新建未生效 job 随单废弃自动回退 `draft`（系统级回退的唯一例外）
+
+- **结论（用户确认）**：变更单废弃时，其中**新建且从未生效**的 job（不出现在任何已生效 `ConfigVersion` 渲染结果中）自动回退 `draft_status=draft`、`change_status=none`。数据保留不丢用户输入；`draft` 是合法工作态而非日志残留。
+- **机制闭环**：回退 draft 后该 job 退出配置生成候选集 → 源数据版本变化 → 下轮 watcher 检测到 DB 期望态与线上 checksum 一致 → **不再生成新变更单**，鬼影消除、链路收敛。用户想彻底丢弃时在 M01 删除该 draft job 即可（draft 不参与生成，删除不触发新变更单）。
+- **与单向流转的关系**：这是对 M01 PRD「draft→ready 单向、提交生效后不再回退」的**唯一例外**——系统随单回退、且仅作用于从未生效的对象，不触碰已生效对象。与 D28 移除的「用户主动 ready→draft 批量回退」是两回事（那是用户随手 toggle，会破坏单向约束；这里是变更单审批结果的执行动作）。
+- **依据**：新建 job 是「纯增量」，回退 draft 无线上影响；保留数据尊重用户劳动；draft 作为「半成品暂存」的 PRD 原生语义正好承接。
+
+#### 决策 43-4：已生效 job 的字段修改——MVP 选「提示 + 复现」（2a），自动回滚留待 v0.3
+
+- **结论（用户确认）**：变更单中含**已生效 job 的字段修改**时，MVP 不做自动回滚——废弃后修改值保留在 DB 期望态，差异将随下一张变更单**诚实复现**；废弃弹窗明确告知用户（见 43-7）。真正的撤销引导用户「前往采集 Job 改回原值」。
+- **不选自动回滚的原因**：真正的回滚需要把 job 字段恢复到已生效值，这需要部署快照——MVP 的 job 表没有 `deployed_snapshot`，从渲染产物（prometheus.yml）反解 job 字段不可靠；为低频场景增加快照机制得不偿失。
+- **不选「禁止废弃含修改的变更单」（2b）的原因**：修改类变更用户通常是要下发的，废弃是低频操作；为低频场景禁用整个废弃能力，交互代价大于收益。
+- **长期备注（v0.3 提级项）**：**job 表建议增加 `deployed_snapshot` 字段**（记录最近一次成功下发时的字段快照），变更单废弃时提供「随单回滚」按钮逐条恢复——届时 43-4 升级为完整撤销语义。本条需在 v0.3 规划时收割。
+
+#### 决策 43-5：删除/停用型变更随单废弃自动恢复（无备选）
+
+- **结论（用户确认）**：变更单中含「删除已生效 job（软删）/ 停用（`enabled=false`）」时，废弃必须**自动恢复**该 job（软删回滚 / `enabled` 还原），`change_status` 回写 `deployed`（它在线上本来就是生效的）。语义 =「撤销删除/停用」。
+- **依据**：若不恢复——job 已软删（DB 期望态=不存在）而线上还在采集，产生静默不一致 + 鬼影复现 + 用户在列表里看不见该 job 的三重问题。恢复是方向 A 对删除型变更的必然推论，没有可行备选。
+
+#### 决策 43-6：`change_status` 回写规则（废弃时的统一收口）
+
+- **结论（用户确认）**：废弃动作执行时统一回写——新建 job 回 draft → `change_status=none`；已生效 job（修改保留 / 删除撤销）→ `change_status=deployed`；**任何情况下不允许 `pending` 残留**（修复现有缺口）。
+- **依据**：`change_status=pending` 的语义是「存在在途变更单」；变更单终态化（discarded）后在途事实消失，残留 pending 会让 M01 四态聚合列（决策 D27-2）持续误报「待下发」。
+
+#### 决策 43-7：废弃二次确认弹窗的分类知情告知
+
+- **结论（用户确认）**：前端废弃确认弹窗按变更类型分类展示影响，用户知情后再确认，形如：
+  ```
+  废弃后：
+  - N 条新建 Job 将退回草稿，可继续编辑或删除
+  - M 条已生效 Job 的修改将保留在期望数据中，将随下次变更单复现
+  - K 条删除/停用操作将被撤销，对应 Job 恢复为已生效
+  ```
+- **依据**：43-4 的「复现」行为若无事先告知，用户会误判废弃失效；分类告知把 full-render 模型的约束转化为可理解的动线。
+
+### 汇总：废弃后 job 状态矩阵
+
+| 变更类型 | 废弃后 job 状态 | 日志残留 |
+|----------|----------------|----------|
+| 新建未生效 | 回 `draft` + `change_status=none`，可继续编辑/删除 | 无（draft 是工作态） |
+| 已生效 job 被修改 | 数据保留修改值，`change_status=deployed`，差异随下次变更单复现（弹窗已告知） | 无 |
+| 已生效 job 被删除/停用 | 自动恢复，`change_status=deployed` | 无 |
+| 变更单本体 | `discarded`，留在 M09 变更单列表作审计 | 日志归 M09 |
+
+### 已确认项
+
+- [x] 43-1 废弃必须伴随数据处理，方向 B（吞基线）否决（用户确认）。
+- [x] 43-2 job 表不做日志，废弃历史归 M09（用户确认）。
+- [x] 43-3 新建未生效 job 随单废弃自动回退 draft，单向流转唯一系统级例外（用户确认）。
+- [x] 43-4 修改类 MVP 选 2a「提示+复现」；`deployed_snapshot` +「随单回滚」备注 v0.3（用户确认）。
+- [x] 43-5 删除/停用型废弃自动恢复（用户确认）。
+- [x] 43-6 废弃时 change_status 统一回写，pending 不残留（用户确认）。
+- [x] 43-7 废弃弹窗分类知情告知（用户确认）。
+
+### 仍待确认项
+
+- [ ] design 分支收割 PRD：M09 PRD 只定义了变更单「确认/废弃」按钮，**未定义废弃对源数据的回写语义**——需按 43-1~43-7 修订 §3.5 / §8 ConfigDraft 状态机 / §9 验收；M01 PRD §5.4 `draft_status` 单向流转补充「系统随单回退例外」注记。
+- [ ] v0.3 规划收割 43-4 长期项：job 表 `deployed_snapshot` + 变更单废弃「随单回滚」。
+- [ ] 代码实现待执行：`DiscardDraft` 增加分类回写 + 恢复逻辑 + 前端弹窗分类告知（本轮仅落文档）。
+
+### 关联文档
+
+- `docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md`（§3.5 / §8 待 design 分支修订）
+- `docs/02-product-requirements/Modules/Module_01_Metric_Collection_Center.md`（§5.4 draft_status 单向流转注记，待 design 分支修订）
+- `docs/05-execution-records/module-01/design-decisions.md`（决策 D28：方案 C 提级 MVP）
+- `docs/05-execution-records/module-09/dev-feedback.md`（F-17）
+
+## 决策：pending 期间源数据锁定 / watcher 取代时机 / 空变更单抑制（2026-08-25，决策 44 系列）
+
+### 背景：联调发现的状态流转矛盾
+
+用户在 develop 分支功能测试时反馈三类互相矛盾的状态流转：
+
+1. job「待生效」（`change_status=pending`）时编辑按钮仍可点击，保存报内部错误——变更单已挂起，源数据再变动会让变更单内容与现实脱节；
+2. 「待生效」job 可被删除，但配置中心的变更单不受联动，成为幽灵单；
+3. 草稿态 job 未参与配置生成，watcher 却因源数据版本推进生成「配置无变化」的空变更单，困惑用户。
+
+### 前提：watcher 取代时机不能只盯采集 job
+
+用户明确指出：将来还有**告警规则编辑**等旁路源数据变化，watcher 不能在「已有活 pending」时无条件跳过，否则旁路变更会被旧单长期压住。
+
+### 决策
+
+- **44-1 pending 期间禁止修改 job（编辑 / 启停 / 删除）**（用户确认）
+  - 后端 `UpdateScrapeJob` / `DeleteScrapeJob` 在 `change_status=pending` 时返回 409 Conflict，文案指引前往配置变更确认页处理；
+  - 前端列表操作列对 pending 行禁用「编辑 / 启停 Switch / 删除」，Tooltip 说明原因；
+  - 依据：pending 即「变更单已挂起」，此时改动源数据必然导致变更单内容与源数据脱节；删除则产生幽灵单。解锁路径只有确认或废弃变更单。
+- **44-2 watcher 遇活 pending 先比较 checksum，不同则取代**（用户确认，修订 F-14 的「直接跳过」前提）
+  - watcher 发现已有活 pending 时，不再直接跳过：调用 `ShouldSupersedePending` 比较当前产物 checksum 与 pending 的 `metadata.checksum`；
+  - checksum 相同 → 保持 `skipped_pending`，**不推进基线**（沿用 F-14），等人工处理旧单；
+  - checksum 不同 → 走 `GenerateDraft` 取代语义：生成新 pending，旧单置 `discarded`，旧单 metadata 记录 `superseded_by_change_no`、新单记录 `supersedes_change_no`；
+  - 旧单详情页展示 Alert「该变更单已被新变更单 XXX 取代」，避免用户对着过期单确认；
+  - metadata 损坏/为空的旧单按「有实质差异」处理，避免卡点。
+- **44-3 抑制「配置无变化」的空变更单**（用户确认）
+  - `GenerateDraft` 在变更项为空且该网域从未产生已生效版本时返回 `ErrNoChanges`，不落库；
+  - watcher 收到 `ErrNoChanges` 时推进基线并标记 `idle`（避免每轮重试），手动触发生成接口返回 200 + `{no_changes: true, message: "当前无配置变更"}`；
+  - 依据：草稿态 job 本就不参与配置生成，为其生成空变更单只会困惑用户。
+- **44-4 禁止删除 pending job**：语义并入 44-1（删除同样 409），不单列实现。
+
+### 与既有决策的关系
+
+- F-14「skipped_pending 不推进基线」**保留**，但触发条件从「有活 pending 即跳过」收窄为「有活 pending 且 checksum 相同才跳过」；checksum 不同走取代分支并正常推进基线。
+- F-13「后单取代前单」从手动触发生成扩展到 watcher 自动检测路径，语义统一。
+
+### 已确认项
+
+- [x] 44-1 pending 期间禁止编辑/启停/删除（用户确认）
+- [x] 44-2 watcher checksum 比较 + 取代 + superseded_by 前端提示（用户确认）
+- [x] 44-3 抑制「配置无变化」变更单（用户确认）
+- [x] 44-4 禁止删除 pending job（用户确认，并入 44-1）
+
+### 仍待确认项
+
+- [ ] design 分支收割 PRD：M09 §3.3.3 变更检测需按「checksum 比较取代」修订（当前只描述「已有 pending 跳过」）；§3.4 补「空变更单抑制」与「superseded_by 提示」；M01 PRD 需补 pending 期间 job 锁定语义（编辑/删除/启停的约束与引导文案）。
+- [ ] 原型侧：M09 变更单详情页「已被取代」Alert、M01 列表 pending 行禁用态需同步到可点击原型。
+
+### 关联文档
+
+- `docs/05-execution-records/module-09/dev-feedback.md`（F-19）
+- `docs/05-execution-records/module-01/dev-feedback.md`（F-19）
+- 源码：`platform/configcenter/change/watcher.go`、`platform/configcenter/draft/service.go`、`platform/strategy/scrapejob/update.go`、`platform/strategy/scrapejob/delete.go`、`ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx`、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`
+
+## 决策：校验分层落地与三态操作出口修正（2026-08-25，决策 45 系列）
+
+### 背景：方案 A 修复后暴露的 UI 缺口 + 原型归因未对齐
+
+- 方案 A（instance 放行）落地后，`CHG-20260825-020` 重校回到 `pending`，但配置确认详情页 **pending 态没有操作按钮**、「确认发布」未禁用（违反 §3.5.1 三态语义），且校验失败原因无归因——`failed` 与 `pending`（promtool 不可用）在 UI 上无法区分。
+- 分层意见已确认：**第一层（源数据输入）** 做可预判失败的静态校验；**第二层（配置变更确认）** 只做「中心内容校验 + 变更确认/下发」动线（§3.5.1），不再承载「解释为什么失败」。prd §3.5.1 本身已给出三态定义，**prd 无需改动**，缺口在实现层 + 原型已有的 `validation_cause` / `validation_details` 未同步到实现。
+
+### 决策
+
+- **45-1 操作区三态出口语义修正**（用户确认）
+  - 「确认发布」可点条件由 `=== 'passed'` 反转为「**非** `passed` 一律禁用」：`passed`→可确认；`pending`/`failed`→禁确认，展示「重新校验 + 废弃」两出口；
+  - 依据：`pending` 是「未校验/生成中」，§3.5.1 只允许 `passed` 下发；promtool 不可用等未校验态不应可发布。此修正同时让 `pending` 态获得「重新校验」自愈入口。
+- **45-2 校验信息 Alert 按 status 分色**（用户确认）
+  - `failed`→`error`；`pending`→`warning`（promtool 不可用属「待环境就绪」，非用户配置失败）；
+  - 依据：当前实现恒用 `error`，`pending` 文案「promtool 不可用」被染成红色，语义误导。
+- **45-3 后端补校验归因字段，对齐原型**（用户确认）
+  - `ConfigDraft` 增 `validation_cause`（`user_config` 用户配置可修复 / `platform_fault` 平台技术故障自动重试）与 `validation_details`（`[{file,line,message}]` 结构化定位）；
+  - 判定：configgen 产物 schema 校验类失败（targets_json_schema / intersection_job_metric / protected_label 等）→ `user_config`；依赖工具不可用（promtool / blackbox_exporter）→ `platform_fault`。
+  - **MVP 范围修订（2026-08-26，用户确认）**：`platform_fault` 同样展示「重新校验」手动自愈出口。修订原因：决策 39-3 承诺的校验层自动重试（指数退避）**尚未在实现层落地**，若隐藏按钮则 promtool 恢复可用后草稿仍永久卡死 pending（前端无按钮、后端无自动重试，形成死锁）。修订后 `canRevalidate = isPending && !validationPassed` 覆盖全部非 passed 态（含 `platform_fault` / `failed` / `pending`），环境就绪后用户手动重校恢复可确认；归因仍用于展示（`platform_fault` → warning 提示、不提供「前往修改」引导，仅 `user_config` 提供）。
+- **45-4 第一层（源数据输入）静态校验**：M07 标签模板/采集目标表单对「可预判失败」的目标标签（`job`/`scheme`/`__*`）即时红框提示；**`composite→instance` 例外放行**（默认模板内置合法映射），手动映射 `instance`（非 composite 来源）才拦截。M07 PRD §5.12/§5.13 已定义，落地到 M07 前端实现。
+
+### 与既有决策的关系
+
+- 承接 §8 方案 A（instance 放行，决策落 M09 校验器），45 系列解决其在 UI 上的可操作性与归因。
+- 对齐原型 v1.39 决策 39-1（校验失败动线行内闭环）/ 39-3（技术侧故障自动重试、用户不可见）。
+
+### 已确认项
+
+- [x] 45-1 操作区三态出口语义修正（用户确认）
+- [x] 45-2 校验信息 Alert 分色（用户确认）
+- [x] 45-3 后端补 validation_cause / validation_details 归因（用户确认）
+- [x] 45-4 第一层源数据静态校验，落地 M07（用户确认立项）
+
+### 仍待确认项
+
+- [ ] design 分支收割 PRD：M09 §3.5 补「pending 态不可确认发布、需重校」语义注记；原型 `validation_cause` / `validation_details` 字段说明是否进 PRD 数据模型，待 design 分支决策。
+- [ ] M07 第一层静态校验实现（45-4）本轮不在 M09 范围，单独列 M07 前端任务。
+
+### 关联文档
+
+- `docs/05-execution-records/module-09/dev-feedback.md`（§9）
+- 源码：`platform/configcenter/draft/service.go`、`platform/configcenter/generator/validate.go`、`platform/models/config.go`、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`、`ui-custom/web/src/types/config-center.ts`
+
+
+---
+
+## 补充对齐：2026-08-31（Job 网域扇出与 filter 实时求值，决策 53/54 交叉引用）
+
+- **触发与结论**：见 module-01 design-decisions 决策 53/54 全文（filter 模式提前 v0.2 + 新增资源自动纳入；Job 网域绑定放宽为集合、M09 按域扇出）。
+- **本模块落点**：配置生成器 v0.2 起承担两个新行为——①逻辑 Job 绑定网域集合时**按网域自动拆分**生成各域 scrape_configs / targets / 变更单，分别进入各域变更检测 / 校验 / 确认 / 下发（现有流程不变）；②`instance_selection_mode=filter` 的 Job 在**每次生成周期对条件表达式实时求值**，M07 资源变化自动反映到 targets。`bk_cloud_id` → 网域映射为归属解析链第①级（决策 52，§5.7 交叉引用）。
+- **影响范围**：Module_09 PRD v1.51（§3.3 生成配置 / 实例过滤、§5.7）。
+
+---
+
+## 补充对齐：2026-08-31（alertmanager.yml 纳入变更确认，决策 60 交叉引用）
+
+- **触发与结论**：见 module-08 design-decisions 决策 60 全文（统一变更纪律：M08 为内容 Owner、M09 为管道 Owner；管理域 scope、不扇出）。
+- **本模块落点**：①配置产物类型增加 `alertmanager.yml`，**scope 恒为管理域（`default`）**——变更单网域固定 `default`，不参与按网域拆分扇出、不进入 `agent_pull` 配置包；②MVP `local` 通道确认后写中心 Alertmanager 配置路径并触发其 reload（SIGHUP / `POST /-/reload`），`change_status` 回写 M08；③预留按配置类型风险分级（告警配置后续可降为低风险自动确认），MVP 统一人工确认。
+- **影响范围**：Module_09 PRD v1.52（§1 / §3.3 / §3.4 / §3.11 / §6.5 / §9.2）。
+
+---
+
+## 补充对齐：2026-09-05（禁用网域与监控纳管联动口径，决策 62）
+
+- **背景**：`NetworkDomain.Status`（M06 行政启用状态）与 `IsMonitored`（M09 监控纳管状态）为独立字段，M06 禁用网域不联动 M09 纳管——禁用后 M09 纳管页仍显示「已纳管」并保留监控参数 / Token。PRD 未规定「禁用是否应取消纳管 / 冻结 Token」，属契约口径空白（module-09 dev-feedback §5）。
+- **候选口径**：① 禁用即取消纳管并冻结 Token；② 禁用仅行政停用、纳管与 Token 保留（MVP 当前行为）。
+- **结论（决策 62，2026-09-05，chenrt 拍板）**：**MVP 采用口径②（保持现状）**；口径①（禁用联动取消纳管 / 冻结 Token）纳入 **v0.2 多网域版本**实现，届时随多域场景一并评审（含禁用后 `agent_pull` 通道 Edge Agent 的行为、Token 冻结与恢复流程）。
+- **落点**：Module_09 PRD §1「MVP 阶段」注记（v1.57）；module-09 dev-feedback §5 决策注记。
+
+> **✅ 经决策 82 复核并推进（2026-09-15）**：本决策**结论不变**，其两个口径的后续状态如下——
+> - **口径②（MVP 不联动）维持有效**：决策 82 未推翻此项，M06 禁用（`Status=disabled`）仍**不改变**本模块的 `registration_status` 与 `NetworkDomain.status`（Token 保持有效、配置下发与心跳不受影响）；该语义已在 M09 PRD §9.2 固化为 {P0} 验收条。
+> - **口径①已具象化并明确 v0.2 落地路径（决策 82-3）**：原「禁用联动取消纳管 / 冻结 Token」从**原则**细化为可实现的 **「退纳管」动作定义**——废止 Token → 停止配置下发 → `registration_status` 归位 `unregistered`（保留历史）→ `EdgeAgent` 心跳鉴权失败转离线；落点 = M09 PRD §3.1 功能表新增行（{P1 / v0.2}）+ §8 新增 ⑤ 纳管状态状态机 + §9.1 验收。
+> - **语义边界定版（决策 82-4）**：退纳管（**运行停止**：现有采集停不停）与 M06 禁用（**准入冻结**：能不能新建）**正交、不可互相触发、不可互相替代**。**注意**：决策 62 原表述「禁用联动取消纳管」在决策 82 下被收窄为「两者正交」——若未来要恢复联动（禁用即自动退纳管），需另行决策。
+> - **契约悬空已补齐**：Module_06 §6.2 的 `PATCH .../status` 长期许诺「是否停止采集由 M09 退纳管决定」，但本模块此前从未定义该动作；决策 82-3 一并补齐。
+> - **MVP 阶段的「停止采集」出口**：由 M06 **删除网域的级联清退**覆盖（决策 82-1：M06 软删 + 本模块废止 Token / 停止下发 / `EdgeAgent` 标 `retired`），不依赖尚未落地的退纳管动作。
+
+---
+
+## 补充对齐：2026-09-08（回滚语义边界与分裂态治理，决策 63）
+
+- **背景（MVP 试用反馈，chenrt 提出）**：用户在下发记录页点击「回滚」后发现，回滚只恢复了配置文件内容，而 M01/M08 中的源数据状态（Job 停用、规则停用、`alertmanager.yml` 挂载）不随回滚改变——产生「生效配置 ≠ 源数据期望」的隐性分裂态：M01 显示「已停用」但 Prometheus 实际在采；更危险的是回滚后下一轮变更检测会自动产出「再次停用该 Job」的对齐型变更单，用户习惯性确认即静默抵消回滚。用户质疑 M09 回滚功能的存在必要性。
+- **候选方案**：
+  - ① 回滚联动恢复源数据状态（M09 越权改 M01/M08 的 enabled 字段）——被否决：启停是人为显式操作，配置层不得越权改回；操作入口与审计应在源模块；
+  - ② 砍掉 M09 回滚，全部走 M01/M08 逐项恢复——被否决：配置出错不一定来自源数据操作（生成器 bug、手工挂载写错、采集风暴），源模块没有对应撤销入口，且应急止损要求一键回到可运行版本；
+  - ③（采纳）**回滚语义收窄为配置产物级应急恢复 + 分裂态显式化治理**。
+- **结论（决策 63，2026-09-08，chenrt 拍板）**：M09 回滚保留，定位为「配置产物应急恢复」（回滚「跑什么」，不回滚「要什么」）；分裂态三步治理：
+  1. **回滚前差异知情（MVP，P0）**：回滚确认弹窗展示「目标版本 vs 当前生效版本」之间的源数据操作差异清单（经两版本 `change_no` → 变更单 `change_items` 推导），固定提示「回滚不恢复 M01/M08 中的启停状态」；
+  2. **分裂态显式化（v0.2）**：`out_of_sync_cause` 新增 `rollback_diverged`（标签「已回滚·待源数据对齐」），引导前往 M01/M08 核对源数据，对齐后产生新变更单收敛；
+  3. **防「自动反悔」（v0.2）**：回滚后变更检测产出的对齐型变更单不抑制（源数据是真相源），但必须带「回滚后源数据对齐」醒目标记与说明文案，避免静默抵消回滚。
+- **未来联动**：M01/M08 操作审计日志落地后（各模块操作留痕 + Module_06 全局审计），回滚记录与源数据操作记录经 `change_no` 链互相关联，支持「回滚时引用了哪些源数据操作」的完整追溯。
+- **落点**：Module_09 PRD v1.59（§3.5 版本回滚行与决策 63 注记、§8 状态机 ③ 增 `rollback_diverged`、§9.1/§9.2 验收）；本决策与 PRD 同步落版。
+- **影响范围**：M06 网域状态变更钩子（v0.2）、M09 纳管页状态展示与 Token 生命周期（v0.2）。
+
+---
+
+## 补充对齐：2026-09-08（中心一体化交付包生产目录规范，决策 64）
+
+- **背景（生产环境磁盘治理诉求，chenrt 提出）**：MVP 交付包运行后 TSDB / SQLite / 进程日志全部生成在包目录内（`data/`、`logs/`），日志无轮转无限增长、TSDB 仅按时间保留（默认 15d）无容量上限；生产环境《业务软件标准化目录与权限配置操作手册》（`docs/06-mvp-e2e-testing/业务软件标准化目录与权限配置操作手册.md`）要求程序（`/opt/apps`）、数据（`/opt/data`）、日志（`/opt/log`）三目录分离 + SGID 权限模型，且程序目录对程序账户**只读**。
+- **关键冲突与解法**：程序目录只读红线 vs M08/M09「控制面主动写配置」闭环（DiskApplier 写 prometheus.yml/targets、M08 下发 alertmanager.yml）。解法 = **配置分两层**：`/opt/apps/metric-center/conf/` 存种子/引导配置（只读）；M09/M08 下发的**活配置属平台管理的数据**，落 `/opt/data/metric-center/config-output/`（程序账户可写），Prometheus / Alertmanager / blackbox 的 `--config.file` 指向活配置。与仓库既有 `deploy/`（模板）vs `config-output/`（活配置）分层同构。
+- **结论（决策 64，2026-09-08，chenrt 拍板）**：
+  1. 生产三目录 `/opt/apps/metric-center/`、`/opt/data/metric-center/`、`/opt/log/metric-center/` **由运维统一预建**；交付包脚本只做核验与幂等兜底（`create_dirs` 核验逻辑并入 `install.sh`，不单独交付阶段一脚本）；
+  2. 交付包新增 `env/env.sh` 集中定义：`DATA_ROOT` / `LOG_ROOT` / `PROM_RETENTION_TIME`（默认 15d）/ `PROM_RETENTION_SIZE`（默认 10GB，容量兜底）/ 各组件端口；调盘调保留策略只改这一个文件；
+  3. `start.sh` / `stop.sh` 双模式：检测到生产 env.sh 走 `/opt/*` 路径，否则回落包内 `data/` / `logs/`（开发/试用解压即用模式不受影响）；pid 文件归 `DATA_ROOT/run/`；
+  4. Prometheus 启动显式携带 `--storage.tsdb.retention.time/.size`（值来自 env.sh）；
+  5. **systemd 注册不在 MVP 范围**（默认 start.sh）；日志轮转随包提供 logrotate 示例片段，是否写入 `/etc/logrotate.d/` 由运维决定（手册将 /etc 列为系统保留区，默认不碰）；
+  6. SQLite 经 `METRIC_CENTER_DB_DSN` 指向 `/opt/data/metric-center/metric_center.db`。
+- **落点**：Module_09 PRD v1.60（§1「MVP 中心部署目录规范」注记）；`docs/06-mvp-e2e-testing/package-center-guide.md` 增补「生产标准化部署」章节；脚本侧改造（`scripts/package-center.sh` + 新增 install.sh / env.sh 模板）在开发空间 feat 分支落地。
+
+---
+
+## 决策登记：2026-09-09（rules.yml 规则 job 引用校验口径，用户已确认，PRD 落版待下一轮）
+
+- **触发**：MVP 试用发现种子 `rules.yml` 中 `HostTargetsMissing` 规则表达式 `absent(up{job=~"node|node-exporter|linux"})` 与实际生效 Job（`job_name=ceshi`）不匹配，导致规则持续 firing、机器恢复后仍显示「触发中」。用户确认在 M09 配置校验阶段增加「规则引用的 job 存在性检查」。
+- **结论（口径已确认，PRD 增量待落版）**：
+  1. 在 ConfigDraft 校验阶段（现有 `promtool check rules` 语法校验之外）新增**语义校验**：解析 `rules.yml` 中 `job="..."` / `job=~"..."` matcher，与本网域生成的 `prometheus.yml` 的 `scrape_configs[].job_name` 列表比对；
+  2. 分级处置——使用 `up` / `absent(up)` 的存活类规则引用不存在的 job：**error，阻止确认**（该类规则 job 不匹配必然持续误报/漏报）；其他规则引用不存在的 job：**warning，允许确认但高亮提示**（兼容「先挂规则、后建 Job」的合法流程）；
+  3. 该校验是部署期护栏，不解决 Job 改名后的运行时漂移；长期方向为规则匹配平台稳定标签（`resource_id` / `network_domain` / `monitor_type` 等）或由 M01 提供规则模板，与 job 名解耦。
+- **用户确认**：2026-09-09，用户在开发空间 `feat/module-09-config-center` 书面确认（「我接受『up/absent(up) 规则 job 不匹配 = error，其他 job 引用不匹配 = warning』这个口径」）。
+- **影响范围（待落版）**：Module_09 PRD 下一轮增量（§3.3 配置生成服务校验、§3.4 校验归因展示、§9 验收标准）；实现落点为 configgen/校验管线。
+- **关联**：module-08 design-decisions 2026-09-09 历史告警 MVP 增量（PRD v1.13）。
+
+---
+
+## 决策登记：2026-09-09（规则粒度与模块边界对齐——per-instance 规则归属与 M09 不涉及项，用户已确认）
+
+- **触发**：MVP 试用发现告警状态页/历史告警页中聚合规则（如 `HostTargetsMissing`）的「实例」列显示「全局/聚合」，用户希望看到故障实例 IP/名称。讨论后明确：该限制源于规则本身为 job 级聚合（`absent(up{job=...})` 无 instance 标签），非前端展示缺陷。需要决策 per-instance 规则的用户入口、可视化编辑归属，以及 M09 是否涉及。
+- **结论（决策 65，2026-09-09，chenrt 拍板）**：
+  1. **规则内容编辑（含 per-instance 规则）入口在 M01**：M01 是监控策略与指标管理模块，负责规则编辑 UI 与规则内容记录（`MonitoringRule`）。MVP 为文件挂载（`yaml_passthrough`），v0.3 为字段化编辑。M08 仅负责 Alertmanager 通知策略，不涉及告警规则内容本身。
+  2. **per-instance 规则可视化编辑归属 M01（v0.3 规划）**：按实例分组、标签映射、聚合粒度选择等复杂交互在 M01 规则编辑 UI 中实现，不由 M08/M09 承担。
+  3. **job 名称校验在 M09 做（与决策 64 口径一致）**：M01 管「编辑态」，M09 管「生效态」。M09 在生成 `rules.yml` 时校验 job 引用（`up`/`absent(up)` 规则 job 不匹配 = error，其他 job 引用不匹配 = warning）。
+  4. **M09 不涉及 per-instance 机制**：M09 只负责生成/校验/下发，不感知规则粒度（聚合 vs per-instance）。规则是 `absent(up{job=...})` 还是 `up == 0`，对下发链路透明。
+  5. **MVP 种子规则补充 per-instance 规则**：在 `config-output/rules.yml` 中增加 `HostDown: up == 0` 等 per-instance 规则，与聚合规则并存，覆盖「实例级告警」场景。这不是机制改动，只是规则配置补充。
+- **影响范围**：
+  - Module_01 PRD：§3.2 规则编辑 UI（v0.3）补充 per-instance 规则模板/可视化编辑规划；§5.5 规则编辑模型补充 per-instance 规则说明。
+  - Module_09 PRD：§3.3 配置生成服务补充 job 校验决策注记（决策 65 交叉引用）。
+  - Module_08 PRD：不需要修改（M08 不涉及规则内容）。
+  - `config-output/rules.yml`：种子规则补充 per-instance 规则。
+- **关联**：module-08 design-decisions 2026-09-09 历史告警 MVP 增量（PRD v1.13）；module-09 design-decisions 2026-09-09 决策 64（rules.yml 规则 job 引用校验口径）。
+
+### 决策登记：2026-09-09（规则 job 引用校验的双层模型与 M01 编辑期校验入口——用户已确认）
+
+- **编号**：决策 66
+- **触发**：用户提出两点疑问：① MVP 的 yaml 直接挂载入口是否应长期保留；② 若保留，M09 校验失败时用户动线是否会回 M01 修改，是否违反「内容合规性校验入口应在 M01」的既有方向。
+- **结论（用户已确认）**：
+  1. **MVP 的 yaml 直接挂载入口长期保留**：与 v0.3 字段化规则 UI 双轨并存，yaml 作为底层权威格式与高级用户逃生门，UI 作为主流低门槛入口；保留成本极低，且 M09 部署期校验作为安全网兜底。
+  2. **规则 job 引用校验采用「编辑期 + 发布期」双层模型**：
+     - **M01 编辑期校验（fail-fast，提示不阻断）**：规则保存/编辑时解析 `job="..."` / `job=~"..."` matcher，与当前生效 `ScrapeJob` 列表比对；`up` / `absent(up)` 类不匹配 = error，其他 = warning；error/warning 均行内提示，**不阻止保存**（兼容「先挂规则、后建 Job」合法时序）。
+     - **M09 发布期校验（部署期护栏，强制阻断）**：ConfigDraft 生成 `rules.yml` 后使用**同一套判定逻辑**复验；`up` / `absent(up)` 类不匹配 = error，阻断确认发布；其他 = warning，允许确认但高亮提示。
+  3. **判定逻辑单一实现**：由后端共享函数/服务提供，M01 保存校验、M01「校验」按钮、M09 ConfigDraft 校验三处调用同一实现，避免口径漂移；规则与 Job 均为 M01 源数据，M01 侧校验不依赖 M09。
+  4. **推荐动线为先 Job 后规则，但不强制**：UI 空态/校验提示引导用户先创建采集 Job；「先挂规则、后建 Job」仍是合法流程，仅触发 warning，由 M09 发布期决定是否真正允许发布。
+  5. **M09 校验失败仍保留回 M01 修改的动线**：变更单校验失败详情行内提供「前往规则编辑修改」跳转（带规则名/ID query 参数，MVP 最小可不带参数仅跳转），与决策 45-2「用户侧错误引导回 M01 修正源数据」一致。
+- **⚠️ 已被决策 67 修订（2026-09-10）**：
+  - **第 2 条第 1 项修订**：M01 编辑期从「error/warning 均提示、**一律不阻断保存**」改为「**error 默认阻断**『提交生效』/『保存变更』+ **显式覆盖逃生门**（勾选「已知晓：先挂规则，稍后补建 Job」后放行并降级为 warning 留痕）；warning 维持只提示」。
+  - **第 4 条修订**：「先挂规则、后建 Job」仍是合法流程，但**默认路径被阻断、需显式覆盖**；M09 发布期门禁不变。
+  - **第 3 条补充**：单一实现之外需统一**输入集**——抽 `effectiveJobNames(db, scope, domainID)`（MVP 单域 = 现状；v0.2 central → 全域 job 并集）。
+  - 第 1 条（yaml 挂载入口长期保留）与第 5 条（失败回 M01 动线）不变，第 5 条细化「前往修改」按来源路由。
+  - 详见决策 67 与 `rule-jobref-validation-lifecycle-fix.md` 附录 A（修订对照表）。
+- **影响范围**：
+  - Module_01 PRD：§3.1「规则文件挂载」补充编辑期 job 引用校验；§3.2「规则编辑 UI（v0.3）」PromQL 校验行同步说明；可新增全局注记说明双层校验模型。
+  - Module_09 PRD：§3.3「规则 job 引用校验」明确为发布期强制门禁，并说明与 M01 编辑期校验同口径、同实现；§11.2 全局行为规则补充跨模块跳转动线。
+  - Module_08 PRD：不需要修改。
+- **关联**：决策 64（rules.yml 规则 job 引用校验口径）、决策 65（规则粒度与模块边界）、决策 45-2（校验失败动线）。
+
+---
+
+### 决策登记：2026-09-10（规则 job 引用校验的动线修复——失败单解锁 + 提交分级门 + 来源路由，用户已确认）
+
+- **编号**：决策 67
+- **触发**：MVP 试用现场动线死锁——M01 规则「校验没成功」仍可点「提交生效」→ M09 生成 `validation_status=failed` 变更单 → failed 单不可确认、却按 `pending` 锁死规则 → M01 报「存在待确认变更单，禁止编辑」→ 唯一出路是「废弃」→ 改完再存再 failed。用户要求给方案（先不改代码），并要求落成文档 + 同步 PRD。
+- **核实结论（单域背景，修正上一轮定性）**：
+  1. **L1「M01/M09 名单口径漂移」在单域下不成立**：M01 用全库 `enabled AND draft_status=ready`（`strategy/rule/validate.go:105-115`），M09 用本域 `network_domain_id=? AND enabled AND draft_status=ready`（`generator/data_source.go:41-51`）；单域下同集。渲染不丢 job（`generator/render.go:85-95` 对每个 job 均入 `scrape_configs`）。**故现场 M01 的报错是正确的**（引用的 job 确实不存在/未 ready/被禁用），问题在于它拦不住、且拦不住之后把用户锁死。
+  2. **真正的事故链是 L2 + L3**：报错仍可提交（前后端均放行：`RuleMountDrawer.tsx:101-140`、`update.go:117-119`、`jobref.go:7`）+ failed 单锁死源数据（`service.go:149/331` 草稿恒 `pending`、`:548` 仅 passed 可确认、`:611-673` 仅废弃可解锁）。
+  3. **L1 是 v0.2 多域的潜伏地雷**：`MonitoringRule` 全局无网域列、`LoadRules` 不按域过滤（`data_source.go:53-66`），规则会进每个域 `rules.yml`；而 M09 按本域名单逐域校验 → 引用 A 域 job 的规则在 B 域必然 failed。数据模型已埋钩子（`MonitoringRule.Scope`；`jobref.Validate` 名单本为参数），留口子成本低。
+- **结论（用户已确认，2026-09-10）**：
+  1. **67-1（P0）failed 单不再锁死源数据**：草稿落到 `validation_status=failed AND validation_cause=user_config` 时，按 `DiscardDraft` 同口径**自动清除**规则 `change_status` 锁；**草稿保留**（可重校、可废弃，审计链不断）。`platform_fault` **不清锁**（非用户可修，环境就绪后重校即通过）。落地于 `GenerateDraft` / `reconcileWithExistingPending` / `RevalidateDraft` 三处落 failed 后。用户修改后保存即触发既有 reconcile 取代旧单（决策 42-1），死循环消除。**两条实现红线**：① 清锁写入**不得推进 `updated_at`**（否则触发「清锁→版本前进→重算→再 failed」自激循环），用 `UpdateColumn`；② 清锁目标态建议 **`none`**（该规则从未成功下发，写 `deployed` 会误导为「已生效」），若复用现成 where 走 `deployed` 则须在 UI 注明仅表示「无在途变更」。
+  2. **67-2（P0，修订决策 66 第 2/4 条）「提交生效」分级门 + 逃生门**：M01 编辑期校验由「一律不阻断」改为「**error 默认阻断**（存活类 `up`/`absent(up)` 缺 job，展示逐条问题清单）+ **显式覆盖逃生门**（勾选「已知晓：先挂规则，稍后补建 Job」后放行、降级为 warning 留痕）；warning 维持只提示。适用新建「提交生效」与编辑「保存变更」；v0.3 草稿态保存不受门禁。
+  3. **67-3（P0）「前往修改」按来源路由**：`validation_details` 增来源标识（建议 `source`：`rule`/`scrape_job`/`targets`），前端据此分流 `/rules` 或 `/scrape-jobs`；修正现硬编码（`ConfigPreviewPage.tsx:681`）。
+  4. **67-4（P1，纯设计）v0.2 口径口子**：抽唯一 scope 感知函数 `effectiveJobNames(db, scope, domainID)`（MVP central 单域 = 现状；v0.2 central → 全域 job 并集、edge/both → 本域），M01/M09 同调，把决策 66 的「单一实现」补完为「**单一实现 + 同一输入集**」。v0.2 约定：central 规则按全域并集校验；逐域配置包对 central 规则单独门禁、不按单域名单误报；`change_status` 标量锁保留（规则为全局资源，不建逐域锁表），陈旧草稿由 reconcile-on-save 兜底。
+  5. **明确不做**（相对上一轮方案的减法）：逐域 UI 分组、逐域锁表、M01 逐域校验改造——单域下均为过度设计。
+- **影响范围**：
+  - Module_01 PRD：§3.1「规则文件挂载」+ 双层模型注记（编辑期 error 默认阻断 + 逃生门）、§3.2 校验行、§5.5「规则 pending 期锁定」补失败自动清锁、§11.2 全局行为规则；Change Log v3.40。
+  - Module_09 PRD：§3.4 / §3.5.1（failed + user_config 自动清锁）、§5.4 ConfigDraft（`status` / `validation_cause` 语义补清锁）、§8 状态机①、§11.2（来源路由）；Change Log v1.63。
+  - Module_08 PRD：不需要修改。
+  - 契约：`module-01/api-contract-snapshot.md` §7（validate-yaml 门禁语义）、`module-09/api-contract-snapshot.md`（决策 67 增量）。
+  - 设计记录：新增 `docs/05-execution-records/module-09/rule-jobref-validation-lifecycle-fix.md`（含证据索引与修订对照）。
+- **实现落点（本轮仅文档，代码在开发分支执行）**：`platform/configcenter/draft/service.go`（新增 failed 清锁）、`platform/configcenter/deployment/callback.go`（口径核对）、`platform/strategy/rule/validate.go`（`effectiveJobNames`）、`platform/strategy/rule/update.go` / `jobref/jobref.go`（文案与预留字段）、前端 `RuleMountDrawer.tsx` / `ConfigPreviewPage.tsx` / 对应测试。
+- **关联**：决策 66（双层校验模型，被本决策修订第 2/4 条）、决策 42-1（pending 取代）、决策 42-2 / 45-1（校验失败三态出口）、决策 43 系列（废弃回写）、决策 44-1（pending 期锁定）、决策 45-2 / 45-3（失败引导与归因）、决策 54（v0.2 多网域 Job）。
+
+---
+
+### 决策登记：2026-09-10（网域标签键收敛 + 租户标签键统一 + Prometheus→Alertmanager 投递接线——用户已确认）
+
+- **编号**：决策 68（子决策 68-1 网域标签键收敛 / 68-2 alerting 投递接线 / 68-3 v0.2 口径约定 / 68-4 落档纪律 / **68-5 租户标签键统一 + 命名规约泛化 + fail-closed 严格派**）
+- **触发**：2026-09-10 用户在 M08「Prometheus 当前触发告警」网域列缺陷（F-07）修复合入评审时，对修复说明抛出的两个遗留发现逐条核实并拍板：① `network_domain` vs `network_domain_id` 键名冲突；② `config-output/prometheus.yml` 缺 `alerting:` 段导致 Prometheus 不向 Alertmanager 投递。用户确认两问均已核实，要求**写收敛决策、文档落档、同步 PRD，先不修改代码**；并明确共性根因是「决策落档不同步」，要求以**一份** M09 设计记录把三件事与 v0.2 口径约定一并落档。
+  **追加（同日，决策 68-5）**：用户就本决策 §9 原「遗留待决」的第三处键名漂移（查询注入 matcher `tenant_id` vs 序列标签 `tenant`）再次核实，确认**两侧均无代码落地**——查询侧 `query/alerts.go:127-131 tenantAuthorizedDomains` 骨架恒返回 `nil`、`platform/query/*.go` 无任何 matcher 构造代码（grep 为空），写入侧 `models/label_template.go:38-63 DefaultMappingBuilders` 五类默认模板**均无 tenant 映射**（grep `tenant` 为空），`tenant_id → tenant` 仅是 M07 PRD §5.12 A 的**纸面约定**。据此判定属「**趁免费窗口把契约定版**」而非「改代码 + 迁数据」，要求**从遗留待决升级为正式决策（68-5）**，方案为：统一为 `tenant` + **命名规约泛化**（标签键一律不带 `_id` 后缀，`_id` 只属 DB 列 / API 字段）+ 三个配套（同源常量 / 生成期门禁 / matcher 注入强制化）+ fail-closed **严格派**产品语义（无 `tenant` 标签 = 普通租户不可见，平台自身 Job 显式 `tenant="platform_admin"`；明确否决「无标签即公共」共享派）。**本轮全为文档，仍不改代码。**
+- **核实结论**：
+  1. **键名分层已正确、无需重构**：写入侧唯一（`generator.go:42-51`）、消费侧唯一入口（`models/network_domain_label.go` 的 `ResolveNetworkDomain`），`query/alerts.go`、`query/alerts_history.go`、`alertmanager/alerts/service.go` 全走它——兼容逻辑未散落各处，属**永久容错层形态**，本决策不撤销。
+  2. **真正冲突只有「Prometheus 标签键」这一层**：DB 列 / API JSON 字段 `network_domain_id`（是 ID）保留无歧义；Query 参数 / Excel 列 / envelope / 静默 matcher **全为 `network_domain`**；孤例仅 M06 登记的决策 19 键名（并派生至 M09 PRD §3.3.1、`generator.go:43`、`04_Implementation_Map.md`、`03_Functional_Architecture.md`）。M02 决策 4.4 / PRD §7.1 早已预警「`network_domain_id` 会导致注入匹配不到数据」；M01 `tech-feasibility.md` §7.2 建议 3 当年向 M09 提的注入建议本就是 `network_domain`。
+  3. **`alerting` 缺口是缺口而非有意**：`render.go:18-22 cfgFile` 只有 `global` / `rule_files` / `scrape_configs`；M08 `design-decisions.md` 2026-09-09 已记录「未配置 `alerting.alertmanagers` 时 AM 完全无数据」，但那是**选告警历史数据源时的规避理由**；而 M08 PRD v1.12 已把「Alertmanager 通知状态」提前 MVP 且列 P0 验收——该验收项在当前生成器下**永远拿不到真实数据**（实测 `:9093/api/v2/alerts` 0 条）。决策 59/60 的「告警分发最小闭环」只完成了 AM 侧挂载，**Prometheus → AM 的投递接线从未生成**。
+  4. **租户标签键是网域键冲突的同类第三处，且同样零代码**：M02 PRD §7.1 表把租户标签 key 写作 `tenant_id`（来源误标「M09 `external_labels` 注入」）、§7.2 第 1 条注入 `tenant_id=` matcher；而 M06 结论 8（决策 19）/ M09 §3.3.1 / M07 §5.12 A 一致写 `tenant`（M07 以 target 级注入）。即**序列上的标签名 ≠ 查询注入 matcher 名**。与 ① 的区别：① 需改一处代码（`generator.go:43`），③ 连代码都没有——两侧均为骨架 / 纸面，**定版成本 ≈ 0**。
+- **结论（用户已确认，2026-09-10）**：
+  1. **68-1 标签键收敛到 `network_domain`**（M02 决策 4.4 为准）：代码改动**只有一处**——`generator.go:43` 的 `labels["network_domain_id"]` → `labels["network_domain"]`。**`ResolveNetworkDomain` 的双读永久保留**（历史 TSDB 序列与边缘 `remote_write` 回传仍带旧键 `network_domain_id`，双读即过渡层，不得删除）；三层命名空间边界（对象 / API 字段 `network_domain_id`、标签键与 Query 参数 `network_domain`）写入 M09 PRD §3.3.1。时序上现在改最便宜：无生产数据、`external_labels` 只影响新样本、无需迁移。**决策 19 的键名选择被本决策 supersede，其字段清单结论（移除 `tenant_id`、仅保留部署级物理维度元数据）不变。**
+  2. **68-2 `alerting` 投递接线纳入本期**：`cfgFile` 增 `alerting.alertmanagers[].static_configs[].targets`；**条件注入**（仅当 `alertmanagerYML` 非空，与 `rule_files` 条件注入 `render.go:104-109` 对称，避免指向不存在的 AM）；**AM 地址必须参数化**——`Assemble` 增 `alertmanagerAddr` 入参，**禁止硬编码 `127.0.0.1:9093`**；**仅中心生成**——边缘包（`agent_pull`）永不生成 `alerting` / `rule_files`（v0.2 硬约束：vmagent 不支持、prometheus-agent Agent Mode 禁止，见 M01 `tech-feasibility.md` §4.2 / §7.2）。校验链路不动（`promtool check config` 正常校验；草稿生成 / 重校自动覆盖）。与决策 67 规则锁修复**相互独立**，可同分支独立提交。
+  3. **68-3 v0.2 口径约定**：MVP 单机由 `env/env.sh` 注入（复用既有 `AM_PORT`，对齐决策 64「集中定义」）；v0.2 多域注入**中心 AM 地址**；`alerting` 与 `rule_files` 的生成条件**必须由同一处「是否中心」判定驱动**，禁止各自 `if`。
+  4. **68-4 落档纪律（治本项）**：跨模块决策若覆盖同一命名空间（键名 / 字段名 / 判定集合），**必须在两侧决策记录互标** supersede / 被 supersede 关系；「最小闭环」类决策必须写明**链路两端与验收动作**，不能只写单侧产物 Owner。本次据此为 M06 结论 8（决策 19）补 supersede 标注、为 M02 决策 4.4 补 confirmed 标注。
+  5. **68-5 租户标签键统一 + 命名规约泛化 + fail-closed 严格派**（原「遗留待决」升级，用户拍板「现在就定版，不等 v0.2」）：
+     - **68-5-1 通用命名规约**：**`_id` 后缀只用于 DB 列与 API JSON 字段；Prometheus 标签键及与之对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀。** 三层命名空间各自自洽——`network_domain`（标签）/ `network_domain_id`（字段）、`tenant`（标签）/ `tenant_id`（字段）。**目的：把「每次新增标签都要评审命名」换成可机械套用的规约，下次加标签无需再评审。** 写入 M02 §7.1 / M09 §3.3.1 / M07 §5.11 三处，作为跨模块共同基线。
+     - **68-5-2 统一为 `tenant`**：M02 §7.1 表租户行 key 改 `tenant`、来源由「M09 `external_labels` 注入」更正为「**M07 LabelTemplate target 级注入**」；§7.2 第 1 条 matcher 改 `tenant="<用户所属租户 ID>"`（**硬隔离语义不变**：永远存在、用户不可见不可改）；M07 §5.12/§5.13 把 `tenant_id → tenant` 升格为**内置默认映射前瞻口径**；M09 §3.3.1 注明 `external_labels` **不承担租户标签**（决策 19 结论维持），**租户标签唯一来源 = M07 target 级注入**；M06 结论 8 补「经决策 68-5 定版确认」。**与决策 19 的关系**：决策 19 已给出正确方向（`tenant` 走 target 级），但其键名被 68-1 supersede 的那次修订只改了网域键、未回头修正 M02 侧租户 matcher 名——68-5 补上这处遗漏，**不推翻决策 19 任何结论**。
+     - **68-5-3 三个配套（v0.2 落地）**：① **同源常量**——`platform/models` 增 `TenantLabelKey = "tenant"`（与既有 `NetworkDomainLabelKey` 同模式），M02 注入侧与 M07 模板校验侧均引用同一常量，**禁止在 M02 硬编码 matcher 名**；② **生成期门禁**——v0.2 开启多租户时 M09 生成期校验「被引用 Job 的标签模板含 `tenant` 映射」，**缺失则 `validation_status=failed`**（与 jobref 门禁同模式，接入决策 67 的 `validation_details.source` 路由，可「前往修改」跳回 M07），消除「模板没配映射 → 该 job 序列无 `tenant` 标签 → 租户查不到自己数据且无报错」的**静默丢失**；③ **matcher 注入强制化**——v0.2 时 `tenant="<当前租户>"` 永远存在、用户不可见不可改。
+     - **68-5-4 产品语义：fail-closed 严格派（用户拍板）**：**无 `tenant` 标签的序列 = 任何普通租户均不可见**（真 fail-closed）。平台基础设施自身指标（如监控平台自己的 `node_exporter`）的可见性由**显式** `tenant="platform_admin"` 承载——为中心 `default` 网域的平台自身 Job 单独注入该标签，**不得依赖「无标签即公共」的隐式放行**。**明确否决共享派**（matcher 写 `{tenant=~"|<当前租户>"}`）：隐式共享口一旦开启无法收回（用户原话：「v0.2 初期宁可让平台指标对普通租户不可见（平台管理员租户仍可见），也不要开一个『无标签即公共』的隐式共享口」）。
+     - **时序**：两侧均无代码、无存量序列标签、无已上线 matcher，**不涉及数据迁移与契约兼容**；v0.2 再定则须付「迁存量标签 + 处理已上线 matcher」的代价，故**现在定版**。
+- **影响范围**：
+  - Module_09 PRD：v1.64——§3.3 标签注入行 / §3.3.1 全节 / 配置文件映射语义 / 新增「alerting 投递接线」注记 / §6.3 配置包结构 / §7.1.4 边界表 / §9 验收 / §10 术语。**68-5 追加**：v1.65——§3.3.1 强化「`external_labels` 不承担租户标签、唯一来源 = M07 target 级」+ 命名规约 + 生成期门禁；§9 验收补门禁项；§10 术语。
+  - Module_08 PRD：v1.14——§9.1 / §9.2 增「触发测试告警 → AM `:9093` 可见」投递接线 E2E 验收。
+  - Module_02 PRD：v1.14——§7.1 注入标签 key 契约补决策 68 交叉引用。**68-5 追加**：v1.15——§7.1 租户行定版为 `tenant`（来源更正为 M07 target 级注入）、移除「遗留待决」注记改为**定版**、增命名规约注记；§7.2 第 1 条 matcher 名同步 + 补 fail-closed 严格派与生成期门禁；全文注入名校正。
+  - Module_07 PRD（68-5 新增）：v2.31——§5.11 补命名规约与 tenant 映射前瞻口径；§5.12 A 前置说明更新；§5.13 补「v0.2 起默认模板含 `tenant_id → tenant`」前瞻注记；§9 验收。
+  - 全局文档：`03_Functional_Architecture.md` §7 `external_labels` 口径修正 + 变更日志（68-5 追加注入名校正）；`04_Implementation_Map.md` L88 / L97 / L404 标签键修正 + 变更日志；`Modules/README.md` 跨模块快照。
+  - 治理留痕：`module-06/2026-08-19-...-orthogonality.md` 结论 8 补「经决策 68-5 定版确认」；`module-02/design-decisions.md` 决策 4.4 行补 68-5 标注。
+  - 契约：`module-08/api-contract-snapshot.md` §10.1 / §10.2「网域取值口径」按收敛后口径重写 + §10.3 diff。
+  - 设计记录：新增 `docs/05-execution-records/module-09/network-domain-label-key-convergence-and-alerting-wiring.md`（含证据索引、v0.2 口径约定与代码落点；§9 由「遗留待决」升级为决策 68-5）。
+- **实现落点（本轮仅文档，代码在开发分支 / v0.2 执行）**：`platform/configcenter/generator/render.go`（`cfgFile` 增 `Alerting`、`Assemble` 增 `alertmanagerAddr` 入参 + 条件注入 + 仅中心开关）、`platform/configcenter/generator/generator.go:43`（标签键）、`platform/configcenter/draft/service.go:210`（传入 AM 地址 + 通道判定）、`scripts/package-center.sh`（如需新增 env 变量则复用既有 `AM_PORT` / `--alertmanager.url`）；**`platform/models/network_domain_label.go` 不动**（双读永久保留），**68-5 追加**：按同一模式增 `TenantLabelKey = "tenant"` 常量；**v0.2**：`platform/query/alerts.go` 注入侧引用 `TenantLabelKey`（禁止硬编码）+ fail-closed 严格派；`platform/models/label_template.go` `DefaultMappingBuilders` 增 `tenant_id → tenant`；`platform/configcenter/generator/` 生成期门禁（缺 `tenant` 映射 → `validation_status=failed`）。
+- **关联**：决策 19（`external_labels` 字段清单，**键名被本决策 68-1 supersede**、**「`tenant` 标签走 target 级」被 68-5 定版确认**；登记于 `module-06/2026-08-19-business-registration-and-domain-business-orthogonality.md` 结论 8）、M02 决策 4.4（注入标签 key 契约，**经本决策复核确认为最终口径**，68-5 追加租户键定版）、决策 55 / 56（告警状态归属与授权过滤）、决策 59 / 60（告警分发 MVP 闭环，本决策补其缺失的投递接线）、决策 61（AM v2 API 口径）、决策 64（`env/env.sh` 集中环境定义）、决策 66 / 67（规则 job 引用校验，本决策引用 67-4 教训与「生成期门禁同模式」）、F-07（M08 网域列缺陷修复）。
+
+---
+
+### 决策登记：2026-09-10（M01 规则挂载：独立「检查」与提交按钮状态机 + M08→M09 变更单深链——用户已确认）
+
+- **编号**：决策 69（子决策 **69-1** `validate-yaml` 并入组名全局唯一性 / **69-2** 提交按钮改为「检查通过后出现」的状态机 / **69-3** 错误与结果面板位置；另有跨模块项 **③ M08 操作列路由**，挂决策 60 作补充块、不新开编号）
+- **触发**：决策 67-2 已把「error 级 job 引用默认阻断 + 逃生门」落地为**提交期**行为，但用户复核现场动线后指出三处待决 UI 决策（① 规则挂载「本地检查」的检查范围；② 逃生门通过后是否直接解锁提交按钮；③ M08 操作列路由 2A/2B）。用户对逐条代码事实核实后拍板方案并给出关键定性：**①② 不是新功能，是在已有提交期流程上做交互重排**——逃生门已实现（`RuleMountDrawer.tsx:55-56,126,140,260-265`，含「内容变更后 ack 失效须重勾」防呆，`:281`），因此判定逻辑一律不动，只重排交互。
+- **核实结论**：
+  1. **`validate-yaml` 不是「提交校验的全量」**：`ValidateRuleYAML`（`update.go:129-146`）= YAML 语法 + `groups` 结构 + job 引用；**组名全局唯一性 `validateGroupNamesAvailable` 只在 create/update 调用**（`create.go:66` / `update.go:72`）。若「检查」直接复用现状，会出现「检查全绿 → 提交被 400 组名冲突打回」的最坏组合。
+  2. **前端本地兜底不构成检查能力**：`validateYamlClient`（`rulesYaml.ts:5-13`）只有一条 `/^\s*groups\s*:/m` 正则，连 YAML 语法都不真解析，且不返回 `job_ref`。
+  3. **M08 参照物是浅检，规则侧学不了**：`AlertConfigDrawer.tsx:156-200` 的「本地**大小**检查」只做非空 + 100KB，并通过绿色 Alert 显式声明免责边界（「提交后由服务端执行 amtool 等价校验」）。规则要承载 job 引用硬约束，必须是服务端口径的检查。
+  4. **A/B 二选一的矛盾不存在**：勾选框不提交任何东西、只参与「提交按钮是否出现」的计算，物理上仍是两次点击（检查 → 提交），A 的「勾选动作语义变重」风险不适用、B 的「知情与下令分离」完整保留。
+  5. **③ 的 2B 不推荐**：为跨页跳转重新引入 `change_status` 两态路由会触碰决策 60 冻结口径（M08 不驱动下发状态）；而 2A 纯维持现状又留下「pending 期页面内无入口」的断点（toast 数秒即消失）。折中方案证据扎实：`source_change_no` 列**已展示**（`AlertConfigPage.tsx:148-154`），渲染为链接属纯展示层增强；`?change_no=` 深链是既有约定（`ConfigPreviewPage.tsx:712` → `/deployments?change_no=...`；`DeploymentsPage.tsx:54`），不新增路由、不碰决策 60。
+- **结论（用户已确认，2026-09-10）**：
+  1. **69-1（P0，前置条件）`validate-yaml` 并入组名全局唯一性**：在 YAML 语法通过后、job 引用校验前追加，与提交侧**同实现、同输入集**——仅当目标规则生效（`enabled=true AND draft_status='ready'`）时校验，**停用规则不校验**（镜像 `update.go:71`，避免「检查红、提交能过」的反向不一致）；`:id` 为真实规则 ID 时**排除自身**，为 `0`（新建）时按默认启用处理。响应形状 `{valid, error?, job_ref?}` **不变**，但 **`valid` 语义由「仅反映 YAML 语法」扩展为「预检是否可提交」**：`valid=false` = 不可覆盖的硬失败（语法 / `groups` 结构 / 组名冲突）；`job_ref.severity=error` = 可经逃生门覆盖的阻断（不改写 `valid`）。由此门禁收敛为两根轴，前端状态机可由两个信号直接驱动。
+  2. **69-2（P0，交互重排）提交按钮按状态出现**：`canSubmit = 检查通过(valid=true) 且（无 error 级 job 引用 或 已勾选逃生门）`；「检查」按钮常驻，提交按钮**条件渲染而非 disabled**；新建与编辑统一文案「**提交并进入变更确认**」（原「提交生效」/「保存变更」）；**规则内容变更**时检查结论与 ack 一并作废、提交按钮重新隐藏（非内容字段变更不重置）；逃生门提前到检查阶段展示；`validate-yaml` 不可用时的本地兜底路径与后端 `job_ref_unresolved` 兜底路径保留。
+  3. **69-3（P1，布局）错误与结果面板下移**：面板从表单上方移到表单下方、操作按钮上方；三类面板互斥（检查未通过红 / 检查通过绿含「服务端复核」边界说明 / job 引用提示红=阻断黄=提示）。
+  4. **③（跨模块，挂决策 60 补充块）**：`AlertConfigPage` 的 `source_change_no` 渲染为跳转链接 → `/config-preview?change_no=xxx`；`ConfigPreviewPage` 支持该 query 参数，落地时自动展开对应变更单详情抽屉（消费后清除参数，避免刷新反复弹出）。不新增路由、不引入 `change_status` 依赖、不触碰决策 60 语义。
+  5. **明确不做**：不改后端判定逻辑（`checkRuleJobRefGate` / `ErrorTypeJobRefUnresolved` / `ack_job_ref_errors` 语义与触发条件一律不变）；不引入 v0.3「保存草稿」；不做字段化规则编辑与 PromQL 语义校验。
+- **影响范围**：
+  - Module_01 PRD：**待办**——v3.41 增量须把头部「⚠️ v3.40 待原型同步（67-2 逃生门）」**扩大为 67-2 + 69 一并同步**（独立「检查」按钮 + 提交按钮条件出现 + 面板下移 + 文案改为「提交并进入变更确认」）；按 PRD 冻结门禁须与原型同步同轮完成。
+  - Module_08 PRD：**待办**——§5 版本历史「M09 变更单」列由纯文本升级为跳转链接（展示层增强），随本轮或下一轮 PRD 增量登记。
+  - Module_09 PRD：不需要修改（`?change_no=` 深链为既有约定，`/deployments` 已用同模式）。
+  - 契约：`module-01/api-contract-snapshot.md` §7（`validate-yaml` 响应语义 + 组名唯一性注记 + 前端门禁交互口径）。
+  - 设计记录：新增 `docs/05-execution-records/module-01/rule-mount-local-check-and-escape-hatch.md`（含决策 67-2 边界对照表与证据索引）；`module-08/design-decisions.md` 决策 60 追加补充块。
+- **实现落点**：`platform/strategy/rule/validate.go`（新增 `validateGroupNamesForCheck`）、`platform/strategy/rule/update.go`（`ValidateRuleYAML` 插入组名校验）、`platform/strategy/rule/monitoring_rule_test.go`（新增用例）；前端 `ui-custom/web/src/pages/strategy/RuleMountDrawer.tsx` + `.test.tsx`（检查按钮与状态机）、`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（`source_change_no` 链接）、`ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`（`?change_no=` 深链）+ 两页测试。
+- **关联**：决策 43（提交 ≠ 直接生效，故按钮文案改「提交并进入变更确认」）、决策 45-1 / 45-2（校验失败三态出口与 M01 引导）、决策 **59 / 60**（告警配置进 M09 变更确认与 M08 网域口径，③ 为其补充块）、决策 **66**（双层校验模型）、决策 **67-2**（提交分级门 + 逃生门，本决策在其上做交互重排、**判定逻辑不变**）、决策 67-3（「前往修改」按来源路由，同属跨模块动线补全）。
+
+---
+
+### 决策登记：2026-09-15（网域纳管列数治理 + 网域列三合一 + 一键安装命令留顶部面板——落点已定，PRD 回写待复核）
+
+- **编号**：决策 70（子决策 **70-1** 网域列三合一 / **70-2** 网络分区列下沉 / **70-3** 接入方式文案单一来源 / **70-4** 一键安装命令留顶部面板）
+- **触发**：chenrt 复核 M09 网域纳管列表，提出两点——①「接入方式 / 安装指引 / 运行状态」三列与 M09 采集节点状态页、M06 网域管理是否重复、能否精简；② 一键复制安装命令能否移到操作列、放在凭据旁。要求先出 UI 样例比对效果再拍板。
+- **核实结论（含纠正）**：
+  1. **「安装指引」不是列表列**。网域纳管列表实为 **7 列**：网域（名称+ID）/ 网络分区 / 纳管状态 / 接入方式 / 运行状态 / 凭据 / 操作。「安装指引」是页面顶部常驻面板（`GuidePanel`），符合 PRD §5 表格「安装指引」行与验收项「安装指引为页面顶部常驻提示区」双处口径。三张表列数实测：M06 网域管理 8 列、M09 网域纳管 7 列、M09 采集节点状态 8 列。
+  2. **接入方式存在术语分叉（本轮最重要的既有缺陷）**：同一业务事实三处两种措辞——M06 列表用 `domain_type` → 中心直连域 / 采集节点域（合规）；M09 详情抽屉用 `domain_type` → 同前（合规）；**M09 列表却用 `channel` 派生的本地常量 `ACCESS_METHOD` → 中心直连 / 采集节点回传（偏离）**。后果是同一页面「列表写中心直连、点开变中心直连域」。根因：决策 74 / 79 统一术语时，同文件的 `domainTypeLabel` 已同步、`ACCESS_METHOD` 漏改。
+  3. **网络分区列真重复**：`zone_type` 由 M06 登记，M09 列表只读展示，且**详情抽屉已展示该字段** → 列表列可直接删、信息不丢。
+  4. **运行状态非冗余**：决策 36-1 / 78 已定 M09 网域纳管 = 网域粒度摘要（状态 + 最后心跳），M09 采集节点状态 = 节点粒度明细，属分层而非重复，本轮不动。
+  5. **复制安装命令需 `NETWORK_DOMAIN_ID`**：命令第 2 段为 `export NETWORK_DOMAIN_ID="<网域 ID>"`，而列表原网域列 ID 为 12px 普通灰字、与名称同段，复制前核对成本高——这是「网域列须三合一」的直接依据。
+  6. **「合并单一复制入口」受 PRD 约束**：PRD §5 表格「Token 管理」行与「安装指引」行、验收项「安装指引为页面顶部常驻提示区」三处均明确「`TOKEN` 经**网域行内复制按钮**获取」→ 行内复制凭据按钮是 **PRD 要求项**，删除须先改 PRD 口径。故**不采纳**「删掉行内复制凭据」的合并方案，两入口并存为合规现状。
+- **结论（chenrt 已定落点，2026-09-15）**：
+  1. **70-1 网域列三合一**：`网域` 列承载 **网域名称 + 网域 ID + 接入方式** 三元素——名称第一行；ID 第二行改用**等宽字体**（便于与命令中的 `NETWORK_DOMAIN_ID` 逐字符核对）；接入方式以紧凑 Tag 与 ID 同排。列宽 190 → **240**，`fixed: 'left'` 不变。
+  2. **70-2 网络分区列下沉**：列表删除该列；详情抽屉的「网络分区」字段原样保留（`zone_type` 仍为 M06 登记、本页只读）。
+  3. **70-3 接入方式文案单一来源**：删除本地 `ACCESS_METHOD` 常量，新增 `domainTypeColor`，列表列 / 详情抽屉 / 纳管抽屉 / 编辑抽屉**四处统一**走 `domainTypeLabel` + `domainTypeTip` + `domainTypeColor`；取值 = 中心直连域 / 采集节点域，配色 management = blue、edge = cyan。从结构上消除「同一事实两套常量」的分叉可能。
+  4. **70-4 一键安装命令留顶部面板**：不进操作列。理由（两条独立依据）——① 操作列三槽位（主操作 / 详情 / 更多）是决策 36-1 与 v1.36 操作列修正固化的结构，加入第 4 槽位会与「主操作唯一 + 低频动作收进更多」原则冲突并需 230 → 300px；② 顶部「安装指引」区本就是 PRD 规定的安装命令归属位置。
+  5. **列数与宽度**：7 列 → **5 列**（网域 240 / 纳管状态 130 / 运行状态 180 / 凭据 110 / 操作 230 = **890px**），符合《前端标准》§9.4「建议 ≤8 列」。
+- **校验（已实测）**：
+  - `pnpm build` / `pnpm lint`（`--max-warnings 0`）/ `pnpm test`（54/54）/ `pnpm check:notes` / `pnpm check:prototype` **全绿**。
+  - 系统 Chrome + puppeteer-core 截图实测 5 张（列表全页 / 顶部面板 + 表格 / 详情抽屉 / 编辑抽屉 / 纳管抽屉）：表头实测 **5 列**，列宽实测 `240 / 130 / 180 / 110 / 230`，页面全文**已无**「采集节点回传」旧措辞、含「中心直连域」「采集节点域」，详情抽屉「网络分区」字段在位（值 = 政务外网区）。
+- **影响范围**：
+  - Module_09 PRD：**待回写**（chenrt 明确「先改原型，看过后再改 PRD」）——① §5 表格「网域纳管」行须补 5 列描述；② 「接入方式」术语按 `domain_type` 收敛（与决策 79 一致，属原型侧偏离回正、非新增口径）；③ 验收项「安装指引为页面顶部常驻提示区」建议补一条边界注记：禁的是行内**展示指引内容**，「复制安装命令」为动作、归属顶部安装指引区。
+  - `docs/prototypes/module-09/package.json`：保持 **1.52.0**（与 PRD v1.68 对齐）；本轮为原型先行迭代、PRD 回写前**不提版本**，避免与终验清单「PRD 版本 = 实施地图 = 代码计划」错位。
+  - `docs/02-product-requirements/Modules/README.md` 版本对齐总表：**暂不动**（待 PRD 回写同轮同步）。
+- **实现落点**：`docs/prototypes/module-09/src/pages/NetworkDomainsPage.tsx`（常量区删除 `ACCESS_METHOD`、新增 `domainTypeColor`；`columns` 网域列三合一 + 删网络分区列 + 删接入方式列；纳管 / 编辑抽屉接入方式改走统一常量；两处 `ReviewNote` 文案同步；移除随之无用的 `Channel` 类型导入）。
+- **关联**：决策 74 / 75 / **79**（接入方式命名与安装指引口径）、决策 76（网络分区定位为纯分类标签）、决策 **36-1**（网域名称 + ID 合并单列、运行状态 = 状态 + 心跳合并、凭据列仅 agent_pull 展示）、v1.36 操作列修正（三槽位结构）、决策 17（接入指引为页面顶部常驻提示区、纳管成功后滚动高亮）、决策 78（M06 接入进度 / M09 纳管状态分层）、PRD §5 表格「Token 管理 / 安装指引」两行与验收项「安装指引为页面顶部常驻提示区」。
+- **本次未处理、待复核的偏离项（同一页面）**：
+  1. **顶部面板步骤数为 4，PRD 规定 3 步人工步骤**：PRD §5「安装指引」行与验收项均写明「**3 步人工步骤**：① 下载并校验一体化离线包 ② 配置 `NETWORK_DOMAIN_ID` / `TOKEN` 环境变量 ③ 启动 Edge Sync Agent」；原型渲染为 4 步（多了「① 纳管取凭据」）。「纳管取凭据」是平台侧前置动作、非操作者的人工步骤，疑为混用 M06「四步接入」节奏。→ **✅ 已由决策 71-3 处理。**
+  2. **详情 Drawer 宽 560 < 720**：不符合《前端标准》§8「结构化详情 → 右侧 Drawer ≥720px」（M06 / M07 已达标）。→ **✅ 已由决策 71-2 处理。**
+  3. **主操作未统一品牌色 + 600 字重**：仅「纳管」带 `fontWeight: 600`，「编辑」（同为随行状态变化的主操作）未加粗，与 §8「主操作唯一品牌色 + 600 字重」不完全一致。→ **✅ 已由决策 73 原型同步轮处置（2026-09-15，「编辑」补 600）。**
+  4. **mock 心跳时间戳未刷新**：`networkDomains` 的 `last_heartbeat` 固定在 2026-08-03，页面显示「42 天前」，演示观感偏陈旧（属 mock 数据维护、非逻辑缺陷）。→ **✅ 已由决策 73 原型同步轮处置（2026-09-15，`last_heartbeat` / `last_config_pull` 改 `minutesAgo` / `hoursAgo` 相对时间生成）。**
+
+---
+
+### 决策登记：2026-09-15（安装命令改静态模板 + 网域列可辨识 + 顶部面板 3 步 + 详情 Drawer 720——PRD 回写待复核）
+
+- **编号**：决策 71（子决策 **71-1** 网域列「名称 / ID」行内标签 / **71-2** 详情 Drawer 720 / **71-3** 顶部面板收敛 3 步 / **71-4** 一键安装命令改静态模板并移除网域选择框）
+- **触发**：chenrt 复核 M09 网域纳管（承接决策 70 同轮反馈），提出 4 点——① 顶部「一键安装」命令带网域选择框，框内 TOKEN 与行内凭据**是否一致**？若不一致则宁可去掉选择框、改静态命令由用户自行填 ID 与 token；② 前端**分不清哪行是网域 ID、哪行是网域名称**；③ 顶部面板收敛成 3 步；④ 详情 Drawer 宽调整。
+- **核实结论（先给证据再改）**：
+  1. **TOKEN 一致性：数据上一致，页面上无法核对。** `buildInstallCommand()` 读的就是与列表「凭据」列**同一个 `record.token` 字段**；行内复制走 `handleCopyToken(record.token)`、「更多 → 重置凭据」同时更新 `data` → 面板命令与行内凭据**不存在数据分叉**。但两处**都渲染 `TOKEN_MASK`（固定 8 点掩码）**，用户无法目视比对；且命令必须先在下拉中选网域才生成。→ 这是**可感知性/交互成本问题，非数据缺陷**。chenrt 的判断（"麻烦、不如静态命令"）成立。
+  2. **PRD 原文本就支持静态模板（关键证据）**：验收项「安装指引为页面顶部常驻提示区」原文为「……凭据获取方式：`NETWORK_DOMAIN_ID`=对应网域 ID、`TOKEN` 经**网域行内复制按钮**获取」。即 **PRD 规定凭据由用户从行内复制**；原型的「按所选网域预填 NETWORK_DOMAIN_ID 与明文凭据」属**原型自作主张、非 PRD 要求**。故本次改为静态模板属**回归 PRD 原文**，不构成偏离。
+  3. 网域列可辨识性缺陷成立：原实现仅靠**字号（13px vs 12px）与颜色（主色 vs 灰）**区分两行，且 `default` 网域的**名称与 ID 恰为同字**（`default` / `default`），评审确实无法分辨。
+- **结论（原型侧已落地，2026-09-15）**：
+  1. **71-4 静态模板**：删除 `buildInstallCommand(domain, tokenMasked)` 函数与网域 `Select`，新增顶层常量 `INSTALL_COMMAND_TEMPLATE`（10 行：3 段步骤注释 + 校验 / 环境变量 / 解包启动命令），第 2 段用占位符 `export NETWORK_DOMAIN_ID="<网域 ID>"` 与 `export TOKEN="<凭据>"`；按钮文案「复制安装命令」→「**复制安装命令模板**」，提示语与 toast 同步改为「请把 `<网域 ID>` 与 `<凭据>` 替换为列表对应行的值」。
+     - 收益：① 一个模板适配任意网域，**批量接入无需反复切换选择框**；② 面板内不承载任何真实凭据，**脱敏责任收敛到「行内复制」单一入口**。
+  2. **71-4 附带状态收敛**：删除 `installDomainId` / `setInstallDomainId` / `effectiveInstallDomainId` / `linkedDomainId` 四个状态，合并为单一 `focusDomainId`（承载 M06 深链 `?network_domain=xxx`、详情抽屉「查看该网域的安装指引」、纳管成功自动引导三个入口），**仅用于**面板「本次要接入：<名称>（网域 ID xxx）」提示与列表行高亮（`rowClassName` 改判 `focusDomainId`），**不再驱动命令内容**。空态判据由 `selected` 改为 `hasInstallable`（可安装网域数 > 0）。详情抽屉按钮文案「查看该网域安装命令」→「**查看该网域的安装指引**」（命令已无网域绑定，按钮实际动作是滚动定位 + 高亮该行）。
+  3. **71-1 网域列标签**：两行各加 11px 灰色行内标签「名称」「ID」（固定 `width: 26` 使两行值左对齐），列宽 240 → **250**；列头加 Tooltip「第一行：网域名称；第二行：网域 ID（安装命令 NETWORK_DOMAIN_ID 取此值，可逐字符核对）」。
+  4. **71-3 顶部面板 3 步**：4 步 → **3 步**，用 PRD 原文措辞（① 下载并校验一体化离线包 ② 配置 `NETWORK_DOMAIN_ID` / `TOKEN` 环境变量 ③ 启动 Edge Sync Agent）；「① 纳管取凭据」从**编号步骤**中移除，改由面板标题「网域接入指引：先纳管拿凭据，再装采集节点出数据」承载其**前置条件**语义（纳管是平台侧动作、非操作者的人工步骤）。
+  5. **71-2 详情 Drawer**：宽 560 → **720**，符合《前端标准》§8「结构化详情 → 右侧 Drawer ≥720px」，与 M06 / M07 一致；单列 `Descriptions` 在 720 下长值（Remote Write URL）不再换行折断。
+- **视觉自验发现的额外缺陷（本轮一并修）**：命令模板改为固定 10 行后，`<pre>` 的 `maxHeight: 220` **裁掉了末行**（截图实证：`sudo systemctl enable --now metric-center-edge-agent` 被切半）→ 放宽到 **280**。
+- **校验（已实测）**：
+  - `pnpm build` / `pnpm lint`（`--max-warnings 0`）/ `pnpm test`（54/54）/ `pnpm check:notes` / `pnpm check:prototype` **全绿**。
+  - 系统 Chrome + puppeteer-core 实测：表头 **5 列**（网域 / 纳管状态 / 运行状态 / 凭据 / 操作）；首列 4 行**均含「名称」「ID」标签**；深链 `?network_domain=gov-cloud-a` 时 **`row-linked` 行数 = 1**；详情抽屉实测宽 **720**（含「网络分区」「查看该网域的安装指引」）；命令含 `<网域 ID>` / `<凭据>`、**不含**真实 ID 预填（`export NETWORK_DOMAIN_ID="gov-cloud-a"` 已消失）；页面**已无**「命令已预填该网域凭据」「① 纳管取凭据」「采集节点回传」；步骤标签实为 3 个且与 PRD 逐字一致。
+  - 全页仅存 1 个 `.ant-select`，经定位为**顶栏角色切换器**（`MainLayout`），与网域选择框无关 —— 选择框已确实移除。
+- **影响范围 / PRD 待回写（累积自决策 70，共 6 条）**：
+  1. §5 表格「网域纳管」行补 **5 列描述**（决策 70-1 / 70-2）。
+  2. 「接入方式」术语按 `domain_type` 收敛为「中心直连域 / 采集节点域」（决策 70-3，原型侧偏离回正）。
+  3. 验收项「安装指引为页面顶部常驻提示区」补边界注记：行内禁的是**展示指引内容**，「复制安装命令」为动作、归属顶部安装指引区（决策 70-4）。
+  4. **【新增】安装命令口径**：由「按网域预填」改为「**静态模板 + 用户行内复制填值**」——与 PRD 验收项原文一致，但**决策 75「一键复制安装命令」的表述需同步为「复制安装命令模板」**，并检查 PRD §5「安装指引」行是否写有「预填」字样需一并校正。
+  5. **【新增】顶部面板 3 步**：4 → 3 属原型回正（PRD 已是 3 步口径）；回写时宜明确「纳管取凭据」是**前置条件**、不占人工步骤编号。
+  6. **【新增】**网域列「名称 / ID」列内标签属前端呈现细节，建议 §5 表格描述直接写「网域（网域名称 + 网域 ID + 接入方式）」。
+- **版本**：`docs/prototypes/module-09/package.json` 保持 **1.52.0**（与 PRD v1.68 对齐）；PRD 回写前**不提版本**，避免与终验清单「PRD 版本 = 实施地图 = 代码计划」错位。`Modules/README.md` 版本对齐总表**暂不动**，待 PRD 回写同轮同步。
+- **实现落点**：`docs/prototypes/module-09/src/pages/NetworkDomainsPage.tsx`（`INSTALL_COMMAND_TEMPLATE` 常量替代 `buildInstallCommand()`；`GuidePanel` props 由 `selectedId` + `onSelect` 改为 `focusDomainId`；`columns` 网域列加行内标签 + 列宽 250 + 列头 Tooltip；详情 Drawer 宽 720 + 按钮文案；两处 `ReviewNote` 同步；`pre` 的 `maxHeight` 调整）。
+- **关联**：决策 **70**（同日同页，70-4 已定「一键安装留顶部面板」，本决策在其上把命令形态由「预填」改为「模板」）、决策 74 / **75** / 79（安装指引与接入方式口径）、决策 36-1（网域名称 + ID 合并单列、凭据列仅 agent_pull 展示）、决策 17（接入指引为页面顶部常驻提示区、纳管成功后滚动高亮）、PRD 验收项「网域安装指引为 3 步人工步骤」「安装指引为页面顶部常驻提示区」、《前端标准》§8（结构化详情 ≥720px）/ §9.4（建议 ≤8 列）。
+- **遗留（模块级观察，非本页问题）**：M09 四个列表页**均未使用 `scroll={{ x }}`**（§9 建议「超出宽度时横向滚动」）。本页 5 列声明宽合计 900px，在 1512 视口下由 antd 自动拉伸至容器宽（实测 326 / 170 / 235 / 143 / 300 = 1174px）、暂无问题，但窄屏下会压缩列宽至折行。建议 M09 统一评估后一并补。
+
+---
+
+### 决策登记：2026-09-15（网域详情职责收敛 + 接入动线三态归位 + 采集节点状态页深链接收）
+
+- **编号**：决策 72（子决策 **72-1** 组件明细下沉 / **72-2** 抽屉三态动线归位 / **72-3** 采集节点状态页接收 `network_domain` 深链）
+- **触发**：chenrt 复核时提出两点——① 「已创建未纳管」的网域点详情，看到「采集节点运行概览」且文案是「该网域还没有上线的采集节点——按页面顶部『网域接入指引』复制安装命令到该网域内的机器执行」，**却没有查看指引的跳转**；而**已经纳管**的网域反倒有「查看指引」跳转，**用户动线有误**；② 网域详情抽屉里的「采集节点运行概览」理应归「采集节点状态」管理。
+- **核实结论（PRD 原文 + 代码双证）**：
+  1. **动线错误确凿且有两层**：`NetworkDomainsPage.tsx:910` 的条件只有 `channel === 'agent_pull' && registration_status === 'monitored'`，**漏掉「未上线」**——PRD §3.1「安装指引」行原文为「M06 网域管理列表对『**已纳管未上线**』网域提供『查看安装指引』深链」。故原实现把指引按钮给了**已上线**的网域（对已装好的域毫无用处），而**未纳管**态给的文案却在暗示去装机器（此时**尚未签发凭据、机器根本装不了**），方向是反的。
+  2. **入口归属亦错**：PRD §3.1 同段原文「本页定位为纳管动作落地页 + 节点运行明细，**全局接入动线由 M06 承载**」。而该按钮动作只是 `scrollIntoView` 到本页顶部，属**页内锚点**、不构成跨页动线；M06 侧 `v2.14` 已按「已登记 → 去纳管 / 已纳管未上线 → 安装采集节点 / 节点已上线 → 去配置采集 / 已出数据 → 查看采集任务」四态做全（`accessStepOf`）。
+  3. **「采集节点运行概览」属职责越界**：PRD §3.1 原文「**组件明细与诊断请查看『采集节点状态』页**」；PRD 给网域详情抽屉划的范围只有**配置字段**（中心接入地址 / Remote Write URL / Agent 类型 / 描述）。逐项对照后，抽屉里的「采集器状态」「配置同步」「最近错误」与采集节点状态页重复，且**粒度更弱**（配置同步仅 4 档、缺按成因的引导按钮；最近错误直铺全文而非摘要 + Modal），会让用户在网域详情里误以为无事可做。
+  4. **跳转落点缺能力**：`EdgeAgentsPage.tsx` 原先**完全没有** `useSearchParams`，跨页带 `?network_domain=` 过去会被忽略（同模块 `NetworkDomainsPage` / `ConfigPreviewPage` 早已支持该参数）。
+- **结论（原型侧已落地，2026-09-15）**：
+  1. **72-1 组件明细下沉**：删除抽屉内整块组件卡片（原 `:855-908` 的 `agents.map(...)`），改为**网域粒度摘要**（`该网域有 N 个采集节点：X 在线 / Y 异常（最近心跳 …）`）+ 跨页入口；网域级「运行状态 + 最后心跳」是决策 78 要求本页保留的原子粒度。抽屉「配置字段」区（含采集器类型、网络分区）不动。
+  2. **72-2 三态动线归位**（核心修复）：
+
+     | 抽屉所处状态 | 判据 | 抽屉给什么 |
+     |---|---|---|
+     | 中心直连域 | `channel === 'local'` | 陈述「不部署采集节点、无接入步骤」，无按钮 |
+     | 已创建未纳管 | `registration_status === 'created'` | **仅陈述原因**「尚未纳管——纳管签发凭据后，才能把安装命令复制到该网域内的机器接入采集节点」；不重复列表行内已有的「纳管」主操作 |
+     | 已纳管未上线 | `monitored` 且该网域 0 节点 | 「**查看本页安装指引**」→ 页内定位 + 高亮该行（指引本就在本页顶部，给跨页按钮是动线绕远） |
+     | 已纳管已上线 | `monitored` 且该网域有节点 | 「**查看采集节点状态**」→ `navigate('/node-status?network_domain=<id>')` |
+
+  3. **72-3 采集节点状态页接收深链**：`useSearchParams` 惰性初始化网域筛选（与网域纳管页同写法，不在 effect 里 setState）；页顶加来源提示「已按来源筛选网域：<名称>（<id>）」+「查看全部网域」退出按钮；空态**按成因分三支**——筛选后为空（纯陈述）/ 该网域还没有采集节点（`tone="brand"` + 「去复制安装命令」跳 `domain-onboarding?network_domain=<id>`）/ 中心直连域（说明本就不部署节点）；网域下拉补「深链带入但当前无节点」的选项，避免 antd 回显裸网域 ID。
+  4. **72-3 附带修正（均为自验发现）**：① 来源提示显示条件收紧为 `linkedDomainId && selectedDomain === linkedDomainId`，用户改筛选后提示自动收起，避免「提示说 A、实际筛 B」的自相矛盾；② 「查看全部网域」同时清 `setSelectedDomain(undefined)` 与 `navigate('/node-status')`——**只清 URL 会留下「提示已消失、列表仍被筛着、且退出按钮也没了」的死状态**；③ **不做行高亮**：本页每行即一个采集节点，筛选已唯一限定范围，整表高亮（实测 7 行全亮）无增量信息、反成败笔，故不加 `row-linked`。
+- **校验（已实测）**：
+  - `pnpm build` / `pnpm lint`（`--max-warnings 0`）/ `pnpm test`（54/54）/ `pnpm check:notes` / `pnpm check:prototype` **全绿**；`package.json` 保持 **1.52.0**。
+  - 系统 Chrome + puppeteer-core 实测（`/tmp/m09-verify3/`）：列表仍 **5 列**；「已创建未纳管」抽屉**已无**「采集节点运行概览」标题与组件档位、仅剩陈述句；**运行时纳管**（填中心接入地址 → 确认纳管）后重开抽屉 → 出现「查看本页安装指引」；点击后 `row-linked` 行数 = **1**（面板高亮 + 滚动定位生效）；政务网 A 区抽屉摘要为「该网域有 **7** 个采集节点：7 在线（最近心跳 42 天前）」+「查看采集节点状态」；点击后 URL = `#/node-status?network_domain=gov-cloud-a`。
+  - 深链四组：`gov-cloud-a` → 7 行 + 提示在位 + 筛选器值 = 政务网 A 区；`manufacturing-edge` → **0 行** + 空态「网域「制造边缘节点」还没有采集节点上线」+「去复制安装命令」；`default` → 0 行 + 「由中心直接采集」；无参数 → **8 行**（全量）+ 无提示。点「查看全部网域」后 **8 行**、提示消失。
+- **自验方法学注意（本轮新增，已回写 skill）**：HashRouter 下用 `page.goto()` 切换**同路由不同 query** 时浏览器**不重载文档**、组件不重新挂载，惰性初始化不重算 → 会误判为「筛选失效」。真实入口（M06 是 `window.open` 新标签）是完整文档加载，故脚本须 `page.reload()` 后再断言。
+- **影响范围**：
+  - Module_09 PRD：**待回写**（继续累积，连同上一决策的 6 条）——建议 **§3.1「组件明细与诊断请查看『采集节点状态』页」下沉为验收项**（现仅为叙述句、无验收约束力）；补「网域详情抽屉三态出口」描述；补「采集节点状态页支持 `network_domain` 深链」。
+  - `docs/prototypes/module-09/package.json`：保持 **1.52.0**；`Modules/README.md` 版本对齐总表暂不动。
+- **实现落点**：`src/pages/NetworkDomainsPage.tsx`（详情抽屉组件区块整体重写为四态分支；引入 `useNavigate` 以支持跨页跳转；`ReviewNote` 同步）+ `src/pages/EdgeAgentsPage.tsx`（`useSearchParams` + `linkedDomainId`；`selectedDomain` 惰性初值；`emptyReason` 空态归因；页顶来源提示 Callout；下拉补项；空态三支；`ReviewNote` 同步）。
+- **关联**：决策 **70 / 71**（同页同日前两轮）、决策 **78**（M09 网域粒度摘要 vs 采集节点状态页节点粒度明细的分层）、决策 **36-1**（运行状态 = 状态 + 心跳合并）、决策 17（接入指引为页面顶部常驻提示区）、PRD §3.1「本页定位为纳管动作落地页 + 节点运行明细，全局接入动线由 M06 承载」「组件明细与诊断请查看『采集节点状态』页」「M06 对已纳管未上线网域提供查看安装指引深链」、《前端标准》§8（状态语义 Badge + 文字、破坏性操作 Modal.confirm）。
+- **遗留（跨模块，非本页问题）**：M06 `jumpToInstallGuide()` 的注释写「安装指引常驻页顶」并把落点指向 `#/node-status`（`module-06/src/pages/NetworkDomainsPage.tsx:713-715`），但安装指引实际在 `domain-onboarding` 页顶 —— **注释失准**。**本轮未改 M06**：现 `node-status` 空态已给「去复制安装命令」引导，动线可达、非阻断；建议 M06 侧后续校正注释，并讨论该步是否直接指向 `domain-onboarding`。
+
+### 决策登记：2026-09-15（网域-采集节点部署口径 + 两类地址用户指引，PRD 落版 v1.69）
+
+- **编号**：决策 73（子决策 **73-1** MVP 单节点部署口径 / **73-2** 两类地址方向性指引）
+- **触发**：chenrt 两轮概念质询——①「按 M06 对网域的定义，网域本身是可触达的网络连通域，为什么 1 个网域下面能有多个采集节点，应该是 1 对 1，不能是 1 对 N？」②「采集节点状态里的节点信息是部署了软件自动抓取的，还是手动填写的？」③「a 域 K8S 集群 → b 域管理中心需经 a 域 nginx 转发，纳管时登记的地址是不是应该是 a 域的 nginx？」④「中心接入地址和 Remote Write URL 的定义仍然不清晰，和网域、采集节点有什么关系？用户应该得到的指引信息是什么？」
+- **核实结论（PRD 原文证据）**：
+  1. **MVP 语义 1:1、数据模型 1:N**：PRD §3.1 注记 / §3.9 / §4 三处明文「同一网域内多采集节点（规模分片、HA、拨测多探测点）属 v0.4+ 演化场景，MVP 不支持（网域固定单通道、单逻辑采集组）」。1:N 的驱动力**不是连通性**而是容量（分片）/ 可用性（HA）/ 拨测语义（blackbox 多探测点本义就是从域内不同位置发起探测）；模型 `EdgeAgent` 多对一挂 `network_domain_id` 是为 v0.4+ 免破坏性 schema 变更预留。M06 决策 73 判断规则（「挑一台常开机器安装采集节点」）本就是 1:1 口径。
+  2. **节点信息全自动、零登记**：§3.2 P0「采集节点注册：Edge Sync Agent 首次拉取配置时自动注册到对应网域」+ §5.3 心跳附带上报组件清单；`EdgeAgent.hostname` 亦为心跳自报可选字段。架构根源 = §3.9「outbound HTTPS 443 + 每网域 Token、全部由边缘主动出站、中心无入站端口」——中心不需要也没有字段登记节点 IP。
+  3. **a→b 经 nginx 是 PRD 设计目标场景**：§5.1 `center_endpoint` =「该网域视角的中心可达地址（网闸/防火墙地址映射后地址），由运维按该区网闸策略填写」；§6.2 心跳响应的 `config_download_url` = `center_endpoint` + 固定相对路径**由中心合成绝对地址**下发（「网闸场景下 Agent 无法自行推导中心映射地址」）；§11 部署注记已预留「出访代理服务器复用」场景。a 域 nginx = 该出访代理，需放行两条转发规则（管理面 API / `/api/v1/write`），中心侧零改动。
+  4. **登记方向辨析（chenrt 第④问的关键）**：纳管表单（`POST /network-domains/{id}/monitor`）用户填写的全部字段为 `agent_type` / `center_endpoint` / `remote_write_url`，**没有任何一项是采集节点的地址**——登记的是「节点找中心」的中心侧配置；节点上线靠注入 `NETWORK_DOMAIN_ID` + `TOKEN` 后 Agent 自动出站注册（「登记制 + 自动上线」两段式分工）。
+  5. **用户指引缺口确认**：原型纳管表单现有 `extra` 文案为「术语复读」（「网闸映射后地址」出现两次），未讲方向、未给填写示例；M06 网域引导条（决策 73）讲了「够不到 → 建域 + 挑一台机器装采集节点」，未讲「装几台」的 1:1 口径。
+- **结论（本轮 PRD 落版，2026-09-15）**：
+  1. **73-1 MVP 单节点部署口径**：一个网域只需在网域内挑一台常开机器（K8S 集群选 master 节点、VM 网域选一台常开虚拟机）安装**一个**采集节点即可完成接入；安装指引按单节点口径表述、不引导多节点部署。落点：§3.1「安装指引」行补短句 + §3.1.1 新增「用户侧部署口径」完整注记（含 1:N 驱动力澄清与模型预留说明）+ §9 新增验收项。
+  2. **73-2 两类地址方向性指引**：`center_endpoint`（管理面：Agent 心跳 + 配置包下载）与 `remote_write_url`（数据面：指标回传）均**登记在网域上、方向均为「采集节点 → 中心」**；节点是使用者而非被指向者（节点身份 = `NETWORK_DOMAIN_ID` + `TOKEN`，平台不登记节点地址）；拆分允许管理面 / 数据面走不同代理。填写指引：直连填中心地址、经 nginx / 网闸转发填**转发侧地址**、回传地址通常可自动推导。落点：§5.1 字段表两行说明重写 + §3.1.1 新增「两类地址与网域 / 采集节点的关系」注记 + §3.1「网域纳管」行补表单提示要求 + §9 新增验收项。
+- **影响范围**：
+  - Module_09 PRD：**本轮已回写**（v1.68→**v1.69**，纯文档不改模型与契约；Change Log 轮转 v1.66 迁本文件完整历史）。
+  - `Modules/README.md`：§1 总表 M09 行 PRD 版本 v1.68→v1.69、对齐说明补 v1.69 摘要，§5 Change Log 加 v1.65 行（README 自身版本）。
+  - **04/05 头部版本串本轮不动**：其 M09 v1.56 的陈旧为 planner 线已立案的「另案刷新」事项（`04_Implementation_Map.md` §11 2026-09-10 条明确「既有陈旧不在本轮范围，另案刷新」，同批含 M02/M08），prototype-designer 线按惯例只回写 README 总表，避免半截刷新破坏另案口径。
+  - 原型 `docs/prototypes/module-09`：**已同步（2026-09-15 第二轮，chenrt「请继续调整原型」，`package.json` 1.52.0 → 1.69.0 对齐 PRD v1.69）**——①安装指引面板补 73-1 单节点口径句 + 73-2「中心接入地址」方向性指引句；②纳管 / 编辑表单 `center_endpoint` / `remote_write_url` 的 `extra` 按 73-2 文案重写（方向：节点 → 中心；直连填中心 / 转发填转发侧 / 回传可推导），替换原「术语复读」文案。校验：build / lint（0 warning）/ test（54）/ check:notes / check:prototype 全绿 + puppeteer 4 状态截图走查（新旧文案双向断言全过）。
+  - **顺带处置决策 70 两条老遗留（同轮）**：#3 已纳管行主操作「编辑」补 `fontWeight: 600`（§8 主操作字重，与「纳管」对齐）；#4 mock `last_heartbeat` / `last_config_pull` 改相对当前时间生成（`minutesAgo` / `hoursAgo` helper，在线节点「x 分钟前」、离线节点「1 天前」，不再固定 2026-08-03 显示「42 天前」）——**决策 70 遗留全部清零**。
+- **实现落点**：`Module_09_Network_Domain_and_Edge_Config_Center.md`（§3.1 两处 / §3.1.1 两则注记 / §5.1 两行 / §9 两条验收 / 头部 / 修订表）+ 本文件（完整历史迁入 + 本决策）+ `Modules/README.md`（三处）。
+- **关联**：决策 **70 / 71 / 72**（同日同页原型三轮，其 PRD 回写待办继续累积）、M06 决策 **73**（网域 = 网络可达性区域 + 判断规则，本决策 73-1 口径与其 1:1 表述同源）、决策 **74 / 75**（术语用户化 + 一键复制安装命令，本决策 73-2 指引是其概念配套）、决策 **78**（网域粒度 vs 节点粒度分层）、PRD §3.9（Edge Sync Agent 部署定位 outbound 443）、§5.1 / §6.2（字段语义与 config_download_url 合成规则）。
+- **遗留（本轮新发现，登记不扩scope）**：**Agent 心跳目标地址的传递机制 PRD 未显式定义**——§6.4 第 2 条只写「启动时从环境变量或配置文件读取 `NETWORK_DOMAIN_ID` 和 `TOKEN`」，但 Agent 发心跳（`POST /api/v2/platform/edge/heartbeat`）必须知道中心地址；该值如何获得（随离线包配置文件 / 追加环境变量约定 / 安装命令模板携带）无契约。建议后续轮次补明（影响 §3.1 安装指引第②步的命令模板内容与 §6.4 本地行为）。
+
+### 回写登记：2026-09-15（决策 70~72 九条 PRD 显性化待办落版，PRD v1.69→v1.70）
+
+chenrt 指令「决策 70~72 的 9 条 PRD 显性化回写」——原型先行内容全部追认进 PRD，纯文档不改模型与契约，原型行为不变（版本轴对齐至 1.70.0）。九条 → 落点映射：
+
+| # | 待办（来源） | PRD 落点 |
+| --- | --- | --- |
+| 1 | §3.1「网域列表」行补 5 列描述（决策 70-1） | §3.1 网域列表行重写（7 → 5 列）+ §9 验收「网域纳管页列收敛」改 5 列 |
+| 2 | 接入方式术语按 `domain_type` 收敛（决策 70-3） | 同上两处：「接入方式不再单列、并入网域列，措辞 = 中心直连域 / 采集节点域；`local`/`agent_pull` 保留为技术判据不作列展示」 |
+| 3 | 验收项 1261 边界注记：行内禁的是展示指引内容、复制动作不受限（决策 70-3） | §9「安装指引为页面顶部常驻提示区」验收项追加边界注记（含静态模板口径） |
+| 4 | 命令口径改「静态模板 + 行内复制填值」，决策 75 表述同步（决策 71-4） | §3.1「安装指引」行「一键复制安装命令」→「一键复制安装命令模板（静态占位符、不含真实凭据）」；验收 1261 注记同步 |
+| 5 | 顶部 3 步回正 +「纳管取凭据」为前置不占步骤编号（决策 71-3） | §3.1「安装指引」行补前置条件句（验收 1261 注记同步） |
+| 6 | §3.1 网域列描述写「网域（名称 + ID + 接入方式）」（决策 70-1） | 与 #1 合并（三合一表述落 §3.1 行与验收） |
+| 7 | 「组件明细与诊断请查看采集节点状态页」下沉为验收项（决策 72-1） | §9 新增 {P0}「网域详情抽屉不承载组件明细」（配置字段 + 网域粒度摘要，摘要区提供跨页入口） |
+| 8 | 补「网域详情抽屉三态出口」描述（决策 72-2） | §3.1 字段语义注记补三态出口 + §9 新增 {P0} 验收 |
+| 9 | 补「采集节点状态页支持 network_domain 深链」（决策 72-3） | §3.2 功能表新增「跨页深链预筛」行 + §9 新增 {P0} 验收（惰性预筛 + 来源提示 + 空态三支 + 不做整表高亮） |
+
+配套：PRD 修订表轮转（v1.67 迁本文件完整历史）；`Modules/README.md` §1 总表 M09 行 PRD v1.70 / 原型 1.70.0、§5 Change Log 新增 v1.66 行；04/05 头部版本串仍按「另案刷新」口径不动。
+
+---
+
+## 决策 74：采集节点状态页两列与 M06 对齐裁定（网域列删接入方式 Tag + 配置同步列形态定版 + mock 流转演示）
+
+- **日期**：2026-09-15
+- **状态**：已采纳（PRD v1.70 → v1.71 + 原型 1.70.0 → 1.71.0 同轮落地）
+- **触发**：chenrt 在决策 70~72 九条回写轮追问两点——① M09「采集节点状态」页的**接入方式列**是否要与 M06 同步（同用「中心直连域 / 采集节点域」措辞）；② **配置同步列**是否要与 M06「接入进度」列形式一致（点阵），并期望「完成了下一步、状态自动更新」。
+- **证据核对**：
+  1. 本页网域列 Tag 实为裸技术枚举 `agent_pull`（`channelLabel`），本就与 M06 的 `domain_type` 用户措辞不同源；
+  2. 本页按定义**只展示有 Agent 的网域**（中心直连域不产生实例、仅出现在空态说明）→ 每行接入方式**恒为「采集节点域」**，该 Tag 是常量、零信息量；
+  3. M06「接入进度」为单调递进生命周期四态（走完不回退），配置同步为**循环状态机**（已同步 → 待确认变更 → 生效中 → 已同步，可随变更反复）+ 成因分支（决策 41-1）+ 未知/人工覆盖/未下发档——「生效中」是 `out_of_sync` 的成因之一、非更靠后的步骤，点阵会误导语义；「状态自动更新」在语义上已成立（心跳上报驱动，与 M06 聚合查询自动前进同理），原型看不出流转只是 mock 静态快照。
+- **子决策**：
+  - **74-1 网域列删接入方式 Tag**：本页实例恒属采集节点域，恒定信息不进列（同步修掉裸枚举口径问题）；接入方式归网域纳管页网域列（决策 70-1）。v0.4+ 若中心直连域也部署节点再回填。
+  - **74-2 配置同步列形态定版 = Badge + 成因分档**：不采用 M06 点阵；配套「表头短定义 + 单元格悬浮明细」拆分（原列头 Tooltip 塞五档全口径过长）。
+  - **74-3 mock 流转演示（跨页桥）**：`readSyncFlowOverrides` / `writeSyncFlowOverride`（**sessionStorage 持久化**——模块级内存对象在页面重载时重置、跨页即丢，自验实测证实后改为存储方案；与页面横幅 localStorage 记忆同模式）——配置确认页确认 agent_pull 变更后写入「生效中」（domain 级兜底，仅翻转该域 pending_draft 节点）；「立即同步」与心跳自动流转写入「已同步」（agent 级优先、跨页不回退）；本页挂载合入 override，「生效中」约 10s 心跳模拟自动流转「已同步」。仅服务原型演示，真实实现由心跳上报驱动。
+- **影响范围 / PRD 落点（PRD v1.71）**：
+  1. §3.2「节点平铺表」行：网域列写「名称 + ID，不展示接入方式 Tag」+ 理由（决策 74-1）；
+  2. §3.2 表格后新增「配置同步列形态定版」注记（决策 74-2 全量理由）；
+  3. §9 验收「节点平铺表」行补网域列口径、「配置同步状态引导操作」行补形态定版句（决策 74-1/74-2）。
+- **原型落点（1.71.0）**：`EdgeAgentsPage.tsx`（网域列删 Tag + 删 `channelLabel`/`channelTip` 引用；表头 Tooltip 拆分 + `syncCellTip` 单元格悬浮；override 合入初始态 + 心跳流转 effect + force-sync 回写桥 + ReviewNote 补记）；`ConfigPreviewPage.tsx`（handleConfirm 对 agent_pull 网域写入「生效中」override）；`mocks/module-09.ts`（新增 `readSyncFlowOverrides` / `writeSyncFlowOverride`，sessionStorage 持久化）。
+- **验证**：build / lint（0 warning）/ test（54）/ check:notes / check:prototype 全绿；puppeteer 自验 14/14 PASS（含流转全闭环：待确认变更 → 前往配置确认 → 确认发布 → 生效中 + 查看下发记录 → 约 10s 自动流转已同步 + 流转提示；立即同步跨页不回退；reload 状态保持）。
+- **遗留**：mock 流转演示为原型行为，验收口径以 PRD §9 形态定版句为准（不含定时器细节）。
+
+---
+
+## 交叉引用登记：2026-09-15（网域生命周期闭环——回收路径修正 + 禁用/纳管联动具象化，决策 82）
+
+- **主记录**：`docs/05-execution-records/module-06/design-decisions.md` → **决策 82**（触发方为 M06 网域管理走查，故主记录落 M06；判据见下）。
+- **本模块相关三条（决策 82 的 M09 侧义务）**：
+  1. **82-1 级联清退义务（MVP）**——M06 删除网域（非空、已纳管场景）时，M09 侧承担级联清退：**废止 Token / 停止配置下发 / `EdgeAgent` 记录标记 retired**；采集节点侧不要求线下卸载，Token 废止后 Agent 心跳鉴权失败自然转离线。（本模块不提供删除入口的既有边界不变。）
+  2. **82-3「退纳管」动作定义（v0.2+）**——本模块新增「退纳管」动作：**废止 Token → 停止配置下发 → `registration_status` 归位 `created`（未纳管，保留历史记录）→ `EdgeAgent` 心跳鉴权失败转离线**。此动作是把 §1 MVP 注记（决策 62）中「禁用是否联动取消纳管 / 冻结 Token」的**口径① 从原则具象为可实现动作**——**本模块 §1 已许诺「是否停止采集由 M09 退纳管决定」（转述自 M06 §6.2），但此前从未定义该动作**，属契约悬空，本决策补齐。
+  3. **正交关系定版**——M06 禁用（准入冻结：能不能新建）与 M09 退纳管（运行停止：现有采集停不停）**语义正交**，两者不互相触发、不可互相替代；M06 删除则**包含**级联清退（82-1）。
+- **PRD 落点（Module_09 v1.71→v1.72）**：§1 MVP 注记（补决策 62 推进说明）；§3.1 功能表「网域删除」行更新 + 新增「退纳管（v0.2+）」行；§8 状态机补 `registration_status` 流转（`created` 未纳管 ⇄ `monitored` 已纳管，退纳管归位 `created`）；§9 验收新增退纳管条目（标注 v0.2+）；Change Log 新增 v1.72 + 轮转 v1.69 迁完整历史。
+- **原型**：网域纳管页第 3 列「运行状态」更名为「**采集节点在线**」（+ 列头 tooltip 点明「本网域采集节点的聚合心跳状态；节点与组件级诊断见『采集节点状态』页」）——该列与「纳管状态」列一为运行态、一为配置态，**并非重复**；更名原因：MVP 下 1 网域 : 1 采集节点，「运行状态」与节点页「整体状态」数值恒等且列名指代不同对象，极易被误判为冗余。退纳管入口（v0.2+）与级联清退表现待后续原型轮落地。
+- **勘误（2026-09-15，同日复核时修正）**：
+  1. **枚举名对齐原型代码**——§8 ⑤ 初稿使用 `unregistered` / `registered` / `retired` 三个**原型代码中不存在**的枚举名（决策 82 起草时新造），与原型自 v1.29 起使用的 `created` / `monitored`（`src/mocks/module-09.ts`，21 处引用 + 单测依赖）不一致 → **改为「中文态名 + 括号标注代码枚举值」**（未纳管 `created` ⇄ 已纳管 `monitored`），与 PRD 全篇「正文用中文术语、字段与枚举标代码名」的既有写法保持一致，不再另造词汇。
+  2. **`retired` 归属定版**——初稿把 `retired` 同时写在 §3.1（归 `EdgeAgent` 记录）与 §8 ⑤（归网域 `registration_status` 终态），**两处自相矛盾**；且原型的 `EdgeAgent` 只有 `status: unknown/online/offline`、无 `retired`。定版为**归 `EdgeAgent` 采集节点记录**（该记录的生命周期终态、保留供审计追溯）；**网域被删后本身软删、从列表消失，不进入纳管状态机**（已不在列表的对象无需状态）。
+- **决策号勘误**——本决策在 M06 侧编号为 **82**（原拟 81，因 M07 线未提交 WIP 已在工作区占用 81 而顺延；`git log` 不可见）；M09 侧文件有一处**无空格斜杠写法** `决策 62/81` 在批量改号时被漏改（既不匹配 `决策 NN` 也不匹配 `NN-M`），已修正为 `62/82`。**教训：决策号替换须覆盖 `决策 NN` / `NN-M` / `NN / MM` / `NN/MM` 四种写法。**
+
+  
+
+
+
+## 规格归位外迁：PRD §3 引用块瘦身（2026-09-16，PRD v1.72→v1.73）
+
+> 按 `prototype-designer.md` v1.33「规格归位与正文格式纪律」执行 T3 瘦身：§3 的 28 个引用块三向拆解（用户层拍平 / 技术层下沉 §6.1·§7.1.3·§10.1 / 决策史外迁本文件）；§4/§6/§8 共 8 处 ASCII 图转 Mermaid。以下为自 PRD 迁出的叙述性原文（2026-09-16 规格归位外迁）。
+
+### 1. http_sd 未来演进选项论证（自 §3.3.2 迁出）
+
+**http_sd 未来演进选项**：由中心 HTTP API 动态下发 targets（`http_sd_configs`）记录为未来演进选项，当前**不采用**：政务/金融专网弱网自治要求下，http_sd 的 targets 不落本地磁盘，断网重启后 targets 丢失、且依赖中心 SD API 在线（中心返回 200+`[]` 有清空目标风险），与「断网自恢复、本地自治」原则冲突；故 MVP / v0.2 阶段 targets 统一采用 file_sd（JSON 目标文件）。
+
+### 2. 采集节点状态列表页结构变更史（自 §3.8.1 迁出）
+
+**结构变更**：原「网域聚合 + 展开行组件子表」结构导致筛选器无法联动覆盖子表列，且用户心智的「采集节点」是物理安装单元（一台机器上的进程组）而非逻辑网域。现改为**节点平铺表 + 组件详情抽屉**，彻底解决筛选问题并让三个进程的关系在 UI 上自解释。
+
+页面采用**节点平铺表**结构，主对象为**采集节点**（用户心智单元：在哪个机器上装了什么东西），一行一个节点；**仅展示部署了 Edge Agent 的网域**——`channel=local` 的网域由中心直接采集、不部署 Edge Agent，不产生 `EdgeAgent` 实例，故不出现在本页；**「采集节点状态」子菜单常驻**，无 `EdgeAgent` 实例时进入**空态引导页**（提示用户先完成网域纳管并按指引接入 Edge Sync Agent）。
+
+**页面顶部组件关系说明横幅**：采用**可关闭 Alert 横幅**，默认展示，用户关闭后记住选择（`localStorage`），下次进入本页不再自动展开。文案：「一次安装 = 三个进程：Edge Sync Agent（管理进程）+ 采集器 vmagent（采集指标）+ 拨测器 blackbox（可选）。Edge Sync Agent 负责拉取配置并守护另外两个进程，某个进程异常会被自动重启并在此处展示。」
+
+**筛选**：支持**网域、整体状态、采集器状态、拨测器状态、配置同步**五维筛选——所有筛选器均作用于平铺列，不存在嵌套子表导致的筛选失效问题；网域下拉仅列出存在 `EdgeAgent` 实例的网域；统计卡随筛选联动。
+
+**平铺表列**
+
+| 字段 | 说明 |
+|------|------|
+| 节点 | 主机名 / IP（两行合并） |
+| 网域 | 网域名称 + 下发通道 Tag（`agent_pull`） |
+| 整体状态 | 聚合三档：**正常**（所有组件正常，绿）、**部分异常**（必装组件异常，黄，如采集器 stopped）、**离线**（Agent 离线，红）；规则：Agent 离线→离线；必装组件异常→部分异常；**「部分异常」节点行级高亮**（浅红背景 + 左侧红边） |
+| Edge Sync Agent 状态 | online / offline（管理进程：心跳 / 配置拉取 / 守护采集器与拨测器；与抽屉组件分区一一对应） |
+| 采集器状态 | running / stopped / unknown；vmagent 或 prometheus-agent |
+| 拨测器状态 | running / stopped / not_deployed / unknown；未部署表示该网域无 `job_type=blackbox` 的 ScrapeJob |
+| 配置同步 | 五档状态 + 按成因分档标签与引导按钮（见 3.2 配置同步状态与引导）；未下发配置（`no_version`）→「去配置采集 Job」；未同步（`out_of_sync`）按 `out_of_sync_cause` 区分：*`pending_draft`*→标签「待确认变更」+「前往配置确认」、*`pull_pending`*→标签「生效中」+纯展示等待 +「查看下发记录」、*`local_reset`*→标签「本地校验失败」+「立即同步」 |
+| WAL 积压 | 该节点 WAL 积压字节数 |
+| 最后心跳 | 最近一次心跳时间 |
+
+**组件详情抽屉（替代展开行）**：点击行或「查看」按钮打开右侧 Drawer，展示：
+- 组件关系说明：「Agent 是管理进程，负责拉取配置和守护另外两个进程。某个进程异常会被自动重启并在此处展示。」
+- 节点基本信息：主机名、IP、网域、Agent 版本、整体状态、最后心跳、WAL 积压
+- **组件列表按组件类型分区展示**（不再使用 Table 子表）：三个进程（Edge Sync Agent / vmagent / blackbox exporter）各占一个独立分区，每块展示——组件类型 Tag（附 Tooltip 描述其职责）、状态 Tag、**实例名（截断 + Tooltip 悬停看全）**、版本、配置版本；**「最近错误」分层展示**——抽屉内**仅显示最近一条错误的一句话摘要（截断约 80 字符）+ 时间**，旁边附带「查看错误详情」按钮；点击按钮用 **Modal 弹窗**（而非嵌套 Drawer）展示完整错误文本（等宽字体、可复制）、发生时间、所属组件、关联配置版本。组件清单由 Edge Sync Agent 心跳附带上报（PRD 5.3）。
+- **进程维修提示**：MVP 阶段中心不主动入站控制边缘进程；若 Edge Sync Agent 自动重启采集器 / 拨测器进程后仍持续异常，抽屉内「最近错误」展示失败摘要，并提示运维人员到边缘节点通过 systemd 重启服务或按「网域纳管」安装指引重装离线包。中心侧远程重启进程按钮（`force_restart` 指令通道）留 v0.2+ 评审。
+- **进程异常高危提示**：整体状态为「部分异常」的节点，详情抽屉顶部渲染红色 Alert 横幅「监控采集中断，需立即处理」——说明影响（指标停止采集与回传、相关告警与看板失效）、强调**与配置同步无关**（配置仍显示「已同步」）、平台无法远程修复；处理方式为登录边缘节点用 systemd 重启服务或按「网域纳管」安装指引重装离线包。该提示独立于配置同步状态，避免用户误将进程健康问题当作配置问题处理（错误点击「立即同步」）。
+
+### 3. 审批「风险分级预留」与 ITSM 集成路径（自 §3.4 迁出）
+
+- **风险分级预留**：通知路由/接收人调整频繁、风险低（仅影响告警体验，不影响采集/规则求值）——MVP 统一人工确认，后续版本按配置类型风险分级，可将 `alertmanager.yml` 降为低风险自动确认。
+- **未来对接外部审批平台（ITSM）时**：审批上下文**仅含人话摘要 + 影响范围 + 风险等级**（复用变更清单），**技术产物不传出平台**——平台内技术确认与业务审批分层（平台内 = 轻量技术确认 / ITSM = 业务审批流，集成路径待 v0.4+/v1.0 另行设计，本轮仅声明边界）。
+
+### 4. external_labels 不注入租户 / 业务标签的决策出处标注（自 §3.3.1 迁出）
+
+正文括注「（2026-08-19 决策：external_labels 不注入租户 / 业务标签）」迁出；结论保留在 §3.3.1 正文（租户标签 `tenant` 与业务标签 `biz` 均由 Module_07 LabelTemplate 以 target 级注入，`external_labels` 仅承载部署级物理维度元数据）。
+
+
+## §3 核心功能重组（T4 防叠加，2026-09-16，PRD v1.73→v1.74）
+
+**背景**：用户质询「§3 可读性差 / 内容不停叠加 / 说明过度技术化 / 子功能划分有偏差」。定量基线：§3 = 449 行 / 43,743 字符（全文 40%）；功能表超长单元格（>300 字符）32 个（Top5 = 1198/1308/2016/919/802）；否定式演变表述 12 处；code fence 4 个、API 路径 2 处、env/CLI 参数名 8 个 token；F-15/F-19/F-14 正文标注 3 处。规范侧同步固化 prototype-designer v1.34 要求 12「§3 核心功能防叠加纪律」+ 门禁 `check-prd-hygiene.sh` 第 5 项。
+
+**重组映射**（编号变更，引用已全量重写）：
+
+| 旧 | 新 | 说明 |
+|---|---|---|
+| 3.1 + 3.1.1 | 3.1 + 3.1.1 | 网域纳管（页面）；超长单元格拆出「列结构 / 纳管表单 / 安装指引」三组要点列表 |
+| 3.10 | 3.1.2 | WAL 与 Remote Write 参数并入网域纳管（用户拍板：用户可感知的网域配置项，网域编辑表单一并配置） |
+| 3.11（3.11.1~3.11.3） | 3.1.3 | 下发通道与多网域能力（拍平为段标题，不再设四级以下小节） |
+| 3.2 + 3.8 | 3.2 + 3.2.1 | 采集节点状态（页面）；3.8.1 空壳删除（标题下零内容，T1 迁移残骸）、3.8.2 诊断看板表立 3.2.1 |
+| 3.4 | 3.3 | 配置变更确认与预览（页面） |
+| 3.5（3.5.1） | 3.4（3.4.1） | 配置下发与分发（页面）；表内 3 行 API（配置包拉取接口 / 配置版本比对 / 配置包下载）删除——§6.3 已有权威版本，表后留一句指针 |
+| 3.3（3.3.1 / 3.3.1.1 / 3.3.2 / 3.3.3） | 3.5（3.5.1 / 3.5.2 / 3.5.3 / 3.5.4） | 配置生成引擎（非页面）；3.3.1.1 五级标题提为四级 3.5.2 |
+| 3.6 / 3.7 / 3.9 | 3.6.1 / 3.6.2 / 3.6.3 | 通用口径三小节 |
+
+**迁出原文与归属**：
+
+1. **4 个代码块 → §6.7「配置产物生成示例」**：external_labels yaml（3.3.1）、alerting yaml（3.3.1.1）、blackbox prometheus.yml + targets json（3.3.2）。原文程序化提取自快照，逐字迁入。
+2. **env/CLI 参数名（F-15 落地细节，自 3.3.3 迁出）**：`--change-detect.min-interval` / `--change-detect.max-interval` 与环境变量 `CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS` / `CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS`（兼容旧 `CONFIG_CHANGE_DETECT_INTERVAL_SECONDS`，作为最大间隔）。正文改为「轮询间隔可通过启动参数与环境变量覆盖（完整参数清单见 design-decisions F-15 条目）」。
+3. **3 行 API 重复行（自 3.5 表迁出，权威在 §6.3 / §6.5.3）**：
+   - `| **配置包拉取接口** | GET /api/v2/platform/edge/config?network_domain=<id> | **P0** |`
+   - `| **配置版本比对** | Edge Sync Agent 上报当前版本，无更新时返回 304 | **P0** |`
+   - `| **配置包下载** | 返回包含 prometheus.yml、targets/*.json、blackbox.yml、rules.yml、metadata.json 的压缩包 | **P0** |`
+4. **F-14/F-15/F-19 正文标注清除**（用户拍板随轮迁出）：3.5.4 开头以「> 决策依据：design-decisions.md 决策 44-2（pending 取代机制）/ dev-feedback F-15（自适应退避）/ F-19（即时性优化与空变更抑制）」指针行承接（v1.27 要求 8 合法模式）。
+5. **「采集节点状态列表页」功能行合并**（旧 3.2 表内与「节点平铺表」行及 3.8.1 三处重复）：独有内容（空态引导、五维筛选、组件横幅 localStorage、对象定义）拆入 3.2 要点列表「页面级行为」。原行全文：
+   - `| **采集节点状态列表页** | 属于一级菜单「网域与节点管理」下的子菜单，常驻展示；无 EdgeAgent 实例时不隐藏入口，而是进入空态引导页……（原文 700 字符，全文见 git 快照 v1.73） | **P0** |`
+6. **Change Log v1.71 行轮转迁入**（主 PRD 仅留最近 3 版）：
+   - | v1.71 | 2026-09-15 | 修改 | 采集节点状态页两列与 M06 对齐裁定（决策 74，chenrt 拍板「接入方式列是否与 M06 同步、配置同步列是否对齐 M06 接入进度点阵」；原型同步落地）。 | 3.2 / 9 | MVP | ready |
+
+**交叉引用改写清单**（§3 外，assertion applier 全部命中）：§5.4 `（见 3.5.1）`→3.4.1 ×2、§5.2 `见 3.3`→3.5、`rules.yml（见 3.3.2）`→3.5.2、`通用命名规约见 §3.3.1`→§3.5.1、`validation_status=failed（§3.3.1 注记）`→§3.5.1 注记、§6.3 引用块 `（见 3.11 配置产物形态分层）`→3.1.3、§6.4 `（运维可手工替换采集器配置/二进制，见 3.6）`→3.6.1、§4/§6.5 旧标题锚 4 处改新 slug；Module_00 集成地图 2 处 M09 锚点改指 `#32-采集节点状态`（旧 `#32-边缘-agent-管理` 在 v1.72 更名时已失效，本轮一并修复）。
+
+**哨兵与校验披露**：
+
+- `\_` 哨兵 3 行 / 4 处 → **0 / 0**：全部为「业务指标标签规范消费」段的 `Module\_07` / `Module\_01` 格式化器污染，本轮按正确写法修复（合法基线变动，同 T3 `Module\_08` 先例）。
+- `****` 哨兵 3 行不变；章节 0–11 结构不变；Change Log = 3 行。
+- §3 功能表行 71 → 67：消失 4 行 = 3 行 API（归位 §6.3）+ 1 行合并（见上第 5 条），无内容丢失。
+- contract token 丢失 8 个，逐项 triage：5 个 env/CLI 参数名（本档案第 2 条承载）、2 个 API 路径（§6.3 / §6.5.3 承载）、1 个 `alerting.alertmanagers[].static_configs[].targets` 结构串（§6.7 yaml 示例承载）。
+- 内链锚点 13 个失效 0；功能表超长单元格（>400 字符）0 个（300~400 区间余 8 个，规范口径为目标 ≤300 / 上限 400）。
+- 语义守恒声明：本轮纯文档重组，功能 / 字段 / 接口 / 状态机规格语义零变更；原型行为不变、无需同步（原型版本保持 v1.72）。
+
+## 网域纳管采用「登记制」而非「Agent 首包自动建域」的论证（2026-09-16，自 PRD §3.1.1 迁出）
+
+**「网域纳管」不能由「安装指引」替代**，两者是「先有身份、再接入」的两个串行步骤：
+
+1. **凭据前置签发**：Edge Sync Agent 启动时必须携带平台签发的 `NETWORK_DOMAIN_ID` 与 `TOKEN`（[6.4](#64-edge-sync-agent-本地行为) 第 2 条），这两个值由网域在 M09 纳管时生成；未预纳管的网域没有可验证身份，Agent 首次心跳 / 拉包无法通过鉴权，更不可能「自动抓取」。
+2. **「自动注册」的对象是 Agent 实例而非网域**：Agent 首次成功握手后平台自动创建的是 `EdgeAgent` 运行态记录（上线 / 心跳 / 版本），而 `NetworkDomain`（网络边界 + 租户映射）必须先由 M06 创建并分配给租户——配置生成按网域分组并注入 `external_labels.network_domain`，依赖网域→租户映射先行落地。
+3. **安全信任锚点**：不做「Agent 首包即自动建域」——陌生端点自报 domain_id 即可建域存在隐式信任问题，且与「网域 = CMDB 云区域 1:1」的边界约束冲突。
+4. **v0.4+ 演化而非取消**：网域与 CMDB 云区域 1:1 后，M06 的网域创建将演化为「从 CMDB 同步 / 校验」，M09 的纳管动作保留；v0.2 前 M06 手动创建网域仍是唯一来源。
+
+## §3 对齐「用户可见能力」索引范式（T5，2026-09-16，PRD v1.74→v1.75）
+
+**背景**：M07 已完成 §3 同类改造（`### 3.N` 能力组 + `#### 3.N.M` 子能力，每节「一句用户价值 + 3~5 条行为要点 + 优先级」，表头 `行为要点 / 说明 / 优先级`），成为跨模块范式。用户要求 M09 §3 的样式与内容对齐 M07，并明确约束：**内容不得与 §0 需求背景、§2 用户故事重复**。
+
+**量化基线（改造前）**：
+
+- §3 = 505 行 / 42,231 字符 = 全文 38.9%（对照 M07 §3 = 110 行 / 4,403 字符 = 4.8%）
+- 表外长散文（>150 字符独立段）= 57 段 / 25,988 字符 = §3 的 62%，最长单段 2,311 字符
+- 用户价值句 0 处；表头为 `功能 / 说明 / 优先级`（另 2 张专用表）；说明列单元格 max 381 / p90 140
+- **根因**：M07 把技术正文放 §5（46,064 字符 = 全文 50%），§3 只做能力索引；M09 让 §3 兼任规格正文（42,231 字符 = 38.9%），而 §5 仅 15,313 字符。不是内容多，是「层」放错——§3 同时背了能力目录与技术规格两个职责。
+
+**改造结果（v1.75）**：§3 = 281 行 / 11,974 字符 = 全文 11.0%（较改造前 −71.6%）；6 个能力组 + 21 个子能力；用户价值句 27 处（6 个 `###` + 21 个 `####` 全覆盖）；表头统一为 `行为要点 / 说明 / 优先级`；表外长散文清零；说明列单元格全部 ≤300 字符。
+
+**归位映射（§3 → 权威章节）**：
+
+| 迁出内容 | 新归属 |
+|---|---|
+| 下发通道表与配置产物形态、文件分工与生成规则、rules.yml 组织与 `content_mode`、候选集过滤、v0.2 Job 网域扇出、实例过滤与 `offline` 排除、规则作用域分组、规则 job 引用校验双层模型、配置文件 × 源数据映射语义、reload 策略分离、target 端口解析链、认证 / TLS 透传 | 新增 §6.8 配置产物生成规则与结构 |
+| 触发模式声明（pull）、三层机制（版本预筛 / checksum 裁决 / 同域 pending 取代）、检测职责划分表、草稿生成与差异检测、变更摘要生成机制、变更对象与影响文件派生、全链路关联、审批分级与混单规则 | 新增 §6.9 变更检测、摘要与草稿生命周期机制 |
+| 校验失败归因与三态操作出口、失败单不锁死源数据、promtool 校验缺口、下发前校验项 | §6.5 中心 / 边缘校验分层与衔接 |
+| 字段分类与条件化展示、WAL 与 Remote Write 参数默认值、`multi_site_enabled` 多网域能力表与数据兼容 | §5.1 网域（NetworkDomain） |
+| 回滚语义边界与分裂态三步治理、废弃回写语义 | 新增 §8.6 回滚与废弃的状态语义 |
+| 网域列表列结构、渐进披露、纳管表单要点、安装指引要点、多网域入口与字段展示规则 | 新增 §11.3 网域纳管页 |
+| 配置同步列形态论证、节点平铺表列设计、配置同步分档与引导、页面级行为 | 新增 §11.4 采集节点状态页 |
+| 变更检测状态可观测 | 新增 §11.5 配置变更确认页与下发记录页 |
+| 提示分区规范 | §11.2 全局行为规则 |
+| Edge Sync Agent 部署定位、边缘节点组件构成与一体化交付、离线二进制包补充、职责边界 | §6.4 Edge Sync Agent 本地行为 |
+| 网域接入动线（M06 创建 → M09 纳管 → 安装指引 → 心跳上线；`local` 通道不经安装指引；单节点部署口径） | 新增 §4.3 网域接入动线 |
+| 两类地址方向与转发语义、M06「接入进度」四态与本页原子粒度的关系 | **删除重复段**（§6.1 / §7.1.3 已是权威承载） |
+
+**结构修正（上轮 T4 遗留缺陷，本轮一并修复）**：
+
+1. `### 3.5 配置生成引擎` 块**物理位置错位**——实际位于 3.2.1 与 3.3 之间（阅读顺序为 3.1→3.2→**3.5**→3.3→3.4→3.6），T4 只改了编号未搬块；本轮随 §3 重写归位。
+2. `### 6.6 管理面 REST API 详细契约` 下四个子节**误用** `#### 6.5.1`~`#### 6.5.4`（与既有 §6.5 撞号）→ 改为 `6.6.1`~`6.6.4`。
+3. `## 4. 核心流程` 前**缺空行** → 随 §3 重写修复。
+4. §8 五个状态机用加粗标题（`**① … 状态机**`）承载 → 改为编号子标题 `### 8.1`~`### 8.5`（对齐 M07 §8 编号范式与 prototype-designer 要求 11「子标题编号强制」），并新增 `### 8.6`。
+
+**§3 子节编号变更（全文锚点同轮回写；`### 3.N` 一级编号 3.1~3.6 未改动、未重排）**：
+
+| 旧 | 新 | 说明 |
+|---|---|---|
+| 3.1 表 + 3.1.1（登记制闭环） | 3.1.1 网域列表与纳管 | 论证迁本档案；动线迁 §4.3 |
+| （无） | 3.1.2 凭据与安装指引 | 从旧 3.1 表的 Token / 安装指引行拆出独立子节 |
+| 3.1.3 下发通道与多网域能力 | 3.1.3（不变） | 压缩为 5 条行为要点，表迁 §5.1 / §6.8.1 |
+| 3.1.2 WAL 与 Remote Write 参数 | 3.1.4 | 表迁 §5.1，本节压为 2 条 |
+| 3.2 表 + 3.8 遗留 | 3.2.1 节点列表与组件诊断 | 列设计迁 §11.4 |
+| （无） | 3.2.2 配置同步状态与引导 / 3.2.3 空态引导与跨页深链 | 从旧 3.2 表与散文中拆出 |
+| 3.2.1 边缘诊断看板 | 3.2.4（不变编号，内容原样） | — |
+| 3.3 配置变更确认与预览 | 3.3.1~3.3.4 | 由 7 行功能表展开为 4 个子能力 |
+| 3.4 配置下发与分发 + 3.4.1 | 3.4.1~3.4.3 | 旧 3.4.1 内容并入 3.4.3 与 §6.5 |
+| 3.5 配置生成引擎 + 3.5.1~3.5.4 | 3.5.1~3.5.3 | 旧 3.5.x 技术内容迁 §6.8 / §6.9 |
+| 3.6.1~3.6.3 | 3.6.1~3.6.3（不变） | 压缩为行为要点 |
+
+**与 §0 / §1 / §2 的不重复约束落实**：
+
+- §0 已承载「模块解决什么问题 / 五阶段需求演进 / 痛点分层表 / 典型场景表」→ §3 不重复演进叙述与场景表，只保留一句用户价值 + 行为要点。
+- §1 已承载「模块定位 + 9 条核心职责 + MVP / v0.2 / v0.4 边界」→ §3 不重复职责声明，只写用户可见行为。
+- §2 已承载用户故事编码与一句话摘要 → §3 不引用故事编码、不复述故事内容。
+
+**迁出原文与校验披露**：
+
+- 迁出原文以行区间程序化提取逐字搬迁，**未改写措辞**；仅把 6 处「见下方」相对引用与 13 处旧 `§3.x` 引用改为绝对章节号（含 2 个失效锚点、1 个跨章锚点改指）。
+- `\_` 哨兵：改造前后均 0 行 / 0 处（v1.74 已清零）。`****` 哨兵 3 行不变。
+- 章节 0–11 不变；Change Log = 3 行（新增 v1.75，轮转删除 v1.72 行——其内容早已在本档案）。
+- 内链锚点失效 0；说明列单元格 >300 字符个数 0；§3 内 code fence / API 路径 / 否定式演变词均为 0。
+- 语义守恒声明：本轮为纯文档归位与重组，功能 / 字段 / 接口 / 状态机规格语义**零变更**；原型行为不变、无需同步（原型版本保持 v1.72）。
+
+---
+
+## §3 交付版本列 + 版本差量形态规范化（2026-09-16，PRD v1.75 同版补充，纯文档）
+
+**背景**：用户对 M09 PRD 提出与 M07 相同的质疑——「**为什么没有功能和产品版本之间的关系了，如 mvp、0.2、0.3**」。M07 在 v2.36 轮已完成同类修复（prototype-designer **v1.35 要求 12-5** 新增「§3 交付版本列」、**v1.36** 新增「版本差量形态（全文强制）」条款）；本轮把同一套做法落到 M09。
+
+**根因**：M09 §3 于 v1.74/v1.75 两轮由规格正文改为「用户可见能力」索引后，21 张行为要点表的表头统一为 `行为要点 / 说明 / 优先级`——**产品版本轴在 §3 内不可见**；版本信息只剩三处旁证（`02_Product_Roadmap.md` §1.5 跨模块矩阵、§9.1「MVP 验收范围收敛」段、零散嵌在行名/说明里的裸文字 cue，如 `退纳管（v0.2+）`、`prometheus-agent（v0.2+ 开放）`）。且裸文字形态不在门禁正则 `\{v[0-9]+\.[^}]+\}` 计数范围内 → 后续瘦身会被当冗余散文清掉（M07 v2.36 已有 5 处因此丢失的实测）。
+
+**「功能↔产品版本」归口（回答用户提问）**：关系从未丢失、也未转移，归口是**三层**——
+
+| 层 | 承载文件 | 粒度 |
+|---|---|---|
+| ① 跨模块统一视图 | `docs/02-product-requirements/02_Product_Roadmap.md` **§1.5 功能-版本矩阵** | 模块 × MVP / v0.2 / v0.3 / v0.4 / v1.0 单元格 |
+| ② 模块 PRD 细节 | 本 PRD 顶部「产品版本覆盖」+ Change Log「产品版本影响」列 + **§3「交付版本」列（本轮补齐）** | 行为要点级 |
+| ③ 原型声明 | `docs/prototypes/module-09/package.json` 的 `version` | 模块级 |
+
+在 ② 层补上 §3 交付版本列之前，M09 的版本关系只能到 Roadmap §1.5 去看——这就是「看起来消失了」的原因。**「优先级（P0/P1/P2）」与「交付版本」是两个正交轴**：前者答「本轮是否必做」，后者答「哪个产品版本交付」（Roadmap §1.5 末注已声明矩阵只标版本包含与否、模块内优先级另见各模块 PRD）。
+
+**判据来源（三处，按优先级）**：
+
+1. `02_Product_Roadmap.md` §1.5 M09 行——MVP：默认网域 `default`（行政登记归 M06）/ 单·多网域模式切换 / 配置生成·预览·Diff·下发 / `external_labels` 注入 / `change_status=deployed` 回写 / 规则文件挂载生成 `rules.yml` / `alertmanager.yml` 纳入变更确认；v0.2：网域生命周期与 Token / Edge Sync Agent / 按网域配置拉取 / Agent 状态列表 / Remote Write 参数 / Job 网域扇出 / filter 模式 / target 端口解析链；v0.3 与 v0.4 均为 `-`；v1.0：mTLS 证书轮转 / Token 轮换 / 边缘自治告警配置包。
+2. 本 PRD §9.1 L1329「**MVP 验收范围收敛**」段——「**P0 是主干能力排序，不等于 MVP 交付**。**MVP 子集 = `default` 域 + `local` 通道 + 配置生成/预览/确认/reload 全链路**——凡涉及 Edge Agent / `agent_pull` / 多网域 / 节点状态 / Token / 安装指引 的条目均标注 **{v0.2}**」。
+3. 行内既有 cue（`v0.2+` / `v0.2` / `v0.4+` 括注），规范化后**移入**交付版本列、不再留在行名与说明中。
+
+**§3 交付版本列取值分布（21 张表 / 100 行，差异标注法）**：
+
+| 取值 | 行数 | 说明 |
+|---|---|---|
+| `MVP` | 51 | MVP 子集内即交付（配置变更确认全链、变更单、下发记录、回滚、校验、生成引擎、通用兜底口径） |
+| `{v0.2}` | 32 | 整表落在 v0.2：3.1.2 凭据与安装指引（5）、3.1.4 WAL 与 Remote Write 参数（2）、3.2 采集节点状态全节（21）、网域纳管 / 编辑 / 删除联动、多网域能力、多目标分发、租户标签校验、3.6.3 边缘 Agent 交付方式 |
+| 差异标注 `MVP；… {v0.2}` | 6 | 行内混合：网域列表（节点在线 / 凭据列）、通道按网域固定、入口与字段由数据驱动、确认抽屉标注发布通道、生效语义按通道区分、回滚边界（分裂态显式化） |
+| `后续版本` | 7 | 未钉版本：3.2.4 边缘诊断看板 6 行（P1/P2）+ 3.6.3「其他交付形态」（Docker / Compose P1；RPM / DEB、Helm P2） |
+| `{v1.0}` | 3 | 3.6.2 安全与证书：mTLS 证书下发 / 证书自动轮转 / Token 轮换 |
+| `{v0.2+}` | 1 | 3.1.1 退纳管（行名内 `（v0.2+）` 剥离后移入本列） |
+
+**§3 单元格形态调整**：`退纳管（v0.2+）`→行名 `退纳管`；`租户标签校验（v0.2）`→行名 `租户标签校验`；优先级列 `P1（v0.2）`→`P1`、`P0（v0.2）`→`P0`（版本从优先级列移出，两轴分离）；说明列内 `（v0.2+ 开放）`→`（{v0.2+} 开放）`、`标记为 v0.2`→`标记为 {v0.2}`、`属 v0.4+ 演化`→`属 {v0.4+} 演化`。表中任何子标题未改动 → **无 GitHub slug / 跨文件锚点风险**。
+
+**版本差量形态规范化（§3 之外）**：按 prototype-designer v1.36「版本差量形态」条款，**63 处 / 52 行**裸文字产品版本标注改为花括号形态，涉及 §1 / §4 / §5 / §6 / §8 / §10 / §11。实现要点（照 v1.36 强制）：
+
+- **花括号区间保护**——先框出 `\{[^}]*\}` 区间，只替换区间**外**的裸文字，避免把已有复合标记二次包裹；
+- **命名空间隔离**——只动产品版本 `v0.x` / `v1.0`，**绝不触碰 PRD 自身版本 `v1.7x`**（否则 Change Log 版本列被加花括号、门禁 check 4 失效）；
+- **semver 隔离**——`v0.25.0` / `v1.101.0` / `v1.2.0` 等软件版本号（§6 配置样例）用尾随 `(?![\d.])` 断言排除，实测拦下 1 处 `"version": "v0.25.0"`；
+- **例外未动**——① 头部元信息块（行 3–12：`产品版本覆盖` 覆盖范围枚举、`原型版本` 行内的 `（v0.2+）`）；② 章节 / 子节标题内版本括注；③ 交叉引用章节名 `design-decisions「v0.4+ 演化影响备忘」`（改了就对不上目标章节名）；④ **§9 验收标准整章**（L226「验收口径维持现状」，且验收标记是发布门禁比对基线）；⑤ Change Log（文档自身版本号）。
+- 代码块与 Mermaid 块**照常规范化**（对齐 M07 先例：`[*] --> online: CMDB 同步 {v0.4+}` 已在 M07 生产文本中验证可渲染），涉及 §5 配置样例注释、§6 边缘自治告警注释、§8 状态机 transition label 与 note 块。
+
+**度量（改造前后）**：
+
+| 指标 | 改造前 | 改造后 |
+|---|---|---|
+| 字符数 / 行数 | 109,329 / 1,640 | 111,442 / 1,640 |
+| §3 表头 | `行为要点 / 说明 / 优先级` × 21 | `行为要点 / 说明 / 优先级 / 交付版本` × 21 |
+| §3 交付版本列 | 无 | 100 行全部有值 |
+| 全文产品版本花括号标记 | 9（其中 §3 内 0） | **124**（§3 交付版本列 42 + §3 前言 2 + §3 说明列 3 + §3 之外 72 + Change Log 5） |
+| §3 内裸文字版本残留 | 12 行 | 0 |
+| PRD 版本 | v1.75 | **v1.75（不变，同版补充）** |
+
+**遗留待裁（跨文档冲突，已同步记入 PRD Change Log 与本档）**：
+
+| 争点 | 说 v0.4 的 | 说 v1.0 的 | 倾向 |
+|---|---|---|---|
+| mTLS 证书下发 / 自动轮转 / Token 轮换（§3.6.2） | 本 PRD §1「模块目标」L100「v0.4 阶段：实现 mTLS、证书自动轮转、Token 轮换」；§9.2「{P2} v0.4 阶段支持 mTLS 证书下发与自动轮转（可选）」 | `02_Product_Roadmap.md` §1.5：M09 **v0.4 列为 `-`**（无交付）、v1.0 行「mTLS 证书轮转；Token 轮换；边缘自治告警配置包」 | 本轮 §3.6.2 记 **`{v1.0}`**（prototype-designer 要求 12-5 指定 Roadmap §1.5 为该轴权威；且 Roadmap v0.4 列为空与 §1/§9 的「v0.4」直接矛盾，§1/§9 更可能是陈旧值）→ **待用户裁定后一并改 §1 L100 与 §3.6.2**（§9.2 属验收基线，改动需独立评估） |
+
+**校验披露**：行数 1,640 不变；H2 章节 0–11 + Change Log 不变；§3 子标题（`###`/`####`）逐字不变；§9 整章与 Change Log 既有行逐字不变；PRD 自身版本 `v1.7x` 计数不变；`[[` 污染哨兵不变；`****` 哨兵 3 行不变（源文件既有）；表头四列化 21/21；四列数据行 100/100；§3 内裸文字版本 0。语义守恒声明：本轮为纯文档形态与可读性补齐，功能 / 字段 / 接口 / 状态机规格语义**零变更**；原型行为不变、无需同步（原型版本保持 v1.72）。
+
+**裁定结果（2026-09-16，用户确认「1、2 我同意你处理」）**：
+
+1. **mTLS 冲突按 Roadmap §1.5 统一为 `{v1.0}`**（§3.6.2 三格此前已按权威落 `{v1.0}`）——§1「模块目标」`{v0.4} 阶段`→`{v1.0} 阶段`（PRD L100）、§9.2 验收散文 `v0.4 阶段`→`v1.0 阶段`（PRD L1435，`{P2}` 验收标记未动、不改变验收元组语义）。全文档 mTLS 相关版本口径现已单一来源：Roadmap §1.5。
+2. **两处去历史化孤立 `****` 残留已修复**（git 追溯确认均由 `6942d5f` 引入：删除内联决策标注 `**{v1.33}**` / `**{MVP 后实测验证}（v1.31 标记…）**` 时残留加粗符号）——§6 `channel` 字段说明清除孤立 `****`；§8 实测验证引言字头按原文语义还原为 `**MVP 后实测验证**`（仅去掉当时已删的决策标注内容）。正当掩码示例 `token_masked: '****abcd'` 保留。
+
+**度量**：M09 PRD 1,640 行不变，md5 `dd2acfb4…`（4 行修复）→ `4bb28b41…`（CL 回写）；`****` 哨兵 3 → 2（1 处为正当掩码 + 1 处为本记录/CL 内反引号提及）。
+
+## 核心章节形态纪律改造（T6，2026-09-16，PRD v1.75→v1.76，prototype-designer v1.37 要求 13）
+
+- **背景**：M09 诊断画像——§1 引用块占 46%（1,705 / 3,410 字符）、§5 引用块占 32%（5,547 / 17,162 字符，7 处多行引用块）、§5.2 EdgeAgent 与 §5.3 EdgeHeartbeat 字段表为 4 列、§8.6「回滚与废弃的状态语义」为无状态机的散文节。§4（用户层 flowchart + 正文编号列表）与 §7（7.1.1~7.1.4 责任矩阵 + 7.2 技术依赖）改造前已达标，本轮未动。
+- **改造内容**：
+  | 章 | 改造前 | 改造后 |
+  |---|---|---|
+  | §1（3,410 字符） | L94-100 引用块承载 MVP 边界 / 退纳管 / 部署目录规范 / 阶段划分 | 拍平为正文段落（文字逐字保留），引用块 46%→4% |
+  | §5（17,162→17,226 字符） | 7 处多行引用块（含 §5.1 嵌套 `> >` 职责边界块 770 字符、§5.2 模型语义块 879 字符）；5.2 / 5.3 表 4 列 | 引用块全部拍平为正文（0.4%）；两表补「必填」列（4 列→5 列统一） |
+  | §8（5,420→5,358 字符） | 8.6 为散文节（触发门禁「状态机节缺 stateDiagram-v2」）；两处标题重复笔误（`**…**：**…**：`）；8.5 两条单行引用注释 | 8.6 拆分归位：废弃回写语义→8.1（discarded 状态后）、回滚语义边界→8.2（rolled_back 状态后）；笔误修复；§8 只余 8.1~8.5 状态机，引用块清零 |
+- **§5.2/§5.3「必填」列取值依据**：与本文件既有系统生成模型同口径（§5.5/§5.6 先例：必填 = 记录创建时是否必有值，非用户表单必填）；逐字段依据 = 字段说明措辞（「可选」→❌、「仅当 out_of_sync 时有值」→❌、「未部署为空」→❌、`no_version` 语义→config_version ❌）+ 原型 `EdgeAgent` TS 接口可选字段（仅 `out_of_sync_cause?`）。
+- **语义守恒**：反引号 token 431 种 / 1,527 处 before↔after 完全一致（消失 / 新增 / 数量变化均为空）；接口路径正则比对无缺失；22 个状态枚举（`pending`/`confirmed`/`discarded`/`rolled_back`/`in_sync`/`out_of_sync`/`manual_override`/`no_version`/`pending_draft`/`pull_pending`/`local_reset`/`rollback_diverged`/`created`/`monitored`/`retired`/`online`/`offline`/`unknown`/`not_deployed` 等）计数零漂移；code fence 36 个不变。
+- **指针修正**：§3「回滚边界」行「语义见 8.6」→「语义见 8.2（回滚）/ 8.1（废弃回写）」；全仓无指向 M09 §8.6 的跨文件锚点（Module_00 / 01_User_Stories 均无 #86 链接）；README v1.75 行描述中的「§8.6」属该版动作的时点记录，不改。
+- **Change Log 轮转**：v1.73 行移出主表（完整历史已在本文件 L1809「规格归位外迁」节），主表保持 v1.76 / v1.75 / v1.74 三行。
+- **门禁**：`check-prd-hygiene.sh` 检查 6 对改造后 M09 EXIT=0（4 项失败条件全 0；§6 占 31.3% 属接口设计正当地盘，不在要求 13 五章范围）。
+- **待用户拍板项**：§8.3 `config_sync_status` / §8.4 `NetworkDomain.status` 状态机有图无 4 列状态表（图内 note 与 §5.2 字段说明已承载语义；补表需推导「后续流转」列——图中未定义恢复流转，如 offline→online，存在语义推断风险，故本轮未新增）。
+
+
+## §1/§5/§6 内容逻辑性改造 + §6 形态纪律（T6-b，2026-09-16，PRD v1.76→v1.77，prototype-designer v1.38 要求 13-bis / 13-ter / 14）
+
+- **背景**：用户对 §1 模块目标、§5.1 必填字段可读性、§6.8/§6.9 逻辑性、§4.3 无图提出改进要求。规范侧先行升级（v1.38）：13-1-bis（职责条目 ≤80 字符）、13-1-ter（MVP 边界三列表）、13-3-bis（必填列机读三态）、13-3-ter（字段节下方内容限制）、新增要求 14（§6 形态纪律：编号层级 / 映射表 / 子节 >80 行拆分 / 生命周期节配图）；门禁检查 6 新增 6f（§6 编号乱入）/ 6g（必填列 ✅/❌ 混写）/ 6h（§6 子节 >80 行）。
+- **§1 重写三段式**：定位段拆两句；职责 9 条每条 ≤80 字符（修复原 1-6 + 1-3 重复编号 bug；细节以 §N 指针下放）；MVP 边界改「做 / 不做 / 退纳管 / 阶段」列表。
+- **§4.3 补图**：用户层 `flowchart LR`（M06 创建 → M09 纳管 → 凭据生成 → 安装指引 → 心跳上线）+ 技术层 `sequenceDiagram`（纳管 / 首拉注册 / 心跳循环），原有三段正文保留为图后说明。
+- **§5.1 必填列条件化（5 处）**：`token` / `agent_type` / `center_endpoint` / `remote_write_url` / `status` 由 `✅/❌` 混写改为「条件必填：channel=agent_pull」（status 加注「系统生成」）；语义零变更（原说明列已含条件）。
+- **§5.1 表下内容归位（6 块）**：WAL 参数表→§3.1.4（指针反转为「见下表」）；字段分类与抽屉三态→§11.3 渐进披露后（原 §11.3 指针「见上方字段分类段」落位）；多网域能力块删除（§3.1.3 能力表已权威承载，§5.1 留一行指针）；配置目录组织→§6.3；标签注入边界独有信息（MVP 单租户 tenant 不注入）→§6.8.3「租户标签唯一来源」bullet；正交决策与 K8s 备忘压缩为指针、**完整版归档如下**。
+- **§6.8 重组**：`#### 3.5.1 external_labels 注入说明` 编号事故修复（内容顺入 6.8.3 作正文引导段）；「配置文件 × 源数据映射语义」与「reload 策略分离」由 bullet / 散文表化；targets 数据驱动段归位 6.8.2；命名空间规约段维持「摘要 + §10.1 指针」形态不变。
+- **§6.9 重组**：三层机制头部补 `flowchart TD` 数据流图；尾部 2 条 P0 残留 bullet（草稿生成 / 差异检测）删除——与第一/二层机制逐字重复，P0 标注由 §3 能力索引承载；`6.9.2` 拆为 6.9.2 审批分级与确认页形态 / 6.9.3 变更摘要生成机制 / 6.9.4 变更对象与全链路关联。
+- **语义守恒**：反引号 token before 431 种 / 1,527 处 → after 413 种 / 1,445 处；消失 18 种全部有归属——16 种 = 部署目录规范段迁本节归档，2 种 = 多网域能力表 `Tenant.multi_site_enabled=false/true`（语义由 §3.1.3「租户级开关 multi_site_enabled 关闭时」与 §11.3 承载）；mermaid 8→11（新增 3 张）；状态枚举抽查零漂移（pending/discarded 计数变化来自新图节点文案）；哨兵 `\_` 288→280（随删除表格）。门禁检查 6 EXIT=0（8 项全 0）。
+
+### §1 退纳管详版（v1.77 迁出归档）
+
+**退纳管（{v0.2+}）**：**废止 Token → 停止配置下发 →** **`registration_status`** **归位** **`created`（未纳管，保留历史）→** **`EdgeAgent`** **心跳鉴权失败转离线**；与 M06 禁用**正交**（禁用管「能不能新建」（准入）、退纳管管「现有采集停不停」（运行）），两者不互相触发、不可互相替代。MVP 阶段该需求由 M06 **删除网域的级联清退**覆盖——M06 软删网域 + 本模块**级联清退**（废止 Token / 停止配置下发 / `EdgeAgent` 记录标 `retired`；采集节点侧不要求线下卸载，心跳鉴权失败自然离线）。三个动作的语义边界对照表见 [Module\_06 §3.2](Module_06_Multi_Tenant.md)。
+
+### §1 MVP 中心部署目录规范（v1.77 迁出归档）
+
+**MVP 中心部署目录规范**：中心一体化交付包的生产部署对齐《业务软件标准化目录与权限配置操作手册》（`docs/06-mvp-e2e-testing/业务软件标准化目录与权限配置操作手册.md`）三目录基线——程序/种子配置 `/opt/apps/metric-center/`（程序账户只读）、数据 `/opt/data/metric-center/`（TSDB / SQLite / **config-output 活配置**）、日志 `/opt/log/metric-center/`；三目录由运维预建，交付包 `env/env.sh` 集中定义 `DATA_ROOT` / `LOG_ROOT` / TSDB 保留策略（`PROM_RETENTION_TIME` / `PROM_RETENTION_SIZE`），`install.sh` 核验目录并入驻，`start.sh` 双模式（检测到 env.sh 走生产路径，否则回落包内 `data/` / `logs/` 保持解压即用）。**关键边界：M09/M08 下发的活配置（prometheus.yml / targets / rules.yml / alertmanager.yml / blackbox.yml）属「平台管理的数据」，落** **`/opt/data/metric-center/config-output/`（程序账户可写），不进只读的** **`/opt/apps/.../conf/`**——否则配置下发闭环与程序目录只读红线冲突。systemd 注册不在 MVP 范围（默认 start.sh），随包提供 logrotate 示例。详见 `docs/06-mvp-e2e-testing/package-center-guide.md`「生产标准化部署」。
+
+### §5.1 网域与业务正交决策详版（v1.77 迁出归档）
+
+**网域与业务正交（2026-08-19 决策）**：网域（由网络环境决定，登记制、低频变更）与业务（由组织管理需求决定、持续演进）是**两个正交维度**——每个资源有且仅有 1 个网域归属（`network_domain_id`）+ 1 个业务归属（`business_domain`，由 [Module\_07](Module_07_Monitoring_Object_Management.md) 维护）。本模块配置生成**不把业务作为网域属性**：一个网域可承载多个业务的资源（多业务共用 1 网域为正常状态），一个业务也可跨多个网域；业务通过 `biz` 标签（M07 LabelTemplate 注入，见 6.8.3）与 `network_domain` 组合过滤与聚合。业务归属变更（资源换业务）只触发 `targets/*.json` 原子重写，不影响 `prometheus.yml` 骨架 / `rules.yml`（见 6.8.2）。
+
+### §5.1 K8s 接入备忘详版（v1.77 迁出归档）
+
+**K8s 接入备忘（2026-09-02 {v0.2} 规划决策）**：K8s 集群按 CNI 选型决定建域方式——overlay CNI（Calico/Flannel）下 Pod 网段仅集群内可达，集群**独立建网域**（zone\_type 增加 k8s），集群内以 Deployment/DaemonSet 部署 vmagent（Agent Mode）作为该域边缘采集节点，kubernetes\_sd\_configs 在集群内原生发现 Pod，配置包/Token/心跳/Remote Write 机制零改动复用（即复用 `agent_pull` 通道）；不建议用控制面节点承载采集负载。VPC 原生 CNI 下可并入所在 VM 网域。同一网域内多采集节点能力保持 {v0.4+} 演化不变，K8s 场景不依赖该能力。
+
+
+## §11 页面交互契约重构 + Change Log 压缩 + §6.5 跨模块归位（2026-09-16，PRD v1.77→v1.78，prototype-designer v1.39）
+
+- **背景**：用户对「Change Log 变更内容列太长」与「§11 各页面都有大段文字说明、但看不出这段是在说明什么」提出改进要求。规范侧先行升级 v1.39：①Change Log 规范新增「变更内容」列 ≤120 字符目标 / 200 硬上限；②要求 9 新增 §11 页面子节**六段模板**（用户任务 / 入口与路径 / 布局与列设计 / 关键交互规则 / 状态与边界 / 跨模块跳转）+ **三禁**（禁设计理由开头、禁字段语义解释、禁功能价值论述）+ 机检约束（用户任务首行、≤50 行、反引号 ≤5、禁状态流转箭头）；③要求 11 补 §11 边界（§11 只回答「页面怎么用」）；④要求 14 增 14-7 §6 内容边界清单 / 14-8 接口契约溢出门槛 / 14-9 产物示例归属 / 14-10 80 行门槛按叶子子节判定。门禁同步新增 **6i**（Change Log 长度）与 **6j**（§11 页面子节形态）。
+- **Change Log 压缩**：v1.77 由 506 → 95 字符、v1.76 由 266 → 54 字符；**v1.75（1308 字符）轮转出主表**（DD L1909「T5」节已有完整建档，本轮另把该单元格原文归档见下）。主表保持 v1.78 / v1.77 / v1.76 三行，全部 ≤120 字符。
+- **§11 重构（11.3 / 11.4 / 11.5：42 / 25 / 10 行 → 27 / 23 / 16 行）**：三个页面子节统一改为六段模板；字段名反引号由 31 / 20 / 29 处降到 **≤5**（11.4 / 11.5 归零），字段取值语义改为指针（`§5.1` 字段分类与必填口径、`§8.3` 配置同步状态与成因分支、`§6.9` 检测状态取值口径）；删「不采用 M06 点阵形态」取舍论证与「检测状态可观测 {P1}」功能价值论述（原文归档见下）。
+- **§6 归位**：§6.5 由 56 → 35 行——删除与 §3.4.3 **逐项重复**的下发前校验项与失败出口（`ValidationStatus` 三态出口、失败归因、不锁死源数据等），改为一行指针；跨模块「谁校验什么」迁入 **§7.1.1 新增「校验分层」子矩阵**（含分层依据与 promtool file_sd 缺口补齐说明）。**§6.6 经评估已是「接口分组 + 方法/路径/请求体」汇总表形态，符合 14-8（无 JSON 样例、无全量字段表），本轮未溢出到 `api-contract-snapshot.md`。**
+- **语义守恒**：反引号 token before 414 种 / 1,446 处 → after 386 种 / 1,329 处；关键标识符（`ValidationStatus`、`promtool check config`、`SIGHUP`、`config_sync_status`、`local_reset`、`file_sd_configs`、`NETWORK_DOMAIN_ID` 等）计数均 >0，语义在权威章节仍有承载；mermaid 11 张不变、code fence 42 不变、顶层 12 章与 §11 `###` / §7.1 `####` 子节计数不变；哨兵 `\_` 280 → 266（减量对应本轮迁出内容，均已归档）。
+- **门禁**：`check-prd-hygiene.sh` 检查 6 十项全 0（EXIT=0）。同时该脚本对 M07 复跑 EXIT=0，未因新增检查产生连带 FAIL。
+
+### Change Log v1.75 单元格原文（v1.78 轮转归档）
+
+**§3 对齐「用户可见能力」索引范式（T5，纯文档，规格语义零变更）**——§3 由规格正文（42,231 字符 / 全文 38.9%）改为能力索引：6 个能力组 + 21 个子能力统一为「一句用户价值 + 3\~5 条行为要点 + 优先级」，表头统一 `行为要点 / 说明 / 优先级`，表外长散文清零；技术正文按归位映射下沉——配置产物生成规则与结构 → §6.8（新增）、变更检测与草稿机制 → §6.9（新增）、通道与产物形态与 Edge Agent 部署 → §6.4 / §6.8.1、校验失败归因 → §6.5、字段分类与 WAL 参数与多网域能力 → §5.1、回滚与废弃状态语义 → §8.6（新增）、页面列结构 / 表单与安装指引要点 / 配置同步分档 / 提示分区规范 → §11.3\~§11.5（新增）、网域接入动线 → §4.3（新增）；§8 五个状态机加粗标题改编号子标题（8.1\~8.5）；修正上轮 §3.5 块物理顺序错位、§6.6 子节误用 6.5.x 编号；**同版内含「版本轴与形态」补齐（纯文档，规格语义零变更）**——①\*\*§3 功能表新增「交付版本」列\*\*（prototype-designer v1.35 要求 12-5）：21 张行为要点表统一增加该列（表头 `行为要点 / 说明 / 优先级 / 交付版本`），取值 `MVP` / 花括号阶段标签 `{v0.2}` / `{v0.2+}` / `{v1.0}` / `后续版本`，采用差异标注法（如 `MVP；节点在线 / 凭据列 {v0.2}`）；原夹在行名与优先级列内的裸文字版本标注（`退纳管（v0.2+）`、`P1（v0.2）`、`租户标签校验（v0.2）`）规范化为花括号形态并移入该列；口径与 `02_Product_Roadmap.md` §1.5 功能-版本矩阵对齐，§3 前言补「优先级与交付版本两轴正交」说明（对齐 Module\_07）。②**版本差量形态规范化**（prototype-designer v1.36 新增「版本差量形态」条款）：§3 之外的 **63 处裸文字产品版本标注**（`v0.4+` / `v0.2` / `v0.3` 等）统一改为花括号形态，涉及 §1 / §4 / §5 / §6 / §8 / §10 / §11 共 **52 行**；例外未动——头部元信息块、章节标题内版本括注、交叉引用章节名（design-decisions「v0.4+ 演化影响备忘」）、§9 验收标记、Change Log。③**遗留待裁裁定（用户确认）**：mTLS / 证书自动轮转 / Token 轮换统一按 Roadmap §1.5 记 `{v1.0}`——§1「模块目标」`{v0.4} 阶段`→`{v1.0} 阶段`、§9.2 验收散文`v0.4 阶段`→`v1.0 阶段`（`{P2}` 标记不动）；④修复 2 处去历史化孤立 `****` 残留（§6 `channel` 字段说明清除、§8 实测验证引言字头按原文还原为 `**MVP 后实测验证**`）
+
+### §11.4 原「不采用 M06 点阵形态」取舍论证（设计理由，按规范 v1.39 要求 9-三禁①迁出）
+
+「配置同步」列维持 **Badge + 成因分档标签**与引导按钮一一对应的形态，不采用 M06「接入进度」的点阵形态——点阵表达单调递进、走完不回退的生命周期，而配置同步是**可随变更反复的循环状态机**且「生效中」是 `out_of_sync` 的成因分支之一；状态由 Agent 心跳自动流转（确认 → 生效中 → 拉包生效 → 已同步，准实时 30s），无需人工推进。列头 Tooltip 只保留一句短定义，每档明细与引导随**单元格悬浮**展示（「表头短定义 + 单元格悬浮明细」拆分，避免五档全口径塞列头）。
+
+### §11.5 原「检测状态可观测 {P1}」功能价值论述（功能价值，按三禁③迁 §3）
+
+**检测状态可观测 {P1}**：变更检测过程需向运维可观测（pull 模式检测为异步后台行为，不可见会引发"变更为什么没生效"的困惑）。配置预览页展示每个网域的检测状态：
+
+### §6.5 迁出的论述与重复段落原文（v1.78 归档，共 35 行）
+
+### 6.5 中心/边缘校验分层与衔接
+
+> **设计定位**：前端「配置生成/预览」对标的是**中心侧控制**（configgen 生成草稿 → 中心内容校验 → 前端预览/diff/确认 → 生成 ConfigVersion），Edge Sync Agent 对标的是**边缘侧消费**（心跳拉 zip → 边缘传输校验 → 原子替换 → 触发 reload → 回执 config\_sync\_status）；两者**不是**「对标 Agent 能力」，也**不是**「另一套独立校验」，而是由\*\*同一份配置产物（ConfigVersion / zip 包）\*\*衔接的同一条链路的两段——中心侧决定「产物对不对、是否可下发」，边缘侧决定「拉到的包完不完整、是否可应用」。
+
+**同产物两段链路关系图**
+
+
+**分层校验对照表**
+
+
+> 分层依据：两类校验**防的是不同风险**——中心内容校验防「生成错误」（产物本身非法），边缘传输校验防「传输问题」（产物本身合法，但拉取过程被损坏 / 篡改 / 半写）；因此边缘侧无需重复中心的 promtool 级语法校验。
+
+**设计要点**
+
+1. **Agent 为「哑校验」**：Edge Sync Agent 只做**传输层机械校验**（`metadata.json` checksum 完整性 + targets JSON 解析），**不做 promtool 级语法校验**（不解析 `prometheus.yml` 完整语法、不调用 promtool / blackbox `--config.check`）；产物合法性由中心内容校验（校验①）保证——校验①失败会阻止确认下发，边缘侧拿到的必然是已通过中心校验的产物。哑校验降低边缘实现复杂度与依赖面（Agent 无需携带 promtool / blackbox exporter 校验工具，弱网边缘节点可离线自校验）。
+2. **联合 checksum 双用途**：同一份联合 checksum（sha256(prometheus.yml + rules\_yml + blackbox\_yml + targets 内容)）在两端各司其职——中心侧用于**草稿去重裁决**（[6.9.1](#691-触发模式与三层机制)：内容与生效版本一致则不进入确认）；边缘侧用于**拉包完整性校验**（[6.4](#64-edge-sync-agent-本地行为) 第 5 条：拉到的字节与中心生成的产物一致）。同一算法、两个校验对象：中心校验「生成内容是否变化」，边缘校验「传输字节是否完整」。
+3. **状态闭环**：`config_sync_status`（in\_sync / out\_of\_sync / manual\_override）是 Agent 的**应用回执**（随心跳上报，见 [3.2](#32-采集节点状态) / [5.2](#52-边缘-agentedgeagent)），与中心 `validation_status` 构成**闭环两端**——中心校验通过（validation\_status=pass）→ 允许确认下发 → Agent 拉包、传输校验、原子替换、reload → 回执 `config_sync_status=in_sync`，闭环完成；任一端异常均可定位：`validation_status` 失败（中心产物问题，阻止下发）、`config_sync_status=out_of_sync` / `manual_override`（边缘应用或本地手工兜底问题，提示重新确认下发）。
+
+**下发前校验项与失败出口（对应 §3.4.3）**：
+
+- 配置包生成后、下发或允许拉取前，必须先通过校验：
+- `promtool check config <prometheus.yml>` 确保 `prometheus.yml` 语法与引用合法；
+- `blackbox_exporter --config.check --config.file=<blackbox.yml>` 确保 `blackbox.yml` 模块定义合法；
+- **configgen 侧 targets schema 校验**：配置生成服务生成 targets JSON 时校验文件结构（JSON 顶层数组、`targets` / `labels` 字段）、`host:port` 地址格式与 labels 合法性（遵循标签命名规则，禁止覆盖 `__address__` 等内置标签），不通过则拒绝生成草稿。
+- **promtool 校验缺口说明**：`promtool check config` 对 `file_sd_configs` 只检查文件**存在性**（文件缺失仅 WARNING），**不校验 SD 文件内容**（社区已知缺口）；该缺口由 configgen 侧的 targets schema 校验弥补（上一条）。
+- 校验失败时，当前 `ConfigDraft` 保持原状态（`validation_status=failed`），不进入下发流程，并记录错误原因；「变更确认」页该变更单展示失败态与失败原因，并提供**两个闭环出口**：
+- **重新校验**：对该草稿重新执行中心内容校验（仅重校、不重生成源内容），适用于"源数据未变但校验结果因环境/工具升级变化"的自愈；重新校验通过后恢复为可确认 `passed`；
+- **废弃**：明确「校验未通过，本次变更将保持当前生效配置不变」，将该草稿置 `discarded`。
+- 二者均为**变更单级**操作，避免 failed 草稿永久卡死在「待确认」列表、挡住后续发布（对应 6.6.2 校验失败相关接口）。
+- **失败单不锁死源数据**：草稿落到 `validation_status=failed` **且** `validation_cause=user_config` 时，平台**自动清除** M01 源数据（`MonitoringRule`）的 `change_status=pending` 锁；**草稿本身保留**（仍在待确认列表、可重校、可废弃，审计链不断）——消除「不可确认的失败单按 pending 锁死源数据、用户只能靠废弃解锁」的死循环。用户回 M01 修改源数据后保存，即由同域 pending 取代机制生成新单并重校。`validation_cause=platform_fault`（promtool / amtool 不可用等环境问题）**不清锁**——非用户可修，环境就绪后重校即通过。清锁写入**不得推进源数据版本**（不得刷新该对象 `updated_at`），否则会触发「清锁 → 版本前进 → 重算 → 再 failed」的无谓重算循环。
+- `ValidationStatus` 状态含义（三态操作出口）：`passed`（**可确认下发**）/ `failed`（阻止确认，提供「重新校验 + 废弃」出口）/ `pending`（未校验或生成中——**同样禁止确认下发**，提供「重新校验 + 废弃」出口，promtool/blackbox 暂不可用属「待环境就绪」而非失败，以 warning 提示）；**操作区判定为「仅** **`validation_status=passed`** **可确认发布」**，`failed`/`pending` 均不可确认。
+- **校验失败归因**：`ConfigDraft` 持久化 `validation_cause`（`user_config` = 用户配置问题，可修复，提供「重新校验 + 前往修改」/ `platform_fault` = 平台技术故障，**同样提供手动「重新校验」自愈出口**）与 `validation_details`（`[{file, line, message}]` 结构化定位，前端行内 Popover 定位并跳转 Module\_01 修改源数据）；（MVP 归因判定：targets schema 类失败归 `user_config`，promtool/blackbox 不可用归 `platform_fault`）。校验信息 Alert 按状态分色——`failed`→error、`pending`→warning。
+- **校验分层定位**：以上校验均为**中心内容校验**（防**生成错误**），与之对应的是 Edge Sync Agent 拉包后的**边缘传输校验**（防**传输损坏/篡改/半写文件**）；中心内容校验与边缘传输校验的分层关系与衔接见 [6.5](#65-中心边缘校验分层与衔接)。
+- Edge Sync Agent 解压配置包后，需同步通知同域 blackbox exporter 重新加载 `blackbox.yml`（推荐 `SIGHUP`；如 blackbox exporter 提供 reload API，也可调用 API）；采集器（vmagent / prometheus-agent）仅当 `prometheus.yml` 结构变化时才需 reload，targets 文件变化由 file\_sd 自动感知（见 6.8.2）。
+
+
+---
+
+## PRD v1.79 §6 归属调整（2026-09-16）
+
+> 背景：`.kimi/agents/prototype-designer.md` v1.39 要求 14-7 明确 §6 的正当职责 = **对外暴露的接口契约 + 运行时行为 + 产物生成规则**；
+> 「地址语义 / 网闸约束」「校验分层跨模块责任」「变更触发链路」「全量 JSON 样例」「字段页面展示」「部署目录 / systemd」六类内容不属于 §6。
+> 本轮按该清单做归属审计与迁移，**规格语义零变更**，原型无需同步。以下为从 PRD 主文档迁出的原文归档。
+
+### 1. Change Log 轮转出的 v1.76 行（主表只留最近 3 版）
+
+| v1.76 | 2026-09-16 | 精简 | **核心章节形态纪律（T6）**——技术层五章形态对齐要求 13（详版见 design-decisions） | 1 / 3 / 5 / 8 | 文档自身（版本轴显式化） | ready |
+
+### 2. §6.1 原「网闸/隔离区连接约束与地址语义」整节（→ 新建 §3.1.5）
+
+### 6.1 网闸/隔离区连接约束与地址语义
+
+**两类地址与网域 / 采集节点的关系**：`center_endpoint`（中心接入地址）与 `remote_write_url`（回传地址）均**登记在网域上、方向均为「采集节点 → 中心」**——因 MVP 一网域一条通道，通道参数属于网域而非某台机器（{v0.4+} 同域多节点共用同一条通道定义）；采集节点是两地址的**使用者而非被指向者**（节点身份 = `NETWORK_DOMAIN_ID` + `TOKEN`，中心无入站端口、从不主动连接节点，故平台不登记节点地址）。两地址按**流量平面**分工：`center_endpoint` 承载管理面（Agent 心跳 + 配置包下载），`remote_write_url` 承载数据面（采集器指标回传）——拆分允许管理面 / 数据面走不同代理或网闸映射；两者同走一个转发入口时，`remote_write_url` 可由平台按 `center_endpoint` 自动推导。
+
+> **网闸 / 隔离区连接约束（强制）**：在政务云等网闸隔离场景（互联网区 ↔ 政务外网区，双向网闸地址策略不同）下，**禁止任何中心 → 边缘方向的主动连接**——所有交互（心跳、配置拉取、指标 remote\_write）一律由边缘 Agent 向中心发起（pull / push 上行）。中心侧不实现也不保留"主动触达边缘"的能力（如主动 reload、主动探测）；该约束同时是安全合规要求与网闸策略的现实约束（中心→区方向的映射地址通常不存在）。
+
+### 3. §6.3「配置目录组织（MVP）」原文（→ 本节 + `deploy-package-and-edge-agent-code-organization.md` 指针）
+
+**配置目录组织（MVP）**：配置产物**按** **`network_domain`** **分目录**组织（`edge-config-<network_domain_id>.zip` / 本地文件集，见 6.3）。**多租户命名空间（按 tenant + network\_domain 分目录）为 {v0.2+} 占位**——原则：配置只随物理网域 / 采集目标变化而重新生成与下发，不因租户数量复制采集基础设施；详细目录 / 命名空间规则随多租户版本再定，MVP 不展开、不实现。
+
+### 4. §6.4「离线二进制包补充」原文（systemd 单元 / capability 属工程实施，→ DD 指针）
+
+**离线二进制包补充**：网域存在 blackbox 拨测 Job 时，离线二进制包必须同时包含 blackbox exporter 二进制；安装脚本/文档提供 capability 设置示例（如 `setcap cap_net_raw+ep ./blackbox_exporter`），并在 systemd 单元中声明 blackbox exporter 为采集器（vmagent / prometheus-agent）的启动依赖，确保采集器启动前 blackbox exporter 已监听 `127.0.0.1:9115`。
+
+### 5. §6.7 被删除的两个产物样例（→ 只保留 1 个 blackbox 最小示例）
+
+**`global.external_labels`** **注入（3.5.1）**
+
+```yaml
+global:
+  external_labels:
+    network_domain: "gov-cloud-a"
+    zone_type: "extranet"     # 仅当网域登记了 zone_type 时注入
+    replica: "replica-0"      # 部署级高可用副本标识
+```
+
+**`alerting`** **段注入（3.5.2，仅中心求值器）**
+
+```yaml
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]   # 值由 env/env.sh 注入，禁止硬编码
+```
+
+### 6. §6.9.1 三层机制数据流图（→ 迁入 §4.2 全链路图，PRD 改指针）
+
+```mermaid
+flowchart TD
+    A["源数据变更<br/>（M01 Job / 规则、M07 资源 / 模板写库）"] --> B["第一层：版本触发预筛<br/>source_data_version &gt; 上次生成时间？"]
+    B -->|否| Z1["跳过本轮"]
+    B -->|是| C["按网域重新生成配置"]
+    C --> D["第二层：checksum 裁决<br/>对比生效 ConfigVersion.checksum"]
+    D -->|一致| Z2["空变更抑制<br/>不生成草稿、不进确认列表"]
+    D -->|不一致| E["第三层：同域 pending 取代"]
+    E -->|"存在活 pending 且 checksum 相同"| Z3["保持 skipped_pending"]
+    E -->|"checksum 不同：新单取代旧单<br/>（旧单置 discarded(superseded)）"| F["人工确认（go/no-go）<br/>状态机见 8.1"]
+```
+
+### 7. §6.9.2「确认页技术产物定位」原文（→ 迁 §11.5 关键交互规则）
+
+确认页的**配置预览 / Diff（YAML）是平台内技术确认的运维排查工具**，**不构成审批上下文**：审批信息（人话摘要 + 变更清单 + 影响范围）为主区，技术产物（配置 YAML / Diff / checksum / 源数据版本）为次级/折叠；未来对接外部审批平台（ITSM）时审批上下文**仅含人话摘要 + 影响范围 + 风险等级**，技术产物不传出平台（集成路径见 design-decisions「规格归位外迁」）。
+
+### 8. 归因与后续
+
+- **§6.6 处置结论**：经复核已是「接口清单摘要表」（4 组、最大子节 11 行、字段表 ≤5 行、无全量 JSON 样例），
+  符合 14-8 溢出门槛且符合「接口契约含路径 / 请求响应字段 / 错误码」的正当职责，故**保持现状**，
+  仅补一行「字段级结构体与完整错误码字典见 `api-contract-snapshot.md` §3–§6」指针，形成「PRD 摘要 + 快照详版」双层单一来源。
+- **净效果**：§6 由 480 → 458 行，且留在章内的内容全部归属三类正当职责；总行数 +10 行（因 §3.1.5 / §4.4 承接了迁出内容）。
+- **遗留待办**：§6.8.2 仍有「生成规则要点」与「承接 §3.5.1 的技术要点」两段存在同源表述（job 扇出、规则 job 引用校验），
+  本轮只把重复的规则 job 引用校验条目改为指针，未做整段合并——建议下一轮连同 §3.5 一起做「一处定义、多处引用」的重构。
+
+## PRD v1.79 就地瘦身归档（2026-09-16，版本保持 v1.79）
+
+> 本轮为 v1.79 版本内形态修缮（规格语义零变更），依「同版本内缺陷修复不提版本」约定不递增 PRD 版本、Change Log 不新增行。规范依据：prototype-designer v1.40（§3 技术产物枚举禁令 / 13-2④ 流程说明形态 / 13-3-ter 字段表下散文限额 / 14-11 §6 信息密度审计）。另：§3.1.4 WAL 参数表迁 §6.4.1、§4.3 闭环流程散文改编号列表、§5.1 表下段落收敛为指针——原文一并归档于此。
+
+### §3 技术产物枚举原文（改写为用户语言，产物清单归 §6）
+
+| 配置预览      | 多文件只读预览（`prometheus.yml` / `targets/*.json` / `rules.yml` / `blackbox.yml` / `metadata.json`）；自动判定**受影响的配置文件**并加「变更」标记、默认聚焦第一个受影响文件、提示「本次变更影响 N/M 个配置文件」 | P0  | MVP  |
+| 校验项       | `promtool check config` 校验 `prometheus.yml`；存在 `blackbox.yml` 时调 blackbox exporter 配置检查；targets JSON 由生成器侧 schema 校验；分层关系见 6.5 | P0  | MVP  |
+| 按网域生成产物   | 为每个网域生成 `prometheus.yml`（job 骨架 + `external_labels`）与 `targets/*.json`，并按网域汇聚 `rules.yml`、`blackbox.yml`、`alertmanager.yml`；产物结构与生成规则见 6.8 | P0  | MVP  |
+| 规则 job 引用校验（发布期） | 校验规则表达式 `job` matcher 引用的 job 是否在本网域生效 Job 列表中：存活类规则（如 `up` / `absent(up)`）不匹配 = **error 阻断确认**；其他规则不匹配 = warning 允许确认但高亮提示       | P0  | MVP    |
+| 校验失败动线           | 行内展示具体规则名、引用 job 与缺失 job 清单；error 提供「前往修改」并按 `validation_details[].source` 分流（规则 → M01 规则编辑页；采集 Job / targets → 采集 Job 页），禁止硬编码跳转 | P0  | MVP    |
+| 实例下线排除           | 生成 `targets/*.json` 时按 `Resource.status=offline` 过滤已下线实例，下一配置生成周期即从 targets 移除                                                    | P0  | MVP    |
+
+### §3.1.4 WAL 参数表原文（迁 §6.4.1）
+
+**参数清单与默认值**（在网域纳管 / 编辑表单中按网域配置，均有平台默认值）：
+
+| 参数                                        | 默认值    | 说明                   |
+| ----------------------------------------- | ------ | -------------------- |
+| `wal.max_size`                            | 20GB   | 本地 WAL 最大磁盘占用        |
+| `wal.min_backfill_age`                    | 1h     | 只回传最近 1 小时内数据，避免历史风暴 |
+| `remote_write.queue.max_samples_per_send` | 2000   | 每批次发送样本数             |
+| `remote_write.queue.max_shards`           | 50     | 并发发送分片数              |
+| `remote_write.queue.retry_on_rate_limit`  | true   | 触发限流时自动退避重试          |
+| `remote_write.compression`                | snappy | 传输压缩算法               |
+
+
+### §4.3 闭环流程散文原文（改编号列表）
+
+闭环流程（`channel=agent_pull` 网域）：**M06 创建网域（行政记录：网域名称 + 租户归属/授权，ID 规则见** **[Module\_06](Module_06_Multi_Tenant.md)）→ M09 纳管（登记制：非** **`default`** **网域固定** **`agent_pull`** **通道、填写监控参数、Token 自动签发、Remote Write URL 自动推导）→ 安装指引（下载一体化离线包 + 注入凭据 + systemd 部署）→ Agent 心跳自动上线（出现在「采集节点状态」页）**。
+
+### §5.1 表下非生命周期段落原文（收敛为 MVP 处理 + 指针引用块）
+
+**行政约束以 M06 为单一事实来源**：网域租户归属 / 跨租户共享约束、`network_domain_id` 全局唯一与前缀规则均由 [Module\_06](Module_06_Multi_Tenant.md) 定义并强制校验，本模块不再重复声明；M09 仅校验「纳管」相关约束（如 `channel` 决定字段必填/展示）。
+**网域与业务正交**：业务归属（`business_domain`，M07 维护）是独立于网域的正交维度——一个网域可承载多个业务、一个业务可跨多个网域；配置生成仅按物理网域组织，业务经 `biz` 标签过滤与聚合（注入机制见 6.8.3，归属变更只触发 `targets/*.json` 重写、见 6.8.2）。
+**K8s 接入备忘**：K8s 集群按 CNI 选型决定建域方式（overlay CNI 独立建网域 / VPC 原生 CNI 并入所在 VM 网域），复用 `agent_pull` 通道零改动（{v0.2} 规划决策，完整版见 design-decisions.md）。
+**标签注入边界**：`external_labels` 只注入部署级、物理维度的不可变元数据（`network_domain` / `zone_type` / `replica`），租户与业务标签均由 M07 target 级注入（唯一来源与门禁口径见 6.8.3）。
+**多网域能力（`Tenant.multi_site_enabled`）**：能力开关行为与数据可见性见 §3.1.3，条件化字段展示见 §11.3；`default` 管理域禁止删除、不产生 `EdgeAgent` 实例（见上方 MVP 处理与 §3.2.1）。
+
+### §6.8.2 迁出原文（scope 业务场景 / 规则粒度）
+
+**scope 业务场景**：MVP\~{v0.3} 阶段 `scope` 固定 `central`（中心统一求值，用户无需配置 scope）；`edge`/`both` 为 {v0.4+}（P2）预留——`edge` 核心场景为**断网自治告警**（边缘 vmalert 本地求值 + 本地通知通道），`both` 用于边缘快速响应 + 中心聚合（需以标签区分求值域去重），`central` 用于跨域/全局聚合规则。本模块按 `scope` 决定 `rules.yml` 随哪个网域配置包下发。详见 [Module\_01 5.5 scope 字段说明](Module_01_Metric_Collection_Center.md#55-规则编辑模型monitoringrule)。
+
+**规则粒度**：规则分**聚合规则**（如 `absent(up{job=...})`，无 `instance` 标签，前端显示「全局/聚合」）与 **per-instance 规则**（如 `up == 0`，携带 `instance` 标签，前端显示实例 IP/名称）两类。**M09 对两类规则一视同仁**——生成 `rules.yml` 时不感知粒度差异，仅按 `MonitoringRule.rule_content` 原样并入（透传模式）或按字段化生成（structured 模式）。规则内容编辑（含 per-instance 规则）入口在 Module\_01，per-instance 规则可视化编辑为 M01 {v0.3} 规划。
+
+### §6.8.3 external_labels 机制与注入效果原文（压缩为结论段 + 三标签清单）
+
+**`external_labels` 注入说明**：`external_labels` 是 Prometheus / vmagent 在 `global` 段配置的一组全局标签，采集器在抓取每条时间序列后会自动把这些标签附加到 series 上，因此所有从该 Agent 回写的指标都会统一携带这些标签。
+
+Module\_09 在生成每个网域的 `prometheus.yml` 时，必须在该网域 Agent 配置文件的 `global.external_labels` 中注入以下**部署级、物理维度的不可变元数据**：
+
+注入示例（`global.external_labels` 结构）见 6.7。
+
+- `network_domain`：取值对应 `NetworkDomain.id`，用于标识指标来源网域。
+- `zone_type`：网络区域类型（政务云 `internet` / `extranet` 等），仅当网域登记了 `zone_type` 时同步注入。
+- `replica`：部署级高可用副本标识，随部署拓扑注入。
+
+注入效果：
+
+- 边缘 Agent 抓取的所有指标在 Remote Write 到中心时都会自动携带 `network_domain` / `zone_type` / `replica` 标签。
+- Module\_02 查询中心 Prometheus 时，可基于 `network_domain` 标签对用户有权限的网域做进一步过滤或展示来源网域。
+- **租户 / 业务标签不由** **`external_labels`** **注入**：租户标签 `tenant`（`tenant_id → tenant`）与实例级业务标签 `biz`（`business_domain → biz`）均由 [Module\_07](Module_07_Monitoring_Object_Management.md) LabelTemplate 以 **target 级**注入，在生成 `targets/*.json` 时作为 `static_configs[].labels` 注入，M09 不单独注入；MVP 单租户下 `tenant` 映射不注入、租户数据隔离在 API Gateway / 查询代理层通过 PromQL 注入实现。
+- **租户标签的唯一来源 = Module\_07 target 级注入**：`external_labels` **不承担**租户标签，本模块**不生成**任何租户标签。这是「租户不进入采集拓扑」的落地口径，**{v0.2} 起亦不变**；MVP 单租户下 `tenant` 映射不注入，租户数据隔离在查询网关层通过 PromQL 注入实现。
+- **M09 的生成期门禁职责（{v0.2}）**：因租户隔离依赖 target 级 `tenant` 标签，而该标签由 Job 引用的 LabelTemplate 决定，存在「模板未配 `tenant` 映射 → 该 Job 序列无 `tenant` 标签 → 按 fail-closed 严格派对普通租户**静默不可见**」的风险。故 {v0.2} 开启多租户时，**M09 生成期必须校验「被引用 Job 的标签模板含** **`tenant`** **映射」，缺失则** **`validation_status=failed`**（与规则 job 引用校验同一门禁模式，经 `validation_details.source` 路由，「前往修改」跳回 Module\_07 标签模板）。
+
+
+### §6.8.3 命名空间与标签键规约原文（改 §10.1 指针）
+
+**命名空间与标签键规约**：平台三个互不相同的命名空间（对象字段 / API JSON 字段 `network_domain_id`、Prometheus 标签键 `network_domain`、Query 参数 / Excel 列 / envelope 字段 `network_domain`）不得混用，消费侧对历史序列按 `network_domain` → 兼容 `network_domain_id` → 兜底 `default` 三级解析（`models.ResolveNetworkDomain`，唯一入口，过渡层常驻）；完整三层对照表与通用命名规约见 [10.1](#101-命名空间与标签键规约)。

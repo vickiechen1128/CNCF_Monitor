@@ -1,17 +1,21 @@
-import { Layout, Menu, Typography } from 'antd'
+import { Layout, Menu, Tag, Typography } from 'antd'
 import {
   AppstoreOutlined,
+  BellOutlined,
+  ClockCircleOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
   DesktopOutlined,
   FileSearchOutlined,
+  RadarChartOutlined,
   SendOutlined,
   TagsOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useLocation, useNavigate } from 'react-router-dom'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuProps } from 'antd'
+import { getStoredUser } from '../api/client'
 
 const { Header, Sider, Content } = Layout
 const { Title } = Typography
@@ -27,7 +31,7 @@ interface MainLayoutProps {
  * D3（临时）：MVP 现含「首页 / 系统与平台管理 / 网域与边缘配置中心 / 监控对象管理 / 采集策略」等一级模块；
  * M05 自定义前端门户落地后由 M05 统一导航收口，此处仅作 MVP 可达性占位。
  * M09「网域与边缘配置中心」为独立的顶级模块（与「采集策略」同级），含两个一级菜单组（N2-1）：
- * 组「网域与节点管理」（网域纳管 / 采集节点状态）、组「配置下发」（配置变更确认 / 下发记录）；
+ * 组「网域与节点管理」（网域纳管 / 采集节点状态 / 监控目标状态）、组「配置下发」（配置变更确认 / 下发记录）；
  * 既有 M06「网域管理」保留在「系统与平台管理」下并与「网域纳管」并存。
  */
 interface ModuleDef {
@@ -37,6 +41,20 @@ interface ModuleDef {
   subItems?: MenuProps['items']
 }
 
+/**
+ * config-center 二级导航中两个可折叠子菜单（SubMenu）的 key 及各自路由。
+ * 「网域与节点管理」为低频接入面、「配置下发」为高频查看面，均默认折叠，
+ * 首次进入各自路由时自动展开一次，之后尊重用户手动开合（见 MainLayout 折叠逻辑）。
+ */
+const ACCESS_PLANE_KEY = 'access-plane'
+const DELIVERY_PLANE_KEY = 'delivery-plane'
+
+/** 可折叠子菜单组定义：key 与归属路由（用于首次进入自动展开判断） */
+const COLLAPSIBLE_GROUPS = [
+  { key: ACCESS_PLANE_KEY, routes: ['/domain-onboarding', '/node-status', '/targets'] },
+  { key: DELIVERY_PLANE_KEY, routes: ['/config-preview', '/deployments'] },
+]
+
 const MODULES: ModuleDef[] = [
   { key: 'home', label: '首页', path: '/', subItems: [] },
   {
@@ -44,7 +62,10 @@ const MODULES: ModuleDef[] = [
     label: '系统与平台管理',
     path: '/admin/domains',
     subItems: [
+      { key: '/admin/tenants', label: '租户管理', icon: <CloudServerOutlined /> },
       { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
+      { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
+      { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },
     ],
   },
   {
@@ -52,6 +73,9 @@ const MODULES: ModuleDef[] = [
     label: '监控对象管理',
     path: '/resources',
     subItems: [
+      // 原型对齐（Module_07 MainLayout §3.23）：业务分组字典为资源录入/导入的取值权威，
+      // 故「业务管理」前置，位于「资源管理」之上。
+      { key: '/business-domains', label: '业务管理', icon: <AppstoreOutlined /> },
       { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
       { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
     ],
@@ -59,7 +83,7 @@ const MODULES: ModuleDef[] = [
   {
     key: 'monitoring-strategy',
     label: '采集策略',
-    path: '/scrape-jobs',
+    path: '/collectors',
     subItems: [
       { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
       { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
@@ -73,21 +97,44 @@ const MODULES: ModuleDef[] = [
     path: '/domain-onboarding',
     subItems: [
       {
-        type: 'group',
+        // 「网域与节点管理」为低频折叠子菜单（SubMenu）：默认折叠，
+        // 激活路由落在该组时自动展开（见 MainLayout 折叠逻辑）。
+        key: ACCESS_PLANE_KEY,
         label: '网域与节点管理',
+        icon: <AppstoreOutlined />,
         children: [
           { key: '/domain-onboarding', label: '网域纳管', icon: <CloudServerOutlined /> },
           { key: '/node-status', label: '采集节点状态', icon: <DesktopOutlined /> },
+          // M02 目标状态页（P1）：M09 网域与节点管理下增「监控目标状态」暂挂入口
+          // （与 PRD 决策 47-4 不符，见 module-02/dev-feedback.md F-1，待设计侧收割）。
+          { key: '/targets', label: '监控目标状态', icon: <RadarChartOutlined /> },
         ],
       },
       {
-        type: 'group',
+        // 「配置下发」同样为可折叠子菜单（SubMenu）：默认折叠，进入配置面自动展开。
+        key: DELIVERY_PLANE_KEY,
         label: '配置下发',
+        icon: <SendOutlined />,
         children: [
           { key: '/config-preview', label: '配置变更确认', icon: <FileSearchOutlined /> },
           { key: '/deployments', label: '下发记录', icon: <SendOutlined /> },
         ],
       },
+    ],
+  },
+  {
+    key: 'alert',
+    label: '告警收敛与通知管理',
+    path: '/alert-status',
+    // 原型对齐（Module_08 原型 MainLayout 左侧栏）：告警状态置顶（第一），
+    // 告警配置落底（最后）；中间为静默管理、历史告警。
+    subItems: [
+      // M08 v1.12 增量：告警状态双视图页（T08-F7），原型中为侧栏首项
+      { key: '/alert-status', label: '告警状态', icon: <RadarChartOutlined /> },
+      { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
+      // M08 v1.13 增量：历史告警独立页（Track B+）
+      { key: '/alert-history', label: '历史告警', icon: <ClockCircleOutlined /> },
+      { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
     ],
   },
 ]
@@ -118,19 +165,31 @@ function findModuleByKey(key: string): ModuleDef {
 
 /**
  * 依据当前路由推断激活的一级模块。
- * /admin/domains → 系统与平台管理；/domain-onboarding、/node-status、/config-preview、/deployments → 网域与边缘配置中心；
- * /resources、/label-templates → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；其余 → 首页。
+ * /admin/domains、/admin/users、/admin/tenants、/admin/login-logs → 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
+ * /resources、/label-templates、/business-domains → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /alert-config、/silences、/alert-status → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
-  if (locationPath.startsWith('/admin/domains')) return findModuleByKey('platform-admin')
+  if (
+    locationPath.startsWith('/admin/domains') ||
+    locationPath.startsWith('/admin/users') ||
+    locationPath.startsWith('/admin/tenants') ||
+    locationPath.startsWith('/admin/login-logs')
+  )
+    return findModuleByKey('platform-admin')
   if (
     locationPath.startsWith('/domain-onboarding') ||
     locationPath.startsWith('/node-status') ||
+    locationPath.startsWith('/targets') ||
     locationPath.startsWith('/config-preview') ||
     locationPath.startsWith('/deployments')
   )
     return findModuleByKey('config-center')
-  if (locationPath.startsWith('/resources') || locationPath.startsWith('/label-templates'))
+  if (
+    locationPath.startsWith('/resources') ||
+    locationPath.startsWith('/label-templates') ||
+    locationPath.startsWith('/business-domains')
+  )
     return findModuleByKey('monitoring-object')
   if (
     locationPath.startsWith('/collectors') ||
@@ -139,6 +198,13 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/metric-library')
   )
     return findModuleByKey('monitoring-strategy')
+  if (
+    locationPath.startsWith('/alert-config') ||
+    locationPath.startsWith('/silences') ||
+    locationPath.startsWith('/alert-status') ||
+    locationPath.startsWith('/alert-history')
+  )
+    return findModuleByKey('alert')
   return MODULES[0]
 }
 
@@ -156,10 +222,33 @@ export function MainLayout({ children }: MainLayoutProps) {
     ? location.pathname
     : leafKeys[0]
 
+  // 可折叠子菜单展开态（「网域与节点管理」/「配置下发」）：默认折叠，
+  // 激活路由归属的折叠组自动展开，并尊重用户手动开合（点击折叠按钮即可收起）。
+  const activeGroup =
+    COLLAPSIBLE_GROUPS.find((g) =>
+      g.routes.some((r) => location.pathname.startsWith(r)),
+    )?.key ?? null
+  const [userOpenKeys, setUserOpenKeys] = useState<string[]>([])
+  const prevGroup = useRef<string | null>(null)
+  useEffect(() => {
+    // 默认折叠：自动展开当前激活路由归属的折叠组，其余保持折叠
+    if (activeGroup && activeGroup !== prevGroup.current) {
+      setUserOpenKeys((keys) =>
+        keys.includes(activeGroup) ? keys : [...keys, activeGroup],
+      )
+    }
+    prevGroup.current = activeGroup
+  }, [activeGroup])
+  const openKeys = userOpenKeys
+
   const handleModuleSwitch = (key: string) => {
     const target = MODULES.find((m) => m.key === key)
     if (target && target.key !== active.key) navigate(target.path)
   }
+
+  // 顶部栏右上角：统一展示当前登录账号的角色与账号信息（数据来自 login /auth/me 返回的 AuthUser）。
+  const authUser = getStoredUser()
+  const roleLabel = authUser?.role === 'admin' ? '管理员' : authUser?.role === 'user' ? '普通用户' : ''
 
   return (
     <Layout className="app-layout">
@@ -182,6 +271,19 @@ export function MainLayout({ children }: MainLayoutProps) {
             ))}
           </nav>
         </div>
+        {authUser ? (
+          <div className="app-header-right">
+            {roleLabel && (
+              <Tag
+                className="app-header-role"
+                color={authUser?.role === 'admin' ? 'gold' : 'default'}
+              >
+                {roleLabel}
+              </Tag>
+            )}
+            <span className="app-header-account">{authUser.username}</span>
+          </div>
+        ) : null}
       </Header>
       {active.subItems && active.subItems.length > 0 ? (
         <Layout>
@@ -189,6 +291,8 @@ export function MainLayout({ children }: MainLayoutProps) {
             <Menu
               mode="inline"
               selectedKeys={[selectedSubKey ?? '']}
+              openKeys={openKeys}
+              onOpenChange={(keys) => setUserOpenKeys(keys)}
               onClick={({ key }) => navigate(key)}
               items={active.subItems as MenuProps['items']}
             />

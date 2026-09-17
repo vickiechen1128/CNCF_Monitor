@@ -151,3 +151,28 @@
 
 #### 前端联动
 - 前端下发记录页不再因未选网域报错；「网域信息加载失败」由前端 `fetchAllDomains` 信封 `items/list` 修正解决（见 frontend-developer.md）。
+### user-verify-fix：变更清单按产物 diff 派生（修复「禁用 Job 显示本次无配置变更」误导）
+
+#### 问题
+- 用户验收反馈：禁用采集 Job 后，配置变更预览页显示「本次配置无变化 / 无实际内容变化」，与「版本对比」Tab 中真实 diff（scrape_config 被删除）自相矛盾，引发误解。
+- 根因：`buildChangeItems`（原 `platform/configcenter/draft/service.go`）不做新旧产物 diff，仅罗列当前「仍启用」的 Job/规则且全部写死标为「新增」；被禁用的 Job 已被 `generator.LoadJobs` 过滤，永远不会以「移除」出现在清单中。禁用唯一 Job 时清单为空 → `buildSummary` 返回「本次无配置变更」。不符合 M09 PRD §3.4（变更类型 新增/修改/移除、按产物差异派生、删除目标=高风险醒目提示）。
+
+#### 修复
+- 新增 `platform/configcenter/draft/change_items.go`：
+  - `buildChangeItems(jobs, rules, artifacts, base)`：以「上一已确认 ConfigVersion 产物 vs 本次草稿产物」做 diff；`base == nil`（首次生成）保持原「全部新增」口径（`buildInitialChangeItems`）。
+  - `diffJobItems`：对比新旧 `prometheus.yml` 的 scrape_config（`snapshotScrapeConfigs` 重序列化后与键序无关）+ 对应 targets 文件内容 → 新增（low）/ 变更（low）；生效版本中存在但本次产物已摘除的 Job → 「移除采集 Job X（监控断点风险）」（delete，high）。
+  - `diffRuleItems`：按规则组名对比新旧 `rules.yml` → 新增/变更/移除（规则一律 high，契约 §8）；任一侧解析失败（如多条透传规则拼接出重复顶层 groups 键）退化为整文件比较，避免误报移除。
+- `platform/configcenter/generator/generator.go`：导出 `NormalizeJobFilename`（供 draft 包按同一口径反查 job 对应 targets 文件名）。
+- `service.go` GenerateDraft / reconcileWithExistingPending：`lastConfirmedVersion` 前置为 diff 基线（GenerateDraft 顺带消除原两次重复查询）；决策 44-3 噪声抑制扩展为「变更清单为空即 ErrNoChanges」（含「仅改动禁用对象字段」的空跑，PRD §3.3.3，由 checksum 等价裁决）。
+- `buildSummary`：按「变更类型+对象」聚合，如实输出「新增/变更/移除采集 Job N 个（移除标高风险）」，不再笼统「涉及 N 个」。
+
+#### 新增/修改测试（draft_test.go）
+- 新增 `TestGenerateDraftDiffRemoveOnDisableJob`：禁用唯一已生效 Job → 草稿含 delete/high「移除采集 Job job1」，摘要含「移除采集 Job 1 个」。
+- 新增 `TestGenerateDraftNoDiffReturnsErrNoChanges`：confirm 后源数据无实质变化 → ErrNoChanges，不再生成「无变化」草稿。
+- 调整 `TestGenerateDraftBackfillsSourceVersion` / `TestConfirmDraftKeepsSourceVersion`：补 seed ready job 形成实质 diff（新语义下无 diff 即 ErrNoChanges），测试意图（source_version 回填/保持）不变。
+
+#### 验证
+- `go build ./platform/...`、`go vet ./platform/...`、`go test ./platform/...` 全绿。
+
+#### 前端联动
+- 前端无需改动：`ConfigPreviewPage` 的 `changeTypeLabel/changeTypeColor` 已支持 add/update/delete 渲染；禁用 Job 后变更清单 Tab 现在会如实出现红色「移除」高风险项。

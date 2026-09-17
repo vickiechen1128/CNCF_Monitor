@@ -16,7 +16,7 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 - **只读**：你只能读取文件、搜索代码、分析问题
 - **不写代码**：禁止使用 WriteFile、StrReplaceFile、Shell 等写/执行工具
 - **不猜测**：不确定的地方必须标注为"待确认"
-- **只从已发布 PRD 派生**：不接受 draft / prototyping 状态的 PRD 作为派生输入
+- **只从已发布 PRD 派生**：不接受 draft / prototyping 状态的 PRD 作为派生输入；Track A 要求 **ready**，Track B/B+ 接受 **dev-ready**（须有 design-decisions.md 豁免记录，见「Track B 派生规则」）
 - **落盘由 Orchestrator 负责**：本 Agent 生成的 L2/L3 内容通过汇报返回，由 Orchestrator 写入对应文件
 
 ---
@@ -33,7 +33,7 @@ Orchestrator 会根据当前状态决定调用哪个阶段。
 
 Orchestrator 必须提供以下信息：
 
-- 当前 PRD 路径与状态确认（必须为 **ready**）
+- 当前 PRD 路径与状态确认（Track A 必须为 **ready**；Track B/B+ 为 **dev-ready** 且有 design-decisions.md 豁免记录）
 - 相关模块 PRD、全局架构、Roadmap
 - 现有 `04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md`
 - Phase 2 任务卡中需包含当前 Phase 范围与已完成的 task 清单
@@ -44,7 +44,7 @@ Orchestrator 必须提供以下信息：
 
 ### 目标
 
-从状态为 **ready** 的 PRD 派生/更新 `04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md`，确保 PRD 与 Plan 版本对齐。
+从状态为 **ready** 的 PRD 派生/更新 `04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md`，确保 PRD 与 Plan 版本对齐。Track B/B+（**dev-ready** 轻量规格）走增量派生，见下方「Track B 派生规则」。
 
 ### 触发时机
 
@@ -68,7 +68,7 @@ Orchestrator 必须提供以下信息：
 
 遇到以下任一情况，立即停止并报告 Orchestrator：
 
-1. PRD 状态不是 **ready**
+1. PRD 状态不是 **ready**（Track A）或 **dev-ready**（Track B/B+；缺 design-decisions.md 豁免记录同样阻断）
 2. PRD 中包含未解决的 `[待验证]` 标记
 3. PRD 没有 Change Log
 4. PRD 版本号与当前 Implementation Plan 版本号无法对应
@@ -133,6 +133,17 @@ Orchestrator 必须提供以下信息：
 | 待验证 | 停止派生，等待技术预研完成 |
 | 延迟 | 把对应内容从 MVP Plan 移到 Roadmap |
 
+### Track B 派生规则（04/05 的分轨定位，v2.0 起）
+
+Track B/B+ 需求（dev-ready 轻量规格）派生时，L2 两份文档定位不同，区别对待：
+
+- **`04_Implementation_Map.md`（战略层：做不做 / 难不难 / 先做什么）**：主要服务 Track A。Track B 需求确定性高，**不逐条更新难度矩阵**；仅当 Track B 项推翻 04 的「关键判断 / 关键结论」（如 MVP 范围假设）时做**最小修订**并登记变更日志。
+- **`05_Code_Implementation_Plan.md`（战役层：Phase 结构 + MVP 验收清单）**：Phase 结构服务 Track A；**§7 验收清单是用户验收的单一事实来源，两轨共用**。Track B 派生时：
+  1. 在 05 追加 / 更新「Track B 增量登记」小节：模块 / 能力 / feat 分支 / PRD 版本 / 关联 L3 路径；
+  2. 验收条目以 checklist 并入 §7（新增「7.x Track B 增量验收」子节）——验收口径必须单一，禁止只散落在执行记录里；
+  3. 不重排既有 Phase 结构；**版本末（integration/vX.Y 切出前）由 plan-maintainer 批量归并**，把 Track B 增量正式编入 Phase 结构并对齐 Plan 版本号。
+- **L3（task-sequence.yaml + api-contract-snapshot.md）**：两轨共用同一机制，是 Track B 逐任务管理的唯一载体，派生规则不变。
+
 ### 版本对齐规则
 
 - 每次派生后，`04_Implementation_Map.md` 和 `05_Code_Implementation_Plan.md` 的 Plan 版本号必须与 PRD 版本号一致
@@ -158,7 +169,7 @@ Orchestrator 必须提供以下信息：
 - `docs/02-product-requirements/04_Implementation_Map.md`
 - `docs/02-product-requirements/Modules/Module_XX_*.md`
 - `docs/prototypes/module-XX/`（有前端任务时必读，只读相关页面）
-- `docs/05-execution-records/module-XX/frontend-prototype-map.md`（有前端任务时**必读**；缺失时停止并报告 Orchestrator/prototype-designer 补产出）
+- `docs/05-execution-records/module-XX/frontend-prototype-map.md`（Track A 有前端任务时**必读**，缺失时停止并报告 Orchestrator/prototype-designer 补产出；**Track B/B+ 例外**：无高保真原型，以 dev-ready 轻量规格 PRD 章节 + api-contract-snapshot 替代）
 - `docs/05-execution-records/module-XX/design-decisions.md`
 - 工程标准文件
 - 当前 Phase 范围与已完成的 task 清单（由 Orchestrator 在任务卡中提供）
@@ -278,7 +289,7 @@ tasks:
 
 Planner 返回 L3 前必须逐项确认：
 
-- [ ] 所有前端任务都填写了 `prototype_pages`、`ui_contract`、`nav_contract`、`clipping`
+- [ ] 所有前端任务都填写了 `prototype_pages`、`ui_contract`、`nav_contract`、`clipping`（Track B/B+ 无原型任务：`prototype_pages` / `clipping` 可为空，`ui_contract` 引用轻量规格 PRD 章节号，`nav_contract` 仍必填）
 - [ ] 导航模型与 `frontend-prototype-map.md` 一致：一级 tab 文案 = PRD 模块名，Sider 二级页面不冲突
 - [ ] 列 / 区块完整性：实现集合 = 原型列集合 ∩ MVP 范围；所有删减已在 `clipping` 登记
 - [ ] 前端任务 `verify_commands` 是单文件/单目录测试，不是全量 `pnpm test`
@@ -373,8 +384,8 @@ Phase 0（基础设施） → Phase 1（M06 网域登记） → Phase 2（M07 �
 本项目采用**双文件夹隔离 + 设计/实现分离分支**模式：
 
 - 设计空间 `CNCF_Monitor-worktree`：固定分支 `design/module-mvp-demo`（PRD + 原型代码）
-- 开发空间 `CNCF_Monitor-feature`：`develop` + `feat/module-XX`（生产代码实现）
-- 开发侧并行推进多模块时可在开发空间额外 `git worktree add` 多目录
+- 开发空间 `CNCF_Monitor-feature`：`develop` + `feat/module-XX`（生产代码实现），**默认串行切分支**（一个时间只开一个 feat 分支）
+- 开发侧并行仅为按需手段：确需零耦合任务同开时才额外 `git worktree add` 多目录，用完即删
 - 分支来源：`develop`
 - 合并目标：`develop`
 

@@ -247,3 +247,50 @@ func TestDeleteCITypeExporterMapping(t *testing.T) {
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/ci-exporter-mappings/999999", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
 }
+// seedExporterWithTypes persists an exporter declaring supported monitor types.
+func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types ...string) string {
+	t.Helper()
+	e := &models.ExporterTemplate{
+		Name: name, MetricsPath: "/metrics", Scheme: "http",
+		Source: models.ExporterSourceInternal, SupportedMonitorTypes: types,
+	}
+	require.NoError(t, db.Create(e).Error)
+	return strconv.FormatUint(uint64(e.ID), 10)
+}
+
+// TestMappingExporterSupportTypeGuard 覆盖 F-27 C：采集器 supported_monitor_types
+// 非空时，建/改映射的 monitor_type 须在声明范围内；未标注（空）放行。
+func TestMappingExporterSupportTypeGuard(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	mysqlOnly := seedExporterWithTypes(t, db, "mysqld-custom", "mysql")
+	untyped := seedExporterWithID(t, db, "generic-exporter")
+
+	// 声明仅支持 mysql 的采集器绑到 redis → bad_request。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/ci-exporter-mappings",
+		fmt.Sprintf(`{"monitor_type":"redis","exporter_template_id":"%s","metrics_path":"/metrics","scheme":"http"}`, mysqlOnly))
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "supported_monitor_types")
+
+	// 类型匹配 → 放行。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/ci-exporter-mappings",
+		fmt.Sprintf(`{"monitor_type":"mysql","exporter_template_id":"%s","metrics_path":"/metrics","scheme":"http"}`, mysqlOnly))
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data struct {
+			ID uint `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+
+	// 未标注支持类型的采集器 → 放行（兼容存量）。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/ci-exporter-mappings",
+		fmt.Sprintf(`{"monitor_type":"redis","exporter_template_id":"%s","metrics_path":"/metrics","scheme":"http"}`, untyped))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 更新路径：把 mysql 映射改成 redis（采集器不支持）→ bad_request。
+	w = perform(t, r, http.MethodPut,
+		fmt.Sprintf("/api/v2/platform/ci-exporter-mappings/%d", created.Data.ID), `{"monitor_type":"redis"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "supported_monitor_types")
+}

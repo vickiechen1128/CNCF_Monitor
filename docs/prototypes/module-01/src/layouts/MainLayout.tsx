@@ -30,9 +30,17 @@ type MenuItem = Required<MenuProps>['items'][number]
 // {v3.7} 动线归组：指标库（技术指标库 / 业务指标库 / 业务视图）放入同一「指标库」分组，技术/业务二分、动线放一起
 function buildMenu(role: UserRole): MenuItem[] {
   // {v3.28} F-09（裁定修订）：采集器管理 / 采集 Job 提升为 Sider 一级导航项（独立页面 /collectors、/scrape-jobs），取消「采集策略」一级分组；规则编辑为独立一级项（导航位于「指标库」之后，见 PRD §3.1）
-  const collectorsItem: MenuItem = { key: '/collectors', icon: <AppstoreOutlined />, label: '采集器管理' }
+  // {v3.36} 决策 63（2026-09-05）撤销本裁定的取消分组部分，以生产导航为准，恢复「采集策略」分组（Sider 二级：采集器管理 / 采集 Job / 规则编辑）
+  const collectorsItem: MenuItem = { key: '/collectors', icon: <DatabaseOutlined />, label: '采集器管理' }
   const jobsItem: MenuItem = { key: '/scrape-jobs', icon: <AppstoreOutlined />, label: '采集 Job' }
   const rulesItem: MenuItem = { key: '/rules', icon: <AppstoreOutlined />, label: '规则编辑' }
+  // 「采集策略」分组：与生产 MainLayout 一致（生产一级模块「采集策略」/ Sider 二级采集器管理、采集 Job、规则编辑、指标库；原型侧指标库为独立分组，见下）
+  const collectorsGroup: MenuItem = {
+    key: 'collect-strategy',
+    icon: <AppstoreOutlined />,
+    label: '采集策略',
+    children: [collectorsItem, jobsItem, rulesItem],
+  }
   // 指标库分组：技术指标库（技术元数据）+ 业务指标库（业务语义契约登记表）+ 业务视图（独立页，业务域聚合）
   const techItem: MenuItem = { key: '/metric-library', icon: <DatabaseOutlined />, label: '技术指标库' }
   const bizItem: MenuItem = { key: '/business-metrics', icon: <TeamOutlined />, label: '业务指标库' }
@@ -64,7 +72,7 @@ function buildMenu(role: UserRole): MenuItem[] {
       ],
     },
   ]
-  const base = role === 'ops' ? [collectorsItem, jobsItem, metricLibGroup, rulesItem] : [metricLibGroup]
+  const base = role === 'ops' ? [collectorsGroup, metricLibGroup] : [metricLibGroup]
   return [...base, ...globalItems]
 }
 
@@ -156,6 +164,10 @@ export function MainLayout({ children }: MainLayoutProps) {
                 决策 6 保留「指标元数据」概念、内部实现为「指标库」；
                 决策 14 采集参数可从 CI-Exporter 映射继承、且可被手动覆盖（「同步映射默认值」跳过已覆盖字段）；
                 决策 15 选中 CI 类型后自动匹配映射默认 Exporter 模板（继承链）。
+                v3.41（决策 67-2 + 69 规则挂载「检查 → 提交」两段式）：规则编辑页「挂载 rules.yml」抽屉 footer 改为「取消 + 检查」常驻，
+                「提交并进入变更确认」按钮按状态条件渲染（检查通过 且（无 error 级 job 引用 或 已勾选逃生门））——未检查 / 未通过时按钮不出现；
+                检查结论面板落在表单下方：`valid=false` 硬失败（YAML 语法 / groups 结构 / 组名全局唯一性冲突），job 引用按 severity 分级（存活类 up / absent(up) 缺 job = error 阻断 + 逃生门「已知晓：先挂规则，稍后补建 Job」；其余 = warning 仅提示）；
+                规则内容变更即作废检查结论与勾选（改名称不触发）。原型本地等价模拟后端 `validate-yaml` 判定，job 名单取自 mockScrapeJobs 的生效 Job。
                 v3.26（决策 30 冻结网域校验 / 决策 31 采集认证-TLS 最小集）：
                 决策 30 冻结（禁用）网域禁止新建 Job、存量 Job 禁止新增该域实例（允许移除/禁用/编辑存量）——表单「归属网域」Select 对冻结网域显示但置灰不可选，
                 冻结域实例不放开作为「新增」；新增「遗留机房（legacy-dc）」已纳管但冻结的演示网域。

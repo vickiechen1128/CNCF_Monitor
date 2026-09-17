@@ -60,7 +60,7 @@ export function DisableDomainModal({ open, domain, onCancel, onSuccess }: Disabl
       cancelText={phase === 'result' ? undefined : '取消'}
       cancelButtonProps={phase === 'result' ? { style: { display: 'none' } } : undefined}
       closable={!confirming}
-      destroyOnClose
+      destroyOnHidden
     >
       {phase === 'confirm' ? (
         <>

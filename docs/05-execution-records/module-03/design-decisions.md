@@ -38,3 +38,12 @@
 
 - `docs/02-product-requirements/Modules/Module_03_Gateway_and_Auth.md`
 - `docs/prototypes/module-03/`
+
+## Change Log（完整历史）
+
+> v1.3 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载 v1.2 及以前的逐版完整变更详情。
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+| ---- | ---- | ---- | ---- | ---- | ---- | ---- |
+| v1.1 | 2026-08-02 | 新增 | 完成 Volcengine 风格原型验证，输出独立可点击原型 | PRD 状态、UI/UX、原型目录 | 文档自身 | 设计中 |
+| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本 | 全部 | v0.2 / v1.0 | draft |

@@ -165,7 +165,9 @@ func applyHostInput(h *models.Host, in *ResourceInput) {
 		h.InstanceName = in.Hostname
 	}
 	h.PrivateIP = in.InstanceIP
-	h.Image = in.OSType
+	// os_type 经内置 OS 字典归一化为规范名（models.NormalizeOSType），
+	// 保证采集 Job host_linux/host_windows 候选按家族稳定命中（os_dict.go）。
+	h.Image = models.NormalizeOSType(in.OSType)
 }
 
 func applyDatabaseInput(d *models.Database, in *ResourceInput) {

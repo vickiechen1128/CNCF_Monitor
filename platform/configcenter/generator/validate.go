@@ -7,16 +7,20 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
+	"gopkg.in/yaml.v3"
 )
 
-// execLookPath / toolCheckerFn 可注入，便于测试模拟外部校验工具
-// （promtool / blackbox_exporter）的可用性与执行结果。
+// ToolLookPath / ToolChecker 可注入，便于测试（含跨包测试，如 configcenter/draft）
+// 模拟外部校验工具（promtool / blackbox_exporter）的可用性与执行结果。
+// 测试替换后须用 t.Cleanup 恢复；包级变量非并发安全，勿与 t.Parallel 混用。
 var (
-	execLookPath  = exec.LookPath
-	toolCheckerFn = runToolChecks
+	ToolLookPath = exec.LookPath
+	ToolChecker  = runToolChecks
 	// errToolMissing 表示外部校验工具（promtool / blackbox_exporter）不可调用，
 	// 此时中心内容校验返回 validation_status=pending（决策 42-2）。
 	errToolMissing = errors.New("external validation tool not found")
@@ -95,9 +99,16 @@ func validTargetHost(host string) bool {
 }
 
 // validateLabelName 校验标签名合法且不覆盖内置标签。
+// instance 单独放行：它是 Prometheus 约定标签（非 `__` 前缀保留标签），
+// 在 static_configs[].labels 中写入 instance 是标准用法；系统默认模板按
+// PRD M07 §5.12C 组合字段生成 instance_ip:port → instance，与此保持一致。
+// M09 PRD §3.5.1 仅禁止覆盖 `__address__` 等内置标签，不含 instance。
 func validateLabelName(name string) error {
 	if name == "" {
 		return fmt.Errorf("标签名为空")
+	}
+	if name == "instance" {
+		return nil
 	}
 	if models.IsProtectedLabel(name) {
 		return fmt.Errorf("禁止覆盖内置标签 %q", name)
@@ -105,61 +116,154 @@ func validateLabelName(name string) error {
 	return nil
 }
 
-// ValidateArtifacts 对配置产物做中心内容校验，返回 validation_status 与说明
-// （PRD §3.5.1 / 决策 42-2）：
-//   - targets schema 校验失败 → failed；
-//   - 外部校验工具不可调用 → pending；
-//   - 工具可调用但校验失败 → failed；通过 → passed。
-func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, string) {
+// ValidateArtifacts 对配置产物做中心内容校验，返回：
+//   - status：passed/failed/pending（PRD §3.5.1 / 决策 42-2）；
+//   - cause：故障归因（user_config 用户配置可修复 / platform_fault 平台技术故障，决策 45-3）；
+//   - details：结构化校验失败定位（对齐原型 validation_details）；passed/pending 为空；
+//   - message：人类可读说明。
+//
+// 归因规则：targets schema / 内容校验失败 → user_config；
+// 外部校验工具不可调用 → platform_fault。
+func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
 	for name, content := range ca.TargetsFiles {
 		var groups []TargetGroup
 		if err := json.Unmarshal([]byte(content), &groups); err != nil {
-			return models.ValidationStatusFailed, fmt.Sprintf("targets 文件 %s 解析失败: %v", name, err)
+			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
+				[]models.ValidationDetail{{File: name, Message: fmt.Sprintf("解析失败: %v", err), Source: models.ValidationSourceTargets}},
+				fmt.Sprintf("targets 文件 %s 解析失败: %v", name, err)
 		}
 		if err := ValidateTargetGroups(groups); err != nil {
-			return models.ValidationStatusFailed, fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
+			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
+				[]models.ValidationDetail{{File: name, Message: err.Error(), Source: models.ValidationSourceTargets}},
+				fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
 		}
 	}
-	if _, err := execLookPath("promtool"); err != nil {
-		return models.ValidationStatusPending, "promtool 不可调用，待运维环境就绪后重校"
+	if _, err := ToolLookPath("promtool"); err != nil {
+		return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "promtool 不可调用，待运维环境就绪后重校"
 	}
 	if includeBlackbox && ca.BlackboxYML != "" {
-		if _, err := execLookPath("blackbox_exporter"); err != nil {
-			return models.ValidationStatusPending, "blackbox_exporter 不可调用，待环境就绪后重校"
+		if _, err := ToolLookPath("blackbox_exporter"); err != nil {
+			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "blackbox_exporter 不可调用，待环境就绪后重校"
 		}
 	}
-	if ok, msg := toolCheckerFn(ca.PrometheusYML, ca.BlackboxYML, includeBlackbox); !ok {
-		return models.ValidationStatusFailed, fmt.Sprintf("外部校验未通过: %s", msg)
+	// 决策 60：存在 alertmanager.yml 时需 amtool 校验（管理域 default 范围）。
+	if ca.AlertmanagerYML != "" {
+		if _, err := ToolLookPath("amtool"); err != nil {
+			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "amtool 不可调用，待环境就绪后重校"
+		}
 	}
-	return models.ValidationStatusPassed, ""
+	if ok, msg := ToolChecker(ca, includeBlackbox); !ok {
+		return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
+			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg, Source: models.ValidationSourceScrapeJob}},
+			fmt.Sprintf("外部校验未通过: %s", msg)
+	}
+	// 决策 66：发布期规则 job 引用门禁。判定逻辑与 M01 编辑期同源（rule/jobref，
+	// 单一实现 + 同一输入集，决策 67-4）：
+	//   - error 级（存活类缺 job）→ failed（user_config），阻断确认，前端展示前往 M01 修改；
+	//   - warning 级 → passed + 告警 details，允许确认但高亮提示。
+	if ca.RulesYML != "" {
+		issues := jobref.Validate(ca.RulesYML, scrapeConfigJobNames(ca.PrometheusYML))
+		var fatal, warn []models.ValidationDetail
+		for _, it := range issues {
+			// 决策 67-3：标记来源为规则，配置确认页「前往修改」据此跳 /rules 而非 /scrape-jobs。
+			d := models.ValidationDetail{
+				File:    string(models.AffectedFileRules),
+				Message: it.Message,
+				Source:  models.ValidationSourceRule,
+			}
+			if it.Severity == jobref.SeverityError {
+				fatal = append(fatal, d)
+			} else {
+				warn = append(warn, d)
+			}
+		}
+		if len(fatal) > 0 {
+			return models.ValidationStatusFailed, models.ValidationCauseUserConfig, fatal,
+				fmt.Sprintf("存在 %d 条规则 job 引用错误：请先在 Module_01 创建对应采集 Job 或修正规则，再重校确认", len(fatal))
+		}
+		if len(warn) > 0 {
+			return models.ValidationStatusPassed, "", warn,
+				fmt.Sprintf("配置校验通过，但存在 %d 条规则 job 引用告警（允许确认，建议核对）", len(warn))
+		}
+	}
+	return models.ValidationStatusPassed, "", nil, ""
+}
+
+// scrapeConfigJobNames 解析 prometheus.yml 顶层的 scrape_configs[].job_name，作为
+// 发布期规则 job 引用校验（决策 66）的生效 Job 集合。解析失败返回空集合。
+func scrapeConfigJobNames(prometheusYML string) []string {
+	var doc struct {
+		ScrapeConfigs []struct {
+			JobName string `yaml:"job_name"`
+		} `yaml:"scrape_configs"`
+	}
+	if err := yaml.Unmarshal([]byte(prometheusYML), &doc); err != nil {
+		return nil
+	}
+	var names []string
+	for _, sc := range doc.ScrapeConfigs {
+		if strings.TrimSpace(sc.JobName) != "" {
+			names = append(names, sc.JobName)
+		}
+	}
+	return names
 }
 
 // runToolChecks 实际调用 promtool check config 与 blackbox --config.check。
 // 失败返回 (false, 错误摘要)；成功返回 (true, "")。
-func runToolChecks(promYAML, blackboxYAML string, includeBlackbox bool) (bool, string) {
-	if err := runPromtoolCheck(promYAML); err != nil {
+func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string) {
+	if err := runPromtoolCheck(ca); err != nil {
 		return false, fmt.Sprintf("promtool check config 失败: %v", err)
 	}
-	if includeBlackbox && blackboxYAML != "" {
-		if err := runBlackboxCheck(blackboxYAML); err != nil {
+	if includeBlackbox && ca.BlackboxYML != "" {
+		if err := runBlackboxCheck(ca.BlackboxYML); err != nil {
 			return false, fmt.Sprintf("blackbox --config.check 失败: %v", err)
+		}
+	}
+	// 决策 60：存在 alertmanager.yml 时用 amtool 校验。
+	if ca.AlertmanagerYML != "" {
+		if err := runAmmtoolCheck(ca.AlertmanagerYML); err != nil {
+			return false, fmt.Sprintf("amtool check-config 失败: %v", err)
 		}
 	}
 	return true, ""
 }
 
-func runPromtoolCheck(promYAML string) error {
-	f, err := os.CreateTemp("", "promcheck-*.yml")
+// runPromtoolCheck 将配置产物按真实下发目录结构写入临时目录
+// （prometheus.yml + rules.yml + targets/*.json，与 deployment.writeStructural 一致），
+// 再执行 promtool check config。prometheus.yml 通过 rule_files 引用同目录 rules.yml、
+// file_sd_configs 引用 targets/*.json，缺文件会导致校验误报
+// 「does not point to an existing file」，因此必须先把被引用文件写齐。
+func runPromtoolCheck(ca *ConfigArtifacts) error {
+	dir, err := os.MkdirTemp("", "promcheck-*")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
-	if _, err := f.WriteString(promYAML); err != nil {
-		f.Close()
+	defer os.RemoveAll(dir)
+	if err := os.WriteFile(filepath.Join(dir, "prometheus.yml"), []byte(ca.PrometheusYML), 0o644); err != nil {
 		return err
 	}
-	f.Close()
-	cmd := exec.Command("promtool", "check", "config", f.Name())
+	if ca.RulesYML != "" {
+		if err := os.WriteFile(filepath.Join(dir, "rules.yml"), []byte(ca.RulesYML), 0o644); err != nil {
+			return err
+		}
+	}
+	if len(ca.TargetsFiles) > 0 {
+		targetsDir := filepath.Join(dir, "targets")
+		if err := os.MkdirAll(targetsDir, 0o755); err != nil {
+			return err
+		}
+		for name, content := range ca.TargetsFiles {
+			// review-fix F6：落盘前二次断言纯文件名（写入点复用 map key 的防御纵深）。
+			if err := EnsureTargetsFilename(name); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(targetsDir, name), []byte(content), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	cmd := exec.Command("promtool", "check", "config", filepath.Join(dir, "prometheus.yml"))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
@@ -179,6 +283,27 @@ func runBlackboxCheck(blackboxYAML string) error {
 	}
 	f.Close()
 	cmd := exec.Command("blackbox_exporter", "--config.check", "--config.file="+f.Name())
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// runAmmtoolCheck 用 amtool check-config 校验 alertmanager.yml 内容
+// （决策 60：amtool 对应 amtool 随 Alertmanager 附带的校验入口，管理域 default 范围）。
+func runAmmtoolCheck(alertmanagerYAML string) error {
+	f, err := os.CreateTemp("", "amcheck-*.yml")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(alertmanagerYAML); err != nil {
+		f.Close()
+		return err
+	}
+	f.Close()
+	cmd := exec.Command("amtool", "check-config", f.Name())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s", strings.TrimSpace(string(out)))

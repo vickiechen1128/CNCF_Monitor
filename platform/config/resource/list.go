@@ -18,6 +18,10 @@ import (
 // {resource_id, network_domain_id, biz_code, app_name, env, cluster, owner,
 // status, source_type}。字段值经 T07-03 GetResourceField 读取，host 的 legacy
 // 映射（app_name→AppCode、env→EnvFlag、cluster→SubAppCode 等）已在 helper 内处理。
+//
+// resource_id 为跨模块合并键（decision 47-3）：与 M02 `GET /api/v1/health/coverage`
+// 的 item.resource_id 同键，前端据此把三态采集状态 badge 合并到列表行。本接口仅
+// 稳定透出该键，**不内嵌 up/down 时序字段、不反向查询 ScrapeJob**（M07-M02 边界）。
 var sharedFields = []string{
 	"resource_id",
 	"network_domain_id",

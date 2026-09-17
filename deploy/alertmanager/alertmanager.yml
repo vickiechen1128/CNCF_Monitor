@@ -1,0 +1,16 @@
+# MetricCenter local-dev seed for Alertmanager (alert converge / silence proxy)
+# Copied by `make run-alertmanager` into config-output/alertmanager.yml on first run.
+# Bootstrap placeholder; the control plane (决策 60 DiskApplier) overwrites it with
+# the mounted alertmanager.yml on the first AM config 下发, then triggers /-/reload.
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+
+receivers:
+  - name: 'default'

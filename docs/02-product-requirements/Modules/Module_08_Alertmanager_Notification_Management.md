@@ -1,10 +1,10 @@
 # Module 08: 告警收敛与通知管理
 
-> **PRD 状态**: `设计中`（尚未经原型验证）
-> **PRD 版本**: v1.3
+> **PRD 状态**: `ready`（可开发版本）
+> **PRD 版本**: v1.17
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
-> **原型版本**: v1.2（v1.3 修订后待升级对齐）
-> **更新日期**: 2026-08-15
+> **原型版本**: v1.7（v1.13「历史告警」、v1.15「实例列口径」为 Track B 轻量增量，均免高保真原型，豁免记录见 `docs/05-execution-records/module-08/design-decisions.md`；以 `docs/prototypes/module-08/package.json` 为准）
+> **更新日期**: 2026-09-16
 > **对应原型**: `docs/prototypes/module-08/`
 
 > **模块类型**: 扩展能力模块
@@ -13,39 +13,102 @@
 
 ---
 
+## 0. 需求背景与典型场景
+
+### 这个模块解决什么问题
+
+当监控系统产生大量告警时，运维团队面临「告警风暴」——重要告警被淹没、通知渠道分散、临时变更时无法快速静音。本模块把 Alertmanager 的路由、静默、抑制能力产品化，让运维工程师无需手写 YAML 即可完成告警收敛与通知管理。
+
+### 用户需求的演进过程
+
+从 MVP 开发期的真实反馈看，告警管理的需求随着监控规模扩大逐步暴露：
+
+**阶段 1：通知接入期——「告警产生了，但没人知道」**
+- 平台首次部署后，用户需要把告警通知到具体的人或渠道
+- 痛点：Alertmanager 原生配置是 YAML 文件，接收人/路由配置复杂，且无法与平台其他模块联动
+- 对应能力：文件挂载配置 `alertmanager.yml` + `amtool check-config` 校验 + 版本留痕
+
+**阶段 2：变更管控期——「告警配置改了，什么时候生效？」**
+- 用户在修改告警配置后，需要确认变更内容并控制生效时机
+- 痛点：配置修改直接生效风险高，需要审计与回滚能力
+- 对应能力：`alertmanager.yml` 纳入 M09 变更确认流水线——人工确认 → 下发 → reload
+
+**阶段 3：静默管理期——「计划内变更，不想被告警轰炸」**
+- 用户在数据库迁移、系统升级等计划内操作时，需要临时屏蔽相关告警
+- 痛点：Alertmanager 静默 API 是运行时状态，无法通过文件挂载管理；且 v1 API 已被移除
+- 对应能力：静默极简 UI（创建/列表/删除）+ Alertmanager v2 API 代理
+
+**阶段 4：风暴抑制期——「网域离线时，几百条告警同时爆发」**
+- 某网域整体离线时，该网域内所有主机的 `up=0` 告警会瞬间形成告警风暴
+- 痛点：次生告警淹没根因，运维无法快速定位问题
+- 对应能力：自动生成 `inhibit_rules`（网域离线时抑制 `inhibitable=true` 的次生告警）
+
+**阶段 5：状态可视化期——「告警到底通知了没有？」**
+- 用户需要知道告警是否已路由、是否被静默/抑制
+- 痛点：Prometheus 告警状态与 Alertmanager 通知状态分离，用户需要两个视图对照
+- 对应能力：告警状态页 + Alertmanager `/api/v2/alerts` 代理
+
+### 不同技术背景用户的痛点分层
+
+同一个告警管理能力，不同技术背景的用户会提出完全不同的问题：
+
+| 用户类型 | 典型问题 | 本模块的应对 |
+|----------|----------|-------------|
+| **Alertmanager 专家** | 「我想直接写 `alertmanager.yml`，能支持吗？」 | 文件挂载模式支持整文件上传/粘贴，保留 YAML 灵活性 |
+| **有经验的运维** | 「告警路由规则太复杂，能不能按标签自动分组？」 | 路由规则按 `severity`/`team`/`network_domain` 标签匹配，支持分组/等待/间隔配置 |
+| **普通运维** | 「我不想改配置，只想临时屏蔽某个告警」 | 静默 UI 提供创建/列表/删除三个动作，API 直调即时生效 |
+| **监控新手** | 「什么是静默？什么是抑制？它们有什么区别？」 | 静默=临时屏蔽通知（手动创建），抑制=根因存在时自动屏蔽次生告警（规则驱动） |
+
+### 典型场景（基于真实用户反馈）
+
+| 场景 | 角色 | 触发条件 | 用户目标 | 成功标准 | 来源 |
+|------|------|----------|----------|----------|------|
+| 配置告警通知渠道 | 运维工程师 | 平台首次部署完成 | 配置飞书/钉钉/邮件等通知接收人 | 告警触发后指定渠道收到通知 | 原始需求 |
+| 告警配置变更确认 | 运维工程师 | 修改了接收人或路由规则 | 确认变更内容后下发 | 变更单在 M09 配置中心人工确认后生效 | 决策 60 |
+| 临时静默已知故障 | 运维工程师 | 计划内数据库迁移 | 创建静默规则避免告警轰炸 | 静默期间匹配告警不再通知，过期自动恢复 | 原始需求 |
+| 抑制告警风暴 | 运维架构师 | 某网域整体离线 | 自动抑制该网域内次生告警 | 只保留根因告警，通知量显著下降 | 原始需求 |
+| 静默 API 版本迁移 | 运维工程师 | Alertmanager 升级到 ≥0.27 | 静默管理功能正常可用 | 静默列表/创建/删除走 v2 API，不再报 410 Gone | F-3 / 决策 61 |
+| 查看告警通知状态 | 运维工程师 | 告警触发后确认是否已通知 | 查看告警是否已路由、是否被静默/抑制 | 告警状态页展示 active/silenced/inhibited/unprocessed | 决策 55 |
+
+> 本模块覆盖的用户故事详见 [§2 用户故事](#2-用户故事)。
+
+---
+
 ## 1. 模块目标
+
+> 决策依据：design-decisions.md 决策 49 / 59 / 60 / 61。
 
 本模块对应 **告警收敛与通知管理域**，回答「告警如何通知、通知给谁、是否收敛、是否静默」的问题：
 
-1. **通知路由与接收人管理（MVP / v1.0）**：维护 Alertmanager 的 `route` / `receiver` 配置，按告警标签（如 `severity`、`team`、`network_domain`）决定通知渠道与接收人。
-2. **静默与抑制管理（MVP / v1.0）**：提供静默规则 UI（创建/查询/删除）和自动抑制规则（如网域离线时抑制该网域 `inhibitable=true` 的可达性风暴），调用 Alertmanager API 生效。
-3. **告警状态查看（v0.3 起）**：
+1. **通知路由与接收人管理（MVP / v1.0）**：维护 Alertmanager 的 `route` / `receiver` 配置，按告警标签（如 `severity`、`team`、`network_domain`）决定通知渠道与接收人。MVP 交付形态为**文件挂载**（整文件上传/粘贴 `alertmanager.yml` + `amtool check-config` 校验），表单化 UI 于 v0.3 提供。
+2. **静默与抑制管理（MVP / v1.0）**：提供静默规则 UI（创建/查询/删除）和自动抑制规则（如网域离线时抑制该网域 `inhibitable=true` 的可达性风暴）。静默作为 Alertmanager 运行时 API 状态，MVP 提供极简 UI（创建/列表/删除三个动作，API 直调即时生效）。
+3. **告警状态查看（MVP 起）**：
    - 通过 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，展示当前由 Prometheus 规则求值产生的 firing/pending 告警实例（回答「当前触发了哪些规则」）。
-   - 本模块直接代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态（回答「告警正在通知给谁、是否被静默/抑制」）。
+   - 本模块直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态（回答「告警正在通知给谁、是否被静默/抑制」）。
+   - **历史告警**：通过 Module\_02 的 `/api/v1/alerts/history`（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发/恢复区间），展示规则级告警的触发时间、恢复时间与持续时长。恢复时间为 Prometheus 求值视角的近似值，不等同于故障真实恢复时间。
+   - **实例口径**：三个视图中的「实例」统一拆分为**「实例名」+「采集地址」两列**——「实例名」取 [Module\_07](Module_07_Monitoring_Object_Management.md) 资源清单的口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`），由服务端按告警标签 `resource_id` 回连 M01 资源表回填；「采集地址」为 Prometheus 抓取地址（`ip:exporter端口` 或拨测 URL，即 `instance` 标签值），表头必须标注「采集器地址，非业务端口」，避免用户把 `:9100`（exporter 端口）误读为业务端口（详见 [4.4 节](#44-告警状态查看)）。
 4. **通知渠道与模板（v1.0）**：维护飞书/钉钉/邮件/企业微信/Webhook 等接收人模板，支撑告警通知内容格式化。
 
-> **范围调整说明（v1.3）**：
-> 
-> - 本模块**不再负责**告警规则内容创作（expr / for / labels / annotations）、规则分组（RuleGroup）、`rules.yml` 生成与下发。这些职责已移交至：
->   - [Module\_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md) 负责规则编辑 UI 与规则内容记录（`MonitoringRule`）；
->   - [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责按网域分组规则、生成并下发 `rules.yml`。
-> - 本模块**不再负责**告警规则生命周期管理（启用/禁用、版本、按网域聚合）。规则启用状态由 M09 在生成 `rules.yml` 时消费；规则按网域/分组聚合由 M09 内部自动完成。
-> - 本模块聚焦 **Alertmanager 域**：`alertmanager.yml` 的接收人、路由、静默、抑制、通知状态。
-> - `alertmanager.yml` 由本模块直接管理并触发 Alertmanager reload；MVP 单域阶段**不进入** M09 配置变更确认流程（调整频繁、风险低，详见 [5.1 节](#51-alertmanager-配置管理)）。
+### 边界与配置形态
+
+- **告警规则内容创作、规则分组、`rules.yml` 生成与下发均不归本模块**：规则内容与编辑 UI 由 [Module\_01](Module_01_Metric_Collection_Center.md) 负责（`MonitoringRule`）；规则按网域分组、生成并下发 `rules.yml` 由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 负责。本模块聚焦 **Alertmanager 域**：`alertmanager.yml` 的接收人、路由、静默、抑制、通知状态。
+- **配置生成与下发分离**：`alertmanager.yml` 内容由本模块生成（文件挂载提交 + `amtool check-config` 校验）；作为**管理域（`default`）scope** 的配置产物纳入 M09 变更确认流水线（人工确认 → 下发 → reload），不参与按网域扇出（详见 [4.1 节](#41-alertmanager-配置管理)）。
+- **告警收敛与派发组件锁定 Alertmanager**：配置模型与「UI 配置 → 生成文件 → reload」及 M09 配置生成流水线天然兼容，且不产生租户/网域隔离缺口；易用性诉求由本模块的 UI 化管理承接。
 
 ---
 
 ## 2. 用户故事
 
-> {v1.3} 完整用户故事条目（角色 / 我希望 / 以便于）见**全局用户故事库 [01_User_Stories.md](../01_User_Stories.md) 4.8 节**；本模块用户故事使用模块命名空间编码（`M08-ROLE-NN`，全局唯一），仅在此列出编码与一句话摘要。
+> 完整用户故事条目（角色 / 我希望 / 以便于）见**全局用户故事库 [01_User_Stories.md](../01_User_Stories.md) 4.8 节**；本模块用户故事使用模块命名空间编码（`M08-ROLE-NN`，全局唯一），仅在此列出编码与一句话摘要。
 
-- M08-OPS-01：配置 Alertmanager 接收人（飞书/钉钉/邮件/企业微信/Webhook），指定不同渠道名称与参数（MVP 起通过配置文件或简单 UI，v1.0 完整 UI）。
-- M08-OPS-02：配置告警路由规则，按 `severity`、`team`、`network_domain` 等标签决定告警通知到哪个接收人（MVP 起）。
-- M08-OPS-03：查看当前被 Alertmanager 处理的告警通知状态（active / silenced / inhibited / unprocessed），判断告警是否已路由、是否被静默/抑制（v0.3 起）。
+- M08-OPS-01：配置 Alertmanager 接收人（飞书/钉钉/邮件/企业微信/Webhook），指定不同渠道名称与参数（MVP 通过 `alertmanager.yml` 文件挂载承载，v0.3 提供表单化 UI，v1.0 完整 UI）。
+- M08-OPS-02：配置告警路由规则，按 `severity`、`team`、`network_domain` 等标签决定告警通知到哪个接收人（MVP 通过文件挂载承载，v0.3 起表单化）。
+- M08-OPS-03：查看当前被 Alertmanager 处理的告警通知状态（active / silenced / inhibited / unprocessed），判断告警是否已路由、是否被静默/抑制（MVP 起，v1.12 由 v0.3 提前）。
 - M08-OPS-04：创建临时静默规则，避免计划内变更或已知故障引发告警轰炸（MVP 起）。
 - M08-OPS-05：查看并删除正在生效的静默规则（MVP 起）。
 - M08-OPS-06：配置告警通知模板（summary / description 格式），使通知内容清晰可读（v1.0）。
 - M08-OPS-07：配置告警升级策略（如 5 分钟未确认升级给主管）（v1.0）。
+- M08-OPS-08：查看历史告警（含已恢复），确认某条告警何时触发、何时恢复（MVP 起，基于 Prometheus `ALERTS` 时间序列重建触发/恢复区间，恢复时间为求值视角近似值）。
 - M08-ARCH-01：当某个网域整体离线时，自动抑制该网域内 `inhibitable=true` 的可达性告警风暴，只保留 `EdgeSiteOffline` 根因告警（MVP 起，通过 Alertmanager `inhibit_rules` 自动生成）。
 - M08-ARCH-02：在边缘网域断网场景下，边缘本地 Alertmanager 继续通过本地通知通道（本地飞书/钉钉 webhook）发送自治告警（v0.4+，与 M09 边缘配置下发配合）。
 
@@ -57,20 +120,21 @@
 
 | 功能 | 说明 | 优先级 / 版本 |
 |------|------|---------------|
-| **Alertmanager 配置管理** | 维护 `alertmanager.yml`：全局参数、`route` 路由树、`receivers` 接收人、通知模板；MVP 单域阶段由 M08 直接写文件并 reload，不进入 M09 变更确认 | P0 / MVP |
-| **接收人管理** | 增删改查 Alertmanager `receiver`：飞书/钉钉/邮件/企业微信/Webhook；参数校验（URL/邮箱/Token 等） | P0 / MVP（基础配置），v1.0（完整 UI） |
-| **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间 | P0 / MVP（基础配置），v1.0（完整 UI） |
-| **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效 | P0 / MVP |
+| **Alertmanager 配置管理** | 维护 `alertmanager.yml`：全局参数、`route` 路由树、`receivers` 接收人、通知模板；**MVP 交付形态 = 文件挂载**（整文件上传/粘贴 + `amtool check-config` 校验，与 M01 规则文件挂载同构，决策 59）；**MVP 起进入 M09 变更确认流水线**（管理域 scope、不扇出，人工确认后由 M09 写文件并触发 Alertmanager reload，决策 60） | P0 / MVP（文件挂载） |
+| **接收人管理** | 增删改查 Alertmanager `receiver`：飞书/钉钉/邮件/企业微信/Webhook；参数校验（URL/邮箱/Token 等） | P0 / MVP（文件挂载承载），v0.3（表单 UI），v1.0（完整 UI） |
+| **路由规则管理** | 按标签匹配条件（`severity=critical`、`team=sre`、`network_domain=gov-cloud-a` 等）配置路由，指定接收人、分组、等待/间隔/重复时间 | P0 / MVP（文件挂载承载），v0.3（表单 UI），v1.0（完整 UI） |
+| **静默管理** | 创建/查询/删除 Alertmanager 静默规则；支持按标签匹配、起止时间、原因说明；调用 Alertmanager API 生效；**MVP 提供极简 UI**（创建/列表/删除三个动作，API 直调，决策 59）——静默是运行时状态、文件挂载承载不了 | P0 / MVP |
 | **告警抑制规则** | 自动生成 `inhibit_rules`：当网域整体离线时，抑制该网域 `inhibitable=true` 的告警风暴；支持手动调整抑制策略 | P0 / MVP |
-| **Alertmanager 通知状态** | 代理 Alertmanager `/api/v1/alerts`，展示告警经过路由、静默、抑制后的通知状态 | P0 / v0.3 |
-| **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`，本模块不重复实现 | —（依赖 M02） |
+| **Alertmanager 通知状态** | 代理 Alertmanager `/api/v2/alerts`，展示告警经过路由、静默、抑制后的通知状态；实例列展示「实例名 + 采集地址」两列（v1.15） | P0 / MVP（v1.12 由 v0.3 提前） |
+| **Prometheus 触发告警状态** | 由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 Prometheus `/api/v1/alerts`（MVP 起交付，v1.12 同步提前），本模块不重复实现，告警状态页只读消费；实例列口径同「实例名 + 采集地址」（v1.15） | —（依赖 M02） |
+| **历史告警** | 独立页面展示规则级告警的触发/恢复历史（含已恢复）：触发时间、恢复时间（按 Prometheus 求值近似）、持续时长、实例、网域、摘要；数据由 [Module\_02: 查询中心](Module_02_Query_Center.md) `/api/v1/alerts/history` 提供，本模块只读消费；实例列展示「实例名 + 采集地址」两列（v1.15） | P0 / MVP |
 | **通知模板管理** | 管理告警通知的 title / body 模板，支持变量（`{{ $labels }}`、`{{ $value }}`、`{{ $annotations }}`） | P2 / v1.0 |
 | **告警升级与降噪** | 升级策略（未确认超时升级）、值班组、告警降噪（合并相似告警） | P2 / v1.0 |
 | **边缘本地通知通道** | 断网场景下边缘 Alertmanager 使用本地 webhook 通知（v0.4+ 多网域） | P2 / v0.4+ |
 
 ### 3.2 Prometheus 告警状态 vs Alertmanager 通知状态
 
-| 维度 | Prometheus `/api/v1/alerts` | Alertmanager `/api/v1/alerts` / 通知状态 API |
+| 维度 | Prometheus `/api/v1/alerts` | Alertmanager `/api/v2/alerts` / 通知状态 API |
 |------|------------------------------|-----------------------------------------------|
 | 语义 | 「什么出了问题」—— 告警规则求值状态 | 「谁正在被通知」—— 路由、静默、抑制后的通知状态 |
 | 数据来源 | Prometheus 规则管理器求值结果 | Alertmanager 接收到的告警及处理结果 |
@@ -90,41 +154,26 @@
 | 断网行为 | 无法感知边缘本地指标 | 独立存活，继续通知 |
 | 状态上报 | 通过 M02 代理 Prometheus `/api/v1/alerts` | 通过 M09 EdgeHeartbeat 上报，展示在 M09 Agent 状态页或 M08 边缘告警视图 |
 
-> **第一阶段决策**：MVP ~ v0.3 只实现中心 Alertmanager 通知；`edge` 自治告警与本地通知在边缘 Agent 支持本地 rules 评估后实现（v0.4+）。
+MVP ~ v0.3 只实现中心 Alertmanager 通知；边缘自治告警与本地通知在边缘 Agent 支持本地 rules 评估后实现（v0.4+）。
 
 ---
 
-## 4. 与 Module_01 / Module_09 的职责边界
+## 4. 核心流程
 
-| 职责 | Module_01：监控策略与指标管理 | Module_09：网域与边缘配置中心 | Module_08：告警收敛与通知管理 |
-|------|------------------------------|------------------------------|------------------------------|
-| 规则内容创作（expr / for / labels / annotations） | ✅ | ❌ | ❌ |
-| 规则记录持久化（`MonitoringRule`） | ✅ | ❌ | ❌ |
-| 规则启用/禁用状态 | ✅（字段） | ✅（参与配置生成） | ❌ |
-| 规则按网域分组 / `rules.yml` 生成与下发 | ❌ | ✅ | ❌ |
-| 规则求值 | ❌ | ❌ | ❌（Prometheus / vmalert 原生执行） |
-| Alertmanager 配置（`alertmanager.yml`） | ❌ | ❌ | ✅ |
-| 静默规则管理 | ❌ | ❌ | ✅ |
-| 告警抑制规则（`inhibit_rules`） | ❌ | ❌ | ✅（自动生成 + 手动策略） |
-| 通知接收人管理 | ❌ | ❌ | ✅ |
-| 通知状态查询（Alertmanager） | ❌ | ❌ | ✅ |
-| Prometheus 触发告警状态查询 | ❌ | ❌ | ❌（由 M02 代理） |
-| 边缘告警组件状态展示 | ❌ | ✅（Agent 状态页） | ✅（边缘告警视图，可选） |
+> 决策依据：design-decisions.md 决策 59 / 60 / 68-2。
 
-> **数据流**：
-> 1. Module_01 编辑 UI → `MonitoringRule` 记录 → Module_09 按网域分组/生成 `rules.yml` → Prometheus / 边缘 vmalert 求值。
-> 2. Prometheus 告警 → Module_08 管理的 Alertmanager → 按路由/静默/抑制 → 通知接收人。
-> 3. `alertmanager.yml` 由 Module_08 直接管理并触发 reload；MVP 单域阶段不进入 Module_09 配置变更确认流程。
+### 4.1 Alertmanager 配置管理
 
----
+`alertmanager.yml` 通过**文件挂载**配置。核心动作：
 
-## 5. 实现方式
+1. **校验**：服务端在落库前执行 `amtool check-config` 等价校验（YAML 语法 + route/receiver 引用闭合）。校验失败返回行级错误，不落库、不 reload。
+2. **内容留痕**：校验通过后写入 `AlertmanagerConfigVersion`（内容侧留痕，见 §5.6）。
+3. **变更确认**：内容作为管理域（`default`）scope 配置产物提交 M09 变更检测 → `ConfigDraft` → 人工确认 → `ConfigVersion`；确认后由 M09 写中心 Alertmanager 配置路径并触发 reload（SIGHUP / `POST /-/reload`），`change_status` 回写 M08。
+4. **查看与回滚**：页面展示当前生效配置只读视图与历史版本；回滚 = 将历史版本内容重新挂载提交，再次走 M09 确认。
 
-### 5.1 Alertmanager 配置管理
+> 与 M01 规则文件挂载同构（`content_mode=yaml_passthrough`）；M08 是内容 Owner，M09 是变更确认与下发管道 Owner。
 
-MVP 阶段直接维护 `upstream/prometheus/alertmanager.yml`（或中心 Alertmanager 实例的指定配置路径），Module_08 提供基于接收人/路由/静默/抑制策略的生成能力：
-
-```yaml
+配置产物示例（`alertmanager.yml`）：
 global:
   smtp_smarthost: 'localhost:587'
 
@@ -165,22 +214,17 @@ inhibit_rules:
       - network_domain
 ```
 
-> **MVP 单域直接 reload**：
-> - `alertmanager.yml` 由 Module_08 写文件后通过 SIGHUP 或 HTTP `POST /-/reload` 触发 Alertmanager 重载；
-> - 该文件**不进入** Module_09 的 `ConfigDraft → 人工确认 → ConfigVersion` 流程；
-> - 原因：通知路由/接收人/静默调整频繁、影响面可控（仅影响告警体验，不影响采集/规则求值），且 M08 是 Alertmanager 配置的唯一 Owner。
+- 中心 Alertmanager 是全局单例，每部署一份，不按网域扇出；仅 v0.4+ 边缘自治告警的边缘 `alertmanager.yml` 进入按域下发。
+- 通知路由/接收人/静默调整频繁、影响面可控，MVP 阶段统一人工确认；后续版本由 M09 按配置类型风险分级将本类配置降为低风险自动确认（预留）。
 
-> **v0.4+ 多网域边缘**：
-> - 中心 Alertmanager 配置仍由 M08 直接管理；
-> - 边缘 Alertmanager 配置文件（如各网域独立 `alertmanager.yml`）可由 M08 生成后，通过 M09 配置包下发到边缘，或边缘首次部署时由 M08 初始化脚本推送；
-> - 边缘静默由边缘 Alertmanager 本地处理，M08 提供静默管理代理（P2）。
+**v0.4+ 多网域边缘**：中心 Alertmanager 配置由 M08 直接管理；边缘 `alertmanager.yml`（各网域独立）可由 M08 生成后经 M09 配置包下发，或边缘首次部署时由 M08 初始化脚本推送；边缘静默由边缘 Alertmanager 本地处理，M08 提供静默管理代理（P2）。
 
-### 5.2 静默规则管理
+### 4.2 静默规则管理
 
-静默规则通过调用 Alertmanager API 创建/删除：
+静默规则通过 **Alertmanager v2 API** 调用（Alertmanager ≥0.27 已移除 v1 silence 端点，返回 410 Gone）。List/Create 使用 `/api/v2/silences`；Get/Delete 单条使用 `/api/v2/silence/{id}`；v2 列表响应为裸数组、单条为裸对象、创建成功返回 `{"silenceID": "..."}`。
 
 ```http
-POST /api/v1/silences
+POST /api/v2/silences
 Content-Type: application/json
 
 {
@@ -201,7 +245,28 @@ M08 提供 UI 表单封装：
 - 填写原因；
 - 列表展示活跃静默，支持删除。
 
-### 5.3 告警抑制规则
+**授权校验**：Alertmanager 静默全局生效——租户 A 的宽 matcher 静默会影响到租户 B 的告警。创建静默时 M08 必须在**服务端校验** matcher 收敛于当前用户的授权网域集合（越权 matcher 直接拒绝），不得依赖前端表单约束。MVP 单租户单网域阶段校验恒通过（机制骨架保留）。
+
+#### 4.2.1 matcher 编写口径：可匹配标签四层并集
+
+matcher 匹配的是 **AM 收到告警时携带的标签全集**，口径为四层并集：
+
+| 层 | 可匹配标签 | 来源口径 |
+|---|---|---|
+| 目标层 | `resource_id`（system 强制，不挂模板也在）、`instance`、`app`/`biz`/`env`/`cluster`/`service_name` 等 | **被 `enabled + draft_status=ready` 的采集 Job 实际引用的标签模板中 enabled mappings**（模板解析：显式挂载 → 类别默认模板）∪ system 强制标签；**不是「所有已生效模板的集合」**——未被生效 Job 引用 / 未下发模板的键不可匹配 |
+| 采集机制层 | `job`、`alertname` | Prometheus / 规则求值自动附加 |
+| 规则层 | `severity` 及自定义键 | 规则编辑自定义 labels（enabled + ready + central/both 规则） |
+| external 层 | `network_domain_id`、`zone_type` | 发往 AM 出口附加；**AM 静默可按网域匹配，键为 `network_domain_id`**（该层在 Prometheus 告警查询中不可见） |
+
+例外：拨测（blackbox）类告警无目标层标签，仅规则层 + external 可匹配。
+
+UI 编写引导（表单）：
+- **标签名分组联想框**：按上述四层分组提示可匹配键（聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`），拼错键「静默空集且无报错」的陷阱由联想 + 键描述软引导兜底，不做硬校验（自定义键属合法能力）；
+- **正则预检**：`is_regex=true` 时前端预校验正则合法性（AM 侧 400 兜底保留）；
+- **实例级静默**：`instance` / `resource_id` 均在标签全集内，matcher 直写即实例级；表单提供「按实例选择」入口——复用 M01 资源列表搜索，选中后自动生成 **`resource_id` matcher**（UUID 稳定，不随 IP / 端口变化）；手填 `instance` 须提示其值为 `ip:exporter端口`；
+- **AND 语义提示**：同一静默内多条 matcher 为 AND 关系（`alertname + resource_id` = 静默某实例的某类告警；单 `resource_id` = 静默该实例全部告警）。
+
+### 4.3 告警抑制规则
 
 当某个网域整体离线时，该网域内数百台主机的 `up=0` 告警会瞬间形成告警风暴。MetricCenter 通过自动生成 Alertmanager `inhibit_rules` 来抑制此类次生告警。
 
@@ -236,111 +301,165 @@ inhibit_rules:
 
 > `inhibitable` 字段来自 Module_01 的 `MonitoringRule.labels` 或 `annotations` 约定（建议在规则编辑 UI 中默认提供并允许用户覆盖）。M08 生成 `inhibit_rules` 时消费该字段。
 
-### 5.4 告警状态查看
+### 4.4 告警状态查看
 
-- **Prometheus 当前触发告警（v0.3 起）**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`，前端展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
-- **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。
+用户动线为「什么出了问题 → 通知了谁/是否被静默 → 加静默/调路由」的连续任务链。「告警状态页」归属本模块（告警域工作台）；Module_02 只交付注入代理 API，不出告警相关页面。三个视图如下：
+
+- **Prometheus 当前触发告警**：由 [Module\_02: 查询中心](Module_02_Query_Center.md) 代理 `/api/v1/alerts`（已注入租户/网域上下文），本模块告警状态页只读消费，展示当前 firing/pending 告警列表，支持按 `network_domain` 筛选。
+- **Alertmanager 通知状态**：由 Module_08 直接代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API，展示告警经过路由、静默、抑制后的通知状态。代理时必须在服务端强制注入当前用户的授权网域集合 filter（不信任前端传参）；授权集合 = 全部网域时不附加 filter，前端筛选只承担 UX、不构成权限。
+- **历史告警**：作为独立页面「历史告警」交付（菜单「告警收敛与通知管理 → 历史告警」），不复用「当前告警状态」列表语义——当前视图只回答「现在有哪些告警」，历史视图回答「某条告警何时触发、何时恢复」。数据由 Module\_02 `/api/v1/alerts/history` 提供（基于 Prometheus `ALERTS` 时间序列 `query_range` 重建触发区间），支持按 `network_domain` / `alertname` / `instance` / 状态（触发中 / 已恢复）/ 时间范围筛选；默认时间窗 24h、最大 7d。恢复时间为 Prometheus 求值视角的近似值（最后一次 firing 样本时间 + 一个求值步长），UI 列名必须标注「恢复时间（按 Prometheus 求值）」，不得表述为「故障恢复时间」。
+
+**实例列口径（三个视图统一）**：告警列表原「实例」列展示的是 Prometheus 抓取地址（`instance` 标签 = `ip:exporter端口`，如 `1.15.94.116:9100`），`:9100` 是 exporter 监听端口，用户从未填写，极易被误读为「业务端口配错了」或「这是另一台机器」。三个视图统一拆为两列：
+
+- **「实例名」**：取资源清单口径（host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`，与 [Module\_07](Module_07_Monitoring_Object_Management.md) §5.12 的展示口径一致）。服务端以告警标签 `resource_id` 批量回连 M01 五类资源表回填，与资源改名实时一致、覆盖存量告警（无需重新下发）；无 `resource_id` 时显示 `-`，不回落成地址（否则两列同值，等于没修）。
+- **「采集地址」**：`instance` 标签原文（原「实例」列的取值），表头必须挂 tooltip「采集器地址，非业务端口」。
+- **例外与回落**（不得假设一定有 `resource_id`）：① 拨测（blackbox）Job 的 target 组 `Labels` 为空 map、无 `resource_id`；② 聚合 / 全局规则（`sum(...) by (...)`）会抹掉 `instance` 与 `resource_id`；③ 用户自写规则若未选取 M01 下发的序列。以上三类「实例名」显示 `-`、「采集地址」显示原值，聚合 / 全局规则的「采集地址」沿用「全局/聚合」。
+- **筛选口径**：历史告警页的「实例」筛选框同时匹配实例名与采集地址（展示改造后若只匹配地址，用户看到 `ceshi` 却搜不到）。
+- 不做「点击实例跳转 M01 资源详情」。
+- **标签侧增量（规划中）**：让 `targets/*.json` 直接带上 `instance_name` 标签（补 Module\_07 §5.12 已声明但未实现的映射），范围仅 4 类静态资源（host / database / middleware / generic_target；application 已有 `service_name`、拨测 URL 与容器不加），价值是「资源删除后历史告警仍可读」与「PromQL 可读」，不阻塞实例名回连方案。
+
 - **边缘本地告警状态（P2）**：通过 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 
 ---
 
-## 6. 数据模型
+## 5. 数据模型
 
-### 6.1 通知接收人（Receiver）
+### 5.1 通知接收人（Receiver）
 
-| 字段 | 类型 | UI 展示名 | 说明 |
-|------|------|-----------|------|
-| id | string | 接收人 ID | 唯一标识 |
-| name | string | 接收人名称 | Alertmanager `receiver` name，如 `sre-critical`、`default` |
-| type | enum | 渠道类型 | feishu / dingtalk / email / wecom / webhook |
-| config | map | 渠道配置 | 渠道特定配置：URL、Token、邮箱地址、签名密钥等 |
-| enabled | bool | 启用状态 | 是否启用 |
-| created\_at / updated\_at | datetime | 仅技术信息 | 创建/更新时间 |
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|-----------|------|
+| id | string | 必填 | 接收人 ID | 唯一标识 |
+| name | string | 必填 | 接收人名称 | Alertmanager `receiver` name，如 `sre-critical`、`default` |
+| type | enum | 必填 | 渠道类型 | feishu / dingtalk / email / wecom / webhook |
+| config | map | 条件必填：按 type 决定 | 渠道配置 | 渠道特定配置：URL、Token、邮箱地址、签名密钥等 |
+| enabled | bool | 选填 | 启用状态 | 是否启用 |
+| created\_at / updated\_at | datetime | 选填（服务端维护） | 仅技术信息 | 创建/更新时间 |
 
-### 6.2 路由规则（Route）
+### 5.2 路由规则（Route）
 
-| 字段 | 类型 | UI 展示名 | 说明 |
-|------|------|-----------|------|
-| id | string | 路由 ID | 唯一标识 |
-| parent\_id | string | 父路由 | 路由树父节点；根路由为空 |
-| name | string | 路由名称 | 展示名称 |
-| matchers | []Matcher | 匹配条件 | 标签匹配条件，如 `severity=critical`、`team=sre` |
-| receiver\_id | string | 接收人 | 命中后通知的 Receiver |
-| group\_by | []string | 分组键 | 如 `alertname`、`severity`、`network_domain` |
-| group\_wait | duration | 初次等待 | 告警分组后首次发送等待时间 |
-| group\_interval | duration | 分组间隔 | 同一组告警发送间隔 |
-| repeat\_interval | duration | 重复间隔 | 同一告警重复通知间隔 |
-| continue | bool | 继续匹配 | 命中后是否继续匹配子路由 |
-| order | int | 排序 | 同层级路由优先级 |
-| enabled | bool | 启用状态 | 是否启用 |
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|-----------|------|
+| id | string | 必填 | 路由 ID | 唯一标识 |
+| parent\_id | string | 选填 | 父路由 | 路由树父节点；根路由为空 |
+| name | string | 必填 | 路由名称 | 展示名称 |
+| matchers | []Matcher | 选填 | 匹配条件 | 标签匹配条件，如 `severity=critical`、`team=sre` |
+| receiver\_id | string | 必填 | 接收人 | 命中后通知的 Receiver |
+| group\_by | []string | 选填 | 分组键 | 如 `alertname`、`severity`、`network_domain` |
+| group\_wait | duration | 选填 | 初次等待 | 告警分组后首次发送等待时间 |
+| group\_interval | duration | 选填 | 分组间隔 | 同一组告警发送间隔 |
+| repeat\_interval | duration | 选填 | 重复间隔 | 同一告警重复通知间隔 |
+| continue | bool | 选填 | 继续匹配 | 命中后是否继续匹配子路由 |
+| order | int | 选填 | 排序 | 同层级路由优先级 |
+| enabled | bool | 选填 | 启用状态 | 是否启用 |
 
-### 6.3 静默规则（Silence）
+### 5.3 静默规则（Silence）
 
-| 字段 | 类型 | UI 展示名 | 说明 |
-|------|------|-----------|------|
-| id | string | 静默 ID | Alertmanager silence ID |
-| matchers | []Matcher | 匹配条件 | 标签匹配条件 |
-| starts\_at | datetime | 开始时间 | 静默生效时间 |
-| ends\_at | datetime | 结束时间 | 静默失效时间 |
-| comment | string | 静默原因 | 创建原因 |
-| created\_by | string | 创建人 | 创建人 |
-| status | enum | 状态 | active / expired / pending |
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|-----------|------|
+| id | string | 必填 | 静默 ID | Alertmanager silence ID |
+| matchers | []Matcher | 必填 | 匹配条件 | 标签匹配条件（多条为 AND 关系） |
+| starts\_at | datetime | 必填 | 开始时间 | 静默生效时间 |
+| ends\_at | datetime | 必填 | 结束时间 | 静默失效时间 |
+| comment | string | 选填 | 静默原因 | 创建原因 |
+| created\_by | string | 选填（服务端维护） | 创建人 | 创建人 |
+| status | enum | 选填（服务端维护） | 状态 | active / expired / pending |
 
-### 6.4 抑制规则（InhibitionRule）
+### 5.4 抑制规则（InhibitionRule）
 
-| 字段 | 类型 | UI 展示名 | 说明 |
-|------|------|-----------|------|
-| id | string | 抑制规则 ID | 唯一标识 |
-| source\_matchers | []Matcher | 源告警匹配 | 触发抑制的根因告警匹配条件 |
-| target\_matchers | []Matcher | 目标告警匹配 | 被抑制的目标告警匹配条件 |
-| equal | []string | 等同标签 | 源与目标必须相同的标签键，如 `network_domain` |
-| is\_builtin | bool | 内置规则 | 是否平台自动生成（如 EdgeSiteOffline 抑制规则） |
-| enabled | bool | 启用状态 | 是否启用 |
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|-----------|------|
+| id | string | 必填 | 抑制规则 ID | 唯一标识 |
+| source\_matchers | []Matcher | 必填 | 源告警匹配 | 触发抑制的根因告警匹配条件 |
+| target\_matchers | []Matcher | 必填 | 目标告警匹配 | 被抑制的目标告警匹配条件 |
+| equal | []string | 选填 | 等同标签 | 源与目标必须相同的标签键，如 `network_domain` |
+| is\_builtin | bool | 选填 | 内置规则 | 是否平台自动生成（如 EdgeSiteOffline 抑制规则） |
+| enabled | bool | 选填 | 启用状态 | 是否启用 |
 
-### 6.5 Matcher 结构
+### 5.5 Matcher 结构
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| name | string | 标签名 |
-| value | string | 标签值 |
-| is\_regex | bool | 是否正则匹配 |
-| is\_equal | bool | 是否等于（false 表示取反） |
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|-----------|------|
+| name | string | 必填 | 标签名 | 标签名（可匹配键全集见 §4.2.1 四层并集） |
+| value | string | 必填 | 标签值 | 标签值 |
+| is\_regex | bool | 选填 | 是否正则 | 是否正则匹配（true 时前端预校验正则合法性，AM 侧 400 兜底） |
+| is\_equal | bool | 选填 | 是否等于 | 是否等于（false 表示取反） |
 
-### 6.6 Alertmanager 配置版本（AlertmanagerConfigVersion）
+> 多条 matcher 之间为 **AND** 关系（同一静默内同时满足才命中）。
 
-| 字段 | 类型 | UI 展示名 | 说明 |
-|------|------|-----------|------|
-| id | string | 版本 ID | 唯一标识 |
-| content | text | 配置内容 | 生成的 `alertmanager.yml` 完整内容 |
-| checksum | string | 校验和 | 配置内容 sha256 |
-| applied\_at | datetime | 生效时间 | 写入并 reload 成功时间 |
-| applied\_by | string | 操作人 | 应用人 |
-| status | enum | 状态 | applied / failed |
-| error\_msg | string | 错误信息 | reload 失败原因 |
+### 5.6 Alertmanager 配置版本（AlertmanagerConfigVersion）
 
-> 说明：M08 自身维护 `alertmanager.yml` 配置版本，用于审计与回滚；MVP 阶段不接入 M09 的 `ConfigVersion` 流程。
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|-----------|------|
+| id | string | 必填 | 版本 ID | 唯一标识 |
+| content | text | 必填 | 配置内容 | 生成的 `alertmanager.yml` 完整内容 |
+| checksum | string | 选填（校验通过后生成） | 校验和 | 配置内容 sha256 |
+| applied\_at | datetime | 选填（服务端维护） | 生效时间 | 写入并 reload 成功时间 |
+| applied\_by | string | 选填（服务端维护） | 操作人 | 应用人 |
+| status | enum | 选填（服务端维护） | 状态 | applied（仅校验通过的挂载条目入库） |
+
+> 说明：
+> 1. **校验失败不落库（决策 59/60）**：挂载内容必须先通过 `amtool check-config` 等价校验，校验失败仅向用户返回行级错误（不写 `AlertmanagerConfigVersion`、不进 M09 流水线）；只有校验通过的内容才写入本表留痕。因此本表 `status` 仅存在 `applied` 一种取值，不存在 `failed`、也不存 `error_msg`。
+> 2. MVP 起 `alertmanager.yml` 纳入 M09 变更确认流水线（决策 60）；本表降级为 **M08 内容侧留痕**（仅通过的挂载原文 + operation 信息），管道侧版本与下发状态以 M09 `ConfigDraft` / `ConfigVersion` 为准；内容留痕用于 M08 页面的「当前生效配置只读视图与历史版本回滚」（回滚 = 将历史版本内容重新挂载提交，再次走 M09 确认）。
 
 ---
 
-## 7. 与 Alertmanager 的边界
+## 6. 接口设计
+
+### 6.1 Alertmanager v2 API 代理（静默）
+
+本模块代理 Alertmanager v2 静默端点，调 v2 接口即时生效；不提供 v1 平替端点（Alertmanager ≥0.27 已移除 v1 silence 端点，返回 410 Gone）。
+
+| 能力 | 端点 | 说明 |
+|------|------|------|
+| 静默列表 / 创建 | `/api/v2/silences` | List 响应为裸数组；创建成功返回 `{"silenceID": "..."}` |
+| 静默查询 / 删除 | `/api/v2/silence/{id}` | 单条返回裸对象 |
+
+- 创建静默时服务端校验 matcher 收敛于当前用户授权网域集合，越权 matcher 直接拒绝。
+- 创建入参含 matcher 列表、`startsAt` / `endsAt`、`createdBy`、`comment`。
+
+### 6.2 静默标签联想
+
+`GET /api/v2/platform/alertmanager/silences/label-options`（只读、仅认证）。
+
+- 按 §4.2.1 四层并集口径返回分组键集：target_system 固定清单（`resource_id` / `instance` / `job`）∪ 被 `enabled + draft_status=ready` Job 实际引用模板的 enabled mappings TargetLabel ∪ `enabled + ready + central/both` 规则的 `alertname` / `severity` / 自定义 labels 键 ∪ external 固定清单（`network_domain_id` / `zone_type`）。
+- 分组与键去重；模板键缺失时对应组为空；不改既有静默三端点契约。
+
+### 6.3 通知状态代理
+
+`GET /api/v2/platform/alertmanager/alerts`（对 Alertmanager `/api/v2/alerts` 的封装）。
+
+- 返回告警经过路由、静默、抑制后的通知状态，映射为 active / silenced / inhibited / unprocessed。
+- 服务端强制注入当前用户授权网域集合 filter，不信任前端传参；授权 = 全部网域时不附加 filter。
+
+### 6.4 文件挂载与变更确认
+
+`alertmanager.yml` 内容由本模块作为内容 Owner 提交，管道（校验通过后）由 M09 承接：
+
+1. 提交挂载内容 + 触发 `amtool check-config` 等价校验；校验失败返回行级错误，不落库、不进流水线。
+2. 校验通过后写入 `AlertmanagerConfigVersion`（内容侧留痕，见 §5.6）。
+3. 作为管理域（`default`）scope 配置产物提交 M09 变更检测 → `ConfigDraft` → 人工确认 → `ConfigVersion`；由 M09 写中心配置路径并触发 reload，`change_status` 回写本模块。
+
+---
+
+## 7. 依赖
+
+### 7.1 与 Alertmanager 的职责边界
 
 | 能力 | MetricCenter 职责 | Alertmanager 职责 |
 |------|-------------------|-------------------|
 | 告警规则求值 | 不介入 | Prometheus Rule Manager / vmalert 执行 |
 | 告警收敛 | 通过 UI 配置生成 `route` / `group_by` | 原生 group 执行 |
 | 告警抑制规则生成 | **自动生成 `inhibit_rules`（网域离线场景）** | 原生执行抑制 |
-| 静默 | 调用 Alertmanager API 创建/删除/查询 | 原生 silence 管理 |
+| 静默 | 调用 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询 | 原生 silence 管理 |
 | 通知路由 | 生成 `alertmanager.yml` 的 `route` / `receiver` | 原生 route 执行 |
 | 通知发送 | 可扩展 Webhook 接收器 | 飞书/钉钉/邮件等实际发送 |
-| 通知状态查询 | Module_08 代理 Alertmanager `/api/v1/alerts` 或封装通知状态 API | 原生提供告警处理状态 |
+| 通知状态查询 | Module_08 代理 Alertmanager `/api/v2/alerts` 或封装通知状态 API | 原生提供告警处理状态 |
 | `rules.yml` 生成与下发 | 不介入 | 不介入 |
 
----
-
-## 8. 依赖
+### 7.2 依赖清单
 
 - [Module\_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)（规则内容来源；`inhibitable` 等标签约定来自规则编辑）
-- [Module\_02: 查询中心](Module_02_Query_Center.md)（v0.3 起代理 Prometheus `/api/v1/alerts`，展示当前 firing/pending 告警实例）
+- [Module\_02: 查询中心](Module_02_Query_Center.md)（MVP 起代理 Prometheus `/api/v1/alerts`，展示当前 firing/pending 告警实例）
 - [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)（v0.4+ 边缘 Alertmanager 配置分发；EdgeAgent 心跳上报边缘本地告警状态）
 - `upstream/prometheus/alertmanager/`（Alertmanager 二进制与配置）
 - `platform/config/alertmanager/`（Alertmanager 配置生成与版本管理）
@@ -349,30 +468,87 @@ inhibit_rules:
 
 ---
 
+## 8. 数据模型状态机
+
+### 8.1 AlertmanagerConfigVersion（配置版本）
+
+校验失败不落库，仅校验通过的内容写入本表；故 `status` 仅存在 `applied` 一种取值。
+
+```mermaid
+stateDiagram-v2
+    [*] --> 校验: 挂载 alertmanager.yml
+    校验 --> rejected: amtool check-config 失败
+    rejected --> [*]: 仅返回行级错误，不落库
+    校验 --> applied: 校验通过
+    applied --> [*]: 留痕；回滚=历史版本重新挂载再校验
+```
+
+### 8.2 Silence（静默规则，Alertmanager 运行时状态）
+
+静默为 Alertmanager 运行时 API 状态，不进 M09 流水线。
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: 创建（v2 API）
+    pending --> active: startsAt 到达
+    active --> expired: endsAt 到达
+    active --> [*]: 手动删除
+    pending --> [*]: 手动删除
+    expired --> [*]
+```
+
+### 8.3 告警通知状态（Alertmanager 对告警的处理结果）
+
+```mermaid
+stateDiagram-v2
+    [*] --> unprocessed: AM 收到告警
+    unprocessed --> active: 路由匹配
+    active --> silenced: 命中静默
+    active --> inhibited: 命中抑制规则
+    silenced --> [*]: 静默到期
+    inhibited --> active: 根因告警恢复
+```
+
+---
+
 ## 9. 验收标准
 
 ### 9.1 用户验收（用户可在 UI 感知/操作）
 
 - [ ] {P0} 模块名称与文档目录已更新为「告警收敛与通知管理」。
-- [ ] {P0} 可配置 Alertmanager 接收人（至少支持 webhook / 飞书 / 钉钉 / 邮件 / 企业微信中的一种）。
-- [ ] {P0} 可配置告警路由规则，按标签匹配并指定接收人、分组、等待/间隔/重复时间。
-- [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态。
+- [ ] {P0} 可通过**文件挂载**配置 Alertmanager：上传/粘贴整份 `alertmanager.yml`，校验失败给出行级错误、不落库；校验通过后进入 M09 变更单（管理域 scope），人工确认后由 M09 下发并 reload 生效；页面提供当前生效配置只读视图与历史版本回滚。
+- [ ] {P0} 端到端告警链路可验证：触发一条告警规则 → Alertmanager 按挂载配置路由 → 接收人 Webhook 实际收到通知。
+- [ ] {P0} **告警可投递到 Alertmanager**：触发一条测试告警规则 → 中心 Alertmanager `GET /api/v2/alerts` 返回非空 → 本页「Alertmanager 通知状态」视图可见该告警。投递由 M09 生成的 `alerting.alertmanagers` 段承载（**仅中心生成、条件注入、AM 地址由 `env/env.sh` 注入**，见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §3.3.1.1）；此前未接线时本视图恒为空。
+- [ ] {P0} 接收人可配置 webhook / 飞书 / 钉钉 / 邮件 / 企业微信中至少一种（MVP 经文件挂载承载）。
+- [ ] {v0.3} 接收人与路由规则提供表单化 UI（不再要求用户编写 YAML）。
+- [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态（MVP 极简 UI，API 直调 Alertmanager）。
 - [ ] {P0} 当网域整体离线时，自动生成 `inhibit_rules` 抑制该网域 `inhibitable=true` 的告警风暴（只保留根因告警）。
 - [ ] {P0} 可查看 Alertmanager 通知状态（active / silenced / inhibited / unprocessed）。
-- [ ] {P0} `alertmanager.yml` 由 M08 直接写文件并 reload，MVP 单域阶段不进入 M09 配置变更确认流程。
-- [ ] {v0.3} 可通过 [Module\_02](Module_02_Query_Center.md) 查看当前 Prometheus 触发告警状态（firing / pending）。
+- [ ] {P0} `alertmanager.yml` 纳入 M09 变更确认流水线：生成管理域（`default`）scope 变更单，人工确认后由 M09 写中心 Alertmanager 配置路径并触发 reload，`change_status` 回写 M08；不参与按网域扇出。
+- [ ] {P0} 告警状态页（M08 归属，菜单「告警收敛与通知管理 → 告警状态」）可查看当前告警：Prometheus 触发告警（firing / pending，经 [Module\_02](Module_02_Query_Center.md) 代理 `/api/v1/alerts`）与 Alertmanager 通知状态双视图展示，支持按 `network_domain` 筛选（v1.12 由 v0.3 提前至 MVP）。
+- [ ] {P0，v1.13} 历史告警页（菜单「告警收敛与通知管理 → 历史告警」）可查看规则级告警触发/恢复历史：列表展示告警名称、实例、网域、状态（触发中 / 已恢复）、触发时间、恢复时间（按 Prometheus 求值）、持续时长、摘要，支持按 `network_domain` / `alertname` / `instance` / 状态 / 时间范围筛选，默认时间窗 24h、最大 7d，提供手动刷新；历史深度受 Prometheus TSDB 保留策略限制，页面需有对应提示。
+- [ ] {P0，v1.15} 告警状态页两个视图与历史告警页的「实例」列均拆为**「实例名」+「采集地址」两列**：实例名显示用户在 M01 资源清单中填写的名字（如主机 `ceshi`），采集地址显示采集器地址（如 `1.15.94.116:9100`）且表头提示「采集器地址，非业务端口」；M01 中改名后告警列实时跟随；无 `resource_id` 的告警（拨测 / 聚合 / 自写规则）实例名显示 `-`、不回落成地址；聚合 / 全局规则采集地址显示「全局/聚合」；历史告警页「实例」筛选框输入实例名或采集地址均可命中。
+- [ ] {P0，v1.16} 创建静默表单提供 matcher 编写引导：①标签名输入框按「系统与采集 / 标签模板 / 规则标签 / 网域标识」四组联想可匹配键（§4.2.1 四层并集，聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`）；②勾选正则时前端预校验正则合法性（非法正则提交前拦截）；③提供「按实例选择」入口——从 M01 资源清单搜索选中后自动生成 `resource_id` 匹配条件（实例级静默），手填 `instance` 时提示其值为采集地址 `ip:exporter端口`；④表单明示多条匹配条件为 AND 关系。
 - [ ] {v1.0} 可配置通知模板与告警升级策略。
 - [ ] {v0.4+} 支持边缘本地 Alertmanager 通知通道配置（P2）。
 
 ### 9.2 技术验收（后端/契约可验证）
 
-- [ ] {P0} M08 生成的 `alertmanager.yml` 通过 `amtool check-config` 校验。
-- [ ] {P0} 修改接收人/路由/静默/抑制策略后，M08 触发 Alertmanager reload 成功。
-- [ ] {P0} 静默规则通过 Alertmanager API 创建/删除，状态同步正确。
+- [ ] {P0} M08 生成或挂载的 `alertmanager.yml` 通过 `amtool check-config` 等价校验。
+- [ ] {P0} **投递链路**：中心 `prometheus.yml` 含 `alerting.alertmanagers[].static_configs[].targets` 且指向注入的 AM 地址（**非硬编码**）；`alertmanager.yml` 无产物时中心不生成 `alerting` 段；边缘配置包不含 `alerting` / `rule_files`（vmagent / prometheus-agent 硬限制）；`promtool check config` 对含 `alerting` 段的产物校验通过。承载方为 M09 生成器（见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §3.3.1.1）。
+- [ ] {P0} 文件挂载接口契约：上传内容校验通过 → 写入 `AlertmanagerConfigVersion`（内容留痕）→ 提交 M09 变更检测生成管理域变更单；校验失败返回行级错误，不落库、不进流水线。
+- [ ] {P0} 修改接收人/路由/抑制策略（文件挂载提交）后，经 M09 变更单人工确认 → 下发 → Alertmanager reload 成功；静默规则为 Alertmanager 运行时 API 状态，不进 M09 流水线（API 直调即时生效）。
+- [ ] {P0} 静默规则通过 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询，状态同步正确；禁止调用已移除的 v1 silence 端点。
 - [ ] {P0} `inhibit_rules` 生成逻辑正确：源告警 `EdgeSiteOffline` 抑制同 `network_domain` 下 `inhibitable=true` 的目标告警。
-- [ ] {P0} Alertmanager `/api/v1/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
+- [ ] {P0} Alertmanager `/api/v2/alerts` 代理接口返回通知状态，并正确映射为 active / silenced / inhibited / unprocessed。
+- [ ] {P0，v1.13} 历史告警页消费 Module\_02 `/api/v1/alerts/history`：返回字段含 `alertname` / `instance` / `network_domain` / `state`（firing/resolved）/ `fired_at` / `resolved_at` / `duration_seconds` / `summary` / `value`，空结果返回 `[]` 而非 `null`；授权网域过滤由服务端强制注入。
+- [ ] {P0，v1.15} 三条告警读取链路（M02 `/api/v1/alerts`、M02 `/api/v1/alerts/history`、M08 `/api/v2/platform/alertmanager/alerts`）的响应均新增 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` / `instance_address` 字段：服务端按告警标签 `resource_id` **一次性批量**回连 M01 五类资源表（禁止逐条 N+1），`resource_name` 取值口径为 host=`instance_name`、database/middleware=`instance_ip`、application=`service_name`、generic_target=`target_name`；无 `resource_id` 或回连未命中时 `resource_name` 为空串、`instance_address` 保留原 `instance` 标签值（不丢失既有展示）；`instance_display`（兼容字段）语义修订为「`resource_name` 非空取之，否则取 `instance_address`」。回连为**只读**跨表查询，不写 M01 任何表。
+- [ ] {P0，v1.15} 实例展示回落链修订为 `instance_name → instance → instance_ip → service_name → nodename → device`（删除默认标签模板从不产出的死键 `hostname`；补入 application 实际产出的 `service_name`）。
 - [ ] {P0} M08 不生成 `rules.yml`、不管理 `MonitoringRule` 内容；规则相关数据由 M01 写入、M09 生成配置。
-- [ ] {P0} M08 配置版本 `AlertmanagerConfigVersion` 记录每次 `alertmanager.yml` 变更，支持审计与回滚。
+- [ ] {P0} M08 `AlertmanagerConfigVersion` 仅留痕**校验通过**的 `alertmanager.yml` 挂载内容（校验失败不落库、仅返回行级错误）；管道版本与下发状态以 M09 `ConfigVersion` 为准。
+- [ ] {P0} Alertmanager `/api/v2/alerts` 代理在服务端强制注入当前用户授权网域集合 filter（授权=全部网域时不附加），不信任前端传参。
+- [ ] {P0} 创建静默规则时服务端校验 matcher 收敛于当前用户授权网域集合，越权 matcher 拒绝。
+- [ ] {P0，v1.16} 静默 matcher 标签联想聚合端点 `GET /api/v2/platform/alertmanager/silences/label-options`（只读、仅认证）：按四层并集口径返回分组键集——target_system 固定清单（`resource_id`/`instance`/`job`）∪ 被 `enabled + draft_status=ready` Job 实际引用模板（显式挂载 → 类别默认，同 `LoadTemplateForJob` 口径）的 enabled mappings TargetLabel ∪ `enabled + ready + central/both` 规则的 `alertname` / `severity` / 自定义 labels 键 ∪ external 固定清单（`network_domain_id`/`zone_type`）；分组与键去重、模板键缺失时对应组为空；不改既有静默三端点契约。
 - [ ] {v0.4+} 边缘 Alertmanager 配置可随 M09 配置包下发或由 M08 初始化脚本推送（P2）。
 
 ---
@@ -388,18 +564,100 @@ inhibit_rules:
 | `AlertmanagerConfigVersion` | 配置版本 | M08 自身维护的 `alertmanager.yml` 版本记录，用于审计回滚 |
 | `alertmanager.yml` | Alertmanager 配置 | 由 M08 管理，包含路由、接收人、抑制、静默模板等 |
 | `active` / `silenced` / `inhibited` / `unprocessed` | 通知状态 | Alertmanager 对告警的处理状态 |
+| `firing` / `resolved`（历史告警） | 触发中 / 已恢复 | 历史告警页状态：`firing`=查询窗口结束时仍在触发；`resolved`=触发区间已结束（恢复时间为 Prometheus 求值近似值） |
+| `fired_at` / `resolved_at` | 触发时间 / 恢复时间（按 Prometheus 求值） | 由 Module\_02 `/api/v1/alerts/history` 基于 `ALERTS` 时间序列重建 |
+| `resource_id` / `resource_name` / `resource_category` | 资源标识 / 实例名 / 资源类型 | 服务端按告警标签 `resource_id` 回连 Module\_01 资源表得到（v1.15）；`resource_name` 即用户在资源清单中看到的实例名 |
+| `instance` 标签 / `instance_address` 字段 | 采集地址 | Prometheus 抓取地址 `ip:exporter端口`（拨测为 URL）；**不是业务端口、不是实例名**，UI 表头须提示「采集器地址，非业务端口」 |
+| `instance_display` | 实例展示值（兼容字段） | `resource_name` 非空取之，否则取 `instance_address`；两者皆空表示聚合 / 全局告警 |
 | `MonitoringRule` | 告警 / 记录规则 | 由 M01 负责内容创作，M08 不直接管理 |
 | `rules.yml` | 告警规则文件 | 由 M09 按网域分组生成并下发，M08 不生成 |
+| matcher 标签四层并集（§4.2.1） | 可匹配的告警标签 | AM 收到告警时携带的标签全集：目标层（系统强制 + 生效 Job 引用模板展开）+ 采集机制层（`job`/`alertname`）+ 规则层（`severity` + 自定义）+ 网域标识（`network_domain_id`/`zone_type`，v1.16） |
+| `resource_id` matcher | 按实例静默 | 实例级静默推荐写法：UUID 稳定不随 IP/端口变化；UI「按实例选择」自动生成（v1.16） |
 
 ---
 
-## 11. Change Log
+## 11. 前端交互契约
 
-> **Change Log 定位**：本表记录业务侧沟通决策与文档变更；开发契约见 6.x 数据模型 / 9 验收标准 / 10 术语映射。
+### 11.1 页面状态矩阵
+
+| 菜单 | 页面 | 访问形态 | 版本 |
+|------|------|----------|------|
+| 告警收敛与通知管理 / 告警状态 | 告警状态页 | 菜单进入 | MVP |
+| 告警收敛与通知管理 / 历史告警 | 历史告警页 | 菜单进入 | MVP |
+| 告警收敛与通知管理 / 静默管理 | 静默管理页 | 菜单进入，创建走抽屉 | MVP |
+| 告警收敛与通知管理 / 告警配置 | Alertmanager 配置页 | 菜单进入 | MVP |
+
+### 11.2 全局行为规则
+
+- 数据权限按当前用户授权网域集合过滤，由服务端强制注入，前端筛选仅承担 UX。
+- 数据为空展示空态占位，并提供进入创建或配置的引导入口。
+- 列表类页面提供手动刷新；历史类数据不自动轮询。
+
+### 11.3 告警状态页
+
+**用户任务**：查看当前触发告警及其通知状态（是否已路由、被静默、被抑制）。
+
+入口与路径：菜单「告警收敛与通知管理 / 告警状态」。
+
+布局与列设计：页面分「Prometheus 当前触发告警」与「Alertmanager 通知状态」两个视图区块；告警列表含告警名称、实例名、采集地址、网域、状态、触发时间列；实例列拆为「实例名 + 采集地址」两列，采集地址列表头带「采集器地址，非业务端口」提示。
+
+关键交互规则：支持按网域筛选；实例名随资源改名实时跟随；无法回连资源标识的告警实例名展示为「-」，不回落成地址。
+
+状态与边界：通知状态覆盖 active / silenced / inhibited / unprocessed；本页只读消费数据，不在此页修改配置。
+
+跨模块跳转：实例名数据回连 [Module\_01](Module_01_Metric_Collection_Center.md) 资源清单；Prometheus 视图数据依赖 [Module\_02](Module_02_Query_Center.md) 代理接口，本模块只读消费。
+
+### 11.4 历史告警页
+
+**用户任务**：查询某条规则级告警何时触发、何时恢复。
+
+入口与路径：菜单「告警收敛与通知管理 / 历史告警」。
+
+布局与列设计：表格列含告警名称、实例名、采集地址、网域、状态（触发中 / 已恢复）、触发时间、恢复时间、持续时长、摘要；顶部筛选区含网域、告警名、实例、状态、时间范围。
+
+关键交互规则：默认时间窗 24 小时、最大 7 天，提供手动刷新；「实例」筛选项同时匹配实例名与采集地址；恢复时间列表头标注「按 Prometheus 求值」。
+
+状态与边界：状态枚举为触发中 / 已恢复；历史深度受 Prometheus TSDB 保留策略限制，页面展示对应提示。
+
+跨模块跳转：数据由 [Module\_02](Module_02_Query_Center.md) 的 `/api/v1/alerts/history` 提供，本模块只读消费。
+
+### 11.5 静默管理页
+
+**用户任务**：创建临时静默规则以避免计划内变更的告警轰炸，并查看 / 删除已生效静默。
+
+入口与路径：菜单「告警收敛与通知管理 / 静默管理」；创建动作开抽屉表单。
+
+布局与列设计：列表展示静默的匹配条件、起止时间、原因、创建人、状态；创建抽屉包含标签条件、起止时间、原因字段。
+
+关键交互规则：标签名输入提供分组联想（四层并集键），支持勾选正则并由前端预校验；提供按实例选择入口，自动生成资源标识匹配条件；多条匹配条件明示为 AND 关系。
+
+状态与边界：静默状态覆盖 pending / active / expired；静默为运行时 API 状态，调用即生效，不进配置变更流水线。
+
+跨模块跳转：「按实例选择」复用 [Module\_01](Module_01_Metric_Collection_Center.md) 资源列表搜索。
+
+### 11.6 告警配置页
+
+**用户任务**：通过文件挂载配置 Alertmanager，查看当前生效配置与历史版本。
+
+入口与路径：菜单「告警收敛与通知管理 / 告警配置」。
+
+布局与列设计：配置区支持整文件上传 / 粘贴，校验结果区展示行级错误或通过提示；下方展示当前生效配置只读视图与历史版本列表。
+
+关键交互规则：提交挂载内容即触发配置校验，校验失败仅返回行级错误、不落库；校验通过后进入变更确认，由人工确认后下发生效；历史版本支持回滚（重新挂载提交再确认）。
+
+状态与边界：配置状态覆盖已校验 / 校验失败 / 已生效；管道侧状态以配置中心变更单为准。
+
+跨模块跳转：变更确认与下发由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 配置中心承接，人工确认后生效。
+
+---
+
+## Change Log
+
+> **Change Log 定位**：本表记录业务侧沟通决策与文档变更（保留最近 3 版一句话摘要；v1.11 及以前逐版详情已迁移至 `docs/05-execution-records/module-08/design-decisions.md`「Change Log（完整历史）」小节）；开发契约见 5.x 数据模型 / 9 验收标准 / 10 术语映射。
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|------|
-| v1.3 | 2026-08-15 | 重大修改 | M01/M08/M09 告警规则职责三轴重构：①模块名称由「告警规则管理」改为「告警收敛与通知管理」；②规则内容创作、规则记录、`rules.yml` 生成与下发全部剥离给 M01/M09；③M08 聚焦 Alertmanager 配置（路由/接收人/静默/抑制）、通知状态查询、告警抑制；④`alertmanager.yml` 由 M08 直接写文件并 reload，MVP 单域不进入 M09 配置变更确认；⑤重写 1/2/3/4/5/6/8/9/10/11 章节；⑥数据模型由 `AlertingRule`/`RuleGroup`/`RecordingRule` 改为 `Receiver`/`Route`/`Silence`/`InhibitionRule`/`AlertmanagerConfigVersion` | MVP / v0.3 / v1.0 | 设计中 |
-| v1.2 | 2026-08-06 | 修改 | 版本对齐：告警状态查看（Prometheus `/api/v1/alerts`）由 M02 代理的启用版本统一标注为 v0.3；「5. 实现方式」章节标题及 5.1/5.2/5.3 内「MVP 阶段」统一改为 v0.3 交付；范围调整说明、边界说明、用户故事、3.1 功能表、8 依赖、9 验收标准同步标注 v0.3 | v0.3 / v1.0 | 设计中 |
-| v1.1 | 2026-08-03 | 修改 | PRD 状态从 ready 修正为 设计中：尚未完成原型验证 | 文档自身 | 设计中 |
-| v1.0 | 2026-07-31 | 初始 | 模块 PRD 初始版本（彼时仍为「告警规则管理」定位） | 全部 | v0.3 / v1.0 | draft |
+| v1.17 | 2026-09-16 | 修改 | 章节骨架对齐规范 0-11：去历史化与内联决策标注，新增 §6 接口设计 / §8 数据模型状态机 / §11 前端交互契约，收敛 Change Log。 | 全章 | MVP | ready |
+| v1.16 | 2026-09-11 | 修改 | 静默 matcher 编写口径与引导：新增 §4.2.1 可匹配标签四层并集、只读标签联想端点、按实例选择与正则预检。 | 4.2 / 5.5 / 6.2 / 9 / 10 | MVP | ready |
+| v1.15 | 2026-09-11 | 修改 | 告警「实例」列口径对齐 M01 资源清单：三视图统一拆为「实例名 + 采集地址」两列，按标签批量回连资源表回填。 | 4.4 / 6.3 / 9 / 10 | MVP | ready |
+

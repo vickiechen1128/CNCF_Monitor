@@ -42,6 +42,12 @@ func runTenantAndDomain(db *gorm.DB) error {
 	// row without authorized_tenant_ids is back-filled.
 	domain.AuthorizedTenantIDs = []string{models.PlatformAdminTenantID}
 
+	// firstOrCreate 同样会把已存在的 default 域重载回 domain（覆盖 IsMonitored），
+	// 导致早期版本创建（is_monitored=false）的 default 域无法被回填为已纳管。
+	// 与 AuthorizedTenantIDs 一致，此处显式重断言预置值（F-02：MVP 由 seed 预置
+	// default 域 is_monitored=true，作为采集 Job 保存校验前提）。
+	domain.IsMonitored = true
+
 	// Idempotent back-fill: a freshly created row already carries the canonical
 	// fields; a Phase 0 pre-created row may lack AuthorizedTenantIDs, so
 	// re-apply the canonical administrative fields. Select limits the update to

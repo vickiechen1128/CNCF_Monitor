@@ -1,0 +1,445 @@
+# Module 05 首页 MVP 子集（决策 72 / 72-1 / 72-2 / 72-3）任务序列
+# PRD: docs/02-product-requirements/Modules/Module_05_Custom_UI.md v1.5
+# 计划: docs/05-execution-records/module-05/05_Code_Implementation_Plan.md v1.5
+# 角色: frontend-developer（M05-T14 / T15 含 backend-developer 改动）
+# 约束: 跨文件共享文件（HomePage.tsx / AlertStatusCard.tsx）的任务连续排列
+
+meta:
+  module: module-05
+  prd_version: v1.5
+  plan_version: v1.5
+  track: B
+  date: "2026-09-14"
+  total_tasks: 17
+  # M05-T1~T7   = v1.3 首页 MVP 子集（决策 72）
+  # M05-T8~T12  = v1.4 布局 / 视觉 Token / 六步指引 / QueryPage（决策 72-1 / 72-2）
+  # M05-T13~T17 = v1.5 首页内容重构 + 第二 / 第三轮评审（决策 72-3）
+
+tasks:
+  - id: M05-T1
+    role: frontend-developer
+    title: HomePage 结构重构：分离统计卡、告警数字卡、快速入口区、使用指引区、最近下发表
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/dashboard.ts
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 页面仍正确渲染既有统计卡（资源总数 / 待确认配置草稿数 / 已纳管网域数）
+      - 页面仍正确渲染最近下发记录表或空态
+      - 页面自上而下预留告警数字卡、快速入口区、使用指引区占位（可用注释或最小骨架）
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on: []
+    commit_unit: "M05-T1: HomePage 结构按决策 72 拆分"
+    notes: |
+      保持现有状态管理、mock 判断（VITE_STATIC_PREVIEW）与错误处理不变。
+      新区域按 PRD §3.1 顺序自上而下排列：统计卡 → 告警数字卡 → 系统快速入口区 → 使用指引区 → 最近下发表。
+      本次只做结构拆分，告警卡与入口区可先渲染占位文案，避免单 PR 过大。
+
+  - id: M05-T2
+    role: frontend-developer
+    title: 新增告警数字卡：调用 alertStatusApi 两个接口，展示主数字/次要行/小字，加空态引导
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/alertmanager.ts
+      - ui-custom/web/src/types/alertmanager.ts
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 非静态预览环境下并发请求 GET /api/v1/alerts 与 GET /api/v2/platform/alertmanager/alerts
+      - 主数字 = AM notify_status === 'active' 的计数（红色语义）
+      - 次要行展示已静默 / 已抑制计数
+      - 并列小字或 tooltip 展示 Prom firing / pending 计数
+      - AM 与 Prom 均为空时展示「尚未挂载通知配置，去配置 →」深链 /alert-config
+      - 接口错误时展示错误态与重试按钮
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T1
+    commit_unit: "M05-T2: 首页告警状态数字卡（方案 A 零后端改动）"
+    notes: |
+      使用 alertStatusApi.getPromAlerts() 与 alertStatusApi.getAlertmanagerAlerts()。
+      两接口均无分页，直接取 alerts.length / items.length 计数。
+      notify_status 服务端已归一为 active/silenced/inhibited/unprocessed，主数字只取 active。
+      空态引导文案依据决策 68-2：AM 未挂载时 alerting 段不生成，AM 数字恒为 0。
+
+  - id: M05-T3
+    role: frontend-developer
+    title: 新增系统快速入口区组件与深链
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/App.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/QuickAccess.tsx
+    acceptance:
+      - 展示资源管理 / 采集 Job / 配置预览下发 / 指标查询 / 告警状态 5 个快捷卡片
+      - 每个卡片可点击跳转至对应页面（/resources、/scrape-jobs、/config-preview、/query、/alert-status）
+      - 卡片文案与图标清晰可辨识
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T1
+    commit_unit: "M05-T3: 首页系统快速入口区"
+    notes: |
+      入口集合以 MVP 已上线页面为限（PRD §3.1）。
+      若 HomePage.tsx 过大，可拆出 QuickAccess.tsx；拆出时保持同一目录并在 HomePage 中导入。
+      配置预览下发卡片指向 /config-preview（M09 配置预览下发页）。
+
+  - id: M05-T4
+    role: frontend-developer
+    title: 新增使用指引区组件（五步，第 5 步深链 /query）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/App.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+    acceptance:
+      - 按五步开箱动线展示：登记网域 → 导入资源 → 建采集 Job → 下发 → 查指标
+      - 每步配深链与完成态标识（空/未完成视觉区分）
+      - 第 5 步「查指标」深链 /query
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T1
+    commit_unit: "M05-T4: 首页五步使用指引区"
+    notes: |
+      使用 Ant Design Steps 或自定义步骤条实现（PRD §3.1；02_Frontend_Standard.md §8 多步流程建议独立页面 + Steps，本处为首页内轻量指引，可用 Steps 组件）。
+      完成态标识可先按静态未勾选展示；v0.3 可扩展为根据真实数据自动打勾。
+      若拆出 OnboardingSteps.tsx，保持同一目录并在 HomePage 中导入。
+
+  - id: M05-T5
+    role: frontend-developer
+    title: App.tsx 挂 /query 路由
+    input_paths:
+      - ui-custom/web/src/App.tsx
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/App.tsx
+    acceptance:
+      - 浏览器访问 /query 正确渲染 QueryPage
+      - 未登录状态下访问 /query 被 RequireAuth 重定向到 /login?redirect=...（继承现有行为）
+      - App.tsx 中无路由冲突或重复 path
+      - pnpm vitest run src/App.test.tsx 通过（若存在路由表相关断言需同步）
+      - pnpm lint 通过
+    status: done
+    depends_on: []
+    commit_unit: "M05-T5: /query 路由挂载 QueryPage"
+    notes: |
+      QueryPage 组件已存在（src/pages/query/QueryPage.tsx），本任务只添加路由。
+      建议与现有路由风格一致：直接 import 或 lazy load；当前 App.tsx 中 QueryPage 未导入，本次选择直接 import 以简化。
+      注意 /query 与 M02 /targets 等路由不冲突。
+
+  - id: M05-T6
+    role: frontend-developer
+    title: HomePage.test.tsx 同步：mock 告警接口与路由断言
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/alertmanager.ts
+      - ui-custom/web/src/App.tsx
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+    acceptance:
+      - mock alertStatusApi.getPromAlerts 与 getAlertmanagerAlerts
+      - 覆盖告警数字主数字、次要行、Prom firing/pending 小字渲染
+      - 覆盖 AM + Prom 均为空时的空态引导与 /alert-config 深链
+      - 覆盖接口错误态
+      - 覆盖系统快速入口区 5 个卡片存在及 href 正确
+      - 覆盖使用指引区 5 步文案及第 5 步 /query 深链
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T2
+      - M05-T3
+      - M05-T4
+    commit_unit: "M05-T6: HomePage 测试同步"
+    notes: |
+      当前测试 mock 的是 apiClient.get；若告警卡使用 alertStatusApi，可 mock 整个 alertmanager 模块或 apiClient。
+      保持现有 setupAntdTest() 与 MainLayout mock 不变。
+      注意 tsconfig.json 已排除 *.test.tsx 参与生产构建类型检查，不影响 pnpm build。
+
+  - id: M05-T7
+    role: frontend-developer
+    title: 全量 lint/build 验证
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/App.tsx
+      - ui-custom/web/src/pages/home/QuickAccess.tsx
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+    output_files: []
+    acceptance:
+      - pnpm install 完成
+      - pnpm test 全量通过
+      - pnpm lint 通过
+      - pnpm build 通过
+      - 可选：dev server 启动后 curl 首页与 /query 返回 200（验证完成后停止服务）
+    status: done
+    depends_on:
+      - M05-T5
+      - M05-T6
+    commit_unit: "M05-T7: 首页 MVP 子集 lint/build 验证"
+    notes: |
+      本任务为收尾验证任务，不修改源码。
+      若前面任务已将 QuickAccess.tsx / OnboardingSteps.tsx 拆出，input_paths 中的对应文件需存在。
+      04_Testing_Standard.md §4 要求验证完成后停止服务并释放端口。
+
+  - id: M05-T8
+    role: frontend-developer
+    title: 首页布局重构：标题区 + 指标卡网格 + 告警治理态大卡片 + 快捷入口/最近下发分区
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+      - docs/05-execution-records/module-05/design-proposals/homepage-mvp-feedback-design-opinion.md
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 页面按标题区 → 指标卡网格 → 告警治理态大卡片 + 快捷入口/最近下发 → 使用指引顺序渲染
+      - 卡片圆角、阴影、间距符合 PRD §3.1 视觉 Token 规范
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on: []
+    commit_unit: "M05-T8: 首页布局与视觉 Token 应用"
+    notes: |
+      保持既有数据流不变，仅调整 JSX 结构与样式。
+      指标卡图标统一尺寸 32px，色彩收敛（仅告警类用红色语义）。
+
+  - id: M05-T9
+    role: frontend-developer
+    title: 使用指引区扩展为六步：新增「配置告警通知」步骤并更新深链
+    input_paths:
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+      - ui-custom/web/src/App.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+    acceptance:
+      - 展示六步：登记网域 → 导入资源 → 建采集 Job → 下发 → 配置告警通知 → 查指标/看告警
+      - 第 5 步深链 /alert-config
+      - 第 6 步深链 /query 或 /alert-status
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T8
+    commit_unit: "M05-T9: 六步使用指引扩展"
+    notes: |
+      完成态标识可先静态展示，后续接入真实数据自动打勾。
+
+  - id: M05-T10
+    role: frontend-developer
+    title: QueryPage 最小 PromQL 查询能力实现
+    input_paths:
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+      - ui-custom/web/src/api/query.ts
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+    acceptance:
+      - 页面包含 PromQL 输入框与执行按钮
+      - 调用 M02 /api/v1/query 代理接口
+      - 结果以表格或 JSON 展示
+      - 处理加载中 / 空态 / 错误态
+      - pnpm vitest run src/pages/query/QueryPage.test.tsx 通过（若不存在可新建）
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T5
+    commit_unit: "M05-T10: QueryPage 最小 PromQL 查询实现"
+    notes: |
+      若 src/api/query.ts 不存在，按 M02 契约新增 queryApi。
+      不引入图表库，结果以表格/JSON 为主。
+
+  - id: M05-T11
+    role: frontend-developer
+    title: HomePage.test.tsx 与 QueryPage.test.tsx 同步更新
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/query/QueryPage.test.tsx
+    acceptance:
+      - HomePage.test.tsx 覆盖新布局、六步指引深链、告警治理态大卡片
+      - QueryPage.test.tsx 覆盖输入、查询调用、结果展示、错误态
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm vitest run src/pages/query/QueryPage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T8
+      - M05-T9
+      - M05-T10
+    commit_unit: "M05-T11: 测试同步"
+    notes: |
+      mock M02 /api/v1/query 与告警接口。
+      保持现有 setupAntdTest() 与 MainLayout mock 不变。
+
+  - id: M05-T12
+    role: frontend-developer
+    title: 单文件测试 + lint + build 验证（跳过全量 pnpm test）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/query/QueryPage.tsx
+      - ui-custom/web/src/App.tsx
+    output_files: []
+    acceptance:
+      - pnpm install 完成
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm vitest run src/pages/query/QueryPage.test.tsx 通过
+      - pnpm lint 通过
+      - pnpm build 通过
+    status: done
+    depends_on:
+      - M05-T11
+    commit_unit: "M05-T12: 验证收尾"
+    notes: |
+      按用户要求跳过全量 pnpm test，仅做单文件测试 + lint + build。
+
+  - id: M05-T13
+    role: frontend-developer
+    title: 首页内容重构——指标卡回归资产/治理进度口径 + 告警卡承载最新告警列表（决策 72-3）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - ui-custom/web/src/api/dashboard.ts
+      - docs/05-execution-records/module-05/design-proposals/homepage-mvp-content-restructure.md
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - ui-custom/web/src/pages/alerts/alertmanagerConstants.ts
+      - ui-custom/web/src/api/dashboard.ts
+    acceptance:
+      - 指标卡为 6 张资产/治理进度卡（资源总数 / 已监控 / 采集 Job / 已纳管网域 / 待确认草稿 / 采集覆盖率），不含任何告警数字
+      - 每张卡右上角 ⓘ 可读出中文口径注释；失败或字段缺失时显示 '-'（禁止 NaN% / 启用 undefined）
+      - 告警状态卡为首页唯一告警入口：主数字 = AM active，并列已静默 / 已抑制；最新告警按 starts_at 倒序且剔除 unprocessed
+      - 页面任何位置不出现「待处理」字样（Prom pending 展示为「求值中」，用首页本地常量）
+      - 删除告警维指标卡与 amUnavailable / promUnavailable 变量
+      - pnpm vitest run src/pages/home/HomePage.test.tsx 通过
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T12
+    commit_unit: "M05-T13: 首页内容重构（决策 72-3）"
+    notes: |
+      指标卡集合由「含告警维 6 张」收敛为「纯资产/治理进度 6 张」，属产品口径裁剪（见 dev-feedback clipping-1）。
+      告警表达全部收敛到告警状态卡；unprocessed 不计数不进列表（clipping-2），仅 N>0 时灰字附注。
+      失败态按源降级（MEDIUM-1 / MEDIUM-2 修复），不与「恒 0」混淆。
+
+  - id: M05-T14
+    role: backend-developer
+    title: 后端 dashboard/summary 新增 3 计数字段（monitored_count / scrape_job_count / scrape_job_enabled_count）
+    input_paths:
+      - platform/dashboard/summary.go
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md
+      - docs/05-execution-records/module-05/api-contract-snapshot.md
+    output_files:
+      - platform/dashboard/summary.go
+    acceptance:
+      - 响应新增 monitored_count / scrape_job_count / scrape_job_enabled_count（增字段、向后兼容，既有字段语义不变）
+      - monitored_count = 被 enabled=true 且 draft_status='ready' 且 job_type=standard 的采集 Job 覆盖的去重资源数
+      - 空库返回 0；软删 Job / 资源不计入；blackbox Job 不计入；恒有 monitored_count <= resource_count
+      - resource_count / pending_draft_count / domain_count / recent_deployments 语义不变
+      - go test ./platform/... 通过
+    status: done
+    depends_on: []
+    commit_unit: "M05-T14: 首页指标卡后端计数（决策 72-3）"
+    notes: |
+      resourceModels() 抽取五类资源表；loadSelectedResourceIDs() 聚合 standard+ready+enabled 的 selected_instance_ids
+      并与五类资源表现存 resource_id 求交集。保留 Count() 以不改动 resource_count 既有语义（LOW-1 未采纳合并）。
+      口径与 M07 coverage.go 同源，但首页额外排除 blackbox；M07 侧补 job_type 过滤为遗留（见 design-decisions 决策 72-3）。
+
+  - id: M05-T15
+    role: frontend-developer
+    title: 测试与验证（前端 HomePage.test.tsx + 后端 summary_test.go + 变异验证）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - platform/dashboard/summary_test.go
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - platform/dashboard/summary.go
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - platform/dashboard/summary_test.go
+    acceptance:
+      - 后端新增 seedScrapeJobs 五类 Job 与 TestSummaryMonitoredCountExcludesDeletedResources；TestSummaryHandler 与空库用例增断言
+      - 前端断言 6 张指标卡计数与文案、「ⓘ」悬浮读出中文口径、指标卡区域不含告警数字
+      - 前端断言最新告警顺序与 '-' 回落、页面不出现「待处理」、unprocessed 灰字、两条告警链路各仅 1 次请求
+      - 变异验证：临时去掉 job_type=standard 过滤可使后端用例失败（证明测试能拦截）
+      - tsc --noEmit / eslint / vitest run HomePage.test.tsx / go test ./platform/... 全部通过
+    status: done
+    depends_on:
+      - M05-T13
+      - M05-T14
+    commit_unit: "M05-T15: 首页内容重构测试与验证"
+    notes: |
+      验证命令（本地二进制，禁全量 vitest）：tsc --noEmit、eslint src/pages/home src/pages/alerts src/api、
+      vitest run src/pages/home/HomePage.test.tsx --maxWorkers=2 --minWorkers=1、make test-platform。
+      Track B 增量以 PRD §3.1 + §6 为验收基准。
+
+  - id: M05-T16
+    role: frontend-developer
+    title: 第二轮评审修复——副标题 + 指标卡横向排版 + 最新告警单行五列 + 「查看全部 →」深链
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - docs/05-execution-records/module-05/design-proposals/homepage-mvp-content-restructure.md
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+    acceptance:
+      - 副标题改为描述本页视野的中性文案，不出现与实际内容不符的指代
+      - 指标卡为卡内横向排版（图标 32px 在左、数字 24/700 与标签 13px 在右，内边距 16px 18px，删除 minHeight）
+      - 最新告警每条为单行五列左右贴边撑满，行间细分隔线（末行不加）
+      - 告警卡与最近下发记录标题右侧各有「查看全部 →」，分别深链 /alert-status 与 /deployments；两块列表均不放分页器
+      - vitest run HomePage.test.tsx 通过（新增「查看全部深链」「单行五列结构」2 用例）
+      - pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T15
+    commit_unit: "M05-T16: 第二轮评审修复"
+    notes: |
+      本轮为设计缺口补齐（原 PRD 与设计意见均未规定「5 条之后怎么看」），补 §3.7 口径并回填 PRD v1.5。
+      告警卡底栏（Prom 参考行 + 深链）改 margin-top: auto 贴底。
+
+  - id: M05-T17
+    role: frontend-developer
+    title: 第三轮内容反馈修复——最新告警表头 + 近 10 条 + 删除重复入口
+    input_paths:
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - docs/05-execution-records/module-05/design-proposals/homepage-mvp-content-restructure.md
+    output_files:
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+    acceptance:
+      - 新增 LatestAlertHeader（级别 / 告警名 / 实例名 / 时间 / 状态），列宽与数据行共用 ALERT_COL_WIDTH 常量
+      - 条数由 5 改近 10 条（LATEST_ALERT_LIMIT = 10，标题与取数共用一份）
+      - 删除卡内重复的「查看告警中心 →」，仅保留标题右侧「查看全部 →」；底部仅留「配置告警通知 →」
+      - 12 条告警只渲染 10 行
+      - vitest run HomePage.test.tsx 通过；tsc / eslint / vite build 通过；make repo-map + check-repo-map 通过
+    status: done
+    depends_on:
+      - M05-T16
+    commit_unit: "M05-T17: 第三轮内容反馈修复"
+    notes: |
+      近 10 条本身即版面解法（1440 宽下左卡与右列自然齐平），并为条数不足时加 align="stretch" 兜底。
+      本轮新增导出常量 LATEST_ALERT_LIMIT，改动符号清单须刷新 repo-map，否则 pre-commit 门禁阻断。

@@ -164,7 +164,7 @@ export default function SilencesPage() {
         showIcon
         style={{ marginBottom: 16 }}
         message="静默规则通过 Alertmanager API 生效"
-        description="创建 / 删除 / 查询均调用 Alertmanager API（POST /api/v1/silences 等）。状态由 Alertmanager 计算：未到开始时间为 pending（待生效）、时间范围内为 active（生效中）、结束后为 expired（已过期）。"
+        description="创建 / 删除 / 查询均调用 Alertmanager v2 API（POST /api/v2/silences 等）。状态由 Alertmanager 计算：未到开始时间为 pending（待生效）、时间范围内为 active（生效中）、结束后为 expired（已过期）。"
       />
 
       <Card className="page-card">

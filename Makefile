@@ -82,7 +82,12 @@ endif
 PNPM_BIN := $(PNPM_DIR)/bin/pnpm
 
 # 注：Windows 下 Node 解压到顶层（node.exe / npm），故 PATH 同时加入 $(NODE_DIR)
-export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PATH)
+# 同时加入 upstream/prometheus 与 upstream/blackbox_exporter：M09 配置草稿校验
+# 通过 exec.LookPath("promtool"/"blackbox_exporter") 调用上游二进制，须保证
+# metric-center 进程的 PATH 能定位到 build-prometheus / build-promtool /
+# build-blackbox-exporter 的产物；upstream/alertmanager 同理供
+# exec.LookPath("amtool")（M08 AM 配置校验）定位 build-amtool 产物。
+export PATH := $(GO_DIR)/bin:$(NODE_DIR)/bin:$(NODE_DIR):$(GCC_DIR)/bin:$(PROMU_DIR)/bin:$(PNPM_DIR)/bin:$(PROJECT_ROOT)/upstream/prometheus:$(PROJECT_ROOT)/upstream/alertmanager:$(PROJECT_ROOT)/upstream/blackbox_exporter:$(PATH)
 
 # 显式锁定 GOROOT 到项目级工具链：屏蔽系统/用户环境里残留的 GOROOT（如手动安装的
 # ~/sdk/goX.Y.Z），否则会出现 "compile: version goX does not match go tool version goY"。
@@ -92,7 +97,8 @@ export GOROOT := $(GO_DIR)
         install-gcc install-promu ensure-cgo \
         ensure-go ensure-node ensure-pnpm \
         apply-patches build-metric-center build-prometheus build-ui build-all \
-        run-metric-center run-prometheus dev-ui test-platform clean \
+        run-metric-center run-prometheus dev-ui test-platform clean repo-map \
+        check-repo-map install-git-hooks \
         check-prd-hygiene check-prototype-notes check-prototype
 
 all: build-all
@@ -105,14 +111,18 @@ help:
 	@echo "  make build-metric-center  编译 MetricCenter 控制面后端"
 	@echo "  make build-prometheus   编译上游 Prometheus"
 	@echo "  make build-ui           构建 Custom UI"
-	@echo "  make build-all          编译后端 + 前端"
+	@echo "  make build-all          编译后端 + Prometheus + 前端"
+	@echo "  make package-center     打包中心一体化交付产物 -> dist/metric-center-bundle-*.tar.gz（默认全量含 alertmanager/amtool/blackbox_exporter；WITH_ALERTMANAGER=0 / WITH_BLACKBOX=0 可裁剪）"
 	@echo "  make run-metric-center  编译并启动 MetricCenter 控制面"
 	@echo "  make run-prometheus     编译并启动上游 Prometheus"
 	@echo "  make dev-ui             启动前端开发服务器"
 	@echo "  make test-platform      运行 platform/ 测试"
+	@echo "  make repo-map           生成业务代码符号地图 -> docs/04-source-architecture/repo-map.md"
+	@echo "  make check-repo-map     校验符号地图是否与当前代码一致（pre-commit hook 与 CI 已强制）"
+	@echo "  make install-git-hooks  启用项目级 git hooks（pre-commit 强制 repo-map 新鲜度）"
 	@echo "  make check-prd-hygiene  检查 PRD 去历史化与章节冻结"
 	@echo "  make check-prototype-notes  检查原型用户可见文案是否泄漏评审标记"
-	@echo "  make check-prototype  检查原型标记泄漏 + 结构反模式（Alert 滥用/列数/筛选布局）"
+	@echo "  make check-prototype  检查原型标记泄漏 + 结构反模式（Alert 滥用/表格列数>8/筛选布局）"
 	@echo "  make clean              清理构建产物"
 
 # -----------------------------------------------------------------------------
@@ -262,8 +272,23 @@ build-metric-center: ensure-go ensure-cgo
 	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" build -o platform/cmd/metric-center/metric-center$(EXE) ./platform/cmd/metric-center
 
 build-prometheus: ensure-go ensure-pnpm
-	@echo ">>> Building upstream Prometheus"
-	@cd "$(PROJECT_ROOT)/upstream/prometheus" && { [ -d web/ui/static ] || ( cd web/ui && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build:mantine-ui ); } && "$(GO_BIN)" build -o prometheus$(EXE) ./cmd/prometheus
+	@echo ">>> Building upstream Prometheus (Web UI assets embedded via builtinassets)"
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && { [ -d web/ui/static ] || ( cd web/ui && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build:mantine-ui ); } && { [ -f web/ui/embed.go ] || printf '//go:build builtinassets\npackage ui\n\nimport "embed"\n\n//go:embed static\nvar EmbedFS embed.FS\n' > web/ui/embed.go; } && "$(GO_BIN)" build -tags builtinassets -o prometheus$(EXE) ./cmd/prometheus
+
+# 构建 upstream promtool：M09 配置草稿校验（ValidateArtifacts）通过
+# exec.LookPath("promtool") 调用本二进制做 promtool check config；缺失时
+# 校验返回 pending + platform_fault（决策 42-2）。GOPROXY 走国内代理避免
+# jsondiff 等新增依赖拉取超时。
+build-promtool: ensure-go
+	@echo ">>> Building upstream promtool"
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o promtool$(EXE) ./cmd/promtool
+
+# build-amtool: 构建上游 amtool（Alertmanager 配置校验命令行）；M08 Alertmanager
+# 配置挂载校验通过 exec.LookPath("amtool") 调用本二进制做 amtool check-config，
+# 缺失时校验返回校验失败并提示用户启动 Alertmanager 环境。
+build-amtool: ensure-go
+	@echo ">>> Building upstream amtool"
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && GOPROXY=https://goproxy.cn,direct "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
 
 build-ui: ensure-pnpm
 	@echo ">>> Building Custom UI"
@@ -294,6 +319,7 @@ build-alertmanager: ensure-go
 			npm ci && npm run build; \
 		fi
 	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o alertmanager$(EXE) ./cmd/alertmanager
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
 
 build-blackbox-exporter: ensure-go
 	@echo ">>> Building upstream blackbox_exporter"
@@ -305,19 +331,57 @@ build-center: build-metric-center build-prometheus build-alertmanager build-blac
 
 build-all: build-metric-center build-prometheus build-ui
 
+# Package the center bundle into dist/metric-center-bundle-<os>-<arch>-<timestamp>.tar.gz.
+# Supports cross-compilation via CROSS=linux/amd64 (requires zig for CGO).
+package-center:
+	@echo ">>> Packaging center bundle"
+	@bash "$(PROJECT_ROOT)/scripts/package-center.sh"
+
 # -----------------------------------------------------------------------------
 # 运行
 # -----------------------------------------------------------------------------
 
-run-metric-center: build-metric-center
+run-metric-center: build-metric-center build-promtool build-amtool
 	@echo ">>> Starting metric-center"
-	@cd "$(PROJECT_ROOT)" && ./platform/cmd/metric-center/metric-center$(EXE)
+	@cd "$(PROJECT_ROOT)" && ./platform/cmd/metric-center/metric-center$(EXE) \
+		--config.reload-url=http://localhost:9090/-/reload
 
+# M09 local 下发闭环：config.file 必须指向 config-output/prometheus.yml（控制面
+# DiskApplier 的写盘目录），且 file_sd 相对路径 targets/*.json 按配置文件所在目录
+# 解析；--web.enable-lifecycle 开放 /-/reload 供控制面在结构变更后触发热加载。
 run-prometheus: build-prometheus
 	@echo ">>> Starting Prometheus"
-	@cd "$(PROJECT_ROOT)" && ./upstream/prometheus/prometheus$(EXE) \
-		--config.file="$(PROJECT_ROOT)/upstream/prometheus/prometheus.yml" \
+	@mkdir -p "$(PROJECT_ROOT)/config-output"
+	@if [ ! -f "$(PROJECT_ROOT)/config-output/prometheus.yml" ]; then \
+		echo ">>> Seeding config-output/prometheus.yml from project template (deploy/prometheus/prometheus.yml)"; \
+		cp "$(PROJECT_ROOT)/deploy/prometheus/prometheus.yml" \
+			"$(PROJECT_ROOT)/config-output/prometheus.yml"; \
+	fi
+	# 非嵌入模式从 CWD 读取 Web UI，须在 upstream/prometheus 下启动才能加载
+	# mantine-ui 静态资源；config.file 为绝对路径，file_sd 相对路径按其所在
+	# directory（config-output）解析，均不受 CWD 影响。
+	@cd "$(PROJECT_ROOT)/upstream/prometheus" && ./prometheus$(EXE) \
+		--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
+		--web.enable-lifecycle \
 		--web.listen-address=:9090
+
+# 启动中心 Alertmanager（M08 静默代理 + AM 配置挂载 reload 目标）：控制面
+# --alertmanager.url 缺省 http://localhost:9093；静默列表依赖本服务在线。
+# config.file 指向 config-output/alertmanager.yml（DiskApplier 写盘目录）；
+# Alertmanager 与 Prometheus 不同，无 --web.enable-lifecycle，配置变更由其在
+# --config.file 写入后自动热加载（fsnotify 监视文件变更），/-/reload 亦可触发。
+# amtool 已由依赖 build-alertmanager 一并构建，供 AM 配置校验使用。
+run-alertmanager: build-alertmanager
+	@echo ">>> Starting Alertmanager"
+	@mkdir -p "$(PROJECT_ROOT)/config-output"
+	@if [ ! -f "$(PROJECT_ROOT)/config-output/alertmanager.yml" ]; then \
+		echo ">>> Seeding config-output/alertmanager.yml from project template (deploy/alertmanager/alertmanager.yml)"; \
+		cp "$(PROJECT_ROOT)/deploy/alertmanager/alertmanager.yml" \
+			"$(PROJECT_ROOT)/config-output/alertmanager.yml"; \
+	fi
+	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && ./alertmanager$(EXE) \
+		--config.file="$(PROJECT_ROOT)/config-output/alertmanager.yml" \
+		--web.listen-address=:9093
 
 dev-ui:
 	@echo ">>> Starting Custom UI dev server"
@@ -344,11 +408,32 @@ clean:
 	@rm -f "$(PROJECT_ROOT)/platform/cmd/metric-center/metric-center$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/prometheus/prometheus$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/prometheus/promtool"
+	@rm -f "$(PROJECT_ROOT)/upstream/alertmanager/amtool"
 	@rm -f "$(PROJECT_ROOT)/upstream/node_exporter/node_exporter$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/alertmanager/alertmanager$(EXE)"
 	@rm -f "$(PROJECT_ROOT)/upstream/blackbox_exporter/blackbox_exporter$(EXE)"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/dist"
 	@rm -rf "$(PROJECT_ROOT)/ui-custom/web/node_modules"
+
+# -----------------------------------------------------------------------------
+# 文档与符号地图
+# -----------------------------------------------------------------------------
+
+# 生成业务代码符号地图（platform/ + ui-custom/web/src/），供 Agent 排障时
+# 按「符号 → 文件」快速定位；upstream/ 上游子模块刻意不索引。
+repo-map: ensure-go
+	@echo ">>> Generating repo map"
+	@cd "$(PROJECT_ROOT)" && "$(GO_BIN)" run ./scripts/repo-map -o docs/04-source-architecture/repo-map.md
+
+# 校验符号地图新鲜度（重新生成并对比，忽略头部时间戳行）。
+# 已被 pre-commit hook 与 CI（check-repo-map.yml）强制调用。
+check-repo-map: ensure-go
+	@echo ">>> Checking repo map freshness"
+	@bash "$(PROJECT_ROOT)/scripts/check-repo-map.sh"
+
+# 启用项目级 git hooks（core.hooksPath=scripts/git-hooks）
+install-git-hooks:
+	@bash "$(PROJECT_ROOT)/scripts/install-git-hooks.sh"
 
 # -----------------------------------------------------------------------------
 # 文档与原型规范检查

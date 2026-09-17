@@ -21,6 +21,7 @@ import {
   Empty,
   Segmented,
   Upload,
+  Checkbox,
 } from 'antd'
 import {
   PlusOutlined,
@@ -34,6 +35,9 @@ import {
   ArrowRightOutlined,
   UploadOutlined,
   EyeOutlined,
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { ReviewNote } from '../components/ReviewNote'
@@ -51,6 +55,9 @@ import {
   RULE_TYPE_MAP,
   METRIC_TYPE_COLOR,
   METRIC_TYPE_LABEL,
+  CHANGE_PROGRESS_MAP,
+  CHANGE_PROGRESS_BY_CHANGE_STATUS,
+  EFFECTIVE_STATUS_MAP,
 } from '../mocks/module-01'
 import type {
   CiType,
@@ -58,7 +65,10 @@ import type {
   MonitoringRule,
   MountedRuleFile,
   ResourceCategory,
+  RuleEffectiveStatus,
 } from '../mocks/module-01'
+// {v3.41} 决策 69-1 / 69-2：规则挂载「检查」判定逻辑抽出为独立模块（便于单测 + 页面只导出组件）
+import { checkRuleContent, type RuleCheckOutcome } from './rulesCheck'
 
 const { Title, Text } = Typography
 const { TextArea } = Input
@@ -85,6 +95,49 @@ function FieldGuide({ title, children }: { title: string; children: ReactNode })
         </Text>
         {children}
       </Space>
+    </div>
+  )
+}
+
+// {v3.41} 决策 69-3：规则检查结果面板（info / error / success / warning 四态）。
+// 按《02_Frontend_Standard.md》第 8-10 章「用户主区至多保留 1 个页面级 Alert」，检查态统一用轻量 Card 自绘（左侧色条 + 浅底 + 图标），
+// 语义分级与 Alert 等价但不占用页面级 Alert 配额；「已知晓」逃生门 Checkbox 直接内嵌其中。
+const CHECK_TONES = {
+  info: { border: '#0ECDEB', bg: '#E6F9FC', color: '#00707F', Icon: InfoCircleOutlined },
+  error: { border: '#FF4D4F', bg: '#FFF1F0', color: '#A8071A', Icon: CloseCircleOutlined },
+  success: { border: '#52C41A', bg: '#F6FFED', color: '#237804', Icon: CheckCircleOutlined },
+  warning: { border: '#FAAD14', bg: '#FFFBE6', color: '#AD6800', Icon: ExclamationCircleOutlined },
+} as const
+
+function CheckPanel({
+  tone,
+  title,
+  children,
+}: {
+  tone: keyof typeof CHECK_TONES
+  title: ReactNode
+  children?: ReactNode
+}) {
+  const { border, bg, color, Icon } = CHECK_TONES[tone]
+  return (
+    <div
+      style={{
+        marginBottom: 16,
+        padding: '10px 14px',
+        background: bg,
+        borderLeft: `3px solid ${border}`,
+        borderRadius: 6,
+      }}
+    >
+      <Space align="start" size={8}>
+        <Icon style={{ color, marginTop: 3 }} />
+        <Text strong style={{ color }}>
+          {title}
+        </Text>
+      </Space>
+      {children != null && (
+        <div style={{ marginTop: 6, color: 'rgba(0, 0, 0, 0.72)', fontSize: 13 }}>{children}</div>
+      )}
     </div>
   )
 }
@@ -142,24 +195,6 @@ const extractMetricNames = (expr: string): string[] => {
   return matches.filter((n) => !functions.has(n))
 }
 
-/** {v3.24} 规则文件挂载 YAML 校验（PRD 5.5 / 6.2.4）：至少校验 groups 存在且为数组 */
-const validateRuleContent = (
-  content: string
-): { ok: true } | { ok: false; message: string } => {
-  if (!content.trim()) return { ok: false, message: '规则文件内容不能为空' }
-  if (!/^groups\s*:/m.test(content)) {
-    return { ok: false, message: 'YAML 非法：缺少顶层键 groups（rules.yml 必须以 groups 为顶层数组）' }
-  }
-  const groupNames = content.match(/^\s*-\s*name\s*:/gm)
-  if (!groupNames || groupNames.length === 0) {
-    return { ok: false, message: 'YAML 非法：groups 下缺少规则分组（需至少一个 - name: xxx）' }
-  }
-  if (!/^(\s*)rules\s*:/m.test(content)) {
-    return { ok: false, message: 'YAML 非法：缺少 rules 键（每个分组下需有 rules 数组）' }
-  }
-  return { ok: true }
-}
-
 /** 统计 rules.yml 内规则条数（groups[*].rules 中 alert / record 条目合计，原型启发式） */
 const countRuleCount = (content: string): number => {
   const alerts = content.match(/^\s*-\s*alert\s*:/gm) ?? []
@@ -167,7 +202,7 @@ const countRuleCount = (content: string): number => {
   return alerts.length + records.length
 }
 
-// ==================== MVP 视图：规则文件挂载（PRD 5.5 / 3.1，{v3.24}） ====================
+// ==================== MVP 视图：规则文件挂载（PRD 5.5 / 3.1，{v3.24}；检查两段式 {v3.41}） ====================
 
 function FileMountView() {
   const { modal, message } = App.useApp()
@@ -175,8 +210,51 @@ function FileMountView() {
   const [mountOpen, setMountOpen] = useState(false)
   const [mountName, setMountName] = useState('')
   const [mountContent, setMountContent] = useState('')
-  const [mountError, setMountError] = useState<string | null>(null)
   const [detailFile, setDetailFile] = useState<MountedRuleFile | null>(null)
+  // {v3.41} 决策 69-2：两段式状态机 —— idle（未检查）/ checking / passed / failed
+  const [checkState, setCheckState] = useState<'idle' | 'checking' | 'passed' | 'failed'>('idle')
+  const [checkOutcome, setCheckOutcome] = useState<RuleCheckOutcome | null>(null)
+  const [ackJobRefErrors, setAckJobRefErrors] = useState(false)
+  /** 已检查过、但内容被再次修改（检查结论作废提示） */
+  const [checkStale, setCheckStale] = useState(false)
+
+  const jobRefIssues = checkOutcome?.jobRef ?? []
+  const hasErrorJobRef = jobRefIssues.some((i) => i.severity === 'error')
+  /** {v3.41} canSubmit = 检查通过 且（无 error 级 job 引用 或 已勾选逃生门）——提交按钮条件渲染而非 disabled */
+  const canSubmit = checkState === 'passed' && (!hasErrorJobRef || ackJobRefErrors)
+
+  const resetCheck = () => {
+    setCheckState('idle')
+    setCheckOutcome(null)
+    setAckJobRefErrors(false)
+    setCheckStale(false)
+  }
+
+  /** 规则内容变更 → 检查结论与 ack 一并作废（决策 69-2）；规则名等非内容字段不触发 */
+  const invalidateCheck = () => {
+    if (checkState === 'idle') return
+    setCheckState('idle')
+    setCheckOutcome(null)
+    setAckJobRefErrors(false)
+    setCheckStale(true)
+  }
+
+  /** {v3.41} 调用与后端 `validate-yaml` 同口径的本地等价检查（决策 69-1 / 69-2） */
+  const runCheck = (): RuleCheckOutcome => checkRuleContent(mountContent, files)
+
+  const handleCheck = () => {
+    setCheckState('checking')
+    const outcome = runCheck()
+    setCheckOutcome(outcome)
+    setCheckState(outcome.valid ? 'passed' : 'failed')
+    setCheckStale(false)
+    if (!outcome.valid) setAckJobRefErrors(false)
+  }
+
+  const closeMountDrawer = () => {
+    setMountOpen(false)
+    resetCheck()
+  }
 
   const totalRules = files.reduce((acc, f) => acc + f.rule_count, 0)
   const enabledCount = files.filter((f) => f.enabled).length
@@ -190,12 +268,8 @@ function FileMountView() {
   }
 
   const handleMount = () => {
-    const result = validateRuleContent(mountContent)
-    if (!result.ok) {
-      setMountError(result.message)
-      return
-    }
-    setMountError(null)
+    // {v3.41} 决策 69-2：提交按钮仅在 canSubmit 时渲染，此处为防御性兜底
+    if (!canSubmit) return
     const newFile: MountedRuleFile = {
       rule_id: `rule-file-${Date.now()}`,
       name: mountName.trim() || `rules-挂载-${files.length + 1}`,
@@ -211,7 +285,7 @@ function FileMountView() {
     setMountOpen(false)
     setMountName('')
     setMountContent('')
-    setMountError(null)
+    resetCheck()
     showChangePendingToast('规则已挂载')
   }
 
@@ -246,6 +320,8 @@ function FileMountView() {
     reader.onload = () => {
       const text = String(reader.result ?? '')
       setMountContent(text)
+      // {v3.41} 决策 69-2：内容变更 → 既有检查结论与 ack 一并作废
+      invalidateCheck()
       if (!mountName.trim()) {
         setMountName(file.name.replace(/\.(ya?ml|yml)$/i, ''))
       }
@@ -359,7 +435,10 @@ function FileMountView() {
             type="primary"
             icon={<UploadOutlined />}
             style={{ backgroundColor: '#0ECDEB' }}
-            onClick={() => setMountOpen(true)}
+            onClick={() => {
+              resetCheck()
+              setMountOpen(true)
+            }}
           >
             上传 / 粘贴 rules.yml 挂载
           </Button>
@@ -373,13 +452,9 @@ function FileMountView() {
         </Col>
       </Row>
 
-      <Alert
-        type="info"
-        showIcon
-        message="规则文件挂载（MVP）"
-        description="本页通过上传 / 粘贴完整的规则文件来挂载告警与记录规则。保存 / 启停 / 删除后，变更进入配置中心的变更确认流程，确认后统一下发生效；右上角可切换「字段化编辑」查看 v0.3 的逐条编辑预览。"
-        style={{ marginBottom: 16 }}
-      />
+      <FieldGuide title="规则文件挂载（MVP）">
+        <Text>本页通过上传 / 粘贴完整的规则文件来挂载告警与记录规则。保存 / 启停 / 删除后，变更进入配置中心的变更确认流程，确认后统一下发生效；右上角可切换「字段化编辑」查看 v0.3 的逐条编辑预览。</Text>
+      </FieldGuide>
 
       <Table
         rowKey="rule_id"
@@ -388,43 +463,44 @@ function FileMountView() {
         pagination={{ pageSize: 5 }}
       />
 
-      {/* 挂载抽屉：上传 / 粘贴整文件 rules.yml */}
+      {/* 挂载抽屉：上传 / 粘贴整文件 rules.yml（{v3.41} 决策 69：检查 → 提交两段式） */}
       <Drawer
         title="挂载 rules.yml"
         open={mountOpen}
-        onClose={() => {
-          setMountOpen(false)
-          setMountError(null)
-        }}
+        onClose={closeMountDrawer}
         width={680}
         maskClosable={false}
         extra={
           <Space>
-            <Button
-              onClick={() => {
-                setMountOpen(false)
-                setMountError(null)
-              }}
-            >
-              取消
+            <Button onClick={closeMountDrawer}>取消</Button>
+            {/* {v3.41} 决策 69-2：「检查」按钮常驻 */}
+            <Button onClick={handleCheck} loading={checkState === 'checking'}>
+              检查
             </Button>
-            <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleMount}>
-              挂载并提交
-            </Button>
+            {/* {v3.41} 决策 69-2：提交按钮条件渲染（非 disabled）——检查通过 且（无 error 级 job 引用 或 已勾选逃生门） */}
+            {canSubmit && (
+              <Button type="primary" style={{ backgroundColor: '#0ECDEB' }} onClick={handleMount}>
+                提交并进入变更确认
+              </Button>
+            )}
           </Space>
         }
       >
         <Form layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item label="规则文件名称（展示名，选填）" extra="留空则按上传文件名或「rules-挂载-N」自动生成">
+          <Form.Item
+            label="规则文件名称（展示名，选填）"
+            extra="留空则按上传文件名或「rules-挂载-N」自动生成；名称变更不影响检查结论"
+          >
             <Input
               value={mountName}
               onChange={(e) => setMountName(e.target.value)}
               placeholder="如：主机与中间件告警"
             />
           </Form.Item>
+          {/* {v3.41} 决策 69-3：文件选择入口位于编辑框上方，保持「字段说明 → 选文件 → 编辑框」垂直读序 */}
           <Form.Item
             label="rules.yml 内容（必填）"
-            extra="支持直接粘贴或选择本地 .yml / .yaml 文件上传；内容需含 groups 顶层数组，校验通过后保存"
+            extra="支持直接粘贴或选择本地 .yml / .yaml 文件上传；内容需含 groups 顶层数组，点「检查」通过后方可提交"
           >
             <Space direction="vertical" style={{ width: '100%' }}>
               <Upload beforeUpload={onReadFile} showUploadList={false} accept=".yml,.yaml">
@@ -435,29 +511,67 @@ function FileMountView() {
                 value={mountContent}
                 onChange={(e) => {
                   setMountContent(e.target.value)
-                  setMountError(null)
+                  invalidateCheck()
                 }}
                 placeholder={'groups:\n  - name: node.rules\n    rules:\n      - alert: HostHighCpuUsage\n        expr: ...\n'}
                 style={{ fontFamily: 'SFMono-Regular, Consolas, Menlo, monospace', fontSize: 12 }}
               />
             </Space>
           </Form.Item>
-          {mountError && (
-            <Alert
-              type="error"
-              showIcon
-              message="挂载失败"
-              description={mountError}
-              style={{ marginBottom: 16 }}
-            />
-          )}
-          <Alert
-            type="info"
-            showIcon
-            message="挂载后的配置闭环"
-            description="挂载保存后，M09 下一轮询周期检测到 MonitoringRule 变化 → 生成 rules.yml 草稿（rule_content 原样并入）→ 在「配置变更确认」页人工确认后下发生效；本页列表「下发状态」随 M09 变更单状态回写（与采集 Job 同源同机制）。"
-          />
+          <FieldGuide title="挂载后的配置闭环">
+            <Text>先点「检查」：通过（且无 error 级 job 引用，或已勾选逃生门）后，「提交并进入变更确认」按钮才会出现。提交后 M09 下一轮询周期检测到 MonitoringRule 变化 → 生成 rules.yml 草稿（rule_content 原样并入）→ 在「配置变更确认」页人工确认后下发生效；本页列表「下发状态」随 M09 变更单状态回写（与采集 Job 同源同机制）。</Text>
+          </FieldGuide>
         </Form>
+
+        {/* {v3.41} 决策 69-3：检查结果面板位于表单下方、操作按钮上方；「未通过（红）」/「通过（绿）」互斥，job 引用按 severity 追加红/黄提示。 */}
+        {checkStale && (
+          <CheckPanel tone="info" title="规则内容已修改">
+            检查结论与「已知晓」勾选已一并作废，请重新点「检查」后再提交。
+          </CheckPanel>
+        )}
+        {checkState === 'failed' && (
+          <CheckPanel tone="error" title="规则检查未通过">
+            {checkOutcome?.error}
+          </CheckPanel>
+        )}
+        {checkState === 'passed' && (
+          <CheckPanel tone="success" title="检查通过">
+            服务端校验已覆盖 YAML 语法 + 组名唯一性 + job 引用；提交时服务端仍会复核（检查通过 ≠ 提交必过，如检查与提交之间他人改动规则导致组名被占用）。
+          </CheckPanel>
+        )}
+        {checkState === 'passed' && jobRefIssues.length > 0 && (
+          <CheckPanel
+            tone={hasErrorJobRef ? 'error' : 'warning'}
+            title={
+              hasErrorJobRef
+                ? '规则引用了不存在的采集 Job（存活类规则，默认阻断）'
+                : '规则引用了不存在的采集 Job（仅提示，不阻断）'
+            }
+          >
+            <div style={{ marginBottom: 8 }}>
+              规则中的 <Text code>job</Text> matcher 与当前<b>生效</b>采集 Job 列表比对：存活类规则（
+              <Text code>up</Text> / <Text code>absent(up)</Text>）引用不存在的 Job = error（阻断），
+              其余引用 = warning（仅提示）。
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {jobRefIssues.map((issue, idx) => (
+                <li key={`${issue.ruleName}-${issue.matcher}-${idx}`}>
+                  {issue.ruleName} · <Text code>{issue.matcher}</Text> —— 未找到生效 Job「
+                  {issue.referencedJob}」（{issue.severity === 'error' ? '阻断' : '仅提示'}）
+                </li>
+              ))}
+            </ul>
+            {hasErrorJobRef && (
+              <Checkbox
+                style={{ marginTop: 12 }}
+                checked={ackJobRefErrors}
+                onChange={(e) => setAckJobRefErrors(e.target.checked)}
+              >
+                已知晓：先挂规则，稍后补建 Job（勾选后「提交并进入变更确认」按钮出现，问题降级为 warning 落库留痕）
+              </Checkbox>
+            )}
+          </CheckPanel>
+        )}
       </Drawer>
 
       {/* 详情抽屉：YAML 只读视图 */}
@@ -839,6 +953,26 @@ function StructuredEditView() {
     showChangePendingToast(checked ? '规则已启用' : '规则已禁用')
   }
 
+  /** {v3.xx} F-23：规则生效状态（草稿 / 已停用 / 待生效 / 已生效，与采集 Job 四态同源） */
+  const getRuleEffectiveStatus = (r: MonitoringRule): RuleEffectiveStatus => {
+    if (r.draft_status === 'draft') return 'draft'
+    if (r.change_status === 'pending') return 'pending_effect'
+    return r.enabled ? 'active' : 'disabled'
+  }
+
+  /** {v3.xx} F-23：操作列启停由 Switch 改为文字按钮「停用 / 启用」+ 二次确认（与采集 Job 一致） */
+  const handleToggleEnabledConfirm = (record: MonitoringRule) => {
+    const next = !record.enabled
+    modal.confirm({
+      title: next ? '确认启用规则' : '确认停用规则',
+      content: `确定${next ? '启用' : '停用'}规则「${record.name}」？`,
+      okText: next ? '启用' : '停用',
+      okButtonProps: next ? undefined : { danger: true },
+      cancelText: '取消',
+      onOk: () => handleToggleEnabled(record, next),
+    })
+  }
+
   const columns = [
     {
       title: '规则名称',
@@ -854,7 +988,8 @@ function StructuredEditView() {
       ),
     },
     {
-      title: '资源类型',
+      // {v3.xx} F-24：规则列表「监控对象类型」列（两级级联选中的细粒度类型，随字段化编辑表单 resource_type）
+      title: '监控对象类型',
       dataIndex: 'resource_type',
       key: 'resource_type',
       render: (value: CiType) => (
@@ -893,21 +1028,22 @@ function StructuredEditView() {
         record.rule_type === 'recording' ? <Text type="secondary">-</Text> : value || '-',
     },
     {
-      // {v3.20} 下发状态（决策 D28，v0.3 随规则编辑 UI 落地）：rules.yml 变更必须 reload、走 M09 人工确认档（决策 38-1）
+      // {v3.xx} F-23：原「下发状态」Tooltip 列收窄为「变更进度」列（无变更 / 待确认 / 已确认待下发 / 已下发）
       title: (
-        <Tooltip title="规则变更下发状态（来自 M09 变更单）：待确认=有变更单待你在「配置变更确认」页确认发布（rules.yml 变更必须 reload，走人工确认）；已确认=变更单已确认；无变更=未产生变更单">
+        <Tooltip title="规则变更进度（来自 M09 变更单）：无变更=未产生变更单；待确认=有变更单待你在「配置变更确认」页确认发布；已确认待下发=变更单已确认、等待下发（rules.yml 变更必须 reload、走人工确认）；已下发=已下发生效">
           <Space size={4}>
-            下发状态
+            变更进度
             <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
           </Space>
         </Tooltip>
       ),
-      key: 'changeStatus',
-      width: 130,
+      key: 'changeProgress',
+      width: 120,
       render: (_: unknown, record: MonitoringRule) => {
-        if (record.change_status === 'pending') {
-          // {v3.20} 样式调整：原 warning Tag 易被误读为静态状态、看不出可点击；
-          // 改为 link 型 Button + 箭头图标，明确「这是可前往确认的操作入口」
+        const progKey = CHANGE_PROGRESS_BY_CHANGE_STATUS[record.change_status ?? 'none']
+        const c = CHANGE_PROGRESS_MAP[progKey]
+        if (progKey === 'pending') {
+          // 待确认 → 可点击前往 M09「配置变更确认」页确认发布
           return (
             <Tooltip title="存在待确认的配置变更单，点击前往 M09「配置变更确认」页确认发布">
               <Button
@@ -917,36 +1053,44 @@ function StructuredEditView() {
                 style={{ padding: 0, height: 'auto', fontSize: 13 }}
                 onClick={() => window.open(MODULE_LINKS.module09, '_blank')}
               >
-                待确认
+                {c.text}
               </Button>
             </Tooltip>
           )
         }
-        if (record.change_status === 'confirmed') return <Tag color="success">已确认</Tag>
-        return <Text type="secondary">-</Text>
+        return <Tag color={c.color}>{c.text}</Tag>
       },
     },
     {
-      title: '状态',
-      dataIndex: 'enabled',
-      key: 'enabled',
-      render: (value: boolean, record: MonitoringRule) => (
-        <Switch
-          checked={value}
-          size="small"
-          onChange={(checked) => handleToggleEnabled(record, checked)}
-        />
+      // {v3.xx} F-23：原「启用状态」Switch 列改为「生效状态」列（草稿 / 已停用 / 待生效 / 已生效，与采集 Job 四态同源）
+      title: (
+        <Tooltip title="生效状态：草稿=保存草稿未入下发管线；待生效=变更单待确认、尚未下发生效；已生效=已启用且无待确认变更；已停用=未启用">
+          <Space size={4}>
+            生效状态
+            <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
       ),
+      key: 'effectiveStatus',
+      width: 100,
+      render: (_: unknown, record: MonitoringRule) => {
+        const c = EFFECTIVE_STATUS_MAP[getRuleEffectiveStatus(record)]
+        return <Tag color={c.color}>{c.text}</Tag>
+      },
     },
     {
       title: '操作',
       key: 'actions',
       render: (_: unknown, record: MonitoringRule) => (
         <Space>
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
+          {/* {v3.xx} F-23：启停由 Switch 改为文字按钮「停用 / 启用」+ 二次确认 */}
+          <Button type="link" size="small" onClick={() => handleToggleEnabledConfirm(record)}>
+            {record.enabled ? '停用' : '启用'}
+          </Button>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleOpenModal(record)}>
             编辑
           </Button>
-          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
+          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>
             删除
           </Button>
         </Space>
@@ -1043,13 +1187,9 @@ function StructuredEditView() {
         </Col>
       </Row>
 
-      <Alert
-        type="info"
-        showIcon
-        message="v0.3 字段化编辑预览（content_mode=structured）"
-        description="本视图为 v0.3 规划的类 YAML 字段化编辑（expr / for / labels / annotations），MVP 通过左侧「文件挂载」视图整文件透传 rules.yml；v0.3 落地后逐条写入 MonitoringRule（structured），同样经 M09 生成 rules.yml → 变更单人工确认 → 下发。"
-        style={{ marginBottom: 16 }}
-      />
+      <FieldGuide title="v0.3 字段化编辑预览（content_mode=structured）">
+        <Text>本视图为 v0.3 规划的类 YAML 字段化编辑（expr / for / labels / annotations），MVP 通过左侧「文件挂载」视图整文件透传 rules.yml；v0.3 落地后逐条写入 MonitoringRule（structured），同样经 M09 生成 rules.yml → 变更单人工确认 → 下发。</Text>
+      </FieldGuide>
 
       <Tabs defaultActiveKey="alerting">
         <TabPane tab="告警规则" key="alerting">
@@ -1211,13 +1351,9 @@ function StructuredEditView() {
             />
           )}
 
-          <Alert
-            type="info"
-            showIcon
-            message="规则不绑定网域"
-            description="告警/记录规则针对全部网域的聚合数据统一求值，因此无需（也不应）绑定单一网域；如需限定到某网域，请在表达式中按「网域」标签过滤。"
-            style={{ marginBottom: 16 }}
-          />
+          <FieldGuide title="规则不绑定网域">
+            <Text>告警/记录规则针对全部网域的聚合数据统一求值，因此无需（也不应）绑定单一网域；如需限定到某网域，请在表达式中按「网域」标签过滤。</Text>
+          </FieldGuide>
 
           <Row gutter={16}>
             <Col span={12}>
@@ -1274,13 +1410,22 @@ function StructuredEditView() {
           </Form.Item>
 
           {validationResult && (
-            <Alert
-              type={validationResult.status === 'success' ? 'success' : 'error'}
-              showIcon
-              message={validationResult.status === 'success' ? 'PromQL 校验通过' : 'PromQL 校验失败'}
-              description={validationResult.message}
-              style={{ marginBottom: 16 }}
-            />
+            <div
+              style={{
+                marginBottom: 16,
+                padding: '8px 12px',
+                borderRadius: 6,
+                background: validationResult.status === 'success' ? '#F6FFED' : '#FFF1F0',
+                border: `1px solid ${validationResult.status === 'success' ? '#B7EB8F' : '#FFA39E'}`,
+              }}
+            >
+              <Text strong style={{ color: validationResult.status === 'success' ? '#52C41A' : '#CF1322' }}>
+                {validationResult.status === 'success' ? 'PromQL 校验通过' : 'PromQL 校验失败'}
+              </Text>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
+                {validationResult.message}
+              </Text>
+            </div>
           )}
 
           {previewVisible && (
@@ -1334,8 +1479,7 @@ export default function RulesPage() {
       <div className="page-header">
         <Title level={4}>规则编辑</Title>
         <Text type="secondary">
-          MVP 通过上传 / 粘贴整文件 rules.yml 挂载告警 / 记录规则（不绕过 M09：保存 / 启停 / 删除后由配置中心生成
-          rules.yml → 人工确认 → 下发）；v0.3 升级为字段化编辑（PromQL 校验 + 指标预览）。
+          MVP 挂载整文件 rules.yml（不绕过 M09：保存 / 启停 / 删除后生成 → 人工确认 → 下发）；v0.3 升级字段化编辑。
         </Text>
       </div>
       <Card className="page-card">
@@ -1351,7 +1495,7 @@ export default function RulesPage() {
             />
           </Col>
           <Col>
-            <ReviewNote title="规则内容形态（PRD 5.5 / 3.1 / 3.2）">
+            <ReviewNote title="规则内容形态">
               MVP 默认 <Text code>content_mode=yaml_passthrough</Text>——规则经「规则编辑」页上传 / 粘贴整文件
               rules.yml 落库 MonitoringRule（rule_content），保存 / 启停 / 删除即触发 M09 变更检测 → 生成 rules.yml →
               变更单人工确认 → 下发，回写 change_status（与采集 Job 同源同机制）；v0.3 升级为{' '}

@@ -211,6 +211,13 @@ export interface BusinessDomain {
   enabled: boolean
 }
 
+/** 操作系统内置字典条目（os_dict.go，GET /api/v2/platform/os-options）：规范名 + 家族 */
+export interface OSOption {
+  name: string
+  /** 监控家族：linux / windows（对齐 host_linux / host_windows） */
+  family: 'linux' | 'windows'
+}
+
 /** 资源标签来源（§5.3 / §8.2） */
 export type ResourceLabelSource = 'system' | 'user' | 'cmdb'
 

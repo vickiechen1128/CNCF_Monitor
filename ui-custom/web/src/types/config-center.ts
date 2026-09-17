@@ -81,22 +81,44 @@ export type DraftStatus = 'pending' | 'confirmed' | 'discarded'
 /** 下发前校验状态 */
 export type DraftValidationStatus = 'passed' | 'failed' | 'pending' | 'rejected'
 
+/** 校验失败归因（决策 45-3） */
+export type DraftValidationCause = 'user_config' | 'platform_fault'
+
+/**
+ * 校验问题来源（决策 67-3）：驱动「前往修改」按来源分流。
+ * - rule：规则 job 引用问题 → Module_01 规则编辑页（/rules）；
+ * - scrape_job / targets：采集 Job、prometheus.yml 外部校验、targets 实例 → /scrape-jobs。
+ * 缺省（旧数据）按 scrape_job 回落。
+ */
+export type ValidationSource = 'rule' | 'scrape_job' | 'targets'
+
+/** 结构化校验失败定位（对齐原型 validation_details） */
+export interface ValidationDetail {
+  file?: string
+  line?: number
+  message: string
+  /** 问题来源，驱动「前往修改」分流跳转（决策 67-3） */
+  source?: ValidationSource
+}
+
 /** 风险等级 */
 export type Risk = 'low' | 'high'
 
-/** 变更对象（源数据对象） */
+/** 变更对象（源数据对象；决策 60 追加 alertmanager_config 告警配置；决策 68-2 补丁追加 prom_alerting） */
 export type ChangeTarget =
   | 'scrape_job'
   | 'target_instance'
   | 'monitoring_rule'
   | 'probe_target'
   | 'label_template'
+  | 'alertmanager_config'
+  | 'prom_alerting'
 
 /** 变更类型 */
 export type ChangeType = 'add' | 'update' | 'delete'
 
-/** 影响的配置文件 */
-export type AffectedFile = 'prometheus' | 'targets' | 'rules' | 'blackbox'
+/** 影响的配置文件（决策 60 追加 alertmanager） */
+export type AffectedFile = 'prometheus' | 'targets' | 'rules' | 'blackbox' | 'alertmanager'
 
 /** 结构化变更清单项 */
 export interface ConfigChangeItem {
@@ -131,6 +153,12 @@ export interface ConfigDraft {
   risk: Risk
   affected_files: AffectedFile[]
   validation_status: DraftValidationStatus
+  /** 校验失败/待校验的具体原因（PRD §3.5.1，重校验失败亦透传） */
+  validation_message?: string
+  /** 校验失败归因（user_config 用户配置可修复 / platform_fault 平台故障自动重试，决策 45-3） */
+  validation_cause?: DraftValidationCause
+  /** 结构化校验失败定位（对齐原型 validation_details） */
+  validation_details?: ValidationDetail[]
   confirmed_by?: string
   confirmed_at?: string
   created_at: string
@@ -139,6 +167,8 @@ export interface ConfigDraft {
   prometheus_yml?: string
   rules_yml?: string
   blackbox_yml?: string
+  /** 告警配置产物（决策 60：仅管理域 default 变更单含 alertmanager.yml 时返回，多文件预览 Tab 用） */
+  alertmanager_yml?: string
   targets_files?: Record<string, string>
   metadata?: ConfigDraftMetadata
   change_items?: ConfigChangeItem[]
@@ -153,12 +183,21 @@ export interface ConfigVersion {
   prometheus_yml?: string
   rules_yml?: string
   blackbox_yml?: string
+  alertmanager_yml?: string
   targets_files?: Record<string, string>
   created_at?: string
 }
 
 /** 下发记录状态 */
 export type DeploymentStatus = 'pending' | 'running' | 'success' | 'failed' | 'rolled_back'
+
+/** 废弃配置草稿对源数据的影响统计（决策 43-7） */
+export interface DiscardImpact {
+  new_reverted: number
+  modified_kept: number
+  deleted_restored: number
+  missing: number
+}
 
 /** 下发记录（ConfigDeployment） */
 export interface ConfigDeployment {
@@ -176,4 +215,28 @@ export interface ConfigDeployment {
   /** 开始时间 */
   triggered_at: string
   completed_at?: string
+}
+
+/** 版本轻量引用（回滚预览用） */
+export interface VersionRef {
+  id: string
+  change_no: string
+}
+
+/** 回滚预览单条源数据操作差异 */
+export interface RollbackDiffItem {
+  side: 'target' | 'current' | 'both'
+  type: ChangeType
+  target: ChangeTarget
+  description: string
+  affected_files: AffectedFile[]
+  risk: Risk
+}
+
+/** 回滚确认前差异预览（决策 63 P0） */
+export interface RollbackPreview {
+  target_version: VersionRef
+  current_version?: VersionRef
+  diff_items: RollbackDiffItem[]
+  warning: string
 }

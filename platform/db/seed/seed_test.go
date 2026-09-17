@@ -28,6 +28,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.Tenant{},
 		&models.NetworkDomain{},
 		&models.ZoneType{},
+		&models.User{},
 		&models.LabelTemplate{},
 		&models.ExporterTemplate{},
 		&models.CITypeExporterMapping{},
@@ -97,8 +98,9 @@ func TestRunSeedsLabelTemplates(t *testing.T) {
 	assert.Equal(t, models.ResourceCategoryHost, tmpl.ResourceCategory)
 	assert.True(t, tmpl.IsDefault)
 
-	// 断言 default-host 含 biz_code→biz 与 instance_ip:port→instance 映射
-	for _, target := range []string{"biz", "instance"} {
+	// 断言 default-host 含 resource_id→resource_id（47-3 回连键）、biz_code→biz
+	// 与 instance_ip:port→instance 映射
+	for _, target := range []string{"resource_id", "biz", "instance"} {
 		found := false
 		for _, m := range tmpl.Mappings {
 			if m.TargetLabel == target {
@@ -110,6 +112,42 @@ func TestRunSeedsLabelTemplates(t *testing.T) {
 	}
 }
 
+// TestRunLabelTemplatesBackfillsResourceID 覆盖存量库一次性修正（2026-09-02，
+// 决策 47-3 回连前置）：旧版种子（无 resource_id 映射）再次执行 Run 后应补齐
+// resource_id → resource_id 映射，且重复执行幂等、既有映射保留。
+func TestRunLabelTemplatesBackfillsResourceID(t *testing.T) {
+	db := newTestDB(t)
+
+	// 模拟存量库：手工落一个不含 resource_id 的旧版 default-host。
+	legacy := &models.LabelTemplate{
+		Name:             "default-host",
+		ResourceCategory: models.ResourceCategoryHost,
+		IsDefault:        true,
+		Mappings: []models.LabelMapping{
+			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+		},
+	}
+	require.NoError(t, db.Create(legacy).Error)
+
+	require.NoError(t, Run(db))
+	require.NoError(t, Run(db)) // 幂等
+
+	var tmpl models.LabelTemplate
+	require.NoError(t, db.Where("name = ?", "default-host").First(&tmpl).Error)
+	resourceIDCount := 0
+	foundApp := false
+	for _, m := range tmpl.Mappings {
+		if m.TargetLabel == "resource_id" {
+			resourceIDCount++
+		}
+		if m.TargetLabel == "app" {
+			foundApp = true
+		}
+	}
+	assert.Equal(t, 1, resourceIDCount, "resource_id 映射应被补齐且不重复")
+	assert.True(t, foundApp, "既有 app 映射应保留")
+}
+
 func TestRunSeedsExportersAndMappings(t *testing.T) {
 	db := newTestDB(t)
 
@@ -119,6 +157,10 @@ func TestRunSeedsExportersAndMappings(t *testing.T) {
 		var e models.ExporterTemplate
 		require.NoError(t, db.Where("name = ?", name).First(&e).Error)
 		assert.True(t, e.IsBuiltin)
+		// 内置 seed 补齐：下载地址 / 官方文档 / 描述非空，保证前端图标链与详情展示有数据
+		assert.NotEmpty(t, e.DownloadURL, "%s download_url 应非空", name)
+		assert.NotEmpty(t, e.Homepage, "%s homepage 应非空", name)
+		assert.NotEmpty(t, e.Description, "%s description 应非空", name)
 	}
 
 	for _, mt := range []string{"host_linux", "host_windows", "mysql", "redis", "kafka", "snmp"} {
@@ -134,6 +176,24 @@ func TestRunSeedsExportersAndMappings(t *testing.T) {
 		assert.True(t, e.IsBuiltin)
 		assert.Equal(t, strconv.FormatUint(uint64(e.ID), 10), m.ExporterTemplateID)
 	}
+}
+
+func TestRunExportersBackfillsBuiltinCanonicalFields(t *testing.T) {
+	db := newTestDB(t)
+
+	// 首次 seed 后清空内置行的新增字段，模拟存量库（旧数据无 download_url/homepage/description）。
+	require.NoError(t, Run(db))
+	require.NoError(t, db.Model(&models.ExporterTemplate{}).
+		Where("is_builtin = ?", true).
+		Updates(map[string]interface{}{"download_url": "", "homepage": "", "description": ""}).Error)
+
+	// 再次 Run：内置行应按权威 seed 数据回填。
+	require.NoError(t, Run(db))
+	var e models.ExporterTemplate
+	require.NoError(t, db.Where("name = ?", "node-exporter").First(&e).Error)
+	assert.NotEmpty(t, e.DownloadURL, "存量内置行 download_url 应被回填")
+	assert.NotEmpty(t, e.Homepage, "存量内置行 homepage 应被回填")
+	assert.NotEmpty(t, e.Description, "存量内置行 description 应被回填")
 }
 
 func TestRunIsIdempotent(t *testing.T) {

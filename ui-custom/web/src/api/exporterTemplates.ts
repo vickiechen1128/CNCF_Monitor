@@ -29,6 +29,7 @@ export interface ExporterTemplateInput {
   download_url?: string
   homepage?: string
   install_guide?: string
+  description?: string
   source: ExporterSource
 }
 

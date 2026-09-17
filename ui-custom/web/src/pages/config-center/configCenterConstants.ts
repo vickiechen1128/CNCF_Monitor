@@ -2,6 +2,9 @@
  * Module_09 配置中心 枚举/常量/UI 展示名映射（config-center）。
  * 权威契约：docs/05-execution-records/module-09/api-contract-snapshot.md（§8 枚举字典 / §10 UI 展示名）。
  * 用户可见文案遵循 PRD §10 术语映射；技术字段（checksum/generator_version 等）不下沉为 UI 文案。
+ *
+ * 待办：CURRENT_USER 为 MVP 预置的确认人硬编码（decision 19 文档化妥协）；
+ * M06 用户管理接入后应删除并改用真实登录账号（见设计决策 19），实现 login 前勿新增硬编码凭据/姓名。
  */
 import type {
   AffectedFile,
@@ -146,21 +149,24 @@ export const changeTypeColor: Record<ChangeType, string> = {
   delete: 'red',
 }
 
-/** 变更对象（源数据对象，对应 PRD §10） */
+/** 变更对象（源数据对象，对应 PRD §10；决策 60 追加 alertmanager_config；决策 68-2 补丁追加 prom_alerting） */
 export const changeTargetLabel: Record<ChangeTarget, string> = {
   scrape_job: '采集 Job',
   target_instance: '采集目标',
   monitoring_rule: '告警规则',
   probe_target: '拨测目标',
   label_template: '标签模板',
+  alertmanager_config: '告警配置',
+  prom_alerting: '告警投递',
 }
 
-/** 影响的配置文件（对应 PRD §10） */
+/** 影响的配置文件（对应 PRD §10；决策 60 追加 alertmanager） */
 export const affectedFileLabel: Record<AffectedFile, string> = {
   prometheus: 'prometheus.yml',
   targets: 'targets/*.json',
   rules: 'rules.yml',
   blackbox: 'blackbox.yml',
+  alertmanager: 'alertmanager.yml',
 }
 
 export const affectedFileColor: Record<AffectedFile, string> = {
@@ -168,6 +174,7 @@ export const affectedFileColor: Record<AffectedFile, string> = {
   targets: 'purple',
   rules: 'orange',
   blackbox: 'cyan',
+  alertmanager: 'magenta',
 }
 
 /** 下发记录状态 */
@@ -209,4 +216,15 @@ export function formatRelativeTime(dateStr?: string): string {
   if (diffHours < 24) return `${diffHours} 小时前`
   const diffDays = Math.floor(diffHours / 24)
   return `${diffDays} 天前`
+}
+
+/**
+ * 绝对时间本地化展示（口径对齐 M08 告警页 formatTime：zh-CN 24 小时制，
+ * 如「2026/9/11 17:01:26」）。后端时间为 RFC3339（含纳秒/时区），直接原样展示
+ * 会出现 T/Z/纳秒等机器格式，此函数统一转为本地可读串；缺省或非法值返回 '-'。
+ */
+export function formatLocalTime(iso?: string | null): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString('zh-CN', { hour12: false })
 }

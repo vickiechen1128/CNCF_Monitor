@@ -21,9 +21,11 @@ import {
   mockNetworkDomains,
   mockResources,
   mockScrapeJobs,
+  mockTargetsCollection,
+  collectionStatsOf,
 } from './module-01'
 
-describe('module-01 mocks（对齐 PRD v3.26）', () => {
+describe('module-01 mocks（对齐 PRD v3.28）', () => {
   const templateIds = new Set(mockExporterTemplates.map((t) => t.exporter_template_id))
   const resourceIds = new Set(mockResources.map((r) => r.resource_id))
   const metricNames = new Set(mockMetricLibrary.filter((m) => m.enabled).map((m) => m.metric_name))
@@ -50,17 +52,32 @@ describe('module-01 mocks（对齐 PRD v3.26）', () => {
       .forEach((d) => expect(d.frozen).toBeFalsy())
   })
 
-  it('ScrapeJob / Resource 的 network_domain_id 均在规范网域内', () => {
-    mockScrapeJobs.forEach((j) => expect(NETWORK_DOMAIN_IDS).toContain(j.network_domain_id))
+  it('{v3.28} 决策 54：ScrapeJob 绑定网域集合（network_domain_ids 均为规范网域）；Resource 的 network_domain_id 均在规范网域内', () => {
+    mockScrapeJobs.forEach((j) => {
+      expect(j.network_domain_ids.length).toBeGreaterThan(0)
+      j.network_domain_ids.forEach((id) => expect(NETWORK_DOMAIN_IDS).toContain(id))
+    })
     mockResources.forEach((r) => expect(NETWORK_DOMAIN_IDS).toContain(r.network_domain_id))
   })
 
-  it('MVP ScrapeJob 的 instance_selection_mode 均为 manual（filter 为 v0.3+）', () => {
-    expect(mockScrapeJobs.length).toBeGreaterThan(0)
-    mockScrapeJobs.forEach((j) => {
-      expect(j.instance_selection_mode).toBe('manual')
-      expect(j.instance_filter).toBeNull()
-    })
+  it('{v3.28} 决策 53：内置 1 个 filter 演示 Job（实例由筛选表达式运行时求值，selected_instance_ids 为空）', () => {
+    const filterJob = mockScrapeJobs.find((j) => j.job_id === 'job-filter-demo')
+    expect(filterJob).toBeTruthy()
+    expect(filterJob!.instance_selection_mode).toBe('filter')
+    expect(filterJob!.selected_instance_ids).toEqual([])
+    const conds = filterJob!.instance_filter as { conditions: { field: string; op: string; value: string }[] }
+    expect(conds.conditions.length).toBeGreaterThan(0)
+    // 筛选字段必须是对齐 Resource 的属性字段：env / cluster / app_name / business_domain
+    conds.conditions.forEach((c) =>
+      expect(['env', 'cluster', 'app_name', 'business_domain']).toContain(c.field)
+    )
+    // 其余 Job 默认为 manual 选择模式（filter 为 v0.2 演示，决策 53：运行时选择）
+    mockScrapeJobs
+      .filter((j) => j.job_id !== 'job-filter-demo')
+      .forEach((j) => {
+        expect(j.instance_selection_mode).toBe('manual')
+        expect(j.instance_filter).toBeNull()
+      })
   })
 
   it('ScrapeJob 必填 job_type 且仅允许 standard / blackbox（PRD v2.0）', () => {
@@ -339,6 +356,42 @@ describe('module-01 mocks（对齐 PRD v3.26）', () => {
           if (t.url) expect(typeof t.url).toBe('string')
         })
       })
+  })
+
+  it('{v3.27} 决策 47-2：mockTargetsCollection 采集状态枚举合法，且异常态需可解释（up 必带最后抓取时间）', () => {
+    const valid: Array<'pending' | 'up' | 'down' | 'unknown'> = ['pending', 'up', 'down', 'unknown']
+    mockScrapeJobs.forEach((j) => {
+      j.selected_instance_ids.forEach((id) => {
+        const s = mockTargetsCollection[id]?.status ?? 'unknown'
+        expect(valid).toContain(s)
+        // up 表示「采集中」，必须携带最后抓取时间；异常态 down 携带失败原因
+        if (s === 'up') expect(mockTargetsCollection[id]?.last_scrape).toBeTruthy()
+        if (s === 'down') {
+          expect(
+            (mockTargetsCollection[id]?.last_error ?? '').length > 0 ||
+              (mockTargetsCollection[id]?.last_scrape ?? '') === ''
+          ).toBe(true)
+        }
+      })
+    })
+  })
+
+  it('{v3.27} 决策 47-2：collectionStatsOf 按实例集合聚合四态计数且总数等于入参长度', () => {
+    const job = mockScrapeJobs.find((j) => j.job_id === 'job-001') ?? mockScrapeJobs[0]
+    const stats = collectionStatsOf(job.selected_instance_ids, mockTargetsCollection)
+    const total = stats.up + stats.down + stats.pending + stats.unknown
+    expect(total).toBe(job.selected_instance_ids.length)
+    // 汇总必为非负整数
+    Object.values(stats).forEach((v) => expect(Number.isInteger(v)).toBe(true))
+    expect(stats.up).toBeGreaterThan(0)
+  })
+
+  it('{v3.27} 决策 47-1：安装登记键维度为 resource_id × exporter_template_id，登记与否不影响 target 生成（纯留痕）', () => {
+    // mock 安装登记均可选：resource_id / exporter_template_id 均指向合法资源与采集器，且不含「生成 target」断言
+    mockExporterInstallations.forEach((c) => {
+      expect(resourceIds.has(c.resource_id)).toBe(true)
+      expect(templateIds.has(c.exporter_template_id)).toBe(true)
+    })
   })
 
   it('ScrapeJob 的 mapping_overrides 字段名在映射继承参数候选集内（PRD v2.0 决策 14）', () => {

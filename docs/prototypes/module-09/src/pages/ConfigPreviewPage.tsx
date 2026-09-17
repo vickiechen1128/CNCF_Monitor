@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Alert, Empty, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented, Popover, type TableColumnsType } from 'antd'
-import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined, CopyOutlined, InfoCircleOutlined, HistoryOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Card, Select, Button, Space, Tag, Descriptions, Row, Col, message, Empty, Table, Typography, Tooltip, Tabs, Collapse, Drawer, Segmented, Popover, Modal, type TableColumnsType } from 'antd'
+import { CheckOutlined, DeleteOutlined, DiffOutlined, EyeOutlined, CopyOutlined, InfoCircleOutlined, HistoryOutlined, ReloadOutlined, ExclamationCircleFilled, CheckCircleFilled } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { ReviewNote } from '../components/ReviewNote'
+import { Callout } from '../components/Callout'
 import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   configDrafts,
@@ -21,8 +22,11 @@ import {
   authTlsPassthroughNote,
   frozenDomainExclusionNote,
   defaultFallbackRemovalNote,
+  jobDomainFanoutNote,
+  filterRealTimeEvaluationNote,
   channelLabel,
   channelTip,
+  writeSyncFlowOverride,
   type Channel,
   type ConfigSyncStatus,
   type ConfigDraftStatus,
@@ -150,6 +154,7 @@ const changeTargetLabel: Record<ConfigChangeTarget, string> = {
   alert_rule: '告警规则',
   blackbox_target: '拨测目标',
   label_template: '标签模板',
+  alertmanager_config: '通知配置',
 }
 
 const changeTargetTip: Record<ConfigChangeTarget, string> = {
@@ -158,6 +163,8 @@ const changeTargetTip: Record<ConfigChangeTarget, string> = {
   alert_rule: '告警 / 记录规则，在监控策略模块规则编辑维护',
   blackbox_target: '拨测目标（URL / 域名 / IP:Port），内嵌于 blackbox 采集 Job',
   label_template: '标签模板，在监控对象模块维护',
+  // {决策 60} alertmanager.yml：管理域 default scope 产物，由告警通知模块文件挂载提交，本模块负责变更确认与下发
+  alertmanager_config: 'alertmanager.yml（接收人 / 路由 / 静默 / 抑制），在告警通知模块以文件挂载维护，管理域 default scope',
 }
 
 /** 影响的配置文件（决策 22）：configgen 产物差异派生，帮助用户理解该行变更影响哪个配置文件 */
@@ -166,6 +173,7 @@ const affectedFileLabel: Record<AffectedConfigFile, string> = {
   targets: 'targets/*.json',
   'rules.yml': 'rules.yml',
   'blackbox.yml': 'blackbox.yml',
+  'alertmanager.yml': 'alertmanager.yml',
 }
 
 const affectedFileColor: Record<AffectedConfigFile, string> = {
@@ -173,6 +181,7 @@ const affectedFileColor: Record<AffectedConfigFile, string> = {
   targets: 'purple',
   'rules.yml': 'orange',
   'blackbox.yml': 'cyan',
+  'alertmanager.yml': 'magenta',
 }
 
 /** 变更状态筛选（决策 21）：默认待确认，可选已确认 / 已废弃 / 全部，替代原「待确认 / 历史」二分切换 */
@@ -239,10 +248,11 @@ function computeDiff(oldText: string, newText: string) {
 }
 
 /**
- * {v1.39 决策 39-1} 校验失败详情行内 Popover（失败文件 + 行号 + 错误信息 + 归因分类 + 对应引导）：
- * 用户配置问题 →「前往修改」跳 M01 对应采集 Job / 规则修复源数据；平台技术故障 → 仅提示自动重试 / 联系平台侧
+ * {v1.39 决策 39-1 / v1.50 决策 45-1} 校验失败详情行内 Popover（失败文件 + 行号 + 错误信息 + 归因分类 + 对应引导）：
+ * 用户配置问题 →「前往修改」跳 M01 对应采集 Job / 规则修复源数据；
+ * 平台技术故障 → 校验层已自动重试（指数退避，用户无感），同时提供手动「重新校验」自愈出口（决策 45-1，pending/failed 均提供「重新校验 + 废弃」）
  */
-function renderValidationFailPopover(record: ConfigDraft) {
+function renderValidationFailPopover(record: ConfigDraft, onRevalidate?: (target: ConfigDraft) => void) {
   const cause = record.validation_cause ?? 'user_config'
   const details = record.validation_details ?? []
   return (
@@ -279,12 +289,67 @@ function renderValidationFailPopover(record: ConfigDraft) {
           </Text>
         </Space>
       ) : (
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          平台技术故障：校验层已自动重试（30s / 2min / 5min 指数退避，用户无感）；持续失败请联系平台侧 / 查看日志
-        </Text>
+        <>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            平台技术故障：校验层已自动重试（30s / 2min / 5min 指数退避，用户无感）；持续失败可点击「重新校验」手动自愈
+          </Text>
+          {onRevalidate && (
+            <div style={{ marginTop: 8 }}>
+              <Button size="small" type="primary" ghost onClick={() => onRevalidate(record)}>
+                重新校验
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
+}
+
+/**
+ * {v1.50 决策 43} 废弃回写分类判定（原型模拟后端 discard-impact）：
+ * 废弃不是「数据不动只废单」——full-render 模型下不处理源数据必然导致鬼影复现（下一轮轮询因「源版本 > 基线」重新生成内容相同的变更单）。
+ * 废弃前先计算影响分类，前端弹窗「分类知情告知」后再确认（new_reverted / modified_kept / deleted_restored / missing）。
+ */
+type DiscardImpactCategory = 'new_reverted' | 'modified_kept' | 'deleted_restored' | 'missing'
+
+const DISCARD_IMPACT_META: Record<DiscardImpactCategory, { label: string; color: string; description: string }> = {
+  new_reverted: {
+    label: '新建未生效',
+    color: 'gold',
+    description: '新建未生效 Job 随单回退 draft（撤回「提交生效」，等待下次提交）',
+  },
+  modified_kept: {
+    label: '已生效修改',
+    color: 'blue',
+    description: '已生效 Job 的修改将不生效，将随复现变更单再次进入确认（deployed_snapshot + 随单回滚登记至 v0.3）',
+  },
+  deleted_restored: {
+    label: '删除停用',
+    color: 'purple',
+    description: '删除 / 停用型将自动恢复（删除恢复启用 / 停用恢复启用）',
+  },
+  missing: {
+    label: '未命中',
+    color: 'default',
+    description: '部分源对象未命中分类，保持当前生效配置不变',
+  },
+}
+
+/** 由变更清单项派生废弃影响分类（原型模拟后端 discard-impact，真实场景由 discard 接口返回） */
+function computeDiscardImpact(draft: ConfigDraft): { category: DiscardImpactCategory; count: number }[] {
+  const items = draft?.change_items ?? []
+  if (items.length === 0) return [{ category: 'missing', count: 0 }]
+  const byType: Record<DiscardImpactCategory, number> = { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 }
+  items.forEach((i) => {
+    if (i.type === 'add') byType.new_reverted++
+    else if (i.type === 'modify') byType.modified_kept++
+    else if (i.type === 'remove') byType.deleted_restored++
+    else byType.missing++
+  })
+  return (Object.keys(byType) as DiscardImpactCategory[])
+    .filter((c) => byType[c] > 0)
+    .map((c) => ({ category: c, count: byType[c] }))
 }
 
 /** 配置产物形态分层（决策 6 / 决策 32）：channel=local（如 default）=本地文件集（无 zip/metadata.json），channel=agent_pull=zip 配置包（含 metadata.json） */
@@ -316,7 +381,8 @@ ${targetsLines}
 ├── rules.yml
 └── blackbox.yml${hasBlackbox ? '' : '（当前无 blackbox Job，不生成）'}
 
-# alertmanager.yml 由告警通知模块管理，不属于本模块配置产物`}
+# alertmanager.yml 为管理域 default scope 产物：纳入本模块变更确认，确认后写中心 Alertmanager 配置路径并 reload；
+# 不参与按网域扇出、不进入 agent_pull 配置包（本树为采集产物）`}
       </pre>
     )
   }
@@ -331,7 +397,8 @@ ${targetsLines}
 ├── rules.yml
 └── metadata.json
 
-# alertmanager.yml 由告警通知模块管理，不进入本配置包`}
+# alertmanager.yml 不进入本配置包：仅作为管理域 default scope 产物纳入本模块变更确认，
+# 确认后写中心 Alertmanager 配置路径并 reload，不参与按网域扇出`}
     </pre>
   )
 }
@@ -345,6 +412,8 @@ export function ConfigPreviewPage() {
   const [draftList, setDraftList] = useState<ConfigDraft[]>(() => [...configDrafts])
   /** {v1.39 决策 39-1} 正在重新校验中的变更单 ID 集合（按钮原地转 loading） */
   const [revalidatingIds, setRevalidatingIds] = useState<Set<string>>(new Set())
+  /** {v1.50 决策 43} 废弃分类知情告知 Modal 的待废弃草稿（null=未打开）：废弃前先算影响分类、弹窗告知再确认 */
+  const [discardTarget, setDiscardTarget] = useState<ConfigDraft | null>(null)
   const [viewMode, setViewMode] = useState<'preview' | 'diff'>('preview')
   const [activeFile, setActiveFile] = useState<PreviewFileKey>('prometheus.yml')
   /** 用户是否手动选择过预览文件 Tab（决策 19）：未手动选择时默认聚焦第一个受影响文件；用户选择后跟随用户 */
@@ -568,20 +637,45 @@ export function ConfigPreviewPage() {
       return
     }
     // 决策 19：确认动作记录确认人（当前登录用户），历史变更可审计「谁确认了高风险变更」；MVP 预置，用户管理接入后同步（决策 20）
-    // {v1.33} 发布通道按下发通道提示：local 通道确认后立即 reload 生效；agent_pull 通道发布为配置包，待 Edge Sync Agent 下次心跳拉取生效
+    // {v1.33} 发布通道按下发通道提示：local 通道确认后立即 reload 生效；agent_pull 通道发布为配置包，待采集节点下次心跳拉取生效
     // {v1.40 决策 40-3} agent_pull 确认后动线引导：正常路径无需任何点击（心跳自动拉取，out_of_sync → in_sync 自动流转），仅成因 C（本地环境变化）才需要「立即同步」；补充「采集节点状态」页入口
     const isAgentPull = activeDomain?.channel === 'agent_pull'
+    // {v1.71} 决策 74-3：agent_pull 确认后写入 mock 跨页流转桥（sessionStorage 持久，domain 级兜底）——采集节点状态页
+    // 挂载时应用：该域 pending_draft 节点翻「生效中」，再由其心跳模拟定时器自动流转「已同步」；否则确认动作跨页即丢
+    if (isAgentPull && activeDomainId) {
+      writeSyncFlowOverride(activeDomainId, { config_sync_status: 'out_of_sync', out_of_sync_cause: 'pull_pending' })
+    }
     message.success(
       isAgentPull
-        ? `变更单 ${draft?.change_no} 已确认，已发布配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）。可在「采集节点状态」页查看配置同步状态并确认生效进度（确认人：${CURRENT_USER}）`
+        ? `变更单 ${draft?.change_no} 已确认，已发布配置包，待采集节点下次心跳拉取生效（准实时 30s）。可在「采集节点状态」页查看配置同步状态并确认生效进度（确认人：${CURRENT_USER}）`
         : `变更单 ${draft?.change_no} 已确认并发布到监控（确认人：${CURRENT_USER}）`
     )
     setDetailDraft(null)
   }
 
   const handleDiscard = () => {
-    message.info(`变更单 ${draft?.change_no} 已废弃，保持当前生效配置不变`)
+    // {v1.50 决策 43} 废弃前先弹「分类知情告知」Modal（由后端 discard-impact 计算影响分类），确认后才执行源数据分类回写
+    if (!draft) return
+    setDiscardTarget(draft)
+  }
+
+  /** {v1.50 决策 43} 确认废弃：变更单置 discarded + 源数据分类回写（原型模拟；真实场景由 discard 接口按分类回写源数据，
+   *  new_reverted 回退 draft / modified_kept 保留并随复现变更单再次确认 / deleted_restored 自动恢复；change_status 清理、不残留 pending） */
+  const confirmDiscard = () => {
+    if (!discardTarget) return
+    const impacts = computeDiscardImpact(discardTarget)
+    const modifiedKept = impacts.some((i) => i.category === 'modified_kept')
+    setDraftList((prev) => prev.map((d) => (d.id === discardTarget.id ? { ...d, status: 'discarded' as const } : d)))
     setDetailDraft(null)
+    setDiscardTarget(null)
+    message.info(
+      `变更单 ${discardTarget.change_no} 已废弃：${impacts
+        .map((i) => `${DISCARD_IMPACT_META[i.category].label}×${i.count}`)
+        .join('、')}，源数据已按分类回写，保持当前生效配置不变`
+    )
+    if (modifiedKept) {
+      message.warning('已生效 Job 的修改不生效，将随复现变更单再次进入确认（deployed_snapshot + 随单回滚登记至 v0.3）', 4)
+    }
   }
 
   /** {v1.39 决策 39-1} 校验失败行内「重新校验」——点击后什么都不弹，按钮原地转 loading，行内「校验」列原地刷新结果；
@@ -667,7 +761,7 @@ export function ConfigPreviewPage() {
           <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
             发布通道：{channelLabel[activeDomain.channel]}（{activeDomain.name}）；
             {activeDomain.channel === 'agent_pull'
-              ? '确认后发布为配置包，待 Edge Agent 下次心跳拉取生效（准实时 30s）'
+              ? '确认后发布为配置包，待采集节点下次心跳拉取生效（准实时 30s）'
               : '确认后由中心写盘并 reload 立即生效'}
           </Text>
         )}
@@ -680,7 +774,7 @@ export function ConfigPreviewPage() {
               （平台保证生成内容与策略一致）；本页汇总待发布变更，确认对象是「要不要上线」，而非「配置怎么生成」。
             </li>
             <li>
-              审批分级（{'{v1.32}'} 决策 32）：
+              审批分级（{'{v1.32}'}；决策 60 起 alertmanager.yml 纳入本页确认）：
               <ul style={{ paddingLeft: 18, margin: 0 }}>
                 <li>{approvalTieringNote.manual}</li>
                 <li>{approvalTieringNote.auto}</li>
@@ -712,6 +806,14 @@ export function ConfigPreviewPage() {
             <li>
               冻结（禁用）网域不生成新变更单（{'{v1.50 决策 30}'}）：{frozenDomainExclusionNote}——冻结域的变更不再进入本页待确认列表。
             </li>
+            <li>
+              配置生成按域拆分扇出（{'{v1.51 决策 54}'}，v0.2 起）：{jobDomainFanoutNote}——下方待确认列表天然按网域分组、
+              每域独立的变更单，多域绑定的逻辑 Job 无需在本页手工克隆。
+            </li>
+            <li>
+              filter 模式实时求值（{'{v1.51 决策 53}'}，由 v0.3+ 提前到 v0.2）：{filterRealTimeEvaluationNote}——
+              条件式采集策略的变更单其 targets 由条件实时展开，本页「变更摘要 / 变更清单」会标注「自动纳入 / 自动移出」。
+            </li>
           </ul>
         </ReviewNote>
 
@@ -724,7 +826,7 @@ export function ConfigPreviewPage() {
               agent_pull 通道：产物为 zip 配置包，含 metadata.json（config_version、生成时间、agent_type、联合 checksum sha256），供 Edge Agent 拉取后完整性校验。
             </li>
             <li>
-              rules.yml（{'{v1.48 决策 38-1 规则文件挂载}'}）：MVP 由 Module_01 规则编辑页「文件挂载」的 `MonitoringRule.rule_content`（content_mode=yaml_passthrough，整份 rules.yml）**原样透传并入**，group 随文件自带、不按字段派生；保存 / 启停 / 删除规则后进入变更检测 → 变更单人工确认 → 下发，`change_status` 全链路回写 M01（不绕过配置中心）。v0.3 字段级编辑（structured）后改为按字段派生分组。external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（tenant / biz 由标签模板以 target 级注入）；alertmanager.yml 由告警通知模块管理，不进入本模块产物。
+              rules.yml（{'{v1.48 决策 38-1 规则文件挂载}'}）：MVP 由 Module_01 规则编辑页「文件挂载」的 `MonitoringRule.rule_content`（content_mode=yaml_passthrough，整份 rules.yml）**原样透传并入**，group 随文件自带、不按字段派生；保存 / 启停 / 删除规则后进入变更检测 → 变更单人工确认 → 下发，`change_status` 全链路回写 M01（不绕过配置中心）。v0.3 字段级编辑（structured）后改为按字段派生分组。external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（tenant / biz 由标签模板以 target 级注入）；alertmanager.yml（决策 60）作为管理域 default scope 产物纳入本模块变更确认——由告警通知模块文件挂载提交，人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写告警通知模块；不参与按网域扇出，不进入 agent_pull 配置包。
             </li>
             <li>
               targets/*.json 中每个 target 的 labels 由 LabelTemplate 静态展开（含 business_domain→biz、tenant_id→tenant 等映射）——biz / tenant 等 target 级标签不经 external_labels 注入；业务与网域正交，一个网域可承载多个业务的资源。
@@ -761,6 +863,10 @@ export function ConfigPreviewPage() {
           {/* {v1.43} 草稿对象不生成配置变更（联动 M01 草稿，PRD 3.3）：解释为什么编辑中的 Job 不出现在变更单里 */}
           <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
             草稿对象（draft）不生成配置变更：仅「已提交」的 Job / 规则提交生效后才进入变更检测——编辑中的 Job 不会出现在变更单里。
+          </Text>
+          {/* {v1.51 决策 54/53} 按域扇出 + filter 实时纳入的用户语说明：解释多域 Job 如何自动拆分、条件式纳入为何无需编辑策略 */}
+          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+            {jobDomainFanoutNote} {filterRealTimeEvaluationNote}（本批下拉列表中的条件式采集变更单即按此自动纳入演示）。
           </Text>
           {detectionStatus && (
             <Collapse
@@ -824,16 +930,29 @@ export function ConfigPreviewPage() {
                 },
                 {
                   // 决策 18：变更摘要（人话）回答「为什么变更」；详情（变更清单）在抽屉中查看（决策 20）
+                  // {v1.51 决策 54/53} 变更摘要标记：filter 条件式采集标「条件式」、多域扇出标来源逻辑 Job（无需手工克隆）
                   title: '变更摘要',
                   key: 'summary',
                   render: (_: unknown, record: ConfigDraft) => (
-                    <Text ellipsis style={{ maxWidth: 380 }}>{record.summary}</Text>
+                    <Space size={6} wrap={false} style={{ maxWidth: 420 }}>
+                      {record.selection_mode === 'filter' && (
+                        <Tooltip title={`条件式采集（instance_selection_mode=filter）：targets 由条件实时求值，条件：${record.filter_condition ?? '-'}`}>
+                          <Tag color="gold" style={{ marginInlineEnd: 0 }}>条件式</Tag>
+                        </Tooltip>
+                      )}
+                      {record.source_logical_job && (
+                        <Tooltip title={`多域扇出：由逻辑采集 Job ${record.source_logical_job} 按网域自动拆分，每域独立变更单`}>
+                          <Tag color="purple" style={{ marginInlineEnd: 0 }}>{record.source_logical_job}</Tag>
+                        </Tooltip>
+                      )}
+                      <Text ellipsis style={{ maxWidth: 300 }}>{record.summary}</Text>
+                    </Space>
                   ),
                 },
                 {
                   // {v1.33} 行内保留下发通道标记（PRD 3.4）：local / agent_pull（与对应 NetworkDomain.channel 一致，决策 32）
                   title: (
-                    <Tooltip title="该变更所属网域的下发通道：local（中心直接 reload）/ agent_pull（Edge Sync Agent 心跳拉取配置包）；决定确认后生效方式">
+                    <Tooltip title="该变更所属网域的接入方式：中心直连（确认后中心直接 reload）/ 采集节点回传（采集节点心跳拉取配置包）；决定确认后的生效方式">
                       <Space size={4}>
                         下发通道
                         <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -868,7 +987,7 @@ export function ConfigPreviewPage() {
                     <Space size={4}>
                       {status === 'failed' ? (
                         <Popover
-                          content={renderValidationFailPopover(record)}
+                          content={renderValidationFailPopover(record, (target) => handleRevalidate(target))}
                           title="校验失败原因"
                           trigger="click"
                           placement="right"
@@ -887,9 +1006,9 @@ export function ConfigPreviewPage() {
                           <Tag color={validationColor[status]}>{validationLabel[status]}</Tag>
                         </Tooltip>
                       )}
-                      {/* {v1.39} 决策 39-1/39-3：校验失败「重新校验」仅用户配置问题展示（点击后按钮原地转 loading，行内结果原地刷新）；
-                          平台技术故障自动重试、用户无感，不展示「重新校验」 */}
-                      {status === 'failed' && record.validation_cause === 'user_config' && (
+                      {/* {v1.39 决策 39-1 / v1.50 决策 45-1} 校验失败「重新校验」行内出口：用户配置问题先到 M01 修正源数据再回来重校；
+                          平台技术故障亦提供手动「重新校验」自愈（决策 45-1，pending/failed 均提供「重新校验 + 废弃」两出口，仅 passed 可确认） */}
+                      {status === 'failed' && (
                         <Button
                           size="small"
                           type="link"
@@ -1032,7 +1151,7 @@ export function ConfigPreviewPage() {
                         validationFailed
                           ? '下发前校验未通过，禁止下发'
                           : activeDomain?.channel === 'agent_pull'
-                          ? '确认后发布为配置包，待 Edge Sync Agent 下次心跳拉取生效'
+                          ? '确认后发布为配置包，待采集节点下次心跳拉取生效'
                           : '确认后立即 reload 生效'
                       }
                     >
@@ -1196,13 +1315,36 @@ export function ConfigPreviewPage() {
                 ]}
               />
 
+              {/* {v1.50 决策 42-1 / 44-2} 被同域更晚 pending 取代的旧单详情：提示「已被新变更单取代」——无需确认，保持当前生效配置不变
+                  （列表状态列已标「已取代」Tag；PRD §3.4 语义用轻量 banner 承载，遵守「用户主区 Alert ≤ 2」的结构约束） */}
+              {draft?.metadata.superseded_by_change_no && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'flex-start',
+                    padding: '8px 12px',
+                    marginBottom: 16,
+                    background: 'rgba(22,119,255,0.06)',
+                    border: '1px solid rgba(22,119,255,0.35)',
+                    borderRadius: 8,
+                  }}
+                >
+                  <InfoCircleOutlined style={{ color: '#1677ff', marginTop: 3 }} />
+                  <div style={{ fontSize: 13 }}>
+                    <Text strong>{`此变更单已被同域更晚的变更单 ${draft.metadata.superseded_by_change_no} 取代（superseded）`}</Text>
+                    <div style={{ marginTop: 2, color: 'rgba(0,0,0,0.65)' }}>无需确认，保持当前生效配置不变；请到列表中处理新变更单。</div>
+                  </div>
+                </div>
+              )}
+
               {/* {v1.39} 决策 39-1：抽屉只承载变更清单 / Diff / 确认/废弃操作——校验失败时最多留一行 Alert 摘要，
                   详细校验信息（失败文件 + 行号 + 归因 + 引导）一律在列表「下发前校验」列行内查看，不进抽屉 */}
               {validationFailed && draft && (
-                <Alert
-                  message={`校验未通过（${validationCauseLabel[draft.validation_cause ?? 'user_config']}），请先在列表查看失败原因并处理`}
-                  type="error"
-                  showIcon
+                <Callout
+                  tone="error"
+                  icon={<ExclamationCircleFilled />}
+                  title={`校验未通过（${validationCauseLabel[draft.validation_cause ?? 'user_config']}），请先在列表查看失败原因并处理`}
                   style={{ marginBottom: 16 }}
                 />
               )}
@@ -1218,7 +1360,7 @@ export function ConfigPreviewPage() {
                     [DECISION D32/{v1.32}] rules.yml 分组由配置中心自动派生（见 rulesGroupDerivationNote）；external_labels 仅注入部署级元数据 network_domain_id / zone_type / replica（{v1.45} / PRD 3.3.1，不注入 tenant_id / 业务标签）；
                     [DECISION D32/{v1.44}/{v1.45}] targets/*.json 中每个 target 的 labels 为 LabelTemplate 静态展开的资源标签（含 business_domain→biz、tenant_id→tenant 等映射，
                     即 static_configs[].labels 注入）——biz / tenant 等 target 级标签不经过 external_labels，见「本抽屉设计说明」；
-                    审批分级（{v1.32}）：alertmanager.yml 由 Module_08 直接管理并触发 Alertmanager reload，不进入本模块变更确认流程，产物中均不包含；
+                    审批分级（{v1.32} / 决策 60）：alertmanager.yml 作为管理域 default scope 产物纳入本模块变更确认（Module_08 文件挂载提交），人工确认后由本模块写中心 Alertmanager 配置路径并触发 reload，change_status 回写 Module_08；不参与按网域扇出、不进入 agent_pull 配置包（本树为采集产物，故不包含）；
                     targets 变化仅原子重写 targets/*.json（临时文件 + rename），不触发采集器 reload；仅 prometheus.yml 结构变化才触发 reload（reload 策略分离）；
                     blackbox.yml 在网域存在 job_type=blackbox 的 ScrapeJob 时必含，且必须随 prometheus.yml 一同下发。 */}
               </Card>
@@ -1403,15 +1545,14 @@ export function ConfigPreviewPage() {
                 </ul>
               </ReviewNote>
 
-              {/* {v1.40 决策 40-3} agent_pull 确认后动线引导（确认抽屉底部入口）：已发布配置包 → 待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）；
+              {/* {v1.40 决策 40-3} agent_pull 确认后动线引导（确认抽屉底部入口）：已发布配置包 → 待采集节点下次心跳拉取生效（准实时 30s）；
                   正常路径无需任何点击（心跳自动 out_of_sync → in_sync 流转），仅成因 C（本地环境变化）才需要「立即同步」；提供「前往采集节点状态」入口查看生效进度 */}
               {isAgentPullDomain && (
-                <Alert
-                  message="agent_pull 确认后动线：已发布配置包，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）"
-                  description="确认后可在「采集节点状态」页查看配置同步状态（config_sync_status）确认生效进度——正常路径无需任何点击（out_of_sync → in_sync 随心跳自动流转），仅本地环境/地址变化（成因 C）才需要在该页点击「立即同步」强制重新拉包。"
-                  type="success"
-                  showIcon
-                  action={
+                <Callout
+                  tone="success"
+                  icon={<CheckCircleFilled />}
+                  title="采集节点回传网域确认后动线：已发布配置包，待采集节点下次心跳拉取生效（准实时 30s）"
+                  extra={
                     <Button
                       size="small"
                       onClick={() => navigate(`/node-status?network_domain=${draft.network_domain_id}`)}
@@ -1420,12 +1561,53 @@ export function ConfigPreviewPage() {
                     </Button>
                   }
                   style={{ marginTop: 16 }}
-                />
+                >
+                  确认后可在「采集节点状态」页查看配置同步状态（config_sync_status）确认生效进度——正常路径无需任何点击
+                  （out_of_sync → in_sync 随心跳自动流转），仅本地环境 / 地址变化（成因 C）才需要在该页点击「立即同步」强制重新拉包。
+                </Callout>
               )}
             </>
           )}
         </Drawer>
       </Card>
+
+      {/* {v1.50 决策 43} 废弃变更单「分类知情告知」Modal：废弃前由后端 discard-impact 计算影响分类并弹窗告知，
+          确认后才执行源数据分类回写（new_reverted 回退 draft / modified_kept 保留并随复现变更单再次确认 / deleted_restored 自动恢复），
+          change_status 统一回写、不残留 pending；废弃后下一轮轮询因「源版本=基线」不再复现内容相同的变更单 */}
+      <Modal
+        title="废弃变更单（源数据分类回写告知）"
+        open={discardTarget !== null}
+        onCancel={() => setDiscardTarget(null)}
+        onOk={confirmDiscard}
+        okText="确认废弃"
+        okButtonProps={{ danger: true, icon: <DeleteOutlined /> }}
+        cancelText="取消"
+        width={560}
+      >
+        {discardTarget && (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>{`变更单 ${discardTarget.change_no} 将被废弃，本次变更将保持当前生效配置不变`}</Text>
+              <div style={{ marginTop: 4, fontSize: 13, color: 'rgba(0,0,0,0.65)' }}>
+                废弃不是「只废单不动数据」——为避免下一轮检测重新生成内容相同的变更单（鬼影复现），源数据将按以下分类自动回写：
+              </div>
+            </div>
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              {computeDiscardImpact(discardTarget).map(({ category, count }) => (
+                <div key={category} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <Tag color={DISCARD_IMPACT_META[category].color} style={{ flex: 'none', marginTop: 2 }}>
+                    {DISCARD_IMPACT_META[category].label} ×{count}
+                  </Tag>
+                  <Text style={{ fontSize: 13, color: 'rgba(0,0,0,0.75)' }}>{DISCARD_IMPACT_META[category].description}</Text>
+                </div>
+              ))}
+            </Space>
+            <div style={{ marginTop: 12, fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
+              废弃后相关源对象 change_status 统一回写清除（不残留 pending）；废弃审计历史由本变更单承载。确认后将执行分类回写，且不可撤销。
+            </div>
+          </div>
+        )}
+      </Modal>
     </MainLayout>
   )
 }

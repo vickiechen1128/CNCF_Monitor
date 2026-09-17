@@ -82,6 +82,69 @@ func LoadDefaultTemplate(db *gorm.DB, category models.ResourceCategory) (*models
 	return &tmpl, nil
 }
 
+// LoadTemplateForJob 解析某个采集 Job 应使用的标签模板：
+//   - 优先按 Job 显式挂载的 LabelTemplateID（M01 ScrapeJob.label_template_id）；
+//   - 未挂载或模板不存在时，回落该资源类别的默认模板（M07 is_default）。
+//
+// 二者都不可得时返回 nil（targets 不带业务标签，仅地址）。P1-1：修复 labels 为空——
+// 此前仅按 resource_type 取默认模板，忽略了 Job 上挂载的 label_template_id。
+func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error) {
+	if job.LabelTemplateID != "" {
+		var tmpl models.LabelTemplate
+		if err := db.Where("id = ?", job.LabelTemplateID).First(&tmpl).Error; err == nil {
+			return &tmpl, nil
+		} else if err != gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("load label template %s: %w", job.LabelTemplateID, err)
+		}
+		// 挂载的模板已被删除 → 回落默认模板
+	}
+	return LoadDefaultTemplate(db, models.ResourceCategory(job.ResourceType))
+}
+
+// LoadExporterPort 解析采集 Job 的采集策略层端口（target/instance 拼接用）。
+//
+// 优先级（PRD M07 §5.12C / M01 §5.1 端口一致性说明）：
+//  1. CITypeExporterMapping（按 monitor_type 的默认映射 default_port，映射表单可编辑）；
+//  2. 回落 ExporterTemplate（按 exporter_template_id 的 default_port）；
+//  3. 二者皆缺返回 0（host 不拼端口保持裸 IP；database/middleware 回落业务端口）。
+func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error) {
+	if job.MonitorType != "" {
+		var mapping models.CITypeExporterMapping
+		err := db.Where("monitor_type = ?", job.MonitorType).Order("is_default desc, created_at asc").First(&mapping).Error
+		if err == nil && mapping.DefaultPort > 0 {
+			return mapping.DefaultPort, nil
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return 0, fmt.Errorf("load ci-exporter mapping %s: %w", job.MonitorType, err)
+		}
+	}
+	if job.ExporterTemplateID != "" {
+		var tmpl models.ExporterTemplate
+		err := db.Where("id = ?", job.ExporterTemplateID).First(&tmpl).Error
+		if err == nil && tmpl.DefaultPort > 0 {
+			return tmpl.DefaultPort, nil
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return 0, fmt.Errorf("load exporter template %s: %w", job.ExporterTemplateID, err)
+		}
+	}
+	return 0, nil
+}
+
+// LoadLatestAlertmanagerConfigContent 读取最新一条已留痕（status=applied）的
+// AlertmanagerConfigVersion.content（决策 60 / T09-60-1，M08 源数据只读）。
+// 无告警配置留痕返回空字符串（不产生空 alertmanager.yml 产物）。
+func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error) {
+	var cfg models.AlertmanagerConfigVersion
+	err := db.Where("status = ?", models.AlertmanagerConfigStatusApplied).
+		Order("created_at DESC, id DESC").First(&cfg).Error
+	if err == gorm.ErrRecordNotFound {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("load latest alertmanager config: %w", err)
+	}
+	return cfg.Content, nil
+}
+
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。
 type ErrNotFound struct {
 	Resource string

@@ -1,6 +1,7 @@
 // Package deployment implements Module_09 配置下发与历史（config deployment）：
 // confirm 触发 local 写盘 reload、下发记录、重试、回滚，以及成功下发后对 M01
-// ScrapeJob.change_status 的回写（决策 31-M2）；agent_pull 通道 MVP 仅登记占位。
+// ScrapeJob / MonitoringRule.change_status 的回写（决策 31-M2；#18 补规则）。
+// agent_pull 通道 MVP 仅登记占位。
 // 参见 docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md
 //   §3.5 配置下发与历史 / §5.6 ConfigDeployment / §6.6.3 / 决策 42-3、决策 31-M2。
 package deployment
@@ -63,7 +64,7 @@ func Dispatch(db *gorm.DB, version *models.ConfigVersion, triggeredBy string, ap
 	if err != nil {
 		return nil, err
 	}
-	return dispatchVersion(db, version, dom, triggeredBy, app)
+	return dispatchVersion(db, version, dom, triggeredBy, app, false)
 }
 
 // DeployConfirmedVersion 经 DefaultApplier 下发已确认版本（供 draft.confirm 集成调用）。
@@ -75,7 +76,7 @@ func DeployConfirmedVersion(db *gorm.DB, version *models.ConfigVersion, triggere
 // 写盘 + reload，生成一条新的 ConfigDeployment。
 func Retry(db *gorm.DB, deploymentID, triggeredBy string, app Applier) (*models.ConfigDeployment, error) {
 	var orig models.ConfigDeployment
-	if err := db.Where("id = ?", deploymentID).First(&orig).Error; err != nil {
+	if err := db.Where("deployment_id = ?", deploymentID).First(&orig).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, ErrNotFound
 		}
@@ -98,11 +99,14 @@ func Retry(db *gorm.DB, deploymentID, triggeredBy string, app Applier) (*models.
 	if dom.Channel != models.ChannelTypeLocal {
 		return nil, ErrNotLocal
 	}
-	return dispatchVersion(db, version, dom, triggeredBy, app)
+	return dispatchVersion(db, version, dom, triggeredBy, app, false)
 }
 
-// Rollback 回滚到目标 ConfigVersion（契约 §5）：目标版本存在且属于 local 通道网域时，
-// 重新写盘 + reload 该版本，生成一条新的 ConfigDeployment（status 按投递结果）。
+// Rollback 回滚到目标 ConfigVersion（契约 §5 / PRD §8）：目标版本存在且属于 local 通道
+// 网域时，重新写盘 + reload 该版本，生成一条新的 ConfigDeployment——成功时
+// status=rolled_back（仅标记「该记录由回滚动作产生」，下发结果语义等同 success，
+// 仍参与 change_status 回写）；失败时 status=failed 并记录 error_message。
+// 被回滚的历史记录保持不变（台账不可变）。
 func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.ConfigDeployment, error) {
 	version, err := loadVersion(db, versionID)
 	if err != nil {
@@ -115,15 +119,21 @@ func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.
 	if dom.Channel != models.ChannelTypeLocal {
 		return nil, ErrNotLocal
 	}
-	return dispatchVersion(db, version, dom, triggeredBy, app)
+	return dispatchVersion(db, version, dom, triggeredBy, app, true)
 }
 
 // dispatchVersion 执行一次版本投递并落记录：
 //   - 提取产物 → agent_pull 直接落 pending 占位；
-//   - local 经 Applier 投递 → success/failed。
-func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier) (*models.ConfigDeployment, error) {
+//   - local 经 Applier 投递 → success/failed；rollback=true（回滚动作产生）时成功落
+//     rolled_back（PRD §8：rolled_back 视同 success，change_status / AM applied 回写不变）。
+func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier, rollback bool) (*models.ConfigDeployment, error) {
+	deploymentID, err := nextDeploymentID(db)
+	if err != nil {
+		return nil, fmt.Errorf("allocate deployment id: %w", err)
+	}
 	now := time.Now()
 	dep := &models.ConfigDeployment{
+		DeploymentID:      deploymentID,
 		NetworkDomainID:   version.NetworkDomainID,
 		ConfigVersionID:   fmt.Sprint(version.ID),
 		SourceChangeNo:    version.ChangeNo,
@@ -159,17 +169,31 @@ func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.Net
 	}
 
 	dep.Status = models.DeploymentStatusSuccess
+	if rollback {
+		// PRD §8：回滚动作生成的新记录成功时落 rolled_back（与正常发布可区分）；
+		// 其下发结果语义等同 success，下方 change_status / AM applied 回写照常执行。
+		dep.Status = models.DeploymentStatusRolledBack
+	}
 	dep.CompletedAt = &now
 	if err := db.Create(dep).Error; err != nil {
 		return nil, fmt.Errorf("record deployment: %w", err)
 	}
-	// 成功下发后回写 M01 ScrapeJob.change_status=deployed（决策 31-M2）。
+	// 成功下发后回写 M01 change_status=deployed（决策 31-M2；#18 补规则回写）。
 	// MEDIUM-1 review-fix：writeback 失败与投递成功解耦——降级记录到 error_message，
 	// 不整链 500（避免客户端在部署已成功后因回写失败而重复下发）。
-	if err := writebackChangeStatus(db, version.NetworkDomainID); err != nil {
+	if err := writebackChangeStatuses(db, version.NetworkDomainID); err != nil {
 		dep.ErrorMessage = fmt.Sprintf("writeback change_status failed: %v", err)
 		if uerr := db.Model(dep).Update("error_message", dep.ErrorMessage).Error; uerr != nil {
 			return nil, fmt.Errorf("record writeback failure: %w", uerr)
+		}
+		return dep, nil
+	}
+	// 决策 60：管理域 default 含 alertmanager.yml 下发成功后再回写 M08 applied
+	// （applied_at/source_change_no，与 M01 回写同降级策略）。
+	if err := writebackAlertmanagerApplied(db, version, now); err != nil {
+		dep.ErrorMessage = fmt.Sprintf("writeback alertmanager applied failed: %v", err)
+		if uerr := db.Model(dep).Update("error_message", dep.ErrorMessage).Error; uerr != nil {
+			return nil, fmt.Errorf("record alertmanager writeback failure: %w", uerr)
 		}
 		return dep, nil
 	}
@@ -226,20 +250,27 @@ func artifactsFromVersion(v *models.ConfigVersion) (*generator.ConfigArtifacts, 
 		}
 	}
 	return &generator.ConfigArtifacts{
-		PrometheusYML: v.PrometheusYml,
-		RulesYML:      v.RulesYml,
-		BlackboxYML:   v.BlackboxYml,
-		TargetsFiles:  targets,
+		PrometheusYML:   v.PrometheusYml,
+		RulesYML:        v.RulesYml,
+		BlackboxYML:     v.BlackboxYml,
+		TargetsFiles:    targets,
+		AlertmanagerYML: v.AlertmanagerYml,
 	}, nil
 }
 
-// DiskApplier 将配置产物写入本地中心 Prometheus 配置目录（local 通道）。
-// reload 策略分离（决策 31 / PRD §3.5）：
+// DiskApplier 将配置产物写入本地中心 Prometheus / Alertmanager 配置目录（local 通道）。
+// reload 策略分离（决策 31 / PRD §3.5；决策 60 扩展）：
 //   - targets/*.json 原子写（临时文件 + rename），由 file_sd 自动感知，不触发 reload；
-//   - 仅当 prometheus.yml / rules.yml / blackbox.yml 结构文件发生变化时才重写并触发 reload。
+//   - 仅当 prometheus.yml / rules.yml / blackbox.yml 结构文件发生变化时才重写并触发
+//     Prometheus reload（Reload）；
+//   - alertmanager.yml 单独写入中心 Alertmanager 配置路径（AMDir，与 Prometheus 配置
+//     目录分离）并触发独立 AM reload（AMReload）：仅含 AM 产物的变更单不影响
+//     Prometheus 配置目录与 reload。
 type DiskApplier struct {
 	Dir    string       // 中心 Prometheus 配置目录
-	Reload func() error // 可选：结构变更后触发 reload（SIGHUP 或 POST /-/reload）
+	AMDir  string       // 中心 Alertmanager 配置目录（决策 60，可等于 Dir）
+	Reload func() error // 可选：Prometheus 结构变更后触发 reload（SIGHUP 或 POST /-/reload）
+	AMReload func() error // 可选：alertmanager.yml 变更后触发 Alertmanager reload
 }
 
 // Apply 实现 Applier。
@@ -254,15 +285,49 @@ func (d *DiskApplier) Apply(ca *generator.ConfigArtifacts) error {
 	if err != nil {
 		return fmt.Errorf("inspect structural config: %w", err)
 	}
-	if !changed {
+	if changed {
+		if err := d.writeStructural(ca); err != nil {
+			return fmt.Errorf("write structural config: %w", err)
+		}
+		if d.Reload != nil {
+			if err := d.Reload(); err != nil {
+				return fmt.Errorf("reload prometheus: %w", err)
+			}
+		}
+	}
+	// 决策 60：alertmanager.yml 单独处理（独立路径 + 独立 reload）。
+	if err := d.writeAlertmanagerAndReload(ca); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeAlertmanagerAndReload 写 alertmanager.yml 到中心 Alertmanager 配置路径并触发
+// 独立 reload。内容为空跳过；磁盘内容未变化不重复写 / reload。
+func (d *DiskApplier) writeAlertmanagerAndReload(ca *generator.ConfigArtifacts) error {
+	if ca.AlertmanagerYML == "" {
 		return nil
 	}
-	if err := d.writeStructural(ca); err != nil {
-		return fmt.Errorf("write structural config: %w", err)
+	if d.AMDir == "" {
+		return fmt.Errorf("alertmanager config dir not configured")
 	}
-	if d.Reload != nil {
-		if err := d.Reload(); err != nil {
-			return fmt.Errorf("reload prometheus: %w", err)
+	path := filepath.Join(d.AMDir, "alertmanager.yml")
+	if cur, err := os.ReadFile(path); err == nil {
+		if string(cur) == ca.AlertmanagerYML {
+			return nil // 无变化，不 reload
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read alertmanager.yml: %w", err)
+	}
+	if err := os.MkdirAll(d.AMDir, 0o755); err != nil {
+		return fmt.Errorf("ensure alertmanager config dir: %w", err)
+	}
+	if err := writeFileAtomic(path, ca.AlertmanagerYML); err != nil {
+		return fmt.Errorf("write alertmanager.yml: %w", err)
+	}
+	if d.AMReload != nil {
+		if err := d.AMReload(); err != nil {
+			return fmt.Errorf("reload alertmanager: %w", err)
 		}
 	}
 	return nil
@@ -293,6 +358,11 @@ func (d *DiskApplier) writeTargets(files map[string]string) error {
 		return err
 	}
 	for name, content := range files {
+		// review-fix F6：落盘前二次断言纯文件名（写入点复用 map key 的防御纵深，
+		// 防 DB/下游脏 key 含 .. / 路径分隔符 越界写文件）。
+		if err := generator.EnsureTargetsFilename(name); err != nil {
+			return err
+		}
 		tmp, err := os.CreateTemp(targetsDir, ".tmp-*")
 		if err != nil {
 			return err
@@ -345,6 +415,47 @@ func structuralChanged(ca *generator.ConfigArtifacts, dir string) (bool, error) 
 func writeFile(path, content string) error {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+// nextDeploymentID 生成全局唯一下发记录 ID deploy-YYYYMMDD-NNN（当日自增）。
+func nextDeploymentID(db *gorm.DB) (string, error) {
+	prefix := "deploy-" + time.Now().Format("20060102") + "-"
+	var last models.ConfigDeployment
+	err := db.Where("deployment_id LIKE ?", prefix+"%").Order("deployment_id desc").First(&last).Error
+	seq := 1
+	if err == nil {
+		var n int
+		if _, scanErr := fmt.Sscanf(last.DeploymentID, prefix+"%d", &n); scanErr == nil {
+			seq = n + 1
+		}
+	} else if err != gorm.ErrRecordNotFound {
+		return "", fmt.Errorf("query latest deployment_id: %w", err)
+	}
+	return fmt.Sprintf("%s%03d", prefix, seq), nil
+}
+
+// writeFileAtomic 原子写文件（临时文件 + rename，避免读到半写内容），用于 alertmanager.yml。
+func writeFileAtomic(path, content string) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp for %s: %w", path, err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write temp for %s: %w", path, err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp for %s: %w", path, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename temp to %s: %w", path, err)
 	}
 	return nil
 }

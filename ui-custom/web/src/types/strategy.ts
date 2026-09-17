@@ -93,6 +93,7 @@ export interface ExporterTemplate {
   download_url: string
   homepage: string
   install_guide: string
+  description: string
   is_builtin: boolean
   source: ExporterSource
   created_at: string

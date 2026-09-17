@@ -1,0 +1,267 @@
+/**
+ * 告警状态页测试（Module_08 v1.12 MVP 增量，T08-F6，契约快照 §10）。
+ * 双视图：Tab 1「通知状态」（四态）+ Tab 2「当前告警」（firing/pending）。
+ * 通过 mock ./useAlertStatus 隔离真实 API；覆盖状态矩阵：加载 / 空态 / 接口错误 / 权限不足。
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { setupAntdTest } from '../../test/antdTestUtils'
+import { AlertStatusPage } from './AlertStatusPage'
+import type { AmAlertItem, PromAlertItem } from '../../types/alertmanager'
+
+const useAmAlertsMock = vi.fn()
+const usePromAlertsMock = vi.fn()
+const useNetworkDomainsMock = vi.fn()
+
+vi.mock('./useAlertStatus', () => ({
+  useAmAlerts: (...a: unknown[]) => useAmAlertsMock(...a),
+  usePromAlerts: (...a: unknown[]) => usePromAlertsMock(...a),
+  useNetworkDomains: () => useNetworkDomainsMock(),
+}))
+
+const amReloadMock = vi.fn()
+const promReloadMock = vi.fn()
+
+const amRow = (over: Partial<AmAlertItem> = {}): AmAlertItem => ({
+  labels: { alertname: 'HighCPU', severity: 'critical', network_domain: 'default', instance: '10.0.0.1:9100' },
+  annotations: { summary: 'CPU 使用率超过阈值' },
+  starts_at: '2026-09-08T01:00:00Z',
+  ends_at: '0001-01-01T00:00:00Z',
+  status: { state: 'active', silenced_by: [], inhibited_by: [] },
+  notify_status: 'active',
+  ...over,
+})
+
+const promRow = (over: Partial<PromAlertItem> = {}): PromAlertItem => ({
+  labels: { alertname: 'HighCPU', severity: 'critical', network_domain: 'default', instance: '10.0.0.1:9100' },
+  annotations: { summary: 'CPU 使用率超过阈值' },
+  state: 'firing',
+  activeAt: '2026-09-08T01:00:00Z',
+  value: '0.98',
+  ...over,
+})
+
+function amState(over: Record<string, unknown> = {}) {
+  return { items: [] as AmAlertItem[], loading: false, error: null, permissionDenied: false, reload: amReloadMock, ...over }
+}
+
+function promState(over: Record<string, unknown> = {}) {
+  return { items: [] as PromAlertItem[], loading: false, error: null, permissionDenied: false, reload: promReloadMock, ...over }
+}
+
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <AlertStatusPage />
+    </MemoryRouter>,
+  )
+}
+
+describe('AlertStatusPage（告警状态双视图）', () => {
+  setupAntdTest()
+
+  beforeEach(() => {
+    useAmAlertsMock.mockReset()
+    usePromAlertsMock.mockReset()
+    useNetworkDomainsMock.mockReset()
+    amReloadMock.mockReset()
+    promReloadMock.mockReset()
+    useAmAlertsMock.mockReturnValue(amState())
+    usePromAlertsMock.mockReturnValue(promState())
+    useNetworkDomainsMock.mockReturnValue([])
+  })
+
+  it('默认展示通知状态视图：四态统计卡片 + 语义折叠栏（默认收起），无独立标题卡片', async () => {
+    useAmAlertsMock.mockReturnValue(amState({ items: [amRow()] }))
+    const { container } = renderPage()
+    // 四态统计卡片（原型 AlertStatusPage 对齐，文案以契约 §10.2 展示名为准）
+    expect(await screen.findAllByText('通知中')).not.toHaveLength(0)
+    expect(screen.getAllByText('已静默').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('已抑制').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('待处理').length).toBeGreaterThan(0)
+    // 页头独立标题卡片移除（用户反馈 2026-09-11：截图圈选的顶部大标题 Card 不要；
+    // 选择器取 h4——原页标题为 level 4，避开 MainLayout 头部 h3 应用名）
+    expect(container.querySelector('h4.ant-typography')).toBeNull()
+    // 折叠栏默认收起：仅可见标题，说明内容不在 DOM；点击展开后可见（口语化新文案）
+    expect(screen.getByText(/「通知状态」和「当前告警」有什么区别/)).toBeInTheDocument()
+    expect(screen.queryByText(/现在有什么问题/)).toBeNull()
+    fireEvent.click(screen.getByText(/「通知状态」和「当前告警」有什么区别/))
+    expect(await screen.findByText(/现在有什么问题/)).toBeInTheDocument()
+    expect(screen.queryByText(/两个页签分别看什么/)).toBeNull()
+  })
+
+  it('双 Tab 就位且页签名为友好化文案（PRD §3.2 语义区分由折叠栏承载）', async () => {
+    renderPage()
+    expect(await screen.findByRole('tab', { name: '通知状态' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '当前告警' })).toBeInTheDocument()
+    // 语义区分（折叠栏展开后）：当前告警=现在有什么问题；通知状态=告警的通知送到没有
+    fireEvent.click(screen.getByText(/「通知状态」和「当前告警」有什么区别/))
+    expect(await screen.findByText(/告警的通知送到没有/)).toBeInTheDocument()
+    expect(screen.getByText(/现在有什么问题/)).toBeInTheDocument()
+  })
+
+  it('AM 视图渲染行字段：告警名称 / 通知状态 / 网域 / 实例 / 摘要', async () => {
+    useAmAlertsMock.mockReturnValue(amState({ items: [amRow({ notify_status: 'silenced' })] }))
+    renderPage()
+    expect(await screen.findByText('HighCPU')).toBeInTheDocument()
+    expect(screen.getAllByText('已静默').length).toBeGreaterThan(0)
+    expect(screen.getByText('default')).toBeInTheDocument()
+    expect(screen.getByText('10.0.0.1:9100')).toBeInTheDocument()
+    expect(screen.getByText('CPU 使用率超过阈值')).toBeInTheDocument()
+    // 裁剪核对：无「接收人」列（AM v2 响应无 receiver 归属字段）
+    expect(screen.queryByText('接收人')).toBeNull()
+  })
+
+  it('决策 70：AM 视图「实例名」由 resource_name 回填，「采集地址」展示 instance_address', async () => {
+    useAmAlertsMock.mockReturnValue(
+      amState({ items: [amRow({ resource_name: 'prod-db-01', instance_address: '10.0.0.1:9100' })] }),
+    )
+    renderPage()
+    const row = (await screen.findByText('HighCPU')).closest('tr')
+    expect(row).not.toBeNull()
+    const cells = within(row as HTMLElement).getAllByRole('cell')
+    // 列序（AmAlertsView）：告警名称 / 通知状态 / 网域 / 实例名 / 采集地址 / 开始时间 / 摘要
+    expect(cells[3]).toHaveTextContent('prod-db-01')
+    expect(cells[4]).toHaveTextContent('10.0.0.1:9100')
+  })
+
+  it('决策 70：无 resource_id（拨测 / 聚合 / 自写规则）时实例名显示 -，不回落为地址', async () => {
+    // 仅有标签 instance，后端不产出 resource_name —— 实例名列必须为 '-'，否则两列同值
+    useAmAlertsMock.mockReturnValue(amState({ items: [amRow()] }))
+    renderPage()
+    const row = (await screen.findByText('HighCPU')).closest('tr')
+    expect(row).not.toBeNull()
+    const cells = within(row as HTMLElement).getAllByRole('cell')
+    expect(cells[3]).toHaveTextContent('-')
+    expect(cells[4]).toHaveTextContent('10.0.0.1:9100')
+  })
+
+  it('决策 70：「采集地址」列头挂提示角标，消解 :9100 被误读为业务端口', async () => {
+    renderPage()
+    const header = await screen.findByRole('columnheader', { name: /采集地址/ })
+    const badge = header.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText(/采集器地址，非业务端口/)).toBeInTheDocument()
+  })
+
+  it('AM 视图状态筛选（客户端过滤）：选择「已静默」只保留静默行', async () => {
+    useAmAlertsMock.mockReturnValue(
+      amState({
+        items: [
+          amRow({ labels: { alertname: 'ActiveAlert', network_domain: 'default', instance: '10.0.0.1:9100' }, notify_status: 'active' }),
+          amRow({ labels: { alertname: 'SilencedAlert', network_domain: 'default', instance: '10.0.0.2:9100' }, notify_status: 'silenced', status: { state: 'suppressed', silenced_by: ['sil-1'], inhibited_by: [] } }),
+        ],
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('ActiveAlert')).toBeInTheDocument()
+    // AM Tab 筛选区第一个下拉 = 通知状态
+    const combos = screen.getAllByRole('combobox')
+    fireEvent.mouseDown(combos[0])
+    // 「已静默」同时出现在统计卡片标题与下拉项中，点击下拉项（最后一个匹配）
+    const options = await screen.findAllByText('已静默')
+    fireEvent.click(options[options.length - 1])
+    await waitFor(() => expect(screen.queryByText('ActiveAlert')).toBeNull())
+    expect(screen.getByText('SilencedAlert')).toBeInTheDocument()
+  })
+
+  it('切换到当前告警视图：firing=触发中 / pending=待处理 + 当前值', async () => {
+    usePromAlertsMock.mockReturnValue(
+      promState({
+        items: [
+          promRow(),
+          promRow({ labels: { alertname: 'PendingAlert', network_domain: 'default', instance: '10.0.0.3:9100' }, state: 'pending', value: '-' }),
+        ],
+      }),
+    )
+    renderPage()
+    fireEvent.click(await screen.findByRole('tab', { name: /当前告警/ }))
+    expect(await screen.findByText('HighCPU')).toBeInTheDocument()
+    expect(screen.getByText('触发中')).toBeInTheDocument()
+    // 「待处理」在 AM 面板统计卡片中同样出现（隐藏但保持挂载），按行内 Tag 断言
+    const pendingRow = screen.getByText('PendingAlert').closest('tr')
+    expect(pendingRow).not.toBeNull()
+    expect(within(pendingRow as HTMLElement).getByText('待处理')).toBeInTheDocument()
+    expect(screen.getByText('0.98')).toBeInTheDocument()
+  })
+
+  it('Prometheus 聚合告警实例回退 + 当前值科学计数法可读化', async () => {
+    usePromAlertsMock.mockReturnValue(
+      promState({
+        items: [
+          promRow({
+            labels: { alertname: 'HostTargetsMissing', network_domain: 'default', severity: 'critical' },
+            annotations: { summary: '主机监控目标全部丢失' },
+            value: '1e+00',
+          }),
+        ],
+      }),
+    )
+    renderPage()
+    fireEvent.click(await screen.findByRole('tab', { name: /当前告警/ }))
+    expect(await screen.findByText('HostTargetsMissing')).toBeInTheDocument()
+    // 聚合告警无 instance/instance_ip/service_name/nodename/device 标签，回退展示「全局/聚合」
+    // （决策 70 修订回落链：删除死键 hostname、补 service_name）
+    expect(screen.getByText('全局/聚合')).toBeInTheDocument()
+    // 科学计数法 1e+00 格式化为 1（在告警行内断言，避免命中统计卡片/分页中的 1）
+    const alertRow = screen.getByText('HostTargetsMissing').closest('tr')
+    expect(alertRow).not.toBeNull()
+    expect(within(alertRow as HTMLElement).getByText('1')).toBeInTheDocument()
+  })
+
+  it('加载中：表格展示加载态', async () => {
+    useAmAlertsMock.mockReturnValue(amState({ loading: true }))
+    const { container } = renderPage()
+    expect(await screen.findByRole('tab', { name: /通知状态/ })).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('.ant-spin-spinning')).not.toBeNull())
+  })
+
+  it('空态：无告警时展示空数据提示', async () => {
+    renderPage()
+    // antd Empty 内部 SVG <title> 与描述节点同名，断言至少一处出现
+    expect((await screen.findAllByText('暂无数据')).length).toBeGreaterThan(0)
+  })
+
+  it('接口错误：错误 Alert + 重新加载触发 reload', async () => {
+    useAmAlertsMock.mockReturnValue(amState({ error: 'Alertmanager 不可达' }))
+    renderPage()
+    expect(await screen.findByText('告警列表加载失败，请稍后重试')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /重新加载/ }))
+    expect(amReloadMock).toHaveBeenCalled()
+  })
+
+  it('手动刷新：AM 与 Prometheus 视图按钮分别触发各自 reload', async () => {
+    renderPage()
+    // AM 视图默认激活
+    const amRefresh = await screen.findByRole('button', { name: /刷新/ })
+    fireEvent.click(amRefresh)
+    expect(amReloadMock).toHaveBeenCalledTimes(1)
+
+    // 切到 Prometheus 视图后再点刷新
+    fireEvent.click(screen.getByRole('tab', { name: /当前告警/ }))
+    const promRefresh = await screen.findByRole('button', { name: /刷新/ })
+    fireEvent.click(promRefresh)
+    expect(promReloadMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('权限不足：整页展示无权限空态', async () => {
+    useAmAlertsMock.mockReturnValue(amState({ permissionDenied: true }))
+    renderPage()
+    expect(await screen.findByText('当前账号无此页面查看权限')).toBeInTheDocument()
+  })
+
+  it('网域筛选：选择网域后两视图 Hook 均透传 network_domain（后端过滤）', async () => {
+    useNetworkDomainsMock.mockReturnValue([{ id: 'gov-01', name: '政务网' }])
+    renderPage()
+    // 初次加载不带网域参数
+    await waitFor(() => expect(useAmAlertsMock).toHaveBeenCalledWith(undefined))
+    const combos = screen.getAllByRole('combobox')
+    // AM Tab 筛选区第二个下拉 = 网域
+    fireEvent.mouseDown(combos[1])
+    fireEvent.click(await screen.findByText('政务网'))
+    await waitFor(() => expect(useAmAlertsMock).toHaveBeenLastCalledWith('gov-01'))
+    expect(usePromAlertsMock).toHaveBeenLastCalledWith('gov-01')
+  })
+})

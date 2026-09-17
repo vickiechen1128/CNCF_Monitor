@@ -11,11 +11,11 @@
 | Phase | Phase 3（MVP 子集） |
 | 模块 | module-01-strategy |
 | 分支 | feat/module-01-strategy |
-| 版本 | v2026-08-23（新建 / 第 1 版） |
-| 生成方式 | planner Phase 2 派生（code-sequence-planner） |
-| 来源 | PRD `Module_01_Metric_Collection_Center.md` v3.26 §3/§5/§6/§8/§9/§10/§11；`03_API_Standard.md` §3/§7；`task-sequence.yaml` |
+| 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v3.35） |
+| 生成方式 | planner Phase 2 派生（code-sequence-planner）；v2026-09-05 重派生覆盖 v3.27~v3.31 契约变更（决策 47-1/47-2 安装确认拆闸门 + 实例采集状态回显、决策 53/54 filter 与网域扇出挪移口径、v3.29 coverage 边界、F-32 三来源登记），v3.32~v3.35 为 §0 叙事层、无契约影响 |
+| 来源 | PRD `Module_01_Metric_Collection_Center.md` v3.35 §3/§5/§6/§8/§9/§10/§11；`03_API_Standard.md` §3/§7；`task-sequence.yaml` |
 
-> **本期范围外**：BusinessMetric 业务指标库（P2，无 API/UI）、字段化规则编辑 + PromQL 校验/预览（v0.3）、v0.2 能力（草稿 draft api/clone/批量提交/网域覆盖表/service_discovery）。
+> **本期范围外**：BusinessMetric 业务指标库（P2，无 API/UI）、字段化规则编辑 + PromQL 校验/预览（v0.3）；**v0.2 能力**（快照不展开，契约见 `05_Code_Implementation_Plan.md` Phase 6.5 与 M07/M09 快照）：filter 实例筛选（决策 53）、Job 多网域绑定 + M09 按域扇出（决策 54）、网域级覆盖表 `CITypeExporterMappingOverride`、实例级端口覆盖（M07 `Resource.scrape_port`）、cAdvisor 容器资源监控；**v0.3+**：草稿保存 + 批量提交生效交互（字段已落库，仅 UI 交互挪移）、克隆 Job（v0.3+ 待评估）、业务健康度看板、`service_discovery`（docker_sd / kubernetes_sd 预留）。
 
 ## 1. 通用契约
 
@@ -48,18 +48,18 @@
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/exporter-templates` | `monitor_type`、`source`(official/third_party/internal)、`page`、`page_size` | `{list,total,page,page_size}`，item=§5.2 字段 | — | §5.2/6.1 |
-| POST | `/exporter-templates` | `ExporterTemplateInput` | 创建的完整对象 | `bad_request`：source=internal 缺 default_port/metrics_path/scheme；is_builtin 只读拒绝 | §5.2/9.1 |
+| POST | `/exporter-templates` | `ExporterTemplateInput` | 创建的完整对象 | `bad_request`：缺 default_port/metrics_path/scheme 或 source 非三枚举；is_builtin 只读拒绝；`conflict`：与预置 seed 同名 | §5.2/9.1 |
 | PUT | `/exporter-templates/:id` | 部分可改字段 | 更新后完整对象 | `not_found`；`forbidden`：内置 | §5.2 |
 | DELETE | `/exporter-templates/:id` | — | `{id}` | `not_found`；`forbidden`：内置/被映射引用 | §5.2 |
 
-字段：`name`(唯一)/`version`/`default_port`/`metrics_path`(默认 /metrics)/`scheme`(默认 http)/`supported_monitor_types[]`/`os`(linux/windows/any)/`arch`(amd64/arm64/any)/`download_url`/`homepage`/`install_guide`(唯一持有方)/`source`/`is_builtin`。
+字段：`name`(唯一)/`version`/`default_port`/`metrics_path`(默认 /metrics)/`scheme`(默认 http)/`supported_monitor_types[]`/`os`(linux/windows/any)/`arch`(amd64/arm64/any)/`download_url`/`homepage`/`install_guide`(唯一持有方)/`description`(用途与能力说明)/`source`/`is_builtin`。
 
 ## 4. CITypeExporterMapping API
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/ci-exporter-mappings` | `monitor_type`、`is_default`、`page`、`page_size` | `{list,...}`；item 附 `has_label_template` + `is_referenced`（未被引用标记） | — | §6.2.1 |
-| POST | `/ci-exporter-mappings` | `{monitor_type, exporter_template_id, is_default?, default_port?, metrics_path?, scheme?, scrape_interval?, scrape_timeout?, label_template_id?}` | 创建后完整对象 | `bad_request`：同 monitor_type 多个 is_default=true | §6.2.1 |
-| PUT | `/ci-exporter-mappings/:id` | 部分可改字段 | 更新后完整对象 | `not_found`；`bad_request`：同类型多个默认 | §6.2.1 |
+| POST | `/ci-exporter-mappings` | `{monitor_type, exporter_template_id, is_default?, default_port?, metrics_path?, scheme?, scrape_interval?, scrape_timeout?, label_template_id?}` | 创建后完整对象 | `bad_request`：同 monitor_type 多个 is_default=true；采集器 supported_monitor_types 非空且不含该 monitor_type（F-27 C） | §6.2.1 |
+| PUT | `/ci-exporter-mappings/:id` | 部分可改字段 | 更新后完整对象 | `not_found`；`bad_request`：同类型多个默认；最终（monitor_type, exporter）不满足采集器支持类型声明（F-27 C） | §6.2.1 |
 | DELETE | `/ci-exporter-mappings/:id` | — | `{id}` | `bad_request`：内置默认禁删；`forbidden`：被 ScrapeJob 引用 | §6.2.1 |
 
 **网域无关**：预设采集实现层，不绑网域；每 monitor_type 可多行，`is_default` 至多一个。`install_guide` 只读透传自 ExporterTemplate，本表不持有。
@@ -73,7 +73,7 @@
 | PUT | `/scrape-jobs/:id` | 可改字段 | 更新后完整对象 | `not_found`；`bad_request`：同上 | §6.2.2 |
 | DELETE | `/scrape-jobs/:id` | — | `{id}` | `not_found` | §6.2.2 |
 
-关键字段（§5.4）：`job_name`(唯一)、`monitor_type`、`exporter_template_id?`(可空=手填)、`network_domain_id`(**必填，is_monitored=true 且 status=enabled**)、`instance_selection_mode`(manual)、`selected_instance_ids[]`、`scrape_interval`/`scrape_timeout`/`metrics_path`/`scheme`(继承映射快照可覆盖)、`auth_type`(none/basic/bearer)+`username`/`password`/`token`、`tls_skip_verify`(默认 false)/`ca_file`、`label_template_id`、`mapping_overrides[]`、`job_type`(standard/blackbox)、`blackbox_module`/`blackbox_targets[]`(blackbox 必填)、`enabled`、`draft_status`(默认 ready)、`change_status`。
+关键字段（§5.4）：`job_name`(唯一)、`monitor_type`、`exporter_template_id?`(可空=手填)、`network_domain_id`(**必填，is_monitored=true 且 status=enabled**)、`instance_selection_mode`(manual)、`selected_instance_ids[]`、`scrape_interval`/`scrape_timeout`/`metrics_path`/`scheme`(**可留空=继承**（F-28 层叠默认链：映射→采集器模板→全局兜底 15s/10s//metrics/http），填写=覆盖并快照)、`auth_type`(none/basic/bearer)+`username`/`password`/`token`、`tls_skip_verify`(默认 false)/`ca_file`、`label_template_id`、`mapping_overrides[]`、`job_type`(standard/blackbox)、`blackbox_module`/`blackbox_targets[]`(blackbox 必填)、`enabled`、`draft_status`(默认 ready)、`change_status`。
 
 认证TLS（决策31）：basic→username+password 必填；bearer→token 必填；**password/token 仅存储，JSON 不回显明文**。
 blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blackbox_module 必填 + blackbox_targets 非空（protocol∈{http,https,tcp,icmp,dns}）。
@@ -88,22 +88,41 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | DELETE | `/scrape-jobs/:id/instances/:resource_id/confirm` | — | `{resource_id, job_id}` | `not_found` | §6.2.5 |
 | POST | `/scrape-jobs/:id/preview-targets` | — | 解析后的目标清单（standard→实例地址；blackbox→targets） | `not_found` | L2 接口预览 |
 
-**安装确认维度（用户决策）**：ExporterInstallationConfirmation 的 **PK = (resource_id, scrape_job_id)**，FK scrape_job_id→ScrapeJob.id；`exporter_template_id` 为冗余缓存（来自 ScrapeJob，不参与唯一性）；status∈{unconfirmed, confirmed, not_applicable}（blackbox/application_http 用 not_applicable，不落确认记录）。PRD §5.6 主键维度为过时表述，实施以本行 + §6.2.5/§8④ 为准（PRD 待修订，见 dev-feedback）。
+**安装确认维度（用户决策）**：ExporterInstallationConfirmation 的 **PK = (resource_id, scrape_job_id)**，FK scrape_job_id→ScrapeJob.id；`exporter_template_id` 为冗余缓存（来自 ScrapeJob，不参与唯一性）；status∈{unconfirmed, confirmed, not_applicable}（blackbox/application_http 用 not_applicable，不落确认记录）。PRD §5.6/§8 ④ 主键维度已于 v3.27（决策 47-1）修订一致，实施以本行 + §6.2.5/§8④ 为准。
 
 实例候选自动收敛：同 monitor_type（推导到资源类别）+ 同网域；offline 显示但置灰不可选（决策29）。
 安装确认状态机（§8 ④）：unconfirmed → confirmed；not_applicable 用于 blackbox/application。
 
+> **安装确认拆闸门（决策 47-1，PRD v3.27）**：登记已降级为**可选留痕 / 人工背书**，不再作为生成 target 的前置——`unconfirmed` 实例照常进入 M09 配置生成；target 生成只取决于 `selected_instance_ids`（+ `offline` 排除 + `enabled` + `draft_status`）。「是否采到数据」的事实反馈由下述采集状态回显承担（登记只是口头背书，up/down 才是真相反馈）。
+
+> **实例采集状态回显（决策 47-2，PRD §5.10 / §6.2.5，只读消费 Module_02 `/api/v1/targets`）**：
+> - **外层汇总**（Job 详情/编辑抽屉实例区顶部）：在线数 = 当前 `up` 实例数 / 实例总数（如「在线 5 / 10」）；待采集数 = 已保存但变更单未确认下发、或刚下发尚未完成首次抓取的实例数（在线数不含待采集实例）。
+> - **实例级「采集状态」列**（四态，枚举值见 §9）：`pending`（待采集：已入选 `selected_instance_ids` 但 target 未在 Prometheus 生效——新勾选/新保存实例默认进入）/ `up`（正常：M02 targets 返回 `health=up`，低饱和展示）/ `down`（异常：`health=down`，高饱和 + 附 `lastError` 摘要，提醒「配置已下发但未采集到数据，请检查采集器安装与网络连通」）/ `unknown`（已生效但暂无抓取结果，展示 `-` 附最后抓取时间）。
+> - 前端定时刷新（建议 15~30s）或手动刷新，只读不阻断编辑保存；blackbox 拨测目标同口径（up/down 对应 `probe_success`），不涉及安装登记；本模块不直连 Prometheus、不落持久状态。
+> - **与 coverage 三态的边界（决策 47-3 + PRD v3.29 口径）**：M02 `/api/v1/health/coverage` 与 M07 三态 badge **不区分「待采集」**——选中关系取 DB 当前值、不感知 M09 下发时序，选中未采到统一归「已下发未采到」；「待采集 vs 已下发未采到」细分**仅由本模块回显承担**（本模块持有 `change_status`，可对「变更未确认下发」单独标识）。
+
 ## 7. MonitoringRule（MVP 文件挂载）API
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
-| GET | `/monitoring-rules` | `rule_type`、`enabled`、`keyword`、`page`、`page_size` | `{list,...}`；item 含 content_mode/name/enabled/change_status/draft_status | — | §6.2.4 |
-| POST | `/monitoring-rules` | `{content_mode=yaml_passthrough, rule_content(必填), name?, enabled}` | 创建后完整对象（draft_status=ready，change_status=pending） | `bad_request`：rule_content 空/YAML 非法（groups 非数组） | §6.2.4 |
-| PUT | `/monitoring-rules/:id` | `{name?, rule_content?, enabled?}` | 更新后完整对象 | `not_found`；`bad_request`：YAML 非法 | §6.2.4 |
+| GET | `/monitoring-rules` | `rule_type`、`enabled`、`monitor_type`、`keyword`、`page`、`page_size` | `{list,...}`；item 含 content_mode/name/monitor_type/enabled/change_status/draft_status | — | §6.2.4 |
+| POST | `/monitoring-rules` | `{content_mode=yaml_passthrough, rule_content(必填), name?, monitor_type?, enabled?(缺省 true，创建默认启用 §8), ack_job_ref_errors?(默认 false，决策 67-2)}` | 创建后完整对象（draft_status=ready，change_status=pending） | `bad_request`：rule_content 空/YAML 非法（groups 非数组）；monitor_type 非法；group 名与已生效规则冲突；**存在 error 级 job 引用且未置 `ack_job_ref_errors=true`（`job_ref_unresolved`，决策 67-2）** | §6.2.4 |
+| PUT | `/monitoring-rules/:id` | `{name?, rule_content?, enabled?, monitor_type?, ack_job_ref_errors?(默认 false，决策 67-2)}` | 更新后完整对象 | `not_found`；`bad_request`：YAML 非法；monitor_type 非法；group 名冲突（排除自身）；**存在 error 级 job 引用且未置 `ack_job_ref_errors=true`（决策 67-2）** | §6.2.4 |
 | DELETE | `/monitoring-rules/:id` | — | `{id}` | `not_found` | §6.2.4 |
-| POST | `/monitoring-rules/:id/validate-yaml` | `{rule_content}` | `{valid, error?}` | — | §6.2.4 |
+| POST | `/monitoring-rules/:id/validate-yaml` | `{rule_content}` | `{valid, error?, job_ref?}`（`valid` 语义见下，决策 69-1） | — | §6.2.4 |
 
-字段：`content_mode∈{yaml_passthrough, structured}`、`rule_content`（yaml_passthrough 必填）、`name`(可空)、`scope=central`(固定)、`enabled`、`draft_status`(默认 ready)、`change_status`。structured 字段（rule_type/expr/duration/labels/annotations）v0.3 用，本期不在请求体。
+字段：`content_mode∈{yaml_passthrough, structured}`、`rule_content`（yaml_passthrough 必填）、`name`(可空)、`monitor_type`(可空，非空须为 §9 合法监控对象类型)、`scope=central`(固定)、`enabled`、`draft_status`(默认 ready)、`change_status`。structured 字段（rule_type/expr/duration/labels/annotations）v0.3 用，本期不在请求体。
 > YAML 校验至少校验 `groups` 存在且为数组；不做 PromQL 语义校验（v0.3）。
+> **规则 job 引用校验（决策 66，2026-09-10；门禁口径经决策 67-2 修订）**：`validate-yaml` 在 YAML 语法通过后追加 job 引用语义校验，响应 `job_ref` 数组（元素 `{group, rule_name, expr, matcher, referenced_job, type, severity, message}`，`severity∈{error,warning}`）。判定：存活类规则（expr 含 `up`）引用不存在的 job = `error`，其余 = `warning`；与当前生效采集 Job（`enabled=true AND draft_status=ready`）比对。判定实现见 `platform/strategy/rule/jobref`。
+>
+> **`valid` 语义（决策 69-1，2026-09-10 修订；原口径为「仅反映 YAML 语法」）**：`valid` 表示**预检是否可提交**，`valid=false` 时 `error` 给出原因，属**不可覆盖的硬失败**，共三类：
+> 1. YAML 语法 / `groups` 结构非法（原有）；
+> 2. **组名全局唯一性冲突（决策 69-1 新增）**——与提交侧 `validateGroupNamesAvailable` 同实现、同输入集：仅当目标规则生效（`enabled=true AND draft_status='ready'`）时校验，**停用规则不校验**（与 `update.go:72` 提交侧条件一致）；`:id` 为真实规则 ID 时**排除自身**，为 `0`（新建）时按默认启用处理、不排除自身。
+>
+> 响应形状 `{valid, error?, job_ref?}` **不变**；`job_ref` 的 `error` / `warning` 级问题**不改写** `valid`（可经逃生门覆盖的另一根轴）。门禁由提交侧承担：
+> - **前端（决策 67-2，交互经决策 69-2 重排）**：独立「检查」按钮调用本接口后，**提交按钮仅在「检查通过（`valid=true`）且（无 `severity=error` 的 job 引用 或 已勾选逃生门）」时出现**（条件渲染，非 disabled）；存在 `severity=error` 问题时展示逐条问题清单 + 逃生门「已知晓：先挂规则，稍后补建 Job」，勾选后提交按钮出现，提交时携带 `ack_job_ref_errors=true`（问题降级为 warning 落库留痕）。**规则内容变更时，检查结论与 ack 一并作废、须重新检查**（非内容字段变更不触发重置）。
+> - **后端兜底（决策 67-2 落地契约，待实现）**：POST/PUT 请求体的可选 `ack_job_ref_errors`（默认 `false`）；存在 `error` 级 job 引用且未置 `true` → `bad_request`（`errorType=job_ref_unresolved`，消息汇总问题条数）。`warning` 级不受影响；v0.3 草稿态「保存草稿」不受本门禁约束。
+> - **与发布期一致**：同一判定逻辑在 M09 发布期复用为门禁（error 阻断确认、warning 允许确认）；v0.2 起两侧统一改用 scope 感知的 job 名单（决策 67-4，central → 全域并集）。
+> **合并语义（F-24，2026-08-26；预检同口径见决策 69-1）**：所有生效规则（`enabled=true AND draft_status=ready`）由生成器按 groups 解析合并为**单份 rules.yml**，故保存时（POST/PUT 且规则生效）校验 group 名**全局唯一**——文件内重名 / 空 name / 与其他生效规则撞名均 `bad_request`（错误文案点名占用方）；停用规则不下发、不校验，停用后组名释放。同名多组规则请写在同一条 `rule_content` 内。**`validate-yaml` 自决策 69-1 起按同一条件、同一实现做预检**（`valid=false` + `error`），使「检查通过 ⇒ 提交不会被组名冲突打回」（仅剩 TOCTOU 竞态）。
 
 ## 8. 技术指标库（ExporterMetricLibrary）API
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
@@ -122,20 +141,21 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | `auth_type` | `none`(默认)/`basic`/`bearer` | 决策31 |
 | `blackbox_module` | `http_2xx`/`icmp_ping`/`tcp_connect`/`dns_query` 等 | blackbox.yml 模块名 |
 | `BlackboxTarget.protocol` | `http`/`https`/`tcp`/`icmp`/`dns` | 拨测目标协议 |
-| `instance_selection_mode` | `manual`(MVP)/`filter`(v0.3+) | |
+| `instance_selection_mode` | `manual`(MVP)/`filter`(v0.2，决策 53，非 MVP) | |
 | `source`(ExporterTemplate) | `official`/`third_party`/`internal` | 采集器来源 |
 | `change_status` | `pending`/`confirmed`/`deployed`/`none` | 下发状态，M09 回写 |
 | `draft_status` | `draft`/`ready` | MVP 默认 ready |
 | `metric_type` | `counter`/`gauge`/`histogram`/`summary`/`unknown` | 指标类型 |
-| `ExporterInstallation.status` | `unconfirmed`/`confirmed`/`not_applicable` | 安装确认状态（§8 统一枚举） |
+| `ExporterInstallation.status` | `unconfirmed`/`confirmed`/`not_applicable` | 安装确认状态（§8 统一枚举；`unconfirmed` 不阻断 target 生成，决策 47-1） |
+| 实例采集状态（派生，§5.10） | `pending`(待采集)/`up`(正常)/`down`(异常)/`unknown`(未知) | Job 实例区只读回显枚举，非落库字段（决策 47-2）；`down` 附 lastError 摘要 |
 | `confirmed_by` | 固定 `platform_admin` | MVP 无鉴权 |
 | `content_mode` | `yaml_passthrough`(MVP)/`structured`(v0.3+) | 规则内容形态 |
 | `scope` | `central`(固定)/`edge`/`both`(v0.4+) | 求值范围 |
 
 ## 10. 字段必填口径
-- **ExporterTemplate 创建**：name/metrics_path/scheme 必填；source=internal 追加 default_port 必填；source=official|third_party 平台预置只读。
-- **CITypeExporterMapping 创建**：monitor_type/exporter_template_id 必填；label_template_id 可选；每类型至多一个 is_default。
-- **ScrapeJob 创建**：job_name/monitor_type/network_domain_id(已纳管非冻结)/instance_selection_mode/scrape_interval/scrape_timeout/metrics_path/scheme 必填；auth_type 默认 none；basic→username+password 必填、bearer→token 必填；job_type=blackbox→blackbox_module+blackbox_targets 必填、monitor_type/exporter 置空；selected_instance_ids 可选（manual 校验同域）。
+- **ExporterTemplate 创建**：name/default_port/metrics_path/scheme 必填（任何来源）；source∈{official, third_party, internal} 均可由用户登记（F-29 D 拍板放开，与预置 seed 同名返回 conflict；用户登记行恒非内置、可编辑可删除）。
+- **CITypeExporterMapping 创建**：monitor_type/exporter_template_id 必填；default_port/metrics_path/scheme/scrape_interval/scrape_timeout 均可留空（F-28 稀疏覆盖：留空=继承采集器模板/全局默认，填写=覆盖）；label_template_id 可选；每类型至多一个 is_default。
+- **ScrapeJob 创建**：job_name/monitor_type/network_domain_id(已纳管非冻结)/instance_selection_mode 必填；**scrape_interval/scrape_timeout/metrics_path/scheme 可留空（F-28：留空=继承，保存时按 映射→采集器模板→全局兜底 解析为生效快照落库；清空字段再保存=恢复继承）**；auth_type 默认 none；basic→username+password 必填、bearer→token 必填；job_type=blackbox→blackbox_module+blackbox_targets 必填、monitor_type/exporter 置空；selected_instance_ids 可选（manual 校验同域）。
 - **ScrapeJob 更新**：均允许改（含 job_type/instance_selection_mode，支持 blackbox↔standard 双向切换）；仅约束冻结域禁止新增该域实例、认证TLS/blackbox 组合校验一致。job_type 切换按创建同口径校验：切 blackbox 时清空 monitor_type/exporter 且 blackbox_module+blackbox_targets 必填；切回 standard 需显式提供 monitor_type（security 修复：internal 错误仅回显「internal error」，password/token 经 `json:"-"` 不回显）。
 - **MonitoringRule 创建**：content_mode(默认 yaml_passthrough)、rule_content 必填（yaml_passthrough 且 YAML 合法）；name 可选；scope=central 固定。
 - **技术指标库创建**：metric_name/metric_type/monitor_types 必填；is_builtin=false；内置只读。

@@ -7,6 +7,7 @@ import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
 import type { CITypeExporterMapping, ExporterTemplate, MonitorType } from '../../types/strategy'
 import { CATEGORY_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
+import { LabelTemplatePreview } from './LabelTemplatePreview'
 
 const { Text } = Typography
 
@@ -73,6 +74,10 @@ export function LabelTemplateSelectDrawer({ open, mode, record, onCancel, onSucc
   // 「更换」需显性回显当前已选模板（PRD L241）
   const currentLabel = labelTemplates.find((t) => String(t.id) === String(record.label_template_id))
   const showCurrent = mode === 'replace' && !!record.label_template_id
+  // 当前选择值对应的模板（随 Select 变更联动，用于内联预览映射明细）；未选时不显示
+  const selectedTemplate = value
+    ? categoryLabelTemplates.find((t) => String(t.id) === String(value)) ?? null
+    : null
 
   const handleSubmit = async () => {
     setSubmitting(true)
@@ -184,6 +189,12 @@ export function LabelTemplateSelectDrawer({ open, mode, record, onCancel, onSucc
             label: `${t.name}（${CATEGORY_MAP[t.resource_category] ?? t.resource_category}）`,
           }))}
         />
+        {/* 选中后内联预览模板映射明细；模板不适用时可经「前往标签模板管理」跳转 M07（PRD L229/L240） */}
+        {selectedTemplate && (
+          <div style={{ marginTop: 12 }}>
+            <LabelTemplatePreview template={selectedTemplate} title="已选模板信息" />
+          </div>
+        )}
       </div>
     </Drawer>
   )

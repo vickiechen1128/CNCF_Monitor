@@ -142,7 +142,7 @@ func TestComputeSystemLabelsApplicationTemplate(t *testing.T) {
 }
 
 // TestComputeSystemLabelsSeedDefaultMappings 验证 models.DefaultMappingBuilders
-// 生成的共享默认映射（seed 实际落库的模板）能正常计算 app/env/cluster/biz/instance。
+// 生成的共享默认映射（seed 实际落库的模板）能正常计算 resource_id/app/env/cluster/biz/instance。
 func TestComputeSystemLabelsSeedDefaultMappings(t *testing.T) {
 	template := &models.LabelTemplate{
 		Name:             "主机默认模板",
@@ -158,7 +158,8 @@ func TestComputeSystemLabelsSeedDefaultMappings(t *testing.T) {
 	assert.Equal(t, "cluster-a", got["cluster"].Value)
 	assert.Equal(t, "payment", got["biz"].Value)
 	assert.Equal(t, "", got["instance"].Value)
-	require.Len(t, labels, 5)
+	assert.NotEmpty(t, got["resource_id"].Value, "默认模板必须产出 resource_id 稳定身份标签（47-3 回连键）")
+	require.Len(t, labels, 6)
 }
 
 // TestComputeSystemLabelsSkipsEmptyValues 覆盖空值跳过：host 的 app_name

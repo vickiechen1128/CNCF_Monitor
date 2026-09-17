@@ -3,7 +3,7 @@
 > 文档类型：工程标准  
 > **目标读者**：技术架构师（分支模型设计）、chenrt（合并 / 回退操作执行人）、zhangwq（分支创建 / 合并申请）  
 > 依赖文档：[05_AI_Agent_Collaboration_Standard.md](05_AI_Agent_Collaboration_Standard.md)、[05_Code_Implementation_Plan.md](../02-product-requirements/05_Code_Implementation_Plan.md)、[../01-team-collaboration/00_Team_Charter.md](../01-team-collaboration/00_Team_Charter.md)  
-> 更新日期：2026-08-23（v1.28 新增：按版本短生命周期联调分支 `integration/vX.Y` 与冻结窗口 §2.6 / §11 禁止事项 10；v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
+> 更新日期：2026-08-28（v1.29 新增：版本基线 tag 规范 §2.5 / 联调出口打 tag §2.6.4 / 基线回退路径 §6.6 / 禁止事项 11；v1.28 新增：按版本短生命周期联调分支 `integration/vX.Y` 与冻结窗口 §2.6 / §11 禁止事项 10；v1.27 新增：MVP 阶段设计分支合并为单一 `design/module-mvp-demo` §2.4；原型代码复制条款改写 §2.2 / §11 禁止事项 3）
 
 ---
 
@@ -82,6 +82,7 @@
 | PRD 修订版本 | v1.0 → v1.1 → … | PRD 文档自身修订 | 每轮需求对齐递增（每轮 +1），与 design 迭代轮次、PR 编号一一对应 |
 | 原型版本 | 与 PRD 修订版本一致 | 原型项目版本 | 必须与 PRD 修订版本保持一致（prototype-designer 强制检查） |
 | 发布 tag | v0.1.0 | 对外发布基线 | 仅第一版发布时在 `main` 打（语义化版本）；开发阶段不启用 |
+| 版本基线 tag | `baseline/v0.1-mvp` | 版本收官的**整版回退锚点**（PRD + 原型 + 代码同一快照） | 联调合回 `develop` 后由 chenrt 在 integration 合并点打 annotated tag；tag 消息固化各模块 PRD 冻结版本 + PR 编号 + 验收日期；不可移动/重打，基线有误递增小数位（如 `baseline/v0.1-mvp.1`），详见 §6.6 |
 
 **PRD 修订表模板**（每个模块 PRD 头部必带，统一列格式）：
 
@@ -94,7 +95,7 @@
 - **已冻结**：该轮 review 合并到 `develop` 后由 chenrt 标记，成为 zhangwq 开发与回退的基线。
 - **冻结行只增不改**：修订表中已标记「已冻结」的版本行永不改写；需求变更一律**新增一行**，旧冻结版本保留作为开发基线。
 - **列格式说明**：全仓库统一列名为「版本 / 日期 / 变更类型 / 变更内容 / 产品版本影响 / 状态」；「影响范围」列为完整模板可选列——完整版保留该列（Module_00/02/03/04/05/06/08/10），精简记录版省略该列（Module_01/07/09，完整历史见 `docs/05-execution-records/module-XX/design-decisions.md`「Change Log（完整历史）」）。
-- **迭代追溯**：开发阶段不引入 git tag，追溯依靠「PRD 修订版本 + PR 编号 + 修订表冻结行」三者对应关系。
+- **迭代追溯**：**迭代轮次内**不引入 git tag，追溯依靠「PRD 修订版本 + PR 编号 + 修订表冻结行」三者对应关系；**版本边界**（联调收官合回 develop）为例外，打 `baseline/vX.Y-*` 基线 tag（见上表与 §6.6），解决"整版基线"锚点缺失问题。
 - **跨模块对齐快照**：各模块 PRD/原型版本的当前状态与对齐情况见 `docs/02-product-requirements/Modules/README.md`（版本对齐总表，prototype-designer 迭代后同步、chenrt 标记冻结/合并后同步）。
 - **冻结期提交门禁（v1.26）**：模块 PRD 状态为「已冻结」（feat 分支已切出）至该 feat 版本合并到 `develop` 之间为**冻结期**。冻结期内：
   - ✅ **允许**：产品经理本地构思、草稿编辑（不提交）；下一轮需求写入 `docs/05-execution-records/module-XX/design-decisions.md`「下一轮迭代待办」；
@@ -136,8 +137,9 @@
 1. Phase 5 验收清单全部完成（端到端主链路跑通、文档补齐、构建/测试通过）。
 2. chenrt 审批通过。
 3. `--no-ff` 合并 `integration/vX.Y` → `develop`。
-4. 删除 `integration/vX.Y` 分支。
-5. 宣布解冻，下一版本功能分支可正式推进。
+4. 在合并点打版本基线 tag `baseline/vX.Y-*`（annotated，消息含各模块 PRD 冻结版本 + PR 编号 + 验收日期），并 `git push origin <tag>` 推送。
+5. 删除 `integration/vX.Y` 分支。
+6. 宣布解冻，下一版本功能分支可正式推进。
 
 ### 2.6.5 大改动回退路径
 
@@ -358,6 +360,24 @@ git checkout -- docs/02-product-requirements/Modules/Module_XX_*.md docs/prototy
 
 > 若当前 feat 分支整体不可接受，走 §6.1 丢弃重建；若必须中途对接新 PRD 基线，走 Q5 的 rebase/重建路径（重写历史、可能返工，谨慎使用）。
 
+### 6.6 回退到版本基线（tag 路径）
+
+适用于**整版对照 / 整版回退**场景：如 v0.2 涉及功能与架构重设计，实施后发现方向性问题，需要回到上一版本收官状态。基线 tag 打在 `develop` 的 integration 合并点上，PRD、原型、代码为同一快照，一个 tag 即完整版本锚点。
+
+```bash
+# 1. 只读对照：查看基线时点的任意文件（不改动当前分支）
+git show baseline/v0.1-mvp:docs/02-product-requirements/Modules/Module_XX_*.md
+# 或把基线版本检出到工作区比对
+git checkout baseline/v0.1-mvp -- <path>
+
+# 2. 确需基于基线重做/修复时，从 tag 切分支
+git checkout -b hotfix/vX.Y.Z baseline/v0.1-mvp
+```
+
+- **优先级**：先对照（tag 只读检出），再决定是 revert 还是新 feat 分支重做；避免上来就 `git revert -m 1`（merge-revert 会阻碍该分支未来重新合并，需 revert-of-revert 才能恢复）。
+- 单模块、局部问题仍走 §6.1–§6.3 的分支丢弃 / merge-revert 流程，不必动用版本基线。
+- 版本基线 tag 清单与含义可通过 `git tag -l 'baseline/*' -n99` 查看（tag 消息即版本清单）。
+
 ---
 
 ## 7. 合并审批规则
@@ -577,6 +597,7 @@ git checkout -b feat/module-XX origin/develop
 8. **严禁擅自改动 `.git/worktrees/` 元数据**（除非明确知道如何修复）。
 9. **严禁改写修订表中已标记「已冻结」的版本行**（需求变更一律新增行，见 §2.5）。
 10. **严禁在 `integration/vX.Y` 冻结窗口内向已合并的 `feat/module-XX` 分支提交新改动**；所有联调修复必须落在 `integration/vX.Y` 上，实质性返工走 §2.6.5 回退路径。
+11. **严禁移动 / 删除重打版本基线 tag**（`baseline/vX.Y-*`）；基线内容有误时递增小数位打新 tag（如 `baseline/v0.1-mvp.1`）；tag 仅在版本边界（联调合回 `develop` 后）打，迭代轮次内不新增 tag；打完必须 `git push origin <tag>`。
 
 ---
 

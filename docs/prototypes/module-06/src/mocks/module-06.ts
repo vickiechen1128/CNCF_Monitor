@@ -46,12 +46,51 @@ export interface NetworkDomain {
    */
   zone_type: string
   /**
+   * {v2.5} 网段（CIDR）列表（决策 52）：该网域覆盖的 IP 段，如 10.20.0.0/16。
+   * 仅供 M07 资源导入 / CMDB 同步时按 IP 推导网域归属（归属解析链第③级），最长前缀优先、同前缀跨网域判歧义；
+   * 纯平台侧数据，不回写 CMDB、不要求 CMDB 加字段；由管理员维护，也可由 M07「待分配队列」规则化动作一键生成。
+   */
+  ip_cidrs?: string[]
+  /**
    * 监控纳管状态：只读展示字段，由 Module_09 的纳管动作维护；
    * created = 行政已创建未纳管；monitored = 已由 M09 完成监控纳管
    */
   registration_status: 'created' | 'monitored'
+  /**
+   * {v2.15} M07 资源引用数（决策 82-1）：统计当前归属该网域的 M07 监控资源条数。
+   * - > 0 → 删除被硬拒绝（资源是有主数据，须先在 M07 迁移或删除资源；删除项在「更多」菜单内直给原因 + 引导）；
+   * - = 0 → 允许删除（已纳管场景走级联清退，见 handleDelete）。
+   * 仅用于删除前置校验与禁用影响范围展示，不影响纳管与采集。
+   */
+  resource_ref_count?: number
+  /**
+   * {v2.11} 接入进度聚合字段（决策 75，v0.2 接口扩展，原型模拟聚合结果）：
+   * 生产环境由 M06 列表接口聚合 M09 纳管状态 / Edge Sync Agent 心跳 / M09 生效配置得出，
+   * 前端不逐项维护。接入进度四态：已登记 → 已纳管 → 采集节点已上线 → 已出数据。
+   * - agent_online：该网域采集节点（Edge Sync Agent）是否有心跳
+   * - has_data：该网域是否存在生效采集目标（已出数据）
+   * 未纳管网域（registration_status=created）忽略这两个字段。
+   */
+  agent_online?: boolean
+  has_data?: boolean
   created_at: string
   updated_at: string
+}
+
+/** {v2.11} 接入进度四态（决策 75）：由 registration_status + agent_online + has_data 推导 */
+export type AccessStep = 1 | 2 | 3 | 4
+
+export const ACCESS_STEP_LABELS: Record<AccessStep, string> = {
+  1: '已登记',
+  2: '已纳管',
+  3: '采集节点已上线',
+  4: '已出数据',
+}
+
+export function accessStepOf(d: Pick<NetworkDomain, 'registration_status' | 'agent_online' | 'has_data'>): AccessStep {
+  if (d.registration_status === 'created') return 1
+  if (!d.agent_online) return 2
+  return d.has_data ? 4 : 3
 }
 
 export type UserRole = 'platform_admin' | 'tenant_admin' | 'operator' | 'viewer'
@@ -128,6 +167,10 @@ export const ZONE_TYPE_OPTIONS: ZoneTypeOption[] = [
 export const zoneTypeLabelOf = (value: string) =>
   ZONE_TYPE_OPTIONS.find((z) => z.value === value)?.label ?? (value ? value : '未登记')
 
+/** {v2.11} 「网络分区（可选）」表单/表头用户文案（决策 76）：纯分类标签，不影响行为 */
+export const ZONE_TYPE_FIELD_HINT =
+  '只是给网域贴的分类标签：政务云环境对应安全分区（如互联网区 / 政务外网区 / 专线区），公有云环境对应地域（region）。不影响采集行为，不确定可留空，仅用于列表筛选。'
+
 /**
  * 以下 mock 数组为**原型演示数据，不落库**（仅用于可点击原型交互演示）。
  * 实际落库仅后端启动时 migration upsert `platform_admin` 单租户（决策 23，MVP），
@@ -172,61 +215,96 @@ export const mockTenants: Tenant[] = [
  * - 登记归属（tenant_id）为部署级登记方，MVP 固定 t-platform；登记 ≠ 独占，通过 authorized_tenant_ids 授权多个租户共享使用
  * - registration_status 为只读演示字段，模拟「已由 Module_09 纳管」的回显，M06 页面不可编辑
  * - zone_type（v1.4）：由 M06 登记的行政字段；default 管理域由中心直接采集、无网闸拓扑，留空不适用
+ * - resource_ref_count（v2.15，决策 82-1）：删除前置校验用；本 mock 覆盖三种删除场景——
+ *   · mc-edge = 3（有 M07 资源引用 → 删除被硬拒绝，「更多」菜单内直给原因 + M07 引导）
+ *   · mc-finance = 0 且未纳管（空网域 → 常规二次确认删除）
+ *   · mc-manufacturing / mc-dmz = 0 且已纳管（→ 级联清退二次确认，展示级联影响清单；前者 Agent 未上线、后者在线）
+ *   · default = 管理域（既不删除也不禁用）
  */
 export const mockNetworkDomains: NetworkDomain[] = [
   {
     id: 'default',
     name: 'default',
-    description: '系统预置中心管理域，承载单机与中心采集模式',
+    description: '系统预置中心直连域，承载单机与中心采集模式',
     domain_type: 'management',
     tenant_id: 't-platform',
     authorized_tenant_ids: ['t-platform', 't-ecommerce'],
     status: 'active',
     zone_type: '',
     registration_status: 'monitored',
+    agent_online: true,
+    has_data: true,
     created_at: '2026-07-01 00:00:00',
     updated_at: '2026-08-10 09:00:00',
   },
   {
     id: 'mc-edge',
     name: 'edge',
-    description: '边缘接入网域，通过 Edge Agent 单向 HTTPS 出站接入',
+    description: '互联网区隔离网域，通过采集节点单向 HTTPS 出站回传数据',
     domain_type: 'edge',
     tenant_id: 't-platform',
     authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'internet',
+    ip_cidrs: ['10.20.0.0/16'],
     registration_status: 'monitored',
+    resource_ref_count: 3,
+    agent_online: true,
+    has_data: true,
     created_at: '2026-07-10 00:00:00',
     updated_at: '2026-08-10 09:00:00',
   },
   {
     id: 'mc-finance',
     name: 'finance',
-    description: '金融专网网域（登记归属平台运营部，授权金融运维部使用；行政已禁用，未纳管监控）',
+    description: '金融专网网域（登记归属平台运营部，授权金融运维部使用；行政已禁用，仅完成登记）',
     domain_type: 'edge',
     tenant_id: 't-platform',
     authorized_tenant_ids: ['t-finance'],
     status: 'disabled',
     zone_type: 'private-line',
+    ip_cidrs: ['10.30.0.0/16'],
     registration_status: 'created',
+    resource_ref_count: 0,
     created_at: '2026-07-12 00:00:00',
     updated_at: '2026-08-01 10:00:00',
   },
   {
     id: 'mc-manufacturing',
     name: 'manufacturing',
-    description: '制造边缘节点网域（行政已创建，待 Module_09 纳管）',
+    description: '制造外网区网域（已纳管、拿到接入凭据，采集节点尚未安装上线）',
     domain_type: 'edge',
     tenant_id: 't-platform',
     authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'extranet',
-    registration_status: 'created',
+    registration_status: 'monitored',
+    resource_ref_count: 0,
+    agent_online: false,
     created_at: '2026-07-20 00:00:00',
     updated_at: '2026-08-10 09:00:00',
   },
+  {
+    id: 'mc-dmz',
+    name: 'dmz',
+    description: 'DMZ 隔离区网域（采集节点已上线心跳正常，尚未配置生效的采集任务，未出数据）',
+    domain_type: 'edge',
+    tenant_id: 't-platform',
+    authorized_tenant_ids: ['t-platform'],
+    status: 'active',
+    zone_type: 'dmz',
+    registration_status: 'monitored',
+    resource_ref_count: 0,
+    agent_online: true,
+    has_data: false,
+    created_at: '2026-08-01 00:00:00',
+    updated_at: '2026-08-12 09:00:00',
+  },
 ]
+
+// {v2.5} 网段输入提示（决策 52）：下拉候选 + 最长前缀优先语义提示；供 NetworkDomainsPage 表单使用
+export const IP_CIDR_HINT =
+  '可为空。维护该网域覆盖的网段（如 10.20.0.0/16），用于在资源导入/同步时按 IP 自动推导网域归属；同 IP 命中多个网段时按最长前缀优先，同前缀跨网域冲突标注「歧义」待人工处理。'
 
 export const mockUsers: User[] = [
   {

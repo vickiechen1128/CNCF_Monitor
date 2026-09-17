@@ -1,171 +1,148 @@
 // Package resource implements Module 07 监控对象管理的支撑层：业务分组字典、
-// 资源校验与查询辅助等。本文件提供业务分组字典 business_domains.yaml 的
-// 内存加载、热加载与只读访问。
+// 资源校验与查询辅助等。本文件提供业务分组字典的 DB-backed 访问（决策 48）：
+// 权威存储为 DB，business_domains.yaml 仅首次启动 seed；消费沿用
+// GetEnabledMap()/EnabledList() 只读签名，资源 CRUD / Excel 导入 / 模板下载调用方不变。
 package resource
 
 import (
 	"fmt"
-	"log"
-	"os"
-	"sync"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
-	"gopkg.in/yaml.v3"
+	"github.com/metriccenter/metriccenter/platform/models"
+	"gorm.io/gorm"
 )
 
-// BusinessDomain 是业务分组字典的一条条目。
+// BusinessDomain 是业务分组字典的对外传输视图（DTO）。
 //
 //   - code        不可变主键（biz_code），永不可改、停用不删除（PRD §3.1 红线）；
 //   - name        展示名（biz_name），可改，仅 UI 展示；
 //   - description 描述，可改；
 //   - enabled     启用状态；停用条目不可被新资源/新增/编辑选用，存量资源保留历史值。
 type BusinessDomain struct {
-	Code        string `json:"code" yaml:"code"`
-	Name        string `json:"name" yaml:"name"`
-	Description string `json:"description" yaml:"description"`
-	Enabled     bool   `json:"enabled" yaml:"enabled"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
 }
 
-// BusinessDomainStore 从 yaml 文件加载业务分组字典并缓存为内存快照。
+// BusinessDomainStore 是业务分组字典的 DB-backed 只读/读写访问门面。
 //
-// 热加载：每次读取前比较文件 mtime，变更后自动重读（MVP P0 验收项，无需重启）。
-// 容错：加载失败返回错误并保留上次成功快照，读取路径不会 panic。
+// 决策 48：字典权威存储为 platform DB（models.BusinessDomain 表），数据由首次启动
+// seed 导入；本 store 聚合 DB 读写，并对消费方暴露原有只读签名（List/Lookup/
+// EnabledList/GetEnabledMap），使资源校验、Excel 导入、模板下载调用方不被破坏。
 type BusinessDomainStore struct {
-	path string
-	mu   sync.Mutex
-
-	// 内存快照（仅在加载成功时整体替换，失败保留旧值）。
-	domains map[string]BusinessDomain // code -> 条目
-	order   []string                  // 文件顺序，保证列表输出稳定
-	mtime   time.Time                 // 上次成功加载时的文件 mtime
-	loaded  bool                      // 是否已有成功快照
-	lastErr error                     // 最近一次加载错误（成功为 nil）
+	db *gorm.DB
 }
 
-// NewBusinessDomainStore 构造并尝试首次加载。构造函数不返回错误：文件缺失或
-// 解析失败时进入降级状态（读取返回错误 + 空快照），保证 metric-center 仍能启动。
-func NewBusinessDomainStore(path string) *BusinessDomainStore {
-	s := &BusinessDomainStore{
-		path:    path,
-		domains: make(map[string]BusinessDomain),
+// NewBusinessDomainStore 以给定 DB 连接构造业务字典 store。db 非空（构造于 DB 迁移
+// 之后）；nil 时 store 所有读取返回错误。
+func NewBusinessDomainStore(db *gorm.DB) *BusinessDomainStore {
+	return &BusinessDomainStore{db: db}
+}
+
+// toBusinessDomain 将持久化模型转换为 API 传输视图（仅暴露字典字段）。
+func toBusinessDomain(m models.BusinessDomain) BusinessDomain {
+	return BusinessDomain{
+		Code:        m.Code,
+		Name:        m.Name,
+		Description: m.Description,
+		Enabled:     m.Enabled,
 	}
-	s.mu.Lock()
-	_ = s.ensureLoadedLocked()
-	s.mu.Unlock()
-	return s
 }
 
-// List 返回全量字典条目（含停用项，按文件顺序）。加载失败时返回上次快照与错误。
+// List 返回全量字典条目（含停用项，按 id 稳定排序）。
 func (s *BusinessDomainStore) List() ([]BusinessDomain, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.ensureLoadedLocked()
-	out := make([]BusinessDomain, 0, len(s.order))
-	for _, code := range s.order {
-		out = append(out, s.domains[code])
+	var rows []models.BusinessDomain
+	if err := s.db.Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("查询业务分组字典：%w", err)
 	}
-	return out, err
+	out := make([]BusinessDomain, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, toBusinessDomain(r))
+	}
+	return out, nil
 }
 
-// Lookup 按 code 查找条目。ok=false 表示不存在；err 非 nil 表示热加载失败
-// （仍返回上次快照中的结果）。
+// Lookup 按 code 查找条目。ok=false 表示不存在。
 func (s *BusinessDomainStore) Lookup(code string) (BusinessDomain, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.ensureLoadedLocked()
-	d, ok := s.domains[code]
-	return d, ok, err
+	var m models.BusinessDomain
+	err := s.db.Where("code = ?", code).First(&m).Error
+	switch {
+	case err == gorm.ErrRecordNotFound:
+		return BusinessDomain{}, false, nil
+	case err != nil:
+		return BusinessDomain{}, false, fmt.Errorf("查询业务分组 %s：%w", code, err)
+	default:
+		return toBusinessDomain(m), true, nil
+	}
 }
 
 // EnabledList 返回启用条目（停用项不进入，PRD §3.1）。
 func (s *BusinessDomainStore) EnabledList() ([]BusinessDomain, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.ensureLoadedLocked()
-	out := make([]BusinessDomain, 0)
-	for _, code := range s.order {
-		if d := s.domains[code]; d.Enabled {
-			out = append(out, d)
-		}
+	var rows []models.BusinessDomain
+	if err := s.db.Where("enabled = ?", true).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("查询启用业务分组：%w", err)
 	}
-	return out, err
+	out := make([]BusinessDomain, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, toBusinessDomain(r))
+	}
+	return out, nil
 }
 
 // GetEnabledMap 返回启用条目映射 code -> BusinessDomain，供资源校验
 // （biz_code 必填且对应启用条目，T07-03/T07-06）。
 func (s *BusinessDomainStore) GetEnabledMap() (map[string]BusinessDomain, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.ensureLoadedLocked()
-	out := make(map[string]BusinessDomain)
-	for _, code := range s.order {
-		if d := s.domains[code]; d.Enabled {
-			out[code] = d
-		}
+	var rows []models.BusinessDomain
+	if err := s.db.Where("enabled = ?", true).Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("查询启用业务分组：%w", err)
 	}
-	return out, err
+	out := make(map[string]BusinessDomain, len(rows))
+	for _, r := range rows {
+		out[r.Code] = toBusinessDomain(r)
+	}
+	return out, nil
 }
 
-// ensureLoadedLocked 检查文件 mtime，若已变更则重载；调用方需持有 s.mu。
-func (s *BusinessDomainStore) ensureLoadedLocked() error {
-	info, err := os.Stat(s.path)
-	if err != nil {
-		s.lastErr = fmt.Errorf("stat business domains file %s: %w", s.path, err)
-		return s.lastErr
+// Create 落一条新业务分组（默认 enabled），返回持久化后的 DTO。
+func (s *BusinessDomainStore) Create(m models.BusinessDomain) (BusinessDomain, error) {
+	if err := s.db.Create(&m).Error; err != nil {
+		return BusinessDomain{}, fmt.Errorf("创建业务分组 %s 失败：%w", m.Code, err)
 	}
-	if s.loaded && info.ModTime() == s.mtime {
-		return s.lastErr
-	}
-	return s.reloadLocked(info)
+	return toBusinessDomain(m), nil
 }
 
-// reloadLocked 读取并解析 yaml，仅成功后整体替换内存快照；失败保留上次快照
-// 并记录错误。调用方需持有 s.mu。
-func (s *BusinessDomainStore) reloadLocked(info os.FileInfo) error {
-	data, err := os.ReadFile(s.path)
-	if err != nil {
-		s.lastErr = fmt.Errorf("read business domains file %s: %w", s.path, err)
-		return s.lastErr
+// Update 受限编辑业务分组（决策 48）：仅名称/描述/启用态可改；code 不可改由 handler
+// 请求体约束（不接收 code）。infra 禁停用由 handler 校验，本方法不做二次限制。
+func (s *BusinessDomainStore) Update(code string, req UpdateBusinessDomainRequest) (BusinessDomain, error) {
+	var m models.BusinessDomain
+	if err := s.db.Where("code = ?", code).First(&m).Error; err != nil {
+		return BusinessDomain{}, fmt.Errorf("查询业务分组 %s：%w", code, err)
 	}
-	var entries []BusinessDomain
-	if err := yaml.Unmarshal(data, &entries); err != nil {
-		s.lastErr = fmt.Errorf("parse business domains file %s: %w", s.path, err)
-		return s.lastErr
+	if req.Name != nil {
+		m.Name = *req.Name
 	}
-
-	domains := make(map[string]BusinessDomain, len(entries))
-	order := make([]string, 0, len(entries))
-	for _, d := range entries {
-		if d.Code == "" {
-			s.lastErr = fmt.Errorf("business domains file %s: entry missing code", s.path)
-			return s.lastErr
-		}
-		if _, dup := domains[d.Code]; dup {
-			s.lastErr = fmt.Errorf("business domains file %s: duplicate code %q", s.path, d.Code)
-			return s.lastErr
-		}
-		domains[d.Code] = d
-		order = append(order, d.Code)
+	if req.Description != nil {
+		m.Description = *req.Description
 	}
-
-	s.domains = domains
-	s.order = order
-	s.mtime = info.ModTime()
-	s.loaded = true
-	s.lastErr = nil
-	return nil
+	if req.Enabled != nil {
+		m.Enabled = *req.Enabled
+	}
+	if err := s.db.Save(&m).Error; err != nil {
+		return BusinessDomain{}, fmt.Errorf("更新业务分组 %s 失败：%w", code, err)
+	}
+	return toBusinessDomain(m), nil
 }
 
 // ListBusinessDomains 是 GET /api/v2/platform/business-domains 的只读 handler。
 // 返回 `{list:[{code,name,description,enabled}], total}`（03_API_Standard §7.2）。
-// 热加载失败时保留上次快照继续服务，错误仅记录日志（与 Prometheus 配置热加载一致）。
 func ListBusinessDomains(store *BusinessDomainStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		list, err := store.List()
 		if err != nil {
-			log.Printf("business domains reload failed, serving last snapshot: %v", err)
+			response.InternalServerError(c, err)
+			return
 		}
 		response.OK(c, gin.H{
 			"list":  list,

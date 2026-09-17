@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import config from 'antd/locale/zh_CN'
 import { MainLayout } from '../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
-import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import {
   Alert,
@@ -38,14 +37,38 @@ import { networkDomainApi } from '../../api/domain'
 import { businessDomainApi, resourceApi } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type { BusinessDomain, ResourceCategory } from '../../types/resource'
+import type { CoverageState } from '../../types/query'
+import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
 import { useResources } from './useResources'
 import type { ResourceListItem } from './useResources'
+import { useResourceCoverage } from './useResourceCoverage'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
 import { ImportRecordsPanel } from './ImportRecordsPanel'
 
 const { Text } = Typography
+
+/**
+ * 「实例名」列头（database / middleware Tab，决策 70 / F-38）。
+ *
+ * 这两类资源的模型（`platform/models/database.go`、`resource.go`）**没有独立名称字段**，
+ * `buildListItem`（`platform/config/resource/list.go:152-161`）也不产出 `instance_name`，
+ * 故此前该列恒显示 `-`。按 M07 §5.12 展示口径改绑 `instance_ip`
+ * （与 `module-07/task-sequence.yaml:445` 一致），即「实例标识 = 实例 IP」。
+ * 该列与相邻「IP 地址」列同值，属数据模型层根因，列语义待 PRD 下一轮迭代决定
+ * （见 `module-01/dev-feedback.md` F-38）。
+ */
+function InstanceNameTitle() {
+  return (
+    <span>
+      实例名
+      <Tooltip title="数据库 / 中间件资源暂无独立名称字段，按 M07 §5.12 以实例 IP 作为实例标识">
+        <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+      </Tooltip>
+    </span>
+  )
+}
 
 /** 五类资源类别（Module_07 §5.1 / 决策 D19） */
 const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
@@ -122,6 +145,21 @@ export function ResourcesPage() {
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
+  const {
+    coverageByResource,
+    loading: coverageLoading,
+    error: coverageError,
+  } = useResourceCoverage(category)
+  // 决策 47-3：三态筛选（全部/采集中/已下发未采到/未监控），前端按 coverage.monitor_state 过滤
+  const [monitorState, setMonitorState] = useState<CoverageState | undefined>()
+  // 三态筛选后的行（覆盖既有的 biz/status 客户端过滤后的 filteredList）
+  const coveredList = useMemo(() => {
+    if (!monitorState) return filteredList
+    return filteredList.filter(
+      (r) => (coverageByResource[r.resource_id]?.monitor_state ?? 'not_monitored') === monitorState,
+    )
+  }, [filteredList, monitorState, coverageByResource])
   // 资源新增/编辑抽屉（T07-F4）：复用 create/edit 双模式，编辑态携带行 record
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create')
@@ -267,23 +305,43 @@ export function ResourcesPage() {
         </Space>
       ),
     }
+    // 决策 47-3：采集状态三态 badge 列（数据源 M02 coverage，按 resource_id 合并；coverage 失败降级为 '-'）
+    const monitorColumn: ColumnsType<ResourceListItem>[number] = {
+      title: '采集状态',
+      key: 'monitor_state',
+      width: 120,
+      render: (_: unknown, record: ResourceListItem) => {
+        const coverage = coverageByResource[record.resource_id]
+        const state = coverage?.monitor_state ?? 'not_monitored'
+        return coverageError ? (
+          <Text type="secondary">-</Text>
+        ) : (
+          <MonitorStatusBadge
+            state={state}
+            health={coverage?.health ?? null}
+            lastError={coverage?.last_error}
+          />
+        )
+      },
+    }
 
     switch (type) {
       case 'host':
         return [
           {
-            title: '实例名 / 主机名',
-            key: 'name',
-            render: (_: unknown, record: ResourceListItem) => (
-              <Space direction="vertical" size={0}>
-                <Text strong>{record.instance_name || '-'}</Text>
-                {record.hostname && (
-                  <EllipsisText type="secondary" maxWidth={180}>
-                    {record.hostname}
-                  </EllipsisText>
-                )}
-              </Space>
+            title: (
+              <span>
+                实例名
+                <Tooltip title="主机资源的实例名即主机名">
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+                </Tooltip>
+              </span>
             ),
+            key: 'name',
+            // 决策 70 / F-38：原副行展示 `hostname`，其值与 `instance_name` 同源
+            // （host.go `Hostname()` 即 `InstanceName`），视觉上重复且无信息增量；
+            // 且本 Tab 已有独立「IP 地址」列 —— 直接删除副行，与 M08「实例名」列逐字对应。
+            render: (_: unknown, record: ResourceListItem) => <Text strong>{record.instance_name || '-'}</Text>,
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
@@ -302,11 +360,13 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'database':
         return [
-          { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '数据库类型',
             dataIndex: 'database_type',
@@ -320,11 +380,13 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'middleware':
         return [
-          { title: '实例名', dataIndex: 'instance_name', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
           {
             title: '中间件类型',
             dataIndex: 'middleware_type',
@@ -338,6 +400,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'application':
@@ -362,6 +425,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
       case 'generic_target':
@@ -395,6 +459,7 @@ export function ResourcesPage() {
           businessColumn,
           sourceColumn,
           statusColumn,
+          monitorColumn,
           actionColumn,
         ]
     }
@@ -490,15 +555,17 @@ export function ResourcesPage() {
                   <Select.Option value="maintenance">维护中</Select.Option>
                 </Select>
               </FilterItem>
-              <FilterItem label="采集状态" width={200}>
+              <FilterItem label="采集状态" width={240}>
                 <Select
                   placeholder="全部"
                   allowClear
-                  style={{ width: 120 }}
-                  value={filters.is_monitored === false ? 'unmonitored' : undefined}
-                  onChange={(v) => setFilters({ ...filters, is_monitored: v === 'unmonitored' ? false : undefined })}
+                  style={{ width: 180 }}
+                  value={monitorState}
+                  onChange={(v) => setMonitorState(v as CoverageState | undefined)}
                 >
-                  <Select.Option value="unmonitored">未监控</Select.Option>
+                  <Select.Option value="collecting">采集中</Select.Option>
+                  <Select.Option value="pending_down">已下发未采到</Select.Option>
+                  <Select.Option value="not_monitored">未监控</Select.Option>
                 </Select>
               </FilterItem>
               <FilterItem label="搜索" width={340}>
@@ -520,8 +587,8 @@ export function ResourcesPage() {
 
             <Table<ResourceListItem>
               rowKey="resource_id"
-              dataSource={filteredList}
-              loading={loading}
+              dataSource={coveredList}
+              loading={loading || coverageLoading}
               columns={buildColumns(category)}
               size="small"
               scroll={TABLE_SCROLL_X}
@@ -590,7 +657,7 @@ export function ResourcesPage() {
         width={1000}
         onCancel={() => setRecordsOpen(false)}
         footer={null}
-        destroyOnClose
+        destroyOnHidden
       >
         <ImportRecordsPanel
           onDownloadTemplate={openImportModal}

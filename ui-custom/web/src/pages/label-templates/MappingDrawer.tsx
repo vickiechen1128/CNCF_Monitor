@@ -212,7 +212,10 @@ export default function MappingDrawer({
       width={520}
       open={open}
       onClose={onClose}
-      destroyOnHidden
+      // forceRender（替代 destroyOnHidden）：Drawer 首次打开时内容惰性挂载，导致
+      // useEffect(open) 的 setFieldsValue 在 Form 字段注册前执行被吞、编辑回显首次为空；
+      // forceRender 保证 Form 常驻挂载、每次打开由 effect reset+回显（#19 通病，标签映射抽屉）。
+      forceRender
       extra={
         <Space>
           <Button onClick={onClose}>取消</Button>

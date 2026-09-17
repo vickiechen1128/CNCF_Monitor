@@ -2,19 +2,64 @@ package scrapejob
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
 
-// jobInstanceItem 是 Job 实例列表项：已选实例 + 安装状态（unconfirmed/confirmed）。
+// jobInstanceItem 是 Job 实例列表项：已选实例 + 资源实例名/IP + 安装状态
+// （unconfirmed/confirmed）。instance_name/instance_ip 由 resolveResourceMeta 按
+// resource_id 从资源表解析（原型对齐：详情展示实例名称与 IP）。
 type jobInstanceItem struct {
-	ResourceID string `json:"resource_id"`
+	ResourceID   string `json:"resource_id"`
+	InstanceName string `json:"instance_name"`
+	InstanceIP   string `json:"instance_ip"`
 	// 未找到该实例的确认记录时 status 为 unconfirmed（默认）。
 	Status string `json:"status"`
+}
+
+// resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP。口径对齐
+// instance-candidates：host=InstanceName/PrivateIP，database=ResourceID/InstanceIP，
+// middleware=AppName/InstanceIP，application=ServiceName/HealthCheckURL，
+// generic_target=TargetName/InstanceIP。未命中返回空串。
+func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool) {
+	lookups := []struct {
+		dest    any
+		getMeta func(any) (string, string)
+	}{
+		{&models.Host{}, func(m any) (string, string) {
+			r := m.(*models.Host)
+			return r.InstanceName, r.PrivateIP
+		}},
+		{&models.Database{}, func(m any) (string, string) {
+			r := m.(*models.Database)
+			return r.GetResourceID(), r.InstanceIP
+		}},
+		{&models.Middleware{}, func(m any) (string, string) {
+			r := m.(*models.Middleware)
+			return r.AppName, r.InstanceIP
+		}},
+		{&models.Application{}, func(m any) (string, string) {
+			r := m.(*models.Application)
+			return r.ServiceName, r.HealthCheckURL
+		}},
+		{&models.GenericTarget{}, func(m any) (string, string) {
+			r := m.(*models.GenericTarget)
+			return r.TargetName, r.InstanceIP
+		}},
+	}
+	for _, l := range lookups {
+		if err := db.Where("resource_id = ?", resourceID).First(l.dest).Error; err == nil {
+			n, i := l.getMeta(l.dest)
+			return n, i, true
+		}
+	}
+	return "", "", false
 }
 
 // ListJobInstances 是 GET /api/v2/platform/scrape-jobs/:id/instances 的 handler：
@@ -53,13 +98,16 @@ func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 			if !ok {
 				st = string(models.InstallationStatusUnconfirmed)
 			}
-			items = append(items, jobInstanceItem{ResourceID: rid, Status: st})
+			name, ip, _ := resolveResourceMeta(db, rid)
+			items = append(items, jobInstanceItem{ResourceID: rid, InstanceName: name, InstanceIP: ip, Status: st})
 		}
 		response.OK(c, gin.H{"items": items, "total": len(items)})
 	}
 }
 
-// confirmRequest 是安装确认的请求体（confirmed_by 必填固定 platform_admin，MVP 无鉴权）。
+// confirmRequest 是安装确认的请求体。confirmed_by 不再接受客户端传参（review-fix C）：
+// 由 handler 从认证上下文当前用户派生，字段保留仅为兼容旧客户端传参（被忽略）。
+// 决策 47-1：confirmation 已降级为「可选登记 / 人工背书」，非生成闸门、不阻断 target。
 type confirmRequest struct {
 	ConfirmedBy string `json:"confirmed_by"`
 	ActualPort  int    `json:"actual_port"`
@@ -67,9 +115,11 @@ type confirmRequest struct {
 }
 
 // ConfirmInstallation 是 POST /api/v2/platform/scrape-jobs/:id/instances/:resource_id/
-// confirm 的 handler：确认资源安装 Exporter，落 ExporterInstallationConfirmation
-// （status=confirmed）。校验资源在 Job selected_instance_ids 且同域（bad_request）；
-// Job 未命中 not_found（api-contract-snapshot §6）。
+// confirm 的 handler：可选登记该资源已安装 Exporter，落 ExporterInstallationConfirmation
+// （status=confirmed）。决策 47-1：本登记为「可选登记 / 人工背书」，**非生成闸门、不阻断
+// target 生成**——configgen 仍按 selected_instance_ids 生成 target（见 generator.ResolveJobTargets），
+// 是否登记不影响 target 组。校验资源在 Job selected_instance_ids 且同域（bad_request）；
+// Job 未命中 not_found（api-contract-snapshot §6）。商品语义与交互（端口一致性提示等）不变。
 func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseJobID(c)
@@ -87,9 +137,11 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 			response.BadRequest(c, fmt.Errorf("invalid confirmation payload: %w", err))
 			return
 		}
-		if req.ConfirmedBy != "platform_admin" {
-			response.BadRequest(c, fmt.Errorf("confirmed_by 固定为 platform_admin（MVP 无鉴权）"))
-			return
+		// review-fix C：confirmed_by 取自动态认证上下文当前用户，不信任客户端传参（伪鉴权）。
+		// 取不到当前用户（理论上鉴权中间件保证恒有）时回落 "unknown" 并记日志兜底。
+		confirmedBy := auth.CurrentUsername(c)
+		if auth.CurrentUser(c) == nil {
+			log.Printf("[scrapejob] confirm installation: 认证上下文无当前用户，confirmed_by 回落 unknown")
 		}
 
 		var job models.ScrapeJob
@@ -131,7 +183,7 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 			ScrapeJobID:        id,
 			ExporterTemplateID: job.ExporterTemplateID,
 			Status:             models.InstallationStatusConfirmed,
-			ConfirmedBy:        req.ConfirmedBy,
+			ConfirmedBy:        confirmedBy,
 			ConfirmedAt:        &now,
 			Notes:              req.Notes,
 			ActualPort:         req.ActualPort,
@@ -146,8 +198,8 @@ func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc {
 }
 
 // CancelInstallation 是 DELETE /api/v2/platform/scrape-jobs/:id/instances/:resource_id/
-// confirm 的 handler：删除确认记录。返回 `{resource_id, job_id}`；未命中 not_found
-// （api-contract-snapshot §6）。
+// confirm 的 handler：删除安装确认登记记录。返回 `{resource_id, job_id}`；未命中 not_found
+// （api-contract-snapshot §6）。决策 47-1：删除确认记录不影响 target 组，仅清空登记。
 func CancelInstallation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseJobID(c)

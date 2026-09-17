@@ -30,6 +30,14 @@ const (
 	ChangeStatusDeployed  ChangeStatus = "deployed"
 )
 
+// MappingOverride records a scrape parameter field whose value the user
+// manually overrode at job creation/update (Module_01 §5.4 mapping_overrides)：
+// 「同步映射默认值」时跳过这些字段（保护手动覆盖结果）。
+type MappingOverride struct {
+	Field string `json:"field"` // 覆盖的参数字段名（scrape_interval / scrape_timeout / metrics_path / scheme / label_template_id）
+	Value string `json:"value"` // 覆盖后的快照值
+}
+
 // InstanceSelectionMode selects how instances are chosen for a job.
 type InstanceSelectionMode string
 
@@ -37,6 +45,15 @@ type InstanceSelectionMode string
 const (
 	InstanceSelectionManual InstanceSelectionMode = "manual" // MVP
 	InstanceSelectionFilter InstanceSelectionMode = "filter" // v0.3+
+)
+
+// 采集参数全局兜底默认值（F-28 层叠默认链末端）：Job → 默认采集配置（映射）
+// → 采集器模板（仅 metrics_path/scheme）→ 本组常量。与 Prometheus 常用约定一致。
+const (
+	DefaultScrapeInterval = "15s"
+	DefaultScrapeTimeout  = "10s"
+	DefaultMetricsPath    = "/metrics"
+	DefaultScheme         = "http"
 )
 
 // ScrapeJob defines a Prometheus scrape job configuration, aligned with
@@ -65,6 +82,7 @@ type ScrapeJob struct {
 	FilterRules           string                `gorm:"type:text" json:"filter_rules"`
 	BlackboxModule        string                `gorm:"size:100" json:"blackbox_module,omitempty"` // job_type=blackbox
 	BlackboxTargets       []BlackboxTarget      `gorm:"serializer:json" json:"blackbox_targets"`   // job_type=blackbox 拨测目标
+	MappingOverrides      []MappingOverride     `gorm:"serializer:json" json:"mapping_overrides"`  // 手动覆盖映射默认值的参数字段（同步映射默认值时跳过，F-03）
 	DraftStatus           string                `gorm:"size:20;not null" json:"draft_status"`      // draft/ready
 	ChangeStatus          ChangeStatus          `gorm:"size:20;not null" json:"change_status"`
 	Enabled               bool                  `json:"enabled"`

@@ -1,9 +1,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { apiClient, request } from './client'
+import { apiClient, clearToken, getToken, request, setToken, setUnauthorizedNavigate } from './client'
+
+// vitest jsdom 环境的 window.localStorage 存储行为不可靠，用内存 Map 替换以验证 token 持久化。
+const storageMap = new Map<string, string>()
+const localStorageMock: Storage = {
+  get length() {
+    return storageMap.size
+  },
+  clear: () => storageMap.clear(),
+  getItem: (key) => storageMap.get(key) ?? null,
+  key: (index) => Array.from(storageMap.keys())[index] ?? null,
+  removeItem: (key) => storageMap.delete(key),
+  setItem: (key, value) => storageMap.set(key, String(value)),
+}
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
 
 describe('apiClient', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn())
+    storageMap.clear()
   })
 
   afterEach(() => {
@@ -103,5 +118,53 @@ describe('apiClient', () => {
     await request('/api/v2/platform/config')
     const v2Call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[1]
     expect(new URL(v2Call[0]).pathname).toBe('/api/v2/platform/config')
+  })
+
+  it('attaches Authorization Bearer token from localStorage', async () => {
+    setToken('tok-123')
+    mockFetch(createJsonResponse({ status: 'success', data: null }))
+
+    await apiClient.get('/api/v2/platform/auth/me')
+
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(call[1].headers.Authorization).toBe('Bearer tok-123')
+  })
+
+  it('omits Authorization header when no token is stored', async () => {
+    mockFetch(createJsonResponse({ status: 'success', data: null }))
+
+    await apiClient.get('/api/v2/platform/auth/me')
+
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(call[1].headers).not.toHaveProperty('Authorization')
+  })
+
+  it('clears token and redirects to login on 401 unauthorized', async () => {
+    const navigate = vi.fn()
+    setUnauthorizedNavigate(navigate)
+    setToken('tok-expired')
+    mockFetch(createJsonResponse({ status: 'error', error: 'unauthorized', errorType: 'unauthorized' }, { status: 401 }))
+
+    await expect(apiClient.get('/api/v2/platform/dashboard/summary')).rejects.toThrow()
+
+    expect(getToken()).toBeNull()
+    expect(navigate).toHaveBeenCalled()
+  })
+
+  it('does not redirect when the login endpoint itself returns 401', async () => {
+    const navigate = vi.fn()
+    setUnauthorizedNavigate(navigate)
+    mockFetch(createJsonResponse({ status: 'error', error: 'bad credentials', errorType: 'unauthorized' }, { status: 401 }))
+
+    await expect(apiClient.post('/api/v2/platform/auth/login', { body: { username: 'a', password: 'b' } })).rejects.toThrow()
+
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('clears token and user info via clearToken', async () => {
+    setToken('tok')
+    expect(getToken()).toBe('tok')
+    clearToken()
+    expect(getToken()).toBeNull()
   })
 })

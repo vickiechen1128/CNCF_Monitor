@@ -61,6 +61,12 @@ export interface ScrapeJobInput {
   blackbox_module?: string
   blackbox_targets?: BlackboxTarget[]
   enabled?: boolean
+  /**
+   * 创建时直接指定为草稿或提交生效（方案 C，决策 D28-2）。
+   * - "draft"：仅基础校验（job_name / job_type / 唯一性）并保存为草稿；
+   * - "ready"（默认）：完整校验并进入 M09 变更管线。
+   */
+  draft_status?: 'draft' | 'ready'
 }
 
 /** 实例候选列表分页与筛选参数（§6，GET /scrape-jobs/instance-candidates） */
@@ -128,5 +134,12 @@ export const scrapeJobApi = {
   /** preview-targets（L2 接口预览，§6） */
   previewTargets(jobId: number): Promise<ApiResponse<PreviewTargetsResult>> {
     return apiClient.post<PreviewTargetsResult>(`/api/v2/platform/scrape-jobs/${jobId}/preview-targets`)
+  },
+  /**
+   * 批量将 draft 态采集 Job 提交为 ready（draft→ready 单向，决策 D28-3）。
+   * 目标 Job 必须当前为 draft_status=draft，后端逐条做完整校验（all-or-nothing）。
+   */
+  batchSubmitReady(input: { ids: number[] }): Promise<ApiResponse<{ jobs: ScrapeJob[] }>> {
+    return apiClient.post<{ jobs: ScrapeJob[] }>('/api/v2/platform/scrape-jobs/batch-draft-status', { body: input })
   },
 }

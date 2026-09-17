@@ -21,6 +21,7 @@ import { labelTemplateApi } from '../../api/labelTemplates'
 import { EllipsisText } from '../../components/EllipsisText'
 import type { LabelTemplateListItem } from '../../types/label'
 import type { ResourceCategory } from '../../types/resource'
+import { INSTANCE_LEVEL_CUSTOM_CATEGORIES } from './labelTemplateConstants'
 
 const { Text } = Typography
 
@@ -70,12 +71,15 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
   const [deleteTarget, setDeleteTarget] = useState<LabelTemplateListItem | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  // 资源类别 Tab 切换（父页面持有）时回到第一页并显示骨架屏；
+  // 资源类别 Tab 切换（父页面持有）时回到第一页、清空残留列表并显示骨架屏；
   // 采用「渲染期间调整状态」模式（React 官方推荐用于派生状态重置），避免 effect 双请求。
+  // 必须同时清空 items：否则 loading 条件渲染（loading && items.length === 0）不成立，
+  // 上一类别的模板列表会残留到新数据返回，用户切 Tab 后点击到的是旧类别模板。
   const [prevActiveType, setPrevActiveType] = useState<ResourceCategory>(activeType)
   if (prevActiveType !== activeType) {
     setPrevActiveType(activeType)
     setPage(1)
+    setItems([])
     setLoading(true)
   }
 
@@ -274,9 +278,12 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
                         <span>
                           <Badge count={tpl.mappings.length} showZero color="#185FA5" /> {tpl.mappings.length} 条映射
                         </span>
-                        <span>
-                          <Badge count={tpl.instance_count} showZero color="#0F6E56" /> 关联实例 {tpl.instance_count}
-                        </span>
+                        {/* 双场景治理边界（PRD §3.3/§5.2/§6.2）：仅实例级自定义开放类别展示关联实例 badge（F-34） */}
+                        {INSTANCE_LEVEL_CUSTOM_CATEGORIES.includes(tpl.resource_category) && (
+                          <span>
+                            <Badge count={tpl.instance_count} showZero color="#0F6E56" /> 关联实例 {tpl.instance_count}
+                          </span>
+                        )}
                       </Space>
                     }
                   />

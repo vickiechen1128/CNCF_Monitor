@@ -2,8 +2,8 @@
 
 > 文档类型：产品需求文档 / 功能架构  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)  
-> 版本：v3.3
-> 更新日期：2026-08-21
+> 版本：v3.5
+> 更新日期：2026-09-10
 
 ---
 
@@ -140,7 +140,7 @@
 | **网域纳管** | 仅持有网域纳管相关字段（纳管状态、`center_endpoint`、采集器注册信息）；网域行政登记（ID/名称/登记归属/授权租户/禁用冻结/`zone_type`）以 [Module_06](Modules/Module_06_Multi_Tenant.md) 为单一事实来源（决策 28）；Token 生成与重置、默认网域 `default` | P0 |
 | **Token 鉴权** | Edge Sync Agent 使用 Token 拉取配置和推送心跳 | **P0（v0.2）** |
 | **边缘 Agent 管理** | 注册边缘 Agent、查看 Agent 类型（vmagent / prometheus-agent）、版本、状态 | **P0（v0.2）** |
-| **配置生成服务** | 定时轮询 Module_01（ScrapeJobs、Rules）与 Module_07（Resources、LabelTemplates），按网域生成 `prometheus.yml` 与 `rules.yml` 草稿；生成时排除 `offline` 资源（决策 29）、透传采集认证/TLS 进 `scrape_configs`（决策 31）、冻结/禁用网域不生成新变更单（决策 30）、变更确认后回写 `change_status=deployed`（决策 31-M2）；在 `global.external_labels` 中注入 `network_domain`、`tenant_id` | P0 |
+| **配置生成服务** | 定时轮询 Module_01（ScrapeJobs、Rules）与 Module_07（Resources、LabelTemplates），按网域生成 `prometheus.yml` 与 `rules.yml` 草稿；生成时排除 `offline` 资源（决策 29）、透传采集认证/TLS 进 `scrape_configs`（决策 31）、冻结/禁用网域不生成新变更单（决策 30）、变更确认后回写 `change_status=deployed`（决策 31-M2）；在 `global.external_labels` 中注入 `network_domain` / `zone_type` / `replica`（**不注入租户/业务标签**，决策 19、键名基线决策 68-1）；中心求值器 `prometheus.yml` 另生成 `alerting.alertmanagers`（决策 68-2，仅中心、条件注入、AM 地址由 `env/env.sh` 注入） | P0 |
 | **配置预览与确认** | 以 YAML 高亮预览、与当前生效版本 diff、人工确认后转为待下发版本 | **P0（v0.2）** |
 | **配置下发** | 单网域：手动下发、SIGHUP / `/-/reload`；多网域：Edge Sync Agent 轮询拉取配置包 | P0 / P1 |
 | **配置版本** | 下发历史、版本对比、一键回滚 | P1 |
@@ -160,11 +160,11 @@
 ### 04 查询中心（Module_02）
 
 > 定位为**带租户/网域上下文注入的 Prometheus Query API 代理**，不是透明代理。
-> 转发查询前，根据当前认证用户自动注入 `tenant_id` 与有权限的 `network_domain` 标签，保证多租户数据隔离；返回结果外层包裹 envelope 元数据（`data_source`、`freshness_at`、`network_domain`），以区分中心实时 scrape 与边缘异步 Remote Write 数据。
+> 转发查询前，根据当前认证用户自动注入 `tenant` 与有权限的 `network_domain` 标签，保证多租户数据隔离；返回结果外层包裹 envelope 元数据（`data_source`、`freshness_at`、`network_domain`），以区分中心实时 scrape 与边缘异步 Remote Write 数据。
 
 | 一级功能 | 二级功能 | MVP 范围 |
 |----------|----------|----------|
-| **PromQL 代理（含租户/网域注入）** | 代理 instant / range 查询，自动注入 `tenant_id` 与有权限的网域标签 | P0 |
+| **PromQL 代理（含租户/网域注入）** | 代理 instant / range 查询，自动注入 `tenant` 与有权限的网域标签 | P0 |
 | **`/api/v1/alerts` 代理** | 代理 Prometheus 当前触发/待处理告警实例，注入租户/网域上下文 | P0 |
 | **查询辅助** | 指标名补全、Label 键值建议、常用查询模板、语法校验 | P1 |
 | **结果展示** | 表格视图、JSON 视图、简单折线图、数据导出（CSV/JSON） | P1 |
@@ -295,7 +295,7 @@
 ### 6.1 关键数据流说明
 
 - **Edge Agent → Remote Write → Central TSDB → Module_02（注入）**
-  - 边缘 Agent 在隔离网域抓取指标，通过 Remote Write 回写到中心 TSDB；Module_02 查询时自动注入 `tenant_id` / `network_domain` 并返回 envelope 元数据。
+  - 边缘 Agent 在隔离网域抓取指标，通过 Remote Write 回写到中心 TSDB；Module_02 查询时自动注入 `tenant` / `network_domain` 并返回 envelope 元数据。
 - **Edge Agent → Heartbeat → Module_09（Agent 状态列表）**
   - Edge Sync Agent 周期性上报心跳、配置版本、WAL 积压；Module_09 以 Agent 状态列表页形式展示基础设施健康。
 - **Prometheus → `/api/v1/alerts` → Module_02 → UI**
@@ -315,10 +315,14 @@
 
 `external_labels` 是 Prometheus / vmagent 在 `global` 段配置的一组全局标签，采集器在抓取每条时间序列后会自动把这些标签附加到 series 上，因此所有从该 Agent 回写的指标都会统一携带这些标签。
 
+> **口径基线（2026-08-19 决策 19 + 2026-09-10 决策 68-1 / 68-5）**：`external_labels` **只注入部署级、物理维度的不可变元数据**（`network_domain` / `zone_type` / `replica`），**不注入租户 / 业务标签**（租户与业务标签由 Module_07 LabelTemplate 以 target 级注入）；`network_domain` 与 `tenant` 是**全平台的两个 Prometheus 标签键**，`network_domain_id` / `tenant_id` 仅作对象 / API 字段使用（如 `NetworkDomain.id`、`Resource.network_domain_id`、`Tenant.id`），两类命名空间不得混用。
+>
+> **通用命名规约（决策 68-5-1）**：**Prometheus 标签键、以及与之对齐的 Query 参数 / Excel 列 / envelope 字段，一律不带 `_id` 后缀；`_id` 后缀只用于 DB 列与 API JSON 字段（ID 语义）。** 三层命名空间各自自洽（`network_domain`/`network_domain_id`、`tenant`/`tenant_id`），新增标签只要遵守此规约即自洽，无需再逐次评审命名。
+
 ### 7.1 作用
 
-- **标识指标来源**：通过 `network_domain`、`tenant_id` 等标签，明确每条时间序列来自哪个网域、哪个租户。
-- **支撑租户隔离**：Module_02 查询时基于 `tenant_id` / `network_domain` 自动注入选择器，实现多租户数据隔离。
+- **标识指标来源**：通过 `network_domain` 标签，明确每条时间序列来自哪个网域。
+- **支撑租户隔离**：租户隔离不在本机制内实现——租户标签 `tenant`（**标签键不带 `_id` 后缀**）由 Module_07 LabelTemplate 以 target 级注入（`tenant_id → tenant`），Module_02 查询时基于 `tenant` / `network_domain` 自动注入选择器（注入骨架 MVP 恒通过，多租户语义 v0.2；**fail-closed 严格派**——无 `tenant` 标签的序列对普通租户不可见，平台自身 Job 显式 `tenant="platform_admin"`，决策 68-5-4）。
 - **区分数据新鲜度**：Module_02 返回的 envelope 元数据中的 `network_domain` 与 `data_source` 字段，依赖 `external_labels` 中的来源信息。
 
 ### 7.2 Module_09 的职责：内部 Edge Agent 注入
@@ -329,31 +333,35 @@ Module_09 在生成每个网域的 `prometheus.yml` 时，必须在该网域 Age
 global:
   external_labels:
     network_domain: "gov-cloud-a"
-    tenant_id: "tenant-a"
+    zone_type: "extranet"     # 仅当网域登记了 zone_type 时注入
+    replica: "replica-0"      # 部署级高可用副本标识
 ```
 
 - `network_domain`：取值对应 `NetworkDomain.id`，用于标识指标来源网域。
-- `tenant_id`：取值对应 `NetworkDomain.tenant_id`，用于标识指标所属租户。
+- `zone_type`：网络区域类型，仅当网域登记了 `zone_type` 时同步注入。
+- `replica`：部署级高可用副本标识，随部署拓扑注入。
 
 注入效果：
 
-- 边缘 Agent 抓取的所有指标在 Remote Write 到中心时都会自动携带 `network_domain` 和 `tenant_id` 标签。
+- 边缘 Agent 抓取的所有指标在 Remote Write 到中心时都会自动携带 `network_domain` / `zone_type` / `replica` 标签。
 - Module_02 查询中心 Prometheus 时，可基于 `network_domain` 标签对用户有权限的网域做进一步过滤或展示来源网域。
-- 该机制是 Module_02 实现「按网域查询」与「租户数据隔离」的基础之一。
+
+> **中心求值器的 `alerting` 段（决策 68-2，2026-09-10）**：Module_09 还须在**中心求值器**的 `prometheus.yml` 中生成 `alerting.alertmanagers[].static_configs[].targets`，使 Prometheus 向中心 Alertmanager 投递告警（此前只完成 AM 侧配置挂载，投递接线缺失，导致告警通知状态页恒空）。**仅中心生成**——边缘配置包（`vmagent` / `prometheus-agent`）**永不生成** `alerting` 与 `rule_files`（两者均不支持 / Agent Mode 禁止这三个字段）；AM 地址由 `env/env.sh` 集中注入、禁止硬编码；仅当存在 `alertmanager.yml` 产物时条件生成。
 
 ### 7.3 Module_10 的职责：外部监控源标签归一化
 
 - Module_10 负责**外部异构监控源**（第三方 Prometheus、Zabbix、云监控等）接入时的标签归一化、映射与补全。
-- 外部来源可能已自带 `network_domain`、`tenant_id` 等标签，Module_10 通过 Ingestion Gateway 在数据入平台时进行校验、改写或补全，使其与 MetricCenter 的网域/租户模型对齐。
+- 外部来源可能已自带 `network_domain`、`tenant` 等标签，Module_10 通过 Ingestion Gateway 在数据入平台时进行校验、改写或补全，使其与 MetricCenter 的网域/租户模型对齐。
 - Module_10 **不**负责为内部 Edge Agent 生成 `external_labels`；该职责专属 Module_09。
 
 ### 7.4 职责边界总结
 
 | 职责 | Module_09（网域与边缘配置中心） | Module_10（监控源管理） |
 |------|--------------------------------|------------------------|
-| 内部 Edge Agent 的 `external_labels` 注入 | ✅ 在生成 `prometheus.yml` 时注入 `network_domain`、`tenant_id` | ❌ |
+| 内部 Edge Agent 的 `external_labels` 注入 | ✅ 在生成 `prometheus.yml` 时注入 `network_domain` / `zone_type` / `replica`（**不注入租户标签 `tenant` 与业务标签**——租户标签由 M07 target 级注入，决策 68-5） | ❌ |
+| 内部中心求值器的 `alerting` 段生成 | ✅ 仅中心生成 `alerting.alertmanagers`（决策 68-2）；边缘包不生成 | ❌ |
 | 外部异构监控源接入 | ❌ | ✅ 负责标签归一化、映射、补全 |
-| 外部来源的 `network_domain` / `tenant_id` 标签对齐 | ❌ 可提供网域/租户定义供引用 | ✅ 负责将外部指标映射到本网域模型 |
+| 外部来源的 `network_domain` / `tenant` 标签对齐 | ❌ 可提供网域/租户定义供引用 | ✅ 负责将外部指标映射到本网域模型 |
 
 > **原则**：Module_09 管「内部 Agent 出身标签」，Module_10 管「外部来源入场标签」。两者都可能在指标上产生 `network_domain` 等标签，但生成时机和 responsibility 不同：Module_09 通过 Agent 配置注入，Module_10 通过接入网关/转换器在数据入平台时打标或改写。
 
@@ -379,6 +387,8 @@ global:
 
 | 日期 | 版本 | 变更内容 | 作者 |
 |------|------|----------|------|
+| 2026-09-10 | v3.5 | 租户标签键定版 + 通用命名规约（决策 68-5，源自 M02 §7.1 原「遗留待决」升级）：①§7「口径基线」落 **通用命名规约**——「Prometheus 标签键及对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀，`_id` 只属 DB 列与 API JSON 字段」，三层命名空间自洽（`network_domain`/`network_domain_id`、`tenant`/`tenant_id`），新增标签无需再评审命名；②§7.1「支撑租户隔离」明确租户标签键为 **`tenant`（不带 `_id`）**、**fail-closed 严格派**语义（无 `tenant` 标签的序列对普通租户不可见；平台自身 Job 显式 `tenant="platform_admin"`）；③§4 查询中心「自动注入 `tenant_id`」改为 **`tenant`**（注入名与序列标签名同源，此前两侧不一致）；④§7.4 边界表、§6 边缘同步场景注入名同步。 | 产品架构 |
+| 2026-09-10 | v3.4 | 标签键与投递接线口径对齐（决策 68，源自 F-07 网域列缺陷评审）：①第 7 章 `external_labels` 全节重写——明确「只注入部署级物理维度元数据（`network_domain` / `zone_type` / `replica`）、**不注入租户 / 业务标签**」基线（2026-08-19 决策 19），并落 `network_domain` 为**全平台唯一 Prometheus 标签键**、`network_domain_id` 仅作对象/API 字段（决策 68-1）；②§7.1「支撑租户隔离」改为租户标签由 M07 target 级 `tenant` 承载（更正此前「external_labels 注入 `tenant_id`」的过时表述）；③§7.2 新增中心求值器 `alerting.alertmanagers` 生成要求与**仅中心 / 边缘包不生成**边界（决策 68-2）；④§3 配置生成服务行同步标签集与 `alerting` 段。 | 产品架构 |
 | 2026-08-21 | v3.3 | 对齐 M01 v3.26 / M07 v2.20 / M09 v1.50 与决策 18~20/23/28~31/38-1：M07「已监控 / 未监控 badge」改为「未监控」筛选（`is_monitored` 由 Module_01 维护、Module_07 只读映射，决策 31-M1）；M01 新增采集认证/TLS 最小集、冻结/禁用网域校验（决策 30/31）、规则文件挂载（整文件 `rules.yml` 透传 → M09 生成下发，`change_status=deployed` 回写，决策 38-1）；M09 网域管理改为仅持纳管字段、网域行政登记以 M06 为单一事实来源（决策 28），配置生成排除 `offline` 资源（决策 29）、透传认证/TLS、冻结域不生成新变更单；M06 新增网域行政登记并修正跨租户共享（1 网域:N 租户、`authorized_tenant_ids`）；更新 MVP 边界表与激活说明。 | 产品架构 |
 | 2026-07-31 | v3.1 | 按《监控策略管理方案设计》决策重构模块边界：Module_01 改为「监控策略与指标管理」、Module_07 改为「监控对象管理」、Module_09 改为「网域与边缘配置中心」；重新划分 ScrapeJob、配置生成/下发、运行时目标状态、告警生命周期等职责；更新数据流图、MVP 边界表与模块对应关系表。 | 产品架构 |
 | 2026-07-31 | v3.2 | 按 grill-2026-07-31-query-center 决策与 Module_02/06/08/09 PRD 更新：Module_02 改为带租户/网域注入的 Prometheus Query API 代理并补充响应 envelope 元数据；Module_09 明确 MVP 诊断降级为 Agent 状态列表页、配置生成注入 `external_labels`、区分基础设施健康与被监控对象健康；Module_08 区分 Prometheus 告警状态与 Alertmanager 通知状态；Module_06 明确不存在跨租户全局管理员；新增数据流关键链路说明与 `external_labels` 专节；更新 MVP 边界表与模块对应关系表。 | 产品架构 |

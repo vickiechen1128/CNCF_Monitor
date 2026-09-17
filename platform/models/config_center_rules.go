@@ -19,6 +19,35 @@ const (
 	ValidationStatusRejected ValidationStatus = "rejected" // 人工/策略拒绝
 )
 
+// ValidationCause 表示校验失败/待校验的归因（决策 45-3，MVP 落 user_config 判定）。
+type ValidationCause string
+
+// Validation cause 常量。
+const (
+	ValidationCauseUserConfig   ValidationCause = "user_config"   // 用户配置问题，可修复（展示「重新校验 + 前往修改」）
+	ValidationCausePlatformFault ValidationCause = "platform_fault" // 平台技术故障，自动重试、用户不可见
+)
+
+// ValidationSource 表示校验问题的来源，驱动「前往修改」按来源分流跳转（决策 67-3）：
+// rule → Module_01 规则编辑页；scrape_job / targets → 采集 Job 页。缺省（旧数据）按
+// scrape_job 回落。
+type ValidationSource string
+
+// Validation source 常量。
+const (
+	ValidationSourceRule      ValidationSource = "rule"       // 规则 job 引用（决策 66/67）
+	ValidationSourceScrapeJob ValidationSource = "scrape_job" // 采集 Job / prometheus.yml 外部校验
+	ValidationSourceTargets   ValidationSource = "targets"    // targets 实例（file_sd 内容）
+)
+
+// ValidationDetail 表示结构化校验失败定位（对齐原型 validation_details）。
+type ValidationDetail struct {
+	File    string           `json:"file,omitempty"`   // 受影响的配置文件/目标文件
+	Line    int              `json:"line,omitempty"`   // 行号（0 = 无行号信息）
+	Message string           `json:"message"`          // 具体错误说明
+	Source  ValidationSource `json:"source,omitempty"` // 问题来源，驱动「前往修改」分流（决策 67-3）
+}
+
 // ConfigSyncStatus 表示边缘 Agent 配置同步状态（v0.2，MVP 仅占位常量）。
 type ConfigSyncStatus string
 
@@ -51,6 +80,10 @@ const (
 	ChangeItemTargetMonitoringRule   ChangeItemTarget = "monitoring_rule"   // 告警规则
 	ChangeItemTargetProbeTarget      ChangeItemTarget = "probe_target"      // 拨测目标
 	ChangeItemTargetLabelTemplate    ChangeItemTarget = "label_template"    // 标签模板
+	ChangeItemTargetAlertmanagerCfg  ChangeItemTarget = "alertmanager_config" // 告警收敛配置（决策 60：管理域 default scope）
+	// 决策 68-2 补丁：prometheus.yml 的 alerting 段由生成器注入（不来自 M01/M08 源数据），
+	// 须参与变更清单 diff，否则「仅 alerting 变化」被 ErrNoChanges 抑制、配置永远无法重新下发。
+	ChangeItemTargetPromAlerting ChangeItemTarget = "prom_alerting" // Prometheus 告警投递配置（alerting 段）
 )
 
 // ChangeItemType 表示变更类型。
@@ -77,10 +110,11 @@ type AffectedFile string
 
 // 受影响配置文件常量。
 const (
-	AffectedFilePrometheus AffectedFile = "prometheus" // prometheus.yml
-	AffectedFileTargets    AffectedFile = "targets"     // targets/*.json
-	AffectedFileRules      AffectedFile = "rules"       // rules.yml
-	AffectedFileBlackbox   AffectedFile = "blackbox"    // blackbox.yml
+	AffectedFilePrometheus   AffectedFile = "prometheus"   // prometheus.yml
+	AffectedFileTargets      AffectedFile = "targets"      // targets/*.json
+	AffectedFileRules        AffectedFile = "rules"        // rules.yml
+	AffectedFileBlackbox     AffectedFile = "blackbox"     // blackbox.yml
+	AffectedFileAlertmanager AffectedFile = "alertmanager" // alertmanager.yml（决策 60：管理域 default scope）
 )
 
 // ConfigChangeItem 是变更列表中的一条结构化变更项（PRD §3.4，契约 §4）。
@@ -109,11 +143,12 @@ type AffectedConfigFile struct {
 // ConfigDraftMetadata 是 ConfigDraft / ConfigVersion metadata 的 JSON 载体
 // （PRD §3.3.3，技术信息下沉折叠）。
 type ConfigDraftMetadata struct {
-	SourceDataVersion   string `json:"source_data_version"`              // 各源表 max(updated_at) 聚合
-	TriggerSummary      string `json:"trigger_summary,omitempty"`        // 触发来源摘要
-	Checksum            string `json:"checksum"`                         // 联合 checksum（sha256 拼接）
-	GeneratorVersion    string `json:"generator_version,omitempty"`      // 生成器版本
+	SourceDataVersion    string `json:"source_data_version"`               // 各源表 max(updated_at) 聚合
+	TriggerSummary       string `json:"trigger_summary,omitempty"`         // 触发来源摘要
+	Checksum             string `json:"checksum"`                          // 联合 checksum（sha256 拼接）
+	GeneratorVersion     string `json:"generator_version,omitempty"`       // 生成器版本
 	SupersededByChangeNo string `json:"superseded_by_change_no,omitempty"` // 被更晚 pending 取代时指向新单
+	SupersedesChangeNo  string `json:"supersedes_change_no,omitempty"`    // 取代更早 pending 时指向旧单
 }
 
 // ValidValidationStatus 返回合法的 validation_status 取值集合。
@@ -134,6 +169,8 @@ func ValidChangeItemTargets() []string {
 		string(ChangeItemTargetMonitoringRule),
 		string(ChangeItemTargetProbeTarget),
 		string(ChangeItemTargetLabelTemplate),
+		string(ChangeItemTargetAlertmanagerCfg),
+		string(ChangeItemTargetPromAlerting),
 	}
 }
 
@@ -156,6 +193,7 @@ func ValidAffectedFiles() []string {
 		string(AffectedFileTargets),
 		string(AffectedFileRules),
 		string(AffectedFileBlackbox),
+		string(AffectedFileAlertmanager),
 	}
 }
 

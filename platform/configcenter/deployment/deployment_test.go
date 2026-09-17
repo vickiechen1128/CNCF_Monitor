@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,8 +33,11 @@ func newMemDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.AutoMigrate(
 		&models.NetworkDomain{},
 		&models.ScrapeJob{},
+		&models.MonitoringRule{},
+		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		&models.AlertmanagerConfigVersion{},
 	))
 	return db
 }
@@ -84,6 +88,7 @@ func seedVersion(t *testing.T, db *gorm.DB, domainID, changeNo string) *models.C
 func seedDeployment(t *testing.T, db *gorm.DB, domainID string, v *models.ConfigVersion, status models.DeploymentStatus, errMsg string) *models.ConfigDeployment {
 	t.Helper()
 	dep := &models.ConfigDeployment{
+		DeploymentID:     nextDeploymentIDForTest(t, db),
 		NetworkDomainID:  domainID,
 		ConfigVersionID:  fmt.Sprint(v.ID),
 		SourceChangeNo:   v.ChangeNo,
@@ -98,6 +103,22 @@ func seedDeployment(t *testing.T, db *gorm.DB, domainID string, v *models.Config
 }
 
 func idStr(id uint) string { return fmt.Sprint(id) }
+
+// nextDeploymentIDForTest 在测试里生成唯一 deploy-xxx ID（不依赖 nextDeploymentID 的并发安全）。
+func nextDeploymentIDForTest(t *testing.T, db *gorm.DB) string {
+	t.Helper()
+	var last models.ConfigDeployment
+	prefix := "deploy-test-"
+	err := db.Where("deployment_id LIKE ?", prefix+"%").Order("deployment_id desc").First(&last).Error
+	seq := 1
+	if err == nil {
+		var n int
+		if _, scanErr := fmt.Sscanf(last.DeploymentID, prefix+"%d", &n); scanErr == nil {
+			seq = n + 1
+		}
+	}
+	return fmt.Sprintf("%s%03d", prefix, seq)
+}
 
 func seedJob(t *testing.T, db *gorm.DB, domainID string, changeStatus models.ChangeStatus) *models.ScrapeJob {
 	t.Helper()
@@ -142,6 +163,22 @@ func seedJobWithDraft(t *testing.T, db *gorm.DB, domainID string, changeStatus m
 	return j
 }
 
+// seedRule 构造一条规则（全局 scope=central），用于规则 change_status 回写断言（#18）。
+func seedRule(t *testing.T, db *gorm.DB, name string, changeStatus models.ChangeStatus, draftStatus string) *models.MonitoringRule {
+	t.Helper()
+	r := &models.MonitoringRule{
+		Name:         name,
+		ContentMode:  models.RuleContentModeYAMLPassthrough,
+		RuleContent:  "groups:\n  - name: test\n    rules: []\n",
+		Scope:        models.ScopeTypeCentral,
+		Enabled:      true,
+		DraftStatus:  draftStatus,
+		ChangeStatus: changeStatus,
+	}
+	require.NoError(t, db.Create(r).Error)
+	return r
+}
+
 // newMemDBNoJobTable 迁移时不建 ScrapeJob 表，用于模拟 writeback 目标表故障
 // （MEDIUM-1 降级路径）。
 func newMemDBNoJobTable(t *testing.T) *gorm.DB {
@@ -152,6 +189,7 @@ func newMemDBNoJobTable(t *testing.T) *gorm.DB {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.NetworkDomain{},
+		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 	))
@@ -229,11 +267,12 @@ func TestRetryLocalFailed(t *testing.T) {
 	orig := seedDeployment(t, db, "default", v, models.DeploymentStatusFailed, "boom")
 
 	app := &applyRecorder{}
-	dep, err := Retry(db, idStr(orig.ID), "admin", app)
+	dep, err := Retry(db, orig.DeploymentID, "admin", app)
 	require.NoError(t, err)
 	assert.Equal(t, models.DeploymentStatusSuccess, dep.Status)
 	assert.Equal(t, idStr(v.ID), dep.ConfigVersionID)
 	assert.Equal(t, 1, app.applied)
+	assert.NotEmpty(t, dep.DeploymentID)
 
 	// 原记录保持 failed。
 	require.NoError(t, db.First(&orig, orig.ID).Error)
@@ -246,7 +285,7 @@ func TestRetryRejectsNonLocal(t *testing.T) {
 	v := seedVersion(t, db, "edge-a", "CHG-20240101-001")
 	orig := seedDeployment(t, db, "edge-a", v, models.DeploymentStatusFailed, "boom")
 
-	_, err := Retry(db, idStr(orig.ID), "admin", &applyRecorder{})
+	_, err := Retry(db, orig.DeploymentID, "admin", &applyRecorder{})
 	assert.ErrorIs(t, err, ErrNotLocal)
 }
 
@@ -256,25 +295,84 @@ func TestRetryRejectsNotFailed(t *testing.T) {
 	v := seedVersion(t, db, "default", "CHG-20240101-001")
 	orig := seedDeployment(t, db, "default", v, models.DeploymentStatusSuccess, "")
 
-	_, err := Retry(db, idStr(orig.ID), "admin", &applyRecorder{})
+	_, err := Retry(db, orig.DeploymentID, "admin", &applyRecorder{})
 	assert.ErrorIs(t, err, ErrNotFailed)
 }
 
-func TestRollbackCreatesSuccessDeployment(t *testing.T) {
+// TestRollbackCreatesRolledBackDeployment 覆盖 PRD §8 / §5.6：回滚动作生成的新记录
+// 成功时 status=rolled_back（与正常发布 success 可区分）；rolled_back 视同 success，
+// change_status 回写与 M08 applied 回写照常执行；被回滚的历史记录保持不变（台账不可变）。
+func TestRollbackCreatesRolledBackDeployment(t *testing.T) {
 	db := newMemDB(t)
 	seedLocalDomain(t, db, "default")
 	v := seedVersion(t, db, "default", "CHG-20240101-009")
 	pending := seedJob(t, db, "default", models.ChangeStatusPending)
+	// 被回滚的历史发布记录（success），应保持不变。
+	orig := seedDeployment(t, db, "default", v, models.DeploymentStatusSuccess, "")
 
 	app := &applyRecorder{}
 	dep, err := Rollback(db, idStr(v.ID), "admin", app)
 	require.NoError(t, err)
-	assert.Equal(t, models.DeploymentStatusSuccess, dep.Status)
+	assert.Equal(t, models.DeploymentStatusRolledBack, dep.Status)
 	assert.Equal(t, idStr(v.ID), dep.ConfigVersionID)
 	assert.Equal(t, 1, app.applied)
-	// 回滚成功同样回写 change_status。
+	assert.NotNil(t, dep.CompletedAt)
+
+	// rolled_back 视同 success：change_status 照常回写（pending → deployed）。
 	require.NoError(t, db.First(&pending, pending.ID).Error)
 	assert.Equal(t, models.ChangeStatusDeployed, pending.ChangeStatus)
+
+	// 被回滚的历史记录状态保持不变（台账不可变）。
+	require.NoError(t, db.First(&orig, orig.ID).Error)
+	assert.Equal(t, models.DeploymentStatusSuccess, orig.Status)
+}
+
+// TestRollbackFailureRecordsFailed 覆盖 PRD §6.5.3：回滚投递失败时新记录 status=failed
+// 并记录 error_message，不落 rolled_back。
+func TestRollbackFailureRecordsFailed(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-010")
+	pending := seedJob(t, db, "default", models.ChangeStatusPending)
+
+	app := &applyRecorder{err: errors.New("reload failed")}
+	dep, err := Rollback(db, idStr(v.ID), "admin", app)
+	require.NoError(t, err)
+	assert.Equal(t, models.DeploymentStatusFailed, dep.Status)
+	assert.Contains(t, dep.ErrorMessage, "reload failed")
+	// 失败不回写 change_status。
+	require.NoError(t, db.First(&pending, pending.ID).Error)
+	assert.Equal(t, models.ChangeStatusPending, pending.ChangeStatus)
+}
+
+// TestRolledBackCountsAsLatestSuccess 覆盖 PRD §8 口径：rolled_back 视同 success 参与
+// 「最近成功版本」判定——列表筛选 success 或 rolled_back 均能命中回滚产生的记录，
+// 且不混入 failed。
+func TestRolledBackCountsAsLatestSuccess(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-011")
+
+	// 正常发布 success → 回滚生成 rolled_back。
+	seedDeployment(t, db, "default", v, models.DeploymentStatusFailed, "boom")
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+	rb, err := Rollback(db, idStr(v.ID), "admin", &applyRecorder{})
+	require.NoError(t, err)
+	require.Equal(t, models.DeploymentStatusRolledBack, rb.Status)
+
+	// 成功口径集合（success ∪ rolled_back）应含回滚记录，且排除 failed。
+	items, total, err := ListDeployments(db, "default", "rolled_back", "", 1, 20)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Equal(t, rb.ID, items[0].ID)
+
+	var successLike int64
+	require.NoError(t, db.Model(&models.ConfigDeployment{}).
+		Where("network_domain_id = ? AND status IN ?", "default",
+			[]models.DeploymentStatus{models.DeploymentStatusSuccess, models.DeploymentStatusRolledBack}).
+		Count(&successLike).Error)
+	assert.Equal(t, int64(2), successLike, "最近成功版本判定应把 rolled_back 视同 success")
 }
 
 func TestRollbackVersionNotFound(t *testing.T) {
@@ -316,6 +414,27 @@ func TestWritebackChangeStatusFiltersDraftReady(t *testing.T) {
 	assert.Equal(t, models.ChangeStatusPending, draft.ChangeStatus, "draft 态 pending Job 不应被回写")
 }
 
+// TestWritebackRuleChangeStatus 覆盖 #18：下发成功后规则 change_status 同步
+// pending → deployed（全局 scope=central 全量回写）；draft 态 / none 不扰动。
+func TestWritebackRuleChangeStatus(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-012")
+	ready := seedRule(t, db, "rule-ready", models.ChangeStatusPending, "ready")
+	draft := seedRule(t, db, "rule-draft", models.ChangeStatusPending, "draft")
+	none := seedRule(t, db, "rule-none", models.ChangeStatusNone, "ready")
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(&ready, ready.ID).Error)
+	assert.Equal(t, models.ChangeStatusDeployed, ready.ChangeStatus, "ready 的 pending 规则应回写 deployed")
+	require.NoError(t, db.First(&draft, draft.ID).Error)
+	assert.Equal(t, models.ChangeStatusPending, draft.ChangeStatus, "draft 态 pending 规则不应被回写")
+	require.NoError(t, db.First(&none, none.ID).Error)
+	assert.Equal(t, models.ChangeStatusNone, none.ChangeStatus, "none 规则不应被扰动")
+}
+
 func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T) {
 	dir := t.TempDir()
 	var reloads int32
@@ -347,6 +466,106 @@ func TestDiskApplierWritesTargetsAndReloadsOnlyOnStructuralChange(t *testing.T) 
 	content, err = os.ReadFile(filepath.Join(dir, "targets", "node-exporter.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(content), "5.6.7.8:9100")
+}
+
+// seedAlertmanagerApplied seeds the latest applied AlertmanagerConfigVersion留痕
+// （决策 59/60：校验失败不落库，恒 applied），用于 writebackApplied 断言。
+func seedAlertmanagerApplied(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion {
+	t.Helper()
+	cfg := &models.AlertmanagerConfigVersion{
+		Content:  content,
+		Checksum: models.AlertmanagerConfigChecksum(content),
+		Status:   models.AlertmanagerConfigStatusApplied,
+		AppliedBy: "admin",
+	}
+	require.NoError(t, db.Create(cfg).Error)
+	return cfg
+}
+
+// TestDiskApplierWritesAlertmanagerReloadsSeparately 覆盖决策 60：alertmanager.yml
+// 单独写中心 Alertmanager 配置路径并触发独立 AM reload；仅在内容变化时写 / reload；
+// 无 AM 产物时 AMDir 未配置不报错。
+func TestDiskApplierWritesAlertmanagerReloadsSeparately(t *testing.T) {
+	dir := t.TempDir()
+	amDir := filepath.Join(dir, "alertmanager")
+	var pmReloads, amReloads int32
+	app := &DiskApplier{
+		Dir:    dir,
+		AMDir:  amDir,
+		Reload: func() error { atomic.AddInt32(&pmReloads, 1); return nil },
+		AMReload: func() error { atomic.AddInt32(&amReloads, 1); return nil },
+	}
+
+	amContent := "route:\n  receiver: default\nreceivers:\n  - name: default\n"
+	ca := &generator.ConfigArtifacts{
+		PrometheusYML:   "global:\n  scrape_interval: 15s\n",
+		RulesYML:        "",
+		BlackboxYML:     "",
+		TargetsFiles:    map[string]string{},
+		AlertmanagerYML: amContent,
+	}
+	require.NoError(t, app.Apply(ca))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&amReloads), "首次 AM 内容写入触发独立 reload")
+	assert.Equal(t, int32(1), atomic.LoadInt32(&pmReloads), "首次结构文件写入触发 Prometheus reload")
+	assert.FileExists(t, filepath.Join(amDir, "alertmanager.yml"))
+
+	// 内容未变化 → 不再写盘 / reload（幂等）。
+	require.NoError(t, app.Apply(&generator.ConfigArtifacts{
+		PrometheusYML:   "global:\n  scrape_interval: 15s\n",
+		TargetsFiles:    map[string]string{},
+		AlertmanagerYML: amContent,
+	}))
+	assert.Equal(t, int32(1), atomic.LoadInt32(&amReloads), "AM 内容未变化不重复 reload")
+}
+
+// TestDiskApplierSkipsAMWhenNoArtifact 覆盖决策 60：产物不含 alertmanager.yml 时
+// AMDir 未配置也成功（仅 Prometheus 结构变更 reload，不触碰 AM 路径）。
+func TestDiskApplierSkipsAMWhenNoArtifact(t *testing.T) {
+	dir := t.TempDir()
+	app := &DiskApplier{
+		Dir:    dir,
+		Reload: func() error { return nil },
+		// AMDir 刻意为空：无 AM 产物时不可触发 AM 分支。
+	}
+	ca := &generator.ConfigArtifacts{
+		PrometheusYML: "global:\n  scrape_interval: 15s\n",
+		TargetsFiles:  map[string]string{},
+	}
+	require.NoError(t, app.Apply(ca))
+}
+
+// TestDispatchLocalWithAlertmanagerWritesBackApplied 覆盖决策 60：管理域 default 含
+// alertmanager.yml 下发成功后，最新 applied 留痕回填 applied_at / source_change_no。
+func TestDispatchLocalWithAlertmanagerWritesBackApplied(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	cfg := seedAlertmanagerApplied(t, db, "route:\n  receiver: default\n")
+	v := seedVersion(t, db, "default", "CHG-20240901-100")
+	v.AlertmanagerYml = "route:\n  receiver: default\n"
+	require.NoError(t, db.Model(v).Update("alertmanager_yml", v.AlertmanagerYml).Error)
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(&cfg, cfg.ID).Error)
+	require.NotNil(t, cfg.AppliedAt, "下发成功后应回填 applied_at")
+	assert.Equal(t, v.ChangeNo, cfg.SourceChangeNo, "下发成功后应回填 source_change_no")
+}
+
+// TestDispatchWithoutAlertmanagerSkipsAppliedWriteback 覆盖决策 60：版本无 AM 产物时
+// 不触碰 M08 留痕（applied_at 保持空），回写为空操作。
+func TestDispatchWithoutAlertmanagerSkipsAppliedWriteback(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	cfg := seedAlertmanagerApplied(t, db, "route:\n  receiver: default\n")
+	v := seedVersion(t, db, "default", "CHG-20240901-101") // 无 AlertmanagerYml
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(&cfg, cfg.ID).Error)
+	assert.Nil(t, cfg.AppliedAt, "无 AM 产物不应回填 applied_at")
+	assert.Empty(t, cfg.SourceChangeNo)
 }
 
 func TestListAndGetVersion(t *testing.T) {
@@ -425,6 +644,9 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	g := r.Group("/api/v2/platform")
+	// review-fix B：RegisterRoutes 为写端点（retry/rollback）挂了 RequireAdmin；
+	// 测试未走 AuthMiddleware，注入已认证管理员身份以放行写端点。
+	g.Use(adminInjector())
 	RegisterRoutes(g, db)
 
 	w := httptest.NewRecorder()
@@ -433,7 +655,7 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
 	w = httptest.NewRecorder()
-	req, _ = http.NewRequest(http.MethodPost, "/api/v2/platform/deployments/"+idStr(orig.ID)+"/retry", mustJSON(t, `{"triggered_by":"admin"}`))
+	req, _ = http.NewRequest(http.MethodPost, "/api/v2/platform/deployments/"+orig.DeploymentID+"/retry", mustJSON(t, `{"triggered_by":"admin"}`))
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
@@ -444,9 +666,117 @@ func TestDeploymentHandlerRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 }
 
+// TestDispatchAssignsDeploymentID 验证每次下发落库时生成 deploy-xxx 业务 ID，
+// 且 JSON 序列化对外暴露 DeploymentID 而非内部自增 ID。
+func TestDispatchAssignsDeploymentID(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-020")
+
+	dep, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+	assert.NotEmpty(t, dep.DeploymentID)
+	assert.Regexp(t, `^deploy-\d{8}-\d{3}$`, dep.DeploymentID)
+
+	// JSON 中 id 字段应为 deploy-xxx。
+	b, err := json.Marshal(dep)
+	require.NoError(t, err)
+	var view map[string]interface{}
+	require.NoError(t, json.Unmarshal(b, &view))
+	assert.Equal(t, dep.DeploymentID, view["id"])
+	assert.NotContains(t, view, "deployment_id")
+}
+
+// TestRollbackPreview 覆盖决策 63 P0：回滚预览返回目标版本、当前生效版本、
+// 源数据操作差异清单及固定警告文案。
+func TestRollbackPreview(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+
+	// 当前生效版本 V1（change_no=CHG-001，新增 job A）。
+	v1 := seedVersion(t, db, "default", "CHG-20240101-001")
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID:  "default",
+		ChangeNo:         v1.ChangeNo,
+		Status:           models.DraftStatusConfirmed,
+		ValidationStatus: string(models.ValidationStatusPassed),
+		ChangeItems:      mustJSONItems(t, []models.ConfigChangeItem{{Type: "add", Target: "scrape_job", Description: "新增采集 Job A", AffectedFiles: []string{"prometheus", "targets"}, Risk: "low"}}),
+	}).Error)
+	_, err := Dispatch(db, v1, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	// 目标版本 V2（change_no=CHG-002，删除 job A）。
+	v2 := seedVersion(t, db, "default", "CHG-20240101-002")
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID:  "default",
+		ChangeNo:         v2.ChangeNo,
+		Status:           models.DraftStatusConfirmed,
+		ValidationStatus: string(models.ValidationStatusPassed),
+		ChangeItems:      mustJSONItems(t, []models.ConfigChangeItem{{Type: "delete", Target: "scrape_job", Description: "移除采集 Job A（监控断点风险）", AffectedFiles: []string{"prometheus", "targets"}, Risk: "high"}}),
+	}).Error)
+
+	preview, err := RollbackPreview(db, idStr(v2.ID))
+	require.NoError(t, err)
+	assert.Equal(t, idStr(v2.ID), preview.TargetVersion.ID)
+	assert.Equal(t, v2.ChangeNo, preview.TargetVersion.ChangeNo)
+	require.NotNil(t, preview.CurrentVersion)
+	assert.Equal(t, idStr(v1.ID), preview.CurrentVersion.ID)
+	assert.Equal(t, v1.ChangeNo, preview.CurrentVersion.ChangeNo)
+	assert.Equal(t, "回滚不恢复 M01/M08 中的启停状态", preview.Warning)
+	require.Len(t, preview.DiffItems, 2)
+}
+
+// TestRollbackPreviewNoCurrentVersion 验证网域尚无成功下发时，回滚预览 current_version 为空。
+func TestRollbackPreviewNoCurrentVersion(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-003")
+	require.NoError(t, db.Create(&models.ConfigDraft{
+		NetworkDomainID:  "default",
+		ChangeNo:         v.ChangeNo,
+		Status:           models.DraftStatusConfirmed,
+		ValidationStatus: string(models.ValidationStatusPassed),
+		ChangeItems:      mustJSONItems(t, []models.ConfigChangeItem{{Type: "add", Target: "scrape_job", Description: "新增采集 Job B", AffectedFiles: []string{"prometheus", "targets"}, Risk: "low"}}),
+	}).Error)
+
+	preview, err := RollbackPreview(db, idStr(v.ID))
+	require.NoError(t, err)
+	assert.Nil(t, preview.CurrentVersion)
+	assert.Len(t, preview.DiffItems, 1)
+}
+
+// TestRollbackPreviewVersionNotFound 验证目标版本不存在时返回 not_found。
+func TestRollbackPreviewVersionNotFound(t *testing.T) {
+	db := newMemDB(t)
+	_, err := RollbackPreview(db, "cv-missing")
+	assert.ErrorIs(t, err, ErrVersionNotFound)
+}
+
 // ==== helpers ====
+
+func mustJSONItems(t *testing.T, items []models.ConfigChangeItem) string {
+	t.Helper()
+	b, err := json.Marshal(items)
+	require.NoError(t, err)
+	return string(b)
+}
 
 func mustJSON(t *testing.T, s string) *strings.Reader {
 	t.Helper()
 	return strings.NewReader(s)
+}
+
+// adminInjector 以测试中间件形式把已认证的管理员注入 gin context（equivalent 于
+// AuthMiddleware 的 ContextUserKey 注入）。本包 handler 测试直接挂 RegisterRoutes，
+// 未走真实 AuthMiddleware，而 review-fix B 为写端点挂了 auth.RequireAdmin()——
+// 缺此注入时写端点会回 403。测试态统一复用真实的管理员身份。
+func adminInjector() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, &models.User{
+			Username: "admin",
+			Role:     models.UserRoleAdmin,
+			Status:   models.UserStatusActive,
+		})
+		c.Next()
+	}
 }

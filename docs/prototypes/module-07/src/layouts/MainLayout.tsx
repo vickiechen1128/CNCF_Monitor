@@ -38,6 +38,7 @@ function buildMenu(): MenuItem[] {
       icon: <AppstoreOutlined />,
       label: '监控对象管理',
       children: [
+        { key: '/business-management', icon: <AppstoreOutlined />, label: '业务管理 {v2.23}' },
         { key: '/resources', icon: <AppstoreOutlined />, label: '资源管理' },
         { key: '/label-templates', icon: <AppstoreOutlined />, label: '标签模板' },
         { key: '/import-history', icon: <AppstoreOutlined />, label: '导入记录' },
@@ -178,9 +179,9 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Content className="app-content">
             <ReviewNote title="设计意图（面向产品 / 技术评审）" style={{ margin: '16px 16px 0' }}>
               本模块维护监控对象（资源）、资源标签与标签模板数据，作为监控策略与配置中心的数据提供方：
-              采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责，「已监控 / 未监控」状态由监控策略模块计算、本页只读展示。
+              采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责，「采集状态（采集中 / 已下发未采到 / 未监控）」由监控策略与查询中心模块计算、本页只读展示；业务分组字典由「业务管理」页维护。
               标签模板按资源类别定义「字段 → 监控标签」的映射，模板按资源类别隐式关联该类型全部实例；
-              静态资源（主机 / 中间件 / 通用目标）标签由 CMDB / Excel 治理、平台只读，应用服务资源开放实例级自定义标签。
+              静态资源（主机 / 中间件 / 其他监控目标）标签由 CMDB / Excel 治理、平台只读，应用服务资源开放实例级自定义标签。
             </ReviewNote>
             {children}
             {/* [DECISION 3.2] 提示分区规范：用户可见文案不含决策编号 / PRD 引用 / 版本标记；
@@ -211,6 +212,14 @@ export function MainLayout({ children }: MainLayoutProps) {
                 3.19 prometheus_builtin MVP 隐藏、数据模型保留。
                 3.20 {'{v2.20}'} 决策 31-M1：is_monitored 由 M01 维护、M07 只读映射（资源列表「采集状态」列只读展示 + 「未监控」筛选，M07 不计算不写回，且 is_monitored 与 status 维度独立）；
                 3.21 {'{v2.20}'} 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真）。
+                3.22 {'{v2.23}'} 决策 47-3（修订 31-M1）：资源列表「采集状态」升级为三态 badge——采集中 / 已下发未采到 / 未监控；数据 = M01 选中关系（is_monitored）+ M02 健康度/覆盖率 API（按 resource_id 回连，列表级聚合、禁止逐行查询 TQ-6）。
+                3.23 {'{v2.23}'} 决策 48：业务分组字典提级 MVP——新增「业务管理」页（列表 / 登记 / 受限编辑 / 停用），字典落 DB、business_domains.yaml 仅首次启动 seed；红线：biz_code 创建后不可改、仅 biz_name/description/status 可编辑、停用不删除、infra 禁止停用/删除。
+                3.24 {'{v2.24}'} 决策 52：网域归属四级解析链——显式指定 &gt; 冲突告警 &gt; 按 IP 与网域已登记网段（ip_cidrs，契约 M06 v2.5）最长前缀推导 &gt; 默认兜底；网域字段可留空由平台推导；Blackbox 拨测例外 = 取发起侧（采集 Job）网域、不推导。列表与详情标注「归属来源」（显式/冲突/网段推导/默认/发起侧）以显性化该平台派生信息。
+                3.25 {'{v2.25}'} coverage 三态口径修订（2026-09-02，planner 阻塞项闭环）：选中关系取 DB 当前值、不感知 M09 下发时序；「已下发未采到」含变更未确认下发情形，提醒文案同步；「待采集 vs 已下发未采到」细分归 M01 Job 回显（M01 §5.10）。五类默认标签模板补 resource_id → resource_id 稳定身份映射（决策 47-3 coverage 回连前置）。
+                3.26 {'{v2.27}'} 开发反馈 F-34 / L-2：①静态资源（host / database / middleware / generic_target）实例级标签在 CMDB 侧只读治理，标签模板页「关联实例」Tab 与 badge 仅业务类型资源（application）展示，右栏 Tab 随类别动态 2~3 个；②LabelTemplate.description 必须落库（创建 / 更新请求体不再静默丢弃），新增 / 编辑模板表单含「模板说明」并回填、克隆保留。
+                3.27 {'{v2.31}'} 决策 68-5：①命名规约（跨模块基线）——target_label 一律不带 _id 后缀，resource_id → resource_id 为约定俗成例外；②tenant_id → tenant 为 v0.2 起五类默认模板的内置默认映射（MVP 单租户不注入），前端默认启用；缺该映射将被 M09 生成期门禁阻断（M02 硬隔离 matcher 名为 tenant）。
+                3.28 {'{v2.32}'} 决策 77：K8s 集群不设第六资源类型——集群按部署形态处理，四归属为网络边界（独立建网域）/ 分组维度（cluster 字段·标签）/ 发现源（M04 KubernetesProvider）/ 集群健康监控（generic_target + M01 monitor_type=k8s）；纯文档注记、原型行为不变。
+                3.29 {'{v2.32}'} 前端设计优化（对齐《前端标准》§8 交互选型 / §9 列表与长文本规范）：①资源列表列数治理——五类 Tab 统一收敛为 8 列（主标识 fixed left / 类型或身份 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作 fixed right），原 11~14 列；端口 / 版本 / 操作系统 / 应用·环境·集群 / 健康检查 URL / 协议 / 端点 / 采集路径 / 自定义标签 / 数据来源 / 负责人 / CMDB 预留字段下沉详情 Drawer；类型字段改为随主标识行内 Tag；②状态语义统一 Badge 语义色 + 文字（采集状态由彩色 Tag 改 Badge）；③操作层次——主操作「详情」品牌色加粗且全行唯一，次要「编辑」灰色文字，低频破坏性「删除」收进「更多」菜单（业务管理页的停用 / 启用同理）；④新增 / 编辑资源抽屉 560 → 720px 并按「资源信息 / 归属与状态」分组（字段 12~14 项，&gt;6 且需分组）；详情抽屉 680 → 720px；⑤全页提示统一为 Callout 单块容器（替换 Alert，消除多风格拼盘）；⑥运行状态用户语言按 PRD §10 术语表收敛为「运行中 / 已停止 / 维护中」（原 mock 误用「在线 / 离线」）。
                 实现细节与数据契约见 PRD 对应章节（6 接口设计 / 5.12 C 组合字段 / 12 验收标准）与代码注释。
               </Typography.Paragraph>
             </ReviewNote>

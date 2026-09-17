@@ -135,9 +135,10 @@
 |------|------|----------------|-----------|----------|--------|
 | GET | `/api/v2/platform/config-versions` | Query: `network_domain_id`、`change_no?`、`page`、`page_size` | `{ items: [ConfigVersion], total }` | — | §6.5.3 |
 | GET | `/api/v2/platform/config-versions/{id}` | — | ConfigVersion 详情（含完整产物，供 diff）。`{id}` 兼容两种 ref：纯数字按主键 id 命中；否则按 `change_no` 命中（source_version 透传为 change_no 时直接命中） | `not_found` | §6.5.3 |
+| GET | `/api/v2/platform/config-versions/{id}/rollback-preview` | — | RollbackPreview（决策 63 P0）：目标版本、当前生效版本、源数据操作差异清单、固定警告文案 | `not_found` | §6.5.3 / 决策 63 |
 | GET | `/api/v2/platform/deployments` | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [ConfigDeployment], total }` | — | §6.5.3 |
 | POST | `/api/v2/platform/deployments/{deployment_id}/retry` | body `{ triggered_by }` | 新的 ConfigDeployment | `bad_request`：非 local / 原记录非 failed；`not_found` | §6.5.3 / 决策 42-3 |
-| POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | body `{ triggered_by }` | 新的 ConfigDeployment（回滚目标版本） | `not_found`；`bad_request`：目标版本不存在/不同网域 | §6.5.3 |
+| POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | body `{ triggered_by }` | 新的 ConfigDeployment（回滚目标版本；成功时 `status=rolled_back`，失败时 `status=failed` 并记录 `error_message`；被回滚的历史记录保持不变） | `not_found`；`bad_request`：目标版本不存在/不同网域 | §6.5.3 |
 
 ### ConfigDeployment（下发记录）
 
@@ -155,6 +156,26 @@
 | `triggered_by` | string | 操作人 |
 | `triggered_at` | datetime | 开始时间 |
 | `completed_at` | datetime | |
+
+### RollbackPreview（回滚预览，决策 63 P0）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `target_version` | VersionRef | 回滚目标版本 `{ id, change_no }` |
+| `current_version` | VersionRef? | 当前生效版本；网域尚无成功下发时为 null |
+| `diff_items` | [RollbackDiffItem] | 源数据操作差异清单 |
+| `warning` | string | 固定文案「回滚不恢复 M01/M08 中的启停状态」 |
+
+#### RollbackDiffItem
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `side` | enum | `target`（仅目标版本有）/ `current`（仅当前生效版本有）/ `both`（两侧均有） |
+| `type` | enum | add / update / delete |
+| `target` | enum | scrape_job / target_instance / monitoring_rule / probe_target / label_template / alertmanager_config |
+| `description` | string | 人话变更说明 |
+| `affected_files` | [string] | 影响的配置文件枚举 |
+| `risk` | enum | low / high |
 
 ### ConfigVersion
 
@@ -238,3 +259,95 @@
 - 标准：`docs/03-engineering-standards/03_API_Standard.md` §7
 - 序列：`docs/05-execution-records/module-09/task-sequence.yaml`
 - 映射：`docs/05-execution-records/module-09/frontend-prototype-map.md`
+
+## 12. 决策 60 增量：alertmanager.yml 纳入变更确认（本快照在 feat/module-08-alert-dispatch 分支追加）
+
+> M08 内容 Owner、M09 管道 Owner（决策 60）。本小节对既有契约做**增量合并**，未覆盖的仍以 §1~§11 为准。来源：PRD Module_09 v1.52 §3.4/§5.4/§9.2 + Module_08 v1.7 决策 60。
+
+### 12.1 受影响文件 / 变更对象枚举扩展（§8 追加取值）
+
+| 枚举 | 追加取值 | 说明 |
+|------|---------|------|
+| 影响的配置文件 `affected_files` | `alertmanager` | 枚举 `prometheus / targets / rules / blackbox / alertmanager` |
+| 变更对象 `target` | `alertmanager_config` | 枚举 `... / alertmanager_config`；UI 展示名「告警配置」 |
+| `risk` | （复用 low） | alertmanager.yml 变更 risk=low（通知/接收人调整风险低，决策 60 风险分级预留统一人工确认） |
+
+### 12.2 ConfigDraftDetail 追加字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `alertmanager_yml` | string | 可选；管理域（default）变更单含时返回该产物内容（多文件预览 Tab 用之；PRD 遗留「抽屉多文件预览 Tab 不含 alertmanager.yml」本轮按字段实现） |
+
+> `DraftListItem.affected_files` 亦可能含 `alertmanager`；`change_items[].affected_files` 含 `alertmanager`、`change_items[].target` 可为 `alertmanager_config`。
+
+### 12.3 管理域 scope 语义（决策 60，前端约束）
+
+- `alertmanager.yml` 变更单网域恒为**管理域（`default`）**，与采集配置变更单相互独立、按变更单分别确认（§3.4 混单规则）。
+- 仅 `default` 域变更单 / 配置预览可能出现 `alertmanager.yml` Tab；边缘域（agent_pull）变更单不含（不按域扇出、不进 `agent_pull` 配置包）。
+- 确认动作仍为**变更单级**；含 alertmanager 变更时按 low 风险展示，MVP 统一人工确认（风险分级自动确认预留不进 MVP）。
+
+### 12.4 change_status 回写（决策 60）
+
+- M09 confirm→下发 reload 成功（default 域含 alertmanager.yml）后，回写 M08：最新 `AlertmanagerConfigVersion.applied_at/applied_by` 回填、`status=applied`；M08 页面「当前生效配置只读视图」自此版本读取。
+- 与 M01 `change_status` 回写并行（不互斥）；`ConfigDeployment` 关联 M08 侧回写时序见 `docs/05-execution-records/module-08/api-contract-snapshot.md` §5。
+
+### 12.5 本小节待对齐后随主库的项（记录）
+
+- 快照元信息 `来源` 当前仍列 PRD §3/§5/§6/§8/§9/§11；决策 60 追加后建议并入 §3.4/§5.4/§9.2 引用。
+- 前端 `configPreviewYaml`、受影响文件高亮派生逻辑须消费 `alertmanager` 枚举与 `alertmanager_yml` 字段（T09-60-F1）。
+
+---
+
+## 13. 决策 67 增量：规则 job 引用失败单解锁与「前往修改」来源路由（本快照在 feat/module-08-alert-dispatch 分支追加）
+
+> 依据：决策 67（2026-09-10，见 `docs/05-execution-records/module-09/design-decisions.md`）与设计记录 `rule-jobref-validation-lifecycle-fix.md`。**不新增/变更任何接口路径**，为行为与字段语义增量；代码待落地。
+
+### 13.1 失败单不锁死源数据（决策 67-1，行为增量）
+
+- 触发：`ConfigDraft.validation_status=failed` **且** `validation_cause=user_config`（发布期 job 引用门禁、targets schema 等用户可修问题）。
+- 行为：M09 **自动清除**受影响 M01 源数据（`MonitoringRule`）的 `change_status=pending` 锁；**草稿状态不变**（仍 `status=pending` + `validation_status=failed`，保留可重校 / 可废弃，审计链不断）。
+- 不清锁场景：`validation_cause=platform_fault`（promtool / amtool 不可用等环境问题）保持锁定，待环境就绪重校。
+- 清锁目标态：建议 `none`（该规则从未成功下发；写 `deployed` 会误导为「已生效」，见设计记录 67-1 附注）。
+- **实现红线**：清锁写入**不得刷新源数据 `updated_at`**（否则推进 `source_data_version` → 触发「清锁 → 重算 → 再 failed」循环）；须用 `UpdateColumn` 等跳过时间戳自动更新。
+- 与废弃的区别：废弃（§4 `discard`）会按决策 43 分类回写源数据并置草稿 `discarded`；本机制**仅清锁、不撤销源数据、不改变草稿状态**。
+- 接口影响：`GET /config-drafts/:change_no`（详情）返回的 `validation_status` / `validation_cause` 语义不变；前端据 `failed + user_config` 展示「源数据已解锁，可直接修改后重存」提示（文案待原型定）。
+
+### 13.2 `validation_details` 补 `source`（决策 67-3）
+
+- 元素结构由 `{file, line, message}` 扩展为 `{file, line, message, source}`，`source ∈ {rule, scrape_job, targets}`（M09 内可继续细分，如 `blackbox`）。
+- 用途：配置变更确认页「前往修改」按 `source` 分流跳转——`rule` → Module_01 规则编辑页（`/rules`）、`scrape_job` / `targets` → 采集 Job 页（`/scrape-jobs`）。
+- **禁止**硬编码固定跳转目标（现实现 `ConfigPreviewPage.tsx:681` 恒跳 `/scrape-jobs`，属缺陷）。
+
+### 13.3 v0.2 口径预留（决策 67-4，不进 MVP 实现）
+
+- `jobref.Validate(content, jobNames)` 签名不变；两侧统一改调 scope 感知的 job 名单函数 `effectiveJobNames(db, scope, domainID)`：MVP（central 单域）= 现状；v0.2 central → **全域 job 并集**、edge / both → 本域。
+- v0.2 逐域配置包对 central 规则**单独**做 job 引用门禁，不得按单域名单直接判 `failed`。
+- `change_status` **标量锁保留**，不建逐域锁表；多域陈旧草稿由同域 pending 取代机制（决策 42-1）兜底。
+
+### 13.4 本小节待对齐后随主库的项（记录）
+
+- 前端 `validation_details` 消费处需同步 `source` 字段；`source` 缺省（旧数据）时跳转目标回落 `scrape_jobs` 并保持现状。
+- `unlockSourceDataOnFailed` 的日志/审计落点（是否在草稿 `metadata` 留痕「已自动解锁源数据」）待实现时定。
+---
+
+## 14. 决策 68-2 增量：prometheus.yml `alerting` 段参与变更清单（本快照在 feat/module-08-alert-dispatch 分支追加）
+
+> 依据：决策 68-2（alerting 段由 M09 生成器注入）的实测缺口修复。**不新增/变更任何接口路径**，为枚举与行为增量。
+
+### 14.1 问题（2026-09-11 本机实测复现）
+
+`alerting` 段由生成器按 `centerEvaluator` 注入、**不来自 M01/M08 源数据**；而变更清单 diff（PRD §3.4 / 决策 44-3）此前只覆盖 scrape_configs+targets、rules.yml 组、alertmanager.yml 三块 —— 「仅 alerting 段变化」（生成器升级首次注入、AM 地址参数变化、edge→local 通道切换）时 `buildChangeItems` 返回空 → `ErrNoChanges` 抑制 → **带 alerting 段的 prometheus.yml 永远无法通过 M09 流程重新下发**，形成死锁。
+
+### 14.2 枚举扩展（§8 追加取值，同 §12.1 模式）
+
+| 枚举 | 追加取值 | 说明 |
+|------|---------|------|
+| 变更对象 `target` | `prom_alerting` | UI 展示名「告警投递」；`description` 形如「新增/变更/移除 Prometheus 告警投递配置（alerting 段）」 |
+| `affected_files` | （复用 `prometheus`） | 仅 alerting 段变化时受影响文件为 prometheus.yml |
+| `risk` | `high` | 影响告警投递链路，与 alertmanager_config 变更同级 |
+
+### 14.3 行为增量
+
+- `GenerateDraft` / `RevalidateDraft` 的变更清单新增 `diffPromAlertingItems`：按 `alerting` 段规范化内容对比新旧产物（键序无关），实质变化才产出变更项（无变化仍返回空，不产生噪声单，决策 44-3 不受影响）。
+- `rule_files` 与 `alerting` 由同一 `centerEvaluator` 判定（决策 68-2 约定）；alerting 段出现/消失必然伴随产物 checksum 变化，但变更项仅由本 diff 派生。
+- 前端 `ChangeTarget` 联合类型与 `changeTargetLabel` 映射已同步追加 `prom_alerting: '告警投递'`（`types/config-center.ts` / `configCenterConstants.ts`）。

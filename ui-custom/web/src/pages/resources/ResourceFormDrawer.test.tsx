@@ -9,6 +9,7 @@ const createMock = vi.fn()
 const updateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
+const osOptionListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   resourceApi: {
@@ -17,6 +18,9 @@ vi.mock('../../api/resources', () => ({
   },
   businessDomainApi: {
     list: (...a: unknown[]) => businessDomainListMock(...a),
+  },
+  osOptionApi: {
+    list: (...a: unknown[]) => osOptionListMock(...a),
   },
 }))
 
@@ -92,7 +96,7 @@ function openSelect(placeholder: string) {
   fireEvent.mouseDown(screen.getByText(placeholder))
 }
 
-/** 填必填共享字段 + host 差异化字段（网域/业务/环境/运行状态/实例名/IP） */
+/** 填必填共享字段 + host 差异化字段（网域/业务/环境/运行状态/实例名/IP/操作系统，§5.6 os_type 必填） */
 async function fillHostRequiredFields() {
   openSelect('请选择网域')
   fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
@@ -104,6 +108,21 @@ async function fillHostRequiredFields() {
   fireEvent.click(await screen.findByText('在线'))
   fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
   fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
+  fireEvent.change(getOsInput(), { target: { value: 'Ubuntu' } })
+}
+
+/**
+ * 操作系统字段为 antd AutoComplete（内部渲染成 Select combobox 模式）：
+ * placeholder 渲染为 div.ant-select-selection-placeholder 文本，输入框不带
+ * placeholder 属性，故不能按 getByPlaceholderText 定位；AutoComplete 根节点
+ * 带 .ant-select-auto-complete 类，可唯一定位其输入框。
+ */
+function getOsInput(): HTMLInputElement {
+  const wrapper = document.querySelector<HTMLElement>('.ant-select-auto-complete')
+  if (!wrapper) throw new Error('操作系统 AutoComplete 未渲染')
+  const input = wrapper.querySelector<HTMLInputElement>('input')
+  if (!input) throw new Error('操作系统 AutoComplete 缺少输入框')
+  return input
 }
 
 describe('ResourceFormDrawer', () => {
@@ -112,6 +131,7 @@ describe('ResourceFormDrawer', () => {
     updateMock.mockReset()
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
+    osOptionListMock.mockReset()
     cancelMock.mockReset()
     successMock.mockReset()
     networkDomainListMock.mockResolvedValue({
@@ -121,6 +141,16 @@ describe('ResourceFormDrawer', () => {
     businessDomainListMock.mockResolvedValue({
       status: 'success',
       data: { list: businessDomains, total: 2 },
+    })
+    osOptionListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { name: 'Ubuntu', family: 'linux' },
+          { name: 'CentOS', family: 'linux' },
+          { name: 'Windows Server 2019', family: 'windows' },
+        ],
+      },
     })
   })
 
@@ -138,6 +168,7 @@ describe('ResourceFormDrawer', () => {
       env: 'prod',
       instance_name: 'prod-web-01',
       instance_ip: '10.0.1.11',
+      os_type: 'Ubuntu',
       status: 'online',
     })
     expect(input).not.toHaveProperty('resource_id')
@@ -157,6 +188,8 @@ describe('ResourceFormDrawer', () => {
     fireEvent.click(await screen.findByText('prod'))
     fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
     fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
+    // §5.6 操作系统必填（AutoComplete combobox 模式）
+    fireEvent.change(getOsInput(), { target: { value: 'Ubuntu' } })
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
     await waitFor(() => expect(screen.getByText('请选择运行状态')).toBeInTheDocument())
     expect(createMock).not.toHaveBeenCalled()
@@ -173,13 +206,15 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'host' })
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
     // antd Form 校验错误为异步渲染，逐项用异步查询避免与校验完成时机竞态
-    await waitFor(() => expect(screen.getByText('请选择网域')).toBeInTheDocument())
-    expect(await screen.findByText('请选择业务')).toBeInTheDocument()
-    expect(await screen.findByText('请选择环境')).toBeInTheDocument()
-    // 「运行状态」无默认值，placeholder 与校验错误文案同名，需用 findAll 断言错误已出现（≥1 处）
-    expect((await screen.findAllByText('请选择运行状态')).length).toBeGreaterThan(0)
-    expect(await screen.findByText('请输入实例名')).toBeInTheDocument()
-    expect(await screen.findByText('请输入 IP 地址')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByText('请选择网域', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument(),
+    )
+    expect(await screen.findByText('请选择业务', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(await screen.findByText('请选择环境', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    // 「运行状态」PRD 必填、无默认值，placeholder 与校验文案同名；用 selector 定位错误元素断言
+    expect(await screen.findByText('请选择运行状态', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(await screen.findByText('请输入实例名', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(await screen.findByText('请输入 IP 地址', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
     expect(createMock).not.toHaveBeenCalled()
   })
 
@@ -333,5 +368,35 @@ describe('ResourceFormDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
     await waitFor(() => expect(screen.getByText('请输入目标 IP 或域名')).toBeInTheDocument())
     expect(createMock).not.toHaveBeenCalled()
+  })
+
+  // #19 通病（v1.35 规范）：antd Drawer 首次打开时内容惰性挂载（rc-drawer 动画期晚于
+  // useEffect(open) 的 setFieldsValue），字段注册前 setFieldsValue 被吞、编辑回显首次为空；
+  // forceRender 保证 Form 常驻挂载后，关闭→打开切换（刷新后首次点「编辑」）即正确回显。
+  it('edit mode echoes fields on first open (closed → open switch)', async () => {
+    const { rerender } = render(
+      <ResourceFormDrawer
+        open={false}
+        mode="edit"
+        category="host"
+        record={hostRecord()}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    rerender(
+      <ResourceFormDrawer
+        open
+        mode="edit"
+        category="host"
+        record={hostRecord()}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    // 首次打开即回显实例名/主机名/IP，而非空表单
+    expect(await screen.findByDisplayValue('prod-web-01')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('prod-web-01.volc')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('10.0.1.11')).toBeInTheDocument()
   })
 })

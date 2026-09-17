@@ -9,10 +9,12 @@ import type {
   ConfigDeployment,
   ConfigDraft,
   ConfigVersion,
+  DiscardImpact,
   MonitorDomainInput,
   NetworkDomain,
   PaginatedItems,
   ResetTokenResult,
+  RollbackPreview,
 } from '../types/config-center'
 
 /** M09 列表查询参数（snake_case + 分页） */
@@ -69,8 +71,14 @@ export const configDraftApi = {
       `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/revalidate`,
     )
   },
-  discard(change_no: string, discarded_by?: string): Promise<ApiResponse<ConfigDraft>> {
-    return apiClient.post<ConfigDraft>(
+  /** 废弃影响预览（决策 43-7）：真正废弃前展示对 ScrapeJob 源数据的分类影响。 */
+  discardImpact(change_no: string): Promise<ApiResponse<DiscardImpact>> {
+    return apiClient.get<DiscardImpact>(
+      `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/discard-impact`,
+    )
+  },
+  discard(change_no: string, discarded_by?: string): Promise<ApiResponse<{ draft: ConfigDraft; impact: DiscardImpact }>> {
+    return apiClient.post<{ draft: ConfigDraft; impact: DiscardImpact }>(
       `/api/v2/platform/config-drafts/${encodeURIComponent(change_no)}/discard`,
       { body: discarded_by ? { discarded_by } : {} },
     )
@@ -100,6 +108,12 @@ export const deploymentApi = {
     return apiClient.post<ConfigDeployment>(
       `/api/v2/platform/deployments/${encodeURIComponent(config_version_id)}/rollback`,
       { body: { triggered_by } },
+    )
+  },
+  /** 回滚预览（决策 63 P0）：回滚确认前展示目标版本与当前生效版本的源数据操作差异。 */
+  rollbackPreview(config_version_id: string): Promise<ApiResponse<RollbackPreview>> {
+    return apiClient.get<RollbackPreview>(
+      `/api/v2/platform/config-versions/${encodeURIComponent(config_version_id)}/rollback-preview`,
     )
   },
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -39,13 +40,22 @@ func queryPage(c *gin.Context) (page, pageSize int) {
 //   - POST       /config-drafts/{change_no}/confirm     确认（生成 ConfigVersion）
 //   - POST       /config-drafts/{change_no}/revalidate  重校验
 //   - POST       /config-drafts/{change_no}/discard     废弃
+//   - GET        /config-drafts/{change_no}/discard-impact 废弃影响预览
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
-	platform.POST("/config/drafts", GenerateDraftHandler(db))
+	// 读列表 / 废弃影响预览端点保留在平台根组（仅全局认证 au-02）。
 	platform.GET("/config-drafts", ListDraftsHandler(db))
-	platform.GET("/config-drafts/:change_no", GetDraftHandler(db))
-	platform.POST("/config-drafts/:change_no/confirm", ConfirmDraftHandler(db))
-	platform.POST("/config-drafts/:change_no/revalidate", RevalidateDraftHandler(db))
-	platform.POST("/config-drafts/:change_no/discard", DiscardDraftHandler(db))
+	platform.GET("/config-drafts/:change_no/discard-impact", DiscardImpactHandler(db))
+
+	// 写端点（生成/确认/重校验/废弃）与详情端点（返回草稿产物，含凭据明文：basic_auth /
+	// bearer_token）统一挂 RequireAdmin 最小授权门（security-review B/C：管理类写接口仅
+	// 认证不授权）。严格复用 main.go /users /tenants 的挂法。
+	admin := platform.Group("")
+	admin.Use(auth.RequireAdmin())
+	admin.POST("/config/drafts", GenerateDraftHandler(db))
+	admin.GET("/config-drafts/:change_no", GetDraftHandler(db))
+	admin.POST("/config-drafts/:change_no/confirm", ConfirmDraftHandler(db))
+	admin.POST("/config-drafts/:change_no/revalidate", RevalidateDraftHandler(db))
+	admin.POST("/config-drafts/:change_no/discard", DiscardDraftHandler(db))
 }
 
 // GenerateDraftHandler 处理 POST /api/v2/platform/config/drafts。
@@ -96,16 +106,12 @@ func GetDraftHandler(db *gorm.DB) gin.HandlerFunc {
 }
 
 // ConfirmDraftHandler 处理 POST /api/v2/platform/config-drafts/{change_no}/confirm。
+// 该写端点挂 RequireAdmin；confirmed_by 取自动态认证上下文当前用户（review-fix C：
+// 不信任客户端传参，越权伪造操作人被杜绝）。取不到标识符时回落 "unknown"。
 func ConfirmDraftHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct {
-			ConfirmedBy string `json:"confirmed_by" binding:"required"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil {
-			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
-			return
-		}
-		version, err := ConfirmDraft(db, c.Param("change_no"), req.ConfirmedBy)
+		confirmedBy := auth.CurrentUsername(c)
+		version, err := ConfirmDraft(db, c.Param("change_no"), confirmedBy)
 		if err != nil {
 			respondDraftError(c, err)
 			return
@@ -129,12 +135,24 @@ func RevalidateDraftHandler(db *gorm.DB) gin.HandlerFunc {
 // DiscardDraftHandler 处理 POST /api/v2/platform/config-drafts/{change_no}/discard。
 func DiscardDraftHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		d, err := DiscardDraft(db, c.Param("change_no"))
+		d, impact, err := DiscardDraft(db, c.Param("change_no"))
 		if err != nil {
 			respondDraftError(c, err)
 			return
 		}
-		response.OK(c, d)
+		response.OK(c, gin.H{"draft": d, "impact": impact})
+	}
+}
+
+// DiscardImpactHandler 处理 GET /api/v2/platform/config-drafts/{change_no}/discard-impact。
+func DiscardImpactHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		impact, err := GetDiscardImpact(db, c.Param("change_no"))
+		if err != nil {
+			respondDraftError(c, err)
+			return
+		}
+		response.OK(c, impact)
 	}
 }
 
@@ -143,6 +161,9 @@ func respondDraftError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrDomainNotFound):
 		response.NotFound(c, err.Error())
+	case errors.Is(err, ErrNoChanges):
+		// 无实质变更：返回 200 + 空数据，前端可据此提示「当前无配置变更」。
+		response.OK(c, gin.H{"message": "当前无配置变更", "no_changes": true})
 	case errors.Is(err, ErrDomainNotMonitored),
 		errors.Is(err, ErrDomainFrozen),
 		errors.Is(err, ErrNotPending),

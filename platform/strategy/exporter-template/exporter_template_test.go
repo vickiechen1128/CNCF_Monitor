@@ -160,7 +160,7 @@ func TestCreateExporterTemplateNameMetricsPathSchemeRequired(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestCreateExporterTemplateRejectsBuiltinAndNonInternal(t *testing.T) {
+func TestCreateExporterTemplateRejectsBuiltinButAllowsOfficialThirdParty(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 
@@ -168,8 +168,21 @@ func TestCreateExporterTemplateRejectsBuiltinAndNonInternal(t *testing.T) {
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"x","default_port":1,"metrics_path":"/m","scheme":"http","source":"internal","is_builtin":true}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 
-	// source=official 拒绝登记（平台预置只读）。
-	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"x","default_port":1,"metrics_path":"/m","scheme":"http","source":"official"}`)
+	// source=official 允许登记（用户登记的官方采集器恒非内置，仅 name 与 seed 区分）。
+	for _, src := range []string{"official", "third_party"} {
+		w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+			fmt.Sprintf(`{"name":"%s-usr","default_port":9100,"metrics_path":"/m","scheme":"http","source":"%s"}`, src, src))
+		require.Equal(t, http.StatusOK, w.Code, "source=%s 应允许登记", src)
+		var out struct {
+			Status string                  `json:"status"`
+			Data   models.ExporterTemplate `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		assert.False(t, out.Data.IsBuiltin, "用户登记的 official/third_party 恒非内置")
+	}
+
+	// 非法 source 拒绝。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"y","default_port":1,"metrics_path":"/m","scheme":"http","source":"community"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -179,6 +192,36 @@ func TestCreateExporterTemplateDuplicateName(t *testing.T) {
 	seedExporter(t, db, &models.ExporterTemplate{Name: "custom-agent", DefaultPort: 9100, MetricsPath: "/metrics", Scheme: "http", Source: models.ExporterSourceInternal})
 
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"custom-agent","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"}`)
+	require.Equal(t, http.StatusConflict, w.Code)
+}
+
+// 回归：软删后重建同名采集器应成功，而不是命中 DB 唯一索引抛 internal error
+// （create.go 用 Unscoped 查找软删残留并在重建前物理清理，与 scrapejob 对齐）。
+func TestCreateExporterTemplateRecreateAfterSoftDelete(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	body := `{"name":"recreate-me","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"}`
+
+	// 先登记一个 internal 采集器。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.ExporterTemplate `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	id := strconv.FormatUint(uint64(created.Data.ID), 10)
+
+	// 软删该采集器。
+	w = perform(t, r, http.MethodDelete, "/api/v2/platform/exporter-templates/"+id, "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 重建同名采集器：应 200 成功，而不是 500 internal error。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
+	require.Equal(t, http.StatusOK, w.Code, "软删后重建同名采集器应成功（避免 uniqueIndex 冲突 500）")
+
+	// 活跃同名仍应冲突。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", body)
 	require.Equal(t, http.StatusConflict, w.Code)
 }
 
@@ -236,6 +279,21 @@ func TestCreateExporterTemplateDownloadURLValidation(t *testing.T) {
 	// 未提供 download_url 通过（可选字段）。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates", `{"name":"agent-nourl","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal"}`)
 	require.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestCreateExporterTemplateWithDescription(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 登记时提交 description 应被持久化并回显。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/exporter-templates",
+		`{"name":"custom-agent","default_port":9100,"metrics_path":"/metrics","scheme":"http","source":"internal","description":"自定义采集器描述"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ExporterTemplate `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "自定义采集器描述", out.Data.Description)
 }
 
 func TestUpdateExporterTemplateDownloadURLValidation(t *testing.T) {

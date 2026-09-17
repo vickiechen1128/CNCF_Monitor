@@ -33,6 +33,7 @@ type UpdateScrapeJobRequest struct {
 	LabelTemplateID       *string                       `json:"label_template_id"`
 	BlackboxModule        *string                       `json:"blackbox_module"`
 	BlackboxTargets       []models.BlackboxTarget       `json:"blackbox_targets"`
+	MappingOverrides      []models.MappingOverride      `json:"mapping_overrides"`
 	Enabled               *bool                         `json:"enabled"`
 }
 
@@ -61,7 +62,16 @@ func UpdateScrapeJob(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 决策 44-1：change_status=pending 的 job 已挂起变更单，禁止编辑，避免变更单内容与源数据脱节。
+		if job.ChangeStatus == models.ChangeStatusPending {
+			response.Conflict(c, fmt.Errorf("采集 Job %q 存在待确认变更单，禁止编辑；请先前往配置变更确认页处理", job.JobName))
+			return
+		}
+
 		applyJobUpdate(&job, req)
+		// F-28：更新时同样走层叠默认链——用户清空某参数字段即表示「恢复继承」，
+		// 保存时按映射→模板→全局兜底重新解析为生效快照（对齐 create 行为）。
+		resolveJobScrapeParams(db, &job)
 		if err := validateJobRequest(db, &job); err != nil {
 			response.BadRequest(c, err)
 			return
@@ -140,6 +150,9 @@ func applyJobUpdate(job *models.ScrapeJob, req UpdateScrapeJobRequest) {
 	}
 	if req.BlackboxTargets != nil {
 		job.BlackboxTargets = req.BlackboxTargets
+	}
+	if req.MappingOverrides != nil {
+		job.MappingOverrides = req.MappingOverrides
 	}
 	if req.Enabled != nil {
 		job.Enabled = *req.Enabled

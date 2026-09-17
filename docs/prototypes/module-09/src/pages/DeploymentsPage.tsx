@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Card, Table, Tag, Button, Space, Modal, message, Tooltip, Typography, Alert, Drawer, Descriptions } from 'antd'
-import { RollbackOutlined, EyeOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Card, Table, Tag, Button, Space, Modal, message, Tooltip, Typography, Drawer, Descriptions } from 'antd'
+import { RollbackOutlined, EyeOutlined, QuestionCircleOutlined, ReloadOutlined, InfoCircleFilled } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { EllipsisText } from '../components/EllipsisText'
+import { Callout } from '../components/Callout'
 import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   configDeployments,
@@ -44,6 +45,7 @@ export function DeploymentsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   // 定位参数（PRD 3.4 全链路关联）：从配置变更确认页「记录 / 查看发布记录」跳转携带 change_no + network_domain，定位到该变更的发布/回滚记录
+  const navigate = useNavigate()
   const locChangeNo = searchParams.get('change_no')
   const locDomain = searchParams.get('network_domain')
 
@@ -119,7 +121,7 @@ export function DeploymentsPage() {
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
     const previous = previousVersions.find((v) => v.id !== record.config_version_id)
     // {v1.20}/{v1.33} 回滚生效语义按下发通道区分：local 通道立即 reload（同步生效）；
-    // agent_pull 通道重新发布历史版本，待 Edge Sync Agent 下次心跳拉取生效（异步生效，准实时 30s）
+    // agent_pull 通道重新发布历史版本，待采集节点下次心跳拉取生效（异步生效，准实时 30s）
     const channel = record.channel || networkDomains.find((d) => d.id === record.network_domain_id)?.channel
     const isAgentPull = channel === 'agent_pull'
 
@@ -132,7 +134,7 @@ export function DeploymentsPage() {
           {isAgentPull && (
             <div style={{ marginTop: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                agent_pull 通道回滚（异步生效）：确认后重新发布历史版本配置包，待 Edge Sync Agent 下次心跳拉取后生效（约 30s），进度可在「采集节点状态」页查看。
+                采集节点回传网域回滚（异步生效）：确认后重新发布历史版本配置包，待采集节点下次心跳拉取后生效（约 30s），进度可在「采集节点状态」页查看。
               </Text>
             </div>
           )}
@@ -184,7 +186,7 @@ export function DeploymentsPage() {
         // {v1.20}/{v1.33} 回滚结果提示按下发通道区分
         message.success(
           isAgentPull
-            ? `已回滚：已发布历史版本，待 Edge Sync Agent 下次心跳拉取生效（准实时 30s）（操作人：${CURRENT_USER}）`
+            ? `已回滚：已发布历史版本，待采集节点下次心跳拉取生效（准实时 30s）（操作人：${CURRENT_USER}）`
             : `已回滚到上一版本，配置已 reload 生效（操作人：${CURRENT_USER}）`
         )
       },
@@ -194,14 +196,16 @@ export function DeploymentsPage() {
   return (
     <MainLayout>
       {locChangeNo && (
-        <Alert
-          type="info"
-          showIcon
-          message={`当前定位：变更单 ${locChangeNo}${locDomain ? ` · 网域 ${domainMap[locDomain] ?? locDomain}` : ''} 的发布记录`}
-          description="从「配置变更确认」页跳转而来。列表已按该变更单过滤；如需查看全部记录，请清除定位条件。"
-          closable
+        <Callout
+          tone="info"
+          icon={<InfoCircleFilled />}
+          title={`当前定位：变更单 ${locChangeNo}${locDomain ? ` · 网域 ${domainMap[locDomain] ?? locDomain}` : ''} 的发布记录`}
+          onClose={() => navigate('/deployments', { replace: true })}
+          closeText="清除定位"
           style={{ marginBottom: 16 }}
-        />
+        >
+          从「配置变更确认」页跳转而来。列表已按该变更单过滤；如需查看全部记录，请清除定位条件。
+        </Callout>
       )}
       <Card
         title={

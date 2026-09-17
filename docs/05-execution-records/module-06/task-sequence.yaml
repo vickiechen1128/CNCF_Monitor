@@ -1,7 +1,7 @@
 phase: "Phase 1"
 module: "module-06-domain-registry"
 module_branch: "feat/module-06-domain-registry"
-plan_version: "v2026-08-21"
+plan_version: "v2026-09-05"
 owner: "planner（派生）→ backend-developer / frontend-developer / golang-reviewer 执行"
 source:
   - "docs/02-product-requirements/05_Code_Implementation_Plan.md（Phase 1，§5.1/§5.2，§7.1 网域登记）"

@@ -52,21 +52,21 @@
 - **纳管模型 Owner**: Module_09（`is_monitored`、`center_endpoint`、采集器注册、失败计数）
 - **生命周期 UI/API**: 行政登记 UI/API → Module_06；纳管 UI/API → Module_09
 - **引用方**: Module_07（资源分组，只读引用 `network_domain_id`）、Module_10（监控源归属）
-- **权威定义**: Module_06 [5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、Module_09 [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9F%E5%8F%8A%E7%BA%B3%E7%AE%A1%E6%A8%A1%E5%9E%8B)（行政部分不重复声明）
+- **权威定义**: Module_06 [5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、Module_09 [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)（行政部分不重复声明）
 
 ### 3.2 Edge Agent 状态
 
 - **数据模型 Owner**: Module_09
 - **心跳接收与状态展示 Owner**: Module_09
 - **引用方**: Module_02（目标状态聚合）、Module_08（告警抑制场景）
-- **权威定义**: [Module_09 4.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#42-%E8%BE%B9%E7%BC%98-agentedgeagent)
+- **权威定义**: [Module_09 5.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#52-%E8%BE%B9%E7%BC%98-agentedgeagent)
 
 ### 3.3 Edge Sync Agent 配置拉取
 
 - **协议与接口 Owner**: Module_09
 - **配置生成 / 预览 / 下发 Owner**: Module_09
 - **配置数据消费方**: Module_01（ScrapeJob / Rule 策略）、Module_07（Resource / LabelTemplate）、Module_08（告警规则）
-- **权威定义**: [Module_09 5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E8%BD%AE%E8%AF%A2%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B)、[Module_09 5.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#52-%E7%A1%AE%E8%AE%A4%E4%B8%8E%E4%B8%8B%E5%8F%91%E6%97%B6%E5%BA%8F)
+- **权威定义**: [Module_09 4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E8%BD%AE%E8%AF%A2%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B)、[Module_09 4.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#42-%E7%A1%AE%E8%AE%A4%E4%B8%8E%E4%B8%8B%E5%8F%91%E6%97%B6%E5%BA%8F)
 
 ### 3.4 指标管理配置
 
@@ -124,7 +124,7 @@
 - **NetworkDomain 行政模型 Owner**: Module_06（`tenant_id` 登记归属、`authorized_tenant_ids` 又名份授权、禁用/冻结，为单一事实来源，决策 28）；**NetworkDomain 纳管模型 Owner**: Module_09（`is_monitored`、`center_endpoint`、采集器注册、失败计数）
 - **网域行政关系 Owner**: Module_06（`NetworkDomain.tenant_id` 登记归属 + `authorized_tenant_ids` 跨租户共享）；本模块不重复声明行政语义
 - **引用方**: Module_07（资源只读引用 `network_domain_id`，不感知租户）、Module_09（纳管字段）
-- **权威定义**: [Module_06 5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、[Module_09 5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9F%E5%8F%8A%E7%BA%B3%E7%AE%A1%E6%A8%A1%E5%9E%8B)
+- **权威定义**: [Module_06 5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、[Module_09 5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)
 
 ### 3.12 标签归一化
 
@@ -160,7 +160,7 @@
 - **引用方**: Module_07（资源字段注入）、Module_08（影响范围拓扑）
 - **权威定义**:
   - Module_06: [3.1 节](Module_06_Multi_Tenant.md#31-%E7%A7%9F%E6%88%B7%E4%B8%8E%E7%BD%91%E5%9F%9F%E5%85%B3%E7%B3%BB)、[3.2 节](Module_06_Multi_Tenant.md#32-%E7%A7%9F%E6%88%B7%E4%B8%8E-blueking-cmdb-%E6%98%A0%E5%B0%84)
-  - Module_09: [4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E7%BD%91%E5%9F%9Fnetworkdomain)、[4.4 节](Module_09_Network_Domain_and_Edge_Config_Center.md#44-%E7%BD%91%E5%9F%9F%E4%B8%8E-blueking-cloud-area-%E6%98%A0%E5%B0%84)
+  - Module_09: [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)、[5.7 节](Module_09_Network_Domain_and_Edge_Config_Center.md#57-%E7%BD%91%E5%9F%9F%E4%B8%8E-blueking-cloud-area-%E6%98%A0%E5%B0%84)
   - Module_04: [7 节](Module_04_Custom_Discovery.md#7-blueking-cmdb-%E6%98%A0%E5%B0%84%E8%A7%84%E8%8C%83)
 - **关键约束**:
   - **1 网域 : N 租户（跨租户共享）**：网域登记归属 `tenant_id` 固定 `platform_admin`，通过 `authorized_tenant_ids` 授权共享；`default` 网域归属 `platform_admin`，**默认不共享**，授权后共享（决策 18~20）。
@@ -175,7 +175,7 @@
 - **用户手动 Label UI Owner**: Module_05（P0 标签编辑页面）
 - **引用方**: Module_01（策略配置时引用 `LabelTemplate` / `ResourceLabel`）、Module_09（配置生成时合并所有来源 label）、Module_10（标签归一化参考）
 - **权威定义**:
-  - Module_07: [5.2.2 节](Module_07_Monitoring_Object_Management.md#522-%E8%B5%84%E6%BA%90-label-resourcelabel)、[5.7 节](Module_07_Monitoring_Object_Management.md#57-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF-labeltemplate)、[5.8 节](Module_07_Monitoring_Object_Management.md#58-%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84-mapping)、[5.9 节](Module_07_Monitoring_Object_Management.md#59-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF%E5%AD%97%E6%AE%B5%E6%9D%A5%E6%BA%90)、[5.10 节](Module_07_Monitoring_Object_Management.md#510-%E9%BB%98%E8%AE%A4%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF)
+  - Module_07: [5.3 节](Module_07_Monitoring_Object_Management.md#53-%E8%B5%84%E6%BA%90-label-resourcelabel)、[5.10 节](Module_07_Monitoring_Object_Management.md#510-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF-labeltemplate)、[5.11 节](Module_07_Monitoring_Object_Management.md#511-%E5%AD%97%E6%AE%B5%E6%98%A0%E5%B0%84-mapping)、[5.12 节](Module_07_Monitoring_Object_Management.md#512-%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF%E5%AD%97%E6%AE%B5%E6%9D%A5%E6%BA%90)、[5.13 节](Module_07_Monitoring_Object_Management.md#513-%E9%BB%98%E8%AE%A4%E6%A0%87%E7%AD%BE%E6%A8%A1%E6%9D%BF)
   - Module_04: [7.1 节](Module_04_Custom_Discovery.md#71-cmdb-ci-%E7%B1%BB%E5%9E%8B%E6%98%A0%E5%B0%84%E8%A1%A8)、[7.2 节](Module_04_Custom_Discovery.md#72-%E5%BE%85%E5%88%86%E7%B1%BB-ci-%E9%98%9F%E5%88%97)
 - **关键约束**:
   - Label 在 MetricCenter 内部按 `source` 分层：`system`（模板生成）/ `user`（用户手动）/ `cmdb {v0.4+}`（CMDB 同步）。
@@ -200,7 +200,7 @@
   5. Module_09 执行下发：中心 Prometheus reload 或 Edge Sync Agent 拉取配置包。
 - **权威定义**:
   - Module_01: [3.1 节](Module_01_Metric_Collection_Center.md#31-%E7%9B%91%E6%8E%A7%E7%AD%96%E7%95%A5%E9%85%8D%E7%BD%AEmvp)
-  - Module_09: [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E8%BD%AE%E8%AF%A2%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B)、[5.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#52-%E7%A1%AE%E8%AE%A4%E4%B8%8E%E4%B8%8B%E5%8F%91%E6%97%B6%E5%BA%8F)
+  - Module_09: [4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E8%BD%AE%E8%AF%A2%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B)、[4.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#42-%E7%A1%AE%E8%AE%A4%E4%B8%8E%E4%B8%8B%E5%8F%91%E6%97%B6%E5%BA%8F)
 
 ### 3.18 运行时目标状态展示 {MVP}
 
@@ -215,7 +215,7 @@
 ### 3.19 查询中心
 
 - **功能 Owner**: Module_02
-- **核心职责**: 代理 Prometheus Query API，按认证用户自动注入 `tenant_id` 与有权限的 `network_domain` 标签；在返回结果外层包裹 envelope 元数据（`data_source`、`freshness_at`、`network_domain`），不污染 PromQL series 标签。
+- **核心职责**: 代理 Prometheus Query API，按认证用户自动注入 `tenant` 与有权限的 `network_domain` 标签（两键名均与采集侧实际标签同源，标签键不带 `_id` 后缀——决策 68-5）；在返回结果外层包裹 envelope 元数据（`data_source`、`freshness_at`、`network_domain`），不污染 PromQL series 标签。
 - **依赖模块**:
   - Module_06：租户-网域模型、用户权限与隔离策略（不存在跨租户全局管理员）。
   - Module_09：Edge Agent `external_labels` 注入，为按网域查询与租户隔离提供标签基础。
@@ -233,7 +233,7 @@
   - MVP 阶段以「Agent 状态列表页」满足基本可观测需求，展示在线状态、最后心跳、配置版本、WAL 积压、最近错误。
   - 图表/趋势类边缘诊断看板（心跳 RTT 趋势、WAL 积压趋势、24h 断网时长等）延后至 P1/P2。
 - **权威定义**:
-  - Module_09: [3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E8%BE%B9%E7%BC%98-agent-%E7%AE%A1%E7%90%86)、[3.8 节](Module_09_Network_Domain_and_Edge_Config_Center.md#38-agent-%E7%8A%B6%E6%80%81%E5%88%97%E8%A1%A8%E4%B8%8E%E8%BE%B9%E7%BC%98%E8%AF%8A%E6%96%AD%E7%9C%8B%E6%9D%BF)、[4.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#42-%E8%BE%B9%E7%BC%98-agentedgeagent)、[4.3 节](Module_09_Network_Domain_and_Edge_Config_Center.md#43-%E5%BF%83%E8%B7%B3%E4%B8%8A%E6%8A%A5edgeheartbeat)
+  - Module_09: [3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#52-%E8%BE%B9%E7%BC%98-agentedgeagent)、[5.3 节](Module_09_Network_Domain_and_Edge_Config_Center.md#53-%E5%BF%83%E8%B7%B3%E4%B8%8A%E6%8A%A5edgeheartbeat)
 
 ### 3.21 告警状态
 
@@ -243,7 +243,7 @@
 - **权威定义**:
   - Module_02: [3 节](Module_02_Query_Center.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)、[4 节](Module_02_Query_Center.md#4-%E6%8E%A5%E5%8F%A3%E8%AE%BE%E8%AE%A1)、[6 节](Module_02_Query_Center.md#6-%E5%93%8D%E5%BA%94-envelope-%E4%B8%8E%E6%95%B0%E6%8D%AE%E6%96%B0%E9%B2%9C%E5%BA%A6)
   - Module_08: [3.1 节](Module_08_Alertmanager_Notification_Management.md#31-prometheus-%E5%91%8A%E8%AD%A6-vs-alertmanager-%E9%80%9A%E7%9F%A5%E7%8A%B6%E6%80%81)、[3.2 节](Module_08_Alertmanager_Notification_Management.md#32-%E4%B8%AD%E5%BF%83%E8%BE%B9%E7%BC%98%E5%91%8A%E8%AD%A6%E7%81%BE%E5%A4%87%E8%BE%B9%E7%95%8C)、[5.3 节](Module_08_Alertmanager_Notification_Management.md#53-%E5%91%8A%E8%AD%A6%E7%8A%B6%E6%80%81%E6%9F%A5%E7%9C%8B)
-  - Module_09: [3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E8%BE%B9%E7%BC%98-agent-%E7%AE%A1%E7%90%86)、[3.8 节](Module_09_Network_Domain_and_Edge_Config_Center.md#38-agent-%E7%8A%B6%E6%80%81%E5%88%97%E8%A1%A8%E4%B8%8E%E8%BE%B9%E7%BC%98%E8%AF%8A%E6%96%AD%E7%9C%8B%E6%9D%BF)、[4.3 节](Module_09_Network_Domain_and_Edge_Config_Center.md#43-%E5%BF%83%E8%B7%B3%E4%B8%8A%E6%8A%A5edgeheartbeat)
+  - Module_09: [3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.3 节](Module_09_Network_Domain_and_Edge_Config_Center.md#53-%E5%BF%83%E8%B7%B3%E4%B8%8A%E6%8A%A5edgeheartbeat)
 
 ---
 

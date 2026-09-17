@@ -5,6 +5,13 @@ import { setupAntdTest, mockAntdModal } from '../../../test/antdTestUtils'
 import { ConfigPreviewPage } from './ConfigPreviewPage'
 import type { ConfigDraft } from '../../../types/config-center'
 
+// 决策 67-3：「前往修改」按来源分流跳转，此处捕获 navigate 目标断言路由
+const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }))
+vi.mock('react-router-dom', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router-dom')>()
+  return { ...actual, useNavigate: () => navigateSpy }
+})
+
 const useConfigDraftsMock = vi.fn()
 const fetchMonitoredDomainsMock = vi.fn()
 const draftApiMock = {
@@ -13,6 +20,7 @@ const draftApiMock = {
   confirm: vi.fn(),
   discard: vi.fn(),
   revalidate: vi.fn(),
+  discardImpact: vi.fn(),
 }
 const deploymentApiMock = {
   getConfigVersion: vi.fn(),
@@ -33,6 +41,7 @@ vi.mock('../../../api/configCenter', () => ({
     confirm: (...a: unknown[]) => draftApiMock.confirm(...a),
     discard: (...a: unknown[]) => draftApiMock.discard(...a),
     revalidate: (...a: unknown[]) => draftApiMock.revalidate(...a),
+    discardImpact: (...a: unknown[]) => draftApiMock.discardImpact(...a),
   },
   deploymentApi: {
     getConfigVersion: (...a: unknown[]) => deploymentApiMock.getConfigVersion(...a),
@@ -76,9 +85,9 @@ function result(over: Record<string, unknown> = {}) {
   }
 }
 
-function renderPage() {
+function renderPage(initialEntries: string[] = ['/']) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <ConfigPreviewPage />
     </MemoryRouter>,
   )
@@ -94,10 +103,12 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     draftApiMock.confirm.mockReset()
     draftApiMock.discard.mockReset()
     draftApiMock.revalidate.mockReset()
+    draftApiMock.discardImpact.mockReset()
     deploymentApiMock.getConfigVersion.mockReset()
     reloadMock.mockReset()
     setDomainIdMock.mockReset()
     setStatusMock.mockReset()
+    navigateSpy.mockReset()
     fetchMonitoredDomainsMock.mockReset()
     fetchMonitoredDomainsMock.mockResolvedValue([
       { id: 'default', name: '默认域', channel: 'local', is_monitored: true },
@@ -112,13 +123,14 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     expect(screen.getByText(/加载中/)).toBeInTheDocument()
   })
 
-  it('渲染变更列表：变更单号 + 变更摘要 + 风险/确认人生成时间', async () => {
+  it('渲染变更列表：变更单号 + 变更摘要 + 状态 + 风险/确认人生成时间', async () => {
     useConfigDraftsMock.mockReturnValue(
       result({ data: { items: [draftRow()], total: 1 } }),
     )
     renderPage()
     expect(await screen.findByText('CHG-20260823-001')).toBeInTheDocument()
     expect(screen.getByText(/新增采集目标 app-biz-01/)).toBeInTheDocument()
+    expect(screen.getAllByText('待确认')[0]).toBeInTheDocument()
     expect(screen.getByText('低风险')).toBeInTheDocument()
   })
 
@@ -152,6 +164,19 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     expect(await screen.findByRole('tab', { name: '变更摘要' })).toBeInTheDocument()
   })
 
+  // 决策 69-③（决策 60 补充块）：M08 版本历史「M09 变更单」列跳入的 ?change_no= 深链，
+  // 落地即自动展开该变更单详情抽屉（无需在列表中找到该行）。
+  it('决策 69-③：?change_no= 深链落地即打开该变更单详情', async () => {
+    useConfigDraftsMock.mockReturnValue(result())
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ change_items: [] }) })
+    renderPage(['/config-preview?change_no=CHG-20260823-001'])
+    expect(draftApiMock.get).toHaveBeenCalledWith('CHG-20260823-001')
+    expect(await screen.findByRole('tab', { name: '变更摘要' })).toBeInTheDocument()
+    // 深链只驱动「打开哪一单」，不改列表筛选状态（不触碰决策 60 的 M08/M09 职责边界）
+    expect(setStatusMock).not.toHaveBeenCalled()
+    expect(setDomainIdMock).not.toHaveBeenCalled()
+  })
+
   it('确认发布：Modal 二次确认后调用 confirm 并 reload', async () => {
     useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
     draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow() })
@@ -181,10 +206,30 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
   it('废弃变更：Modal 二次确认后调用 discard 并 reload', async () => {
     useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
     draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow() })
+    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
+    draftApiMock.discard.mockResolvedValue({ status: 'success', data: { draft: draftRow({ status: 'discarded' }), impact: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } } })
     const modal = mockAntdModal()
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
     fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
+    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
+    expect(modal.confirm).toHaveBeenCalled()
+    const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
+    await onOk()
+    expect(draftApiMock.discard).toHaveBeenCalledWith('CHG-20260823-001', expect.any(String))
+    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+  })
+
+  it('校验失败态草稿仍可废弃：使用相同 change_no 调用 discardImpact + discard', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: draftRow({ validation_status: 'failed' }) })
+    draftApiMock.discardImpact.mockResolvedValue({ status: 'success', data: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } })
+    draftApiMock.discard.mockResolvedValue({ status: 'success', data: { draft: draftRow({ status: 'discarded', validation_status: 'failed' }), impact: { new_reverted: 0, modified_kept: 0, deleted_restored: 0, missing: 0 } } })
+    const modal = mockAntdModal()
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /废弃变更/ }))
+    await waitFor(() => expect(draftApiMock.discardImpact).toHaveBeenCalledWith('CHG-20260823-001'))
     expect(modal.confirm).toHaveBeenCalled()
     const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
     await onOk()
@@ -226,5 +271,108 @@ describe('ConfigPreviewPage（配置变更确认）', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '版本对比' }))
     expect(await screen.findByText('无历史版本可对比')).toBeInTheDocument()
     expect(screen.getByText(/无法拉取源版本/)).toBeInTheDocument()
+  })
+
+  // 决策 44-2：旧单被新 pending 取代后，详情页提示「已被新变更单取代」。
+  it('已被取代的变更单详情页展示 superseded_by 提示', async () => {
+    const superseded = draftRow({
+      status: 'discarded',
+      metadata: {
+        source_data_version: 'v1',
+        trigger_summary: 'watcher',
+        checksum: 'abc',
+        generator_version: 'g1',
+        superseded_by_change_no: 'CHG-20260823-002',
+      },
+    })
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [superseded], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({ status: 'success', data: superseded })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    expect(await screen.findByText(/该变更单已被新变更单 CHG-20260823-002 取代/)).toBeInTheDocument()
+    expect(screen.getByText(/本单已自动废弃/)).toBeInTheDocument()
+  })
+
+  // 决策 45-1 / 45-3 修订：pending 且 platform_fault（如 promtool 不可用）——待校验禁确认，
+  // 但展示「重新校验」手动自愈出口（后端自动重试未落地，环境就绪后需手动重校），保留「废弃」。
+  it('pending+platform_fault 禁确认、展示重新校验、保留废弃', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'pending',
+        validation_cause: 'platform_fault',
+        validation_message: 'promtool 不可调用，待运维环境就绪后重校',
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
+    expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: /重新校验/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /废弃变更/ })).toBeInTheDocument()
+    expect(await screen.findByText(/promtool 不可调用/)).toBeInTheDocument()
+  })
+
+  // 决策 45-1/45-3/45-4：failed + user_config ——展示「重新校验 + 前往修改 + 废弃」。
+  it('failed+user_config 展示重新校验与前往修改引导', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'failed',
+        validation_cause: 'user_config',
+        validation_message: 'targets 文件 a.json 非法: 禁止覆盖内置标签 "job"',
+        validation_details: [{ file: 'a.json', message: '禁止覆盖内置标签 "job"' }],
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    const confirmBtn = await screen.findByRole('button', { name: /确认发布/ })
+    expect((confirmBtn as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('button', { name: /重新校验/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /前往修改/ })).toBeInTheDocument()
+    // 结构化细节定位展示（全角冒号分隔 file 与 message）
+    expect(await screen.findByText(/a\.json\s*：\s*禁止覆盖内置标签/)).toBeInTheDocument()
+  })
+
+  // 决策 67-3：校验明细来源为「规则 job 引用」（source=rule）时，「前往修改」跳
+  // Module_01 规则编辑页（/rules），而非硬编码的采集 Job 页。
+  it('决策 67-3：source=rule 的「前往修改」跳 /rules', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'failed',
+        validation_cause: 'user_config',
+        validation_message: 'rules.yml 规则 job 引用校验未通过',
+        validation_details: [
+          { file: 'rules.yml', message: '规则 "HostDown" 引用的 job "miss" 不存在', source: 'rule' },
+        ],
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /前往修改/ }))
+    expect(navigateSpy).toHaveBeenCalledWith('/rules')
+  })
+
+  // 决策 67-3：来源为采集 Job / targets（含旧数据缺省 source）时跳 /scrape-jobs。
+  it('决策 67-3：source=targets 与缺省旧数据均跳 /scrape-jobs', async () => {
+    useConfigDraftsMock.mockReturnValue(result({ data: { items: [draftRow()], total: 1 } }))
+    draftApiMock.get.mockResolvedValue({
+      status: 'success',
+      data: draftRow({
+        validation_status: 'failed',
+        validation_cause: 'user_config',
+        validation_message: 'targets 文件 a.json 非法',
+        // 无 source：模拟决策 67-3 之前的旧数据，应按 scrape_job 回落
+        validation_details: [{ file: 'a.json', message: '禁止覆盖内置标签 "job"' }],
+      }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /前往修改/ }))
+    expect(navigateSpy).toHaveBeenCalledWith('/scrape-jobs')
   })
 })

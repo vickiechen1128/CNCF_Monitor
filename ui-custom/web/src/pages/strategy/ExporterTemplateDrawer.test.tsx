@@ -44,6 +44,15 @@ describe('ExporterTemplateDrawer', () => {
     expect(screen.queryByText('MySQL')).toBeNull()
   })
 
+  it('offers 官方 / 第三方 / 内部自建 source options (F-29 D 放开来源登记)', async () => {
+    renderDrawer()
+    // 默认选中「内部自建」；打开下拉可见官方 / 第三方 / 内部自建三选项（用户登记已放开）
+    fireEvent.mouseDown(screen.getByText('内部自建'))
+    expect(await screen.findByText('官方')).toBeInTheDocument()
+    expect(screen.getByText('第三方')).toBeInTheDocument()
+    expect(screen.getAllByText('内部自建').length).toBeGreaterThanOrEqual(1)
+  })
+
   it('submits prefilled supported_monitor_types on register (O2/T01-F15)', async () => {
     exporterCreateMock.mockResolvedValue({
       status: 'success',
@@ -64,5 +73,27 @@ describe('ExporterTemplateDrawer', () => {
     const body = exporterCreateMock.mock.calls[0][0] as Record<string, unknown>
     expect(body.name).toBe('mysql-exporter-custom')
     expect(body.supported_monitor_types).toEqual(['mysql'])
+  })
+
+  it('submits os/arch default any and download_url/homepage on register (原型字段对齐)', async () => {
+    renderDrawer()
+    await userEvent.type(screen.getByPlaceholderText('例如：mysql-exporter'), 'my-exporter')
+    await userEvent.type(screen.getByPlaceholderText('例如：9104'), '9104')
+    await userEvent.type(screen.getByPlaceholderText('/metrics（默认）'), '/metrics')
+    fireEvent.mouseDown(screen.getAllByText('请选择协议')[0])
+    const httpOption = await screen.findByText('http', { selector: '.ant-select-item-option-content' })
+    await userEvent.click(httpOption)
+    // 下载地址 / 官方文档主页 均使用 https://... 占位符，取第一个（下载地址）填写
+    const urlInputs = screen.getAllByPlaceholderText('https://...')
+    await userEvent.type(urlInputs[0], 'https://repo.example.com/exporter.tar.gz')
+    await userEvent.type(screen.getByPlaceholderText('采集器用途与能力说明'), '自研采集器')
+
+    fireEvent.click(screen.getByRole('button', { name: /登\s*记/ }))
+    await waitFor(() => expect(exporterCreateMock).toHaveBeenCalled())
+    const body = exporterCreateMock.mock.calls[0][0] as Record<string, unknown>
+    expect(body.os).toBe('any')
+    expect(body.arch).toBe('any')
+    expect(body.download_url).toBe('https://repo.example.com/exporter.tar.gz')
+    expect(body.description).toBe('自研采集器')
   })
 })

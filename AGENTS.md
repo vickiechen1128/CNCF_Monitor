@@ -82,9 +82,9 @@ CNCF_Monitor-worktree/
 │   ├── 02-product-requirements/    # PRD、模块需求（Modules/Module_XX_*.md）
 │   ├── 03-engineering-standards/   # 工程标准（必读）
 │   ├── 04-source-architecture/     # 源码架构分析
-│   ├── 05-execution-records/       # Agent 执行记录
+│   ├── 05-execution-records/       # Agent 执行记录（含 design-proposals/ 功能详细设计提案）
 │   └── prototypes/                 # 可点击原型（module-01 ~ module-10）
-├── scripts/                        # 构建与辅助脚本
+├── scripts/                        # 构建与辅助脚本（含 repo-map 符号地图生成器）
 ├── Makefile                        # 统一构建入口
 ├── setup.sh                        # 跨平台一键初始化脚本
 ├── SETUP_WINDOWS.md                # Windows 环境初始化指南
@@ -152,6 +152,7 @@ make build-prometheus      # 编译上游 Prometheus（首次会自动构建 Web
 make build-ui              # 构建 Custom UI -> ui-custom/web/dist
 make build-all             # 编译后端 + Prometheus + 前端
 make build-alertmanager    # 编译上游 Alertmanager -> upstream/alertmanager/alertmanager
+make build-amtool          # 编译上游 amtool（AM 配置校验命令行）-> upstream/alertmanager/amtool
 make build-blackbox-exporter  # 编译上游 blackbox_exporter -> upstream/blackbox_exporter/blackbox_exporter
 make build-center          # 编译中心一体化交付包（metric-center + prometheus + alertmanager + blackbox_exporter + ui）
 make build-edge-agent      # {v0.2} 编译边缘采集客户端 -> platform/edge-sync-agent/edge-sync-agent
@@ -161,10 +162,14 @@ make build-edge-package    # {v0.2} 组装边缘一体化离线包
 ### 5.2 运行
 
 ```bash
-make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080）
-make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090）
+make run-metric-center     # 编译并启动控制面（默认 http://localhost:8080；已默认传 --config.reload-url=http://localhost:9090/-/reload）
+make run-prometheus        # 编译并启动 Prometheus（默认 http://localhost:9090；--config.file 指向 config-output/prometheus.yml（首次自动 seed）并开启 --web.enable-lifecycle）
+make run-alertmanager      # 编译并启动 Alertmanager（默认 http://localhost:9093；--config.file 指向 config-output/alertmanager.yml（首次自动 seed），M08 静默代理/配置挂载依赖）
 make dev-ui                # 启动前端开发服务器（默认 http://localhost:5173）
 ```
+
+> 注意：`make run-metric-center` 会重新编译并启动新二进制；Makefile 已把 `upstream/prometheus`、`upstream/blackbox_exporter`、`upstream/alertmanager` 加入 PATH，M09 草稿校验才能找到 `promtool` / `blackbox_exporter`，M08 的 Alertmanager 配置挂载校验才能找到 `amtool`。后端代码改动后旧进程不会自动加载新逻辑，需先停止旧进程再执行 `make run-metric-center`。若手动启动二进制，必须显式导出 `PATH="$(pwd)/upstream/prometheus:$(pwd)/upstream/blackbox_exporter:$(pwd)/upstream/alertmanager:$PATH"`，否则草稿校验会卡在 `pending`（提示「promtool / amtool 不可调用」）。
+> 另外，旧逻辑生成的 `pending` 草稿会按 checksum 幂等返回；要验证新逻辑，需先废弃旧单，再重新触发变更。废弃会按决策 43 回滚源数据（如把禁用的 Job 恢复启用），典型验证动线：废弃旧单 → 重新禁用 → 生成新单 → 重校/确认。
 
 ### 5.3 测试
 
@@ -185,6 +190,9 @@ pnpm lint        # eslint . --ext ts,tsx
 
 ```bash
 make apply-patches         # 应用 patches/prometheus/*.patch 到上游源码
+make repo-map              # 生成业务代码符号地图 -> docs/04-source-architecture/repo-map.md（Agent 排障定位入口）
+make check-repo-map        # 校验符号地图新鲜度（pre-commit hook 与 CI 已强制）
+make install-git-hooks     # 启用项目级 git hooks（core.hooksPath=scripts/git-hooks；setup.sh 已集成）
 make clean                 # 清理构建产物
 bash scripts/review-precheck.sh -m module-XX  # 生成结构化审查预检报告 -> docs/05-execution-records/module-XX/review-precheck.md
 ```
@@ -310,6 +318,7 @@ pnpm lint     # eslint
 - [ ] `go test ./platform/...` 通过
 - [ ] `go vet ./platform/...` 通过
 - [ ] 前端 `pnpm test`、`pnpm lint` 通过
+- [ ] `make check-repo-map` 通过（涉及 `platform/` 或 `ui-custom/web/src/` 变更时；pre-commit hook 与 CI 已强制）
 - [ ] 后端服务能启动，`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 返回 200
 - [ ] 前端 dev server 能启动，首页返回 200
 - [ ] 验证完成后停止服务并释放端口
@@ -342,10 +351,15 @@ make run-prometheus
 make run-metric-center
 
 # 终端 3
+make run-alertmanager   # M08 场景（静默代理 / AM 配置挂载）需要；MVP 前端页面无需
+
+# 终端 4
 make dev-ui
 ```
 
 > 测试/生产环境建议将 `metric-center` 与 Prometheus 作为「一体化交付包」同机部署：一个安装包内同时包含两个二进制，由 systemd / supervisor / 启动脚本统一拉起，但二者仍是独立进程。M09 `local` 下发通道要求控制面能直接写 Prometheus 配置目录并触发 reload。详见 `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`。
+>
+> **生产目录规范（决策 64）**：生产部署对齐《业务软件标准化目录与权限配置操作手册》三目录基线——程序/种子配置 `/opt/apps/metric-center/`（只读）、数据 `/opt/data/metric-center/`（TSDB / SQLite / config-output 活配置）、日志 `/opt/log/metric-center/`，三目录由运维预建；交付包 `env/env.sh` 集中定义 `DATA_ROOT` / `LOG_ROOT` / TSDB 保留策略，`start.sh` 双模式（有 env.sh 走生产路径，否则回落包内 data/logs 解压即用）；活配置落 `/opt/data/.../config-output/` 以兼容程序目录只读红线。详见 `docs/06-mvp-e2e-testing/package-center-guide.md` §2.4。
 
 ### 10.2 Vercel 预览
 
@@ -373,8 +387,9 @@ docker run -p 9090:9090 prom/prometheus:latest
 
 项目采用 **双文件夹隔离 + 按功能子模块拆分 feature 分支** 模型。
 
+- **双轨制（v2.0 起）**：需求由 Orchestrator 按「五问」对话判定走 **Track A**（核心差异化功能：完整 PRD + 高保真原型 + ready 门禁）或 **Track B/B+**（通用标准能力：轻量 PRD 增量 + `dev-ready` 直派开发；B+ 涉安全敏感，强制 security-reviewer）；权威定义见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md` §1.0 与 `.kimi/agents/orchestrator.md`「需求分轨」。
 - **设计空间**：`CNCF_Monitor-worktree`，固定分支 `design/module-mvp-demo`，用于写 PRD、改原型。
-- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX-<功能名>` 做 Vibe Coding（并行推进多模块时可在开发空间额外 `git worktree add` 多目录）。
+- **开发空间**：`CNCF_Monitor-feature`，从 `develop` 创建/切换 `feat/module-XX-<功能名>` 做 Vibe Coding，**默认串行**（一个时间只开一个 feat 分支）；仅当零耦合任务确需并行时才额外 `git worktree add` 多目录（按需手段，用完即删）。
 
 1. **需求阶段**：`prototype-designer` 在设计空间产出 PRD 和可点击原型，分支 `design/module-mvp-demo`。
 2. **规划阶段**：`planner` 从 ready PRD 派生 L2（实现地图 + 代码实施计划）和 L3（`task-sequence.yaml`）。
@@ -382,6 +397,17 @@ docker run -p 9090:9090 prom/prometheus:latest
 4. **审查阶段**：`golang-reviewer`、`frontend-reviewer`、`security-reviewer` 独立审查。
 5. **合并阶段**：Orchestrator 在验证通过后以 `--no-ff` 合并到 `develop`。
 6. **验证阶段**：在 `develop` 重复执行测试和服务启动验证。
+
+### 功能详细设计提案（Design Proposal）
+
+当开发工程师需要针对某个核心功能编写详细设计、但暂不直接修改模块 PRD 时，使用 **design-proposal** 机制：
+
+- **位置**：`docs/05-execution-records/module-XX/design-proposals/<feature-name>.md`
+- **状态标记**：文档头部标注 `状态：draft / reviewing / approved / merged`
+- **评审**：由 Orchestrator 或 prototype-designer 评审；涉及跨模块契约的，必须先落档 `design-decisions.md`
+- **合并**：批准后由 prototype-designer 或原作者在 `design/module-mvp-demo` 分支将内容合并进主 PRD，PRD 版本 +1，Change Log 记录「吸收 design-proposal <feature-name>」
+- **归档**：合并后提案保留在 `design-proposals/` 目录，状态改为 `merged`，作为历史追溯
+- **模板**：由开发工程师按功能复杂度自行定义，最小需包含「需求背景 / 设计范围 / 详细设计 / 验收标准 / 与现有 PRD 差异点 / 合并计划」
 
 Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览见 `docs/03-engineering-standards/05_AI_Agent_Collaboration_Standard.md`。
 
@@ -404,6 +430,9 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 | `docs/02-product-requirements/Modules/Module_XX_*.md` | 各模块 PRD |
 | `docs/prototypes/module-XX/` | 可点击原型 |
 | `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md` | M09 部署形态与 Edge Sync Agent 代码组织决策 |
+| `docs/06-mvp-e2e-testing/README.md` | MVP 配置下发闭环 API 测试指导手册（local 通道，curl 动线 + 成功判据 + 排查表） |
+| `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md` | 前端访问后端部署拓扑决策：当前单机走 A2（相对路径 + metric-center 托管静态文件），未来前后端分离走 nginx 反代；含打包改造清单 |
+| `docs/04-source-architecture/repo-map.md` | 业务代码符号地图（`make repo-map` 生成，禁止手改）；Agent 排障按「符号 → 文件」定位的第一入口 |
 | `.kimi/AGENTS.md` | Kimi Agent 团队角色与工作流速查 |
 | `.kimi/agents/*.md` | 各 Agent 详细行为规则 |
 
@@ -417,4 +446,6 @@ Agent 行为规则的权威定义见 `.kimi/agents/*.md`；人视角流程概览
 - `patches/` 目录尚未创建；Makefile 已预留 `make apply-patches` 命令。
 - `upstream/alertmanager/` 与 `upstream/blackbox_exporter/` 已添加为 Git 子模块，支撑 MVP 的 M08 通知收敛与 M01/M09 blackbox 拨测；`upstream/node_exporter/` 保留子模块但当前不默认构建。
 - `platform/` 中部分目录（gateway、discovery、collector、storage、config）为预留结构，等待后续模块实现。
-- 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop` 并删除；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md`。
+- 跨模块联调分支策略已决策：每个版本末从 `develop` 切出短生命周期 `integration/vX.Y` 分支承载 Phase 5 联调，验收后 `--no-ff` 合回 `develop`、在合并点打版本基线 tag `baseline/vX.Y-*`（annotated，作为整版回退锚点）并删除分支；联调窗口内已合并的 `feat/module-XX` 冻结，避免冲突。详见 `docs/05-execution-records/module-00-infrastructure/integration-branch-strategy.md` 与 `docs/03-engineering-standards/06_Gitflow_Branch_and_Rollback_Guide.md` §2.5/§6.6。
+- 已新增代码定位机制：`scripts/repo-map`（Go AST + TS 导出正则）生成 `docs/04-source-architecture/repo-map.md` 符号地图（覆盖 `platform/` 与 `ui-custom/web/src/`，刻意排除 `upstream/`）；`.kimi/skills/code-navigation/` 定义「地图 → 符号 → 全文扫」的搜索升级阶梯，所有读写代码的 Agent 必须遵守。
+- 地图新鲜度已流程化强制：`scripts/check-repo-map.sh` 重新生成并对比（忽略时间戳行）；pre-commit hook（`make install-git-hooks` / `setup.sh` 启用）与 CI（`.github/workflows/check-repo-map.yml`）双重门禁，`review-precheck.sh` 报告同步包含新鲜度项。

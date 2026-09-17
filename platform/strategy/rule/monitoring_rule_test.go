@@ -11,7 +11,9 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -57,13 +59,19 @@ func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.R
 
 // rulesFixture 返回一份携带一组 groups 的合法规则 YAML。
 func rulesFixture() string {
-	return `
+	return rulesFixtureGroup("host-cpu-alerts")
+}
+
+// rulesFixtureGroup 返回携带指定组名的一组 groups 的合法规则 YAML
+// （group 名全局唯一约束下，多规则用例须用不同组名）。
+func rulesFixtureGroup(group string) string {
+	return fmt.Sprintf(`
 groups:
-- name: host-cpu-alerts
+- name: %s
   rules:
   - alert: HighCPU
     expr: node_cpu_usage > 0.9
-`
+`, group)
 }
 
 func TestValidateRuleYamlSyntax(t *testing.T) {
@@ -105,6 +113,31 @@ func TestCreateMonitoringRule(t *testing.T) {
 	assert.Equal(t, string(models.ChangeStatusPending), string(out.Data.ChangeStatus))
 }
 
+// TestCreateMonitoringRuleDefaultEnabled 覆盖「创建默认启用」（M01 PRD §8，与采集
+// Job 对齐）：请求体不传 enabled 时必须默认 true，不得以零值 false 落库造成
+// 「保存并提交后规则变停用」。
+func TestCreateMonitoringRuleDefaultEnabled(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 不传 enabled → 默认启用。
+	body := fmt.Sprintf(`{"rule_content":%s,"name":"default-enabled"}`, jsonString(rulesFixture()))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Enabled, "缺省 enabled 应默认 true")
+
+	// 显式传 enabled=false → 尊重调用方（停用挂载场景）。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"explicit-disabled","enabled":false}`, jsonString(rulesFixture()))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.False(t, out.Data.Enabled, "显式 enabled=false 应落库为停用")
+}
+
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
@@ -114,12 +147,17 @@ func TestListUpdateDeleteMonitoringRule(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
 
-	// 创建两条规则。
+	// 创建两条规则（生效规则合并为同一份 rules.yml，组名须全局唯一）。
 	for _, name := range []string{"cpu-rules", "disk-rules"} {
-		body := fmt.Sprintf(`{"rule_content":%s,"name":%s,"enabled":true}`, jsonString(rulesFixture()), jsonString(name))
+		body := fmt.Sprintf(`{"rule_content":%s,"name":%s,"enabled":true}`, jsonString(rulesFixtureGroup(name+"-grp")), jsonString(name))
 		w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
 		require.Equal(t, http.StatusOK, w.Code)
 	}
+	// 新建规则 change_status=pending（F-25 禁止编辑/删除），此处测的是常规
+	// CRUD 链路，先将状态流转为非 pending（模拟 M09 变更单已确认下发）。
+	require.NoError(t, db.Model(&models.MonitoringRule{}).
+		Where("change_status = ?", models.ChangeStatusPending).
+		Update("change_status", models.ChangeStatusDeployed).Error)
 
 	// 关键字筛选。
 	w := perform(t, r, http.MethodGet, "/api/v2/platform/monitoring-rules?keyword=cpu", "")
@@ -212,4 +250,463 @@ func TestValidateYAMLEndpoint(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &badResp))
 	assert.False(t, badResp.Data.Valid)
 	assert.NotEmpty(t, badResp.Data.Error)
+}
+
+// TestValidateYamlGroupNameConflict 覆盖决策 69-1：组名全局唯一性并入 validate-yaml 预检，
+// 且与提交侧**同口径**——仅生效规则占用组名、编辑排除自身、停用规则不校验。
+// 「检查通过 ⇒ 提交不会被组名冲突打回」的判定基础即由本用例固化。
+func TestValidateYamlGroupNameConflict(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 先建一条生效规则，占用 shared-grp。
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"rule-a"}`, jsonString(rulesFixtureGroup("shared-grp"))))
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.NotZero(t, created.Data.ID)
+
+	// 预检辅助：HTTP 恒 200（预检不是提交），成败由 data.valid 表达。
+	validate := func(id uint, content string) (bool, string) {
+		t.Helper()
+		w := perform(t, r, http.MethodPost,
+			fmt.Sprintf("/api/v2/platform/monitoring-rules/%d/validate-yaml", id),
+			fmt.Sprintf(`{"rule_content":%s}`, jsonString(content)))
+		require.Equal(t, http.StatusOK, w.Code)
+		var out struct {
+			Data struct {
+				Valid bool   `json:"valid"`
+				Error string `json:"error"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		return out.Data.Valid, out.Data.Error
+	}
+
+	// ① 新建（:id=0）撞名 → valid=false + error 点名占用方。
+	valid, errMsg := validate(0, rulesFixtureGroup("shared-grp"))
+	assert.False(t, valid, "与生效规则组名冲突 → 预检不通过")
+	assert.Contains(t, errMsg, "shared-grp")
+	assert.Contains(t, errMsg, "rule-a")
+
+	// ② 编辑同一条规则（:id 命中自身）→ 排除自身 → 通过。
+	valid, _ = validate(created.Data.ID, rulesFixtureGroup("shared-grp"))
+	assert.True(t, valid, "编辑自身不得因自身占用而报冲突")
+
+	// ③ 编辑一条停用规则，组名与生效规则重复 → 提交侧同样跳过（update.go 的
+	//    enabled && draft_status=ready 条件），预检须一致放行，否则用户失去唯一出口。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"rule-c","enabled":false}`, jsonString(rulesFixtureGroup("shared-grp"))))
+	require.Equal(t, http.StatusOK, w.Code)
+	var disabled struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &disabled))
+	require.False(t, disabled.Data.Enabled)
+	valid, _ = validate(disabled.Data.ID, rulesFixtureGroup("shared-grp"))
+	assert.True(t, valid, "停用规则不下发、不参与合并，预检须镜像提交侧跳过")
+
+	// ④ 不冲突的新组名 → 通过。
+	valid, _ = validate(0, rulesFixtureGroup("brand-new-grp"))
+	assert.True(t, valid)
+}
+
+// TestValidateYamlJobRef 覆盖决策 66：validate-yaml 在 YAML 语法通过后追加 job 引用
+// 语义校验。生效（enabled+ready）Job 命中 → 无问题；缺失 job → error（up 存活类）/
+// warning（非存活类）；但 valid 恒为 true——job 引用是另一根可经逃生门覆盖的轴
+// （决策 67-2），不改写 valid。
+func TestValidateYamlJobRef(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	db, err := gorm.Open(sqlite.Open("file:jobref?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.MonitoringRule{}))
+	RegisterRoutes(r.Group("/api/v2/platform"), db)
+
+	job := &models.ScrapeJob{
+		JobName: "ceshi", JobType: models.JobTypeStandard,
+		ResourceType: models.ResourceTypeHost, NetworkDomainID: "d1",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+		Scheme: "http", AuthType: models.AuthTypeNone,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusDeployed, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	content := `
+groups:
+- name: g
+  rules:
+  - alert: HostDown
+    expr: absent(up{job="miss"})
+  - alert: HighCPU
+    expr: node_cpu_usage{job="mysql"} > 0.9
+  - alert: OK
+    expr: up{job="ceshi"}
+`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules/1/validate-yaml",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(content)))
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Valid  bool           `json:"valid"`
+			JobRef []jobref.Issue `json:"job_ref"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Valid, "job 引用不阻断 valid（编辑期仅提示）")
+	require.Len(t, out.Data.JobRef, 2, "仅两条缺失 job 的问题：HostDown error、HighCPU warning")
+	sev := map[string]bool{}
+	for _, it := range out.Data.JobRef {
+		sev[string(it.Severity)] = true
+	}
+	assert.True(t, sev[string(jobref.SeverityError)], "absent(up) 缺失 job → error")
+	assert.True(t, sev[string(jobref.SeverityWarning)], "非存活类缺失 job → warning")
+}
+
+// TestValidateYamlJobRefAllExisting 覆盖决策 66：引用的 job 全部生效 → job_ref 为空。
+func TestValidateYamlJobRefAllExisting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	db, err := gorm.Open(sqlite.Open("file:jobref_ok?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.MonitoringRule{}))
+	RegisterRoutes(r.Group("/api/v2/platform"), db)
+	job := &models.ScrapeJob{
+		JobName: "ceshi", JobType: models.JobTypeStandard,
+		ResourceType: models.ResourceTypeHost, NetworkDomainID: "d1",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+		Scheme: "http", AuthType: models.AuthTypeNone,
+		DraftStatus: "ready", ChangeStatus: models.ChangeStatusDeployed, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules/1/validate-yaml",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(fixtureForJobRef("ceshi"))))
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Valid  bool           `json:"valid"`
+			JobRef []jobref.Issue `json:"job_ref"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.True(t, out.Data.Valid)
+	assert.Len(t, out.Data.JobRef, 0, "引用的 job 存在 → 无 job 引用问题")
+}
+
+// TestCreateMonitoringRuleJobRefGate 覆盖决策 67-2：error 级（存活类缺 job）默认阻断
+// 创建，返回 400 + errorType=job_ref_unresolved（区别于普通 bad_request）；携带逃生门
+// ack_job_ref_errors=true 时放行；warning 级（非存活类缺 job）不阻断。
+func TestCreateMonitoringRuleJobRefGate(t *testing.T) {
+	db := openTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}))
+	r := mountRoutes(t, db)
+
+	errContent := `
+groups:
+- name: grp-err
+  rules:
+  - alert: HostDown
+    expr: absent(up{job="miss"})
+`
+	resp := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"r-err"}`, jsonString(errContent)))
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	var out struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+		Error     string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	assert.Equal(t, "error", out.Status)
+	assert.Equal(t, response.ErrorTypeJobRefUnresolved, out.ErrorType,
+		"error 级 job 引用须以专用 errorType 拒绝，供前端识别逃生门可重试")
+	assert.Contains(t, out.Error, "miss")
+
+	// 逃生门：用户显式确认「先挂规则，稍后补建 Job」→ 放行
+	resp = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"r-err","ack_job_ref_errors":true}`, jsonString(errContent)))
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// warning 级（非存活类缺 job）不阻断提交
+	warnContent := `
+groups:
+- name: grp-warn
+  rules:
+  - alert: Cpu
+    expr: node_cpu_usage{job="ghost"} > 0.9
+`
+	resp = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules",
+		fmt.Sprintf(`{"rule_content":%s,"name":"r-warn"}`, jsonString(warnContent)))
+	require.Equal(t, http.StatusOK, resp.Code)
+}
+
+// TestUpdateMonitoringRuleJobRefGate 覆盖决策 67-2 的编辑侧门禁：仅当请求携
+// rule_content 时执行（避免列表页启停/改名被历史数据意外阻断）；error 级默认阻断，
+// 逃生门放行。
+func TestUpdateMonitoringRuleJobRefGate(t *testing.T) {
+	db := openTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}))
+	r := mountRoutes(t, db)
+
+	// 建一条无 job 引用的规则，并复位 change_status（pending 规则按决策 44-1 禁止编辑）
+	body := fmt.Sprintf(`{"rule_content":%s,"name":"r1"}`, jsonString(rulesFixtureGroup("upd-grp")))
+	resp := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, resp.Code)
+	require.NoError(t, db.Model(&models.MonitoringRule{}).Where("name = ?", "r1").
+		Update("change_status", models.ChangeStatusNone).Error)
+
+	errContent := `
+groups:
+- name: upd-grp
+  rules:
+  - alert: HostDown
+    expr: absent(up{job="miss"})
+`
+	resp = perform(t, r, http.MethodPut, "/api/v2/platform/monitoring-rules/1",
+		fmt.Sprintf(`{"rule_content":%s}`, jsonString(errContent)))
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	var out struct {
+		ErrorType string `json:"errorType"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+	assert.Equal(t, response.ErrorTypeJobRefUnresolved, out.ErrorType)
+
+	// 逃生门放行
+	resp = perform(t, r, http.MethodPut, "/api/v2/platform/monitoring-rules/1",
+		fmt.Sprintf(`{"rule_content":%s,"ack_job_ref_errors":true}`, jsonString(errContent)))
+	require.Equal(t, http.StatusOK, resp.Code)
+
+	// 不带 rule_content 的改名请求：不触达门禁（内容未变，不应因历史数据被阻断）
+	resp = perform(t, r, http.MethodPut, "/api/v2/platform/monitoring-rules/1", `{"name":"r1-renamed"}`)
+	require.Equal(t, http.StatusOK, resp.Code)
+}
+
+// TestEffectiveJobNamesScope 覆盖决策 67-4 的统一输入集：central（规则为全局资源）
+// 取全域并集；edge 取本域；网域为空时不判定。MVP 单域下 central 即全库，与历史等价。
+func TestEffectiveJobNamesScope(t *testing.T) {
+	db := openTestDB(t)
+	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}))
+	newJob := func(name, domain, draftStatus string, enabled bool) *models.ScrapeJob {
+		return &models.ScrapeJob{
+			JobName: name, JobType: models.JobTypeStandard,
+			ResourceType: models.ResourceTypeHost, NetworkDomainID: domain,
+			InstanceSelectionMode: models.InstanceSelectionManual,
+			ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics",
+			Scheme: "http", AuthType: models.AuthTypeNone,
+			DraftStatus: draftStatus, ChangeStatus: models.ChangeStatusDeployed, Enabled: enabled,
+		}
+	}
+	require.NoError(t, db.Create(newJob("job-a", "d1", "ready", true)).Error)
+	require.NoError(t, db.Create(newJob("job-b", "d2", "ready", true)).Error)
+	require.NoError(t, db.Create(newJob("job-off", "d1", "ready", false)).Error)
+	require.NoError(t, db.Create(newJob("job-draft", "d1", "draft", true)).Error)
+
+	// central：全域并集（规则会进入每个网域的 rules.yml）
+	require.ElementsMatch(t, []string{"job-a", "job-b"}, effectiveJobNames(db, models.ScopeTypeCentral, ""))
+	// edge：仅本域（disabled / draft 均不计入）
+	require.Equal(t, []string{"job-a"}, effectiveJobNames(db, models.ScopeTypeEdge, "d1"))
+	// edge 未指定网域：不判定（返回空集合）
+	require.Nil(t, effectiveJobNames(db, models.ScopeTypeEdge, ""))
+}
+
+// fixtureForJobRef 返回引用指定 job_name 的合法规则 YAML。
+func fixtureForJobRef(jobName string) string {
+	return fmt.Sprintf(`
+groups:
+- name: g
+  rules:
+  - alert: OK
+    expr: up{%s} != 0
+  - alert: Cpu
+    expr: node_cpu_usage{%s} > 0.9
+`, fmt.Sprintf("job=%q", jobName), fmt.Sprintf("job=%q", jobName))
+}
+// TestExtractGroupNames 覆盖 group 名提取：空 name、文件内重名均报错。
+func TestExtractGroupNames(t *testing.T) {
+	names, err := extractGroupNames("groups:\n- name: a\n  rules: []\n- name: b\n  rules: []\n")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, names)
+
+	_, err = extractGroupNames("groups:\n- rules: []\n")
+	require.Error(t, err, "空 name 应报错")
+
+	_, err = extractGroupNames("groups:\n- name: a\n  rules: []\n- name: a\n  rules: []\n")
+	require.Error(t, err, "文件内重名应报错")
+}
+
+// TestCreateMonitoringRuleGroupNameConflict 覆盖「生效规则合并为同一份 rules.yml，
+// group 名全局唯一」：与已生效规则重名 → 400；组名不同或自身停用 → 放行。
+func TestCreateMonitoringRuleGroupNameConflict(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	body := fmt.Sprintf(`{"rule_content":%s,"name":"rule-a"}`, jsonString(rulesFixtureGroup("shared-grp")))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 重名（新规则默认启用）→ bad_request，错误信息点名占用方。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "shared-grp")
+	assert.Contains(t, w.Body.String(), "rule-a")
+
+	// 组名不同 → 放行。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"rule-b"}`, jsonString(rulesFixtureGroup("other-grp")))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 显式停用创建：不下发，不做唯一性校验 → 放行。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"rule-c","enabled":false}`, jsonString(rulesFixtureGroup("shared-grp")))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+// TestCreateMonitoringRuleMonitorType 覆盖 monitor_type：非法值 400；合法值落库；
+// 可空（PRD §5.5 透传模式可空）。
+func TestCreateMonitoringRuleMonitorType(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	// 非法 monitor_type → bad_request。
+	body := fmt.Sprintf(`{"rule_content":%s,"monitor_type":"not_a_type"}`, jsonString(rulesFixture()))
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "monitor_type")
+
+	// 合法 monitor_type → 落库。
+	body = fmt.Sprintf(`{"rule_content":%s,"monitor_type":"mysql","name":"mysql-rules"}`, jsonString(rulesFixture()))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "mysql", out.Data.MonitorType)
+
+	// 不传 monitor_type → 可空放行。
+	body = fmt.Sprintf(`{"rule_content":%s,"name":"no-type"}`, jsonString(rulesFixtureGroup("no-type-grp")))
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// monitor_type 列表筛选。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/monitoring-rules?monitor_type=mysql", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var listOut struct {
+		Data struct {
+			List  []models.MonitoringRule `json:"list"`
+			Total int64                   `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &listOut))
+	require.Equal(t, int64(1), listOut.Data.Total)
+	assert.Equal(t, "mysql-rules", listOut.Data.List[0].Name)
+}
+
+// TestUpdateMonitoringRuleGroupNameConflict 覆盖更新路径的唯一性校验：
+// 改内容撞名 400；排除自身；占用方停用后放行；monitor_type 非法 400。
+func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	create := func(name, group string) uint {
+		body := fmt.Sprintf(`{"rule_content":%s,"name":%s}`, jsonString(rulesFixtureGroup(group)), jsonString(name))
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/monitoring-rules", body)
+		require.Equal(t, http.StatusOK, w.Code)
+		var out struct {
+			Data models.MonitoringRule `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		return out.Data.ID
+	}
+	idA := create("rule-a", "grp-a")
+	idB := create("rule-b", "grp-b")
+	// 新建规则 change_status=pending（F-25 禁止编辑/删除），此处测的是常规更新
+	// 校验链路，先将状态流转为非 pending（模拟 M09 变更单已确认下发）。
+	require.NoError(t, db.Model(&models.MonitoringRule{}).
+		Where("change_status = ?", models.ChangeStatusPending).
+		Update("change_status", models.ChangeStatusDeployed).Error)
+
+	// 自身内容不变、仅改名字 → 排除自身，不应误判冲突。
+	w := perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), `{"name":"rule-b-v2"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 更新内容撞上 rule-a 的组名 → bad_request。
+	body := fmt.Sprintf(`{"rule_content":%s}`, jsonString(rulesFixtureGroup("grp-a")))
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), body)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "grp-a")
+
+	// 非法 monitor_type → bad_request。
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), `{"monitor_type":"bad"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code)
+
+	// 合法 monitor_type → 落库。
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), `{"monitor_type":"redis"}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.MonitoringRule `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "redis", out.Data.MonitorType)
+
+	// 停用 rule-a 后，grp-a 释放 → rule-b 可改用。
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idA), `{"enabled":false}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	w = perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", idB), body)
+	require.Equal(t, http.StatusOK, w.Code)
+}
+
+// F-25 / 决策 44-1：change_status=pending 的规则已挂起待确认变更单，编辑/删除
+// 均拒绝（409），与采集 Job 侧一致；none/confirmed/deployed 状态不受影响。
+func TestUpdateDeletePendingRuleRejected(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+
+	seedRule := func(name string, status models.ChangeStatus) uint {
+		rule := &models.MonitoringRule{
+			Name:         name,
+			ContentMode:  models.RuleContentModeYAMLPassthrough,
+			RuleContent:  rulesFixtureGroup(name + "-grp"),
+			Scope:        models.ScopeTypeCentral,
+			Enabled:      false, // 停用，规避 group 名全局唯一校验，聚焦 409 语义。
+			DraftStatus:  "ready",
+			ChangeStatus: status,
+		}
+		require.NoError(t, db.Create(rule).Error)
+		return rule.ID
+	}
+
+	pendingID := seedRule("rule-pending", models.ChangeStatusPending)
+
+	// 编辑 → 409 conflict，且字段未被修改。
+	w := perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", pendingID), `{"name":"rule-pending-v2"}`)
+	require.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), "待确认变更单")
+	var reloaded models.MonitoringRule
+	require.NoError(t, db.First(&reloaded, pendingID).Error)
+	assert.Equal(t, "rule-pending", reloaded.Name, "pending 规则不得被修改")
+
+	// 删除 → 409 conflict，且记录仍在。
+	w = perform(t, r, http.MethodDelete, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", pendingID), "")
+	require.Equal(t, http.StatusConflict, w.Code)
+	require.NoError(t, db.First(&reloaded, pendingID).Error, "pending 规则不得被删除")
+
+	// none / confirmed / deployed 状态编辑、删除均放行。
+	for _, status := range []models.ChangeStatus{
+		models.ChangeStatusNone,
+		models.ChangeStatusConfirmed,
+		models.ChangeStatusDeployed,
+	} {
+		id := seedRule("rule-"+string(status), status)
+		w := perform(t, r, http.MethodPut, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", id), `{"name":"renamed"}`)
+		require.Equal(t, http.StatusOK, w.Code, "status=%s 应允许编辑", status)
+		w = perform(t, r, http.MethodDelete, fmt.Sprintf("/api/v2/platform/monitoring-rules/%d", id), "")
+		require.Equal(t, http.StatusOK, w.Code, "status=%s 应允许删除", status)
+	}
 }

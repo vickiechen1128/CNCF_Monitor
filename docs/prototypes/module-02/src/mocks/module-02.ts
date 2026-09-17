@@ -202,7 +202,7 @@ export const scrapeTargets: ScrapeTarget[] = [
   },
 ]
 
-/** 采集健康度/覆盖率（PRD 3.1，v0.2 交付，M07 三态 badge 联动） */
+/** 采集健康度/覆盖率（PRD 3.1，决策 47-3 提前到 MVP，M07 三态 badge 联动） */
 export interface CoverageStat {
   domain: string
   monitored_up: number

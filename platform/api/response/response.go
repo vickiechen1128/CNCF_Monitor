@@ -26,8 +26,20 @@ const (
 	ErrorTypeForbidden = "forbidden"
 	// ErrorTypeNotFound represents a missing resource error.
 	ErrorTypeNotFound = "not_found"
+	// ErrorTypeTooManyRequests represents transient rate-limiting rejection
+	// (M-1 登录失败限流：HTTP 429）。
+	ErrorTypeTooManyRequests = "too_many_requests"
 	// ErrorTypeInternal represents a server-side internal error.
 	ErrorTypeInternal = "internal"
+	// ErrorTypeBadGateway represents an upstream dependency (e.g. center
+	// Alertmanager) being unreachable / failing, so the gateway proxy cannot
+	// fulfil the request.
+	ErrorTypeBadGateway = "bad_gateway"
+	// ErrorTypeJobRefUnresolved represents a request rejected because the rule
+	// carries error-level unresolvable job references without an explicit
+	// acknowledgement (决策 67-2). HTTP 400，errorType 供前端区分「可勾选逃生门
+	// 重试」与普通参数错误。
+	ErrorTypeJobRefUnresolved = "job_ref_unresolved"
 )
 
 // Response is the unified JSON response structure.
@@ -99,6 +111,13 @@ func BadRequest(c *gin.Context, err error) {
 	c.JSON(http.StatusBadRequest, Fail(ErrorTypeBadRequest, err))
 }
 
+// BadRequestWithType writes a 400 response with a caller-specified errorType,
+// 保持统一信封的同时让前端可区分可预期的业务拒绝（如 job_ref_unresolved，
+// 决策 67-2）。仅用于 400 族，勿传 ErrorTypeInternal（会走内部错误脱敏路径）。
+func BadRequestWithType(c *gin.Context, errorType string, err error) {
+	c.JSON(http.StatusBadRequest, Fail(errorType, err))
+}
+
 // Unauthorized writes an unauthorized response to the gin context.
 func Unauthorized(c *gin.Context, message string) {
 	c.JSON(http.StatusUnauthorized, Fail(ErrorTypeUnauthorized, strError(message)))
@@ -114,9 +133,29 @@ func NotFound(c *gin.Context, message string) {
 	c.JSON(http.StatusNotFound, Fail(ErrorTypeNotFound, strError(message)))
 }
 
+// TooManyRequests writes a rate-limit rejection (HTTP 429) to the gin context
+// (M-1：登录失败限流触发锁定）。
+func TooManyRequests(c *gin.Context, message string) {
+	c.JSON(http.StatusTooManyRequests, Fail(ErrorTypeTooManyRequests, strError(message)))
+}
+
 // InternalServerError writes an internal server error response to the gin context.
 func InternalServerError(c *gin.Context, err error) {
 	c.JSON(http.StatusInternalServerError, Error(err))
+}
+
+// BadGateway writes a 502 Bad Gateway response for an upstream dependency failure.
+// 安全原则与 ErrorTypeInternal 一致：真实 cause（err）只写日志，不回显给客户端；
+// Error 字段回显固定且可执行的引导文案（如「中心 Alertmanager 未启动」），避免
+// 泄露内网地址 / 超时细节，也避免用户误读为平台自身崩溃。
+func BadGateway(c *gin.Context, err error, message string) {
+	if err != nil {
+		log.Printf("upstream dependency error: %v", err)
+	}
+	if message == "" {
+		message = "上游依赖服务不可达，请稍后重试"
+	}
+	c.JSON(http.StatusBadGateway, Fail(ErrorTypeBadGateway, strError(message)))
 }
 
 // strError converts a plain message string into a non-nil error.

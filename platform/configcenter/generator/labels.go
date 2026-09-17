@@ -50,10 +50,9 @@ func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, a
 	return labels
 }
 
-// mergeIntoLabels 将模板展开标签与应用层（user）标签按优先级并入。
-// 本实现将模板展开视为 user 语义（MVP 无 cmdb），system 为空集。
-func mergeIntoLabels(templateLabels map[string]string) map[string]string {
-	// MVP：无 system / cmdb 层加入，仅规范化去重映射。
-	// 保留扩展位：如需 system 层保护标签，调用 mergeLabels 即可。
-	return mergeLabels(nil, templateLabels, nil)
+// mergeIntoLabels 将模板展开标签与 system 层身份标签按优先级并入。
+// system 层（如 resource_id，决策 47-3 coverage 回连键）受保护，模板展开
+// 视为 user 语义（MVP 无 cmdb），不可覆盖 system。
+func mergeIntoLabels(system, templateLabels map[string]string) map[string]string {
+	return mergeLabels(system, templateLabels, nil)
 }

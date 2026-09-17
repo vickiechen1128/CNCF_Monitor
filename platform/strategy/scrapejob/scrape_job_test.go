@@ -157,6 +157,84 @@ func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T) {
 	assert.Equal(t, string(models.ChangeStatusPending), string(out.Data.ChangeStatus), "创建后 change_status=pending")
 }
 
+// F-28：无默认映射时，留空采集参数按全局兜底常量解析（15s/10s//metrics/http）。
+func TestCreateScrapeJobGlobalDefaultFallback(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	body := `{"job_name":"sparse-job","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, models.DefaultScrapeInterval, out.Data.ScrapeInterval)
+	assert.Equal(t, models.DefaultScrapeTimeout, out.Data.ScrapeTimeout)
+	assert.Equal(t, models.DefaultMetricsPath, out.Data.MetricsPath)
+	assert.Equal(t, models.DefaultScheme, out.Data.Scheme)
+}
+
+// F-28：映射稀疏留空时，metrics_path/scheme 继续回落到采集器模板默认值。
+func TestCreateScrapeJobTemplateFallback(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	tmplID := seedExporter(t, db, "node-exporter") // 模板自带 /metrics + http
+	// 稀疏映射：仅覆盖间隔/超时，路径与协议留空（=继承采集器模板）。
+	require.NoError(t, db.Create(&models.CITypeExporterMapping{
+		MonitorType: "host_linux", ExporterTemplateID: tmplID, IsDefault: true, DefaultPort: 9100,
+		ScrapeInterval: "30s", ScrapeTimeout: "20s",
+	}).Error)
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+
+	body := `{"job_name":"tpl-fallback","job_type":"standard","monitor_type":"host_linux","network_domain_id":"default","selected_instance_ids":["host-1"],"enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "30s", out.Data.ScrapeInterval, "映射层覆盖")
+	assert.Equal(t, "20s", out.Data.ScrapeTimeout)
+	assert.Equal(t, "/metrics", out.Data.MetricsPath, "映射留空 → 回落采集器模板")
+	assert.Equal(t, "http", out.Data.Scheme)
+}
+
+// F-28：更新时清空某参数字段 = 恢复继承，保存时重新解析为映射快照。
+func TestUpdateScrapeJobClearFieldReInherits(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	tmplID := seedExporter(t, db, "node-exporter")
+	require.NoError(t, db.Create(&models.CITypeExporterMapping{
+		MonitorType: "host_linux", ExporterTemplateID: tmplID, IsDefault: true, DefaultPort: 9100,
+		MetricsPath: "/metrics", Scheme: "http", ScrapeInterval: "30s", ScrapeTimeout: "20s",
+	}).Error)
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "60s", ScrapeTimeout: "10s", MetricsPath: "/custom", Scheme: "https",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// 清空 scrape_interval 与 metrics_path → 恢复继承映射默认值。
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"scrape_interval":"","metrics_path":""}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, "30s", out.Data.ScrapeInterval, "清空后回落映射默认")
+	assert.Equal(t, "/metrics", out.Data.MetricsPath)
+	assert.Equal(t, "10s", out.Data.ScrapeTimeout, "未清空字段保持用户值")
+	assert.Equal(t, "https", out.Data.Scheme)
+}
+
 func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
@@ -275,7 +353,7 @@ func TestUpdateScrapeJobJobTypeSwitch(t *testing.T) {
 		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
 		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
 		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
-		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
 	}
 	require.NoError(t, db.Create(job).Error)
 	jobID := strconv.FormatUint(uint64(job.ID), 10)
@@ -321,7 +399,7 @@ func TestUpdateAndDeleteScrapeJob(t *testing.T) {
 		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
 		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
 		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
-		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
 	}
 	require.NoError(t, db.Create(job).Error)
 
@@ -352,6 +430,119 @@ func TestUpdateAndDeleteScrapeJob(t *testing.T) {
 	// 未命中 not_found。
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/999999", "")
 	require.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// 回归：软删后重建同名 Job 应成功，而不是命中 DB 唯一索引抛 internal error
+// （create.go 用 Unscoped 查找软删残留并在重建前物理清理）。
+func TestCreateScrapeJobRecreateAfterSoftDelete(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+
+	// 先创建一个草稿 Job（change_status=none，可删除）。
+	body := `{"job_name":"recreate-me","job_type":"standard","monitor_type":"mysql","network_domain_id":"default","draft_status":"draft","enabled":true}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	jobID := strconv.FormatUint(uint64(created.Data.ID), 10)
+
+	// 软删该 Job。
+	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+jobID, "")
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// 重建同名 Job：应 200 成功，而不是 500 internal error。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code, "软删后重建同名 Job 应成功（避免 uniqueIndex 冲突 500）")
+
+	// 活跃同名仍应冲突。
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusConflict, w.Code)
+}
+
+// F-03：mapping_overrides 持久化——创建时透传落库，GET 列表可读回；
+// 更新时修改 mapping_overrides 后读回为新值。
+func TestScrapeJobMappingOverridesRoundTrip(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+
+	// 创建（草稿路径，仅基础校验）带 mapping_overrides。
+	body := `{"job_name":"ov-job","job_type":"standard","network_domain_id":"default","draft_status":"draft","enabled":true,"mapping_overrides":[{"field":"scrape_interval","value":"30s"},{"field":"scheme","value":"https"}]}`
+	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+	require.Equal(t, http.StatusOK, w.Code)
+	var created struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &created))
+	require.Len(t, created.Data.MappingOverrides, 2)
+	assert.Equal(t, models.MappingOverride{Field: "scrape_interval", Value: "30s"}, created.Data.MappingOverrides[0])
+
+	// GET 列表读回持久化值。
+	w = perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs?keyword=ov-job", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var list struct {
+		Data struct {
+			List []models.ScrapeJob `json:"list"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &list))
+	require.Len(t, list.Data.List, 1)
+	require.Len(t, list.Data.List[0].MappingOverrides, 2)
+	assert.Equal(t, "https", list.Data.List[0].MappingOverrides[1].Value)
+
+	// 更新 mapping_overrides → 读回为新值（PUT 走完整校验链路，种子用 change_status=none 的
+	// 完整合法 Job，避免草稿 Job 参数不全被校验拦截）。
+	job := &models.ScrapeJob{
+		JobName: "ov-job-2", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusNone, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+	w = perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"mapping_overrides":[{"field":"metrics_path","value":"/custom"}]}`)
+	require.Equal(t, http.StatusOK, w.Code)
+	var updated struct {
+		Data models.ScrapeJob `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &updated))
+	require.Len(t, updated.Data.MappingOverrides, 1)
+	assert.Equal(t, models.MappingOverride{Field: "metrics_path", Value: "/custom"}, updated.Data.MappingOverrides[0])
+
+	var reloaded models.ScrapeJob
+	require.NoError(t, db.First(&reloaded, job.ID).Error)
+	require.Len(t, reloaded.MappingOverrides, 1)
+	assert.Equal(t, "metrics_path", reloaded.MappingOverrides[0].Field)
+}
+
+// 决策 44-1：change_status=pending 的 job 已挂起待确认变更单，编辑/删除均拒绝（409）。
+func TestUpdateDeletePendingJobRejected(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	job := &models.ScrapeJob{
+		JobName: "node-pending", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
+		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// 编辑 → 409 conflict，且字段未被修改。
+	w := perform(t, r, http.MethodPut, "/api/v2/platform/scrape-jobs/"+jobID, `{"scrape_interval":"60s"}`)
+	require.Equal(t, http.StatusConflict, w.Code)
+	var reloaded models.ScrapeJob
+	require.NoError(t, db.First(&reloaded, job.ID).Error)
+	assert.Equal(t, "15s", reloaded.ScrapeInterval, "pending job 不得被修改")
+
+	// 删除 → 409 conflict，且记录仍在。
+	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+jobID, "")
+	require.Equal(t, http.StatusConflict, w.Code)
+	require.NoError(t, db.First(&reloaded, job.ID).Error)
 }
 
 func TestInstanceCandidatesHostOfflineGrey(t *testing.T) {
@@ -435,9 +626,18 @@ func TestConfirmAndCancelInstallation(t *testing.T) {
 	require.Len(t, out.Data.Items, 1)
 	assert.Equal(t, "confirmed", out.Data.Items[0].Status)
 
-	// confirmed_by 非法 → bad_request。
+	// review-fix C：confirmed_by 不再信任客户端传参（伪鉴权移除）——请求体携带伪造
+	// confirmed_by 会被忽略，操作人从认证上下文当前用户派生；本测试无认证用户，回落 "unknown"。
 	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs/"+jobID+"/instances/host-1/confirm", `{"confirmed_by":"evil"}`)
-	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Equal(t, http.StatusOK, w.Code)
+	var cfm struct {
+		Data struct {
+			ConfirmedBy string `json:"confirmed_by"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &cfm))
+	assert.NotEqual(t, "evil", cfm.Data.ConfirmedBy, "客户端伪造 confirmed_by 须被忽略")
+	assert.Equal(t, "unknown", cfm.Data.ConfirmedBy, "无认证用户时回落 unknown")
 
 	// 取消确认。
 	w = perform(t, r, http.MethodDelete, "/api/v2/platform/scrape-jobs/"+jobID+"/instances/host-1/confirm", "")
@@ -467,6 +667,40 @@ func TestConfirmInstallationNotInSetRejected(t *testing.T) {
 	// host-2 不在选中集 → bad_request。
 	w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs/"+strconv.FormatUint(uint64(job.ID), 10)+"/instances/host-2/confirm", `{"confirmed_by":"platform_admin"}`)
 	require.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestListInstancesShowsUnconfirmedWithoutGate（决策 47-1：安装确认拆闸门）：
+// 未做任何确认登记的已选实例仍出现在实例列表中（状态 unconfirmed）——确认是可选登记、
+// 非生成闸门，未确认实例不被排除。
+func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	seedHost(t, db, "host-1", "default", "10.0.1.1", "online")
+	job := &models.ScrapeJob{
+		JobName: "node-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeHost,
+		MonitorType: "host_linux", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"host-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+	jobID := strconv.FormatUint(uint64(job.ID), 10)
+
+	// 未确认登记 → 实例仍在列表，状态为 unconfirmed（决策 47-1：不阻断实例展示）。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/"+jobID+"/instances", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			Items []jobInstanceItem `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	require.Len(t, out.Data.Items, 1)
+	assert.Equal(t, "host-1", out.Data.Items[0].ResourceID)
+	assert.Equal(t, "host-host-1", out.Data.Items[0].InstanceName)
+	assert.Equal(t, "10.0.1.1", out.Data.Items[0].InstanceIP)
+	assert.Equal(t, "unconfirmed", out.Data.Items[0].Status)
 }
 
 func TestPreviewTargetsStandardAndBlackbox(t *testing.T) {

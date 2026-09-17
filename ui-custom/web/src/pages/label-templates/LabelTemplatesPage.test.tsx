@@ -79,13 +79,19 @@ describe('LabelTemplatesPage', () => {
       status: 'success',
       data: {
         list: [
-          templateItem(1, '主机默认模板', { is_default: true, mappings: [] as never, instance_count: 3 }),
+          templateItem(1, '主机默认模板', {
+            is_default: true,
+            mappings: [] as never,
+            instance_count: 3,
+            resource_category: 'application',
+          }),
           templateItem(2, '支付自定义模板', {
             mappings: [
               { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
               { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
             ] as LabelTemplateListItem['mappings'],
             instance_count: 5,
+            resource_category: 'application',
           }),
         ],
         total: 2,
@@ -102,6 +108,30 @@ describe('LabelTemplatesPage', () => {
     // 映射数与关联实例数 badge 文本
     expect(screen.getByText('2 条映射')).toBeInTheDocument()
     expect(screen.getByText('关联实例 3')).toBeInTheDocument()
+    expect(screen.getByText('关联实例 5')).toBeInTheDocument()
+  })
+
+  it('hides instance badge for static resource templates (host), shows for application (F-34)', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          templateItem(1, '主机模板', { instance_count: 3 }),
+          templateItem(2, '数据库模板', { resource_category: 'database', instance_count: 4 }),
+          templateItem(3, '应用模板', { resource_category: 'application', instance_count: 5 }),
+        ],
+        total: 3,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    expect(await screen.findByText('主机模板')).toBeInTheDocument()
+    expect(screen.getByText('数据库模板')).toBeInTheDocument()
+    expect(screen.getByText('应用模板')).toBeInTheDocument()
+    // 静态资源（host/database）隐藏「关联实例」badge，仅 application 展示
+    expect(screen.queryByText('关联实例 3')).not.toBeInTheDocument()
+    expect(screen.queryByText('关联实例 4')).not.toBeInTheDocument()
     expect(screen.getByText('关联实例 5')).toBeInTheDocument()
   })
 
@@ -128,6 +158,26 @@ describe('LabelTemplatesPage', () => {
     fireEvent.click(screen.getByText('数据库'))
     await waitFor(() =>
       expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'database' })),
+    )
+  })
+
+  it('clears selected template and leftover list when switching resource tab (F-35)', async () => {
+    listMock.mockResolvedValueOnce({
+      status: 'success',
+      data: { list: [templateItem(1, '主机默认模板')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    // 点击主机模板 → 右栏展示该模板详情（映射明细 Tab）
+    fireEvent.click(await screen.findByText('主机默认模板'))
+    expect(await screen.findByRole('tab', { name: /映射明细/ })).toBeInTheDocument()
+
+    // 切到中间件 tab → 右栏清空选中回到占位，不残留上一类别模板
+    fireEvent.click(screen.getByText('中间件'))
+    expect(await screen.findByText('请选择左侧模板查看详情')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /映射明细/ })).not.toBeInTheDocument()
+    // 中间件 tab 下按新类别重新加载列表
+    await waitFor(() =>
+      expect(listMock).toHaveBeenLastCalledWith(expect.objectContaining({ resource_category: 'middleware' })),
     )
   })
 

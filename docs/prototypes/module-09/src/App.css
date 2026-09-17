@@ -97,3 +97,11 @@ body {
 .edge-agent-table tr.row-partial-abnormal > td.ant-table-cell:first-child {
   border-left: 3px solid #ff4d4f;
 }
+
+/* {v1.53} 深链定位行高亮（M06「查看安装指引」跳转过来时的目标网域） */
+.ant-table-row.row-linked > td {
+  background: #F0FBFD !important;
+}
+.ant-table-row.row-linked:hover > td {
+  background: #E6FAFD !important;
+}

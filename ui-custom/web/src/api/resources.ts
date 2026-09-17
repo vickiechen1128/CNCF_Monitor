@@ -4,15 +4,16 @@
  * Module_07 §6 / T07-F1：五类资源 CRUD、Excel 模板下载 / 导入、资源标签、
  * 业务分组字典与导入记录。CRUD / 标签 / 字典走统一信封 `apiClient`；
  * 模板下载（二进制流）与 Excel 导入（multipart FormData）因请求 / 响应
- * 形态特殊走原生 fetch。
+ * 形态特殊走 `rawRequest`（原生 fetch + 认证 Token + 401 统一处理）。
  */
-import { apiClient, ApiError } from './client'
+import { apiClient, ApiError, rawRequest } from './client'
 import type { ApiResponse, ApiStatus, Paginated } from '../types/api'
 import type {
   BusinessDomain,
   ImportMode,
   ImportRecord,
   ImportResult,
+  OSOption,
   Resource,
   ResourceCategory,
   ResourceCreateInput,
@@ -103,7 +104,7 @@ async function toApiError(res: Response): Promise<ApiError> {
 
 /** multipart/form-data POST：浏览器自动携带 Content-Type 与 boundary，不做 JSON 序列化（§6.1/T07-10） */
 async function requestMultipart<T>(url: string, formData: FormData): Promise<ApiResponse<T>> {
-  const res = await fetch(url, { method: 'POST', body: formData })
+  const res = await rawRequest(url, { method: 'POST', body: formData })
   const data = await parseEnvelope<T>(res)
   if (!res.ok || data.status === 'error') {
     throw new ApiError(data.error || res.statusText, res.status, data.errorType)
@@ -113,7 +114,7 @@ async function requestMultipart<T>(url: string, formData: FormData): Promise<Api
 
 /** 下载二进制文件流（Excel 模板，§6.1/T07-08；响应不是统一 JSON 信封） */
 async function downloadBlob(url: string): Promise<Blob> {
-  const res = await fetch(url, { method: 'GET' })
+  const res = await rawRequest(url, { method: 'GET' })
   if (!res.ok) {
     throw await toApiError(res)
   }
@@ -175,10 +176,39 @@ export const resourceApi = {
   },
 }
 
-/** 业务分组字典（MVP 只读，供资源录入 / Excel 校验下拉，§3.1/T07-02） */
+/** 业务分组字典登记输入（决策 48：code 创建后不可改，默认 enabled=true） */
+export interface BusinessDomainCreateInput {
+  code: string
+  name: string
+  description?: string
+}
+
+/** 业务分组字典受限编辑输入（决策 48：仅 name/description/enabled 可改，不接收 code） */
+export interface BusinessDomainUpdateInput {
+  name?: string
+  description?: string
+  enabled?: boolean
+}
+
+/** 业务分组字典（决策 48 起落 DB 可写，供资源录入 / Excel 校验下拉与业务管理页维护，§3.1/T07-02/§11.1） */
 export const businessDomainApi = {
   list(): Promise<ApiResponse<BusinessDomainsResponse>> {
     return apiClient.get<BusinessDomainsResponse>('/api/v2/platform/business-domains')
+  },
+  /** 登记业务分组（POST，§6.1/T07、决策 48）：{code,name,description}，默认启用 */
+  create(input: BusinessDomainCreateInput): Promise<ApiResponse<BusinessDomain>> {
+    return apiClient.post<BusinessDomain>('/api/v2/platform/business-domains', { body: input })
+  },
+  /** 受限编辑业务分组（PUT :code，决策 48）：仅 name/description/enabled；无 DELETE（停用不删除） */
+  update(code: string, input: BusinessDomainUpdateInput): Promise<ApiResponse<BusinessDomain>> {
+    return apiClient.put<BusinessDomain>(`/api/v2/platform/business-domains/${encodeURIComponent(code)}`, { body: input })
+  },
+}
+
+/** 操作系统内置字典（只读，供 host 表单「操作系统」下拉，os_dict.go） */
+export const osOptionApi = {
+  list(): Promise<ApiResponse<{ list: OSOption[] }>> {
+    return apiClient.get<{ list: OSOption[] }>('/api/v2/platform/os-options')
   },
 }
 

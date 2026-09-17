@@ -13,7 +13,7 @@ import (
 
 // ListMonitoringRules 返回分页、可筛选的规则挂载列表。
 //
-// Query: rule_type / enabled / keyword / page / page_size（默认 20，上限 100）。
+// Query: rule_type / enabled / monitor_type / keyword / page / page_size（默认 20，上限 100）。
 // 响应 data：`{list, total, page, page_size}`。item 含 content_mode / rule_content /
 // name / enabled / change_status / draft_status。软删不进入列表，空结果返回空 list。
 func ListMonitoringRules(db *gorm.DB) gin.HandlerFunc {
@@ -28,6 +28,9 @@ func ListMonitoringRules(db *gorm.DB) gin.HandlerFunc {
 			q = q.Where("enabled = ?", true)
 		} else if raw != "" && (raw == "false" || raw == "0") {
 			q = q.Where("enabled = ?", false)
+		}
+		if mt := strings.TrimSpace(c.Query("monitor_type")); mt != "" {
+			q = q.Where("monitor_type = ?", mt)
 		}
 		if kw := c.Query("keyword"); kw != "" {
 			q = q.Where("name LIKE ?", "%"+strings.TrimSpace(kw)+"%")

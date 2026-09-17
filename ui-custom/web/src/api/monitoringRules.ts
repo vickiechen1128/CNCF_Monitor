@@ -12,23 +12,55 @@ import type { MonitoringRule, RuleContentMode } from '../types/strategy'
 export interface MonitoringRuleListParams extends Record<string, string | number | boolean | undefined> {
   rule_type?: string
   enabled?: boolean
+  monitor_type?: string
   keyword?: string
   page?: number
   page_size?: number
 }
 
-/** 规则创建/编辑输入（§7 / §10：content_mode 默认 yaml_passthrough，rule_content 必填） */
+/** 规则创建/编辑输入（§7 / §10：content_mode 默认 yaml_passthrough，rule_content 必填；monitor_type 可空） */
 export interface MonitoringRuleInput {
   content_mode?: RuleContentMode
   rule_content?: string
   name?: string
   enabled?: boolean
+  monitor_type?: string
+  /**
+   * 决策 67-2 逃生门：存在 error 级 job 引用时默认拒绝提交；
+   * 置 true 表示用户已显式确认「先挂规则，稍后补建 Job」，放行落库留痕。
+   */
+  ack_job_ref_errors?: boolean
 }
 
-/** validate-yaml 预检输出（§7：{valid, error?}） */
+/** validate-yaml 预检输出（§7：{valid, error?, job_ref?}） */
 export interface YamlValidationResult {
   valid: boolean
   error?: string
+  /**
+   * 决策 66：规则 job 引用语义校验问题。
+   * 决策 67-2：`valid` 仅反映 YAML 语法，job_ref 的 error 级**由提交侧阻断**
+   *（前端门禁 + 后端 ack_job_ref_errors 兜底），不再「不阻断保存」。
+   */
+  job_ref?: JobRefIssue[] | null
+}
+
+/** 规则 job 引用问题的严重级（决策 66） */
+export type JobRefSeverity = 'error' | 'warning'
+
+/** 规则 job 引用校验的一条问题（对齐后端 platform/strategy/rule/jobref.Issue） */
+export interface JobRefIssue {
+  group: string
+  rule_name: string
+  expr: string
+  matcher: string
+  referenced_job: string
+  /** literal 精确 / regex 正则 */
+  type: 'literal' | 'regex'
+  severity: JobRefSeverity
+  message: string
+  /** v0.2 多域预留（决策 67-4）：MVP 单域恒为空，留空不渲染 */
+  network_domain_id?: string
+  network_domain_name?: string
 }
 
 /** 监控规则管理（CRUD + validate-yaml + 详情，§7） */

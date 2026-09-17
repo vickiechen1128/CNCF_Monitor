@@ -102,7 +102,11 @@ export function LabelTemplatesPage() {
             <Col>
               <Tabs
                 activeKey={activeType}
-                onChange={(key) => setActiveType(key as ResourceCategory)}
+                onChange={(key) => {
+                  setActiveType(key as ResourceCategory)
+                  // 资源类别 Tab 切换时清空右栏选中模板，避免残留上一类别模板详情（F-35）
+                  setSelectedTemplate(null)
+                }}
                 items={RESOURCE_TYPES.map((type) => ({ key: type, label: RESOURCE_TYPE_MAP[type] }))}
               />
             </Col>
@@ -134,6 +138,10 @@ export function LabelTemplatesPage() {
           width={400}
           open={createOpen}
           onClose={() => setCreateOpen(false)}
+          // forceRender：#19 通病（v1.35 规范）。openCreate 在点击时先 setFieldsValue 再 open，
+          // Drawer 懒挂载下 Form 字段尚未注册，resource_category 预填被吞、首开为空；
+          // forceRender 保证 Form 常驻挂载，点击即正确预填当前资源类别。
+          forceRender
           extra={
             <Space>
               <Button onClick={() => setCreateOpen(false)}>取消</Button>
