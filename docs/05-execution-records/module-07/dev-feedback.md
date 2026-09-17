@@ -31,6 +31,12 @@
 - **建议**：更新 PRD §6 路由清单为 v2 前缀（或追加 design-decision 说明以 API 标准为准），避免 M01/M09 对接时按 PRD 取路径。
 - **⑤ 设计侧回改（2026-08-26）**：✅ **已闭环**——PRD §6 全量路由前缀 `v1→v2` 统一为 `/api/v2/platform/*`（decision 3.55），章节头注指向 03_API_Standard §1.2；`business-domains` / `label-templates` / `imports` / `scrape-jobs` 引用同步更新。
 
+### F-3. PRD §5.2 `status`（运行状态）必填口径与前端实现不符
+
+- **矛盾点**：PRD §5.2 将 `status` 标为 ✅ 必填（枚举 `online/offline/maintenance/orphan`，UI 展示名「运行状态」），§8.1 状态机要求资源有明确状态；前端 `ResourceFormDrawer` 共享字段 `status` 无 required 规则、`initialValue="online"`，新增态不选则默认 `online`，与「必填」口径不符。
+- **实现现状**：新增/编辑表单 `status` 为可选项并预填 `online`；提交时未选回退 `'online'`（`buildCreateInput` 内 `|| 'online'`）；`app_name` 经核对为 ✅* 可空口径一致（generic_target 可空、空值不注入 `app` 标签），无问题。
+- **处理结论（2026-09-17 已闭环）**：按 PRD §5.2 必填口径落地——前端「运行状态」改为**必填、不预填默认值、强制用户显式选择**：`ResourceFormDrawer` 移除 `initialValue="online"` 与 create 初始化预填 `status`，新增必填 rule，`buildCreateInput`/`buildUpdateInput` 移除 `|| 'online'` 兜底；后端 `validateCommon` 本就强制 status 必填 + 枚举，无需改动。前端单测由原默认 `online` 改为显式选择覆盖。
+
 ## 2. 已修复（reviewer 意见闭环）
 
 | 编号 | 问题 | 修复 |
