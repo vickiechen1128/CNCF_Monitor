@@ -9,6 +9,7 @@ import {
   deriveRegistrationStatus,
   domainTypeColor,
   domainTypeLabel,
+  formatRelativeTime,
   monitoredStatusColor,
   monitoredStatusLabel,
   registrationStatusColor,
@@ -40,6 +41,7 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
   return (
     <Drawer title={domain ? `网域详情 - ${domain.name}` : '网域详情'} placement="right" width={480} open={open} onClose={onClose}>
       {domain && (
+        <>
         <Descriptions column={1} size="small" bordered>
           <Descriptions.Item label="网域名称">{domain.name}</Descriptions.Item>
           <Descriptions.Item label="网域 ID">
@@ -75,9 +77,16 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
               <Text type="secondary">-</Text>
             )}
           </Descriptions.Item>
-          {/* PRD v1.79 §3.1.1 / §11.3 决策 82 配套：运行态栏目标签与列表「采集节点在线」列保持一致，
-              列头 Tooltip 点明粒度——本项为该网域采集节点的心跳状态（网域粒度聚合视图），
-              与「纳管状态」（配置态）维度不同、非重复；节点与组件级诊断归「采集节点状态」页 */}
+          <Descriptions.Item label="描述">
+            {domain.description || <Text type="secondary">-</Text>}
+          </Descriptions.Item>
+        </Descriptions>
+
+        {/* M06 决策 82 配套：运行态信息收敛为「采集节点情况」描述区块（与列表「采集节点在线」列一致，
+            网域粒度聚合视图；节点与组件级诊断归「采集节点状态」页 v0.2）。
+            仅用 NetworkDomain 现有字段（monitored_status / last_heartbeat / agent_version）；
+            节点数量 MVP 无后端聚合字段，以 '-' 占位并注明归属范围。 */}
+        <Descriptions title="采集节点情况" column={1} size="small" bordered style={{ marginTop: 16 }}>
           <Descriptions.Item
             label={
               <Tooltip title="该网域采集节点（Edge Sync Agent）的心跳状态，网域粒度的聚合视图；节点与组件级诊断请见「采集节点状态」页">
@@ -96,10 +105,28 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
               <Text type="secondary">-</Text>
             )}
           </Descriptions.Item>
-          <Descriptions.Item label="描述">
-            {domain.description || <Text type="secondary">-</Text>}
+          <Descriptions.Item label="采集节点版本">
+            {domain.channel === 'agent_pull' && domain.agent_version ? (
+              <Text code style={{ fontSize: 12, wordBreak: 'break-all' }}>{domain.agent_version}</Text>
+            ) : (
+              <Text type="secondary">-</Text>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="最近心跳">
+            {domain.channel === 'agent_pull' && domain.last_heartbeat ? (
+              formatRelativeTime(domain.last_heartbeat)
+            ) : (
+              <Text type="secondary">-</Text>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="采集节点数量">
+            <Space size={4}>
+              <Text type="secondary">-</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>节点列表与计数为 v0.2 采集节点状态页范围</Text>
+            </Space>
           </Descriptions.Item>
         </Descriptions>
+        </>
       )}
     </Drawer>
   )

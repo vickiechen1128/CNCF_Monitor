@@ -352,18 +352,27 @@ export function NetworkDomainsPage() {
                   ),
                   children: (
                     <div>
+                      <Alert
+                        type="success"
+                        showIcon
+                        style={{ marginBottom: 8 }}
+                        message="中心直连域（如 default / local 通道）：无需部署代理，平台直接采集，可跳过下方采集节点安装步骤。"
+                      />
                       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                        本流程适用于远端 / 隔离节点上的网域，这类网域需要部署采集代理（Edge Sync Agent）才能把数据送回平台；
-                        中心本地节点上的网域（如 default）无需部署，平台直接采集，可跳过本流程。
+                        采集节点域（agent_pull）：需部署 Edge Sync Agent 才能回连平台，按下方步骤接入。
+                      </Typography.Paragraph>
+                      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+                        Edge Sync Agent 交付物为 v0.2，当前 MVP 仅展示接入动线，安装包另待发布。
                       </Typography.Paragraph>
                       <Steps
                         size="small"
                         direction="vertical"
                         current={-1}
                         items={[
-                          { title: '纳管网域', description: '在网域列表点击「纳管」，平台自动生成接入凭证（Token）与数据上报地址（Remote Write URL）' },
-                          { title: '部署采集代理', description: '下载采集代理安装包并部署到该网域节点；安装后会自动拉起各采集器并在后台持续运行（Edge Sync Agent 由 systemd 守护）' },
-                          { title: '等待数据回连', description: '采集代理自动连接平台拉取配置，可在本页「采集节点在线」列随时查看心跳与运行情况' },
+                          { title: '下载安装包', description: '下载 Edge Sync Agent 安装包；接入 Token 与 Remote Write URL 在纳管时自动签发（写入 Agent 配置）' },
+                          { title: '解压部署', description: '将安装包解压部署到该网域采集节点，并写入接入配置（Token / 中心地址 / Remote Write URL）' },
+                          { title: '启动 / 守护', description: '启动 Edge Sync Agent（由 systemd 守护，开机自启、异常自动拉起）' },
+                          { title: '心跳回连', description: 'Agent 自动连接平台拉取配置并上报数据；可在本页「采集节点在线」列或网域详情查看心跳与运行情况' },
                         ]}
                       />
                     </div>
