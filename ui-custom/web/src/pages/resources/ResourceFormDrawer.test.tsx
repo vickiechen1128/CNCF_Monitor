@@ -92,7 +92,7 @@ function openSelect(placeholder: string) {
   fireEvent.mouseDown(screen.getByText(placeholder))
 }
 
-/** 填必填共享字段 + host 差异化字段（网域/业务/环境/实例名/IP） */
+/** 填必填共享字段 + host 差异化字段（网域/业务/环境/运行状态/实例名/IP） */
 async function fillHostRequiredFields() {
   openSelect('请选择网域')
   fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
@@ -100,6 +100,8 @@ async function fillHostRequiredFields() {
   fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
   openSelect('请选择环境')
   fireEvent.click(await screen.findByText('prod'))
+  openSelect('请选择运行状态')
+  fireEvent.click(await screen.findByText('在线'))
   fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
   fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
 }
@@ -143,6 +145,30 @@ describe('ResourceFormDrawer', () => {
     expect(cancelMock).toHaveBeenCalled()
   })
 
+  it('requires running status to be explicitly selected (no default) and passes chosen value through', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    // 填好其余必填项，唯独不选运行状态 → 触发必填校验「请选择运行状态」且不提交
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择业务')
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    openSelect('请选择环境')
+    fireEvent.click(await screen.findByText('prod'))
+    fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(screen.getByText('请选择运行状态')).toBeInTheDocument())
+    expect(createMock).not.toHaveBeenCalled()
+    // 显式选择「离线」后提交 → payload.status = offline（非默认 online）
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('离线'))
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ status: 'offline' })
+    expect(successMock).toHaveBeenCalled()
+  })
+
   it('rejects submit when required fields are empty and shows field-level errors', async () => {
     renderDrawer({ category: 'host' })
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
@@ -150,6 +176,8 @@ describe('ResourceFormDrawer', () => {
     await waitFor(() => expect(screen.getByText('请选择网域')).toBeInTheDocument())
     expect(await screen.findByText('请选择业务')).toBeInTheDocument()
     expect(await screen.findByText('请选择环境')).toBeInTheDocument()
+    // 「运行状态」无默认值，placeholder 与校验错误文案同名，需用 findAll 断言错误已出现（≥1 处）
+    expect((await screen.findAllByText('请选择运行状态')).length).toBeGreaterThan(0)
     expect(await screen.findByText('请输入实例名')).toBeInTheDocument()
     expect(await screen.findByText('请输入 IP 地址')).toBeInTheDocument()
     expect(createMock).not.toHaveBeenCalled()
@@ -229,7 +257,7 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'generic_target' })
     expect(screen.getByText('目标名称')).toBeInTheDocument()
     expect(screen.getByText('自定义标签')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('例如：region=cn-north;role=db')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('如 device_type=snmp_switch;vendor=h3c')).toBeInTheDocument()
   })
 
   it('shows only enabled business domains in the select', async () => {
@@ -248,13 +276,15 @@ describe('ResourceFormDrawer', () => {
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     fireEvent.click(await screen.findByText('prod'))
-    fireEvent.change(screen.getByPlaceholderText('例如：node-exporter-cn-north'), {
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), {
       target: { value: 'node-exporter-cn-north' },
     })
-    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.51 或 exporter.example.com'), {
+    fireEvent.change(screen.getByPlaceholderText('如 172.16.0.1'), {
       target: { value: 'exporter.example.com' },
     })
-    fireEvent.change(screen.getByPlaceholderText('例如：region=cn-north;role=db'), {
+    fireEvent.change(screen.getByPlaceholderText('如 device_type=snmp_switch;vendor=h3c'), {
       target: { value: 'region=cn-north;role=db' },
     })
     fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
@@ -267,5 +297,41 @@ describe('ResourceFormDrawer', () => {
       scheme: 'http',
       custom_labels: { region: 'cn-north', role: 'db' },
     })
+  })
+
+  it('prefills 采集路径=/metrics and 协议=http for generic_target create', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'generic_target' })
+    // 采集路径默认预填 /metrics；协议默认 http
+    expect((screen.getByPlaceholderText('/metrics') as HTMLInputElement).value).toBe('/metrics')
+    // 填必填共享字段 + 通用目标必填项后提交
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择业务')
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    openSelect('请选择环境')
+    fireEvent.click(await screen.findByText('prod'))
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), { target: { value: 'core-sw-01' } })
+    fireEvent.change(screen.getByPlaceholderText('如 172.16.0.1'), { target: { value: '172.16.0.1' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ metrics_path: '/metrics', scheme: 'http' })
+  })
+
+  it('renders generic_target extra hints for port and exporter_type', async () => {
+    renderDrawer({ category: 'generic_target' })
+    expect(screen.getByText('留空时不生成实例标识（instance）')).toBeInTheDocument()
+    expect(screen.getByText('如 snmp_exporter / gpu_exporter / oracle_exporter')).toBeInTheDocument()
+  })
+
+  it('renders generic_target IP label and required message', async () => {
+    renderDrawer({ category: 'generic_target' })
+    expect(screen.getByText('目标 IP / 域名')).toBeInTheDocument()
+    // 未填 IP 直接提交，触发必填校验 message
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(screen.getByText('请输入目标 IP 或域名')).toBeInTheDocument())
+    expect(createMock).not.toHaveBeenCalled()
   })
 })

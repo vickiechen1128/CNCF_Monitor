@@ -121,7 +121,7 @@ function buildCreateInput(category: ResourceCategory, values: Record<string, unk
     env: String(values.env),
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
-    status: (values.status as ResourceStatus) || 'online',
+    status: values.status as ResourceStatus,
     ...buildTypeFields(category, values),
   } as ResourceCreateInput
 }
@@ -135,7 +135,7 @@ function buildUpdateInput(category: ResourceCategory, values: Record<string, unk
     env: String(values.env),
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
-    status: (values.status as ResourceStatus) || 'online',
+    status: values.status as ResourceStatus,
     ...buildTypeFields(category, values),
   } as ResourceUpdateInput
 }
@@ -240,7 +240,7 @@ const requiredIpRules = [
 
 /** generic_target 的 instance_ip 支持 IP 或域名（§5.9） */
 const requiredIpOrHostnameRules = [
-  { required: true, message: '请输入 IP 地址或域名' },
+  { required: true, message: '请输入目标 IP 或域名' },
   {
     validator: (_: unknown, value?: string) => {
       if (!value) return Promise.resolve()
@@ -286,7 +286,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     setSubmitError(null)
     if (mode === 'create') {
       form.resetFields()
-      form.setFieldsValue({ status: 'online', scheme: 'http' })
+      // 仅预填 scheme:http（通用目标采集协议默认）；status 为 PRD 必填项，刻意不预填，强制用户显式选择
+      form.setFieldsValue({ scheme: 'http' })
     } else if (record) {
       form.resetFields()
       form.setFieldsValue(recordToFormValues(record))
@@ -373,7 +374,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
           </Form.Item>
         </Col>
         <Col span={12}>
-          <Form.Item label="运行状态" name="status" initialValue="online">
+          <Form.Item label="运行状态" name="status" rules={[{ required: true, message: '请选择运行状态' }]}>
             <Select placeholder="请选择运行状态">
               {STATUS_OPTIONS.map((s) => (
                 <Select.Option key={s.value} value={s.value}>
@@ -560,31 +561,36 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item label="目标名称" name="target_name" rules={[{ required: true, message: '请输入目标名称' }]}>
-                  <Input placeholder="例如：node-exporter-cn-north" maxLength={64} />
+                  <Input placeholder="如 核心交换-01" maxLength={64} />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item label="Exporter 类型" name="exporter_type">
-                  <Input placeholder="例如：node_exporter（可选）" maxLength={64} />
-                </Form.Item>
-              </Col>
-            </Row>
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item label="IP 地址 / 域名" name="instance_ip" rules={requiredIpOrHostnameRules}>
-                  <Input placeholder="例如：10.0.1.51 或 exporter.example.com" maxLength={128} />
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item label="端口" name="port" rules={optionalPortRules}>
-                  <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="端口（可选）" />
+                <Form.Item label="Exporter 类型" name="exporter_type" extra="如 snmp_exporter / gpu_exporter / oracle_exporter">
+                  <Input placeholder="如 snmp_exporter / gpu_exporter" maxLength={64} />
                 </Form.Item>
               </Col>
             </Row>
             <Row gutter={16}>
               <Col span={12}>
-                <Form.Item label="采集路径" name="metrics_path">
-                  <Input placeholder="/metrics（默认）" maxLength={128} />
+                <Form.Item
+                  label="目标 IP / 域名"
+                  name="instance_ip"
+                  rules={requiredIpOrHostnameRules}
+                  extra="必填且符合 IPv4/域名格式"
+                >
+                  <Input placeholder="如 172.16.0.1" maxLength={128} />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="端口" name="port" rules={optionalPortRules} extra="留空时不生成实例标识（instance）">
+                  <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="如 9116（可选）" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item label="采集路径" name="metrics_path" initialValue="/metrics">
+                  <Input placeholder="/metrics" maxLength={128} />
                 </Form.Item>
               </Col>
               <Col span={12}>
@@ -602,10 +608,10 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             <Form.Item
               label="自定义标签"
               name="custom_labels"
-              extra="格式：key1=value1;key2=value2，可选"
+              extra="支持 key1=value1;key2=value2 格式，可选"
               rules={[{ pattern: CUSTOM_LABELS_RE, message: '格式为 key1=value1;key2=value2' }]}
             >
-              <Input placeholder="例如：region=cn-north;role=db" maxLength={512} />
+              <Input placeholder="如 device_type=snmp_switch;vendor=h3c" maxLength={512} />
             </Form.Item>
           </>
         )
