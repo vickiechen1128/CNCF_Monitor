@@ -33,7 +33,7 @@ func seedEdgeDomain(t *testing.T, db *gorm.DB) {
 	})
 }
 
-func TestDisableReturnsFlatImpact(t *testing.T) {
+func TestDisableReturnsNestedImpact(t *testing.T) {
 	db := openTestDB(t)
 	seedEdgeDomain(t, db)
 
@@ -65,9 +65,14 @@ func TestDisableReturnsFlatImpact(t *testing.T) {
 	require.Equal(t, 200, code)
 	data := out["data"].(map[string]interface{})
 	assert.Equal(t, "disabled", data["status"])
-	// flat impact scope per frontend contract
-	assert.Equal(t, float64(2), data["resource_count"])
-	assert.Equal(t, float64(2), data["managed_edge_agent_count"])
+	assert.Equal(t, "mc-edge-a", data["id"])
+	assert.Equal(t, "边缘A", data["name"])
+	// 契约 §5.1.1：禁用响应为嵌套 impact 结构
+	impact := data["impact"].(map[string]interface{})
+	assert.Equal(t, float64(2), impact["resource_count"])
+	assert.Equal(t, float64(2), impact["managed_edge_agent_count"])
+	assert.Equal(t, true, impact["has_online_agents"], "存在 online Agent 时应为 true")
+	// 决策 82-2：unknown 不计为在线，此处已有 online，故 has_online_agents=true
 
 	// persisted
 	var dom models.NetworkDomain
@@ -95,8 +100,8 @@ func TestManagementCannotDisable(t *testing.T) {
 	seedEdgeDomain(t, db)
 
 	code, out := patchStatus(t, db, models.DefaultDomainID, `{"status":"disabled"}`)
-	assert.Equal(t, 409, code)
-	assert.Equal(t, "conflict", out["errorType"])
+	assert.Equal(t, 400, code)
+	assert.Equal(t, "bad_request", out["errorType"])
 }
 
 func TestInvalidStatusValue(t *testing.T) {

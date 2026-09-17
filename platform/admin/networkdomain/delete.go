@@ -9,10 +9,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// DeleteNetworkDomain soft-deletes an empty network domain. Deletion requires
-// no M07 resource references and no managed (non-offline) EdgeAgents; otherwise
-// it returns conflict guiding the caller to disable instead. Management domains
-// cannot be deleted.
+// DeleteNetworkDomain soft-deletes a network domain.
+// 决策 82-1：硬拒绝收敛为「存在 M07 资源引用」单一条件；已纳管 EdgeAgent 不再拒绝，改级联清退。
+// Management domains cannot be deleted.
 func DeleteNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -27,24 +26,35 @@ func DeleteNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if dom.IsManagement() {
-			response.Conflict(c, fmt.Errorf("management domain %q cannot be deleted", id))
+			response.BadRequest(c, fmt.Errorf("management domain %q cannot be deleted", id))
 			return
 		}
 
-		impact, err := ComputeImpact(db, id)
+		// 决策 82-1：仅当有 M07 资源引用时拒绝（返回 forbidden + 引用名单）
+		resourceCount, err := countResources(db, id)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
 		}
-		if impact.ResourceCount > 0 || impact.ManagedEdgeAgentCount > 0 {
-			response.Conflict(c, fmt.Errorf("network domain %q still has %d resource(s) and %d managed edge agent(s); please disable it instead", id, impact.ResourceCount, impact.ManagedEdgeAgentCount))
+		if resourceCount > 0 {
+			response.Forbidden(c, fmt.Sprintf("network domain %q still has %d M07 resource reference(s); please remove them first", id, resourceCount))
 			return
 		}
 
-		if err := db.Delete(&dom).Error; err != nil {
-			response.InternalServerError(c, fmt.Errorf("delete network domain %q: %w", id, err))
+		// 执行级联清退（决策 82-1：废止Token + EdgeAgent标retired + 软删网域，offline 一并退场）
+		retireResult, err := CascadeRetire(db, id)
+		if err != nil {
+			response.InternalServerError(c, fmt.Errorf("cascade retire network domain %q: %w", id, err))
 			return
 		}
-		response.OK(c, gin.H{"id": id, "deleted": true})
+
+		// 返回级联影响清单（契约 §5.1.2）：edge_agent_count 与实际退役名单口径一致
+		response.OK(c, gin.H{
+			"id": id,
+			"cascade_impact": gin.H{
+				"edge_agent_count":   retireResult.AgentCount,
+				"will_retire_agents": retireResult.WillRetireAgents,
+			},
+		})
 	}
 }

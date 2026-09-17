@@ -54,6 +54,26 @@ func TestCreateNetworkDomainIgnoresClientTenant(t *testing.T) {
 	assert.Equal(t, models.PlatformAdminTenantID, d.TenantID)
 }
 
+func TestCreateNetworkDomainWithIPCIDRs(t *testing.T) {
+	db := openTestDB(t)
+	code, d, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","zone_type":"internet","domain_code":"zhw-a","ip_cidrs":["10.20.0.0/16","10.30.1.0/24"]}`)
+	require.Equal(t, 200, code)
+	require.Equal(t, "mc-zhw-a", d.ID)
+	assert.Equal(t, []string{"10.20.0.0/16", "10.30.1.0/24"}, d.IPCIDRs)
+}
+
+func TestCreateNetworkDomainRejectsDuplicateName(t *testing.T) {
+	db := openTestDB(t)
+	code, _, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","domain_code":"zhw-a"}`)
+	require.Equal(t, 200, code)
+	// 同名（大小写不敏感）重登记应返回 409，而非覆盖或新增。
+	code2, _, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","domain_code":"zhw-b"}`)
+	assert.Equal(t, 409, code2)
+	// 不同名可正常登记。
+	code3, _, _ := postCreate(t, db, `{"name":"另一网域","domain_type":"edge","domain_code":"zhw-c"}`)
+	assert.Equal(t, 200, code3)
+}
+
 func TestCreateNetworkDomainMissingName(t *testing.T) {
 	db := openTestDB(t)
 	code, _, _ := postCreate(t, db, `{"domain_type":"edge"}`)

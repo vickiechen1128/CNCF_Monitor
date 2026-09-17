@@ -424,11 +424,12 @@ docs/02-product-requirements/Modules/Module_XX_*.md
   ## 任务卡：<模块>-<功能>
   - 角色：<backend-developer / frontend-developer / ...>
   - 输入（精确路径 + 章节）：
+    - **轨道标记**：Track A / Track B / Track B+（来自分轨判定记录，必填；决定子 Agent 的基线参照物）
     - 契约快照：**docs/05-execution-records/module-XX/api-contract-snapshot.md**（前后端并行时必填）
-    - 前端原型映射表：**docs/05-execution-records/module-XX/frontend-prototype-map.md**（前端任务必填；缺失则阻断派发）
+    - 前端原型映射表：**docs/05-execution-records/module-XX/frontend-prototype-map.md**（Track A 前端任务必填；缺失则阻断派发；Track B/B+ 不要求）
     - PRD：docs/02-product-requirements/Modules/Module_XX_*.md 的 §3/§5/§6/§9/§11（按任务给章节号；快照缺失或矛盾时补读）
     - task-sequence：docs/05-execution-records/module-XX/task-sequence.yaml
-    - 原型：docs/prototypes/module-XX/ 下 task-sequence 中 `prototype_pages` 指定的页面（按任务精确读取）
+    - 原型：docs/prototypes/module-XX/ 下 task-sequence 中 `prototype_pages` 指定的页面（Track A 按任务精确读取；Track B/B+ 无原型不阻断）
     - 工程标准：<按需给具体文件，如 03_API_Standard.md / 02_Frontend_Standard.md>
   - 输出：<新增/修改的文件列表>
   - 复杂度度量：
@@ -448,11 +449,14 @@ docs/02-product-requirements/Modules/Module_XX_*.md
   - `docs/05-execution-records/module-XX/frontend-prototype-map.md` 已存在；
   - task-sequence 中该 F 任务已填写 `prototype_pages`、`ui_contract`、`nav_contract`、`clipping`；
   - 缺失任一即打回 planner/prototype-designer 补齐，不派发前端任务。
-- **验收时必须做原型符合度抽查**：除测试清单外，至少抽查以下一项：
-  - 顶部 tab / Sider 文案是否与 `nav_contract` 一致；
-  - 表格列集合是否等于原型列集合 ∩ MVP（对照 `frontend-prototype-map.md` 列对照表）；
-  - 视觉 Token（主色/头部/状态色）是否已迁移；
-  - 抽查结果写入当前执行记录。
+- **验收时必须做符合度抽查**（按轨道参数化）：
+  - **Track A**：原型符合度抽查——至少抽查以下一项：
+    - 顶部 tab / Sider 文案是否与 `nav_contract` 一致；
+    - 表格列集合是否等于原型列集合 ∩ MVP（对照 `frontend-prototype-map.md` 列对照表）；
+    - 视觉 Token（主色/头部/状态色）是否已迁移；
+    - 抽查结果写入当前执行记录。
+  - **Track B/B+**：验收清单覆盖度抽查——对照 05 §7 增量验收小节逐项核对；抽查 AntD 标准模式符合性。
+  - **两轨通用**：契约快照一致性抽查——实现响应结构（字段名/枚举/嵌套层级）与 `api-contract-snapshot.md` 逐项比对；不一致必须标记为 HIGH 并打回。
 - **子 Agent 只读任务卡指定的输入（v1.25 起，强制）**：子 Agent 启动时**无需读取协作标准（05_AI_Agent_Collaboration_Standard.md）或团队手册（01-team-collaboration/）**——它的行为规范已固化在自身 `.kimi/agents/<agent>.md` 定义中，随加载生效；需要读的只是任务卡列出的「任务输入」（契约快照 / PRD 章节 / task-sequence / 原型 / 具体工程标准）。由 Orchestrator 在任务卡中给出精确路径与章节，禁止让子 Agent 自行翻文档树找规范。
 - 子 Agent 完成后，读取其汇报，提取：修改文件、验证结果、阻塞问题
 
