@@ -272,14 +272,14 @@ tasks:
       - "ApiError 按契约 errorType 抛出；Token 字段类型 token_masked 脱敏约定"
 
   - id: "T09-F2"
-    title: "网域纳管页（7 列 + 详情抽屉 + 行内纳管/编辑 + 顶部安装指引占位）"
+    title: "网域纳管页（5 列 + 详情抽屉 + 行内纳管/编辑 + 顶部安装指引占位）"
     agent: "frontend-developer"
     status: "pending"
     commit_group: "domain-pages"
-    prd: "Module_09 §3.1 / §9.1 / §11 §3.1/§3.4/§5.2"
+    prd: "Module_09 §3.1 / §9.1 / §11 §3.1/§11.3/§5.2"
     prototype_pages:
       - "docs/prototypes/module-09/src/pages/NetworkDomainsPage.tsx"
-    ui_contract: "PRD §3.1 / §9.1（纳管入口单一化、7 列收敛、详情抽屉、Token 脱敏、安装指引、local 固定）；契约 §6.1；状态矩阵 §11.1 网域纳管页"
+    ui_contract: "PRD §3.1 / §11.3（5 列收敛：网域/纳管状态/采集节点在线/凭据/操作；采集节点在线列由「运行状态」更名+列头 Tooltip 粒度说明）；契约 §6.1；状态矩阵 §11.1 网域纳管页"
     nav_contract: "顶部一级 tab「网域与边缘配置中心」（独立顶级模块兼 PRD 模块名）→ Sider 一级菜单组「网域与节点管理」→ 二级「网域纳管」（路由 /domain-onboarding）；网域纳管与 M06 网域管理并存且菜单名区分"
     clipping:
       - item: "Token 真实签发/复制、重置 Token、安装指引离线包下载、运行态心跳展示"
@@ -297,13 +297,16 @@ tasks:
       - "ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx"
       - "ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx"
       - "ui-custom/web/src/pages/config-center/domains/NetworkDomainDetailDrawer.tsx"
+      - "ui-custom/web/src/pages/config-center/domains/NetworkDomainDetailDrawer.test.tsx"
       - "ui-custom/web/src/pages/config-center/domains/useNetworkDomains.ts"
       - "ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.test.tsx"
     verify_commands:
       - "cd ui-custom/web && pnpm lint"
       - "cd ui-custom/web && pnpm vitest run src/pages/config-center/domains/NetworkDomainsPage.test.tsx"
     acceptance_criteria:
-      - "7 列：网域(名称+ID)/网络区域类型(zone_type Tag)/纳管状态/下发通道/running 运行态(仅 agent_pull)/凭据(token_masked+复制仅 agent_pull)/操作(纳管/编辑 + 详情 + 更多重置仅 agent_pull 已纳管)"
+      - "5 列：网域(名称+ID)/纳管状态/采集节点在线/凭据(token_masked+复制仅 agent_pull)/操作(纳管/编辑 + 详情 + 更多重置仅 agent_pull 已纳管)；网络区域类型/下发通道列删除，信息入详情抽屉（非列表列）"
+      - "「采集节点在线」列（由「运行状态」更名）：列头 Tooltip 点明粒度（网域层概览→节点层诊断，与「纳管状态」配置态非重复列）；数据源 monitored_status+last_heartbeat（agent_pull 且有值才展示、local 恒 '-'）；运行态真值 v0.2 接入，MVP 仅为列定义+UI 占位"
+      - "详情抽屉 NetworkDomainDetailDrawer：运行态栏目标签亦为「采集节点在线」+ 同粒度 Tooltip（与列表一致）；channel/zone_type 等字段在抽屉展示齐全；顶部安装指引第 3 步文案同步「采集节点在线」"
       - "纳管入口单一化：仅行内「纳管」按钮（页面右上角无「纳管网域」按钮）；纳管表单含 agent_type(MVP 仅 vmagent)/remote_write_url(可覆盖)/description；default 域固定 local 且行信息只读展示"
       - "agent_pull 字段（Token/安装指引/运行态）UI 占位：仅 agent_pull 行展示，local 行显 '-' 绝不误展示"
       - "Token 完全脱敏：token_masked 展示、复制按钮复制明文、重置需 Modal 二次确认（v0.2 占位）"
