@@ -50,4 +50,32 @@ describe('NetworkDomainDetailDrawer（网域详情抽屉）', () => {
     expect(screen.getAllByText('采集节点在线').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
+
+  it('「采集节点情况」区块：agent_pull 展示版本 / 相对心跳 / 数量占位', () => {
+    renderDrawer(domainRow('mc-c', '政务网C', {
+      is_monitored: true,
+      monitored_status: 'online',
+      last_heartbeat: '2026-08-21T00:00:00Z',
+      agent_version: 'v0.2.0',
+    }))
+    // 区块内标签存在
+    expect(screen.getByText('采集节点版本')).toBeInTheDocument()
+    expect(screen.getByText('最近心跳')).toBeInTheDocument()
+    expect(screen.getByText('采集节点数量')).toBeInTheDocument()
+    // 版本值
+    expect(screen.getByText('v0.2.0')).toBeInTheDocument()
+    // 最近心跳为相对时间（历史日期 → N 天前）
+    expect(screen.getAllByText(/天前$/).length).toBeGreaterThanOrEqual(1)
+    // 数量占位（'-'）+ v0.2 范围注记
+    expect(screen.getAllByText('节点列表与计数为 v0.2 采集节点状态页范围').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('local 通道「采集节点情况」下版本/心跳/数量均恒「-」，不误展示 agent_pull 专属字段', () => {
+    renderDrawer(domainRow('default2', '默认域', { channel: 'local', domain_type: 'management' }))
+    expect(screen.getByText('采集节点版本')).toBeInTheDocument()
+    expect(screen.getByText('最近心跳')).toBeInTheDocument()
+    expect(screen.getByText('采集节点数量')).toBeInTheDocument()
+    // 版本 + 心跳 + 数量 均为 '-'（加既有 local 运行态 '-' 共 ≥4 个）
+    expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(4)
+  })
 })
