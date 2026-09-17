@@ -295,3 +295,27 @@
 - **是否需设计侧确认**：否（属决策 68-2 的收口补丁，契约增量见 `api-contract-snapshot.md` §14）。
 - **影响模块**：M09 变更单生成与下发；消费方：M09 配置变更确认页（变更清单 Tag 新增一类）。
 - **发现场景**：M08 页面 Prometheus 触发告警显示 firing、但 Alertmanager 告警状态恒为空，排查发现 Prometheus 运行时配置无 `alerting:` 段且 M09 无法重新生成变更单。
+
+---
+
+## 2026-09-17（M06 网域改造配合——用户反馈两点，纯前端修复）
+
+### F-26：网域详情抽屉缺少「采集节点的情况」区块（① 空白 / 信息缺口，已实现）
+
+- **PRD 章节 / 文件位置**：Module_09 PRD §11.1 网域纳管页详情；原型 `docs/prototypes/module-09/` 网域纳管详情；源码 `ui-custom/web/src/pages/config-center/domains/NetworkDomainDetailDrawer.tsx`
+- **问题（用户反馈）**：网域「查看详情」里只有一行聚合「采集节点在线」，缺少该网域采集节点的具体情况展示。
+- **结论（MVP 现有字段即可，PM 已确认）**：不做后端聚合字段（M06 list / NetworkDomain 现有字段不含节点计数）。详情抽屉新增独立「采集节点情况」Descriptions 区块（4 行）：采集节点在线（agent_pull 展示 / local 恒 `-`）、采集节点版本、最近心跳（复用 `formatRelativeTime`）、采集节点数量（MVP 无聚合字段，`-` 占位 + 注记「节点列表与计数为 v0.2 采集节点状态页范围」）。仅用 NetworkDomain 现有字段（`monitored_status` / `last_heartbeat` / `agent_version`），纯前端。
+- **实现落库**：`ui-custom/web/src/pages/config-center/domains/NetworkDomainDetailDrawer.tsx`（新增区块 + `formatRelativeTime` 导入）；`NetworkDomainDetailDrawer.test.tsx`（新增 2 条断言：agent_pull 版本/相对心跳/数量注记出现；local 区块恒 `-`）。
+- **是否需设计侧确认**：否（前端信息补全区，MVP 字段可覆盖）。
+- **影响模块**：M09 网域纳管详情抽屉。
+- **发现场景**：用户配合 M06 网域改造检查 M09 网域纳管页（2026-09-17）。
+
+### F-27：安装指引对齐「中心直连域 vs 采集节点域」双分支 + Edge Sync Agent v0.2 口径（③ 优化 / 文案漂移，已实现）
+
+- **PRD 章节 / 文件位置**：Module_09 PRD §11 安装指引；Module_06 决策 9（接入进度按场景分支：中心直连域无监控节点动线 / 采集节点域需装 Agent）；源码 `ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx`（顶部 Collapse 安装指引）、`OnboardDomainDrawer.tsx`（底部提示）
+- **问题（用户反馈）**：顶部「安装指引」仍按单一动线描述，未区分「中心直连域（default/local，无安装）」与「采集节点域（agent_pull，需装代理）」；且 Edge Sync Agent 交付物为 v0.2（MVP 未实现），旧文案让用户误以为 MVP 即可下载安装。
+- **结论（PM 已确认对齐决策 9 分支 + edge-agent 现状）**：安装指引改为双分支——顶部 success Alert 明示「中心直连域无需部署代理、平台直接采集，可跳过」；下方为「采集节点域」4 步动线（下载安装包 → 解压部署 → 启动/守护 → 心跳回连），并明确标注「Edge Sync Agent 交付物为 v0.2，当前 MVP 仅展示接入动线，安装包另待发布」；OnboardDomainDrawer 底部 agent_pull 分支同步补同一 v0.2 口径。纯前端文案 + 步骤调整。
+- **实现落库**：`ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx`（新增 Alert + 重构 Steps 4 步 + v0.2 注记）、`OnboardDomainDrawer.tsx`（文案补 v0.2）。测试：`NetworkDomainsPage.test.tsx` 通过（未新增断言，文案渲染无逻辑分支变化）。
+- **是否需设计侧确认**：否（文案口径对齐既有决策，无规格变更）。
+- **影响模块**：M09 网域纳管页安装指引 + 纳管抽屉文案。
+- **发现场景**：用户配合 M06 网域改造检查 M09 安装指引（2026-09-17）。

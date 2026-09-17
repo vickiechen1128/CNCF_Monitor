@@ -50,7 +50,9 @@ func ListNetworkDomains(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var list []models.NetworkDomain
-		if err := q.Order("created_at desc").
+		// 排序：系统预置管理域（default，中心直连域）固定置顶；其余按登记先后升序，
+		// 保证新登记网域追加在列表末尾而非插入最先（PM 决策 2026-09-17）。
+		if err := q.Order("(domain_type = 'management') desc, created_at asc").
 			Offset((page - 1) * pageSize).
 			Limit(pageSize).
 			Find(&list).Error; err != nil {
@@ -61,8 +63,13 @@ func ListNetworkDomains(db *gorm.DB) gin.HandlerFunc {
 		if list == nil {
 			list = []models.NetworkDomain{}
 		}
+		views, err := DomainListView(db, list)
+		if err != nil {
+			response.InternalServerError(c, fmt.Errorf("aggregate domain access progress: %w", err))
+			return
+		}
 		response.OK(c, gin.H{
-			"list":      list,
+			"list":      views,
 			"total":     total,
 			"page":      page,
 			"page_size": pageSize,

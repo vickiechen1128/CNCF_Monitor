@@ -79,8 +79,8 @@
 | POST | `/network-domains` | 行政字段：`name`(必填)、`description?`、`domain_type`(management/edge)、`zone_type?`、`authorized_tenant_ids?`（缺省=登记归属租户回填 `platform_admin`）；**不含 `tenant_id`**（服务端固定登记归属 `platform_admin`）、**不含 `id`**（服务端生成 `<deploy_code>-<domain_code>`，`deploy_code` 来自部署配置/`METRIC_CENTER_DEPLOY_CODE`，默认 `mc`；`default` 为历史预置例外无前缀） | 创建后完整对象（含 `status=enabled`） | `bad_request`：必填缺失 / `zone_type` 非字典项；`conflict`：`id` 或 `name` 重复 | §6.2 |
 | GET | `/network-domains/:id` | — | `{NetworkDomain}` | `not_found` | §6.2 |
 | PUT | `/network-domains/:id` | `{name?, description?, zone_type?, authorized_tenant_ids?}`（**v0.3 起含 `ip_cidrs`**，决策 52）；**不含 `tenant_id`**（登记归属创建后不可变更，v0.2+ 调整走独立归属转移接口） | 更新后对象 | `not_found`；`bad_request` | §6.2 |
-| PATCH | `/network-domains/:id/status` | `{status: enabled|disabled}` | 更新后对象；**禁用时返回影响范围**（该网域下 M07 资源数 / 已纳管 EdgeAgent 数，供前端二次确认弹窗） | `bad_request`：管理域（`default`）不可禁用；`forbidden`：非 admin | §6.2 |
-| DELETE | `/network-domains/:id` | — | `{id}`；**已纳管场景返回级联影响清单**（该网域已纳管 → N 个采集节点将断连、凭据将废止），执行后 M06 软删 + M09 级联清退纳管状态（废止 Token / 停止下发 / `EdgeAgent` 标 `retired`） | `bad_request`：管理域（`default`）禁止删除；`forbidden`：**仅当有 M07 资源引用时拒绝**（返回引用资源名单供 M07 跳转；**已纳管 EdgeAgent 不再拒绝，改级联清退**，决策 82-1） | §6.2 |
+| PATCH | `/network-domains/:id/status` | `{status: enabled\|disabled}` | 更新后对象；**禁用时返回影响范围** `{resource_count, managed_edge_agent_count, has_online_agents}`（决策 82-2：`has_online_agents=true` 时前端追加「行政冻结」固定提示） | `bad_request`：管理域（`default`）不可禁用；`forbidden`：非 admin | §6.2 |
+| DELETE | `/network-domains/:id` | — | `{id}`；**已纳管场景返回级联影响清单** `{cascade_impact: {edge_agent_count, will_retire_agents: [{id, hostname, status}]}}`（决策 82-1），执行后 M06 软删 + M09 级联清退纳管状态（废止 Token / 停止下发 / `EdgeAgent` 标 `retired`） | `bad_request`：管理域（`default`）禁止删除；`forbidden`：**仅当有 M07 资源引用时拒绝**（返回引用资源名单供 M07 跳转；**已纳管 EdgeAgent 不再拒绝，改级联清退**，决策 82-1） | §6.2 |
 
 **NetworkDomain 行政字段（§5.2，完整模型见 Module_09 §5.1）**：
 
@@ -98,6 +98,71 @@
 | created_at / updated_at | datetime | ✅ | 技术字段 |
 
 > **M07 消费说明**：M07 资源新增/编辑表单的网域下拉消费本接口时传 `status=enabled`——禁用/冻结网域不可作为新建资源归属。监控纳管字段（channel/agent_type/remote_write_url/center_endpoint/运行态）由 M09 维护，`GET /network-domains` 列表由 M09 侧合并返回（见 M09 快照）。
+
+### 5.1 决策 82 补充结构（前端消费）
+
+#### 5.1.1 PATCH `.../status` 禁用影响范围响应
+
+禁用时 `data` 字段扩展：
+
+```typescript
+{
+  id: string;
+  name: string;
+  status: 'disabled';
+  // ...其他 NetworkDomain 字段
+  impact: {
+    resource_count: number;           // 该网域下 M07 资源总数
+    managed_edge_agent_count: number; // 已纳管 EdgeAgent 数
+    has_online_agents: boolean;       // 是否存在 online 状态 Agent（决策 82-2）
+  }
+}
+```
+
+前端二次确认弹窗逻辑：
+- `has_online_agents=true` 时追加固定提示：「**行政冻结提示**：已接入的采集节点不会自动停止采集，如需停止监控请使用「退纳管」功能（v0.2+）」
+- 展示 `resource_count` 与 `managed_edge_agent_count` 供用户确认
+
+#### 5.1.2 DELETE 级联影响清单响应
+
+已纳管场景（`managed_edge_agent_count > 0`）时，DELETE 执行前返回级联影响清单供前端二次确认：
+
+```typescript
+{
+  cascade_impact: {
+    edge_agent_count: number;                    // 将退场的采集节点总数（= will_retire_agents 实际退役条数）
+    will_retire_agents: Array<{                  // 将退场的 Agent 明细（实际退役清单，含 offline）
+      id: string;
+      hostname: string;
+      status: 'online' | 'unknown' | 'offline';  // 当前状态（offline 也一并退场）
+    }>;
+  }
+}
+```
+
+> **清退范围覆盖 offline（决策 82-1）**：`will_retire_agents` 为实际将被 retire 的 Agent 明细，
+> 覆盖 `status ∈ (online, unknown, offline)`（offline 节点同样标记 `retired`），名单与实际退役数量口径一致
+> （MEDIUM-4：`edge_agent_count` 恒等于 `will_retire_agents.length`）。`retired` 终态节点不在此列。
+
+前端二次确认弹窗展示：
+- 标题：「确认删除网域 {name}？」
+- 正文：「该网域已纳管 {edge_agent_count} 个采集节点，删除后将：① 废止所有 Token；② 停止配置下发；③ 将采集节点标记为「已退场」（retired）。」
+- 列表：展示 `will_retire_agents`（hostname + 当前状态）
+
+#### 5.1.3 EdgeAgent.status 枚举扩展（决策 82）
+
+`EdgeAgent.status` 新增 `retired` 终态：
+
+| 状态 | 含义 | 来源 |
+|------|------|------|
+| `unknown` | 未上报心跳 / 状态未知 | M09 登记 |
+| `online` | 心跳正常 | M09 心跳检测 |
+| `offline` | 心跳超时 | M09 心跳检测 |
+| `retired` | **已退场（终态，审计追溯）** | M06 删除级联清退（决策 82-1） |
+
+前端展示：
+- `retired` 状态使用灰色 badge + tooltip「该节点已退场，历史记录保留供审计追溯」
+- 列表筛选支持 `status=retired` 过滤
 
 ## 6. 用户管理 API（MVP，决策 44 CRUD + H-2 访问控制门）
 
@@ -138,6 +203,7 @@
 | `Tenant.status` | `active` / `suspended` / `disabled` | suspended MVP 无操作入口（预留） |
 | `NetworkDomain.domain_type` | `management` / `edge` | 管理域（`default`）禁止删除与禁用 |
 | `NetworkDomain.status` | `enabled` / `disabled` | 禁用=冻结（决策 30） |
+| `EdgeAgent.status` | `unknown` / `online` / `offline` / `retired` | **新增 `retired` 终态**（决策 82-1：删除级联清退标记，审计追溯） |
 | `zone_type` | 部署级字典（`GET /zone-types`） | 政务云分区 / 公有云 region / {v0.2+} `k8s` |
 | `User.role` | `admin` / `user` | H-2 两级访问控制门；非业务角色体系 |
 | `User.status` | `active` / `disabled` | |

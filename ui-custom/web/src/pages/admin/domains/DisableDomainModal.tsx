@@ -18,6 +18,20 @@ interface DisableDomainModalProps {
  * 管理域（default）不可禁用（页面已置灰，此处双重防御）。
  */
 export function DisableDomainModal({ open, domain, onCancel, onSuccess }: DisableDomainModalProps) {
+  // H2：以 domain.id 作为 key，网域变化 / 关闭重开时整体重建弹窗状态，
+  // 避免 phase / impact / error 等跨打开残留（React key 重建模式）。
+  return (
+    <DisableDomainModalInner
+      key={domain?.id ?? '__closed__'}
+      open={open}
+      domain={domain}
+      onCancel={onCancel}
+      onSuccess={onSuccess}
+    />
+  )
+}
+
+function DisableDomainModalInner({ open, domain, onCancel, onSuccess }: DisableDomainModalProps) {
   const [confirming, setConfirming] = useState(false)
   const [phase, setPhase] = useState<'confirm' | 'result'>('confirm')
   const [impact, setImpact] = useState<NetworkDomainImpact | null>(null)
@@ -71,17 +85,28 @@ export function DisableDomainModal({ open, domain, onCancel, onSuccess }: Disabl
           {error && <Alert type="error" showIcon message={error} />}
         </>
       ) : (
-        <Alert
-          type="warning"
-          showIcon
-          message="禁用已生效，影响范围如下"
-          description={
-            <div>
-              <p>该网域下 M07 资源数：{impact?.resource_count ?? 0}</p>
-              <p>已纳管 EdgeAgent 数：{impact?.managed_edge_agent_count ?? 0}</p>
-            </div>
-          }
-        />
+        <>
+          <Alert
+            type="warning"
+            showIcon
+            message="禁用已生效，影响范围如下"
+            description={
+              <div>
+                <p>该网域下 M07 资源数：{impact?.resource_count ?? 0}</p>
+                <p>已纳管 EdgeAgent 数：{impact?.managed_edge_agent_count ?? 0}</p>
+              </div>
+            }
+          />
+          {impact?.has_online_agents && (
+            <Alert
+              type="info"
+              showIcon
+              message="【重要】禁用为行政冻结"
+              description="新资源登记与新纳管将被阻止，但已接入的采集节点不会自动停止采集。如需停止采集并回收网域，请使用「删除」（级联清退）；如需保留网域仅停止采集，v0.2+ 提供「退纳管」。"
+              style={{ marginTop: 12 }}
+            />
+          )}
+        </>
       )}
     </Modal>
   )

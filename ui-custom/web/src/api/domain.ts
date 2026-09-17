@@ -11,6 +11,7 @@ import type {
   DomainStatus,
   DomainType,
   NetworkDomain,
+  NetworkDomainDeleteResult,
   NetworkDomainImpact,
   NetworkDomainStatusResult,
   Tenant,
@@ -38,6 +39,7 @@ export interface NetworkDomainCreateInput {
   zone_type?: string
   description?: string
   authorized_tenant_ids?: string[]
+  ip_cidrs?: string[]
 }
 
 /** 编辑网域（行政信息）输入；不含 tenant_id（登记归属创建后不可变更，Module_06 §6.2） */
@@ -46,6 +48,7 @@ export interface NetworkDomainUpdateInput {
   description?: string
   zone_type?: string
   authorized_tenant_ids?: string[]
+  ip_cidrs?: string[]
 }
 
 /**
@@ -84,8 +87,8 @@ export const networkDomainApi = {
       { body: { status } },
     )
   },
-  remove(id: string): Promise<ApiResponse<null>> {
-    return apiClient.delete<null>(`/api/v2/platform/network-domains/${encodeURIComponent(id)}`)
+  remove(id: string): Promise<ApiResponse<NetworkDomainDeleteResult>> {
+    return apiClient.delete<NetworkDomainDeleteResult>(`/api/v2/platform/network-domains/${encodeURIComponent(id)}`)
   },
 }
 
@@ -93,21 +96,31 @@ export const networkDomainApi = {
  * 从 PATCH /:id/status 响应中解析影响范围。
  * 契约兼容：影响范围可能嵌套在 `data.impact`，也可能直接平铺在 `data.{resource_count,...}`
  * （review 阶段按后端汇报的响应结构对齐——TaskDesc 用 edge_agent_count，L3/PRD 用 managed_edge_agent_count）。
+ * 决策 82-2：同时解析 has_online_agents 字段供前端判断是否展示「行政冻结」补强提示。
  */
 export function resolveNetworkDomainImpact(
   result: ApiResponse<NetworkDomainStatusResult | null>,
 ): NetworkDomainImpact | null {
   const data = result.data
   if (!data) return null
-  if (data.impact) return data.impact
+  if (data.impact) {
+    return {
+      ...data.impact,
+      // 决策 82-2：has_online_agents 的语义为「是否存在 online 状态 Agent」；
+      // 若后端已显式返回该布尔则直接采信，缺省不再用 计数>0 推断（计数>0 ≠ 存在在线 Agent）。
+      has_online_agents: data.impact.has_online_agents ?? false,
+    }
+  }
   const hasAny =
     data.resource_count !== undefined ||
     data.managed_edge_agent_count !== undefined ||
     data.edge_agent_count !== undefined
   if (!hasAny) return null
+  const managedEdgeAgentCount = data.managed_edge_agent_count ?? data.edge_agent_count ?? 0
   return {
     resource_count: data.resource_count ?? 0,
-    managed_edge_agent_count: data.managed_edge_agent_count ?? data.edge_agent_count ?? 0,
+    managed_edge_agent_count: managedEdgeAgentCount,
+    has_online_agents: data.has_online_agents ?? false,
   }
 }
 

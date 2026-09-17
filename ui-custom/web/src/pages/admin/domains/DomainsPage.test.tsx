@@ -17,7 +17,7 @@ vi.mock('../../../api/domain', () => ({
 vi.mock('./useDomains', () => ({
   useDomains: (...a: unknown[]) => useDomainsMock(...a),
 }))
-vi.mock('./DomainForm', () => ({ DomainFormModal: () => null }))
+vi.mock('./DomainForm', () => ({ DomainDrawer: () => null }))
 vi.mock('./DisableDomainModal', () => ({ DisableDomainModal: () => null }))
 vi.mock('./DeleteDomainModal', () => ({ DeleteDomainModal: () => null }))
 
@@ -125,5 +125,50 @@ describe('DomainsPage', () => {
     renderPage()
     expect(await screen.findByText('系统管理域')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /删除/ })).toBeNull()
+    // 中心直连域走直连采集简化路径，不出现「安装采集节点」等采集节点流程
+    expect(screen.getByText('已预置（中心直连）')).toBeInTheDocument()
+    expect(screen.queryByText('安装采集节点')).toBeNull()
+  })
+
+  it('renders access progress four-state text from access_step/is_monitored', async () => {
+    useDomainsMock.mockReturnValue(
+      result({
+        data: {
+          list: [
+            domainRow('mc-a', '政务网A区'), // is_monitored=false → 已登记
+            domainRow('mc-b', '医院专网', { is_monitored: true }), // 无上线 → 已纳管
+            domainRow('mc-c', '工厂专网', { is_monitored: true, has_online_agents: true }), // 上线 → 采集节点已上线
+          ],
+          total: 3,
+          page: 1,
+          page_size: 20,
+        },
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('政务网A区')).toBeInTheDocument()
+    expect(screen.getAllByText('已登记')).toBeTruthy()
+    expect(screen.getByText('已纳管')).toBeInTheDocument()
+    expect(screen.getByText('采集节点已上线')).toBeInTheDocument()
+  })
+
+  it('opens detail drawer when clicking domain name (sinking ID/CIDR/desc)', async () => {
+    useDomainsMock.mockReturnValue(
+      result({
+        data: {
+          list: [domainRow('mc-a', '政务网A区', { description: '政务网', ip_cidrs: ['10.20.0.0/16'] })],
+          total: 1,
+          page: 1,
+          page_size: 20,
+        },
+      }),
+    )
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /政务网A区/ }))
+    // 详情抽屉下沉展示：网域 ID / 网段 / 描述
+    expect(await screen.findByText('网域 ID')).toBeInTheDocument()
+    expect(screen.getByText('mc-a')).toBeInTheDocument()
+    expect(screen.getByText('10.20.0.0/16')).toBeInTheDocument()
+    expect(screen.getByText('政务网')).toBeInTheDocument()
   })
 })

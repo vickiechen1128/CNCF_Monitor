@@ -24,6 +24,7 @@ type CreateNetworkDomainRequest struct {
 	Description         string            `json:"description"`
 	DomainCode          string            `json:"domain_code"`
 	AuthorizedTenantIDs []string          `json:"authorized_tenant_ids"`
+	IPCIDRs             []string          `json:"ip_cidrs"` // 网段（可选），资源导入时按 IP 自动推导网域归属
 }
 
 // validDomainType reports whether dt is a domain type that may be provisioned
@@ -48,6 +49,21 @@ func randomDomainCode() (string, error) {
 // violation, which we map to HTTP 409 for re-registering a soft-deleted id.
 func isUniqueConstraintError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint")
+}
+
+// nameExists reports whether another non-deleted network domain already uses the
+// given name. excludeID lets update skip the domain being edited. Names are
+// compared case-insensitively (SQLite stores them as-is; lower() folds ASCII).
+func nameExists(db *gorm.DB, name, excludeID string) (bool, error) {
+	q := db.Model(&models.NetworkDomain{}).Where("lower(name) = lower(?)", name)
+	if excludeID != "" {
+		q = q.Where("id <> ?", excludeID)
+	}
+	var count int64
+	if err := q.Count(&count).Error; err != nil {
+		return false, fmt.Errorf("check network domain name %q: %w", name, err)
+	}
+	return count > 0, nil
 }
 
 // CreateNetworkDomain registers a new network domain with an auto-generated id.
@@ -95,6 +111,15 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 网域名称唯一性校验：同名（大小写不敏感）禁止重复登记。
+		if dup, err := nameExists(db, req.Name, ""); err != nil {
+			response.InternalServerError(c, err)
+			return
+		} else if dup {
+			response.Conflict(c, fmt.Errorf("network domain name %q already exists", req.Name))
+			return
+		}
+
 		tenantID := models.PlatformAdminTenantID
 		auth := req.AuthorizedTenantIDs
 		if len(auth) == 0 {
@@ -109,6 +134,7 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			ZoneType:            req.ZoneType,
 			TenantID:            tenantID,
 			AuthorizedTenantIDs: auth,
+			IPCIDRs:             req.IPCIDRs,
 			Channel:             models.ChannelTypeLocal,
 			Status:              models.DomainStatusEnabled,
 		}

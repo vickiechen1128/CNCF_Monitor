@@ -137,7 +137,7 @@ export function OnboardDomainDrawer({ open, domain, submitting, onSubmit, onClos
         <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
           {isLocal
             ? '确认纳管后随即生效：由中心直接写盘并 reload（无 Token / 安装步骤）。'
-            : '确认纳管后自动签发 Token 与 Remote Write URL；Agent 主机信息与心跳状态在接入后自动补全，接入步骤见页面顶部「安装指引」。'}
+            : '确认纳管后自动签发 Token 与 Remote Write URL；Edge Sync Agent 交付物为 v0.2（当前 MVP 仅展示接入动线，安装包另待发布），Agent 主机信息与心跳状态在接入后自动补全，接入步骤见页面顶部「安装指引」。'}
         </Text>
       </Form>
     </Drawer>

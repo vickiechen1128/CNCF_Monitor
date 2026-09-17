@@ -95,7 +95,10 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	// 注意：资源标签「静态资源 403」等业务断言在处理器内完成、与用户身份无关，注入
 	// 管理员不影响这些既有断言（seed.Run 之后 AdminUsername 恒存在）。
 	injectSeededAdmin(db, platform)
-	networkdomain.RegisterRoutes(platform, db)
+	admin := platform.Group("")
+	admin.Use(auth.RequireAdmin())
+	networkdomain.RegisterReadRoutes(platform, db)
+	networkdomain.RegisterWriteRoutes(admin, db)
 
 	// M07 收口（T07-18）：业务分组字典（DB-backed，决策 48）+ 资源 + 标签模板。
 	// 先按决策 48 seed 业务字典（yaml 首次导入 + infra 兜底），再构造 DB store。
@@ -354,21 +357,23 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 		assert.Equal(t, models.PlatformAdminTenantID, data["tenant_id"])
 	}
 
-	// 6. disable empty domain returns flat impact scope
+	// 6. disable empty domain returns nested impact scope (契约 §5.1.1)
 	{
 		code, out := exec("PATCH", "/api/v2/platform/network-domains/"+id+"/status", `{"status":"disabled"}`)
 		require.Equal(t, http.StatusOK, code)
 		data := out["data"].(map[string]interface{})
-		assert.Equal(t, float64(0), data["resource_count"])
-		assert.Equal(t, float64(0), data["managed_edge_agent_count"])
+		impact := data["impact"].(map[string]interface{})
+		assert.Equal(t, float64(0), impact["resource_count"])
+		assert.Equal(t, float64(0), impact["managed_edge_agent_count"])
+		assert.Equal(t, false, impact["has_online_agents"])
 	}
 
 	// 6b. default management domain cannot be disabled/deleted
 	{
 		code, _ := exec("PATCH", "/api/v2/platform/network-domains/"+models.DefaultDomainID+"/status", `{"status":"disabled"}`)
-		assert.Equal(t, 409, code)
+		assert.Equal(t, 400, code) // 决策82：管理域禁禁用返回400（bad_request）
 		code2, _ := exec("DELETE", "/api/v2/platform/network-domains/"+models.DefaultDomainID, "")
-		assert.Equal(t, 409, code2)
+		assert.Equal(t, 400, code2) // 决策82-1：管理域禁止删除返回400（bad_request）
 	}
 
 	// 7. re-enable then delete the (now enabled, empty) domain
@@ -379,6 +384,54 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 		require.Equal(t, http.StatusOK, code2)
 		code3, _ := exec("DELETE", "/api/v2/platform/network-domains/"+id, "")
 		assert.Equal(t, 404, code3)
+	}
+}
+
+// TestNetworkDomainWriteForbiddenWithoutAdmin 验证 HIGH-1：/network-domains 写接口
+// （POST/PUT/PATCH/DELETE）挂 RequireAdmin 授权门，非 admin（未注入管理员 context）
+// 一律返回 403 forbidden；GET 读接口保持仅认证可访问。
+func TestNetworkDomainWriteForbiddenWithoutAdmin(t *testing.T) {
+	n := atomic.AddInt64(&integrationTestDBCounter, 1)
+	dsn := fmt.Sprintf("file:netdom_admin_%d?mode=memory&cache=shared", n)
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.NetworkDomain{}, &models.EdgeAgent{}))
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	platform := r.Group("/api/v2/platform")
+	// 不注入 admin：写组 RequireAdmin 应返回 403 forbidden（HIGH-1）。
+	admin := platform.Group("")
+	admin.Use(auth.RequireAdmin())
+	networkdomain.RegisterReadRoutes(platform, db)
+	networkdomain.RegisterWriteRoutes(admin, db)
+
+	// 预置一个可被写入的边缘网域
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: "nd-forbidden", Name: "越权域", DomainType: models.DomainTypeEdge,
+		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},
+		Status: models.DomainStatusEnabled,
+	}).Error)
+
+	c := &apiClient{t: t, r: r}
+
+	// 读接口保持仅认证可访问（未挂 AuthMiddleware，GET 不被拦截）
+	code, _ := c.json("GET", "/api/v2/platform/network-domains/nd-forbidden", "")
+	assert.Equal(t, 200, code)
+	code2, _ := c.json("GET", "/api/v2/platform/network-domains", "")
+	assert.Equal(t, 200, code2)
+
+	// 写接口非 admin → 403 forbidden
+	writeReqs := []struct{ method, path, body string }{
+		{"POST", "/api/v2/platform/network-domains", `{"name":"x","domain_type":"edge"}`},
+		{"PUT", "/api/v2/platform/network-domains/nd-forbidden", `{"name":"x"}`},
+		{"PATCH", "/api/v2/platform/network-domains/nd-forbidden/status", `{"status":"disabled"}`},
+		{"DELETE", "/api/v2/platform/network-domains/nd-forbidden", ""},
+	}
+	for _, req := range writeReqs {
+		code, out := c.json(req.method, req.path, req.body)
+		assert.Equal(t, 403, code, "%s %s should require admin", req.method, req.path)
+		assert.Equal(t, "forbidden", out["errorType"], "%s %s should be forbidden", req.method, req.path)
 	}
 }
 

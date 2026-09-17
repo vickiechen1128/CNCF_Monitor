@@ -3,12 +3,12 @@
 > 文档类型：产品需求文档 / 实施规划  
 > 依赖文档：[00_Product_Vision.md](00_Product_Vision.md)、[00_Global_Architecture.md](00_Global_Architecture.md)、[02_Product_Roadmap.md](02_Product_Roadmap.md)、[03_Functional_Architecture.md](03_Functional_Architecture.md)  
 >
-> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.12（采集状态回显提前 MVP，决策 47；`/api/v1/alerts` 告警状态代理同步提前回 MVP，v1.12）· Module_06 v2.9（v0.2 范围收敛：`ip_cidrs` 与 IP 推导挪 v0.3 + K8s 划域指导原则）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.12（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61；告警状态查看提前 MVP，v1.12）· Module_09 v1.56（alertmanager.yml 纳入变更确认，决策 60；v0.2 端口解析链 + K8s 划域备忘）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
+> **各模块 PRD 版本**：Module_01 v3.35（v0.2 范围收敛：克隆 Job 移出待评估 / 草稿批量提交·业务健康度看板挪 v0.3 / `service_discovery` 降级 v0.3 / 新增实例级 `scrape_port`；采集器登记三来源开放 F-32）· Module_02 v1.12（采集状态回显提前 MVP，决策 47；`/api/v1/alerts` 告警状态代理同步提前回 MVP，v1.12）· Module_06 v2.15（网域生命周期闭环：删除硬拒绝收敛为「存在 M07 资源引用」单一条件，已纳管网域改级联清退；禁用弹窗补强行政冻结提示；定义 v0.2 退纳管动作；定版禁用/退纳管/删除三动作语义边界，决策 82）· Module_07 v2.30（v0.2 新增实例级 `scrape_port`；静态资源标签治理 F-34/L-2）· Module_08 v1.12（告警分发 MVP 闭环，决策 59/60；静默 API v1→v2 迁移，决策 61；告警状态查看提前 MVP，v1.12）· Module_09 v1.72（决策 82 配套：§3.1 功能表补「删除级联清退义务」+ 新增「退纳管（v0.2+）」行；§8 状态机枚举对齐原型 created/monitored；§9 验收新增退纳管条目）· Module_03 v1.3（Track B+ 增量，v0.2 范围定版）
 >
-> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。2026-09-08：M02 v1.11→v1.12 / M08 v1.11→v1.12 为**实质范围调整**（告警状态查看由 v0.3 提前至 MVP，新增两条只读代理契约），见 §2.5 / §2.6 / §6 / §8 与 §11。
+> 说明：M01 v3.32~v3.35 / M02 v1.9~v1.11 / M06 v2.7~v2.9 / M07 v2.28~v2.30 / M08 v1.9~v1.11 / M09 v1.54~v1.56 均为 §0「需求背景与典型场景」业务叙事层补充（产品版本影响 0、不改技术契约）；本轮刷新只对齐版本号，正文技术条款未改动。2026-09-08：M02 v1.11→v1.12 / M08 v1.11→v1.12 为**实质范围调整**（告警状态查看由 v0.3 提前至 MVP，新增两条只读代理契约），见 §2.5 / §2.6 / §6 / §8 与 §11。2026-09-16：M06 v2.9→v2.15 / M09 v1.56→v1.72 为**决策 82 网域生命周期闭环**（删除级联清退 + 禁用弹窗补强 + 退纳管动作定义），见 §2.3 / §2.4 / §3 / §8 / §9 与 §11。
 >
-> Plan 版本：**v2026-09-05**（v0.2 范围收敛重派生，对齐 `02_Product_Roadmap.md` v2.2；`05_Code_Implementation_Plan.md` 同步——Phase 6.4 监控源登记册后移 v0.3，v0.2 补实例级 `scrape_port` 端口解析链与 K8s 划域，移出克隆 Job / 草稿批量提交 / 业务健康度看板 / `service_discovery` / IP 推导 / `ip_cidrs`；各模块 `task-sequence.yaml` 的 `plan_version` 同步统一）  
-> 更新日期：2026-09-05（Plan 版本重派生 + 版本清单刷新：各模块 PRD 版本对齐至 2026-09-04 最新修订版，见 §11 变更日志；此前 2026-09-01 为决策 47 采集状态回显增量 + 决策 59/60 告警分发 MVP 闭环，见 §2.3 / §2.6 / §6 / §8 / §11）
+> Plan 版本：**v2026-09-16**（决策 82 网域生命周期闭环派生，对齐 Module_06 v2.15 / Module_09 v1.72；`05_Code_Implementation_Plan.md` 同步——§6.4 Phase 6.2 追加退纳管任务、§7.9 验收追加删除级联清退与禁用弹窗补强条目；各模块 `task-sequence.yaml` 的 `plan_version` 同步统一）  
+> 更新日期：2026-09-16（Plan 版本重派生 + 决策 82 派生：M06 删除级联清退（MVP）+ 禁用弹窗补强（MVP）+ 退纳管动作（v0.2+），跨模块事务性保障是技术难点，见 §2.3 / §2.4 / §3 / §8 / §9 与 §11；此前 2026-09-05 为 v0.2 范围收敛重派生）
 
 ---
 
@@ -93,8 +93,10 @@
 | `change_status` 回写 | 下发成功后回写 M01 `ScrapeJob.change_status=deployed` | ❌ 无 | 下发记录成功后异步回写 | 低 | 低 | L3 |
 | `alertmanager.yml` 纳入变更确认（决策 60） | 管理域（`default`）scope 配置产物；不按网域扇出、不进 `agent_pull` 配置包；确认后写中心 Alertmanager 配置路径 + reload，`change_status` 回写 M08 | ✅ `amtool check-config` + SIGHUP/`/-/reload` | configgen 纳入 M08 `AlertmanagerConfigVersion` 源 → 变更项/受影响文件枚举扩展（`alertmanager`）→ 下发写 AM 配置路径 + reload + 回写 M08 | 中 | 中 | L2/L3 |
 | 配置版本 / 下发历史 | `ConfigVersion` / `ConfigDeployment` 查询 | ❌ 无 | 版本表 + 下发记录表 | 中 | 低 | L4 |
+| **删除级联清退义务（决策 82-1，MVP）** | M06 删除已纳管网域时，M09 同步级联清退——废止 Token、停止配置下发、`EdgeAgent` 记录标 `retired`，与 M06 软删在同一次请求内完成，任一环节失败整体回滚 | ❌ 无 | 级联清退逻辑 + 事务性保障（SQLite 本地事务或补偿机制，待 backend-developer 评估） | 中 | 低 | L4 |
+| **退纳管（决策 82-3，v0.2+）** | 对已纳管网域执行「停止监控」：废止 Token → 停止配置下发 → `registration_status` 归位 `created`（保留历史记录）；与 M06 禁用正交、不可互相替代 | ❌ 无 | 退纳管动作 + 前端二次确认弹窗 | 中 | 低 | L4 |
 
-> **关键判断**：MVP 内 M09 的主干是 **default 域 + local 通道的配置生成 / 预览 / 确认 / reload 全链路**；**决策 60 起 `alertmanager.yml` 也纳入该流水线**——作为管理域（`default`）scope 配置产物进入 `ConfigDraft → 人工确认 → 下发 → reload`，`change_status` 回写 M08（M08=内容 Owner、M09=管道 Owner，对齐 M01/M09）。告警变更单网域恒为 `default`、与采集变更单相互独立；MVP 统一人工确认（低风险自动通过留作后续版本）。`agent_pull` 网域纳管 UI 保留占位页，但 Edge Agent 心跳、配置包拉取、WAL 监控等完整能力放到 v0.2。`external_labels` **不注入租户 / 业务标签**，只注入部署级元数据 `network_domain` / `zone_type` / `replica`（键名经决策 68-1 收敛为 `network_domain`；租户标签 `tenant` 的唯一来源是 M07 LabelTemplate 的 **target 级注入**，决策 68-5）。
+> **关键判断**：MVP 内 M09 的主干是 **default 域 + local 通道的配置生成 / 预览 / 确认 / reload 全链路**；**决策 60 起 `alertmanager.yml` 也纳入该流水线**——作为管理域（`default`）scope 配置产物进入 `ConfigDraft → 人工确认 → 下发 → reload`，`change_status` 回写 M08（M08=内容 Owner、M09=管道 Owner，对齐 M01/M09）。告警变更单网域恒为 `default`、与采集变更单相互独立；MVP 统一人工确认（低风险自动通过留作后续版本）。`agent_pull` 网域纳管 UI 保留占位页，但 Edge Agent 心跳、配置包拉取、WAL 监控等完整能力放到 v0.2。`external_labels` **不注入租户 / 业务标签**，只注入部署级元数据 `network_domain` / `zone_type` / `replica`（键名经决策 68-1 收敛为 `network_domain`；租户标签 `tenant` 的唯一来源是 M07 LabelTemplate 的 **target 级注入**，决策 68-5）。**决策 82 起承接删除级联清退义务**（M06 删除已纳管网域时同步废止 Token / 停止下发 / `EdgeAgent` 标 `retired`，事务性保障待评估）；**退纳管动作定义留 v0.2+**（随多域场景评审，含 Token 冻结与恢复流程）。
 
 ### 2.4 Module_06：系统与平台管理（网域登记）
 
@@ -106,8 +108,11 @@
 | `zone_type` 下拉 | 字典驱动、不开放自由文本 | ❌ 无 | 下拉组件 + 后端校验 | 低 | 低 | L4 |
 | 登记归属与授权租户 | `tenant_id` 创建后不可变、`authorized_tenant_ids` | ❌ 无 | 字段校验 + 授权列表 | 低 | 低 | L4 |
 | 跨模块联动 | 禁用网域时 M07 拒绝新资源、M01 拒绝新建 Job / 新增实例、M09 不生成新变更单 | ❌ 无 | 状态机 + 各模块校验 | 中 | 低 | L4 |
+| **删除级联清退（决策 82-1，MVP）** | `DELETE /network-domains/:id` 硬拒绝收敛为「存在 M07 资源引用」单一条件；已纳管网域删除时 M06 软删 + M09 级联清退（废止 Token / 停止下发 / `EdgeAgent` 标 `retired`），同一次请求内完成，失败回滚 | ❌ 无 | 删除接口改造 + 级联清退调用 + 事务性保障 + 前端二次确认弹窗（展示级联影响清单） | 中 | 中 | L4 |
+| **禁用弹窗补强（决策 82-2，MVP）** | 已纳管且存在在线 Agent 的网域，禁用二次确认弹窗追加「【重要】禁用为行政冻结……已接入的采集节点不会自动停止采集」固定提示 | ❌ 无 | 前端弹窗文案补强 + ReviewNote 新增语义边界说明 | 无 | 低 | L4 |
+| **退纳管（决策 82-3，v0.2+）** | M09 网域纳管页新增「退纳管」动作：废止 Token → 停止配置下发 → `registration_status` 归位 `created`（保留历史记录）；与 M06 禁用正交 | ❌ 无 | 退纳管动作（M09 侧实现，M06 侧无 UI 入口） | 中 | 低 | L4 |
 
-> **关键判断**：MVP 内 M06 落地「网域登记管理」+「租户/用户管理单租户子集（轻量认证，决策 44，Track B 增量）」；完整租户生命周期 / RBAC / 审计放到 v0.2 及以后（轻量登录 + 单租户管理 ≠ 完整 RBAC）。网域是部署级资源，登记所有权归 `platform_admin`，可授权给多租户共享（授权 ≠ 拥有）。
+> **关键判断**：MVP 内 M06 落地「网域登记管理」+「租户/用户管理单租户子集（轻量认证，决策 44，Track B 增量）」；完整租户生命周期 / RBAC / 审计放到 v0.2 及以后（轻量登录 + 单租户管理 ≠ 完整 RBAC）。网域是部署级资源，登记所有权归 `platform_admin`，可授权给多租户共享（授权 ≠ 拥有）。**决策 82 起网域生命周期闭环**——禁用=行政冻结（管准入）/ 删除=退场回收（管存在性，级联清退）/ 退纳管=停止监控（管运行，v0.2+），三者正交不可互替。
 
 ### 2.5 Module_02：查询中心（决策 47：采集状态回显提前 MVP，Track B 增量）
 
@@ -172,10 +177,10 @@
 | `ConfigVersion` | Module_09 | 来源 draft、生效配置内容、metadata、联合 checksum | P0 |
 | `ConfigDeployment` | Module_09 | 目标网域、config_version_id、channel、status、validation_status、error_message | P0 |
 | `NetworkDomain` 监控纳管字段 | Module_09 | `channel` / `agent_type` / `remote_write_url` / `token` / `center_endpoint` / 运行态字段 | P0 |
-| `EdgeAgent` / `EdgeHeartbeat` | Module_09 | v0.2 完整实现；MVP 仅 UI 占位与模型预留 | P1（MVP 占位） |
+| `EdgeAgent` / `EdgeHeartbeat` | Module_09 | v0.2 完整实现；MVP 仅 UI 占位与模型预留；**决策 82 起 `status` 枚举新增 `retired`（终态，保留供审计追溯）**；M06 删除级联清退时同事务标 `retired` | P1（MVP 占位） |
 | `BusinessMetric` | Module_01 | 业务指标语义契约（语义/阈值/负责人）；MVP 不做 UI，仅模型预留 | P2 |
 
-> **关键判断**：数据模型是模块边界落地的核心。`biz_code` 与 `network_domain_id` 成为 MVP 资源表的必填字段；`external_labels` 只保留部署级元数据；M01 的 `change_status` 与 M09 的下发记录形成闭环。
+> **关键判断**：数据模型是模块边界落地的核心。`biz_code` 与 `network_domain_id` 成为 MVP 资源表的必填字段；`external_labels` 只保留部署级元数据；M01 的 `change_status` 与 M09 的下发记录形成闭环。**决策 82 新增事务性约束**：M06 `DELETE /network-domains/:id` 与 M09 级联清退必须在**同一次请求内**完成（SQLite 本地事务或补偿机制，待 backend-developer 评估），任一环节失败整体回滚。
 
 ---
 
@@ -378,7 +383,14 @@ Module_06 网域登记管理
     │
     ├──► 预置 default 网域（management / local）
     ├──► 登记其他网域（edge / agent_pull，UI 占位）
-    └──► 禁用网域 = 冻结：拒绝新资源 / 新 Job / 新变更单
+    ├──► 禁用网域 = 行政冻结（管准入）：拒绝新资源 / 新 Job / 新变更单
+    │       └──► 已纳管且存在在线 Agent 时，禁用弹窗追加「【重要】禁用为行政冻结……已接入的采集节点不会自动停止采集」固定提示（决策 82-2）
+    ├──► 删除网域 = 退场回收（管存在性，决策 82-1，MVP）：
+    │       ├── 硬拒绝条件收敛为「存在 M07 资源引用」单一条件
+    │       ├── 已纳管网域删除 → 二次确认弹窗展示级联影响清单
+    │       └── 确认后 M06 软删 + M09 级联清退（废止 Token / 停止下发 / EdgeAgent 标 retired），同事务完成
+    └──► 退纳管 = 停止监控（管运行，决策 82-3，v0.2+）：
+            └── 废止 Token → 停止配置下发 → registration_status 归位 created
               │
               ▼
 Module_07 监控对象管理
@@ -435,9 +447,9 @@ Module_08 告警收敛与通知管理（决策 59/60）
 1. **后端最重的部分**：Module_07 五类资源表 + Excel 导入 + `ResourceLabel` 合并、Module_09 配置生成器、Module_01 `ScrapeJob` 与冻结网域联动。
 2. **后端最轻的部分**：Module_06 网域登记行政 CRUD、Module_09 `default` 域 local reload、Module_01 规则文件挂载。
 3. **MVP 应该避开**：字段化规则编辑 UI、Alertmanager 配置**表单化** UI（文件挂载已纳入 MVP，决策 59/60；表单化 UI 挪 v0.3）、完整多租户 RBAC、外部 CMDB 同步、复杂 Dashboard、Edge Agent 完整能力（注：决策 44 已将**轻量登录 + 单租户/用户管理**纳入 MVP，与「完整多租户 RBAC」区分——前者只认证不授权，后者仍后移）。
-4. **新增自研点**：`NetworkDomain` 行政模型 + `zone_type` 字典、五类资源模型 + `biz_code`、`CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob` 认证/TLS、`MonitoringRule` 文件挂载、`ConfigDraft`/`ConfigVersion`/`ConfigDeployment`、`AlertmanagerConfigVersion`（M08 文件挂载留痕）+ 静默 API 代理、冻结网域跨模块校验。
+4. **新增自研点**：`NetworkDomain` 行政模型 + `zone_type` 字典、五类资源模型 + `biz_code`、`CITypeExporterMapping`、`ExporterTemplate`、`ScrapeJob` 认证/TLS、`MonitoringRule` 文件挂载、`ConfigDraft`/`ConfigVersion`/`ConfigDeployment`、`AlertmanagerConfigVersion`（M08 文件挂载留痕）+ 静默 API 代理、冻结网域跨模块校验、**网域删除级联清退事务（M06 软删 + M09 废止 Token / 停止下发 / `EdgeAgent` 标 `retired`，同事务回滚，决策 82-1）**、**网域退纳管动作（v0.2+，废止 Token → 停止下发 → `registration_status` 归位 `created`，决策 82-3）**。
 5. **最大杠杆点**：充分利用 Prometheus / Blackbox 的原生能力，MetricCenter 只做「配置翻译」和「门户展示」。
-6. **跨模块契约**：M06 是网域行政 Owner；M07 只读取 `network_domain_id`；M01 的 ScrapeJob 必须绑定 M09 已纳管网域；M09 生成配置时排除 `offline` 资源并注入部署级 `external_labels`；M08 是 `alertmanager.yml` 内容 Owner、M09 是变更确认与下发管道 Owner（管理域 default scope、不扇出，决策 60）。
+6. **跨模块契约**：M06 是网域行政 Owner；M07 只读取 `network_domain_id`；M01 的 ScrapeJob 必须绑定 M09 已纳管网域；M09 生成配置时排除 `offline` 资源并注入部署级 `external_labels`；M08 是 `alertmanager.yml` 内容 Owner、M09 是变更确认与下发管道 Owner（管理域 default scope、不扇出，决策 60）；**决策 82 网域生命周期闭环**：禁用=行政冻结（管准入）/ 删除=退场回收（管存在性，级联清退）/ 退纳管=停止监控（管运行，v0.2+），三者正交不可互替；M06 删除已纳管网域时 M09 必须在同事务内完成级联清退（废止 Token / 停止配置下发 / `EdgeAgent` 标 `retired`），失败回滚。
 7. **多租户原则**：MVP 以单租户 `platform_admin` 运行；租户/业务标签不进入 `external_labels`，通过 M07 LabelTemplate 以 target 级标签注入，隔离优先在 v0.2 后的查询网关实现。
 
 ---
@@ -466,6 +478,7 @@ Module_08 告警收敛与通知管理（决策 59/60）
 
 | 日期 | 变更内容 | 变更人 |
 |------|----------|--------|
+| 2026-09-16 | **网域生命周期闭环（决策 82，源自 M06 PRD v2.14→v2.15 / M09 PRD v1.71→v1.72）**：§2.4 M06 能力矩阵新增「删除级联清退（MVP）」与「退纳管（v0.2+）」两行；§2.3 M09 能力矩阵新增「删除级联清退义务（MVP）」与「退纳管（v0.2+）」两行；§3 数据模型 `EdgeAgent` 设计要点补 `status` 枚举新增 `retired`（终态，审计追溯）+ 级联清退事务性约束；§8 MVP 闭环图补「删除=退场回收」与「退纳管=停止监控」分支；§9 关键结论第 4 条追加网域删除级联清退事务与退纳管动作自研点、第 6 条追加决策 82 跨模块契约（三动作正交不可互替 + 同事务级联清退）；PRD 版本对齐 Module_06 v2.9→v2.15 / Module_09 v1.56→v1.72 | planner |
 | 2026-09-10 | **租户标签键定版 + 通用命名规约（决策 68-5）**：§2.3 关键判断补「`external_labels` 不注入租户 / 业务标签、租户标签 `tenant` 唯一来源为 M07 LabelTemplate target 级注入」并修正同段残留的旧网域键名（`network_domain_id` → `network_domain`）；§2.3 M09 能力清单「PromQL 查询代理 — 注入 `tenant` / `network_domain`」口径确认（标签键不带 `_id` 后缀）；**通用命名规约**：Prometheus 标签键及对齐的 Query 参数 / Excel 列 / envelope 字段一律不带 `_id` 后缀，`_id` 只属 DB 列与 API JSON 字段（`network_domain`/`network_domain_id`、`tenant`/`tenant_id` 三层自洽）。同步：M02 PRD v1.14→**v1.15**、M07 PRD v2.30→**v2.31**、M09 PRD v1.64→**v1.65**；`03_Functional_Architecture.md` v3.4→v3.5。详见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md` §9 | planner |
 | 2026-09-10 | **标签键收敛 + `alerting` 投递接线（决策 68，源自 F-07 网域列缺陷评审）**：§2.3 M09 能力清单「`external_labels` 注入」行键名改为 **`network_domain`**（决策 68-1；决策 19 键名 supersede，字段清单结论不变，对象/API 字段仍用 `network_domain_id`），并新增「`alerting` 投递接线」行（决策 68-2：中心 `prometheus.yml` 生成 `alerting.alertmanagers`，仅中心 / 条件注入 / AM 地址由 `env/env.sh` 注入，边缘包不生成）；§8 MVP 闭环图同步标签键与 `alerting` 生成步骤。**本轮仅修正本决策直接相关的标签键与投递行**；§头部「各模块 PRD 版本」串的既有陈旧（M02 v1.12 / M08 v1.12 / M09 v1.56 等）不在本轮范围，另案刷新（详见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md` §8） | planner |
 | 2026-09-08 | **告警状态查看提前 MVP（Track B+ 增量，强制 security-reviewer；MVP 试用反馈：前台缺少查看当前告警入口）**：§2.5 M02 新增 `/api/v1/alerts` 代理行（firing/pending + 注入骨架恒通过 + `network_domain` 可选筛选）；§2.6 M08「告警状态查看（AM 通知状态）/ Prometheus 触发告警状态」两行由「v0.3」修订为 **MVP**，AM 代理端点修正为 `/api/v2/alerts`（对齐决策 61 的 v2 API 口径，v1 已移除）；§6 告警分层 MVP 列补齐告警状态查看（双视图）；§8 MVP 闭环 M08 块追加告警状态页双视图、M02 增量清单补 `/api/v1/alerts`；PRD 版本对齐 Module_02 v1.11→v1.12 / Module_08 v1.11→v1.12；同步 `05_Code_Implementation_Plan.md`（§6.4 Track B+ 登记 + §7.9 验收 + 头部版本串逐字一致） | planner |
