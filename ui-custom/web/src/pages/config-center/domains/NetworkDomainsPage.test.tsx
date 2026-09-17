@@ -97,7 +97,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(container.querySelector('.ant-spin')).toBeTruthy()
   })
 
-  it('成功渲染网域行：名称+ID、下发通道 local/agent_pull', async () => {
+  it('成功渲染网域：名称+ID；列已收敛为 5 列（网络区域类型/下发通道不再出现）', async () => {
     useNetworkDomainsMock.mockReturnValue(
       result({
         data: {
@@ -112,9 +112,38 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     renderPage()
     expect(await screen.findByText('默认域')).toBeInTheDocument()
     expect(screen.getByText('mc-a')).toBeInTheDocument()
-    expect(screen.getByText('internet')).toBeInTheDocument()
-    // local 通道行不展示 agent_pull 专属字段（运行状态/凭据恒 '-'）
+    // 列收敛 7→5：网络区域类型 / 下发通道列已删除，不再渲染其列头与地区取值
+    expect(screen.queryByText('网络区域类型')).not.toBeInTheDocument()
+    expect(screen.queryByText('下发通道')).not.toBeInTheDocument()
+    expect(screen.queryByText('internet')).not.toBeInTheDocument()
+    // 保留 5 列中的「采集节点在线」列头（Tooltip+Space 包裹会产生多处文本节点，用 getAllByText）
+    expect(screen.getAllByText('采集节点在线').length).toBeGreaterThanOrEqual(1)
+    // local 通道行不展示 agent_pull 专属字段（采集节点在线/凭据恒 '-'）
     expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('采集节点在线列：列头 tooltip 存在；agent_pull+monitored_status 渲染状态与心跳，local 恒显 -', async () => {
+    useNetworkDomainsMock.mockReturnValue(
+      result({
+        data: {
+          items: [
+            domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }),
+            domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'online', last_heartbeat: '2026-08-21T00:00:00Z' }),
+          ],
+          total: 2,
+        },
+      }),
+    )
+    renderPage()
+    // 列头文案（Tooltip+Space 包裹会产生多处文本节点，用 findAllByText）
+    expect((await screen.findAllByText('采集节点在线')).length).toBeGreaterThanOrEqual(1)
+    // 列头 Tooltip 存在（问号图标触发器）
+    expect(screen.getByRole('img', { name: 'question-circle' })).toBeInTheDocument()
+    // agent_pull + monitored_status → 状态 Tag（在线）+ 最后心跳相对时间
+    expect(screen.getByText('在线')).toBeInTheDocument()
+    expect(screen.getAllByText(/· .*(刚刚|分钟前|小时前|天前)/).length).toBeGreaterThanOrEqual(1)
+    // local 通道行在「采集节点在线」列恒显 '-'
+    expect(screen.getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
 
   it('空态：无网域时给出「先去网域管理登记」引导', async () => {

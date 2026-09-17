@@ -28,7 +28,7 @@
 
 | 原型文件 | 生产文件（规划） | 状态 | 说明 |
 |----------|------------------|------|------|
-| `src/pages/NetworkDomainsPage.tsx`（网域纳管） | `ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx`、`OnboardDomainDrawer.tsx`、`NetworkDomainDetailDrawer.tsx`、`domainConstants.ts`、`useNetworkDomains.ts` | ⚠️ 作业 | 7 列收敛 + 详情抽屉 + 行内纳管/编辑 + 安装指引占位；agent_pull 字段裁剪占位 |
+| `src/pages/NetworkDomainsPage.tsx`（网域纳管） | `ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx`、`OnboardDomainDrawer.tsx`、`NetworkDomainDetailDrawer.tsx`、`domainConstants.ts`、`useNetworkDomains.ts` | ⚠️ 作业 | 5 列收敛 + 详情抽屉 + 行内纳管/编辑 + 安装指引占位；agent_pull 字段裁剪占位 |
 | `src/pages/EdgeAgentsPage.tsx`（采集节点状态） | `ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx`（MVP 空态）、`nodesConstants.ts`、`useEdgeAgents.ts` | ⚠️ 作业 | MVP 仅空态引导页；列表/抽屉/组件分区为 v0.2 |
 | `src/pages/ConfigPreviewPage.tsx`（配置变更确认） | `ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`、`useConfigDrafts.ts`、`configPreviewYaml.ts` | ⚠️ 作业 | 变更摘要/清单/预览/Diff 四 Tab + 网域切换 + 确认/废弃/重校验；metadata.json 占位 |
 | `src/pages/DeploymentsPage.tsx`（下发记录） | `ui-custom/web/src/pages/config-center/deployments/DeploymentsPage.tsx`、`useDeployments.ts` | ⚠️ 作业 | 列表 + 详情 + 回滚 + local 重试 + 定位参数 |
@@ -46,10 +46,8 @@
 | 原型列 | 生产列（规划） | 状态 | 备注 |
 |--------|---------------|------|------|
 | 网域（名称+ID 两行合并） | 网域（同，`name` + `id`） | ✅ | |
-| 网络区域类型（zone_type Tag） | 网络区域类型（zone_type Tag，政务云/公有云按网域身份维度） | ✅ | zone_type 为 M06 行政字典，M09 只读展示 |
 | 纳管状态（registration_status Tag） | 纳管状态（由 `is_monitored` 派生 `monitored`/`created`） | ✅ | 契约 GET network-domains 返回 `is_monitored`；前端派生注册态 |
-| 下发通道（channel Tag：local 中性 / agent_pull 蓝） | 下发通道（同） | ✅ | `default` 固定 local |
-| 运行状态（状态+心跳合并，仅 agent_pull） | 运行状态（`agent_pull && status` 时展示状态+心跳；local 显 `-`） | ⚠️ C1 | 运行态字段 agent_pull 心跳为 v0.2 占位，MVP local 恒显 `-` |
+| 采集节点在线（状态+心跳合并，仅 agent_pull） | 采集节点在线（`agent_pull && monitored_status` 展示状态+心跳；local 显 `-`）+ 列头 Tooltip 粒度说明 | ⚠️ C1 | 由「运行状态」更名（PRD v1.79 §3.1.1/§11.3）；行态真值 agent_pull 心跳为 v0.2 占位，MVP local 恒显 `-` |
 | 凭据（脱敏 Token+复制，仅 agent_pull） | 凭据（`agent_pull && token_masked` 时仅展示脱敏串 `••••••••`，local 显 `-`） | ⚠️ C2 | 契约口径（dev-feedback #1）：list 不返回明文 token，列表行**不提供「复制明文」**；明文仅在纳管成功/重置 Token 单次响应后经一次性 PlainTokenModal 展示并复制（review-fix HIGH-1/MEDIUM-1/LOW-1） |
 | 操作（纳管/编辑 + 详情 + 更多[重置 Token]） | 操作（三槽位：主操作=纳管/编辑文本链接 + 详情常驻 + 更多仅 agent_pull 已纳管显示重置 Token） | ⚠️ C3 | 重置 Token 为 v0.2 占位；MVP local 行仅 编辑/详情 |
 | 顶部「新网域接入操作流程」提示区（3 步） | 顶部常驻提示区（3 步人工步骤 + 组件构成 + 凭据获取；纳管成功滚动高亮） | ⚠️ C4 | 安装指引仅在纳管 agent_pull 域后引导；MVP local 域裁剪提示强度 |
@@ -154,7 +152,7 @@
 
 - [ ] `MainLayout.tsx` Sider 支持一级菜单组，M09 四路由挂「系统与平台管理」tab（N2-1）
 - [ ] `App.tsx` 注册 `/domain-onboarding` `/node-status` `/config-preview` `/deployments`
-- [ ] 网域纳管页 7 列 + 详情抽屉 + 行内纳管/编辑 + 顶部提示区（agent_pull 字段占位）
+- [ ] 网域纳管页 5 列 + 详情抽屉 + 行内纳管/编辑 + 顶部提示区（agent_pull 字段占位）
 - [ ] 采集节点状态页 MVP 空态引导
 - [ ] 配置变更确认页四 Tab + 网域切换 + 受影响文件高亮 + 确认/废弃/重校验
 - [ ] 下发记录页列表 + 详情 + local 重试 + 回滚 + 定位参数

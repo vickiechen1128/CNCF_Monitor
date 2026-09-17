@@ -1,4 +1,5 @@
-import { Descriptions, Drawer, Tag, Tooltip, Typography } from 'antd'
+import { Descriptions, Drawer, Space, Tag, Tooltip, Typography } from 'antd'
+import { QuestionCircleOutlined } from '@ant-design/icons'
 import type { NetworkDomain } from '../../../types/config-center'
 import {
   agentTypeLabel,
@@ -74,7 +75,19 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
               <Text type="secondary">-</Text>
             )}
           </Descriptions.Item>
-          <Descriptions.Item label="运行状态">
+          {/* PRD v1.79 §3.1.1 / §11.3 决策 82 配套：运行态栏目标签与列表「采集节点在线」列保持一致，
+              列头 Tooltip 点明粒度——本项为该网域采集节点的心跳状态（网域粒度聚合视图），
+              与「纳管状态」（配置态）维度不同、非重复；节点与组件级诊断归「采集节点状态」页 */}
+          <Descriptions.Item
+            label={
+              <Tooltip title="该网域采集节点（Edge Sync Agent）的心跳状态，网域粒度的聚合视图；节点与组件级诊断请见「采集节点状态」页">
+                <Space size={4}>
+                  采集节点在线
+                  <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+                </Space>
+              </Tooltip>
+            }
+          >
             {domain.channel === 'agent_pull' && domain.monitored_status ? (
               <Tag color={monitoredStatusColor[domain.monitored_status]}>
                 {monitoredStatusLabel[domain.monitored_status]}

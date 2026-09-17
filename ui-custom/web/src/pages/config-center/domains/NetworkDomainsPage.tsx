@@ -29,6 +29,7 @@ import {
   EditOutlined,
   EyeOutlined,
   InfoCircleOutlined,
+  QuestionCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -46,22 +47,21 @@ import {
   agentTypeLabel,
   channelColor,
   channelLabel,
-  channelTip,
   deriveRegistrationStatus,
   formatRelativeTime,
   monitoredStatusColor,
   monitoredStatusLabel,
   registrationStatusColor,
   registrationStatusLabel,
-  zoneTypeColor,
 } from '../configCenterConstants'
 
 const { Text } = Typography
 
 /**
  * 网域纳管列表页（Module_09 §11.1 页面状态矩阵）。
- * 7 列收敛 + 详情抽屉 + 行内纳管/编辑 + 顶部安装指引占位（agent_pull）；local（default）恒显 '-'，
- * 绝不误展示 agent_pull 专属字段（C1~C4 裁剪占位）。
+ * PRD v1.79 §3.1.1 / §11.3：7 列收敛为 5 列（网域 / 纳管状态 / 采集节点在线 / 凭据 / 操作）；
+ * 网络区域类型、下发通道两列已下沉至详情抽屉。详情抽屉 + 行内纳管/编辑 + 顶部安装指引占位（agent_pull）；
+ * local（default）恒显 '-'，绝不误展示 agent_pull 专属字段（C1~C4 裁剪占位）。
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足状态。
  */
 export function NetworkDomainsPage() {
@@ -216,17 +216,6 @@ export function NetworkDomainsPage() {
       ),
     },
     {
-      title: '网络区域类型',
-      key: 'zone_type',
-      width: 130,
-      render: (_: unknown, record: NetworkDomain) =>
-        record.zone_type ? (
-          <Tag color={zoneTypeColor[record.zone_type] ?? 'default'}>{record.zone_type}</Tag>
-        ) : (
-          <Text type="secondary">-</Text>
-        ),
-    },
-    {
       title: '纳管状态',
       key: 'registration_status',
       width: 120,
@@ -236,20 +225,19 @@ export function NetworkDomainsPage() {
       },
     },
     {
-      title: '下发通道',
-      dataIndex: 'channel',
-      key: 'channel',
-      width: 110,
-      render: (channel: NetworkDomain['channel']) => (
-        <Tooltip title={channelTip[channel]}>
-          <Tag color={channelColor[channel]}>{channelLabel[channel]}</Tag>
+      // PRD v1.79 §3.1.1：第 3 列「运行状态」更名「采集节点在线」（决策 82 配套）+ 列头 Tooltip 点明粒度：
+      // 本列为「该网域采集节点的心跳状态」（网域粒度聚合），与「采集节点状态」页（节点/组件级诊断）
+      // 构成「网域层概览 → 节点层诊断」的层级关系、不是重复；与「纳管状态」（配置态）也不同，非重复列。
+      title: (
+        <Tooltip title="该网域采集节点的心跳状态，网域粒度的聚合视图；节点与组件级诊断请见「采集节点状态」页。与「纳管状态」（配置态）不同，属运行态">
+          <Space size={4}>
+            采集节点在线
+            <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
         </Tooltip>
       ),
-    },
-    {
-      title: '运行状态',
-      key: 'running_status',
-      width: 160,
+      key: 'monitored_status',
+      width: 180,
       render: (_: unknown, record: NetworkDomain) => {
         if (record.channel === 'agent_pull' && record.monitored_status) {
           return (
@@ -375,7 +363,7 @@ export function NetworkDomainsPage() {
                         items={[
                           { title: '纳管网域', description: '在网域列表点击「纳管」，平台自动生成接入凭证（Token）与数据上报地址（Remote Write URL）' },
                           { title: '部署采集代理', description: '下载采集代理安装包并部署到该网域节点；安装后会自动拉起各采集器并在后台持续运行（Edge Sync Agent 由 systemd 守护）' },
-                          { title: '等待数据回连', description: '采集代理自动连接平台拉取配置，可在本页「运行状态」列随时查看心跳与运行情况' },
+                          { title: '等待数据回连', description: '采集代理自动连接平台拉取配置，可在本页「采集节点在线」列随时查看心跳与运行情况' },
                         ]}
                       />
                     </div>
