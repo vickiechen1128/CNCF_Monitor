@@ -49,21 +49,21 @@
 ### 3.1 NetworkDomain
 
 - **行政模型 Owner（单一事实来源）**: Module_06（ID/名称/登记归属/授权租户/禁用冻结/zone_type，决策 18~20/23/28）
-- **纳管模型 Owner**: Module_09（`is_monitored`、`center_endpoint`、采集器注册、失败计数）
-- **生命周期 UI/API**: 行政登记 UI/API → Module_06；纳管 UI/API → Module_09
-- **引用方**: Module_07（资源分组，只读引用 `network_domain_id`）、Module_10（监控源归属）
-- **权威定义**: Module_06 [5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、Module_09 [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)（行政部分不重复声明）
+- **纳管模型 Owner**: Module_11（`is_monitored`、`center_endpoint`、Token、采集器注册、失败计数）
+- **生命周期 UI/API**: 行政登记 UI/API → Module_06；纳管 UI/API → Module_11
+- **引用方**: Module_07（资源分组，只读引用 `network_domain_id`）、Module_10（监控源归属）、Module_09（配置生成只读消费 `channel`）
+- **权威定义**: Module_06 [5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、Module_11 [5.1 节](Module_11_Edge_Access_and_Agent_Delivery.md#51-networkdomain%E7%9B%91%E6%8E%A7%E7%BA%B3%E7%AE%A1%E5%AD%97%E6%AE%B5)（行政部分不重复声明；三家共管口径见 Module_09 [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)）
 
 ### 3.2 Edge Agent 状态
 
-- **数据模型 Owner**: Module_09
-- **心跳接收与状态展示 Owner**: Module_09
+- **数据模型 Owner**: Module_11（`EdgeAgent` / `EdgeHeartbeat`）
+- **心跳接收与状态展示 Owner**: Module_11
 - **引用方**: Module_02（目标状态聚合）、Module_08（告警抑制场景）
-- **权威定义**: [Module_09 5.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#52-%E8%BE%B9%E7%BC%98-agentedgeagent)
+- **权威定义**: [Module_11 5.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#52-edgeagent)、[Module_11 5.3 节](Module_11_Edge_Access_and_Agent_Delivery.md#53-edgeheartbeat)
 
 ### 3.3 Edge Sync Agent 配置拉取
 
-- **协议与接口 Owner**: Module_09
+- **配置包拉取接口与 edge 协议 Owner**: Module_11（Edge Sync Agent 心跳拉取，见 [M11 §6.3](Module_11_Edge_Access_and_Agent_Delivery.md#63-%E9%85%8D%E7%BD%AE%E5%8C%85%E6%8B%89%E5%8F%96%E6%8E%A5%E5%8F%A3)）
 - **配置生成 / 预览 / 下发 Owner**: Module_09
 - **配置数据消费方**: Module_01（ScrapeJob / Rule 策略）、Module_07（Resource / LabelTemplate）、Module_08（告警规则）
 - **权威定义**: [Module_09 4.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#41-%E8%BD%AE%E8%AF%A2%E7%94%9F%E6%88%90%E6%B5%81%E7%A8%8B)、[Module_09 4.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#42-%E7%A1%AE%E8%AE%A4%E4%B8%8E%E4%B8%8B%E5%8F%91%E6%97%B6%E5%BA%8F)
@@ -100,7 +100,7 @@
 
 ### 3.8 Remote Write / 存储配置
 
-- **Edge Agent Remote Write 参数**: Module_09（per-domain `remote_write_url`、WAL 参数）
+- **Edge Agent Remote Write 参数**: Module_11（per-domain `remote_write_url` 为监控纳管字段；WAL 参数默认值见 [M11 §6.4.1](Module_11_Edge_Access_and_Agent_Delivery.md#641-wal-与-remote_write-参数默认值)）
 - **Ingestion Gateway Remote Write 接收点 / 外部 Prometheus 接入**: Module_10
 - **Ingestion Gateway 在写入前执行标签归一化与 Metric Drop Rules**: Module_10
 - **平台级 TSDB 状态 / Retention / 转发开关**: Module_06
@@ -121,10 +121,10 @@
 ### 3.11 Tenant 与 NetworkDomain 关系 {v0.2}
 
 - **Tenant 数据模型 Owner**: Module_06
-- **NetworkDomain 行政模型 Owner**: Module_06（`tenant_id` 登记归属、`authorized_tenant_ids` 又名份授权、禁用/冻结，为单一事实来源，决策 28）；**NetworkDomain 纳管模型 Owner**: Module_09（`is_monitored`、`center_endpoint`、采集器注册、失败计数）
+- **NetworkDomain 行政模型 Owner**: Module_06（`tenant_id` 登记归属、`authorized_tenant_ids` 又名份授权、禁用/冻结，为单一事实来源，决策 28）；**NetworkDomain 纳管模型 Owner**: Module_11（`is_monitored`、`center_endpoint`、`remote_write_url`、Token、采集器注册、失败计数）
 - **网域行政关系 Owner**: Module_06（`NetworkDomain.tenant_id` 登记归属 + `authorized_tenant_ids` 跨租户共享）；本模块不重复声明行政语义
-- **引用方**: Module_07（资源只读引用 `network_domain_id`，不感知租户）、Module_09（纳管字段）
-- **权威定义**: [Module_06 5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、[Module_09 5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)
+- **引用方**: Module_07（资源只读引用 `network_domain_id`，不感知租户）、Module_11（纳管字段）、Module_09（配置生成只读消费 `channel`）
+- **权威定义**: [Module_06 5.1 节](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)、[Module_11 5.1 节](Module_11_Edge_Access_and_Agent_Delivery.md#51-networkdomain%E7%9B%91%E6%8E%A7%E7%BA%B3%E7%AE%A1%E5%AD%97%E6%AE%B5)
 
 ### 3.12 标签归一化
 
@@ -155,12 +155,13 @@
 ### 3.15 Tenant / NetworkDomain 与 BlueKing CMDB 映射
 
 - **Tenant 数据模型 + 网域行政关联 Owner**: Module_06（`NetworkDomain` 行政模型单一事实来源，决策 28）
-- **NetworkDomain 纳管模型 + 采集关联 Owner**: Module_09（`EdgeAgent`、配置生成/下发、采集状态）
-- **Tenant/NetworkDomain → BlueKing 映射 Owner {v0.4+}**: Module_04（同步实现），映射关系由 Module_06/09 维护
+- **NetworkDomain 纳管模型 + 采集节点状态 Owner**: Module_11（`EdgeAgent`、采集节点运行态）；**配置生成/下发 Owner**: Module_09
+- **Tenant/NetworkDomain → BlueKing 映射 Owner {v0.4+}**: Module_04（同步实现），映射关系由 Module_06/11 维护
 - **引用方**: Module_07（资源字段注入）、Module_08（影响范围拓扑）
 - **权威定义**:
   - Module_06: [3.1 节](Module_06_Multi_Tenant.md#31-%E7%A7%9F%E6%88%B7%E4%B8%8E%E7%BD%91%E5%9F%9F%E5%85%B3%E7%B3%BB)、[3.2 节](Module_06_Multi_Tenant.md#32-%E7%A7%9F%E6%88%B7%E4%B8%8E-blueking-cmdb-%E6%98%A0%E5%B0%84)
-  - Module_09: [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)、[5.7 节](Module_09_Network_Domain_and_Edge_Config_Center.md#57-%E7%BD%91%E5%9F%9F%E4%B8%8E-blueking-cloud-area-%E6%98%A0%E5%B0%84)
+  - Module_11: [3.1 节](Module_11_Edge_Access_and_Agent_Delivery.md#31-%E7%BD%91%E5%9F%9F%E7%BA%B3%E7%AE%A1)
+  - Module_09: [5.1 节](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)、[5.5 节](Module_09_Network_Domain_and_Edge_Config_Center.md#55-%E7%BD%91%E5%9F%9F%E4%B8%8E-blueking-cloud-area-%E6%98%A0%E5%B0%84)
   - Module_04: [7 节](Module_04_Custom_Discovery.md#7-blueking-cmdb-%E6%98%A0%E5%B0%84%E8%A7%84%E8%8C%83)
 - **关键约束**:
   - **1 网域 : N 租户（跨租户共享）**：网域登记归属 `tenant_id` 固定 `platform_admin`，通过 `authorized_tenant_ids` 授权共享；`default` 网域归属 `platform_admin`，**默认不共享**，授权后共享（决策 18~20）。
@@ -207,7 +208,7 @@
 - **原属 Module_01 的运行时展示职责已拆分**:
   - 目标列表、目标详情、状态筛选、拨测结果、采集诊断、Job 健康度、覆盖率：移交 **Module_02**（查询中心）。
   - 告警状态展示：由 **Module_08** 拥有业务功能，**Module_02** 提供查询代理通道。
-  - 边缘 Agent 状态展示：由 **Module_09** 负责。
+  - 边缘 Agent 状态展示：由 **Module_11** 负责。
 - **权威定义**:
   - Module_01: [3.3 节](Module_01_Metric_Collection_Center.md#33-%E8%BF%90%E8%A1%8C%E6%97%B6%E9%87%87%E9%9B%86%E7%8A%B6%E6%80%81%E5%B1%95%E7%A4%BA%E5%B7%B2%E7%A7%BB%E5%87%BA)
   - Module_02: [3 节](Module_02_Query_Center.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)
@@ -225,25 +226,25 @@
 
 ### 3.20 Edge Agent 状态
 
-- **数据模型 Owner**: Module_09（`EdgeAgent`、`EdgeHeartbeat`）
-- **心跳接收与状态展示 Owner**: Module_09
+- **数据模型 Owner**: Module_11（`EdgeAgent`、`EdgeHeartbeat`）
+- **心跳接收与状态展示 Owner**: Module_11
 - **UI 消费方**: Module_05（Agent 状态列表页、边缘诊断看板）
 - **引用方**: Module_02（展示被监控对象采集健康度时不直接依赖 Agent 状态，但可在 UI 上做来源提示）、Module_08（`EdgeSiteOffline` 抑制规则、边缘本地告警状态）
 - **关键约束**:
   - MVP 阶段以「Agent 状态列表页」满足基本可观测需求，展示在线状态、最后心跳、配置版本、WAL 积压、最近错误。
   - 图表/趋势类边缘诊断看板（心跳 RTT 趋势、WAL 积压趋势、24h 断网时长等）延后至 P1/P2。
 - **权威定义**:
-  - Module_09: [3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#52-%E8%BE%B9%E7%BC%98-agentedgeagent)、[5.3 节](Module_09_Network_Domain_and_Edge_Config_Center.md#53-%E5%BF%83%E8%B7%B3%E4%B8%8A%E6%8A%A5edgeheartbeat)
+  - Module_11: [3.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#52-edgeagent)、[5.3 节](Module_11_Edge_Access_and_Agent_Delivery.md#53-edgeheartbeat)、[6.5 节](Module_11_Edge_Access_and_Agent_Delivery.md#65-%E7%AE%A1%E7%90%86%E9%9D%A2-rest-api)
 
 ### 3.21 告警状态
 
 - **Prometheus 当前触发告警**: 由 Module_02 代理 Prometheus `/api/v1/alerts`，展示 firing/pending 告警实例，回答「当前触发了哪些规则、哪些对象有问题」。
 - **Alertmanager 通知状态**: 由 Module_08 负责集成与展示，回答「告警正在通知给谁、是否被静默/抑制」。
-- **边缘本地告警（断网场景）{P2}**: 由边缘本地 Alertmanager 处理，状态通过 Module_09 EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
+- **边缘本地告警（断网场景）{P2}**: 由边缘本地 Alertmanager 处理，状态通过 Module_11 EdgeHeartbeat 上报，展示在 Module_11 采集节点状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 - **权威定义**:
   - Module_02: [3 节](Module_02_Query_Center.md#3-%E6%A0%B8%E5%BF%83%E5%8A%9F%E8%83%BD)、[4 节](Module_02_Query_Center.md#4-%E6%8E%A5%E5%8F%A3%E8%AE%BE%E8%AE%A1)、[6 节](Module_02_Query_Center.md#6-%E5%93%8D%E5%BA%94-envelope-%E4%B8%8E%E6%95%B0%E6%8D%AE%E6%96%B0%E9%B2%9C%E5%BA%A6)
   - Module_08: [3.1 节](Module_08_Alertmanager_Notification_Management.md#31-prometheus-%E5%91%8A%E8%AD%A6-vs-alertmanager-%E9%80%9A%E7%9F%A5%E7%8A%B6%E6%80%81)、[3.2 节](Module_08_Alertmanager_Notification_Management.md#32-%E4%B8%AD%E5%BF%83%E8%BE%B9%E7%BC%98%E5%91%8A%E8%AD%A6%E7%81%BE%E5%A4%87%E8%BE%B9%E7%95%8C)、[5.3 节](Module_08_Alertmanager_Notification_Management.md#53-%E5%91%8A%E8%AD%A6%E7%8A%B6%E6%80%81%E6%9F%A5%E7%9C%8B)
-  - Module_09: [3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[3.2 节](Module_09_Network_Domain_and_Edge_Config_Center.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.3 节](Module_09_Network_Domain_and_Edge_Config_Center.md#53-%E5%BF%83%E8%B7%B3%E4%B8%8A%E6%8A%A5edgeheartbeat)
+  - Module_11: [3.2 节](Module_11_Edge_Access_and_Agent_Delivery.md#32-%E9%87%87%E9%9B%86%E8%8A%82%E7%82%B9%E7%8A%B6%E6%80%81)、[5.3 节](Module_11_Edge_Access_and_Agent_Delivery.md#53-edgeheartbeat)
 
 ---
 
@@ -251,8 +252,8 @@
 
 | 禁止行为 | 正确做法 |
 |----------|----------|
-| 在 Module_07 中重新定义 NetworkDomain 完整数据模型 | Module_07 仅引用 `id/name/status`；完整模型在 Module_09 |
-| 在 Module_01 中定义 EdgeAgent 数据模型 | Module_01 仅引用 Module_09 提供的状态 |
+| 在 Module_07 中重新定义 NetworkDomain 完整数据模型 | Module_07 仅引用 `id/name/status`；行政完整模型在 Module_06、纳管模型在 Module_11 |
+| 在 Module_01 中定义 EdgeAgent 数据模型 | Module_01 仅引用 Module_11 提供的状态 |
 | 在 Module_03 中定义用户/角色/租户 CRUD | Module_03 只做网关层鉴权；CRUD 在 Module_06 |
 | 在 Module_04 中修改 CMDBProvider 接口签名 | 接口签名由 Module_07 定义，Module_04 遵循 |
 | 在 Module_07 中实现 CMDB 同步策略/孤儿资源生命周期 | 外部数据源生命周期由 Module_04 负责；Module_07 只消费同步后的 `Resource` |
@@ -261,10 +262,10 @@
 | 在 Module_09 中定义 CI / Job / Rule 策略 | CI 类型 ↔ Exporter 绑定、ScrapeJob、规则编辑 UI 由 Module_01 负责 |
 | 在 Module_08 中提供规则编辑 UI | 规则编辑 UI 由 Module_01 提供；Module_08 负责规则生命周期与下发 |
 | 在 Module_01 中展示运行时目标状态 / 拨测结果 / 采集诊断 | 运行时展示由 Module_02 负责；告警状态由 Module_08 负责 |
-| 在 Module_07 中独立维护 Remote Write 配置 | 引用 Module_09（Edge Agent）与 Module_10（Ingestion Gateway）配置 |
+| 在 Module_07 中独立维护 Remote Write 配置 | 引用 Module_11（Edge Agent）与 Module_10（Ingestion Gateway）配置 |
 | 在 Module_05 中重新定义业务规则 | Module_05 只做 UI 聚合，规则以后端模块为准 |
-| 在 Module_02 中生成配置或管理 Edge Agent 健康 | 配置生成与 Edge Agent 基础设施健康由 Module_09 负责；Module_02 只查询被监控对象指标与告警 |
-| 在 Module_09 中执行 PromQL 查询 | PromQL 查询由 Module_02 代理；Module_09 只负责配置生成 / 分发与 Agent 状态 |
+| 在 Module_02 中生成配置或管理 Edge Agent 健康 | 配置生成/下发由 Module_09 负责；Edge Agent 基础设施健康由 Module_11 负责；Module_02 只查询被监控对象指标与告警 |
+| 在 Module_09 中执行 PromQL 查询 | PromQL 查询由 Module_02 代理；Module_09 只负责配置生成 / 分发，Agent 状态由 Module_11 负责 |
 | 在 Module_08 中代理 Prometheus `/api/v1/alerts` | Prometheus 告警状态代理由 Module_02 负责；Module_08 负责 Alertmanager 通知状态 |
 
 ---

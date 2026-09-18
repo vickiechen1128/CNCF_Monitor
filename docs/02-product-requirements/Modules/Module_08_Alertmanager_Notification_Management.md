@@ -152,7 +152,7 @@
 | 求值组件 | 中心 Prometheus | 边缘 vmalert（由 M09 随配置包下发 `rules.yml`） |
 | 通知组件 | 中心 Alertmanager → 企业 webhook | 边缘本地 Alertmanager → 本地飞书/钉钉 webhook |
 | 断网行为 | 无法感知边缘本地指标 | 独立存活，继续通知 |
-| 状态上报 | 通过 M02 代理 Prometheus `/api/v1/alerts` | 通过 M09 EdgeHeartbeat 上报，展示在 M09 Agent 状态页或 M08 边缘告警视图 |
+| 状态上报 | 通过 M02 代理 Prometheus `/api/v1/alerts` | 通过 Module_11 EdgeHeartbeat 上报，展示在 Module_11 采集节点状态页或 M08 边缘告警视图 |
 
 MVP ~ v0.3 只实现中心 Alertmanager 通知；边缘自治告警与本地通知在边缘 Agent 支持本地 rules 评估后实现（v0.4+）。
 
@@ -285,7 +285,7 @@ inhibit_rules:
 
 **规则说明：**
 
-- **源告警（Source）**：`EdgeSiteOffline`，由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 在边缘 Agent 失联超过阈值（默认 5 分钟）时触发。
+- **源告警（Source）**：`EdgeSiteOffline`，由 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) 在边缘 Agent 失联超过阈值（默认 5 分钟）时触发。
 - **目标告警（Target）**：同一 `network_domain` 下且 `inhibitable=true` 的告警。
 - **抑制条件**：`network_domain` 必须相同。
 - **抑制范围**：只抑制可达性/网络类告警，不抑制资源类告警（如 `disk_full`、`cpu_high`）。
@@ -318,7 +318,7 @@ inhibit_rules:
 - 不做「点击实例跳转 M01 资源详情」。
 - **标签侧增量（规划中）**：让 `targets/*.json` 直接带上 `instance_name` 标签（补 Module\_07 §5.12 已声明但未实现的映射），范围仅 4 类静态资源（host / database / middleware / generic_target；application 已有 `service_name`、拨测 URL 与容器不加），价值是「资源删除后历史告警仍可读」与「PromQL 可读」，不阻塞实例名回连方案。
 
-- **边缘本地告警状态（P2）**：通过 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) EdgeHeartbeat 上报，展示在 Module_09 Agent 状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
+- **边缘本地告警状态（P2）**：通过 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) EdgeHeartbeat 上报，展示在 Module_11 采集节点状态页或 Module_08 边缘告警视图，不归 Module_02 代理。
 
 ---
 
@@ -460,7 +460,9 @@ inhibit_rules:
 
 - [Module\_01: 监控策略与指标管理](Module_01_Metric_Collection_Center.md)（规则内容来源；`inhibitable` 等标签约定来自规则编辑）
 - [Module\_02: 查询中心](Module_02_Query_Center.md)（MVP 起代理 Prometheus `/api/v1/alerts`，展示当前 firing/pending 告警实例）
-- [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)（v0.4+ 边缘 Alertmanager 配置分发；EdgeAgent 心跳上报边缘本地告警状态）
+- [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md)（v0.4+ 边缘 Alertmanager 配置分发）
+
+- [Module\_11: 网域边缘接入与 Agent 交付](Module_11_Edge_Access_and_Agent_Delivery.md)（EdgeAgent 心跳上报边缘本地告警状态）
 - `upstream/prometheus/alertmanager/`（Alertmanager 二进制与配置）
 - `platform/config/alertmanager/`（Alertmanager 配置生成与版本管理）
 - `platform/gateway/proxy/`（代理 Alertmanager API）
@@ -518,7 +520,7 @@ stateDiagram-v2
 - [ ] {P0} 模块名称与文档目录已更新为「告警收敛与通知管理」。
 - [ ] {P0} 可通过**文件挂载**配置 Alertmanager：上传/粘贴整份 `alertmanager.yml`，校验失败给出行级错误、不落库；校验通过后进入 M09 变更单（管理域 scope），人工确认后由 M09 下发并 reload 生效；页面提供当前生效配置只读视图与历史版本回滚。
 - [ ] {P0} 端到端告警链路可验证：触发一条告警规则 → Alertmanager 按挂载配置路由 → 接收人 Webhook 实际收到通知。
-- [ ] {P0} **告警可投递到 Alertmanager**：触发一条测试告警规则 → 中心 Alertmanager `GET /api/v2/alerts` 返回非空 → 本页「Alertmanager 通知状态」视图可见该告警。投递由 M09 生成的 `alerting.alertmanagers` 段承载（**仅中心生成、条件注入、AM 地址由 `env/env.sh` 注入**，见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §3.3.1.1）；此前未接线时本视图恒为空。
+- [ ] {P0} **告警可投递到 Alertmanager**：触发一条测试告警规则 → 中心 Alertmanager `GET /api/v2/alerts` 返回非空 → 本页「Alertmanager 通知状态」视图可见该告警。投递由 M09 生成的 `alerting.alertmanagers` 段承载（**仅中心生成、条件注入、AM 地址由 `env/env.sh` 注入**，见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §6.4.4）；此前未接线时本视图恒为空。
 - [ ] {P0} 接收人可配置 webhook / 飞书 / 钉钉 / 邮件 / 企业微信中至少一种（MVP 经文件挂载承载）。
 - [ ] {v0.3} 接收人与路由规则提供表单化 UI（不再要求用户编写 YAML）。
 - [ ] {P0} 可创建/查询/删除静默规则，并查看静默规则生效状态（MVP 极简 UI，API 直调 Alertmanager）。
@@ -535,7 +537,7 @@ stateDiagram-v2
 ### 9.2 技术验收（后端/契约可验证）
 
 - [ ] {P0} M08 生成或挂载的 `alertmanager.yml` 通过 `amtool check-config` 等价校验。
-- [ ] {P0} **投递链路**：中心 `prometheus.yml` 含 `alerting.alertmanagers[].static_configs[].targets` 且指向注入的 AM 地址（**非硬编码**）；`alertmanager.yml` 无产物时中心不生成 `alerting` 段；边缘配置包不含 `alerting` / `rule_files`（vmagent / prometheus-agent 硬限制）；`promtool check config` 对含 `alerting` 段的产物校验通过。承载方为 M09 生成器（见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §3.3.1.1）。
+- [ ] {P0} **投递链路**：中心 `prometheus.yml` 含 `alerting.alertmanagers[].static_configs[].targets` 且指向注入的 AM 地址（**非硬编码**）；`alertmanager.yml` 无产物时中心不生成 `alerting` 段；边缘配置包不含 `alerting` / `rule_files`（vmagent / prometheus-agent 硬限制）；`promtool check config` 对含 `alerting` 段的产物校验通过。承载方为 M09 生成器（见 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) §6.4.4）。
 - [ ] {P0} 文件挂载接口契约：上传内容校验通过 → 写入 `AlertmanagerConfigVersion`（内容留痕）→ 提交 M09 变更检测生成管理域变更单；校验失败返回行级错误，不落库、不进流水线。
 - [ ] {P0} 修改接收人/路由/抑制策略（文件挂载提交）后，经 M09 变更单人工确认 → 下发 → Alertmanager reload 成功；静默规则为 Alertmanager 运行时 API 状态，不进 M09 流水线（API 直调即时生效）。
 - [ ] {P0} 静默规则通过 Alertmanager **v2 API**（`/api/v2/silences`、`/api/v2/silence/{id}`）创建/删除/查询，状态同步正确；禁止调用已移除的 v1 silence 端点。

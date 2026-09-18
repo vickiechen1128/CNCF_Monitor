@@ -88,9 +88,80 @@ export const ACCESS_STEP_LABELS: Record<AccessStep, string> = {
 }
 
 export function accessStepOf(d: Pick<NetworkDomain, 'registration_status' | 'agent_online' | 'has_data'>): AccessStep {
+  // {v2.16, dev-feedback #9} 采集节点域的 4 步接入路径（已登记 → 已纳管 → 采集节点已上线 → 已出数据）；
+  // 中心直连域（management / default）不套用此路径，改用直接StepOf / DIRECT_ACCESS_LABELS
+  // （分支依据：domain_type === 'management'，系统预置、名称固定 default，由平台中心直接采集、无采集节点环节）。
   if (d.registration_status === 'created') return 1
   if (!d.agent_online) return 2
   return d.has_data ? 4 : 3
+}
+
+/**
+ * {v2.16, dev-feedback #9} 中心直连域（management / default，系统预置）接入进度（PM 决策）：
+ * 由平台中心直接采集、无「安装采集节点」环节，套用极简直连路径（≤3 态，不出现「装采集节点」语义）——
+ * 已登记 → 已纳入中心直连采集；分支依据按 domain_type === 'management'（default 为系统预置中心直连域）。
+ */
+export const DIRECT_ACCESS_LABELS: Record<number, string> = {
+  1: '已登记',
+  2: '已纳入中心直连采集',
+}
+export function directStepOf(d: Pick<NetworkDomain, 'registration_status'>): number {
+  return d.registration_status === 'monitored' ? 2 : 1
+}
+
+/** {v2.16, dev-feedback #7} 采集节点（Edge Sync Agent）状态（决策 82「已退场、审计追溯」终态演示） */
+export type EdgeAgentStatus = 'online' | 'offline' | 'unknown' | 'retired'
+
+/** {v2.16, dev-feedback #7} 采集节点实体：归属网域 + 运行状态 + 最近心跳时间 */
+export interface EdgeAgent {
+  id: string
+  /** 归属网域 ID（network_domain_id） */
+  network_domain_id: string
+  hostname: string
+  status: EdgeAgentStatus
+  last_seen_at: string
+}
+
+/**
+ * {v2.16, dev-feedback #7} 采集节点状态语义色 / 文案（补 retired「已退场」灰色分支，仿照 online/offline/unknown 渲染）：
+ * - online / offline / unknown：采集节点常规运行态；
+ * - retired：终态「已退场」——网域删除级联清退或采集节点下线后遗留，保留供审计追溯，不再参于接入进度计算。
+ */
+export const EDGE_AGENT_STATUS: Record<EdgeAgentStatus, { color: string; text: string; tooltip: string }> = {
+  online: { color: 'green', text: '在线', tooltip: '采集节点心跳正常' },
+  offline: { color: 'red', text: '离线', tooltip: '采集节点心跳超时，可能已断连' },
+  unknown: { color: 'default', text: '未知', tooltip: '采集节点状态暂未上报' },
+  retired: { color: 'default', text: '已退场', tooltip: '该节点已退场，历史记录保留供审计追溯' },
+}
+
+/** {v2.16, dev-feedback #7} mock 采集节点（演示 retired 终态；生产由 M09 节点状态侧维护） */
+export const mockEdgeAgents: EdgeAgent[] = [
+  { id: 'ea-dmz-01', network_domain_id: 'mc-dmz', hostname: 'node-dmz-01', status: 'online', last_seen_at: '2026-08-12 09:00:00' },
+  { id: 'ea-mfg-01', network_domain_id: 'mc-manufacturing', hostname: 'node-mfg-01', status: 'offline', last_seen_at: '2026-08-05 08:30:00' },
+  { id: 'ea-edge-01', network_domain_id: 'mc-edge', hostname: 'node-edge-01', status: 'online', last_seen_at: '2026-08-10 09:00:00' },
+  // 已退场，保留供审计
+  { id: 'ea-edge-02', network_domain_id: 'mc-edge', hostname: 'node-edge-02', status: 'retired', last_seen_at: '2026-08-01 18:00:00' },
+]
+
+/** {v2.16, dev-feedback #7} 统计某网域的采集节点状态分布（retired 单列，供删除级联清退与详情展示） */
+export interface DomainAgentCounts {
+  online: number
+  offline: number
+  unknown: number
+  retired: number
+}
+export function agentCountsOf(
+  network_domain_id: string,
+  agents: EdgeAgent[] = mockEdgeAgents
+): DomainAgentCounts {
+  const counts: DomainAgentCounts = { online: 0, offline: 0, unknown: 0, retired: 0 }
+  for (const a of agents) {
+    if (a.network_domain_id !== network_domain_id) continue
+    const k = a.status
+    if (k === 'retired') counts.retired += 1
+    else counts[k] += 1
+  }
+  return counts
 }
 
 export type UserRole = 'platform_admin' | 'tenant_admin' | 'operator' | 'viewer'

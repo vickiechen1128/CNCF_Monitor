@@ -1,4 +1,4 @@
-// —— 首页（决策 72 / 72-1 / 72-2 / 72-3）：资产 / 治理进度指标卡 + 告警状态卡 ——
+// —— 首页（决策 72 / 72-1 / 72-2 / 72-3 / 73）：资产 / 治理进度指标卡 + 告警状态卡 ——
 
 /** 首页关键指标卡口径：6 张纯资产 / 治理进度卡，不含任何告警数字 */
 export interface DashboardStats {
@@ -11,8 +11,10 @@ export interface DashboardStats {
   // 采集覆盖率由前端派生：monitoredCount ÷ resourceTotal
 }
 
-/** AM 治理态计数（首页唯一告警入口的主数字与状态分布）+ Prom 求值态（仅参考小字） */
+/** 告警量 + AM 治理态计数（决策 73：当日 / 近 7 天为主数字，治理态为次）+ Prom 求值态（仅参考小字） */
 export interface AlertGovernance {
+  todayCount: number // 当日告警：今日 0 点起触发过的告警条数（含已恢复；M02 /api/v1/alerts/history 前端计数）
+  weekCount: number // 近 7 天告警：fired_at ≥ now-7d 的告警条数（含已恢复）
   active: number // 通知中
   silenced: number // 已静默
   inhibited: number // 已抑制
@@ -21,11 +23,12 @@ export interface AlertGovernance {
   promPending: number // Prom 求值中（仅参考）
 }
 
-/** 首页最新告警列表条目（表头：级别 / 告警名 / 实例名 / 时间 / 状态） */
+/** 首页最新告警列表条目（决策 73 两行制：行 1 级别 / 告警名 / 相对时间 / 状态，行 2 实例名 + 告警内容） */
 export interface LatestAlert {
   id: string
   severity: 'critical' | 'warning' | 'info'
   name: string
+  summary: string // 告警具体内容（告警规则 annotations.summary / 历史告警 summary）
   instanceName: string | null // 为空显示 '-'
   startsAt: string
   status: 'active' | 'silenced' | 'inhibited'
@@ -56,13 +59,20 @@ export interface OnboardingStep {
   to: string
 }
 
-/** 告警列表固定取最新 10 条（标题与取数共用一份，避免两处数字漂移） */
-export const LATEST_ALERT_LIMIT = 10
+/** 告警列表固定取最新 8 条（决策 73：两行制下单条信息量翻倍，总信息量不降，「查看全部」兜底） */
+export const LATEST_ALERT_LIMIT = 8
 
 export const SEVERITY_COLORS: Record<LatestAlert['severity'], string> = {
   critical: '#FF4C3A',
   warning: '#FA8C16',
   info: '#1481FD',
+}
+
+/** 级别 Tag 浅底配色（决策 73：浅底色 + 深字，替代实底 Tag） */
+export const SEVERITY_BG: Record<LatestAlert['severity'], string> = {
+  critical: '#FFEBE9',
+  warning: '#FFF4E6',
+  info: '#E6F1FF',
 }
 
 export const SEVERITY_LABEL: Record<LatestAlert['severity'], string> = {
@@ -96,6 +106,8 @@ export const mockDashboardStats: DashboardStats = {
 }
 
 export const mockAlertGovernance: AlertGovernance = {
+  todayCount: 12,
+  weekCount: 38,
   active: 7,
   silenced: 3,
   inhibited: 2,
@@ -109,6 +121,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-001',
     severity: 'critical',
     name: '主机 CPU 使用率过高',
+    summary: 'CPU 使用率 92%，超过阈值 85% 已持续 5 分钟',
     instanceName: 'prod-web-01',
     startsAt: '2026-09-14 09:32:00',
     status: 'active',
@@ -117,6 +130,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-002',
     severity: 'critical',
     name: '节点离线',
+    summary: '节点已 60 秒无响应，疑似断网或采集进程异常',
     instanceName: 'edge-node-03',
     startsAt: '2026-09-14 09:28:00',
     status: 'active',
@@ -125,6 +139,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-003',
     severity: 'warning',
     name: '磁盘空间不足',
+    summary: '数据盘使用率 91%，预计 6 小时后写满',
     instanceName: 'prod-db-01',
     startsAt: '2026-09-14 09:15:00',
     status: 'active',
@@ -133,6 +148,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-004',
     severity: 'critical',
     name: '服务拨测失败',
+    summary: 'HTTP 探针连续 3 次超时（>3s）',
     instanceName: 'order-service-v2',
     startsAt: '2026-09-14 08:58:00',
     status: 'silenced',
@@ -141,6 +157,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-005',
     severity: 'warning',
     name: '内存使用率偏高',
+    summary: '内存使用率 88%，接近告警阈值 90%',
     instanceName: 'redis-cache-01',
     startsAt: '2026-09-14 08:40:00',
     status: 'active',
@@ -149,6 +166,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-006',
     severity: 'info',
     name: '采集任务配置变更待确认',
+    summary: '当前有 3 个配置草稿待人工确认下发',
     instanceName: null,
     startsAt: '2026-09-14 08:22:00',
     status: 'active',
@@ -157,6 +175,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-007',
     severity: 'critical',
     name: 'MySQL 连接数逼近上限',
+    summary: '当前连接数 480 / 上限 512，剩余 6%',
     instanceName: 'mysql-master',
     startsAt: '2026-09-14 08:05:00',
     status: 'inhibited',
@@ -165,6 +184,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-008',
     severity: 'warning',
     name: '文件系统 inode 使用率偏高',
+    summary: 'inode 使用率 87%，小文件数量过多',
     instanceName: 'prod-app-07',
     startsAt: '2026-09-14 07:48:00',
     status: 'active',
@@ -173,6 +193,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-009',
     severity: 'warning',
     name: '容器重启次数异常',
+    summary: '过去 1 小时内重启 5 次',
     instanceName: 'k8s-worker-12',
     startsAt: '2026-09-14 07:30:00',
     status: 'silenced',
@@ -181,6 +202,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     id: 'alt-010',
     severity: 'info',
     name: 'Edge Agent 心跳延迟升高',
+    summary: '心跳延迟 45s，超过正常阈值 10s',
     instanceName: 'edge-node-01',
     startsAt: '2026-09-14 07:12:00',
     status: 'active',

@@ -2,8 +2,8 @@
 
 > **验证的 PRD 版本**: [Module_06_Multi_Tenant.md](../../02-product-requirements/Modules/Module_06_Multi_Tenant.md) v2.15
 > **覆盖的产品版本**: MVP / v0.2 / v0.4 / v1.0
-> **原型版本**: v2.15
-> **更新日期**: 2026-09-15
+> **原型版本**: v2.16
+> **更新日期**: 2026-09-17
 > **本地启动命令**:
 >
 > ```bash
@@ -13,6 +13,16 @@
 > ```
 >
 > **访问地址**: http://localhost:5182/
+
+## v2.16 变更说明（dev-feedback #7 / #9 / #10 收割，2026-09-17）
+
+1. **#7 EdgeAgent `retired` 终态演示（决策 82「已退场、审计追溯」）**：
+   - mock 新增 `EdgeAgent` 实体与 `mockEdgeAgents`（含至少 1 条 `status: 'retired'`，注释「已退场，保留供审计」）；新增 `EDGE_AGENT_STATUS` 状态字典（online 在线 / offline 离线 / unknown 未知 / retired 已退场）与 `agentCountsOf` 统计；
+   - **采集节点状态展示**（详情抽屉「采集节点」行）按状态渲染 Badge，`retired` 用**灰色 badge + tooltip「该节点已退场，历史记录保留供审计追溯」**（`AGENT_BADGE_STATUS` 映射，仿照在线 / 离线 / 未知补 retired 分支）；
+   - **删除二次确认弹窗**「级联影响清单」由写死的「1 个采集节点将断连」改为动态「**N 个采集节点将退场**：接入凭据废止、停止配置下发」（N = 该网域在册且非 retired 的采集节点数），沿用既有弹窗文案风格。
+2. **#9 接入进度按场景分支（PM 决策）**：中心直连域（management / default，系统预置）由平台中心直接采集、**无采集节点环节**，接入进度列展示**极简直连路径（≤3 态，`DIRECT_ACCESS_LABELS`：已登记 → 已纳入中心直连采集）**，不再套用 4 步「装采集节点」语义；采集节点域保留既有 4 态（`accessStepOf`）；行内主操作文案 / 图标对中心直连域分支（default → 查看采集任务 / 去配置采集，跳 M01 配置采集）；分支依据按 `domain_type === 'management'` 派生（注释已说明）。页首引导面板同步分支：四步链条标注「仅对采集节点域适用」，并为中心直连域补一行注记——「default 为平台中心直连域，由中心直接采集、无需安装采集节点」。
+3. **#10 登记 Drawer 文案精简（PM 决策）**：删除抽屉内 brand Callout「你正在登记一个『采集节点域』」及就地展开的「什么是网域」详解（`DomainConceptDetail` 移除）——二者与自检卡描述重复、形成三层说明；「判断口径」压成**一行极简提示**：「判断口径：以『平台中心能否直接连通目标机器』为准（与能否人工登录无关）；VPC 已打通视为可直连、无需登记网域」；「什么是网域」概念只保留**页首引导条（DomainGuidePanel）单载体**。**保留**决策 82 已落地的其他抽屉逻辑（域类型只读、视为硬劝阻、级联影响展示等）。
+4. **验证**：`pnpm build`（tsc + vite）/ `pnpm lint`（0 warning）/ `pnpm check:prototype` / `pnpm check:notes` 全过。
 
 ## v2.15 变更说明（同步 PRD v2.14→v2.15，决策 82「网域生命周期闭环——回收路径修正 + 禁用/纳管联动具象化」）
 

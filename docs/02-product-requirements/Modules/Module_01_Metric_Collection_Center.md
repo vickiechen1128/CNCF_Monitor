@@ -1,7 +1,7 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v3.46
+> **PRD 版本**: v3.47
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v1.0
 > **原型版本**: v3.41（⚠️ 原型待同步 v3.42：新增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd` 三个 monitor_type 枚举与 generic_target 端点子类型判别；已完成规则挂载「检查 → 提交」两段式同步：独立「检查」按钮 + 提交按钮条件出现 + 组名唯一性并入预检 + job 引用分级阻断与逃生门提前）
 > **更新日期**: 2026-09-16
@@ -191,9 +191,9 @@ MVP 阶段规则经 3.1「规则文件挂载」上传 / 粘贴完整 rules.yml �
 | 采集诊断、抓取失败原因、HTTP 状态码 | [Module\_02: 查询中心](Module_02_Query_Center.md) |
 | Job 健康度、采集覆盖率 | [Module\_02: 查询中心](Module_02_Query_Center.md) / [Module\_08: 告警规则管理](Module_08_Alertmanager_Notification_Management.md) |
 | 临时目标验证 | [Module\_02: 查询中心](Module_02_Query_Center.md)（P2） |
-| 边缘 Agent 状态展示 | [Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) |
+| 边缘 Agent 状态展示 | [Module\_11: 网域边缘接入与 Agent 交付](Module_11_Edge_Access_and_Agent_Delivery.md) |
 
-**回显回流说明**：上表「独立页面/视图」职责仍归 M02 / M08 / M09；但 **Job 配置上下文内的只读采集状态回显**（实例状态列 + 在线数汇总，见 5.10）由本模块前端消费 Module_02 `/api/v1/targets` 代理实现——回显是配置闭环的一部分，不构成独立的运行时状态页面。
+**回显回流说明**：上表「独立页面/视图」职责仍归 M02 / M08 / Module_11；但 **Job 配置上下文内的只读采集状态回显**（实例状态列 + 在线数汇总，见 5.10）由本模块前端消费 Module_02 `/api/v1/targets` 代理实现——回显是配置闭环的一部分，不构成独立的运行时状态页面。
 ***
 
 ## 4. 核心流程
@@ -523,13 +523,14 @@ MVP 采用方式①，字段表保持不变；方式②作为 v0.2+ 演进选项
 **网域约束（技术约束，不是管理偏好）**：
 
 - **网域绑定是技术约束，不是管理偏好**：隔离网域内目标只能被本网域的边缘采集器 / Prometheus 抓取（网络可达性）；Module_09 按网域生成并下发配置、断网自治——Job 不绑网域则配置无处下发。共性监控对象类型跨网域重复配置的痛点由既有机制收敛：映射层为网域无关全局预设（见 5.1）+ v0.2 网域覆盖表 + v0.2 Job 网域集合 + M09 按域扇出（跨网域复用主场景）。
-- 所有 ScrapeJob（`job_type=standard` 与 `job_type=blackbox`）必须绑定且仅绑定一个**已纳管网域**的 `network_domain_id`，禁止跨网域共享采集目标/拨测目标；未在 M09 完成监控纳管的网域不可作为 Job 归属网域（保存时校验，提示用户「请先到网域管理完成纳管」）。
+- 所有 ScrapeJob（`job_type=standard` 与 `job_type=blackbox`）必须绑定且仅绑定一个**已纳管网域**的 `network_domain_id`，禁止跨网域共享采集目标/拨测目标；未在 Module_11 完成监控纳管的网域不可作为 Job 归属网域（保存时校验，提示用户「请先到网域管理完成纳管」）。
 - `instance_selection_mode=manual` 实例选择模式下，`selected_instance_ids` 选中的 Resource 必须与 Job 同属一个网域，保存时校验。
 - **v0.2 起**：单网域约束放宽为「网域集合」——Job 可勾选多个已纳管网域；`selected_instance_ids` / 拨测目标按各自资源归属网域自动归组，M09 生成器按域拆分扇出（每域独立 scrape_configs / targets / 变更单）；实例与网域的匹配校验由「全域同域」变为「逐域同域」（语义不变）。MVP 行为不变（单网域）。
 - **冻结（禁用）网域校验（MVP）**：冻结网域**禁止新建 Job**（保存时 `bad_request`，提示该网域已冻结）；存量 Job **禁止新增该域实例**（`selected_instance_ids` 追加该域实例时校验拒绝），**允许移除该域实例、禁用/编辑 Job**（与「冻结不阻断存量采集、仅拒绝新纳管」的 M06 语义一致，见 M06 5.1 禁用冻结语义）。
-- **网域呈现收敛**：M01 内仅 ScrapeJob 绑网域（默认采集配置 / 技术指标库 / 业务指标库 / 告警规则均网域无关），**不提供顶部全局网域切换器**；「采集 Job」页改为**列表内网域查询条件**（下拉，选项 = 已纳管网域 `is_monitored=true`）+ 表单内 `network_domain_id` 必填（实例候选随之收敛）；全局网域概念由 M06 / M09 承载；将来 M01 出现第二个网域感知功能（如 v0.4 `scope=edge` 边缘规则）时再评估是否恢复全局切换器。
+- **退纳管网域对存量 Job 的影响（v0.2+，决策 82-3）**：Module_11 退纳管 = **停止监控**（废止 Token / 停止配置下发，网域本身仍启用、无行政冻结）。退纳管后，该域资源**退出新 Job 的实例候选列表**（与禁用对称，不可再纳入新 Job）；但既有 Job **不自动禁用 / 不自动移除该域实例**（退纳管只管运行、管触碰既有 Job 的编辑），M09 侧停止该域配置下发后相关 Job 自然停采。Job 编辑时若 `selected_instance_ids` 中选中了已退纳管网域的资源，前端提示「该网域已退纳管，其资源将不再被采集」，由用户手动移除或更换网域。
+- **网域呈现收敛**：M01 内仅 ScrapeJob 绑网域（默认采集配置 / 技术指标库 / 业务指标库 / 告警规则均网域无关），**不提供顶部全局网域切换器**；「采集 Job」页改为**列表内网域查询条件**（下拉，选项 = 已纳管网域 `is_monitored=true`）+ 表单内 `network_domain_id` 必填（实例候选随之收敛）；全局网域概念由 M06 / Module_11 承载；将来 M01 出现第二个网域感知功能（如 v0.4 `scope=edge` 边缘规则）时再评估是否恢复全局切换器。
 
-**`is_monitored` 过渡说明**：网域 `NetworkDomain.is_monitored` 字段由 Module\_09 维护；MVP 阶段由 seed 将 `default` 及示例 edge 域**预置为已纳管（`true`）**，保证「采集 Job」创建动线开箱可用；正式纳管流程仍在 M09。
+**`is_monitored` 过渡说明**：网域 `NetworkDomain.is_monitored` 字段由 Module_11 维护；MVP 阶段由 seed 将 `default` 及示例 edge 域**预置为已纳管（`true`）**，保证「采集 Job」创建动线开箱可用；正式纳管流程仍在 Module_11。
 
 **实例候选自动收敛（MVP）**：
 
@@ -581,7 +582,7 @@ MVP 采用方式①，字段表保持不变；方式②作为 v0.2+ 演进选项
 
 **端口不在 Job 层的理由**：`scrape` 端口**不纳入 `ScrapeJob` 可覆盖字段**——端口是 target 级参数，且直接影响 Prometheus 的 `instance` 标签（ip:port），端口 / 漂移会使其不稳定；`instance` 仅作为 **Prometheus 抓取目标身份**，不作为业务关联身份（业务关联走 `app` / `biz` / 稳定资源身份标签，见 5.1）。**端口口径（MVP + v0.2 实例级覆盖落地）**：端口**不进 `ScrapeJob` 快照**（`mapping_overrides` 亦**不含 `port`**），由 M09 生成器按 **`Resource.scrape_port`（实例自带，v0.2）→ 网域覆盖表 `CITypeExporterMappingOverride` → `CITypeExporterMapping.default_port` → 回落 `ExporterTemplate.default_port`** 优先级解析；**Job 级端口映射表明确不做**——与 filter / service_discovery 动态纳入模式天然冲突（动态实例无法预配端口），且「台账归别人管、采集团队只有 Job 配置权限」的组织场景经确认不存在。端口分层解决网域 / 实例级差异：v0.2 通过 `CITypeExporterMappingOverride` 解决网域级端口（含安全 / 高危端口场景），实例级端口由 M07 Resource 可选 `scrape_port` 承载（v0.2，见 5.1「端口一致性说明」第 3 层）。Job 表单只提供 Job 级统一参数：间隔、超时、协议、指标路径。
 
-**网域选择器空态引导**：`network_domain_id` 下拉选项**仅包含 M09 已纳管网域**（`is_monitored=true`）。若当前无已纳管网域，选择器空态显示「暂无已纳管网域，请先到网域管理完成纳管」并**内联跳转 M09**；保存时仍保留 `bad_request` 校验作为兜底（见 6.2.2）。
+**网域选择器空态引导**：`network_domain_id` 下拉选项**仅包含 Module_11 已纳管网域**（`is_monitored=true`）。若当前无已纳管网域，选择器空态显示「暂无已纳管网域，请先到网域管理完成纳管」并**内联跳转 Module_11**；保存时仍保留 `bad_request` 校验作为兜底（见 6.2.2）。
 
 **手动选择含义**：`instance_selection_mode=manual` 的 UI 文案「手动选择」指"**手动勾选具体实例**"（候选按类型 + 网域自动收敛后手动调整），**而非"手动选择采集器"**——采集器选择是「使用默认 / 手填参数」二选一，两者不混淆；术语映射同步（见第 10 章）。
 
@@ -666,7 +667,7 @@ MVP 采用方式①，字段表保持不变；方式②作为 v0.2+ 演进选项
 **网域无关性说明**（与 ScrapeJob「采集绑域」对照）：
 
 - 告警/记录规则由**中心侧对全网域聚合数据统一求值**，因此 `MonitoringRule` **不绑定** `network_domain_id`——采集发生在网域内（Job 绑域），求值发生在中心（规则不限域）；
-- 如需将规则限定到某个网域，在 `expr` 的 label selector 中按 `network_domain` 标签过滤（该标签由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 生成 `prometheus.yml` 时作为 `external_labels` 自动注入，见 Module\_09 3.3.1）。
+- 如需将规则限定到某个网域，在 `expr` 的 label selector 中按 `network_domain` 标签过滤（该标签由 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 生成 `prometheus.yml` 时作为 `external_labels` 自动注入，见 Module\_09 6.4.3）。
 
 **规则变更引导确认（MVP 随规则文件挂载启用，v0.3 随字段化编辑增强）**：规则变更（`rules.yml` 变化）必须 reload，属 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 的**人工确认档**（非 target 自动生效档）——
 
@@ -877,13 +878,13 @@ MVP 采用方式①，字段表保持不变；方式②作为 v0.2+ 演进选项
 | 方法 | 路径 | Query / 请求体 | 响应 data 说明 | 业务错误 |
 |------|------|----------------|----------------|----------|
 | GET | `/api/v1/scrape-jobs` | Query: `network_domain_id`、`monitor_type`、`job_type`、`enabled`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.2 / 5.4（**含下发状态 `change_status`，MVP**，见 5.4） | — |
-| POST | `/api/v1/scrape-jobs` | 5.2 / 5.4 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`network_domain_id` 未在 M09 完成监控纳管；**创建到冻结（禁用）网域**；`instance_selection_mode=manual` 但 `selected_instance_ids` 与监控对象类型/网域不匹配；`auth_type=basic` 缺 `username/password` 或 `auth_type=bearer` 缺 `token` |
+| POST | `/api/v1/scrape-jobs` | 5.2 / 5.4 字段（除 id/timestamps） | 创建后的完整对象 | `bad_request`：`network_domain_id` 未在 Module_11 完成监控纳管；**创建到冻结（禁用）网域**；`instance_selection_mode=manual` 但 `selected_instance_ids` 与监控对象类型/网域不匹配；`auth_type=basic` 缺 `username/password` 或 `auth_type=bearer` 缺 `token` |
 | PUT | `/api/v1/scrape-jobs/{id}` | 5.2 / 5.4 可更新字段 | 更新后的完整对象 | `not_found`；`bad_request`：网域未纳管 / 冻结网域禁止新增该域实例（允许移除/删减）/ 实例不一致 / 认证、TLS 组合非法 |
 | DELETE | `/api/v1/scrape-jobs/{id}` | — | `{ id }` | `not_found` |
 | POST | `/api/v1/scrape-jobs/{id}/clone` | `{ job_name?: string, network_domain_id?: string }`（**v0.3+ 待评估**，已移出 v0.2 范围——扇出已覆盖跨网域复用主场景；缺省 `job_name` 自动追加后缀，缺省网域 = 源网域） | 克隆产物的完整对象 | `not_found`；`bad_request`：目标网域未纳管 |
 | GET | `/api/v1/scrape-jobs?label_template_id={template_id}` | Query: `label_template_id`（必填） | `{ items: [...] }`：引用该标签模板的 Job 列表，item 含 `change_status`（pending/confirmed/none/deployed，**MVP**，来自 M09 变更单状态，deployed 由 M09 依据 ConfigDeployment success 回写） | `not_found`：模板不存在 |
 
-**UI 空态引导优先**：除 `bad_request` 外，UI 层应优先通过网域选择器空态引导（「暂无已纳管网域，前往网域管理完成纳管」+ 内联跳转 M09）避免用户进入保存失败路径；`bad_request` 仅作兜底（见 3.1「空态依赖引导规范」）。
+**UI 空态引导优先**：除 `bad_request` 外，UI 层应优先通过网域选择器空态引导（「暂无已纳管网域，前往网域管理完成纳管」+ 内联跳转 Module_11）避免用户进入保存失败路径；`bad_request` 仅作兜底（见 3.1「空态依赖引导规范」）。
 
 #### 6.2.3 指标库（ExporterMetricLibrary / BusinessMetric）
 
@@ -1140,14 +1141,14 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 - [ ] {P0} 技术指标库支持指标 ↔监控对象类型多对多挂接（同一指标可属多个监控对象类型）；同名指标（不同来源采集器，如 Spring Boot / Go 的 `http_server_requests_seconds_count`）提示时显示来源区分
 - [ ] {P0} 映射 / Job 表单支持「不使用默认采集器、直接手填采集参数」模式；采集参数手填值可被「同步映射默认值」保留（覆盖字段不刷新）
 - [ ] {P0} M01 不提供顶部全局网域切换器；「采集 Job」页列表提供网域查询条件（选项 = 已纳管网域 `NetworkDomain.is_monitored=true`），Job 表单 `network_domain_id` 必填、实例候选按所选网域收敛
-- [ ] {P0} 网域 `NetworkDomain.is_monitored` 由 M09 维护；MVP 阶段由 seed 将 `default` 及示例 edge 域**预置为已纳管（`true`）**，「采集 Job」网域下拉可直接选择（过渡说明，见 5.4）
+- [ ] {P0} 网域 `NetworkDomain.is_monitored` 由 Module_11 维护；MVP 阶段由 seed 将 `default` 及示例 edge 域**预置为已纳管（`true`）**，「采集 Job」网域下拉可直接选择（过渡说明，见 5.4）
 - [ ] {P0} 默认采集配置**入口为独立页面「采集器管理」（`/collectors`），与「采集 Job」页（`/scrape-jobs`）为「采集策略」一级模块下的 Sider 二级导航项**（与「规则编辑」「指标库」并列， 以生产导航为准）；创建 Job 时自动套用该监控对象类型的默认采集配置，页面内可维护预设（采集器 / 参数 / 安装指南 / 标签模板）
 - [ ] {P0} 「采集器管理」页面承担**类型级采集器指引**（该监控对象类型该装什么采集器、安装指南 / 下载地址 / 官方文档入口明显展示），**不做实例级安装登记**——登记（可选）在「采集 Job」选实例时进行（5.6），动线以文案衔接（看指南 → 线下安装/下载 → 选实例时可选登记 → 保存后看采集状态回显）
 - [ ] {P0} 「采集器管理」页面列表支持按监控对象类型 + 来源（开源官方 / 第三方 / 自研）筛选；登记表单选择「自研」时默认端口 / 采集路径 / 协议必填并提示「按实际部署填写」；预置参数标注「官方默认值参考」
 - [ ] {P0} 自研采集器登记后即入池：可被映射引用为默认采集器、创建 Job 时预填参数、可走实例级安装登记（可选，与平台预置采集器一致）
 - [ ] {P0} `application_http` 在「采集器管理」页面呈现为引导卡（无需安装采集器 / 指标语义到业务指标库登记 / Job 参数按 endpoint 手填），不提供采集器登记入口
 - [ ] {P0} 采集器管理按 OS 平台预置不同采集器（如 `host_linux`→node-exporter、`host_windows`→windows-exporter），展示对应的下载地址与安装指南；用户可登记自研采集器（`is_builtin=false`）并留痕。
-- [ ] {P0} 网域选择器空态时显示「暂无已纳管网域，前往网域管理完成纳管」并内联跳转 M09
+- [ ] {P0} 网域选择器空态时显示「暂无已纳管网域，前往网域管理完成纳管」并内联跳转 Module_11
 - [ ] {P0} 采集器 / 标签模板选择器空态时显示内联创建 / 登记入口（「未找到合适的采集器？登记采集器」/「该监控对象类型尚无标签模板，请先创建」）
 - [ ] {P0} 新增 / 编辑默认采集配置时，采集器选择为「使用默认采集器（推荐）」或「手填采集参数」显式二选一
 - [ ] {P0} 默认采集配置列表包含「标签模板」列，展示模板名称 + 默认/自定义标记 + 类别·模板ID，支持查看 / 更换 / 补配
@@ -1185,7 +1186,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 ### 9.2 技术验收（后端/契约可验证）
 
 - [ ] {P0} 策略配置写入 DB 后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 能够轮询生成配置草稿，经人工确认后下发。
-- [ ] {P0} 标准 ScrapeJob 与 blackbox ScrapeJob 均必须绑定单一已纳管网域的 `network_domain_id`；未纳管网域不可选，保存时校验并提示用户先到 M09 完成纳管；`instance_selection_mode=manual` 保存时校验 `selected_instance_ids` 选中的 Resource 与 Job 同属一个网域。
+- [ ] {P0} 标准 ScrapeJob 与 blackbox ScrapeJob 均必须绑定单一已纳管网域的 `network_domain_id`；未纳管网域不可选，保存时校验并提示用户先到 Module_11 完成纳管；`instance_selection_mode=manual` 保存时校验 `selected_instance_ids` 选中的 Resource 与 Job 同属一个网域。
 - [ ] {P0} blackbox ScrapeJob 的创建/编辑/启停、模块或目标变更后，[Module\_09: 网域与边缘配置中心](Module_09_Network_Domain_and_Edge_Config_Center.md) 在下一轮询周期内检测到 `updated_at` 变化并重新生成对应网域配置（pull 模式，Module\_01 不主动通知）。
 - [ ] {P0} 独立的运行时目标状态页、拨测结果、采集诊断视图不由本模块建设，相关验收标准已迁移至 [Module\_02: 查询中心](Module_02_Query_Center.md) 与 [Module\_08: 告警规则管理](Module_08_Alertmanager_Notification_Management.md)；但 Job 上下文只读回显（5.10）由本模块前端消费 Module_02 `GET /api/v1/targets` 代理实现，**不直连 Prometheus**。
 - [ ] {P0} M09 配置生成**不再过滤未登记安装的实例**：target 生成只取决于 `selected_instance_ids`（+ `offline` 排除 + `enabled` + `draft_status`）。
@@ -1324,8 +1325,8 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 - **破坏性操作二次确认**：删除/禁用 Job、删除默认采集配置等操作前弹出 Modal 要求二次确认，并明确提示影响范围（如「删除后引用该配置的 Job 将失去默认值来源」）。
 - **表单校验提示位置**：字段校验失败时错误提示置于字段下方；全局错误使用 Alert 置顶展示。
 - **提交中防重复**：创建 / 编辑 / 保存按钮在提交期间置为 loading 并禁用，等待接口返回后再恢复。
-- **空态依赖引导**：所有依赖外部模块的下拉选择器（网域来自 M09、标签模板来自 M07、采集器来自本 Tab 采集器池）在选项为空时，统一展示「说明文案 + 内联跳转/创建动作」：
- - 网域选择器空态：「暂无已纳管网域，请先到网域管理完成纳管」+ 内联跳转 M09
+- **空态依赖引导**：所有依赖外部模块的下拉选择器（网域来自 Module_11、标签模板来自 M07、采集器来自本 Tab 采集器池）在选项为空时，统一展示「说明文案 + 内联跳转/创建动作」：
+ - 网域选择器空态：「暂无已纳管网域，请先到网域管理完成纳管」+ 内联跳转 Module_11
  - 采集器选择器空态：「未找到合适的采集器？登记采集器」+ 内联打开登记表单
  - 标签模板选择器空态：「该监控对象类型尚无标签模板，请先创建」+ 内联打开创建抽屉
 - **异常驱动展示**：列表中的状态/同步/标签列采用异常驱动展示——正常态以低饱和标签或 `-` 呈现，异常态（如映射默认值已变更、标签模板待配置、网域未纳管）才使用高饱和/可点击 Tag；详情数据收进抽屉/Tooltip。
@@ -1362,8 +1363,8 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 落点章节 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|--------------|------|
+| v3.47 | 2026-09-17 | 契约 | **补「退纳管网域对存量 Job 的影响」条款（dev-feedback #5 收割 / 决策 82-3）**——M09 退纳管=停止监控（废止 Token/停下发，网域本身不冻结）；退纳管后该域资源退出新 Job 实例候选列表（与禁用对称），但既有 Job 不自动禁用/不自动移除该域实例，Job 编辑选中退纳管资源时前端提示「该网域已退纳管，其资源将不再被采集」；v0.2+ 生效。纯契约补充，原型行为不变。 | 5.4 | v0.2+ 生效 | ready |
 | v3.46 | 2026-09-16 | 文档 | 按 prototype-designer.md 要求 12「§3 核心功能防叠加纪律」对 §3.1~3.3 整章落实：§3.1 功能表全部单元格重写为「一句用户价值 + 行为要点 + 优先级/版本」、压缩至 ≤400 字符，按用户可见能力把「默认采集配置」拆为「预设维护」与「采集实现池列表」两行，机制（解析链/快照/推导/两段式）下放 §5/§6/§3.1.1；删除否定式演变词（不再/替代/原列名等）；§3.2 同步去演变词；语义、枚举、优先级与各章「决策依据」行逐字不变。 | 3 | 文档自身 | 使用中 |
 | v3.45 | 2026-09-16 | 文档 | 延续按 prototype-designer 规范「核心章节形态纪律 T6」的 §1/§3/§5 章节形态归位第二步：将 §3.1 超长单元格「规则文件挂载」瘦身为用户层要点并把机制推导下放至新增 `### 3.1.1 规则挂载「检查 → 提交」两段式 + job 引用校验双层模型` 子节；将 §5.1 十个长注记（端口一致性/采集参数继承与同步/层叠默认链/标签模板继承链/关联UX/创建引导/选择两情形/监控对象类型来源与映射/application_http 语义澄清/新监控对象类型引导闭环）分别提升为 `### 5.1.1~5.1.10` 子节；语义、字段表、枚举值、优先级、`{P0}/{v0.x}` 标记与各章「决策依据」行逐字不变。 | 3 / 5 | 文档自身 | 使用中 |
-| v3.44 | 2026-09-16 | 文档 | 按 prototype-designer 规范「核心章节形态纪律 T6」对 §1/§3/§5/§6 做章节形态归位：拍平第 1/3/5/6 章大段引用块为正文（去 `>` 前缀，保字段表、枚举值、优先级、`{P0}/{v0.x}` 标记与各章「决策依据」行逐字不变），消除「大段说明与释义字体凌乱」观感；不改任何模型、接口与功能结论。 | 1 / 3 / 5 / 6 | 文档自身 | 使用中 |
 
 > 完整 Change Log 历史（v3.38 及以前）见 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」。

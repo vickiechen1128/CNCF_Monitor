@@ -264,9 +264,9 @@ cloud-monitor-puller（定时拉取，如 60s）
 
 ---
 
-## 7. 与 Module_09 的边界
+## 7. 与 Module_11 的边界
 
-| 职责 | Module_09（网域与边缘 Agent） | Module 10（监控源登记册） |
+| 职责 | Module_11（网域边缘接入与 Agent 交付） | Module 10（监控源登记册） |
 |------|-------------------------------|---------------------------|
 | 网域生命周期管理 | ✅ | ❌ |
 | Edge Agent 配置拉取 | ✅ | ❌ |
@@ -277,7 +277,7 @@ cloud-monitor-puller（定时拉取，如 60s）
 | 网关框架/统一入口 | ✅（Module_03 提供框架） | ❌ |
 | 统一 Remote Write 接收点 | ❌ | ✅ |
 
-> 当 `source_type=edge_agent` 时，MonitoringSource 与 EdgeAgent 是一对一关系，由 Module_09 负责创建和维护，Module 10 只读展示。
+> 当 `source_type=edge_agent` 时，MonitoringSource 与 EdgeAgent 是一对一关系，由 Module_11 负责创建和维护，Module 10 只读展示。
 
 ---
 
