@@ -205,6 +205,9 @@ func writePackage(dir string, pkg *Package) error {
 		}
 	}
 	for name, content := range pkg.Targets {
+		if err := validateTargetName(name); err != nil {
+			return err
+		}
 		if err := os.WriteFile(filepath.Join(dir, "targets", name), []byte(content), 0o644); err != nil {
 			return err
 		}

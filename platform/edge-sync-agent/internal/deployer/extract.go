@@ -57,6 +57,9 @@ func extractPackage(zipBytes []byte, meta *contract.Metadata) (*Package, error) 
 			if name == "" {
 				continue
 			}
+			if err := validateTargetName(name); err != nil {
+				return nil, fmt.Errorf("deployer: unsafe targets entry %q: %w", f.Name, err)
+			}
 			pkg.Targets[name] = string(b)
 		case f.Name == contract.ZipEntryMetadata:
 			// metadata 已由 puller 校验，落盘时单独写；此处不判重。
@@ -102,6 +105,22 @@ func ValidateTargetsJSON(name, content string) error {
 				return fmt.Errorf("deployer: targets %s[%d]: labels not string map: %w", name, i, err)
 			}
 		}
+	}
+	return nil
+}
+
+// validateTargetName 校验 targets 条目文件名仅可为单独相对文件名（不含路径分隔符），
+// 拒绝 ./、../、绝对路径及子目录穿越（zip-slip 防护：目标名由 zip 项派生，
+// 落盘时拼接在 targets 目录下，防越界写宿主文件系统的任意路径）。
+func validateTargetName(name string) error {
+	if name == "" {
+		return fmt.Errorf("empty name")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("name contains path separator: %q", name)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("dot name: %q", name)
 	}
 	return nil
 }

@@ -252,3 +252,33 @@ func TestStructuralValidateTopKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestZipSlipTargetRejected 回归：targets 文件名被篡改为路径穿越 / 绝对路径时，
+// extractPackage 必须拒绝落盘，防止 zip-slip 越界写宿主文件系统。
+func TestZipSlipTargetRejected(t *testing.T) {
+	cases := []string{
+		"../evil.json",
+		"a/../../evil.json",
+		"/etc/cron.d/evil",
+		"..",
+	}
+	for _, name := range cases {
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		add := func(n, data string) {
+			w, err := zw.Create(n)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.Write([]byte(data))
+		}
+		add(contract.ZipEntryPrometheus, validProm)
+		add("targets/"+name, `[{"targets":["10.0.0.1:9100"]}]`)
+		add(contract.ZipEntryMetadata, `{"config_version":"v1"}`)
+		zw.Close()
+
+		if _, err := extractPackage(buf.Bytes(), nil); err == nil {
+			t.Errorf("zip-slip name %q should be rejected", name)
+		}
+	}
+}
