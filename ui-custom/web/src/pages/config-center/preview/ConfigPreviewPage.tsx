@@ -54,6 +54,7 @@ import {
   validationColor,
   validationLabel,
 } from '../configCenterConstants'
+import { useSkin } from '../../../skinContext'
 
 const { Text } = Typography
 
@@ -93,6 +94,7 @@ function DiscardImpactSummary({ impact }: { impact: DiscardImpact }) {
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足（契约 §1.2 errorType）。
  */
 export function ConfigPreviewPage() {
+  const { tokens } = useSkin()
   const navigate = useNavigate()
   const {
     data,
@@ -512,7 +514,7 @@ export function ConfigPreviewPage() {
             ),
             children: (
               <pre
-                style={{ margin: 0, maxHeight: 480, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
+                style={{ margin: 0, maxHeight: 480, overflow: 'auto', background: tokens.colorBgBase, padding: 12, borderRadius: 8, fontSize: 13 }}
               >
                 {previewFileText(detail, key) ?? '（当前无此产物）'}
               </pre>
@@ -557,7 +559,7 @@ export function ConfigPreviewPage() {
           rows.length === 0 || (rows.length === 1 && rows[0].type === 'same') ? (
             <Empty description="当前文件无差异" />
           ) : (
-            <pre style={{ margin: 0, maxHeight: 480, overflow: 'auto', background: '#F7F8FA', padding: 12, fontSize: 13 }}>
+            <pre style={{ margin: 0, maxHeight: 480, overflow: 'auto', background: tokens.colorBgBase, padding: 12, fontSize: 13 }}>
               {rows.map((r) => (
                 <div
                   key={r.line}

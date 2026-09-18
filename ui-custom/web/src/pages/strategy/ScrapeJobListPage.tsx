@@ -21,6 +21,7 @@ import {
 import { InfoCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType, TableRowSelection } from 'antd/es/table/interface'
 import { networkDomainApi } from '../../api/domain'
+import { useSkin } from '../../skinContext'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import { exporterTemplateApi } from '../../api/exporterTemplates'
 import { labelTemplateApi } from '../../api/labelTemplates'
@@ -65,6 +66,8 @@ const CHANGE_PROGRESS_MAP: Record<string, string> = {
  * - 加载骨架 / 空态「暂无采集任务」/ 错误态。
  */
 function JobsTab() {
+  // 品牌/语义色走皮肤 token（单一来源，见 skins.ts 设计约束）
+  const { tokens } = useSkin()
   const navigate = useNavigate()
   const { data, loading, error, filters, setFilters, page, pageSize, onPageChange, onPageSizeChange, reload } =
     useScrapeJobs()
@@ -318,7 +321,7 @@ function JobsTab() {
         return anomaly ? (
           <Tooltip title="有实例没采到数据，点一下查看是哪些实例、失败原因">
             <Tag
-              color="#FF4C3A"
+              color={tokens.colorError}
               style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
               onClick={onClick}
             >

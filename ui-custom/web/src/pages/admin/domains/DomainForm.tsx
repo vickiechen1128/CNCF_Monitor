@@ -16,6 +16,7 @@ import {
 import type { NetworkDomain, Tenant, ZoneType } from '../../../types/domain'
 import { FormSection } from '../../../components/FormSection'
 import { Callout } from '../../../components/Callout'
+import { useSkin } from '../../../skinContext'
 
 /** 校验单个 IPv4 CIDR：a.b.c.d/mask，四段 0-255，掩码 0-32 */
 function isValidIPv4CIDR(s: string): boolean {
@@ -59,6 +60,8 @@ interface DomainDrawerProps {
  * - 抽屉必须 forceRender：Form 字段常驻挂载，避免首次打开 setFieldsValue 被吞（#19 通病）。
  */
 export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: DomainDrawerProps) {
+  // 链接色走皮肤 token（单一来源，见 skins.ts 设计约束）
+  const { tokens } = useSkin()
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
   const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
@@ -202,7 +205,7 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
                         cursor: 'pointer',
                         borderRadius: 6,
                         padding: '12px 14px',
-                        border: `1px solid ${watchedCenterDirect === o.v ? o.tone : '#E5E6EB'}`,
+                        border: `1px solid ${watchedCenterDirect === o.v ? o.tone : tokens.colorBorder}`,
                         background: watchedCenterDirect === o.v ? o.bg : '#FFFFFF',
                         boxShadow: watchedCenterDirect === o.v ? `0 0 0 2px ${o.tone}22` : 'none',
                         transition: 'all 0.2s',
@@ -234,7 +237,7 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
                   icon={<StopOutlined />}
                   title="无需登记网域，请关闭本窗口"
                   extra={
-                    <Button type="text" size="small" onClick={onCancel} style={{ color: '#1481FD' }}>
+                    <Button type="text" size="small" onClick={onCancel} style={{ color: tokens.colorInfo }}>
                       关闭
                     </Button>
                   }

@@ -3,6 +3,7 @@ import { Button, Card, Form, Input, Typography, message } from 'antd'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { apiClient, setStoredUser, setToken } from '../../api/client'
+import { useSkin } from '../../skinContext'
 import type { LoginResult } from '../../types/auth'
 
 const { Title, Text } = Typography
@@ -34,6 +35,9 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  // 登录页在 MainLayout 之外，故品牌名与页面底色单独取一次外观设置：
+  // 产品名随「外观设置」变化（用户 2026-09-18 补充），底色走皮肤 token（原先写死 #f0f2f5，切肤不改色）。
+  const { productName, tokens } = useSkin()
 
   const onFinish = async (values: LoginFormValues) => {
     setLoading(true)
@@ -62,13 +66,13 @@ export function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f0f2f5',
+        background: tokens.colorBgBase,
       }}
     >
       <Card style={{ width: 360 }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <Title level={3} style={{ marginBottom: 4 }}>
-            MetricCenter
+            {productName}
           </Title>
           <Text type="secondary">指标采集与查询中心</Text>
         </div>

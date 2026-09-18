@@ -44,6 +44,7 @@ import { ExporterTemplateDrawer } from './ExporterTemplateDrawer'
 import { MappingDrawer } from './MappingDrawer'
 import { LabelTemplateSelectDrawer } from './LabelTemplateSelectDrawer'
 import { LabelTemplatePreview } from './LabelTemplatePreview'
+import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 
@@ -113,6 +114,7 @@ function InstallLinks({ template }: { template?: ExporterTemplate }) {
  * - 模板行展示 安装指南/下载/文档（Popover 图标链，F1-6）；空态内联登记（A9）；模板行「去配置」（F1-5）+ 自建模板「删除」（F-27 A）；
  */
 export function CollectorTemplatesTab() {
+  const { tokens } = useSkin()
   const navigate = useNavigate()
   const [mappings, setMappings] = useState<CITypeExporterMapping[]>([])
   // 全量映射（跨分页）仅用于「未被引用」集合判定，避免分页后其他页引用的模板被误判为未引用（F-30 分页 bug）
@@ -540,7 +542,7 @@ export function CollectorTemplatesTab() {
             key: 'collector-guide',
             label: (
               <Space size={8}>
-                <InfoCircleOutlined style={{ color: '#1677ff' }} />
+                <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
                 <Text strong>配置指引</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   点击标题可收起或展开

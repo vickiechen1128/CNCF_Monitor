@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import config from 'antd/locale/zh_CN'
 import { useNavigate } from 'react-router-dom'
 import { MainLayout } from '../../../layouts/MainLayout'
+import { useSkin } from '../../../skinContext'
+import type { SkinTokens } from '../../../skins'
 import { FilterBar, FilterItem } from '../../../components/FilterBar'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { Alert, Badge, Button, Card, Collapse, ConfigProvider, Descriptions, Drawer, Dropdown, Empty, Input, Select, Space, Steps, Table, Tag, Tooltip, Typography, message } from 'antd'
@@ -38,12 +40,18 @@ const ACCESS_STEP_LABELS: Record<number, string> = {
   4: '已出数据',
 }
 
-/** 接入进度四态语义色（点阵 + 文字；颜色不作唯一语义承载） */
-const ACCESS_STEP_COLORS: Record<number, string> = {
-  1: '#86909C',
-  2: '#1481FD',
-  3: '#FA8C16',
-  4: '#00B578',
+/**
+ * 接入进度四态语义色（点阵 + 文字；颜色不作唯一语义承载）。
+ * 写成函数而非模块级常量：第 2 态「已纳管」取品牌链接色，需随皮肤切换
+ * （见 skins.ts 设计约束 3 —— 模块级常量会把配色冻在模块加载那一刻）。
+ */
+function accessStepColors(tokens: SkinTokens): Record<number, string> {
+  return {
+    1: tokens.colorTextTertiary,
+    2: tokens.colorInfo,
+    3: tokens.colorWarning,
+    4: tokens.colorSuccess,
+  }
 }
 
 /** 接入进度四态的下一步说明（接入进度列的悬浮明细） */
@@ -89,13 +97,15 @@ const DIRECT_STEP_HINT = '中心直连域由平台中心直接采集，无需安
 
 /** 接入进度列：四态点阵 + 当前态文字，悬浮展开四步明细（对齐原型 v2.14） */
 function AccessProgress({ record }: { record: NetworkDomain }) {
+  const { tokens } = useSkin()
+  const stepColors = accessStepColors(tokens)
   // 场景分支（决策确认）：中心直连域不出现「装采集节点」环节，走直连采集简化两态；
   // 采集节点域（登记新增）保留「登记→纳管→装采集节点→出数据」四态。
   const isDirect = record.domain_type === 'management'
   const step = isDirect ? (record.is_monitored ? 2 : 1) : accessStepOf(record)
   const labels = isDirect ? DIRECT_STEP_LABELS : ACCESS_STEP_LABELS
   const hint = isDirect ? DIRECT_STEP_HINT : ACCESS_STEP_HINT[step]
-  const color = isDirect ? ACCESS_STEP_COLORS[2] : ACCESS_STEP_COLORS[step]
+  const color = isDirect ? stepColors[2] : stepColors[step]
   const stateLabels = isDirect ? [1, 2] : [1, 2, 3, 4]
   return (
     <Tooltip
@@ -118,7 +128,7 @@ function AccessProgress({ record }: { record: NetworkDomain }) {
             <span key={i} style={{ display: 'inline-flex', alignItems: 'center' }}>
               {i > 1 && (
                 <span
-                  style={{ width: 12, height: 1, background: i <= step ? color : '#E5E6EB', display: 'inline-block' }}
+                  style={{ width: 12, height: 1, background: i <= step ? color : tokens.colorBorder, display: 'inline-block' }}
                 />
               )}
               <span
@@ -149,6 +159,8 @@ function AccessProgress({ record }: { record: NetworkDomain }) {
  * 启用（直接恢复）/ 删除（仅空网域）/ 跨模块跳转 Module_09 网域纳管（占位）。
  */
 export function DomainsPage() {
+  // 品牌色走皮肤 token（单一来源，见 skins.ts 设计约束）
+  const { tokens } = useSkin()
   const {
     data,
     loading,
@@ -451,7 +463,7 @@ export function DomainsPage() {
                       { title: '配置采集出数据', description: '为网域下资源配置采集任务' },
                     ]}
                   />
-                  <div style={{ marginTop: 12, padding: '8px 12px', background: '#F0FBFD', borderRadius: 6, border: '1px solid #BFF4FB' }}>
+                  <div style={{ marginTop: 12, padding: '8px 12px', background: tokens.colorPrimaryBg, borderRadius: 6, border: `1px solid ${tokens.colorPrimaryBorder}` }}>
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       中心直连域（default）无需安装采集节点：由平台中心直接采集目标资源，接入上只需登记后即纳入中心直连采集。
                     </Text>
