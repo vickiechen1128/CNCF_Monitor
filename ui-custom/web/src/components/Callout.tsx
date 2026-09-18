@@ -1,17 +1,54 @@
 import type { ReactNode } from 'react'
-import { Typography } from 'antd'
+import { Typography, theme } from 'antd'
+import { useSkin } from '../skinContext'
+import type { SkinTokens } from '../skins'
 
 const { Text } = Typography
 
-/** 统一提示条配色（身份说明 / 硬劝阻 / 视觉语言一致，避免 Alert + Collapse 样式拼盘） */
-const CALLOUT_TONES: Record<'brand' | 'info' | 'warning' | 'success', { bg: string; border: string; color: string }> = {
-  brand: { bg: '#F0FBFD', border: '#BFF4FB', color: '#0ECDEB' },
-  info: { bg: '#F2F7FF', border: '#BEDAFF', color: '#1481FD' },
-  warning: { bg: '#FFF8EE', border: '#FFD8A8', color: '#FA8C16' },
-  success: { bg: '#F0FBF7', border: '#A8E6CE', color: '#00B578' },
+type CalloutTone = 'brand' | 'info' | 'warning' | 'success'
+
+interface CalloutPalette {
+  bg: string
+  border: string
+  color: string
 }
 
-type CalloutTone = keyof typeof CALLOUT_TONES
+/**
+ * 提示条配色映射。
+ *
+ * **刻意写成函数而非模块级常量**：皮肤可在运行时切换，模块级常量等于把配色冻在
+ * 模块加载那一刻（详见 `skins.ts` 的设计约束 3 —— 同款坑已在 alertmanagerConstants 踩过一次）。
+ * 配色一律取自皮肤 token，本文件不再出现字面色值。
+ */
+function calloutPalette(tone: CalloutTone, tokens: SkinTokens): CalloutPalette {
+  switch (tone) {
+    case 'brand':
+      return {
+        bg: tokens.colorPrimaryBg,
+        border: tokens.colorPrimaryBorder,
+        color: tokens.colorPrimary,
+      }
+    case 'warning':
+      return {
+        bg: tokens.colorWarningBg,
+        border: tokens.colorWarningBorder,
+        color: tokens.colorWarning,
+      }
+    case 'success':
+      return {
+        bg: tokens.colorSuccessBg,
+        border: tokens.colorSuccessBorder,
+        color: tokens.colorSuccess,
+      }
+    case 'info':
+    default:
+      return {
+        bg: tokens.colorInfoBg,
+        border: tokens.colorInfoBorder,
+        color: tokens.colorInfo,
+      }
+  }
+}
 
 /**
  * 统一提示容器（替代散落的 Alert / Collapse 组合）。
@@ -30,7 +67,10 @@ export function Callout({
   extra?: ReactNode
   children?: ReactNode
 }) {
-  const t = CALLOUT_TONES[tone]
+  const { token } = theme.useToken()
+  const { tokens: skinTokens } = useSkin()
+  const t = calloutPalette(tone, skinTokens)
+
   return (
     <div
       style={{
@@ -48,7 +88,15 @@ export function Callout({
         {extra}
       </div>
       {children && (
-        <div style={{ marginTop: 6, paddingLeft: 23, fontSize: 12.5, color: '#4E5969', lineHeight: 1.75 }}>
+        <div
+          style={{
+            marginTop: 6,
+            paddingLeft: 23,
+            fontSize: 12.5,
+            color: token.colorTextSecondary,
+            lineHeight: 1.75,
+          }}
+        >
           {children}
         </div>
       )}

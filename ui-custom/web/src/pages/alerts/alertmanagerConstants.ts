@@ -15,6 +15,7 @@ import type {
   SilenceStatus,
   ValidateErrorItem,
 } from '../../types/alertmanager'
+import type { SkinTokens } from '../../skins'
 
 /** 当前登录用户（MVP 预置应用人 / 创建人；用户管理接入后同步为真实用户） */
 export const CURRENT_USER = '张伟（运维）'
@@ -169,6 +170,54 @@ export function severityColor(severity?: string): string {
   }
 }
 
+/** 级别色调三档（浅底 / 深字映射的键，与 severityLabel 同一套同义归并） */
+export type SeverityTone = 'critical' | 'warning' | 'info'
+
+/** 色调 → 皮肤 token 键（浅底与深字成对声明，避免两处各写一份归并逻辑而漂移） */
+const SEVERITY_TOKEN_KEY: Record<SeverityTone, { bg: keyof SkinTokens; text: keyof SkinTokens }> = {
+  critical: { bg: 'colorErrorBg', text: 'colorError' },
+  warning: { bg: 'colorWarningBg', text: 'colorWarning' },
+  info: { bg: 'colorInfoBg', text: 'colorInfo' },
+}
+
+/**
+ * 告警级别浅底配色（Module_05 §3.1 决策 73：级别 Tag 用浅底色 + 深字替代实底 Tag）。
+ *
+ * **必须逐次调用，禁止在模块顶层把结果存成常量对象**：
+ * 皮肤可在运行时切换（见 `skins.ts` / `SkinProvider.tsx`），token 只有两种合法消费方式——
+ * 「作为函数入参传入」或「组件内 `theme.useToken()` / `useSkin().tokens`」。
+ * 上一版直接在模块顶层 `import { volcengineTokens }` 拼成常量，等于把配色冻在模块加载那一刻，
+ * 切皮肤后告警级别 Tag 会永远停在火山青（React 无从感知该快照已过期）。
+ */
+export function severityBg(tone: SeverityTone, tokens: SkinTokens): string {
+  return tokens[SEVERITY_TOKEN_KEY[tone].bg]
+}
+
+/** 告警级别深字配色（与浅底同源：红 / 橙 / 蓝，随皮肤切换） */
+export function severityText(tone: SeverityTone, tokens: SkinTokens): string {
+  return tokens[SEVERITY_TOKEN_KEY[tone].text]
+}
+
+/**
+ * 告警级别 → 三档色调（同义归并 error→critical / warn→warning / notice→info）；
+ * 未命中返回 null，由调用方渲染中性 Tag（不猜测语义）。
+ */
+export function severityTone(severity?: string): SeverityTone | null {
+  switch ((severity ?? '').trim().toLowerCase()) {
+    case 'critical':
+    case 'error':
+      return 'critical'
+    case 'warning':
+    case 'warn':
+      return 'warning'
+    case 'info':
+    case 'notice':
+      return 'info'
+    default:
+      return null
+  }
+}
+
 // =====================================================================
 // 历史告警（v1.13 MVP 增量，M02 §5.4 / M08 §3.1）
 // =====================================================================
@@ -177,6 +226,14 @@ export function severityColor(severity?: string): string {
 export const alertHistoryStateLabel: Record<AlertHistoryState, string> = {
   firing: '触发中',
   resolved: '已恢复',
+}
+
+/**
+ * history 项与 AM 条目的关联键：告警名 + 采集地址（instance）。
+ * Module_05 首页告警卡用它把 M02 history 的 summary 回填到 AM 实时告警行 2（决策 73）。
+ */
+export function alertMatchKey(alertname?: string, instance?: string): string {
+  return `${(alertname ?? '').trim()}|${(instance ?? '').trim()}`
 }
 
 export const alertHistoryStateColor: Record<AlertHistoryState, string> = {
