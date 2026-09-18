@@ -107,7 +107,7 @@ Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下
 >
 > - `/api/v1/alerts` 代理原由 MVP 移至 v0.3（v1.2：与 Module\_08 对齐，避免 M08 未就绪时 alerts 代理空转）；**v1.12 起随 M08 告警状态页一并提前回 MVP**（MVP 试用反馈：前台缺少查看当前告警入口；M08 文件挂载/静默已在 MVP 就绪，空转前提不再成立）；
 >
-> - 租户/网域注入**机制在 MVP 落地**（恒 `default` 网域 + `platform_admin` 租户），**多租户/多网域语义在 v0.2 启用**（M06 租户模型、M09 租户-网域关联均为 v0.2）；
+> - 租户/网域注入**机制在 MVP 落地**（恒 `default` 网域 + `platform_admin` 租户），**多租户/多网域语义在 v0.2 启用**（M06 租户模型、Module_11 网域纳管关联（行政关联在 Module_06）均为 v0.2）；
 >
 > - PromQL 校验/指标预览接口随 Module\_01 规则编辑 UI 一同移至 **v0.3**（路线图 2.4：MVP 不做告警规则编辑 UI，规则手写 `rules.yml` + Alertmanager）。
 
@@ -115,7 +115,7 @@ Module\_02 提供统一的指标查询入口，定位为**带租户/网域上下
 
 ### 与周边模块的边界
 
-- **与 Module\_09 的边界**：Module\_02 查询的是**被监控对象**的指标与 exporter 采集健康度（例如 `up` 指标）；Module\_09 负责**监控基础设施自身**的健康度，包括 Edge Agent 在线状态、最后心跳、WAL 积压、配置同步等。Module\_02 的数据新鲜度信息源（`edge_remote_write` 延迟、网域断网程度）读取 Module\_09 心跳/EdgeAgent 状态。
+- **与 Module\_11 的边界**：Module\_02 查询的是**被监控对象**的指标与 exporter 采集健康度（例如 `up` 指标）；Module\_11 负责**采集/接入节点自身**的健康度，包括 Edge Agent 在线状态、最后心跳、WAL 积压、配置同步等。Module\_02 的数据新鲜度信息源（`edge_remote_write` 延迟、网域断网程度）读取 Module\_11 心跳/EdgeAgent 状态。
 
 - **与 Module\_08 的边界**：Module\_02 在 MVP 起代理 Prometheus `/api/v1/alerts`（返回当前 firing/pending 告警实例，v1.12 由 v0.3 提前）；Alertmanager 的通知状态（分组、静默、抑制、接收人）由 Module\_08 负责。v0.4+ 边缘自治告警（`scope=edge`/`both`）在边缘 vmalert 本地求值，不在中心 Prometheus 内，alerts 代理只反映**中心聚合告警**。
 
@@ -223,7 +223,7 @@ Module\_02 作为查询代理，核心流程覆盖从用户发起查询到获得
 
 ### 4.3 数据新鲜度联动流程（v0.2+）
 
-- Module\_02 在返回 envelope 前，读取 Module\_09 EdgeAgent 心跳/WAL 积压状态；
+- Module\_02 在返回 envelope 前，读取 Module\_11 EdgeAgent 心跳/WAL 积压状态；
 
 - 若某网域 Edge Agent 失联或 WAL 积压严重，在响应中标注「该网域数据已延迟 X 分钟」；
 
@@ -345,7 +345,7 @@ Module\_02 将 Prometheus 原始响应包裹为统一 envelope，在不污染 Pr
 
 #### 6.4.1 注入标签 key 契约（v1.2 修订，v1.15 定版，关键）
 
-**注入的标签 key 必须与采集侧实际注入的 key 完全一致**——网域键与 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) **3.3.1** `external_labels` 对齐，租户键与 [Module\_07](Module_07_Monitoring_Object_Management.md) **LabelTemplate target 级注入**对齐（§5.12 / §5.13）：
+**注入的标签 key 必须与采集侧实际注入的 key 完全一致**——网域键与 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) **6.4.3** `external_labels` 对齐，租户键与 [Module\_07](Module_07_Monitoring_Object_Management.md) **LabelTemplate target 级注入**对齐（§5.12 / §5.13）：
 
 | 标签 key           | 取值                        | 来源                                                                                                                              |
 | ---------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -364,7 +364,7 @@ Module\_02 将 Prometheus 原始响应包裹为统一 envelope，在不污染 Pr
 
 #### 6.4.2 注入规则
 
-Module\_02 在代理查询时，必须根据认证用户从 [Module\_06](Module_06_Multi_Tenant.md) 与 [Module\_09](Module_09_Network_Domain_and_Edge_Config_Center.md) 获取的租户-网域关联，执行以下注入/校验（v1.7 起按**三层语义**表述）：
+Module\_02 在代理查询时，必须根据认证用户从 [Module\_06](Module_06_Multi_Tenant.md) 与 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) 获取的租户-网域关联，执行以下注入/校验（v1.7 起按**三层语义**表述）：
 
 1. **硬隔离边界：`tenant`** **强制注入**
    选择器为 `tenant="<用户所属租户 ID>"`，永远存在、用户不可见不可改。Module\_02 不暴露跨租户查询能力，平台管理员也按租户维度管理。MVP 恒为 `tenant="platform_admin"`。
@@ -413,7 +413,9 @@ Module\_02 在代理查询时，必须根据认证用户从 [Module\_06](Module_
 
 - [Module\_06\_Multi\_Tenant.md](Module_06_Multi_Tenant.md)：租户-网域模型与用户权限（v0.2 多租户语义）
 
-- [Module\_09\_Network\_Domain\_and\_Edge\_Config\_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)：`external_labels` 注入（`network_domain` 契约；**租户标签 `tenant` 不由 M09 承担**，见 Module\_07 §5.12）、EdgeAgent 心跳/WAL 状态（新鲜度信息源）
+- [Module\_09\_Network\_Domain\_and\_Edge\_Config\_Center.md](Module_09_Network_Domain_and_Edge_Config_Center.md)：`external_labels` 注入（`network_domain` 契约；**租户标签 `tenant` 不由 M09 承担**，见 Module\_07 §5.12）
+
+- [Module\_11\_Edge\_Access\_and\_Agent\_Delivery.md](Module_11_Edge_Access_and_Agent_Delivery.md)：EdgeAgent 心跳/WAL 状态（新鲜度信息源）
 
 - [Module\_01\_Metric\_Collection\_Center.md](Module_01_Metric_Collection_Center.md)：ScrapeTarget/ScrapeLog 模型（只读展示）、指标库 ExporterMetricLibrary（v0.3 查询辅助联动）
 
@@ -436,7 +438,8 @@ Module\_02 在代理查询时，必须根据认证用户从 [Module\_06](Module_
 | Module\_01 | `ScrapeTarget` / `ScrapeLog` 模型由 M01 定义，M02 只读展示；MVP 用 `/api/v1/targets` 代理（health/lastScrape/lastError），**同时作为 M01 Job 实例采集状态回显的数据源（决策 47-2）**，ScrapeLog 独立存储 v0.3；validate/指标预览接口随 M01 规则编辑 UI 于 v0.3 启用 | MVP / v0.3  |
 | Module\_07 | MVP 起：M02 提供 up 健康度/覆盖率查询 API（决策 47-3 提前），M07 只读消费做三态 badge（采集中 / 已下发未采到 / 未监控），M07 不直连时序数据；三态判定不感知 M09 下发时序——选中关系取 DB 当前值，选中未采到统一归「已下发未采到」（含变更未确认下发），「待采集」细分归 M01 回显（2026-09-02 口径修订）                     | MVP         |
 | Module\_08 | alerts 代理 v0.3 与 M08 对齐（v1.12 提前至 MVP）；M02 只代理中心求值告警实例与告警历史（`/api/v1/alerts` + `/api/v1/alerts/history`，后者 v1.13 新增），Alertmanager 通知状态（分组/静默/抑制/接收人）归 M08；v0.4+ `scope=edge`/`both` 边缘自治告警在边缘 vmalert 本地求值，不在中心 alerts 内                                                                | MVP / v0.3        |
-| Module\_09 | 网域注入 key 契约对齐 `network_domain`（M09 external\_labels）；**租户标签 `tenant` 来源为 Module\_07 target 级注入，非 M09**；M09 管监控基础设施健康（EdgeAgent/WAL/配置同步），M02 管被监控对象指标；M02 数据新鲜度信息源来自 M09 心跳                                                                      | MVP / v0.2  |
+| Module\_09 | 网域注入 key 契约对齐 `network_domain`（M09 external\_labels）；**租户标签 `tenant` 来源为 Module\_07 target 级注入，非 M09**                                                                                                         | MVP         |
+| Module\_11 | 采集/接入节点健康（EdgeAgent/WAL/配置同步），M02 管被监控对象指标；M02 数据新鲜度信息源来自 Module\_11 心跳（EdgeAgent 心跳/WAL 积压状态）                                                                                                               | MVP / v0.2  |
 | Module\_10 | v0.2+ 外部监控源数据经 M10 标签归一化后写入中心，M02 查询覆盖并按监控源筛选；标签语义对齐归 M10                                                                                                                                                  | v0.2 / v0.3 |
 
 ***
@@ -540,7 +543,7 @@ Module\_02 作为查询代理，**自身不持有状态ful 实体**，其核心�
 
 - **查询页**：用户输入 PromQL 即获得结果，无需感知租户/网域注入过程；响应以 envelope 包装，`meta` 暴露数据来源与新鲜度；
 - **多网域范围提示（v0.2+）**：默认查询覆盖全部授权网域时，UI 提示当前查询范围覆盖 N 个网域；网域筛选/下钻为纯 UX 行为，不承担安全职责；
-- **数据来源与延迟提示（v0.2+）**：`data_source=edge_remote_write` 时 UI 标注「边缘异步写入，可能存在延迟」；`freshness_at` 明显滞后时区分「无数据」（灰化）与「数据旧」（延迟告警条，点击可查看最后样本时间）；联动 M09 心跳/WAL 积压状态标注「该网域数据已延迟 X 分钟」；
+- **数据来源与延迟提示（v0.2+）**：`data_source=edge_remote_write` 时 UI 标注「边缘异步写入，可能存在延迟」；`freshness_at` 明显滞后时区分「无数据」（灰化）与「数据旧」（延迟告警条，点击可查看最后样本时间）；联动 Module_11 心跳/WAL 积压状态标注「该网域数据已延迟 X 分钟」；
 - **目标状态消费（MVP）**：M01 Job 详情/编辑抽屉按 Job 过滤做实例级回显；M07 资源列表经健康度/覆盖率 API 展示三态 badge（采集中 / 已下发未采到 / 未监控）；独立目标状态页为 P1 极简列表（跨 Job 全局排障入口）；
 - **blackbox 拨测结果**：blackbox Job 目标经 `/api/v1/targets` 与 `probe_success` / `probe_duration_seconds` 查询展示；拨测指标 `network_domain` 标签表示发起侧网域，看板按发起侧聚合。
 

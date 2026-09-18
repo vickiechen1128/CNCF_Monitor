@@ -184,7 +184,7 @@ MetricCenter 不存在跨租户的全局平台管理员身份。任何用户（�
 |-------------------|-------------------|----------|------|
 | Tenant | — | 行政维护 | 租户是 MetricCenter 内部权限边界，MVP 固定为 `platform_admin`；不与 BlueKing Business 强制映射 |
 | Business（`biz_code` / `biz_name`） | Business（业务） | 1:1（编码） | BlueKing `bk_biz_id` / `bk_biz_name` 映射为 [Module_07](Module_07_Monitoring_Object_Management.md) 业务分组字典的 `biz_code` / `biz_name`；资源通过 `biz_code` 字段归属业务 |
-| NetworkDomain | Cloud Area（云区域） | 1:1 | 网域对应蓝鲸云区域，具体由 [Module_09](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain) 定义；v0.4 同步落地时归属解析按四级链执行（字段映射 > 通道绑定 > IP 推导 > 待分配，见 [Module_07 5.16.4](Module_07_Monitoring_Object_Management.md)），本表映射即解析链第①级 |
+| NetworkDomain | Cloud Area（云区域） | 1:1 | 网域对应蓝鲸云区域，行政字段由 [Module_06 §5.1](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1) 定义；监控纳管字段由 [Module_11](Module_11_Edge_Access_and_Agent_Delivery.md#51-networkdomain%E7%9B%91%E6%8E%A7%E7%BA%B3%E7%AE%A1%E5%AD%97%E6%AE%B5) 定义（三家共管口径见 Module_09 §5.1）；v0.4 同步落地时归属解析按四级链执行（字段映射 > 通道绑定 > IP 推导 > 待分配，见 [Module_07 5.16.4](Module_07_Monitoring_Object_Management.md)），本表映射即解析链第①级 |
 
 **约束 {v1.0+}**：禁止绕过 CMDB 业务/模块路径直接在 MetricCenter 中定义业务归属；ITSM 服务目录必须通过显式 CMDB 业务/模块路径与监控对象关联。
 
@@ -301,7 +301,7 @@ flowchart LR
 
 ### 5.2 网域（NetworkDomain）行政字段
 
-> **职责边界**：`NetworkDomain` 数据模型的完整字段由 **Module_09 [5.1](Module_09_Network_Domain_and_Edge_Config_Center.md#51-%E7%BD%91%E5%9F%9Fnetworkdomain)** 统一定义。M06 为本模块的**行政 Owner**，只维护以下行政字段；监控纳管字段（`channel` / `agent_type` / `remote_write_url` / `center_endpoint` / 运行态字段）由 M09 维护并填写。
+> **职责边界**：`NetworkDomain` 由三家共管——行政字段（本模块 [5.1](Module_06_Multi_Tenant.md#51-%E7%BD%91%E5%9F%9F%E5%90%8D%E8%B0%B1)）为 **Module_06 行政 Owner**；监控纳管字段（`channel` / `agent_type` / `remote_write_url` / `center_endpoint` / Token / 运行态字段）由 [Module_11](Module_11_Edge_Access_and_Agent_Delivery.md#51-networkdomain%E7%9B%91%E6%8E%A7%E7%BA%B3%E7%AE%A1%E5%AD%97%E6%AE%B5) 维护并填写；Module_09 只读消费 `channel`（配置产物形态）。本模块只维护以下行政字段，不重复声明纳管语义。
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|----------|------|

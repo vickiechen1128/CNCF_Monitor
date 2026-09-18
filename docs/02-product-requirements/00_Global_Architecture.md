@@ -114,7 +114,7 @@
 │   │ · 配置中心         │   │  · VictoriaMetrics      │            │  (Inhibition) │        │
 │   │ · 监控源登记册     │   │    (统一 Remote Write    │            │               │        │
 │   │ · 网域/节点管理     │   │     接收点 / PromQL)     │            │               │        │
-│   │   (Module_09)      │   │                         │            │               │        │
+│   │   (Module_11)      │   │                         │            │               │        │
 │   └─────────────────────┘   └────────────▲────────────┘            └───────────────┘        │
 │                                          │                                                  │
 │         ═════════════════════════════════╪══════════════════════════════════════════════     │
@@ -199,8 +199,8 @@ BlueKing CMDB                    MetricCenter              ITSM/ITIL
 
 | 模块 | 职责 | 对应目录 | 优先级 |
 |------|------|----------|--------|
-| **配置管理** | 五类资源管理（主机/数据库/中间件/应用服务/通用指标目标）、Excel 导入（含 upsert）、标签模板、拨测配置、配置生成与下发；为 BlueKing CMDB 预留统一 Provider 接口 {v0.4+ 由 Module_04 实现}；网域仅作为资源分组字段，**网域行政属性（登记/命名/区域）由 Module_06 负责、监控纳管（Token/Edge Agent/下发）由 Module_09 负责** | `platform/config/` | **P0 (MVP 核心)** |
-| 指标采集中心 | 展示采集目标、采集状态、采集诊断、拨测结果；边缘 Agent 状态由 Module_09 提供 | `platform/discovery/`, `platform/collector/` | P0 |
+| **配置管理** | 五类资源管理（主机/数据库/中间件/应用服务/通用指标目标）、Excel 导入（含 upsert）、标签模板、拨测配置、配置生成与下发；为 BlueKing CMDB 预留统一 Provider 接口 {v0.4+ 由 Module_04 实现}；网域仅作为资源分组字段，**网域行政属性（登记/命名/区域）由 Module_06 负责、监控纳管（Token/Edge Agent 接入）由 Module_11 负责、配置下发由 Module_09 负责** | `platform/config/` | **P0 (MVP 核心)** |
+| 指标采集中心 | 展示采集目标、采集状态、采集诊断、拨测结果；边缘 Agent 状态由 Module_11 提供 | `platform/discovery/`, `platform/collector/` | P0 |
 | 查询中心 | 提供统一查询入口、查询代理、结果展示；告警状态查询代理到 Module_08 | `platform/gateway/proxy/` | P0 |
 | 告警规则管理 | 告警规则生命周期、告警状态查看（MVP）；v0.4+ 基于 CI/Exporter/指标模板自动生成规则；v1.0+ 提供规则编辑器、静默管理、通知路由，对接 ITSM/ITIL 事件字段映射 | `platform/config/rules/` | P1/P2 |
 | 网关与认证 | 统一入口、网关层鉴权、多租户路由、请求级审计；用户/角色/租户 CRUD 由 Module_06 负责 | `platform/gateway/` | P2 |

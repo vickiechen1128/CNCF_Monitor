@@ -1,0 +1,401 @@
+phase: "Phase 4.5 / v0.2（M11 Edge Access & Agent Delivery 首次开发）"
+module: "module-11"
+module_branch: "feat/module-09-config-center"   # 决策 87 + 用户拍板：并入既有 M09 功能分支，不新建 feat/module-11-*
+plan_version: "v0.2"
+owner: "planner（派生）→ backend-developer / prometheus-developer / golang-reviewer / security-reviewer 执行"
+decisions:
+  # 用户 2026-09-18 拍板 + 既定代码组织决策（deploy-package-and-edge-agent-code-organization.md）
+  - "D1 鉴权：独立 edge-token 中间件校验 network_domain_id+token，edge 协议路径豁免全局 au-02 用户 auth（保持 outbound-only）"
+  - "D3 运行态字段：本期 NetworkDomain 新增 registration_status（created/monitored/retired，对齐 M11 §8.3），与现有 IsMonitored 并存映射"
+  - "D6 分支：并入当前 M09 功能分支 feat/module-09-config-center，不新建单独分支"
+  - "D10 前端：本期纯后端（中心 edge 协议 + 管理面 + 边缘 Agent 全新建）；采集节点状态页实连 /edge-agents 与纳管页下载块单列后续批次"
+  - "代码管理位置（既定）：Edge Sync Agent = platform/edge-sync-agent/ 独立目录 + 独立 go.mod；不拆独立仓库、不与 metric-center 混编、不放在 examples/simple-agent；结构 internal/{agent,puller,deployer,supervisor,token} + cmd/edge-sync-agent/main.go；契约包允许 internal/contract（仅纯结构体，零控制面依赖）"
+source:
+  - "docs/02-product-requirements/Modules/Module_11_Edge_Access_and_Agent_Delivery.md"
+  - "docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md"
+  - "docs/03-engineering-standards/03_API_Standard.md"
+  - "docs/03-engineering-standards/04_Testing_Standard.md"
+  - "docs/05-execution-records/module-09/design-decisions.md（决策 86/87）"
+precondition:
+  - "edge-sync-agent 目录为空：本分支从零新建独立 Go module"
+  - "中心侧可复用：NetworkDomain 纳管字段、/monitor|/reset-token（configcenter/domain）、ConfigVersion 持久化快照、api/response、auth 中间件、change watcher 后台轮询模式"
+  - "M09 决策 86 拆分边界 + 决策 87 分支约束已确认"
+  - "配置生成/确认/下发仍归 M09；本分支只做 Agent 拉包方与中心 edge 协议接入"
+go_tool: "`make test-platform` / `.tools/go/bin/go test ./platform/...`；单包 `go test ./platform/edge/...`；边缘 `cd platform/edge-sync-agent && go test ./...`"
+fe_tool: "（D10 决策范围内，若本期含前端）`cd ui-custom/web && pnpm lint && pnpm vitest run src/pages/config-center/nodes/EdgeAgentsPage.test.tsx`"
+
+tasks:
+  # ================= 阶段 A：数据模型与迁移 =================
+  - id: "T11-01"
+    title: "EdgeHeartbeat/EdgeComponent 模型新建 + EdgeAgent 字段增强 + 枚举集中"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-models"
+    prd: "Module_11 §5.2/§5.3/§5.1（EdgeAgent 守护扩展、EdgeHeartbeat 模型、NetworkDomain 纳管字段）"
+    depends_on: []
+    estimated_files_changed: 4
+    estimated_test_cases: 10
+    shared_files: "是：platform/models/*.go 与本阶段后续 TDD 共享"
+    input_files:
+      - "platform/models/edge_agent.go"
+      - "platform/models/network_domain.go"
+      - "docs/02-product-requirements/Modules/Module_11_Edge_Access_and_Agent_Delivery.md"
+    output_files:
+      - "platform/models/edge_heartbeat.go"
+      - "platform/models/edge_agent.go"
+      - "platform/models/models_test.go"
+    verify_commands:
+      - "go test ./platform/models/..."
+      - "go vet ./platform/models/..."
+    acceptance_criteria:
+      - "EdgeHeartbeat 字段与 §5.3 一致（含 remote_write_queue_size/last_error、components json、timestamp）；EdgeComponent 含 type/name/status/version/config_version/last_error/restart_count/last_restart_at 与守护状态枚举（running/restarting/crash_loop/not_deployed）"
+      - "EdgeAgent 增补 ip/out_of_sync_cause/last_config_pull；config_sync_status 审计含 no_version；out_of_sync_cause 三成因（pending_draft/pull_pending/local_reset）集中定义"
+      - "models_test 覆盖：components JSON 往返、枚举合法值、time 字段序列化"
+
+  - id: "T11-02"
+    title: "edge_heartbeats 表迁移注册 + 启动 seed 校验"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-models"
+    prd: "Module_11 §5.3（数据模型）+ db 迁移"
+    depends_on: ["T11-01"]
+    estimated_files_changed: 2
+    estimated_test_cases: 3
+    shared_files: "否"
+    input_files:
+      - "platform/db/db.go"
+      - "platform/models/edge_heartbeat.go"
+    output_files:
+      - "platform/db/db.go"
+      - "platform/db/db_test.go"
+    verify_commands:
+      - "go test ./platform/db/..."
+    acceptance_criteria: "GORM AutoMigrate 生成 edge_heartbeats 表且列齐全；内存 DSN 迁移测试通过"
+
+  # ================= 阶段 B：中心 edge 协议（heartbeat/config） =================
+  - id: "T11-03"
+    title: "edge 包骨架 + edge token 鉴权中间件（绕行平台用户 auth）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-protocol"
+    prd: "Module_11 §6.1/§6.2/§3.5（身份=domain+token，Token 鉴权）"
+    depends_on: ["T11-01", "T11-02"]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：platform/edge/* 与后续协议 handler 共享"
+    input_files:
+      - "platform/cmd/metric-center/main.go"
+      - "docs/03-engineering-standards/03_API_Standard.md"
+    output_files:
+      - "platform/edge/register.go"
+      - "platform/edge/middleware.go"
+      - "platform/cmd/metric-center/main.go"
+    verify_commands:
+      - "go test ./platform/edge/..."
+      - "go test ./platform/cmd/metric-center/..."
+    acceptance_criteria:
+      - "edge 协议路径挂到 /api/v2/platform/edge/*；带网域 token 校验，缺 id 或 token 返回 401（复用 errorType UNAUTHORIZED）"
+      - "与全局 au-02 平台用户 auth 的绕行/叠加策略按 D1 实现并单测覆盖"
+
+  - id: "T11-04"
+    title: "POST /edge/heartbeat：运行态更新 + config_changed 判定 + 自动注册"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-protocol"
+    prd: "Module_11 §6.2（心跳请求/响应、config_download_url 合成、时间基准、离线阈值）"
+    depends_on: ["T11-03"]
+    estimated_files_changed: 3
+    estimated_test_cases: 10
+    shared_files: "否"
+    input_files:
+      - "platform/models/config.go"   # 最新 ConfigVersion 比对
+    output_files:
+      - "platform/edge/heartbeat_handler.go"
+      - "platform/edge/heartbeat_service.go"
+    verify_commands:
+      - "go test ./platform/edge/..."
+    acceptance_criteria:
+      - "首次心跳自动创建/归属对应网域 EdgeAgent；last_heartbeat 以中心接收时间（time.Now().UTC()）为准（§9.2 时间基准）"
+      - "agent 上报 config_version 与最新 ConfigVersion 一致→config_changed=false；否则 true 并返回 config_download_url = center_endpoint + /api/v2/platform/edge/config?network_domain=<id>（绝对地址，禁相对路径）"
+      - "components/版本/WAL/RTT 正确落库；local 通道网域拒绝本协议（§6.1/§9.2 local 只读）"
+
+  - id: "T11-05"
+    title: "GET /edge/config：从 ConfigVersion 重建 zip + metadata.json + checksum + 304"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-protocol"
+    prd: "Module_11 §6.3（zip 结构、checksum 校验、304 复用）"
+    depends_on: ["T11-03", "T11-04"]
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "否"
+    input_files:
+      - "platform/models/config.go"   # ConfigVersion.PrometheusYml/TargetsFiles/BlackboxYml/Metadata
+    output_files:
+      - "platform/edge/config_handler.go"
+      - "platform/edge/zipper.go"
+    verify_commands:
+      - "go test ./platform/edge/..."
+    acceptance_criteria:
+      - "zip 含 prometheus.yml/targets/blackbox.yml/metadata.json；metadata.json 含 config_version/生成时间/agent_type/联合 sha256（§6.3）"
+      - "响应头 Content-Type: application/zip + Content-Disposition attachment filename=edge-config-<did>.zip"
+      - "客户端带已有效版本→304（无需重发），避免弱网重复下载；checksum 可从包重建复算一致"
+
+  # ================= 阶段 C：管理面 REST + 离线探测器 + 离线包 =================
+  - id: "T11-06"
+    title: "退纳管 DELETE unmonitor 级联清退 + 管理面 route 补齐"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-management"
+    prd: "Module_11 §3.1/§6.5（退纳管、级联清退 retired）"
+    depends_on: ["T11-02"]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "否"
+    input_files:
+      - "platform/configcenter/domain/service.go"
+      - "platform/configcenter/domain/onboard.go"
+    output_files:
+      - "platform/edge/management_handler.go"
+      - "platform/edge/register.go"
+    verify_commands:
+      - "go test ./platform/edge/..."
+    acceptance_criteria: "退纳管废止 token、停止口径、节点记录 retired 终态；与 M06 删除级联同请求回滚（§3.1/§8.3）"
+
+  - id: "T11-07"
+    title: "GET edge-agents 列表/详情 + 90s 离线探测器 + 网域聚合状态"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-mgm-status"
+    prd: "Module_11 §3.2/§8.2/§4.2（节点列表/详情、离线判定 3 周期 90s、网域 offline 聚合）"
+    depends_on: ["T11-04", "T11-06"]
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "是：platform/edge/offline_detector.go 独立导出供集成测试"
+    input_files:
+      - "platform/configcenter/change/watcher.go"   # 后台轮询模式先例
+    output_files:
+      - "platform/edge/management_handler.go"
+      - "platform/edge/offline_detector.go"
+    verify_commands:
+      - "go test ./platform/edge/..."
+    acceptance_criteria:
+      - "列表/详情返回节点在线状态、组件抽屉数据（restart_count/last_restart_at/status）、WAL、config_sync_status+out_of_sync_cause"
+      - "离线间隔可注入（可缩短/clock），90s 无心跳→EdgeAgent.status=offline；网域全离线→NetworkDomain.status=offline + EdgeSiteOffline 事件钩子（告警接线归 M08，D4）"
+
+  - id: "T11-08"
+    title: "GET edge-packages 清单 + /latest/download（sha256，构建产物元数据）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-mgm-package"
+    prd: "Module_11 §3.3/§6.5（离线包清单/下载、sha256、版本清单来自构建产物元数据不建 DB 模型）"
+    depends_on: ["T11-06"]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "否"
+    input_files:
+      - "Makefile"   # build-edge-agent/build-edge-package 产物元数据源
+    output_files:
+      - "platform/edge/package_handler.go"
+      - "platform/edge/release_meta.go"
+    verify_commands:
+      - "go test ./platform/edge/..."
+    acceptance_criteria:
+      - "清单含组件/版本/sha256/包大小；/latest/download 返回包体含校验和；下载接口需认证"
+
+  # ================= 阶段 D：边缘 Agent（全新建，独立 Go module） =================
+  - id: "T11-10"
+    title: "edge-sync-agent module 骨架 + contract/config/token"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-agent-scaffold"
+    prd: "Module_11 §5.3/§6.1/§7.2（独立 Go module、最小依赖、身份=domain+token）"
+    depends_on: ["T11-04", "T11-05"]
+    estimated_files_changed: 6
+    estimated_test_cases: 6
+    shared_files: "否（独立 module，不 import platform/models）"
+    input_files:
+      - "docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md"
+    output_files:
+      - "platform/edge-sync-agent/go.mod"
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/main.go"
+      - "platform/edge-sync-agent/internal/contract/*.go"
+      - "platform/edge-sync-agent/internal/config/*.go"
+      - "platform/edge-sync-agent/internal/token/*.go"
+    verify_commands:
+      - "cd platform/edge-sync-agent && go test ./... && go vet ./..."
+      - "cd platform/edge-sync-agent && go build ./..."
+    acceptance_criteria: "独立 module 编译通过；contract 不 import 控制面依赖（无 Gin/GORM）；config 读 NETWORK_DOMAIN_ID/TOKEN 与默认值（§6.4.1）"
+
+  - id: "T11-11"
+    title: "edge client：心跳/拉包 + 401 指数退避 5→60s→10min 后降频 5min + syslog"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-agent-client"
+    prd: "Module_11 §6.2/§6.4（Client 401 语义、降频、syslog）"
+    depends_on: ["T11-10"]
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "否"
+    input_files:
+      - "platform/edge-sync-agent/internal/contract/*.go"
+    output_files:
+      - "platform/edge-sync-agent/internal/client/*.go"
+    verify_commands:
+      - "cd platform/edge-sync-agent && go test ./internal/client/..."
+    acceptance_criteria: "401 走 5/10/20/40/60s 指数退避；持续>10min 降为 5min 低频并写 syslog（§6.2/§9.2）"
+
+  - id: "T11-12"
+    title: "puller：30s 心跳循环 + checksum 校验，失败保留最后有效配置"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-agent-puller"
+    prd: "Module_11 §6.4 条目 1/2/6（30s 心跳、checksum、断网保留最后配置）"
+    depends_on: ["T11-11"]
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "否"
+    input_files:
+      - "platform/edge-sync-agent/internal/client/*.go"
+      - "platform/edge-sync-agent/internal/config/*.go"
+    output_files:
+      - "platform/edge-sync-agent/internal/puller/*.go"
+    verify_commands:
+      - "cd platform/edge-sync-agent && go test ./internal/puller/..."
+    acceptance_criteria: "网络中断保留最后有效配置继续采集与 WAL 缓存；恢复后按 config_version 拉最新已审批版本；checksum 失败不进解压"
+
+  - id: "T11-13"
+    title: "deployer：解压 + targets 校验回滚 + prometheus.yml 变化才 reload + blackbox SIGHUP + 原子写"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-agent-deployer"
+    prd: "Module_11 §6.4 条目 3/4/5（targets 校验回滚、prometheus.yml 才 reload、file_sd、blackbox 重载）"
+    depends_on: ["T11-12"]
+    estimated_files_changed: 3
+    estimated_test_cases: 10
+    shared_files: "否"
+    input_files:
+      - "platform/edge-sync-agent/internal/contract/*.go"
+    output_files:
+      - "platform/edge-sync-agent/internal/deployer/*.go"
+    verify_commands:
+      - "cd platform/edge-sync-agent && go test ./internal/deployer/..."
+    acceptance_criteria: "targets/*.json 解析失败回滚并保留旧文件；仅 prometheus.yml 结构变化调 /-/reload（targets 由 file_sd 免 reload 感知）；blackbox.yml 变化触发 blackbox 重载"
+
+  - id: "T11-14"
+    title: "supervisor：进程守护工程化（10s 双判定/退避/熔断/编排）"
+    agent: "prometheus-developer"
+    status: "pending"
+    commit_group: "edge-agent-supervisor"
+    prd: "Module_11 §3.4/§6.4.2/§8.4（健康检查双判定、指数退避、10min≤5 熔断、crash_loop、组件状态机、编排 blackbox→collector）"
+    depends_on: ["T11-12"]
+    estimated_files_changed: 3
+    estimated_test_cases: 12
+    shared_files: "否"
+    input_files:
+      - "platform/edge-sync-agent/internal/config/*.go"
+    output_files:
+      - "platform/edge-sync-agent/internal/supervisor/*.go"
+    verify_commands:
+      - "cd platform/edge-sync-agent && go test ./internal/supervisor/..."
+    acceptance_criteria:
+      - "进程存活 ± `/-/healthy` 探活双判定（10s）；进程存活但探活失败视为异常（§6.4.2）"
+      - "异常指数退避重启 5→60s；滚动窗口 10min 内 ≥5 次→停止自动重启置 crash_loop + last_error + 心跳上报（§9.2 kill 10s 重启、crash-loop 熔断）"
+      - "熔断人工介入后复位 running；启动编排 blackbox→collector（§6.4 条目 9/§8.4）"
+
+  - id: "T11-15"
+    title: "main 装配 + 优雅退出 + systemd unit 模板（父进程 + CAP_NET_RAW）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-agent-main"
+    prd: "Module_11 §6.4（本地行为编排）§6.4.2（systemd 父进程/兜底）"
+    depends_on: ["T11-10","T11-13","T11-14"]
+    estimated_files_changed: 3
+    estimated_test_cases: 3
+    shared_files: "否"
+    input_files:
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/main.go"
+    output_files:
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/main.go"
+      - "platform/edge-sync-agent/systemd/edge-sync-agent.service"
+    verify_commands:
+      - "cd platform/edge-sync-agent && go build ./..."
+      - "go vet ./platform/edge-sync-agent/..."
+    acceptance_criteria: "程序 README/config 齐全；systemd 单元单 service 父进程模式 + Agent Restart=always + blackbox ICMP 需 CAP_NET_RAW（§6.4.2）"
+
+  - id: "T11-16"
+    title: "打包脚本 + Makefile build-edge-agent/build-edge-package 接线"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-agent-package"
+    prd: "Module_11 §3.3（离线二进制包+systemd 一体化）"
+    depends_on: ["T11-15"]
+    estimated_files_changed: 3
+    estimated_test_cases: 1
+    shared_files: "否"
+    input_files:
+      - "Makefile"   # build-edge-agent/build-edge-package 预留 target
+    output_files:
+      - "platform/edge-sync-agent/scripts/build.sh"
+      - "Makefile"
+    verify_commands:
+      - "make build-edge-agent && make build-edge-package"
+    acceptance_criteria: "产出 edge-sync-agent 二进制 + 一体化包（Agent+采集器+blackbox+systemd+校验和）"
+
+  # ================= 阶段 E：TDD 与集成验证 =================
+  - id: "T11-17"
+    title: "中心 edge 协议集成测试（heartbeat/config 闭环，mock token + 内存 DB）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-integration-center"
+    prd: "Module_11 §6.2/§6.3/§9.2"
+    depends_on: ["T11-05","T11-07"]
+    estimated_files_changed: 2
+    estimated_test_cases: 8
+    shared_files: "否"
+    input_files:
+      - "platform/cmd/metric-center/main_test.go"   # 基线起 Gin + mock db
+    output_files:
+      - "platform/edge/edge_protocol_integration_test.go"
+    verify_commands:
+      - "go test ./platform/edge/..."
+    acceptance_criteria: "在最小 Gin 上验证：鉴权、config_changed、拉包 zip/checksum、local 通道拒绝（§7.2/§9.2）"
+
+  - id: "T11-18"
+    title: "边缘 Agent 全量单测收口（client/puller/deployer/supervisor）"
+    agent: "prometheus-developer"
+    status: "pending"
+    commit_group: "edge-agent-tests"
+    prd: "Module_11 §9.2（kill 10s 重启、crash-loop 熔断、401 降频、90s 离线）"
+    depends_on: ["T11-11","T11-12","T11-13","T11-14"]
+    estimated_files_changed: 1
+    estimated_test_cases: 8
+    shared_files: "否"
+    input_files:
+      - "platform/edge-sync-agent/internal/*/*.go"
+    output_files:
+      - "platform/edge-sync-agent/internal/*/*_test.go"
+    verify_commands:
+      - "cd platform/edge-sync-agent && go test ./..."
+      - "go vet ./platform/edge-sync-agent/..."
+    acceptance_criteria: "守护熔断、退避封顶、401 降频、checksum 保留、targets 回滚均有单测；全量边缘单测通过"
+
+  - id: "T11-19"
+    title: "端到端本地验证动线（起中心+边缘+mock 采集器，映射 §9.2）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "edge-e2e"
+    prd: "Module_11 §9.2（kill 10s 重启、crash-loop 熔断、90s 离线、401 降频、时间基准、local 不走协议）"
+    depends_on: ["T11-16","T11-17","T11-18"]
+    estimated_files_changed: 2
+    estimated_test_cases: 4
+    shared_files: "否"
+    input_files:
+      - "docs/06-mvp-e2e-testing/README.md"
+    output_files:
+      - "docs/05-execution-records/module-11/e2e-verification.md"
+    verify_commands:
+      - "make run-metric-center && （本机起 mock 采集器 + edge-sync-agent）按 §9.2 逐项核对"
+    acceptance_criteria:
+      - "kill 采集器后 10s 内检测重启且 restart_count+1；模拟 crash-loop 10min5 次熔断"
+      - "停心跳 90s 判离线触发 EdgeSiteOffline；Token 401 指数退避后降频；local 通道拒走协议；last_heartbeat 落中心接收时"
