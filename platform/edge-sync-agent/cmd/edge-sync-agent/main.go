@@ -77,7 +77,7 @@ func run() error {
 		if dep == nil {
 			return ""
 		}
-		return dep.VersionDir(dep.CurrentVersion())
+		return dep.CurrentDir()
 	}, os.Stderr)
 
 	promReload := func(ctx context.Context, _ deployer.ComponentType, _ string) error {

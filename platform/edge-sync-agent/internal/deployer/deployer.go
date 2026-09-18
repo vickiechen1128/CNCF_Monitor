@@ -36,12 +36,12 @@ type Deployer struct {
 	netDomainID string
 	logger      *logger.Logger
 	validate    Validator
-	promReload   Reloader // 采集器 reload（/-/reload）
-	bbReload     Reloader // 拨测器 reload（SIGHUP）
+	promReload  Reloader // 采集器 reload（/-/reload）
+	bbReload    Reloader // 拨测器 reload（SIGHUP）
 
 	// 幂等与 reload 判定基准：当前生效版本与其 prometheus.yml 内容。
 	currentVersion string
-	currentPromYML  string
+	currentPromYML string
 }
 
 // New 构造 Deployer。root 为配置部署根目录（staging / 版本目录都建其下），
@@ -71,6 +71,23 @@ func (d *Deployer) VersionDir(version string) string {
 
 // CurrentVersion 返回当前生效配置版本（未应用过为空）。
 func (d *Deployer) CurrentVersion() string { return d.currentVersion }
+
+// CurrentDir 返回本网域当前生效配置目录，即符号链接 <root>/config-<id>/current
+// （恒指向最新已生效版本目录）。进程统一以 current 为基准启动并 reload，使后续
+// 下发的新版本能被 SIGHUP / /-/reload 重载到运行态（H-2 修复：避免 reload 旧版本
+// 目录导致第二次及以后下发对运行中实例失效）。无任何已生效版本时软链不存在。
+func (d *Deployer) CurrentDir() string {
+	return filepath.Join(d.DomainDir(), "current")
+}
+
+// setCurrentLink 将 current 软链更新为指向指定版本目录（相对软链，稳定跨重启）。
+func (d *Deployer) setCurrentLink(version string) {
+	current := d.CurrentDir()
+	_ = os.RemoveAll(current)
+	if err := os.Symlink(version, current); err != nil {
+		d.logger.Warnf("deployer: set current link to %s failed: %v", version, err)
+	}
+}
 
 // Restore 从磁盘恢复上次生效配置版本（崩溃恢复 / 重启复用，PRD §6.4 条目 6）：
 // 扫描 <root>/config-<net_domain_id>/ 下的版本目录，取字典序最大的作为 currentVersion，
@@ -102,11 +119,11 @@ func (d *Deployer) Restore() error {
 		return nil
 	}
 	d.currentVersion = best
+	d.setCurrentLink(best)
 	d.currentPromYML = string(promBytes)
 	d.logger.Infof("deployer: restored effective config_version=%s", best)
 	return nil
 }
-
 
 // Apply 应用一个配置包：幂等去重 → 解包 → 结构校验 → staging 落盘 → 原子改名切换
 // → 按需 reload。任一失败保留上一份可运行配置（旧版本目录不被触碰/删除，回滚保底）。
@@ -144,6 +161,7 @@ func (d *Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Me
 		return fmt.Errorf("deployer: atomic switch: %w", err)
 	}
 	d.currentVersion = version
+	d.setCurrentLink(version)
 	d.logger.Infof("deployer: applied config_version=%s at %s", version, versionDir)
 
 	d.triggerReload(ctx, pkg)
@@ -153,6 +171,7 @@ func (d *Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Me
 // triggerReload 依据 PRD §6.4 判定 reload：
 //   - 仅当 prometheus.yml 内容变化才触发采集器 /-/reload（targets 由 file_sd 自动感知）。
 //   - 配置包含 blackbox.yml 时触发拨测器 reload。
+//
 // reload 触发失败不改变已落盘生效结果（配置已可用），仅记 WARN。
 func (d *Deployer) triggerReload(ctx context.Context, pkg *Package) {
 	promChanged := pkg.PrometheusYML != d.currentPromYML
