@@ -64,7 +64,7 @@ type Component struct {
 
 	// 运行时内部状态（非上报）。
 	enabled      bool
-	dependsOn    string // collector 依赖 blackbox_exporter
+	dependsOn    string      // collector 依赖 blackbox_exporter
 	restartTimes []time.Time // 熔断滚动窗口内的重启时刻
 	backoff      time.Duration
 
@@ -261,14 +261,25 @@ func (s *Supervisor) tick(ctx context.Context, typ string) {
 		c.mu.Unlock()
 		return
 	}
-	// 编排：依赖组件未 running 时阻塞（collector 等 blackbox）。
-	if c.dependsOn != "" {
-		if dep, ok := s.comps[c.dependsOn]; ok && dep.enabled && dep.Status != contract.ComponentStatusRunning {
-			c.mu.Unlock()
-			return
+	// 读取依赖关系后即释放 c.mu，避免持 c.mu 时调用 s.Get（需 s.mu），
+	// 与 Snapshot（持 s.mu 再取 c.mu）构成 AB-BA 锁序倒置死锁（定向复审补充修复）。
+	dependsOn := c.dependsOn
+	c.mu.Unlock()
+
+	// 编排：依赖组件未 running 时阻塞（collector 等 blackbox）。依赖组件经 s.Get
+	// （内部持 s.mu）读取并锁 dep.mu，避免与 getOrCreate / Reconcile 并发写 s.comps
+	// 构成 data race（H-1 修复：裸 map 读可触发 fatal concurrent map read and write）。
+	if dependsOn != "" {
+		dep := s.Get(dependsOn)
+		if dep != nil {
+			dep.mu.Lock()
+			depReady := dep.enabled && dep.Status == contract.ComponentStatusRunning
+			dep.mu.Unlock()
+			if !depReady {
+				return
+			}
 		}
 	}
-	c.mu.Unlock()
 
 	alive := s.probe.Alive(c)
 	healthy := alive && s.probe.Healthy(c)
@@ -277,8 +288,6 @@ func (s *Supervisor) tick(ctx context.Context, typ string) {
 	c.mu.Lock()
 	if alive && healthy {
 		// 稳态：清退退避与熔断窗口。
-		if c.Status != contract.ComponentStatusRunning {
-		}
 		c.Status = contract.ComponentStatusRunning
 		c.restartTimes = pruneRestarts(c.restartTimes, now, s.params.BreakerWindow)
 		c.backoff = s.params.BackoffMin
