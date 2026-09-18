@@ -19,7 +19,7 @@
 
 | 原型文件（`docs/prototypes/module-07/src/`） | 生产对应（`ui-custom/web/src/`） | 处理 | 核对项 | 说明 / 理由 |
 |---|---|---|---|---|
-| `theme.ts` | `src/theme.ts` | **复制** | D1 视觉还原 | 火山引擎 Token 已整体迁移：`colorPrimary #0ECDEB`、`colorHeaderBg #0B1B2A`、`colorBgBase #F7F8FA` 等。 |
+| `theme.ts` | `src/skins.ts` | **复制** | D1 视觉还原 | 火山引擎 Token 已整体迁移：`colorPrimary #0ECDEB`、`colorHeaderBg #0B1B2A`、`colorBgBase #F7F8FA` 等。 |
 | `App.css` | `src/App.css` | **复制 + 裁剪** | D1 / D3 | 深色头部、内容背景、辅助色类保留；移除原型的 `.page-header`/`.page-card` 等页面级样式（改由组件内联/Card 默认）。新增 AWS 式顶部 tab 下划线样式。 |
 | `pages/ResourcesPage.tsx` | `src/pages/resources/ResourcesPage.tsx` + `ResourceFormDrawer.tsx` + `ResourceDetailDrawer.tsx` + `ImportModal.tsx` + `ImportRecordsPanel.tsx` + `useResources.ts` | **复制 + 拆分** | 2 / 3 / 6 | 原型单文件 1700+ 行按 L3 任务拆分为：列表页（T07-F3）、新增/编辑抽屉（T07-F4）、Excel 导入弹窗（T07-F5）、导入记录面板（T07-F5）、详情抽屉（T07-F6）、列表数据 Hook。 |
 | `pages/LabelTemplatesPage.tsx` | `src/pages/label-templates/LabelTemplatesPage.tsx` + `TemplateList.tsx` + `TemplateDetailTabs.tsx` + `MappingDrawer.tsx` | **复制 + 拆分** | 2 / 3 / 6 | 原型单文件按 L3 任务拆分为：页面壳（T07-F7）、左栏列表（T07-F7）、右栏三 Tab（T07-F8）、映射抽屉（T07-F8）。新增 `labelTemplateConstants.ts` 承载来源/字段/转换选项。 |
@@ -129,17 +129,17 @@
 
 | Token | 值 | 用途 | 来源文件 |
 |---|---|---|---|
-| 主色（Primary） | `#0ECDEB` | 主按钮、选中态、链接高亮 | `src/theme.ts` `colorPrimary` |
-| 主色背景浅 | `#E6FAFD` | 选中卡片背景、hover 背景 | `src/theme.ts` `colorPrimaryBg` |
-| 头部深色 | `#0B1B2A` | `Header` 背景 | `src/theme.ts` `colorHeaderBg` / `src/App.css` `.app-header` |
-| 成功色 | `#00B578` | 成功状态 / 成功标签 | `src/theme.ts` `colorSuccess` |
-| 警告色 | `#FA8C16` | 维护中 / 警告提示 | `src/theme.ts` `colorWarning` |
-| 错误色 | `#FF4C3A` | 离线 / 删除 / 错误 | `src/theme.ts` `colorError` |
-| 信息蓝 | `#1481FD` | 链接 / 信息提示 | `src/theme.ts` `colorInfo` |
-| 页面背景 | `#F7F8FA` | `Content` 背景 | `src/theme.ts` `colorBgBase` / `src/App.css` `.app-content` |
-| 容器背景 | `#FFFFFF` | Card / Sider | `src/theme.ts` `colorBgContainer` |
-| 主要文字 | `#1D2129` | 正文 | `src/theme.ts` `colorTextBase` |
-| 次要文字 | `#4E5969` / `#86909C` | 辅助说明 | `src/theme.ts` `colorTextSecondary` / `colorTextTertiary` |
+| 主色（Primary） | `#0ECDEB` | 主按钮、选中态、链接高亮 | `src/skins.ts` `colorPrimary` |
+| 主色背景浅 | `#E6FAFD` | 选中卡片背景、hover 背景 | `src/skins.ts` `colorPrimaryBg` |
+| 头部深色 | `#0B1B2A` | `Header` 背景 | `src/skins.ts` `colorHeaderBg` / `src/App.css` `.app-header` |
+| 成功色 | `#00B578` | 成功状态 / 成功标签 | `src/skins.ts` `colorSuccess` |
+| 警告色 | `#FA8C16` | 维护中 / 警告提示 | `src/skins.ts` `colorWarning` |
+| 错误色 | `#FF4C3A` | 离线 / 删除 / 错误 | `src/skins.ts` `colorError` |
+| 信息蓝 | `#1481FD` | 链接 / 信息提示 | `src/skins.ts` `colorInfo` |
+| 页面背景 | `#F7F8FA` | `Content` 背景 | `src/skins.ts` `colorBgBase` / `src/App.css` `.app-content` |
+| 容器背景 | `#FFFFFF` | Card / Sider | `src/skins.ts` `colorBgContainer` |
+| 主要文字 | `#1D2129` | 正文 | `src/skins.ts` `colorTextBase` |
+| 次要文字 | `#4E5969` / `#86909C` | 辅助说明 | `src/skins.ts` `colorTextSecondary` / `colorTextTertiary` |
 | 字体栈 | `-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', ...` | 全局字体 | `src/App.css` `body` |
 
 ## 六、裁剪清单（原型中有但 MVP 生产未保留）
@@ -162,7 +162,7 @@
 
 ## 七、开发验证待办清单
 
-- [ ] D1：确认 `src/theme.ts` 已全局注入，页面头部为 `#0B1B2A`、主按钮为 `#0ECDEB`，无 antd 默认 `#1677ff` 残留。
+- [ ] D1：确认 `src/skins.ts` 已全局注入，页面头部为 `#0B1B2A`、主按钮为 `#0ECDEB`，无 antd 默认 `#1677ff` 残留。
 - [ ] D5：确认 `MainLayout` 顶部一级 tab 文案为「监控对象管理」；Sider 二级为「资源管理 / 标签模板」（导入记录当前内嵌，如需独立页面后续补路由）。
 - [ ] D6：确认 `ResourcesPage`、`LabelTemplatesPage`、`ImportRecordsPanel` 的筛选区均使用 `FilterBar/FilterItem`；表格使用 `TABLE_SCROLL_X`，长文本使用 `EllipsisText`。
 - [ ] 路由：确认 `src/App.tsx` 注册了 `/resources`、`/label-templates`，未注册 `/import-history`（与内嵌设计一致）。
