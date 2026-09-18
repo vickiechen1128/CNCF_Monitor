@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { isApiError } from '../../api/client'
-import { alertStatusApi } from '../../api/alertmanager'
+import { alertStatusApi, ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
 import { networkDomainApi } from '../../api/domain'
 import type { AlertHistoryItem, AlertHistoryState } from '../../types/alertmanager'
 
@@ -83,6 +83,11 @@ export function useHistoryAlerts(q: HistoryAlertsQuery): HistoryAlertsResult {
       page_size: pageSize,
       start: start.toISOString(),
       end: end.toISOString(),
+      // 决策 90：必须显式传步长，取值 30s（PRD 默认细粒度）。窄窗口保持 30s 估算精度；
+      // 拉宽到 7d 时服务端 normalizeHistoryStep 会按窗口抬高（7d → 55s）——
+      // 若不传则服务端按 30s 展开 7d = 20160 点，超过 Prometheus 单序列 11000 点上限
+      // → 上游 400 → 本页整体加载失败。
+      step: ALERT_HISTORY_STEP_SECONDS,
     }
     if (q.networkDomain && q.networkDomain !== 'all') {
       params.network_domain = q.networkDomain
