@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-18 16:57 · commit: `d1b358a`
+> 生成时间: 2026-09-18 23:14 · commit: `271d589`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1832,6 +1832,8 @@
 - `method (*Deployer) DomainDir() string`
 - `method (*Deployer) VersionDir(version string) string`
 - `method (*Deployer) CurrentVersion() string`
+- `method (*Deployer) CurrentDir() string`
+- `method (*Deployer) setCurrentLink(version string)`
 - `method (*Deployer) Restore() error`
 - `method (*Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Metadata) error`
 - `method (*Deployer) triggerReload(ctx context.Context, pkg *Package)`
@@ -1854,12 +1856,14 @@
 - `func TestApplyMissingPrometheusRejected(t *testing.T)`
 - `func TestVerifyTargetsJSON(t *testing.T)`
 - `func TestStructuralValidateTopKeys(t *testing.T)`
+- `func TestZipSlipTargetRejected(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/deployer/extract.go`
 
 - `type Package struct`
 - `func extractPackage(zipBytes []byte, meta *contract.Metadata) (*Package, error)`
 - `func ValidateTargetsJSON(name, content string) error`
+- `func validateTargetName(name string) error`
 - `func readEntry(f *zip.File) ([]byte, error)`
 
 ### `platform/edge-sync-agent/internal/deployer/validate.go`
