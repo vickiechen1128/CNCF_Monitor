@@ -294,22 +294,54 @@ build-ui: ensure-pnpm
 	@echo ">>> Building Custom UI"
 	@cd "$(PROJECT_ROOT)/ui-custom/web" && "$(PNPM_BIN)" install && "$(PNPM_BIN)" run build
 
-# v0.2 placeholder targets for Edge Sync Agent. They are safe no-ops until platform/edge-sync-agent/ is created.
-build-edge-agent: ensure-go
-	@if [ -d "$(PROJECT_ROOT)/platform/edge-sync-agent" ]; then \
-		echo ">>> Building edge-sync-agent"; \
-		cd "$(PROJECT_ROOT)/platform/edge-sync-agent" && "$(GO_BIN)" build -o edge-sync-agent$(EXE) ./cmd/edge-sync-agent; \
-	else \
-		echo ">>> platform/edge-sync-agent/ not yet created (planned for v0.2); skipping build"; \
-	fi
+# ---- Edge Sync Agent（Module_11：Edge Access & Agent Delivery）----
+# 决策 88：MVP 采集器统一走 vmagent（VictoriaMetrics），与 blackbox_exporter 组成
+# edge-sync-agent 守护的三件套。上游 v1.152.0（VictoriaMetrics 子模块 pinned d2bc8eef5）。
+EDGE_AGENT_VERSION ?= v0.2.0
+VMAgent_VERSION ?= v1.152.0
+Blackbox_VERSION ?= v0.26.0
+EDGE_DIST := $(PROJECT_ROOT)/platform/edge-sync-agent/dist
 
-build-edge-package:
-	@echo ">>> Packaging edge distribution bundle"
-	@if [ -d "$(PROJECT_ROOT)/platform/edge-sync-agent" ]; then \
-		echo ">>> TODO: assemble edge-sync-agent + vmagent/prometheus-agent + blackbox exporter into deployable archive"; \
-	else \
-		echo ">>> platform/edge-sync-agent/ not yet created (planned for v0.2); skipping package"; \
-	fi
+# build-edge-agent: 交叉编译 edge-sync-agent（linux/amd64 + linux/arm64）到 module 内 dist/。
+# 该 module 零第三方 / 零 CGO 依赖，可安全 GOOS=linux 交叉编译，无需 zig。
+build-edge-agent: ensure-go
+	@echo ">>> Building edge-sync-agent (linux/amd64 + linux/arm64, version=$(EDGE_AGENT_VERSION))"
+	@mkdir -p "$(EDGE_DIST)"
+	@cd "$(PROJECT_ROOT)/platform/edge-sync-agent" && \
+		CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$(GO_BIN)" build -trimpath \
+			-ldflags "-X main.version=$(EDGE_AGENT_VERSION)" -o dist/edge-sync-agent-linux-amd64 ./cmd/edge-sync-agent && \
+		CGO_ENABLED=0 GOOS=linux GOARCH=arm64 "$(GO_BIN)" build -trimpath \
+			-ldflags "-X main.version=$(EDGE_AGENT_VERSION)" -o dist/edge-sync-agent-linux-arm64 ./cmd/edge-sync-agent
+
+# build-vmagent: 交叉编译 vmagent（采集器，决策 88）linux/amd64 + linux/arm64 到 EDGE_DIST。
+# VictoriaMetrics 为单个 Go module，入口 app/vmagent；纯 Go 可 CGO_ENABLED=0 交叉编译。
+build-vmagent: ensure-go
+	@echo ">>> Building vmagent (linux/amd64 + linux/arm64, version=$(VMAgent_VERSION))"
+	@mkdir -p "$(EDGE_DIST)"
+	@cd "$(PROJECT_ROOT)/upstream/victoria-metrics" && \
+		GOPROXY=https://goproxy.cn,direct CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$(GO_BIN)" build -trimpath \
+			-o "$(EDGE_DIST)/vmagent-linux-amd64" ./app/vmagent && \
+		GOPROXY=https://goproxy.cn,direct CGO_ENABLED=0 GOOS=linux GOARCH=arm64 "$(GO_BIN)" build -trimpath \
+			-o "$(EDGE_DIST)/vmagent-linux-arm64" ./app/vmagent
+
+# build-blackbox-edge: 交叉编译 blackbox_exporter（拨测器）linux/amd64 + linux/arm64 到 EDGE_DIST。
+# 区别于 build-blackbox-exporter（控制台用，构建主机架构单二进制）。
+build-blackbox-edge: ensure-go
+	@echo ">>> Building blackbox_exporter (linux/amd64 + linux/arm64, version=$(Blackbox_VERSION))"
+	@mkdir -p "$(EDGE_DIST)"
+	@cd "$(PROJECT_ROOT)/upstream/blackbox_exporter" && \
+		GOPROXY=https://goproxy.cn,direct CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$(GO_BIN)" build -trimpath \
+			-o "$(EDGE_DIST)/blackbox_exporter-linux-amd64" ./ && \
+		GOPROXY=https://goproxy.cn,direct CGO_ENABLED=0 GOOS=linux GOARCH=arm64 "$(GO_BIN)" build -trimpath \
+			-o "$(EDGE_DIST)/blackbox_exporter-linux-arm64" ./
+
+# build-edge-package: 组装边缘一体化离线交付包（edge-sync-agent + vmagent + blackbox_exporter
+# + packaging/*.service + start.sh/安装说明 + release_meta.json：版本 / sha256 / size_bytes /
+# 组件清单，字段对齐中心 platform/edge packages_service.go 的 PackageArtifact / PackageComponent 契约）。
+build-edge-package: build-edge-agent build-vmagent build-blackbox-edge
+	@echo ">>> Packaging edge-sync-agent offline bundle"
+	@EDGE_AGENT_VERSION="$(EDGE_AGENT_VERSION)" VMAgent_VERSION="$(VMAgent_VERSION)" Blackbox_VERSION="$(Blackbox_VERSION)" \
+		bash "$(PROJECT_ROOT)/scripts/package-edge-agent.sh"
 
 build-alertmanager: ensure-go
 	@echo ">>> Building upstream Alertmanager"

@@ -49,6 +49,11 @@ var healthPaths = map[string]struct{}{
 	"/api/v1/status":    {},
 }
 
+// PublicPathPrefixes 是需豁免全局平台用户认证的 /api/* 路径前缀（D1：edge 协议
+// outbound-only，Agent 非平台用户，走独立 edge-token 中间件）。默认空，行为与既有
+// 一致；由 main.go 接线时填充（如 "/api/v2/platform/edge/"）。命中前缀直接放行，不校验用户 token。
+var PublicPathPrefixes []string
+
 // AuthMiddleware enforces the contract-wide authentication gate for /api/*
 // requests. It only authenticates—never authorizes (no role / permission
 // checks). It lets through:
@@ -83,6 +88,12 @@ func AuthMiddleware(svc *Service) gin.HandlerFunc {
 		if _, ok := healthPaths[path]; ok {
 			c.Next()
 			return
+		}
+		for _, pfx := range PublicPathPrefixes {
+			if strings.HasPrefix(path, pfx) {
+				c.Next()
+				return
+			}
 		}
 
 		token := bearerToken(c)
