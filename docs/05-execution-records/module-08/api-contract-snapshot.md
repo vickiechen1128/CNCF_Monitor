@@ -13,7 +13,7 @@
 | Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）+ Track B+ 增量（v1.12 告警状态查看提前 MVP，强制 security-reviewer）                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-11b（§4 新增 `GET /silences/label-options` 静默 matcher 标签选项聚合端点 + LabelOptionGroup 响应结构，Matcher 补 AND 语义与正则预检说明，v1.16 决策 71）叠加 v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
+| 版本    | v2026-09-18（§10.4 补登 `GET /api/v1/alerts/history` 请求参数与 envelope + 「7d 窗口 × 默认步长」点数上限约束，决策 90）叠加 v2026-09-11b（§4 新增 `GET /silences/label-options` 静默 matcher 标签选项聚合端点 + LabelOptionGroup 响应结构，Matcher 补 AND 语义与正则预检说明，v1.16 决策 71）叠加 v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
 | 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP；2026-09-10 决策 68-1 键名口径收敛）                                                                                                                                                                                                                                |
 | 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61 + 分轨判定记录 2026-09-08；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
 
@@ -290,3 +290,25 @@
 - **2026-09-11 扩展（决策 70，§10.1/§10.2 实例字段）**：三条告警读取链路（§10.1 `/api/v1/alerts`、`/api/v1/alerts/history`、§10.2 `/api/v2/platform/alertmanager/alerts`）新增 `instance_address` 与 `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port` 六个字段，同口径同步至 `/api/v1/alerts/history`（该接口字段为顶层 `alertname` / `instance` / `network_domain` …，新增字段与之平级）。`instance_display` 由「回落链取值」修订为「`resource_name` 非空取之，否则取 `instance_address`」，**旧字段全部保留、无破坏性变更**。UI 侧「实例」列拆为「实例名」（`resource_name`，无则 `-`）+「采集地址」（`instance_address`，表头提示「采集器地址，非业务端口」）；历史告警页「实例」筛选参数 `instance` 的服务端语义扩展为**同时匹配 `instance_address` 与 `resource_name`**（`strings.Contains`，任一命中即保留）。回落链同步修订为 `instance_name → instance → instance_ip → service_name → nodename → device`（删除默认标签模板从不产出的死键 `hostname`、补入 application 实际产出的 `service_name`）。
 - **2026-09-10 收敛（决策 68-1，§10.1/§10.2 键名口径）**：M09 生成侧 `external_labels` 键名由 `network_domain_id` 收敛为 `network_domain`，§10.1/§10.2 的解析顺序**不变**，但第 2 项 `labels.network_domain_id` 定位由「写入侧当前键」修订为「**历史/兼容键（永久保留）**」；`network_domain` 明确为全平台唯一 Prometheus 标签键，`network_domain_id` 自此仅作对象 / API 字段。字段名与响应形状仍不变（无破坏性变更）。本决策同时补齐 M08 PRD §9.1/§9.2 的投递接线验收（Prometheus → AM `alerting.alertmanagers`，承载方 M09），见 `module-09/network-domain-label-key-convergence-and-alerting-wiring.md`。
 
+- **2026-09-18 补登与约束（决策 90，新增 §10.4）**：补登 `/api/v1/alerts/history` 的**请求参数与 envelope**（该端点自 v1.13 起上线，此前无契约快照承载，仅 M02 PRD §5.4 有字段表）；明确「**7d 窗口 + 默认 30s 步长**」超出 Prometheus `query_range` 单序列 11000 点上限、必返 400，故**调用方必须显式传 `step`**（前端统一 `ALERT_HISTORY_STEP_SECONDS = 60`），服务端同时按窗口抬高步长兜底并回显 `data.step`。既有字段名与响应形状**不变**（`step` 为附加字段），§10.1/§10.2 无改动。
+
+### 10.4 M02 侧：历史告警代理（`GET /api/v1/alerts/history`，v1.13 增量，2026-09-18 补登）
+
+> **本节补登（2026-09-18，决策 90）**：该端点自 v1.13 起由 M02 交付、由 M08 历史告警页与 M05 首页告警卡消费，但**此前未进任何契约快照**——M02 快照 §4 把两条告警代理的字段口径统一指向本文件 §10.1，而 §10.1 只覆盖 `/api/v1/alerts`。此处补登**请求参数与 envelope**；告警条目字段清单的权威仍在 `Module_02_Query_Center.md` §5.4（含 v1.15 决策 70 的实例字段），本节不重复登记以免两处漂移。
+
+| 项 | 内容 |
+|----|------|
+| 方法 / 路径 | `GET /api/v1/alerts/history`（注册在 `/api/v1` 组，命中认证中间件） |
+| 上游 | Prometheus `GET /api/v1/query_range`，`query = ALERTS{alertstate="firing"}`；另调 `GET /api/v1/rules` 回填 `summary`（失败降级，不阻塞列表） |
+| Query | `network_domain`（可选，授权集合收敛，决策 56）／`alertname`／`instance`（**同时匹配实例名与采集地址**，v1.15 决策 70）／`state`（`all`/`firing`/`resolved`，默认 `all`）／`start`・`end`（RFC3339，默认最近 24h、最大 7d）／`step`（秒，**期望粒度**，默认 30、最小 15；服务端可按窗口抬高，见下）／`page`・`page_size`（默认 1/50，上限 200） |
+| 响应 `data` | `{ list: [AlertHistoryItem], total, page, page_size, step }`；空结果 `list=[]`（非 `null`） |
+| `data.step` | **实际生效**的 `query_range` 步长（整数秒）。服务端会把过密步长按窗口抬高，使 `floor(window/step) + 1 ≤ 11000`（Prometheus `query_range` 单序列点数上限，upstream `maxPointsPerTs`）。**附加字段，向后兼容**（2026-09-18 决策 90） |
+| 业务错误 | `bad_request`：`state`/`start`/`end`/`step` 非法；`internal`：上游不可达 / 非 success（含上游 400 点数超限） |
+
+> **调用方约束（决策 90，强制）**：「最大窗口（7d）＋ 默认步长（30s）」是**超出上游点数上限的非法组合**（20160 点 > 11000），上游直接返回 400 → 本接口 500 → 消费方整页/整卡不可用（2026-09-18 实测缺陷）。因此：
+>
+> 1. **调用方必须显式传 `step`** —— 前端统一取 `ALERT_HISTORY_STEP_SECONDS = 30`（`ui-custom/web/src/api/alertmanager.ts`；= PRD 默认步长，细粒度）；
+> 2. **服务端有兜底** —— 即使未传、或传得过密，也会按窗口抬高步长（**只抬高、不压低**），保证该组合恒能返回 200；实际生效值一律以 `data.step` 为准（7d 窗口下传入 30s 会被抬到 55s）；
+> 3. **`step` 的语义是「期望粒度」而非「必须满足上限的取值」** —— 调用方只需表达想要的粒度（前端取 30s，窄窗口保持精度），点数上限由服务端保证；`step` 默认 30s 的入参语义不变（未传时取 30、小于 15 时抬到 15）。
+>
+> **估算精度**：「恢复时间（估算）」= 最后一个 firing 样本时间 + 一个**实际生效 step**；「持续时长」同样以 step 为粒度。**窄窗口（< 约 91.6h）实际生效 step 为 30s**（调用方传入的期望粒度原样保留，默认 24h 窗口不受影响）；宽窗口被抬高（7d → 55s）时估算偏差点上限随之变大——本页已按「估算值」对用户披露（决策 9），`data.step` 供消费方自查。

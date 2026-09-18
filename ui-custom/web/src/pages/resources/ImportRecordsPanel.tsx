@@ -25,6 +25,7 @@ import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { importApi } from '../../api/resources'
 import type { ImportError, ImportMode, ImportRecord, ResourceCategory } from '../../types/resource'
 import type { Paginated } from '../../types/api'
+import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 
@@ -69,6 +70,7 @@ interface ImportRecordsPanelProps {
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function ImportRecordsPanel({ onDownloadTemplate, onUploadExcel }: ImportRecordsPanelProps) {
+  const { tokens } = useSkin()
   const [data, setData] = useState<Paginated<ImportRecord>>({ list: [], total: 0, page: 1, page_size: 20 })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -186,7 +188,7 @@ export function ImportRecordsPanel({ onDownloadTemplate, onUploadExcel }: Import
         <Space size={4}>
           <Text style={{ color: '#00B578' }}>{record.success}</Text>
           <Text type="secondary">/</Text>
-          <Text style={{ color: record.failed > 0 ? '#FF4C3A' : '#86909C' }}>{record.failed}</Text>
+          <Text style={{ color: record.failed > 0 ? tokens.colorError : tokens.colorTextTertiary }}>{record.failed}</Text>
         </Space>
       ),
     },

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HistoryAlertsPage } from './HistoryAlertsPage'
+import { ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
 import type { AlertHistoryItem } from '../../types/alertmanager'
 
 const alertStatusApiMock = {
@@ -13,13 +14,18 @@ const networkDomainApiMock = {
   list: vi.fn(),
 }
 
-vi.mock('../../api/alertmanager', () => ({
-  alertStatusApi: {
-    getPromAlerts: (...a: unknown[]) => alertStatusApiMock.getPromAlerts(...a),
-    getAlertmanagerAlerts: (...a: unknown[]) => alertStatusApiMock.getAlertmanagerAlerts(...a),
-    getAlertHistory: (...a: unknown[]) => alertStatusApiMock.getAlertHistory(...a),
-  },
-}))
+vi.mock('../../api/alertmanager', async (importOriginal) => {
+  // 保留真实导出（含 ALERT_HISTORY_STEP_SECONDS），仅替换 alertStatusApi 的请求方法
+  const actual = await importOriginal<typeof import('../../api/alertmanager')>()
+  return {
+    ...actual,
+    alertStatusApi: {
+      getPromAlerts: (...a: unknown[]) => alertStatusApiMock.getPromAlerts(...a),
+      getAlertmanagerAlerts: (...a: unknown[]) => alertStatusApiMock.getAlertmanagerAlerts(...a),
+      getAlertHistory: (...a: unknown[]) => alertStatusApiMock.getAlertHistory(...a),
+    },
+  }
+})
 vi.mock('../../api/domain', () => ({
   networkDomainApi: {
     list: (...a: unknown[]) => networkDomainApiMock.list(...a),
@@ -175,5 +181,22 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(refreshBtn).toBeDefined()
     fireEvent.click(refreshBtn as HTMLElement)
     await waitFor(() => expect(alertStatusApiMock.getAlertHistory).toHaveBeenCalledTimes(2))
+  })
+
+  it('决策 90：请求显式携带步长（缺省 30s 在 7d 窗口下会超 Prometheus 点数上限）', async () => {
+    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('暂无历史告警')
+
+    expect(alertStatusApiMock.getAlertHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: ALERT_HISTORY_STEP_SECONDS,
+        start: expect.any(String),
+        end: expect.any(String),
+      }),
+    )
   })
 })

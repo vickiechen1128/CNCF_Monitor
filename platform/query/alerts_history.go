@@ -41,6 +41,12 @@ const (
 	// maxHistoryWindow 最大查询时间窗（PRD：最大 7d）。
 	maxHistoryWindow = 7 * 24 * time.Hour
 
+	// maxHistoryPoints 是 Prometheus `query_range` 对**单条时间序列**返回点数的硬上限
+	// （upstream `web/api/v1/api.go` 常量 `maxPointsPerTs = 11000`；超过时上游返回 400
+	// `exceeded maximum resolution of 11,000 points per timeseries`）。
+	// 本接口一次查询会返回多条序列，但该限制按**单序列**计算，故以此作为步长下限的约束。
+	maxHistoryPoints = 11000
+
 	// defaultHistoryPageSize 默认分页大小。
 	defaultHistoryPageSize = 50
 	// maxHistoryPageSize 分页上限。
@@ -77,6 +83,7 @@ type alertHistoryQuery struct {
 
 // AlertsHistoryHandler 是 GET /api/v1/alerts/history 的 handler。
 //   1. 解析并校验查询参数（默认 24h、最大 7d、step 默认 30s/最小 15s、page_size 上限 200）；
+//      并按窗口兜底抬高过密的 step，保证单序列点数不超上游上限（决策 90）；
 //   2. 调用 Prometheus query_range 查询 ALERTS{alertstate="firing"}；
 //   3. 按 alertname + instance + 其余 labels 分组，连续 firing 样本合成触发区间；
 //   4. 中断超过 2×step 视为区间结束；查询窗口末尾仍有样本则 state=firing；
@@ -84,7 +91,8 @@ type alertHistoryQuery struct {
 //   6. 按告警标签 resource_id 批量回连 M01 五类资源表，回填实例名字段（v1.15 决策 70）；
 //   7. 本地过滤 network_domain/alertname/instance/state，内存分页后返回。
 //
-// 响应 envelope：{status, data:{list:[...], total, page, page_size}}，空结果 list=[] 非 null。
+// 响应 envelope：{status, data:{list:[...], total, page, page_size, step}}，
+// 空结果 list=[] 非 null；`step` 为**实际生效**的步长（可能被第 1 步抬高）。
 func AlertsHistoryHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		q, err := parseAlertHistoryQuery(c)
@@ -101,10 +109,13 @@ func AlertsHistoryHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gi
 
 		list, total := paginateHistory(items, q.Page, q.PageSize)
 		response.OK(c, gin.H{
-			"list":       list,
-			"total":      total,
-			"page":       q.Page,
-			"page_size":  q.PageSize,
+			"list":      list,
+			"total":     total,
+			"page":      q.Page,
+			"page_size": q.PageSize,
+			// step 为实际生效的步长（可能已被 normalizeHistoryStep 按窗口抬高，决策 90）：
+			// 恢复时间 / 持续时长均为「样本时间 ± 一个 step」的估算，回显供消费方披露与自查。
+			"step": int(q.Step.Seconds()),
 		})
 	}
 }
@@ -163,6 +174,12 @@ func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error) {
 	if q.Step < minHistoryStep {
 		q.Step = minHistoryStep
 	}
+	// 决策 90：窗口与步长是两个独立解析的参数，而 Prometheus 对 query_range 有
+	// 「单序列点数 ≤ maxHistoryPoints」的硬限制——服务端默认 30s 在 7d（服务端允许的
+	// 最大窗口）下需要 2 万余个点，任何「用满窗口」的调用方都会必然拿到上游 400，
+	// 整页/整卡不可用。此处按窗口兜底抬高步长（只抬高、不压低），
+	// 调用方显式传入的粗粒度步长不受影响。
+	q.Step = normalizeHistoryStep(q.Step, q.End.Sub(q.Start))
 
 	if v := c.Query("page"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil && p > 0 {
@@ -179,6 +196,35 @@ func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error) {
 	}
 
 	return q, nil
+}
+
+// normalizeHistoryStep 按查询窗口抬高过密的 query_range 步长，使
+//
+//	floor(window/step) + 1 <= maxHistoryPoints
+//
+// 恒成立，避免上游 400（`exceeded maximum resolution of 11,000 points per timeseries`）
+// 把历史告警整体变成不可用（决策 90，2026-09-18）。
+//
+// 语义边界：
+//   - 只抬高、不压低：调用方显式传入的 30s（前端默认，窄窗口）/ 60s / 300s 等步长，
+//     满足约束时原样保留（7d 窗口下显式 30s 会被抬到 55s，因为 30s 已不满足约束）；
+//   - 窗口 < 约 91.6h（11000 × 30s ≈ 3.8d）时步长维持 30s，默认 24h 窗口零行为变化；
+//   - 7d 窗口（服务端允许上限）由 30s 抬高到 55s（604800/55 + 1 = 10997 ≤ 11000）；
+//   - 结果一并回显在响应 `data.step`，消费方可据此披露估算精度。
+func normalizeHistoryStep(step, window time.Duration) time.Duration {
+	if window <= 0 {
+		return step
+	}
+	// floor(window/step) + 1 <= maxHistoryPoints  ⇔  step > window/maxHistoryPoints
+	// 步长取整秒（上游 step 参数亦为整秒），故 +1 后再与最小步长取大。
+	minSec := int64(window.Seconds())/maxHistoryPoints + 1
+	if minSec < int64(minHistoryStep.Seconds()) {
+		minSec = int64(minHistoryStep.Seconds())
+	}
+	if int64(step.Seconds()) < minSec {
+		return time.Duration(minSec) * time.Second
+	}
+	return step
 }
 
 // fetchAlertHistory 拉取 ALERTS 时间序列、重建区间并过滤。

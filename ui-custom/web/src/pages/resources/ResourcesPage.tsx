@@ -46,6 +46,8 @@ import { ResourceFormDrawer } from './ResourceFormDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
 import { ImportRecordsPanel } from './ImportRecordsPanel'
+import { useSkin } from '../../skinContext'
+import type { SkinTokens } from '../../skins'
 
 const { Text } = Typography
 
@@ -90,12 +92,14 @@ const STATUS_MAP: Record<string, string> = {
   orphan: '孤儿',
 }
 
-/** 运行状态色（对齐原型 STATUS_COLOR） */
-const STATUS_COLOR: Record<string, string> = {
-  online: '#00B578',
-  offline: '#FF4C3A',
-  maintenance: '#FA8C16',
-  orphan: '#86909C',
+/** 运行状态色（对齐原型 STATUS_COLOR，走皮肤 token） */
+function statusColor(tokens: SkinTokens): Record<string, string> {
+  return {
+    online: tokens.colorSuccess,
+    offline: tokens.colorError,
+    maintenance: tokens.colorWarning,
+    orphan: tokens.colorTextTertiary,
+  }
 }
 
 /** 数据来源展示名（Module_07 §5.2；cmdb 为 v0.4+ 预留） */
@@ -142,6 +146,7 @@ export function ResourcesPage() {
     reload,
   } = useResources()
 
+  const { tokens } = useSkin()
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -275,7 +280,7 @@ export function ResourcesPage() {
       dataIndex: 'status',
       key: 'status',
       render: (value: string) => (
-        <Badge color={STATUS_COLOR[value] ?? '#86909C'} text={STATUS_MAP[value] ?? value} />
+        <Badge color={statusColor(tokens)[value] ?? tokens.colorTextTertiary} text={STATUS_MAP[value] ?? value} />
       ),
     }
     const actionColumn: ColumnsType<ResourceListItem>[number] = {

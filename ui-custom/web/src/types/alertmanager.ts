@@ -226,4 +226,6 @@ export interface AlertHistoryData {
   total: number
   page: number
   page_size: number
+  /** 实际生效的 query_range 步长（秒）：窗口过宽时服务端会抬高，见决策 90 */
+  step?: number
 }

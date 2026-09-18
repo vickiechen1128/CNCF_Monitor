@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { Alert, Badge, Button, Descriptions, Drawer, Empty, List, Space, Switch, Tag, Tooltip, Typography } from 'antd'
 import { SyncOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import { useSkin } from '../../skinContext'
+import type { SkinTokens } from '../../skins'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import { targetsApi } from '../../api/targets'
 import type { ScrapeJob, ScrapeJobInstanceItem, BlackboxTargetProtocol, CITypeExporterMapping } from '../../types/strategy'
@@ -12,13 +14,25 @@ import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
 
 const { Text } = Typography
 
-/** 协议展示色（原型 PROTOCOL_COLOR） */
-const PROTOCOL_COLOR: Record<BlackboxTargetProtocol, string> = {
-  http: '#00B578',
-  https: '#1481FD',
-  tcp: '#FA8C16',
-  icmp: '#0ECDEB',
-  dns: '#722ED1',
+/**
+ * 协议展示色（原型 PROTOCOL_COLOR）。
+ * 写成函数而非模块级常量：品牌相关色取自皮肤 token，需随皮肤切换（见 skins.ts 设计约束 3）。
+ * `dns` 的紫属**分类色**（无品牌/语义含义），两套皮肤一致，故仍为字面量。
+ */
+function protocolColor(protocol: BlackboxTargetProtocol, tokens: SkinTokens): string {
+  switch (protocol) {
+    case 'http':
+      return tokens.colorSuccess
+    case 'https':
+      return tokens.colorInfo
+    case 'tcp':
+      return tokens.colorWarning
+    case 'icmp':
+      return tokens.colorPrimary
+    case 'dns':
+    default:
+      return '#722ED1'
+  }
 }
 
 /** 协议展示名（原型 PROTOCOL_LABEL） */
@@ -135,6 +149,7 @@ export function ScrapeJobDetailDrawer({
   resolveLabelTemplateName,
   getDefaultMapping,
 }: ScrapeJobDetailDrawerProps) {
+  const { tokens } = useSkin()
   const [items, setItems] = useState<ScrapeJobInstanceItem[]>([])
   const [targets, setTargets] = useState<TargetItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -351,7 +366,7 @@ export function ScrapeJobDetailDrawer({
                 renderItem={(item, index) => (
                   <List.Item key={index}>
                     <Space>
-                      <Tag color={PROTOCOL_COLOR[item.protocol]}>{PROTOCOL_LABEL[item.protocol]}</Tag>
+                      <Tag color={protocolColor(item.protocol, tokens)}>{PROTOCOL_LABEL[item.protocol]}</Tag>
                       <Text code>{item.url || item.target}</Text>
                     </Space>
                   </List.Item>

@@ -37,6 +37,7 @@ import { networkDomainMonitorApi } from '../../../api/configCenter'
 import type { NetworkDomain } from '../../../types/config-center'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { MainLayout } from '../../../layouts/MainLayout'
+import { useSkin } from '../../../skinContext'
 import { FilterBar, FilterItem } from '../../../components/FilterBar'
 import { useNetworkDomains } from './useNetworkDomains'
 import { OnboardDomainDrawer, type OnboardInput } from './OnboardDomainDrawer'
@@ -65,6 +66,8 @@ const { Text } = Typography
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足状态。
  */
 export function NetworkDomainsPage() {
+  // 品牌色走皮肤 token（单一来源，见 skins.ts 设计约束）
+  const { tokens } = useSkin()
   const {
     data,
     loading,
@@ -330,7 +333,7 @@ export function NetworkDomainsPage() {
             style={{
               marginBottom: 16,
               borderRadius: 8,
-              outline: guideHighlight ? '2px solid #0ECDEB' : 'none',
+              outline: guideHighlight ? `2px solid ${tokens.colorPrimary}` : 'none',
               outlineOffset: 4,
               transition: 'outline 0.3s',
             }}
@@ -345,7 +348,7 @@ export function NetworkDomainsPage() {
                   key: 'guide',
                   label: (
                     <Space size={8}>
-                      <InfoCircleOutlined style={{ color: '#1677ff' }} />
+                      <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
                       <Text strong>新网域接入操作流程（安装指引）</Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>点击展开（中心直接采集的网域无需查看）</Text>
                     </Space>

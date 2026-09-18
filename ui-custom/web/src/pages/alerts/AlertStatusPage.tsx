@@ -42,6 +42,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
+import { useSkin } from '../../skinContext'
 import type { AmAlertItem, NotifyStatus, PromAlertItem, PromAlertState } from '../../types/alertmanager'
 import {
   notifyStatusColor,
@@ -172,6 +173,8 @@ function DomainFilter({
 
 /** AM 通知状态四态统计卡片（原型 AlertStatusPage 对齐，视觉 Token 沿用全站） */
 function NotifyStatusStats({ items }: { items: AmAlertItem[] }) {
+  // 语义红走皮肤 token（单一来源，见 skins.ts 设计约束）
+  const { tokens } = useSkin()
   const counts = useMemo(() => {
     const counter: Record<NotifyStatus, number> = { active: 0, silenced: 0, inhibited: 0, unprocessed: 0 }
     items.forEach((a) => {
@@ -193,7 +196,7 @@ function NotifyStatusStats({ items }: { items: AmAlertItem[] }) {
                   </Space>
                 }
                 value={counts[key]}
-                valueStyle={{ fontSize: 22, color: key === 'active' ? '#FF4C3A' : undefined }}
+                valueStyle={{ fontSize: 22, color: key === 'active' ? tokens.colorError : undefined }}
               />
             </Tooltip>
           </Card>
@@ -420,6 +423,7 @@ function PromAlertsView({
 }
 
 export function AlertStatusPage() {
+  const { tokens } = useSkin()
   const [tab, setTab] = useState<'am' | 'prom'>('am')
   // 网域筛选两视图共享（'all' = 不传参）；过滤由后端承担（Query 透传，前端不重复过滤）
   const [domain, setDomain] = useState<string>('all')
@@ -454,7 +458,7 @@ export function AlertStatusPage() {
               key: 'view-guide',
               label: (
                 <Space size={8}>
-                  <InfoCircleOutlined style={{ color: '#1677ff' }} />
+                  <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
                   <Text strong>「通知状态」和「当前告警」有什么区别？</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     点击展开说明

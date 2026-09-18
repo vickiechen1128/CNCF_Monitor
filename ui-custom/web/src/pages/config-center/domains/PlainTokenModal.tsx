@@ -1,5 +1,6 @@
 import { Button, Modal, Typography, message } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
+import { useSkin } from '../../../skinContext'
 
 const { Text } = Typography
 
@@ -19,6 +20,7 @@ interface PlainTokenModalProps {
  * local 域无明文，不弹（MEDIUM-1）。
  */
 export function PlainTokenModal({ open, title = '接入 Token', token, tokenMasked, domainName, onClose }: PlainTokenModalProps) {
+  const { tokens } = useSkin()
   const handleCopy = () => {
     navigator.clipboard?.writeText(token).then(
       () => message.success('明文 Token 已复制，请妥善保存'),
@@ -45,7 +47,7 @@ export function PlainTokenModal({ open, title = '接入 Token', token, tokenMask
       ) : null}
       <div
         style={{
-          background: '#F7F8FA',
+          background: tokens.colorBgBase,
           border: '1px solid #E5E7EB',
           borderRadius: 8,
           padding: '12px 16px',

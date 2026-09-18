@@ -1,8 +1,11 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../test/antdTestUtils'
 import { MainLayout } from './MainLayout'
+import { SIDER_COLLAPSED_KEY } from './siderPreference'
+import { SkinProvider } from '../SkinProvider'
+import { DEFAULT_PRODUCT_NAME, PRODUCT_NAME_STORAGE_KEY } from '../productNamePreference'
 
 // 顶部栏右上角展示依赖 api/client.getStoredUser（jsdom 无 localStorage 可用），
 // 此处 mock 返回一个已登录的管理员账号。
@@ -22,6 +25,79 @@ vi.mock('../api/client', async (importOriginal) => {
 
 describe('MainLayout', () => {
   setupAntdTest()
+
+  // 侧栏折叠偏好落在 localStorage（跨模块 / 跨刷新共用），用例间必须清干净，避免相互污染
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
+
+  it('renders the 首页 secondary nav with 概览 Dashboard and the reserved 自定义大屏 entry', async () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<MainLayout>home-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    // 首页补二级导航（此前无左侧栏，与其余模块观感不一致）
+    expect(screen.getByText('概览 Dashboard')).toBeInTheDocument()
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('概览 Dashboard'))
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+
+    // v0.2 预留项：可见但 disabled，点击不跳转（仅表达「此处将承载自定义大屏」）
+    const reserved = screen.getByText('自定义大屏')
+    expect(screen.getByText('v0.2')).toBeInTheDocument()
+    const reservedItem = reserved.closest('li') as HTMLElement
+    expect(reservedItem.className).toContain('ant-menu-item-disabled')
+    fireEvent.click(reserved)
+    await waitFor(() => {
+      expect(screen.getByText('home-content')).toBeInTheDocument()
+    })
+  })
+
+  it('collapses and expands the sider from the header toggle and persists the preference', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<MainLayout>home-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    const siderClass = () => (document.querySelector('.ant-layout-sider') as HTMLElement).className
+    // 默认展开（宽 200px 的二级导航）
+    expect(siderClass()).not.toContain('ant-layout-sider-collapsed')
+
+    // 折叠：仅留图标列，偏好写入 localStorage
+    fireEvent.click(screen.getByTestId('sider-toggle'))
+    expect(siderClass()).toContain('ant-layout-sider-collapsed')
+    expect(window.localStorage.getItem(SIDER_COLLAPSED_KEY)).toBe('1')
+
+    // 再点：展开并回写偏好
+    fireEvent.click(screen.getByTestId('sider-toggle'))
+    expect(siderClass()).not.toContain('ant-layout-sider-collapsed')
+    expect(window.localStorage.getItem(SIDER_COLLAPSED_KEY)).toBe('0')
+  })
+
+  it('restores the stored collapsed preference on first render（跨刷新 / 跨模块保持一致）', () => {
+    window.localStorage.setItem(SIDER_COLLAPSED_KEY, '1')
+
+    render(
+      <MemoryRouter initialEntries={['/scrape-jobs']}>
+        <Routes>
+          <Route path="/scrape-jobs" element={<MainLayout>jobs-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    // 其他模块同样读取同一份偏好：上次折叠后切到别的模块仍是折叠态
+    expect((document.querySelector('.ant-layout-sider') as HTMLElement).className).toContain(
+      'ant-layout-sider-collapsed',
+    )
+  })
 
   it('shows 采集器管理 as a Sider sub-item under 采集策略 module (F-09)', () => {
     render(
@@ -291,5 +367,74 @@ describe('MainLayout', () => {
     expect(statusIdx).toBeLessThan(silenceIdx)
     expect(silenceIdx).toBeLessThan(historyIdx)
     expect(historyIdx).toBeLessThan(configIdx)
+  })
+
+  /**
+   * 外观设置（用户 2026-09-18 补充）：皮肤与产品名称的入口落在「系统与平台管理」模块，
+   * **不再挂在顶栏**（顶栏只保留角色标签与账号）。
+   */
+  it('exposes 外观设置 under 系统与平台管理 and highlights it on /admin/appearance', () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/appearance']}>
+        <Routes>
+          <Route
+            path="/admin/appearance"
+            element={<MainLayout>appearance-content</MainLayout>}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    // 一级 tab 归「系统与平台管理」（resolveActiveModule 按 /admin/ 前缀收口）
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('系统与平台管理'))
+    expect(tab?.className ?? '').toContain('active')
+
+    // 二级导航含「外观设置」，且当前路由高亮该项
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('外观设置'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('appearance-content')).toBeInTheDocument()
+
+    // 顶栏不再提供皮肤开关
+    expect(screen.queryByTestId('skin-switch')).toBeNull()
+  })
+
+  it('renders the brand title from the stored product name and mirrors it to the tab title', async () => {
+    window.localStorage.setItem(PRODUCT_NAME_STORAGE_KEY, '仪电监控中心')
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <SkinProvider>
+          <Routes>
+            <Route path="/" element={<MainLayout>home-content</MainLayout>} />
+          </Routes>
+        </SkinProvider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('仪电监控中心')).toBeInTheDocument()
+    expect(document.title).toBe('仪电监控中心')
+  })
+
+  it('falls back to the default product name when the stored value is blank', () => {
+    window.localStorage.setItem(PRODUCT_NAME_STORAGE_KEY, '   ')
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <SkinProvider>
+          <Routes>
+            <Route path="/" element={<MainLayout>home-content</MainLayout>} />
+          </Routes>
+        </SkinProvider>
+      </MemoryRouter>,
+    )
+
+    // 品牌位永不出现空字符串：空白值回落默认名
+    expect(screen.getByText(DEFAULT_PRODUCT_NAME)).toBeInTheDocument()
+    expect(document.title).toBe(DEFAULT_PRODUCT_NAME)
   })
 })

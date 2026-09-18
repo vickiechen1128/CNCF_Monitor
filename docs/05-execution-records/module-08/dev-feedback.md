@@ -164,3 +164,18 @@
 - **发现场景**：用户实测创建静默（2026-09-11）；测试逃逸原因 = 测试环境显式包裹 antd `<App>`、生产入口未包裹。
 - **状态**：closed（约定：凡使用 `App.useApp()` 的新页面，须确认入口 `<AntApp>` 守卫仍在；同构风险：其他若将来引入静态 `message` 与 `useApp` 混用需注意渲染上下文一致性）
 
+
+## 12. 历史告警页宽窗口取数缺 `step`：用户把时间范围拉到 7d 即整体加载失败（② 实现缺陷，已修复，决策 90）
+
+- **类别**：② 实现缺陷（跨模块：M02 接口参数与 Prometheus 点数上限互斥；M08 页面未传参）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §5.4；`Module_02_Query_Center.md` §5.4/§6.1/§11.2；`docs/05-execution-records/module-08/api-contract-snapshot.md` §10.4（本轮新增）；源码 `ui-custom/web/src/pages/alerts/useHistoryAlerts.ts`、`platform/query/alerts_history.go`
+- **现状 / 根因**：历史告警页时间范围上限 7d（`MAX_WINDOW_HOURS = 7 * 24`），但 `useHistoryAlerts` 只传 `start`/`end`/分页，**不传 `step`** → 服务端按默认 `step=30s` 展开 `7d` → `20160` 点 > Prometheus `query_range` 单序列上限 `11000` → 上游 400 → 接口 500 → 页面整片「历史告警加载失败」。同一根因让首页「当日 / 近 7 天告警」恒为 0（该链路恒用满 7d 窗口）。
+  - 默认 24h 窗口（2880 点）不触发，故该缺陷只在用户拉宽时间范围时暴露——属「宽窗口才复现」的必现缺陷，非偶发。
+- **结论 / 修复**：
+  1. **前端（本模块页面）**：`useHistoryAlerts` 取数显式透传 `step`，取值统一取 `ALERT_HISTORY_STEP_SECONDS = 30`（`src/api/alertmanager.ts` 新增常量，与首页告警卡共用同一来源，避免两处各写一个字面量漂移）。30s = PRD 默认步长，窄窗口保持 30s 估算精度；拉宽到 7d 时由服务端抬到 55s（同批口径由 60s 改定为 30s，见 `module-02/design-decisions.md` 决策 90 同日补充）。
+  2. **服务端兜底（A，M02）**：新增 `normalizeHistoryStep`，窗口裁剪后按需抬高步长（只抬高不压低），使任何调用方都不会再踩上限；响应新增附加字段 `data.step` 回显实际生效步长，供本页「恢复时间（估算）」口径自查。
+  3. **精度口径（已闭环，无需产品另行确认）**：原方案统一传 60s，会把本页**默认 24h 窗口**的估算粒度也拉到 60s（2880 点远低于上限，本无抬高必要）；现改为调用侧统一传 **30s**、宽窗口由服务端抬高——**窄窗口 30s、宽窗口自动变粗，无精度妥协**，原先登记的「待产品确认」一项关闭。
+- **影响模块**：M08 历史告警页（取数参数）；M02 `/api/v1/alerts/history`（服务端兜底 + 响应字段）；M05 首页告警卡（同根因，见 `module-05/dev-feedback.md` 反馈 7）
+- **验证**：`tsc --noEmit` 通过；`eslint` 0 告警；`vitest run src/pages/alerts` 7 文件全过（`HistoryAlertsPage.test.tsx` 新增 1 例断言请求携带 `step`）；`go test ./platform/...` 27 包全通过
+- **发现场景**：用户实测首页当日 / 近 7 天告警恒为 0 后排查同一接口发现（2026-09-18）；本页侧为同根因的必然复现路径（把时间范围拉到 7d）
+- **状态**：closed（代码 + 测试 + 契约快照 §10.4 已落地；步长口径已定为 30s，无遗留待确认项）

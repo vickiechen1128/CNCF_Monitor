@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-17 13:45 · commit: `3a089bd`
+> 生成时间: 2026-09-18 13:51 · commit: `07d72f8`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2300,6 +2300,7 @@
 - `type alertHistoryQuery struct`
 - `func AlertsHistoryHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
 - `func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error)`
+- `func normalizeHistoryStep(step, window time.Duration) time.Duration`
 - `func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]Aler…`
 - `type promMatrixSample struct`
 - `func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]promMatrixSample, …`
@@ -2330,6 +2331,12 @@
 - `func newHistoryIdentityRouter(t *testing.T, db *gorm.DB) *gin.Engine`
 - `func TestAlertHistoryInstanceFieldsWriteBack(t *testing.T)`
 - `func TestAlertHistoryFilterByInstanceName(t *testing.T)`
+- `func TestNormalizeHistoryStep(t *testing.T)`
+- `func newHistoryStepCaptureRouter(t *testing.T) (*gin.Engine, *string)`
+- `func historyWindowQuery(window time.Duration, extra url.Values) string`
+- `func TestAlertHistoryStepRaisedForMaxWindow(t *testing.T)`
+- `func TestAlertHistoryExplicitStepPreserved(t *testing.T)`
+- `func TestAlertHistoryDefaultStepUnchanged(t *testing.T)`
 
 ### `platform/query/alerts_test.go`
 
@@ -2793,6 +2800,10 @@
 
 - `function RequireAuth`
 
+### `ui-custom/web/src/SkinProvider.tsx`
+
+- `function SkinProvider`
+
 ### `ui-custom/web/src/api/admin.ts`
 
 - `interface UsersListParams`
@@ -2810,6 +2821,7 @@
 - `const alertmanagerConfigApi`
 - `const alertmanagerSilenceApi`
 - `interface AlertStatusQuery`
+- `const ALERT_HISTORY_STEP_SECONDS`
 - `interface AlertHistoryQuery`
 - `const alertStatusApi`
 
@@ -2971,6 +2983,18 @@
 
 - `function MainLayout`
 
+### `ui-custom/web/src/layouts/siderPreference.ts`
+
+- `const SIDER_COLLAPSED_KEY`
+- `const SIDER_WIDTH`
+- `const SIDER_COLLAPSED_WIDTH`
+- `function readSiderCollapsed`
+- `function writeSiderCollapsed`
+
+### `ui-custom/web/src/pages/admin/appearance/AppearanceSettingsPage.tsx`
+
+- `function AppearanceSettingsPage`
+
 ### `ui-custom/web/src/pages/admin/domains/DeleteDomainModal.tsx`
 
 - `function DeleteDomainModal`
@@ -3091,7 +3115,12 @@
 - `const promAlertStateColor`
 - `function severityLabel`
 - `function severityColor`
+- `type SeverityTone`
+- `function severityBg`
+- `function severityText`
+- `function severityTone`
 - `const alertHistoryStateLabel`
+- `function alertMatchKey`
 - `const alertHistoryStateColor`
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
@@ -3237,6 +3266,9 @@
 
 - `interface AlertCounts`
 - `const LATEST_ALERT_LIMIT`
+- `const LATEST_ALERT_TITLE`
+- `function AlertStatStrip`
+- `function AlertRow`
 - `function AlertStatusCard`
 
 ### `ui-custom/web/src/pages/home/HomePage.tsx`
@@ -3254,6 +3286,11 @@
 ### `ui-custom/web/src/pages/home/SurfaceCard.tsx`
 
 - `function SurfaceCard`
+
+### `ui-custom/web/src/pages/home/homeLayout.ts`
+
+- `const ALERT_PAGE_SIZE`
+- `function computeAlertPageSize`
 
 ### `ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx`
 
@@ -3444,17 +3481,49 @@
 - `interface UseScrapeJobsResult`
 - `function useScrapeJobs`
 
+### `ui-custom/web/src/productNamePreference.ts`
+
+- `const PRODUCT_NAME_STORAGE_KEY`
+- `const DEFAULT_PRODUCT_NAME`
+- `const PRODUCT_NAME_MAX_LENGTH`
+- `function normalizeProductName`
+- `function readProductName`
+- `function writeProductName`
+- `function clearProductName`
+
+### `ui-custom/web/src/skinContext.ts`
+
+- `interface AppearanceConfig`
+- `const AppearanceContext`
+- `function useSkin`
+- `function useProductName`
+
+### `ui-custom/web/src/skinPreference.ts`
+
+- `const SKIN_STORAGE_KEY`
+- `function readSkin`
+- `function writeSkin`
+
+### `ui-custom/web/src/skins.ts`
+
+- `type SkinKey`
+- `interface SkinTokens`
+- `interface SkinDefinition`
+- `const SKINS`
+- `const DEFAULT_SKIN`
+- `const SKIN_ORDER`
+- `function isSkinKey`
+- `function skinDefinition`
+- `function skinTokens`
+- `const CSS_VAR_BY_TOKEN`
+- `function buildSkinTheme`
+
 ### `ui-custom/web/src/test/antdTestUtils.tsx`
 
 - `function setupAntdTest`
 - `interface MockedModal`
 - `function mockAntdModal`
 - `function selectAntdOption`
-
-### `ui-custom/web/src/theme.ts`
-
-- `const volcengineTokens`
-- `const volcengineTheme`
 
 ### `ui-custom/web/src/types/admin.ts`
 

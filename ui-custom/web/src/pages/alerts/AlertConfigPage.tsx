@@ -37,10 +37,12 @@ import {
 } from './alertmanagerConstants'
 import { shortChecksum } from '../../utils/shortChecksum'
 import { MainLayout } from '../../layouts/MainLayout'
+import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 
 export function AlertConfigPage() {
+  const { tokens } = useSkin()
   const navigate = useNavigate()
   const { message } = App.useApp()
   const { current, versions, total, loading, error, permissionDenied, reload, page, onPageSizeChange, submit, remount } =
@@ -285,7 +287,7 @@ export function AlertConfigPage() {
                 <Tag>只读</Tag>
               </Space>
               <pre
-                style={{ margin: 0, maxHeight: 420, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
+                style={{ margin: 0, maxHeight: 420, overflow: 'auto', background: tokens.colorBgBase, padding: 12, borderRadius: 8, fontSize: 13 }}
               >
                 {current.content}
               </pre>
@@ -354,7 +356,7 @@ export function AlertConfigPage() {
                 </Descriptions.Item>
               </Descriptions>
               <pre
-                style={{ margin: 0, maxHeight: 520, overflow: 'auto', background: '#F7F8FA', padding: 12, borderRadius: 8, fontSize: 13 }}
+                style={{ margin: 0, maxHeight: 520, overflow: 'auto', background: tokens.colorBgBase, padding: 12, borderRadius: 8, fontSize: 13 }}
               >
                 {detailLoaded?.id === detail.id ? detailLoaded.content : ''}
               </pre>

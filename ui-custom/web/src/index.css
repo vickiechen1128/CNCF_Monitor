@@ -3,7 +3,8 @@ body {
   min-width: 320px;
   min-height: 100vh;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background-color: #f7f8fa;
+  /* 页面底色走皮肤 CSS 变量（由 SkinProvider 注入），兜底值为火山青（默认皮肤） */
+  background-color: var(--app-bg-base, #f7f8fa);
 }
 
 #root {

@@ -5,6 +5,8 @@ import DomainsPage from './pages/admin/domains/DomainsPage'
 import UsersPage from './pages/admin/users/UsersPage'
 import TenantsPage from './pages/admin/tenants/TenantsPage'
 import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
+// 外观设置页（M06 系统与平台管理 · 皮肤 + 产品名称，用户 2026-09-18 补充）
+import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
 import BusinessDomainPage from './pages/resources/BusinessDomainPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
@@ -83,6 +85,7 @@ function AppRoutes() {
           <Route path="/admin/users" element={<UsersPage />} />
           <Route path="/admin/tenants" element={<TenantsPage />} />
           <Route path="/admin/login-logs" element={<LoginLogsPage />} />
+          <Route path="/admin/appearance" element={<AppearanceSettingsPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/label-templates" element={<LabelTemplatesPage />} />
           <Route path="/business-domains" element={<BusinessDomainPage />} />

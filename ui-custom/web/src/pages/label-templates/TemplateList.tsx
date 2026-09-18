@@ -19,6 +19,7 @@ import {
 import { CopyOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { EllipsisText } from '../../components/EllipsisText'
+import { useSkin } from '../../skinContext'
 import type { LabelTemplateListItem } from '../../types/label'
 import type { ResourceCategory } from '../../types/resource'
 import { INSTANCE_LEVEL_CUSTOM_CATEGORIES } from './labelTemplateConstants'
@@ -57,6 +58,9 @@ interface TemplateListProps {
  * 覆盖加载骨架屏 / 空态「暂无标签模板」+新建引导 / 接口错误 Alert+重新加载。
  */
 export default function TemplateList({ activeType, reloadKey, onCreate, selectedId, onSelect }: TemplateListProps) {
+  // 选中态配色走皮肤 token（单一来源，见 skins.ts 设计约束）
+  const { tokens } = useSkin()
+
   const [items, setItems] = useState<LabelTemplateListItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -223,8 +227,8 @@ export default function TemplateList({ activeType, reloadKey, onCreate, selected
                     cursor: 'pointer',
                     padding: '10px 12px',
                     borderRadius: 6,
-                    background: active ? '#E6FAFD' : undefined,
-                    border: active ? '1px solid #0ECDEB' : '1px solid transparent',
+                    background: active ? tokens.colorPrimaryBg : undefined,
+                    border: active ? `1px solid ${tokens.colorPrimary}` : '1px solid transparent',
                   }}
                   actions={[
                     <Button
