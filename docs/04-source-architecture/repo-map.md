@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-19 16:52 · commit: `ccea77e`
+> 生成时间: 2026-09-19 17:33 · commit: `3c79493`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1224,7 +1224,10 @@
 ### `platform/config/resource/validate.go`
 
 - `type ResourceInput struct`
+- `type KeepDisabledValues struct`
 - `func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
+- `func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appS…`
+- `func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
 - `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
 - `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
 - `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
@@ -1261,6 +1264,8 @@
 - `func TestParseListFilter(t *testing.T)`
 - `func selectModel(cat models.ResourceCategory) any`
 - `func TestBuildListQuery(t *testing.T)`
+- `func TestValidateResourceInput_BizTypology(t *testing.T)`
+- `func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T)`
 
 ### `platform/configcenter/change/watcher.go`
 

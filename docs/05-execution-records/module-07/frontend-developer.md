@@ -415,3 +415,44 @@
 ## 遗留风险 / 待确认
 
 - 无阻塞项。
+
+---
+
+## 任务 T07-97-F1：Excel 导入声明 sheet 引导 + 待登记清单错误指引
+
+- 角色：frontend-developer
+- 任务 ID：T07-97-F1（决策 97 Excel 声明导入前端支撑）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+
+## 输入文档
+
+- PRD：`docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md` §5.16.1 / §5.16.2 / §11（决策 97：资源导入文件内联「业务声明」/「应用声明」sheet，一次导入声明全新业务/应用）
+- 决策：`docs/05-execution-records/module-07/design-decisions.md` 决策 97
+- 契约：`docs/05-execution-records/module-07/api-contract-snapshot.md`（ImportResult.errors[].reason 为待登记清单引导文案）
+- 任务卡权威：`docs/05-execution-records/module-07/task-sequence.yaml` T07-97-F1
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.test.tsx`（增补 2 个用例）
+
+## 关键实现说明
+
+- **模板下载提示补充**：「1. 下载模板」区新增一行说明——「资源导入文件可内含『业务声明』/『应用声明』sheet，一次导入即可声明全新业务/应用（决策 97）」（文案与 PRD §5.16.1 / 决策 97 原文一致）。
+- **待登记清单错误指引**：新增 `isPendingRegistrationReason(reason)` 判定——reason 含「未登记」且指向业务/应用（`/业务|应用/`；网域未登记文案不含业务/应用字样，不命中）。命中时原因列渲染 `WarningOutlined` 图标 + `EllipsisText type="warning"` 高亮；可执行指引文案由后端 reason 透传（「请到『业务管理』/『应用管理』页登记，或在文件声明 sheet 补充后重新导入」），前后端一致。
+- 错误行表格保留行号/字段/值/原因四列；未新建可视化声明编辑（clipping：声明内容在 xlsx 内由后端解析，前端仅引导与错误指引）。
+
+## 遇到的问题与解决
+
+- 无阻塞项。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/ImportModal.test.tsx`：11 个用例全绿（含新增 2 个）
+- `pnpm lint`（--max-warnings 0）：通过
+- `pnpm test` 全量：3 个文件 28 个用例失败为基线既有问题（MainLayout / AppearanceSettingsPage / productNamePreference，与本次改动无关，stash 前后对比确认一致）
+
+## 遗留风险 / 待确认
+
+- 待登记清单命中依赖后端 reason 文案含「未登记」+ 业务/应用字样；若后端文案变更（如去掉「未登记」关键词），需同步调整 `isPendingRegistrationReason` 判定。

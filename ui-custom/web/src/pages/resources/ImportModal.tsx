@@ -14,7 +14,7 @@ import {
   message,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { DownloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { DownloadOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -48,6 +48,14 @@ interface ImportModalProps {
   onSuccess?: () => void
 }
 
+/**
+ * 待登记清单判定（决策 97）：业务/应用未登记且未在声明 sheet 申报时，后端 reason 含
+ * 「未登记」且指向业务/应用（网域未登记文案不含业务/应用字样，不命中），错误行渲染可执行指引。
+ */
+function isPendingRegistrationReason(reason?: string): boolean {
+  return !!reason && reason.includes('未登记') && /业务|应用/.test(reason)
+}
+
 /** 触发浏览器下载 Blob（模板 xlsx，§6.1/T07-08；响应为二进制流非 JSON 信封） */
 function triggerBlobDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -61,11 +69,13 @@ function triggerBlobDownload(blob: Blob, filename: string) {
 }
 
 /**
- * Excel 导入弹窗（Module_07 §5.16/§6.1/§11.2，L3 任务 T07-F5）。
+ * Excel 导入弹窗（Module_07 §5.16/§6.1/§11.2，L3 任务 T07-F5 / T07-97-F1）。
  * - 资源类型联动模板下载（resourceApi.template(type)，后端生成静态 xlsx 含「取值说明 sheet」）；
+ * - 模板下载提示内联「业务声明」/「应用声明」sheet 用法（决策 97：一次导入声明全新业务/应用）；
  * - 文件上传 + 导入模式选择（默认 create_only）+ 提交 loading 防重复；
  * - 导入结果展示 total/success/updated/failed 统计 + 错误行 Table（行号/字段/值/原因，§5.16.3）；
- * - 错误文案透传后端引导（未登记网域→M06 网域管理入口、未登记业务→维护业务字典，§5.16.1）。
+ * - 错误文案透传后端引导；reason 命中待登记清单（业务/应用未登记且未声明）时高亮可执行指引
+ *   （请到「业务管理」/「应用管理」页登记，或在文件声明 sheet 补充后重新导入，决策 97）。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function ImportModal({ open, category, onCancel, onSuccess }: ImportModalProps) {
@@ -138,7 +148,20 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
       title: '原因',
       dataIndex: 'reason',
       key: 'reason',
-      render: (v?: string) => (v ? <EllipsisText maxWidth={320}>{v}</EllipsisText> : '-'),
+      render: (v?: string) => {
+        if (!v) return '-'
+        // 命中待登记清单（业务/应用未登记且未声明，决策 97）：warning 高亮 + 图标，
+        // 可执行指引在后端 reason 文案内（「请到『业务管理』/『应用管理』页登记，或在文件声明 sheet 补充后重新导入」），前后端一致
+        if (isPendingRegistrationReason(v)) {
+          return (
+            <Space size={4}>
+              <WarningOutlined style={{ color: tokens.colorWarning }} />
+              <EllipsisText maxWidth={300} type="warning">{v}</EllipsisText>
+            </Space>
+          )
+        }
+        return <EllipsisText maxWidth={320}>{v}</EllipsisText>
+      },
     },
   ]
 
@@ -173,6 +196,9 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
         </Button>
         <Text type="secondary" style={{ fontSize: 12 }}>
           模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 环境 / 状态等列的合法值清单。
+        </Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          资源导入文件可内含「业务声明」/「应用声明」sheet，一次导入即可声明全新业务/应用（决策 97）。
         </Text>
       </Space>
       <Text strong style={{ display: 'block', marginBottom: 8 }}>

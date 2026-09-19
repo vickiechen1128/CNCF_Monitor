@@ -71,6 +71,14 @@ describe('ImportModal', () => {
     expect(URL.createObjectURL).toHaveBeenCalled()
   })
 
+  it('renders declaration sheet guidance in template download hint (决策 97)', () => {
+    renderModal()
+    // 模板下载提示内联「业务声明」/「应用声明」sheet 引导（§5.16.1 / 决策 97）
+    expect(
+      screen.getByText(/资源导入文件可内含「业务声明」\/「应用声明」sheet，一次导入即可声明全新业务\/应用（决策 97）/),
+    ).toBeInTheDocument()
+  })
+
   it('downloads template linked to the active tab category (database)', async () => {
     templateMock.mockResolvedValue(new Blob(['xlsx']))
     renderModal({ category: 'database' })
@@ -139,6 +147,44 @@ describe('ImportModal', () => {
     expect(screen.getByText('IP 非法')).toBeInTheDocument()
     // 后端引导文案透传（未登记业务→维护业务字典，§5.16.1）
     expect(screen.getByText('未登记业务，请前往维护业务字典')).toBeInTheDocument()
+  })
+
+  it('renders actionable guidance for pending-registration errors (待登记清单，决策 97)', async () => {
+    importExcelMock.mockResolvedValue({
+      status: 'success',
+      data: importResult({
+        failed: 2,
+        errors: [
+          {
+            row: 3,
+            resource_category: 'host',
+            field: 'biz_code',
+            value: 'unk',
+            reason: '业务 unk 未登记，请到「业务管理」页登记或在本文件「业务声明」sheet 补充后重新导入',
+          },
+          {
+            row: 4,
+            resource_category: 'application',
+            field: 'app_code',
+            value: 'unkapp',
+            reason: '应用 unkapp 未登记，请到「应用管理」页登记或在本文件「应用声明」sheet 补充后重新导入',
+          },
+        ],
+      }),
+    })
+    renderModal()
+    selectFile()
+    await screen.findByText('hosts.xlsx')
+    fireEvent.click(screen.getByRole('button', { name: /开始导入/ }))
+    // 待登记清单 reason 透传（前后端文案一致）+ 命中渲染 warning 高亮图标（可执行指引）
+    expect(
+      await screen.findByText(/业务 unk 未登记，请到「业务管理」页登记或在本文件「业务声明」sheet 补充后重新导入/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/应用 unkapp 未登记，请到「应用管理」页登记或在本文件「应用声明」sheet 补充后重新导入/),
+    ).toBeInTheDocument()
+    // @ant-design/icons 渲染 role=img aria-label=warning；两行均命中待登记清单
+    expect(screen.getAllByRole('img', { name: 'warning' }).length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows submit error Alert with backend guidance text', async () => {
