@@ -74,7 +74,7 @@
 4. **excel_declare_test.go**：解析/校验/应用/闭环 4 层单测——成功原子提交（断言 h.AppCode="new-app"）、`DropTable(&Host{})` 触发 500 整体回滚（字典/ImportRecord 全回滚）、声明内重码与缺 name bad_request、未登记未声明码归入「待登记清单」部分成功、幂等重导。
 5. **import_test.go**：`openImportTestDB` 迁移字典表并预置 infra/app 夹具（决策 97 事务内同库字典 store 校验前提）。
 
-### T07-F7-B1：模板取值说明补 app_code 应用字典实时值 + 导入未登记 reason 补旧模板引导（commit ccd4a7e）
+### T07-F7-B1：模板取值说明补 app_code 应用字典实时值 + 导入未登记 reason 补旧模板引导（commit ce3794b）
 
 - 分支：`feat/module-07-resource-management`
 - 关联决策：`docs/05-execution-records/module-07/design-decisions.md`（决策 92/96/97）+ `dev-feedback.md` F-7 ① ④ 后端部分
@@ -86,7 +86,7 @@
    - `template_test.go`：`TestDownloadTemplateValueSheet` 新增 app_code 断言（启用项 `pay-db（支付库）`/`pay-service（支付服务）` 出现、停用 `legacy-app` 不出现）；新增 `TestDownloadTemplateValueSheet_EmptyAppDict`（空应用字典输出「暂无已登记应用」占位且不影响 biz_code 行）；`setupTemplateRouter` 注入 `newAppStore(t)`。
    - `excel_test.go`：业务未登记完整断言改为含追加句；`TestValidateImportRow_GenericTarget` 新增 `unregistered app_code fails with closed-loop copy and old-template hint`（应用未登记完整断言，含旧模板引导句）。
 5. **验证**：`go test ./platform/...` 全绿；`go vet ./platform/config/resource/...` 通过；`go build ./platform/...` 通过（确认无其他 `buildValueSheet`/`DownloadTemplate` 调用点遗漏）；服务实机 curl——`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 200，登录后 GET `/api/v2/platform/resources/{host,database,middleware,application,generic_target}/template` 全 200，下载 xlsx 取值说明 sheet 含 `app_code` 行（本机空应用字典输出「暂无已登记应用」占位）；`make repo-map` 重新生成（pre-commit 门禁）。
-6. **提交**：`ccd4a7e`，7 files changed（5 后端文件 + repo-map.md + 本执行记录；前端 F-7 文件未卷入）。
+6. **提交**：`ce3794b`，7 files changed（5 后端文件 + repo-map.md + 本执行记录；前端 F-7 文件未卷入）。注：与前端 Developer 并行提交，`git reset --soft HEAD~1` 误重放过前端功能 commit（见 040414d/4bb1e61），执行记录 hash 引用以修正提交为准。
 
 ### 前端配合
 
