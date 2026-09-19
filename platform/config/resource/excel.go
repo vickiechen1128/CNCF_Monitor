@@ -234,20 +234,33 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 	in.Status = string(mapped)
 	row.Status = mapped
 
-	// 3. 业务编码：必填 + 编码规范 + 对应启用条目（§5.16.2 / §3.1）。
-	if strings.TrimSpace(in.BizCode) == "" {
-		return fieldErr(row, "biz_code", in.BizCode, "biz_code 必填")
+	// 3. 业务编码：必填口径按类型分化（决策 93）——host/database/middleware 可空
+	//    后补、application 必填、generic_target 与 app_code 二选一；非空时校验编码
+	//    规范与可达性（已登记启用字典 ∪ 本次导入声明 sheet，决策 97）。
+	switch category {
+	case models.ResourceCategoryApplication:
+		if strings.TrimSpace(in.BizCode) == "" {
+			return fieldErr(row, "biz_code", in.BizCode, "biz_code 必填（应用上线后须归属业务分组）")
+		}
+	case models.ResourceCategoryGenericTarget:
+		if strings.TrimSpace(in.AppCode) == "" && strings.TrimSpace(in.BizCode) == "" {
+			return fieldErr(row, "app_code", "", "generic_target 的 app_code 与 biz_code 至少填写一个（决策 95 二选一）")
+		}
 	}
-	if !models.ValidBizCode.MatchString(in.BizCode) {
-		return fieldErr(row, "biz_code", in.BizCode, "biz_code 只能包含小写字母、数字和连字符，长度不超过 64")
-	}
-	enabled, err := bizStore.GetEnabledMap()
-	if err != nil {
-		return fieldErr(row, "biz_code", in.BizCode, fmt.Sprintf("业务分组字典加载失败：%v", err))
-	}
-	if _, ok := enabled[in.BizCode]; !ok {
-		return fieldErr(row, "biz_code", in.BizCode,
-			fmt.Sprintf("业务 %s 未登记，请到『业务管理』页登记后重新导入", in.BizCode))
+	if strings.TrimSpace(in.BizCode) != "" {
+		if !models.ValidBizCode.MatchString(in.BizCode) {
+			return fieldErr(row, "biz_code", in.BizCode, "biz_code 只能包含小写字母、数字和连字符，长度不超过 64")
+		}
+		enabled, err := bizStore.GetEnabledMap()
+		if err != nil {
+			return fieldErr(row, "biz_code", in.BizCode, fmt.Sprintf("业务分组字典加载失败：%v", err))
+		}
+		if _, ok := enabled[in.BizCode]; !ok {
+			// 决策 97：既不在存量字典、又未在声明 sheet 申报的码归入「待登记清单」，
+			// 给可执行引导文案（不静默跳过）。
+			return fieldErr(row, "biz_code", in.BizCode,
+				fmt.Sprintf("业务 %s 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入", in.BizCode))
+		}
 	}
 
 	// 4. 非数字 port（ParseExcel 置 -1 哨兵）。

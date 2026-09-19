@@ -295,12 +295,12 @@ func TestValidateImportRow_Host(t *testing.T) {
 		assert.Equal(t, models.DefaultDomainID, row.Input.NetworkDomainID)
 	})
 
-	t.Run("missing biz_code fails", func(t *testing.T) {
+	t.Run("biz_code optional for host (决策 93)", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["biz_code"] = ""
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
-		assertRowError(t, err, 2, "biz_code", "")
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
+		assert.Equal(t, "", row.Input.BizCode, "host 业务可空，空值不注入 biz 标签")
 	})
 
 	t.Run("disabled/unknown biz_code fails with closed-loop copy", func(t *testing.T) {
@@ -309,7 +309,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
 		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		rerr := assertRowError(t, err, 2, "biz_code", "legacy")
-		assert.Contains(t, rerr.Detail.Reason, "业务 legacy 未登记，请到『业务管理』页登记后重新导入")
+		assert.Contains(t, rerr.Detail.Reason, "业务 legacy 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入")
 	})
 
 	t.Run("malformed biz_code fails", func(t *testing.T) {

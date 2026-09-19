@@ -318,6 +318,9 @@ type appAgg struct {
 //   - subtypeField：该类的子类分组字段；application 传 ""（不拆子类）。
 //   - app_code 取值经 models.Resource 接口收敛（host 走 AppCode 物理列，其他走各自
 //     AppName 物理列，统一由 GetAppCode() 暴露，见 M07 决策 92）。空串记为「未归类」。
+//   - 未归类口径（决策 93，M05 消费）：biz_code 空计为「未归类业务」、app_code 空计为
+//     「未归类应用」，两者并存互不替代——本接口按 app_code 空聚合「未归类应用」计数，
+//     biz_code 空侧的「未归类业务」由 M05 侧按资源 biz_code 空值消费，不再额外加字段。
 func accumulateResource(cats map[models.ResourceCategory]*categoryAgg, apps map[string]*appAgg,
 	cat models.ResourceCategory, subtypeField string, res models.Resource, monitored bool,
 	unclassifiedResource, unclassifiedMonitored *int) {

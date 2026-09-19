@@ -139,7 +139,13 @@ func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Applic
 			return
 		}
 
-		if err := ValidateResourceInput(category, &in, bizStore, appStore, networkDomainExistsFunc(db)); err != nil {
+		// 决策 92/93：编辑已属停用条目时允许保留历史值（提示不阻断）——请求体值与
+		// 资源当前值相同（历史值）且该字典条目已停用时，跳过对应启用态校验；
+		// 修改为新值/新选用停用条目仍被拒绝。
+		currentBiz, _ := GetResourceField(model, "biz_code")
+		currentApp, _ := GetResourceField(model, "app_code")
+		if err := ValidateResourceInputForUpdate(category, &in, bizStore, appStore, networkDomainExistsFunc(db),
+			&KeepDisabledValues{BizCode: currentBiz, AppCode: currentApp}); err != nil {
 			response.BadRequest(c, err)
 			return
 		}
