@@ -14,7 +14,7 @@ import {
   message,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { DownloadOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons'
+import { UploadOutlined, WarningOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -59,12 +59,10 @@ function isPendingRegistrationReason(reason?: string): boolean {
 
 /**
  * Excel 导入弹窗（Module_07 §5.16/§6.1/§11.2，L3 任务 T07-F5 / T07-97-F1）。
- * - 资源类型联动模板下载（resourceApi.template(type)，后端生成静态 xlsx 含「取值说明 sheet」）；
- * - 模板下载提示内联「业务声明」/「应用声明」sheet 用法（决策 97：一次导入声明全新业务/应用）；
  * - 文件上传 + 导入模式选择（默认 create_only）+ 提交 loading 防重复；
+ * - 上传区下方提供次级「下载当前资源类型模板」文字链接，直接触发下载（复用 handleDownloadTemplate）；
  * - 导入结果展示 total/success/updated/failed 统计 + 错误行 Table（行号/字段/值/原因，§5.16.3）；
- * - 错误文案透传后端引导；reason 命中待登记清单（业务/应用未登记且未声明）时高亮可执行指引
- *   （请到「业务管理」/「应用管理」页登记，或在文件声明 sheet 补充后重新导入，决策 97）。
+ * - 错误文案透传后端引导；reason 命中待登记清单（业务/应用未登记且未声明）时高亮可执行指引。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function ImportModal({ open, category, onCancel, onSuccess }: ImportModalProps) {
@@ -154,7 +152,7 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
     },
   ]
 
-  /** 待导入表单态（下载模板 + 上传 + 模式选择） */
+  /** 待导入表单态（上传 + 模式选择） */
   const renderForm = () => (
     <>
       <Alert
@@ -163,40 +161,13 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
         style={{ marginBottom: 16 }}
         message="Excel 导入说明"
         description={
-          <Space direction="vertical" size={4}>
-            <Text style={{ fontSize: 13 }}>
-              • 请先下载对应资源类型的模板，按固定列填写后上传；未填写网域时自动归属默认网域。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 状态列支持中文取值（运行中 / 已停止 / 维护中），系统自动转换为运行状态。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 导入按行增量更新，不会删除已存在的资源；如需批量下线，请将目标行状态改为「已停止」后导入。
-            </Text>
-          </Space>
+          <Text style={{ fontSize: 13 }}>
+            导入按行增量更新，不会删除已存在的资源；如需批量下线，请将目标行状态改为「已停止」后导入。
+          </Text>
         }
       />
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
-        1. 下载模板
-      </Text>
-      <Space direction="vertical" size={4} style={{ marginBottom: 20 }}>
-        <Button icon={<DownloadOutlined />} loading={downloading} onClick={handleDownloadTemplate}>
-          下载模板
-        </Button>
-        {/* F-5：关键句 strong 前置可扫读，次要说明保留 secondary 小字；F-7-④：旧模板提示补用户语言 */}
-        <Text style={{ fontSize: 13 }}>
-          <Text strong>请下载最新模板，按固定列填写后上传</Text>
-          ——若你正在使用旧模板，可能缺少最新字段或字典值，请下载最新模板后填写。
-        </Text>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 环境 / 状态等列的合法值清单。
-        </Text>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          资源导入文件可内含「业务声明」/「应用声明」sheet，一次导入即可声明全新业务/应用（决策 97）。
-        </Text>
-      </Space>
-      <Text strong style={{ display: 'block', marginBottom: 8 }}>
-        2. 上传文件
+        1. 上传文件
       </Text>
       <Upload
         accept=".xlsx"
@@ -210,12 +181,22 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
           选择 Excel 文件
         </Button>
       </Upload>
-      <Text style={{ fontSize: 12, display: 'block', marginBottom: 20 }}>
+      <Text style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
         <Text strong>仅支持 .xlsx 文件，每次选择一个文件</Text>
-        <Text type="secondary">（.xls / .csv 暂不支持）；请使用下载的模板填写后上传。</Text>
+        <Text type="secondary">（.xls / .csv 暂不支持）；请按模板列头填写 Excel 后上传。</Text>
       </Text>
+      {/* F-8-a：次级文字链接直触发下载（复用 handleDownloadTemplate），不嵌套弹窗 */}
+      <Button
+        type="link"
+        size="small"
+        style={{ padding: 0, height: 'auto', marginBottom: 20 }}
+        loading={downloading}
+        onClick={handleDownloadTemplate}
+      >
+        没有模板？下载当前资源类型模板
+      </Button>
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
-        3. 选择导入模式
+        2. 选择导入模式
       </Text>
       <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>
         <Space direction="vertical">

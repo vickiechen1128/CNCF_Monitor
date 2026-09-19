@@ -63,26 +63,31 @@ describe('ImportModal', () => {
     vi.spyOn(message, 'error').mockImplementation(() => undefined)
   })
 
-  it('downloads xlsx template for the current resource type', async () => {
+  it('F-8-a：次级文字链接直触发下载当前资源类型模板', async () => {
     templateMock.mockResolvedValue(new Blob(['xlsx'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
     renderModal()
-    fireEvent.click(screen.getByRole('button', { name: /下载模板/ }))
+    fireEvent.click(screen.getByRole('button', { name: /没有模板？下载当前资源类型模板/ }))
     await waitFor(() => expect(templateMock).toHaveBeenCalledWith('host'))
     expect(URL.createObjectURL).toHaveBeenCalled()
   })
 
-  it('renders declaration sheet guidance in template download hint (决策 97)', () => {
+  it('F-8-a：删除下载模板块后无黑话残留，仅保留次级下载链接', () => {
     renderModal()
-    // 模板下载提示内联「业务声明」/「应用声明」sheet 引导（§5.16.1 / 决策 97）
-    expect(
-      screen.getByText(/资源导入文件可内含「业务声明」\/「应用声明」sheet，一次导入即可声明全新业务\/应用（决策 97）/),
-    ).toBeInTheDocument()
+    // 次级文字链接存在；原「下载模板」主按钮已删除
+    expect(screen.getByRole('button', { name: /没有模板？下载当前资源类型模板/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '下载模板' })).toBeNull()
+    // 黑话 / 冗余说明零残留（F-8-a）
+    expect(screen.queryByText(/取值说明/)).toBeNull()
+    expect(screen.queryByText(/合法值清单/)).toBeNull()
+    expect(screen.queryByText(/决策 97/)).toBeNull()
+    expect(screen.queryByText(/请先下载对应资源类型的模板/)).toBeNull()
+    expect(screen.queryByText(/状态列支持中文取值/)).toBeNull()
   })
 
-  it('downloads template linked to the active tab category (database)', async () => {
+  it('F-8-a：次级下载链接联动当前 Tab 类别（database）', async () => {
     templateMock.mockResolvedValue(new Blob(['xlsx']))
     renderModal({ category: 'database' })
-    fireEvent.click(screen.getByRole('button', { name: /下载模板/ }))
+    fireEvent.click(screen.getByRole('button', { name: /没有模板？下载当前资源类型模板/ }))
     await waitFor(() => expect(templateMock).toHaveBeenCalledWith('database'))
   })
 

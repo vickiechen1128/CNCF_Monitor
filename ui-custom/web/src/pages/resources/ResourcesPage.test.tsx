@@ -534,8 +534,8 @@ describe('ResourcesPage', () => {
     expect(within(row).getByText('-')).toBeInTheDocument()
   })
 
-  // 决策 92/96：五类 Tab 共享「应用」列，位于「业务」列之后（对齐原型列序）
-  it('决策 92/96：五类 Tab 均含「应用」列且位于「业务」之后', async () => {
+  // 决策 92/96 + F-8-b：五类 Tab 共享「应用名称」列，位于「业务名称」列之后（对齐原型列序）
+  it('决策 92/96 + F-8-b：五类 Tab 均含「应用名称」列且位于「业务名称」之后', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await screen.findByRole('tab', { name: '主机' })
@@ -543,12 +543,60 @@ describe('ResourcesPage', () => {
       fireEvent.click(screen.getByRole('tab', { name }))
       await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
       const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
-      const appCount = headers.filter((t) => t.trim() === '应用').length
-      expect(appCount, `${name} tab：应用列应恰好出现一次`).toBe(1)
-      const atBiz = headers.findIndex((t) => t.trim() === '业务')
-      const atApp = headers.findIndex((t) => t.trim() === '应用')
-      expect(atApp, `${name} tab：应用列应位于业务列之后`).toBeGreaterThan(atBiz)
+      const appCount = headers.filter((t) => t.trim() === '应用名称').length
+      expect(appCount, `${name} tab：应用名称列应恰好出现一次`).toBe(1)
+      const atBiz = headers.findIndex((t) => t.trim() === '业务名称')
+      const atApp = headers.findIndex((t) => t.trim() === '应用名称')
+      expect(atApp, `${name} tab：应用名称列应位于业务名称列之后`).toBeGreaterThan(atBiz)
     }
+  })
+
+  // F-8-b：列头改名（业务名称/应用名称/录入方式）+ 录入方式列移到采集状态之后、操作之前
+  it('F-8-b：五类 Tab 列头为「业务名称/应用名称/录入方式」，录入方式位于采集状态之后', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByRole('tab', { name: '主机' })
+    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+      expect(headers, `${name} tab`).toContain('业务名称')
+      expect(headers, `${name} tab`).toContain('应用名称')
+      expect(headers, `${name} tab`).toContain('录入方式')
+      expect(headers.some((t) => t.trim() === '来源'), `${name} tab：不得再出现「来源」列头`).toBe(false)
+      const atCollect = headers.findIndex((t) => t.trim() === '采集状态')
+      const atSource = headers.findIndex((t) => t.trim() === '录入方式')
+      expect(atSource, `${name} tab：录入方式应位于采集状态之后`).toBeGreaterThan(atCollect)
+    }
+  })
+
+  // F-8-c：应用名称列头 tooltip
+  it('F-8-c：应用名称列头提示「该资源归属的应用字典条目」', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    const appHeader = screen.getByRole('columnheader', { name: /应用名称/ })
+    const badge = appHeader.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText('该资源归属的应用字典条目')).toBeInTheDocument()
+  })
+
+  // F-8-c：应用 Tab「服务名」列头 tooltip
+  it('F-8-c：应用 Tab「服务名」列头提示「本应用资源实例的服务标识」', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getByRole('tab', { name: '应用' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '应用' }).getAttribute('aria-selected')).toBe('true'))
+    const svcHeader = await screen.findByRole('columnheader', { name: /服务名/ })
+    const badge = svcHeader.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText('本应用资源实例的服务标识')).toBeInTheDocument()
   })
 
   // F-4/F-7：工具栏「下载模板」打开独立模板 Modal——用户语言三问 + 当前业务/应用可选值直显 + 演进提示

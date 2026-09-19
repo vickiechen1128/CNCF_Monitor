@@ -306,7 +306,7 @@ export function ResourcesPage() {
     }
   }
 
-  // 列集合对齐原型：共享列（网域 / 业务 / 应用 / 来源 / 运行状态 / 操作）+ 各类型差异化列。
+  // 列集合对齐原型：共享列（网域 / 业务名称 / 应用名称 / 运行状态 / 采集状态 / 录入方式 / 操作）+ 各类型差异化列。
   // 网域列默认展示不可隐藏（§11.2）；业务 / 应用列分别展示字典展示名（biz_name / app_name）、
   // 停用加「（已停用）」标识（决策 92/96：业务与应用正交两维，应用列经 GET /application-dict 解析，
   // 缺条目回退 app_code）；运行状态列头以 hover 提示标注数据来源（决策 32）。采集状态列因后端
@@ -319,7 +319,7 @@ export function ResourcesPage() {
       render: (value: string) => <Tag color="cyan">{domainNameOf(value)}</Tag>,
     }
     const businessColumn: ColumnsType<ResourceListItem>[number] = {
-      title: '业务',
+      title: '业务名称',
       dataIndex: 'biz_code',
       key: 'biz_code',
       render: (value?: string) =>
@@ -335,7 +335,14 @@ export function ResourcesPage() {
     // 决策 92/96 应用列：展示应用字典 app_name，缺条目回退 app_code，停用加「（已停用）」标识
     // （与业务列正交两维，参照原型 appColumn：Tag cyan / default）
     const appColumn: ColumnsType<ResourceListItem>[number] = {
-      title: '应用',
+      title: (
+        <span>
+          应用名称
+          <Tooltip title="该资源归属的应用字典条目">
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
       dataIndex: 'app_code',
       key: 'app_code',
       width: 150,
@@ -350,7 +357,7 @@ export function ResourcesPage() {
         ),
     }
     const sourceColumn: ColumnsType<ResourceListItem>[number] = {
-      title: '来源',
+      title: '录入方式',
       dataIndex: 'source_type',
       key: 'source_type',
       render: (value: string) => <Tag>{SOURCE_TYPE_MAP[value] || value}</Tag>,
@@ -454,9 +461,9 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
-          sourceColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'database':
@@ -475,9 +482,9 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
-          sourceColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'middleware':
@@ -496,15 +503,22 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
-          sourceColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'application':
         return [
           {
-            title: '服务名',
+            title: (
+              <span>
+                服务名
+                <Tooltip title="本应用资源实例的服务标识">
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+                </Tooltip>
+              </span>
+            ),
             dataIndex: 'service_name',
             key: 'service_name',
             render: (v?: string) => <Text strong>{v || '-'}</Text>,
@@ -522,9 +536,9 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
-          sourceColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'generic_target':
@@ -557,9 +571,9 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
-          sourceColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
     }
