@@ -259,7 +259,7 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 			// 决策 97：既不在存量字典、又未在声明 sheet 申报的码归入「待登记清单」，
 			// 给可执行引导文案（不静默跳过）。
 			return fieldErr(row, "biz_code", in.BizCode,
-				fmt.Sprintf("业务 %s 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入", in.BizCode))
+				fmt.Sprintf("业务 %s 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", in.BizCode))
 		}
 	}
 
@@ -288,7 +288,7 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 					fmt.Sprintf("应用 %s 已停用，请在『应用管理』页启用后重新导入", in.AppCode))
 			}
 			return fieldErr(row, "app_code", in.AppCode,
-				fmt.Sprintf("应用 %s 未登记且未在声明 sheet 声明，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入", in.AppCode))
+				fmt.Sprintf("应用 %s 未登记且未在声明 sheet 声明，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", in.AppCode))
 		}
 	}
 

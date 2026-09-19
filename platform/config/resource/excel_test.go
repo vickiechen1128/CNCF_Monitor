@@ -309,7 +309,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
 		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		rerr := assertRowError(t, err, 2, "biz_code", "legacy")
-		assert.Contains(t, rerr.Detail.Reason, "业务 legacy 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入")
+		assert.Contains(t, rerr.Detail.Reason, "业务 legacy 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写")
 	})
 
 	t.Run("malformed biz_code fails", func(t *testing.T) {
@@ -451,6 +451,15 @@ func TestValidateImportRow_GenericTarget(t *testing.T) {
 			rerr := assertRowError(t, err, 2, "custom_labels", raw)
 			assert.Contains(t, rerr.Detail.Reason, "key1=value1;key2=value2")
 		}
+	})
+
+	t.Run("unregistered app_code fails with closed-loop copy and old-template hint", func(t *testing.T) {
+		vals := baseValues(models.ResourceCategoryGenericTarget)
+		vals["app_code"] = "ghost-app" // 既不在启用字典、也未在声明 sheet 申报
+		row := mustParse(t, models.ResourceCategoryGenericTarget, [][]string{makeRow(models.ResourceCategoryGenericTarget, vals)})[0]
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
+		rerr := assertRowError(t, err, 2, "app_code", "ghost-app")
+		assert.Contains(t, rerr.Detail.Reason, "应用 ghost-app 未登记且未在声明 sheet 声明，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写")
 	})
 }
 

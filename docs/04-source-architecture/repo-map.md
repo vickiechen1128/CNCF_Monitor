@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-19 19:05 · commit: `f883755`
+> 生成时间: 2026-09-19 20:31 · commit: `95d5b74`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1251,8 +1251,8 @@
 ### `platform/config/resource/template.go`
 
 - `type DomainOption struct`
-- `func DownloadTemplate(bizStore *BusinessDomainStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc`
-- `func buildValueSheet(bizStore *BusinessDomainStore, listDomains func() ([]DomainOption, error)) ([][]string, error)`
+- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, err…`
+- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, erro…`
 - `func statusValueDescription() string`
 - `func buildTemplateXLSX(columns []string, valueRows [][]string) ([]byte, error)`
 
@@ -1260,11 +1260,13 @@
 
 - `func fakeDomains() ([]DomainOption, error)`
 - `func setupTemplateRouter(t *testing.T) *gin.Engine`
+- `func openEmptyAppDictDB(t *testing.T) *gorm.DB`
 - `func allCategories() []models.ResourceCategory`
 - `func TestTemplateColumnsMatchPRD(t *testing.T)`
 - `func TestDownloadTemplateHeaders(t *testing.T)`
 - `func TestDownloadTemplateSheet1Columns(t *testing.T)`
 - `func TestDownloadTemplateValueSheet(t *testing.T)`
+- `func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T)`
 - `func TestDownloadTemplateUnknownTypeNotFound(t *testing.T)`
 
 ### `platform/config/resource/update.go`

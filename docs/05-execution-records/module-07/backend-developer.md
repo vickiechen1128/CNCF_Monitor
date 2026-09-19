@@ -74,6 +74,24 @@
 4. **excel_declare_test.go**：解析/校验/应用/闭环 4 层单测——成功原子提交（断言 h.AppCode="new-app"）、`DropTable(&Host{})` 触发 500 整体回滚（字典/ImportRecord 全回滚）、声明内重码与缺 name bad_request、未登记未声明码归入「待登记清单」部分成功、幂等重导。
 5. **import_test.go**：`openImportTestDB` 迁移字典表并预置 infra/app 夹具（决策 97 事务内同库字典 store 校验前提）。
 
+### T07-F7-B1：模板取值说明补 app_code 应用字典实时值 + 导入未登记 reason 补旧模板引导（commit ccd4a7e）
+
+- 分支：`feat/module-07-resource-management`
+- 关联决策：`docs/05-execution-records/module-07/design-decisions.md`（决策 92/96/97）+ `dev-feedback.md` F-7 ① ④ 后端部分
+
+1. **template.go**：`buildValueSheet` / `DownloadTemplate` 增加 `appStore *ApplicationDictStore` 参数（与 bizStore 相邻注入，风格对齐 `ImportResources(db, bizStore, appStore)`）；取值说明 sheet 新增 `app_code` 行——经 `appStore.EnabledList()` 实时取应用字典启用项，与 biz_code 同构输出 `code（名称）`，停用项不进入，空字典输出「暂无已登记应用」占位（F-7 ①：决策 92/96 引入应用维度后模板未同步的治本修复）。
+2. **routes.go**：模板下载路由注入 `appStore`（`RegisterRoutes` 参数已持有，与 `main.go` L252-254 同源构造，无新增构造点）。
+3. **excel.go**：业务（L262）与应用（L291）「未登记且未在声明 sheet 声明」reason 尾部追加「若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写」；前缀「未登记」保留，前端 `isPendingRegistrationReason`（依赖 `includes('未登记') && /业务|应用/`）高亮不受影响（F-7 ④）。
+4. **测试（TDD，先 RED 后 GREEN）**：
+   - `template_test.go`：`TestDownloadTemplateValueSheet` 新增 app_code 断言（启用项 `pay-db（支付库）`/`pay-service（支付服务）` 出现、停用 `legacy-app` 不出现）；新增 `TestDownloadTemplateValueSheet_EmptyAppDict`（空应用字典输出「暂无已登记应用」占位且不影响 biz_code 行）；`setupTemplateRouter` 注入 `newAppStore(t)`。
+   - `excel_test.go`：业务未登记完整断言改为含追加句；`TestValidateImportRow_GenericTarget` 新增 `unregistered app_code fails with closed-loop copy and old-template hint`（应用未登记完整断言，含旧模板引导句）。
+5. **验证**：`go test ./platform/...` 全绿；`go vet ./platform/config/resource/...` 通过；`go build ./platform/...` 通过（确认无其他 `buildValueSheet`/`DownloadTemplate` 调用点遗漏）；服务实机 curl——`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 200，登录后 GET `/api/v2/platform/resources/{host,database,middleware,application,generic_target}/template` 全 200，下载 xlsx 取值说明 sheet 含 `app_code` 行（本机空应用字典输出「暂无已登记应用」占位）；`make repo-map` 重新生成（pre-commit 门禁）。
+6. **提交**：`ccd4a7e`，7 files changed（5 后端文件 + repo-map.md + 本执行记录；前端 F-7 文件未卷入）。
+
+### 前端配合
+
+□ 需前端配合：F-7 前端部分（TemplateDownloadModal/ImportModal 旧模板引导展示）由 frontend-developer 单独提交。
+
 ### T07-97-B2：集成测试 application-dict 闭环 + 声明导入闭环（commit b3f4510）
 
 1. **新增 cmd/metric-center/module07_integration_test.go**（复用 `buildIntegrationEngine`，memory DB + seed，不新增路由）：
