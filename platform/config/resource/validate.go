@@ -142,8 +142,12 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *
 		}
 	}
 	// 决策 92：app_code 若填写须引用已启用应用字典条目（停用/未登记不允许选用）；
-	// 编辑保留停用历史值经 keep 豁免。
+	// 编辑保留停用历史值经 keep 豁免。先校验编码规范（与 biz_code 同构），非法格式
+	// 给出明确文案，避免被「未登记或已停用」兜底误报。
 	if strings.TrimSpace(in.AppCode) != "" {
+		if !models.ValidAppCode.MatchString(in.AppCode) {
+			return fmt.Errorf("app_code 只能包含小写字母、数字和连字符，长度不超过 64")
+		}
 		if keep == nil || in.AppCode != keep.AppCode {
 			if err := validateAppCodeEnabled(in.AppCode, appStore); err != nil {
 				return err

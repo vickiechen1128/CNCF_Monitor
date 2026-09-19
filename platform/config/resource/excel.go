@@ -275,10 +275,20 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 			return fieldErr(row, "app_code", in.AppCode, fmt.Sprintf("应用字典加载失败：%v", err))
 		}
 		if _, ok := appEnabled[in.AppCode]; !ok {
-			// 决策 97：既不在存量启用字典、又未在声明 sheet 申报的码归入「待登记清单」，
-			// 给可执行引导文案（不静默跳过）。
+			// 决策 97：既不在存量启用字典、又未在声明 sheet 申报的码归入「待登记清单」。
+			// 区分「已停用」与「未登记」：Lookup 命中说明条目存在但停用（引导启用），
+			// 否则为未登记（引导登记或声明 sheet 补充）。前端 isPendingRegistrationReason
+			// 仅匹配含「未登记」的文案，停用态不被误标为待登记高亮。
+			_, found, lerr := appStore.Lookup(in.AppCode)
+			if lerr != nil {
+				return fieldErr(row, "app_code", in.AppCode, fmt.Sprintf("查询应用 %s 失败：%v", in.AppCode, lerr))
+			}
+			if found {
+				return fieldErr(row, "app_code", in.AppCode,
+					fmt.Sprintf("应用 %s 已停用，请在『应用管理』页启用后重新导入", in.AppCode))
+			}
 			return fieldErr(row, "app_code", in.AppCode,
-				fmt.Sprintf("应用 %s 未登记或已停用，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入", in.AppCode))
+				fmt.Sprintf("应用 %s 未登记且未在声明 sheet 声明，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入", in.AppCode))
 		}
 	}
 

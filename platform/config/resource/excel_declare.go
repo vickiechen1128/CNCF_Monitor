@@ -94,7 +94,7 @@ func parseDeclareSheet(f *excelize.File, sheet string, expected []string) ([]Dec
 	}
 	if len(header) > 3 {
 		return nil, fmt.Errorf("「%s」sheet 列头超出模板：第 %d 列「%s」未定义（仅支持 %s/%s 与可选「说明」列）",
-			sheet, 4, header[3], expected[0], expected[1])
+			sheet, len(header), header[len(header)-1], expected[0], expected[1])
 	}
 	if len(header) == 3 && header[2] != "说明" {
 		return nil, fmt.Errorf("「%s」sheet 第三列应为「说明」，实际为「%s」", sheet, header[2])
