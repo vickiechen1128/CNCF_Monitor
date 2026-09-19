@@ -90,6 +90,14 @@
   - **标签保留**「仅新增 / 新增或更新」（与后端 mode 枚举 create_only / upsert 对应，不破坏 §6.1 契约）；**默认值保持 create_only**；删除「判重键」字样（代码注释可保留技术说明）。
 - **⑤ 用户拍板（2026-09-19）**：按上述落地，见 §6 F-9 实现记录。
 
+### F-10. M05 首页 L2 应用明细「业务域」列恒为 `-`：后端 by_app 未聚合 biz 维度（决策 92/93/95）
+
+- **背景（M05-M07 跨模块依赖核查，2026-09-19）**：M05 首页 L2 应用明细表 [AppDetailTable.tsx:139-142](ui-custom/web/src/pages/home/AppDetailTable.tsx#L139-L142)「业务域」列恒渲染 `-`，注释「by_app 暂无 biz_code（后端待补）」。核查 PRD 权威口径：`Module_05_Custom_UI.md` v1.8 §5.1 定义 `by_app` 每项含 `app_code / app_name / biz_code / resource_count / monitored_count / coverage_rate`；原型 `DashboardPage.tsx` L2 列 `{ title: '业务域', dataIndex: 'bizName' }`；决策 93「biz_code 空计为未归类业务」由 M05 侧按资源 biz_code 空值消费。即 **by_app 的 biz 维度是 PRD/原型既定契约，后端一直欠账**（M07 完成业务/应用正交两维建模后具备补聚合条件）。
+- **实现方案（2026-09-19 用户拍板）**：
+  - **后端 `platform/dashboard/summary.go`**：`AppSummary` 增 `biz_code / biz_name` 字段；`appAgg` 增 biz 归属计数（按 `GetResourceField(res,"biz_code")` 累加，决策 92 收敛口径），组装 by_app 时取该应用下资源**占多数的 biz_code**（多数归因，空值不参与计数）为行业务域，`biz_name` join 业务字典（复用 summary 已加载的字典 map，缺失回落 `biz_code`）；同步 `summary_test.go` 断言。
+  - **前端**：`api/dashboard.ts` `AppSummary` 补 `biz_code / biz_name`；`AppDetailTable.tsx` AppRow 增 biz 字段、「业务域」列渲染 `biz_name`（空显 `-`）；HomePage mock 与测试同步补 biz 字段。
+- **⑤ 用户拍板（2026-09-19）**：按上述落地，见 §6 F-10 实现记录。
+
 ### F-3. PRD §5.2 `status`（运行状态）必填口径与前端实现不符
 
 - **矛盾点**：PRD §5.2 将 `status` 标为 ✅ 必填（枚举 `online/offline/maintenance/orphan`，UI 展示名「运行状态」），§8.1 状态机要求资源有明确状态；前端 `ResourceFormDrawer` 共享字段 `status` 无 required 规则、`initialValue="online"`，新增态不选则默认 `online`，与「必填」口径不符。
