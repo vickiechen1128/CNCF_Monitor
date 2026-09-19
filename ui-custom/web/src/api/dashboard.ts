@@ -48,6 +48,25 @@ export interface AppSummary {
 }
 
 /**
+ * 单个拨测目标（L3 拨测态势面板行，决策 93）。
+ * 字段与后端 summary.go `ProbeTargetItem` 的 json tag 完全一致（snake_case）：
+ * `status` MVP 阶段恒为空串（未知，不以 up/down 呈现）；`biz_name` / `app_name` MVP 恒为空串；
+ * `last_probe_at` 为指针时间，序列化为 ISO 字符串，空（nil）时前端显示 '-'。
+ */
+export interface ProbeTargetItem {
+  /** 拨测 URL，缺失时前端显示 '-' */
+  url: string
+  /** 拨测状态：MVP 恒 '' 表示未知；'up' / 'down' 为明确态（未来后端填充） */
+  status: string
+  /** 业务域，空串显示 '-' */
+  biz_name: string
+  /** 应用名，空串显示 '-' */
+  app_name: string
+  /** 最近拨测时间（RFC3339 / ISO 串）；空（后端 nil）显示 '-' */
+  last_probe_at: string | undefined
+}
+
+/**
  * Dashboard 聚合概览。
  * 决策 72-3（M05 首页内容重构，design-proposals/homepage-mvp-content-restructure.md §4.2）
  * 新增 monitored_count / scrape_job_count / scrape_job_enabled_count 三个计数字段。
@@ -83,6 +102,8 @@ export interface DashboardSummary {
   probe_target_count: number
   /** 拨测异常目标数（当前实现恒为 0，见 summary.go 口径说明） */
   probe_target_abnormal_count: number
+  /** L3 拨测态势面板明细（决策 93）；空库为空数组非 null */
+  probe_targets: ProbeTargetItem[]
 }
 
 export const dashboardApi = {

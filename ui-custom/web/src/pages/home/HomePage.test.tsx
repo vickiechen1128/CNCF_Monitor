@@ -40,14 +40,14 @@ const AM_ALERTS_PATH = '/api/v2/platform/alertmanager/alerts'
 const HISTORY_PATH = '/api/v1/alerts/history'
 
 /**
- * L0 四张 KPI 卡的 key（决策 91：由 6 张收敛为 4 张）。
+ * L0 五张 KPI 卡的 key（决策 93：由 4 张扩为 5 张，新增「拨测」）。
  * 第 4 张「当前未恢复告警」取 `/api/v1/alerts` 的 firing 条数，
- * 其余三张由 `dashboard/summary` 供数。
+ * 第 5 张「拨测」取 dashboard.probe_target_abnormal_count，其余三张由 dashboard/summary 供数。
  */
-const METRIC_KEYS = ['resource_count', 'monitored_count', 'coverage', 'firing_count']
+const METRIC_KEYS = ['resource_count', 'monitored_count', 'coverage', 'firing_count', 'probe']
 
-/** L0 中由 dashboard/summary 供数的三张卡（该接口失败时统一降级为 '-'） */
-const DASHBOARD_METRIC_KEYS = ['resource_count', 'monitored_count', 'coverage']
+/** L0 中由 dashboard/summary 供数的四张卡（该接口失败时统一降级为 '-'） */
+const DASHBOARD_METRIC_KEYS = ['resource_count', 'monitored_count', 'coverage', 'probe']
 
 /** 页面引导语：页内首行文案（决策 72-2；页面归属由导航表达，不重复「MetricCenter 概览」大标题）。
  *  产品名取自当前外观设置，测试中用默认名常量拼装，改名后不必逐处搜索字面量。 */
@@ -170,6 +170,16 @@ const DASHBOARD_OK = {
     unclassified_monitored_count: 36,
     probe_target_count: 12,
     probe_target_abnormal_count: 1,
+    // L3 明细（决策 93 effective 数据）：2 down + 5 up，覆盖「异常排前」与 >5 行分页分支
+    probe_targets: [
+      { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:36:00+08:00' },
+      { url: 'https://www.example.cn/cert-check', status: 'down', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:27:00+08:00' },
+      { url: 'https://www.example.cn/', status: 'up', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { url: 'https://data-api.example.cn/health', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { url: 'https://order.example.cn/submit', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { url: 'https://gateway.example.cn/v1/ping', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    ],
   },
 }
 
@@ -189,6 +199,7 @@ const DASHBOARD_EMPTY = {
     unclassified_monitored_count: 0,
     probe_target_count: 0,
     probe_target_abnormal_count: 0,
+    probe_targets: [],
   },
 }
 
@@ -384,9 +395,15 @@ describe('HomePage', () => {
     expect(within(firingCard).getByText('告警')).toBeInTheDocument()
     expect(within(firingCard).getByText('当前未恢复')).toBeInTheDocument()
     expect(within(firingCard).getByText('3')).toBeInTheDocument()
+
+    // 第 5 卡「拨测」：值 = probe_target_abnormal_count（1），副行带拨测目标总数
+    const probeCard = screen.getByTestId('metric-probe')
+    expect(within(probeCard).getByText('拨测')).toBeInTheDocument()
+    expect(within(probeCard).getByText('1')).toBeInTheDocument()
+    expect(probeCard).toHaveTextContent('/ 12 个拨测目标 · 异常数')
   })
 
-  it('renders the three-layer layout in order: L0 KPI → L1 resource types → L2 apps → alert card → guide', async () => {
+  it('renders the six-section layout in order: L0 → L1 → L2 → L3 probe → L4 alert + L5 guide (same row)', async () => {
     setupHomeMock()
 
     renderPage()
@@ -395,7 +412,7 @@ describe('HomePage', () => {
       expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
     })
 
-    // L0：恰 4 张 KPI 卡
+    // L0：恰 5 张 KPI 卡
     for (const key of METRIC_KEYS) {
       expect(screen.getByTestId(`metric-${key}`)).toBeInTheDocument()
     }
@@ -404,6 +421,7 @@ describe('HomePage', () => {
       within(screen.getByTestId('metric-monitored_count')).getByText('已纳入监控'),
     ).toBeInTheDocument()
     expect(within(screen.getByTestId('metric-coverage')).getByText('整体覆盖率')).toBeInTheDocument()
+    expect(within(screen.getByTestId('metric-probe')).getByText('拨测')).toBeInTheDocument()
 
     // 旧版式的两处已按决策 91 移除
     expect(screen.queryByTestId('quick-access-card')).not.toBeInTheDocument()
@@ -414,29 +432,36 @@ describe('HomePage', () => {
     expect(screen.queryByTestId('metric-domain_count')).not.toBeInTheDocument()
     expect(screen.queryByTestId('metric-pending_draft_count')).not.toBeInTheDocument()
 
-    // L1 资源类型区 + L2 应用明细表 + 告警状态卡 + 使用指引
+    // L1 采集覆盖区 + L2 应用覆盖表 + L3 拨测态势 + L4 告警状态卡 + L5 使用指引
     expect(screen.getByTestId('l1-grid')).toBeInTheDocument()
     expect(screen.getByTestId('l2-app-table')).toBeInTheDocument()
+    expect(screen.getByTestId('probe-panel')).toBeInTheDocument()
     expect(screen.getByTestId('alert-status-card')).toBeInTheDocument()
     expect(screen.getByTestId('onboarding-steps-card')).toBeInTheDocument()
 
-    // 自上而下顺序：引导语 → L0 → L1 → L2 → 告警卡 → 使用指引
+    // 自上而下顺序：引导语 → L0 → L1 → L2 → L3 →（L4 + L5 同排）
     const following = (a: HTMLElement, b: HTMLElement) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
     const title = screen.getByText(PAGE_INTRO)
     const l0 = screen.getByTestId('l0-section')
     const l1 = screen.getByTestId('l1-grid')
     const l2 = screen.getByTestId('l2-app-table')
+    const probe = screen.getByTestId('probe-panel')
+    const l45 = screen.getByTestId('home-l45-row')
     const alertCard = screen.getByTestId('alert-status-card')
     const onboarding = screen.getByTestId('onboarding-steps-card')
     expect(following(title, l0)).toBe(true)
     expect(following(l0, l1)).toBe(true)
     expect(following(l1, l2)).toBe(true)
-    expect(following(l2, alertCard)).toBe(true)
+    expect(following(l2, probe)).toBe(true)
+    expect(following(probe, l45)).toBe(true)
+    // L4 / L5 同排：告警卡与使用指引在同一 flex 行容器内（等高渲染）
+    expect(l45.contains(alertCard)).toBe(true)
+    expect(l45.contains(onboarding)).toBe(true)
     expect(following(alertCard, onboarding)).toBe(true)
   })
 
-  it('renders L1 as 5 category cards plus the app entry card, with per-type alert capsules', async () => {
+  it('renders L1 as a row of 5 category cards, no entry card or alert capsules', async () => {
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
     renderPage()
@@ -445,11 +470,11 @@ describe('HomePage', () => {
       expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
     })
 
-    // 五类资源卡 + 1 张入口卡（3 列网格共 6 格）
+    // 决策 93：一行五卡，无「按应用查看」入口卡
     for (const cat of ['host', 'database', 'middleware', 'application', 'generic_target']) {
       expect(screen.getByTestId(`l1-card-${cat}`)).toBeInTheDocument()
     }
-    expect(screen.getByTestId('l1-app-entry')).toBeInTheDocument()
+    expect(screen.queryByTestId('l1-app-entry')).not.toBeInTheDocument()
 
     // 已采数 / 总数 + 量词（视觉定版）：主机写「台」，其余类型不写量词
     expect(within(screen.getByTestId('l1-card-host')).getByText('/ 42 台已采')).toBeInTheDocument()
@@ -459,9 +484,8 @@ describe('HomePage', () => {
     expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('覆盖率 86%')
     expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('未采 6')
 
-    // 未恢复胶囊：host 有 1 条 firing；middleware 无 → 「无未恢复」而非 0
-    expect(screen.getByTestId('l1-alert-capsule-host')).toHaveTextContent('未恢复 1')
-    expect(screen.getByTestId('l1-alert-capsule-middleware')).toHaveTextContent('无未恢复')
+    // 决策 93：告警胶囊已删，L1 各卡不渲染「未恢复」数字
+    expect(screen.queryByTestId('l1-alert-capsule-host')).not.toBeInTheDocument()
 
     // 子类明细：host 有，应用服务**没有**（不按语言 / 框架拆子类）
     expect(screen.getByTestId('l1-subtypes-host')).toBeInTheDocument()
@@ -471,11 +495,11 @@ describe('HomePage', () => {
     expect(screen.getByTestId('l1-card-application')).toHaveTextContent('单一采集类型 · 不按语言拆')
     // 该类型仍给一个同口径的指标 chip（`application_http` 聚合），由 l1-no-subtype-* 标记
     expect(screen.getByTestId('l1-no-subtype-application')).toHaveTextContent('22/34 · 65%')
-    // 应用服务卡给「单一采集类型」的指标 chip 与采集形态示例 chip
     const applicationCard = screen.getByTestId('l1-card-application')
     expect(applicationCard).toHaveTextContent('application_http')
     expect(applicationCard).toHaveTextContent('22/34 · 65%')
-    expect(applicationCard).toHaveTextContent('Java Spring / Go / Python')
+    // 决策 93：不再渲染采集形态示例 chip
+    expect(applicationCard).not.toHaveTextContent('Java Spring / Go / Python')
     // 卡内脚注：只给容易被误读成成员的两类写
     expect(screen.getByTestId('l1-footnote-application')).toHaveTextContent('拨测目标不计入本类')
     expect(screen.getByTestId('l1-footnote-generic_target')).toHaveTextContent(
@@ -490,13 +514,44 @@ describe('HomePage', () => {
     // 低于 70% 的子类 chip 给橙色语义底（颜色不作为唯一语义——行内仍并列百分数）
     expect(screen.getByTestId('l1-subtype-chip-middleware-nginx').style.background).not.toBe('')
 
-    // 入口卡：应用数 + 拨测附注 + 不属于台账对象的告警附注
-    const entry = screen.getByTestId('l1-app-entry')
-    expect(within(entry).getByRole('link', { name: /按应用查看/ })).toBeInTheDocument()
-    expect(screen.getByTestId('l1-probe-note')).toHaveTextContent('另有拨测目标 12 个 · 异常 1')
-    expect(screen.getByTestId('l1-unclassified-alert-note')).toHaveTextContent(
-      '另有 1 条未恢复告警不属于资源台账对象',
-    )
+    // 决策 93：入口卡与拨测附注已删（拨测口径由 L0 第 5 卡 + L3 拨测面板承载）
+    expect(screen.queryByTestId('l1-probe-note')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('l1-unclassified-alert-note')).not.toBeInTheDocument()
+  })
+
+  it('aggregates subtypes beyond 3 into a more chip (决策 93)', async () => {
+    const many = {
+      ...DASHBOARD_OK,
+      data: {
+        ...DASHBOARD_OK.data,
+        by_category: (DASHBOARD_OK.data as (typeof DASHBOARD_OK)['data']).by_category.map((c) =>
+          c.resource_category === 'host'
+            ? {
+                ...c,
+                by_subtype: [
+                  { subtype: 'linux', resource_count: 34, monitored_count: 30 },
+                  { subtype: 'windows', resource_count: 8, monitored_count: 6 },
+                  { subtype: 'docker', resource_count: 5, monitored_count: 3 },
+                  { subtype: 'k8s', resource_count: 4, monitored_count: 2 },
+                ],
+              }
+            : c,
+        ),
+      },
+    }
+    setupHomeMock({ [DASHBOARD_PATH]: many })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
+    })
+    // host 子类封顶 3 条：前 3 张（linux/windows/docker）正常渲染，第 4 条 k8s 不再单独渲染
+    expect(screen.getByTestId('l1-subtype-host-linux')).toBeInTheDocument()
+    expect(screen.getByTestId('l1-subtype-host-docker')).toBeInTheDocument()
+    expect(screen.queryByTestId('l1-subtype-host-k8s')).not.toBeInTheDocument()
+    // 第 4 条起聚合为「更多 +N」虚线 chip
+    expect(screen.getByTestId('l1-subtype-more-host')).toHaveTextContent('更多 +1')
   })
 
   it('renders L2 app detail table sorted by coverage ascending with the unclassified row last', async () => {
@@ -509,9 +564,15 @@ describe('HomePage', () => {
     })
 
     const table = screen.getByTestId('l2-app-table')
+    // 决策 93：标题「应用覆盖」（不再叫「应用明细」）
+    expect(within(table).getByText('应用覆盖')).toBeInTheDocument()
     const rows = within(table).getAllByRole('row')
     // 表头 1 行 + 3 个应用行 + 未归类行 1 行
     expect(rows).toHaveLength(5)
+
+    // 决策 93：删除「未恢复」「应用简称」两列
+    expect(within(table).queryByText('未恢复')).not.toBeInTheDocument()
+    expect(within(table).queryByText('应用简称')).not.toBeInTheDocument()
 
     // 覆盖率升序：用户中心 16/24=67% → 数据网关 20/26=77% → 支付平台 24/30=80% → 未归类应用置底
     expect(rows[1]).toHaveTextContent('用户中心')
@@ -519,7 +580,7 @@ describe('HomePage', () => {
     expect(rows[3]).toHaveTextContent('支付平台')
     expect(rows[4]).toHaveTextContent('未归类应用')
 
-    // 应用名称 = 字典展示名，应用简称 = app_code（决策 92：app_code 是不可变短编码）
+    // 应用名称 = 字典展示名，app_code 内联其后（次要小字）作应用简称
     expect(rows[1]).toHaveTextContent('user')
     expect(rows[1]).toHaveTextContent('67%')
     expect(rows[1]).toHaveTextContent('16')
@@ -533,13 +594,83 @@ describe('HomePage', () => {
       '/resources?import=1',
     )
 
-    // 未恢复列：仅支付平台有 1 条（标签 app 命中 app_code）
-    expect(within(rows[3]).getByText('1')).toBeInTheDocument()
     // 「看明细」深链带 app_code 预筛
     expect(within(rows[1]).getByRole('link', { name: '看明细' })).toHaveAttribute(
       'href',
       '/resources?app_code=user',
     )
+  })
+
+  it('renders the L3 probe panel with abnormal targets first and pagination when >5 rows', async () => {
+    setupHomeMock()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('probe-panel')).toBeInTheDocument()
+    })
+
+    // 整宽卡标题 + extra 汇总（DASHBOARD_OK.probe_targets 7 条：正常 5 · 异常 2）
+    const panel = screen.getByTestId('probe-panel')
+    expect(within(panel).getByText('拨测态势')).toBeInTheDocument()
+    expect(panel).toHaveTextContent('拨测目标 7 · 正常 5 · 异常 2')
+
+    // 异常排最前：首行拨测目标为 down 的 pay-api，状态「异常」
+    const dataRows = within(panel).getAllByRole('row')
+    expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
+    expect(dataRows[1]).toHaveTextContent('异常')
+
+    // 7 条 > 每页 5 行 → 分页器出现
+    expect(panel.querySelector('.ant-pagination')).not.toBeNull()
+  })
+
+  it('renders backend probe_targets with unknown status and degrades empty biz/app/last_probe_at to dash', async () => {
+    // 「真实款」明细：MVP 后端 status 恒空串（未知）、biz_name/app_name 空串、
+    // last_probe_at 为 nil。断言未知态中性呈现、空字段 '-' 降级，不渲染成 up/down 绿红。
+    setupHomeMock({
+      [DASHBOARD_PATH]: {
+        status: 'success',
+        data: {
+          ...DASHBOARD_OK.data,
+          probe_targets: [
+            // 两条未知（status '' + 空 last_probe_at），同未知态保持原序（不强制前置）
+            { url: 'https://gw.example.cn/ping', status: '', biz_name: '', app_name: '', last_probe_at: undefined },
+            // 明确 down 强制排最前，仍正常呈现「异常」
+            { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: isoAgo(5) },
+            { url: 'https://www.example.cn/a', status: '', biz_name: '', app_name: '', last_probe_at: undefined },
+          ],
+        },
+      },
+    })
+
+    renderPage()
+
+    const panel = screen.getByTestId('probe-panel')
+    // down 1 条被明确数出，未知不参与「正常 / 异常」计数
+    await waitFor(() => {
+      expect(panel).toHaveTextContent('拨测目标 3 · 正常 0 · 异常 1')
+    })
+
+    // 3 条 ≤ 每页 5 行 → 无分页器
+    expect(panel.querySelector('.ant-pagination')).toBeNull()
+
+    const dataRows = within(panel).getAllByRole('row')
+    // 明确 down 排最前
+    expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
+    expect(dataRows[1]).toHaveTextContent('异常')
+    // 两条未知保持原序（gw 在前、www 在后），渲染「未知」态而非 正常/异常 绿红
+    expect(dataRows[2]).toHaveTextContent('https://gw.example.cn/ping')
+    expect(dataRows[2]).toHaveTextContent('未知')
+    expect(dataRows[3]).toHaveTextContent('https://www.example.cn/a')
+    expect(dataRows[3]).toHaveTextContent('未知')
+    // 空 biz_name / app_name / last_probe_at → '-' 降级（未知行含 '-'）
+    for (const row of [dataRows[2], dataRows[3]]) {
+      expect(row.textContent).toContain('-')
+    }
+    // 页面不渲染非法的 up/down 红绿措辞（只有 1 条明确异常）
+    expect(within(panel).getAllByText('异常')).toHaveLength(1)
+    expect(within(panel).getAllByText('未知')).toHaveLength(2)
+    expect(within(panel).queryByText('正常')).toBeNull()
   })
 
   it('renders the L2 empty state pointing at the resource import flow', async () => {
@@ -649,7 +780,7 @@ describe('HomePage', () => {
     })
   })
 
-  it('keeps L0 to exactly four cards, with the fourth being the firing count only', async () => {
+  it('keeps L0 to exactly five cards, with the fourth being the firing count and the fifth the probe count', async () => {
     setupHomeMock({
       [PROM_ALERTS_PATH]: PROM_ALERTS_OK,
       [AM_ALERTS_PATH]: AM_ALERTS_OK,
@@ -663,8 +794,8 @@ describe('HomePage', () => {
     })
 
     const grid = screen.getByTestId('l0-section')
-    // KPI 卡恰为 4 张（防止回归成换了标签的第 5 张告警数字卡；排除 ⓘ / 图标容器子节点）
-    expect(within(grid).queryAllByTestId(/^metric-(?!tip-|icon-)/)).toHaveLength(4)
+    // KPI 卡恰为 5 张（决策 93：新增「拨测」；排除 ⓘ / 图标容器子节点）
+    expect(within(grid).queryAllByTestId(/^metric-(?!tip-|icon-)/)).toHaveLength(5)
     // L0 唯一的告警数字是第 4 卡的 firing 条数（=3）；AM 治理态数字（通知中 / 已静默）只在告警卡内
     expect(within(screen.getByTestId('metric-firing_count')).getByText('3')).toBeInTheDocument()
     expect(grid.textContent).not.toContain('通知中')
@@ -905,8 +1036,9 @@ describe('HomePage', () => {
     expect(screen.getAllByTestId(/^latest-alert-\d+$/)).toHaveLength(ALERT_PAGE_SIZE)
     expect(screen.queryByTestId(`latest-alert-${ALERT_PAGE_SIZE}`)).not.toBeInTheDocument()
 
-    // 第 2 页承接池内剩余 3 条（8 - 5），池子上限 8 之外的仍不可见
-    fireEvent.click(screen.getByTitle('2'))
+    // 第 2 页承接池内剩余 3 条（8 - 5），池子上限 8 之外的仍不可见。
+    // 限定在告警卡内点击分页（页面另有 L3 拨测分页，避免 getByTitle('2') 歧义）
+    fireEvent.click(within(screen.getByTestId('alert-status-card')).getByTitle('2'))
     await waitFor(() => {
       expect(screen.getByTestId('latest-alert-6')).toBeInTheDocument()
     })
@@ -1095,7 +1227,7 @@ describe('HomePage', () => {
     expect(screen.getByRole('button', { name: /重试/ })).toBeInTheDocument()
   })
 
-  it('renders the alert card and the onboarding guide as full-width blocks (no two-column row)', async () => {
+  it('renders the alert card and the onboarding guide in the same flex row with equal height', async () => {
     setupHomeMock()
 
     renderPage()
@@ -1104,15 +1236,23 @@ describe('HomePage', () => {
       expect(screen.getByTestId('onboarding-steps-card')).toBeInTheDocument()
     })
 
-    // 决策 91：告警卡与使用指引均为整宽块，不在任何栅格列内；
-    // 旧版「系统快速入口 + 最近下发记录」右侧双列区已整体移除。
+    // 决策 93：告警卡（L4）与使用指引（L5）同排等高（左告警 flex:1.6 : 右指引 flex:1，
+    // align-items:stretch）。不再各占一根整宽行。旧版「系统快速入口 + 最近下发记录」双列区已整体移除。
+    const row = screen.getByTestId('home-l45-row')
+    expect(row.style.display).toBe('flex')
+    expect(row.style.alignItems).toBe('stretch')
     const alertCard = screen.getByTestId('alert-status-card')
-    expect(alertCard.closest('.ant-col')).toBeNull()
     const onboarding = screen.getByTestId('onboarding-steps-card')
+    // 两卡都在同一 flex 行容器内，且 alert 在前、guide 在后
+    expect(row.contains(alertCard)).toBe(true)
+    expect(row.contains(onboarding)).toBe(true)
+    // 卡片自身不再落在 antd 栅格列
+    expect(alertCard.closest('.ant-col')).toBeNull()
     expect(onboarding.closest('.ant-col')).toBeNull()
     expect(screen.queryByTestId('quick-access-card')).not.toBeInTheDocument()
+    // 使用指引卡被拉伸到与告警卡等高（height:100% + 卡体纵向 flex）
+    expect(onboarding.style.height || onboarding.querySelector('.ant-card-body')).toBeTruthy()
 
-    // 使用指引紧随告警卡之后（页面最末）
     const following = (a: HTMLElement, b: HTMLElement) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
     expect(following(alertCard, onboarding)).toBe(true)
@@ -1195,10 +1335,9 @@ describe('HomePage', () => {
       expect(screen.getByText('使用指引')).toBeInTheDocument()
     })
 
+    // 决策 93：使用指引为纵向六步 Steps（与告警卡同排等高）
     const onboarding = screen.getByTestId('onboarding-steps-card')
-    expect(
-      within(onboarding).getByText('按以下步骤完成首次监控闭环，大约需要 5 分钟'),
-    ).toBeInTheDocument()
+    expect(onboarding.querySelector('.ant-steps')).not.toBeNull()
 
     expect(within(onboarding).getByRole('link', { name: '登记网域' })).toHaveAttribute(
       'href',
@@ -1293,8 +1432,9 @@ describe('HomePage', () => {
     expect(screen.getByTestId('latest-alert-pager')).toBeInTheDocument()
     expect(screen.getByTestId('latest-alert-0')).toHaveTextContent('批量告警-0')
 
-    // 翻页：行序号沿用数据池全局序号，翻页后不重置、不重复
-    fireEvent.click(screen.getByTitle('2'))
+    // 翻页：行序号沿用数据池全局序号，翻页后不重置、不重复。
+    // 限定在告警卡内点击分页（页面另有 L3 拨测分页，避免 getByTitle('2') 歧义）
+    fireEvent.click(within(screen.getByTestId('alert-status-card')).getByTitle('2'))
     await waitFor(() => {
       expect(screen.getByTestId('latest-alert-6')).toBeInTheDocument()
     })

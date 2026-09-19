@@ -1,27 +1,28 @@
 /**
- * 首页概览 —— **三层信息架构**（Module_05 §3.1 决策 91 / PRD v1.7）。
+ * 首页概览 —— **六段信息架构**（Module_05 §3.1 决策 93 / PRD v1.8）。
  *
- * 页面结构（自上而下，层级由粗到细逐级下钻）：
- * 页头行（引导语 + 系统状态）→ **L0 全局态势区**（4 张 KPI 卡）→ **L1 资源类型区**
- * （5 张资源类型卡 + 1 张「按应用查看」入口卡，3 列网格）→ **L2 应用明细表**（覆盖率升序，
- * 未归类行置底）→ 告警状态卡（整宽，明细与治理态）→ 使用指引（整宽一行）。
+ * 页面结构（自上而下）：页头行（引导语 + 系统状态）→ **L0 全局态势区**（5 张 KPI 卡，
+ * 含「拨测」）→ **L1 采集覆盖区**（5 张资源类型卡一行，子类封顶 3 + 更多）→ **L2 应用覆盖表**
+ * （覆盖率升序，未归类行置底）→ **L3 拨测态势面板** → **L4 告警状态卡 + L5 使用指引
+ * （同排等高：左告警 1.6 : 右指引 1）**。
  *
- * 与 v1.6 版式的差异（决策 91）：**删除**「系统快速入口」与「最近下发记录」两处，
- * L0 由 6 张卡收敛为 4 张（不再含采集 Job / 已纳管网域 / 待确认草稿），
- * 告警状态卡由双列区左列改为紧随 L2 的整宽一行。
+ * 与 v1.7 的差异（决策 93）：L0 由 4 卡扩为 5 卡（新增「拨测」）；删「按应用查看」入口卡与
+ * L1 未恢复胶囊、L2 未恢复列（告警口径收口 L0 告警卡 + L4 告警卡）；L2 改「应用覆盖」；
+ * 新增 L3 拨测态势面板；告警卡与使用指引由两根整宽行改为同排等高。
  *
  * 版式约束：
  * - 页面按内容自然排布，**不锁定视口**：不同电脑尺寸/分辨率下版式一致，内容超出即滚动；
+ * - L0 / L1 均 5 卡一行：栅格走 antd Col `flex:1` 等宽方案，容量变化不溢出；
  * - 告警卡固定 5 行/页为**定稿硬契约**（见 homeLayout.ts，已与视口解耦）。
  *
  * 数据源：
  * - dashboardApi.getSummary()：资源总数 / 已监控（L0）、by_category（L1）、
- *   by_app + unclassified_*（L2）、probe_target_count（L1 入口卡附注）；
+ *   by_app + unclassified_*（L2）、probe_target_count / probe_target_abnormal_count（L0 拨测卡）；
  * - alertStatusApi 三条只读链路**单次请求**由 useAlertGovernance 持有：
- *   Prom 当前告警（**三处「未恢复」数字的唯一取数来源**：L0 第 4 卡取全量 firing 条数、
- *   L1 各卡胶囊与 L2 行按 `resource_category` / 标签 `app` 分组）+ AM 通知状态 +
- *   M02 历史告警（当日 / 近 7 天前端计数 + 行 2 告警具体内容回查）。
- *   **不新增第四次 `/api/v1/alerts` 请求**，分组全部在前端完成（后端零改动）。
+ *   Prom 当前告警（L0 第 4 卡的 firing 条数）+ AM 通知状态 + M02 历史告警。
+ * - L3 拨测态势实测来自 `dashboard.probe_targets[]`（决策 93 明细），由 HomePage 传入 ProbePanel
+ *   受控渲染；静态预览（VITE_STATIC_PREVIEW=true）仍用 DASHBOARD_MOCK 明细与原型对齐。前端排序、分页，
+ *   见 ProbePanel 头注释。
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -50,6 +51,7 @@ import { OnboardingSteps } from './OnboardingSteps'
 import { SurfaceCard } from './SurfaceCard'
 import { ResourceTypeGrid } from './ResourceTypeGrid'
 import { AppDetailTable } from './AppDetailTable'
+import { ProbePanel } from './ProbePanel'
 import { firingAlerts as pickFiringAlerts } from './resourceTypeMeta'
 
 interface Status {
@@ -140,6 +142,17 @@ const DASHBOARD_MOCK: DashboardSummary = {
   probe_target_count: 12,
   // 后端 MVP 恒 0；静态预览取 1 是为了把「异常 >0」这一分支也渲染出来（口径不变）
   probe_target_abnormal_count: 1,
+  // L3 明细（决策 93）：静态预览用与原型对齐的 mock，覆盖「异常排前」「应用/业务域空显 -」
+  // 与 >5 条分页分支；mock 走 up/down 显式态，真实环境后端 MVP 为未知空串（见 ProbePanel 头注释）
+  probe_targets: [
+    { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    { url: 'https://www.example.cn/cert-check', status: 'down', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:27:00+08:00' },
+    { url: 'https://www.example.cn/', status: 'up', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { url: 'https://data-api.example.cn/health', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { url: 'https://order.example.cn/submit', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { url: 'https://gateway.example.cn/v1/ping', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:36:00+08:00' },
+  ],
 }
 
 const ALERT_MOCK: AlertCounts = {
@@ -783,6 +796,19 @@ export function HomePage() {
       valueColor: token.colorError,
       danger: true,
     },
+    {
+      // 决策 93：第 5 张卡「拨测」。值 = 拨测异常目标数（probe_target_abnormal_count）
+      key: 'probe',
+      label: '拨测',
+      value: metricValue(dashboard?.probe_target_abnormal_count),
+      sub:
+        dashboard?.probe_target_count !== undefined
+          ? `/ ${dashboard.probe_target_count} 个拨测目标 · 异常数`
+          : undefined,
+      tip: '当前探测失败的拨测目标数；拨测由 blackbox 采集任务承载，不计入资源台账与覆盖率。全量明细见下方拨测态势面板。',
+      valueColor:
+        (dashboard?.probe_target_abnormal_count ?? 0) > 0 ? token.colorError : token.colorText,
+    },
   ]
 
   return (
@@ -827,8 +853,9 @@ export function HomePage() {
           )}
         </div>
 
-        {/* L0 全局态势区：4 张 KPI 卡，4 列网格（决策 91 由 6 张收敛为 4 张）。
-            第 4 卡「告警 / 当前未恢复」是 L0 唯一的告警数字，取 /api/v1/alerts 的 firing 条数。 */}
+        {/* L0 全局态势区：5 张 KPI 卡，5 卡一行（决策 93 新增第 5 卡「拨测」，由 4 卡收敛扩展）。
+            第 4 卡「告警 / 当前未恢复」是 L0 唯一取 /api/v1/alerts 的数字；第 5 卡「拨测」取
+            dashboard.probe_target_abnormal_count。栅格走 antd Col flex:1 等宽方案保证 5 卡一行不溢出。 */}
         <div style={{ fontSize: 13, fontWeight: 600 }}>全局态势</div>
         <div data-testid="l0-section" style={{ flex: 'none' }}>
           {dashboardLoading && <LoadingPlaceholder />}
@@ -837,60 +864,61 @@ export function HomePage() {
           )}
           <Row gutter={[16, 16]}>
             {metrics.map((item) => (
-              <Col key={item.key} xs={24} sm={12} xl={6}>
+              <Col key={item.key} flex="1">
                 <MetricCard item={item} />
               </Col>
             ))}
           </Row>
         </div>
 
-        {/* L1 资源类型区：5 张资源类型卡 + 1 张「按应用查看」入口卡，3 列网格（xl=8）。
-            卡内子类明细、未恢复胶囊与拨测附注的口径见 ResourceTypeGrid 头注释。 */}
+        {/* L1 采集覆盖区：5 张资源类型卡一行（决策 93：删「按应用查看」入口卡与未恢复胶囊；
+            网格同 L0 的 flex 等宽方案。卡内子类明细口径见 ResourceTypeGrid 头注释。） */}
         <div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>
-            按资源类型
+            采集覆盖
             <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400, marginLeft: 4 }}>
-              （卡内下区 = 采集类型子类，可点击穿到资源清单）
+              （进度条与子类明细 = 各类型采集覆盖情况，子类最多 3 条，可点击穿到资源清单）
             </Typography.Text>
           </div>
           <div style={{ marginTop: 8 }}>
-            <ResourceTypeGrid
-              byCategory={dashboard?.by_category ?? []}
-              appCount={dashboard?.by_app?.length ?? 0}
-              probeTargetCount={dashboard?.probe_target_count ?? 0}
-              probeAbnormalCount={dashboard?.probe_target_abnormal_count ?? 0}
-              alerts={firingAlerts}
-            />
+            <ResourceTypeGrid byCategory={dashboard?.by_category ?? []} />
           </div>
         </div>
 
-        {/* L2 应用明细表：按覆盖率升序，未归类行置底。
-            锚点 id 供 L1 入口卡「按应用查看 →」就地定位。 */}
+        {/* L2 应用覆盖表：按覆盖率升序，未归类行置底。
+            锚点 id 供「按应用查看」历史入口（/resources / 旧 L1 链接）就地定位。 */}
         <div id="app-detail">
           <AppDetailTable
             byApp={dashboard?.by_app ?? []}
             unclassifiedResourceCount={dashboard?.unclassified_resource_count ?? 0}
             unclassifiedMonitoredCount={dashboard?.unclassified_monitored_count ?? 0}
-            alerts={firingAlerts}
           />
         </div>
 
-        {/* 告警状态卡：整宽一行（决策 91 由双列区左列改为整宽）——
-            承载当日 / 近 7 天 / 通知中 / 已静默·已抑制四个明细格与最新 8 条两行制列表（5 行/页）。 */}
-        <AlertStatusCard
-          counts={counts}
-          latestAlerts={latestAlerts}
-          summaryByAlert={summaryByAlert}
-          loading={alertLoading}
-          promError={promError}
-          amError={amError}
-          historyError={historyError}
-          onRetry={retry}
-          isStaticPreview={IS_STATIC_PREVIEW}
-        />
+        {/* L3 拨测态势面板：整宽卡（决策 93）。数据源为 dashboard.probe_targets[]（受控注入，
+            空库/字段缺失时空数组 → ProbePanel 显示空态 + 去配置深链）。 */ }
+        <ProbePanel probeTargets={dashboard?.probe_targets ?? []} />
 
-        {/* 使用指引（六步闭环）：整宽卡片，页面最末 */}
-        <OnboardingSteps />
+        {/* L4 告警状态卡 + L5 使用指引：同排等高（左告警 flex:1.6 : 右指引 flex:1，决策 93）。
+            AlertStatusCard 已支持 height:100% + 纵向 flex，使用指引改为纵向六步，见各自组件。 */}
+        <div data-testid="home-l45-row" style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
+          <div style={{ flex: 1.6, minWidth: 0 }}>
+            <AlertStatusCard
+              counts={counts}
+              latestAlerts={latestAlerts}
+              summaryByAlert={summaryByAlert}
+              loading={alertLoading}
+              promError={promError}
+              amError={amError}
+              historyError={historyError}
+              onRetry={retry}
+              isStaticPreview={IS_STATIC_PREVIEW}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <OnboardingSteps />
+          </div>
+        </div>
       </div>
     </MainLayout>
   )

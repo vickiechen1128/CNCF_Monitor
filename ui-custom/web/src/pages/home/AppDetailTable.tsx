@@ -1,29 +1,28 @@
 /**
- * L2 应用明细表（Module_05 §3.1 决策 91 / PRD v1.7）。
+ * L2 应用覆盖表（Module_05 §3.1 决策 93 / PRD v1.8）。
  *
- * 列：应用名称 / 应用简称 / 业务域 / 实例 / 已采 / 覆盖率 / 未恢复 + 操作。
+ * 列：应用名称 / 业务域 / 实例 / 已采 / 覆盖率 + 操作。
  * 数据源 `dashboard.by_app`（`app_code` 非空的资源按应用聚合）：
- * - `应用名称` = `app_name`（应用字典展示名，主）；`应用简称` = `app_code`（不可变编码）；
- * - **按覆盖率升序**排列（缺口最大的应用排最前），覆盖率相同按实例数降序，
- *   使「先补谁」一眼可见；
- * - `未归类应用` 行**置底**：`app_code` 为空的资源聚合（`unclassified_resource_count` /
- *   `unclassified_monitored_count`），操作为「去补填」引导补录应用归属。
+ * - `应用名称` = `app_name`（应用字典展示名，主），`app_code` 内联其后（次要色小字）作为应用简称；
+ * - **覆盖率列改「进度条 + 百分比」**（窄进度条约 52px），<70% 橙色语义（颜色不作为唯一语义，
+ *   行内仍并列百分数）；
+ * - **按覆盖率升序**排列（缺口最大的应用排最前），覆盖率相同按实例数降序；
+ * - `未归类应用` 行**置底**：操作为「去补填」引导补录应用归属。
  *
- * 未恢复数：取 `/api/v1/alerts` 中 `firing` 且标签 `app === app_code` 的条数
- * （`app` 标签由 M07 默认模板注入、恒取 `app_code`，见决策 92），前端分组、后端零改动。
+ * 决策 93 **删除**「未恢复」「应用简称」两列：告警口径收口 L0 告警卡 + L4 告警状态卡，
+ * 本表只承载采集覆盖（不再按 `app` 标签分组告警）。
  */
-import { Empty, Table, Tag, Typography } from 'antd'
+import { Empty, Table, Typography, theme } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Link } from 'react-router-dom'
 import type { AppSummary } from '../../api/dashboard'
-import type { PromAlertItem } from '../../types/alertmanager'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { SurfaceCard } from './SurfaceCard'
 import {
   appResourceListHref,
   coveragePercent,
   coverageText,
-  firingCountByApp,
+  SUBTYPE_COVERAGE_WARN_THRESHOLD,
   RESOURCE_IMPORT_HREF,
 } from './resourceTypeMeta'
 
@@ -36,23 +35,54 @@ interface AppRow {
   appCode: string
   resourceCount: number
   monitoredCount: number
-  alertCount: number | null
 }
 
 interface AppDetailTableProps {
   byApp: AppSummary[]
   unclassifiedResourceCount: number
   unclassifiedMonitoredCount: number
-  alerts: PromAlertItem[]
 }
 
 const UNCLASSIFIED_KEY = '__unclassified__'
+
+/** 覆盖率窄进度条（约 52px）：<70% 用橙色语义（颜色不作为唯一语义，右侧仍有百分数） */
+function CoverageBar({ percent }: { percent: number | null }) {
+  const { token } = theme.useToken()
+  const value = percent ?? 0
+  const warn = percent !== null && percent < SUBTYPE_COVERAGE_WARN_THRESHOLD
+  return (
+    <span
+      role="progressbar"
+      aria-valuenow={value}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      style={{
+        display: 'inline-block',
+        width: 52,
+        height: 6,
+        borderRadius: 3,
+        background: token.colorFillSecondary,
+        overflow: 'hidden',
+        verticalAlign: 'middle',
+      }}
+    >
+      <span
+        style={{
+          display: 'block',
+          width: `${Math.min(100, Math.max(0, value))}%`,
+          height: '100%',
+          borderRadius: 3,
+          background: percent === null ? 'transparent' : warn ? token.colorWarning : token.colorPrimary,
+        }}
+      />
+    </span>
+  )
+}
 
 export function AppDetailTable({
   byApp,
   unclassifiedResourceCount,
   unclassifiedMonitoredCount,
-  alerts,
 }: AppDetailTableProps) {
   const rows: AppRow[] = byApp.map((a) => ({
     key: a.app_code,
@@ -61,7 +91,6 @@ export function AppDetailTable({
     appCode: a.app_code,
     resourceCount: a.resource_count,
     monitoredCount: a.monitored_count,
-    alertCount: firingCountByApp(alerts, a.app_code),
   }))
 
   if (unclassifiedResourceCount > 0) {
@@ -69,11 +98,9 @@ export function AppDetailTable({
       key: UNCLASSIFIED_KEY,
       unclassified: true,
       appName: '未归类应用',
-      appCode: '-',
+      appCode: '',
       resourceCount: unclassifiedResourceCount,
       monitoredCount: unclassifiedMonitoredCount,
-      // 未归类资源无 app_code，无法按 `app` 标签归属告警 → 用 null 渲染 `-`（不臆造 0）
-      alertCount: null,
     })
   }
 
@@ -98,14 +125,16 @@ export function AppDetailTable({
         row.unclassified ? (
           <Typography.Text type="secondary">{value}</Typography.Text>
         ) : (
-          <Typography.Text>{value}</Typography.Text>
+          <span>
+            <Typography.Text>{value}</Typography.Text>
+            {/* app_code 内联在应用名称后，作应用简称（次要小字） */}
+            {row.appCode && (
+              <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>
+                {row.appCode}
+              </Typography.Text>
+            )}
+          </span>
         ),
-    },
-    {
-      title: '应用简称',
-      dataIndex: 'appCode',
-      key: 'appCode',
-      render: (value: string) => <Typography.Text type="secondary">{value}</Typography.Text>,
     },
     {
       // `by_app` 暂无 biz_code（后端待补），此列恒为 `-`，不臆造业务归属
@@ -118,19 +147,22 @@ export function AppDetailTable({
     {
       title: '覆盖率',
       key: 'coverage',
-      align: 'right',
-      render: (_, row) => <span>{coverageText(row.monitoredCount, row.resourceCount)}</span>,
-    },
-    {
-      title: '未恢复',
-      key: 'alertCount',
-      align: 'right',
-      render: (_, row) =>
-        row.alertCount === null || row.alertCount === 0 ? (
-          <Typography.Text type="secondary">-</Typography.Text>
-        ) : (
-          <Tag color="error">{row.alertCount}</Tag>
-        ),
+      render: (_, row) => {
+        if (row.unclassified) {
+          return <Typography.Text type="secondary">-</Typography.Text>
+        }
+        const pct = coveragePercent(row.monitoredCount, row.resourceCount)
+        return (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <CoverageBar percent={pct} />
+            <Typography.Text
+              type={pct !== null && pct < SUBTYPE_COVERAGE_WARN_THRESHOLD ? 'danger' : 'secondary'}
+            >
+              {coverageText(row.monitoredCount, row.resourceCount)}
+            </Typography.Text>
+          </span>
+        )
+      },
     },
     {
       title: '操作',
@@ -145,7 +177,7 @@ export function AppDetailTable({
   ]
 
   return (
-    <SurfaceCard title="应用明细" data-testid="l2-app-table">
+    <SurfaceCard title="应用覆盖" data-testid="l2-app-table">
       {sorted.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}

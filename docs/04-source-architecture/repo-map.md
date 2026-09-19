@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-19 12:11 · commit: `14d18ec`
+> 生成时间: 2026-09-19 13:03 · commit: `f0ec581`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1682,6 +1682,8 @@
 
 - `func resourceModels() []interface{}`
 - `type DeploymentItem struct`
+- `type ProbeTargetItem struct`
+- `func probeTargetURL(t models.BlackboxTarget) string`
 - `type Summary struct`
 - `type CategorySummary struct`
 - `type SubtypeSummary struct`
@@ -2910,6 +2912,7 @@
 - `interface SubtypeSummary`
 - `interface CategorySummary`
 - `interface AppSummary`
+- `interface ProbeTargetItem`
 - `interface DashboardSummary`
 - `const dashboardApi`
 
@@ -3336,6 +3339,10 @@
 
 - `function OnboardingSteps`
 
+### `ui-custom/web/src/pages/home/ProbePanel.tsx`
+
+- `function ProbePanel`
+
 ### `ui-custom/web/src/pages/home/ResourceTypeGrid.tsx`
 
 - `function ResourceTypeGrid`
@@ -3354,7 +3361,6 @@
 - `type ResourceCategoryKey`
 - `const L1_CATEGORY_ORDER`
 - `const L1_CATEGORY_META`
-- `const APPLICATION_SUBTYPE_EXAMPLES`
 - `const APPLICATION_SUBTYPE_TIP`
 - `const APPLICATION_SUBTYPE_LABEL`
 - `const SUBTYPE_COVERAGE_WARN_THRESHOLD`
@@ -3362,9 +3368,6 @@
 - `function coverageText`
 - `function uncoveredCount`
 - `function firingAlerts`
-- `function firingCountByCategory`
-- `function firingUnclassifiedCount`
-- `function firingCountByApp`
 - `function resourceListHref`
 - `function appResourceListHref`
 - `const RESOURCE_IMPORT_HREF`

@@ -76,9 +76,6 @@ export const L1_CATEGORY_META: Record<ResourceCategoryKey, CategoryMeta> = {
   },
 }
 
-/** 应用服务的采集形态示例（**非指标 chip**：只说明 `application_http` 覆盖哪些实现，不参与口径） */
-export const APPLICATION_SUBTYPE_EXAMPLES = 'Java Spring / Go / Python'
-
 /** 应用服务「不拆子类」的理由（chip Tooltip 文案） */
 export const APPLICATION_SUBTYPE_TIP =
   '业务应用自带指标端点：Spring Boot Actuator / Go client / Python 等实现同归这一类，平台不按语言 / 框架拆分采集类型'
@@ -113,36 +110,6 @@ export function uncoveredCount(total: number, monitored: number): number {
 /** 仅取当前仍在触发（`firing`）的告警；`pending`（求值中）不计入任何「未恢复」数字 */
 export function firingAlerts(alerts: PromAlertItem[]): PromAlertItem[] {
   return alerts.filter((a) => a.state === 'firing')
-}
-
-/**
- * L1 各资源类型卡的「未恢复」胶囊数：按 `resource_category` 分组（决策 91，后端零改动）。
- * 无 `resource_category`（空串 / undefined）的告警**不计入任何资源类型卡**，由入口卡附注承载。
- */
-export function firingCountByCategory(
-  alerts: PromAlertItem[],
-  category: ResourceCategoryKey,
-): number {
-  return firingAlerts(alerts).filter((a) => a.resource_category === category).length
-}
-
-/**
- * 入口卡附注数：`firing` 但无 `resource_category` 的告警数——
- * 拨测目标、聚合规则、用户自写规则均无该标签，它们不属于资源台账对象。
- */
-export function firingUnclassifiedCount(alerts: PromAlertItem[]): number {
-  return firingAlerts(alerts).filter((a) => !a.resource_category).length
-}
-
-/**
- * L2 应用明细行的「未恢复」数：按告警标签 `app` 分组。
- *
- * `app` 标签由 M07 默认标签模板注入且**恒取 `app_code`**（决策 92），故这里用 `app_code`
- * 直接匹配。告警未携带 `app` 标签（无资源归属、未命中模板）时不归任何应用行。
- */
-export function firingCountByApp(alerts: PromAlertItem[], appCode: string): number {
-  if (!appCode) return 0
-  return firingAlerts(alerts).filter((a) => a.labels?.app === appCode).length
 }
 
 /** 资源清单页深链：按资源类型 + 子类预筛（子类参数名按各类型字段名传，便于列表页客户端过滤） */
