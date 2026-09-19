@@ -48,7 +48,7 @@
 | 资源类型管理 | 主机 / 数据库 / 中间件 / 应用服务 / 通用指标目标五类 | ❌ 无 | 自研类型枚举 + 差异化字段 | 中 | 低 | L4 |
 | 五类资源 CRUD | 固定字段、按类别差异化表单 | ❌ 无 | 自研 5 张资源表 + 统一 Resource 基座 | 中 | 中 | L4 |
 | Excel 导入 | 固定列模板、状态映射、upsert、必填校验 | ❌ 无 | Excel/CSV 解析 + 批量写入 + 校验报告 | 中 | 中 | L4 |
-| 业务字典 `biz_code` | 必填按类型分化（决策 93）：host/db/middleware 可空后补、application 上线后必填、generic\_target 与 app 二选一必填，展示名 `biz_name` | ❌ 无 | 部署级字典 + 存在性校验 | 低 | 低 | L4 |
+| 业务字典 `biz_code` | 必填按类型分化（决策 93）：host/db/middleware 可空后补、application 上线后必填、generic\_target 与 app 二选一必填，展示名 `biz_name`；**{v2.41} 导入支持内联声明新条目（决策 97）**：Excel 导入文件新增业务/应用声明 sheet，随批次原子建字典 + 落资源，重码/停用硬拒绝、只增不覆盖 | ❌ 无 | 部署级字典 + 存在性校验（可放宽至「字典 ∪ 导入声明」） | 中 | 低 | L4 |
 | `ResourceLabel` 管理 | `system` / `user` / `cmdb {v0.4+}` 来源、冲突合并 | ❌ 无 | 自研单表 + `source` 字段 + 优先级合并 | 中 | 中 | L4 |
 | 标签模板管理 | 字段映射 / transform；按粗粒度资源类别 | ✅ `relabel_configs` | 映射 UI → 生成 target labels | 中 | 中 | L2 |
 | 「采集状态」badge | 三态：采集中 / 已下发未采到（含变更未确认下发情形）/ 未监控（决策 47-3；2026-09-02 口径修订：选中关系取 DB 当前值、不感知 M09 下发时序） | ⚠️ 需 M02 聚合 | `is_monitored` 选中关系由 M01 维护，up/down 聚合由 M02 健康度/覆盖率 API（按 `resource_id` 标签回连资源）输出，M07 只读消费、**不直连时序数据** | 低 | 中 | L3 |
