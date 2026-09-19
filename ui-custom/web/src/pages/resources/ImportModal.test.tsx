@@ -97,6 +97,18 @@ describe('ImportModal', () => {
     expect(screen.getByRole('radio', { name: /新增或更新/ })).not.toBeChecked()
   })
 
+  it('F-9：导入模式为场景化人话文案，无「判重键」黑话', () => {
+    renderModal()
+    // 点题句：说明唯一标识识别，而非「判重键」
+    expect(
+      screen.getByText(/文件里已有的资源（按 IP \/ 服务名等唯一标识识别）怎么处理/),
+    ).toBeInTheDocument()
+    // hint：场景化描述（首次建档 / 整体刷新），黑话零残留
+    expect(screen.getByText(/已存在的行会报错跳过，不会改动现有数据（适合首次批量建档）/)).toBeInTheDocument()
+    expect(screen.getByText(/已存在的行会用文件内容覆盖更新（适合整体刷新）/)).toBeInTheDocument()
+    expect(screen.queryByText(/判重键/)).not.toBeInTheDocument()
+  })
+
   it('warns and skips submit when no file selected', async () => {
     renderModal()
     fireEvent.click(screen.getByRole('button', { name: /开始导入/ }))

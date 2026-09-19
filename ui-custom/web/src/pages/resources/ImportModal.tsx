@@ -34,10 +34,10 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   generic_target: '通用目标',
 }
 
-/** 导入模式说明（§6.1 / §5.16.2，create_only 默认；upsert 按判重键覆盖更新） */
+/** 导入模式说明（§6.1 / §5.16.2，create_only 默认；upsert 按判重键覆盖更新）。文案经 F-9 用户评审改为场景化人话，标签与后端 mode 枚举对应，默认 create_only */
 const MODE_OPTIONS: { value: ImportMode; label: string; hint: string }[] = [
-  { value: 'create_only', label: '仅新增', hint: '遇到已存在的数据（按判重键）则该行失败，不写入' },
-  { value: 'upsert', label: '新增或更新', hint: '按判重键定位已有资源并覆盖更新' },
+  { value: 'create_only', label: '仅新增', hint: '已存在的行会报错跳过，不会改动现有数据（适合首次批量建档）' },
+  { value: 'upsert', label: '新增或更新', hint: '已存在的行会用文件内容覆盖更新（适合整体刷新）' },
 ]
 
 interface ImportModalProps {
@@ -197,6 +197,9 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
       </Button>
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
         2. 选择导入模式
+      </Text>
+      <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
+        导入时，文件里已有的资源（按 IP / 服务名等唯一标识识别）怎么处理？
       </Text>
       <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>
         <Space direction="vertical">
