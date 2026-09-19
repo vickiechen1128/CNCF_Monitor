@@ -129,6 +129,8 @@ const MODULES: ModuleDef[] = [
       // 原型对齐（Module_07 MainLayout §3.23）：业务分组字典为资源录入/导入的取值权威，
       // 故「业务管理」前置，位于「资源管理」之上。
       { key: '/business-domains', label: '业务管理', icon: <AppstoreOutlined /> },
+      // 应用字典维护页（M07 §5.19 / 决策 92，与业务管理同构：编码不可变 + 停用不删除）
+      { key: '/application-dict', label: '应用管理', icon: <AppstoreOutlined /> },
       { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
       { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
     ],
@@ -219,7 +221,7 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
- * /resources、/label-templates、/business-domains → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /resources、/label-templates、/business-domains、/application-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
@@ -237,7 +239,8 @@ function resolveActiveModule(locationPath: string): ModuleDef {
   if (
     locationPath.startsWith('/resources') ||
     locationPath.startsWith('/label-templates') ||
-    locationPath.startsWith('/business-domains')
+    locationPath.startsWith('/business-domains') ||
+    locationPath.startsWith('/application-dict')
   )
     return findModuleByKey('monitoring-object')
   if (

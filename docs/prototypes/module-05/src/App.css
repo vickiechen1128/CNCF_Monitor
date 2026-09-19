@@ -86,3 +86,26 @@ body {
 .yaml-preview .key { color: #0ECDEB; }
 .yaml-preview .string { color: #A5D63F; }
 .yaml-preview .number { color: #FF9F43; }
+
+/* 决策 93：L0 五卡 / L1 五类一行共用网格——antd 24 栅格除不尽 5，改 CSS grid。
+   ≥1201px 一行五卡；769~1200px 回落 3+2（第 4/5 张各占半宽）；≤768px 单列。 */
+.home-grid-5 {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 16px;
+}
+.home-grid-5 > * { grid-column: span 6; }
+@media (min-width: 769px) {
+  .home-grid-5 > * { grid-column: span 2; }
+  .home-grid-5 > *:nth-child(4),
+  .home-grid-5 > *:nth-child(5) { grid-column: span 3; }
+}
+@media (min-width: 1201px) {
+  .home-grid-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .home-grid-5 > *,
+  .home-grid-5 > *:nth-child(4),
+  .home-grid-5 > *:nth-child(5) { grid-column: span 1; }
+}
+
+/* 决策 93：拨测态势面板异常行浅红底 */
+.probe-row-down > td { background: #fef4f4 !important; }

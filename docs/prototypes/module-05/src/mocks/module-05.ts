@@ -15,11 +15,11 @@ export interface DashboardStats {
 export interface AlertGovernance {
   todayCount: number // 当日告警：今日 0 点起触发过的告警条数（含已恢复；M02 /api/v1/alerts/history 前端计数）
   weekCount: number // 近 7 天告警：fired_at ≥ now-7d 的告警条数（含已恢复）
-  active: number // 通知中
-  silenced: number // 已静默
-  inhibited: number // 已抑制
+  active: number // 通知中（AM active）：此刻仍在投递；与 silenced/inhibited 满足「未恢复 = 通知中 + 静默 + 抑制」
+  silenced: number // 已静默（Prom 侧仍 firing，AM 不再投递）
+  inhibited: number // 已抑制（同上）
   unprocessed: number // 仍在计算通知状态（不计数、不进列表）
-  promFiring: number // Prom 触发中（仅参考）
+  promFiring: number // Prom 触发中（= L0「告警」卡当前未恢复，仅参考展示）
   promPending: number // Prom 求值中（仅参考）
 }
 
@@ -96,9 +96,13 @@ export const DEPLOYMENT_STATUS_LABEL: Record<RecentDeployment['status'], string>
 /** 首页本地常量：Prom 求值态文案（不复用 M08 字典，避免把「待处理」歧义词带回首页） */
 export const PROM_EVAL_LABEL = { firing: '触发中', pending: '求值中' } as const
 
+/**
+ * 计数字段与 `mockResourceTypes` 保持自洽：`resourceTotal` = 五类 `resourceCount` 之和（128），
+ * `monitoredCount` = 五类 `monitoredCount` 之和（96）。改动任一侧都必须同步另一侧。
+ */
 export const mockDashboardStats: DashboardStats = {
-  resourceTotal: 1248,
-  monitoredCount: 986,
+  resourceTotal: 128,
+  monitoredCount: 96,
   scrapeJobCount: 64,
   scrapeJobEnabledCount: 58,
   managedDomainCount: 4,
@@ -108,14 +112,26 @@ export const mockDashboardStats: DashboardStats = {
 export const mockAlertGovernance: AlertGovernance = {
   todayCount: 12,
   weekCount: 38,
-  active: 7,
+  // 通知中（AM active）：与 silenced / inhibited 满足不变量
+  // 「当前未恢复 8（= L0 告警卡）= 通知中 3 + 已静默 3 + 已抑制 2」
+  // ——静默 / 抑制的告警在 Prom 侧仍 firing，只是 AM 不再投递（2026-09-19 用户反馈后修齐）
+  // 不变量二：「最新告警」列表 = 当前未恢复全量 8 条，status 分布必须与 active/silenced/inhibited 一致（3/3/2）
+  active: 3,
   silenced: 3,
   inhibited: 2,
   unprocessed: 4,
-  promFiring: 7,
+  // Prom 触发中 = L0「告警」卡同源（/api/v1/alerts firing 总数），必须与 8 一致
+  promFiring: 8,
   promPending: 5,
 }
 
+/**
+ * 最新告警列表（决策 73 / 93 同版本微调）：
+ * 维度 = 「当前未恢复告警」按触发时间倒序的全量 8 条（与 mockAlertGovernance.promFiring 同源同数），
+ * 不是「当日 12 条」的明细——当日为历史累计（含已恢复），与本列表口径不同、数量不对应属正常。
+ * status 分布必须满足不变量：active 3 + silenced 3 + inhibited 2 = 8。
+ * 首条 alt-008 特意保留一条 5 天前触发的长时未恢复：让读者直观看到「未恢复 ≠ 今日触发」。
+ */
 export const mockLatestAlerts: LatestAlert[] = [
   {
     id: 'alt-001',
@@ -123,7 +139,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     name: '主机 CPU 使用率过高',
     summary: 'CPU 使用率 92%，超过阈值 85% 已持续 5 分钟',
     instanceName: 'prod-web-01',
-    startsAt: '2026-09-14 09:32:00',
+    startsAt: '2026-09-19 09:32:00',
     status: 'active',
   },
   {
@@ -132,7 +148,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     name: '节点离线',
     summary: '节点已 60 秒无响应，疑似断网或采集进程异常',
     instanceName: 'edge-node-03',
-    startsAt: '2026-09-14 09:28:00',
+    startsAt: '2026-09-19 09:28:00',
     status: 'active',
   },
   {
@@ -141,7 +157,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     name: '磁盘空间不足',
     summary: '数据盘使用率 91%，预计 6 小时后写满',
     instanceName: 'prod-db-01',
-    startsAt: '2026-09-14 09:15:00',
+    startsAt: '2026-09-19 09:15:00',
     status: 'active',
   },
   {
@@ -150,7 +166,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     name: '服务拨测失败',
     summary: 'HTTP 探针连续 3 次超时（>3s）',
     instanceName: 'order-service-v2',
-    startsAt: '2026-09-14 08:58:00',
+    startsAt: '2026-09-19 08:58:00',
     status: 'silenced',
   },
   {
@@ -159,17 +175,8 @@ export const mockLatestAlerts: LatestAlert[] = [
     name: '内存使用率偏高',
     summary: '内存使用率 88%，接近告警阈值 90%',
     instanceName: 'redis-cache-01',
-    startsAt: '2026-09-14 08:40:00',
-    status: 'active',
-  },
-  {
-    id: 'alt-006',
-    severity: 'info',
-    name: '采集任务配置变更待确认',
-    summary: '当前有 3 个配置草稿待人工确认下发',
-    instanceName: null,
-    startsAt: '2026-09-14 08:22:00',
-    status: 'active',
+    startsAt: '2026-09-19 08:40:00',
+    status: 'silenced',
   },
   {
     id: 'alt-007',
@@ -177,7 +184,16 @@ export const mockLatestAlerts: LatestAlert[] = [
     name: 'MySQL 连接数逼近上限',
     summary: '当前连接数 480 / 上限 512，剩余 6%',
     instanceName: 'mysql-master',
-    startsAt: '2026-09-14 08:05:00',
+    startsAt: '2026-09-18 17:05:00',
+    status: 'inhibited',
+  },
+  {
+    id: 'alt-009',
+    severity: 'warning',
+    name: '容器重启次数异常',
+    summary: '过去 1 小时内重启 5 次',
+    instanceName: 'k8s-worker-12',
+    startsAt: '2026-09-17 21:12:00',
     status: 'inhibited',
   },
   {
@@ -187,25 +203,7 @@ export const mockLatestAlerts: LatestAlert[] = [
     summary: 'inode 使用率 87%，小文件数量过多',
     instanceName: 'prod-app-07',
     startsAt: '2026-09-14 07:48:00',
-    status: 'active',
-  },
-  {
-    id: 'alt-009',
-    severity: 'warning',
-    name: '容器重启次数异常',
-    summary: '过去 1 小时内重启 5 次',
-    instanceName: 'k8s-worker-12',
-    startsAt: '2026-09-14 07:30:00',
     status: 'silenced',
-  },
-  {
-    id: 'alt-010',
-    severity: 'info',
-    name: 'Edge Agent 心跳延迟升高',
-    summary: '心跳延迟 45s，超过正常阈值 10s',
-    instanceName: 'edge-node-01',
-    startsAt: '2026-09-14 07:12:00',
-    status: 'active',
   },
 ]
 
@@ -402,3 +400,183 @@ export const mockNetworkDomains = ['default', 'edge', 'finance']
 export const mockBizCodes = ['Iaas', 'PaaS', 'Saas']
 export const mockApps = ['nginx-prod', 'mysql-master', 'order-service']
 export const mockInstances = ['10.0.0.11:9100', '10.0.0.12:9100', '10.0.1.5:9100']
+
+// —— 首页 v1.4（决策 91）：L1 资源类型分组 / L2 应用明细 / 拨测口径 ——
+
+/** 资源类型枚举（对齐 Module_07 `resource_category`，UI 名见 §10 术语映射） */
+export type ResourceCategoryKey =
+  | 'host'
+  | 'database'
+  | 'middleware'
+  | 'application'
+  | 'generic_target'
+
+/** 采集类型子类明细行（卡内二级层级，可点击下钻资源清单） */
+export interface SubtypeSummary {
+  key: string
+  name: string
+  resourceCount: number
+  monitoredCount: number
+}
+
+/** L1 资源类型卡数据：按资源类型分组的采集覆盖（决策 93 同版本微调第二轮：告警收口 L0 + 告警状态卡，不再携带告警字段） */
+export interface ResourceTypeSummary {
+  resourceCategory: ResourceCategoryKey
+  name: string
+  resourceCount: number
+  monitoredCount: number
+  /** 应用服务为空数组：平台不按语言 / 框架拆分采集类型子类 */
+  subtypes: SubtypeSummary[]
+}
+
+/** L2 应用明细行（决策 93 同版本微调：告警数字收口 L0 + 告警状态卡，本表不再携带「未恢复」列） */
+export interface AppSummary {
+  appCode: string
+  appName: string
+  bizCode: string
+  bizName: string
+  resourceCount: number
+  monitoredCount: number
+}
+
+/** 拨测目标概况：不计入资源台账与覆盖率分子分母，仅作附注 */
+export interface ProbeSummary {
+  targetCount: number
+  abnormalCount: number
+}
+
+/**
+ * 拨测目标明细（决策 93）：驱动 L3 拨测态势面板。
+ * 归属定则：业务域必填、应用可选（官网 / 证书 / 第三方类拨测不属任何应用；
+ * 先例 = Module_07 决策 92 设备类 `app_code` 留空）。`lastProbeAt` 口径由 M01 blackbox 回传承载。
+ */
+export interface ProbeTarget {
+  id: string
+  url: string
+  status: 'up' | 'down'
+  bizCode: string
+  bizName: string
+  appCode?: string
+  appName?: string
+  lastProbeAt: string
+}
+
+/**
+ * 五个资源类型的资源数之和应等于资源总数——原型 mock 保持这一自洽关系，
+ * 避免演示时出现「分项加不齐」的质疑。（告警字段已随两点收口移除，告警数字唯一来源 = mockAlertGovernance）
+ */
+export const mockResourceTypes: ResourceTypeSummary[] = [
+  {
+    resourceCategory: 'host',
+    name: '主机',
+    resourceCount: 42,
+    monitoredCount: 36,
+    subtypes: [
+      { key: 'linux', name: 'Linux', resourceCount: 34, monitoredCount: 30 },
+      { key: 'windows', name: 'Windows', resourceCount: 8, monitoredCount: 6 },
+    ],
+  },
+  {
+    resourceCategory: 'database',
+    name: '数据库',
+    resourceCount: 26,
+    monitoredCount: 21,
+    subtypes: [
+      { key: 'mysql', name: 'MySQL', resourceCount: 10, monitoredCount: 9 },
+      { key: 'redis', name: 'Redis', resourceCount: 6, monitoredCount: 5 },
+      { key: 'oracle', name: 'Oracle', resourceCount: 3, monitoredCount: 1 },
+      { key: 'postgresql', name: 'PostgreSQL', resourceCount: 5, monitoredCount: 4 },
+      { key: 'mongodb', name: 'MongoDB', resourceCount: 2, monitoredCount: 2 },
+    ],
+    /** 5 个子类 > 封顶 3：演示「更多 +2」聚合 chip（决策 93）；分项之和 26/21 与类目一致 */
+  },
+  {
+    resourceCategory: 'middleware',
+    name: '中间件',
+    resourceCount: 18,
+    monitoredCount: 12,
+    subtypes: [
+      { key: 'kafka', name: 'Kafka', resourceCount: 8, monitoredCount: 6 },
+      { key: 'nginx', name: 'Nginx', resourceCount: 6, monitoredCount: 4 },
+      { key: 'elasticsearch', name: 'Elasticsearch', resourceCount: 4, monitoredCount: 2 },
+    ],
+  },
+  {
+    resourceCategory: 'application',
+    name: '应用服务',
+    resourceCount: 34,
+    monitoredCount: 22,
+    subtypes: [],
+  },
+  {
+    resourceCategory: 'generic_target',
+    name: '其他监控目标',
+    resourceCount: 8,
+    monitoredCount: 5,
+    subtypes: [
+      { key: 'snmp', name: 'SNMP 网络设备', resourceCount: 4, monitoredCount: 3 },
+      { key: 'k8s', name: 'K8s 集群端点', resourceCount: 3, monitoredCount: 2 },
+      { key: 'custom_http', name: '自定义 HTTP 端点', resourceCount: 1, monitoredCount: 0 },
+    ],
+  },
+]
+
+/**
+ * L2 应用明细：按覆盖率升序排列（缺口最大的排最前），未归类行置底。
+ * 三个应用 + 未归类行的 `resourceCount` / `monitoredCount` 之和同样等于 128 / 96，
+ * 与 L0 全局、L1 五类两个层级互为交叉校验。
+ */
+export const mockAppSummaries: AppSummary[] = [
+  {
+    appCode: 'user',
+    appName: '用户中心',
+    bizCode: 'user',
+    bizName: '用户业务',
+    resourceCount: 24,
+    monitoredCount: 16,
+  },
+  {
+    appCode: 'data-api',
+    appName: '数据网关',
+    bizCode: 'data-api',
+    bizName: '数据服务',
+    resourceCount: 26,
+    monitoredCount: 20,
+  },
+  {
+    appCode: 'payment',
+    appName: '支付平台',
+    bizCode: 'payment',
+    bizName: '支付业务',
+    resourceCount: 30,
+    monitoredCount: 24,
+  },
+]
+
+/** 未标注应用归属的资源（L2 置底行，引导补填） */
+export const mockUnclassifiedResource = {
+  resourceCount: 48,
+  monitoredCount: 36,
+}
+
+/** 拨测目标概况（Blackbox；不计入资源台账与覆盖率）。abnormalCount 应等于 mockProbeTargets 中 down 数 */
+export const mockProbeSummary: ProbeSummary = {
+  targetCount: 12,
+  abnormalCount: 2,
+}
+
+/** 拨测目标明细（12 条，2 条异常演示「异常排前 + 标红」；应用列留空演示可空语义） */
+export const mockProbeTargets: ProbeTarget[] = [
+  { id: 'probe-01', url: 'https://pay-api.example.cn/healthz', status: 'down', bizCode: 'payment', bizName: '支付业务', appCode: 'payment', appName: '支付平台', lastProbeAt: '2026-09-19T09:36:00+08:00' },
+  { id: 'probe-02', url: 'https://www.example.cn/cert-check', status: 'down', bizCode: 'user', bizName: '用户业务', lastProbeAt: '2026-09-19T09:27:00+08:00' },
+  { id: 'probe-03', url: 'https://www.example.cn/', status: 'up', bizCode: 'user', bizName: '用户业务', lastProbeAt: '2026-09-19T09:38:00+08:00' },
+  { id: 'probe-04', url: 'https://data-api.example.cn/health', status: 'up', bizCode: 'data', bizName: '数据服务', appCode: 'data-api', appName: '数据网关', lastProbeAt: '2026-09-19T09:38:00+08:00' },
+  { id: 'probe-05', url: 'https://order.example.cn/submit', status: 'up', bizCode: 'payment', bizName: '支付业务', appCode: 'payment', appName: '支付平台', lastProbeAt: '2026-09-19T09:37:00+08:00' },
+  { id: 'probe-06', url: 'tcp://mysql.pay.example.cn:3306', status: 'up', bizCode: 'payment', bizName: '支付业务', appCode: 'payment', appName: '支付平台', lastProbeAt: '2026-09-19T09:37:00+08:00' },
+  { id: 'probe-07', url: 'https://gateway.example.cn/v1/ping', status: 'up', bizCode: 'data', bizName: '数据服务', appCode: 'data-api', appName: '数据网关', lastProbeAt: '2026-09-19T09:36:00+08:00' },
+  { id: 'probe-08', url: 'https://sso.example.cn/login', status: 'up', bizCode: 'user', bizName: '用户业务', lastProbeAt: '2026-09-19T09:35:00+08:00' },
+  { id: 'probe-09', url: 'https://cdn.example.cn/', status: 'up', bizCode: 'user', bizName: '用户业务', lastProbeAt: '2026-09-19T09:34:00+08:00' },
+  { id: 'probe-10', url: 'https://k8s-api.example.cn:6443/healthz', status: 'up', bizCode: 'data', bizName: '数据服务', lastProbeAt: '2026-09-19T09:33:00+08:00' },
+  { id: 'probe-11', url: 'https://mail.example.cn/smtp-check', status: 'up', bizCode: 'user', bizName: '用户业务', lastProbeAt: '2026-09-19T09:30:00+08:00' },
+  { id: 'probe-12', url: 'https://static.example.cn/', status: 'up', bizCode: 'user', bizName: '用户业务', lastProbeAt: '2026-09-19T09:28:00+08:00' },
+]

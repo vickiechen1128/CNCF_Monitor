@@ -9,6 +9,7 @@ import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
 import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
 import BusinessDomainPage from './pages/resources/BusinessDomainPage'
+import ApplicationDictPage from './pages/resources/ApplicationDictPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
 import ScrapeJobListPage from './pages/strategy/ScrapeJobListPage'
 import CollectorListPage from './pages/strategy/CollectorListPage'
@@ -89,6 +90,8 @@ function AppRoutes() {
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/label-templates" element={<LabelTemplatesPage />} />
           <Route path="/business-domains" element={<BusinessDomainPage />} />
+          {/* 应用字典维护页（M07 §5.19 / 决策 92，与业务管理页同构） */}
+          <Route path="/application-dict" element={<ApplicationDictPage />} />
           <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
           <Route path="/collectors" element={<CollectorListPage />} />
           <Route path="/rules" element={<RulesPage />} />

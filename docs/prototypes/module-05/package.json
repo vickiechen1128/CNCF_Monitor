@@ -1,7 +1,7 @@
 {
   "name": "metric-center-prototype-module-05",
   "private": true,
-  "version": "1.2.1",
+  "version": "1.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "preview:gh-pages": "VITE_BASE_PATH=/CNCF_Monitor/ pnpm build && VITE_BASE_PATH=/CNCF_Monitor/ vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "check:notes": "bash ../../../scripts/check-prototype.sh module-05 --markers-only",
     "test": "vitest run"
   },
   "dependencies": {
