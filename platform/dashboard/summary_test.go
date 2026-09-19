@@ -42,6 +42,8 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.ConfigDeployment{},
 		// 决策 92：by_app 的 app_name 展示名 join 应用字典
 		&models.ApplicationDict{},
+		// 决策 92/93/95：by_app 的 biz_name 展示名 join 业务字典
+		&models.BusinessDomain{},
 	))
 	t.Cleanup(func() {
 		if sqlDB, e := db.DB(); e == nil {
@@ -76,23 +78,36 @@ func seed(t *testing.T, db *gorm.DB) {
 		IsMonitored: false,
 	}).Error)
 
+	// 业务字典（决策 48）：biz_code → biz_name 展示名；by_app 的 biz_name 多数归因取值源。
+	require.NoError(t, db.Create(&models.BusinessDomain{
+		Code: "pay", Name: "支付域", Enabled: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.BusinessDomain{
+		Code: "ops", Name: "运维域", Enabled: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.BusinessDomain{
+		Code: "infra", Name: "公共基础设施", Enabled: true,
+	}).Error)
+
 	// 12 个资源，覆盖五类 + 应用归属（含未归类）+ 子类，用于分组聚合不变量断言：
-	//   host(3): Image=linux/linux/windows；AppCode=app/app/""（未归类）
-	//   database(2): DatabaseType=mysql/redis；AppName=db/db
-	//   middleware(2): MiddlewareType=nginx/kafka；AppName=mw/""（未归类）
-	//   application(2): AppName=appsvc/""（未归类）；无子类
-	//   generic_target(3): ExporterType=snmp_exporter/snmp_exporter/http_exporter；AppName=gt/gt/""（未归类）
+	//   host(3): Image=linux/linux/windows；AppCode=app/app/""（未归类）；BizCode=pay/ops/infra
+	//   database(2): DatabaseType=mysql/redis；AppName=db/db；BizCode=infra/infra
+	//   middleware(2): MiddlewareType=nginx/kafka；AppName=app/""（未归类）；BizCode=pay/infra
+	//   application(2): AppName=appsvc/""（未归类）；无子类；BizCode=infra/infra
+	//   generic_target(3): ExporterType=snmp_exporter/snmp_exporter/http_exporter；AppName=gt/gt/""（未归类）；BizCode=infra/infra/infra
 	// → resource_count=12，未归类(app 空)=4，app 非空=8。
+	// 业务域多数归因（决策 92/93/95）：app 下 3 资源 biz=pay×2 + ops×1 → BizCode=pay；
+	// db/appsvc/gt 全量 biz=infra → BizCode=infra。
 	for _, m := range []interface{}{
 		&models.Host{
 			ResourceID: "res-host-1", ResourceCategory: models.ResourceCategoryHost,
-			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
+			NetworkDomainID: "default", BizCode: "pay", SourceType: models.SourceTypeManual,
 			AppCode: "app", EnvFlag: "prod", SubAppCode: "cluster", InstanceName: "web-01",
 			ServerID: "srv-host-1", Status: "online", Image: "linux",
 		},
 		&models.Host{
 			ResourceID: "res-host-2", ResourceCategory: models.ResourceCategoryHost,
-			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
+			NetworkDomainID: "default", BizCode: "ops", SourceType: models.SourceTypeManual,
 			AppCode: "app", EnvFlag: "prod", SubAppCode: "cluster", InstanceName: "web-02",
 			ServerID: "srv-host-2", Status: "online", Image: "windows",
 		},
@@ -120,8 +135,8 @@ func seed(t *testing.T, db *gorm.DB) {
 		},
 		&models.Middleware{
 			ResourceID: "res-mw-1", ResourceCategory: models.ResourceCategoryMiddleware,
-			NetworkDomainID: "default", BizCode: "infra", SourceType: models.SourceTypeManual,
-			AppName: "mw", Env: "prod", Cluster: "cluster", Status: "online",
+			NetworkDomainID: "default", BizCode: "pay", SourceType: models.SourceTypeManual,
+			AppName: "app", Env: "prod", Cluster: "cluster", Status: "online",
 			MiddlewareType: "nginx", InstanceIP: "10.0.0.3", Port: 80,
 		},
 		&models.Middleware{
@@ -328,6 +343,20 @@ func TestSummaryHandler(t *testing.T) {
 	assert.Equal(t, 4, s.UnclassifiedResourceCount, "未归类资源数（app_code 空）")
 	assert.Equal(t, s.ResourceCount, sumAppRes+s.UnclassifiedResourceCount, "不变量3")
 	assert.Equal(t, s.MonitoredCount, sumAppMon+s.UnclassifiedMonitoredCount, "不变量4")
+
+	// 决策 92/93/95：by_app 业务域多数归因（biz_code/biz_name）。
+	appByCode := make(map[string]AppSummary, len(s.ByApp))
+	for _, a := range s.ByApp {
+		appByCode[a.AppCode] = a
+	}
+	// app 下 3 资源 biz=pay×2 + ops×1 → 多数归因 pay；BizName 查业务字典。
+	assert.Equal(t, "pay", appByCode["app"].BizCode, "app 多数归因 biz_code")
+	assert.Equal(t, "支付域", appByCode["app"].BizName, "app 的 biz_name 查业务字典")
+	// db/appsvc/gt 全量 biz=infra → 归因 infra（字典有名）。
+	assert.Equal(t, "infra", appByCode["db"].BizCode)
+	assert.Equal(t, "公共基础设施", appByCode["db"].BizName)
+	assert.Equal(t, "infra", appByCode["appsvc"].BizCode)
+	assert.Equal(t, "infra", appByCode["gt"].BizCode)
 
 	// 五类固定齐全且 application 不拆子类。
 	require.Len(t, s.ByCategory, 5, "by_category 五类固定齐全")
