@@ -47,7 +47,10 @@ export interface ResourceBase {
   os_type?: string
   // {v2.8} 业务类型/业务域归属（如 payment / data-api）；任意资源类别可挂，MVP 以 application 维护；映射为 `biz` label
   biz_code?: string
-  app_name?: string
+  // 决策 92：应用归属**不可变编码**（对应应用字典主键，见 mockApplicationDict）；`app` label 的唯一取值来源。
+  // 资源侧只存编码，展示名 app_name 由字典解析（resolveAppName）；
+  // 必填规则：application / database / middleware 必填，host / generic_target 可空（空值不注入 `app` 标签）。
+  app_code?: string
   env?: Env
   cluster?: string
   owner?: string
@@ -410,6 +413,48 @@ export function isBizDisabled(code?: string): boolean {
 /** 业务编码规范（决策 48）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
 export const BIZ_CODE_RE = /^[a-z0-9-]{1,64}$/
 
+// ---------- 应用字典（PRD 5.19 / 决策 92） ----------
+// 与业务分组字典（5.18）同构：code 不可变 + 展示名必填 + 停用不删除。
+// 粒度差异：`biz` 回答「服务谁」（业务域聚合），`app` 回答「属于哪个应用」（应用实例级聚合）。
+export interface AppDictEntry {
+  /** 应用编码，进 app 标签，创建后不可变 */
+  app_code: string
+  /** 展示名，可改，不影响监控配置；UI 一律展示 app_name */
+  app_name: string
+  description?: string
+  /** enabled = 启用（可被资源引用）；disabled = 停用（仅可改展示名，不可删除） */
+  status: 'enabled' | 'disabled'
+}
+
+export const mockApplicationDict: AppDictEntry[] = [
+  { app_code: 'web-portal', app_name: '电商前台', description: '面向用户的电商门户前端', status: 'enabled' },
+  { app_code: 'order-service', app_name: '订单服务', description: '订单创建 / 履约主链路', status: 'enabled' },
+  { app_code: 'pay-service', app_name: '支付服务', description: '支付与资金链路', status: 'enabled' },
+  { app_code: 'gateway-service', app_name: '网关服务', description: '统一南北向流量入口', status: 'enabled' },
+  { app_code: 'nginx-gateway', app_name: '网关 Nginx', description: 'Nginx 七层转发集群', status: 'enabled' },
+  { app_code: 'cache-service', app_name: '缓存服务', description: 'Redis 缓存集群', status: 'enabled' },
+  { app_code: 'message-queue', app_name: '消息队列', description: 'Kafka 消息中间件', status: 'enabled' },
+  { app_code: 'order-db', app_name: '订单库', description: '订单主库（MySQL）', status: 'enabled' },
+  { app_code: 'gov-db', app_name: '政务数据库', description: '政务网域达梦数据库', status: 'enabled' },
+  { app_code: 'legacy-portal', app_name: '已下线应用', description: '停用中，不可再被资源引用', status: 'disabled' },
+  // 注：设备类资源（网络设备 / 负载均衡）无应用归属，其资源 app_code 留空——见 5.2 必填标注
+]
+
+/** 应用字典展示名解析：code → app_name；未登记或空值返回 code 本身或 '-' */
+export function resolveAppName(code?: string): string {
+  if (!code) return '-'
+  return mockApplicationDict.find((d) => d.app_code === code)?.app_name || code
+}
+
+/** 应用字典条目是否停用（disabled）：停用应用不可再被资源引用，但存量资源保留历史值 */
+export function isAppDisabled(code?: string): boolean {
+  if (!code) return false
+  return mockApplicationDict.find((d) => d.app_code === code)?.status === 'disabled'
+}
+
+/** 应用编码规范（决策 92，与业务编码同规约）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
+export const APP_CODE_RE = /^[a-z0-9-]{1,64}$/
+
 // ---------- 采集状态三态（PRD 5.2 / 决策 47-3） ----------
 // is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连）。
 // 三态取值：up（采集中）/ down（已下发未采到）/ unmonitored（未监控）。
@@ -580,11 +625,11 @@ export const mockStatusMappingConfig: StatusMappingConfig = {
 
 /** 五大类资源固定列导入模板（PRD 5.16.1，含 network_domain / biz_code 列；{v2.17} 全资源类必填 biz_code） */
 export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceCategory, string[]> = {
-  host: ['network_domain', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  application: ['network_domain', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'status'],
-  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'status'],
+  host: ['network_domain', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
+  database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
+  middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
+  application: ['network_domain', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'status'],
+  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
 }
 
 /**
@@ -603,11 +648,11 @@ export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceCategory, string[]> = {
  * 且前端**默认启用**（用户可关闭，不默认关闭）。理由见 TENANT_MAPPING_NOTES。
  */
 export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
-  host: ['resource_id', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  database: ['resource_id', 'instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  middleware: ['resource_id', 'instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  application: ['resource_id', 'instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  generic_target: ['resource_id', 'instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_name', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  host: ['resource_id', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  database: ['resource_id', 'instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  middleware: ['resource_id', 'instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  application: ['resource_id', 'instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  generic_target: ['resource_id', 'instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
 }
 
 /** {v2.31} v0.2 内置默认映射前瞻：五类默认模板在 v0.2 开启多租户时统一追加 `tenant_id → tenant`，前端默认启用 */
@@ -683,7 +728,7 @@ export const mockResources: Resource[] = [
     instance_ip: '10.0.1.11',
     os_type: 'Linux',
     os_version: '7.9',
-    app_name: '电商前台',
+    app_code: 'web-portal',
     env: 'prod',
     cluster: 'web-cluster-a',
     owner: '张三',
@@ -707,7 +752,7 @@ export const mockResources: Resource[] = [
     instance_ip: '10.0.1.21',
     os_type: 'Linux',
     os_version: '7.9',
-    app_name: '订单服务',
+    app_code: 'order-service',
     env: 'prod',
     cluster: 'db-cluster-a',
     owner: '李四',
@@ -727,7 +772,7 @@ export const mockResources: Resource[] = [
     instance_ip: '192.168.1.31',
     os_type: 'Linux',
     os_version: '8.6',
-    app_name: '网关服务',
+    app_code: 'gateway-service',
     env: 'test',
     cluster: 'gateway-cluster',
     owner: '王五',
@@ -749,7 +794,7 @@ export const mockResources: Resource[] = [
     port: 6379,
     version: '7.2',
     connection_string: 'redis://:****@10.0.2.11:6379/0',
-    app_name: '缓存服务',
+    app_code: 'cache-service',
     env: 'prod',
     cluster: 'cache-cluster',
     owner: '赵六',
@@ -770,7 +815,7 @@ export const mockResources: Resource[] = [
     port: 3306,
     version: '8.0',
     connection_string: 'mysql://order:****@10.0.2.12:3306/order',
-    app_name: '订单库',
+    app_code: 'order-db',
     env: 'prod',
     cluster: 'db-cluster-a',
     owner: '李四',
@@ -791,7 +836,7 @@ export const mockResources: Resource[] = [
     port: 5236,
     version: 'dm8',
     connection_string: 'dm://system:****@192.168.1.41:5236',
-    app_name: '政务数据库',
+    app_code: 'gov-db',
     env: 'prod',
     cluster: 'dm-cluster',
     owner: '王五',
@@ -813,7 +858,7 @@ export const mockResources: Resource[] = [
     port: 9092,
     version: '3.6',
     connection_string: '10.0.2.21:9092',
-    app_name: '消息队列',
+    app_code: 'message-queue',
     env: 'prod',
     cluster: 'kafka-cluster',
     owner: '孙七',
@@ -834,7 +879,7 @@ export const mockResources: Resource[] = [
     port: 80,
     version: '1.24',
     connection_string: '10.0.2.22:80',
-    app_name: '网关 Nginx',
+    app_code: 'nginx-gateway',
     env: 'prod',
     cluster: 'gw-cluster',
     owner: '周八',
@@ -856,7 +901,7 @@ export const mockResources: Resource[] = [
     protocol: 'http',
     endpoint: '10.0.3.11:9100',
     port: 9100,
-    app_name: '订单服务',
+    app_code: 'order-service',
     env: 'prod',
     cluster: 'k8s-prod',
     owner: '周八',
@@ -877,7 +922,7 @@ export const mockResources: Resource[] = [
     protocol: 'http',
     endpoint: '192.168.3.12:9100',
     port: 9100,
-    app_name: '支付服务',
+    app_code: 'pay-service',
     env: 'staging',
     cluster: 'k8s-staging',
     owner: '吴九',
@@ -901,7 +946,7 @@ export const mockResources: Resource[] = [
     scheme: 'http',
     exporter_type: 'snmp_exporter',
     custom_labels: 'device_type=snmp_switch;vendor=h3c',
-    app_name: '核心交换',
+    // 设备类资源无应用归属：app_code 留空，`app` 标签不注入（决策 92 必填规则）
     env: 'prod',
     cluster: 'network-core',
     owner: '郑十',
@@ -924,7 +969,7 @@ export const mockResources: Resource[] = [
     scheme: 'http',
     exporter_type: 'haproxy_exporter',
     custom_labels: 'device_type=lb;vendor=f5',
-    app_name: '入口负载',
+    // 设备类资源无应用归属：app_code 留空
     env: 'staging',
     cluster: 'lb-cluster',
     owner: '钱十一',
@@ -948,7 +993,7 @@ export const mockResources: Resource[] = [
     scheme: 'https',
     exporter_type: 'blackbox_exporter',
     custom_labels: 'probe_type=https;tag=web',
-    app_name: '订单服务',
+    app_code: 'order-service',
     env: 'prod',
     cluster: 'probe-cluster',
     owner: '郑十',
@@ -963,7 +1008,7 @@ export const mockResources: Resource[] = [
 export const mockResourceLabels: Record<string, ResourceLabel[]> = {
   'res-host-001': [
     { label_id: 'l1', resource_id: 'res-host-001', label_key: 'instance', label_value: '10.0.1.11:9100', source: 'system', is_editable: false, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
-    { label_id: 'l2', resource_id: 'res-host-001', label_key: 'app', label_value: '电商前台', source: 'system', is_editable: false, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
+    { label_id: 'l2', resource_id: 'res-host-001', label_key: 'app', label_value: 'web-portal', source: 'system', is_editable: false, created_at: '2026-07-01 10:00:00', updated_at: '2026-07-01 10:00:00' },
     { label_id: 'l3', resource_id: 'res-host-001', label_key: 'env', label_value: 'prod', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值，优先级最高', created_at: '2026-07-01 10:00:00', updated_at: '2026-07-15 08:00:00' },
     { label_id: 'l4', resource_id: 'res-host-001', label_key: 'business', label_value: '电商', source: 'cmdb', is_editable: false, conflict_hint: 'CMDB 同步值', created_at: '2026-07-01 10:00:00', updated_at: '2026-07-15 08:00:00' },
     // {v2.8} 静态资源只读：user 来源标签为 Excel 带入（数据治理在 CMDB/Excel 侧），is_editable=false
@@ -1004,7 +1049,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-host-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
       // {v2.25} 稳定身份标签：resource_id 是覆盖率三态聚合与资源回连的唯一稳定键，五类默认模板必含
       { mapping_id: 'mp-host-09', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
-      { mapping_id: 'mp-host-02', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-host-02', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-host-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-host-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-host-05', source_field: 'hostname', source_type: 'resource_field', target_label: 'hostname', enabled: true, transform: '' },
@@ -1027,7 +1072,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
     mappings: [
       { mapping_id: 'mp-db-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
       { mapping_id: 'mp-db-02', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
-      { mapping_id: 'mp-db-03', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-db-03', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-db-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-db-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-db-06', source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true, transform: '' },
@@ -1047,7 +1092,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-mw-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
       // {v2.25} 稳定身份标签：五类默认模板必含 resource_id → resource_id
       { mapping_id: 'mp-mw-def-02', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
-      { mapping_id: 'mp-mw-02', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-02', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-05', source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true, transform: '' },
@@ -1066,7 +1111,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
     description: 'Redis 高可用集群专用：在数据库默认模板基础上增加实例名（哨兵 / 集群分片定位）。',
     mappings: [
       { mapping_id: 'mp-mw-06', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
-      { mapping_id: 'mp-mw-07', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-mw-07', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-08', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-09', source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-10', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
@@ -1086,7 +1131,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
       // {v2.25} 稳定身份标签：五类默认模板必含 resource_id → resource_id
       { mapping_id: 'mp-app-07', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-app-01', source_field: 'service_name', source_type: 'resource_field', target_label: 'service_name', enabled: true, transform: '' },
-      { mapping_id: 'mp-app-02', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-app-02', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-app-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-app-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-app-05', source_field: 'health_check_url', source_type: 'resource_field', target_label: 'health_check_url', enabled: true, transform: '' },
@@ -1109,7 +1154,7 @@ export const mockLabelTemplates: LabelTemplate[] = [
       // {v2.25} 稳定身份标签：五类默认模板必含 resource_id → resource_id
       { mapping_id: 'mp-gen-08', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-02', source_field: 'target_name', source_type: 'resource_field', target_label: 'target_name', enabled: true, transform: '' },
-      { mapping_id: 'mp-gen-03', source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      { mapping_id: 'mp-gen-03', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-06', source_field: 'custom_labels.*', source_type: 'resource_field', target_label: 'custom_labels.*', enabled: true, transform: '' },

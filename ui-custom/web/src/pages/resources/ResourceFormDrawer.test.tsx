@@ -9,6 +9,7 @@ const createMock = vi.fn()
 const updateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
+const applicationDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
 const osOptionListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -21,6 +22,10 @@ vi.mock('../../api/resources', () => ({
   },
   osOptionApi: {
     list: (...a: unknown[]) => osOptionListMock(...a),
+  },
+  // 决策 92：表单「应用」字段改为应用字典启用条目下拉
+  applicationDictApi: {
+    list: (...a: unknown[]) => applicationDictListMock(...a),
   },
 }))
 
@@ -61,7 +66,7 @@ function hostRecord(): ResourceListItem {
     resource_category: 'host',
     network_domain_id: 'mc-a',
     biz_code: 'infra',
-    app_name: 'order',
+    app_code: 'order',
     env: 'prod',
     cluster: 'c1',
     owner: 'chenrt',

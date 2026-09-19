@@ -164,11 +164,10 @@ describe('resources API', () => {
   })
 
   it('resourceApi.template downloads xlsx blob via native fetch', async () => {
-    const blob = new Blob(['file-content'], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    })
+    // 响应体用 Uint8Array 构造：jsdom 的 Blob 无 .stream()，undici Response 拒收
+    const body = new TextEncoder().encode('file-content')
     ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      new Response(blob, {
+      new Response(body, {
         status: 200,
         headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
       }),
@@ -179,7 +178,12 @@ describe('resources API', () => {
     const url = lastUrlInstance()
     expect(url.pathname).toBe('/api/v2/platform/resources/host/template')
     expect(lastFetchCall()[1]?.method).toBe('GET')
-    expect(result).toBeInstanceOf(Blob)
+    // 结构断言而非 instanceof：res.blob() 的 Blob 类身份随运行时（undici / jsdom）而异
+    expect(result).toHaveProperty('size', body.byteLength)
+    expect(result).toHaveProperty(
+      'type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
   })
 
   it('resourceApi.template throws ApiError on not_found error envelope', async () => {
@@ -195,8 +199,9 @@ describe('resources API', () => {
   // 否则后端 au-02 认证中间件会以 401「未认证或会话已失效」拒绝。
   it('resourceApi.template attaches Authorization Bearer token', async () => {
     setToken('tok-m07')
+    // 字符串响应体：jsdom 的 Blob 无 .stream()，undici Response 拒收
     ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      new Response(new Blob(['x']), { status: 200 }),
+      new Response('x', { status: 200 }),
     )
 
     await resourceApi.template('host')
@@ -276,7 +281,7 @@ describe('resources API', () => {
       data: {
         total: 2,
         items: [
-          { id: 1, key: 'app', value: 'web', source: 'system', source_map: 'app_name→app' },
+          { id: 1, key: 'app', value: 'web', source: 'system', source_map: 'app_code→app' },
           { id: 2, key: 'team', value: 'ops', source: 'user' },
         ],
       },
@@ -288,7 +293,7 @@ describe('resources API', () => {
     expect(url.pathname).toBe('/api/v2/platform/resources/r-1/labels')
     expect(res.data.total).toBe(2)
     expect(res.data.items[0].source).toBe('system')
-    expect(res.data.items[0].source_map).toBe('app_name→app')
+    expect(res.data.items[0].source_map).toBe('app_code→app')
     expect(res.data.items[1].source).toBe('user')
   })
 

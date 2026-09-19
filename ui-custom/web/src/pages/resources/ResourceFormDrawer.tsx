@@ -15,9 +15,10 @@ import {
   message,
 } from 'antd'
 import { networkDomainApi } from '../../api/domain'
-import { businessDomainApi, osOptionApi, resourceApi } from '../../api/resources'
+import { applicationDictApi, businessDomainApi, osOptionApi, resourceApi } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type {
+  ApplicationDict,
   BusinessDomain,
   OSOption,
   ResourceCategory,
@@ -125,7 +126,7 @@ function buildCreateInput(category: ResourceCategory, values: Record<string, unk
     resource_category: category,
     network_domain_id: String(values.network_domain_id),
     biz_code: String(values.biz_code),
-    app_name: values.app_name ? String(values.app_name) : undefined,
+    app_code: values.app_code ? String(values.app_code) : undefined,
     env: String(values.env),
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
@@ -139,7 +140,7 @@ function buildUpdateInput(category: ResourceCategory, values: Record<string, unk
   return {
     network_domain_id: String(values.network_domain_id),
     biz_code: String(values.biz_code),
-    app_name: values.app_name ? String(values.app_name) : undefined,
+    app_code: values.app_code ? String(values.app_code) : undefined,
     env: String(values.env),
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
@@ -215,7 +216,7 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
   return {
     network_domain_id: record.network_domain_id,
     biz_code: record.biz_code,
-    app_name: record.app_name,
+    app_code: record.app_code,
     env: record.env,
     cluster: record.cluster,
     owner: record.owner,
@@ -280,6 +281,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [submitting, setSubmitting] = useState(false)
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
+  // 应用字典（决策 92）：app_code 必填下拉取启用条目；展示名 app_name 由字典解析
+  const [applicationDicts, setApplicationDicts] = useState<ApplicationDict[]>([])
   // 操作系统内置字典（仅 host 表单「操作系统」下拉使用，os_dict.go）
   const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
@@ -288,6 +291,10 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   /** 编辑态以行 resource_category 为准，新增态取传入 Tab 类型 */
   const displayCategory = record?.resource_category ?? category
   const enabledBizDomains = businessDomains.filter((d) => d.enabled)
+  const enabledAppDicts = applicationDicts.filter((d) => d.status === 'enabled')
+  // §5.2 必填口径：application / database / middleware 必填，host / generic_target 可空
+  const appCodeRequired =
+    displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
 
   useEffect(() => {
     if (!open) return
@@ -303,11 +310,17 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       form.setFieldsValue(recordToFormValues(record))
     }
     // 网域 / 业务字典 + 操作系统字典下拉（M06 网域清单 / §3.1 业务字典 / os_dict.go）
-    Promise.all([networkDomainApi.list({ page: 1, page_size: 100 }), businessDomainApi.list(), osOptionApi.list()])
-      .then(([nd, bd, os]) => {
+    Promise.all([
+      networkDomainApi.list({ page: 1, page_size: 100 }),
+      businessDomainApi.list(),
+      osOptionApi.list(),
+      applicationDictApi.list(),
+    ])
+      .then(([nd, bd, os, ad]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
         setOsOptions(os.data?.list ?? [])
+        setApplicationDicts(ad.data?.list ?? [])
         setDictError(null)
       })
       .catch((err: Error) => setDictError(err.message))
@@ -398,8 +411,19 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="应用" name="app_name">
-            <Input placeholder="应用名（可选）" maxLength={64} />
+          <Form.Item
+            label="应用"
+            name="app_code"
+            extra="取应用字典启用条目；`app` 标签取编码，展示名由字典解析"
+            rules={appCodeRequired ? [{ required: true, message: '请选择应用' }] : []}
+          >
+            <Select showSearch optionFilterProp="label" placeholder={appCodeRequired ? '请选择应用' : '请选择应用（可选）'} allowClear>
+              {enabledAppDicts.map((d) => (
+                <Select.Option key={d.app_code} value={d.app_code} label={`${d.app_name} (${d.app_code})`}>
+                  {d.app_name} ({d.app_code})
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
         </Col>
         <Col span={12}>

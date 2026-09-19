@@ -25,23 +25,23 @@ const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadshe
 var TemplateColumns = map[models.ResourceCategory][]string{
 	models.ResourceCategoryHost: {
 		"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
-		"biz_code", "app_name", "env", "cluster", "owner", "status",
+		"biz_code", "app_code", "env", "cluster", "owner", "status",
 	},
 	models.ResourceCategoryDatabase: {
 		"network_domain", "database_type", "instance_ip", "port", "version",
-		"biz_code", "app_name", "env", "cluster", "owner", "status",
+		"biz_code", "app_code", "env", "cluster", "owner", "status",
 	},
 	models.ResourceCategoryMiddleware: {
 		"network_domain", "middleware_type", "instance_ip", "port", "version",
-		"biz_code", "app_name", "env", "cluster", "owner", "status",
+		"biz_code", "app_code", "env", "cluster", "owner", "status",
 	},
 	models.ResourceCategoryApplication: {
 		"network_domain", "service_name", "biz_code", "health_check_url", "protocol",
-		"endpoint", "port", "app_name", "env", "cluster", "owner", "status",
+		"endpoint", "port", "app_code", "env", "cluster", "owner", "status",
 	},
 	models.ResourceCategoryGenericTarget: {
 		"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
-		"exporter_type", "custom_labels", "biz_code", "app_name", "env", "cluster", "owner", "status",
+		"exporter_type", "custom_labels", "biz_code", "app_code", "env", "cluster", "owner", "status",
 	},
 }
 

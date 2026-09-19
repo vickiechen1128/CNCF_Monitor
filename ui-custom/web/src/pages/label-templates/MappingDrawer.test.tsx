@@ -28,7 +28,7 @@ function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
     name: '主机模板',
     resource_category: 'host',
     is_default: false,
-    mappings: [mapping('app_name', 'resource_field', 'app')],
+    mappings: [mapping('app_code', 'resource_field', 'app')],
     created_at: '2026-08-21T00:00:00Z',
     updated_at: '2026-08-21T00:00:00Z',
     ...over,
@@ -83,7 +83,7 @@ describe('MappingDrawer', () => {
 
   it('rejects protected label as target with field error', async () => {
     renderDrawer()
-    await selectOption(1, 'app_name')
+    await selectOption(1, 'app_code')
     const targetInput = screen.getByPlaceholderText('如 instance')
     fireEvent.change(targetInput, { target: { value: 'job' } })
     fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
@@ -92,7 +92,7 @@ describe('MappingDrawer', () => {
   })
 
   it('rejects duplicate target_label within same template', async () => {
-    renderDrawer({ template: template({ mappings: [mapping('app_name', 'resource_field', 'app')] }) })
+    renderDrawer({ template: template({ mappings: [mapping('app_code', 'resource_field', 'app')] }) })
     await selectOption(1, 'instance_name')
     const targetInput = screen.getByPlaceholderText('如 instance')
     fireEvent.change(targetInput, { target: { value: 'app' } })
@@ -102,17 +102,17 @@ describe('MappingDrawer', () => {
   })
 
   it('saves new mapping via addMapping and notifies onSaved', async () => {
-    addMappingMock.mockResolvedValue({ status: 'success', data: [mapping('app_name', 'resource_field', 'app')] })
+    addMappingMock.mockResolvedValue({ status: 'success', data: [mapping('app_code', 'resource_field', 'app')] })
     const { onSaved } = renderDrawer()
-    await selectOption(1, 'app_name')
+    await selectOption(1, 'app_code')
     // 目标标签自动预填为来源字段；转换规则选 lower
     await selectOption(2, 'lower（转小写）')
     fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
     await waitFor(() =>
       expect(addMappingMock).toHaveBeenCalledWith(1, {
-        target_label: 'app_name',
+        target_label: 'app_code',
         source_type: 'resource_field',
-        source_field: 'app_name',
+        source_field: 'app_code',
         transform_rule: 'lower',
       }),
     )
@@ -120,7 +120,7 @@ describe('MappingDrawer', () => {
   })
 
   it('pre-fills values in edit mode and calls updateMapping', async () => {
-    const existing = mapping('app_name', 'resource_field', 'app', { enabled: true })
+    const existing = mapping('app_code', 'resource_field', 'app', { enabled: true })
     updateMappingMock.mockResolvedValue({ status: 'success', data: [existing] })
     const { onSaved } = renderDrawer({
       template: template({ mappings: [existing] }),
@@ -133,7 +133,7 @@ describe('MappingDrawer', () => {
       expect(updateMappingMock).toHaveBeenCalledWith(1, 1, {
         target_label: 'app',
         source_type: 'resource_field',
-        source_field: 'app_name',
+        source_field: 'app_code',
         transform_rule: '',
       }),
     )

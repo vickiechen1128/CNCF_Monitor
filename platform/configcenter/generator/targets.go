@@ -87,7 +87,7 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Status:     application.Status,
 			Category:   models.ResourceCategoryApplication,
 			Fields: map[string]string{
-				"app_name":         application.AppName,
+				"app_code":         application.GetAppCode(),
 				"biz_code":         application.BizCode,
 				"cluster":          application.GetCluster(),
 				"service_name":     application.ServiceName,

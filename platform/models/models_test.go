@@ -31,7 +31,7 @@ func TestHostImplementsResource(t *testing.T) {
 
 	assert.Equal(t, "srv-001", h.GetResourceID())
 	assert.Equal(t, ResourceTypeHost, h.GetResourceType())
-	assert.Equal(t, "app-a", h.GetAppName())
+	assert.Equal(t, "app-a", h.GetAppCode())
 	assert.Equal(t, "PRD", h.GetEnv())
 	assert.Equal(t, "cluster-1", h.GetCluster())
 	assert.Equal(t, "running", h.GetStatus())
@@ -92,7 +92,7 @@ func TestMiddlewareImplementsResource(t *testing.T) {
 
 	assert.Equal(t, "redis-01", m.GetResourceID())
 	assert.Equal(t, ResourceTypeMiddleware, m.GetResourceType())
-	assert.Equal(t, "app-a", m.GetAppName())
+	assert.Equal(t, "app-a", m.GetAppCode())
 	assert.Equal(t, "prod", m.GetEnv())
 	assert.Equal(t, "cluster-1", m.GetCluster())
 	assert.Equal(t, "online", m.GetStatus())

@@ -288,7 +288,7 @@ func TestListResourcesItemFields(t *testing.T) {
 	// §5.2 共享契约字段
 	for _, f := range []string{
 		"resource_id", "resource_category", "network_domain_id", "biz_code",
-		"app_name", "env", "cluster", "owner", "status", "source_type",
+		"app_code", "env", "cluster", "owner", "status", "source_type",
 	} {
 		_, ok := item[f]
 		assert.True(t, ok, "item 应含共享字段 %s", f)

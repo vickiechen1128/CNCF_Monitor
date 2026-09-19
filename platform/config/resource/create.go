@@ -155,7 +155,7 @@ func strPtr(s string) *string {
 func applyHostInput(h *models.Host, in *ResourceInput) {
 	h.NetworkDomainID = in.NetworkDomainID
 	h.BizCode = in.BizCode
-	h.AppCode = in.AppName
+	h.AppCode = in.AppCode // 决策 92：资源侧只存不可变编码 app_code
 	h.SubAppCode = in.Cluster
 	h.EnvFlag = in.Env
 	h.Status = in.Status
@@ -173,7 +173,7 @@ func applyHostInput(h *models.Host, in *ResourceInput) {
 func applyDatabaseInput(d *models.Database, in *ResourceInput) {
 	d.NetworkDomainID = in.NetworkDomainID
 	d.BizCode = in.BizCode
-	d.AppName = strPtr(in.AppName)
+	d.AppName = strPtr(in.AppCode) // 决策 92：AppName 物理列语义切换为 app_code 编码
 	d.Cluster = strPtr(in.Cluster)
 	d.Env = in.Env
 	d.Owner = in.Owner
@@ -187,7 +187,7 @@ func applyDatabaseInput(d *models.Database, in *ResourceInput) {
 func applyMiddlewareInput(m *models.Middleware, in *ResourceInput) {
 	m.NetworkDomainID = in.NetworkDomainID
 	m.BizCode = in.BizCode
-	m.AppName = in.AppName
+	m.AppName = in.AppCode // 决策 92：AppName 物理列语义切换为 app_code 编码
 	m.Cluster = in.Cluster
 	m.Env = in.Env
 	m.Owner = in.Owner
@@ -201,7 +201,7 @@ func applyMiddlewareInput(m *models.Middleware, in *ResourceInput) {
 func applyApplicationInput(a *models.Application, in *ResourceInput) {
 	a.NetworkDomainID = in.NetworkDomainID
 	a.BizCode = in.BizCode
-	a.AppName = in.AppName
+	a.AppName = in.AppCode // 决策 92：AppName 物理列语义切换为 app_code 编码
 	a.Cluster = in.Cluster
 	a.Env = in.Env
 	a.Owner = in.Owner
@@ -216,7 +216,7 @@ func applyApplicationInput(a *models.Application, in *ResourceInput) {
 func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 	g.NetworkDomainID = in.NetworkDomainID
 	g.BizCode = in.BizCode
-	g.AppName = strPtr(in.AppName)
+	g.AppName = strPtr(in.AppCode) // 决策 92：AppName 物理列语义切换为 app_code 编码
 	g.Cluster = strPtr(in.Cluster)
 	g.Env = in.Env
 	g.Owner = in.Owner
@@ -234,15 +234,16 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 //
 // 请求体为 ResourceInput（§5.2 规范字段名 + 差异化字段）。流程：
 //  1. resource_category 必填且合法（缺失/非法 → bad_request）；
-//  2. 网域存在性 + biz_code 存在且启用 + 字段/枚举/格式校验（T07-03
-//     ValidateResourceInput，失败返回含字段名错误 → bad_request）；
+//  2. 网域存在性 + biz_code 存在且启用 + app_code（若填）须对应启用应用字典
+//     + 字段/枚举/格式校验（T07-03 ValidateResourceInput，失败返回含字段名错误
+//     → bad_request，决策 92：app_code 只允许引用未停用条目）；
 //  3. resource_id 服务端生成 uuid；source_type=manual（创建接口固定，
 //     服务端权威，不接受客户端覆盖）；tenant_id 缺省 platform_admin；
 //  4. 经 LegacyFieldMap 语义落库（create.go 各 apply*Input）；
 //  5. 成功返回创建后的完整对象（复用 T07-05 buildListItem）。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc {
+func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var in ResourceInput
 		if err := c.ShouldBindJSON(&in); err != nil {
@@ -254,7 +255,7 @@ func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc 
 			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 host/database/middleware/application/generic_target", in.ResourceCategory))
 			return
 		}
-		if err := ValidateResourceInput(category, &in, bizStore, networkDomainExistsFunc(db)); err != nil {
+		if err := ValidateResourceInput(category, &in, bizStore, appStore, networkDomainExistsFunc(db)); err != nil {
 			response.BadRequest(c, err)
 			return
 		}

@@ -34,8 +34,8 @@ type SystemLabel struct {
 //   - resource_field：经 models 包字段映射 helper（models.GetResourceField）从资源
 //     读取对应字段值——Host 经 legacy 映射取列（instance_ip→private_ip、
 //     hostname/instance_name→instance_name、os_type→image、env→env_flag、
-//     cluster→sub_app_code、app_name→app_code）；
-//   - 空值处理：读取值为空时跳过该映射（§5.15 规则 4；app_name/cluster 对
+//     cluster→sub_app_code、app_code→app_code）；app label 恒取 app_code（决策 92）；
+//   - 空值处理：读取值为空时跳过该映射（§5.15 规则 4；app_code/cluster 对
 //     host/generic_target 可空，不注入对应标签，§5.2 ✅*）；
 //   - composite→instance：标注「内置默认」（§5.13），本阶段不生成拼接值，Value
 //     留空，交由 Module_09 生成配置时拼接（§5.12 C）。

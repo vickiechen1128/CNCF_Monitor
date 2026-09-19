@@ -98,7 +98,7 @@ describe('labelTemplateApi', () => {
         {
           target_label: 'app',
           source_type: 'resource_field',
-          source_field: 'app_name',
+          source_field: 'app_code',
           transform_rule: 'lower',
         },
       ],
@@ -115,7 +115,7 @@ describe('labelTemplateApi', () => {
         {
           target_label: 'app',
           source_type: 'resource_field',
-          source_field: 'app_name',
+          source_field: 'app_code',
           transform_rule: 'lower',
         },
       ],
@@ -214,7 +214,7 @@ describe('labelTemplateApi', () => {
       status: 'success',
       data: [
         {
-          source_field: 'app_name',
+          source_field: 'app_code',
           source_type: 'resource_field',
           target_label: 'app',
           enabled: true,
@@ -225,7 +225,7 @@ describe('labelTemplateApi', () => {
     const res = await labelTemplateApi.addMapping(10, {
       target_label: 'app',
       source_type: 'resource_field',
-      source_field: 'app_name',
+      source_field: 'app_code',
       transform_rule: 'lower',
     })
 
@@ -235,7 +235,7 @@ describe('labelTemplateApi', () => {
     expect(lastInitBody()).toEqual({
       target_label: 'app',
       source_type: 'resource_field',
-      source_field: 'app_name',
+      source_field: 'app_code',
       transform_rule: 'lower',
     })
     expect(res.data).toHaveLength(1)

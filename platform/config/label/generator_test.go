@@ -20,7 +20,7 @@ func hostDefaultTemplate() *models.LabelTemplate {
 		IsDefault:        true,
 		Mappings: []models.LabelMapping{
 			{SourceField: "instance_ip:port", SourceType: models.LabelSourceTypeComposite, TargetLabel: "instance", Enabled: true},
-			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+			{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 			{SourceField: "env", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 			{SourceField: "cluster", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 			{SourceField: "biz_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
@@ -90,7 +90,7 @@ func TestComputeSystemLabelsSourceMap(t *testing.T) {
 	labels := ComputeSystemLabels(hostDefaultTemplate(), sampleHost())
 	got := labelsByKey(t, labels)
 
-	assert.Equal(t, "app_name→app", got["app"].SourceMap)
+	assert.Equal(t, "app_code→app", got["app"].SourceMap)
 	assert.Equal(t, "env→env", got["env"].SourceMap)
 	assert.Equal(t, "cluster→cluster", got["cluster"].SourceMap)
 	assert.Equal(t, "biz_code→biz", got["biz"].SourceMap)
@@ -108,7 +108,7 @@ func TestComputeSystemLabelsApplicationTemplate(t *testing.T) {
 		IsDefault:        true,
 		Mappings: []models.LabelMapping{
 			{SourceField: "service_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "service_name", Enabled: true},
-			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+			{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 			{SourceField: "env", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 			{SourceField: "cluster", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 			{SourceField: "biz_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},

@@ -29,10 +29,13 @@ type BaseModel struct {
 }
 
 // Resource is the common interface implemented by all resource types.
+//
+// 决策 92：GetAppCode() 是取应用编码的唯一入口（资源侧只存 app_code，`app` label
+// 恒取此值）；展示名 app_name 由应用字典（§5.19）解析，不落在资源表上。
 type Resource interface {
 	GetResourceID() string
 	GetResourceType() ResourceType
-	GetAppName() string
+	GetAppCode() string
 	GetEnv() string
 	GetCluster() string
 	GetStatus() string
@@ -50,6 +53,8 @@ type Middleware struct {
 	BizCode          string            `gorm:"size:64;not null" json:"biz_code"`
 	SourceType       SourceType        `gorm:"size:20;not null" json:"source_type"`
 	TenantID         string            `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
+	// AppName 物理列名沿用历史名（决策 92：物理列名不改名）；其语义已切换为不可变应用
+	// 编码 app_code——资源侧只存编码，app label 恒取此值。展示名由应用字典承载。
 	AppName          string            `gorm:"size:100;not null" json:"app_name"`
 	Env              string            `gorm:"size:20;not null" json:"env"`
 	Cluster          string            `gorm:"size:100;not null" json:"cluster"`
@@ -64,7 +69,7 @@ type Middleware struct {
 
 // Application represents an application service resource that can be probed
 // (resource_category=application). One row equals one scrapable instance, all
-// sharing the same app_name / biz_code.
+// sharing the same app_code / biz_code.
 type Application struct {
 	BaseModel
 	ResourceID       string            `gorm:"size:64;uniqueIndex:idx_application_resource_id" json:"resource_id"`
@@ -74,6 +79,8 @@ type Application struct {
 	BizCode          string            `gorm:"size:64;not null" json:"biz_code"`
 	SourceType       SourceType        `gorm:"size:20;not null" json:"source_type"`
 	TenantID         string            `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
+	// AppName 物理列名沿用历史名（决策 92：物理列名不改名）；其语义已切换为不可变应用
+	// 编码 app_code——资源侧只存编码，app label 恒取此值。展示名由应用字典承载。
 	AppName          string            `gorm:"size:100;not null" json:"app_name"`
 	Env              string            `gorm:"size:20;not null" json:"env"`
 	Cluster          string            `gorm:"size:100;not null" json:"cluster"`
@@ -92,8 +99,9 @@ func (m *Middleware) GetResourceID() string { return m.ResourceID }
 // GetResourceType returns the resource type.
 func (m *Middleware) GetResourceType() ResourceType { return ResourceTypeMiddleware }
 
-// GetAppName returns the application name.
-func (m *Middleware) GetAppName() string { return m.AppName }
+// GetAppCode returns the application code (决策 92：AppName 物理列语义切换为 app_code 编码).
+func (m *Middleware) GetAppCode() string { return m.AppName }
+
 
 // GetEnv returns the environment.
 func (m *Middleware) GetEnv() string { return m.Env }
@@ -110,8 +118,9 @@ func (a *Application) GetResourceID() string { return a.ResourceID }
 // GetResourceType returns the resource type.
 func (a *Application) GetResourceType() ResourceType { return ResourceTypeApplication }
 
-// GetAppName returns the application name.
-func (a *Application) GetAppName() string { return a.AppName }
+// GetAppCode returns the application code (决策 92：AppName 物理列语义切换为 app_code 编码).
+func (a *Application) GetAppCode() string { return a.AppName }
+
 
 // GetEnv returns the environment.
 func (a *Application) GetEnv() string { return a.Env }

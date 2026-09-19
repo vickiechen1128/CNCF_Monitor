@@ -32,15 +32,15 @@ import (
 // （注册即 panic，见 route_probe_test.go），故统一以 :resource_id 注册，并用
 // withTypeParam 为 template/import 转译出 :type。对外 URL 形态（如
 // /resources/host/template）与契约完全一致，仅内部参数名不同。
-func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore) {
+func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) {
 	resources := platform.Group("/resources")
 	{
 		resources.GET("", ListResources(db))
-		resources.POST("", CreateResource(db, bizStore))
-		resources.PUT("/:resource_id", UpdateResource(db, bizStore))
+		resources.POST("", CreateResource(db, bizStore, appStore))
+		resources.PUT("/:resource_id", UpdateResource(db, bizStore, appStore))
 		resources.DELETE("/:resource_id", DeleteResource(db))
 		resources.GET("/:resource_id/template", withTypeParam(DownloadTemplate(bizStore, listDomainOptions(db))))
-		resources.POST("/:resource_id/import", withTypeParam(ImportResources(db, bizStore)))
+		resources.POST("/:resource_id/import", withTypeParam(ImportResources(db, bizStore, appStore)))
 
 		resourceLabels := resources.Group("/:resource_id/labels")
 		{
@@ -55,6 +55,11 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDo
 	// 业务分组字典写路由（决策 48）：登记 + 受限编辑；无 DELETE（停用不删除）。
 	platform.POST("/business-domains", CreateBusinessDomain(bizStore))
 	platform.PUT("/business-domains/:code", UpdateBusinessDomain(bizStore))
+	// 应用字典路由（决策 92，与 business-domains 同构）：只读列表 + 登记 + 受限编辑；
+	// 无 DELETE（停用不删除）；app_code 为不可变编码，资源侧只允许引用未停用条目。
+	platform.GET("/application-dict", ListApplicationDicts(appStore))
+	platform.POST("/application-dict", CreateApplicationDict(appStore))
+	platform.PUT("/application-dict/:app_code", UpdateApplicationDict(appStore))
 	// 操作系统内置字典（只读，供 M07 采集入口/资源表单下拉；位于 platform 层，
 	// 避免与 /resources/:resource_id 通配符冲突，见 RegisterRoutes 注释）。
 	platform.GET("/os-options", ListOSOptions())

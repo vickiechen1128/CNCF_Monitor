@@ -42,7 +42,7 @@ func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 		return []LabelMapping{
 			{SourceField: "resource_id", SourceType: LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
 			{SourceField: "service_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "service_name", Enabled: true},
-			{SourceField: "app_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+			{SourceField: "app_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 			{SourceField: "env", SourceType: LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 			{SourceField: "cluster", SourceType: LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 			{SourceField: "biz_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
@@ -55,7 +55,7 @@ func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 	return []LabelMapping{
 		{SourceField: "instance_ip:port", SourceType: LabelSourceTypeComposite, TargetLabel: "instance", Enabled: true},
 		{SourceField: "resource_id", SourceType: LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
-		{SourceField: "app_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+		{SourceField: "app_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 		{SourceField: "env", SourceType: LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 		{SourceField: "cluster", SourceType: LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 		{SourceField: "biz_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},

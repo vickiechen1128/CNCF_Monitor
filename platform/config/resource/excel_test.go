@@ -55,7 +55,7 @@ func baseValues(category models.ResourceCategory) map[string]string {
 	base := map[string]string{
 		"network_domain": "default",
 		"biz_code":       "infra",
-		"app_name":       "app",
+		"app_code":       "app",
 		"cluster":        "cluster-1",
 		"owner":          "ops",
 		"env":            "prod",
@@ -137,7 +137,7 @@ func TestParseExcel_ValidRows(t *testing.T) {
 		makeRow(models.ResourceCategoryHost, map[string]string{
 			"network_domain": "gz-prod-01", "instance_name": "web-02", "hostname": "web-02",
 			"instance_ip": "10.0.0.2", "os_type": "Linux", "biz_code": "payment",
-			"app_name": "pay", "env": "staging", "cluster": "c2", "owner": "ops", "status": "已停止",
+			"app_code": "pay", "env": "staging", "cluster": "c2", "owner": "ops", "status": "已停止",
 		}),
 	})
 	require.Len(t, rows, 2)
@@ -234,12 +234,12 @@ func TestValidateImportRow_Host(t *testing.T) {
 	store := newBizStore(t)
 	ok := existsDomains("default")
 
-	t.Run("valid host passes with app_name/cluster optional", func(t *testing.T) {
+	t.Run("valid host passes with app_code/cluster optional", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
-		delete(vals, "app_name")
+		delete(vals, "app_code")
 		delete(vals, "cluster")
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		require.NoError(t, ValidateImportRow(&row, store, ok, nil))
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
 		assert.Equal(t, models.ResourceStatusOnline, row.Status, "运行中→online")
 		assert.Equal(t, "host|default|10.0.0.1", row.DedupKey, "判重键 T07-03")
 	})
@@ -248,7 +248,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["instance_ip"] = ""
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil)
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		assertRowError(t, err, 2, "instance_ip", "")
 	})
 
@@ -256,7 +256,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["instance_ip"] = "999.999.999.999"
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil)
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		rerr := assertRowError(t, err, 2, "instance_ip", "999.999.999.999")
 		assert.Contains(t, rerr.Detail.Reason, "IPv4")
 	})
@@ -266,7 +266,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals["instance_name"] = ""
 		vals["hostname"] = ""
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil)
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		assertRowError(t, err, 2, "instance_name", "")
 	})
 
@@ -274,7 +274,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["env"] = "qa"
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil)
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		assertRowError(t, err, 2, "env", "qa")
 	})
 
@@ -282,7 +282,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["network_domain"] = "ghost"
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil) // ok 只认 default
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil) // ok 只认 default
 		rerr := assertRowError(t, err, 2, "network_domain_id", "ghost")
 		assert.Contains(t, rerr.Detail.Reason, "网域 ghost 未登记，请先到『系统设置 → 网域管理』登记后重新导入")
 	})
@@ -291,7 +291,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["network_domain"] = ""
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		require.NoError(t, ValidateImportRow(&row, store, ok, nil))
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
 		assert.Equal(t, models.DefaultDomainID, row.Input.NetworkDomainID)
 	})
 
@@ -299,7 +299,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["biz_code"] = ""
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil)
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		assertRowError(t, err, 2, "biz_code", "")
 	})
 
@@ -307,7 +307,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["biz_code"] = "legacy" // sampleYAML 中停用项
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil)
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		rerr := assertRowError(t, err, 2, "biz_code", "legacy")
 		assert.Contains(t, rerr.Detail.Reason, "业务 legacy 未登记，请到『业务管理』页登记后重新导入")
 	})
@@ -316,7 +316,7 @@ func TestValidateImportRow_Host(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["biz_code"] = "Bad_Code"
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		err := ValidateImportRow(&row, store, ok, nil)
+		err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 		assertRowError(t, err, 2, "biz_code", "Bad_Code")
 	})
 }
@@ -333,7 +333,7 @@ func TestValidateImportRow_Database(t *testing.T) {
 		row := mustParse(t, models.ResourceCategoryDatabase, [][]string{
 			makeRow(models.ResourceCategoryDatabase, baseValues(models.ResourceCategoryDatabase)),
 		})[0]
-		require.NoError(t, ValidateImportRow(&row, store, ok, nil))
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
 		assert.Equal(t, "database|default|10.0.0.10|3306", row.DedupKey)
 	})
 
@@ -341,28 +341,28 @@ func TestValidateImportRow_Database(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryDatabase)
 		vals["database_type"] = ""
 		row := mustParse(t, models.ResourceCategoryDatabase, [][]string{makeRow(models.ResourceCategoryDatabase, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "database_type", "")
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "database_type", "")
 	})
 
 	t.Run("missing app_name fails", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryDatabase)
-		vals["app_name"] = ""
+		vals["app_code"] = ""
 		row := mustParse(t, models.ResourceCategoryDatabase, [][]string{makeRow(models.ResourceCategoryDatabase, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "app_name", "")
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "app_code", "")
 	})
 
 	t.Run("missing cluster fails", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryDatabase)
 		vals["cluster"] = ""
 		row := mustParse(t, models.ResourceCategoryDatabase, [][]string{makeRow(models.ResourceCategoryDatabase, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "cluster", "")
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "cluster", "")
 	})
 
 	t.Run("port out of range fails", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryDatabase)
 		vals["port"] = "70000"
 		row := mustParse(t, models.ResourceCategoryDatabase, [][]string{makeRow(models.ResourceCategoryDatabase, vals)})[0]
-		rerr := assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "port", "70000")
+		rerr := assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "port", "70000")
 		assert.Contains(t, rerr.Detail.Reason, "1~65535")
 	})
 
@@ -370,7 +370,7 @@ func TestValidateImportRow_Database(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryDatabase)
 		vals["port"] = "abc"
 		row := mustParse(t, models.ResourceCategoryDatabase, [][]string{makeRow(models.ResourceCategoryDatabase, vals)})[0]
-		rerr := assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "port", "abc")
+		rerr := assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "port", "abc")
 		assert.Contains(t, rerr.Detail.Reason, "整数")
 	})
 }
@@ -383,7 +383,7 @@ func TestValidateImportRow_Application(t *testing.T) {
 		row := mustParse(t, models.ResourceCategoryApplication, [][]string{
 			makeRow(models.ResourceCategoryApplication, baseValues(models.ResourceCategoryApplication)),
 		})[0]
-		require.NoError(t, ValidateImportRow(&row, store, ok, nil))
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
 		assert.Equal(t, "application|default|pay-service|10.0.0.20:8080", row.DedupKey)
 	})
 
@@ -391,21 +391,21 @@ func TestValidateImportRow_Application(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryApplication)
 		vals["health_check_url"] = "not-a-url"
 		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "health_check_url", "not-a-url")
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "health_check_url", "not-a-url")
 	})
 
 	t.Run("invalid protocol fails", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryApplication)
 		vals["protocol"] = "ftp"
 		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "protocol", "ftp")
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "protocol", "ftp")
 	})
 
 	t.Run("missing endpoint fails", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryApplication)
 		vals["endpoint"] = ""
 		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "endpoint", "")
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "endpoint", "")
 	})
 }
 
@@ -415,12 +415,12 @@ func TestValidateImportRow_GenericTarget(t *testing.T) {
 
 	t.Run("valid generic passes and parses custom_labels", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryGenericTarget)
-		delete(vals, "app_name")
+		delete(vals, "app_code")
 		delete(vals, "cluster")
 		row := mustParse(t, models.ResourceCategoryGenericTarget, [][]string{
 			makeRow(models.ResourceCategoryGenericTarget, vals),
 		})[0]
-		require.NoError(t, ValidateImportRow(&row, store, ok, nil))
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
 		assert.Equal(t, "generic_target|default|10.0.0.30|161", row.DedupKey)
 		require.NotNil(t, row.Input.CustomLabels)
 		assert.Equal(t, "az1", row.Input.CustomLabels["zone"])
@@ -431,14 +431,14 @@ func TestValidateImportRow_GenericTarget(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryGenericTarget)
 		vals["scheme"] = "tcp"
 		row := mustParse(t, models.ResourceCategoryGenericTarget, [][]string{makeRow(models.ResourceCategoryGenericTarget, vals)})[0]
-		assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "scheme", "tcp")
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "scheme", "tcp")
 	})
 
 	t.Run("missing segment in custom_labels fails", func(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryGenericTarget)
 		vals["custom_labels"] = "keyonly"
 		row := mustParse(t, models.ResourceCategoryGenericTarget, [][]string{makeRow(models.ResourceCategoryGenericTarget, vals)})[0]
-		rerr := assertRowError(t, ValidateImportRow(&row, store, ok, nil), 2, "custom_labels", "keyonly")
+		rerr := assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "custom_labels", "keyonly")
 		assert.Contains(t, rerr.Detail.Reason, "key1=value1;key2=value2")
 	})
 
@@ -447,7 +447,7 @@ func TestValidateImportRow_GenericTarget(t *testing.T) {
 			vals := baseValues(models.ResourceCategoryGenericTarget)
 			vals["custom_labels"] = raw
 			row := mustParse(t, models.ResourceCategoryGenericTarget, [][]string{makeRow(models.ResourceCategoryGenericTarget, vals)})[0]
-			err := ValidateImportRow(&row, store, ok, nil)
+			err := ValidateImportRow(&row, store, newAppStore(t), ok, nil)
 			rerr := assertRowError(t, err, 2, "custom_labels", raw)
 			assert.Contains(t, rerr.Detail.Reason, "key1=value1;key2=value2")
 		}
@@ -476,7 +476,7 @@ func TestValidateImportRow_ChineseStatusMapping(t *testing.T) {
 		vals := baseValues(models.ResourceCategoryHost)
 		vals["status"] = tc.source
 		row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-		require.NoError(t, ValidateImportRow(&row, store, ok, nil), "source=%q", tc.source)
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), "source=%q", tc.source)
 		assert.Equal(t, tc.want, row.Status, "source=%q", tc.source)
 		assert.Equal(t, string(tc.want), row.Input.Status, "source=%q", tc.source)
 	}
@@ -490,13 +490,13 @@ func TestValidateImportRow_StatusMappingFailureCountsAsFailed(t *testing.T) {
 
 	vals := baseValues(models.ResourceCategoryHost)
 	row := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})[0]
-	err := ValidateImportRow(&row, store, ok, extra)
+	err := ValidateImportRow(&row, store, newAppStore(t), ok, extra)
 	rerr := assertRowError(t, err, 2, "status", "运行中")
 	assert.Contains(t, rerr.Detail.Reason, "状态映射失败")
 
 	// ValidateRows 层：该行计入 failed 而非 valid。
 	rows := mustParse(t, models.ResourceCategoryHost, [][]string{makeRow(models.ResourceCategoryHost, vals)})
-	valid, errs := ValidateRows(rows, store, ok, extra)
+	valid, errs := ValidateRows(rows, store, newAppStore(t), ok, extra)
 	assert.Empty(t, valid)
 	require.Len(t, errs, 1)
 	assert.Equal(t, "status", errs[0].Field)
@@ -520,7 +520,7 @@ func TestValidateRows_CollectsErrorsWithRowNumbers(t *testing.T) {
 		makeRow(models.ResourceCategoryHost, badIP),                                  // 第 3 行 非法 IP
 		makeRow(models.ResourceCategoryHost, stopped),                                // 第 4 行 已停止
 	})
-	valid, errs := ValidateRows(rows, store, ok, nil)
+	valid, errs := ValidateRows(rows, store, newAppStore(t), ok, nil)
 
 	require.Len(t, errs, 1, "仅非法行计入 failed")
 	assert.Equal(t, 3, errs[0].Row, "错误行号=3（表头后第 2 行）")
@@ -545,7 +545,7 @@ func TestValidateRows_UnregisteredDomainCollected(t *testing.T) {
 		makeRow(models.ResourceCategoryHost, baseValues(models.ResourceCategoryHost)),
 		makeRow(models.ResourceCategoryHost, ghost),
 	})
-	valid, errs := ValidateRows(rows, store, ok, nil)
+	valid, errs := ValidateRows(rows, store, newAppStore(t), ok, nil)
 
 	require.Len(t, valid, 1, "default 网域行合法")
 	assert.Equal(t, 2, valid[0].Row)
@@ -574,7 +574,7 @@ func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T) {
 	}
 	for _, tc := range cases {
 		row := mustParse(t, tc.cat, [][]string{makeRow(tc.cat, baseValues(tc.cat))})[0]
-		require.NoError(t, ValidateImportRow(&row, store, ok, nil))
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
 		assert.Equal(t, tc.want, row.DedupKey, "资源类型 %s 判重键", tc.cat)
 	}
 }

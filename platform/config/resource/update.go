@@ -95,7 +95,8 @@ func updatableColumns(category models.ResourceCategory) []string {
 // 流程：
 //  1. 按 resource_id 定位（不存在/已软删 → not_found）；
 //  2. resource_category / source_type 不可改（请求体含不同值 → bad_request）；
-//  3. 复用 T07-03 ValidateResourceInput 做网域/biz/字段校验（与 POST 一致）；
+//  3. 复用 T07-03 ValidateResourceInput 做网域/biz/app_code/字段校验（与 POST 一致，
+//     决策 92：app_code 只允许引用未停用条目）；
 //  4. 应用输入到已加载模型（create.go apply*Input）：PUT 为整体替换语义——请求体须
 //     携带全量可更新字段（ValidateResourceInput 全量必填校验），空值按零值覆盖写入
 //     （updatableColumns 显式 Select，含零值）；个别字段的「空串保留原值」仅存在于
@@ -104,7 +105,7 @@ func updatableColumns(category models.ResourceCategory) []string {
 //  5. 成功返回更新后的完整对象（复用 T07-05 buildListItem）。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc {
+func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resourceID := strings.TrimSpace(c.Param("resource_id"))
 		if resourceID == "" {
@@ -138,7 +139,7 @@ func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc 
 			return
 		}
 
-		if err := ValidateResourceInput(category, &in, bizStore, networkDomainExistsFunc(db)); err != nil {
+		if err := ValidateResourceInput(category, &in, bizStore, appStore, networkDomainExistsFunc(db)); err != nil {
 			response.BadRequest(c, err)
 			return
 		}

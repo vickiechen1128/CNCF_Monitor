@@ -35,6 +35,9 @@ func Run(db *gorm.DB) error {
 	if err := runAdminUser(db); err != nil {
 		return fmt.Errorf("seed admin user: %w", err)
 	}
+	if err := ApplicationDict(db); err != nil {
+		return fmt.Errorf("seed application dict: %w", err)
+	}
 	return nil
 }
 

@@ -133,8 +133,8 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.OSType = val
 		case "biz_code":
 			in.BizCode = val
-		case "app_name":
-			in.AppName = val
+		case "app_code":
+			in.AppCode = val
 		case "env":
 			in.Env = val
 		case "cluster":
@@ -210,7 +210,7 @@ func allEmpty(cells []string) bool {
 //   - 校验通过后生成 DedupKey（T07-03）到 row.DedupKey 供 upsert 定位。
 //
 // 失败返回 *ImportRowError（携带完整 row/field/value/reason），成功返回 nil。
-func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, networkDomainExists func(string) bool, extraRules []Rule) error {
+func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
 	if row == nil {
 		return &ImportRowError{Detail: models.ImportErrorDetail{Field: "resource", Reason: "导入行为空"}}
 	}
@@ -265,7 +265,7 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, networkDom
 	}
 
 	// 6. 其余字段校验复用 T07-03（必填/IP/端口范围/URL/env/protocol/scheme）。
-	if err := ValidateResourceInput(category, in, bizStore, networkDomainExists); err != nil {
+	if err := ValidateResourceInput(category, in, bizStore, appStore, networkDomainExists); err != nil {
 		field := fieldFromResourceInputError(err.Error())
 		return fieldErr(row, field, valueFromField(in, field, row.PortRaw), err.Error())
 	}
@@ -321,7 +321,7 @@ var resourceInputFieldPrefixes = []string{
 	"database_type", "middleware_type", "port", "version",
 	"service_name", "health_check_url", "protocol", "endpoint",
 	"target_name", "metrics_path", "scheme", "exporter_type",
-	"app_name", "cluster", "resource_category",
+	"app_code", "cluster", "resource_category",
 }
 
 // fieldFromResourceInputError 从 ValidateResourceInput 的错误消息中提取字段名。
@@ -342,8 +342,8 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 		return in.NetworkDomainID
 	case "biz_code":
 		return in.BizCode
-	case "app_name":
-		return in.AppName
+	case "app_code":
+		return in.AppCode
 	case "cluster":
 		return in.Cluster
 	case "owner":
@@ -394,9 +394,9 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 // ValidateRows 逐行执行 ValidateImportRow，返回校验通过的合法行（已含映射后
 // Status 与 DedupKey）与失败明细（§5.16.3 结构，row 从 2 起始）。T07-10 导入
 // 执行在 ParseExcel 之后调用本函数，作为行级校验与错误行收集的统一入口。
-func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
+func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
 	for i := range rows {
-		if err := ValidateImportRow(&rows[i], bizStore, networkDomainExists, extraRules); err != nil {
+		if err := ValidateImportRow(&rows[i], bizStore, appStore, networkDomainExists, extraRules); err != nil {
 			var rerr *ImportRowError
 			if errors.As(err, &rerr) {
 				errs = append(errs, rerr.Detail)

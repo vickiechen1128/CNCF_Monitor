@@ -257,7 +257,7 @@ func applicationLabelDefaultTemplate() *models.LabelTemplate {
 		ResourceCategory: models.ResourceCategoryApplication,
 		IsDefault:        true,
 		Mappings: []models.LabelMapping{
-			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+			{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 			{SourceField: "env", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 		},
 	}

@@ -5,6 +5,7 @@ import ResourcesPage from './pages/ResourcesPage'
 import LabelTemplatesPage from './pages/LabelTemplatesPage'
 import ImportHistoryPage from './pages/ImportHistoryPage'
 import BusinessManagementPage from './pages/BusinessManagementPage'
+import ApplicationManagementPage from './pages/ApplicationManagementPage'
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
         <Route path="/label-templates" element={<LabelTemplatesPage />} />
         <Route path="/import-history" element={<ImportHistoryPage />} />
         <Route path="/business-management" element={<BusinessManagementPage />} />
+        <Route path="/application-management" element={<ApplicationManagementPage />} />
         <Route path="*" element={<Navigate to="/resources" replace />} />
       </Routes>
     </HashRouter>

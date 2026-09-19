@@ -361,7 +361,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           children: RESOURCE_CATEGORY_MAP[record.resource_category],
         },
         { key: 'env', label: '环境', children: record.env || '-' },
-        { key: 'app_name', label: '应用', children: record.app_name || '-' },
+        { key: 'app_code', label: '应用', children: record.app_code || '-' },
         { key: 'cluster', label: '集群', children: record.cluster || '-' },
         { key: 'owner', label: '负责人', children: record.owner || '-' },
         {

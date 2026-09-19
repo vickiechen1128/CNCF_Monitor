@@ -60,6 +60,8 @@ func AutoMigrate() error {
 		&models.ResourceStatusMapping{},
 		// 业务分组字典（决策 48）
 		&models.BusinessDomain{},
+		// 应用字典（决策 92：app_code/app_name 双层，对齐业务分组）
+		&models.ApplicationDict{},
 		// 用户认证（Module_06 §5.3/§5.4，Module_03 §4.0）
 		&models.User{},
 		&models.Session{},
