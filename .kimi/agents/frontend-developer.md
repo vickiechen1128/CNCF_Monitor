@@ -91,6 +91,17 @@ git branch --show-current # 必须是 feat/module-XX
 - docs/03-engineering-standards/03_API_Standard.md（如任务涉及 API）
 ```
 
+#### Step 3.1: 按轨道读基线 → 差异认知 → 再动手（v2026-09-17 起，BLOCKING）
+
+**开工第一步**：根据任务卡中的轨道标记（Track A / Track B/B+），读取对应基线并与当前实现做差异认知，**确认无 S 级未解决差异后再动手**。
+
+| 轨道 | 第一参照物 | 核对方式 |
+|------|-----------|---------|
+| **Track A** | 原型页面 + `frontend-prototype-map.md` | 按 Step 3.5 六项核对逐项比对原型与当前实现；差异矩阵由 Planner 在 L3 输入中已产出（见 `task-sequence.yaml` 头部或 Planner 汇报），Developer 复核 |
+| **Track B/B+** | `dev-ready` 轻量规格 PRD 章节 + `api-contract-snapshot.md` | 核对字段表/接口清单/验收清单与当前实现的一致性；无原型不阻断 |
+
+**停止规则**：发现实现与轨道基线冲突时（Track A: 原型已改但前端未同步；Track B: 轻量规格/契约快照与代码冲突），**必须停止并报告 Orchestrator**，禁止默认沿用旧实现续作。
+
 > **PRD 章节级读取（v1.27 起，章节编号已冻结）**：PRD 按章节选择性读取，**禁止全文一次性读取**。PRD 骨架章节号为全局固定（见 prototype-designer「PRD 编写骨架规范」）：
 > - **必读**：第 3 章核心功能（用户层，页面与交互依据）、第 4 章核心流程、第 5 章数据模型（字段 / UI 展示名契约）、第 6 章接口设计、第 9 章验收标准、**第 11 章前端交互契约**（页面状态矩阵：加载 / 空态 / 接口错误 / 权限不足 / 数据超量与边界；全局行为规则）；
 > - **按需**：第 1 章模块目标、第 8 章状态机、第 10 章术语映射；Change Log 为业务沟通记录（非开发契约），完整历史在 `design-decisions.md`，仅在需要追溯变更原因时读取。

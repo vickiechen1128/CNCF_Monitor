@@ -33,6 +33,7 @@ import { MainLayout } from '../../layouts/MainLayout'
 import type { AlertHistoryItem, AlertHistoryState } from '../../types/alertmanager'
 import { useHistoryAlerts, useNetworkDomains, defaultTimeRange } from './useHistoryAlerts'
 import { alertHistoryStateColor, alertHistoryStateLabel } from './alertmanagerConstants'
+import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 const { RangePicker } = DatePicker
@@ -105,6 +106,7 @@ function RecoveryTimeTitle() {
 }
 
 export function HistoryAlertsPage() {
+  const { tokens } = useSkin()
   const domains = useNetworkDomains()
   const [networkDomain, setNetworkDomain] = useState<string>('all')
   const [alertname, setAlertname] = useState('')
@@ -219,7 +221,7 @@ export function HistoryAlertsPage() {
               key: 'recovery-time-note',
               label: (
                 <span>
-                  <InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />
+                  <InfoCircleOutlined style={{ color: tokens.colorInfo, marginRight: 8 }} />
                   <Text strong>恢复时间是估算值，仅供参考</Text>
                   <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
                     点击展开说明

@@ -223,12 +223,17 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	platform := g.Group("/platform")
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
-	networkdomain.RegisterRoutes(platform, db.DB)
+	// 读接口（zone-types/列表/详情）供 M07 普通用户消费，仅全局认证（au-02）；
+	// 写接口（POST/PUT/PATCH/DELETE）走下方 admin 组（挂 RequireAdmin，HIGH-1）。
+	networkdomain.RegisterReadRoutes(platform, db.DB)
 
 	// H-2：管理后台接口（/users*、/login-logs*、/tenants*）额外挂载 RequireAdmin
 	// 最小授权门，仅平台管理员可访问；/auth/* 及其它模块保持仅全局认证（au-02）。
 	admin := platform.Group("")
 	admin.Use(auth.RequireAdmin())
+
+	// Module 06 (HIGH-1, 决策 82)：网域写接口（登记/编辑/状态/删除）挂 RequireAdmin。
+	networkdomain.RegisterWriteRoutes(admin, db.DB)
 
 	// Module 06 (tu-03): user administration + login-log query.
 	user.RegisterRoutes(admin, db.DB)

@@ -42,6 +42,7 @@ import type { CreateSilencePayload } from '../../types/alertmanager'
 import type { Resource, ResourceCategory } from '../../types/resource'
 import { readValidateErrors, alertmanagerSilenceApi } from '../../api/alertmanager'
 import { resourceApi } from '../../api/resources'
+import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 
@@ -142,6 +143,7 @@ function ciTypeLabel(v: CiType): string {
 }
 
 export function CreateSilenceDrawer({ open, onClose, onSubmit }: CreateSilenceDrawerProps) {
+  const { tokens } = useSkin()
   const { message } = App.useApp()
   const [form] = Form.useForm<FormValues>()
   const [initialValues] = useState<FormValues>(makeInitialValues)
@@ -306,7 +308,7 @@ export function CreateSilenceDrawer({ open, onClose, onSubmit }: CreateSilenceDr
             key: 'silence-scope-note',
             label: (
               <span>
-                <InfoCircleOutlined style={{ color: '#1677ff', marginRight: 8 }} />
+                <InfoCircleOutlined style={{ color: tokens.colorInfo, marginRight: 8 }} />
                 <Text strong>静默只对你有权限的网域生效</Text>
                 <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
                   点击展开说明

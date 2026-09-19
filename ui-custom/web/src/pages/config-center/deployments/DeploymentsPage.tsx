@@ -44,6 +44,8 @@ import {
   riskLabel,
   formatLocalTime,
 } from '../configCenterConstants'
+import { useSkin } from '../../../skinContext'
+import type { SkinTokens } from '../../../skins'
 
 const { Text } = Typography
 
@@ -62,18 +64,21 @@ const ROLLBACKABLE: DeploymentStatus[] = ['success', 'rolled_back']
 const VERSION_FILE_TABS = ['prometheus.yml', 'targets', 'rules.yml', 'blackbox.yml', 'alertmanager.yml'] as const
 const VERSION_FILE_LABEL: Record<string, string> = { targets: 'targets/*.json' }
 
-/** 版本配置代码块样式（等宽 + 横向滚动，遵循前端规范 §9 长文本规范，与配置预览页一致） */
-const CODE_BLOCK_STYLE: CSSProperties = {
-  margin: 0,
-  maxHeight: 480,
-  overflow: 'auto',
-  background: '#F7F8FA',
-  padding: 12,
-  borderRadius: 8,
-  fontSize: 13,
+/** 版本配置代码块样式（等宽 + 横向滚动，遵循前端规范 §9 长文本规范，与配置预览页一致；走皮肤 token） */
+function codeBlockStyle(tokens: SkinTokens): CSSProperties {
+  return {
+    margin: 0,
+    maxHeight: 480,
+    overflow: 'auto',
+    background: tokens.colorBgBase,
+    padding: 12,
+    borderRadius: 8,
+    fontSize: 13,
+  }
 }
 
 export function DeploymentsPage() {
+  const { tokens } = useSkin()
   const { data, loading, error, permissionDenied, onPageSizeChange, reload, locChangeNo, locDomain } =
     useDeployments()
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([])
@@ -328,7 +333,7 @@ export function DeploymentsPage() {
         items={tabs.map((key) => ({
           key,
           label: VERSION_FILE_LABEL[key] ?? key,
-          children: <pre style={CODE_BLOCK_STYLE}>{fileTextByKey(v, key) ?? '（当前无此产物）'}</pre>,
+          children: <pre style={codeBlockStyle(tokens)}>{fileTextByKey(v, key) ?? '（当前无此产物）'}</pre>,
         }))}
       />
     )

@@ -1,19 +1,20 @@
-# Module 05 首页 MVP 子集（决策 72 / 72-1 / 72-2 / 72-3）任务序列
-# PRD: docs/02-product-requirements/Modules/Module_05_Custom_UI.md v1.5
-# 计划: docs/05-execution-records/module-05/05_Code_Implementation_Plan.md v1.5
-# 角色: frontend-developer（M05-T14 / T15 含 backend-developer 改动）
+# Module 05 首页 MVP 子集（决策 72 / 72-1 / 72-2 / 72-3 / 73）任务序列
+# PRD: docs/02-product-requirements/Modules/Module_05_Custom_UI.md v1.6
+# 计划: docs/05-execution-records/module-05/05_Code_Implementation_Plan.md v1.6
+# 角色: frontend-developer（M05-T18~T25 全部为前端，零后端改动）
 # 约束: 跨文件共享文件（HomePage.tsx / AlertStatusCard.tsx）的任务连续排列
 
 meta:
   module: module-05
-  prd_version: v1.5
-  plan_version: v1.5
+  prd_version: v1.6
+  plan_version: v1.6
   track: B
-  date: "2026-09-14"
-  total_tasks: 17
+  date: "2026-09-18"
+  total_tasks: 25
   # M05-T1~T7   = v1.3 首页 MVP 子集（决策 72）
   # M05-T8~T12  = v1.4 布局 / 视觉 Token / 六步指引 / QueryPage（决策 72-1 / 72-2）
   # M05-T13~T17 = v1.5 首页内容重构 + 第二 / 第三轮评审（决策 72-3）
+  # M05-T18~T25 = v1.6 首页视觉密度 + 告警卡重构（决策 73）
 
 tasks:
   - id: M05-T1
@@ -443,3 +444,276 @@ tasks:
     notes: |
       近 10 条本身即版面解法（1440 宽下左卡与右列自然齐平），并为条数不足时加 align="stretch" 兜底。
       本轮新增导出常量 LATEST_ALERT_LIMIT，改动符号清单须刷新 repo-map，否则 pre-commit 门禁阻断。
+
+  - id: M05-T18
+    role: frontend-developer
+    title: 指标卡改纵向排版——标签在上 / 数字 30px/800 / 44px 图标容器右下（决策 73）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1 / §5.2
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 指标卡内边距改 14px 16px；卡内改为纵向排版：标签 12px 在上、数字 30px/800（tabular-nums）在下、44px 圆角图标容器右下（内 22px 图标、品牌青 10% 浅底）
+      - 数字醒目度对比原横向排版（24px/700）提升；右上角 ⓘ 中文口径注释保留
+      - 删除指标卡 minHeight；6 列网格（xs=24 sm=12 md=8 xl=4）保持
+      - vitest run HomePage.test.tsx 通过；pnpm lint 通过
+    status: done
+    depends_on: []
+    commit_unit: "M05-T18: 首页指标卡纵向排版（决策 73）"
+    notes: |
+      视觉 Token 对齐原型 v1.3（决策 73 第 4 条修订 72-2）。图标容器 width/height 44、borderRadius 10、
+      图标 22px；数字 30px/800。卡内 flex 容器一行两列（数字在左、图标容器在右）。
+
+  - id: M05-T19
+    role: frontend-developer
+    title: 首页取数扩展——消费 getAlertHistory 计数当日 / 近 7 天告警（决策 73）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/alertmanager.ts  (alertStatusApi.getAlertHistory 已存在，M08 在用)
+      - ui-custom/web/src/types/alertmanager.ts  (AlertHistoryItem.fired_at / summary)
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1 / §6
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+    acceptance:
+      - 在既有 getPromAlerts / getAlertmanagerAlerts 并行集合上新增加载 getAlertHistory()
+      - 当日告警 = fired_at ≥ 今日 0 点计数（含 resolved）；近 7 天 = fired_at ≥ now-7d（含 resolved），均按 fired_at 前端过滤计数
+      - history 取数失败或字段缺失时当日 / 近 7 天两格显示 '-'（不显示 0、禁止 NaN）
+      - 不改变已存在的数据源与既有计数语义（AM active / 静默 / 抑制、Prom firing/pending）
+      - vitest run HomePage.test.tsx 通过；pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T18
+    commit_unit: "M05-T19: 首页消费 history 计数当日/近7天（决策 73）"
+    notes: |
+      getAlertHistory 在 M08 HistoryAlertsPage 已封装（分页 page/page_size），首页复用其分页能力，
+      时间窗默认取足够覆盖近 7 天的范围（当前不支持服务端时间范围参数则全量拉取后前端过滤；
+      该差异点回链 PRD §3.1 与决策 73 关联的 [待确认 M02]）。history 失败不阻塞 AM / Prom 数据展示。
+
+  - id: M05-T20
+    role: frontend-developer
+    title: 告警卡数字区改四格统计条——当日 / 近 7 天(主) + 通知中(红) / 已静默·已抑制(次)（决策 73）
+    input_paths:
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+    acceptance:
+      - 数字区改四格统计条（flex + 格间竖分隔线 #F2F3F5），每格悬浮 Tooltip 口径注释
+      - 主数字：当日告警 / 近 7 天告警 24px/700 基础色；次数字：通知中（红 #FF4C3A）、已静默 · 已抑制（值串 '3 · 2'、TEXT_SECONDARY）
+      - 每格结构：数字 24px/700 tabular-nums + 标签 12px
+      - 保留 Prom firing/pending 11px 灰字参考行，不作行动对象
+      - vitest run HomePage.test.tsx 通过；pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T19
+    commit_unit: "M05-T20: 告警数字区四格统计条（决策 73）"
+    notes: |
+      决策 73 第 2 条。主数字口径由 AM「通知中」改为当日 / 近 7 天告警（回链决策 72 修订）。
+      已静默 · 已抑制合并为一格，用 '3 · 2' 字符串展示。
+
+  - id: M05-T21
+    role: frontend-developer
+    title: 告警列表改两行制——级别浅底 Tag + 告警名 + 相对时间 + 状态；行 2 实例名 · summary（决策 73）
+    input_paths:
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+    acceptance:
+      - LATEST_ALERT_LIMIT 由 10 改 8（LATEST_ALERT_LIMIT 常量一处修改，标题/取数共用）
+      - 单个 AlertRow 改两行制：行 1 = 级别浅底 Tag + 告警名 + 相对时间 + 状态；行 2 = 实例名 · summary（12px 灰字，超长省略悬浮全文）
+      - 级别 Tag 用浅底色 + 深字（critical/warning/info 三档，新增 SEVERITY_BG 映射），resource_name 为空显示 '-'
+      - 删除表头 LatestAlertHeader 与 ALERT_COL_WIDTH（两行制不再需要列对齐表头）
+      - vitest run HomePage.test.tsx 通过；pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T20
+    commit_unit: "M05-T21: 告警列表两行制含告警内容（决策 73）"
+    notes: |
+      决策 73 第 3 条。summary 来源：M08 history 项 summary 优先，AM annotations.summary 兜底。
+      SEVERITY_BG 映射与原型 mocks/module-05.ts 对齐（critical #FFEBE9 / warning #FFF4E6 / info #E6F1FF）。
+
+  - id: M05-T22
+    role: frontend-developer
+    title: 快捷入口改一行五列压扁——28px 图标容器 + 名称，描述移 Tooltip（决策 73）
+    input_paths:
+      - ui-custom/web/src/pages/home/QuickAccess.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/QuickAccess.tsx
+    acceptance:
+      - 5 个快捷入口一行五列布局（flex-wrap，每项 flex:1 1 0 min-width:100px），图标容器 28px 圆角品牌青浅底 + 名称 13px/600
+      - 描述文案移入外层 Tooltip，不再显式展示
+      - hover 态高亮保留；点击深链不变（/resources、/scrape-jobs、/config-preview、/query、/alert-status）
+      - vitest run HomePage.test.tsx 通过；pnpm lint 通过
+    status: done
+    depends_on: []
+    commit_unit: "M05-T22: 快捷入口一行五列压扁（决策 73）"
+    notes: |
+      决策 73 第 5 条。快速入口由三列大卡改为压扁一行，降低版面高度（~150px → ~110px）。
+
+  - id: M05-T23
+    role: frontend-developer
+    title: 右列重组 + 使用指引移入右列第三卡（决策 73）
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+      - docs/02-product-requirements/Modules/Module_05_Custom_UI.md §3.1
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+    acceptance:
+      - 左列=告警状态卡（lg=10）、右列=系统快速入口 → 最近下发记录 → 使用指引（lg=14），Row align="stretch" 两列等高
+      - 使用指引自底部整行移入右列第三张卡（marginTop 16），OnboardingSteps 六步 content 不变
+      - 整页高度较 v1.5 下降（~910px → ~830px 目标）；左列告警卡与右列底部对齐，不出现明显留空
+      - vitest run HomePage.test.tsx 通过；pnpm lint 通过
+    status: done
+    depends_on:
+      - M05-T21
+      - M05-T22
+    commit_unit: "M05-T23: 首页右列重组 + 指引移右列（决策 73）"
+    notes: |
+      决策 73 第 6 条，同时回应用户「告警状态右侧高度太空」——快入口压扁后右列空 ~150px，
+      将指引移入右列可使右列 ≈ 632px 与左列告警卡 ≈ 642px 对齐。
+
+  - id: M05-T24
+    role: frontend-developer
+    title: HomePage.test.tsx 同步——四格统计 / 两行制 8 条 / summary / 快捷入口一行五列 / 指引在右列
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/api/alertmanager.ts
+    output_files:
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+    acceptance:
+      - mock alertStatusApi.getAlertHistory 并断言当日 / 近 7 天计数渲染、' - ' 回落
+      - 断言四格统计条结构（当日 / 近 7 天 / 通知中 / 已静默·已抑制）
+      - 断言两行制：最新 8 行、行 2 含实例名 · summary、级别浅底 Tag
+      - 断言快捷入口 5 个一行五列、使用指引存在于右列
+      - vitest run HomePage.test.tsx 通过；eslint 通过
+    status: done
+    depends_on:
+      - M05-T23
+    commit_unit: "M05-T24: 首页测试同步（决策 73）"
+    notes: |
+      沿用现有 setupAntdTest() 与 MainLayout mock 约定；mock 粒度覆盖 getAlertHistory 与 annotations.summary 两个新源。
+
+  - id: M05-T25
+    role: frontend-developer
+    title: 验证收尾——单文件测试 + eslint + tsc + vite build + repo-map 刷新
+    input_paths:
+      - ui-custom/web/src/pages/home/HomePage.tsx
+      - ui-custom/web/src/pages/home/AlertStatusCard.tsx
+      - ui-custom/web/src/pages/home/QuickAccess.tsx
+      - ui-custom/web/src/pages/home/OnboardingSteps.tsx
+      - ui-custom/web/src/pages/home/HomePage.test.tsx
+    output_files: []
+    acceptance:
+      - pnpm install 完成
+      - vitest run HomePage.test.tsx 通过
+      - pnpm lint 通过
+      - tsc --noEmit 通过
+      - pnpm build 通过
+      - make repo-map + make check-repo-map 通过（新增 SEVERITY_BG / AlertStatStrip / AlertRow 等符号）
+    status: done
+    depends_on:
+      - M05-T24
+    commit_unit: "M05-T25: 首页决策 73 验证收尾"
+    notes: |
+      收尾验证任务，不修改源码。M05-T18~T25 全部为前端改动、零后端，
+      无 test-platform 与变异验证需求（对比 M05-T15）。仅前端单文件测试 + 构建。
+
+  # ---------------------------------------------------------------------------
+  # v1.7 增量（决策 88 / 89）：客户专属皮肤与外观配置 + 首页版式方案乙
+  # 分支：feat/module-05-homepage-mvp（M05-T26~T28 全部为前端，零后端改动；
+  #       告警历史取数步长口径见 module-02/task-sequence.yaml T02-04/T02-05）
+  # ---------------------------------------------------------------------------
+
+  - id: M05-T26
+    role: frontend-developer
+    title: "双皮肤机制与全站色值 Token 收敛——skins / skinContext / SkinProvider 三层同源（决策 88）"
+    input_paths:
+      - "ui-custom/web/src/theme.ts"
+      - "ui-custom/web/src/main.tsx"
+      - "ui-custom/web/src/App.css"
+      - "ui-custom/web/src/layouts/siderPreference.ts"
+      - "docs/05-execution-records/module-05/design-decisions.md"
+    output_files:
+      - "ui-custom/web/src/skins.ts（新增：SkinTokens + volcengine 默认 / inesa 客户专属 + buildSkinTheme）"
+      - "ui-custom/web/src/skins.test.ts"
+      - "ui-custom/web/src/skinContext.ts"
+      - "ui-custom/web/src/SkinProvider.tsx"
+      - "ui-custom/web/src/skinPreference.ts"
+      - "ui-custom/web/src/theme.ts（删除，能力并入 skins.ts）"
+      - "ui-custom/web/src/main.tsx"
+      - "ui-custom/web/src/App.css、src/index.css"
+      - "15 个页面的散落品牌色 / 语义色（24 处，含 alertmanagerConstants / Callout / FormSection / ResourcesPage 等）"
+    acceptance:
+      - "默认皮肤 = 火山青，取值逐字保真（零视觉回归）；INESA 为可切换项"
+      - "语义红随皮肤切换（#FF4C3A ↔ #C0392B）"
+      - "禁止模块级 token 快照：severityBg / severityText 等 6 处模块级色表改为按当前 token 取值的函数"
+      - "vitest run src/skins.test.ts 通过；eslint 0 告警；tsc --noEmit 通过"
+    status: done
+    depends_on: []
+    commit_unit: "M05-T26: 双皮肤机制与 Token 收敛（决策 88）"
+    notes: |
+      客户专属 INESA 蓝不进入产品基础视觉规范：PRD §5.2 与 docs/prototypes/module-05/ 均不改，
+      交付期开启对应皮肤即可（见 dev-feedback 反馈 4 的客户专属边界）。
+
+  - id: M05-T27
+    role: frontend-developer
+    title: "系统与平台管理新增「外观设置」——皮肤切换 + 产品名称自定义（决策 88）"
+    input_paths:
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/skinContext.ts"
+    output_files:
+      - "ui-custom/web/src/pages/admin/appearance/AppearanceSettingsPage.tsx"
+      - "ui-custom/web/src/pages/admin/appearance/AppearanceSettingsPage.test.tsx"
+      - "ui-custom/web/src/productNamePreference.ts"
+      - "ui-custom/web/src/productNamePreference.test.ts"
+      - "ui-custom/web/src/layouts/MainLayout.tsx、MainLayout.test.tsx"
+      - "ui-custom/web/src/App.tsx（/admin/appearance 路由）"
+      - "ui-custom/web/src/antdAppContext.test.ts"
+    acceptance:
+      - "外观设置落位「系统与平台管理」模块，不放顶栏"
+      - "产品名称可改、可恢复默认；文档标题随产品名同步（index.html 静态 title 仅作 JS 未执行兜底）"
+      - "偏好持久化走 localStorage 且隐私模式降级（键 metriccenter.skin / 产品名）"
+      - "vitest run AppearanceSettingsPage.test.tsx、productNamePreference.test.ts、MainLayout.test.tsx 通过；eslint 通道 0 告警"
+    status: done
+    depends_on:
+      - M05-T26
+    commit_unit: "M05-T27: 外观设置页（皮肤 + 产品名，决策 88）"
+    notes: |
+      零后端改动（偏好全部落 localStorage）。用户诉求原话：「皮肤设置请做在『系统与平台管理』模块，
+      不要做在顶部栏，在增加一个产品名称更换，即可以不用叫 metric center」。
+
+  - id: M05-T28
+    role: frontend-developer
+    title: "首页版式方案乙——告警 5 行 / 双列等高 / 使用指引移至双列下方（决策 89，修订决策 73 第 6 条）"
+    input_paths:
+      - "ui-custom/web/src/pages/home/HomePage.tsx"
+      - "ui-custom/web/src/pages/home/AlertStatusCard.tsx"
+      - "docs/05-execution-records/module-05/design-decisions.md"
+    output_files:
+      - "ui-custom/web/src/pages/home/homeLayout.ts"
+      - "ui-custom/web/src/pages/home/homeLayout.test.ts"
+      - "ui-custom/web/src/pages/home/HomePage.tsx"
+      - "ui-custom/web/src/pages/home/HomePage.test.tsx"
+      - "ui-custom/web/src/pages/home/AlertStatusCard.tsx"
+      - "ui-custom/web/src/pages/home/QuickAccess.tsx"
+      - "ui-custom/web/src/api/alertmanager.ts（告警历史取数步长常量与透传，口径见 T02-05）"
+    acceptance:
+      - "告警卡每页 5 行（数据池仍为最新 8 条）；最近下发记录固定 6 条"
+      - "双列等高：内联 alignItems:'stretch' + minHeight:420；告警卡页脚 margin-top:auto 贴底"
+      - "使用指引移至双列下方整宽一行；撤回「整页不出现下拉进度条」硬约束"
+      - "版式常量与视口解耦（删除 computeAlertPageSize / useMeasuredHeight）"
+      - "vitest run HomePage.test.tsx、homeLayout.test.ts 通过；eslint 0 告警"
+    status: done
+    depends_on:
+      - M05-T27
+    commit_unit: "M05-T28: 首页版式方案乙（决策 89）"
+    notes: |
+      原型按产品决策「甲」（2026-09-18）不改，登记为 frontend-prototype-map.md §5.3 生产侧偏离行。
+      PRD §3.1 第 4/5/6 项与 §6 验收项待 v1.7 回填（当前遵守 PRD 冻结门禁）。

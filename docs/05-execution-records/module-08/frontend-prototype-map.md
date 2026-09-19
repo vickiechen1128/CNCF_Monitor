@@ -10,7 +10,7 @@
 
 | 决策            | 选择            | 落地说明                                                                                                                                                                                                            |
 | ------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1 视觉还原       | **a 强制**      | 复用全站火山引擎 Token（原型 `module-08/src/theme.ts` 与 `module-07` 一致）：主色 `#0ECDEB`、头部 `#0B1B2A`、内容背景 `#F7F8FA`。生产 `src/theme.ts` 已全局注入，告警页无独立新 Token。                                                                    |
+| D1 视觉还原       | **a 强制**      | 复用全站火山引擎 Token（原型 `module-08/src/theme.ts` 与 `module-07` 一致）：主色 `#0ECDEB`、头部 `#0B1B2A`、内容背景 `#F7F8FA`。生产 `src/skins.ts` 已全局注入，告警页无独立新 Token。                                                                    |
 | D2 原型定位       | **a 实现基底**    | 复制原型 `ConfigPage`（文件挂载）与 `SilencesPage`（静默极简 UI）的结构 / 列集合，替换 mock 为真实 alertmanager API；其余原型页（告警状态四态 / 通知渠道 / 路由 / 抑制）按决策 55/59 裁剪（见「六、裁剪清单」）。                                                                   |
 | D3 顶级 tab 模块名 | **a PRD 模块名** | 顶部一级 tab 用 PRD 模块名「告警收敛与通知管理」（`MainLayout` MODULES `alert`），不用功能页名「告警配置」；功能页名下沉为 Sider 二级「告警配置 / 静默管理」。                                                                                                         |
 | D4 MVP 交付形态   | **b 文件挂载承载**  | 决策 55/59：接收人 / 路由 / 抑制不走字段化表单 UI（归 v0.3/v1.0），统入整份 `alertmanager.yml` 文件挂载 + amtool check-config 校验 + 内容侧留痕；静默走 Alertmanager API 直调（即时生效，不进 M09 变更单）。决策 60：挂载产物作为管理域 scope 配置进入 M09 ConfigDraft 人工确认后下发 reload。 |
@@ -21,7 +21,7 @@
 
 | 原型文件（`docs/prototypes/module-08/src/`）                               | 生产对应（`ui-custom/web/src/`）                                                                              | 处理               | 核对项          | 说明 / 理由                                                                                                                                                                                                                                                                              |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `theme.ts`                                                           | `src/theme.ts`                                                                                          | **复制**           | D1 视觉还原      | 火山引擎 Token 已全站迁移（与 module-07 同源），告警页复用。                                                                                                                                                                                                                                              |
+| `theme.ts`                                                           | `src/skins.ts`                                                                                          | **复制**           | D1 视觉还原      | 火山引擎 Token 已全站迁移（与 module-07 同源），告警页复用。                                                                                                                                                                                                                                              |
 | `App.css`                                                            | `src/App.css`                                                                                           | **复制 + 裁剪**      | D1 / D3      | 深色头部、内容背景、AWS 顶部 tab 下划线保留；移除原型 `.page-header`/`.page-card` 等页面级样式（改组件内联/Card 默认）。                                                                                                                                                                                                   |
 | `layouts/MainLayout.tsx`                                             | `src/layouts/MainLayout.tsx`                                                                            | **复制 + 裁剪**      | D3           | 移除原型角色切换 Select / 网域模式 Switch / 「原型验证版」Tag 等脚手架；保留 Header 一级 tab + Sider 二级导航。**新增**顶级模块 `alert`「告警收敛与通知管理」→ Sider 二级「告警配置 `/alert-config` / 静默管理 `/silences`」（T08-F4，commit `1f18cc94`）。                                                                                            |
 | `App.tsx`                                                            | `src/App.tsx`                                                                                           | **复制 + 裁剪**      | 1 路由         | 生产注册 `/alert-config`（AlertConfigPage）、`/silences`（SilencesPage）两条路由（懒加载，T08-F4 commit `1f18cc94`）。                                                                                                                                                                                   |
@@ -100,18 +100,18 @@
 
 ## 五、视觉 Token 清单
 
-与全站 `src/theme.ts` 共用同一套火山引擎 Token（原型 `module-08/src/theme.ts` 内容与 module-07 一致）：
+与全站 `src/skins.ts` 共用同一套火山引擎 Token（原型 `module-08/src/theme.ts` 内容与 module-07 一致）：
 
 | Token       | 值         | 用途                   | 来源文件                                     |
 | ----------- | --------- | -------------------- | ---------------------------------------- |
-| 主色（Primary） | `#0ECDEB` | 主按钮、选中态、链接高亮         | `src/theme.ts` `colorPrimary`            |
-| 主色背景浅       | `#E6FAFD` | 选中卡片背景、hover 背景      | `src/theme.ts` `colorPrimaryBg`          |
-| 头部深色        | `#0B1B2A` | Header 背景            | `src/theme.ts` `colorHeaderBg` / App.css |
-| 成功色         | `#00B578` | 生效中 / 已下发            | `src/theme.ts` `colorSuccess`            |
-| 警告色         | `#FA8C16` | 待生效 / 待确认 / 已下发未采到   | `src/theme.ts` `colorWarning`            |
-| 错误色         | `#FF4C3A` | 已拒绝 / 删除 / 校验失败      | `src/theme.ts` `colorError`              |
-| 信息蓝         | `#1481FD` | 链接 / 信息提示            | `src/theme.ts` `colorInfo`               |
-| 页面背景        | `#F7F8FA` | Content 背景 / YAML 预览 | `src/theme.ts` `colorBgBase`             |
+| 主色（Primary） | `#0ECDEB` | 主按钮、选中态、链接高亮         | `src/skins.ts` `colorPrimary`            |
+| 主色背景浅       | `#E6FAFD` | 选中卡片背景、hover 背景      | `src/skins.ts` `colorPrimaryBg`          |
+| 头部深色        | `#0B1B2A` | Header 背景            | `src/skins.ts` `colorHeaderBg` / App.css |
+| 成功色         | `#00B578` | 生效中 / 已下发            | `src/skins.ts` `colorSuccess`            |
+| 警告色         | `#FA8C16` | 待生效 / 待确认 / 已下发未采到   | `src/skins.ts` `colorWarning`            |
+| 错误色         | `#FF4C3A` | 已拒绝 / 删除 / 校验失败      | `src/skins.ts` `colorError`              |
+| 信息蓝         | `#1481FD` | 链接 / 信息提示            | `src/skins.ts` `colorInfo`               |
+| 页面背景        | `#F7F8FA` | Content 背景 / YAML 预览 | `src/skins.ts` `colorBgBase`             |
 
 ## 六、裁剪清单（原型中有但 MVP 生产未保留）
 

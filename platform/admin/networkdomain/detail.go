@@ -23,6 +23,19 @@ func GetNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			response.InternalServerError(c, fmt.Errorf("get network domain %q: %w", id, err))
 			return
 		}
-		response.OK(c, dom)
+		var onlineCount int64
+		if err := db.Model(&models.EdgeAgent{}).
+			Where("network_domain_id = ?", id).
+			Where("status = ?", models.EdgeAgentStatusOnline).
+			Count(&onlineCount).Error; err != nil {
+			response.InternalServerError(c, fmt.Errorf("count online edge agents for %q: %w", id, err))
+			return
+		}
+		on := onlineCount > 0
+		response.OK(c, DomainListItemView{
+			NetworkDomain:   dom,
+			HasOnlineAgents: on,
+			AccessStep:      AccessStepOf(&dom, on),
+		})
 	}
 }

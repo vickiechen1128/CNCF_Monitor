@@ -18,7 +18,7 @@
 
 | 原型文件（docs/prototypes/module-06/src/） | 生产对应 / 目标（ui-custom/web/） | 处理 | 核对项 | 说明 / 理由 |
 |---|---|---|---|---|
-| `theme.ts` | 新建 `src/theme.ts` + `App`/`main` 根 `ConfigProvider theme=` | **复制** | 5 视觉还原 | D1。迁移火山引擎 Token（主色 `#0ECDEB`、深色头部 `#0B1B2A`、状态色、背景 `#F7F8FA`），删除 `App.css` 手写 `#1677ff` |
+| `theme.ts` | 新建 `src/skins.ts` + `App`/`main` 根 `ConfigProvider theme=` | **复制** | 5 视觉还原 | D1。迁移火山引擎 Token（主色 `#0ECDEB`、深色头部 `#0B1B2A`、状态色、背景 `#F7F8FA`），删除 `App.css` 手写 `#1677ff` |
 | `App.css`（深色头部 / 背景 / text/bg 辅助色） | `src/App.css` | **复制**（并入） | 5 视觉还原 | 头部 `#0B1B2A`、内容背景 `#F7F8FA`、`text-*`/`bg-*-light` 辅助类 |
 | `pages/NetworkDomainsPage.tsx` | `src/pages/admin/domains/DomainsPage.tsx` | **复制 + 裁剪** | 2 / 6 列完整性 | 列集合对齐 = 原型 ∩ MVP（见下方列对照）；裁剪原型折叠区/评审说明 |
 | `components/FilterBar.tsx` / `tablePresets.ts` / `EllipsisText.tsx` | `src/components/`（已落地 3 件） | **复制** | 3 / 8 | 复用以满足横滚固定列 / 长文本规范；`DomainsPage` 筛选区已由 `<Space wrap>` 收敛为 `FilterBar/FilterItem`，`scroll` 用 `TABLE_SCROLL_X`，分页用 `TABLE_PAGINATION`（D6） |
@@ -46,7 +46,7 @@
 
 ## 四、待办（改动代码前逐项勾验）
 
-- [x] D1：`src/theme.ts` 落地并全局注入，确认无 `#1677ff`（header 改 `#0B1B2A`，body `#F7F8FA`）
+- [x] D1：`src/skins.ts` 落地并全局注入，确认无 `#1677ff`（header 改 `#0B1B2A`，body `#F7F8FA`）
 - [x] D4：「监控纳管」「创建时间」两列，先逐列核对 PRD MVP 后补渲染（后端 DTO 已返回 `is_monitored` / `created_at`；状态色对齐原型）
 - [x] D3：banner 模块入口（临时版，`MainLayout` 头部按钮，标注 M05 收口）
 - [x] D5：顶部一级 tab 文案改用 PRD 模块名「系统与平台管理」，「网域管理」下沉 Sider 二级（`MainLayout.tsx` MODULES）

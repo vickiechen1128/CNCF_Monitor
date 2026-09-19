@@ -1,16 +1,26 @@
 /**
- * 首页概览（Module_05 §3.1「首页（MVP 子集）交互契约」决策 72 / 72-1 / 72-2 / 72-3）。
+ * 首页概览（Module_05 §3.1「首页（MVP 子集）交互契约」决策 72 / 72-1 / 72-2 / 72-3 / 73）。
  *
- * 页面结构（自上而下，决策 72-2 / 72-3）：
- * 标题区 → 关键指标卡网格（6 张资产与治理进度卡，含口径注释）→
- * 告警治理态大卡片（首页唯一告警入口）+ 快捷入口 / 最近下发 → 使用指引。
+ * 页面结构（自上而下，决策 72-2 / 72-3 / 73）：
+ * 页头行（引导语 + 系统状态）→ 关键指标卡网格（6 张资产与治理进度卡，纵向排版 + 口径注释）→
+ * 双列区：左列告警状态卡（首页唯一告警入口，卡内自适应分页）/ 右列（系统快速入口 → 最近下发记录 → 使用指引）。
+ *
+ * 版式约束（用户 2026-09-18 反馈，已两轮修正）：
+ * - 页面按内容自然排布，**不锁定视口**：不同电脑尺寸/分辨率下版式一致，内容超出即滚动
+ *   （首版曾用 MainLayout fitViewport 单屏铺满，因把「内容量」与「视口高度」强绑定而移除）；
+ * - 双列区两列**等高**（CSS Grid align-items: stretch + 右列纵向 flex 兜底），
+ *   使「使用指引」能整体移到双列下方而不被两列高度差顶出空白；
+ * - 告警卡与「最近下发记录」按行数对齐（方案乙：告警 5 行 ↔ 下发 6 行），
+ *   少告警时由双列区 min-height 兜底，差额落在告警卡的白底上（见 homeLayout.ts）。
  *
  * 数据源（决策 72-3 放宽「零后端改动」，见
  * docs/05-execution-records/module-05/design-proposals/homepage-mvp-content-restructure.md）：
  * - dashboardApi.getSummary()：资源总数 / 已监控 / 采集 Job / 已纳管网域 / 待确认草稿 / 最近下发；
  *   「采集覆盖率」由 已监控 ÷ 资源总数 前端派生；
- * - alertStatusApi（AM 通知四态 + Prom 触发态）**单次请求**由 useAlertGovernance 持有：
- *   告警数字与最新 5 条告警同源，不重复取数；指标卡**不再出现任何告警数字**。
+ * - alertStatusApi 三条只读链路**单次请求**由 useAlertGovernance 持有：
+ *   Prom 触发告警 + AM 通知状态（数字与最新告警同源，不重复取数）+
+ *   M02 历史告警（决策 73：当日 / 近 7 天告警前端计数 + 行 2 告警具体内容回查）；
+ *   指标卡**不出现任何告警数字**。
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -30,9 +40,16 @@ import dayjs from 'dayjs'
 import { Link } from 'react-router-dom'
 import { apiClient } from '../../api/client'
 import { dashboardApi } from '../../api/dashboard'
+import { useProductName } from '../../skinContext'
 import type { DashboardSummary, RecentDeployment } from '../../api/dashboard'
-import { alertStatusApi } from '../../api/alertmanager'
-import type { AmAlertItem, AmAlertsData, PromAlertItem, PromAlertsData } from '../../types/alertmanager'
+import { alertStatusApi, ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
+import type {
+  AlertHistoryData,
+  AmAlertItem,
+  AmAlertsData,
+  PromAlertItem,
+  PromAlertsData,
+} from '../../types/alertmanager'
 import type { ApiResponse } from '../../types/api'
 import {
   deploymentStatusColor,
@@ -44,6 +61,7 @@ import { LoadingPlaceholder } from '../../components/LoadingPlaceholder'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { AlertStatusCard, LATEST_ALERT_LIMIT } from './AlertStatusCard'
 import type { AlertCounts } from './AlertStatusCard'
+import { alertMatchKey } from '../alerts/alertmanagerConstants'
 import { QuickAccess } from './QuickAccess'
 import { OnboardingSteps } from './OnboardingSteps'
 import { SurfaceCard } from './SurfaceCard'
@@ -71,6 +89,8 @@ const DASHBOARD_MOCK: DashboardSummary = {
 }
 
 const ALERT_MOCK: AlertCounts = {
+  today: 12,
+  week: 38,
   active: 2,
   silenced: 1,
   inhibited: 0,
@@ -79,77 +99,66 @@ const ALERT_MOCK: AlertCounts = {
   pending: 1,
 }
 
-/** 静态预览用最新告警样例（无后端时保持告警卡形态完整，数量与卡内上限一致便于校验行高与表头对齐） */
+/**
+ * 静态预览用最新告警样例（无后端时保持告警卡形态完整，数量与卡内上限一致便于校验行高与「查看全部」语义）。
+ * 每条携带 annotations.summary（行 2 告警具体内容）与 labels.instance（history 回查键的一半）。
+ */
 const ALERT_MOCK_LATEST: AmAlertItem[] = [
   {
-    labels: { alertname: '主机 CPU 使用率过高', severity: 'error' },
-    annotations: {},
-    starts_at: '2026-09-14T10:00:00Z',
-    resource_name: 'web-01',
+    labels: { alertname: '主机 CPU 使用率过高', severity: 'critical', instance: '10.0.0.11:9100' },
+    annotations: { summary: 'CPU 使用率 92%，超过阈值 85% 已持续 5 分钟' },
+    starts_at: '2026-09-18T09:32:00Z',
+    resource_name: 'prod-web-01',
     notify_status: 'active',
   },
   {
-    labels: { alertname: '数据库连接数接近上限', severity: 'warning' },
-    annotations: {},
-    starts_at: '2026-09-14T08:30:00Z',
-    resource_name: 'db-01',
+    labels: { alertname: '节点离线', severity: 'critical', instance: '10.0.2.7:9100' },
+    annotations: { summary: '节点已 60 秒无响应，疑似断网或采集进程异常' },
+    starts_at: '2026-09-18T09:28:00Z',
+    resource_name: 'edge-node-03',
     notify_status: 'active',
   },
   {
-    labels: { alertname: '磁盘使用率接近上限', severity: 'warning' },
-    annotations: {},
-    starts_at: '2026-09-14T07:10:00Z',
-    resource_name: 'db-02',
+    labels: { alertname: '磁盘空间不足', severity: 'warning', instance: '10.0.1.5:9100' },
+    annotations: { summary: '数据盘使用率 91%，预计 6 小时后写满' },
+    starts_at: '2026-09-18T09:15:00Z',
+    resource_name: 'prod-db-01',
+    notify_status: 'active',
+  },
+  {
+    labels: { alertname: '服务拨测失败', severity: 'critical', instance: 'http://order-svc:8080/health' },
+    annotations: { summary: 'HTTP 探针连续 3 次超时（>3s）' },
+    starts_at: '2026-09-18T08:58:00Z',
+    resource_name: 'order-service-v2',
     notify_status: 'silenced',
   },
   {
-    labels: { alertname: '节点失联', severity: 'critical' },
-    annotations: {},
-    starts_at: '2026-09-14T05:45:00Z',
-    resource_name: 'web-02',
-    notify_status: 'active',
-  },
-  {
-    labels: { alertname: '接口错误率升高', severity: 'error' },
-    annotations: {},
-    starts_at: '2026-09-14T04:20:00Z',
-    resource_name: 'app-01',
-    notify_status: 'active',
-  },
-  {
-    labels: { alertname: '内存使用率偏高', severity: 'warning' },
-    annotations: {},
-    starts_at: '2026-09-14T03:05:00Z',
-    resource_name: '',
+    labels: { alertname: '内存使用率偏高', severity: 'warning', instance: '10.0.3.9:9100' },
+    annotations: { summary: '内存使用率 88%，接近告警阈值 90%' },
+    starts_at: '2026-09-18T08:40:00Z',
+    resource_name: 'redis-cache-01',
     notify_status: 'inhibited',
   },
   {
-    labels: { alertname: 'Kafka 消费延迟增长', severity: 'warning' },
-    annotations: {},
-    starts_at: '2026-09-14T01:40:00Z',
-    resource_name: 'mw-01',
+    labels: { alertname: '数据库连接数接近上限', severity: 'warning', instance: '10.0.1.6:3306' },
+    annotations: { summary: '当前连接数 480 / 上限 500，新增连接将被拒绝' },
+    starts_at: '2026-09-18T08:20:00Z',
+    resource_name: 'prod-mysql-01',
     notify_status: 'active',
   },
   {
-    labels: { alertname: 'Redis 主从同步中断', severity: 'critical' },
-    annotations: {},
-    starts_at: '2026-09-13T22:15:00Z',
-    resource_name: 'redis-01',
-    notify_status: 'silenced',
+    labels: { alertname: 'Kafka 消费延迟增长', severity: 'warning', instance: '10.0.4.2:9092' },
+    annotations: { summary: '消费组 order-group 积压 12 万条，延迟 8 分钟' },
+    starts_at: '2026-09-18T07:40:00Z',
+    resource_name: 'kafka-broker-02',
+    notify_status: 'active',
   },
   {
-    labels: { alertname: 'Nginx 上游健康检查失败', severity: 'error' },
-    annotations: {},
-    starts_at: '2026-09-13T20:00:00Z',
+    labels: { alertname: 'Nginx 上游健康检查失败', severity: 'info', instance: 'http://nginx-01/status' },
+    annotations: { summary: '上游 app-03 连续 5 次健康检查失败' },
+    starts_at: '2026-09-18T07:00:00Z',
     resource_name: 'nginx-01',
-    notify_status: 'active',
-  },
-  {
-    labels: { alertname: 'MySQL 慢查询数突增', severity: 'info' },
-    annotations: {},
-    starts_at: '2026-09-13T18:30:00Z',
-    resource_name: 'db-03',
-    notify_status: 'active',
+    notify_status: 'silenced',
   },
 ]
 
@@ -181,6 +190,13 @@ function deploymentStatusText(status: string): string {
 function deploymentStatusBadge(status: string): BadgeProps['status'] {
   return (deploymentStatusColor as Record<string, BadgeProps['status']>)[status] ?? 'default'
 }
+
+/**
+ * 「最近下发记录」卡内固定条数（用户 2026-09-18 决策「方案乙」）。
+ * 与告警卡的 `homeLayout.ALERT_PAGE_SIZE`（5 行/页）配套，使左右两列在满数据时近似等高；
+ * 两者同为版式常量，**改一处需同改另一处**。
+ */
+const DEPLOYMENT_ROW_LIMIT = 6
 
 const DEPLOYMENT_COLUMNS: ColumnsType<RecentDeployment> = [
   {
@@ -228,11 +244,88 @@ function toSourceState<T>(
   return { res: null, error: settled.value.error || '请求失败' }
 }
 
+/** 近 7 天告警窗口（决策 73：与 M02 history 服务端最大时间窗一致） */
+const HISTORY_WINDOW_DAYS = 7
+
+/** history 单页取数上限（服务端 maxHistoryPageSize = 200，一次拉满减少分页往返） */
+const HISTORY_PAGE_SIZE = 200
+
+/**
+ * 历史告警取数参数：窗口按服务端上限 7d（决策 73 只关心当日 / 近 7 天）。
+ *
+ * - **必须显式传 `step`（决策 90）**：取 `ALERT_HISTORY_STEP_SECONDS`（30s，PRD 默认细粒度）。
+ *   本卡窗口恒为 7d，7d ÷ 30s = 20160 点超过 Prometheus 单序列 11000 点上限 → 上游 400 →
+ *   本卡「当日 / 近 7 天告警」两格恒为 0（2026-09-18 实测缺陷）；服务端会按窗口把 30s 抬高到
+ *   55s 兜底，但调用侧仍显式传值，避免行为依赖服务端默认；
+ * - 窗口直接取整 7d：服务端会把 > 7d 的窗口压缩为 `[end-7d, end]`，故多加容差无实际效果，
+ *   反而是让 `total` 与「近 7 天」口径严格一致的前提（见 computeHistoryCounts）。
+ */
+function historyQuery(): { start: string; end: string; step: number; page: number; page_size: number } {
+  const now = dayjs()
+  return {
+    start: now.subtract(HISTORY_WINDOW_DAYS, 'day').toISOString(),
+    end: now.toISOString(),
+    step: ALERT_HISTORY_STEP_SECONDS,
+    page: 1,
+    page_size: HISTORY_PAGE_SIZE,
+  }
+}
+
+/** fired_at 时间戳：缺失 / 非法计 0（不落入「今日」或「近 7 天」计数，也不抛错） */
+function firedAt(value?: string): number {
+  if (!value) return 0
+  const d = dayjs(value)
+  return d.isValid() ? d.valueOf() : 0
+}
+
+/**
+ * 历史告警计数（决策 73 §1，决策 90 修订）：当日 = fired_at ≥ 今日 0 点；近 7 天 = 服务端窗口总量。
+ *
+ * **「近 7 天」直接取服务端 `total`**：请求窗口与「近 7 天」口径严格一致（7d，服务端裁剪后
+ * 亦为 `[end-7d, end]`），`total` 即该窗口内的触发区间总数。原实现把 `total` 与前端**按渲染
+ * 时刻**重算边界的 `inWindow` 做大小比较，两个边界不同源（渲染时刻晚于请求时刻），导致 7d
+ * 边界外刚过期的记录被计入，与卡片文案「近 7 天」不符 —— 取消该混用。
+ * 单页上限（200）截断的只是**列表**且按触发时间倒序（丢的是最旧记录），故 `today` 仍由当前页
+ * 统计；`total` 缺失（契约异常）时回落为页内条目数。
+ *
+ * 字段缺失（无 list）返回 null，由调用方把两格降级为 '-'（不显示 0）。
+ */
+function computeHistoryCounts(
+  res: ApiResponse<AlertHistoryData> | null,
+): { today: number; week: number } | null {
+  const items = res?.data?.list
+  if (!Array.isArray(items)) return null
+
+  const dayStart = dayjs().startOf('day').valueOf()
+  const today = items.filter((item) => firedAt(item.fired_at) >= dayStart).length
+  const total = res?.data?.total
+  const week = typeof total === 'number' ? total : items.length
+  return { today, week }
+}
+
+/**
+ * 行 2 告警具体内容回查表（决策 73 §3）：M02 history 的 summary 优先，AM annotations.summary 兜底。
+ * 键由 alertMatchKey（告警名 + 采集地址）生成，与告警卡取值端共用一份逻辑。
+ */
+function buildSummaryMap(res: ApiResponse<AlertHistoryData> | null): Record<string, string> {
+  const items = res?.data?.list
+  if (!Array.isArray(items)) return {}
+  const map: Record<string, string> = {}
+  for (const item of items) {
+    const summary = item.summary?.trim()
+    if (!summary) continue
+    const key = alertMatchKey(item.alertname, item.instance)
+    // 同一告警名 + 实例可能有多段触发区间：保留最近一段（history 按时间倒序返回时首条即最新）
+    if (!(key in map)) map[key] = summary
+  }
+  return map
+}
+
 /** 告警计数：AM 通知四态（active / silenced / inhibited / unprocessed）+ Prom 触发态 */
 function computeCounts(
   promRes: ApiResponse<PromAlertsData> | null,
   amRes: ApiResponse<AmAlertsData> | null,
-): AlertCounts {
+): Omit<AlertCounts, 'today' | 'week'> {
   // promRes / amRes 仅在信封 status === 'success' 时被写入（见 toSourceState），
   // 业务错误信封不会静默计 0，而是走 promError / amError 呈现。
   const promAlerts: PromAlertItem[] = promRes?.data?.alerts ?? []
@@ -249,17 +342,21 @@ function computeCounts(
 
 interface AlertGovernance {
   counts: AlertCounts
-  /** 最新告警：AM 条目按 starts_at 倒序取前 5，剔除 unprocessed（治理闭环 MVP 未实现） */
+  /** 最新告警：AM 条目按 starts_at 倒序取前 LATEST_ALERT_LIMIT 条，剔除 unprocessed（治理闭环 MVP 未实现） */
   latestAlerts: AmAlertItem[]
+  /** 行 2 告警具体内容回查表（history summary 优先，AM annotations.summary 兜底） */
+  summaryByAlert: Record<string, string>
   loading: boolean
   promError: string | null
   amError: string | null
+  /** history 链路错误：当日 / 近 7 天两格降级为 '-'，不影响 AM / Prom 展示 */
+  historyError: string | null
   retry: () => void
 }
 
 /**
- * 首页告警治理态取数（单次请求持有）。
- * allSettled：单端点失败不丢弃另一端点已成功数据，失败源局部降级提示。
+ * 首页告警治理态取数（三条只读链路各单次请求持有）。
+ * allSettled：任一端点失败不丢弃其他端点已成功数据，失败源局部降级提示。
  */
 function useAlertGovernance(
   isStaticPreview: boolean,
@@ -268,8 +365,10 @@ function useAlertGovernance(
 ): AlertGovernance {
   const [promRes, setPromRes] = useState<ApiResponse<PromAlertsData> | null>(null)
   const [amRes, setAmRes] = useState<ApiResponse<AmAlertsData> | null>(null)
+  const [historyRes, setHistoryRes] = useState<ApiResponse<AlertHistoryData> | null>(null)
   const [promError, setPromError] = useState<string | null>(null)
   const [amError, setAmError] = useState<string | null>(null)
+  const [historyError, setHistoryError] = useState<string | null>(null)
   const [loading, setLoading] = useState(() => !isStaticPreview)
   const [retryKey, setRetryKey] = useState(0)
 
@@ -278,27 +377,43 @@ function useAlertGovernance(
       return
     }
     let cancelled = false
-    Promise.allSettled([alertStatusApi.getPromAlerts(), alertStatusApi.getAlertmanagerAlerts()]).then(
-      ([prom, am]) => {
-        if (cancelled) return
-        const p = toSourceState(prom)
-        const a = toSourceState(am)
-        setPromRes(p.res)
-        setAmRes(a.res)
-        setPromError(p.error)
-        setAmError(a.error)
-        setLoading(false)
-      },
-    )
+    Promise.allSettled([
+      alertStatusApi.getPromAlerts(),
+      alertStatusApi.getAlertmanagerAlerts(),
+      alertStatusApi.getAlertHistory(historyQuery()),
+    ]).then(([prom, am, history]) => {
+      if (cancelled) return
+      const p = toSourceState(prom)
+      const a = toSourceState(am)
+      const h = toSourceState(history)
+      setPromRes(p.res)
+      setAmRes(a.res)
+      setHistoryRes(h.res)
+      setPromError(p.error)
+      setAmError(a.error)
+      // 字段缺失（信封成功但无 list）同样视为不可用：两格显示 '-' 而非 0
+      setHistoryError(
+        h.error ?? (Array.isArray(h.res?.data?.list) ? null : '历史告警响应缺少列表字段'),
+      )
+      setLoading(false)
+    })
     return () => {
       cancelled = true
     }
   }, [isStaticPreview, retryKey])
 
-  const counts = useMemo(
-    () => (isStaticPreview ? mockCounts : computeCounts(promRes, amRes)),
-    [isStaticPreview, mockCounts, promRes, amRes],
-  )
+  const counts = useMemo(() => {
+    if (isStaticPreview) {
+      return mockCounts
+    }
+    const history = computeHistoryCounts(historyRes)
+    return {
+      ...computeCounts(promRes, amRes),
+      // history 不可用时由 AlertStatusCard 按 historyError 渲染 '-'，此处仅提供占位数值
+      today: history?.today ?? 0,
+      week: history?.week ?? 0,
+    }
+  }, [isStaticPreview, mockCounts, promRes, amRes, historyRes])
 
   const latestAlerts = useMemo(() => {
     if (isStaticPreview) {
@@ -311,16 +426,22 @@ function useAlertGovernance(
       .slice(0, LATEST_ALERT_LIMIT)
   }, [isStaticPreview, mockLatest, amRes])
 
+  const summaryByAlert = useMemo(
+    () => (isStaticPreview ? {} : buildSummaryMap(historyRes)),
+    [isStaticPreview, historyRes],
+  )
+
   const retry = () => {
     // 静态预览无后端：effect 提前 return，置 loading 会永久停在加载态，直接短路
     if (isStaticPreview) return
     setLoading(true)
     setPromError(null)
     setAmError(null)
+    setHistoryError(null)
     setRetryKey((k) => k + 1)
   }
 
-  return { counts, latestAlerts, loading, promError, amError, retry }
+  return { counts, latestAlerts, summaryByAlert, loading, promError, amError, historyError, retry }
 }
 
 interface MetricItem {
@@ -335,12 +456,9 @@ interface MetricItem {
 }
 
 /**
- * 关键指标卡：图标 32px + 数字 24px/700 + 标签 13px colorTextSecondary（决策 72-2 视觉规格）。
- *
- * 采用「图标在左、数字与标签在右」的横向排版：6 列网格下单卡内容区仅约 130px，
- * 竖排堆叠时图标与数字间距、数字与标签间距相同（都是 8px），三者平权且卡内上下
- * 留白过大（旧实现 `minHeight: 108` 使卡高 148px、内容仅占 70px）；横向排版在同样
- * 宽度内更饱满，数字作为视觉主体更突出。
+ * 关键指标卡：纵向排版（决策 73 §4 视觉规格，自 v1.5 横向排版修订）——
+ * 标签 12px 在上、数字 30px/800（等宽数字）在下、44px 圆角图标容器右下（内 22px 图标、品牌青 10% 浅底）。
+ * 数字提到 30px/800 后成为卡内唯一视觉主体，卡高由内容决定（删除旧 `minHeight` 兜底）。
  */
 function MetricCard({ item }: { item: MetricItem }) {
   const { token } = theme.useToken()
@@ -349,49 +467,78 @@ function MetricCard({ item }: { item: MetricItem }) {
     <SurfaceCard
       hoverShadow
       data-testid={`metric-${item.key}`}
-      style={{ height: '100%' }}
-      styles={{ body: { padding: '16px 18px' } }}
+      style={{ position: 'relative', height: '100%' }}
+      styles={{ body: { padding: '14px 16px' } }}
     >
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* 口径注释：仅 tip 非空时渲染（ⓘ 不参与视觉主体，用 tertiary 文字色）；
-            可聚焦 + aria-label，保证键盘用户也能读到口径说明 */}
-        {item.tip && (
-          <Tooltip title={item.tip}>
-            <InfoCircleOutlined
-              data-testid={`metric-tip-${item.key}`}
-              tabIndex={0}
-              aria-label={item.tip}
-              style={{
-                position: 'absolute',
-                top: -4,
-                right: -4,
-                fontSize: 14,
-                color: token.colorTextTertiary,
-                cursor: 'help',
-              }}
-            />
-          </Tooltip>
-        )}
-        <span style={{ flex: 'none', fontSize: 32, lineHeight: 1, color: token.colorPrimary }}>
-          {item.icon}
-        </span>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.15 }}>{item.value}</div>
-          <Typography.Text type="secondary" style={{ display: 'block', fontSize: 13 }}>
-            {item.label}
-          </Typography.Text>
-          {item.hint && (
-            <Typography.Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
-              {item.hint}
-            </Typography.Text>
-          )}
-        </div>
+      {/* 标签行：标签 12px；副行说明（如采集 Job 的「启用 N」）紧随其后同排，不另起一行 */}
+      <div style={{ fontSize: 12, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
+        {item.label}
+        {item.hint && <span style={{ marginLeft: 6, color: token.colorTextTertiary }}>{item.hint}</span>}
       </div>
+
+      {/* 数字与图标容器同排：数字在左（30px/800），图标容器右下贴边（44px 圆角 + 品牌青 10% 浅底） */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginTop: 8,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 30,
+            fontWeight: 800,
+            lineHeight: 1.1,
+            color: token.colorText,
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {item.value}
+        </span>
+        <span
+          data-testid={`metric-icon-${item.key}`}
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 10,
+            background: token.colorPrimaryBg,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: 22, lineHeight: 1, color: token.colorPrimary }}>{item.icon}</span>
+        </span>
+      </div>
+
+      {/* 口径注释：仅 tip 非空时渲染（ⓘ 不参与视觉主体，用 tertiary 文字色）；
+          可聚焦 + aria-label，保证键盘用户也能读到口径说明 */}
+      {item.tip && (
+        <Tooltip title={item.tip}>
+          <InfoCircleOutlined
+            data-testid={`metric-tip-${item.key}`}
+            tabIndex={0}
+            aria-label={item.tip}
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              fontSize: 13,
+              color: token.colorTextTertiary,
+              cursor: 'help',
+            }}
+          />
+        </Tooltip>
+      )}
     </SurfaceCard>
   )
 }
 
 export function HomePage() {
+  // 引导语中的产品名随「外观设置」变化（用户 2026-09-18 补充）
+  const { productName } = useProductName()
   const [status, setStatus] = useState<Status | null>(() => (IS_STATIC_PREVIEW ? STATUS_MOCK : null))
   const [error, setError] = useState<string | null>(null)
 
@@ -404,9 +551,11 @@ export function HomePage() {
   const {
     counts,
     latestAlerts,
+    summaryByAlert,
     loading: alertLoading,
     promError,
     amError,
+    historyError,
     retry,
   } = useAlertGovernance(IS_STATIC_PREVIEW, ALERT_MOCK, ALERT_MOCK_LATEST)
 
@@ -451,7 +600,11 @@ export function HomePage() {
       })
   }, [])
 
-  const recentDeployments = dashboard?.recent_deployments?.slice(0, 5) ?? []
+  /**
+   * 最近下发记录：卡内固定展示 DEPLOYMENT_ROW_LIMIT 条，完整记录在 /deployments
+   * （决策 72-3 §3.1「右侧可放查看更多链接」）。
+   */
+  const recentDeployments = dashboard?.recent_deployments?.slice(0, DEPLOYMENT_ROW_LIMIT) ?? []
 
   // 取数失败（含字段缺失）统一显示 '-'，不把失败静默成 0、也不渲染 NaN%（决策 72-3 §3.2 失败态）
   const metricNumber = (value?: number): number | undefined =>
@@ -517,47 +670,100 @@ export function HomePage() {
 
   return (
     <MainLayout>
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        {/* 页面引导语：页面归属已由左侧导航与面包屑表达，不再重复「MetricCenter 概览」大标题（用户反馈 2026-09-14）。
-            引导语描述「本页有什么」，不指代下方区域：紧随其后的是指标卡，六步指引在页尾。 */}
-        <Typography.Text type="secondary" style={{ fontSize: 14 }}>
-          欢迎回到 MetricCenter，这里汇总监控资源、采集任务与告警的整体运行情况
-        </Typography.Text>
+      {/* 内容自然高度（用户 2026-09-18 二次反馈「不同电脑尺寸不一样，直接铺满不满足各类场景」）：
+          根容器纵向 flex 排布页头行 / 指标卡 / 双列区，但**不锁定视口高度**——
+          视口够高时视觉上仍接近一屏，视口矮或内容多时正常滚动，不做裁切、不拉伸卡片。
+          gap 用 16，与卡片 gutter 一致（首版为挤出「一屏」曾收到 12，现无此必要）。 */}
+      <div
+        data-testid="home-page"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 16,
+        }}
+      >
+        {/* 页头行：左引导语 + 右系统状态（版本 / 模式）。原先版本行独占页尾一行，
+            上移后省一行高度，与「整页不出现下拉进度条」的目标一致。 */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            gap: 16,
+          }}
+        >
+          {/* 页面引导语：页面归属已由左侧导航与面包屑表达，不再重复「MetricCenter 概览」大标题（用户反馈 2026-09-14）。
+              引导语描述「本页有什么」，不指代下方区域：紧随其后的是指标卡，六步指引在双列区下方。 */}
+          <Typography.Text type="secondary" style={{ fontSize: 14 }}>
+            欢迎回到 {productName}，这里汇总监控资源、采集任务与告警的整体运行情况
+          </Typography.Text>
+          {/* 系统状态标注：版本 / 模式，右对齐在页头行（不再占据页尾） */}
+          {(status || error) && (
+            <Typography.Text
+              type={error ? 'danger' : 'secondary'}
+              style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+            >
+              <Space size={16}>
+                {status && <span>版本 {status.version}</span>}
+                {status && <span>模式 {status.mode}</span>}
+                {error && <span>状态加载失败：{error}</span>}
+              </Space>
+            </Typography.Text>
+          )}
+        </div>
 
         {/* 关键指标卡网格（纯资产与治理进度，不含告警数字；告警表达全部收敛到告警状态卡） */}
-        <div data-testid="dashboard-card">
+        <div data-testid="dashboard-card" style={{ flex: 'none' }}>
           {dashboardLoading && <LoadingPlaceholder />}
           {dashboardError && (
             <Alert message="请求失败" description={dashboardError} type="error" showIcon />
           )}
           <Row gutter={[16, 16]}>
             {metrics.map((item) => (
-              <Col key={item.key} xs={24} sm={12} lg={8} xl={4}>
+              <Col key={item.key} xs={24} sm={12} md={8} xl={4}>
                 <MetricCard item={item} />
               </Col>
             ))}
           </Row>
         </div>
 
-        {/* 告警治理态大卡片（左，首页唯一告警入口）+ 快捷入口 / 最近下发（右）。
-            align="stretch"：两列等高，告警条数少时左卡跟随右列高度撑满，
-            由卡内 marginTop:auto 把参考行贴底，避免卡下方留白（用户反馈 2026-09-14）。 */}
-        <Row gutter={[16, 16]} align="stretch">
+        {/* 双列区（决策 73 §6，版式经 2026-09-18 三轮修订）：
+            左列告警状态卡（首页唯一告警入口），右列 系统快速入口 → 最近下发记录。
+            等高手段（用户拍板「①内容对齐为主 + ②flex 兜底」）：
+            ① 两列按行数对齐——告警 5 行/页（homeLayout.ALERT_PAGE_SIZE）↔ 最近下发 6 条
+               （DEPLOYMENT_ROW_LIMIT），满数据时两列高度自然接近；
+            ② flex 兜底——两列 align-items: stretch 等高，残余落差吸收到告警卡的白底上
+               （告警卡页脚用 margin-top:auto 贴底，落差落在列表下方而非卡片下方）。
+               ⚠️ 此处**显式写 alignItems** 而非用 antd 的 align 属性：Row 的 align 只支持
+               top / middle / bottom（会覆盖 flex 默认的 stretch），传 'stretch' 会生成一个
+               无对应样式的 class，看似设置实则无效。显式内联也防止将来有人加 align 属性破坏等高。
+            双列区整体 min-height 420px：告警极少（如 2 条）时两列仍有基本体量，不会缩成窄卡。
+            使用指引已移出右列、改为双列**下方**的整宽一行（用户 2026-09-18 决策）：
+            两列等高后下方才留得出干净的整宽位置，六步闭环横向铺开也比挤在 14/24 列里易读。 */}
+        <Row gutter={[16, 16]} style={{ alignItems: 'stretch', minHeight: 420 }}>
           <Col xs={24} lg={10}>
             <AlertStatusCard
               counts={counts}
               latestAlerts={latestAlerts}
+              summaryByAlert={summaryByAlert}
               loading={alertLoading}
               promError={promError}
               amError={amError}
+              historyError={historyError}
               onRetry={retry}
               isStaticPreview={IS_STATIC_PREVIEW}
             />
           </Col>
           <Col xs={24} lg={14}>
-            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+                height: '100%',
+              }}
+            >
               <QuickAccess />
-              {/* 卡内只展示最近 5 条，完整记录在 /deployments（决策 72-3 §3.1「右侧可放查看更多链接」） */}
               <SurfaceCard
                 title="最近下发记录"
                 extra={
@@ -579,26 +785,13 @@ export function HomePage() {
                   />
                 )}
               </SurfaceCard>
-            </Space>
+            </div>
           </Col>
         </Row>
 
-        {/* 使用指引（六步闭环） */}
+        {/* 使用指引（六步闭环）：双列区下方整宽卡片（用户 2026-09-18 决策，原为右列第三张卡） */}
         <OnboardingSteps />
-
-        {/* 系统状态标注：版本 / 模式放在页面角落，不占据首屏中央 */}
-        {(status || error) && (
-          <div style={{ textAlign: 'right' }}>
-            <Typography.Text type={error ? 'danger' : 'secondary'} style={{ fontSize: 12 }}>
-              <Space size={16}>
-                {status && <span>版本 {status.version}</span>}
-                {status && <span>模式 {status.mode}</span>}
-                {error && <span>状态加载失败：{error}</span>}
-              </Space>
-            </Typography.Text>
-          </div>
-        )}
-      </Space>
+      </div>
     </MainLayout>
   )
 }

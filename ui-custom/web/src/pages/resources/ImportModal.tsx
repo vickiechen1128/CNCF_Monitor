@@ -20,6 +20,7 @@ import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { EllipsisText } from '../../components/EllipsisText'
 import { resourceApi } from '../../api/resources'
 import type { ImportError, ImportMode, ImportResult, ResourceCategory } from '../../types/resource'
+import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 
@@ -68,6 +69,7 @@ function triggerBlobDownload(blob: Blob, filename: string) {
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function ImportModal({ open, category, onCancel, onSuccess }: ImportModalProps) {
+  const { tokens } = useSkin()
   const [fileList, setFileList] = useState<UploadFile[]>([])
   const [mode, setMode] = useState<ImportMode>('create_only')
   const [downloading, setDownloading] = useState(false)
@@ -245,7 +247,7 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
             <Card size="small">
               <Text type="secondary">成功</Text>
               <div>
-                <Text strong style={{ fontSize: 20, color: '#00B578' }}>
+                <Text strong style={{ fontSize: 20, color: tokens.colorSuccess }}>
                   {result.success}
                 </Text>
               </div>
@@ -255,7 +257,7 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
             <Card size="small">
               <Text type="secondary">更新</Text>
               <div>
-                <Text strong style={{ fontSize: 20, color: '#2F88FF' }}>
+                <Text strong style={{ fontSize: 20, color: tokens.colorInfo }}>
                   {result.updated ?? '-'}
                 </Text>
               </div>
@@ -265,7 +267,7 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
             <Card size="small">
               <Text type="secondary">失败</Text>
               <div>
-                <Text strong style={{ fontSize: 20, color: result.failed > 0 ? '#FF4C3A' : '#86909C' }}>
+                <Text strong style={{ fontSize: 20, color: result.failed > 0 ? tokens.colorError : tokens.colorTextTertiary }}>
                   {result.failed}
                 </Text>
               </div>

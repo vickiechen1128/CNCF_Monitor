@@ -18,6 +18,7 @@ type UpdateNetworkDomainRequest struct {
 	Description         *string  `json:"description"`
 	ZoneType            *string  `json:"zone_type"`
 	AuthorizedTenantIDs []string `json:"authorized_tenant_ids"`
+	IPCIDRs             *[]string `json:"ip_cidrs"`
 }
 
 // UpdateNetworkDomain edits editable fields using .Select to limit the columns,
@@ -41,7 +42,7 @@ func UpdateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		cols := make([]string, 0, 4)
+		cols := make([]string, 0, 5)
 		if req.Name != nil {
 			dom.Name = *req.Name
 			cols = append(cols, "name")
@@ -57,6 +58,21 @@ func UpdateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 		if req.AuthorizedTenantIDs != nil {
 			dom.AuthorizedTenantIDs = req.AuthorizedTenantIDs
 			cols = append(cols, "authorized_tenant_ids")
+		}
+		if req.IPCIDRs != nil {
+			dom.IPCIDRs = *req.IPCIDRs
+			cols = append(cols, "ip_cidrs")
+		}
+
+		// 网域名称唯一性校验：改名时排除自身，同名（大小写不敏感）禁止。
+		if req.Name != nil {
+			if dup, err := nameExists(db, *req.Name, id); err != nil {
+				response.InternalServerError(c, err)
+				return
+			} else if dup {
+				response.Conflict(c, fmt.Errorf("network domain name %q already exists", *req.Name))
+				return
+			}
 		}
 
 		if len(cols) > 0 {

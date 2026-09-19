@@ -9,6 +9,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
+import { useSkin } from '../../skinContext'
 import { CATEGORY_MAP, METRIC_TYPE_MAP, MONITOR_TYPE_CASCADE, MONITOR_TYPE_MAP } from './strategyConstants'
 
 const { Text } = Typography
@@ -35,6 +36,8 @@ const GROUP_PAGE_SIZE = 100
  * - 加载骨架 / 空态 / 错误态；MVP 内置只读不做编辑/导入 UI（P1）。
  */
 export function MetricLibraryPage() {
+  // 品牌色走皮肤 token（单一来源，见 skins.ts 设计约束）
+  const { tokens } = useSkin()
   const [items, setItems] = useState<MetricLibraryState>(EMPTY_LIBRARY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -244,7 +247,7 @@ export function MetricLibraryPage() {
 
       {/* F4：顶部统计 */}
       <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <DatabaseOutlined style={{ color: '#0ECDEB', fontSize: 18 }} />
+        <DatabaseOutlined style={{ color: tokens.colorPrimary, fontSize: 18 }} />
         <Text type="secondary">
           共 {stats.total} 个指标（内置 {stats.builtin} / 用户扩展 {stats.user}），按 {stats.types} 个 CI 类型组织
           {view === 'group' && aggTotal > aggItems.length ? `（当前筛选取前 ${aggItems.length} 条统计，完整 ${aggTotal} 条）` : ''}
@@ -347,7 +350,7 @@ export function MetricLibraryPage() {
               title={
                 <Space wrap size={6}>
                   <Text strong>{MONITOR_TYPE_MAP[group.monitorType as keyof typeof MONITOR_TYPE_MAP] ?? group.monitorType}</Text>
-                  <Badge count={group.metrics.length} color="#0ECDEB" overflowCount={999} />
+                  <Badge count={group.metrics.length} color={tokens.colorPrimary} overflowCount={999} />
                 </Space>
               }
             >

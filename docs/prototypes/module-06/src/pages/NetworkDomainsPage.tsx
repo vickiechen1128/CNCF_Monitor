@@ -43,14 +43,20 @@ import { TABLE_SCROLL_X, TABLE_PAGINATION } from '../components/tablePresets'
 import {
   mockNetworkDomains,
   mockTenants,
+  mockEdgeAgents,
   ZONE_TYPE_OPTIONS,
   zoneTypeLabelOf,
   ZONE_TYPE_FIELD_HINT,
   IP_CIDR_HINT,
   ACCESS_STEP_LABELS,
   accessStepOf,
+  DIRECT_ACCESS_LABELS,
+  directStepOf,
+  EDGE_AGENT_STATUS,
+  agentCountsOf,
   type NetworkDomain,
   type AccessStep,
+  type EdgeAgentStatus,
 } from '../mocks/module-06'
 
 const { Title, Text } = Typography
@@ -81,6 +87,14 @@ const ACTION_LABEL: Record<AccessStep, string> = {
   2: '安装采集节点',
   3: '去配置采集',
   4: '查看采集任务',
+}
+
+/** {v2.16, dev-feedback #7} 采集节点状态 → antd Badge status（retired「已退场」用灰色 default） */
+const AGENT_BADGE_STATUS: Record<EdgeAgentStatus, 'success' | 'error' | 'default' | 'processing' | 'warning'> = {
+  online: 'success',
+  offline: 'error',
+  unknown: 'default',
+  retired: 'default',
 }
 
 interface CalloutToneStyle {
@@ -168,33 +182,6 @@ function FormSection({
         )}
       </div>
       {children}
-    </div>
-  )
-}
-
-/** 「什么是网域」详解（抽屉内展开阅读；页首引导条以双路由卡承载同一信息） */
-function DomainConceptDetail() {
-  return (
-    <div style={{ paddingLeft: 23, marginTop: 8 }}>
-      <div
-        style={{
-          background: '#FFFFFF',
-          border: '1px solid #E5E6EB',
-          borderRadius: 6,
-          padding: '10px 12px',
-          fontFamily: 'SFMono-Regular, Consolas, monospace',
-          fontSize: 12,
-          lineHeight: 1.9,
-          color: '#4E5969',
-        }}
-      >
-        <div>中心直连域（default） ◀──直连采集── 平台中心 ──▶ 指标直达</div>
-        <div>采集节点域 ◀──采集── 采集节点 ──单向出站 HTTPS──▶ 平台中心</div>
-      </div>
-      <div style={{ marginTop: 8, fontSize: 12.5, color: '#86909C', lineHeight: 1.75 }}>
-        登记网域本身不采集数据——它只声明两件事：这批机器由<b>哪个采集节点</b>去采；采回的数据打上
-        <b>来源区域标签</b>，便于按区域筛选与定位故障。
-      </div>
     </div>
   )
 }
@@ -287,7 +274,7 @@ function DomainGuidePanel({ onCollapse }: { onCollapse: () => void }) {
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px dashed ${CALLOUT_TONES.brand.border}` }}>
         <Space size={6} wrap>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            接入四步
+            采集节点域接入四步
           </Text>
           {['① 登记网域', '② 纳管取凭据', '③ 安装采集节点', '④ 配置采集出数据'].map((label, idx) => (
             <Fragment key={label}>
@@ -296,8 +283,10 @@ function DomainGuidePanel({ onCollapse }: { onCollapse: () => void }) {
             </Fragment>
           ))}
         </Space>
+        {/* {v2.16, dev-feedback #9} 中心直连域不走采集节点链路，补一行注记 */}
         <div style={{ marginTop: 8, fontSize: 12, color: '#86909C' }}>
-          列表「接入进度」列的四态与上面四步一一对应；行内主操作始终指向当前这一步。登记网域本身不采集数据。
+          列表「接入进度」列的完整四态对应上面四步（仅对<b>采集节点域</b>适用）；行内主操作始终指向当前这一步。
+          登记网域本身不采集数据。<b>default</b> 为平台中心直连域，由中心直接采集、无需安装采集节点。
         </div>
       </div>
     </div>
@@ -391,36 +380,74 @@ function CenterDirectChoice({
   )
 }
 
-/** 前置判断口径说明（专业口径：区分「中心可达性」与「人工运维可达性」，并澄清已打通的云网络） */
+/** {v2.16, dev-feedback #10} 前置判断口径：压成一行极简提示（概念详解仅留页首引导条承载，不再两端重复三层说明） */
 function CenterDirectRationale() {
   return (
-    <div
-      style={{
-        marginTop: 12,
-        padding: '9px 12px',
-        background: '#F7F8FA',
-        borderRadius: 6,
-        fontSize: 12,
-        color: '#86909C',
-        lineHeight: 1.8,
-      }}
-    >
-      <div>
-        <b style={{ color: '#4E5969' }}>判断口径</b>：以「平台中心能否直接连通目标机器」为准，与你本人能否登录运维无关。
-      </div>
-      <div>
-        云上 VPC 若已通过 <b>VPC 对等连接 / 云企业网（CEN）/ 专线或 VPN</b> 与中心网络打通，中心可直连 →
-        属于「能直接访问」，无需登记网域。
-      </div>
-      <div>
-        典型需要登记：独立 K8s overlay 集群（Pod 网络不可直连）、物理或逻辑隔离网段、第三方托管但未向中心开放入站的网络。
-      </div>
+    <div style={{ marginTop: 10, fontSize: 12, color: '#86909C', lineHeight: 1.7 }}>
+      判断口径：以「平台中心能否直接连通目标机器」为准（与能否人工登录无关）；VPC 已打通视为可直连、无需登记网域。
     </div>
   )
 }
 
-/** 接入进度：四态点阵 + 当前态文字（悬浮展开四步明细），替代「Tag + 灰字下一步」双行堆叠 */
+/** 接入进度：点阵 + 当前态文字（悬浮展开各步明细）。
+ * {v2.16, dev-feedback #9} 按能否直连分支：中心直连域（management / default，系统预置）由平台中心直接采集、
+ * 无「安装采集节点」环节，展示极简直连路径（≤3 态，DIRECT_ACCESS_LABELS）；采集节点域保留既有 4 态（accessStepOf）。 */
 function AccessProgress({ record }: { record: NetworkDomain }) {
+  if (record.domain_type === 'management') {
+    const step = directStepOf(record)
+    const color = ACCESS_STEP_COLORS[step === 2 ? 4 : 1]
+    return (
+      <Tooltip
+        title={
+          <div style={{ lineHeight: 1.9 }}>
+            {[1, 2].map((i) => (
+              <div key={i}>
+                {i === step ? '▶ ' : '　'}
+                {DIRECT_ACCESS_LABELS[i]}
+                {i === step && <span style={{ opacity: 0.75 }}>（当前）</span>}
+              </div>
+            ))}
+            <div style={{ marginTop: 4, opacity: 0.75 }}>
+              default 为平台中心直连域，由中心直接采集，无采集节点环节
+            </div>
+          </div>
+        }
+      >
+        <Space size={8} style={{ cursor: 'default' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            {([1, 2] as AccessStep[]).map((i) => (
+              <Fragment key={i}>
+                {i > 1 && (
+                  <span
+                    style={{
+                      width: 12,
+                      height: 1,
+                      background: i <= step ? color : '#E5E6EB',
+                      display: 'inline-block',
+                    }}
+                  />
+                )}
+                <span
+                  style={{
+                    width: i === step ? 9 : 7,
+                    height: i === step ? 9 : 7,
+                    borderRadius: '50%',
+                    background: i <= step ? color : '#FFFFFF',
+                    border: `1px solid ${i <= step ? color : '#C9CDD4'}`,
+                    boxShadow: i === step ? `0 0 0 3px ${color}22` : 'none',
+                    display: 'inline-block',
+                  }}
+                />
+              </Fragment>
+            ))}
+          </span>
+          <Text style={{ fontSize: 12.5, color, fontWeight: 600, whiteSpace: 'nowrap' }}>
+            {DIRECT_ACCESS_LABELS[step]}
+          </Text>
+        </Space>
+      </Tooltip>
+    )
+  }
   const step = accessStepOf(record)
   const color = ACCESS_STEP_COLORS[step]
   return (
@@ -506,6 +533,13 @@ function AccessProgress({ record }: { record: NetworkDomain }) {
  * - 禁用弹窗补强（82-2）：已纳管且存在在线 Agent 时追加固定提示（行政冻结 ≠ 停采 + 引导改用「删除」/ v0.2+「退纳管」）；
  * - 「更多」菜单不可操作原因修正：已纳管不再是拒绝理由，仅剩「系统预置网域」与「存在资源引用（N 条）」；
  * - 三动作语义边界（82-4）：禁用 = 行政冻结 / 退纳管 = 停止监控（v0.2+）/ 删除 = 退场回收，三者正交不可互替。
+ * {v2.16, dev-feedback #7/#9/#10}（2026-09-17）：
+ * - #7 EdgeAgent retired 终态演示（决策 82 已退场、审计追溯）：mock 增 retired 采集节点；详情展示采集节点状态（retired 灰色 badge + tooltip）；
+ *   删除级联清单「将退场的采集节点数量（N 个采集节点将退场）」；
+ * - #9 接入进度按场景分支：中心直连域（management/default）由平台中心直接采集、无采集节点环节，展示极简直连路径（DIRECT_ACCESS_LABELS）与专属主操作文案；
+ *   采集节点域保留既有 4 态；页首引导面板补直接域注记；
+ * - #10 登记抽屉文案精简：删除 brand「你正在登记一个采集节点域」Callout 与就地展开的「什么是网域」详解（保留决策 82 其他逻辑：域类型只读、级联影响等）；
+ *   判断口径压成一行极简提示；「什么是网域」概念只保留页首引导条单载体。
  */
 export function NetworkDomainsPage() {
   const [domains, setDomains] = useState<NetworkDomain[]>(mockNetworkDomains)
@@ -516,8 +550,6 @@ export function NetworkDomainsPage() {
   const [successDomain, setSuccessDomain] = useState<NetworkDomain | null>(null)
   // {v2.14} 详情抽屉（§9 列数治理：下沉字段放此处）
   const [detailDomain, setDetailDomain] = useState<NetworkDomain | null>(null)
-  // {v2.14} 抽屉内「什么是网域」详解展开态
-  const [showConceptInDrawer, setShowConceptInDrawer] = useState(false)
   // {v2.11} 列表筛选（PRD §11.1：网域管理支持按登记归属/网络分区/状态/授权租户筛选）
   const [filterOwner, setFilterOwner] = useState('all')
   const [filterZoneType, setFilterZoneType] = useState('all')
@@ -571,7 +603,6 @@ export function NetworkDomainsPage() {
 
   const showAdd = () => {
     setEditingDomain(null)
-    setShowConceptInDrawer(false)
     form.resetFields()
     // {v2.0} 登记归属为部署级登记方（MVP 固定 platform_admin），新建时默认填充
     // {v2.2} 授权租户可选，缺省 = 登记归属租户（默认回填 platform_admin）
@@ -581,7 +612,6 @@ export function NetworkDomainsPage() {
 
   const showEdit = (record: NetworkDomain) => {
     setEditingDomain(record)
-    setShowConceptInDrawer(false)
     // {v2.2} 登记归属创建后不可变更，编辑表单不含 tenant_id
     form.resetFields()
     const { tenant_id, ...editableFields } = record
@@ -744,6 +774,11 @@ export function NetworkDomainsPage() {
       return
     }
     const isMonitored = record.registration_status === 'monitored'
+    // {v2.16, dev-feedback #7} 决策 82 级联清退：统计该网域将退场的采集节点数（已退场 retired 不计入）
+    const willRetire = (() => {
+      const c = agentCountsOf(record.id, mockEdgeAgents)
+      return c.online + c.offline + c.unknown
+    })()
     Modal.confirm({
       title: isMonitored ? '删除网域（退场回收）' : '删除网域',
       width: 580,
@@ -755,7 +790,7 @@ export function NetworkDomainsPage() {
           </div>
           <ul style={{ margin: '0 0 8px', paddingInlineStart: 20 }}>
             <li>
-              <Text strong>1 个采集节点将断连</Text>：接入凭据废止、停止配置下发
+              <Text strong>{willRetire} 个采集节点将退场</Text>：接入凭据废止、停止配置下发
             </li>
             <li>
               采集节点侧<Text type="secondary">无需线下操作</Text>，心跳鉴权失败后自动转离线
@@ -804,16 +839,34 @@ export function NetworkDomainsPage() {
     window.open(`../../module-01/dist/index.html#/scrape-jobs?network_domain=${encodeURIComponent(record.id)}`, '_blank')
   }
 
-  /** {v2.14} 行内主操作 = 接入进度的下一步动作（唯一主按钮，与四态一一对应） */
+  /** {v2.14} 行内主操作 = 接入进度的下一步动作（唯一主按钮，与四态一一对应）；
+   *  {v2.16, dev-feedback #9} 中心直连域不走采集节点链路，直接进入配置采集。 */
   const runPrimaryAction = (record: NetworkDomain) => {
+    if (record.domain_type === 'management') {
+      jumpToScrapeJobs(record)
+      return
+    }
     const step = accessStepOf(record)
     if (step === 1) jumpToOnboarding(record)
     else if (step === 2) jumpToInstallGuide(record)
     else jumpToScrapeJobs(record)
   }
 
-  const primaryIcon = (step: AccessStep) =>
-    step === 1 ? <CloudUploadOutlined /> : step === 2 ? <BookOutlined /> : <PlayCircleOutlined />
+  /** {v2.16, dev-feedback #9} 行内主操作文案：中心直连域不出现「装采集节点」语义 */
+  const primaryActionLabel = (record: NetworkDomain) => {
+    if (record.domain_type === 'management') {
+      return directStepOf(record) === 2 ? '查看采集任务' : '去配置采集'
+    }
+    return ACTION_LABEL[accessStepOf(record)]
+  }
+
+  const primaryIcon = (record: NetworkDomain) => {
+    if (record.domain_type === 'management') {
+      return directStepOf(record) === 2 ? <CheckCircleOutlined /> : <PlayCircleOutlined />
+    }
+    const step = accessStepOf(record)
+    return step === 1 ? <CloudUploadOutlined /> : step === 2 ? <BookOutlined /> : <PlayCircleOutlined />
+  }
 
   /** {v2.14} 状态列：Badge 语义色 + 文字（禁用补充「冻结」语义说明） */
   const renderStatus = (record: NetworkDomain) => {
@@ -979,7 +1032,8 @@ export function NetworkDomainsPage() {
       width: 230,
       render: (_: unknown, record: NetworkDomain) => {
         const step = accessStepOf(record)
-        const isFlowDone = step === 4
+        const isFlowDone =
+          record.domain_type === 'management' ? directStepOf(record) === 2 : step === 4
         return (
           <Space size={0}>
             {/* 禁用行不提供接入动作，也不重复状态文字——状态由「状态」列 Badge 承载 */}
@@ -987,11 +1041,11 @@ export function NetworkDomainsPage() {
               <Button
                 type="link"
                 size="small"
-                icon={primaryIcon(step)}
+                icon={primaryIcon(record)}
                 style={{ paddingLeft: 0, fontWeight: isFlowDone ? 400 : 600 }}
                 onClick={() => runPrimaryAction(record)}
               >
-                {ACTION_LABEL[step]}
+                {primaryActionLabel(record)}
               </Button>
             )}
             <Button
@@ -1261,29 +1315,9 @@ export function NetworkDomainsPage() {
                   </Callout>
                 </div>
               )}
-              {watchedCenterDirect === 'no' && (
-                <div style={{ marginTop: 12 }}>
-                  {/* {v2.13} 决策 79：身份说明前置 + 概念详解就地展开（v2.14 统一为同一 Callout 容器） */}
-                  <Callout
-                    tone="brand"
-                    icon={<InfoCircleFilled />}
-                    title="你正在登记一个「采集节点域」"
-                    extra={
-                      <Button
-                        type="text"
-                        size="small"
-                        onClick={() => setShowConceptInDrawer((v) => !v)}
-                        style={{ color: '#1481FD' }}
-                      >
-                        {showConceptInDrawer ? '收起说明' : '什么是网域？'}
-                      </Button>
-                    }
-                  >
-                    平台中心访问不到这个网络：登记后需在其中一台常开机器上安装采集节点，由它把数据单向回传中心。
-                    {showConceptInDrawer && <DomainConceptDetail />}
-                  </Callout>
-                </div>
-              )}
+              {/* {v2.16, dev-feedback #10} 删除抽屉内 brand「你正在登记一个采集节点域」Callout 与就地展开的「什么是网域」详解：
+                  与自检卡 desc 重复、形成三层说明；「什么是网域」概念只保留页首引导条（DomainGuidePanel）单载体。登记网域需安装采集节点
+                  的语义已由「接入方式」只读字段与自检卡承载，不在此重复。 */}
             </FormSection>
           )}
 
@@ -1509,6 +1543,37 @@ export function NetworkDomainsPage() {
                       <AccessProgress record={detailDomain} />
                     </Space>
                   ),
+                },
+                {
+                  /* {v2.16, dev-feedback #7} 决策 82：采集节点状态展示（含 retired「已退场」灰色 badge + tooltip） */
+                  key: 'agents',
+                  label: '采集节点',
+                  children: (() => {
+                    const counts = agentCountsOf(detailDomain.id, mockEdgeAgents)
+                    const present = (['online', 'offline', 'unknown', 'retired'] as EdgeAgentStatus[]).filter(
+                      (s) => counts[s] > 0
+                    )
+                    if (present.length === 0) return <Text type="secondary">无采集节点</Text>
+                    return (
+                      <Space size={6} wrap>
+                        {present.map((s) => {
+                          const conf = EDGE_AGENT_STATUS[s]
+                          const el = (
+                            <span key={s}>
+                              <Badge status={AGENT_BADGE_STATUS[s]} text={`${conf.text} ${counts[s]}`} />
+                            </span>
+                          )
+                          return s === 'retired' ? (
+                            <Tooltip key={s} title={conf.tooltip}>
+                              {el}
+                            </Tooltip>
+                          ) : (
+                            el
+                          )
+                        })}
+                      </Space>
+                    )
+                  })(),
                 },
                 {
                   key: 'cidr',

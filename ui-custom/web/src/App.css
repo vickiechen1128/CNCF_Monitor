@@ -1,10 +1,14 @@
+/* 皮肤相关色值一律走 CSS 变量（由 SkinProvider 按当前皮肤注入，见 src/skins.ts 的
+   CSS_VAR_BY_TOKEN）。`var()` 的兜底值取火山青（默认皮肤）配色，兼作 JS 未执行时的降级，
+   因此本文件不再出现第二份「皮肤色值真相」——改色只改 skins.ts。 */
+
 .app-layout {
   min-height: 100vh;
 }
 
 .app-header {
-  /* D1 视觉还原：火山引擎深色头部（对齐原型 #0B1B2A），替换 antd 默认 #1677ff */
-  background-color: #0b1b2a;
+  /* 自绘深色顶部栏：颜色来自 --app-header-bg（火山青 #0B1B2A / 仪电蓝 #164A87） */
+  background-color: var(--app-header-bg, #0b1b2a);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -15,8 +19,16 @@
   z-index: 100;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  /* 换肤时顶栏与一级 tab 的颜色平滑过渡（仅颜色，不位移） */
+  .app-header,
+  .app-module-tab {
+    transition: background-color 0.2s, color 0.2s;
+  }
+}
+
 .app-title {
-  color: #fff !important;
+  color: var(--app-header-text, #fff) !important;
   margin: 0 !important;
 }
 
@@ -26,12 +38,12 @@
   gap: 16px;
 }
 
-/* 顶部栏右上角：当前登录账号的角色标签 + 用户名（对齐原型深色头部白字） */
+/* 顶部栏右上角：皮肤开关 + 当前登录账号的角色标签 + 用户名（深色头部白字） */
 .app-header-right {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #fff;
+  color: var(--app-header-text, #fff);
   font-size: 14px;
   white-space: nowrap;
 }
@@ -61,17 +73,17 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  color: #c9cdd4;
+  color: var(--app-header-tab, #c9cdd4);
   font-family: inherit;
   font-size: 14px;
 }
 
 .app-module-tab:hover {
-  color: #ffffff;
+  color: var(--app-header-tab-hover, #ffffff);
 }
 
 .app-module-tab.active {
-  color: #0ecdeb;
+  color: var(--app-header-accent, #0ecdeb);
   font-weight: 500;
 }
 
@@ -86,17 +98,75 @@
 }
 
 .app-module-tab.active .app-module-tab-underline {
-  background: #0ecdeb;
+  background: var(--app-header-accent, #0ecdeb);
 }
 
 .app-sider {
-  border-right: 1px solid #f0f0f0;
+  border-right: 1px solid var(--app-border-secondary, #f0f0f0);
 }
 
+/* 顶部栏（深色 Header）上的侧栏折叠开关：品牌左侧，一次点击折叠/展开二级导航。
+   自绘 button 而非 antd Button：需与深色头部同色系，且 Sider 自带 trigger 会随菜单高度浮动，
+   页面滚动时位置不稳定（见 MainLayout 注释）。 */
+.app-sider-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-header-tab, #c9cdd4);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.app-sider-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--app-header-tab-hover, #ffffff);
+}
+
+.app-sider-toggle:focus-visible {
+  outline: 2px solid var(--app-header-accent, #0ecdeb);
+  outline-offset: 1px;
+}
+
+/* 侧栏预留项（v0.2 自定义大屏）：文案 + 版本标注同排，disabled 态维持弱化观感 */
+.app-sider-reserved-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-sider-reserved-tag {
+  margin: 0;
+  padding: 0 4px;
+  border: none;
+  border-radius: 4px;
+  background: var(--app-border-secondary, #f2f3f5);
+  color: var(--app-text-tertiary, #86909c);
+  font-size: 10px;
+  line-height: 16px;
+}
+
+/* 折叠态（56px）：选中态背景不残留右侧留白，图标列居中 */
+.app-sider.ant-layout-sider-collapsed .ant-menu-inline-collapsed {
+  width: 100%;
+}
+
+/* 内容区：高度交给 antd Layout 的 flex 链（.app-layout min-height:100vh → 内层 Layout
+   flex:auto → Content flex:auto）自动撑满「视口 − 顶部栏」，因此不再硬编码
+   `min-height: calc(100vh - 56px)`——该 56px 是历史顶部栏高度（实测 64px），
+   会让每个页面白多出 8px 溢出、平白产生一条下拉进度条。
+   内容超出视口时正常滚动（用户 2026-09-18 二次反馈：不做单屏锁定）。 */
 .app-content {
   padding: 24px;
-  background-color: #f7f8fa;
-  min-height: calc(100vh - 56px);
+  background-color: var(--app-bg-base, #f7f8fa);
 }
 
 .status-card {

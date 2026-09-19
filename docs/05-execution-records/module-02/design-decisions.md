@@ -210,3 +210,95 @@
 - **轨道**：**Track B+**（读路径授权过滤，security-reviewer 挂载）；免高保真原型（标准列表 + 筛选模式）。
 - **影响范围**：Module_02 PRD v1.13（§1 版本分布、§3.1 功能表、§5.4 数据模型、§6.1 接口、§11.1/11.2 验收 9a/14a、§12 M08 边界、§13 术语）；消费方 Module_08 PRD v1.13。
 - **关联决策**：决策 55/56（告警状态归属与授权过滤）、决策 47 系列（只读代理模式同构）。
+
+## PRD v1.16 章节对齐 + 去历史化归档（2026-09-16）
+
+
+> 章节对齐 11 章模板：旧 §7→§6.4（6.4.1 key 契约 / 6.4.2 注入规则）、旧 §8.1/8.2→§5.2（envelope 结构与数据来源语义合并）、旧 §8.3 UI 语义→§11、旧 §9→§7.1、旧 §10→§8、旧 §11→§9、旧 §12→§7.2、旧 §13→§10、新增 §11 前端交互契约。「提示分区规范」整节迁本档（权威源头为 `.kimi/agents/prototype-designer.md`「提示分区规范」）。正文 8 处内联决策标注迁本档；Change Log v1.13 行轮转本档、v1.15/v1.14 行压缩。规格语义零变更。
+
+**「提示分区规范」（原文迁档）**：
+
+```
+## 提示分区规范
+
+原型 / 产品页面中的提示按受众分三类，避免相互干扰——
+
+1. **用户 UI 文案**：面向运维工程师，**不含「决策 X」「PRD X.X」等实现层引用**，讲人话；
+2. **产品 / 技术评审说明**：设计决策依据与 PRD 引用**集中折叠在页面底部「原型与实现说明（面向产品 / 技术评审）」区**，默认折叠，用户无感知，产品评审与开发可展开；
+3. **开发 / AI 注释**：代码注释与 PRD 数据模型 / 技术字段承载实现细节与决策引用，供后续代码开发（含 AI）理解。
+
+此规范使**用户看到干净的"未来原型雏形"**，同时**开发侧（含 AI）可从代码注释与 PRD 获取完整设计依据**。本规范由 `.kimi/agents/prototype-designer.md`「提示分区规范」强制执行，原型 MainLayout 提供全局折叠区承载本模块决策清单。
+
+***
+
+```
+
+**原型版本行（原文）**：
+
+```
+> **原型版本**: v1.7（未对齐，待按 v1.10 修订；v1.13 为 Track B 轻量增量「历史告警 API」，免高保真原型，豁免记录见 `docs/05-execution-records/module-02/design-decisions.md`；以 `docs/prototypes/module-02/package.json` 为准）
+```
+
+**§0 采集健康度行标注（原文片段）**：
+
+```
+- 对应能力：目标状态 API（代理 `/api/v1/targets`）+ 采集健康度/覆盖率查询 API（决策 47-3）
+```
+
+**§3.1 目标状态页行（否定式表述原文）**：
+
+```
+| **目标状态页**（独立页面）                    | 跨 Job 全局排障视图：全部 target 列表 + 按网域/Job/health 筛选 + 采集诊断 Drawer；**由 P0 降为 P1（极简列表即可，决策 47-4）**——配置场景的知情权由 M01 回显、资产场景的知情权由 M07 badge 承接，本页不再是唯一状态入口                                  | **P1 / MVP**          |
+```
+
+**旧 §5.1–5.4 原文**：
+
+```
+[四张 4 列字段表原样存档：见 git 历史 fa400ee^ 版本]
+```
+
+**旧 §7.1/§7.2 标题行**：
+
+```
+### 7.1 注入标签 key 契约（v1.2 修订，v1.15 定版，关键） / ### 7.2 注入规则 → 并入 §6.4
+```
+
+**Change Log v1.13 行（轮转归档）**：
+
+```
+| v1.13 | 2026-09-09 | 新增   | 历史告警 API MVP 增量（Track B，用户书面确认，随 Module_08 v1.13）：新增 `/api/v1/alerts/history`——基于 Prometheus `ALERTS{alertstate="firing"}` 的 `query_range` 重建规则级触发/恢复区间（恢复时间为求值近似值），支持按网域/告警名/实例/状态/时间范围筛选与分页（默认 24h、最大 7d）；§1 版本分布、§3.1 功能表、§5.4 数据模型、§6.1 接口、§11.1/11.2 验收（9a/14a）、§12 M08 边界、§13 术语同步；免高保真原型（豁免记录见 design-decisions.md） | 0    | MVP   | ready |
+```
+
+---
+
+## 补充对齐：2026-09-18（`/api/v1/alerts/history` query_range 点数上限与步长口径，决策 90）
+
+- **触发**：用户实测首页「当日告警 0 / 近 7 天告警 0」，但同一时间「通知中」有当日告警，追问「什么原因，是否要调整后端代码」。
+- **根因（实证，非推测）**：`/api/v1/alerts/history` 的**时间窗**与 **step** 是两个独立解析的参数，二者在「用满窗口」时互斥——
+  - 服务端默认 `step = 30s`（PRD §5.4/§6.1），最大窗口 `7d`（`maxHistoryWindow`）；
+  - `7d ÷ 30s = 20160` 个点 > Prometheus `query_range` 单序列点数上限 `11000`（upstream `web/api/v1/api.go` `maxPointsPerTs`）；
+  - 上游返回 400 `exceeded maximum resolution of 11,000 points per timeseries` → 本接口 `internal`（HTTP 500）→ 前端整页/整卡不可用。
+  - 首页「当日 / 近 7 天告警」取数**恒用满 7d 窗口且未传 step**（决策 73 原实现），故该链路**必然失败**，两格恒为 `0`；历史告警页默认 24h 窗口（2880 点）不受影响，用户选到宽窗口时同样失败。
+  - 本地实证：同一窗口把 `step` 调到 `60` 后接口恢复正常返回（12 条区间）。
+- **决策 90（A + B 双管，用户 2026-09-18 拍板「A + B 都做」）**：
+  1. **A（服务端兜底，本模块）**：`platform/query/alerts_history.go` 新增 `maxHistoryPoints = 11000` 与 `normalizeHistoryStep(step, window)`，在 `parseAlertHistoryQuery` 内对**已裁剪后的窗口**做一次步长归一——使 `floor(window/step) + 1 ≤ maxHistoryPoints` 恒成立。语义：**只抬高、不压低**（调用方传入的步长满足约束时原样保留）；窗口 < 约 91.6h（11000 × 30s ≈ 3.8d）时步长维持 30s，**默认 24h 窗口零行为变化**；7d 窗口由 30s 抬高到 **55s**（604800/55 + 1 = 10997）。
+  2. **B（调用侧显式传参，M05/M08 前端）**：新增常量 `ALERT_HISTORY_STEP_SECONDS`（`ui-custom/web/src/api/alertmanager.ts`），首页告警卡取数与历史告警页 `useHistoryAlerts` 均显式透传 `step`——**取值 30s**（= PRD §5.4/§6.1 默认步长，细粒度；口径见下方「同日补充」）；显式传值使调用方行为可预期，宽窗口的上限保护由 A 的服务端兜底承担。
+  3. **响应回显实际生效步长**：`data.step`（整数秒）。恢复时间 / 持续时长都是「样本时间 ± 一个 step」的估算，回显供消费方披露估算精度与线上自查（**附加字段，无破坏性变更**）。
+- **顺带修订（同批，非本次缺陷主线）**：
+  1. **首页「近 7 天」计数改取服务端 `total`**（`HomePage.computeHistoryCounts`，修订决策 73 §1 的实现口径）：原实现把服务端 `total` 与前端**按渲染时刻**重算边界的 `inWindow` 做 `max` 比较，两个边界不同源（渲染时刻晚于请求时刻），会与卡片文案「近 7 天」不符；现直接以服务端窗口总量为准（窗口与「近 7 天」严格同口径），`total` 缺失时回落为页内条目数。`today` 仍由当前页统计（列表按触发时间倒序，单页上限丢的是最旧记录）。
+  2. **首页取数窗口由「7d + 1h 容差」改为整 7d**：服务端会把 `> 7d` 的窗口压缩为 `[end-7d, end]`（`maxHistoryWindow`），该容差被服务端丢弃、从未生效，却让「窗口 = 近 7 天」的推理失效；改为整 7d 后 `total` 口径自洽。
+- **PRD 处置（遵守 PRD 冻结门禁）**：PRD §5.4 重建口径 / §6.1 请求参数 / §11.2 验收 14a 目前只写「`step` 默认 30s、最小 15s」，未规定「服务端按窗口抬高步长」与「响应回显 `step`」，且未声明前端应显式传参。本轮**不改 PRD**，登记为待回填项（`module-02/dev-feedback.md`、`module-05/dev-feedback.md`、`module-08/dev-feedback.md`），随 Module_02 下个版本迭代（v1.17）回填。
+- **实现落点**：后端 `platform/query/alerts_history.go`（常量 + `normalizeHistoryStep` + handler 响应 `step`）、`platform/query/alerts_history_test.go`（`TestNormalizeHistoryStep` / `TestAlertHistoryStepRaisedForMaxWindow` / `TestAlertHistoryExplicitStepPreserved` / `TestAlertHistoryDefaultStepUnchanged`）；前端 `ui-custom/web/src/api/alertmanager.ts`（`ALERT_HISTORY_STEP_SECONDS` + `AlertHistoryQuery.step`）、`types/alertmanager.ts`（`AlertHistoryData.step`）、`pages/home/HomePage.tsx`（取数 + 计数口径）、`pages/alerts/useHistoryAlerts.ts`、`HomePage.test.tsx` / `HistoryAlertsPage.test.tsx`。
+- **验证**：`gofmt`/`go vet` 干净；`go test ./platform/...` 27 包全通过；`tsc --noEmit` 通过；`eslint` 0 告警；`vitest run` 全量通过（含新增 4 例前端用例）。
+- **影响范围**：`platform/query/`（本模块）；M05 首页告警卡计数与取数参数；M08 历史告警页筛选取数参数。**契约快照**：`module-08/api-contract-snapshot.md` §10.3 diff 说明 + 新增 §10.4（该端点此前无契约快照承载，字段口径权威在 Module_02 PRD §5.4）。
+- **关联决策**：决策 73（首页告警卡口径；§1 计数实现口径被本决策修订，产品口径不变）、决策 70（历史告警字段与实例筛选，不受影响）、M05 决策 88/89（同批次前端改动，互不耦合）。
+- **用户确认**：2026-09-18，用户原话「A + B 都做」。
+
+#### 同日补充：调用侧步长口径由「统一 60s」改为「统一 30s」（用户指令「现在两处统一传 30s」）
+
+1. **依据**：30s 是 PRD §5.4/§6.1 的默认步长，也是窄窗口下的最优粒度。统一 60s 会让**默认 24h 窗口**的「恢复时间 / 持续时长」估算粒度从 30s 劣化为 60s——该窗口下仅 2880 点、远低于上限，本无抬高必要。即统一 60s 是**牺牲常规场景精度去适配极端窗口**。
+2. **分工重述（更重要的一点）**：调用侧只表达「期望粒度 = 30s」，**上限保护完全交给服务端 A**（`normalizeHistoryStep` 只抬高、不压低）——7d 窗口下 30s 被抬到 55s，窄窗口下原样保留 30s。这样 `step` 参数在契约里的语义收敛为「期望粒度」而非「必须满足上限的取值」，消费方不必自己算点数上限。
+3. **影响面**：`ALERT_HISTORY_STEP_SECONDS` 由 60 改为 30（前端唯一常量，两处调用点代码不变）；**服务端与响应字段零改动**；前端用例断言改为「显式传该常量 + 常量 = PRD 默认 30s 且 ≥ 最小 15s」，原「步长 × 窗口 + 1 ≤ 11000」断言随之下线（该约束由服务端兜底保证，已在 `TestNormalizeHistoryStep` / `TestAlertHistoryStepRaisedForMaxWindow` 覆盖）。
+4. **原先登记的「精度取舍待产品确认」一项就此关闭**：窄窗口 30s、宽窗口服务端抬高，**无精度妥协**，不再需要「按窗口动态取值」的备选方案。
+
+> **运维提示**：本改动为后端行为变更，需重启后端生效（`make run-metric-center`）；前端需重新构建（`pnpm build`）后才能看到 `step` 透传。

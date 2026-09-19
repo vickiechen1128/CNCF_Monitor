@@ -33,6 +33,8 @@ import type { NetworkDomain } from '../../types/domain'
 import type { BusinessDomain, ResourceCategory, ResourceLabelItem } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
 import type { ResourceListItem } from './useResources'
+import { useSkin } from '../../skinContext'
+import type { SkinTokens } from '../../skins'
 
 const { Text, Title, Link } = Typography
 
@@ -67,12 +69,14 @@ const STATUS_MAP: Record<string, string> = {
   orphan: '孤儿',
 }
 
-/** 运行状态色（对齐原型 STATUS_COLOR） */
-const STATUS_COLOR: Record<string, string> = {
-  online: '#00B578',
-  offline: '#FF4C3A',
-  maintenance: '#FA8C16',
-  orphan: '#86909C',
+/** 运行状态色（对齐原型 STATUS_COLOR，走皮肤 token） */
+function statusColor(tokens: SkinTokens): Record<string, string> {
+  return {
+    online: tokens.colorSuccess,
+    offline: tokens.colorError,
+    maintenance: tokens.colorWarning,
+    orphan: tokens.colorTextTertiary,
+  }
 }
 
 /** 数据来源展示名（§5.2；cmdb 为 v0.4+ 预留） */
@@ -96,11 +100,13 @@ const PROTECTED_PROMETHEUS_LABELS = [
 /** key 校验规则：小写字母 / 数字 / 下划线（§5.3） */
 const LABEL_KEY_RE = /^[a-z0-9_]+$/
 
-/** 标签卡左侧边框色（对齐原型：system 灰 / user 青 / cmdb 蓝） */
-const LABEL_SOURCE_BORDER: Record<string, string> = {
-  system: '#86909C',
-  user: '#0ECDEB',
-  cmdb: '#1481FD',
+/** 标签卡左侧边框色（对齐原型：system 灰 / user 青 / cmdb 蓝，走皮肤 token） */
+function labelSourceBorder(tokens: SkinTokens): Record<string, string> {
+  return {
+    system: tokens.colorTextTertiary,
+    user: tokens.colorPrimary,
+    cmdb: tokens.colorInfo,
+  }
 }
 
 interface ResourceDetailDrawerProps {
@@ -144,6 +150,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
 
+  const { tokens } = useSkin()
   const isApplication = record?.resource_category === 'application'
 
   /** 网域 ID → 展示名（M06 网域清单），未匹配兜底展示 ID */
@@ -340,7 +347,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           key: 'status',
           label: '运行状态',
           children: (
-            <Badge color={STATUS_COLOR[record.status] ?? '#86909C'} text={STATUS_MAP[record.status] ?? record.status} />
+            <Badge color={statusColor(tokens)[record.status] ?? tokens.colorTextTertiary} text={STATUS_MAP[record.status] ?? record.status} />
           ),
         },
         {
@@ -460,7 +467,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
     return (
       <div
         key={label.id}
-        style={{ borderLeft: `4px solid ${LABEL_SOURCE_BORDER[label.source]}`, background: '#FAFAFA', padding: '8px 12px', borderRadius: 4 }}
+        style={{ borderLeft: `4px solid ${labelSourceBorder(tokens)[label.source]}`, background: '#FAFAFA', padding: '8px 12px', borderRadius: 4 }}
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
           <Space size={8} wrap>

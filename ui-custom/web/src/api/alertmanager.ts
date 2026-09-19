@@ -110,6 +110,20 @@ export interface AlertStatusQuery extends Record<string, string | number | boole
   network_domain?: string
 }
 
+/**
+ * 历史告警 query_range 步长（秒，决策 90）：**所有调用方必须显式传入**，不得省略。
+ *
+ * 根因（2026-09-18）：`step` 与服务端最大时间窗（7d）是两个独立参数，7d ÷ 30s = 20160 个点，
+ * 超过 Prometheus 单序列 11000 点上限 → 上游返回 400 → 后端 500 → 历史告警页/首页告警计数
+ * 整体不可用（首页「当日 / 近 7 天告警」两格表现为恒 0）。
+ *
+ * 取值 **30s**（= PRD §5.4/§6.1 默认步长、≥ 最小 15s；用户 2026-09-18 定口径）：调用侧统一按
+ * **细粒度**取数 —— 窄窗口（窗口 < 约 91.6h）保持 30s 的估算精度；宽窗口由服务端
+ * `normalizeHistoryStep`（`platform/query/alerts_history.go`）按窗口抬高兜底（7d → 55s）。
+ * 即：显式传值保证调用方行为可预期，上限保护交给服务端，实际生效值看响应 `data.step`。
+ */
+export const ALERT_HISTORY_STEP_SECONDS = 30
+
 /** 历史告警查询参数（M02 §6.1 / M08 §3.1） */
 export interface AlertHistoryQuery extends Record<string, string | number | boolean | undefined> {
   network_domain?: string
@@ -118,6 +132,8 @@ export interface AlertHistoryQuery extends Record<string, string | number | bool
   state?: 'all' | 'firing' | 'resolved'
   start?: string
   end?: string
+  /** query_range 步长（秒）；必须传 `ALERT_HISTORY_STEP_SECONDS`，勿省略（决策 90） */
+  step?: number
   page?: number
   page_size?: number
 }

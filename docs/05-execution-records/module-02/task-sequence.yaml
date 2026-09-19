@@ -142,3 +142,69 @@ tasks:
       - "types/query.ts：TargetItem{scrapePool,job,instance,network_domain,health,lastScrape,lastError,scrapeDuration,resource_id} / CoverageItem{resource_id,resource_category,monitor_state,health,last_error} / CoverageSummary{total,collecting,pending_down,not_monitored,coverage_rate}"
       - "独立目标状态页（P1）：按 health/网域过滤的极简列表 TargetItem；加载/空态/错误态"
       - "单文件 vitest + eslint 全绿"
+  # ---------------------------------------------------------------------------
+  # 决策 90 增量（2026-09-18，分支 feat/module-05-homepage-mvp）：历史告警步长口径
+  # 缺陷：7d 窗口 × 默认 step 30s = 20161 点 > Prometheus query_range 单序列 11000 点上限
+  #       → 上游 400 → 接口 500 → 首页「当日/近 7 天告警」恒 0、历史页宽窗口整页失败
+  # ---------------------------------------------------------------------------
+  - task_id: "T02-04"
+    name: "GET /api/v1/alerts/history 步长按窗口兜底抬高 + 响应回显 data.step（决策 90）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "m02-history-step"
+    prd: "Module_02 §5.4 重建口径 / §6.1 请求参数 / §11.2 验收 14a（三步均为待回填项，v1.17 落版）"
+    depends_on: []
+    estimated_files_changed: 2
+    estimated_test_cases: 13
+    shared_files: "否（platform/query 内自洽；响应新增附加字段 step，向后兼容，无破坏性变更）"
+    input_files:
+      - "platform/query/alerts_history.go"
+    output_files:
+      - "platform/query/alerts_history.go"
+      - "platform/query/alerts_history_test.go"
+    verify_commands:
+      - "go test ./platform/query/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "新增 maxHistoryPoints = 11000 与 normalizeHistoryStep(step, window)，在窗口裁剪（>7d → [end-7d,end]）之后调用，使 floor(window/step) + 1 <= 11000 恒成立"
+      - "只抬高、不压低：7d + 显式 30s → 55s；7d + 60s/300s 原样保留；窗口 < 约 91.6h 时 30s 不变（默认 24h 窗口零行为变化）"
+      - "响应 data 新增附加字段 step（实际生效值，整数秒）；既有字段名与响应形状不变"
+      - "go test ./platform/... 27 包全绿；go vet ./platform/... 干净"
+    notes: |
+      端点本身由 feat/module-08-alert-dispatch 批次交付（T08-06 同族），本任务只做上限兜底与回显，
+      不改变告警区间重建口径与字段清单（字段权威仍在 Module_02 §5.4）。
+
+  - task_id: "T02-05"
+    name: "告警历史取数调用侧显式透传 step（前端单一常量 30s：M05 首页告警卡 + M08 历史告警页）"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "fe-agent-history-step"
+    prd: "Module_02 §5.4/§6.1；Module_05 §3.1（首页告警卡计数）；Module_08 §5.4（历史告警页取数）"
+    depends_on: ["T02-04"]
+    estimated_files_changed: 6
+    estimated_test_cases: 4
+    shared_files: "是（ui-custom/web/src/api/alertmanager.ts 与 src/types/alertmanager.ts 为跨模块共享；两处调用点共用一个常量，禁止各写一个字面量）"
+    input_files:
+      - "ui-custom/web/src/api/alertmanager.ts"
+      - "ui-custom/web/src/types/alertmanager.ts"
+      - "ui-custom/web/src/pages/alerts/useHistoryAlerts.ts"
+      - "ui-custom/web/src/pages/home/HomePage.tsx"
+    output_files:
+      - "ui-custom/web/src/api/alertmanager.ts（新增 ALERT_HISTORY_STEP_SECONDS = 30 + AlertHistoryQuery.step）"
+      - "ui-custom/web/src/types/alertmanager.ts（AlertHistoryData.step）"
+      - "ui-custom/web/src/pages/alerts/useHistoryAlerts.ts、HistoryAlertsPage.test.tsx"
+      - "ui-custom/web/src/pages/home/HomePage.tsx、HomePage.test.tsx"
+      - "ui-custom/web/src/pages/alerts/HistoryAlertsPage.tsx（估算口径注释）"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/home/HomePage.test.tsx"
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts"
+    acceptance_criteria:
+      - "常量取值 30s（= PRD §5.4 默认步长、>= 最小 15s）；两处调用点均显式透传，不依赖服务端默认值"
+      - "首页告警卡取数窗口恰为 7d（服务端把 >7d 压缩为 [end-7d,end]，多加容差无效果）；「近 7 天」计数直接取服务端 total，total 缺失回落页内条目数"
+      - "前端用例断言「请求携带该常量 + 常量 = 30 且 >= 15」；不断言「步长 × 窗口 <= 11000」（上限由服务端兜底承担）"
+      - "vitest run 全量通过；eslint 0 告警；tsc --noEmit 通过"
+    notes: |
+      口径演进：B 方案首版取 60s（为 7d 留余量），2026-09-18 用户定口径改为统一 30s——
+      调用侧只表达期望粒度，宽窗口上限保护交给 T02-04 的服务端兜底；统一 60s 会让默认 24h
+      窗口的估算粒度由 30s 劣化为 60s，属牺牲常规场景精度适配极端窗口。

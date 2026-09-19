@@ -1,11 +1,24 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-18 23:14 · commit: `271d589`
+> 生成时间: 2026-09-19 15:28 · commit: `5d614ae`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
 ## platform/（Go 后端）
+
+### `platform/admin/networkdomain/access_progress.go`
+
+- `type DomainListItemView struct`
+- `func AccessStepOf(d *models.NetworkDomain, hasOnline bool) int`
+- `func onlineAgentDomainIDs(db *gorm.DB, domains []models.NetworkDomain) (map[string]bool, error)`
+- `func DomainListView(db *gorm.DB, list []models.NetworkDomain) ([]DomainListItemView, error)`
+
+### `platform/admin/networkdomain/access_progress_test.go`
+
+- `func TestAccessStepOf(t *testing.T)`
+- `func TestDomainListView_AggregatesOnlineAgents(t *testing.T)`
+- `func TestDomainListView_EmptyList(t *testing.T)`
 
 ### `platform/admin/networkdomain/authorized_test.go`
 
@@ -13,12 +26,29 @@
 - `func TestAuthorizedTenantsEditAddsAndRemoves(t *testing.T)`
 - `func TestAuthorizedTenantsClearToEmpty(t *testing.T)`
 
+### `platform/admin/networkdomain/cascade_retire.go`
+
+- `type WillRetireAgent struct`
+- `type CascadeRetireResult struct`
+- `func CascadeRetire(db *gorm.DB, domainID string) (*CascadeRetireResult, error)`
+
+### `platform/admin/networkdomain/cascade_retire_test.go`
+
+- `func setupTestDB(t *testing.T) *gorm.DB`
+- `func TestCascadeRetire_Success(t *testing.T)`
+- `func TestCascadeRetire_NoAgents(t *testing.T)`
+- `func TestCascadeRetire_MultipleAgents(t *testing.T)`
+- `func TestCascadeRetire_DomainNotFound(t *testing.T)`
+- `func TestCascadeRetire_RetiredStatusIsTerminal(t *testing.T)`
+- `func TestCascadeRetire_RollbackOnAgentUpdateFailure(t *testing.T)`
+
 ### `platform/admin/networkdomain/create.go`
 
 - `type CreateNetworkDomainRequest struct`
 - `func validDomainType(dt models.DomainType) bool`
 - `func randomDomainCode() (string, error)`
 - `func isUniqueConstraintError(err error) bool`
+- `func nameExists(db *gorm.DB, name, excludeID string) (bool, error)`
 - `func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc`
 
 ### `platform/admin/networkdomain/create_test.go`
@@ -27,6 +57,8 @@
 - `func TestCreateNetworkDomainOK(t *testing.T)`
 - `func TestCreateNetworkDomainBackfillsAuthorizedDefault(t *testing.T)`
 - `func TestCreateNetworkDomainIgnoresClientTenant(t *testing.T)`
+- `func TestCreateNetworkDomainWithIPCIDRs(t *testing.T)`
+- `func TestCreateNetworkDomainRejectsDuplicateName(t *testing.T)`
 - `func TestCreateNetworkDomainMissingName(t *testing.T)`
 - `func TestCreateNetworkDomainMissingDomainType(t *testing.T)`
 - `func TestCreateNetworkDomainInvalidDomainType(t *testing.T)`
@@ -45,7 +77,7 @@
 - `func delDomain(t *testing.T, db *gorm.DB, id string) (int, map[string]interface{})`
 - `func TestDeleteEmptyDomainSoftDeletes(t *testing.T)`
 - `func TestDeleteNonEmptyRejected(t *testing.T)`
-- `func TestDeleteManagedAgentRejected(t *testing.T)`
+- `func TestDeleteManagedAgentCascadeImpact(t *testing.T)`
 - `func TestDeleteManagementRejected(t *testing.T)`
 - `func TestDeleteOfflineAgentDoesNotBlock(t *testing.T)`
 
@@ -79,7 +111,16 @@
 - `type DomainImpact struct`
 - `func countResources(db *gorm.DB, domainID string) (int64, error)`
 - `func countManagedEdgeAgents(db *gorm.DB, domainID string) (int64, error)`
+- `func countOnlineEdgeAgents(db *gorm.DB, domainID string) (int64, error)`
 - `func ComputeImpact(db *gorm.DB, domainID string) (*DomainImpact, error)`
+
+### `platform/admin/networkdomain/impact_test.go`
+
+- `func seedImpactDomain(t *testing.T, db *gorm.DB, agents []*models.EdgeAgent) string`
+- `func TestComputeImpact_HasOnlineAgents(t *testing.T)`
+- `func TestComputeImpact_NoOnlineAgent(t *testing.T)`
+- `func TestComputeImpact_RetiredNotCounted(t *testing.T)`
+- `func TestComputeImpact_EmptyDomain(t *testing.T)`
 
 ### `platform/admin/networkdomain/list.go`
 
@@ -92,7 +133,8 @@
 
 ### `platform/admin/networkdomain/routes.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `func RegisterReadRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `func RegisterWriteRoutes(admin *gin.RouterGroup, db *gorm.DB)`
 
 ### `platform/admin/networkdomain/status.go`
 
@@ -104,7 +146,7 @@
 
 - `func patchStatus(t *testing.T, db *gorm.DB, id, body string) (int, map[string]interface{})`
 - `func seedEdgeDomain(t *testing.T, db *gorm.DB)`
-- `func TestDisableReturnsFlatImpact(t *testing.T)`
+- `func TestDisableReturnsNestedImpact(t *testing.T)`
 - `func TestReEnable(t *testing.T)`
 - `func TestManagementCannotDisable(t *testing.T)`
 - `func TestInvalidStatusValue(t *testing.T)`
@@ -581,6 +623,7 @@
 - `func buildXLSX(t *testing.T, category models.ResourceCategory, rows [][]string) []byte`
 - `func resourcePayload(category string, overrides map[string]interface{}) map[string]interface{}`
 - `func TestEndToEndDomainRegistry(t *testing.T)`
+- `func TestNetworkDomainWriteForbiddenWithoutAdmin(t *testing.T)`
 - `func listItems(out map[string]interface{}) []interface{}`
 - `func TestEndToEndResourceCRUD(t *testing.T)`
 - `func TestEndToEndSmoke(t *testing.T)`
@@ -2372,8 +2415,15 @@
 
 ### `platform/models/edge_agent.go`
 
+- `func IsValidEdgeAgentStatus(status string) bool`
+- `func CanTransitionToEdgeAgentStatus(from, to string) error`
 - `type EdgeAgent struct`
 - `method (EdgeAgent) TableName() string`
+
+### `platform/models/edge_agent_test.go`
+
+- `func TestIsValidEdgeAgentStatus(t *testing.T)`
+- `func TestCanTransitionToEdgeAgentStatus(t *testing.T)`
 
 ### `platform/models/edge_heartbeat.go`
 
@@ -2670,6 +2720,7 @@
 - `type alertHistoryQuery struct`
 - `func AlertsHistoryHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
 - `func parseAlertHistoryQuery(c *gin.Context) (alertHistoryQuery, error)`
+- `func normalizeHistoryStep(step, window time.Duration) time.Duration`
 - `func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]Aler…`
 - `type promMatrixSample struct`
 - `func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]promMatrixSample, …`
@@ -2700,6 +2751,12 @@
 - `func newHistoryIdentityRouter(t *testing.T, db *gorm.DB) *gin.Engine`
 - `func TestAlertHistoryInstanceFieldsWriteBack(t *testing.T)`
 - `func TestAlertHistoryFilterByInstanceName(t *testing.T)`
+- `func TestNormalizeHistoryStep(t *testing.T)`
+- `func newHistoryStepCaptureRouter(t *testing.T) (*gin.Engine, *string)`
+- `func historyWindowQuery(window time.Duration, extra url.Values) string`
+- `func TestAlertHistoryStepRaisedForMaxWindow(t *testing.T)`
+- `func TestAlertHistoryExplicitStepPreserved(t *testing.T)`
+- `func TestAlertHistoryDefaultStepUnchanged(t *testing.T)`
 
 ### `platform/query/alerts_test.go`
 
@@ -3163,6 +3220,10 @@
 
 - `function RequireAuth`
 
+### `ui-custom/web/src/SkinProvider.tsx`
+
+- `function SkinProvider`
+
 ### `ui-custom/web/src/api/admin.ts`
 
 - `interface UsersListParams`
@@ -3180,6 +3241,7 @@
 - `const alertmanagerConfigApi`
 - `const alertmanagerSilenceApi`
 - `interface AlertStatusQuery`
+- `const ALERT_HISTORY_STEP_SECONDS`
 - `interface AlertHistoryQuery`
 - `const alertStatusApi`
 
@@ -3307,6 +3369,10 @@
 - `interface TargetsListParams`
 - `const targetsApi`
 
+### `ui-custom/web/src/components/Callout.tsx`
+
+- `function Callout`
+
 ### `ui-custom/web/src/components/EllipsisText.tsx`
 
 - `function EllipsisText`
@@ -3315,6 +3381,10 @@
 
 - `function FilterBar`
 - `function FilterItem`
+
+### `ui-custom/web/src/components/FormSection.tsx`
+
+- `function FormSection`
 
 ### `ui-custom/web/src/components/LoadingPlaceholder.tsx`
 
@@ -3333,6 +3403,18 @@
 
 - `function MainLayout`
 
+### `ui-custom/web/src/layouts/siderPreference.ts`
+
+- `const SIDER_COLLAPSED_KEY`
+- `const SIDER_WIDTH`
+- `const SIDER_COLLAPSED_WIDTH`
+- `function readSiderCollapsed`
+- `function writeSiderCollapsed`
+
+### `ui-custom/web/src/pages/admin/appearance/AppearanceSettingsPage.tsx`
+
+- `function AppearanceSettingsPage`
+
 ### `ui-custom/web/src/pages/admin/domains/DeleteDomainModal.tsx`
 
 - `function DeleteDomainModal`
@@ -3343,7 +3425,7 @@
 
 ### `ui-custom/web/src/pages/admin/domains/DomainForm.tsx`
 
-- `function DomainFormModal`
+- `function DomainDrawer`
 
 ### `ui-custom/web/src/pages/admin/domains/DomainsPage.tsx`
 
@@ -3453,7 +3535,12 @@
 - `const promAlertStateColor`
 - `function severityLabel`
 - `function severityColor`
+- `type SeverityTone`
+- `function severityBg`
+- `function severityText`
+- `function severityTone`
 - `const alertHistoryStateLabel`
+- `function alertMatchKey`
 - `const alertHistoryStateColor`
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
@@ -3599,6 +3686,9 @@
 
 - `interface AlertCounts`
 - `const LATEST_ALERT_LIMIT`
+- `const LATEST_ALERT_TITLE`
+- `function AlertStatStrip`
+- `function AlertRow`
 - `function AlertStatusCard`
 
 ### `ui-custom/web/src/pages/home/HomePage.tsx`
@@ -3616,6 +3706,11 @@
 ### `ui-custom/web/src/pages/home/SurfaceCard.tsx`
 
 - `function SurfaceCard`
+
+### `ui-custom/web/src/pages/home/homeLayout.ts`
+
+- `const ALERT_PAGE_SIZE`
+- `function computeAlertPageSize`
 
 ### `ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx`
 
@@ -3806,17 +3901,49 @@
 - `interface UseScrapeJobsResult`
 - `function useScrapeJobs`
 
+### `ui-custom/web/src/productNamePreference.ts`
+
+- `const PRODUCT_NAME_STORAGE_KEY`
+- `const DEFAULT_PRODUCT_NAME`
+- `const PRODUCT_NAME_MAX_LENGTH`
+- `function normalizeProductName`
+- `function readProductName`
+- `function writeProductName`
+- `function clearProductName`
+
+### `ui-custom/web/src/skinContext.ts`
+
+- `interface AppearanceConfig`
+- `const AppearanceContext`
+- `function useSkin`
+- `function useProductName`
+
+### `ui-custom/web/src/skinPreference.ts`
+
+- `const SKIN_STORAGE_KEY`
+- `function readSkin`
+- `function writeSkin`
+
+### `ui-custom/web/src/skins.ts`
+
+- `type SkinKey`
+- `interface SkinTokens`
+- `interface SkinDefinition`
+- `const SKINS`
+- `const DEFAULT_SKIN`
+- `const SKIN_ORDER`
+- `function isSkinKey`
+- `function skinDefinition`
+- `function skinTokens`
+- `const CSS_VAR_BY_TOKEN`
+- `function buildSkinTheme`
+
 ### `ui-custom/web/src/test/antdTestUtils.tsx`
 
 - `function setupAntdTest`
 - `interface MockedModal`
 - `function mockAntdModal`
 - `function selectAntdOption`
-
-### `ui-custom/web/src/theme.ts`
-
-- `const volcengineTokens`
-- `const volcengineTheme`
 
 ### `ui-custom/web/src/types/admin.ts`
 
@@ -3918,6 +4045,8 @@
 - `interface ZoneType`
 - `interface NetworkDomain`
 - `interface NetworkDomainImpact`
+- `interface CascadeImpact`
+- `interface NetworkDomainDeleteResult`
 - `interface NetworkDomainStatusResult`
 - `type TenantStatus`
 - `interface Tenant`
