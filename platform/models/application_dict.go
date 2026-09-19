@@ -23,7 +23,8 @@ var ValidAppCode = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 //   - AppCode     不可变主键（app_code），创建后不可改、停用不删除；
 //   - AppName     展示名（app_name），可改，仅 UI 展示，修改不触发监控配置重生成 / 下发；
 //   - Description 描述，可改；
-//   - Status      启用状态（enabled/disabled）；停用不删除，停用条目不可被新资源选用。
+//   - Status      启用状态（enabled/disabled）；停用不删除，停用条目不可被新资源选用；
+//   - Source      条目来源（决策 97）：manual / excel-import / cmdb {v0.4+}。
 //
 // 资源表只存 AppCode（Host 物理列 app_code；Middleware/Application/Database/
 // GenericTarget 物理列 app_name），app label 恒取 AppCode；AppName 不落在资源表上。
@@ -31,10 +32,11 @@ var ValidAppCode = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 // 导入三处同校验）。
 type ApplicationDict struct {
 	BaseModel
-	AppCode     string `gorm:"size:64;not null;uniqueIndex:idx_application_dict_code" json:"app_code"`
-	AppName     string `gorm:"size:100;not null" json:"app_name"`
-	Description string `gorm:"size:500" json:"description"`
-	Status      string `gorm:"size:20;not null;default:enabled" json:"status"`
+	AppCode     string     `gorm:"size:64;not null;uniqueIndex:idx_application_dict_code" json:"app_code"`
+	AppName     string     `gorm:"size:100;not null" json:"app_name"`
+	Description string     `gorm:"size:500" json:"description"`
+	Status      string     `gorm:"size:20;not null;default:enabled" json:"status"`
+	Source      DictSource `gorm:"size:20;not null;default:manual" json:"source"`
 }
 
 // NormalizeAppCode 把任意存量取值归一化为合法 app_code（决策 92 存量迁移）：

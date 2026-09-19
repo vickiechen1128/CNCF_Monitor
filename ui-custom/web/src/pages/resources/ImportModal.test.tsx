@@ -63,18 +63,31 @@ describe('ImportModal', () => {
     vi.spyOn(message, 'error').mockImplementation(() => undefined)
   })
 
-  it('downloads xlsx template for the current resource type', async () => {
+  it('F-8-a：次级文字链接直触发下载当前资源类型模板', async () => {
     templateMock.mockResolvedValue(new Blob(['xlsx'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
     renderModal()
-    fireEvent.click(screen.getByRole('button', { name: /下载模板/ }))
+    fireEvent.click(screen.getByRole('button', { name: /没有模板？下载当前资源类型模板/ }))
     await waitFor(() => expect(templateMock).toHaveBeenCalledWith('host'))
     expect(URL.createObjectURL).toHaveBeenCalled()
   })
 
-  it('downloads template linked to the active tab category (database)', async () => {
+  it('F-8-a：删除下载模板块后无黑话残留，仅保留次级下载链接', () => {
+    renderModal()
+    // 次级文字链接存在；原「下载模板」主按钮已删除
+    expect(screen.getByRole('button', { name: /没有模板？下载当前资源类型模板/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '下载模板' })).toBeNull()
+    // 黑话 / 冗余说明零残留（F-8-a）
+    expect(screen.queryByText(/取值说明/)).toBeNull()
+    expect(screen.queryByText(/合法值清单/)).toBeNull()
+    expect(screen.queryByText(/决策 97/)).toBeNull()
+    expect(screen.queryByText(/请先下载对应资源类型的模板/)).toBeNull()
+    expect(screen.queryByText(/状态列支持中文取值/)).toBeNull()
+  })
+
+  it('F-8-a：次级下载链接联动当前 Tab 类别（database）', async () => {
     templateMock.mockResolvedValue(new Blob(['xlsx']))
     renderModal({ category: 'database' })
-    fireEvent.click(screen.getByRole('button', { name: /下载模板/ }))
+    fireEvent.click(screen.getByRole('button', { name: /没有模板？下载当前资源类型模板/ }))
     await waitFor(() => expect(templateMock).toHaveBeenCalledWith('database'))
   })
 
@@ -82,6 +95,18 @@ describe('ImportModal', () => {
     renderModal()
     expect(screen.getByRole('radio', { name: /仅新增/ })).toBeChecked()
     expect(screen.getByRole('radio', { name: /新增或更新/ })).not.toBeChecked()
+  })
+
+  it('F-9：导入模式为场景化人话文案，无「判重键」黑话', () => {
+    renderModal()
+    // 点题句：说明唯一标识识别，而非「判重键」
+    expect(
+      screen.getByText(/文件里已有的资源（按 IP \/ 服务名等唯一标识识别）怎么处理/),
+    ).toBeInTheDocument()
+    // hint：场景化描述（首次建档 / 整体刷新），黑话零残留
+    expect(screen.getByText(/已存在的行会报错跳过，不会改动现有数据（适合首次批量建档）/)).toBeInTheDocument()
+    expect(screen.getByText(/已存在的行会用文件内容覆盖更新（适合整体刷新）/)).toBeInTheDocument()
+    expect(screen.queryByText(/判重键/)).not.toBeInTheDocument()
   })
 
   it('warns and skips submit when no file selected', async () => {
@@ -139,6 +164,44 @@ describe('ImportModal', () => {
     expect(screen.getByText('IP 非法')).toBeInTheDocument()
     // 后端引导文案透传（未登记业务→维护业务字典，§5.16.1）
     expect(screen.getByText('未登记业务，请前往维护业务字典')).toBeInTheDocument()
+  })
+
+  it('renders actionable guidance for pending-registration errors (待登记清单，决策 97)', async () => {
+    importExcelMock.mockResolvedValue({
+      status: 'success',
+      data: importResult({
+        failed: 2,
+        errors: [
+          {
+            row: 3,
+            resource_category: 'host',
+            field: 'biz_code',
+            value: 'unk',
+            reason: '业务 unk 未登记，请到「业务管理」页登记或在本文件「业务声明」sheet 补充后重新导入',
+          },
+          {
+            row: 4,
+            resource_category: 'application',
+            field: 'app_code',
+            value: 'unkapp',
+            reason: '应用 unkapp 未登记，请到「应用管理」页登记或在本文件「应用声明」sheet 补充后重新导入',
+          },
+        ],
+      }),
+    })
+    renderModal()
+    selectFile()
+    await screen.findByText('hosts.xlsx')
+    fireEvent.click(screen.getByRole('button', { name: /开始导入/ }))
+    // 待登记清单 reason 透传（前后端文案一致）+ 命中渲染 warning 高亮图标（可执行指引）
+    expect(
+      await screen.findByText(/业务 unk 未登记，请到「业务管理」页登记或在本文件「业务声明」sheet 补充后重新导入/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/应用 unkapp 未登记，请到「应用管理」页登记或在本文件「应用声明」sheet 补充后重新导入/),
+    ).toBeInTheDocument()
+    // @ant-design/icons 渲染 role=img aria-label=warning；两行均命中待登记清单
+    expect(screen.getAllByRole('img', { name: 'warning' }).length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows submit error Alert with backend guidance text', async () => {

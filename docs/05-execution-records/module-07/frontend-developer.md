@@ -415,3 +415,289 @@
 ## 遗留风险 / 待确认
 
 - 无阻塞项。
+
+---
+
+## 任务 T07-97-F1：Excel 导入声明 sheet 引导 + 待登记清单错误指引
+
+- 角色：frontend-developer
+- 任务 ID：T07-97-F1（决策 97 Excel 声明导入前端支撑）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+
+## 输入文档
+
+- PRD：`docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md` §5.16.1 / §5.16.2 / §11（决策 97：资源导入文件内联「业务声明」/「应用声明」sheet，一次导入声明全新业务/应用）
+- 决策：`docs/05-execution-records/module-07/design-decisions.md` 决策 97
+- 契约：`docs/05-execution-records/module-07/api-contract-snapshot.md`（ImportResult.errors[].reason 为待登记清单引导文案）
+- 任务卡权威：`docs/05-execution-records/module-07/task-sequence.yaml` T07-97-F1
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.test.tsx`（增补 2 个用例）
+
+## 关键实现说明
+
+- **模板下载提示补充**：「1. 下载模板」区新增一行说明——「资源导入文件可内含『业务声明』/『应用声明』sheet，一次导入即可声明全新业务/应用（决策 97）」（文案与 PRD §5.16.1 / 决策 97 原文一致）。
+- **待登记清单错误指引**：新增 `isPendingRegistrationReason(reason)` 判定——reason 含「未登记」且指向业务/应用（`/业务|应用/`；网域未登记文案不含业务/应用字样，不命中）。命中时原因列渲染 `WarningOutlined` 图标 + `EllipsisText type="warning"` 高亮；可执行指引文案由后端 reason 透传（「请到『业务管理』/『应用管理』页登记，或在文件声明 sheet 补充后重新导入」），前后端一致。
+- 错误行表格保留行号/字段/值/原因四列；未新建可视化声明编辑（clipping：声明内容在 xlsx 内由后端解析，前端仅引导与错误指引）。
+
+## 遇到的问题与解决
+
+- 无阻塞项。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/ImportModal.test.tsx`：11 个用例全绿（含新增 2 个）
+- `pnpm lint`（--max-warnings 0）：通过
+- `pnpm test` 全量：3 个文件 28 个用例失败为基线既有问题（MainLayout / AppearanceSettingsPage / productNamePreference，与本次改动无关，stash 前后对比确认一致）
+
+## 遗留风险 / 待确认
+
+- 待登记清单命中依赖后端 reason 文案含「未登记」+ 业务/应用字样；若后端文案变更（如去掉「未登记」关键词），需同步调整 `isPendingRegistrationReason` 判定。
+
+---
+
+## 任务 T07-F3-应用列：资源列表五类 Tab 补「应用」列（决策 92/96 正交两维缺口修复）
+
+- 角色：frontend-developer
+- 任务 ID：T07-F3（增量修复，Track A 原型同步缺口）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`27592bf`
+
+## 输入文档
+
+- 契约：`docs/05-execution-records/module-07/api-contract-snapshot.md` §5A（应用字典 API）/ §11（`app_code` UI 展示名）/ §9（`app_code` 规范）
+- PRD：`docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md` §5.19（应用字典）/ §11.2（业务 / 应用列展示，决策 93/95/96）/ Change Log v2.40~v2.41（决策 92~97）
+- 原型基底：`docs/prototypes/module-07/src/pages/ResourcesPage.tsx` L1299~1326（businessColumn / appColumn）/ L1734~1780（FilterBar，确认**无「全部应用」筛选**）
+- 映射表：`docs/05-execution-records/module-07/frontend-prototype-map.md` §3.1（第 16 项业务列 ✅；应用列缺失——本任务补上，映射表 3.1 需后续追加「应用」列条目）
+- 任务边界：`docs/05-execution-records/module-07/task-sequence.yaml` delta_v241（前端原型已同步决策 92~96，资源页 app 列）
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（增补 5 个用例）
+
+## 关键实现说明
+
+- **应用字典 state + 加载**：新增 `applicationDomains` state，与网域 / 业务字典同批 `Promise.all` 加载 `applicationDictApi.list()`（`GET /api/v2/platform/application-dict`），catch 静默——字典加载失败不阻塞列表（与业务字典同一降级口径）。
+- **辅助函数**：`resolveAppName(code)`——命中字典返回 `app_name`、缺条目回退 `app_code`、空值 `-`；`isAppDisabled(code)`——`status === 'disabled'`（与 `resolveBizName` / `isBizDisabled` 同构）。
+- **appColumn**：`title='应用'`、`dataIndex='app_code'`、`key='app_code'`、`width=150`；有值渲染 Tag（停用 `default` / 启用 `cyan`）+ `resolveAppName` + 停用追加「（已停用）」，空值渲染 `-`——逐字对齐原型 appColumn（L1313~1326）。
+- **五类 Tab 共享**：host / database / middleware / application / generic_target 五个列集合统一在 `businessColumn` 后插入 `appColumn`（对齐原型列序 1447/1471/1494/1522/1545）；共享列注释同步补「应用」。
+- **筛选区核对结论**：原型 FilterBar（L1734~1780）仅含网域 / 业务 / 采集状态 / 搜索，**无「全部应用」筛选**——生产不新增筛选器（与任务卡核对项一致）。
+- **类型与 API 复用**：`ResourceListItem.app_code?: string` 与 `applicationDictApi` 均已存在，本次零新增类型 / API 文件。
+
+## 遇到的问题与解决
+
+- **契约快照内部小差异（已按 PRD 裁决，非阻塞）**：快照 §5A 应用字典条目字段写 `enabled`，而 PRD §5.19 字段表与既有 `types/resource.ts` `ApplicationDict` 均为 `status: 'enabled' | 'disabled'`。按 frontend-developer.md「契约快照内部矛盾时以 PRD 第 5/6 章为最高权威」——采用 `status` 字段（与生产 ApplicationDictPage 一致），仅在前端类型 / 解析处消费，未改契约快照（planner 后续重派生快照时建议对齐 §5A 字段为 `status`）。
+- **host Tab 组合列并存**：host Tab 既有「应用 / 环境 / 集群」组合列（渲染 app_code 原始 Tag，原型下沉详情、生产保留为列表列）。本任务为最小补丁，仅新增独立「应用」列（PRD §11.2 host 显「应用」列），未删组合列；该差异已在原型映射表 §3.1 之外记录，供后续迭代评估是否将组合列下沉详情。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/ResourcesPage.test.tsx`：**27 用例全绿**（新增 5 个：app_name 渲染 / 停用「（已停用）」/ 缺条目回退 app_code / 空值 `-` / 五类 Tab 列序断言）
+- `pnpm lint`（--max-warnings 0）：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- 应用列依赖 `GET /application-dict` 成功加载；接口失败时应用列回退展示 `app_code`（resolveAppName 缺条目回退逻辑天然兜底），不阻塞列表。
+- `frontend-prototype-map.md` §3.1 共享列定义（「网域 / 业务 / 来源 / 运行状态 / 操作」）待补「应用」列条目（本任务遵循最小补丁未改映射表，建议下次映射表更新时同步）。
+
+---
+
+## 任务 F-4/F-5：拆分「下载模板」与「Excel 导入」动线 + ImportModal 结构化引导
+
+- 角色：frontend-developer
+- 任务 ID：F-4 / F-5（用户拍板，dev-feedback.md §1 记录）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`f883755`
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1（F-4 现状/痛点/用户拍板；F-5 灰色释义无引导）
+- 原型基底：`docs/prototypes/module-07/src/pages/ResourcesPage.tsx` L2210~2242（独立「下载模板」Modal：固定列清单表格 + 取值说明 + sheet 说明）；`docs/prototypes/module-07/src/mocks/module-07.ts` L636~642（`IMPORT_TEMPLATE_COLUMNS` 五类列名）
+- 契约：`docs/05-execution-records/module-07/api-contract-snapshot.md` §6.1（`GET /resources/:type/template` 二进制下载）；PRD `Module_07_Monitoring_Object_Management.md` §5.16.1/§6.1（固定列模板、业务/应用声明 sheet，决策 97）
+- 后端列名核对：`platform/config/resource/template.go` `TemplateColumns`（只读核对，确认与原型常量逐字一致）
+
+## 改动文件列表
+
+- 新增 `ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx`
+- 新增 `ui-custom/web/src/utils/triggerBlobDownload.ts`（自 ImportModal 提取，两组件共享）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`（工具栏/空态「下载模板」→ `openTemplateModal`；渲染 TemplateDownloadModal）
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`（F-5 结构化引导；删除内部 triggerBlobDownload 改引用共享工具）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（新增 4 个 F-4 用例）
+- 修改 `docs/04-source-architecture/repo-map.md`（`make repo-map` 生成，pre-commit 强制）
+
+## 关键实现说明
+
+- **F-4 动线拆分**：工具栏与空态「下载模板」改调 `openTemplateModal`（新增 `templateOpen` state），打开独立 `TemplateDownloadModal`；「Excel 导入」保持 `openImportModal` 打开 ImportModal（专注上传 + 模式 + 结果）；两条动线互不打开对方弹窗（测试断言互斥）。
+- **TemplateDownloadModal**：标题「下载模板 - {类别}」；顶部 `Alert type="warning"` 模板演进提示（「模板会随版本更新——请下载最新模板，旧模板可能缺列导致导入报错」）；固定列清单 Table（列顺序/列名，`IMPORT_TEMPLATE_COLUMNS[category]` 渲染 Text code）；取值说明（custom_labels 格式 / status 中文值 / biz_code 必填 / app_code 应用字典条目）；「业务声明」/「应用声明」sheet 说明（决策 97）；footer「下载模板」按钮触发 `resourceApi.template(category)` + `triggerBlobDownload(blob, \`${category}_template.xlsx\`)`。
+- **IMPORT_TEMPLATE_COLUMNS 常量**：按 ResourceCategory 映射五类列名数组，与后端 `template.go` `TemplateColumns` 及原型常量逐字一致（host 11 列 / database 11 列 / middleware 11 列 / application 12 列 / generic_target 14 列）。
+- **F-5 结构化引导**：ImportModal「1. 下载模板」区关键句 `<Text strong>请下载最新模板，按固定列填写后上传</Text>` 前置 + 次要说明保留 secondary 小字；「2. 上传文件」区 `<Text strong>仅支持 .xlsx 文件，每次选择一个文件</Text>` + secondary 小字说明；业务/应用声明 sheet 说明原句保留（决策 97）。
+- **triggerBlobDownload 下沉**：提取至 `src/utils/triggerBlobDownload.ts`，TemplateDownloadModal 与 ImportModal 共用，消除双处实现漂移（dev-feedback K-3 同类问题的模板下载点收敛）。
+
+## 遇到的问题与解决
+
+- **pre-commit 拦截 repo-map 过期**：新增 TS 文件触发 `make check-repo-map` 失败——运行 `make repo-map` 重新生成后随 commit 一并提交（项目流程强制，非异常）。
+- **ImportModal.test.tsx 零改动**：F-5 重构保留「资源导入文件可内含「业务声明」/「应用声明」sheet，一次导入即可声明全新业务/应用（决策 97）」原句与「下载模板」按钮，既有断言语义等价全绿，无需同步更新。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/ResourcesPage.test.tsx src/pages/resources/ImportModal.test.tsx`：**42 用例全绿**（ResourcesPage 新增 4 个 F-4 用例：工具栏打开模板 Modal / Modal 内下载触发 resourceApi.template / 空态打开模板 Modal / Excel 导入打开导入弹窗且互斥）
+- `pnpm lint`（--max-warnings 0）：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- 模板列清单为前端常量表（后端无列元数据接口）；若后端 `TemplateColumns` 后续增删列，需同步本常量（建议 v0.2+ 后端暴露列元数据接口消除双处漂移）。
+
+---
+
+## 任务 F-6：host Tab 拆分「应用 / 环境 / 集群」组合列
+
+- 角色：frontend-developer
+- 任务 ID：F-6（用户拍板，dev-feedback.md §1 记录）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`31d0192`
+- 前置：F-4/F-5 commit `f883755`
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1（F-6：host 组合列与独立「应用」列重复展示 app_code）
+- 原型基底：`docs/prototypes/module-07/src/pages/ResourcesPage.tsx` L1934~1935（详情 Drawer 环境/集群项）
+- PRD：`Module_07_Monitoring_Object_Management.md` §11.2（业务 / 应用列展示，决策 92/96）
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`（host 列集合：删组合列，增独立「环境」「集群」列）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（新增 2 个 F-6 用例 + 修正旧注释）
+- 修改 `docs/04-source-architecture/repo-map.md`（`make repo-map` 生成）
+
+## 关键实现说明
+
+- 删除 host 分支 `app_env_cluster` 组合列（原渲染 app_code + env + cluster 三个 Tag，其中 app_code 与共享 `appColumn` 重复）。
+- 新增独立「环境」列（`dataIndex='env'`，有值 `<Tag color="blue">`，空值 `-`）与「集群」列（`dataIndex='cluster'`，有值 `<Tag color="purple">`，空值 `-`），位置在原组合列处（操作系统之后、网域之前，与共享列 appColumn 邻近）；Tag 色沿用组合列口径。
+- `ResourceListItem` 已有 `env?` / `cluster?` 字段，零类型改动。
+- **其他 Tab 排查**：database / middleware / application / generic_target 四类均无组合列，仅共享 `appColumn`，无同类重复问题，保持最小补丁未动。
+
+## 遇到的问题与解决
+
+- 旧测试「决策 92/96：字典缺条目回退显示 app_code」注释引用组合列渲染 app_code Tag——组合列删除后注释失实，同步修正注释（断言 `>= 1` 仍成立：应用列唯一承载回退值）。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/`：**7 文件 96 用例全绿**（新增 2 个 F-6 用例：组合列头移除 + 环境/集群独立列渲染 / 空值 `-`）
+- `pnpm lint`（--max-warnings 0）：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- host Tab 列数由 11 增至 12（环境/集群独立成列），与原型 v2.32「8 列收敛、环境/集群下沉详情」方向相反——本任务按用户拍板（F-6）执行；若后续列表列数治理要求收敛，可在映射表记录评估下沉。
+
+---
+
+## 任务 F-7：模板弹窗展示当前业务/应用可选值 + 用户语言重写 + 下载文件名带日期
+
+- 角色：frontend-developer
+- 任务 ID：F-7 ②③④⑤ 前端部分（用户拍板治本方案，dev-feedback.md §1 记录；commit 95d5b74 落档）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`040414d`
+- 前置：F-4/F-5 commit `f883755`（仅换皮被否）、F-6 commit `31d0192`；后端并行 agent 在改 `platform/config/resource/template.go`（① app_code 实时字典注入），前端不依赖其产物、未触碰 platform/
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1（F-7 根因：前端展示技术列名而非合法值、文案设计黑话、模板缺 app_code 实时字典；②直显 ③用户语言 ④兜底 ⑤日期文件名）
+- 前端类型：`ui-custom/web/src/types/resource.ts`（`BusinessDomain {code,name,enabled}` / `ApplicationDict {app_code,app_name,status}`，与 ResourcesPage state 同型）
+
+## 改动文件列表
+
+- 重写 `ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx`（用户语言三问 + 字典可选值直显 + 日期文件名；删除技术列名表与黑话）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`（模板弹窗传入 `businessDomains` / `applicationDomains`）
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`（「1. 下载模板」区补旧模板提示句，F-7-④）
+- 新增 `ui-custom/web/src/pages/resources/TemplateDownloadModal.test.tsx`（7 用例）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（F-4 用例同步为 F-4/F-7 用户语言断言 + 新增 F-7-② 字典直显用例）
+- repo-map 未变更（仅改组件内部逻辑与测试，不涉导出符号，`make check-repo-map` 通过）
+
+## 关键实现说明
+
+- **② 当前可选值直显**：组件新增 props `businessDomains?` / `applicationDomains?`（缺省 `[]`，防御 ResourcesPage 字典加载失败时的 undefined）；启用条目过滤口径与列表页一致——业务 `enabled === true`、应用 `status === 'enabled'`；渲染「当前业务」「当前应用」双面板（Tag 编码 + 名称，色对齐列表页 geekblue / cyan），可滚动小区域（maxHeight 130 + overflowY auto）+ 名称省略展示（ellipsis + title），保持 560 宽度可读。
+- **③ 用户语言三问**：①这模板怎么填——按类别「填写要点」短列表（主机名 / IP 地址 / 端口…）+ 网域留空自动归属 + 状态中文取值；②每列能填什么值——字典可选值直显，空则「暂无已登记业务/应用」+ 声明表引导（「也可在导入文件里附『业务声明/应用声明』表，一次导入直接声明新业务/应用」，用户语言无「决策 97」字样）；③为什么必须下最新——warning Alert 保留，文案改「模板会随版本更新——旧模板可能缺列或缺最新字典值，导致导入报错——请下载最新模板后填写」。
+- **黑话清理**：删除技术列名表 `IMPORT_TEMPLATE_COLUMNS` 及「固定列模板」「取值说明 sheet」「决策 97」字样，技术列名（os_type / biz_code / instance_ip…）不再作为可见文案。
+- **⑤ 下载文件名带日期**：`${category}_template_${YYYYMMDD}.xlsx`（`todayStamp()`，如 host_template_20260919.xlsx）。
+- **④ ImportModal 提示句**：「1. 下载模板」区 `Text strong` 关键句保留，其后的次要说明改为「——若你正在使用旧模板，可能缺少最新字段或字典值，请下载最新模板后填写。」；既有测试无该句精确断言，ImportModal.test.tsx 零改动。
+
+## 遇到的问题与解决
+
+- **ResourcesPage F-4 用例断言技术列名表**（`列顺序` / `network_domain` 等）：删除列表后断言失效，同步改写为 F-4/F-7 用户语言断言（三问标题 + 空字典占位 + 黑话/技术列名 `queryBy*` 为 null）。
+- **repo-map 新鲜度**：仅改组件内部逻辑（导出符号未变）且测试文件不入图，`make check-repo-map` 直接通过，无需重新生成（避免卷入并行后端 agent 的 platform 变更）。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/`：**8 文件 104 用例全绿**（新增 TemplateDownloadModal.test.tsx 7 用例：用户语言三问无黑话 / 用户语汇填写要点 / 字典启用条目直显停用隐藏 / 空字典占位 + 声明表引导 / undefined 防御 / 日期文件名（host、application 两类别）；ResourcesPage 新增 F-7-② 字典直显用例）
+- `pnpm lint`（--max-warnings 0）：通过
+- `pnpm exec tsc --noEmit`：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- ~~模板弹窗「当前可选值」依赖 ResourcesPage 首屏已加载的字典 state（page_size 100）~~ **已核验为非问题（2026-09-19 Orchestrator）**：业务/应用字典接口均为**全量非分页**——前端 `businessDomainApi.list()` / `applicationDictApi.list()` 不带 page_size、`setBusinessDomains/ApplicationDomains` 无切片；后端 `ListBusinessDomains`（business.go L143）与 `ListApplicationDicts`（application_dict.go L174）均 `store.List()` 全量返回（`total=len(list)`）。模板弹窗直显与列表页解析拿到同一份全量字典，不存在 100 条窗口截断。`page_size:100` 仅作用于 `networkDomainApi.list`（网域，L229），网域不参与弹窗直显。弹窗 `enabledBusinesses/enabledApps` 仅做启用过滤、无 slice。**残余确认项**：模板 xlsx「取值说明」的 app_code 行由后端 `ApplicationDictStore.EnabledList`（全量）生成，与弹窗直显启用口径一致，联调时抽查核对即可。
+
+---
+
+## 任务 F-8：导入弹窗删下载块去黑话 + 列表列排序改名
+
+- 角色：frontend-developer
+- 任务 ID：F-8（用户拍板，dev-feedback.md §1 记录）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`ff74ffb`
+- 前置：F-7 commit `040414d`（治本）；本任务纯前端，未触碰 platform/
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1 F-8（F-7 治本后仍有三处问题：导入弹窗黑话残留 / 多余下载动线 / 列表列排序命名）
+- 相关：F-7 产物 `TemplateDownloadModal.tsx`（外层已含三问 + 字典可选值 + 演进提示，导入弹窗内原下载块为完全重复）
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.test.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`
+
+## 关键实现说明
+
+### F-8-a：ImportModal 去黑话 + 删下载块 + 精简 Alert
+
+- 删除「1. 下载模板」整块（下载按钮 + `DownloadOutlined` 图标导入 + 三行说明，含「取值说明 sheet」「合法值清单」「业务声明/应用声明 sheet（决策 97）」「旧模板提示」）；步骤号由「1/2/3」重新编排为「1. 上传文件 / 2. 选择导入模式」。
+- 顶部 Alert 由三条精简为一条，仅保留导入独有语义「导入按行增量更新，不会删除已存在的资源；如需批量下线，请将目标行状态改为『已停止』后导入」。
+- 上传区文案中性化：「请使用下载的模板填写后上传」→「请按模板列头填写 Excel 后上传」。
+- 上传区下新增次级文字链接「没有模板？下载当前资源类型模板」（`Button type="link" size="small" loading={downloading}`），onClick 直接复用 `handleDownloadTemplate`（`resourceApi.template` + `triggerBlobDownload`），不打开嵌套弹窗。
+- 组件 JSDoc 与「待导入表单态」注释同步去掉已删除的下载/黑话描述；`isPendingRegistrationReason` / 错误行渲染注释中的「决策 97」为内部逻辑注释（待登记清单功能仍保留），非可见文案。
+
+### F-8-b：ResourcesPage 列排序 + 列头改名
+
+- `businessColumn` 列头「业务」→「业务名称」；`appColumn` 列头「应用」→「应用名称」并加 Tooltip「该资源归属的应用字典条目」（`<span>+Tooltip` 参照 statusColumn / 实例名列头模式）；`sourceColumn` 列头「来源」→「录入方式」。
+- 五类 Tab 共享列顺序由 `网域/业务/应用/来源/运行状态/采集状态/操作` 改为 `网域/业务名称/应用名称/运行状态/采集状态/录入方式/操作`（`sourceColumn` 移到 `monitorColumn` 之后、`actionColumn` 之前）。
+- application Tab「服务名」列头加 Tooltip「本应用资源实例的服务标识」。
+- `appColumn.dataIndex` 保持 `'app_code'` 不变（取值键，render 已解析为 app_name 展示）。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/`：**8 文件 107 用例全绿**（ImportModal 测试：删除 1 个旧断言黑话用例、改写 2 个下载用例为次级链接、新增 1 个黑话零残留用例；ResourcesPage 测试：改写 1 个列序断言用例列头名、新增 F-8-b 列头改名/列序用例 + F-8-c 应用名称 tooltip + 服务名 tooltip 2 个用例）
+- `pnpm lint`（--max-warnings 0）：通过
+- `pnpm exec tsc --noEmit`：通过
+- dev server：`vite --host --port 5173` 启动，`curl --noproxy '*'` 验证 `/` 与 `/resources` 均 200；验证后已停止服务释放端口
+- repo-map hook：正常通过（`OK: repo-map 与当前业务代码一致`，本次仅改组件内部 title/render/顺序与测试文件、不涉导出符号，无需 `make repo-map`，未用 `--no-verify`）
+
+## 遗留风险 / 待确认
+
+- `isPendingRegistrationReason` 与错误行渲染注释中仍保留内部「决策 97」字样，属逻辑注释（待登记清单功能未删、后端 reason 透传「业务声明 sheet」仍在），非用户可见文案；如后续要求代码注释也去编号化，可再统一清理。
+- 录入方式列（`source_type`）位于采集状态之后、操作之前，属纯前端列序调整，未改 `source_type` 取值/渲染；后端列表字段契约不变。
+
+

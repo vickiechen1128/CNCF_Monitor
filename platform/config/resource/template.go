@@ -56,13 +56,14 @@ type DomainOption struct {
 //
 //   - type ∈ host/database/middleware/application/generic_target：返回静态 xlsx 下载
 //     （Content-Type spreadsheetml，文件名 `{type}_template.xlsx`），sheet1 为 §5.16.1
-//     固定数据列，sheet2「取值说明」列出 network_domain / biz_code / env / status /
-//     custom_labels 合法值（§5.16.1，MVP 不做 dataValidation 下拉，挪 v0.2+ 评估）；
+//     固定数据列，sheet2「取值说明」列出 network_domain / biz_code / app_code / env /
+//     status / custom_labels 合法值（§5.16.1，MVP 不做 dataValidation 下拉，挪 v0.2+ 评估）；
 //   - 未知类型返回 not_found。
 //
-// 依赖通过函数注入以保持可测试性：bizStore 提供业务字典启用项（T07-02），
-// listDomains 由调用方提供 M06 网域清单查询（T07-18 路由注册时注入 db 查询）。
-func DownloadTemplate(bizStore *BusinessDomainStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
+// 依赖通过函数注入以保持可测试性：bizStore 提供业务字典启用项（T07-02），appStore 提供
+// 应用字典启用项（决策 92/96，F-7 ①：取值说明实时注入 app_code 可取值），listDomains
+// 由调用方提供 M06 网域清单查询（T07-18 路由注册时注入 db 查询）。
+func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		typeName := c.Param("type")
 		category := models.ResourceCategory(typeName)
@@ -72,7 +73,7 @@ func DownloadTemplate(bizStore *BusinessDomainStore, listDomains func() ([]Domai
 			return
 		}
 
-		valueRows, err := buildValueSheet(bizStore, listDomains)
+		valueRows, err := buildValueSheet(bizStore, appStore, listDomains)
 		if err != nil {
 			response.InternalServerError(c, fmt.Errorf("生成「取值说明」失败：%w", err))
 			return
@@ -91,9 +92,10 @@ func DownloadTemplate(bizStore *BusinessDomainStore, listDomains func() ([]Domai
 }
 
 // buildValueSheet 组装「取值说明」sheet 的行：network_domain（M06 网域清单，实时）、
-// biz_code（业务字典启用项，停用项不进入，PRD §3.1）、env 枚举、status 中文取值
-// （§5.5.1 默认映射）、custom_labels 格式说明。
-func buildValueSheet(bizStore *BusinessDomainStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
+// biz_code（业务字典启用项，停用项不进入，PRD §3.1）、app_code（应用字典启用项，
+// 决策 92/96，F-7 ①：与 biz_code 同构 `code（名称）`，空字典输出占位）、env 枚举、
+// status 中文取值（§5.5.1 默认映射）、custom_labels 格式说明。
+func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
 	rows := [][]string{
 		{"取值字段", "合法值 / 格式说明"},
 	}
@@ -127,6 +129,21 @@ func buildValueSheet(bizStore *BusinessDomainStore, listDomains func() ([]Domain
 		bizDesc = append(bizDesc, fmt.Sprintf("%s（%s）", b.Code, b.Name))
 	}
 	rows = append(rows, []string{"biz_code", strings.Join(bizDesc, "；")})
+
+	// app_code：应用字典启用项（决策 92/96，F-7 ①：模板取值说明实时注入应用字典，
+	// 与 biz_code 同构 `code（名称）`；停用项不进入，空字典输出占位引导）。
+	appList, err := appStore.EnabledList()
+	if err != nil {
+		return nil, fmt.Errorf("读取应用字典失败：%w", err)
+	}
+	appDesc := make([]string, 0, len(appList))
+	for _, a := range appList {
+		appDesc = append(appDesc, fmt.Sprintf("%s（%s）", a.AppCode, a.AppName))
+	}
+	if len(appDesc) == 0 {
+		appDesc = append(appDesc, "暂无已登记应用")
+	}
+	rows = append(rows, []string{"app_code", strings.Join(appDesc, "；")})
 
 	rows = append(rows, []string{"env", strings.Join(models.ValidEnvs, "；")})
 	rows = append(rows, []string{"status", statusValueDescription()})

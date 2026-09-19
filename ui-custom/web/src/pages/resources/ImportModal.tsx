@@ -14,12 +14,13 @@ import {
   message,
 } from 'antd'
 import type { UploadFile } from 'antd'
-import { DownloadOutlined, UploadOutlined } from '@ant-design/icons'
+import { UploadOutlined, WarningOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { EllipsisText } from '../../components/EllipsisText'
 import { resourceApi } from '../../api/resources'
 import type { ImportError, ImportMode, ImportResult, ResourceCategory } from '../../types/resource'
+import { triggerBlobDownload } from '../../utils/triggerBlobDownload'
 import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
@@ -33,10 +34,10 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   generic_target: '通用目标',
 }
 
-/** 导入模式说明（§6.1 / §5.16.2，create_only 默认；upsert 按判重键覆盖更新） */
+/** 导入模式说明（§6.1 / §5.16.2，create_only 默认；upsert 按判重键覆盖更新）。文案经 F-9 用户评审改为场景化人话，标签与后端 mode 枚举对应，默认 create_only */
 const MODE_OPTIONS: { value: ImportMode; label: string; hint: string }[] = [
-  { value: 'create_only', label: '仅新增', hint: '遇到已存在的数据（按判重键）则该行失败，不写入' },
-  { value: 'upsert', label: '新增或更新', hint: '按判重键定位已有资源并覆盖更新' },
+  { value: 'create_only', label: '仅新增', hint: '已存在的行会报错跳过，不会改动现有数据（适合首次批量建档）' },
+  { value: 'upsert', label: '新增或更新', hint: '已存在的行会用文件内容覆盖更新（适合整体刷新）' },
 ]
 
 interface ImportModalProps {
@@ -48,24 +49,20 @@ interface ImportModalProps {
   onSuccess?: () => void
 }
 
-/** 触发浏览器下载 Blob（模板 xlsx，§6.1/T07-08；响应为二进制流非 JSON 信封） */
-function triggerBlobDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+/**
+ * 待登记清单判定（决策 97）：业务/应用未登记且未在声明 sheet 申报时，后端 reason 含
+ * 「未登记」且指向业务/应用（网域未登记文案不含业务/应用字样，不命中），错误行渲染可执行指引。
+ */
+function isPendingRegistrationReason(reason?: string): boolean {
+  return !!reason && reason.includes('未登记') && /业务|应用/.test(reason)
 }
 
 /**
- * Excel 导入弹窗（Module_07 §5.16/§6.1/§11.2，L3 任务 T07-F5）。
- * - 资源类型联动模板下载（resourceApi.template(type)，后端生成静态 xlsx 含「取值说明 sheet」）；
+ * Excel 导入弹窗（Module_07 §5.16/§6.1/§11.2，L3 任务 T07-F5 / T07-97-F1）。
  * - 文件上传 + 导入模式选择（默认 create_only）+ 提交 loading 防重复；
+ * - 上传区下方提供次级「下载当前资源类型模板」文字链接，直接触发下载（复用 handleDownloadTemplate）；
  * - 导入结果展示 total/success/updated/failed 统计 + 错误行 Table（行号/字段/值/原因，§5.16.3）；
- * - 错误文案透传后端引导（未登记网域→M06 网域管理入口、未登记业务→维护业务字典，§5.16.1）。
+ * - 错误文案透传后端引导；reason 命中待登记清单（业务/应用未登记且未声明）时高亮可执行指引。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function ImportModal({ open, category, onCancel, onSuccess }: ImportModalProps) {
@@ -138,11 +135,24 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
       title: '原因',
       dataIndex: 'reason',
       key: 'reason',
-      render: (v?: string) => (v ? <EllipsisText maxWidth={320}>{v}</EllipsisText> : '-'),
+      render: (v?: string) => {
+        if (!v) return '-'
+        // 命中待登记清单（业务/应用未登记且未声明，决策 97）：warning 高亮 + 图标，
+        // 可执行指引在后端 reason 文案内（「请到『业务管理』/『应用管理』页登记，或在文件声明 sheet 补充后重新导入」），前后端一致
+        if (isPendingRegistrationReason(v)) {
+          return (
+            <Space size={4}>
+              <WarningOutlined style={{ color: tokens.colorWarning }} />
+              <EllipsisText maxWidth={300} type="warning">{v}</EllipsisText>
+            </Space>
+          )
+        }
+        return <EllipsisText maxWidth={320}>{v}</EllipsisText>
+      },
     },
   ]
 
-  /** 待导入表单态（下载模板 + 上传 + 模式选择） */
+  /** 待导入表单态（上传 + 模式选择） */
   const renderForm = () => (
     <>
       <Alert
@@ -151,50 +161,47 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
         style={{ marginBottom: 16 }}
         message="Excel 导入说明"
         description={
-          <Space direction="vertical" size={4}>
-            <Text style={{ fontSize: 13 }}>
-              • 请先下载对应资源类型的模板，按固定列填写后上传；未填写网域时自动归属默认网域。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 状态列支持中文取值（运行中 / 已停止 / 维护中），系统自动转换为运行状态。
-            </Text>
-            <Text style={{ fontSize: 13 }}>
-              • 导入按行增量更新，不会删除已存在的资源；如需批量下线，请将目标行状态改为「已停止」后导入。
-            </Text>
-          </Space>
+          <Text style={{ fontSize: 13 }}>
+            导入按行增量更新，不会删除已存在的资源；如需批量下线，请将目标行状态改为「已停止」后导入。
+          </Text>
         }
       />
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
-        1. 下载模板
+        1. 上传文件
       </Text>
-      <Space direction="vertical" size={4} style={{ marginBottom: 20 }}>
-        <Button icon={<DownloadOutlined />} loading={downloading} onClick={handleDownloadTemplate}>
-          下载模板
-        </Button>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 环境 / 状态等列的合法值清单。
+      <Space align="center" wrap style={{ marginBottom: 4 }}>
+        <Upload
+          accept=".xlsx"
+          maxCount={1}
+          fileList={fileList}
+          beforeUpload={() => false}
+          onChange={({ fileList: fl }) => setFileList(fl)}
+          onRemove={() => setFileList([])}
+        >
+          <Button icon={<UploadOutlined />} disabled={submitting}>
+            选择 Excel 文件
+          </Button>
+        </Upload>
+        <Text style={{ fontSize: 12 }}>
+          <Text strong>仅支持 .xlsx 文件，每次选择一个文件</Text>
+          <Text type="secondary">（.xls / .csv 暂不支持）；请按模板列头填写 Excel 后上传。</Text>
         </Text>
       </Space>
-      <Text strong style={{ display: 'block', marginBottom: 8 }}>
-        2. 上传文件
-      </Text>
-      <Upload
-        accept=".xlsx"
-        maxCount={1}
-        fileList={fileList}
-        beforeUpload={() => false}
-        onChange={({ fileList: fl }) => setFileList(fl)}
-        onRemove={() => setFileList([])}
+      {/* F-8-a：次级文字链接直触发下载（复用 handleDownloadTemplate），不嵌套弹窗 */}
+      <Button
+        type="link"
+        size="small"
+        style={{ padding: 0, height: 'auto', marginBottom: 20 }}
+        loading={downloading}
+        onClick={handleDownloadTemplate}
       >
-        <Button icon={<UploadOutlined />} disabled={submitting}>
-          选择 Excel 文件
-        </Button>
-      </Upload>
-      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 20 }}>
-        支持 .xlsx 文件，仅选择一个文件；请使用下载的模板填写后上传（.xls / .csv 暂不支持）。
-      </Text>
+        没有模板？下载当前资源类型模板
+      </Button>
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
-        3. 选择导入模式
+        2. 选择导入模式
+      </Text>
+      <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
+        导入时，文件里已有的资源（按 IP / 服务名等唯一标识识别）怎么处理？
       </Text>
       <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)}>
         <Space direction="vertical">

@@ -33,6 +33,10 @@ interface AppRow {
   unclassified: boolean
   appName: string
   appCode: string
+  /** 业务域编码（多数归因，决策 92/93/95；空值时业务域列显示 '-'） */
+  bizCode: string
+  /** 业务域展示名：业务字典解析，空时回落 bizCode */
+  bizName: string
   resourceCount: number
   monitoredCount: number
 }
@@ -89,6 +93,9 @@ export function AppDetailTable({
     unclassified: false,
     appName: a.app_name || a.app_code,
     appCode: a.app_code,
+    // by_app biz 维度为多数归因（决策 92/93/95）；biz_name 为空时回落 biz_code，仍空则 ''
+    bizCode: a.biz_code ?? '',
+    bizName: a.biz_name || (a.biz_code ?? ''),
     resourceCount: a.resource_count,
     monitoredCount: a.monitored_count,
   }))
@@ -99,6 +106,8 @@ export function AppDetailTable({
       unclassified: true,
       appName: '未归类应用',
       appCode: '',
+      bizCode: '',
+      bizName: '',
       resourceCount: unclassifiedResourceCount,
       monitoredCount: unclassifiedMonitoredCount,
     })
@@ -137,10 +146,15 @@ export function AppDetailTable({
         ),
     },
     {
-      // `by_app` 暂无 biz_code（后端待补），此列恒为 `-`，不臆造业务归属
+      // by_app biz 维度为多数归因（决策 92/93/95）；空值显示 '-'
       title: '业务域',
       key: 'bizDomain',
-      render: () => <Typography.Text type="secondary">-</Typography.Text>,
+      render: (_, row) =>
+        row.bizName ? (
+          <Typography.Text>{row.bizName}</Typography.Text>
+        ) : (
+          <Typography.Text type="secondary">-</Typography.Text>
+        ),
     },
     { title: '实例', dataIndex: 'resourceCount', key: 'resourceCount', align: 'right' },
     { title: '已采', dataIndex: 'monitoredCount', key: 'monitoredCount', align: 'right' },

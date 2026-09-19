@@ -234,20 +234,62 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 	in.Status = string(mapped)
 	row.Status = mapped
 
-	// 3. 业务编码：必填 + 编码规范 + 对应启用条目（§5.16.2 / §3.1）。
-	if strings.TrimSpace(in.BizCode) == "" {
-		return fieldErr(row, "biz_code", in.BizCode, "biz_code 必填")
+	// 3. 业务编码：必填口径按类型分化（决策 93）——host/database/middleware 可空
+	//    后补、application 必填、generic_target 与 app_code 二选一；非空时校验编码
+	//    规范与可达性（已登记启用字典 ∪ 本次导入声明 sheet，决策 97）。
+	switch category {
+	case models.ResourceCategoryApplication:
+		if strings.TrimSpace(in.BizCode) == "" {
+			return fieldErr(row, "biz_code", in.BizCode, "biz_code 必填（应用上线后须归属业务分组）")
+		}
+	case models.ResourceCategoryGenericTarget:
+		if strings.TrimSpace(in.AppCode) == "" && strings.TrimSpace(in.BizCode) == "" {
+			return fieldErr(row, "app_code", "", "generic_target 的 app_code 与 biz_code 至少填写一个（决策 95 二选一）")
+		}
 	}
-	if !models.ValidBizCode.MatchString(in.BizCode) {
-		return fieldErr(row, "biz_code", in.BizCode, "biz_code 只能包含小写字母、数字和连字符，长度不超过 64")
+	if strings.TrimSpace(in.BizCode) != "" {
+		if !models.ValidBizCode.MatchString(in.BizCode) {
+			return fieldErr(row, "biz_code", in.BizCode, "biz_code 只能包含小写字母、数字和连字符，长度不超过 64")
+		}
+		enabled, err := bizStore.GetEnabledMap()
+		if err != nil {
+			return fieldErr(row, "biz_code", in.BizCode, fmt.Sprintf("业务分组字典加载失败：%v", err))
+		}
+		if _, ok := enabled[in.BizCode]; !ok {
+			// 决策 97：既不在存量字典、又未在声明 sheet 申报的码归入「待登记清单」，
+			// 给可执行引导文案（不静默跳过）。
+			return fieldErr(row, "biz_code", in.BizCode,
+				fmt.Sprintf("业务 %s 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", in.BizCode))
+		}
 	}
-	enabled, err := bizStore.GetEnabledMap()
-	if err != nil {
-		return fieldErr(row, "biz_code", in.BizCode, fmt.Sprintf("业务分组字典加载失败：%v", err))
-	}
-	if _, ok := enabled[in.BizCode]; !ok {
-		return fieldErr(row, "biz_code", in.BizCode,
-			fmt.Sprintf("业务 %s 未登记，请到『业务管理』页登记后重新导入", in.BizCode))
+
+	// 3.5 应用编码：非空时校验编码规范与可达性（已登记启用字典 ∪ 本次导入声明 sheet，
+	// 决策 97）；app_code 只允许引用未停用应用字典条目（决策 92 红线，录入/编辑/导入
+	// 三处同校验）。host/generic_target 的 app_code 可空（为空不校验）。
+	if strings.TrimSpace(in.AppCode) != "" {
+		if !models.ValidAppCode.MatchString(in.AppCode) {
+			return fieldErr(row, "app_code", in.AppCode, "app_code 只能包含小写字母、数字和连字符，长度不超过 64")
+		}
+		appEnabled, err := appStore.GetEnabledMap()
+		if err != nil {
+			return fieldErr(row, "app_code", in.AppCode, fmt.Sprintf("应用字典加载失败：%v", err))
+		}
+		if _, ok := appEnabled[in.AppCode]; !ok {
+			// 决策 97：既不在存量启用字典、又未在声明 sheet 申报的码归入「待登记清单」。
+			// 区分「已停用」与「未登记」：Lookup 命中说明条目存在但停用（引导启用），
+			// 否则为未登记（引导登记或声明 sheet 补充）。前端 isPendingRegistrationReason
+			// 仅匹配含「未登记」的文案，停用态不被误标为待登记高亮。
+			_, found, lerr := appStore.Lookup(in.AppCode)
+			if lerr != nil {
+				return fieldErr(row, "app_code", in.AppCode, fmt.Sprintf("查询应用 %s 失败：%v", in.AppCode, lerr))
+			}
+			if found {
+				return fieldErr(row, "app_code", in.AppCode,
+					fmt.Sprintf("应用 %s 已停用，请在『应用管理』页启用后重新导入", in.AppCode))
+			}
+			return fieldErr(row, "app_code", in.AppCode,
+				fmt.Sprintf("应用 %s 未登记且未在声明 sheet 声明，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", in.AppCode))
+		}
 	}
 
 	// 4. 非数字 port（ParseExcel 置 -1 哨兵）。

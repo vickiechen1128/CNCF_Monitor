@@ -50,3 +50,62 @@
 ### 前端配合
 
 □ 需前端配合：新增「业务管理」业务分组字典页面（GET 拉全量、POST 登记、PUT 受限编辑、infra 停用按钮禁用提示）。
+
+## 任务：资源校验必填分化 + Excel 声明导入（决策 93/95/96/97）
+
+- 分支：`feat/module-07-resource-management`
+- 关联决策：`docs/05-execution-records/module-07/design-decisions.md`（决策 92/93/95/96/97）
+- 需求来源：`docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md` §5.2/§5.16.1/§5.16.2/§5.18/§5.19
+
+### T07-93-B1：biz_code/app_code 必填按类型分化（commit ec8233b）
+
+1. **validate.go**：`ValidateResourceInput` 的 biz_code 从全类型必填改为按类型分化——host/database/middleware 可空后补（为空不注入 biz 标签、不校验字典存在性）；application 必填；generic_target 的 app_code/biz_code 二选一（两者皆空 bad_request）。app_code 校验维持引用未停用应用字典条目（录入/编辑/导入三处同校验，经 `ApplicationDictStore` 注入）；编辑已属停用条目时经 `KeepDisabledValues` 提示并允许保留历史值（决策 92/93 红线）。
+2. **excel.go / excel_test.go**：导入行 biz_code 可空后补；未登记且未声明码的引导文案统一为「请到『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入」。
+3. `go test ./platform/config/resource/...` + `go vet` 全绿。
+
+### T07-97-B1：Excel 声明 sheet 解析 + 事务原子建字典落资源（commit a03e2b2）
+
+1. **新增 excel_declare.go**：
+   - `ParseDeclareSheets(fileBytes)`：解析「业务声明」（biz_code|biz_name|说明?）与「应用声明」（app_code|app_name|说明?）内联 sheet，缺省 sheet 返回空不报错；列头前两列固定、第三列可选、超 3 列报错；全空行跳过（`cellAt` 容错 excelize 尾部空单元格裁剪）。
+   - `validateDeclareSheets`（校验顺序 ①声明自身）：code/name 必填、编码规范（BIZ_CODE_RE/APP_CODE_RE）、声明内重码硬拒绝、与存量字典同名（名称一致幂等跳过 / 不一致『绝不覆盖』硬拒绝）、停用条目不接受声明激活；失败由调用方 bad_request 整体拒绝。
+   - `applyDeclaredDicts(db, sheets)`：声明建字典 status=enabled、source=excel-import（新常量 `DictSourceManual/ExcelImport/CMDB`），只增不覆盖。
+2. **import.go**：step 4.5 插入声明解析/校验；step 5 事务化——`tx := db.Begin()` + `committed` 标志 + defer 兜底 Rollback；先 `applyDeclaredDicts(tx)` 使行级校验经 tx 绑定 store 达成「字典∪声明」可达性（②），再逐行写资源与 ImportRecord（③整体写），同一 SQLite 事务原子提交，任一 DB 失败整体回滚不留孤立字典条目；行级校验失败仍保持部分成功语义（声明不依赖资源存活）。
+3. **models**：`BusinessDomain`/`ApplicationDict` 新增 `Source DictSource` 字段（default manual）。
+4. **excel_declare_test.go**：解析/校验/应用/闭环 4 层单测——成功原子提交（断言 h.AppCode="new-app"）、`DropTable(&Host{})` 触发 500 整体回滚（字典/ImportRecord 全回滚）、声明内重码与缺 name bad_request、未登记未声明码归入「待登记清单」部分成功、幂等重导。
+5. **import_test.go**：`openImportTestDB` 迁移字典表并预置 infra/app 夹具（决策 97 事务内同库字典 store 校验前提）。
+
+### T07-F7-B1：模板取值说明补 app_code 应用字典实时值 + 导入未登记 reason 补旧模板引导（commit ce3794b）
+
+- 分支：`feat/module-07-resource-management`
+- 关联决策：`docs/05-execution-records/module-07/design-decisions.md`（决策 92/96/97）+ `dev-feedback.md` F-7 ① ④ 后端部分
+
+1. **template.go**：`buildValueSheet` / `DownloadTemplate` 增加 `appStore *ApplicationDictStore` 参数（与 bizStore 相邻注入，风格对齐 `ImportResources(db, bizStore, appStore)`）；取值说明 sheet 新增 `app_code` 行——经 `appStore.EnabledList()` 实时取应用字典启用项，与 biz_code 同构输出 `code（名称）`，停用项不进入，空字典输出「暂无已登记应用」占位（F-7 ①：决策 92/96 引入应用维度后模板未同步的治本修复）。
+2. **routes.go**：模板下载路由注入 `appStore`（`RegisterRoutes` 参数已持有，与 `main.go` L252-254 同源构造，无新增构造点）。
+3. **excel.go**：业务（L262）与应用（L291）「未登记且未在声明 sheet 声明」reason 尾部追加「若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写」；前缀「未登记」保留，前端 `isPendingRegistrationReason`（依赖 `includes('未登记') && /业务|应用/`）高亮不受影响（F-7 ④）。
+4. **测试（TDD，先 RED 后 GREEN）**：
+   - `template_test.go`：`TestDownloadTemplateValueSheet` 新增 app_code 断言（启用项 `pay-db（支付库）`/`pay-service（支付服务）` 出现、停用 `legacy-app` 不出现）；新增 `TestDownloadTemplateValueSheet_EmptyAppDict`（空应用字典输出「暂无已登记应用」占位且不影响 biz_code 行）；`setupTemplateRouter` 注入 `newAppStore(t)`。
+   - `excel_test.go`：业务未登记完整断言改为含追加句；`TestValidateImportRow_GenericTarget` 新增 `unregistered app_code fails with closed-loop copy and old-template hint`（应用未登记完整断言，含旧模板引导句）。
+5. **验证**：`go test ./platform/...` 全绿；`go vet ./platform/config/resource/...` 通过；`go build ./platform/...` 通过（确认无其他 `buildValueSheet`/`DownloadTemplate` 调用点遗漏）；服务实机 curl——`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 200，登录后 GET `/api/v2/platform/resources/{host,database,middleware,application,generic_target}/template` 全 200，下载 xlsx 取值说明 sheet 含 `app_code` 行（本机空应用字典输出「暂无已登记应用」占位）；`make repo-map` 重新生成（pre-commit 门禁）。
+6. **提交**：`ce3794b`，7 files changed（5 后端文件 + repo-map.md + 本执行记录；前端 F-7 文件未卷入）。注：与前端 Developer 并行提交，`git reset --soft HEAD~1` 误重放过前端功能 commit（见 040414d/4bb1e61），执行记录 hash 引用以修正提交为准。
+
+### 前端配合
+
+□ 需前端配合：F-7 前端部分（TemplateDownloadModal/ImportModal 旧模板引导展示）由 frontend-developer 单独提交。
+
+### T07-97-B2：集成测试 application-dict 闭环 + 声明导入闭环（commit b3f4510）
+
+1. **新增 cmd/metric-center/module07_integration_test.go**（复用 `buildIntegrationEngine`，memory DB + seed，不新增路由）：
+   - `TestModule07ApplicationDictEndToEnd`：GET 预置 3 条 → POST 登记（默认 enabled、source=manual）→ 编码不规范/重复 code 400 → PUT 受限编辑（改名+停用，app_code 不可改）→ 停用不删除 → 新资源引用停用条目 bad_request（决策 92 红线）→ PUT 不存在 404 → 无 DELETE 404 → 字典落库断言。
+   - `TestModule07DeclareImportEndToEnd`：声明建字典+落资源成功原子提交（source=excel-import、host 物理列 app_code）；drop hosts 表触发 500 整体回滚（字典/ImportRecord 不留，测试后 AutoMigrate 恢复表）；声明内重码 bad_request；缺 name bad_request；未登记未声明码归入待登记清单部分成功（errors[].reason 含声明引导）。
+
+### 验证
+
+- `go test ./platform/...` 全绿（28 包 ok，含 resource 与 cmd/metric-center 集成测试）。
+- `go vet ./platform/...` 通过。
+- `make check-repo-map` 通过（已重新生成 repo-map）。
+
+### 提交
+
+- `feat(module-07): biz_code 必填按类型分化 + generic 二选一 + 编辑保留停用历史值（T07-93-B1）`
+- `feat(module-07): Excel 声明 sheet 解析 + 事务原子建字典落资源（T07-97-B1）`
+- `feat(module-07): application-dict 闭环 + Excel 声明导入闭环集成测试（T07-97-B2）`

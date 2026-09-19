@@ -43,6 +43,10 @@ export interface AppSummary {
   app_code: string
   /** 展示名：应用字典解析；字典无该条目时回落为 `app_code` */
   app_name: string
+  /** 业务域编码（该应用下资源多数归因，决策 92/93/95；为空时前端显示 '-'） */
+  biz_code: string
+  /** 业务域展示名：业务字典解析；字典无该条目或空时回落为 biz_code */
+  biz_name: string
   resource_count: number
   monitored_count: number
 }
