@@ -606,7 +606,7 @@
 - 任务 ID：F-7 ②③④⑤ 前端部分（用户拍板治本方案，dev-feedback.md §1 记录；commit 95d5b74 落档）
 - 分支：`feat/module-07-resource-management`
 - 日期：2026-09-19
-- Commit：`4bb1e61`
+- Commit：`040414d`
 - 前置：F-4/F-5 commit `f883755`（仅换皮被否）、F-6 commit `31d0192`；后端并行 agent 在改 `platform/config/resource/template.go`（① app_code 实时字典注入），前端不依赖其产物、未触碰 platform/
 
 ## 输入文档
