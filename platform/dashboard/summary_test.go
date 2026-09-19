@@ -247,10 +247,11 @@ func seedScrapeJobs(t *testing.T, db *gorm.DB) {
 		newJob("job-blackbox-a", models.JobTypeBlackbox, "ready", true, []string{"res-mw-2"}),
 	}
 	// blackbox Job 自带 3 个拨测目标（models.BlackboxTarget，不计入资源台账）。
+	// 第 3 个带显式 URL，用于 probe_targets.url 优先取 URL 的断言。
 	jobs[4].BlackboxTargets = []models.BlackboxTarget{
 		{Target: "10.0.0.1:80", Protocol: models.BlackboxTargetProtocolHTTP},
 		{Target: "10.0.0.2:80", Protocol: models.BlackboxTargetProtocolHTTP},
-		{Target: "10.0.0.3:443", Protocol: models.BlackboxTargetProtocolHTTPS},
+		{Target: "10.0.0.3:443", Protocol: models.BlackboxTargetProtocolHTTPS, URL: "https://10.0.0.3:443/healthz"},
 	}
 	for i := range jobs {
 		require.NoError(t, db.Create(&jobs[i]).Error)
@@ -349,6 +350,24 @@ func TestSummaryHandler(t *testing.T) {
 	assert.Equal(t, 3, s.ProbeTargetCount, "blackbox 目标数")
 	assert.Equal(t, 0, s.ProbeTargetAbnormalCount, "拨测异常口径：无状态字段，恒 0")
 	assert.NotContains(t, []int{sumCatRes, sumCatMon}, s.ProbeTargetCount, "拨测不进资源台账")
+
+	// —— 决策 93：probe_targets 拨测目标明细 ——
+	require.Len(t, s.ProbeTargets, 3, "blackbox 目标明细条数")
+	// url：无显式 URL 时 protocol+target 拼接；有 URL 时优先取 URL。
+	assert.Equal(t, "http://10.0.0.1:80", s.ProbeTargets[0].URL)
+	assert.Equal(t, "http://10.0.0.2:80", s.ProbeTargets[1].URL)
+	assert.Equal(t, "https://10.0.0.3:443/healthz", s.ProbeTargets[2].URL)
+	// status 不得臆造：MVP 无实时拨测来源，每条恒为空串（前端显示「未知」），禁硬编 up/down。
+	for _, p := range s.ProbeTargets {
+		assert.Empty(t, p.Status, "无实时拨测状态，status 必须为空串而非臆造的 up/down")
+	}
+	// biz_name/app_name：BlackboxTarget 无归属字段且无法可靠推断，恒为空串（前端显示 '-'）。
+	// last_probe_at：无最近拨测时间源，恒为 nil。
+	for _, p := range s.ProbeTargets {
+		assert.Empty(t, p.BizName)
+		assert.Empty(t, p.AppName)
+		assert.Nil(t, p.LastProbeAt)
+	}
 	// 采集 Job：未软删 5 个（standard 4 + blackbox 1），其中 enabled=true 4 个。
 	assert.Equal(t, 5, s.ScrapeJobCount)
 	assert.Equal(t, 4, s.ScrapeJobEnabledCount)
@@ -391,6 +410,13 @@ func TestSummaryHandlerEmpty(t *testing.T) {
 	assert.Equal(t, 0, s.UnclassifiedMonitoredCount)
 	assert.Equal(t, 0, s.ProbeTargetCount)
 	assert.Equal(t, 0, s.ProbeTargetAbnormalCount)
+
+	// probe_targets：空库下为空数组而非 nil，避免 JSON 输出 null。
+	assert.NotNil(t, s.ProbeTargets)
+	assert.Empty(t, s.ProbeTargets)
+	raw, rawErr := json.Marshal(s.ProbeTargets)
+	require.NoError(t, rawErr)
+	assert.Equal(t, "[]", string(raw))
 
 	// JSON 编码校验 recent_deployments 输出为 []。
 	raw, err := json.Marshal(s.RecentDeployments)

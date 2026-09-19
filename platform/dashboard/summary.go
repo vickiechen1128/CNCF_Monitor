@@ -7,6 +7,7 @@ package dashboard
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -42,6 +43,35 @@ type DeploymentItem struct {
 	TriggeredAt       *time.Time `json:"triggered_at"`
 }
 
+// ProbeTargetItem 是首页拨测态势面板单条拨测目标明细（决策 93 / M05 PRD v1.8），
+// JSON 与原型 mockProbeTargets 对齐：url/status/biz_name/app_name/last_probe_at。
+// 遵循「可空不臆造」：异常需实时拨测结果（Prometheus/Alertmanager）判定，本接口当前
+// 无法实时拨测，status 只来自真实状态——MVP 阶段无该数据源，故恒为空串（前端显示
+// 「未知」）；biz_name/app_name 需推断自 ScrapeJob/挂载维度，BlackboxTarget 无此字段、
+// 推断不出则空串（前端显示 '-'）；last_probe_at 取现有最近拨测时间，拿不到则 nil。
+// 不硬编 up/down、不编造归属，接口只落确凿数据。
+type ProbeTargetItem struct {
+	URL         string     `json:"url"`          // 拨测目标展示地址（优先 URL，否则 protocol+target 拼接）
+	Status      string     `json:"status"`       // up/down/''（MV0 无实时拨测，恒为 ''）
+	BizName     string     `json:"biz_name"`     // 拨测目标归属业务域（无来源时空串）
+	AppName     string     `json:"app_name"`     // 归属应用（无来源时空串）
+	LastProbeAt *time.Time `json:"last_probe_at"` // 最近一次拨测时间（拿不到时 nil）
+}
+
+// probeTargetURL 构造拨测目标展示地址：优先取 BlackboxTarget.URL，否则 protocol+target 拼接；
+// 两端均为空则返回空串。
+func probeTargetURL(t models.BlackboxTarget) string {
+	if u := strings.TrimSpace(t.URL); u != "" {
+		return u
+	}
+	proto := strings.TrimSpace(string(t.Protocol))
+	target := strings.TrimSpace(t.Target)
+	if proto == "" || target == "" {
+		return ""
+	}
+	return proto + "://" + target
+}
+
 // Summary 是首页聚合接口的返回结构。
 type Summary struct {
 	ResourceCount         int              `json:"resource_count"`           // 监控资源总数（M07 resource）
@@ -59,6 +89,7 @@ type Summary struct {
 	UnclassifiedMonitoredCount int               `json:"unclassified_monitored_count"` // 其中已被监控数
 	ProbeTargetCount           int               `json:"probe_target_count"`           // 拨测目标数（blackbox）
 	ProbeTargetAbnormalCount   int               `json:"probe_target_abnormal_count"`  // 拨测异常目标数
+	ProbeTargets               []ProbeTargetItem `json:"probe_targets"`                // 拨测目标明细（异常排前由前端按 status 排序，后端不排序）
 }
 
 // CategorySummary 单个资源类型（L1 卡）的聚合。不含告警字段——首页未恢复数字由
@@ -93,6 +124,7 @@ func Build(db *gorm.DB) (*Summary, error) {
 		RecentDeployments: []DeploymentItem{},
 		ByCategory:        []CategorySummary{},
 		ByApp:             []AppSummary{},
+		ProbeTargets:      []ProbeTargetItem{},
 	}
 
 	// 0. 被 ready+enabled 标准 Job 选中的 resource_id 集合（复用于 monitored 判定，
@@ -205,6 +237,15 @@ func Build(db *gorm.DB) (*Summary, error) {
 	}
 	for _, j := range bjobs {
 		s.ProbeTargetCount += len(j.BlackboxTargets)
+		for _, t := range j.BlackboxTargets {
+			s.ProbeTargets = append(s.ProbeTargets, ProbeTargetItem{
+				URL:    probeTargetURL(t),
+				Status: "", // 实时拨测结果当前不可得：不臆造 up/down，前端据此显示「未知」
+				// biz_name / app_name：BlackboxTarget 无归属字段，ScrapeJob 仅有
+				// NetworkDomainID 不代表业务域，推断不出则留空（前端显示 '-'）。
+				LastProbeAt: nil, // 无最近拨测时间数据源，nil（前端显示 '-'）
+			})
+		}
 	}
 	// probe_target_abnormal_count：models.BlackboxTarget 仅有 Target/Protocol/URL，
 	// 无任何「异常/不健康」状态字段；异常需实时拨测结果（Prometheus/Alertmanager）判定，
