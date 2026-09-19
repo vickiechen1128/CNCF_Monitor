@@ -45,6 +45,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/dashboard"
 	"github.com/metriccenter/metriccenter/platform/db"
 	"github.com/metriccenter/metriccenter/platform/db/seed"
+	"github.com/metriccenter/metriccenter/platform/edge"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/query"
 	"github.com/metriccenter/metriccenter/platform/strategy"
@@ -136,6 +137,10 @@ func main() {
 	// M09 §3.3.3：启动自适应配置变更检测轮询（方案 A，闭环补缺），随 ctx 优雅退出。
 	change.Start(ctx, db.DB, *changeDetectMinInterval, *changeDetectMaxInterval)
 
+	// Module 11 (T11-07): 启动边缘节点离线探测器（默认阈值 3 周期 90s），随 ctx 优雅退出。
+	// D4：仅维护节点/网域运行态与离线事件钩子，不接 M08 通知。
+	edge.StartOfflineDetector(ctx, db.DB, edge.DefaultOfflineThreshold, edge.DefaultOfflineInterval, nil)
+
 	r, err := setupRouter(promURL, *webStaticDir)
 	if err != nil {
 		log.Fatalf("failed to setup router: %v", err)
@@ -168,6 +173,10 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	// 携带凭据，实际 CSRF 触发面低。产品演进到 S2（nginx 反代）后必须收紧为来源白名单
 	// 或移除本中间件（见 security-review-round1.md LOW「CORS 全放开」）。
 	r.Use(cors.Default())
+
+	// D1：edge 协议 outbound-only（Agent 非平台用户），对全局用户 auth 豁免该前缀，
+	// 改由 edge group 内独立 edge-token 中间件鉴权（见 platform/edge）。
+	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v2/platform/edge/")
 
 	// au-02 全局认证中间件（交集：POST /api/v2/platform/auth/login、
 	// /api/v1/health* 与 OPTIONS 预检放行，其余 /api/* 须携带有效 Bearer token）。
@@ -252,6 +261,15 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	// 配置版本与下发记录（含 retry/rollback），统一挂载到 /api/v2/platform/*。
 	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。
 	configcenter.RegisterRoutes(platform, db.DB)
+
+	// Module 11 (T11-03 收口): edge 协议（心跳 + 配置包拉取），挂到
+	// /api/v2/platform/edge/*。全局用户 auth 已对该前缀豁免（D1，见 setupRouter），
+	// 本组由 edge.EdgeTokenMiddleware 独立鉴权。
+	edge.RegisterRoutes(platform.Group("/edge"), db.DB)
+
+	// Module 11 (T11-06/07/08 收口): 管理面接口（退纳管 / edge-agents / edge-packages）。
+	// 与 edge 协议组（/edge/*）分离：本组不走 edge-token 中间件，回归全局用户认证（au-02，D1）。
+	edge.RegisterManagementRoutes(platform, db.DB)
 
 	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
 	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。

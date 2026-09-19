@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 )
+
 // DomainType distinguishes a management domain from an edge domain.
 type DomainType string
 
@@ -37,33 +38,43 @@ type AgentType string
 
 // Agent type constants.
 const (
-	AgentTypeVMAgent           AgentType = "vmagent"
-	AgentTypePrometheusAgent   AgentType = "prometheus-agent"
+	AgentTypeVMAgent         AgentType = "vmagent"
+	AgentTypePrometheusAgent AgentType = "prometheus-agent"
 )
 
 // DefaultDomainID is the historical pre-provisioned management domain id.
 const DefaultDomainID = "default"
+
+// RegistrationStatus 表示网域纳管状态（PRD Module_11 §8.3）。
+type RegistrationStatus string
+
+// 纳管状态常量。
+const (
+	RegistrationStatusCreated   RegistrationStatus = "created"   // 未纳管，未建立监控接入身份
+	RegistrationStatusMonitored RegistrationStatus = "monitored" // 已纳管，心跳 / 拉包生效中
+	RegistrationStatusRetired   RegistrationStatus = "retired"   // 删除-级联清退终态（供审计）
+)
 
 // NetworkDomain represents a network domain, combining Module_06 administrative
 // fields and Module_09 monitoring-management fields (same table). ID is a
 // business string primary key, generated as `<deploy_code>-<domain_code>` with
 // `default` as the historical exception.
 type NetworkDomain struct {
-	ID                  string        `gorm:"primarykey;size:64" json:"id"`
-	Name                string        `gorm:"size:100;not null" json:"name"`
-	Description         string        `gorm:"size:500" json:"description"`
-	DomainType          DomainType    `gorm:"size:20;not null" json:"domain_type"`
-	ZoneType            string        `gorm:"size:50" json:"zone_type"`
-	TenantID            string        `gorm:"size:64;not null" json:"tenant_id"` // 登记归属（创建后不可变更）
-	AuthorizedTenantIDs []string      `gorm:"serializer:json" json:"authorized_tenant_ids"`
-	IPCIDRs             []string      `gorm:"serializer:json" json:"ip_cidrs"` // 网段（CIDR）；资源导入时按 IP 自动推导网域归属
-	CmdbCloudAreaID     string        `gorm:"size:100" json:"cmdb_cloud_area_id"`
-	CmdbCloudAreaPath   string        `gorm:"size:500" json:"cmdb_cloud_area_path"`
+	ID                  string     `gorm:"primarykey;size:64" json:"id"`
+	Name                string     `gorm:"size:100;not null" json:"name"`
+	Description         string     `gorm:"size:500" json:"description"`
+	DomainType          DomainType `gorm:"size:20;not null" json:"domain_type"`
+	ZoneType            string     `gorm:"size:50" json:"zone_type"`
+	TenantID            string     `gorm:"size:64;not null" json:"tenant_id"` // 登记归属（创建后不可变更）
+	AuthorizedTenantIDs []string   `gorm:"serializer:json" json:"authorized_tenant_ids"`
+	IPCIDRs             []string   `gorm:"serializer:json" json:"ip_cidrs"` // 网段（CIDR）；资源导入时按 IP 自动推导网域归属
+	CmdbCloudAreaID     string     `gorm:"size:100" json:"cmdb_cloud_area_id"`
+	CmdbCloudAreaPath   string     `gorm:"size:500" json:"cmdb_cloud_area_path"`
 
 	// Monitoring-management fields (Module_09).
 	Channel         ChannelType `gorm:"size:20;not null" json:"channel"`
-	Token           string      `gorm:"size:500" json:"-"`                              // agent_pull 时必填；仅服务端存取，不回显明文（token_masked 经 AfterFind 派生）
-	TokenMaskedView string      `gorm:"-" json:"token_masked,omitempty"`                // 派生视图：完全脱敏的 token，不落库
+	Token           string      `gorm:"size:500" json:"-"`               // agent_pull 时必填；仅服务端存取，不回显明文（token_masked 经 AfterFind 派生）
+	TokenMaskedView string      `gorm:"-" json:"token_masked,omitempty"` // 派生视图：完全脱敏的 token，不落库
 	AgentType       AgentType   `gorm:"size:30" json:"agent_type,omitempty"`
 	CenterEndpoint  string      `gorm:"size:500" json:"center_endpoint,omitempty"`
 	RemoteWriteURL  string      `gorm:"size:500" json:"remote_write_url,omitempty"`
@@ -71,10 +82,12 @@ type NetworkDomain struct {
 	LastHeartbeat   *time.Time  `json:"last_heartbeat,omitempty"`
 	AgentVersion    string      `gorm:"size:50" json:"agent_version,omitempty"`
 	IsMonitored     bool        `json:"is_monitored"` // 已纳管监控标记（M09）
+	// RegistrationStatus 纳管状态（PRD §8.3 / 决策 D3：新增对齐 PRD，保留既有 IsMonitored/MonitoredStatus）。
+	RegistrationStatus RegistrationStatus `gorm:"size:20;default:created" json:"registration_status"`
 
-	Status    DomainStatus `gorm:"size:20;not null" json:"status"` // enabled/disabled（行政）
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	Status    DomainStatus   `gorm:"size:20;not null" json:"status"` // enabled/disabled（行政）
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }
 

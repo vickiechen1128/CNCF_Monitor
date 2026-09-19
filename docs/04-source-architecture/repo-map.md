@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-18 13:51 · commit: `07d72f8`
+> 生成时间: 2026-09-19 15:28 · commit: `5d614ae`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1762,6 +1762,412 @@
 
 - `func runZoneTypes(db *gorm.DB) error`
 
+### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat.go`
+
+- `func buildHeartbeatRequest( cfg *config.Config, configVersion string, walBacklogBytes int64, remoteWriteQueueSize int, hostn…`
+- `type runtimeProvider struct`
+- `method (*runtimeProvider) Snapshot() puller.RuntimeSnapshot`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat_test.go`
+
+- `func TestBuildHeartbeatRequestMapping(t *testing.T)`
+- `func TestRuntimeProviderSnapshot(t *testing.T)`
+- `type stubProbe struct`
+- `method (stubProbe) Alive(*supervisor.Component) bool`
+- `method (stubProbe) Healthy(*supervisor.Component) bool`
+- `method (stubProbe) Start(*supervisor.Component) error`
+- `method (stubProbe) Stop(*supervisor.Component) error`
+- `func TestEnvOr(t *testing.T)`
+- `func TestVersionFlagString(t *testing.T)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/main.go`
+
+- `func main()`
+- `func run() error`
+- `func restoreComponents(sv *supervisor.Supervisor, dep *deployer.Deployer, cfg *config.Config)`
+- `func hasBlackboxYML(dep *deployer.Deployer, ver string) bool`
+- `func localIP() string`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/probe.go`
+
+- `type procSpec struct`
+- `type ProcProbe struct`
+- `func NewProcProbe(configDir func() string, out io.Writer) *ProcProbe`
+- `method (*ProcProbe) Alive(c *supervisor.Component) bool`
+- `method (*ProcProbe) Healthy(c *supervisor.Component) bool`
+- `method (*ProcProbe) Start(c *supervisor.Component) error`
+- `method (*ProcProbe) Stop(c *supervisor.Component) error`
+- `method (*ProcProbe) Signal(typ string, sig syscall.Signal) error`
+- `method (*ProcProbe) StopAll()`
+- `func httpGetOK(ctx context.Context, cli *http.Client, url string) error`
+- `func httpPostOK(ctx context.Context, cli *http.Client, url string) error`
+- `func tcpProbe(ctx context.Context, addr string) error`
+- `func envOr(key, def string) string`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/probe_test.go`
+
+- `func TestHTTPGetOK200AndNon200(t *testing.T)`
+- `func TestHTTPPostOKReload(t *testing.T)`
+- `func TestTCPProbe(t *testing.T)`
+- `func TestProcProbeSignalWhenNotRunning(t *testing.T)`
+- `func TestProcProbeTimeoutSetting(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/client/client.go`
+
+- `type Client struct`
+- `func NewClient(cfg *config.Config, tok *token.Store, logg *logger.Logger) *Client`
+- `method (*Client) heartbeatEndpoint() string`
+- `method (*Client) bearer() string`
+- `method (*Client) Heartbeat(ctx context.Context, hb contract.HeartbeatRequest) (*contract.HeartbeatResponse, error)`
+- `method (*Client) PullConfig(ctx context.Context, url string) ([]byte, error)`
+- `method (*Client) WaitAuthBackoff(ctx context.Context) (time.Duration, bool)`
+- `method (*Client) ConsecutiveAuthFailures() int`
+- `method (*Client) infof(f string, a ...any)`
+- `method (*Client) warnf(f string, a ...any)`
+- `method (*Client) sleep(ctx context.Context, d time.Duration)`
+
+### `platform/edge-sync-agent/internal/client/client_test.go`
+
+- `func testCfg(endpoint string) *config.Config`
+- `func newTestClient(endpoint string, clock func() time.Time) *Client`
+- `func TestHeartbeatSuccessParsesResponse(t *testing.T)`
+- `func TestHeartbeatReturnsAuthOn401(t *testing.T)`
+- `func TestPullConfigReturnsBytes(t *testing.T)`
+- `func TestPullConfigAuthOn401(t *testing.T)`
+- `func TestWaitAuthBackoffBackoffSequenceAndDowngrade(t *testing.T)`
+- `func TestWaitAuthBackoffLogsDowngrade(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/config/config.go`
+
+- `type Config struct`
+- `func Defaults() *Config`
+- `func Load() (*Config, error)`
+- `func DefaultAgentTypeOverride(envKey string) string`
+- `func envDefault(key, def string) string`
+
+### `platform/edge-sync-agent/internal/config/config_test.go`
+
+- `func TestDefaultsValues(t *testing.T)`
+- `func TestLoadMissingRequired(t *testing.T)`
+- `func TestLoadWithEnv(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/contract/contract.go`
+
+- `type Component struct`
+- `type HeartbeatRequest struct`
+- `type HeartbeatResponse struct`
+- `type Metadata struct`
+
+### `platform/edge-sync-agent/internal/contract/contract_test.go`
+
+- `func TestHeartbeatRequestJSONRoundTrip(t *testing.T)`
+- `func TestHeartbeatResponseJSON(t *testing.T)`
+- `func TestMetadataJSONAlignsCenter(t *testing.T)`
+- `func TestPathConstants(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/deployer/deployer.go`
+
+- `type ComponentType = string`
+- `type Reloader`
+- `type Validator`
+- `type Deployer struct`
+- `func New(root, netDomainID string, logg *logger.Logger, validate Validator, promReload, bbReload Reloader) *Deployer`
+- `method (*Deployer) DomainDir() string`
+- `method (*Deployer) VersionDir(version string) string`
+- `method (*Deployer) CurrentVersion() string`
+- `method (*Deployer) CurrentDir() string`
+- `method (*Deployer) setCurrentLink(version string)`
+- `method (*Deployer) Restore() error`
+- `method (*Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Metadata) error`
+- `method (*Deployer) triggerReload(ctx context.Context, pkg *Package)`
+- `method (*Deployer) stagingDir() string`
+- `func writePackage(dir string, pkg *Package) error`
+
+### `platform/edge-sync-agent/internal/deployer/deployer_test.go`
+
+- `func buildZip(t *testing.T, prom string, targets map[string]string, rules, blackbox string) []byte`
+- `func defaultTargets() map[string]string`
+- `type rec struct`
+- `method (*rec) reload(_ context.Context, c ComponentType, _ string) error`
+- `method (*rec) count() int`
+- `func newDeployer(t *testing.T, promRel, bbRel Reloader) (*Deployer, string)`
+- `func TestApplyAtomicSwitch(t *testing.T)`
+- `func TestApplyIdempotentSameVersion(t *testing.T)`
+- `func TestApplyTargetsInvalidRollback(t *testing.T)`
+- `func TestApplyReloadOnlyOnPromChange(t *testing.T)`
+- `func TestApplyBlackboxTriggersReload(t *testing.T)`
+- `func TestApplyMissingPrometheusRejected(t *testing.T)`
+- `func TestVerifyTargetsJSON(t *testing.T)`
+- `func TestStructuralValidateTopKeys(t *testing.T)`
+- `func TestZipSlipTargetRejected(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/deployer/extract.go`
+
+- `type Package struct`
+- `func extractPackage(zipBytes []byte, meta *contract.Metadata) (*Package, error)`
+- `func ValidateTargetsJSON(name, content string) error`
+- `func validateTargetName(name string) error`
+- `func readEntry(f *zip.File) ([]byte, error)`
+
+### `platform/edge-sync-agent/internal/deployer/validate.go`
+
+- `func StructuralValidate(pkg *Package) error`
+- `func hasLineKey(content, key string) bool`
+- `func marshalMetadata(m *contract.Metadata) ([]byte, error)`
+
+### `platform/edge-sync-agent/internal/logger/logger.go`
+
+- `type Logger struct`
+- `func New(w io.Writer) *Logger`
+- `func SyslogOrStderr() io.Writer`
+- `method (*Logger) Infof(format string, a ...any)`
+- `method (*Logger) Warnf(format string, a ...any)`
+- `method (*Logger) Errorf(format string, a ...any)`
+- `method (*Logger) Close()`
+
+### `platform/edge-sync-agent/internal/logger/logger_test.go`
+
+- `func TestLoggerLevelsToWriter(t *testing.T)`
+- `func TestSyslogOrStderrNonNil(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/logger/syslog_linux.go`
+
+- `func syslogWriter() (io.Writer, bool)`
+
+### `platform/edge-sync-agent/internal/logger/syslog_other.go`
+
+- `func syslogWriter() (io.Writer, bool)`
+
+### `platform/edge-sync-agent/internal/puller/checksum.go`
+
+- `func VerifyChecksum(zipBytes []byte) (*contract.Metadata, error)`
+- `func recomputeChecksum(content map[string]string) string`
+- `func readZipFile(f *zip.File) ([]byte, error)`
+
+### `platform/edge-sync-agent/internal/puller/puller.go`
+
+- `type RuntimeSnapshot struct`
+- `type RuntimeProvider interface`
+- `type Deployer interface`
+- `type Puller struct`
+- `func NewPuller(cfg *config.Config, tok *token.Store, cli *client.Client, runtime RuntimeProvider, deploy Deployer, logg *log…`
+- `type staticRuntime struct`
+- `method (staticRuntime) Snapshot() RuntimeSnapshot`
+- `method (*Puller) Run(ctx context.Context)`
+- `method (*Puller) RunOnce(ctx context.Context) error`
+- `method (*Puller) buildHeartbeat() contract.HeartbeatRequest`
+- `method (*Puller) pullAndVerify(ctx context.Context, url string) error`
+- `method (*Puller) handleAuth(ctx context.Context) bool`
+- `method (*Puller) LastValidConfig() []byte`
+- `method (*Puller) LastValidMetadata() *contract.Metadata`
+- `method (*Puller) infof(f string, a ...any)`
+- `method (*Puller) warnf(f string, a ...any)`
+
+### `platform/edge-sync-agent/internal/puller/puller_test.go`
+
+- `func buildZip(t *testing.T, promYML string, metaChecksum string) []byte`
+- `type fakeDeploy struct`
+- `method (*fakeDeploy) Apply(_ context.Context, zipBytes []byte, meta *contract.Metadata) error`
+- `method (*fakeDeploy) count() int`
+- `type fakeRuntime struct`
+- `method (fakeRuntime) Snapshot() RuntimeSnapshot`
+- `func testConfig(endpoint string) *config.Config`
+- `type testServer struct`
+- `func newTestServer(hb contract.HeartbeatResponse, zipBody []byte) *testServer`
+- `func newPuller(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider) *Puller`
+- `func TestRunOnceValidConfigDeploysAndRetains(t *testing.T)`
+- `func TestRunOnceChecksumMismatchRetainsLastValid(t *testing.T)`
+- `func TestVerifyChecksumValidAndMismatch(t *testing.T)`
+- `func TestRunOnceNetworkErrorRetainsAndRecovers(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/supervisor/supervisor.go`
+
+- `type Params struct`
+- `func DefaultParams() Params`
+- `type Probe interface`
+- `type Component struct`
+- `method (*Component) Snapshot() contract.Component`
+- `type Supervisor struct`
+- `func NewSupervisor(params Params, probe Probe, logg *logger.Logger) *Supervisor`
+- `method (*Supervisor) Reconcile(want []contract.Component)`
+- `method (*Supervisor) getOrCreate(typ string) *Component`
+- `method (*Supervisor) Get(typ string) *Component`
+- `method (*Supervisor) SetInject(clock func() time.Time, sleep func(ctx context.Context, d time.Duration))`
+- `method (*Supervisor) Snapshot() []contract.Component`
+- `method (*Supervisor) Run(ctx context.Context)`
+- `method (*Supervisor) StepOnce(ctx context.Context)`
+- `func rank(order []string, typ string) int`
+- `method (*Supervisor) tick(ctx context.Context, typ string)`
+- `func pruneRestarts(ts []time.Time, now time.Time, window time.Duration) []time.Time`
+- `func minDur(a, b time.Duration) time.Duration`
+
+### `platform/edge-sync-agent/internal/supervisor/supervisor_test.go`
+
+- `type fakeProbe struct`
+- `func newFakeProbe() *fakeProbe`
+- `method (*fakeProbe) Alive(c *Component) bool`
+- `method (*fakeProbe) Healthy(c *Component) bool`
+- `method (*fakeProbe) Start(c *Component) error`
+- `method (*fakeProbe) Stop(c *Component) error`
+- `method (*fakeProbe) CountStart(typ string) int`
+- `method (*fakeProbe) ListStarts() []string`
+- `func newTestSupervisor(t *testing.T, probe Probe) (*Supervisor, func() time.Time, *time.Time)`
+- `func TestDualJudgmentProcessDeathGate(t *testing.T)`
+- `func TestDualJudgmentAliveButUnhealthy(t *testing.T)`
+- `func TestBackoffAndBreakerEntersCrashLoop(t *testing.T)`
+- `func TestOrchestrationBlackboxBeforeCollector(t *testing.T)`
+- `func TestSnapshotReportsContractView(t *testing.T)`
+
+### `platform/edge-sync-agent/internal/token/token.go`
+
+- `type Store struct`
+- `func NewStore(token string) *Store`
+- `method (*Store) Get() string`
+- `method (*Store) Refresh(t string)`
+- `type Throttle struct`
+- `func NewThrottle(min, max, downgradeAfter, downgradeInterval time.Duration, clock func() time.Time) *Throttle`
+- `method (*Throttle) Reset()`
+- `method (*Throttle) Next() (interval time.Duration, downgraded bool)`
+- `method (*Throttle) Consecutive() int`
+
+### `platform/edge-sync-agent/internal/token/token_test.go`
+
+- `func TestThrottleBackoffSequence(t *testing.T)`
+- `func TestThrottleDowngradeAfterDuration(t *testing.T)`
+- `func TestThrottleReset(t *testing.T)`
+- `func TestTokenStore(t *testing.T)`
+
+### `platform/edge/config_handler.go`
+
+- `type ConfigService struct`
+- `func NewConfigService(db *gorm.DB) *ConfigService`
+- `func ConfigHandler(svc *ConfigService) gin.HandlerFunc`
+- `method (*ConfigService) latestVersion(domainID string) (*models.ConfigVersion, error)`
+- `func trimETag(v string) string`
+
+### `platform/edge/edge_test.go`
+
+- `func newEdgeTestDB(t *testing.T) *gorm.DB`
+- `func seedEdgeDomain(db *gorm.DB, id, channel, token, agentType, endpoint string) *models.NetworkDomain`
+- `func seedConfigVersion(db *gorm.DB, domainID, promYML, rulesYML, blackboxYML string, targets map[string]string, createdAt ti…`
+- `func newEdgeRouter(db *gorm.DB) *gin.Engine`
+- `func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T)`
+- `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
+- `func TestHeartbeatUnauthorizedMissingIdentity(t *testing.T)`
+- `func TestHeartbeatLocalDomainRejected(t *testing.T)`
+- `func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T)`
+- `func TestBuildConfigZipOptionalEntries(t *testing.T)`
+- `func TestConfigHandlerServeZipAnd304(t *testing.T)`
+- `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
+
+### `platform/edge/heartbeat_handler.go`
+
+- `func HeartbeatHandler(svc *HeartbeatService) gin.HandlerFunc`
+
+### `platform/edge/heartbeat_service.go`
+
+- `type HeartbeatRequest struct`
+- `type HeartbeatResponse struct`
+- `type HeartbeatService struct`
+- `func NewHeartbeatService(db *gorm.DB) *HeartbeatService`
+- `method (*HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time) (*HeartbeatResponse, error)`
+- `method (*HeartbeatService) findOrRegisterAgent(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time) (*models.EdgeA…`
+
+### `platform/edge/helpers.go`
+
+- `func configVersionString(v *models.ConfigVersion) string`
+- `func latestConfigVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
+- `func configDownloadURL(dom *models.NetworkDomain) string`
+- `func nowUTC() time.Time`
+
+### `platform/edge/management_handler.go`
+
+- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `func RetireDomainHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondRetireError(c *gin.Context, err error)`
+- `func ListAgentsHandler(db *gorm.DB) gin.HandlerFunc`
+- `func GetAgentHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondAgentError(c *gin.Context, err error)`
+- `func ListPackagesHandler() gin.HandlerFunc`
+- `func DownloadLatestPackageHandler() gin.HandlerFunc`
+
+### `platform/edge/management_service.go`
+
+- `func RetireDomain(db *gorm.DB, id string) (*models.NetworkDomain, error)`
+- `type AgentView struct`
+- `func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView`
+- `func agentViewStatus(a *models.EdgeAgent, now time.Time, threshold time.Duration, live string) string`
+- `type AgentsSummary struct`
+- `type EdgeAgentsResponse struct`
+- `func ListAgents(db *gorm.DB, now time.Time, threshold time.Duration) (*EdgeAgentsResponse, error)`
+- `func GetAgent(db *gorm.DB, id uint, now time.Time, threshold time.Duration) (*AgentView, error)`
+- `func normThreshold(t time.Duration) time.Duration`
+
+### `platform/edge/management_test.go`
+
+- `func seedMonitoredEdgeDomain(t *testing.T, db *gorm.DB, id, token, agentType, endpoint string) *models.NetworkDomain`
+- `func tPtr(t time.Time) *time.Time`
+- `func seedAgent(t *testing.T, db *gorm.DB, domainID, status string, lastHB *time.Time, comps []models.EdgeComponent) *models.…`
+- `func newManagementRouter(db *gorm.DB) *gin.Engine`
+- `func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T)`
+- `func TestRetireDomainRejectsManagementAndRetiredAndNotMonitoredAndMissing(t *testing.T)`
+- `func TestRetireDomainHandlerHTTP(t *testing.T)`
+- `func TestDetectOfflineFlagsOldHeartbeatAndTriggersOfflineHook(t *testing.T)`
+- `func TestDetectOfflineHookFiresOnlyOnTransition(t *testing.T)`
+- `func TestDetectOfflineMixedAgentsYieldsPartialAndNoHook(t *testing.T)`
+- `func TestDetectOfflineRecoversWhenHeartbeatResumes(t *testing.T)`
+- `func TestListAgentsThreeTierAggregation(t *testing.T)`
+- `func TestListAgentsAllOnlineIsNormal(t *testing.T)`
+- `func TestGetAgentDetailIncludesComponents(t *testing.T)`
+- `func TestGetAgentNotFound(t *testing.T)`
+- `func TestListAgentsAndGetAgentHandlers(t *testing.T)`
+- `func TestListPackagesFields(t *testing.T)`
+- `func TestLatestPackageIsMaxVersion(t *testing.T)`
+- `func TestDownloadLatestPackageHandlerServesZip(t *testing.T)`
+- `func mustLatestArtifact(t *testing.T) PackageArtifact`
+
+### `platform/edge/middleware.go`
+
+- `func bearerToken(c *gin.Context) string`
+- `func domainIDFromRequest(c *gin.Context) string`
+- `func EdgeTokenMiddleware(db *gorm.DB) gin.HandlerFunc`
+- `func tokenMatches(expect, got string) bool`
+
+### `platform/edge/offline_detector.go`
+
+- `type SiteOfflineHook`
+- `type OfflineDetector struct`
+- `func NewOfflineDetector(db *gorm.DB, threshold, interval time.Duration, hook SiteOfflineHook) *OfflineDetector`
+- `method (*OfflineDetector) Run(ctx context.Context)`
+- `func StartOfflineDetector(ctx context.Context, db *gorm.DB, threshold, interval time.Duration, hook SiteOfflineHook) *Offlin…`
+- `func DetectOffline(db *gorm.DB, threshold time.Duration, now time.Time, hook SiteOfflineHook) ([]string, error)`
+- `func agentLiveStatus(a *models.EdgeAgent, now time.Time, threshold time.Duration) string`
+- `func aggregateDomainStatus(agents []*models.EdgeAgent) string`
+
+### `platform/edge/packages_service.go`
+
+- `type PackageComponent struct`
+- `type PackageArtifact struct`
+- `func componentSpec(name, version string) PackageComponent`
+- `func componentBinBytes(name, version string) []byte`
+- `func resolveArtifact(art PackageArtifact) (PackageArtifact, error)`
+- `func ListPackages() ([]PackageArtifact, error)`
+- `func LatestPackage() (PackageArtifact, error)`
+- `func buildOfflinePackageZip(art PackageArtifact) ([]byte, string, error)`
+- `func writeZipEntry(zw *zip.Writer, name string, data []byte, modTime time.Time) error`
+- `func sha256Hex(content []byte) string`
+
+### `platform/edge/register.go`
+
+- `func RegisterRoutes(group *gin.RouterGroup, db *gorm.DB)`
+
+### `platform/edge/zipper.go`
+
+- `type metadata struct`
+- `type targetsCarrier`
+- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType) ([]byte, string, error)`
+- `func packageChecksum(promYML, rulesYML, blackboxYML string, targets targetsCarrier) string`
+
 ### `platform/examples/simple-agent/main.go`
 
 - `func init()`
@@ -2019,6 +2425,14 @@
 - `func TestIsValidEdgeAgentStatus(t *testing.T)`
 - `func TestCanTransitionToEdgeAgentStatus(t *testing.T)`
 
+### `platform/models/edge_heartbeat.go`
+
+- `type ComponentType = string`
+- `type ComponentStatus = string`
+- `type EdgeComponent struct`
+- `type EdgeHeartbeat struct`
+- `method (EdgeHeartbeat) TableName() string`
+
 ### `platform/models/exporter_installation_confirmation.go`
 
 - `type InstallationStatus = string`
@@ -2128,6 +2542,11 @@
 - `func TestConfigDeploymentStatusValues(t *testing.T)`
 - `func TestTokenMasked(t *testing.T)`
 - `func TestLabelTemplateSnapshotSmoke(t *testing.T)`
+- `func TestEdgeComponentGuardEnums(t *testing.T)`
+- `func TestRegistrationStatusEnums(t *testing.T)`
+- `func TestEdgeComponentJSONRoundTripAndTimeSerialization(t *testing.T)`
+- `func TestEdgeHeartbeatComponentsPersistence(t *testing.T)`
+- `func TestEdgeAgentSyncFieldsAndComponents(t *testing.T)`
 
 ### `platform/models/monitor_type.go`
 
@@ -2151,6 +2570,7 @@
 - `type DomainStatus = string`
 - `type ChannelType = string`
 - `type AgentType = string`
+- `type RegistrationStatus = string`
 - `type NetworkDomain struct`
 - `method (*NetworkDomain) IsManagement() bool`
 - `method (*NetworkDomain) AfterFind(tx *gorm.DB) error`

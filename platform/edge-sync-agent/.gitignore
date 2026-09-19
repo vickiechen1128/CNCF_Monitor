@@ -1,0 +1,4 @@
+# 本地构建产物，禁止入库
+/edge-sync-agent
+/edge-sync-agent-host
+/dist/
