@@ -598,3 +598,53 @@
 
 - host Tab 列数由 11 增至 12（环境/集群独立成列），与原型 v2.32「8 列收敛、环境/集群下沉详情」方向相反——本任务按用户拍板（F-6）执行；若后续列表列数治理要求收敛，可在映射表记录评估下沉。
 
+---
+
+## 任务 F-7：模板弹窗展示当前业务/应用可选值 + 用户语言重写 + 下载文件名带日期
+
+- 角色：frontend-developer
+- 任务 ID：F-7 ②③④⑤ 前端部分（用户拍板治本方案，dev-feedback.md §1 记录；commit 95d5b74 落档）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`4bb1e61`
+- 前置：F-4/F-5 commit `f883755`（仅换皮被否）、F-6 commit `31d0192`；后端并行 agent 在改 `platform/config/resource/template.go`（① app_code 实时字典注入），前端不依赖其产物、未触碰 platform/
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1（F-7 根因：前端展示技术列名而非合法值、文案设计黑话、模板缺 app_code 实时字典；②直显 ③用户语言 ④兜底 ⑤日期文件名）
+- 前端类型：`ui-custom/web/src/types/resource.ts`（`BusinessDomain {code,name,enabled}` / `ApplicationDict {app_code,app_name,status}`，与 ResourcesPage state 同型）
+
+## 改动文件列表
+
+- 重写 `ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx`（用户语言三问 + 字典可选值直显 + 日期文件名；删除技术列名表与黑话）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`（模板弹窗传入 `businessDomains` / `applicationDomains`）
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`（「1. 下载模板」区补旧模板提示句，F-7-④）
+- 新增 `ui-custom/web/src/pages/resources/TemplateDownloadModal.test.tsx`（7 用例）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（F-4 用例同步为 F-4/F-7 用户语言断言 + 新增 F-7-② 字典直显用例）
+- repo-map 未变更（仅改组件内部逻辑与测试，不涉导出符号，`make check-repo-map` 通过）
+
+## 关键实现说明
+
+- **② 当前可选值直显**：组件新增 props `businessDomains?` / `applicationDomains?`（缺省 `[]`，防御 ResourcesPage 字典加载失败时的 undefined）；启用条目过滤口径与列表页一致——业务 `enabled === true`、应用 `status === 'enabled'`；渲染「当前业务」「当前应用」双面板（Tag 编码 + 名称，色对齐列表页 geekblue / cyan），可滚动小区域（maxHeight 130 + overflowY auto）+ 名称省略展示（ellipsis + title），保持 560 宽度可读。
+- **③ 用户语言三问**：①这模板怎么填——按类别「填写要点」短列表（主机名 / IP 地址 / 端口…）+ 网域留空自动归属 + 状态中文取值；②每列能填什么值——字典可选值直显，空则「暂无已登记业务/应用」+ 声明表引导（「也可在导入文件里附『业务声明/应用声明』表，一次导入直接声明新业务/应用」，用户语言无「决策 97」字样）；③为什么必须下最新——warning Alert 保留，文案改「模板会随版本更新——旧模板可能缺列或缺最新字典值，导致导入报错——请下载最新模板后填写」。
+- **黑话清理**：删除技术列名表 `IMPORT_TEMPLATE_COLUMNS` 及「固定列模板」「取值说明 sheet」「决策 97」字样，技术列名（os_type / biz_code / instance_ip…）不再作为可见文案。
+- **⑤ 下载文件名带日期**：`${category}_template_${YYYYMMDD}.xlsx`（`todayStamp()`，如 host_template_20260919.xlsx）。
+- **④ ImportModal 提示句**：「1. 下载模板」区 `Text strong` 关键句保留，其后的次要说明改为「——若你正在使用旧模板，可能缺少最新字段或字典值，请下载最新模板后填写。」；既有测试无该句精确断言，ImportModal.test.tsx 零改动。
+
+## 遇到的问题与解决
+
+- **ResourcesPage F-4 用例断言技术列名表**（`列顺序` / `network_domain` 等）：删除列表后断言失效，同步改写为 F-4/F-7 用户语言断言（三问标题 + 空字典占位 + 黑话/技术列名 `queryBy*` 为 null）。
+- **repo-map 新鲜度**：仅改组件内部逻辑（导出符号未变）且测试文件不入图，`make check-repo-map` 直接通过，无需重新生成（避免卷入并行后端 agent 的 platform 变更）。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/`：**8 文件 104 用例全绿**（新增 TemplateDownloadModal.test.tsx 7 用例：用户语言三问无黑话 / 用户语汇填写要点 / 字典启用条目直显停用隐藏 / 空字典占位 + 声明表引导 / undefined 防御 / 日期文件名（host、application 两类别）；ResourcesPage 新增 F-7-② 字典直显用例）
+- `pnpm lint`（--max-warnings 0）：通过
+- `pnpm exec tsc --noEmit`：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- 模板弹窗「当前可选值」依赖 ResourcesPage 首屏已加载的字典 state（page_size 100）；字典条目超过 100 时列表页与弹窗口径一致（同为 100 条窗口），后端分页语义待字典页确认。后端 ① app_code 实时字典注入由并行 agent 完成，联调时核对模板 xlsx 内「取值说明」与弹窗直显口径一致。
+
+
