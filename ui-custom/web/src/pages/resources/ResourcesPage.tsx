@@ -35,9 +35,9 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { networkDomainApi } from '../../api/domain'
-import { businessDomainApi, resourceApi } from '../../api/resources'
+import { businessDomainApi, resourceApi, applicationDictApi } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
-import type { BusinessDomain, ResourceCategory } from '../../types/resource'
+import type { ApplicationDict, BusinessDomain, ResourceCategory } from '../../types/resource'
 import type { CoverageState } from '../../types/query'
 import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
 import { useResources } from './useResources'
@@ -179,6 +179,8 @@ export function ResourcesPage() {
   const { tokens } = useSkin()
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
+  // 决策 92/96：应用字典（app_code → app_name 展示名解析，与业务字典正交两维）
+  const [applicationDomains, setApplicationDomains] = useState<ApplicationDict[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
   const {
@@ -220,10 +222,15 @@ export function ResourcesPage() {
   const [recordsOpen, setRecordsOpen] = useState(false)
 
   useEffect(() => {
-    Promise.all([networkDomainApi.list({ page: 1, page_size: 100 }), businessDomainApi.list()])
-      .then(([nd, bd]) => {
+    Promise.all([
+      networkDomainApi.list({ page: 1, page_size: 100 }),
+      businessDomainApi.list(),
+      applicationDictApi.list(),
+    ])
+      .then(([nd, bd, ad]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
+        setApplicationDomains(ad.data?.list ?? [])
       })
       .catch(() => {
         // 下拉字典加载失败不阻塞列表展示
@@ -241,6 +248,16 @@ export function ResourcesPage() {
   const isBizDisabled = (code: string) => {
     const b = businessDomains.find((d) => d.code === code)
     return !!b && !b.enabled
+  }
+  /** 应用编码 → app_name（§5.19 / 决策 92：应用列展示字典展示名，缺条目回退 app_code） */
+  const resolveAppName = (code?: string) => {
+    if (!code) return '-'
+    return applicationDomains.find((a) => a.app_code === code)?.app_name ?? code
+  }
+  /** 应用是否停用（决策 92：停用应用以「应用名（已停用）」标识，存量保留历史值，§11.2） */
+  const isAppDisabled = (code: string) => {
+    const a = applicationDomains.find((d) => d.app_code === code)
+    return !!a && a.status === 'disabled'
   }
 
   // 资源新增/编辑抽屉（T07-F4）：create 走当前 Tab 类型；edit 携带行 record（resource_category 取行）
@@ -280,10 +297,11 @@ export function ResourcesPage() {
     }
   }
 
-  // 列集合对齐原型：共享列（网域 / 业务 / 来源 / 运行状态 / 操作）+ 各类型差异化列。
-  // 网域列默认展示不可隐藏（§11.2）；业务列展示 biz_name、停用加「（已停用）」；
-  // 运行状态列头以 hover 提示标注数据来源（决策 32）。采集状态列因后端列表不返回
-  // is_monitored（决策 31-M1、M01 未实现）本阶段裁剪，仅保留「未监控」筛选。
+  // 列集合对齐原型：共享列（网域 / 业务 / 应用 / 来源 / 运行状态 / 操作）+ 各类型差异化列。
+  // 网域列默认展示不可隐藏（§11.2）；业务 / 应用列分别展示字典展示名（biz_name / app_name）、
+  // 停用加「（已停用）」标识（决策 92/96：业务与应用正交两维，应用列经 GET /application-dict 解析，
+  // 缺条目回退 app_code）；运行状态列头以 hover 提示标注数据来源（决策 32）。采集状态列因后端
+  // 列表不返回 is_monitored（决策 31-M1、M01 未实现）本阶段裁剪，仅保留「未监控」筛选。
   const buildColumns = (type: ResourceCategory): ColumnsType<ResourceListItem> => {
     const domainColumn: ColumnsType<ResourceListItem>[number] = {
       title: '网域',
@@ -300,6 +318,23 @@ export function ResourcesPage() {
           <Tag color={isBizDisabled(value) ? 'default' : 'geekblue'}>
             {resolveBizName(value)}
             {isBizDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : (
+          '-'
+        ),
+    }
+    // 决策 92/96 应用列：展示应用字典 app_name，缺条目回退 app_code，停用加「（已停用）」标识
+    // （与业务列正交两维，参照原型 appColumn：Tag cyan / default）
+    const appColumn: ColumnsType<ResourceListItem>[number] = {
+      title: '应用',
+      dataIndex: 'app_code',
+      key: 'app_code',
+      width: 150,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isAppDisabled(value) ? 'default' : 'cyan'}>
+            {resolveAppName(value)}
+            {isAppDisabled(value) ? '（已停用）' : ''}
           </Tag>
         ) : (
           '-'
@@ -406,6 +441,7 @@ export function ResourcesPage() {
           },
           domainColumn,
           businessColumn,
+          appColumn,
           sourceColumn,
           statusColumn,
           monitorColumn,
@@ -426,6 +462,7 @@ export function ResourcesPage() {
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
           domainColumn,
           businessColumn,
+          appColumn,
           sourceColumn,
           statusColumn,
           monitorColumn,
@@ -446,6 +483,7 @@ export function ResourcesPage() {
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
           domainColumn,
           businessColumn,
+          appColumn,
           sourceColumn,
           statusColumn,
           monitorColumn,
@@ -471,6 +509,7 @@ export function ResourcesPage() {
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
           domainColumn,
           businessColumn,
+          appColumn,
           sourceColumn,
           statusColumn,
           monitorColumn,
@@ -505,6 +544,7 @@ export function ResourcesPage() {
           },
           domainColumn,
           businessColumn,
+          appColumn,
           sourceColumn,
           statusColumn,
           monitorColumn,

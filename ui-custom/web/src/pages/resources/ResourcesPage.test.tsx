@@ -7,6 +7,7 @@ const listMock = vi.fn()
 const removeMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
+const applicationDictListMock = vi.fn()
 const coverageListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -17,9 +18,9 @@ vi.mock('../../api/resources', () => ({
   businessDomainApi: {
     list: (...args: unknown[]) => businessDomainListMock(...args),
   },
-  // 决策 92：表单「应用」字段改为应用字典启用条目下拉
+  // 决策 92/96：应用列经 applicationDictApi.list 解析 app_name，缺条目回退 app_code
   applicationDictApi: {
-    list: () => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }),
+    list: (...args: unknown[]) => applicationDictListMock(...args),
   },
 }))
 
@@ -116,6 +117,7 @@ describe('ResourcesPage', () => {
     removeMock.mockReset()
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
+    applicationDictListMock.mockReset()
     coverageListMock.mockReset()
     // 清理「网域/业务」筛选记忆（PRD §11.2），保证用例隔离；jsdom 环境能力不完整时降级跳过
     try {
@@ -128,6 +130,7 @@ describe('ResourcesPage', () => {
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     businessDomainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    applicationDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     removeMock.mockResolvedValue({ status: 'success', data: { resource_id: 'res-1' } })
     coverageListMock.mockResolvedValue({
       status: 'success',
@@ -468,5 +471,76 @@ describe('ResourcesPage', () => {
     expect(badge).toBeTruthy()
     fireEvent.mouseEnter(badge!)
     expect(await screen.findByText(/以实例 IP 作为实例标识/)).toBeInTheDocument()
+  })
+
+  // 决策 92/96：资源列表五类 Tab 共享「应用」列——经应用字典解析 app_name，
+  // 停用条目加「（已停用）」标识、缺条目回退 app_code、空值渲染 '-'
+  it('决策 92/96：应用列渲染应用字典 app_name（enabled 条目 cyan Tag）', async () => {
+    applicationDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ app_code: 'order', app_name: '订单服务', status: 'enabled' }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: 'order' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    // 应用列解析为展示名「订单服务」（而非编码 order）
+    expect(await screen.findByText('订单服务')).toBeInTheDocument()
+    // 不渲染停用后缀
+    expect(screen.queryByText(/订单服务（已停用）/)).toBeNull()
+  })
+
+  it('决策 92/96：停用应用以「应用名（已停用）」标识', async () => {
+    applicationDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ app_code: 'legacy', app_name: '已下线应用', status: 'disabled' }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: 'legacy' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('已下线应用（已停用）')).toBeInTheDocument()
+  })
+
+  it('决策 92/96：字典缺条目回退显示 app_code', async () => {
+    // 字典不包含该条目：应用列回退展示编码本身（§5.19 消费链路）
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: 'ghost-app' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    // 应用列回退 ghost-app；注意 host 组合列「应用/环境/集群」也渲染 app_code 原始 Tag，故取行内匹配
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    expect(within(row).getAllByText('ghost-app').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('决策 92/96：app_code 为空时应用列渲染 "-"', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: undefined })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    // 行内唯一 '-' 来自应用列（业务/采集状态/其他列均非空）
+    expect(within(row).getByText('-')).toBeInTheDocument()
+  })
+
+  // 决策 92/96：五类 Tab 共享「应用」列，位于「业务」列之后（对齐原型列序）
+  it('决策 92/96：五类 Tab 均含「应用」列且位于「业务」之后', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByRole('tab', { name: '主机' })
+    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+      const appCount = headers.filter((t) => t.trim() === '应用').length
+      expect(appCount, `${name} tab：应用列应恰好出现一次`).toBe(1)
+      const atBiz = headers.findIndex((t) => t.trim() === '业务')
+      const atApp = headers.findIndex((t) => t.trim() === '应用')
+      expect(atApp, `${name} tab：应用列应位于业务列之后`).toBeGreaterThan(atBiz)
+    }
   })
 })
