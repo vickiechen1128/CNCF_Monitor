@@ -645,6 +645,6 @@
 
 ## 遗留风险 / 待确认
 
-- 模板弹窗「当前可选值」依赖 ResourcesPage 首屏已加载的字典 state（page_size 100）；字典条目超过 100 时列表页与弹窗口径一致（同为 100 条窗口），后端分页语义待字典页确认。后端 ① app_code 实时字典注入由并行 agent 完成，联调时核对模板 xlsx 内「取值说明」与弹窗直显口径一致。
+- ~~模板弹窗「当前可选值」依赖 ResourcesPage 首屏已加载的字典 state（page_size 100）~~ **已核验为非问题（2026-09-19 Orchestrator）**：业务/应用字典接口均为**全量非分页**——前端 `businessDomainApi.list()` / `applicationDictApi.list()` 不带 page_size、`setBusinessDomains/ApplicationDomains` 无切片；后端 `ListBusinessDomains`（business.go L143）与 `ListApplicationDicts`（application_dict.go L174）均 `store.List()` 全量返回（`total=len(list)`）。模板弹窗直显与列表页解析拿到同一份全量字典，不存在 100 条窗口截断。`page_size:100` 仅作用于 `networkDomainApi.list`（网域，L229），网域不参与弹窗直显。弹窗 `enabledBusinesses/enabledApps` 仅做启用过滤、无 slice。**残余确认项**：模板 xlsx「取值说明」的 app_code 行由后端 `ApplicationDictStore.EnabledList`（全量）生成，与弹窗直显启用口径一致，联调时抽查核对即可。
 
 
