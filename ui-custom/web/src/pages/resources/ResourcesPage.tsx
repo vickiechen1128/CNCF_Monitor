@@ -437,16 +437,19 @@ export function ResourcesPage() {
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
+          // F-6：拆分原「应用 / 环境 / 集群」组合列——应用信息由共享 appColumn 承载，
+          // 环境 / 集群独立成列（Tag 色沿用组合列口径 blue / purple），消除 app_code 重复展示
           {
-            title: '应用 / 环境 / 集群',
-            key: 'app_env_cluster',
-            render: (_: unknown, record: ResourceListItem) => (
-              <Space wrap size={4}>
-                {record.app_code && <Tag>{record.app_code}</Tag>}
-                {record.env && <Tag color="blue">{record.env}</Tag>}
-                {record.cluster && <Tag color="purple">{record.cluster}</Tag>}
-              </Space>
-            ),
+            title: '环境',
+            dataIndex: 'env',
+            key: 'env',
+            render: (v?: string) => (v ? <Tag color="blue">{v}</Tag> : '-'),
+          },
+          {
+            title: '集群',
+            dataIndex: 'cluster',
+            key: 'cluster',
+            render: (v?: string) => (v ? <Tag color="purple">{v}</Tag> : '-'),
           },
           domainColumn,
           businessColumn,

@@ -456,3 +456,145 @@
 ## 遗留风险 / 待确认
 
 - 待登记清单命中依赖后端 reason 文案含「未登记」+ 业务/应用字样；若后端文案变更（如去掉「未登记」关键词），需同步调整 `isPendingRegistrationReason` 判定。
+
+---
+
+## 任务 T07-F3-应用列：资源列表五类 Tab 补「应用」列（决策 92/96 正交两维缺口修复）
+
+- 角色：frontend-developer
+- 任务 ID：T07-F3（增量修复，Track A 原型同步缺口）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`27592bf`
+
+## 输入文档
+
+- 契约：`docs/05-execution-records/module-07/api-contract-snapshot.md` §5A（应用字典 API）/ §11（`app_code` UI 展示名）/ §9（`app_code` 规范）
+- PRD：`docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md` §5.19（应用字典）/ §11.2（业务 / 应用列展示，决策 93/95/96）/ Change Log v2.40~v2.41（决策 92~97）
+- 原型基底：`docs/prototypes/module-07/src/pages/ResourcesPage.tsx` L1299~1326（businessColumn / appColumn）/ L1734~1780（FilterBar，确认**无「全部应用」筛选**）
+- 映射表：`docs/05-execution-records/module-07/frontend-prototype-map.md` §3.1（第 16 项业务列 ✅；应用列缺失——本任务补上，映射表 3.1 需后续追加「应用」列条目）
+- 任务边界：`docs/05-execution-records/module-07/task-sequence.yaml` delta_v241（前端原型已同步决策 92~96，资源页 app 列）
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（增补 5 个用例）
+
+## 关键实现说明
+
+- **应用字典 state + 加载**：新增 `applicationDomains` state，与网域 / 业务字典同批 `Promise.all` 加载 `applicationDictApi.list()`（`GET /api/v2/platform/application-dict`），catch 静默——字典加载失败不阻塞列表（与业务字典同一降级口径）。
+- **辅助函数**：`resolveAppName(code)`——命中字典返回 `app_name`、缺条目回退 `app_code`、空值 `-`；`isAppDisabled(code)`——`status === 'disabled'`（与 `resolveBizName` / `isBizDisabled` 同构）。
+- **appColumn**：`title='应用'`、`dataIndex='app_code'`、`key='app_code'`、`width=150`；有值渲染 Tag（停用 `default` / 启用 `cyan`）+ `resolveAppName` + 停用追加「（已停用）」，空值渲染 `-`——逐字对齐原型 appColumn（L1313~1326）。
+- **五类 Tab 共享**：host / database / middleware / application / generic_target 五个列集合统一在 `businessColumn` 后插入 `appColumn`（对齐原型列序 1447/1471/1494/1522/1545）；共享列注释同步补「应用」。
+- **筛选区核对结论**：原型 FilterBar（L1734~1780）仅含网域 / 业务 / 采集状态 / 搜索，**无「全部应用」筛选**——生产不新增筛选器（与任务卡核对项一致）。
+- **类型与 API 复用**：`ResourceListItem.app_code?: string` 与 `applicationDictApi` 均已存在，本次零新增类型 / API 文件。
+
+## 遇到的问题与解决
+
+- **契约快照内部小差异（已按 PRD 裁决，非阻塞）**：快照 §5A 应用字典条目字段写 `enabled`，而 PRD §5.19 字段表与既有 `types/resource.ts` `ApplicationDict` 均为 `status: 'enabled' | 'disabled'`。按 frontend-developer.md「契约快照内部矛盾时以 PRD 第 5/6 章为最高权威」——采用 `status` 字段（与生产 ApplicationDictPage 一致），仅在前端类型 / 解析处消费，未改契约快照（planner 后续重派生快照时建议对齐 §5A 字段为 `status`）。
+- **host Tab 组合列并存**：host Tab 既有「应用 / 环境 / 集群」组合列（渲染 app_code 原始 Tag，原型下沉详情、生产保留为列表列）。本任务为最小补丁，仅新增独立「应用」列（PRD §11.2 host 显「应用」列），未删组合列；该差异已在原型映射表 §3.1 之外记录，供后续迭代评估是否将组合列下沉详情。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/ResourcesPage.test.tsx`：**27 用例全绿**（新增 5 个：app_name 渲染 / 停用「（已停用）」/ 缺条目回退 app_code / 空值 `-` / 五类 Tab 列序断言）
+- `pnpm lint`（--max-warnings 0）：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- 应用列依赖 `GET /application-dict` 成功加载；接口失败时应用列回退展示 `app_code`（resolveAppName 缺条目回退逻辑天然兜底），不阻塞列表。
+- `frontend-prototype-map.md` §3.1 共享列定义（「网域 / 业务 / 来源 / 运行状态 / 操作」）待补「应用」列条目（本任务遵循最小补丁未改映射表，建议下次映射表更新时同步）。
+
+---
+
+## 任务 F-4/F-5：拆分「下载模板」与「Excel 导入」动线 + ImportModal 结构化引导
+
+- 角色：frontend-developer
+- 任务 ID：F-4 / F-5（用户拍板，dev-feedback.md §1 记录）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`f883755`
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1（F-4 现状/痛点/用户拍板；F-5 灰色释义无引导）
+- 原型基底：`docs/prototypes/module-07/src/pages/ResourcesPage.tsx` L2210~2242（独立「下载模板」Modal：固定列清单表格 + 取值说明 + sheet 说明）；`docs/prototypes/module-07/src/mocks/module-07.ts` L636~642（`IMPORT_TEMPLATE_COLUMNS` 五类列名）
+- 契约：`docs/05-execution-records/module-07/api-contract-snapshot.md` §6.1（`GET /resources/:type/template` 二进制下载）；PRD `Module_07_Monitoring_Object_Management.md` §5.16.1/§6.1（固定列模板、业务/应用声明 sheet，决策 97）
+- 后端列名核对：`platform/config/resource/template.go` `TemplateColumns`（只读核对，确认与原型常量逐字一致）
+
+## 改动文件列表
+
+- 新增 `ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx`
+- 新增 `ui-custom/web/src/utils/triggerBlobDownload.ts`（自 ImportModal 提取，两组件共享）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`（工具栏/空态「下载模板」→ `openTemplateModal`；渲染 TemplateDownloadModal）
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`（F-5 结构化引导；删除内部 triggerBlobDownload 改引用共享工具）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（新增 4 个 F-4 用例）
+- 修改 `docs/04-source-architecture/repo-map.md`（`make repo-map` 生成，pre-commit 强制）
+
+## 关键实现说明
+
+- **F-4 动线拆分**：工具栏与空态「下载模板」改调 `openTemplateModal`（新增 `templateOpen` state），打开独立 `TemplateDownloadModal`；「Excel 导入」保持 `openImportModal` 打开 ImportModal（专注上传 + 模式 + 结果）；两条动线互不打开对方弹窗（测试断言互斥）。
+- **TemplateDownloadModal**：标题「下载模板 - {类别}」；顶部 `Alert type="warning"` 模板演进提示（「模板会随版本更新——请下载最新模板，旧模板可能缺列导致导入报错」）；固定列清单 Table（列顺序/列名，`IMPORT_TEMPLATE_COLUMNS[category]` 渲染 Text code）；取值说明（custom_labels 格式 / status 中文值 / biz_code 必填 / app_code 应用字典条目）；「业务声明」/「应用声明」sheet 说明（决策 97）；footer「下载模板」按钮触发 `resourceApi.template(category)` + `triggerBlobDownload(blob, \`${category}_template.xlsx\`)`。
+- **IMPORT_TEMPLATE_COLUMNS 常量**：按 ResourceCategory 映射五类列名数组，与后端 `template.go` `TemplateColumns` 及原型常量逐字一致（host 11 列 / database 11 列 / middleware 11 列 / application 12 列 / generic_target 14 列）。
+- **F-5 结构化引导**：ImportModal「1. 下载模板」区关键句 `<Text strong>请下载最新模板，按固定列填写后上传</Text>` 前置 + 次要说明保留 secondary 小字；「2. 上传文件」区 `<Text strong>仅支持 .xlsx 文件，每次选择一个文件</Text>` + secondary 小字说明；业务/应用声明 sheet 说明原句保留（决策 97）。
+- **triggerBlobDownload 下沉**：提取至 `src/utils/triggerBlobDownload.ts`，TemplateDownloadModal 与 ImportModal 共用，消除双处实现漂移（dev-feedback K-3 同类问题的模板下载点收敛）。
+
+## 遇到的问题与解决
+
+- **pre-commit 拦截 repo-map 过期**：新增 TS 文件触发 `make check-repo-map` 失败——运行 `make repo-map` 重新生成后随 commit 一并提交（项目流程强制，非异常）。
+- **ImportModal.test.tsx 零改动**：F-5 重构保留「资源导入文件可内含「业务声明」/「应用声明」sheet，一次导入即可声明全新业务/应用（决策 97）」原句与「下载模板」按钮，既有断言语义等价全绿，无需同步更新。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/ResourcesPage.test.tsx src/pages/resources/ImportModal.test.tsx`：**42 用例全绿**（ResourcesPage 新增 4 个 F-4 用例：工具栏打开模板 Modal / Modal 内下载触发 resourceApi.template / 空态打开模板 Modal / Excel 导入打开导入弹窗且互斥）
+- `pnpm lint`（--max-warnings 0）：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- 模板列清单为前端常量表（后端无列元数据接口）；若后端 `TemplateColumns` 后续增删列，需同步本常量（建议 v0.2+ 后端暴露列元数据接口消除双处漂移）。
+
+---
+
+## 任务 F-6：host Tab 拆分「应用 / 环境 / 集群」组合列
+
+- 角色：frontend-developer
+- 任务 ID：F-6（用户拍板，dev-feedback.md §1 记录）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`31d0192`
+- 前置：F-4/F-5 commit `f883755`
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1（F-6：host 组合列与独立「应用」列重复展示 app_code）
+- 原型基底：`docs/prototypes/module-07/src/pages/ResourcesPage.tsx` L1934~1935（详情 Drawer 环境/集群项）
+- PRD：`Module_07_Monitoring_Object_Management.md` §11.2（业务 / 应用列展示，决策 92/96）
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`（host 列集合：删组合列，增独立「环境」「集群」列）
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`（新增 2 个 F-6 用例 + 修正旧注释）
+- 修改 `docs/04-source-architecture/repo-map.md`（`make repo-map` 生成）
+
+## 关键实现说明
+
+- 删除 host 分支 `app_env_cluster` 组合列（原渲染 app_code + env + cluster 三个 Tag，其中 app_code 与共享 `appColumn` 重复）。
+- 新增独立「环境」列（`dataIndex='env'`，有值 `<Tag color="blue">`，空值 `-`）与「集群」列（`dataIndex='cluster'`，有值 `<Tag color="purple">`，空值 `-`），位置在原组合列处（操作系统之后、网域之前，与共享列 appColumn 邻近）；Tag 色沿用组合列口径。
+- `ResourceListItem` 已有 `env?` / `cluster?` 字段，零类型改动。
+- **其他 Tab 排查**：database / middleware / application / generic_target 四类均无组合列，仅共享 `appColumn`，无同类重复问题，保持最小补丁未动。
+
+## 遇到的问题与解决
+
+- 旧测试「决策 92/96：字典缺条目回退显示 app_code」注释引用组合列渲染 app_code Tag——组合列删除后注释失实，同步修正注释（断言 `>= 1` 仍成立：应用列唯一承载回退值）。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/`：**7 文件 96 用例全绿**（新增 2 个 F-6 用例：组合列头移除 + 环境/集群独立列渲染 / 空值 `-`）
+- `pnpm lint`（--max-warnings 0）：通过
+- dev server：`vite --host` 启动，`/` 与 `/resources` 均返回 200；验证后已停止服务释放端口（5173）
+
+## 遗留风险 / 待确认
+
+- host Tab 列数由 11 增至 12（环境/集群独立成列），与原型 v2.32「8 列收敛、环境/集群下沉详情」方向相反——本任务按用户拍板（F-6）执行；若后续列表列数治理要求收敛，可在映射表记录评估下沉。
+

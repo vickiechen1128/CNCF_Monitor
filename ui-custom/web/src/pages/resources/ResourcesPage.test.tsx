@@ -518,7 +518,7 @@ describe('ResourcesPage', () => {
       data: { list: [hostItem('res-1', 'prod-web-01', { app_code: 'ghost-app' })], total: 1, page: 1, page_size: 50 },
     })
     renderPage()
-    // 应用列回退 ghost-app；注意 host 组合列「应用/环境/集群」也渲染 app_code 原始 Tag，故取行内匹配
+    // 应用列回退 ghost-app（F-6 后 host 组合列已拆分，应用信息由应用列唯一承载）
     const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
     expect(within(row).getAllByText('ghost-app').length).toBeGreaterThanOrEqual(1)
   })
@@ -603,5 +603,44 @@ describe('ResourcesPage', () => {
     expect(await screen.findByText('Excel 导入 - 主机')).toBeInTheDocument()
     // 不打开模板下载 Modal
     expect(screen.queryByText('下载模板 - 主机')).toBeNull()
+  })
+
+  // F-6：host Tab 拆分「应用 / 环境 / 集群」组合列——独立「环境」「集群」列，组合列头移除
+  it('F-6：host Tab 拆分组合列——独立「环境」「集群」列且不再渲染组合列头', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01', { env: 'prod', cluster: 'c1' })],
+        total: 1,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+    expect(headers).toContain('环境')
+    expect(headers).toContain('集群')
+    expect(headers.some((t) => t.includes('应用 / 环境 / 集群'))).toBe(false)
+    // 行内渲染 env / cluster 值（Tag）；应用信息由应用列唯一承载（字典缺条回退 app_code）
+    const row = screen.getByText('prod-web-01').closest('tr') as HTMLElement
+    expect(within(row).getByText('prod')).toBeInTheDocument()
+    expect(within(row).getByText('c1')).toBeInTheDocument()
+    expect(within(row).getByText('order')).toBeInTheDocument()
+  })
+
+  it('F-6：host Tab 环境/集群为空时渲染 "-"', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01', { env: undefined, cluster: undefined })],
+        total: 1,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    expect(within(row).getAllByText('-').length).toBeGreaterThanOrEqual(2)
   })
 })
