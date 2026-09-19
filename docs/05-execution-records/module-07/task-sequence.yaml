@@ -20,6 +20,7 @@ fe_tool: "`cd ui-custom/web && pnpm test` / `pnpm lint`；`pnpm dev` 验证页�
 contract_snapshot: "docs/05-execution-records/module-07/api-contract-snapshot.md（前端任务契约第一权威：API 路径/方法/字段/枚举/错误码/必填口径/UI 展示名；与 PRD §5/§6、03_API_Standard 冲突时以此为准；缺失时回退 PRD 第 5/6 章 + 03_API_Standard）"
 delta_v241:
   - "PRD v2.40 引入决策 92~96；v2.41 新增决策 97（Excel 批量声明新字典）。前端原型 docs/prototypes/module-07/ 已同步至决策 92~96（独立 BusinessManagementPage.tsx / ApplicationManagementPage.tsx；资源页 app 列 + generic 二选一），prototype README 版本 v2.40"
+  - "v2.41 回流修订既有卡片：T07-02（业务字典 DB 落库+写接口+seed，决策 48/97 source）、T07-03（必填分化 app_code/biz_code，决策 92/93/95）、T07-05/06（资源字段 app_name→app_code）、T07-08（模板列 app_name→app_code）、T07-09（导入必填分化+声明 sheet 文案，决策 93/95/97）、T07-11/13（system source_map app_code→app，决策 92）；仅改 title/prd/acceptance/contract 冲突子句，未改 id/group/status/depends_on/commit_group、未增删任务数"
   - "增量新增 L3 任务未改动既有 T07-01~T07-18 / T07-F1~F9 / T07-47-B1/F1 卡片，仅在文件尾部追加（group 按 backend/frontend 标注）"
 
 tasks:
@@ -57,8 +58,8 @@ tasks:
       - "models_test 增补：ImportRecord 序列化（errors JSON 往返）、PROTECTED_PROMETHEUS_LABELS 覆盖 instance/job/scheme、Host 新增列缺省零值不 panic"
 
   - id: "T07-02"
-    title: "业务分组字典：business_domains.yaml 预置 + 热加载 + 只读接口（GET /api/v2/platform/business-domains）"
-    prd: "Module_07 §3.1/§6.1/§9.2：MVP 由配置文件预置（`platform/config/business_domains.yaml`），改动后热加载生效（无需重启，P0 验收项）；初始字典编码上线前须命名评审（biz_code 永不可改）；强制预置兜底条目 `infra`；只读接口供资源录入/Excel 校验下拉；停用条目不可被新资源选用"
+    title: "业务分组字典：DB 落库 + 业务管理页维护（列表/登记/受限编辑/停用，GET/POST /api/v2/platform/business-domains、PUT / :code）+ 首次 seed（{v2.23 决策 48}/{v2.3x}）+ {v2.41 决策 97} source=excel-import"
+    prd: "Module_07 §3.1/§6.1/§9.2 + design-decisions.md 决策 48：业务字典落 DB、由业务管理页维护（`platform/config/business_domains.yaml` 仅首次启动 seed、热加载退役）；初始字典编码上线前须命名评审（biz_code 永不可改）；强制预置兜底条目 `infra`（展示名可改、禁止停用/删除）；web 列表/登记/受限编辑（仅 name/description/enabled，请求体不接收 code）/停用；停用条目不可被新资源选用；{v2.41 决策 97}：字典 `source` 来源字段（manual / excel-import / cmdb {v0.4+}），Excel「业务声明」sheet 建出条目 enabled=true、source=excel-import、只增不覆盖"
     group: "backend"
     status: "pending"
     commit_group: "models-alignment"
@@ -72,10 +73,10 @@ tasks:
     depends_on: []
     verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
     acceptance_criteria:
-      - "`platform/config/business_domains.yaml` 定义字典：条目含 `code`（不可变主键）/`name`（展示名可改）/`description`/`enabled`；预置含 `infra`（公共基础设施兜底）+ ≥2 条示例业务（如 payment/data-api），yaml 语法正确"
-      - "`BusinessDomainStore` 从 yaml 加载进内存；`Lookup(code)` / `EnabledList()`；`GetEnabledMap()` 供资源校验；文件 mtime 变更后下次读取自动重载（热加载，P0），加载失败返回错误并保留上次快照"
-      - "`GET /api/v2/platform/business-domains` 只读接口：返回 `{list:[{code,name,description,enabled}], total}`（03_API_Standard §7.2 分页信封），仅暴露字典字段，无写接口"
-      - "单测覆盖：正常加载、infra 兜底存在、停用项不进入 EnabledList、yaml 改写后热加载生效（改文件 mtime 重读）、缺失文件报错不 panic"
+      - "`BusinessDomain` 落库（GORM + migration）：`code`（主键，创建后不可变）、`name`（必填展示名）、`description`、`enabled`、`source`(manual/excel-import/{v0.4+}cmdb)；`platform/config/business_domains.yaml` 降级为首次启动 seed（`infra` 兜底 + ≥2 条示例业务），首启入库、热加载退役（{v2.23 决策 48}）"
+      - "`BusinessDomainStore.Lookup(code)` / `EnabledList()` / `GetEnabledMap()` 供资源校验；新增 `Create`/`UpdateEnabledNameDesc` 支持 web 维护；`infra` 兜底条目禁止停用/删除"
+      - "`GET /api/v2/platform/business-domains`：`{list:[{code,name,description,enabled,source}], total}`（03_API_Standard §7.2 分页信封）；`POST /business-domains` 登记（bad_request：编码重复/不规范）；`PUT /business-domains/:code` 受限编辑——仅 name/description/enabled（请求体不接收 code；infra 停用拒绝）"
+      - "单测覆盖：首启 seed、infra 兜底存在、登记/编辑/停用、source=excel-import、停用项不进入 EnabledList、编码重复/不规范拒绝"
 
   - id: "T07-03"
     title: "资源校验与查询辅助层（ValidateResourceInput / 判重键 / 分页构造 / 字段映射 helper）"
@@ -96,11 +97,11 @@ tasks:
     depends_on: ["T07-01"]
     verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
     acceptance_criteria:
-      - "`ValidateResourceInput(category, input, bizStore, networkDomainExists)` 纯函数：必填（含 `app_name`/`cluster` 对 host/generic_target 可空，application/database/middleware 必填）、env∈ValidEnvs、protocol∈ValidProtocols、IP IPv4 校验、port 1~65535、URL 格式（health_check_url）、status∈online/offline/maintenance（API 写请求不接受中文状态）"
+      - "`ValidateResourceInput(category, input, bizStore, appStore, networkDomainExists)` 纯函数：必填分化（决策 92/93/95）——`app_code`：host/generic 可空、database/middleware/application 必填且引用应用字典未停用条目；`biz_code`：host/database/middleware 可空可后补、application 必填、generic_target 的 app_code/biz_code 二选一必填（两者皆空 bad_request）；另有 env∈ValidEnvs、protocol∈ValidProtocols、IP IPv4、port 1~65535、URL 格式（health_check_url）、status∈online/offline/maintenance（不接受中文状态）"
       - "`DedupKey(category, resource) string`：按 §5.16.2 判重键生成（host=(network_domain_id,instance_ip)；database/middleware/generic=(network_domain_id,instance_ip,port)；application=(network_domain_id,service_name,endpoint)）"
       - "`ParsePageParams(query)` 复用 M06 默认 page=1/page_size=50（PRD §6.1 MVP 默认 50）上限 100；`BuildListQuery` 支持 resource_category/network_domain_id/keyword(名称+IP LIKE)/is_monitored 透传（M01 未实现不生效，见 T07-05）"
-      - "字段映射 helper：将 PRD 规范字段名映射到现模型列（如 Host: instance_ip→private_ip、hostname→instance_name、os_type→image、env→env_flag、cluster→sub_app_code），注释标注 legacy 映射来源，便于 T07-05/06 复用"
-      - "单测覆盖各类型必填/非法枚举/IP/端口/URL、判重键各类型、分页钳制与关键字构造"
+      - "字段映射 helper：将 PRD 规范字段名映射到现模型列（如 Host: instance_ip→private_ip、hostname→instance_name、os_type→image、env→env_flag、cluster→sub_app_code、app_code→物理列驻留），注释标注 legacy 映射来源，便于 T07-05/06 复用"
+      - "单测覆盖各类型必填分化（host/db/mw biz 可空、application biz 必填、generic 二选一、app_code 停用拒绝）、非法枚举/IP/端口/URL、判重键各类型、分页钳制与关键字构造"
 
   - id: "T07-04"
     title: "状态映射 service（Excel 中文状态 → Resource.status，默认映射 + 可配置扩展）"
@@ -148,17 +149,17 @@ tasks:
     acceptance_criteria:
       - "GET 列表：`resource_category` 必填（非法/缺失返回 bad_request），按 category 路由到 Host/Database/Middleware/Application/GenericTarget 表；支持 network_domain_id/keyword（名称+IP 模糊）筛选；分页默认 page=1/page_size=50 上限 100，返回 `{list,total,page,page_size}`（API 标准 §7.2）"
       - "`monitored.go`：接受 `is_monitored` 查询参数，注释标注「M01 维护、M07 只读映射，M01 未实现时透传不生效」；不反向查询 ScrapeJob（避免反向依赖，§6.5）"
-      - "已软删记录不进入列表；空结果返回空 list 而非 null；list item 字段对齐 §5.2"
+      - "已软删记录不进入列表；空结果返回空 list 而非 null；list item 字段对齐 §5.2（决策 92）：含 `app_code`（app label 取值来源），`app_name` 由前端经应用字典按 app_code 解析展示、不落资源冗余列"
       - "单测覆盖各类型查询、分页、筛选组合、非法 category、空结果、is_monitored 参数透传不报错"
     contract:
       path: "GET /api/v2/platform/resources"
       method: "GET"
       request: "Query: resource_category(必填 host|database|middleware|application|generic_target)、network_domain_id、keyword、is_monitored、page、page_size"
-      response: "data: {list:[{resource_id, resource_category, network_domain_id, biz_code, app_name, env, cluster, owner, status, source_type, ...差异化字段}], total, page, page_size}"
+      response: "data: {list:[{resource_id, resource_category, network_domain_id, biz_code, app_code, env, cluster, owner, status, source_type, ...差异化字段}], total, page, page_size}"
 
   - id: "T07-06"
     title: "资源创建 + 更新接口（POST /api/v2/platform/resources、PUT /api/v2/platform/resources/:resource_id）"
-    prd: "Module_07 §6.1/§6.6.1/§9.1：创建（source_type=manual）与更新复用 ValidateResourceInput；`network_domain_id` 以 M06 行政记录为准校验存在性（default 为例外）；`biz_code` 必填且对应启用字典条目；PUT 不允许改 resource_id"
+    prd: "Module_07 §6.1/§6.6.1/§9.1：创建（source_type=manual）与更新复用 ValidateResourceInput；`network_domain_id` 以 M06 行政记录为准校验存在性（default 为例外）；`biz_code`/`app_code` 必填分化（决策 93/95：host/db/middleware 可空后补、application 必填、generic_target 二选一必填、枚举对齐 T07-03）；PUT 不允许改 resource_id"
     group: "backend"
     status: "pending"
     commit_group: "resource-crud"
@@ -174,13 +175,13 @@ tasks:
     depends_on: ["T07-02", "T07-03", "T07-05"]
     verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
     acceptance_criteria:
-      - "POST：`resource_id` 服务端生成 uuid（创建后不可变，PRD §5.2）；`source_type=manual`；`network_domain_id` 存在性校验（查 NetworkDomain，软删不计；缺失返回 bad_request 引导先登记网域，§5.4）；`biz_code` 存在且启用（停用条目不可选，PRD §3.1）；缺省 `tenant_id=platform_admin`；成功返回创建后的完整对象"
-      - "PUT：按 resource_id 更新可更新字段；resource_id/resource_category/source_type 不可改（resource_category 变更被拒）；不存在/已软删返回 not_found；网域/biz 校验同 POST"
-      - "字段校验失败返回 bad_request 且错误信息含字段名；单测覆盖创建成功、uuid 生成、网域不存在/biz 停用拒绝、更新未命中、resource_id 不可改"
+      - "POST：`resource_id` 服务端生成 uuid（创建后不可变，PRD §5.2）；`source_type=manual`；`network_domain_id` 存在性校验（查 NetworkDomain，软删不计；缺失返回 bad_request 引导先登记网域，§5.4）；`biz_code`/`app_code` 必填分化校验（复用 T07-03，决策 93/95）；缺省 `tenant_id=platform_admin`；成功返回创建后的完整对象（含 app_code）"
+      - "PUT：按 resource_id 更新可更新字段；resource_id/resource_category/source_type 不可改（resource_category 变更被拒）；不存在/已软删返回 not_found；网域/biz/app 校验同 POST"
+      - "字段校验失败返回 bad_request 且错误信息含字段名；单测覆盖创建成功、uuid 生成、网域不存在/biz 停用/app_code 停用拒绝、generic 二选一拦截、更新未命中、resource_id 不可改"
     contract:
       path: "POST /api/v2/platform/resources、PUT /api/v2/platform/resources/:resource_id"
       method: "POST / PUT"
-      request: "body: {resource_category, network_domain_id, biz_code, app_name, env, cluster, owner, status, source_type, ...差异化字段}"
+      request: "body: {resource_category, network_domain_id, biz_code（按类型可空）, app_code, env, cluster, owner, status, source_type, ...差异化字段}；不提交 app_name"
       response: "data: 创建/更新后的完整资源对象"
 
   - id: "T07-07"
@@ -221,8 +222,8 @@ tasks:
     verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
     acceptance_criteria:
       - "GET /resources/:type/template（type=host/database/middleware/application/generic_target）返回 xlsx 下载（Content-Type application/vnd.openxmlformats-officedocument.spreadsheetml.sheet，文件名为 `{type}_template.xlsx`）；未知类型返回 not_found"
-      - "模板 sheet1 列严格对齐 §5.16.1：host=`network_domain|instance_name|hostname|instance_ip|os_type|biz_code|app_name|env|cluster|owner|status`；database/middleware 含 `{database_type|middleware_type}|instance_ip|port|version|biz_code|app_name|env|cluster|owner|status`；application 含 `service_name|biz_code|health_check_url|protocol|endpoint|port|app_name|env|cluster|owner|status`；generic_target 含 `target_name|instance_ip|port|metrics_path|scheme|exporter_type|custom_labels|biz_code|app_name|env|cluster|owner|status`"
-      - "sheet2「取值说明」列出 network_domain 合法值（M06 网域清单）、biz_code 合法值（业务字典启用项）、env(dev/test/staging/prod)、status 中文取值；custom_labels 格式说明 `key1=value1;key2=value2`"
+      - "模板 sheet1 列严格对齐 §5.16.1（决策 92：`app_code` 列替 `app_name`；`biz_code`/`app_code` 按 §10A 分化、host/db/mw 可空）：host=`network_domain|instance_name|hostname|instance_ip|os_type|biz_code|app_code|env|cluster|owner|status`；database/middleware 含 `{database_type|middleware_type}|instance_ip|port|version|biz_code|app_code|env|cluster|owner|status`；application 含 `service_name|biz_code|health_check_url|protocol|endpoint|port|app_code|env|cluster|owner|status`；generic_target 含 `target_name|instance_ip|port|metrics_path|scheme|exporter_type|custom_labels|biz_code|app_code|env|cluster|owner|status`"
+      - "sheet2「取值说明」列出 network_domain 合法值（M06 网域清单）、biz_code 合法值（业务字典启用项）、app_code 合法值（应用字典启用项）、env(dev/test/staging/prod)、status 中文取值；custom_labels 格式说明 `key1=value1;key2=value2`"
       - "**依赖**：引入 `github.com/xuri/excelize/v2`（若离线无法拉取，退化为同列 CSV 并在 handler 注释标注，属决策点）；单测覆盖列头断言与未知类型 not_found"
     contract:
       path: "GET /api/v2/platform/resources/:type/template"
@@ -232,7 +233,7 @@ tasks:
 
   - id: "T07-09"
     title: "Excel 解析与校验（parse → 行级校验 → 状态映射 → 判重/错误行收集）"
-    prd: "Module_07 §5.16.2/§5.16.3/§9.2：解析上传文件为行记录；行级校验（必填/网域存在/biz 存在且启用/IP/端口/URL/env/protocol/status 映射/custom_labels 格式）；判重键生成；错误行返回 {row, resource_category, field, value, reason}；未登记网域/业务给出可执行引导文案"
+    prd: "Module_07 §5.16.2/§5.16.3/§9.2 + design-decisions.md 决策 93/95/97：解析上传文件为行记录；行级校验（必填分化——《app_code/biz_code 按类型必填，host/db/middleware 可空后补、application 必填、generic_target 二选一必填》、网域存在、biz/app 字典存在且启用、IP/端口/URL/env/protocol/status 映射/custom_labels 格式）；判重键生成；错误行返回 {row, resource_category, field, value, reason}；未登记网域/业务/应用给出可执行引导文案（业务/应用未登记可经「声明 sheet」声明，决策 97）"
     group: "backend"
     status: "pending"
     commit_group: "resource-crud"
@@ -249,11 +250,11 @@ tasks:
     verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
     acceptance_criteria:
       - "`ParseExcel(fileBytes, category) ([]ImportRow, error)`：读取 sheet1 表头与固定列顺序，列缺失/列名不符返回 bad_request（§5.16.1 固定列，不支持动态列）"
-      - "`ValidateImportRow` 行级校验：必填项（app_name/cluster 对 host/generic 可空）、network_domain 存在（空自动填 default）、biz_code 必填且对应启用条目、IP IPv4、port 1~65535、URL 格式、env/protocol/scheme 枚举、custom_labels 格式（`key=value;key2=value2`）"
+      - "`ValidateImportRow` 行级校验：必填分化（决策 93/95——`app_code`/`biz_code`：host/database/middleware 可空后补、application 必填、generic_target 二选一）、network_domain 存在（空自动填 default）、biz_code/app_code 引用启用字典条目（或声明 sheet 内声明，T07-97-B1 声明解析先于行校验）、IP IPv4、port 1~65535、URL 格式、env/protocol/scheme 枚举、custom_labels 格式（`key=value;key2=value2`）"
       - "status 列允许业务语言，经 MapStatus（T07-04）转 online/offline/maintenance；转换失败行计入 failed"
       - "判重键（T07-03 DedupKey）生成到 ImportRow 上供 upsert 定位；错误行信息完整（row 从 2 起始即表头后第一行，§5.16.3 示例 row=5）"
-      - "未登记网域报错文案引导闭环：「网域 xxx 未登记，请先到『系统设置 → 网域管理』登记后重新导入」；未登记业务报错：「业务 xxx 未登记，请联系平台管理员在业务分组字典配置（platform/config/business_domains.yaml）中添加后重新导入」（§5.16.1）"
-      - "单测覆盖：合法文件解析、各校验项命中、中文状态映射、判重键生成、错误行收集与行号"
+      - "未登记网域报错文案引导闭环：「网域 xxx 未登记，请先到『系统设置 → 网域管理』登记后重新导入」；未登记业务/应用报错（决策 97）：「业务 xxx / 应用 xxx 未登记且未在声明 sheet 声明，请在『业务管理』/『应用管理』页登记，或在本文件『业务声明』/『应用声明』sheet 补充后重新导入」（§5.16.1）"
+      - "单测覆盖：合法文件解析、各校验项命中、必填分化（host/db/mw 可空、application 必填、generic 二选一）、中文状态映射、判重键生成、错误行收集与行号"
 
   - id: "T07-10"
     title: "Excel 导入执行（POST /api/v2/platform/resources/:type/import，upsert）+ 导入记录查询（GET /api/v2/platform/imports、GET /api/v2/platform/imports/:import_id）"
@@ -286,7 +287,7 @@ tasks:
 
   - id: "T07-11"
     title: "ResourceLabel 读取接口（GET /api/v2/platform/resources/:resource_id/labels，system 实时计算合并 + user 库内，来源优先级排序）"
-    prd: "Module_07 §6.2/§6.6.2/§5.3/§9.1：返回资源全量标签（system+user），system 为模板实时计算不落库（§5.3 生成时机），按来源优先级排序展示；system 标签需标注来源映射（如 app_name→app）供「来自 XX 模板 · 来源字段→目标标签」展示"
+    prd: "Module_07 §6.2/§6.6.2/§5.3/§9.1：返回资源全量标签（system+user），system 为模板实时计算不落库（§5.3 生成时机），按来源优先级排序展示；system 标签需标注来源映射（如 app_code→app，决策 92：app label 恒取 app_code）供「来自 XX 模板 · 来源字段→目标标签」展示"
     group: "backend"
     status: "pending"
     commit_group: "resource-labels"
@@ -303,7 +304,7 @@ tasks:
     acceptance_criteria:
       - "GET /resources/:resource_id/labels：资源不存在返回 not_found；返回 `{items:[{id, key, value, source, source_map?}], total}`"
       - "user 标签从 ResourceLabel 表读取（source=user）；system 标签调用 label.Generator（T07-13）按该资源类型默认模板实时计算，不落库"
-      - "合并排序按来源优先级展示（system 在前、user 在后，cmdb 为 v0.4+ 预留占位）；system 标签项携带 `source_map`（如 `app_name→app`）供前端标注「来自 XX 模板」（§5.3 联动呈现）"
+      - "合并排序按来源优先级展示（system 在前、user 在后，cmdb 为 v0.4+ 预留占位）；system 标签项携带 `source_map`（如 `app_code→app`，决策 92）供前端标注「来自 XX 模板」（§5.3 联动呈现）"
       - "system 与 user 同 key 时不重复展示（以 user 为准，§5.3 冲突优先级），user 不可覆盖 system（写端拦截见 T07-12）"
       - "单测覆盖：system 计算合并、user 读取、排序、同 key 合并、资源未命中"
 
@@ -351,8 +352,8 @@ tasks:
     acceptance_criteria:
       - "`ComputeSystemLabels(template *models.LabelTemplate, res Resource) []SystemLabel` 纯函数：遍历 template.Mappings，按 source_type 取值——resource_field 从资源读取对应字段（经 T07-03 字段映射 helper 取 Host legacy 列）、composite→instance 为「内置默认」标注（§5.13，本阶段不生成拼接值，交由 M09 拼接，§5.12 C）；返回 {key, value, source_map(来源字段→目标标签)}"
       - "`GetApplicableTemplate(db, category) (*models.LabelTemplate, error)`：返回该类型默认模板（is_default=true）名+ID，供「适用模板」展示；无默认模板返回可读空态错误"
-      - "空值处理：app_name/cluster 空不注入对应标签（§5.15 规则 4）；仅计算 source_type=resource_field/composite 的启用映射（prometheus_builtin/cmdb_field 本阶段跳过）"
-      - "单测覆盖：host 默认模板计算（app/env/cluster/biz/hostname/os_type）、application 模板（service_name/biz）、空值跳过、适用模板查询、source_map 标注"
+      - "空值处理：app_code/biz_code/cluster 空不注入对应标签（§5.15 规则 4）；仅计算 source_type=resource_field/composite 的启用映射（prometheus_builtin/cmdb_field 本阶段跳过）"
+      - "单测覆盖：host 默认模板计算（app=app_code/env/cluster/biz/hostname/os_type，决策 92）、application 模板（service_name/biz）、空值跳过、适用模板查询、source_map（app_code→app）标注"
 
   # =====================================================================
   # 后端 D 组：LabelTemplate 管理（依赖 A 组 + T07-13）
@@ -665,7 +666,7 @@ tasks:
     verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
     acceptance_criteria:
       - "详情基础属性置顶展示（resource_id/网域/业务 biz_name/运行状态/来源，§5.4 网域置顶）；「适用模板」行展示该类型默认模板名 + ID，点击跳转对应类型模板页（§3.1/§5.3 联动）"
-      - "标签卡展示全量标签（resourceApi.labels）：system 标签标注「来自 XX 模板 · source_map（如 app_name→app）」并跳转模板页；user 标注「手动添加」；cmdb 以「v0.4+ 预留」占位（§3.3 统一口径）"
+      - "标签卡展示全量标签（resourceApi.labels）：system 标签标注「来自 XX 模板 · source_map（如 app_code→app）」并跳转模板页；user 标注「手动添加」；cmdb 以「v0.4+ 预留」占位（§3.3 统一口径）"
       - "user 标签编辑（新增/编辑/删除）：仅 resource_category=application 展示「自定义标签（非必须）」编辑入口并附引导文案「大多数场景下标签模板已自动生成所需标签…」（§3.3）；静态资源只读展示来源、不提供打标入口；写返回 403 时 Alert 提示（§11.1）"
       - "新增/编辑 key 冲突提示：key 与模板映射目标冲突提示「该标签由标签模板生成，如需修改请前往标签模板管理」（§3.3/§5.3）"
       - "单测覆盖：详情渲染、适用模板、标签展示与来源标注、application 可编辑/静态只读、403 提示、冲突提示"
