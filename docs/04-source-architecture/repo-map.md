@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-19 17:33 · commit: `3c79493`
+> 生成时间: 2026-09-19 17:44 · commit: `ec8233b`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -968,6 +968,49 @@
 - `func fieldFromResourceInputError(msg string) string`
 - `func valueFromField(in *ResourceInput, field, portRaw string) string`
 - `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(…`
+
+### `platform/config/resource/excel_declare.go`
+
+- `type DeclareEntry struct`
+- `type DeclareSheets struct`
+- `func ParseDeclareSheets(fileBytes []byte) (*DeclareSheets, error)`
+- `func parseDeclareSheet(f *excelize.File, sheet string, expected []string) ([]DeclareEntry, error)`
+- `func cellAt(cells []string, idx int) string`
+- `func sheetExists(f *excelize.File, name string) bool`
+- `func trimCells(cells []string) []string`
+- `func validateDeclareSheets(sheets *DeclareSheets, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) error`
+- `func validateDeclareEntries(sheet string, entries []DeclareEntry, codeRe *regexp.Regexp, lookup func(code string) (name stri…`
+- `func sheetCodeField(sheet string) string`
+- `func sheetNameField(sheet string) string`
+- `func applyDeclaredDicts(db *gorm.DB, sheets *DeclareSheets) error`
+
+### `platform/config/resource/excel_declare_test.go`
+
+- `func writeSheetRows(t *testing.T, f *excelize.File, sheet string, header []string, rows [][]string)`
+- `func buildDeclareXLSX(t *testing.T, category models.ResourceCategory, dataRows [][]string, bizDeclares, appDeclares [][]stri…`
+- `func mountImportOnDict(t *testing.T, db *gorm.DB) *gin.Engine`
+- `func TestParseDeclareSheets_Valid(t *testing.T)`
+- `func TestParseDeclareSheets_MissingSheetsOK(t *testing.T)`
+- `func TestParseDeclareSheets_OnlyBizSheet(t *testing.T)`
+- `func TestParseDeclareSheets_SkipsBlankRows(t *testing.T)`
+- `func TestParseDeclareSheets_HeaderErrors(t *testing.T)`
+- `func TestParseDeclareSheets_NotXLSX(t *testing.T)`
+- `func TestValidateDeclareSheets_NewCodesPass(t *testing.T)`
+- `func TestValidateDeclareSheets_MissingCodeFails(t *testing.T)`
+- `func TestValidateDeclareSheets_MissingNameFails(t *testing.T)`
+- `func TestValidateDeclareSheets_InvalidCodeFails(t *testing.T)`
+- `func TestValidateDeclareSheets_DuplicateCodeHardRejected(t *testing.T)`
+- `func TestValidateDeclareSheets_ExistingSameNameIdempotent(t *testing.T)`
+- `func TestValidateDeclareSheets_ExistingDifferentNameHardRejected(t *testing.T)`
+- `func TestValidateDeclareSheets_DisabledEntryRejected(t *testing.T)`
+- `func TestApplyDeclaredDicts_CreatesWithExcelImportSource(t *testing.T)`
+- `func TestApplyDeclaredDicts_SkipsExisting(t *testing.T)`
+- `func TestImportResource_DeclareSheets_CreatesDictAndResources(t *testing.T)`
+- `func TestImportResource_DeclareSheets_AtomicRollbackNoOrphanDict(t *testing.T)`
+- `func TestImportResource_DeclareSheets_DuplicateNameRejected(t *testing.T)`
+- `func TestImportResource_DeclareSheets_MissingNameRejected(t *testing.T)`
+- `func TestImportResource_DeclareSheets_UndeclaredCodeGoesToPendingList(t *testing.T)`
+- `func TestImportResource_DeclareSheets_IdempotentReimport(t *testing.T)`
 
 ### `platform/config/resource/excel_test.go`
 
@@ -2392,6 +2435,7 @@
 
 ### `platform/models/business_domain.go`
 
+- `type DictSource = string`
 - `type BusinessDomain struct`
 
 ### `platform/models/business_domain_test.go`

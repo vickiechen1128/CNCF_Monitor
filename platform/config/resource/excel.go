@@ -263,6 +263,25 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 		}
 	}
 
+	// 3.5 应用编码：非空时校验编码规范与可达性（已登记启用字典 ∪ 本次导入声明 sheet，
+	// 决策 97）；app_code 只允许引用未停用应用字典条目（决策 92 红线，录入/编辑/导入
+	// 三处同校验）。host/generic_target 的 app_code 可空（为空不校验）。
+	if strings.TrimSpace(in.AppCode) != "" {
+		if !models.ValidAppCode.MatchString(in.AppCode) {
+			return fieldErr(row, "app_code", in.AppCode, "app_code 只能包含小写字母、数字和连字符，长度不超过 64")
+		}
+		appEnabled, err := appStore.GetEnabledMap()
+		if err != nil {
+			return fieldErr(row, "app_code", in.AppCode, fmt.Sprintf("应用字典加载失败：%v", err))
+		}
+		if _, ok := appEnabled[in.AppCode]; !ok {
+			// 决策 97：既不在存量启用字典、又未在声明 sheet 申报的码归入「待登记清单」，
+			// 给可执行引导文案（不静默跳过）。
+			return fieldErr(row, "app_code", in.AppCode,
+				fmt.Sprintf("应用 %s 未登记或已停用，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入", in.AppCode))
+		}
+	}
+
 	// 4. 非数字 port（ParseExcel 置 -1 哨兵）。
 	if in.Port < 0 {
 		return fieldErr(row, "port", row.PortRaw, "port 必须为 1~65535 的整数")

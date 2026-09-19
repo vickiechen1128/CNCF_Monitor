@@ -101,14 +101,48 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 			response.BadRequest(c, err)
 			return
 		}
-		valid, errs := ValidateRows(rows, bizStore, appStore, networkDomainExistsFunc(db), nil)
 
-		// 5. 逐行执行 create_only/upsert。
+		// 4.5 决策 97：解析并校验「业务声明」「应用声明」内联 sheet（校验顺序 ①声明
+		// 自身：编码/必填/重码/同名不一致/停用激活均硬拒绝）；声明自身失败 → bad_request
+		// 整体拒绝，不落任何数据。
+		sheets, err := ParseDeclareSheets(fileBytes)
+		if err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+		if err := validateDeclareSheets(sheets, bizStore, appStore); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+
+		// 5. 决策 97：声明建字典 + 资源落库 + ImportRecord 同一 SQLite 事务原子提交——
+		//    先写声明字典（②资源可达性经事务内 store 可见「字典∪声明」），再逐行写资源；
+		//    任一 DB 失败整体回滚（不留孤立字典条目）。
+		tx := db.Begin()
+		if tx.Error != nil {
+			response.InternalServerError(c, fmt.Errorf("开启导入事务失败：%w", tx.Error))
+			return
+		}
+		committed := false
+		defer func() {
+			if !committed {
+				_ = tx.Rollback()
+			}
+		}()
+
+		if err := applyDeclaredDicts(tx, sheets); err != nil {
+			response.InternalServerError(c, err)
+			return
+		}
+		// 事务内 store：声明条目在事务内可见，资源行校验的「字典∪声明」可达性天然成立。
+		valid, errs := ValidateRows(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx), networkDomainExistsFunc(tx), nil)
+
+		// 6. 逐行执行 create_only/upsert。
 		total := len(rows)
 		success, updated, failed := 0, 0, len(errs)
 		for i := range valid {
 			row := &valid[i]
-			existing, found, lerr := findExistingByDedupKey(db, category, row)
+			existing, found, lerr := findExistingByDedupKey(tx, category, row)
 			if lerr != nil {
 				response.InternalServerError(c, lerr)
 				return
@@ -129,7 +163,7 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 				// upsert：覆盖更新（不可变列不进入更新列）。
 				applyInputToModel(category, existing, &row.Input)
 				cols := updatableColumns(category)
-				if err := db.Model(existing).Select(cols).Updates(existing).Error; err != nil {
+				if err := tx.Model(existing).Select(cols).Updates(existing).Error; err != nil {
 					response.InternalServerError(c, fmt.Errorf("更新 %s 资源失败（第 %d 行）：%w", category, row.Row, err))
 					return
 				}
@@ -143,14 +177,14 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 				return
 			}
 			setSourceType(model, models.SourceTypeImport)
-			if err := db.Create(model).Error; err != nil {
+			if err := tx.Create(model).Error; err != nil {
 				response.InternalServerError(c, fmt.Errorf("创建 %s 资源失败（第 %d 行）：%w", category, row.Row, err))
 				return
 			}
 			success++
 		}
 
-		// 6. 落 ImportRecord（§6.4）：状态 success 或 partial。
+		// 7. 落 ImportRecord（§6.4）：状态 success 或 partial。
 		status := models.ImportStatusSuccess
 		if failed > 0 {
 			status = models.ImportStatusPartial
@@ -171,10 +205,15 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 			Errors:           errs,
 			Operator:         importOperator,
 		}
-		if err := db.Create(&record).Error; err != nil {
+		if err := tx.Create(&record).Error; err != nil {
 			response.InternalServerError(c, fmt.Errorf("写入导入记录失败：%w", err))
 			return
 		}
+		if err := tx.Commit().Error; err != nil {
+			response.InternalServerError(c, fmt.Errorf("提交导入事务失败：%w", err))
+			return
+		}
+		committed = true
 
 		// 7. §5.16.3 响应：create_only 不含 updated 字段。
 		data := gin.H{
