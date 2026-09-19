@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
@@ -882,4 +883,122 @@ func TestLabelTemplateSnapshotSmoke(t *testing.T) {
 	assert.Len(t, got.ChangedMappings, 1)
 	assert.Equal(t, "app", got.ChangedMappings[0].TargetLabel)
 	assert.Equal(t, "app_name", got.ChangedMappings[0].OldValue.SourceField)
+}
+
+// --- Module 11 (T11-01/T11-02): edge access & agent delivery models ---
+
+func TestEdgeComponentGuardEnums(t *testing.T) {
+	// §8.4 组件守护状态枚举。
+	assert.Equal(t, ComponentStatus("running"), ComponentStatusRunning)
+	assert.Equal(t, ComponentStatus("restarting"), ComponentStatusRestarting)
+	assert.Equal(t, ComponentStatus("crash_loop"), ComponentStatusCrashLoop)
+	assert.Equal(t, ComponentStatus("not_deployed"), ComponentStatusNotDeployed)
+	// 组件类型（collector / blackbox_exporter / agent）。
+	assert.Equal(t, ComponentType("collector"), ComponentTypeCollector)
+	assert.Equal(t, ComponentType("blackbox_exporter"), ComponentTypeBlackbox)
+	assert.Equal(t, ComponentType("agent"), ComponentTypeAgent)
+}
+
+func TestRegistrationStatusEnums(t *testing.T) {
+	assert.Equal(t, RegistrationStatus("created"), RegistrationStatusCreated)
+	assert.Equal(t, RegistrationStatus("monitored"), RegistrationStatusMonitored)
+	assert.Equal(t, RegistrationStatus("retired"), RegistrationStatusRetired)
+}
+
+func TestEdgeComponentJSONRoundTripAndTimeSerialization(t *testing.T) {
+	lastRestart := time.Date(2026, 9, 17, 8, 12, 3, 0, time.UTC)
+	orig := []EdgeComponent{
+		{
+			Type:          ComponentTypeCollector,
+			Name:          "vmagent",
+			Status:        ComponentStatusRestarting,
+			Version:       "v1.101.0",
+			ConfigVersion: "20260724-120000",
+			RestartCount:  3,
+			LastRestartAt: &lastRestart,
+		},
+		{
+			Type:          ComponentTypeBlackbox,
+			Name:          "blackbox-exporter",
+			Status:        ComponentStatusRunning,
+			ConfigVersion: "20260724-120000",
+		},
+	}
+	b, err := json.Marshal(orig)
+	assert.NoError(t, err)
+	assert.Contains(t, string(b), "\"restart_count\":3")
+	assert.Contains(t, string(b), "\"last_restart_at\":\"2026-09-17T08:12:03Z\"")
+	var back []EdgeComponent
+	assert.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, orig, back)
+	// 时间字段经 JSON 往返后仍相等。
+	assert.NotNil(t, back[0].LastRestartAt)
+	assert.True(t, lastRestart.Equal(*back[0].LastRestartAt))
+}
+
+func TestEdgeHeartbeatComponentsPersistence(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&EdgeHeartbeat{}))
+
+	ts := time.Date(2026, 9, 17, 8, 0, 0, 0, time.UTC)
+	hb := &EdgeHeartbeat{
+		NetworkDomainID:      "gov-cloud-a",
+		AgentType:            AgentTypeVMAgent,
+		Version:              "v1.2.0",
+		ConfigVersion:        "20260724-120000",
+		WalBacklogBytes:      1048576,
+		RemoteWriteQueueSize: 120,
+		Hostname:             "edge01",
+		Ip:                   "10.0.2.15",
+		Timestamp:            ts,
+		Components: []EdgeComponent{
+			{Type: ComponentTypeCollector, Name: "vmagent", Status: ComponentStatusRunning},
+		},
+	}
+	assert.NoError(t, db.Create(hb).Error)
+	assert.NotZero(t, hb.ID)
+
+	var got EdgeHeartbeat
+	assert.NoError(t, db.First(&got, "network_domain_id = ?", "gov-cloud-a").Error)
+	assert.Equal(t, AgentTypeVMAgent, got.AgentType)
+	assert.Equal(t, "10.0.2.15", got.Ip)
+	assert.Equal(t, int64(1048576), got.WalBacklogBytes)
+	assert.Equal(t, 120, got.RemoteWriteQueueSize)
+	assert.Len(t, got.Components, 1)
+	assert.Equal(t, ComponentStatusRunning, got.Components[0].Status)
+	assert.True(t, ts.Equal(got.Timestamp))
+}
+
+func TestEdgeAgentSyncFieldsAndComponents(t *testing.T) {
+	db := newMemDB(t)
+	assert.NoError(t, db.AutoMigrate(&EdgeAgent{}))
+
+	lastPull := time.Date(2026, 9, 17, 8, 0, 0, 0, time.UTC)
+	agent := &EdgeAgent{
+		NetworkDomainID:  "gov-cloud-a",
+		AgentType:        AgentTypeVMAgent,
+		Version:          "v1.2.0",
+		Hostname:         "edge01",
+		Ip:               "10.0.2.15",
+		Status:           "online",
+		LastConfigPull:   &lastPull,
+		ConfigVersion:    "20260724-120000",
+		ConfigSyncStatus: ConfigSyncStatusInSync,
+		WalBacklogBytes:  2048,
+		Components: []EdgeComponent{
+			{Type: ComponentTypeCollector, Name: "vmagent", Status: ComponentStatusCrashLoop, RestartCount: 6},
+		},
+	}
+	assert.NoError(t, db.Create(agent).Error)
+	assert.NotZero(t, agent.ID)
+
+	var got EdgeAgent
+	assert.NoError(t, db.First(&got, "network_domain_id = ?", "gov-cloud-a").Error)
+	assert.Equal(t, ConfigSyncStatusInSync, got.ConfigSyncStatus)
+	assert.Equal(t, "10.0.2.15", got.Ip)
+	assert.NotNil(t, got.LastConfigPull)
+	assert.True(t, lastPull.Equal(*got.LastConfigPull))
+	assert.Len(t, got.Components, 1)
+	assert.Equal(t, ComponentStatusCrashLoop, got.Components[0].Status)
+	assert.Equal(t, 6, got.Components[0].RestartCount)
 }

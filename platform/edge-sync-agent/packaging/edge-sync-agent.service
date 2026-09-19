@@ -1,0 +1,54 @@
+# systemd unit — Edge Sync Agent（Module_11 边缘采集客户端）
+#
+# 父进程模式：edge-sync-agent 是守护进程，负责自身心跳/拉包并作为 supervisor 拉起
+# 采集器(vmagent/prometheus) 与 blackbox_exporter 子进程。系统级 Restart=always 兜底。
+#
+# 安装：
+#   1) 拷贝二进制到 /opt/apps/edge-sync-agent/edge-sync-agent
+#   2) 拷贝本 unit 到 /etc/systemd/system/edge-sync-agent.service
+#   3) systemctl daemon-reload && systemctl enable --now edge-sync-agent
+#
+# 查看日志：journalctl -u edge-sync-agent -f
+
+[Unit]
+Description=MetricCenter Edge Sync Agent (Module_11)
+Documentation=docs/02-product-requirements/Modules/Module_11_Edge_Access_and_Agent_Delivery.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 父进程作为系统服务运行；采集器/拨测器作为其子进程由 Agent 守护
+ExecStart=/opt/apps/edge-sync-agent/edge-sync-agent
+Restart=always
+RestartSec=5s
+
+# 身份与中心地址（必填）：每网域 Token 由中心门户在纳管网域时获取
+Environment=NETWORK_DOMAIN_ID=
+Environment=TOKEN=
+Environment=CENTER_ENDPOINT=
+# Agent 类型/版本与部署根、WAL 目录（可选，有默认值）
+#Environment=EDGE_AGENT_TYPE=vmagent
+#Environment=EDGE_AGENT_VERSION=v0.2.0
+#Environment=EDGE_CONFIG_ROOT=/opt/apps/edge-sync-agent/edge-config
+#Environment=EDGE_WAL_DIR=/opt/data/edge-sync-agent/wal
+# 采集器/拨测器可执行文件路径（可选，默认走 PATH）
+#Environment=EDGE_COLLECTOR_BIN=prometheus
+#Environment=EDGE_BLACKBOX_BIN=blackbox_exporter
+
+# 优雅停止：等 Agent 取消上下文并停止子进程
+TimeoutStopSec=15
+KillMode=mixed
+KillSignal=SIGTERM
+
+# 安全加固（按需）：
+# - 不需要绑定特权端口，禁止提权
+NoNewPrivileges=true
+PrivateTmp=true
+# - 若 blackbox 需 ICMP 拨测（PRD §6.4.2），授予 CAP_NET_RAW：
+#   AmbientCapabilities=CAP_NET_RAW
+#   CapabilityBoundingSet=CAP_NET_RAW
+# - 生产目录只读（配置数据走 EDGE_CONFIG_ROOT/EDGE_WAL_DIR 独立数据盘）
+
+[Install]
+WantedBy=multi-user.target

@@ -10,3 +10,6 @@
 [submodule "upstream/blackbox_exporter"]
 	path = upstream/blackbox_exporter
 	url = https://github.com/prometheus/blackbox_exporter.git
+[submodule "upstream/victoria-metrics"]
+	path = upstream/victoria-metrics
+	url = https://github.com/VictoriaMetrics/VictoriaMetrics.git
