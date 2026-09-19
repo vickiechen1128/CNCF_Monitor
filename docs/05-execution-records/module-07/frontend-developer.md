@@ -647,4 +647,57 @@
 
 - ~~模板弹窗「当前可选值」依赖 ResourcesPage 首屏已加载的字典 state（page_size 100）~~ **已核验为非问题（2026-09-19 Orchestrator）**：业务/应用字典接口均为**全量非分页**——前端 `businessDomainApi.list()` / `applicationDictApi.list()` 不带 page_size、`setBusinessDomains/ApplicationDomains` 无切片；后端 `ListBusinessDomains`（business.go L143）与 `ListApplicationDicts`（application_dict.go L174）均 `store.List()` 全量返回（`total=len(list)`）。模板弹窗直显与列表页解析拿到同一份全量字典，不存在 100 条窗口截断。`page_size:100` 仅作用于 `networkDomainApi.list`（网域，L229），网域不参与弹窗直显。弹窗 `enabledBusinesses/enabledApps` 仅做启用过滤、无 slice。**残余确认项**：模板 xlsx「取值说明」的 app_code 行由后端 `ApplicationDictStore.EnabledList`（全量）生成，与弹窗直显启用口径一致，联调时抽查核对即可。
 
+---
+
+## 任务 F-8：导入弹窗删下载块去黑话 + 列表列排序改名
+
+- 角色：frontend-developer
+- 任务 ID：F-8（用户拍板，dev-feedback.md §1 记录）
+- 分支：`feat/module-07-resource-management`
+- 日期：2026-09-19
+- Commit：`ff74ffb`
+- 前置：F-7 commit `040414d`（治本）；本任务纯前端，未触碰 platform/
+
+## 输入文档
+
+- 反馈单：`docs/05-execution-records/module-07/dev-feedback.md` §1 F-8（F-7 治本后仍有三处问题：导入弹窗黑话残留 / 多余下载动线 / 列表列排序命名）
+- 相关：F-7 产物 `TemplateDownloadModal.tsx`（外层已含三问 + 字典可选值 + 演进提示，导入弹窗内原下载块为完全重复）
+
+## 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ImportModal.test.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.tsx`
+- 修改 `ui-custom/web/src/pages/resources/ResourcesPage.test.tsx`
+
+## 关键实现说明
+
+### F-8-a：ImportModal 去黑话 + 删下载块 + 精简 Alert
+
+- 删除「1. 下载模板」整块（下载按钮 + `DownloadOutlined` 图标导入 + 三行说明，含「取值说明 sheet」「合法值清单」「业务声明/应用声明 sheet（决策 97）」「旧模板提示」）；步骤号由「1/2/3」重新编排为「1. 上传文件 / 2. 选择导入模式」。
+- 顶部 Alert 由三条精简为一条，仅保留导入独有语义「导入按行增量更新，不会删除已存在的资源；如需批量下线，请将目标行状态改为『已停止』后导入」。
+- 上传区文案中性化：「请使用下载的模板填写后上传」→「请按模板列头填写 Excel 后上传」。
+- 上传区下新增次级文字链接「没有模板？下载当前资源类型模板」（`Button type="link" size="small" loading={downloading}`），onClick 直接复用 `handleDownloadTemplate`（`resourceApi.template` + `triggerBlobDownload`），不打开嵌套弹窗。
+- 组件 JSDoc 与「待导入表单态」注释同步去掉已删除的下载/黑话描述；`isPendingRegistrationReason` / 错误行渲染注释中的「决策 97」为内部逻辑注释（待登记清单功能仍保留），非可见文案。
+
+### F-8-b：ResourcesPage 列排序 + 列头改名
+
+- `businessColumn` 列头「业务」→「业务名称」；`appColumn` 列头「应用」→「应用名称」并加 Tooltip「该资源归属的应用字典条目」（`<span>+Tooltip` 参照 statusColumn / 实例名列头模式）；`sourceColumn` 列头「来源」→「录入方式」。
+- 五类 Tab 共享列顺序由 `网域/业务/应用/来源/运行状态/采集状态/操作` 改为 `网域/业务名称/应用名称/运行状态/采集状态/录入方式/操作`（`sourceColumn` 移到 `monitorColumn` 之后、`actionColumn` 之前）。
+- application Tab「服务名」列头加 Tooltip「本应用资源实例的服务标识」。
+- `appColumn.dataIndex` 保持 `'app_code'` 不变（取值键，render 已解析为 app_name 展示）。
+
+## 验证结果
+
+- `pnpm vitest run src/pages/resources/`：**8 文件 107 用例全绿**（ImportModal 测试：删除 1 个旧断言黑话用例、改写 2 个下载用例为次级链接、新增 1 个黑话零残留用例；ResourcesPage 测试：改写 1 个列序断言用例列头名、新增 F-8-b 列头改名/列序用例 + F-8-c 应用名称 tooltip + 服务名 tooltip 2 个用例）
+- `pnpm lint`（--max-warnings 0）：通过
+- `pnpm exec tsc --noEmit`：通过
+- dev server：`vite --host --port 5173` 启动，`curl --noproxy '*'` 验证 `/` 与 `/resources` 均 200；验证后已停止服务释放端口
+- repo-map hook：正常通过（`OK: repo-map 与当前业务代码一致`，本次仅改组件内部 title/render/顺序与测试文件、不涉导出符号，无需 `make repo-map`，未用 `--no-verify`）
+
+## 遗留风险 / 待确认
+
+- `isPendingRegistrationReason` 与错误行渲染注释中仍保留内部「决策 97」字样，属逻辑注释（待登记清单功能未删、后端 reason 透传「业务声明 sheet」仍在），非用户可见文案；如后续要求代码注释也去编号化，可再统一清理。
+- 录入方式列（`source_type`）位于采集状态之后、操作之前，属纯前端列序调整，未改 `source_type` 取值/渲染；后端列表字段契约不变。
+
 
