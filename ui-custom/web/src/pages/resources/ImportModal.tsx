@@ -169,22 +169,24 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
         1. 上传文件
       </Text>
-      <Upload
-        accept=".xlsx"
-        maxCount={1}
-        fileList={fileList}
-        beforeUpload={() => false}
-        onChange={({ fileList: fl }) => setFileList(fl)}
-        onRemove={() => setFileList([])}
-      >
-        <Button icon={<UploadOutlined />} disabled={submitting}>
-          选择 Excel 文件
-        </Button>
-      </Upload>
-      <Text style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-        <Text strong>仅支持 .xlsx 文件，每次选择一个文件</Text>
-        <Text type="secondary">（.xls / .csv 暂不支持）；请按模板列头填写 Excel 后上传。</Text>
-      </Text>
+      <Space align="center" wrap style={{ marginBottom: 4 }}>
+        <Upload
+          accept=".xlsx"
+          maxCount={1}
+          fileList={fileList}
+          beforeUpload={() => false}
+          onChange={({ fileList: fl }) => setFileList(fl)}
+          onRemove={() => setFileList([])}
+        >
+          <Button icon={<UploadOutlined />} disabled={submitting}>
+            选择 Excel 文件
+          </Button>
+        </Upload>
+        <Text style={{ fontSize: 12 }}>
+          <Text strong>仅支持 .xlsx 文件，每次选择一个文件</Text>
+          <Text type="secondary">（.xls / .csv 暂不支持）；请按模板列头填写 Excel 后上传。</Text>
+        </Text>
+      </Space>
       {/* F-8-a：次级文字链接直触发下载（复用 handleDownloadTemplate），不嵌套弹窗 */}
       <Button
         type="link"
