@@ -214,9 +214,9 @@ v0.4+ 实现：
 | `source_type` | ✅ | `manual` / `import` / `cmdb {v0.4+}`；MVP 默认 `manual` |
 | `instance_name` | ❌ | 可读实例名；host 模板中必填 |
 | `biz_code` | ✅ | 业务归属不可变编码；经标签模板映射为 `biz` label |
-| `app_name` | ✅* | application / database / middleware 必填；host / generic_target 可空 |
+| `app_code` | ✅* | 应用归属不可变编码（应用字典主键）；经标签模板映射为 `app` label；application / database / middleware 必填；host / generic_target 可空 |
 | `env` | ✅ | 环境 → `env` label |
-| `cluster` | ✅* | 集群/子应用 → `cluster` label；host 场景下 `sub_app_code` 为空时取 `vpc` |
+| `cluster` | ✅* | **集群**（不承载子应用）→ `cluster` label；host 场景下 Excel `sub_app_code` 列（= 本字段）为空时取 `vpc` |
 | `owner` | ❌ | 负责人 |
 | `status` | ✅ | `online` / `offline` / `maintenance` / `orphan {v0.4+}` |
 | `is_monitored` | ❌ | 是否被任意 ScrapeJob 选中；由 Module_01 维护，Module_07 只读映射 |

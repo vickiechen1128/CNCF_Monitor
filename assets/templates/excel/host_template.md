@@ -14,7 +14,7 @@
 | 1  | 所属网域     | network_domain_id | VARCHAR(64)  | 否     | 网域 ID；MVP 留空时系统默认填 `default`；v0.2+ 按租户上下文自动填充 |
 | 2  | 所属云代码     | cloud_code       | VARCHAR(50)  | 否     | 云厂商标识，如 `YD_CU`（移动/联通）       |
 | 3  | 应用代码      | app_code         | VARCHAR(100) | **是** | 所属应用编码；生成 `app` label            |
-| 4  | 子应用代码     | sub_app_code     | VARCHAR(100) | 否     | 子应用编码；未填时 `cluster` label 可取 `vpc` |
+| 4  | 集群代码     | sub_app_code     | VARCHAR(100) | 否     | **集群编码**（即 `cluster` label 来源；列名沿用 CMDB 历史命名 `sub_app_code`，**语义为集群、不是子应用**）；未填时取 `vpc` 列 |
 | 5  | 环境标识      | env_flag         | VARCHAR(20)  | **是** | 环境标识：`SIT` / `PRD`；生成 `env` label |
 | 6  | 服务器ID     | server_id        | VARCHAR(64)  | 否     | 云平台分配的服务器唯一ID；`resource_id` 优先取该字段；缺失时 fallback 到 `instance_name` |
 | 7  | 实例名称      | instance_name    | VARCHAR(200) | **是** | 实例命名，遵循命名规范；同时作为 `hostname` label |
@@ -139,7 +139,7 @@ MetricCenter 主机资源表需要至少包含以下核心字段，用于生成 
 | resource_type     | 固定值 `host`   | 资源类型              |
 | app_name          | app_code       | 应用名 → `app` label  |
 | env               | env_flag       | 环境 → `env` label    |
-| cluster           | sub_app_code / vpc | 集群/子应用 → `cluster` label；`sub_app_code` 为空时取 `vpc` |
+| cluster           | sub_app_code / vpc | **集群** → `cluster` label（列名 `sub_app_code` 为 CMDB 历史命名，语义 = 集群，不承载子应用）；`sub_app_code` 为空时取 `vpc` |
 | instance_ip       | private_ip     | 实例 IP / 采集目标地址 |
 | hostname          | instance_name  | 主机名                |
 | os_type           | image          | 操作系统类型           |
