@@ -20,6 +20,7 @@ import { TABLE_SCROLL_X } from '../../components/tablePresets'
 import { EllipsisText } from '../../components/EllipsisText'
 import { resourceApi } from '../../api/resources'
 import type { ImportError, ImportMode, ImportResult, ResourceCategory } from '../../types/resource'
+import { triggerBlobDownload } from '../../utils/triggerBlobDownload'
 import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
@@ -54,18 +55,6 @@ interface ImportModalProps {
  */
 function isPendingRegistrationReason(reason?: string): boolean {
   return !!reason && reason.includes('未登记') && /业务|应用/.test(reason)
-}
-
-/** 触发浏览器下载 Blob（模板 xlsx，§6.1/T07-08；响应为二进制流非 JSON 信封） */
-function triggerBlobDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
 }
 
 /**
@@ -194,6 +183,11 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
         <Button icon={<DownloadOutlined />} loading={downloading} onClick={handleDownloadTemplate}>
           下载模板
         </Button>
+        {/* F-5：关键句 strong 前置可扫读，次要说明保留 secondary 小字 */}
+        <Text style={{ fontSize: 13 }}>
+          <Text strong>请下载最新模板，按固定列填写后上传</Text>
+          ——模板随版本更新，旧模板可能缺列导致导入报错。
+        </Text>
         <Text type="secondary" style={{ fontSize: 12 }}>
           模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 环境 / 状态等列的合法值清单。
         </Text>
@@ -216,8 +210,9 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
           选择 Excel 文件
         </Button>
       </Upload>
-      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 20 }}>
-        支持 .xlsx 文件，仅选择一个文件；请使用下载的模板填写后上传（.xls / .csv 暂不支持）。
+      <Text style={{ fontSize: 12, display: 'block', marginBottom: 20 }}>
+        <Text strong>仅支持 .xlsx 文件，每次选择一个文件</Text>
+        <Text type="secondary">（.xls / .csv 暂不支持）；请使用下载的模板填写后上传。</Text>
       </Text>
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
         3. 选择导入模式

@@ -46,6 +46,7 @@ import { useResourceCoverage } from './useResourceCoverage'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
+import { TemplateDownloadModal } from './TemplateDownloadModal'
 import { ImportRecordsPanel } from './ImportRecordsPanel'
 import { useSkin } from '../../skinContext'
 import type { SkinTokens } from '../../skins'
@@ -216,9 +217,11 @@ export function ResourcesPage() {
   // 资源详情抽屉（T07-F6）：行点击 / 「详情」入口打开，展示详情 + 适用模板 + 标签管理
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailRecord, setDetailRecord] = useState<ResourceListItem | null>(null)
-  // Excel 导入弹窗（T07-F5）：模板下载 + 上传 + 结果展示；导入记录面板入口
+  // Excel 导入弹窗（T07-F5）：上传 + 模式选择 + 结果展示；导入记录面板入口
   // `import=1` 深链（决策 91）在首屏即展开，用初始化函数而非 effect 承接
   const [importOpen, setImportOpen] = useState(() => searchParams.get('import') === '1')
+  // F-4：独立「下载模板」弹窗（列清单 + 模板演进提示 + 下载），与 Excel 导入动线分离
+  const [templateOpen, setTemplateOpen] = useState(false)
   const [recordsOpen, setRecordsOpen] = useState(false)
 
   useEffect(() => {
@@ -271,11 +274,17 @@ export function ResourcesPage() {
     setEditingRecord(record)
     setDrawerOpen(true)
   }
-  // T07-F5：下载模板 / Excel 导入统一进入 ImportModal（含模板下载 + 上传 + 结果展示）；
-  // 导入记录面板（recordsOpen）内点击下载模板 / 上传时同步关闭，避免弹窗嵌套弹窗（02_Frontend_Standard §8）
+  // T07-F5：Excel 导入统一进入 ImportModal（上传 + 模式选择 + 结果展示）；
+  // 导入记录面板（recordsOpen）内点击上传时同步关闭，避免弹窗嵌套弹窗（02_Frontend_Standard §8）
   const openImportModal = () => {
     setRecordsOpen(false)
     setImportOpen(true)
+  }
+  // F-4：独立「下载模板」动线——打开模板列清单/下载弹窗（与 Excel 导入弹窗分离）；
+  // 导入记录面板内点击下载模板时同步关闭，避免弹窗嵌套弹窗
+  const openTemplateModal = () => {
+    setRecordsOpen(false)
+    setTemplateOpen(true)
   }
   // T07-F6：打开资源详情抽屉（行点击 / 「详情」入口），携带行 record 供详情展示
   const openDetailDrawer = (record: ResourceListItem) => {
@@ -564,7 +573,7 @@ export function ResourcesPage() {
           <Card
             extra={
               <Space>
-                <Button icon={<DownloadOutlined />} onClick={openImportModal}>
+                <Button icon={<DownloadOutlined />} onClick={openTemplateModal}>
                   下载模板
                 </Button>
                 <Button icon={<UploadOutlined />} onClick={openImportModal}>
@@ -718,7 +727,7 @@ export function ResourcesPage() {
                       <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDrawer}>
                         新增资源
                       </Button>
-                      <Button icon={<DownloadOutlined />} onClick={openImportModal}>
+                      <Button icon={<DownloadOutlined />} onClick={openTemplateModal}>
                         下载模板
                       </Button>
                       <Button icon={<UploadOutlined />} onClick={openImportModal}>
@@ -755,12 +764,18 @@ export function ResourcesPage() {
         businessDomains={businessDomains}
         onCancel={() => setDetailOpen(false)}
       />
-      {/* T07-F5：Excel 导入弹窗（模板下载 + 上传 + mode + 结果/错误行）；导入成功后回刷列表 */}
+      {/* T07-F5：Excel 导入弹窗（上传 + mode + 结果/错误行）；导入成功后回刷列表 */}
       <ImportModal
         open={importOpen}
         category={category}
         onCancel={() => setImportOpen(false)}
         onSuccess={reload}
+      />
+      {/* F-4：模板下载弹窗（列清单 + 模板演进提示 + 下载），与 Excel 导入动线分离 */}
+      <TemplateDownloadModal
+        open={templateOpen}
+        category={category}
+        onCancel={() => setTemplateOpen(false)}
       />
       {/* T07-F5：导入记录面板（列表筛选/分页/详情；空态引导打开 ImportModal） */}
       <Modal

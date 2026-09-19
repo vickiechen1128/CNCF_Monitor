@@ -5,6 +5,7 @@ import { ResourcesPage } from './ResourcesPage'
 
 const listMock = vi.fn()
 const removeMock = vi.fn()
+const templateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 const applicationDictListMock = vi.fn()
@@ -14,6 +15,8 @@ vi.mock('../../api/resources', () => ({
   resourceApi: {
     list: (...args: unknown[]) => listMock(...args),
     remove: (...args: unknown[]) => removeMock(...args),
+    // F-4：模板下载弹窗（TemplateDownloadModal）依赖 resourceApi.template
+    template: (...args: unknown[]) => templateMock(...args),
   },
   businessDomainApi: {
     list: (...args: unknown[]) => businessDomainListMock(...args),
@@ -115,10 +118,14 @@ describe('ResourcesPage', () => {
   beforeEach(() => {
     listMock.mockReset()
     removeMock.mockReset()
+    templateMock.mockReset()
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
     applicationDictListMock.mockReset()
     coverageListMock.mockReset()
+    // jsdom 未实现 createObjectURL / revokeObjectURL，桩掉以完成模板下载触发
+    URL.createObjectURL = vi.fn(() => 'blob:mock')
+    URL.revokeObjectURL = vi.fn()
     // 清理「网域/业务」筛选记忆（PRD §11.2），保证用例隔离；jsdom 环境能力不完整时降级跳过
     try {
       window.localStorage.removeItem('metriccenter:resources:filters')
@@ -542,5 +549,59 @@ describe('ResourcesPage', () => {
       const atApp = headers.findIndex((t) => t.trim() === '应用')
       expect(atApp, `${name} tab：应用列应位于业务列之后`).toBeGreaterThan(atBiz)
     }
+  })
+
+  // F-4：拆分「下载模板」与「Excel 导入」两条动线——工具栏「下载模板」打开独立模板 Modal
+  it('F-4：工具栏「下载模板」打开独立模板下载 Modal（列清单 + 演进提示）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    // 工具栏与空态各有一个「下载模板」按钮，取工具栏（第一个）
+    fireEvent.click(screen.getAllByRole('button', { name: /下载模板/ })[0])
+    // 模板 Modal 标题 + 列清单表格 + 模板演进提示 Alert
+    expect(await screen.findByText('下载模板 - 主机')).toBeInTheDocument()
+    expect(screen.getByText('列顺序')).toBeInTheDocument()
+    expect(screen.getByText('列名')).toBeInTheDocument()
+    expect(screen.getByText(/模板会随版本更新/)).toBeInTheDocument()
+    // host 固定列清单（对齐后端 TemplateColumns）
+    expect(screen.getByText('network_domain')).toBeInTheDocument()
+    expect(screen.getByText('instance_name')).toBeInTheDocument()
+    expect(screen.getByText('env')).toBeInTheDocument()
+    expect(screen.getByText('cluster')).toBeInTheDocument()
+    // 不打开 Excel 导入弹窗
+    expect(screen.queryByText('Excel 导入 - 主机')).toBeNull()
+  })
+
+  it('F-4：模板 Modal 内「下载模板」按钮触发 resourceApi.template', async () => {
+    templateMock.mockResolvedValue(
+      new Blob(['xlsx'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    )
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getAllByRole('button', { name: /下载模板/ })[0])
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /下载模板/ }))
+    await waitFor(() => expect(templateMock).toHaveBeenCalledWith('host'))
+  })
+
+  it('F-4：空态「下载模板」同样打开模板下载 Modal', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    const btns = screen.getAllByRole('button', { name: /下载模板/ })
+    // 空态「下载模板」位于 Empty 引导区（最后一个）
+    fireEvent.click(btns[btns.length - 1])
+    expect(await screen.findByText('下载模板 - 主机')).toBeInTheDocument()
+  })
+
+  it('F-4：「Excel 导入」按钮打开 Excel 导入弹窗（专注上传导入）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getAllByRole('button', { name: /Excel 导入/ })[0])
+    expect(await screen.findByText('Excel 导入 - 主机')).toBeInTheDocument()
+    // 不打开模板下载 Modal
+    expect(screen.queryByText('下载模板 - 主机')).toBeNull()
   })
 })
