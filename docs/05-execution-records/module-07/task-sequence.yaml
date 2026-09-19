@@ -18,6 +18,9 @@ precondition:
 go_tool: "`make test-platform`（等价 `.tools/go/bin/go test ./platform/...`）；单包验证 `go test ./platform/config/resource/...` / `go test ./platform/config/label/...`；`go vet ./platform/...`"
 fe_tool: "`cd ui-custom/web && pnpm test` / `pnpm lint`；`pnpm dev` 验证页面"
 contract_snapshot: "docs/05-execution-records/module-07/api-contract-snapshot.md（前端任务契约第一权威：API 路径/方法/字段/枚举/错误码/必填口径/UI 展示名；与 PRD §5/§6、03_API_Standard 冲突时以此为准；缺失时回退 PRD 第 5/6 章 + 03_API_Standard）"
+delta_v241:
+  - "PRD v2.40 引入决策 92~96；v2.41 新增决策 97（Excel 批量声明新字典）。前端原型 docs/prototypes/module-07/ 已同步至决策 92~96（独立 BusinessManagementPage.tsx / ApplicationManagementPage.tsx；资源页 app 列 + generic 二选一），prototype README 版本 v2.40"
+  - "增量新增 L3 任务未改动既有 T07-01~T07-18 / T07-F1~F9 / T07-47-B1/F1 卡片，仅在文件尾部追加（group 按 backend/frontend 标注）"
 
 tasks:
   # =====================================================================
@@ -827,3 +830,298 @@ tasks:
       - "列表级一次拉取 coverageApi.list（按当前 resource_category 过滤），Map 合并到行，禁止逐行调 targets/query（TQ-6）；coverage 加载失败时列降级为『-』并记录错误态，不影响资源列表主渲染"
       - "空态/加载/错误态与既有资源列表一致；编辑/删除资源后 badge 重新拉取"
       - "单文件 vitest + eslint 全绿"
+
+  # =====================================================================
+  # {v2.40/v2.41 增量} 决策 92~97（应用字典 / app_code 双层 / 必填分化 / Excel 声明导入）
+  #   新增任务不改动既有 T07-01~18 / T07-F1~F9；支持论文见 design-decisions.md 决策 92~97
+  #   契约第一权威见 api-contract-snapshot.md 追加条目（§5.1 应用字典 / §5.2 必填分化 / §6.1 声明导入）
+  # =====================================================================
+
+  # ---------- 后端（决策 92/94/96：应用字典 + app_code 承载） ----------
+
+  - id: "T07-92-B1"
+    title: "（决策 92/96）应用字典 ApplicationDict 实体 + 管理 API（列表/登记/受限编辑/停用，与 BusinessDomain 同构）+ 首次 seed 存量归一化"
+    prd: "Module_07 §5.19/§3.1/§6.1 + design-decisions.md 决策 92/96：新增 ApplicationDict 表（app_code/app_name/description/status/created_at/updated_at + source）；app_code 主键创建后不可变（APP_CODE_RE 小写/数字/连字符 ≤64）、app_name 必填展示名、status 停用不删除、资源侧仅允许引用未停用条目；无父级 biz_code（决策 96 正交两维）；首次 seed 以存量资源 app 取值为基准归一化生成（app_code=原值 regex 归一化、app_name=原值），存量 app label 不变、时序不裂"
+    group: "backend"
+    status: "pending"
+    commit_group: "application-dict"
+    input_files:
+      - "platform/models/resource_base.go"
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/api/response/response.go"
+      - "platform/cmd/metric-center/main.go"
+    output_files:
+      - "platform/models/application_dict.go"
+      - "platform/config/resource/application_dict.go"
+      - "platform/config/resource/application_dict_test.go"
+    depends_on: ["T07-01", "T07-18"]
+    verify_commands: ["go test ./platform/models/... ./platform/config/resource/...", "go vet ./platform/models/... ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "`ApplicationDict` 模型：`AppCode`（主键，创建后不可变）、`AppName`（必填）、`Description`、`Status`(enabled/disabled，停用不删除)、`Source`(manual/excel-import/{v0.4+}cmdb)、时间戳；`GetEnabledMap()` / `Lookup(code)` 对齐 BusinessDomainStore"
+      - "`APP_CODE_RE` 集中定义（`^[a-z0-9-]{1,64}$`），与 BIZ_CODE_RE 同构；登记接口对 app_code 做 regex + 长度校验"
+      - "`GET /api/v2/platform/application-dict` 只读列表 `{list:[{app_code, app_name, description, status}], total}`；`POST /api/v2/platform/application-dict` 登记（bad_request：编码重复/不规范）；`PUT /api/v2/platform/application-dict/:app_code` 受限编辑——仅 `app_name`/`description`/`status` 可改（请求体不接收 app_code 字段）；停用不提供删除入口"
+      - "首次 seed：启动时若字典为空，扫描存量五类资源 app 取值归一化生成条目（app_code=regex 归一化、app_name=原值），归一化恒等则 app label 不变；seed 幂等（重复启动不重复建）"
+      - "单测覆盖：CRUD 正常、app_code 不可改、编码不规范拒绝、停用不改/不可新选、seed 归一化命中/不合规归一化、source=manual"
+    contract:
+      path: "GET/POST /api/v2/platform/application-dict、PUT /api/v2/platform/application-dict/:app_code"
+      method: "GET/POST/PUT"
+      request: "POST body {app_code, app_name, description?}；PUT body {app_name, description?, status}（不接收 app_code）"
+      response: "GET data {list:[{app_code, app_name, description, status}], total}；POST/PUT 返回创建/更新后的完整对象"
+
+  - id: "T07-92-B2"
+    title: "（决策 92/94）资源模型 `app_code` 字段承载 + GetAppCode() 访问器（app label 恒取 app_code；1:N 多库归属注记延后 {v0.2+}）"
+    prd: "Module_07 §5.2/§5.6/§5.8/§5.13/§5.15 + design-decisions.md 决策 92/94：资源侧 app_name→app_code 语义切换，`app` label 恒取 app_code（改展示名不触发配置重生成）；五张资源表物理列名各异由 `GetAppCode()` 接口收敛；Host.sub_app_code 语义钉死=cluster（禁止复用承载子应用）；database/middleware 1:N 多库归属不作为 M07 决策（登记跨模块契约延后 v0.2+，等待 M01/M09 拍板）；五类默认模板 `app_name → app` 改 `app_code → app`"
+    group: "backend"
+    status: "pending"
+    commit_group: "resource-app-code"
+    input_files:
+      - "platform/models/resource.go"
+      - "platform/models/resource_base.go"
+      - "platform/models/host.go"
+      - "platform/config/label/generator.go"
+    output_files:
+      - "platform/models/resource.go"
+      - "platform/models/host.go"
+      - "platform/models/resource_test.go"
+    depends_on: ["T07-01", "T07-13"]
+    verify_commands: ["go test ./platform/models/... ./platform/config/label/...", "go vet ./platform/models/... ./platform/config/label/..."]
+    acceptance_criteria:
+      - "五类资源模型 `GetAppCode() string` 访问器（物理列名各异，接口收敛）；`GetAppName()` 废止或更名为取应用字典展示名（经 ApplicationDict.Lookup）"
+      - "Host 模型 `sub_app_code` 保留为 cluster 语义（物理列备注 PRD `cluster`；加注释红线禁止复用承载子应用）；`app_code` 承载 PRD 应用编码字段"
+      - "五类默认模板（§5.13）映射 `app_code → app`（替代 `app_name → app`）；§5.15 关联键表同步"
+      - "database/middleware 模型注释登记『决策 94：MVP 1 实例 = 1 主 app_code；多 schema 多库分属多应用的 1:N 归属延后 {v0.2+}，契约待 M01/M09 确认，M07 不拍板』"
+      - "单测覆盖五类 GetAppCode 返回值、cluster 语义列映射、默认模板 app_code→app 映射、GetAppName 经字典解析"
+    contract:
+      path: "资源列表/详情 item 字段"
+      method: "GET"
+      request: "资源 item 含 `app_code`（app label 取值），`app_name` 由前端经应用字典按 app_code 解析展示"
+      response: "list item 增加 `app_code` 字段；`app_name` 可保留为冗余展示或经 ReadModel 透传（具契约）"
+
+  # ---------- 后端（决策 93/95/96：必填分化） ----------
+
+  - id: "T07-93-B1"
+    title: "（决策 93/95/96）资源校验改造：`biz_code`/`app_code` 必填按类型分化（host/db/middleware 可空后补；application 必填；generic_target 二选一必填，app_code 存在且未停用）"
+    prd: "Module_07 §5.2/§5.16.2/§6.6.1 + design-decisions.md 决策 93/95/96：撤销 MVP「全部资源类型 biz_code 必填」口径→host/database/middleware 登记时 biz_code 非必填可后补（应用上线后才出现业务）且空值不注入 biz 标签；application 上线后必填；generic_target 的 app_code/biz_code 二选一必填；app_code 只允许引用应用字典未停用条目（录入/编辑/导入三处同校验）；biz 空值不注入 biz 标签语义不变、biz 前端展示留空（-）"
+    group: "backend"
+    status: "pending"
+    commit_group: "resource-validation-typology"
+    input_files:
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/application_dict.go"
+      - "platform/models/resource.go"
+      - "platform/config/resource/create.go"
+      - "platform/config/resource/update.go"
+    output_files:
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/validate_test.go"
+    depends_on: ["T07-03", "T07-92-B1", "T07-92-B2"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "`ValidateResourceInput` 将 biz_code 必填口径从全类型必填改为按类型分化：host/database/middleware 的 biz_code 可空（为空时不注入 biz 标签、不校验字典存在性）；application 必填且须对应启用业务条目；generic_target 的 app_code 与 biz_code 二选一（两者皆空 bad_request）"
+      - "app_code 校验：仅允许引用未停用应用字典条目（录入/编辑两处 + Excel 导入三处同校验，经 ApplicationDictStore 注入）；编辑已属停用条目时提示并允许保留历史值（对齐决策 92 红线）"
+      - "标签生成语义：biz/app 空值不注入语义不变；host/db/middleware 因 biz 可空变常缺，前端消费 biz_name 展示留空（-）"
+      - "`GET /dashboard/summary` 未归类口径微调：biz_code 为空计为「未归类业务」、app_code 为空计为「未归类应用」并存（跨模块，仅注释标注口径，M05 消费）"
+      - "单测覆盖各类型必填分化、generic 二选一、app_code 停用拒绝、biz 空值不注入标签、编辑保留停用历史值"
+    contract:
+      path: "POST/PUT /resources、POST /resources/:type/import"
+      method: "POST/PUT"
+      request: "body 中 biz_code（host/db/middleware 可空、application 必填、generic 二选一）、app_code（仅引用未停用应用字典条目，host 可空）"
+      response: "bad_request：generic 的 app/biz 双空；app_code/biz_code 引用停用条目"
+
+  # ---------- 后端（决策 97：Excel 声明导入） ----------
+
+  - id: "T07-97-B1"
+    title: "（决策 97）Excel 导入内联「业务声明」「应用声明」sheet 解析 + 随批次事务原子建字典+落资源（幂等/重码/停用硬拒绝 + source=excel-import）"
+    prd: "Module_07 §5.16.1/§5.16.2/§5.18/§5.19 + design-decisions.md 决策 97：资源导入文件新增 `业务声明`（biz_code/biz_name/说明）与 `应用声明`（app_code/app_name/说明）两个内联 sheet；校验顺序『①声明自身（编码/重码/停用）→ ②资源可达性（字典∪声明）→ ③整体写』；声明建字典 status=enabled、source=excel-import，只增不覆盖；与资源同批原子提交、任一失败整体回滚（SQLite 事务）"
+    group: "backend"
+    status: "pending"
+    commit_group: "excel-declaration-import"
+    input_files:
+      - "platform/config/resource/excel.go"
+      - "platform/config/resource/import.go"
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/application_dict.go"
+      - "platform/config/resource/business.go"
+    output_files:
+      - "platform/config/resource/excel_declare.go"
+      - "platform/config/resource/excel_declare_test.go"
+      - "platform/config/resource/import.go"
+    depends_on: ["T07-09", "T07-10", "T07-93-B1"]
+    verify_commands: ["go test ./platform/config/resource/...", "go vet ./platform/config/resource/..."]
+    acceptance_criteria:
+      - "`ParseDeclareSheets(fileBytes)`：解析 `业务声明`/`应用声明` sheet——`code`/`name` 必填（说明可选）、编码符合 BIZ_CODE_RE/APP_CODE_RE；声明内重码去重；申报码与存量字典同名→名称一致视为幂等跳过、不一致→硬拒绝『声明码与存量字典名不一致，绝不覆盖』；停用条目不接受激活"
+      - "校验顺序固定『①声明自身→②资源可达性（字典∪声明）→③整体写』；资源引用的码既不存也非声明→报错归入「待登记清单」兜底、不静默跳过"
+      - "导入执行：声明建出的字典条目 `status=enabled`、`source=excel-import`、只增不覆盖，落全局字典（web 下拉可用）；与资源落库同一 SQLite 事务原子提交，任一失败整体回滚（不留孤立字典条目）"
+      - "`source` 来源扩展（manual/excel-import/cmdb {v0.4+}）贯通 ApplicationDict 与 BusinessDomain（如需亦可对 biz 声明落库）"
+      - "单测覆盖：声明解析合法/缺 code/重码、幂等跳过、重码硬拒绝、停用拒绝、资源可达性（不存非声明→待登记清单）、原子回滚（声明成功资源失败整体回滚不留条目）、source=excel-import"
+    contract:
+      path: "POST /api/v2/platform/resources/:type/import"
+      method: "POST"
+      request: "multipart：file（含业务声明/应用声明 sheet）+ resource_category + mode；声明 sheet 列：`业务声明`(biz_code|biz_name|说明?)、`应用声明`(app_code|app_name|说明?)"
+      response: "§5.16.3 ImportResult（success 计数含已建字典条目资源）；错误行 errors[].reason 落入待登记清单时给可执行指引『请到「业务管理」/「应用管理」页登记或在本文件声明 sheet 补充后重新导入』"
+
+  - id: "T07-97-B2"
+    title: "（决策 97）路由注册 + 集成测试：application-dict 管理接口 + 声明导入闭环（端到端，memory DB + seed）"
+    prd: "Module_07 §6.1/§6.6/§9.2 + design-decisions.md 决策 97：将 T07-92-B1 的 application-dict 管理与 T07-97-B1 的声明导入挂到 `/api/v2/platform/*`；端到端覆盖「声明建字典+落资源同批原子」「重码/停用/待登记清单」「幂等重导」。既有 T07-18 路由集成不覆盖新增决策任务，故单独收口"
+    group: "backend"
+    status: "pending"
+    commit_group: "integration-decision92-97"
+    input_files:
+      - "platform/config/resource/routes.go"
+      - "platform/cmd/metric-center/main.go"
+      - "platform/config/resource/application_dict.go"
+      - "platform/config/resource/excel_declare.go"
+    output_files:
+      - "platform/config/resource/routes.go"
+      - "platform/cmd/metric-center/main_test.go"
+    depends_on: ["T07-18", "T07-92-B1", "T07-97-B1"]
+    verify_commands: ["go test ./platform/...", "go vet ./platform/..."]
+    acceptance_criteria:
+      - "`RegisterRoutes` 新增 `/application-dict`、`/application-dict/:app_code` 与 `/resources/:type/import`（复用已有，扩展声明解析）；main 挂载验证 /api/v1/health、/api/v1/health/db 200"
+      - "集成测试（memory DB + seed）：application-dict 登记→受限编辑→停用→resource 引用停用拒绝；声明导入（含声明建字典+落资源成功原子提交、资源失败整体回滚不留字典、重码硬拒绝、声明内缺 name 报错）"
+      - "`go test ./platform/...` 全绿、`go vet ./platform/...` 通过"
+    contract:
+      path: "/api/v2/platform/application-dict*、/api/v2/platform/resources/:type/import（声明 sheet）"
+      method: "GET/POST/PUT/POST"
+      request: "见 T07-92-B1 / T07-97-B1 契约段"
+      response: "统一响应格式 + §5.16.3 ImportResult"
+
+  # ---------- 前端（决策 92/93/95/96：应用字典页 + 资源表单分化 + 导航） ----------
+
+  - id: "T07-92-F1"
+    title: "（决策 92/96）应用管理页 ApplicationManagementPage 落地（列表/登记/受限编辑/停用，与业务管理页同构 + 应用编码展示名二元组消费）"
+    prd: "Module_07 §5.19/§3.1/§11 + design-decisions.md 决策 92/96 + 原型 docs/prototypes/module-07/src/pages/ApplicationManagementPage.tsx：独立应用管理页，列表展示 app_code/app_name/描述/状态；登记（app_code 创建表单醒目提示『编码创建后不可改』+ 前端 APP_CODE_RE 预校验）；受限编辑（仅 app_name/描述/状态，编辑接口不送 app_code）；停用（停用不删除，无删除入口，停用条目『应用名（已停用）』标识）；字典数据来源 `GET /application-dict`"
+    group: "frontend"
+    status: "pending"
+    commit_group: "fe-application-management-page"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/ApplicationManagementPage.tsx"
+      - "docs/prototypes/module-07/src/pages/BusinessManagementPage.tsx"
+    ui_contract: "列表列（应用编码 app_code / 应用名 app_name / 描述 / 状态）；登记表单（编码不可改提示 + regex 校验）；编辑 Drawer（仅 app_name/描述/状态）；停用二次确认 Modal（『停用后不可再被新资源选用』）"
+    nav_contract: "顶部一级 tab 文案 = PRD 模块名「监控对象管理」；Sider 二级入口增加「应用管理」；路径 /application-management（MainLayout 补入口见 T07-92-F2）"
+    clipping:
+      - item: "应用字典分页与搜索筛选"
+        reason: "MVP 列表从简（align 业务管理页），资源数小；有待 M05 统一分页评估"
+    input_files:
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/pages/business/BusinessManagementPage.tsx"
+      - "ui-custom/web/src/types/resource.ts"
+    output_files:
+      - "ui-custom/web/src/api/applicationDict.ts"
+      - "ui-custom/web/src/pages/application/ApplicationManagementPage.tsx"
+      - "ui-custom/web/src/pages/application/ApplicationManagementPage.test.tsx"
+      - "ui-custom/web/src/types/resource.ts"
+    depends_on: ["T07-F1", "T07-92-B1", "T07-F9"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/application/ApplicationManagementPage.test.tsx"
+    acceptance_criteria:
+      - "`applicationDictApi.list/create/update`（GET/POST/PUT /api/v2/platform/application-dict[/:app_code]）封装；types 新增 `ApplicationDictEntry{app_code, app_name, description?, status}`（对齐 BusinessDomain）"
+      - "列表页渲染：应用编码/应用名/描述/状态（停用条目『应用名（已停用）』标识，不可再选）；空态/加载/错误态对齐业务管理页"
+      - "登记表单：前端 APP_CODE_RE（^[a-z0-9-]{1,64}$）预校验 + 提示『编码创建后不可改』；提交后 app_code 不可编辑（编辑 Drawer 不含编码输入项）"
+      - "受限编辑 Drawer：仅 app_name/描述/status 可改，不提交 app_code 字段；服务端校验错误透传；停用二次确认（『停用后不可再被新资源选用』）"
+      - "单文件 vitest + eslint 全绿"
+    contract:
+      path: "GET/POST /api/v2/platform/application-dict、PUT /api/v2/platform/application-dict/:app_code"
+      method: "GET/POST/PUT"
+      request: "见 T07-92-B1 契约段"
+      response: "GET data {list:[{app_code, app_name, description, status}], total}"
+
+  - id: "T07-92-F2"
+    title: "（决策 92）MainLayout 导航补「应用管理」入口 + App 路由注册（与「业务管理」并列）"
+    prd: "Module_07 §11 交互契约 + 原型 docs/prototypes/module-07/src/layouts/MainLayout.tsx：Sider 二级入口在「业务管理」旁新增「应用管理」（含 {v2.39}/{v2.4 决策 92} 标注）；App 注册 /application-management 路由渲染 ApplicationManagementPage"
+    group: "frontend"
+    status: "pending"
+    commit_group: "fe-application-nav"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/layouts/MainLayout.tsx"
+    ui_contract: "Sider 二级入口新增「应用管理」"
+    nav_contract: "MainLayout MODULES「监控对象管理」下二级入口增加「应用管理」（/application-management），置于「业务管理」之后；resolveActiveModule 覆盖该路径"
+    clipping: []
+    input_files:
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/pages/application/ApplicationManagementPage.tsx"
+    output_files:
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+    depends_on: ["T07-92-F1"]
+    verify_commands: ["cd ui-custom/web && pnpm lint", "cd ui-custom/web && pnpm test"]
+    acceptance_criteria:
+      - "App 注册 `/application-management` 路由，渲染 ApplicationManagementPage"
+      - "MainLayout MODULES「监控对象管理」二级入口增加「应用管理」（/application-management，位于「业务管理」后）；resolveActiveModule 覆盖该路径"
+      - "`pnpm lint`、`pnpm test` 通过；`pnpm dev` 访问 /application-management 200"
+
+  - id: "T07-93-F1"
+    title: "（决策 93/95/96）资源表单应用字段按类型分化 + generic_target 二选一校验（消费应用字典下拉 + biz 可空后补 + app 二元组回显）"
+    prd: "Module_07 §5.2/§5.9/§11.2 + design-decisions.md 决策 93/95/96 + 原型 docs/prototypes/module-07/src/pages/ResourcesPage.tsx：资源新增/编辑抽屉——`应用` 字段由「应用名」改为「应用编码+展示名」二元组（下拉选应用字典，回显 app_name，字典缺条回退显示 app_code）；`业务分组` 对 host/database/middleware 变为可空可选（可后补，空态显示 '-'）；generic_target 新增『应用/业务 二选一必填』交叉校验；每类 Tab 落固定列（host 显「应用」列、application 显「应用+业务」列、db/middleware 显「应用」列+1:N 提示、generic 显「应用/业务」灵活列）"
+    group: "frontend"
+    status: "pending"
+    commit_group: "fe-resource-form-typology"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/ResourcesPage.tsx"
+    ui_contract: "资源表单（下拉应用字典 + 展示名回显 + 停用条目『应用名（已停用）』禁用）、biz 按类型必填/可选、generic 二选一前端校验"
+    nav_contract: "资源管理页内改动，不改导航归属"
+    clipping:
+      - item: "database/middleware「多库归属」多选应用"
+        reason: "决策 94 多 schema 归属延后 {v0.2+}，MVP 维持 1 实例 = 1 主 app_code，仅展示 1:N 提示文案"
+    input_files:
+      - "ui-custom/web/src/api/applicationDict.ts"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.test.tsx"
+    depends_on: ["T07-F1", "T07-F3", "T07-F4", "T07-92-F1", "T07-93-B1"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ResourceFormDrawer.test.tsx"
+    acceptance_criteria:
+      - "『应用』字段改为下拉（applicationDictApi.list 仅启用项，停用条目『应用名（已停用）』禁用）；回显 app_name，字典缺条回退显示 app_code"
+      - "『业务分组』按类型分化：host/database/middleware 可选（可后补，空态 '-'）；application 必填；generic_target 与「应用」做『二选一必填』前端校验（两者皆空拦截 + 提示 + 服务端 400 透传兜底）"
+      - "资源列表每类 Tab 落固定列：host 显「应用」列；application 显「应用+业务」列；database/middleware 显「应用」列 + 1:N 提示（tooltip『多库归属 {v0.2+}』）；generic_target 显「应用/业务」灵活列"
+      - "编辑保留停用历史值（『应用名（已停用）』标识，可提交）；空值不显示展示名"
+      - "单文件 vitest + eslint 全绿"
+    contract:
+      path: "ResourceCreateInput / ResourceUpdateInput / 资源列表 item"
+      method: "POST/PUT/GET"
+      request: "body 含 app_code（下拉字典值）、biz_code（按类型可空）；不直接提交 app_name"
+      response: "list item 含 app_code；app_name 由前端经应用字典解析展示"
+
+  # ---------- 前端（决策 97：Excel 声明导入支撑，可并入 F5 增量，单独列出以防缺） ----------
+
+  - id: "T07-97-F1"
+    title: "（决策 97）Excel 导入弹窗增量：声明 sheet 引导 + 导入错误『待登记清单』指引（衔接后端声明导入）"
+    prd: "Module_07 §5.16.1/§5.16.2/§11 + design-decisions.md 决策 97 + 原型应用/业务管理页：ImportModal 下载模板提示内联声明 sheet 用法；导入错误报告中『待登记清单』原因命中时给可执行指引『请到「业务管理」/「应用管理」页登记，或在本文件「业务声明」/「应用声明」sheet 补充后重新导入』"
+    group: "frontend"
+    status: "pending"
+    commit_group: "fe-import-declaration"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/ResourcesPage.tsx"
+    ui_contract: "ImportModal 声明 sheet 引导 + 待登记清单错误指引"
+    nav_contract: "资源管理页内改动，不改导航"
+    clipping:
+      - item: "前端自建声明 sheet / 可视化编辑声明"
+        reason: "声命内容在 xlsx 文件内由后端解析，前端仅引导与错误指引；可视化声明编辑器后续迭代评估"
+    input_files:
+      - "ui-custom/web/src/pages/resources/ImportModal.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ImportModal.tsx"
+      - "ui-custom/web/src/pages/resources/ImportModal.test.tsx"
+    depends_on: ["T07-F5", "T07-97-B1"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ImportModal.test.tsx"
+    acceptance_criteria:
+      - "ImportModal 模板下载提示文案补充：『资源导入文件可内含「业务声明」/「应用声明」sheet，一次导入即可声明全新业务/应用（决策 97）』"
+      - "导入错误行 reason 命中待登记清单（业务/应用未登记且未声明）时，错误行渲染引导：『请到「业务管理」/「应用管理」页登记，或在文件声明 sheet 补充后重新导入』（前后端文案一致）"
+      - "错误行表格保留行号/字段/值/原因；单文件 vitest + eslint 全绿"
+    contract:
+      path: "POST /api/v2/platform/resources/:type/import 错误响应"
+      method: "POST"
+      request: "errors[].reason 为待登记清单引导文案"
+      response: "ImportResult.errors[].reason 引导文案"
