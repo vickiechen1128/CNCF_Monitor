@@ -15,7 +15,11 @@ type Host struct {
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
 	CloudCode     string `gorm:"size:50" json:"cloud_code"`
+	// AppCode 是不可变的应用编码（app_code，决策 92）：资源侧只存编码，app label 恒取
+	// 此值；展示名由应用字典 AppName 承载，改展示名不触发配置重生成/下发。
 	AppCode       string `gorm:"size:100" json:"app_code"`
+	// SubAppCode 物理列名沿用历史 CMDB 遗留名；其语义恒等于 cluster（集群），**不是**
+	// 子应用（PRD 已禁止 cluster 复用承载子应用）。改展示名/编码均不影响此列。
 	SubAppCode    string `gorm:"size:100" json:"sub_app_code"`
 	EnvFlag       string `gorm:"size:20" json:"env_flag"`
 	ServerID      string `gorm:"size:64;uniqueIndex:idx_host_server_id" json:"server_id"`
@@ -55,13 +59,16 @@ func (h *Host) GetResourceID() string {
 // GetResourceType returns the resource type.
 func (h *Host) GetResourceType() ResourceType { return ResourceTypeHost }
 
-// GetAppName returns the application name, mapped from AppCode.
-func (h *Host) GetAppName() string { return h.AppCode }
+// GetAppCode returns the immutable application code (app_code), mapped from
+// AppCode (决策 92：资源侧只存编码，app label 恒取 app_code)。
+func (h *Host) GetAppCode() string { return h.AppCode }
+
 
 // GetEnv returns the environment, mapped from EnvFlag.
 func (h *Host) GetEnv() string { return h.EnvFlag }
 
-// GetCluster returns the cluster, mapped from SubAppCode.
+// GetCluster returns the cluster, mapped from SubAppCode. SubAppCode 语义恒等于
+// cluster（集群），不是子应用（决策 92）。
 func (h *Host) GetCluster() string { return h.SubAppCode }
 
 // GetStatus returns the resource status.

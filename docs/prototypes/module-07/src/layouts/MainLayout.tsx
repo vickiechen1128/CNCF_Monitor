@@ -39,6 +39,7 @@ function buildMenu(): MenuItem[] {
       label: '监控对象管理',
       children: [
         { key: '/business-management', icon: <AppstoreOutlined />, label: '业务管理 {v2.23}' },
+        { key: '/application-management', icon: <AppstoreOutlined />, label: '应用管理 {v2.39}' },
         { key: '/resources', icon: <AppstoreOutlined />, label: '资源管理' },
         { key: '/label-templates', icon: <AppstoreOutlined />, label: '标签模板' },
         { key: '/import-history', icon: <AppstoreOutlined />, label: '导入记录' },
@@ -179,7 +180,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Content className="app-content">
             <ReviewNote title="设计意图（面向产品 / 技术评审）" style={{ margin: '16px 16px 0' }}>
               本模块维护监控对象（资源）、资源标签与标签模板数据，作为监控策略与配置中心的数据提供方：
-              采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责，「采集状态（采集中 / 已下发未采到 / 未监控）」由监控策略与查询中心模块计算、本页只读展示；业务分组字典由「业务管理」页维护。
+              采集策略由「监控策略」模块负责，配置生成与下发由「配置中心」模块负责，「采集状态（采集中 / 已下发未采到 / 未监控）」由监控策略与查询中心模块计算、本页只读展示；业务分组字典由「业务管理」页维护，应用字典（应用的不可变编码与展示名）由「应用管理」页维护。
               标签模板按资源类别定义「字段 → 监控标签」的映射，模板按资源类别隐式关联该类型全部实例；
               静态资源（主机 / 中间件 / 其他监控目标）标签由 CMDB / Excel 治理、平台只读，应用服务资源开放实例级自定义标签。
             </ReviewNote>
@@ -220,6 +221,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 3.27 {'{v2.31}'} 决策 68-5：①命名规约（跨模块基线）——target_label 一律不带 _id 后缀，resource_id → resource_id 为约定俗成例外；②tenant_id → tenant 为 v0.2 起五类默认模板的内置默认映射（MVP 单租户不注入），前端默认启用；缺该映射将被 M09 生成期门禁阻断（M02 硬隔离 matcher 名为 tenant）。
                 3.28 {'{v2.32}'} 决策 77：K8s 集群不设第六资源类型——集群按部署形态处理，四归属为网络边界（独立建网域）/ 分组维度（cluster 字段·标签）/ 发现源（M04 KubernetesProvider）/ 集群健康监控（generic_target + M01 monitor_type=k8s）；纯文档注记、原型行为不变。
                 3.29 {'{v2.32}'} 前端设计优化（对齐《前端标准》§8 交互选型 / §9 列表与长文本规范）：①资源列表列数治理——五类 Tab 统一收敛为 8 列（主标识 fixed left / 类型或身份 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作 fixed right），原 11~14 列；端口 / 版本 / 操作系统 / 应用·环境·集群 / 健康检查 URL / 协议 / 端点 / 采集路径 / 自定义标签 / 数据来源 / 负责人 / CMDB 预留字段下沉详情 Drawer；类型字段改为随主标识行内 Tag；②状态语义统一 Badge 语义色 + 文字（采集状态由彩色 Tag 改 Badge）；③操作层次——主操作「详情」品牌色加粗且全行唯一，次要「编辑」灰色文字，低频破坏性「删除」收进「更多」菜单（业务管理页的停用 / 启用同理）；④新增 / 编辑资源抽屉 560 → 720px 并按「资源信息 / 归属与状态」分组（字段 12~14 项，&gt;6 且需分组）；详情抽屉 680 → 720px；⑤全页提示统一为 Callout 单块容器（替换 Alert，消除多风格拼盘）；⑥运行状态用户语言按 PRD §10 术语表收敛为「运行中 / 已停止 / 维护中」（原 mock 误用「在线 / 离线」）。
+                3.30 {'{v2.39}'} 决策 92：资源侧应用字段由展示名 `app_name` 改为不可变编码 `app_code`，并新增「应用管理」页维护应用字典（编码不可变 / 应用名必填展示名 / 停用不删除，与业务管理页同构）；`app_code` 是监控标签 `app` 的唯一取值来源，`app_name` 仅 UI 展示、修改不触发配置重生成；资源录入 / 编辑表单的应用字段改为字典下拉（仅启用条目可选）、资源列表与详情的「应用」列展示字典应用名（缺条目回退编码）；设备类资源（主机 / 其他监控目标）可留空。
                 实现细节与数据契约见 PRD 对应章节（6 接口设计 / 5.12 C 组合字段 / 12 验收标准）与代码注释。
               </Typography.Paragraph>
             </ReviewNote>

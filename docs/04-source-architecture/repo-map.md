@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-19 15:28 · commit: `5d614ae`
+> 生成时间: 2026-09-19 16:52 · commit: `ccea77e`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -820,6 +820,33 @@
 - `func openRollbackTestDB(t *testing.T) *gorm.DB`
 - `func TestCreateLabelTemplateRollbackOnSnapshotFailure(t *testing.T)`
 
+### `platform/config/resource/application_dict.go`
+
+- `type ApplicationDict struct`
+- `type ApplicationDictStore struct`
+- `func NewApplicationDictStore(db *gorm.DB) *ApplicationDictStore`
+- `func toApplicationDict(m models.ApplicationDict) ApplicationDict`
+- `method (*ApplicationDictStore) List() ([]ApplicationDict, error)`
+- `method (*ApplicationDictStore) Lookup(code string) (ApplicationDict, bool, error)`
+- `method (*ApplicationDictStore) EnabledList() ([]ApplicationDict, error)`
+- `method (*ApplicationDictStore) GetEnabledMap() (map[string]ApplicationDict, error)`
+- `method (*ApplicationDictStore) Create(m models.ApplicationDict) (ApplicationDict, error)`
+- `method (*ApplicationDictStore) Update(code string, req UpdateApplicationDictRequest) (ApplicationDict, error)`
+- `type CreateApplicationDictRequest struct`
+- `type UpdateApplicationDictRequest struct`
+- `func validateCreateApplicationDict(req *CreateApplicationDictRequest) error`
+- `func ListApplicationDicts(store *ApplicationDictStore) gin.HandlerFunc`
+- `func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
+- `func UpdateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
+
+### `platform/config/resource/application_dict_test.go`
+
+- `func openAppTestDB(t *testing.T, fixtures ...models.ApplicationDict) *gorm.DB`
+- `func newAppStore(t *testing.T) *ApplicationDictStore`
+- `func TestValidateResourceInput_AppCodeEnabled(t *testing.T)`
+- `func TestApplicationDictEndpoints(t *testing.T)`
+- `func doJSON(t *testing.T, r *gin.Engine, method, path, body string) (int, map[string]interface{})`
+
 ### `platform/config/resource/business.go`
 
 - `type BusinessDomain struct`
@@ -882,7 +909,7 @@
 - `func applyMiddlewareInput(m *models.Middleware, in *ResourceInput)`
 - `func applyApplicationInput(a *models.Application, in *ResourceInput)`
 - `func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput)`
-- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc`
+- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
 
 ### `platform/config/resource/create_update_test.go`
 
@@ -935,12 +962,12 @@
 - `func applyCells(row *ImportRow, header, cells []string)`
 - `func parsePort(raw string) (int, string)`
 - `func allEmpty(cells []string) bool`
-- `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, networkDomainExists func(string) bool, extraRules []Ru…`
+- `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
 - `func fieldErr(row *ImportRow, field, value, reason string) error`
 - `func parseCustomLabels(raw string) (map[string]string, error)`
 - `func fieldFromResourceInputError(msg string) string`
 - `func valueFromField(in *ResourceInput, field, portRaw string) string`
-- `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, networkDomainExists func(string) bool, extraRules []Rule)…`
+- `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(…`
 
 ### `platform/config/resource/excel_test.go`
 
@@ -968,7 +995,7 @@
 
 ### `platform/config/resource/import.go`
 
-- `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc`
+- `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
 - `func findExistingByDedupKey(db *gorm.DB, category models.ResourceCategory, row *ImportRow) (model any, found bool, err error)`
 - `func setSourceType(model any, st models.SourceType)`
 - `func newImportNo() string`
@@ -1143,7 +1170,7 @@
 
 ### `platform/config/resource/routes.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore)`
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore)`
 - `func withTypeParam(h gin.HandlerFunc) gin.HandlerFunc`
 - `func listDomainOptions(db *gorm.DB) func() ([]DomainOption, error)`
 
@@ -1192,14 +1219,15 @@
 - `func findResourceByID(db *gorm.DB, resourceID string) (category models.ResourceCategory, model any, found bool, err error)`
 - `func sourceTypeOf(model any) models.SourceType`
 - `func updatableColumns(category models.ResourceCategory) []string`
-- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc`
+- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
 
 ### `platform/config/resource/validate.go`
 
 - `type ResourceInput struct`
-- `func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, networkDomain…`
-- `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, networkDomainExists func(string) bool) error`
+- `func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
+- `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
 - `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
+- `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
 - `func validateHost(in *ResourceInput) error`
 - `func validateDatabase(in *ResourceInput) error`
 - `func validateMiddleware(in *ResourceInput) error`
@@ -1654,8 +1682,19 @@
 
 - `func resourceModels() []interface{}`
 - `type DeploymentItem struct`
+- `type ProbeTargetItem struct`
+- `func probeTargetURL(t models.BlackboxTarget) string`
 - `type Summary struct`
+- `type CategorySummary struct`
+- `type SubtypeSummary struct`
+- `type AppSummary struct`
 - `func Build(db *gorm.DB) (*Summary, error)`
+- `type categoryAgg struct`
+- `type subAgg struct`
+- `type appAgg struct`
+- `func accumulateResource(cats map[models.ResourceCategory]*categoryAgg, apps map[string]*appAgg, cat models.ResourceCategory,…`
+- `func loadResourceRows(db *gorm.DB, m interface{}) ([]models.Resource, error)`
+- `func subtypeFieldForCategory(cat models.ResourceCategory) string`
 - `func loadSelectedResourceIDs(db *gorm.DB) (map[string]bool, error)`
 - `func SummaryHandler(db *gorm.DB) gin.HandlerFunc`
 
@@ -1697,6 +1736,10 @@
 - `func TestRunAdminKeepsModifiedPassword(t *testing.T)`
 - `func TestRunAdminPasswordFromEnv(t *testing.T)`
 - `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
+
+### `platform/db/seed/application_dict.go`
+
+- `func ApplicationDict(db *gorm.DB) error`
 
 ### `platform/db/seed/business_domain.go`
 
@@ -2326,6 +2369,11 @@
 - `func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T)`
 - `func TestValidateErrorItemJSON(t *testing.T)`
 
+### `platform/models/application_dict.go`
+
+- `type ApplicationDict struct`
+- `func NormalizeAppCode(raw string) string`
+
 ### `platform/models/blackbox_probe.go`
 
 - `type BlackboxProbeConfig struct`
@@ -2465,7 +2513,7 @@
 - `type Host struct`
 - `method (*Host) GetResourceID() string`
 - `method (*Host) GetResourceType() ResourceType`
-- `method (*Host) GetAppName() string`
+- `method (*Host) GetAppCode() string`
 - `method (*Host) GetEnv() string`
 - `method (*Host) GetCluster() string`
 - `method (*Host) GetStatus() string`
@@ -2618,13 +2666,13 @@
 - `type Application struct`
 - `method (*Middleware) GetResourceID() string`
 - `method (*Middleware) GetResourceType() ResourceType`
-- `method (*Middleware) GetAppName() string`
+- `method (*Middleware) GetAppCode() string`
 - `method (*Middleware) GetEnv() string`
 - `method (*Middleware) GetCluster() string`
 - `method (*Middleware) GetStatus() string`
 - `method (*Application) GetResourceID() string`
 - `method (*Application) GetResourceType() ResourceType`
-- `method (*Application) GetAppName() string`
+- `method (*Application) GetAppCode() string`
 - `method (*Application) GetEnv() string`
 - `method (*Application) GetCluster() string`
 - `method (*Application) GetStatus() string`
@@ -2636,7 +2684,7 @@
 - `type SourceType = string`
 - `type ResourceBase struct`
 - `method (*ResourceBase) GetResourceID() string`
-- `method (*ResourceBase) GetAppName() string`
+- `method (*ResourceBase) GetAppCode() string`
 - `method (*ResourceBase) GetEnv() string`
 - `method (*ResourceBase) GetCluster() string`
 - `method (*ResourceBase) GetStatus() string`
@@ -3281,6 +3329,10 @@
 ### `ui-custom/web/src/api/dashboard.ts`
 
 - `interface RecentDeployment`
+- `interface SubtypeSummary`
+- `interface CategorySummary`
+- `interface AppSummary`
+- `interface ProbeTargetItem`
 - `interface DashboardSummary`
 - `const dashboardApi`
 
@@ -3350,6 +3402,10 @@
 - `interface BusinessDomainCreateInput`
 - `interface BusinessDomainUpdateInput`
 - `const businessDomainApi`
+- `interface ApplicationDictsResponse`
+- `interface ApplicationDictCreateInput`
+- `interface ApplicationDictUpdateInput`
+- `const applicationDictApi`
 - `const osOptionApi`
 - `const importApi`
 
@@ -3691,6 +3747,10 @@
 - `function AlertRow`
 - `function AlertStatusCard`
 
+### `ui-custom/web/src/pages/home/AppDetailTable.tsx`
+
+- `function AppDetailTable`
+
 ### `ui-custom/web/src/pages/home/HomePage.tsx`
 
 - `function HomePage`
@@ -3699,9 +3759,13 @@
 
 - `function OnboardingSteps`
 
-### `ui-custom/web/src/pages/home/QuickAccess.tsx`
+### `ui-custom/web/src/pages/home/ProbePanel.tsx`
 
-- `function QuickAccess`
+- `function ProbePanel`
+
+### `ui-custom/web/src/pages/home/ResourceTypeGrid.tsx`
+
+- `function ResourceTypeGrid`
 
 ### `ui-custom/web/src/pages/home/SurfaceCard.tsx`
 
@@ -3711,6 +3775,22 @@
 
 - `const ALERT_PAGE_SIZE`
 - `function computeAlertPageSize`
+
+### `ui-custom/web/src/pages/home/resourceTypeMeta.ts`
+
+- `type ResourceCategoryKey`
+- `const L1_CATEGORY_ORDER`
+- `const L1_CATEGORY_META`
+- `const APPLICATION_SUBTYPE_TIP`
+- `const APPLICATION_SUBTYPE_LABEL`
+- `const SUBTYPE_COVERAGE_WARN_THRESHOLD`
+- `function coveragePercent`
+- `function coverageText`
+- `function uncoveredCount`
+- `function firingAlerts`
+- `function resourceListHref`
+- `function appResourceListHref`
+- `const RESOURCE_IMPORT_HREF`
 
 ### `ui-custom/web/src/pages/label-templates/LabelTemplatesPage.tsx`
 
@@ -3756,6 +3836,11 @@
 ### `ui-custom/web/src/pages/query/TargetStatusPage.tsx`
 
 - `function TargetStatusPage`
+
+### `ui-custom/web/src/pages/resources/ApplicationDictPage.tsx`
+
+- `function ApplicationDictPage`
+- `function ApplicationDictDrawer`
 
 ### `ui-custom/web/src/pages/resources/BusinessDomainPage.tsx`
 
@@ -4101,6 +4186,7 @@
 - `interface ResourceUpdateBaseShape`
 - `type ResourceUpdateInput`
 - `interface BusinessDomain`
+- `interface ApplicationDict`
 - `interface OSOption`
 - `type ResourceLabelSource`
 - `interface ResourceLabelItem`

@@ -17,6 +17,10 @@ vi.mock('../../api/resources', () => ({
   businessDomainApi: {
     list: (...args: unknown[]) => businessDomainListMock(...args),
   },
+  // 决策 92：表单「应用」字段改为应用字典启用条目下拉
+  applicationDictApi: {
+    list: () => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }),
+  },
 }))
 
 // 决策 47-3：采集状态 badge / 三态筛选，测试侧 mock M02 coverage 聚合接口
@@ -66,7 +70,7 @@ function hostItem(resource_id: string, instance_name: string, extra: Record<stri
     resource_category: 'host',
     network_domain_id: 'mc-a',
     biz_code: 'infra',
-    app_name: 'order',
+    app_code: 'order',
     env: 'prod',
     cluster: 'c1',
     owner: 'chenrt',

@@ -55,6 +55,7 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.ResourceStatusMapping{},
 		// 业务分组字典（决策 48）
 		&models.BusinessDomain{},
+		&models.ApplicationDict{},
 		// 用户认证（Module_06 §5.3，tu-01；seed.Run 会写入初始管理员 admin）
 		&models.User{},
 		// 五类资源（M07）
@@ -85,6 +86,15 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.AlertmanagerConfigVersion{},
 	))
 	require.NoError(t, seed.Run(db))
+	// 决策 92：资源侧 app_code 必须引用未停用的应用字典条目。集成测试库无存量资源
+	// 可供 seed 迁移（seed 从存量取值生成条目），故显式补一条启用条目供资源用例引用。
+	for _, d := range []models.ApplicationDict{
+		{AppCode: "app", AppName: "示例应用", Status: models.AppStatusEnabled},
+		{AppCode: "pay-web", AppName: "支付前端", Status: models.AppStatusEnabled},
+		{AppCode: "pay-db", AppName: "支付库", Status: models.AppStatusEnabled},
+	} {
+		require.NoError(t, db.Create(&d).Error)
+	}
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
@@ -104,7 +114,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	// 先按决策 48 seed 业务字典（yaml 首次导入 + infra 兜底），再构造 DB store。
 	require.NoError(t, seed.BusinessDomains(db, businessDomainsTestPath))
 	bizStore := resource.NewBusinessDomainStore(db)
-	resource.RegisterRoutes(platform, db, bizStore)
+	appStore := resource.NewApplicationDictStore(db)
+	resource.RegisterRoutes(platform, db, bizStore, appStore)
 	label.RegisterRoutes(platform, db)
 
 	// Module 01 收口（T01-09）：监控策略全部路由。
@@ -239,7 +250,7 @@ func resourcePayload(category string, overrides map[string]interface{}) map[stri
 		"resource_category": category,
 		"network_domain_id": "default",
 		"biz_code":          "authorized-ops",
-		"app_name":          "app",
+		"app_code":          "app",
 		"cluster":           "cluster-1",
 		"owner":             "ops",
 		"env":               "prod",
@@ -529,7 +540,7 @@ func TestEndToEndResourceCRUD(t *testing.T) {
 // TestEndToEndSmoke 覆盖 T07-18 端到端冒烟（dev-feedback L-7 / L-5 / K-1 / K-2）：
 // 经真实路由注册的 handler 串联验证——
 //   - L-5：Host legacy 字段映射归一化闭环（请求 legacy 展示字段 → 落库 legacy 列 →
-//     列表回读归一化，instance_ip/os_type/env/app_name/cluster）；
+//     列表回读归一化，instance_ip/os_type/env/app_code/cluster）；
 //   - K-1：资源列表 biz_code / status 服务端筛选（PRD §11.1）；
 //   - K-2：标签模板关联实例 keyword / status 服务端筛选（PRD §11.1 / §3.2）。
 func TestEndToEndSmoke(t *testing.T) {
@@ -539,9 +550,9 @@ func TestEndToEndSmoke(t *testing.T) {
 	// 1. L-5：创建 3 台 host（infra/online、infra/offline、payment/online），
 	//    请求体使用 legacy 展示字段，列表应归一化回读。
 	hosts := []map[string]interface{}{
-		{"instance_name": "web-online-01", "instance_ip": "10.0.1.1", "env": "prod", "app_name": "pay-web", "cluster": "pay-cluster"},
-		{"instance_name": "web-offline-02", "instance_ip": "10.0.1.2", "env": "staging", "app_name": "pay-web", "cluster": "pay-cluster", "status": "offline"},
-		{"instance_name": "db-online-03", "instance_ip": "10.0.1.3", "env": "prod", "app_name": "pay-db", "cluster": "db-cluster", "biz_code": "data-innovation-lab"},
+		{"instance_name": "web-online-01", "instance_ip": "10.0.1.1", "env": "prod", "app_code": "pay-web", "cluster": "pay-cluster"},
+		{"instance_name": "web-offline-02", "instance_ip": "10.0.1.2", "env": "staging", "app_code": "pay-web", "cluster": "pay-cluster", "status": "offline"},
+		{"instance_name": "db-online-03", "instance_ip": "10.0.1.3", "env": "prod", "app_code": "pay-db", "cluster": "db-cluster", "biz_code": "data-innovation-lab"},
 	}
 	for _, ov := range hosts {
 		code, out := c.json("POST", "/api/v2/platform/resources", mustJSON(t, resourcePayload("host", ov)))
@@ -563,7 +574,7 @@ func TestEndToEndSmoke(t *testing.T) {
 	assert.Equal(t, "web-online-01", web["hostname"], "hostname 应归一化读回 instance_name")
 	assert.Equal(t, "Linux", web["os_type"], "os_type 应归一化读回 image 列（legacy）")
 	assert.Equal(t, "prod", web["env"], "env 应归一化读回 env_flag 列（legacy）")
-	assert.Equal(t, "pay-web", web["app_name"], "app_name 应归一化读回 app_code 列（legacy）")
+	assert.Equal(t, "pay-web", web["app_code"], "app_code 应归一化读回 host.app_code 物理列")
 	assert.Equal(t, "pay-cluster", web["cluster"], "cluster 应归一化读回 sub_app_code 列（legacy）")
 
 	// 2. K-1：biz_code / status 服务端筛选（PRD §11.1）。

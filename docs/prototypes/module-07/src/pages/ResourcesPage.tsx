@@ -66,13 +66,16 @@ import {
   isHostResource,
   isDatabaseResource,
   isMiddlewareResource,
+  mockApplicationDict,
   mockBusinessDomains,
   mockLabelTemplates,
   mockNetworkDomains,
   mockResourceLabels,
   mockResources,
   resolveCollectionStatus,
+  isAppDisabled,
   isBizDisabled,
+  resolveAppName,
   resolveBizName,
   // {v2.24} 决策 52：网域归属来源解析链（显式指定 > 冲突告警 > IP 推导 > 默认兜底；blackbox 例外 = 发起侧）
   DOMAIN_SOURCE_LABELS,
@@ -308,7 +311,8 @@ export default function ResourcesPage() {
         item.instance_name,
         item.hostname,
         item.instance_ip,
-        item.app_name,
+        item.app_code,
+        item.app_code ? resolveAppName(item.app_code) : undefined,
         resolveBizName(item.biz_code),
         item.cluster,
         item.env,
@@ -521,7 +525,8 @@ export default function ResourcesPage() {
       // {v2.18} 业务必填：来自业务分组字典下拉（决策 13/14/17/21），存不可变编码 biz_code
       biz_code: values.biz_code as string | undefined,
       source_type: 'manual' as const,
-      app_name: values.app_name as string | undefined,
+      // 决策 92：应用归属存不可变编码 app_code（应用字典下拉，展示名由字典解析）
+      app_code: values.app_code as string | undefined,
       env: values.env as Env | undefined,
       cluster: values.cluster as string | undefined,
       owner: values.owner as string | undefined,
@@ -603,7 +608,8 @@ export default function ResourcesPage() {
       network_domain_id: resolveNewDomainId(record.resource_category, values),
       // {v2.18} 业务必填：来自业务分组字典下拉（决策 13/14/17/21），存不可变编码 biz_code
       biz_code: values.biz_code as string | undefined,
-      app_name: values.app_name as string | undefined,
+      // 决策 92：应用归属存不可变编码 app_code（应用字典下拉，展示名由字典解析）
+      app_code: values.app_code as string | undefined,
       env: values.env as Env | undefined,
       cluster: values.cluster as string | undefined,
       owner: values.owner as string | undefined,
@@ -1007,6 +1013,8 @@ export default function ResourcesPage() {
     const appClusterRequired = ['application', 'database', 'middleware'].includes(formType)
     // {v2.33} K8s 集群入口 cluster 必填（决策 77 集群诉求四归属：分组维度 → cluster 字段 / 标签）
     const clusterRequired = appClusterRequired || k8sMode
+    // {v2.40} 决策 95：generic_target 的 app_code / biz_code 二选一必填（至少填一个）
+    const genAtLeastOne = formType === 'generic_target'
     // {v2.33} 决策 81：网域字段可达性引导——用用户语言提问，不问拓扑 / 行政归属
     const domainQuestion = k8sMode
       ? '该集群端点从哪条链路够得着？（overlay 集群通常独立建域；节点 / Pod 由该域 Job 自动发现）'
@@ -1017,8 +1025,54 @@ export default function ResourcesPage() {
     <>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="应用名" name="app_name" rules={appClusterRequired ? [{ required: true, message: '请输入应用名' }] : []} extra="应用服务 / 数据库 / 中间件必填；主机与其他监控目标可空，为空时不注入 app 标签">
-            <Input placeholder="如 订单服务" />
+          {/* 决策 92：应用归属 = 应用字典下拉，存不可变编码 app_code；停用条目不可新选，存量资源编辑时保留历史值 */}
+          <Form.Item
+            label="应用"
+            name="app_code"
+            rules={
+              appClusterRequired
+                ? [{ required: true, message: '请选择应用' }]
+                : genAtLeastOne
+                  ? [
+                      {
+                        validator: (_, value) =>
+                          value || resourceForm.getFieldValue('biz_code')
+                            ? Promise.resolve()
+                            : Promise.reject(new Error('业务与应用至少填一个')),
+                      },
+                    ]
+                  : []
+            }
+            extra={
+              genAtLeastOne
+                ? '与其他监控目标：业务与应用二选一必填（决策 95），为空时不注入 app 标签'
+                : appClusterRequired
+                  ? '应用服务 / 数据库 / 中间件必填（决策 92）；多库 / 多 schema 分属多应用为 {v0.2+}，MVP 每次仅选一个主应用'
+                  : '主机：可空后补，为空时不注入 app 标签'
+            }
+          >
+            <Select placeholder="请选择应用" showSearch allowClear optionFilterProp="label">
+              {(() => {
+                const enabledOptions = mockApplicationDict
+                  .filter((d) => d.status === 'enabled')
+                  .map((d) => (
+                    <Option key={d.app_code} value={d.app_code}>
+                      {d.app_name}（{d.app_code}）
+                    </Option>
+                  ))
+                // 编辑存量资源：其应用已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
+                const current = editingResource?.app_code
+                if (current && !mockApplicationDict.some((d) => d.app_code === current && d.status === 'enabled')) {
+                  return [
+                    ...enabledOptions,
+                    <Option key={current} value={current}>
+                      {resolveAppName(current)}（已停用）
+                    </Option>,
+                  ]
+                }
+                return enabledOptions
+              })()}
+            </Select>
           </Form.Item>
         </Col>
         <Col span={12}>
@@ -1124,12 +1178,32 @@ export default function ResourcesPage() {
           </Form.Item>
         </Col>
         <Col span={12}>
-          {/* {v2.18} 业务必填下拉：业务分组字典由配置预置（决策 13/14/17）；biz 标签只承载不可变编码 biz_code；停用条目不可选用 */}
+          {/* {v2.18} 业务下拉：业务分组字典由配置预置（决策 13/14/17）；biz 标签只承载不可变编码 biz_code；停用条目不可选用 */}
+          {/* {v2.40} 决策 93：biz_code 必填按类型分化——application 必填、host/db/middleware 可空后补、generic_target 与 app 二选一 */}
           <Form.Item
             label="业务"
             name="biz_code"
-            rules={[{ required: true, message: '请选择业务' }]}
-            extra="必填；业务归属由业务分组字典维护，用于按业务聚合监控（编码不可变）"
+            rules={
+              formType === 'application'
+                ? [{ required: true, message: '请选择业务' }]
+                : genAtLeastOne
+                  ? [
+                      {
+                        validator: (_, value) =>
+                          value || resourceForm.getFieldValue('app_code')
+                            ? Promise.resolve()
+                            : Promise.reject(new Error('业务与应用至少填一个')),
+                      },
+                    ]
+                  : []
+            }
+            extra={
+              formType === 'application'
+                ? '应用上线后必填；业务归属由业务分组字典维护，用于按业务聚合监控（编码不可变）'
+                : genAtLeastOne
+                  ? '与其他监控目标：业务与应用二选一必填（决策 95）；有业务归属填业务，否则填应用'
+                  : '可空后补（决策 93）：静态资源登记时承载应用，业务待应用上线后再补，为空不注入 biz 标签'
+            }
           >
             <Select placeholder="请选择业务" showSearch optionFilterProp="label">
               {mockBusinessDomains
@@ -1233,6 +1307,20 @@ export default function ResourcesPage() {
           <Tag color={isBizDisabled(value) ? 'default' : 'geekblue'}>
             {resolveBizName(value)}
             {isBizDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : '-',
+    }
+    // {v2.40} 决策 92/96 应用列：展示应用字典 app_name，缺条目回退 app_code，停用加「已停用」标识（与业务列正交，M:N 两维）
+    const appColumn = {
+      title: '应用',
+      dataIndex: 'app_code',
+      key: 'app_code',
+      width: 150,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isAppDisabled(value) ? 'default' : 'cyan'}>
+            {resolveAppName(value)}
+            {isAppDisabled(value) ? '（已停用）' : ''}
           </Tag>
         ) : '-',
     }
@@ -1340,7 +1428,7 @@ export default function ResourcesPage() {
 
     switch (type) {
       case 'host': {
-        // 8 列：实例名·主机名 / IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 9 列：实例名·主机名 / IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
         // 下沉详情：操作系统、系统版本、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('实例名 / 主机名', (record) =>
@@ -1357,6 +1445,7 @@ export default function ResourcesPage() {
           domainColumn,
           domainSourceColumn,
           businessColumn,
+          appColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1365,7 +1454,7 @@ export default function ResourcesPage() {
       }
       case 'database': {
         // {v2.13} 数据库资源列表列（PRD 5.7.1，决策 D19）
-        // 8 列：实例名（含数据库类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 9 列：实例名（含数据库类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
         // 下沉详情：端口、版本、连接串、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('实例名', (record) =>
@@ -1380,6 +1469,7 @@ export default function ResourcesPage() {
           domainColumn,
           domainSourceColumn,
           businessColumn,
+          appColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1387,7 +1477,7 @@ export default function ResourcesPage() {
         return cols
       }
       case 'middleware': {
-        // 8 列：实例名（含中间件类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 9 列：实例名（含中间件类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
         // 下沉详情：端口、版本、连接串、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('实例名', (record) =>
@@ -1402,6 +1492,7 @@ export default function ResourcesPage() {
           domainColumn,
           domainSourceColumn,
           businessColumn,
+          appColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1409,7 +1500,7 @@ export default function ResourcesPage() {
         return cols
       }
       case 'application': {
-        // 8 列：服务名 / 端点 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 9 列：服务名 / 端点 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
         // 下沉详情：健康检查 URL、协议、端口、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('服务名', (record) =>
@@ -1429,6 +1520,7 @@ export default function ResourcesPage() {
           domainColumn,
           domainSourceColumn,
           businessColumn,
+          appColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1436,7 +1528,7 @@ export default function ResourcesPage() {
         return cols
       }
       case 'generic_target': {
-        // 8 列：目标名称（含端点类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 运行状态 / 采集状态 / 操作
+        // 9 列：目标名称（含端点类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
         // 下沉详情：端口、采集路径、协议、自定义标签、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('目标名称', (record) =>
@@ -1451,6 +1543,7 @@ export default function ResourcesPage() {
           domainColumn,
           domainSourceColumn,
           businessColumn,
+          appColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1587,6 +1680,13 @@ export default function ResourcesPage() {
             次要操作「编辑」为灰色文字；低频且破坏性的「删除」收进「更多」菜单，避免同行出现多个同级入口。
           </li>
           <li>{'{v2.21} 决策 32'}：运行状态数据来源（CMDB 同步 / Excel 导入 / 用户手动维护）以列头 hover 提示标注、不占列宽。{'运行状态用户语言按 PRD §10 术语表收敛为「运行中 / 已停止 / 维护中」（此前 mock 误用「在线 / 离线」）。'}</li>
+          <li>
+            <Text strong>{'{v2.40} 业务与应用正交两维建模（决策 93/94/95/96）'}</Text>：业务（biz）与应用（app）为 <Text strong>M:N 正交两维</Text>——biz 回答「服务谁」（业务域聚合），app 回答「属于哪个应用」（应用实例级聚合）。
+            决策 93：<Text code style={{ fontSize: 12 }}>biz_code</Text> 必填按类型分化（application 必填、host/database/middleware 可空后补、generic_target 与 app 二选一）；
+            决策 94：database/middleware 多 schema 分属多应用为 {'{v0.2+}'}，MVP 维持 1 实例 = 1 主 app_code；
+            决策 95：generic_target 的《应用》《业务》<Text strong>至少填一个</Text>；
+            决策 96：应用字典不设父级 biz_code。决策 92（应用双层编码 / 字典红线）不动。
+          </li>
           <li>列显隐配置为 P1 占位，MVP 版本列表列固定展示，可在「列设置」查看后续规划。</li>
           <li>Excel 导入：状态中文值按内置状态映射转换（本页只读展示，配置入口 P2）；枚举列（env / protocol / scheme）要求与字典一致，否则报错。</li>
           <li>{'{v2.20} 决策 29'}：目标状态 offline 后，配置中心（Module_09）下一配置生成周期即将其从 targets/*.json 移除、不触发采集器 reload，批量下线动线为真。</li>
@@ -1798,7 +1898,16 @@ export default function ResourcesPage() {
                       : resolveBizName(selectedResource.biz_code)
                     : '-',
                 },
-                { key: 'app_name', label: '应用', children: selectedResource.app_name || '-' },
+                // 决策 92：应用展示字典应用名（缺条目回退显示编码），停用加「（已停用）」标识
+                {
+                  key: 'app_code',
+                  label: '应用',
+                  children: selectedResource.app_code
+                    ? isAppDisabled(selectedResource.app_code)
+                      ? `${resolveAppName(selectedResource.app_code)}（已停用）`
+                      : resolveAppName(selectedResource.app_code)
+                    : '-',
+                },
                 // {v2.3} 适用模板：该资源类别默认模板（模板按 resource_category 隐式关联）
                 {
                   key: 'apply_template',
@@ -2127,7 +2236,7 @@ export default function ResourcesPage() {
           custom_labels 列支持 key1=value1;key2=value2 格式；status 支持中文状态值（见导入弹窗状态映射）。
         </Text>
         <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-          模板为后端静态生成 xlsx，内置取值说明 sheet 列出各列合法值；biz_code 必填，仅可填已登记字典条目（含兜底 infra）。
+          模板为后端静态生成 xlsx，内置取值说明 sheet 列出各列合法值；biz_code 必填，仅可填已登记字典条目（含兜底 infra）；app_code 须为应用字典已登记且未停用的条目（设备类资源可空）。
         </Text>
         {/* {v2.19} 下载模板由后端生成静态 xlsx + 「取值说明 sheet」（5.16.1）；dataValidation 下拉挪 v0.2+。原灰色长说明已精简。 */}
       </Modal>
@@ -2155,7 +2264,7 @@ export default function ResourcesPage() {
           ))}
         </Space>
         <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
-          导入校验项：必填字段（含 biz_code 必填） · 网域存在性（可留空，留空时按归属解析链推导） · 业务存在性（仅限启用条目，不可自由文本） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+          导入校验项：必填字段（含 biz_code 必填） · 网域存在性（可留空，留空时按归属解析链推导） · 业务存在性（仅限启用条目，不可自由文本） · 应用存在性（应用字典启用条目；设备类资源可空） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
         </Text>
         {/* {v2.24} 决策 52：导入阶段网域归属来源说明（Color 区分来源类别） */}
         <Text style={{ fontSize: 12, color: '#722ED1', display: 'block', marginBottom: 12 }}>

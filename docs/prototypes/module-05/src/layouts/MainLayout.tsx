@@ -3,6 +3,8 @@ import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { FundOutlined, HomeOutlined, ToolOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
+import { ReviewNotesProvider } from '../contexts/ReviewNotesContext'
+import { ReviewNoteSwitch } from '../components/ReviewNoteSwitch'
 
 const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
@@ -76,6 +78,7 @@ export function MainLayout({ children }: MainLayoutProps) {
     .map((item) => ('key' in item ? String(item.key) : ''))
 
   return (
+    <ReviewNotesProvider>
     <Layout className="app-layout" style={fullscreen ? { height: '100vh', overflow: 'hidden' } : undefined}>
       {!fullscreen && (
         <Header className="app-header">
@@ -89,6 +92,7 @@ export function MainLayout({ children }: MainLayoutProps) {
             </Tag>
           </Space>
           <Space size="large" align="center">
+            <ReviewNoteSwitch />
             <Space size="small" align="center">
               <Text style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>网域模式</Text>
               <Tooltip title={multiSite ? '多网域模式：覆盖多个网域' : '单网域模式：仅 default 管理域'}>
@@ -131,5 +135,6 @@ export function MainLayout({ children }: MainLayoutProps) {
         </Content>
       </Layout>
     </Layout>
+    </ReviewNotesProvider>
   )
 }

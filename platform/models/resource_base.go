@@ -19,7 +19,10 @@ type ResourceBase struct {
 	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"` // 业务归属编码，必填（MVP）
-	AppName          *string          `gorm:"size:100" json:"app_name,omitempty"`         // host/generic_target 可空
+	// AppName 物理列名沿用历史名（决策 92：物理列名不改名）；其语义已切换为不可变应用
+	// 编码 app_code——资源侧只存编码，app label 恒取此值。展示名由应用字典承载。
+	// host/generic_target 可空。
+	AppName          *string          `gorm:"size:100" json:"app_name,omitempty"`
 	Env              string           `gorm:"size:20;not null" json:"env"`
 	Cluster          *string          `gorm:"size:100" json:"cluster,omitempty"`
 	Owner            string           `gorm:"size:100" json:"owner"`
@@ -31,13 +34,14 @@ type ResourceBase struct {
 // GetResourceID returns the resource id.
 func (r *ResourceBase) GetResourceID() string { return r.ResourceID }
 
-// GetAppName returns the application name, empty when nil.
-func (r *ResourceBase) GetAppName() string {
+// GetAppCode returns the application code (决策 92：AppName 物理列语义切换为 app_code 编码)，空时返回空串。
+func (r *ResourceBase) GetAppCode() string {
 	if r.AppName == nil {
 		return ""
 	}
 	return *r.AppName
 }
+
 
 // GetEnv returns the environment.
 func (r *ResourceBase) GetEnv() string { return r.Env }

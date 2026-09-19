@@ -33,7 +33,7 @@ function template(over: Partial<LabelTemplate> = {}): LabelTemplate {
     resource_category: 'host',
     is_default: false,
     mappings: [
-      mapping('app_name', 'resource_field', 'app'),
+      mapping('app_code', 'resource_field', 'app'),
       mapping('instance_ip:port', 'composite', 'instance', { transform: 'lower' }),
     ],
     created_at: '2026-08-21T00:00:00Z',
@@ -90,7 +90,7 @@ describe('TemplateDetailTabs', () => {
     expect(await screen.findByText('组合字段（1）')).toBeInTheDocument()
     expect(screen.getByText('资源字段（1）')).toBeInTheDocument()
     // 来源字段 / 目标标签 / 转换规则
-    expect(screen.getByText('app_name')).toBeInTheDocument()
+    expect(screen.getByText('app_code')).toBeInTheDocument()
     expect(screen.getByText('instance_ip:port')).toBeInTheDocument()
     expect(screen.getByText('app')).toBeInTheDocument()
     expect(screen.getByText('lower')).toBeInTheDocument()
@@ -141,7 +141,7 @@ describe('TemplateDetailTabs', () => {
     removeMappingMock.mockResolvedValue({ status: 'success', data: { mapping_id: 1 } })
     const { onMappingsChange } = renderTabs(template(), { referencingJobCount: 3 })
     // 定位 resource_field 分组的映射行（globalIndex 0 → mapping_id 1）内的删除按钮
-    const resourceFieldRow = (await screen.findByText('app_name')).closest('tr')!
+    const resourceFieldRow = (await screen.findByText('app_code')).closest('tr')!
     fireEvent.click(within(resourceFieldRow).getByRole('button', { name: /删\s*除/ }))
     const dialog = await screen.findByRole('dialog')
     fireEvent.click(within(dialog).getByRole('button', { name: /删\s*除/ }))

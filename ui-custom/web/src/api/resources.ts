@@ -9,6 +9,7 @@
 import { apiClient, ApiError, rawRequest } from './client'
 import type { ApiResponse, ApiStatus, Paginated } from '../types/api'
 import type {
+  ApplicationDict,
   BusinessDomain,
   ImportMode,
   ImportRecord,
@@ -202,6 +203,43 @@ export const businessDomainApi = {
   /** 受限编辑业务分组（PUT :code，决策 48）：仅 name/description/enabled；无 DELETE（停用不删除） */
   update(code: string, input: BusinessDomainUpdateInput): Promise<ApiResponse<BusinessDomain>> {
     return apiClient.put<BusinessDomain>(`/api/v2/platform/business-domains/${encodeURIComponent(code)}`, { body: input })
+  },
+}
+
+/** 应用字典响应（GET /application-dict，非分页信封 {list,total}，§5.19 / 决策 92） */
+export interface ApplicationDictsResponse {
+  list: ApplicationDict[]
+  total: number
+}
+
+/** 应用字典登记输入（§5.19 / 决策 92）：app_code 不可变、app_name 必填 */
+export interface ApplicationDictCreateInput {
+  app_code: string
+  app_name: string
+  description?: string
+}
+
+/** 应用字典受限编辑输入（§5.19 红线：仅 app_name/description/status 可改，不接收 app_code） */
+export interface ApplicationDictUpdateInput {
+  app_name?: string
+  description?: string
+  status?: 'enabled' | 'disabled'
+}
+
+/** 应用字典（§5.19 决策 92，落 DB；app label 取 app_code，展示取 app_name） */
+export const applicationDictApi = {
+  list(): Promise<ApiResponse<ApplicationDictsResponse>> {
+    return apiClient.get<ApplicationDictsResponse>('/api/v2/platform/application-dict')
+  },
+  /** 登记应用（POST，§5.19）：{app_code,app_name,description}，默认 enabled */
+  create(input: ApplicationDictCreateInput): Promise<ApiResponse<ApplicationDict>> {
+    return apiClient.post<ApplicationDict>('/api/v2/platform/application-dict', { body: input })
+  },
+  /** 受限编辑应用（PUT :app_code，§5.19）：仅 app_name/description/status；无 DELETE（停用不删除） */
+  update(appCode: string, input: ApplicationDictUpdateInput): Promise<ApiResponse<ApplicationDict>> {
+    return apiClient.put<ApplicationDict>(`/api/v2/platform/application-dict/${encodeURIComponent(appCode)}`, {
+      body: input,
+    })
   },
 }
 

@@ -14,6 +14,8 @@ import {
   STATUS_VALUES,
   TENANT_DEFAULT_MAPPING,
   BIZ_CODE_RE,
+  APP_CODE_RE,
+  mockApplicationDict,
   mockBusinessDomains,
   mockCollectionHealth,
   mockImportHistory,
@@ -23,10 +25,12 @@ import {
   mockResources,
   mockStatusMappingConfig,
   resolveCollectionStatus,
+  isAppDisabled,
   isApplicationResource,
   isGenericTargetResource,
   isHostResource,
   isMiddlewareResource,
+  resolveAppName,
   domainReachabilityText,
   previewDomainByIP,
   K8S_ENDPOINT_PRESETS,
@@ -34,6 +38,8 @@ import {
   DEVICE_ENDPOINT_PRESETS,
   endpointTypeLabel,
   RESOURCE_TYPE_MAP,
+  // {v2.40} 决策 93 / 95：业务与应用二选一必填判定
+  isAppOrBizRequired,
 } from './module-07'
 import type { ResourceCategory } from './module-07'
 
@@ -104,6 +110,28 @@ describe('module-07 mocks（对齐 PRD v2.36）', () => {
 
   it('业务字典含停用条目（决策 48：停用不删除，演示「业务名（已停用）」标识）', () => {
     expect(mockBusinessDomains.some((d) => d.status === 'disabled')).toBe(true)
+  })
+
+  // {v2.40} 决策 93 / 95：业务与应用正交两维建模
+  it('二选一判定：app_code 或 biz_code 至少填一个（决策 95，generic_target 口径）', () => {
+    expect(isAppOrBizRequired(undefined, undefined)).toBe(false)
+    expect(isAppOrBizRequired('order-service', undefined)).toBe(true)
+    expect(isAppOrBizRequired(undefined, 'order')).toBe(true)
+    expect(isAppOrBizRequired('order-service', 'order')).toBe(true)
+  })
+
+  it('决策 93：存在 host 静态资源 biz_code 可空后补展示（承载 app、业务待上线再补）', () => {
+    const hostWithoutBiz = mockResources.filter(isHostResource).filter((r) => !r.biz_code)
+    expect(hostWithoutBiz.length).toBeGreaterThan(0)
+    // 可空后补仅影响 biz_code，不强制同时清空 app_code
+    const hasApp = hostWithoutBiz.some((r) => r.biz_code == null && !!r.app_code)
+    expect(hasApp).toBe(true)
+  })
+
+  it('决策 95：generic_target 资源均满足业务 / 应用至少填一个', () => {
+    mockResources.filter(isGenericTargetResource).forEach((r) => {
+      expect(isAppOrBizRequired(r.app_code, r.biz_code)).toBe(true)
+    })
   })
 
   it('资源 env 取值均在 dev/test/staging/prod 枚举内（PRD 7.2）', () => {
@@ -657,5 +685,71 @@ describe('{v2.34} 决策 83 其他监控目标定位收窄（generic_target 兜�
     expect(tpl.resource_category).toBe('generic_target')
     expect(tpl.name).toBe('其他监控目标默认模板')
     expect(tpl.description).not.toContain('Exporter')
+  })
+})
+
+describe('{v2.39} 决策 92 应用双层编码与应用字典', () => {
+  it('资源侧只存不可变编码 app_code，不再携带展示名 app_name', () => {
+    for (const r of mockResources) {
+      expect(r).not.toHaveProperty('app_name')
+      if ('app_code' in r && r.app_code) {
+        // 编码规范：小写字母 / 数字 / 连字符 ≤ 64（与业务编码同规约）
+        expect(r.app_code).toMatch(APP_CODE_RE)
+      }
+    }
+  })
+
+  it('必填规则：application / database / middleware 必填，host / generic_target 可空', () => {
+    const requiredOf = (code: ResourceCategory) => ['application', 'database', 'middleware'].includes(code)
+    for (const r of mockResources) {
+      const filled = 'app_code' in r && !!r.app_code
+      if (requiredOf(r.resource_category)) expect(filled).toBe(true)
+    }
+    // 设备类资源（交换机 / 负载均衡）留空，演示可空分支
+    const devices = mockResources.filter(isGenericTargetResource).filter((r) => !r.app_code)
+    expect(devices.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('resolveAppName：字典命中返回应用名，未登记回退编码，空值返回 -', () => {
+    expect(resolveAppName('order-service')).toBe('订单服务')
+    expect(resolveAppName('not-registered')).toBe('not-registered')
+    expect(resolveAppName(undefined)).toBe('-')
+    expect(resolveAppName('')).toBe('-')
+  })
+
+  it('isAppDisabled：停用条目判定为 true，启用 / 空值为 false', () => {
+    expect(isAppDisabled('legacy-portal')).toBe(true)
+    expect(isAppDisabled('order-service')).toBe(false)
+    expect(isAppDisabled(undefined)).toBe(false)
+  })
+
+  it('应用字典与业务字典同构：编码唯一 + 展示名必填 + 含停用条目（停用不删除）', () => {
+    const codes = mockApplicationDict.map((d) => d.app_code)
+    expect(new Set(codes).size).toBe(codes.length)
+    for (const d of mockApplicationDict) {
+      expect(d.app_code).toMatch(APP_CODE_RE)
+      expect(d.app_name.length).toBeGreaterThan(0)
+    }
+    expect(mockApplicationDict.some((d) => d.status === 'disabled')).toBe(true)
+  })
+
+  it('默认标签模板 app 映射来源切为 app_code，且不再出现 app_name 来源', () => {
+    for (const tpl of mockLabelTemplates) {
+      for (const m of tpl.mappings) {
+        expect(m.source_field).not.toBe('app_name')
+      }
+    }
+    const appMappings = mockLabelTemplates.flatMap((t) => t.mappings).filter((m) => m.target_label === 'app')
+    expect(appMappings.length).toBeGreaterThan(0)
+    expect(appMappings.every((m) => m.source_field === 'app_code')).toBe(true)
+  })
+
+  it('导入模板列与资源字段选项不再含 app_name，统一 app_code', () => {
+    for (const cat of Object.keys(IMPORT_TEMPLATE_COLUMNS) as ResourceCategory[]) {
+      expect(IMPORT_TEMPLATE_COLUMNS[cat]).not.toContain('app_name')
+      expect(IMPORT_TEMPLATE_COLUMNS[cat]).toContain('app_code')
+      expect(RESOURCE_FIELD_OPTIONS[cat]).not.toContain('app_name')
+      expect(RESOURCE_FIELD_OPTIONS[cat]).toContain('app_code')
+    }
   })
 })

@@ -87,7 +87,7 @@ describe('LabelTemplatesPage', () => {
           }),
           templateItem(2, '支付自定义模板', {
             mappings: [
-              { source_field: 'app_name', source_type: 'resource_field', target_label: 'app', enabled: true },
+              { source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true },
               { source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true },
             ] as LabelTemplateListItem['mappings'],
             instance_count: 5,

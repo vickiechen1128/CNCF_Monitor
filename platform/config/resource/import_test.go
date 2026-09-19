@@ -48,7 +48,7 @@ func mountImport(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/platform/resources/:type/import", ImportResources(db, newBizStore(t)))
+	r.POST("/api/v2/platform/resources/:type/import", ImportResources(db, newBizStore(t), newAppStore(t)))
 	r.GET("/api/v2/platform/imports", ListImports(db))
 	r.GET("/api/v2/platform/imports/:import_id", GetImportRecord(db))
 	return r

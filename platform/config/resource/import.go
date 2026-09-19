@@ -49,7 +49,7 @@ const maxImportFileSize = 10 << 20
 //     field, value, reason}]}，create_only 不含 updated 字段。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc {
+func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. 资源类型：表单优先，路径 :type 兜底。
 		categoryStr := strings.TrimSpace(c.PostForm("resource_category"))
@@ -101,7 +101,7 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore) gin.HandlerFunc
 			response.BadRequest(c, err)
 			return
 		}
-		valid, errs := ValidateRows(rows, bizStore, networkDomainExistsFunc(db), nil)
+		valid, errs := ValidateRows(rows, bizStore, appStore, networkDomainExistsFunc(db), nil)
 
 		// 5. 逐行执行 create_only/upsert。
 		total := len(rows)

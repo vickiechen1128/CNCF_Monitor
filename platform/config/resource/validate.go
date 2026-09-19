@@ -24,7 +24,7 @@ type ResourceInput struct {
 	ResourceCategory string `json:"resource_category"`
 	NetworkDomainID  string `json:"network_domain_id"`
 	BizCode          string `json:"biz_code"`
-	AppName          string `json:"app_name"`
+	AppCode          string `json:"app_code"` // 不可变应用编码（决策 92：资源侧只存 app_code）
 	Cluster          string `json:"cluster"`
 	Owner            string `json:"owner"`
 	Status           string `json:"status"`
@@ -60,24 +60,26 @@ type ResourceInput struct {
 // ValidateResourceInput 校验资源写请求/导入行输入（纯函数，外部副作用仅来自注入的
 // bizStore 与 networkDomainExists）：
 //
-//   - 必填项：按类型差异化（host/generic_target 的 app_name/cluster 可空，
+//   - 必填项：按类型差异化（host/generic_target 的 app_code/cluster 可空，
 //     application/database/middleware 必填，§5.2 ✅*）；
 //   - 枚举：env∈ValidEnvs、protocol∈ValidProtocols、scheme∈ValidSchemes、
 //     status 仅 online/offline/maintenance（不接受中文状态）；
 //   - 格式：instance_ip IPv4（generic_target 另允许域名）、port 1~65535、
 //     health_check_url 为合法 HTTP/TCP URL；
-//   - 存在性：biz_code 必填且对应已启用业务字典条目（§3.1）；network_domain_id
-//     经 networkDomainExists 校验（M06 行政记录，default 例外由调用方决定）。
+//   - 存在性：biz_code 必填且对应已启用业务字典条目（§3.1）；app_code 若填写须对应
+//     已启用应用字典条目（决策 92 红线：资源侧 app_code 只允许引用未停用条目）；
+//     network_domain_id 经 networkDomainExists 校验（M06 行政记录，default 例外由
+//     调用方决定）。
 //
 // 校验失败返回含字段名的错误，供 handler 包装为 bad_request（§6.6.1）。
-func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, networkDomainExists func(string) bool) error {
+func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool) error {
 	if in == nil {
 		return fmt.Errorf("resource input 不能为空")
 	}
 	if !isValidCategory(category) {
 		return fmt.Errorf("resource_category 非法：%s", category)
 	}
-	if err := validateCommon(in, bizStore, networkDomainExists); err != nil {
+	if err := validateCommon(in, bizStore, appStore, networkDomainExists); err != nil {
 		return err
 	}
 	switch category {
@@ -95,8 +97,9 @@ func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, 
 	return nil
 }
 
-// validateCommon 校验五类共享字段：网域存在性、biz_code 存在且启用、env/status 枚举。
-func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, networkDomainExists func(string) bool) error {
+// validateCommon 校验五类共享字段：网域存在性、biz_code 存在且启用、app_code（若填）
+// 须对应启用应用字典条目、env/status 枚举。
+func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool) error {
 	if strings.TrimSpace(in.NetworkDomainID) == "" {
 		return fmt.Errorf("network_domain_id 必填")
 	}
@@ -111,6 +114,12 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, networkDom
 	}
 	if err := validateBizCodeEnabled(in.BizCode, bizStore); err != nil {
 		return err
+	}
+	// 决策 92：app_code 若填写须引用已启用应用字典条目（停用/未登记不允许选用）。
+	if strings.TrimSpace(in.AppCode) != "" {
+		if err := validateAppCodeEnabled(in.AppCode, appStore); err != nil {
+			return err
+		}
 	}
 	if !containsString(models.ValidEnvs, strings.TrimSpace(in.Env)) {
 		return fmt.Errorf("env 必须是 dev/test/staging/prod 之一，当前：%q", in.Env)
@@ -130,6 +139,23 @@ func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error {
 	}
 	if _, ok := enabledMap[code]; !ok {
 		return fmt.Errorf("业务 %s 未登记或已停用，请联系平台管理员在业务分组字典配置（platform/config/business_domains.yaml）中添加或启用后重试", code)
+	}
+	return nil
+}
+
+// validateAppCodeEnabled 校验 app_code 对应已启用应用字典条目（决策 92 红线：资源侧
+// app_code 只允许引用未停用条目）。appStore 为 nil 时跳过（仅供单元测试；生产 handler
+// 始终传入真实 store），字典加载失败时报错，避免在字典不可用时放行新资源。
+func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error {
+	if appStore == nil {
+		return nil // 测试可传 nil 跳过；生产 handler 始终传入真实 store
+	}
+	enabledMap, err := appStore.GetEnabledMap()
+	if err != nil {
+		return fmt.Errorf("应用字典加载失败：%w", err)
+	}
+	if _, ok := enabledMap[code]; !ok {
+		return fmt.Errorf("应用 %s 未登记或已停用，请在『应用字典』中登记或启用后重试", code)
 	}
 	return nil
 }
@@ -158,8 +184,8 @@ func validateDatabase(in *ResourceInput) error {
 	if strings.TrimSpace(in.DatabaseType) == "" {
 		return fmt.Errorf("database_type 必填")
 	}
-	if strings.TrimSpace(in.AppName) == "" {
-		return fmt.Errorf("app_name 必填")
+	if strings.TrimSpace(in.AppCode) == "" {
+		return fmt.Errorf("app_code 必填")
 	}
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
@@ -171,8 +197,8 @@ func validateMiddleware(in *ResourceInput) error {
 	if strings.TrimSpace(in.MiddlewareType) == "" {
 		return fmt.Errorf("middleware_type 必填")
 	}
-	if strings.TrimSpace(in.AppName) == "" {
-		return fmt.Errorf("app_name 必填")
+	if strings.TrimSpace(in.AppCode) == "" {
+		return fmt.Errorf("app_code 必填")
 	}
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
@@ -199,8 +225,8 @@ func validateApplication(in *ResourceInput) error {
 	if strings.TrimSpace(in.ServiceName) == "" {
 		return fmt.Errorf("service_name 必填")
 	}
-	if strings.TrimSpace(in.AppName) == "" {
-		return fmt.Errorf("app_name 必填")
+	if strings.TrimSpace(in.AppCode) == "" {
+		return fmt.Errorf("app_code 必填")
 	}
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")

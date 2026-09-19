@@ -61,7 +61,7 @@ func seedMappingTemplate(t *testing.T, db *gorm.DB) models.LabelTemplate {
 		ResourceCategory: models.ResourceCategoryHost,
 		IsDefault:        false,
 		Mappings: []models.LabelMapping{
-			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+			{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 		},
 	}
 	require.NoError(t, db.Create(tmpl).Error)
@@ -184,7 +184,7 @@ func TestCreateLabelMappingDuplicateTargetLabelRejected(t *testing.T) {
 	tmpl := seedMappingTemplate(t, db) // 已含 app
 
 	path := fmt.Sprintf("/api/v2/platform/label-templates/%d/mappings", tmpl.ID)
-	code, e := decodeErr(t, doJSON(t, r, http.MethodPost, path, `{"source_type":"resource_field","source_field":"app_name","target_label":"app","enabled":true}`))
+	code, e := decodeErr(t, doJSON(t, r, http.MethodPost, path, `{"source_type":"resource_field","source_field":"app_code","target_label":"app","enabled":true}`))
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, response.ErrorTypeBadRequest, e.ErrorType)
 	assert.Contains(t, e.Error, "重复")
@@ -293,7 +293,7 @@ func TestUpdateLabelMappingExcludeSelfUniqueness(t *testing.T) {
 
 	// 编辑自身（mapping_id=1，target_label=app 保持不变）不应命中唯一性校验。
 	editPath := fmt.Sprintf("/api/v2/platform/label-templates/%d/mappings/1", tmpl.ID)
-	code, mappings := decodeMappings(t, doJSON(t, r, http.MethodPut, editPath, `{"source_field":"app_name","target_label":"app","transform_rule":"upper"}`))
+	code, mappings := decodeMappings(t, doJSON(t, r, http.MethodPut, editPath, `{"source_field":"app_code","target_label":"app","transform_rule":"upper"}`))
 	require.Equal(t, http.StatusOK, code)
 	require.Len(t, mappings, 2)
 	assert.Equal(t, "app", mappings[0].TargetLabel)
@@ -432,7 +432,7 @@ func TestValidateMappingsEnhanced(t *testing.T) {
 
 	// 同模板 target_label 重复 → 拒绝。
 	err = validateMappings([]models.LabelMapping{
-		{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app"},
+		{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app"},
 		{SourceField: "service_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app"},
 	})
 	require.Error(t, err)

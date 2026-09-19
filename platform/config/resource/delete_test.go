@@ -44,7 +44,7 @@ func mountDelete(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/platform/resources", CreateResource(db, newBizStore(t)))
+	r.POST("/api/v2/platform/resources", CreateResource(db, newBizStore(t), newAppStore(t)))
 	r.DELETE("/api/v2/platform/resources/:resource_id", DeleteResource(db))
 	return r
 }
@@ -115,8 +115,8 @@ func TestDeleteResource_Success(t *testing.T) {
 		{
 			name: "application",
 			body: map[string]interface{}{
-				"resource_category": "application", "network_domain_id": "default",
-				"biz_code": "payment", "app_name": "pay-service", "cluster": "pay-cluster",
+			"resource_category": "application", "network_domain_id": "default",
+			"biz_code": "payment", "app_code": "pay-service", "cluster": "pay-cluster",
 				"status": "online", "env": "prod",
 				"service_name": "pay-service", "endpoint": "10.0.0.12:8080",
 				"health_check_url": "http://10.0.0.12:8080/health", "protocol": "http", "port": 8080,

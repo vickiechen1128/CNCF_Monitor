@@ -48,7 +48,7 @@
 | 资源类型管理 | 主机 / 数据库 / 中间件 / 应用服务 / 通用指标目标五类 | ❌ 无 | 自研类型枚举 + 差异化字段 | 中 | 低 | L4 |
 | 五类资源 CRUD | 固定字段、按类别差异化表单 | ❌ 无 | 自研 5 张资源表 + 统一 Resource 基座 | 中 | 中 | L4 |
 | Excel 导入 | 固定列模板、状态映射、upsert、必填校验 | ❌ 无 | Excel/CSV 解析 + 批量写入 + 校验报告 | 中 | 中 | L4 |
-| 业务字典 `biz_code` | 所有资源必填 `biz_code`，展示名 `biz_name` | ❌ 无 | 部署级字典 + 存在性校验 | 低 | 低 | L4 |
+| 业务字典 `biz_code` | 必填按类型分化（决策 93）：host/db/middleware 可空后补、application 上线后必填、generic\_target 与 app 二选一必填，展示名 `biz_name`；**{v2.41} 导入支持内联声明新条目（决策 97）**：Excel 导入文件新增业务/应用声明 sheet，随批次原子建字典 + 落资源，重码/停用硬拒绝、只增不覆盖 | ❌ 无 | 部署级字典 + 存在性校验（可放宽至「字典 ∪ 导入声明」） | 中 | 低 | L4 |
 | `ResourceLabel` 管理 | `system` / `user` / `cmdb {v0.4+}` 来源、冲突合并 | ❌ 无 | 自研单表 + `source` 字段 + 优先级合并 | 中 | 中 | L4 |
 | 标签模板管理 | 字段映射 / transform；按粗粒度资源类别 | ✅ `relabel_configs` | 映射 UI → 生成 target labels | 中 | 中 | L2 |
 | 「采集状态」badge | 三态：采集中 / 已下发未采到（含变更未确认下发情形）/ 未监控（决策 47-3；2026-09-02 口径修订：选中关系取 DB 当前值、不感知 M09 下发时序） | ⚠️ 需 M02 聚合 | `is_monitored` 选中关系由 M01 维护，up/down 聚合由 M02 健康度/覆盖率 API（按 `resource_id` 标签回连资源）输出，M07 只读消费、**不直连时序数据** | 低 | 中 | L3 |
@@ -56,7 +56,7 @@
 | 状态映射字典 | Excel 中文状态 → `Resource.status` | ❌ 无 | 可配置规则表 + 正则匹配 | 低 | 低 | L4 |
 | CMDB 接入源 | Excel / HTTP / 蓝鲸（v0.4+） | ⚠️ file_sd 可作为输入 | Provider 适配器 + CI 类型映射 + 待分类队列 | 高 | 中 | L2/L4 |
 
-> **关键判断**：MVP 内资源模型从四类扩为五类（新增 Database），`biz_code` 作为全资源类型必填的业务归属字段；`is_monitored` 改为由 Module_01 维护、Module_07 只读映射的筛选字段，避免 M07 台账与「采集状态」概念混淆。
+> **关键判断**：MVP 内资源模型从四类扩为五类（新增 Database），`biz_code` 作为业务归属字段（**必填按类型分化，决策 93**——host/db/middleware 可空后补，避免为「尚未出现的业务」造假编码）；`is_monitored` 改为由 Module_01 维护、Module_07 只读映射的筛选字段，避免 M07 台账与「采集状态」概念混淆。
 
 ### 2.2 Module_01：监控策略与指标管理
 
@@ -163,7 +163,7 @@
 | `Tenant` | Module_06 | `id` / `name` / `is_platform_admin` / `multi_site_enabled` / `status`；MVP 仅预置 `platform_admin` | P0 |
 | `NetworkDomain` 行政字段 | Module_06 / Module_09 | `id` / `name` / `domain_type` / `zone_type` / `tenant_id` / `authorized_tenant_ids` / `status`；ID 规则 `<deploy_code>-<domain_code>`；`tenant_id` 创建后不可变 | P0 |
 | `ZoneType` 字典 | Module_06 | 部署级字典：`code` / `display_name` / `description` / `enabled` | P0 |
-| `Resource` 五类基础 + 差异化字段 | Module_07 | `resource_category`（host/database/middleware/application/generic_target）、`biz_code`（必填）、`network_domain_id`（必填）、`status` 含 offline | P0 |
+| `Resource` 五类基础 + 差异化字段 | Module_07 | `resource_category`（host/database/middleware/application/generic_target）、`biz_code`（必填按类型分化，决策 93：host/db/middleware 可空）、`network_domain_id`（必填）、`status` 含 offline | P0 |
 | `ResourceStatusMapping` | Module_07 | 来源状态 → `online/offline/maintenance` 映射；支持按 `resource_category` 与优先级 | P0 |
 | `ResourceLabel` | Module_07 | `resource_id` / `key` / `value` / `source`（system/user/cmdb）；`system` 保护不可被 user 覆盖 | P0 |
 | `LabelTemplate` / `Mapping` | Module_07 | 锚定粗粒度资源类别；来源 `resource_field` / `composite` / `prometheus_builtin` / `cmdb_field {v0.4+}`；默认含 `biz_code → biz`、`instance_ip:port → instance` | P0 |
@@ -213,10 +213,10 @@ v0.4+ 实现：
 | `network_domain_id` | ✅ | 所属网域；MVP 默认 `default`，导入时缺失即拒绝 |
 | `source_type` | ✅ | `manual` / `import` / `cmdb {v0.4+}`；MVP 默认 `manual` |
 | `instance_name` | ❌ | 可读实例名；host 模板中必填 |
-| `biz_code` | ✅ | 业务归属不可变编码；经标签模板映射为 `biz` label |
-| `app_name` | ✅* | application / database / middleware 必填；host / generic_target 可空 |
+| `biz_code` | ✅* | 业务归属不可变编码；经标签模板映射为 `biz` label；必填按类型分化（决策 93）：host/db/middleware 可空后补、application 上线后必填、generic\_target 与 app 二选一必填 |
+| `app_code` | ✅* | 应用归属不可变编码（应用字典主键）；经标签模板映射为 `app` label；application / database / middleware 必填；host 可空；generic\_target 与 `biz_code` 二选一必填（决策 95） |
 | `env` | ✅ | 环境 → `env` label |
-| `cluster` | ✅* | 集群/子应用 → `cluster` label；host 场景下 `sub_app_code` 为空时取 `vpc` |
+| `cluster` | ✅* | **集群**（不承载子应用）→ `cluster` label；host 场景下 Excel `sub_app_code` 列（= 本字段）为空时取 `vpc` |
 | `owner` | ❌ | 负责人 |
 | `status` | ✅ | `online` / `offline` / `maintenance` / `orphan {v0.4+}` |
 | `is_monitored` | ❌ | 是否被任意 ScrapeJob 选中；由 Module_01 维护，Module_07 只读映射 |
@@ -277,7 +277,7 @@ v0.4+ 实现：
   - host：`network_domain_id` + `instance_ip`
   - database / middleware / generic_target：`network_domain_id` + `instance_ip` + `port`
   - application：`network_domain_id` + `service_name` + `endpoint`
-- **主机模板最小必填集**：`instance_name`、`hostname`、`instance_ip`、`biz_code`、`env`、`cluster`、`network_domain_id`。
+- **主机模板最小必填集**：`instance_name`、`hostname`、`instance_ip`、`app_code`（承载应用，决策 93）、`biz_code`（**可空后补**，业务应用上线后出现）、`env`、`cluster`、`network_domain_id`。
 - **状态映射**：Excel 中文状态通过可配置字典映射到 `Resource.status`。
 - **定位**：MVP 快速验证；v0.4+ 迁移到外部 CMDB 后，Excel 作为临时补充入口。
 

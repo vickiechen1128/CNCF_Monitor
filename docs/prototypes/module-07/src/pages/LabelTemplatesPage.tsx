@@ -40,6 +40,8 @@ import {
   TENANT_MAPPING_NOTES,
   mockLabelTemplates,
   mockResources,
+  isAppDisabled,
+  resolveAppName,
 } from '../mocks/module-07'
 import type { LabelTemplate, LabelTemplateSource, Mapping, Resource, ResourceCategory, TemplateReferencingJob } from '../mocks/module-07'
 
@@ -173,7 +175,10 @@ export default function LabelTemplatesPage() {
       if (!kw) return true
       // {v2.32} 应用服务类无 instance_ip，地址由 endpoint 承载，搜索需一并覆盖
       const addr = r.resource_category === 'application' ? r.endpoint : r.instance_ip
-      return [r.instance_name, r.hostname, r.app_name, addr].some((t) => (t ?? '').toLowerCase().includes(kw))
+      // {v2.39} 决策 92：应用归属为编码 app_code，搜索同时命中编码与字典应用名
+      return [r.instance_name, r.hostname, r.app_code, resolveAppName(r.app_code), addr].some(
+        (t) => (t ?? '').toLowerCase().includes(kw),
+      )
     })
   }, [selectedTemplate, instanceSearch, instanceStatusFilter])
 
@@ -186,7 +191,17 @@ export default function LabelTemplatesPage() {
       render: (_: unknown, r: Resource) => r.instance_ip || (r.resource_category === 'application' ? r.endpoint : undefined) || '-',
     },
     { title: '环境', dataIndex: 'env', key: 'env', render: (v?: string) => v || '-' },
-    { title: '应用', dataIndex: 'app_name', key: 'app_name', render: (v?: string) => v || '-' },
+    // {v2.39} 决策 92：应用展示字典应用名（缺条目回退编码），停用加「（已停用）」标识
+    {
+      title: '应用',
+      key: 'app_code',
+      render: (_: unknown, r: Resource) =>
+        r.app_code
+          ? isAppDisabled(r.app_code)
+            ? `${resolveAppName(r.app_code)}（已停用）`
+            : resolveAppName(r.app_code)
+          : '-',
+    },
     {
       title: '状态',
       dataIndex: 'status',

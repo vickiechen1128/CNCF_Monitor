@@ -250,7 +250,8 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	// resource CRUD / Excel template & import / resource labels /
 	// import records / label-templates, all under /api/v2/platform/*.
 	businessStore := resource.NewBusinessDomainStore(db.DB)
-	resource.RegisterRoutes(platform, db.DB, businessStore)
+	appStore := resource.NewApplicationDictStore(db.DB)
+	resource.RegisterRoutes(platform, db.DB, businessStore, appStore)
 	label.RegisterRoutes(platform, db.DB)
 
 	// Module 01 (T01-09 收口): 监控策略——采集器模板 + 默认采集配置 + 采集 Job

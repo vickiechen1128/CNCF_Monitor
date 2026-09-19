@@ -6,9 +6,10 @@ import (
 
 // LegacyFieldMap 返回某类型资源「PRD 规范字段名 → 现模型列名」的映射。
 // legacy 映射来源：models/host.go 的访问器（Hostname()=InstanceName、
-// InstanceIP()=PrivateIP、OSType()=Image、GetAppName()=AppCode、
+// InstanceIP()=PrivateIP、OSType()=Image、GetAppCode()=AppCode、
 // GetEnv()=EnvFlag、GetCluster()=SubAppCode），便于 T07-05/06 序列化与
-// T07-13 标签生成复用。
+// T07-13 标签生成复用。决策 92：PRD 规范字段 app_name 已更名为 app_code（资源侧只
+// 存不可变编码），物理列 Host=app_code、其余=app_name 不变。
 func LegacyFieldMap(category ResourceCategory) map[string]string {
 	switch category {
 	case ResourceCategoryHost:
@@ -19,7 +20,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"os_type":           "image",        // Host.OSType() = Image
 			"env":               "env_flag",     // Host.GetEnv() = EnvFlag
 			"cluster":           "sub_app_code", // Host.GetCluster() = SubAppCode
-			"app_name":          "app_code",     // Host.GetAppName() = AppCode
+			"app_code":          "app_code",     // Host.GetAppCode() = AppCode
 			"biz_code":          "biz_code",
 			"network_domain_id": "network_domain_id",
 			"status":            "status",
@@ -29,7 +30,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 	case ResourceCategoryDatabase:
 		return map[string]string{
 			"instance_ip":       "instance_ip",
-			"app_name":          "app_name",
+			"app_code":          "app_name",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -45,7 +46,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 	case ResourceCategoryMiddleware:
 		return map[string]string{
 			"instance_ip":       "instance_ip",
-			"app_name":          "app_name",
+			"app_code":          "app_name",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -65,7 +66,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"protocol":          "protocol",
 			"endpoint":          "endpoint",
 			"port":              "port",
-			"app_name":          "app_name",
+			"app_code":          "app_name",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -83,7 +84,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"metrics_path":      "metrics_path",
 			"scheme":            "scheme",
 			"exporter_type":     "exporter_type",
-			"app_name":          "app_name",
+			"app_code":          "app_name",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -124,8 +125,8 @@ func getHostField(h *Host, field string) (string, bool) {
 		return h.NetworkDomainID, true
 	case "biz_code":
 		return h.BizCode, true
-	case "app_name":
-		return h.GetAppName(), true // legacy: AppCode
+	case "app_code":
+		return h.GetAppCode(), true // app label 取值（Host 物理列 app_code）
 	case "env":
 		return h.GetEnv(), true // legacy: EnvFlag
 	case "cluster":
@@ -152,8 +153,8 @@ func getDatabaseField(d *Database, field string) (string, bool) {
 		return d.NetworkDomainID, true
 	case "biz_code":
 		return d.BizCode, true
-	case "app_name":
-		return d.GetAppName(), true
+	case "app_code":
+		return d.GetAppCode(), true
 	case "cluster":
 		return d.GetCluster(), true
 	case "env":
@@ -184,8 +185,8 @@ func getMiddlewareField(m *Middleware, field string) (string, bool) {
 		return m.NetworkDomainID, true
 	case "biz_code":
 		return m.BizCode, true
-	case "app_name":
-		return m.GetAppName(), true
+	case "app_code":
+		return m.GetAppCode(), true
 	case "cluster":
 		return m.GetCluster(), true
 	case "env":
@@ -216,8 +217,8 @@ func getApplicationField(a *Application, field string) (string, bool) {
 		return a.NetworkDomainID, true
 	case "biz_code":
 		return a.BizCode, true
-	case "app_name":
-		return a.GetAppName(), true
+	case "app_code":
+		return a.GetAppCode(), true
 	case "cluster":
 		return a.GetCluster(), true
 	case "env":
@@ -250,8 +251,8 @@ func getGenericTargetField(g *GenericTarget, field string) (string, bool) {
 		return g.NetworkDomainID, true
 	case "biz_code":
 		return g.BizCode, true
-	case "app_name":
-		return g.GetAppName(), true
+	case "app_code":
+		return g.GetAppCode(), true
 	case "cluster":
 		return g.GetCluster(), true
 	case "env":

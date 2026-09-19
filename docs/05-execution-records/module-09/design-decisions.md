@@ -2404,3 +2404,20 @@ M09 PRD（瘦身 v2.0）、M11 PRD（新建 v0.1）、`Modules/README.md`、`Mod
 - 撤销决策 86 执行顺序中「原型目录拆分」子项；「01_User_Stories §4.9 边界故事清理」仍按需完成。
 - Module_11 PRD 头部「原型版本（待建，`docs/prototypes/module-11/`）」改为共用 module-09 原型；M09 PRD 头部同步改「module-11 迁移复用」措辞。
 - 跨模块契约（NetworkDomain 三家共管 / `config_sync_status` / edge 协议）不因原型与分支合并而改变，仍以 M09 §5.1 与 M11 §8.1 为准。
+
+### 决策 88：MVP 采集器采用 vmagent，引入 VictoriaMetrics 子模块（2026-09-18）
+
+**背景**：M11 阶段 D 边缘 Agent 的采集器（`agent_type` 处）出现名实不一致——supervisor 实战拉起 `prometheus --enable-feature=agent`（prometheus-agent 模式），但中心 `platform/edge/packages_service.go` 组件清单、`internal/contract` 默认 `DefaultAgentType=vmagent`、组件名/测试皆写 `vmagent`。用户确认：M11 PRD 规定 **MVP 版本必须采用 vmagent 路线**。
+
+**决策**：
+- **采集器采用 vmagent**（VictoriaMetrics）：MVP 边缘采集器统一为 vmagent，放弃 prometheus-agent 模式，消除名实不符。
+- **upstream 引入 VictoriaMetrics 子模块**：新增 `upstream/victoria-metrics`（git submodule，VictoriaMetrics 官方仓库），提供 vmagent 编译源；新增 `make build-vmagent` 目标（产物 `platform/...` 或 dist 供阶段 D 打包）。
+- **supervisor 采集器探针改为 vmagent**：`cmd/edge-sync-agent` 的 collector 启动命令从 `prometheus --enable-feature=agent` 改为 vmagent 参数（`-promscrape.config=...` + `-remoteWrite.*` + 本地缓存目录）；存活/健康探活对齐 vmagent（HTTP `/-/reloaded` 或 `/health`）；reload 走 vmagent `/-/reload`。
+- **契约与中心保持一致**：`agent_type=vmagent`、组件名 `vmagent`（与现状一致），离线包下载/`release_meta` 组件清单补入 vmagent 二进制。
+- **引入成本接受**：VictoriaMetrics 为大型第三方仓库（源码 + Go 依赖较多），编译产物较大；作为例外引入 `upstream/` 第三方子模块，遵守「不直接改 upstream 源码，仅作为 build 源」的隔离原则。
+
+**落地对照**：
+- `platform/edge-sync-agent/cmd/edge-sync-agent/main.go`（collector ProcProbe 启动/探活命令）
+- `platform/edge/packages_service.go` + `internal/contract`（组件清单已 vmagent，打包补真实二进制）
+- 根 `Makefile`（`build-vmagent`）、`.gitmodules` + `git submodule add`（VictoriaMetrics）
+- 阶段 E 集成验证在 vmagent 线路下跑通后方为闭环结算。

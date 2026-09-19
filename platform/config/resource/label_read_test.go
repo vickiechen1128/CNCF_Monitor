@@ -139,7 +139,7 @@ func hostLabelReadDefaultTemplate() *models.LabelTemplate {
 		IsDefault:        true,
 		Mappings: []models.LabelMapping{
 			{SourceField: "instance_ip:port", SourceType: models.LabelSourceTypeComposite, TargetLabel: "instance", Enabled: true},
-			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
+			{SourceField: "app_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 			{SourceField: "env", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 			{SourceField: "cluster", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 			{SourceField: "biz_code", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
@@ -209,7 +209,7 @@ func TestGetResourceLabelsSystemComputed(t *testing.T) {
 	app := out.Data.Items[itemIndex(out.Data.Items, "app")]
 	assert.Equal(t, "payment-api", app.Value)
 	assert.Equal(t, "system", app.Source)
-	assert.Equal(t, "app_name→app", app.SourceMap)
+	assert.Equal(t, "app_code→app", app.SourceMap)
 	assert.Zero(t, app.ID, "system 标签实时计算不落库，id 恒为 0（§5.3）")
 
 	biz := out.Data.Items[itemIndex(out.Data.Items, "biz")]

@@ -94,6 +94,9 @@ func (s *BusinessDomainStore) EnabledList() ([]BusinessDomain, error) {
 // GetEnabledMap 返回启用条目映射 code -> BusinessDomain，供资源校验
 // （biz_code 必填且对应启用条目，T07-03/T07-06）。
 func (s *BusinessDomainStore) GetEnabledMap() (map[string]BusinessDomain, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("业务分组字典未初始化：store 为空")
+	}
 	var rows []models.BusinessDomain
 	if err := s.db.Where("enabled = ?", true).Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("查询启用业务分组：%w", err)

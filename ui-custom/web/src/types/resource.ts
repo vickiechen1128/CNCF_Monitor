@@ -60,7 +60,7 @@ export interface Host extends ResourceBaseShape {
 export interface Database extends ResourceBaseShape {
   resource_type: 'database'
   resource_category: 'database'
-  app_name: string | null
+  app_code: string | null
   cluster: string | null
   source_type: 'manual' | 'import' | 'cmdb'
   database_type: string
@@ -73,7 +73,7 @@ export interface Database extends ResourceBaseShape {
 export interface Middleware extends ResourceBaseShape {
   resource_type: 'middleware'
   resource_category: 'middleware'
-  app_name: string
+  app_code: string
   cluster: string
   middleware_type: string
   instance_ip: string
@@ -85,7 +85,7 @@ export interface Middleware extends ResourceBaseShape {
 export interface Application extends ResourceBaseShape {
   resource_type: 'application'
   resource_category: 'application'
-  app_name: string
+  app_code: string
   cluster: string
   service_name: string
   health_check_url: string
@@ -97,7 +97,7 @@ export interface Application extends ResourceBaseShape {
 export interface GenericTarget extends ResourceBaseShape {
   resource_type: 'generic_target'
   resource_category: 'generic_target'
-  app_name: string | null
+  app_code: string | null
   cluster: string | null
   source_type: 'manual' | 'import' | 'cmdb'
   target_name: string
@@ -125,7 +125,7 @@ export interface ResourceCreateBaseShape {
   resource_category: ResourceCategory
   network_domain_id: string
   biz_code: string
-  app_name?: string
+  app_code?: string
   env: string
   cluster?: string
   owner?: string
@@ -188,7 +188,7 @@ export type ResourceCreateInput =
 export interface ResourceUpdateBaseShape {
   network_domain_id?: string
   biz_code?: string
-  app_name?: string
+  app_code?: string
   env?: string
   cluster?: string
   owner?: string
@@ -211,6 +211,17 @@ export interface BusinessDomain {
   enabled: boolean
 }
 
+/**
+ * 应用字典条目（§5.19 / 决策 92）：与业务分组的双层编码同构——
+ * `app_code` 为不可变编码（`app` label 的唯一取值来源），`app_name` 为必填展示名。
+ */
+export interface ApplicationDict {
+  app_code: string
+  app_name: string
+  description?: string
+  status: 'enabled' | 'disabled'
+}
+
 /** 操作系统内置字典条目（os_dict.go，GET /api/v2/platform/os-options）：规范名 + 家族 */
 export interface OSOption {
   name: string
@@ -227,7 +238,7 @@ export interface ResourceLabelItem {
   key: string
   value: string
   source: ResourceLabelSource
-  /** system 标签来源映射标注，如 "app_name→app"（§5.3 联动呈现） */
+  /** system 标签来源映射标注，如 "app_code→app"（§5.3 联动呈现） */
   source_map?: string
 }
 

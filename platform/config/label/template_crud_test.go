@@ -113,7 +113,7 @@ func TestCreateLabelTemplateSuccess(t *testing.T) {
 	db := openCRUDTestDB(t)
 	r := mountCRUD(t, db)
 
-	body := `{"name":"custom-host","resource_category":"host","mappings":[{"source_field":"app_name","source_type":"resource_field","target_label":"app","enabled":true}]}`
+	body := `{"name":"custom-host","resource_category":"host","mappings":[{"source_field":"app_code","source_type":"resource_field","target_label":"app","enabled":true}]}`
 	w := doJSON(t, r, http.MethodPost, "/api/v2/platform/label-templates", body)
 	code, tmpl := decodeTemplate(t, w)
 	require.Equal(t, http.StatusOK, code)
@@ -276,7 +276,7 @@ func TestCloneLabelTemplate(t *testing.T) {
 	db := openCRUDTestDB(t)
 	r := mountCRUD(t, db)
 	srcBody := `{"name":"base-host","resource_category":"host","mappings":[
-		{"source_field":"app_name","source_type":"resource_field","target_label":"app","enabled":true},
+		{"source_field":"app_code","source_type":"resource_field","target_label":"app","enabled":true},
 		{"source_field":"instance_ip:port","source_type":"composite","target_label":"instance","enabled":true}
 	]}`
 	_, src := decodeTemplate(t, doJSON(t, r, http.MethodPost, "/api/v2/platform/label-templates", srcBody))

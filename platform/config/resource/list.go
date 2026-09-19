@@ -15,9 +15,10 @@ import (
 )
 
 // sharedFields 是五类资源列表 item 的共享字段（Module_07 §5.2），即契约段
-// {resource_id, network_domain_id, biz_code, app_name, env, cluster, owner,
+// {resource_id, network_domain_id, biz_code, app_code, env, cluster, owner,
 // status, source_type}。字段值经 T07-03 GetResourceField 读取，host 的 legacy
-// 映射（app_name→AppCode、env→EnvFlag、cluster→SubAppCode 等）已在 helper 内处理。
+// 映射（app_code→AppCode、env→EnvFlag、cluster→SubAppCode 等）已在 helper 内处理
+// （决策 92：资源侧只存 app_code，app_name 为应用字典展示名，不落在资源表上）。
 //
 // resource_id 为跨模块合并键（decision 47-3）：与 M02 `GET /api/v1/health/coverage`
 // 的 item.resource_id 同键，前端据此把三态采集状态 badge 合并到列表行。本接口仅
@@ -26,7 +27,7 @@ var sharedFields = []string{
 	"resource_id",
 	"network_domain_id",
 	"biz_code",
-	"app_name",
+	"app_code",
 	"env",
 	"cluster",
 	"owner",

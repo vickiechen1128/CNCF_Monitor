@@ -15,7 +15,7 @@ export interface ResourceListItem {
   resource_category: ResourceCategory
   network_domain_id: string
   biz_code?: string
-  app_name?: string
+  app_code?: string
   env?: string
   cluster?: string
   owner?: string

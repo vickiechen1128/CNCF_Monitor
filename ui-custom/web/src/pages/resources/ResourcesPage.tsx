@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import config from 'antd/locale/zh_CN'
+import { useSearchParams } from 'react-router-dom'
 import { MainLayout } from '../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
@@ -84,8 +85,20 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   generic_target: '通用目标',
 }
 
-/** 运行状态展示名（Module_07 §5.2 / 决策 32，UI 展示名「运行状态」） */
-const STATUS_MAP: Record<string, string> = {
+/**
+ * 子类取值字段（决策 91 首页 L1 各类型卡的子类口径）：
+ * host=os_type / database=database_type / middleware=middleware_type /
+ * generic_target=exporter_type；application 用 service_name（不设子类，仅供深链兜底）。
+ */
+const SUBTYPE_FIELD: Record<ResourceCategory, keyof ResourceListItem> = {
+  host: 'os_type',
+  database: 'database_type',
+  middleware: 'middleware_type',
+  application: 'service_name',
+  generic_target: 'exporter_type',
+}
+
+/** 运行状态展示名（Module_07 §5.2 / 决策 32，UI 展示名「运行状态」） */const STATUS_MAP: Record<string, string> = {
   online: '在线',
   offline: '离线',
   maintenance: '维护中',
@@ -130,6 +143,23 @@ function resourceDisplayName(record: ResourceListItem): string {
  * 本任务仅占位，接入见对应任务。
  */
 export function ResourcesPage() {
+  /**
+   * 首页下钻深链参数（M05 §3.1 决策 91）：`resource_category` 决定首屏 Tab，
+   * `subtype` / `app_code` 做客户端预筛，`import=1` 直接打开导入弹窗。
+   *
+   * 实现口径：**只在当前页数据上做客户端过滤**，不改后端列表接口契约
+   * （子类字段各类型不同，且 MVP 分页从简，与既有 biz/status 客户端过滤同一模式）。
+   * 用 `useResources(initialCategory)` 与 `useState(初始化函数)` 承接，避免在 effect 里
+   * 同步 setState（react-hooks/set-state-in-effect）。
+   */
+  const [searchParams, setSearchParams] = useSearchParams()
+  const deepLinkCategory = searchParams.get('resource_category') as ResourceCategory | null
+  const deepLinkSubtype = searchParams.get('subtype')
+  const deepLinkAppCode = searchParams.get('app_code')
+  const hasDeepLinkFilter = Boolean(deepLinkSubtype || deepLinkAppCode)
+  const deepLinkInitialCategory =
+    deepLinkCategory && RESOURCE_TYPES.includes(deepLinkCategory) ? deepLinkCategory : undefined
+
   const {
     category,
     setCategory,
@@ -144,7 +174,7 @@ export function ResourcesPage() {
     pageSize,
     onPageSizeChange,
     reload,
-  } = useResources()
+  } = useResources(deepLinkInitialCategory)
 
   const { tokens } = useSkin()
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
@@ -165,6 +195,18 @@ export function ResourcesPage() {
       (r) => (coverageByResource[r.resource_id]?.monitor_state ?? 'not_monitored') === monitorState,
     )
   }, [filteredList, monitorState, coverageByResource])
+
+  /** 深链预筛后的行（无深链参数时与 coveredList 完全一致） */
+  const visibleList = useMemo(() => {
+    let list = coveredList
+    if (deepLinkAppCode) list = list.filter((r) => r.app_code === deepLinkAppCode)
+    if (deepLinkSubtype) {
+      const field = SUBTYPE_FIELD[category]
+      list = list.filter((r) => String(r[field] ?? '') === deepLinkSubtype)
+    }
+    return list
+  }, [coveredList, deepLinkAppCode, deepLinkSubtype, category])
+
   // 资源新增/编辑抽屉（T07-F4）：复用 create/edit 双模式，编辑态携带行 record
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('create')
@@ -173,7 +215,8 @@ export function ResourcesPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailRecord, setDetailRecord] = useState<ResourceListItem | null>(null)
   // Excel 导入弹窗（T07-F5）：模板下载 + 上传 + 结果展示；导入记录面板入口
-  const [importOpen, setImportOpen] = useState(false)
+  // `import=1` 深链（决策 91）在首屏即展开，用初始化函数而非 effect 承接
+  const [importOpen, setImportOpen] = useState(() => searchParams.get('import') === '1')
   const [recordsOpen, setRecordsOpen] = useState(false)
 
   useEffect(() => {
@@ -355,7 +398,7 @@ export function ResourcesPage() {
             key: 'app_env_cluster',
             render: (_: unknown, record: ResourceListItem) => (
               <Space wrap size={4}>
-                {record.app_name && <Tag>{record.app_name}</Tag>}
+                {record.app_code && <Tag>{record.app_code}</Tag>}
                 {record.env && <Tag color="blue">{record.env}</Tag>}
                 {record.cluster && <Tag color="purple">{record.cluster}</Tag>}
               </Space>
@@ -590,9 +633,33 @@ export function ResourcesPage() {
               style={{ marginBottom: 16 }}
             />
 
+            {/* 下钻来源提示（决策 91）：从首页子类行 / 应用行跳转而来时说明筛选条件，
+                并提供一键清除（清除后回落到本页自己的筛选条件，不做导航）。 */}
+            {hasDeepLinkFilter && (
+              <div data-testid="deep-link-hint" style={{ marginBottom: 12 }}>
+                <Alert
+                  type="info"
+                  showIcon
+                  message={
+                    <span>
+                      已按首页下钻条件预筛选：
+                      {deepLinkAppCode ? ` 应用 ${deepLinkAppCode}` : ''}
+                      {deepLinkSubtype ? ` 子类 ${deepLinkSubtype}` : ''}
+                      （共 {visibleList.length} 条）
+                    </span>
+                  }
+                  action={
+                    <Button size="small" type="link" onClick={() => setSearchParams({})}>
+                      清除
+                    </Button>
+                  }
+                />
+              </div>
+            )}
+
             <Table<ResourceListItem>
               rowKey="resource_id"
-              dataSource={coveredList}
+              dataSource={visibleList}
               loading={loading || coverageLoading}
               columns={buildColumns(category)}
               size="small"
