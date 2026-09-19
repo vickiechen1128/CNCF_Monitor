@@ -183,10 +183,10 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
         <Button icon={<DownloadOutlined />} loading={downloading} onClick={handleDownloadTemplate}>
           下载模板
         </Button>
-        {/* F-5：关键句 strong 前置可扫读，次要说明保留 secondary 小字 */}
+        {/* F-5：关键句 strong 前置可扫读，次要说明保留 secondary 小字；F-7-④：旧模板提示补用户语言 */}
         <Text style={{ fontSize: 13 }}>
           <Text strong>请下载最新模板，按固定列填写后上传</Text>
-          ——模板随版本更新，旧模板可能缺列导致导入报错。
+          ——若你正在使用旧模板，可能缺少最新字段或字典值，请下载最新模板后填写。
         </Text>
         <Text type="secondary" style={{ fontSize: 12 }}>
           模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 环境 / 状态等列的合法值清单。

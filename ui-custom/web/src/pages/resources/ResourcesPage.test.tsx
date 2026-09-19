@@ -551,25 +551,65 @@ describe('ResourcesPage', () => {
     }
   })
 
-  // F-4：拆分「下载模板」与「Excel 导入」两条动线——工具栏「下载模板」打开独立模板 Modal
-  it('F-4：工具栏「下载模板」打开独立模板下载 Modal（列清单 + 演进提示）', async () => {
+  // F-4/F-7：工具栏「下载模板」打开独立模板 Modal——用户语言三问 + 当前业务/应用可选值直显 + 演进提示
+  it('F-4/F-7：工具栏「下载模板」打开模板下载 Modal（用户语言 + 当前可选值 + 演进提示，无黑话/技术列名）', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await screen.findByText('暂无资源')
     // 工具栏与空态各有一个「下载模板」按钮，取工具栏（第一个）
     fireEvent.click(screen.getAllByRole('button', { name: /下载模板/ })[0])
-    // 模板 Modal 标题 + 列清单表格 + 模板演进提示 Alert
+    // 模板 Modal 标题 + 用户语言三问 + 模板演进提示 Alert
     expect(await screen.findByText('下载模板 - 主机')).toBeInTheDocument()
-    expect(screen.getByText('列顺序')).toBeInTheDocument()
-    expect(screen.getByText('列名')).toBeInTheDocument()
+    expect(screen.getByText('这模板怎么填')).toBeInTheDocument()
+    expect(screen.getByText('每列能填什么值')).toBeInTheDocument()
     expect(screen.getByText(/模板会随版本更新/)).toBeInTheDocument()
-    // host 固定列清单（对齐后端 TemplateColumns）
-    expect(screen.getByText('network_domain')).toBeInTheDocument()
-    expect(screen.getByText('instance_name')).toBeInTheDocument()
-    expect(screen.getByText('env')).toBeInTheDocument()
-    expect(screen.getByText('cluster')).toBeInTheDocument()
+    // F-7-②：字典为空（默认 mock）→ 空态占位 + 声明表引导（用户语言）
+    expect(screen.getByText(/暂无已登记业务/)).toBeInTheDocument()
+    expect(screen.getByText(/暂无已登记应用/)).toBeInTheDocument()
+    // F-7-③：技术列名清单与设计黑话已删除
+    expect(screen.queryByText('列顺序')).toBeNull()
+    expect(screen.queryByText('os_type')).toBeNull()
+    expect(screen.queryByText('biz_code')).toBeNull()
+    expect(screen.queryByText('取值说明')).toBeNull()
+    expect(screen.queryByText('固定列模板')).toBeNull()
+    expect(screen.queryByText('决策 97')).toBeNull()
     // 不打开 Excel 导入弹窗
     expect(screen.queryByText('Excel 导入 - 主机')).toBeNull()
+  })
+
+  // F-7-②：模板 Modal 直显页面已加载的业务/应用字典启用条目（决策 92/96 正交两维）
+  it('F-7-②：模板 Modal 直显当前业务/应用字典启用条目（停用不展示）', async () => {
+    businessDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { code: 'infra', name: '公共基础设施', enabled: true },
+          { code: 'legacy', name: '已下线业务', enabled: false },
+        ],
+        total: 2,
+      },
+    })
+    applicationDictListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { app_code: 'order', app_name: '订单服务', status: 'enabled' },
+          { app_code: 'old-app', app_name: '已停用应用', status: 'disabled' },
+        ],
+        total: 2,
+      },
+    })
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getAllByRole('button', { name: /下载模板/ })[0])
+    await screen.findByText('下载模板 - 主机')
+    // 启用条目以「名称」直显（业务/应用两面板）
+    expect(await screen.findByText('公共基础设施')).toBeInTheDocument()
+    expect(screen.getByText('订单服务')).toBeInTheDocument()
+    // 停用条目不展示
+    expect(screen.queryByText('已下线业务')).toBeNull()
+    expect(screen.queryByText('已停用应用')).toBeNull()
   })
 
   it('F-4：模板 Modal 内「下载模板」按钮触发 resourceApi.template', async () => {

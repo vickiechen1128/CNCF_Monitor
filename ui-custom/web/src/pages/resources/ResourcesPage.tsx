@@ -774,11 +774,13 @@ export function ResourcesPage() {
         onCancel={() => setImportOpen(false)}
         onSuccess={reload}
       />
-      {/* F-4：模板下载弹窗（列清单 + 模板演进提示 + 下载），与 Excel 导入动线分离 */}
+      {/* F-4/F-7：模板下载弹窗（用户语言三问 + 当前业务/应用可选值直显 + 演进提示 + 下载），与 Excel 导入动线分离 */}
       <TemplateDownloadModal
         open={templateOpen}
         category={category}
         onCancel={() => setTemplateOpen(false)}
+        businessDomains={businessDomains}
+        applicationDomains={applicationDomains}
       />
       {/* T07-F5：导入记录面板（列表筛选/分页/详情；空态引导打开 ImportModal） */}
       <Modal
