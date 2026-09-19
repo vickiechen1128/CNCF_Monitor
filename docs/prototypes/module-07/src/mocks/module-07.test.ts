@@ -38,6 +38,8 @@ import {
   DEVICE_ENDPOINT_PRESETS,
   endpointTypeLabel,
   RESOURCE_TYPE_MAP,
+  // {v2.40} 决策 93 / 95：业务与应用二选一必填判定
+  isAppOrBizRequired,
 } from './module-07'
 import type { ResourceCategory } from './module-07'
 
@@ -108,6 +110,28 @@ describe('module-07 mocks（对齐 PRD v2.36）', () => {
 
   it('业务字典含停用条目（决策 48：停用不删除，演示「业务名（已停用）」标识）', () => {
     expect(mockBusinessDomains.some((d) => d.status === 'disabled')).toBe(true)
+  })
+
+  // {v2.40} 决策 93 / 95：业务与应用正交两维建模
+  it('二选一判定：app_code 或 biz_code 至少填一个（决策 95，generic_target 口径）', () => {
+    expect(isAppOrBizRequired(undefined, undefined)).toBe(false)
+    expect(isAppOrBizRequired('order-service', undefined)).toBe(true)
+    expect(isAppOrBizRequired(undefined, 'order')).toBe(true)
+    expect(isAppOrBizRequired('order-service', 'order')).toBe(true)
+  })
+
+  it('决策 93：存在 host 静态资源 biz_code 可空后补展示（承载 app、业务待上线再补）', () => {
+    const hostWithoutBiz = mockResources.filter(isHostResource).filter((r) => !r.biz_code)
+    expect(hostWithoutBiz.length).toBeGreaterThan(0)
+    // 可空后补仅影响 biz_code，不强制同时清空 app_code
+    const hasApp = hostWithoutBiz.some((r) => r.biz_code == null && !!r.app_code)
+    expect(hasApp).toBe(true)
+  })
+
+  it('决策 95：generic_target 资源均满足业务 / 应用至少填一个', () => {
+    mockResources.filter(isGenericTargetResource).forEach((r) => {
+      expect(isAppOrBizRequired(r.app_code, r.biz_code)).toBe(true)
+    })
   })
 
   it('资源 env 取值均在 dev/test/staging/prod 枚举内（PRD 7.2）', () => {

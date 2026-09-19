@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.39
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.40
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.39
+> **原型版本**: v2.40
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,14 @@
 > ```
 >
 > **访问地址**: http://localhost:5174/
+
+## v2.40 变更说明（业务与应用正交两维建模，决策 93/94/95/96，2026-09-19）
+
+1. **决策 93：`biz_code` 必填口径按类型分化**（由全类型必填改为分化）：application 必填；host / database / middleware 可空后补（静态资源登记时承载**应用**而非**业务**，业务待应用上线后再补，为空不注入 `biz` 标签）；表单「业务」字段 extra 与校验随类型切换；mock 中 `res-host-003`（test-gateway-01）已置空 `biz_code` 演示「可空后补」（详情 / 列表业务列空值显示 `-`）。
+2. **决策 94：database / middleware 的多 schema → 多应用 1:N 归属延后 {v0.2+}**：MVP 维持「1 实例=1 行资源=1 个主 `app_code`」，表单「应用」字段 extra 注明「多库 / 多 schema 分属多应用为 {v0.2+}，MVP 每次仅选一个主应用」，已登记跨 M01 / M09 契约。
+3. **决策 95：generic_target 的 app / biz 二选一必填**：表单「应用」「业务」两字段对「其他监控目标」均改为**跨字段校验「至少填一个」**（两者皆空时报「业务与应用至少填一个」，填其一即通过）；新增 `isAppOrBizRequired` 判定 helper；导入校验与详情展示口径同步。
+4. **决策 96：应用字典不加父级 `biz_code`**：业务与应用为 M:N 正交两维，应用字典（§5.19）不设父级业务编码，应用管理页无父子层级呈现（决策 92 应用双层编码 / 字典红线不动）。
+5. **mock 与测试**：新增 `isAppOrBizRequired` helper；单测新增 3 条（二选一判定 / host 可空后补 / generic_target 均满足至少填一个）；`package.json` 2.39.0→2.40.0；ReviewNote 补决策 93/94/95/96 条目。
 
 ## v2.39 变更说明（应用双层编码 + 应用字典，决策 92，2026-09-19）
 

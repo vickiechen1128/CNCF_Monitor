@@ -413,6 +413,15 @@ export function isBizDisabled(code?: string): boolean {
 /** 业务编码规范（决策 48）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
 export const BIZ_CODE_RE = /^[a-z0-9-]{1,64}$/
 
+/**
+ * {v2.40} 决策 93 / 95 业务与应用二选一必填判定：
+ * generic_target 的 app_code / biz_code「至少填一个」；其余类型回归单字段必填口径。
+ * host / database / middleware 的 biz_code 可空后补（决策 93）。
+ */
+export function isAppOrBizRequired(appCode?: string, bizCode?: string): boolean {
+  return !!appCode || !!bizCode
+}
+
 // ---------- 应用字典（PRD 5.19 / 决策 92） ----------
 // 与业务分组字典（5.18）同构：code 不可变 + 展示名必填 + 停用不删除。
 // 粒度差异：`biz` 回答「服务谁」（业务域聚合），`app` 回答「属于哪个应用」（应用实例级聚合）。
@@ -767,7 +776,7 @@ export const mockResources: Resource[] = [
     network_domain_id: 'gov-cloud-a',
     source_type: 'manual',
     instance_name: 'test-gateway-01',
-    biz_code: 'infra',
+    // {v2.40} 决策 93 host 可空后补：静态资源登记时承载应用（app_code）、业务（biz_code）待应用上线后再补，biz 标签暂不注入
     hostname: 'test-gateway-01.volc',
     instance_ip: '192.168.1.31',
     os_type: 'Linux',
