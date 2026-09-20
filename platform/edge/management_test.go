@@ -334,7 +334,7 @@ func TestListPackagesFields(t *testing.T) {
 	for _, p := range pkgs {
 		assert.NotEmpty(t, p.ID)
 		assert.NotEmpty(t, p.Version)
-		assert.Equal(t, offlinePackageDownloadPath, p.DownloadURL)
+		assert.Equal(t, offlinePackageDownloadPathFor(p.Version), p.DownloadURL, "各包 download_url 指向自身版本")
 		assert.Equal(t, 64, len(p.Sha256), "sha256 应为 64 位十六进制")
 		assert.Greater(t, p.SizeBytes, int64(0))
 		// 包清单三组件。
@@ -359,7 +359,7 @@ func TestLatestPackageIsMaxVersion(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "v0.2.0", latest.Version)
 	assert.NotEmpty(t, latest.Sha256)
-	assert.Equal(t, offlinePackageDownloadPath, latest.DownloadURL)
+	assert.Equal(t, offlinePackageDownloadPathFor("v0.2.0"), latest.DownloadURL, "最新包 download_url 指向自身版本")
 }
 
 func TestDownloadLatestPackageHandlerServesZip(t *testing.T) {
@@ -398,4 +398,75 @@ func mustLatestArtifact(t *testing.T) PackageArtifact {
 	a, err := LatestPackage()
 	require.NoError(t, err)
 	return a
+}
+
+// ---- T11-20 指定版本离线包下载 ----
+
+func TestFindPackageByVersion(t *testing.T) {
+	// 命中。
+	art, err := FindPackage("v0.1.0")
+	require.NoError(t, err)
+	assert.Equal(t, "v0.1.0", art.Version)
+	assert.Equal(t, offlinePackageDownloadPathFor("v0.1.0"), art.DownloadURL)
+	assert.NotEmpty(t, art.Sha256)
+	assert.Greater(t, art.SizeBytes, int64(0))
+
+	// 未命中 → ErrPackageNotFound。
+	_, err = FindPackage("v9.9.9")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPackageNotFound)
+}
+
+func TestDownloadPackageHandlerServesZipForVersion(t *testing.T) {
+	r := newManagementRouter(newEdgeTestDB(t))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+		"/api/v2/platform/edge-packages/v0.1.0/download", nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
+	assert.Equal(t, `attachment; filename="edge-agent-offline-v0.1.0.zip"`, w.Header().Get("Content-Disposition"))
+
+	sha := w.Header().Get("X-Checksum-Sha256")
+	assert.Equal(t, sha, trimETag(w.Header().Get("ETag")), "ETag 携带整包 sha256")
+
+	// zip 可读，metadata.json 版本为请求的 v0.1.0。
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	require.NoError(t, err)
+	var version string
+	for _, f := range zr.File {
+		if f.Name == "metadata.json" {
+			rc, err := f.Open()
+			require.NoError(t, err)
+			var meta struct {
+				Version string `json:"version"`
+			}
+			require.NoError(t, json.NewDecoder(rc).Decode(&meta))
+			require.NoError(t, rc.Close())
+			version = meta.Version
+		}
+	}
+	assert.Equal(t, "v0.1.0", version, "zip 内 metadata 版本应与请求一致")
+
+	// 整包 sha256 与按版本重建一致（可复算）。
+	a, err := FindPackage("v0.1.0")
+	require.NoError(t, err)
+	_, recomputed, err := buildOfflinePackageZip(a)
+	require.NoError(t, err)
+	assert.Equal(t, recomputed, sha)
+}
+
+func TestDownloadPackageHandlerUnknownVersionReturns404(t *testing.T) {
+	r := newManagementRouter(newEdgeTestDB(t))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+		"/api/v2/platform/edge-packages/v9.9.9/download", nil))
+	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+
+	var resp struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "error", resp.Status)
+	assert.Equal(t, "not_found", resp.ErrorType)
 }

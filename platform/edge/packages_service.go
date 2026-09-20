@@ -46,6 +46,12 @@ type PackageArtifact struct {
 // 管理面下载同源（区别于 edge 协议配置包需要绝对地址给外部 Agent 拉取），前端可直接拼接。
 const offlinePackageDownloadPath = "/api/v2/platform/edge-packages/latest/download"
 
+// offlinePackageDownloadPathFor 返回指定版本的相对下载地址（契约 §2：
+// /api/v2/platform/edge-packages/<version>/download）。
+func offlinePackageDownloadPathFor(version string) string {
+	return "/api/v2/platform/edge-packages/" + version + "/download"
+}
+
 // 可发布的离线包集合（MVPT 交付包元数据）。version 升级必选「v0.x.y 同格式」以便字典序可比。
 var packageRegistry = []PackageArtifact{
 	{
@@ -92,7 +98,7 @@ func resolveArtifact(art PackageArtifact) (PackageArtifact, error) {
 	}
 	art.SizeBytes = int64(len(zipData))
 	art.Sha256 = sha
-	art.DownloadURL = offlinePackageDownloadPath
+	art.DownloadURL = offlinePackageDownloadPathFor(art.Version)
 	return art, nil
 }
 
@@ -114,6 +120,19 @@ func ListPackages() ([]PackageArtifact, error) {
 
 // ErrNoPackage 表示无可发布离线包。
 var ErrNoPackage = errors.New("no edge offline package available")
+
+// ErrPackageNotFound 表示未找到指定版本的离线包。
+var ErrPackageNotFound = errors.New("edge offline package not found")
+
+// FindPackage 按版本精确匹配返回指定的离线包（填充整包元数据）；未命中返回 ErrPackageNotFound。
+func FindPackage(version string) (PackageArtifact, error) {
+	for _, a := range packageRegistry {
+		if a.Version == version {
+			return resolveArtifact(a)
+		}
+	}
+	return PackageArtifact{}, ErrPackageNotFound
+}
 
 // LatestPackage 返回版本号最大的离线包（填充整包元数据）。
 func LatestPackage() (PackageArtifact, error) {

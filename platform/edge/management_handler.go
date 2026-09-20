@@ -36,6 +36,9 @@ func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	pk := platform.Group("/edge-packages")
 	pk.GET("", ListPackagesHandler())
 	pk.GET("/latest/download", DownloadLatestPackageHandler())
+	// 静态路由 /latest/download 优先于参数路由 /:version/download（Gin 树优先静态节点），
+	// 因此 latest 路由行为不变（契约 §2：保留 /latest/download）。
+	pk.GET("/:version/download", DownloadPackageHandler())
 }
 
 // RetireDomainHandler 处理 DELETE /api/v2/platform/network-domains/:id/monitor。
@@ -123,15 +126,38 @@ func DownloadLatestPackageHandler() gin.HandlerFunc {
 			response.InternalServerError(c, err)
 			return
 		}
-		zipData, sha, err := buildOfflinePackageZip(art)
+		servePackageZip(c, art)
+	}
+}
+
+// DownloadPackageHandler 处理 GET /api/v2/platform/edge-packages/:version/download。
+// 未找到指定版本返回 404（契约 §2）。
+func DownloadPackageHandler() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		art, err := FindPackage(c.Param("version"))
 		if err != nil {
+			if errors.Is(err, ErrPackageNotFound) {
+				response.NotFound(c, err.Error())
+				return
+			}
 			response.InternalServerError(c, err)
 			return
 		}
-		c.Header("Content-Type", "application/zip")
-		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="edge-agent-offline-%s.zip"`, art.Version))
-		c.Header("ETag", `"`+sha+`"`)
-		c.Header("X-Checksum-Sha256", sha)
-		c.Data(http.StatusOK, "application/zip", zipData)
+		servePackageZip(c, art)
 	}
+}
+
+// servePackageZip 输出离线包 zip（latest 与按版本下载复用同一响应格式）：
+// Content-Type application/zip、Content-Disposition、ETag、X-Checksum-Sha256。
+func servePackageZip(c *gin.Context, art PackageArtifact) {
+	zipData, sha, err := buildOfflinePackageZip(art)
+	if err != nil {
+		response.InternalServerError(c, err)
+		return
+	}
+	c.Header("Content-Type", "application/zip")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="edge-agent-offline-%s.zip"`, art.Version))
+	c.Header("ETag", `"`+sha+`"`)
+	c.Header("X-Checksum-Sha256", sha)
+	c.Data(http.StatusOK, "application/zip", zipData)
 }
