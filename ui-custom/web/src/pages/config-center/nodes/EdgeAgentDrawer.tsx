@@ -1,31 +1,31 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Alert, Badge, Button, Descriptions, Drawer, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { AgentView, EdgeComponent } from '../../../types/edge'
+import type { EdgePackage } from '../../../types/config-center'
 import { edgePackageApi } from '../../../api/edgePackages'
 import {
   HIGH_RISK_COMPONENT_STATUS,
   agentStatusBadgeStatus,
   agentStatusLabel,
+  compareVersions,
   componentStatusColor,
   componentStatusLabel,
   componentTypeLabel,
   configSyncStatusBadgeStatus,
   configSyncStatusLabel,
   formatBacklogBytes,
-  latestPackageVersion,
   outOfSyncCauseAction,
   outOfSyncCauseHint,
 } from './edgeConstants'
 
 const { Text } = Typography
 
-/** 版本差异可升级判定结果 */
-function getUpgradeHint(componentVersion: string, latest: string | null): boolean {
-  if (!latest || !componentVersion) return false
-  const toNum = (v: string) => Number(v.replace(/^v/, '').replace(/\./g, '')) || 0
-  return toNum(latest) > toNum(componentVersion)
+/** 版本差异可升级判定：组件版本 < 离线包内 vmagent 组件最新版本（同 namespace 比较） */
+function isUpgradeNeeded(componentVersion: string | undefined, latestCollector: string | null): boolean {
+  if (!componentVersion || !latestCollector) return false
+  return compareVersions(componentVersion, latestCollector) < 0
 }
 
 interface EdgeAgentDrawerProps {
@@ -44,7 +44,7 @@ interface EdgeAgentDrawerProps {
  */
 export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) {
   const navigate = useNavigate()
-  const [latestVersion, setLatestVersion] = useState<string | null>(null)
+  const [packages, setPackages] = useState<EdgePackage[]>([])
 
   // 拉取离线包清单做「可升级」判定（异步回调内 setState）；失败静默，不阻塞抽屉
   useEffect(() => {
@@ -53,24 +53,35 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
       .list()
       .then((res) => {
         if (cancelled) return
-        const pkgs = Array.isArray(res.data) ? (res.data as Array<{ version: string }>) : (res.data as { packages?: Array<{ version: string }> } | undefined)?.packages ?? []
-        setLatestVersion(latestPackageVersion(pkgs.map((p) => p.version)))
+        setPackages(res.data ?? [])
       })
       .catch(() => {
-        if (!cancelled) setLatestVersion(null)
+        if (!cancelled) setPackages([])
       })
     return () => {
       cancelled = true
     }
   }, [])
 
+  // 离线包内 vmagent 组件最新版本（与节点 collector_version 同 namespace 比较，避免跨空间误判）
+  const latestCollectorVersion = useMemo(() => {
+    const versions: string[] = []
+    for (const pkg of packages) {
+      const core = pkg.components.find((c) => c.name === 'vmagent')
+      if (core?.version) versions.push(core.version)
+    }
+    return versions.length === 0
+      ? null
+      : versions.reduce((a, b) => (compareVersions(a, b) > 0 ? a : b))
+  }, [packages])
+
   if (!agent) return null
 
   const highRiskComponents = (agent.components ?? []).filter((c) => HIGH_RISK_COMPONENT_STATUS.includes(c.status))
-  const needsUpgrade = (version?: string) => getUpgradeHint(version ?? '', latestVersion ?? '')
+  const needsUpgrade = isUpgradeNeeded(agent.collector_version ?? '', latestCollectorVersion)
 
-  const handleCauseAction = (cause: keyof typeof outOfSyncCauseAction) => {
-    const action = outOfSyncCauseAction[cause]
+  const handleCauseAction = (cause: keyof typeof outOfSyncCauseAction | undefined) => {
+    const action = cause ? outOfSyncCauseAction[cause] : null
     if (action && action.target) {
       navigate(action.target)
       onClose()
@@ -190,7 +201,7 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
       </Descriptions>
 
       <Text strong style={{ display: 'block', marginBottom: 8 }}>
-        组件清单{needsUpgrade(agent.collector_version) && (
+        组件清单{needsUpgrade && (
           <Tag color="orange" style={{ marginInlineStart: 8 }}>可升级</Tag>
         )}
       </Text>

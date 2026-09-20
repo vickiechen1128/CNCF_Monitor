@@ -55,7 +55,7 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
   })
 
   it('渲染节点概览 + 组件清单（类型/状态/版本/配置版本）', async () => {
-    listPackagesMock.mockResolvedValue({ status: 'success', data: { packages: [] } })
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
     renderDrawer(baseAgent())
 
     expect(screen.getByText('edge01')).toBeInTheDocument()
@@ -67,7 +67,7 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
   })
 
   it('高危组件（crash_loop）渲染顶部高危横幅', async () => {
-    listPackagesMock.mockResolvedValue({ status: 'success', data: { packages: [] } })
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
     renderDrawer(
       baseAgent({ components: [{ type: 'collector', name: 'vmagent', status: 'crash_loop', version: 'v1.101.0' }] }),
     )
@@ -78,10 +78,10 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
   })
 
   it('配置同步 out_of_sync + pending_draft：显示引导按钮并跳转 /config-preview', async () => {
-    listPackagesMock.mockResolvedValue({ status: 'success', data: { packages: [] } })
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
     renderDrawer(
       baseAgent({
-        status: 'partial',
+        status: 'online',
         config_sync_status: 'out_of_sync',
         out_of_sync_cause: 'pending_draft',
       }),
@@ -92,9 +92,9 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
   })
 
   it('配置同步 out_of_sync + local_reset：点「重新同步」走消息而非跳转', async () => {
-    listPackagesMock.mockResolvedValue({ status: 'success', data: { packages: [] } })
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
     renderDrawer(
-      baseAgent({ status: 'partial', config_sync_status: 'out_of_sync', out_of_sync_cause: 'local_reset' }),
+      baseAgent({ status: 'online', config_sync_status: 'out_of_sync', out_of_sync_cause: 'local_reset' }),
     )
 
     fireEvent.click(screen.getByRole('button', { name: /重新同步/ }))
@@ -102,20 +102,24 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
-  it('collector_version 低于离线包 latest 版本时显示「可升级」', async () => {
+  it('collector_version 低于离线包内 vmagent 组件版本时显示「可升级」（同 namespace）', async () => {
     listPackagesMock.mockResolvedValue({
       status: 'success',
-      data: { packages: [{ version: 'v1.200.0' }] },
+      data: [
+        { id: 'release-v0.2.0', version: 'v0.2.0', components: [{ name: 'vmagent', version: 'v1.200.0' }] },
+      ],
     })
     renderDrawer(baseAgent({ collector_version: 'v1.101.0' }))
 
     expect(await screen.findByText('可升级')).toBeInTheDocument()
   })
 
-  it('已是最新版本时不显示「可升级」', async () => {
+  it('已是最新版本（collector === 离线包 vmagent 组件版本）时不显示「可升级」', async () => {
     listPackagesMock.mockResolvedValue({
       status: 'success',
-      data: { packages: [{ version: 'v1.101.0' }] },
+      data: [
+        { id: 'release-v0.2.0', version: 'v0.2.0', components: [{ name: 'vmagent', version: 'v1.101.0' }] },
+      ],
     })
     renderDrawer(baseAgent({ collector_version: 'v1.101.0' }))
 

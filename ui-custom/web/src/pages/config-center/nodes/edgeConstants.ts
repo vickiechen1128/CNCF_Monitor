@@ -12,18 +12,18 @@ import type {
   OutOfSyncCause,
 } from '../../../types/edge'
 
-/** 节点存活状态展示名与颜色 */
+/** 节点存活状态展示名与颜色（与 AgentStatus 完全对齐：online/offline/unknown/retired；partial 由采集器异常派生，经 overall 呈现） */
 export const agentStatusLabel: Record<AgentStatus, string> = {
   online: '在线',
-  partial: '部分异常',
   offline: '离线',
+  unknown: '未知',
   retired: '已退纳',
 }
 
 export const agentStatusBadgeStatus: Record<AgentStatus, 'success' | 'processing' | 'error' | 'default'> = {
   online: 'success',
-  partial: 'processing',
   offline: 'error',
+  unknown: 'default',
   retired: 'default',
 }
 

@@ -92,7 +92,7 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
   it('渲染标题与三档聚合统计（正常/部分异常/离线/总数）', async () => {
     const agents: AgentView[] = [
       agentRow(1, 'edge01'),
-      agentRow(2, 'edge02', { status: 'partial' }),
+      agentRow(2, 'edge02', { status: 'online' }),
     ]
     const summary: EdgeAgentsSummary = { total: 2, online: 1, partial: 1, offline: 0 }
     useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary }))
@@ -121,7 +121,7 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
 
   it('out_of_sync + pending_draft 成因给出「前往配置确认」引导按钮（跳转 /config-preview）', async () => {
     const agents: AgentView[] = [
-      agentRow(1, 'edge01', { status: 'partial', config_sync_status: 'out_of_sync', out_of_sync_cause: 'pending_draft' }),
+      agentRow(1, 'edge01', { status: 'online', config_sync_status: 'out_of_sync', out_of_sync_cause: 'pending_draft' }),
     ]
     useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 1, online: 0, partial: 1, offline: 0 } }))
     renderPage()

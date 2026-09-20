@@ -61,36 +61,16 @@ describe('edgeAgents API（M11 §1）', () => {
     ],
   }
 
-  it('edgeAgentsApi.list GETs /edge-agents with five-dim filter params', async () => {
+  it('edgeAgentsApi.list GETs /edge-agents（无查询参数，筛选走客户端兜底）', async () => {
     mockFetch({ status: 'success', data: responseBody })
 
-    await edgeAgentsApi.list({
-      network_domain_id: 'gov-cloud-a',
-      overall: 'partial',
-      collector_status: 'crash_loop',
-      blackbox_status: 'running',
-      config_sync_status: 'out_of_sync',
-    })
+    await edgeAgentsApi.list()
 
     const url = lastUrlInstance()
     expect(url.pathname).toBe('/api/v2/platform/edge-agents')
     expect(lastFetchCall()[1]?.method).toBe('GET')
-    expect(url.searchParams.get('network_domain_id')).toBe('gov-cloud-a')
-    expect(url.searchParams.get('overall')).toBe('partial')
-    expect(url.searchParams.get('collector_status')).toBe('crash_loop')
-    expect(url.searchParams.get('blackbox_status')).toBe('running')
-    expect(url.searchParams.get('config_sync_status')).toBe('out_of_sync')
-  })
-
-  it('edgeAgentsApi.list drops empty filter params', async () => {
-    mockFetch({ status: 'success', data: responseBody })
-
-    await edgeAgentsApi.list({ network_domain_id: undefined, overall: '', collector_status: '' })
-
-    const url = lastUrlInstance()
-    expect(url.searchParams.has('overall')).toBe(false)
-    expect(url.searchParams.has('collector_status')).toBe(false)
-    expect(url.searchParams.has('network_domain_id')).toBe(false)
+    // MVP 后端不消费筛选 query，list 为无参拉取；五维筛选在 useEdgeAgents 客户端过滤兜底
+    expect(url.search).toBe('')
   })
 
   it('edgeAgentsApi.list parses data: overall + summary + agents', async () => {

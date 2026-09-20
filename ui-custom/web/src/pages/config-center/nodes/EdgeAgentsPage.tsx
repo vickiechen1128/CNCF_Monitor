@@ -39,8 +39,8 @@ import {
 
 const { Text } = Typography
 
-/** 整体状态筛选选项（按节点存活视角 AgentStatus） */
-const OVERALL_OPTIONS = (['online', 'partial', 'offline', 'retired'] as const).map((s) => ({
+/** 整体状态筛选选项（按节点存活视角 AgentStatus；partial 为整体聚合档不作为 per-agent 筛选项） */
+const OVERALL_OPTIONS = (['online', 'offline', 'unknown', 'retired'] as const).map((s) => ({
   value: s,
   label: agentStatusLabel[s],
 }))
@@ -243,7 +243,7 @@ export function EdgeAgentsPage() {
             <Alert
               type="info"
               showIcon
-              message={filters.network_domain_id ? `已按网域「${filters.network_domain_id}」预筛（来自深链）` : '已启用筛选'}
+              message={filters.network_domain_id ? `已按网域「${filters.network_domain_id}」预筛（跳转自网域纳管页）` : '已启用筛选'}
               action={<Button size="small" onClick={resetFilters}>退出筛选</Button>}
               style={{ marginBottom: 16 }}
             />

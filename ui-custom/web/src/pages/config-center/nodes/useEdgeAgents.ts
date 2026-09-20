@@ -95,8 +95,8 @@ export function useEdgeAgents(deepLinkDomain?: string): UseEdgeAgentsResult {
       (a) =>
         (!filters.network_domain_id || a.network_domain_id === filters.network_domain_id) &&
         (!filters.overall || a.status === filters.overall) &&
-        hasComponentOfStatus(a, 'collector', filters.collector_status) &&
-        hasComponentOfStatus(a, 'blackbox_exporter', filters.blackbox_status) &&
+        hasComponentOfStatus(a, 'collector', filters.collector_status ?? '') &&
+        hasComponentOfStatus(a, 'blackbox_exporter', filters.blackbox_status ?? '') &&
         (!filters.config_sync_status || a.config_sync_status === filters.config_sync_status),
     )
   }, [rawAgents, filters])
