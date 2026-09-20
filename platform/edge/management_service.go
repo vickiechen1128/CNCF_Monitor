@@ -73,44 +73,44 @@ func RetireDomain(db *gorm.DB, id string) (*models.NetworkDomain, error) {
 
 // AgentView 是 edge-agents 列表 / 详情的平铺 DTO（§3.2 / §5.2）。
 type AgentView struct {
-	ID               uint                 `json:"id"`
-	NetworkDomainID  string               `json:"network_domain_id"`
-	Hostname         string               `json:"hostname"`
-	Ip               string               `json:"ip"`
-	AgentType        models.AgentType     `json:"agent_type"`
-	Version          string               `json:"version"`
-	Status           string               `json:"status"` // online/offline/unknown/retired（存活视角，实时计算）
-	LastHeartbeat    *string              `json:"last_heartbeat,omitempty"`
-	HeartbeatRTTMs   int                  `json:"heartbeat_rtt_ms,omitempty"`
-	LastConfigPull   *string              `json:"last_config_pull,omitempty"`
-	ConfigVersion    string               `json:"config_version,omitempty"`
-	ConfigSyncStatus models.ConfigSyncStatus `json:"config_sync_status,omitempty"`
-	OutOfSyncCause   models.OutOfSyncCause   `json:"out_of_sync_cause,omitempty"`
-	WalBacklogBytes  int64                `json:"wal_backlog_bytes,omitempty"`
-	CollectorStatus  string               `json:"collector_status,omitempty"`
-	CollectorVersion string               `json:"collector_version,omitempty"`
-	LastError        string               `json:"last_error,omitempty"`
-	Components       []models.EdgeComponent `json:"components,omitempty"` // 抽屉：restart_count / last_restart_at / status
+	ID                uint                    `json:"id"`
+	NetworkDomainID   string                  `json:"network_domain_id"`
+	Hostname          string                  `json:"hostname"`
+	Ip                string                  `json:"ip"`
+	AgentType         models.AgentType        `json:"agent_type"`
+	Version           string                  `json:"version"`
+	Status            string                  `json:"status"` // online/offline/unknown/retired（存活视角，实时计算）
+	LastHeartbeat     *string                 `json:"last_heartbeat,omitempty"`
+	HeartbeatRTTMs    int                     `json:"heartbeat_rtt_ms,omitempty"`
+	LastConfigPull    *string                 `json:"last_config_pull,omitempty"`
+	ConfigVersion     string                  `json:"config_version,omitempty"`
+	ConfigSyncStatus  models.ConfigSyncStatus `json:"config_sync_status,omitempty"`
+	OutOfSyncCause    models.OutOfSyncCause   `json:"out_of_sync_cause,omitempty"`
+	QueueBacklogBytes int64                   `json:"queue_backlog_bytes,omitempty"`
+	CollectorStatus   string                  `json:"collector_status,omitempty"`
+	CollectorVersion  string                  `json:"collector_version,omitempty"`
+	LastError         string                  `json:"last_error,omitempty"`
+	Components        []models.EdgeComponent  `json:"components,omitempty"` // 抽屉：restart_count / last_restart_at / status
 }
 
 func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView {
 	v := AgentView{
-		ID:               a.ID,
-		NetworkDomainID:  a.NetworkDomainID,
-		Hostname:         a.Hostname,
-		Ip:               a.Ip,
-		AgentType:        a.AgentType,
-		Version:          a.Version,
-		Status:           agentViewStatus(a, now, threshold, agentLiveStatus(a, now, threshold)),
-		HeartbeatRTTMs:   a.HeartbeatRTTMs,
-		ConfigVersion:    a.ConfigVersion,
-		ConfigSyncStatus: a.ConfigSyncStatus,
-		OutOfSyncCause:   a.OutOfSyncCause,
-		WalBacklogBytes:  a.WalBacklogBytes,
-		CollectorStatus:  a.CollectorStatus,
-		CollectorVersion: a.CollectorVersion,
-		LastError:        a.LastError,
-		Components:       a.Components,
+		ID:                a.ID,
+		NetworkDomainID:   a.NetworkDomainID,
+		Hostname:          a.Hostname,
+		Ip:                a.Ip,
+		AgentType:         a.AgentType,
+		Version:           a.Version,
+		Status:            agentViewStatus(a, now, threshold, agentLiveStatus(a, now, threshold)),
+		HeartbeatRTTMs:    a.HeartbeatRTTMs,
+		ConfigVersion:     a.ConfigVersion,
+		ConfigSyncStatus:  a.ConfigSyncStatus,
+		OutOfSyncCause:    a.OutOfSyncCause,
+		QueueBacklogBytes: a.QueueBacklogBytes,
+		CollectorStatus:   a.CollectorStatus,
+		CollectorVersion:  a.CollectorVersion,
+		LastError:         a.LastError,
+		Components:        a.Components,
 	}
 	if a.LastHeartbeat != nil {
 		s := a.LastHeartbeat.UTC().Format(time.RFC3339)
@@ -149,9 +149,9 @@ type AgentsSummary struct {
 
 // EdgeAgentsResponse 是 GET /edge-agents 响应体。
 type EdgeAgentsResponse struct {
-	Overall string       `json:"overall"` // normal/partial/offline/unknown
+	Overall string        `json:"overall"` // normal/partial/offline/unknown
 	Summary AgentsSummary `json:"summary"`
-	Agents  []AgentView  `json:"agents"`
+	Agents  []AgentView   `json:"agents"`
 }
 
 // ListAgents 汇总全部 edge-agents；overall 按非 retired 节点实时状态聚合。

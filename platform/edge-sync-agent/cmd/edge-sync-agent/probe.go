@@ -19,10 +19,10 @@ import (
 )
 
 // procSpec 描述一个被守护组件的真实进程启动/探活参数。随部署形态演进（vmagent /
-// prometheus-agent / blackbox_exporter）可在装配时替换 bin 与 args 模板。
+// blackbox_exporter）可在装配时替换 bin 与 args 模板（决策 C4：采集器统一为 vmagent）。
 type procSpec struct {
-	typ    string   // collector / blackbox_exporter（对齐 contract.ComponentType）
-	bin    string   // 可执行文件路径（在 PATH 或绝对路径）
+	typ    string                           // collector / blackbox_exporter（对齐 contract.ComponentType）
+	bin    string                           // 可执行文件路径（在 PATH 或绝对路径）
 	args   func(versionDir string) []string // 由生效配置目录派生启动参数
 	health func(ctx context.Context) error  // 健康检查（HTTP /-/healthy 或 TCP 探活）
 }

@@ -10,12 +10,12 @@ import (
 
 // buildHeartbeatRequest 组装心跳上报体，字段严格对齐中心 edge 协议（PRD §6.2 与
 // platform/edge heartbeat 约定）：net_domain_id / agent_type / version / config_version /
-// wal_backlog_bytes / remote_write_queue_size / hostname / ip / components。
+// queue_backlog_bytes / remote_write_queue_size / hostname / ip / components。
 // 抽为纯函数便于单测（T11-15 装配 helper 测试）。
 func buildHeartbeatRequest(
 	cfg *config.Config,
 	configVersion string,
-	walBacklogBytes int64,
+	queueBacklogBytes int64,
 	remoteWriteQueueSize int,
 	hostname, ip string,
 	components []contract.Component,
@@ -25,7 +25,7 @@ func buildHeartbeatRequest(
 		AgentType:            cfg.AgentType,
 		Version:              cfg.Version,
 		ConfigVersion:        configVersion,
-		WalBacklogBytes:      walBacklogBytes,
+		QueueBacklogBytes:    queueBacklogBytes,
 		RemoteWriteQueueSize: remoteWriteQueueSize,
 		Hostname:             hostname,
 		Ip:                   ip,
@@ -61,7 +61,7 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 	return puller.RuntimeSnapshot{
 		AgentVersion:         r.cfg.Version,
 		ConfigVersion:        version,
-		WalBacklogBytes:      0,
+		QueueBacklogBytes:    0,
 		RemoteWriteQueueSize: rwQueue,
 		Hostname:             r.hostname,
 		Ip:                   r.ip,

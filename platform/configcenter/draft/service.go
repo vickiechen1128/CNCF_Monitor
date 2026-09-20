@@ -21,12 +21,12 @@ import (
 
 // 服务层 sentinel 错误，handler 据此映射 HTTP errorType。
 var (
-	ErrNotFound          = errors.New("config draft not found")
-	ErrDomainNotFound    = errors.New("network domain not found")
-	ErrDomainNotMonitored = errors.New("network domain is not monitored")
-	ErrDomainFrozen      = errors.New("network domain is frozen (disabled), no new change may be generated")
-	ErrNotPending        = errors.New("config draft is not pending")
-	ErrValidationNotPassed = errors.New("draft validation has not passed; revalidate or discard instead")
+	ErrNotFound              = errors.New("config draft not found")
+	ErrDomainNotFound        = errors.New("network domain not found")
+	ErrDomainNotMonitored    = errors.New("network domain is not monitored")
+	ErrDomainFrozen          = errors.New("network domain is frozen (disabled), no new change may be generated")
+	ErrNotPending            = errors.New("config draft is not pending")
+	ErrValidationNotPassed   = errors.New("draft validation has not passed; revalidate or discard instead")
 	ErrValidationStillFailed = errors.New("draft validation still failed")
 	// ErrNoChanges 表示当前源数据产物无任何变更项（如无 ready job/rule），
 	// 且该网域从未产生已生效版本；用于抑制「配置无变化」的噪声变更单（决策 44-3）。
@@ -142,17 +142,17 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	}
 
 	draft := &models.ConfigDraft{
-		NetworkDomainID:  domainID,
-		ChangeNo:         changeNo,
-		SourceVersion:    sourceVersionRef,
-		PrometheusYml:    artifacts.PrometheusYML,
-		RulesYml:         artifacts.RulesYML,
-		BlackboxYml:      artifacts.BlackboxYML,
-		AlertmanagerYml:  artifacts.AlertmanagerYML,
-		TargetsFiles:     string(targetsJSON),
-		Metadata:         string(metaJSON),
-		Summary:          buildSummary(items),
-		ChangeItems:      string(itemsJSON),
+		NetworkDomainID:   domainID,
+		ChangeNo:          changeNo,
+		SourceVersion:     sourceVersionRef,
+		PrometheusYml:     artifacts.PrometheusYML,
+		RulesYml:          artifacts.RulesYML,
+		BlackboxYml:       artifacts.BlackboxYML,
+		AlertmanagerYml:   artifacts.AlertmanagerYML,
+		TargetsFiles:      string(targetsJSON),
+		Metadata:          string(metaJSON),
+		Summary:           buildSummary(items),
+		ChangeItems:       string(itemsJSON),
 		Status:            models.DraftStatusPending,
 		ValidationStatus:  string(validation),
 		ValidationMessage: vMsg,
@@ -215,7 +215,7 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 		}
 	}
 	// 决策 68-2 / 68-3：仅中心求值器（channel=local）生成 rule_files 与 alerting；
-	// 边缘通道（agent_pull）的 vmagent / prometheus-agent 不支持这两段，必须不生成。
+	// 边缘通道（agent_pull）的 vmagent 不支持这两段，必须不生成。
 	// 两者由同一个 centerEvaluator 判定驱动（约定纪律，禁止各自 if）。
 	centerEvaluator := dom.Channel == models.ChannelTypeLocal
 	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML, AlertmanagerTarget, centerEvaluator)
@@ -312,11 +312,11 @@ func reconcileWithExistingPending(
 	}
 
 	newMeta := models.ConfigDraftMetadata{
-		SourceDataVersion:    sourceVersion,
-		TriggerSummary:       "源数据变更自动取代待确认草稿",
-		Checksum:             currentChecksum,
-		GeneratorVersion:     generator.GeneratorVersion,
-		SupersedesChangeNo:   existing.ChangeNo,
+		SourceDataVersion:  sourceVersion,
+		TriggerSummary:     "源数据变更自动取代待确认草稿",
+		Checksum:           currentChecksum,
+		GeneratorVersion:   generator.GeneratorVersion,
+		SupersedesChangeNo: existing.ChangeNo,
 	}
 	newMetaJSON, err := json.Marshal(newMeta)
 	if err != nil {
@@ -615,10 +615,10 @@ func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVers
 // DiscardImpact 描述废弃一张配置变更单后对源数据（当前仅 ScrapeJob）的影响统计，
 // 用于前端二次确认弹窗分类告知（决策 43-7）。
 type DiscardImpact struct {
-	NewReverted     int `json:"new_reverted"`      // 新建未生效 job 回退 draft
-	ModifiedKept    int `json:"modified_kept"`     // 已生效 job 的修改保留
-	DeletedRestored int `json:"deleted_restored"`  // 删除/停用/草稿化的已生效 job 被恢复
-	Missing         int `json:"missing"`           // 生效版本中存在但 DB 中已无记录
+	NewReverted     int `json:"new_reverted"`     // 新建未生效 job 回退 draft
+	ModifiedKept    int `json:"modified_kept"`    // 已生效 job 的修改保留
+	DeletedRestored int `json:"deleted_restored"` // 删除/停用/草稿化的已生效 job 被恢复
+	Missing         int `json:"missing"`          // 生效版本中存在但 DB 中已无记录
 }
 
 // DiscardDraft 废弃一张 pending 草稿（支持校验失败态 failed 草稿）；
@@ -629,6 +629,7 @@ type DiscardImpact struct {
 //   - 新建且从未生效的 job：回退 draft_status=draft，change_status=none；
 //   - 已生效 job 的修改：保留修改值，change_status=deployed（MVP 不自动回滚，弹窗已告知）；
 //   - 已生效 job 的删除/停用/草稿化：恢复（undelete + enabled + ready），change_status=deployed。
+//
 // unlockSourceDataOnFailed 在草稿落到 validation_status=failed 且归因 user_config 时，
 // **自动清除** M01 源数据（MonitoringRule）的 change_status=pending 锁（决策 67-1）。
 //

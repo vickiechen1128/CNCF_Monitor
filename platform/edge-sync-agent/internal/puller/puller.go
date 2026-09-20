@@ -15,13 +15,13 @@ import (
 // RuntimeSnapshot 描述本节点一次心跳要上报的运行态（采集器/WAL 实际值由进程守护在
 // T11-14 接入，本包通过 RuntimeProvider 抽象注入）。
 type RuntimeSnapshot struct {
-	AgentVersion        string
-	ConfigVersion       string
-	WalBacklogBytes     int64
+	AgentVersion         string
+	ConfigVersion        string
+	QueueBacklogBytes    int64
 	RemoteWriteQueueSize int
-	Hostname            string
-	Ip                  string
-	Components          []contract.Component
+	Hostname             string
+	Ip                   string
+	Components           []contract.Component
 }
 
 // RuntimeProvider 提供当前运行态快照。
@@ -37,12 +37,12 @@ type Deployer interface {
 
 // Puller 驱动心跳-拉包主循环。
 type Puller struct {
-	cfg      *config.Config
-	token    *token.Store
-	client   *client.Client
-	runtime  RuntimeProvider
-	deploy   Deployer
-	logger   *logger.Logger
+	cfg     *config.Config
+	token   *token.Store
+	client  *client.Client
+	runtime RuntimeProvider
+	deploy  Deployer
+	logger  *logger.Logger
 	// lastValid 保留最后一份通过校验的配置（§6.4 条目 2/6），checksum 失败或断网时继续沿用。
 	lastValid         []byte
 	lastValidMetadata *contract.Metadata
@@ -116,7 +116,7 @@ func (p *Puller) buildHeartbeat() contract.HeartbeatRequest {
 		AgentType:            p.cfg.AgentType,
 		Version:              rs.AgentVersion,
 		ConfigVersion:        rs.ConfigVersion,
-		WalBacklogBytes:      rs.WalBacklogBytes,
+		QueueBacklogBytes:    rs.QueueBacklogBytes,
 		RemoteWriteQueueSize: rs.RemoteWriteQueueSize,
 		Hostname:             rs.Hostname,
 		Ip:                   rs.Ip,
@@ -165,7 +165,7 @@ func (p *Puller) handleAuth(ctx context.Context) bool {
 }
 
 // LastValidConfig 返回最近校验通过的配置字节（测试/部署读）。
-func (p *Puller) LastValidConfig() []byte { return p.lastValid }
+func (p *Puller) LastValidConfig() []byte               { return p.lastValid }
 func (p *Puller) LastValidMetadata() *contract.Metadata { return p.lastValidMetadata }
 
 func (p *Puller) infof(f string, a ...any) { p.logger.Infof(f, a...) }

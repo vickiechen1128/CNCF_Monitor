@@ -11,7 +11,7 @@ func TestHeartbeatRequestJSONRoundTrip(t *testing.T) {
 		AgentType:            "vmagent",
 		Version:              "v1.2.0",
 		ConfigVersion:        "20260724-120000",
-		WalBacklogBytes:      1048576,
+		QueueBacklogBytes:    1048576,
 		RemoteWriteQueueSize: 120,
 		Hostname:             "edge01",
 		Ip:                   "10.0.2.15",
@@ -29,7 +29,7 @@ func TestHeartbeatRequestJSONRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, k := range []string{"network_domain_id", "agent_type", "version", "config_version",
-		"wal_backlog_bytes", "remote_write_queue_size", "hostname", "ip", "components"} {
+		"queue_backlog_bytes", "remote_write_queue_size", "hostname", "ip", "components"} {
 		if _, ok := m[k]; !ok {
 			t.Errorf("missing json field %q (contract drift)", k)
 		}
@@ -41,6 +41,9 @@ func TestHeartbeatRequestJSONRoundTrip(t *testing.T) {
 	}
 	if back.NetworkDomainID != "gov-cloud-a" || back.ConfigVersion != "20260724-120000" {
 		t.Fatalf("round-trip mismatch: %+v", back)
+	}
+	if back.QueueBacklogBytes != 1048576 {
+		t.Fatalf("queue_backlog_bytes round-trip mismatch: %d", back.QueueBacklogBytes)
 	}
 }
 

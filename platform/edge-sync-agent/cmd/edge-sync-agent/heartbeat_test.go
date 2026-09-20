@@ -28,8 +28,8 @@ func TestBuildHeartbeatRequestMapping(t *testing.T) {
 	if hb.ConfigVersion != "20260918-120000" {
 		t.Fatalf("config_version = %s", hb.ConfigVersion)
 	}
-	if hb.WalBacklogBytes != 12345 {
-		t.Fatalf("wal_backlog = %d", hb.WalBacklogBytes)
+	if hb.QueueBacklogBytes != 12345 {
+		t.Fatalf("queue_backlog = %d", hb.QueueBacklogBytes)
 	}
 	if hb.RemoteWriteQueueSize != 50 {
 		t.Fatalf("remote_write_queue_size = %d", hb.RemoteWriteQueueSize)

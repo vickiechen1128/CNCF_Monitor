@@ -16,7 +16,7 @@ type HeartbeatRequest struct {
 	AgentType            models.AgentType       `json:"agent_type"`
 	Version              string                 `json:"version,omitempty"`
 	ConfigVersion        string                 `json:"config_version,omitempty"`
-	WalBacklogBytes      int64                  `json:"wal_backlog_bytes,omitempty"`
+	QueueBacklogBytes    int64                  `json:"queue_backlog_bytes,omitempty"`
 	RemoteWriteQueueSize int                    `json:"remote_write_queue_size,omitempty"`
 	RemoteWriteLastError string                 `json:"remote_write_last_error,omitempty"`
 	Hostname             string                 `json:"hostname,omitempty"`
@@ -60,7 +60,7 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	agent.Hostname = req.Hostname
 	agent.Ip = req.Ip
 	agent.Components = req.Components
-	agent.WalBacklogBytes = req.WalBacklogBytes
+	agent.QueueBacklogBytes = req.QueueBacklogBytes
 	agent.ConfigVersion = req.ConfigVersion
 	agent.Status = "online"
 	if err := s.db.Save(agent).Error; err != nil {
@@ -73,7 +73,7 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 		AgentType:            req.AgentType,
 		Version:              req.Version,
 		ConfigVersion:        req.ConfigVersion,
-		WalBacklogBytes:      req.WalBacklogBytes,
+		QueueBacklogBytes:    req.QueueBacklogBytes,
 		RemoteWriteQueueSize: req.RemoteWriteQueueSize,
 		RemoteWriteLastError: req.RemoteWriteLastError,
 		Hostname:             req.Hostname,

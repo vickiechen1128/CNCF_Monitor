@@ -101,7 +101,7 @@ func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T) {
 		AgentType:            models.AgentTypeVMAgent,
 		Version:              "v1.2.0",
 		ConfigVersion:        "20260724-120000",
-		WalBacklogBytes:      2048,
+		QueueBacklogBytes:    2048,
 		RemoteWriteQueueSize: 64,
 		Hostname:             "edge01",
 		Ip:                   "10.0.2.15",
@@ -235,7 +235,7 @@ func TestBuildConfigZipOptionalEntries(t *testing.T) {
 		"global:\n  scrape_interval: 15s\n", "", "",
 		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
 		time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC))
-	zipData, _, err := BuildConfigZip(v, models.AgentTypePrometheusAgent)
+	zipData, _, err := BuildConfigZip(v, models.AgentTypeVMAgent)
 	require.NoError(t, err)
 	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	require.NoError(t, err)

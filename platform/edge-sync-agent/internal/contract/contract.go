@@ -7,39 +7,39 @@ package contract
 
 // 组件类型（对齐 PRD §6.2 示例 components.type 与中心 ComponentType）。
 const (
-	ComponentTypeAgent    = "agent"
+	ComponentTypeAgent     = "agent"
 	ComponentTypeCollector = "collector"
-	ComponentTypeBlackbox = "blackbox_exporter"
+	ComponentTypeBlackbox  = "blackbox_exporter"
 )
 
 // 组件运行状态（对齐中心 edge_heartbeat ComponentStatus 枚举）。
 const (
-	ComponentStatusRunning      = "running"
-	ComponentStatusRestarting   = "restarting"
-	ComponentStatusCrashLoop    = "crash_loop"
-	ComponentStatusNotDeployed  = "not_deployed"
-	ComponentStatusUnknown      = "unknown"
+	ComponentStatusRunning     = "running"
+	ComponentStatusRestarting  = "restarting"
+	ComponentStatusCrashLoop   = "crash_loop"
+	ComponentStatusNotDeployed = "not_deployed"
+	ComponentStatusUnknown     = "unknown"
 )
 
 // Component 描述当前节点上一个守护组件的运行态。
 type Component struct {
-	Type          string `json:"type"`                     // agent / collector / blackbox_exporter
-	Name          string `json:"name"`                     // 组件进程名
-	Status        string `json:"status"`                   // running / restarting / ...
-	Version       string `json:"version,omitempty"`        // 组件版本（版本差异提示数据来源，§6.2）
-	ConfigVersion string `json:"config_version,omitempty"` // 生效配置版本
-	RestartCount  int    `json:"restart_count,omitempty"`  // 本轮累计重启次数
+	Type          string `json:"type"`                      // agent / collector / blackbox_exporter
+	Name          string `json:"name"`                      // 组件进程名
+	Status        string `json:"status"`                    // running / restarting / ...
+	Version       string `json:"version,omitempty"`         // 组件版本（版本差异提示数据来源，§6.2）
+	ConfigVersion string `json:"config_version,omitempty"`  // 生效配置版本
+	RestartCount  int    `json:"restart_count,omitempty"`   // 本轮累计重启次数
 	LastRestartAt string `json:"last_restart_at,omitempty"` // 最近一次重启（RFC3339）
-	LastError     string `json:"last_error,omitempty"`     // 最近错误摘要
+	LastError     string `json:"last_error,omitempty"`      // 最近错误摘要
 }
 
 // HeartbeatRequest 是 POST /api/v2/platform/edge/heartbeat 的请求体（PRD §6.2）。
 type HeartbeatRequest struct {
 	NetworkDomainID      string      `json:"network_domain_id"`
-	AgentType            string      `json:"agent_type"`               // vmagent / prometheus-agent
-	Version              string      `json:"version,omitempty"`        // Agent 版本
-	ConfigVersion        string      `json:"config_version,omitempty"` // 当前生效配置版本
-	WalBacklogBytes      int64       `json:"wal_backlog_bytes,omitempty"`
+	AgentType            string      `json:"agent_type"`                    // 采集器统一为 vmagent（决策 C4）
+	Version              string      `json:"version,omitempty"`             // Agent 版本
+	ConfigVersion        string      `json:"config_version,omitempty"`      // 当前生效配置版本
+	QueueBacklogBytes    int64       `json:"queue_backlog_bytes,omitempty"` // 磁盘持久发送队列积压字节数（决策 C5）
 	RemoteWriteQueueSize int         `json:"remote_write_queue_size,omitempty"`
 	Hostname             string      `json:"hostname,omitempty"`
 	Ip                   string      `json:"ip,omitempty"`

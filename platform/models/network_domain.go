@@ -36,10 +36,9 @@ const (
 // AgentType is the edge collector type.
 type AgentType string
 
-// Agent type constants.
+// Agent type constants（决策 C4：采集器强制单一 vmagent，已收敛 prometheus-agent）。
 const (
-	AgentTypeVMAgent         AgentType = "vmagent"
-	AgentTypePrometheusAgent AgentType = "prometheus-agent"
+	AgentTypeVMAgent AgentType = "vmagent"
 )
 
 // DefaultDomainID is the historical pre-provisioned management domain id.
