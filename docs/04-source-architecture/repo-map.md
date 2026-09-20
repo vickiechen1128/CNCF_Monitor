@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-20 14:48 · commit: `d890ea7`
+> 生成时间: 2026-09-20 17:45 · commit: `1019f5a`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1867,7 +1867,7 @@
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat.go`
 
-- `func buildHeartbeatRequest( cfg *config.Config, configVersion string, walBacklogBytes int64, remoteWriteQueueSize int, hostn…`
+- `func buildHeartbeatRequest( cfg *config.Config, configVersion string, queueBacklogBytes int64, remoteWriteQueueSize int, hos…`
 - `type runtimeProvider struct`
 - `method (*runtimeProvider) Snapshot() puller.RuntimeSnapshot`
 
@@ -2193,6 +2193,8 @@
 - `func respondAgentError(c *gin.Context, err error)`
 - `func ListPackagesHandler() gin.HandlerFunc`
 - `func DownloadLatestPackageHandler() gin.HandlerFunc`
+- `func DownloadPackageHandler() gin.HandlerFunc`
+- `func servePackageZip(c *gin.Context, art PackageArtifact)`
 
 ### `platform/edge/management_service.go`
 
@@ -2228,6 +2230,9 @@
 - `func TestLatestPackageIsMaxVersion(t *testing.T)`
 - `func TestDownloadLatestPackageHandlerServesZip(t *testing.T)`
 - `func mustLatestArtifact(t *testing.T) PackageArtifact`
+- `func TestFindPackageByVersion(t *testing.T)`
+- `func TestDownloadPackageHandlerServesZipForVersion(t *testing.T)`
+- `func TestDownloadPackageHandlerUnknownVersionReturns404(t *testing.T)`
 
 ### `platform/edge/middleware.go`
 
@@ -2251,10 +2256,12 @@
 
 - `type PackageComponent struct`
 - `type PackageArtifact struct`
+- `func offlinePackageDownloadPathFor(version string) string`
 - `func componentSpec(name, version string) PackageComponent`
 - `func componentBinBytes(name, version string) []byte`
 - `func resolveArtifact(art PackageArtifact) (PackageArtifact, error)`
 - `func ListPackages() ([]PackageArtifact, error)`
+- `func FindPackage(version string) (PackageArtifact, error)`
 - `func LatestPackage() (PackageArtifact, error)`
 - `func buildOfflinePackageZip(art PackageArtifact) ([]byte, string, error)`
 - `func writeZipEntry(zw *zip.Writer, name string, data []byte, modTime time.Time) error`
@@ -3407,6 +3414,15 @@
 - `function resolveNetworkDomainImpact`
 - `const tenantApi`
 
+### `ui-custom/web/src/api/edgeAgents.ts`
+
+- `interface EdgeAgentsListParams`
+- `const edgeAgentsApi`
+
+### `ui-custom/web/src/api/edgePackages.ts`
+
+- `const edgePackageApi`
+
 ### `ui-custom/web/src/api/exporterTemplates.ts`
 
 - `interface ExporterTemplateListParams`
@@ -3736,6 +3752,10 @@
 - `function useDeployments`
 - `function fetchAllDomains`
 
+### `ui-custom/web/src/pages/config-center/domains/EdgePackageDownloadPanel.tsx`
+
+- `function EdgePackageDownloadPanel`
+
 ### `ui-custom/web/src/pages/config-center/domains/NetworkDomainDetailDrawer.tsx`
 
 - `function NetworkDomainDetailDrawer`
@@ -3758,9 +3778,36 @@
 - `interface UseNetworkDomainsResult`
 - `function useNetworkDomains`
 
+### `ui-custom/web/src/pages/config-center/nodes/EdgeAgentDrawer.tsx`
+
+- `function EdgeAgentDrawer`
+
 ### `ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx`
 
 - `function EdgeAgentsPage`
+
+### `ui-custom/web/src/pages/config-center/nodes/edgeConstants.ts`
+
+- `const agentStatusLabel`
+- `const agentStatusBadgeStatus`
+- `const agentOverallLabel`
+- `const configSyncStatusLabel`
+- `const configSyncStatusBadgeStatus`
+- `const outOfSyncCauseHint`
+- `const outOfSyncCauseAction`
+- `const componentTypeLabel`
+- `const componentStatusLabel`
+- `const componentStatusColor`
+- `const HIGH_RISK_COMPONENT_STATUS`
+- `function formatBacklogBytes`
+- `function compareVersions`
+- `function latestPackageVersion`
+
+### `ui-custom/web/src/pages/config-center/nodes/useEdgeAgents.ts`
+
+- `interface EdgeFilters`
+- `interface UseEdgeAgentsResult`
+- `function useEdgeAgents`
 
 ### `ui-custom/web/src/pages/config-center/preview/ConfigPreviewPage.tsx`
 
@@ -4177,6 +4224,9 @@
 - `interface VersionRef`
 - `interface RollbackDiffItem`
 - `interface RollbackPreview`
+- `interface EdgePackageComponent`
+- `interface EdgePackage`
+- `interface EdgePackagesResponse`
 
 ### `ui-custom/web/src/types/config.ts`
 
@@ -4200,6 +4250,19 @@
 - `interface NetworkDomainStatusResult`
 - `type TenantStatus`
 - `interface Tenant`
+
+### `ui-custom/web/src/types/edge.ts`
+
+- `type AgentStatus`
+- `type AgentOverall`
+- `type ConfigSyncStatus`
+- `type OutOfSyncCause`
+- `type EdgeComponentType`
+- `type EdgeComponentStatus`
+- `interface EdgeComponent`
+- `interface AgentView`
+- `interface EdgeAgentsSummary`
+- `interface EdgeAgentsResponse`
 
 ### `ui-custom/web/src/types/label.ts`
 
