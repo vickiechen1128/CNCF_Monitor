@@ -399,3 +399,140 @@ tasks:
     acceptance_criteria:
       - "kill 采集器后 10s 内检测重启且 restart_count+1；模拟 crash-loop 10min5 次熔断"
       - "停心跳 90s 判离线触发 EdgeSiteOffline；Token 401 指数退避后降频；local 通道拒走协议；last_heartbeat 落中心接收时"
+
+# ================= 批次：边缘交付增强（v0.2 增量，并入 feat/module-09-config-center） =================
+# 触发：用户 2026-09-20 对齐设计提案 edge-delivery-topology-and-agent-upgrade.md 后派生。
+# 范围：离线下载包完善（版本清单/sha256/包大小/指定版本下载）+ 采集节点状态页实连（§3.2 P0）。
+# 明确排除：G1 中心 remote_write 接收端（阻断级，单独排期，登记 dev-feedback §7-G1）；
+#           Agent 自升级 {v0.3}（不在本批）；诊断看板（§3.2 P1/P2 后续版本）。
+# 契约快照：docs/05-execution-records/module-11/api-contract-snapshot.md（跨端任务 T11-21/22/23/24/25 必读）
+  - id: "T11-20"
+    title: "后端：指定版本离线包下载端点（?version= + /edge-packages/{version}/download）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-mgm-package"
+    prd: "Module_11 §3.3（下载入口/版本清单/校验和）"
+    depends_on: []
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "否"
+    input_files:
+      - "platform/edge/packages_service.go"
+      - "platform/edge/management_handler.go"
+      - "platform/cmd/metric-center/main.go"
+    output_files:
+      - "platform/edge/packages_service.go"
+      - "platform/edge/management_handler.go"
+    verify_commands:
+      - "go test ./platform/edge/... && go vet ./platform/edge/..."
+    acceptance_criteria:
+      - "ListPackages/resolveArtifact 支持 ?version= 指定版本；新增 GET /edge-packages/{version}/download（保留 /latest/download）"
+      - "下载响应含 zip + ETag + X-Checksum-Sha256；curl 校验 sha256 可复算"
+  - id: "T11-21"
+    title: "后端+契约：wal_backlog_bytes→queue_backlog_bytes（C5）+ AgentType 枚举收敛（C4）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-contract-vmagent"
+    prd: "Module_11 §5.2/§5.3/§10（字段改名）+ 设计提案 §5.9/§5.10"
+    depends_on: []
+    estimated_files_changed: 5
+    estimated_test_cases: 8
+    shared_files: "是：platform/models/*.go 与 platform/edge/* 共享"
+    input_files:
+      - "platform/edge-sync-agent/internal/contract/contract.go"
+      - "platform/models/edge_heartbeat.go"
+      - "platform/models/edge_agent.go"
+      - "platform/edge/management_service.go"
+    output_files:
+      - "platform/edge-sync-agent/internal/contract/contract.go"
+      - "platform/models/edge_*.go"
+      - "platform/edge/management_service.go"
+    verify_commands:
+      - "go test ./platform/... && cd platform/edge-sync-agent && go test ./..."
+    acceptance_criteria:
+      - "字段与 json tag：wal_backlog_bytes→queue_backlog_bytes，注释写明『采集器统一为 vmagent，语义为磁盘持久发送队列积压』"
+      - "AgentType 收敛为单一 vmagent，删除 prometheus-agent 常量/注释；模型/管理面 DTO 同步 queue_backlog_bytes"
+      - "跨端契约对齐 api-contract-snapshot.md"
+  - id: "T11-22"
+    title: "前端：网域纳管页离线下载区实连（版本清单/sha256/包大小/下载按钮）"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-onboard-download"
+    prd: "Module_11 §3.3（下载入口）+ §11.3"
+    depends_on: ["T11-20"]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：OnboardDomainDrawer/NetworkDomainsPage 与 config-center 域共享"
+    input_files:
+      - "ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx"
+      - "ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx"
+      - "ui-custom/web/src/api/（新增 edgePackages client）"
+      - "contract: docs/05-execution-records/module-11/api-contract-snapshot.md"
+    output_files:
+      - "ui-custom/web/src/api/edgePackages.ts"
+      - "ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx"
+    verify_commands:
+      - "pnpm lint && pnpm vitest run src/pages/config-center/domains/"
+    acceptance_criteria:
+      - "去掉『安装包另待发布』占位；渲染版本清单（组件版本/sha256/大小）+ 下载按钮（复用 triggerBlobDownload）"
+      - "页面明示『隔离网域不可直连，请介质摆渡』；契约：GET /edge-packages 与 /latest/download 对齐快照"
+  - id: "T11-23"
+    title: "前端：采集节点状态页实连——API client + 契约类型"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-node-status"
+    prd: "Module_11 §3.2/§5.2 + §11.4"
+    depends_on: ["T11-21"]
+    estimated_files_changed: 3
+    estimated_test_cases: 4
+    shared_files: "是：EdgeAgentsPage 同页后续任务共享"
+    input_files:
+      - "contract: docs/05-execution-records/module-11/api-contract-snapshot.md"
+      - "platform/edge/management_service.go（DTO 参照）"
+    output_files:
+      - "ui-custom/web/src/api/edgeAgents.ts"
+      - "ui-custom/web/src/types/edge.ts"
+    verify_commands:
+      - "pnpm lint && pnpm vitest run src/api/edgeAgents.test.tsx"
+    acceptance_criteria:
+      - "AgentView/EdgeComponent/EdgeAgentsResponse/三档聚合字段类型对齐 DTO；状态枚举含 retired/partial"
+  - id: "T11-24"
+    title: "前端：采集节点状态页实连——平铺表 + 三档聚合 + 五维筛选"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-node-status"
+    prd: "Module_11 §3.2（节点平铺表/整体三档/筛选）"
+    depends_on: ["T11-23"]
+    estimated_files_changed: 2
+    estimated_test_cases: 6
+    shared_files: "是：EdgeAgentsPage.tsx 同页续作"
+    input_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    verify_commands:
+      - "pnpm vitest run src/pages/config-center/nodes/EdgeAgentsPage.test.tsx"
+    acceptance_criteria:
+      - "实连 /edge-agents；复用 FilterBar/EllipsisText/MonitorStatusBadge；顶部 summary 三档统计"
+      - "五维筛选（网域/整体/采集器/拨测器/配置同步）；行字段含节点/网域/状态/采集器/拨测器/配置同步/回传积压/最后心跳"
+  - id: "T11-25"
+    title: "前端：采集节点状态页实连——交互完整化（组件抽屉+配置同步引导+版本提示+空态深链）"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-node-status"
+    prd: "Module_11 §3.2（进程守护可观测/配置同步引导/空态深链）+ §11.4"
+    depends_on: ["T11-24"]
+    estimated_files_changed: 2
+    estimated_test_cases: 8
+    shared_files: "是：EdgeAgentsPage.tsx 同页续作（与 T11-24 同一 agent 一次提交，commit 合并）"
+    input_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    verify_commands:
+      - "pnpm vitest run src/pages/config-center/nodes/EdgeAgentsPage.test.tsx && pnpm lint"
+    acceptance_criteria:
+      - "组件抽屉（三进程状态/版本/重启次数/最近重启/错误）+ crash_loop/restarting 标签 + 高危横幅（复用 Callout）"
+      - "配置同步五档 Badge + 成因分档引导（去配置采集 Job/前往配置确认/查看下发记录/立即同步）+ 版本差异『可升级』提示"
+      - "空态三支（筛选空/暂无采集节点/中心直连域）+ ?network_domain= 深链预筛 + 退出入口"
+    # 注：Toast 备注——T11-24/T11-25 共享 EdgeAgentsPage 同页，按「同页任务复用同一 frontend-developer 续作 + 合并一次提交」执行。
