@@ -162,9 +162,9 @@ const DASHBOARD_OK = {
       },
     ],
     by_app: [
-      { app_code: 'payment', app_name: '支付平台', resource_count: 30, monitored_count: 24 },
-      { app_code: 'user', app_name: '用户中心', resource_count: 24, monitored_count: 16 },
-      { app_code: 'data-api', app_name: '数据网关', resource_count: 26, monitored_count: 20 },
+      { app_code: 'payment', app_name: '支付平台', biz_code: 'pay', biz_name: '支付业务', resource_count: 30, monitored_count: 24 },
+      { app_code: 'user', app_name: '用户中心', biz_code: 'user', biz_name: '用户业务', resource_count: 24, monitored_count: 16 },
+      { app_code: 'data-api', app_name: '数据网关', biz_code: 'data', biz_name: '数据服务', resource_count: 26, monitored_count: 20 },
     ],
     unclassified_resource_count: 48,
     unclassified_monitored_count: 36,
@@ -599,6 +599,45 @@ describe('HomePage', () => {
       'href',
       '/resources?app_code=user',
     )
+  })
+
+  it('renders the L2 biz domain column with biz_name and a dash for empty values', async () => {
+    // by_app biz 维度为多数归因（决策 92/93/95）：biz_name 直接展示；
+    // biz_code / biz_name 均为空（旧后端或未归因）时业务域列显示 '-'
+    setupHomeMock({
+      [DASHBOARD_PATH]: {
+        status: 'success',
+        data: {
+          ...DASHBOARD_OK.data,
+          by_app: [
+            { app_code: 'payment', app_name: '支付平台', biz_code: 'pay', biz_name: '支付业务', resource_count: 30, monitored_count: 24 },
+            // 空 biz 字段 → 业务域列 '-'（不回落成 app 名，也不臆造业务归属）
+            { app_code: 'legacy', app_name: '遗留系统', biz_code: '', biz_name: '', resource_count: 5, monitored_count: 5 },
+          ],
+          unclassified_resource_count: 0,
+          unclassified_monitored_count: 0,
+        },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('l2-app-table')).toBeInTheDocument()
+    })
+
+    const table = screen.getByTestId('l2-app-table')
+    const rows = within(table).getAllByRole('row')
+    // 表头 1 行 + 2 个应用行（无未归类行）
+    expect(rows).toHaveLength(3)
+
+    // 支付平台 24/30=80% 排前：业务域列显示 biz_name「支付业务」
+    expect(rows[1]).toHaveTextContent('支付平台')
+    expect(rows[1]).toHaveTextContent('支付业务')
+    // 遗留系统 5/5=100% 排后：biz 字段为空 → 业务域列显示 '-'
+    expect(rows[2]).toHaveTextContent('遗留系统')
+    expect(rows[2]).toHaveTextContent('-')
+    expect(rows[2].textContent).not.toContain('遗留系统业务')
   })
 
   it('renders the L3 probe panel with abnormal targets first and pagination when >5 rows', async () => {

@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xuri/excelize/v2"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
 
 // fakeDomains 注入的 M06 网域清单（含 default 与一条业务网域），用于「取值说明」sheet 断言。
@@ -23,14 +25,23 @@ func fakeDomains() ([]DomainOption, error) {
 	}, nil
 }
 
-// setupTemplateRouter 构造挂载模板下载 handler 的测试路由。
+// setupTemplateRouter 构造挂载模板下载 handler 的测试路由（biz/app 字典均注入实时 store）。
 func setupTemplateRouter(t *testing.T) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	bizStore := newBizStore(t)
 	r := gin.New()
-	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, fakeDomains))
+	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, newAppStore(t), fakeDomains))
 	return r
+}
+
+// openEmptyAppDictDB 打开不落任何应用条目的内存 DB（F-7 ① 空应用字典占位断言）。
+func openEmptyAppDictDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file:resource_app_template_empty?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ApplicationDict{}))
+	return db
 }
 
 // allCategories 是五类权威资源类型。
@@ -150,6 +161,10 @@ func TestDownloadTemplateValueSheet(t *testing.T) {
 	assert.Contains(t, flat, "payment")
 	assert.Contains(t, flat, "data-api")
 	assert.NotContains(t, flat, "legacy", "停用业务条目不应出现在取值说明")
+	// app_code：应用字典启用项（决策 92/96，F-7 ① 实时注入），停用项 legacy-app 不出现
+	assert.Contains(t, flat, "pay-db（支付库）", "取值说明应含应用字典启用条目 code（名称）")
+	assert.Contains(t, flat, "pay-service（支付服务）")
+	assert.NotContains(t, flat, "legacy-app", "停用应用条目不应出现在取值说明")
 	// env 枚举
 	assert.Contains(t, flat, "dev")
 	assert.Contains(t, flat, "staging")
@@ -160,6 +175,37 @@ func TestDownloadTemplateValueSheet(t *testing.T) {
 	assert.Contains(t, flat, "维护中")
 	// custom_labels 格式说明
 	assert.Contains(t, flat, "key1=value1;key2=value2")
+}
+
+// TestDownloadTemplateValueSheet_EmptyAppDict 断言应用字典为空时 app_code 行给出占位
+// 引导（F-7 ①：空字典不输出空串，提示「暂无已登记应用」）。
+func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/api/v2/platform/resources/:type/template",
+		DownloadTemplate(newBizStore(t), NewApplicationDictStore(openEmptyAppDictDB(t)), fakeDomains))
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/platform/resources/host/template", nil)
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	f, err := excelize.OpenReader(bytes.NewReader(w.Body.Bytes()))
+	require.NoError(t, err)
+	defer f.Close()
+
+	rows, err := f.GetRows("取值说明")
+	require.NoError(t, err)
+	var all strings.Builder
+	for _, row := range rows {
+		for _, cell := range row {
+			all.WriteString(cell)
+			all.WriteString("|")
+		}
+	}
+	flat := all.String()
+	assert.Contains(t, flat, "暂无已登记应用", "空应用字典应输出占位引导，而非空串")
+	assert.Contains(t, flat, "infra", "空应用字典不影响 biz_code 行")
 }
 
 // TestDownloadTemplateUnknownTypeNotFound 断言未知资源类型返回 not_found。

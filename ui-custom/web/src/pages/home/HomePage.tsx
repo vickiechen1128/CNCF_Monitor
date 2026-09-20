@@ -133,9 +133,9 @@ const DASHBOARD_MOCK: DashboardSummary = {
     },
   ],
   by_app: [
-    { app_code: 'payment', app_name: '支付平台', resource_count: 30, monitored_count: 24 },
-    { app_code: 'user', app_name: '用户中心', resource_count: 24, monitored_count: 16 },
-    { app_code: 'data-api', app_name: '数据网关', resource_count: 26, monitored_count: 20 },
+    { app_code: 'payment', app_name: '支付平台', biz_code: 'pay', biz_name: '支付业务', resource_count: 30, monitored_count: 24 },
+    { app_code: 'user', app_name: '用户中心', biz_code: 'user', biz_name: '用户业务', resource_count: 24, monitored_count: 16 },
+    { app_code: 'data-api', app_name: '数据网关', biz_code: 'data', biz_name: '数据服务', resource_count: 26, monitored_count: 20 },
   ],
   unclassified_resource_count: 48,
   unclassified_monitored_count: 36,

@@ -375,12 +375,11 @@ func TestValidateResourceInput_Common(t *testing.T) {
 		assert.Contains(t, err.Error(), "网域")
 	})
 
-	t.Run("missing biz_code fails", func(t *testing.T) {
+	// 决策 93：host 的 biz_code 可空后补（应用上线后才出现业务），空值不校验字典存在性。
+	t.Run("host biz_code optional", func(t *testing.T) {
 		in := validHostInput()
 		in.BizCode = ""
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "biz_code")
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists))
 	})
 
 	t.Run("disabled or unknown biz_code fails", func(t *testing.T) {
@@ -576,5 +575,144 @@ func TestBuildListQuery(t *testing.T) {
 		var out []models.Host
 		require.NoError(t, q.Find(&out).Error)
 		assert.NotContains(t, q.Statement.SQL.String(), "WHERE", "无筛选时不应拼接 WHERE")
+	})
+}
+
+// ---------------------------------------------------------------------------
+// 决策 93/95：biz_code/app_code 必填按类型分化
+// ---------------------------------------------------------------------------
+
+// TestValidateResourceInput_BizTypology 覆盖决策 93/95 必填分化：
+// host/database/middleware 可空后补、application 必填、generic_target 二选一。
+func TestValidateResourceInput_BizTypology(t *testing.T) {
+	bizStore := newBizStore(t)
+	appStore := newAppStore(t)
+	dbInput := func() *ResourceInput {
+		return &ResourceInput{
+			NetworkDomainID: "default",
+			AppCode:         "pay-db",
+			Cluster:         "pay",
+			Status:          "online",
+			Env:             "prod",
+			DatabaseType:    "mysql",
+			InstanceIP:      "10.0.0.10",
+			Port:            3306,
+		}
+	}
+	mwInput := func() *ResourceInput {
+		return &ResourceInput{
+			NetworkDomainID: "default",
+			AppCode:         "kafka-app",
+			Cluster:         "kafka",
+			Status:          "online",
+			Env:             "prod",
+			MiddlewareType:  "kafka",
+			InstanceIP:      "10.0.0.11",
+			Port:            9092,
+		}
+	}
+	appInput := func() *ResourceInput {
+		return &ResourceInput{
+			NetworkDomainID: "default",
+			AppCode:         "pay-service",
+			Cluster:         "pay",
+			Status:          "online",
+			Env:             "prod",
+			ServiceName:     "pay-service",
+			Endpoint:        "10.0.0.20:8080",
+			Port:            8080,
+		}
+	}
+	genericInput := func() *ResourceInput {
+		return &ResourceInput{
+			NetworkDomainID: "default",
+			Status:          "online",
+			Env:             "prod",
+			TargetName:      "snmp-switch-01",
+			InstanceIP:      "10.0.0.30",
+			Port:            161,
+		}
+	}
+
+	t.Run("database biz_code optional (决策 93)", func(t *testing.T) {
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, dbInput(), bizStore, appStore, alwaysExists))
+	})
+	t.Run("middleware biz_code optional (决策 93)", func(t *testing.T) {
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryMiddleware, mwInput(), bizStore, appStore, alwaysExists))
+	})
+	t.Run("application biz_code required (决策 93)", func(t *testing.T) {
+		err := ValidateResourceInput(models.ResourceCategoryApplication, appInput(), bizStore, appStore, alwaysExists)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "biz_code")
+	})
+	t.Run("application biz_code non-empty passes", func(t *testing.T) {
+		in := appInput()
+		in.BizCode = "payment"
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, bizStore, appStore, alwaysExists))
+	})
+	t.Run("generic both empty fails (决策 95)", func(t *testing.T) {
+		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, genericInput(), bizStore, appStore, alwaysExists)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "biz_code")
+		assert.Contains(t, err.Error(), "app_code")
+	})
+	t.Run("generic biz only passes", func(t *testing.T) {
+		in := genericInput()
+		in.BizCode = "infra"
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, alwaysExists))
+	})
+	t.Run("generic app only passes", func(t *testing.T) {
+		in := genericInput()
+		in.AppCode = "app"
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, alwaysExists))
+	})
+}
+
+// TestValidateResourceInputForUpdate_KeepsDisabledHistory 覆盖决策 92/93 编辑保留停用
+// 历史值：请求体值与资源当前值相同时放行（提示并允许保留），修改为新值仍被拒绝。
+func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
+	bizStore := newBizStore(t)
+	appStore := newAppStore(t)
+
+	t.Run("disabled app kept as history passes", func(t *testing.T) {
+		in := &ResourceInput{
+			NetworkDomainID: "default",
+			AppCode:         "legacy-app", // 停用条目，保留历史值
+			Cluster:         "legacy",
+			Status:          "online",
+			Env:             "prod",
+			DatabaseType:    "mysql",
+			InstanceIP:      "10.0.0.10",
+			Port:            3306,
+		}
+		// 不带 keep 时停用条目仍被拒绝（与创建口径一致）。
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, bizStore, appStore, alwaysExists)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "应用")
+		// 编辑保留历史值：keep 同名 → 放行。
+		require.NoError(t, ValidateResourceInputForUpdate(models.ResourceCategoryDatabase, in, bizStore, appStore, alwaysExists, &KeepDisabledValues{AppCode: "legacy-app"}))
+	})
+
+	t.Run("disabled app changed to new value rejected", func(t *testing.T) {
+		in := &ResourceInput{
+			NetworkDomainID: "default",
+			AppCode:         "pay-db", // 启用条目
+			Cluster:         "pay",
+			Status:          "online",
+			Env:             "prod",
+			DatabaseType:    "mysql",
+			InstanceIP:      "10.0.0.10",
+			Port:            3306,
+		}
+		err := ValidateResourceInputForUpdate(models.ResourceCategoryDatabase, in, bizStore, appStore, alwaysExists, &KeepDisabledValues{AppCode: "legacy-app"})
+		require.NoError(t, err, "改选启用条目不受 keep 影响")
+	})
+
+	t.Run("disabled biz kept as history passes", func(t *testing.T) {
+		in := validHostInput()
+		in.BizCode = "legacy" // 停用业务条目，保留历史值
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, bizStore, nil, alwaysExists)
+		require.Error(t, err)
+		require.NoError(t, ValidateResourceInputForUpdate(models.ResourceCategoryHost, in, bizStore, nil, alwaysExists, &KeepDisabledValues{BizCode: "legacy"}))
 	})
 }

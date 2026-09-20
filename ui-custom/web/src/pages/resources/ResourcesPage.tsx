@@ -35,9 +35,9 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { networkDomainApi } from '../../api/domain'
-import { businessDomainApi, resourceApi } from '../../api/resources'
+import { businessDomainApi, resourceApi, applicationDictApi } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
-import type { BusinessDomain, ResourceCategory } from '../../types/resource'
+import type { ApplicationDict, BusinessDomain, ResourceCategory } from '../../types/resource'
 import type { CoverageState } from '../../types/query'
 import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
 import { useResources } from './useResources'
@@ -46,6 +46,7 @@ import { useResourceCoverage } from './useResourceCoverage'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
 import { ResourceDetailDrawer } from './ResourceDetailDrawer'
 import { ImportModal } from './ImportModal'
+import { TemplateDownloadModal } from './TemplateDownloadModal'
 import { ImportRecordsPanel } from './ImportRecordsPanel'
 import { useSkin } from '../../skinContext'
 import type { SkinTokens } from '../../skins'
@@ -179,6 +180,8 @@ export function ResourcesPage() {
   const { tokens } = useSkin()
   const [networkDomains, setNetworkDomains] = useState<NetworkDomain[]>([])
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
+  // 决策 92/96：应用字典（app_code → app_name 展示名解析，与业务字典正交两维）
+  const [applicationDomains, setApplicationDomains] = useState<ApplicationDict[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
   const {
@@ -214,16 +217,23 @@ export function ResourcesPage() {
   // 资源详情抽屉（T07-F6）：行点击 / 「详情」入口打开，展示详情 + 适用模板 + 标签管理
   const [detailOpen, setDetailOpen] = useState(false)
   const [detailRecord, setDetailRecord] = useState<ResourceListItem | null>(null)
-  // Excel 导入弹窗（T07-F5）：模板下载 + 上传 + 结果展示；导入记录面板入口
+  // Excel 导入弹窗（T07-F5）：上传 + 模式选择 + 结果展示；导入记录面板入口
   // `import=1` 深链（决策 91）在首屏即展开，用初始化函数而非 effect 承接
   const [importOpen, setImportOpen] = useState(() => searchParams.get('import') === '1')
+  // F-4：独立「下载模板」弹窗（列清单 + 模板演进提示 + 下载），与 Excel 导入动线分离
+  const [templateOpen, setTemplateOpen] = useState(false)
   const [recordsOpen, setRecordsOpen] = useState(false)
 
   useEffect(() => {
-    Promise.all([networkDomainApi.list({ page: 1, page_size: 100 }), businessDomainApi.list()])
-      .then(([nd, bd]) => {
+    Promise.all([
+      networkDomainApi.list({ page: 1, page_size: 100 }),
+      businessDomainApi.list(),
+      applicationDictApi.list(),
+    ])
+      .then(([nd, bd, ad]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
+        setApplicationDomains(ad.data?.list ?? [])
       })
       .catch(() => {
         // 下拉字典加载失败不阻塞列表展示
@@ -242,6 +252,16 @@ export function ResourcesPage() {
     const b = businessDomains.find((d) => d.code === code)
     return !!b && !b.enabled
   }
+  /** 应用编码 → app_name（§5.19 / 决策 92：应用列展示字典展示名，缺条目回退 app_code） */
+  const resolveAppName = (code?: string) => {
+    if (!code) return '-'
+    return applicationDomains.find((a) => a.app_code === code)?.app_name ?? code
+  }
+  /** 应用是否停用（决策 92：停用应用以「应用名（已停用）」标识，存量保留历史值，§11.2） */
+  const isAppDisabled = (code: string) => {
+    const a = applicationDomains.find((d) => d.app_code === code)
+    return !!a && a.status === 'disabled'
+  }
 
   // 资源新增/编辑抽屉（T07-F4）：create 走当前 Tab 类型；edit 携带行 record（resource_category 取行）
   const openCreateDrawer = () => {
@@ -254,11 +274,17 @@ export function ResourcesPage() {
     setEditingRecord(record)
     setDrawerOpen(true)
   }
-  // T07-F5：下载模板 / Excel 导入统一进入 ImportModal（含模板下载 + 上传 + 结果展示）；
-  // 导入记录面板（recordsOpen）内点击下载模板 / 上传时同步关闭，避免弹窗嵌套弹窗（02_Frontend_Standard §8）
+  // T07-F5：Excel 导入统一进入 ImportModal（上传 + 模式选择 + 结果展示）；
+  // 导入记录面板（recordsOpen）内点击上传时同步关闭，避免弹窗嵌套弹窗（02_Frontend_Standard §8）
   const openImportModal = () => {
     setRecordsOpen(false)
     setImportOpen(true)
+  }
+  // F-4：独立「下载模板」动线——打开模板列清单/下载弹窗（与 Excel 导入弹窗分离）；
+  // 导入记录面板内点击下载模板时同步关闭，避免弹窗嵌套弹窗
+  const openTemplateModal = () => {
+    setRecordsOpen(false)
+    setTemplateOpen(true)
   }
   // T07-F6：打开资源详情抽屉（行点击 / 「详情」入口），携带行 record 供详情展示
   const openDetailDrawer = (record: ResourceListItem) => {
@@ -280,10 +306,11 @@ export function ResourcesPage() {
     }
   }
 
-  // 列集合对齐原型：共享列（网域 / 业务 / 来源 / 运行状态 / 操作）+ 各类型差异化列。
-  // 网域列默认展示不可隐藏（§11.2）；业务列展示 biz_name、停用加「（已停用）」；
-  // 运行状态列头以 hover 提示标注数据来源（决策 32）。采集状态列因后端列表不返回
-  // is_monitored（决策 31-M1、M01 未实现）本阶段裁剪，仅保留「未监控」筛选。
+  // 列集合对齐原型：共享列（网域 / 业务名称 / 应用名称 / 运行状态 / 采集状态 / 录入方式 / 操作）+ 各类型差异化列。
+  // 网域列默认展示不可隐藏（§11.2）；业务 / 应用列分别展示字典展示名（biz_name / app_name）、
+  // 停用加「（已停用）」标识（决策 92/96：业务与应用正交两维，应用列经 GET /application-dict 解析，
+  // 缺条目回退 app_code）；运行状态列头以 hover 提示标注数据来源（决策 32）。采集状态列因后端
+  // 列表不返回 is_monitored（决策 31-M1、M01 未实现）本阶段裁剪，仅保留「未监控」筛选。
   const buildColumns = (type: ResourceCategory): ColumnsType<ResourceListItem> => {
     const domainColumn: ColumnsType<ResourceListItem>[number] = {
       title: '网域',
@@ -292,7 +319,7 @@ export function ResourcesPage() {
       render: (value: string) => <Tag color="cyan">{domainNameOf(value)}</Tag>,
     }
     const businessColumn: ColumnsType<ResourceListItem>[number] = {
-      title: '业务',
+      title: '业务名称',
       dataIndex: 'biz_code',
       key: 'biz_code',
       render: (value?: string) =>
@@ -305,8 +332,32 @@ export function ResourcesPage() {
           '-'
         ),
     }
+    // 决策 92/96 应用列：展示应用字典 app_name，缺条目回退 app_code，停用加「（已停用）」标识
+    // （与业务列正交两维，参照原型 appColumn：Tag cyan / default）
+    const appColumn: ColumnsType<ResourceListItem>[number] = {
+      title: (
+        <span>
+          应用名称
+          <Tooltip title="该资源归属的应用字典条目">
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
+      dataIndex: 'app_code',
+      key: 'app_code',
+      width: 150,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isAppDisabled(value) ? 'default' : 'cyan'}>
+            {resolveAppName(value)}
+            {isAppDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : (
+          '-'
+        ),
+    }
     const sourceColumn: ColumnsType<ResourceListItem>[number] = {
-      title: '来源',
+      title: '录入方式',
       dataIndex: 'source_type',
       key: 'source_type',
       render: (value: string) => <Tag>{SOURCE_TYPE_MAP[value] || value}</Tag>,
@@ -393,22 +444,26 @@ export function ResourcesPage() {
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
+          // F-6：拆分原「应用 / 环境 / 集群」组合列——应用信息由共享 appColumn 承载，
+          // 环境 / 集群独立成列（Tag 色沿用组合列口径 blue / purple），消除 app_code 重复展示
           {
-            title: '应用 / 环境 / 集群',
-            key: 'app_env_cluster',
-            render: (_: unknown, record: ResourceListItem) => (
-              <Space wrap size={4}>
-                {record.app_code && <Tag>{record.app_code}</Tag>}
-                {record.env && <Tag color="blue">{record.env}</Tag>}
-                {record.cluster && <Tag color="purple">{record.cluster}</Tag>}
-              </Space>
-            ),
+            title: '环境',
+            dataIndex: 'env',
+            key: 'env',
+            render: (v?: string) => (v ? <Tag color="blue">{v}</Tag> : '-'),
+          },
+          {
+            title: '集群',
+            dataIndex: 'cluster',
+            key: 'cluster',
+            render: (v?: string) => (v ? <Tag color="purple">{v}</Tag> : '-'),
           },
           domainColumn,
           businessColumn,
-          sourceColumn,
+          appColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'database':
@@ -426,9 +481,10 @@ export function ResourcesPage() {
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
           domainColumn,
           businessColumn,
-          sourceColumn,
+          appColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'middleware':
@@ -446,15 +502,23 @@ export function ResourcesPage() {
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
           domainColumn,
           businessColumn,
-          sourceColumn,
+          appColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'application':
         return [
           {
-            title: '服务名',
+            title: (
+              <span>
+                服务名
+                <Tooltip title="本应用资源实例的服务标识">
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+                </Tooltip>
+              </span>
+            ),
             dataIndex: 'service_name',
             key: 'service_name',
             render: (v?: string) => <Text strong>{v || '-'}</Text>,
@@ -471,9 +535,10 @@ export function ResourcesPage() {
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
           domainColumn,
           businessColumn,
-          sourceColumn,
+          appColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
       case 'generic_target':
@@ -505,9 +570,10 @@ export function ResourcesPage() {
           },
           domainColumn,
           businessColumn,
-          sourceColumn,
+          appColumn,
           statusColumn,
           monitorColumn,
+          sourceColumn,
           actionColumn,
         ]
     }
@@ -524,7 +590,7 @@ export function ResourcesPage() {
           <Card
             extra={
               <Space>
-                <Button icon={<DownloadOutlined />} onClick={openImportModal}>
+                <Button icon={<DownloadOutlined />} onClick={openTemplateModal}>
                   下载模板
                 </Button>
                 <Button icon={<UploadOutlined />} onClick={openImportModal}>
@@ -678,7 +744,7 @@ export function ResourcesPage() {
                       <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDrawer}>
                         新增资源
                       </Button>
-                      <Button icon={<DownloadOutlined />} onClick={openImportModal}>
+                      <Button icon={<DownloadOutlined />} onClick={openTemplateModal}>
                         下载模板
                       </Button>
                       <Button icon={<UploadOutlined />} onClick={openImportModal}>
@@ -715,12 +781,20 @@ export function ResourcesPage() {
         businessDomains={businessDomains}
         onCancel={() => setDetailOpen(false)}
       />
-      {/* T07-F5：Excel 导入弹窗（模板下载 + 上传 + mode + 结果/错误行）；导入成功后回刷列表 */}
+      {/* T07-F5：Excel 导入弹窗（上传 + mode + 结果/错误行）；导入成功后回刷列表 */}
       <ImportModal
         open={importOpen}
         category={category}
         onCancel={() => setImportOpen(false)}
         onSuccess={reload}
+      />
+      {/* F-4/F-7：模板下载弹窗（用户语言三问 + 当前业务/应用可选值直显 + 演进提示 + 下载），与 Excel 导入动线分离 */}
+      <TemplateDownloadModal
+        open={templateOpen}
+        category={category}
+        onCancel={() => setTemplateOpen(false)}
+        businessDomains={businessDomains}
+        applicationDomains={applicationDomains}
       />
       {/* T07-F5：导入记录面板（列表筛选/分页/详情；空态引导打开 ImportModal） */}
       <Modal

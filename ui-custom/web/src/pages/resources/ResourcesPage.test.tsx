@@ -5,21 +5,25 @@ import { ResourcesPage } from './ResourcesPage'
 
 const listMock = vi.fn()
 const removeMock = vi.fn()
+const templateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
+const applicationDictListMock = vi.fn()
 const coverageListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   resourceApi: {
     list: (...args: unknown[]) => listMock(...args),
     remove: (...args: unknown[]) => removeMock(...args),
+    // F-4：模板下载弹窗（TemplateDownloadModal）依赖 resourceApi.template
+    template: (...args: unknown[]) => templateMock(...args),
   },
   businessDomainApi: {
     list: (...args: unknown[]) => businessDomainListMock(...args),
   },
-  // 决策 92：表单「应用」字段改为应用字典启用条目下拉
+  // 决策 92/96：应用列经 applicationDictApi.list 解析 app_name，缺条目回退 app_code
   applicationDictApi: {
-    list: () => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }),
+    list: (...args: unknown[]) => applicationDictListMock(...args),
   },
 }))
 
@@ -114,9 +118,14 @@ describe('ResourcesPage', () => {
   beforeEach(() => {
     listMock.mockReset()
     removeMock.mockReset()
+    templateMock.mockReset()
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
+    applicationDictListMock.mockReset()
     coverageListMock.mockReset()
+    // jsdom 未实现 createObjectURL / revokeObjectURL，桩掉以完成模板下载触发
+    URL.createObjectURL = vi.fn(() => 'blob:mock')
+    URL.revokeObjectURL = vi.fn()
     // 清理「网域/业务」筛选记忆（PRD §11.2），保证用例隔离；jsdom 环境能力不完整时降级跳过
     try {
       window.localStorage.removeItem('metriccenter:resources:filters')
@@ -128,6 +137,7 @@ describe('ResourcesPage', () => {
       data: { list: [], total: 0, page: 1, page_size: 100 },
     })
     businessDomainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    applicationDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     removeMock.mockResolvedValue({ status: 'success', data: { resource_id: 'res-1' } })
     coverageListMock.mockResolvedValue({
       status: 'success',
@@ -468,5 +478,257 @@ describe('ResourcesPage', () => {
     expect(badge).toBeTruthy()
     fireEvent.mouseEnter(badge!)
     expect(await screen.findByText(/以实例 IP 作为实例标识/)).toBeInTheDocument()
+  })
+
+  // 决策 92/96：资源列表五类 Tab 共享「应用」列——经应用字典解析 app_name，
+  // 停用条目加「（已停用）」标识、缺条目回退 app_code、空值渲染 '-'
+  it('决策 92/96：应用列渲染应用字典 app_name（enabled 条目 cyan Tag）', async () => {
+    applicationDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ app_code: 'order', app_name: '订单服务', status: 'enabled' }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: 'order' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    // 应用列解析为展示名「订单服务」（而非编码 order）
+    expect(await screen.findByText('订单服务')).toBeInTheDocument()
+    // 不渲染停用后缀
+    expect(screen.queryByText(/订单服务（已停用）/)).toBeNull()
+  })
+
+  it('决策 92/96：停用应用以「应用名（已停用）」标识', async () => {
+    applicationDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ app_code: 'legacy', app_name: '已下线应用', status: 'disabled' }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: 'legacy' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('已下线应用（已停用）')).toBeInTheDocument()
+  })
+
+  it('决策 92/96：字典缺条目回退显示 app_code', async () => {
+    // 字典不包含该条目：应用列回退展示编码本身（§5.19 消费链路）
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: 'ghost-app' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    // 应用列回退 ghost-app（F-6 后 host 组合列已拆分，应用信息由应用列唯一承载）
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    expect(within(row).getAllByText('ghost-app').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('决策 92/96：app_code 为空时应用列渲染 "-"', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { app_code: undefined })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    // 行内唯一 '-' 来自应用列（业务/采集状态/其他列均非空）
+    expect(within(row).getByText('-')).toBeInTheDocument()
+  })
+
+  // 决策 92/96 + F-8-b：五类 Tab 共享「应用名称」列，位于「业务名称」列之后（对齐原型列序）
+  it('决策 92/96 + F-8-b：五类 Tab 均含「应用名称」列且位于「业务名称」之后', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByRole('tab', { name: '主机' })
+    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+      const appCount = headers.filter((t) => t.trim() === '应用名称').length
+      expect(appCount, `${name} tab：应用名称列应恰好出现一次`).toBe(1)
+      const atBiz = headers.findIndex((t) => t.trim() === '业务名称')
+      const atApp = headers.findIndex((t) => t.trim() === '应用名称')
+      expect(atApp, `${name} tab：应用名称列应位于业务名称列之后`).toBeGreaterThan(atBiz)
+    }
+  })
+
+  // F-8-b：列头改名（业务名称/应用名称/录入方式）+ 录入方式列移到采集状态之后、操作之前
+  it('F-8-b：五类 Tab 列头为「业务名称/应用名称/录入方式」，录入方式位于采集状态之后', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByRole('tab', { name: '主机' })
+    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+      expect(headers, `${name} tab`).toContain('业务名称')
+      expect(headers, `${name} tab`).toContain('应用名称')
+      expect(headers, `${name} tab`).toContain('录入方式')
+      expect(headers.some((t) => t.trim() === '来源'), `${name} tab：不得再出现「来源」列头`).toBe(false)
+      const atCollect = headers.findIndex((t) => t.trim() === '采集状态')
+      const atSource = headers.findIndex((t) => t.trim() === '录入方式')
+      expect(atSource, `${name} tab：录入方式应位于采集状态之后`).toBeGreaterThan(atCollect)
+    }
+  })
+
+  // F-8-c：应用名称列头 tooltip
+  it('F-8-c：应用名称列头提示「该资源归属的应用字典条目」', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    const appHeader = screen.getByRole('columnheader', { name: /应用名称/ })
+    const badge = appHeader.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText('该资源归属的应用字典条目')).toBeInTheDocument()
+  })
+
+  // F-8-c：应用 Tab「服务名」列头 tooltip
+  it('F-8-c：应用 Tab「服务名」列头提示「本应用资源实例的服务标识」', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getByRole('tab', { name: '应用' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '应用' }).getAttribute('aria-selected')).toBe('true'))
+    const svcHeader = await screen.findByRole('columnheader', { name: /服务名/ })
+    const badge = svcHeader.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText('本应用资源实例的服务标识')).toBeInTheDocument()
+  })
+
+  // F-4/F-7：工具栏「下载模板」打开独立模板 Modal——用户语言三问 + 当前业务/应用可选值直显 + 演进提示
+  it('F-4/F-7：工具栏「下载模板」打开模板下载 Modal（用户语言 + 当前可选值 + 演进提示，无黑话/技术列名）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    // 工具栏与空态各有一个「下载模板」按钮，取工具栏（第一个）
+    fireEvent.click(screen.getAllByRole('button', { name: /下载模板/ })[0])
+    // 模板 Modal 标题 + 用户语言三问 + 模板演进提示 Alert
+    expect(await screen.findByText('下载模板 - 主机')).toBeInTheDocument()
+    expect(screen.getByText('这模板怎么填')).toBeInTheDocument()
+    expect(screen.getByText('每列能填什么值')).toBeInTheDocument()
+    expect(screen.getByText(/模板会随版本更新/)).toBeInTheDocument()
+    // F-7-②：字典为空（默认 mock）→ 空态占位 + 声明表引导（用户语言）
+    expect(screen.getByText(/暂无已登记业务/)).toBeInTheDocument()
+    expect(screen.getByText(/暂无已登记应用/)).toBeInTheDocument()
+    // F-7-③：技术列名清单与设计黑话已删除
+    expect(screen.queryByText('列顺序')).toBeNull()
+    expect(screen.queryByText('os_type')).toBeNull()
+    expect(screen.queryByText('biz_code')).toBeNull()
+    expect(screen.queryByText('取值说明')).toBeNull()
+    expect(screen.queryByText('固定列模板')).toBeNull()
+    expect(screen.queryByText('决策 97')).toBeNull()
+    // 不打开 Excel 导入弹窗
+    expect(screen.queryByText('Excel 导入 - 主机')).toBeNull()
+  })
+
+  // F-7-②：模板 Modal 直显页面已加载的业务/应用字典启用条目（决策 92/96 正交两维）
+  it('F-7-②：模板 Modal 直显当前业务/应用字典启用条目（停用不展示）', async () => {
+    businessDomainListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { code: 'infra', name: '公共基础设施', enabled: true },
+          { code: 'legacy', name: '已下线业务', enabled: false },
+        ],
+        total: 2,
+      },
+    })
+    applicationDictListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { app_code: 'order', app_name: '订单服务', status: 'enabled' },
+          { app_code: 'old-app', app_name: '已停用应用', status: 'disabled' },
+        ],
+        total: 2,
+      },
+    })
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getAllByRole('button', { name: /下载模板/ })[0])
+    await screen.findByText('下载模板 - 主机')
+    // 启用条目以「名称」直显（业务/应用两面板）
+    expect(await screen.findByText('公共基础设施')).toBeInTheDocument()
+    expect(screen.getByText('订单服务')).toBeInTheDocument()
+    // 停用条目不展示
+    expect(screen.queryByText('已下线业务')).toBeNull()
+    expect(screen.queryByText('已停用应用')).toBeNull()
+  })
+
+  it('F-4：模板 Modal 内「下载模板」按钮触发 resourceApi.template', async () => {
+    templateMock.mockResolvedValue(
+      new Blob(['xlsx'], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    )
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getAllByRole('button', { name: /下载模板/ })[0])
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /下载模板/ }))
+    await waitFor(() => expect(templateMock).toHaveBeenCalledWith('host'))
+  })
+
+  it('F-4：空态「下载模板」同样打开模板下载 Modal', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    const btns = screen.getAllByRole('button', { name: /下载模板/ })
+    // 空态「下载模板」位于 Empty 引导区（最后一个）
+    fireEvent.click(btns[btns.length - 1])
+    expect(await screen.findByText('下载模板 - 主机')).toBeInTheDocument()
+  })
+
+  it('F-4：「Excel 导入」按钮打开 Excel 导入弹窗（专注上传导入）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getAllByRole('button', { name: /Excel 导入/ })[0])
+    expect(await screen.findByText('Excel 导入 - 主机')).toBeInTheDocument()
+    // 不打开模板下载 Modal
+    expect(screen.queryByText('下载模板 - 主机')).toBeNull()
+  })
+
+  // F-6：host Tab 拆分「应用 / 环境 / 集群」组合列——独立「环境」「集群」列，组合列头移除
+  it('F-6：host Tab 拆分组合列——独立「环境」「集群」列且不再渲染组合列头', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01', { env: 'prod', cluster: 'c1' })],
+        total: 1,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+    expect(headers).toContain('环境')
+    expect(headers).toContain('集群')
+    expect(headers.some((t) => t.includes('应用 / 环境 / 集群'))).toBe(false)
+    // 行内渲染 env / cluster 值（Tag）；应用信息由应用列唯一承载（字典缺条回退 app_code）
+    const row = screen.getByText('prod-web-01').closest('tr') as HTMLElement
+    expect(within(row).getByText('prod')).toBeInTheDocument()
+    expect(within(row).getByText('c1')).toBeInTheDocument()
+    expect(within(row).getByText('order')).toBeInTheDocument()
+  })
+
+  it('F-6：host Tab 环境/集群为空时渲染 "-"', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01', { env: undefined, cluster: undefined })],
+        total: 1,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    expect(within(row).getAllByText('-').length).toBeGreaterThanOrEqual(2)
   })
 })

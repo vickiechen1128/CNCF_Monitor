@@ -32,6 +32,9 @@ func openImportTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
+		// 字典表（决策 97：声明 sheet 在事务内建字典，需与资源同库迁移）
+		&models.BusinessDomain{},
+		&models.ApplicationDict{},
 		&models.Host{},
 		&models.Database{},
 		&models.Middleware{},
@@ -40,6 +43,10 @@ func openImportTestDB(t *testing.T) *gorm.DB {
 		&models.NetworkDomain{},
 		&models.ImportRecord{},
 	))
+	// 决策 97：导入校验在事务内经同库字典 store 完成（字典∪声明可达性），须预置
+	// 字典夹具 infra（业务）/ app（应用），与既有测试引用值一致。
+	require.NoError(t, db.Create(&models.BusinessDomain{Code: "infra", Name: "公共基础设施", Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "app", AppName: "示例应用", Status: models.AppStatusEnabled}).Error)
 	return db
 }
 

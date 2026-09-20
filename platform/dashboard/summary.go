@@ -112,6 +112,8 @@ type SubtypeSummary struct {
 type AppSummary struct {
 	AppCode        string `json:"app_code"`
 	AppName        string `json:"app_name"` // 应用字典展示名；字典无条目时回落为 app_code
+	BizCode        string `json:"biz_code"` // 多数归因业务域编码（决策 92/93/95）；无有效计数时为空串
+	BizName        string `json:"biz_name"` // 业务字典展示名；字典无条目时回落为 biz_code
 	ResourceCount  int    `json:"resource_count"`
 	MonitoredCount int    `json:"monitored_count"`
 }
@@ -280,14 +282,43 @@ func Build(db *gorm.DB) (*Summary, error) {
 	for _, d := range appDicts {
 		appNames[d.AppCode] = d.AppName
 	}
+	// 业务字典（决策 48 / 92/93/95）：biz_code → biz_name 展示名。字典缺条目时回落为
+	// biz_code（不编造名称）。
+	var bizDomains []models.BusinessDomain
+	if err := db.Find(&bizDomains).Error; err != nil {
+		return nil, fmt.Errorf("list business domains: %w", err)
+	}
+	bizNames := make(map[string]string, len(bizDomains))
+	for _, d := range bizDomains {
+		bizNames[d.Code] = d.Name
+	}
 	for code, aa := range apps {
 		name := appNames[code]
 		if name == "" {
 			name = code // 字典无该条目：回落编码，避免 L2 出现空白名称
 		}
+		// 业务域多数归因：取 bizCounts 中资源数最多的 biz_code；空值不参与
+		// （accumulateResource 已过滤），无有效计数时 BizCode/BizName 均为空串。
+		// 计数并列时取编码字典序较小者，保证输出确定性。
+		var bizCode string
+		bestCnt := 0
+		for b, cnt := range aa.bizCounts {
+			if cnt > bestCnt || (cnt == bestCnt && b < bizCode) {
+				bizCode, bestCnt = b, cnt
+			}
+		}
+		bizName := ""
+		if bizCode != "" {
+			bizName = bizNames[bizCode]
+			if bizName == "" {
+				bizName = bizCode // 字典无该条目：回落编码
+			}
+		}
 		s.ByApp = append(s.ByApp, AppSummary{
 			AppCode:        code,
 			AppName:        name,
+			BizCode:        bizCode,
+			BizName:        bizName,
 			ResourceCount:  aa.resourceCount,
 			MonitoredCount: aa.monitoredCount,
 		})
@@ -311,6 +342,7 @@ type subAgg struct {
 type appAgg struct {
 	resourceCount  int
 	monitoredCount int
+	bizCounts      map[string]int // biz_code → 资源数（多数归因，空值不参与）
 }
 
 // accumulateResource 把单条资源累加进 by_category / by_app 聚合器。
@@ -318,6 +350,9 @@ type appAgg struct {
 //   - subtypeField：该类的子类分组字段；application 传 ""（不拆子类）。
 //   - app_code 取值经 models.Resource 接口收敛（host 走 AppCode 物理列，其他走各自
 //     AppName 物理列，统一由 GetAppCode() 暴露，见 M07 决策 92）。空串记为「未归类」。
+//   - 未归类口径（决策 93，M05 消费）：biz_code 空计为「未归类业务」、app_code 空计为
+//     「未归类应用」，两者并存互不替代——本接口按 app_code 空聚合「未归类应用」计数，
+//     biz_code 空侧的「未归类业务」由 M05 侧按资源 biz_code 空值消费，不再额外加字段。
 func accumulateResource(cats map[models.ResourceCategory]*categoryAgg, apps map[string]*appAgg,
 	cat models.ResourceCategory, subtypeField string, res models.Resource, monitored bool,
 	unclassifiedResource, unclassifiedMonitored *int) {
@@ -353,12 +388,17 @@ func accumulateResource(cats map[models.ResourceCategory]*categoryAgg, apps map[
 	}
 	aa := apps[app]
 	if aa == nil {
-		aa = &appAgg{}
+		aa = &appAgg{bizCounts: make(map[string]int)}
 		apps[app] = aa
 	}
 	aa.resourceCount++
 	if monitored {
 		aa.monitoredCount++
+	}
+	// 业务域多数归因（决策 92/93/95）：资源侧 biz_code 非空才参与计数（空值视为
+	// 「未归类业务」，由 M05 侧按资源 biz_code 空值消费，不在此聚合）。
+	if biz, ok := models.GetResourceField(res, "biz_code"); ok && biz != "" {
+		aa.bizCounts[biz]++
 	}
 }
 

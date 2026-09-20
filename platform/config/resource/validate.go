@@ -57,29 +57,50 @@ type ResourceInput struct {
 	CustomLabels map[string]string `json:"custom_labels"`
 }
 
+// KeepDisabledValues 承载「编辑保留停用历史值」的放行集合（决策 92/93 红线）：
+// 请求体值与资源当前值相同、且该字典条目已停用时，跳过对应启用态校验（提示并
+// 允许保留历史值）；修改为新值 / 新选用停用条目仍被拒绝。仅更新（PUT）场景注入。
+type KeepDisabledValues struct {
+	BizCode string // 资源当前 biz_code（停用历史值保留）
+	AppCode string // 资源当前 app_code（停用历史值保留）
+}
+
 // ValidateResourceInput 校验资源写请求/导入行输入（纯函数，外部副作用仅来自注入的
 // bizStore 与 networkDomainExists）：
 //
-//   - 必填项：按类型差异化（host/generic_target 的 app_code/cluster 可空，
-//     application/database/middleware 必填，§5.2 ✅*）；
+//   - 必填项：按类型差异化（host/database/middleware 的 biz_code 可空后补、app_code
+//     对 host/generic_target 可空；application 的 biz_code 与 app_code 必填；
+//     generic_target 的 app_code/biz_code 二选一，§5.2 ✅* 决策 93/95）；
 //   - 枚举：env∈ValidEnvs、protocol∈ValidProtocols、scheme∈ValidSchemes、
 //     status 仅 online/offline/maintenance（不接受中文状态）；
 //   - 格式：instance_ip IPv4（generic_target 另允许域名）、port 1~65535、
 //     health_check_url 为合法 HTTP/TCP URL；
-//   - 存在性：biz_code 必填且对应已启用业务字典条目（§3.1）；app_code 若填写须对应
-//     已启用应用字典条目（决策 92 红线：资源侧 app_code 只允许引用未停用条目）；
+//   - 存在性：biz_code 若填须对应已启用业务字典条目（host/db/middleware 为空时
+//     不校验存在性，§3.1/决策 93）；app_code 若填写须对应已启用应用字典条目
+//     （决策 92 红线：资源侧 app_code 只允许引用未停用条目）；
 //     network_domain_id 经 networkDomainExists 校验（M06 行政记录，default 例外由
 //     调用方决定）。
 //
 // 校验失败返回含字段名的错误，供 handler 包装为 bad_request（§6.6.1）。
 func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool) error {
+	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, nil)
+}
+
+// ValidateResourceInputForUpdate 与 ValidateResourceInput 同校验，但允许「编辑保留
+// 停用历史值」（决策 92/93）：keep 指向资源当前值，请求体值与其相同时跳过对应
+// 启用态校验（提示并允许保留历史值），修改为新值仍被拒绝。
+func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, keep)
+}
+
+func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if in == nil {
 		return fmt.Errorf("resource input 不能为空")
 	}
 	if !isValidCategory(category) {
 		return fmt.Errorf("resource_category 非法：%s", category)
 	}
-	if err := validateCommon(in, bizStore, appStore, networkDomainExists); err != nil {
+	if err := validateCommon(in, bizStore, appStore, networkDomainExists, keep); err != nil {
 		return err
 	}
 	switch category {
@@ -97,28 +118,40 @@ func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, 
 	return nil
 }
 
-// validateCommon 校验五类共享字段：网域存在性、biz_code 存在且启用、app_code（若填）
-// 须对应启用应用字典条目、env/status 枚举。
-func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool) error {
+// validateCommon 校验五类共享字段：网域存在性、biz_code（若填）格式与启用、app_code
+// （若填）须对应启用应用字典条目、env/status 枚举。必填分化不在本函数内——按类型
+// 差异化必填由各 validate* 分派（决策 93/95：application 的 biz 必填在
+// validateApplication、generic_target 二选一在 validateGenericTarget）。
+func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if strings.TrimSpace(in.NetworkDomainID) == "" {
 		return fmt.Errorf("network_domain_id 必填")
 	}
 	if networkDomainExists != nil && !networkDomainExists(in.NetworkDomainID) {
 		return fmt.Errorf("网域 %s 未登记，请先到『系统设置 → 网域管理』登记后重试", in.NetworkDomainID)
 	}
-	if strings.TrimSpace(in.BizCode) == "" {
-		return fmt.Errorf("biz_code 必填")
+	// 决策 93：biz_code 非空时校验编码规范与启用条目（host/db/middleware 可空后补，
+	// 为空时不校验存在性、不注入 biz 标签）；编辑保留停用历史值经 keep 豁免。
+	if strings.TrimSpace(in.BizCode) != "" {
+		if !models.ValidBizCode.MatchString(in.BizCode) {
+			return fmt.Errorf("biz_code 只能包含小写字母、数字和连字符，长度不超过 64")
+		}
+		if keep == nil || in.BizCode != keep.BizCode {
+			if err := validateBizCodeEnabled(in.BizCode, bizStore); err != nil {
+				return err
+			}
+		}
 	}
-	if !models.ValidBizCode.MatchString(in.BizCode) {
-		return fmt.Errorf("biz_code 只能包含小写字母、数字和连字符，长度不超过 64")
-	}
-	if err := validateBizCodeEnabled(in.BizCode, bizStore); err != nil {
-		return err
-	}
-	// 决策 92：app_code 若填写须引用已启用应用字典条目（停用/未登记不允许选用）。
+	// 决策 92：app_code 若填写须引用已启用应用字典条目（停用/未登记不允许选用）；
+	// 编辑保留停用历史值经 keep 豁免。先校验编码规范（与 biz_code 同构），非法格式
+	// 给出明确文案，避免被「未登记或已停用」兜底误报。
 	if strings.TrimSpace(in.AppCode) != "" {
-		if err := validateAppCodeEnabled(in.AppCode, appStore); err != nil {
-			return err
+		if !models.ValidAppCode.MatchString(in.AppCode) {
+			return fmt.Errorf("app_code 只能包含小写字母、数字和连字符，长度不超过 64")
+		}
+		if keep == nil || in.AppCode != keep.AppCode {
+			if err := validateAppCodeEnabled(in.AppCode, appStore); err != nil {
+				return err
+			}
 		}
 	}
 	if !containsString(models.ValidEnvs, strings.TrimSpace(in.Env)) {
@@ -222,6 +255,11 @@ func validateIPPortResource(in *ResourceInput) error {
 }
 
 func validateApplication(in *ResourceInput) error {
+	// 决策 93：application 应用服务上线后 biz_code 必填（对应启用条目由
+	// validateCommon 校验，host/db/middleware 不受此约束）。
+	if strings.TrimSpace(in.BizCode) == "" {
+		return fmt.Errorf("biz_code 必填（应用上线后须归属业务分组，可先在『业务管理』页登记）")
+	}
 	if strings.TrimSpace(in.ServiceName) == "" {
 		return fmt.Errorf("service_name 必填")
 	}
@@ -249,6 +287,11 @@ func validateApplication(in *ResourceInput) error {
 }
 
 func validateGenericTarget(in *ResourceInput) error {
+	// 决策 95：app_code 与 biz_code 二选一必填（两者皆空 bad_request，避免指标
+	// 无归属）；非空侧的存在性/启用态校验已由 validateCommon 完成。
+	if strings.TrimSpace(in.AppCode) == "" && strings.TrimSpace(in.BizCode) == "" {
+		return fmt.Errorf("generic_target 的 app_code 与 biz_code 至少填写一个（决策 95 二选一）")
+	}
 	if strings.TrimSpace(in.TargetName) == "" {
 		return fmt.Errorf("target_name 必填")
 	}
