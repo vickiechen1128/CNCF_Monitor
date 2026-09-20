@@ -41,6 +41,7 @@ import { useSkin } from '../../../skinContext'
 import { FilterBar, FilterItem } from '../../../components/FilterBar'
 import { useNetworkDomains } from './useNetworkDomains'
 import { OnboardDomainDrawer, type OnboardInput } from './OnboardDomainDrawer'
+import { EdgePackageDownloadPanel } from './EdgePackageDownloadPanel'
 import { NetworkDomainDetailDrawer } from './NetworkDomainDetailDrawer'
 import { PlainTokenModal } from './PlainTokenModal'
 import {
@@ -364,20 +365,18 @@ export function NetworkDomainsPage() {
                       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
                         采集节点域（agent_pull）：需部署 Edge Sync Agent 才能回连平台，按下方步骤接入。
                       </Typography.Paragraph>
-                      <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
-                        Edge Sync Agent 交付物为 v0.2，当前 MVP 仅展示接入动线，安装包另待发布。
-                      </Typography.Paragraph>
                       <Steps
                         size="small"
                         direction="vertical"
                         current={-1}
                         items={[
-                          { title: '下载安装包', description: '下载 Edge Sync Agent 安装包；接入 Token 与 Remote Write URL 在纳管时自动签发（写入 Agent 配置）' },
+                          { title: '下载安装包', description: '从下方清单下载对应版本的 Edge Sync Agent 离线安装包；接入 Token 与 Remote Write URL 在纳管时自动签发（写入 Agent 配置）' },
                           { title: '解压部署', description: '将安装包解压部署到该网域采集节点，并写入接入配置（Token / 中心地址 / Remote Write URL）' },
                           { title: '启动 / 守护', description: '启动 Edge Sync Agent（由 systemd 守护，开机自启、异常自动拉起）' },
                           { title: '心跳回连', description: 'Agent 自动连接平台拉取配置并上报数据；可在本页「采集节点在线」列或网域详情查看心跳与运行情况' },
                         ]}
                       />
+                      <EdgePackageDownloadPanel active={guideOpen} />
                     </div>
                   ),
                 },

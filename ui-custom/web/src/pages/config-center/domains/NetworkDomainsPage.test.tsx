@@ -25,6 +25,11 @@ vi.mock('./NetworkDomainDetailDrawer', () => ({
   NetworkDomainDetailDrawer: () => null,
 }))
 
+// 离线包下拉面板（T11-22）在 EdgePackageDownloadPanel.test.tsx 单测覆盖，页面测试桩掉避免依赖真实 fetch
+vi.mock('./EdgePackageDownloadPanel', () => ({
+  EdgePackageDownloadPanel: () => <div>mock-edge-package-panel</div>,
+}))
+
 // 桩代替真实 Drawer 表单，暴露一个触发 onSubmit 的按钮，用于验证「纳管→提交」主流程
 vi.mock('./OnboardDomainDrawer', () => ({
   OnboardDomainDrawer: ({ open, onSubmit, onClose }: { open?: boolean; onSubmit?: (i: unknown) => Promise<void>; onClose?: () => void }) => {

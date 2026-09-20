@@ -240,3 +240,24 @@ export interface RollbackPreview {
   diff_items: RollbackDiffItem[]
   warning: string
 }
+
+/**
+ * 边缘离线安装包组成组件（M11 契约 §2：Edge Sync Agent 交付物内含的二进制组件）。
+ * 权威契约：docs/05-execution-records/module-11/api-contract-snapshot.md §2。
+ */
+export interface EdgePackageComponent {
+  name: string
+  version: string
+}
+
+/** 边缘离线安装包元信息（GET /edge-packages 单条，M11 契约 §2；data 为 PackageArtifact[] 数组） */
+export interface EdgePackage {
+  /** 包标识，如 release-v0.2.0（对齐契约 PackageArtifact.id） */
+  id: string
+  version: string
+  sha256: string
+  size_bytes: number
+  components: EdgePackageComponent[]
+  /** 指定版本下载路径，如 /api/v2/platform/edge-packages/v1.2.0/download */
+  download_url: string
+}
