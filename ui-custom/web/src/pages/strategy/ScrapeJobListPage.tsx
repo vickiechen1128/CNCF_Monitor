@@ -295,9 +295,9 @@ function JobsTab() {
       render: (v?: string[]) => v?.length ?? 0,
     },
     {
-      // 决策 47-2：实例采集状态列对齐原型。
-      // 数据源 = M02 targets 聚合（useJobScrapeStatus 只读消费 /api/v1/targets 按 job 过滤，约 20s 自动刷新）；
-      // 存在「待采集 / 已下发未采到」实例时整格高饱和红；整格（Tag）可点击进入 Job 详情查看各实例具体原因。
+      // 决策 47-2：实例采集状态列对齐原型（F-12：拨测 Job 按 probe_success 聚合「通过 x / 总数 y」）。
+      // 数据源 = useJobScrapeStatus 只读消费 M02 /api/v1/query（标准 Job 用 up、拨测 Job 用 probe_success），约 20s 自动刷新；
+      // 存在「待采集 / 已下发未采到」或「待拨测 / 拨测失败」时整格高饱和红；整格（Tag）可点击进入 Job 详情查看具体原因。
       title: (
         <Tooltip title={COLLECTION_STATUS_TOOLTIP}>
           <Space size={4}>
@@ -309,17 +309,21 @@ function JobsTab() {
       key: 'collection_status',
       width: 190,
       render: (_: unknown, r: ScrapeJob) => {
-        // blackbox 拨测 Job 无实例维度采集状态；未选任何实例时显示 '-'
-        if (r.job_type === 'blackbox') return <Text type="secondary">-</Text>
-        const total = r.selected_instance_ids.length
+        // 拨测 Job（F-12）按拨测目标聚合；标准 Job 按已选实例聚合。无目标/无实例时显示 '-'
+        const isBlackbox = r.job_type === 'blackbox'
+        const total = isBlackbox ? (r.blackbox_targets?.length ?? 0) : r.selected_instance_ids.length
         if (total === 0) return <Text type="secondary">-</Text>
         const v = scrapeStatusByJob[r.id]
         if (!v) return <Spin size="small" />
         const anomaly = v.down > 0 || v.pending > 0
         const onClick = () => setViewing(r)
-        const text = `在线 ${v.online} / 总数 ${total}`
+        const text = isBlackbox ? `通过 ${v.online} / 总数 ${total}` : `在线 ${v.online} / 总数 ${total}`
+        const anomalyTip = isBlackbox
+          ? '有拨测目标没通过，点一下查看是哪些目标'
+          : '有实例没采到数据，点一下查看是哪些实例、失败原因'
+        const normalTip = isBlackbox ? '点击查看各拨测目标的探测情况' : '点击查看各实例的采集情况'
         return anomaly ? (
-          <Tooltip title="有实例没采到数据，点一下查看是哪些实例、失败原因">
+          <Tooltip title={anomalyTip}>
             <Tag
               color={tokens.colorError}
               style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
@@ -329,7 +333,7 @@ function JobsTab() {
             </Tag>
           </Tooltip>
         ) : (
-          <Tooltip title="点击查看各实例的采集情况">
+          <Tooltip title={normalTip}>
             <Tag color="green" style={{ marginInlineEnd: 0, cursor: 'pointer' }} onClick={onClick}>
               {text}
             </Tag>

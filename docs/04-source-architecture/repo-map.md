@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-21 11:17 · commit: `2e23b84`
+> 生成时间: 2026-09-21 18:22 · commit: `93be384`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1738,6 +1738,14 @@
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
+### `platform/dashboard/probe.go`
+
+- `type ProbeSample struct`
+- `type ProbeQuerier interface`
+- `type PromProbeQuerier struct`
+- `func NewPromProbeQuerier(baseURL *url.URL, client *http.Client) *PromProbeQuerier`
+- `method (*PromProbeQuerier) ProbeSuccess(ctx context.Context) (map[string]map[string]ProbeSample, error)`
+
 ### `platform/dashboard/summary.go`
 
 - `func resourceModels() []interface{}`
@@ -1748,7 +1756,10 @@
 - `type CategorySummary struct`
 - `type SubtypeSummary struct`
 - `type AppSummary struct`
-- `func Build(db *gorm.DB) (*Summary, error)`
+- `type buildOptions struct`
+- `type Option`
+- `func WithProbeQuerier(q ProbeQuerier) Option`
+- `func Build(db *gorm.DB, opts ...Option) (*Summary, error)`
 - `type categoryAgg struct`
 - `type subAgg struct`
 - `type appAgg struct`
@@ -1870,6 +1881,7 @@
 - `func buildHeartbeatRequest( cfg *config.Config, configVersion string, queueBacklogBytes int64, remoteWriteQueueSize int, hos…`
 - `type runtimeProvider struct`
 - `method (*runtimeProvider) Snapshot() puller.RuntimeSnapshot`
+- `method (*runtimeProvider) warnf(format string, args ...any)`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat_test.go`
 
@@ -1880,6 +1892,8 @@
 - `method (stubProbe) Healthy(*supervisor.Component) bool`
 - `method (stubProbe) Start(*supervisor.Component) error`
 - `method (stubProbe) Stop(*supervisor.Component) error`
+- `func TestRuntimeProviderSnapshotCarriesTargets(t *testing.T)`
+- `func TestRuntimeProviderSnapshotTargetsDegrade(t *testing.T)`
 - `func TestEnvOr(t *testing.T)`
 - `func TestVersionFlagString(t *testing.T)`
 
@@ -1893,6 +1907,7 @@
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/probe.go`
 
+- `func sameArgs(a, b []string) bool`
 - `type procSpec struct`
 - `type ProcProbe struct`
 - `func NewProcProbe(configDir func() string, centerEndpoint string, out io.Writer) *ProcProbe`
@@ -1901,6 +1916,7 @@
 - `method (*ProcProbe) Start(c *supervisor.Component) error`
 - `method (*ProcProbe) Stop(c *supervisor.Component) error`
 - `method (*ProcProbe) Signal(typ string, sig syscall.Signal) error`
+- `method (*ProcProbe) Reload(typ string) error`
 - `method (*ProcProbe) StopAll()`
 - `func httpGetOK(ctx context.Context, cli *http.Client, url string) error`
 - `func httpPostOK(ctx context.Context, cli *http.Client, url string) error`
@@ -1916,8 +1932,27 @@
 - `func TestTCPProbe(t *testing.T)`
 - `func TestProcProbeSignalWhenNotRunning(t *testing.T)`
 - `func TestProcProbeTimeoutSetting(t *testing.T)`
+- `func TestSameArgs(t *testing.T)`
+- `func TestProcProbeReloadNotRunning(t *testing.T)`
 - `func TestResolveRemoteWriteURL(t *testing.T)`
 - `func TestMetadataRemoteWriteURL(t *testing.T)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets.go`
+
+- `type vmTargetResp struct`
+- `type vmTargetRespData struct`
+- `type vmTarget struct`
+- `func parseEdgeTargets(b []byte) ([]contract.EdgeTargetSnapshot, error)`
+- `func fetchVMAgentTargets(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...any)) []co…`
+- `func newVMTargetsClient() *http.Client`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets_test.go`
+
+- `func TestParseEdgeTargetsFullMapping(t *testing.T)`
+- `func TestParseEdgeTargetsEmptyActive(t *testing.T)`
+- `func TestParseEdgeTargetsInvalidJSON(t *testing.T)`
+- `func TestFetchVMAgentTargets(t *testing.T)`
+- `func TestFetchVMAgentTargetsContractType(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/client/client.go`
 
@@ -1960,6 +1995,7 @@
 
 ### `platform/edge-sync-agent/internal/contract/contract.go`
 
+- `type EdgeTargetSnapshot struct`
 - `type Component struct`
 - `type HeartbeatRequest struct`
 - `type HeartbeatResponse struct`
@@ -1971,6 +2007,8 @@
 - `func TestHeartbeatResponseJSON(t *testing.T)`
 - `func TestMetadataJSONAlignsCenter(t *testing.T)`
 - `func TestPathConstants(t *testing.T)`
+- `func TestEdgeTargetSnapshotJSONTag(t *testing.T)`
+- `func TestHeartbeatRequestJSONCarriesTargets(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/deployer/deployer.go`
 
@@ -2007,6 +2045,7 @@
 - `func TestVerifyTargetsJSON(t *testing.T)`
 - `func TestStructuralValidateTopKeys(t *testing.T)`
 - `func TestZipSlipTargetRejected(t *testing.T)`
+- `func TestApplyMetadataRemoteWriteURLPersisted(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/deployer/extract.go`
 
@@ -2078,6 +2117,7 @@
 - `method (*fakeDeploy) count() int`
 - `type fakeRuntime struct`
 - `method (fakeRuntime) Snapshot() RuntimeSnapshot`
+- `func TestBuildHeartbeatCarriesTargets(t *testing.T)`
 - `func testConfig(endpoint string) *config.Config`
 - `type testServer struct`
 - `func newTestServer(hb contract.HeartbeatResponse, zipBody []byte) *testServer`
@@ -2160,6 +2200,8 @@
 - `func newEdgeRouter(db *gorm.DB) *gin.Engine`
 - `func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T)`
 - `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
+- `func TestHeartbeatHandlerConfigDownloadURL(t *testing.T)`
+- `func TestRequestAuthorityFallsBackToRequestHost(t *testing.T)`
 - `func TestHeartbeatUnauthorizedMissingIdentity(t *testing.T)`
 - `func TestHeartbeatLocalDomainRejected(t *testing.T)`
 - `func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T)`
@@ -2167,6 +2209,8 @@
 - `func TestBuildConfigZipRemoteWriteURL(t *testing.T)`
 - `func TestConfigHandlerServeZipAnd304(t *testing.T)`
 - `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
+- `func TestHeartbeatWritebackAgentPullDeployment(t *testing.T)`
+- `func TestHeartbeatRequestDecodesEdgeTargets(t *testing.T)`
 
 ### `platform/edge/heartbeat_handler.go`
 
@@ -2175,17 +2219,20 @@
 ### `platform/edge/heartbeat_service.go`
 
 - `type HeartbeatRequest struct`
+- `type EdgeTargetSnapshot struct`
 - `type HeartbeatResponse struct`
 - `type HeartbeatService struct`
 - `func NewHeartbeatService(db *gorm.DB) *HeartbeatService`
-- `method (*HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time) (*HeartbeatResponse, error)`
+- `method (*HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time, authority string) (*Heartbe…`
+- `func writebackAgentPullDeployments(db *gorm.DB, domainID string, version *models.ConfigVersion, now time.Time) error`
 - `method (*HeartbeatService) findOrRegisterAgent(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time) (*models.EdgeA…`
 
 ### `platform/edge/helpers.go`
 
 - `func configVersionString(v *models.ConfigVersion) string`
 - `func latestConfigVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
-- `func configDownloadURL(dom *models.NetworkDomain) string`
+- `func configDownloadURL(authority, domainID string) string`
+- `func requestAuthority(c *gin.Context) string`
 - `func nowUTC() time.Time`
 
 ### `platform/edge/management_handler.go`
@@ -4083,6 +4130,14 @@
 - `const COLLECTION_STATUS_TOOLTIP`
 - `const EFFECTIVE_STATUS_TOOLTIP`
 - `const CHANGE_PROGRESS_TOOLTIP`
+
+### `ui-custom/web/src/pages/strategy/upStatus.ts`
+
+- `function hostOf`
+- `function upQueryForJob`
+- `function statusFromUp`
+- `function probeQueryForJob`
+- `function probeStatusOfTarget`
 
 ### `ui-custom/web/src/pages/strategy/useJobScrapeStatus.ts`
 
