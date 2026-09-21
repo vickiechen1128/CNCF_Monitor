@@ -20,6 +20,22 @@ import (
 	"github.com/metriccenter/platform/edge-sync-agent/internal/supervisor"
 )
 
+// sameArgs 比较两组进程启动参数是否一致（任一为 nil 视为不相等）。
+func sameArgs(a, b []string) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // procSpec 描述一个被守护组件的真实进程启动/探活参数。随部署形态演进（vmagent /
 // blackbox_exporter）可在装配时替换 bin 与 args 模板（决策 C4：采集器统一为 vmagent）。
 type procSpec struct {
@@ -39,6 +55,7 @@ type ProcProbe struct {
 	mu             sync.Mutex
 	specs          map[string]*procSpec
 	cmds           map[string]*exec.Cmd // typ -> 运行中子进程
+	lastArgs       map[string][]string  // typ -> 当前运行实例的启动参数（Reload 判定重启依据）
 	configDir      func() string        // 返回当前生效配置目录（deployer.VersionDir(CurrentVersion)）
 	centerEndpoint string               // 中心接入地址（CENTER_ENDPOINT），用于 remote_write 地址 A 方案推导
 	httpc          *http.Client
@@ -47,12 +64,13 @@ type ProcProbe struct {
 
 // NewProcProbe 构造探针。configDir 返回 deployer 当前生效版本目录；envBin 允许用
 // EDGE_* 环境覆盖采集器 / 拨测器二进制路径。centerEndpoint 为中心接入地址
-//（CENTER_ENDPOINT），在配置包未下发改写 remote_write 地址时用于推导 vmagent
+// （CENTER_ENDPOINT），在配置包未下发改写 remote_write 地址时用于推导 vmagent
 // -remoteWrite.url（T11-G1-02 方案 A：center_endpoint + "/api/v1/write"）。
 func NewProcProbe(configDir func() string, centerEndpoint string, out io.Writer) *ProcProbe {
 	p := &ProcProbe{
 		specs:          map[string]*procSpec{},
 		cmds:           map[string]*exec.Cmd{},
+		lastArgs:       map[string][]string{},
 		configDir:      configDir,
 		centerEndpoint: centerEndpoint,
 		httpc:          &http.Client{Timeout: 3 * time.Second},
@@ -133,7 +151,8 @@ func (p *ProcProbe) Start(c *supervisor.Component) error {
 	if vd == "" {
 		return errors.New("probe: no effective config version to start from")
 	}
-	cmd := exec.Command(spec.bin, spec.args(vd)...)
+	args := spec.args(vd)
+	cmd := exec.Command(spec.bin, args...)
 	cmd.Stdout = p.out
 	cmd.Stderr = p.out
 	if err := cmd.Start(); err != nil {
@@ -141,6 +160,7 @@ func (p *ProcProbe) Start(c *supervisor.Component) error {
 	}
 	p.mu.Lock()
 	p.cmds[c.Type] = cmd
+	p.lastArgs[c.Type] = args
 	p.mu.Unlock()
 	return nil
 }
@@ -157,6 +177,7 @@ func (p *ProcProbe) Stop(c *supervisor.Component) error {
 	_ = cmd.Wait()
 	p.mu.Lock()
 	delete(p.cmds, c.Type)
+	delete(p.lastArgs, c.Type)
 	p.mu.Unlock()
 	return nil
 }
@@ -170,6 +191,41 @@ func (p *ProcProbe) Signal(typ string, sig syscall.Signal) error {
 		return fmt.Errorf("probe: component %s not running", typ)
 	}
 	return cmd.Process.Signal(sig)
+}
+
+// Reload 触发组件重载：若当前生效配置目录派生出的启动参数与运行实例起点一致，则
+// SIGHUP 热加载（prometheus.yml 变更场景）；若不一致（典型是 remote_write_url 变更，
+// 该地址是 vmagent 进程启动时固定的 -remoteWrite.url CLI 参数，SIGHUP 无法更新），
+// 则 Stop+Start 重启以应用新参数（F-9 缺陷②修复）。组件未运行时返回错误，交由
+// supervisor 在下次 tick 按当前生效目录拉起。
+func (p *ProcProbe) Reload(typ string) error {
+	p.mu.Lock()
+	spec, ok := p.specs[typ]
+	lastArgs := p.lastArgs[typ]
+	p.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("probe: no spec for component %s", typ)
+	}
+	if !p.Alive(&supervisor.Component{Type: typ}) {
+		return fmt.Errorf("probe: component %s not running", typ)
+	}
+	vd := p.configDir()
+	if vd == "" {
+		return nil
+	}
+	if sameArgs(lastArgs, spec.args(vd)) {
+		// 参数未变 → 热加载即可。
+		return p.Signal(typ, syscall.SIGHUP)
+	}
+	// 参数（remote_write_url 等）变化 → 重启以应用新 CLI 参数。
+	c := &supervisor.Component{Type: typ}
+	if err := p.Stop(c); err != nil {
+		return err
+	}
+	if err := p.Start(c); err != nil {
+		return fmt.Errorf("probe: reload restart %s: %w", typ, err)
+	}
+	return nil
 }
 
 // StopAll 优雅停止全部子进程（main 退出时调用）。
@@ -253,10 +309,10 @@ func metadataRemoteWriteURL(versionDir string) string {
 
 // resolveRemoteWriteURL 解析 vmagent -remoteWrite.url（T11-G1-02），优先级从高到低：
 //
-//	1) 配置包 metadata 下发的 remote_write_url（方案 B）
-//	2) 显式环境变量 EDGE_REMOTE_WRITE_URL
-//	3) center_endpoint 推导（方案 A：去尾斜杠 + "/api/v1/write"）
-//	4) 环回兜底 http://127.0.0.1:9090/api/v1/write
+//  1. 配置包 metadata 下发的 remote_write_url（方案 B）
+//  2. 显式环境变量 EDGE_REMOTE_WRITE_URL
+//  3. center_endpoint 推导（方案 A：去尾斜杠 + "/api/v1/write"）
+//  4. 环回兜底 http://127.0.0.1:9090/api/v1/write
 //
 // 任一非空即返回，保证结果非空（vmagent 要求至少一个 -remoteWrite.url）。
 func resolveRemoteWriteURL(metadataURL, centerEndpoint string) string {

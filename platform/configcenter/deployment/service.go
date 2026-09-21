@@ -145,10 +145,19 @@ func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.Net
 		TriggeredAt:       &now,
 	}
 
-	// agent_pull：MVP 占位，不写盘（v0.2 由 Edge Sync Agent 拉包生效）。
+	// agent_pull：占位登记（不写盘），由 Edge Sync Agent 后续拉包生效。
+	// F-8：确认下发即代表将其纳入待拉包生效队列，语义同已下发，需在此回写
+	// M01/M08 change_status=deployed，否则前端「变更进度/生效状态」永久停在待确认。
+	// 回写失败与占位登记成功解耦（同 local 分支 MEDIUM-1 降级策略），不整链 500。
 	if dom.Channel != models.ChannelTypeLocal {
 		if err := db.Create(dep).Error; err != nil {
 			return nil, fmt.Errorf("record placeholder deployment: %w", err)
+		}
+		if err := writebackChangeStatuses(db, version.NetworkDomainID); err != nil {
+			dep.ErrorMessage = fmt.Sprintf("writeback change_status failed: %v", err)
+			if uerr := db.Model(dep).Update("error_message", dep.ErrorMessage).Error; uerr != nil {
+				return nil, fmt.Errorf("record writeback failure: %w", uerr)
+			}
 		}
 		return dep, nil
 	}

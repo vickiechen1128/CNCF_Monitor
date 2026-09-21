@@ -251,12 +251,23 @@ func TestDispatchAgentPullPlaceholder(t *testing.T) {
 	seedAgentPullDomain(t, db, "edge-a")
 	v := seedVersion(t, db, "edge-a", "CHG-20240101-001")
 
+	// F-8：agent_pull 确认下发即视为接纳待拉包生效，需回写 change_status=deployed
+	// （否则前端「变更进度/生效状态」永久停在待确认）。这里同时挂一台 pending 与一台 none。
+	pending := seedJob(t, db, "edge-a", models.ChangeStatusPending)
+	noneJob := seedJob(t, db, "edge-a", models.ChangeStatusNone)
+
 	app := &applyRecorder{}
 	dep, err := Dispatch(db, v, "admin", app)
 	require.NoError(t, err)
 	assert.Equal(t, models.DeploymentStatusPending, dep.Status)
 	assert.Equal(t, models.ChannelTypeAgentPull, dep.Channel)
 	assert.Equal(t, 0, app.applied, "agent_pull 不本地写盘")
+
+	// pending 的 Job 回写为 deployed；none 的保持 none（语义同 local 分支）。
+	require.NoError(t, db.First(&pending, pending.ID).Error)
+	assert.Equal(t, models.ChangeStatusDeployed, pending.ChangeStatus)
+	require.NoError(t, db.First(&noneJob, noneJob.ID).Error)
+	assert.Equal(t, models.ChangeStatusNone, noneJob.ChangeStatus)
 }
 
 func TestRetryLocalFailed(t *testing.T) {

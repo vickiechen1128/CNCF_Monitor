@@ -282,3 +282,60 @@ func TestZipSlipTargetRejected(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyMetadataRemoteWriteURLPersisted 回归 F-9 缺陷①：中心下发的 metadata 含
+// remote_write_url 时，agent 落盘 current/metadata.json 必须保留该字段，否则 probe
+// 启动 vmagent 经 metadataRemoteWriteURL 读不到、回退到 center_endpoint 推导。此处
+// 走完整 Apply + 读盘闭环，确保 marshalMetadata 透传不丢失。
+func TestApplyMetadataRemoteWriteURLPersisted(t *testing.T) {
+	promRel := &rec{}
+	d, _ := newDeployer(t, promRel.reload, nil)
+
+	// 构造含 remote_write_url 的配置包 zip。
+	meta := contract.Metadata{
+		ConfigVersion:  "v1",
+		GeneratedAt:    "2026-09-21T00:00:00Z",
+		AgentType:      "vmagent",
+		Checksum:       "deadbeef",
+		RemoteWriteURL: "http://center:9090/api/v1/write",
+	}
+	mj, _ := json.Marshal(meta)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, data := range map[string]string{
+		contract.ZipEntryPrometheus: validProm,
+		contract.ZipEntryMetadata:   string(mj),
+	} {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write([]byte(data))
+	}
+	for n, c := range defaultTargets() {
+		w, err := zw.Create("targets/" + n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write([]byte(c))
+	}
+	zw.Close()
+
+	// hash 校验由中心完成，deployer 不校验 checksum，传入包内 metadata 即可。
+	if err := d.Apply(context.Background(), buf.Bytes(), &meta); err != nil {
+		t.Fatal(err)
+	}
+
+	// 读回 disk 上的 metadata.json，验证 remote_write_url 未丢失（F-9 缺陷①）。
+	b, err := os.ReadFile(filepath.Join(d.VersionDir("v1"), contract.ZipEntryMetadata))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got contract.Metadata
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RemoteWriteURL != "http://center:9090/api/v1/write" {
+		t.Fatalf("disk metadata remote_write_url = %q, F-9 缺陷①未修复", got.RemoteWriteURL)
+	}
+}

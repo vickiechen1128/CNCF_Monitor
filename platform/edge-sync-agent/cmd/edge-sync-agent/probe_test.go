@@ -98,6 +98,38 @@ func TestProcProbeTimeoutSetting(t *testing.T) {
 	}
 }
 
+// TestSameArgs 校验启动参数比较函数：相同返回 true，任一为 nil / 长度或内容不同返回 false。
+func TestSameArgs(t *testing.T) {
+	base := []string{"-a", "-b=1"}
+	if !sameArgs(base, []string{"-a", "-b=1"}) {
+		t.Fatal("identical args should be equal")
+	}
+	if sameArgs(base, []string{"-a", "-b=2"}) {
+		t.Fatal("different content should differ")
+	}
+	if sameArgs(base, []string{"-a"}) {
+		t.Fatal("different length should differ")
+	}
+	if sameArgs(nil, base) || sameArgs(base, nil) {
+		t.Fatal("nil vs non-nil should differ")
+	}
+	if !sameArgs(nil, nil) {
+		t.Fatal("nil vs nil should be equal")
+	}
+}
+
+// TestProcProbeReloadNotRunning 回归 F-9 缺陷②：组件未运行时 Reload 应返回错误，
+// 交由 supervisor 在下次 tick 按当前生效目录拉起，不应误报成功。
+func TestProcProbeReloadNotRunning(t *testing.T) {
+	p := NewProcProbe(func() string { return t.TempDir() }, "", nil)
+	if err := p.Reload(contract.ComponentTypeCollector); err == nil {
+		t.Fatal("reload on not-running component should error")
+	}
+	if err := p.Reload(contract.ComponentTypeBlackbox); err == nil {
+		t.Fatal("reload on not-running blackbox should error")
+	}
+}
+
 // TestResolveRemoteWriteURL 覆盖 remote_write_url 四档解析优先级（T11-G1-02）：
 // 配置包 metadata（B）> EDGE_REMOTE_WRITE_URL env > center_endpoint 推导（A）> 环回兜底。
 func TestResolveRemoteWriteURL(t *testing.T) {
