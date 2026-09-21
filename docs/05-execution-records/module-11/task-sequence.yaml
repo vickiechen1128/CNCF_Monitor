@@ -536,3 +536,116 @@ tasks:
       - "配置同步五档 Badge + 成因分档引导（去配置采集 Job/前往配置确认/查看下发记录/立即同步）+ 版本差异『可升级』提示"
       - "空态三支（筛选空/暂无采集节点/中心直连域）+ ?network_domain= 深链预筛 + 退出入口"
     # 注：Toast 备注——T11-24/T11-25 共享 EdgeAgentsPage 同页，按「同页任务复用同一 frontend-developer 续作 + 合并一次提交」执行。
+
+# ================= 批次：G1 中心 remote_write 接收端（v0.2 必修，阻断级，独立批次） =================
+# 触发：用户 2026-09-21 对齐设计提案 §7-G1 后立项；此前登记 dev-feedback（阻断级单独排期）。
+# 范围：中心开 receiver（G1-a）+ 边缘 remote_write_url 注入按「方案 A 主线（center_endpoint 推导）+ B 覆盖（配置包承载）」（G1-b）
+#       + 网域身份验证（external_labels 随 remote_write 保留，G1-c）+ 安全评估（G1-d）+ 端到端验证（G1-e）。
+# 分轨：Track B+（涉数据写入入口，强制 security-reviewer）。
+# 契约快照：docs/05-execution-records/module-11/api-contract-snapshot.md（G1-a/b 必读）
+# 关键裁决：G1 是跃迁期临时接收端（MVP 引擎 Prometheus 直收），M10 统一摄取网关就绪后替换；网域身份由配置生成器
+#           buildExternalLabels 注入 global.external_labels（已实现），remote_write 传输保留 label（G1-c 仅验证）。
+  - id: "T11-G1-01"
+    title: "后端+运维：中心 Prometheus 开启 remote-write receiver（--web.enable-remote-write-receiver）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §6.1（接口可达性）+ 设计提案 §7-G1"
+    depends_on: []
+    estimated_files_changed: 1
+    estimated_test_cases: 2
+    shared_files: "否"
+    input_files:
+      - "Makefile（run-prometheus target L395-398）"
+      - "自检：确认上游 Prometheus 版本 ≥ 2.40（--web.enable-remote-write-receiver 存在）"
+    output_files:
+      - "Makefile"
+    verify_commands:
+      - "make run-prometheus && curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9090/api/v1/write"
+    acceptance_criteria:
+      - "run-prometheus 追加 --web.enable-remote-write-receiver（注释补 G1 语义：边缘 vmagent 上报入口）"
+      - "启动后 POST /api/v1/write 返回 204（非 404）；go test ./platform/... 不受影响"
+  - id: "T11-G1-02"
+    title: "后端+契约：远程写入地址注入——方案 A 主线（center_endpoint 推导）+ B 覆盖（配置包承载）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §5.1（remote_write_url 网域字段/拓扑无关）+ 设计提案 §7-G1/§5.4"
+    depends_on: ["T11-G1-01"]
+    estimated_files_changed: 6
+    estimated_test_cases: 10
+    shared_files: "是：platform/edge zipper 与 edge-sync-agent probe/contract 跨包共享"
+    input_files:
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/probe.go（L70 envOr 环回默认）"
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/main.go（probe 构造无 remote_write_url 参数）"
+      - "platform/edge-sync-agent/internal/contract/contract.go（Metadata 类型）"
+      - "platform/edge/zipper.go（配置包 metadata.json 承载）"
+      - "platform/edge/packages_service.go / management_handler.go（zip 组装侧）"
+      - "platform/configcenter/domain/service.go + platform/edge/zipper.go（网域 RemoteWriteURL 来源）"
+    output_files:
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/probe.go"
+      - "platform/edge/zipper.go"
+      - "platform/edge-sync-agent/internal/contract/contract.go"
+    verify_commands:
+      - "go test ./platform/... && cd platform/edge-sync-agent && go test ./..."
+    acceptance_criteria:
+      - "probe.go remote_write_url 解析顺序：配置包下发的 remote_write_url（B）> 网域表 RemoteWriteURL（若随包下发）> center_endpoint+/api/v1/write 推导（A）> envOr 环回兜底；默认真实部署不再停留在 127.0.0.1"
+      - "配置包 metadata.json（或新增条目）承载网域 remote_write_url（B 覆盖）；zipper/contract/probe 三端对齐"
+      - "main.go probe 构造传入 remote_write_url 来源；main.go 头注释补全 EDGE_REMOTE_WRITE_URL（当前遗漏）"
+      - "跨端契约对齐 api-contract-snapshot.md；网域表 RemoteWriteURL 非空时优先（中继/网闸场景）"
+  - id: "T11-G1-03"
+    title: "验证：网域身份 label 随 remote_write 保留（external_labels 贯通，非开发项）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §5.3（网域身份透传）+ 设计提案 §7-G1/§5.4"
+    depends_on: ["T11-G1-01"]
+    estimated_files_changed: 0
+    estimated_test_cases: 2
+    shared_files: "否"
+    input_files:
+      - "platform/configcenter/generator/generator.go（buildExternalLabels 已实现，L40-50，仅验证）"
+      - "自检：确认 vmagent 抓取时 external_labels 附加到序列、且 remote_write 传输不丢 label"
+    output_files: []
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+    acceptance_criteria:
+      - "确认 buildExternalLabels 注入的 network_domain_id 经 vmagent 抓取→remote_write→中心 Prometheus 全程保留（样本验证或断言测试）"
+      - "若发现传输丢 label（异常），升级为修复任务并登记 dev-feedback；否则仅记录验证结论"
+  - id: "T11-G1-04"
+    title: "安全评估：remote-write receiver 无鉴权写入口暴露面（Track B+，强制 security-reviewer）"
+    agent: "security-reviewer"
+    status: "done"
+    commit_group: "edge-g1-security"
+    prd: "AGENTS.md §9（Prometheus 代理鉴权/SSRF）；设计提案 §7-G1"
+    depends_on: ["T11-G1-01"]
+    estimated_files_changed: 0
+    estimated_test_cases: 0
+    shared_files: "否"
+    input_files:
+      - "自检：确认 Prometheus receiver 无内置写认证；当前接受『内网可信 + 后续 M10 统一摄取网关收敛』让步"
+      - "核对 AGENTS.md §9 关于 Prometheus 代理鉴权/SSRF 约束"
+    output_files: []
+    verify_commands: []
+    acceptance_criteria:
+      - "security-reviewer 出具结论：无未决 CRITICAL/HIGH；确认内网绑定或接受让步并登录 design-decisions"
+      - "若判定需最小控制（如 --web.listen-address 内网绑定），回灌 Makefile 调整（关联 T11-G1-01）"
+  - id: "T11-G1-05"
+    title: "端到端验证：remote-write 入站样本验证（真实 snappy protobuf，非 json 探活）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §6.1 + 设计提案 §7-G1；契约快照 §2"
+    depends_on: ["T11-G1-02", "T11-G1-03"]
+    estimated_files_changed: 0
+    estimated_test_cases: 1
+    shared_files: "否"
+    input_files:
+      - "自检：构造 Prometheus remote-write Wire Format 样品（snappy 压缩 WriteRequest protobuf）测试入站"
+    output_files: []
+    verify_commands:
+      - "curl --data-binary @samples/write_request.snappy http://localhost:9090/api/v1/write 返回 200/204，指标可查询"
+    acceptance_criteria:
+      - "用真实 snappy protobuf WriteRequest 样本 POST /api/v1/write，断言入站成功且指标可查（非 404 兜底）"
+      - "真实边缘节点闭环（vmagent→中心）留待部署联调，登记 dev-feedback，不在本批阻塞"
+    # 注：G1 为阻断级独立批次；M10 统一摄取网关就绪后本批 receiver 作跃迁临时接收端替换。

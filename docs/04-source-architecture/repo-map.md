@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-20 18:21 · commit: `853b8c0`
+> 生成时间: 2026-09-21 11:17 · commit: `2e23b84`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1895,7 +1895,7 @@
 
 - `type procSpec struct`
 - `type ProcProbe struct`
-- `func NewProcProbe(configDir func() string, out io.Writer) *ProcProbe`
+- `func NewProcProbe(configDir func() string, centerEndpoint string, out io.Writer) *ProcProbe`
 - `method (*ProcProbe) Alive(c *supervisor.Component) bool`
 - `method (*ProcProbe) Healthy(c *supervisor.Component) bool`
 - `method (*ProcProbe) Start(c *supervisor.Component) error`
@@ -1906,6 +1906,8 @@
 - `func httpPostOK(ctx context.Context, cli *http.Client, url string) error`
 - `func tcpProbe(ctx context.Context, addr string) error`
 - `func envOr(key, def string) string`
+- `func metadataRemoteWriteURL(versionDir string) string`
+- `func resolveRemoteWriteURL(metadataURL, centerEndpoint string) string`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/probe_test.go`
 
@@ -1914,6 +1916,8 @@
 - `func TestTCPProbe(t *testing.T)`
 - `func TestProcProbeSignalWhenNotRunning(t *testing.T)`
 - `func TestProcProbeTimeoutSetting(t *testing.T)`
+- `func TestResolveRemoteWriteURL(t *testing.T)`
+- `func TestMetadataRemoteWriteURL(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/client/client.go`
 
@@ -2160,6 +2164,7 @@
 - `func TestHeartbeatLocalDomainRejected(t *testing.T)`
 - `func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T)`
 - `func TestBuildConfigZipOptionalEntries(t *testing.T)`
+- `func TestBuildConfigZipRemoteWriteURL(t *testing.T)`
 - `func TestConfigHandlerServeZipAnd304(t *testing.T)`
 - `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
 
@@ -2275,7 +2280,7 @@
 
 - `type metadata struct`
 - `type targetsCarrier`
-- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType) ([]byte, string, error)`
+- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL string) ([]byte, string, error)`
 - `func packageChecksum(promYML, rulesYML, blackboxYML string, targets targetsCarrier) string`
 
 ### `platform/examples/simple-agent/main.go`
