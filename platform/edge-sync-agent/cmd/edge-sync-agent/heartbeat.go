@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
+
 	"github.com/metriccenter/platform/edge-sync-agent/internal/config"
 	"github.com/metriccenter/platform/edge-sync-agent/internal/contract"
 	"github.com/metriccenter/platform/edge-sync-agent/internal/deployer"
+	"github.com/metriccenter/platform/edge-sync-agent/internal/logger"
 	"github.com/metriccenter/platform/edge-sync-agent/internal/puller"
 	"github.com/metriccenter/platform/edge-sync-agent/internal/supervisor"
 )
@@ -34,13 +37,18 @@ func buildHeartbeatRequest(
 }
 
 // runtimeProvider 实现 puller.RuntimeProvider：为每次心跳组装当前运行态（部署版本、
-// 配置版本、WAL/queue 参数、主机身份与 supervisor 上报的组件状态）。
+// 配置版本、WAL/queue 参数、主机身份、supervisor 上报的组件状态与 vmagent 本地
+// target 快照）。
 type runtimeProvider struct {
 	cfg      *config.Config
 	deployer *deployer.Deployer
 	sv       *supervisor.Supervisor
 	hostname string
 	ip       string
+	logger   *logger.Logger
+	// targetBaseURL 本机 vmagent HTTP 监听地址（http://host:port），用于读取
+	// /api/v1/targets 快照（方案 B）。为空时不采集 targets。
+	targetBaseURL string
 }
 
 // Snapshot 返回一次心跳所需的运行态快照。WAL 积压量当前无实时采集器读数，取 0；
@@ -58,6 +66,12 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 	if r.sv != nil {
 		comps = r.sv.Snapshot()
 	}
+	// 方案 B：读取本机 vmagent /api/v1/targets 快照随心跳上报；采集失败由
+	// fetchVMAgentTargets 降级为空并 WARN，不阻断心跳。
+	targets := []contract.EdgeTargetSnapshot{}
+	if r.targetBaseURL != "" {
+		targets = fetchVMAgentTargets(context.Background(), newVMTargetsClient(), r.targetBaseURL, r.warnf)
+	}
 	return puller.RuntimeSnapshot{
 		AgentVersion:         r.cfg.Version,
 		ConfigVersion:        version,
@@ -66,5 +80,13 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 		Hostname:             r.hostname,
 		Ip:                   r.ip,
 		Components:           comps,
+		Targets:              targets,
+	}
+}
+
+// warnf 写 WARN 日志；logger 未初始化（测试/装配缺省）时静默。
+func (r *runtimeProvider) warnf(format string, args ...any) {
+	if r.logger != nil {
+		r.logger.Warnf(format, args...)
 	}
 }

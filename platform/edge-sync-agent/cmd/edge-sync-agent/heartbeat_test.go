@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -76,6 +78,58 @@ func (stubProbe) Healthy(*supervisor.Component) bool {
 }
 func (stubProbe) Start(*supervisor.Component) error { return nil }
 func (stubProbe) Stop(*supervisor.Component) error  { return nil }
+
+// TestRuntimeProviderSnapshotCarriesTargets 校验 runtimeProvider.Snapshot 从本机
+// vmagent targets 接口抓取快照并填充 Targets（方案 B），且健康组件字段仍保留。
+func TestRuntimeProviderSnapshotCarriesTargets(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(sampleTargetsResp))
+	}))
+	defer srv.Close()
+
+	stub := &stubProbe{}
+	sv := supervisor.NewSupervisor(supervisor.DefaultParams(), stub, logger.New(nil))
+	cfg := config.Defaults()
+	cfg.Version = "v0.2.0"
+	sv.Reconcile([]contract.Component{{Type: contract.ComponentTypeCollector, Name: "collector", Version: "v0.2.0", ConfigVersion: "v9"}})
+
+	rt := &runtimeProvider{cfg: cfg, sv: sv, hostname: "node-2", ip: "10.0.0.9", targetBaseURL: srv.URL}
+	snap := rt.Snapshot()
+	if len(snap.Targets) != 2 {
+		t.Fatalf("targets not fetched: %+v", snap.Targets)
+	}
+	if snap.Targets[0].Job != "node" || snap.Targets[0].Health != "up" {
+		t.Fatalf("targets[0] = %+v", snap.Targets[0])
+	}
+	// 组件字段不应被 targets 采集影响。
+	if len(snap.Components) != 1 {
+		t.Fatalf("components = %+v", snap.Components)
+	}
+}
+
+// TestRuntimeProviderSnapshotTargetsDegrade 采集失败（本机 vmagent 接口不可达）时，
+// Targets 降级为空且健康组件字段仍保留（采集失败不阻断心跳）。
+func TestRuntimeProviderSnapshotTargetsDegrade(t *testing.T) {
+	stub := &stubProbe{}
+	sv := supervisor.NewSupervisor(supervisor.DefaultParams(), stub, logger.New(nil))
+	cfg := config.Defaults()
+	cfg.Version = "v0.2.0"
+	sv.Reconcile([]contract.Component{{Type: contract.ComponentTypeCollector, Name: "collector", Status: contract.ComponentStatusRunning}})
+
+	// 指向一个已关闭的 server → 连接失败 → Targets 空。
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	closedURL := srv.URL
+	srv.Close()
+	rt := &runtimeProvider{cfg: cfg, sv: sv, hostname: "node-3", ip: "10.0.0.10", targetBaseURL: closedURL}
+	snap := rt.Snapshot()
+	if len(snap.Targets) != 0 {
+		t.Fatalf("targets should degrade to empty on failure, got %+v", snap.Targets)
+	}
+	if len(snap.Components) != 1 {
+		t.Fatalf("components should remain: %+v", snap.Components)
+	}
+}
 
 func TestEnvOr(t *testing.T) {
 	if envOr("__NONEXISTENT_ENV_123__", "def") != "def" {

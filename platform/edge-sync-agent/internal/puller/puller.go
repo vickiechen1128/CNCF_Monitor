@@ -22,6 +22,8 @@ type RuntimeSnapshot struct {
 	Hostname             string
 	Ip                   string
 	Components           []contract.Component
+	// Targets 是边缘 vmagent 本地 target 抓取快照（方案 B），随心跳上报中心。
+	Targets []contract.EdgeTargetSnapshot
 }
 
 // RuntimeProvider 提供当前运行态快照。
@@ -121,6 +123,7 @@ func (p *Puller) buildHeartbeat() contract.HeartbeatRequest {
 		Hostname:             rs.Hostname,
 		Ip:                   rs.Ip,
 		Components:           rs.Components,
+		Targets:              rs.Targets,
 	}
 }
 

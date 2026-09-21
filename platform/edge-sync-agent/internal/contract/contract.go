@@ -21,6 +21,19 @@ const (
 	ComponentStatusUnknown     = "unknown"
 )
 
+// EdgeTargetSnapshot 是边缘 vmagent 本地 target 抓取快照（方案 B：随心跳上报中心，
+// 供中心 /api/v1/targets 与「监控目标状态」页排障）。字段对齐 vmagent
+// /api/v1/targets?state=active 响应 activeTargets item（labels + 顶层抓取详情）。
+type EdgeTargetSnapshot struct {
+	Job                   string  `json:"job"`                               // 标签 job
+	Instance              string  `json:"instance"`                          // 标签 instance（host:port）
+	ResourceID            string  `json:"resource_id,omitempty"`             // prometheus.yml targets 注入标签，可能缺
+	Health                string  `json:"health"`                            // up / down / unknown（透传字符串）
+	LastScrape            string  `json:"last_scrape,omitempty"`             // 最近一次抓取时间（RFC3339）
+	LastError             string  `json:"last_error,omitempty"`              // 最近抓取错误摘要
+	ScrapeDurationSeconds float64 `json:"scrape_duration_seconds,omitempty"` // 最近一次抓取耗时（秒）
+}
+
 // Component 描述当前节点上一个守护组件的运行态。
 type Component struct {
 	Type          string `json:"type"`                      // agent / collector / blackbox_exporter
@@ -35,15 +48,16 @@ type Component struct {
 
 // HeartbeatRequest 是 POST /api/v2/platform/edge/heartbeat 的请求体（PRD §6.2）。
 type HeartbeatRequest struct {
-	NetworkDomainID      string      `json:"network_domain_id"`
-	AgentType            string      `json:"agent_type"`                    // 采集器统一为 vmagent（决策 C4）
-	Version              string      `json:"version,omitempty"`             // Agent 版本
-	ConfigVersion        string      `json:"config_version,omitempty"`      // 当前生效配置版本
-	QueueBacklogBytes    int64       `json:"queue_backlog_bytes,omitempty"` // 磁盘持久发送队列积压字节数（决策 C5）
-	RemoteWriteQueueSize int         `json:"remote_write_queue_size,omitempty"`
-	Hostname             string      `json:"hostname,omitempty"`
-	Ip                   string      `json:"ip,omitempty"`
-	Components           []Component `json:"components,omitempty"`
+	NetworkDomainID      string               `json:"network_domain_id"`
+	AgentType            string               `json:"agent_type"`                    // 采集器统一为 vmagent（决策 C4）
+	Version              string               `json:"version,omitempty"`             // Agent 版本
+	ConfigVersion        string               `json:"config_version,omitempty"`      // 当前生效配置版本
+	QueueBacklogBytes    int64                `json:"queue_backlog_bytes,omitempty"` // 磁盘持久发送队列积压字节数（决策 C5）
+	RemoteWriteQueueSize int                  `json:"remote_write_queue_size,omitempty"`
+	Hostname             string               `json:"hostname,omitempty"`
+	Ip                   string               `json:"ip,omitempty"`
+	Components           []Component          `json:"components,omitempty"`
+	Targets              []EdgeTargetSnapshot `json:"targets,omitempty"` // 边缘 vmagent 本地 target 快照（方案 B）
 }
 
 // HeartbeatResponse 是心跳接口的响应体（PRD §6.2）。
