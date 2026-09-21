@@ -31,13 +31,13 @@ type HeartbeatRequest struct {
 // 融合 /api/v1/targets 与「监控目标状态」页排障。字段对齐 agent 侧
 // contract.EdgeTargetSnapshot（Module_11）。
 type EdgeTargetSnapshot struct {
-	Job                   string  `json:"job"`                                // 标签 job
-	Instance              string  `json:"instance"`                           // 标签 instance（host:port）
-	ResourceID            string  `json:"resource_id,omitempty"`              // prometheus.yml targets 注入标签，可能缺
-	Health                string  `json:"health"`                             // up / down / unknown（透传字符串）
-	LastScrape            string  `json:"last_scrape,omitempty"`              // 最近一次抓取时间（RFC3339）
-	LastError             string  `json:"last_error,omitempty"`               // 最近抓取错误摘要
-	ScrapeDurationSeconds float64 `json:"scrape_duration_seconds,omitempty"`  // 最近一次抓取耗时（秒）
+	Job                   string  `json:"job"`                               // 标签 job
+	Instance              string  `json:"instance"`                          // 标签 instance（host:port）
+	ResourceID            string  `json:"resource_id,omitempty"`             // prometheus.yml targets 注入标签，可能缺
+	Health                string  `json:"health"`                            // up / down / unknown（透传字符串）
+	LastScrape            string  `json:"last_scrape,omitempty"`             // 最近一次抓取时间（RFC3339）
+	LastError             string  `json:"last_error,omitempty"`              // 最近抓取错误摘要
+	ScrapeDurationSeconds float64 `json:"scrape_duration_seconds,omitempty"` // 最近一次抓取耗时（秒）
 }
 
 // HeartbeatResponse 是心跳响应体（PRD §6.2）。
@@ -100,6 +100,12 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	}
 	if err := s.db.Create(hb).Error; err != nil {
 		return nil, fmt.Errorf("record edge heartbeat: %w", err)
+	}
+
+	// F-11：落库边缘 vmagent target 快照（方案 B）。独立事务、失败降级，不阻断心跳主流程
+	// （同 writebackAgentPullDeployments 解耦口径）。详见 persistEdgeTargetSnapshots。
+	if err := s.persistEdgeTargetSnapshots(agent, req, now); err != nil {
+		_ = err
 	}
 
 	// config_changed 判定：上报 config_version 与最新已确认 ConfigVersion 比对。
@@ -168,6 +174,62 @@ func writebackAgentPullDeployments(db *gorm.DB, domainID string, version *models
 		return fmt.Errorf("writeback agent_pull deployment to success: %w", res.Error)
 	}
 	return nil
+}
+
+// maxSnapshotsPerHeartbeat 单心跳最多落库的 target 快照数（F-11 子项①：心跳体积。
+// MVP 全量上报 + 中心上限截断，超出的快照丢弃；v0.3 再评估分页/增量/压缩）。
+const maxSnapshotsPerHeartbeat = 1000
+
+// persistEdgeTargetSnapshots 将本轮心跳 targets 快照按 clear-then-insert 落库
+// （F-11）：同一事务内硬删该 agent 上轮全部快照 → 批量插入本轮（同键覆盖更新，不无限
+// 追加）。targets 为空时不清库也不插库——保留上轮快照：vmagent 拉取失败/未启动也会随
+// 心跳上报空列表，误清会丢失「真实为空」与「获取失败」的分野。快照属高频瞬时状态、
+// 无审计价值，故硬删（Unscoped）而非软删（软删会占用唯一索引，导致同键重插冲突）。
+// 每行记录 LastReportAt（中心接收时间），供融合阶段判断「agent 离线后快照过期降级」。
+func (s *HeartbeatService) persistEdgeTargetSnapshots(agent *models.EdgeAgent, req *HeartbeatRequest, now time.Time) error {
+	if len(req.Targets) == 0 {
+		return nil
+	}
+	// 去重键 (job, instance)（F-11 子项②，resource_id 为注入标签可能缺，不作去重键）
+	// + 上限截断。
+	seen := make(map[string]struct{}, len(req.Targets))
+	rows := make([]models.EdgeTargetSnapshot, 0, min(len(req.Targets), maxSnapshotsPerHeartbeat))
+	for _, t := range req.Targets {
+		if len(rows) >= maxSnapshotsPerHeartbeat {
+			break
+		}
+		key := t.Job + "\x00" + t.Instance
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		rows = append(rows, models.EdgeTargetSnapshot{
+			NetworkDomainID:       req.NetworkDomainID,
+			EdgeAgentID:           agent.ID,
+			Job:                   t.Job,
+			Instance:              t.Instance,
+			ResourceID:            t.ResourceID,
+			Health:                t.Health,
+			LastScrape:            t.LastScrape,
+			LastError:             t.LastError,
+			ScrapeDurationSeconds: t.ScrapeDurationSeconds,
+			LastReportAt:          now,
+		})
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		// 清理上一份快照（按 edge_agent_id 维度，而非仅网域）。
+		if err := tx.Unscoped().Where("edge_agent_id = ? AND network_domain_id = ?",
+			agent.ID, req.NetworkDomainID).Delete(&models.EdgeTargetSnapshot{}).Error; err != nil {
+			return fmt.Errorf("clear previous edge target snapshots: %w", err)
+		}
+		if err := tx.Create(&rows).Error; err != nil {
+			return fmt.Errorf("persist edge target snapshots: %w", err)
+		}
+		return nil
+	})
 }
 
 // findOrRegisterAgent 返回网域对应的 EdgeAgent；不存在则按 §3.2 自动注册。

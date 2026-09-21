@@ -138,6 +138,23 @@
   5. **待定子项**：① 心跳体积（target 多时需分页/增量/压缩，MVP 先全量+上限截断并标注）；② local/边缘同 job 去重键（`network_domain_id + job + instance`）；③ 快照有效期（agent 离线后边缘 target 需过期降级，防脏数据常驻）；④ 与 F-10「up 指标回显」的取舍——「实例采集状态」继续用 up 指标（轻量），「监控目标状态」改用 target 快照（排障），二者语义与数据源并存、不冲突。
 - **来源**：跨主机联调数据面已通但 M09「监控目标状态」页边缘域仍空；curl 验证中心 `/api/v1/targets` activeTargets=0、`up` 有 2 样本。
 
+### F-11 定版子项 + 中心侧落库实施（2026-09-21，backend-developer F-11 批次）
+
+> 上节 5 个「待定子项」落定口径（见 §②⑤），并落实第 3 条「中心侧心跳落库边缘 target 快照」。agent 侧上报已完成（edge-sync-agent contract + heartbeat 采集），本批只做中心侧 `edge_heartbeats` 独立轻量表持久化，**不改 `/api/v1/targets` 融合接口**（融合归下一阶段，与 F-10 并存口径见 §④）。
+
+**子项落定**：
+① **心跳体积/分页**——MVP 全量上报 + 中心侧上限截断：常量 `maxSnapshotsPerHeartbeat = 1000`，超出的 target 快照丢弃不入库（注释说明）；表结构扁平、不分区。v0.3 再按分页/增量压缩评估，防单心跳 JSON 过大。
+② **去重键**——`(network_domain_id, job, instance)`：vmagent target 唯一标识为 `job`+`instance`，`resource_id` 是 prometheus.yml 注入标签、可能缺失，故不作去重键；建 `uniqueIndex:idx_etargets_uniq(network_domain_id, job, instance)` 作数据完整性兜底。
+③ **快照有效期/清理**——采用 **clear-then-insert**：每轮心跳在单事务内 `Unscoped()` 硬删该 `edge_agent_id` 上轮全部快照，再批量插入本轮快照；row 级保留 `last_report_at`（中心接收时间）供后续融合阶段做「离线过期降级 health=unknown」判断。**targets 为空时不清库也不插库**（vmagent 拉取失败/未启动会上报空，误清会丢 „真实为空"与„获取失败"的分野），保留上轮快照。快照属高频瞬时状态，无审计价值，故硬删而非软删（软删会占用唯一索引导致重插冲突）。
+④ **与 F-10 并存**——不冲突：F-10 前端「实例采集状态」走 `up` 指标（轻量）；F-11「监控目标状态」页（M09 排障）消费 target 快照的 lastScrape/lastError/scrapeDuration。二者语义与数据源并存。
+⑤ **agent 维度**——表存 `edge_agent_id`（关联 `edge_agents.id`）冗余 agent 维度；当前模型一个网域一个 agent（`findOrRegisterAgent` 按 `network_domain_id` 唯一），故 `network_domain_id` 已能唯一定位，`edge_agent_id` 供审计/追溯留档。
+
+**新增/修改（中心侧）**：
+- 新增 `platform/models/edge_target_snapshot.go`：`models.EdgeTargetSnapshot`（表 `edge_target_snapshots`），字段对齐上报契约 snake_case（network_domain_id / edge_agent_id / job / instance / resource_id / health / last_scrape / last_error / scrape_duration_seconds / last_report_at）。
+- 改 `platform/db/db.go`：`AutoMigrate` 注册 `EdgeTargetSnapshot`。
+- 改 `platform/edge/heartbeat_service.go`：`Handle` 落库 `req.Targets`（调用新增 `persistEdgeTargetSnapshots`，clear-then-insert + 上限截断 + 空不落）；落库失败降级不阻断心跳（同 `writebackAgentPullDeployments` 解耦口径）。
+- 改 `platform/edge/edge_test.go`：`newEdgeTestDB` 注册新表 + 新增落库用例（落库成功 / 二次心跳 upsert 覆盖 / 清理 / 空不落 / 独立性与降级）。
+
 ### F-12：blackbox 拨测 Job 无执行状态回显，前端恒显示「-」（① 设计缺口→随本批前端修复，2026-09-21）
 
 - **现象**：前端新增 blackbox 拨测 Job（实测 `grafana` → `http://172.16.102.2:3000/login`，归属腾讯云调试边缘域 `mc-edge-debug`）后，采集 Job 列表「实例采集状态」列恒显示 `-`，Job 详情抽屉「拨测目标」只列目标地址、无成功/失败状态，用户误判后台未运行。

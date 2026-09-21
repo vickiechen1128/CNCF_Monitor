@@ -35,6 +35,7 @@ func newEdgeTestDB(t *testing.T) *gorm.DB {
 		&models.NetworkDomain{},
 		&models.EdgeAgent{},
 		&models.EdgeHeartbeat{},
+		&models.EdgeTargetSnapshot{}, // F-11：边缘 vmagent target 快照落库
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{}, // 供 agent_pull 下发回写单测（M11 dev-feedback）
 	} {
@@ -473,4 +474,150 @@ func TestHeartbeatRequestDecodesEdgeTargets(t *testing.T) {
 	assert.Equal(t, "up", req.Targets[0].Health)
 	assert.Equal(t, "2026-09-18T12:00:00Z", req.Targets[0].LastScrape)
 	assert.Equal(t, 1.23, req.Targets[0].ScrapeDurationSeconds)
+}
+
+// --- F-11：中心侧落库边缘 vmagent target 快照（clear-then-insert + upsert 覆盖） ---
+
+func countEdgeTargetSnapshots(t *testing.T, db *gorm.DB, domainID string) int64 {
+	t.Helper()
+	var n int64
+	require.NoError(t, db.Model(&models.EdgeTargetSnapshot{}).
+		Where("network_domain_id = ?", domainID).Count(&n).Error)
+	return n
+}
+
+// TestHeartbeatPersistsTargetSnapshots 覆盖「targets 落库成功」：心跳携带 targets →
+// 写入 edge_target_snapshots，字段与上报契约对齐；同轮内同 (job,instance) 去重不重复落。
+func TestHeartbeatPersistsTargetSnapshots(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-1", "agent_pull", "tok-ts-1", "vmagent", "http://center:8080")
+	svc := NewHeartbeatService(db)
+	now := time.Date(2026, 9, 21, 8, 0, 0, 0, time.UTC)
+	req := &HeartbeatRequest{
+		NetworkDomainID: dom.ID,
+		AgentType:       models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{
+			{Job: "node", Instance: "10.0.0.1:9100", ResourceID: "res-1", Health: "up",
+				LastScrape: "2026-09-21T07:59:00Z", LastError: "", ScrapeDurationSeconds: 1.23},
+			// 同 (job,instance) 重复 → 应去重为 1 行。
+			{Job: "node", Instance: "10.0.0.1:9100", Health: "up"},
+			{Job: "node", Instance: "10.0.0.2:9100", Health: "down", LastError: "connect refused"},
+		},
+	}
+	_, err := svc.Handle(dom, req, now, "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), countEdgeTargetSnapshots(t, db, dom.ID), "应落 2 条（同键去重）")
+
+	got := map[string]models.EdgeTargetSnapshot{}
+	var rows []models.EdgeTargetSnapshot
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).Find(&rows).Error)
+	for _, r := range rows {
+		got[r.Instance] = r
+	}
+	assert.Equal(t, "up", got["10.0.0.1:9100"].Health)
+	assert.Equal(t, "res-1", got["10.0.0.1:9100"].ResourceID)
+	assert.Equal(t, 1.23, got["10.0.0.1:9100"].ScrapeDurationSeconds)
+	assert.Equal(t, "2026-09-21T07:59:00Z", got["10.0.0.1:9100"].LastScrape)
+	assert.WithinDuration(t, now, got["10.0.0.1:9100"].LastReportAt, time.Second)
+	assert.Equal(t, "down", got["10.0.0.2:9100"].Health)
+	assert.Equal(t, "connect refused", got["10.0.0.2:9100"].LastError)
+	assert.NotZero(t, got["10.0.0.1:9100"].EdgeAgentID, "应记录 agent 维度")
+}
+
+// TestHeartbeatTargetUpsertOverwritesSameKey 覆盖「同 agent 同 (job,instance) 二次心跳
+// upsert 覆盖」：行数不增、target 状态被本轮覆盖。
+func TestHeartbeatTargetUpsertOverwritesSameKey(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-2", "agent_pull", "tok-ts-2", "vmagent", "http://center:8080")
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{{Job: "node", Instance: "10.0.0.1:9100", Health: "up", LastScrape: "2026-09-21T07:59:00Z"}}}
+	_, err := svc.Handle(dom, req, time.Date(2026, 9, 21, 8, 0, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+
+	req2 := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{{Job: "node", Instance: "10.0.0.1:9100", Health: "down", LastScrape: "2026-09-21T07:58:00Z", LastError: "connect refused"}}}
+	_, err = svc.Handle(dom, req2, time.Date(2026, 9, 21, 8, 1, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID), "同键覆盖更新，行数应仍为 1")
+	var row models.EdgeTargetSnapshot
+	require.NoError(t, db.Where("network_domain_id = ? AND job = ? AND instance = ?",
+		dom.ID, "node", "10.0.0.1:9100").First(&row).Error)
+	assert.Equal(t, "down", row.Health)
+	assert.Equal(t, "connect refused", row.LastError)
+	assert.WithinDuration(t, time.Date(2026, 9, 21, 8, 1, 0, 0, time.UTC), row.LastReportAt, time.Second,
+		"last_report_at 应更新为本轮接收时间")
+}
+
+// TestHeartbeatTargetClearOldSnapshots 覆盖「快照清理/有效期逻辑」：二次心跳 target 集合
+// 变化，旧的过期快照被清理，表仅存本轮集合（无堆积）。
+func TestHeartbeatTargetClearOldSnapshots(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-3", "agent_pull", "tok-ts-3", "vmagent", "http://center:8080")
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{{Job: "node", Instance: "10.0.0.1:9100", Health: "up"}, {Job: "node", Instance: "10.0.0.2:9100", Health: "down"}}}
+	_, err := svc.Handle(dom, req, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), countEdgeTargetSnapshots(t, db, dom.ID))
+
+	req2 := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{{Job: "web", Instance: "10.0.0.9:9114", Health: "up"}}}
+	_, err = svc.Handle(dom, req2, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID), "旧快照应被清理，仅存本轮")
+	var row models.EdgeTargetSnapshot
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&row).Error)
+	assert.Equal(t, "web", row.Job)
+	assert.Equal(t, "10.0.0.9:9114", row.Instance)
+}
+
+// TestHeartbeatEmptyTargetsNoDirtyData 覆盖「targets 为空时不落脏数据」：空 targets 心跳
+// 不新增行，且不清空上轮快照（保住「真实为空」与「获取失败」的分野）。
+func TestHeartbeatEmptyTargetsNoDirtyData(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-4", "agent_pull", "tok-ts-4", "vmagent", "http://center:8080")
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent,
+		Targets: []EdgeTargetSnapshot{{Job: "node", Instance: "10.0.0.1:9100", Health: "up"}}}
+	_, err := svc.Handle(dom, req, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID))
+
+	empty := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent, Targets: nil}
+	_, err = svc.Handle(dom, empty, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID), "空 targets 不应新增也不应清空既有快照")
+}
+
+// TestHeartbeatTargetPersistenceIndependent 覆盖「心跳失败不影响落库独立性」：极简心跳
+// （无 config_version/components/version）targets 仍独立落库，落库走独立事务、不依赖
+// 其余心跳字段；返回成功响应不受影响。
+func TestHeartbeatTargetPersistenceIndependent(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-5", "agent_pull", "tok-ts-5", "", "http://center:8080")
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{NetworkDomainID: dom.ID,
+		Targets: []EdgeTargetSnapshot{{Job: "mem", Instance: "10.0.0.55:9120", Health: "up"}}}
+	resp, err := svc.Handle(dom, req, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+	require.Equal(t, int64(1), countEdgeTargetSnapshots(t, db, dom.ID), "极简心跳也应落库 targets")
+}
+
+// TestHeartbeatTargetTruncatesAtMax 覆盖「心跳体积上限截断」：targets 超过上限时只落
+// 前 maxSnapshotsPerHeartbeat 条，不因超量入库而膨胀。
+func TestHeartbeatTargetTruncatesAtMax(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-ts-6", "agent_pull", "tok-ts-6", "vmagent", "http://center:8080")
+	svc := NewHeartbeatService(db)
+	ts := make([]EdgeTargetSnapshot, 0, maxSnapshotsPerHeartbeat+8)
+	for i := 0; i < maxSnapshotsPerHeartbeat+8; i++ {
+		ts = append(ts, EdgeTargetSnapshot{Job: "j", Instance: fmt.Sprintf("10.0.0.%d:9100", i), Health: "up"})
+	}
+	req := &HeartbeatRequest{NetworkDomainID: dom.ID, AgentType: models.AgentTypeVMAgent, Targets: ts}
+	_, err := svc.Handle(dom, req, time.Now(), "http://center:8080")
+	require.NoError(t, err)
+	require.Equal(t, int64(maxSnapshotsPerHeartbeat), countEdgeTargetSnapshots(t, db, dom.ID), "应截断到上限")
 }

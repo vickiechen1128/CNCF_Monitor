@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-21 18:27 · commit: `9239ee6`
+> 生成时间: 2026-09-21 18:34 · commit: `b9d7ea2`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1786,6 +1786,13 @@
 - `func TestSummaryHandler(t *testing.T)`
 - `func TestSummaryHandlerEmpty(t *testing.T)`
 - `func TestSummaryMonitoredCountExcludesDeletedResources(t *testing.T)`
+- `type fakeProbeQuerier struct`
+- `method (*fakeProbeQuerier) ProbeSuccess(context.Context) (map[string]map[string]ProbeSample, error)`
+- `func TestSummaryProbeTargetsWithRealtimeStatus(t *testing.T)`
+- `func TestSummaryProbeTargetsUnknownWhenNoSample(t *testing.T)`
+- `func TestSummaryProbeTargetsDegradesOnQueryError(t *testing.T)`
+- `func TestLookupProbeSampleFallsBackToRawTarget(t *testing.T)`
+- `func TestLookupProbeSampleNilIndex(t *testing.T)`
 
 ### `platform/db/db.go`
 
@@ -2217,6 +2224,13 @@
 - `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
 - `func TestHeartbeatWritebackAgentPullDeployment(t *testing.T)`
 - `func TestHeartbeatRequestDecodesEdgeTargets(t *testing.T)`
+- `func countEdgeTargetSnapshots(t *testing.T, db *gorm.DB, domainID string) int64`
+- `func TestHeartbeatPersistsTargetSnapshots(t *testing.T)`
+- `func TestHeartbeatTargetUpsertOverwritesSameKey(t *testing.T)`
+- `func TestHeartbeatTargetClearOldSnapshots(t *testing.T)`
+- `func TestHeartbeatEmptyTargetsNoDirtyData(t *testing.T)`
+- `func TestHeartbeatTargetPersistenceIndependent(t *testing.T)`
+- `func TestHeartbeatTargetTruncatesAtMax(t *testing.T)`
 
 ### `platform/edge/heartbeat_handler.go`
 
@@ -2231,6 +2245,7 @@
 - `func NewHeartbeatService(db *gorm.DB) *HeartbeatService`
 - `method (*HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time, authority string) (*Heartbe…`
 - `func writebackAgentPullDeployments(db *gorm.DB, domainID string, version *models.ConfigVersion, now time.Time) error`
+- `method (*HeartbeatService) persistEdgeTargetSnapshots(agent *models.EdgeAgent, req *HeartbeatRequest, now time.Time) error`
 - `method (*HeartbeatService) findOrRegisterAgent(dom *models.NetworkDomain, req *HeartbeatRequest, now time.Time) (*models.EdgeA…`
 
 ### `platform/edge/helpers.go`
@@ -2606,6 +2621,11 @@
 - `type EdgeComponent struct`
 - `type EdgeHeartbeat struct`
 - `method (EdgeHeartbeat) TableName() string`
+
+### `platform/models/edge_target_snapshot.go`
+
+- `type EdgeTargetSnapshot struct`
+- `method (EdgeTargetSnapshot) TableName() string`
 
 ### `platform/models/exporter_installation_confirmation.go`
 
