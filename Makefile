@@ -343,13 +343,24 @@ build-edge-package: build-edge-agent build-vmagent build-blackbox-edge
 	@EDGE_AGENT_VERSION="$(EDGE_AGENT_VERSION)" VMAgent_VERSION="$(VMAgent_VERSION)" Blackbox_VERSION="$(Blackbox_VERSION)" \
 		bash "$(PROJECT_ROOT)/scripts/package-edge-agent.sh"
 
+# Alertmanager 的 legacy Elm UI 使用 vite-plugin-elm 构建，其内部经
+# pathToFileURL 对工作目录做 URL 编码；本项目路径含空格（"03 AIopsAgent-study"），
+# 空格被转成 %20 导致 rolldown 打开 src/Main.elm 时 ENOENT。
+# 因此 UI 构建改为在无空格的临时目录（/tmp）中执行，再把产物 dist/ 拷回
+# upstream/alertmanager/ui/app/dist（go:embed app/dist 依赖该目录）。
+ALERTMANAGER_UI_STAGING := /tmp/alertmanager-ui-app
 build-alertmanager: ensure-go
 	@echo ">>> Building upstream Alertmanager"
-	@cd "$(PROJECT_ROOT)/upstream/alertmanager/ui/app" && \
-		if [ ! -d dist ]; then \
-			echo ">>> Installing Alertmanager UI dependencies and building assets"; \
-			npm ci && npm run build; \
-		fi
+	@if [ ! -d "$(PROJECT_ROOT)/upstream/alertmanager/ui/app/dist" ]; then \
+		echo ">>> Building Alertmanager legacy Elm UI in space-free staging dir"; \
+		rm -rf "$(ALERTMANAGER_UI_STAGING)"; \
+		mkdir -p "$(ALERTMANAGER_UI_STAGING)"; \
+		cd "$(PROJECT_ROOT)/upstream/alertmanager/ui/app" && cp -R index.html package.json package-lock.json vite.config.mjs elm.json src public "$(ALERTMANAGER_UI_STAGING)/"; \
+		cd "$(ALERTMANAGER_UI_STAGING)" && npm ci && npm run build; \
+		rm -rf "$(PROJECT_ROOT)/upstream/alertmanager/ui/app/dist"; \
+		cp -R "$(ALERTMANAGER_UI_STAGING)/dist" "$(PROJECT_ROOT)/upstream/alertmanager/ui/app/dist"; \
+		rm -rf "$(ALERTMANAGER_UI_STAGING)"; \
+	fi
 	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o alertmanager$(EXE) ./cmd/alertmanager
 	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
 

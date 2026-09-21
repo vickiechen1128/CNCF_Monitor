@@ -15,6 +15,11 @@
 > - `docs/05-execution-records/module-09/deploy-package-and-edge-agent-code-organization.md`
 > - `docs/06-mvp-e2e-testing/README.md`
 > - `docs/06-mvp-e2e-testing/frontend-backend-deploy-topology.md`（前端访问后端的拓扑决策：当前 A2、未来 nginx 反代）
+> - **采集节点侧独立打包**：边缘一体化交付包（`edge-sync-agent` + `vmagent` + `blackbox_exporter`）走
+>   `make build-edge-package` → `scripts/package-edge-agent.sh`，产物 `dist/edge-package/*.tar.gz`，
+>   目录规范见 `platform/edge-sync-agent/packaging/README.md`（`/opt/apps/edge-sync-agent` 程序只读 +
+>   `/opt/data/edge-sync-agent` 数据可写）。中心包与采集节点包是**两份独立产物**，互不包含。
+> - **跨主机联调（中心本地/全上云两阶段）**：见 `docs/06-mvp-e2e-testing/edge-agent-cross-host-e2e.md`
 
 ---
 

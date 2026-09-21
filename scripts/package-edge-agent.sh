@@ -120,11 +120,21 @@ cat > "$PACK_DIR/README.md" <<'EOF'
 
 ## 部署（生产建议 systemd）
 
+> **目录规范（对齐中心三目录「程序只读 / 数据可写」基线）**：
+> - 程序（只读）：`/opt/apps/edge-sync-agent/`（`bin/` + `packaging/` + `start.sh`）；
+> - 数据（可写，独立数据盘）：`/opt/data/edge-sync-agent/`（配置包落 `EDGE_CONFIG_ROOT`、vmagent 队列落 `EDGE_WAL_DIR`）。
+> 生产建议把 `EDGE_CONFIG_ROOT` / `EDGE_WAL_DIR` 指向 `/opt/data/edge-sync-agent/`（含下面 systemd
+> `Environment=` 覆盖），保持程序目录只读、避免配置/缓存写入程序目录。
+
 ```bash
-sudo cp packaging/edge-sync-agent.service /etc/systemd/system/
+sudo mkdir -p /opt/apps/edge-sync-agent /opt/data/edge-sync-agent
+sudo tar -xzf edge-sync-agent-*.tar.gz -C /opt/apps/edge-sync-agent --strip-components=1
+sudo install -m 0644 /opt/apps/edge-sync-agent/packaging/edge-sync-agent.service /etc/systemd/system/
 sudo systemctl daemon-reload
-# 编辑 unit 的 [Service] Environment=，填写三项必填：
+# 编辑 unit 的 [Service] Environment=，填写三项必填 + 数据目录覆盖：
 #   NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT
+#   EDGE_CONFIG_ROOT=/opt/data/edge-sync-agent/edge-config
+#   EDGE_WAL_DIR=/opt/data/edge-sync-agent/vmagent-cache
 sudo systemctl enable --now edge-sync-agent
 ```
 
