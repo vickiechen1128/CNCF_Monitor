@@ -191,7 +191,7 @@ func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T) {
 	v := seedConfigVersion(db, "gov-a", promYML, rulesYML, blackboxYML, targets,
 		time.Date(2026, 7, 24, 12, 15, 0, 0, time.UTC))
 
-	zipData, checksum, err := BuildConfigZip(v, models.AgentTypeVMAgent)
+	zipData, checksum, err := BuildConfigZip(v, models.AgentTypeVMAgent, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, checksum)
 
@@ -235,7 +235,7 @@ func TestBuildConfigZipOptionalEntries(t *testing.T) {
 		"global:\n  scrape_interval: 15s\n", "", "",
 		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
 		time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC))
-	zipData, _, err := BuildConfigZip(v, models.AgentTypeVMAgent)
+	zipData, _, err := BuildConfigZip(v, models.AgentTypeVMAgent, "")
 	require.NoError(t, err)
 	zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	require.NoError(t, err)
@@ -248,6 +248,48 @@ func TestBuildConfigZipOptionalEntries(t *testing.T) {
 	assert.True(t, names["prometheus.yml"])
 	assert.True(t, names["targets/node.json"])
 	assert.True(t, names["metadata.json"])
+}
+
+// TestBuildConfigZipRemoteWriteURL 断言 metadata.json 承载 remote_write_url：
+// 网域显式配置时下发（T11-G1-02 方案 B），未配置时省略（omitempty）。
+func TestBuildConfigZipRemoteWriteURL(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seed := func(domainID string) *models.ConfigVersion {
+		return seedConfigVersion(db, domainID, "global:\n  scrape_interval: 15s\n", "", "",
+			map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+			time.Date(2026, 7, 24, 12, 15, 0, 0, time.UTC))
+	}
+
+	readMeta := func(zipData []byte) metadata {
+		zr, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+		require.NoError(t, err)
+		var m metadata
+		for _, f := range zr.File {
+			if f.Name == "metadata.json" {
+				rc, _ := f.Open()
+				require.NoError(t, json.NewDecoder(rc).Decode(&m))
+				_ = rc.Close()
+			}
+		}
+		return m
+	}
+
+	// 显式配置 RemoteWriteURL → metadata 下发该地址。
+	with := seed("gov-rw-with")
+	zipWith, _, err := BuildConfigZip(with, models.AgentTypeVMAgent, "http://10.0.0.1:8428/api/v1/write")
+	require.NoError(t, err)
+	assert.Equal(t, "http://10.0.0.1:8428/api/v1/write", readMeta(zipWith).RemoteWriteURL)
+
+	// 未配置（空串）→ metadata 省略该字段。
+	without := seed("gov-rw-without")
+	zipWithout, _, err := BuildConfigZip(without, models.AgentTypeVMAgent, "")
+	require.NoError(t, err)
+	assert.Empty(t, readMeta(zipWithout).RemoteWriteURL, "未显式配置应省略 remote_write_url")
+
+	// 下发地址不影响联合 checksum 可复算（metadata 自身不计入 checksum）。
+	recomputed := packageChecksum(with.PrometheusYml, with.RulesYml, with.BlackboxYml, targetsCarrier(map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`}))
+	_, checksum, _ := BuildConfigZip(with, models.AgentTypeVMAgent, "http://10.0.0.1:8428/api/v1/write")
+	assert.Equal(t, recomputed, checksum, "remote_write_url 不应影响联合 checksum")
 }
 
 // --- T11-05 config handler：zip 200 / 304 / 404 / 401 ---

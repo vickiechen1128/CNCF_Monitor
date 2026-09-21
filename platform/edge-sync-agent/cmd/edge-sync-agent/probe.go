@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -34,23 +36,27 @@ type procSpec struct {
 //	Start   拉起子进程（指向 deployer 当前生效配置目录）
 //	Stop    终止子进程
 type ProcProbe struct {
-	mu        sync.Mutex
-	specs     map[string]*procSpec
-	cmds      map[string]*exec.Cmd // typ -> 运行中子进程
-	configDir func() string        // 返回当前生效配置目录（deployer.VersionDir(CurrentVersion)）
-	httpc     *http.Client
-	out       io.Writer
+	mu             sync.Mutex
+	specs          map[string]*procSpec
+	cmds           map[string]*exec.Cmd // typ -> 运行中子进程
+	configDir      func() string        // 返回当前生效配置目录（deployer.VersionDir(CurrentVersion)）
+	centerEndpoint string               // 中心接入地址（CENTER_ENDPOINT），用于 remote_write 地址 A 方案推导
+	httpc          *http.Client
+	out            io.Writer
 }
 
 // NewProcProbe 构造探针。configDir 返回 deployer 当前生效版本目录；envBin 允许用
-// EDGE_* 环境覆盖采集器 / 拨测器二进制路径。
-func NewProcProbe(configDir func() string, out io.Writer) *ProcProbe {
+// EDGE_* 环境覆盖采集器 / 拨测器二进制路径。centerEndpoint 为中心接入地址
+//（CENTER_ENDPOINT），在配置包未下发改写 remote_write 地址时用于推导 vmagent
+// -remoteWrite.url（T11-G1-02 方案 A：center_endpoint + "/api/v1/write"）。
+func NewProcProbe(configDir func() string, centerEndpoint string, out io.Writer) *ProcProbe {
 	p := &ProcProbe{
-		specs:     map[string]*procSpec{},
-		cmds:      map[string]*exec.Cmd{},
-		configDir: configDir,
-		httpc:     &http.Client{Timeout: 3 * time.Second},
-		out:       out,
+		specs:          map[string]*procSpec{},
+		cmds:           map[string]*exec.Cmd{},
+		configDir:      configDir,
+		centerEndpoint: centerEndpoint,
+		httpc:          &http.Client{Timeout: 3 * time.Second},
+		out:            out,
 	}
 	collBin := envOr("EDGE_COLLECTOR_BIN", "vmagent")
 	bbBin := envOr("EDGE_BLACKBOX_BIN", "blackbox_exporter")
@@ -66,8 +72,13 @@ func NewProcProbe(configDir func() string, out io.Writer) *ProcProbe {
 			// vmagent 参数：-promscrape.config 指向当前生效配置目录；指标经 remote write
 			// 上报中心（默认中心 Prometheus /api/v1/write，需 --web.enable-remote-write-receiver；
 			// 连接失败时 vmagent 本地缓存并退避重试，健康探活不受影响）；缓存落 EDGE_WAL_DIR。
-			// 注意：vmagent 强制要求至少一个 -remoteWrite.url，故不可传空值。
-			rwURL := envOr("EDGE_REMOTE_WRITE_URL", "http://127.0.0.1:9090/api/v1/write")
+			// remote_write 地址解析（T11-G1-02，优先级从高到低）：
+			//   1) 配置包 metadata.json 下发的 remote_write_url（方案 B，中心网域 RemoteWriteURL）
+			//   2) 显式环境变量 EDGE_REMOTE_WRITE_URL
+			//   3) center_endpoint 推导（方案 A：center_endpoint 去尾斜杠 + "/api/v1/write"）
+			//   4) 环回兜底 http://127.0.0.1:9090/api/v1/write
+			// vmagent 强制要求至少一个 -remoteWrite.url，故解析结果必非空。
+			rwURL := resolveRemoteWriteURL(metadataRemoteWriteURL(versionDir), p.centerEndpoint)
 			return []string{
 				"-promscrape.config=" + filepath.Join(versionDir, contract.ZipEntryPrometheus),
 				"-httpListenAddr=" + vmHTTP,
@@ -221,4 +232,42 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// metadataRemoteWriteURL 读取 versionDir/metadata.json 中下发的 remote_write_url；
+// 无 metadata.json 或该字段为空时返回空串（调用方据此回落到 env/center_endpoint 推导）。
+func metadataRemoteWriteURL(versionDir string) string {
+	if versionDir == "" {
+		return ""
+	}
+	b, err := os.ReadFile(filepath.Join(versionDir, contract.ZipEntryMetadata))
+	if err != nil {
+		return ""
+	}
+	var m contract.Metadata
+	if err := json.Unmarshal(b, &m); err != nil {
+		return ""
+	}
+	return m.RemoteWriteURL
+}
+
+// resolveRemoteWriteURL 解析 vmagent -remoteWrite.url（T11-G1-02），优先级从高到低：
+//
+//	1) 配置包 metadata 下发的 remote_write_url（方案 B）
+//	2) 显式环境变量 EDGE_REMOTE_WRITE_URL
+//	3) center_endpoint 推导（方案 A：去尾斜杠 + "/api/v1/write"）
+//	4) 环回兜底 http://127.0.0.1:9090/api/v1/write
+//
+// 任一非空即返回，保证结果非空（vmagent 要求至少一个 -remoteWrite.url）。
+func resolveRemoteWriteURL(metadataURL, centerEndpoint string) string {
+	if strings.TrimSpace(metadataURL) != "" {
+		return metadataURL
+	}
+	if v := os.Getenv("EDGE_REMOTE_WRITE_URL"); v != "" {
+		return v
+	}
+	if strings.TrimSpace(centerEndpoint) != "" {
+		return strings.TrimRight(centerEndpoint, "/") + "/api/v1/write"
+	}
+	return "http://127.0.0.1:9090/api/v1/write"
 }

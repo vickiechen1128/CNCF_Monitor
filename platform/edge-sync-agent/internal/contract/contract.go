@@ -60,6 +60,10 @@ type Metadata struct {
 	GeneratedAt   string `json:"generated_at"`
 	AgentType     string `json:"agent_type"`
 	Checksum      string `json:"checksum"`
+	// RemoteWriteURL 是中心下发的网域 remote_write 上报地址（网域 RemoteWriteURL，
+	// 仅在中心显式配置时才下发，omitempty）。Agent 优先采用它作为 vmagent
+	// -remoteWrite.url（T11-G1-02 方案 B），避免真实部署回落到 127.0.0.1 环回。
+	RemoteWriteURL string `json:"remote_write_url,omitempty"`
 }
 
 // 配置包 zip 内部条目名（PRD §6.3）。
