@@ -1,7 +1,9 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -486,4 +488,107 @@ func TestSummaryMonitoredCountExcludesDeletedResources(t *testing.T) {
 	assert.Equal(t, 0, s.MonitoredCount, "已软删资源不得计入已监控")
 	// 采集 Job 本身未删，计数不受影响。
 	assert.Equal(t, 1, s.ScrapeJobCount)
+}
+
+// fakeProbeQuerier 是 ProbeQuerier 的测试替身（F-13）。
+type fakeProbeQuerier struct {
+	index map[string]map[string]ProbeSample
+	err   error
+}
+
+func (f *fakeProbeQuerier) ProbeSuccess(context.Context) (map[string]map[string]ProbeSample, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.index, nil
+}
+
+// TestSummaryProbeTargetsWithRealtimeStatus 覆盖 F-13：注入拨测查询器后，
+// probe_status / last_probe_at / probe_target_abnormal_count 由 probe_success 填充。
+func TestSummaryProbeTargetsWithRealtimeStatus(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	upAt := time.Date(2026, 9, 21, 18, 0, 0, 0, time.UTC)
+	downAt := time.Date(2026, 9, 21, 18, 1, 0, 0, time.UTC)
+	q := &fakeProbeQuerier{index: map[string]map[string]ProbeSample{
+		"job-blackbox-a": {
+			"http://10.0.0.1:80":           {Success: true, At: upAt},
+			"http://10.0.0.2:80":           {Success: false, At: downAt},
+			"https://10.0.0.3:443/healthz": {Success: true, At: upAt},
+		},
+	}}
+
+	s, err := Build(db, WithProbeQuerier(q))
+	require.NoError(t, err)
+	require.Len(t, s.ProbeTargets, 3)
+
+	assert.Equal(t, "up", s.ProbeTargets[0].Status, "probe_success=1 → up")
+	require.NotNil(t, s.ProbeTargets[0].LastProbeAt)
+	assert.True(t, s.ProbeTargets[0].LastProbeAt.Equal(upAt))
+
+	assert.Equal(t, "down", s.ProbeTargets[1].Status, "probe_success=0 → down")
+	assert.Equal(t, "up", s.ProbeTargets[2].Status, "URL 优先匹配（含协议头形态）")
+
+	assert.Equal(t, 1, s.ProbeTargetAbnormalCount, "异常数 = probe_success=0 条数")
+	assert.Equal(t, 3, s.ProbeTargetCount)
+}
+
+// TestSummaryProbeTargetsUnknownWhenNoSample 覆盖 F-13：无样本（未下发 / 指标未回传）
+// 保持「未知」，且不计入异常。
+func TestSummaryProbeTargetsUnknownWhenNoSample(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	q := &fakeProbeQuerier{index: map[string]map[string]ProbeSample{
+		"job-blackbox-a": {"http://10.0.0.1:80": {Success: true, At: time.Now()}},
+	}}
+
+	s, err := Build(db, WithProbeQuerier(q))
+	require.NoError(t, err)
+	require.Len(t, s.ProbeTargets, 3)
+
+	assert.Equal(t, "up", s.ProbeTargets[0].Status)
+	assert.Equal(t, "", s.ProbeTargets[1].Status, "无样本 → 未知")
+	assert.Nil(t, s.ProbeTargets[1].LastProbeAt)
+	assert.Equal(t, "", s.ProbeTargets[2].Status)
+	assert.Equal(t, 0, s.ProbeTargetAbnormalCount, "未知不计入异常")
+}
+
+// TestSummaryProbeTargetsDegradesOnQueryError 覆盖 F-13 降级：拨测查询失败时
+// 聚合接口不失败，拨测字段回落「未知」。
+func TestSummaryProbeTargetsDegradesOnQueryError(t *testing.T) {
+	db := newTestDB(t)
+	seed(t, db)
+
+	s, err := Build(db, WithProbeQuerier(&fakeProbeQuerier{err: errors.New("prometheus unreachable")}))
+	require.NoError(t, err, "查询失败不应使聚合接口失败")
+	require.Len(t, s.ProbeTargets, 3)
+	for _, p := range s.ProbeTargets {
+		assert.Equal(t, "", p.Status)
+		assert.Nil(t, p.LastProbeAt)
+	}
+	assert.Equal(t, 0, s.ProbeTargetAbnormalCount)
+}
+
+// TestLookupProbeSampleFallsBackToRawTarget 覆盖 F-13 匹配回落：
+// instance 为裸 target（无协议头）时按 protocol+target 拼接形态匹配。
+func TestLookupProbeSampleFallsBackToRawTarget(t *testing.T) {
+	index := map[string]map[string]ProbeSample{
+		"job-blackbox-a": {"10.0.0.3:443": {Success: true, At: time.Now()}},
+	}
+	tgt := models.BlackboxTarget{
+		Target:   "10.0.0.3:443",
+		Protocol: models.BlackboxTargetProtocolHTTPS,
+		URL:      "https://10.0.0.3:443/healthz",
+	}
+	sample, ok := lookupProbeSample(index, "job-blackbox-a", tgt)
+	require.True(t, ok, "应回落到裸 target 匹配")
+	assert.True(t, sample.Success)
+}
+
+// TestLookupProbeSampleNilIndex 覆盖 F-13：未注入查询器时（index 为 nil）不 panic、不匹配。
+func TestLookupProbeSampleNilIndex(t *testing.T) {
+	_, ok := lookupProbeSample(nil, "job-blackbox-a", models.BlackboxTarget{Target: "10.0.0.1:80"})
+	assert.False(t, ok)
 }

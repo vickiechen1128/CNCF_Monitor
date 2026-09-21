@@ -216,6 +216,23 @@
 
 ---
 
+## 反馈 8：首页 L3「拨测态势」除 URL 外字段恒空（② 缺陷，已修复）
+
+- **现象**：M05 首页 L3「拨测态势」面板在实连环境下，状态列恒为「未知」、业务域 / 应用 / 最近拨测三列恒为 `-`；L0「拨测」卡的「当前拨测异常数」亦恒为 0，用户误以为拨测未运行。
+- **根因（后端取数未实现，非前端缺陷）**：`GET /api/v2/platform/dashboard/summary` 的 `probe_targets[]` 在 `platform/dashboard/summary.go` 中仅填充 `url`，`status` 硬编码空串、`last_probe_at` 硬编码 `nil`、`probe_target_abnormal_count` 硬编码 0，注释理由为「无实时拨测数据源」。该理由已过时——blackbox 拨测结果现经 vmagent → remote_write 落到中心 Prometheus 的 `probe_success` 指标（1=通过 / 0=失败，样本自带采样时间戳）。PRD §5.1 与决策 93 第 8 条本就要求 `probe_status` / `last_probe_time` 由 M01 承载、M05 只消费。
+- **修复（本批，后端）**：
+  1. 新增 `platform/dashboard/probe.go`：`ProbeQuerier` 抽象 + `PromProbeQuerier`（GET 中心 Prometheus `/api/v1/query?query=probe_success`，按 job → instance 建二级索引）。
+  2. `summary.go`：`Build(db, opts...)` 新增 `WithProbeQuerier` Option；拨测段落按 `job_name` + 拨测目标地址匹配样本，填充 `status`（1→`up` / 0→`down` / 无样本→`''` 未知）、`last_probe_at`（样本时间戳），并据此计算 `probe_target_abnormal_count`（仅 `down` 计入，未知不误报为异常）。
+  3. `main.go`：`registerPlatformConfigRoutes` 接收 `promURL`，注入 `NewPromProbeQuerier(promURL, nil)`。
+  4. **降级策略**：拨测查询失败不阻断聚合接口，字段回落「未知」、异常计数为 0。
+- **前端零改动**：`ProbePanel.tsx` 已支持 `up` / `down` / 未知三态与相对时间渲染，字段有值即自动呈现绿 / 红 Badge 与「最近拨测」时间。
+- **仍未闭合的缺口（需 PRD / M01 侧决策）**：
+  1. **`biz_name` / `app_name` 恒空**：`models.BlackboxTarget` 仅有 `Target` / `Protocol` / `URL`，`ScrapeJob` 亦无业务域 / 应用归属字段，无法推断；而 PRD §5.1 明确「`biz_code` 必填」。需 M01 在 blackbox 采集 Job 上承载归属字段（PRD 决策 93 第 7 条「登记时挂业务域」），本批无法修。
+  2. **字段命名与 PRD 不一致**：PRD 为 `target_url` / `probe_status` / `biz_code` / `biz_name` / `app_code` / `app_name` / `last_probe_time`；实现为 `url` / `status` / `biz_name` / `app_name` / `last_probe_at`，且缺 `biz_code` / `app_code`。建议由 prototype-designer 统一口径（改 PRD 或改实现）。
+- **验证**：`go test ./platform/...` 全绿；新增 5 例覆盖「样本填充 / 无样本未知 / 查询失败降级 / 裸 target 回落匹配 / nil index 不 panic」。
+
+---
+
 ## 文档回填留痕（2026-09-14，决策 72-3 首页内容重构）
 
 > 本节对应 `design-proposals/homepage-mvp-content-restructure.md` §7 第 4 项（dev-feedback clipping 留痕），随 PRD v1.5 回填一并登记。**两条均为产品口径裁剪，非实现缺失**。
