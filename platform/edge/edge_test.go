@@ -36,6 +36,7 @@ func newEdgeTestDB(t *testing.T) *gorm.DB {
 		&models.EdgeAgent{},
 		&models.EdgeHeartbeat{},
 		&models.ConfigVersion{},
+		&models.ConfigDeployment{}, // 供 agent_pull 下发回写单测（M11 dev-feedback）
 	} {
 		require.NoError(t, db.AutoMigrate(m))
 	}
@@ -107,7 +108,7 @@ func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T) {
 		Ip:                   "10.0.2.15",
 		Components:           []models.EdgeComponent{{Type: models.ComponentTypeCollector, Name: "vmagent", Status: models.ComponentStatusRunning}},
 	}
-	resp, err := svc.Handle(dom, req, time.Date(2026, 9, 18, 8, 0, 0, 0, time.UTC))
+	resp, err := svc.Handle(dom, req, time.Date(2026, 9, 18, 8, 0, 0, 0, time.UTC), "http://center:8080")
 	require.NoError(t, err)
 	assert.False(t, resp.ConfigChanged, "版本一致应 config_changed=false")
 	assert.Equal(t, "20260724-120000", resp.ConfigVersion)
@@ -122,7 +123,7 @@ func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T) {
 
 	// 上报版本过旧 → config_changed=true，out_of_sync_cause=pull_pending。
 	req2 := &HeartbeatRequest{NetworkDomainID: dom.ID, ConfigVersion: "20260723-090000"}
-	resp2, err := svc.Handle(dom, req2, time.Date(2026, 9, 18, 8, 1, 0, 0, time.UTC))
+	resp2, err := svc.Handle(dom, req2, time.Date(2026, 9, 18, 8, 1, 0, 0, time.UTC), "http://center:8080")
 	require.NoError(t, err)
 	assert.True(t, resp2.ConfigChanged, "版本不一致应 config_changed=true")
 	assert.Equal(t, "20260724-120000", resp2.ConfigVersion)
@@ -136,10 +137,51 @@ func TestHeartbeatService_NoConfigVersion(t *testing.T) {
 	db := newEdgeTestDB(t)
 	dom := seedEdgeDomain(db, "nd-empty", "agent_pull", "tok-xyz", "", "http://center:8080")
 	svc := NewHeartbeatService(db)
-	resp, err := svc.Handle(dom, &HeartbeatRequest{NetworkDomainID: dom.ID, ConfigVersion: ""}, time.Now())
+	resp, err := svc.Handle(dom, &HeartbeatRequest{NetworkDomainID: dom.ID, ConfigVersion: ""}, time.Now(), "http://center:8080")
 	require.NoError(t, err)
 	assert.False(t, resp.ConfigChanged)
 	assert.Empty(t, resp.ConfigVersion)
+}
+
+// TestHeartbeatHandlerConfigDownloadURL 覆盖 config_download_url 修正：
+// 经反代（Cloudflare Tunnel）心跳时，请求 Request.Host 为 localhost，但
+// X-Forwarded-Host/Proto 携带公网出处，agent 拿到的下载地址必须指向公网地址，
+// 绝不能回落成 localhost（否则腾讯云 agent 拉包 `unsupported protocol scheme ""`）。
+func TestHeartbeatHandlerConfigDownloadURL(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedEdgeDomain(db, "mc-edge-debug", "agent_pull", "tok-debug", "vmagent", "")
+	r := newEdgeRouter(db)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/platform/edge/heartbeat",
+		strings.NewReader(`{"network_domain_id":"mc-edge-debug","config_version":"20260724-120000","agent_type":"vmagent"}`))
+	req.Header.Set("Authorization", "Bearer tok-debug")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("X-Forwarded-Host", "suggested-toys.example.com")
+	req.Host = "localhost:8080" // 模拟 cloudflared 转发后的本地 Host
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data HeartbeatResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, "https://suggested-toys.example.com/api/v2/platform/edge/config?network_domain=mc-edge-debug",
+		env.Data.ConfigDownloadURL, "应优先用 X-Forwarded-Proto/Host 拼绝对地址")
+}
+
+// TestRequestAuthorityFallsBackToRequestHost 验证无转发头时回落请求 Host。
+func TestRequestAuthorityFallsBackToRequestHost(t *testing.T) {
+	r := gin.New()
+	r.GET("/x", func(c *gin.Context) {
+		c.String(http.StatusOK, requestAuthority(c))
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Host = "10.8.0.5:8443"
+	r.ServeHTTP(w, req)
+	assert.Equal(t, "http://10.8.0.5:8443", w.Body.String())
 }
 
 // --- T11-04/T11-03 handler 级：token 鉴定 / 网域缺失 / local 拒绝 ---
@@ -345,4 +387,90 @@ func TestConfigHandlerNoVersionNotFound(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer tok-e")
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusNotFound, w.Code, "尚无配置版本应 404")
+}
+
+// TestHeartbeatWritebackAgentPullDeployment 验证 M11 dev-feedback：agent_pull 通道的
+// pending 下发记录在 agent 心跳确认已同步到对应版本后被回写成 success。
+func TestHeartbeatWritebackAgentPullDeployment(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-wb", "agent_pull", "tok-wb", "vmagent", "")
+	createdAt := time.Date(2026, 9, 21, 4, 47, 56, 0, time.UTC)
+	v := seedConfigVersion(db, dom.ID, "global:\n  scrape_interval: 15s\n", "", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`}, createdAt)
+
+	// 预置一条对应版本的 pending 下发记录（模拟 confirm 时 agent_pull 占位）。
+	dep := &models.ConfigDeployment{
+		DeploymentID:    "deploy-20260921-001",
+		NetworkDomainID: dom.ID,
+		ConfigVersionID: fmt.Sprint(v.ID),
+		SourceChangeNo:  "CHG-20260921-005",
+		Channel:         models.ChannelTypeAgentPull,
+		Status:          models.DeploymentStatusPending,
+	}
+	require.NoError(t, db.Create(dep).Error)
+
+	r := newEdgeRouter(db)
+	body := fmt.Sprintf(`{"network_domain_id":"%s","agent_type":"vmagent","config_version":"%s"}`,
+		dom.ID, configVersionString(v))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/platform/edge/heartbeat",
+		strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok-wb")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var got models.ConfigDeployment
+	require.NoError(t, db.Where("deployment_id = ?", dep.DeploymentID).First(&got).Error)
+	assert.Equal(t, models.DeploymentStatusSuccess, got.Status, "agent 已同步应回写 success")
+	assert.NotNil(t, got.CompletedAt, "应记录完成时间")
+
+	// 尚未同步（上报旧 config_version）→ pending 不应被翻写。
+	v2Created := createdAt.Add(time.Minute)
+	v2 := seedConfigVersion(db, dom.ID, "global:\n  scrape_interval: 15s\n  v2: true\n", "", "",
+		map[string]string{}, v2Created)
+	dep2 := &models.ConfigDeployment{
+		DeploymentID:    "deploy-20260921-002",
+		NetworkDomainID: dom.ID,
+		ConfigVersionID: fmt.Sprint(v2.ID),
+		SourceChangeNo:  "CHG-20260921-006",
+		Channel:         models.ChannelTypeAgentPull,
+		Status:          models.DeploymentStatusPending,
+	}
+	require.NoError(t, db.Create(dep2).Error)
+
+	// 上报仍是旧版本 → changed=true → 不应回写。
+	r2 := newEdgeRouter(db)
+	w2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v2/platform/edge/heartbeat",
+		strings.NewReader(body))
+	req2.Header.Set("Authorization", "Bearer tok-wb")
+	r2.ServeHTTP(w2, req2)
+	require.Equal(t, http.StatusOK, w2.Code)
+
+	var stillPending models.ConfigDeployment
+	require.NoError(t, db.Where("deployment_id = ?", dep2.DeploymentID).First(&stillPending).Error)
+	assert.Equal(t, models.DeploymentStatusPending, stillPending.Status, "未同步版本不应被翻写")
+}
+
+// TestHeartbeatRequestDecodesEdgeTargets 校验中心契约可反序列化 agent 上报的
+// targets 快照字段（方案 B，本轮仅透传占位，不落库）。字段名须与 agent 侧
+// contract.EdgeTargetSnapshot 对齐。
+func TestHeartbeatRequestDecodesEdgeTargets(t *testing.T) {
+	var req HeartbeatRequest
+	raw := `{
+		"network_domain_id":"gov-cloud-a",
+		"agent_type":"vmagent",
+		"targets":[
+			{"job":"node","instance":"10.0.0.1:9100","resource_id":"res-1","health":"up",
+			 "last_scrape":"2026-09-18T12:00:00Z","last_error":"","scrape_duration_seconds":1.23}
+		]
+	}`
+	require.NoError(t, json.Unmarshal([]byte(raw), &req))
+	require.Len(t, req.Targets, 1)
+	assert.Equal(t, "node", req.Targets[0].Job)
+	assert.Equal(t, "10.0.0.1:9100", req.Targets[0].Instance)
+	assert.Equal(t, "res-1", req.Targets[0].ResourceID)
+	assert.Equal(t, "up", req.Targets[0].Health)
+	assert.Equal(t, "2026-09-18T12:00:00Z", req.Targets[0].LastScrape)
+	assert.Equal(t, 1.23, req.Targets[0].ScrapeDurationSeconds)
 }
