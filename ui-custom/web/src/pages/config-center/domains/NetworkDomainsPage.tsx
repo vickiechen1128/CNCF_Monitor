@@ -370,10 +370,55 @@ export function NetworkDomainsPage() {
                         direction="vertical"
                         current={-1}
                         items={[
-                          { title: '下载安装包', description: '从下方清单下载对应版本的 Edge Sync Agent 离线安装包；接入 Token 与 Remote Write URL 在纳管时自动签发（写入 Agent 配置）' },
-                          { title: '解压部署', description: '将安装包解压部署到该网域采集节点，并写入接入配置（Token / 中心地址 / Remote Write URL）' },
-                          { title: '启动 / 守护', description: '启动 Edge Sync Agent（由 systemd 守护，开机自启、异常自动拉起）' },
-                          { title: '心跳回连', description: 'Agent 自动连接平台拉取配置并上报数据；可在本页「采集节点在线」列或网域详情查看心跳与运行情况' },
+                          {
+                            title: '下载安装包',
+                            description: (
+                              <span>
+                                从下方清单下载对应版本的 Edge Sync Agent 离线安装包。
+                                <br />
+                                接入配置（Token / 中心地址 / Remote Write URL）在纳管时自动签发，部署时以环境变量（或 systemd Environment）注入，不会写入二进制。
+                              </span>
+                            ),
+                          },
+                          {
+                            title: '解压部署',
+                            description: (
+                              <span>
+                                解压到 <Typography.Text code>/opt/apps</Typography.Text>（程序只读），数据目录用独立可写路径
+                                <Typography.Text code>/opt/data/edge-sync-agent</Typography.Text>，并按架构链接二进制：
+                                <pre style={{ margin: '8px 0 0 0', padding: 8, background: '#f5f5f5', borderRadius: 4, fontSize: 12, whiteSpace: 'pre-wrap' }}>{`sudo mkdir -p /opt/apps/edge-sync-agent /opt/data/edge-sync-agent
+sudo tar -xzf edge-sync-agent-*.tar.gz -C /opt/apps/edge-sync-agent --strip-components=1
+sudo ln -sf /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 \\
+             /opt/apps/edge-sync-agent/edge-sync-agent`}</pre>
+                              </span>
+                            ),
+                          },
+                          {
+                            title: '启动 / 守护',
+                            description: (
+                              <span>
+                                编辑 <Typography.Text code>/etc/systemd/system/edge-sync-agent.service</Typography.Text> 的
+                                <Typography.Text code>[Service] Environment=</Typography.Text>，
+                                填写必填项 <Typography.Text code>NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT</Typography.Text>，并按需覆盖数据目录
+                                <Typography.Text code>EDGE_CONFIG_ROOT / EDGE_WAL_DIR</Typography.Text> 指向 <Typography.Text code>/opt/data/edge-sync-agent</Typography.Text>，然后拉起：
+                                <pre style={{ margin: '8px 0 0 0', padding: 8, background: '#f5f5f5', borderRadius: 4, fontSize: 12, whiteSpace: 'pre-wrap' }}>{`sudo install -m 0644 /opt/apps/edge-sync-agent/packaging/edge-sync-agent.service \\
+             /etc/systemd/system/
+# 编辑上文件 Environment=（见上），随后：
+sudo systemctl daemon-reload
+sudo systemctl enable --now edge-sync-agent`}</pre>
+                              </span>
+                            ),
+                          },
+                          {
+                            title: '心跳回连',
+                            description: (
+                              <span>
+                                Agent 自动连接平台拉取配置并上报数据；可在本页「采集节点在线」列或网域详情查看心跳与运行情况。
+                                <br />
+                                调试期可改走前台运行（见部署文档），用 <Typography.Text code>journalctl -u edge-sync-agent -f</Typography.Text> 查看日志。
+                              </span>
+                            ),
+                          },
                         ]}
                       />
                       <EdgePackageDownloadPanel active={guideOpen} />

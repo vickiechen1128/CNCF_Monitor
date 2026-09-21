@@ -5,6 +5,8 @@ import type { ColumnsType } from 'antd/es/table'
 import type { AgentView, EdgeComponent } from '../../../types/edge'
 import type { EdgePackage } from '../../../types/config-center'
 import { edgePackageApi } from '../../../api/edgePackages'
+import { EllipsisText } from '../../../components/EllipsisText'
+import { formatLocalTime } from '../configCenterConstants'
 import {
   HIGH_RISK_COMPONENT_STATUS,
   agentStatusBadgeStatus,
@@ -138,13 +140,16 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
       dataIndex: 'last_restart_at',
       key: 'last_restart_at',
       width: 170,
-      render: (v?: string) => v || '-',
+      // 用 formatLocalTime 转本地可读时间，避免原始 ISO（T/Z/纳秒）截断成零碎字符
+      render: (v?: string) => formatLocalTime(v),
     },
     {
       title: '最近错误',
       dataIndex: 'last_error',
       key: 'last_error',
-      render: (v?: string) => (v ? <Text type="danger">{v}</Text> : '-'),
+      width: 220,
+      // long 错误文本用 EllipsisText 截断 + 悬浮全文，避免窄列硬折行/竖排撑爆行高
+      render: (v?: string) => (v ? <EllipsisText type="danger" maxWidth={200}>{v}</EllipsisText> : '-'),
     },
   ]
 

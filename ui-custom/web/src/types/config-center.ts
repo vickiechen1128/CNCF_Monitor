@@ -20,7 +20,7 @@ export type AgentType = 'vmagent' | 'prometheus-agent'
 export type DomainType = 'management' | 'edge'
 
 /** 网域运行态（agent_pull 心跳更新；MVP local 恒空） */
-export type MonitoredStatus = 'online' | 'offline' | 'unknown'
+export type MonitoredStatus = 'normal' | 'partial' | 'offline' | 'unknown'
 
 /** 行政启用态（M06；disabled=冻结域） */
 export type DomainEnabledStatus = 'enabled' | 'disabled'

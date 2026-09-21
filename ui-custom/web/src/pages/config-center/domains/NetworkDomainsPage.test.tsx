@@ -133,7 +133,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
         data: {
           items: [
             domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }),
-            domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'online', last_heartbeat: '2026-08-21T00:00:00Z' }),
+            domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'normal', last_heartbeat: '2026-08-21T00:00:00Z' }),
           ],
           total: 2,
         },

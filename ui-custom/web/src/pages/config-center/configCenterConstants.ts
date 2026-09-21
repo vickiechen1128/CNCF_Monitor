@@ -84,15 +84,18 @@ export const zoneTypeColor: Record<string, string> = {
   'region-shenzhen': 'geekblue',
 }
 
-/** 运行态（agent_pull 心跳） */
+/** 运行态（agent_pull 心跳）——枚举值与后端 offline_detector 四档一致：
+ *  normal（全部在线）/ partial（在线离线混合）/ offline（全部失联）/ unknown（无节点） */
 export const monitoredStatusLabel: Record<NonNullable<NetworkDomain['monitored_status']>, string> = {
-  online: '在线',
+  normal: '在线',
+  partial: '部分离线',
   offline: '离线',
   unknown: '未知',
 }
 
 export const monitoredStatusColor: Record<NonNullable<NetworkDomain['monitored_status']>, string> = {
-  online: 'success',
+  normal: 'success',
+  partial: 'warning',
   offline: 'error',
   unknown: 'default',
 }
