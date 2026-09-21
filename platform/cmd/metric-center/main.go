@@ -190,7 +190,7 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	query.RegisterRoutes(apiV1, db.DB, promURL)
 
 	apiV2 := r.Group("/api/v2")
-	if err := registerPlatformConfigRoutes(apiV2); err != nil {
+	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
 		return nil, err
 	}
 
@@ -219,7 +219,7 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 	}
 }
 
-func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
+func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
 	platform := g.Group("/platform")
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
@@ -279,7 +279,11 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	}
 
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
-	platform.GET("/dashboard/summary", dashboard.SummaryHandler(db.DB))
+	// F-13：注入中心 Prometheus 拨测查询器，为 L3「拨测态势」提供 probe_status / last_probe_at。
+	platform.GET("/dashboard/summary", dashboard.SummaryHandler(
+		db.DB,
+		dashboard.WithProbeQuerier(dashboard.NewPromProbeQuerier(promURL, nil)),
+	))
 	return nil
 }
 

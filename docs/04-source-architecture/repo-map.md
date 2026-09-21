@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-21 18:22 · commit: `93be384`
+> 生成时间: 2026-09-21 18:27 · commit: `9239ee6`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -588,7 +588,7 @@
 - `func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error)`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
-- `func registerPlatformConfigRoutes(g *gin.RouterGroup) error`
+- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error`
 - `func registerSPA(r *gin.Engine, dir string) error`
 - `func healthHandler(c *gin.Context)`
 - `func healthDBHandler(c *gin.Context)`
@@ -1746,12 +1746,18 @@
 - `func NewPromProbeQuerier(baseURL *url.URL, client *http.Client) *PromProbeQuerier`
 - `method (*PromProbeQuerier) ProbeSuccess(ctx context.Context) (map[string]map[string]ProbeSample, error)`
 
+### `platform/dashboard/probe_test.go`
+
+- `func TestPromProbeQuerierProbeSuccess(t *testing.T)`
+- `func TestPromProbeQuerierNilBase(t *testing.T)`
+
 ### `platform/dashboard/summary.go`
 
 - `func resourceModels() []interface{}`
 - `type DeploymentItem struct`
 - `type ProbeTargetItem struct`
 - `func probeTargetURL(t models.BlackboxTarget) string`
+- `func lookupProbeSample( index map[string]map[string]ProbeSample, jobName string, t models.BlackboxTarget, ) (ProbeSample, bo…`
 - `type Summary struct`
 - `type CategorySummary struct`
 - `type SubtypeSummary struct`
@@ -1767,7 +1773,7 @@
 - `func loadResourceRows(db *gorm.DB, m interface{}) ([]models.Resource, error)`
 - `func subtypeFieldForCategory(cat models.ResourceCategory) string`
 - `func loadSelectedResourceIDs(db *gorm.DB) (map[string]bool, error)`
-- `func SummaryHandler(db *gorm.DB) gin.HandlerFunc`
+- `func SummaryHandler(db *gorm.DB, opts ...Option) gin.HandlerFunc`
 
 ### `platform/dashboard/summary_test.go`
 

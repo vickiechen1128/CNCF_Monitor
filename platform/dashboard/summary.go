@@ -6,6 +6,7 @@
 package dashboard
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -51,10 +52,10 @@ type DeploymentItem struct {
 // 推断不出则空串（前端显示 '-'）；last_probe_at 取现有最近拨测时间，拿不到则 nil。
 // 不硬编 up/down、不编造归属，接口只落确凿数据。
 type ProbeTargetItem struct {
-	URL         string     `json:"url"`          // 拨测目标展示地址（优先 URL，否则 protocol+target 拼接）
-	Status      string     `json:"status"`       // up/down/''（MV0 无实时拨测，恒为 ''）
-	BizName     string     `json:"biz_name"`     // 拨测目标归属业务域（无来源时空串）
-	AppName     string     `json:"app_name"`     // 归属应用（无来源时空串）
+	URL         string     `json:"url"`           // 拨测目标展示地址（优先 URL，否则 protocol+target 拼接）
+	Status      string     `json:"status"`        // up/down/''（MV0 无实时拨测，恒为 ''）
+	BizName     string     `json:"biz_name"`      // 拨测目标归属业务域（无来源时空串）
+	AppName     string     `json:"app_name"`      // 归属应用（无来源时空串）
 	LastProbeAt *time.Time `json:"last_probe_at"` // 最近一次拨测时间（拿不到时 nil）
 }
 
@@ -70,6 +71,32 @@ func probeTargetURL(t models.BlackboxTarget) string {
 		return ""
 	}
 	return proto + "://" + target
+}
+
+// lookupProbeSample 按 job 名 + 拨测目标地址匹配 probe_success 样本（F-13）。
+// instance 标签即 blackbox 探测的目标地址：优先用展示 URL，回落 protocol+target 拼接。
+func lookupProbeSample(
+	index map[string]map[string]ProbeSample,
+	jobName string,
+	t models.BlackboxTarget,
+) (ProbeSample, bool) {
+	if index == nil || jobName == "" {
+		return ProbeSample{}, false
+	}
+	byInstance := index[jobName]
+	if byInstance == nil {
+		return ProbeSample{}, false
+	}
+	candidates := []string{probeTargetURL(t), strings.TrimSpace(t.Target)}
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		if s, ok := byInstance[c]; ok {
+			return s, true
+		}
+	}
+	return ProbeSample{}, false
 }
 
 // Summary 是首页聚合接口的返回结构。
@@ -118,10 +145,28 @@ type AppSummary struct {
 	MonitoredCount int    `json:"monitored_count"`
 }
 
+// buildOptions Build 的可选依赖（F-13：拨测结果查询器）。
+type buildOptions struct {
+	probeQuerier ProbeQuerier
+}
+
+// Option 是 Build 的可选依赖注入项。
+type Option func(*buildOptions)
+
+// WithProbeQuerier 注入拨测结果查询器（F-13）。不注入时拨测 status / last_probe_at
+// 保持「未知」（与历史行为一致，向后兼容）。
+func WithProbeQuerier(q ProbeQuerier) Option {
+	return func(o *buildOptions) { o.probeQuerier = q }
+}
+
 // Build 聚合各模块已有数据生成首页统计概览。
 // 复用 models 五类资源表 / ScrapeJob / ConfigDraft / ConfigDeployment / NetworkDomain 的
 // GORM 查询（Count/Find/Pluck），软删由 GORM 自动排除；错误沿用 fmt.Errorf("...: %w")。
-func Build(db *gorm.DB) (*Summary, error) {
+func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
+	cfg := buildOptions{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	s := &Summary{
 		RecentDeployments: []DeploymentItem{},
 		ByCategory:        []CategorySummary{},
@@ -237,22 +282,36 @@ func Build(db *gorm.DB) (*Summary, error) {
 	if err := db.Where("job_type = ?", models.JobTypeBlackbox).Find(&bjobs).Error; err != nil {
 		return nil, fmt.Errorf("list blackbox jobs: %w", err)
 	}
+	// F-13：拨测实时结果取自中心 Prometheus 的 probe_success（1=通过 / 0=失败）。
+	// 查询失败一律降级——status 留空（前端显示「未知」）、异常计数为 0，不阻断聚合接口。
+	var probeIndex map[string]map[string]ProbeSample
+	if cfg.probeQuerier != nil {
+		probeIndex, _ = cfg.probeQuerier.ProbeSuccess(context.Background())
+	}
+	abnormalCount := 0
 	for _, j := range bjobs {
 		s.ProbeTargetCount += len(j.BlackboxTargets)
 		for _, t := range j.BlackboxTargets {
-			s.ProbeTargets = append(s.ProbeTargets, ProbeTargetItem{
-				URL:    probeTargetURL(t),
-				Status: "", // 实时拨测结果当前不可得：不臆造 up/down，前端据此显示「未知」
+			item := ProbeTargetItem{
+				URL: probeTargetURL(t),
 				// biz_name / app_name：BlackboxTarget 无归属字段，ScrapeJob 仅有
-				// NetworkDomainID 不代表业务域，推断不出则留空（前端显示 '-'）。
-				LastProbeAt: nil, // 无最近拨测时间数据源，nil（前端显示 '-'）
-			})
+				// NetworkDomainID 不代表业务域，推断不出则留空（前端显示 '-'）。缺口见 F-13。
+			}
+			if sample, ok := lookupProbeSample(probeIndex, j.JobName, t); ok {
+				item.LastProbeAt = &sample.At
+				if sample.Success {
+					item.Status = "up"
+				} else {
+					item.Status = "down"
+					abnormalCount++
+				}
+			}
+			s.ProbeTargets = append(s.ProbeTargets, item)
 		}
 	}
-	// probe_target_abnormal_count：models.BlackboxTarget 仅有 Target/Protocol/URL，
-	// 无任何「异常/不健康」状态字段；异常需实时拨测结果（Prometheus/Alertmanager）判定，
-	// 本接口不臆造字段，故恒为 0（歧义见交付说明）。
-	s.ProbeTargetAbnormalCount = 0
+	// probe_target_abnormal_count：口径 = probe_success=0 的拨测目标数（F-13）。
+	// 无样本（未下发 / 指标未回传）不计入异常，避免把「未知」误报为「异常」。
+	s.ProbeTargetAbnormalCount = abnormalCount
 
 	// 8. 组装 by_category：五类固定齐全（缺则补 0 值条目）。
 	for _, cat := range models.ValidResourceCategories() {
@@ -511,9 +570,9 @@ func loadSelectedResourceIDs(db *gorm.DB) (map[string]bool, error) {
 }
 
 // SummaryHandler 处理 GET /api/v2/platform/dashboard/summary。
-func SummaryHandler(db *gorm.DB) gin.HandlerFunc {
+func SummaryHandler(db *gorm.DB, opts ...Option) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		s, err := Build(db)
+		s, err := Build(db, opts...)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
