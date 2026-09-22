@@ -377,9 +377,9 @@ func TestSummaryHandler(t *testing.T) {
 	assert.Equal(t, 2, catByKey["middleware"].ResourceCount)
 	assert.Equal(t, 2, catByKey["application"].ResourceCount)
 
-	// 拨测（blackbox）不进 resource/monitored，独立统计；abnormal 恒为 0（无状态字段）。
+	// 拨测（blackbox）不进 resource/monitored，独立统计；未注入 querier 时 abnormal 恒 0。
 	assert.Equal(t, 3, s.ProbeTargetCount, "blackbox 目标数")
-	assert.Equal(t, 0, s.ProbeTargetAbnormalCount, "拨测异常口径：无状态字段，恒 0")
+	assert.Equal(t, 0, s.ProbeTargetAbnormalCount, "未注入 querier：无样本，异常恒 0")
 	assert.NotContains(t, []int{sumCatRes, sumCatMon}, s.ProbeTargetCount, "拨测不进资源台账")
 
 	// —— 决策 93：probe_targets 拨测目标明细 ——
@@ -388,15 +388,17 @@ func TestSummaryHandler(t *testing.T) {
 	assert.Equal(t, "http://10.0.0.1:80", s.ProbeTargets[0].URL)
 	assert.Equal(t, "http://10.0.0.2:80", s.ProbeTargets[1].URL)
 	assert.Equal(t, "https://10.0.0.3:443/healthz", s.ProbeTargets[2].URL)
-	// status 不得臆造：MVP 无实时拨测来源，每条恒为空串（前端显示「未知」），禁硬编 up/down。
+	// status 不得臆造：无实时拨测样本，每条恒为空串（前端显示「未知」），禁硬编 up/down。
 	for _, p := range s.ProbeTargets {
-		assert.Empty(t, p.Status, "无实时拨测状态，status 必须为空串而非臆造的 up/down")
+		assert.Empty(t, p.Status, "无实时拨测样本，status 必须为空串而非臆造的 up/down")
 	}
-	// biz_name/app_name：BlackboxTarget 无归属字段且无法可靠推断，恒为空串（前端显示 '-'）。
-	// last_probe_at：无最近拨测时间源，恒为 nil。
+	// 归属口径（probe-ownership-alignment）：拨测目标不承载「应用 / 业务域」维度，
+	// 归属取自 ScrapeJob.NetworkDomainID（not null）→ network_domains.name。
+	// blackbox Job 归属 default → 展示名「管理网域」。
+	// last_probe_at：未注入 querier，无最近拨测时间源，恒为 nil。
 	for _, p := range s.ProbeTargets {
-		assert.Empty(t, p.BizName)
-		assert.Empty(t, p.AppName)
+		assert.Equal(t, "default", p.NetworkDomainID)
+		assert.Equal(t, "管理网域", p.NetworkDomainName)
 		assert.Nil(t, p.LastProbeAt)
 	}
 	// 采集 Job：未软删 5 个（standard 4 + blackbox 1），其中 enabled=true 4 个。

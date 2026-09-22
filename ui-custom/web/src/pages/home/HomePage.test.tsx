@@ -170,15 +170,15 @@ const DASHBOARD_OK = {
     unclassified_monitored_count: 36,
     probe_target_count: 12,
     probe_target_abnormal_count: 1,
-    // L3 明细（决策 93 effective 数据）：2 down + 5 up，覆盖「异常排前」与 >5 行分页分支
+    // L3 明细（决策 93 effective 数据）：2 down + 5 up，覆盖「异常排前」「归属网域」与 >5 行分页分支
     probe_targets: [
-      { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:36:00+08:00' },
-      { url: 'https://www.example.cn/cert-check', status: 'down', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:27:00+08:00' },
-      { url: 'https://www.example.cn/', status: 'up', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:38:00+08:00' },
-      { url: 'https://data-api.example.cn/health', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:38:00+08:00' },
-      { url: 'https://order.example.cn/submit', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-      { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-      { url: 'https://gateway.example.cn/v1/ping', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:36:00+08:00' },
+      { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+      { url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
+      { url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:36:00+08:00' },
     ],
   },
 }
@@ -658,14 +658,16 @@ describe('HomePage', () => {
     const dataRows = within(panel).getAllByRole('row')
     expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
     expect(dataRows[1]).toHaveTextContent('异常')
+    // 归属网域列展示网域展示名（决策 93 归属口径：网域为主）
+    expect(dataRows[1]).toHaveTextContent('生产内网域')
 
     // 7 条 > 每页 5 行 → 分页器出现
     expect(panel.querySelector('.ant-pagination')).not.toBeNull()
   })
 
-  it('renders backend probe_targets with unknown status and degrades empty biz/app/last_probe_at to dash', async () => {
-    // 「真实款」明细：MVP 后端 status 恒空串（未知）、biz_name/app_name 空串、
-    // last_probe_at 为 nil。断言未知态中性呈现、空字段 '-' 降级，不渲染成 up/down 绿红。
+  it('renders backend probe_targets with unknown status, domain ownership and dash degradation', async () => {
+    // 「真实款」明细：后端 status 无 probe_success 样本时为空串（未知）、归属为网域、
+    // last_probe_at 为 nil。断言未知态中性呈现、归属网域列展示、空字段 '-' 降级。
     setupHomeMock({
       [DASHBOARD_PATH]: {
         status: 'success',
@@ -673,10 +675,10 @@ describe('HomePage', () => {
           ...DASHBOARD_OK.data,
           probe_targets: [
             // 两条未知（status '' + 空 last_probe_at），同未知态保持原序（不强制前置）
-            { url: 'https://gw.example.cn/ping', status: '', biz_name: '', app_name: '', last_probe_at: undefined },
+            { url: 'https://gw.example.cn/ping', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
             // 明确 down 强制排最前，仍正常呈现「异常」
-            { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: isoAgo(5) },
-            { url: 'https://www.example.cn/a', status: '', biz_name: '', app_name: '', last_probe_at: undefined },
+            { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'default', network_domain_name: '管理网域', last_probe_at: isoAgo(5) },
+            { url: 'https://www.example.cn/a', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
           ],
         },
       },
@@ -697,12 +699,15 @@ describe('HomePage', () => {
     // 明确 down 排最前
     expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
     expect(dataRows[1]).toHaveTextContent('异常')
+    // 归属网域列展示网域展示名（替代原业务域 / 应用两列）
+    expect(dataRows[1]).toHaveTextContent('管理网域')
+    expect(dataRows[2]).toHaveTextContent('边缘网域A')
     // 两条未知保持原序（gw 在前、www 在后），渲染「未知」态而非 正常/异常 绿红
     expect(dataRows[2]).toHaveTextContent('https://gw.example.cn/ping')
     expect(dataRows[2]).toHaveTextContent('未知')
     expect(dataRows[3]).toHaveTextContent('https://www.example.cn/a')
     expect(dataRows[3]).toHaveTextContent('未知')
-    // 空 biz_name / app_name / last_probe_at → '-' 降级（未知行含 '-'）
+    // 空 last_probe_at → '-' 降级（未知行含 '-'）
     for (const row of [dataRows[2], dataRows[3]]) {
       expect(row.textContent).toContain('-')
     }

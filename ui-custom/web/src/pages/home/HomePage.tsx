@@ -142,16 +142,17 @@ const DASHBOARD_MOCK: DashboardSummary = {
   probe_target_count: 12,
   // 后端 MVP 恒 0；静态预览取 1 是为了把「异常 >0」这一分支也渲染出来（口径不变）
   probe_target_abnormal_count: 1,
-  // L3 明细（决策 93）：静态预览用与原型对齐的 mock，覆盖「异常排前」「应用/业务域空显 -」
-  // 与 >5 条分页分支；mock 走 up/down 显式态，真实环境后端 MVP 为未知空串（见 ProbePanel 头注释）
+  // L3 明细（决策 93）：静态预览 mock，覆盖「异常排前」「归属网域」与 >5 条分页分支；
+  // 归属口径为「归属网域」（见 design-proposals/probe-ownership-alignment.md：拨测不承载
+  // 应用/业务域维度）。mock 走 up/down 显式态，真实环境无 probe_success 样本时为空串（见 ProbePanel 头注释）
   probe_targets: [
-    { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:36:00+08:00' },
-    { url: 'https://www.example.cn/cert-check', status: 'down', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:27:00+08:00' },
-    { url: 'https://www.example.cn/', status: 'up', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:38:00+08:00' },
-    { url: 'https://data-api.example.cn/health', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:38:00+08:00' },
-    { url: 'https://order.example.cn/submit', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-    { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-    { url: 'https://gateway.example.cn/v1/ping', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    { url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
+    { url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:36:00+08:00' },
   ],
 }
 

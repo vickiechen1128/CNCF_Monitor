@@ -45,18 +45,20 @@ type DeploymentItem struct {
 }
 
 // ProbeTargetItem 是首页拨测态势面板单条拨测目标明细（决策 93 / M05 PRD v1.8），
-// JSON 与原型 mockProbeTargets 对齐：url/status/biz_name/app_name/last_probe_at。
-// 遵循「可空不臆造」：异常需实时拨测结果（Prometheus/Alertmanager）判定，本接口当前
-// 无法实时拨测，status 只来自真实状态——MVP 阶段无该数据源，故恒为空串（前端显示
-// 「未知」）；biz_name/app_name 需推断自 ScrapeJob/挂载维度，BlackboxTarget 无此字段、
-// 推断不出则空串（前端显示 '-'）；last_probe_at 取现有最近拨测时间，拿不到则 nil。
-// 不硬编 up/down、不编造归属，接口只落确凿数据。
+// 归属口径见 design-proposals/probe-ownership-alignment.md。JSON 与前端
+// ProbeTargetItem 对齐：url/status/network_domain_id/network_domain_name/last_probe_at。
+//
+// 归属口径：拨测目标不是 M07 资源台账对象，「应用 / 业务域」维度不适用（拨测面向开源组件
+// 连通性，与应用监控是正交维度），故不再输出 biz_name / app_name，改以必然有值的「归属网域」
+// 承载归属语义（ScrapeJob.NetworkDomainID 为 not null）。遵循「可空不臆造」：status 只来自
+// 真实 probe_success 样本，无样本留空（前端显示「未知」），不硬编 up/down；
+// last_probe_at 取样本采样时间，拿不到则 nil。
 type ProbeTargetItem struct {
-	URL         string     `json:"url"`           // 拨测目标展示地址（优先 URL，否则 protocol+target 拼接）
-	Status      string     `json:"status"`        // up/down/''（MV0 无实时拨测，恒为 ''）
-	BizName     string     `json:"biz_name"`      // 拨测目标归属业务域（无来源时空串）
-	AppName     string     `json:"app_name"`      // 归属应用（无来源时空串）
-	LastProbeAt *time.Time `json:"last_probe_at"` // 最近一次拨测时间（拿不到时 nil）
+	URL               string     `json:"url"`                 // 拨测目标展示地址（优先 URL，否则 protocol+target 拼接）
+	Status            string     `json:"status"`              // up/down/''（''=无 probe_success 样本，未知）
+	NetworkDomainID   string     `json:"network_domain_id"`   // 归属网域 ID（ScrapeJob.NetworkDomainID，not null）
+	NetworkDomainName string     `json:"network_domain_name"` // 归属网域展示名（字典缺条目回落为 ID）
+	LastProbeAt       *time.Time `json:"last_probe_at"`       // 最近一次拨测时间（拿不到时 nil）
 }
 
 // probeTargetURL 构造拨测目标展示地址：优先取 BlackboxTarget.URL，否则 protocol+target 拼接；
@@ -289,13 +291,27 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 		probeIndex, _ = cfg.probeQuerier.ProbeSuccess(context.Background())
 	}
 	abnormalCount := 0
+	// 归属网域展示名：ScrapeJob.NetworkDomainID（not null）→ network_domains.name。
+	// 字典缺条目回落为网域 ID（与 by_app 的 app_name 回落 app_code 同源，不留空、不编造）。
+	var probeDomains []models.NetworkDomain
+	if err := db.Find(&probeDomains).Error; err != nil {
+		return nil, fmt.Errorf("list network domains for probe: %w", err)
+	}
+	domainNames := make(map[string]string, len(probeDomains))
+	for _, d := range probeDomains {
+		domainNames[d.ID] = d.Name
+	}
 	for _, j := range bjobs {
 		s.ProbeTargetCount += len(j.BlackboxTargets)
+		domainName := domainNames[j.NetworkDomainID]
+		if domainName == "" {
+			domainName = j.NetworkDomainID
+		}
 		for _, t := range j.BlackboxTargets {
 			item := ProbeTargetItem{
-				URL: probeTargetURL(t),
-				// biz_name / app_name：BlackboxTarget 无归属字段，ScrapeJob 仅有
-				// NetworkDomainID 不代表业务域，推断不出则留空（前端显示 '-'）。缺口见 F-13。
+				URL:               probeTargetURL(t),
+				NetworkDomainID:   j.NetworkDomainID,
+				NetworkDomainName: domainName,
 			}
 			if sample, ok := lookupProbeSample(probeIndex, j.JobName, t); ok {
 				item.LastProbeAt = &sample.At
