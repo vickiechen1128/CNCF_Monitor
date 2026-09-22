@@ -167,3 +167,15 @@
   4. `ScrapeJobDetailDrawer.tsx` 拨测 Job 改查 `probe_success`，顶部汇总「通过 X / 总数 Y · 待拨测 Z · 失败 W」+ 每目标状态 Tag（通过 / 待拨测 / 失败）+ 手动与 20s 自动刷新；未下发时不查指标、统一「待拨测」。
 - **验收**：`pnpm vitest run`（4 个相关文件）34 用例全绿，含新增拨测聚合、详情回显、未下发不查询等 4 例；`eslint` 0 告警；`tsc --noEmit` 通过。
 - **与 F-10/F-11 的关系**：F-10 收敛标准 Job 的实例状态到 `up` 指标；F-11（待独立排期）解决 M09「监控目标状态」页的边缘 target 抓取详情；本项补齐拨测 Job 的 `probe_success` 口径，三者数据源互补、语义不冲突。
+
+### F-13：M09「监控目标状态」页剥离 blackbox 拨测 target（① 设计缺口→方案 A，2026-09-22 chenrt 拍板 + 随本批后端实现）
+
+- **现象**：F-11 融合后，边缘 blackbox 拨测 target 也会被 vmagent 上报进 `/api/v1/targets`，在 M09「监控目标状态」页被 `health` 直接标为「在线/离线」，造成语义误导——blackbox target 的 `health` 只表达「抓取 blackbox_exporter 动作是否成功」，**≠ 目标可用性**（目标 404/超时但 exporter 正常 → 误显「在线」；exporter 挂 → 误显「离线」）。
+- **分析（chenrt + 主线程 2026-09-22）**：采集任务存在两个正交维度——`job_type`（standard / blackbox）与 `resource_category`（host / database / middleware / application / generic_target）。application 走 standard 拉模型，与 host/db/mw 完全同构，target 元数据（lastScrape/lastError/scrapeDuration）齐全，**应正常显示在 M09**；仅 blackbox 拨测在 M09 存在语义错位，其真实结果已由 M01 实例采集状态（`probe_success`，F-12）与 F-13 首页拨测态势正确承载。
+- **定版方案 A（最小改动）**：`/api/v1/targets` 融合边缘快照时**过滤 `job_type=blackbox` 的 job**，M09 页定位收敛为「standard（含 application）拉模型抓取的排障入口」。
+- **实现（本批后端，commit 54dee4f）**：
+  1. 前置核实：配置生成器不改写 job 名（`platform/configcenter/generator/render.go` 的 `jobScrapeConfig` 原样透传 `JobName`）→ 黑名单可按 `ScrapeJob.JobName` 精确匹配。
+  2. `platform/query/targets.go` 新增 `fetchBlackboxJobNames`（`WHERE job_type='blackbox'` Pluck job_name）；融合边缘快照循环中精确命中黑名单即跳过；仅存在快照时才查询（纯 local 路径零额外 DB 开销）。
+  3. 仅过滤边缘快照；local 侧 blackbox target 仍透传上游原始值（本方案边界，后续展示策略另议）。
+- **验收**：`platform/query/targets_test.go` 新增 6 例（blackbox 排除 / standard 保留 / 混合 / 无 blackbox 全保留 / 精确匹配大小写边界 / 仅过滤边缘不碰 local）；`go test ./platform/...` 28 包全绿、vet/build 通过；真实环境注入 blackbox+standard 快照 curl 验证过滤生效，测试数据已清理。
+- **与 F-12 的关系**：F-12 补齐拨测结果的 M01 回显（`probe_success`）；本项将拨测 target 从 M09 排障入口剥离，二者互补，避免拨测结果双口径。
