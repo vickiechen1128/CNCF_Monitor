@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-22 10:10 · commit: `d89da9e`
+> 生成时间: 2026-09-22 11:20 · commit: `9bcf49a`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -3052,6 +3052,7 @@
 - `func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
 - `func fetchTargets(ctx context.Context, client *http.Client, promURL *url.URL, state string) (*promTargetsData, error)`
 - `func fetchEdgeTargetSnapshots(db *gorm.DB, netDomain string) ([]models.EdgeTargetSnapshot, error)`
+- `func fetchBlackboxJobNames(db *gorm.DB) (map[string]struct{}, error)`
 - `func dedupKey(domain, job, instance string) string`
 - `func edgeTargetHealth(reported string, lastReportAt, now time.Time) string`
 - `func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health string) map[string]interface{}`
@@ -3066,6 +3067,7 @@
 - `func promTargetsFixture() map[string]interface{}`
 - `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream, *gorm.DB)`
 - `func openTargetsTestDB(t *testing.T) *gorm.DB`
+- `func seedScrapeJob(t *testing.T, db *gorm.DB, jobName string, jobType models.JobType)`
 - `func seedEdgeSnapshot(t *testing.T, db *gorm.DB, domain, job, instance, resourceID, health string, lastReportAt time.Time)`
 - `func doTargets(t *testing.T, r *gin.Engine, query string) targetsResp`
 - `type targetsResp struct`
@@ -3090,6 +3092,12 @@
 - `func TestTargetsFusionNoEdgeSnapshotsFallsBackToLocal(t *testing.T)`
 - `func TestTargetsFusionDefaultDomainReturnedWhenNoFilter(t *testing.T)`
 - `func TestTargetsFusionUpstreamDownStillReturnsEdge(t *testing.T)`
+- `func TestTargetsFusionExcludesBlackboxSnapshots(t *testing.T)`
+- `func TestTargetsFusionKeepsStandardSnapshots(t *testing.T)`
+- `func TestTargetsFusionMixedKeepsOnlyStandard(t *testing.T)`
+- `func TestTargetsFusionNoBlackboxJobsKeepsAll(t *testing.T)`
+- `func TestTargetsFusionBlackboxMatchIsExact(t *testing.T)`
+- `func TestTargetsFusionBlackboxFilterLocalUntouched(t *testing.T)`
 
 ### `platform/strategy/ci-exporter/ci_exporter_test.go`
 

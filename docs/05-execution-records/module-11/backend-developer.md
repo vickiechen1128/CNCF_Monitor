@@ -108,3 +108,57 @@ agent 侧上报已完成（`platform/edge-sync-agent` contract + heartbeat 采�
 2. **targetsByJob 不重算**：融合后 `targetsByJob` 仍是上游 Prometheus 原始值（不含边缘），与现有透传口径一致，后续如需边缘聚合另议。
 3. **过期阈值 90s 为常量**：与 agent 心跳间隔（30s）解耦硬编码；若心跳间隔可配置化，需同步改为按配置推导。
 4. **上游降级行为变更**：`/api/v1/targets` 上游失败由 500 改为降级返回空 local + 边缘快照（F-11 排障价值），与 F-10「up 指标回显」数据源并存不冲突（见 dev-feedback.md F-11 定版 §④）。
+
+---
+
+# backend-developer 执行记录 — Module_11（F-11 收尾：/api/v1/targets 融合时过滤 blackbox 快照）
+
+> 归属：MetricCenter 后端开发（backend-developer）
+> 分支：`feat/module-09-config-center`
+> 任务：F-11 收尾优化——按用户批准的方案 A，`TargetsHandler` 融合边缘快照时排除 `job_type=blackbox` 的 job 快照，TDD + 契约优先。
+
+## 背景
+
+M09「监控目标状态」页经产品决策定位为**拉模型（standard）抓取的排障入口**：health/lastScrape/lastError/scrapeDuration 语义针对「抓取动作是否成功」。拨测类（blackbox）target 状态（`probe_success`）已由 M01 实例采集状态与 F-13 首页拨测态势承载，若混入会语义误导——blackbox target 的 health 只表达「抓 blackbox_exporter 动作是否成功」≠ 目标可用性。因此融合边缘快照时按 blackbox 黑名单排除。
+
+## 前置核实（任务要求：无法确认则报告而不是猜）
+
+**配置生成器不改写 job 名**：`platform/configcenter/generator/render.go` `jobScrapeConfig` 中 `JobName: job.JobName` 原样透传，blackbox 分支仅改 `metrics_path="/probe"`、`params module`、`relabel_configs`，不改 job_name；边缘配置包 prometheus.yml = `ConfigVersion.PrometheusYml`（`generator.Assemble` 产物，zipper.go 打包），vmagent targets 的 job 标签即 `ScrapeJob.JobName`。**结论：黑名单按 `ScrapeJob.JobName` 精确匹配即可，无改写规则。**
+
+## 设计决策（落档）
+
+1. **黑名单口径**：融合前从 `ScrapeJob` 表 `Pluck("job_name") WHERE job_type='blackbox'` 取集合；边缘快照循环内 `job` 精确命中黑名单即 `continue`。精确匹配（大小写敏感），与配置生成器不改写 job 名的实际规则一致。
+2. **范围**：仅过滤边缘快照，local targets 侧不变（local 的 blackbox job target 是否展示由上游 Prometheus 行为决定，本方案不动）。
+3. **空态一致**：`ScrapeJob` 表为空或未匹配到 blackbox job 时黑名单为空集，行为与未加过滤前完全一致；仅在存在边缘快照时才执行黑名单查询，纯 local 路径零额外 DB 开销。
+4. **查询失败处理**：黑名单查询失败与快照查询失败同口径 → internal 500（不做静默降级，避免误放行 blackbox）。
+
+## 修改/新增文件
+
+- 修改 `platform/query/targets.go`：`TargetsHandler` 融合段新增黑名单查询与循环排除；新增 `fetchBlackboxJobNames`（Pluck job_name WHERE job_type='blackbox'）；handler 注释与包注释更新。
+- 修改 `platform/query/targets_test.go`：`openTargetsTestDB` AutoMigrate 注册 `&models.ScrapeJob{}`；新增 `seedScrapeJob` helper。
+
+## 新增测试（platform/query/targets_test.go，共 6 例）
+
+- `TestTargetsFusionExcludesBlackboxSnapshots`：blackbox job 边缘快照被排除，local 侧 4 条不受影响。
+- `TestTargetsFusionKeepsStandardSnapshots`：standard job 快照正常保留（4 local + 1）。
+- `TestTargetsFusionMixedKeepsOnlyStandard`：同域混合时仅保留 standard 快照、排除 blackbox。
+- `TestTargetsFusionNoBlackboxJobsKeepsAll`：ScrapeJob 表无 blackbox job 时全部保留（空态一致）。
+- `TestTargetsFusionBlackboxMatchIsExact`：黑名单精确匹配（大小写敏感），"probe-a" 不被 "Probe-A" 黑名单排除。
+- `TestTargetsFusionBlackboxFilterLocalUntouched`：黑名单仅过滤边缘快照，local 侧 job-a 仍返回。
+
+## 验证
+
+- TDD RED/GREEN：先写 6 例 → 4 例按预期失败（排除类）→ 实现后全绿。
+- `go test ./platform/query/... ./platform/edge/...` 全绿；`go test ./platform/...` 28 包全绿（含 cmd/metric-center 端到端）。
+- `go vet ./platform/...` 通过；`go build ./platform/...` 通过；改动文件 gofmt 干净。
+- 服务启动（8080，复用 9090 真实 Prometheus 上游）：`/api/v1/health|health/db|status` 均 200；注入 blackbox ScrapeJob（job-bb-e2e）+ 黑名单快照 + standard 快照（job-std-e2e）后 `GET /api/v1/targets?network_domain=mc-edge-debug` 仅返回 `job-std-e2e/down`；`job=job-bb-e2e` 返回空 activeTargets；`job=job-std-e2e` 正常保留；验证后删除测试数据并停服释放端口。
+
+## Commit
+
+- `feat(module-09): /api/v1/targets 融合时过滤 blackbox 快照（F-11）`
+
+## 遗留/协调点
+
+1. **PRD 契约**：本改动为技术口径收敛（M09 页面语义定位 + 数据源去重），未触及 PRD 字段/枚举/路由契约，无需改 PRD；已在 dev-feedback.md F-11 定版块登记该产品决策口径。
+2. **local 侧 blackbox**：中心 Prometheus local targets 中若存在 blackbox job（中心直接拨测场景），其 target 仍透传上游原始值——本方案仅过滤边缘快照（任务范围限定），中心直连拨测的展示策略留待后续评估。
+3. **前端**：envelope 与既有字段不变，前端 TargetStatusPage 无需改动。

@@ -92,15 +92,37 @@ func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream, *gorm.DB) {
 var targetsTestDBCounter int64
 
 // openTargetsTestDB 打开逐测试隔离的内存 SQLite 并迁移 /api/v1/targets 融合所需模型
-// （local 侧透传上游无需表，边缘侧需 EdgeTargetSnapshot，F-11 落库表）。
+// （local 侧透传上游无需表，边缘侧需 EdgeTargetSnapshot，F-11 落库表；blackbox
+// 黑名单过滤需 ScrapeJob 表，F-11 收尾）。
 func openTargetsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	n := atomic.AddInt64(&targetsTestDBCounter, 1)
 	dsn := fmt.Sprintf("file:targets_%d?mode=memory&cache=shared", n)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.EdgeTargetSnapshot{}))
+	require.NoError(t, db.AutoMigrate(&models.EdgeTargetSnapshot{}, &models.ScrapeJob{}))
 	return db
+}
+
+// seedScrapeJob 落一条采集 Job 配置行，供 blackbox 黑名单过滤测试（job_type 权威来源）。
+func seedScrapeJob(t *testing.T, db *gorm.DB, jobName string, jobType models.JobType) {
+	t.Helper()
+	j := &models.ScrapeJob{
+		JobName:               jobName,
+		JobType:               jobType,
+		ResourceType:          models.ResourceTypeHost,
+		NetworkDomainID:       "default",
+		InstanceSelectionMode: models.InstanceSelectionManual,
+		ScrapeInterval:        "15s",
+		ScrapeTimeout:         "10s",
+		MetricsPath:           "/metrics",
+		Scheme:                "http",
+		AuthType:              models.AuthTypeNone,
+		DraftStatus:           "ready",
+		ChangeStatus:          models.ChangeStatusDeployed,
+		Enabled:               true,
+	}
+	require.NoError(t, db.Create(j).Error)
 }
 
 // seedEdgeSnapshot 直接落一条边缘 target 快照（模拟心跳 clear-then-insert 落库产物）。
@@ -435,4 +457,124 @@ func TestTargetsFusionUpstreamDownStillReturnsEdge(t *testing.T) {
 	require.Len(t, out.Data.ActiveTargets, 1)
 	require.Equal(t, "job-e", out.Data.ActiveTargets[0]["job"])
 	require.Equal(t, "up", out.Data.ActiveTargets[0]["health"])
+}
+
+// --- F-11 收尾：融合边缘快照时排除 job_type=blackbox 的 job 快照 ---
+//
+// 产品决策：M09「监控目标状态」页定位为拉模型（standard）抓取的排障入口，
+// 拨测类（blackbox）target 状态（probe_success）已由 M01/F-13 承载，混入会
+// 造成语义误导。黑名单口径：ScrapeJob 表 job_type='blackbox' 的 job_name 集合
+// （配置生成器不改写 job 名，render.go jobScrapeConfig 原样透传 JobName），
+// 融合边缘快照时精确匹配排除；仅过滤边缘快照，local targets 侧不变。
+
+// TestTargetsFusionExcludesBlackboxSnapshots 验证 blackbox job 的边缘快照被排除，
+// local 侧不受影响（仍 4 条）。
+func TestTargetsFusionExcludesBlackboxSnapshots(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedScrapeJob(t, db, "job-e", models.JobTypeBlackbox)
+	now := time.Now()
+	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", now)
+
+	out := doTargets(t, r, "")
+	require.Equal(t, "success", out.Status)
+	require.Len(t, out.Data.ActiveTargets, 4) // 仅 local
+	for _, a := range out.Data.ActiveTargets {
+		require.NotEqual(t, "10.0.0.5:9100", a["instance"], "blackbox 快照不应出现在结果中")
+	}
+}
+
+// TestTargetsFusionKeepsStandardSnapshots 验证 standard job 的边缘快照正常保留。
+func TestTargetsFusionKeepsStandardSnapshots(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedScrapeJob(t, db, "job-e", models.JobTypeStandard)
+	now := time.Now()
+	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", now)
+
+	out := doTargets(t, r, "")
+	require.Len(t, out.Data.ActiveTargets, 5) // 4 local + 1 standard 边缘快照
+	var e1 map[string]interface{}
+	for _, a := range out.Data.ActiveTargets {
+		if a["instance"] == "10.0.0.5:9100" {
+			e1 = a
+		}
+	}
+	require.NotNil(t, e1)
+	require.Equal(t, "job-e", e1["job"])
+}
+
+// TestTargetsFusionMixedKeepsOnlyStandard 验证同一 domain 下 standard 与 blackbox
+// 混合时，仅保留 standard 快照、排除 blackbox 快照。
+func TestTargetsFusionMixedKeepsOnlyStandard(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedScrapeJob(t, db, "job-e", models.JobTypeStandard)
+	seedScrapeJob(t, db, "job-bb", models.JobTypeBlackbox)
+	now := time.Now()
+	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", now)
+	seedEdgeSnapshot(t, db, "mc-edge", "job-bb", "10.0.0.6:9100", "srv-6", "up", now)
+
+	out := doTargets(t, r, "?network_domain=mc-edge")
+	require.Len(t, out.Data.ActiveTargets, 1) // 仅 job-e standard 快照
+	require.Equal(t, "job-e", out.Data.ActiveTargets[0]["job"])
+}
+
+// TestTargetsFusionNoBlackboxJobsKeepsAll 验证 ScrapeJob 表为空（或未匹配到
+// blackbox job）时行为与现在完全一致：全部边缘快照保留。
+func TestTargetsFusionNoBlackboxJobsKeepsAll(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	now := time.Now()
+	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", now)
+
+	out := doTargets(t, r, "")
+	require.Len(t, out.Data.ActiveTargets, 5) // 4 local + 1 边缘快照，全保留
+	var e1 map[string]interface{}
+	for _, a := range out.Data.ActiveTargets {
+		if a["instance"] == "10.0.0.5:9100" {
+			e1 = a
+		}
+	}
+	require.NotNil(t, e1)
+	require.Equal(t, "job-e", e1["job"])
+}
+
+// TestTargetsFusionBlackboxMatchIsExact 验证黑名单匹配是精确匹配（大小写敏感）：
+// 仅与 blackbox job 名完全一致的快照被排除，大小写/空白不一致的不排除，
+// 与配置生成器不改写 job 名的实际规则一致。
+func TestTargetsFusionBlackboxMatchIsExact(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedScrapeJob(t, db, "Probe-A", models.JobTypeBlackbox)
+	now := time.Now()
+	seedEdgeSnapshot(t, db, "mc-edge", "probe-a", "10.0.0.5:9100", "srv-5", "up", now)
+	seedEdgeSnapshot(t, db, "mc-edge", "Probe-A", "10.0.0.6:9100", "srv-6", "up", now)
+
+	out := doTargets(t, r, "?network_domain=mc-edge")
+	// "probe-a"（小写）与 blackbox job "Probe-A" 不完全一致 → 保留；
+	// "Probe-A" 精确命中黑名单 → 排除。
+	require.Len(t, out.Data.ActiveTargets, 1)
+	require.Equal(t, "probe-a", out.Data.ActiveTargets[0]["job"])
+	require.Equal(t, "10.0.0.5:9100", out.Data.ActiveTargets[0]["instance"])
+}
+
+// TestTargetsFusionBlackboxFilterLocalUntouched 验证黑名单仅过滤边缘快照：
+// job-a 在 ScrapeJob 表为 blackbox 时，local 侧 job-a target 仍正常返回。
+func TestTargetsFusionBlackboxFilterLocalUntouched(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedScrapeJob(t, db, "job-a", models.JobTypeBlackbox)
+	now := time.Now()
+	// 与 local job-a 不同 instance（10.0.0.9），不会被去重，若不排除会出现在结果中。
+	seedEdgeSnapshot(t, db, "mc-edge", "job-a", "10.0.0.9:9100", "srv-9", "up", now)
+
+	out := doTargets(t, r, "")
+	require.Len(t, out.Data.ActiveTargets, 4) // local job-a（t1/t3）仍在，边缘 job-a 快照被排除
+	var t1 map[string]interface{}
+	for _, a := range out.Data.ActiveTargets {
+		if a["instance"] == "10.0.0.1:9100" {
+			t1 = a
+		}
+	}
+	require.NotNil(t, t1)
+	require.Equal(t, "job-a", t1["job"])
+	require.Equal(t, "up", t1["health"])
+	for _, a := range out.Data.ActiveTargets {
+		require.NotEqual(t, "10.0.0.9:9100", a["instance"], "blackbox 边缘快照不应出现")
+	}
 }

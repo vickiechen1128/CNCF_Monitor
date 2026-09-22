@@ -63,7 +63,10 @@ type promTargetsData struct {
 //     的边缘快照，统一合成为 Prometheus target 结构；归并键 (network_domain, job,
 //     instance)，local 优先、边缘补缺；快照 last_report_at 距今超过
 //     EdgeSnapshotStaleAfter 时 health 降级 unknown（fresh 优先，job / health 过滤
-//     对边缘快照同样生效）。
+//     对边缘快照同样生效）。F-11 收尾：融合前从 ScrapeJob 表取 job_type='blackbox'
+//     的 job_name 黑名单（配置生成器不改写 job 名，精确匹配即可），边缘快照按 job
+//     精确命中黑名单时排除——拨测状态（probe_success）已由 M01/F-13 承载，M09
+//     目标状态页定位为拉模型（standard）抓取排障入口；local targets 侧不受影响。
 //
 // 响应 envelope 对齐 Prometheus（§2.1.2）：{activeTargets, droppedTargets, targetsByJob}。
 func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc {
@@ -132,8 +135,22 @@ func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.Hand
 			response.InternalServerError(c, err)
 			return
 		}
+		// F-11 收尾：blackbox 黑名单（job_type='blackbox' 的 job_name 集合）。仅在
+		// 存在边缘快照时才查询，纯 local 路径零额外 DB 开销；ScrapeJob 表为空或
+		// 无 blackbox job 时黑名单为空集，行为与未加过滤前完全一致。
+		blacklist := map[string]struct{}{}
+		if len(edgeSnapshots) > 0 {
+			blacklist, err = fetchBlackboxJobNames(db)
+			if err != nil {
+				response.InternalServerError(c, err)
+				return
+			}
+		}
 		now := time.Now()
 		for _, s := range edgeSnapshots {
+			if _, isBlackbox := blacklist[s.Job]; isBlackbox {
+				continue
+			}
 			if job != "" && s.Job != job {
 				continue
 			}
@@ -206,6 +223,24 @@ func fetchEdgeTargetSnapshots(db *gorm.DB, netDomain string) ([]models.EdgeTarge
 		return nil, fmt.Errorf("query edge target snapshots: %w", err)
 	}
 	return rows, nil
+}
+
+// fetchBlackboxJobNames 查询 ScrapeJob 表中 job_type='blackbox' 的 job_name 黑名单
+// 集合（F-11 收尾）。配置生成器不改写 job 名（render.go jobScrapeConfig 原样透传
+// JobName），因此融合边缘快照时按该集合精确匹配排除即可；返回空集表示无 blackbox
+// job，行为与未加过滤前一致。
+func fetchBlackboxJobNames(db *gorm.DB) (map[string]struct{}, error) {
+	var names []string
+	if err := db.Model(&models.ScrapeJob{}).
+		Where("job_type = ?", models.JobTypeBlackbox).
+		Pluck("job_name", &names).Error; err != nil {
+		return nil, fmt.Errorf("query blackbox job names: %w", err)
+	}
+	blacklist := make(map[string]struct{}, len(names))
+	for _, n := range names {
+		blacklist[n] = struct{}{}
+	}
+	return blacklist, nil
 }
 
 // dedupKey 构造 target 归并去重键 (network_domain, job, instance)。
