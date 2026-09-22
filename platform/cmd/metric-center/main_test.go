@@ -82,6 +82,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
+		// 边缘采集（Module_11 / F-11）：vmagent target 快照落库表，/api/v1/targets 融合数据源
+		&models.EdgeTargetSnapshot{},
 		// 告警收敛（Module_08）：alertmanager.yml 挂载留痕
 		&models.AlertmanagerConfigVersion{},
 	))

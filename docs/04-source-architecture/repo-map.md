@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-21 18:34 · commit: `b9d7ea2`
+> 生成时间: 2026-09-22 10:10 · commit: `d89da9e`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -3049,8 +3049,12 @@
 ### `platform/query/targets.go`
 
 - `type promTargetsData struct`
-- `func TargetsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.HandlerFunc`
 - `func fetchTargets(ctx context.Context, client *http.Client, promURL *url.URL, state string) (*promTargetsData, error)`
+- `func fetchEdgeTargetSnapshots(db *gorm.DB, netDomain string) ([]models.EdgeTargetSnapshot, error)`
+- `func dedupKey(domain, job, instance string) string`
+- `func edgeTargetHealth(reported string, lastReportAt, now time.Time) string`
+- `func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health string) map[string]interface{}`
 - `func resolveJob(t map[string]interface{}) string`
 - `func resolveLabel(t map[string]interface{}, key string) string`
 - `func resolveInstance(t map[string]interface{}) string`
@@ -3060,7 +3064,9 @@
 ### `platform/query/targets_test.go`
 
 - `func promTargetsFixture() map[string]interface{}`
-- `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream)`
+- `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream, *gorm.DB)`
+- `func openTargetsTestDB(t *testing.T) *gorm.DB`
+- `func seedEdgeSnapshot(t *testing.T, db *gorm.DB, domain, job, instance, resourceID, health string, lastReportAt time.Time)`
 - `func doTargets(t *testing.T, r *gin.Engine, query string) targetsResp`
 - `type targetsResp struct`
 - `func TestTargetsPassthroughAndEnrichment(t *testing.T)`
@@ -3074,6 +3080,16 @@
 - `func TestTargetsInstanceFallback(t *testing.T)`
 - `type fakeUpstream struct`
 - `func newFakeUpstream(payload map[string]interface{}) fakeUpstream`
+- `func newFakeUpstreamFailing() fakeUpstream`
+- `func TestTargetsFusionLocalPlusEdge(t *testing.T)`
+- `func TestTargetsFusionNetworkDomainFilter(t *testing.T)`
+- `func TestTargetsFusionJobFilterAppliesToEdge(t *testing.T)`
+- `func TestTargetsFusionHealthFilterAppliesToEdge(t *testing.T)`
+- `func TestTargetsFusionDedupLocalPriority(t *testing.T)`
+- `func TestTargetsFusionStaleEdgeDegradedToUnknown(t *testing.T)`
+- `func TestTargetsFusionNoEdgeSnapshotsFallsBackToLocal(t *testing.T)`
+- `func TestTargetsFusionDefaultDomainReturnedWhenNoFilter(t *testing.T)`
+- `func TestTargetsFusionUpstreamDownStillReturnsEdge(t *testing.T)`
 
 ### `platform/strategy/ci-exporter/ci_exporter_test.go`
 
