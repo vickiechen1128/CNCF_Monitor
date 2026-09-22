@@ -225,11 +225,18 @@
   2. `summary.go`：`Build(db, opts...)` 新增 `WithProbeQuerier` Option；拨测段落按 `job_name` + 拨测目标地址匹配样本，填充 `status`（1→`up` / 0→`down` / 无样本→`''` 未知）、`last_probe_at`（样本时间戳），并据此计算 `probe_target_abnormal_count`（仅 `down` 计入，未知不误报为异常）。
   3. `main.go`：`registerPlatformConfigRoutes` 接收 `promURL`，注入 `NewPromProbeQuerier(promURL, nil)`。
   4. **降级策略**：拨测查询失败不阻断聚合接口，字段回落「未知」、异常计数为 0。
-- **前端零改动**：`ProbePanel.tsx` 已支持 `up` / `down` / 未知三态与相对时间渲染，字段有值即自动呈现绿 / 红 Badge 与「最近拨测」时间。
-- **仍未闭合的缺口（需 PRD / M01 侧决策）**：
-  1. **`biz_name` / `app_name` 恒空**：`models.BlackboxTarget` 仅有 `Target` / `Protocol` / `URL`，`ScrapeJob` 亦无业务域 / 应用归属字段，无法推断；而 PRD §5.1 明确「`biz_code` 必填」。需 M01 在 blackbox 采集 Job 上承载归属字段（PRD 决策 93 第 7 条「登记时挂业务域」），本批无法修。
-  2. **字段命名与 PRD 不一致**：PRD 为 `target_url` / `probe_status` / `biz_code` / `biz_name` / `app_code` / `app_name` / `last_probe_time`；实现为 `url` / `status` / `biz_name` / `app_name` / `last_probe_at`，且缺 `biz_code` / `app_code`。建议由 prototype-designer 统一口径（改 PRD 或改实现）。
-- **验证**：`go test ./platform/...` 全绿；新增 5 例覆盖「样本填充 / 无样本未知 / 查询失败降级 / 裸 target 回落匹配 / nil index 不 panic」。
+- **前端零改动（仅 F-13 阶段）**：`ProbePanel.tsx` 已支持 `up` / `down` / 未知三态与相对时间渲染，字段有值即自动呈现绿 / 红 Badge 与「最近拨测」时间（归属口径调整阶段另有前端列变更，见下）。
+- **归属口径落地（本批，2026-09-22 产品负责人确认后实现）**：
+  - **背景与语义复核（关键）**：M07 的「应用字典」（`app_code`，决策 92 / §5.19）服务对象是**应用监控**（`application_http`，如 Java Spring Boot），其动线为「M07 登记应用 → M01 以监控对象类型『应用』建标准采集 Job」；而 **blackbox 拨测**的对象是**开源组件 / 端点的连通性**（如 grafana、redis），本就不必然具备业务 / 应用归属。二者维度正交，**强制拨测挂 `app_code` / `biz_code` 会迫使运维编造归属、污染字典统计**。`models.BlackboxTarget` 仅有 `Target` / `Protocol` / `URL`，`ScrapeJob` 亦无业务域 / 应用归属字段，本就无法推断。
+  - **采纳口径**：「**网域为主 + 业务域可选、应用维度整体移出**」——`network_domain_id` 在 M01 已为硬约束（必然有值、零新增成本），作为拨测态势的主归属维度；`app_code` / `app_name` 整体移出拨测态势。设计提案见 `design-proposals/probe-ownership-alignment.md`（状态 draft，待 prototype-designer 合并进 PRD）。
+  - **实现（本批，代码已落地）**：
+    1. **后端** `summary.go`：`ProbeTargetItem` 移除 `biz_name` / `app_name`，新增 `network_domain_id` / `network_domain_name`；拨测段落加载 `network_domains` 构建 ID→Name 映射，逐条填充归属网域（字典缺条目回落为网域 ID，与 `by_app` 的 `app_name` 回落 `app_code` 同源）。
+    2. **前端**：`api/dashboard.ts` 类型同步；`ProbePanel.tsx` 移除「业务域」「应用」两列，新增「归属网域」列（`network_domain_name`，空串降级 `-`）；`HomePage.tsx` 静态预览 mock 同步。
+    3. **效果**：拨测态势面板所有列均有真实数据来源，不再出现「整列恒 `-`」的观感问题。
+- **仍未闭合的缺口（PRD 侧，本次「只上报，暂不实现」）**：
+  1. **M01 拨测 Job 无「业务域」可选归属字段**：本批以网域承载归属后已不阻塞展示；若产品后续需要「业务域」作为可选筛选维度，需在 `Module_01_*.md` 定义 ScrapeJob 可空 `biz_code`（不引入 `app_code`）。
+  2. **字段命名与 PRD 不一致**：PRD 为 `target_url` / `probe_status` / `biz_code` / `biz_name` / `app_code` / `app_name` / `last_probe_time`；实现为 `url` / `status` / `network_domain_id` / `network_domain_name` / `last_probe_at`。建议由 prototype-designer 在合并 design-proposal 时统一口径（改 PRD 或改实现）。
+- **验证**：`go test ./platform/...` 全绿（dashboard 包拨测用例含归属网域断言）；`pnpm vitest run src/pages/home/HomePage.test.tsx` 40 例全绿；`tsc --noEmit` / `eslint` / `make check-repo-map` 通过。
 
 ---
 
