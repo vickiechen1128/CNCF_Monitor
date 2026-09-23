@@ -12,7 +12,6 @@ import (
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
-	"gopkg.in/yaml.v3"
 )
 
 // ToolLookPath / ToolChecker 可注入，便于测试（含跨包测试，如 configcenter/draft）
@@ -122,9 +121,14 @@ func validateLabelName(name string) error {
 //   - details：结构化校验失败定位（对齐原型 validation_details）；passed/pending 为空；
 //   - message：人类可读说明。
 //
+// platformJobs 是发布期规则 job 引用校验（决策 66）的生效 Job 集合：由调用侧
+// （configcenter/draft）经 rule.EffectiveJobNames 计算为 central 全域并集（全库
+// enabled + draft_status=ready 的 job_name，跨 local/edge 域，F-14 改动 Y）。
+// generator 包保持无 gorm 依赖（纯产物校验），不做 DB 查询。
+//
 // 归因规则：targets schema / 内容校验失败 → user_config；
 // 外部校验工具不可调用 → platform_fault。
-func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
+func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
 	for name, content := range ca.TargetsFiles {
 		var groups []TargetGroup
 		if err := json.Unmarshal([]byte(content), &groups); err != nil {
@@ -158,11 +162,12 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 			fmt.Sprintf("外部校验未通过: %s", msg)
 	}
 	// 决策 66：发布期规则 job 引用门禁。判定逻辑与 M01 编辑期同源（rule/jobref，
-	// 单一实现 + 同一输入集，决策 67-4）：
+	// 单一实现 + 同一输入集，决策 67-4）：生效 Job 集合 = central 全域并集（F-14 改动 Y，
+	// 由调用侧经 rule.EffectiveJobNames 计算传入，不再解析本域产物 scrape_configs）：
 	//   - error 级（存活类缺 job）→ failed（user_config），阻断确认，前端展示前往 M01 修改；
 	//   - warning 级 → passed + 告警 details，允许确认但高亮提示。
 	if ca.RulesYML != "" {
-		issues := jobref.Validate(ca.RulesYML, scrapeConfigJobNames(ca.PrometheusYML))
+		issues := jobref.Validate(ca.RulesYML, platformJobs)
 		var fatal, warn []models.ValidationDetail
 		for _, it := range issues {
 			// 决策 67-3：标记来源为规则，配置确认页「前往修改」据此跳 /rules 而非 /scrape-jobs。
@@ -187,26 +192,6 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 		}
 	}
 	return models.ValidationStatusPassed, "", nil, ""
-}
-
-// scrapeConfigJobNames 解析 prometheus.yml 顶层的 scrape_configs[].job_name，作为
-// 发布期规则 job 引用校验（决策 66）的生效 Job 集合。解析失败返回空集合。
-func scrapeConfigJobNames(prometheusYML string) []string {
-	var doc struct {
-		ScrapeConfigs []struct {
-			JobName string `yaml:"job_name"`
-		} `yaml:"scrape_configs"`
-	}
-	if err := yaml.Unmarshal([]byte(prometheusYML), &doc); err != nil {
-		return nil
-	}
-	var names []string
-	for _, sc := range doc.ScrapeConfigs {
-		if strings.TrimSpace(sc.JobName) != "" {
-			names = append(names, sc.JobName)
-		}
-	}
-	return names
 }
 
 // runToolChecks 实际调用 promtool check config 与 blackbox --config.check。

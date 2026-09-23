@@ -162,3 +162,55 @@ M09「监控目标状态」页经产品决策定位为**拉模型（standard）�
 1. **PRD 契约**：本改动为技术口径收敛（M09 页面语义定位 + 数据源去重），未触及 PRD 字段/枚举/路由契约，无需改 PRD；已在 dev-feedback.md F-11 定版块登记该产品决策口径。
 2. **local 侧 blackbox**：中心 Prometheus local targets 中若存在 blackbox job（中心直接拨测场景），其 target 仍透传上游原始值——本方案仅过滤边缘快照（任务范围限定），中心直连拨测的展示策略留待后续评估。
 3. **前端**：envelope 与既有字段不变，前端 TargetStatusPage 无需改动。
+
+---
+
+# backend-developer 执行记录 — Module_11（F-14：central 规则仅进中心求值器并收敛 jobref 输入集）
+
+> 归属：MetricCenter 后端开发（backend-developer）
+> 分支：`feat/module-09-config-center`
+> 任务：F-14 已批准设计提案落地——改动 Y（发布期 jobref 校验输入集切换为 central 全域并集）+ 改动 X（非 centerEvaluator 域不注入 rules），TDD + 契约优先。
+
+## 背景
+
+M09 配置中心下发规则时遇到**跨域引用校验错误**：发布期 jobref 校验基准使用「本域产物 prometheus.yml 的 scrape_configs job 集合」，与中心求值器全局求值语义冲突——边缘域 job 被本域（default 管理域）产物缺失而误判。设计提案（`docs/05-execution-records/module-11/design-proposals/cross-domain-central-rule-jobref-validation.md`）定版：central 规则固定在 default 管理域（centerEvaluator）下发，校验输入集改为全平台 deployed job 并集；同时清除边缘域 rules.yml 死文件。本次按提案 §4.2 路径 B（改动 Y）+ §4.3（改动 X）落地。
+
+## 设计决策（落档）
+
+1. **改动 Y（§4.2 路径 B）**：`generator.ValidateArtifacts` 的 jobref 校验输入集由「解析本域产物 scrape_configs」切换为「调用侧经 `rule.EffectiveJobNames(db, models.ScopeTypeCentral, "")` 计算的 central 全域并集（全库 `enabled=true AND draft_status=ready` 的 job_name，跨 local/edge 域）」。`generator` 包保持无 gorm 依赖（纯产物校验），job 名单由 draft 调用侧计算传入；`scrapeConfigJobNames`（含 yaml import）删除。
+2. **改动 X（§4.3）**：`buildArtifacts` 调用 `generator.Assemble` 前，非 centerEvaluator 域（`dom.Channel != models.ChannelTypeLocal`，即边缘 agent_pull）置 `rules = nil`——边缘 vmagent 不支持 rule_files/alerting，清掉边缘 rules.yml 死文件，避免规则变更错误触发边缘域变更单。**v0.4 反转预留**：边缘引入 vmalert 求值器（edge scope）时反向恢复，让边缘域重新接收 rules。
+3. **输入集口径不变**：`jobref.Validate(content, jobNames)` 单一实现 + 同一输入集（决策 66/67-4）；central 规则命中全域并集 job → passed；存活类（`==0` 等）引用名单外 → error（阻止下发）；非存活类（absent 等）名单外 → warning。
+
+## 修改/新增文件
+
+- 修改 `platform/strategy/rule/validate.go`：新增导出封装 `EffectiveJobNames`（薄封装私有 `effectiveJobNames`，central 全库并集 / edge+both 按域过滤），`ValidateRuleJobRefsForScope` 内部改调导出封装。
+- 修改 `platform/configcenter/generator/validate.go`：`ValidateArtifacts(ca, includeBlackbox, platformJobs)` 增第 3 参，L169 改 `jobref.Validate(ca.RulesYML, platformJobs)`，删除 `scrapeConfigJobNames` 与 yaml import，注释更新（F-14 改动 Y 说明）。
+- 修改 `platform/configcenter/draft/service.go`：三处 `ValidateArtifacts` 调用（GenerateDraft / reconcileWithExistingPending / RevalidateDraft）传 `rule.EffectiveJobNames(db, models.ScopeTypeCentral, "")`；`buildArtifacts` 改动 X（非 centerEvaluator 域 `rules = nil` + F-14/v0.4 反转注释）。
+- 修改 `platform/strategy/rule/monitoring_rule_test.go`：`TestEffectiveJobNamesScope` 追加导出封装断言。
+- 修改 `platform/configcenter/generator/generator_test.go`：8 处 `ValidateArtifacts` 调用补第 3 参；删除 `TestScrapeConfigJobNames`；新增 `TestValidateArtifactsJobRefLivenessExistingPasses`（跨域引用命中 central 全域并集 → passed）。
+- 修改 `platform/configcenter/draft/draft_test.go`：3 个既有测试因改动 X 行为变更适配（见「问题与处理」）。
+- 修改 `platform/configcenter/draft/service_test.go`：新增 `seedManagementDomain` / `seedRule` / `stubGeneratorTools` helper + `TestGenerateDraft_RulesOnlyForCenterEvaluator`。
+
+## 新增/修改测试
+
+- `TestValidateArtifactsJobRefLivenessExistingPasses`（generator_test.go）：`up{job="tengxunyun-ceshi-host"} == 0` + `platformJobs=["job-a","tengxunyun-ceshi-host"]`（PrometheusYML 仅含 local-only）→ passed + 空 details + 空 msg，覆盖「跨域引用命中 central 全域并集应通过」。
+- `TestEffectiveJobNamesScope`（rule/monitoring_rule_test.go）：导出封装与私有实现等价——central → `["job-a","job-b"]` 全库并集，edge → 按域过滤 `["job-a"]`。
+- `TestGenerateDraft_RulesOnlyForCenterEvaluator`（draft/service_test.go）：边缘域（agent_pull）产物 `RulesYml==""` 且 prometheus.yml 无 `rule_files`；管理域（local）产物含 rules + `rule_files:`。
+- 既有测试适配：`TestGenerateDraftBuildsChangeItemsWithJobsAndRules` / `TestGenerateDraftFailedUnlocksSourceRule` 域改为管理域（central 规则固定挂 centerEvaluator 域发布，改动 X 后边缘域 rules 不进产物）；`TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting` 边缘分支补 host + job 源数据（否则 ErrNoChanges）。
+
+## 验证
+
+- TDD RED/GREEN：先改测试 → RED（`EffectiveJobNames undefined` / `ValidateArtifacts too many arguments`）→ 实现 → 全绿。
+- `go test ./platform/...` 全绿（28 包，含 cmd/metric-center 端到端）。
+- `go vet ./platform/...` 通过；`go build ./platform/...` 通过；改动文件 gofmt 干净。
+- 服务启动（8080）：`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200，验证后停服释放端口。
+
+## Commit
+
+- `feat(module-09): central 规则仅进中心求值器并收敛 jobref 输入集（F-14）`
+
+## 遗留/协调点
+
+1. **v0.4 反转预留**：边缘域引入 vmalert 求值器（edge scope 规则落地）时，需反转改动 X（恢复边缘域 rules 注入）并将 jobref 校验输入集口径从「central 全域并集」扩展为「含 edge scope 规则的求值域并集」。
+2. **校验时机**：改动 Y 后校验输入集为生成时刻全库快照（enabled+ready），与既有 GenerateDraft 的 checksum/幂等机制协同；后续若引入「校验时锁定输入集版本」需求，可纳入 v0.3 变更检测基线增强评估。
+3. **设计提案**：本次仅落地代码；设计提案文档（cross-domain-central-rule-jobref-validation.md）状态保持 approved，若 v0.4 落地反转再更新。

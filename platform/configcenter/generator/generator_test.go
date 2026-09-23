@@ -355,7 +355,7 @@ func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
 	t.Cleanup(func() { ToolLookPath = old })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
-	status, cause, details, msg := ValidateArtifacts(ca, false)
+	status, cause, details, msg := ValidateArtifacts(ca, false, nil)
 	assert.Equal(t, models.ValidationStatusPending, status)
 	assert.Equal(t, models.ValidationCausePlatformFault, cause, "promtool 缺失应归因为平台故障")
 	assert.Empty(t, details)
@@ -370,7 +370,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
-	status, cause, details, _ := ValidateArtifacts(ca, false)
+	status, cause, details, _ := ValidateArtifacts(ca, false, nil)
 	assert.Equal(t, models.ValidationStatusPassed, status)
 	assert.Empty(t, cause)
 	assert.Empty(t, details)
@@ -379,7 +379,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 func TestValidateArtifactsFailedSchema(t *testing.T) {
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
 	ca.TargetsFiles["j.json"] = "not-json"
-	status, cause, details, _ := ValidateArtifacts(ca, false)
+	status, cause, details, _ := ValidateArtifacts(ca, false, nil)
 	assert.Equal(t, models.ValidationStatusFailed, status)
 	assert.Equal(t, models.ValidationCauseUserConfig, cause, "targets schema 失败应归因为用户配置")
 	assert.Len(t, details, 1)
@@ -387,7 +387,7 @@ func TestValidateArtifactsFailedSchema(t *testing.T) {
 	// 保护标签冲突亦归因 user_config 且带结构化定位。
 	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
 	ca2.TargetsFiles["a.json"] = `[{"targets":["10.0.1.10"],"labels":{"job":"x"}}]`
-	status2, cause2, details2, _ := ValidateArtifacts(ca2, false)
+	status2, cause2, details2, _ := ValidateArtifacts(ca2, false, nil)
 	assert.Equal(t, models.ValidationStatusFailed, status2)
 	assert.Equal(t, models.ValidationCauseUserConfig, cause2)
 	assert.Equal(t, "a.json", details2[0].File)
@@ -487,7 +487,7 @@ func TestValidateArtifactsPendingWhenAmmtoolMissing(t *testing.T) {
 	t.Cleanup(func() { ToolLookPath = old })
 
 	ca, _ := Assemble("d", "", "", nil, nil, "route:\n  receiver: default\n", "", true)
-	status, cause, details, _ := ValidateArtifacts(ca, false)
+	status, cause, details, _ := ValidateArtifacts(ca, false, nil)
 	assert.Equal(t, models.ValidationStatusPending, status)
 	assert.Equal(t, models.ValidationCausePlatformFault, cause, "amtool 缺失应归因为平台故障")
 	assert.Empty(t, details)
@@ -505,7 +505,7 @@ func stubPassingTools(t *testing.T) {
 }
 
 // TestValidateArtifactsJobRefErrorBlocks 覆盖决策 66 发布期门禁：存活类规则
-// （absent(up)）引用 scrape_configs 不存在的 job → failed（user_config），details
+// （absent(up)）引用 central 全域名单中不存在的 job → failed（user_config），details
 // 定位到 rules.yml，阻断确认。
 func TestValidateArtifactsJobRefErrorBlocks(t *testing.T) {
 	stubPassingTools(t)
@@ -519,7 +519,7 @@ groups:
     expr: absent(up{job="missing"})
 `,
 	}
-	status, cause, details, msg := ValidateArtifacts(ca, false)
+	status, cause, details, msg := ValidateArtifacts(ca, false, []string{"job-a", "job-b"})
 	assert.Equal(t, models.ValidationStatusFailed, status)
 	assert.Equal(t, models.ValidationCauseUserConfig, cause, "job 引用 error 应归因用户配置")
 	require.Len(t, details, 1)
@@ -542,7 +542,7 @@ groups:
     expr: node_cpu_usage{job="ghost"} > 0.9
 `,
 	}
-	status, cause, details, msg := ValidateArtifacts(ca, false)
+	status, cause, details, msg := ValidateArtifacts(ca, false, []string{"job-a", "job-b"})
 	assert.Equal(t, models.ValidationStatusPassed, status)
 	assert.Empty(t, cause)
 	require.Len(t, details, 1, "warning 级问题应在 details 呈现供前端高亮")
@@ -551,7 +551,7 @@ groups:
 }
 
 // TestValidateArtifactsJobRefAllExisting 覆盖决策 66：规则引用的 job 全部现身于
-// scrape_configs → 无门禁问题，passed + 空 details。
+// central 全域名单 → 无门禁问题，passed + 空 details。
 func TestValidateArtifactsJobRefAllExisting(t *testing.T) {
 	stubPassingTools(t)
 	ca := &ConfigArtifacts{
@@ -564,23 +564,33 @@ groups:
     expr: absent(up{job="existing"})
 `,
 	}
-	status, cause, details, msg := ValidateArtifacts(ca, false)
+	status, cause, details, msg := ValidateArtifacts(ca, false, []string{"existing"})
 	assert.Equal(t, models.ValidationStatusPassed, status)
 	assert.Empty(t, cause)
 	assert.Empty(t, details)
 	assert.Equal(t, "", msg)
 }
 
-// TestScrapeConfigJobNames 覆盖 prometheus.yml scrape_configs job_name 提取（决策 66）。
-func TestScrapeConfigJobNames(t *testing.T) {
-	yml := "scrape_configs:\n  - job_name: a\n  - job_name: b\n"
-	assert.Equal(t, []string{"a", "b"}, scrapeConfigJobNames(yml))
-
-	assert.Empty(t, scrapeConfigJobNames("not yaml: ["), "解析失败返回空集合，不阻断")
-
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j", MetricsPath: "/m", Scheme: "http"}}}, nil, "", "", true)
-	got := scrapeConfigJobNames(ca.PrometheusYML)
-	require.Contains(t, got, "j", "生成出的 prometheus.yml 应含 job_name 供引用校验")
+// TestValidateArtifactsJobRefLivenessExistingPasses 覆盖 F-14 改动 Y：central 规则
+// 存活类引用（up{job=...}==0）命中 central 全域并集名单中的 job（如边缘域已部署 job，
+// 不在本域产物 scrape_configs 中）→ passed，不再按本域产物误判 error 阻断发布。
+func TestValidateArtifactsJobRefLivenessExistingPasses(t *testing.T) {
+	stubPassingTools(t)
+	ca := &ConfigArtifacts{
+		PrometheusYML: "scrape_configs:\n  - job_name: local-only\n",
+		RulesYML: `
+groups:
+- name: g
+  rules:
+  - alert: Down
+    expr: up{job="tengxunyun-ceshi-host"} == 0
+`,
+	}
+	status, cause, details, msg := ValidateArtifacts(ca, false, []string{"job-a", "tengxunyun-ceshi-host"})
+	assert.Equal(t, models.ValidationStatusPassed, status, "跨域引用命中 central 全域并集应通过")
+	assert.Empty(t, cause)
+	assert.Empty(t, details)
+	assert.Equal(t, "", msg)
 }
 
 // ---- 决策 68-2：Prometheus → Alertmanager 投递接线 ----

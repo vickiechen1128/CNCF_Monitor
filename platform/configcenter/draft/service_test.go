@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,6 +58,48 @@ func seedDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkDomain {
 	}
 	require.NoError(t, db.Create(d).Error)
 	return d
+}
+
+// seedManagementDomain 造中心管理域（local 通道 → centerEvaluator=true，决策 68-2）。
+func seedManagementDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkDomain {
+	t.Helper()
+	d := &models.NetworkDomain{
+		ID:          id,
+		Name:        "管理域-" + id,
+		DomainType:  models.DomainTypeManagement,
+		TenantID:    models.PlatformAdminTenantID,
+		Status:      models.DomainStatusEnabled,
+		ZoneType:    "intranet",
+		Channel:     models.ChannelTypeLocal,
+		IsMonitored: true,
+	}
+	require.NoError(t, db.Create(d).Error)
+	return d
+}
+
+// seedRule 造一条 enabled + ready 的 central 规则（yaml 透传）。
+func seedRule(t *testing.T, db *gorm.DB, name string) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.MonitoringRule{
+		Name:        name,
+		ContentMode: models.RuleContentModeYAMLPassthrough,
+		RuleContent: "groups:\n  - name: g\n    rules: [{alert: A, expr: up == 0}]",
+		Scope:       models.ScopeTypeCentral,
+		Enabled:     true,
+		DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending,
+	}).Error)
+}
+
+// stubGeneratorTools 注入 generator 包外部校验工具（promtool / blackbox / amtool 视作
+// 可用且通过），聚焦产物组装断言，避免依赖真实外部二进制环境。
+func stubGeneratorTools(t *testing.T) {
+	t.Helper()
+	oldLook := generator.ToolLookPath
+	oldChecker := generator.ToolChecker
+	generator.ToolLookPath = func(name string) (string, error) { return name, nil }
+	generator.ToolChecker = func(ca *generator.ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	t.Cleanup(func() { generator.ToolLookPath = oldLook; generator.ToolChecker = oldChecker })
 }
 
 func seedHost(t *testing.T, db *gorm.DB, domainID, resourceID string) {
@@ -250,4 +293,41 @@ func TestShouldSupersedePending_BrokenMetadata(t *testing.T) {
 	supersede, err := ShouldSupersedePending(db, dom, broken)
 	require.NoError(t, err)
 	assert.True(t, supersede)
+}
+
+// TestGenerateDraft_RulesOnlyForCenterEvaluator 覆盖 F-14 改动 X：central 规则只进
+// 中心求值器——边缘域（agent_pull → centerEvaluator=false）产物不携带 rules.yml 且
+// prometheus.yml 无 rule_files（清除边缘死文件）；管理域（local → centerEvaluator=true）
+// 保留 rules + rule_files。未来反转：v0.4 edge scope 落地（边缘引入 vmalert）时反向
+// 恢复，让边缘域重新接收 rules。
+func TestGenerateDraft_RulesOnlyForCenterEvaluator(t *testing.T) {
+	stubGeneratorTools(t)
+
+	// 边缘域：agent_pull 通道，非中心求值器。
+	dbEdge := newTestDB(t)
+	seedDomain(t, dbEdge, "e1")
+	seedHost(t, dbEdge, "e1", "res-1")
+	seedJob(t, dbEdge, "e1", "edge-job")
+	seedRule(t, dbEdge, "r-edge")
+
+	edgeDraft, err := GenerateDraft(dbEdge, "e1")
+	require.NoError(t, err)
+	require.NotNil(t, edgeDraft)
+	assert.Equal(t, "", edgeDraft.RulesYml, "边缘域不注入 rules.yml（F-14 改动 X）")
+	assert.NotContains(t, edgeDraft.PrometheusYml, "rule_files", "边缘域 prometheus.yml 不注入 rule_files")
+
+	// 管理域：local 通道，中心求值器。
+	dbCenter := newTestDB(t)
+	seedManagementDomain(t, dbCenter, "default")
+	seedHost(t, dbCenter, "default", "res-1")
+	seedJob(t, dbCenter, "default", "center-job")
+	seedRule(t, dbCenter, "r-center")
+	// 管理域走决策 60 读取 Alertmanager 配置留痕，需迁移对应表。
+	require.NoError(t, dbCenter.AutoMigrate(&models.AlertmanagerConfigVersion{}))
+
+	centerDraft, err := GenerateDraft(dbCenter, "default")
+	require.NoError(t, err)
+	require.NotNil(t, centerDraft)
+	assert.Contains(t, centerDraft.RulesYml, "name: g", "中心求值器域保留 rules.yml")
+	assert.Contains(t, centerDraft.PrometheusYml, "rule_files:", "中心求值器域注入 rule_files")
 }

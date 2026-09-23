@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-22 11:20 · commit: `9bcf49a`
+> 生成时间: 2026-09-23 13:40 · commit: `60ef554`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1605,6 +1605,9 @@
 
 - `func newTestDB(t *testing.T) *gorm.DB`
 - `func seedDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkDomain`
+- `func seedManagementDomain(t *testing.T, db *gorm.DB, id string) *models.NetworkDomain`
+- `func seedRule(t *testing.T, db *gorm.DB, name string)`
+- `func stubGeneratorTools(t *testing.T)`
 - `func seedHost(t *testing.T, db *gorm.DB, domainID, resourceID string)`
 - `func seedJob(t *testing.T, db *gorm.DB, domainID, name string) *models.ScrapeJob`
 - `func touchJob(t *testing.T, db *gorm.DB, id uint)`
@@ -1616,6 +1619,7 @@
 - `func TestGenerateDraft_NoChangesSuppressed(t *testing.T)`
 - `func TestShouldSupersedePending_ChecksumCompare(t *testing.T)`
 - `func TestShouldSupersedePending_BrokenMetadata(t *testing.T)`
+- `func TestGenerateDraft_RulesOnlyForCenterEvaluator(t *testing.T)`
 
 ### `platform/configcenter/generator/change_detect.go`
 
@@ -1678,7 +1682,7 @@
 - `func TestValidateArtifactsJobRefErrorBlocks(t *testing.T)`
 - `func TestValidateArtifactsJobRefWarningPasses(t *testing.T)`
 - `func TestValidateArtifactsJobRefAllExisting(t *testing.T)`
-- `func TestScrapeConfigJobNames(t *testing.T)`
+- `func TestValidateArtifactsJobRefLivenessExistingPasses(t *testing.T)`
 - `func TestAlertmanagerTargetFromURL(t *testing.T)`
 - `func TestAssembleAlertingSectionConditional(t *testing.T)`
 - `func TestAssembleRuleFilesAndAlertingShareCenterSwitch(t *testing.T)`
@@ -1727,8 +1731,7 @@
 - `func validateTargetAddress(addr string) error`
 - `func validTargetHost(host string) bool`
 - `func validateLabelName(name string) error`
-- `func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, models.ValidationCause, []models…`
-- `func scrapeConfigJobNames(prometheusYML string) []string`
+- `func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.Va…`
 - `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string)`
 - `func runPromtoolCheck(ca *ConfigArtifacts) error`
 - `func runBlackboxCheck(blackboxYAML string) error`
@@ -3055,7 +3058,9 @@
 - `func fetchBlackboxJobNames(db *gorm.DB) (map[string]struct{}, error)`
 - `func dedupKey(domain, job, instance string) string`
 - `func edgeTargetHealth(reported string, lastReportAt, now time.Time) string`
-- `func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health string) map[string]interface{}`
+- `func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health, instanceName string) map[string]interface{}`
+- `func loadInstanceNames(db *gorm.DB, netDomain string) (map[string]string, error)`
+- `func matchSearch(search, instanceName, instance string) bool`
 - `func resolveJob(t map[string]interface{}) string`
 - `func resolveLabel(t map[string]interface{}, key string) string`
 - `func resolveInstance(t map[string]interface{}) string`
@@ -3067,6 +3072,7 @@
 - `func promTargetsFixture() map[string]interface{}`
 - `func newTargetsRouter(t *testing.T) (*gin.Engine, fakeUpstream, *gorm.DB)`
 - `func openTargetsTestDB(t *testing.T) *gorm.DB`
+- `func seedHostResource(t *testing.T, db *gorm.DB, resourceID, instanceName, netDomain string)`
 - `func seedScrapeJob(t *testing.T, db *gorm.DB, jobName string, jobType models.JobType)`
 - `func seedEdgeSnapshot(t *testing.T, db *gorm.DB, domain, job, instance, resourceID, health string, lastReportAt time.Time)`
 - `func doTargets(t *testing.T, r *gin.Engine, query string) targetsResp`
@@ -3080,6 +3086,13 @@
 - `func TestTargetsInvalidHealthBadRequest(t *testing.T)`
 - `func TestTargetsFilterNoMatchEmptyActive(t *testing.T)`
 - `func TestTargetsInstanceFallback(t *testing.T)`
+- `func TestTargetsEnrichInstanceName(t *testing.T)`
+- `func TestTargetsSearchByInstanceName(t *testing.T)`
+- `func TestTargetsSearchCaseInsensitive(t *testing.T)`
+- `func TestTargetsSearchByInstanceIP(t *testing.T)`
+- `func TestTargetsSearchNoMatchEmpty(t *testing.T)`
+- `func TestTargetsSearchAppliesToEdge(t *testing.T)`
+- `func TestTargetsSearchCombinesWithHealth(t *testing.T)`
 - `type fakeUpstream struct`
 - `func newFakeUpstream(payload map[string]interface{}) fakeUpstream`
 - `func newFakeUpstreamFailing() fakeUpstream`
@@ -3318,6 +3331,7 @@
 - `func validateGroupNamesForCheck(db *gorm.DB, content string, excludeID uint) error`
 - `func effectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
 - `func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue`
+- `func EffectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string`
 - `func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue`
 - `func FindRuleJobRefErrors(db *gorm.DB, content string) []jobref.Issue`
 - `func checkRuleJobRefGate(db *gorm.DB, content string, ack bool) error`

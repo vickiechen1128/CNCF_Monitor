@@ -15,6 +15,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
@@ -99,7 +100,9 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 
 	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
 	checksum := artifacts.Checksum()
-	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
+	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
 
 	// 决策 44-3：抑制「配置无变化」的噪声变更单。
 	// 变更清单按产物 diff 派生，为空即产物与上一生效版本（或空基线）无实质差异
@@ -218,6 +221,13 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	// 边缘通道（agent_pull）的 vmagent 不支持这两段，必须不生成。
 	// 两者由同一个 centerEvaluator 判定驱动（约定纪律，禁止各自 if）。
 	centerEvaluator := dom.Channel == models.ChannelTypeLocal
+	// 决策 F-14（改动 X）：central 规则只进中心求值器——非 centerEvaluator 域（边缘
+	// agent_pull）不携带 rules.yml（清除边缘死文件，避免规则变更触发边缘域变更单）。
+	// 未来反转预留：v0.4 edge scope 落地（边缘引入 vmalert 求值器）时反向恢复，让边缘
+	// 域重新接收 rules。
+	if !centerEvaluator {
+		rules = nil
+	}
 	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML, AlertmanagerTarget, centerEvaluator)
 	if err != nil {
 		return nil, nil, nil, err
@@ -299,7 +309,9 @@ func reconcileWithExistingPending(
 	}
 
 	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
-	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
+	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
 
 	changeNo, err := nextChangeNo(db)
 	if err != nil {
@@ -847,7 +859,9 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	if err != nil {
 		return nil, err
 	}
-	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
+	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
 		return nil, fmt.Errorf("marshal validation details: %w", err)
