@@ -153,6 +153,17 @@ func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.Net
 		if err := db.Create(dep).Error; err != nil {
 			return nil, fmt.Errorf("record placeholder deployment: %w", err)
 		}
+		// F-16：确认下发即把该网域 agents 的配置同步状态置为「同步中」——复用既有
+		// out_of_sync + cause=pull_pending 语义（前端据此展示「同步中」），补上「确认下发」
+		// 到「agent 下次心跳拉包」之间窗口的口径，避免该列仍停留在上一轮 in_sync。
+		// 心跳兜底天然成立：agent 拉到配置上报版本一致后由 heartbeat_service 写回 in_sync。
+		// 降级口径同 writebackChangeStatuses：失败仅记录 error_message，不整链 500。
+		if err := markAgentsPullPending(db, version.NetworkDomainID); err != nil {
+			dep.ErrorMessage = fmt.Sprintf("mark agents pull_pending failed: %v", err)
+			if uerr := db.Model(dep).Update("error_message", dep.ErrorMessage).Error; uerr != nil {
+				return nil, fmt.Errorf("record pull_pending mark failure: %w", uerr)
+			}
+		}
 		if err := writebackChangeStatuses(db, version.NetworkDomainID); err != nil {
 			dep.ErrorMessage = fmt.Sprintf("writeback change_status failed: %v", err)
 			if uerr := db.Model(dep).Update("error_message", dep.ErrorMessage).Error; uerr != nil {
@@ -215,6 +226,24 @@ func applySafe(app Applier, ca *generator.ConfigArtifacts) error {
 		return nil
 	}
 	return app.Apply(ca)
+}
+
+// markAgentsPullPending 把指定网域全部 EdgeAgent 的配置同步状态置为 out_of_sync +
+// cause=pull_pending（F-16 方案 A）：确认下发后、agent 下次心跳拉包前的窗口内，前端
+// 「配置同步」列应显示「同步中」而非上一轮的「已同步」。复用既有 out_of_sync /
+// pull_pending 语义，不新增枚举；0 行更新无害（网域尚无 agent）。心跳拉到配置上报版本
+// 一致后由 edge.heartbeat_service 写回 in_sync，无需额外逻辑兜底。
+func markAgentsPullPending(db *gorm.DB, domainID string) error {
+	res := db.Model(&models.EdgeAgent{}).
+		Where("network_domain_id = ?", domainID).
+		Updates(map[string]interface{}{
+			"config_sync_status": models.ConfigSyncStatusOutOfSync,
+			"out_of_sync_cause":  models.OutOfSyncCausePullPending,
+		})
+	if res.Error != nil {
+		return fmt.Errorf("mark edge agents pull_pending for domain %s: %w", domainID, res.Error)
+	}
+	return nil
 }
 
 // localReloadURL 返回 local 通道的 target_address（契约 §5：记录 Prometheus reload URL）。

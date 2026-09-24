@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-24 12:08 · commit: `b708693`
+> 生成时间: 2026-09-24 12:12 · commit: `a039125`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1363,6 +1363,7 @@
 - `func newMemDB(t *testing.T) *gorm.DB`
 - `func seedLocalDomain(t *testing.T, db *gorm.DB, id string)`
 - `func seedAgentPullDomain(t *testing.T, db *gorm.DB, id string)`
+- `func seedEdgeAgentForSync(t *testing.T, db *gorm.DB, domainID string, status models.ConfigSyncStatus) *models.EdgeAgent`
 - `func seedVersion(t *testing.T, db *gorm.DB, domainID, changeNo string) *models.ConfigVersion`
 - `func seedDeployment(t *testing.T, db *gorm.DB, domainID string, v *models.ConfigVersion, status models.DeploymentStatus, err…`
 - `func idStr(id uint) string`
@@ -1376,6 +1377,8 @@
 - `func TestDispatchLocalSuccessWritesBackChangeStatus(t *testing.T)`
 - `func TestDispatchLocalFailureRecordsFailed(t *testing.T)`
 - `func TestDispatchAgentPullPlaceholder(t *testing.T)`
+- `func TestDispatchAgentPullMarksAgentsPullPending(t *testing.T)`
+- `func TestDispatchLocalKeepsAgentSyncStatus(t *testing.T)`
 - `func TestRetryLocalFailed(t *testing.T)`
 - `func TestRetryRejectsNonLocal(t *testing.T)`
 - `func TestRetryRejectsNotFailed(t *testing.T)`
@@ -1443,6 +1446,7 @@
 - `func Rollback(db *gorm.DB, versionID, triggeredBy string, app Applier) (*models.ConfigDeployment, error)`
 - `func dispatchVersion(db *gorm.DB, version *models.ConfigVersion, dom *models.NetworkDomain, triggeredBy string, app Applier,…`
 - `func applySafe(app Applier, ca *generator.ConfigArtifacts) error`
+- `func markAgentsPullPending(db *gorm.DB, domainID string) error`
 - `func localReloadURL(dom *models.NetworkDomain) string`
 - `func loadDomain(db *gorm.DB, id string) (*models.NetworkDomain, error)`
 - `func loadVersion(db *gorm.DB, id string) (*models.ConfigVersion, error)`

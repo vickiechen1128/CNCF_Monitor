@@ -266,3 +266,48 @@ M09 配置中心下发规则时遇到**跨域引用校验错误**：发布期 jo
 
 1. **systemd 单元（不在本模块职责）**：非 Linux 及「Linux 但 Pdeathsig 仅覆盖直接子进程」场景，需 unit 侧 `KillMode=control-group` 兜底（packaging/ 下的 systemd 单元归部署条线，本批次未改动，记为遗留项）。
 2. **PRD 回写**：F-15 为 ① 类设计缺口，建议 design 条线在 M11 PRD 补充「进程守护机制要求=父死子亡」「节点/组件两列状态一致性口径=心跳过期统一降级 unknown」，由 prototype-designer/chenrt 应用（目录隔离铁律，本处仅登记）。
+
+---
+
+# backend-developer 执行记录 — Module_11（F-16：确认下发即置配置同步为「同步中」）
+
+> 归属：MetricCenter 后端开发（backend-developer）
+> 分支：`feat/module-09-config-center`
+> 任务：F-16 后端部分（方案 A，chenrt 拍板）——确认下发后「配置同步」列应立即显示「同步中」。
+> task id：F-16
+
+## 背景
+
+用户在「配置下发」确认下发后、agent 下次心跳（≤30s）拉包前，「采集节点状态」页「配置同步」列仍显示「已同步」，而「下发记录」侧已是「待执行」，两套口径错位。根因：`config_sync_status` 唯一更新点是 agent 心跳，`dispatchVersion` 的 agent_pull 分支仅登记 pending 占位 + 回写 change_status，完全不动 `ConfigSyncStatus`。
+
+## 设计决策（方案 A，复用已有 pull_pending 语义，不新增枚举）
+
+1. `dispatchVersion` agent_pull 分支登记 pending 占位后，批量更新该网域（`version.NetworkDomainID`）全部 `EdgeAgent`：`config_sync_status=out_of_sync` + `out_of_sync_cause=pull_pending`（0 行更新无害）。前端据此把 `out_of_sync`+`pull_pending` 展示为「同步中」（前端改动由 frontend-developer 负责，不在本次范围）。
+2. **更新失败不阻断下发主流程**：与既有 `writebackChangeStatuses` 降级口径一致——记录 `error_message`，不整链 500。
+3. **心跳兜底天然成立**：agent 拉到配置上报版本一致后，`platform/edge/heartbeat_service.go` 已写回 `in_sync`，无需额外逻辑。
+4. `ConfigSyncStatus` 五档枚举不变。
+
+## 修改/新增文件
+
+- 修改 `platform/configcenter/deployment/service.go`：`dispatchVersion` agent_pull 分支追加 `markAgentsPullPending(db, version.NetworkDomainID)`（置于占位登记之后、change_status 回写之前，独立降级）；新增私有辅助 `markAgentsPullPending`。
+- 修改 `platform/configcenter/deployment/deployment_test.go`：`newMemDB` AutoMigrate 注册 `models.EdgeAgent`；新增 `seedEdgeAgentForSync` helper 与两个用例。
+
+## 新增/修改测试
+
+- `TestDispatchAgentPullMarksAgentsPullPending`：agent_pull 确认下发后，该网域 agent 的 `config_sync_status` 变为 `out_of_sync` 且 `out_of_sync_cause=pull_pending`（先行为性 RED：期望 out_of_sync 实际 in_sync）。
+- `TestDispatchLocalKeepsAgentSyncStatus`：local 通道下发不改写 agent 配置同步状态（回归保护）。
+
+## 验证
+
+- TDD RED/GREEN：先写测试 → RED（`out_of_sync` vs 实际 `in_sync`、cause `""`）→ 实现 → GREEN。
+- `go test ./platform/...` 全绿（含 configcenter/deployment）；`go vet ./platform/...` 通过。
+- 服务启动（8080 被既有进程占用，改用 `-listen-address :18081` 独立端口验证）：`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200，验证后停服释放端口。
+
+## Commit
+
+- `fix(module-11): 确认下发即置配置同步为同步中（pull_pending）（F-16）`
+
+## 遗留/协调点
+
+1. **前端配合**：「配置同步」列需把 `out_of_sync` + cause=`pull_pending` 展示为「同步中」（badge 色区分），其余 `out_of_sync` 仍「未同步」——由 frontend-developer 按 F-16 方案 A 第 2 条落地。
+2. **PRD 回写**：F-16 为 ① 类设计缺口/UX 优化，建议 design 条线在 M11 PRD 补充「配置同步列需同步中中间态展示口径」，由 prototype-designer/chenrt 应用（目录隔离铁律，本处仅登记）。

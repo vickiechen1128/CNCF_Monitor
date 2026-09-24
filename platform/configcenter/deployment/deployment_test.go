@@ -38,6 +38,7 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 		&models.AlertmanagerConfigVersion{},
+		&models.EdgeAgent{},
 	))
 	return db
 }
@@ -68,6 +69,20 @@ func seedAgentPullDomain(t *testing.T, db *gorm.DB, id string) {
 		IsMonitored: true,
 	}
 	require.NoError(t, db.Create(d).Error)
+}
+
+// seedEdgeAgentForSync 建一台 EdgeAgent，用于校验 F-16 确认下发对配置同步状态的
+// 展示口径改写（agent_pull → out_of_sync/pull_pending；local 不受影响）。
+func seedEdgeAgentForSync(t *testing.T, db *gorm.DB, domainID string, status models.ConfigSyncStatus) *models.EdgeAgent {
+	t.Helper()
+	a := &models.EdgeAgent{
+		NetworkDomainID:  domainID,
+		AgentType:        models.AgentTypeVMAgent,
+		Status:           "online",
+		ConfigSyncStatus: status,
+	}
+	require.NoError(t, db.Create(a).Error)
+	return a
 }
 
 func seedVersion(t *testing.T, db *gorm.DB, domainID, changeNo string) *models.ConfigVersion {
@@ -268,6 +283,41 @@ func TestDispatchAgentPullPlaceholder(t *testing.T) {
 	assert.Equal(t, models.ChangeStatusDeployed, pending.ChangeStatus)
 	require.NoError(t, db.First(&noneJob, noneJob.ID).Error)
 	assert.Equal(t, models.ChangeStatusNone, noneJob.ChangeStatus)
+}
+
+// TestDispatchAgentPullMarksAgentsPullPending 覆盖 F-16 方案 A：agent_pull 通道确认
+// 下发后，应立即把该网域全部 agent 的配置同步状态置为 out_of_sync + cause=pull_pending
+// （前端据此显示「同步中」），补上「确认下发」到「agent 下次心跳拉包」之间窗口的口径；
+// 心跳拉到配置后由 heartbeat_service 写回 in_sync，无需额外逻辑。
+func TestDispatchAgentPullMarksAgentsPullPending(t *testing.T) {
+	db := newMemDB(t)
+	seedAgentPullDomain(t, db, "edge-sync")
+	v := seedVersion(t, db, "edge-sync", "CHG-20240101-003")
+	agent := seedEdgeAgentForSync(t, db, "edge-sync", models.ConfigSyncStatusInSync)
+
+	dep, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+	assert.Equal(t, models.DeploymentStatusPending, dep.Status)
+
+	require.NoError(t, db.First(agent, agent.ID).Error)
+	assert.Equal(t, models.ConfigSyncStatusOutOfSync, agent.ConfigSyncStatus, "确认下发即置同步中（out_of_sync）")
+	assert.Equal(t, models.OutOfSyncCausePullPending, agent.OutOfSyncCause, "成因应为 pull_pending")
+}
+
+// TestDispatchLocalKeepsAgentSyncStatus 回归保护：local 通道下发不走 pull_pending
+// 改写（其配置由中心直接写盘 reload，不经 agent 拉包）。
+func TestDispatchLocalKeepsAgentSyncStatus(t *testing.T) {
+	db := newMemDB(t)
+	seedLocalDomain(t, db, "default")
+	v := seedVersion(t, db, "default", "CHG-20240101-004")
+	agent := seedEdgeAgentForSync(t, db, "default", models.ConfigSyncStatusInSync)
+
+	_, err := Dispatch(db, v, "admin", &applyRecorder{})
+	require.NoError(t, err)
+
+	require.NoError(t, db.First(agent, agent.ID).Error)
+	assert.Equal(t, models.ConfigSyncStatusInSync, agent.ConfigSyncStatus, "local 通道不改配置同步状态")
+	assert.Empty(t, agent.OutOfSyncCause, "local 通道不写 out_of_sync_cause")
 }
 
 func TestRetryLocalFailed(t *testing.T) {
