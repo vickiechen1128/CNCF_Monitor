@@ -179,3 +179,72 @@
   3. 仅过滤边缘快照；local 侧 blackbox target 仍透传上游原始值（本方案边界，后续展示策略另议）。
 - **验收**：`platform/query/targets_test.go` 新增 6 例（blackbox 排除 / standard 保留 / 混合 / 无 blackbox 全保留 / 精确匹配大小写边界 / 仅过滤边缘不碰 local）；`go test ./platform/...` 28 包全绿、vet/build 通过；真实环境注入 blackbox+standard 快照 curl 验证过滤生效，测试数据已清理。
 - **与 F-12 的关系**：F-12 补齐拨测结果的 M01 回显（`probe_success`）；本项将拨测 target 从 M09 排障入口剥离，二者互补，避免拨测结果双口径。
+
+### F-14：central 告警规则引用边缘域 job 被 M09 jobref 门禁误阻断（① 设计缺口→实现前待决策，2026-09-22）
+
+- **现象**：在默认网域（default，local 通道）新增 `scope=central` 告警规则，expr 引用**边缘域**（mc-edge-debug）已部署采集 Job `tengxunyun-ceshi-host`，M09 配置下发校验返回**校验失败**：「规则 job 引用错误：`tengxunyun-ceshi-host` 不存在」，2 条存活类规则（expr 含 `up`）被判 error 级阻断，无法确认发布。
+- **根因（实现层，已核实代码）**：M09 发布期 jobref 门禁（[validate.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/validate.go#L164-L165) 决策 66）的生效 Job 集合 = `scrapeConfigJobNames(ca.PrometheusYML)`，即**当前变更单所在网域**的 prometheus.yml `scrape_configs[].job_name`。default 域产物只含 `ceshi`（job_name 全局唯一、`scrape_jobs.job_name` 唯一索引），不含边缘域 job → `tengxunyun-ceshi-host` 判「不存在」→ 存活类 → error 阻断。
+- **设计缺口（本质）**：**中心求值器的全局语义 vs jobref 校验的按域集合语义，二者未协调**。
+  - 决策 68-2/68-3 既定：规则 `scope=central`（[回调注释](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/deployment/callback.go#L30) 明确「规则为全局 scope=central、无网域列」）由**中心求值器**（`centerEvaluator := dom.Channel == local`，[draft/service.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/draft/service.go#L220)）求值；中心 Prometheus 的 TSDB **包含所有网域 remote_write 上来的数据**（实测 `up{job="tengxunyun-ceshi-host", network_domain_id="mc-edge-debug"}` 已在中心）。→ central 规则**语义上应能引用任意网域的 job**。
+  - 但 jobref 门禁（决策 66）的校验基准是「草稿所在域的产物 job 集合」，而非「全平台生效 job」。→ 跨域引用的 central 规则被误判 error。
+  - 两者的冲突点：`jobref.Issue` 已预留 `NetworkDomainID/NetworkDomainName` 字段（[jobref.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/strategy/rule/jobref/jobref.go#L45-L48) 决策 67-4 注释「MVP 单域下恒为空」），说明团队已预见多域，但校验生效集合仍用单域。
+- **死结（阻断当前验证的关键）**：若把规则变更单改挂边缘域（mc-edge-debug，agent_pull 通道）草稿 → jobref 会通过（该域产物含 `tengxunyun-ceshi-host`），但**边缘通道 `centerEvaluator=false`，不生成 rule_files/alerting**（决策 68-2），中心不会加载该规则 → 告警不生效。即「挂 default 域被误判阻断、挂边缘域规则不生效」，跨域 central 规则当前**无合法发布路径**。
+- **需决策的问题（实现前，② 类语义矛盾，暂不改码）**：
+  1. **central 规则的 jobref 生效集合，应改为「全平台全量 deployed job 并集」还是维持「草稿所在域 job 集合」？** 这是核心——决定了 central 规则能否跨域引用，以及与「中心求值器全局语义」是否自洽。
+  2. **central 规则的变更单网域归属**：是否固定挂 default（local 中心求值器）域发布？若固定，则 jobref 基准必须配合改为全平台并集，否则跨域规则永远被阻断。
+  3. **边缘域草稿是否还应携带 RulesYML**：当前每条规则进所有域产物（含边缘），但边缘无 rule_files 引用、无求值器，属于死文件；是否在 Assemble 层对边缘域直接置空 RulesYML（消除冗余 + 避免边缘域草稿误通过 jobref）。
+- **解决方案分析**：
+  - **方案 A（推荐，语义自洽）**：将 M09 发布期 jobref 的生效集合从「解析本草稿 prometheus.yml」改为「按全平台查询 deployed `scrape_jobs.job_name` 并集」（跨域，含所有 local + edge 域已部署 job）。central 规则本就由全局中心求值器求值，引用任意已部署 job 均合法；存活类 error 判定保持（引用**全平台都不存在**的 job 仍阻断）。改动点：`validate.go` 的 `scrapeConfigJobNames` 改由 `db` 查询（需把 `db` 传入校验链）；jobref.go 本身不改（本域集合已由调用方给定）。副作用：非存活类规则跨域引用 warning 也会相应消失，符合语义。
+  - **方案 B（保守，改契约约束）**：维持按域校验，但文档 + 前端约束「central 规则仅能引用 default 域 job」，跨域引用一律按 error 处理。与「中心全局求值」的既定架构语义相悖，且边缘 job 无法被 central 规则告警，不推荐。
+  - **方案 C（过度设计，暂不做）**：给规则增加「求值作用域」维度（central-global / central-per-domain），区分「全局数据求值」与「本域数据求值」两种 central 规则。当前无此需求，仅记录。
+- **当前验证 workaround（不改码、可先跑通链路）**：临时把验证规则的 `job` 换成 default 域已有 job（如 `ceshi`），或把规则 expr 改用**不带 job 选择器**的全局表达式（如 `up{network_domain_id="mc-edge-debug"} == 0`，仅按域标签过滤、不引用具体 job，可绕开 jobref 的 job= matcher 判定），先验证「规则加载 → 中心求值 → 告警 → Alertmanager」链路，再回头决策方案 A/B 落地跨域引用。
+- **来源**：真实边缘联调验证 → 前端下发配置报错 → 代码核实（validate.go / jobref.go / render.go / draft service.go / callback.go）。
+- **处置（2026-09-23 已定版并实现）**：经设计提案 `cross-domain-central-rule-jobref-validation.md`（Track B）评审定版两个互补改动，commit `b708693`（feat(module-09)）：
+  - **改动 Y**：`ValidateArtifacts` 的 jobref 输入集从「解析本域产物 prometheus.yml」切换为 `rule.EffectiveJobNames(db, ScopeTypeCentral, "")`（central 全域并集 = 全库 enabled+ready job）；删除 `scrapeConfigJobNames`。跨域引用边缘域已部署 job 不再误判 error。
+  - **改动 X**：`buildArtifacts` 对非 centerEvaluator 域（边缘）`rules = nil`——清掉边缘域 rules.yml 死文件，规则变更不再触发边缘域变更单；含 v0.4 edge scope 落地时反向恢复的注释预留。
+  - 配套：新增导出 `EffectiveJobNames`；generator/draft 层单测补齐（跨域通过 / 全局不存在 error / 非存活 warning / 边缘域无 rules）；3 个既有测试适配改动 X 行为。
+  - 验证：`go test ./platform/...` 28 包全绿、vet/build 干净、服务启动三接口 200。执行记录见 `docs/05-execution-records/module-11/backend-developer.md`。
+- **PRD 回写修订建议（2026-09-23，供设计侧合入 M09 PRD，版本号 +1）**：修订建议文本如下，按定位章节插入，Change Log 追加「吸收 design-proposal cross-domain-central-rule-jobref-validation.md（track B）」。内容与已实现代码（commit `b708693` + 既有决策 60/68-2/68-3）完全一致。
+  - **① §3.3 新增小节 3.3.4「规则与告警配置的域归属（中心集中告警链路）」**：central 规则与 AM 告警收敛配置均属中心集中链路，只随中心管理域（default/local）下发，不进入采集节点域（边缘/agent_pull）。边缘域产物仅含 prometheus.yml（scrape_configs + file_sd）、targets/*.json、metadata.json，不含 rules.yml / alertmanager.yml / rule_files / alerting 段（决策 68-2/68-3 + 60）。边缘数据 remote_write 上中心后统一由中心求值、中心 AM 收敛分发。
+  - **② §3.4 新增「规则 job 引用校验口径（0.2 多域）」**：central 规则生效 Job 集合 = 全平台已部署 job 并集（enabled+ready，跨 local/edge 域），与变更单所在域无关；跨域引用合法；引用全平台不存在 job 仍 error（存活类）/warning（非存活类）判定。
+  - **③ §6.5 新增「规则变更的变更单网域归属」**：central 规则变更只触发 default 域变更单，不触发任何边缘域变更单；边缘域变更单仅反映该域自身采集 Job/target 变化。
+  - **④ §9.2 技术验收新增**：跨域引用规则校验 passed 可下发（部署 success）；边缘产物纯净（无 rules/AM/alerting）；规则变更单收敛（仅 default 域）。
+  - **⑤ Change Log**：吸收 design-proposal cross-domain-central-rule-jobref-validation.md（track B，2026-09-23）。
+
+### F-15：M09「采集节点离线但采集器/拨测器仍显示运行中」——agent 主进程强杀后子进程成孤儿 + 中心侧组件状态无过期降级（① 设计缺口→待决策，2026-09-24）
+
+- **现象**：采集节点状态页某节点「状态/离线、配置同步/未同步、最后心跳/1 天前」，但同行的「采集器」「拨测器」列仍显示「运行中」。
+- **排查定性**（chenrt 确认为进程问题）：edge-sync-agent 主进程被强杀，其守护的 vmagent / blackbox_exporter 子进程成为孤儿进程继续运行。
+- **两层缺陷（根因 + 症状，二者需分别修）**：
+  1. **进程层（根因）**：[probe.go `ProcProbe.Start`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/cmd/edge-sync-agent/probe.go#L145-L166) 用 `exec.Command + cmd.Start()` 拉起子进程，**未设置 `SysProcAttr.Pdeathsig`（父死子亡信号），也未 Setsid/Setpgid**。main 被 SIGKILL 时 `defer StopAll()`（[probe.go L231-L242](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/cmd/edge-sync-agent/probe.go#L231-L242)）不触发，子进程被 re-parent 到 init/systemd 继续运行。仅优雅退出（Stop→`cmd.Process.Kill()`）才会停子进程。
+  2. **显示层（症状）**：[management_service.go `agentView`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/management_service.go#L73-L123) 直接透传 DB 里 `CollectorStatus`/`Components` 的历史心跳值，**心跳过期不做降级**，故「运行中」是最后心跳时刻的过期快照（对比 F-11 边缘 target 快照有 `last_report_at` 过期降级，agent 组件列没有）；[agentViewStatus](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/management_service.go#L125-L139) 只把节点档判 offline，不联动降级组件列。
+- **A 方案评估（chenrt 已同意方向，但为治标，需补根因层）**：
+  - A 方案（中心侧心跳过期时把 `CollectorStatus`/`Components` 组件状态降级为 `unknown`）**合理但只治标**——解决「离线却运行中」的认知冲突，但**不杀死孤儿进程**，孤儿 vmagent 仍在采集（反而可能掩盖问题）、持续占用资源。
+  - **优化结论：需两层修复并存**：
+    1. 根因：`ProcProbe.Start` 设置 `cmd.SysProcAttr.Pdeathsig = syscall.SIGKILL`（Linux 父死子亡；需跨平台条件编译或运行时判断，macOS/Windows 不支持 Pdeathsig 时回落依赖 systemd `KillMode=control-group` 兜底）。
+    2. 显示：`agentView` 心跳超时（复用离线心跳超时口径，勿另起常量）时覆写组件状态为 `unknown`，**展示层降级、不改 DB 原始上报**（agent 恢复心跳后自然回真实值）；同步补心跳过期组件降级单测（现有 [management_test.go L236-259](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/management_test.go#L236-L259) 仅覆盖节点档 offline，缺组件降级分支）。
+- **处置（2026-09-24 已实现，commit `a039125`，两层并存修复）**：
+  - **进程层（根因）**：新增 `configureSysProcAttr`——[pdeathsig_linux.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_linux.go)（`//go:build linux`，落 `SysProcAttr.Pdeathsig=SIGKILL`）与 [pdeathsig_other.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_other.go)（`//go:build !linux`，no-op）按 build tag 拆分；[probe.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/cmd/edge-sync-agent/probe.go) `ProcProbe.Start` 在 `cmd.Start()` 前调用。非 Linux（macOS/Windows 无该字段）回落依赖 systemd `KillMode=control-group` 由 cgroup 兜底。
+  - **显示层（症状）**：[management_service.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/management_service.go) `agentView` 复用 `agentLiveStatus` + 传入的 `DefaultOfflineThreshold`（复用离线阈值，不新造常量）判活；心跳过期时把展示用 `CollectorStatus` 与 `Components[].status` 覆写为 `unknown`（`degradeComponentsToUnknown` 返回副本，`componentStatusUnknown` 为展示层派生值，不落库、不属于上报契约枚举），只改展示、不改 DB 原始上报，agent 恢复心跳后自然回真实值。
+  - **测试**：`pdeathsig_linux_test.go`（断言 `Pdeathsig=SIGKILL`）、`pdeathsig_other_test.go`（断言 no-op）；`management_test.go` 新增「心跳过期组件降级 unknown 且 DB 原始值不变」「心跳新鲜不降级」两例，补上既有测试缺失的组件降级分支。
+  - **验证**：`go test ./platform/...` 全绿、`platform/edge-sync-agent` 模块 `go test ./...` 全绿、`GOOS=linux(amd64/arm64)/windows` 交叉编译通过、`go vet` 通过、服务启动三接口 200。执行记录见 `docs/05-execution-records/module-11/backend-developer.md`。
+- **PRD 回写修订建议（2026-09-24，供 design 条线合入 M11 PRD）**：① **边缘采集节点进程守护机制要求**明确为「主进程终止（含被强杀）时，其守护的子进程（vmagent / blackbox_exporter）必须随之终止」——Linux 落 `Pdeathsig`，容器 / systemd 环境以 cgroup `KillMode=control-group` 兜底；② **节点档与组件列状态一致性口径**：心跳超过离线阈值时，节点档置「离线」，采集器 / 拨测器等组件状态**统一降级展示为「未知」**，不沿用最后一次心跳的快照值。
+- **遗留（非 backend 职责）**：systemd unit 侧 `KillMode=control-group` 兜底属 packaging 条线，单元文件当前未含该项，需在打包批次一并补入。
+
+### F-16：「配置同步」列确认下发后仍显示「已同步」——需「同步中」中间态（① 设计缺口→chenrt 拍板方案 A，2026-09-24）
+
+- **现象**：确认配置文件下发后，「采集节点状态」页「配置同步」列仍显示「已同步」，而「下发记录」侧显示「待执行」。直到 agent 下次心跳（≤30s）拉到配置应用后，该列才翻转为「已同步」。
+- **根因（确认下发动作没触发状态翻转）**：`config_sync_status` 唯一更新点是 agent 心跳（[heartbeat_service.go L122-139](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/heartbeat_service.go#L122-L139)：上报版本与中心最新比对 → 不一致写 `out_of_sync`+cause=pull_pending，一致写 `in_sync`）；而「确认下发」[dispatchVersion L152-163](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/deployment/service.go#L152-L163) 对 agent_pull 域**仅登记 pending 占位 + 回写 change_status，完全不动 `ConfigSyncStatus`**。故确认后、心跳前的窗口内该字段仍是上轮 `in_sync`。
+- **关键发现**：「同步中」语义已内建但未单独展示——`out_of_sync` 的成因 `pull_pending`（[edgeConstants.ts L58-73](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/edgeConstants.ts#L58-L73)）文案即「新配置包已就绪，等待 Agent 下次心跳拉取（准实时 30s）」，前端却一律把 `out_of_sync` 显示成「未同步」，未把 `pull_pending` 单列。
+- **方案 A 定版（chenrt 拍板，复用已有 pull_pending 语义，不新增枚举）**：
+  1. 后端：[dispatchVersion](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/deployment/service.go#L129-L163) agent_pull 分支登记占位后，批量 `Update` 该网域 agents：`ConfigSyncStatus=out_of_sync` + `out_of_sync_cause=pull_pending`（0 行更新也无害）。
+  2. 前端：「配置同步」列对 `out_of_sync`+cause=`pull_pending` 展示为「同步中」（badge 色区分，如蓝色/processing），其余 `out_of_sync` 仍「未同步」。
+  3. 心跳兜底天然成立：agent 拉到配置上报版本一致后，[heartbeat_service.go L122-139](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/heartbeat_service.go#L122-L139) 已写回 `in_sync`，无需额外逻辑。
+- **影响面**：后端 1 处（agent_pull 分支 Update）+ 前端 2 处（badge 文案/颜色）。`ConfigSyncStatus` 五档枚举（in_sync/out_of_sync/unknown/manual_override/no_version）不变，`pull_pending` cause 已是 `out_of_sync` 的成因枚举之一。
+- **处置（2026-09-24 已实现，commit `c03492b` 后端 + `4d7ae09` 前端）**：
+  - **后端**：[dispatchVersion](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/deployment/service.go#L152-L174) agent_pull 分支登记 pending 占位后新增 `markAgentsPullPending(db, version.NetworkDomainID)`——批量 Update 该网域全部 `EdgeAgent` 为 `config_sync_status=out_of_sync` + `out_of_sync_cause=pull_pending`（0 行更新无害，网域尚无 agent 时无副作用）；失败仅记录 `error_message`，不整链 500（降级口径同 `writebackChangeStatuses`）。心跳拉到配置后由 `heartbeat_service` 写回 `in_sync` 兜底，无需额外逻辑。
+  - **前端**：[edgeConstants.ts](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/edgeConstants.ts) 新增 cause 感知映射 `isConfigSyncInProgress` / `configSyncDisplayLabel` / `configSyncDisplayBadgeStatus`——`out_of_sync` + cause=`pull_pending` → 「同步中」+ `processing`（蓝），其余 `out_of_sync`（`pending_draft` / `local_reset` / 空）仍「未同步」+ `error`（红）；[EdgeAgentsPage.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx)「配置同步」列与 [EdgeAgentDrawer.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/EdgeAgentDrawer.tsx) 详情字段改用同一映射（单一映射源）。原 `configSyncStatusLabel/BadgeStatus` 两表保留，供筛选下拉与状态枚举展示使用。
+  - **测试**：后端 `deployment_test.go` 补「agent_pull 确认下发 → agent 变 out_of_sync/pull_pending」与「local 通道不受影响」；前端 `edgeConstants.test.ts` 补映射矩阵（含 `isConfigSyncInProgress` 命中/不命中）、`EdgeAgentsPage.test.tsx` 补 `pull_pending`→同步中（badge `processing` 断言）+ `pending_draft`→未同步反例、`EdgeAgentDrawer.test.tsx` 补抽屉同步中。
+  - **验证**：`go test ./platform/...` 全绿、`go vet` 通过；前端 `pnpm vitest run src/pages/config-center/nodes/` 3 文件 24 用例全绿。
+- **PRD 回写修订建议（2026-09-24，供 design 条线合入 M11 PRD）**：「配置同步」列需定义**「同步中」中间态展示口径**——确认下发成功后、Agent 下次心跳拉包生效前，该列展示「同步中」（蓝色 processing）；Agent 上报配置版本与中心最新已确认版本一致后翻转为「已同步」。该中间态复用 `out_of_sync` 的 `pull_pending` 成因，`ConfigSyncStatus` 五档枚举（in_sync / out_of_sync / unknown / manual_override / no_version）不新增。前端建议同步在 `api-contract-snapshot.md` §1 补该展示口径文本。
+- **遗留（待设计侧确认）**：筛选下拉「配置同步」选项文案目前仍是状态枚举口径「未同步」，与列展示口径（`pull_pending`→「同步中」）未对齐；是否需在筛选项拆分/改名，待设计侧定版。
