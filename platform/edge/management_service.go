@@ -94,6 +94,7 @@ type AgentView struct {
 }
 
 func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView {
+	live := agentLiveStatus(a, now, threshold)
 	v := AgentView{
 		ID:                a.ID,
 		NetworkDomainID:   a.NetworkDomainID,
@@ -101,7 +102,7 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		Ip:                a.Ip,
 		AgentType:         a.AgentType,
 		Version:           a.Version,
-		Status:            agentViewStatus(a, now, threshold, agentLiveStatus(a, now, threshold)),
+		Status:            agentViewStatus(a, now, threshold, live),
 		HeartbeatRTTMs:    a.HeartbeatRTTMs,
 		ConfigVersion:     a.ConfigVersion,
 		ConfigSyncStatus:  a.ConfigSyncStatus,
@@ -112,6 +113,13 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		LastError:         a.LastError,
 		Components:        a.Components,
 	}
+	// F-15 症状层：心跳超时（离线）时，把展示用的组件状态覆写为 unknown。
+	// 复用离线判定口径（agentLiveStatus + 传入的 offlineThreshold，勿另起常量）；
+	// 只改展示结果、不改 DB 原始上报值——agent 恢复心跳后自然回真实值。
+	if live == AgentStatusOffline {
+		v.CollectorStatus = AgentStatusUnknown
+		v.Components = degradeComponentsToUnknown(a.Components)
+	}
 	if a.LastHeartbeat != nil {
 		s := a.LastHeartbeat.UTC().Format(time.RFC3339)
 		v.LastHeartbeat = &s
@@ -121,6 +129,25 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		v.LastConfigPull = &s
 	}
 	return v
+}
+
+// componentStatusUnknown 是展示层派生值（F-15）：心跳过期降级时把组件 status 覆写为
+// unknown。前端 componentStatusLabel 已含该档（展示「未知」）；本值不落库、不属于上报
+// 契约枚举（models.ComponentStatus 只含 running/restarting/crash_loop/not_deployed）。
+const componentStatusUnknown models.ComponentStatus = "unknown"
+
+// degradeComponentsToUnknown 返回组件清单的展示副本，把各组件 status 覆写为 unknown；
+// 不改动入参（DB 原始上报值），无组件时返回 nil 以保持 omitempty 语义。
+func degradeComponentsToUnknown(comps []models.EdgeComponent) []models.EdgeComponent {
+	if len(comps) == 0 {
+		return nil
+	}
+	out := make([]models.EdgeComponent, len(comps))
+	copy(out, comps)
+	for i := range out {
+		out[i].Status = componentStatusUnknown
+	}
+	return out
 }
 
 // agentViewStatus 计算节点展示三档「正常/部分异常/离线」（PRD §3.2）：

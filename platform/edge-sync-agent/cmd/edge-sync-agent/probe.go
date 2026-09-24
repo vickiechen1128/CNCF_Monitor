@@ -155,6 +155,9 @@ func (p *ProcProbe) Start(c *supervisor.Component) error {
 	cmd := exec.Command(spec.bin, args...)
 	cmd.Stdout = p.out
 	cmd.Stderr = p.out
+	// F-15 进程层：设置「父死子亡」，保证主进程被强杀时子进程一同回收。
+	// Linux 落 Pdeathsig=SIGKILL；非 Linux 为 no-op（回落 systemd KillMode=control-group）。
+	configureSysProcAttr(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("probe: start %s (%s) failed: %w", c.Type, spec.bin, err)
 	}

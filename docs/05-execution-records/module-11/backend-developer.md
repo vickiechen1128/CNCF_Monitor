@@ -214,3 +214,55 @@ M09 配置中心下发规则时遇到**跨域引用校验错误**：发布期 jo
 1. **v0.4 反转预留**：边缘域引入 vmalert 求值器（edge scope 规则落地）时，需反转改动 X（恢复边缘域 rules 注入）并将 jobref 校验输入集口径从「central 全域并集」扩展为「含 edge scope 规则的求值域并集」。
 2. **校验时机**：改动 Y 后校验输入集为生成时刻全库快照（enabled+ready），与既有 GenerateDraft 的 checksum/幂等机制协同；后续若引入「校验时锁定输入集版本」需求，可纳入 v0.3 变更检测基线增强评估。
 3. **设计提案**：本次仅落地代码；设计提案文档（cross-domain-central-rule-jobref-validation.md）状态保持 approved，若 v0.4 落地反转再更新。
+
+---
+
+# backend-developer 执行记录 — Module_11（F-15：agent 父死子亡守护 + 心跳过期组件状态降级）
+
+> 归属：MetricCenter 后端开发（backend-developer）
+> 分支：`feat/module-09-config-center`
+> 任务：F-15 两层修复——进程层根因（子进程孤儿）+ 显示层症状（离线仍显示运行中）。
+> task id：F-15
+
+## 背景
+
+采集节点状态页出现「节点离线（最后心跳 1 天前）但采集器/拨测器列仍显示运行中」。根因两层：
+1. **进程层**：edge-sync-agent 主进程被强杀时，`ProcProbe.Start` 拉起的 vmagent / blackbox_exporter 子进程被 re-parent 成孤儿继续运行（`defer StopAll()` 不触发）。
+2. **显示层**：`agentView` 直接透传 DB 历史心跳的 `CollectorStatus` / `Components`，心跳过期不降级，故「运行中」是过期快照。
+
+## 设计决策
+
+1. **进程层**：为子进程设置「父死子亡」。跨平台以 build tag 拆分——Linux 落 `SysProcAttr.Pdeathsig=SIGKILL`，非 Linux 为 no-op（macOS/Windows 无该字段），回落依赖 systemd `KillMode=control-group` 由 cgroup 兜底。
+2. **显示层**：心跳超时（复用既有离线判定 `agentLiveStatus` + 调用方传入的 `DefaultOfflineThreshold`，不新造常量）时，把展示用的 `CollectorStatus` 与 `Components[].status` 覆写为 `unknown`；**只改展示结果，不改 DB 原始上报值**，agent 恢复心跳后自然回真实值。
+
+## 修改/新增文件
+
+- 新增 `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_linux.go`：`configureSysProcAttr` 落 `Pdeathsig=SIGKILL`。
+- 新增 `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_other.go`：非 Linux no-op（注释说明 systemd cgroup 兜底）。
+- 修改 `platform/edge-sync-agent/cmd/edge-sync-agent/probe.go`：`ProcProbe.Start` 在 `cmd.Start()` 前调用 `configureSysProcAttr(cmd)`。
+- 新增 `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_linux_test.go`、`pdeathsig_other_test.go`：平台条件编译测试。
+- 修改 `platform/edge/management_service.go`：`agentView` 计算 `live` 后，离线时降级 `CollectorStatus`（→ `AgentStatusUnknown`）与 `Components`（→ `componentStatusUnknown`）；新增展示层常量 `componentStatusUnknown` 与纯函数 `degradeComponentsToUnknown`（返回副本，不动入参）。
+- 修改 `platform/edge/management_test.go`：新增两个用例。
+
+## 新增/修改测试
+
+- `TestConfigureSysProcAttrSetsPdeathsig`（linux）：`SysProcAttr.Pdeathsig == SIGKILL`。
+- `TestConfigureSysProcAttrNoopOnNonLinux`（!linux）：`SysProcAttr` 保持 nil。
+- `TestAgentViewDegradesComponentsWhenHeartbeatExpired`（edge）：心跳过期 → `Status=offline`、`CollectorStatus=unknown`、两组件 `status=unknown`；同时断言 DB 原始值仍为 `running`（展示层降级不落库）。
+- `TestAgentViewKeepsComponentStatusWhenHeartbeatFresh`（edge）：心跳新鲜 → 不降级（回归保护）。
+
+## 验证
+
+- TDD RED/GREEN：pdeathsig 测试先 RED（`undefined: configureSysProcAttr`）→ 实现 → GREEN；edge 降级测试先行为性 RED（组件 `unknown` vs 实际 `running`）→ 实现 → GREEN。
+- `platform/edge-sync-agent`：`go test ./...` 全绿；交叉编译校验 `GOOS=linux`（amd64/arm64）build + vet、`GOOS=windows` build 均通过。
+- `go test ./platform/...` 全绿（28 包）；`go vet ./platform/...` 通过。
+- 服务启动（本次因 8080 被既有进程占用，改用 `-listen-address :18080` 独立端口验证）：`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200，验证后停服释放端口。
+
+## Commit
+
+- `fix(module-11): agent 父死子亡守护 + 心跳过期组件状态降级 unknown（F-15）`
+
+## 遗留/协调点
+
+1. **systemd 单元（不在本模块职责）**：非 Linux 及「Linux 但 Pdeathsig 仅覆盖直接子进程」场景，需 unit 侧 `KillMode=control-group` 兜底（packaging/ 下的 systemd 单元归部署条线，本批次未改动，记为遗留项）。
+2. **PRD 回写**：F-15 为 ① 类设计缺口，建议 design 条线在 M11 PRD 补充「进程守护机制要求=父死子亡」「节点/组件两列状态一致性口径=心跳过期统一降级 unknown」，由 prototype-designer/chenrt 应用（目录隔离铁律，本处仅登记）。

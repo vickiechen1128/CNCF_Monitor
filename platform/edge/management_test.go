@@ -296,6 +296,54 @@ func TestGetAgentNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRetireNotFound)
 }
 
+// TestAgentViewDegradesComponentsWhenHeartbeatExpired 覆盖 F-15 症状层：agent 心跳
+// 超时（离线）时，展示用的组件状态（CollectorStatus / Components[].status）必须覆写为
+// unknown，消除「节点离线却采集器/拨测器仍显示运行中」的认知冲突（历史心跳快照过期）。
+// 同时断言 DB 原始上报值未被改动——仅展示层降级，agent 恢复心跳后自然回真实值。
+func TestAgentViewDegradesComponentsWhenHeartbeatExpired(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-stale", "tk", "vmagent", "")
+	a := seedAgent(t, db, "edge-stale", "online", tPtr(detectNow.Add(-200*time.Second)), []models.EdgeComponent{
+		{Type: models.ComponentTypeCollector, Name: "vmagent", Status: models.ComponentStatusRunning},
+		{Type: models.ComponentTypeBlackbox, Name: "blackbox_exporter", Status: models.ComponentStatusRunning},
+	})
+	require.NoError(t, db.Model(a).Update("collector_status", string(models.ComponentStatusRunning)).Error)
+
+	v, err := GetAgent(db, a.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusOffline, v.Status, "心跳过期 → 节点离线")
+	assert.Equal(t, AgentStatusUnknown, v.CollectorStatus, "心跳过期 → 采集器状态降级 unknown")
+	require.Len(t, v.Components, 2)
+	for _, c := range v.Components {
+		assert.Equal(t, models.ComponentStatus("unknown"), c.Status, "心跳过期 → 组件状态降级 unknown: %s", c.Type)
+	}
+
+	// 展示层降级不改 DB 原始上报值。
+	var raw models.EdgeAgent
+	require.NoError(t, db.First(&raw, a.ID).Error)
+	assert.Equal(t, string(models.ComponentStatusRunning), raw.CollectorStatus, "DB 原始值不变")
+	require.Len(t, raw.Components, 2)
+	assert.Equal(t, models.ComponentStatusRunning, raw.Components[0].Status, "DB 组件状态不变")
+}
+
+// TestAgentViewKeepsComponentStatusWhenHeartbeatFresh 心跳未过期时不降级（回归保护：
+// 避免降级逻辑误伤在线节点）。
+func TestAgentViewKeepsComponentStatusWhenHeartbeatFresh(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-fresh", "tk", "vmagent", "")
+	a := seedAgent(t, db, "edge-fresh", "online", tPtr(detectNow.Add(-10*time.Second)), []models.EdgeComponent{
+		{Type: models.ComponentTypeCollector, Name: "vmagent", Status: models.ComponentStatusRunning},
+	})
+	require.NoError(t, db.Model(a).Update("collector_status", string(models.ComponentStatusRunning)).Error)
+
+	v, err := GetAgent(db, a.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusOnline, v.Status)
+	assert.Equal(t, string(models.ComponentStatusRunning), v.CollectorStatus, "在线不降级")
+	require.Len(t, v.Components, 1)
+	assert.Equal(t, models.ComponentStatusRunning, v.Components[0].Status, "在线组件状态不降级")
+}
+
 func TestListAgentsAndGetAgentHandlers(t *testing.T) {
 	db := newEdgeTestDB(t)
 	seedMonitoredEdgeDomain(t, db, "edge-hl", "tk", "vmagent", "")
