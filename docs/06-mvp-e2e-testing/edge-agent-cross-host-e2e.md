@@ -29,27 +29,114 @@
 
 ```
 本地 mac：metric-center(127.0.0.1:8080) + prometheus(127.0.0.1:9090, receiver 开)
-      ▲ Cloudflare Tunnel 两条（trycloudflare.com 公网 URL）
-      │  ├─ TUNNEL_8080 → localhost:8080   （边缘心跳 / 拉包）
-      │  └─ TUNNEL_9090 → localhost:9090   （vmagent remote_write）
+          + 前端 dev server(127.0.0.1:5173) + alertmanager(127.0.0.1:9093)
+      ▲ Cloudflare Tunnel 四条（trycloudflare.com 公网 URL，重启域名即变）
+      │  ├─ TUNNEL_8080 → localhost:8080   （边缘心跳 / 拉包 / 控制面 API）
+      │  ├─ TUNNEL_9090 → localhost:9090   （vmagent remote_write）
+      │  ├─ TUNNEL_5173 → localhost:5173   （前端控制台，浏览器访问）
+      │  └─ TUNNEL_9093 → localhost:9093   （Alertmanager UI / 告警链路验证）
       │
 腾讯云采集节点（/opt/apps/edge-sync-agent，只读程序）
       edge-sync-agent（supervisor）→ vmagent(:8429) + blackbox_exporter(:9115)
 ```
 
-### 2.1 起本地中心（2 进程 + 2 隧道）
+> `TUNNEL_5173` / `TUNNEL_9093` 仅调试期方便（前端与 AM UI 不必回本地看）；
+> 边缘链路本身只依赖 **8080（控制面）** 与 **9090（remote_write）** 两条。
+
+### 2.1 起本地中心（4 进程 + 4 隧道）
 
 ```bash
 cd "~/S-03Python/03 AIopsAgent-study/CNCF_Monitor-feature"
 make run-prometheus       # 终端 1：127.0.0.1:9090（已开 --web.enable-remote-write-receiver）
 make run-metric-center    # 终端 2：127.0.0.1:8080
+make dev-ui               # 终端 3：127.0.0.1:5173（前端控制台，调试期需要）
+make run-alertmanager     # 终端 4：127.0.0.1:9093（M08 告警链路验证需要，可选）
 
-brew install cloudflared
-cloudflared tunnel --url http://localhost:8080   # 终端 3 → 记 TUNNEL_8080
-cloudflared tunnel --url http://localhost:9090   # 终端 4 → 记 TUNNEL_9090
+brew install cloudflared  # 已装可跳过
+
+# 一次开四条 quick tunnel，各写独立日志（公网域名只出现在日志里，重启即变）
+for p in 8080 9090 5173 9093; do
+  nohup cloudflared tunnel --url "http://localhost:$p" --no-autoupdate > "/tmp/cf-$p.log" 2>&1 &
+done
+sleep 15
+
+# 提取四条公网 URL（后续步骤统一用这四个变量）
+for p in 8080 9090 5173 9093; do
+  echo "TUNNEL_$p=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf-$p.log | head -1)"
+done
 ```
 
-自检：`curl -s http://localhost:8080/api/v1/health`；浏览器开 `$TUNNEL_9090/-/healthy` 期望 Healthy。
+自检（四条隧道全绿才算打通）：
+
+```bash
+curl -s "https://<TUNNEL_8080 域名>/api/v1/health"                      # 期望 status=ok
+curl -s "https://<TUNNEL_9090 域名>/-/healthy"                          # 期望 Prometheus Server is Healthy.
+curl -s -o /dev/null -w '%{http_code}\n' "https://<TUNNEL_5173 域名>/"  # 期望 200
+curl -s -o /dev/null -w '%{http_code}\n' "https://<TUNNEL_9093 域名>/"  # 期望 200
+```
+
+> 前端隧道开箱可用：`ui-custom/web/vite.config.ts` 已设 `server.allowedHosts: ['.trycloudflare.com']`，
+> 且 `/api` 代理到 `http://localhost:8080`，故浏览器直接开 `TUNNEL_5173` 即可用控制台（无需改 API 基址）。
+> 本地关机/重启后 quick tunnel 域名**必变**，按 **§2.1.1** 重开隧道并刷新中心与 agent。
+
+### 2.1.1 本地重启后：重开隧道 + 刷新两端（域名变更动线）
+
+> 场景：本地 mac 关机/重启（或 cloudflared 进程被杀）后，`trycloudflare.com` **四个域名全部变化**。
+> 三步走：① 本地重开隧道 → ② 腾讯云刷新 `CENTER_ENDPOINT` → ③ 中心刷新 `remote_write_url` 并产生一次新配置版本。
+
+**① 本地：清旧隧道 → 重开四条 → 取新域名**
+
+```bash
+pkill -f "cloudflared tunnel --url" 2>/dev/null || true   # 旧域名已失效，先清掉旧进程
+
+for p in 8080 9090 5173 9093; do
+  nohup cloudflared tunnel --url "http://localhost:$p" --no-autoupdate > "/tmp/cf-$p.log" 2>&1 &
+done
+sleep 15
+for p in 8080 9090 5173 9093; do
+  echo "TUNNEL_$p=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/cf-$p.log | head -1)"
+done
+```
+
+**② 腾讯云：刷新 agent 的 `CENTER_ENDPOINT` 为新的 8080 隧道并重启**
+
+> 心跳的 `CENTER_ENDPOINT` 是 agent 侧写死的，**不会自动跟随**隧道域名（拉包 URL 由中心按请求来源动态生成，会自动跟新）。
+> `CENTER_ENDPOINT` **必须带完整 `https://` 协议头**，缺协议头会导致拉包失败。
+
+```bash
+ssh yunwei-chenrt@<腾讯云IP>
+
+# 改 drop-in（勿改原 unit）——把 CENTER_ENDPOINT 换成新的 8080 隧道域名
+sudo sed -i 's#^Environment=CENTER_ENDPOINT=.*#Environment=CENTER_ENDPOINT=https://<新 TUNNEL_8080 域名>#' \
+  /etc/systemd/system/edge-sync-agent.service.d/site.conf
+sudo systemctl daemon-reload && sudo systemctl restart edge-sync-agent
+grep CENTER_ENDPOINT /etc/systemd/system/edge-sync-agent.service.d/site.conf   # 复核
+
+# 复核回连成功（日志出现心跳/拉包，无 530 / 401 / unsupported protocol scheme）
+sudo journalctl -u edge-sync-agent -n 30 -l --no-pager
+```
+
+**③ 中心：更新网域 `remote_write_url` 指向新 9090 隧道（不换 token）+ 产生一次新配置版本**
+
+> `PUT /network-domains/:id/monitor` 只改 `remote_write_url`，**不重置 token**（重置 token 是 `POST .../reset-token`，会换新明文，agent 需同步换）。
+> 坑：`config_changed` 判定是 **`config_version` 字符串比对**（[heartbeat_service.go L111-120](../../platform/edge/heartbeat_service.go#L111-L120)），
+> 只改 `remote_write_url` **不会**让 agent 重拉——vmagent 的 `-remoteWrite.url` 仍是旧隧道地址。
+> 必须产生一次**新的 `config_version`**（改动任一采集 Job → 生成草稿 → 确认下发），agent 才会拉到携带新 `remote_write_url`
+> 的配置包，并由 `ProcProbe.Reload`（参数变化）重启 vmagent 指向新地址。
+
+```bash
+BASE=http://localhost:8080/api/v2/platform
+DOMAIN_ID=<DOMAIN_ID>
+
+# ① 更新 remote_write_url 指向新的 9090 隧道（不换 token）
+curl -s -X PUT "$BASE/network-domains/$DOMAIN_ID/monitor" -H 'Content-Type: application/json' \
+  -d '{"remote_write_url": "https://<新 TUNNEL_9090 域名>/api/v1/write"}' | jq '.data.remote_write_url'
+
+# ② 产生一次新配置版本：在控制台禁/启任一采集 Job → 生成草稿 → 确认下发；
+#    确认后 ≤30s agent 心跳判定 config_changed → 拉新包 → vmagent 重启指向新 9090 隧道
+```
+
+**④ 端到端复核**：中心 9090 查 `up{network_domain_id="<网域ID>"}` 有数据；前端（`TUNNEL_5173`）「监控目标状态」边缘 target 有值。
 
 ### 2.2 打采集节点侧 1 个包（边缘，纯 Go，mac 直接交叉）
 
@@ -262,23 +349,32 @@ sudo systemctl daemon-reload && sudo systemctl enable --now edge-sync-agent
 | `sudo useradd` 报 `unknown item 'umask'` | 腾讯云 libuser 配置项不被识别 | 注释 `/etc/libuser.conf` 的 `umask` 行后重试 |
 | 拉包失败 `Get "/api/v2/platform/edge/config?network_domain=..."` unsupported protocol scheme "" | 旧中心 `configDownloadURL` 依赖从未赋值的 `dom.CenterEndpoint`，拼出无 host 的相对 URL | 升级中心：用 `requestAuthority` 按 `X-Forwarded-Proto/Host` 优先（cloudflared 注入）、回落请求 Host+TLS 推导；重编译重启中心 |
 | 心跳在重编译后变 `http 530` / CF error 1033「unable to resolve」 | **中心重编译不背锅**：cloudflared 隧道进程独立于 metric-center；530 是隧道侧无法到达 origin | 确认 8080 隧道进程还活着（`ps aux|grep cloudflared`），且 `lsof -i tcp:8080` 有 metric-center 监听。quick tunnel 域名**重启即变** |
-| 终端 3/4 各起一条 quick tunnel，后起的把先起的那条隧道进程杀掉 | cloudflared 同源互杀：同名 quick tunnel 只保最新一条 | **不要**用两条并列 `cloudflared tunnel --url`；改成环回落地 + 单隧道，或用命名隧道绑定固定域名。见 §4.1 |
-| 换 8080 隧道域名后 agent 心跳仍指旧域名 | 心跳的 `CENTER_ENDPOINT` 是 agent 侧写死，不自动跟新 | 拉包 URL 会自动跟新（中心按请求来源动态生成），但**心跳**要手工刷新 `CENTER_ENDPOINT` 为当前 8080 隧道域名并 `systemctl restart` |
+| 怀疑多条 quick tunnel 互杀（后起杀先） | 2026-09-24 实测 4 条并列可共存，未复现互杀 | 用 `nohup + 独立日志` 启动四条并逐一 curl 自检；`ps -eo pid,command \| grep "[c]loudflared tunnel --url"` 核对全存活。见 §4.1 |
+| 本地重启后 agent 全部失联、前端 URL 变 530 / 1033 | quick tunnel 域名**重启即全变**，中心/agent 两侧仍指旧域名 | 按 **§2.1.1** 重开四条隧道 → 刷新 agent `CENTER_ENDPOINT` → 刷新网域 `remote_write_url` + 产生新配置版本 |
+| 换 8080 隧道域名后 agent 心跳仍指旧域名 | 心跳的 `CENTER_ENDPOINT` 是 agent 侧写死，不自动跟新 | 拉包 URL 会自动跟新（中心按请求来源动态生成），但**心跳**要手工刷新 `CENTER_ENDPOINT` 为当前 8080 隧道域名并 `systemctl restart`（命令见 §2.1.1 ②） |
+| 只改了网域 `remote_write_url`，中心 9090 仍收不到边缘数据 | `config_changed` 按 `config_version` 串比对，改 URL 不产生新版本 → agent 不重拉，vmagent 仍指旧地址 | 见 §2.1.1 ③：改 URL 后必须**产生一次新 `config_version`**（改任一 Job → 草稿 → 确认下发） |
 | 中心 9090 只见 local 域数据、看不到边缘域 `up` | remote_write 未从边缘透传到中心 9090 | 确认 9090 隧道进程活着、agent `remoteWrite.url` 生效 |
 | 拨测无数据 | 无 `job_type=blackbox` Job | 建 blackbox Job 后重新 confirm |
 
 ---
 
-## 4.1 隧道稳定性：避免 cloudflared 同源互杀（中心重编译不影响隧道）
+## 4.1 隧道稳定性：多隧道并存与域名漂移（中心重编译不影响隧道）
 
 > 结论：**重编译/重启中心（metric-center）不影响隧道**。cloudflared 是独立进程，替换中心二进制后再起 8080 进程，隧道不受扰。隧道「消失 530」只可能是：① cloudflared 进程被杀；② quick tunnel 域名重启即变，agent 仍指旧域名。
 
-cloudflared 对同名 quick tunnel 是「后启杀先」，终端 3/4 两条并列会互踩。稳妥做法：**只开 8080 一条，9090 用落盘直连**——调试期所需三端口均经同一隧道暴露：
+**实测（2026-09-24，cloudflared 2026.9.1，macOS）**：以 `nohup` 并列开四条 quick tunnel（8080 / 9090 / 5173 / 9093）**可同时存活**——
+四条 `trycloudflare.com` 域名分别返回 `status=ok` / `Prometheus Server is Healthy.` / `200` / `200`，未观察到互杀。
+此前记录的「后启杀先」更可能源于同一 shell 内先后启动、或把「域名漂移」误判为进程被杀。为稳妥，本手册统一按 §2.1 的
+`nohup + 独立日志` 方式启动，启动后核对四条全在：
 
 ```bash
-# 隧道 A：8080 → 中心控制面（心跳/拉包/前端）
-cloudflared tunnel --url http://localhost:8080 --no-autoupdate   # 记 TUNNEL_8080，重启域名会变
-# 隧道 B：9090 → Prometheus remote_write（用命名隧道固定域名，避免互杀与域名漂移）
+ps -eo pid,command | grep "[c]loudflared tunnel --url"   # 期望四条
+for p in 8080 9090 5173 9093; do tail -3 "/tmp/cf-$p.log"; done   # 各日志应有 Assigned URL / Registered tunnel connection
+```
+
+若希望隧道域名**长期稳定**（不想每次重启换域名），把 remote_write 侧换成**命名隧道**绑定固定域名：
+
+```bash
 cloudflared tunnel create center-9090 && cloudflared tunnel route dns center-9090 <固定域名>
 cloudflared tunnel --no-autoupdate run center-9090 --config <(cat <<'EOF'
 tunnel: center-9090
@@ -290,7 +386,8 @@ EOF
 )
 ```
 
-若坚持用两条并列 quick tunnel（调试一次性场景），**务必分终端启动、并先启动 9090 再启动 8080**，且互杀后用 `ps aux | grep cloudflared` 核对两条都存活；一旦域名变化，按 §4 排查表「换 8080 隧道域名」更新 agent `CENTER_ENDPOINT`。
+> 无论 quick 还是命名隧道：**公网域名一变就必须刷新 agent `CENTER_ENDPOINT`**（§2.1.1 ②）；
+> 命名隧道域名不变，agent 侧无需改动——长期联调更省事。
 
 **重编译中心的正确动线**（不碰隧道）：
 ```bash
@@ -370,9 +467,10 @@ ps aux | grep vmagent | grep -o -- '-remoteWrite.url=[^ ]*'
 ## 5. 清理
 
 ```bash
-# 调试期：Ctrl-C 停 agent、两条 cloudflared、make run-prometheus、make run-metric-center
+# 调试期：Ctrl-C 停 agent、四条 cloudflared、make run-prometheus、make run-metric-center、make dev-ui、make run-alertmanager
 # 生产：systemctl stop edge-sync-agent；/opt/apps/metric-center/script/stop.sh
-lsof -i :8080 -i :9090 -i :8429 -i :9115
+pkill -f "cloudflared tunnel --url" 2>/dev/null || true
+lsof -i :8080 -i :9090 -i :5173 -i :9093 -i :8429 -i :9115
 ```
 
 测试结论登记至 `docs/05-execution-records/integration/v0.2/issues.md` 或模块 dev-feedback。
