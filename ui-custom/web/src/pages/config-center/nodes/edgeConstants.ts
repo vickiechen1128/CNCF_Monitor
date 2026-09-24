@@ -44,15 +44,39 @@ export const configSyncStatusLabel: Record<ConfigSyncStatus, string> = {
   no_version: '无版本',
 }
 
-export const configSyncStatusBadgeStatus: Record<
-  ConfigSyncStatus,
-  'success' | 'error' | 'default' | 'warning' | 'processing'
-> = {
+/** 配置同步 Badge 状态色（含「同步中」中间态使用的 processing） */
+export type ConfigSyncBadgeStatus = 'success' | 'error' | 'default' | 'warning' | 'processing'
+
+export const configSyncStatusBadgeStatus: Record<ConfigSyncStatus, ConfigSyncBadgeStatus> = {
   in_sync: 'success',
   out_of_sync: 'error',
   unknown: 'default',
   manual_override: 'warning',
   no_version: 'default',
+}
+
+/**
+ * 「同步中」中间态判定（F-16）：中心已确认下发、但 Agent 尚未在下次心跳（准实时 ≤30s）拉取应用，
+ * 体现为 `out_of_sync` + 成因 `pull_pending`。其余 out_of_sync 成因（pending_draft / local_reset / 空）仍按「未同步」展示。
+ */
+export function isConfigSyncInProgress(
+  status: ConfigSyncStatus | undefined,
+  cause?: OutOfSyncCause,
+): boolean {
+  return status === 'out_of_sync' && cause === 'pull_pending'
+}
+
+/** 配置同步展示文案（cause 感知；pull_pending 展示「同步中」以区别于「未同步」） */
+export function configSyncDisplayLabel(status: ConfigSyncStatus, cause?: OutOfSyncCause): string {
+  return isConfigSyncInProgress(status, cause) ? '同步中' : configSyncStatusLabel[status]
+}
+
+/** 配置同步 Badge 色（cause 感知；「同步中」用 processing 蓝，与「未同步」的 error 红区分） */
+export function configSyncDisplayBadgeStatus(
+  status: ConfigSyncStatus,
+  cause?: OutOfSyncCause,
+): ConfigSyncBadgeStatus {
+  return isConfigSyncInProgress(status, cause) ? 'processing' : configSyncStatusBadgeStatus[status]
 }
 
 /** out_of_sync 成因分档引导（文案 + 跳转目标；local_reset 无明确页面，走消息） */

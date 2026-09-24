@@ -15,8 +15,8 @@ import {
   componentStatusColor,
   componentStatusLabel,
   componentTypeLabel,
-  configSyncStatusBadgeStatus,
-  configSyncStatusLabel,
+  configSyncDisplayBadgeStatus,
+  configSyncDisplayLabel,
   formatBacklogBytes,
   outOfSyncCauseAction,
   outOfSyncCauseHint,
@@ -155,6 +155,7 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
 
   const cause = agent.out_of_sync_cause
   const causeAction = cause ? outOfSyncCauseAction[cause] : null
+  const syncStatus = agent.config_sync_status ?? 'unknown'
 
   return (
     <Drawer
@@ -185,9 +186,10 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
         </Descriptions.Item>
         <Descriptions.Item label="Agent 版本">{agent.version || '-'}</Descriptions.Item>
         <Descriptions.Item label="配置同步">
+          {/* pull_pending（已确认下发、待心跳拉取）展示「同步中」，其余 out_of_sync 仍「未同步」（F-16） */}
           <Badge
-            status={configSyncStatusBadgeStatus[agent.config_sync_status ?? 'unknown']}
-            text={configSyncStatusLabel[agent.config_sync_status ?? 'unknown']}
+            status={configSyncDisplayBadgeStatus(syncStatus, cause)}
+            text={configSyncDisplayLabel(syncStatus, cause)}
           />{' '}
           {cause && <Text type="secondary" style={{ fontSize: 12 }}>{outOfSyncCauseHint[cause]}</Text>}
         </Descriptions.Item>

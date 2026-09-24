@@ -31,7 +31,8 @@ import {
   agentStatusLabel,
   componentStatusColor,
   componentStatusLabel,
-  configSyncStatusBadgeStatus,
+  configSyncDisplayBadgeStatus,
+  configSyncDisplayLabel,
   configSyncStatusLabel,
   formatBacklogBytes,
   outOfSyncCauseAction,
@@ -156,7 +157,11 @@ export function EdgeAgentsPage() {
         const causeAction = cause ? outOfSyncCauseAction[cause] : null
         return (
           <Space size={6}>
-            <Badge status={configSyncStatusBadgeStatus[st]} text={configSyncStatusLabel[st]} />
+            {/* pull_pending（已确认下发、待心跳拉取）展示「同步中」，其余 out_of_sync 仍「未同步」（F-16） */}
+            <Badge
+              status={configSyncDisplayBadgeStatus(st, cause)}
+              text={configSyncDisplayLabel(st, cause)}
+            />
             {causeAction && (
               <Button
                 type="link"

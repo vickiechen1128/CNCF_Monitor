@@ -130,6 +130,36 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     expect(navigateMock).toHaveBeenCalledWith('/config-preview')
   })
 
+  it('配置同步 out_of_sync + pull_pending 展示「同步中」中间态（F-16）', async () => {
+    const agents: AgentView[] = [
+      agentRow(1, 'edge01', { config_sync_status: 'out_of_sync', out_of_sync_cause: 'pull_pending' }),
+    ]
+    useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 } }))
+    renderPage()
+
+    const badge = await screen.findByText('同步中')
+    expect(badge).toBeInTheDocument()
+    // 与「未同步」区分：badge 用 processing（蓝），不落 error（红）
+    expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-processing')).not.toBeNull()
+    expect(screen.queryByText('未同步')).toBeNull()
+    // 引导动作仍为「查看下发」
+    fireEvent.click(screen.getByRole('button', { name: /查看下发/ }))
+    expect(navigateMock).toHaveBeenCalledWith('/deployments')
+  })
+
+  it('配置同步 out_of_sync + pending_draft 仍展示「未同步」（非 pull_pending 不落「同步中」）', async () => {
+    const agents: AgentView[] = [
+      agentRow(1, 'edge01', { config_sync_status: 'out_of_sync', out_of_sync_cause: 'pending_draft' }),
+    ]
+    useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 1, online: 0, partial: 1, offline: 0 } }))
+    renderPage()
+
+    const badge = await screen.findByText('未同步')
+    expect(badge).toBeInTheDocument()
+    expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-error')).not.toBeNull()
+    expect(screen.queryByText('同步中')).toBeNull()
+  })
+
   it('点击「查看」打开详情抽屉', async () => {
     const agents: AgentView[] = [agentRow(1, 'edge01')]
     useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 } }))

@@ -91,6 +91,19 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
     expect(navigateMock).toHaveBeenCalledWith('/config-preview')
   })
 
+  it('配置同步 out_of_sync + pull_pending：显示「同步中」并保留心跳拉取提示（F-16）', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(
+      baseAgent({ config_sync_status: 'out_of_sync', out_of_sync_cause: 'pull_pending' }),
+    )
+
+    const badge = screen.getByText('同步中')
+    expect(badge).toBeInTheDocument()
+    expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-processing')).not.toBeNull()
+    expect(screen.getByText(/等待 Agent 下次心跳拉取/)).toBeInTheDocument()
+    expect(screen.queryByText('未同步')).toBeNull()
+  })
+
   it('配置同步 out_of_sync + local_reset：点「重新同步」走消息而非跳转', async () => {
     listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
     renderDrawer(

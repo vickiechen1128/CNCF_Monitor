@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-23 13:40 · commit: `60ef554`
+> 生成时间: 2026-09-24 12:08 · commit: `b708693`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1921,6 +1921,22 @@
 - `func hasBlackboxYML(dep *deployer.Deployer, ver string) bool`
 - `func localIP() string`
 
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_linux.go`
+
+- `func configureSysProcAttr(cmd *exec.Cmd)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_linux_test.go`
+
+- `func TestConfigureSysProcAttrSetsPdeathsig(t *testing.T)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_other.go`
+
+- `func configureSysProcAttr(_ *exec.Cmd)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/pdeathsig_other_test.go`
+
+- `func TestConfigureSysProcAttrNoopOnNonLinux(t *testing.T)`
+
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/probe.go`
 
 - `func sameArgs(a, b []string) bool`
@@ -2277,6 +2293,7 @@
 - `func RetireDomain(db *gorm.DB, id string) (*models.NetworkDomain, error)`
 - `type AgentView struct`
 - `func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView`
+- `func degradeComponentsToUnknown(comps []models.EdgeComponent) []models.EdgeComponent`
 - `func agentViewStatus(a *models.EdgeAgent, now time.Time, threshold time.Duration, live string) string`
 - `type AgentsSummary struct`
 - `type EdgeAgentsResponse struct`
@@ -2301,6 +2318,8 @@
 - `func TestListAgentsAllOnlineIsNormal(t *testing.T)`
 - `func TestGetAgentDetailIncludesComponents(t *testing.T)`
 - `func TestGetAgentNotFound(t *testing.T)`
+- `func TestAgentViewDegradesComponentsWhenHeartbeatExpired(t *testing.T)`
+- `func TestAgentViewKeepsComponentStatusWhenHeartbeatFresh(t *testing.T)`
 - `func TestListAgentsAndGetAgentHandlers(t *testing.T)`
 - `func TestListPackagesFields(t *testing.T)`
 - `func TestLatestPackageIsMaxVersion(t *testing.T)`
@@ -3907,7 +3926,11 @@
 - `const agentStatusBadgeStatus`
 - `const agentOverallLabel`
 - `const configSyncStatusLabel`
+- `type ConfigSyncBadgeStatus`
 - `const configSyncStatusBadgeStatus`
+- `function isConfigSyncInProgress`
+- `function configSyncDisplayLabel`
+- `function configSyncDisplayBadgeStatus`
 - `const outOfSyncCauseHint`
 - `const outOfSyncCauseAction`
 - `const componentTypeLabel`
