@@ -2,9 +2,9 @@
  * 采集目标状态 API（Module_02 决策 47，/api/v1，api-contract-snapshot.md §2.1）
  *
  * targetsApi.list：代理中心 Prometheus /api/v1/targets，M02 后端本地按
- * job / network_domain / health 过滤并补全 network_domain（前端不重复过滤，
- * §1.3/§2.1 透传语义）。被 module-01（Job 实例采集状态回显，决策 47-2）与
- * module-02 独立目标状态页（P1，决策 47-4）只读消费。
+ * job / network_domain / health / search 过滤并补全 network_domain / instance_name
+ * （前端不重复过滤，§1.3/§2.1 透传语义）。被 module-01（Job 实例采集状态回显，
+ * 决策 47-2）与 module-02 独立目标状态页（P1，决策 47-4）只读消费。
  */
 import { apiClient } from './client'
 import type { ApiResponse } from '../types/api'
@@ -18,6 +18,11 @@ export interface TargetsListParams extends Record<string, string | number | bool
   network_domain?: string
   /** up / down / unknown */
   health?: TargetHealth
+  /**
+   * 模糊搜索：同时匹配「M07 台账可读实例名」与「实例地址(host:port，IP 即其 host 部分）」，
+   * 大小写不敏感 contains（后端执行，前端不重复过滤）。
+   */
+  search?: string
   /** 透传上游，MVP 恒 active，可不传 */
   state?: string
 }

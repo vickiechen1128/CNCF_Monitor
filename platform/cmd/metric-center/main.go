@@ -63,6 +63,7 @@ var (
 	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
 	changeDetectMinInterval = flag.Duration("change-detect.min-interval", 5*time.Second, "M09 §3.3.3 配置变更检测最小间隔（可用环境变量 CONFIG_CHANGE_DETECT_MIN_INTERVAL_SECONDS 覆盖，单位秒）")
 	changeDetectMaxInterval = flag.Duration("change-detect.max-interval", 30*time.Second, "M09 §3.3.3 配置变更检测最大间隔（可用环境变量 CONFIG_CHANGE_DETECT_MAX_INTERVAL_SECONDS 覆盖，单位秒）；原 CONFIG_CHANGE_DETECT_INTERVAL_SECONDS 也映射为最大间隔")
+	edgePackageDir          = flag.String("edge-packages.dir", "dist/edge-package", "边缘离线交付包目录（读 release_meta.json 并流式下发 tar.gz）；可用环境变量 EDGE_PACKAGE_DIR 覆盖")
 )
 
 func main() {
@@ -87,6 +88,11 @@ func main() {
 	}
 	if *changeDetectMaxInterval < *changeDetectMinInterval {
 		*changeDetectMaxInterval = *changeDetectMinInterval
+	}
+
+	// Module 11 (T11-08)：边缘离线交付包目录，环境变量优先（非空则覆盖 flag 默认）。
+	if v := os.Getenv("EDGE_PACKAGE_DIR"); v != "" {
+		*edgePackageDir = v
 	}
 
 	// 优雅退出：监听 SIGINT/SIGTERM，取消 ctx 以停下变更检测 watcher，并 Shutdown HTTP 服务。
@@ -190,7 +196,7 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	query.RegisterRoutes(apiV1, db.DB, promURL)
 
 	apiV2 := r.Group("/api/v2")
-	if err := registerPlatformConfigRoutes(apiV2); err != nil {
+	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
 		return nil, err
 	}
 
@@ -219,7 +225,7 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 	}
 }
 
-func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
+func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
 	platform := g.Group("/platform")
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
@@ -270,7 +276,8 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 
 	// Module 11 (T11-06/07/08 收口): 管理面接口（退纳管 / edge-agents / edge-packages）。
 	// 与 edge 协议组（/edge/*）分离：本组不走 edge-token 中间件，回归全局用户认证（au-02，D1）。
-	edge.RegisterManagementRoutes(platform, db.DB)
+	// T11-08：edge-packages 读 *edgePackageDir 下的 release_meta.json 并流式下发真实 tar.gz。
+	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir)
 
 	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
 	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
@@ -279,7 +286,11 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup) error {
 	}
 
 	// 首页 Dashboard 聚合接口：一次性聚合资源 / 草稿 / 下发记录 / 网域统计。
-	platform.GET("/dashboard/summary", dashboard.SummaryHandler(db.DB))
+	// F-13：注入中心 Prometheus 拨测查询器，为 L3「拨测态势」提供 probe_status / last_probe_at。
+	platform.GET("/dashboard/summary", dashboard.SummaryHandler(
+		db.DB,
+		dashboard.WithProbeQuerier(dashboard.NewPromProbeQuerier(promURL, nil)),
+	))
 	return nil
 }
 

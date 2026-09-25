@@ -15,6 +15,11 @@
  * - L0 / L1 均 5 卡一行：栅格走 antd Col `flex:1` 等宽方案，容量变化不溢出；
  * - 告警卡固定 5 行/页为**定稿硬契约**（见 homeLayout.ts，已与视口解耦）。
  *
+ * 移动适配（手机竖屏，≤767px；见 homeResponsive.ts）：
+ * - 上述「5 卡一行」是**桌面版式**；窄屏下 L0 降为 2 卡一行、L1 降为 1 卡一行，
+ *   L4/L5 由同排 1.6:1 改为纵向堆叠（告警卡在上、使用指引在下）；
+ * - 只在窄屏分支改变栅格与排列方向，桌面分支（flex:1 五卡一行 / 同排等高）逐字不变。
+ *
  * 数据源：
  * - dashboardApi.getSummary()：资源总数 / 已监控（L0）、by_category（L1）、
  *   by_app + unclassified_*（L2）、probe_target_count / probe_target_abnormal_count（L0 拨测卡）；
@@ -53,6 +58,7 @@ import { ResourceTypeGrid } from './ResourceTypeGrid'
 import { AppDetailTable } from './AppDetailTable'
 import { ProbePanel } from './ProbePanel'
 import { firingAlerts as pickFiringAlerts } from './resourceTypeMeta'
+import { useNarrowLayout } from './homeResponsive'
 
 interface Status {
   version: string
@@ -142,16 +148,17 @@ const DASHBOARD_MOCK: DashboardSummary = {
   probe_target_count: 12,
   // 后端 MVP 恒 0；静态预览取 1 是为了把「异常 >0」这一分支也渲染出来（口径不变）
   probe_target_abnormal_count: 1,
-  // L3 明细（决策 93）：静态预览用与原型对齐的 mock，覆盖「异常排前」「应用/业务域空显 -」
-  // 与 >5 条分页分支；mock 走 up/down 显式态，真实环境后端 MVP 为未知空串（见 ProbePanel 头注释）
+  // L3 明细（决策 93）：静态预览 mock，覆盖「异常排前」「归属网域」与 >5 条分页分支；
+  // 归属口径为「归属网域」（见 design-proposals/probe-ownership-alignment.md：拨测不承载
+  // 应用/业务域维度）。mock 走 up/down 显式态，真实环境无 probe_success 样本时为空串（见 ProbePanel 头注释）
   probe_targets: [
-    { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:36:00+08:00' },
-    { url: 'https://www.example.cn/cert-check', status: 'down', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:27:00+08:00' },
-    { url: 'https://www.example.cn/', status: 'up', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:38:00+08:00' },
-    { url: 'https://data-api.example.cn/health', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:38:00+08:00' },
-    { url: 'https://order.example.cn/submit', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-    { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-    { url: 'https://gateway.example.cn/v1/ping', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+    { url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
+    { url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+    { url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+    { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:36:00+08:00' },
   ],
 }
 
@@ -671,6 +678,8 @@ export function HomePage() {
   const { productName } = useProductName()
   // L0 数字语义色（覆盖率品牌青 / 告警语义红）与卡片色取自主题 token，不硬编码
   const { token } = theme.useToken()
+  // 窄屏（≤767px）版式开关：手机竖屏下各区域降列/堆叠，桌面版式逐字不变
+  const narrow = useNarrowLayout()
   const [status, setStatus] = useState<Status | null>(() => (IS_STATIC_PREVIEW ? STATUS_MOCK : null))
   const [error, setError] = useState<string | null>(null)
 
@@ -824,13 +833,15 @@ export function HomePage() {
           gap: 16,
         }}
       >
-        {/* 页头行：左引导语 + 右系统状态（版本 / 模式） */}
+        {/* 页头行：左引导语 + 右系统状态（版本 / 模式）。
+            窄屏下改为纵向堆叠（引导语一行、系统状态另起一行），避免右侧状态被挤出屏幕。 */}
         <div
           style={{
             display: 'flex',
-            alignItems: 'baseline',
+            flexDirection: narrow ? 'column' : 'row',
+            alignItems: narrow ? 'flex-start' : 'baseline',
             justifyContent: 'space-between',
-            gap: 16,
+            gap: narrow ? 4 : 16,
           }}
         >
           {/* 页面引导语：页面归属已由左侧导航与面包屑表达，不再重复「MetricCenter 概览」大标题。
@@ -842,7 +853,7 @@ export function HomePage() {
           {(status || error) && (
             <Typography.Text
               type={error ? 'danger' : 'secondary'}
-              style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+              style={{ fontSize: 12, whiteSpace: narrow ? 'normal' : 'nowrap' }}
             >
               <Space size={16}>
                 {status && <span>版本 {status.version}</span>}
@@ -855,7 +866,9 @@ export function HomePage() {
 
         {/* L0 全局态势区：5 张 KPI 卡，5 卡一行（决策 93 新增第 5 卡「拨测」，由 4 卡收敛扩展）。
             第 4 卡「告警 / 当前未恢复」是 L0 唯一取 /api/v1/alerts 的数字；第 5 卡「拨测」取
-            dashboard.probe_target_abnormal_count。栅格走 antd Col flex:1 等宽方案保证 5 卡一行不溢出。 */}
+            dashboard.probe_target_abnormal_count。桌面走 antd Col flex:1 等宽方案保证 5 卡一行不溢出；
+            窄屏（≤767px）降为 2 卡一行——xs / sm 两档都要给，否则 576~767px 区间没有 span 会退化成
+            内容自适应宽度（卡片宽窄不一）。 */}
         <div style={{ fontSize: 13, fontWeight: 600 }}>全局态势</div>
         <div data-testid="l0-section" style={{ flex: 'none' }}>
           {dashboardLoading && <LoadingPlaceholder />}
@@ -864,7 +877,12 @@ export function HomePage() {
           )}
           <Row gutter={[16, 16]}>
             {metrics.map((item) => (
-              <Col key={item.key} flex="1">
+              <Col
+                key={item.key}
+                flex={narrow ? undefined : '1'}
+                xs={narrow ? 12 : undefined}
+                sm={narrow ? 12 : undefined}
+              >
                 <MetricCard item={item} />
               </Col>
             ))}
@@ -899,10 +917,19 @@ export function HomePage() {
             空库/字段缺失时空数组 → ProbePanel 显示空态 + 去配置深链）。 */ }
         <ProbePanel probeTargets={dashboard?.probe_targets ?? []} />
 
-        {/* L4 告警状态卡 + L5 使用指引：同排等高（左告警 flex:1.6 : 右指引 flex:1，决策 93）。
+        {/* L4 告警状态卡 + L5 使用指引：同排等高（左告警 flex:1.6 : 右指引 flex:1，决策 93）；
+            窄屏（≤767px）改为纵向堆叠（告警卡在上、使用指引在下），两卡各自整宽。
             AlertStatusCard 已支持 height:100% + 纵向 flex，使用指引改为纵向六步，见各自组件。 */}
-        <div data-testid="home-l45-row" style={{ display: 'flex', gap: 16, alignItems: 'stretch' }}>
-          <div style={{ flex: 1.6, minWidth: 0 }}>
+        <div
+          data-testid="home-l45-row"
+          style={{
+            display: 'flex',
+            flexDirection: narrow ? 'column' : 'row',
+            gap: 16,
+            alignItems: 'stretch',
+          }}
+        >
+          <div style={{ flex: narrow ? undefined : 1.6, minWidth: 0 }}>
             <AlertStatusCard
               counts={counts}
               latestAlerts={latestAlerts}
@@ -915,7 +942,7 @@ export function HomePage() {
               isStaticPreview={IS_STATIC_PREVIEW}
             />
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: narrow ? undefined : 1, minWidth: 0 }}>
             <OnboardingSteps />
           </div>
         </div>

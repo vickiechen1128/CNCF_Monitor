@@ -73,27 +73,31 @@ func RetireDomain(db *gorm.DB, id string) (*models.NetworkDomain, error) {
 
 // AgentView 是 edge-agents 列表 / 详情的平铺 DTO（§3.2 / §5.2）。
 type AgentView struct {
-	ID               uint                 `json:"id"`
-	NetworkDomainID  string               `json:"network_domain_id"`
-	Hostname         string               `json:"hostname"`
-	Ip               string               `json:"ip"`
-	AgentType        models.AgentType     `json:"agent_type"`
-	Version          string               `json:"version"`
-	Status           string               `json:"status"` // online/offline/unknown/retired（存活视角，实时计算）
-	LastHeartbeat    *string              `json:"last_heartbeat,omitempty"`
-	HeartbeatRTTMs   int                  `json:"heartbeat_rtt_ms,omitempty"`
-	LastConfigPull   *string              `json:"last_config_pull,omitempty"`
-	ConfigVersion    string               `json:"config_version,omitempty"`
+	ID               uint                    `json:"id"`
+	NetworkDomainID  string                  `json:"network_domain_id"`
+	Hostname         string                  `json:"hostname"`
+	Ip               string                  `json:"ip"`
+	AgentType        models.AgentType        `json:"agent_type"`
+	Version          string                  `json:"version"`
+	Status           string                  `json:"status"` // online/offline/unknown/retired（存活视角，实时计算）
+	LastHeartbeat    *string                 `json:"last_heartbeat,omitempty"`
+	HeartbeatRTTMs   int                     `json:"heartbeat_rtt_ms,omitempty"`
+	LastConfigPull   *string                 `json:"last_config_pull,omitempty"`
+	ConfigVersion    string                  `json:"config_version,omitempty"`
 	ConfigSyncStatus models.ConfigSyncStatus `json:"config_sync_status,omitempty"`
 	OutOfSyncCause   models.OutOfSyncCause   `json:"out_of_sync_cause,omitempty"`
-	WalBacklogBytes  int64                `json:"wal_backlog_bytes,omitempty"`
-	CollectorStatus  string               `json:"collector_status,omitempty"`
-	CollectorVersion string               `json:"collector_version,omitempty"`
-	LastError        string               `json:"last_error,omitempty"`
-	Components       []models.EdgeComponent `json:"components,omitempty"` // 抽屉：restart_count / last_restart_at / status
+	// 配置应用失败诊断（M11 设计提案 D-2，字段与心跳契约同名同义）。
+	ConfigApplyError         string                 `json:"config_apply_error,omitempty"`
+	ConfigApplyFailedVersion string                 `json:"config_apply_failed_version,omitempty"`
+	QueueBacklogBytes        int64                  `json:"queue_backlog_bytes,omitempty"`
+	CollectorStatus          string                 `json:"collector_status,omitempty"`
+	CollectorVersion         string                 `json:"collector_version,omitempty"`
+	LastError                string                 `json:"last_error,omitempty"`
+	Components               []models.EdgeComponent `json:"components,omitempty"` // 抽屉：restart_count / last_restart_at / status
 }
 
 func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) AgentView {
+	live := agentLiveStatus(a, now, threshold)
 	v := AgentView{
 		ID:               a.ID,
 		NetworkDomainID:  a.NetworkDomainID,
@@ -101,16 +105,35 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		Ip:               a.Ip,
 		AgentType:        a.AgentType,
 		Version:          a.Version,
-		Status:           agentViewStatus(a, now, threshold, agentLiveStatus(a, now, threshold)),
+		Status:           agentViewStatus(a, now, threshold, live),
 		HeartbeatRTTMs:   a.HeartbeatRTTMs,
 		ConfigVersion:    a.ConfigVersion,
 		ConfigSyncStatus: a.ConfigSyncStatus,
 		OutOfSyncCause:   a.OutOfSyncCause,
-		WalBacklogBytes:  a.WalBacklogBytes,
-		CollectorStatus:  a.CollectorStatus,
-		CollectorVersion: a.CollectorVersion,
-		LastError:        a.LastError,
-		Components:       a.Components,
+		// 配置应用失败诊断（D-2）：与 out_of_sync_cause 同口径透出，不做离线降级。
+		ConfigApplyError:         a.ConfigApplyError,
+		ConfigApplyFailedVersion: a.ConfigApplyFailedVersion,
+		QueueBacklogBytes:        a.QueueBacklogBytes,
+		CollectorStatus:          a.CollectorStatus,
+		CollectorVersion:         a.CollectorVersion,
+		LastError:                a.LastError,
+		Components:               a.Components,
+	}
+	// F-15 症状层：心跳超时（离线）或已退纳管（retired）时，节点已失去可信的实时状态，展示层统一降级：
+	//   - 组件状态（CollectorStatus / Components[].status）覆写为 unknown——retired 节点可能残留孤儿
+	//     进程仍在上报「运行中」，与「已退纳」并排展示即历史 F-15 的同一类认知冲突；
+	//   - 失效「同步中」进行时成因：pull_pending 是带时限的断言（「等 Agent 下次心跳拉取，准实时
+	//     ≤30s」），此刻已不可能再推进；而该成因只在心跳到来时才被重写（heartbeat_service），不处理
+	//     会永久停留「同步中」假象。清空成因 → 前端回落「未同步」，且不再给出误导性的「查看下发」引导。
+	// 复用离线判定口径（agentLiveStatus + 传入的 offlineThreshold，勿另起常量）；只改展示结果、
+	// 不改 DB 原始上报值——agent 恢复心跳后自然回真实值。
+	// 仅失效进行时成因：apply_failed 是已发生的终态事实，离线/退纳管后仍透出以便排障。
+	if live == AgentStatusOffline || live == AgentStatusRetired {
+		v.CollectorStatus = AgentStatusUnknown
+		v.Components = degradeComponentsToUnknown(a.Components)
+		if v.OutOfSyncCause == models.OutOfSyncCausePullPending {
+			v.OutOfSyncCause = ""
+		}
 	}
 	if a.LastHeartbeat != nil {
 		s := a.LastHeartbeat.UTC().Format(time.RFC3339)
@@ -121,6 +144,25 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		v.LastConfigPull = &s
 	}
 	return v
+}
+
+// componentStatusUnknown 是展示层派生值（F-15）：心跳过期降级时把组件 status 覆写为
+// unknown。前端 componentStatusLabel 已含该档（展示「未知」）；本值不落库、不属于上报
+// 契约枚举（models.ComponentStatus 只含 running/restarting/crash_loop/not_deployed）。
+const componentStatusUnknown models.ComponentStatus = "unknown"
+
+// degradeComponentsToUnknown 返回组件清单的展示副本，把各组件 status 覆写为 unknown；
+// 不改动入参（DB 原始上报值），无组件时返回 nil 以保持 omitempty 语义。
+func degradeComponentsToUnknown(comps []models.EdgeComponent) []models.EdgeComponent {
+	if len(comps) == 0 {
+		return nil
+	}
+	out := make([]models.EdgeComponent, len(comps))
+	copy(out, comps)
+	for i := range out {
+		out[i].Status = componentStatusUnknown
+	}
+	return out
 }
 
 // agentViewStatus 计算节点展示三档「正常/部分异常/离线」（PRD §3.2）：
@@ -149,9 +191,9 @@ type AgentsSummary struct {
 
 // EdgeAgentsResponse 是 GET /edge-agents 响应体。
 type EdgeAgentsResponse struct {
-	Overall string       `json:"overall"` // normal/partial/offline/unknown
+	Overall string        `json:"overall"` // normal/partial/offline/unknown
 	Summary AgentsSummary `json:"summary"`
-	Agents  []AgentView  `json:"agents"`
+	Agents  []AgentView   `json:"agents"`
 }
 
 // ListAgents 汇总全部 edge-agents；overall 按非 retired 节点实时状态聚合。

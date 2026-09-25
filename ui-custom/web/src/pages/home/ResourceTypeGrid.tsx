@@ -6,6 +6,10 @@
  * 的「按应用查看」入口卡（L2 应用覆盖区前移承接跳转）与每卡右上角「未恢复」告警胶囊
  * （告警信息收口 L0 告警卡 + L4 告警状态卡，本区只体现采集覆盖口径）。
  *
+ * 移动适配（手机竖屏 ≤767px，见 homeResponsive.ts）：由 5 卡一行降为**单卡一行**——
+ * 本卡比 L0 指标卡更宽（32px 已采数 + 覆盖率进度条 + 子类 chip 左右两栏），
+ * 手机上两卡一行会把子类 chip 的「已采/总数 · 覆盖率」压到截断，故直接单列排布。
+ *
  * 卡片自上而下：单字徽标 + 类型名 → 32px 已采数 + `/ N 量词已采` → 覆盖率进度条 +
  * 「覆盖率 X%」/「未采 N」→ 细分隔线 → 子类小标题 + 子类 chip 列表（+ 卡内脚注）。
  *
@@ -33,6 +37,7 @@ import {
   uncoveredCount,
 } from './resourceTypeMeta'
 import type { ResourceCategoryKey } from './resourceTypeMeta'
+import { useNarrowLayout } from './homeResponsive'
 
 /** 子类取值为空串时（该资源未填细分类型）的展示占位 */
 const EMPTY_SUBTYPE_LABEL = '未标注'
@@ -306,11 +311,18 @@ function CoverageBar({ percent }: { percent: number | null }) {
 
 export function ResourceTypeGrid({ byCategory }: ResourceTypeGridProps) {
   const summaryOf = new Map(byCategory.map((c) => [c.resource_category, c]))
+  // 窄屏（≤767px）版式开关：桌面 5 卡一行，手机竖屏单卡一行
+  const narrow = useNarrowLayout()
 
   return (
     <Row gutter={[16, 16]} data-testid="l1-grid">
       {L1_CATEGORY_ORDER.map((category) => (
-        <Col key={category} flex="1">
+        <Col
+          key={category}
+          flex={narrow ? undefined : '1'}
+          xs={narrow ? 24 : undefined}
+          sm={narrow ? 24 : undefined}
+        >
           <CategoryCard category={category} summary={summaryOf.get(category) as CategorySummary | undefined} />
         </Col>
       ))}

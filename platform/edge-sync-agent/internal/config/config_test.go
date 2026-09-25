@@ -41,7 +41,7 @@ func TestLoadWithEnv(t *testing.T) {
 	t.Setenv(EnvNetworkDomainID, "gov-cloud-a")
 	t.Setenv(EnvToken, "tok")
 	t.Setenv(EnvCenterEndpoint, "https://10.8.0.5:8443")
-	t.Setenv(EnvAgentType, "prometheus-agent")
+	t.Setenv(EnvAgentType, "vmagent")
 	t.Setenv(EnvVersion, "v0.2.0")
 
 	c, err := Load()
@@ -52,7 +52,7 @@ func TestLoadWithEnv(t *testing.T) {
 		c.CenterEndpoint != "https://10.8.0.5:8443" {
 		t.Fatalf("identity not loaded: %+v", c)
 	}
-	if c.AgentType != "prometheus-agent" || c.Version != "v0.2.0" {
+	if c.AgentType != "vmagent" || c.Version != "v0.2.0" {
 		t.Fatalf("overrides not applied: %+v", c)
 	}
 	// 默认值仍生效。

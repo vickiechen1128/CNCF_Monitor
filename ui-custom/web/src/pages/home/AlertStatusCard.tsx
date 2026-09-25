@@ -45,6 +45,7 @@ import {
   severityTone,
 } from '../alerts/alertmanagerConstants'
 import { computeAlertPageSize } from './homeLayout'
+import { useNarrowLayout } from './homeResponsive'
 import { SurfaceCard } from './SurfaceCard'
 
 export interface AlertCounts {
@@ -117,17 +118,24 @@ interface StatCell {
  * 告警状态四格统计条（决策 73 §2）：
  * 当日告警 / 近 7 天告警为主数字（24px/700 基础色），通知中（红）/ 已静默 · 已抑制（'3 · 2'）为次，
  * 格间竖分隔线，每格悬浮显示口径注释。
+ *
+ * 移动适配（手机竖屏 ≤767px）：`compact` 为真时由「一行四格」改为 **2×2 两行两格**——
+ * 「已静默 · 已抑制」这类长标签在窄屏一行四格下（每格约 75px）必然溢出到相邻格，
+ * 故仅在此断点换行；分隔线按列位置重排（第 2、4 格带左分隔线）。
  */
 export function AlertStatStrip({
   counts,
   historyUnavailable,
   amUnavailable,
+  compact = false,
 }: {
   counts: AlertCounts
   /** history 取数失败：主数字两格显示 '-'（决策 73 局部降级，不显示 0） */
   historyUnavailable: boolean
   /** AM 取数失败：治理态两格显示 '-'，不把失败静默成 0 */
   amUnavailable: boolean
+  /** 窄屏两行两格布局（见本组件头注释） */
+  compact?: boolean
 }) {
   const { token } = theme.useToken()
 
@@ -171,42 +179,53 @@ export function AlertStatStrip({
       data-testid="alert-stat-strip"
       style={{
         display: 'flex',
+        flexWrap: compact ? 'wrap' : undefined,
         borderTop: `1px solid ${token.colorBorderSecondary}`,
         borderBottom: `1px solid ${token.colorBorderSecondary}`,
         padding: '8px 0 7px',
       }}
     >
-      {cells.map((cell, index) => (
-        <Tooltip key={cell.key} title={cell.tip}>
-          <div
-            style={{
+      {cells.map((cell, index) => {
+        // 窄屏 2×2：右列（奇数下标）带左分隔线、下排（下标 ≥2）加行距；宽屏维持一行四格原逻辑
+        const cellStyle = compact
+          ? {
+              flex: '0 0 50%',
+              minWidth: 0,
+              marginTop: index >= 2 ? 8 : undefined,
+              padding: index % 2 === 1 ? '0 0 0 12px' : '0 12px 0 0',
+              borderLeft: index % 2 === 1 ? `1px solid ${token.colorBorderSecondary}` : undefined,
+            }
+          : {
               flex: 1,
               minWidth: 0,
               padding: index === 0 ? '0 12px 0 0' : '0 12px',
               borderLeft: index === 0 ? undefined : `1px solid ${token.colorBorderSecondary}`,
-            }}
-          >
-            <div
-              data-testid={cell.testId}
-              style={{
-                fontSize: 24,
-                fontWeight: 700,
-                lineHeight: 1.2,
-                color: cell.color,
-                fontVariantNumeric: 'tabular-nums',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {cell.value}
+            }
+        return (
+          <Tooltip key={cell.key} title={cell.tip}>
+            <div style={cellStyle}>
+              <div
+                data-testid={cell.testId}
+                style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  lineHeight: 1.2,
+                  color: cell.color,
+                  fontVariantNumeric: 'tabular-nums',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {cell.value}
+              </div>
+              <div
+                style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 2, whiteSpace: 'nowrap' }}
+              >
+                {cell.label}
+              </div>
             </div>
-            <div
-              style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 2, whiteSpace: 'nowrap' }}
-            >
-              {cell.label}
-            </div>
-          </div>
-        </Tooltip>
-      ))}
+          </Tooltip>
+        )
+      })}
     </div>
   )
 }
@@ -355,6 +374,8 @@ export function AlertStatusCard({
   isStaticPreview = false,
 }: AlertStatusCardProps) {
   const { token } = theme.useToken()
+  // 窄屏（≤767px）版式开关：四格统计条由一行四格改为 2×2（见 AlertStatStrip 头注释）
+  const narrow = useNarrowLayout()
   const allFailed = !loading && promError !== null && amError !== null
   const partialError = !loading && !allFailed && (promError !== null || amError !== null)
   const errorText = [promError, amError].filter(Boolean).join('；')
@@ -462,6 +483,7 @@ export function AlertStatusCard({
                 counts={counts}
                 historyUnavailable={historyUnavailable}
                 amUnavailable={amUnavailable}
+                compact={narrow}
               />
 
               {/* unprocessed 不计数不列条，仅防「通知中 0」被误读为无告警 */}

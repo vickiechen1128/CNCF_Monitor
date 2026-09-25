@@ -9,8 +9,9 @@
 # 产物结构（DIST_DIR/edge-package/）：
 #   edge-sync-agent-<version>-linux-<arch>-<timestamp>.tar.gz    # 离线包
 #   release_meta.json                                            # 发布元数据（对齐中心
-#       PackageArtifact{version, size_bytes, components[]} / PackageComponent{name, version}）：
-#       version=EDGE_AGENT_VERSION；size_bytes=tarball 字节数；
+#       PackageArtifact{version, file, size_bytes, sha256, components[]} / PackageComponent{name, version}）：
+#       version=EDGE_AGENT_VERSION；file=tarball 文件名（带时间戳，中心据此定位产物）；
+#       size_bytes=tarball 字节数；sha256=整包校验和；
 #       components=[edge-sync-agent + vmagent + blackbox_exporter]
 #
 # 离线包内部结构：
@@ -22,6 +23,12 @@
 #   ├── packaging/edge-sync-agent.service   # systemd unit（父进程守护）
 #   ├── start.sh                   # 安装引导（systemd 或前台手动运行）
 #   └── README.md                  # 安装/配置/升级说明
+#
+# 文档单一来源：包内 README.md 与 unit 均直接拷贝自
+#   platform/edge-sync-agent/packaging/{README.md,edge-sync-agent.service}，
+#   本脚本只把其中的 __VERSION__ 占位符替换为实际版本号——避免出现第二份会各自漂移的文档。
+#
+# 产物清理：默认只保留最新一份 tarball 与解压目录，打包前会删除同目录历史产物。
 #
 # 环境变量：
 #   EDGE_AGENT_VERSION  版本号（Makefile 注入，默认 v0.2.0）
@@ -55,16 +62,31 @@ BIN_BB_AMD64="$EDGE_SRC_DIST/blackbox_exporter-linux-amd64"
 BIN_BB_ARM64="$EDGE_SRC_DIST/blackbox_exporter-linux-arm64"
 for b in "$BIN_AMD64" "$BIN_ARM64" "$BIN_VM_AMD64" "$BIN_VM_ARM64" "$BIN_BB_AMD64" "$BIN_BB_ARM64"; do
     if [ ! -f "$b" ]; then
-        echo ">>> ERROR: 缺少 $b（请先执行 make build-edge-agent && make build-vmagent && make build-blackbox-edge）"
+        echo ">>> ERROR: 缺少 ${b}（请先执行 make build-edge-agent && make build-vmagent && make build-blackbox-edge）"
         exit 1
     fi
 done
-if [ ! -f "$PROJECT_ROOT/platform/edge-sync-agent/packaging/edge-sync-agent.service" ]; then
-    echo ">>> ERROR: 缺少 packaging/edge-sync-agent.service，打包中止"
-    exit 1
-fi
+for doc in "$PROJECT_ROOT/platform/edge-sync-agent/packaging/edge-sync-agent.service" \
+           "$PROJECT_ROOT/platform/edge-sync-agent/packaging/README.md"; do
+    if [ ! -f "$doc" ]; then
+        echo ">>> ERROR: 缺少 ${doc##*/}（包内文档单一来源），打包中止"
+        exit 1
+    fi
+done
 
 rm -rf "$PACK_DIR"
+# 只保留最新一份产物：清理同目录的历史 tarball 与历史解压目录（用户要求「只要一个最新版本」）。
+# 放在二进制检查之后执行，避免检查失败退出时反而清掉了上一份可用产物。
+for old in "$PKG_ROOT"/edge-sync-agent-*.tar.gz; do
+    [ -e "$old" ] || continue
+    [ "$old" = "$TARBALL" ] && continue
+    rm -f "$old"
+done
+for olddir in "$PKG_ROOT"/edge-sync-agent-v*; do
+    [ -d "$olddir" ] || continue
+    [ "$olddir" = "$PACK_DIR" ] && continue
+    rm -rf "$olddir"
+done
 mkdir -p "$PACK_DIR"/bin "$PACK_DIR"/packaging
 cp -f "$BIN_AMD64" "$PACK_DIR/bin/"
 cp -f "$BIN_ARM64" "$PACK_DIR/bin/"
@@ -75,17 +97,37 @@ cp -f "$BIN_BB_ARM64" "$PACK_DIR/bin/"
 cp -f "$PROJECT_ROOT/platform/edge-sync-agent/packaging/edge-sync-agent.service" "$PACK_DIR/packaging/"
 
 # 启动/安装引导脚本（systemd 优先，回落前台手动运行）
+# 注意：本段用 quoted heredoc（<<'EOF'），端口默认值与变量名需原样保留到部署机展开。
 cat > "$PACK_DIR/start.sh" <<'EOF'
 #!/usr/bin/env bash
 # start.sh — Edge Sync Agent 安装引导
+#
 # 推荐以 systemd 部署（生产，见 packaging/edge-sync-agent.service）：
 #   sudo cp packaging/edge-sync-agent.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now edge-sync-agent
-#   编辑 /etc/systemd/system/edge-sync-agent.service 的 Environment= 填写
+#   编辑 /etc/systemd/system/edge-sync-agent.service 的 Environment= 填写三项必填：
 #     NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT，然后 sudo systemctl restart edge-sync-agent。
+#   systemd 场景自定义端口：取消该 unit 中对应 Environment= 行的注释并改成目标端口。
 #
-# 无 systemd 时（容器 / 调试）可前台手动运行。
+# 无 systemd 时（容器 / 调试）可前台手动运行：export 必填项后执行本脚本。
+#
+# ---- 端口（可选自定义，默认无需改动）------------------------------------------
+# 采集器与拨测器默认只绑回环（127.0.0.1），不占对外端口，因此无需为其开通网络策略。
+#   EDGE_COLLECTOR_ADDR     vmagent HTTP 监听地址          默认 127.0.0.1:8429
+#   EDGE_PROM_HEALTH_URL    vmagent 健康探活地址           默认 http://127.0.0.1:8429/health
+#   EDGE_BLACKBOX_ADDR      blackbox 监听 / TCP 探活地址   默认 127.0.0.1:9115
+# 与部署机上已有服务端口冲突时，export 覆盖后再运行本脚本，例如：
+#   export EDGE_COLLECTOR_ADDR=127.0.0.1:18429
+#   export EDGE_PROM_HEALTH_URL=http://127.0.0.1:18429/health   # 端口必须与上一行一致
+#   export EDGE_BLACKBOX_ADDR=127.0.0.1:19115
+# 注意：只改 EDGE_COLLECTOR_ADDR 而不改 EDGE_PROM_HEALTH_URL，探活会打到旧端口，
+#      组件会被反复判为不健康并触发重启。
+#
+# ---- 出站网络策略（需放通的方向）----------------------------------------------
+#   采集节点 -> 中心 CENTER_ENDPOINT         心跳上报 / 拉取配置包
+#   采集节点 -> 中心 Prometheus :9090        remote write（实际地址由配置包 metadata 下发）
+#   采集节点 -> 被采集目标自身端口            如 node_exporter :9100、中间件自带端口
 set -e
 DIR=$(cd "$(dirname "$0")" && pwd)
 ARCH=$(uname -m)
@@ -96,80 +138,44 @@ BIN="$DIR/bin/edge-sync-agent-linux-${ARCH}"
 
 for v in NETWORK_DOMAIN_ID TOKEN CENTER_ENDPOINT; do
     if [ -z "${!v}" ]; then
-        echo ">>> ERROR: 缺少环境变量 $v（必填）。export $v=... 后再运行。"
+        echo ">>> ERROR: 缺少环境变量 ${v}（必填）。export $v=... 后再运行。"
         exit 1
     fi
 done
+
+# 生效端口（默认值需与 cmd/edge-sync-agent/probe.go 保持一致）
+COLLECTOR_ADDR=${EDGE_COLLECTOR_ADDR:-127.0.0.1:8429}
+HEALTH_URL=${EDGE_PROM_HEALTH_URL:-http://127.0.0.1:8429/health}
+BLACKBOX_ADDR=${EDGE_BLACKBOX_ADDR:-127.0.0.1:9115}
+# 一致性自检：健康探活端口必须与采集器监听端口一致（去掉 URL 路径后比对）。
+COLLECTOR_PORT=${COLLECTOR_ADDR##*:}
+HEALTH_PORT=${HEALTH_URL##*:}
+HEALTH_PORT=${HEALTH_PORT%%/*}
+if [ "$COLLECTOR_PORT" != "$HEALTH_PORT" ]; then
+    echo ">>> WARNING: EDGE_PROM_HEALTH_URL 端口 ${HEALTH_PORT} 与 EDGE_COLLECTOR_ADDR 端口 ${COLLECTOR_PORT} 不一致，"
+    echo "             组件可能被判为不健康并反复重启；建议改为 http://${COLLECTOR_ADDR}/health"
+fi
+
 echo ">>> Starting edge-sync-agent (arch=$ARCH, domain=$NETWORK_DOMAIN_ID, center=$CENTER_ENDPOINT)"
+echo ">>> 本机监听（仅回环，无需网络策略）: vmagent=${COLLECTOR_ADDR}  blackbox=${BLACKBOX_ADDR}"
+echo ">>> edge-sync-agent 自身不监听端口，仅主动出站"
 exec "$BIN"
 EOF
 chmod +x "$PACK_DIR/start.sh"
 
-# 安装/配置/升级说明
-cat > "$PACK_DIR/README.md" <<'EOF'
-# Edge Sync Agent 部署包
+# 安装/配置/升级说明：直接拷贝仓库内唯一权威文档（文档单一来源），不再在此生成第二份。
+cp -f "$PROJECT_ROOT/platform/edge-sync-agent/packaging/README.md" "$PACK_DIR/README.md"
 
-版本：__VERSION__（模块 Module_11，阶段 D）
-
-## 目录说明
-
-- `bin/`   三件套二进制（linux/amd64 + linux/arm64，部署机按架构选装）：
-  `edge-sync-agent-*`（守护）/ `vmagent-*`（采集器，决策 88）/ `blackbox_exporter-*`（拨测器）
-- `packaging/edge-sync-agent.service`  systemd 守护单元（父进程运行、TimeoutStopSec=15、CAP_NET_RAW 注释）
-- `start.sh`  安装引导（systemd 优先；无 systemd 时前台快速验证）
-
-## 部署（生产建议 systemd）
-
-```bash
-sudo cp packaging/edge-sync-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload
-# 编辑 unit 的 [Service] Environment=，填写三项必填：
-#   NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT
-sudo systemctl enable --now edge-sync-agent
-```
-
-- 默认 ExecStart 指向 `/opt/apps/edge-sync-agent/edge-sync-agent`；如需改安装目录，
-  同步修改 unit 的 ExecStart 与配置文件落点（EDGE_CONFIG_ROOT，默认 /opt/apps/edge-sync-agent/edge-config）。
-- 状态查看：`sudo systemctl status edge-sync-agent`
-- 停止：`sudo systemctl stop edge-sync-agent`
-
-## 手动运行（无 systemd 的临时/调试/容器场景）
-
-```bash
-export NETWORK_DOMAIN_ID=xxx TOKEN=xxx CENTER_ENDPOINT=http://<center>:8080
-./start.sh                                # 或 ./bin/edge-sync-agent-linux-<arch>
-./bin/edge-sync-agent-linux-amd64 -version   # 打印版本与平台
-./bin/edge-sync-agent-linux-amd64 -help      # 参数
-```
-
-## 关键环境变量
-
-| 变量 | 必填 | 说明 | 默认 |
-|------|------|------|------|
-| `NETWORK_DOMAIN_ID` | 是 | 网域 ID（决定配置子目录 config-<domain>） | 无 |
-| `TOKEN` | 是 | 中心鉴权 Bearer token | 无 |
-| `CENTER_ENDPOINT` | 是 | 中心地址，如 `http://10.0.0.1:8080` | 无 |
-| `EDGE_CONFIG_ROOT` | 否 | 配置/版本目录根 | `/opt/apps/edge-sync-agent/edge-config` |
-| `EDGE_AGENT_TYPE` | 否 | 采集器类型 | `vmagent` |
-| `EDGE_AGENT_VERSION` | 否 | 心跳上报的 Agent 版本 | `dev` |
-| `EDGE_WAL_DIR` | 否 | 抓取 WAL 目录 | 采集进程默认 |
-| `EDGE_COLLECTOR_BIN` / `EDGE_BLACKBOX_BIN` | 否 | 采集/拨测二进制路径 | 同目录探测 |
-| `EDGE_PROM_HEALTH_URL` / `EDGE_PROM_RELOAD_URL` | 否 | 采集器健康/reload 探活地址 | `http://127.0.0.1:9090/-/healthy` / `../-/reload` |
-| `EDGE_BLACKBOX_ADDR` | 否 | 拨测器监听地址 | `:9115` |
-
-> 采集器需 `CAP_NET_RAW` 能力（ICMP 拨测）；systemd 部署时按需在 unit 中
-> `AmbientCapabilities=CAP_NET_RAW` 开启（unit 内已留注释）。
-
-## 版本与升级
-
-- Agent 版本由 `EDGE_AGENT_VERSION` 注入 main.version（Makefile：`-ldflags "-X main.version=$(EDGE_AGENT_VERSION)"`）。
-- 升级：替换 `/opt/apps/edge-sync-agent/edge-sync-agent` 二进制 → `sudo systemctl restart edge-sync-agent`。
-  重启后守护进程从磁盘恢复上次生效 config_version（崩溃恢复），无需再次下发。
-EOF
-
-# 注入实际版本号（回退 sed），再清理临时文件。
-sed "s|__VERSION__|$EDGE_AGENT_VERSION|g" "$PACK_DIR/README.md" > "$PACK_DIR/README.md.tmp"
-mv "$PACK_DIR/README.md.tmp" "$PACK_DIR/README.md"
+# 版本注入：README 与 systemd unit 中的 __VERSION__ 占位符统一替换为实际版本号。
+for f in "$PACK_DIR/README.md" "$PACK_DIR/packaging/edge-sync-agent.service"; do
+    sed "s|__VERSION__|$EDGE_AGENT_VERSION|g" "$f" > "$f.tmp"
+    mv "$f.tmp" "$f"
+done
+# 兜底自检：占位符不得残留（防止漏拷贝或漏渲染带病交付）。
+if grep -q "__VERSION__" "$PACK_DIR/README.md" "$PACK_DIR/packaging/edge-sync-agent.service"; then
+    echo ">>> ERROR: 版本占位符 __VERSION__ 未完全注入，打包中止"
+    exit 1
+fi
 
 # 打包离线 tar.gz
 cd "$PKG_ROOT"
@@ -183,6 +189,7 @@ SHA256=$(shasum -a 256 "$TARBALL" | awk '{print $1}')
 cat > "$PKG_ROOT/release_meta.json" <<EOF
 {
   "version": "$EDGE_AGENT_VERSION",
+  "file": "${PACK_NAME}.tar.gz",
   "size_bytes": $SIZE_BYTES,
   "sha256": "$SHA256",
   "components": [

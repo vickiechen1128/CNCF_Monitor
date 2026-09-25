@@ -319,3 +319,158 @@
 - **是否需设计侧确认**：否（文案口径对齐既有决策，无规格变更）。
 - **影响模块**：M09 网域纳管页安装指引 + 纳管抽屉文案。
 - **发现场景**：用户配合 M06 网域改造检查 M09 安装指引（2026-09-17）。
+
+---
+
+## 2026-09-24（网域纳管：通道展示错位 + token/下载入口体验）
+
+### F-28：网域创建 Channel 硬编码 local，未按 domain_type 预置 → 未纳管边缘域被误判为 local 通道（② 实现偏差）
+
+- **类别**：② 实现偏差修正
+- **PRD 章节 / 文件位置**：Module_09 §3.1（下发通道语义：management↔local 中心直连 / edge↔agent_pull 采集节点）；源码 `platform/admin/networkdomain/create.go`（L137 `Channel: models.ChannelTypeLocal`）、`platform/configcenter/domain/service.go` `MonitorDomain`（L83 按 `id==default` 判 local / 否则 agent_pull）、前端 `ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx`（L44 `isLocal = domain?.channel === 'local'`）、`NetworkDomainsPage.tsx`（L134 `onboardDomain.channel === 'agent_pull'` 才弹 token Modal）
+- **现状（根因）**：`Channel` 是独立持久化字段，M06 创建网域时**无条件硬编码 `local`**（不看 `domain_type`）；后端纳管时却按 `id == default` 分派（default→local、其余→agent_pull）；前端抽屉分支依据是 **`channel` 字段值**。三处基准不一致。
+- **问题（截图 3/4 实测，`test-a` 域 domain_type=edge 但 channel=local）**：未纳管边缘域被前端误判为 local，连锁出现——
+  1. 详情抽屉「域类型=边缘域」+「下发通道=local」自相矛盾；
+  2. 纳管抽屉展示「default 网域固定 local 通道…无需 Token / 安装指引」错位文案；
+  3. 纳管提交 `isLocal=true` → `remote_write_url` 置 `undefined` 不传；
+  4. `handleMonitorSubmit` 判定 `channel==='agent_pull'` 不成立 → **后端已签发 token 但前端不弹 `PlainTokenModal`**，用户看不到也复制不到 token（与用户「安装无 token 环节」反馈互为印证）。
+- **结论 / 解决措施**：`channel` 本质是 `domain_type` 的派生字段（MVP 固定映射 management↔local / edge↔agent_pull）。二选一，**推荐方案 A**：
+  - **A（数据源修正）**：`create.go` 创建网域时按 `domain_type` 预置 channel（management→local、edge→agent_pull）；存量脏数据（`test-a`、`测试` 等 channel=local 但 domain_type=edge）一次性迁移。
+  - B（前端判断修正）：前端 `isLocal` 改用 `domain_type`（`IsManagement()`）而非 `channel`，`handleMonitorSubmit` 同步按 `domain_type` 判 token 弹窗。
+  - A 优：列表/详情/纳管/后端四处口径一次统一，无需各消费方各自兜底。
+- **影响模块**：后端（`create.go` + 存量迁移）、前端（`OnboardDomainDrawer` / `NetworkDomainsPage` / `NetworkDomainDetailDrawer` 渠道展示已自动跟随正确值）
+- **发现场景**：用户核对 test-a（边缘域）网域详情与纳管抽屉，发现「下发通道=local」与「域类型=边缘域」矛盾（2026-09-24）
+- **处置（2026-09-24 已实现，方案 A，分支 `feat/module-09-config-center`）**：
+
+  1. **单一事实来源**：`platform/models/network_domain.go` 新增 `ChannelForDomainType(dt)`（管理域→local、边缘域/未知→agent_pull），作为通道口径唯一派生点；注释明确「未知域类型不得落回 local」（历史 bug 正错在此）。
+  2. **登记接口修正**：`platform/admin/networkdomain/create.go` 的 `Channel` 由硬编码 `ChannelTypeLocal` 改为 `models.ChannelForDomainType(req.DomainType)`（该接口只收边缘域，故恒为 agent_pull）。
+  3. **存量回填（幂等）**：新增 `platform/db/seed/domain_channel.go` 的 `runDomainChannelBackfill`，在 `seed.Run` 中于 `runTenantAndDomain` 之后执行；按 `domain_type` 双向对齐（edge→agent_pull、management→local），仅命中不一致行，`domain_type` 为空的兼容 / 历史记录不动。
+  4. **纳管口径统一**：`platform/configcenter/domain/service.go` 的 `MonitorDomain` 分支依据由 `id == DefaultDomainID` 改为 `dom.IsManagement()`，通道赋值改走 `ChannelForDomainType`；包注释同步更新。`ten_domain.go` 的 default 域预置值改走同一 helper。
+  5. **前端零改动**：`OnboardDomainDrawer` / `NetworkDomainsPage` / `NetworkDomainDetailDrawer` 的 `channel === 'local' | 'agent_pull'` 分支全部 key 在 `channel`，通道值修正后自动对齐（`remote_write_url` 会正常随 `agent_pull` 提交、纳管成功会正常弹 `PlainTokenModal`），符合方案 A「无需各消费方各自兜底」的预期。
+  6. **测试**：新增 `models` 的 `TestChannelForDomainType`（含未知类型不落回 local）、`seed` 的 3 个回填用例（正向对齐 / 反向对齐 / `domain_type` 为空不动 + 幂等）、`configcenter/domain` 的 `TestMonitorDomainManagementNonDefaultIDForcesLocal`、`admin/networkdomain` 的 `create_test.go` 补 channel 断言。
+  7. **验证**：`go vet ./platform/...` 通过；全量 `go test ./platform/...` 全绿；`make check-repo-map` 通过（已重新生成 `repo-map.md`）。
+  8. **生效方式**：控制面重启后 `seed.Run` 自动回填存量网域；此后新登记网域即刻带正确通道，无需人工干预。
+
+### F-29：网域纳管页下载入口隐蔽，列表无显性下载按钮（③ 技术优化/体验）
+
+- **类别**：③ 技术优化
+- **PRD 章节 / 文件位置**：Module_09 §11 安装指引；源码 `ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx`（L96 `guideOpen` 默认 false、`<EdgePackageDownloadPanel active={guideOpen} />`）、`EdgePackageDownloadPanel.tsx`（T11-22 已实连 `/edge-packages` + 真实下载）
+- **现状**：下载功能**已真实实现**（T11-22 实连，非 v0.2 占位），但挂载在页面顶部「安装指引」折叠区内部，`active={guideOpen}` 懒加载 + `guideOpen` 默认收起，需手动展开 → 滚动到底部才显示「离线安装包 → 下载安装包」按钮。用户（负责人）感知为「没有下载按钮」。
+- **结论 / 解决措施**：下载入口显性化——列表页工具栏加「下载安装包」主按钮（或对 agent_pull 网域行内提供）；折叠指引内保留当前下载清单，二者共用同一 `EdgePackageDownloadPanel`。
+- **影响模块**：前端 `NetworkDomainsPage.tsx`
+- **发现场景**：用户按安装指引找不下载按钮（2026-09-24）
+- **处置（2026-09-24 已实现，分支 `feat/module-09-config-center`）**：
+
+  1. **工具栏显性化**：`NetworkDomainsPage.tsx` 的 `<Card title="网域纳管">` 增加 `extra` 主按钮「下载安装包」（`type="primary"` + `DownloadOutlined`），点击打开「离线安装包下载」Modal（`footer={null}`、`width={640}`、`destroyOnHidden`），内嵌 `<EdgePackageDownloadPanel active={downloadOpen} />`。
+  2. **共用同一组件**：折叠指引内原 `<EdgePackageDownloadPanel active={guideOpen} />` 保持不动；两处共用同一面板组件、同一份版本清单，各自的 `active` 跟随所属容器开合，关闭时不发请求（面板内已有懒加载守卫）。
+  3. **测试**：`NetworkDomainsPage.test.tsx` 新增「工具栏『下载安装包』→ 点击后渲染面板（点击前不渲染）」用例。
+- **后续调整（2026-09-24，用户复测后裁决，**取代**上条第 1、2 项的工具栏方案）**：用户实测后指出两处动线错配——① 「中心直连域无需部署代理」这句提示被放在**默认收起**的安装指引**内部**，而页面级主按钮却对**所有网域**显眼，信息与入口的可见性正好反了：直连域用户要么白点一次指引、要么被顶部按钮引导去下载用不上的包；② 下载入口不该做在页面最上方。据此调整为「提示前置 + 行内按需」：
+
+  1. **提示前置**：原折叠区**内**的 `Alert`（「中心直连域（如 default / local 通道）无需部署代理，平台直接采集，可跳过下方采集节点安装步骤」）**移出**折叠区，常驻在折叠面板**之上**，文案改为「中心直连域（如 default / local 通道）：无需部署采集节点，平台直接采集；仅登记新增的边缘域需要安装采集节点。」——直连域用户无需展开任何折叠区即可确认自己不用操作。
+  2. **折叠标题限定为边缘域**：「新网域接入操作流程（安装指引）」→「边缘域接入操作流程（安装指引）」，副标题「点击展开（中心直接采集的网域无需查看）」→「点击展开」；消除直连域用户因标题错配点进来的可能。折叠区内原 `Alert` 删除，改为一句引导段「边缘域（agent_pull）需部署 Edge Sync Agent 才能回连平台，按下方步骤接入。」
+  3. **下载入口改为行内按需**：移除 Card 顶部的「下载安装包」主按钮；改为**边缘域（agent_pull）行**的「更多」下拉内新增「下载安装包」菜单项（与「重置 Token」并列，「重置 Token」仍仅已纳管域出现）。中心直连域（local）行不出现任何下载入口；直连域-only 列表整页无下载入口（无边缘域即无需安装包）。
+  4. **折叠指引内面板保留**：作为兜底入口（`active={guideOpen}`），与行内入口共用同一 `EdgePackageDownloadPanel` 与同一 Modal。
+  5. **指引文案错位修正**：第 1 步原写「把 Token 填入 systemd 的 `TOKEN` 环境变量（**见下一步**）」——实际填 `Environment=` 是在第 4 步「启动 / 守护」，第 2 步是下载安装包，指向错误；已改为「（见下方『启动 / 守护』步骤）」。
+  6. **测试**：`NetworkDomainsPage.test.tsx` 原「工具栏按钮 → 弹面板」用例改写为「边缘域行『更多 → 下载安装包』→ 弹面板」；新增「local 行不出现『更多』与任何下载入口」「常驻提示在折叠区外可见（折叠内容未渲染）+ 折叠标题已限定边缘域 + 旧标题不再出现」两个用例。
+  7. **验证**：`pnpm vitest run src/pages/config-center/domains/` 4 文件 34 用例全绿；`pnpm lint` 零错误；`make repo-map` + `make check-repo-map` 通过。
+
+### F-30：token 可用入口不足 + 指引缺「复制 Token」步骤 + 无「安全重新查看」出口（① 空白/③ 优化）
+
+- **类别**：① 空白判定 + ③ 技术优化
+- **PRD 章节 / 文件位置**：Module_09 §3.1（token 单次可见）、§11 安装指引 Steps；源码 `PlainTokenModal.tsx`（一次性展示）、`NetworkDomainsPage.tsx`（Steps 四步无 token、L259-270 凭据列只显脱敏无复制）
+- **现状**：明文 token 仅「纳管（agent_pull）/ 重置」两处一次性弹窗；顶部指引 Steps（下载→解压→启动→回连）**无「复制 Token」步骤**；列表「凭据」列只显 `token_masked` 脱敏、无复制按钮；重新需要 token 只能「更多→重置 Token」，旧 token 立即失效。
+- **结论 / 解决措施**：
+  1. 安装指引 Steps 增补「复制 Token」步骤（明示 token 仅在纳管/重置时一次性展示，需立即复制保存）；
+  2. 提供令牌「安全二次查看」出口（如二次确认后明文仅展示限时 / 复制到剪贴板），替代「只能重置」的单行道；
+  3. token 相关提示用普通用户易懂语言（文案见下）。
+- **用户易懂提示文案（供 UI Tooltip / 指引 / Modal 直接采用）**：
+
+  > 出于安全考虑，网域的接入 Token 只在**第一次纳管成功**或**主动重置**时会完整显示一次，页面列表里只保留脱敏 Token（如 `ab****89`），无法再次查看原文。
+  > 请务必在弹窗出现时立即复制并妥善保存 Token——它等同于该网域的「接入密码」。
+  > 如果之后需要用到 Token（例如换机重装采集节点），却没有保存，可点击网域的「更多 → 重置 Token」重新生成；但需注意：**重置后旧 Token 立即失效**，已在运行的采集节点必须同步换成新 Token，否则会掉线。
+
+- **影响模块**：前端 `NetworkDomainsPage.tsx`（Steps）、token Modal / 详情抽屉
+- **发现场景**：用户重新部署收集节点时找不到 token 复制环节，且列表凭据列无复制按钮（2026-09-24）
+- **用户裁决（2026-09-24，chenrt）**：**不做**第 2 条「安全二次查看出口」——明文 Token 严格保持「仅纳管 / 重置单次展示」，不新增任何可再次获取明文的接口或入口；**一切以 PRD 为准**。本条据此收敛为第 1、3 条执行。
+- **处置（2026-09-24 已实现，分支 `feat/module-09-config-center`）**：
+
+  1. **文案单一事实来源**：`configCenterConstants.ts` 新增导出常量 `TOKEN_USER_GUIDE`（完整指引，含三要素：原文仅纳管/重置显示一次 → 务必立即复制保存、等同该网域「接入密码」→ 忘了只能重置且旧 Token 立即失效、已装节点会掉线）与 `TOKEN_CREDENTIAL_TIP`（凭据列 Tooltip 精简版，口径一致）。
+  2. **安装指引 Steps 增补**：`NetworkDomainsPage.tsx` 的 `<Steps>` 由 4 步扩为 5 步，「复制并保存接入 Token」置于**第 1 步**（描述 = `TOKEN_USER_GUIDE` + 部署时填入 systemd `TOKEN` 环境变量的提示）。
+  3. **易懂文案落地三处**：Steps 第 1 步描述、凭据列 `Tooltip`（脱敏串为触发器）、`PlainTokenModal` 危险色提示；措辞全部改为普通用户语言，不含「决策 X」「PRD X.X」等实现层引用（遵 PRD 提示分区规范）。
+  4. **安全行为不变**：未新增任何明文查看 / 导出入口，「列表行不提供复制明文」（HIGH-1）行为保持原样。
+  5. **契约同步修正**：`api-contract-snapshot.md` §10 的 `NetworkDomain.token_masked` 行原写「完全脱敏 **+ 复制按钮**」，与该文件 §9「明文仅签发 / 重置单次返回」及实现 HIGH-1 冲突；已按「以 PRD 为准」的用户裁决修正为「完全脱敏，不提供复制明文（明文仅 `/monitor` 与 `/reset-token` 单次返回）」。
+  6. **测试**：`NetworkDomainsPage.test.tsx` 新增「展开安装指引后含『复制并保存接入 Token』步骤 + 指引文案关键短语」用例；`PlainTokenModal.test.tsx` 断言同步更新为新文案。
+  7. **验证**：`pnpm vitest run`（两个测试文件）18 用例全通过；`pnpm lint` 零错误；`make check-repo-map` OK。
+
+---
+
+## 2026-09-24（配置生成侧：空 targets 静默产出 → 边缘应用失败卡死）
+
+### F-31：解析不出地址的实例被静默跳过 → 产出空 targets 文件，生成侧校验漏放行，边缘拒收导致配置永久卡死（② 实现偏差，2026-09-24 落档，2026-09-25 订正为已实现）
+
+- **类别**：② 实现偏差（生成侧校验与边缘校验口径不对称）
+- **现象**：边缘域采集节点「配置同步」列长期停留「同步中」（M11 dev-feedback F-17），中心侧主机采集 / 拨测采集在线数全为 0，而节点在线、边缘本地抓取正常。
+- **根因（已实测证实；下列行号为 C 落地前快照，实现后已移位，现址见下方「实施说明」）**：
+  1. **静默跳过**：[targets.go `resolveResource` L82-L98](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/targets.go#L82-L98) 对 application 取 `Address = application.HealthCheckURL`；当资源健康检查地址为空时，[`ResolveJobTargets` L161-L163](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/targets.go#L161-L163) `if rt.Address == "" { continue }` **静默跳过**（同样静默的还有 `rt == nil` 的 `resource_not_found`）→ 若该 Job 全部已选实例都被跳过 → 目标组为 0 → [render.go L123-L127](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/render.go#L123-L127) 落盘 `targets/<job>.json` 内容为 **`[]`**。
+  2. **校验漏放**：[`ValidateTargetGroups`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/validate.go#L33-L50) 遍历 0 组即返回 nil → **空数组被判合法**；promtool 不校验 file_sd 内容 → 草稿 `passed`、可确认下发。
+  3. **边缘拒收**：Agent [`ValidateTargetsJSON`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/deployer/extract.go#L83-L85) 对空数组报 `empty array` → `Deployer.Apply` 失败 + 回滚 → Agent 持续上报旧版本（v31 = `20260922-091425`）→ `config_deployments` #35/#36/#37 永久 `pending` → 中心判 `out_of_sync` + `pull_pending` → 前端「同步中」**永不自愈**。
+- **定性**：**中心生成侧实现偏差**——生成侧放行了边缘必然拒收的产物，两侧校验口径不对称。边缘拒收空数组是**正确防御**，不属缺陷（**不做「放宽边缘校验」（方案 B）**）。
+- **实测证据**：配置包解包 `targets/test-app-01.json` 内容为 `[]` 且 checksum 与 metadata 一致；源资源 `33a8dfc8-ee15-45bf-9e8c-f43cba0c5f43`（service_name=test1）`health_check_url` 为空；中心配置接口 200、metadata `remote_write_url` 正确（排除中心接口 / 隧道问题）。
+- **方案（详见设计提案）**：C-1 `ResolveJobTargets` 增加跳过归因（`resource_not_found` / `address_empty` / `offline` 三类，精确到 `ResourceID` + 原因）；C-2 [`ValidateTargetGroups`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/validate.go#L40-L43) 增加零组判定（空数组非法，与边缘同口径）→ `ValidateArtifacts` 自然产出 `failed` + `cause=user_config` + 文件 / Job / 资源级 `validation_details`，前端配置确认页按既有 `validation_cause` 驱动自动禁用确认 + 「前往修改」，**前端零改动**。
+- **落档（2026-09-24）**：`docs/05-execution-records/module-11/design-proposals/config-sync-stall-and-empty-targets-guard.md`（C-1 / C-2 已按提案原设计实施；提案头部状态已于 2026-09-25 订正为 `approved`，**仅 §6 的 PRD / 契约回写待设计条线**）。
+- **决策落地（2026-09-25 订正：C 已实现，原「待确认 / 待实施」已过期）**：
+  - **决策 ①（归因返回形式）**：按提案 §7 建议采纳「**新增第三返回值**」——[`ResolveJobTargets`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/targets.go#L178) 现签名为 `([]TargetGroup, []SkippedInstance, error)`，调用点仅 `buildArtifacts` 与测试，与提案评估一致。
+  - **决策 ②（全部 offline 亦判 failed）**：按 chenrt 2026-09-24 裁决实施，**两类成因文案分离**——[`TargetDiagnostics.anyOfflineOnly`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/generator.go#L51) 判定归因构成，[`emptyTargetsMessage`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/validate.go#L228) 分别输出「实例全部下线」（引导移除该 Job 或恢复实例）与「地址解析不出」（引导补齐地址）。
+- **实施说明（2026-09-25 复核）**：
+  - **C-1**：[`targets.go`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/targets.go#L25-L30) 新增 `SkippedInstance`（`ResourceID` / `Category` / `Reason` / `Detail`）与三类 Reason 常量（`resource_not_found` / `address_empty` / `offline`），[三类跳过](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/targets.go#L196-L220) 全部记录归因；归因经 `JobBuild.Skipped` 传入 [`Assemble`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/render.go#L132-L140) 聚合为 `ConfigArtifacts.TargetDiagnostics`（`FileName` 与落盘 key 同源 `normalizeJobFilename`），由 [`buildArtifacts`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/draft/service.go#L207) 填充。
+  - **C-2**：[`ValidateTargetGroups`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/validate.go#L40-L43) 增加零组判定（`targets 文件为空：未解析出任何有效采集目标`），与边缘 `ValidateTargetsJSON` 的 `empty array` 口径对称；[`ValidateArtifacts`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/validate.go#L150-L166) 的 targets 分支**置于 promtool 检查之前**，命中空数组 → `failed` + `user_config` + `Source=targets` 的 `validation_details`，文案按归因升级为 Job / 资源级（无归因路径如「重新校验」回落通用文案，**判定结果不依赖归因**）。前端零改动：既有「仅 `passed` 可确认下发 + `user_config` 展示『前往修改』」路径自动生效。
+  - **实施口径澄清（与提案措辞的差异）**：空数组产物**仍会生成**（`Assemble` 对每个 Job 都落 `targets/<job>.json`，`[]` 亦然），治本点在**校验层不再放行**——草稿无法达到 `passed`、确认下发被阻断，即「缺陷配置到不了边缘」，而**不是**在生成阶段就不产出该文件。`TargetDiagnostics` 为非产物字段，不参与 checksum、不进 metadata（由测试守卫）。
+- **测试（`generator_test.go`）**：[`TestValidateTargetGroupsRejectsEmpty`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/generator_test.go#L355)（空数组判非法，与边缘对称）、[`TestApplicationEmptyAddressGuarded`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/generator_test.go#L371)（application 地址为空 → `failed` + `user_config` + 资源级定位）、[`TestAllInstancesOfflineMessageDiffersFromAddressEmpty`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/generator_test.go#L427)（决策 ② 两类成因文案分离）、[`TestChecksumUnaffectedByTargetDiagnostics`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/generator_test.go#L498)（非产物字段不影响 checksum）。
+- **验证（2026-09-25 复核）**：`go test ./platform/...` 全绿（含上述 4 例）、`go vet ./platform/...` 通过、`make check-repo-map` 通过。
+- **影响模块**：后端 `platform/configcenter/generator`（`targets.go` / `validate.go` / `render.go` / `generator.go` 的 `ConfigArtifacts` 新增非产物归因字段）+ `platform/configcenter/draft`（`buildArtifacts` 填充归因）
+- **发现场景**：2026-09-24 边缘域（腾讯云）采集节点配置同步卡死、在线数为 0 的线上故障定位
+- **PRD 回写修订建议（供 design 条线合入 M09 PRD；实施已完成，仅余回写）**：§3.5.1 下发前校验需明确「targets 空数组非法」并与边缘拒收口径**对称**（消除两侧不对称）；§3.3 配置生成需明确「实例地址解析不出时不得**静默放行**空 targets，须以校验失败（`failed` + `user_config`）+ 资源级定位暴露」——措辞按实施口径修正（产物仍生成，治本点在生成侧校验不放行，见上方「实施口径澄清」）。
+
+---
+
+## 2026-09-24（前端：离线包下载面板永久转圈 → StrictMode 与一次性守卫冲突）
+
+### F-32：`EdgePackageDownloadPanel` 在 StrictMode 下永久转圈，清单永不落地（② 实现偏差，2026-09-24，已修复）
+
+- **类别**：② 实现偏差（React 18 StrictMode 双调用与 `useRef` 一次性守卫语义冲突）
+- **现象（用户实测截图）**：M11 交付的两处入口——工具栏「下载安装包」打开的「离线安装包下载」Modal 内、以及折叠「安装指引」底部——**均永久显示 loading 转圈**，版本清单与下载按钮始终不出现。两处共用同一 `EdgePackageDownloadPanel`，故一同失效。
+- **排查结论（先证伪两个初步猜测）**：用户初判为「包大所以加载慢」或「还没打包 edge agent」，**均不成立**——① `/edge-packages` 只回元数据，curl 实测 `HTTP 401 time=0.013139s`（13ms，接口不慢）；② 面板拉的是清单接口，与 64MB tar.gz 体积无关；③ 后端虽原为硬编码占位（见 M11 F-18），但**接口能正常返回**，不是「没有包」导致挂起。
+- **根因**：面板用 `fetchedRef`（`useRef(false)`）做「只拉一次」的一次性守卫。React 18 `<React.StrictMode>`（[main.tsx L8/L14](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/main.tsx#L8-L14)）在开发态把 effect 跑成「执行 → 清理 → 再执行」两轮，而 `useRef.current` **在同一次挂载的两轮 effect 之间保持不变**：第 1 轮发请求后被清理函数置 `cancelled=true`（响应回来被丢弃、`setLoading(false)` 被跳过），第 2 轮因 `fetchedRef.current === true` **直接 return** → 再无人把 `loading` 落回 false，面板永久转圈。
+- **定性**：前端实现偏差（懒加载守卫写法与 StrictMode 语义冲突）。生产构建（StrictMode 不双调用）不一定复现，但**开发态与测试态必现**，属真实缺陷而非环境噪声。
+- **处置（2026-09-24 已实现）**：
+  1. **去掉一次性守卫**：[EdgePackageDownloadPanel.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/domains/EdgePackageDownloadPanel.tsx) 删除 `useRef` 导入与 `fetchedRef`，`useEffect` 依赖改为 `[active]`——每次 `active` 由 false 转 true 都重新拉取，既修好 StrictMode 双调用，也顺带让「关闭 Modal 后再打开」能刷新清单（懒加载语义保持：`active=false` 时不发请求）。
+  2. **保留 cancelled 标志**：清理函数仍置 `cancelled=true`，仅用于**避免组件卸载 / active 翻转后回写过期响应**，不再承担「只拉一次」职责。
+  3. **lint 约定**：`setLoading(true)` 在 effect 内同步调用会命中 `react-hooks/set-state-in-effect`，按本模块既有约定加 block 级 disable + 理由注释（分页/懒加载面板的既定写法）。
+  4. **StrictMode 回归用例**：[EdgePackageDownloadPanel.test.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/domains/EdgePackageDownloadPanel.test.tsx) 新增 `render(<React.StrictMode>...)` 用例，断言清单版本号渲染出来。**修复前实测该用例失败**（DOM 里只剩 `ant-spin-dot ant-spin-dot-spin`，`findByText('v1.2.0')` 超时），修复后通过——可作回归护栏。
+  5. **下载文件名同步**：面板 `offlineFilename(pkg)` 改为优先取清单 `file` 字段（tarball 真实文件名带构建时间戳，无法由 version 推导），缺失时才回落 `edge-sync-agent-<version>-linux-amd64.tar.gz`；`EdgePackage` 类型补可选 `file?: string`。与 M11 F-18 的后端「清单新增 `file` 字段」配套。
+- **影响模块**：前端 `ui-custom/web/src/pages/config-center/domains/EdgePackageDownloadPanel.tsx`（+ `src/types/config-center.ts`）
+- **发现场景**：用户实测两处下载入口永久转圈（2026-09-24）
+- **验证**：`pnpm vitest run`（`EdgePackageDownloadPanel` / `NetworkDomainsPage` / `PlainTokenModal` 三文件 27 用例）全绿；`pnpm lint` 零错误；`make repo-map` + `make check-repo-map` 通过。
+- **备注**：该缺陷与 M11 F-18（后端清单占位改真包）是同一次用户实测暴露的**两个独立问题**——即便后端已接真包，只要面板守卫逻辑不改，前端仍会永久转圈。
+
+### F-33：中心一体化交付包不支持安装期自定义端口（③ 交付可用性，2026-09-24，已实现）
+
+- **发现场景**：用户在 edge agent 打包脚本上要求「安装脚本要指导用户怎么修改默认端口」，并追加「同理，现在中心控制节点的打包脚本中，也要允许用户安装的时候，自定义端口」。
+- **原现状**：`env/env.sh.example` 已定义 `PROM_PORT` / `AM_PORT` / `BB_PORT` / `MC_PORT` / `AM_CLUSTER_PORT`，`start.sh` 也全部引用，**但 `install.sh` 只做 `cp env.sh.example → env.sh`**——安装期无任何参数可指定端口，运维只能装完再手工改文件；README 亦未给出端口自定义入口，端口冲突时只能事后排查。
+- **处置（2026-09-24 已实现）**：
+  1. **安装期参数**：`install.sh` 新增 `--mc-port` / `--prom-port` / `--am-port` / `--bb-port` / `--am-cluster-port`（与同名环境变量等价，优先级：命令行参数 > 环境变量 > 模板默认值），并支持 `-h/--help`；参数解析放在 root 校验**之前**，`--help` 无需提权即可查看。
+  2. **写回 env.sh**：`port_assign` 用 sed 只替换对应 `export X=${X:-<n>}` 行的数字，**保留行尾注释**；未传参的端口不改写（不覆盖运维手工调整），仅打印生效值。
+  3. **默认值单一来源**：端口默认值由 `port_default` 从 `env/env.sh.example` 解析，不在 `install.sh` 再写一份常量——沿用 M11 F-19「文档/默认值单一来源」的同一原则，避免两处漂移。
+  4. **校验与冲突自检**：端口须为纯数字且 1–65535；五个端口两两比对，重复即报错并中止安装（端口冲突会导致后启动组件绑定失败）。
+  5. **提示与文档**：SOP 提示改用生效端口（原来写死 `127.0.0.1:8080`），新增第 7 条「安装后如何改端口」；bundle README 新增「端口自定义」章节（生产安装 / 解压即用 / 装后调整三种入口 + 端口清单表 + 防火墙与采集节点 `CENTER_ENDPOINT`/remote write 联动提醒）；`env.sh.example` 注释补充「安装期可用 install.sh 参数指定」。
+- **影响模块**：`scripts/package-center.sh`（生成物 `scripts/install.sh`、`env/env.sh.example`、`README.md`）。
+- **验证（抽取生成物实测）**：不传参 → 列出模板默认值且 `env.sh` 字节级未被改写；`--mc-port 18080 --prom-port 19090` → 正确写回且注释保留；`MC=9090`（与 PROM 默认冲突）→ 冲突报错并 `exit 1`；非数字 `abc` / 越界 `70000` → 均中止；`--help` / 未知参数 / 缺端口值 → 输出正确；已存在 `env.sh` 在无参安装时不被覆盖。
+
+### F-34：`$var` 紧跟全角字符时变量值被吞、中文残缺（② 实现缺陷，2026-09-24，已修复）
+
+- **现象**：打包脚本控制台输出出现非法 UTF-8 —— 例如 `>>> ERROR: 缺少环境变量 ��必填）`（变量值 `TOKEN` 消失、`（` 前 1 字节缺失）。
+- **根因**：`echo "…… $v（必填）"` 这类「`$var` 紧跟全角字符」的写法，bash 会把全角字符的**首字节并入变量名**解析，导致变量展开为空、且残留 2 字节非法序列。实测 `utf-8` 解码报 `invalid start byte`；改为 `${v}（必填）` 或 `$v （必填）`（加空格）即恢复正常。
+- **定性**：仅影响控制台提示可读性（不改变控制流），但会让报错信息丢失关键变量（如缺哪个环境变量），属真实缺陷。
+- **处置**：将 7 处写法统一改为 `${var}` 花括号形式——`scripts/package-edge-agent.sh` 2 处（缺二进制、缺必填环境变量），`scripts/package-center.sh` 5 处（端口配置行、写回告警、缺账户告警）。
+- **验证**：修正后重跑抽取生成物，输出经 `python3` UTF-8 解码校验全部合法，变量值完整可见。
+

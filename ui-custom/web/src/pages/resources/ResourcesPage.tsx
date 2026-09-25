@@ -524,15 +524,48 @@ export function ResourcesPage() {
             render: (v?: string) => <Text strong>{v || '-'}</Text>,
           },
           {
-            title: '健康检查 URL',
+            // 健康检查 URL 为应用实际访问地址（业务健康检查用），不参与指标采集
+            title: (
+              <span>
+                健康检查 URL
+                <Tooltip title="应用的实际访问地址（业务健康检查用），不参与指标采集">
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+                </Tooltip>
+              </span>
+            ),
             dataIndex: 'health_check_url',
             key: 'health_check_url',
             ellipsis: { showTitle: true },
             render: (v?: string) => v || '-',
           },
           { title: '协议', dataIndex: 'protocol', key: 'protocol', render: (v?: string) => v || '-' },
-          { title: '端点', dataIndex: 'endpoint', key: 'endpoint', render: (v?: string) => v || '-' },
-          { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
+          {
+            // 端点 + 端口共同构成应用采集地址（指向 exporter 指标端点）
+            title: (
+              <span>
+                端点
+                <Tooltip title="端点 + 端口构成采集地址，须指向 exporter 指标端点">
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+                </Tooltip>
+              </span>
+            ),
+            dataIndex: 'endpoint',
+            key: 'endpoint',
+            render: (v?: string) => v || '-',
+          },
+          {
+            title: (
+              <span>
+                端口
+                <Tooltip title="端点 + 端口构成采集地址，须指向 exporter 指标端点">
+                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+                </Tooltip>
+              </span>
+            ),
+            dataIndex: 'port',
+            key: 'port',
+            render: (v?: number) => v ?? '-',
+          },
           domainColumn,
           businessColumn,
           appColumn,

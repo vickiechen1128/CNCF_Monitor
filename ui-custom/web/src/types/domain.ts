@@ -47,7 +47,7 @@ export interface NetworkDomain {
   agent_type?: AgentType
   center_endpoint?: string
   remote_write_url?: string
-  monitored_status?: 'online' | 'offline' | 'unknown'
+  monitored_status?: 'normal' | 'partial' | 'offline' | 'unknown'
   last_heartbeat?: string
   agent_version?: string
   is_monitored: boolean

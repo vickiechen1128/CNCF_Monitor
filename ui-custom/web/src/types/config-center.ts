@@ -20,7 +20,7 @@ export type AgentType = 'vmagent' | 'prometheus-agent'
 export type DomainType = 'management' | 'edge'
 
 /** 网域运行态（agent_pull 心跳更新；MVP local 恒空） */
-export type MonitoredStatus = 'online' | 'offline' | 'unknown'
+export type MonitoredStatus = 'normal' | 'partial' | 'offline' | 'unknown'
 
 /** 行政启用态（M06；disabled=冻结域） */
 export type DomainEnabledStatus = 'enabled' | 'disabled'
@@ -239,4 +239,30 @@ export interface RollbackPreview {
   current_version?: VersionRef
   diff_items: RollbackDiffItem[]
   warning: string
+}
+
+/**
+ * 边缘离线安装包组成组件（M11 契约 §2：Edge Sync Agent 交付物内含的二进制组件）。
+ * 权威契约：docs/05-execution-records/module-11/api-contract-snapshot.md §2。
+ */
+export interface EdgePackageComponent {
+  name: string
+  version: string
+}
+
+/** 边缘离线安装包元信息（GET /edge-packages 单条，M11 契约 §2；data 为 PackageArtifact[] 数组） */
+export interface EdgePackage {
+  /** 包标识，如 release-v0.2.0（对齐契约 PackageArtifact.id） */
+  id: string
+  version: string
+  sha256: string
+  size_bytes: number
+  components: EdgePackageComponent[]
+  /** 指定版本下载路径，如 /api/v2/platform/edge-packages/v1.2.0/download */
+  download_url: string
+  /**
+   * tar.gz 真实产物文件名，由后端读取 build 目录 `release_meta.json` 的 `file` 字段提供，
+   * 如 edge-sync-agent-v0.2.0-linux-amd64-20260922-121018.tar.gz；下载时优先以此命名。
+   */
+  file?: string
 }

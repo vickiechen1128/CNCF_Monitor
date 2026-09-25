@@ -44,10 +44,16 @@ type ResourceInput struct {
 	Version        string `json:"version"`
 
 	// application（§5.8）
-	ServiceName    string `json:"service_name"`
+	ServiceName string `json:"service_name"`
+	// HealthCheckURL 是**应用实际 URL（业务健康检查地址）**，可选，仅作资源画像与
+	// 标签模板来源（label_template 可映射 health_check_url）；**不参与采集地址拼接**。
 	HealthCheckURL string `json:"health_check_url"`
-	Protocol       string `json:"protocol"`
-	Endpoint       string `json:"endpoint"`
+	// Protocol 仅作资源画像与标签来源，不参与采集地址（采集协议取自 M01 采集 Job 的 scheme）。
+	Protocol string `json:"protocol"`
+	// Endpoint（主机，IPv4/域名）与 Port（采集端口，如 exporter 监听端口）共同构成
+	// application 的采集地址 `endpoint:port`（M09 generator targets 拼接口径），二者均必填；
+	// Endpoint 同时参与唯一键 category|domain|service_name|endpoint（DedupKey）。
+	Endpoint string `json:"endpoint"`
 
 	// generic_target（§5.9）
 	TargetName   string            `json:"target_name"`
@@ -74,7 +80,7 @@ type KeepDisabledValues struct {
 //   - 枚举：env∈ValidEnvs、protocol∈ValidProtocols、scheme∈ValidSchemes、
 //     status 仅 online/offline/maintenance（不接受中文状态）；
 //   - 格式：instance_ip IPv4（generic_target 另允许域名）、port 1~65535、
-//     health_check_url 为合法 HTTP/TCP URL；
+//     health_check_url（非空时）为合法 HTTP/TCP URL；
 //   - 存在性：biz_code 若填须对应已启用业务字典条目（host/db/middleware 为空时
 //     不校验存在性，§3.1/决策 93）；app_code 若填写须对应已启用应用字典条目
 //     （决策 92 红线：资源侧 app_code 只允许引用未停用条目）；
@@ -269,17 +275,25 @@ func validateApplication(in *ResourceInput) error {
 	if strings.TrimSpace(in.Cluster) == "" {
 		return fmt.Errorf("cluster 必填")
 	}
-	if strings.TrimSpace(in.Endpoint) == "" {
-		return fmt.Errorf("endpoint 必填")
-	}
-	if in.Port < 0 || in.Port > 65535 {
-		return fmt.Errorf("port 必须在 1~65535 之间，当前：%d", in.Port)
-	}
+	// health_check_url 保持「可选」且语义为**应用实际 URL（业务健康检查地址）**，
+	// 不是采集地址：M09 生成器对 application 的采集地址取 endpoint（主机）+
+	// port（采集端口）拼接（configcenter/generator/targets.go），采集路径与协议由
+	// M01 采集 Job 的 metrics_path / scheme 决定。非空时仅校验格式（http/https/tcp URL）。
 	if strings.TrimSpace(in.HealthCheckURL) != "" {
 		if err := ValidateHealthCheckURL(in.HealthCheckURL); err != nil {
 			return err
 		}
 	}
+	// endpoint（主机）与 port（采集端口）是 application 采集地址的唯一来源，均必填：
+	// endpoint 同时参与唯一键 category|domain|service_name|endpoint（DedupKey），不可为空；
+	// port 缺省会让 target 落到默认 80 端口、抓不到 exporter 指标。
+	if strings.TrimSpace(in.Endpoint) == "" {
+		return fmt.Errorf("endpoint 必填（应用采集地址主机，IPv4 或域名）")
+	}
+	if in.Port < 1 || in.Port > 65535 {
+		return fmt.Errorf("port 必须在 1~65535 之间（应用采集端口，如 exporter 监听端口 8081），当前：%d", in.Port)
+	}
+	// protocol 仅作资源画像与标签来源，不参与采集地址（采集协议取自 M01 采集 Job 的 scheme）。
 	if strings.TrimSpace(in.Protocol) != "" && !containsString(models.ValidProtocols, in.Protocol) {
 		return fmt.Errorf("protocol 必须是 http/https/tcp 之一，当前：%q", in.Protocol)
 	}

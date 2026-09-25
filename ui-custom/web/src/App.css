@@ -173,3 +173,60 @@
   max-width: 600px;
   margin: 0 auto;
 }
+
+/* ===== 移动端（手机竖屏 ≤767px）最小可用适配 =====
+   断点 767px 与 antd `md` 对齐（≥768 视为桌面 / 平板横屏），与
+   `src/pages/home/homeResponsive.ts` 的 NARROW_LAYOUT_QUERY 是同一个值：
+   CSS 侧负责外壳（顶栏 / 导航 / 内容区内边距），JS 侧负责首页各区域的栅格降列。
+   六个一级模块 tab + 品牌 + 账号在 375px 宽度下必然放不下，故顶栏改为
+   「品牌固定 + 模块导航横向滚动」，而不是换行（换行会撑高 sticky 顶栏、挤掉内容）。 */
+@media (max-width: 767px) {
+  .app-header {
+    padding: 0 12px;
+  }
+
+  /* 品牌 + 模块导航同处左侧：允许收缩，否则模块 tab 会把右上角账号区挤出屏幕 */
+  .app-header-left {
+    flex: 1;
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .app-title {
+    font-size: 16px !important;
+    white-space: nowrap;
+  }
+
+  /* 模块导航横向滚动，隐藏滚动条（触屏可直接左右滑动） */
+  .app-module-nav {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-module-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .app-module-tab {
+    padding: 0 8px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .app-module-tab-underline {
+    left: 8px;
+    right: 8px;
+  }
+
+  /* 角色标签让位给账号名，避免右上角被挤成两行 */
+  .app-header-role {
+    display: none;
+  }
+
+  /* 内容区内边距收窄，为卡片让出宽度（24px → 12px，两侧共省 24px） */
+  .app-content {
+    padding: 12px;
+  }
+}

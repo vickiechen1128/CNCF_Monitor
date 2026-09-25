@@ -34,6 +34,8 @@ func TestCreateNetworkDomainOK(t *testing.T) {
 	assert.Equal(t, []string{models.PlatformAdminTenantID}, d.AuthorizedTenantIDs)
 	assert.Equal(t, models.DomainStatusEnabled, d.Status)
 	assert.Equal(t, "政务网A区", d.Name)
+	// F-28：通道由域类型派生，登记接口只收边缘域 → 恒为 agent_pull（早期误写 local）。
+	assert.Equal(t, models.ChannelTypeAgentPull, d.Channel)
 }
 
 func TestCreateNetworkDomainBackfillsAuthorizedDefault(t *testing.T) {

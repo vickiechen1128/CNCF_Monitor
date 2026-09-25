@@ -240,7 +240,7 @@
 | `NetworkDomain.zone_type` | 网络区域类型 | Tag 展示 |
 | `NetworkDomain.is_monitored` | 纳管状态 | 派生 monitored=「已纳管」/ created=「未纳管」 |
 | `NetworkDomain.monitored_status` | 运行状态 | 仅 agent_pull，local 显 `-` |
-| `NetworkDomain.token_masked` | 凭据 | 完全脱敏 + 复制按钮，仅 agent_pull |
+| `NetworkDomain.token_masked` | 凭据 | 完全脱敏，**不提供复制明文**（明文仅 `/monitor` 与 `/reset-token` 单次返回，见 §9「Token」），仅 agent_pull |
 | `ConfigDraft.change_no` | 变更单号 | CHG-YYYYMMDD-NNN |
 | `ConfigDraft.status` | 变更状态 | 待确认/已确认/已废弃/全部 |
 | `ConfigDraft.summary` | 变更摘要 | 人话摘要 |

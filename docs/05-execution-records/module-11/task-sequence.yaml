@@ -399,3 +399,253 @@ tasks:
     acceptance_criteria:
       - "kill 采集器后 10s 内检测重启且 restart_count+1；模拟 crash-loop 10min5 次熔断"
       - "停心跳 90s 判离线触发 EdgeSiteOffline；Token 401 指数退避后降频；local 通道拒走协议；last_heartbeat 落中心接收时"
+
+# ================= 批次：边缘交付增强（v0.2 增量，并入 feat/module-09-config-center） =================
+# 触发：用户 2026-09-20 对齐设计提案 edge-delivery-topology-and-agent-upgrade.md 后派生。
+# 范围：离线下载包完善（版本清单/sha256/包大小/指定版本下载）+ 采集节点状态页实连（§3.2 P0）。
+# 明确排除：G1 中心 remote_write 接收端（阻断级，单独排期，登记 dev-feedback §7-G1）；
+#           Agent 自升级 {v0.3}（不在本批）；诊断看板（§3.2 P1/P2 后续版本）。
+# 契约快照：docs/05-execution-records/module-11/api-contract-snapshot.md（跨端任务 T11-21/22/23/24/25 必读）
+  - id: "T11-20"
+    title: "后端：指定版本离线包下载端点（?version= + /edge-packages/{version}/download）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-mgm-package"
+    prd: "Module_11 §3.3（下载入口/版本清单/校验和）"
+    depends_on: []
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "否"
+    input_files:
+      - "platform/edge/packages_service.go"
+      - "platform/edge/management_handler.go"
+      - "platform/cmd/metric-center/main.go"
+    output_files:
+      - "platform/edge/packages_service.go"
+      - "platform/edge/management_handler.go"
+    verify_commands:
+      - "go test ./platform/edge/... && go vet ./platform/edge/..."
+    acceptance_criteria:
+      - "ListPackages/resolveArtifact 支持 ?version= 指定版本；新增 GET /edge-packages/{version}/download（保留 /latest/download）"
+      - "下载响应含 zip + ETag + X-Checksum-Sha256；curl 校验 sha256 可复算"
+  - id: "T11-21"
+    title: "后端+契约：wal_backlog_bytes→queue_backlog_bytes（C5）+ AgentType 枚举收敛（C4）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-contract-vmagent"
+    prd: "Module_11 §5.2/§5.3/§10（字段改名）+ 设计提案 §5.9/§5.10"
+    depends_on: []
+    estimated_files_changed: 5
+    estimated_test_cases: 8
+    shared_files: "是：platform/models/*.go 与 platform/edge/* 共享"
+    input_files:
+      - "platform/edge-sync-agent/internal/contract/contract.go"
+      - "platform/models/edge_heartbeat.go"
+      - "platform/models/edge_agent.go"
+      - "platform/edge/management_service.go"
+    output_files:
+      - "platform/edge-sync-agent/internal/contract/contract.go"
+      - "platform/models/edge_*.go"
+      - "platform/edge/management_service.go"
+    verify_commands:
+      - "go test ./platform/... && cd platform/edge-sync-agent && go test ./..."
+    acceptance_criteria:
+      - "字段与 json tag：wal_backlog_bytes→queue_backlog_bytes，注释写明『采集器统一为 vmagent，语义为磁盘持久发送队列积压』"
+      - "AgentType 收敛为单一 vmagent，删除 prometheus-agent 常量/注释；模型/管理面 DTO 同步 queue_backlog_bytes"
+      - "跨端契约对齐 api-contract-snapshot.md"
+  - id: "T11-22"
+    title: "前端：网域纳管页离线下载区实连（版本清单/sha256/包大小/下载按钮）"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-onboard-download"
+    prd: "Module_11 §3.3（下载入口）+ §11.3"
+    depends_on: ["T11-20"]
+    estimated_files_changed: 3
+    estimated_test_cases: 6
+    shared_files: "是：OnboardDomainDrawer/NetworkDomainsPage 与 config-center 域共享"
+    input_files:
+      - "ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx"
+      - "ui-custom/web/src/pages/config-center/domains/NetworkDomainsPage.tsx"
+      - "ui-custom/web/src/api/（新增 edgePackages client）"
+      - "contract: docs/05-execution-records/module-11/api-contract-snapshot.md"
+    output_files:
+      - "ui-custom/web/src/api/edgePackages.ts"
+      - "ui-custom/web/src/pages/config-center/domains/OnboardDomainDrawer.tsx"
+    verify_commands:
+      - "pnpm lint && pnpm vitest run src/pages/config-center/domains/"
+    acceptance_criteria:
+      - "去掉『安装包另待发布』占位；渲染版本清单（组件版本/sha256/大小）+ 下载按钮（复用 triggerBlobDownload）"
+      - "页面明示『隔离网域不可直连，请介质摆渡』；契约：GET /edge-packages 与 /latest/download 对齐快照"
+  - id: "T11-23"
+    title: "前端：采集节点状态页实连——API client + 契约类型"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-node-status"
+    prd: "Module_11 §3.2/§5.2 + §11.4"
+    depends_on: ["T11-21"]
+    estimated_files_changed: 3
+    estimated_test_cases: 4
+    shared_files: "是：EdgeAgentsPage 同页后续任务共享"
+    input_files:
+      - "contract: docs/05-execution-records/module-11/api-contract-snapshot.md"
+      - "platform/edge/management_service.go（DTO 参照）"
+    output_files:
+      - "ui-custom/web/src/api/edgeAgents.ts"
+      - "ui-custom/web/src/types/edge.ts"
+    verify_commands:
+      - "pnpm lint && pnpm vitest run src/api/edgeAgents.test.tsx"
+    acceptance_criteria:
+      - "AgentView/EdgeComponent/EdgeAgentsResponse/三档聚合字段类型对齐 DTO；状态枚举含 retired/partial"
+  - id: "T11-24"
+    title: "前端：采集节点状态页实连——平铺表 + 三档聚合 + 五维筛选"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-node-status"
+    prd: "Module_11 §3.2（节点平铺表/整体三档/筛选）"
+    depends_on: ["T11-23"]
+    estimated_files_changed: 2
+    estimated_test_cases: 6
+    shared_files: "是：EdgeAgentsPage.tsx 同页续作"
+    input_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    verify_commands:
+      - "pnpm vitest run src/pages/config-center/nodes/EdgeAgentsPage.test.tsx"
+    acceptance_criteria:
+      - "实连 /edge-agents；复用 FilterBar/EllipsisText/MonitorStatusBadge；顶部 summary 三档统计"
+      - "五维筛选（网域/整体/采集器/拨测器/配置同步）；行字段含节点/网域/状态/采集器/拨测器/配置同步/回传积压/最后心跳"
+  - id: "T11-25"
+    title: "前端：采集节点状态页实连——交互完整化（组件抽屉+配置同步引导+版本提示+空态深链）"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "edge-fe-node-status"
+    prd: "Module_11 §3.2（进程守护可观测/配置同步引导/空态深链）+ §11.4"
+    depends_on: ["T11-24"]
+    estimated_files_changed: 2
+    estimated_test_cases: 8
+    shared_files: "是：EdgeAgentsPage.tsx 同页续作（与 T11-24 同一 agent 一次提交，commit 合并）"
+    input_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx"
+    verify_commands:
+      - "pnpm vitest run src/pages/config-center/nodes/EdgeAgentsPage.test.tsx && pnpm lint"
+    acceptance_criteria:
+      - "组件抽屉（三进程状态/版本/重启次数/最近重启/错误）+ crash_loop/restarting 标签 + 高危横幅（复用 Callout）"
+      - "配置同步五档 Badge + 成因分档引导（去配置采集 Job/前往配置确认/查看下发记录/立即同步）+ 版本差异『可升级』提示"
+      - "空态三支（筛选空/暂无采集节点/中心直连域）+ ?network_domain= 深链预筛 + 退出入口"
+    # 注：Toast 备注——T11-24/T11-25 共享 EdgeAgentsPage 同页，按「同页任务复用同一 frontend-developer 续作 + 合并一次提交」执行。
+
+# ================= 批次：G1 中心 remote_write 接收端（v0.2 必修，阻断级，独立批次） =================
+# 触发：用户 2026-09-21 对齐设计提案 §7-G1 后立项；此前登记 dev-feedback（阻断级单独排期）。
+# 范围：中心开 receiver（G1-a）+ 边缘 remote_write_url 注入按「方案 A 主线（center_endpoint 推导）+ B 覆盖（配置包承载）」（G1-b）
+#       + 网域身份验证（external_labels 随 remote_write 保留，G1-c）+ 安全评估（G1-d）+ 端到端验证（G1-e）。
+# 分轨：Track B+（涉数据写入入口，强制 security-reviewer）。
+# 契约快照：docs/05-execution-records/module-11/api-contract-snapshot.md（G1-a/b 必读）
+# 关键裁决：G1 是跃迁期临时接收端（MVP 引擎 Prometheus 直收），M10 统一摄取网关就绪后替换；网域身份由配置生成器
+#           buildExternalLabels 注入 global.external_labels（已实现），remote_write 传输保留 label（G1-c 仅验证）。
+  - id: "T11-G1-01"
+    title: "后端+运维：中心 Prometheus 开启 remote-write receiver（--web.enable-remote-write-receiver）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §6.1（接口可达性）+ 设计提案 §7-G1"
+    depends_on: []
+    estimated_files_changed: 1
+    estimated_test_cases: 2
+    shared_files: "否"
+    input_files:
+      - "Makefile（run-prometheus target L395-398）"
+      - "自检：确认上游 Prometheus 版本 ≥ 2.40（--web.enable-remote-write-receiver 存在）"
+    output_files:
+      - "Makefile"
+    verify_commands:
+      - "make run-prometheus && curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:9090/api/v1/write"
+    acceptance_criteria:
+      - "run-prometheus 追加 --web.enable-remote-write-receiver（注释补 G1 语义：边缘 vmagent 上报入口）"
+      - "启动后 POST /api/v1/write 返回 204（非 404）；go test ./platform/... 不受影响"
+  - id: "T11-G1-02"
+    title: "后端+契约：远程写入地址注入——方案 A 主线（center_endpoint 推导）+ B 覆盖（配置包承载）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §5.1（remote_write_url 网域字段/拓扑无关）+ 设计提案 §7-G1/§5.4"
+    depends_on: ["T11-G1-01"]
+    estimated_files_changed: 6
+    estimated_test_cases: 10
+    shared_files: "是：platform/edge zipper 与 edge-sync-agent probe/contract 跨包共享"
+    input_files:
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/probe.go（L70 envOr 环回默认）"
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/main.go（probe 构造无 remote_write_url 参数）"
+      - "platform/edge-sync-agent/internal/contract/contract.go（Metadata 类型）"
+      - "platform/edge/zipper.go（配置包 metadata.json 承载）"
+      - "platform/edge/packages_service.go / management_handler.go（zip 组装侧）"
+      - "platform/configcenter/domain/service.go + platform/edge/zipper.go（网域 RemoteWriteURL 来源）"
+    output_files:
+      - "platform/edge-sync-agent/cmd/edge-sync-agent/probe.go"
+      - "platform/edge/zipper.go"
+      - "platform/edge-sync-agent/internal/contract/contract.go"
+    verify_commands:
+      - "go test ./platform/... && cd platform/edge-sync-agent && go test ./..."
+    acceptance_criteria:
+      - "probe.go remote_write_url 解析顺序：配置包下发的 remote_write_url（B）> 网域表 RemoteWriteURL（若随包下发）> center_endpoint+/api/v1/write 推导（A）> envOr 环回兜底；默认真实部署不再停留在 127.0.0.1"
+      - "配置包 metadata.json（或新增条目）承载网域 remote_write_url（B 覆盖）；zipper/contract/probe 三端对齐"
+      - "main.go probe 构造传入 remote_write_url 来源；main.go 头注释补全 EDGE_REMOTE_WRITE_URL（当前遗漏）"
+      - "跨端契约对齐 api-contract-snapshot.md；网域表 RemoteWriteURL 非空时优先（中继/网闸场景）"
+  - id: "T11-G1-03"
+    title: "验证：网域身份 label 随 remote_write 保留（external_labels 贯通，非开发项）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §5.3（网域身份透传）+ 设计提案 §7-G1/§5.4"
+    depends_on: ["T11-G1-01"]
+    estimated_files_changed: 0
+    estimated_test_cases: 2
+    shared_files: "否"
+    input_files:
+      - "platform/configcenter/generator/generator.go（buildExternalLabels 已实现，L40-50，仅验证）"
+      - "自检：确认 vmagent 抓取时 external_labels 附加到序列、且 remote_write 传输不丢 label"
+    output_files: []
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+    acceptance_criteria:
+      - "确认 buildExternalLabels 注入的 network_domain_id 经 vmagent 抓取→remote_write→中心 Prometheus 全程保留（样本验证或断言测试）"
+      - "若发现传输丢 label（异常），升级为修复任务并登记 dev-feedback；否则仅记录验证结论"
+  - id: "T11-G1-04"
+    title: "安全评估：remote-write receiver 无鉴权写入口暴露面（Track B+，强制 security-reviewer）"
+    agent: "security-reviewer"
+    status: "done"
+    commit_group: "edge-g1-security"
+    prd: "AGENTS.md §9（Prometheus 代理鉴权/SSRF）；设计提案 §7-G1"
+    depends_on: ["T11-G1-01"]
+    estimated_files_changed: 0
+    estimated_test_cases: 0
+    shared_files: "否"
+    input_files:
+      - "自检：确认 Prometheus receiver 无内置写认证；当前接受『内网可信 + 后续 M10 统一摄取网关收敛』让步"
+      - "核对 AGENTS.md §9 关于 Prometheus 代理鉴权/SSRF 约束"
+    output_files: []
+    verify_commands: []
+    acceptance_criteria:
+      - "security-reviewer 出具结论：无未决 CRITICAL/HIGH；确认内网绑定或接受让步并登录 design-decisions"
+      - "若判定需最小控制（如 --web.listen-address 内网绑定），回灌 Makefile 调整（关联 T11-G1-01）"
+  - id: "T11-G1-05"
+    title: "端到端验证：remote-write 入站样本验证（真实 snappy protobuf，非 json 探活）"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "edge-g1-write"
+    prd: "Module_11 §6.1 + 设计提案 §7-G1；契约快照 §2"
+    depends_on: ["T11-G1-02", "T11-G1-03"]
+    estimated_files_changed: 0
+    estimated_test_cases: 1
+    shared_files: "否"
+    input_files:
+      - "自检：构造 Prometheus remote-write Wire Format 样品（snappy 压缩 WriteRequest protobuf）测试入站"
+    output_files: []
+    verify_commands:
+      - "curl --data-binary @samples/write_request.snappy http://localhost:9090/api/v1/write 返回 200/204，指标可查询"
+    acceptance_criteria:
+      - "用真实 snappy protobuf WriteRequest 样本 POST /api/v1/write，断言入站成功且指标可查（非 404 兜底）"
+      - "真实边缘节点闭环（vmagent→中心）留待部署联调，登记 dev-feedback，不在本批阻塞"
+    # 注：G1 为阻断级独立批次；M10 统一摄取网关就绪后本批 receiver 作跃迁临时接收端替换。

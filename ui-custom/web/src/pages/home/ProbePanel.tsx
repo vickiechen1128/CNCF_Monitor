@@ -6,14 +6,16 @@
  *
  * 数据源：**受控组件**，由 HomePage 注入 `probeTargets`（后端 `summary.probe_targets[]`，
  * 决策 93 明细口径）。前端负责排序 / 分页（PRD §5.1：接口不承担排序）。
- * 列：拨测目标（url，ellipsis）/ 状态（异常红 / 正常绿 / **MVP 未知态中性色**）/ 业务域(
- * biz_name，空显 -)/ 应用（app_name，空显 -）/ 最近拨测（相对时间，空显 -）。
+ * 列：拨测目标（url，ellipsis）/ 状态（异常红 / 正常绿 / 未知态中性色）/ 归属网域(
+ * network_domain_name，空显 -)/ 最近拨测（相对时间，空显 -）。
+ * 归属口径见 design-proposals/probe-ownership-alignment.md：拨测目标不承载「应用 / 业务域」
+ * 维度，归属以必然有值的网域承载。
  * 分页每页 5 行，仅数据超过 5 行时显示分页器。空数据 / 字段缺失显示空态并给去配置深链。
  *
  * 字段降级（决策 93 口径，诚实展示）：
  * - url 缺失 → '-'；
- * - status 空串（后端 MVP 恒未知）→ 中性「未知」态，不渲染成 up/down 绿红；
- * - biz_name / app_name 空串 → '-'；
+ * - status 空串（无 probe_success 样本）→ 中性「未知」态，不渲染成 up/down 绿红；
+ * - network_domain_name 空串 → '-'（防御旧后端）；
  * - last_probe_at 缺失（后端 nil）→ '最近拨测' 显示 '-'。
  * 排序：只有明确的 down 强制排最前；未知态不强制排前，同未知态按原序（稳定排序）。
  */
@@ -95,22 +97,11 @@ export function ProbePanel({ probeTargets = [] }: { probeTargets?: ProbeTargetIt
       render: (status: string) => statusBadge(status, token),
     },
     {
-      title: '业务域',
-      dataIndex: 'biz_name',
-      key: 'biz_name',
-      width: 120,
-      render: (name?: string) =>
-        name ? (
-          <span style={{ color: token.colorText }}>{name}</span>
-        ) : (
-          <span style={{ color: token.colorTextTertiary }}>-</span>
-        ),
-    },
-    {
-      title: '应用',
-      dataIndex: 'app_name',
-      key: 'app_name',
-      width: 120,
+      title: '归属网域',
+      dataIndex: 'network_domain_name',
+      key: 'network_domain_name',
+      width: 160,
+      ellipsis: true,
       render: (name?: string) =>
         name ? (
           <span style={{ color: token.colorText }}>{name}</span>
@@ -159,7 +150,19 @@ export function ProbePanel({ probeTargets = [] }: { probeTargets?: ProbeTargetIt
       title="拨测态势"
       data-testid="probe-panel"
       extra={
-        <span style={{ display: 'inline-flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
+        /* 窄屏（≤767px）：卡头右侧的统计 + 排序说明 + 深链共 3 段文案必然溢出，
+           故允许换行并右对齐（flexWrap + rowGap），宽屏仍为单行——antd 卡头不换行。 */
+        <span
+          style={{
+            display: 'inline-flex',
+            gap: 12,
+            rowGap: 4,
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            fontSize: 12,
+          }}
+        >
           <Typography.Text type="secondary">
             拨测目标 {sorted.length} · 正常 {normalCount} ·{' '}
             <span style={{ color: abnormalCount > 0 ? token.colorErrorText : token.colorTextTertiary }}>

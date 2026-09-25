@@ -63,17 +63,23 @@ func hasLineKey(content, key string) bool {
 }
 
 // marshalMetadata 将 metadata 序列化（对齐中心 zipper.go 字段序）。
+// F-9：必须透传 remote_write_url——Agent 落盘 current/metadata.json 后，probe 启动
+// vmagent 时经 metadataRemoteWriteURL 读取该字段作为 -remoteWrite.url。此前该字段
+// 在此处被丢弃，导致落盘后 remote_write_url 缺失、vmagent 回退到 center_endpoint 推导
+// （8080 控制面地址），样本无法经 9090 数据隧道送达中心，前端监控目标为空。
 func marshalMetadata(m *contract.Metadata) ([]byte, error) {
-	b, err := json.Marshal(struct {
-		ConfigVersion string `json:"config_version"`
-		GeneratedAt   string `json:"generated_at"`
-		AgentType     string `json:"agent_type"`
-		Checksum      string `json:"checksum"`
+	b, err := json.Marshal(&struct {
+		ConfigVersion  string `json:"config_version"`
+		GeneratedAt    string `json:"generated_at"`
+		AgentType      string `json:"agent_type"`
+		Checksum       string `json:"checksum"`
+		RemoteWriteURL string `json:"remote_write_url,omitempty"`
 	}{
-		ConfigVersion: m.ConfigVersion,
-		GeneratedAt:   m.GeneratedAt,
-		AgentType:     m.AgentType,
-		Checksum:      m.Checksum,
+		ConfigVersion:  m.ConfigVersion,
+		GeneratedAt:    m.GeneratedAt,
+		AgentType:      m.AgentType,
+		Checksum:       m.Checksum,
+		RemoteWriteURL: m.RemoteWriteURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("deployer: marshal metadata: %w", err)
