@@ -397,6 +397,79 @@ make build-metric-center && make run-metric-center
 # agent 无需改，~30s 心跳周期内自动重新连上当前隧道域名
 ```
 
+### 4.1.1 已验证的固定子域命名隧道配置（2026-09-25 实测，macOS + cloudflared 2026.9.1）
+
+> 调试期用 DigitalPlat 免费域名 `chenrt.dpdns.org`（已接入 Cloudflare，状态 Active）做中心公网入口。
+> 以下为**实际跑通**的 4 隧道固定子域方案，取代 §2.1 的 quick tunnel（域名重启即变）。
+> 边缘链路只依赖 8080（控制面）+ 9090（remote_write），5173/9093 为调试方便。
+
+**子域 ↔ 端口映射**
+
+| 子域 | 隧道名（UUID） | 本机 origin |
+|---|---|---|
+| `chenrt.dpdns.org` | mytunnel（`81b0535c-…`） | 9090（Prometheus，remote_write 接收端） |
+| `metricback.chenrt.dpdns.org` | center-8080（`2b74856c-…`） | 8080（metric-center 控制面） |
+| `metric.chenrt.dpdns.org` | center-5173（`53ff67cd-…`） | 5173（前端控制台） |
+| `metricam.chenrt.dpdns.org` | center-9093（`d3025b7d-…`） | 9093（Alertmanager） |
+
+**建立（关键：全程用 UUID，勿用隧道名，见坑 1）**
+
+```bash
+brew install cloudflared
+cloudflared tunnel login                                   # 浏览器授权一次
+# 四条隧道（实际 UUID 以本机 ~/.cloudflared/*.json 为准）
+cloudflared tunnel create mytunnel
+cloudflared tunnel create center-8080
+cloudflared tunnel create center-5173
+cloudflared tunnel create center-9093
+# 绑定 DNS 用 UUID（--overwrite-dns 幂等，重复执行可覆盖）
+cloudflared tunnel route dns --overwrite-dns <UUID_mytunnel>        chenrt.dpdns.org
+cloudflared tunnel route dns --overwrite-dns <UUID_center-8080>     metricback.chenrt.dpdns.org
+cloudflared tunnel route dns --overwrite-dns <UUID_center-5173>     metric.chenrt.dpdns.org
+cloudflared tunnel route dns --overwrite-dns <UUID_center-9093>     metricam.chenrt.dpdns.org
+```
+
+**配置文件（每个隧道一个 yml，origin 写死字面 IP，见坑 2）**
+
+`~/.cloudflared/config.yml`（9090 / mytunnel）：
+```yaml
+tunnel: <UUID_mytunnel>
+credentials-file: /Users/chenrt/.cloudflared/<UUID_mytunnel>.json
+ingress:
+  - hostname: chenrt.dpdns.org
+    service: http://127.0.0.1:9090
+  - service: http_status:404
+```
+`center-8080.yml` → `hostname: metricback.chenrt.dpdns.org` / `http://127.0.0.1:8080`
+`center-5173.yml` → `hostname: metric.chenrt.dpdns.org` / `http://[::1]:5173`（Vite 仅 IPv6）
+`center-9093.yml` → `hostname: metricam.chenrt.dpdns.org` / `http://127.0.0.1:9093`
+
+**启动 / 停止（手动一条命令，不开机自启，见坑 3）**
+
+```bash
+# 启动脚本 ~/.cloudflared/start-all-tunnels.sh（先 pkill 旧进程再起 4 条，随终端会话存活）
+zsh ~/.cloudflared/start-all-tunnels.sh
+# 停止：关掉运行脚本的终端，或 pkill -f "cloudflared tunnel"
+```
+
+**验证（本机终端绕开代理）**
+
+```bash
+curl --noproxy '*' https://chenrt.dpdns.org/-/healthy            # Prometheus Server is Healthy.
+curl --noproxy '*' https://metricback.chenrt.dpdns.org/api/v1/health   # 控制面 health（根路径 / 返回 404 属正常）
+curl --noproxy '*' -o /dev/null -w '%{http_code}\n' https://metric.chenrt.dpdns.org/   # 前端 200
+curl --noproxy '*' -o /dev/null -w '%{http_code}\n' https://metricam.chenrt.dpdns.org/  # AM 200
+```
+
+**踩坑清单（均为本环境实测）**
+
+1. **隧道名解析错配**：`route dns` / `info` / `tunnel run` 用*隧道名*时，cloudflared 会把它错配到另一条隧道（本环境 `center-8080` 被解析成 `mytunnel` 的 UUID，导致 `metricback` 的 CNAME 误挂到 9090 隧道）。**一律用 UUID** 操作，`config.yml` 的 `tunnel:` 字段也写 UUID。
+2. **IPv4/IPv6 监听错配 → 502**：macOS 上 `localhost` 解析到 cloudflared origin 时会打到服务没监听的那一族地址，origin 连不上报 502。实测监听族：Vite(5173) 仅 IPv6 `::1`、Prometheus(9090) 仅 IPv4 `127.0.0.1`、metric-center(8080)/Alertmanager(9093) 为 IPv6 通配（双栈）。**origin 写死字面 IP**：9090/8080/9093 用 `127.0.0.1`，5173 用 `[::1]`。
+3. **隧道进程必须在用户自己的终端会话启动**：在工具沙箱里 `nohup … &` 起的 cloudflared，沙箱命令结束即被整体回收（表现为 metricback 报 CF 1033、其余连不上）。进程要跑在用户真实会话里——故用 `start-all-tunnels.sh` 手动命令，且**不开机自启**（用户偏好；如需自启改回 `launchctl load` 一个 LaunchAgent，KeepAlive 可保活）。
+4. **Vite host 白名单**：`metric.chenrt.dpdns.org` 必须加进 `ui-custom/web/vite.config.ts` 的 `server.allowedHosts`（原仅 `.trycloudflare.com`，否则报 `Blocked request. This host is not allowed.`）；且**改动后必须重启 `make dev-ui`** 才生效。
+5. **`route dns` 无单条删除子命令**：误建子域（如 `8080.chenrt.dpdns.org`）只能去 Cloudflare DNS 后台手动删；`cloudflared tunnel cleanup <tunnel>` 会连正在用的根域 CNAME 一起删，勿用。
+6. **代理干扰本地验证**：本机若设了 `HTTPS_PROXY`（如 ClashX `127.0.0.1:7890`），`curl` 公网域名会报 `(7) Couldn't connect`；验证一律带 `--noproxy '*'`，或把 `*.dpdns.org` 加进代理绕过列表。
+
 ## 4.2 换包重启动线（agent 代码升级后 remote_write_url 生效）
 
 > 背景（F-9）：跨主机联调发现边缘域监控目标为空，根因是 agent 侧**双缺陷**——
