@@ -58,6 +58,11 @@ type HeartbeatRequest struct {
 	Ip                   string               `json:"ip,omitempty"`
 	Components           []Component          `json:"components,omitempty"`
 	Targets              []EdgeTargetSnapshot `json:"targets,omitempty"` // 边缘 vmagent 本地 target 快照（方案 B）
+	// 配置应用结果（M11 dev-feedback F-17 / 设计提案 D）：Deployer.Apply 失败时上报失败原因
+	// 与失败版本，中心据此写 out_of_sync 成因 apply_failed（「同步失败」）；应用成功时两者清空
+	// （omitempty 不产出键），保证向后兼容。
+	ConfigApplyError         string `json:"config_apply_error,omitempty"`          // 最近一次配置应用失败原因（成功时为空）
+	ConfigApplyFailedVersion string `json:"config_apply_failed_version,omitempty"` // 应用失败的配置版本
 }
 
 // HeartbeatResponse 是心跳接口的响应体（PRD §6.2）。

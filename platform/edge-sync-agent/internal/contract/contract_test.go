@@ -177,3 +177,46 @@ func TestHeartbeatRequestJSONCarriesTargets(t *testing.T) {
 		t.Fatalf("empty targets should be omitted: %s", be)
 	}
 }
+
+// TestHeartbeatRequestJSONCarriesApplyError 校验 D-1 新增的配置应用结果字段（M11
+// dev-feedback F-17 / 设计提案 D）：字段名与中心契约同名同义，空值 omitempty 不产出键。
+func TestHeartbeatRequestJSONCarriesApplyError(t *testing.T) {
+	req := HeartbeatRequest{
+		NetworkDomainID:          "gov-cloud-a",
+		AgentType:                "vmagent",
+		ConfigVersion:            "20260922-091425",
+		ConfigApplyError:         "deployer: targets app.json: empty array",
+		ConfigApplyFailedVersion: "20260924-101010",
+	}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["config_apply_error"] != req.ConfigApplyError {
+		t.Fatalf("config_apply_error = %v", m["config_apply_error"])
+	}
+	if m["config_apply_failed_version"] != req.ConfigApplyFailedVersion {
+		t.Fatalf("config_apply_failed_version = %v", m["config_apply_failed_version"])
+	}
+	// round-trip
+	var back HeartbeatRequest
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.ConfigApplyError != req.ConfigApplyError || back.ConfigApplyFailedVersion != req.ConfigApplyFailedVersion {
+		t.Fatalf("round-trip mismatch: %+v", back)
+	}
+	// 空值 omitempty：应用成功时不上报这两个键。
+	empty := HeartbeatRequest{NetworkDomainID: "gov-cloud-a", AgentType: "vmagent"}
+	be, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(be), "config_apply_error") || strings.Contains(string(be), "config_apply_failed_version") {
+		t.Fatalf("empty apply result should be omitted: %s", be)
+	}
+}

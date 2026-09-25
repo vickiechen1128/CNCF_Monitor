@@ -160,6 +160,33 @@ describe('EdgeAgentsPage（采集节点状态）', () => {
     expect(screen.queryByText('同步中')).toBeNull()
   })
 
+  it('配置同步 out_of_sync + apply_failed：展示「同步失败」+ error，不误判「同步中」（D-2）', async () => {
+    const agents: AgentView[] = [
+      agentRow(1, 'edge01', {
+        status: 'online',
+        config_sync_status: 'out_of_sync',
+        out_of_sync_cause: 'apply_failed',
+        config_apply_error: 'deployer: targets app.json: empty array',
+        config_apply_failed_version: '20260924-100000',
+      }),
+    ]
+    useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 } }))
+    renderPage()
+
+    const badge = await screen.findByText('同步失败')
+    expect(badge).toBeInTheDocument()
+    expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-error')).not.toBeNull()
+    // 反例：绝不能误判为「同步中」（processing）
+    expect(badge.closest('.ant-badge')?.querySelector('.ant-badge-status-processing')).toBeNull()
+    expect(screen.queryByText('同步中')).toBeNull()
+    // 引导动作「查看下发」→ /deployments
+    fireEvent.click(screen.getByRole('button', { name: /查看下发/ }))
+    expect(navigateMock).toHaveBeenCalledWith('/deployments')
+    // 失败原因以 Tooltip 呈现（列内不直接展示全文，避免窄列撑爆）
+    fireEvent.mouseEnter(badge)
+    expect(await screen.findByText(/targets app.json: empty array/)).toBeInTheDocument()
+  })
+
   it('点击「查看」打开详情抽屉', async () => {
     const agents: AgentView[] = [agentRow(1, 'edge01')]
     useEdgeAgentsMock.mockReturnValue(result({ agents, rawAgents: agents, summary: { total: 1, online: 1, partial: 0, offline: 0 } }))

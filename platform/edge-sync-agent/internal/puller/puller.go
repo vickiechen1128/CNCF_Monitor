@@ -24,6 +24,9 @@ type RuntimeSnapshot struct {
 	Components           []contract.Component
 	// Targets 是边缘 vmagent 本地 target 抓取快照（方案 B），随心跳上报中心。
 	Targets []contract.EdgeTargetSnapshot
+	// 最近一次配置应用失败原因与失败版本（D-1）；应用成功时为空（心跳 omitempty 不产出键）。
+	ConfigApplyError         string
+	ConfigApplyFailedVersion string
 }
 
 // RuntimeProvider 提供当前运行态快照。
@@ -114,16 +117,18 @@ func (p *Puller) RunOnce(ctx context.Context) error {
 func (p *Puller) buildHeartbeat() contract.HeartbeatRequest {
 	rs := p.runtime.Snapshot()
 	return contract.HeartbeatRequest{
-		NetworkDomainID:      p.cfg.NetworkDomainID,
-		AgentType:            p.cfg.AgentType,
-		Version:              rs.AgentVersion,
-		ConfigVersion:        rs.ConfigVersion,
-		QueueBacklogBytes:    rs.QueueBacklogBytes,
-		RemoteWriteQueueSize: rs.RemoteWriteQueueSize,
-		Hostname:             rs.Hostname,
-		Ip:                   rs.Ip,
-		Components:           rs.Components,
-		Targets:              rs.Targets,
+		NetworkDomainID:          p.cfg.NetworkDomainID,
+		AgentType:                p.cfg.AgentType,
+		Version:                  rs.AgentVersion,
+		ConfigVersion:            rs.ConfigVersion,
+		QueueBacklogBytes:        rs.QueueBacklogBytes,
+		RemoteWriteQueueSize:     rs.RemoteWriteQueueSize,
+		Hostname:                 rs.Hostname,
+		Ip:                       rs.Ip,
+		Components:               rs.Components,
+		Targets:                  rs.Targets,
+		ConfigApplyError:         rs.ConfigApplyError,
+		ConfigApplyFailedVersion: rs.ConfigApplyFailedVersion,
 	}
 }
 

@@ -66,16 +66,30 @@ export function isConfigSyncInProgress(
   return status === 'out_of_sync' && cause === 'pull_pending'
 }
 
-/** 配置同步展示文案（cause 感知；pull_pending 展示「同步中」以区别于「未同步」） */
+/**
+ * 「同步失败」判定（M11 设计提案 D-2）：`out_of_sync` + 成因 `apply_failed`——Agent 已拉取
+ * 最新配置但应用失败（已回滚至上一可用版本）。属**终态失败**而非常规进行中，故不命中
+ * isConfigSyncInProgress（决策 4：本轮不做「同步中长停留提示」）。
+ */
+export function isConfigSyncApplyFailed(
+  status: ConfigSyncStatus | undefined,
+  cause?: OutOfSyncCause,
+): boolean {
+  return status === 'out_of_sync' && cause === 'apply_failed'
+}
+
+/** 配置同步展示文案（cause 感知：pull_pending →「同步中」；apply_failed →「同步失败」） */
 export function configSyncDisplayLabel(status: ConfigSyncStatus, cause?: OutOfSyncCause): string {
+  if (isConfigSyncApplyFailed(status, cause)) return '同步失败'
   return isConfigSyncInProgress(status, cause) ? '同步中' : configSyncStatusLabel[status]
 }
 
-/** 配置同步 Badge 色（cause 感知；「同步中」用 processing 蓝，与「未同步」的 error 红区分） */
+/** 配置同步 Badge 色（cause 感知；「同步中」processing 蓝、「同步失败」error 红，均区别于「未同步」的 error 红文案） */
 export function configSyncDisplayBadgeStatus(
   status: ConfigSyncStatus,
   cause?: OutOfSyncCause,
 ): ConfigSyncBadgeStatus {
+  if (isConfigSyncApplyFailed(status, cause)) return 'error'
   return isConfigSyncInProgress(status, cause) ? 'processing' : configSyncStatusBadgeStatus[status]
 }
 
@@ -84,6 +98,7 @@ export const outOfSyncCauseHint: Record<OutOfSyncCause, string> = {
   pending_draft: '存在待确认的配置变更单，确认后随下次心跳拉取生效',
   pull_pending: '新配置包已就绪，等待 Agent 下次心跳拉取（准实时 30s）',
   local_reset: '本地配置已重置，需重新拉取中心最新配置包',
+  apply_failed: '配置包已拉取，但 Agent 应用失败并已回滚至上一可用版本，请查看失败原因并修正后重新下发',
 }
 
 /** out_of_sync 成因 → 引导按钮：文案 + 单参数跳转集中管理（无对应页面则返回 null） */
@@ -94,6 +109,7 @@ export const outOfSyncCauseAction: Record<
   pending_draft: { text: '前往配置确认', target: '/config-preview' },
   pull_pending: { text: '查看下发', target: '/deployments' },
   local_reset: { text: '重新同步', target: undefined },
+  apply_failed: { text: '查看下发', target: '/deployments' },
 }
 
 /** 组件类型展示名 */

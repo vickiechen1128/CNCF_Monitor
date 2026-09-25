@@ -155,13 +155,21 @@ export function EdgeAgentsPage() {
         const st = record.config_sync_status ?? 'unknown'
         const cause = record.out_of_sync_cause
         const causeAction = cause ? outOfSyncCauseAction[cause] : null
+        const badge = (
+          <Badge
+            status={configSyncDisplayBadgeStatus(st, cause)}
+            text={configSyncDisplayLabel(st, cause)}
+          />
+        )
         return (
           <Space size={6}>
-            {/* pull_pending（已确认下发、待心跳拉取）展示「同步中」，其余 out_of_sync 仍「未同步」（F-16） */}
-            <Badge
-              status={configSyncDisplayBadgeStatus(st, cause)}
-              text={configSyncDisplayLabel(st, cause)}
-            />
+            {/* pull_pending（已确认下发、待心跳拉取）展示「同步中」；apply_failed 展示「同步失败」（F-16 / D-2）。
+                应用失败时以 Tooltip 展示错误摘要（列宽有限，错误全文走详情抽屉）。 */}
+            {record.config_apply_error ? (
+              <Tooltip title={record.config_apply_error}>{badge}</Tooltip>
+            ) : (
+              badge
+            )}
             {causeAction && (
               <Button
                 type="link"

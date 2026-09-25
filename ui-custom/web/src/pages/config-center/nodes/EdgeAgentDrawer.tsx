@@ -6,7 +6,7 @@ import type { AgentView, EdgeComponent } from '../../../types/edge'
 import type { EdgePackage } from '../../../types/config-center'
 import { edgePackageApi } from '../../../api/edgePackages'
 import { EllipsisText } from '../../../components/EllipsisText'
-import { formatLocalTime } from '../configCenterConstants'
+import { formatLocalTime, formatRelativeTime } from '../configCenterConstants'
 import {
   HIGH_RISK_COMPONENT_STATUS,
   agentStatusBadgeStatus,
@@ -18,6 +18,7 @@ import {
   configSyncDisplayBadgeStatus,
   configSyncDisplayLabel,
   formatBacklogBytes,
+  isConfigSyncApplyFailed,
   outOfSyncCauseAction,
   outOfSyncCauseHint,
 } from './edgeConstants'
@@ -156,6 +157,10 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
   const cause = agent.out_of_sync_cause
   const causeAction = cause ? outOfSyncCauseAction[cause] : null
   const syncStatus = agent.config_sync_status ?? 'unknown'
+  // 配置应用失败（D-2）：apply_failed 成因或已上报失败原因时展示「配置应用」诊断行；
+  // 该行自带「查看下发」按钮，故 apply_failed 时不再渲染通用「同步引导」行（避免重复按钮）。
+  const applyFailed = isConfigSyncApplyFailed(syncStatus, cause)
+  const showApplyError = applyFailed || !!agent.config_apply_error
 
   return (
     <Drawer
@@ -193,7 +198,35 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
           />{' '}
           {cause && <Text type="secondary" style={{ fontSize: 12 }}>{outOfSyncCauseHint[cause]}</Text>}
         </Descriptions.Item>
-        {causeAction && (
+        {/* 最后配置拉取：为「同步中」提供时限佐证（长时间未拉取可据此识别），无观测到拉取时展示 '-' */}
+        <Descriptions.Item label="最后配置拉取">
+          {agent.last_config_pull ? formatRelativeTime(agent.last_config_pull) : '-'}
+        </Descriptions.Item>
+        {showApplyError && (
+          <Descriptions.Item label="配置应用">
+            {agent.config_apply_error ? (
+              <Text type="danger">{agent.config_apply_error}</Text>
+            ) : (
+              <Text type="danger">Agent 应用最新配置失败，已回滚至上一可用版本</Text>
+            )}
+            {agent.config_apply_failed_version && (
+              <Text type="secondary" style={{ fontSize: 12, marginInlineStart: 8 }}>
+                （失败版本 {agent.config_apply_failed_version}）
+              </Text>
+            )}
+            <Button
+              size="small"
+              type="link"
+              onClick={() => {
+                navigate('/deployments')
+                onClose()
+              }}
+            >
+              查看下发
+            </Button>
+          </Descriptions.Item>
+        )}
+        {causeAction && !applyFailed && (
           <Descriptions.Item label="同步引导">
             <Button size="small" type="link" onClick={() => handleCauseAction(cause)}>
               {causeAction.text}
@@ -201,6 +234,9 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
           </Descriptions.Item>
         )}
         <Descriptions.Item label="回传积压">{formatBacklogBytes(agent.queue_backlog_bytes)}</Descriptions.Item>
+        <Descriptions.Item label="最后心跳">
+          {agent.last_heartbeat ? formatRelativeTime(agent.last_heartbeat) : '-'}
+        </Descriptions.Item>
         <Descriptions.Item label="心跳 RTT">{agent.heartbeat_rtt_ms != null ? `${agent.heartbeat_rtt_ms} ms` : '-'}</Descriptions.Item>
         <Descriptions.Item label="最近错误">
           {agent.last_error ? <Text type="danger">{agent.last_error}</Text> : '-'}

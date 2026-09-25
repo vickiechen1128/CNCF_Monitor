@@ -134,6 +134,166 @@ func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T) {
 	assert.Equal(t, models.OutOfSyncCausePullPending, agent.OutOfSyncCause)
 }
 
+// TestHeartbeatApplyFailedCause 覆盖 D-2 三态判定（正例）：Agent 已拉到最新版本但应用
+// 失败（回滚后仍运行上一版本）时，中心必须落 out_of_sync + apply_failed（「同步失败」），
+// 而非误判为 pull_pending（「等待拉取」），并保存失败文本与失败版本。
+func TestHeartbeatApplyFailedCause(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-apply-failed", "agent_pull", "tok-af", "vmagent", "http://center:8080")
+	// latest = 20260924-100000
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC))
+
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{
+		NetworkDomainID:          dom.ID,
+		AgentType:                models.AgentTypeVMAgent,
+		ConfigVersion:            "20260922-091425", // 应用失败后回滚到的上一可用版本
+		ConfigApplyError:         "deployer: targets app.json: empty array",
+		ConfigApplyFailedVersion: "20260924-100000", // == 中心最新版本
+	}
+	resp, err := svc.Handle(dom, req, time.Date(2026, 9, 24, 10, 5, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	require.True(t, resp.ConfigChanged, "版本不一致应 config_changed=true")
+
+	var agent models.EdgeAgent
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&agent).Error)
+	assert.Equal(t, models.ConfigSyncStatusOutOfSync, agent.ConfigSyncStatus)
+	assert.Equal(t, models.OutOfSyncCauseApplyFailed, agent.OutOfSyncCause, "失败版本==最新 → apply_failed")
+	assert.Equal(t, req.ConfigApplyError, agent.ConfigApplyError, "失败原因应落库")
+	assert.Equal(t, "20260924-100000", agent.ConfigApplyFailedVersion)
+}
+
+// TestHeartbeatApplyFailedOlderVersionStaysPullPending 覆盖 D-2 三态判定（边界 + 复位）：
+// 失败版本 ≠ 中心最新版本（已有更新版本待拉取）时仍按 pull_pending，不用陈旧失败覆盖真因；
+// 随后 Agent 拉齐并成功应用最新版本 → in_sync，且失败原因与成因均被清空。
+func TestHeartbeatApplyFailedOlderVersionStaysPullPending(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-apply-old", "agent_pull", "tok-ao", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC))
+
+	svc := NewHeartbeatService(db)
+	req := &HeartbeatRequest{
+		NetworkDomainID:          dom.ID,
+		AgentType:                models.AgentTypeVMAgent,
+		ConfigVersion:            "20260922-091425",
+		ConfigApplyError:         "deployer: targets app.json: empty array",
+		ConfigApplyFailedVersion: "20260923-080000", // ≠ 最新（20260924-100000）
+	}
+	_, err := svc.Handle(dom, req, time.Date(2026, 9, 24, 10, 5, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+
+	var agent models.EdgeAgent
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&agent).Error)
+	assert.Equal(t, models.ConfigSyncStatusOutOfSync, agent.ConfigSyncStatus)
+	assert.Equal(t, models.OutOfSyncCausePullPending, agent.OutOfSyncCause, "失败版本≠最新 → 仍 pull_pending")
+
+	// 应用成功（版本一致、不再上报错误）→ in_sync，错误文本与成因清空。
+	req2 := &HeartbeatRequest{
+		NetworkDomainID: dom.ID,
+		AgentType:       models.AgentTypeVMAgent,
+		ConfigVersion:   "20260924-100000",
+	}
+	_, err = svc.Handle(dom, req2, time.Date(2026, 9, 24, 10, 10, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&agent).Error)
+	assert.Equal(t, models.ConfigSyncStatusInSync, agent.ConfigSyncStatus)
+	assert.Empty(t, agent.OutOfSyncCause, "in_sync 应清空成因")
+	assert.Empty(t, agent.ConfigApplyError, "应用成功应清空失败原因")
+	assert.Empty(t, agent.ConfigApplyFailedVersion)
+}
+
+// TestHeartbeatRecordsLastConfigPullOnVersionAdvance 覆盖 last_config_pull 写入方（此前该字段
+// model/DTO/前端类型齐备但全链路无写入方）：仅在「上报版本推进到最新已确认版本」这一拉取事件
+// 首次出现时留痕（中心接收时间为准），同版本持续心跳不刷新，避免「恒定显示刚刚拉取」。
+func TestHeartbeatRecordsLastConfigPullOnVersionAdvance(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-pull", "agent_pull", "tok-pull", "vmagent", "http://center:8080")
+	// 中心最新版本 20260924-100000
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC))
+
+	svc := NewHeartbeatService(db)
+	hb := func(version string, at time.Time) {
+		t.Helper()
+		_, err := svc.Handle(dom, &HeartbeatRequest{
+			NetworkDomainID: dom.ID,
+			AgentType:       models.AgentTypeVMAgent,
+			ConfigVersion:   version,
+		}, at, "http://center:8080")
+		require.NoError(t, err)
+	}
+	load := func() *models.EdgeAgent {
+		t.Helper()
+		var a models.EdgeAgent
+		require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&a).Error)
+		return &a
+	}
+
+	// 首次心跳（自动注册）报旧版本：中心尚未观测到任何拉取事件 → 不留痕。
+	t1 := time.Date(2026, 9, 24, 10, 1, 0, 0, time.UTC)
+	hb("20260922-091425", t1)
+	assert.Nil(t, load().LastConfigPull, "未观测到拉取事件 → 不写拉取时间")
+
+	// 版本推进到最新已确认版本 → 记一次拉取。
+	t2 := t1.Add(30 * time.Second)
+	hb("20260924-100000", t2)
+	got := load()
+	require.NotNil(t, got.LastConfigPull, "版本推进 → 应留痕")
+	assert.True(t, t2.Equal(*got.LastConfigPull), "拉取时间取中心接收时间")
+
+	// 同版本继续心跳 → 不刷新。
+	t3 := t2.Add(time.Hour)
+	hb("20260924-100000", t3)
+	assert.True(t, t2.Equal(*load().LastConfigPull), "同版本心跳不刷新拉取时间")
+}
+
+// TestHeartbeatRecordsLastConfigPullOnApplyFailed 覆盖第二条拉取线索（D-2 场景）：Agent 已拉包
+// 但应用失败并回滚，上报版本停留在旧值——此时中心仍应留痕（确实发生过拉取），但同一失败版本的
+// 重复心跳不得反复刷新时间。
+func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-pull-af", "agent_pull", "tok-paf", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC))
+
+	svc := NewHeartbeatService(db)
+	failedReq := func() *HeartbeatRequest {
+		return &HeartbeatRequest{
+			NetworkDomainID:          dom.ID,
+			AgentType:                models.AgentTypeVMAgent,
+			ConfigVersion:            "20260922-091425", // 回滚后的上一可用版本
+			ConfigApplyError:         "deployer: targets node.json: empty array",
+			ConfigApplyFailedVersion: "20260924-100000", // == 中心最新版本
+		}
+	}
+	t1 := time.Date(2026, 9, 24, 10, 5, 0, 0, time.UTC)
+	_, err := svc.Handle(dom, failedReq(), t1, "http://center:8080")
+	require.NoError(t, err)
+
+	var agent models.EdgeAgent
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&agent).Error)
+	require.NotNil(t, agent.LastConfigPull, "已拉包但应用失败 → 也应留痕")
+	assert.True(t, t1.Equal(*agent.LastConfigPull))
+
+	// 同一失败版本的后续心跳 → 不刷新（事件未再次发生）。
+	t2 := t1.Add(time.Hour)
+	_, err = svc.Handle(dom, failedReq(), t2, "http://center:8080")
+	require.NoError(t, err)
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).First(&agent).Error)
+	assert.True(t, t1.Equal(*agent.LastConfigPull), "同一失败版本重复上报不刷新")
+}
+
 func TestHeartbeatService_NoConfigVersion(t *testing.T) {
 	db := newEdgeTestDB(t)
 	dom := seedEdgeDomain(db, "nd-empty", "agent_pull", "tok-xyz", "", "http://center:8080")

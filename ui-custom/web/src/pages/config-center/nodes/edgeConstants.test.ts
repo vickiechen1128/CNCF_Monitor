@@ -4,8 +4,11 @@ import {
   configSyncDisplayBadgeStatus,
   configSyncDisplayLabel,
   formatBacklogBytes,
+  isConfigSyncApplyFailed,
   isConfigSyncInProgress,
   latestPackageVersion,
+  outOfSyncCauseAction,
+  outOfSyncCauseHint,
 } from './edgeConstants'
 
 describe('edgeConstants 纯函数', () => {
@@ -39,6 +42,15 @@ describe('edgeConstants 纯函数', () => {
     expect(isConfigSyncInProgress('in_sync', 'pull_pending')).toBe(false)
   })
 
+  it('「同步失败」判定（D-2）：仅 out_of_sync + apply_failed 命中，且不命中「同步中」', () => {
+    expect(isConfigSyncApplyFailed('out_of_sync', 'apply_failed')).toBe(true)
+    expect(isConfigSyncApplyFailed('out_of_sync', 'pull_pending')).toBe(false)
+    expect(isConfigSyncApplyFailed('out_of_sync', 'pending_draft')).toBe(false)
+    expect(isConfigSyncApplyFailed('out_of_sync')).toBe(false)
+    // 反例：apply_failed 是「同步失败」，绝不能误判为「同步中」（决策 4）
+    expect(isConfigSyncInProgress('out_of_sync', 'apply_failed')).toBe(false)
+  })
+
   it('configSyncDisplayLabel/BadgeStatus：pull_pending 展示「同步中」+ processing，其余与状态映射一致', () => {
     expect(configSyncDisplayLabel('out_of_sync', 'pull_pending')).toBe('同步中')
     expect(configSyncDisplayBadgeStatus('out_of_sync', 'pull_pending')).toBe('processing')
@@ -55,5 +67,19 @@ describe('edgeConstants 纯函数', () => {
     expect(configSyncDisplayBadgeStatus('in_sync', 'pull_pending')).toBe('success')
     expect(configSyncDisplayLabel('unknown')).toBe('未知')
     expect(configSyncDisplayBadgeStatus('manual_override')).toBe('warning')
+  })
+
+  it('apply_failed 映射矩阵：展示「同步失败」+ error，并提供提示与「查看下发」引导（D-2）', () => {
+    expect(configSyncDisplayLabel('out_of_sync', 'apply_failed')).toBe('同步失败')
+    expect(configSyncDisplayBadgeStatus('out_of_sync', 'apply_failed')).toBe('error')
+    // 与「同步中」「未同步」文案/色明确区分
+    expect(configSyncDisplayLabel('out_of_sync', 'apply_failed')).not.toBe('未同步')
+    expect(configSyncDisplayBadgeStatus('out_of_sync', 'apply_failed')).not.toBe('processing')
+    // 非 out_of_sync 状态不受 apply_failed 影响
+    expect(configSyncDisplayLabel('in_sync', 'apply_failed')).toBe('已同步')
+    expect(configSyncDisplayBadgeStatus('in_sync', 'apply_failed')).toBe('success')
+    // 提示与引导按钮
+    expect(outOfSyncCauseHint.apply_failed).toContain('已回滚至上一可用版本')
+    expect(outOfSyncCauseAction.apply_failed).toEqual({ text: '查看下发', target: '/deployments' })
   })
 })

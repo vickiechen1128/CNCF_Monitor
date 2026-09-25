@@ -66,6 +66,27 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
     expect(screen.getByText('未部署')).toBeInTheDocument()
   })
 
+  it('节点概览渲染「最后配置拉取」「最后心跳」（相对时间）', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(
+      baseAgent({
+        last_heartbeat: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        last_config_pull: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      }),
+    )
+
+    expect(screen.getByText('5 分钟前')).toBeInTheDocument()
+    expect(screen.getByText('2 小时前')).toBeInTheDocument()
+  })
+
+  it('未观测到配置拉取 / 心跳缺省时，两行均展示 -', async () => {
+    listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
+    renderDrawer(baseAgent({ last_heartbeat: undefined }))
+
+    expect(screen.getByText('最后配置拉取').closest('tr')?.textContent).toBe('最后配置拉取-')
+    expect(screen.getByText('最后心跳').closest('tr')?.textContent).toBe('最后心跳-')
+  })
+
   it('高危组件（crash_loop）渲染顶部高危横幅', async () => {
     listPackagesMock.mockResolvedValue({ status: 'success', data: [] })
     renderDrawer(

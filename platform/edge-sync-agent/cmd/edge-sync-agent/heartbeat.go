@@ -13,7 +13,9 @@ import (
 
 // buildHeartbeatRequest 组装心跳上报体，字段严格对齐中心 edge 协议（PRD §6.2 与
 // platform/edge heartbeat 约定）：net_domain_id / agent_type / version / config_version /
-// queue_backlog_bytes / remote_write_queue_size / hostname / ip / components。
+// queue_backlog_bytes / remote_write_queue_size / hostname / ip / components /
+// config_apply_error + config_apply_failed_version（D-1，读 deployer 最近一次应用失败状态；
+// 无失败时为空，omitempty 不产出键）。
 // 抽为纯函数便于单测（T11-15 装配 helper 测试）。
 func buildHeartbeatRequest(
 	cfg *config.Config,
@@ -22,17 +24,24 @@ func buildHeartbeatRequest(
 	remoteWriteQueueSize int,
 	hostname, ip string,
 	components []contract.Component,
+	dep *deployer.Deployer,
 ) contract.HeartbeatRequest {
+	var applyState deployer.ApplyState
+	if dep != nil {
+		applyState = dep.ApplyState()
+	}
 	return contract.HeartbeatRequest{
-		NetworkDomainID:      cfg.NetworkDomainID,
-		AgentType:            cfg.AgentType,
-		Version:              cfg.Version,
-		ConfigVersion:        configVersion,
-		QueueBacklogBytes:    queueBacklogBytes,
-		RemoteWriteQueueSize: remoteWriteQueueSize,
-		Hostname:             hostname,
-		Ip:                   ip,
-		Components:           components,
+		NetworkDomainID:          cfg.NetworkDomainID,
+		AgentType:                cfg.AgentType,
+		Version:                  cfg.Version,
+		ConfigVersion:            configVersion,
+		QueueBacklogBytes:        queueBacklogBytes,
+		RemoteWriteQueueSize:     remoteWriteQueueSize,
+		Hostname:                 hostname,
+		Ip:                       ip,
+		Components:               components,
+		ConfigApplyError:         applyState.Error,
+		ConfigApplyFailedVersion: applyState.Version,
 	}
 }
 
@@ -55,8 +64,11 @@ type runtimeProvider struct {
 // remote_write 队列并发分片数按网域默认常量上报（PRD §6.4.1）。
 func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 	version := ""
+	applyState := deployer.ApplyState{}
 	if r.deployer != nil {
 		version = r.deployer.CurrentVersion()
+		// 最近一次应用失败状态（D-1）：随心跳上报，中心据此判 out_of_sync 成因 apply_failed。
+		applyState = r.deployer.ApplyState()
 	}
 	rwQueue := 0
 	if r.cfg != nil {
@@ -73,14 +85,16 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 		targets = fetchVMAgentTargets(context.Background(), newVMTargetsClient(), r.targetBaseURL, r.warnf)
 	}
 	return puller.RuntimeSnapshot{
-		AgentVersion:         r.cfg.Version,
-		ConfigVersion:        version,
-		QueueBacklogBytes:    0,
-		RemoteWriteQueueSize: rwQueue,
-		Hostname:             r.hostname,
-		Ip:                   r.ip,
-		Components:           comps,
-		Targets:              targets,
+		AgentVersion:             r.cfg.Version,
+		ConfigVersion:            version,
+		QueueBacklogBytes:        0,
+		RemoteWriteQueueSize:     rwQueue,
+		Hostname:                 r.hostname,
+		Ip:                       r.ip,
+		Components:               comps,
+		Targets:                  targets,
+		ConfigApplyError:         applyState.Error,
+		ConfigApplyFailedVersion: applyState.Version,
 	}
 }
 

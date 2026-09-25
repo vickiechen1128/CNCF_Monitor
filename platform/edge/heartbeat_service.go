@@ -22,6 +22,12 @@ type HeartbeatRequest struct {
 	Hostname             string                 `json:"hostname,omitempty"`
 	Ip                   string                 `json:"ip,omitempty"`
 	Components           []models.EdgeComponent `json:"components,omitempty"`
+	// ConfigApplyError / ConfigApplyFailedVersion 是 Agent 上报的配置应用结果
+	// （M11 设计提案 D-2）：Deployer.Apply 失败时携带失败原因与失败版本，中心据此把
+	// out_of_sync 成因判为 apply_failed（「同步失败」）；应用成功时 Agent 不再上报
+	// （omitempty），中心同步清空落库文本。
+	ConfigApplyError         string `json:"config_apply_error,omitempty"`
+	ConfigApplyFailedVersion string `json:"config_apply_failed_version,omitempty"`
 	// Targets 是边缘 vmagent 本地 target 抓取快照（方案 B，随心跳上报），字段与
 	// agent 侧 contract.EdgeTargetSnapshot 对齐。本轮仅透传占位，不做持久化。
 	Targets []EdgeTargetSnapshot `json:"targets,omitempty"`
@@ -72,7 +78,8 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 		return nil, err
 	}
 
-	// 更新运行态。
+	// 更新运行态。prevConfigVersion 先留存，供下方「拉取留痕」判定版本是否推进。
+	prevConfigVersion := agent.ConfigVersion
 	agent.LastHeartbeat = &now
 	agent.Hostname = req.Hostname
 	agent.Ip = req.Ip
@@ -119,20 +126,40 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	}
 	changed := req.ConfigVersion != latestStr
 
-	// 同步 config_sync_status / out_of_sync_cause（§8.1）。
+	// 同步 config_sync_status / out_of_sync_cause（§8.1）。三态判定（M11 设计提案 D-2）：
+	//   - 版本一致（应用成功）→ in_sync，清空成因与陈旧应用错误文本；
+	//   - 版本不一致且 Agent 上报的失败版本 == 中心最新版本 → out_of_sync + apply_failed
+	//     （已拉到最新但应用失败，已回滚至上一可用版本）；
+	//   - 版本不一致且无（或非最新版本的）应用错误 → out_of_sync + pull_pending（F-16「同步中」）。
+	// 失败版本 ≠ 最新（已有更新版本待拉取）时仍按 pull_pending，避免用陈旧错误覆盖真因。
 	syncStatus := models.ConfigSyncStatusInSync
 	var cause models.OutOfSyncCause
-	fullUpdate := false
 	if changed {
 		syncStatus = models.ConfigSyncStatusOutOfSync
 		cause = models.OutOfSyncCausePullPending
-		fullUpdate = true
+		if req.ConfigApplyError != "" && latest != nil && req.ConfigApplyFailedVersion == latestStr {
+			cause = models.OutOfSyncCauseApplyFailed
+		}
 	}
+	// 应用错误文本：以 Agent 上报为准镜像落库（空值即清空），保证「应用成功 → 清空」。
 	updates := map[string]interface{}{
-		"config_sync_status": syncStatus,
+		"config_sync_status":          syncStatus,
+		"out_of_sync_cause":           cause, // 空字符串即清空成因（in_sync 时）
+		"config_apply_error":          req.ConfigApplyError,
+		"config_apply_failed_version": req.ConfigApplyFailedVersion,
 	}
-	if fullUpdate {
-		updates["out_of_sync_cause"] = cause
+	// 拉取留痕 last_config_pull（PRD §5.2「最后拉取配置」，以中心接收时间为准）：此前该字段
+	// 全链路无写入方（model/DTO/前端类型齐备但恒空），使「同步中」缺少时限佐证——无法区分
+	// 「刚下发、马上会拉」与「迟迟拉不到」。中心可观测的「发生过一次拉取」有两条线索：
+	//   ① 上报版本推进到最新已确认版本（拉取并应用成功）；
+	//   ② 上报「最新版本应用失败」（已拉包但应用失败并回滚，版本停留上一可用版本）。
+	// 两者均以「事件首次出现」为界写入，避免同版本持续心跳把时间反复刷成「刚刚拉取」。
+	pulledToLatest := !changed && latest != nil && req.ConfigVersion != prevConfigVersion
+	applyFailedOnLatest := req.ConfigApplyError != "" && latest != nil &&
+		req.ConfigApplyFailedVersion == latestStr &&
+		agent.ConfigApplyFailedVersion != req.ConfigApplyFailedVersion
+	if pulledToLatest || applyFailedOnLatest {
+		updates["last_config_pull"] = now
 	}
 	if err := s.db.Model(&models.EdgeAgent{}).Where("id = ?", agent.ID).Updates(updates).Error; err != nil {
 		return nil, fmt.Errorf("update config sync status: %w", err)

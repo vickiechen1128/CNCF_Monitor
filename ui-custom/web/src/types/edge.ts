@@ -18,8 +18,12 @@ export type ConfigSyncStatus =
   | 'manual_override'
   | 'no_version'
 
-/** out_of_sync 的成因（分档引导） */
-export type OutOfSyncCause = 'pending_draft' | 'pull_pending' | 'local_reset'
+/**
+ * out_of_sync 的成因（分档引导）。
+ * apply_failed：已拉取最新配置但应用失败（已回滚至上一可用版本），展示为「同步失败」，
+ * 与 pull_pending（等待拉取 →「同步中」）语义区分（M11 设计提案 D-2）。
+ */
+export type OutOfSyncCause = 'pending_draft' | 'pull_pending' | 'local_reset' | 'apply_failed'
 
 /** 组件类型 */
 export type EdgeComponentType = 'agent' | 'collector' | 'blackbox_exporter'
@@ -59,6 +63,10 @@ export interface AgentView {
   config_version?: string
   config_sync_status?: ConfigSyncStatus
   out_of_sync_cause?: OutOfSyncCause
+  /** 最近一次配置应用失败原因（与心跳契约 config_apply_error 同名同义；成功时清空） */
+  config_apply_error?: string
+  /** 应用失败的配置版本（用于抽屉展示「失败版本」） */
+  config_apply_failed_version?: string
   /** 回传积压：vmagent 磁盘持久发送队列积压字节数（展示名「回传积压」，非「WAL 积压」） */
   queue_backlog_bytes?: number
   collector_status?: string
