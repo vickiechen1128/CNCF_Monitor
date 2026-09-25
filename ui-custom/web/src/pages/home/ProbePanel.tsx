@@ -150,7 +150,19 @@ export function ProbePanel({ probeTargets = [] }: { probeTargets?: ProbeTargetIt
       title="拨测态势"
       data-testid="probe-panel"
       extra={
-        <span style={{ display: 'inline-flex', gap: 12, alignItems: 'center', fontSize: 12 }}>
+        /* 窄屏（≤767px）：卡头右侧的统计 + 排序说明 + 深链共 3 段文案必然溢出，
+           故允许换行并右对齐（flexWrap + rowGap），宽屏仍为单行——antd 卡头不换行。 */
+        <span
+          style={{
+            display: 'inline-flex',
+            gap: 12,
+            rowGap: 4,
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            fontSize: 12,
+          }}
+        >
           <Typography.Text type="secondary">
             拨测目标 {sorted.length} · 正常 {normalCount} ·{' '}
             <span style={{ color: abnormalCount > 0 ? token.colorErrorText : token.colorTextTertiary }}>

@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-24 12:12 · commit: `a039125`
+> 生成时间: 2026-09-25 13:11 · commit: `57ca16c`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -944,6 +944,12 @@
 - `func TestUpdateResource_CategoryChangeRejected(t *testing.T)`
 - `func TestUpdateResource_SourceTypeChangeRejected(t *testing.T)`
 - `func TestUpdateResource_DomainValidationSameAsPost(t *testing.T)`
+- `func appCreateBody() map[string]interface{}`
+- `func loadAppByResourceID(t *testing.T, db *gorm.DB, resourceID string) *models.Application`
+- `func TestCreateResource_Application_AddressSplit(t *testing.T)`
+- `func TestCreateResource_Application_EmptyHealthCheckURLAccepted(t *testing.T)`
+- `func TestCreateResource_Application_MissingAddressRejected(t *testing.T)`
+- `func TestUpdateResource_Application_AddressPersistsAsGiven(t *testing.T)`
 
 ### `platform/config/resource/delete.go`
 
@@ -1321,6 +1327,7 @@
 - `func TestBuildListQuery(t *testing.T)`
 - `func TestValidateResourceInput_BizTypology(t *testing.T)`
 - `func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T)`
+- `func TestValidateApplication_AddressSplit(t *testing.T)`
 
 ### `platform/configcenter/change/watcher.go`
 
@@ -1476,6 +1483,7 @@
 - `func newGin() *gin.Engine`
 - `func perform(t *testing.T, r *gin.Engine, method, path string, body string) *httptest.ResponseRecorder`
 - `func TestMonitorDomainDefaultForcesLocal(t *testing.T)`
+- `func TestMonitorDomainManagementNonDefaultIDForcesLocal(t *testing.T)`
 - `func TestMonitorDomainEdgeAgentPullSignsToken(t *testing.T)`
 - `func TestMonitorDomainRejectsAlreadyMonitored(t *testing.T)`
 - `func TestMonitorDomainRejectsInvalidAgentType(t *testing.T)`
@@ -1647,6 +1655,8 @@
 ### `platform/configcenter/generator/generator.go`
 
 - `type ConfigArtifacts struct`
+- `type TargetDiagnostics struct`
+- `method (TargetDiagnostics) anyOfflineOnly() bool`
 - `type TargetGroup struct`
 - `func buildExternalLabels(domainID, zoneType, replica string) map[string]string`
 - `method (*ConfigArtifacts) Checksum() string`
@@ -1673,6 +1683,11 @@
 - `func TestLoadExporterPortPriority(t *testing.T)`
 - `func TestMergeLabelsPriority(t *testing.T)`
 - `func TestValidateTargetGroups(t *testing.T)`
+- `func TestValidateTargetGroupsRejectsEmpty(t *testing.T)`
+- `func TestApplicationEmptyAddressGuarded(t *testing.T)`
+- `func TestAllInstancesOfflineMessageDiffersFromAddressEmpty(t *testing.T)`
+- `func TestResolveTargetsAllValidUnaffected(t *testing.T)`
+- `func TestChecksumUnaffectedByTargetDiagnostics(t *testing.T)`
 - `func TestValidateArtifactsPendingWhenToolMissing(t *testing.T)`
 - `func TestValidateArtifactsPassed(t *testing.T)`
 - `func TestValidateArtifactsFailedSchema(t *testing.T)`
@@ -1722,10 +1737,12 @@
 
 ### `platform/configcenter/generator/targets.go`
 
+- `type SkippedInstance struct`
+- `func addressEmptyDetail(category string) string`
 - `func exporterPortOr(exporterPort, fallback int) int`
 - `func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourceTarget, error)`
 - `func instanceAddress(ip string, port int) string`
-- `func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, erro…`
+- `func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []Sk…`
 - `func MarshalTargetGroups(groups []TargetGroup) (string, error)`
 - `func EnsureTargetsFilename(name string) error`
 
@@ -1736,6 +1753,7 @@
 - `func validTargetHost(host string) bool`
 - `func validateLabelName(name string) error`
 - `func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.Va…`
+- `func emptyTargetsMessage(name string, diag *TargetDiagnostics) string`
 - `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string)`
 - `func runPromtoolCheck(ca *ConfigArtifacts) error`
 - `func runBlackboxCheck(blackboxYAML string) error`
@@ -1851,6 +1869,17 @@
 - `func TestBusinessDomainsMissingFileFallsBackToInfra(t *testing.T)`
 - `func TestBusinessDomainsNilDBReturnsError(t *testing.T)`
 
+### `platform/db/seed/domain_channel.go`
+
+- `func runDomainChannelBackfill(db *gorm.DB) error`
+
+### `platform/db/seed/domain_channel_test.go`
+
+- `func channelOf(t *testing.T, db *gorm.DB, id string) models.ChannelType`
+- `func TestRunBackfillsDomainChannelFromDomainType(t *testing.T)`
+- `func TestRunBackfillsManagementChannel(t *testing.T)`
+- `func TestRunLeavesDomainTypeUnsetRowsUntouched(t *testing.T)`
+
 ### `platform/db/seed/exporter.go`
 
 - `func runExporters(db *gorm.DB) error`
@@ -1906,6 +1935,11 @@
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat_test.go`
 
 - `func TestBuildHeartbeatRequestMapping(t *testing.T)`
+- `func badApplyZip(t *testing.T, version string) []byte`
+- `func goodApplyZip(t *testing.T, version string) []byte`
+- `func applyZip(t *testing.T, version, targetsJSON string) []byte`
+- `func TestHeartbeatRequestCarriesApplyError(t *testing.T)`
+- `func TestRuntimeProviderSnapshotCarriesApplyError(t *testing.T)`
 - `func TestRuntimeProviderSnapshot(t *testing.T)`
 - `type stubProbe struct`
 - `method (stubProbe) Alive(*supervisor.Component) bool`
@@ -2045,12 +2079,15 @@
 - `func TestPathConstants(t *testing.T)`
 - `func TestEdgeTargetSnapshotJSONTag(t *testing.T)`
 - `func TestHeartbeatRequestJSONCarriesTargets(t *testing.T)`
+- `func TestHeartbeatRequestJSONCarriesApplyError(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/deployer/deployer.go`
 
 - `type ComponentType = string`
 - `type Reloader`
 - `type Validator`
+- `type ApplyState struct`
+- `method (ApplyState) Failed() bool`
 - `type Deployer struct`
 - `func New(root, netDomainID string, logg *logger.Logger, validate Validator, promReload, bbReload Reloader) *Deployer`
 - `method (*Deployer) DomainDir() string`
@@ -2060,6 +2097,11 @@
 - `method (*Deployer) setCurrentLink(version string)`
 - `method (*Deployer) Restore() error`
 - `method (*Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Metadata) error`
+- `method (*Deployer) ApplyState() ApplyState`
+- `method (*Deployer) applyStatePath() string`
+- `method (*Deployer) recordApplyFailure(version string, err error)`
+- `method (*Deployer) clearApplyState()`
+- `method (*Deployer) loadApplyState()`
 - `method (*Deployer) triggerReload(ctx context.Context, pkg *Package)`
 - `method (*Deployer) stagingDir() string`
 - `func writePackage(dir string, pkg *Package) error`
@@ -2082,6 +2124,8 @@
 - `func TestStructuralValidateTopKeys(t *testing.T)`
 - `func TestZipSlipTargetRejected(t *testing.T)`
 - `func TestApplyMetadataRemoteWriteURLPersisted(t *testing.T)`
+- `func TestApplyFailureStatePersistedAndRestored(t *testing.T)`
+- `func TestApplyFailureStateWithoutCurrentLink(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/deployer/extract.go`
 
@@ -2235,6 +2279,8 @@
 - `func seedConfigVersion(db *gorm.DB, domainID, promYML, rulesYML, blackboxYML string, targets map[string]string, createdAt ti…`
 - `func newEdgeRouter(db *gorm.DB) *gin.Engine`
 - `func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T)`
+- `func TestHeartbeatApplyFailedCause(t *testing.T)`
+- `func TestHeartbeatApplyFailedOlderVersionStaysPullPending(t *testing.T)`
 - `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
 - `func TestHeartbeatHandlerConfigDownloadURL(t *testing.T)`
 - `func TestRequestAuthorityFallsBackToRequestHost(t *testing.T)`
@@ -2281,16 +2327,16 @@
 
 ### `platform/edge/management_handler.go`
 
-- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB)`
+- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string)`
 - `func RetireDomainHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondRetireError(c *gin.Context, err error)`
 - `func ListAgentsHandler(db *gorm.DB) gin.HandlerFunc`
 - `func GetAgentHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondAgentError(c *gin.Context, err error)`
-- `func ListPackagesHandler() gin.HandlerFunc`
-- `func DownloadLatestPackageHandler() gin.HandlerFunc`
-- `func DownloadPackageHandler() gin.HandlerFunc`
-- `func servePackageZip(c *gin.Context, art PackageArtifact)`
+- `func ListPackagesHandler(dir string) gin.HandlerFunc`
+- `func DownloadLatestPackageHandler(dir string) gin.HandlerFunc`
+- `func DownloadPackageHandler(dir string) gin.HandlerFunc`
+- `func servePackageArtifact(c *gin.Context, dir string, art PackageArtifact)`
 
 ### `platform/edge/management_service.go`
 
@@ -2311,6 +2357,7 @@
 - `func tPtr(t time.Time) *time.Time`
 - `func seedAgent(t *testing.T, db *gorm.DB, domainID, status string, lastHB *time.Time, comps []models.EdgeComponent) *models.…`
 - `func newManagementRouter(db *gorm.DB) *gin.Engine`
+- `func newManagementRouterWithDir(db *gorm.DB, packageDir string) *gin.Engine`
 - `func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T)`
 - `func TestRetireDomainRejectsManagementAndRetiredAndNotMonitoredAndMissing(t *testing.T)`
 - `func TestRetireDomainHandlerHTTP(t *testing.T)`
@@ -2325,13 +2372,17 @@
 - `func TestAgentViewDegradesComponentsWhenHeartbeatExpired(t *testing.T)`
 - `func TestAgentViewKeepsComponentStatusWhenHeartbeatFresh(t *testing.T)`
 - `func TestListAgentsAndGetAgentHandlers(t *testing.T)`
-- `func TestListPackagesFields(t *testing.T)`
-- `func TestLatestPackageIsMaxVersion(t *testing.T)`
-- `func TestDownloadLatestPackageHandlerServesZip(t *testing.T)`
-- `func mustLatestArtifact(t *testing.T) PackageArtifact`
+- `func newFakePackageDir(t *testing.T, version string) (string, []byte, string)`
+- `func decodePackageList(t *testing.T, body []byte) (string, []PackageArtifact)`
+- `func TestListPackagesFromManifest(t *testing.T)`
+- `func TestLatestPackageIsManifestPackage(t *testing.T)`
+- `func TestDownloadLatestPackageHandlerStreamsTarGz(t *testing.T)`
 - `func TestFindPackageByVersion(t *testing.T)`
-- `func TestDownloadPackageHandlerServesZipForVersion(t *testing.T)`
+- `func TestDownloadPackageHandlerStreamsTarGzForVersion(t *testing.T)`
 - `func TestDownloadPackageHandlerUnknownVersionReturns404(t *testing.T)`
+- `func TestListPackagesEmptyWhenNoManifest(t *testing.T)`
+- `func TestListPackagesUnavailableArtifactVariants(t *testing.T)`
+- `func TestListPackagesInvalidManifestReturns500(t *testing.T)`
 
 ### `platform/edge/middleware.go`
 
@@ -2356,15 +2407,11 @@
 - `type PackageComponent struct`
 - `type PackageArtifact struct`
 - `func offlinePackageDownloadPathFor(version string) string`
-- `func componentSpec(name, version string) PackageComponent`
-- `func componentBinBytes(name, version string) []byte`
-- `func resolveArtifact(art PackageArtifact) (PackageArtifact, error)`
-- `func ListPackages() ([]PackageArtifact, error)`
-- `func FindPackage(version string) (PackageArtifact, error)`
-- `func LatestPackage() (PackageArtifact, error)`
-- `func buildOfflinePackageZip(art PackageArtifact) ([]byte, string, error)`
-- `func writeZipEntry(zw *zip.Writer, name string, data []byte, modTime time.Time) error`
-- `func sha256Hex(content []byte) string`
+- `func loadManifest(dir string) (PackageArtifact, error)`
+- `func ListPackages(dir string) ([]PackageArtifact, error)`
+- `func LatestPackage(dir string) (PackageArtifact, error)`
+- `func FindPackage(dir, version string) (PackageArtifact, error)`
+- `func OpenPackageFile(dir string, art PackageArtifact) (*os.File, error)`
 
 ### `platform/edge/register.go`
 
@@ -2754,6 +2801,7 @@
 - `func TestExporterMetricLibraryMonitorTypesSerialization(t *testing.T)`
 - `func TestExporterInstallationConfirmationDefaultAndPK(t *testing.T)`
 - `func TestInstallationStatusEnums(t *testing.T)`
+- `func TestChannelForDomainType(t *testing.T)`
 - `func TestConfigCenterEnumConstants(t *testing.T)`
 - `func TestConfigCenterValidationStatus(t *testing.T)`
 - `func TestConfigCenterEnumCollections(t *testing.T)`
@@ -2793,6 +2841,7 @@
 - `type RegistrationStatus = string`
 - `type NetworkDomain struct`
 - `method (*NetworkDomain) IsManagement() bool`
+- `func ChannelForDomainType(dt DomainType) ChannelType`
 - `method (*NetworkDomain) AfterFind(tx *gorm.DB) error`
 - `method (NetworkDomain) TableName() string`
 
@@ -3405,6 +3454,7 @@
 
 - `type previewTarget struct`
 - `func PreviewTargets(db *gorm.DB) gin.HandlerFunc`
+- `func applicationTargetAddress(a *models.Application) string`
 - `func resolveInstanceAddress(db *gorm.DB, resourceID string) string`
 
 ### `platform/strategy/scrapejob/routes.go`
@@ -3426,6 +3476,8 @@
 - `func TestCreateScrapeJobGlobalDefaultFallback(t *testing.T)`
 - `func TestCreateScrapeJobTemplateFallback(t *testing.T)`
 - `func TestUpdateScrapeJobClearFieldReInherits(t *testing.T)`
+- `func TestCreateScrapeJobApplicationRequiresMetricsPath(t *testing.T)`
+- `func TestApplicationAddressDisplayUsesEndpointPort(t *testing.T)`
 - `func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T)`
 - `func TestCreateScrapeJobAuthValidation(t *testing.T)`
 - `func TestCreateScrapeJobBlackbox(t *testing.T)`
@@ -3850,6 +3902,8 @@
 
 - `const CURRENT_USER`
 - `const TOKEN_MASK`
+- `const TOKEN_USER_GUIDE`
+- `const TOKEN_CREDENTIAL_TIP`
 - `const channelLabel`
 - `const channelTip`
 - `const channelColor`
@@ -3933,6 +3987,7 @@
 - `type ConfigSyncBadgeStatus`
 - `const configSyncStatusBadgeStatus`
 - `function isConfigSyncInProgress`
+- `function isConfigSyncApplyFailed`
 - `function configSyncDisplayLabel`
 - `function configSyncDisplayBadgeStatus`
 - `const outOfSyncCauseHint`
@@ -4025,6 +4080,11 @@
 
 - `const ALERT_PAGE_SIZE`
 - `function computeAlertPageSize`
+
+### `ui-custom/web/src/pages/home/homeResponsive.ts`
+
+- `const NARROW_LAYOUT_QUERY`
+- `function useNarrowLayout`
 
 ### `ui-custom/web/src/pages/home/resourceTypeMeta.ts`
 

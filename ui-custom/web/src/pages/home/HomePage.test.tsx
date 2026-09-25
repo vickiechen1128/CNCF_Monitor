@@ -361,6 +361,28 @@ const HISTORY_EMPTY = {
   data: { list: [], total: 0, page: 1, page_size: 200 },
 }
 
+/**
+ * 把视口 stub 成窄屏（≤767px）。
+ * 只对首页断点查询返回 true——antd 内部的 `(min-width: ...)` 响应式查询仍为 false，
+ * 避免顺带改变 antd 自身（如 Sider breakpoint）的判定。
+ * afterEach 由 setupAntdTest 统一 unstubAllGlobals 还原。
+ */
+function stubNarrowViewport() {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query.includes('max-width: 767px'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  )
+}
+
 describe('HomePage', () => {
   setupAntdTest()
 
@@ -1500,5 +1522,84 @@ describe('HomePage', () => {
 
     expect(screen.queryByText('可视化大屏')).not.toBeInTheDocument()
     expect(screen.queryByText('进入可视化大屏')).not.toBeInTheDocument()
+  })
+
+  it('adapts to the mobile viewport: L0 two per row, L1 one per row, L4/L5 stacked, stat strip 2×2', async () => {
+    stubNarrowViewport()
+    // Prom 有 firing 告警 → 告警卡不落入空态，四格统计条会真实渲染（用于断言 2×2）
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    // L0：窄屏降为两卡一行（xs / sm 双档 12 栅格），不再走桌面 flex:1 等宽
+    const l0Cols = Array.from(screen.getByTestId('l0-section').querySelectorAll('.ant-col'))
+    expect(l0Cols).toHaveLength(5)
+    l0Cols.forEach((col) => {
+      expect(col.className).toContain('ant-col-xs-12')
+      expect(col.className).toContain('ant-col-sm-12')
+      expect((col as HTMLElement).style.flex).toBe('')
+    })
+
+    // L1：窄屏降为单卡一行（24 栅格 = 整行）——本卡内容更宽，两卡一行会压断子类 chip
+    const l1Cols = Array.from(screen.getByTestId('l1-grid').querySelectorAll('.ant-col'))
+    expect(l1Cols).toHaveLength(5)
+    l1Cols.forEach((col) => {
+      expect(col.className).toContain('ant-col-xs-24')
+      expect((col as HTMLElement).style.flex).toBe('')
+    })
+
+    // L4 / L5：由同排 1.6:1 改为纵向堆叠；display 仍为 flex、alignItems 仍 stretch（等高语义不破）
+    const row = screen.getByTestId('home-l45-row')
+    expect(row.style.display).toBe('flex')
+    expect(row.style.flexDirection).toBe('column')
+    expect(row.style.alignItems).toBe('stretch')
+    expect((screen.getByTestId('alert-status-card').parentElement as HTMLElement).style.flex).toBe('')
+
+    // 告警卡四格统计条：窄屏 2×2（每格半宽 + 换行），避免长标签溢出到相邻格
+    expect(screen.getByTestId('alert-stat-strip').style.flexWrap).toBe('wrap')
+    expect((screen.getByTestId('alert-today-count').parentElement as HTMLElement).style.flex).toBe(
+      '0 0 50%',
+    )
+  })
+
+  it('keeps the desktop five-per-row grids and the side-by-side alert row on wide viewports', async () => {
+    // 默认 matchMedia 全部 matches:false（setupAntdTest）→ 宽屏分支
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    // L0 / L1 仍为 Col flex:1 五卡一行（桌面版式逐字不变）。
+    // 断言值取 jsdom 归一化后的 `1 1 0%`（`flex: 1` 简写被展开），而非字面量 '1'
+    const l0Cols = Array.from(screen.getByTestId('l0-section').querySelectorAll('.ant-col'))
+    const l1Cols = Array.from(screen.getByTestId('l1-grid').querySelectorAll('.ant-col'))
+    ;[...l0Cols, ...l1Cols].forEach((col) => {
+      expect((col as HTMLElement).style.flex).toBe('1 1 0%')
+      expect(col.className).not.toContain('ant-col-xs-12')
+      expect(col.className).not.toContain('ant-col-xs-24')
+    })
+
+    // L4 / L5：同排（row），左告警 flex 1.6、右指引 flex 1（jsdom 将简写归一化为 `N 1 0%`）
+    const row = screen.getByTestId('home-l45-row')
+    expect(row.style.flexDirection).toBe('row')
+    expect((screen.getByTestId('alert-status-card').parentElement as HTMLElement).style.flex).toBe(
+      '1.6 1 0%',
+    )
+    expect(
+      (screen.getByTestId('onboarding-steps-card').parentElement as HTMLElement).style.flex,
+    ).toBe('1 1 0%')
+
+    // 四格统计条维持一行四格（不换行）
+    expect(screen.getByTestId('alert-stat-strip').style.flexWrap).toBe('')
+    expect((screen.getByTestId('alert-today-count').parentElement as HTMLElement).style.flex).toBe(
+      '1 1 0%',
+    )
   })
 })

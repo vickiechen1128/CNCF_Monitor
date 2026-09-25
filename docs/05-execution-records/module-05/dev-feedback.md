@@ -240,6 +240,70 @@
 
 ---
 
+## 反馈 9：首页 Dashboard 移动端（手机竖屏）适配 —— PRD 未覆盖（① 空白，本轮已实现）
+
+> **反馈日期**: 2026-09-24　**反馈来源**: 产品负责人（用户）  
+> **触发原文**：「首页的 dashboard 一定要做移动适配，给客户领导看的」；「MVP 版本先完成首页 dashboard 的改造；可以先改造，再回填 PRD，决策可以落档 dev-feedback」  
+> **归类**: **① PRD 空白**（非 ② 矛盾）——PRD 从未规定移动端口径，故不触发 CR，但按 Agent 契约必须在本文件留痕。
+
+### 9.1 PRD 现状（空白，非矛盾）
+
+- `Module_05_Custom_UI.md` §3.1 / §3.2 的版式约束只声明「不同**电脑**尺寸 / 分辨率下版式一致」，**全文无移动端 / 响应式 / 断点约定**；
+- PRD 唯一涉及屏幕形态的诉求是「可视化大屏 · 全屏 / 投屏 / 电视墙」（§3.2），方向与手机端相反；
+- 因此「首页在手机竖屏下如何排布」属 PRD 未规定的空白项：**开发侧可直接定，但必须回填 PRD 留痕**（本节即该留痕）。
+
+### 9.2 本轮落地的移动版式口径（开发侧定稿）
+
+断点取 **767px**（与 antd `md` 对齐：≥768 视为桌面 / 平板横屏），判定集中在一处：
+
+- JS 侧：`ui-custom/web/src/pages/home/homeResponsive.ts` → `NARROW_LAYOUT_QUERY` + `useNarrowLayout()`；
+- CSS 侧：`ui-custom/web/src/App.css` 同名 `@media (max-width: 767px)`（负责顶栏 / 导航 / 内容区内边距）。
+
+| 区域 | 桌面（≥768px，原版式不动） | 手机竖屏（≤767px，本轮新增） |
+|---|---|---|
+| 页头行（引导语 + 系统状态） | 左右同排、基线对齐 | 纵向堆叠，系统状态另起一行 |
+| L0 全局态势（5 张 KPI 卡） | `Col flex:1` 五卡一行 | **两卡一行**（`xs/sm=12`） |
+| L1 采集覆盖（5 张类型卡） | `Col flex:1` 五卡一行 | **单卡一行**（`xs/sm=24`，卡内子类 chip 需横向空间） |
+| L2 应用覆盖表 | 6 列全展示 | 不变（沿用 `TABLE_SCROLL_X` 横向滚动，未卡片化） |
+| L3 拨测态势 | 卡头三段文案单行 | 卡头文案允许换行右对齐 |
+| L4 告警卡 + L5 使用指引 | 同排 1.6 : 1、`align-items:stretch` 等高 | **纵向堆叠**（告警卡在上、指引在下；仍 `display:flex` + `stretch`，等高语义不破） |
+| 告警卡四格统计条 | 一行四格 | **2×2 两行两格**（长标签「已静默 · 已抑制」在窄屏一行四格下必然溢出） |
+| 顶部一级模块导航 | 六个 tab 横排 | **横向滚动**（不换行，避免撑高 sticky 顶栏）、tab 字号 13px、品牌 16px、隐藏角色 Tag、内容区 padding 24→12px |
+| 二级侧边栏（Sider） | 用户偏好（localStorage）决定展开 / 折叠 | `breakpoint="md"` **自动折叠为 56px 图标列**；窄屏下隐藏折叠开关（避免死控件），**不写入用户偏好** |
+
+> **取舍说明**：L0 取「两卡一行」而 L1 取「单卡一行」，差异来自卡内容宽度——L1 卡内含 32px 已采数 + 覆盖率进度条 + 子类 chip 的「已采/总数 · 覆盖率」两栏，两卡一行会把 chip 压到截断。
+
+### 9.3 明确不在本轮范围（避免误读为已适配）
+
+1. **其余业务页面未做移动适配**：资源管理 / 采集策略 / 告警 / 网域与边缘配置中心等页面仍是桌面版式（宽表在手机上依赖横向滚动）；
+2. L2 应用覆盖表、L3 拨测表**未做卡片化**（仍横向滚动，非移动优先形态）；
+3. 登录页、抽屉（Drawer）/ 弹窗（Modal）未做窄屏宽度优化；
+4. 未引入手势、PWA、响应式图表等移动端增强能力。
+
+### 9.4 建议 PRD 回填（产品 / prototype-designer）
+
+| 项 | 目标文档 / 位置 | 建议内容 |
+|---|---|---|
+| 移动端适配小节 | `Module_05_Custom_UI.md` §3.1 | 增「移动端（手机竖屏 ≤767px）版式」小节，落 9.2 的对照表 + 断点定义 |
+| 验收标准 | `Module_05_Custom_UI.md` §6 | 增窄屏验收项：≤767px 下 L0 两卡一行、L1 单卡一行、L4/L5 堆叠、导航可横向滚动、侧栏自动折叠 |
+| 视觉 Token 规范 | `Module_05_Custom_UI.md` §5.2 | 补「断点体系：767px（与 antd md 对齐），窄屏规则见 §3.1」 |
+| 原型 | `docs/prototypes/module-05/` | 如需与生产同屏走查，建议补一版手机竖屏原型（当前原型仅桌面） |
+
+### 9.5 验证
+
+- `vitest run src/pages/home/HomePage.test.tsx`：**42 例全绿**（新增 2 例：窄屏降列与 2×2 统计条 / 宽屏保持五卡一行与同排等高）；
+- `vitest run src/layouts/MainLayout.test.tsx`：**全绿**（Sider `breakpoint` 在 jsdom 的 `matches:false` 下不改变既有折叠行为）；
+- `tsc --noEmit` 通过；`eslint src/pages/home src/layouts` **0 告警**；
+- 消费方回归 `vitest run src/App.test.tsx src/pages/home src/layouts`：**68 例全绿**（含 App 级渲染，确认无跨页回归）；
+- 全量 `pnpm test` 说明：本工作区**同时有另一会话在改 M11 相关文件**（`ResourcesPage` / `ResourceFormDrawer` 等），全量运行的失败集中在这些**与本改动无引用关系**的文件（`ResourceFormDrawer.test.tsx` 可稳定复现、`ResourcesPage.test.tsx` 单独运行通过），并行窗口内不宜以全量结果作为本改动判据；
+- 落点文件：`src/pages/home/homeResponsive.ts`（新增）、`HomePage.tsx`、`ResourceTypeGrid.tsx`、`AlertStatusCard.tsx`、`ProbePanel.tsx`、`src/layouts/MainLayout.tsx`、`src/App.css`、`HomePage.test.tsx`。
+
+### 9.6 环境提示（排查记录，非本模块问题）
+
+全量 `vitest run` 需使用**项目级工具链** `.tools/node/bin/node`（v22.14.0）。若 PATH 落到系统 node v25，`window.localStorage.clear` 不再是函数（node 25 内置 Web Storage 覆盖 jsdom 实现），会导致 `MainLayout.test.tsx` 等 18 例整批失败——属环境问题，与代码无关。
+
+---
+
 ## 文档回填留痕（2026-09-14，决策 72-3 首页内容重构）
 
 > 本节对应 `design-proposals/homepage-mvp-content-restructure.md` §7 第 4 项（dev-feedback clipping 留痕），随 PRD v1.5 回填一并登记。**两条均为产品口径裁剪，非实现缺失**。
