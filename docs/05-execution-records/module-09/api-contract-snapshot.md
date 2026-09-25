@@ -66,7 +66,7 @@
 | `domain_type` | enum(management/edge) | ✅ | 管理域 / 边缘域（M06） |
 | `zone_type` | string | ❌ | 网络区域类型（M06 字典，政务云/公有云；M09 只读展示） |
 | `tenant_id` | string | ✅ | 归属租户（M06，创建后不可变） |
-| `channel` | enum(local/agent_pull) | ✅ | `default` 固定 `local`；其他网域固定 `agent_pull` |
+| `channel` | enum(local/agent_pull) | ✅ | 由 `domain_type` 派生（management→local、edge→agent_pull），未知 `domain_type` 不回退 `local`；`default` 域=local，其他=agent_pull |
 | `agent_type` | enum(vmagent/prometheus-agent) | ✅/❌ | MVP 固定 `vmagent`；agent_pull 必填，local 空 |
 | `center_endpoint` | string | ❌/✅ | 中心接入地址；agent_pull 必填，local 空 |
 | `remote_write_url` | string | ✅/❌ | agent_pull 必填；local 空 |
@@ -206,7 +206,7 @@
 
 | 枚举 | 取值 | 说明 |
 |------|------|------|
-| `channel` | `local` / `agent_pull` | 下发通道；`default`=local，其他=agent_pull |
+| `channel` | `local` / `agent_pull` | 下发通道；由 `domain_type` 派生（management→local、edge→agent_pull），未知不回退 `local` |
 | `agent_type` | `vmagent` / `prometheus-agent` | MVP 前端仅 vmagent |
 | `domain_type` | `management` / `edge` | 管理域/边缘域（M06） |
 | 网域注册态（前端派生） | `monitored`（is_monitored=true）/ `created` | 非接口枚举，前端由 is_monitored 派生 |
@@ -225,8 +225,8 @@
 
 ## 9. 字段必填口径
 
-- **网域纳管 POST /monitor**：`agent_type` 必填（MVP 仅 vmagent）；`remote_write_url`/`description` 可选（agent_pull 域 MVP 登记即写）；`channel` 由网域固定（default=local），不随请求传入不提供切换。
-- **更新 PUT /monitor**：可改 `agent_type`/`remote_write_url`/`description`/`is_monitored`；不可改 `id`/`name`/`tenant_id`/`domain_type`/`channel`（channel 固定）。
+- **网域纳管 POST /monitor**：`agent_type` 必填（MVP 仅 vmagent）；`remote_write_url`/`description` 可选（agent_pull 域 MVP 登记即写）；`channel` 由 `domain_type` 派生（management→local、edge→agent_pull，未知不回退 local），不随请求传入、不提供切换。
+- **更新 PUT /monitor**：可改 `agent_type`/`remote_write_url`/`description`/`is_monitored`；不可改 `id`/`name`/`tenant_id`/`domain_type`/`channel`（channel 由 domain_type 派生，不可改）。
 - **confirm**：必填 `confirmed_by`（MVP 预置用户）；仅 `status=pending && validation_status=passed` 可确认。
 - **retry**：必填 `triggered_by`；仅 `local` 通道 + 原记录 `status=failed`。
 - **rollback**：必填 `triggered_by`；目标版本须存在且与当前网域一致。
