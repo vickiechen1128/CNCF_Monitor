@@ -78,10 +78,13 @@ type relabelConf struct {
 	Replacement  string   `yaml:"replacement,omitempty"`
 }
 
-// JobBuild 是一次生成中某个 Job 的配置输入（Job 结构 + 已解析目标组）。
+// JobBuild 是一次生成中某个 Job 的配置输入（Job 结构 + 已解析目标组 + 目标解析归因）。
+// Skipped 由调用方（draft/buildArtifacts）经 ResolveJobTargets 填充，
+// Assemble 聚合进 ConfigArtifacts.TargetDiagnostics（FileName 取 targets/<job>.json）。
 type JobBuild struct {
 	Job     models.ScrapeJob
 	Targets []TargetGroup
+	Skipped []SkippedInstance
 }
 
 // Assemble 按网域组装配置产物：
@@ -107,6 +110,7 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}}
 	targets := map[string]string{}
 	modules := map[string]struct{}{}
+	var diagnostics []TargetDiagnostics
 
 	for _, jb := range jobs {
 		sc, err := jobScrapeConfig(jb.Job)
@@ -125,6 +129,15 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 			return nil, err
 		}
 		targets[fname] = content
+		// 聚合目标解析归因（C-1）：FileName 与落盘 key 同源（normalizeJobFilename），
+		// 校验命中空 targets 时据此定位 Job / 资源。仅内存承载，不落盘不参与 checksum。
+		if len(jb.Skipped) > 0 {
+			diagnostics = append(diagnostics, TargetDiagnostics{
+				JobName:  jb.Job.JobName,
+				FileName: "targets/" + fname,
+				Skipped:  jb.Skipped,
+			})
+		}
 	}
 
 	// 规则文件与 prometheus.yml 同目录下发（deployment/service.go writeStructural），
@@ -157,11 +170,12 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 	blackboxYAML := renderBlackbox(modules)
 
 	return &ConfigArtifacts{
-		PrometheusYML:   string(promYAML),
-		RulesYML:        rulesYAML,
-		BlackboxYML:     blackboxYAML,
-		TargetsFiles:    targets,
-		AlertmanagerYML: alertmanagerYML,
+		PrometheusYML:     string(promYAML),
+		RulesYML:          rulesYAML,
+		BlackboxYML:       blackboxYAML,
+		TargetsFiles:      targets,
+		AlertmanagerYML:   alertmanagerYML,
+		TargetDiagnostics: diagnostics,
 	}, nil
 }
 

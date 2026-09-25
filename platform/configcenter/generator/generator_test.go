@@ -185,7 +185,7 @@ func TestResolveTargetsOfflineExclusion(t *testing.T) {
 
 	job := models.ScrapeJob{JobName: "node-prod", ResourceType: models.ResourceTypeHost, NetworkDomainID: "d",
 		SelectedInstanceIDs: []string{"srv-online", "srv-offline"}}
-	groups, err := ResolveJobTargets(db, job, tmpl, 9100)
+	groups, _, err := ResolveJobTargets(db, job, tmpl, 9100)
 	require.NoError(t, err)
 	require.Len(t, groups, 1, "offline 实例必须被排除")
 	assert.Equal(t, "10.0.1.1:9100", groups[0].Targets[0], "host 抓取地址须拼接 exporter 端口（决策 42-4）")
@@ -214,7 +214,7 @@ func TestResolveTargetsUnconfirmedIncluded(t *testing.T) {
 
 	job := models.ScrapeJob{JobName: "node-prod", ResourceType: models.ResourceTypeHost, NetworkDomainID: "d",
 		DraftStatus: "ready", Enabled: true, SelectedInstanceIDs: []string{"srv-u"}}
-	groups, err := ResolveJobTargets(db, job, tmpl, 9100)
+	groups, _, err := ResolveJobTargets(db, job, tmpl, 9100)
 	require.NoError(t, err)
 	require.Len(t, groups, 1, "未确认实例必须同样进入 target 组（决策 47-1）")
 	assert.Equal(t, "10.0.1.9:9100", groups[0].Targets[0])
@@ -232,7 +232,7 @@ func TestResolveTargetsInjectsResourceID(t *testing.T) {
 	require.NoError(t, db.Create(&models.Host{ServerID: "srv-1", ResourceID: "srv-1", NetworkDomainID: "d", PrivateIP: "10.0.1.1", Status: "online"}).Error)
 
 	t.Run("无标签模板也注入 resource_id", func(t *testing.T) {
-		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"srv-1"}}, nil, 9100)
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"srv-1"}}, nil, 9100)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
 		assert.Equal(t, "srv-1", groups[0].Labels["resource_id"])
@@ -242,7 +242,7 @@ func TestResolveTargetsInjectsResourceID(t *testing.T) {
 		tmpl := &models.LabelTemplate{Name: "t", ResourceCategory: models.ResourceCategoryHost, Mappings: []models.LabelMapping{
 			{SourceField: "app_name", SourceType: models.LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
 		}}
-		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"srv-1"}}, tmpl, 9100)
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"srv-1"}}, tmpl, 9100)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
 		assert.Equal(t, "srv-1", groups[0].Labels["resource_id"], "system 身份标签不可被模板覆盖")
@@ -261,7 +261,7 @@ func TestResolveTargetsExporterPort(t *testing.T) {
 	require.NoError(t, db.Create(&models.Host{ResourceID: "h1", NetworkDomainID: "d", PrivateIP: "10.0.1.1", Status: "online"}).Error)
 	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{ResourceID: "db1", NetworkDomainID: "d", Status: "online"}, InstanceIP: "10.0.1.2", Port: 3306}).Error)
 	require.NoError(t, db.Create(&models.Middleware{ResourceID: "mw1", NetworkDomainID: "d", Status: "online", InstanceIP: "10.0.1.3", Port: 6379}).Error)
-	require.NoError(t, db.Create(&models.Application{ResourceID: "app1", NetworkDomainID: "d", Status: "online", HealthCheckURL: "http://10.0.1.4:8080/metrics"}).Error)
+	require.NoError(t, db.Create(&models.Application{ResourceID: "app1", NetworkDomainID: "d", Status: "online", Endpoint: "10.0.1.4", Port: 8080}).Error)
 	require.NoError(t, db.Create(&models.GenericTarget{ResourceBase: models.ResourceBase{ResourceID: "gt1", NetworkDomainID: "d", Status: "online"}, InstanceIP: "10.0.1.5", Port: 161}).Error)
 
 	tmpl := &models.LabelTemplate{Name: "t", ResourceCategory: models.ResourceCategoryHost, IsDefault: true,
@@ -269,32 +269,32 @@ func TestResolveTargetsExporterPort(t *testing.T) {
 	require.NoError(t, db.Create(tmpl).Error)
 
 	t.Run("host 拼接 exporter 端口且 instance 组合字段带端口", func(t *testing.T) {
-		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"h1"}}, tmpl, 9100)
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"h1"}}, tmpl, 9100)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
 		assert.Equal(t, "10.0.1.1:9100", groups[0].Targets[0])
 		assert.Equal(t, "10.0.1.1:9100", groups[0].Labels["instance"])
 	})
 	t.Run("database 优先 exporter 端口而非业务端口", func(t *testing.T) {
-		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"db1"}}, tmpl, 9104)
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"db1"}}, tmpl, 9104)
 		require.NoError(t, err)
 		assert.Equal(t, "10.0.1.2:9104", groups[0].Targets[0])
 	})
 	t.Run("middleware 优先 exporter 端口而非业务端口", func(t *testing.T) {
-		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"mw1"}}, tmpl, 9121)
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"mw1"}}, tmpl, 9121)
 		require.NoError(t, err)
 		assert.Equal(t, "10.0.1.3:9121", groups[0].Targets[0])
 	})
 	t.Run("exporter 端口为 0 时 database/middleware 回落业务端口", func(t *testing.T) {
-		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"db1", "mw1"}}, tmpl, 0)
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"db1", "mw1"}}, tmpl, 0)
 		require.NoError(t, err)
 		assert.Equal(t, "10.0.1.2:3306", groups[0].Targets[0])
 		assert.Equal(t, "10.0.1.3:6379", groups[1].Targets[0])
 	})
-	t.Run("application 用健康检查 URL、generic_target 用服务端口", func(t *testing.T) {
-		groups, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app1", "gt1"}}, tmpl, 9100)
+	t.Run("application 用 endpoint:port 采集地址、generic_target 用服务端口", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app1", "gt1"}}, tmpl, 9100)
 		require.NoError(t, err)
-		assert.Equal(t, "http://10.0.1.4:8080/metrics", groups[0].Targets[0])
+		assert.Equal(t, "10.0.1.4:8080", groups[0].Targets[0])
 		assert.Equal(t, "10.0.1.5:161", groups[1].Targets[0])
 	})
 }
@@ -349,12 +349,179 @@ func TestValidateTargetGroups(t *testing.T) {
 	assert.Error(t, ValidateTargetGroups([]TargetGroup{{}}))
 }
 
+// TestValidateTargetGroupsRejectsEmpty 覆盖 C-2：空数组（零组）即非法，与边缘 Agent
+// ValidateTargetsJSON 的 `empty array` 口径对称。零组意味着该 targets 文件无任何有效
+// 采集目标，放行会让「资源地址缺失」这类用户配置缺陷静默通过。
+func TestValidateTargetGroupsRejectsEmpty(t *testing.T) {
+	assert.Error(t, ValidateTargetGroups(nil), "nil 组必须判非法")
+	assert.Error(t, ValidateTargetGroups([]TargetGroup{}), "空数组必须判非法")
+	// 与边缘同一入口口径：targets/*.json 内容为 `[]` 时解析出的组为空 → 必须报错。
+	var groups []TargetGroup
+	require.NoError(t, json.Unmarshal([]byte("[]"), &groups))
+	require.Empty(t, groups)
+	assert.Error(t, ValidateTargetGroups(groups), "targets JSON 为 [] 时必须报错（与边缘对称回归）")
+}
+
+// TestApplicationEmptyAddressGuarded 覆盖 C §5.1-1：application 的采集地址
+// （endpoint 主机 + port 采集端口）为空 → 该 Job 解析不出目标（不再静默产出可下发产物）：
+//   - ResolveJobTargets 返回 0 组 + address_empty 归因（含 ResourceID 与采集地址文案）；
+//   - ValidateTargetGroups 对空组报错；
+//   - ValidateArtifacts 判 failed + cause=user_config，validation_details 含文件名，
+//     文案含 Job 名 + ResourceID + 原因（资源级归因）。
+func TestApplicationEmptyAddressGuarded(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Application{}))
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "33a8dfc8-ee15-45bf-9e8c-f43cba0c5f43",
+		Status:     "online",
+		// Endpoint / Port 故意留空（现场根因）。
+	}).Error)
+
+	job := models.ScrapeJob{JobName: "test-app-01", JobType: models.JobTypeStandard,
+		SelectedInstanceIDs: []string{"33a8dfc8-ee15-45bf-9e8c-f43cba0c5f43"}}
+	groups, skipped, err := ResolveJobTargets(db, job, nil, 9100)
+	require.NoError(t, err)
+	require.Empty(t, groups, "地址为空实例不得进入产物 targets")
+	require.Len(t, skipped, 1)
+	assert.Equal(t, "33a8dfc8-ee15-45bf-9e8c-f43cba0c5f43", skipped[0].ResourceID)
+	assert.Equal(t, string(models.ResourceCategoryApplication), skipped[0].Category)
+	assert.Equal(t, SkipReasonAddressEmpty, skipped[0].Reason)
+	assert.Contains(t, skipped[0].Detail, "采集地址")
+
+	content, err := MarshalTargetGroups(groups)
+	require.NoError(t, err)
+	fname := normalizeJobFilename(job.JobName)
+	ca := &ConfigArtifacts{
+		TargetsFiles: map[string]string{fname: content},
+		TargetDiagnostics: []TargetDiagnostics{{
+			JobName:  job.JobName,
+			FileName: "targets/" + fname,
+			Skipped:  skipped,
+		}},
+	}
+
+	assert.Error(t, ValidateTargetGroups(groups), "空组必须判非法")
+	status, cause, details, msg := ValidateArtifacts(ca, false, nil)
+	assert.Equal(t, models.ValidationStatusFailed, status)
+	assert.Equal(t, models.ValidationCauseUserConfig, cause)
+	require.Len(t, details, 1)
+	assert.Equal(t, fname, details[0].File, "details 须含 targets 文件名")
+	assert.Equal(t, models.ValidationSourceTargets, details[0].Source)
+	assert.Contains(t, details[0].Message, job.JobName, "文案须含 Job 名")
+	assert.Contains(t, details[0].Message, "33a8dfc8-ee15-45bf-9e8c-f43cba0c5f43", "文案须含 ResourceID")
+	assert.Contains(t, details[0].Message, "采集地址", "文案须含原因")
+	assert.Contains(t, msg, job.JobName)
+
+	// 无归因回落路径（如「重新校验」从 DB 重建产物）：判定结果与归因无关，完全一致。
+	caNoDiag := &ConfigArtifacts{TargetsFiles: map[string]string{fname: content}}
+	status2, cause2, details2, _ := ValidateArtifacts(caNoDiag, false, nil)
+	assert.Equal(t, models.ValidationStatusFailed, status2)
+	assert.Equal(t, models.ValidationCauseUserConfig, cause2)
+	require.Len(t, details2, 1)
+	assert.Contains(t, details2[0].Message, "targets 文件", "无归因时回落通用文案")
+}
+
+// TestAllInstancesOfflineMessageDiffersFromAddressEmpty 覆盖 C §7 决策 2：
+// 「Job 已选实例全部 offline」同样判 failed 阻断，但文案必须区分成因——
+// 全部下线引导「移除该 Job 或恢复实例」，地址为空引导「补齐采集地址」。
+func TestAllInstancesOfflineMessageDiffersFromAddressEmpty(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Host{}, &models.Application{}))
+	require.NoError(t, db.Create(&models.Host{ServerID: "srv-c-off", ResourceID: "c-off", Status: "offline", PrivateIP: "10.0.1.1"}).Error)
+	require.NoError(t, db.Create(&models.Application{ResourceID: "c-app-empty", Status: "online"}).Error)
+
+	// 全部 offline：offline 归因（设计预期排除），不得产 address_empty。
+	offGroups, offSkipped, err := ResolveJobTargets(db,
+		models.ScrapeJob{JobName: "off-job", SelectedInstanceIDs: []string{"c-off"}}, nil, 9100)
+	require.NoError(t, err)
+	require.Empty(t, offGroups)
+	require.Len(t, offSkipped, 1)
+	assert.Equal(t, SkipReasonOffline, offSkipped[0].Reason)
+	for _, s := range offSkipped {
+		assert.NotEqual(t, SkipReasonAddressEmpty, s.Reason, "offline 实例不得产生 address_empty 归因")
+	}
+
+	offContent, err := MarshalTargetGroups(offGroups)
+	require.NoError(t, err)
+	offStatus, offCause, offDetails, _ := ValidateArtifacts(&ConfigArtifacts{
+		TargetsFiles: map[string]string{"off-job.json": offContent},
+		TargetDiagnostics: []TargetDiagnostics{{
+			JobName: "off-job", FileName: "targets/off-job.json", Skipped: offSkipped,
+		}},
+	}, false, nil)
+	assert.Equal(t, models.ValidationStatusFailed, offStatus, "全部 offline 也必须阻断（决策 2）")
+	assert.Equal(t, models.ValidationCauseUserConfig, offCause)
+	require.Len(t, offDetails, 1)
+	assert.Contains(t, offDetails[0].Message, "所有已选实例均已下线")
+
+	// 地址为空：另一种成因，文案必须与「全部下线」不同。
+	emptyGroups, emptySkipped, err := ResolveJobTargets(db,
+		models.ScrapeJob{JobName: "empty-job", SelectedInstanceIDs: []string{"c-app-empty"}}, nil, 9100)
+	require.NoError(t, err)
+	require.Empty(t, emptyGroups)
+	emptyContent, err := MarshalTargetGroups(emptyGroups)
+	require.NoError(t, err)
+	emptyStatus, _, emptyDetails, _ := ValidateArtifacts(&ConfigArtifacts{
+		TargetsFiles: map[string]string{"empty-job.json": emptyContent},
+		TargetDiagnostics: []TargetDiagnostics{{
+			JobName: "empty-job", FileName: "targets/empty-job.json", Skipped: emptySkipped,
+		}},
+	}, false, nil)
+	assert.Equal(t, models.ValidationStatusFailed, emptyStatus)
+	require.Len(t, emptyDetails, 1)
+	assert.Contains(t, emptyDetails[0].Message, "实例采集地址为空")
+	assert.NotEqual(t, offDetails[0].Message, emptyDetails[0].Message, "两类成因文案必须不同")
+}
+
+// TestResolveTargetsAllValidUnaffected 覆盖 C §5.1-3 回归：目标全部合法时不受影响；
+// offline 实例仍按设计排除且不产生 address_empty 归因。
+func TestResolveTargetsAllValidUnaffected(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Host{}))
+	require.NoError(t, db.Create(&models.Host{ServerID: "srv-c-v1", ResourceID: "c-v1", Status: "online", PrivateIP: "10.0.1.1"}).Error)
+	require.NoError(t, db.Create(&models.Host{ServerID: "srv-c-voff", ResourceID: "c-voff", Status: "offline", PrivateIP: "10.0.1.2"}).Error)
+
+	groups, skipped, err := ResolveJobTargets(db,
+		models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"c-v1", "c-voff"}}, nil, 9100)
+	require.NoError(t, err)
+	require.Len(t, groups, 1, "offline 实例仍按设计排除")
+	assert.Equal(t, "10.0.1.1:9100", groups[0].Targets[0])
+	require.Len(t, skipped, 1, "仅 offline 实例产生归因")
+	assert.Equal(t, SkipReasonOffline, skipped[0].Reason)
+	assert.Equal(t, "c-voff", skipped[0].ResourceID)
+
+	assert.NoError(t, ValidateTargetGroups(groups), "合法目标不得被新判定误伤")
+}
+
+// TestChecksumUnaffectedByTargetDiagnostics 覆盖 C §5.1-4：TargetDiagnostics 是
+// **非产物字段**——内容变化不得改变 Checksum()，也不得改变变更检测判定。
+func TestChecksumUnaffectedByTargetDiagnostics(t *testing.T) {
+	base := &ConfigArtifacts{
+		PrometheusYML:   "global: {}\n",
+		TargetsFiles:    map[string]string{"j.json": `[{"targets":["10.0.1.1"],"labels":{}}]`},
+		AlertmanagerYML: "route:\n  receiver: r\n",
+	}
+	withDiag := &ConfigArtifacts{
+		PrometheusYML:   base.PrometheusYML,
+		TargetsFiles:    base.TargetsFiles,
+		AlertmanagerYML: base.AlertmanagerYML,
+		TargetDiagnostics: []TargetDiagnostics{{
+			JobName: "j", FileName: "targets/j.json",
+			Skipped: []SkippedInstance{{ResourceID: "r1", Category: "host", Reason: SkipReasonOffline, Detail: "实例已下线"}},
+		}},
+	}
+	assert.Equal(t, base.Checksum(), withDiag.Checksum(), "归因不得参与 checksum")
+	assert.False(t, withDiag.ArtifactsChanged(base.Checksum()), "归因不得触发变更检测")
+}
+
 func TestValidateArtifactsPendingWhenToolMissing(t *testing.T) {
 	old := ToolLookPath
 	ToolLookPath = func(string) (string, error) { return "", errToolMissing }
 	t.Cleanup(func() { ToolLookPath = old })
 
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
+	// C-2 后空 targets 判非法先于工具可用性检查，故此处须给出非空合法目标，
+	// 才能落到「工具缺失 → pending」分支。
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
 	status, cause, details, msg := ValidateArtifacts(ca, false, nil)
 	assert.Equal(t, models.ValidationStatusPending, status)
 	assert.Equal(t, models.ValidationCausePlatformFault, cause, "promtool 缺失应归因为平台故障")
@@ -377,7 +544,8 @@ func TestValidateArtifactsPassed(t *testing.T) {
 }
 
 func TestValidateArtifactsFailedSchema(t *testing.T) {
-	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
+	// 给出非空合法目标，避免空 targets（C-2）先行命中干扰本用例聚焦的 schema 失败。
+	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
 	ca.TargetsFiles["j.json"] = "not-json"
 	status, cause, details, _ := ValidateArtifacts(ca, false, nil)
 	assert.Equal(t, models.ValidationStatusFailed, status)
@@ -385,7 +553,7 @@ func TestValidateArtifactsFailedSchema(t *testing.T) {
 	assert.Len(t, details, 1)
 	assert.Equal(t, "j.json", details[0].File)
 	// 保护标签冲突亦归因 user_config 且带结构化定位。
-	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}}}, nil, "", "", true)
+	ca2, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
 	ca2.TargetsFiles["a.json"] = `[{"targets":["10.0.1.10"],"labels":{"job":"x"}}]`
 	status2, cause2, details2, _ := ValidateArtifacts(ca2, false, nil)
 	assert.Equal(t, models.ValidationStatusFailed, status2)

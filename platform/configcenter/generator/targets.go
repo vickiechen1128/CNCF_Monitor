@@ -10,6 +10,37 @@ import (
 	"gorm.io/gorm"
 )
 
+// 目标解析跳过归因的 Reason 取值（见 SkippedInstance）。
+const (
+	// SkipReasonResourceNotFound：selected_instance_ids 中的资源已不存在（可能已被删除）。
+	SkipReasonResourceNotFound = "resource_not_found"
+	// SkipReasonAddressEmpty：资源存在但采集地址为空——application 取 endpoint（主机）
+	// + port（采集端口）拼接，其余类别取实例 IP。
+	SkipReasonAddressEmpty = "address_empty"
+	// SkipReasonOffline：资源状态为 offline，按设计排除（M07 §8.1 / 决策 47-1），
+	// 属预期行为而非用户配置缺陷。
+	SkipReasonOffline = "offline"
+)
+
+// SkippedInstance 记录一次目标解析中未进入产物 targets 的实例及其归因。
+// 仅用于生成侧校验给出资源级定位（哪个实例、为什么没解析出地址），不做持久化。
+type SkippedInstance struct {
+	ResourceID string
+	Category   string // host/database/middleware/application/generic_target；解析不到资源时为空，blackbox 跳过填 blackbox
+	Reason     string // resource_not_found / address_empty / offline
+	Detail     string // 人类可读补充（如「健康检查地址（health_check_url）为空」）
+}
+
+// addressEmptyDetail 按资源类别返回「采集地址为空」的归因说明。
+// application 的采集地址由 endpoint（主机）+ port（采集端口）拼接（M07 §5.2），
+// 单独措辞避免与实例 IP 混淆。
+func addressEmptyDetail(category string) string {
+	if category == string(models.ResourceCategoryApplication) {
+		return "采集地址为空（endpoint 主机或 port 采集端口未填写）"
+	}
+	return "实例 IP 为空"
+}
+
 // exporterPortOr 返回采集策略层端口；为 0（未配置映射/采集器）时回落资源业务端口。
 // PRD M07 §5.12C：target/instance 端口取自 CITypeExporterMapping.default_port
 // （如 node_exporter 9100），而非资源业务端口（M07 §5.6 host 无 port 字段；
@@ -26,8 +57,9 @@ func exporterPortOr(exporterPort, fallback int) int {
 //
 // exporterPort 为采集策略层端口（见 LoadExporterPort）：host/database/middleware
 // 的抓取地址一律拼接 exporter 端口（exporter 进程监听端口），避免 Prometheus 默认
-// 落到 80 端口（target 缺端口修复，决策 42-4）；application 用自带 metrics 端点 URL、
-// generic_target 用用户登记的服务端口（M07 §5.9），均不走 exporter 端口。
+// 落到 80 端口（target 缺端口修复，决策 42-4）；application 用实例自己登记的
+// endpoint（主机）+ port（采集端口）拼接、generic_target 用用户登记的服务端口
+// （M07 §5.9），均不走 exporter 端口。
 func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourceTarget, error) {
 	var host models.Host
 	if err := db.Where("resource_id = ?", resourceID).First(&host).Error; err == nil {
@@ -83,7 +115,7 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	if err := db.Where("resource_id = ?", resourceID).First(&application).Error; err == nil {
 		return &resourceTarget{
 			ResourceID: application.GetResourceID(),
-			Address:    application.HealthCheckURL,
+			Address:    instanceAddress(application.Endpoint, application.Port),
 			Status:     application.Status,
 			Category:   models.ResourceCategoryApplication,
 			Fields: map[string]string{
@@ -123,12 +155,17 @@ func instanceAddress(ip string, port int) string {
 	return fmt.Sprintf("%s:%d", ip, port)
 }
 
-// ResolveJobTargets 解析单个 Job 的文件发现目标组列表。
+// ResolveJobTargets 解析单个 Job 的文件发现目标组列表，并返回未进入产物 targets
+// 的实例归因（C-1，config-sync-stall-and-empty-targets-guard 设计提案 §3.1）：
 //   - standard：从已选实例解析目标，排除 Resource.status=offline（跨模块契约 M07 §8.1）；
 //     exporterPort 为采集策略层端口（host/database/middleware 拼接，见 resolveResource）；
 //   - blackbox：将 ScrapeJob.blackbox_targets 展开为目标组（labels 空）。
 //
 // 每实例生成一个 TargetGroup（targets=[地址]，labels=模板展开标签）。
+//
+// 三类跳过均记录归因：resource_not_found（资源已删除）/ address_empty（采集地址缺失，
+// 用户配置缺陷）/ offline（设计预期排除）。归因仅用于生成侧校验定位（不持久化、不
+// 参与 checksum），判定结果不依赖归因。
 //
 // 决策 47-1（安装确认拆闸门）：本函数**只消费 selected_instance_ids**（+ offline
 // 排除 + enabled + draft_status），**不读取、不排除、不阻塞 ExporterInstallationConfirmation**。
@@ -138,27 +175,51 @@ func instanceAddress(ip string, port int) string {
 // 决策 47-3：resource_id 是 coverage 三态判定（M02 /health/coverage 按 up 的
 // resource_id 标签回连资源）的稳定身份回连键，作为 system 层标签强制注入——
 // 不依赖 Job 是否挂载标签模板，也不可被模板映射覆盖。
-func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, error) {
+func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []SkippedInstance, error) {
 	if job.JobType == models.JobTypeBlackbox {
 		groups := make([]TargetGroup, 0, len(job.BlackboxTargets))
+		var skipped []SkippedInstance
 		for _, t := range job.BlackboxTargets {
 			if t.Target == "" {
+				skipped = append(skipped, SkippedInstance{
+					Category: "blackbox",
+					Reason:   SkipReasonAddressEmpty,
+					Detail:   "blackbox 拨测目标（target）为空",
+				})
 				continue
 			}
 			groups = append(groups, TargetGroup{Targets: []string{t.Target}, Labels: map[string]string{}})
 		}
-		return groups, nil
+		return groups, skipped, nil
 	}
 	groups := make([]TargetGroup, 0, len(job.SelectedInstanceIDs))
+	var skipped []SkippedInstance
 	for _, rid := range job.SelectedInstanceIDs {
 		rt, err := resolveResource(db, rid, exporterPort)
 		if err != nil || rt == nil {
+			skipped = append(skipped, SkippedInstance{
+				ResourceID: rid,
+				Reason:     SkipReasonResourceNotFound,
+				Detail:     "选中的资源不存在或已被删除",
+			})
 			continue
 		}
-		if rt.Status == "offline" { // 已下线实例排除（MVP 必实现）
+		if rt.Status == "offline" { // 已下线实例排除（MVP 必实现，M07 §8.1）
+			skipped = append(skipped, SkippedInstance{
+				ResourceID: rt.ResourceID,
+				Category:   string(rt.Category),
+				Reason:     SkipReasonOffline,
+				Detail:     "资源状态为 offline，已按设计排除",
+			})
 			continue
 		}
 		if rt.Address == "" {
+			skipped = append(skipped, SkippedInstance{
+				ResourceID: rt.ResourceID,
+				Category:   string(rt.Category),
+				Reason:     SkipReasonAddressEmpty,
+				Detail:     addressEmptyDetail(string(rt.Category)),
+			})
 			continue
 		}
 		templateLabels := expandLabelTemplate(tmpl, rt.Fields, rt.Address)
@@ -167,7 +228,7 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 		labels := mergeIntoLabels(map[string]string{"resource_id": rt.ResourceID}, templateLabels)
 		groups = append(groups, TargetGroup{Targets: []string{rt.Address}, Labels: labels})
 	}
-	return groups, nil
+	return groups, skipped, nil
 }
 
 // MarshalTargetGroups 将目标组序列化为 file_sd JSON 文件内容（顶层数组）。

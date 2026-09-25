@@ -200,11 +200,13 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		targets, err := generator.ResolveJobTargets(db, job, tmpl, exporterPort)
+		targets, skipped, err := generator.ResolveJobTargets(db, job, tmpl, exporterPort)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		jobBuilds = append(jobBuilds, generator.JobBuild{Job: job, Targets: targets})
+		// 目标解析归因（C-1）随 JobBuild 传入 Assemble，聚合为 ConfigArtifacts.TargetDiagnostics，
+		// 供生成侧校验在命中空 targets 时给出资源级定位（非产物字段，不落盘不参与 checksum）。
+		jobBuilds = append(jobBuilds, generator.JobBuild{Job: job, Targets: targets, Skipped: skipped})
 	}
 
 	// replica 无独立数据源，MVP 不注入（external_labels 仅 network_domain_id/zone_type）。
