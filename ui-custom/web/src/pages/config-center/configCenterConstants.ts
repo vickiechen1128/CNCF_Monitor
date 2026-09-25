@@ -26,6 +26,18 @@ export const CURRENT_USER = '张伟（运维）'
 /** Token 完全脱敏串（不显示任何明文片段，含首尾 6 位） */
 export const TOKEN_MASK = '••••••••'
 
+/**
+ * Token 用户指引完整文案（F-30）：明文仅纳管/重置单次展示，用普通用户语言说明
+ * 「为什么看不到原文」「丢了怎么办」「重置的代价」，供安装指引 Steps 与一次性
+ * 明文弹窗共用（单一事实来源）。
+ */
+export const TOKEN_USER_GUIDE =
+  '出于安全考虑，网域的接入 Token 只在第一次纳管成功或主动重置时完整显示一次，页面列表里只保留脱敏 Token，无法再次查看原文。请务必在弹窗出现时立即复制并妥善保存——它等同于该网域的「接入密码」。如果之后需要用到 Token（例如换机重装采集节点）却没有保存，可在网域行「更多 → 重置 Token」重新生成；注意重置后旧 Token 立即失效，已在运行的采集节点必须同步更换，否则会掉线。'
+
+/** Token 列表列短提示（F-30）：Tooltip 场景下的精简版，与 TOKEN_USER_GUIDE 口径一致 */
+export const TOKEN_CREDENTIAL_TIP =
+  '接入 Token 出于安全考虑只显示脱敏值，原文仅在纳管成功或重置时完整显示一次。需要再次获取请用「更多 → 重置 Token」；重置后旧 Token 立即失效，已在运行的采集节点须同步更换。'
+
 /** 下发通道用户可见文案（local=中性 / agent_pull=蓝） */
 export const channelLabel: Record<Channel, string> = {
   local: 'local',

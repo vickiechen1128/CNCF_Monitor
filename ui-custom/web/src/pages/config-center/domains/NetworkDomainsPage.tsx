@@ -26,12 +26,14 @@ import config from 'antd/locale/zh_CN'
 import {
   CloudUploadOutlined,
   DownOutlined,
+  DownloadOutlined,
   EditOutlined,
   EyeOutlined,
   InfoCircleOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
+import type { MenuProps } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { networkDomainMonitorApi } from '../../../api/configCenter'
 import type { NetworkDomain } from '../../../types/config-center'
@@ -45,7 +47,9 @@ import { EdgePackageDownloadPanel } from './EdgePackageDownloadPanel'
 import { NetworkDomainDetailDrawer } from './NetworkDomainDetailDrawer'
 import { PlainTokenModal } from './PlainTokenModal'
 import {
+  TOKEN_CREDENTIAL_TIP,
   TOKEN_MASK,
+  TOKEN_USER_GUIDE,
   agentTypeLabel,
   channelColor,
   channelLabel,
@@ -94,6 +98,8 @@ export function NetworkDomainsPage() {
   const [guideHighlight, setGuideHighlight] = useState(false)
   // 安装指引折叠态（PRD §1109 常驻提示区）：默认收起，local 通道用户无需细看；agent_pull 纳管成功自动展开
   const [guideOpen, setGuideOpen] = useState(false)
+  // F-33：行内「更多 → 下载安装包」打开独立 Modal（复用懒加载面板，关闭即不发请求）
+  const [downloadOpen, setDownloadOpen] = useState(false)
 
   // M06 网域管理 -> M09 网域纳管深链：预选网域并打开纳管抽屉（R4）
   const [searchParams] = useSearchParams()
@@ -175,6 +181,7 @@ export function NetworkDomainsPage() {
 
   // HIGH-1：list 接口不返回明文 token（仅 token_masked 脱敏串），列表行不再提供「复制明文」；
   // 明文仅在纳管成功 / 重置 Token 的单次响应中获取，经一次性 PlainTokenModal 展示复制。
+  // 用户可见文案见 TOKEN_USER_GUIDE / TOKEN_CREDENTIAL_TIP（F-30）。
   const handleResetToken = (record: NetworkDomain) => {
     Modal.confirm({
       title: '重置 Token',
@@ -260,10 +267,13 @@ export function NetworkDomainsPage() {
       title: '凭据',
       key: 'credential',
       width: 110,
-      // HIGH-1：list 不返回明文 token，故凭据列仅展示脱敏串，不提供「复制明文」按钮
+      // HIGH-1：list 不返回明文 token，故凭据列仅展示脱敏串，不提供「复制明文」按钮；
+      // 用户可见文案见 TOKEN_CREDENTIAL_TIP（F-30：Tooltip 用普通用户语言说明「为何只有脱敏值 / 丢了怎么重置」）
       render: (_: unknown, record: NetworkDomain) =>
         record.channel === 'agent_pull' && record.token_masked ? (
-          <Text type="secondary" style={{ fontSize: 12 }}>{TOKEN_MASK}</Text>
+          <Tooltip title={TOKEN_CREDENTIAL_TIP}>
+            <Text type="secondary" style={{ fontSize: 12 }}>{TOKEN_MASK}</Text>
+          </Tooltip>
         ) : (
           <Text type="secondary">-</Text>
         ),
@@ -275,7 +285,30 @@ export function NetworkDomainsPage() {
       fixed: 'right',
       render: (_: unknown, record: NetworkDomain) => {
         const isMonitored = record.is_monitored
-        const hasMoreItems = record.channel === 'agent_pull' && isMonitored
+        // F-33：下载入口从页面级主按钮改为**行内按需**——仅边缘域（agent_pull）行提供「更多」下拉；
+        // 中心直连域（local）无需部署采集节点，整行不出现下载入口。
+        // 「重置 Token」仅已纳管边缘域才有意义，故按 isMonitored 动态拼接菜单项。
+        const moreItems: MenuProps['items'] =
+          record.channel === 'agent_pull'
+            ? [
+                ...(isMonitored
+                  ? [
+                      {
+                        key: 'reset-token',
+                        icon: <ReloadOutlined />,
+                        label: '重置 Token',
+                        onClick: () => handleResetToken(record),
+                      },
+                    ]
+                  : []),
+                {
+                  key: 'download-package',
+                  icon: <DownloadOutlined />,
+                  label: '下载安装包',
+                  onClick: () => setDownloadOpen(true),
+                },
+              ]
+            : []
         return (
           <Space size="small">
             {!isMonitored ? (
@@ -290,19 +323,8 @@ export function NetworkDomainsPage() {
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => openDetail(record)}>
               详情
             </Button>
-            {hasMoreItems && (
-              <Dropdown
-                menu={{
-                  items: [
-                    {
-                      key: 'reset-token',
-                      icon: <ReloadOutlined />,
-                      label: '重置 Token',
-                      onClick: () => handleResetToken(record),
-                    },
-                  ],
-                }}
-              >
+            {moreItems.length > 0 && (
+              <Dropdown menu={{ items: moreItems }}>
                 <Button size="small">更多 <DownOutlined /></Button>
               </Dropdown>
             )}
@@ -328,6 +350,14 @@ export function NetworkDomainsPage() {
     <MainLayout>
       <ConfigProvider locale={config}>
         <Card title="网域纳管">
+        {/* F-33 动线前置：本条提示常驻在折叠指引**之外**，让中心直连域用户一眼确认「无需部署、无需下载」，
+            不必展开指引；下方折叠区只保留边缘域（agent_pull）的部署动线。 */}
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="中心直连域（如 default / local 通道）：无需部署采集节点，平台直接采集；仅登记新增的边缘域需要安装采集节点。"
+        />
         {/* PRD §1109：安装指引为页面顶部常驻提示区（不随是否有 agent_pull 网域而隐藏） */}
         <div
             ref={guideRef}
@@ -350,26 +380,32 @@ export function NetworkDomainsPage() {
                   label: (
                     <Space size={8}>
                       <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
-                      <Text strong>新网域接入操作流程（安装指引）</Text>
-                      <Text type="secondary" style={{ fontSize: 12 }}>点击展开（中心直接采集的网域无需查看）</Text>
+                      {/* F-33：标题限定为「边缘域」，与折叠区外的常驻提示分工——直连域用户不必点进来 */}
+                      <Text strong>边缘域接入操作流程（安装指引）</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>点击展开</Text>
                     </Space>
                   ),
                   children: (
                     <div>
-                      <Alert
-                        type="success"
-                        showIcon
-                        style={{ marginBottom: 8 }}
-                        message="中心直连域（如 default / local 通道）：无需部署代理，平台直接采集，可跳过下方采集节点安装步骤。"
-                      />
                       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                        采集节点域（agent_pull）：需部署 Edge Sync Agent 才能回连平台，按下方步骤接入。
+                        边缘域（agent_pull）需部署 Edge Sync Agent 才能回连平台，按下方步骤接入。
                       </Typography.Paragraph>
                       <Steps
                         size="small"
                         direction="vertical"
                         current={-1}
                         items={[
+                          {
+                            // F-30：补入「复制 Token」为第 1 步——此前四步流程未提示 Token 需在纳管成功后立即复制
+                            title: '复制并保存接入 Token',
+                            description: (
+                              <span>
+                                {TOKEN_USER_GUIDE}
+                                <br />
+                                部署采集节点时请把 Token 填入 systemd 的 <Typography.Text code>TOKEN</Typography.Text> 环境变量（见下方「启动 / 守护」步骤）。
+                              </span>
+                            ),
+                          },
                           {
                             title: '下载安装包',
                             description: (
@@ -498,6 +534,18 @@ sudo systemctl enable --now edge-sync-agent`}</pre>
         domainName={plainToken?.domainName}
         onClose={() => setPlainToken(null)}
       />
+
+      {/* F-33：行内「更多 → 下载安装包」入口——与折叠指引内的面板共用同一组件，active 控制懒加载 */}
+      <Modal
+        title="离线安装包下载"
+        open={downloadOpen}
+        onCancel={() => setDownloadOpen(false)}
+        footer={null}
+        width={640}
+        destroyOnHidden
+      >
+        <EdgePackageDownloadPanel active={downloadOpen} />
+      </Modal>
 
       <Drawer
         title="编辑网域（监控参数）"
