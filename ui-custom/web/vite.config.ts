@@ -15,7 +15,7 @@ export default defineConfig({
   server: {
     port: 5173,
     // 放行 cloudflared 临时隧道的随机子域名，便于局域网/外网通过 trycloudflare.com 访问
-    allowedHosts: ['.trycloudflare.com'],
+    allowedHosts: ['.trycloudflare.com', 'metric.chenrt.dpdns.org'],
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
