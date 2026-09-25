@@ -14,3 +14,13 @@
 - **M10 收敛点**：M10 统一摄取网关就绪即替换本 receiver；其鉴权方案（每网域独立 Token / mTLS / 指标白名单）届时落闸，本让步解锁。
 - **安全边界**：生产多网域动线（网闸/G2 公网）**必须**走 G2 nginx：来源 IP 白名单 + TLS 终结 + 每网域独立 Token（对应网络域模型 `Token` 字段），UI/agent 接口分流——列为生产部署红线，凡 receiver 跨出单机/可信内网即触发硬化。
 - **影响范围**：`Makefile`（run-prometheus listen-address 收束，已回灌）、`docs` 决策记录、M10 摄取网关验收标准；不涉及 `upstream/prometheus`。
+
+---
+
+### Change Log（完整历史）
+
+> 主 PRD `Module_11_Edge_Access_and_Agent_Delivery.md` 的 Change Log 仅保留最近 3 版，更早版本迁至此表。
+
+| 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
+|------|------|----------|----------|----------|--------------|------|
+| v0.2 | 2026-09-17 | 修订 | 语义保真回填：Token 完全脱敏口径、agent_type 枚举（prometheus-agent）、人工兜底不自动 reconcile、unknown 运行态；补默认网域处理、多网域能力开关、删除级联清退、网域编辑、三档聚合、成因三档引导、心跳 RTT / RW 队列字段、诊断看板占位 | §3 / §5 / §8 / §9 | 不变 | 设计中 |

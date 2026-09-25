@@ -3,6 +3,7 @@
 > 生成：2026-09-20。对齐 `platform/edge/*` 现有实现与 PRD §6.2/§6.3/§3.3。
 > 跨端任务 T11-21/22/23/24/25 以本文件为第一权威；与 PRD/API 标准冲突时以本文件为准，冲突需上报。
 > 基准：`feat/module-09-config-center` 2026-09-20 状态。
+> 修订：2026-09-20 吸收 design-proposal config-sync-stall（Track B）与 dev-feedback F-17/F-21，补充 `apply_failed` 成因与 `config_apply_error` / `config_apply_failed_version` 字段（向后兼容，与 PRD §5.3 / §8.1 同步）。
 
 ## 1. 采集节点状态接口（前端 T11-23/24/25 消费）
 
@@ -34,6 +35,8 @@
       "config_version": "20260920-120000",
       "config_sync_status": "in_sync",
       "out_of_sync_cause": "",
+      "config_apply_error": "",
+      "config_apply_failed_version": "",
       "queue_backlog_bytes": 1048576,
       "collector_status": "running",
       "collector_version": "v1.101.0",
@@ -59,7 +62,8 @@
 - `status`：`online` / `offline` / `unknown` / `retired`（`partial` 由 collector 异常派生，DTO 以 `overall`+`collector_status` 呈现）
 - `overall`：`normal` / `partial` / `offline` / `unknown`
 - `config_sync_status`：`in_sync` / `out_of_sync` / `unknown` / `manual_override` / `no_version`
-- `out_of_sync_cause`：`pending_draft` / `pull_pending` / `local_reset`
+- `out_of_sync_cause`：`pending_draft` / `pull_pending`（同步中，processing 蓝）/ `local_reset` / `apply_failed`（同步失败，error 红）
+- `config_apply_error` / `config_apply_failed_version`：配置应用失败原因与版本（可选，成功时为空，`omitempty` 不发送）
 - `components[].type`：`agent` / `collector` / `blackbox_exporter`
 - `components[].status`：`running` / `restarting` / `crash_loop` / `not_deployed` / `unknown`
 
