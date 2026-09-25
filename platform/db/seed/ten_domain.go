@@ -27,7 +27,7 @@ func runTenantAndDomain(db *gorm.DB) error {
 		ID:                  models.DefaultDomainID,
 		Name:                "默认网域",
 		DomainType:          models.DomainTypeManagement,
-		Channel:             models.ChannelTypeLocal,
+		Channel:             models.ChannelForDomainType(models.DomainTypeManagement),
 		TenantID:            models.PlatformAdminTenantID,
 		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
 		Status:              models.DomainStatusEnabled,

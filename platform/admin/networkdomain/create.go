@@ -135,8 +135,10 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			TenantID:            tenantID,
 			AuthorizedTenantIDs: auth,
 			IPCIDRs:             req.IPCIDRs,
-			Channel:             models.ChannelTypeLocal,
-			Status:              models.DomainStatusEnabled,
+			// 通道由域类型派生（F-28 方案 A）：本接口只登记边缘域，故恒为 agent_pull。
+			// 早期版本无条件写 local，会让未纳管边缘域被误判为 local 通道。
+			Channel: models.ChannelForDomainType(req.DomainType),
+			Status:  models.DomainStatusEnabled,
 		}
 		if err := db.Create(domain).Error; err != nil {
 			// 兜底：主键唯一约束冲突（如软删记录 PK 残留）映射为 409 而非 500。

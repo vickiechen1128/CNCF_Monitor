@@ -765,6 +765,16 @@ func TestInstallationStatusEnums(t *testing.T) {
 
 // --- Module 09 (T09-01): config-center enum & JSON carrier contracts ---
 
+// TestChannelForDomainType 覆盖通道口径的单一事实来源（F-28 方案 A）：
+// 管理域↔local、边缘域↔agent_pull。
+func TestChannelForDomainType(t *testing.T) {
+	assert.Equal(t, ChannelTypeLocal, ChannelForDomainType(DomainTypeManagement))
+	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(DomainTypeEdge))
+	// 空 / 未知域类型不得落回 local（历史 bug 即错在此），一律按边缘域处理。
+	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(""))
+	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(DomainType("bogus")))
+}
+
 func TestConfigCenterEnumConstants(t *testing.T) {
 	// ChannelType / AgentType / DraftStatus / DeploymentStatus enum values.
 	assert.Equal(t, ChannelType("local"), ChannelTypeLocal)

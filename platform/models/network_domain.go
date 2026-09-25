@@ -93,6 +93,17 @@ type NetworkDomain struct {
 // IsManagement reports whether the domain is a management (non-deletable) domain.
 func (d *NetworkDomain) IsManagement() bool { return d.DomainType == DomainTypeManagement }
 
+// ChannelForDomainType 返回域类型对应的下发通道（MVP 固定映射，通道口径的单一
+// 事实来源）：管理域↔local（中心同机写盘 reload）/ 边缘域↔agent_pull（Edge Sync
+// Agent 心跳拉包）。登记接口早期版本把新网域无条件记为 local，导致未纳管边缘域在
+// 列表 / 详情 / 纳管抽屉被误判为 local 通道（F-28 方案 A）。
+func ChannelForDomainType(dt DomainType) ChannelType {
+	if dt == DomainTypeManagement {
+		return ChannelTypeLocal
+	}
+	return ChannelTypeAgentPull
+}
+
 // AfterFind 在每次从库读出后派生 token_masked（完全脱敏），并确保不回显明文。
 // 列表 / 详情（含 M06 网域列表）因此自动返回 token_masked 而非明文（契约 §3/§6.1）。
 func (d *NetworkDomain) AfterFind(tx *gorm.DB) error {

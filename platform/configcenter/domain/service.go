@@ -1,9 +1,12 @@
 // Package domain implements Module_09 网域监控纳管（onboard）服务层与 handler。
-// 网易域从 M06 已建网域中选择纳管，维护 channel/agent_type/token/
-// remote_write_url/center_endpoint 等监控纳管字段：
-//   - default（历史预置管理域）固定 channel=local（中心同机写盘 reload，无需 Agent / Token）；
-//   - 非 default 网域 MVP 仅登记监控参数（channel=agent_pull、agent_type 固定 vmagent），
-//     Token 自动签发一次（明文仅签发/重置单次返回）。
+// 从 M06 已建网域中选择纳管，维护 channel/agent_type/token/remote_write_url/
+// center_endpoint 等监控纳管字段：
+//   - 管理域（domain_type=management，如 default）固定 channel=local（中心同机写盘
+//     reload，无需 Agent / Token）；
+//   - 边缘域（domain_type=edge）MVP 仅登记监控参数（channel=agent_pull、agent_type
+//     固定 vmagent），Token 自动签发一次（明文仅签发/重置单次返回）。
+//
+// 通道口径由 models.ChannelForDomainType 从域类型统一派生（F-28 方案 A）。
 //
 // 参见 docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md
 //   §3.1 / §6.1 / §5.1 与 api-contract-snapshot.md §6.1。
@@ -63,8 +66,11 @@ type TokenResult struct {
 }
 
 // MonitorDomain 纳管一个网域（POST /monitor）。
-//   - default 域固定 channel=local，is_monitored=true，不签发 token；
-//   - 非 default 域 channel=agent_pull + agent_type=vmagent（MVP 固定），自动签发 token。
+//   - 管理域固定 channel=local，is_monitored=true，不签发 token；
+//   - 边缘域 channel=agent_pull + agent_type=vmagent（MVP 固定），自动签发 token。
+//
+// 分支依据是 domain_type（dom.IsManagement）而非 id：F-28 方案 A 后通道统一由域类型
+// 派生，若沿用 `id == default` 会让新预置的管理域走错分支。
 func MonitorDomain(db *gorm.DB, id string, p MonitorParams) (MonitorOutcome, error) {
 	var dom models.NetworkDomain
 	if err := db.Where("id = ?", id).First(&dom).Error; err != nil {
@@ -80,24 +86,24 @@ func MonitorDomain(db *gorm.DB, id string, p MonitorParams) (MonitorOutcome, err
 		return MonitorOutcome{}, ErrInvalidAgentType
 	}
 
-	if id == models.DefaultDomainID {
-		// default 固定 local：无需 Agent 与 Token。
-		dom.Channel = models.ChannelTypeLocal
+	if dom.IsManagement() {
+		// 管理域固定 local：无需 Agent 与 Token。
+		dom.Channel = models.ChannelForDomainType(models.DomainTypeManagement)
 		dom.AgentType = ""
 		dom.RemoteWriteURL = ""
 		dom.IsMonitored = true
 		if err := db.Model(&dom).Select("channel", "agent_type", "remote_write_url", "is_monitored").Updates(dom).Error; err != nil {
-			return MonitorOutcome{}, fmt.Errorf("persist default domain monitor: %w", err)
+			return MonitorOutcome{}, fmt.Errorf("persist management domain monitor: %w", err)
 		}
 		return MonitorOutcome{Domain: &dom}, nil
 	}
 
-	// 非 default 边缘域：agent_pull 登记制。
+	// 边缘域：agent_pull 登记制。
 	token, err := newToken()
 	if err != nil {
 		return MonitorOutcome{}, err
 	}
-	dom.Channel = models.ChannelTypeAgentPull
+	dom.Channel = models.ChannelForDomainType(models.DomainTypeEdge)
 	dom.AgentType = models.AgentTypeVMAgent
 	dom.RemoteWriteURL = p.RemoteWriteURL
 	dom.Token = token

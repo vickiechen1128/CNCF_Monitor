@@ -20,6 +20,10 @@ func Run(db *gorm.DB) error {
 	if err := runTenantAndDomain(db); err != nil {
 		return fmt.Errorf("seed tenant/domain: %w", err)
 	}
+	// F-28 方案 A：把历史遗留的 channel / domain_type 不一致网域对齐（幂等）。
+	if err := runDomainChannelBackfill(db); err != nil {
+		return fmt.Errorf("backfill domain channels: %w", err)
+	}
 	if err := runZoneTypes(db); err != nil {
 		return fmt.Errorf("seed zone types: %w", err)
 	}
