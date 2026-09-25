@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-25 13:11 · commit: `57ca16c`
+> 生成时间: 2026-09-25 14:05 · commit: `aa56f9b`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2281,6 +2281,8 @@
 - `func TestHeartbeatConfigChanged_DownloadURL_AndAutoRegister(t *testing.T)`
 - `func TestHeartbeatApplyFailedCause(t *testing.T)`
 - `func TestHeartbeatApplyFailedOlderVersionStaysPullPending(t *testing.T)`
+- `func TestHeartbeatRecordsLastConfigPullOnVersionAdvance(t *testing.T)`
+- `func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T)`
 - `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
 - `func TestHeartbeatHandlerConfigDownloadURL(t *testing.T)`
 - `func TestRequestAuthorityFallsBackToRequestHost(t *testing.T)`
@@ -2370,6 +2372,8 @@
 - `func TestGetAgentDetailIncludesComponents(t *testing.T)`
 - `func TestGetAgentNotFound(t *testing.T)`
 - `func TestAgentViewDegradesComponentsWhenHeartbeatExpired(t *testing.T)`
+- `func TestAgentViewDegradesPullPendingCauseWhenHeartbeatExpired(t *testing.T)`
+- `func TestAgentViewDegradesComponentsWhenRetired(t *testing.T)`
 - `func TestAgentViewKeepsComponentStatusWhenHeartbeatFresh(t *testing.T)`
 - `func TestListAgentsAndGetAgentHandlers(t *testing.T)`
 - `func newFakePackageDir(t *testing.T, version string) (string, []byte, string)`
