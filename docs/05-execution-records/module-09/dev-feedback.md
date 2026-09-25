@@ -376,6 +376,8 @@
   6. **测试**：`NetworkDomainsPage.test.tsx` 原「工具栏按钮 → 弹面板」用例改写为「边缘域行『更多 → 下载安装包』→ 弹面板」；新增「local 行不出现『更多』与任何下载入口」「常驻提示在折叠区外可见（折叠内容未渲染）+ 折叠标题已限定边缘域 + 旧标题不再出现」两个用例。
   7. **验证**：`pnpm vitest run src/pages/config-center/domains/` 4 文件 34 用例全绿；`pnpm lint` 零错误；`make repo-map` + `make check-repo-map` 通过。
 
+> **回写完成（2026-09-25）**：已合入 M11 PRD v0.6——§3.3 下载入口改为 agent_pull 行内「更多 → 下载安装包」、中心直连域不出现下载入口、常驻提示前置 + 折叠标题限定边缘域；§11.3 安装指引区同步。
+
 ### F-30：token 可用入口不足 + 指引缺「复制 Token」步骤 + 无「安全重新查看」出口（① 空白/③ 优化）
 
 - **类别**：① 空白判定 + ③ 技术优化
@@ -403,6 +405,8 @@
   5. **契约同步修正**：`api-contract-snapshot.md` §10 的 `NetworkDomain.token_masked` 行原写「完全脱敏 **+ 复制按钮**」，与该文件 §9「明文仅签发 / 重置单次返回」及实现 HIGH-1 冲突；已按「以 PRD 为准」的用户裁决修正为「完全脱敏，不提供复制明文（明文仅 `/monitor` 与 `/reset-token` 单次返回）」。
   6. **测试**：`NetworkDomainsPage.test.tsx` 新增「展开安装指引后含『复制并保存接入 Token』步骤 + 指引文案关键短语」用例；`PlainTokenModal.test.tsx` 断言同步更新为新文案。
   7. **验证**：`pnpm vitest run`（两个测试文件）18 用例全通过；`pnpm lint` 零错误；`make check-repo-map` OK。
+
+> **回写完成（2026-09-25）**：已合入 M11 PRD v0.6——§3.1 / §9.1 / §11.3 明确安装指引 Steps 首步「复制并保存接入 Token」、Token 严格仅纳管 / 重置单次展示不提供二次查看明文入口（用户裁决收敛第 2 条安全二次查看诉求）；§11.3 纳管取凭据同步。
 
 ---
 
