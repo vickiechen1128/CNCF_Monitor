@@ -530,7 +530,7 @@ export DATA_ROOT=${DATA_ROOT:-/opt/data/metric-center}     # 数据根（TSDB / 
 export LOG_ROOT=${LOG_ROOT:-/opt/log/metric-center}        # 日志根
 export PROM_RETENTION_TIME=${PROM_RETENTION_TIME:-15d}     # TSDB 时间保留（--storage.tsdb.retention.time）
 export PROM_RETENTION_SIZE=${PROM_RETENTION_SIZE:-10GB}    # TSDB 容量兜底（--storage.tsdb.retention.size）
-# 组件端口（端口冲突时改这里，start.sh 全部引用）
+# 组件端口（start.sh 全部引用；也可在安装时用 install.sh --mc-port 等参数指定，会写回本文件）
 export PROM_PORT=${PROM_PORT:-9090}                        # Prometheus
 export AM_PORT=${AM_PORT:-9093}                            # Alertmanager
 export BB_PORT=${BB_PORT:-9115}                            # blackbox_exporter
@@ -545,8 +545,58 @@ EOF
 #!/usr/bin/env bash
 # install.sh — MetricCenter 生产环境安装（root/sudo 提权执行）
 # 将解压包入驻 /opt 三目录基线；活配置种子化到数据区 config-output，程序目录保持只读。
-# 用法：sudo bash scripts/install.sh
+#
+# 用法：
+#   sudo bash scripts/install.sh                                  # 全部端口用默认值
+#   sudo bash scripts/install.sh --mc-port 18080 --prom-port 19090 # 安装期自定义端口
+#   sudo MC_PORT=18080 bash scripts/install.sh                     # 等价的环境变量写法
+#   sudo bash scripts/install.sh --help
+#
+# 端口自定义：安装期指定的端口会写回 <APP_DIR>/env/env.sh，start.sh 启动时全部引用；
+# 装后也可直接编辑该文件的 *_PORT 行再重启。未指定则沿用 env/env.sh.example 默认值。
 set -e
+
+usage() {
+    cat <<'USAGE'
+用法: sudo bash scripts/install.sh [选项]
+
+选项（不指定则沿用 env/env.sh.example 中的默认端口）:
+  --mc-port  <端口>          metric-center（UI + API 同源）   默认 8080
+  --prom-port <端口>         Prometheus                       默认 9090
+  --am-port  <端口>          Alertmanager                     默认 9093
+  --bb-port  <端口>          blackbox_exporter                默认 9115
+  --am-cluster-port <端口>   Alertmanager gossip 集群端口      默认 9094
+  -h, --help                 显示本帮助
+
+也可用同名环境变量传入：MC_PORT / PROM_PORT / AM_PORT / BB_PORT / AM_CLUSTER_PORT。
+五个端口必须互不相同；端口变更后需同步放通防火墙 / 安全组，并更新采集节点的
+CENTER_ENDPOINT 与 remote_write 地址（若改动了 MC_PORT / PROM_PORT）。
+USAGE
+}
+
+# 安装期指定的端口：命令行参数 > 环境变量 > 模板默认值（后者在写回 env.sh 时解析）
+MC_PORT_ARG=${MC_PORT:-}
+PROM_PORT_ARG=${PROM_PORT:-}
+AM_PORT_ARG=${AM_PORT:-}
+BB_PORT_ARG=${BB_PORT:-}
+AM_CLUSTER_PORT_ARG=${AM_CLUSTER_PORT:-}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --mc-port|--prom-port|--am-port|--bb-port|--am-cluster-port)
+            [ -n "$2" ] || { echo ">>> ERROR: $1 缺少端口值"; usage; exit 1; }
+            case "$1" in
+                --mc-port)         MC_PORT_ARG="$2" ;;
+                --prom-port)       PROM_PORT_ARG="$2" ;;
+                --am-port)         AM_PORT_ARG="$2" ;;
+                --bb-port)         BB_PORT_ARG="$2" ;;
+                --am-cluster-port) AM_CLUSTER_PORT_ARG="$2" ;;
+            esac
+            shift 2 ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo ">>> ERROR: 未知参数: $1"; usage; exit 1 ;;
+    esac
+done
 
 [ "$(id -u)" -eq 0 ] || { echo ">>> ERROR: install.sh 必须以 root/sudo 权限运行"; exit 1; }
 
@@ -587,6 +637,80 @@ else
     echo ">>> 跳过（已存在）: $APP_DIR/env/env.sh"
 fi
 
+# 3.1) 端口自定义：把安装期指定的端口写回 env/env.sh
+# 端口默认值从 env/env.sh.example 解析（模板是默认值的唯一来源，避免此处再写一份常量而漂移）。
+ENV_EXAMPLE="$BUNDLE_DIR/env/env.sh.example"
+ENV_SH="$APP_DIR/env/env.sh"
+
+port_default() {
+    sed -n "s|^export $1=\${$1:-\([0-9]*\)}.*|\1|p" "$ENV_EXAMPLE" | head -n 1
+}
+
+validate_port() {
+    case "$2" in
+        *[!0-9]*) echo ">>> ERROR: $1 端口必须为纯数字: '$2'"; exit 1 ;;
+    esac
+    if [ "$2" -lt 1 ] || [ "$2" -gt 65535 ]; then
+        echo ">>> ERROR: $1 端口越界(1-65535): $2"; exit 1
+    fi
+}
+
+# 写回 env.sh 中对应的 export 行（保留该行原有注释）
+port_assign() {
+    local name="$1" given="$2" port
+    port=${given:-$(port_default "$name")}
+    if [ -z "$port" ]; then
+        echo ">>> WARNING: $name 未取到默认值（env.sh.example 缺该行），跳过"
+        return 0
+    fi
+    validate_port "$name" "$port"
+    if [ -z "$given" ]; then
+        echo "  ${name}=${port}（模板默认值）"
+        return 0
+    fi
+    sed "s|^\(export $name=\${$name:-\)[0-9]*\(}.*\)|\1$port\2|" "$ENV_SH" > "$ENV_SH.tmp"
+    mv "$ENV_SH.tmp" "$ENV_SH"
+    if grep -q "export $name=\${$name:-$port}" "$ENV_SH"; then
+        echo "  ${name}=${port}（安装期自定义）"
+    else
+        echo ">>> WARNING: ${name} 未能写入 env.sh，请手工确认（期望 ${port}）"
+    fi
+}
+
+echo ">>> 端口配置（写入 ${ENV_SH}，start.sh 启动时全部引用）:"
+port_assign MC_PORT          "$MC_PORT_ARG"
+port_assign PROM_PORT        "$PROM_PORT_ARG"
+port_assign AM_PORT          "$AM_PORT_ARG"
+port_assign BB_PORT          "$BB_PORT_ARG"
+port_assign AM_CLUSTER_PORT  "$AM_CLUSTER_PORT_ARG"
+
+# 3.2) 端口冲突自检：五个端口必须互不相同，否则后启动的组件会绑定失败
+read_port() {
+    sed -n "s|^export $1=\${$1:-\([0-9]*\)}.*|\1|p" "$ENV_SH" | head -n 1
+}
+
+port_conflict=0
+for pair in "PROM_PORT AM_PORT" "PROM_PORT BB_PORT" "PROM_PORT MC_PORT" "PROM_PORT AM_CLUSTER_PORT" \
+            "AM_PORT BB_PORT" "AM_PORT MC_PORT" "AM_PORT AM_CLUSTER_PORT" \
+            "BB_PORT MC_PORT" "BB_PORT AM_CLUSTER_PORT" "MC_PORT AM_CLUSTER_PORT"; do
+    name_a=${pair% *}
+    name_b=${pair#* }
+    port_a=$(read_port "$name_a")
+    port_b=$(read_port "$name_b")
+    if [ -n "$port_a" ] && [ "$port_a" = "$port_b" ]; then
+        echo ">>> ERROR: 端口冲突: $name_a 与 $name_b 同为 $port_a"
+        port_conflict=1
+    fi
+done
+if [ "$port_conflict" -ne 0 ]; then
+    echo ">>> 请用 --mc-port/--prom-port/... 重新安装，或手工修改 $ENV_SH 后重试"
+    exit 1
+fi
+
+# 最终生效端口（供后续 SOP 提示与访问地址引用，避免写死 8080）
+MC_PORT_FINAL=$(read_port MC_PORT)
+PROM_PORT_FINAL=$(read_port PROM_PORT)
+
 # 4) 从 conf/*.example 种子活配置到数据区 config-output（缺失才生成）
 # 与 start.sh 同因：seed 必须用 if 结构，目标已存在时不能返回非零（install.sh 头部 set -e），
 # 否则二次安装会静默中断。
@@ -612,7 +736,7 @@ if id -u "$APP_USER" >/dev/null 2>&1; then
     find "$DATA_DIR" "$LOG_DIR" -type d -exec chmod 2750 {} + 2>/dev/null || true
     find "$DATA_DIR" "$LOG_DIR" -type f -exec chmod 0640 {} + 2>/dev/null || true
 else
-    echo ">>> WARNING: 未找到账户 $APP_USER，跳过属主设置。请先创建账户/组后再执行。"
+    echo ">>> WARNING: 未找到账户 ${APP_USER}，跳过属主设置。请先创建账户/组后再执行。"
 fi
 
 # 6) SOP 部署验证提示
@@ -624,7 +748,7 @@ cat <<NOTE
    进程/账户核对：
      ps -ef | grep -E 'metric-center|prometheus|alertmanager|blackbox'
 2) 健康检查：
-     curl -s http://127.0.0.1:8080/api/v1/health
+     curl -s http://127.0.0.1:$MC_PORT_FINAL/api/v1/health
 3) 查看日志（含 SQLite DSN 落点在 \$DATA_ROOT/metric_center.db）：
      tail -f $LOG_DIR/*.log
 4) 停止：
@@ -632,6 +756,9 @@ cat <<NOTE
 5) 日志轮转（可选：/etc 属系统保留区，是否应用由运维决定）：
      cp $APP_DIR/script/logrotate.conf.example /etc/logrotate.d/metric-center
 6) 扩容：把 $DATA_DIR 作为独立挂载点，加盘 = 挂载 + rsync + 重启；程序与日志目录不动。
+7) 自定义端口（安装后）：编辑 $APP_DIR/env/env.sh 里的 *_PORT 行，然后 stop → start。
+   本次生效端口见上方「端口配置」；改 MC_PORT/$PROM_PORT_FINAL 前请同步调整
+   防火墙 / 安全组，并更新采集节点的 CENTER_ENDPOINT 与 remote_write 地址。
 NOTE
 EOF
     chmod +x "$BUNDLE_DIR/scripts/install.sh"
@@ -698,6 +825,36 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 - `env/env.sh` 集中定义：`DATA_ROOT`(`/opt/data/metric-center`)、`LOG_ROOT`(`/opt/log/metric-center`)、`PROM_RETENTION_TIME`(`15d`)、`PROM_RETENTION_SIZE`(`10GB`)、`PROM_PORT`/`AM_PORT`/`BB_PORT`/`MC_PORT`、`METRIC_CENTER_DB_DSN`。运维改盘、保留策略与端口只改这一个文件。
 - 数据/日志根由 `env.sh` 决定；M09/M08 下发的活配置落 `$DATA_ROOT/config-output/`（程序账户可写），不进只读的程序 `conf/`。
 - 日志轮转示例：`scripts/logrotate.conf.example`（daily / rotate 14 / compress）。是否写入 `/etc/logrotate.d/` 由运维决定（/etc 属系统保留区，默认不碰）。
+
+## 端口自定义
+
+默认端口可覆盖，无需改脚本：生产安装用 `install.sh` 参数，解压即用用环境变量。
+
+| 组件 | 变量 | 默认 | 说明 |
+|------|------|------|------|
+| metric-center（UI + API 同源） | `MC_PORT` | 8080 | 采集节点需可达 |
+| Prometheus（含 remote write 接收） | `PROM_PORT` | 9090 | 采集节点需可达 |
+| Alertmanager | `AM_PORT` | 9093 | 按需放通 |
+| blackbox_exporter | `BB_PORT` | 9115 | 按需放通 |
+| Alertmanager gossip 集群端口 | `AM_CLUSTER_PORT` | 9094 | 单机部署也必须独占 |
+
+**生产安装时指定**（写入 `/opt/apps/metric-center/env/env.sh`，安装日志会打印生效端口）：
+
+```bash
+sudo bash scripts/install.sh --mc-port 18080 --prom-port 19090 --am-port 19093 --bb-port 19115
+# 等价写法（同名环境变量）：
+sudo MC_PORT=18080 PROM_PORT=19090 bash scripts/install.sh
+```
+
+**解压即用模式**（无 `env/env.sh` 时，直接以环境变量覆盖）：
+
+```bash
+MC_PORT=18080 PROM_PORT=19090 ./scripts/start.sh
+```
+
+**安装后调整**：编辑 `/opt/apps/metric-center/env/env.sh` 的 `*_PORT` 行 → `stop.sh` → `start.sh`。
+
+> 五个端口必须互不相同——`install.sh` 会做冲突校验，冲突即中止安装。端口改动后需同步放通防火墙 / 安全组；若改了 `MC_PORT` / `PROM_PORT`，还要更新采集节点侧的 `CENTER_ENDPOINT` 与 remote write 地址（见 edge agent 包 README「端口与网络策略」）。
 
 ## 访问
 

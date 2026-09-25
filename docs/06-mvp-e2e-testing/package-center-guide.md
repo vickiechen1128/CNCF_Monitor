@@ -132,6 +132,10 @@ cd metric-center-bundle-linux-amd64-*/
 ```bash
 cd metric-center-bundle-linux-amd64-*/
 sudo bash scripts/install.sh        # 核验三目录 → 入驻 /opt/apps/metric-center → 生成 env/env.sh → seed 活配置
+# 端口冲突时可在安装期直接指定（写回 env/env.sh，安装日志会打印生效端口）：
+#   sudo bash scripts/install.sh --mc-port 18080 --prom-port 19090
+#   等价写法：sudo MC_PORT=18080 PROM_PORT=19090 bash scripts/install.sh
+#   sudo bash scripts/install.sh --help
 sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 ```
 
@@ -143,7 +147,7 @@ sudo -u app-metric-center /opt/apps/metric-center/script/start.sh
 | `LOG_ROOT` | `/opt/log/metric-center` | 日志根 |
 | `PROM_RETENTION_TIME` | `15d` | TSDB 时间保留（`--storage.tsdb.retention.time`） |
 | `PROM_RETENTION_SIZE` | `10GB` | TSDB 容量兜底（`--storage.tsdb.retention.size`，到量淘汰最旧 block） |
-| `PROM_PORT` / `AM_PORT` / `BB_PORT` / `MC_PORT` | `9090` / `9093` / `9115` / `8080` | 组件端口（端口冲突时只改这里，start.sh 全部引用） |
+| `PROM_PORT` / `AM_PORT` / `BB_PORT` / `MC_PORT` / `AM_CLUSTER_PORT` | `9090` / `9093` / `9115` / `8080` / `9094` | 组件端口；安装期可用 `install.sh --prom-port` 等参数（或同名环境变量）指定，装后也可直接改本文件。五端口须互不相同（安装期会做冲突校验）；改动后需同步放通防火墙，并更新采集节点侧 `CENTER_ENDPOINT` / remote write 地址（若改了 `MC_PORT` / `PROM_PORT`） |
 | `METRIC_CENTER_DB_DSN` | `$DATA_ROOT/metric_center.db` | SQLite 路径 |
 
 **双模式**：`start.sh` 检测到 `env/env.sh` 走 `/opt/*` 生产路径；未安装（无 env.sh）时回落包内 `data/` / `logs/`，解压即用模式不受影响。systemd 注册不在 MVP 范围，默认 start.sh。
