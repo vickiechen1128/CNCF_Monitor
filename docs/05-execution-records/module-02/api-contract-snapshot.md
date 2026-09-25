@@ -38,7 +38,7 @@
 
 ### 1.3 数据源与消费方边界
 
-- `/api/v1/targets`：直接代理中心 Prometheus `/api/v1/targets`，本地做 `job` / `network_domain` / `health` 过滤与 `network_domain` 字段补全（Prometheus targets API 原生无 job 过滤，需 M02 侧后处理）。
+- `/api/v1/targets`：直接代理中心 Prometheus `/api/v1/targets`，本地做 `job` / `network_domain` / `health` / `search` 过滤与 `network_domain` / `instance_name` 字段补全（Prometheus targets API 原生无 job 过滤，需 M02 侧后处理）。
 
 - `/api/v1/health/coverage`：基于 `up` 指标聚合，**按** **`resource_id`** **稳定标签回连五类资源**；选出关系取自各 `ScrapeJob.selected_instance_ids`（M01 维护，M02 只读引用 DB）。覆盖「已选」与「up/down」两维输出三态。
 
@@ -52,12 +52,18 @@
 | ------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | 方法      | GET                                                                                                                           |
 | 路径      | `/api/v1/targets`                                                                                                             |
-| Query   | `job`（可选，M01 回显按 Job 过滤）、`network_domain`（可选，按注入标签过滤）、`health`（可选，`up` / `down` / `unknown`）、`state`（透传上游，MVP 恒 `active`，可不传） |
-| 响应 data | 代理 Prometheus `data.activeTargets[]`，逐项增强补全 `network_domain` 字段；结构见 §2.2                                                      |
+| Query   | `job`（可选，M01 回显按 Job 过滤）、`network_domain`（可选，按注入标签过滤）、`health`（可选，`up` / `down` / `unknown`）、`search`（可选，模糊搜索实例名 / 实例IP，见下）、`state`（透传上游，MVP 恒 `active`，可不传） |
+| 响应 data | 代理 Prometheus `data.activeTargets[]`，逐项增强补全 `network_domain` / `instance_name` 字段；结构见 §2.2                                                      |
 | 业务错误    | `bad_request`：`health` 传入非枚举值；上游 Prometheus 不可达 `internal`                                                                    |
 | PRD 源   | §5.3 / §6.1 / §8 验收第 3 条                                                                                                      |
 
-> 透传 + 本地过滤：M02 先不带 `job` 调上游 `GET /api/v1/targets`，取回 activeTargets 后在本地按 `job` / `network_domain` / `health` 过滤并补全 `network_domain`，避免上游不支持该过滤导致空结果。
+> 透传 + 本地过滤：M02 先不带 `job` 调上游 `GET /api/v1/targets`，取回 activeTargets 后在本地按 `job` / `network_domain` / `health` / `search` 过滤并补全 `network_domain` / `instance_name`，避免上游不支持该过滤导致空结果。
+>
+> `search` 口径（F-14）：单个搜索框同时匹配「实例名」与「实例IP」，大小写不敏感 `contains`。
+> - **实例名**：经 target 的 `resource_id` 标签回连 M07 资源台账取可读实例名（口径复用 `coverage.go`：host→`instance_name`、application→`service_name`、generic_target→`target_name`、database / middleware→`ip:port`）。**不得**用 `job` 名替代——`job` 是用户自由填写的抓取任务标识，平台不保证其等于实例名。
+> - **实例IP**：target 的 `instance`（`host:port`）的 host 部分，Prometheus 直接透传，无需回连。
+> - 边界：无 `resource_id` 标签或台账无此资源的 target，实例名为空串（前端降级 `-`），此时仅能按 IP 命中。
+> - `search` 对 local targets 与 F-11 融合的边缘快照统一生效。
 
 #### 2.1.1 单条 target 对象字段（PRD §5.3）
 
@@ -72,6 +78,7 @@
 | `lastError`      | string    | 最后错误       | 上游透传，空串表示无                                 |
 | `scrapeDuration` | number    | 采集耗时       | 秒（上游透传 `lastScrapeDuration`）               |
 | `resource_id`    | string    | 资源 ID（回连键） | 从目标标签 `resource_id` 解析（可选，供 M07 回连）        |
+| `instance_name`  | string    | 实例名        | 经 `resource_id` 回连 M07 资源台账取可读实例名（可选，无 `resource_id` / 台账无此资源时为空串）；`search` 匹配本字段与 `instance` |
 
 #### 2.1.2 外层 data（对齐 Prometheus targets 响应）
 
@@ -86,7 +93,7 @@
 }
 ```
 
-> 前端以 `data.activeTargets` 消费；`job` / `network_domain` / `health` 过滤由后端 M02 承担，前端不重复过滤。
+> 前端以 `data.activeTargets` 消费；`job` / `network_domain` / `health` / `search` 过滤由后端 M02 承担，前端不重复过滤。
 
 ### 2.2 `GET /api/v1/health/coverage`（三态聚合，决策 47-3，v0.2 提前 MVP）
 

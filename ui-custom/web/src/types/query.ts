@@ -32,6 +32,13 @@ export interface TargetItem {
   scrapeDuration?: number
   /** 资源 ID（M07 回连键，目标无该标签时字段为空） */
   resource_id?: string
+  /**
+   * 可读实例名（经 resource_id 回连 M07 资源台账：host→instance_name、
+   * application→service_name、generic_target→target_name、database/middleware→ip:port）。
+   * job 名是用户自由填写的抓取任务标识，不保证等于实例名；无 resource_id 或台账无
+   * 此资源时为空串。search 同时匹配本字段与 instance。
+   */
+  instance_name?: string
 }
 
 /** GET /api/v1/targets 外层 data（对齐 Prometheus targets 响应，§2.1.2） */

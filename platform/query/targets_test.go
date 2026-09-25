@@ -93,15 +93,41 @@ var targetsTestDBCounter int64
 
 // openTargetsTestDB 打开逐测试隔离的内存 SQLite 并迁移 /api/v1/targets 融合所需模型
 // （local 侧透传上游无需表，边缘侧需 EdgeTargetSnapshot，F-11 落库表；blackbox
-// 黑名单过滤需 ScrapeJob 表，F-11 收尾）。
+// 黑名单过滤需 ScrapeJob 表，F-11 收尾；search 的「实例名」需回连 M07 五类资源台账）。
 func openTargetsTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	n := atomic.AddInt64(&targetsTestDBCounter, 1)
 	dsn := fmt.Sprintf("file:targets_%d?mode=memory&cache=shared", n)
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.EdgeTargetSnapshot{}, &models.ScrapeJob{}))
+	require.NoError(t, db.AutoMigrate(
+		&models.EdgeTargetSnapshot{}, &models.ScrapeJob{},
+		&models.Host{}, &models.Database{}, &models.Middleware{},
+		&models.Application{}, &models.GenericTarget{},
+	))
 	return db
+}
+
+// seedHostResource 落一条 host 资源台账行，供 search 的「实例名」回连测试。
+func seedHostResource(t *testing.T, db *gorm.DB, resourceID, instanceName, netDomain string) {
+	t.Helper()
+	h := &models.Host{
+		ResourceID:       resourceID,
+		SourceType:       models.SourceTypeManual,
+		ResourceCategory: models.ResourceCategoryHost,
+		NetworkDomainID:  netDomain,
+		BizCode:         "biz-1",
+		ServerID:        "server-" + resourceID, // 唯一索引列，需逐行唯一
+		InstanceName:    instanceName,
+		Status:           "running",
+		Region:           "ap-guangzhou",
+		ZoneEnv:          "prod",
+		InstanceSpec:     "S5.MEDIUM4",
+		Image:            "ubuntu-22.04",
+		VPC:              "vpc-1",
+		SecurityGroup:    "sg-1",
+	}
+	require.NoError(t, db.Create(h).Error)
 }
 
 // seedScrapeJob 落一条采集 Job 配置行，供 blackbox 黑名单过滤测试（job_type 权威来源）。
@@ -262,6 +288,94 @@ func TestTargetsInstanceFallback(t *testing.T) {
 	require.NotNil(t, t4)
 	require.Equal(t, "192.168.1.10:9100", t4["instance"])
 	require.Equal(t, "default", t4["network_domain"])
+}
+
+// --- search：按「M07 台账实例名」/「实例地址(IP)」模糊搜索 ---
+//
+// 口径：target 的 job 名是用户自由填写的抓取任务标识，不保证等于实例名，故「实例名」
+// 只能经 resource_id 回连 M07 资源台账取值；「实例IP」取 target 的 instance（host:port）
+// 的 host 部分。search 大小写不敏感 contains，local 与边缘快照统一生效。
+
+// TestTargetsEnrichInstanceName 验证无 search 时也按 resource_id 回填实例名，供前端
+// 「实例名」列展示（无 resource_id / 台账无此资源时为空串）。
+func TestTargetsEnrichInstanceName(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedHostResource(t, db, "srv-1", "GL_OPS_MONITOR_01_X86", "default")
+
+	out := doTargets(t, r, "")
+	require.Len(t, out.Data.ActiveTargets, 4)
+
+	byInstance := map[string]map[string]interface{}{}
+	for _, a := range out.Data.ActiveTargets {
+		byInstance[a["instance"].(string)] = a
+	}
+	require.Equal(t, "GL_OPS_MONITOR_01_X86", byInstance["10.0.0.1:9100"]["instance_name"])
+	require.Equal(t, "", byInstance["10.0.0.2:9100"]["instance_name"]) // 无 resource_id → 空
+}
+
+// TestTargetsSearchByInstanceName 验证按 M07 台账实例名搜索命中对应 target。
+func TestTargetsSearchByInstanceName(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedHostResource(t, db, "srv-1", "GL_OPS_MONITOR_01_X86", "default")
+	seedHostResource(t, db, "srv-2", "monito2-02", "dmz")
+
+	out := doTargets(t, r, "?search=GL_OPS_MONITOR_01_X86")
+	require.Equal(t, "success", out.Status)
+	require.Len(t, out.Data.ActiveTargets, 1)
+	require.Equal(t, "10.0.0.1:9100", out.Data.ActiveTargets[0]["instance"])
+	require.Equal(t, "GL_OPS_MONITOR_01_X86", out.Data.ActiveTargets[0]["instance_name"])
+}
+
+// TestTargetsSearchCaseInsensitive 验证实例名搜索大小写不敏感。
+func TestTargetsSearchCaseInsensitive(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedHostResource(t, db, "srv-1", "GL_OPS_MONITOR_01_X86", "default")
+
+	out := doTargets(t, r, "?search=gl_ops_monitor")
+	require.Len(t, out.Data.ActiveTargets, 1)
+	require.Equal(t, "srv-1", out.Data.ActiveTargets[0]["resource_id"])
+}
+
+// TestTargetsSearchByInstanceIP 验证按实例 IP（instance 的 host 部分）搜索，且
+// 无 resource_id 的 target 同样可命中（实例名为空不影响 IP 搜索）。
+func TestTargetsSearchByInstanceIP(t *testing.T) {
+	r, _, _ := newTargetsRouter(t)
+
+	out := doTargets(t, r, "?search=10.0.0.2")
+	require.Len(t, out.Data.ActiveTargets, 1)
+	require.Equal(t, "10.0.0.2:9100", out.Data.ActiveTargets[0]["instance"])
+	require.Equal(t, "job-b", out.Data.ActiveTargets[0]["job"])
+}
+
+// TestTargetsSearchNoMatchEmpty 验证无命中时返回空 activeTargets（[] 而非 null）。
+func TestTargetsSearchNoMatchEmpty(t *testing.T) {
+	r, _, _ := newTargetsRouter(t)
+	out := doTargets(t, r, "?search=no-such-instance")
+	require.Equal(t, "success", out.Status)
+	require.Empty(t, out.Data.ActiveTargets)
+}
+
+// TestTargetsSearchAppliesToEdge 验证 search 对边缘快照同样生效（按 resource_id
+// 回连台账实例名命中）。
+func TestTargetsSearchAppliesToEdge(t *testing.T) {
+	r, _, db := newTargetsRouter(t)
+	seedHostResource(t, db, "srv-5", "edge-host-01", "mc-edge")
+	seedEdgeSnapshot(t, db, "mc-edge", "job-e", "10.0.0.5:9100", "srv-5", "up", time.Now())
+
+	out := doTargets(t, r, "?search=edge-host-01")
+	require.Len(t, out.Data.ActiveTargets, 1)
+	require.Equal(t, "10.0.0.5:9100", out.Data.ActiveTargets[0]["instance"])
+	require.Equal(t, "edge-host-01", out.Data.ActiveTargets[0]["instance_name"])
+}
+
+// TestTargetsSearchCombinesWithHealth 验证 search 与既有过滤参数叠加生效。
+func TestTargetsSearchCombinesWithHealth(t *testing.T) {
+	r, _, _ := newTargetsRouter(t)
+
+	out := doTargets(t, r, "?search=10.0.0&health=up")
+	// local fixture 中 up 的仅 t1（10.0.0.1:9100）与 t4（192.168.1.10，不匹配 search）。
+	require.Len(t, out.Data.ActiveTargets, 1)
+	require.Equal(t, "10.0.0.1:9100", out.Data.ActiveTargets[0]["instance"])
 }
 
 // fakeUpstream 是一个可复用的伪 Prometheus 上游：可按路径返回固定 JSON。

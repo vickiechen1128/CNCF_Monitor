@@ -58,7 +58,7 @@ type promTargetsData struct {
 //     （local targets 置空，边缘快照仍返回，F-11 排障价值）；
 //  2. health 参数三枚举校验（非法 → bad_request；其余参数缺失透传不报错）；
 //  3. 逐 activeTarget 补全 job / network_domain（缺失回落 default）/ resource_id /
-//     instance，按 job / network_domain / health 本地过滤；
+//     instance / instance_name，按 job / network_domain / health / search 本地过滤；
 //  4. F-11 融合：追加 edge_target_snapshots 表中该 network_domain（未指定不过滤）
 //     的边缘快照，统一合成为 Prometheus target 结构；归并键 (network_domain, job,
 //     instance)，local 优先、边缘补缺；快照 last_report_at 距今超过
@@ -75,12 +75,22 @@ func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.Hand
 		netDomain := c.Query("network_domain")
 		health := c.Query("health")
 		state := c.Query("state")
+		search := strings.TrimSpace(c.Query("search"))
 		if state == "" {
 			state = "active"
 		}
 
 		if health != "" && health != HealthUp && health != HealthDown && health != HealthUnknown {
 			response.BadRequest(c, fmt.Errorf("health 非法：%q，可选 up/down/unknown", health))
+			return
+		}
+
+		// 按 resource_id 回连 M07 资源台账取「可读实例名」，构建 resource_id → 实例名
+		// 映射（口径与 coverage.go 一致）。target 的 job 名是用户自由填写的抓取任务
+		// 标识，不保证等于实例名，故「实例名」只能走台账回连。
+		instanceNames, err := loadInstanceNames(db, netDomain)
+		if err != nil {
+			response.InternalServerError(c, err)
 			return
 		}
 
@@ -106,8 +116,9 @@ func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.Hand
 			}
 			resID := resolveLabel(t, "resource_id")
 			instance := resolveInstance(t)
+			instName := instanceNames[resID]
 
-			// 本地过滤：后端承担 job / network_domain / health，前端不重复过滤。
+			// 本地过滤：后端承担 job / network_domain / health / search，前端不重复过滤。
 			if job != "" && resJob != job {
 				continue
 			}
@@ -117,10 +128,15 @@ func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.Hand
 			if health != "" && asString(t["health"]) != health {
 				continue
 			}
+			if !matchSearch(search, instName, instance) {
+				continue
+			}
 
 			t["job"] = resJob
 			t["network_domain"] = resDomain
 			t["resource_id"] = resID // 可选，无 resource_id 标签时为空串
+			// 实例名回连 M07 台账（无 resource_id 标签或台账无此资源时为空串）。
+			t["instance_name"] = instName
 			// 实例地址透传：Prometheus targets 将 instance 放在 labels 内，此处提升为顶层字段
 			// 供前端直接消费；缺失时按 __address__ / scrapeUrl 兜底解析。
 			t["instance"] = instance
@@ -158,12 +174,16 @@ func TargetsHandler(db *gorm.DB, promURL *url.URL, client *http.Client) gin.Hand
 			if health != "" && effHealth != health {
 				continue
 			}
+			instName := instanceNames[s.ResourceID]
+			if !matchSearch(search, instName, s.Instance) {
+				continue
+			}
 			key := dedupKey(s.NetworkDomainID, s.Job, s.Instance)
 			if _, dup := seen[key]; dup {
 				continue
 			}
 			seen[key] = struct{}{}
-			active = append(active, edgeSnapshotToTarget(s, effHealth))
+			active = append(active, edgeSnapshotToTarget(s, effHealth, instName))
 		}
 		data.ActiveTargets = active
 
@@ -261,8 +281,8 @@ func edgeTargetHealth(reported string, lastReportAt, now time.Time) string {
 // edgeSnapshotToTarget 将边缘快照合成为 Prometheus target 结构（envelope 兼容）：
 // labels 合成 {job, instance, network_domain, resource_id}，抓取详情 lastScrape /
 // lastError / scrapeDuration 直取快照，顶层补全 job / network_domain / resource_id /
-// instance 对齐 local 增强语义（resource_id 缺失置空）。
-func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health string) map[string]interface{} {
+// instance / instance_name 对齐 local 增强语义（resource_id / 实例名缺失置空）。
+func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health, instanceName string) map[string]interface{} {
 	return map[string]interface{}{
 		"scrapePool": s.Job,
 		"labels": map[string]interface{}{
@@ -279,7 +299,40 @@ func edgeSnapshotToTarget(s models.EdgeTargetSnapshot, health string) map[string
 		"network_domain": s.NetworkDomainID,
 		"resource_id":    s.ResourceID,
 		"instance":       s.Instance,
+		"instance_name":  instanceName,
 	}
+}
+
+// loadInstanceNames 回连 M07 资源台账，返回 resource_id → 可读实例名映射（五类资源
+// 口径复用 coverage.go queryCategoryResources：host→instance_name、database /
+// middleware→ip:port、application→service_name、generic_target→target_name）。
+// netDomain 非空时仅加载该网域资源（与 target 侧网域过滤一致，减少无用扫描）。
+//
+// 说明：target 的 job 名是用户自由填写的抓取任务标识，不保证等于实例名，因此「实例名」
+// 只能经 resource_id 回连台账取值；无 resource_id 标签的 target 实例名为空串。
+func loadInstanceNames(db *gorm.DB, netDomain string) (map[string]string, error) {
+	resources, err := loadResources(db, netDomain, "")
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(resources))
+	for _, r := range resources {
+		if r.ResourceID != "" {
+			names[r.ResourceID] = r.InstanceName
+		}
+	}
+	return names, nil
+}
+
+// matchSearch 判断 target 是否命中 search（大小写不敏感 contains）：命中「M07 可读
+// 实例名」或「实例地址」（host:port，IP 即其 host 部分）。search 为空视为全命中。
+func matchSearch(search, instanceName, instance string) bool {
+	if search == "" {
+		return true
+	}
+	q := strings.ToLower(search)
+	return strings.Contains(strings.ToLower(instanceName), q) ||
+		strings.Contains(strings.ToLower(instance), q)
 }
 
 // resolveJob 解析 target 的 job 名：优先取 labels["job"]，缺失回退 scrapePool。
