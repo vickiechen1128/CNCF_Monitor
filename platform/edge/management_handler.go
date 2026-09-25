@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -21,12 +22,14 @@ import (
 //   - DELETE /network-domains/:id/monitor   退纳管（级联清退，决策 D3）
 //   - GET    /edge-agents                   采集节点状态列表（§3.2）
 //   - GET    /edge-agents/:id               节点详情（含组件清单）
-//   - GET    /edge-packages                 离线包清单（§3.3）
-//   - GET    /edge-packages/latest/download 下载最新离线包（需认证）
+//   - GET    /edge-packages                 离线包清单（§3.3，读包目录 release_meta.json）
+//   - GET    /edge-packages/latest/download 流式下发最新离线包 tar.gz（需认证）
+//
+// dir 是离线交付包构建产物目录（含 release_meta.json 与 tar.gz）；未打包时清单为空数组。
 //
 // 契约：docs/02-product-requirements/Modules/Module_11_.. §4.2/§6。DELETE monitor 与
 // configcenter/domain 已注册的 POST/PUT /network-domains/:id/monitor 仅方法不同，无冲突。
-func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB) {
+func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string) {
 	platform.DELETE("/network-domains/:id/monitor", RetireDomainHandler(db))
 
 	ag := platform.Group("/edge-agents")
@@ -34,11 +37,11 @@ func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 	ag.GET("/:id", GetAgentHandler(db))
 
 	pk := platform.Group("/edge-packages")
-	pk.GET("", ListPackagesHandler())
-	pk.GET("/latest/download", DownloadLatestPackageHandler())
+	pk.GET("", ListPackagesHandler(dir))
+	pk.GET("/latest/download", DownloadLatestPackageHandler(dir))
 	// 静态路由 /latest/download 优先于参数路由 /:version/download（Gin 树优先静态节点），
 	// 因此 latest 路由行为不变（契约 §2：保留 /latest/download）。
-	pk.GET("/:version/download", DownloadPackageHandler())
+	pk.GET("/:version/download", DownloadPackageHandler(dir))
 }
 
 // RetireDomainHandler 处理 DELETE /api/v2/platform/network-domains/:id/monitor。
@@ -107,9 +110,10 @@ func respondAgentError(c *gin.Context, err error) {
 }
 
 // ListPackagesHandler 处理 GET /api/v2/platform/edge-packages。
-func ListPackagesHandler() gin.HandlerFunc {
+// 读包目录 release_meta.json；未打包时返回空数组 + 200（前端走空态）。
+func ListPackagesHandler(dir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		pkgs, err := ListPackages()
+		pkgs, err := ListPackages(dir)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return
@@ -119,22 +123,26 @@ func ListPackagesHandler() gin.HandlerFunc {
 }
 
 // DownloadLatestPackageHandler 处理 GET /api/v2/platform/edge-packages/latest/download。
-func DownloadLatestPackageHandler() gin.HandlerFunc {
+func DownloadLatestPackageHandler(dir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		art, err := LatestPackage()
+		art, err := LatestPackage(dir)
 		if err != nil {
+			if errors.Is(err, ErrNoPackage) {
+				response.NotFound(c, err.Error())
+				return
+			}
 			response.InternalServerError(c, err)
 			return
 		}
-		servePackageZip(c, art)
+		servePackageArtifact(c, dir, art)
 	}
 }
 
 // DownloadPackageHandler 处理 GET /api/v2/platform/edge-packages/:version/download。
 // 未找到指定版本返回 404（契约 §2）。
-func DownloadPackageHandler() gin.HandlerFunc {
+func DownloadPackageHandler(dir string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		art, err := FindPackage(c.Param("version"))
+		art, err := FindPackage(dir, c.Param("version"))
 		if err != nil {
 			if errors.Is(err, ErrPackageNotFound) {
 				response.NotFound(c, err.Error())
@@ -143,21 +151,37 @@ func DownloadPackageHandler() gin.HandlerFunc {
 			response.InternalServerError(c, err)
 			return
 		}
-		servePackageZip(c, art)
+		servePackageArtifact(c, dir, art)
 	}
 }
 
-// servePackageZip 输出离线包 zip（latest 与按版本下载复用同一响应格式）：
-// Content-Type application/zip、Content-Disposition、ETag、X-Checksum-Sha256。
-func servePackageZip(c *gin.Context, art PackageArtifact) {
-	zipData, sha, err := buildOfflinePackageZip(art)
+// servePackageArtifact 流式下发离线包 tar.gz（latest 与按版本下载复用同一响应格式）：
+// Content-Type application/gzip、Content-Disposition（用清单里的真实 file 名）、
+// ETag / X-Checksum-Sha256（取清单 sha256，不为大包重算）、Content-Length。
+// 用 http.ServeContent 打开文件句柄流式输出（顺带支持 Range / If-Modified-Since），
+// 避免 os.ReadFile 把整包读进内存。
+func servePackageArtifact(c *gin.Context, dir string, art PackageArtifact) {
+	f, err := OpenPackageFile(dir, art)
 	if err != nil {
 		response.InternalServerError(c, err)
 		return
 	}
-	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="edge-agent-offline-%s.zip"`, art.Version))
-	c.Header("ETag", `"`+sha+`"`)
-	c.Header("X-Checksum-Sha256", sha)
-	c.Data(http.StatusOK, "application/zip", zipData)
+	defer func() { _ = f.Close() }()
+
+	info, err := f.Stat()
+	if err != nil {
+		response.InternalServerError(c, err)
+		return
+	}
+
+	name := filepath.Base(art.File)
+	// 显式设置 Content-Type：.tar.gz 由扩展名推断不稳定（application/gzip 或 x-gzip），
+	// 契约要求固定为 application/gzip。显式设置后 http.ServeContent 不再覆盖。
+	c.Header("Content-Type", "application/gzip")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, name))
+	if art.Sha256 != "" {
+		c.Header("ETag", `"`+art.Sha256+`"`)
+		c.Header("X-Checksum-Sha256", art.Sha256)
+	}
+	http.ServeContent(c.Writer, c.Request, name, info.ModTime(), f)
 }

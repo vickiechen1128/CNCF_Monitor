@@ -12,8 +12,9 @@
 // 环境变量（必填）：NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT；
 // 可选：EDGE_CONFIG_ROOT（默认 /opt/apps/edge-sync-agent/edge-config）、
 // EDGE_AGENT_TYPE / EDGE_AGENT_VERSION、EDGE_WAL_DIR、EDGE_REMOTE_WRITE_URL、
-// EDGE_COLLECTOR_BIN / EDGE_BLACKBOX_BIN、EDGE_PROM_HEALTH_URL /
-// EDGE_PROM_RELOAD_URL、EDGE_BLACKBOX_ADDR。systemd 部署见 packaging/service。
+// EDGE_COLLECTOR_BIN / EDGE_BLACKBOX_BIN、EDGE_COLLECTOR_ADDR /
+// EDGE_PROM_HEALTH_URL（改 EDGE_COLLECTOR_ADDR 时需同步改）、EDGE_BLACKBOX_ADDR。
+// systemd 部署见 packaging/service。
 //
 // remote_write 上报地址解析（T11-G1-02，优先级从高到低）：配置包 metadata.json 下发
 // 的 remote_write_url（B）> EDGE_REMOTE_WRITE_URL 环境变量 > center_endpoint 推导

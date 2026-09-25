@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Button, Descriptions, Empty, Spin, Tooltip, Typography, message } from 'antd'
 import { DownloadOutlined } from '@ant-design/icons'
 import { edgePackageApi } from '../../../api/edgePackages'
@@ -23,15 +23,18 @@ function formatFileSize(bytes: number): string {
   return `${value.toFixed(unit === 'B' ? 0 : 2)} ${unit}`
 }
 
-/** 下载文件名：edge-agent-offline-<version>.zip（M11 契约离线包命名约定） */
-function offlineFilename(version: string): string {
-  return `edge-agent-offline-${version}.zip`
+/**
+ * 下载文件名：优先用后端 `release_meta.json` 提供的真实 tar.gz 产物名（`pkg.file`）；
+ * 缺失时回落为真实构建产物命名约定 edge-sync-agent-<version>-linux-amd64.tar.gz。
+ */
+function offlineFilename(pkg: EdgePackage): string {
+  return pkg.file ?? `edge-sync-agent-${pkg.version}-linux-amd64.tar.gz`
 }
 
 /**
  * 顶部安装指引·下载安装包（T11-22 实连）。
  * 拉取 /edge-packages 版本清单，每条展示版本 / 大小 / sha256（省略 + Tooltip）/ 组件版本，
- * 附「下载」按钮触发 zip 二进制下载（rawRequest 带认证，triggerBlobDownload 触发浏览器下载）。
+ * 附「下载」按钮触发 tar.gz 二进制下载（rawRequest 带认证，triggerBlobDownload 触发浏览器下载）。
  * 列表加载失败 / 下载失败分别给出 error 提示。
  * 懒加载：`active` 为 false 时不发起请求（配合父级 Collapse 折叠态；默认 true 兼容独立挂载）。
  */
@@ -40,13 +43,21 @@ export function EdgePackageDownloadPanel({ active = true }: { active?: boolean }
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [downloadingVersion, setDownloadingVersion] = useState<string | null>(null)
-  const fetchedRef = useRef(false)
 
   useEffect(() => {
-    // 折叠态不拉取；首次 active 转 true 时抓取一次，避免所有网域页（含 local 直连）加载即发请求
-    if (!active || fetchedRef.current) return
-    fetchedRef.current = true
+    // 折叠/关闭态不拉取（保留懒加载语义）；每次 active 转 true 都重新拉取清单：
+    // 清单应反映最新构建产物，比一次性缓存更正确，且只是很小的 JSON 元数据。
+    // 关键：不能加「只抓一次」的一次性守卫——React.StrictMode 下 dev 会 effect(执行→清理→再执行)，
+    // 一次性守卫会让第二次执行直接 return，而第一次请求的回调已被 cancelled 挡住，
+    // 导致 setLoading(false) 永不落地、面板永久转圈。
+    if (!active) return
     let cancelled = false
+    // 重新激活时同步回落 loading / 清空残留 error，属「重新进入刷新」语义（非级联渲染）；
+    // 沿用本模块 NetworkDomainsPage 对 react-hooks/set-state-in-effect 的处理方式
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setLoading(true)
+    setLoadError(null)
+    /* eslint-enable react-hooks/set-state-in-effect */
     edgePackageApi
       .list()
       .then((res) => {
@@ -69,7 +80,7 @@ export function EdgePackageDownloadPanel({ active = true }: { active?: boolean }
     setDownloadingVersion(pkg.version)
     try {
       const blob = await edgePackageApi.download(pkg.version)
-      triggerBlobDownload(blob, offlineFilename(pkg.version))
+      triggerBlobDownload(blob, offlineFilename(pkg))
       message.success(`安装包 ${pkg.version} 下载已开始`)
     } catch (err) {
       message.error(err instanceof Error ? err.message : '安装包下载失败，请稍后重试')

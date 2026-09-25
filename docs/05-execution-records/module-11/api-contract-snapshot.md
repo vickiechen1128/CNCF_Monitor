@@ -71,9 +71,11 @@
 
 ## 2. 离线包接口（前端 T11-22 消费）
 
+> **清单来源**：后端读取构建产物目录（默认 `dist/edge-package`，可用 `--edge-packages.dir` flag 或 `EDGE_PACKAGE_DIR` 环境变量覆盖）下的 `release_meta.json`；**未打包（清单缺失或产物不可用）时清单为空数组 + 200**，前端走「暂无可下载的离线安装包」空态。产物形态为 **tar.gz 一体化离线包**（不再有 zip 形态）。
+
 ### GET /api/v2/platform/edge-packages
 
-响应 data 为数组，每项为 `PackageArtifact`（对齐 `platform/edge/packages_service.go` ListPackages，经 `response.OK` 返回）：
+响应 data 为数组，每项为 `PackageArtifact`（对齐 `platform/edge/packages_service.go` ListPackages，经 `response.OK` 返回）。清单来自构建产物 `release_meta.json`（单版本，返回 1 条）：
 
 ```json
 {
@@ -82,8 +84,9 @@
     {
       "id": "release-v0.2.0",
       "version": "v0.2.0",
-      "sha256": "a3f2...",
-      "size_bytes": 84212533,
+      "file": "edge-sync-agent-v0.2.0-linux-amd64-20260922-121018.tar.gz",
+      "sha256": "95e1ac…b0b3",
+      "size_bytes": 64137158,
       "components": [
         { "name": "edge-sync-agent", "version": "v0.2.0" },
         { "name": "vmagent", "version": "v1.152.0" },
@@ -95,12 +98,16 @@
 }
 ```
 
+- `file`：tarball 的**纯文件名**（不含路径），来自 `release_meta.json` 的 `file` 字段（文件名带构建时间戳，无法由 `version` 推导）。
+- `size_bytes` / `sha256`：整包（tar.gz）字节数与校验和，直接取清单值（下载时复用，不重算）。
+- 清单为空时 `data` 为空数组（`[]`），HTTP 200。
+
 ### GET /api/v2/platform/edge-packages/latest/download
 
-下载最新包 zip；响应头 `ETag` + `X-Checksum-Sha256`。
+流式下发最新离线包 **tar.gz**（`Content-Type: application/gzip`；`Content-Disposition: attachment; filename="<file>"` 用清单真实文件名；`ETag` + `X-Checksum-Sha256` 取清单 `sha256`；`Content-Length` 取清单 `size_bytes`），服务端按文件句柄流式输出，不整包读内存。
 
 ### GET /api/v2/platform/edge-packages/{version}/download
 
-**（T11-20 新增）** 指定版本下载，保留 `/latest/download`。响应格式同 latest。
+**（T11-20 新增）** 指定版本下载，保留 `/latest/download`。响应格式同 latest；版本不存在返回 404 `not_found`。
 
-> 离线包下载接口需认证（平台用户鉴权）。下载响应 Content-Type: application/zip。
+> 离线包下载接口需认证（平台用户鉴权）。下载响应 Content-Type: `application/gzip`。

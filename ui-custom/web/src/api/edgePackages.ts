@@ -4,7 +4,7 @@
  *
  * 两个形态：
  * - 包清单（GET /edge-packages）走统一 JSON 信封 `apiClient`；
- * - 指定版本下载 zip（GET /edge-packages/{version}/download）为二进制流，
+ * - 指定版本下载 tar.gz（GET /edge-packages/{version}/download）为二进制流，
  *   走 `rawRequest`（原生 fetch + 认证 Token + 401 统一处理），参考 resources.ts 模板下载。
  */
 import { apiClient, ApiError, rawRequest } from './client'
@@ -40,7 +40,7 @@ export const edgePackageApi = {
   list(): Promise<ApiResponse<EdgePackage[]>> {
     return apiClient.get<EdgePackage[]>('/api/v2/platform/edge-packages')
   },
-  /** 下载指定版本离线包 zip 为 Blob（文件名由触发方指定 `edge-agent-offline-<version>.zip`） */
+  /** 下载指定版本离线包 tar.gz 为 Blob（文件名由触发方取清单 `file` 字段，见契约 §2） */
   download(version: string): Promise<Blob> {
     return downloadBlob(`/api/v2/platform/edge-packages/${encodeURIComponent(version)}/download`)
   },

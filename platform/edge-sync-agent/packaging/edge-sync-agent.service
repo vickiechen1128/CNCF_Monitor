@@ -35,12 +35,17 @@ Environment=CENTER_ENDPOINT=
 # 目录规范：程序只读 /opt/apps/edge-sync-agent，数据可写 /opt/data/edge-sync-agent
 #   EDGE_CONFIG_ROOT=配置包版本落盘根（默认 /opt/apps/.../edge-config，生产建议指 /opt/data/.../edge-config）
 #Environment=EDGE_AGENT_TYPE=vmagent
-#Environment=EDGE_AGENT_VERSION=v0.2.0
+#Environment=EDGE_AGENT_VERSION=__VERSION__
 #Environment=EDGE_CONFIG_ROOT=/opt/data/edge-sync-agent/edge-config
 #Environment=EDGE_WAL_DIR=/opt/data/edge-sync-agent/vmagent-cache
 # 采集器/拨测器可执行文件路径（可选，默认走 PATH）
-#Environment=EDGE_COLLECTOR_BIN=prometheus
+#Environment=EDGE_COLLECTOR_BIN=vmagent
 #Environment=EDGE_BLACKBOX_BIN=blackbox_exporter
+# 本机监听端口（可选，默认仅绑回环、不占对外端口，无需为其开通网络策略）
+# 注意：改 EDGE_COLLECTOR_ADDR 时必须同步改 EDGE_PROM_HEALTH_URL，否则组件会被判为不健康
+#Environment=EDGE_COLLECTOR_ADDR=127.0.0.1:8429
+#Environment=EDGE_PROM_HEALTH_URL=http://127.0.0.1:8429/health
+#Environment=EDGE_BLACKBOX_ADDR=127.0.0.1:9115
 
 # 优雅停止：等 Agent 取消上下文并停止子进程
 TimeoutStopSec=15

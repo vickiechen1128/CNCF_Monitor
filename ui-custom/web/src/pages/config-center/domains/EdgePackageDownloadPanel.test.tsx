@@ -1,3 +1,4 @@
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { message } from 'antd'
@@ -94,6 +95,22 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
     expect(listMock).toHaveBeenCalledTimes(1)
   })
 
+  it('StrictMode（effect 双调用）下仍渲染清单，不停留在 spinner（回归：永久转圈）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: [pkg()] })
+    const { container } = render(
+      <React.StrictMode>
+        <EdgePackageDownloadPanel active />
+      </React.StrictMode>,
+    )
+
+    // 修复前：第二次 effect 被 fetchedRef 短路且第一次请求回调被 cancelled 挡住，
+    // loading 永远为 true，此处会超时失败（只剩 spinner）。
+    expect(await screen.findByText('v1.2.0')).toBeInTheDocument()
+    expect(screen.getByText('离线安装包')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /下载安装包/ })).toBeInTheDocument()
+    expect(container.querySelector('.ant-spin')).toBeNull()
+  })
+
   it('列表加载失败给出 error Alert', async () => {
     listMock.mockRejectedValue(new Error('网络异常'))
     renderPanel()
@@ -102,15 +119,29 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
     expect(screen.getByText('网络异常')).toBeInTheDocument()
   })
 
-  it('点击「下载安装包」触发 blob 下载，文件名 edge-agent-offline-<version>.zip', async () => {
+  it('点击「下载安装包」触发 blob 下载，缺 file 时回落 edge-sync-agent-<version>-linux-amd64.tar.gz', async () => {
     listMock.mockResolvedValue({ status: 'success', data: [pkg()] })
-    downloadMock.mockResolvedValue(new Blob(['zip'], { type: 'application/zip' }))
+    downloadMock.mockResolvedValue(new Blob(['tarball'], { type: 'application/gzip' }))
     renderPanel()
 
     fireEvent.click(await screen.findByRole('button', { name: /下载安装包/ }))
     await waitFor(() => expect(downloadMock).toHaveBeenCalledWith('v1.2.0'))
-    expect(vi.mocked(triggerBlobDownload)).toHaveBeenCalledWith(expect.any(Blob), 'edge-agent-offline-v1.2.0.zip')
+    expect(vi.mocked(triggerBlobDownload)).toHaveBeenCalledWith(
+      expect.any(Blob),
+      'edge-sync-agent-v1.2.0-linux-amd64.tar.gz',
+    )
     expect(message.success).toHaveBeenCalledWith('安装包 v1.2.0 下载已开始')
+  })
+
+  it('后端返回 file 字段时，以真实 tar.gz 文件名下载', async () => {
+    const file = 'edge-sync-agent-v0.2.0-linux-amd64-20260922-121018.tar.gz'
+    listMock.mockResolvedValue({ status: 'success', data: [pkg({ file })] })
+    downloadMock.mockResolvedValue(new Blob(['tarball'], { type: 'application/gzip' }))
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: /下载安装包/ }))
+    await waitFor(() => expect(downloadMock).toHaveBeenCalledWith('v1.2.0'))
+    expect(vi.mocked(triggerBlobDownload)).toHaveBeenCalledWith(expect.any(Blob), file)
   })
 
   it('下载失败给出 error 提示', async () => {

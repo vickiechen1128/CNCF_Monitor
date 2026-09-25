@@ -260,4 +260,9 @@ export interface EdgePackage {
   components: EdgePackageComponent[]
   /** 指定版本下载路径，如 /api/v2/platform/edge-packages/v1.2.0/download */
   download_url: string
+  /**
+   * tar.gz 真实产物文件名，由后端读取 build 目录 `release_meta.json` 的 `file` 字段提供，
+   * 如 edge-sync-agent-v0.2.0-linux-amd64-20260922-121018.tar.gz；下载时优先以此命名。
+   */
+  file?: string
 }
