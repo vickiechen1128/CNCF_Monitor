@@ -248,3 +248,91 @@
   - **验证**：`go test ./platform/...` 全绿、`go vet` 通过；前端 `pnpm vitest run src/pages/config-center/nodes/` 3 文件 24 用例全绿。
 - **PRD 回写修订建议（2026-09-24，供 design 条线合入 M11 PRD）**：「配置同步」列需定义**「同步中」中间态展示口径**——确认下发成功后、Agent 下次心跳拉包生效前，该列展示「同步中」（蓝色 processing）；Agent 上报配置版本与中心最新已确认版本一致后翻转为「已同步」。该中间态复用 `out_of_sync` 的 `pull_pending` 成因，`ConfigSyncStatus` 五档枚举（in_sync / out_of_sync / unknown / manual_override / no_version）不新增。前端建议同步在 `api-contract-snapshot.md` §1 补该展示口径文本。
 - **遗留（待设计侧确认）**：筛选下拉「配置同步」选项文案目前仍是状态枚举口径「未同步」，与列展示口径（`pull_pending`→「同步中」）未对齐；是否需在筛选项拆分/改名，待设计侧定版。
+
+### F-17：节点「配置同步」永久停留「同步中」——Agent 配置**应用失败**原因不可观测（① 设计缺口 + ② 实现缺口，2026-09-24 落档，2026-09-25 订正为已实现）
+
+- **现象**：边缘域采集节点「配置同步」列长期显示**「同步中」**（F-16 中间态），长时间不回落到「已同步」；同时中心侧主机采集 / 拨测采集**在线数全为 0**（`count(up)` 空、activeTargets=0），而节点在线、边缘本地抓取正常（`edge_target_snapshots` 29/32 up）。
+- **根因链（已实测证实，完整链条与本条归属）**：源数据 application 资源 `33a8dfc8-ee15-45bf-9e8c-f43cba0c5f43`（service_name=test1）**健康检查地址为空** → 中心生成器静默产出 `targets/test-app-01.json = []`（**归属 M09，见 `module-09/dev-feedback.md` F-31**）→ Agent [ValidateTargetsJSON](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/deployer/extract.go#L83-L85) 对空数组报 `empty array` → `Deployer.Apply` **失败并回滚**（保留上一份可运行配置）→ Agent 持续上报旧版本 v31 → 中心 [heartbeat_service.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/heartbeat_service.go#L134-L152) 判 `out_of_sync` + `pull_pending` → 前端「同步中」**永不自愈**；v31 的 vmagent 仍指向旧 remote_write 地址 → 中心无 up 样本 → 在线数 0。
+- **本条（M11）负责的缺陷**：心跳契约 [`HeartbeatRequest`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/contract/contract.go#L49-L66) 当时**无任何「配置应用结果」字段**（2026-09-25 已补，见下方处置 D-1）——`Deployer.Apply` 失败只写本地日志（`journalctl -u edge-sync-agent`），中心**无从得知**；`config_sync_status` 只能在「版本不一致→pull_pending」与「版本一致→in_sync」间跳转，**没有第三种落点**，于是「已拉包但应用失败」被永久表述为「等待拉取」。
+- **定性**：**属可观测性缺失，不是前端引导文案错误**（F-16 的「同步中」文案在其自身语义下正确；错在缺少让状态机走出该中间态的失败信号）。边缘拒收空数组（不做「方案 B 放宽校验」）是**正确防御**，不放宽。
+- **方案（详见设计提案）**：C（M09 治本阻断空 targets 产出，缺陷配置到不了边缘）+ D（M11 可观测兜底：Agent 上报 `config_apply_error` / 失败版本 → 中心新增成因 `apply_failed` 并落库 → 节点状态页展示「同步失败」+ 具体原因 + 「查看下发」引导）。
+- **落档（2026-09-24）**：`docs/05-execution-records/module-11/design-proposals/config-sync-stall-and-empty-targets-guard.md`（C / D 已按提案原设计实施；提案头部状态已于 2026-09-25 订正为 `approved`，**仅 §6 的 PRD / 契约回写待设计条线**）。
+- **处置（2026-09-25 订正：已实现，原「待确认后实施」已过期）**：按提案 C → D-1 → D-2 → D-3 顺序落地（单 feat 分支）；§7 决策 3 采纳提案建议，用**新增专用字段**而非复用语义过泛的 `LastError`。
+  - **C（M09 治本，本条只登记归属）**：[`ValidateTargetGroups`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/validate.go#L40-L43) 零组即判非法、[`ResolveJobTargets`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/targets.go#L178-L217) 新增 `SkippedInstance` 跳过归因（`resource_not_found` / `address_empty` / `offline`）——缺陷配置到不了边缘；明细见 `module-09/dev-feedback.md` **F-31**。
+  - **D-1（Agent）**：[contract.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/contract/contract.go#L61-L65) 心跳新增可选 `config_apply_error` / `config_apply_failed_version`（`omitempty`，应用成功不产出键，向后兼容）；[deployer.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/deployer/deployer.go#L36-L48) 新增 `ApplyState`，[记录失败](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/deployer/deployer.go#L224-L245) / [成功清空](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/deployer/deployer.go#L247-L259) / [启动恢复](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/internal/deployer/deployer.go#L261-L283) 三段式落盘（`config-<id>/current/apply-state.json`，尚无生效版本时回落网域目录），崩溃 / 重启不丢诊断；[heartbeat.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge-sync-agent/cmd/edge-sync-agent/heartbeat.go#L29-L44) 心跳请求由 `Deployer.ApplyState()` 填充。
+  - **D-2（中心）**：`models.OutOfSyncCauseApplyFailed` 新增成因 [`apply_failed`](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/models/config_center_rules.go#L72-L75)；[heartbeat_service.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/heartbeat_service.go#L128-L152) 三态判定——版本一致 → `in_sync` + 清空成因与应用错误文本；失败版本 == 最新 → `out_of_sync` + `apply_failed`；其余 → `pull_pending`（失败版本 ≠ 最新时不被陈旧错误覆盖真因）；`config_apply_error` / `config_apply_failed_version` 镜像落库，成功即清空。
+  - **D-3（前端）**：[edgeConstants.ts](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/edgeConstants.ts#L74-L113) 新增 `isConfigSyncApplyFailed` → 「同步失败」+ badge `error` 红（与「同步中」processing 蓝、「未同步」error 红在成因上区分），补 `outOfSyncCauseHint` / `outOfSyncCauseAction.apply_failed`（「查看下发」→ `/deployments`），`isConfigSyncInProgress` **保持只认 `pull_pending`**（不把失败误判为进行中）；`types/edge.ts` 补 `apply_failed`；[EdgeAgentsPage.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/EdgeAgentsPage.tsx#L143-L184) 配置同步列在有 `config_apply_error` 时以 Tooltip 露出错误摘要；[EdgeAgentDrawer.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/EdgeAgentDrawer.tsx#L205-L228) 新增「配置应用」行（原因全文 + 失败版本 + 「查看下发」），`apply_failed` 时不再重复渲染通用「同步引导」行。
+- **验证（2026-09-25 复核）**：`go test ./platform/...` 全绿（含 `TestHeartbeatApplyFailedCause`、`TestHeartbeatApplyFailedOlderVersionStaysPullPending`）；`platform/edge-sync-agent` 模块 `go test ./...` 全绿（含 apply-state 记录 / 落盘 / Restore 读回 / 成功清空）；前端 `pnpm vitest run src/pages/config-center/nodes/` 全绿（含「同步失败」映射与抽屉「配置应用」行）。
+- **PRD 回写修订建议（供 design 条线合入 M11 PRD；实施已完成，仅余回写）**：① 心跳契约（§6.2）新增「配置应用结果」可选字段；② `OutOfSyncCause` 增 `apply_failed` 一档，并明确「同步中」中间态**仅** `pull_pending` 命中（与 F-16 修订合并回写）；③ 节点状态页「配置同步」需能展示应用失败原因与失败版本。
+- **同类隐患（登记，不在本条修）**：中心 `HeartbeatRequest.RemoteWriteLastError`（`remote_write_last_error`）在 Agent 侧契约**未定义、从不发送**，该字段恒空——契约单向定义问题，建议独立小项处理。
+
+### F-18：T11-08 离线包清单为硬编码占位，未接真实构建产物（② 实现偏差修正，2026-09-24，已修复）
+
+- **发现场景**：用户实测点「下载安装包」（M11 节点状态页离线包入口），发现清单/下载的不是真实构建产物。
+- **原现状**：`platform/edge/packages_service.go` 用硬编码 `packageRegistry`（v0.1.0 / v0.2.0），组件二进制是 `metriccenter-component-placeholder:<name>:<version>` 假字符串，`ListPackages()` 在内存现拼几百字节小 zip 返回；**完全不读磁盘上的真实构建产物**（`dist/edge-package/release_meta.json` + 64MB tar.gz）。产物形态也与交付不一致（zip vs tar.gz）。
+- **处置（已实现）**：后端改读 `dist/edge-package/release_meta.json`（单版本清单，`file` 字段定位 tarball），`ListPackages/LatestPackage/FindPackage` 全部接受包目录参数；下载端点改**流式下发真实 tar.gz**（`http.ServeContent` + 文件句柄，`Content-Type: application/gzip`、`Content-Disposition` 用真实文件名、`ETag`/`X-Checksum-Sha256` 取清单 sha256、`Content-Length` 取清单 size），删除全部占位 zip 逻辑；未打包时清单返回空数组 + 200（前端空态）。打包脚本 `scripts/package-edge-agent.sh` 的 `release_meta.json` 补 `file` 字段；契约 `api-contract-snapshot.md` §2 同步为 tar.gz 口径。
+- **影响模块**：后端（`platform/edge/` 清单与下载 + `cmd/metric-center` 新增 `--edge-packages.dir` / `EDGE_PACKAGE_DIR`）、打包脚本、前端（T11-22 消费 `file` 字段）。
+
+### F-19：包内文档与代码不一致 + 两份 README 各自漂移（② 实现偏差修正，2026-09-24，已修复）
+
+- **发现场景**：用户复盘离线包交付（承接 F-18），问「当前 edge agent 边缘采集节点包使用的端口有哪些，需修改默认的 vm/blackbox 端口」，核对包内 README 与源码发现多处不一致。
+- **原现状**：打包脚本 `scripts/package-edge-agent.sh` 用 heredoc **再生成一份包内 README**，与 `platform/edge-sync-agent/packaging/README.md` 是两份会各自漂移的文档。包内 README 存在 4 处与代码不一致：
+  1. `EDGE_COLLECTOR_ADDR` 完全缺失（代码默认 `127.0.0.1:8429`，`cmd/edge-sync-agent/probe.go`）；
+  2. `EDGE_PROM_HEALTH_URL` 误写默认 `http://127.0.0.1:9090/-/healthy`（实际 `http://127.0.0.1:8429/health`）；
+  3. `EDGE_PROM_RELOAD_URL` 列入文档但**代码未接线**（仅 `probe_test.go` 出现，生产不读）；
+  4. `EDGE_BLACKBOX_ADDR` 写 `:9115` 未限回环（实际默认 `127.0.0.1:9115`）。
+- **处置（已实现，用户三项裁决：只文档化默认值不动 / 两份 README 合一 / 打包清理旧产物）**：
+  - **文档单一来源**：`scripts/package-edge-agent.sh` 删除 heredoc README 与旧 sed 块，改为 `cp` 仓库内唯一权威 `platform/edge-sync-agent/packaging/README.md`，并对 README 与 `edge-sync-agent.service` **统一做 `__VERSION__` 占位符 sed 注入**（脚本头部注释 + 打包前自检「无 `__VERSION__` 残留」兜底）。
+  - **unit 修正**：`EDGE_AGENT_VERSION=v0.2.0` 写死 → `__VERSION__` 注入；`EDGE_COLLECTOR_BIN=prometheus`（决策 88 已统一 vmagent）→ `vmagent`；新增三个端口变量注释行（`EDGE_COLLECTOR_ADDR` / `EDGE_PROM_HEALTH_URL` / `EDGE_BLACKBOX_ADDR`），含「改 ADDR 必须同步改健康 URL」警示。
+  - **权威 README 修正**：可选变量表补 `EDGE_COLLECTOR_ADDR=127.0.0.1:8429`、修正 `EDGE_PROM_HEALTH_URL`、删除未接线的 `EDGE_PROM_RELOAD_URL` 行、修正 `EDGE_BLACKBOX_ADDR=127.0.0.1:9115`；**新增「端口与网络策略」章节**：本机监听表（vmagent 8429 / blackbox 9115 / agent 不监听 outbound-only）+ 需打通的出站表（→ `CENTER_ENDPOINT` 中心 `:8080` 心跳拉包、→ remote_write 中心 `:9090`、→ 被采集目标端口如 `:9100`）+ 自定义端口示例（`EDGE_COLLECTOR_ADDR=127.0.0.1:18429` + 同步覆盖健康 URL 警示）。
+  - **产物清理**：打包脚本新增「只保留最新一份」——清历史 `edge-sync-agent-*.tar.gz` 与历史解压目录（放在二进制检查之后，避免检查失败反而清掉上一份可用产物）。
+- **影响模块**：`scripts/package-edge-agent.sh`、`platform/edge-sync-agent/packaging/{README.md,edge-sync-agent.service}`。
+- **验证**：重跑打包脚本——包内 README/unit 无 `__VERSION__` 残留、版本号正确注入、旧产物仅剩最新一份、release_meta.json 单版本。
+- **答复用户（端口事实）**：采集节点**默认仅绑回环**（8429/9115 不占对外端口，无需网络策略放通）；用户可用环境变量自定义端口（`EDGE_COLLECTOR_ADDR` / `EDGE_PROM_HEALTH_URL` / `EDGE_BLACKBOX_ADDR`，改 vmagent 端口必须同步改健康 URL）；默认需打通的**出站**为：采集节点 → 中心 `:8080`（`CENTER_ENDPOINT` 心跳/拉包）+ 采集节点 → 中心 Prometheus `:9090`（remote write）+ 采集节点 → 被采集目标端口（如 node_exporter `:9100`）。
+
+### F-20：离线包 `start.sh` 未指导端口自定义，且改 vmagent 端口易漏改健康探活（③ 交付可用性，2026-09-24，已实现）
+
+- **发现场景**：用户要求「edge agent 打包之后生成的安装脚本里，要指导用户怎么修改默认端口」（承接 F-19 的端口文档化，从 README 延伸到安装脚本本身）。
+- **原现状**：生成的 `start.sh` 只校验三项必填后直接 `exec` 二进制——端口（vmagent 8429 / blackbox 9115）既无说明也无自检；运维改端口只能翻 README，且极易**只改 `EDGE_COLLECTOR_ADDR` 而忘记同步 `EDGE_PROM_HEALTH_URL`**，结果是探活打到旧端口、组件被反复判为不健康并触发重启。
+- **处置（2026-09-24 已实现）**：
+  1. **脚本头部新增两段说明**（部署机可直接 `cat start.sh` 查阅）：「端口（可选自定义）」列出三个变量、默认值与 export 示例，并写明「只改 ADDR 不改健康 URL」的后果；「出站网络策略」列出需放通的三个出站方向。systemd 场景则指明改 unit 的 `Environment=` 注释行。
+  2. **运行期回显**：启动前打印本机监听生效端口（vmagent / blackbox）与「agent 自身不监听端口，仅主动出站」，让运维一眼确认实际生效值。
+  3. **一致性自检**：纯 bash 提取 `EDGE_PROM_HEALTH_URL` 与 `EDGE_COLLECTOR_ADDR` 的端口号比对，不一致时打 WARNING 并给出建议值 `http://${COLLECTOR_ADDR}/health`。仅告警不阻断——避免误拦合法写法（无外部依赖，不引入 sed/awk）。
+- **影响模块**：`scripts/package-edge-agent.sh`（生成物 `start.sh`）。
+- **验证（抽取 start.sh 实测四例）**：全默认 → 打印默认端口、无 WARNING；只改 `EDGE_COLLECTOR_ADDR=127.0.0.1:18429` → 打出端口不一致 WARNING；三端口一起改 → 无 WARNING 且子进程收到新值；缺 `TOKEN` → 中止并准确报出缺失变量名。
+- **关联**：中心侧同类能力见 `module-09/dev-feedback.md` **F-33**（`install.sh` 安装期自定义端口）；两处共同的 `$var`+全角字符输出缺陷见 M09 **F-34**。
+
+### F-21：离线 / 退纳管节点「配置同步」永久停留「同步中」——进行时成因无失效机制（① 设计缺口 + ② 展示层降级不完整，2026-09-25，已实现）
+
+- **现象**：用户实测截图——采集节点 `GL-OPS-GITLAB-01-X86`（网域 `mc-edge-debug` / 172.16.102.4）「状态=离线、采集器=未知、拨测器=未知」，但同行「配置同步」仍显示**「同步中」**（蓝点）+「查看下发」按钮；用户判定该显示应为「未同步」。
+- **实测数据**（直查 `metric_center.db`）：`config_sync_status=out_of_sync`、`out_of_sync_cause=pull_pending`、`config_version=20260922-091425`（= 中心版本 id 31）、`last_heartbeat=2026-09-24 09:32:36 UTC`（已断连 1 天余）、`last_config_pull` 为空；中心最新已确认版本为 id 34（`CHG-20260923-009`，09-23 13:49）。即**「未同步」的事实判定本身正确**，被错误地渲染成了进行态。
+- **根因链（三层叠加，缺一不可）**：
+  1. **成因无失效机制**：[heartbeat_service.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/heartbeat_service.go#L134-L142) 中 `pull_pending` 的语义是「已确认下发、等 Agent 下次心跳拉取（准实时 ≤30s）」，属**带时限的进行时断言**；但该字段只在心跳到来时才被重写，节点停跳后**永久冻结**。
+  2. **离线降级不完整**：[management_service.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/management_service.go#L122-L139) 的 F-15 降级分支只覆写 `CollectorStatus` / `Components[].status`（故截图「采集器/拨测器=未知」是正确的），`ConfigSyncStatus` / `OutOfSyncCause` 原样透出——设计提案 §4.3 第 5 条虽写了「节点离线时组件状态降级」，但**配置同步侧那一半从未落地**。
+  3. **前端无离线感知**：[edgeConstants.ts](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/edgeConstants.ts#L62-L67) `isConfigSyncInProgress = out_of_sync && cause === 'pull_pending'`，只看成因不看存活态，于是「离线」与「同步中」可以同时成立。
+- **定性**：**展示层缺陷 + 设计缺口**（不是状态机算错——落库成因在当时是真实的；错在无人将其失效）。
+- **处置（2026-09-25 已实现）**：
+  - **展示层失效进行时成因**：`agentView` 在 `live ∈ {offline, retired}` 且成因 == `pull_pending` 时清空 `out_of_sync_cause` → 前端自然回落 `configSyncStatusLabel.out_of_sync` = **「未同步」**（error 红），且 `outOfSyncCauseAction` 为空 → 误导性的「查看下发」按钮一并消失。**只改展示结果、不改 DB 原始上报值**，Agent 恢复心跳后自然回真实值（沿用 F-15 既有口径与离线判定 `agentLiveStatus`，未另起常量）。
+  - **仅失效进行时成因**：`apply_failed`（「同步失败」）是**已发生的终态事实**，离线/退纳管后仍透出，保留排障信息。
+  - **retired 口径统一**：组件降级条件由 `offline` 扩为 `offline || retired`——retired 节点可能残留孤儿进程仍上报「运行中」，与「已退纳」并排即 F-15 同一类认知冲突；两处条件合并进同一分支，避免条件双写漂移。
+- **前端零改动**：列表页与抽屉均按 `configSyncDisplayLabel` / `configSyncDisplayBadgeStatus` 单一映射源渲染，成因清空后自动回落；抽屉侧 `{cause && ...}` 已有兜底，无空引用风险。
+- **测试**：`platform/edge/management_test.go` 新增 [TestAgentViewDegradesPullPendingCauseWhenHeartbeatExpired](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/management_test.go#L343-L401)（离线→成因失效 / DB 原值不变 / `apply_failed` 不降级 / 在线不降级 / retired 失效）与 [TestAgentViewDegradesComponentsWhenRetired](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/management_test.go#L403-L428)（心跳新鲜也降级，证明 retired 是终态、与心跳时效无关）。
+- **验证**：`go vet ./platform/...`、`go test ./platform/...`、`make check-repo-map`、前端 `pnpm vitest run src/pages/config-center/nodes/`（3 文件 29 例）+ `pnpm lint`（`--max-warnings 0`）全绿。
+- **PRD / 契约回写建议（供 design 条线合入 M11 PRD）**：在 §8.1（或与 F-16 修订合并处）补一条边界——**`pull_pending` 成因仅在节点存活（online/partial）时成立；节点离线（心跳超时）或已退纳管时展示层失效该成因，回落「未同步」**。`ConfigSyncStatus` / `OutOfSyncCause` 枚举与契约字段**均不变**（`api-contract-snapshot.md` 字段表无需改，仅建议补一句展示口径说明）。
+- **关联**：F-15（离线组件降级，本条沿用其口径并补齐配置同步侧）、F-16（「同步中」中间态定义）、F-17（「同步中」长效停留的另一条路径：应用失败不可观测，已由 `apply_failed` 治理）。三条合起来才把「同步中」的三种假象（离线冻结 / 退纳管冻结 / 应用失败）收敛完。
+
+### F-22：`last_config_pull` 全链路无写入方 + 抽屉未渲染「最后心跳 / 最后配置拉取」（② 实现缺口，2026-09-25，已实现）
+
+- **发现场景**：排查 F-21 时确认「同步中」缺少**时限佐证**——中心无法区分「刚下发、马上会拉」与「迟迟拉不到」。
+- **原现状**：
+  1. `last_config_pull` 在 model（`EdgeAgent.LastConfigPull`）、`AgentView` DTO、前端 `types/edge.ts` **三处齐备但全链路无任何写入方**，落库恒空——与 F-17 登记的 `remote_write_last_error` 同属**契约单向定义**隐患。
+  2. `EdgeAgentDrawer` 节点概览**既未渲染 `last_config_pull` 也未渲染 `last_heartbeat`**（字段有、屏上无），PRD §5.2 已定义二者却无展示出口。
+- **处置（2026-09-25 已实现）**：
+  1. **补写入方**（[heartbeat_service.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/heartbeat_service.go#L151-L163)）：心跳落库时判定「中心观测到发生过一次拉取」，写入**中心接收时间**（对齐 PRD §5.2「以中心接收时间为准」）。可观测线索两条——① 上报版本**推进**到最新已确认版本（正常拉包并应用成功，以更新运行态前留存的 `prevConfigVersion` 比对）；② 上报「最新版本应用失败」（已拉包但应用失败并回滚、上报版本停留旧值——**仅靠版本推进看不到**，以上一次落库的失败版本比对）。
+  2. **以「事件首次出现」为界**：同版本持续心跳、同一失败版本重复上报均**不刷新**时间，避免该字段退化为「恒定显示刚刚拉取」而丧失时限佐证价值。
+  3. **不编造时间**：自动注册的首次心跳报的即为最新版本时**不留痕**（中心从未观测到拉取动作）。
+  4. **补渲染**（[EdgeAgentDrawer.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/EdgeAgentDrawer.tsx#L201-L204)）：「最后配置拉取」置于「配置同步」之后（紧邻成因，正是判断卡死的时限佐证位），[「最后心跳」](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/config-center/nodes/EdgeAgentDrawer.tsx#L236-L239)置于「心跳 RTT」之前；复用列表页同款 `formatRelativeTime`（不引入新格式化工具），缺省展示 `-`。
+- **测试**：`platform/edge/edge_test.go` 新增 [TestHeartbeatRecordsLastConfigPullOnVersionAdvance](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/edge_test.go#L215-L259)（无事件不留痕 → 版本推进留痕且取中心接收时间 → 同版本心跳不刷新）与 [TestHeartbeatRecordsLastConfigPullOnApplyFailed](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/edge/edge_test.go#L262-L294)（应用失败也留痕 → 同一失败版本重复上报不刷新）；前端 `EdgeAgentDrawer.test.tsx` 新增相对时间渲染、缺省 `-` 两例。
+- **验证**：同 F-21（全量门禁全绿）。
+- **PRD / 契约回写建议（供 design 条线合入 M11 PRD）**：§5.2 该字段已定义「最后拉取配置 / 以中心接收时间为准」，**建议补写入口径**——中心在「上报版本推进到最新已确认版本」或「上报最新版本应用失败」时留痕一次，同版本持续心跳不刷新；节点状态页抽屉需展示「最后心跳」「最后配置拉取」。契约字段无需变更。
+- **遗留（登记，不在本条修）**：① `remote_write_last_error` 仍为契约单向定义（F-17 已登记）；② 「同步中」长停留提示（阈值告警）按设计提案决策 4 本轮不做——本条的 `last_config_pull` 已为其备好数据基础。
