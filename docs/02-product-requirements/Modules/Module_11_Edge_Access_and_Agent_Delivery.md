@@ -8,7 +8,7 @@
 >
 > **原型版本**：v0.1（与 M09 共用 `docs/prototypes/module-09/`，不新建 module-11 目录；原网域纳管页 / 采集节点状态页骨架原位复用，见 [design-decisions.md 决策 87](../../05-execution-records/module-09/design-decisions.md)）
 >
-> **更新日期**：2026-09-20
+> **更新日期**：2026-09-25
 >
 > **模块类型**：核心能力模块（v0.2+）
 >
@@ -667,6 +667,6 @@ stateDiagram-v2
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
-| v0.5 | 2026-09-20 | 修订 | 吸收 dev-feedback F-7/F-15/F-16/F-17/F-21/F-22 与 design-proposal config-sync-stall（Track B，已 merged）：① 网域运行态枚举对齐四档（online→normal，新增 partial），由 offline_detector 聚合（§5.1 / §8.2）；② 边缘进程守护新增父死子亡机制（Linux Pdeathsig + systemd KillMode=control-group 兜底），心跳超时组件状态统一降级「未知」（§6.4.2 / §11.4）；③ 配置同步新增「同步中」（pull_pending，蓝）中间态与「同步失败」（apply_failed，红）终态，心跳契约新增 config_apply_error / config_apply_failed_version 可选字段，pull_pending 仅在节点存活时成立、离线 / 退纳管失效回落未同步（§5.2 / §5.3 / §6.2 / §8.1 / §11.4）；④ last_config_pull 写入口径（版本推进 / 应用失败留痕，同版本不刷新）与抽屉「最后心跳 / 最后配置拉取」展示（§5.2 / §11.4） | §5.1 / §5.2 / §5.3 / §6.2 / §6.4.2 / §8.1 / §8.2 / §9 / §11.4 | {v0.2} 微调 | 设计中 |
+| v0.5 | 2026-09-25 | 修订 | 吸收 dev-feedback F-7/F-15/F-16/F-17/F-21/F-22 与 design-proposal config-sync-stall（Track B，已 merged）：① 网域运行态枚举对齐四档（online→normal，新增 partial），由 offline_detector 聚合（§5.1 / §8.2）；② 边缘进程守护新增父死子亡机制（Linux Pdeathsig + systemd KillMode=control-group 兜底），心跳超时组件状态统一降级「未知」（§6.4.2 / §11.4）；③ 配置同步新增「同步中」（pull_pending，蓝）中间态与「同步失败」（apply_failed，红）终态，心跳契约新增 config_apply_error / config_apply_failed_version 可选字段，pull_pending 仅在节点存活时成立、离线 / 退纳管失效回落未同步（§5.2 / §5.3 / §6.2 / §8.1 / §11.4）；④ last_config_pull 写入口径（版本推进 / 应用失败留痕，同版本不刷新）与抽屉「最后心跳 / 最后配置拉取」展示（§5.2 / §11.4） | §5.1 / §5.2 / §5.3 / §6.2 / §6.4.2 / §8.1 / §8.2 / §9 / §11.4 | {v0.2} 微调 | 设计中 |
 | v0.4 | 2026-09-20 | 修订 | 第五轮拍板回填：Agent 自升级由「不做」改为 {v0.3} 拉模式自升级（默认关闭 + 规模门槛 + 验签 / 原子回滚 / 按网域灰度）；§4.4 升级流程补自升级链路；§6.1 补中继选型一句话约束（应用层反代 + 存储转发、禁 L4/TCP） | §3.3 / §4.4 / §6.1 | {v0.3} | 设计中 |
 | v0.3 | 2026-09-20 | 修订 | 四轮讨论结论回填：部署形态方案 A 入 §1.2（中心 + UI 同址 G2、A2 形态、UI 外移降级为演进备选）；MVP 不引入 PostgreSQL；采集器强制 vmagent 单一化；契约字段 `wal_backlog_bytes` → `queue_backlog_bytes`；发送队列落盘持久参数；中心 remote_write 接收端（{v0.2} 前置）；§9 验收补接收通路与断流续传 | §1.2 / §3.1 / §5 / §6.4 / §7.2 / §9 / §10 / §11.4 | MVP 不变；{v0.2} 微调 | 设计中 |

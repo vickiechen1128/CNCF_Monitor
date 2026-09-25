@@ -1,9 +1,9 @@
 # M11 api-contract-snapshot（v0.2 边缘交付增强）
 
-> 生成：2026-09-20。对齐 `platform/edge/*` 现有实现与 PRD §6.2/§6.3/§3.3。
+> 生成：2026-09-25。对齐 `platform/edge/*` 现有实现与 PRD §6.2/§6.3/§3.3。
 > 跨端任务 T11-21/22/23/24/25 以本文件为第一权威；与 PRD/API 标准冲突时以本文件为准，冲突需上报。
-> 基准：`feat/module-09-config-center` 2026-09-20 状态。
-> 修订：2026-09-20 吸收 design-proposal config-sync-stall（Track B）与 dev-feedback F-17/F-21，补充 `apply_failed` 成因与 `config_apply_error` / `config_apply_failed_version` 字段（向后兼容，与 PRD §5.3 / §8.1 同步）。
+> 基准：`feat/module-09-config-center` 2026-09-25 状态。
+> 修订：2026-09-25 吸收 design-proposal config-sync-stall（Track B）与 dev-feedback F-17/F-21，补充 `apply_failed` 成因与 `config_apply_error` / `config_apply_failed_version` 字段（向后兼容，与 PRD §5.3 / §8.1 同步）。
 
 ## 1. 采集节点状态接口（前端 T11-23/24/25 消费）
 
