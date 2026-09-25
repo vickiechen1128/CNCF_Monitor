@@ -444,3 +444,121 @@ func TestUpdateResource_DomainValidationSameAsPost(t *testing.T) {
 	assert.Equal(t, "bad_request", out.ErrorType)
 	assert.Contains(t, out.Error, "legacy")
 }
+
+// ---------------------------------------------------------------------------
+// M07 应用资源字段职责（采集地址拆分）：health_check_url 可选（应用实际 URL），
+// 采集地址由 endpoint（主机）+ port（采集端口）构成，二者必填；无任何派生/覆盖。
+// ---------------------------------------------------------------------------
+
+// appCreateBody 构造通过校验的 application 请求体：采集地址由 endpoint + port 显式给出，
+// health_check_url 是可选的应用实际 URL（不参与采集地址）。
+func appCreateBody() map[string]interface{} {
+	return map[string]interface{}{
+		"resource_category": "application",
+		"network_domain_id": "default",
+		"biz_code":          "payment",
+		"app_code":          "pay-service",
+		"cluster":           "pay-cluster",
+		"status":            "online",
+		"env":               "prod",
+		"service_name":      "pay-service",
+		"endpoint":          "10.10.1.4",
+		"port":              8081,
+		"protocol":          "http",
+		"health_check_url":  "http://10.10.1.4:8081/actuator/health",
+	}
+}
+
+// loadAppByResourceID 读取指定 resource_id 的 Application 行（供落库断言）。
+func loadAppByResourceID(t *testing.T, db *gorm.DB, resourceID string) *models.Application {
+	t.Helper()
+	var a models.Application
+	require.NoError(t, db.Where("resource_id = ?", resourceID).First(&a).Error)
+	return &a
+}
+
+// TestCreateResource_Application_AddressSplit 验证创建时 endpoint/port 原样落库
+// （采集地址由资源台账直接给出，后端不再从 health_check_url 派生）。
+func TestCreateResource_Application_AddressSplit(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+
+	w, out := doCreate(t, r, appCreateBody())
+	require.Equal(t, http.StatusOK, w.Code, "创建应用应成功：%s", out.Error)
+	require.Equal(t, "success", out.Status)
+	assert.Equal(t, "10.10.1.4", out.Data["endpoint"])
+	assert.EqualValues(t, 8081, out.Data["port"])
+	assert.Equal(t, "http", out.Data["protocol"])
+
+	resourceID, _ := out.Data["resource_id"].(string)
+	a := loadAppByResourceID(t, db, resourceID)
+	assert.Equal(t, "10.10.1.4", a.Endpoint)
+	assert.Equal(t, 8081, a.Port)
+	assert.Equal(t, "http", a.Protocol)
+}
+
+// TestCreateResource_Application_EmptyHealthCheckURLAccepted 验证 health_check_url 恢复
+// 「可选」（仅作资源画像与标签来源），空值不影响创建。
+func TestCreateResource_Application_EmptyHealthCheckURLAccepted(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+
+	body := appCreateBody()
+	delete(body, "health_check_url")
+	w, out := doCreate(t, r, body)
+	require.Equal(t, http.StatusOK, w.Code, "health_check_url 可选，空值应可创建：%s", out.Error)
+
+	resourceID, _ := out.Data["resource_id"].(string)
+	a := loadAppByResourceID(t, db, resourceID)
+	assert.Empty(t, a.HealthCheckURL)
+	assert.Equal(t, "10.10.1.4", a.Endpoint)
+	assert.Equal(t, 8081, a.Port)
+}
+
+// TestCreateResource_Application_MissingAddressRejected 验证采集地址必填：缺 endpoint 或
+// port（0）均被拦为 bad_request，message 点明采集地址语义。
+func TestCreateResource_Application_MissingAddressRejected(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+
+	t.Run("missing endpoint", func(t *testing.T) {
+		body := appCreateBody()
+		delete(body, "endpoint")
+		w, out := doCreate(t, r, body)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, "bad_request", out.ErrorType)
+		assert.Contains(t, out.Error, "endpoint")
+		assert.Contains(t, out.Error, "采集地址")
+	})
+
+	t.Run("zero port", func(t *testing.T) {
+		body := appCreateBody()
+		body["port"] = 0
+		w, out := doCreate(t, r, body)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, "bad_request", out.ErrorType)
+		assert.Contains(t, out.Error, "port")
+	})
+}
+
+// TestUpdateResource_Application_AddressPersistsAsGiven 验证更新时 endpoint/port 整体替换
+// 语义：请求体给出什么就落什么（无派生，也不因 health_check_url 变化而改写采集地址）。
+func TestUpdateResource_Application_AddressPersistsAsGiven(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+
+	_, created := doCreate(t, r, appCreateBody())
+	resourceID, _ := created.Data["resource_id"].(string)
+
+	body := appCreateBody()
+	body["endpoint"] = "10.20.2.5"
+	body["port"] = 9090
+	body["protocol"] = "https"
+	w, out := doUpdate(t, r, resourceID, body)
+	require.Equal(t, http.StatusOK, w.Code, "更新应成功：%s", out.Error)
+
+	a := loadAppByResourceID(t, db, resourceID)
+	assert.Equal(t, "10.20.2.5", a.Endpoint)
+	assert.Equal(t, 9090, a.Port)
+	assert.Equal(t, "https", a.Protocol)
+}

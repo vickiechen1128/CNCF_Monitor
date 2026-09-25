@@ -291,13 +291,86 @@ describe('ResourceFormDrawer', () => {
   it('renders application and generic target differentiated fields', async () => {
     renderDrawer({ category: 'application' })
     expect(screen.getByText('服务名')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('例如：/api/v1/order')).toBeInTheDocument()
+    // 采集地址拆分：健康检查 URL（可选）/ 端点 + 端口（采集地址，必填）
+    expect(screen.getByText('健康检查 URL')).toBeInTheDocument()
+    expect(screen.getByText('端点（采集地址主机）')).toBeInTheDocument()
+    expect(screen.getByText('端口（采集端口）')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('例如：10.10.1.4')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('例如：8081')).toBeInTheDocument()
 
     // 重新渲染为 generic_target：目标名称 / 采集路径 / 自定义标签
     renderDrawer({ category: 'generic_target' })
     expect(screen.getByText('目标名称')).toBeInTheDocument()
     expect(screen.getByText('自定义标签')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('如 device_type=snmp_switch;vendor=h3c')).toBeInTheDocument()
+  })
+
+  // 采集地址拆分（M07 字段治理）：application 的端点（主机）+ 端口（采集端口）均必填；
+  // health_check_url 恢复为「应用实际访问地址」语义，可选、不参与采集。
+  it('application requires endpoint and port (采集地址拆分)', async () => {
+    renderDrawer({ category: 'application' })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    // 端点 / 端口为空 → 必填校验拦截且不提交
+    await waitFor(() =>
+      expect(screen.getByText('请输入采集地址主机', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument(),
+    )
+    expect(await screen.findByText('请输入端口', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('submits application with endpoint + port and omits empty health_check_url', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    // 应用类别 app_code 必填，需字典启用条目（§5.2）
+    applicationDictListMock.mockResolvedValue({
+      code: 0,
+      message: 'ok',
+      data: { list: [{ app_code: 'order', app_name: '订单服务', status: 'enabled' }] },
+    })
+    renderDrawer({ category: 'application' })
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择业务')
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    openSelect('请选择环境')
+    fireEvent.click(await screen.findByText('prod'))
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单服务 (order)'))
+    fireEvent.change(screen.getByPlaceholderText('例如：order-service'), { target: { value: 'pay-service' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：10.10.1.4'), { target: { value: '10.10.1.4' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：8081'), { target: { value: '8081' } })
+    // health_check_url 留空 → 可提交，且不写入请求体
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    const input = createMock.mock.calls[0][0]
+    expect(input).toMatchObject({
+      resource_category: 'application',
+      service_name: 'pay-service',
+      endpoint: '10.10.1.4',
+      port: 8081,
+    })
+    expect(input.health_check_url).toBeUndefined()
+    expect(successMock).toHaveBeenCalled()
+    expect(cancelMock).toHaveBeenCalled()
+  })
+
+  it('rejects invalid health_check_url format but keeps it optional', async () => {
+    renderDrawer({ category: 'application' })
+    fireEvent.change(screen.getByPlaceholderText('例如：http://10.10.1.4:8081/actuator/health'), {
+      target: { value: 'not-a-url' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(screen.getByText('请输入合法的 http/https 地址')).toBeInTheDocument())
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  // 采集地址字段仅出现于类别 = 应用（host 表单无端点/健康检查 URL）
+  it('does not show application-only fields for non-application category', async () => {
+    renderDrawer({ category: 'host' })
+    expect(screen.queryByText('健康检查 URL')).toBeNull()
+    expect(screen.queryByText('端点（采集地址主机）')).toBeNull()
+    expect(screen.queryByText('端口（采集端口）')).toBeNull()
   })
 
   it('shows only enabled business domains in the select', async () => {

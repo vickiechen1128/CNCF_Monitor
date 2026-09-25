@@ -441,18 +441,45 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
                   </Form.Item>
                 )}
                 <Row gutter={12}>
-                  {SCRAPE_PARAM_FIELDS.map((f) => (
-                    <Col span={12} key={f.field}>
-                      {/* F-28：参数不再必填；placeholder 展示继承链下层生效值（留空=继承） */}
-                      <Form.Item name={f.field as never} label={f.label}>
-                        <Input placeholder={paramPlaceholders[f.field]} maxLength={64} allowClear />
-                      </Form.Item>
-                    </Col>
-                  ))}
+                  {SCRAPE_PARAM_FIELDS.map((f) => {
+                    // application_http：采集地址来自资源台账「端点 + 端口」，指标路径无通用默认值，
+                    // 必须显式填写（后端留空返回 bad_request）；其它 monitor_type 保持「留空=继承」。
+                    const isAppMetricsPath = monitorType === 'application_http' && f.field === 'metrics_path'
+                    return (
+                      <Col span={12} key={f.field}>
+                        {/* F-28：参数默认不必填；placeholder 展示继承链下层生效值（留空=继承） */}
+                        <Form.Item
+                          name={f.field as never}
+                          label={f.label}
+                          rules={
+                            isAppMetricsPath
+                              ? [{ required: true, message: '应用采集必须填写采集路径，例如 /actuator/prometheus' }]
+                              : undefined
+                          }
+                        >
+                          <Input
+                            placeholder={
+                              isAppMetricsPath
+                                ? '请填写应用指标路径，例如 /actuator/prometheus（留空无法采集）'
+                                : paramPlaceholders[f.field]
+                            }
+                            maxLength={64}
+                            allowClear
+                          />
+                        </Form.Item>
+                      </Col>
+                    )
+                  })}
                 </Row>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   采集参数留空 = 继承默认采集配置 / 采集器默认值；填写 = 覆盖并保存为本 Job 快照。
                 </Text>
+                {monitorType === 'application_http' && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    应用采集地址来自资源台账的『端点 + 端口』；指标路径需按应用实际暴露情况填写（Spring Boot Actuator
+                    默认 /actuator/prometheus），没有通用默认值，不能留空。
+                  </Text>
+                )}
               </Space>
             </Card>
 

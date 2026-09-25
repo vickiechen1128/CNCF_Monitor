@@ -235,6 +235,84 @@ func TestUpdateScrapeJobClearFieldReInherits(t *testing.T) {
 	assert.Equal(t, "https", out.Data.Scheme)
 }
 
+// 采集地址职责拆分（M07 台账 endpoint:port + M01 采集 Job metrics_path）：
+// application_http 的 metrics_path 必须显式填写——应用指标端点没有通用默认值，
+// 留空继承 /metrics 会静默抓不到样本。
+func TestCreateScrapeJobApplicationRequiresMetricsPath(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "app-1", NetworkDomainID: "default", Status: "online",
+		ServiceName: "pay-service", Endpoint: "10.0.1.4", Port: 8081, Protocol: "http",
+		HealthCheckURL: "http://10.0.1.4:8081/actuator/health",
+	}).Error)
+
+	t.Run("留空 metrics_path 被拦", func(t *testing.T) {
+		body := `{"job_name":"app-prod","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"enabled":true}`
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "metrics_path")
+	})
+
+	t.Run("显式填写 metrics_path 通过（scheme 仍走全局兜底）", func(t *testing.T) {
+		body := `{"job_name":"app-prod-ok","job_type":"standard","monitor_type":"application_http","network_domain_id":"default","selected_instance_ids":["app-1"],"metrics_path":"/actuator/prometheus","enabled":true}`
+		w := perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs", body)
+		require.Equal(t, http.StatusOK, w.Code, "应创建成功：%s", w.Body.String())
+		var out struct {
+			Data models.ScrapeJob `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+		assert.Equal(t, "/actuator/prometheus", out.Data.MetricsPath)
+		assert.Equal(t, models.DefaultScheme, out.Data.Scheme)
+	})
+}
+
+// application 的实例候选与目标预览展示采集地址 `endpoint:port`（与 M09 生成器
+// targets 拼接口径一致），而非 health_check_url（后者仅是应用实际 URL）。
+func TestApplicationAddressDisplayUsesEndpointPort(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	seedEnabledDomain(t, db, "default")
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "app-1", NetworkDomainID: "default", Status: "online",
+		ServiceName: "pay-service", Endpoint: "10.0.1.4", Port: 8081,
+		HealthCheckURL: "http://10.0.1.4:8081/actuator/health",
+	}).Error)
+
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/scrape-jobs/instance-candidates?monitor_type=application_http&network_domain_id=default", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var cand struct {
+		Data struct {
+			List []InstanceCandidate `json:"list"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &cand))
+	require.Len(t, cand.Data.List, 1)
+	assert.Equal(t, "app-1", cand.Data.List[0].ResourceID)
+	assert.Equal(t, "10.0.1.4:8081", cand.Data.List[0].InstanceIP)
+
+	job := &models.ScrapeJob{
+		JobName: "app-prod", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeApplication,
+		MonitorType: "application_http", NetworkDomainID: "default", InstanceSelectionMode: models.InstanceSelectionManual,
+		SelectedInstanceIDs: []string{"app-1"}, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/actuator/prometheus", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusPending, Enabled: true,
+	}
+	require.NoError(t, db.Create(job).Error)
+
+	w = perform(t, r, http.MethodPost, "/api/v2/platform/scrape-jobs/"+strconv.FormatUint(uint64(job.ID), 10)+"/preview-targets", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var prev struct {
+		Data struct {
+			Targets []previewTarget `json:"targets"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &prev))
+	require.Len(t, prev.Data.Targets, 1)
+	assert.Equal(t, "10.0.1.4:8081", prev.Data.Targets[0].Address)
+}
+
 func TestCreateScrapeJobRejectsFrozenAndUnmonitoredDomain(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
