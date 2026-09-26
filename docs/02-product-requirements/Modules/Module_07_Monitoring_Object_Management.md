@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.41
+> **PRD 版本**: v2.44
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
-> **原型版本**: v2.40（决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明）
-> **更新日期**: 2026-09-19
+> **原型版本**: v2.40（决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明；v2.42 为字段与字典契约增量（云字典 / 主机 cloud_code / 网络分区唯一权威），原型同步待另行派发；v2.43 为云标识契约增量（`cloud_code` 升格五类共享字段 + host/database/middleware 必填 + 云字典无管理页口径澄清），原型同步待另行派发；v2.44 为实体模型收敛（cloud/zone 上提网域 + 位置三标签统一 system 层 + zone_type 必填，决策 103 / M06 决策 78），属契约级修订、原型无需同步（无新增用户可见字段））
+> **更新日期**: 2026-09-26
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -379,6 +379,8 @@ flowchart TD
 
 **`app_code` / `cluster` 必填标注（✅\*）**：按资源类别差异化——application / database / middleware 必填；host 可空；generic\_target 与 `biz_code` **二选一必填**（决策 95，有业务就挂 `biz_code`、有平台就挂 `app_code`，至少填一个避免指标无归属）；空值不注入对应标签（与 5.15 规则 4「`biz` 空值语义」对齐）。资源侧**只存编码 `app_code`**，展示名 `app_name` 由应用字典解析（字典缺条目时回退显示编码），展示名不参与标签取值。
 
+**`cloud_code` 承载位置（决策 103 / M06 决策 78，推翻决策 102）**：`cloud_code` **不再作为 Resource 字段**——已上提为 **NetworkDomain 行政字段（M06 §5.2，必填）**，`cloud` label 经所属网域派生、在 **target 级 system 层注入**（见 5.13 / 5.20）。原先「五类资源共享字段 + 按类型分化必填」的口径随之撤销；资源侧仅保留 `Host.cloud_code` **兼容只读物理列**（见 5.6，经 `network_domain_id` 派生展示、不暴露写方法）。云字典（5.20）仍是 `cloud` label 的取值权威，但仅用于网域登记与展示解析，不再由资源侧引用。
+
 **`cluster` 语义红线**：`cluster` **只表达集群**，不得复用承载「子应用 / 子服务」维度——Excel / CMDB 遗留列名 `sub_app_code` 的语义**等价于本 PRD 的 `cluster`（集群）**，**不是「子应用」**（物理列映射见 5.6）。若将来确需子应用维度，须新增独立字段并走独立 PRD 变更，禁止塞进 `cluster`。
 
 **采集状态口径**：M07 是**资产台账**，但「采集状态」列升级为**三态真实状态 badge**——`采集中`（被 ScrapeJob 选中且 target `up`）/ `已下发未采到`（被选中但未采到数据：`down` / 待首次抓取 / **变更未确认下发**）/ `未监控`（未被任何 Job 选中）。数据由两处只读消费拼成：选中关系 `is_monitored` 由 M01 维护（取 DB 当前 `selected_instance_ids`，ready+enabled Job，**不问 M09 `change_status`、不感知下发时序**）；up/down 聚合由 M02 采集健康度/覆盖率 API 提供（MVP 起，按 `resource_id` 稳定身份标签回连资源）。「待采集（未下发）vs 已下发未采到」的细分由 M01 Job 上下文回显承担（M01 §5.10），本 badge 保持三态不区分。**M07 不直连时序数据**，列表查询必须走 M02 聚合 API、禁止逐行查询（TQ-6 N+1 教训）。「未纳入任何 Job」同步可在 M01 实例选择器筛选（辅助落点）；跨 Job 全局排障视图归 M02 目标状态页（P1）。
@@ -454,7 +456,7 @@ Prometheus 内置 label（`__address__` / `instance` / `job` / `scheme`）禁止
 
 **网域存在性校验口径**：Resource 的 `network_domain_id` 是否有效，以 **Module\_06 维护的 `NetworkDomain` 行政记录**为准（网域由 M06 创建/分配/删除，Module_11 仅负责监控纳管）。M07 不重复维护网域生命周期，仅读取 `id` / `name` / `domain_type` 做展示与校验。
 
-**区域属性单一事实来源**：Resource 上**不存储**任何区域属性（云类型 / 网络区域 / AZ 等）——这类信息唯一事实来源是 M06 的 `NetworkDomain` 行政记录（`zone_type` 等，见 Module\_06 3.1）。资源侧（Excel 模板 / 手动录入 / CMDB 同步）**只引用** `network_domain`，展示时的区域信息一律经网域派生（join），禁止在资源表冗余。用户心智路径唯一：**先在 M06 登记网域，再在 M07 导入/录入资源时选择网域**。
+**位置属性单一事实来源（决策 103 / M06 决策 78）**：`cloud_code`（云归属）/ `zone_type`（网络分区/Region）/ `network_domain_id`（网域）三类**位置属性**的唯一事实来源均为 M06 的 `NetworkDomain` 行政记录——Resource 上**不存储** `cloud_code` / `zone_type`，仅存 `network_domain_id`；资源侧（Excel 模板 / 手动录入 / CMDB 同步）**只引用** `network_domain`，`cloud` / `zone` 在配置生成时经网域**派生**（join，见 Module\_06 §5.2 / §3.2），禁止在资源表冗余。依据（方案 B，推翻决策 102 的「云归属由资源承载」口径）：云是网域属性（先登记网域即确定云与分区）、资源间上下游关系未建模、N:1 上卷维度物化到资源会重复填写且新实例无法自动枚举。用户心智路径唯一：**先在 M06 登记网域（含 `cloud_code` + `zone_type`），再在 M07 导入/录入资源时仅选择网域**。
 
 **网域心智原则**：网域是**部署拓扑属性，不是资产属性**——心智原则为「**接入可见、消费隐藏**」：接入侧（导入 / 录入 / 同步）通过归属解析链自动推导归属，消费侧（查询 / 看板 / 告警）默认不感知网域；解析链全部为平台侧数据，**绝不回写 CMDB、绝不要求 CMDB 加字段**。四级优先级链见 5.16.4；MVP 不变：导入 / 录入时 `network_domain` 手动必填。
 
@@ -473,7 +475,7 @@ Prometheus 内置 label（`__address__` / `instance` / `job` / `scheme`）禁止
 | **首问 = K8s 集群（集群级端点）** | `generic_target`（API Server / kube-state-metrics / etcd 等集群级端点） | 集群所在网络可达性区域（overlay 集群通常独立建域） | 集群内节点、Pod、容器指标由该域的 K8s 采集 Job（kubernetes_sd）动态发现覆盖，**无需逐台登记** |
 | **新增资源 → 登记主机** | `host`（OS 层 node_exporter `:9100`） | 采集端口（`:9100`）可达侧所在网域（通常为管理网所在域） | 逐台登记；K8s 节点作为物理机登记 host 时，其 K8s 维度指标已由集群 Job 覆盖，本条 host 只管 OS 层 |
 
-判定口诀（写入表单与导入指引）：**问「这条指标从哪条网络路径采到？」——路径唯一则归属唯一；两条路径都要采，对应两个采集端点、两条资源记录（K8s 节点指标走集群 Job 动态发现，不算重复登记）。** 行政归属（归哪个部门、属于哪个集群资产、在哪朵云）用 `owner` / `cluster` / 云类型等资产字段表达，与网域正交。
+判定口诀（写入表单与导入指引）：**问「这条指标从哪条网络路径采到？」——路径唯一则归属唯一；两条路径都要采，对应两个采集端点、两条资源记录（K8s 节点指标走集群 Job 动态发现，不算重复登记）。** 行政归属（归哪个部门、属于哪个集群资产）用 `owner` / `cluster` 等资产字段表达，与网域正交；云归属由所属网域承载（见 5.4 / 5.6 / 5.20），资源侧不冗余。
 
 **网域列展示策略**：见 §11.2（网域列默认展示且单网域模式不可隐藏、网域筛选器记忆与切换、资源详情页网域置顶）。
 
@@ -567,8 +569,12 @@ status_mapping:
 | `Host.app_code` | PRD `app_name`（**展示名**——历史债：列名带 code 却存展示名） | PRD `app_code`（**不可变编码**；随应用字典 seed 归一化切换，见 5.19 存量迁移） | `Resource.GetAppCode()`（原 `GetAppName()`） |
 | `Host.sub_app_code` | PRD `cluster`（**集群**） | 不变（**不是「子应用」**） | `Resource.GetCluster()` |
 | `Host.vpc` | `cluster` 的回退取值（`sub_app_code` 为空时） | 不变 | 同上 |
+| `Host.cloud_code` | 云标识（物理列名与语义字段同名） | **降级为兼容只读列**——云归属改由所属网域的 `cloud_code` 承载（M06 §5.2，必填），资源侧不再维护；存量 CMDB 物理列保留不强制清空，新录入/导入经网域派生展示（决策 103 / M06 决策 78） | 兼容只读（经 `network_domain_id` 派生，不暴露写方法） |
+| `Host.zone_env` | 主机「区域-环境」（历史 Excel 列，值 `INT` / `GOV`） | **降级为兼容导入列**——不进新增 UI、不进标签、**不作分区权威值**；权威值为所属网域的 `zone_type`（见 5.4 与 Module\_06 §5.2） | 兼容导入层（不做语义方法暴露） |
 
 > **红线**：`sub_app_code` 是遗留列名，**语义恒等于 `cluster`（集群）**，任何文案 / 代码 / 注释不得将其解释为「子应用」；子应用维度若将来需要，须新增独立字段（见 5.2 红线）。五类资源的物理列名各不相同，统一由 `Resource` 接口的取值方法收敛，PRD 与 UI 一律使用语义字段名（`app_code` / `cluster`）。
+
+**位置属性（云 / 分区，只读派生，决策 101 / 103 / M06 决策 78）**：`cloud_code`（云归属）与 `zone_type`（网络分区/Region）均为**网域级**属性，M07 主机**不持有独立字段**、新增 / 编辑表单**不设云 / 分区表单项**；主机详情如需展示「腾讯云 / 政务云（联通）」「上海 / 北京 / 互联网区 / 政务外网区」，经 `host.network_domain_id` 关联解析所属网域的 `cloud_code` / `zone_type` 展示名，并标注「继承所属网域」。枚举口径与命名统一由 Module\_06 定义（云字典见 5.20；`zone_type` 命名口径见 5.4 与 Module\_06 §5.2），M07 只读消费；`cloud` / `zone` 标签由配置生成器经网域派生、target 级 system 层注入（不依赖 LabelTemplate 默认映射，不进 `external_labels`）。`Host.zone_env` 仅为兼容导入列（见上表），不进标签、不作权威。**这是消除冗余而非引导一致**：全流程不存在「同一位置属性需在两处填写」的入口，因此本模块不提供任何一致性引导文案。
 
 ### 5.7 中间件资源（Middleware）
 
@@ -763,6 +769,8 @@ status_mapping:
 | resource\_field | `instance_name`    | `instance_name` |
 | resource\_field | `os_type`          | `os_type`       |
 
+> **主机 `cloud` 标签（决策 103 / M06 决策 78，取代决策 98 的模板映射机制）**：`cloud` 不再由主机默认模板映射行生成，改由配置生成器经所属网域 `cloud_code` 在 **target 级 system 层注入**（见 5.20 / 6.1）；云标识进标签用于混合云分组 / 同名实例去重 / 告警文案定位 / 静默；基数影响可忽略（当前云字典仅 2 个取值）；`cloud` **不承担 Alertmanager 首级 route 分发**（本期政务云与腾讯云告警通知同一运维团队），价值在分组 / 去重 / 定位 / 静默。
+
 **中间件默认标签模板**
 
 | 来源类型            | 来源字段               | 目标 Label          |
@@ -848,9 +856,12 @@ status_mapping:
 
 MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 
-**主机导入模板列**：`network_domain` / `instance_name` / `hostname` / `instance_ip` / `os_type` / `biz_code` / `app_code` / `env` / `cluster` / `owner` / `status`
+**主机导入模板列**：`network_domain` / `instance_name` / `hostname` / `instance_ip` / `os_type` / `biz_code` / `app_code` / `env` / `cluster` / `zone_env` / `owner` / `status`
 
 其中 `instance_name` 为必填（host 模板必填项，生成 `hostname` label，见 5.2 / 5.12.1）。
+
+**`cloud_code` 不再出现在导入模板（决策 103 / M06 决策 78）**：云归属改由资源所属网域的 `cloud_code` 行政字段承载（M06 §5.2，必填），导入仅填写 `network_domain`，`cloud` 经网域派生；云字典（5.20）仍用于网域登记与展示解析，历史值 `TX` / `CU` 由网域登记层归一为 `PUB-TX` / `GM-CU`。
+**`zone_env` 列（决策 101）**：**兼容导入列**，承接历史 Excel 数据，不进标签、不作分区权威值；分区权威值为所属网域 `zone_type`。
 
 > **主机 Excel 物理列名与 PRD 语义字段的映射**：主机模板沿用 CMDB 遗留列名——`app_code` 列 = PRD `app_code`（**应用编码**，非展示名），`sub_app_code` 列 = PRD `cluster`（**集群**，非「子应用」）、为空时取 `vpc` 列；其余列与 PRD 字段同名。**展示名 `app_name` 不在 Excel 中填写**，由应用字典按 `app_code` 解析展示（见 5.6 / 5.19）。
 
@@ -1024,6 +1035,36 @@ status: "online"
 
 **存量迁移（MVP 上线一次性）**：应用字典首次 seed 时，**以存量资源的应用取值（`Host.app_code` 等物理列，见 5.6）为基准生成条目**——`app_code` = 原值归一化（小写字母 / 数字 / 连字符），`app_name` = 原值。目标是**存量 `app` label 不断、时序不裂**：已合规取值的归一化是恒等变换、`app` label 完全不变；个别含大写 / 空格 / 中文的原值会被归一化，该部分资源的 `app` label 变化一次（随下次配置下发生效），须列入发布说明。
 
+### 5.20 云字典（CloudDict）
+
+> 决策依据：design-decisions.md 决策 98
+
+> **定位**：云字典是 `cloud_code → cloud` label 的**取值权威**——与业务分组字典（5.18）、应用字典（5.19）同构，同样是**编码不可变 + 展示名必填 + 停用不删除**。**一个云 = 云类型 × 云载体 的组合整体**：`cloud_code` 标识这个整体，`cloud_type` / `carrier` 仅是条目**描述属性**（用于展示 / 分类 / 筛选），**不是告警维度、不独立成 label**；告警与 `group_by` 只面向 `cloud` 这一个维度。云字典**随部署预置、全局只读**（对齐 `zone_type` 字典先例——由 seed / 部署配置预置），**不提供任何管理界面**（既无用户自助登记页，也不做平台管理员页），增删改随版本发版 / 部署配置更新。**承载位置（决策 103 / M06 决策 78，推翻决策 102）**：`cloud_code` 为 **NetworkDomain 行政字段（M06 §5.2，必填）**，资源侧不再维护 `cloud_code`（仅保留兼容只读物理列，见 5.6）；资源的 `cloud` label 经所属网域派生、在 **target 级 system 层注入**（见 5.13），本字典仍是 `cloud` label 的取值权威。
+
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|------|------|------|----------|------|
+| cloud\_code | string | ✅ | 云标识 | 字典主键，**创建后不可变**；命名形制 `{类型}-{载体}` **复合码**（大写短码）；**`cloud` label 的取值来源**；创建表单醒目提示「标识创建后不可改」 |
+| cloud\_name | string | ✅ | 云名称 | **必填展示名**，仅 UI 展示；**修改不触发监控配置重新生成 / 下发**（label 存 `cloud_code`） |
+| cloud\_type | enum | ✅ | 云类型 | **描述属性**，取值 `PUB`（公有云）/ `GM`（政务云）/ `IND`（行业云）/ `PRI`（私有云）；**政务云本身即一种云类型**。其中 `GM` 为既定，`PUB` / `IND` / `PRI` 为**暂定**——若产品侧已有既定缩写，统一替换 |
+| carrier | enum | ✅ | 云载体 | **描述属性**，取值 `TX`（腾讯）/ `CU`（联通）/ `CM`（移动，预留不登记） |
+| status | enum | ✅ | 状态 | `enabled` / `disabled`；**停用不删除**——停用条目不可被新资源 / 编辑选用，存量资源保留历史值并以「云名（已停用）」标识 |
+| created\_at / updated\_at | datetime | ✅ | 仅技术信息 | 创建 / 更新时间 |
+
+**红线（UI / 服务端硬化）**：①`cloud_code` 永不可改（编辑接口不接收该字段）；②仅 `cloud_name` / `cloud_type` / `carrier` / `status` 可编辑；③停用不删除（不提供删除入口）；④**资源侧 `cloud_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**——`cloud` label 恒取 `cloud_code`，禁止以 `cloud_name` 作为标签值或映射来源（与 5.19 同规约）；⑥**禁止把 `carrier` 或 `cloud_type` 单独当云标识**——`TX` 只是载体，腾讯云的云标识是 `PUB-TX`（不得把 `TX` 等同于「公有云」）。
+
+**字典来源与登记（seed）**：本字典**部署级只读 + 平台管理员预置**（对齐 `zone_type` / `os_dict` 先例），**不开放用户自助登记、不提供用户侧管理页**，避免用户造词；首次启动 seed 登记两条——
+
+| cloud\_code | cloud\_name | cloud\_type | carrier | 说明 |
+|---|---|---|---|---|
+| `PUB-TX` | 腾讯云 | `PUB` 公有云 | `TX` 腾讯 | **当前唯一在用** |
+| `GM-CU` | 政务云（联通） | `GM` 政务云 | `CU` 联通 | **规划中** |
+
+`GM-CM`（政务云 · 移动）、`IND-TX`、`PRI-TX` 等**不预置**，将来按同形制（`{类型}-{载体}`）新登记条目。
+
+**历史 Excel 值归一化**：导入层实现映射 `TX → PUB-TX`（腾讯云）、`CU → GM-CU`（政务云 · 联通）；该映射规则本身即「名字 → 稳定身份」的落地，`CM` 暂不登记。
+
+**消费链路**：资源录入表单 / Excel 导入校验只读消费本字典（`GET /api/v2/platform/cloud-dict`，与 `business-domains` / `application-dict` 同构）；资源列表 / 详情的「云」列展示 `cloud_name`（字典缺条目时回退显示 `cloud_code`，停用条目以「云名（已停用）」标识）；**`cloud` label 不承担 Alertmanager 首级 route 分发**（本期政务云与腾讯云告警通知同一运维团队），其价值在分组 / 去重 / 定位 / 静默。
+
 ***
 
 ## 6. 接口设计
@@ -1036,7 +1077,7 @@ status: "online"
 
 | 方法     | 路径                                                   | 说明                                                                                                                    |
 | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| GET | `/api/v2/platform/resources` | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `collection_status`（三态筛选 `up`（采集中）/ `down`（已下发未采到）/ `unmonitored`（未监控），口径见 5.2）/ `page` / `page_size`（MVP 分页从简，默认 50） |
+| GET | `/api/v2/platform/resources` | 资源列表，Query：`resource_category` / `network_domain_id` / `keyword`（名称 + IP）/ `collection_status`（三态筛选 `up`（采集中）/ `down`（已下发未采到）/ `unmonitored`（未监控），口径见 5.2）/ `page` / `page_size`（MVP 分页从简，默认 50）；列表项**均**返回派生 `cloud_code`（来自所属网域的 `cloud_code`，展示名由前端按云字典解析，见 5.20 / M06 §5.2）；`resource_category=host` 列表项额外返回派生的只读 `zone_type`（见 5.2 / 5.6 / 5.20） |
 | POST   | `/api/v2/platform/resources`                                  | 创建资源（source\_type=manual）                                                                                             |
 | PUT    | `/api/v2/platform/resources/{resource_id}`                    | 更新资源                                                                                                                  |
 | DELETE | `/api/v2/platform/resources/{resource_id}`                    | 删除资源（被 Job 引用时由 Module\_01 关联校验并**在报错中列出引用 Job 名单 + 跳转**，见 6.6.1）                                                    |
@@ -1045,6 +1086,7 @@ status: "online"
 | GET | `/api/v2/platform/business-domains` | 业务分组字典列表（供资源录入 / Excel 校验下拉与业务管理页使用；数据来自 DB，配置文件仅首次启动 seed，见 5.18） |
 | POST | `/api/v2/platform/business-domains` | 登记业务分组：`biz_code`（编码规范：小写字母 / 数字 / 连字符 ≤ 64，创建后不可变）、`biz_name`、`description`；`bad_request`：编码重复 / 编码不规范 |
 | PUT | `/api/v2/platform/business-domains/{biz_code}` | 受限编辑业务分组：**仅 `biz_name` / `description` / `status` 可改**（请求体不接收 `biz_code`）；`bad_request`：`infra` 兜底条目禁止停用；不提供删除入口（停用不删除） |
+| GET | `/api/v2/platform/cloud-dict` | 云字典列表（供资源录入 / Excel 校验下拉与列表展示消费；数据来自 DB，配置文件仅首次启动 seed，**部署级只读、不提供写接口**，见 5.20） |
 
 ### 6.2 资源标签 API（ResourceLabel）
 
@@ -1253,6 +1295,7 @@ stateDiagram-v2
 - [ ] {P0} 可以维护主机、数据库、中间件、应用服务、其他监控目标五类资源
 - [ ] {P0} 系统初始化后存在默认网域 `default`，单网域场景下用户无感知
 - [ ] {P0} 可以按资源类型下载固定列的 Excel 模板，模板包含 `network_domain_id` 列；主机模板包含必填的 `instance_name` 列
+- [ ] {P0} 网域登记「云」（`cloud_code`）必填且取值须为云字典启用条目（历史值 `TX` / `CU` 由网域登记层归一为 `PUB-TX` / `GM-CU`）；资源登记 / Excel 导入不再要求填云，`cloud` 经所属网域派生展示（决策 103 / M06 决策 78）
 - [ ] {P0} 可以上传 Excel 并导入到对应资源类型；未填写 `network_domain_id` 时自动归属到 `default`；导入支持 upsert 模式（重复判重键命中时覆盖更新，结果展示 updated 计数）
 - [ ] {P0} 可以创建/编辑标签模板，且标签模板按资源类型区分
 - [ ] {P0} 标签模板字段来源包含 Resource 字段；组合字段为默认模板内置（自动生成 `instance`），Prometheus 内置字段为 v0.3+ 服务发现场景预留，MVP 新增映射不展示
@@ -1401,6 +1444,7 @@ stateDiagram-v2
 - **提交中防重复**：创建 / 编辑 / 保存按钮在提交期间置为 loading 并禁用，等待接口返回后再恢复。
 - **网域列默认展示且单网域模式不可隐藏**：即使单网域模式（`multi_site_enabled=false`），资源列表 / 详情 / Excel 模板仍保留「网域」列；列显隐配置中隐藏需用户主动关闭；资源详情页将「网域」作为基础属性置顶展示。
 - **业务 / 应用列展示（按类型分化，决策 93 / 95 / 96）**：资源列表与资源详情页默认展示**每类 Tab 落固定列**——host 显「应用」列（`biz` 可空留 `-`）；application 显「应用 + 业务」列；database / middleware 显「应用」列（`biz` 可空留 `-`）+ 多库 1:N 提示（决策 94）；generic\_target 显「业务 / 应用」灵活列（`app_code` / `biz_code` 至少一列有值，决策 95）。业务列显示字典 `biz_name`，停用业务以「业务名（已停用）」标识；`biz_code` / `app_code` 在新增 / 编辑表单中按下拉选择（`biz_code` 按类型分化：host/database/middleware 可空后补、application 必填、generic\_target 与 app 二选一必填；仅含启用条目，停用条目不可选）。
+- **云标识与网络分区（决策 98 / 101 / 103 / M06 决策 78）**：①资源列表 host Tab **默认展示「云」列**（显示字典 `cloud_name`，停用条目以「云名（已停用）」标识，样式对齐「应用」列）；②资源新增 / 编辑表单**不再提供「云」下拉**——云归属由所选网域派生、只读展示（见 ③）；云字典（5.20）仅用于网域登记与列表 / 详情解析；③主机详情抽屉展示「云（只读，继承所属网域）+ 网络分区（只读，继承所属网域）」——二者均经所属网域派生、无编辑入口（`cloud` 来自网域 `cloud_code`、`zone` 来自网域 `zone_type`，决策 103 / M06 决策 78）；④「云」列与筛选**不得**出现 `cloud_type` / `carrier` 作为独立列或独立筛选维度（二者仅为云字典描述属性，非告警维度）；⑤枚举与命名不在页面硬编码，一律走字典（见 5.20 / 5.6 / M06 §5.2）；⑥云归属唯一事实来源在网域（M06 §5.2，`cloud_code` 必填），资源侧不冗余、只读派生；云字典**不提供任何管理界面**。
 - **业务字典红线**：业务管理页表单与服务端共同硬化红线——`biz_code` 创建后不可改（创建时编码规范校验 + 醒目提示）；编辑仅开放 `biz_name` / `description` / 状态；不提供删除入口（停用不删除）；`infra` 兜底条目禁止停用 / 删除；`biz_name` 修改不触发监控配置重新生成 / 下发（详见 5.18）。
 - **「网域」字段禁止自由输入（MVP 强制）**：资源新增 / 编辑表单的「网域」字段必须是**下拉选择器（Select）**，数据源 = `GET /api/v2/platform/network-domains?status=enabled`（仅启用态网域），禁用 / 冻结网域不可选（与 M06 禁用语义一致）；禁止用户自由输入或新造网域。后端仍保留存在性 / 启用态兜底校验（§5.16.2 / §6 POST 错误契约），防止并发删除、状态变更或 API 直调绕过。
 - **「网域」字段可达性引导**：表单「网域」字段提示语用用户语言「这台机器的采集端口从哪条链路够得着？」，下拉选项带链路说明；用户填 `instance_ip` 后实时展示 `ip_cidrs` 推导预览（「按当前 IP 推导归属：XX 域」），歧义时提示人工选择；推导预览不替代显式选择，仅辅助决策。
@@ -1425,7 +1469,7 @@ stateDiagram-v2
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 落点章节 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------- | --- |
-| v2.41 | 2026-09-19 | 修改 | **Excel 批量声明新字典（决策 97）**：资源导入文件新增 `业务声明` / `应用声明` 内联 sheet，一次导入携带全新业务 / 全新应用——声明建字典（`source=excel-import`、只增不覆盖）+ 资源落库整批原子提交；重码 / 停用硬拒绝、`biz_code` / `app_code` 字典存在性校验放宽至「字典 ∪ 声明」；权限复用导入位。详版见 design-decisions | 1 / 5.16.1 / 5.16.2 / 5.18 / 5.19 | v0.2 生效 | ready |
-| v2.40 | 2026-09-19 | 修改 | **业务与应用正交两维建模（决策 93 / 94 / 95 / 96）**：`biz_code` 必填口径按类型分化（host/db/middleware 可空后补）；generic\_target 的 app/biz 二选一必填；database/middleware 1:N 多库归属延后 {v0.2+} 并登记跨 M01/M09 契约；应用字典不加父级 `biz_code`。决策 92 红线不动；详版见 design-decisions | 5.2 / 5.7.1 / 5.9 / 5.15 / 5.16.2 / 5.18 / 5.19 / 11.2 / 10 / Change Log | v0.2 生效 | ready |
-| v2.39 | 2026-09-19 | 修改 | **应用双层编码 + 应用字典（决策 92）**：`app_name` → `app_code`（`app` label 来源），展示名归 §5.19；`sub_app_code` 钉死为「集群」；详版见 design-decisions | 5.2 / 5.6 / 5.8 / 5.12.1 / 5.13 / 5.15 / 5.16 / 5.19 / 10 | MVP 生效 | ready |
+| v2.44 | 2026-09-26 | 修改 | **实体模型收敛（决策 103 / M06 决策 78，推翻决策 102）**：`cloud_code` 由 Resource 五类共享字段**上提为 NetworkDomain 行政字段（M06 §5.2，必填）**，资源侧删除、改经网域派生；位置三标签（network_domain / cloud / zone）统一 target 级 system 层注入；主机默认模板删 `cloud_code → cloud` 映射行（决策 98 模板机制被取代）；§5.2 删 Resource `cloud_code` 字段行、§5.4 位置属性单一事实来源重写、§5.6 删 Host `cloud_code` 字段行、§5.16.1 五类导入模板列删 `cloud_code`、§5.20 承载位置改 M06 §5.2、§6.1 列表改派生、§9.1 验收改网域必填、§11.2 云/分区展示规则同步。详版见 design-decisions | 5.2 / 5.4 / 5.6 / 5.13 / 5.16.1 / 5.20 / 6.1 / 9.1 / 11.2 / Change Log | MVP 生效 | ready |
+| v2.43 | 2026-09-25 | 修改 | **云标识契约增量（决策 102）**：`cloud_code` 由主机专属上提为**五类资源共享字段**，必填按类型分化（host / database / middleware 必填，application / generic\_target 选填）；补 §5.2 通用字段行与必填标注、§5.4 区域属性两类切分、§5.16.1 五类导入模板列补 `cloud_code`（host 另补 `zone_env` 兼容列）、§5.20 澄清云字典随部署预置且**无任何管理页**、§6.1 列表统一返回 `cloud_code`、§9.1 / §11.2 同步。详版见 design-decisions | 5.2 / 5.4 / 5.6 / 5.16.1 / 5.20 / 6.1 / 9.1 / 11.2 / Change Log | MVP 生效 | ready |
+| v2.42 | 2026-09-25 | 修改 | **主机云标识与网络分区维度收敛（决策 98 / 101）**：新增 §5.20 云字典（`{类型}-{载体}` 复合码，`cloud` label 取值权威）；§5.6 主机补 `cloud_code`（选填）+ `zone_env` 降级为兼容导入列 + 网络分区改由网域 `zone_type` 只读派生；§5.13 主机默认模板追加 `cloud_code → cloud`；§6.1 补云字典只读接口与 host 列表派生字段；§11.2 补云列与分区展示规则。详版见 design-decisions | 5.6 / 5.13 / 5.20 / 6.1 / 11.2 | MVP 生效（云字典 `GM-CU` 条目标注规划中） | ready |
 
