@@ -1,9 +1,9 @@
 # MetricCenter Module 06 原型
 
-> **验证的 PRD 版本**: [Module_06_Multi_Tenant.md](../../02-product-requirements/Modules/Module_06_Multi_Tenant.md) v2.15
+> **验证的 PRD 版本**: [Module_06_Multi_Tenant.md](../../02-product-requirements/Modules/Module_06_Multi_Tenant.md) v2.18
 > **覆盖的产品版本**: MVP / v0.2 / v0.4 / v1.0
-> **原型版本**: v2.16
-> **更新日期**: 2026-09-17
+> **原型版本**: v2.18
+> **更新日期**: 2026-09-27
 > **本地启动命令**:
 >
 > ```bash
@@ -13,6 +13,15 @@
 > ```
 >
 > **访问地址**: http://localhost:5182/
+
+## v2.18 变更说明（同步 PRD v2.16→v2.18，决策 78 / 决策 83 收口：网域「云归属」落页，2026-09-27）
+
+1. **登记 / 编辑抽屉新增「云归属（必填）」下拉（决策 78，MVP）**：位于抽屉**「行政信息」分组**（「接入方式」只读字段之后）；下拉数据来自**云字典只读接口** `GET /api/v2/platform/cloud-dict`（mock `mockCloudDict` / 派生 `CLOUD_DICT_ENABLED`，仅含启用项 `PUB-TX` 腾讯云 / `GM-CU` 政务云（联通）），**不开放自由文本**；**必填校验**（未选时字段下方报错「请选择云归属」）。云归属是资源 `cloud` 标签的唯一事实来源，资源侧不再维护 `cloud_code`。
+2. **编辑允许修改 + 二次确认（网域迁云场景，MVP）**：编辑时 `cloud_code` 可改；当改动的云归属与当前值不同时，保存前弹出「修改云归属」二次确认，提示「**将更新该网域下资源的云归属标签并触发采集配置重新生成**」（PRD §11.2）；确认后才落库。
+3. **详情 Drawer 新增「云归属」行（MVP）**：云归属**下沉详情抽屉**展示（`cloud_name`，字典缺条目回退 `code`）；**主列表保持 8 列不变、不新增云归属列**（PRD §11.2 列数治理）。
+4. **列表筛选：不新增「云归属」筛选器（判断见下）**：PRD §6.2 列表接口虽支持按 `cloud_code` 筛选（供 M07 等下游消费），但 PRD §11.1 网域管理「数据超量」行已冻结为「按登记归属 / `zone_type` / 状态 / 授权租户」四项筛选；本模块原型遵循该筛选收敛口径，**不为云归属新增第五个筛选器**（避免 UI 膨胀；云归属经详情抽屉按需查看），保持一致，故本次不改 FilterBar。
+5. **mock 契约**：`NetworkDomain` 新增必填 `cloud_code`；`mockNetworkDomains` 补 `cloud_code` 演示数据（`default` = `PUB-TX` 公有云腾讯云；采集节点域 `mc-edge` / `mc-finance` / `mc-manufacturing` / `mc-dmz` = `GM-CU` 政务云联通，与各网域所在云环境自洽）；新增 `mockCloudDict` / `CLOUD_DICT_ENABLED` / `cloudNameOf` / `CLOUD_CODE_FIELD_HINT`，与云字典只读接口自洽；`zone_type` 保持既有契约不变。
+6. **验证**：`pnpm build`（tsc + vite）/ `pnpm lint`（0 warning）/ `pnpm check:notes` / `pnpm check:prototype` 全过。
 
 ## v2.16 变更说明（dev-feedback #7 / #9 / #10 收割，2026-09-17）
 

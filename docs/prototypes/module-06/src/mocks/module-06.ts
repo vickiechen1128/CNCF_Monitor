@@ -46,6 +46,14 @@ export interface NetworkDomain {
    */
   zone_type: string
   /**
+   * {v2.18} 云归属（决策 78 / M07 决策 103，**必填**）：网域的云标识，取值须为云字典启用条目（CLOUD_DICT_ENABLED）。
+   * - 云归属的**唯一事实来源**在网域，资源侧不再维护 cloud_code；资源的 cloud label 经所属网域派生、
+   *   在 target 级 system 层注入（不落库、不走 external_labels，见 M07 §5.13）；
+   * - **可编辑**（引用而非不可变主键）：编辑变更（网域迁云场景）后 cloud label 派生值随之变化、
+   *   触发该网域资源采集配置重新生成 / 下发。
+   */
+  cloud_code: string
+  /**
    * {v2.5} 网段（CIDR）列表（决策 52）：该网域覆盖的 IP 段，如 10.20.0.0/16。
    * 仅供 M07 资源导入 / CMDB 同步时按 IP 推导网域归属（归属解析链第③级），最长前缀优先、同前缀跨网域判歧义；
    * 纯平台侧数据，不回写 CMDB、不要求 CMDB 加字段；由管理员维护，也可由 M07「待分配队列」规则化动作一键生成。
@@ -243,6 +251,38 @@ export const ZONE_TYPE_FIELD_HINT =
   '只是给网域贴的分类标签：政务云环境对应安全分区（如互联网区 / 政务外网区 / 专线区），公有云环境对应地域（region）。不影响采集行为，不确定可留空，仅用于列表筛选。'
 
 /**
+ * {v2.18} 云字典（决策 78 / M07 §5.20 云字典 CloudDict）：
+ * 模拟只读接口 `GET /api/v2/platform/cloud-dict` 返回的启用项（部署级只读字典，与 zone_types 同构）——
+ * `cloud_code` 为字典主键（`{类型}-{载体}` 复合码，如 `PUB-TX`）、`cloud_name` 为展示名，停用不删除。
+ * 网域「云归属」下拉**只呈现启用项、不开放自由文本**（原型以 mock 模拟接口返回）。
+ */
+export interface CloudDictOption {
+  code: string
+  name: string
+  /** 描述属性：PUB 公有云 / GM 政务云（不独立成 label，仅供展示 / 分类） */
+  cloud_type: 'PUB' | 'GM'
+  /** 描述属性：TX 腾讯 / CU 联通 */
+  carrier: 'TX' | 'CU'
+  status: 'enabled' | 'disabled'
+}
+
+export const mockCloudDict: CloudDictOption[] = [
+  { code: 'PUB-TX', name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', status: 'enabled' },
+  { code: 'GM-CU', name: '政务云（联通）', cloud_type: 'GM', carrier: 'CU', status: 'enabled' },
+]
+
+/** {v2.18} 网域登记 / 编辑「云归属」下拉候选：云字典**启用项**（停用项不呈现） */
+export const CLOUD_DICT_ENABLED = mockCloudDict.filter((c) => c.status === 'enabled')
+
+/** {v2.18} 云归属展示名解析（字典缺条目时回退显示 code，与 M07 §5.20 展示口径一致） */
+export const cloudNameOf = (code: string) =>
+  mockCloudDict.find((c) => c.code === code)?.name ?? (code ? code : '未设置')
+
+/** {v2.18} 「云归属」表单提示（决策 78）：用户文案，不含实现层引用 */
+export const CLOUD_CODE_FIELD_HINT =
+  '取自云字典（部署级只读、仅含启用项），不开放自由文本；云归属是资源「云」标签的唯一来源，资源侧不再单独维护。'
+
+/**
  * 以下 mock 数组为**原型演示数据，不落库**（仅用于可点击原型交互演示）。
  * 实际落库仅后端启动时 migration upsert `platform_admin` 单租户（决策 23，MVP），
  * 「平台运营部 / 电商研发部 / 金融运维部」等租户示例仅供前端演示，禁止在交付时 seed 进数据库。
@@ -286,6 +326,8 @@ export const mockTenants: Tenant[] = [
  * - 登记归属（tenant_id）为部署级登记方，MVP 固定 t-platform；登记 ≠ 独占，通过 authorized_tenant_ids 授权多个租户共享使用
  * - registration_status 为只读演示字段，模拟「已由 Module_09 纳管」的回显，M06 页面不可编辑
  * - zone_type（v1.4）：由 M06 登记的行政字段；default 管理域由中心直接采集、无网闸拓扑，留空不适用
+ * - cloud_code（v2.18，决策 78）：网域云归属（必填），取值须为云字典启用条目（CLOUD_DICT_ENABLED）；
+ *   default 为公有云腾讯云（PUB-TX），采集节点域为政务云联通（GM-CU）——与各网域所在云环境自洽
  * - resource_ref_count（v2.15，决策 82-1）：删除前置校验用；本 mock 覆盖三种删除场景——
  *   · mc-edge = 3（有 M07 资源引用 → 删除被硬拒绝，「更多」菜单内直给原因 + M07 引导）
  *   · mc-finance = 0 且未纳管（空网域 → 常规二次确认删除）
@@ -302,6 +344,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     authorized_tenant_ids: ['t-platform', 't-ecommerce'],
     status: 'active',
     zone_type: '',
+    cloud_code: 'PUB-TX',
     registration_status: 'monitored',
     agent_online: true,
     has_data: true,
@@ -317,6 +360,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'internet',
+    cloud_code: 'GM-CU',
     ip_cidrs: ['10.20.0.0/16'],
     registration_status: 'monitored',
     resource_ref_count: 3,
@@ -334,6 +378,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     authorized_tenant_ids: ['t-finance'],
     status: 'disabled',
     zone_type: 'private-line',
+    cloud_code: 'GM-CU',
     ip_cidrs: ['10.30.0.0/16'],
     registration_status: 'created',
     resource_ref_count: 0,
@@ -349,6 +394,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'extranet',
+    cloud_code: 'GM-CU',
     registration_status: 'monitored',
     resource_ref_count: 0,
     agent_online: false,
@@ -364,6 +410,7 @@ export const mockNetworkDomains: NetworkDomain[] = [
     authorized_tenant_ids: ['t-platform'],
     status: 'active',
     zone_type: 'dmz',
+    cloud_code: 'GM-CU',
     registration_status: 'monitored',
     resource_ref_count: 0,
     agent_online: true,

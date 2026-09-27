@@ -47,6 +47,9 @@ import {
   ZONE_TYPE_OPTIONS,
   zoneTypeLabelOf,
   ZONE_TYPE_FIELD_HINT,
+  CLOUD_DICT_ENABLED,
+  cloudNameOf,
+  CLOUD_CODE_FIELD_HINT,
   IP_CIDR_HINT,
   ACCESS_STEP_LABELS,
   accessStepOf,
@@ -640,22 +643,48 @@ export function NetworkDomainsPage() {
       return
     }
     if (editingDomain) {
-      setDomains((prev) =>
-        prev.map((item) =>
-          item.id === editingDomain.id
-            ? {
-                ...item,
-                ...values,
-                // 登记归属（id / 登记方）创建后不可变更；授权租户可编辑
-                id: item.id,
-                tenant_id: item.tenant_id,
-                updated_at: now,
-              }
-            : item
+      const applyEdit = () => {
+        setDomains((prev) =>
+          prev.map((item) =>
+            item.id === editingDomain.id
+              ? {
+                  ...item,
+                  ...values,
+                  // 登记归属（id / 登记方）创建后不可变更；授权租户可编辑
+                  id: item.id,
+                  tenant_id: item.tenant_id,
+                  updated_at: now,
+                }
+              : item
+          )
         )
-      )
-      message.success('网域行政信息已更新')
-      setIsFormOpen(false)
+        message.success('网域行政信息已更新')
+        setIsFormOpen(false)
+      }
+      /* {v2.18} 决策 78：cloud_code 可编辑（网域迁云场景），修改前二次确认——
+         变更触发该网域资源采集配置重新生成 / 下发（PRD §11.2）。 */
+      if (values.cloud_code && values.cloud_code !== editingDomain.cloud_code) {
+        Modal.confirm({
+          title: '修改云归属',
+          width: 520,
+          content: (
+            <div style={{ fontSize: 13, lineHeight: 1.9 }}>
+              将把网域「<Text strong>{editingDomain.name}</Text>」的云归属由{' '}
+              <Text strong>{cloudNameOf(editingDomain.cloud_code)}</Text> 改为{' '}
+              <Text strong>{cloudNameOf(values.cloud_code)}</Text>。
+              <div style={{ marginTop: 8 }}>
+                <Text strong>将更新该网域下资源的云归属标签并触发采集配置重新生成</Text>。
+              </div>
+            </div>
+          ),
+          okText: '确认修改',
+          okType: 'primary',
+          cancelText: '取消',
+          onOk: applyEdit,
+        })
+        return
+      }
+      applyEdit()
     } else {
       const id = suggestedId || `mc-${Date.now()}`
       if (domains.some((d) => d.id === id)) {
@@ -671,6 +700,8 @@ export function NetworkDomainsPage() {
         authorized_tenant_ids: selectedTenantIds,
         status: values.status || 'active',
         zone_type: values.zone_type || '',
+        // {v2.18} 云归属（必填，取自云字典启用条目）；资源的 cloud label 经所属网域派生注入
+        cloud_code: values.cloud_code || '',
         // {v2.5} 网段（CIDR）可留空；非空时用于 M07 资源导入/同步按 IP 推导网域归属（归属解析链第③级）
         ip_cidrs: values.ip_cidrs ?? [],
         // 新建网域仅完成行政登记，监控纳管由 Module_09 执行
@@ -1079,6 +1110,7 @@ export function NetworkDomainsPage() {
           网域定义为全平台唯一入口，下游模块（导入 / 纳管 / CMDB 同步）只引用 network_domain_id；ID 按 `&lt;deploy_code&gt;-&lt;domain_code&gt;` 自动生成且全局唯一（deploy_code 默认 `mc`；default 中心直连域为历史预置、无前缀）。
           网段（CIDR，决策 52）：网域可选择登记其覆盖的 IP 段（可留空），供 M07 资源导入 / CMDB 同步时按 IP 自动推导网域归属（归属解析链第③级，最长前缀优先、同前缀跨网域判歧义）；纯平台侧数据，不回写 CMDB、不要求 CMDB 加字段，也可由 M07「待分配队列」规则化动作按未分配 IP 汇总一键生成候选网段。
           网域心智原则（决策 52）：网域是部署拓扑属性，不是资产属性——「接入可见、消费隐藏」：接入侧（M07 导入 / 录入 / CMDB 同步）可见并可推导归属，消费侧（M02 查询 / M05 看板 / M08 告警路由 / M01 采集）默认不感知网域（权限注入 + 可选下钻），网域不做 CMDB 写回。
+          <b>网域云归属（决策 78，v2.18 落页）：</b>网域登记 / 编辑表单在「行政信息」分组新增「云归属（必填）」下拉，数据来自云字典只读接口（`GET /api/v2/platform/cloud-dict`，仅含启用项），不开放自由文本；云归属是资源 `cloud` 标签的唯一事实来源（资源侧不再维护 `cloud_code`），`cloud` 经所属网域派生、在 target 级 system 层注入；网域 `cloud_code` <b>可编辑</b>（引用而非不可变主键，网域迁云场景），修改前二次确认「将更新该网域下资源的云归属标签并触发采集配置重新生成」；云归属下沉详情 Drawer 展示，主列表保持 8 列不新增列。
           <b>网域概念用户化与接入引导（决策 73~77 / 79）：</b>
           决策 73（网域用户侧定义）：网域 = 网络可达性区域——「中心能否直连」二选一判断规则落为页首引导条与登记前置判断；登记网域本身不采集数据，只完成「划片」（哪个采集节点去采 + 数据打来源区域标签）。
           决策 74（术语降噪，v2.13 决策 79 再修订）：UI 展示名——管理域→「中心直连域」、边缘域→「采集节点域」、Edge Sync Agent→「采集节点」、domain_type 呈现为只读「接入方式」、zone_type→「网络分区（可选）」；后端模型枚举不变。
@@ -1372,6 +1404,22 @@ export function NetworkDomainsPage() {
                     ]}
                   />
                 </Form.Item>
+                <Form.Item
+                  /* {v2.18} 决策 78：云归属（必填）——下拉数据来自云字典只读接口 GET /api/v2/platform/cloud-dict
+                     （仅含启用项），不开放自由文本；位于「行政信息」分组。 */
+                  label="云归属"
+                  name="cloud_code"
+                  rules={[{ required: true, message: '请选择云归属' }]}
+                  extra={CLOUD_CODE_FIELD_HINT}
+                >
+                  <Select placeholder="请选择云归属（取自云字典）" showSearch optionFilterProp="children">
+                    {CLOUD_DICT_ENABLED.map((c) => (
+                      <Option key={c.code} value={c.code}>
+                        {c.name}（{c.code}）
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
               </FormSection>
 
               <FormSection title="授权与分区" description="网域为部署级资源，可授权多个租户共享使用">
@@ -1528,6 +1576,12 @@ export function NetworkDomainsPage() {
                     (detailDomain.authorized_tenant_ids ?? []).length === 0
                       ? '未授权'
                       : detailDomain.authorized_tenant_ids!.map((id) => tenantNameOf(id)).join('、'),
+                },
+                {
+                  /* {v2.18} 决策 78：云归属下沉详情 Drawer（主列表保持 8 列，不新增云归属列） */
+                  key: 'cloud',
+                  label: '云归属',
+                  children: cloudNameOf(detailDomain.cloud_code),
                 },
                 {
                   key: 'zone',
