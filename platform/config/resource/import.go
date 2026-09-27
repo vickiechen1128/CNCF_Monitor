@@ -163,6 +163,11 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 				// upsert：覆盖更新（不可变列不进入更新列）。
 				applyInputToModel(category, existing, &row.Input)
 				cols := updatableColumns(category)
+				// zone_env 仅走导入链路（host 兼容列），不进 PUT 可更新列。
+				if h, ok := existing.(*models.Host); ok {
+					h.ZoneEnv = row.ZoneEnv
+					cols = append(cols, "zone_env")
+				}
 				if err := tx.Model(existing).Select(cols).Updates(existing).Error; err != nil {
 					response.InternalServerError(c, fmt.Errorf("更新 %s 资源失败（第 %d 行）：%w", category, row.Row, err))
 					return
@@ -177,6 +182,11 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 				return
 			}
 			setSourceType(model, models.SourceTypeImport)
+			// 决策 101 / §5.6：zone_env 为 host 兼容导入列，直接落 ZoneEnv 物理列——
+			// 不进标签、不作分区权威、不回写任何权威字段（如 network_domain.zone_type）。
+			if h, ok := model.(*models.Host); ok {
+				h.ZoneEnv = row.ZoneEnv
+			}
 			if err := tx.Create(model).Error; err != nil {
 				response.InternalServerError(c, fmt.Errorf("创建 %s 资源失败（第 %d 行）：%w", category, row.Row, err))
 				return

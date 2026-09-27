@@ -12,11 +12,11 @@ type ResourceType string
 
 // Resource type constants.
 const (
-	ResourceTypeHost             ResourceType = "host"
-	ResourceTypeDatabase          ResourceType = "database"
-	ResourceTypeMiddleware        ResourceType = "middleware"
-	ResourceTypeApplication       ResourceType = "application"
-	ResourceTypeGenericTarget     ResourceType = "generic_target"
+	ResourceTypeHost          ResourceType = "host"
+	ResourceTypeDatabase      ResourceType = "database"
+	ResourceTypeMiddleware    ResourceType = "middleware"
+	ResourceTypeApplication   ResourceType = "application"
+	ResourceTypeGenericTarget ResourceType = "generic_target"
 )
 
 // BaseModel provides the common primary key and timestamp fields used by all models.
@@ -36,6 +36,7 @@ type Resource interface {
 	GetResourceID() string
 	GetResourceType() ResourceType
 	GetAppCode() string
+	GetCloudCode() string
 	GetEnv() string
 	GetCluster() string
 	GetStatus() string
@@ -46,25 +47,26 @@ type Resource interface {
 // Database (see §5.7.1 of Module_07).
 type Middleware struct {
 	BaseModel
-	ResourceID       string            `gorm:"size:64;uniqueIndex:idx_middleware_resource_id" json:"resource_id"`
-	ResourceType     ResourceType      `gorm:"size:20;not null" json:"resource_type"`
-	ResourceCategory ResourceCategory  `gorm:"size:30;not null" json:"resource_category"`
-	NetworkDomainID  string            `gorm:"size:64;not null;index" json:"network_domain_id"`
-	BizCode          string            `gorm:"size:64;not null" json:"biz_code"`
-	SourceType       SourceType        `gorm:"size:20;not null" json:"source_type"`
-	TenantID         string            `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
+	ResourceID       string           `gorm:"size:64;uniqueIndex:idx_middleware_resource_id" json:"resource_id"`
+	ResourceType     ResourceType     `gorm:"size:20;not null" json:"resource_type"`
+	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
+	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
+	CloudCode        string           `gorm:"size:50" json:"cloud_code"`
+	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
+	SourceType       SourceType       `gorm:"size:20;not null" json:"source_type"`
+	TenantID         string           `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
 	// AppName 物理列名沿用历史名（决策 92：物理列名不改名）；其语义已切换为不可变应用
 	// 编码 app_code——资源侧只存编码，app label 恒取此值。展示名由应用字典承载。
-	AppName          string            `gorm:"size:100;not null" json:"app_name"`
-	Env              string            `gorm:"size:20;not null" json:"env"`
-	Cluster          string            `gorm:"size:100;not null" json:"cluster"`
-	Owner            string            `gorm:"size:100" json:"owner"`
-	Status           string            `gorm:"size:20;not null" json:"status"`
-	MiddlewareType   string            `gorm:"size:50;not null" json:"middleware_type"`
-	InstanceIP       string            `gorm:"size:50;not null" json:"instance_ip"`
-	Port             int               `json:"port"`
-	Version          string            `gorm:"size:50" json:"version"`
-	ConnectionString string            `gorm:"size:500" json:"connection_string"`
+	AppName          string `gorm:"size:100;not null" json:"app_name"`
+	Env              string `gorm:"size:20;not null" json:"env"`
+	Cluster          string `gorm:"size:100;not null" json:"cluster"`
+	Owner            string `gorm:"size:100" json:"owner"`
+	Status           string `gorm:"size:20;not null" json:"status"`
+	MiddlewareType   string `gorm:"size:50;not null" json:"middleware_type"`
+	InstanceIP       string `gorm:"size:50;not null" json:"instance_ip"`
+	Port             int    `json:"port"`
+	Version          string `gorm:"size:50" json:"version"`
+	ConnectionString string `gorm:"size:500" json:"connection_string"`
 }
 
 // Application represents an application service resource that can be probed
@@ -72,25 +74,26 @@ type Middleware struct {
 // sharing the same app_code / biz_code.
 type Application struct {
 	BaseModel
-	ResourceID       string            `gorm:"size:64;uniqueIndex:idx_application_resource_id" json:"resource_id"`
-	ResourceType     ResourceType      `gorm:"size:20;not null" json:"resource_type"`
-	ResourceCategory ResourceCategory  `gorm:"size:30;not null" json:"resource_category"`
-	NetworkDomainID  string            `gorm:"size:64;not null;index" json:"network_domain_id"`
-	BizCode          string            `gorm:"size:64;not null" json:"biz_code"`
-	SourceType       SourceType        `gorm:"size:20;not null" json:"source_type"`
-	TenantID         string            `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
+	ResourceID       string           `gorm:"size:64;uniqueIndex:idx_application_resource_id" json:"resource_id"`
+	ResourceType     ResourceType     `gorm:"size:20;not null" json:"resource_type"`
+	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
+	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
+	CloudCode        string           `gorm:"size:50" json:"cloud_code"`
+	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
+	SourceType       SourceType       `gorm:"size:20;not null" json:"source_type"`
+	TenantID         string           `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
 	// AppName 物理列名沿用历史名（决策 92：物理列名不改名）；其语义已切换为不可变应用
 	// 编码 app_code——资源侧只存编码，app label 恒取此值。展示名由应用字典承载。
-	AppName          string            `gorm:"size:100;not null" json:"app_name"`
-	Env              string            `gorm:"size:20;not null" json:"env"`
-	Cluster          string            `gorm:"size:100;not null" json:"cluster"`
-	Owner            string            `gorm:"size:100" json:"owner"`
-	Status           string            `gorm:"size:20;not null" json:"status"`
-	ServiceName      string            `gorm:"size:100;not null" json:"service_name"`
-	HealthCheckURL   string            `gorm:"size:500;not null" json:"health_check_url"`
-	Protocol         string            `gorm:"size:20;not null" json:"protocol"`
-	Endpoint         string            `gorm:"size:500" json:"endpoint"`
-	Port             int               `json:"port"`
+	AppName        string `gorm:"size:100;not null" json:"app_name"`
+	Env            string `gorm:"size:20;not null" json:"env"`
+	Cluster        string `gorm:"size:100;not null" json:"cluster"`
+	Owner          string `gorm:"size:100" json:"owner"`
+	Status         string `gorm:"size:20;not null" json:"status"`
+	ServiceName    string `gorm:"size:100;not null" json:"service_name"`
+	HealthCheckURL string `gorm:"size:500;not null" json:"health_check_url"`
+	Protocol       string `gorm:"size:20;not null" json:"protocol"`
+	Endpoint       string `gorm:"size:500" json:"endpoint"`
+	Port           int    `json:"port"`
 }
 
 // GetResourceID returns the resource id.
@@ -102,6 +105,8 @@ func (m *Middleware) GetResourceType() ResourceType { return ResourceTypeMiddlew
 // GetAppCode returns the application code (决策 92：AppName 物理列语义切换为 app_code 编码).
 func (m *Middleware) GetAppCode() string { return m.AppName }
 
+// GetCloudCode returns the shared cloud dictionary code.
+func (m *Middleware) GetCloudCode() string { return m.CloudCode }
 
 // GetEnv returns the environment.
 func (m *Middleware) GetEnv() string { return m.Env }
@@ -121,6 +126,8 @@ func (a *Application) GetResourceType() ResourceType { return ResourceTypeApplic
 // GetAppCode returns the application code (决策 92：AppName 物理列语义切换为 app_code 编码).
 func (a *Application) GetAppCode() string { return a.AppName }
 
+// GetCloudCode returns the shared cloud dictionary code.
+func (a *Application) GetCloudCode() string { return a.CloudCode }
 
 // GetEnv returns the environment.
 func (a *Application) GetEnv() string { return a.Env }

@@ -9,6 +9,7 @@ const templateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 const applicationDictListMock = vi.fn()
+const cloudDictListMock = vi.fn()
 const coverageListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -24,6 +25,10 @@ vi.mock('../../api/resources', () => ({
   // 决策 92/96：应用列经 applicationDictApi.list 解析 app_name，缺条目回退 app_code
   applicationDictApi: {
     list: (...args: unknown[]) => applicationDictListMock(...args),
+  },
+  // 决策 103：云列经 cloudDictApi.list 解析 cloud_name（部署级只读，仅有 list）
+  cloudDictApi: {
+    list: (...args: unknown[]) => cloudDictListMock(...args),
   },
 }))
 
@@ -122,6 +127,7 @@ describe('ResourcesPage', () => {
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
     applicationDictListMock.mockReset()
+    cloudDictListMock.mockReset()
     coverageListMock.mockReset()
     // jsdom 未实现 createObjectURL / revokeObjectURL，桩掉以完成模板下载触发
     URL.createObjectURL = vi.fn(() => 'blob:mock')
@@ -138,6 +144,7 @@ describe('ResourcesPage', () => {
     })
     businessDomainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     applicationDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    cloudDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     removeMock.mockResolvedValue({ status: 'success', data: { resource_id: 'res-1' } })
     coverageListMock.mockResolvedValue({
       status: 'success',
@@ -341,8 +348,8 @@ describe('ResourcesPage', () => {
     renderPage()
     expect(await screen.findByText('prod-web-01')).toBeInTheDocument()
     expect(screen.getByText('prod-web-02')).toBeInTheDocument()
-    // 两行采集状态列均降级为 '-'
-    expect(screen.getAllByText('-').length).toBe(2)
+    // 每行两处 '-'：采集状态降级 + 云列空值（决策 103 新增共享列）
+    expect(screen.getAllByText('-').length).toBe(4)
     // 不渲染三态文案
     expect(screen.queryByText('采集中')).not.toBeInTheDocument()
     expect(screen.queryByText('未监控')).not.toBeInTheDocument()
@@ -530,8 +537,8 @@ describe('ResourcesPage', () => {
     })
     renderPage()
     const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
-    // 行内唯一 '-' 来自应用列（业务/采集状态/其他列均非空）
-    expect(within(row).getByText('-')).toBeInTheDocument()
+    // 行内 '-' 来自应用列与云列（决策 103 新增共享列；业务/采集状态/其他列均非空）
+    expect(within(row).getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
 
   // 决策 92/96 + F-8-b：五类 Tab 共享「应用名称」列，位于「业务名称」列之后（对齐原型列序）
@@ -715,6 +722,72 @@ describe('ResourcesPage', () => {
     expect(within(row).getByText('prod')).toBeInTheDocument()
     expect(within(row).getByText('c1')).toBeInTheDocument()
     expect(within(row).getByText('order')).toBeInTheDocument()
+  })
+
+  // 决策 103：资源列表「云」列（五类共享列）——启用条目展示 cloud_name、
+  // 停用条目加「（已停用）」、字典缺条目回退 cloud_code、空值 '-'
+  it('决策 103：云列渲染云字典 cloud_name（启用条目）', async () => {
+    cloudDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { cloud_code: 'PUB-TX' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('腾讯云')).toBeInTheDocument()
+    expect(screen.queryByText('PUB-TX')).toBeNull()
+  })
+
+  it('决策 103：停用云以「云名（已停用）」标识', async () => {
+    cloudDictListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [{ cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: false }],
+        total: 1,
+      },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { cloud_code: 'PUB-TX' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    expect(await screen.findByText('腾讯云（已停用）')).toBeInTheDocument()
+  })
+
+  it('决策 103：字典缺条目回退显示 cloud_code', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { cloud_code: 'PRI-TX' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    expect(within(row).getAllByText('PRI-TX').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('决策 103：cloud_code 为空时云列渲染 "-"', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01', { cloud_code: '' })], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    expect(within(row).getAllByText('-').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('决策 103 + 红线④：五类 Tab 均含「云」列且不得出现 cloud_type / carrier 独立列', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByRole('tab', { name: '主机' })
+    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
+      const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
+      expect(headers.filter((t) => t.trim() === '云').length, `${name} tab：云列应恰好出现一次`).toBe(1)
+      expect(headers.some((t) => t.includes('云类型')), `${name} tab：不得出现云类型列`).toBe(false)
+      expect(headers.some((t) => t.includes('云载体')), `${name} tab：不得出现云载体列`).toBe(false)
+    }
   })
 
   it('F-6：host Tab 环境/集群为空时渲染 "-"', async () => {

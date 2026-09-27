@@ -6,21 +6,24 @@ import (
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/gorm"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func putUpdate(t *testing.T, db *gorm.DB, id, body string) (int, models.NetworkDomain) {
 	r := newGin()
 	r.PUT("/network-domains/:id", UpdateNetworkDomain(db))
 	w := perform(t, r, "PUT", "/network-domains/"+id, body)
-	var out struct{ Data models.NetworkDomain `json:"data"` }
+	var out struct {
+		Data models.NetworkDomain `json:"data"`
+	}
 	_ = json.Unmarshal(w.Body.Bytes(), &out)
 	return w.Code, out.Data
 }
 
 func TestUpdateNetworkDomainEditableFields(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	insertDomain(t, db, &models.NetworkDomain{
 		ID: "mc-zhw-a", Name: "旧名", Description: "旧描述", DomainType: models.DomainTypeEdge, ZoneType: "internet",
 		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},
@@ -40,6 +43,7 @@ func TestUpdateNetworkDomainEditableFields(t *testing.T) {
 
 func TestUpdateNetworkDomainTenantIgnored(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	insertDomain(t, db, &models.NetworkDomain{
 		ID: "mc-zhw-a", Name: "x", DomainType: models.DomainTypeEdge,
 		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},
@@ -57,12 +61,14 @@ func TestUpdateNetworkDomainTenantIgnored(t *testing.T) {
 
 func TestUpdateNetworkDomainNotFound(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	code, _ := putUpdate(t, db, "nope", `{"name":"x"}`)
 	assert.Equal(t, 404, code)
 }
 
 func TestUpdateNetworkDomainDefaultAllowedForName(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	insertDomain(t, db, &models.NetworkDomain{
 		ID: models.DefaultDomainID, Name: "默认网域", DomainType: models.DomainTypeManagement,
 		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},

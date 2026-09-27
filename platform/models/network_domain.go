@@ -63,8 +63,12 @@ type NetworkDomain struct {
 	Name                string     `gorm:"size:100;not null" json:"name"`
 	Description         string     `gorm:"size:500" json:"description"`
 	DomainType          DomainType `gorm:"size:20;not null" json:"domain_type"`
-	ZoneType            string     `gorm:"size:50" json:"zone_type"`
-	TenantID            string     `gorm:"size:64;not null" json:"tenant_id"` // 登记归属（创建后不可变更）
+	ZoneType            string     `gorm:"size:50" json:"zone_type"` // 部署级 zone_type 字典取值（登记必填、不可自由文本，M06 §5.2）
+	// CloudCode 是 cloud/zone/network_domain 三标签中 cloud 标签的权威来源（决策 103
+	// scheme-B）：登记时必填且须引用已启用云字典条目，创建后不可变更（与 TenantID
+	// 同语义）。资源侧 cloud_code 不再落资源表，统一经 network_domain_id 派生。
+	CloudCode           string `gorm:"size:50" json:"cloud_code"`
+	TenantID            string `gorm:"size:64;not null" json:"tenant_id"` // 登记归属（创建后不可变更）
 	AuthorizedTenantIDs []string   `gorm:"serializer:json" json:"authorized_tenant_ids"`
 	IPCIDRs             []string   `gorm:"serializer:json" json:"ip_cidrs"` // 网段（CIDR）；资源导入时按 IP 自动推导网域归属
 	CmdbCloudAreaID     string     `gorm:"size:100" json:"cmdb_cloud_area_id"`

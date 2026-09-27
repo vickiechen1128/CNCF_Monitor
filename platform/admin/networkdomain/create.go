@@ -20,7 +20,8 @@ import (
 type CreateNetworkDomainRequest struct {
 	Name                string            `json:"name" binding:"required"`
 	DomainType          models.DomainType `json:"domain_type" binding:"required"`
-	ZoneType            string            `json:"zone_type"`
+	ZoneType            string            `json:"zone_type" binding:"required"` // 部署级 zone_type 字典取值（必填，不可自由文本，M06 §5.2）
+	CloudCode           string            `json:"cloud_code" binding:"required"` // 决策 103 scheme-B：登记必填，须引用已启用云字典条目
 	Description         string            `json:"description"`
 	DomainCode          string            `json:"domain_code"`
 	AuthorizedTenantIDs []string          `json:"authorized_tenant_ids"`
@@ -51,6 +52,41 @@ func isUniqueConstraintError(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint")
 }
 
+// validateCloudCodeEnabled 校验 cloud_code 必须引用「已启用」的部署级云字典条目
+// （决策 103 scheme-B：cloud 标签权威来源）。字典加载失败即报错，不允许在字典不可用时
+// 放行登记。
+func validateCloudCodeEnabled(db *gorm.DB, code string) error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return fmt.Errorf("cloud_code 必填（须为云字典启用条目）")
+	}
+	var count int64
+	if err := db.Model(&models.CloudDict{}).Where("cloud_code = ? AND enabled = ?", code, true).Count(&count).Error; err != nil {
+		return fmt.Errorf("云字典加载失败：%w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("云 %s 未登记或已停用，请联系平台管理员在云字典中启用后重试", code)
+	}
+	return nil
+}
+
+// validateNetworkDomainZoneType 校验 zone_type 必填且为部署级 zone_type 字典取值
+// （不可自由文本，M06 §5.2）。字典加载失败即报错，不放行。
+func validateNetworkDomainZoneType(db *gorm.DB, zt string) error {
+	zt = strings.TrimSpace(zt)
+	if zt == "" {
+		return fmt.Errorf("zone_type 必填（须为部署级 zone_type 字典取值）")
+	}
+	var count int64
+	if err := db.Model(&models.ZoneType{}).Where("code = ?", zt).Count(&count).Error; err != nil {
+		return fmt.Errorf("zone_type 字典加载失败：%w", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("zone_type %q 非法（须为部署级 zone_type 字典取值）", zt)
+	}
+	return nil
+}
+
 // nameExists reports whether another non-deleted network domain already uses the
 // given name. excludeID lets update skip the domain being edited. Names are
 // compared case-insensitively (SQLite stores them as-is; lower() folds ASCII).
@@ -76,6 +112,16 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 		}
 		if !validDomainType(req.DomainType) {
 			response.BadRequest(c, fmt.Errorf("invalid domain_type %q: only edge domains can be registered; management domains are system-provisioned", req.DomainType))
+			return
+		}
+		// 决策 103 scheme-B：zone_type 必填且须为部署级 zone_type 字典取值（不可自由文本）。
+		if err := validateNetworkDomainZoneType(db, req.ZoneType); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+		// 决策 103 scheme-B：cloud_code 必填且须引用已启用云字典条目；字典加载失败即报错，不放行。
+		if err := validateCloudCodeEnabled(db, req.CloudCode); err != nil {
+			response.BadRequest(c, err)
 			return
 		}
 		if req.DomainCode == models.DefaultDomainID {
@@ -132,6 +178,7 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			Description:         req.Description,
 			DomainType:          req.DomainType,
 			ZoneType:            req.ZoneType,
+			CloudCode:           req.CloudCode,
 			TenantID:            tenantID,
 			AuthorizedTenantIDs: auth,
 			IPCIDRs:             req.IPCIDRs,
@@ -140,17 +187,22 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			Channel: models.ChannelForDomainType(req.DomainType),
 			Status:  models.DomainStatusEnabled,
 		}
-		if err := db.Create(domain).Error; err != nil {
+		// 事务原子保护（决策 103）：网域创建与授权租户同步必须同生共死。
+		// 若 syncAuthorizedTenants 失败，整条登记回滚，避免产生"已建网域但无
+		// 授权租户"的孤儿记录。syncAuthorizedTenants 接收 *gorm.DB 句柄，可直接
+		// 传入事务句柄 tx。
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if cerr := tx.Create(domain).Error; cerr != nil {
+				return cerr
+			}
+			return syncAuthorizedTenants(tx, id, domain.AuthorizedTenantIDs)
+		}); err != nil {
 			// 兜底：主键唯一约束冲突（如软删记录 PK 残留）映射为 409 而非 500。
 			if isUniqueConstraintError(err) {
 				response.Conflict(c, fmt.Errorf("network domain id %q already exists", id))
 				return
 			}
 			response.InternalServerError(c, fmt.Errorf("create network domain %q: %w", id, err))
-			return
-		}
-		if err := syncAuthorizedTenants(db, id, domain.AuthorizedTenantIDs); err != nil {
-			response.InternalServerError(c, err)
 			return
 		}
 		response.OK(c, domain)

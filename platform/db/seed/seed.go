@@ -27,6 +27,9 @@ func Run(db *gorm.DB) error {
 	if err := runZoneTypes(db); err != nil {
 		return fmt.Errorf("seed zone types: %w", err)
 	}
+	if err := runCloudDicts(db); err != nil {
+		return fmt.Errorf("seed cloud dict: %w", err)
+	}
 	if err := runLabelTemplates(db); err != nil {
 		return fmt.Errorf("seed label templates: %w", err)
 	}

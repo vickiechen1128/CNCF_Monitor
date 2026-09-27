@@ -10,6 +10,7 @@ const updateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 const applicationDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
+const cloudDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
 const osOptionListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -26,6 +27,11 @@ vi.mock('../../api/resources', () => ({
   // 决策 92：表单「应用」字段改为应用字典启用条目下拉
   applicationDictApi: {
     list: (...a: unknown[]) => applicationDictListMock(...a),
+  },
+  // 云字典 mock：决策 103 scheme-B 后资源表单不再消费云字典（无「云」录入项），
+  // 此处保留仅为字典类 mock 的兼容性，不被本文件用例断言。
+  cloudDictApi: {
+    list: (...a: unknown[]) => cloudDictListMock(...a),
   },
 }))
 
@@ -60,6 +66,12 @@ const businessDomains = [
   { code: 'legacy', name: '停用业务', description: '', enabled: false },
 ]
 
+/** 云字典（§5.20 / 决策 98：部署级只读；表单已不再消费，保留供字典 mock 兼容） */
+const cloudDicts = [
+  { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true },
+  { cloud_code: 'OLD-TX', cloud_name: '已下线云', cloud_type: 'PUB', carrier: 'TX', enabled: false },
+]
+
 function hostRecord(): ResourceListItem {
   return {
     resource_id: 'mc-res-1',
@@ -76,6 +88,7 @@ function hostRecord(): ResourceListItem {
     hostname: 'prod-web-01.volc',
     instance_ip: '10.0.1.11',
     os_type: 'Linux',
+    cloud_code: 'PUB-TX',
   }
 }
 
@@ -111,6 +124,7 @@ async function fillHostRequiredFields() {
   fireEvent.click(await screen.findByText('prod'))
   openSelect('请选择运行状态')
   fireEvent.click(await screen.findByText('在线'))
+  // 决策 103 scheme-B：表单已无「云」录入项（云由所属网域派生）
   fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
   fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
   fireEvent.change(getOsInput(), { target: { value: 'Ubuntu' } })
@@ -137,6 +151,7 @@ describe('ResourceFormDrawer', () => {
     networkDomainListMock.mockReset()
     businessDomainListMock.mockReset()
     osOptionListMock.mockReset()
+    cloudDictListMock.mockReset()
     cancelMock.mockReset()
     successMock.mockReset()
     networkDomainListMock.mockResolvedValue({
@@ -157,6 +172,7 @@ describe('ResourceFormDrawer', () => {
         ],
       },
     })
+    cloudDictListMock.mockResolvedValue({ status: 'success', data: { list: cloudDicts, total: 2 } })
   })
 
   it('submits create with shared + host fields and calls onSuccess/onCancel', async () => {
@@ -191,6 +207,7 @@ describe('ResourceFormDrawer', () => {
     fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
     openSelect('请选择环境')
     fireEvent.click(await screen.findByText('prod'))
+    // 决策 103 scheme-B：表单已无「云」录入项（云由所属网域派生）
     fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
     fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
     // §5.6 操作系统必填（AutoComplete combobox 模式）
@@ -451,6 +468,57 @@ describe('ResourceFormDrawer', () => {
   // #19 通病（v1.35 规范）：antd Drawer 首次打开时内容惰性挂载（rc-drawer 动画期晚于
   // useEffect(open) 的 setFieldsValue），字段注册前 setFieldsValue 被吞、编辑回显首次为空；
   // forceRender 保证 Form 常驻挂载后，关闭→打开切换（刷新后首次点「编辑」）即正确回显。
+  // 决策 103 scheme-B：云由资源所属网域派生（列表 / 详情只读呈现），资源表单不再提供
+  // 「云」录入项——既无下拉、也不再拉取云字典（原决策 98/102 的「必填分化」口径作废）。
+  it('决策 103 scheme-B：资源表单不提供「云」录入项（云由所属网域派生）', async () => {
+    renderDrawer({ category: 'host' })
+    await waitFor(() => expect(screen.getByText('请选择网域')).toBeInTheDocument())
+    expect(screen.queryByText('请选择云')).toBeNull()
+    expect(screen.queryByText('请选择云（可选）')).toBeNull()
+    // 决策 102-③ 精神延续：云随部署预置、全局只读，表单无任何「新建云」入口
+    expect(screen.queryByText(/新建云|创建云|登记云/)).toBeNull()
+  })
+
+  it('决策 103 scheme-B：generic_target 提交体不含 cloud_code（云不经资源写链路）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    // 决策 103 scheme-B：填其余必填项即可提交，请求体不再携带 cloud_code
+    renderDrawer({ category: 'generic_target' })
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择业务')
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    openSelect('请选择环境')
+    fireEvent.click(await screen.findByText('prod'))
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    fireEvent.change(screen.getByPlaceholderText('如 核心交换-01'), { target: { value: 'core-sw-01' } })
+    fireEvent.change(screen.getByPlaceholderText('如 172.16.0.1'), { target: { value: '172.16.0.1' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ resource_category: 'generic_target' })
+    expect(createMock.mock.calls[0][0].cloud_code).toBeUndefined()
+  })
+
+  it('决策 103 scheme-B：host 提交体不含 cloud_code（云由所属网域派生）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await fillHostRequiredFields()
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    const payload = createMock.mock.calls[0][0] as Record<string, unknown>
+    expect(payload.cloud_code).toBeUndefined()
+    expect(Object.keys(payload)).not.toContain('cloud_code')
+  })
+
+  it('决策 103 scheme-B：编辑态不再回填 cloud_code（无该表单项）', async () => {
+    renderDrawer({ mode: 'edit', category: 'host', record: hostRecord() })
+    // 以实例名回填完成作为「编辑态字段已装载」的信号（网域/运行状态回填后不再显示 placeholder）
+    expect(await screen.findByDisplayValue('prod-web-01')).toBeInTheDocument()
+    // 云值由所属网域派生，表单无任何「云」录入项，故不再回填 cloud_code
+    expect(screen.queryByText('腾讯云 (PUB-TX)')).toBeNull()
+    expect(screen.queryByText('请选择云')).toBeNull()
+  })
+
   it('edit mode echoes fields on first open (closed → open switch)', async () => {
     const { rerender } = render(
       <ResourceFormDrawer

@@ -6,10 +6,10 @@ type LabelSourceType string
 
 // Label source type constants.
 const (
-	LabelSourceTypeResourceField      LabelSourceType = "resource_field"
-	LabelSourceTypeComposite          LabelSourceType = "composite"
-	LabelSourceTypePrometheusBuiltin  LabelSourceType = "prometheus_builtin"
-	LabelSourceTypeCMDB               LabelSourceType = "cmdb_field" // v0.4+
+	LabelSourceTypeResourceField     LabelSourceType = "resource_field"
+	LabelSourceTypeComposite         LabelSourceType = "composite"
+	LabelSourceTypePrometheusBuiltin LabelSourceType = "prometheus_builtin"
+	LabelSourceTypeCMDB              LabelSourceType = "cmdb_field" // v0.4+
 )
 
 // LabelMapping defines a single source field to Prometheus label mapping,
@@ -52,7 +52,7 @@ func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 
 	// host / database / middleware / generic_target share the composite→instance
 	// built-in mapping plus common resource-field mappings.
-	return []LabelMapping{
+	mappings := []LabelMapping{
 		{SourceField: "instance_ip:port", SourceType: LabelSourceTypeComposite, TargetLabel: "instance", Enabled: true},
 		{SourceField: "resource_id", SourceType: LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
 		{SourceField: "app_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
@@ -60,4 +60,8 @@ func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 		{SourceField: "cluster", SourceType: LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},
 		{SourceField: "biz_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "biz", Enabled: true},
 	}
+	// 决策 103 scheme-B：cloud / zone / network_domain 三标签改由 TARGET-LEVEL
+	// SYSTEM 层（ResolveJobTargets）强制注入，不再经 LabelTemplate 默认映射派生，
+	// 故此处不再为任何资源类别注入 cloud 映射（含原 host 专属 cloud_code→cloud）。
+	return mappings
 }

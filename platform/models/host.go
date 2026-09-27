@@ -14,32 +14,32 @@ type Host struct {
 	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
-	CloudCode     string `gorm:"size:50" json:"cloud_code"`
+	CloudCode        string           `gorm:"size:50" json:"cloud_code"`
 	// AppCode 是不可变的应用编码（app_code，决策 92）：资源侧只存编码，app label 恒取
 	// 此值；展示名由应用字典 AppName 承载，改展示名不触发配置重生成/下发。
-	AppCode       string `gorm:"size:100" json:"app_code"`
+	AppCode string `gorm:"size:100" json:"app_code"`
 	// SubAppCode 物理列名沿用历史 CMDB 遗留名；其语义恒等于 cluster（集群），**不是**
 	// 子应用（PRD 已禁止 cluster 复用承载子应用）。改展示名/编码均不影响此列。
-	SubAppCode    string `gorm:"size:100" json:"sub_app_code"`
-	EnvFlag       string `gorm:"size:20" json:"env_flag"`
-	ServerID      string `gorm:"size:64;uniqueIndex:idx_host_server_id" json:"server_id"`
-	InstanceName  string `gorm:"size:200;not null" json:"instance_name"`
-	Status        string `gorm:"size:20;not null" json:"status"`
-	Region        string `gorm:"size:50;not null" json:"region"`
-	ZoneEnv       string `gorm:"size:20;not null" json:"zone_env"`
-	InstanceSpec  string `gorm:"size:50;not null" json:"instance_spec"`
-	VCPU          int    `json:"vcpu"`
-	MemoryGB      int    `json:"memory_gb"`
-	Image         string `gorm:"size:200;not null" json:"image"`
-	SystemDiskGB  int    `json:"system_disk_gb"`
-	DataDiskGB    int    `json:"data_disk_gb"`
-	PublicIP      string `gorm:"size:50" json:"public_ip"`
-	Bandwidth     int    `json:"bandwidth"`
-	PrivateSubnet string `gorm:"size:50" json:"private_subnet"`
-	PrivateIP     string `gorm:"size:50" json:"private_ip"`
-	Purpose       string `gorm:"size:200" json:"purpose"`
-	VPC           string `gorm:"size:100;not null" json:"vpc"`
-	SecurityGroup string `gorm:"size:100;not null" json:"security_group"`
+	SubAppCode    string     `gorm:"size:100" json:"sub_app_code"`
+	EnvFlag       string     `gorm:"size:20" json:"env_flag"`
+	ServerID      string     `gorm:"size:64;uniqueIndex:idx_host_server_id" json:"server_id"`
+	InstanceName  string     `gorm:"size:200;not null" json:"instance_name"`
+	Status        string     `gorm:"size:20;not null" json:"status"`
+	Region        string     `gorm:"size:50;not null" json:"region"`
+	ZoneEnv       string     `gorm:"size:20;not null" json:"zone_env"`
+	InstanceSpec  string     `gorm:"size:50;not null" json:"instance_spec"`
+	VCPU          int        `json:"vcpu"`
+	MemoryGB      int        `json:"memory_gb"`
+	Image         string     `gorm:"size:200;not null" json:"image"`
+	SystemDiskGB  int        `json:"system_disk_gb"`
+	DataDiskGB    int        `json:"data_disk_gb"`
+	PublicIP      string     `gorm:"size:50" json:"public_ip"`
+	Bandwidth     int        `json:"bandwidth"`
+	PrivateSubnet string     `gorm:"size:50" json:"private_subnet"`
+	PrivateIP     string     `gorm:"size:50" json:"private_ip"`
+	Purpose       string     `gorm:"size:200" json:"purpose"`
+	VPC           string     `gorm:"size:100;not null" json:"vpc"`
+	SecurityGroup string     `gorm:"size:100;not null" json:"security_group"`
 	ExpiredAt     *time.Time `json:"expired_at,omitempty"`
 }
 
@@ -63,6 +63,8 @@ func (h *Host) GetResourceType() ResourceType { return ResourceTypeHost }
 // AppCode (决策 92：资源侧只存编码，app label 恒取 app_code)。
 func (h *Host) GetAppCode() string { return h.AppCode }
 
+// GetCloudCode returns the shared cloud dictionary code.
+func (h *Host) GetCloudCode() string { return h.CloudCode }
 
 // GetEnv returns the environment, mapped from EnvFlag.
 func (h *Host) GetEnv() string { return h.EnvFlag }

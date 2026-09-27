@@ -34,6 +34,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.CITypeExporterMapping{},
 		&models.ExporterMetricLibrary{},
 		&models.ApplicationDict{},
+		&models.CloudDict{},
 	))
 	return db
 }
