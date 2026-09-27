@@ -40,6 +40,7 @@ import type { NetworkDomain } from '../../types/domain'
 import type { ApplicationDict, BusinessDomain, CloudDict, ResourceCategory } from '../../types/resource'
 import type { CoverageState } from '../../types/query'
 import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
+import { EllipsisText } from '../../components/EllipsisText'
 import { useResources } from './useResources'
 import type { ResourceListItem } from './useResources'
 import { useResourceCoverage } from './useResourceCoverage'
@@ -473,7 +474,10 @@ export function ResourcesPage() {
             // 决策 70 / F-38：原副行展示 `hostname`，其值与 `instance_name` 同源
             // （host.go `Hostname()` 即 `InstanceName`），视觉上重复且无信息增量；
             // 且本 Tab 已有独立「IP 地址」列 —— 直接删除副行，与 M08「实例名」列逐字对应。
-            render: (_: unknown, record: ResourceListItem) => <Text strong>{record.instance_name || '-'}</Text>,
+            // 主标识列固定左侧（tablePresets 规则：主标识列 fixed:'left'），横向滚动不丢失。
+            fixed: 'left',
+            width: 180,
+            render: (_: unknown, record: ResourceListItem) => <EllipsisText strong>{record.instance_name || '-'}</EllipsisText>,
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
@@ -503,7 +507,8 @@ export function ResourcesPage() {
       case 'database':
         return [
           // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
-          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', fixed: 'left', width: 180, render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText> },
           {
             title: '数据库类型',
             dataIndex: 'database_type',
@@ -525,7 +530,8 @@ export function ResourcesPage() {
       case 'middleware':
         return [
           // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
-          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', fixed: 'left', width: 180, render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText> },
           {
             title: '中间件类型',
             dataIndex: 'middleware_type',
@@ -557,7 +563,10 @@ export function ResourcesPage() {
             ),
             dataIndex: 'service_name',
             key: 'service_name',
-            render: (v?: string) => <Text strong>{v || '-'}</Text>,
+            // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长服务名截断 + 悬浮全文。
+            fixed: 'left',
+            width: 180,
+            render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
           },
           {
             // 健康检查 URL 为应用实际访问地址（业务健康检查用），不参与指标采集
@@ -617,7 +626,10 @@ export function ResourcesPage() {
             title: '目标名称',
             dataIndex: 'target_name',
             key: 'target_name',
-            render: (v?: string) => <Text strong>{v || '-'}</Text>,
+            // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长目标名截断 + 悬浮全文。
+            fixed: 'left',
+            width: 180,
+            render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
           },
           { title: 'Exporter 类型', dataIndex: 'exporter_type', key: 'exporter_type', render: (v?: string) => v || '-' },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
