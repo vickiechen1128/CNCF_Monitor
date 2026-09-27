@@ -62,6 +62,8 @@ func AutoMigrate() error {
 		&models.BusinessDomain{},
 		// 应用字典（决策 92：app_code/app_name 双层，对齐业务分组）
 		&models.ApplicationDict{},
+		// 云字典（决策 98/102：部署级只读）
+		&models.CloudDict{},
 		// 用户认证（Module_06 §5.3/§5.4，Module_03 §4.0）
 		&models.User{},
 		&models.Session{},
