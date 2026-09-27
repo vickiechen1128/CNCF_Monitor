@@ -36,11 +36,11 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDo
 	resources := platform.Group("/resources")
 	{
 		resources.GET("", ListResources(db))
-		resources.POST("", CreateResource(db, bizStore, appStore, cloudStore))
-		resources.PUT("/:resource_id", UpdateResource(db, bizStore, appStore, cloudStore))
+		resources.POST("", CreateResource(db, bizStore, appStore))
+		resources.PUT("/:resource_id", UpdateResource(db, bizStore, appStore))
 		resources.DELETE("/:resource_id", DeleteResource(db))
-		resources.GET("/:resource_id/template", withTypeParam(DownloadTemplate(bizStore, appStore, cloudStore, listDomainOptions(db))))
-		resources.POST("/:resource_id/import", withTypeParam(ImportResources(db, bizStore, appStore, cloudStore)))
+		resources.GET("/:resource_id/template", withTypeParam(DownloadTemplate(bizStore, appStore, listDomainOptions(db))))
+		resources.POST("/:resource_id/import", withTypeParam(ImportResources(db, bizStore, appStore)))
 
 		resourceLabels := resources.Group("/:resource_id/labels")
 		{

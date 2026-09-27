@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-27 10:58 · commit: `c29e993`
+> 生成时间: 2026-09-27 15:28 · commit: `9615a06`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -924,7 +924,6 @@
 
 ### `platform/config/resource/cloud_dict_test.go`
 
-- `func newCloudStore(t *testing.T) *CloudDictStore`
 - `func TestCloudDictStoreAndHandlerReturnAllEntries(t *testing.T)`
 - `func TestCloudDictStoreNilDBReturnsError(t *testing.T)`
 
@@ -941,7 +940,7 @@
 - `func applyMiddlewareInput(m *models.Middleware, in *ResourceInput)`
 - `func applyApplicationInput(a *models.Application, in *ResourceInput)`
 - `func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput)`
-- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore) …`
+- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
 
 ### `platform/config/resource/create_update_test.go`
 
@@ -1000,12 +999,12 @@
 - `func applyCells(row *ImportRow, header, cells []string)`
 - `func parsePort(raw string) (int, string)`
 - `func allEmpty(cells []string) bool`
-- `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictS…`
+- `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
 - `func fieldErr(row *ImportRow, field, value, reason string) error`
 - `func parseCustomLabels(raw string) (map[string]string, error)`
 - `func fieldFromResourceInputError(msg string) string`
 - `func valueFromField(in *ResourceInput, field, portRaw string) string`
-- `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStor…`
+- `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(…`
 
 ### `platform/config/resource/excel_declare.go`
 
@@ -1077,7 +1076,7 @@
 
 ### `platform/config/resource/import.go`
 
-- `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore)…`
+- `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
 - `func findExistingByDedupKey(db *gorm.DB, category models.ResourceCategory, row *ImportRow) (model any, found bool, err error)`
 - `func setSourceType(model any, st models.SourceType)`
 - `func newImportNo() string`
@@ -1283,8 +1282,8 @@
 ### `platform/config/resource/template.go`
 
 - `type DomainOption struct`
-- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, listDomains…`
-- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, listDomains …`
+- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, err…`
+- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, erro…`
 - `func statusValueDescription() string`
 - `func buildTemplateXLSX(columns []string, valueRows [][]string) ([]byte, error)`
 
@@ -1306,7 +1305,7 @@
 - `func findResourceByID(db *gorm.DB, resourceID string) (category models.ResourceCategory, model any, found bool, err error)`
 - `func sourceTypeOf(model any) models.SourceType`
 - `func updatableColumns(category models.ResourceCategory) []string`
-- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore) …`
+- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
 
 ### `platform/config/resource/validate.go`
 
@@ -1315,7 +1314,7 @@
 - `func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
 - `func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appS…`
 - `func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
-- `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictS…`
+- `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
 - `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
 - `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
 - `func validateHost(in *ResourceInput) error`

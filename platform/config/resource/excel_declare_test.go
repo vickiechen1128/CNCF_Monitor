@@ -66,7 +66,7 @@ func mountImportOnDict(t *testing.T, db *gorm.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/platform/resources/:type/import",
-		ImportResources(db, NewBusinessDomainStore(db), NewApplicationDictStore(db), NewCloudDictStore(db)))
+		ImportResources(db, NewBusinessDomainStore(db), NewApplicationDictStore(db)))
 	return r
 }
 

@@ -187,17 +187,22 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			Channel: models.ChannelForDomainType(req.DomainType),
 			Status:  models.DomainStatusEnabled,
 		}
-		if err := db.Create(domain).Error; err != nil {
+		// 事务原子保护（决策 103）：网域创建与授权租户同步必须同生共死。
+		// 若 syncAuthorizedTenants 失败，整条登记回滚，避免产生"已建网域但无
+		// 授权租户"的孤儿记录。syncAuthorizedTenants 接收 *gorm.DB 句柄，可直接
+		// 传入事务句柄 tx。
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if cerr := tx.Create(domain).Error; cerr != nil {
+				return cerr
+			}
+			return syncAuthorizedTenants(tx, id, domain.AuthorizedTenantIDs)
+		}); err != nil {
 			// 兜底：主键唯一约束冲突（如软删记录 PK 残留）映射为 409 而非 500。
 			if isUniqueConstraintError(err) {
 				response.Conflict(c, fmt.Errorf("network domain id %q already exists", id))
 				return
 			}
 			response.InternalServerError(c, fmt.Errorf("create network domain %q: %w", id, err))
-			return
-		}
-		if err := syncAuthorizedTenants(db, id, domain.AuthorizedTenantIDs); err != nil {
-			response.InternalServerError(c, err)
 			return
 		}
 		response.OK(c, domain)

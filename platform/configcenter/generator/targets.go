@@ -55,6 +55,13 @@ func exporterPortOr(exporterPort, fallback int) int {
 // resolveResource 按 resource_id 在五类资源表中解析目标实例
 // （address / 标签模板字段视图 / status / category）。
 //
+// 多态探测说明（L3 / TQ 取舍）：resource_id 当前未冗余 category 字段，故按
+// host→database→middleware→application→generic_target 顺序探测，命中即返回。
+// 单资源最多 4 次 ErrRecordNotFound 探测，属既有模式、非本次回归。网域 N+1 已
+// 由 ResolveJobTargets 的 domainCache 批量预取消除；若后续需彻底去掉 5 路探测，
+// 需在资源表冗余 category（或 resource_id 编码 category），属 schema 变更（中风险，
+// 超出本 LOW 修复范围），届时再统一改造。
+//
 // exporterPort 为采集策略层端口（见 LoadExporterPort）：host/database/middleware
 // 的抓取地址一律拼接 exporter 端口（exporter 进程监听端口），避免 Prometheus 默认
 // 落到 80 端口（target 缺端口修复，决策 42-4）；application 用实例自己登记的

@@ -50,8 +50,8 @@ func mountCreateUpdate(t *testing.T, db *gorm.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	bizStore := newBizStore(t)
 	r := gin.New()
-	r.POST("/api/v2/platform/resources", CreateResource(db, bizStore, newAppStore(t), newCloudStore(t)))
-	r.PUT("/api/v2/platform/resources/:resource_id", UpdateResource(db, bizStore, newAppStore(t), newCloudStore(t)))
+	r.POST("/api/v2/platform/resources", CreateResource(db, bizStore, newAppStore(t)))
+	r.PUT("/api/v2/platform/resources/:resource_id", UpdateResource(db, bizStore, newAppStore(t)))
 	return r
 }
 

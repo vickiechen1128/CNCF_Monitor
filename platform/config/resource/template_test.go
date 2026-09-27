@@ -31,7 +31,7 @@ func setupTemplateRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	bizStore := newBizStore(t)
 	r := gin.New()
-	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, newAppStore(t), newCloudStore(t), fakeDomains))
+	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, newAppStore(t), fakeDomains))
 	return r
 }
 
@@ -186,7 +186,7 @@ func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/platform/resources/:type/template",
-		DownloadTemplate(newBizStore(t), NewApplicationDictStore(openEmptyAppDictDB(t)), newCloudStore(t), fakeDomains))
+		DownloadTemplate(newBizStore(t), NewApplicationDictStore(openEmptyAppDictDB(t)), fakeDomains))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/platform/resources/host/template", nil)

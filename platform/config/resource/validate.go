@@ -88,25 +88,25 @@ type KeepDisabledValues struct {
 //     调用方决定）。
 //
 // 校验失败返回含字段名的错误，供 handler 包装为 bad_request（§6.6.1）。
-func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool) error {
-	return validateResourceInput(category, in, bizStore, appStore, cloudStore, networkDomainExists, nil)
+func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool) error {
+	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, nil)
 }
 
 // ValidateResourceInputForUpdate 与 ValidateResourceInput 同校验，但允许「编辑保留
 // 停用历史值」（决策 92/93）：keep 指向资源当前值，请求体值与其相同时跳过对应
 // 启用态校验（提示并允许保留历史值），修改为新值仍被拒绝。
-func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
-	return validateResourceInput(category, in, bizStore, appStore, cloudStore, networkDomainExists, keep)
+func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, keep)
 }
 
-func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if in == nil {
 		return fmt.Errorf("resource input 不能为空")
 	}
 	if !isValidCategory(category) {
 		return fmt.Errorf("resource_category 非法：%s", category)
 	}
-	if err := validateCommon(in, bizStore, appStore, cloudStore, networkDomainExists, keep); err != nil {
+	if err := validateCommon(in, bizStore, appStore, networkDomainExists, keep); err != nil {
 		return err
 	}
 	switch category {
@@ -128,7 +128,7 @@ func validateResourceInput(category models.ResourceCategory, in *ResourceInput, 
 // （若填）须对应启用应用字典条目、env/status 枚举。必填分化不在本函数内——按类型
 // 差异化必填由各 validate* 分派（决策 93/95：application 的 biz 必填在
 // validateApplication、generic_target 二选一在 validateGenericTarget）。
-func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if strings.TrimSpace(in.NetworkDomainID) == "" {
 		return fmt.Errorf("network_domain_id 必填")
 	}
@@ -316,8 +316,11 @@ func validateGenericTarget(in *ResourceInput) error {
 	if !IsValidInstanceIP(in.InstanceIP) {
 		return fmt.Errorf("instance_ip 格式不正确：%q（应为 IPv4 或域名）", in.InstanceIP)
 	}
+	// generic_target 的 port 可选：0 表示未设置（采集地址不带端口，见
+	// instanceAddress）。范围校验为 0（未设置）或 1~65535；消息保留 "1~65535"
+	// 子串以兼容 excel 导入校验测试（excel_test.go）。
 	if in.Port < 0 || in.Port > 65535 {
-		return fmt.Errorf("port 必须在 1~65535 之间，当前：%d", in.Port)
+		return fmt.Errorf("port 必须为 0（未设置）或 1~65535，当前：%d", in.Port)
 	}
 	if strings.TrimSpace(in.Scheme) != "" && !containsString(models.ValidSchemes, in.Scheme) {
 		return fmt.Errorf("scheme 必须是 http/https 之一，当前：%q", in.Scheme)

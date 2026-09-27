@@ -10,6 +10,11 @@ import (
 )
 
 // CloudDict 是云字典只读 API 的传输视图。
+//
+// 注意（前端红线的④对齐）：cloud_type / carrier 仅为描述性元数据
+// （如"公有云/私有云"、"运营商"），用于展示与筛选辅助，绝非独立的分类轴。
+// 资源的云/区/网域归属一律由 network_domain.cloud_code / zone_type 派生
+// （决策 103 scheme-B），前端不得将其渲染为独立列或独立筛选维度。
 type CloudDict struct {
 	CloudCode string              `json:"cloud_code"`
 	CloudName string              `json:"cloud_name"`

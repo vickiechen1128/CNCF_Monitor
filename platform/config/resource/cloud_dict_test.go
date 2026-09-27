@@ -1,9 +1,7 @@
 package resource
 
 import (
-	"fmt"
 	"net/http"
-	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -13,22 +11,6 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
-
-var cloudTestDBCounter int64
-
-func newCloudStore(t *testing.T) *CloudDictStore {
-	t.Helper()
-	n := atomic.AddInt64(&cloudTestDBCounter, 1)
-	db, err := gorm.Open(sqlite.Open(fmt.Sprintf("file:resource_cloud_store_%d?mode=memory&cache=shared", n)), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.CloudDict{}))
-	require.NoError(t, db.Create(&[]models.CloudDict{
-		{CloudCode: "PUB-TX", CloudName: "腾讯云", CloudType: models.CloudTypePublic, Carrier: models.CloudCarrierTencent, Enabled: true},
-		{CloudCode: "GM-CU", CloudName: "政务云（联通）", CloudType: models.CloudTypeGovernment, Carrier: models.CloudCarrierUnicom, Enabled: true},
-		{CloudCode: "OLD-CLOUD", CloudName: "历史云", CloudType: models.CloudTypePrivate, Carrier: models.CloudCarrierTencent, Enabled: false},
-	}).Error)
-	return NewCloudDictStore(db)
-}
 
 func TestCloudDictStoreAndHandlerReturnAllEntries(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:resource_cloud_dict?mode=memory&cache=shared"), &gorm.Config{})

@@ -67,10 +67,9 @@ type DomainOption struct {
 //   - 未知类型返回 not_found。
 //
 // 依赖通过函数注入以保持可测试性：bizStore 提供业务字典启用项（T07-02），appStore 提供
-// 应用字典启用项（决策 92/96，F-7 ①：取值说明实时注入 app_code 可取值），cloudStore
-// 提供云字典启用项（决策 98/102-③：云字典随部署预置、只读取值），listDomains
+// 应用字典启用项（决策 92/96，F-7 ①：取值说明实时注入 app_code 可取值），listDomains
 // 由调用方提供 M06 网域清单查询（T07-18 路由注册时注入 db 查询）。
-func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
+func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		typeName := c.Param("type")
 		category := models.ResourceCategory(typeName)
@@ -80,7 +79,7 @@ func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictSt
 			return
 		}
 
-		valueRows, err := buildValueSheet(bizStore, appStore, cloudStore, listDomains)
+		valueRows, err := buildValueSheet(bizStore, appStore, listDomains)
 		if err != nil {
 			response.InternalServerError(c, fmt.Errorf("生成「取值说明」失败：%w", err))
 			return
@@ -103,7 +102,7 @@ func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictSt
 // 不进入，PRD §3.1）、app_code（应用字典启用项，决策 92/96，F-7 ①：与 biz_code
 // 同构 `code（名称）`，空字典输出占位）、env 枚举、status 中文取值（§5.5.1 默认
 // 映射）、custom_labels 格式说明。
-func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
+func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
 	rows := [][]string{
 		{"取值字段", "合法值 / 格式说明"},
 	}
