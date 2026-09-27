@@ -82,25 +82,25 @@ type KeepDisabledValues struct {
 //     调用方决定）。
 //
 // 校验失败返回含字段名的错误，供 handler 包装为 bad_request（§6.6.1）。
-func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool) error {
-	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, nil)
+func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool) error {
+	return validateResourceInput(category, in, bizStore, appStore, cloudStore, networkDomainExists, nil)
 }
 
 // ValidateResourceInputForUpdate 与 ValidateResourceInput 同校验，但允许「编辑保留
 // 停用历史值」（决策 92/93）：keep 指向资源当前值，请求体值与其相同时跳过对应
 // 启用态校验（提示并允许保留历史值），修改为新值仍被拒绝。
-func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
-	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, keep)
+func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+	return validateResourceInput(category, in, bizStore, appStore, cloudStore, networkDomainExists, keep)
 }
 
-func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if in == nil {
 		return fmt.Errorf("resource input 不能为空")
 	}
 	if !isValidCategory(category) {
 		return fmt.Errorf("resource_category 非法：%s", category)
 	}
-	if err := validateCommon(in, bizStore, appStore, networkDomainExists, keep); err != nil {
+	if err := validateCommon(in, bizStore, appStore, cloudStore, networkDomainExists, keep); err != nil {
 		return err
 	}
 	switch category {
@@ -122,7 +122,7 @@ func validateResourceInput(category models.ResourceCategory, in *ResourceInput, 
 // （若填）须对应启用应用字典条目、env/status 枚举。必填分化不在本函数内——按类型
 // 差异化必填由各 validate* 分派（决策 93/95：application 的 biz 必填在
 // validateApplication、generic_target 二选一在 validateGenericTarget）。
-func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if strings.TrimSpace(in.NetworkDomainID) == "" {
 		return fmt.Errorf("network_domain_id 必填")
 	}
@@ -193,6 +193,7 @@ func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error {
 	return nil
 }
 
+// validateHost 校验 host 资源必填字段（决策 93：host 的 biz_code 可空后补）。
 func validateHost(in *ResourceInput) error {
 	if strings.TrimSpace(in.InstanceIP) == "" {
 		return fmt.Errorf("instance_ip 必填")

@@ -66,7 +66,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
 		}
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, newCloudStore(t), alwaysExists))
 	})
 
 	t.Run("disabled app_code fails", func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
 		}
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, newCloudStore(t), alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "legacy-app")
 	})
@@ -100,7 +100,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
 		}
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, newCloudStore(t), alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not-registered")
 	})
@@ -108,7 +108,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 	t.Run("empty app_code allowed for host", func(t *testing.T) {
 		in := validHostInput()
 		in.AppCode = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, newBizStore(t), appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, newBizStore(t), appStore, newCloudStore(t), alwaysExists))
 	})
 }
 

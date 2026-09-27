@@ -39,6 +39,7 @@ func openCreateUpdateTestDB(t *testing.T) *gorm.DB {
 		&models.Application{},
 		&models.GenericTarget{},
 		&models.NetworkDomain{},
+		&models.CloudDict{},
 	))
 	return db
 }
@@ -49,8 +50,8 @@ func mountCreateUpdate(t *testing.T, db *gorm.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	bizStore := newBizStore(t)
 	r := gin.New()
-	r.POST("/api/v2/platform/resources", CreateResource(db, bizStore, newAppStore(t)))
-	r.PUT("/api/v2/platform/resources/:resource_id", UpdateResource(db, bizStore, newAppStore(t)))
+	r.POST("/api/v2/platform/resources", CreateResource(db, bizStore, newAppStore(t), newCloudStore(t)))
+	r.PUT("/api/v2/platform/resources/:resource_id", UpdateResource(db, bizStore, newAppStore(t), newCloudStore(t)))
 	return r
 }
 
@@ -179,8 +180,8 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 		{
 			name: "database",
 			body: map[string]interface{}{
-			"resource_category": "database", "network_domain_id": "default",
-			"biz_code": "payment", "app_code": "pay-db", "cluster": "pay",
+				"resource_category": "database", "network_domain_id": "default",
+				"biz_code": "payment", "app_code": "pay-db", "cluster": "pay",
 				"status": "online", "env": "prod",
 				"database_type": "mysql", "instance_ip": "10.0.0.10", "port": 3306,
 			},

@@ -121,11 +121,73 @@ func listTyped[T any](db *gorm.DB, category models.ResourceCategory, f ListFilte
 		return nil, 0, fmt.Errorf("list %s resources: %w", category, err)
 	}
 
+	// 决策 103 scheme-B：cloud_code / zone_type 统一经 network_domain_id 派生，对全部
+	// 五类资源注入（批量反查网域避免 N+1；网域缺失时回退空串）。
+	domainMap, err := loadDomainCloudZone(db, rows)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	list := make([]map[string]interface{}, 0, len(rows))
 	for i := range rows {
-		list = append(list, buildListItem(&rows[i], category))
+		item := buildListItem(&rows[i], category)
+		if dom, ok := domainMap[networkDomainIDOf(&rows[i])]; ok {
+			item["cloud_code"] = dom.CloudCode
+			item["zone_type"] = dom.ZoneType
+		} else {
+			item["cloud_code"] = ""
+			item["zone_type"] = ""
+		}
+		list = append(list, item)
 	}
 	return list, total, nil
+}
+
+// networkDomainIDOf 从具体资源模型读取其所属 network_domain_id（决策 103 scheme-B
+// cloud / zone / network_domain 三标签派生的统一入口）。未识别类型返回空串。
+func networkDomainIDOf(res any) string {
+	switch r := res.(type) {
+	case *models.Host:
+		return r.NetworkDomainID
+	case *models.Database:
+		return r.NetworkDomainID
+	case *models.Middleware:
+		return r.NetworkDomainID
+	case *models.Application:
+		return r.NetworkDomainID
+	case *models.GenericTarget:
+		return r.NetworkDomainID
+	}
+	return ""
+}
+
+// loadDomainCloudZone 按去重后的 network_domain_id 集合批量反查网域，返回
+// id -> {cloud_code, zone_type} 映射，供列表/详情派生 cloud / zone 标签（避免 N+1）。
+func loadDomainCloudZone[T any](db *gorm.DB, rows []T) (map[string]models.NetworkDomain, error) {
+	ids := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for i := range rows {
+		id := networkDomainIDOf(&rows[i])
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	out := make(map[string]models.NetworkDomain, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var doms []models.NetworkDomain
+	if err := db.Select("id", "cloud_code", "zone_type").Where("id IN ?", ids).Find(&doms).Error; err != nil {
+		return nil, fmt.Errorf("load network domains for cloud_code/zone_type: %w", err)
+	}
+	for _, d := range doms {
+		out[d.ID] = d
+	}
+	return out, nil
 }
 
 // buildListItem 将某类资源行归一化为列表响应 item。
@@ -147,9 +209,9 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 	switch r := res.(type) {
 	case *models.Host:
 		item["instance_name"] = r.InstanceName
-		item["hostname"] = r.Hostname()    // legacy: InstanceName
+		item["hostname"] = r.Hostname()      // legacy: InstanceName
 		item["instance_ip"] = r.InstanceIP() // legacy: PrivateIP
-		item["os_type"] = r.OSType()       // legacy: Image
+		item["os_type"] = r.OSType()         // legacy: Image
 	case *models.Database:
 		item["database_type"] = r.DatabaseType
 		item["instance_ip"] = r.InstanceIP

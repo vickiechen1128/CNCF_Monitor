@@ -49,7 +49,7 @@ const maxImportFileSize = 10 << 20
 //     field, value, reason}]}，create_only 不含 updated 字段。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc {
+func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. 资源类型：表单优先，路径 :type 兜底。
 		categoryStr := strings.TrimSpace(c.PostForm("resource_category"))
@@ -135,7 +135,7 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 			return
 		}
 		// 事务内 store：声明条目在事务内可见，资源行校验的「字典∪声明」可达性天然成立。
-		valid, errs := ValidateRows(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx), networkDomainExistsFunc(tx), nil)
+		valid, errs := ValidateRows(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx), NewCloudDictStore(tx), networkDomainExistsFunc(tx), nil)
 
 		// 6. 逐行执行 create_only/upsert。
 		total := len(rows)
@@ -163,6 +163,11 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 				// upsert：覆盖更新（不可变列不进入更新列）。
 				applyInputToModel(category, existing, &row.Input)
 				cols := updatableColumns(category)
+				// zone_env 仅走导入链路（host 兼容列），不进 PUT 可更新列。
+				if h, ok := existing.(*models.Host); ok {
+					h.ZoneEnv = row.ZoneEnv
+					cols = append(cols, "zone_env")
+				}
 				if err := tx.Model(existing).Select(cols).Updates(existing).Error; err != nil {
 					response.InternalServerError(c, fmt.Errorf("更新 %s 资源失败（第 %d 行）：%w", category, row.Row, err))
 					return
@@ -177,6 +182,11 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 				return
 			}
 			setSourceType(model, models.SourceTypeImport)
+			// 决策 101 / §5.6：zone_env 为 host 兼容导入列，直接落 ZoneEnv 物理列——
+			// 不进标签、不作分区权威、不回写任何权威字段（如 network_domain.zone_type）。
+			if h, ok := model.(*models.Host); ok {
+				h.ZoneEnv = row.ZoneEnv
+			}
 			if err := tx.Create(model).Error; err != nil {
 				response.InternalServerError(c, fmt.Errorf("创建 %s 资源失败（第 %d 行）：%w", category, row.Row, err))
 				return

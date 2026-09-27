@@ -27,6 +27,7 @@ type ImportRow struct {
 	Input           ResourceInput
 	PortRaw         string // 原始 port 单元格文本（非数字时用于错误报告）
 	CustomLabelsRaw string // 原始 custom_labels 单元格文本
+	ZoneEnv         string // host 兼容导入列 zone_env 原文（决策 101 / §5.6）
 	Status          models.ResourceStatus
 	DedupKey        string
 }
@@ -169,6 +170,9 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.ExporterType = val
 		case "custom_labels":
 			row.CustomLabelsRaw = val // 解析与校验在 ValidateImportRow 中完成
+		case "zone_env":
+			// 决策 101 / §5.6：host 兼容导入列，仅解析不校验、不作分区权威。
+			row.ZoneEnv = val
 		}
 	}
 }
@@ -210,7 +214,7 @@ func allEmpty(cells []string) bool {
 //   - 校验通过后生成 DedupKey（T07-03）到 row.DedupKey 供 upsert 定位。
 //
 // 失败返回 *ImportRowError（携带完整 row/field/value/reason），成功返回 nil。
-func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
+func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
 	if row == nil {
 		return &ImportRowError{Detail: models.ImportErrorDetail{Field: "resource", Reason: "导入行为空"}}
 	}
@@ -306,8 +310,12 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 		in.CustomLabels = parsed
 	}
 
+	// 5.5 决策 103 scheme-B：cloud_code 不再经资源导入落库，统一由所属网域
+	// （network_domain_id）派生 cloud/zone 标签；历史单载体值（TX/CU）归一逻辑已
+	// 移至 M06 网域登记层，此处不再处理。
+
 	// 6. 其余字段校验复用 T07-03（必填/IP/端口范围/URL/env/protocol/scheme）。
-	if err := ValidateResourceInput(category, in, bizStore, appStore, networkDomainExists); err != nil {
+	if err := ValidateResourceInput(category, in, bizStore, appStore, cloudStore, networkDomainExists); err != nil {
 		field := fieldFromResourceInputError(err.Error())
 		return fieldErr(row, field, valueFromField(in, field, row.PortRaw), err.Error())
 	}
@@ -436,9 +444,9 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 // ValidateRows 逐行执行 ValidateImportRow，返回校验通过的合法行（已含映射后
 // Status 与 DedupKey）与失败明细（§5.16.3 结构，row 从 2 起始）。T07-10 导入
 // 执行在 ParseExcel 之后调用本函数，作为行级校验与错误行收集的统一入口。
-func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
+func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
 	for i := range rows {
-		if err := ValidateImportRow(&rows[i], bizStore, appStore, networkDomainExists, extraRules); err != nil {
+		if err := ValidateImportRow(&rows[i], bizStore, appStore, cloudStore, networkDomainExists, extraRules); err != nil {
 			var rerr *ImportRowError
 			if errors.As(err, &rerr) {
 				errs = append(errs, rerr.Detail)

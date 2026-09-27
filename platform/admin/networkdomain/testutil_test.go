@@ -31,6 +31,7 @@ func openTestDB(t *testing.T) *gorm.DB {
 		&models.Tenant{},
 		&models.NetworkDomain{},
 		&models.ZoneType{},
+		&models.CloudDict{},
 		&models.Host{},
 		&models.Database{},
 		&models.Middleware{},
@@ -69,6 +70,32 @@ func seedZoneTypes(t *testing.T, db *gorm.DB) {
 	}
 	for i := range items {
 		require.NoError(t, db.Create(&items[i]).Error)
+	}
+}
+
+// seedDomainRegistrationDicts 注入网域登记/编辑所需的部署级字典：zone_type
+// （internet / extranet 启用、dmz 停用）与云字典（PUB-TX / GM-CU 启用、OLD-CLOUD
+// 停用）。决策 103 scheme-B：登记接口要求 cloud_code 必填且引用「已启用」云字典
+// 条目、zone_type 必填且为部署级字典取值，故登记类用例须先注入字典。
+//
+// 注意：不放在 openTestDB 中自动注入——TestListZoneTypesEmpty 依赖「空字典」基线。
+func seedDomainRegistrationDicts(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	zones := []models.ZoneType{
+		{Code: string(models.ZoneTypeInternet), DisplayName: "互联网区", Description: "互联网区", Enabled: true},
+		{Code: string(models.ZoneTypeExtranet), DisplayName: "政务外网区", Description: "政务外网区", Enabled: true},
+		{Code: string(models.ZoneTypeDMZ), DisplayName: "DMZ区", Description: "DMZ区", Enabled: false},
+	}
+	for i := range zones {
+		require.NoError(t, db.Create(&zones[i]).Error)
+	}
+	clouds := []models.CloudDict{
+		{CloudCode: "PUB-TX", CloudName: "腾讯云", CloudType: models.CloudTypePublic, Carrier: models.CloudCarrierTencent, Enabled: true},
+		{CloudCode: "GM-CU", CloudName: "政务云（联通）", CloudType: models.CloudTypeGovernment, Carrier: models.CloudCarrierUnicom, Enabled: true},
+		{CloudCode: "OLD-CLOUD", CloudName: "历史云", CloudType: models.CloudTypePrivate, Carrier: models.CloudCarrierTencent, Enabled: false},
+	}
+	for i := range clouds {
+		require.NoError(t, db.Create(&clouds[i]).Error)
 	}
 }
 

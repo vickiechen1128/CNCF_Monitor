@@ -105,7 +105,7 @@ func updatableColumns(category models.ResourceCategory) []string {
 //  5. 成功返回更新后的完整对象（复用 T07-05 buildListItem）。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc {
+func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		resourceID := strings.TrimSpace(c.Param("resource_id"))
 		if resourceID == "" {
@@ -144,7 +144,7 @@ func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Applic
 		// 修改为新值/新选用停用条目仍被拒绝。
 		currentBiz, _ := GetResourceField(model, "biz_code")
 		currentApp, _ := GetResourceField(model, "app_code")
-		if err := ValidateResourceInputForUpdate(category, &in, bizStore, appStore, networkDomainExistsFunc(db),
+		if err := ValidateResourceInputForUpdate(category, &in, bizStore, appStore, cloudStore, networkDomainExistsFunc(db),
 			&KeepDisabledValues{BizCode: currentBiz, AppCode: currentApp}); err != nil {
 			response.BadRequest(c, err)
 			return

@@ -10,9 +10,10 @@ import (
 
 func TestAuthorizedTenantsDefaultBackfill(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	require.NoError(t, db.Create(&models.Tenant{ID: models.PlatformAdminTenantID, Name: "平台默认租户", Status: models.TenantStatusActive}).Error)
 
-	code, d, _ := postCreate(t, db, `{"name":"政务网A","domain_type":"edge","domain_code":"zhw-a"}`)
+	code, d, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"政务网A","domain_type":"edge","domain_code":"zhw-a"}`)
 	require.Equal(t, 200, code)
 	assert.Equal(t, []string{models.PlatformAdminTenantID}, d.AuthorizedTenantIDs)
 
@@ -24,6 +25,7 @@ func TestAuthorizedTenantsDefaultBackfill(t *testing.T) {
 
 func TestAuthorizedTenantsEditAddsAndRemoves(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	for _, id := range []string{models.PlatformAdminTenantID, "t-tenant-b", "t-tenant-c"} {
 		require.NoError(t, db.Create(&models.Tenant{ID: id, Name: id, Status: models.TenantStatusActive}).Error)
 	}
@@ -50,6 +52,7 @@ func TestAuthorizedTenantsEditAddsAndRemoves(t *testing.T) {
 
 func TestAuthorizedTenantsClearToEmpty(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	insertDomain(t, db, &models.NetworkDomain{
 		ID: "mc-share", Name: "共享", DomainType: models.DomainTypeEdge,
 		TenantID: models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},

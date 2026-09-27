@@ -26,7 +26,8 @@ func postCreate(t *testing.T, db *gorm.DB, body string) (int, models.NetworkDoma
 
 func TestCreateNetworkDomainOK(t *testing.T) {
 	db := openTestDB(t)
-	code, d, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","zone_type":"internet","domain_code":"zhw-a","description":"测试"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, d, _ := postCreate(t, db, `{"cloud_code":"PUB-TX","name":"政务网A区","domain_type":"edge","zone_type":"internet","domain_code":"zhw-a","description":"测试"}`)
 	require.Equal(t, 200, code)
 	assert.Equal(t, "mc-zhw-a", d.ID)
 	assert.Equal(t, models.DomainTypeEdge, d.DomainType)
@@ -38,8 +39,9 @@ func TestCreateNetworkDomainOK(t *testing.T) {
 
 func TestCreateNetworkDomainBackfillsAuthorizedDefault(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	// no authorized_tenant_ids nor domain_code provided
-	code, d, _ := postCreate(t, db, `{"name":"边缘A","domain_type":"edge"}`)
+	code, d, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"边缘A","domain_type":"edge"}`)
 	require.Equal(t, 200, code)
 	assert.NotEmpty(t, d.ID)
 	assert.NotEqual(t, models.DefaultDomainID, d.ID)
@@ -48,15 +50,17 @@ func TestCreateNetworkDomainBackfillsAuthorizedDefault(t *testing.T) {
 
 func TestCreateNetworkDomainIgnoresClientTenant(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 	// a malicious/ignorant payload tries to set tenant_id=t2
-	code, d, _ := postCreate(t, db, `{"name":"x","domain_type":"edge","tenant_id":"t2","domain_code":"zhw-x"}`)
+	code, d, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"x","domain_type":"edge","tenant_id":"t2","domain_code":"zhw-x"}`)
 	require.Equal(t, 200, code)
 	assert.Equal(t, models.PlatformAdminTenantID, d.TenantID)
 }
 
 func TestCreateNetworkDomainWithIPCIDRs(t *testing.T) {
 	db := openTestDB(t)
-	code, d, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","zone_type":"internet","domain_code":"zhw-a","ip_cidrs":["10.20.0.0/16","10.30.1.0/24"]}`)
+	seedDomainRegistrationDicts(t, db)
+	code, d, _ := postCreate(t, db, `{"cloud_code":"PUB-TX","name":"政务网A区","domain_type":"edge","zone_type":"internet","domain_code":"zhw-a","ip_cidrs":["10.20.0.0/16","10.30.1.0/24"]}`)
 	require.Equal(t, 200, code)
 	require.Equal(t, "mc-zhw-a", d.ID)
 	assert.Equal(t, []string{"10.20.0.0/16", "10.30.1.0/24"}, d.IPCIDRs)
@@ -64,31 +68,35 @@ func TestCreateNetworkDomainWithIPCIDRs(t *testing.T) {
 
 func TestCreateNetworkDomainRejectsDuplicateName(t *testing.T) {
 	db := openTestDB(t)
-	code, _, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","domain_code":"zhw-a"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"政务网A区","domain_type":"edge","domain_code":"zhw-a"}`)
 	require.Equal(t, 200, code)
 	// 同名（大小写不敏感）重登记应返回 409，而非覆盖或新增。
-	code2, _, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","domain_code":"zhw-b"}`)
+	code2, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"政务网A区","domain_type":"edge","domain_code":"zhw-b"}`)
 	assert.Equal(t, 409, code2)
 	// 不同名可正常登记。
-	code3, _, _ := postCreate(t, db, `{"name":"另一网域","domain_type":"edge","domain_code":"zhw-c"}`)
+	code3, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"另一网域","domain_type":"edge","domain_code":"zhw-c"}`)
 	assert.Equal(t, 200, code3)
 }
 
 func TestCreateNetworkDomainMissingName(t *testing.T) {
 	db := openTestDB(t)
-	code, _, _ := postCreate(t, db, `{"domain_type":"edge"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","domain_type":"edge"}`)
 	assert.Equal(t, 400, code)
 }
 
 func TestCreateNetworkDomainMissingDomainType(t *testing.T) {
 	db := openTestDB(t)
-	code, _, _ := postCreate(t, db, `{"name":"x"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"x"}`)
 	assert.Equal(t, 400, code)
 }
 
 func TestCreateNetworkDomainInvalidDomainType(t *testing.T) {
 	db := openTestDB(t)
-	code, _, _ := postCreate(t, db, `{"name":"x","domain_type":"bogus"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"x","domain_type":"bogus"}`)
 	assert.Equal(t, 400, code)
 }
 
@@ -97,29 +105,33 @@ func TestCreateNetworkDomainInvalidDomainType(t *testing.T) {
 // domains are system-provisioned (only the platform admin), not business assets.
 func TestCreateNetworkDomainRejectsManagementDomain(t *testing.T) {
 	db := openTestDB(t)
-	code, _, errStr := postCreate(t, db, `{"name":"越权管理域","domain_type":"management","domain_code":"ops-dc"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, _, errStr := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"越权管理域","domain_type":"management","domain_code":"ops-dc"}`)
 	assert.Equal(t, 400, code)
 	assert.Contains(t, errStr, "system-provisioned")
 }
 
 func TestCreateNetworkDomainReservedDefault(t *testing.T) {
 	db := openTestDB(t)
-	code, _, _ := postCreate(t, db, `{"name":"x","domain_type":"edge","domain_code":"default"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"x","domain_type":"edge","domain_code":"default"}`)
 	assert.Equal(t, 400, code)
 }
 
 func TestCreateNetworkDomainDuplicateConflict(t *testing.T) {
 	db := openTestDB(t)
-	code1, _, _ := postCreate(t, db, `{"name":"a","domain_type":"edge","domain_code":"zhw-a"}`)
+	seedDomainRegistrationDicts(t, db)
+	code1, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"a","domain_type":"edge","domain_code":"zhw-a"}`)
 	require.Equal(t, 200, code1)
-	code2, _, err := postCreate(t, db, `{"name":"b","domain_type":"edge","domain_code":"zhw-a"}`)
+	code2, _, err := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"b","domain_type":"edge","domain_code":"zhw-a"}`)
 	assert.Equal(t, 409, code2)
 	assert.Contains(t, err, "conflict")
 }
 
 func TestCreateNetworkDomainInvalidDomainCode(t *testing.T) {
 	db := openTestDB(t)
-	code, _, _ := postCreate(t, db, `{"name":"a","domain_type":"edge","domain_code":"Bad_Code"}`)
+	seedDomainRegistrationDicts(t, db)
+	code, _, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"a","domain_type":"edge","domain_code":"Bad_Code"}`)
 	assert.Equal(t, 400, code)
 }
 
@@ -128,9 +140,10 @@ func TestCreateNetworkDomainInvalidDomainCode(t *testing.T) {
 // (not a 500) because the soft-deleted primary key still physically exists.
 func TestCreateNetworkDomainAfterSoftDeleteConflict(t *testing.T) {
 	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
 
 	// register a domain
-	code1, d, _ := postCreate(t, db, `{"name":"政务网A区","domain_type":"edge","domain_code":"zhw-again"}`)
+	code1, d, _ := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"政务网A区","domain_type":"edge","domain_code":"zhw-again"}`)
 	require.Equal(t, 200, code1)
 	require.Equal(t, "mc-zhw-again", d.ID)
 
@@ -141,7 +154,7 @@ func TestCreateNetworkDomainAfterSoftDeleteConflict(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 
 	// re-register the same domain_code after soft delete -> 409 conflict, not 500
-	code2, _, errStr := postCreate(t, db, `{"name":"重登","domain_type":"edge","domain_code":"zhw-again"}`)
+	code2, _, errStr := postCreate(t, db, `{"zone_type":"internet","cloud_code":"PUB-TX","name":"重登","domain_type":"edge","domain_code":"zhw-again"}`)
 	assert.Equal(t, 409, code2, "re-registering a soft-deleted domain should be 409, got %d", code2)
 	parts := strings.Split(errStr, "|")
 	require.Len(t, parts, 2)

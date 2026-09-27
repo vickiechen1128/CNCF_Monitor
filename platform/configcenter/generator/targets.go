@@ -32,8 +32,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	var host models.Host
 	if err := db.Where("resource_id = ?", resourceID).First(&host).Error; err == nil {
 		return &resourceTarget{
-			ResourceID: host.GetResourceID(),
-			Address:    instanceAddress(host.PrivateIP, exporterPort),
+			ResourceID:      host.GetResourceID(),
+			NetworkDomainID: host.NetworkDomainID,
+			Address:         instanceAddress(host.PrivateIP, exporterPort),
 			Status:     host.Status,
 			Category:   models.ResourceCategoryHost,
 			Fields: map[string]string{
@@ -50,8 +51,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	var database models.Database
 	if err := db.Where("resource_id = ?", resourceID).First(&database).Error; err == nil {
 		return &resourceTarget{
-			ResourceID: database.GetResourceID(),
-			Address:    instanceAddress(database.InstanceIP, exporterPortOr(exporterPort, database.Port)),
+			ResourceID:      database.GetResourceID(),
+			NetworkDomainID: database.NetworkDomainID,
+			Address:         instanceAddress(database.InstanceIP, exporterPortOr(exporterPort, database.Port)),
 			Status:     database.Status,
 			Category:   models.ResourceCategoryDatabase,
 			Fields: map[string]string{
@@ -66,8 +68,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	var middleware models.Middleware
 	if err := db.Where("resource_id = ?", resourceID).First(&middleware).Error; err == nil {
 		return &resourceTarget{
-			ResourceID: middleware.GetResourceID(),
-			Address:    instanceAddress(middleware.InstanceIP, exporterPortOr(exporterPort, middleware.Port)),
+			ResourceID:      middleware.GetResourceID(),
+			NetworkDomainID: middleware.NetworkDomainID,
+			Address:         instanceAddress(middleware.InstanceIP, exporterPortOr(exporterPort, middleware.Port)),
 			Status:     middleware.Status,
 			Category:   models.ResourceCategoryMiddleware,
 			Fields: map[string]string{
@@ -82,8 +85,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	var application models.Application
 	if err := db.Where("resource_id = ?", resourceID).First(&application).Error; err == nil {
 		return &resourceTarget{
-			ResourceID: application.GetResourceID(),
-			Address:    application.HealthCheckURL,
+			ResourceID:      application.GetResourceID(),
+			NetworkDomainID: application.NetworkDomainID,
+			Address:         application.HealthCheckURL,
 			Status:     application.Status,
 			Category:   models.ResourceCategoryApplication,
 			Fields: map[string]string{
@@ -99,8 +103,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 	var generic models.GenericTarget
 	if err := db.Where("resource_id = ?", resourceID).First(&generic).Error; err == nil {
 		return &resourceTarget{
-			ResourceID: generic.GetResourceID(),
-			Address:    instanceAddress(generic.InstanceIP, generic.Port),
+			ResourceID:      generic.GetResourceID(),
+			NetworkDomainID: generic.NetworkDomainID,
+			Address:         instanceAddress(generic.InstanceIP, generic.Port),
 			Status:     generic.Status,
 			Category:   models.ResourceCategoryGenericTarget,
 			Fields: map[string]string{
@@ -150,6 +155,8 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 		return groups, nil
 	}
 	groups := make([]TargetGroup, 0, len(job.SelectedInstanceIDs))
+	// domainCache 在同一 Job 内复用网域查询结果，避免相同 network_domain_id 重复回查（避免 N+1）。
+	domainCache := make(map[string]*models.NetworkDomain)
 	for _, rid := range job.SelectedInstanceIDs {
 		rt, err := resolveResource(db, rid, exporterPort)
 		if err != nil || rt == nil {
@@ -162,9 +169,34 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 			continue
 		}
 		templateLabels := expandLabelTemplate(tmpl, rt.Fields, rt.Address)
-		// 决策 47-3：resource_id 作为 system 层身份标签强制注入（不可被模板覆盖），
-		// 保证 M02 coverage 能按 up{resource_id} 回连资源，与是否挂载标签模板无关。
-		labels := mergeIntoLabels(map[string]string{"resource_id": rt.ResourceID}, templateLabels)
+		// 决策 103 scheme-B：cloud / zone / network_domain 三标签在 TARGET-LEVEL SYSTEM
+		// 层强制注入（不可被 LabelTemplate 覆盖，亦不经 external_labels）：
+		//   - network_domain = 资源所属网域 id；
+		//   - cloud         = 网域 cloud_code（引用启用云字典条目）；
+		//   - zone          = 网域 zone_type；
+		// 任一值为空则省略对应 key（不写空标签）。
+		systemLabels := map[string]string{"resource_id": rt.ResourceID}
+		if rt.NetworkDomainID != "" {
+			systemLabels["network_domain"] = rt.NetworkDomainID
+			dom, ok := domainCache[rt.NetworkDomainID]
+			if !ok {
+				if d, derr := LoadDomain(db, rt.NetworkDomainID); derr == nil {
+					dom = d
+				} else {
+					dom = nil // 网域缺失时省略 cloud/zone，不阻断目标生成
+				}
+				domainCache[rt.NetworkDomainID] = dom
+			}
+			if dom != nil {
+				if dom.CloudCode != "" {
+					systemLabels["cloud"] = dom.CloudCode
+				}
+				if dom.ZoneType != "" {
+					systemLabels["zone"] = dom.ZoneType
+				}
+			}
+		}
+		labels := mergeIntoLabels(systemLabels, templateLabels)
 		groups = append(groups, TargetGroup{Targets: []string{rt.Address}, Labels: labels})
 	}
 	return groups, nil
