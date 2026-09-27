@@ -4,6 +4,7 @@ import {
   TOKEN_MASK,
   channelLabel,
   channelTip,
+  domainTypeLabel,
   changeTargetLabel,
   draftStatusLabel,
   deploymentStatusLabel,
@@ -16,7 +17,11 @@ describe('configCenterConstants（Module_09 契约映射）', () => {
   it('下发通道枚举映射与提示按契约 §8', () => {
     expect(channelLabel).toEqual({ local: 'local', agent_pull: 'agent_pull' })
     expect(channelTip.local).toContain('写盘')
-    expect(channelTip.agent_pull).toContain('心跳')
+    expect(channelTip.agent_pull).toContain('采集节点')
+  })
+
+  it('域类型用户术语与 M06 统一（中心直连域 / 采集节点域，不再使用「边缘域」）', () => {
+    expect(domainTypeLabel).toEqual({ management: '中心直连域', edge: '采集节点域' })
   })
 
   it('Token 完全脱敏：TOKEN_MASK 不含明文', () => {

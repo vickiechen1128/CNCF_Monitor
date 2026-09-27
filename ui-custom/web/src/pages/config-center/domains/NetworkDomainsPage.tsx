@@ -41,6 +41,7 @@ import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePrese
 import { MainLayout } from '../../../layouts/MainLayout'
 import { useSkin } from '../../../skinContext'
 import { FilterBar, FilterItem } from '../../../components/FilterBar'
+import { FieldLabel } from '../../../components/FieldLabel'
 import { useNetworkDomains } from './useNetworkDomains'
 import { OnboardDomainDrawer, type OnboardInput } from './OnboardDomainDrawer'
 import { EdgePackageDownloadPanel } from './EdgePackageDownloadPanel'
@@ -51,9 +52,10 @@ import {
   TOKEN_MASK,
   TOKEN_USER_GUIDE,
   agentTypeLabel,
-  channelColor,
-  channelLabel,
   deriveRegistrationStatus,
+  DOMAIN_FIELD_TIP,
+  domainTypeColor,
+  domainTypeLabel,
   formatRelativeTime,
   monitoredStatusColor,
   monitoredStatusLabel,
@@ -285,9 +287,9 @@ export function NetworkDomainsPage() {
       fixed: 'right',
       render: (_: unknown, record: NetworkDomain) => {
         const isMonitored = record.is_monitored
-        // F-33：下载入口从页面级主按钮改为**行内按需**——仅边缘域（agent_pull）行提供「更多」下拉；
+        // F-33：下载入口从页面级主按钮改为**行内按需**——仅采集节点域（agent_pull）行提供「更多」下拉；
         // 中心直连域（local）无需部署采集节点，整行不出现下载入口。
-        // 「重置 Token」仅已纳管边缘域才有意义，故按 isMonitored 动态拼接菜单项。
+        // 「重置 Token」仅已纳管采集节点域才有意义，故按 isMonitored 动态拼接菜单项。
         const moreItems: MenuProps['items'] =
           record.channel === 'agent_pull'
             ? [
@@ -351,12 +353,12 @@ export function NetworkDomainsPage() {
       <ConfigProvider locale={config}>
         <Card title="网域纳管">
         {/* F-33 动线前置：本条提示常驻在折叠指引**之外**，让中心直连域用户一眼确认「无需部署、无需下载」，
-            不必展开指引；下方折叠区只保留边缘域（agent_pull）的部署动线。 */}
+            不必展开指引；下方折叠区只保留采集节点域（agent_pull）的部署动线。 */}
         <Alert
           type="success"
           showIcon
           style={{ marginBottom: 12 }}
-          message="中心直连域（如 default / local 通道）：无需部署采集节点，平台直接采集；仅登记新增的边缘域需要安装采集节点。"
+          message="中心直连域（如 default）：平台与采集在同侧，无需部署采集节点；仅新登记的采集节点域需要安装采集节点。"
         />
         {/* PRD §1109：安装指引为页面顶部常驻提示区（不随是否有 agent_pull 网域而隐藏） */}
         <div
@@ -380,15 +382,15 @@ export function NetworkDomainsPage() {
                   label: (
                     <Space size={8}>
                       <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
-                      {/* F-33：标题限定为「边缘域」，与折叠区外的常驻提示分工——直连域用户不必点进来 */}
-                      <Text strong>边缘域接入操作流程（安装指引）</Text>
+                      {/* F-33：标题限定为「采集节点域」，与折叠区外的常驻提示分工——直连域用户不必点进来 */}
+                      <Text strong>采集节点域接入操作流程（安装指引）</Text>
                       <Text type="secondary" style={{ fontSize: 12 }}>点击展开</Text>
                     </Space>
                   ),
                   children: (
                     <div>
                       <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                        边缘域（agent_pull）需部署 Edge Sync Agent 才能回连平台，按下方步骤接入。
+                        采集节点域与平台网络隔离，需要在网域内一台常开机器上部署一个采集节点（Edge Sync Agent），由它代理采集并把监控数据回传给平台。按下方步骤接入。
                       </Typography.Paragraph>
                       <Steps
                         size="small"
@@ -412,7 +414,7 @@ export function NetworkDomainsPage() {
                               <span>
                                 从下方清单下载对应版本的 Edge Sync Agent 离线安装包。
                                 <br />
-                                接入配置（Token / 中心地址 / Remote Write URL）在纳管时自动签发，部署时以环境变量（或 systemd Environment）注入，不会写入二进制。
+                                接入配置（接入 Token / 平台地址 / 指标回传地址）在纳管时自动生成，部署时以环境变量（或 systemd Environment）注入，不会写入安装包。
                               </span>
                             ),
                           },
@@ -435,7 +437,7 @@ sudo ln -sf /opt/apps/edge-sync-agent/bin/edge-sync-agent-linux-amd64 \\
                               <span>
                                 编辑 <Typography.Text code>/etc/systemd/system/edge-sync-agent.service</Typography.Text> 的
                                 <Typography.Text code>[Service] Environment=</Typography.Text>，
-                                填写必填项 <Typography.Text code>NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT</Typography.Text>，并按需覆盖数据目录
+                                填写必填项 <Typography.Text code>NETWORK_DOMAIN_ID</Typography.Text>（网域 ID）、<Typography.Text code>TOKEN</Typography.Text>（接入 Token）、<Typography.Text code>CENTER_ENDPOINT</Typography.Text>（平台心跳地址），并按需覆盖数据目录
                                 <Typography.Text code>EDGE_CONFIG_ROOT / EDGE_WAL_DIR</Typography.Text> 指向 <Typography.Text code>/opt/data/edge-sync-agent</Typography.Text>，然后拉起：
                                 <pre style={{ margin: '8px 0 0 0', padding: 8, background: '#f5f5f5', borderRadius: 4, fontSize: 12, whiteSpace: 'pre-wrap' }}>{`sudo install -m 0644 /opt/apps/edge-sync-agent/packaging/edge-sync-agent.service \\
              /etc/systemd/system/
@@ -597,25 +599,38 @@ function EditDomainForm({
         <Descriptions.Item label="网域名称">{domain.name}</Descriptions.Item>
         <Descriptions.Item label="归属租户">{domain.tenant_id}</Descriptions.Item>
       </Descriptions>
-      <Form.Item label="下发通道（只读）">
-        <Tag color={channelColor[domain.channel]}>{channelLabel[domain.channel]}</Tag>
+      <Form.Item
+        label={
+          <FieldLabel
+            label="接入方式"
+            tip={isLocal ? DOMAIN_FIELD_TIP.channelLocal : DOMAIN_FIELD_TIP.channelAgentPull}
+          />
+        }
+      >
+        <Tag color={domainTypeColor[domain.domain_type]}>{domainTypeLabel[domain.domain_type]}</Tag>
       </Form.Item>
       {!isLocal && (
-        <Form.Item name="agent_type" label="指标采集器类型">
+        <Form.Item
+          name="agent_type"
+          label={<FieldLabel label="指标采集器类型" tip={DOMAIN_FIELD_TIP.agentType} />}
+        >
           <Select options={[{ value: 'vmagent', label: agentTypeLabel.vmagent }]} disabled />
         </Form.Item>
       )}
       {!isLocal && (
-        <Form.Item name="remote_write_url" label="Remote Write URL">
-          <Input placeholder="留空则自动推导（该网域视角的可达地址，网闸映射后地址）" />
+        <Form.Item
+          name="remote_write_url"
+          label={<FieldLabel label="指标回传地址" tip={DOMAIN_FIELD_TIP.remoteWriteUrl} />}
+        >
+          <Input placeholder="留空则自动推导；经网闸 / 代理转发时填采集节点侧实际可达的地址" />
         </Form.Item>
       )}
-      <Form.Item name="description" label="描述">
+      <Form.Item name="description" label={<FieldLabel label="描述" tip={DOMAIN_FIELD_TIP.description} />}>
         <Input.TextArea rows={2} placeholder="描述该网域的用途与网络特征" />
       </Form.Item>
       {isLocal && (
         <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-          local 通道网域（default）由中心直接采集，不生成 Token / Remote Write 等接入配置，无 Edge Agent 心跳。
+          中心直连域由平台直接采集，不生成 Token / 指标回传地址等接入配置，也无采集节点心跳。
         </Text>
       )}
       <div style={{ textAlign: 'right', marginTop: 8 }}>

@@ -4,7 +4,7 @@
  * 与 Module_06 §5（行政）和 Module_09 §5（纳管）对齐。
  */
 
-/** 网域类型：管理域 / 边缘域 */
+/** 网域类型：中心直连域 / 采集节点域（用户术语，对齐 M06；枚举 management/edge 不变） */
 export type DomainType = 'management' | 'edge'
 
 /** 网域行政状态 */
@@ -45,6 +45,7 @@ export interface NetworkDomain {
   channel: ChannelType
   token?: string
   agent_type?: AgentType
+  /** {v0.4+} 网闸映射场景预留，当前实现不消费 */
   center_endpoint?: string
   remote_write_url?: string
   monitored_status?: 'normal' | 'partial' | 'offline' | 'unknown'

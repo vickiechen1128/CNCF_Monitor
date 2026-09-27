@@ -34,7 +34,7 @@ function ConfigValue({ channel, value }: { channel: NetworkDomain['channel']; va
 
 /**
  * 网域详情抽屉（Module_09 契约 §3 / 决策 36-1）。
- * 配置字段（中心接入地址 / Remote Write URL / Agent 类型 / 描述）入 Drawer；
+ * 配置字段（中心接入地址 / 指标回传地址（Remote Write URL）/ Agent 类型 / 描述）入 Drawer；
  * 行政字段（名称/租户/类型/网络区域类型）由 M06 维护，只读展示。
  */
 export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDomainDetailDrawerProps) {
@@ -64,10 +64,7 @@ export function NetworkDomainDetailDrawer({ open, domain, onClose }: NetworkDoma
               <Tag color={channelColor[domain.channel]}>{channelLabel[domain.channel]}</Tag>
             </Tooltip>
           </Descriptions.Item>
-          <Descriptions.Item label="中心接入地址">
-            <ConfigValue channel={domain.channel} value={domain.center_endpoint} />
-          </Descriptions.Item>
-          <Descriptions.Item label="Remote Write URL">
+          <Descriptions.Item label="指标回传地址">
             <ConfigValue channel={domain.channel} value={domain.remote_write_url} />
           </Descriptions.Item>
           <Descriptions.Item label="指标采集器类型">

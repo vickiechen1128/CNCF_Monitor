@@ -75,8 +75,13 @@ type NetworkDomain struct {
 	Token           string      `gorm:"size:500" json:"-"`               // agent_pull 时必填；仅服务端存取，不回显明文（token_masked 经 AfterFind 派生）
 	TokenMaskedView string      `gorm:"-" json:"token_masked,omitempty"` // 派生视图：完全脱敏的 token，不落库
 	AgentType       AgentType   `gorm:"size:30" json:"agent_type,omitempty"`
-	CenterEndpoint  string      `gorm:"size:500" json:"center_endpoint,omitempty"`
-	RemoteWriteURL  string      `gorm:"size:500" json:"remote_write_url,omitempty"`
+	// CenterEndpoint 中心接入地址（网域视角）。MVP/当前实现**不消费**该字段：
+	// Agent 心跳地址来自安装时环境变量 CENTER_ENDPOINT，配置包下载地址由请求来源
+	// authority 合成（见 platform/edge/helpers.go），remote_write 地址走
+	// remote_write_url（metadata.json 下发）。本字段保留为 {v0.4+} 网闸映射场景
+	// （节点够不到中心、须填转发侧地址）预留，届时再定写入与消费契约。
+	CenterEndpoint string      `gorm:"size:500" json:"center_endpoint,omitempty"`
+	RemoteWriteURL string      `gorm:"size:500" json:"remote_write_url,omitempty"`
 	MonitoredStatus string      `gorm:"size:20" json:"monitored_status,omitempty"` // online/offline/unknown（运行态）
 	LastHeartbeat   *time.Time  `json:"last_heartbeat,omitempty"`
 	AgentVersion    string      `gorm:"size:50" json:"agent_version,omitempty"`

@@ -39,7 +39,7 @@ export interface NetworkDomain {
   channel: Channel
   /** MVP 固定 vmagent；agent_pull 必填，local 空 */
   agent_type?: AgentType
-  /** 中心接入地址；agent_pull 必填，local 空 */
+  /** 中心接入地址；{v0.4+} 网闸映射场景预留，当前实现不消费（心跳地址走安装时 CENTER_ENDPOINT 环境变量） */
   center_endpoint?: string
   /** agent_pull 必填；local 空 */
   remote_write_url?: string
