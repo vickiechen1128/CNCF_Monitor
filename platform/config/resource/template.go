@@ -22,10 +22,15 @@ const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadshe
 
 // TemplateColumns 定义五类资源 Excel 导入模板 sheet1 的固定列头，严格对齐
 // Module_07 §5.16.1（不支持动态列）。该定义同时供 T07-09 Excel 解析校验复用。
+//
+// 决策 103 scheme-B：模板列头不含 `cloud_code`（资源侧不再经导入写 cloud_code，
+// 统一由所属网域派生）；决策 101：host 另保留 `zone_env` **兼容导入列**（承接历史
+// Excel，不进标签、不作分区权威）——列位置严格按 §5.16.1 主机模板列序排在 `cluster`
+// 之后、`owner` 之前。
 var TemplateColumns = map[models.ResourceCategory][]string{
 	models.ResourceCategoryHost: {
 		"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
-		"biz_code", "app_code", "env", "cluster", "owner", "status",
+		"biz_code", "app_code", "env", "cluster", "zone_env", "owner", "status",
 	},
 	models.ResourceCategoryDatabase: {
 		"network_domain", "database_type", "instance_ip", "port", "version",
@@ -56,8 +61,9 @@ type DomainOption struct {
 //
 //   - type ∈ host/database/middleware/application/generic_target：返回静态 xlsx 下载
 //     （Content-Type spreadsheetml，文件名 `{type}_template.xlsx`），sheet1 为 §5.16.1
-//     固定数据列，sheet2「取值说明」列出 network_domain / biz_code / app_code / env /
-//     status / custom_labels 合法值（§5.16.1，MVP 不做 dataValidation 下拉，挪 v0.2+ 评估）；
+//     固定数据列，sheet2「取值说明」列出 network_domain / zone_env / biz_code /
+//     app_code / env / status / custom_labels 合法值（§5.16.1，MVP 不做
+//     dataValidation 下拉，挪 v0.2+ 评估）；
 //   - 未知类型返回 not_found。
 //
 // 依赖通过函数注入以保持可测试性：bizStore 提供业务字典启用项（T07-02），appStore 提供
@@ -92,9 +98,10 @@ func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictSt
 }
 
 // buildValueSheet 组装「取值说明」sheet 的行：network_domain（M06 网域清单，实时）、
-// biz_code（业务字典启用项，停用项不进入，PRD §3.1）、app_code（应用字典启用项，
-// 决策 92/96，F-7 ①：与 biz_code 同构 `code（名称）`，空字典输出占位）、env 枚举、
-// status 中文取值（§5.5.1 默认映射）、custom_labels 格式说明。
+// zone_env（host 兼容导入列取值提示，决策 101）、biz_code（业务字典启用项，停用项
+// 不进入，PRD §3.1）、app_code（应用字典启用项，决策 92/96，F-7 ①：与 biz_code
+// 同构 `code（名称）`，空字典输出占位）、env 枚举、status 中文取值（§5.5.1 默认
+// 映射）、custom_labels 格式说明。
 func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
 	rows := [][]string{
 		{"取值字段", "合法值 / 格式说明"},
@@ -118,6 +125,14 @@ func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictSto
 		}
 	}
 	rows = append(rows, []string{"network_domain", strings.Join(domainDesc, "；")})
+
+	// cloud_code / zone：决策 103 scheme-B，资源侧不再持有 cloud_code 写路径，统一经
+	// 所属网域（network_domain_id）派生 cloud（= 网域 cloud_code）/ zone（= 网域
+	// zone_type）标签，故模板取值说明不再单独列出 cloud_code 列。
+
+	// zone_env：仅 host 模板存在的兼容导入列（决策 101 / §5.6）——不进标签、不作
+	// 分区权威，左侧 INT / GOV 与 zone_type 展示名仅为填写提示。
+	rows = append(rows, []string{"zone_env", "INT（互联网区 internet）/ GOV（政务外网区 extranet）；仅主机兼容导入列，不进标签、不作分区权威（权威值为所属网域 zone_type）"})
 
 	// biz_code：业务分组字典启用项（infra 为强制兜底条目）。
 	bizList, err := bizStore.EnabledList()

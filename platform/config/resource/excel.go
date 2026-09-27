@@ -27,6 +27,7 @@ type ImportRow struct {
 	Input           ResourceInput
 	PortRaw         string // 原始 port 单元格文本（非数字时用于错误报告）
 	CustomLabelsRaw string // 原始 custom_labels 单元格文本
+	ZoneEnv         string // host 兼容导入列 zone_env 原文（决策 101 / §5.6）
 	Status          models.ResourceStatus
 	DedupKey        string
 }
@@ -169,6 +170,9 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.ExporterType = val
 		case "custom_labels":
 			row.CustomLabelsRaw = val // 解析与校验在 ValidateImportRow 中完成
+		case "zone_env":
+			// 决策 101 / §5.6：host 兼容导入列，仅解析不校验、不作分区权威。
+			row.ZoneEnv = val
 		}
 	}
 }
@@ -305,6 +309,10 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 		}
 		in.CustomLabels = parsed
 	}
+
+	// 5.5 决策 103 scheme-B：cloud_code 不再经资源导入落库，统一由所属网域
+	// （network_domain_id）派生 cloud/zone 标签；历史单载体值（TX/CU）归一逻辑已
+	// 移至 M06 网域登记层，此处不再处理。
 
 	// 6. 其余字段校验复用 T07-03（必填/IP/端口范围/URL/env/protocol/scheme）。
 	if err := ValidateResourceInput(category, in, bizStore, appStore, networkDomainExists); err != nil {

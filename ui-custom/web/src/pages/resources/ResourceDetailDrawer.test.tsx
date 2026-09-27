@@ -13,6 +13,8 @@ const createLabelMock = vi.fn()
 const updateLabelMock = vi.fn()
 const removeLabelMock = vi.fn()
 const listTemplateMock = vi.fn()
+const cloudDictListMock = vi.fn()
+const zoneTypeListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   resourceApi: {
@@ -20,6 +22,17 @@ vi.mock('../../api/resources', () => ({
     createLabel: (...args: unknown[]) => createLabelMock(...args),
     updateLabel: (...args: unknown[]) => updateLabelMock(...args),
     removeLabel: (...args: unknown[]) => removeLabelMock(...args),
+  },
+  // 决策 103：详情「云」展示经云字典解析 cloud_name（部署级只读，仅 list）
+  cloudDictApi: {
+    list: (...args: unknown[]) => cloudDictListMock(...args),
+  },
+}))
+
+// 决策 101：详情「网络分区（只读）」经 M06 zone_type 字典解析展示名
+vi.mock('../../api/domain', () => ({
+  zoneTypeApi: {
+    list: (...args: unknown[]) => zoneTypeListMock(...args),
   },
 }))
 
@@ -171,6 +184,25 @@ describe('ResourceDetailDrawer', () => {
     cancelMock.mockReset()
     labelsMock.mockResolvedValue(labelsResponse([]))
     listTemplateMock.mockResolvedValue(templateListResponse([]))
+    cloudDictListMock.mockReset()
+    cloudDictListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true },
+          { cloud_code: 'OLD-TX', cloud_name: '已下线云', cloud_type: 'PUB', carrier: 'TX', enabled: false },
+        ],
+        total: 2,
+      },
+    })
+    zoneTypeListMock.mockReset()
+    zoneTypeListMock.mockResolvedValue({
+      status: 'success',
+      data: [
+        { id: 1, code: 'internet', display_name: '互联网区', description: '', enabled: true, created_at: '', updated_at: '' },
+        { id: 2, code: 'extranet', display_name: '政务外网区', description: '', enabled: true, created_at: '', updated_at: '' },
+      ],
+    })
   })
 
   it('renders base info with domain / business / status / source', async () => {
@@ -348,6 +380,77 @@ describe('ResourceDetailDrawer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /删\s*除/ }))
     await waitFor(() => expect(removeLabelMock).toHaveBeenCalledWith('mc-app-1', 2))
     await waitFor(() => expect(screen.queryByText('team')).toBeNull())
+  })
+
+  // 决策 103：详情「云」展示项——启用 / 停用 / 缺条目三分支 + 空值 '-'
+  it('决策 103：详情「云」展示云字典 cloud_name（启用条目）', async () => {
+    const rec = hostRecord()
+    rec.cloud_code = 'PUB-TX'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('腾讯云')).toBeInTheDocument()
+    expect(screen.queryByText('PUB-TX')).toBeNull()
+  })
+
+  it('决策 103：停用云以「云名（已停用）」标识', async () => {
+    const rec = hostRecord()
+    rec.cloud_code = 'OLD-TX'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('已下线云（已停用）')).toBeInTheDocument()
+  })
+
+  it('决策 103：字典缺条目回退显示 cloud_code', async () => {
+    const rec = hostRecord()
+    rec.cloud_code = 'GM-CU'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('GM-CU')).toBeInTheDocument()
+  })
+
+  it('决策 103：cloud_code 为空时详情「云」渲染 "-"', async () => {
+    const rec = hostRecord()
+    rec.cloud_code = undefined
+    renderDrawer({ record: rec })
+    await screen.findByText('mc-res-1')
+    const label = screen.getByText('云').closest('.ant-descriptions-item')
+    expect(label).toHaveTextContent('-')
+  })
+
+  // 决策 101：网络分区只读派生（权威 = 所属网域 zone_type），无编辑入口
+  it('决策 101：详情「网络分区」展示 M06 字典展示名并标注继承所属网域', async () => {
+    const rec = hostRecord()
+    rec.zone_type = 'extranet'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('政务外网区')).toBeInTheDocument()
+    expect(screen.getByText('继承所属网域')).toBeInTheDocument()
+    // 分区无编辑入口（决策 101）
+    const zoneItem = screen.getByText('网络分区').closest('.ant-descriptions-item') as HTMLElement
+    expect(zoneItem.querySelector('input, .ant-select, button')).toBeNull()
+  })
+
+  it('决策 101：网域未设分区时网络分区显示 "-"', async () => {
+    const rec = hostRecord()
+    rec.zone_type = ''
+    renderDrawer({ record: rec })
+    await screen.findByText('mc-res-1')
+    const zoneItem = screen.getByText('网络分区').closest('.ant-descriptions-item') as HTMLElement
+    expect(zoneItem).toHaveTextContent('-')
+    expect(zoneItem).toHaveTextContent('继承所属网域')
+  })
+
+  it('决策 101：不出现「请与网域保持一致」类一致性引导文案', async () => {
+    const rec = hostRecord()
+    rec.zone_type = 'internet'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('互联网区')).toBeInTheDocument()
+    expect(screen.queryByText(/与网域保持一致|^保持一致$|保持一致，/)).toBeNull()
+  })
+
+  it('决策 103 scheme-B：非 host 资源同样渲染「网络分区」项（五类均由网域派生）', async () => {
+    const rec = appRecord()
+    rec.zone_type = 'internet'
+    renderDrawer({ record: rec })
+    await screen.findByText('mc-app-1')
+    expect(screen.getByText('网络分区')).toBeInTheDocument()
+    expect(screen.getByText('互联网区')).toBeInTheDocument()
   })
 
   it('shows label load error alert and reloads', async () => {

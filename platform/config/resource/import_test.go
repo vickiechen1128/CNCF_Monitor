@@ -35,6 +35,7 @@ func openImportTestDB(t *testing.T) *gorm.DB {
 		// 字典表（决策 97：声明 sheet 在事务内建字典，需与资源同库迁移）
 		&models.BusinessDomain{},
 		&models.ApplicationDict{},
+		&models.CloudDict{},
 		&models.Host{},
 		&models.Database{},
 		&models.Middleware{},
@@ -47,6 +48,9 @@ func openImportTestDB(t *testing.T) *gorm.DB {
 	// 字典夹具 infra（业务）/ app（应用），与既有测试引用值一致。
 	require.NoError(t, db.Create(&models.BusinessDomain{Code: "infra", Name: "公共基础设施", Enabled: true}).Error)
 	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "app", AppName: "示例应用", Status: models.AppStatusEnabled}).Error)
+	// 云字典夹具与 seed 口径一致：两条启用复合码（决策 102 seed 登记 PUB-TX / GM-CU）。
+	require.NoError(t, db.Create(&models.CloudDict{CloudCode: "PUB-TX", CloudName: "腾讯云", CloudType: models.CloudTypePublic, Carrier: models.CloudCarrierTencent, Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.CloudDict{CloudCode: "GM-CU", CloudName: "政务云（联通）", CloudType: models.CloudTypeGovernment, Carrier: models.CloudCarrierUnicom, Enabled: true}).Error)
 	return db
 }
 
@@ -70,6 +74,7 @@ func seedHostImport(t *testing.T, db *gorm.DB, id, ip, instanceName, status stri
 		ServerID:         id,
 		ResourceCategory: models.ResourceCategoryHost,
 		NetworkDomainID:  models.DefaultDomainID,
+		CloudCode:        "PUB-TX",
 		BizCode:          "infra",
 		SourceType:       models.SourceTypeManual,
 		TenantID:         models.PlatformAdminTenantID,

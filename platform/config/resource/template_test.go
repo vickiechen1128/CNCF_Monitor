@@ -54,7 +54,7 @@ func TestTemplateColumnsMatchPRD(t *testing.T) {
 	expected := map[models.ResourceCategory][]string{
 		models.ResourceCategoryHost: {
 			"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
-			"biz_code", "app_code", "env", "cluster", "owner", "status",
+			"biz_code", "app_code", "env", "cluster", "zone_env", "owner", "status",
 		},
 		models.ResourceCategoryDatabase: {
 			"network_domain", "database_type", "instance_ip", "port", "version",
@@ -156,6 +156,9 @@ func TestDownloadTemplateValueSheet(t *testing.T) {
 	// network_domain：实时取自 M06 网域清单
 	assert.Contains(t, flat, "default", "取值说明应包含 default 网域")
 	assert.Contains(t, flat, "gz-prod-01", "取值说明应包含注入的 M06 网域清单")
+	// zone_env：host 兼容导入列取值提示（决策 101，不进标签、不作分区权威）
+	assert.Contains(t, flat, "INT（互联网区 internet）/ GOV（政务外网区 extranet）")
+	assert.Contains(t, flat, "不进标签、不作分区权威")
 	// biz_code：业务字典启用项（infra/payment/data-api），停用项 legacy 不出现
 	assert.Contains(t, flat, "infra")
 	assert.Contains(t, flat, "payment")

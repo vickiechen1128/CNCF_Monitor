@@ -21,6 +21,17 @@ export interface ResourceListItem {
   owner?: string
   status: string
   source_type: string
+  /**
+   * 云归属（决策 103 scheme-B）：五类 item 均返回，**只读派生**——值 = 所属网域
+   * `cloud_code`，由后端派生下发；资源侧无写入口。空值返回空串。
+   * 列表 / 详情只读消费，「云」列经 GET /cloud-dict 解析为 cloud_name。
+   */
+  cloud_code?: string
+  /**
+   * 网络分区（决策 103 scheme-B）：**五类均返回**（不再仅限 host），值 = 所属网域
+   * `zone_type`，由后端派生下发；资源侧无写入口。网域未设分区或网域缺失时为空串。
+   */
+  zone_type?: string
   // host（T07-03 legacy 映射：instance_ip→private_ip、hostname→instance_name、os_type→image）
   instance_name?: string
   hostname?: string

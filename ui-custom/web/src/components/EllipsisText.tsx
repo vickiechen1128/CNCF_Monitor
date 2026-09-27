@@ -10,13 +10,15 @@ interface EllipsisTextProps {
   maxWidth?: number
   type?: 'secondary' | 'success' | 'warning' | 'danger'
   code?: boolean
+  strong?: boolean
 }
 
-export function EllipsisText({ children, maxWidth = 200, type, code }: EllipsisTextProps) {
+export function EllipsisText({ children, maxWidth = 200, type, code, strong }: EllipsisTextProps) {
   return (
     <Typography.Text
       type={type}
       code={code}
+      strong={strong}
       ellipsis={{ tooltip: children }}
       style={{ maxWidth }}
     >

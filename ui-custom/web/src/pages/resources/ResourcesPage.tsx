@@ -35,11 +35,12 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { networkDomainApi } from '../../api/domain'
-import { businessDomainApi, resourceApi, applicationDictApi } from '../../api/resources'
+import { businessDomainApi, resourceApi, applicationDictApi, cloudDictApi } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
-import type { ApplicationDict, BusinessDomain, ResourceCategory } from '../../types/resource'
+import type { ApplicationDict, BusinessDomain, CloudDict, ResourceCategory } from '../../types/resource'
 import type { CoverageState } from '../../types/query'
 import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
+import { EllipsisText } from '../../components/EllipsisText'
 import { useResources } from './useResources'
 import type { ResourceListItem } from './useResources'
 import { useResourceCoverage } from './useResourceCoverage'
@@ -182,6 +183,8 @@ export function ResourcesPage() {
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
   // 决策 92/96：应用字典（app_code → app_name 展示名解析，与业务字典正交两维）
   const [applicationDomains, setApplicationDomains] = useState<ApplicationDict[]>([])
+  // 决策 103：云字典（部署级只读，cloud_code → cloud_name 展示名解析）
+  const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
   const {
@@ -229,11 +232,13 @@ export function ResourcesPage() {
       networkDomainApi.list({ page: 1, page_size: 100 }),
       businessDomainApi.list(),
       applicationDictApi.list(),
+      cloudDictApi.list(),
     ])
-      .then(([nd, bd, ad]) => {
+      .then(([nd, bd, ad, cd]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
         setApplicationDomains(ad.data?.list ?? [])
+        setCloudDicts(cd.data?.list ?? [])
       })
       .catch(() => {
         // 下拉字典加载失败不阻塞列表展示
@@ -261,6 +266,16 @@ export function ResourcesPage() {
   const isAppDisabled = (code: string) => {
     const a = applicationDomains.find((d) => d.app_code === code)
     return !!a && a.status === 'disabled'
+  }
+  /** 云编码 → cloud_name（§5.20 / 决策 98：云列展示字典展示名，缺条目回退 cloud_code） */
+  const resolveCloudName = (code?: string) => {
+    if (!code) return '-'
+    return cloudDicts.find((c) => c.cloud_code === code)?.cloud_name ?? code
+  }
+  /** 云是否停用（决策 98：停用条目以「云名（已停用）」标识，存量资源保留历史值） */
+  const isCloudDisabled = (code: string) => {
+    const c = cloudDicts.find((d) => d.cloud_code === code)
+    return !!c && !c.enabled
   }
 
   // 资源新增/编辑抽屉（T07-F4）：create 走当前 Tab 类型；edit 携带行 record（resource_category 取行）
@@ -306,10 +321,11 @@ export function ResourcesPage() {
     }
   }
 
-  // 列集合对齐原型：共享列（网域 / 业务名称 / 应用名称 / 运行状态 / 采集状态 / 录入方式 / 操作）+ 各类型差异化列。
+  // 列集合对齐原型：共享列（云 / 网域 / 业务名称 / 应用名称 / 运行状态 / 采集状态 / 录入方式 / 操作）+ 各类型差异化列。
   // 网域列默认展示不可隐藏（§11.2）；业务 / 应用列分别展示字典展示名（biz_name / app_name）、
   // 停用加「（已停用）」标识（决策 92/96：业务与应用正交两维，应用列经 GET /application-dict 解析，
-  // 缺条目回退 app_code）；运行状态列头以 hover 提示标注数据来源（决策 32）。采集状态列因后端
+  // 缺条目回退 app_code）；「云」列为五类共享列（决策 103 scheme-B：值由所属网域派生、只读），展示 GET /cloud-dict 的 cloud_name，
+  // 停用加「（已停用）」、缺条目回退 cloud_code、空值 '-'（决策 98）。运行状态列头以 hover 提示标注数据来源（决策 32）。采集状态列因后端
   // 列表不返回 is_monitored（决策 31-M1、M01 未实现）本阶段裁剪，仅保留「未监控」筛选。
   const buildColumns = (type: ResourceCategory): ColumnsType<ResourceListItem> => {
     const domainColumn: ColumnsType<ResourceListItem>[number] = {
@@ -351,6 +367,24 @@ export function ResourcesPage() {
           <Tag color={isAppDisabled(value) ? 'default' : 'cyan'}>
             {resolveAppName(value)}
             {isAppDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : (
+          '-'
+        ),
+    }
+    // 决策 103「云」列：五类共享列，展示云字典 cloud_name（缺条目回退 cloud_code，
+    // 停用条目「云名（已停用）」），样式与解析逻辑对齐既有「应用名称」列。
+    // 红线④：cloud_type / carrier 仅为云字典描述属性，**禁止**独立成列或筛选维度。
+    const cloudColumn: ColumnsType<ResourceListItem>[number] = {
+      title: '云',
+      dataIndex: 'cloud_code',
+      key: 'cloud_code',
+      width: 150,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isCloudDisabled(value) ? 'default' : 'cyan'}>
+            {resolveCloudName(value)}
+            {isCloudDisabled(value) ? '（已停用）' : ''}
           </Tag>
         ) : (
           '-'
@@ -440,7 +474,10 @@ export function ResourcesPage() {
             // 决策 70 / F-38：原副行展示 `hostname`，其值与 `instance_name` 同源
             // （host.go `Hostname()` 即 `InstanceName`），视觉上重复且无信息增量；
             // 且本 Tab 已有独立「IP 地址」列 —— 直接删除副行，与 M08「实例名」列逐字对应。
-            render: (_: unknown, record: ResourceListItem) => <Text strong>{record.instance_name || '-'}</Text>,
+            // 主标识列固定左侧（tablePresets 规则：主标识列 fixed:'left'），横向滚动不丢失。
+            fixed: 'left',
+            width: 180,
+            render: (_: unknown, record: ResourceListItem) => <EllipsisText strong>{record.instance_name || '-'}</EllipsisText>,
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
@@ -461,6 +498,7 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
+          cloudColumn,
           statusColumn,
           monitorColumn,
           sourceColumn,
@@ -469,7 +507,8 @@ export function ResourcesPage() {
       case 'database':
         return [
           // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
-          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', fixed: 'left', width: 180, render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText> },
           {
             title: '数据库类型',
             dataIndex: 'database_type',
@@ -482,6 +521,7 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
+          cloudColumn,
           statusColumn,
           monitorColumn,
           sourceColumn,
@@ -490,7 +530,8 @@ export function ResourcesPage() {
       case 'middleware':
         return [
           // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
-          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', render: (v?: string) => v || '-' },
+          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
+          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', fixed: 'left', width: 180, render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText> },
           {
             title: '中间件类型',
             dataIndex: 'middleware_type',
@@ -503,6 +544,7 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
+          cloudColumn,
           statusColumn,
           monitorColumn,
           sourceColumn,
@@ -521,7 +563,10 @@ export function ResourcesPage() {
             ),
             dataIndex: 'service_name',
             key: 'service_name',
-            render: (v?: string) => <Text strong>{v || '-'}</Text>,
+            // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长服务名截断 + 悬浮全文。
+            fixed: 'left',
+            width: 180,
+            render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
           },
           {
             // 健康检查 URL 为应用实际访问地址（业务健康检查用），不参与指标采集
@@ -569,6 +614,7 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
+          cloudColumn,
           statusColumn,
           monitorColumn,
           sourceColumn,
@@ -580,7 +626,10 @@ export function ResourcesPage() {
             title: '目标名称',
             dataIndex: 'target_name',
             key: 'target_name',
-            render: (v?: string) => <Text strong>{v || '-'}</Text>,
+            // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长目标名截断 + 悬浮全文。
+            fixed: 'left',
+            width: 180,
+            render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
           },
           { title: 'Exporter 类型', dataIndex: 'exporter_type', key: 'exporter_type', render: (v?: string) => v || '-' },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
@@ -604,6 +653,7 @@ export function ResourcesPage() {
           domainColumn,
           businessColumn,
           appColumn,
+          cloudColumn,
           statusColumn,
           monitorColumn,
           sourceColumn,

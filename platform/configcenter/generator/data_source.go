@@ -17,11 +17,12 @@ type Inputs struct {
 
 // resourceTarget 是单个采集目标（含标签模板展开所需的源字段视图）。
 type resourceTarget struct {
-	ResourceID string
-	Address    string
-	Status     string
-	Category   models.ResourceCategory
-	Fields     map[string]string // LabelTemplate 源字段展开视图
+	ResourceID      string
+	NetworkDomainID string // 所属网域（决策 103 scheme-B：cloud/zone/network_domain 三标签权威来源）
+	Address         string
+	Status          string
+	Category        models.ResourceCategory
+	Fields          map[string]string // LabelTemplate 源字段展开视图
 }
 
 // LoadDomain 按 ID 读取网域。

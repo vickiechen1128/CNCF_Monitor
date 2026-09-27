@@ -52,6 +52,11 @@ func UpdateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			cols = append(cols, "description")
 		}
 		if req.ZoneType != nil {
+			// 决策 103 scheme-B：zone_type 不可自由文本，须为部署级 zone_type 字典取值。
+			if err := validateNetworkDomainZoneType(db, *req.ZoneType); err != nil {
+				response.BadRequest(c, err)
+				return
+			}
 			dom.ZoneType = *req.ZoneType
 			cols = append(cols, "zone_type")
 		}

@@ -199,6 +199,7 @@ func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error {
 	return nil
 }
 
+// validateHost 校验 host 资源必填字段（决策 93：host 的 biz_code 可空后补）。
 func validateHost(in *ResourceInput) error {
 	if strings.TrimSpace(in.InstanceIP) == "" {
 		return fmt.Errorf("instance_ip 必填")
@@ -315,8 +316,11 @@ func validateGenericTarget(in *ResourceInput) error {
 	if !IsValidInstanceIP(in.InstanceIP) {
 		return fmt.Errorf("instance_ip 格式不正确：%q（应为 IPv4 或域名）", in.InstanceIP)
 	}
+	// generic_target 的 port 可选：0 表示未设置（采集地址不带端口，见
+	// instanceAddress）。范围校验为 0（未设置）或 1~65535；消息保留 "1~65535"
+	// 子串以兼容 excel 导入校验测试（excel_test.go）。
 	if in.Port < 0 || in.Port > 65535 {
-		return fmt.Errorf("port 必须在 1~65535 之间，当前：%d", in.Port)
+		return fmt.Errorf("port 必须为 0（未设置）或 1~65535，当前：%d", in.Port)
 	}
 	if strings.TrimSpace(in.Scheme) != "" && !containsString(models.ValidSchemes, in.Scheme) {
 		return fmt.Errorf("scheme 必须是 http/https 之一，当前：%q", in.Scheme)

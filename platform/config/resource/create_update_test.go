@@ -39,6 +39,7 @@ func openCreateUpdateTestDB(t *testing.T) *gorm.DB {
 		&models.Application{},
 		&models.GenericTarget{},
 		&models.NetworkDomain{},
+		&models.CloudDict{},
 	))
 	return db
 }
@@ -179,8 +180,8 @@ func TestCreateResource_EachCategory_Success(t *testing.T) {
 		{
 			name: "database",
 			body: map[string]interface{}{
-			"resource_category": "database", "network_domain_id": "default",
-			"biz_code": "payment", "app_code": "pay-db", "cluster": "pay",
+				"resource_category": "database", "network_domain_id": "default",
+				"biz_code": "payment", "app_code": "pay-db", "cluster": "pay",
 				"status": "online", "env": "prod",
 				"database_type": "mysql", "instance_ip": "10.0.0.10", "port": 3306,
 			},

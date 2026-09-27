@@ -32,7 +32,7 @@ import (
 // （注册即 panic，见 route_probe_test.go），故统一以 :resource_id 注册，并用
 // withTypeParam 为 template/import 转译出 :type。对外 URL 形态（如
 // /resources/host/template）与契约完全一致，仅内部参数名不同。
-func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) {
+func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore) {
 	resources := platform.Group("/resources")
 	{
 		resources.GET("", ListResources(db))
@@ -60,6 +60,8 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDo
 	platform.GET("/application-dict", ListApplicationDicts(appStore))
 	platform.POST("/application-dict", CreateApplicationDict(appStore))
 	platform.PUT("/application-dict/:app_code", UpdateApplicationDict(appStore))
+	// 云字典为部署级只读，只注册 GET，不提供任何写接口。
+	platform.GET("/cloud-dict", ListCloudDicts(cloudStore))
 	// 操作系统内置字典（只读，供 M07 采集入口/资源表单下拉；位于 platform 层，
 	// 避免与 /resources/:resource_id 通配符冲突，见 RegisterRoutes 注释）。
 	platform.GET("/os-options", ListOSOptions())

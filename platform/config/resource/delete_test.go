@@ -115,8 +115,8 @@ func TestDeleteResource_Success(t *testing.T) {
 		{
 			name: "application",
 			body: map[string]interface{}{
-			"resource_category": "application", "network_domain_id": "default",
-			"biz_code": "payment", "app_code": "pay-service", "cluster": "pay-cluster",
+				"resource_category": "application", "network_domain_id": "default",
+				"biz_code": "payment", "app_code": "pay-service", "cluster": "pay-cluster",
 				"status": "online", "env": "prod",
 				"service_name": "pay-service", "endpoint": "10.0.0.12:8080",
 				"health_check_url": "http://10.0.0.12:8080/health", "protocol": "http", "port": 8080,

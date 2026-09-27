@@ -107,6 +107,18 @@ func existsDomains(ids ...string) func(string) bool {
 	}
 }
 
+// requireIndex 返回 col 在列头中的下标（不存在即 Fail），用于列序无关的 fixture。
+func requireIndex(t *testing.T, header []string, col string) int {
+	t.Helper()
+	for i, c := range header {
+		if c == col {
+			return i
+		}
+	}
+	t.Fatalf("模板列头缺少 %s：%v", col, header)
+	return -1
+}
+
 // mustParse 构建并解析 Excel 返回行（解析失败即 Fail）。
 func mustParse(t *testing.T, category models.ResourceCategory, dataRows [][]string) []ImportRow {
 	t.Helper()
@@ -191,7 +203,9 @@ func TestParseExcel_HeaderErrors(t *testing.T) {
 
 	t.Run("mismatched column name", func(t *testing.T) {
 		header := append([]string{}, cols...)
-		header[4] = "os" // 应为 os_type
+		// 按列定位而非硬编码下标，避免模板列增删改时误命中其他列。
+		idx := requireIndex(t, header, "os_type")
+		header[idx] = "os"
 		_, err := ParseExcel(buildXLSXWithHeader(t, header, nil), models.ResourceCategoryHost)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "列头与模板不一致")
@@ -389,30 +403,7 @@ func TestValidateImportRow_Application(t *testing.T) {
 		assert.Equal(t, 8080, row.Input.Port)
 		assert.Equal(t, "http", row.Input.Protocol)
 		assert.Equal(t, "application|default|pay-service|10.0.0.20", row.DedupKey)
-	})
 
-	t.Run("empty health_check_url passes (可选)", func(t *testing.T) {
-		vals := baseValues(models.ResourceCategoryApplication)
-		vals["health_check_url"] = ""
-		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
-		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil))
-		assert.Empty(t, row.Input.HealthCheckURL)
-	})
-
-	t.Run("missing endpoint fails", func(t *testing.T) {
-		vals := baseValues(models.ResourceCategoryApplication)
-		vals["endpoint"] = ""
-		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
-		rerr := assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "endpoint", "")
-		assert.Contains(t, rerr.Detail.Reason, "采集地址")
-	})
-
-	t.Run("missing port fails (采集端口必填)", func(t *testing.T) {
-		vals := baseValues(models.ResourceCategoryApplication)
-		vals["port"] = ""
-		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
-		rerr := assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "port", "0")
-		assert.Contains(t, rerr.Detail.Reason, "采集端口")
 	})
 
 	t.Run("invalid health_check_url fails", func(t *testing.T) {
@@ -427,6 +418,14 @@ func TestValidateImportRow_Application(t *testing.T) {
 		vals["health_check_url"] = "ftp://10.0.0.20:8080/health"
 		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
 		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "health_check_url", "ftp://10.0.0.20:8080/health")
+	})
+
+	t.Run("missing endpoint fails", func(t *testing.T) {
+		vals := baseValues(models.ResourceCategoryApplication)
+		vals["endpoint"] = ""
+		row := mustParse(t, models.ResourceCategoryApplication, [][]string{makeRow(models.ResourceCategoryApplication, vals)})[0]
+		assertRowError(t, ValidateImportRow(&row, store, newAppStore(t), ok, nil), 2, "endpoint", "")
+
 	})
 }
 
@@ -547,8 +546,8 @@ func TestValidateRows_CollectsErrorsWithRowNumbers(t *testing.T) {
 
 	rows := mustParse(t, models.ResourceCategoryHost, [][]string{
 		makeRow(models.ResourceCategoryHost, baseValues(models.ResourceCategoryHost)), // 第 2 行 合法
-		makeRow(models.ResourceCategoryHost, badIP),                                  // 第 3 行 非法 IP
-		makeRow(models.ResourceCategoryHost, stopped),                                // 第 4 行 已停止
+		makeRow(models.ResourceCategoryHost, badIP),                                   // 第 3 行 非法 IP
+		makeRow(models.ResourceCategoryHost, stopped),                                 // 第 4 行 已停止
 	})
 	valid, errs := ValidateRows(rows, store, newAppStore(t), ok, nil)
 

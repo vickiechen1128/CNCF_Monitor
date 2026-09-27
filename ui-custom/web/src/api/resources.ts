@@ -11,6 +11,7 @@ import type { ApiResponse, ApiStatus, Paginated } from '../types/api'
 import type {
   ApplicationDict,
   BusinessDomain,
+  CloudDict,
   ImportMode,
   ImportRecord,
   ImportResult,
@@ -240,6 +241,23 @@ export const applicationDictApi = {
     return apiClient.put<ApplicationDict>(`/api/v2/platform/application-dict/${encodeURIComponent(appCode)}`, {
       body: input,
     })
+  },
+}
+
+/** 云字典响应（GET /cloud-dict，非分页信封 {list,total}，§5.20 / 决策 98 / 102） */
+export interface CloudDictsResponse {
+  list: CloudDict[]
+  total: number
+}
+
+/**
+ * 云字典（§5.20 / 决策 102-③）：`cloud_code → cloud` label 的取值权威，随部署预置、
+ * **全局只读**——仅暴露 `list`，**不提供 create / update / remove**（后端无写接口，
+ * 前端亦不提供任何登记 / 编辑 / 删除入口，增删改随版本发版）。
+ */
+export const cloudDictApi = {
+  list(): Promise<ApiResponse<CloudDictsResponse>> {
+    return apiClient.get<CloudDictsResponse>('/api/v2/platform/cloud-dict')
   },
 }
 

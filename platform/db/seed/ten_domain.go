@@ -27,7 +27,9 @@ func runTenantAndDomain(db *gorm.DB) error {
 		ID:                  models.DefaultDomainID,
 		Name:                "默认网域",
 		DomainType:          models.DomainTypeManagement,
-		Channel:             models.ChannelForDomainType(models.DomainTypeManagement),
+		ZoneType:            string(models.ZoneTypeInternet), // 决策 103 scheme-B：cloud/zone 标签权威来源（default 域固定互联网区）
+		CloudCode:           "PUB-TX",                        // 决策 103 scheme-B：引用已启用云字典条目（seed 预置 PUB-TX）
+		Channel:             models.ChannelTypeLocal,
 		TenantID:            models.PlatformAdminTenantID,
 		AuthorizedTenantIDs: []string{models.PlatformAdminTenantID},
 		Status:              models.DomainStatusEnabled,
@@ -53,7 +55,7 @@ func runTenantAndDomain(db *gorm.DB) error {
 	// re-apply the canonical administrative fields. Select limits the update to
 	// the administrative set, and re-running Run never duplicates nor errors.
 	if err := db.Model(domain).
-		Select("name", "domain_type", "channel", "tenant_id", "status", "authorized_tenant_ids", "is_monitored").
+		Select("name", "domain_type", "channel", "tenant_id", "status", "authorized_tenant_ids", "is_monitored", "zone_type", "cloud_code").
 		Updates(domain).Error; err != nil {
 		return fmt.Errorf("align default domain fields: %w", err)
 	}

@@ -13,9 +13,9 @@
 | Phase | Phase 2 |
 | 模块 | module-07-resource-management |
 | 分支 | feat/module-07-resource-management |
-| 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v2.30）；**v2026-09-19 增量（v2.41，决策 92~97）**：追加应用字典管理 API、资源必填分化口径、Excel 声明导入契约，见 §5A / §10A / §13；**v2026-09-25 增量（v2.42 / v2.43，决策 98 / 101 / 102）**：云字典只读 API（§5B）、`cloud_code` 升格五类共享字段与必填分化（§10B）、host 列表派生只读 `zone_type`（§3 增量）、Excel `cloud_code` 列与历史值归一（§10B.3） |
+| 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v2.30）；**v2026-09-19 增量（v2.41，决策 92~97）**：追加应用字典管理 API、资源必填分化口径、Excel 声明导入契约，见 §5A / §10A / §13；**v2026-09-25 增量（v2.42 / v2.43，决策 98 / 101 / 102；v2026-09-27 增量 决策 98/102-③、103 scheme-B）**：云字典只读 API（§5B）、`cloud_code` 升格 NetworkDomain 行政字段与资源派生字段（§10B）、资源列表派生只读 `cloud_code`/`zone_type` 与 `cloud`/`zone`/`network_domain` 三标签派生口径（§3 注 / §10C / §11）、`cloud_type`/`carrier` 描述性元数据边界（前端红-line ④，§9）、Excel `cloud_code` 列移除与历史值归一（§10B.3） |
 | 生成方式 | v2026-08-23 由已落地后端路由 + 前端类型反向回填；**v2026-09-05 重派生**覆盖决策 47-3 `collection_status` 三态筛选（PRD v2.22~v2.25 口径收敛）与 v0.2 `Resource.scrape_port`（v2.26 范围收敛落版）；**v2026-09-19 增量**由 PRD v2.40→v2.41 + design-decisions.md 决策 92~97 派生 |
-| 来源 | PRD `Module_07_Monitoring_Object_Management.md` v2.30 §3/§5/§6/§8/§9/§11；`03_API_Standard.md` §7；`task-sequence.yaml`；`platform/config/{resource,label}/routes.go`；design-decisions.md 决策 92~97（v2.41） |
+| 来源 | PRD `Module_07_Monitoring_Object_Management.md` v2.30 §3/§5/§6/§8/§9/§11；`03_API_Standard.md` §7；`task-sequence.yaml`；`platform/config/{resource,label}/routes.go`；design-decisions.md 决策 92~97（v2.41）；`platform/config/resource/cloud_dict.go` + `platform/models/cloud_dict.go`（`CloudDict`/`CloudType`/`CloudCarrier`）、决策 98/102-③/103 scheme-B（v2026-09-27 增量） |
 
 ## 1. 通用契约
 
@@ -42,6 +42,7 @@
 | 导入记录列表 `GET /imports` | `{ list, total, page, page_size }` | list 键 |
 | 关联实例 `GET /label-templates/:template_id/resources` | `{ items, total, page, page_size }` | **items 键**；默认 1/10，上限 100（前端为此单独声明 `TemplateInstancePage`，不复用 `Paginated`） |
 | 资源标签 `GET /resources/:resource_id/labels` | `{ items, total }` | items 键，不分页 |
+| 云字典列表 `GET /cloud-dict` | `{ list, total }` | list 键；**含停用项**（前端筛启用项自行过滤） |
 
 > ⚠️ 前端消费时必须按接口区分 `list` / `items` 信封；空结果一律返回 `[]` 而非 `null`。
 
@@ -65,6 +66,8 @@
 | POST | `/resources/:resource_category/import` | multipart：`file` + `resource_category` + `mode` | `ImportResult`（`{total,success,updated?,failed,errors[]}`，errors item = `{row,field,value?,reason}`） | `bad_request`：文件格式/必填列缺失/非法 mode | §5.16/6.6.1 |
 
 > **{v2.41 决策 97} Excel 内联声明 sheet（新增）**：资源导入文件 `file` 可包含 `业务声明`（列 `biz_code|biz_name|说明?`）与 `应用声明`（列 `app_code|app_name|说明?`）两个内联 sheet，用于一次导入携带全新业务/应用。校验顺序：①声明自身（编码 BIZ_CODE_RE/APP_CODE_RE、声明内重码去重、与存量同名且 name 不一致则**硬拒绝绝不覆盖**、不可激活停用条目）→②资源可达性（字典 ∪ 声明）→③整体写。声明建出字典条目 `status=enabled`、`source=excel-import`、只增不覆盖（web 下拉可用、不依赖资源存活）；与资源同批**原子提交、任一失败整体回滚**（SQLite 事务）。权重复用「导入资源」权限位，不额外收紧。资源引用的码既不存也非声明 → 报错归入「待登记清单」兜底、不静默跳过。
+
+> **云/区派生（决策 103 scheme-B）**：资源列表/详情响应 item 上的 `cloud_code` / `zone_type` 为**派生字段**（非 Resource 落库字段），由 `network_domain_id` 关联网域的 `cloud_code` / `zone_type` 实时批量派生（list.go 一次性映射，禁止 N+1；空网域回退 `""`）。由此派生的 `cloud`（= 网域 `cloud_code`）/ `zone`（= 网域 `zone_type`）是 target 的系统标签（configcenter generator），**资源侧不落、不写 cloud 标签**；`cloud_type`/`carrier` 仅云字典条目描述属性，**绝不**作为独立分类轴或筛选维度（前端红-line ④）。
 
 > **采集状态三态（决策 47-3；口径收敛 2026-09-02，PRD v2.25/v2.30）**：列表「采集状态」列展示三态 badge——`采集中`（被 ScrapeJob 选中且 target `up`）/ `已下发未采到`（被选中但未采到数据：`down` / 待首次抓取 / **变更未确认下发**）/ `未监控`（未被任何 Job 选中）。数据 = M01 选中关系 `is_monitored`（取 DB 当前 `selected_instance_ids`、ready+enabled Job，**不问 M09 `change_status`、不感知下发时序**）+ M02 健康度/覆盖率 API（`up` 聚合，按 `resource_id` 稳定身份标签回连，MVP 起提供）。**M07 只读消费、不直连时序数据**：列表级查询走 M02 聚合 API 一次性获取，**禁止逐行查询**（TQ-6 N+1 教训）；响应 item 上的采集状态为**派生字段**（如 `collection_status`），非 Resource 落库字段。「待采集 vs 已下发未采到」细分由 M01 Job 回显承担（M01 §5.10/快照 §6）；「未纳入任何 Job」同步可在 M01 实例选择器筛选；异常驱动展示——仅「已下发未采到」高饱和。
 
@@ -101,15 +104,25 @@
 
 > **展示名解析**：资源列表/详情「应用」列展示 `app_name`（前端经 `GET /application-dict` 按 `app_code` 解析）；字典缺条回退显示 `app_code`。停用条目 UI 标识「应用名（已停用）」。**{v2.41 决策 97}**：`source` 来源扩展同 §5；Excel 导入「应用声明」sheet 建出条目 `enabled=true`、`source=excel-import`、只增不覆盖。
 
-## 5B. 云字典 API（v2.42 / v2.43 决策 98 / 102，新增）
+## 5B. 云字典 API（只读，决策 98 / 102-③ / 103 scheme-B，新增）
 
 > **定位**：云字典是 **NetworkDomain.cloud_code** 的**取值权威**（决策 103 方案 B 后，消费方由「资源侧录入/编辑/导入」改为「M06 网域登记 cloud_code 必填且引用启用条目」）；与业务分组字典（§5）、应用字典（§5A）同构，但**部署级只读**——随 seed / 部署配置预置，**不提供任何写接口与管理界面**（决策 102-③，既无用户自助登记页也无平台管理员页），增删改随版本发版。`cloud` / `zone` / `network_domain` 三标签改在 target 级 system 层注入（见 §10C），不再经 `cloud_code → cloud` 模板映射。
 >
-> **一个云 = 云类型 × 云载体的组合整体**：`cloud_code` 为 `{类型}-{载体}` 复合码（大写短码），`cloud_type` / `carrier` 仅为条目**描述属性**（用于展示 / 分类），**不是告警维度、不独立成 label、不得在 UI 独立成列或筛选维度**（红线⑥：`TX` 只是载体，腾讯云的云标识是 `PUB-TX`，不得把 `TX` 等同于「公有云」）。
+> **一个云 = 云类型 × 云载体的组合整体**：`cloud_code` 为 `{类型}-{载体}` 复合码（大写短码），`cloud_type` / `carrier` 仅为条目**描述属性**（用于展示 / 分类），**不是告警维度、不独立成 label、不得在 UI 独立成列或筛选维度**（红线⑥：`TX` 只是载体，腾讯云的云标识是 `PUB-TX`，不得把 `TX` 等同于「公有云」）。资源本身**不落 cloud_code**（决策 103 scheme-B），其 `cloud`/`zone`/`network_domain` 三标签一律经 `network_domain_id` 派生（见 §3 派生注 / §11）。
 
 | 方法 | 路径 | 请求体 / Query | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------|-----------|----------|--------|
-| GET | `/cloud-dict` | — | `{list:[{cloud_code,cloud_name,cloud_type,carrier,enabled}], total}` | — | §5.20 / §6.1 |
+| GET | `/cloud-dict` | — | `{list:[CloudDict], total}`：`CloudDict[]`（**含停用项**） | — | §5.20 / M06 |
+
+`CloudDict` 字段：`{cloud_code, cloud_name, cloud_type, carrier, enabled}`
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `cloud_code` | string | 不可变复合编码（如 `PUB-TX` / `GM-CU`），资源 `cloud` 标签与网域登记的唯一取值；seed 预置 `PUB-TX`（启用）、`GM-CU`（启用，规划中） |
+| `cloud_name` | string | 展示名（如「腾讯云」「政务云（联通）」） |
+| `cloud_type` | enum | `PUB` 公有云 / `GM` 政务云 / `IND` 行业云 / `PRI` 私有云；**描述性元数据，非独立筛选维度** |
+| `carrier` | enum | `TX` 腾讯 / `CU` 联通 / `CM` 移动；**描述性元数据，非独立筛选维度** |
+| `enabled` | bool | 是否启用；停用的 `cloud_code` 不可被 M06 网域登记引用（登记接口 `validateCloudCodeEnabled` 硬校验），资源侧亦不可引用 |
 
 - **禁止**：`POST` / `PUT` / `DELETE` `/cloud-dict*`（无写接口）；前端不得提供登记/编辑/删除入口。
 - **seed 登记**（幂等，按 `cloud_code` 对齐展示名与启用态）：
@@ -123,6 +136,7 @@
 - **展示名解析**：列表 / 详情「云」列展示 `cloud_name`（字典缺条目回退 `cloud_code`，停用条目标识「云名（已停用）」），与 §5A `app_name` 解析同款。
 - **历史 Excel 值归一**（导入层）：`TX → PUB-TX`、`CU → GM-CU`（大小写不敏感、trim）；无法归一的值整行报错。
 - **`cloud` label**：仅取 `cloud_code`（禁止以 `cloud_name` 作为标签值）；空值**不注入** `cloud` 标签（复用 §10A 空值语义）。
+- **消费方**：① M06 网域登记 UI 用 `GET /cloud-dict`（取 enabled 项）渲染 `cloud_code` 下拉；② 资源列表/详情的 `cloud_code`/`zone_type` 为**派生字段**（见 §3 派生注），前端**不得**把 `cloud_type`/`carrier` 渲染为独立列或独立筛选维度（前端红-line ④）。
 
 ## 6. 导入记录 API
 
@@ -174,6 +188,10 @@
 | `app_code` 规范 | 小写字母/数字/连字符，≤64；永不可改 | {v2.41 决策 92} `app` label 的取值来源；禁止用展示名 `app_name` 当编码/映射来源 |
 | `dict_source` | `manual` / `excel-import` / `cmdb` {v0.4+} | {v2.41 决策 97} 字典来源；`excel-import` 条目 `enabled=true`、只增不覆盖 |
 | label key 规则 | 小写/下划线，禁止 `__` 开头，≤128 | |
+| `cloud_type`（描述性） | `PUB` 公有云 / `GM` 政务云 / `IND` 行业云 / `PRI` 私有云 | 云字典条目**描述属性**；**非独立分类轴/筛选维度**（前端红-line ④），资源标签不引用 |
+| `carrier`（描述性） | `TX` 腾讯 / `CU` 联通 / `CM` 移动 | 同上，描述性元数据，不进标签/筛选 |
+| `cloud_code` 派生 | 经 `network_domain_id` 关联网域 `cloud_code` 派生 | 见 §3 派生注 / §5B；资源不落该字段 |
+| `zone_type` 派生 | 经 `network_domain_id` 关联网域 `zone_type` 派生 | 同上，标识 target `zone` 系统标签 |
 
 ## 10. 字段必填口径
 
@@ -277,6 +295,8 @@
 | `instance_count` | 关联实例数 | |
 | `scrape_port` | 采集端口 | {v0.2} 实例级采集端口覆盖；留空由 M09 解析链取默认 |
 | `collection_status` | 采集状态 | 三态 badge（采集中 / 已下发未采到 / 未监控，决策 47-3）；「已下发未采到」高饱和展示 |
+| `cloud_code` | 云归属 | 资源列表/详情为**派生字段**（经所属网域 `cloud_code` 派生，见 §3 派生注）；前端红-line ④：`cloud_type`/`carrier` 不渲染为独立列/筛选维度 |
+| `zone_type` | 网域类型 | 派生字段（经所属网域 `zone_type`）；与 `network_domain_id` 同源，标识 target `zone` 系统标签 |
 
 ## 12. 来源对照表
 

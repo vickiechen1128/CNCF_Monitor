@@ -32,6 +32,7 @@ func openListTestDB(t *testing.T) *gorm.DB {
 		&models.Middleware{},
 		&models.Application{},
 		&models.GenericTarget{},
+		&models.NetworkDomain{},
 	))
 	return db
 }
@@ -77,6 +78,7 @@ func seedHostList(t *testing.T, db *gorm.DB, id, domain, name, ip, status string
 		ServerID:         id,
 		ResourceCategory: models.ResourceCategoryHost,
 		NetworkDomainID:  domain,
+		CloudCode:        "PUB-TX",
 		BizCode:          "infra",
 		SourceType:       models.SourceTypeManual,
 		InstanceName:     name,
@@ -101,6 +103,7 @@ func seedDatabaseList(t *testing.T, db *gorm.DB, id, domain, ip string, port int
 			ResourceID:       id,
 			ResourceCategory: models.ResourceCategoryDatabase,
 			NetworkDomainID:  domain,
+			CloudCode:        "PUB-TX",
 			BizCode:          "infra",
 			Env:              "prod",
 			Status:           status,
@@ -123,6 +126,7 @@ func seedMiddlewareList(t *testing.T, db *gorm.DB, id, domain, ip string, port i
 		ResourceType:     models.ResourceTypeMiddleware,
 		ResourceCategory: models.ResourceCategoryMiddleware,
 		NetworkDomainID:  domain,
+		CloudCode:        "PUB-TX",
 		BizCode:          "infra",
 		SourceType:       models.SourceTypeManual,
 		AppName:          "kafka-app",
@@ -145,6 +149,7 @@ func seedApplicationList(t *testing.T, db *gorm.DB, id, domain, service, endpoin
 		ResourceType:     models.ResourceTypeApplication,
 		ResourceCategory: models.ResourceCategoryApplication,
 		NetworkDomainID:  domain,
+		CloudCode:        "PUB-TX",
 		BizCode:          "payment",
 		SourceType:       models.SourceTypeManual,
 		AppName:          service,
@@ -168,6 +173,7 @@ func seedGenericTargetList(t *testing.T, db *gorm.DB, id, domain, name, ip strin
 			ResourceID:       id,
 			ResourceCategory: models.ResourceCategoryGenericTarget,
 			NetworkDomainID:  domain,
+			CloudCode:        "PUB-TX",
 			BizCode:          "infra",
 			Env:              "prod",
 			Status:           status,
@@ -287,7 +293,7 @@ func TestListResourcesItemFields(t *testing.T) {
 
 	// §5.2 共享契约字段
 	for _, f := range []string{
-		"resource_id", "resource_category", "network_domain_id", "biz_code",
+		"resource_id", "resource_category", "network_domain_id", "cloud_code", "biz_code",
 		"app_code", "env", "cluster", "owner", "status", "source_type",
 	} {
 		_, ok := item[f]
@@ -324,6 +330,36 @@ func TestListResourcesGenericItemCustomLabels(t *testing.T) {
 	labels, ok := item["custom_labels"].(map[string]interface{})
 	require.True(t, ok, "custom_labels 应为 JSON 对象")
 	assert.Equal(t, "snmp_switch", labels["device_type"])
+}
+
+func TestListResourcesCloudCodeAndHostZoneType(t *testing.T) {
+	db := openListTestDB(t)
+	r := mountListResources(t, db)
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: "default", Name: "默认网域", DomainType: models.DomainTypeManagement,
+		ZoneType: "internet", CloudCode: "PUB-TX", TenantID: models.PlatformAdminTenantID,
+		Channel: models.ChannelTypeLocal, Status: models.DomainStatusEnabled,
+	}).Error)
+	seedHostList(t, db, "host-zone", "default", "web-zone", "10.0.0.8", "online")
+	seedHostList(t, db, "host-missing-zone", "missing-domain", "web-missing", "10.0.0.9", "online")
+	seedDatabaseList(t, db, "db-zone", "default", "10.0.0.10", 3306, "online")
+
+	_, out := doResourceList(t, r, "?resource_category=host")
+	require.Len(t, out.Data.List, 2)
+	hosts := make(map[string]map[string]interface{}, 2)
+	for _, item := range out.Data.List {
+		hosts[item["resource_id"].(string)] = item
+	}
+	assert.Equal(t, "PUB-TX", hosts["host-zone"]["cloud_code"])
+	assert.Equal(t, "internet", hosts["host-zone"]["zone_type"])
+	assert.Equal(t, "", hosts["host-missing-zone"]["zone_type"])
+
+	_, out = doResourceList(t, r, "?resource_category=database")
+	require.Len(t, out.Data.List, 1)
+	assert.Equal(t, "PUB-TX", out.Data.List[0]["cloud_code"])
+	// 决策 103 scheme-B：zone_type 经所属网域派生，对全部资源类型统一返回（host 之外
+	// 的 database/middleware/application/generic_target 同样承载所属网域的 zone_type）。
+	assert.Equal(t, "internet", out.Data.List[0]["zone_type"], "database 经网域派生 zone_type")
 }
 
 // TestListResourcesNetworkDomainFilter 验证 network_domain_id 等值筛选。
@@ -450,9 +486,9 @@ func TestListResourcesBizCodeStatusFilter(t *testing.T) {
 	db := openListTestDB(t)
 	r := mountListResources(t, db)
 	// host: infra/online、infra/offline、payment/online（server_id 与 resource_id 一致以共存）。
-	seedHostList(t, db, "host-1", "default", "web-01", "10.0.0.1", "online")   // infra
-	seedHostList(t, db, "host-2", "default", "web-02", "10.0.0.2", "offline")  // infra
-	seedHostList(t, db, "host-3", "default", "web-03", "10.0.0.3", "online")   // infra
+	seedHostList(t, db, "host-1", "default", "web-01", "10.0.0.1", "online")  // infra
+	seedHostList(t, db, "host-2", "default", "web-02", "10.0.0.2", "offline") // infra
+	seedHostList(t, db, "host-3", "default", "web-03", "10.0.0.3", "online")  // infra
 	h := &models.Host{
 		ResourceID:       "host-4",
 		ServerID:         "host-4",
