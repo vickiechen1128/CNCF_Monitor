@@ -433,7 +433,7 @@ docs/02-product-requirements/Modules/Module_XX_*.md
     - 工程标准：<按需给具体文件，如 03_API_Standard.md / 02_Frontend_Standard.md>
   - 输出：<新增/修改的文件列表>
   - 复杂度度量：
-    - estimated_files_changed: <N>
+    - estimated_files_changed: <N；Track B/增量允许估算或留空>
     - estimated_test_cases: <N>
     - shared_files: <是/否，涉及共享文件时列出文件路径>
   - 验收：<测试命令 / lint / 服务启动验证；前端任务必须指定单文件测试命令>

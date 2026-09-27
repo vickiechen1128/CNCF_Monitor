@@ -7,6 +7,8 @@
 
 接到"找某个功能/符号/bug 位置"的任务时，**必须**按以下顺序逐层降级，禁止跳级：
 
+> **Track B / 增量定位口径（v2026-09-27 起）**：迭代阶段（Track B/小功能增量）开发走「先改代码、后回填」的节奏，`task-sequence.yaml` 的 `input_files` / `output_files` 允许简写或留空、不再作为硬性路径依据。此时**定位主用第 1 层的符号级地图 `repo-map.md`**（`make repo-map` 自动生成、与当前代码实时一致），未命中再降级为定点 `grep`；不必为回填文件路径清单付出维护成本、避免蓝图字段漂移失真。
+
 ### 第 1 层：查现成地图（零搜索成本）
 
 1. **模块级导航**：`docs/02-product-requirements/04_Implementation_Map.md`（模块 → 能力 → 实施层），以及各模块 L3 `docs/05-execution-records/module-XX/task-sequence.yaml`（micro-task 里有明确的相关文件路径）。
