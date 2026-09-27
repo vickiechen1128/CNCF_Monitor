@@ -127,6 +127,8 @@ function buildCreateInput(category: ResourceCategory, values: Record<string, unk
     network_domain_id: String(values.network_domain_id),
     biz_code: String(values.biz_code),
     app_code: values.app_code ? String(values.app_code) : undefined,
+    // 决策 103 scheme-B：cloud_code 不再随资源写请求体——云由所属网域派生（只读），
+    // 表单无「云」录入项，服务端亦不接受该字段。
     env: String(values.env),
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
@@ -141,6 +143,7 @@ function buildUpdateInput(category: ResourceCategory, values: Record<string, unk
     network_domain_id: String(values.network_domain_id),
     biz_code: String(values.biz_code),
     app_code: values.app_code ? String(values.app_code) : undefined,
+    // 决策 103 scheme-B：同新增，cloud_code 不经编辑请求体（云随所属网域派生）
     env: String(values.env),
     cluster: values.cluster ? String(values.cluster) : undefined,
     owner: values.owner ? String(values.owner) : undefined,
@@ -310,6 +313,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       form.setFieldsValue(recordToFormValues(record))
     }
     // 网域 / 业务字典 + 操作系统字典下拉（M06 网域清单 / §3.1 业务字典 / os_dict.go）
+    // 决策 103 scheme-B：不再拉取云字典——表单无「云」录入项，云由所属网域派生。
     Promise.all([
       networkDomainApi.list({ page: 1, page_size: 100 }),
       businessDomainApi.list(),
@@ -426,11 +430,15 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             </Select>
           </Form.Item>
         </Col>
+      </Row>
+      <Row gutter={16}>
         <Col span={12}>
           <Form.Item label="集群" name="cluster">
             <Input placeholder="集群名（可选）" maxLength={64} />
           </Form.Item>
         </Col>
+        {/* 决策 103 scheme-B：表单不再提供「云」录入项——
+            云由资源所属网域派生，仅在列表 / 详情以只读形式呈现。 */}
       </Row>
       <Form.Item label="负责人" name="owner">
         <Input placeholder="负责人（可选）" maxLength={32} />
@@ -716,7 +724,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
           type="warning"
           showIcon
           message="字典加载失败"
-          description="网域 / 业务字典加载失败，请稍后重试"
+          description="网域 / 业务 / 应用 / 操作系统字典加载失败，请稍后重试"
           style={{ marginBottom: 16 }}
         />
       )}

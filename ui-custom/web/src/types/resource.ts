@@ -20,6 +20,16 @@ export interface ResourceBaseShape {
   resource_type: ResourceType
   resource_category: ResourceCategory
   network_domain_id: string
+  /**
+   * 云归属（决策 103 scheme-B）：**只读派生**——值 = 所属网域 `cloud_code`，
+   * 由后端列表/详情派生下发；资源侧无写入口，不随创建/更新请求体。
+   */
+  cloud_code?: string
+  /**
+   * 网络分区（决策 103 scheme-B）：**只读派生**——值 = 所属网域 `zone_type`，
+   * 五类资源均返回（不再仅限 host）；资源侧无写入口。
+   */
+  zone_type?: string
   biz_code: string
   env: string
   owner: string
@@ -32,7 +42,6 @@ export interface ResourceBaseShape {
 export interface Host extends ResourceBaseShape {
   resource_type: 'host'
   resource_category: 'host'
-  cloud_code: string
   app_code: string
   sub_app_code: string
   env_flag: 'SIT' | 'PRD'
@@ -120,12 +129,13 @@ export type Resource = Host | Database | Middleware | Application | GenericTarge
 /** 资源运行状态（§5.2 / §8.1，UI 展示名「运行状态」） */
 export type ResourceStatus = 'online' | 'offline' | 'maintenance'
 
-/** 资源创建公共字段（resource_category 创建必传，§5.2；biz_code 全类型必填） */
+/** 资源创建公共字段（resource_category 创建必传，§5.2） */
 export interface ResourceCreateBaseShape {
   resource_category: ResourceCategory
   network_domain_id: string
   biz_code: string
   app_code?: string
+  // 决策 103 scheme-B：**无 cloud_code 字段**——云由所属网域派生，创建请求不接受该字段。
   env: string
   cluster?: string
   owner?: string
@@ -189,6 +199,7 @@ export interface ResourceUpdateBaseShape {
   network_domain_id?: string
   biz_code?: string
   app_code?: string
+  // 决策 103 scheme-B：**无 cloud_code 字段**——云由所属网域派生，更新请求不接受该字段。
   env?: string
   cluster?: string
   owner?: string
@@ -220,6 +231,21 @@ export interface ApplicationDict {
   app_name: string
   description?: string
   status: 'enabled' | 'disabled'
+}
+
+/**
+ * 云字典条目（§5.20 / 决策 98 / 102）：**一个云 = 云类型 × 云载体的组合整体**——
+ * `cloud_code` 是不可变复合码（`{类型}-{载体}`，如 `PUB-TX`），是 `cloud` label 的唯一取值来源；
+ * `cloud_name` 为必填展示名（仅 UI 展示，改动不触发配置重生成）；
+ * `cloud_type` / `carrier` 仅为条目**描述属性**——不独立成列 / 成筛选维度 / 成 label。
+ * 云字典随部署预置、**全局只读**（后端无写接口，前端不提供登记入口，决策 102-③）。
+ */
+export interface CloudDict {
+  cloud_code: string
+  cloud_name: string
+  cloud_type: string
+  carrier: string
+  enabled: boolean
 }
 
 /** 操作系统内置字典条目（os_dict.go，GET /api/v2/platform/os-options）：规范名 + 家族 */

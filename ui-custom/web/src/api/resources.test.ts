@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ApiError, clearToken, setToken } from './client'
-import { resourceApi, businessDomainApi, importApi } from './resources'
+import { resourceApi, businessDomainApi, cloudDictApi, importApi } from './resources'
 
 // vitest jsdom 环境的 window.localStorage 存储行为不可靠，用内存 Map 替换（与 client.test.ts 一致）。
 const storageMap = new Map<string, string>()
@@ -354,6 +354,73 @@ describe('resources API', () => {
     expect(res.data.total).toBe(2)
     expect(res.data.list[0].code).toBe('infra')
     expect(res.data.list[0].enabled).toBe(true)
+  })
+
+  // 决策 98 / 102-③：云字典部署级只读——只有 list，不得给前端留任何写入口
+  it('cloudDictApi.list GETs /cloud-dict and parses {list,total}', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        list: [
+          { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true },
+          { cloud_code: 'GM-CU', cloud_name: '政务云（联通）', cloud_type: 'GM', carrier: 'CU', enabled: true },
+        ],
+        total: 2,
+      },
+    })
+
+    const res = await cloudDictApi.list()
+
+    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/cloud-dict')
+    expect(lastFetchCall()[1]?.method).toBe('GET')
+    expect(res.data.total).toBe(2)
+    expect(res.data.list[0]).toMatchObject({
+      cloud_code: 'PUB-TX',
+      cloud_name: '腾讯云',
+      cloud_type: 'PUB',
+      carrier: 'TX',
+      enabled: true,
+    })
+  })
+
+  it('cloudDictApi exposes read-only list only (no create/update/remove)', () => {
+    expect(Object.keys(cloudDictApi)).toEqual(['list'])
+    expect(cloudDictApi).not.toHaveProperty('create')
+    expect(cloudDictApi).not.toHaveProperty('update')
+    expect(cloudDictApi).not.toHaveProperty('remove')
+    expect(cloudDictApi).not.toHaveProperty('delete')
+  })
+
+  it('resourceApi.list items tolerate missing cloud_code / zone_type (host derived read-only)', async () => {
+    // 决策 102 / 101：非 host 四类不带 zone_type；五类缺值不崩、由 UI 兜底 '-'
+    mockFetch({
+      status: 'success',
+      data: {
+        list: [
+          { resource_id: 'r-1', resource_category: 'application', network_domain_id: 'mc-a', status: 'online' },
+          {
+            resource_id: 'r-2',
+            resource_category: 'host',
+            network_domain_id: 'mc-a',
+            status: 'online',
+            cloud_code: 'PUB-TX',
+            zone_type: 'internet',
+          },
+        ],
+        total: 2,
+        page: 1,
+        page_size: 50,
+      },
+    })
+
+    const res = await resourceApi.list({ resource_category: 'host' })
+
+    expect(res.data.list).toHaveLength(2)
+    const [app, host] = res.data.list as unknown as Record<string, unknown>[]
+    expect(app.cloud_code).toBeUndefined()
+    expect(app.zone_type).toBeUndefined()
+    expect(host.cloud_code).toBe('PUB-TX')
+    expect(host.zone_type).toBe('internet')
   })
 
   it('importApi.list GETs /imports with filter params', async () => {

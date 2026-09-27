@@ -26,11 +26,12 @@ import {
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { isApiError } from '../../api/client'
-import { resourceApi } from '../../api/resources'
+import { resourceApi, cloudDictApi } from '../../api/resources'
 import { labelTemplateApi } from '../../api/labelTemplates'
+import { zoneTypeApi } from '../../api/domain'
 import { EllipsisText } from '../../components/EllipsisText'
-import type { NetworkDomain } from '../../types/domain'
-import type { BusinessDomain, ResourceCategory, ResourceLabelItem } from '../../types/resource'
+import type { NetworkDomain, ZoneType } from '../../types/domain'
+import type { BusinessDomain, CloudDict, ResourceCategory, ResourceLabelItem } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
 import type { ResourceListItem } from './useResources'
 import { useSkin } from '../../skinContext'
@@ -149,6 +150,11 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
   const [newValue, setNewValue] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
+  // 决策 103 scheme-B：云字典（部署级只读，cloud_code → cloud_name 展示名解析；
+  // 云的取值由所属网域派生，此处仅做展示名解析）
+  const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
+  // 决策 101：M06 zone_type 字典（网络分区展示名解析，互联网区 / 政务外网区）
+  const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
 
   const { tokens } = useSkin()
   const isApplication = record?.resource_category === 'application'
@@ -164,6 +170,25 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
   const isBizDisabled = (code: string) => {
     const b = businessDomains.find((d) => d.code === code)
     return !!b && !b.enabled
+  }
+  /** 云编码 → cloud_name（§5.20 / 决策 103：详情展示字典展示名，缺条目回退 cloud_code） */
+  const resolveCloudName = (code?: string) => {
+    if (!code) return '-'
+    return cloudDicts.find((c) => c.cloud_code === code)?.cloud_name ?? code
+  }
+  /** 云是否停用（决策 98：停用条目以「云名（已停用）」标识，存量资源保留历史值） */
+  const isCloudDisabled = (code: string) => {
+    const c = cloudDicts.find((d) => d.cloud_code === code)
+    return !!c && !c.enabled
+  }
+  /**
+   * 网络分区展示名（决策 101）：分区唯一权威 = 所属网域 `zone_type`，
+   * 展示名走 M06 zone_type 字典（internet = 互联网区 / extranet = 政务外网区），
+   * 字典缺条目回退 zone_type 编码；主机侧只读派生。
+   */
+  const resolveZoneTypeName = (code?: string) => {
+    if (!code) return '-'
+    return zoneTypes.find((z) => z.code === code)?.display_name ?? code
   }
 
   /** 打开抽屉时重置状态并抓取标签 + 适用模板（沿用本模块既有 set-state-in-effect 模式） */
@@ -189,6 +214,16 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         setLabelsError(err.message || '标签数据加载失败，请稍后重试')
         setLabelsLoading(false)
       })
+    // 只读字典（云字典 §5.20 / 决策 98；M06 网络分区字典 / 决策 103 scheme-B）：
+    // 二者均不影响详情主渲染，加载失败静默降级（缺条目回退编码）
+    cloudDictApi
+      .list()
+      .then((res) => setCloudDicts(res.data?.list ?? []))
+      .catch(() => setCloudDicts([]))
+    zoneTypeApi
+      .list()
+      .then((res) => setZoneTypes(res.data ?? []))
+      .catch(() => setZoneTypes([]))
     // 适用模板：该资源类别默认模板（labelTemplateApi.list({resource_category, is_default}) 取首条，§5.3）
     labelTemplateApi
       .list({ resource_category: record.resource_category, is_default: true, page: 1, page_size: 10 })
@@ -331,6 +366,24 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           label: '网域',
           children: <Tag color="cyan">{domainNameOf(record.network_domain_id)}</Tag>,
         },
+        // 决策 103 scheme-B：网络分区唯一权威 = 所属网域 zone_type，**五类资源均只读派生**
+        // （不再仅限 host）——无编辑入口（不提供任何一致性引导文案：不存在两处填写）
+        {
+          key: 'zone_type',
+          label: '网络分区',
+          children: (
+            <span>
+              {record.zone_type ? (
+                <Tag>{resolveZoneTypeName(record.zone_type)}</Tag>
+              ) : (
+                <Text type="secondary">-</Text>
+              )}
+              <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                继承所属网域
+              </Text>
+            </span>
+          ),
+        },
         {
           key: 'biz_code',
           label: '业务',
@@ -362,6 +415,20 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         },
         { key: 'env', label: '环境', children: record.env || '-' },
         { key: 'app_code', label: '应用', children: record.app_code || '-' },
+        // 决策 103 scheme-B：云为五类共享字段且**只读派生**（值 = 所属网域 cloud_code），
+        // 详情展示字典 cloud_name（停用标识、缺条目回退编码、空值 '-'）
+        {
+          key: 'cloud_code',
+          label: '云',
+          children: record.cloud_code ? (
+            <span>
+              {resolveCloudName(record.cloud_code)}
+              {isCloudDisabled(record.cloud_code) ? '（已停用）' : ''}
+            </span>
+          ) : (
+            '-'
+          ),
+        },
         { key: 'cluster', label: '集群', children: record.cluster || '-' },
         { key: 'owner', label: '负责人', children: record.owner || '-' },
         {
