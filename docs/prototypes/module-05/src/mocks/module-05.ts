@@ -342,9 +342,11 @@ export interface DashboardTemplate {
 
 export interface GovernanceDrilldown {
   networkDomain: string
-  bizCode: string
+  platform: string
   app: string
-  instance: string
+  svc: string
+  /** 最细层稳定键为 resource_id（不是 instance） */
+  resourceId: string
 }
 
 export const mockGrafanaDatasource: GrafanaDatasource = {
@@ -360,7 +362,7 @@ export const mockDashboardTemplates: DashboardTemplate[] = [
     id: 'tpl-host',
     name: '主机基础监控',
     ciType: '主机',
-    description: 'CPU / 内存 / 磁盘 / 网络四维总览，按网域 → 业务 → 应用 → 实例下钻。',
+    description: 'CPU / 内存 / 磁盘 / 网络四维总览，按网域 → 平台 → 应用 → 服务 → 资源实例下钻。',
     readonly: true,
     cloneable: true,
     tags: ['主机', '系统', 'base'],
@@ -388,18 +390,20 @@ export const mockDashboardTemplates: DashboardTemplate[] = [
   },
 ]
 
-/** 四层下钻的治理标签默认值（dashboard variables 的 label_values 查询走 M02 代理） */
+/** 五层下钻的治理标签默认值（dashboard variables 的 label_values 查询走 M02 代理） */
 export const mockGovernanceOptions: GovernanceDrilldown = {
   networkDomain: 'default',
-  bizCode: 'Iaas',
+  platform: 'K8s',
   app: 'nginx-prod',
-  instance: '10.0.0.11:9100',
+  svc: 'nginx',
+  resourceId: 'res-host-0001',
 }
 
 export const mockNetworkDomains = ['default', 'edge', 'finance']
-export const mockBizCodes = ['Iaas', 'PaaS', 'Saas']
+export const mockPlatforms = ['K8s', 'VM', '中间件']
 export const mockApps = ['nginx-prod', 'mysql-master', 'order-service']
-export const mockInstances = ['10.0.0.11:9100', '10.0.0.12:9100', '10.0.1.5:9100']
+export const mockServices = ['nginx', 'mysql', 'order-svc']
+export const mockResourceInstances = ['res-host-0001', 'res-db-0007', 'res-app-0012']
 
 // —— 首页 v1.4（决策 91）：L1 资源类型分组 / L2 应用明细 / 拨测口径 ——
 
@@ -558,6 +562,27 @@ export const mockUnclassifiedResource = {
   resourceCount: 48,
   monitoredCount: 36,
 }
+
+/**
+ * 「按云分布」按云聚合行（决策 100；对应 PRD §5.1 `by_cloud[]`）：
+ * 驱动首页独立「按云分布」区块（整宽，位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前）。
+ * `cloud` 经资源所属网域 `cloud_code` 派生（网域必填、零空洞）；**本期仅主机**，其余四类暂不参与按云聚合。
+ * 自洽约束：各云 `resourceCount` 之和 = L1 主机类总数（42）、`monitoredCount` 之和 = 主机类已采数（36）。
+ * `cloudCode` 取自云字典（PUB-TX 腾讯云 / GM-CU 政务云（联通））。
+ */
+export interface CloudSummary {
+  cloudCode: string
+  cloudName: string
+  resourceCount: number
+  monitoredCount: number
+  /** 响应侧派生的取整覆盖率（已采 ÷ 主机数） */
+  coverageRate: number
+}
+
+export const mockCloudSummaries: CloudSummary[] = [
+  { cloudCode: 'PUB-TX', cloudName: '腾讯云', resourceCount: 30, monitoredCount: 28, coverageRate: 93 },
+  { cloudCode: 'GM-CU', cloudName: '政务云（联通）', resourceCount: 12, monitoredCount: 8, coverageRate: 67 },
+]
 
 /** 拨测目标概况（Blackbox；不计入资源台账与覆盖率）。abnormalCount 应等于 mockProbeTargets 中 down 数 */
 export const mockProbeSummary: ProbeSummary = {

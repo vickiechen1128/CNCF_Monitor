@@ -26,9 +26,10 @@ import {
   mockGrafanaDatasource,
   mockDashboardTemplates,
   mockNetworkDomains,
-  mockBizCodes,
+  mockPlatforms,
   mockApps,
-  mockInstances,
+  mockServices,
+  mockResourceInstances,
   mockGovernanceOptions,
 } from '../mocks/module-05'
 
@@ -39,11 +40,13 @@ export function GrafanaDashboardPage() {
   const [searchParams] = useSearchParams()
   const fullscreen = searchParams.get('fullscreen') === '1'
 
-  // 四层下钻的治理标签（dashboard variables 走 M02 代理 label_values）
+  // 五层下钻的治理标签（网域 → 平台 → 应用 → 服务 → 资源实例；dashboard variables 走 M02 代理 label_values，
+  // 最细层稳定键为 resource_id 而非 instance）
   const [networkDomain, setNetworkDomain] = useState(mockGovernanceOptions.networkDomain)
-  const [bizCode, setBizCode] = useState(mockGovernanceOptions.bizCode)
+  const [platform, setPlatform] = useState(mockGovernanceOptions.platform)
   const [app, setApp] = useState(mockGovernanceOptions.app)
-  const [instance, setInstance] = useState(mockGovernanceOptions.instance)
+  const [svc, setSvc] = useState(mockGovernanceOptions.svc)
+  const [resourceId, setResourceId] = useState(mockGovernanceOptions.resourceId)
 
   const toggleFullscreen = () => {
     if (fullscreen) {
@@ -124,20 +127,20 @@ export function GrafanaDashboardPage() {
         }
       />
 
-      {/* 版面引导：治理标签四层下钻 */}
+      {/* 版面引导：治理标签五层下钻（网域 → 平台 → 应用 → 服务 → 资源实例） */}
       <Card
         className="page-card"
         style={{ marginBottom: 16 }}
         title={
           <Space>
             <FilterOutlined />
-            版面引导 · 治理标签四层下钻
+            版面引导 · 治理标签五层下钻
           </Space>
         }
         extra={<Text type="secondary">dashboard variables 走 M02 查询代理</Text>}
       >
-        <Row gutter={16} align="middle">
-          <Col xs={24} sm={6}>
+        <Row gutter={[16, 16]} align="middle">
+          <Col flex="1 1 180px">
             <Text type="secondary">网域 network_domain</Text>
             <Select
               value={networkDomain}
@@ -146,16 +149,16 @@ export function GrafanaDashboardPage() {
               onChange={(v) => setNetworkDomain(v)}
             />
           </Col>
-          <Col xs={24} sm={6}>
-            <Text type="secondary">业务 biz</Text>
+          <Col flex="1 1 180px">
+            <Text type="secondary">平台 platform</Text>
             <Select
-              value={bizCode}
+              value={platform}
               style={{ width: '100%', marginTop: 4 }}
-              options={mockBizCodes.map((b) => ({ value: b, label: b }))}
-              onChange={(v) => setBizCode(v)}
+              options={mockPlatforms.map((p) => ({ value: p, label: p }))}
+              onChange={(v) => setPlatform(v)}
             />
           </Col>
-          <Col xs={24} sm={6}>
+          <Col flex="1 1 180px">
             <Text type="secondary">应用 app</Text>
             <Select
               value={app}
@@ -164,18 +167,27 @@ export function GrafanaDashboardPage() {
               onChange={(v) => setApp(v)}
             />
           </Col>
-          <Col xs={24} sm={6}>
-            <Text type="secondary">实例 instance</Text>
+          <Col flex="1 1 180px">
+            <Text type="secondary">服务 svc</Text>
             <Select
-              value={instance}
+              value={svc}
               style={{ width: '100%', marginTop: 4 }}
-              options={mockInstances.map((i) => ({ value: i, label: i }))}
-              onChange={(v) => setInstance(v)}
+              options={mockServices.map((s) => ({ value: s, label: s }))}
+              onChange={(v) => setSvc(v)}
+            />
+          </Col>
+          <Col flex="1 1 180px">
+            <Text type="secondary">资源实例 resource_id</Text>
+            <Select
+              value={resourceId}
+              style={{ width: '100%', marginTop: 4 }}
+              options={mockResourceInstances.map((r) => ({ value: r, label: r }))}
+              onChange={(v) => setResourceId(v)}
             />
           </Col>
         </Row>
         <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
-          当前下钻：{networkDomain} / {bizCode} / {app} / {instance}
+          当前下钻：{networkDomain} / {platform} / {app} / {svc} / {resourceId}
         </Text>
       </Card>
 
@@ -217,7 +229,7 @@ export function GrafanaDashboardPage() {
         >
           <Text style={{ color: '#0ECDEB', fontSize: 18 }}>Grafana 仪表盘（iframe 嵌入）</Text>
           <Text type="secondary">
-            当前视窗：网域 {networkDomain} · 业务 {bizCode} · 应用 {app} · 实例 {instance}
+            当前视窗：网域 {networkDomain} · 平台 {platform} · 应用 {app} · 服务 {svc} · 资源实例 {resourceId}
           </Text>
         </div>
         <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>

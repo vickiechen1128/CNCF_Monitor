@@ -1,9 +1,9 @@
 # MetricCenter Module 05 原型
 
-> **验证的 PRD 版本**: [Module_05_Custom_UI.md](../../02-product-requirements/Modules/Module_05_Custom_UI.md) v1.8
+> **验证的 PRD 版本**: [Module_05_Custom_UI.md](../../02-product-requirements/Modules/Module_05_Custom_UI.md) v1.11
 > **覆盖的产品版本**: MVP / v0.3 / v1.0
-> **原型版本**: v1.5
-> **更新日期**: 2026-09-19
+> **原型版本**: v1.11
+> **更新日期**: 2026-09-27
 > **本地启动命令**:
 >
 > ```bash
@@ -13,6 +13,14 @@
 > ```
 >
 > **访问地址**: http://localhost:5173/
+
+## v1.11 变更说明（同步 PRD v1.8 → v1.11：新增首页「按云分布」独立区块）
+
+1. **首页新增「按云分布」独立区块**（整宽，落在 L1 采集覆盖区之后、L2 应用覆盖明细表之前）：每云一行含云名 / 主机数 / 已采数 / 覆盖率；云名点击跳转资源清单页并按云预筛选（`/resources?cloud=<cloud_code>`）。
+2. **本期仅主机**：`cloud` 经资源所属网域 `cloud_code` 派生（网域必填、零空洞），其余四类暂不参与按云聚合；**不含告警数字**（告警数字仍收口 L0 告警卡 + 告警状态卡）；主机卡既有「操作系统类型」子类不动。
+3. **空态与移动端**：无主机数据时保留区块位并显示「去导入主机资源 →」引导；移动端（≤767px）沿用表格横向滚动（`scroll={{ x: 'max-content' }}`）。
+4. **mock**：`src/mocks/module-05.ts` 新增 `mockCloudSummaries`（`CloudSummary[]`：`cloudCode` / `cloudName` / `resourceCount` / `monitoredCount` / `coverageRate`），取云字典 `PUB-TX` 腾讯云 / `GM-CU` 政务云（联通）；各云主机数之和 = L1 主机类总数（42）、已采之和 = 主机类已采数（36），保持分项自洽。
+5. **§11.4 大屏下钻层级对齐**：预置模板与版面引导的治理标签下钻由「网域 → 业务 → 应用 → 实例」更新为「网域 → 平台 → 应用 → 服务 → 资源实例」，最细层稳定键为 `resource_id`（对齐 PRD v1.11 / 决策 101）。
 
 ## v1.5 变更说明（同步 PRD v1.7 → v1.8，决策 93 首页版式与拨测态势面板）
 
