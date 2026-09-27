@@ -142,7 +142,7 @@ Track B/B+ 需求（dev-ready 轻量规格）派生时，L2 两份文档定位�
   1. 在 05 追加 / 更新「Track B 增量登记」小节：模块 / 能力 / feat 分支 / PRD 版本 / 关联 L3 路径；
   2. 验收条目以 checklist 并入 §7（新增「7.x Track B 增量验收」子节）——验收口径必须单一，禁止只散落在执行记录里；
   3. 不重排既有 Phase 结构；**版本末（integration/vX.Y 切出前）由 plan-maintainer 批量归并**，把 Track B 增量正式编入 Phase 结构并对齐 Plan 版本号。
-- **L3（task-sequence.yaml + api-contract-snapshot.md）**：两轨共用同一机制，是 Track B 逐任务管理的唯一载体，派生规则不变。
+- **L3（task-sequence.yaml + api-contract-snapshot.md）**：两轨共用同一机制，是 Track B 逐任务管理的唯一载体，派生规则不变。**例外**：L3 的 `input_files` / `output_files` 字段，Track B/增量任务允许简写或留空——定位交给 `repo-map.md`（`make repo-map` 自动生成）+ 定点 `grep`，避免逐条回填文件路径清单的维护成本与随代码漂移失真。
 
 ### 版本对齐规则
 
@@ -281,6 +281,7 @@ tasks:
 > - `status`：任务状态，`pending` / `done`，由 Orchestrator 在 developer 完成并提交 commit 后更新。
 > - `commit_group`：建议的提交分组名，同一 group 的相邻任务可合并为一个 commit；跨 group 禁止合并。
 > - `prd`：该任务对应的 PRD 章节号，用于产品侧反向追溯代码实现位置。
+> - `input_files` / `output_files`（**Track A 建议精确；Track B/增量允许简写或留空**）：Track A 大功能任务下由 planner 前置规划文件落点，供 developer 按路径开工；Track B/增量开发因「先改代码、后回填」的节奏，定位一律交给 `repo-map.md`（`make repo-map` 自动生成，与当前代码实时一致）+ 定点 `grep`，不必为回填文件路径清单付出维护成本，避免蓝图字段漂移失真。
 > - `prototype_pages`（前端任务必填）：该任务涉及的原型页面文件路径列表， reviewer/验收抽查的靶子。
 > - `ui_contract`（前端任务必填）：PRD 第 11 章「前端交互契约」对应条目编号，精确到页面状态矩阵条目。
 > - `nav_contract`（前端任务必填）：该页面对应的顶部一级 tab 文案、Sider 二级文案、跨模块入口，防止导航写反或模块名误用。
@@ -362,7 +363,7 @@ Phase 0（基础设施） → Phase 1（M06 网域登记） → Phase 2（M07 �
 - 有明确输出：修改的文件列表、测试命令、验证命令
 - 可独立验证：执行一条或一组命令即可判断成败
 - **任务复杂度度量（v2026-08-22 起）**：每个任务卡必须标注：
-  - `estimated_files_changed`：预计新增/修改文件数
+  - `estimated_files_changed`：预计新增/修改文件数（Track A 建议精确；Track B/增量允许估算或留空——增量开发「先改代码、后回填」，无需前置精确估算文件数）
   - `estimated_test_cases`：预计新增/更新测试用例数
   - `shared_files`：是否与其他任务共享文件（是/否）
 - **提交与追溯字段（v2026-08-23 起）**：每个任务卡必须标注：

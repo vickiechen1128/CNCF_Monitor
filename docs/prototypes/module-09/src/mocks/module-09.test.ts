@@ -21,6 +21,7 @@ import {
   defaultFallbackRemovalNote,
   deriveRemoteWriteUrl,
   deriveConfigDownloadUrl,
+  MOCK_REQUEST_AUTHORITY,
   MVP_AGENT_TYPE,
   TOKEN_MASK,
   type ConfigTargetsFiles,
@@ -249,10 +250,10 @@ describe('module-09 mocks', () => {
     // 与中心通过 outbound HTTPS 443 + 每网域 Token 通信
     expect(edgeAgentInstallGuide.deployment).toContain('outbound HTTPS 443')
     expect(edgeAgentInstallGuide.deployment).toContain('Token')
-    // default 域固定 local 通道（中心直接采集）不部署；agent_pull 通道网域每个边缘节点部署一个（离线二进制包 + systemd）
-    expect(edgeAgentInstallGuide.deployment).toContain('local 通道')
+    // default 域为中心直连域（由平台直接采集）不部署采集节点；采集节点域每个节点部署一个（离线二进制包 + systemd）
+    expect(edgeAgentInstallGuide.deployment).toContain('中心直连域')
     expect(edgeAgentInstallGuide.deployment).toContain('不部署')
-    expect(edgeAgentInstallGuide.deployment).toContain('agent_pull 通道网域')
+    expect(edgeAgentInstallGuide.deployment).toContain('采集节点域')
     expect(edgeAgentInstallGuide.deployment).toContain('systemd')
   })
 
@@ -417,14 +418,14 @@ describe('module-09 mocks', () => {
 
   it('should expose dimension-grouped fields on every edge agent (决策 13 维度分组)', () => {
     // Edge Sync Agent 维度：在线状态 / 最后心跳 / 配置同步状态 config_sync_status
-    // 采集器维度：采集器状态 / 采集器版本 / WAL 积压 / remote_write 错误（last_error）
+    // 采集器维度：采集器状态 / 采集器版本 / 回传积压 / remote_write 错误（last_error）
     edgeAgents.forEach((a) => {
       expect(['online', 'offline', 'unknown']).toContain(a.status)
       expect(a.last_heartbeat).toBeTruthy()
       expect(['in_sync', 'out_of_sync', 'unknown', 'manual_override', 'no_version']).toContain(a.config_sync_status)
       expect(['running', 'stopped', 'unknown']).toContain(a.collector_status)
       expect(a.collector_version).toBeTruthy()
-      expect(typeof a.wal_backlog_bytes).toBe('number')
+      expect(typeof a.queue_backlog_bytes).toBe('number')
       expect(typeof a.last_error).toBe('string')
     })
   })
@@ -686,21 +687,12 @@ describe('module-09 mocks', () => {
     })
   })
 
-  it('should expose zone_type and center_endpoint on every domain (PRD 4.1 / {v1.31} 网闸拓扑 / {v1.33} 通道)', () => {
+  it('should keep zone_type and treat center_endpoint as a reserved, non-consumed field', () => {
     networkDomains.forEach((d) => {
       // zone_type：M06 行政字段（可空，未登记为空）
       expect(typeof d.zone_type).toBe('string')
-      // center_endpoint：该网域视角的中心可达地址；agent_pull 通道纳管必填，local 通道为空（PRD 4.1）
-      expect(typeof d.center_endpoint).toBe('string')
-      if (d.channel === 'local') {
-        expect(d.center_endpoint).toBe('')
-      }
-    })
-    // 已纳管 agent_pull 网域均已配置 center_endpoint（网闸映射后的中心可达地址，用于合成配置包绝对下载地址，PRD 6.1）
-    const agentPullDomains = networkDomains.filter((d) => d.channel === 'agent_pull' && d.registration_status === 'monitored')
-    expect(agentPullDomains.length).toBeGreaterThan(0)
-    agentPullDomains.forEach((d) => {
-      expect(d.center_endpoint).toMatch(/^https:\/\//)
+      // center_endpoint 为网闸映射预留项、当前不消费：原型中恒为空、不参与任何逻辑
+      expect(d.center_endpoint).toBe('')
     })
     // zone_type 值集：政务云预置 internet / extranet（M06 登记，示例网域）
     expect(networkDomains.some((d) => d.zone_type === 'extranet')).toBe(true)
@@ -727,12 +719,13 @@ describe('module-09 mocks', () => {
     })
   })
 
-  it('should synthesize absolute config download url from center_endpoint (PRD 6.1 / {v1.31})', () => {
+  it('should synthesize absolute config download url from request authority (not center_endpoint)', () => {
     const gov = networkDomains.find((d) => d.id === 'gov-cloud-a')
-    expect(deriveConfigDownloadUrl(gov!)).toBe('https://10.8.0.5:8443/api/v2/platform/edge/config?network_domain=gov-cloud-a')
-    // 管理域（center_endpoint 为空）不走协议 → 返回空
-    const defaultDomain = networkDomains.find((d) => d.id === 'default')
-    expect(deriveConfigDownloadUrl(defaultDomain!)).toBe('')
+    expect(deriveConfigDownloadUrl(gov!, MOCK_REQUEST_AUTHORITY)).toBe(
+      `${MOCK_REQUEST_AUTHORITY}/api/v2/platform/edge/config?network_domain=gov-cloud-a`
+    )
+    // 无 authority（请求来源缺失）时不合成
+    expect(deriveConfigDownloadUrl(gov!, '')).toBe('')
   })
 
   it('should describe approval tiering: alertmanager.yml enters M09 change confirm as management-domain default scope artifact (决策 60 / PRD 3.4)', () => {

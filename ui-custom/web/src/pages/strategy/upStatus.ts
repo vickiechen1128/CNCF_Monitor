@@ -3,8 +3,8 @@
  *
  * 背景（F-10）：决策 47-2 原以中心 `GET /api/v1/targets`（M02 代理透传中心 Prometheus
  * 的 target 健康）作为 Job 实例采集状态数据源。该源仅对 **local 通道**成立（中心 Prometheus
- * 亲自 scrape target）；**边缘域（agent_pull）由边缘 vmagent 抓取、经 remote_write 仅推送
- * 指标样本（`up` 等），不向中心上报 target 元数据**，导致 `/api/v1/targets` 对边缘域恒空、
+ * 亲自 scrape target）；**采集节点域（agent_pull）由边缘 vmagent 抓取、经 remote_write 仅推送
+ * 指标样本（`up` 等），不向中心上报 target 元数据**，导致 `/api/v1/targets` 对采集节点域恒空、
  * 前端实例状态误报为空/离线。
  *
  * 收敛口径（定版 A 方案）：Job 实例采集状态一律按中心 `up{job="<job_name>"}` PromQL 推导，

@@ -61,9 +61,9 @@ const componentTypeLabel: Record<EdgeComponentType, string> = {
 }
 
 const componentTypeTip: Record<EdgeComponentType, string> = {
-  edge_sync_agent: '必装组件（技术名 Edge Sync Agent）：负责心跳 / 配置拉取 / 控制本节点采集器与拨测器（部署在网域内的机器上，非中心平台内置）',
-  collector: '指标采集器：vmagent / prometheus-agent 二选一（由网域 agent_type 登记），负责抓取与 remote_write，由 Edge Sync Agent 部署守护',
-  blackbox_exporter: '拨测器（可选）：网域存在 job_type=blackbox 的 ScrapeJob 时随一体化包附带，由 Edge Sync Agent 部署守护',
+  edge_sync_agent: '必装组件（采集节点管理进程）：负责心跳 / 配置拉取 / 控制本节点采集器与拨测器（部署在网域内的机器上，非平台内置）',
+  collector: '指标采集器：vmagent / prometheus-agent 二选一（由网域 agent_type 登记），负责抓取与指标回传，由采集节点管理进程部署守护',
+  blackbox_exporter: '拨测器（可选）：网域存在 job_type=blackbox 的 ScrapeJob 时随一体化包附带，由采集节点管理进程部署守护',
   vmalert: '边缘自治告警组件（v0.4+，P2）：随配置包 rules.yml（scope=edge/both，由配置中心自动派生分组）下发后启动本地求值（断网自治告警）',
   alertmanager: '边缘告警通知组件（v0.4+，P2）：alertmanager.yml 由告警通知模块统一管理（不随本配置包下发），本地通知通道（飞书 / 钉钉 webhook，断网独立通知）',
 }
@@ -384,7 +384,7 @@ export function EdgeAgentsPage() {
           }}
           closeText="不再提示"
         >
-          复制一条安装命令到网域内的机器执行后：<b>采集节点</b>（管理进程，技术名 Edge Sync Agent）负责心跳与配置拉取，
+          复制一条安装命令到网域内的机器执行后：<b>采集节点</b>（管理进程）负责心跳与配置拉取，
           自动部署并守护<b>采集器</b>（抓取指标）与<b>拨测器</b>（可选，做黑盒拨测）。某个进程异常会被自动重启并在此处展示。
         </Callout>
       )}
@@ -535,7 +535,7 @@ export function EdgeAgentsPage() {
                 },
                 {
                   title: (
-                    <Tooltip title="整体状态（三档）：正常=全部组件健康；部分异常=Edge Sync Agent 在线但采集器/拨测器异常；离线=Edge Sync Agent 离线">
+                    <Tooltip title="整体状态（三档）：正常=全部组件健康；部分异常=采集节点管理进程在线但采集器/拨测器异常；离线=采集节点管理进程离线">
                       <Space size={4}>
                         整体状态
                         <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -552,7 +552,7 @@ export function EdgeAgentsPage() {
                 },
                 {
                   title: (
-                    <Tooltip title="采集节点管理进程（技术名 Edge Sync Agent）运行状态：负责心跳 / 配置拉取 / 守护本节点采集器与拨测器；在线/离线两档">
+                    <Tooltip title="采集节点管理进程运行状态：负责心跳 / 配置拉取 / 守护本节点采集器与拨测器；在线/离线两档">
                       <Space size={4}>
                         采集节点
                         <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -569,7 +569,7 @@ export function EdgeAgentsPage() {
                 },
                 {
                   title: (
-                    <Tooltip title="采集器运行状态（由 Edge Sync Agent 部署守护，进程异常自动重启并上报）">
+                    <Tooltip title="采集器运行状态（由采集节点管理进程部署守护，进程异常自动重启并上报）">
                       <Space size={4}>
                         采集器状态
                         <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
@@ -741,7 +741,7 @@ export function EdgeAgentsPage() {
               </Text>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
-                展示结构：节点列表（主机名 / IP / 网域 / 整体状态 / Edge Sync Agent 状态 / 采集器状态 / 拨测器状态 / 配置同步 / WAL 积压 / 最后心跳），
+                展示结构：节点列表（主机名 / IP / 网域 / 整体状态 / Edge Sync Agent 状态 / 采集器状态 / 拨测器状态 / 配置同步 / 回传积压 / 最后心跳），
                 点击行或「查看」按钮展开组件详情抽屉，展示该节点下各组件（Edge Sync Agent / 采集器 / 拨测器）的运行状态、版本、配置版本、最近错误。
               </Text>
               <br />
@@ -765,8 +765,8 @@ export function EdgeAgentsPage() {
               <Text type="secondary" style={{ fontSize: 12 }}>
                 网闸 / 隔离区连接约束（{`{v1.31}`}）：政务云等网闸隔离场景下禁止任何中心 → 边缘方向的主动连接，
                 所有交互（心跳 / 配置拉取 / 指标回传）一律由边缘 Agent 向中心发起（pull / push 上行），中心无入站端口；
-                面向边缘的地址（center_endpoint / remote_write_url）均为该网域视角的可达地址（网闸映射后地址），
-                配置拉取地址 = 网域 center_endpoint + 相对路径合成绝对地址。
+                面向边缘的指标回传地址（remote_write_url）为该网域视角的可达地址（网闸映射后地址）；
+                配置包下载地址由心跳请求来源 authority 合成绝对地址（不依赖网域上预留的中心接入地址字段）。
               </Text>
               <br />
               <Text type="secondary" style={{ fontSize: 12 }}>
@@ -851,8 +851,8 @@ export function EdgeAgentsPage() {
                 />
               </Descriptions.Item>
               <Descriptions.Item label="最后心跳">{drawerAgent.last_heartbeat}</Descriptions.Item>
-              <Descriptions.Item label="WAL 积压">
-                {drawerAgent.wal_backlog_bytes > 0 ? formatBytes(drawerAgent.wal_backlog_bytes) : '0 B'}
+              <Descriptions.Item label="回传积压">
+                {drawerAgent.queue_backlog_bytes > 0 ? formatBytes(drawerAgent.queue_backlog_bytes) : '0 B'}
               </Descriptions.Item>
             </Descriptions>
 

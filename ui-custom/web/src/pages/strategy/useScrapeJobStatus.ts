@@ -27,8 +27,8 @@ interface UseScrapeJobStatusResult {
  * 只读消费 M02 `GET /api/v1/query?query=up{job="<job_name>"}`，不直连 Prometheus、不回持久化。
  * 时间线：变更未确认下发（deployed=false）→ 全部「待采集」；已确认下发 → 按 up 值推导
  * 1=collecting / 0=down（已下发未采到）/ 无对应样本=pending。
- * 边缘域（agent_pull）经 remote_write 上报 up 样本，本口径对 local 与边缘两通道均成立
- * （F-10：替代原 `/api/v1/targets`，后者仅 local 通道有效、边缘域恒空）。
+ * 采集节点域（agent_pull）经 remote_write 上报 up 样本，本口径对 local 与边缘两通道均成立
+ * （F-10：替代原 `/api/v1/targets`，后者仅 local 通道有效、采集节点域恒空）。
  * 实例↔序列匹配：优先 resource_id 标签回连，回落主机地址（host vs instance_ip）匹配。
  */
 export function useScrapeJobStatus(

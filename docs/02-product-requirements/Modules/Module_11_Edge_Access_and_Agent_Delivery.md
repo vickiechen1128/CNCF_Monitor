@@ -2,13 +2,13 @@
 
 > **PRD 状态**：draft
 >
-> **PRD 版本**：v0.4
+> **PRD 版本**：v0.7
 >
 > **产品版本覆盖**：MVP / v0.2 / v0.3 / v1.0（MVP 子集 = default 网域与 local 通道只读展示；{v0.2} 为核心交付段；{v0.3} = 升级流程增强；v1.0 = mTLS 与证书轮转；{v0.4+} = K8s 采集、同域多节点演化占位）
 >
-> **原型版本**：v0.1（与 M09 共用 `docs/prototypes/module-09/`，不新建 module-11 目录；原网域纳管页 / 采集节点状态页骨架原位复用，见 [design-decisions.md 决策 87](../../05-execution-records/module-09/design-decisions.md)）
+> **原型版本**：已同步（随 module-09 原型 v1.73；与 M09 共用 `docs/prototypes/module-09/`，不新建 module-11 目录；原网域纳管页 / 采集节点状态页骨架原位复用，见 [design-decisions.md 决策 87](../../05-execution-records/module-09/design-decisions.md)）
 >
-> **更新日期**：2026-09-20
+> **更新日期**：2026-09-25
 >
 > **模块类型**：核心能力模块（v0.2+）
 >
@@ -106,12 +106,12 @@ M09 原先同时承载「配置生成与下发」（配置面）与「网域纳�
 | 删除联动级联清退 | 本页无删除入口；M06 删除已纳管网域时级联清退——废止 Token、停止配置下发、节点记录标 `retired`，与 M06 软删在同一次请求内完成，任一环节失败整体回滚 | P0 | {v0.2} |
 | 默认网域 | 系统初始化自动创建 `default` 网域并默认已纳管（固定 local 通道）；资源归域校验归 Module_07，本模块不做「未指定网域资源自动归 default」的隐式归集 | P0 | MVP |
 | 多网域能力开关 | 租户级开关 `multi_site_enabled`：关闭时仅预置 default 网域（MVP 默认），开启后可在 M06 创建多网域并在本页逐个纳管；开关非 UI 运行时切换器，字段可见性由数据驱动（Token / 指引 / 运行态仅 agent_pull 网域展示）；关闭后其他网域数据隐藏不删除 | P0 | MVP / {v0.2} |
-| 纳管取凭据 | Token 自动签发；UI **完全脱敏**（不显示任何明文片段），完整值仅经「复制」按钮获取；展示 `NETWORK_DOMAIN_ID` / `TOKEN` 预填环境变量块 | P0 | MVP |
+| 纳管取凭据 | Token 自动签发；UI **完全脱敏**（不显示任何明文片段），完整值仅经「复制」按钮在纳管 / 重置弹窗单次获取；展示 `NETWORK_DOMAIN_ID` / `TOKEN` 预填环境变量块；安装指引 Steps 首步即「复制并保存接入 Token」，明文仅在弹窗出现一次、须立即复制保存 | P0 | MVP |
 | 一键复制安装命令 | 静态模板、占位符形态（`<网域 ID>` / `<凭据>`），不含真实凭据；一版模板适配任意网域，页面展示一律掩码 | P1 | {v0.2} |
 | 跨模块深链 | M06 网域列表对「已纳管未上线」网域提供「查看安装指引」，深链至本页并定位该网域 | P1 | {v0.2} |
 | 通道与多网域能力 | `channel` 按网域固定（default = local，其他 = agent_pull），不提供切换；单网域只需一台常开机器部署一个采集节点（K8s 集群选 master、VM 选常开虚机）；同域多采集节点为 {v0.4+} 演化 | P0 | MVP / {v0.2} |
 | 发送队列与 Remote Write 参数 | 发送队列参数按网域配置（见 §6.4.1），默认值开箱可用；**采集器落盘持久队列默认启用**，保障网闸断流期间积压不丢、恢复后续传；`remote_write_url` 方向为「采集节点 → 中心」，通常可自动推导 | P0 | {v0.2} |
-| 地址语义与网闸约束 | `center_endpoint`（管理面心跳+拉包）/ `remote_write_url`（数据面回传）均登记在网域上、方向恒为「采集节点 → 中心」；转发场景填转发侧可达地址；网闸按「标准 HTTPS 可穿透」设计、待客户环境实测（P2） | P0 | {v0.2} |
+| 地址语义与网闸约束 | `remote_write_url`（数据面回传）登记在网域上、方向恒为「采集节点 → 中心」，经配置包下发；Agent 心跳地址由安装时 `CENTER_ENDPOINT` 环境变量提供（`center_endpoint` 字段为 {v0.4+} 网闸映射预留、当前不消费）；转发场景填转发侧可达地址；网闸按「标准 HTTPS 可穿透」设计、待客户环境实测（P2） | P0 | {v0.2} |
 | 退纳管动作 | 废止 Token → 停止配置下发 → 纳管状态归位 created（保留历史记录）；与 M06 禁用正交、不可互相替代 | P1 | {v0.2} |
 
 ### 3.2 采集节点状态
@@ -136,7 +136,7 @@ M09 原先同时承载「配置生成与下发」（配置面）与「网域纳�
 
 | 功能项 | 说明 | 优先级 | 交付版本 |
 |--------|------|--------|----------|
-| 下载入口 | 纳管页安装指引区并入「下载离线安装包」区块：包清单（edge-sync-agent + vmagent + blackbox_exporter 版本）、sha256、包大小、下载按钮；页面明示「隔离网域不可直连，请介质摆渡」 | P0 | {v0.2} |
+| 下载入口 | agent_pull（边缘域）网域行内「更多」下拉提供「下载安装包」菜单项（与「重置 Token」并列，中心直连域 local 行不出现任何下载入口、直连域-only 列表整页无下载入口）；折叠安装指引区保留下载区块作为兜底入口；包清单（edge-sync-agent + vmagent + blackbox_exporter 版本）、sha256、包大小、下载按钮；页面顶部常驻「中心直连域无需部署采集节点」提示（置于折叠区之外），折叠标题限定为「边缘域接入操作流程（安装指引）」；页面明示「隔离网域不可直连，请介质摆渡」 | P0 | {v0.2} |
 | 版本清单来源 | {v0.2} 版本清单来自构建产物元数据，不建 DB 模型；`EdgePackageRelease` 模型 {v0.3} 再评估 | P0 | {v0.2} |
 | 升级维护 | 节点状态页展示版本差异 →「可升级」提示 + 指引（下载新包 → 覆盖安装保留 Token/配置 → `systemctl restart edge-sync-agent`） | P1 | {v0.2} |
 | 完整升级流程 | 升级窗口提示、升级期采集暂停说明；{v0.3} 起在规模门槛内由 Agent 拉模式自升级承载（见下） | P2 | {v0.3} |
@@ -223,17 +223,17 @@ flowchart TD
 
 ### 5.1 NetworkDomain（监控纳管字段）
 
-所有者声明：本模块维护 `channel` / `token` / `agent_type` / `center_endpoint` / `remote_write_url` 及运行态字段；行政字段（名称、分区、授权租户等）以 Module_06 为 SSOT；Module_09 只读 `channel` 决定产物形态。三家共管口径见 §7.1 模块边界。
+所有者声明：本模块维护 `channel` / `token` / `agent_type` / `remote_write_url` 及运行态字段（`center_endpoint` 为 {v0.4+} 预留、当前不消费）；行政字段（名称、分区、授权租户等）以 Module_06 为 SSOT；Module_09 只读 `channel` 决定产物形态。三家共管口径见 §7.1 模块边界。
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|-----------|------|
 | network_domain_id | string | 是 | 网域 ID | 身份主键；ID 规则由 Module_06 统一定义，本模块只读引用 |
 | channel | enum | 是 | 下发通道 | 按网域固定：default = `local`，其他 = `agent_pull`；不提供切换（混合通道 / 切换为 {v0.4+}）；M11 写入、M09 只读 |
 | agent_type | enum | 条件 | 采集器类型 | agent_pull 时必填；固定 `vmagent`（唯一采集器，纳管时无需选择；网闸断流保障依赖其磁盘持久队列，故不开放其他选型）；local 时为空 |
-| center_endpoint | string | 条件 | 中心接入地址 | agent_pull 时必填；管理面地址（心跳 + 配置包下载），方向为采集节点→中心；转发场景填转发侧可达地址；用于合成配置包绝对下载地址 |
-| remote_write_url | string | 条件 | 回传地址 | agent_pull 时必填；数据面地址（指标回传），通常 = 中心接入地址 + `/api/v1/write` 可自动推导，数据面走不同代理时手动填写 |
+| center_endpoint | string | 条件 | 中心接入地址 | {v0.4+} 网闸映射场景预留，MVP/当前实现**不消费**——Agent 心跳地址由安装时环境变量 `CENTER_ENDPOINT` 提供、配置包下载地址由请求来源 authority 合成（见 §6.2），本字段不参与任何运行时链路 |
+| remote_write_url | string | 条件 | 回传地址 | agent_pull 时必填（留空自动推导）；数据面地址（指标回传），方向为采集节点→中心，经配置包 `metadata.json` 下发（方案 B）；数据面走不同代理时手动填写 |
 | token | string | 条件 | 认证 Token | agent_pull 时必填，脱敏存储；local 时为空且不展示 |
-| status | enum | 条件 | 状态 | agent_pull 时必填（系统生成）：online / offline / unknown，由心跳更新；local 时为空 |
+| status | enum | 条件 | 运行态 | agent_pull 时必填（系统生成）：normal / partial / offline / unknown，由 offline_detector 定时聚合（扫描 `EdgeAgent.last_heartbeat` 超阈值置 offline，按节点聚合）；local 时为空 |
 | last_heartbeat / agent_version | datetime / string | 否 | 最后心跳 / Agent 版本 | agent_pull 时由心跳更新；local 时为空 |
 | registration_status | enum | 是 | 纳管状态 | 见 §8.3 |
 
@@ -251,13 +251,15 @@ flowchart TD
 | status | enum | 是 | 状态 | online / offline / unknown（运行态，由心跳更新）；整体状态三档聚合见 §3.2 |
 | last_heartbeat | datetime | 是 | 最后心跳 | 以中心接收时间为准 |
 | heartbeat_rtt_ms | int | 是 | 心跳延迟 | 心跳往返延迟（毫秒） |
-| last_config_pull | datetime | 否 | 最后拉取配置 | 以中心接收时间为准 |
+| last_config_pull | datetime | 否 | 最后配置拉取 | 以中心接收时间为准；中心在「上报版本推进到最新已确认版本」或「上报最新版本应用失败」时留痕一次，同版本持续心跳不刷新（事件首次出现为界，避免退化为恒显刚刚拉取） |
 | config_version | string | 否 | 配置版本 | 当前生效配置版本 |
 | config_sync_status | enum | 是 | 配置同步 | `in_sync` / `out_of_sync` / `unknown` / `manual_override` / `no_version`，见 §8.1 |
-| out_of_sync_cause | enum | 否 | 未同步成因 | 仅 out_of_sync 时有值：`pending_draft`（中心存在待确认变更，只读消费 M09 ConfigDraft）/ `pull_pending`（拉包 / 生效延迟）/ `local_reset`（本地校验失败保留旧配置等）；决定「立即同步」是否展示 |
+| out_of_sync_cause | enum | 否 | 未同步成因 | 仅 out_of_sync 时有值：`pending_draft`（中心存在待确认变更，只读消费 M09 ConfigDraft）/ `pull_pending`（拉包 / 生效延迟，展示「同步中」）/ `local_reset`（本地校验失败保留旧配置等）/ `apply_failed`（已拉包但应用失败并回滚至上一可用版本，展示「同步失败」）；决定「立即同步」是否展示 |
 | queue_backlog_bytes | int | 是 | 回传积压 | 磁盘持久发送队列积压字节数（vmagent `vm_persistentqueue_bytes_pending`） |
 | components | json | 是 | 组件清单 | 采集器 / 拨测器 / Agent 自身；单组件含 type / name / status / version / config_version / last_error；守护扩展 `restart_count` / `last_restart_at`，status 含 `restarting` / `crash_loop` |
 | last_error | string | 否 | 最近错误 | 最近错误信息 |
+| config_apply_error | string | 否 | 配置应用失败原因 | 最近一次配置应用失败原因（含回滚说明），成功应用后清空；与 `out_of_sync_cause=apply_failed` 配套，详见 §8.1 |
+| config_apply_failed_version | string | 否 | 应用失败版本 | 应用失败对应的配置版本，成功应用后清空 |
 
 **模型语义**：一个 `EdgeAgent` 实例 = 一个边缘节点上的完整部署单元（Agent 必装 + 采集器必装 + 拨测器可选）；default 域固定 local 通道、不产生本表实例；心跳由 Agent 上报并更新本表运行态字段。
 
@@ -275,6 +277,8 @@ flowchart TD
 | hostname / ip | string | 是 | 主机名 / 出站 IP | Agent 尽力上报；中心以连接对端 IP 兜底校验 |
 | components | json | 是 | 组件状态 | 每组件含 type / name / status / version / config_version / last_error；守护扩展 restart_count / last_restart_at |
 | timestamp | datetime | 是 | 上报时间 | 仅作参考；中心以接收时间写 last_heartbeat |
+| config_apply_error | string | 否 | 配置应用失败原因 | 最近一次配置应用失败原因（成功时为空，`omitempty` 不发送），向后兼容；中心据此将 `out_of_sync_cause` 置 `apply_failed` |
+| config_apply_failed_version | string | 否 | 应用失败版本 | 应用失败的配置版本，与 `config_apply_error` 同生命周期 |
 
 ### 5.4 离线包版本（{v0.3} 占位）
 
@@ -290,7 +294,7 @@ flowchart TD
 
 - 边缘侧走向全部为**上行**（采集节点 → 中心），中心不主动入站。
 - 身份 = `NETWORK_DOMAIN_ID` + `TOKEN`，缺任一项返回鉴权失败。
-- `center_endpoint` 为绝对地址；local 通道不走本协议。
+- Agent 心跳地址 = `CENTER_ENDPOINT` 环境变量（绝对地址）；local 通道不走本协议。
 - 中继场景（仅网闸实测不穿透时引入）：管理面必须**应用层反向代理**、数据面必须**存储转发**（带持久化队列），**禁用 L4/TCP 纯端口转发**。
 
 ### 6.2 心跳与配置检查接口
@@ -330,7 +334,9 @@ Content-Type: application/json
       "version": "v0.25.0",
       "config_version": "20260724-120000"
     }
-  ]
+  ],
+  "config_apply_error": "",
+  "config_apply_failed_version": ""
 }
 ```
 
@@ -344,7 +350,8 @@ Content-Type: application/json
 }
 ```
 
-- **`config_download_url` 合成规则**：绝对地址 = 该网域 `center_endpoint` + 固定相对路径 `/api/v2/platform/edge/config?network_domain=<id>`；禁止返回相对路径由 Agent 自行拼接——网闸场景下 Agent 无法推导中心映射地址。
+- **`config_download_url` 合成规则**：绝对地址 = 心跳请求来源的对外地址（authority，`X-Forwarded-Proto` / `X-Forwarded-Host` 优先，回落 `Request.Host` + 按 TLS 判定 scheme）+ 固定相对路径 `/api/v2/platform/edge/config?network_domain=<id>`；禁止返回相对路径由 Agent 自行拼接——网闸场景下 Agent 无法推导中心映射地址。**注**：不依赖 `center_endpoint` 字段（该字段为 {v0.4+} 预留，当前不参与合成）。
+- **配置应用结果可选字段**：心跳请求可携带 `config_apply_error` / `config_apply_failed_version`（成功时为空、`omitempty` 不发送，向后兼容）。Agent 配置应用失败时记录并上送，中心据此将 `out_of_sync_cause` 置 `apply_failed` 并落库失败原因与版本；成功应用后清空。详见 §5.3 / §8.1。
 - **组件 version 上报**：组件级 `version` 为「版本差异与升级提示」功能的数据来源（对照中心发布包版本）。
 - 离线判定阈值：连续 3 个心跳周期（默认 90s）无心跳 → 节点 offline；网域内全部节点离线 → 网域 offline，触发 EdgeSiteOffline 告警（规则归 M08）。
 - Token 失效边缘行为：Agent 收到 401 → 指数退避重试（5s→60s 上限）→ 持续 401 超 10 分钟 → 降为低频探测（5 分钟一次）并写本地 syslog；中心 reset-token UI 事前警示「重置后该网域节点将失联，需到节点更新 TOKEN 并重启 Agent」。
@@ -374,7 +381,7 @@ edge-config-<network_domain_id>.zip
 
 Agent 是部署在边缘监控代理节点的独立客户端程序，与中心通过 outbound HTTPS 443 + 每网域 Token 通信（心跳 / 配置拉取 / remote_write 全部由边缘主动出站，中心无入站端口）。核心行为：
 
-1. 启动时从环境变量或配置文件读取 `NETWORK_DOMAIN_ID` 和 `TOKEN`；每 30s 发送心跳，上报配置版本、回传积压与组件状态。
+1. 启动时从环境变量读取 `NETWORK_DOMAIN_ID`、`TOKEN`、`CENTER_ENDPOINT`（三个必填）；`CENTER_ENDPOINT` 为 Agent 发心跳的中心接入地址（心跳绝对地址 = `CENTER_ENDPOINT` 去尾斜杠 + `/api/v2/platform/edge/heartbeat`），在未下发 `remote_write_url` 时兜底推导 vmagent `-remoteWrite.url`（`CENTER_ENDPOINT` + `/api/v1/write`，方案 A）；每 30s 发送心跳，上报配置版本、回传积压与组件状态。
 2. 响应 `config_changed=true` 时拉取最新配置包；校验 checksum（metadata.json 携带），失败则记录错误并保留最后一份有效配置，不进入解压步骤。
 3. 解压后对 `targets/*.json` 做解析校验（JSON 结构、targets / labels 合法性），失败则回滚并保留旧 targets 文件。
 4. 仅当 `prometheus.yml` 结构变化时调用采集器 `/-/reload`；targets 文件更新不触发 reload，由 file_sd 自动感知。
@@ -414,7 +421,9 @@ Agent 是部署在边缘监控代理节点的独立客户端程序，与中心�
 - **健康检查双判定**：进程存活 + HTTP 端点探活（vmagent / blackbox 均 `/-/healthy`），默认 10s 间隔；进程存活但探活失败视为异常。
 - **熔断**：滚动窗口 10 分钟内重启 ≥5 次 → 停止自动重启、组件置 `crash_loop`、记 `last_error`、心跳上报。
 - **熔断恢复**：人工介入（重启 Agent / 重装）后守护自动恢复。
-- **systemd 部署**：单 service `edge-sync-agent.service` 父进程模式，Agent 守护子进程，Agent 自身 `Restart=always` 兜底；blackbox ICMP 拨测需 `AmbientCapabilities=CAP_NET_RAW`。
+- **心跳过期组件降级**：节点档判离线 / 退纳管时，采集器 / 拨测器等组件状态统一降级展示为「未知」（展示层覆写、不改 DB 原始上报值），避免「离线却运行中」的认知冲突；agent 恢复心跳后自然回真实值。
+- **systemd 部署**：单 service `edge-sync-agent.service` 父进程模式，Agent 守护子进程，Agent 自身 `Restart=always` 兜底；`KillMode=control-group` 确保停止 / 强杀父进程时由 cgroup 整机回收子进程（vmagent / blackbox_exporter）；blackbox ICMP 拨测需 `AmbientCapabilities=CAP_NET_RAW`。
+- **父进程终止联动（强杀兜底）**：Agent 主进程以 `SysProcAttr.Pdeathsig=SIGKILL`（Linux）拉起子进程，主进程被强杀（SIGKILL）时子进程随之终止，避免孤儿进程继续采集占用资源；非 Linux（macOS / Windows 无 Pdeathsig 字段）回落依赖 systemd `KillMode=control-group` 兜底。
 
 ### 6.5 管理面 REST API
 
@@ -475,10 +484,23 @@ stateDiagram-v2
 | 状态 | 含义 | 进入条件 | 本状态 | 退出条件 |
 |------|------|----------|--------|----------|
 | no_version | 未下发配置 | 首次纳管，无配置版本 | 待首次拉包 | 拉到配置 → in_sync |
-| out_of_sync | 未同步 | 中心检出变更 / 拉包待处理 | 附 `out_of_sync_cause` 三成因（pending_draft / pull_pending / local_reset），决定差异化引导 | reload 成功 → in_sync |
+| out_of_sync | 未同步 | 中心检出变更 / 拉包待处理 / 应用失败 | 附 `out_of_sync_cause` 四成因（pending_draft / pull_pending / local_reset / apply_failed），决定差异化引导 | reload 成功 → in_sync |
 | in_sync | 已同步 | 本地版本与中心一致 | 稳态 | 检出变更 → out_of_sync；本地手工调整 → manual_override |
 | manual_override | 人工覆盖 | 本地手工调整配置 | 运维介入态 | 重新拉包 → in_sync |
 | unknown | 未知 | 心跳缺失、状态不可知 | 无引导按钮 | 心跳恢复 → 按实际版本判定 |
+
+#### 8.1.1 配置同步成因与展示口径
+
+`config_sync_status` 五档（`in_sync` / `out_of_sync` / `unknown` / `manual_override` / `no_version`）不变；`out_of_sync` 的四类成因映射不同展示与引导：
+
+- **`pending_draft`**（中心存在待确认变更）：引导「前往配置确认」；
+- **`pull_pending`**（已确认下发、等待 Agent 下次心跳拉包生效，准实时 ≤30s）：展示「**同步中**」（蓝色 / processing），确认下发后到 Agent 拉包应用前的窗口内显示；**仅在节点存活（online / partial）时成立**；
+- **`local_reset`**（本地校验失败保留旧配置）：引导「立即同步」；
+- **`apply_failed`**（已拉取但应用失败并已回滚至上一可用版本）：展示「**同步失败**」（红色 / error），节点状态页展示失败原因全文 + 失败版本 + 「查看下发」引导；为已发生的**终态事实**，不随节点离线 / 退纳管降级。
+
+**失效边界（F-16 / F-17 / F-21 收敛）**：「同步中」语义仅由 `pull_pending` 命中，不把 `apply_failed` 误判为进行中；节点离线（心跳超时）或已退纳管（retired）时，展示层失效 `pull_pending` 成因（仅清空成因、不改 DB 原始上报值），回落「未同步」，误导性的「查看下发」按钮一并消失；恢复心跳后自然回真实值。`ConfigSyncStatus` / `OutOfSyncCause` 枚举与契约字段均不变。
+
+**心跳契约支撑**：心跳请求新增可选 `config_apply_error` / `config_apply_failed_version`（成功时 `omitempty` 不发送，向后兼容）；中心三态判定——上报版本与最新已确认版本一致且无错误 → `in_sync` 清空成因；不一致且失败版本 == 最新 → `out_of_sync` + `apply_failed`；不一致且无错误 → `out_of_sync` + `pull_pending`。失败版本 ≠ 最新时不被陈旧错误覆盖真因（仍 `pull_pending`）。详见 §5.2 / §5.3 / §6.2。
 
 ### 8.2 网域运行态 NetworkDomain.status
 
@@ -486,17 +508,24 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-  [*] --> unknown: 纳管后未收到心跳
-  unknown --> online: 任一节点心跳恢复
-  online --> offline: 网域内全部节点离线(90s)
-  offline --> online: 任一节点心跳恢复
+  [*] --> unknown: 纳管后未收到心跳/状态未知
+  unknown --> normal: 全部节点在线
+  unknown --> partial: 部分节点在线
+  unknown --> offline: 全部节点离线
+  normal --> partial: 任一节点离线
+  partial --> normal: 全部恢复在线
+  partial --> offline: 全部节点离线(90s)
+  normal --> offline: 全部节点离线(90s)
+  offline --> normal: 任一节点心跳恢复
+  offline --> partial: 部分节点恢复在线
 ```
 
 | 状态 | 含义 | 进入条件 | 本状态 | 退出条件 |
 |------|------|----------|--------|----------|
-| online | 在线 | 网域内任一采集节点在线 | 正常 | 网域内全部节点连续 90s 无心跳 → offline |
-| offline | 离线 | 网域内全部节点离线 | 触发 EdgeSiteOffline | 任一节点心跳恢复 → online |
-| unknown | 未知 | 纳管后未收到心跳 / 状态不可知 | 待首次心跳 | 收到心跳 → online |
+| normal | 正常 | 网域内全部采集节点在线 | 稳态 | 任一节点离线 → partial |
+| partial | 部分异常 | 网域内在线 / 离线混合 | 部分节点失联 | 全部恢复在线 → normal；全部离线 → offline |
+| offline | 离线 | 网域内全部节点离线 | 触发 EdgeSiteOffline | 任一节点心跳恢复 → normal / partial |
+| unknown | 未知 | 纳管后未收到心跳 / 状态不可知 | 待首次心跳 | 收到心跳 → normal / partial / offline |
 
 ### 8.3 纳管状态 registration_status
 
@@ -543,14 +572,16 @@ stateDiagram-v2
 
 | 验收项 | 优先级 | 交付版本 |
 |--------|--------|----------|
-| 网域纳管后 Token 自动签发，UI 完全脱敏、完整值仅复制可取 | P0 | MVP |
+| 网域纳管后 Token 自动签发，UI 完全脱敏、完整值仅纳管 / 重置弹窗单次展示并须立即复制保存（安装指引首步即引导）；不提供任何二次查看明文入口 | P0 | MVP |
 | 节点状态页展示在线状态、最后心跳、回传积压、配置同步与成因分档引导 | P0 | {v0.2} |
-| 离线包下载入口提供包清单 / sha256 / 大小 / 下载按钮 | P0 | {v0.2} |
+| 离线包下载入口为 agent_pull 网域行内「更多 → 下载安装包」（中心直连域不出现），提供包清单 / sha256 / 大小 / 下载按钮 | P0 | {v0.2} |
 | 组件重启次数与最近重启时间上屏 | P0 | {v0.2} |
 | 采集器 crash-loop 时节点页高亮 + 高危横幅 | P0 | {v0.2} |
 | Token 重置前弹出「节点将失联，需到节点更新并重启」警示 | P0 | {v0.2} |
 | 退纳管后 Token 失效、节点转离线、网域可重新纳管 | P1 | {v0.2} |
 | 版本差异提示与升级指引 | P1 | {v0.2} |
+| 节点状态页「配置同步」展示「同步中」（pull_pending，蓝）与「同步失败」（apply_failed，红，含失败原因与版本） | P0 | {v0.2} |
+| 节点抽屉展示「最后心跳」「最后配置拉取」 | P1 | {v0.2} |
 
 ### 9.2 技术验收
 
@@ -560,6 +591,8 @@ stateDiagram-v2
 | 模拟 crash-loop，10 分钟 5 次后熔断停止自动重启 | P0 | {v0.2} |
 | 停心跳 90s 判离线并触发 EdgeSiteOffline | P0 | {v0.2} |
 | Token 401 走指数退避并最终降为低频探测 | P0 | {v0.2} |
+| 父进程被强杀（SIGKILL）后子进程（vmagent / blackbox_exporter）随之终止（Linux Pdeathsig / systemd KillMode=control-group 兜底），无孤儿进程继续采集 | P0 | {v0.2} |
+| 节点离线 / 退纳管时 pull_pending 成因失效回落「未同步」，apply_failed 不降级 | P0 | {v0.2} |
 | 时间基准：last_heartbeat 以中心接收时间为准 | P0 | {v0.2} |
 | 中心侧 remote_write 接收通路可用：边缘回传指标可落库，节点状态页积压归零 | P0 | {v0.2} |
 | 模拟网络断流后 vmagent 磁盘持久队列积压指标，恢复后自动续传、不丢样本 | P0 | {v0.2} |
@@ -610,9 +643,9 @@ stateDiagram-v2
 
 **页面结构**：单一网域列表页；列表为 5 列口径（名称 + 网域 ID + 接入方式 Tag + 纳管状态 + 采集节点运行态聚合），行内主操作按状态推进「去纳管 → 查看安装指引 → 去配置采集」。
 
-**纳管取凭据**：点击纳管弹出右侧抽屉，提交后一次性明文展示网域 ID 与 Token，随后脱敏。
+**纳管取凭据**：点击纳管弹出右侧抽屉，提交后一次性明文展示网域 ID 与 Token，随后脱敏；安装指引 Steps 首步即「复制并保存接入 Token」（明文仅在纳管 / 重置弹窗单次出现，须立即复制保存，等同于该网域「接入密码」）；Token 严格保持仅纳管 / 重置单次展示，**不新增任何可再次获取明文的入口或按钮**（列表凭据列仅脱敏展示、无复制明文），用户遗忘只能「更多 → 重置 Token」重新生成（旧 Token 立即失效、已运行节点须同步换用）。
 
-**安装指引区（含下载入口）**：以步骤式引导展示部署动线，并并入下载区块——包清单表格（组件 / 版本 / sha256 / 大小）+ 下载按钮 + 摆渡提示文案「隔离网域不可直连，请介质摆渡」。
+**安装指引区（含下载入口）**：折叠标题限定为「边缘域接入操作流程（安装指引）」，区外常驻「中心直连域无需部署采集节点」提示（直连域用户无需展开即可确认免操作）；区内以步骤式引导展示部署动线（首步「复制并保存接入 Token」），并保留下载区块作为兜底入口——包清单表格（组件 / 版本 / sha256 / 大小）+ 下载按钮 + 摆渡提示文案「隔离网域不可直连，请介质摆渡」；agent_pull 网域行内「更多 → 下载安装包」为显性主入口。
 
 **数据来源**：网域行政数据由 Module_06 提供；接入参数与包清单由本模块接口提供。
 
@@ -620,11 +653,11 @@ stateDiagram-v2
 
 **用户任务**：运维工程师在此查看各采集节点的在线情况、组件运行态与配置同步进度，并处理异常与升级。
 
-**页面结构**：节点平铺表（在线状态、最后心跳、回传积压、配置版本），行内展开组件抽屉。
+**页面结构**：节点平铺表（在线状态、最后心跳、回传积压、配置版本），行内展开组件抽屉；列表与抽屉均展示「最后心跳」「最后配置拉取」。
 
-**组件抽屉**：展示采集器 / 拨测器运行态 + 重启次数 / 最近重启列；`crash_loop` / `restarting` 打状态标签并叠加高危横幅；提供「可升级」提示与升级指引。
+**组件抽屉**：展示采集器 / 拨测器运行态 + 重启次数 / 最近重启列；`crash_loop` / `restarting` 打状态标签并叠加高危横幅；心跳超时（节点离线 / 退纳管）时采集器 / 拨测器状态统一降级展示为「未知」（展示层派生，不改原始上报）；提供「可升级」提示与升级指引；节点概览区展示「最后心跳」「最后配置拉取」（紧邻配置同步，作为同步卡死时限佐证，缺省展示 `-`）。
 
-**配置同步**：四档状态 Badge + 成因分档提示（含未确认下发引导），配合跨页深链预筛网域。
+**配置同步**：五态 Badge（`in_sync` / `out_of_sync` / `unknown` / `manual_override` / `no_version`）+ 成因分档提示——`pull_pending` 展示「同步中」（蓝 / processing）、`apply_failed` 展示「同步失败」（红，含失败原因与版本 + 「查看下发」引导）、其余 `out_of_sync` 展示「未同步」；节点离线 / 退纳管时 `pull_pending` 失效回落「未同步」；含未确认下发引导，配合跨页深链预筛网域。
 
 **数据来源**：节点状态、心跳、组件守护与版本差异均由本模块接口提供；`pending_draft` 成因广播自 Module_09。
 
@@ -634,6 +667,6 @@ stateDiagram-v2
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
-| v0.4 | 2026-09-20 | 修订 | 第五轮拍板回填：Agent 自升级由「不做」改为 {v0.3} 拉模式自升级（默认关闭 + 规模门槛 + 验签 / 原子回滚 / 按网域灰度）；§4.4 升级流程补自升级链路；§6.1 补中继选型一句话约束（应用层反代 + 存储转发、禁 L4/TCP） | §3.3 / §4.4 / §6.1 | {v0.3} | 设计中 |
-| v0.3 | 2026-09-20 | 修订 | 四轮讨论结论回填：部署形态方案 A 入 §1.2（中心 + UI 同址 G2、A2 形态、UI 外移降级为演进备选）；MVP 不引入 PostgreSQL；采集器强制 vmagent 单一化；契约字段 `wal_backlog_bytes` → `queue_backlog_bytes`；发送队列落盘持久参数；中心 remote_write 接收端（{v0.2} 前置）；§9 验收补接收通路与断流续传 | §1.2 / §3.1 / §5 / §6.4 / §7.2 / §9 / §10 / §11.4 | MVP 不变；{v0.2} 微调 | 设计中 |
-| v0.2 | 2026-09-17 | 修订 | 语义保真回填：Token 完全脱敏口径、agent_type 枚举（prometheus-agent）、人工兜底不自动 reconcile、unknown 运行态；补默认网域处理、多网域能力开关、删除级联清退、网域编辑、三档聚合、成因三档引导、心跳 RTT / RW 队列字段、诊断看板占位 | §3 / §5 / §8 / §9 | 不变 | 设计中 |
+| v0.7 | 2026-09-25 | 修订 | 地址语义收敛（消除 PRD/实现脱节）：① §5.1 `center_endpoint` 由「agent_pull 必填、供合成下载地址」改为 {v0.4+} 网闸映射场景预留、当前不消费；② §6.2 `config_download_url` 合成规则由「center_endpoint + 路径」改为「请求来源 authority + 路径」；③ §6.4 第 1 条补 `CENTER_ENDPOINT` 环境变量（Agent 心跳地址 + 回传地址方案 A 兜底推导），补掉决策 73 遗留的地址传递机制缺口 | §5.1 / §6.2 / §6.4 | 实现对齐（不改契约） | 设计中 |
+| v0.6 | 2026-09-25 | 修订 | 吸收 dev-feedback F-29/F-30：① 下载入口改为 agent_pull 网域行内「更多 → 下载安装包」，中心直连域（local）行不出现下载入口、页面顶部常驻「中心直连域无需部署采集节点」提示置于折叠区外、折叠标题限定为「边缘域接入操作流程（安装指引）」；② 安装指引 Steps 扩为 5 步、首步「复制并保存接入 Token」，Token 严格仅纳管 / 重置单次展示、不新增二次查看明文入口 | §3.1 / §3.3 / §9.1 / §11.3 | {v0.2} 微调 | 设计中 |
+| v0.5 | 2026-09-25 | 修订 | 吸收 dev-feedback F-7/F-15/F-16/F-17/F-21/F-22 与 design-proposal config-sync-stall（Track B，已 merged）：① 网域运行态枚举对齐四档（online→normal，新增 partial），由 offline_detector 聚合（§5.1 / §8.2）；② 边缘进程守护新增父死子亡机制（Linux Pdeathsig + systemd KillMode=control-group 兜底），心跳超时组件状态统一降级「未知」（§6.4.2 / §11.4）；③ 配置同步新增「同步中」（pull_pending，蓝）中间态与「同步失败」（apply_failed，红）终态，心跳契约新增 config_apply_error / config_apply_failed_version 可选字段，pull_pending 仅在节点存活时成立、离线 / 退纳管失效回落未同步（§5.2 / §5.3 / §6.2 / §8.1 / §11.4）；④ last_config_pull 写入口径（版本推进 / 应用失败留痕，同版本不刷新）与抽屉「最后心跳 / 最后配置拉取」展示（§5.2 / §11.4） | §5.1 / §5.2 / §5.3 / §6.2 / §6.4.2 / §8.1 / §8.2 / §9 / §11.4 | {v0.2} 微调 | 设计中 |

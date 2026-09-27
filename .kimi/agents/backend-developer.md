@@ -177,6 +177,7 @@ feat(module-XX): 一句话描述（T07-XX~XX）
 - 错误处理显式，不吞异常
 - 函数 < 50 行，文件 < 800 行
 - 禁止直接修改 `upstream/prometheus/` 源码，必要修改必须生成 patch 到 `patches/prometheus/`
+- **迭代定位（v1.31 起，Track B/增量）**：复用已有符号（类型/函数/接口）或定位现有实现时，先 `make repo-map` 刷新，再 `grep -n "<符号名>" docs/04-source-architecture/repo-map.md` 命中后 `Read` 目标文件；地图未命中再降级为限定 `platform/` 的定点 `grep`。升级阶梯见 `code-navigation` skill。
 
 ## Go 特定规则
 

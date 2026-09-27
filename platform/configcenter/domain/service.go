@@ -1,6 +1,6 @@
 // Package domain implements Module_09 网域监控纳管（onboard）服务层与 handler。
-// 从 M06 已建网域中选择纳管，维护 channel/agent_type/token/remote_write_url/
-// center_endpoint 等监控纳管字段：
+// 从 M06 已建网域中选择纳管，维护 channel/agent_type/token/remote_write_url
+// 等监控纳管字段（center_endpoint 为 {v0.4+} 预留、当前不参与写入与消费）：
 //   - 管理域（domain_type=management，如 default）固定 channel=local（中心同机写盘
 //     reload，无需 Agent / Token）；
 //   - 边缘域（domain_type=edge）MVP 仅登记监控参数（channel=agent_pull、agent_type

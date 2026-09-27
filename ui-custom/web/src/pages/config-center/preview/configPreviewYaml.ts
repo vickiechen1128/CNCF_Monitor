@@ -18,7 +18,7 @@ export const PREVIEW_TABS: { key: string; label: string; affectedKey: AffectedFi
 /**
  * 某变更单详情可见的预览 Tab（决策 60 条件渲染）。
  * alertmanager.yml 仅在变更单含该产物（ConfigDraftDetail.alertmanager_yml）时展示；
- * 边缘域（agent_pull）/不产生 AM 产物的变更单不含（管理域 default scope，不按域扇出）。
+ * 采集节点域（agent_pull）/不产生 AM 产物的变更单不含（管理域 default scope，不按域扇出）。
  */
 export function previewTabsFor(draft: ConfigDraft): typeof PREVIEW_TABS {
   const hasAlertmanager = Boolean(draft.alertmanager_yml)

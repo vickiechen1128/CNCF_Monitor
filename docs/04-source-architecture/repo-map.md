@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-27 15:28 · commit: `9615a06`
+> 生成时间: 2026-09-27 17:21 · commit: `17331d0`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -3755,6 +3755,10 @@
 
 - `function EllipsisText`
 
+### `ui-custom/web/src/components/FieldLabel.tsx`
+
+- `function FieldLabel`
+
 ### `ui-custom/web/src/components/FilterBar.tsx`
 
 - `function FilterBar`
@@ -3964,6 +3968,7 @@
 - `const channelColor`
 - `const agentTypeLabel`
 - `const domainTypeLabel`
+- `const DOMAIN_FIELD_TIP`
 - `const domainTypeColor`
 - `function deriveRegistrationStatus`
 - `const registrationStatusLabel`

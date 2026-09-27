@@ -6,6 +6,8 @@ import LabelTemplatesPage from './pages/LabelTemplatesPage'
 import ImportHistoryPage from './pages/ImportHistoryPage'
 import BusinessManagementPage from './pages/BusinessManagementPage'
 import ApplicationManagementPage from './pages/ApplicationManagementPage'
+import PlatformManagementPage from './pages/PlatformManagementPage'
+import ServiceManagementPage from './pages/ServiceManagementPage'
 
 function App() {
   return (
@@ -16,6 +18,8 @@ function App() {
         <Route path="/import-history" element={<ImportHistoryPage />} />
         <Route path="/business-management" element={<BusinessManagementPage />} />
         <Route path="/application-management" element={<ApplicationManagementPage />} />
+        <Route path="/platform-management" element={<PlatformManagementPage />} />
+        <Route path="/service-management" element={<ServiceManagementPage />} />
         <Route path="*" element={<Navigate to="/resources" replace />} />
       </Routes>
     </HashRouter>

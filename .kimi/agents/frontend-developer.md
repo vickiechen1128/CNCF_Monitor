@@ -22,6 +22,7 @@
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v1.36 | 2026-09-27 | **新增迭代定位规则**：Track B/增量开发定位改走 `repo-map.md`（`make repo-map` 自动生成，随代码实时准确）+ 定点 `grep`，不再依赖 task-sequence 的 `input_files`/`output_files` 逐条回填，避免蓝图字段漂移失真；见「编码规范」新增条目。 |
 | v1.35 | 2026-08-26 | **新增 Form 抽屉/弹窗强制 forceRender 规则**：所有包含 Form 且通过 `useEffect(open)` 执行 `setFieldsValue` 回显/预填的 Drawer/Modal，必须设置 `forceRender`，**禁止使用 `destroyOnHidden` / `destroyOnClose`**（销毁重建会放大惰性挂载竞态）。触发背景：#19 发现规则、采集 Job、资源（M07）、映射、网域等 6+ 处抽屉/弹窗因 antd 首次打开惰性挂载导致编辑回显首次为空、二次才出现，需系统性规范避免回归；详见新增 Step 3.7 与回归测试要求。 |
 | v1.33 | 2026-08-22 | **契约快照权威化 + antd 测试稳定模式前置**：①「契约优先」升级，以 `api-contract-snapshot.md` 为第一权威，PRD/API 标准为补充，禁止反向读取 `platform/models/*.go`；② Step 1 将 `web-development` skill 列为必读，并强调其「Ant Design 组件测试稳定模式」章节；③ 新增 Step 3.6「应用 antd 测试稳定模式」；④ 任务卡输入清单必填 `api-contract-snapshot.md`；⑤ 单任务验证命令改为 `pnpm vitest run <文件>`，全量 `pnpm test` 仅在 Phase 收尾/合并前执行。触发背景：M07 前端任务因契约来源分散、antd jsdom 测试基建未沉淀，导致从下午执行到 23 点，消耗大量 token。 |
 | v1.32 | 2026-08-22 | **新增 PRD / 原型细节问题反馈义务**：三类问题处置（①PRD 空白→可直接定但需写反馈单留痕；②矛盾→实现前报告 Orchestrator 走 CR，禁止事后当既成事实；③原型技术优化→写反馈单留痕）。反馈单写入 `docs/05-execution-records/module-XX/dev-feedback.md`，随 feat 合并、PR 描述链接。触发背景：模块并行开发中契约保护与细节反馈需解耦。 |
@@ -234,6 +235,7 @@ feat(module-XX): 一句话描述（T07-FX~FX）
 - 类型定义以 **`api-contract-snapshot.md` > PRD 第 5 章字段契约 + 第 6 章接口契约 + `docs/03-engineering-standards/03_API_Standard.md`** 为权威（字段名使用 snake_case 匹配后端约定的 JSON）；`platform/models/*.go` **仅作参考**（并行开发时后端模型可能尚未实现或正在变更），字段名 / 枚举值以契约快照为准，与对端代码不一致时**报告 Orchestrator**，禁止擅自以对端代码覆盖契约
 - 长文本截断 / 表格列配置优先复用 `src/components/` 共享件（如 `EllipsisText`，若已存在），禁止散点手写 `maxWidth` 内联样式；表格列超出一屏时按 `02_Frontend_Standard.md` 第 9 章启用 `scroll={{ x: ... }}` 横向滚动 + 固定列
 - 范围控制：仅修改当前任务要求的文件和目录。不要借机新增 ESLint/Vitest/测试配置等基础设施，除非任务明确要求或当前项目完全缺失且无法运行 `pnpm lint`/`pnpm test`
+- **迭代定位（v1.36 起，Track B/增量）**：复用已有组件/hook/类型或定位现有实现时，先 `make repo-map` 刷新，再 `grep -n "<符号名>" docs/04-source-architecture/repo-map.md` 命中后 `Read` 目标文件；地图未命中再降级为限定 `ui-custom/web/src/` 的定点 `grep`。升级阶梯见 `code-navigation` skill。
 
 ## 目录规则
 

@@ -1,10 +1,10 @@
 # M07 主机云标识与网络分区维度收敛（Design Proposal）
 
-> **状态**: draft —— 待产品负责人评审后回填 PRD
+> **状态**: reviewing —— 已按 §5 回填 Module_07 PRD **v2.42（决策 98 / 101）与 v2.43（决策 102）**（2026-09-25，设计工作区 `design/module-mvp-demo`）；实施完成后置 merged
 > **日期**: 2026-09-24
 > **触发**: 产品负责人反馈「主机 Tab 缺少云标识符字段」，经澄清混合云架构后，进一步定位出「云内分区」被重复建模的问题
 > **关联**: `docs/05-execution-records/module-07/dev-feedback.md`、`docs/05-execution-records/module-07/design-decisions.md`、`assets/templates/excel/host_template.md`、`docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md`
-> **关联 PRD**: `Module_07_Monitoring_Object_Management.md` v2.41（拟回填至 v2.42）；跨模块涉及 `Module_06` §5（网域登记 · `zone_type` 字典）
+> **关联 PRD**: `Module_07_Monitoring_Object_Management.md` v2.41 → **v2.42（决策 98 / 101）→ v2.43（决策 102）**；跨模块涉及 `Module_06` §5（网域登记 · `zone_type` 字典，M06 已回填 v2.16 / 决策 83）
 > **角色**: 产品负责人 / prototype-designer
 > **说明**: 本文件为设计方案落档，**不动代码**；评审通过后由产品负责人在 `design` 分支回填 PRD 与原型（回写清单见 §5）。
 
@@ -22,7 +22,7 @@
 | 6 | 云内分区与 M06 网域「网络分区」的关系 | **同一概念被建模两次**，且值域互不相同——这是「用户填不一致」的真正根因 | 已核实 |
 | 7 | 如何引导用户保持一致 | **不做引导，做消除冗余**：网络分区唯一权威归网域的 `zone_type`，主机**从网域派生只读**（方案 A） | ✅ 已拍板 |
 | 8 | `Host.zone_env` 何去何从 | 降级为**兼容导入列**：不进新增 UI、不进标签、不作权威值；枚举对齐 `zone_type` 字典 | ✅ 已拍板 |
-| 9 | 分区枚举命名 | 统一为「1 code + 1 display_name」：`internet` = 互联网区、`extranet` = 政务外网区；`INT → internet`、`GOV → extranet` | 建议，待拍板 |
+| 9 | 分区枚举命名 | 统一为「1 code + 1 display_name」：`internet` = 互联网区、`extranet` = 政务外网区；`INT → internet`、`GOV → extranet` | ✅ 已拍板（决策 101，PRD v2.42；同口径落 Module_06 决策 83） |
 | 10 | `zone` 是否进 label | **不进**。分区是网域级属性，本期不输出为 label | ✅ 已拍板 |
 
 ---
@@ -235,7 +235,7 @@
 | `useResources.ts` `ResourceListItem` | host 平铺字段补 `cloud_code`（+ 派生 `zone_type`） |
 | `ResourcesPage.tsx` host `buildColumns` | 新增「云」列（展示 `cloud_name`，Tag 化，可对齐「业务名称」列样式） |
 | `ResourcesPage.tsx` `FilterBar` | 可选：新增「云」筛选（后端支持后） |
-| `ResourceFormDrawer.tsx` host `renderTypeFields` | 新增「云」下拉（必填或可选待拍板，见开放项 ③），选项来自云字典 |
+| `ResourceFormDrawer.tsx` host `renderTypeFields` | 新增「云」下拉（**必填**，见 §8 已裁定 ①），选项来自云字典 |
 | `ResourceFormDrawer.tsx` `buildTypeFields` + `recordToFormValues` | 补 `cloud_code` 的组装与回填 |
 | `ResourceDetailDrawer.tsx` host `typeItems` | 新增「云」展示项；新增「网络分区」**只读**展示项（从网域派生，附说明「继承所属网域」） |
 
@@ -249,7 +249,7 @@
 | 2 | Module_07 §5.6 物理列备注表 | 仅列 `Host.app_code` / `sub_app_code` / `vpc` 三项 | 补 `Host.cloud_code`（物理列名与语义字段同名，无需改名）；补 `Host.zone_env` 的**降级说明**（兼容导入列，非权威，权威见网域 `zone_type`） |
 | 3 | Module_07 §5.6 或新增小节 | 无分区维度说明 | 新增「网络分区为网域级属性，主机不独立持有；如需展示由所属网域 `zone_type` 派生只读」的设计说明 + 跨模块引用（Module_06 §5） |
 | 4 | Module_07 §5.13 主机默认标签模板表 | 9 行，无 `cloud` | 追加 `resource_field` / `cloud_code` / `cloud` 一行 |
-| 5 | Module_07 §5.2 资源基础结构 | 无云厂商维度 | 视拍板结果，决定 `cloud_code` 是否升格为**五类资源共用字段**（当前仅 host 模型有该列，见开放项 ②） |
+| 5 | Module_07 §5.2 资源基础结构 | 无云厂商维度 | **已升格为五类资源共用字段**（`Resource` 共享列，见 §8 已裁定 ②，PRD v2.43）；必填按类型分化——host / database / middleware 必填，application / generic\_target 选填 |
 | 6 | Module_07 §5.19 / 新增 §5.20 云字典 | 无 | 新增「云字典」小节：`code` / `display_name` / **`cloud_type`（公有云 / 政务云 / 行业云 / 私有云）** / **`carrier`（腾讯 / 联通 / 移动）** / 启用态，并写明三条原则——**命名形制**（`{类型}-{载体}` 复合码，如 `PUB-TX` / `GM-CU`）、**身份/展示名解耦**（名字可变、code 稳定）、**一个云 = 云类型 × 云载体 的整体（类型/载体仅描述属性、非告警维度）**。登记 `PUB-TX`（腾讯云 · 公有云 · 腾讯）、`GM-CU`（政务云 · 政务云 · 联通，规划中）。写法对齐 §5.19 应用字典 |
 | 7 | Module_07 §11.1 / §11.2 页面规格 | 主机列集合与筛选器定义 | 主机列集合补「云」列；筛选区视需要补「云」筛选；主机表单补云下拉；详情抽屉补「云」+「网络分区（只读）」 |
 | 8 | Module_06 §3.2 / §5 | `zone_type` 字典与命名 | 统一 display_name 口径（`internet`=互联网区、`extranet`=政务外网区），修正三处叫法不一；补充「网域 `zone_type` 为分区唯一权威」的声明 |
@@ -273,7 +273,7 @@
 
 ## 7. 合并计划
 
-1. 本提案评审（状态：`draft → reviewing`）→ 产品负责人拍板 §8 开放项；
+1. 本提案评审（状态：`draft → reviewing`）→ 产品负责人拍板 §8 开放项（2026-09-25 已裁定，见 §8）；
 2. 拍板结果落档至 `docs/05-execution-records/module-07/design-decisions.md`（涉及跨模块契约的须先落档，再改 PRD）；
 3. 产品负责人在 `design/module-mvp-demo` 分支按 §5 回写 PRD（Module_07 v2.41 → v2.42，Change Log 记录「吸收 design-proposal `host-cloud-identity-and-zone-convergence`」）；同批修正 Module_06 §3.2/§5 命名口径；
 4. PRD 变更合入 `develop` 后，开发侧 `pull` 并派生实施任务（后端契约 → 云字典 seed → 标签链路 → 前端四断补齐）；
@@ -285,11 +285,12 @@
 
 ## 8. 待产品拍板的开放项
 
-| # | 开放项 | 说明与建议 |
+| # | 开放项 | 裁定（chenrt 2026-09-25，决策 102，PRD v2.43） |
 |---|---|---|
-| ① | 主机 `cloud_code` 必填性 | 建议**选填**（存量数据与多云混管场景下强制必填会造成导入失败）；若要求必填，需同步 Excel 模板必填口径 |
-| ② | `cloud_code` 是否升格为五类共用字段 | 当前仅 host 模型有该列。建议 MVP **先限 host**（问题域明确），database/middleware/application 若有用例再走独立提案 |
-| ③ | 云字典是否允许用户自助登记新云 | 建议**部署级只读 + 平台管理员预置**（对齐 `zone_type`），避免用户造词 |
+| ① | 主机 `cloud_code` 必填性 | ✅ **必填**（推翻原「选填」建议）——`cloud` 是运维定位 / 分组的基础维度，不应允许留空 |
+| ② | `cloud_code` 是否升格为五类共用字段 | ✅ **升格为 `Resource` 共享字段**（五类同列）；必填按类型分化——host / database / middleware **必填**，application（业务聚合、可跨云）、generic\_target（外部拨测目标）**选填**。依据：云托管 PaaS（RDS / 云 Redis / 云 Kafka）无上游主机可派生；M07 未建模资源间上下游关系，自建实例也无法派生 |
+| ③ | 云字典是否允许用户自助登记新云 | ✅ **随部署预置、全局只读、不提供任何管理界面**（既无用户自助登记页，也不做平台管理员页）——对齐 `zone_type` 字典先例，增删改随版本发版 / 部署配置更新 |
+| ④ | 云类型短码 `PUB` / `IND` / `PRI` | ⏳ **仍暂定**（`GM` 已定）；待实际启用该类型云时随 seed 一并定版 |
 
 **已闭环（本轮澄清，无需再议）**：
 
@@ -316,3 +317,5 @@
 | v0.4 | 2026-09-24 | **修正 `TX` 语义（用户明确）**：`TX` = **腾讯云（云标识）**，不得等同于「公有云」——因**同一载体可同时提供公有云 / 行业云 / 私有云**，腾讯只是载体之一。据此：① 云类型独立成维并落为云字典条目属性，`TX` 展示名由「公有云」改为「腾讯云」；② 字典表新增 `云类型` 与 `载体` 列；③ 开放项改为 `cloud_type` 承载方式待拍板。 |
 | v0.5 | 2026-09-24 | **收敛「云」的最终模型（用户明确）**：① **政务云本身即一种云类型**（`gov`），载体为联通（`CU`），不再归入行业云；② **一个云 = 云类型 × 云载体的组合整体**，`cloud_code` 标识整体，类型/载体仅为字典**描述属性**；③ 用户**只对「云整体」告警、不单独告警类型或载体** → **回退** v0.4「云类型独立成维/独立 label」的过度设计，§3 由四维回落三维，类型/载体收敛为字典条目属性（开放项 ④ 闭环为方式 A）；④ 云类型枚举更新为 `公有云 / 政务云 / 行业云 / 私有云`、载体枚举 `腾讯 / 联通 / 移动`；⑤ §1/§2.1/§5/§6 全面同步，开放项收敛为 3 条。 |
 | v0.6 | 2026-09-24 | **统一云 code 命名形制（用户明确）**：修正「`TX` 只编码载体、`GM-CU` 编码类型-载体」的粒度不一致——所有云 code 一律统一为 `{类型}-{载体}` 复合码。据此：① 腾讯云云 code `TX` → **`PUB-TX`**（公有云 `PUB` + 腾讯 `TX`），`TX` 退化为**载体 code**；② 云类型 code 由小写英文 `public/gov/...` 统一为大写短码 `PUB` / `GM` / `IND` / `PRI`（`GM` 为用户既定，`PUB`/`IND`/`PRI` 暂定待确认）；③ 历史 Excel 归一映射改为 `TX → PUB-TX`、`CU → GM-CU`；④ §1/§4.1/§5/§6/§8 全面同步，`TX` 仅保留为载体 code。 |
+| v0.7 | 2026-09-25 | 按本提案 §5 回填 Module_07 PRD v2.42（决策 98 / 99），提案状态 draft → reviewing。 |
+| v0.8 | 2026-09-25 | 产品负责人复核原生开放项后四项裁定（决策 102，PRD v2.42→**v2.43**）：① `cloud_code` **必填**；② **升格 `Resource` 共享字段** + 必填按类型分化；③ 云字典**无任何管理界面**；④ 同步修正 PRD 内部两处不一致（§5.16.1 主机模板列补 `cloud_code` / `zone_env`、§5.4 区域属性按「网域派生类 vs 云归属类」切分）。§8 开放项 ①②③ 由「待拍板」转「已裁定」，④ 保留暂定。 |

@@ -13,6 +13,8 @@
 // {v2.34} 决策 83 generic_target 定位收窄：UI 名「其他监控目标」（枚举值不变），表单去 exporter 化——exporter_type 收窄为隐藏的端点子类型判别值（供 M01 推导 monitor_type）
 // {v2.35} 决策 84 入口收敛与采集参数归位：新增入口 5 项 = 列表 Tab 1:1（K8s 集群收编为「其他监控目标」表单首问「登记对象」子动线）；端口/采集路径/协议等采集参数归 M01 默认采集配置，DEVICE/K8S_ENDPOINT_PRESETS 精简为仅判别值、表单与详情不再出现采集参数
 // {v2.36} 决策 85 入口形态回归：单一「新增资源」按钮、抽屉表单形态跟随当前资源类型 Tab（5 类 1:1）；决策 84 实质不变（K8s 集群仍走表单首问、采集参数仍不出现）
+// {v2.47} 原型缺口收口：资源列表 host Tab 补「云」列 + 主机详情「云 / 网络分区」只读派生展示（决策 98/101/103 / M06 决策 78）
+//   云与网络分区权威值均在网域（M06 §5.2 NetworkDomain.cloud_code / zone_type），资源侧只读派生、无编辑入口；云字典部署级只读、无管理界面
 // 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真，见 STATUS_MAPPING 注释）
 // ============================================================
 
@@ -51,6 +53,10 @@ export interface ResourceBase {
   // 资源侧只存编码，展示名 app_name 由字典解析（resolveAppName）；
   // 必填规则：application / database / middleware 必填，host / generic_target 可空（空值不注入 `app` 标签）。
   app_code?: string
+  // {v2.45} 决策 105 / 107：服务归属**不可变编码**（对应服务字典主键，见 mockServiceDict）；`svc` label 的取值来源。
+  // **仅 application / generic_target 适用**，host / database / middleware 不挂（基础设施非服务，避免服务维度污染）；
+  // **可选字段**——留空即纯自由文本、向后兼容；填值须引用未停用服务字典条目；空值不注入 `svc` 标签。
+  service_code?: string
   env?: Env
   cluster?: string
   owner?: string
@@ -167,16 +173,29 @@ export interface NetworkDomain {
    * 最长前缀优先、同前缀跨网域判「冲突」。纯平台侧数据，不回写 CMDB。
    */
   ip_cidrs?: string[]
+  /**
+   * {v2.47 / 决策 103} 云归属（对齐 M06 §5.2 `NetworkDomain.cloud_code`，网域级**必填**；M07 只读消费）：
+   * 取自云字典（PRD 5.20，如 `PUB-TX` 腾讯云 / `GM-CU` 政务云（联通））。
+   * 资源侧**不维护**云归属，「云」经所属网域派生展示（PRD 5.4 / 5.6 / §11.2）。
+   */
+  cloud_code?: string
+  /**
+   * {v2.47 / 决策 103} 网络分区 / Region（对齐 M06 §5.2 `NetworkDomain.zone_type`，网域级**必填**；M07 只读消费）：
+   * 分区权威值仅存在于网域；取自分区字典（`GET /api/v2/platform/zone-types`），
+   * 如 `internet`（互联网区）/ `extranet`（政务外网区）/ `shanghai`（公有云 region）。
+   * 资源侧**不维护**分区，「网络分区」经所属网域派生展示（PRD 5.6）。
+   */
+  zone_type?: string
 }
 
 export const mockNetworkDomains: NetworkDomain[] = [
-  { id: 'default', name: '默认网域', status: 'online', domain_type: 'management', ip_cidrs: ['10.0.0.0/8'] },
-  { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online', domain_type: 'edge', ip_cidrs: ['192.168.0.0/16', '172.16.0.0/16'] },
+  { id: 'default', name: '默认网域', status: 'online', domain_type: 'management', ip_cidrs: ['10.0.0.0/8'], cloud_code: 'PUB-TX', zone_type: 'shanghai' },
+  { id: 'gov-cloud-a', name: '政务云 A 区', status: 'online', domain_type: 'edge', ip_cidrs: ['192.168.0.0/16', '172.16.0.0/16'], cloud_code: 'GM-CU', zone_type: 'extranet' },
   // {v2.33} 决策 81 K8s 双域登记动线演示：集群 overlay / 可达网段独立建域（域 A），与主机管理网 default（域 B）平行。
   // 集群级端点（API Server / kube-state-metrics / etcd）登记 generic_target → 集群域；节点 OS 层登记 host → default 管理网。
   // 两个集群默认都用 10.244.0.0/16（Calico / Flannel 常见默认 Pod 段），跨域同前缀重叠 → IP 推导判歧义、须人工选择（PRD 5.16.4「私有地址段重叠」）。
-  { id: 'k8s-prod', name: '生产 K8s 集群域', status: 'online', domain_type: 'edge', ip_cidrs: ['172.20.0.0/16', '10.244.0.0/16'] },
-  { id: 'k8s-test', name: '测试 K8s 集群域', status: 'online', domain_type: 'edge', ip_cidrs: ['172.21.0.0/16', '10.244.0.0/16'] },
+  { id: 'k8s-prod', name: '生产 K8s 集群域', status: 'online', domain_type: 'edge', ip_cidrs: ['172.20.0.0/16', '10.244.0.0/16'], cloud_code: 'PUB-TX', zone_type: 'shanghai' },
+  { id: 'k8s-test', name: '测试 K8s 集群域', status: 'online', domain_type: 'edge', ip_cidrs: ['172.21.0.0/16', '10.244.0.0/16'], cloud_code: 'PUB-TX', zone_type: 'beijing' },
 ]
 
 /**
@@ -297,6 +316,108 @@ export function previewDomainByIP(ip?: string): DomainPreview {
     }
   }
   return { kind: 'unique', domain: best[0].domain, cidr: best[0].cidr }
+}
+
+// ---------- 云字典 / 网络分区字典（PRD 5.20 / M06 §5.2；部署级只读、无管理界面） ----------
+/**
+ * {v2.47} 云字典条目（PRD 5.20，决策 98）：`cloud_code → cloud` label 的取值权威。
+ * 一个云 = 云类型 × 云载体 的组合整体；`cloud_type` / `carrier` 仅为条目**描述属性**
+ * （用于展示 / 分类），**不是告警维度、不独立成列或筛选维度**（PRD §11.2 ④）。
+ */
+export interface CloudDictEntry {
+  /** 字典主键，复合码形制 `{类型}-{载体}`（如 `PUB-TX`）；`cloud` label 的取值来源，创建后不可变 */
+  cloud_code: string
+  /** 展示名，仅 UI 展示；UI 一律展示 cloud_name（缺条目回退 cloud_code） */
+  cloud_name: string
+  cloud_type: 'PUB' | 'GM' | 'IND' | 'PRI'
+  carrier: 'TX' | 'CU' | 'CM'
+  status: 'enabled' | 'disabled'
+}
+
+/**
+ * {v2.47} 云字典可用性开关（模拟 `GET /api/v2/platform/cloud-dict`）。
+ * 云字典**部署级只读、不提供任何管理界面**（PRD 5.20），增删改随版本发版 / 部署配置更新。
+ */
+export const CLOUD_DICT_ENABLED = true
+
+export const mockCloudDict: CloudDictEntry[] = [
+  { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', status: 'enabled' },
+  { cloud_code: 'GM-CU', cloud_name: '政务云（联通）', cloud_type: 'GM', carrier: 'CU', status: 'enabled' },
+  // 原型演示：停用条目（PRD 正式 seed 仅 PUB-TX / GM-CU 两条启用；此条仅用于演示「云名（已停用）」标识解析）
+  { cloud_code: 'PRI-TX', cloud_name: '私有云（腾讯）', cloud_type: 'PRI', carrier: 'TX', status: 'disabled' },
+]
+
+/**
+ * {v2.47} 网络分区字典条目（M06 §5.2 `zone_type`，模拟 `GET /api/v2/platform/zone-types`，返回 `code` + `display_name`）。
+ * 分区为隔离边界（政务云安全分区 / 公有云 region），AZ 不进分区；分区权威值仅存在于网域，资源侧只读派生。
+ */
+export interface ZoneTypeEntry {
+  code: string
+  display_name: string
+  description?: string
+  status: 'enabled' | 'disabled'
+}
+
+/** {v2.47} 分区字典可用性开关（模拟 `GET /api/v2/platform/zone-types`；部署级只读字典） */
+export const ZONE_DICT_ENABLED = true
+
+export const mockZoneTypes: ZoneTypeEntry[] = [
+  { code: 'internet', display_name: '互联网区', description: '政务云安全分区：可直接访问互联网', status: 'enabled' },
+  { code: 'extranet', display_name: '政务外网区', description: '政务云安全分区：政务外网可达', status: 'enabled' },
+  { code: 'dedicated', display_name: '专线区', description: '政务云安全分区：经专线互通', status: 'enabled' },
+  { code: 'dmz', display_name: 'DMZ', description: '政务云安全分区：隔离区', status: 'enabled' },
+  { code: 'shanghai', display_name: '上海', description: '公有云 region：上海地域（同地域内网互通、跨地域默认不通）', status: 'enabled' },
+  { code: 'beijing', display_name: '北京', description: '公有云 region：北京地域', status: 'enabled' },
+]
+
+/** {v2.47} 网域按 id 反查（资源经 network_domain_id 关联所属网域，只读） */
+export function resolveDomainById(domainId?: string): NetworkDomain | undefined {
+  if (!domainId) return undefined
+  return mockNetworkDomains.find((d) => d.id === domainId)
+}
+
+/** {v2.47} 云字典展示名解析：cloud_code → cloud_name；未登记回退 code，空值返回 '-'（PRD 5.20 消费链路） */
+export function cloudNameOf(cloudCode?: string): string {
+  if (!cloudCode) return '-'
+  return mockCloudDict.find((d) => d.cloud_code === cloudCode)?.cloud_name || cloudCode
+}
+
+/** {v2.47} 云字典条目是否停用（disabled）：停用条目以「云名（已停用）」标识（PRD 5.20） */
+export function isCloudDisabled(cloudCode?: string): boolean {
+  if (!cloudCode) return false
+  return mockCloudDict.find((d) => d.cloud_code === cloudCode)?.status === 'disabled'
+}
+
+/** {v2.47} 分区字典展示名解析：code → display_name；未登记回退 code，空值返回 '-'（M06 §5.2 / PRD 5.6） */
+export function zoneTypeNameOf(zoneCode?: string): string {
+  if (!zoneCode) return '-'
+  return mockZoneTypes.find((d) => d.code === zoneCode)?.display_name || zoneCode
+}
+
+/** {v2.47} 分区字典条目是否停用（disabled）：停用条目以「分区名（已停用）」标识 */
+export function isZoneDisabled(zoneCode?: string): boolean {
+  if (!zoneCode) return false
+  return mockZoneTypes.find((d) => d.code === zoneCode)?.status === 'disabled'
+}
+
+/**
+ * {v2.47 / 决策 103} 经网域派生云展示：资源 `network_domain_id` → 网域 `cloud_code` → 云字典。
+ * 资源侧不维护云归属，列表「云」列 / 详情只读派生；网域缺云标识返回 null（调用方展示 '-'）。
+ */
+export function resolveDomainCloud(domainId?: string): { name: string; disabled: boolean } | null {
+  const domain = resolveDomainById(domainId)
+  if (!domain?.cloud_code) return null
+  return { name: cloudNameOf(domain.cloud_code), disabled: isCloudDisabled(domain.cloud_code) }
+}
+
+/**
+ * {v2.47 / 决策 103} 经网域派生网络分区展示：资源 `network_domain_id` → 网域 `zone_type` → 分区字典。
+ * 资源侧不维护分区，详情只读派生；网域缺分区返回 null（调用方展示 '-'）。
+ */
+export function resolveDomainZone(domainId?: string): { name: string; disabled: boolean } | null {
+  const domain = resolveDomainById(domainId)
+  if (!domain?.zone_type) return null
+  return { name: zoneTypeNameOf(domain.zone_type), disabled: isZoneDisabled(domain.zone_type) }
 }
 
 /**
@@ -430,22 +551,30 @@ export interface AppDictEntry {
   app_code: string
   /** 展示名，可改，不影响监控配置；UI 一律展示 app_name */
   app_name: string
+  /**
+   * {v2.45} 决策 104 / 107：**可选父级**——应用所属平台（平台字典主键，见 mockPlatformDict）；
+   * 表达纵向 `platform(1) → app(N)` 组成分解；**与业务维度正交（决策 96）不冲突**（决策 96 裁定的是 biz↔app 横向正交，
+   * 本字段是应用自身的纵向上级、非业务父级）；未挂时应用无平台归属、`platform` label 不注入。
+   */
+  platform_code?: string
   description?: string
   /** enabled = 启用（可被资源引用）；disabled = 停用（仅可改展示名，不可删除） */
   status: 'enabled' | 'disabled'
 }
 
 export const mockApplicationDict: AppDictEntry[] = [
-  { app_code: 'web-portal', app_name: '电商前台', description: '面向用户的电商门户前端', status: 'enabled' },
-  { app_code: 'order-service', app_name: '订单服务', description: '订单创建 / 履约主链路', status: 'enabled' },
-  { app_code: 'pay-service', app_name: '支付服务', description: '支付与资金链路', status: 'enabled' },
-  { app_code: 'gateway-service', app_name: '网关服务', description: '统一南北向流量入口', status: 'enabled' },
-  { app_code: 'nginx-gateway', app_name: '网关 Nginx', description: 'Nginx 七层转发集群', status: 'enabled' },
-  { app_code: 'cache-service', app_name: '缓存服务', description: 'Redis 缓存集群', status: 'enabled' },
-  { app_code: 'message-queue', app_name: '消息队列', description: 'Kafka 消息中间件', status: 'enabled' },
-  { app_code: 'order-db', app_name: '订单库', description: '订单主库（MySQL）', status: 'enabled' },
-  { app_code: 'gov-db', app_name: '政务数据库', description: '政务网域达梦数据库', status: 'enabled' },
-  { app_code: 'legacy-portal', app_name: '已下线应用', description: '停用中，不可再被资源引用', status: 'disabled' },
+  { app_code: 'web-portal', app_name: '电商前台', platform_code: 'ecommerce', description: '面向用户的电商门户前端', status: 'enabled' },
+  { app_code: 'order-service', app_name: '订单服务', platform_code: 'ecommerce', description: '订单创建 / 履约主链路', status: 'enabled' },
+  { app_code: 'pay-service', app_name: '支付服务', platform_code: 'ecommerce', description: '支付与资金链路', status: 'enabled' },
+  { app_code: 'gateway-service', app_name: '网关服务', platform_code: 'ecommerce', description: '统一南北向流量入口', status: 'enabled' },
+  { app_code: 'nginx-gateway', app_name: '网关 Nginx', platform_code: 'infra-middleware', description: 'Nginx 七层转发集群', status: 'enabled' },
+  { app_code: 'cache-service', app_name: '缓存服务', platform_code: 'infra-middleware', description: 'Redis 缓存集群', status: 'enabled' },
+  { app_code: 'message-queue', app_name: '消息队列', platform_code: 'infra-middleware', description: 'Kafka 消息中间件', status: 'enabled' },
+  { app_code: 'order-db', app_name: '订单库', platform_code: 'ecommerce', description: '订单主库（MySQL）', status: 'enabled' },
+  { app_code: 'gov-db', app_name: '政务数据库', platform_code: 'public-data-auth', description: '政务网域达梦数据库', status: 'enabled' },
+  // {v2.45} 未挂平台的子系统（platform_code 留空，演示可选父级为空分支）
+  { app_code: 'data-pipeline', app_name: '数据管道', description: '未挂平台的独立子系统（可选父级演示）', status: 'enabled' },
+  { app_code: 'legacy-portal', app_name: '已下线应用', platform_code: 'legacy-platform', description: '停用中，不可再被资源引用', status: 'disabled' },
   // 注：设备类资源（网络设备 / 负载均衡）无应用归属，其资源 app_code 留空——见 5.2 必填标注
 ]
 
@@ -463,6 +592,80 @@ export function isAppDisabled(code?: string): boolean {
 
 /** 应用编码规范（决策 92，与业务编码同规约）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
 export const APP_CODE_RE = /^[a-z0-9-]{1,64}$/
+
+// ---------- 平台字典（PRD 5.21 / 决策 104 / 107） ----------
+// 与业务分组字典（5.18）/ 应用字典（5.19）同规约：编码不可变 + 展示名必填 + 停用不删除。
+// 层级角色：`platform(1) → app(N) → service(M) → instance(K)` 四层纵向组成分解的**顶层**；
+// 应用经 5.19 的可选父级字段 platform_code 挂靠。`platform` label 经资源 app_code → 应用条目父级**派生注入**，
+// 资源行不新增字段。命名隔离：不得借用 `system` 作字典名 / 标签名 / 字段名（决策 104）。
+export interface PlatformDictEntry {
+  /** 平台编码，进 platform 标签（派生），创建后不可变 */
+  platform_code: string
+  /** 展示名，可改，不影响监控配置；UI 一律展示 platform_name */
+  platform_name: string
+  description?: string
+  /** enabled = 启用（可被应用条目引用）；disabled = 停用（仅可改展示名，不可删除） */
+  status: 'enabled' | 'disabled'
+}
+
+export const mockPlatformDict: PlatformDictEntry[] = [
+  { platform_code: 'ecommerce', platform_name: '电商平台', description: '电商交易主平台（前台 / 订单 / 支付 / 网关）', status: 'enabled' },
+  { platform_code: 'public-data-auth', platform_name: '公共数据授权运营平台', description: '政务侧数据授权与运营平台', status: 'enabled' },
+  { platform_code: 'infra-middleware', platform_name: '基础中间件平台', description: '缓存 / 消息 / 网关等公共中间件底座', status: 'enabled' },
+  { platform_code: 'legacy-platform', platform_name: '已下线平台', description: '停用中，不可再被应用条目引用', status: 'disabled' },
+]
+
+/** 平台字典展示名解析：code → platform_name；未登记或空值返回 code 本身或 '-' */
+export function resolvePlatformName(code?: string): string {
+  if (!code) return '-'
+  return mockPlatformDict.find((d) => d.platform_code === code)?.platform_name || code
+}
+
+/** 平台字典条目是否停用（disabled）：停用平台不可再被应用条目引用，但存量应用保留历史值 */
+export function isPlatformDisabled(code?: string): boolean {
+  if (!code) return false
+  return mockPlatformDict.find((d) => d.platform_code === code)?.status === 'disabled'
+}
+
+/** 平台编码规范（决策 104，与业务 / 应用编码同规约）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
+export const PLATFORM_CODE_RE = /^[a-z0-9-]{1,64}$/
+
+// ---------- 服务字典（PRD 5.22 / 决策 105 / 107） ----------
+// 与应用字典（5.19）同构：编码不可变 + 展示名必填 + 停用不删除。
+// 层级角色：四层纵向组成分解的**第三层**（一个应用可含多个服务）；服务 label 定名 `svc`（值 = service_code）。
+// 与业务域 `biz` 正交（service : biz = N:1，主归属唯一）。
+// 服务与应用的关联经**资源行**的 app_code + service_code 承载（本字典不设父子字段）。
+export interface ServiceDictEntry {
+  /** 服务编码，进 svc 标签，创建后不可变 */
+  service_code: string
+  /** 展示名，可改，不影响监控配置；UI 一律展示 service_name */
+  service_name: string
+  description?: string
+  /** enabled = 启用（可被资源引用）；disabled = 停用（仅可改展示名，不可删除） */
+  status: 'enabled' | 'disabled'
+}
+
+export const mockServiceDict: ServiceDictEntry[] = [
+  { service_code: 'order-service-api', service_name: '订单服务接口', description: '订单创建 / 查询主接口', status: 'enabled' },
+  { service_code: 'payment-api', service_name: '支付接口', description: '支付下单 / 回调接口', status: 'enabled' },
+  { service_code: 'teacher-identity-api', service_name: '教师身份核验接口', description: '政务侧教师身份核验 API（示例服务）', status: 'enabled' },
+  { service_code: 'legacy-api', service_name: '已下线接口', description: '停用中，不可再被资源引用', status: 'disabled' },
+]
+
+/** 服务字典展示名解析：code → service_name；未登记或空值返回 code 本身或 '-' */
+export function resolveServiceName(code?: string): string {
+  if (!code) return '-'
+  return mockServiceDict.find((d) => d.service_code === code)?.service_name || code
+}
+
+/** 服务字典条目是否停用（disabled）：停用服务不可再被资源引用，但存量资源保留历史值 */
+export function isServiceDisabled(code?: string): boolean {
+  if (!code) return false
+  return mockServiceDict.find((d) => d.service_code === code)?.status === 'disabled'
+}
+
+/** 服务编码规范（决策 105，与业务 / 应用编码同规约）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
+export const SERVICE_CODE_RE = /^[a-z0-9-]{1,64}$/
 
 // ---------- 采集状态三态（PRD 5.2 / 决策 47-3） ----------
 // is_monitored 由 M01 维护选中关系、M07 只读映射；up/down 聚合来自 M02 健康度/覆盖率 API（按 resource_id 回连）。
@@ -632,14 +835,26 @@ export const mockStatusMappingConfig: StatusMappingConfig = {
   ],
 }
 
-/** 五大类资源固定列导入模板（PRD 5.16.1，含 network_domain / biz_code 列；{v2.17} 全资源类必填 biz_code） */
+/** 五大类资源固定列导入模板（PRD 5.16.1，含 network_domain / biz_code 列；{v2.17} 全资源类必填 biz_code）
+ * {v2.45} 决策 105 / 107：application / generic_target 模板列补 `service_code`（服务归属可选列，留空即纯自由文本）。 */
 export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceCategory, string[]> = {
   host: ['network_domain', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
   database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
   middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
-  application: ['network_domain', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'status'],
-  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
+  application: ['network_domain', 'service_name', 'service_code', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'status'],
+  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'service_code', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
 }
+
+/** {v2.41 / v2.45} 决策 97 / 104 / 105：Excel 批量声明 sheet（四类声明）
+ * 资源导入文件新增 `业务声明` / `应用声明` / `平台声明` / `服务声明` 四个内联 sheet，
+ * 用于一次导入携带全新业务 / 应用 / 平台 / 服务——幂等（码已存直接用）/ 重码硬拒绝（绝不覆盖）/
+ * 停用条目不可激活 / 声明建字典 + 资源落库整批原子提交；`source=excel-import`、`status=enabled`，只增不覆盖。 */
+export const EXCEL_DECLARATION_SHEETS: { key: string; code_column: string; name_column: string; note: string }[] = [
+  { key: '业务声明', code_column: 'biz_code', name_column: 'biz_name', note: '补充声明新增业务分组条目（字典维护页：业务管理）' },
+  { key: '应用声明', code_column: 'app_code', name_column: 'app_name', note: '补充声明新增应用条目（字典维护页：应用管理）' },
+  { key: '平台声明', code_column: 'platform_code', name_column: 'platform_name', note: '补充声明新增平台条目（字典维护页：平台管理；用于应用条目父级登记）' },
+  { key: '服务声明', code_column: 'service_code', name_column: 'service_name', note: '补充声明新增服务条目（字典维护页：服务管理）' },
+]
 
 /**
  * 标签模板映射：Resource 字段选项（PRD 5.12 A；{v2.13} 新增 database 键；{v2.17} 全资源类补 biz_code → biz）
@@ -911,6 +1126,8 @@ export const mockResources: Resource[] = [
     endpoint: '10.0.3.11:9100',
     port: 9100,
     app_code: 'order-service',
+    // {v2.45} 决策 105：服务归属可选（仅 application / generic_target 挂），留空即纯自由文本；填值须引用未停用服务条目
+    service_code: 'order-service-api',
     env: 'prod',
     cluster: 'k8s-prod',
     owner: '周八',
@@ -932,6 +1149,7 @@ export const mockResources: Resource[] = [
     endpoint: '192.168.3.12:9100',
     port: 9100,
     app_code: 'pay-service',
+    service_code: 'payment-api',
     env: 'staging',
     cluster: 'k8s-staging',
     owner: '吴九',
@@ -1003,6 +1221,8 @@ export const mockResources: Resource[] = [
     exporter_type: 'blackbox_exporter',
     custom_labels: 'probe_type=https;tag=web',
     app_code: 'order-service',
+    // {v2.45} 业务型 generic_target 亦可挂服务（仅 application / generic_target 适用）
+    service_code: 'order-service-api',
     env: 'prod',
     cluster: 'probe-cluster',
     owner: '郑十',

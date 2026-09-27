@@ -31,6 +31,7 @@ import {
   NOTIFY_STATUS_LABEL,
   mockAlertGovernance,
   mockAppSummaries,
+  mockCloudSummaries,
   mockLatestAlerts,
   mockOnboardingSteps,
   mockProbeSummary,
@@ -38,6 +39,7 @@ import {
   mockResourceTypes,
   mockUnclassifiedResource,
   type AppSummary,
+  type CloudSummary,
   type LatestAlert,
   type ResourceCategoryKey,
 } from '../mocks/module-05'
@@ -754,6 +756,76 @@ function ProbePanel() {
   )
 }
 
+/**
+ * 「按云分布」独立区块（决策 100）：整宽，位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前。
+ * 本期仅主机（云经资源所属网域 `cloud_code` 派生），不含告警数字；云名点击穿资源清单并按云预筛选。
+ * 窄屏沿用表格横向滚动（不卡片化）。
+ */
+function CloudDistributionPanel() {
+  return (
+    <Card
+      className="page-card"
+      style={{ marginTop: 16 }}
+      title="按云分布"
+      extra={
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          按主机所属网域派生的云分组 · 本期仅主机
+        </Text>
+      }
+    >
+      {mockCloudSummaries.length === 0 ? (
+        <div style={{ padding: '28px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: TEXT_BASE }}>暂无主机数据</div>
+          <Text type="secondary" style={{ marginTop: 6, fontSize: 12, textAlign: 'center' }}>
+            主机导入后，将按所属网域派生的云自动分组展示主机分布与采集覆盖率。
+          </Text>
+          <Link to="/resources" style={{ marginTop: 12 }}>
+            去导入主机资源 →
+          </Link>
+        </div>
+      ) : (
+        <Table<CloudSummary>
+          rowKey="cloudCode"
+          size="small"
+          dataSource={mockCloudSummaries}
+          pagination={false}
+          scroll={{ x: 'max-content' }}
+          columns={[
+            {
+              title: '云名',
+              dataIndex: 'cloudName',
+              key: 'cloudName',
+              render: (name: string, row) => (
+                <Tooltip title="点击查看该云的主机清单">
+                  <Link to={`/resources?cloud=${row.cloudCode}`}>
+                    {name}
+                    <span style={{ marginLeft: 6, fontSize: 12, color: TEXT_TERTIARY }}>{row.cloudCode}</span>
+                  </Link>
+                </Tooltip>
+              ),
+            },
+            { title: '主机数', dataIndex: 'resourceCount', key: 'resourceCount', width: 90 },
+            { title: '已采数', dataIndex: 'monitoredCount', key: 'monitoredCount', width: 90 },
+            {
+              title: '覆盖率',
+              key: 'coverage',
+              width: 160,
+              render: (_, row) => (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CoverageBar value={row.coverageRate} width={52} />
+                  <span style={{ fontSize: 12, color: row.coverageRate < 70 ? '#C25E0A' : TEXT_SECONDARY }}>
+                    {row.coverageRate}%
+                  </span>
+                </span>
+              ),
+            },
+          ]}
+        />
+      )}
+    </Card>
+  )
+}
+
 export function DashboardPage() {
   const latestAlerts = mockLatestAlerts.slice(0, LATEST_ALERT_LIMIT)
   const [alertPage, setAlertPage] = useState(0)
@@ -825,6 +897,10 @@ export function DashboardPage() {
           <ResourceTypeCard key={item.resourceCategory} item={item} />
         ))}
       </div>
+
+      {/* 「按云分布」独立区块（决策 100）：整宽，位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前；
+          本期仅主机（云经资源所属网域 cloud_code 派生），不含告警数字；云名点击穿资源清单并按云预筛选 */}
+      <CloudDistributionPanel />
 
       {/* L2 应用覆盖明细表（标题定名「应用覆盖」：按应用聚合的采集覆盖进度） */}
       <div id="app-detail" style={{ marginTop: 16 }}>
@@ -936,8 +1012,13 @@ export function DashboardPage() {
       {/* [DEV] 评审释义统一收口（提示分区规范）：口径公式 / 按角色读法 / 决策清单，默认折叠，右上角开关控制 */}
       <ReviewNote>
         <div>
-          决策 93：首页六段版式（L0 全局态势五卡 / L1 采集覆盖一行五卡 + 子类封顶 3 +「更多 +N」/ L2 应用覆盖明细 / L3
+          决策 93：首页版式（L0 全局态势五卡 / L1 采集覆盖一行五卡 + 子类封顶 3 +「更多 +N」/ L2 应用覆盖明细 / L3
           拨测态势面板 / 告警状态卡 + 使用指引同排等高）；删除「按应用查看」入口卡；summary 新增 `probe_targets[]`。
+        </div>
+        <div style={{ marginTop: 6 }}>
+          决策 100：新增「按云分布」独立区块（整宽，位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前）——本期仅主机，
+          云经资源所属网域 `cloud_code` 派生、不含告警数字；summary 新增 `by_cloud[]`（cloud_code / cloud_name /
+          resource_count / monitored_count / coverage_rate），首页段数增至七段。
         </div>
         <div style={{ marginTop: 6 }}>
           告警口径（两点收口，同版本微调）：当前未恢复（L0「告警」卡，/api/v1/alerts firing

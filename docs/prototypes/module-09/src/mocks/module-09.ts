@@ -159,9 +159,9 @@ export interface NetworkDomain {
    */
   zone_type: string
   /**
-   * 中心接入地址（{v1.31}）：该网域视角的中心可达地址（如 `https://10.8.0.5:8443`，
-   * 网闸/防火墙地址映射后的地址）；`domain_type=edge` 纳管时必填，由运维按该区网闸策略填写，
-   * 用于合成心跳响应中的配置包绝对下载地址（PRD 6.1）；管理域（default）为空。
+   * 网闸映射预留项（未来版本）：早期设计中曾作为该网域视角的中心可达地址（网闸地址映射后地址），
+   * 当前版本**不消费**——采集节点心跳地址由安装时的 `CENTER_ENDPOINT` 环境变量提供，
+   * 配置包下载地址由请求来源 authority 合成（`deriveConfigDownloadUrl`）；原型中恒为空、不参与任何逻辑。
    */
   center_endpoint: string
   /** {v1.33} 认证 Token（脱敏展示）：`channel=agent_pull` 时必填（纳管时自动签发）；`channel=local` 时为空且不展示 */
@@ -208,7 +208,8 @@ export interface EdgeAgent {
   config_sync_status: ConfigSyncStatus
   /** {v1.40} 未同步成因（决策 40-1）：`out_of_sync` 时的引导成因（仅 out_of_sync 有值）；由心跳回执的拉包结果与中心待确认变更草稿联合判定（见 PRD 4.8 ③） */
   out_of_sync_cause?: OutOfSyncCause
-  wal_backlog_bytes: number
+  /** 回传积压：磁盘持久发送队列积压字节数（vmagent，无 Prometheus 式 WAL；M11 PRD §5.2 / §10） */
+  queue_backlog_bytes: number
   remote_write_url: string
   last_error: string
   /**
@@ -564,15 +565,19 @@ export const rulesGroupDerivationNote =
   'rules.yml 按 Prometheus group 语法组织：MVP 由 M01 规则文件挂载（content_mode=yaml_passthrough）的 rule_content 原样透传并入（决策 38-1，{v1.48}），group 随文件自带；v0.3 字段级编辑（structured）后分组由配置中心内部自动派生（默认按 resource_type / rule_type 聚类），MVP 不暴露用户可管理的规则分组实体；按规则作用域生成——中心域（default）包含 scope=central/both 规则，边缘域仅当存在 scope=edge/both 规则时（v0.4+）随配置包下发，MVP 阶段由中心统一求值'
 
 /**
- * 配置包绝对下载地址合成（{v1.31}，PRD 6.1）：返回绝对地址 = 该网域 center_endpoint
- * （该网域视角的中心可达地址，网闸映射后地址）+ 固定相对路径 /api/v2/platform/edge/config?network_domain=<id>；
- * 禁止返回相对路径由 Agent 自行拼接（网闸场景下 Agent 无法推导中心映射地址）。
- * center_endpoint 缺失（如管理域）时不走本协议。
+ * 配置包绝对下载地址合成：绝对地址 = 心跳请求来源的对外地址（authority，`X-Forwarded-Proto` /
+ * `X-Forwarded-Host` 优先，回落请求 Host）+ 固定相对路径
+ * `/api/v2/platform/edge/config?network_domain=<id>`；禁止返回相对路径由 Agent 自行拼接
+ * （网闸场景下 Agent 无法推导中心映射地址）。
+ * 不依赖 center_endpoint 字段——该字段为网闸映射预留项、当前不消费。
  */
-export function deriveConfigDownloadUrl(domain: Pick<NetworkDomain, 'id' | 'center_endpoint'>): string {
-  if (!domain.center_endpoint) return ''
-  return `${domain.center_endpoint}/api/v2/platform/edge/config?network_domain=${domain.id}`
+export function deriveConfigDownloadUrl(domain: Pick<NetworkDomain, 'id'>, authority: string): string {
+  if (!authority) return ''
+  return `${authority}/api/v2/platform/edge/config?network_domain=${domain.id}`
 }
+
+/** 原型演示用的心跳请求来源 authority（真实实现由中心按请求头 / Host 合成） */
+export const MOCK_REQUEST_AUTHORITY = 'https://metriccenter.example.com'
 
 /** {v1.69} 演示数据相对时间（决策 70 遗留 #4 处置）：心跳类 mock 不再固定历史日期（原固定 2026-08-03，
  *  页面长期显示「42 天前」、演示观感陈旧），改为相对当前时间生成，「x 分钟前 / x 小时前」始终新鲜。 */
@@ -591,9 +596,9 @@ export const networkDomains: NetworkDomain[] = [
     description: '默认中心管理域，承载单机与中心采集模式；可修改名称以匹配云区域命名',
     domain_type: 'management',
     tenant_id: 'platform_admin',
-    // {v1.33}/{v1.34} default 固定 channel=local（决策 32/33）：中心直接采集，不部署 Edge Agent
+    // {v1.33}/{v1.34} default 固定 channel=local（决策 32/33）：中心直接采集，不部署采集节点
     channel: 'local',
-    // {v1.31} 管理域（default）由中心直接采集，无网闸拓扑：zone_type 为空、center_endpoint 为空（不走边缘协议）
+    // 管理域（default）由中心直接采集，无网闸拓扑：zone_type 为空；center_endpoint 为预留项、恒空不消费
     zone_type: '',
     center_endpoint: '',
     // {v1.33} channel=local：不生成 Token / Agent 类型 / Remote Write / 运行态心跳字段（PRD 4.1 为空且不展示）
@@ -615,9 +620,9 @@ export const networkDomains: NetworkDomain[] = [
     tenant_id: 'platform_admin',
     // {v1.33}/{v1.34} 非 default 网域固定 channel=agent_pull（决策 33）
     channel: 'agent_pull',
-    // {v1.31} 政务外网区（M06 行政登记）；center_endpoint 为网闸映射后的中心可达地址，用于合成配置包绝对下载地址
+    // {v1.31} 政务外网区（M06 行政登记）；center_endpoint 为网闸映射预留项、当前不消费
     zone_type: 'extranet',
-    center_endpoint: 'https://10.8.0.5:8443',
+    center_endpoint: '',
     token: 'tk_gova_7g8h9i0j1k2l',
     agent_type: 'vmagent',
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
@@ -636,9 +641,9 @@ export const networkDomains: NetworkDomain[] = [
     tenant_id: 'platform_admin',
     // {v1.33}/{v1.34} 非 default 网域固定 channel=agent_pull（决策 33）
     channel: 'agent_pull',
-    // {v1.31} 互联网区（M06 行政登记）；center_endpoint 为网闸映射后的中心可达地址
+    // {v1.31} 互联网区（M06 行政登记）；center_endpoint 为网闸映射预留项、当前不消费
     zone_type: 'internet',
-    center_endpoint: 'https://10.30.2.100:8443',
+    center_endpoint: '',
     token: 'tk_finance_3m4n5o6p7q8r',
     agent_type: 'prometheus-agent',
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
@@ -652,7 +657,7 @@ export const networkDomains: NetworkDomain[] = [
   {
     id: 'manufacturing-edge',
     name: '制造边缘节点',
-    description: '工厂边缘网关，网络不稳定，启用 WAL 本地缓冲',
+    description: '工厂边缘网关，网络不稳定，启用磁盘持久队列本地缓冲',
     domain_type: 'edge',
     tenant_id: 'platform_admin',
     // {v1.33}/{v1.34} 非 default 网域固定 channel=agent_pull（决策 33）；未纳管（created）时监控参数为空
@@ -683,16 +688,47 @@ export function domainArtifactShape(domain: Pick<NetworkDomain, 'channel'>): Con
   return domain.channel === 'agent_pull' ? 'zip_package' : 'local_files'
 }
 
-/** 下发通道中文语义（决策 31/32/33）：用户可见文案，不含实现层决策引用 */
-export const channelLabel: Record<Channel, string> = {
-  local: 'local',
-  agent_pull: 'agent_pull',
+/**
+ * 接入方式用户可见文案：取 `domain_type`（中心直连域 / 采集节点域），不再直接展示 channel 枚举。
+ * 列表 / 详情抽屉 / 纳管与编辑表单 / 下发记录 / 配置变更确认多页共用同一份文案与配色（单一事实来源）。
+ */
+export const domainTypeLabel: Record<DomainType, string> = {
+  management: '中心直连域',
+  edge: '采集节点域',
 }
 
-export const channelTip: Record<Channel, string> = {
-  local: '采集器与中心同机/同 Pod，中心直接写盘并 reload（如默认 default 网域）；无 Edge Agent / Token / 安装指引',
-  agent_pull: '采集器位于远端/隔离节点，由 Edge Sync Agent 心跳拉取 zip 配置包（Token 认证 + checksum 校验）',
+export const domainTypeColor: Record<DomainType, string> = {
+  management: 'blue',
+  edge: 'cyan',
 }
+
+export const domainTypeTip: Record<DomainType, string> = {
+  management: '中心直连域（default）：平台与被采集对象同侧可达，由平台直接完成采集与配置更新；无凭据、无采集节点安装步骤。',
+  edge: '采集节点域：平台访问不到的网域，需在该网域内一台常开机器上安装采集节点，数据单向出站回传。',
+}
+
+/**
+ * 字段解释文案（网域纳管页——纳管抽屉 / 编辑抽屉 / 详情抽屉共用，单一事实来源）。
+ * 形态约定：字段级解释统一走 `FieldLabel` 的问号 Tooltip，字段下方不再散落小字注释。
+ */
+export const DOMAIN_FIELD_TIP = {
+  /** 目标网域（只读行政信息） */
+  domain: '网域的行政信息（名称 / ID / 归属租户）由「网域管理」维护，此处只读展示、不可修改。',
+  /** 接入方式——中心直连域 */
+  domainTypeLocal: '中心直连域：平台与被采集对象同侧可达，由平台直接完成采集与配置更新，无需安装采集节点、无需接入 Token。',
+  /** 接入方式——采集节点域 */
+  domainTypeEdge:
+    '采集节点域：该网域与平台网络隔离，需在网域内一台常开机器上安装采集节点，由它代理采集并把监控数据回传给平台。接入方式由网域登记结果决定，此处只读。',
+  /** 指标采集器类型——中心直连域 */
+  agentTypeLocal: '中心直连域由平台直接采集，不需要独立的采集组件。',
+  /** 指标采集器类型——采集节点域 */
+  agentType: '采集节点用于抓取指标的组件。当前版本固定使用 VMAgent，无需选择；更多采集组件在后续版本开放。',
+  /** 指标回传地址 */
+  remoteWriteUrl:
+    '采集节点把监控数据回传给平台的入口地址。留空由平台自动生成；若该网域经网闸 / 代理转发，请填写采集节点侧实际可达的地址。',
+  /** 描述 */
+  description: '该网域的用途与网络特征，便于后续识别与交接；不影响采集行为。',
+} as const
 
 /**
  * {v1.71 决策 74-3} mock 配置同步流转跨页桥（sessionStorage 持久化）：
@@ -741,7 +777,7 @@ export const edgeAgents: EdgeAgent[] = [
     last_config_pull: minutesAgo(7),
     config_version: '20260803-141500',
     config_sync_status: 'in_sync',
-    wal_backlog_bytes: 1048576,
+    queue_backlog_bytes: 1048576,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: '',
     components: [
@@ -787,7 +823,7 @@ export const edgeAgents: EdgeAgent[] = [
     // {v1.41} 采集器已停止（组件健康问题）：配置版本已同步（in_sync），不产生配置同步引导按钮；
     // 整体状态=部分异常，用户从详情抽屉查看组件错误 + 维修提示（进程异常 ≠ 配置未同步）
     config_sync_status: 'in_sync',
-    wal_backlog_bytes: 2097152,
+    queue_backlog_bytes: 2097152,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: 'config reload: timeout waiting for response',
     components: [
@@ -833,7 +869,7 @@ export const edgeAgents: EdgeAgent[] = [
     last_config_pull: hoursAgo(26),
     config_version: '20260803-130000',
     config_sync_status: 'unknown',
-    wal_backlog_bytes: 5368709120,
+    queue_backlog_bytes: 5368709120,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: 'remote write: connection reset by peer',
     components: [
@@ -873,7 +909,7 @@ export const edgeAgents: EdgeAgent[] = [
     // {v1.40} 决策 40-1 成因 C（local_reset）：Agent 本地 checksum 校验失败保留旧配置 →「立即同步」强制重新拉包（无视版本一致 304）
     config_sync_status: 'out_of_sync',
     out_of_sync_cause: 'local_reset',
-    wal_backlog_bytes: 524288,
+    queue_backlog_bytes: 524288,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error:
       '配置包 checksum 校验失败：metadata.json 联合 checksum 不匹配（期望 f4d2… 实际 3c7a…），已保留最后一份有效配置',
@@ -920,7 +956,7 @@ export const edgeAgents: EdgeAgent[] = [
     last_config_pull: minutesAgo(14),
     config_version: '20260803-141500',
     config_sync_status: 'manual_override',
-    wal_backlog_bytes: 262144,
+    queue_backlog_bytes: 262144,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: '本地手工修改 prometheus.yml（平台不强制回拉覆盖），需人工重新确认下发以恢复一致性',
     components: [
@@ -966,7 +1002,7 @@ export const edgeAgents: EdgeAgent[] = [
     last_config_pull: minutesAgo(20),
     config_version: '',
     config_sync_status: 'no_version',
-    wal_backlog_bytes: 131072,
+    queue_backlog_bytes: 131072,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: '',
     components: [
@@ -1012,7 +1048,7 @@ export const edgeAgents: EdgeAgent[] = [
     config_version: '20260803-141500',
     config_sync_status: 'out_of_sync',
     out_of_sync_cause: 'pending_draft',
-    wal_backlog_bytes: 393216,
+    queue_backlog_bytes: 393216,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: '中心存在待确认变更草稿（draft-gov-003），配置变更确认后随下次心跳拉取生效',
     components: [
@@ -1060,7 +1096,7 @@ export const edgeAgents: EdgeAgent[] = [
     config_version: '20260803-141500',
     config_sync_status: 'out_of_sync',
     out_of_sync_cause: 'pull_pending',
-    wal_backlog_bytes: 786432,
+    queue_backlog_bytes: 786432,
     remote_write_url: 'https://metriccenter.example.com/api/v2/ingest/prometheus',
     last_error: '配置变更已确认（CHG-20260803-004），随下次心跳拉取生效中（拉包/生效延迟，等待自动流转）',
     components: [
@@ -2295,15 +2331,15 @@ export interface EdgeAgentInstallGuide {
   delivery: string
   checksum_algorithm: string
   systemd_unit: string
-  env_vars: { NETWORK_DOMAIN_ID: string; TOKEN: string }
+  env_vars: { NETWORK_DOMAIN_ID: string; TOKEN: string; CENTER_ENDPOINT: string }
   steps: { title: string; description: string }[]
 }
 
 export const edgeAgentInstallGuide: EdgeAgentInstallGuide = {
   deployment:
-    'Edge Sync Agent 是部署在边缘监控代理节点的独立客户端程序（非中心平台内置进程）；与中心通过 outbound HTTPS 443 + 每网域 Token 通信，心跳 / 配置拉取 / remote_write 全部由边缘主动出站，中心无入站端口；default 域固定 local 通道（中心直接采集）不部署，agent_pull 通道网域每个边缘节点部署一个（离线二进制包 + systemd 交付）',
+    'Edge Sync Agent 是部署在边缘监控代理节点的独立客户端程序（非中心平台内置进程）；与中心通过 outbound HTTPS 443 + 每网域 Token 通信，心跳 / 配置拉取 / remote_write 全部由边缘主动出站，中心无入站端口；default 域为中心直连域（由平台直接采集）不部署采集节点，采集节点域每个节点部署一个（离线二进制包 + systemd 交付）',
   gateway_note:
-    '网闸 / 隔离区连接约束（强制）：禁止任何中心 → 边缘方向的主动连接（中心无入站端口、无主动 reload / 探测能力），所有交互（心跳 / 配置拉取 / 指标回传）一律由边缘 Agent 向中心发起（pull / push 上行）；面向边缘的地址均为该网域视角的可达地址（网闸映射后地址，center_endpoint / remote_write_url 按区配置），配置拉取地址 = 网域 center_endpoint + 相对路径合成绝对地址下发给 Agent',
+    '网闸 / 隔离区连接约束（强制）：禁止任何中心 → 边缘方向的主动连接（中心无入站端口、无主动 reload / 探测能力），所有交互（心跳 / 配置拉取 / 指标回传）一律由边缘 Agent 向中心发起（pull / push 上行）；面向边缘的地址均为该网域视角的可达地址（网闸映射后地址），配置包下载地址由心跳请求来源 authority 合成绝对地址下发给 Agent（不依赖 center_endpoint 字段）',
   components: [
     {
       name: 'Edge Sync Agent',
@@ -2330,6 +2366,7 @@ export const edgeAgentInstallGuide: EdgeAgentInstallGuide = {
   env_vars: {
     NETWORK_DOMAIN_ID: '网域 ID（由 Module_06 行政创建，本页纳管）',
     TOKEN: '网域认证 Token（本页生成/重置）',
+    CENTER_ENDPOINT: '采集节点发心跳的平台地址（安装时配置；采集节点域必填）',
   },
   steps: [
     {
@@ -2338,9 +2375,9 @@ export const edgeAgentInstallGuide: EdgeAgentInstallGuide = {
         '一体化离线包包含 Edge Sync Agent + 采集器（MVP 固定 vmagent；prometheus-agent v0.2+ 开放）+ blackbox exporter（可选，blackbox 拨测 Job 时附带）；下载后校验 sha256 校验和，确认包完整性。',
     },
     {
-      title: '配置 NETWORK_DOMAIN_ID / TOKEN 环境变量',
+      title: '配置 NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT 环境变量',
       description:
-        '在边缘节点配置环境变量（或写入 systemd 环境文件）：NETWORK_DOMAIN_ID=Module_06 行政创建的网域 ID，TOKEN=本页纳管时生成/重置的网域认证 Token。',
+        '在采集节点配置环境变量（或写入 systemd 环境文件）：NETWORK_DOMAIN_ID=Module_06 行政创建的网域 ID，TOKEN=本页纳管时生成/重置的网域认证 Token，CENTER_ENDPOINT=采集节点发心跳的平台地址（心跳绝对地址由此环境变量 + 固定路径组成，不使用网域上预留的中心接入地址字段）。',
     },
     {
       title: '启动 Edge Sync Agent（systemd）',

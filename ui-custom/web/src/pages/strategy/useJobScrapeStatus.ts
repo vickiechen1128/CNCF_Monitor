@@ -11,7 +11,7 @@ import { upQueryForJob, statusFromUp, probeQueryForJob, probeStatusOfTarget } fr
  * coverage 接口（M02）item 是资源维度、不含 job 维度，无法直接按 job 过滤；
  * 故本 hook 按当前页每个 Job 拉取 `scrapeJobApi.instances(id)` + 中心 `up{job="<job_name>"}`
  * 聚合得出「采集中 / 已下发未采到 / 待采集」，供采集 Job 列表『采集状态』列展示。
- * 数据源由 `targetsApi.list` 收敛为 up 指标（F-10）：边缘域经 remote_write 上报 up 样本，
+ * 数据源由 `targetsApi.list` 收敛为 up 指标（F-10）：采集节点域经 remote_write 上报 up 样本，
  * 本口径对 local 与边缘两通道均成立。复用 upStatus.statusFromUp 的实例↔序列匹配口径。
  *
  * 拨测 Job（F-12）：blackbox 无实例维度，改按 `blackbox_targets` + 中心 `probe_success{job=...}`

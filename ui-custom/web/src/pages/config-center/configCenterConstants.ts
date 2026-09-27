@@ -45,8 +45,8 @@ export const channelLabel: Record<Channel, string> = {
 }
 
 export const channelTip: Record<Channel, string> = {
-  local: '采集器与中心同机/同 Pod，中心直接写盘并 reload（如默认 default 网域）；无 Edge Agent / Token / 安装指引',
-  agent_pull: '采集器位于远端/隔离节点，由 Edge Sync Agent 心跳拉取配置包（Token 认证 + 校验值校验）',
+  local: '平台与采集在同侧：由平台直接完成采集与配置更新（配置写盘并生效），无需安装采集节点、无需接入 Token',
+  agent_pull: '网域与平台网络隔离：由部署在网域内的采集节点定期向平台拉取配置、回传监控数据（接入 Token 作为身份凭据）',
 }
 
 export const channelColor: Record<Channel, string> = {
@@ -60,12 +60,39 @@ export const agentTypeLabel: Record<AgentType, string> = {
   'prometheus-agent': 'Prometheus Agent',
 }
 
-/** 域类型文案（M06 只读展示） */
+/**
+ * 域类型文案（用户术语与 M06 网域管理页统一：中心直连域 / 采集节点域，
+ * 对齐决策 74 术语表；不再使用「管理域 / 边缘域」表述，避免引入新概念）。
+ */
 export const domainTypeLabel: Record<NetworkDomain['domain_type'], string> = {
-  management: '管理域',
-  edge: '边缘域',
+  management: '中心直连域',
+  edge: '采集节点域',
 }
 
+/**
+ * 字段解释文案（网域纳管页 —— 纳管抽屉 / 编辑抽屉共用，单一事实来源）。
+ * 形态约定：字段级解释统一走 `FieldLabel` 的问号 Tooltip，字段下方不再散落小字注释。
+ */
+export const DOMAIN_FIELD_TIP = {
+  /** 目标网域（只读行政信息） */
+  domain: '网域的行政信息（名称 / ID / 归属租户）由「系统与平台管理 · 网域管理」维护，此处只读展示、不可修改。',
+  /** 接入方式 —— 中心直连域 */
+  channelLocal: '中心直连域：平台与被采集对象同侧可达，由平台直接完成采集与配置更新，无需安装采集节点、无需接入 Token。',
+  /** 接入方式 —— 采集节点域 */
+  channelAgentPull:
+    '采集节点域：该网域与平台网络隔离，需在网域内一台常开机器上安装采集节点，由它代理采集并把监控数据回传给平台。接入方式由网域登记结果决定，此处只读。',
+  /** 指标采集器类型 —— 中心直连域 */
+  agentTypeLocal: '中心直连域由平台直接采集，不需要独立的采集组件。',
+  /** 指标采集器类型 —— 采集节点域 */
+  agentType: '采集节点用于抓取指标的组件。当前版本固定使用 VMAgent，无需选择；更多采集组件在后续版本开放。',
+  /** 指标回传地址（remote_write_url） */
+  remoteWriteUrl:
+    '采集节点把监控数据回传到平台的入口地址（即 Prometheus 的 Remote Write URL）。留空由平台自动生成；若该网域经网闸 / 代理转发，请填写采集节点侧实际可达的地址。',
+  /** 描述 */
+  description: '该网域的用途与网络特征，便于后续识别与交接；不影响采集行为。',
+} as const
+
+/** 域类型颜色（与 domainTypeLabel 配套） */
 export const domainTypeColor: Record<NetworkDomain['domain_type'], string> = {
   management: 'blue',
   edge: 'cyan',

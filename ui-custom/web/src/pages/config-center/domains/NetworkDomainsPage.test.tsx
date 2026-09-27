@@ -236,7 +236,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(screen.queryByRole('button', { name: /复制/i })).not.toBeInTheDocument()
   })
 
-  it('F-33 下载入口行内按需：边缘域行「更多 → 下载安装包」弹出离线包下载面板', async () => {
+  it('F-33 下载入口行内按需：采集节点域行「更多 → 下载安装包」弹出离线包下载面板', async () => {
     useNetworkDomainsMock.mockReturnValue(
       result({ data: { items: [domainRow('mc-dl', '金融专网')], total: 1 } }),
     )
@@ -266,14 +266,14 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(screen.queryByRole('button', { name: /下载安装包/ })).not.toBeInTheDocument()
   })
 
-  it('F-33 直连域提示常驻折叠区外（无需展开指引即可见），折叠标题限定为边缘域', async () => {
+  it('F-33 直连域提示常驻折叠区外（无需展开指引即可见），折叠标题限定为采集节点域', async () => {
     useNetworkDomainsMock.mockReturnValue(result())
     const { container } = renderPage()
     // 常驻提示在折叠面板之外：折叠面板默认收起，提示文案仍可见
-    expect(await screen.findByText(/无需部署采集节点，平台直接采集/)).toBeInTheDocument()
+    expect(await screen.findByText(/无需部署采集节点/)).toBeInTheDocument()
     expect(container.querySelector('.ant-collapse-content')).toBeNull()
     // 折叠标题改名，直连域用户不会被「新网域接入操作流程」误导点开
-    expect(screen.getByText(/边缘域接入操作流程（安装指引）/)).toBeInTheDocument()
+    expect(screen.getByText(/采集节点域接入操作流程（安装指引）/)).toBeInTheDocument()
     expect(screen.queryByText(/新网域接入操作流程/)).not.toBeInTheDocument()
   })
 
@@ -281,7 +281,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     useNetworkDomainsMock.mockReturnValue(result())
     renderPage()
     // 指引默认收起，点击 label 展开
-    fireEvent.click(await screen.findByText(/边缘域接入操作流程（安装指引）/))
+    fireEvent.click(await screen.findByText(/采集节点域接入操作流程（安装指引）/))
     expect(await screen.findByText('复制并保存接入 Token')).toBeInTheDocument()
     expect(screen.getByText(/接入密码/)).toBeInTheDocument()
     expect(screen.getByText(/重置后旧 Token 立即失效/)).toBeInTheDocument()
