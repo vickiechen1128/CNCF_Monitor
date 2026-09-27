@@ -168,6 +168,9 @@ export default function ImportHistoryPage() {
             • 导入模板由后端生成静态 xlsx，内置「取值说明 sheet」列出网域 / 业务 / 枚举列合法值。
           </Text>
           <Text style={{ fontSize: 13 }}>
+            • 导入文件可含「业务声明 / 应用声明 / 平台声明 / 服务声明」四个声明 sheet，用于一次导入携带全新字典条目（声明条目只增不覆盖、重码硬拒绝、停用条目不可激活）。
+          </Text>
+          <Text style={{ fontSize: 13 }}>
             • 导入为 upsert 语义，不删除 Excel 中消失的行；批量下线请将目标行状态置「已停止」后导入。
           </Text>
         </Space>

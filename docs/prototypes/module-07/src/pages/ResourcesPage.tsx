@@ -51,6 +51,7 @@ import {
   OS_OPTIONS,
   DATABASE_TYPE_OPTIONS,
   IMPORT_TEMPLATE_COLUMNS,
+  EXCEL_DECLARATION_SHEETS,
   LABEL_SOURCE_MAP,
   LABEL_SOURCE_PRIORITY,
   MIDDLEWARE_TYPE_OPTIONS,
@@ -72,6 +73,10 @@ import {
   mockNetworkDomains,
   mockResourceLabels,
   mockResources,
+  // {v2.45} 决策 105 / 107：服务字典只读消费（可选字段，仅 application / generic_target 可挂）
+  mockServiceDict,
+  resolveServiceName,
+  isServiceDisabled,
   resolveCollectionStatus,
   isAppDisabled,
   isBizDisabled,
@@ -81,6 +86,9 @@ import {
   DOMAIN_SOURCE_LABELS,
   resolveDomainFromIP,
   resolveDomainAttribution,
+  // {v2.47} 决策 98 / 101 / 103 / M06 决策 78：云 / 网络分区经所属网域只读派生（资源侧不维护、无编辑入口）
+  resolveDomainCloud,
+  resolveDomainZone,
   // {v2.33} 决策 81：网域字段可达性引导（链路说明 + IP 推导预览）与 K8s 集群级端点预设
   domainReachabilityText,
   previewDomainByIP,
@@ -579,6 +587,8 @@ export default function ResourcesPage() {
           resource_category: 'application' as const,
           instance_name: values.instance_name as string | undefined,
           service_name: values.service_name as string,
+          // {v2.45} 决策 105：服务归属可选（仅 application / generic_target 挂），留空即纯自由文本
+          service_code: values.service_code as string | undefined,
           health_check_url: values.health_check_url as string | undefined,
           protocol: values.protocol as AppProtocol | undefined,
           endpoint: values.endpoint as string | undefined,
@@ -597,6 +607,8 @@ export default function ResourcesPage() {
           instance_ip: values.instance_ip as string,
           custom_labels: values.custom_labels as string | undefined,
           exporter_type: values.exporter_type as string | undefined,
+          // {v2.45} 决策 105：业务型 generic_target 亦可挂服务（仅 application / generic_target 适用）
+          service_code: values.service_code as string | undefined,
           ...base,
         }
     }
@@ -652,6 +664,7 @@ export default function ResourcesPage() {
           ...record,
           ...common,
           service_name: values.service_name as string,
+          service_code: values.service_code as string | undefined,
           health_check_url: values.health_check_url as string | undefined,
           protocol: values.protocol as AppProtocol | undefined,
           endpoint: values.endpoint as string | undefined,
@@ -666,6 +679,7 @@ export default function ResourcesPage() {
           instance_ip: values.instance_ip as string,
           custom_labels: values.custom_labels as string | undefined,
           exporter_type: values.exporter_type as string | undefined,
+          service_code: values.service_code as string | undefined,
         }
     }
   }
@@ -1015,6 +1029,8 @@ export default function ResourcesPage() {
     const clusterRequired = appClusterRequired || k8sMode
     // {v2.40} 决策 95：generic_target 的 app_code / biz_code 二选一必填（至少填一个）
     const genAtLeastOne = formType === 'generic_target'
+    // {v2.45} 决策 105 / 107：服务归属为**可选字段**，仅 application / generic_target 适用（host / database / middleware 不挂）
+    const serviceApplicable = formType === 'application' || formType === 'generic_target'
     // {v2.33} 决策 81：网域字段可达性引导——用用户语言提问，不问拓扑 / 行政归属
     const domainQuestion = k8sMode
       ? '该集群端点从哪条链路够得着？（overlay 集群通常独立建域；节点 / Pod 由该域 Job 自动发现）'
@@ -1045,9 +1061,9 @@ export default function ResourcesPage() {
             }
             extra={
               genAtLeastOne
-                ? '与其他监控目标：业务与应用二选一必填（决策 95），为空时不注入 app 标签'
+                ? '与其他监控目标：业务与应用二选一必填，为空时不注入 app 标签'
                 : appClusterRequired
-                  ? '应用服务 / 数据库 / 中间件必填（决策 92）；多库 / 多 schema 分属多应用为 {v0.2+}，MVP 每次仅选一个主应用'
+                  ? '应用服务 / 数据库 / 中间件必填；多库 / 多 schema 分属多应用为后续版本，MVP 每次仅选一个主应用'
                   : '主机：可空后补，为空时不注入 app 标签'
             }
           >
@@ -1201,8 +1217,8 @@ export default function ResourcesPage() {
               formType === 'application'
                 ? '应用上线后必填；业务归属由业务分组字典维护，用于按业务聚合监控（编码不可变）'
                 : genAtLeastOne
-                  ? '与其他监控目标：业务与应用二选一必填（决策 95）；有业务归属填业务，否则填应用'
-                  : '可空后补（决策 93）：静态资源登记时承载应用，业务待应用上线后再补，为空不注入 biz 标签'
+                  ? '与其他监控目标：业务与应用二选一必填；有业务归属填业务，否则填应用'
+                  : '可空后补：静态资源登记时承载应用，业务待应用上线后再补，为空不注入 biz 标签'
             }
           >
             <Select placeholder="请选择业务" showSearch optionFilterProp="label">
@@ -1217,6 +1233,41 @@ export default function ResourcesPage() {
           </Form.Item>
         </Col>
       </Row>
+      {/* {v2.45} 决策 105 / 107：服务归属（可选）——仅「应用服务 / 其他监控目标」出现，主机 / 数据库 / 中间件不挂 */}
+      {serviceApplicable && (
+        <Row gutter={16}>
+          <Col span={12}>
+            <Form.Item
+              label="服务"
+              name="service_code"
+              extra="可选：服务归属（服务编码，进服务标签）；仅可选启用中的服务，留空则不挂服务、不注入服务标签；主机 / 数据库 / 中间件不挂服务"
+            >
+              <Select placeholder="选填，选择服务" showSearch allowClear optionFilterProp="label">
+                {(() => {
+                  const enabledOptions = mockServiceDict
+                    .filter((d) => d.status === 'enabled')
+                    .map((d) => (
+                      <Option key={d.service_code} value={d.service_code}>
+                        {d.service_name}（{d.service_code}）
+                      </Option>
+                    ))
+                  // 编辑存量资源：其服务已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
+                  const current = editingResource?.service_code
+                  if (current && !mockServiceDict.some((d) => d.service_code === current && d.status === 'enabled')) {
+                    return [
+                      ...enabledOptions,
+                      <Option key={current} value={current}>
+                        {resolveServiceName(current)}（已停用）
+                      </Option>,
+                    ]
+                  }
+                  return enabledOptions
+                })()}
+              </Select>
+            </Form.Item>
+          </Col>
+        </Row>
+      )}
       <Row gutter={16}>
         <Col span={12}>
           <Form.Item label="运行状态" name="status" rules={[{ required: true, message: '请选择运行状态' }]} extra="孤儿状态为后续版本预留，不在表单选项中">
@@ -1293,6 +1344,31 @@ export default function ResourcesPage() {
           <Tooltip title={att.hint}>
             <Tag color={color[att.source]}>{DOMAIN_SOURCE_LABELS[att.source]}</Tag>
           </Tooltip>
+        )
+      },
+    }
+    // {v2.47} 决策 98 / 101 / 103：云列——**仅 host Tab** 默认展示；云归属经所属网域派生（资源不维护云），
+    //   展示云字典 `cloud_name`（缺条目回退 `cloud_code`），停用条目以「云名（已停用）」标识，样式对齐「应用」列；
+    //   不出现 `cloud_type` / `carrier` 独立列，也不新增云的筛选维度（PRD §11.2 ④）。
+    const cloudColumn = {
+      title: (
+        <span>
+          <Tooltip title="云归属经所属网域派生（资源不单独维护云）；取自云字典，停用条目以「（已停用）」标识">
+            云
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
+      key: 'cloud_code',
+      width: 130,
+      render: (_: unknown, record: Resource) => {
+        const cloud = resolveDomainCloud(record.network_domain_id)
+        if (!cloud) return '-'
+        return (
+          <Tag color={cloud.disabled ? 'default' : 'cyan'}>
+            {cloud.name}
+            {cloud.disabled ? '（已停用）' : ''}
+          </Tag>
         )
       },
     }
@@ -1428,8 +1504,9 @@ export default function ResourcesPage() {
 
     switch (type) {
       case 'host': {
-        // 9 列：实例名·主机名 / IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
-        // 下沉详情：操作系统、系统版本、应用·环境·集群、数据来源、负责人
+        // {v2.47} 10 列（host 专属含「云」列）：实例名·主机名 / IP 地址 / 网域 / 云 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
+        // 「云」列仅 host Tab 默认展示（其余 Tab 不加，遵循列数治理）；云经网域派生、只读
+        // 下沉详情：操作系统、系统版本、云 / 网络分区（只读派生）、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('实例名 / 主机名', (record) =>
             isHostResource(record) ? (
@@ -1443,6 +1520,7 @@ export default function ResourcesPage() {
           ),
           ipColumn,
           domainColumn,
+          cloudColumn,
           domainSourceColumn,
           businessColumn,
           appColumn,
@@ -1556,9 +1634,22 @@ export default function ResourcesPage() {
   // ---------- 详情抽屉：类型字段 / CMDB 字段 ----------
   const typeFieldItems = (r: Resource) => {
     if (isHostResource(r)) {
+      // {v2.47} 决策 98 / 101 / 103 / M06 决策 78：云 / 网络分区均为网域级属性，主机经所属网域只读派生、无编辑入口
+      const cloud = resolveDomainCloud(r.network_domain_id)
+      const zone = resolveDomainZone(r.network_domain_id)
       return [
         { key: 'os_type', label: '操作系统', children: r.os_type || '-' },
         { key: 'os_version', label: '系统版本', children: r.os_version || '-' },
+        {
+          key: 'cloud_code',
+          label: '云（只读，继承所属网域）',
+          children: cloud ? `${cloud.name}${cloud.disabled ? '（已停用）' : ''}` : '-',
+        },
+        {
+          key: 'zone_type',
+          label: '网络分区（只读，继承所属网域）',
+          children: zone ? `${zone.name}${zone.disabled ? '（已停用）' : ''}` : '-',
+        },
       ]
     }
     if (isDatabaseResource(r)) {
@@ -1694,6 +1785,23 @@ export default function ResourcesPage() {
             <Text strong>{'{v2.32}'} K8s 集群归属注记（决策 77）</Text>：K8s 集群<Text strong>不设第六资源类型</Text>——五大类按采集形态分类，集群属部署形态。
             集群诉求四归属：网络边界 → 独立建网域；分组维度 → <Text code style={{ fontSize: 12 }}>cluster</Text> 字段 / 标签；发现源 → M04 KubernetesProvider；集群健康监控 → 其他监控目标 + M01 <Text code style={{ fontSize: 12 }}>monitor_type</Text> 三枚举（k8s_apiserver / k8s_kube_state_metrics / k8s_etcd，{'{v0.2}'}，决策 83）。
             「集群清单」按集群视图（展示层）承接，MVP 不做。
+          </li>
+          <li>
+            <Text strong>{'{v2.45} 决策 105 / 107 服务归属（可选）'}</Text>：资源侧新增可选字段
+            <Text code style={{ fontSize: 12 }}>service_code</Text>（四层实体层级 platform → app → service → instance 的第三层），
+            <Text strong>仅「应用服务」与「其他监控目标」可挂</Text>——主机 / 数据库 / 中间件不挂（基础设施非服务，避免服务维度污染）；
+            表单与详情仅对这两类出现「服务」字段，留空即纯自由文本、向后兼容（MVP 存量资源无需回填）；填值须引用未停用服务字典条目
+            （服务管理页维护）；资源行既有必填字段 <Text code style={{ fontSize: 12 }}>service_name</Text> MVP 不改、仍参与判重键。
+            Excel 模板 application / generic_target 列补 <Text code style={{ fontSize: 12 }}>service_code</Text>；
+            新增「业务声明 / 应用声明 / 平台声明 / 服务声明」四类声明 sheet（决策 97 延伸）。服务依赖拓扑为 {'{v0.3+}'} 预留，本原型不做。
+          </li>
+          <li>
+            <Text strong>{'{v2.47} 云与网络分区只读派生（决策 98 / 101 / 103 / M06 决策 78）'}</Text>：
+            云归属与网络分区的权威值均在<Text strong>网域</Text>（M06 §5.2 <Text code style={{ fontSize: 12 }}>cloud_code</Text> / <Text code style={{ fontSize: 12 }}>zone_type</Text>，必填），
+            资源侧只读派生、<Text strong>无编辑入口</Text>——资源新增 / 编辑表单不提供云 / 分区下拉。
+            资源列表 <Text strong>host Tab</Text> 默认展示「云」列（展示云字典 <Text code style={{ fontSize: 12 }}>cloud_name</Text>，缺条目回退 <Text code style={{ fontSize: 12 }}>cloud_code</Text>、停用条目标「（已停用）」，样式对齐「应用」列）；
+            主机详情抽屉展示「云 / 网络分区（只读，继承所属网域）」两行（经 <Text code style={{ fontSize: 12 }}>network_domain_id</Text> 派生）。
+            云字典（5.20）为部署级只读、<Text strong>不提供任何管理界面</Text>；不出现 <Text code style={{ fontSize: 12 }}>cloud_type</Text> / <Text code style={{ fontSize: 12 }}>carrier</Text> 独立列或独立筛选维度。
           </li>
         </ul>
       </ReviewNote>
@@ -1908,6 +2016,20 @@ export default function ResourcesPage() {
                       : resolveAppName(selectedResource.app_code)
                     : '-',
                 },
+                // {v2.45} 决策 105 / 107：服务归属——仅「应用服务 / 其他监控目标」展示字典服务名（主机 / 数据库 / 中间件不挂服务，不展示）
+                ...((['application', 'generic_target'] as ResourceCategory[]).includes(selectedResource.resource_category)
+                  ? [
+                      {
+                        key: 'service_code',
+                        label: '服务',
+                        children: selectedResource.service_code
+                          ? isServiceDisabled(selectedResource.service_code)
+                            ? `${resolveServiceName(selectedResource.service_code)}（已停用）`
+                            : resolveServiceName(selectedResource.service_code)
+                          : '-',
+                      },
+                    ]
+                  : []),
                 // {v2.3} 适用模板：该资源类别默认模板（模板按 resource_category 隐式关联）
                 {
                   key: 'apply_template',
@@ -2236,7 +2358,11 @@ export default function ResourcesPage() {
           custom_labels 列支持 key1=value1;key2=value2 格式；status 支持中文状态值（见导入弹窗状态映射）。
         </Text>
         <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-          模板为后端静态生成 xlsx，内置取值说明 sheet 列出各列合法值；biz_code 必填，仅可填已登记字典条目（含兜底 infra）；app_code 须为应用字典已登记且未停用的条目（设备类资源可空）。
+          模板为后端静态生成 xlsx，内置取值说明 sheet 列出各列合法值；biz_code 必填，仅可填已登记字典条目（含兜底 infra）；app_code 须为应用字典已登记且未停用的条目（设备类资源可空）；service_code 为可选列，填值时须为服务字典已登记且未停用的条目（仅应用 / 其他监控目标适用）。
+        </Text>
+        {/* {v2.41 / v2.45} 决策 97 / 104 / 105：Excel 批量声明 sheet（四类声明，随模板下发） */}
+        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+          <Text strong>声明 sheet：</Text>模板含「业务声明 / 应用声明 / 平台声明 / 服务声明」四个内联 sheet，用于一次导入携带全新的业务 / 应用 / 平台 / 服务——引用的码已登记则直接用、未登记但在声明中则校验通过后一并建字典与资源（声明条目只增不覆盖、重码硬拒绝、停用条目不可激活）。
         </Text>
         {/* {v2.19} 下载模板由后端生成静态 xlsx + 「取值说明 sheet」（5.16.1）；dataValidation 下拉挪 v0.2+。原灰色长说明已精简。 */}
       </Modal>
@@ -2264,7 +2390,10 @@ export default function ResourcesPage() {
           ))}
         </Space>
         <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
-          导入校验项：必填字段（含 biz_code 必填） · 网域存在性（可留空，留空时按归属解析链推导） · 业务存在性（仅限启用条目，不可自由文本） · 应用存在性（应用字典启用条目；设备类资源可空） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+          导入校验项：必填字段（含 biz_code 必填） · 网域存在性（可留空，留空时按归属解析链推导） · 业务存在性（仅限启用条目，不可自由文本） · 应用存在性（应用字典启用条目；设备类资源可空） · 服务存在性（服务字典启用条目或「服务声明」sheet 申报；可选列、留空不校验，仅应用 / 其他监控目标适用） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+        </Text>
+        <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
+          批量声明：导入文件可含 {EXCEL_DECLARATION_SHEETS.map((s) => `「${s.key}」`).join(' / ')} 四类声明 sheet（每类含编码列与展示名列，说明可选）；声明建字典与资源落库整批原子提交，任一失败整体回滚。
         </Text>
         {/* {v2.24} 决策 52：导入阶段网域归属来源说明（Color 区分来源类别） */}
         <Text style={{ fontSize: 12, color: '#722ED1', display: 'block', marginBottom: 12 }}>

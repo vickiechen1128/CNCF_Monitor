@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.40
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.47
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.40
+> **原型版本**: v2.47
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,28 @@
 > ```
 >
 > **访问地址**: http://localhost:5174/
+
+## v2.47 缺口收口（资源列表「云」列 + 云 / 网络分区只读派生展示，决策 98/101/103，2026-09-27）
+
+补齐 PRD v2.42 / v2.43 遗留、经 v2.44（决策 103）化解后的 3 处原型缺口——云与网络分区上提为网域字段（`cloud_code` / `zone_type`，M06 §5.2），资源侧只读派生、无编辑入口；**云字典不提供任何管理界面**（部署级只读）：
+
+1. **资源列表 host Tab 新增「云」列**（PRD §11.2 ①，`ResourcesPage`）：经 `host.network_domain_id` → 网域 `cloud_code` → 云字典解析展示 `cloud_name`（缺条目回退 `cloud_code`，停用条目以「云名（已停用）」标识），样式对齐「应用」列；**仅 host Tab 展示**（其余 Tab 不加，遵循列数治理），不新增云的筛选维度，也不出现 `cloud_type` / `carrier` 独立列（PRD §11.2 ④）。
+2. **主机详情抽屉新增两行只读展示**（PRD §11.2 ③）：`类型字段` 区新增「云（只读，继承所属网域）」「网络分区（只读，继承所属网域）」——均经所属网域派生、无编辑入口；资源新增 / 编辑表单**不提供云 / 分区下拉**（PRD 要求「不再提供」，现状保持）。
+3. **mock 补数据源**：`NetworkDomain` 每条补 `cloud_code` / `zone_type`（对齐 M06 §5.2，必填）；新增**云字典只读 mock**（`CloudDictEntry` / `mockCloudDict` / `CLOUD_DICT_ENABLED` / `cloudNameOf` / `isCloudDisabled`，模拟 `GET /api/v2/platform/cloud-dict`）与**分区字典只读 mock**（`ZoneTypeEntry` / `mockZoneTypes` / `ZONE_DICT_ENABLED` / `zoneTypeNameOf` / `isZoneDisabled`，模拟 `GET /api/v2/platform/zone-types`，返回 `code` + `display_name`）；新增经网域派生 helper `resolveDomainById` / `resolveDomainCloud` / `resolveDomainZone`。解析口径：字典缺条目回退编码、停用条目以「名称（已停用）」标识。
+4. **单测**：新增 {v2.47} 云 / 分区字典与只读派生断言 9 条；`package.json` 保持 `2.47.0`（与 PRD v2.47 对齐，未改 PRD 版本号）。
+
+## v2.47 变更说明（四层实体骨架原型同步：平台 / 服务字典、应用父级、资源服务归属，决策 104/105/107，2026-09-27）
+
+同步 PRD v2.45 四层实体骨架（`platform → app → service → instance`）的**用户可见界面**（v2.45 属契约级修订，此前原型未同步）：
+
+1. **新增「平台管理」页**（`/platform-management`，PRD 5.21 / 决策 104 / 107）：维护平台字典——字段 `platform_code`（编码，创建后不可改，表单醒目提示）/ `platform_name`（展示名）/ `description` / `status`（启用 / 停用，停用不删除）；与业务 / 应用字典页**同构**（列表 + 登记 + 受限编辑 + 停用，无删除入口）。平台为四层实体层级的最顶层；命名放弃 `system`（与既有 `ResourceLabel.source=system` 等语义隔离）。
+2. **新增「服务管理」页**（`/service-management`，PRD 5.22 / 决策 105 / 107）：维护服务字典——字段 `service_code`（编码不可改）/ `service_name` / `description` / `status`；与应用字典页同构。服务 label 定名 `svc`（值 = `service_code`）；既有资源行 `service_name` 保留不动。
+3. **应用字典页新增可选父级「所属平台」**（`ApplicationManagementPage`，PRD 5.19 / 决策 104）：登记 / 编辑表单新增「所属平台」下拉（只读消费平台字典**启用**条目、可清空）；列表新增「所属平台」列（展示 `platform_name`，未挂显示 `-`，停用平台加「（已停用）」）。与决策 96 的 biz↔app 横向正交不冲突（本字段为应用自身纵向上级）。
+4. **资源管理页新增可选「服务」字段**（`ResourcesPage`，PRD 5.2 / 决策 105）：**仅「应用服务」与「其他监控目标」**两类资源的创建 / 编辑表单与详情抽屉出现「服务」下拉（只读消费服务字典启用条目，可留空）；host / database / middleware **不出现**该字段（四类归属分型：基础设施非服务）。留空即纯自由文本、不注入 `svc` 标签。
+5. **Excel 导入契约同步**（PRD 5.16）：application / generic_target 模板列补 `service_code`；模板与导入弹窗说明补「业务声明 / 应用声明 / 平台声明 / 服务声明」四类内联声明 sheet（决策 97 延伸至平台 / 服务字典）；`ImportHistoryPage` 说明同步。
+6. **§5.23 服务依赖 `service_dependency` 为 {v0.3+} 预留**：**原型不做依赖关系界面**（PRD 明确 MVP 不实现）。
+7. **mock 增量**：新增 `PlatformDictEntry` / `mockPlatformDict` / `resolvePlatformName` / `isPlatformDisabled` / `PLATFORM_CODE_RE`；`ServiceDictEntry` / `mockServiceDict` / `resolveServiceName` / `isServiceDisabled` / `SERVICE_CODE_RE`；`AppDictEntry` 补可选 `platform_code`、应用条目补平台归属；`ResourceBase` 补可选 `service_code`（仅 application / generic_target 填值）；`IMPORT_TEMPLATE_COLUMNS` 补 `service_code`；新增 `EXCEL_DECLARATION_SHEETS`。单测新增 9 条（平台 / 服务字典同构、父级引用、服务归属分型、模板列与声明 sheet）；`package.json` 2.40.0 → 2.47.0。
+8. **导航**：侧边栏「监控对象管理」组新增「平台管理 {v2.45}」「服务管理 {v2.45}」菜单项，路由 `/platform-management`、`/service-management`。
 
 ## v2.40 变更说明（业务与应用正交两维建模，决策 93/94/95/96，2026-09-19）
 
@@ -148,6 +170,9 @@ python3 -m http.server 8080
 | 标签模板 | Module_07 | MVP | 当前原型 |
 | 导入记录 | Module_07 | MVP | 当前原型 |
 | 业务管理 | Module_07 | MVP（决策 48 提级） | 当前原型 |
+| 应用管理 | Module_07 | MVP（决策 92） | 当前原型 |
+| 平台管理 | Module_07 | MVP（决策 104 / 107） | 当前原型 |
+| 服务管理 | Module_07 | MVP（决策 105 / 107） | 当前原型 |
 | 监控策略 | Module_01 | MVP | `docs/prototypes/module-01/` |
 | 配置中心 | Module_09 | MVP / v0.2 | `docs/prototypes/module-09/` |
 | 指标查询 | Module_02 | MVP / v0.3 | `docs/prototypes/module-02/` |
@@ -160,6 +185,9 @@ python3 -m http.server 8080
 - `/label-templates`：标签模板（左侧模板列表 + 右侧 mappings 表格，模板级增删改）
 - `/import-history`：导入记录（状态映射说明 + 错误报告详情）
 - `/business-management`：业务管理（业务分组字典列表 + 登记 + 受限编辑 + 停用，红线硬化）
+- `/application-management`：应用管理（应用字典列表 + 登记 + 受限编辑 + 停用；新增可选父级「所属平台」列）
+- `/platform-management`：平台管理（平台字典列表 + 登记 + 受限编辑 + 停用，四层实体顶层）
+- `/service-management`：服务管理（服务字典列表 + 登记 + 受限编辑 + 停用，label 定名 svc）
 
 ## 已知限制
 

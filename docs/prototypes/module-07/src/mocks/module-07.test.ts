@@ -31,6 +31,16 @@ import {
   isHostResource,
   isMiddlewareResource,
   resolveAppName,
+  // {v2.45} 决策 104 / 105 / 107：平台字典 / 服务字典 + 应用父级 + 资源服务归属
+  mockPlatformDict,
+  mockServiceDict,
+  resolvePlatformName,
+  isPlatformDisabled,
+  resolveServiceName,
+  isServiceDisabled,
+  PLATFORM_CODE_RE,
+  SERVICE_CODE_RE,
+  EXCEL_DECLARATION_SHEETS,
   domainReachabilityText,
   previewDomainByIP,
   K8S_ENDPOINT_PRESETS,
@@ -40,6 +50,18 @@ import {
   RESOURCE_TYPE_MAP,
   // {v2.40} 决策 93 / 95：业务与应用二选一必填判定
   isAppOrBizRequired,
+  // {v2.47} 决策 98 / 101 / 103：云字典 / 分区字典 + 云与网络分区经网域只读派生
+  CLOUD_DICT_ENABLED,
+  ZONE_DICT_ENABLED,
+  mockCloudDict,
+  mockZoneTypes,
+  cloudNameOf,
+  isCloudDisabled,
+  zoneTypeNameOf,
+  isZoneDisabled,
+  resolveDomainById,
+  resolveDomainCloud,
+  resolveDomainZone,
 } from './module-07'
 import type { ResourceCategory } from './module-07'
 
@@ -751,5 +773,169 @@ describe('{v2.39} 决策 92 应用双层编码与应用字典', () => {
       expect(RESOURCE_FIELD_OPTIONS[cat]).not.toContain('app_name')
       expect(RESOURCE_FIELD_OPTIONS[cat]).toContain('app_code')
     }
+  })
+})
+
+describe('{v2.45} 决策 104~107 四层实体骨架：平台字典 / 服务字典 / 应用父级 / 资源服务归属', () => {
+  it('平台字典与业务 / 应用字典同构：编码唯一且合规 + 展示名必填 + 含停用条目（停用不删除）', () => {
+    const codes = mockPlatformDict.map((d) => d.platform_code)
+    expect(new Set(codes).size).toBe(codes.length)
+    for (const d of mockPlatformDict) {
+      expect(d.platform_code).toMatch(PLATFORM_CODE_RE)
+      expect(d.platform_name.length).toBeGreaterThan(0)
+    }
+    expect(mockPlatformDict.some((d) => d.status === 'disabled')).toBe(true)
+  })
+
+  it('服务字典与应用字典同构：编码唯一且合规 + 展示名必填 + 含停用条目（停用不删除）', () => {
+    const codes = mockServiceDict.map((d) => d.service_code)
+    expect(new Set(codes).size).toBe(codes.length)
+    for (const d of mockServiceDict) {
+      expect(d.service_code).toMatch(SERVICE_CODE_RE)
+      expect(d.service_name.length).toBeGreaterThan(0)
+    }
+    expect(mockServiceDict.some((d) => d.status === 'disabled')).toBe(true)
+  })
+
+  it('平台 / 服务编码规范与业务 / 应用同规约（小写字母 / 数字 / 连字符 ≤ 64）', () => {
+    expect(PLATFORM_CODE_RE.source).toBe(BIZ_CODE_RE.source)
+    expect(SERVICE_CODE_RE.source).toBe(APP_CODE_RE.source)
+  })
+
+  it('resolvePlatformName / isPlatformDisabled：命中返回展示名，缺条目回退编码，空值 -，停用为 true', () => {
+    expect(resolvePlatformName('public-data-auth')).toBe('公共数据授权运营平台')
+    expect(resolvePlatformName('not-registered')).toBe('not-registered')
+    expect(resolvePlatformName(undefined)).toBe('-')
+    expect(isPlatformDisabled('legacy-platform')).toBe(true)
+    expect(isPlatformDisabled('ecommerce')).toBe(false)
+    expect(isPlatformDisabled(undefined)).toBe(false)
+  })
+
+  it('resolveServiceName / isServiceDisabled：命中返回展示名，缺条目回退编码，空值 -，停用为 true', () => {
+    expect(resolveServiceName('teacher-identity-api')).toBe('教师身份核验接口')
+    expect(resolveServiceName('not-registered')).toBe('not-registered')
+    expect(resolveServiceName(undefined)).toBe('-')
+    expect(isServiceDisabled('legacy-api')).toBe(true)
+    expect(isServiceDisabled('order-service-api')).toBe(false)
+    expect(isServiceDisabled(undefined)).toBe(false)
+  })
+
+  it('应用可选父级 platform_code：填值须引用平台字典条目，且存在「未挂平台」的应用（可选分支）', () => {
+    for (const app of mockApplicationDict) {
+      if (app.platform_code) {
+        expect(mockPlatformDict.map((d) => d.platform_code)).toContain(app.platform_code)
+      }
+    }
+    expect(mockApplicationDict.some((a) => a.platform_code)).toBe(true)
+    expect(mockApplicationDict.some((a) => !a.platform_code)).toBe(true)
+  })
+
+  it('资源服务归属 service_code 仅 application / generic_target 可挂（host / database / middleware 不挂）', () => {
+    for (const r of mockResources) {
+      if (['host', 'database', 'middleware'].includes(r.resource_category)) {
+        expect(r.service_code).toBeUndefined()
+      }
+    }
+    const applicable = mockResources.filter(
+      (r) => r.resource_category === 'application' || r.resource_category === 'generic_target'
+    )
+    expect(applicable.some((r) => r.service_code)).toBe(true)
+    // 填值的 service_code 必须引用服务字典条目（未停用不在 mock 断言范围，仅校验存在性）
+    for (const r of applicable) {
+      if (r.service_code) expect(mockServiceDict.map((d) => d.service_code)).toContain(r.service_code)
+    }
+  })
+
+  it('导入模板列：application / generic_target 补 service_code，其余三类不含', () => {
+    expect(IMPORT_TEMPLATE_COLUMNS.application).toContain('service_code')
+    expect(IMPORT_TEMPLATE_COLUMNS.generic_target).toContain('service_code')
+    for (const cat of ['host', 'database', 'middleware'] as ResourceCategory[]) {
+      expect(IMPORT_TEMPLATE_COLUMNS[cat]).not.toContain('service_code')
+    }
+  })
+
+  it('Excel 四类声明 sheet（业务 / 应用 / 平台 / 服务）齐全且列名与字典主键对齐', () => {
+    expect(EXCEL_DECLARATION_SHEETS.map((s) => s.key)).toEqual(['业务声明', '应用声明', '平台声明', '服务声明'])
+    expect(EXCEL_DECLARATION_SHEETS.map((s) => s.code_column)).toEqual([
+      'biz_code',
+      'app_code',
+      'platform_code',
+      'service_code',
+    ])
+  })
+})
+
+// ========== {v2.47} 决策 98 / 101 / 103：云字典 / 分区字典 + 云与网络分区经网域只读派生 ==========
+
+describe('{v2.47} 决策 98 / 101 / 103 云字典 / 分区字典与只读派生', () => {
+  it('云字典 seed 含 PUB-TX 腾讯云 / GM-CU 政务云（联通）且为启用，另有停用条目演示标识', () => {
+    const enabled = mockCloudDict.filter((d) => d.status === 'enabled').map((d) => d.cloud_code)
+    expect(enabled).toEqual(expect.arrayContaining(['PUB-TX', 'GM-CU']))
+    expect(mockCloudDict.some((d) => d.status === 'disabled')).toBe(true)
+    // 复合码形制 {类型}-{载体}（PRD 5.20 红线⑥：不得把 carrier / cloud_type 单独当云标识）
+    mockCloudDict.forEach((d) => {
+      expect(d.cloud_code).toBe(`${d.cloud_type}-${d.carrier}`)
+      expect(d.cloud_name.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('cloudNameOf：命中返回云名，未登记回退编码，空值 -（PRD 5.20 消费链路）', () => {
+    expect(cloudNameOf('PUB-TX')).toBe('腾讯云')
+    expect(cloudNameOf('GM-CU')).toBe('政务云（联通）')
+    expect(cloudNameOf('IND-TX')).toBe('IND-TX')
+    expect(cloudNameOf(undefined)).toBe('-')
+    expect(cloudNameOf('')).toBe('-')
+  })
+
+  it('isCloudDisabled：停用条目为 true，启用 / 空值为 false（停用条目以「云名（已停用）」标识）', () => {
+    expect(isCloudDisabled('PRI-TX')).toBe(true)
+    expect(isCloudDisabled('PUB-TX')).toBe(false)
+    expect(isCloudDisabled(undefined)).toBe(false)
+  })
+
+  it('分区字典命名口径锁定：internet = 互联网区、extranet = 政务外网区（M06 §5.2 / 决策 83）', () => {
+    expect(zoneTypeNameOf('internet')).toBe('互联网区')
+    expect(zoneTypeNameOf('extranet')).toBe('政务外网区')
+    expect(zoneTypeNameOf('unknown-zone')).toBe('unknown-zone')
+    expect(zoneTypeNameOf(undefined)).toBe('-')
+    expect(isZoneDisabled('internet')).toBe(false)
+  })
+
+  it('每个网域均含 cloud_code / zone_type 且取值落在字典内（决策 103：云 / 分区权威值在网域）', () => {
+    const cloudCodes = mockCloudDict.map((d) => d.cloud_code)
+    const zoneCodes = mockZoneTypes.map((d) => d.code)
+    mockNetworkDomains.forEach((d) => {
+      expect(d.cloud_code, `${d.id} 缺 cloud_code`).toBeTruthy()
+      expect(d.zone_type, `${d.id} 缺 zone_type`).toBeTruthy()
+      expect(cloudCodes).toContain(d.cloud_code)
+      expect(zoneCodes).toContain(d.zone_type)
+    })
+  })
+
+  it('resolveDomainById：按 id 反查网域，未知 / 空值返回 undefined', () => {
+    expect(resolveDomainById('gov-cloud-a')?.name).toBe('政务云 A 区')
+    expect(resolveDomainById('not-a-domain')).toBeUndefined()
+    expect(resolveDomainById(undefined)).toBeUndefined()
+  })
+
+  it('resolveDomainCloud / resolveDomainZone：经网域派生云 / 分区展示名，未知网域返回 null', () => {
+    expect(resolveDomainCloud('gov-cloud-a')).toEqual({ name: '政务云（联通）', disabled: false })
+    expect(resolveDomainZone('gov-cloud-a')).toEqual({ name: '政务外网区', disabled: false })
+    expect(resolveDomainCloud('not-a-domain')).toBeNull()
+    expect(resolveDomainZone('not-a-domain')).toBeNull()
+  })
+
+  it('host 资源的云 / 分区均可经所属网域派生（列表「云」列与详情只读派生数据源就绪）', () => {
+    const hosts = mockResources.filter(isHostResource)
+    expect(hosts.length).toBeGreaterThan(0)
+    hosts.forEach((h) => {
+      expect(resolveDomainCloud(h.network_domain_id)).not.toBeNull()
+      expect(resolveDomainZone(h.network_domain_id)).not.toBeNull()
+    })
+  })
+
+  it('云 / 分区字典均为部署级只读（可用性开关为 true，且不提供管理界面）', () => {
+    expect(CLOUD_DICT_ENABLED).toBe(true)
+    expect(ZONE_DICT_ENABLED).toBe(true)
   })
 })

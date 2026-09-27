@@ -12,6 +12,7 @@ import {
   Select,
   Space,
   Table,
+  Tag,
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
@@ -20,19 +21,30 @@ import { MainLayout } from '../layouts/MainLayout'
 import { Callout } from '../components/Callout'
 import { ReviewNote } from '../components/ReviewNote'
 import { TABLE_PAGINATION } from '../components/tablePresets'
-import { APP_CODE_RE, mockApplicationDict } from '../mocks/module-07'
+import {
+  APP_CODE_RE,
+  mockApplicationDict,
+  // {v2.45} 决策 104 / 107：应用可选父级——平台字典只读消费（仅启用条目可选）
+  mockPlatformDict,
+  resolvePlatformName,
+  isPlatformDisabled,
+} from '../mocks/module-07'
 import type { AppDictEntry } from '../mocks/module-07'
 
 const { Title, Text } = Typography
+const { Option } = Select
 
 interface RegisterForm {
   app_code: string
   app_name: string
+  // {v2.45} 可选父级：应用所属平台（平台字典主键），表达纵向 platform(1) → app(N) 组成分解
+  platform_code?: string
   description?: string
 }
 
 interface EditForm {
   app_name: string
+  platform_code?: string
   description?: string
   status: AppDictEntry['status']
 }
@@ -57,6 +69,28 @@ export default function ApplicationManagementPage() {
   const [editing, setEditing] = useState<AppDictEntry | null>(null)
   const [editForm] = Form.useForm<EditForm>()
 
+  // {v2.45} 决策 104 / 107：应用可选父级下拉——平台字典启用条目可选（只读消费）；
+  // 编辑存量条目平台已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
+  const platformOptions = () => {
+    const enabledOptions = mockPlatformDict
+      .filter((d) => d.status === 'enabled')
+      .map((d) => (
+        <Option key={d.platform_code} value={d.platform_code}>
+          {d.platform_name}（{d.platform_code}）
+        </Option>
+      ))
+    const current = editing?.platform_code
+    if (current && !mockPlatformDict.some((d) => d.platform_code === current && d.status === 'enabled')) {
+      return [
+        ...enabledOptions,
+        <Option key={current} value={current}>
+          {resolvePlatformName(current)}（已停用）
+        </Option>,
+      ]
+    }
+    return enabledOptions
+  }
+
   const openRegister = () => {
     registerForm.resetFields()
     setRegisterOpen(true)
@@ -73,6 +107,7 @@ export default function ApplicationManagementPage() {
     const created: AppDictEntry = {
       app_code: values.app_code.trim(),
       app_name: values.app_name.trim(),
+      platform_code: values.platform_code,
       description: values.description?.trim() || undefined,
       status: 'enabled',
     }
@@ -85,6 +120,7 @@ export default function ApplicationManagementPage() {
     setEditing(record)
     editForm.setFieldsValue({
       app_name: record.app_name,
+      platform_code: record.platform_code,
       description: record.description,
       status: record.status,
     })
@@ -100,6 +136,7 @@ export default function ApplicationManagementPage() {
           ? {
               ...d,
               app_name: values.app_name.trim(),
+              platform_code: values.platform_code,
               description: values.description?.trim() || undefined,
               status: values.status,
             }
@@ -147,6 +184,22 @@ export default function ApplicationManagementPage() {
       key: 'app_name',
       render: (v: string, record) =>
         record.status === 'disabled' ? <Text type="secondary">{v}（已停用）</Text> : v,
+    },
+    {
+      // {v2.45} 决策 104 / 107：应用可选父级「平台」列——展示平台字典 platform_name，未挂显示 -，停用加标识
+      title: '所属平台',
+      dataIndex: 'platform_code',
+      key: 'platform_code',
+      width: 180,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isPlatformDisabled(value) ? 'default' : 'purple'}>
+            {resolvePlatformName(value)}
+            {isPlatformDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : (
+          '-'
+        ),
     },
     {
       title: '描述',
@@ -246,6 +299,16 @@ export default function ApplicationManagementPage() {
             目标是存量 `app` 标签不断、时序不裂。
           </li>
           <li>
+            {'{v2.45} 决策 104 / 107'}：新增**可选父级「所属平台」**（`platform_code`，只读消费平台字典，见平台管理页）——
+            应用升格为「可挂父平台的子系统」（`platform(1) → app(N)` 组成分解）；这是应用自身的纵向分解，
+            与决策 96 的 biz↔app 横向正交是两个维度、不冲突；未挂时无平台归属、`platform` label 不注入。
+            {'{v0.2}'} 起补「平台 → 子系统」分层可视化界面，MVP 仅提供本下拉。
+          </li>
+          <li>
+            红线硬化补充：仅 `app_name` / `platform_code` / `description` / 状态 可编辑（`app_code` 仍不可改）；
+            应用侧 `platform_code` 只允许引用未停用平台条目。
+          </li>
+          <li>
             边界：本页为应用字典管理演示；「谁引用了该应用」的引用关系清单不在本页展示，见资源管理页 / Excel 导入校验。
           </li>
         </ul>
@@ -306,6 +369,16 @@ export default function ApplicationManagementPage() {
           <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]}>
             <Input placeholder="例如 订单服务 / 支付服务" maxLength={64} />
           </Form.Item>
+          {/* {v2.45} 决策 104 / 107：应用可选父级「所属平台」——只读消费平台字典启用条目；留空即无平台归属 */}
+          <Form.Item
+            label="所属平台"
+            name="platform_code"
+            extra="选填：应用所属平台（纵向 platform → app 组成分解）；仅可选启用中的平台，留空则无平台归属、不注入 platform 标签"
+          >
+            <Select placeholder="选填，选择所属平台" showSearch allowClear optionFilterProp="label">
+              {platformOptions()}
+            </Select>
+          </Form.Item>
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={3} placeholder="选填，说明该应用的用途或包含的资源范围" maxLength={200} />
           </Form.Item>
@@ -338,6 +411,15 @@ export default function ApplicationManagementPage() {
         <Form form={editForm} layout="vertical" name="edit-application" initialValues={{ status: 'enabled' }}>
           <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]}>
             <Input maxLength={64} />
+          </Form.Item>
+          <Form.Item
+            label="所属平台"
+            name="platform_code"
+            extra="选填：应用所属平台；仅可选启用中的平台，留空则无平台归属"
+          >
+            <Select placeholder="选填，选择所属平台" showSearch allowClear optionFilterProp="label">
+              {platformOptions()}
+            </Select>
           </Form.Item>
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={3} maxLength={200} />
