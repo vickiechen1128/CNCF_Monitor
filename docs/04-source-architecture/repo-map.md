@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-19 20:31 · commit: `95d5b74`
+> 生成时间: 2026-09-27 10:43 · commit: `dbf9564`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -48,6 +48,8 @@
 - `func validDomainType(dt models.DomainType) bool`
 - `func randomDomainCode() (string, error)`
 - `func isUniqueConstraintError(err error) bool`
+- `func validateCloudCodeEnabled(db *gorm.DB, code string) error`
+- `func validateNetworkDomainZoneType(db *gorm.DB, zt string) error`
 - `func nameExists(db *gorm.DB, name, excludeID string) (bool, error)`
 - `func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc`
 
@@ -163,6 +165,7 @@
 - `func newGin() *gin.Engine`
 - `func perform(t *testing.T, r *gin.Engine, method, path string, body string) *httptest.ResponseRecorder`
 - `func seedZoneTypes(t *testing.T, db *gorm.DB)`
+- `func seedDomainRegistrationDicts(t *testing.T, db *gorm.DB)`
 - `func seedTenants(t *testing.T, db *gorm.DB)`
 - `func insertDomain(t *testing.T, db *gorm.DB, d *models.NetworkDomain)`
 
@@ -627,6 +630,8 @@
 - `func listItems(out map[string]interface{}) []interface{}`
 - `func TestEndToEndResourceCRUD(t *testing.T)`
 - `func TestEndToEndSmoke(t *testing.T)`
+- `func hostExcelRow(vals map[string]string) [][]string`
+- `func hostRows(ip, name, status string) [][]string`
 - `func TestEndToEndExcelImport(t *testing.T)`
 - `func TestEndToEndResourceLabels(t *testing.T)`
 - `func TestEndToEndLabelTemplates(t *testing.T)`
@@ -906,6 +911,23 @@
 - `func TestListBusinessDomainsHandlerDBBacked(t *testing.T)`
 - `func strPtrT(s string) *string`
 
+### `platform/config/resource/cloud_dict.go`
+
+- `type CloudDict struct`
+- `type CloudDictStore struct`
+- `func NewCloudDictStore(db *gorm.DB) *CloudDictStore`
+- `func toCloudDict(row models.CloudDict) CloudDict`
+- `method (*CloudDictStore) List() ([]CloudDict, error)`
+- `method (*CloudDictStore) EnabledList() ([]CloudDict, error)`
+- `method (*CloudDictStore) GetEnabledMap() (map[string]CloudDict, error)`
+- `func ListCloudDicts(store *CloudDictStore) gin.HandlerFunc`
+
+### `platform/config/resource/cloud_dict_test.go`
+
+- `func newCloudStore(t *testing.T) *CloudDictStore`
+- `func TestCloudDictStoreAndHandlerReturnAllEntries(t *testing.T)`
+- `func TestCloudDictStoreNilDBReturnsError(t *testing.T)`
+
 ### `platform/config/resource/create.go`
 
 - `func networkDomainExistsFunc(db *gorm.DB) func(string) bool`
@@ -919,7 +941,7 @@
 - `func applyMiddlewareInput(m *models.Middleware, in *ResourceInput)`
 - `func applyApplicationInput(a *models.Application, in *ResourceInput)`
 - `func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput)`
-- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
+- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore) …`
 
 ### `platform/config/resource/create_update_test.go`
 
@@ -972,12 +994,12 @@
 - `func applyCells(row *ImportRow, header, cells []string)`
 - `func parsePort(raw string) (int, string)`
 - `func allEmpty(cells []string) bool`
-- `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
+- `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictS…`
 - `func fieldErr(row *ImportRow, field, value, reason string) error`
 - `func parseCustomLabels(raw string) (map[string]string, error)`
 - `func fieldFromResourceInputError(msg string) string`
 - `func valueFromField(in *ResourceInput, field, portRaw string) string`
-- `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(…`
+- `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStor…`
 
 ### `platform/config/resource/excel_declare.go`
 
@@ -1029,6 +1051,7 @@
 - `func makeRow(category models.ResourceCategory, vals map[string]string) []string`
 - `func baseValues(category models.ResourceCategory) map[string]string`
 - `func existsDomains(ids ...string) func(string) bool`
+- `func requireIndex(t *testing.T, header []string, col string) int`
 - `func mustParse(t *testing.T, category models.ResourceCategory, dataRows [][]string) []ImportRow`
 - `func assertRowError(t *testing.T, err error, row int, field, value string) *ImportRowError`
 - `func TestParseExcel_ValidRows(t *testing.T)`
@@ -1048,7 +1071,7 @@
 
 ### `platform/config/resource/import.go`
 
-- `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
+- `func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore)…`
 - `func findExistingByDedupKey(db *gorm.DB, category models.ResourceCategory, row *ImportRow) (model any, found bool, err error)`
 - `func setSourceType(model any, st models.SourceType)`
 - `func newImportNo() string`
@@ -1172,6 +1195,8 @@
 - `func ListResources(db *gorm.DB) gin.HandlerFunc`
 - `func listCategory(db *gorm.DB, category models.ResourceCategory, f ListFilter) ([]map[string]interface{}, int64, error)`
 - `func listTyped[T any](db *gorm.DB, category models.ResourceCategory, f ListFilter) ([]map[string]interface{}, int64, error)`
+- `func networkDomainIDOf(res any) string`
+- `func loadDomainCloudZone[T any](db *gorm.DB, rows []T) (map[string]models.NetworkDomain, error)`
 - `func buildListItem(res any, category models.ResourceCategory) map[string]interface{}`
 
 ### `platform/config/resource/list_test.go`
@@ -1190,6 +1215,7 @@
 - `func TestListResourcesResourceIDStableMergeKey(t *testing.T)`
 - `func TestListResourcesItemFields(t *testing.T)`
 - `func TestListResourcesGenericItemCustomLabels(t *testing.T)`
+- `func TestListResourcesCloudCodeAndHostZoneType(t *testing.T)`
 - `func TestListResourcesNetworkDomainFilter(t *testing.T)`
 - `func TestListResourcesKeywordFilter(t *testing.T)`
 - `func TestListResourcesFilterCombination(t *testing.T)`
@@ -1223,7 +1249,7 @@
 
 ### `platform/config/resource/routes.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore)`
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, c…`
 - `func withTypeParam(h gin.HandlerFunc) gin.HandlerFunc`
 - `func listDomainOptions(db *gorm.DB) func() ([]DomainOption, error)`
 
@@ -1251,8 +1277,8 @@
 ### `platform/config/resource/template.go`
 
 - `type DomainOption struct`
-- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, err…`
-- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, listDomains func() ([]DomainOption, erro…`
+- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, listDomains…`
+- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore, listDomains …`
 - `func statusValueDescription() string`
 - `func buildTemplateXLSX(columns []string, valueRows [][]string) ([]byte, error)`
 
@@ -1274,7 +1300,7 @@
 - `func findResourceByID(db *gorm.DB, resourceID string) (category models.ResourceCategory, model any, found bool, err error)`
 - `func sourceTypeOf(model any) models.SourceType`
 - `func updatableColumns(category models.ResourceCategory) []string`
-- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc`
+- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictStore) …`
 
 ### `platform/config/resource/validate.go`
 
@@ -1283,7 +1309,7 @@
 - `func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
 - `func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appS…`
 - `func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
-- `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists fu…`
+- `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, cloudStore *CloudDictS…`
 - `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
 - `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
 - `func validateHost(in *ResourceInput) error`
@@ -1819,6 +1845,15 @@
 - `func TestBusinessDomainsIdempotent(t *testing.T)`
 - `func TestBusinessDomainsMissingFileFallsBackToInfra(t *testing.T)`
 - `func TestBusinessDomainsNilDBReturnsError(t *testing.T)`
+
+### `platform/db/seed/cloud_dict.go`
+
+- `func runCloudDicts(db *gorm.DB) error`
+
+### `platform/db/seed/cloud_dict_test.go`
+
+- `func TestRunSeedsCloudDictIdempotently(t *testing.T)`
+- `func TestRunCloudDictsRealignsPresetValues(t *testing.T)`
 
 ### `platform/db/seed/exporter.go`
 
@@ -2467,6 +2502,17 @@
 - `type CITypeExporterMapping struct`
 - `method (CITypeExporterMapping) TableName() string`
 
+### `platform/models/cloud_dict.go`
+
+- `type CloudType = string`
+- `type CloudCarrier = string`
+- `type CloudDict struct`
+
+### `platform/models/cloud_dict_test.go`
+
+- `func TestCloudDictModel(t *testing.T)`
+- `func TestCloudDictDisabledPersistsWithoutGORMDefault(t *testing.T)`
+
 ### `platform/models/config.go`
 
 - `type DraftStatus = string`
@@ -2575,6 +2621,7 @@
 - `method (*Host) GetResourceID() string`
 - `method (*Host) GetResourceType() ResourceType`
 - `method (*Host) GetAppCode() string`
+- `method (*Host) GetCloudCode() string`
 - `method (*Host) GetEnv() string`
 - `method (*Host) GetCluster() string`
 - `method (*Host) GetStatus() string`
@@ -2728,12 +2775,14 @@
 - `method (*Middleware) GetResourceID() string`
 - `method (*Middleware) GetResourceType() ResourceType`
 - `method (*Middleware) GetAppCode() string`
+- `method (*Middleware) GetCloudCode() string`
 - `method (*Middleware) GetEnv() string`
 - `method (*Middleware) GetCluster() string`
 - `method (*Middleware) GetStatus() string`
 - `method (*Application) GetResourceID() string`
 - `method (*Application) GetResourceType() ResourceType`
 - `method (*Application) GetAppCode() string`
+- `method (*Application) GetCloudCode() string`
 - `method (*Application) GetEnv() string`
 - `method (*Application) GetCluster() string`
 - `method (*Application) GetStatus() string`
@@ -2746,6 +2795,7 @@
 - `type ResourceBase struct`
 - `method (*ResourceBase) GetResourceID() string`
 - `method (*ResourceBase) GetAppCode() string`
+- `method (*ResourceBase) GetCloudCode() string`
 - `method (*ResourceBase) GetEnv() string`
 - `method (*ResourceBase) GetCluster() string`
 - `method (*ResourceBase) GetStatus() string`
@@ -3467,6 +3517,8 @@
 - `interface ApplicationDictCreateInput`
 - `interface ApplicationDictUpdateInput`
 - `const applicationDictApi`
+- `interface CloudDictsResponse`
+- `const cloudDictApi`
 - `const osOptionApi`
 - `const importApi`
 
@@ -4252,6 +4304,7 @@
 - `type ResourceUpdateInput`
 - `interface BusinessDomain`
 - `interface ApplicationDict`
+- `interface CloudDict`
 - `interface OSOption`
 - `type ResourceLabelSource`
 - `interface ResourceLabelItem`
