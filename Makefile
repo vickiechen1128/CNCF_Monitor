@@ -343,13 +343,24 @@ build-edge-package: build-edge-agent build-vmagent build-blackbox-edge
 	@EDGE_AGENT_VERSION="$(EDGE_AGENT_VERSION)" VMAgent_VERSION="$(VMAgent_VERSION)" Blackbox_VERSION="$(Blackbox_VERSION)" \
 		bash "$(PROJECT_ROOT)/scripts/package-edge-agent.sh"
 
+# Alertmanager 的 legacy Elm UI 使用 vite-plugin-elm 构建，其内部经
+# pathToFileURL 对工作目录做 URL 编码；本项目路径含空格（"03 AIopsAgent-study"），
+# 空格被转成 %20 导致 rolldown 打开 src/Main.elm 时 ENOENT。
+# 因此 UI 构建改为在无空格的临时目录（/tmp）中执行，再把产物 dist/ 拷回
+# upstream/alertmanager/ui/app/dist（go:embed app/dist 依赖该目录）。
+ALERTMANAGER_UI_STAGING := /tmp/alertmanager-ui-app
 build-alertmanager: ensure-go
 	@echo ">>> Building upstream Alertmanager"
-	@cd "$(PROJECT_ROOT)/upstream/alertmanager/ui/app" && \
-		if [ ! -d dist ]; then \
-			echo ">>> Installing Alertmanager UI dependencies and building assets"; \
-			npm ci && npm run build; \
-		fi
+	@if [ ! -d "$(PROJECT_ROOT)/upstream/alertmanager/ui/app/dist" ]; then \
+		echo ">>> Building Alertmanager legacy Elm UI in space-free staging dir"; \
+		rm -rf "$(ALERTMANAGER_UI_STAGING)"; \
+		mkdir -p "$(ALERTMANAGER_UI_STAGING)"; \
+		cd "$(PROJECT_ROOT)/upstream/alertmanager/ui/app" && cp -R index.html package.json package-lock.json vite.config.mjs elm.json src public "$(ALERTMANAGER_UI_STAGING)/"; \
+		cd "$(ALERTMANAGER_UI_STAGING)" && npm ci && npm run build; \
+		rm -rf "$(PROJECT_ROOT)/upstream/alertmanager/ui/app/dist"; \
+		cp -R "$(ALERTMANAGER_UI_STAGING)/dist" "$(PROJECT_ROOT)/upstream/alertmanager/ui/app/dist"; \
+		rm -rf "$(ALERTMANAGER_UI_STAGING)"; \
+	fi
 	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o alertmanager$(EXE) ./cmd/alertmanager
 	@cd "$(PROJECT_ROOT)/upstream/alertmanager" && "$(GO_BIN)" build -o amtool$(EXE) ./cmd/amtool
 
@@ -381,6 +392,9 @@ run-metric-center: build-metric-center build-promtool build-amtool
 # M09 local 下发闭环：config.file 必须指向 config-output/prometheus.yml（控制面
 # DiskApplier 的写盘目录），且 file_sd 相对路径 targets/*.json 按配置文件所在目录
 # 解析；--web.enable-lifecycle 开放 /-/reload 供控制面在结构变更后触发热加载。
+# G1（设计提案 §7-G1）：--web.enable-remote-write-receiver 开启中心 Prometheus 的
+# remote_write 接收端，作为边缘 vmagent 指标上报入口，对接 edge-sync-agent
+# probe.go 默认上报地址 http://127.0.0.1:9090/api/v1/write（自 Prometheus 2.40 起可用）。
 run-prometheus: build-prometheus
 	@echo ">>> Starting Prometheus"
 	@mkdir -p "$(PROJECT_ROOT)/config-output"
@@ -395,7 +409,11 @@ run-prometheus: build-prometheus
 	@cd "$(PROJECT_ROOT)/upstream/prometheus" && ./prometheus$(EXE) \
 		--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
 		--web.enable-lifecycle \
-		--web.listen-address=:9090
+		--web.enable-remote-write-receiver \
+		--web.listen-address=127.0.0.1:9090
+# 注：--web.listen-address 收束至 127.0.0.1 —— remote_write receiver (--web.enable-remote-write-receiver)
+# 无内置写认证，仅暴露给本机 metric-center 查询代理与受控边缘写方；对外暴露由 G2 nginx（IP 白名单 +
+# TLS 终结 + per-domain Token）在生产部署承接。见 design-decisions 决策 1。
 
 # 启动中心 Alertmanager（M08 静默代理 + AM 配置挂载 reload 目标）：控制面
 # --alertmanager.url 缺省 http://localhost:9093；静默列表依赖本服务在线。

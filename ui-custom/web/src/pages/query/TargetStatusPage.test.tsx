@@ -94,4 +94,58 @@ describe('TargetStatusPage', () => {
       expect(targetsListMock).toHaveBeenLastCalledWith(expect.objectContaining({ health: 'down' })),
     )
   })
+
+  it('renders backend-resolved instance name column', async () => {
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        activeTargets: [
+          target('res-1', 'up', { instance_name: 'GL_OPS_MONITOR_01_X86' }),
+          target('res-2', 'up', { instance_name: '' }),
+        ],
+        droppedTargets: [],
+        targetsByJob: {},
+      },
+    })
+    renderPage()
+    // 有实例名 → 展示；无 resource_id / 台账无此资源 → 降级 '-'
+    expect(await screen.findByText('GL_OPS_MONITOR_01_X86')).toBeInTheDocument()
+    expect(screen.getByText('10.0.0.1:9104')).toBeInTheDocument()
+  })
+
+  it('passes instance name / IP search to backend on enter', async () => {
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        activeTargets: [target('res-1', 'up', { instance_name: 'GL_OPS_MONITOR_01_X86' })],
+        droppedTargets: [],
+        targetsByJob: {},
+      },
+    })
+    renderPage()
+    const input = await screen.findByPlaceholderText('搜索实例名或实例IP')
+    fireEvent.change(input, { target: { value: ' GL_OPS ' } })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 13 })
+    await waitFor(() =>
+      expect(targetsListMock).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'GL_OPS' })),
+    )
+  })
+
+  it('clears search when input is emptied', async () => {
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: { activeTargets: [], droppedTargets: [], targetsByJob: {} },
+    })
+    renderPage()
+    const input = await screen.findByPlaceholderText('搜索实例名或实例IP')
+    fireEvent.change(input, { target: { value: 'GL_OPS' } })
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 13 })
+    await waitFor(() =>
+      expect(targetsListMock).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'GL_OPS' })),
+    )
+    fireEvent.change(input, { target: { value: '' } })
+    await waitFor(() =>
+      expect(targetsListMock).toHaveBeenLastCalledWith(expect.objectContaining({ search: undefined })),
+    )
+  })
 })

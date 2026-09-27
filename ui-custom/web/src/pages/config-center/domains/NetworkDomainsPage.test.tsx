@@ -25,6 +25,11 @@ vi.mock('./NetworkDomainDetailDrawer', () => ({
   NetworkDomainDetailDrawer: () => null,
 }))
 
+// 离线包下拉面板（T11-22）在 EdgePackageDownloadPanel.test.tsx 单测覆盖，页面测试桩掉避免依赖真实 fetch
+vi.mock('./EdgePackageDownloadPanel', () => ({
+  EdgePackageDownloadPanel: () => <div>mock-edge-package-panel</div>,
+}))
+
 // 桩代替真实 Drawer 表单，暴露一个触发 onSubmit 的按钮，用于验证「纳管→提交」主流程
 vi.mock('./OnboardDomainDrawer', () => ({
   OnboardDomainDrawer: ({ open, onSubmit, onClose }: { open?: boolean; onSubmit?: (i: unknown) => Promise<void>; onClose?: () => void }) => {
@@ -128,7 +133,7 @@ describe('NetworkDomainsPage（网域纳管）', () => {
         data: {
           items: [
             domainRow('default', '默认域', { channel: 'local', domain_type: 'management' }),
-            domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'online', last_heartbeat: '2026-08-21T00:00:00Z' }),
+            domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'normal', last_heartbeat: '2026-08-21T00:00:00Z' }),
           ],
           total: 2,
         },
@@ -229,6 +234,57 @@ describe('NetworkDomainsPage（网域纳管）', () => {
     expect(screen.getAllByText('••••••••').length).toBeGreaterThanOrEqual(1)
     // 列表行不渲染复制入口
     expect(screen.queryByRole('button', { name: /复制/i })).not.toBeInTheDocument()
+  })
+
+  it('F-33 下载入口行内按需：边缘域行「更多 → 下载安装包」弹出离线包下载面板', async () => {
+    useNetworkDomainsMock.mockReturnValue(
+      result({ data: { items: [domainRow('mc-dl', '金融专网')], total: 1 } }),
+    )
+    renderPage()
+    const moreBtn = await screen.findByRole('button', { name: /更多/ })
+    // 未点击时面板不挂载（懒加载，不发请求）
+    expect(screen.queryByText('mock-edge-package-panel')).not.toBeInTheDocument()
+    // Dropdown 默认 hover 触发：用 mouseOver 模拟 onMouseEnter 展开菜单
+    fireEvent.mouseOver(moreBtn)
+    fireEvent.click(await screen.findByText('下载安装包'))
+    expect(await screen.findByText('mock-edge-package-panel')).toBeInTheDocument()
+  })
+
+  it('F-33 中心直连域（local）行不出现下载入口；页面级已无常驻「下载安装包」按钮', async () => {
+    useNetworkDomainsMock.mockReturnValue(
+      result({
+        data: {
+          items: [domainRow('default', '默认域', { channel: 'local', domain_type: 'management' })],
+          total: 1,
+        },
+      }),
+    )
+    renderPage()
+    expect(await screen.findByText('默认域')).toBeInTheDocument()
+    // local 通道无「更多」下拉，故整行不出现任何下载入口
+    expect(screen.queryByRole('button', { name: /更多/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /下载安装包/ })).not.toBeInTheDocument()
+  })
+
+  it('F-33 直连域提示常驻折叠区外（无需展开指引即可见），折叠标题限定为边缘域', async () => {
+    useNetworkDomainsMock.mockReturnValue(result())
+    const { container } = renderPage()
+    // 常驻提示在折叠面板之外：折叠面板默认收起，提示文案仍可见
+    expect(await screen.findByText(/无需部署采集节点，平台直接采集/)).toBeInTheDocument()
+    expect(container.querySelector('.ant-collapse-content')).toBeNull()
+    // 折叠标题改名，直连域用户不会被「新网域接入操作流程」误导点开
+    expect(screen.getByText(/边缘域接入操作流程（安装指引）/)).toBeInTheDocument()
+    expect(screen.queryByText(/新网域接入操作流程/)).not.toBeInTheDocument()
+  })
+
+  it('F-30 安装指引新增「复制并保存接入 Token」为第 1 步，并展示普通用户文案', async () => {
+    useNetworkDomainsMock.mockReturnValue(result())
+    renderPage()
+    // 指引默认收起，点击 label 展开
+    fireEvent.click(await screen.findByText(/边缘域接入操作流程（安装指引）/))
+    expect(await screen.findByText('复制并保存接入 Token')).toBeInTheDocument()
+    expect(screen.getByText(/接入密码/)).toBeInTheDocument()
+    expect(screen.getByText(/重置后旧 Token 立即失效/)).toBeInTheDocument()
   })
 
   it('MEDIUM-1 纳管 agent_pull 域成功后弹一次性明文 Token 展示', async () => {

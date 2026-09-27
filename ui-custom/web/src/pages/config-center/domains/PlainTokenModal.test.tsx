@@ -18,7 +18,7 @@ describe('PlainTokenModal（一次性明文 Token 展示，MEDIUM-1/LOW-1 统一
     render(<PlainTokenModal open token="plain-token" tokenMasked="••••••••" domainName="医保网" onClose={vi.fn()} />)
     expect(await screen.findByText('plain-token')).toBeInTheDocument()
     expect(screen.getByText(/网域：医保网/)).toBeInTheDocument()
-    expect(screen.getByText(/仅本次展示，关闭后不再可见/)).toBeInTheDocument()
+    expect(screen.getByText(/接入密码/)).toBeInTheDocument()
     expect(screen.getByText(/脱敏表示：••••••••/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /复制明文/ })).toBeInTheDocument()
   })

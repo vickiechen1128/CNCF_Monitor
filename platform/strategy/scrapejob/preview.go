@@ -18,7 +18,7 @@ type previewTarget struct {
 
 // PreviewTargets 是 POST /api/v2/platform/scrape-jobs/:id/preview-targets 的
 // handler：解析该 Job 的目标清单。standard→已选实例地址（host PrivateIP /
-// database InstanceIP / middleware InstanceIP / application HealthCheckURL /
+// database InstanceIP / middleware InstanceIP / application endpoint:port /
 // generic_target InstanceIP）；blackbox→blackbox_targets（api-contract-snapshot §6,
 // L2 接口预览）。Job 未命中 not_found。
 func PreviewTargets(db *gorm.DB) gin.HandlerFunc {
@@ -56,6 +56,20 @@ func PreviewTargets(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// applicationTargetAddress 组合 application 的采集地址 `endpoint:port`（port 缺省时
+// 仅返回 endpoint）。与 M09 生成器（configcenter/generator/targets.go 对 application 取
+// endpoint + port 拼接）同口径，保证「实例候选 / 目标预览 / 安装确认」展示的地址与
+// 最终下发 target 一致。
+func applicationTargetAddress(a *models.Application) string {
+	if a == nil {
+		return ""
+	}
+	if a.Port <= 0 {
+		return a.Endpoint
+	}
+	return fmt.Sprintf("%s:%d", a.Endpoint, a.Port)
+}
+
 // resolveInstanceAddress 根据 resource_id 在五类资源表中查找该实例地址；
 // 未命中返回空字符串。
 func resolveInstanceAddress(db *gorm.DB, resourceID string) string {
@@ -73,7 +87,7 @@ func resolveInstanceAddress(db *gorm.DB, resourceID string) string {
 	}
 	var application models.Application
 	if err := db.Where("resource_id = ?", resourceID).First(&application).Error; err == nil {
-		return application.HealthCheckURL
+		return applicationTargetAddress(&application)
 	}
 	var generic models.GenericTarget
 	if err := db.Where("resource_id = ?", resourceID).First(&generic).Error; err == nil {

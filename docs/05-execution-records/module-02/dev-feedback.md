@@ -60,3 +60,27 @@
 - **验证**：`go test ./platform/query/...`（新增 `TestNormalizeHistoryStep` 7 例 + 3 例端到端步长用例）、`go test ./platform/...` 27 包全通过、`go vet` 干净
 - **发现场景**：用户实测首页「当日 / 近 7 天告警」恒为 0，而「通知中」有当日告警（2026-09-18）；本地以 `step=60` 复测接口恢复正常返回
 - **状态**：closed（后端代码 + 测试 + 决策 90 已落地；PRD 文本待 v1.17 回填）
+
+---
+
+## 4. 目标状态页「实例名 / 实例IP」搜索：PRD 与原型均空白（① 空白判定，已实现）
+
+- **类别**：① 空白判定（PRD Module_02 §5.3 与 `docs/prototypes/module-02` 均未定义目标状态页的搜索/筛选能力与「实例名」列）
+- **提出人 / 场景**：项目负责人实测 M09「监控目标状态」页（`/targets`，M02 目标状态页前端临时挂载，见本文件 F-1），要求「增加搜索用户手动填写监控对象的实例名、实例IP的功能」。
+- **关键口径澄清（易踩坑）**：**采集 Job 名 ≠ 实例名**。
+  - `job` 是用户在 M01 **自由填写**的抓取任务标识，平台不保证其等于实例名（实测数据：3 个 target 的 job 名均为 `tengxunyun-ceshi-host`，而对应台账实例名分别是 `tengxunyun-ceshi` / `GL_OPS_MONITOR_01_X86` / `monito2-02`）。
+  - 真正的「实例名」在 **M07 资源台账**：host→`instance_name`、application→`service_name`、generic_target→`target_name`、database / middleware→`ip:port`；target 经 `resource_id` 标签（决策 47-3 强制注入）回连取值。
+  - 「实例IP」取 target 的 `instance`（`host:port`）的 host 部分，Prometheus 直接透传，无需回连。
+  - 因此**不得**用 job 名替代实例名，否则语义错误（用户判断正确）。
+- **已实现（开发侧取值）**：
+  1. 后端 `GET /api/v1/targets` 新增 `search` 参数，大小写不敏感 `contains`，同时匹配「M07 可读实例名」与「`instance`（IP）」；local targets 与 F-11 边缘快照统一生效；实例名映射复用 `coverage.go` 的 `queryCategoryResources` 口径（反 N+1，按网域一次拉取）。
+  2. 响应 `activeTargets[]` 逐项新增 `instance_name` 字段（无 `resource_id` 或台账无此资源时为空串）。
+  3. 前端 `TargetStatusPage` 筛选区新增单个「实例名/IP」搜索框（`Input.Search`，回车/点击触发、清空即复位），表格新增「实例名」列（原「实例地址」列保留）。
+- **PRD / 原型待回填（遵守冻结门禁，不改动本版 PRD 与原型）**：
+  - Module_02 §5.3 补「目标状态页支持按实例名 / 实例IP 模糊搜索」能力描述，并在字段表中补 `instance_name`；
+  - `docs/prototypes/module-02` 目标状态页原型补搜索框与「实例名」列；
+  - 明确「实例名」的权威来源是 M07 台账（经 `resource_id` 回连），非 job 名。
+- **影响面**：`platform/query/targets.go`、`platform/query/targets_test.go`、`ui-custom/web/src/types/query.ts`、`ui-custom/web/src/api/targets.ts`、`ui-custom/web/src/pages/query/TargetStatusPage.tsx`、契约快照 §2.1 / §2.1.1。
+- **已知边界**：边缘快照 / 部分 target 可能缺 `resource_id` 标签，此时实例名为空（前端降级 `-`），只能按 IP 命中。
+- **验证**：`go test ./platform/...` 全通过（新增 7 例 search 用例）、`go vet` 干净、`vitest run src/pages/query/TargetStatusPage.test.tsx` 7 例通过、`tsc --noEmit` / `eslint` 干净、`make check-repo-map` 通过。
+- **状态**：open（后端/前端/契约已落地；PRD 与原型文本待设计侧回填）

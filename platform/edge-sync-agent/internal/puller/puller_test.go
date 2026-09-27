@@ -75,6 +75,37 @@ type fakeRuntime struct{ snap RuntimeSnapshot }
 
 func (f fakeRuntime) Snapshot() RuntimeSnapshot { return f.snap }
 
+// TestBuildHeartbeatCarriesTargets 校验 buildHeartbeat 把 RuntimeSnapshot.Targets
+// 透传给心跳契约（方案 B：边缘 vmagent 本地 target 快照随心跳上报）。
+func TestBuildHeartbeatCarriesTargets(t *testing.T) {
+	cfg := testConfig("http://center:8080")
+	targets := []contract.EdgeTargetSnapshot{
+		{Job: "node", Instance: "10.0.0.1:9100", Health: "up", ScrapeDurationSeconds: 0.01},
+		{Job: "node", Instance: "10.0.0.2:9100", Health: "down", LastError: "refused"},
+	}
+	rt := fakeRuntime{snap: RuntimeSnapshot{
+		AgentVersion: "v0.2.0",
+		ConfigVersion: "v9",
+		Components:    []contract.Component{{Type: contract.ComponentTypeCollector, Status: contract.ComponentStatusRunning}},
+		Targets:       targets,
+	}}
+	p := newPuller(cfg, nil, nil, rt)
+	hb := p.buildHeartbeat()
+	if len(hb.Targets) != 2 {
+		t.Fatalf("targets not carried: %+v", hb.Targets)
+	}
+	if hb.Targets[0].Job != "node" || hb.Targets[0].Health != "up" || hb.Targets[0].ScrapeDurationSeconds != 0.01 {
+		t.Fatalf("targets[0] = %+v", hb.Targets[0])
+	}
+	if hb.Targets[1].Health != "down" || hb.Targets[1].LastError != "refused" {
+		t.Fatalf("targets[1] = %+v", hb.Targets[1])
+	}
+	// 组件字段仍应正常透传。
+	if len(hb.Components) != 1 || hb.Components[0].Type != contract.ComponentTypeCollector {
+		t.Fatalf("components not carried: %+v", hb.Components)
+	}
+}
+
 func testConfig(endpoint string) *config.Config {
 	c := config.Defaults()
 	c.CenterEndpoint = endpoint

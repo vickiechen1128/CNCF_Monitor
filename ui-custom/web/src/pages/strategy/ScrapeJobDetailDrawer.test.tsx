@@ -7,6 +7,7 @@ import type { ScrapeJob } from '../../types/strategy'
 
 const instancesMock = vi.fn()
 const targetsListMock = vi.fn()
+const queryMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: { instances: (...args: unknown[]) => instancesMock(...args) },
@@ -14,6 +15,11 @@ vi.mock('../../api/scrapeJobs', () => ({
 
 vi.mock('../../api/targets', () => ({
   targetsApi: { list: (...args: unknown[]) => targetsListMock(...args) },
+}))
+
+// 拨测 Job（F-12）改查 probe_success 回显探测结果，需 mock M02 查询 API
+vi.mock('../../api/query', () => ({
+  queryApi: { query: (...args: unknown[]) => queryMock(...args) },
 }))
 
 // 抽屉内「查看全部监控目标状态」用 useNavigate 跳转 /targets，需在 Router 上下文中渲染。
@@ -72,6 +78,7 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
   beforeEach(() => {
     instancesMock.mockReset()
     targetsListMock.mockReset()
+    queryMock.mockReset()
   })
 
   // 抽屉打开后启动 20s 自动刷新 interval：确保每个用例树卸载释放定时器
@@ -150,7 +157,15 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     expect(targetsListMock).toHaveBeenCalledWith({ job: 'job-x' })
   })
 
-  it('blackbox Job 展示拨测目标列表，不展示实例采集状态区块（B4）', async () => {
+  it('blackbox Job 展示拨测目标列表与探测结果，不展示实例采集状态区块（B4/F-12）', async () => {
+    // probe_success 的 instance 即拨测目标地址，值 1 表示通过
+    queryMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        resultType: 'vector',
+        result: [{ metric: { __name__: 'probe_success', job: 'job-x', instance: 'https://example.com' }, value: [1735780000, '1'] }],
+      },
+    })
     renderDrawer(
       <ScrapeJobDetailDrawer
         open
@@ -164,7 +179,52 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     expect(screen.getByText('拨测目标（1）')).toBeInTheDocument()
     expect(screen.getByText('HTTPS')).toBeInTheDocument()
     expect(screen.getByText('https://example.com')).toBeInTheDocument()
+    // F-12：按 probe_success 回显探测结果（通过 1 / 总数 1 + 每目标「通过」Tag）
+    expect(queryMock).toHaveBeenCalledWith({ query: 'probe_success{job="job-x"}' })
+    expect(await screen.findByText('通过 1 / 总数 1')).toBeInTheDocument()
+    expect(screen.getByText('通过')).toBeInTheDocument()
     expect(screen.queryByText('已选实例')).toBeNull()
+  })
+
+  it('blackbox Job 拨测失败时回显「失败」状态与失败计数（F-12）', async () => {
+    queryMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        resultType: 'vector',
+        result: [{ metric: { __name__: 'probe_success', job: 'job-x', instance: 'https://example.com' }, value: [1735780000, '0'] }],
+      },
+    })
+    renderDrawer(
+      <ScrapeJobDetailDrawer
+        open
+        job={job({ job_type: 'blackbox', blackbox_module: 'http_2xx', blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }], selected_instance_ids: [] })}
+        onClose={() => {}}
+        getDefaultMapping={() => undefined}
+      />,
+    )
+
+    expect(await screen.findByText('失败')).toBeInTheDocument()
+    expect(screen.getByText(/失败 1/)).toBeInTheDocument()
+  })
+
+  it('blackbox Job 未下发时拨测目标统一「待拨测」且不调 query（F-12）', async () => {
+    renderDrawer(
+      <ScrapeJobDetailDrawer
+        open
+        job={job({
+          job_type: 'blackbox',
+          change_status: 'confirmed',
+          blackbox_module: 'http_2xx',
+          blackbox_targets: [{ target: 'https://example.com', protocol: 'https' }],
+          selected_instance_ids: [],
+        })}
+        onClose={() => {}}
+        getDefaultMapping={() => undefined}
+      />,
+    )
+
+    expect(await screen.findByText('待拨测')).toBeInTheDocument()
+    expect(queryMock).not.toHaveBeenCalled()
   })
 
   it('数据面目标状态 API 失败时降级提示并保留实例名/IP，可跳转监控目标状态', async () => {

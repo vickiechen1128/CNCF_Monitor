@@ -7,10 +7,12 @@ import { useSkin } from '../../skinContext'
 import type { SkinTokens } from '../../skins'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import { targetsApi } from '../../api/targets'
+import { queryApi } from '../../api/query'
 import type { ScrapeJob, ScrapeJobInstanceItem, BlackboxTargetProtocol, CITypeExporterMapping } from '../../types/strategy'
-import type { TargetItem } from '../../types/query'
+import type { PromVectorItem, TargetItem } from '../../types/query'
 import { MONITOR_TYPE_MAP, SCRAPE_PARAM_FIELDS } from './strategyConstants'
 import type { JobInstanceScrapeStatus } from './useScrapeJobStatus'
+import { probeQueryForJob, probeStatusOfTarget } from './upStatus'
 
 const { Text } = Typography
 
@@ -116,7 +118,16 @@ const INSTANCE_STATUS_TAG: Record<JobInstanceScrapeStatus, { color: string; labe
   down: { color: 'red', label: '已下发未采到' },
 }
 
+/** 拨测目标状态 Tag 展示元信息（F-12：通过=绿 / 待拨测=warning / 失败=红） */
+const PROBE_STATUS_TAG: Record<JobInstanceScrapeStatus, { color: string; label: string }> = {
+  collecting: { color: 'green', label: '通过' },
+  pending: { color: 'warning', label: '待拨测' },
+  down: { color: 'red', label: '失败' },
+}
+
 const PENDING_TOOLTIP = '待采集：已保存变更尚未下发或未首次抓取'
+const PROBE_PENDING_TOOLTIP = '待拨测：已保存变更尚未下发或未首次探测'
+const PROBE_FAIL_TOOLTIP = '拨测失败：目标不可达或未返回预期状态码，请检查目标服务与网络连通'
 
 export interface ScrapeJobDetailDrawerProps {
   open: boolean
@@ -136,8 +147,9 @@ export interface ScrapeJobDetailDrawerProps {
 /**
  * 采集 Job 详情抽屉（Module_01 §5.4/决策 34/决策 54/决策 47-2，原型对齐）。
  * Descriptions 概览（Job 名/类型/网域/监控对象/Exporter·Module/字段来源标记/选择模式/标签模板/启用/时间/参数同步快照）
- * + 分支区块：blackbox → 拨测目标列表；standard 且已选实例数>0 → 已选实例 + 采集状态回显
- * （在线 X / 总数 Y · 待采集 Z 汇总 + 手动刷新 + 20s 自动刷新；数据源只读消费 M02 /api/v1/targets 按 job 过滤）。
+ * + 分支区块：blackbox → 拨测目标列表 + 探测结果回显（F-12：通过 X / 总数 Y 汇总 + 每目标状态 Tag，
+ * 数据源 = M02 /api/v1/query 的 `probe_success{job=...}`）；standard 且已选实例数>0 → 已选实例 + 采集状态回显
+ * （在线 X / 总数 Y · 待采集 Z 汇总 + 手动刷新 + 20s 自动刷新；数据源 = M02 /api/v1/query 的 `up{job=...}`）。
  * 无 Form，无 forceRender 竞态；Drawer 惰性挂载即可。
  */
 export function ScrapeJobDetailDrawer({
@@ -152,6 +164,8 @@ export function ScrapeJobDetailDrawer({
   const { tokens } = useSkin()
   const [items, setItems] = useState<ScrapeJobInstanceItem[]>([])
   const [targets, setTargets] = useState<TargetItem[]>([])
+  // 拨测 Job 的探测结果样本（F-12：probe_success{job=...}，按 instance 匹配各拨测目标）
+  const [probes, setProbes] = useState<PromVectorItem[]>([])
   const [loading, setLoading] = useState(false)
   // 实例信息来自控制面 DB（可靠）；目标采集状态来自数据面目标状态 API（数据面未就绪时单独降级，不影响实例列表展示）。
   const [instanceError, setInstanceError] = useState<string | null>(null)
@@ -167,6 +181,26 @@ export function ScrapeJobDetailDrawer({
     setLoading(true)
     setInstanceError(null)
     setTargetsError(null)
+    // 拨测 Job（F-12）：无实例维度，改查中心 probe_success 回显各拨测目标的探测结果。
+    // 未下发（deployed=false）时目标统一「待拨测」，无需查指标。
+    if (job.job_type === 'blackbox') {
+      if (!deployed) {
+        setProbes([])
+        setLoading(false)
+        return
+      }
+      try {
+        const res = await queryApi.query({ query: probeQueryForJob(job.job_name) })
+        setProbes(res.data && res.data.resultType === 'vector' ? res.data.result : [])
+        setStatusUpdatedAt(new Date().toLocaleTimeString())
+      } catch {
+        setProbes([])
+        setTargetsError('数据面（查询中心）未就绪，拨测结果暂不可用')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
     // Promise.allSettled：两个请求独立处理结果，任一失败只降级对应区块，不拖垮整页。
     try {
       const [insRes, tgtRes] = await Promise.allSettled([
@@ -194,7 +228,7 @@ export function ScrapeJobDetailDrawer({
     } finally {
       setLoading(false)
     }
-  }, [job])
+  }, [job, deployed])
 
   useEffect(() => {
     if (!open || !job) return
@@ -213,6 +247,15 @@ export function ScrapeJobDetailDrawer({
   const online = rows.filter((r) => r.status === 'collecting').length
   const down = rows.filter((r) => r.status === 'down').length
   const pending = rows.filter((r) => r.status === 'pending').length
+
+  // 拨测目标 ↔ probe_success 结果（F-12）：未下发时统一「待拨测」
+  const probeRows = (job?.blackbox_targets ?? []).map((t) => ({
+    target: t,
+    status: deployed ? probeStatusOfTarget(probes, t) : ('pending' as JobInstanceScrapeStatus),
+  }))
+  const probePass = probeRows.filter((r) => r.status === 'collecting').length
+  const probeFail = probeRows.filter((r) => r.status === 'down').length
+  const probePending = probeRows.filter((r) => r.status === 'pending').length
 
   const defMapping = job ? getDefaultMapping?.(job.monitor_type) : undefined
   const overridesCount = job?.mapping_overrides?.length ?? 0
@@ -356,21 +399,73 @@ export function ScrapeJobDetailDrawer({
           {job.job_type === 'blackbox' ? (
             <>
               <Text strong style={{ display: 'block', marginTop: 16 }}>
-                拨测目标（{job.blackbox_targets?.length ?? 0}）
+                拨测目标（{probeRows.length}）
               </Text>
+              {/* F-12：拨测结果回显——顶部汇总「通过 X / 总数 Y」+ 手动/20s 自动刷新；数据源 = M02 /api/v1/query（probe_success） */}
+              {targetsError && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginTop: 8, marginBottom: 8 }}
+                  message="拨测结果暂不可用"
+                  description={targetsError}
+                  action={
+                    <Button size="small" onClick={() => void load()} disabled={loading}>
+                      重试
+                    </Button>
+                  }
+                />
+              )}
+              <Space size={8} wrap style={{ marginTop: 8, marginBottom: 8 }}>
+                {!targetsError && (
+                  <Text style={{ fontSize: 12 }} strong>
+                    通过 {probePass} / 总数 {probeRows.length}
+                    {probePending > 0 && ` · 待拨测 ${probePending}`}
+                    {probeFail > 0 && (
+                      <Text type="danger" style={{ fontSize: 12 }}>
+                        {' · '}失败 {probeFail}
+                      </Text>
+                    )}
+                  </Text>
+                )}
+                <Button size="small" icon={<SyncOutlined />} onClick={() => void load()} disabled={loading}>
+                  刷新
+                </Button>
+                {statusUpdatedAt && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    已更新 {statusUpdatedAt} · 20s 自动刷新
+                  </Text>
+                )}
+              </Space>
               <List
                 bordered
                 size="small"
-                style={{ marginTop: 8 }}
-                dataSource={job.blackbox_targets ?? []}
-                renderItem={(item, index) => (
-                  <List.Item key={index}>
-                    <Space>
-                      <Tag color={protocolColor(item.protocol, tokens)}>{PROTOCOL_LABEL[item.protocol]}</Tag>
-                      <Text code>{item.url || item.target}</Text>
-                    </Space>
-                  </List.Item>
-                )}
+                dataSource={probeRows}
+                renderItem={(r) => {
+                  const meta = PROBE_STATUS_TAG[r.status]
+                  return (
+                    <List.Item
+                      key={r.target.url || r.target.target}
+                      style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}
+                    >
+                      <Space>
+                        <Tag color={protocolColor(r.target.protocol, tokens)}>{PROTOCOL_LABEL[r.target.protocol]}</Tag>
+                        <Text code>{r.target.url || r.target.target}</Text>
+                      </Space>
+                      {targetsError ? (
+                        <Tag>状态不可用</Tag>
+                      ) : r.status === 'collecting' ? (
+                        <Tag color={meta.color}>{meta.label}</Tag>
+                      ) : (
+                        <Tooltip title={r.status === 'down' ? PROBE_FAIL_TOOLTIP : PROBE_PENDING_TOOLTIP}>
+                          <Tag color={meta.color} style={{ cursor: 'pointer' }}>
+                            {meta.label}
+                          </Tag>
+                        </Tooltip>
+                      )}
+                    </List.Item>
+                  )
+                }}
               />
             </>
           ) : (

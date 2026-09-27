@@ -19,6 +19,10 @@ type metadata struct {
 	GeneratedAt   string `json:"generated_at"`
 	AgentType     string `json:"agent_type"`
 	Checksum      string `json:"checksum"`
+	// RemoteWriteURL 是网域配置的 remote_write 上报地址（网域 RemoteWriteURL），
+	// 仅在中心显式下发时才写入（omitempty）。Agent 解包后优先用作 vmagent
+	// -remoteWrite.url（T11-G1-02 方案 B）。
+	RemoteWriteURL string `json:"remote_write_url,omitempty"`
 }
 
 // targetsCarrier 与 ConfigVersion.TargetsFiles（JSON 载体 map[filename]content）对齐。
@@ -33,11 +37,14 @@ type targetsCarrier map[string]string
 //	targets/<job>.json  file_sd 目标文件（按 job 分文件，固定文件名覆盖写）
 //	rules.yml           本域告警规则（非空才含）
 //	blackbox.yml        本域 Blackbox 探测模块（可选，存在才含）
-//	metadata.json       config_version / generated_at / agent_type / 联合 checksum
+//	metadata.json       config_version / generated_at / agent_type / 联合 checksum / 网域 remote_write_url（可选）
 //
 // 返回 (zip 字节, 联合 sha256)。联合 checksum 由包内容（prometheus+rules+blackbox+
 // 各 targets 按固定序）计算，不含 metadata.json 自身，保证可复算一致。
-func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType) ([]byte, string, error) {
+//
+// remoteWriteURL 为网域配置的 remote_write 上报地址（T11-G1-02 方案 B），非空时写入
+// metadata.json 供 Agent 解包下发；空串则省略该字段（Agent 回落 env/center_endpoint 推导）。
+func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL string) ([]byte, string, error) {
 	targets := targetsCarrier{}
 	if v.TargetsFiles != "" {
 		if err := json.Unmarshal([]byte(v.TargetsFiles), &targets); err != nil {
@@ -46,9 +53,10 @@ func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType) ([]byte
 	}
 
 	zipMeta := metadata{
-		ConfigVersion: configVersionString(v),
-		GeneratedAt:   v.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		AgentType:     string(agentType),
+		ConfigVersion:  configVersionString(v),
+		GeneratedAt:    v.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		AgentType:      string(agentType),
+		RemoteWriteURL: remoteWriteURL,
 	}
 
 	// 内容条目（metadata.json 之外的包内容顺序化，供 checksum 可复算）。

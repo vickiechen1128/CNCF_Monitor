@@ -12,13 +12,13 @@ import (
 // ---- YAML 结构（Prometheus 配置产物） ----
 
 type cfgGlobal struct {
-	ScrapeInterval  string            `yaml:"scrape_interval,omitempty"`
-	ExternalLabels  map[string]string `yaml:"external_labels,omitempty"`
+	ScrapeInterval string            `yaml:"scrape_interval,omitempty"`
+	ExternalLabels map[string]string `yaml:"external_labels,omitempty"`
 }
 
 // cfgAlerting 是 prometheus.yml 的 alerting 段（决策 68-2）：把中心求值器产生的告警
 // 投递到 Alertmanager。仅中心求值器（channel=local）且存在 alertmanager.yml 挂载内容、
-// 且 AM 地址已注入时生成；边缘通道（agent_pull）的 vmagent / prometheus-agent 不支持
+// 且 AM 地址已注入时生成；边缘通道（agent_pull）的 vmagent 不支持
 // 该段，永不生成（tech-feasibility §4.2）。
 type cfgAlerting struct {
 	Alertmanagers []cfgAlertmanager `yaml:"alertmanagers"`
@@ -78,15 +78,18 @@ type relabelConf struct {
 	Replacement  string   `yaml:"replacement,omitempty"`
 }
 
-// JobBuild 是一次生成中某个 Job 的配置输入（Job 结构 + 已解析目标组）。
+// JobBuild 是一次生成中某个 Job 的配置输入（Job 结构 + 已解析目标组 + 目标解析归因）。
+// Skipped 由调用方（draft/buildArtifacts）经 ResolveJobTargets 填充，
+// Assemble 聚合进 ConfigArtifacts.TargetDiagnostics（FileName 取 targets/<job>.json）。
 type JobBuild struct {
 	Job     models.ScrapeJob
 	Targets []TargetGroup
+	Skipped []SkippedInstance
 }
 
 // Assemble 按网域组装配置产物：
 //   - prometheus.yml：global.external_labels（仅 network_domain_id/zone_type/replica）
-//     + scrape_configs 骨架（file_sd_configs 引用 targets/<job>.json 不内联）；
+//   - scrape_configs 骨架（file_sd_configs 引用 targets/<job>.json 不内联）；
 //     中心求值器额外注入 rule_files 与 alerting（见 alertmanagerAddr / centerEvaluator）；
 //   - targets/<job>.json：由调用方预解析的 Targets 生成；
 //   - rules.yml：scope=central 且 content_mode=yaml_passthrough 的规则解析合并 groups
@@ -107,6 +110,7 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 	cfg := &cfgFile{Global: cfgGlobal{ExternalLabels: ext}}
 	targets := map[string]string{}
 	modules := map[string]struct{}{}
+	var diagnostics []TargetDiagnostics
 
 	for _, jb := range jobs {
 		sc, err := jobScrapeConfig(jb.Job)
@@ -125,6 +129,15 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 			return nil, err
 		}
 		targets[fname] = content
+		// 聚合目标解析归因（C-1）：FileName 与落盘 key 同源（normalizeJobFilename），
+		// 校验命中空 targets 时据此定位 Job / 资源。仅内存承载，不落盘不参与 checksum。
+		if len(jb.Skipped) > 0 {
+			diagnostics = append(diagnostics, TargetDiagnostics{
+				JobName:  jb.Job.JobName,
+				FileName: "targets/" + fname,
+				Skipped:  jb.Skipped,
+			})
+		}
 	}
 
 	// 规则文件与 prometheus.yml 同目录下发（deployment/service.go writeStructural），
@@ -157,11 +170,12 @@ func Assemble(domainID, zoneType, replica string, jobs []JobBuild, rules []model
 	blackboxYAML := renderBlackbox(modules)
 
 	return &ConfigArtifacts{
-		PrometheusYML:   string(promYAML),
-		RulesYML:        rulesYAML,
-		BlackboxYML:     blackboxYAML,
-		TargetsFiles:    targets,
-		AlertmanagerYML: alertmanagerYML,
+		PrometheusYML:     string(promYAML),
+		RulesYML:          rulesYAML,
+		BlackboxYML:       blackboxYAML,
+		TargetsFiles:      targets,
+		AlertmanagerYML:   alertmanagerYML,
+		TargetDiagnostics: diagnostics,
 	}, nil
 }
 
@@ -194,7 +208,7 @@ func AlertmanagerTargetFromURL(raw string) string {
 // 作为存量/异常数据的防线，保证写出的 scrape_config 参数完整且显式。
 func jobScrapeConfig(job models.ScrapeJob) (scrapeConf, error) {
 	sc := scrapeConf{
-		JobName:       job.JobName,
+		JobName:        job.JobName,
 		ScrapeInterval: orDefault(job.ScrapeInterval, models.DefaultScrapeInterval),
 		ScrapeTimeout:  orDefault(job.ScrapeTimeout, models.DefaultScrapeTimeout),
 		MetricsPath:    orDefault(job.MetricsPath, models.DefaultMetricsPath),

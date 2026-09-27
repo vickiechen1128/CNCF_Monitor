@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Badge, Button, Card, Empty, Select, Table, Typography } from 'antd'
+import { Alert, Badge, Button, Card, Empty, Input, Select, Table, Typography } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { MainLayout } from '../../layouts/MainLayout'
@@ -37,6 +37,8 @@ export function TargetStatusPage() {
   const [domains, setDomains] = useState<{ id: string; name: string }[]>([])
   const [health, setHealth] = useState<TargetHealth | undefined>()
   const [networkDomain, setNetworkDomain] = useState<string | undefined>()
+  /** 实例名 / 实例IP 模糊搜索（后端匹配 M07 台账实例名与 target 实例地址） */
+  const [search, setSearch] = useState<string | undefined>()
 
   useEffect(() => {
     networkDomainApi
@@ -53,6 +55,7 @@ export function TargetStatusPage() {
         job: undefined,
         network_domain: networkDomain,
         health,
+        search,
       })
       setTargets(res.data?.activeTargets ?? [])
     } catch (e) {
@@ -61,7 +64,7 @@ export function TargetStatusPage() {
     } finally {
       setLoading(false)
     }
-  }, [health, networkDomain])
+  }, [health, networkDomain, search])
 
   useEffect(() => {
     // 请求回调内完成 setState；沿用项目既有抓取 effect 模式
@@ -75,6 +78,13 @@ export function TargetStatusPage() {
       dataIndex: 'job',
       key: 'job',
       render: (v?: string) => v || '-',
+    },
+    {
+      title: '实例名',
+      dataIndex: 'instance_name',
+      key: 'instance_name',
+      width: 200,
+      render: (v?: string) => (v ? <EllipsisText maxWidth={180}>{v}</EllipsisText> : '-'),
     },
     {
       title: '实例地址',
@@ -137,6 +147,17 @@ export function TargetStatusPage() {
           />
         )}
         <FilterBar>
+          <FilterItem label="实例名/IP" width={300}>
+            <Input.Search
+              placeholder="搜索实例名或实例IP"
+              allowClear
+              style={{ width: 220 }}
+              onSearch={(v) => setSearch(v.trim() || undefined)}
+              onChange={(e) => {
+                if (!e.target.value) setSearch(undefined)
+              }}
+            />
+          </FilterItem>
           <FilterItem label="采集状态" width={200}>
             <Select
               placeholder="全部状态"

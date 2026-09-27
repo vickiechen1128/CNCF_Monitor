@@ -204,7 +204,7 @@ func queryApplicationCandidates(db *gorm.DB, filter func(*gorm.DB) *gorm.DB, p c
 		list = append(list, InstanceCandidate{
 			ResourceID:   r.GetResourceID(),
 			InstanceName: r.ServiceName,
-			InstanceIP:   r.HealthCheckURL,
+			InstanceIP:   applicationTargetAddress(&r),
 			Status:       r.Status,
 			Disabled:     r.Status == "offline",
 		})

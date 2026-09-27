@@ -50,8 +50,8 @@ type EdgeHeartbeat struct {
 	NetworkDomainID      string          `gorm:"size:64;not null;index" json:"network_domain_id"`
 	AgentType            AgentType       `gorm:"size:30;not null" json:"agent_type"` // 同网域登记值
 	Version              string          `gorm:"size:50" json:"version,omitempty"`
-	ConfigVersion        string          `gorm:"size:64" json:"config_version,omitempty"` // 中心据此判定 config_changed
-	WalBacklogBytes      int64           `json:"wal_backlog_bytes,omitempty"`
+	ConfigVersion        string          `gorm:"size:64" json:"config_version,omitempty"`                         // 中心据此判定 config_changed
+	QueueBacklogBytes    int64           `gorm:"column:queue_backlog_bytes" json:"queue_backlog_bytes,omitempty"` // 磁盘持久发送队列积压字节数（决策 C5：采集器统一为 vmagent）
 	RemoteWriteQueueSize int             `json:"remote_write_queue_size,omitempty"`
 	RemoteWriteLastError string          `gorm:"type:text" json:"remote_write_last_error,omitempty"`
 	Hostname             string          `gorm:"size:200" json:"hostname,omitempty"`

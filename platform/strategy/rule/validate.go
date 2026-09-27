@@ -158,10 +158,17 @@ func ValidateRuleJobRefs(db *gorm.DB, content string) []jobref.Issue {
 	return ValidateRuleJobRefsForScope(db, content, models.ScopeTypeCentral, "")
 }
 
+// EffectiveJobNames 是 effectiveJobNames 的导出封装（F-14 改动 Y 入口）：供 M09
+// 发布期规则 job 引用校验（configcenter/generator.ValidateArtifacts）取 central 全域
+// 并集 job 名单。语义与私有实现完全一致；保留私有实现以便本包内直接调用与单测。
+func EffectiveJobNames(db *gorm.DB, scope models.ScopeType, domainID string) []string {
+	return effectiveJobNames(db, scope, domainID)
+}
+
 // ValidateRuleJobRefsForScope 同 ValidateRuleJobRefs，但显式指定规则 scope 与网域
 // （v0.2 逐域配置包校验用；MVP 恒 central + 空 domainID）。
 func ValidateRuleJobRefsForScope(db *gorm.DB, content string, scope models.ScopeType, domainID string) []jobref.Issue {
-	return jobref.Validate(content, effectiveJobNames(db, scope, domainID))
+	return jobref.Validate(content, EffectiveJobNames(db, scope, domainID))
 }
 
 // FindRuleJobRefErrors 返回 rule_content 中 severity=error 的 job 引用问题

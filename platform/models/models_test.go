@@ -765,12 +765,22 @@ func TestInstallationStatusEnums(t *testing.T) {
 
 // --- Module 09 (T09-01): config-center enum & JSON carrier contracts ---
 
+// TestChannelForDomainType 覆盖通道口径的单一事实来源（F-28 方案 A）：
+// 管理域↔local、边缘域↔agent_pull。
+func TestChannelForDomainType(t *testing.T) {
+	assert.Equal(t, ChannelTypeLocal, ChannelForDomainType(DomainTypeManagement))
+	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(DomainTypeEdge))
+	// 空 / 未知域类型不得落回 local（历史 bug 即错在此），一律按边缘域处理。
+	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(""))
+	assert.Equal(t, ChannelTypeAgentPull, ChannelForDomainType(DomainType("bogus")))
+}
+
 func TestConfigCenterEnumConstants(t *testing.T) {
 	// ChannelType / AgentType / DraftStatus / DeploymentStatus enum values.
 	assert.Equal(t, ChannelType("local"), ChannelTypeLocal)
 	assert.Equal(t, ChannelType("agent_pull"), ChannelTypeAgentPull)
 	assert.Equal(t, AgentType("vmagent"), AgentTypeVMAgent)
-	assert.Equal(t, AgentType("prometheus-agent"), AgentTypePrometheusAgent)
+	// 决策 C4：采集器强制单一 vmagent，prometheus-agent 已收敛移除。
 
 	assert.Equal(t, DraftStatus("pending"), DraftStatusPending)
 	assert.Equal(t, DraftStatus("confirmed"), DraftStatusConfirmed)
@@ -946,7 +956,7 @@ func TestEdgeHeartbeatComponentsPersistence(t *testing.T) {
 		AgentType:            AgentTypeVMAgent,
 		Version:              "v1.2.0",
 		ConfigVersion:        "20260724-120000",
-		WalBacklogBytes:      1048576,
+		QueueBacklogBytes:    1048576,
 		RemoteWriteQueueSize: 120,
 		Hostname:             "edge01",
 		Ip:                   "10.0.2.15",
@@ -962,7 +972,7 @@ func TestEdgeHeartbeatComponentsPersistence(t *testing.T) {
 	assert.NoError(t, db.First(&got, "network_domain_id = ?", "gov-cloud-a").Error)
 	assert.Equal(t, AgentTypeVMAgent, got.AgentType)
 	assert.Equal(t, "10.0.2.15", got.Ip)
-	assert.Equal(t, int64(1048576), got.WalBacklogBytes)
+	assert.Equal(t, int64(1048576), got.QueueBacklogBytes)
 	assert.Equal(t, 120, got.RemoteWriteQueueSize)
 	assert.Len(t, got.Components, 1)
 	assert.Equal(t, ComponentStatusRunning, got.Components[0].Status)
@@ -975,16 +985,16 @@ func TestEdgeAgentSyncFieldsAndComponents(t *testing.T) {
 
 	lastPull := time.Date(2026, 9, 17, 8, 0, 0, 0, time.UTC)
 	agent := &EdgeAgent{
-		NetworkDomainID:  "gov-cloud-a",
-		AgentType:        AgentTypeVMAgent,
-		Version:          "v1.2.0",
-		Hostname:         "edge01",
-		Ip:               "10.0.2.15",
-		Status:           "online",
-		LastConfigPull:   &lastPull,
-		ConfigVersion:    "20260724-120000",
-		ConfigSyncStatus: ConfigSyncStatusInSync,
-		WalBacklogBytes:  2048,
+		NetworkDomainID:   "gov-cloud-a",
+		AgentType:         AgentTypeVMAgent,
+		Version:           "v1.2.0",
+		Hostname:          "edge01",
+		Ip:                "10.0.2.15",
+		Status:            "online",
+		LastConfigPull:    &lastPull,
+		ConfigVersion:     "20260724-120000",
+		ConfigSyncStatus:  ConfigSyncStatusInSync,
+		QueueBacklogBytes: 2048,
 		Components: []EdgeComponent{
 			{Type: ComponentTypeCollector, Name: "vmagent", Status: ComponentStatusCrashLoop, RestartCount: 6},
 		},

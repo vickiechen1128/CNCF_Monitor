@@ -3,8 +3,14 @@ import { render, screen, fireEvent, within, cleanup } from '@testing-library/rea
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ScrapeJobListPage } from './ScrapeJobListPage'
+import type { PromVectorItem } from '../../types/query'
 
 const listMock = vi.fn()
+
+/** 包装 up 向量为 query 接口响应体（resultType='vector'） */
+function vector(result: PromVectorItem[]) {
+  return { status: 'success', data: { resultType: 'vector' as const, result } }
+}
 const updateMock = vi.fn()
 const removeMock = vi.fn()
 const instancesMock = vi.fn()
@@ -12,7 +18,7 @@ const domainListMock = vi.fn()
 const tmplListMock = vi.fn()
 const labelListMock = vi.fn()
 const mappingListMock = vi.fn()
-const targetsListMock = vi.fn()
+const queryMock = vi.fn()
 
 vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
@@ -23,9 +29,9 @@ vi.mock('../../api/scrapeJobs', () => ({
   },
 }))
 
-// 决策 47-2：实例采集状态聚合只读消费 M02 /api/v1/targets（按 job 过滤）
-vi.mock('../../api/targets', () => ({
-  targetsApi: { list: (...args: unknown[]) => targetsListMock(...args) },
+// 决策 47-2 + F-10：实例采集状态聚合只读消费 M02 /api/v1/query（up 指标，按 job 过滤）
+vi.mock('../../api/query', () => ({
+  queryApi: { query: (...args: unknown[]) => queryMock(...args) },
 }))
 
 vi.mock('../../api/domain', () => ({
@@ -94,10 +100,10 @@ beforeEach(() => {
   tmplListMock.mockReset()
   labelListMock.mockReset()
   mappingListMock.mockReset()
-  targetsListMock.mockReset()
-  // 默认：实例拉取无可用 => 聚合 pending 降级（实例拉取失败等价）；targets 返回空
+  queryMock.mockReset()
+  // 默认：实例拉取无可用 => 聚合 pending 降级（实例拉取失败等价）；up 指标返回空向量
   instancesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
-  targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [], droppedTargets: [], targetsByJob: {} } })
+  queryMock.mockResolvedValue(vector([]))
   domainListMock.mockResolvedValue({
     status: 'success',
     data: { list: [{ id: 'mc-a', name: '网域A', is_monitored: true, status: 'enabled' }], total: 1, page: 1, page_size: 100 },
@@ -390,8 +396,12 @@ describe('ScrapeJobListPage', () => {
     return { resource_id: resourceId, instance_name: `srv-${resourceId}`, instance_ip: `10.0.0.${resourceId.slice(-1)}`, status: 'confirmed' }
   }
 
-  function jobTarget(resourceId: string, health: string) {
-    return { scrapePool: 'job-x', job: 'job-x', instance: `10.0.0.${resourceId.slice(-1)}:9104`, network_domain: 'default', health, resource_id: resourceId }
+  // 构造一条 up 样本（Prometheus vector item）；health 换算为 up 值（up→'1' / down→'0'）
+  function jobTarget(resourceId: string, health: string): PromVectorItem {
+    return {
+      metric: { __name__: 'up', job: 'job-1', instance: `10.0.0.${resourceId.slice(-1)}:9104`, resource_id: resourceId },
+      value: [0, health === 'up' ? '1' : '0'],
+    }
   }
 
   it('实例采集状态列 green Tag（在线 x / 总数 y），点击打开 Job 详情（B3/B4）', async () => {
@@ -400,7 +410,7 @@ describe('ScrapeJobListPage', () => {
       data: { list: [job(1, { change_status: 'deployed', enabled: true, selected_instance_ids: ['a', 'b'] })], total: 1, page: 1, page_size: 20 },
     })
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [jobInstance('a'), jobInstance('b')], total: 2 } })
-    targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [jobTarget('a', 'up'), jobTarget('b', 'up')], droppedTargets: [], targetsByJob: {} } })
+    queryMock.mockResolvedValue(vector([jobTarget('a', 'up'), jobTarget('b', 'up')]))
 
     renderPage()
 
@@ -416,7 +426,7 @@ describe('ScrapeJobListPage', () => {
       data: { list: [job(1, { change_status: 'deployed', enabled: true, selected_instance_ids: ['a', 'b'] })], total: 1, page: 1, page_size: 20 },
     })
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [jobInstance('a'), jobInstance('b')], total: 2 } })
-    targetsListMock.mockResolvedValue({ status: 'success', data: { activeTargets: [jobTarget('a', 'up'), jobTarget('b', 'down')], droppedTargets: [], targetsByJob: {} } })
+    queryMock.mockResolvedValue(vector([jobTarget('a', 'up'), jobTarget('b', 'down')]))
 
     renderPage()
 
@@ -448,8 +458,42 @@ describe('ScrapeJobListPage', () => {
     expect(await screen.findByText('job-1')).toBeInTheDocument()
     const row1 = screen.getByText('job-1').closest('tr') as HTMLElement
     const row2 = screen.getByText('job-2').closest('tr') as HTMLElement
-    // 记录原型锚点：实例采集状态列两行均渲染 '-'（blackbox 无实例维度、total=0）
+    // 记录原型锚点：实例采集状态列两行均渲染 '-'（blackbox 无拨测目标、total=0）
     expect(within(row1).getAllByText('-').length).toBeGreaterThanOrEqual(1)
     expect(within(row2).getAllByText('-').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('实例采集状态列 blackbox 有拨测目标时按 probe_success 显示「通过 x / 总数 y」（F-12）', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          job(1, {
+            job_type: 'blackbox',
+            change_status: 'deployed',
+            enabled: true,
+            selected_instance_ids: [],
+            blackbox_targets: [
+              { target: 'http://1.1.1.1:3000/login', protocol: 'http' },
+              { target: 'http://2.2.2.2:3000/login', protocol: 'http' },
+            ],
+          }),
+        ],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    queryMock.mockResolvedValue(
+      vector([
+        { metric: { __name__: 'probe_success', job: 'job-1', instance: 'http://1.1.1.1:3000/login' }, value: [0, '1'] },
+        { metric: { __name__: 'probe_success', job: 'job-1', instance: 'http://2.2.2.2:3000/login' }, value: [0, '0'] },
+      ]),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText('通过 1 / 总数 2')).toBeInTheDocument()
+    expect(queryMock).toHaveBeenCalledWith({ query: 'probe_success{job="job-1"}' })
   })
 })

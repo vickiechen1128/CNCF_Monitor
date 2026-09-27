@@ -244,11 +244,18 @@ func TestGenerateDraftChangeNoSequence(t *testing.T) {
 
 func TestGenerateDraftBuildsChangeItemsWithJobsAndRules(t *testing.T) {
 	db := newMemDB(t)
-	seedMonitoredDomain(t, db, "edge-g7", true)
+	seedMonitoredDomain(t, db, "default-g7", true)
+	// F-14：central 规则固定挂中心求值器域（local 通道）发布；边缘域产物不携带 rules。
+	require.NoError(t, db.Model(&models.NetworkDomain{}).Where("id = ?", "default-g7").
+		Updates(map[string]interface{}{
+			"domain_type": models.DomainTypeManagement,
+			"channel":     models.ChannelTypeLocal,
+			"zone_type":   "intranet",
+		}).Error)
 
 	job := &models.ScrapeJob{
 		JobName: "node-exporter-prod", JobType: models.JobTypeStandard,
-		ResourceType: models.ResourceTypeHost, NetworkDomainID: "edge-g7",
+		ResourceType: models.ResourceTypeHost, NetworkDomainID: "default-g7",
 		InstanceSelectionMode: models.InstanceSelectionManual, ScrapeInterval: "15s",
 		ScrapeTimeout: "10s", MetricsPath: "/metrics", Scheme: "http",
 		AuthType: models.AuthTypeNone, DraftStatus: "ready", ChangeStatus: models.ChangeStatusPending,
@@ -263,7 +270,7 @@ func TestGenerateDraftBuildsChangeItemsWithJobsAndRules(t *testing.T) {
 	}
 	require.NoError(t, db.Create(rule).Error)
 
-	d, err := GenerateDraft(db, "edge-g7")
+	d, err := GenerateDraft(db, "default-g7")
 	require.NoError(t, err)
 	var items []models.ConfigChangeItem
 	require.NoError(t, json.Unmarshal([]byte(d.ChangeItems), &items))
@@ -689,6 +696,13 @@ func TestGenerateDraftFailedUnlocksSourceRule(t *testing.T) {
 	stubValidationTools(t) // 外部工具校验通过后，才能推进到规则 job 引用门禁
 	db := newMemDB(t)
 	seedMonitoredDomain(t, db, "dom-u2", true)
+	// F-14：central 规则固定挂中心求值器域（local 通道）发布；边缘域 rules 不进产物、
+	// 不触发 jobref 门禁，无法复现本动线。
+	require.NoError(t, db.Model(&models.NetworkDomain{}).Where("id = ?", "dom-u2").
+		Updates(map[string]interface{}{
+			"domain_type": models.DomainTypeManagement,
+			"channel":     models.ChannelTypeLocal,
+		}).Error)
 	seedHost(t, db, "dom-u2", "res-1")
 	seedJob(t, db, "dom-u2", "job1") // 有实质变更项，避免 ErrNoChanges
 	r := seedPendingRule(t, db, "rule-u2")
@@ -1086,9 +1100,11 @@ func TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting(t *testing.T) {
 	assert.Contains(t, dCenter.PrometheusYml, "am-center:9093", "alerting target 须为注入地址")
 	assert.Contains(t, dCenter.PrometheusYml, "rule_files:", "中心须引用 rules.yml")
 
-	// --- 边缘：agent_pull + 规则 ---
+	// --- 边缘：agent_pull + 规则（F-14 改动 X 后规则不进边缘产物，须有 job 支撑变更项）---
 	db2 := newMemDB(t)
 	seedMonitoredDomain(t, db2, "edge-am", true)
+	seedHost(t, db2, "edge-am", "res-1")
+	seedJob(t, db2, "edge-am", "edge-am-job")
 	require.NoError(t, db2.Create(&models.MonitoringRule{
 		Name: "edge-rule", ContentMode: models.RuleContentModeYAMLPassthrough,
 		RuleContent: "groups:\n  - name: e\n    rules:\n      - alert: E\n",

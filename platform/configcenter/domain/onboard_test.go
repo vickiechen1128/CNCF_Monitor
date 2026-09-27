@@ -84,6 +84,19 @@ func TestMonitorDomainDefaultForcesLocal(t *testing.T) {
 	assert.Equal(t, "", out.Domain.TokenMaskedView)
 }
 
+// TestMonitorDomainManagementNonDefaultIDForcesLocal 覆盖 F-28 方案 A 的口径统一：
+// 分支依据是 domain_type 而非 id==default，故管理域（即便 id 不是 default）仍固定
+// local 且不签发 token。
+func TestMonitorDomainManagementNonDefaultIDForcesLocal(t *testing.T) {
+	db := openTestDB(t)
+	seedDomain(t, db, "mgmt-other", models.DomainTypeManagement, false)
+
+	out, err := MonitorDomain(db, "mgmt-other", MonitorParams{})
+	require.NoError(t, err)
+	assert.Equal(t, models.ChannelTypeLocal, out.Domain.Channel, "管理域按域类型固定 local")
+	assert.Empty(t, out.Token, "管理域不签发 token")
+}
+
 func TestMonitorDomainEdgeAgentPullSignsToken(t *testing.T) {
 	db := openTestDB(t)
 	seedDomain(t, db, "edge-e1", models.DomainTypeEdge, false)

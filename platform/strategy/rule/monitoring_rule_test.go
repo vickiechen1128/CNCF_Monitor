@@ -513,6 +513,9 @@ func TestEffectiveJobNamesScope(t *testing.T) {
 	require.Equal(t, []string{"job-a"}, effectiveJobNames(db, models.ScopeTypeEdge, "d1"))
 	// edge 未指定网域：不判定（返回空集合）
 	require.Nil(t, effectiveJobNames(db, models.ScopeTypeEdge, ""))
+	// 导出封装 EffectiveJobNames（F-14 改动 Y 入口：M09 发布期校验输入集，central 全库并集）。
+	require.ElementsMatch(t, []string{"job-a", "job-b"}, EffectiveJobNames(db, models.ScopeTypeCentral, ""))
+	require.Equal(t, []string{"job-a"}, EffectiveJobNames(db, models.ScopeTypeEdge, "d1"))
 }
 
 // fixtureForJobRef 返回引用指定 job_name 的合法规则 YAML。

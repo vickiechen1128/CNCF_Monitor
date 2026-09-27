@@ -3,7 +3,8 @@
 // （validation_status / config_sync_status / 变更对象 / 风险 / 受影响文件 /
 // ConfigChangeItem / AffectedConfigFile / ConfigDraftMetadata）。
 // 参见 docs/02-product-requirements/Modules/Module_09_Network_Domain_and_Edge_Config_Center.md
-//   §5.4（metadata / change_items JSON 载体）、§8 状态机、§9.2 技术验收。
+//
+//	§5.4（metadata / change_items JSON 载体）、§8 状态机、§9.2 技术验收。
 package models
 
 import "strings"
@@ -24,7 +25,7 @@ type ValidationCause string
 
 // Validation cause 常量。
 const (
-	ValidationCauseUserConfig   ValidationCause = "user_config"   // 用户配置问题，可修复（展示「重新校验 + 前往修改」）
+	ValidationCauseUserConfig    ValidationCause = "user_config"    // 用户配置问题，可修复（展示「重新校验 + 前往修改」）
 	ValidationCausePlatformFault ValidationCause = "platform_fault" // 平台技术故障，自动重试、用户不可见
 )
 
@@ -53,11 +54,11 @@ type ConfigSyncStatus string
 
 // Config sync status 常量（五档）。
 const (
-	ConfigSyncStatusInSync          ConfigSyncStatus = "in_sync"
-	ConfigSyncStatusOutOfSync       ConfigSyncStatus = "out_of_sync"
-	ConfigSyncStatusUnknown         ConfigSyncStatus = "unknown"
-	ConfigSyncStatusManualOverride  ConfigSyncStatus = "manual_override"
-	ConfigSyncStatusNoVersion       ConfigSyncStatus = "no_version"
+	ConfigSyncStatusInSync         ConfigSyncStatus = "in_sync"
+	ConfigSyncStatusOutOfSync      ConfigSyncStatus = "out_of_sync"
+	ConfigSyncStatusUnknown        ConfigSyncStatus = "unknown"
+	ConfigSyncStatusManualOverride ConfigSyncStatus = "manual_override"
+	ConfigSyncStatusNoVersion      ConfigSyncStatus = "no_version"
 )
 
 // OutOfSyncCause 表示 out_of_sync 的成因（v0.2，MVP 仅占位常量）。
@@ -68,6 +69,10 @@ const (
 	OutOfSyncCausePendingDraft OutOfSyncCause = "pending_draft"
 	OutOfSyncCausePullPending  OutOfSyncCause = "pull_pending"
 	OutOfSyncCauseLocalReset   OutOfSyncCause = "local_reset"
+	// OutOfSyncCauseApplyFailed：已拉取最新配置但应用失败（已回滚至上一可用版本）。
+	// 与 pull_pending（等待拉取）语义区分——F-16「同步中」仅指 pull_pending，
+	// apply_failed 展示为「同步失败」。M11 设计提案 D-2。
+	OutOfSyncCauseApplyFailed OutOfSyncCause = "apply_failed"
 )
 
 // ChangeItemTarget 表示结构化变更清单中的变更对象（源数据对象枚举）。
@@ -75,12 +80,12 @@ type ChangeItemTarget string
 
 // 变更对象常量（与 Module_01 采集 Job / 规则编辑及 Module_07 资源 / 标签模板功能对象对齐）。
 const (
-	ChangeItemTargetScrapeJob        ChangeItemTarget = "scrape_job"        // 采集 Job
-	ChangeItemTargetTargetInstance   ChangeItemTarget = "target_instance"   // 采集目标（实例）
-	ChangeItemTargetMonitoringRule   ChangeItemTarget = "monitoring_rule"   // 告警规则
-	ChangeItemTargetProbeTarget      ChangeItemTarget = "probe_target"      // 拨测目标
-	ChangeItemTargetLabelTemplate    ChangeItemTarget = "label_template"    // 标签模板
-	ChangeItemTargetAlertmanagerCfg  ChangeItemTarget = "alertmanager_config" // 告警收敛配置（决策 60：管理域 default scope）
+	ChangeItemTargetScrapeJob       ChangeItemTarget = "scrape_job"          // 采集 Job
+	ChangeItemTargetTargetInstance  ChangeItemTarget = "target_instance"     // 采集目标（实例）
+	ChangeItemTargetMonitoringRule  ChangeItemTarget = "monitoring_rule"     // 告警规则
+	ChangeItemTargetProbeTarget     ChangeItemTarget = "probe_target"        // 拨测目标
+	ChangeItemTargetLabelTemplate   ChangeItemTarget = "label_template"      // 标签模板
+	ChangeItemTargetAlertmanagerCfg ChangeItemTarget = "alertmanager_config" // 告警收敛配置（决策 60：管理域 default scope）
 	// 决策 68-2 补丁：prometheus.yml 的 alerting 段由生成器注入（不来自 M01/M08 源数据），
 	// 须参与变更清单 diff，否则「仅 alerting 变化」被 ErrNoChanges 抑制、配置永远无法重新下发。
 	ChangeItemTargetPromAlerting ChangeItemTarget = "prom_alerting" // Prometheus 告警投递配置（alerting 段）
@@ -127,8 +132,8 @@ const (
 //	Risk          风险等级 low/high
 type ConfigChangeItem struct {
 	ID            string   `json:"id"`
-	Type          string   `json:"type"`           // ChangeItemType
-	Target        string   `json:"target"`         // ChangeItemTarget
+	Type          string   `json:"type"`   // ChangeItemType
+	Target        string   `json:"target"` // ChangeItemTarget
 	Description   string   `json:"description"`
 	AffectedFiles []string `json:"affected_files"` // AffectedFile 列表
 	Risk          string   `json:"risk"`           // Risk
@@ -136,8 +141,8 @@ type ConfigChangeItem struct {
 
 // AffectedConfigFile 表达单个受影响配置文件的判定结果（结构体载体，保留扩展位）。
 type AffectedConfigFile struct {
-	Name  string `json:"name"`
-	Risk  string `json:"risk,omitempty"`
+	Name string `json:"name"`
+	Risk string `json:"risk,omitempty"`
 }
 
 // ConfigDraftMetadata 是 ConfigDraft / ConfigVersion metadata 的 JSON 载体
@@ -148,7 +153,7 @@ type ConfigDraftMetadata struct {
 	Checksum             string `json:"checksum"`                          // 联合 checksum（sha256 拼接）
 	GeneratorVersion     string `json:"generator_version,omitempty"`       // 生成器版本
 	SupersededByChangeNo string `json:"superseded_by_change_no,omitempty"` // 被更晚 pending 取代时指向新单
-	SupersedesChangeNo  string `json:"supersedes_change_no,omitempty"`    // 取代更早 pending 时指向旧单
+	SupersedesChangeNo   string `json:"supersedes_change_no,omitempty"`    // 取代更早 pending 时指向旧单
 }
 
 // ValidValidationStatus 返回合法的 validation_status 取值集合。

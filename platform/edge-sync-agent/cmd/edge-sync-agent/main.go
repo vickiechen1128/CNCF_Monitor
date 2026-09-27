@@ -11,9 +11,14 @@
 //
 // 环境变量（必填）：NETWORK_DOMAIN_ID / TOKEN / CENTER_ENDPOINT；
 // 可选：EDGE_CONFIG_ROOT（默认 /opt/apps/edge-sync-agent/edge-config）、
-// EDGE_AGENT_TYPE / EDGE_AGENT_VERSION、EDGE_WAL_DIR、
-// EDGE_COLLECTOR_BIN / EDGE_BLACKBOX_BIN、EDGE_PROM_HEALTH_URL /
-// EDGE_PROM_RELOAD_URL、EDGE_BLACKBOX_ADDR。systemd 部署见 packaging/service。
+// EDGE_AGENT_TYPE / EDGE_AGENT_VERSION、EDGE_WAL_DIR、EDGE_REMOTE_WRITE_URL、
+// EDGE_COLLECTOR_BIN / EDGE_BLACKBOX_BIN、EDGE_COLLECTOR_ADDR /
+// EDGE_PROM_HEALTH_URL（改 EDGE_COLLECTOR_ADDR 时需同步改）、EDGE_BLACKBOX_ADDR。
+// systemd 部署见 packaging/service。
+//
+// remote_write 上报地址解析（T11-G1-02，优先级从高到低）：配置包 metadata.json 下发
+// 的 remote_write_url（B）> EDGE_REMOTE_WRITE_URL 环境变量 > center_endpoint 推导
+// （A，去尾斜杠 + "/api/v1/write"）> 环回兜底 http://127.0.0.1:9090/api/v1/write。
 package main
 
 import (
@@ -78,14 +83,13 @@ func run() error {
 			return ""
 		}
 		return dep.CurrentDir()
-	}, os.Stderr)
+	}, cfg.CenterEndpoint, os.Stderr)
 
 	promReload := func(ctx context.Context, _ deployer.ComponentType, _ string) error {
-		// 本地采集器优先 SIGHUP（vmagent 热加载）；进程未起时回落 vmagent HTTP /-/reload。
-		if err := probe.Signal(contract.ComponentTypeCollector, syscall.SIGHUP); err == nil {
-			return nil
-		}
-		return httpPostOK(ctx, probe.httpc, envOr("EDGE_PROM_RELOAD_URL", "http://127.0.0.1:8429/-/reload"))
+		// 采集器重载：参数未变（仅 prometheus.yml）时 SIGHUP 热加载（probe.Reload 内部
+		// 判定）；remote_write_url 等 CLI 参数变化时 probe.Reload 自动 Stop+Start 重启
+		// vmagent 以应用新 -remoteWrite.url（F-9 缺陷②：SIGHUP 无法改启动时固定的参数）。
+		return probe.Reload(contract.ComponentTypeCollector)
 	}
 	bbReload := func(ctx context.Context, _ deployer.ComponentType, _ string) error {
 		// 配置包含 blackbox.yml 后，先把 blackbox_exporter 纳入守护集（首次拉包时组件集
@@ -108,7 +112,18 @@ func run() error {
 
 	hostname, _ := os.Hostname()
 	ip := localIP()
-	rt := &runtimeProvider{cfg: cfg, deployer: dep, sv: sv, hostname: hostname, ip: ip}
+	// 方案 B：vmagent 本机 HTTP 监听地址（默认 127.0.0.1:8429，可用 EDGE_COLLECTOR_ADDR
+	// 覆写，与探针共用），心跳时读取其 /api/v1/targets 快照上报中心。
+	vmTargetAddr := envOr("EDGE_COLLECTOR_ADDR", defaultVMAgentTargetsAddr)
+	rt := &runtimeProvider{
+		cfg:           cfg,
+		deployer:      dep,
+		sv:            sv,
+		hostname:      hostname,
+		ip:            ip,
+		logger:        logg,
+		targetBaseURL: "http://" + vmTargetAddr,
+	}
 
 	tok := token.NewStore(cfg.Token)
 	cli := client.NewClient(cfg, tok, logg)

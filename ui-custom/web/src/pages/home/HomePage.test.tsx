@@ -170,15 +170,15 @@ const DASHBOARD_OK = {
     unclassified_monitored_count: 36,
     probe_target_count: 12,
     probe_target_abnormal_count: 1,
-    // L3 明细（决策 93 effective 数据）：2 down + 5 up，覆盖「异常排前」与 >5 行分页分支
+    // L3 明细（决策 93 effective 数据）：2 down + 5 up，覆盖「异常排前」「归属网域」与 >5 行分页分支
     probe_targets: [
-      { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:36:00+08:00' },
-      { url: 'https://www.example.cn/cert-check', status: 'down', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:27:00+08:00' },
-      { url: 'https://www.example.cn/', status: 'up', biz_name: '用户业务', app_name: '', last_probe_at: '2026-09-19T09:38:00+08:00' },
-      { url: 'https://data-api.example.cn/health', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:38:00+08:00' },
-      { url: 'https://order.example.cn/submit', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-      { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', biz_name: '支付业务', app_name: '支付平台', last_probe_at: '2026-09-19T09:37:00+08:00' },
-      { url: 'https://gateway.example.cn/v1/ping', status: 'up', biz_name: '数据服务', app_name: '数据网关', last_probe_at: '2026-09-19T09:36:00+08:00' },
+      { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:36:00+08:00' },
+      { url: 'https://www.example.cn/cert-check', status: 'down', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:27:00+08:00' },
+      { url: 'https://www.example.cn/', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { url: 'https://data-api.example.cn/health', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:38:00+08:00' },
+      { url: 'https://order.example.cn/submit', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
+      { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试边缘域', last_probe_at: '2026-09-19T09:36:00+08:00' },
     ],
   },
 }
@@ -359,6 +359,28 @@ const HISTORY_OK = {
 const HISTORY_EMPTY = {
   status: 'success',
   data: { list: [], total: 0, page: 1, page_size: 200 },
+}
+
+/**
+ * 把视口 stub 成窄屏（≤767px）。
+ * 只对首页断点查询返回 true——antd 内部的 `(min-width: ...)` 响应式查询仍为 false，
+ * 避免顺带改变 antd 自身（如 Sider breakpoint）的判定。
+ * afterEach 由 setupAntdTest 统一 unstubAllGlobals 还原。
+ */
+function stubNarrowViewport() {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({
+      matches: query.includes('max-width: 767px'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  )
 }
 
 describe('HomePage', () => {
@@ -658,14 +680,16 @@ describe('HomePage', () => {
     const dataRows = within(panel).getAllByRole('row')
     expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
     expect(dataRows[1]).toHaveTextContent('异常')
+    // 归属网域列展示网域展示名（决策 93 归属口径：网域为主）
+    expect(dataRows[1]).toHaveTextContent('生产内网域')
 
     // 7 条 > 每页 5 行 → 分页器出现
     expect(panel.querySelector('.ant-pagination')).not.toBeNull()
   })
 
-  it('renders backend probe_targets with unknown status and degrades empty biz/app/last_probe_at to dash', async () => {
-    // 「真实款」明细：MVP 后端 status 恒空串（未知）、biz_name/app_name 空串、
-    // last_probe_at 为 nil。断言未知态中性呈现、空字段 '-' 降级，不渲染成 up/down 绿红。
+  it('renders backend probe_targets with unknown status, domain ownership and dash degradation', async () => {
+    // 「真实款」明细：后端 status 无 probe_success 样本时为空串（未知）、归属为网域、
+    // last_probe_at 为 nil。断言未知态中性呈现、归属网域列展示、空字段 '-' 降级。
     setupHomeMock({
       [DASHBOARD_PATH]: {
         status: 'success',
@@ -673,10 +697,10 @@ describe('HomePage', () => {
           ...DASHBOARD_OK.data,
           probe_targets: [
             // 两条未知（status '' + 空 last_probe_at），同未知态保持原序（不强制前置）
-            { url: 'https://gw.example.cn/ping', status: '', biz_name: '', app_name: '', last_probe_at: undefined },
+            { url: 'https://gw.example.cn/ping', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
             // 明确 down 强制排最前，仍正常呈现「异常」
-            { url: 'https://pay-api.example.cn/healthz', status: 'down', biz_name: '支付业务', app_name: '支付平台', last_probe_at: isoAgo(5) },
-            { url: 'https://www.example.cn/a', status: '', biz_name: '', app_name: '', last_probe_at: undefined },
+            { url: 'https://pay-api.example.cn/healthz', status: 'down', network_domain_id: 'default', network_domain_name: '管理网域', last_probe_at: isoAgo(5) },
+            { url: 'https://www.example.cn/a', status: '', network_domain_id: 'edge-1', network_domain_name: '边缘网域A', last_probe_at: undefined },
           ],
         },
       },
@@ -697,12 +721,15 @@ describe('HomePage', () => {
     // 明确 down 排最前
     expect(dataRows[1]).toHaveTextContent('https://pay-api.example.cn/healthz')
     expect(dataRows[1]).toHaveTextContent('异常')
+    // 归属网域列展示网域展示名（替代原业务域 / 应用两列）
+    expect(dataRows[1]).toHaveTextContent('管理网域')
+    expect(dataRows[2]).toHaveTextContent('边缘网域A')
     // 两条未知保持原序（gw 在前、www 在后），渲染「未知」态而非 正常/异常 绿红
     expect(dataRows[2]).toHaveTextContent('https://gw.example.cn/ping')
     expect(dataRows[2]).toHaveTextContent('未知')
     expect(dataRows[3]).toHaveTextContent('https://www.example.cn/a')
     expect(dataRows[3]).toHaveTextContent('未知')
-    // 空 biz_name / app_name / last_probe_at → '-' 降级（未知行含 '-'）
+    // 空 last_probe_at → '-' 降级（未知行含 '-'）
     for (const row of [dataRows[2], dataRows[3]]) {
       expect(row.textContent).toContain('-')
     }
@@ -1495,5 +1522,84 @@ describe('HomePage', () => {
 
     expect(screen.queryByText('可视化大屏')).not.toBeInTheDocument()
     expect(screen.queryByText('进入可视化大屏')).not.toBeInTheDocument()
+  })
+
+  it('adapts to the mobile viewport: L0 two per row, L1 one per row, L4/L5 stacked, stat strip 2×2', async () => {
+    stubNarrowViewport()
+    // Prom 有 firing 告警 → 告警卡不落入空态，四格统计条会真实渲染（用于断言 2×2）
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    // L0：窄屏降为两卡一行（xs / sm 双档 12 栅格），不再走桌面 flex:1 等宽
+    const l0Cols = Array.from(screen.getByTestId('l0-section').querySelectorAll('.ant-col'))
+    expect(l0Cols).toHaveLength(5)
+    l0Cols.forEach((col) => {
+      expect(col.className).toContain('ant-col-xs-12')
+      expect(col.className).toContain('ant-col-sm-12')
+      expect((col as HTMLElement).style.flex).toBe('')
+    })
+
+    // L1：窄屏降为单卡一行（24 栅格 = 整行）——本卡内容更宽，两卡一行会压断子类 chip
+    const l1Cols = Array.from(screen.getByTestId('l1-grid').querySelectorAll('.ant-col'))
+    expect(l1Cols).toHaveLength(5)
+    l1Cols.forEach((col) => {
+      expect(col.className).toContain('ant-col-xs-24')
+      expect((col as HTMLElement).style.flex).toBe('')
+    })
+
+    // L4 / L5：由同排 1.6:1 改为纵向堆叠；display 仍为 flex、alignItems 仍 stretch（等高语义不破）
+    const row = screen.getByTestId('home-l45-row')
+    expect(row.style.display).toBe('flex')
+    expect(row.style.flexDirection).toBe('column')
+    expect(row.style.alignItems).toBe('stretch')
+    expect((screen.getByTestId('alert-status-card').parentElement as HTMLElement).style.flex).toBe('')
+
+    // 告警卡四格统计条：窄屏 2×2（每格半宽 + 换行），避免长标签溢出到相邻格
+    expect(screen.getByTestId('alert-stat-strip').style.flexWrap).toBe('wrap')
+    expect((screen.getByTestId('alert-today-count').parentElement as HTMLElement).style.flex).toBe(
+      '0 0 50%',
+    )
+  })
+
+  it('keeps the desktop five-per-row grids and the side-by-side alert row on wide viewports', async () => {
+    // 默认 matchMedia 全部 matches:false（setupAntdTest）→ 宽屏分支
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    // L0 / L1 仍为 Col flex:1 五卡一行（桌面版式逐字不变）。
+    // 断言值取 jsdom 归一化后的 `1 1 0%`（`flex: 1` 简写被展开），而非字面量 '1'
+    const l0Cols = Array.from(screen.getByTestId('l0-section').querySelectorAll('.ant-col'))
+    const l1Cols = Array.from(screen.getByTestId('l1-grid').querySelectorAll('.ant-col'))
+    ;[...l0Cols, ...l1Cols].forEach((col) => {
+      expect((col as HTMLElement).style.flex).toBe('1 1 0%')
+      expect(col.className).not.toContain('ant-col-xs-12')
+      expect(col.className).not.toContain('ant-col-xs-24')
+    })
+
+    // L4 / L5：同排（row），左告警 flex 1.6、右指引 flex 1（jsdom 将简写归一化为 `N 1 0%`）
+    const row = screen.getByTestId('home-l45-row')
+    expect(row.style.flexDirection).toBe('row')
+    expect((screen.getByTestId('alert-status-card').parentElement as HTMLElement).style.flex).toBe(
+      '1.6 1 0%',
+    )
+    expect(
+      (screen.getByTestId('onboarding-steps-card').parentElement as HTMLElement).style.flex,
+    ).toBe('1 1 0%')
+
+    // 四格统计条维持一行四格（不换行）
+    expect(screen.getByTestId('alert-stat-strip').style.flexWrap).toBe('')
+    expect((screen.getByTestId('alert-today-count').parentElement as HTMLElement).style.flex).toBe(
+      '1 1 0%',
+    )
   })
 })

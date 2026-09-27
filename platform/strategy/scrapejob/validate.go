@@ -19,7 +19,8 @@ const (
 //   - network_domain_id 必填且 is_monitored=true 且 status=enabled（冻结 bad_request）
 //   - monitor_type ∈ ValidMonitorTypes（standard）
 //   - 采集参数可留空（F-28）：留空=继承映射/模板/全局默认，保存时由
-//     resolveJobScrapeParams 解析为生效快照
+//     resolveJobScrapeParams 解析为生效快照；**例外** application_http 的
+//     metrics_path 必须显式填写（应用指标端点无通用默认值）
 //   - 认证TLS：basic→username+password 必填；bearer→token 必填；password/token 仅存储
 //   - blackbox：blackbox_module 必填 + blackbox_targets 非空且 protocol ∈ 限定集；
 //     monitor_type / exporter_template_id 置空
@@ -66,6 +67,13 @@ func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error {
 		// 由 resolveJobScrapeParams 在保存时解析为生效快照（映射→模板→全局兜底）。
 		if !models.ValidMonitorType(job.MonitorType) {
 			return fmt.Errorf("monitor_type %q 非法", job.MonitorType)
+		}
+		// application_http：采集路径必须显式填写。application 的采集地址（主机 + 采集
+		// 端口）由 M07 资源台账给出（generator 拼接 endpoint:port），而「指标落在哪个
+		// 路径、用什么协议」由本 Job 决定；应用指标端点没有通用默认值，留空继承 /metrics
+		// 会静默抓不到样本，故在此强制显式填写。
+		if job.MonitorType == models.MonitorTypeApplicationHTTP && strings.TrimSpace(job.MetricsPath) == "" {
+			return fmt.Errorf("monitor_type=application_http 时必须填写采集路径 metrics_path（例如 /actuator/prometheus）；应用指标端点没有通用默认值，不能留空继承")
 		}
 	}
 
@@ -211,13 +219,16 @@ func resolveJobScrapeParams(db *gorm.DB, job *models.ScrapeJob) {
 	}
 
 	// 全局兜底：保证 ready 任务的生效参数永远非空。
+	// 例外（application_http）：应用指标端点没有通用默认值（/metrics 对 Spring Boot
+	// actuator 之类的容器无效），故不回填全局兜底——留空由 validateJobRequest 拦为
+	// bad_request，强制用户显式填写（如 /actuator/prometheus）。
 	if job.ScrapeInterval == "" {
 		job.ScrapeInterval = models.DefaultScrapeInterval
 	}
 	if job.ScrapeTimeout == "" {
 		job.ScrapeTimeout = models.DefaultScrapeTimeout
 	}
-	if job.MetricsPath == "" {
+	if job.MetricsPath == "" && job.MonitorType != models.MonitorTypeApplicationHTTP {
 		job.MetricsPath = models.DefaultMetricsPath
 	}
 	if job.Scheme == "" {

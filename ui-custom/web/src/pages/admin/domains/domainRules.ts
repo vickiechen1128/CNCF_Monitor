@@ -7,7 +7,8 @@ import type { NetworkDomain } from '../../../types/domain'
  */
 export function isVacantDomain(d: NetworkDomain): boolean {
   if (d.is_monitored) return false
-  if (d.monitored_status === 'online') return false
+  // 运行态存在即非空域（normal/partial/offline 均表明已纳管监控；unknown 表示无节点数据）
+  if (d.monitored_status && d.monitored_status !== 'unknown') return false
   if (d.agent_version) return false
   if (d.channel === 'agent_pull' || d.token || d.center_endpoint) return false
   return true

@@ -244,3 +244,36 @@
 - **请求结论**：请设计侧在下一轮 PRD 迭代中（a）择定 `instance_name` 的目标标签并修正 §5.2 矛盾；（b）为 §5.12 A 通用行补适用范围括注（4 类静态资源 + db/mw 取 `InstanceIP`）。
 - **备注**：本次未直接修改 M07 PRD 正文与版本面——本分支为 M08 开发分支，避免触碰其他模块的 PRD 版本归口（跨模块冲突风险）；实现侧已按上述建议口径预留（M08 决策 70 三期范围收窄至 4 类静态资源）。
 - **状态**：open（待设计侧收割）
+
+---
+
+## 12. 新增登记（2026-09-24，Edge 配置同步卡死根因定位期发现）
+
+### F-11. 应用资源 `health_check_url` 命名与用途错位 + 可选致空值静默流入下游（① 需设计确认 + ② 实现偏差）
+
+- **类别**：① 需产品/设计确认（字段命名与用途口径）+ ② 实现偏差（应用类别采集地址来源未明确、空值无拦截）
+- **PRD 章节 / 文件位置**：`Module_07_Monitoring_Object_Management.md` §5.2（application 字段表）/ §5.13；实现侧 [validate.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/config/resource/validate.go#L257-L287)（`validateApplication`）、[targets.go](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/configcenter/generator/targets.go#L83-L97)（`resolveResource`）、前端 [ResourcesPage.tsx](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/ui-custom/web/src/pages/resources/ResourcesPage.tsx#L526-L532) 与应用表单
+- **触发**：2026-09-24 边缘域采集节点「配置同步」永久「同步中」+ 主机 / 拨测在线数全 0 的线上故障定位（M09 F-31 / M11 F-17），溯源到 M07 应用资源字段口径。
+- **实测事实**：
+  1. **字段名与用途错位**：展示名为「健康检查 URL」（`health_check_url`），但 application 类别的采集目标地址**只取该字段**（`Address: application.HealthCheckURL`）；`protocol` / `endpoint` / `port` **完全不参与采集地址拼接**（对比 host/database/middleware 走 exporter 端口拼接）。用户按字面填 `/actuator/health`（JSON）会「地址非空但无样本」，正确应填 exporter 指标端点（如 `http://10.10.1.4:8081/actuator/prometheus`）。
+  2. **可选字段 + 无拦截**：`validateApplication` 对 `health_check_url` 是「非空才校验格式」→ **可留空入库**；同函数中 `endpoint` 必填、`port` 仅校验范围（0 合法 → **实际非必填**）、`protocol` 空则跳过校验。
+  3. **空值静默流入下游**：生成器对空地址实例 `continue` **静默跳过**（无日志、无提示）→ ① 单实例 Job → 产出空 targets（`[]`）→ 边缘拒收 → 配置永久卡死；② 多实例 Job → 其余实例正常、该实例**静默漏采**，列表显示「已下发未采到」。**用户实测该行即此表现**：`服务名=test1 / 健康检查URL "-"(空) / 协议=https / 端点=10.10.1.4 / 端口=8081 / 采集状态=已下发未采到`。
+- **用户操作触发点**：**① 登记 / 编辑应用资源时 `health_check_url` 留空 → ② 该实例被某个采集 Job 选中**。两处均无拦截、无提示。
+- **请求结论（PRD 口径）**：
+  - （a）明确 application 的**采集地址权威来源**即该字段，并在 §5.2 / §5.13 写清语义为「exporter 指标端点 URL（非业务健康检查接口）」并给示例；
+  - （b）确认 `endpoint` / `port` / `protocol` 在 application 下的**职责边界**（实测：`endpoint` 参与唯一定位键 `category|domain|service_name|endpoint`（[validate.go L378-L379](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/platform/config/resource/validate.go#L378-L379)）与标签映射；`port` / `protocol` 不参与采集地址、现状即非必填）；
+  - （c）确认字段展示名是否由「健康检查 URL」改为语义更准的表述（如「采集地址（exporter 指标端点）」）。
+- **落档与处置（2026-09-24）**：已写入 `docs/05-execution-records/module-11/design-proposals/config-sync-stall-and-empty-targets-guard.md` §4.5——**E-1** 语义引导 + 前后端必填；**E-2（已确认采纳）** 以 `health_check_url` 为唯一输入自动派生 `protocol` / `endpoint` / `port` 并置只读（不删字段、不动表结构与唯一键）。提案状态 `draft`，**本分支暂不改代码**，待 chenrt 评审后实施。（**2026-09-25 订正：本条 E-1 / E-2 设计与「暂不改代码」结论已于 2026-09-24 晚被下方「⚠ 修订」块推翻且已实现；提案头部状态已于 2026-09-25 订正为 `approved`，仅 PRD / 契约回写待设计条线。**）
+- **⚠ 修订（2026-09-24 晚，chenrt 裁决，已实现）**：上述 E-1 / E-2 设计**已推翻并回退**。用户在实测后指出：**「采集地址」应在 M01 创建采集 Job 时填写**（「怎么抓」属采集策略），M07 台账管理的是**应用的实际 URL**（「部署在哪」）——按此动线，`health_check_url` 不应承载采集地址，其必填校验也不应落在 M07。
+  - **终版口径（见提案 §4.5.2R，权威）**：
+    - `health_check_url` **恢复可选**、语义为「应用实际 URL（业务健康检查）」，仅资源画像与标签来源，**不参与采集地址**（展示名保持「健康检查 URL」）；
+    - `endpoint`（主机，IPv4/域名）+ `port`（**采集端口**，如 exporter 监听端 8081）共同构成 application 采集地址 `endpoint:port`，二者**均必填**（原 `port` 0 合法 → 改为必填 1~65535）；`protocol` 可选、仅资源画像；
+    - M09 generator 对 application 的 target 地址由 `health_check_url` 改为 `endpoint:port`（与 database / middleware / generic_target 统一为「主机 + 端口」模型）；
+    - M01 采集中 `monitor_type=application_http` 的 `metrics_path`（如 `/actuator/prometheus`）**必须显式填写**——`application_http` 无内置默认采集器映射，采集路径无通用默认值可继承（原「留空继承 `/metrics`」已禁用）；application 的实例候选 / 目标预览 / 安装确认展示地址同步改为 `endpoint:port`。
+  - **红线未动**：表结构、唯一键 `category|domain|service_name|endpoint`、标签模板映射均不变。
+  - **存量影响**：`health_check_url` 为空的存量行**不再被拦**；`port=0` 的存量 application 行在下次编辑保存时会被拦（需补采集端口）。不做数据回填脚本。
+  - **请求结论（PRD 口径，修订）**：（a）M07 §5.2 明确 `health_check_url` 为「应用实际 URL」且可选、**不参与采集**；`endpoint` / `port` 明确为**采集地址主机与采集端口且必填**，`protocol` 标注仅资源画像；（b）M09 PRD §3.3 明确 application 的 target 地址来源为 `endpoint` + `port`；（c）M01 PRD §5.4 明确 `application_http` 的 `metrics_path` 必填、不参与「留空继承」层叠默认链。
+  - **状态**：open（待设计侧按修订口径回写 M07 / M09 / M01 PRD）
+- **存量影响（已按修订口径更新）**：见上「⚠ 修订」块——`health_check_url` 空值不再被拦；`port=0` 的存量 application 行编辑保存时需补采集端口。
+- **影响模块（修订后）**：后端 `platform/config/resource`（必填口径调整 + 删除派生）、`platform/configcenter/generator`（target 地址来源）、`platform/strategy/scrapejob`（application_http 的 metrics_path 必填与展示地址）、前端 M07 应用表单与列表列头、前端 M01 采集 Job 表单、`Module_07` / `Module_09` / `Module_01` PRD 与 `api-contract-snapshot.md`
+- **状态**：open（待设计侧确认 (a)(b)(c)）

@@ -1,12 +1,15 @@
 package edge
 
 import (
-	"archive/zip"
-	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -46,10 +49,16 @@ func seedAgent(t *testing.T, db *gorm.DB, domainID, status string, lastHB *time.
 }
 
 // newManagementRouter 仅挂管理面路由（不带全局用户 auth，单测直接验证 handler 语义）。
+// 该变体不关心离线包目录（传空目录），仅供退纳管 / edge-agents 用例使用。
 func newManagementRouter(db *gorm.DB) *gin.Engine {
+	return newManagementRouterWithDir(db, "")
+}
+
+// newManagementRouterWithDir 挂管理面路由并指定 edge-packages 构建产物目录。
+func newManagementRouterWithDir(db *gorm.DB, packageDir string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterManagementRoutes(r.Group("/api/v2/platform"), db)
+	RegisterManagementRoutes(r.Group("/api/v2/platform"), db, packageDir)
 	return r
 }
 
@@ -120,7 +129,7 @@ func TestRetireDomainHandlerHTTP(t *testing.T) {
 	var resp struct {
 		Data struct {
 			RegistrationStatus models.RegistrationStatus `json:"registration_status"`
-			IsMonitored        bool                       `json:"is_monitored"`
+			IsMonitored        bool                      `json:"is_monitored"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
@@ -296,6 +305,145 @@ func TestGetAgentNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRetireNotFound)
 }
 
+// TestAgentViewDegradesComponentsWhenHeartbeatExpired 覆盖 F-15 症状层：agent 心跳
+// 超时（离线）时，展示用的组件状态（CollectorStatus / Components[].status）必须覆写为
+// unknown，消除「节点离线却采集器/拨测器仍显示运行中」的认知冲突（历史心跳快照过期）。
+// 同时断言 DB 原始上报值未被改动——仅展示层降级，agent 恢复心跳后自然回真实值。
+func TestAgentViewDegradesComponentsWhenHeartbeatExpired(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-stale", "tk", "vmagent", "")
+	a := seedAgent(t, db, "edge-stale", "online", tPtr(detectNow.Add(-200*time.Second)), []models.EdgeComponent{
+		{Type: models.ComponentTypeCollector, Name: "vmagent", Status: models.ComponentStatusRunning},
+		{Type: models.ComponentTypeBlackbox, Name: "blackbox_exporter", Status: models.ComponentStatusRunning},
+	})
+	require.NoError(t, db.Model(a).Update("collector_status", string(models.ComponentStatusRunning)).Error)
+
+	v, err := GetAgent(db, a.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusOffline, v.Status, "心跳过期 → 节点离线")
+	assert.Equal(t, AgentStatusUnknown, v.CollectorStatus, "心跳过期 → 采集器状态降级 unknown")
+	require.Len(t, v.Components, 2)
+	for _, c := range v.Components {
+		assert.Equal(t, models.ComponentStatus("unknown"), c.Status, "心跳过期 → 组件状态降级 unknown: %s", c.Type)
+	}
+
+	// 展示层降级不改 DB 原始上报值。
+	var raw models.EdgeAgent
+	require.NoError(t, db.First(&raw, a.ID).Error)
+	assert.Equal(t, string(models.ComponentStatusRunning), raw.CollectorStatus, "DB 原始值不变")
+	require.Len(t, raw.Components, 2)
+	assert.Equal(t, models.ComponentStatusRunning, raw.Components[0].Status, "DB 组件状态不变")
+}
+
+// TestAgentViewDegradesPullPendingCauseWhenHeartbeatExpired 覆盖「节点已离线、配置同步却长期
+// 显示同步中」：pull_pending 是「等 Agent 下次心跳拉取（准实时 ≤30s）」的进行时断言，节点离线
+// （或已退纳管 retired，走同一条 stale 成因路径）后不可能推进，展示层必须失效该成因（前端回落
+// 「未同步」，且不再展示「查看下发」引导）。apply_failed 是已发生的终态事实，仍透出以便排障；
+// 心跳新鲜时不降级。同样只改展示结果、不改 DB 原始上报值。
+func TestAgentViewDegradesPullPendingCauseWhenHeartbeatExpired(t *testing.T) {
+	db := newEdgeTestDB(t)
+
+	// 离线 + pull_pending → 成因展示态清空。
+	seedMonitoredEdgeDomain(t, db, "edge-pp", "tk", "vmagent", "")
+	offline := seedAgent(t, db, "edge-pp", "online", tPtr(detectNow.Add(-200*time.Second)), nil)
+	require.NoError(t, db.Model(offline).Updates(map[string]interface{}{
+		"config_sync_status": models.ConfigSyncStatusOutOfSync,
+		"out_of_sync_cause":  models.OutOfSyncCausePullPending,
+	}).Error)
+
+	v, err := GetAgent(db, offline.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusOffline, v.Status)
+	assert.Equal(t, models.ConfigSyncStatusOutOfSync, v.ConfigSyncStatus, "同步状态仍为未同步档")
+	assert.Empty(t, v.OutOfSyncCause, "离线 → pull_pending 展示态失效")
+
+	var raw models.EdgeAgent
+	require.NoError(t, db.First(&raw, offline.ID).Error)
+	assert.Equal(t, models.OutOfSyncCausePullPending, raw.OutOfSyncCause, "DB 原始成因不变")
+
+	// 离线 + apply_failed → 成因保留。
+	seedMonitoredEdgeDomain(t, db, "edge-af", "tk", "vmagent", "")
+	failed := seedAgent(t, db, "edge-af", "online", tPtr(detectNow.Add(-200*time.Second)), nil)
+	require.NoError(t, db.Model(failed).Updates(map[string]interface{}{
+		"config_sync_status": models.ConfigSyncStatusOutOfSync,
+		"out_of_sync_cause":  models.OutOfSyncCauseApplyFailed,
+	}).Error)
+	vf, err := GetAgent(db, failed.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, models.OutOfSyncCauseApplyFailed, vf.OutOfSyncCause, "apply_failed 属终态事实，不降级")
+
+	// 在线 + pull_pending → 不降级（「同步中」中间态保留）。
+	seedMonitoredEdgeDomain(t, db, "edge-pp-on", "tk", "vmagent", "")
+	online := seedAgent(t, db, "edge-pp-on", "online", tPtr(detectNow.Add(-10*time.Second)), nil)
+	require.NoError(t, db.Model(online).Updates(map[string]interface{}{
+		"config_sync_status": models.ConfigSyncStatusOutOfSync,
+		"out_of_sync_cause":  models.OutOfSyncCausePullPending,
+	}).Error)
+	vo, err := GetAgent(db, online.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusOnline, vo.Status)
+	assert.Equal(t, models.OutOfSyncCausePullPending, vo.OutOfSyncCause, "在线不降级")
+
+	// retired（已退纳管）走同一条 stale 成因路径 → 同样失效（终态不可能再推进）。
+	seedMonitoredEdgeDomain(t, db, "edge-rt", "tk", "vmagent", "")
+	retired := seedAgent(t, db, "edge-rt", AgentStatusRetired, tPtr(detectNow.Add(-10*time.Second)), nil)
+	require.NoError(t, db.Model(retired).Updates(map[string]interface{}{
+		"config_sync_status": models.ConfigSyncStatusOutOfSync,
+		"out_of_sync_cause":  models.OutOfSyncCausePullPending,
+	}).Error)
+	vr, err := GetAgent(db, retired.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusRetired, vr.Status)
+	assert.Empty(t, vr.OutOfSyncCause, "retired → pull_pending 展示态失效")
+}
+
+// TestAgentViewDegradesComponentsWhenRetired 已退纳管（retired）节点与离线同口径：历史心跳快照
+// 里的组件状态（如「运行中」）对 retired 节点同样不可信（可能残留孤儿进程），展示层覆写为 unknown，
+// 消除「已退纳 / 运行中」的认知冲突；DB 原始值不变。
+func TestAgentViewDegradesComponentsWhenRetired(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-retired-c", "tk", "vmagent", "")
+	// 心跳新鲜也降级：retired 是终态，与心跳时效无关。
+	a := seedAgent(t, db, "edge-retired-c", AgentStatusRetired, tPtr(detectNow.Add(-10*time.Second)), []models.EdgeComponent{
+		{Type: models.ComponentTypeCollector, Name: "vmagent", Status: models.ComponentStatusRunning},
+		{Type: models.ComponentTypeBlackbox, Name: "blackbox_exporter", Status: models.ComponentStatusRunning},
+	})
+	require.NoError(t, db.Model(a).Update("collector_status", string(models.ComponentStatusRunning)).Error)
+
+	v, err := GetAgent(db, a.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusRetired, v.Status)
+	assert.Equal(t, AgentStatusUnknown, v.CollectorStatus, "retired → 采集器状态降级 unknown")
+	require.Len(t, v.Components, 2)
+	for _, c := range v.Components {
+		assert.Equal(t, models.ComponentStatus("unknown"), c.Status, "retired → 组件状态降级 unknown: %s", c.Type)
+	}
+
+	var raw models.EdgeAgent
+	require.NoError(t, db.First(&raw, a.ID).Error)
+	assert.Equal(t, string(models.ComponentStatusRunning), raw.CollectorStatus, "DB 原始值不变")
+	require.Len(t, raw.Components, 2)
+	assert.Equal(t, models.ComponentStatusRunning, raw.Components[0].Status, "DB 组件状态不变")
+}
+
+// TestAgentViewKeepsComponentStatusWhenHeartbeatFresh 心跳未过期时不降级（回归保护：
+// 避免降级逻辑误伤在线节点）。
+func TestAgentViewKeepsComponentStatusWhenHeartbeatFresh(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-fresh", "tk", "vmagent", "")
+	a := seedAgent(t, db, "edge-fresh", "online", tPtr(detectNow.Add(-10*time.Second)), []models.EdgeComponent{
+		{Type: models.ComponentTypeCollector, Name: "vmagent", Status: models.ComponentStatusRunning},
+	})
+	require.NoError(t, db.Model(a).Update("collector_status", string(models.ComponentStatusRunning)).Error)
+
+	v, err := GetAgent(db, a.ID, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	assert.Equal(t, AgentStatusOnline, v.Status)
+	assert.Equal(t, string(models.ComponentStatusRunning), v.CollectorStatus, "在线不降级")
+	require.Len(t, v.Components, 1)
+	assert.Equal(t, models.ComponentStatusRunning, v.Components[0].Status, "在线组件状态不降级")
+}
+
 func TestListAgentsAndGetAgentHandlers(t *testing.T) {
 	db := newEdgeTestDB(t)
 	seedMonitoredEdgeDomain(t, db, "edge-hl", "tk", "vmagent", "")
@@ -323,79 +471,216 @@ func TestListAgentsAndGetAgentHandlers(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w4.Code)
 }
 
-// ---- T11-08 edge-packages 清单 + 下载 ----
+// ---- T11-08 edge-packages 清单 + 下载（读构建产物目录 release_meta.json + tar.gz） ----
 
-func TestListPackagesFields(t *testing.T) {
-	pkgs, err := ListPackages()
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(pkgs), 2, "应有可读的版本集")
+const testPackageFileName = "edge-sync-agent-v0.2.0-linux-amd64-20260922-121018.tar.gz"
 
-	latest := pkgs[0]
-	for _, p := range pkgs {
-		assert.NotEmpty(t, p.ID)
-		assert.NotEmpty(t, p.Version)
-		assert.Equal(t, offlinePackageDownloadPath, p.DownloadURL)
-		assert.Equal(t, 64, len(p.Sha256), "sha256 应为 64 位十六进制")
-		assert.Greater(t, p.SizeBytes, int64(0))
-		// 包清单三组件。
-		names := map[string]bool{}
-		for _, c := range p.Components {
-			names[c.Name] = true
-			assert.NotEmpty(t, c.Version)
-			assert.Equal(t, 64, len(c.Sha256))
-			assert.Greater(t, c.SizeBytes, int64(0))
-		}
-		assert.True(t, names[EdgeSyncAgentComponent], "含 edge-sync-agent")
-		assert.True(t, names[VMAgentComponent], "含 vmagent")
-		assert.True(t, names[BlackboxComponent], "含 blackbox_exporter")
-	}
-
-	// 列表按版本降序（首个为最新）。
-	require.Equal(t, "v0.2.0", latest.Version, "最新包版本")
+// newFakePackageDir 造一个假离线包目录：小 tarball（几十字节）+ release_meta.json
+// （字段对齐打包脚本产物，含 file）。返回目录、tarball 内容、整包 sha256。
+func newFakePackageDir(t *testing.T, version string) (string, []byte, string) {
+	t.Helper()
+	dir := t.TempDir()
+	content := []byte("fake-edge-offline-tarball-bytes-for-test")
+	sum := sha256.Sum256(content)
+	sha := hex.EncodeToString(sum[:])
+	require.NoError(t, os.WriteFile(filepath.Join(dir, testPackageFileName), content, 0o644))
+	meta := fmt.Sprintf(`{
+  "version": %q,
+  "file": %q,
+  "size_bytes": %d,
+  "sha256": %q,
+  "components": [
+    { "name": "edge-sync-agent", "version": %q },
+    { "name": "vmagent", "version": "v1.152.0" },
+    { "name": "blackbox_exporter", "version": "v0.26.0" }
+  ]
+}`, version, testPackageFileName, len(content), sha, version)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, releaseMetaFile), []byte(meta), 0o644))
+	return dir, content, sha
 }
 
-func TestLatestPackageIsMaxVersion(t *testing.T) {
-	latest, err := LatestPackage()
+// decodePackageList 解析 /edge-packages 响应信封。
+func decodePackageList(t *testing.T, body []byte) (string, []PackageArtifact) {
+	t.Helper()
+	var resp struct {
+		Status string            `json:"status"`
+		Data   []PackageArtifact `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(body, &resp))
+	return resp.Status, resp.Data
+}
+
+func TestListPackagesFromManifest(t *testing.T) {
+	dir, content, sha := newFakePackageDir(t, "v0.2.0")
+
+	pkgs, err := ListPackages(dir)
+	require.NoError(t, err)
+	require.Len(t, pkgs, 1, "单版本 manifest 只返回 1 条")
+
+	p := pkgs[0]
+	assert.Equal(t, "release-v0.2.0", p.ID, "清单缺 id 时按 release-<version> 派生")
+	assert.Equal(t, "v0.2.0", p.Version)
+	assert.Equal(t, testPackageFileName, p.File, "file 为 tarball 纯文件名")
+	assert.Equal(t, sha, p.Sha256, "sha256 直接取清单值")
+	assert.Equal(t, int64(len(content)), p.SizeBytes)
+	assert.Equal(t, offlinePackageDownloadPathFor("v0.2.0"), p.DownloadURL)
+
+	names := map[string]bool{}
+	for _, c := range p.Components {
+		names[c.Name] = true
+		assert.NotEmpty(t, c.Version)
+	}
+	assert.True(t, names[EdgeSyncAgentComponent], "含 edge-sync-agent")
+	assert.True(t, names[VMAgentComponent], "含 vmagent")
+	assert.True(t, names[BlackboxComponent], "含 blackbox_exporter")
+
+	// handler 侧同样返回 1 条且含 file。
+	r := newManagementRouterWithDir(newEdgeTestDB(t), dir)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v2/platform/edge-packages", nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	status, data := decodePackageList(t, w.Body.Bytes())
+	assert.Equal(t, "success", status)
+	require.Len(t, data, 1)
+	assert.Equal(t, testPackageFileName, data[0].File)
+	assert.Equal(t, sha, data[0].Sha256)
+}
+
+func TestLatestPackageIsManifestPackage(t *testing.T) {
+	dir, content, sha := newFakePackageDir(t, "v0.2.0")
+
+	latest, err := LatestPackage(dir)
 	require.NoError(t, err)
 	assert.Equal(t, "v0.2.0", latest.Version)
-	assert.NotEmpty(t, latest.Sha256)
-	assert.Equal(t, offlinePackageDownloadPath, latest.DownloadURL)
+	assert.Equal(t, testPackageFileName, latest.File)
+	assert.Equal(t, sha, latest.Sha256)
+	assert.Equal(t, int64(len(content)), latest.SizeBytes)
+	assert.Equal(t, offlinePackageDownloadPathFor("v0.2.0"), latest.DownloadURL)
 }
 
-func TestDownloadLatestPackageHandlerServesZip(t *testing.T) {
-	r := newManagementRouter(newEdgeTestDB(t))
+func TestDownloadLatestPackageHandlerStreamsTarGz(t *testing.T) {
+	dir, content, sha := newFakePackageDir(t, "v0.2.0")
+
+	r := newManagementRouterWithDir(newEdgeTestDB(t), dir)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
 		"/api/v2/platform/edge-packages/latest/download", nil))
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
-	assert.Equal(t, `attachment; filename="edge-agent-offline-v0.2.0.zip"`, w.Header().Get("Content-Disposition"))
-
-	sha := w.Header().Get("X-Checksum-Sha256")
+	assert.Equal(t, "application/gzip", w.Header().Get("Content-Type"))
+	assert.Equal(t, fmt.Sprintf(`attachment; filename="%s"`, testPackageFileName),
+		w.Header().Get("Content-Disposition"), "用清单里的真实文件名")
+	assert.Equal(t, sha, w.Header().Get("X-Checksum-Sha256"))
 	assert.Equal(t, sha, trimETag(w.Header().Get("ETag")), "ETag 携带整包 sha256")
-
-	// zip 可读且含 metadata.json（版本为最新）。
-	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
-	require.NoError(t, err)
-	names := map[string]bool{}
-	for _, f := range zr.File {
-		names[f.Name] = true
-	}
-	assert.True(t, names["metadata.json"])
-	assert.True(t, names[EdgeSyncAgentComponent])
-	assert.True(t, names[VMAgentComponent])
-	assert.True(t, names[BlackboxComponent])
-
-	// 整包 sha256 与重建一致（可复算）。
-	_, recomputed, err := buildOfflinePackageZip(mustLatestArtifact(t))
-	require.NoError(t, err)
-	assert.Equal(t, recomputed, sha)
+	assert.Equal(t, strconv.Itoa(len(content)), w.Header().Get("Content-Length"))
+	assert.Equal(t, content, w.Body.Bytes(), "响应体等于产物文件内容")
 }
 
-// mustLatestArtifact 返回最新包 artifact（供可复算比对）。
-func mustLatestArtifact(t *testing.T) PackageArtifact {
-	t.Helper()
-	a, err := LatestPackage()
+// ---- T11-20 指定版本离线包下载 ----
+
+func TestFindPackageByVersion(t *testing.T) {
+	dir, content, sha := newFakePackageDir(t, "v0.2.0")
+
+	art, err := FindPackage(dir, "v0.2.0")
 	require.NoError(t, err)
-	return a
+	assert.Equal(t, "v0.2.0", art.Version)
+	assert.Equal(t, testPackageFileName, art.File)
+	assert.Equal(t, sha, art.Sha256)
+	assert.Equal(t, int64(len(content)), art.SizeBytes)
+	assert.Equal(t, offlinePackageDownloadPathFor("v0.2.0"), art.DownloadURL)
+
+	// 未命中 → ErrPackageNotFound。
+	_, err = FindPackage(dir, "v9.9.9")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrPackageNotFound)
+}
+
+func TestDownloadPackageHandlerStreamsTarGzForVersion(t *testing.T) {
+	dir, content, sha := newFakePackageDir(t, "v0.2.0")
+
+	r := newManagementRouterWithDir(newEdgeTestDB(t), dir)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+		"/api/v2/platform/edge-packages/v0.2.0/download", nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Equal(t, "application/gzip", w.Header().Get("Content-Type"))
+	assert.Equal(t, fmt.Sprintf(`attachment; filename="%s"`, testPackageFileName),
+		w.Header().Get("Content-Disposition"))
+	assert.Equal(t, sha, w.Header().Get("X-Checksum-Sha256"))
+	assert.Equal(t, sha, trimETag(w.Header().Get("ETag")))
+	assert.Equal(t, content, w.Body.Bytes())
+}
+
+func TestDownloadPackageHandlerUnknownVersionReturns404(t *testing.T) {
+	dir, _, _ := newFakePackageDir(t, "v0.2.0")
+
+	r := newManagementRouterWithDir(newEdgeTestDB(t), dir)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet,
+		"/api/v2/platform/edge-packages/v9.9.9/download", nil))
+	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+
+	var resp struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "error", resp.Status)
+	assert.Equal(t, "not_found", resp.ErrorType)
+}
+
+// ---- 未打包 / 清单异常 ----
+
+func TestListPackagesEmptyWhenNoManifest(t *testing.T) {
+	dir := t.TempDir() // 空目录：未打包是正常态
+
+	pkgs, err := ListPackages(dir)
+	require.NoError(t, err, "manifest 缺失不应报错")
+	assert.Empty(t, pkgs)
+
+	r := newManagementRouterWithDir(newEdgeTestDB(t), dir)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v2/platform/edge-packages", nil))
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	status, data := decodePackageList(t, w.Body.Bytes())
+	assert.Equal(t, "success", status)
+	assert.Empty(t, data, "未打包返回空数组")
+	assert.Contains(t, w.Body.String(), `"data":[]`, "data 应是空数组而非 null")
+
+	// 无包时下载 → 404（latest 与按版本一致）。
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, httptest.NewRequest(http.MethodGet,
+		"/api/v2/platform/edge-packages/latest/download", nil))
+	assert.Equal(t, http.StatusNotFound, w2.Code)
+}
+
+// 清单存在但产物不可用（file 缺失 / 指向不存在文件 / 路径穿越归一后不存在）→ 视为无可用包。
+func TestListPackagesUnavailableArtifactVariants(t *testing.T) {
+	cases := map[string]string{
+		"file 字段缺失": `{"version":"v0.2.0","sha256":"aa","size_bytes":1,
+			"components":[{"name":"edge-sync-agent","version":"v0.2.0"}]}`,
+		"file 指向不存在的文件": `{"version":"v0.2.0","file":"missing.tar.gz","sha256":"aa","size_bytes":1,
+			"components":[{"name":"edge-sync-agent","version":"v0.2.0"}]}`,
+		"file 路径穿越归一后无此文件": `{"version":"v0.2.0","file":"../../etc/passwd","sha256":"aa","size_bytes":1,
+			"components":[{"name":"edge-sync-agent","version":"v0.2.0"}]}`,
+	}
+	for name, meta := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, releaseMetaFile), []byte(meta), 0o644))
+			pkgs, err := ListPackages(dir)
+			require.NoError(t, err)
+			assert.Empty(t, pkgs)
+		})
+	}
+}
+
+// manifest 存在但 JSON 非法 → 真故障（500），不是空清单。
+func TestListPackagesInvalidManifestReturns500(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, releaseMetaFile), []byte("{not-json"), 0o644))
+
+	r := newManagementRouterWithDir(newEdgeTestDB(t), dir)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v2/platform/edge-packages", nil))
+	assert.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
 }

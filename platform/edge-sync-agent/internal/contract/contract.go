@@ -7,43 +7,62 @@ package contract
 
 // 组件类型（对齐 PRD §6.2 示例 components.type 与中心 ComponentType）。
 const (
-	ComponentTypeAgent    = "agent"
+	ComponentTypeAgent     = "agent"
 	ComponentTypeCollector = "collector"
-	ComponentTypeBlackbox = "blackbox_exporter"
+	ComponentTypeBlackbox  = "blackbox_exporter"
 )
 
 // 组件运行状态（对齐中心 edge_heartbeat ComponentStatus 枚举）。
 const (
-	ComponentStatusRunning      = "running"
-	ComponentStatusRestarting   = "restarting"
-	ComponentStatusCrashLoop    = "crash_loop"
-	ComponentStatusNotDeployed  = "not_deployed"
-	ComponentStatusUnknown      = "unknown"
+	ComponentStatusRunning     = "running"
+	ComponentStatusRestarting  = "restarting"
+	ComponentStatusCrashLoop   = "crash_loop"
+	ComponentStatusNotDeployed = "not_deployed"
+	ComponentStatusUnknown     = "unknown"
 )
+
+// EdgeTargetSnapshot 是边缘 vmagent 本地 target 抓取快照（方案 B：随心跳上报中心，
+// 供中心 /api/v1/targets 与「监控目标状态」页排障）。字段对齐 vmagent
+// /api/v1/targets?state=active 响应 activeTargets item（labels + 顶层抓取详情）。
+type EdgeTargetSnapshot struct {
+	Job                   string  `json:"job"`                               // 标签 job
+	Instance              string  `json:"instance"`                          // 标签 instance（host:port）
+	ResourceID            string  `json:"resource_id,omitempty"`             // prometheus.yml targets 注入标签，可能缺
+	Health                string  `json:"health"`                            // up / down / unknown（透传字符串）
+	LastScrape            string  `json:"last_scrape,omitempty"`             // 最近一次抓取时间（RFC3339）
+	LastError             string  `json:"last_error,omitempty"`              // 最近抓取错误摘要
+	ScrapeDurationSeconds float64 `json:"scrape_duration_seconds,omitempty"` // 最近一次抓取耗时（秒）
+}
 
 // Component 描述当前节点上一个守护组件的运行态。
 type Component struct {
-	Type          string `json:"type"`                     // agent / collector / blackbox_exporter
-	Name          string `json:"name"`                     // 组件进程名
-	Status        string `json:"status"`                   // running / restarting / ...
-	Version       string `json:"version,omitempty"`        // 组件版本（版本差异提示数据来源，§6.2）
-	ConfigVersion string `json:"config_version,omitempty"` // 生效配置版本
-	RestartCount  int    `json:"restart_count,omitempty"`  // 本轮累计重启次数
+	Type          string `json:"type"`                      // agent / collector / blackbox_exporter
+	Name          string `json:"name"`                      // 组件进程名
+	Status        string `json:"status"`                    // running / restarting / ...
+	Version       string `json:"version,omitempty"`         // 组件版本（版本差异提示数据来源，§6.2）
+	ConfigVersion string `json:"config_version,omitempty"`  // 生效配置版本
+	RestartCount  int    `json:"restart_count,omitempty"`   // 本轮累计重启次数
 	LastRestartAt string `json:"last_restart_at,omitempty"` // 最近一次重启（RFC3339）
-	LastError     string `json:"last_error,omitempty"`     // 最近错误摘要
+	LastError     string `json:"last_error,omitempty"`      // 最近错误摘要
 }
 
 // HeartbeatRequest 是 POST /api/v2/platform/edge/heartbeat 的请求体（PRD §6.2）。
 type HeartbeatRequest struct {
-	NetworkDomainID      string      `json:"network_domain_id"`
-	AgentType            string      `json:"agent_type"`               // vmagent / prometheus-agent
-	Version              string      `json:"version,omitempty"`        // Agent 版本
-	ConfigVersion        string      `json:"config_version,omitempty"` // 当前生效配置版本
-	WalBacklogBytes      int64       `json:"wal_backlog_bytes,omitempty"`
-	RemoteWriteQueueSize int         `json:"remote_write_queue_size,omitempty"`
-	Hostname             string      `json:"hostname,omitempty"`
-	Ip                   string      `json:"ip,omitempty"`
-	Components           []Component `json:"components,omitempty"`
+	NetworkDomainID      string               `json:"network_domain_id"`
+	AgentType            string               `json:"agent_type"`                    // 采集器统一为 vmagent（决策 C4）
+	Version              string               `json:"version,omitempty"`             // Agent 版本
+	ConfigVersion        string               `json:"config_version,omitempty"`      // 当前生效配置版本
+	QueueBacklogBytes    int64                `json:"queue_backlog_bytes,omitempty"` // 磁盘持久发送队列积压字节数（决策 C5）
+	RemoteWriteQueueSize int                  `json:"remote_write_queue_size,omitempty"`
+	Hostname             string               `json:"hostname,omitempty"`
+	Ip                   string               `json:"ip,omitempty"`
+	Components           []Component          `json:"components,omitempty"`
+	Targets              []EdgeTargetSnapshot `json:"targets,omitempty"` // 边缘 vmagent 本地 target 快照（方案 B）
+	// 配置应用结果（M11 dev-feedback F-17 / 设计提案 D）：Deployer.Apply 失败时上报失败原因
+	// 与失败版本，中心据此写 out_of_sync 成因 apply_failed（「同步失败」）；应用成功时两者清空
+	// （omitempty 不产出键），保证向后兼容。
+	ConfigApplyError         string `json:"config_apply_error,omitempty"`          // 最近一次配置应用失败原因（成功时为空）
+	ConfigApplyFailedVersion string `json:"config_apply_failed_version,omitempty"` // 应用失败的配置版本
 }
 
 // HeartbeatResponse 是心跳接口的响应体（PRD §6.2）。
@@ -60,6 +79,10 @@ type Metadata struct {
 	GeneratedAt   string `json:"generated_at"`
 	AgentType     string `json:"agent_type"`
 	Checksum      string `json:"checksum"`
+	// RemoteWriteURL 是中心下发的网域 remote_write 上报地址（网域 RemoteWriteURL，
+	// 仅在中心显式配置时才下发，omitempty）。Agent 优先采用它作为 vmagent
+	// -remoteWrite.url（T11-G1-02 方案 B），避免真实部署回落到 127.0.0.1 环回。
+	RemoteWriteURL string `json:"remote_write_url,omitempty"`
 }
 
 // 配置包 zip 内部条目名（PRD §6.3）。

@@ -216,6 +216,94 @@
 
 ---
 
+## 反馈 8：首页 L3「拨测态势」除 URL 外字段恒空（② 缺陷，已修复）
+
+- **现象**：M05 首页 L3「拨测态势」面板在实连环境下，状态列恒为「未知」、业务域 / 应用 / 最近拨测三列恒为 `-`；L0「拨测」卡的「当前拨测异常数」亦恒为 0，用户误以为拨测未运行。
+- **根因（后端取数未实现，非前端缺陷）**：`GET /api/v2/platform/dashboard/summary` 的 `probe_targets[]` 在 `platform/dashboard/summary.go` 中仅填充 `url`，`status` 硬编码空串、`last_probe_at` 硬编码 `nil`、`probe_target_abnormal_count` 硬编码 0，注释理由为「无实时拨测数据源」。该理由已过时——blackbox 拨测结果现经 vmagent → remote_write 落到中心 Prometheus 的 `probe_success` 指标（1=通过 / 0=失败，样本自带采样时间戳）。PRD §5.1 与决策 93 第 8 条本就要求 `probe_status` / `last_probe_time` 由 M01 承载、M05 只消费。
+- **修复（本批，后端）**：
+  1. 新增 `platform/dashboard/probe.go`：`ProbeQuerier` 抽象 + `PromProbeQuerier`（GET 中心 Prometheus `/api/v1/query?query=probe_success`，按 job → instance 建二级索引）。
+  2. `summary.go`：`Build(db, opts...)` 新增 `WithProbeQuerier` Option；拨测段落按 `job_name` + 拨测目标地址匹配样本，填充 `status`（1→`up` / 0→`down` / 无样本→`''` 未知）、`last_probe_at`（样本时间戳），并据此计算 `probe_target_abnormal_count`（仅 `down` 计入，未知不误报为异常）。
+  3. `main.go`：`registerPlatformConfigRoutes` 接收 `promURL`，注入 `NewPromProbeQuerier(promURL, nil)`。
+  4. **降级策略**：拨测查询失败不阻断聚合接口，字段回落「未知」、异常计数为 0。
+- **前端零改动（仅 F-13 阶段）**：`ProbePanel.tsx` 已支持 `up` / `down` / 未知三态与相对时间渲染，字段有值即自动呈现绿 / 红 Badge 与「最近拨测」时间（归属口径调整阶段另有前端列变更，见下）。
+- **归属口径落地（本批，2026-09-22 产品负责人确认后实现）**：
+  - **背景与语义复核（关键）**：M07 的「应用字典」（`app_code`，决策 92 / §5.19）服务对象是**应用监控**（`application_http`，如 Java Spring Boot），其动线为「M07 登记应用 → M01 以监控对象类型『应用』建标准采集 Job」；而 **blackbox 拨测**的对象是**开源组件 / 端点的连通性**（如 grafana、redis），本就不必然具备业务 / 应用归属。二者维度正交，**强制拨测挂 `app_code` / `biz_code` 会迫使运维编造归属、污染字典统计**。`models.BlackboxTarget` 仅有 `Target` / `Protocol` / `URL`，`ScrapeJob` 亦无业务域 / 应用归属字段，本就无法推断。
+  - **采纳口径**：「**网域为主 + 业务域可选、应用维度整体移出**」——`network_domain_id` 在 M01 已为硬约束（必然有值、零新增成本），作为拨测态势的主归属维度；`app_code` / `app_name` 整体移出拨测态势。设计提案见 `design-proposals/probe-ownership-alignment.md`（状态 draft，待 prototype-designer 合并进 PRD）。
+  - **实现（本批，代码已落地）**：
+    1. **后端** `summary.go`：`ProbeTargetItem` 移除 `biz_name` / `app_name`，新增 `network_domain_id` / `network_domain_name`；拨测段落加载 `network_domains` 构建 ID→Name 映射，逐条填充归属网域（字典缺条目回落为网域 ID，与 `by_app` 的 `app_name` 回落 `app_code` 同源）。
+    2. **前端**：`api/dashboard.ts` 类型同步；`ProbePanel.tsx` 移除「业务域」「应用」两列，新增「归属网域」列（`network_domain_name`，空串降级 `-`）；`HomePage.tsx` 静态预览 mock 同步。
+    3. **效果**：拨测态势面板所有列均有真实数据来源，不再出现「整列恒 `-`」的观感问题。
+- **仍未闭合的缺口（PRD 侧，本次「只上报，暂不实现」）**：
+  1. **M01 拨测 Job 无「业务域」可选归属字段**：本批以网域承载归属后已不阻塞展示；若产品后续需要「业务域」作为可选筛选维度，需在 `Module_01_*.md` 定义 ScrapeJob 可空 `biz_code`（不引入 `app_code`）。
+  2. **字段命名与 PRD 不一致**：PRD 为 `target_url` / `probe_status` / `biz_code` / `biz_name` / `app_code` / `app_name` / `last_probe_time`；实现为 `url` / `status` / `network_domain_id` / `network_domain_name` / `last_probe_at`。建议由 prototype-designer 在合并 design-proposal 时统一口径（改 PRD 或改实现）。
+- **验证**：`go test ./platform/...` 全绿（dashboard 包拨测用例含归属网域断言）；`pnpm vitest run src/pages/home/HomePage.test.tsx` 40 例全绿；`tsc --noEmit` / `eslint` / `make check-repo-map` 通过。
+
+---
+
+## 反馈 9：首页 Dashboard 移动端（手机竖屏）适配 —— PRD 未覆盖（① 空白，本轮已实现）
+
+> **反馈日期**: 2026-09-24　**反馈来源**: 产品负责人（用户）  
+> **触发原文**：「首页的 dashboard 一定要做移动适配，给客户领导看的」；「MVP 版本先完成首页 dashboard 的改造；可以先改造，再回填 PRD，决策可以落档 dev-feedback」  
+> **归类**: **① PRD 空白**（非 ② 矛盾）——PRD 从未规定移动端口径，故不触发 CR，但按 Agent 契约必须在本文件留痕。
+
+### 9.1 PRD 现状（空白，非矛盾）
+
+- `Module_05_Custom_UI.md` §3.1 / §3.2 的版式约束只声明「不同**电脑**尺寸 / 分辨率下版式一致」，**全文无移动端 / 响应式 / 断点约定**；
+- PRD 唯一涉及屏幕形态的诉求是「可视化大屏 · 全屏 / 投屏 / 电视墙」（§3.2），方向与手机端相反；
+- 因此「首页在手机竖屏下如何排布」属 PRD 未规定的空白项：**开发侧可直接定，但必须回填 PRD 留痕**（本节即该留痕）。
+
+### 9.2 本轮落地的移动版式口径（开发侧定稿）
+
+断点取 **767px**（与 antd `md` 对齐：≥768 视为桌面 / 平板横屏），判定集中在一处：
+
+- JS 侧：`ui-custom/web/src/pages/home/homeResponsive.ts` → `NARROW_LAYOUT_QUERY` + `useNarrowLayout()`；
+- CSS 侧：`ui-custom/web/src/App.css` 同名 `@media (max-width: 767px)`（负责顶栏 / 导航 / 内容区内边距）。
+
+| 区域 | 桌面（≥768px，原版式不动） | 手机竖屏（≤767px，本轮新增） |
+|---|---|---|
+| 页头行（引导语 + 系统状态） | 左右同排、基线对齐 | 纵向堆叠，系统状态另起一行 |
+| L0 全局态势（5 张 KPI 卡） | `Col flex:1` 五卡一行 | **两卡一行**（`xs/sm=12`） |
+| L1 采集覆盖（5 张类型卡） | `Col flex:1` 五卡一行 | **单卡一行**（`xs/sm=24`，卡内子类 chip 需横向空间） |
+| L2 应用覆盖表 | 6 列全展示 | 不变（沿用 `TABLE_SCROLL_X` 横向滚动，未卡片化） |
+| L3 拨测态势 | 卡头三段文案单行 | 卡头文案允许换行右对齐 |
+| L4 告警卡 + L5 使用指引 | 同排 1.6 : 1、`align-items:stretch` 等高 | **纵向堆叠**（告警卡在上、指引在下；仍 `display:flex` + `stretch`，等高语义不破） |
+| 告警卡四格统计条 | 一行四格 | **2×2 两行两格**（长标签「已静默 · 已抑制」在窄屏一行四格下必然溢出） |
+| 顶部一级模块导航 | 六个 tab 横排 | **横向滚动**（不换行，避免撑高 sticky 顶栏）、tab 字号 13px、品牌 16px、隐藏角色 Tag、内容区 padding 24→12px |
+| 二级侧边栏（Sider） | 用户偏好（localStorage）决定展开 / 折叠 | `breakpoint="md"` **自动折叠为 56px 图标列**；窄屏下隐藏折叠开关（避免死控件），**不写入用户偏好** |
+
+> **取舍说明**：L0 取「两卡一行」而 L1 取「单卡一行」，差异来自卡内容宽度——L1 卡内含 32px 已采数 + 覆盖率进度条 + 子类 chip 的「已采/总数 · 覆盖率」两栏，两卡一行会把 chip 压到截断。
+
+### 9.3 明确不在本轮范围（避免误读为已适配）
+
+1. **其余业务页面未做移动适配**：资源管理 / 采集策略 / 告警 / 网域与边缘配置中心等页面仍是桌面版式（宽表在手机上依赖横向滚动）；
+2. L2 应用覆盖表、L3 拨测表**未做卡片化**（仍横向滚动，非移动优先形态）；
+3. 登录页、抽屉（Drawer）/ 弹窗（Modal）未做窄屏宽度优化；
+4. 未引入手势、PWA、响应式图表等移动端增强能力。
+
+### 9.4 建议 PRD 回填（产品 / prototype-designer）
+
+| 项 | 目标文档 / 位置 | 建议内容 |
+|---|---|---|
+| 移动端适配小节 | `Module_05_Custom_UI.md` §3.1 | 增「移动端（手机竖屏 ≤767px）版式」小节，落 9.2 的对照表 + 断点定义 |
+| 验收标准 | `Module_05_Custom_UI.md` §6 | 增窄屏验收项：≤767px 下 L0 两卡一行、L1 单卡一行、L4/L5 堆叠、导航可横向滚动、侧栏自动折叠 |
+| 视觉 Token 规范 | `Module_05_Custom_UI.md` §5.2 | 补「断点体系：767px（与 antd md 对齐），窄屏规则见 §3.1」 |
+| 原型 | `docs/prototypes/module-05/` | 如需与生产同屏走查，建议补一版手机竖屏原型（当前原型仅桌面） |
+
+### 9.5 验证
+
+- `vitest run src/pages/home/HomePage.test.tsx`：**42 例全绿**（新增 2 例：窄屏降列与 2×2 统计条 / 宽屏保持五卡一行与同排等高）；
+- `vitest run src/layouts/MainLayout.test.tsx`：**全绿**（Sider `breakpoint` 在 jsdom 的 `matches:false` 下不改变既有折叠行为）；
+- `tsc --noEmit` 通过；`eslint src/pages/home src/layouts` **0 告警**；
+- 消费方回归 `vitest run src/App.test.tsx src/pages/home src/layouts`：**68 例全绿**（含 App 级渲染，确认无跨页回归）；
+- 全量 `pnpm test` 说明：本工作区**同时有另一会话在改 M11 相关文件**（`ResourcesPage` / `ResourceFormDrawer` 等），全量运行的失败集中在这些**与本改动无引用关系**的文件（`ResourceFormDrawer.test.tsx` 可稳定复现、`ResourcesPage.test.tsx` 单独运行通过），并行窗口内不宜以全量结果作为本改动判据；
+- 落点文件：`src/pages/home/homeResponsive.ts`（新增）、`HomePage.tsx`、`ResourceTypeGrid.tsx`、`AlertStatusCard.tsx`、`ProbePanel.tsx`、`src/layouts/MainLayout.tsx`、`src/App.css`、`HomePage.test.tsx`。
+
+### 9.6 环境提示（排查记录，非本模块问题）
+
+全量 `vitest run` 需使用**项目级工具链** `.tools/node/bin/node`（v22.14.0）。若 PATH 落到系统 node v25，`window.localStorage.clear` 不再是函数（node 25 内置 Web Storage 覆盖 jsdom 实现），会导致 `MainLayout.test.tsx` 等 18 例整批失败——属环境问题，与代码无关。
+
+---
+
 ## 文档回填留痕（2026-09-14，决策 72-3 首页内容重构）
 
 > 本节对应 `design-proposals/homepage-mvp-content-restructure.md` §7 第 4 项（dev-feedback clipping 留痕），随 PRD v1.5 回填一并登记。**两条均为产品口径裁剪，非实现缺失**。

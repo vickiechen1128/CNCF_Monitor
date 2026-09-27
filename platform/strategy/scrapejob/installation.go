@@ -25,7 +25,7 @@ type jobInstanceItem struct {
 
 // resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP。口径对齐
 // instance-candidates：host=InstanceName/PrivateIP，database=ResourceID/InstanceIP，
-// middleware=AppName/InstanceIP，application=ServiceName/HealthCheckURL，
+// middleware=AppName/InstanceIP，application=ServiceName/采集地址（endpoint:port），
 // generic_target=TargetName/InstanceIP。未命中返回空串。
 func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool) {
 	lookups := []struct {
@@ -46,7 +46,7 @@ func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found
 		}},
 		{&models.Application{}, func(m any) (string, string) {
 			r := m.(*models.Application)
-			return r.ServiceName, r.HealthCheckURL
+			return r.ServiceName, applicationTargetAddress(r)
 		}},
 		{&models.GenericTarget{}, func(m any) (string, string) {
 			r := m.(*models.GenericTarget)

@@ -3,11 +3,16 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ExporterInstallationPanel } from './ExporterInstallationPanel'
 import { DOWN_TOOLTIP } from './strategyConstants'
+import type { PromVectorItem } from '../../types/query'
 
 const instancesMock = vi.fn()
 const confirmMock = vi.fn()
 const unconfirmMock = vi.fn()
-const targetsListMock = vi.fn()
+const queryMock = vi.fn()
+
+function vector(result: PromVectorItem[]) {
+  return { status: 'success', data: { resultType: 'vector' as const, result } }
+}
 
 vi.mock('../../api/scrapeJobs', () => ({
   scrapeJobApi: {
@@ -17,15 +22,16 @@ vi.mock('../../api/scrapeJobs', () => ({
   },
 }))
 
-vi.mock('../../api/targets', () => ({
-  targetsApi: { list: (...args: unknown[]) => targetsListMock(...args) },
+// F-10：实例状态回显改由中心 up 指标（M02 /api/v1/query）推导
+vi.mock('../../api/query', () => ({
+  queryApi: { query: (...args: unknown[]) => queryMock(...args) },
 }))
 
 beforeEach(() => {
   instancesMock.mockReset()
   confirmMock.mockReset()
   unconfirmMock.mockReset()
-  targetsListMock.mockReset()
+  queryMock.mockReset()
 })
 
 describe('ExporterInstallationPanel', () => {
@@ -93,17 +99,12 @@ describe('ExporterInstallationPanel', () => {
         total: 2,
       },
     })
-    targetsListMock.mockResolvedValue({
-      status: 'success',
-      data: {
-        activeTargets: [
-          { scrapePool: 'j', job: 'j', instance: '10.0.0.1:9104', network_domain: 'default', health: 'up', resource_id: 'a' },
-          { scrapePool: 'j', job: 'j', instance: '10.0.0.2:9104', network_domain: 'default', health: 'down', resource_id: 'b' },
-        ],
-        droppedTargets: [],
-        targetsByJob: {},
-      },
-    })
+    queryMock.mockResolvedValue(
+      vector([
+        { metric: { __name__: 'up', job: 'j', instance: '10.0.0.1:9104', resource_id: 'a' }, value: [0, '1'] },
+        { metric: { __name__: 'up', job: 'j', instance: '10.0.0.2:9104', resource_id: 'b' }, value: [0, '0'] },
+      ]),
+    )
 
     render(<ExporterInstallationPanel jobId={1} jobName="j" deployed />)
 
@@ -115,7 +116,7 @@ describe('ExporterInstallationPanel', () => {
     // antd Tooltip 内容挂载到 portal，需 hover 触发后断言引导文案
     fireEvent.mouseEnter(screen.getByText('已下发未采到'))
     expect(await screen.findByText(DOWN_TOOLTIP)).toBeInTheDocument()
-    expect(targetsListMock).toHaveBeenCalledWith({ job: 'j' })
+    expect(queryMock).toHaveBeenCalledWith({ query: 'up{job="j"}' })
   })
 
   it('变更未确认下发时实例全部显待采集', async () => {
@@ -128,6 +129,6 @@ describe('ExporterInstallationPanel', () => {
     })
     render(<ExporterInstallationPanel jobId={1} jobName="j" deployed={false} />)
     expect(await screen.findByText('待采集')).toBeInTheDocument()
-    expect(targetsListMock).not.toHaveBeenCalled()
+    expect(queryMock).not.toHaveBeenCalled()
   })
 })

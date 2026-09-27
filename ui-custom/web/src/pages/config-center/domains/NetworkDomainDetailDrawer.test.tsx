@@ -26,7 +26,7 @@ describe('NetworkDomainDetailDrawer（网域详情抽屉）', () => {
   setupAntdTest()
 
   it('运行态栏目标签为「采集节点在线」（与列表列一致，PRD v1.79 §3.1.1 / §11.3），不再出现旧名「运行状态」', () => {
-    renderDrawer(domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'online', last_heartbeat: '2026-08-21T00:00:00Z' }))
+    renderDrawer(domainRow('mc-a', '政务网A区', { is_monitored: true, monitored_status: 'normal', last_heartbeat: '2026-08-21T00:00:00Z' }))
     // 栏目标签用「采集节点在线」（Tooltip+Space 包裹产生多处文本节点，用 getAllByText）
     expect(screen.getAllByText('采集节点在线').length).toBeGreaterThanOrEqual(1)
     // 旧栏目标签「运行状态」已移除
@@ -54,7 +54,7 @@ describe('NetworkDomainDetailDrawer（网域详情抽屉）', () => {
   it('「采集节点情况」区块：agent_pull 展示版本 / 相对心跳 / 数量占位', () => {
     renderDrawer(domainRow('mc-c', '政务网C', {
       is_monitored: true,
-      monitored_status: 'online',
+      monitored_status: 'normal',
       last_heartbeat: '2026-08-21T00:00:00Z',
       agent_version: 'v0.2.0',
     }))

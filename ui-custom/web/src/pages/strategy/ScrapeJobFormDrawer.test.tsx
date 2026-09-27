@@ -222,6 +222,48 @@ describe('ScrapeJobFormDrawer', () => {
     expect(body.exporter_template_id).toBe('exp-1')
   })
 
+  // 采集地址拆分（M01 侧）：application_http 的采集地址来自资源台账「端点 + 端口」，
+  // metrics_path 无通用默认值，必须显式填写，否则后端 bad_request。
+  it('requires metrics_path and shows guidance for application_http', async () => {
+    renderDrawer()
+    await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'app-job')
+    await selectCategoryAndType('应用', 'HTTP 应用')
+
+    // 引导文案 + 应用口径 placeholder
+    expect(await screen.findByText(/应用采集地址来自资源台账/)).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('请填写应用指标路径，例如 /actuator/prometheus（留空无法采集）'),
+    ).toBeInTheDocument()
+
+    // 选网域后留空 metrics_path 提交 → 必填校验拦截且不提交
+    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
+    await selectAntdOption('网域A')
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
+
+    await waitFor(() =>
+      expect(screen.getByText('应用采集必须填写采集路径，例如 /actuator/prometheus')).toBeInTheDocument(),
+    )
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps metrics_path optional for non-application monitor type', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: { id: 12, job_name: 'host-job', job_type: 'standard' } })
+    renderDrawer()
+    await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'host-job')
+    await selectCategoryAndType('主机', 'Linux 主机')
+
+    // 非 application_http：无必填、无引导文案，保持「留空=继承」
+    expect(screen.queryByText(/应用采集地址来自资源台账/)).toBeNull()
+    expect(screen.getByPlaceholderText('留空继承采集器默认（/metrics）')).toBeInTheDocument()
+
+    fireEvent.mouseDown(screen.getByText('仅已纳管非冻结网域'))
+    await selectAntdOption('网域A')
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交\s*生\s*效/ }))
+
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect((createMock.mock.calls[0][0] as Record<string, unknown>).metrics_path).toBe('')
+  })
+
   it('renders label template as card filtered by resource category (F1-4)', async () => {
     labelListMock.mockResolvedValue({
       status: 'success',

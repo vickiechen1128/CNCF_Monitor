@@ -29,6 +29,35 @@ type ConfigArtifacts struct {
 	BlackboxYML     string
 	TargetsFiles    map[string]string
 	AlertmanagerYML string
+	// TargetDiagnostics 是生成期目标解析归因（C-1，config-sync-stall-and-empty-targets-guard
+	// 设计提案 §3.1 / §3.2 判定点 2）：哪些 Job 的哪些实例未进入产物 targets 及原因。
+	// **非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化、不进 metadata，
+	// 仅用于生成侧校验（ValidateArtifacts）在命中空 targets 时给出资源级归因文案。
+	// 无整体序列化 ConfigArtifacts 的路径（仅五个产物字段分别落库/拼接），
+	// 若未来引入整体序列化必须显式加 json:"-"。
+	TargetDiagnostics []TargetDiagnostics
+}
+
+// TargetDiagnostics 是单个 Job 在生成期的目标解析归因（非产物内容）。
+type TargetDiagnostics struct {
+	JobName  string
+	FileName string // targets/<job>.json
+	Skipped  []SkippedInstance
+}
+
+// anyOfflineOnly 判定某 Job 的归因是否「全部实例均为 offline 排除、且无任何地址类缺陷」。
+// 用于文案区分：全部 offline 是设计预期的排除（决策 2：仍判 failed 阻断，但文案引导
+// 「移除该 Job 或恢复实例」），与地址为空（用户配置缺陷，引导「补齐采集地址」）成因不同。
+func (td TargetDiagnostics) anyOfflineOnly() bool {
+	if len(td.Skipped) == 0 {
+		return false
+	}
+	for _, s := range td.Skipped {
+		if s.Reason != SkipReasonOffline {
+			return false
+		}
+	}
+	return true
 }
 
 // TargetGroup 是 file_sd 目标文件的单组目标（targets + labels）。

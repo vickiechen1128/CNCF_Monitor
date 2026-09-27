@@ -53,19 +53,22 @@ export interface AppSummary {
 
 /**
  * 单个拨测目标（L3 拨测态势面板行，决策 93）。
- * 字段与后端 summary.go `ProbeTargetItem` 的 json tag 完全一致（snake_case）：
- * `status` MVP 阶段恒为空串（未知，不以 up/down 呈现）；`biz_name` / `app_name` MVP 恒为空串；
+ * 归属口径见 `docs/05-execution-records/module-05/design-proposals/probe-ownership-alignment.md`：
+ * 拨测目标不是 M07 资源台账对象，「应用 / 业务域」维度不适用，故无 `biz_name` / `app_name`；
+ * 归属以必然有值的「归属网域」承载。字段与后端 summary.go `ProbeTargetItem` 的 json tag 完全一致：
+ * `status` 空串表示未知（无 probe_success 样本），'up' / 'down' 为明确态；
+ * `network_domain_name` 为归属网域展示名（字典缺条目回落网域 ID）；
  * `last_probe_at` 为指针时间，序列化为 ISO 字符串，空（nil）时前端显示 '-'。
  */
 export interface ProbeTargetItem {
   /** 拨测 URL，缺失时前端显示 '-' */
   url: string
-  /** 拨测状态：MVP 恒 '' 表示未知；'up' / 'down' 为明确态（未来后端填充） */
+  /** 拨测状态：'' 未知；'up' 正常；'down' 异常 */
   status: string
-  /** 业务域，空串显示 '-' */
-  biz_name: string
-  /** 应用名，空串显示 '-' */
-  app_name: string
+  /** 归属网域 ID（ScrapeJob.NetworkDomainID，not null） */
+  network_domain_id: string
+  /** 归属网域展示名（字典缺条目回落网域 ID），空串显示 '-' */
+  network_domain_name: string
   /** 最近拨测时间（RFC3339 / ISO 串）；空（后端 nil）显示 '-' */
   last_probe_at: string | undefined
 }

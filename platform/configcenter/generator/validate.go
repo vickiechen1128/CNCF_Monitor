@@ -12,7 +12,6 @@ import (
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
-	"gopkg.in/yaml.v3"
 )
 
 // ToolLookPath / ToolChecker 可注入，便于测试（含跨包测试，如 configcenter/draft）
@@ -28,10 +27,20 @@ var (
 
 // ValidateTargetGroups 对 file_sd 目标文件做 schema 校验（弥补 promtool 不校验
 // SD 内容的缺口，PRD §3.3 / §3.5.1）：
+//   - **空数组非法**：零组即无任何有效采集目标，与边缘 Agent ValidateTargetsJSON
+//     的 `empty array` 同口径拒收（C-2，config-sync-stall-and-empty-targets-guard
+//     设计提案 §3.2）。空 file_sd 数组语义上无意义，放行会让「资源地址缺失」这类
+//     用户配置缺陷静默通过、并在数据面以「在线数 0」暴露，掩盖归因；
 //   - 每组必须有 targets；
 //   - 地址格式合法（URL 或 host / host:port）；
 //   - labels 命名合法（禁止覆盖 __address__ 等内置标签）。
+//
+// 该判定属**确定性用户配置缺陷**，调用侧（ValidateArtifacts）必须置于外部工具
+// （promtool/amtool）可用性检查之前，不得因工具缺失退化为 pending。
 func ValidateTargetGroups(groups []TargetGroup) error {
+	if len(groups) == 0 {
+		return fmt.Errorf("targets 文件为空：未解析出任何有效采集目标")
+	}
 	for _, g := range groups {
 		if len(g.Targets) == 0 {
 			return fmt.Errorf("target group 缺少 targets")
@@ -122,9 +131,22 @@ func validateLabelName(name string) error {
 //   - details：结构化校验失败定位（对齐原型 validation_details）；passed/pending 为空；
 //   - message：人类可读说明。
 //
+// platformJobs 是发布期规则 job 引用校验（决策 66）的生效 Job 集合：由调用侧
+// （configcenter/draft）经 rule.EffectiveJobNames 计算为 central 全域并集（全库
+// enabled + draft_status=ready 的 job_name，跨 local/edge 域，F-14 改动 Y）。
+// generator 包保持无 gorm 依赖（纯产物校验），不做 DB 查询。
+//
 // 归因规则：targets schema / 内容校验失败 → user_config；
 // 外部校验工具不可调用 → platform_fault。
-func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
+func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
+	// 归因索引（C-1/C-2）：FileName 与 TargetsFiles 的 key 同源（normalizeJobFilename），
+	// 按 basename 对齐。归因仅用于增强失败文案，**不参与判定**——判定结果与归因无关，
+	// 保证无归因路径（如「重新校验」从 DB 重建产物）仍产出完全一致的 failed + user_config。
+	diagByFile := make(map[string]*TargetDiagnostics, len(ca.TargetDiagnostics))
+	for i := range ca.TargetDiagnostics {
+		d := &ca.TargetDiagnostics[i]
+		diagByFile[filepath.Base(d.FileName)] = d
+	}
 	for name, content := range ca.TargetsFiles {
 		var groups []TargetGroup
 		if err := json.Unmarshal([]byte(content), &groups); err != nil {
@@ -133,9 +155,14 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 				fmt.Sprintf("targets 文件 %s 解析失败: %v", name, err)
 		}
 		if err := ValidateTargetGroups(groups); err != nil {
+			// 空 targets：优先用归因（Job / 资源级定位）拼更精确文案；无归因时回落通用文案。
+			msg := err.Error()
+			if len(groups) == 0 {
+				msg = emptyTargetsMessage(name, diagByFile[name])
+			}
 			return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
-				[]models.ValidationDetail{{File: name, Message: err.Error(), Source: models.ValidationSourceTargets}},
-				fmt.Sprintf("targets 文件 %s 非法: %v", name, err)
+				[]models.ValidationDetail{{File: name, Message: msg, Source: models.ValidationSourceTargets}},
+				fmt.Sprintf("targets 文件 %s 非法: %s", name, msg)
 		}
 	}
 	if _, err := ToolLookPath("promtool"); err != nil {
@@ -158,11 +185,12 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 			fmt.Sprintf("外部校验未通过: %s", msg)
 	}
 	// 决策 66：发布期规则 job 引用门禁。判定逻辑与 M01 编辑期同源（rule/jobref，
-	// 单一实现 + 同一输入集，决策 67-4）：
+	// 单一实现 + 同一输入集，决策 67-4）：生效 Job 集合 = central 全域并集（F-14 改动 Y，
+	// 由调用侧经 rule.EffectiveJobNames 计算传入，不再解析本域产物 scrape_configs）：
 	//   - error 级（存活类缺 job）→ failed（user_config），阻断确认，前端展示前往 M01 修改；
 	//   - warning 级 → passed + 告警 details，允许确认但高亮提示。
 	if ca.RulesYML != "" {
-		issues := jobref.Validate(ca.RulesYML, scrapeConfigJobNames(ca.PrometheusYML))
+		issues := jobref.Validate(ca.RulesYML, platformJobs)
 		var fatal, warn []models.ValidationDetail
 		for _, it := range issues {
 			// 决策 67-3：标记来源为规则，配置确认页「前往修改」据此跳 /rules 而非 /scrape-jobs。
@@ -189,24 +217,34 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool) (models.Valida
 	return models.ValidationStatusPassed, "", nil, ""
 }
 
-// scrapeConfigJobNames 解析 prometheus.yml 顶层的 scrape_configs[].job_name，作为
-// 发布期规则 job 引用校验（决策 66）的生效 Job 集合。解析失败返回空集合。
-func scrapeConfigJobNames(prometheusYML string) []string {
-	var doc struct {
-		ScrapeConfigs []struct {
-			JobName string `yaml:"job_name"`
-		} `yaml:"scrape_configs"`
+// emptyTargetsMessage 为空 targets 文件拼装可操作的失败文案（C-2 归因增强）。
+//
+// 有归因时给出 Job + 资源级定位，并区分两类成因（决策 2）：
+//   - 全部实例 offline（设计预期排除）→ 引导「移除该 Job 或恢复实例」；
+//   - 存在采集地址为空 / 资源缺失（用户配置缺陷）→ 引导「补齐采集地址」。
+//
+// 无归因时（如「重新校验」从 DB 重建产物，TargetDiagnostics 为空）回落通用文案；
+// 判定结果（failed + user_config）与归因无关，两条路径完全一致。
+func emptyTargetsMessage(name string, diag *TargetDiagnostics) string {
+	if diag == nil || len(diag.Skipped) == 0 {
+		return fmt.Sprintf("targets 文件 %s 为空：未解析出任何有效采集目标，请检查该 Job 已选实例的采集地址", name)
 	}
-	if err := yaml.Unmarshal([]byte(prometheusYML), &doc); err != nil {
-		return nil
-	}
-	var names []string
-	for _, sc := range doc.ScrapeConfigs {
-		if strings.TrimSpace(sc.JobName) != "" {
-			names = append(names, sc.JobName)
+	parts := make([]string, 0, len(diag.Skipped))
+	for _, s := range diag.Skipped {
+		loc := s.ResourceID
+		if loc == "" {
+			loc = "未知资源"
 		}
+		if s.Category != "" {
+			loc = fmt.Sprintf("%s（%s）", loc, s.Category)
+		}
+		parts = append(parts, fmt.Sprintf("%s：%s", loc, s.Detail))
 	}
-	return names
+	head := fmt.Sprintf("targets 文件 %s 为空：Job %s 未解析出任何有效采集目标", name, diag.JobName)
+	if diag.anyOfflineOnly() {
+		return head + "——所有已选实例均已下线，请移除该 Job 或恢复实例；明细：" + strings.Join(parts, "；")
+	}
+	return head + "——实例采集地址为空，请补齐采集地址；明细：" + strings.Join(parts, "；")
 }
 
 // runToolChecks 实际调用 promtool check config 与 blackbox --config.check。

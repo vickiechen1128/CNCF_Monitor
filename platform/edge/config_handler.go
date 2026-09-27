@@ -58,7 +58,7 @@ func ConfigHandler(svc *ConfigService) gin.HandlerFunc {
 			return
 		}
 
-		zipData, _, err := BuildConfigZip(version, dom.AgentType)
+		zipData, _, err := BuildConfigZip(version, dom.AgentType, dom.RemoteWriteURL)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return

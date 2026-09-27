@@ -15,18 +15,19 @@ import (
 	"github.com/metriccenter/metriccenter/platform/configcenter/deployment"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
+	"github.com/metriccenter/metriccenter/platform/strategy/rule"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
 // 服务层 sentinel 错误，handler 据此映射 HTTP errorType。
 var (
-	ErrNotFound          = errors.New("config draft not found")
-	ErrDomainNotFound    = errors.New("network domain not found")
-	ErrDomainNotMonitored = errors.New("network domain is not monitored")
-	ErrDomainFrozen      = errors.New("network domain is frozen (disabled), no new change may be generated")
-	ErrNotPending        = errors.New("config draft is not pending")
-	ErrValidationNotPassed = errors.New("draft validation has not passed; revalidate or discard instead")
+	ErrNotFound              = errors.New("config draft not found")
+	ErrDomainNotFound        = errors.New("network domain not found")
+	ErrDomainNotMonitored    = errors.New("network domain is not monitored")
+	ErrDomainFrozen          = errors.New("network domain is frozen (disabled), no new change may be generated")
+	ErrNotPending            = errors.New("config draft is not pending")
+	ErrValidationNotPassed   = errors.New("draft validation has not passed; revalidate or discard instead")
 	ErrValidationStillFailed = errors.New("draft validation still failed")
 	// ErrNoChanges 表示当前源数据产物无任何变更项（如无 ready job/rule），
 	// 且该网域从未产生已生效版本；用于抑制「配置无变化」的噪声变更单（决策 44-3）。
@@ -99,7 +100,9 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 
 	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
 	checksum := artifacts.Checksum()
-	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
+	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
 
 	// 决策 44-3：抑制「配置无变化」的噪声变更单。
 	// 变更清单按产物 diff 派生，为空即产物与上一生效版本（或空基线）无实质差异
@@ -142,17 +145,17 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 	}
 
 	draft := &models.ConfigDraft{
-		NetworkDomainID:  domainID,
-		ChangeNo:         changeNo,
-		SourceVersion:    sourceVersionRef,
-		PrometheusYml:    artifacts.PrometheusYML,
-		RulesYml:         artifacts.RulesYML,
-		BlackboxYml:      artifacts.BlackboxYML,
-		AlertmanagerYml:  artifacts.AlertmanagerYML,
-		TargetsFiles:     string(targetsJSON),
-		Metadata:         string(metaJSON),
-		Summary:          buildSummary(items),
-		ChangeItems:      string(itemsJSON),
+		NetworkDomainID:   domainID,
+		ChangeNo:          changeNo,
+		SourceVersion:     sourceVersionRef,
+		PrometheusYml:     artifacts.PrometheusYML,
+		RulesYml:          artifacts.RulesYML,
+		BlackboxYml:       artifacts.BlackboxYML,
+		AlertmanagerYml:   artifacts.AlertmanagerYML,
+		TargetsFiles:      string(targetsJSON),
+		Metadata:          string(metaJSON),
+		Summary:           buildSummary(items),
+		ChangeItems:       string(itemsJSON),
 		Status:            models.DraftStatusPending,
 		ValidationStatus:  string(validation),
 		ValidationMessage: vMsg,
@@ -197,11 +200,13 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		targets, err := generator.ResolveJobTargets(db, job, tmpl, exporterPort)
+		targets, skipped, err := generator.ResolveJobTargets(db, job, tmpl, exporterPort)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		jobBuilds = append(jobBuilds, generator.JobBuild{Job: job, Targets: targets})
+		// 目标解析归因（C-1）随 JobBuild 传入 Assemble，聚合为 ConfigArtifacts.TargetDiagnostics，
+		// 供生成侧校验在命中空 targets 时给出资源级定位（非产物字段，不落盘不参与 checksum）。
+		jobBuilds = append(jobBuilds, generator.JobBuild{Job: job, Targets: targets, Skipped: skipped})
 	}
 
 	// replica 无独立数据源，MVP 不注入（external_labels 仅 network_domain_id/zone_type）。
@@ -215,9 +220,16 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 		}
 	}
 	// 决策 68-2 / 68-3：仅中心求值器（channel=local）生成 rule_files 与 alerting；
-	// 边缘通道（agent_pull）的 vmagent / prometheus-agent 不支持这两段，必须不生成。
+	// 边缘通道（agent_pull）的 vmagent 不支持这两段，必须不生成。
 	// 两者由同一个 centerEvaluator 判定驱动（约定纪律，禁止各自 if）。
 	centerEvaluator := dom.Channel == models.ChannelTypeLocal
+	// 决策 F-14（改动 X）：central 规则只进中心求值器——非 centerEvaluator 域（边缘
+	// agent_pull）不携带 rules.yml（清除边缘死文件，避免规则变更触发边缘域变更单）。
+	// 未来反转预留：v0.4 edge scope 落地（边缘引入 vmalert 求值器）时反向恢复，让边缘
+	// 域重新接收 rules。
+	if !centerEvaluator {
+		rules = nil
+	}
 	artifacts, err := generator.Assemble(dom.ID, dom.ZoneType, "", jobBuilds, rules, alertmanagerYML, AlertmanagerTarget, centerEvaluator)
 	if err != nil {
 		return nil, nil, nil, err
@@ -299,7 +311,9 @@ func reconcileWithExistingPending(
 	}
 
 	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
-	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
+	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
 
 	changeNo, err := nextChangeNo(db)
 	if err != nil {
@@ -312,11 +326,11 @@ func reconcileWithExistingPending(
 	}
 
 	newMeta := models.ConfigDraftMetadata{
-		SourceDataVersion:    sourceVersion,
-		TriggerSummary:       "源数据变更自动取代待确认草稿",
-		Checksum:             currentChecksum,
-		GeneratorVersion:     generator.GeneratorVersion,
-		SupersedesChangeNo:   existing.ChangeNo,
+		SourceDataVersion:  sourceVersion,
+		TriggerSummary:     "源数据变更自动取代待确认草稿",
+		Checksum:           currentChecksum,
+		GeneratorVersion:   generator.GeneratorVersion,
+		SupersedesChangeNo: existing.ChangeNo,
 	}
 	newMetaJSON, err := json.Marshal(newMeta)
 	if err != nil {
@@ -615,10 +629,10 @@ func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVers
 // DiscardImpact 描述废弃一张配置变更单后对源数据（当前仅 ScrapeJob）的影响统计，
 // 用于前端二次确认弹窗分类告知（决策 43-7）。
 type DiscardImpact struct {
-	NewReverted     int `json:"new_reverted"`      // 新建未生效 job 回退 draft
-	ModifiedKept    int `json:"modified_kept"`     // 已生效 job 的修改保留
-	DeletedRestored int `json:"deleted_restored"`  // 删除/停用/草稿化的已生效 job 被恢复
-	Missing         int `json:"missing"`           // 生效版本中存在但 DB 中已无记录
+	NewReverted     int `json:"new_reverted"`     // 新建未生效 job 回退 draft
+	ModifiedKept    int `json:"modified_kept"`    // 已生效 job 的修改保留
+	DeletedRestored int `json:"deleted_restored"` // 删除/停用/草稿化的已生效 job 被恢复
+	Missing         int `json:"missing"`          // 生效版本中存在但 DB 中已无记录
 }
 
 // DiscardDraft 废弃一张 pending 草稿（支持校验失败态 failed 草稿）；
@@ -629,6 +643,7 @@ type DiscardImpact struct {
 //   - 新建且从未生效的 job：回退 draft_status=draft，change_status=none；
 //   - 已生效 job 的修改：保留修改值，change_status=deployed（MVP 不自动回滚，弹窗已告知）；
 //   - 已生效 job 的删除/停用/草稿化：恢复（undelete + enabled + ready），change_status=deployed。
+//
 // unlockSourceDataOnFailed 在草稿落到 validation_status=failed 且归因 user_config 时，
 // **自动清除** M01 源数据（MonitoringRule）的 change_status=pending 锁（决策 67-1）。
 //
@@ -846,7 +861,9 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	if err != nil {
 		return nil, err
 	}
-	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "")
+	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
+	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
+	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
 	detailsJSON, err := json.Marshal(details)
 	if err != nil {
 		return nil, fmt.Errorf("marshal validation details: %w", err)

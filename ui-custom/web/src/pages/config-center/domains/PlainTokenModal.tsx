@@ -1,6 +1,7 @@
 import { Button, Modal, Typography, message } from 'antd'
 import { CopyOutlined } from '@ant-design/icons'
 import { useSkin } from '../../../skinContext'
+import { TOKEN_USER_GUIDE } from '../configCenterConstants'
 
 const { Text } = Typography
 
@@ -61,7 +62,7 @@ export function PlainTokenModal({ open, title = '接入 Token', token, tokenMask
         {token}
       </div>
       <Text type="danger" style={{ fontSize: 12 }}>
-        Token 仅本次展示，关闭后不再可见，请立即复制并妥善保存；遗失需重置 Token。
+        {TOKEN_USER_GUIDE}
       </Text>
       {tokenMasked ? (
         <Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 8 }}>

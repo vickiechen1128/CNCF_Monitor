@@ -274,6 +274,11 @@ function resolveActiveModule(locationPath: string): ModuleDef {
  * 内容区高度：`min-height: 100vh` 撑满背景，**不锁定视口**（用户 2026-09-18 二次反馈）。
  * 页面按内容自然排布，超出视口即滚动——不同电脑尺寸/分辨率下版式一致，不做拉伸与裁切。
  * （首版曾提供 fitViewport 单屏铺满开关，因其把「内容量」与「视口高度」强绑定而移除。）
+ *
+ * 移动适配（手机竖屏 ≤767px，见 App.css 同名媒体查询）：
+ * 顶部一级模块 tab 改为**横向滚动**（六个模块在手机宽度下必然溢出，不换行、不撑高顶栏），
+ * 角色 / 账号紧凑化，侧栏由 `breakpoint="md"` 自动折叠为 56px 图标列；
+ * 首页各区域的栅格降列见 `pages/home/homeResponsive.ts`。
  */
 export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
@@ -288,6 +293,14 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   // 侧栏折叠偏好：初始值来自 localStorage（服务端渲染 / 隐私模式下回落展开）
   const [siderCollapsed, setSiderCollapsed] = useState(() => readSiderCollapsed())
+  /**
+   * 窄屏（≤767px，与 Sider breakpoint="md" 的 767.98px 对齐）自适应折叠：
+   * 手机宽度下 200px 侧栏会挤掉内容区，故自动折叠为图标列（56px，图标点击仍可二级跳转）。
+   * 与用户折叠偏好**分开存放**——用户偏好只在宽屏生效，回到宽屏后仍按 localStorage 恢复，
+   * 不把「窄屏自动折叠」写进偏好（否则用户在手机上浏览一次，桌面端侧栏就被永久折叠）。
+   */
+  const [narrowCollapsed, setNarrowCollapsed] = useState(false)
+  const collapsed = siderCollapsed || narrowCollapsed
   const toggleSider = () =>
     setSiderCollapsed((prev) => {
       writeSiderCollapsed(!prev)
@@ -328,18 +341,20 @@ export function MainLayout({ children }: MainLayoutProps) {
     <Layout className="app-layout">
       <Header className="app-header">
         <div className="app-header-left">
-          {/* 侧栏折叠开关：无二级导航的模块不渲染（避免无效控件） */}
-          {hasSider && (
-            <Tooltip title={siderCollapsed ? '展开侧边导航' : '折叠侧边导航'}>
+          {/* 侧栏折叠开关：无二级导航的模块不渲染（避免无效控件）；
+              窄屏由 Sider 自动折叠，此时开关无效（受控 collapsed 恒真），故一并不渲染，
+              避免出现「点了没反应」的死控件。 */}
+          {hasSider && !narrowCollapsed && (
+            <Tooltip title={collapsed ? '展开侧边导航' : '折叠侧边导航'}>
               <button
                 type="button"
                 className="app-sider-toggle"
                 data-testid="sider-toggle"
-                aria-label={siderCollapsed ? '展开侧边导航' : '折叠侧边导航'}
-                aria-expanded={!siderCollapsed}
+                aria-label={collapsed ? '展开侧边导航' : '折叠侧边导航'}
+                aria-expanded={!collapsed}
                 onClick={toggleSider}
               >
-                {siderCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               </button>
             </Tooltip>
           )}
@@ -383,16 +398,20 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Sider
             width={SIDER_WIDTH}
             collapsedWidth={SIDER_COLLAPSED_WIDTH}
-            collapsed={siderCollapsed}
+            collapsed={collapsed}
             collapsible
             trigger={null}
+            /* 窄屏自动折叠（≤767.98px）：手机宽度下 200px 侧栏会把内容区挤到不可读，
+               折叠为 56px 图标列；onBreakpoint 回宽屏时恢复用户偏好态。 */
+            breakpoint="md"
+            onBreakpoint={setNarrowCollapsed}
             className="app-sider"
             theme="light"
           >
             <Menu
               mode="inline"
               selectedKeys={[selectedSubKey ?? '']}
-              openKeys={siderCollapsed ? [] : openKeys}
+              openKeys={collapsed ? [] : openKeys}
               onOpenChange={(keys) => setUserOpenKeys(keys)}
               onClick={({ key }) => navigate(key)}
               items={active.subItems as MenuProps['items']}
