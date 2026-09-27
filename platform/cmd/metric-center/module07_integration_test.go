@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,25 +83,41 @@ func writeDeclareSheet(t *testing.T, f *excelize.File, sheet string, header []st
 	}
 }
 
-// resourceTemplateColumns 返回某资源类型 Excel 模板列头（与 resource.TemplateColumns
-// 等价；host 行构造用硬编码列序，见 declareHostRow）。
+// resourceTemplateColumns 返回某资源类型 Excel 模板列头：直接复用后端权威定义
+// resource.TemplateColumns（§5.16.1），避免测试侧硬编码列序随模板变更而失配。
 func resourceTemplateColumns(t *testing.T, category models.ResourceCategory) []string {
 	t.Helper()
-	switch category {
-	case models.ResourceCategoryHost:
-		return []string{"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
-			"biz_code", "app_code", "env", "cluster", "owner", "status"}
-	default:
+	cols, ok := resource.TemplateColumns[category]
+	if !ok {
 		t.Fatalf("unexpected category %s", category)
 		return nil
 	}
+	return cols
 }
 
-// declareHostRow 构造一行 host 导入数据（列序对齐 TemplateColumns[host]）：
-// network_domain, instance_name, hostname, instance_ip, os_type, biz_code, app_code,
-// env, cluster, owner, status。
+// declareHostRow 按 host 模板**列名**构造一行声明导入数据（列序无关，模板列增减时
+// 不会错位）：cloud_code 取云字典启用条目（§5.20 seed 预置 PUB-TX）。
 func declareHostRow(ip, biz, app string) []string {
-	return []string{"default", "decl-web-" + ip, "decl-web-" + ip, ip, "Linux", biz, app, "prod", "cluster-1", "ops", "运行中"}
+	cols := resource.TemplateColumns[models.ResourceCategoryHost]
+	vals := map[string]string{
+		"network_domain": "default",
+		"cloud_code":     "PUB-TX",
+		"instance_name":  "decl-web-" + ip,
+		"hostname":       "decl-web-" + ip,
+		"instance_ip":    ip,
+		"os_type":        "Linux",
+		"biz_code":       biz,
+		"app_code":       app,
+		"env":            "prod",
+		"cluster":        "cluster-1",
+		"owner":          "ops",
+		"status":         "运行中",
+	}
+	row := make([]string, len(cols))
+	for i, col := range cols {
+		row[i] = vals[col]
+	}
+	return row
 }
 
 // TestModule07ApplicationDictEndToEnd 覆盖 application-dict 管理闭环（T07-97-B2

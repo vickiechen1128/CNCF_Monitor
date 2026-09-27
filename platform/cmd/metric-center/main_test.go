@@ -56,6 +56,7 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		// 业务分组字典（决策 48）
 		&models.BusinessDomain{},
 		&models.ApplicationDict{},
+		&models.CloudDict{},
 		// 用户认证（Module_06 §5.3，tu-01；seed.Run 会写入初始管理员 admin）
 		&models.User{},
 		// 五类资源（M07）
@@ -115,7 +116,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, seed.BusinessDomains(db, businessDomainsTestPath))
 	bizStore := resource.NewBusinessDomainStore(db)
 	appStore := resource.NewApplicationDictStore(db)
-	resource.RegisterRoutes(platform, db, bizStore, appStore)
+	cloudStore := resource.NewCloudDictStore(db)
+	resource.RegisterRoutes(platform, db, bizStore, appStore, cloudStore)
 	label.RegisterRoutes(platform, db)
 
 	// Module 01 收口（T01-09）：监控策略全部路由。
@@ -249,12 +251,13 @@ func resourcePayload(category string, overrides map[string]interface{}) map[stri
 	base := map[string]interface{}{
 		"resource_category": category,
 		"network_domain_id": "default",
-		"biz_code":          "authorized-ops",
-		"app_code":          "app",
-		"cluster":           "cluster-1",
-		"owner":             "ops",
-		"env":               "prod",
-		"status":            "online",
+		// 决策 103 scheme-B：资源侧不再携带 cloud_code，统一由所属网域派生。
+		"biz_code": "authorized-ops",
+		"app_code": "app",
+		"cluster":  "cluster-1",
+		"owner":    "ops",
+		"env":      "prod",
+		"status":   "online",
 	}
 	switch category {
 	case "host":
@@ -335,7 +338,7 @@ func TestEndToEndDomainRegistry(t *testing.T) {
 	id := ""
 	{
 		code, out := exec("POST", "/api/v2/platform/network-domains",
-			`{"name":"政务网A区","domain_type":"edge","zone_type":"internet","domain_code":"zhw-a"}`)
+			`{"name":"政务网A区","domain_type":"edge","zone_type":"internet","domain_code":"zhw-a","cloud_code":"PUB-TX"}`)
 		require.Equal(t, http.StatusOK, code)
 		data := out["data"].(map[string]interface{})
 		id = data["id"].(string)
@@ -624,6 +627,33 @@ func TestEndToEndSmoke(t *testing.T) {
 	assert.Equal(t, float64(1), out["data"].(map[string]interface{})["total"], "status=online 应命中 1 条")
 }
 
+// hostExcelRow 按 host 模板**列名**构造一行 Excel 数据（§5.16.1 固定列模板）：列序
+// 无关，模板列增减时不会错位。
+func hostExcelRow(vals map[string]string) [][]string {
+	cols := resource.TemplateColumns[models.ResourceCategoryHost]
+	row := make([]string, len(cols))
+	for i, col := range cols {
+		row[i] = vals[col]
+	}
+	return [][]string{row}
+}
+
+// hostRows 构造一行合法 host Excel 数据（决策 103 scheme-B：模板无 cloud_code 列，
+// cloud 由所属网域派生；app_code / cluster 留空，决策 93 host 可空）。
+func hostRows(ip, name, status string) [][]string {
+	return hostExcelRow(map[string]string{
+		"network_domain": "default",
+		"instance_name":  name,
+		"hostname":       name,
+		"instance_ip":    ip,
+		"os_type":        "Linux",
+		"biz_code":       "authorized-ops",
+		"env":            "prod",
+		"owner":          "ops",
+		"status":         status,
+	})
+}
+
 // TestEndToEndExcelImport 覆盖 Excel 模板下载与导入全链路（验收要点 2）：
 // 中文状态映射、create_only/upsert、判重、导入记录列表与详情。
 func TestEndToEndExcelImport(t *testing.T) {
@@ -644,10 +674,6 @@ func TestEndToEndExcelImport(t *testing.T) {
 		w = httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		require.Equal(t, http.StatusNotFound, w.Code)
-	}
-
-	hostRows := func(ip, name, status string) [][]string {
-		return [][]string{{"default", name, name, ip, "Linux", "authorized-ops", "", "prod", "", "ops", status}}
 	}
 
 	// 1. create_only 导入：中文状态「运行中」映射为 online，新建 source_type=import。
@@ -697,7 +723,12 @@ func TestEndToEndExcelImport(t *testing.T) {
 	code, out = c.multipart("/api/v2/platform/resources/host/import",
 		map[string]string{"resource_category": "host", "mode": "create_only"},
 		"file", "data.xlsx", buildXLSX(t, models.ResourceCategoryHost,
-			[][]string{{"default", "bad-01", "bad-01", "10.9.0.99", "Linux", "no-such-biz", "", "prod", "", "ops", "运行中"}}))
+			hostExcelRow(map[string]string{
+				"network_domain": "default",
+				"instance_name":  "bad-01", "hostname": "bad-01", "instance_ip": "10.9.0.99",
+				"os_type": "Linux", "biz_code": "no-such-biz",
+				"env": "prod", "owner": "ops", "status": "运行中",
+			})))
 	require.Equal(t, http.StatusOK, code)
 	data = out["data"].(map[string]interface{})
 	assert.Equal(t, float64(1), data["failed"])
