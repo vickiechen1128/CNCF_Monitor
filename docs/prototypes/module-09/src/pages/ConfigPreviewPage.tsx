@@ -24,10 +24,12 @@ import {
   defaultFallbackRemovalNote,
   jobDomainFanoutNote,
   filterRealTimeEvaluationNote,
-  channelLabel,
-  channelTip,
+  domainTypeLabel,
+  domainTypeColor,
+  domainTypeTip,
   writeSyncFlowOverride,
   type Channel,
+  type DomainType,
   type ConfigSyncStatus,
   type ConfigDraftStatus,
   type DraftValidationStatus,
@@ -441,6 +443,12 @@ export function ConfigPreviewPage() {
   /** 所属网域列：network_domain_id → 网域名称（与下发记录页展示一致） */
   const domainMap = useMemo(() => Object.fromEntries(networkDomains.map((d) => [d.id, d.name])), [])
 
+  /** 接入方式按 domain_type 展示（中心直连域 / 采集节点域），不再直接展示 channel 枚举 */
+  const domainTypeByDomainId = useMemo(
+    () => Object.fromEntries(networkDomains.map((d) => [d.id, d.domain_type])) as Record<string, DomainType>,
+    []
+  )
+
   /** {v1.33} 网域 → 下发通道映射（决策 31/32/33）：发布通道 / 产物形态 / 生效提示均按下发通道区分 */
   const channelByDomainId = useMemo(() => {
     return Object.fromEntries(networkDomains.map((d) => [d.id, d.channel])) as Record<string, Channel>
@@ -745,8 +753,8 @@ export function ConfigPreviewPage() {
             <Tooltip
               title={
                 activeDomain?.channel === 'local'
-                  ? 'local 通道网域级配置同步状态由最近一次下发记录派生（success→已同步 / failed→未同步，可重试 / 无 success 下发→未下发配置）'
-                  : 'agent_pull 通道网域级配置同步状态由 Edge Sync Agent 心跳回执派生（详情见「采集节点状态」页）'
+                  ? '中心直连域网域级配置同步状态由最近一次下发记录派生（success→已同步 / failed→未同步，可重试 / 无 success 下发→未下发配置）'
+                  : '采集节点域网域级配置同步状态由采集节点心跳回执派生（详情见「采集节点状态」页）'
               }
             >
               <Tag color={domainSyncStatusUI[domainSyncStatus].color}>
@@ -759,10 +767,10 @@ export function ConfigPreviewPage() {
         {/* [DECISION D31/D32/D33] 当前选中网域的发布通道标注：local / agent_pull 及对应生效提示（一行短说明，非告警） */}
         {activeDomain && (
           <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-            发布通道：{channelLabel[activeDomain.channel]}（{activeDomain.name}）；
+            接入方式：{domainTypeLabel[activeDomain.domain_type]}（{activeDomain.name}）；
             {activeDomain.channel === 'agent_pull'
               ? '确认后发布为配置包，待采集节点下次心跳拉取生效（准实时 30s）'
-              : '确认后由中心写盘并 reload 立即生效'}
+              : '确认后由平台直接写盘并生效'}
           </Text>
         )}
 
@@ -950,22 +958,23 @@ export function ConfigPreviewPage() {
                   ),
                 },
                 {
-                  // {v1.33} 行内保留下发通道标记（PRD 3.4）：local / agent_pull（与对应 NetworkDomain.channel 一致，决策 32）
+                  // 接入方式按网域 domain_type 展示（中心直连域 / 采集节点域），不再直接展示 channel 枚举
                   title: (
-                    <Tooltip title="该变更所属网域的接入方式：中心直连（确认后中心直接 reload）/ 采集节点回传（采集节点心跳拉取配置包）；决定确认后的生效方式">
+                    <Tooltip title="该变更所属网域的接入方式：中心直连域（确认后由平台直接写盘并生效）/ 采集节点域（发布配置包，待采集节点下次心跳拉取生效）；决定确认后的生效方式">
                       <Space size={4}>
-                        下发通道
+                        接入方式
                         <InfoCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
                       </Space>
                     </Tooltip>
                   ),
-                  key: 'channel',
+                  key: 'domain_type',
                   width: 130,
                   render: (_: unknown, record: ConfigDraft) => {
-                    const channel = channelByDomainId[record.network_domain_id] ?? 'agent_pull'
+                    const dt = domainTypeByDomainId[record.network_domain_id]
+                    if (!dt) return <Text type="secondary">-</Text>
                     return (
-                      <Tooltip title={channelTip[channel]}>
-                        <Tag color={channel === 'local' ? 'default' : 'blue'}>{channelLabel[channel]}</Tag>
+                      <Tooltip title={domainTypeTip[dt]}>
+                        <Tag color={domainTypeColor[dt]}>{domainTypeLabel[dt]}</Tag>
                       </Tooltip>
                     )
                   },
@@ -1102,7 +1111,7 @@ export function ConfigPreviewPage() {
                   ),
                 },
                 ] as TableColumnsType<ConfigDraft>
-              ).filter((col) => showChannelColumn || (col as { key?: string }).key !== 'channel')}
+              ).filter((col) => showChannelColumn || (col as { key?: string }).key !== 'domain_type')}
             />
           ) : statusFilter === 'pending' ? (
             <Empty description="当前无待确认变更：策略或资源变更后配置自动生成；内容无实际影响的变更已自动过滤，此处仅展示需要人工确认的变更。可切换状态筛选查看已确认 / 已废弃变更。" />
@@ -1152,7 +1161,7 @@ export function ConfigPreviewPage() {
                           ? '下发前校验未通过，禁止下发'
                           : activeDomain?.channel === 'agent_pull'
                           ? '确认后发布为配置包，待采集节点下次心跳拉取生效'
-                          : '确认后立即 reload 生效'
+                          : '确认后由平台直接写盘并生效'
                       }
                     >
                       <Button type="primary" icon={<CheckOutlined />} onClick={handleConfirm} disabled={validationFailed}>
@@ -1551,7 +1560,7 @@ export function ConfigPreviewPage() {
                 <Callout
                   tone="success"
                   icon={<CheckCircleFilled />}
-                  title="采集节点回传网域确认后动线：已发布配置包，待采集节点下次心跳拉取生效（准实时 30s）"
+                  title="采集节点域确认后动线：已发布配置包，待采集节点下次心跳拉取生效（准实时 30s）"
                   extra={
                     <Button
                       size="small"

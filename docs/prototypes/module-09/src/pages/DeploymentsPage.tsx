@@ -10,9 +10,10 @@ import {
   configDeployments,
   configVersions,
   networkDomains,
-  channelLabel,
-  channelTip,
-  type Channel,
+  domainTypeLabel,
+  domainTypeColor,
+  domainTypeTip,
+  type DomainType,
   type ConfigDeployment,
   type DeploymentStatus,
 } from '../mocks/module-09'
@@ -57,6 +58,11 @@ export function DeploymentsPage() {
     return Object.fromEntries(networkDomains.map((d) => [d.id, d.name]))
   }, [])
 
+  /** 接入方式按 domain_type 展示（中心直连域 / 采集节点域），不再直接展示 channel 枚举 */
+  const domainTypeByDomainId = useMemo(() => {
+    return Object.fromEntries(networkDomains.map((d) => [d.id, d.domain_type])) as Record<string, DomainType>
+  }, [])
+
   /** 定位过滤：change_no 收窄到该变更单的发布记录；network_domain 再收窄到该网域 */
   const filteredData = useMemo(() => {
     let list = data
@@ -78,7 +84,7 @@ export function DeploymentsPage() {
     const isAgentPull = record.channel === 'agent_pull'
     if (isAgentPull) {
       // 防御分支：按钮已隐藏（决策 40-2），此处不再引导跳转
-      message.info('agent_pull 发布失败属平台侧故障，已触发平台自动重试，无需人工操作')
+      message.info('采集节点域发布失败属平台侧故障，已触发平台自动重试，无需人工操作')
       return
     }
     Modal.confirm({
@@ -89,7 +95,7 @@ export function DeploymentsPage() {
           重试复用本下发记录（重试次数 +1），成功后状态更新为「成功」；重试失败则保持「失败」并更新最近错误。
           <div style={{ marginTop: 8 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              local 通道重试：重新写中心配置目录并 reload，立即生效
+              中心直连域重试：由平台直接写盘并生效，无需采集节点参与
             </Text>
           </div>
         </>
@@ -110,7 +116,7 @@ export function DeploymentsPage() {
               : item
           )
         )
-        message.success(`重试成功：配置已重新写盘并 reload 生效（确认人：${CURRENT_USER}）`)
+        message.success(`重试成功：配置已重新写盘并生效（确认人：${CURRENT_USER}）`)
       },
     })
   }
@@ -134,14 +140,14 @@ export function DeploymentsPage() {
           {isAgentPull && (
             <div style={{ marginTop: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                采集节点回传网域回滚（异步生效）：确认后重新发布历史版本配置包，待采集节点下次心跳拉取后生效（约 30s），进度可在「采集节点状态」页查看。
+                采集节点域回滚（异步生效）：确认后重新发布历史版本配置包，待采集节点下次心跳拉取后生效（约 30s），进度可在「采集节点状态」页查看。
               </Text>
             </div>
           )}
           {!isAgentPull && (
             <div style={{ marginTop: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                local 通道回滚（同步生效）：确认后重新下发历史版本，中心写盘并 reload，立即生效。
+                中心直连域回滚（同步生效）：确认后重新下发历史版本，由平台直接写盘并生效。
               </Text>
             </div>
           )}
@@ -187,7 +193,7 @@ export function DeploymentsPage() {
         message.success(
           isAgentPull
             ? `已回滚：已发布历史版本，待采集节点下次心跳拉取生效（准实时 30s）（操作人：${CURRENT_USER}）`
-            : `已回滚到上一版本，配置已 reload 生效（操作人：${CURRENT_USER}）`
+            : `已回滚到上一版本，配置已由平台直接写盘并生效（操作人：${CURRENT_USER}）`
         )
       },
     })
@@ -243,16 +249,20 @@ export function DeploymentsPage() {
               render: (id: string) => <Text>{domainMap[id] ?? id}</Text>,
             },
             {
-              // {v1.33} 下发通道（PRD 4.6）：local（中心直接 reload）/ agent_pull（Edge Sync Agent 拉包），与对应 NetworkDomain.channel 一致
-              title: '下发通道',
-              dataIndex: 'channel',
-              key: 'channel',
-              width: 110,
-              render: (channel: Channel) => (
-                <Tooltip title={channelTip[channel]}>
-                  <Tag color={channel === 'local' ? 'default' : 'blue'}>{channelLabel[channel]}</Tag>
-                </Tooltip>
-              ),
+              // 接入方式按网域的 domain_type 展示（中心直连域 / 采集节点域），不再展示 channel 枚举
+              title: '接入方式',
+              dataIndex: 'network_domain_id',
+              key: 'domain_type',
+              width: 120,
+              render: (domainId: string) => {
+                const dt = domainTypeByDomainId[domainId]
+                if (!dt) return <Text type="secondary">-</Text>
+                return (
+                  <Tooltip title={domainTypeTip[dt]}>
+                    <Tag color={domainTypeColor[dt]}>{domainTypeLabel[dt]}</Tag>
+                  </Tooltip>
+                )
+              },
             },
             {
               title: '配置版本',
@@ -347,8 +357,14 @@ export function DeploymentsPage() {
             <Descriptions.Item label="网域">
               {domainMap[detailRecord.network_domain_id] ?? detailRecord.network_domain_id}（{detailRecord.network_domain_id}）
             </Descriptions.Item>
-            <Descriptions.Item label="下发通道">
-              <Tag color={detailRecord.channel === 'local' ? 'default' : 'blue'}>{channelLabel[detailRecord.channel]}</Tag>
+            <Descriptions.Item label="接入方式">
+              {domainTypeByDomainId[detailRecord.network_domain_id] ? (
+                <Tag color={domainTypeColor[domainTypeByDomainId[detailRecord.network_domain_id]]}>
+                  {domainTypeLabel[domainTypeByDomainId[detailRecord.network_domain_id]]}
+                </Tag>
+              ) : (
+                <Text type="secondary">-</Text>
+              )}
             </Descriptions.Item>
             <Descriptions.Item label="配置版本">
               <Text code>{detailRecord.config_version_id}</Text>
