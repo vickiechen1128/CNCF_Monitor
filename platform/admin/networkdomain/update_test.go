@@ -59,6 +59,32 @@ func TestUpdateNetworkDomainTenantIgnored(t *testing.T) {
 	assert.Equal(t, "y", d.Name)
 }
 
+// TestUpdateNetworkDomainCloudCodeImmutable verifies that cloud_code is not
+// editable after registration (MVP 收口：登记后不可迁云). A cloud_code sent in
+// the PUT body is silently ignored, while other editable fields in the same
+// request are still applied.
+func TestUpdateNetworkDomainCloudCodeImmutable(t *testing.T) {
+	db := openTestDB(t)
+	seedDomainRegistrationDicts(t, db)
+	insertDomain(t, db, &models.NetworkDomain{
+		ID: "mc-zhw-a", Name: "旧名", DomainType: models.DomainTypeEdge, ZoneType: "internet",
+		CloudCode: "PUB-TX",
+		TenantID:  models.PlatformAdminTenantID, AuthorizedTenantIDs: []string{"platform_admin"},
+		Status: models.DomainStatusEnabled,
+	})
+
+	// GM-CU is a valid enabled cloud code, yet it must NOT be applied.
+	code, d := putUpdate(t, db, "mc-zhw-a", `{"cloud_code":"GM-CU","name":"新名"}`)
+	require.Equal(t, 200, code)
+	assert.Equal(t, "新名", d.Name)
+	assert.Equal(t, "PUB-TX", d.CloudCode)
+
+	var got models.NetworkDomain
+	require.NoError(t, db.Where("id = ?", "mc-zhw-a").First(&got).Error)
+	assert.Equal(t, "PUB-TX", got.CloudCode)
+	assert.Equal(t, "新名", got.Name)
+}
+
 func TestUpdateNetworkDomainNotFound(t *testing.T) {
 	db := openTestDB(t)
 	seedDomainRegistrationDicts(t, db)
