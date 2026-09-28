@@ -243,7 +243,7 @@
   - 拨测（blackbox）URL 与容器类不在该表范围内，不适用。
 - **请求结论**：请设计侧在下一轮 PRD 迭代中（a）择定 `instance_name` 的目标标签并修正 §5.2 矛盾；（b）为 §5.12 A 通用行补适用范围括注（4 类静态资源 + db/mw 取 `InstanceIP`）。
 - **备注**：本次未直接修改 M07 PRD 正文与版本面——本分支为 M08 开发分支，避免触碰其他模块的 PRD 版本归口（跨模块冲突风险）；实现侧已按上述建议口径预留（M08 决策 70 三期范围收窄至 4 类静态资源）。
-- **状态**：open（待设计侧收割）
+- **状态**：**已收割**（2026-09-28 收割于 M07 PRD v2.48，落点 §5.2 / §5.12.1）
 
 ---
 
@@ -273,7 +273,15 @@
   - **红线未动**：表结构、唯一键 `category|domain|service_name|endpoint`、标签模板映射均不变。
   - **存量影响**：`health_check_url` 为空的存量行**不再被拦**；`port=0` 的存量 application 行在下次编辑保存时会被拦（需补采集端口）。不做数据回填脚本。
   - **请求结论（PRD 口径，修订）**：（a）M07 §5.2 明确 `health_check_url` 为「应用实际 URL」且可选、**不参与采集**；`endpoint` / `port` 明确为**采集地址主机与采集端口且必填**，`protocol` 标注仅资源画像；（b）M09 PRD §3.3 明确 application 的 target 地址来源为 `endpoint` + `port`；（c）M01 PRD §5.4 明确 `application_http` 的 `metrics_path` 必填、不参与「留空继承」层叠默认链。
-  - **状态**：open（待设计侧按修订口径回写 M07 / M09 / M01 PRD）
+  - **状态**：M07 §5.2 已收割于 v2.48（落点 §5.8 `health_check_url` / `endpoint` / `port` / `protocol` 四字段）；M09 §3.3 / M01 §5.4 待对应模块回写（不在本次 M06/M07 范围）
 - **存量影响（已按修订口径更新）**：见上「⚠ 修订」块——`health_check_url` 空值不再被拦；`port=0` 的存量 application 行编辑保存时需补采集端口。
 - **影响模块（修订后）**：后端 `platform/config/resource`（必填口径调整 + 删除派生）、`platform/configcenter/generator`（target 地址来源）、`platform/strategy/scrapejob`（application_http 的 metrics_path 必填与展示地址）、前端 M07 应用表单与列表列头、前端 M01 采集 Job 表单、`Module_07` / `Module_09` / `Module_01` PRD 与 `api-contract-snapshot.md`
-- **状态**：open（待设计侧确认 (a)(b)(c)）
+- **状态**：M07 §5.2 已收割于 v2.48；M09 §3.3 / M01 §5.4 待对应模块回写（不在本次 M06/M07 范围）
+
+---
+
+## 收割记录
+
+| PRD 版本 | 日期 | 收割范围 | 落点 |
+| --- | --- | --- | --- |
+| v2.48 | 2026-09-28 | F-5 / F-11(a) | F-5：§5.2 `instance_name` 改以 §5.12.1 A 为准（生成 `instance_name` label）+ §5.12.1 通用行补适用范围括注（4 类静态资源，db/mw 取 `InstanceIP`，application 不适用）+ 移除 `hostname` 死键行；F-11(a)：§5.8 application `health_check_url` 恢复可选（仅资源画像/标签来源，不参与采集）、`endpoint`+`port` 为采集地址且必填（`port` 1~65535）、`protocol` 仅资源画像。F-11(b)(c) 归 M09/M01，待对应模块回写 |
