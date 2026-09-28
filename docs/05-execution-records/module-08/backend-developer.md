@@ -105,3 +105,23 @@
   - 契约快照 `api-contract-snapshot.md` 与 PRD 均缺 PL-3 端点（`/notify-channels*`、`/notify-templates*`、`POST /api/v1/webhooks/notify`），**待回写**（dev-feedback #17）。
   - 取消渠道 WebhookURL/Secret 明文存储 + 响应脱敏的取舍登记见 dev-feedback #15；令牌/时区注入依赖 `env/env.sh`（当前交付包无该文件）见 dev-feedback #16。
   - Track B+ 强制 security-reviewer 收尾：桥端点 SSRF 面 + 内网令牌鉴权 + 出站 CA 收敛，建议随 T08-11 挂 security-reviewer。
+
+## T08-12：通知渠道生成接收人配置片段端点
+
+- **commit**：`eb8ff3b`（feat(module-08): 通知渠道生成接收人配置片段端点（T08-12））
+- **背景**：PL-3 交付了渠道登记能力，但未把渠道接到 `alertmanager.yml` 的 receivers——用户既不知道为何要写 receiver，也无从知道 `channel` 的真实数字 ID 与桥 `token` 真值（前端骨架误写 `ch-default` 必被 `parseUintQuery` 判非法）。本端点服务端拼好完整可用的 receiver 片段（含真实 ID + 内网令牌）供用户复制粘贴（A 路线：不改 M09 生成逻辑）。
+- **新增/修改文件**：
+  - `platform/alertmanager/notify/receiver_snippet.go`（新增）：`ReceiverSnippetConfig`（BridgeURL + BridgeToken）/ `ReceiverSnippet`（receiver_name / url / snippet / token_configured）；`DeriveBridgeBaseURL(listenAddr)`（由监听地址推导桥基址：空/`0.0.0.0`/`::` 归一为 `127.0.0.1`，缺端口报错）；`sanitizeReceiverName`（转小写、非 `[a-z0-9]`→`-`、压缩连续、去首尾）；`BuildReceiverSnippet`（receiver 名 sanitize + 空名回落 `notify-<id>` + query 覆盖校验；URL 恒带真实数字 channel ID 与令牌，未配置令牌用占位符 `<未配置桥令牌>` 并置 `token_configured=false`；片段为相对 `receivers:` 缩进 2 空格的可粘贴 YAML）；`ReceiverSnippetHandler`（解析 `:id` → GetChannel → 生成，只读无副作用）。
+  - `platform/alertmanager/notify/register.go`（修改）：`RegisterRoutes` 增 `snippetCfg ReceiverSnippetConfig`；admin 组追加 `GET /:id/receiver-snippet`（挂 `auth.RequireAdmin()`）。
+  - `platform/alertmanager/notify/channel_handler.go`（修改）：`respondChannelError` 增 `ErrReceiverNameInvalid` → `bad_request` 映射。
+  - `platform/alertmanager/register.go`（修改）：`RegisterRoutes` 增 `notifyCfg notify.ReceiverSnippetConfig` 参数并下传。
+  - `platform/cmd/metric-center/main.go`（修改）：由 `--listen-address` 经 `notify.DeriveBridgeBaseURL` 推导桥基址（非法即启动失败）；`setupRouter` / `registerPlatformConfigRoutes` 增片段配置透传。
+  - `platform/alertmanager/notify/receiver_snippet_test.go`（新增）：基址推导表驱动、receiver 名 sanitize（含中文名「SRE 飞书群」→`sre`）、空名回落、覆盖校验、令牌未配置占位符、URL↔bridge 参数口径闭环（把生成 URL 的 `channel` 喂回 `parseUintQuery`）、handler 鉴权（无身份/普通用户 403、管理员 200）、404/400、**amtool check-config 实测片段可接受（含令牌与占位符两态）**。
+  - `platform/cmd/metric-center/main_test.go`（修改）：`alertmanager.RegisterRoutes` 调用补片段配置；`TestEndToEndNotifyBridgeSmoke` 增第 6 步断言片段端点返回真实 channel ID + 令牌 + `send_resolved: true`。
+- **契约口径**：`GET /api/v2/platform/alertmanager/notify-channels/{id}/receiver-snippet`，鉴权 `RequireAdmin()`；成功 200 `data={receiver_name,url,snippet,token_configured}`；404 `not_found`（渠道不存在）；400 `bad_request`（ID 非法 / receiver_name 覆盖非法）。令牌封装在片段内、不作为独立字段单独暴露（用户裁决）。
+- **验证结果**：
+  - `go test ./platform/...` 全绿（含 `platform/alertmanager/notify` 新增用例与 `cmd/metric-center` 集成）；`go vet ./platform/...` 干净；`make repo-map` 已刷新、`make check-repo-map` OK。
+  - 服务启动（`:18081` + `NOTIFY_BRIDGE_TOKEN=testbridge-123` + 临时 DB）：`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200；admin 登录创建渠道（脱敏 `https://open.feishu.cn/***`）后 `GET .../notify-channels/1/receiver-snippet` → 200 `receiver_name=sre`、`url=http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=testbridge-123`、`snippet` 含 `send_resolved: true`、`token_configured=true`；`/9999`→404、`/abc`→400、无 token→401、**普通用户 token→403 `forbidden`**。验证后已停服释放 18081（临时 DB 已清理）。
+- **遇到的问题与解决**：
+  - 片段在 AM 侧必须可直接粘贴且 `amtool check-config` 接受：`token_configured=false` 时占位符含尖括号，实测 `amtool check-config` 对该 URL 仍判 SUCCESS，遂保留醒目占位符（未做百分号转义，保证可读）。
+- **遗留**：本端点属 PL-3 契约的新增端点，`api-contract-snapshot.md` / PRD 仍缺 PL-3 全部端点（见 dev-feedback #17，已在本端点追加其后登记）。

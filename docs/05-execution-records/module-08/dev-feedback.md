@@ -260,3 +260,13 @@
 - **影响模块**：M08 PL-3（通知模板页）；若后续需支持删除，须先在后端补 DELETE 端点并回写契约快照
 - **发现场景**：T08-F11 按任务卡「内置模板不可删除」逐项落地时，核对 wire 契约确认无删除端点
 - **状态**：closed（按 append-only 口径落地；删除能力属后续迭代，届时本项重开）
+
+## 21. 接收人配置片段端点（T08-12）为 PL-3 契约新增，api-contract-snapshot 仍缺 PL-3 全部端点（① 空白，待回写）
+
+- **类别**：① 空白判定（契约文档面）
+- **PRD 章节 / 文件位置**：契约快照 `docs/05-execution-records/module-08/api-contract-snapshot.md`；PRD `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`；实现 `platform/alertmanager/notify/receiver_snippet.go`
+- **现状 / 根因**：T08-12 新增只读端点 `GET /api/v2/platform/alertmanager/notify-channels/{id}/receiver-snippet`（服务端拼好可粘贴的 receiver YAML 片段，含真实数字 channel ID 与桥内网令牌；挂 `RequireAdmin()`）。该端点属 PL-3 通知渲染桥契约面（同 #17 所列 `/notify-channels*`、`/notify-templates*`、`POST /api/v1/webhooks/notify`），**本端点追加于 #17 缺口的端点清单之后**，同样**未写入 `api-contract-snapshot.md` / PRD**。
+- **判定（本迭代二执行口径）**：本次以任务卡 + 设计提案 §3.3.5 为契约权威实现（A 路线：不改 M09 `alertmanager.yml` 生成逻辑）；**待 PL-3 开发收口后由文档方（prototype-designer / Orchestrator）将 PL-3 全部端点（含本端点）一并补齐至 `api-contract-snapshot.md` 与 PRD**（含请求/响应字段、错误码、鉴权、令牌占位口径）。
+- **影响模块**：M08 PL-3（后端端点 + 前端片段展示按钮对接）；文档方回写契约快照与 PRD
+- **发现场景**：T08-12 实现接收人片段端点时，核对契约快照确认 PL-3 端点整体缺失（延续 #17）
+- **状态**：open（按任务卡/提案实现，待回写契约快照与 PRD 后 closed；与 #17 同批收口）
