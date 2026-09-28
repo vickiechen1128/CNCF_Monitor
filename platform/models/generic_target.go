@@ -5,7 +5,10 @@ package models
 type GenericTarget struct {
 	BaseModel
 	ResourceBase
-	TargetName   string            `gorm:"size:200;not null" json:"target_name"`
+	TargetName string `gorm:"size:200;not null" json:"target_name"`
+	// ServiceCode 是**可选**服务归属编码（决策 105，同 models.Application.ServiceCode）；
+	// 与 application 一并属于「可挂服务」的两类资源，host / database / middleware 不挂。
+	ServiceCode  string            `gorm:"size:64" json:"service_code"`
 	InstanceIP   string            `gorm:"size:50;not null" json:"instance_ip"`
 	Port         int               `json:"port"`
 	MetricsPath  string            `gorm:"size:200" json:"metrics_path"`  // 默认 /metrics
@@ -16,7 +19,9 @@ type GenericTarget struct {
 }
 
 // GetResourceType returns the resource type (transitional, equals the category).
-func (g *GenericTarget) GetResourceType() ResourceType { return ResourceType(ResourceCategoryGenericTarget) }
+func (g *GenericTarget) GetResourceType() ResourceType {
+	return ResourceType(ResourceCategoryGenericTarget)
+}
 
 // GetResourceCategory returns the authoritative resource category.
 func (g *GenericTarget) GetResourceCategory() ResourceCategory { return ResourceCategoryGenericTarget }

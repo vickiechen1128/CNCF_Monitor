@@ -84,12 +84,17 @@ type Application struct {
 	TenantID         string           `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
 	// AppName 物理列名沿用历史名（决策 92：物理列名不改名）；其语义已切换为不可变应用
 	// 编码 app_code——资源侧只存编码，app label 恒取此值。展示名由应用字典承载。
-	AppName        string `gorm:"size:100;not null" json:"app_name"`
-	Env            string `gorm:"size:20;not null" json:"env"`
-	Cluster        string `gorm:"size:100;not null" json:"cluster"`
-	Owner          string `gorm:"size:100" json:"owner"`
-	Status         string `gorm:"size:20;not null" json:"status"`
-	ServiceName    string `gorm:"size:100;not null" json:"service_name"`
+	AppName     string `gorm:"size:100;not null" json:"app_name"`
+	Env         string `gorm:"size:20;not null" json:"env"`
+	Cluster     string `gorm:"size:100;not null" json:"cluster"`
+	Owner       string `gorm:"size:100" json:"owner"`
+	Status      string `gorm:"size:20;not null" json:"status"`
+	ServiceName string `gorm:"size:100;not null" json:"service_name"`
+	// ServiceCode 是**可选**服务归属编码（决策 105，对应服务字典 ServiceDict 主键），
+	// 仅 application / generic_target 适用，是 `svc` label 的唯一取值来源；留空表示
+	// 纯自由文本、向后兼容（svc 标签不注入）。既有必填字段 ServiceName（应用服务名）
+	// 口径不变，仍参与 application 判重键 (domain, service_name, endpoint)。
+	ServiceCode    string `gorm:"size:64" json:"service_code"`
 	HealthCheckURL string `gorm:"size:500;not null" json:"health_check_url"`
 	Protocol       string `gorm:"size:20;not null" json:"protocol"`
 	Endpoint       string `gorm:"size:500" json:"endpoint"`
