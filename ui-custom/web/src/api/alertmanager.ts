@@ -10,11 +10,18 @@ import type {
   AlertmanagerConfigVersion,
   AlertmanagerConfigVersionListItem,
   AmAlertsData,
+  CreateNotifyChannelPayload,
   CreateSilencePayload,
+  NotifyChannel,
+  NotifyChannelsData,
+  NotifyTemplate,
+  NotifyTemplatesData,
   PaginatedItems,
   PromAlertsData,
   Silence,
   SilenceLabelOptionsData,
+  SubmitNotifyTemplatePayload,
+  UpdateNotifyChannelPayload,
   ValidateErrorData,
 } from '../types/alertmanager'
 
@@ -154,5 +161,57 @@ export const alertStatusApi = {
   /** 历史告警（M02 v1.13 新增）：基于 ALERTS 时间序列重建规则级触发/恢复区间（含已恢复） */
   getAlertHistory(params?: AlertHistoryQuery): Promise<ApiResponse<AlertHistoryData>> {
     return apiClient.get<AlertHistoryData>('/api/v1/alerts/history', { params })
+  },
+}
+
+/**
+ * 通知渠道管理 API（PL-3 通知渲染桥，提案 §3.3.8；M08 内容 Owner）。
+ * 端点尚未写入 api-contract-snapshot.md，契约权威 = 设计提案 §3.3 + 任务卡 wire 格式，待回写。
+ * 凭据口径：webhook_url 响应脱敏、secret 永不回显（secret_set 仅布尔）。
+ */
+export const notifyChannelsApi = {
+  /** 渠道列表（登录态） */
+  list(): Promise<ApiResponse<NotifyChannelsData>> {
+    return apiClient.get<NotifyChannelsData>('/api/v2/platform/alertmanager/notify-channels')
+  },
+  /** 新建渠道（admin）：名称空 / 类型非法 / webhook 非法 → 400 bad_request */
+  create(input: CreateNotifyChannelPayload): Promise<ApiResponse<NotifyChannel>> {
+    return apiClient.post<NotifyChannel>('/api/v2/platform/alertmanager/notify-channels', { body: input })
+  },
+  /** 更新渠道（admin）：仅传需修改字段；不传 webhook_url/secret 即保留原值 */
+  update(id: string, input: UpdateNotifyChannelPayload): Promise<ApiResponse<NotifyChannel>> {
+    return apiClient.put<NotifyChannel>(
+      `/api/v2/platform/alertmanager/notify-channels/${encodeURIComponent(id)}`,
+      { body: input },
+    )
+  },
+  /** 删除渠道（admin）：不存在返回 not_found */
+  remove(id: string): Promise<ApiResponse<{ id: string }>> {
+    return apiClient.delete<{ id: string }>(
+      `/api/v2/platform/alertmanager/notify-channels/${encodeURIComponent(id)}`,
+    )
+  },
+}
+
+/**
+ * 通知模板管理 API（PL-3 通知渲染桥，提案 §3.3.2/§3.3.8；M08 内容 Owner）。
+ * 端点尚未写入 api-contract-snapshot.md，契约权威 = 设计提案 §3.3 + 任务卡 wire 格式，待回写。
+ * 模板内容为 Alertmanager 标准 Go template（不是脚本）；校验在服务端做，校验失败不落库。
+ */
+export const notifyTemplatesApi = {
+  /** 模板列表（含 total；内置模板 is_builtin=true，随版本升级） */
+  list(): Promise<ApiResponse<NotifyTemplatesData>> {
+    return apiClient.get<NotifyTemplatesData>('/api/v2/platform/alertmanager/notify-templates')
+  },
+  /** 提交模板（admin）：服务端校验 Go template，失败返回 400 bad_request（data.items 行级错误），校验通过才落库留痕 */
+  submit(input: SubmitNotifyTemplatePayload): Promise<ApiResponse<NotifyTemplate>> {
+    return apiClient.post<NotifyTemplate>('/api/v2/platform/alertmanager/notify-templates', { body: input })
+  },
+  /** 回滚：把该历史版本内容重新提交为新的留痕（name 指定新留痕名称） */
+  remount(id: string, name: string): Promise<ApiResponse<NotifyTemplate>> {
+    return apiClient.post<NotifyTemplate>(
+      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}/remount`,
+      { body: { name } },
+    )
   },
 }

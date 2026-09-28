@@ -9,7 +9,9 @@
 import type {
   AlertHistoryState,
   AlertmanagerConfigStatus,
+  NotifyChannelType,
   NotifyStatus,
+  NotifyTemplateStatus,
   PromAlertState,
   SilenceMatcher,
   SilenceStatus,
@@ -248,6 +250,15 @@ export const alertHistoryStateColor: Record<AlertHistoryState, string> = {
 /** 静默管理页路由（豁免项 ④ 的平台内替代入口：静默是运行时状态，不在 alertmanager.yml 里写） */
 export const SILENCES_PATH = '/silences'
 
+/** 告警配置页路由（接收人 / 路由 / 收敛的文件挂载页；逃生门说明指向此处） */
+export const ALERT_CONFIG_PATH = '/alert-config'
+
+/** 通知渠道管理页路由（PL-3「通知渠道」能力页） */
+export const NOTIFY_CHANNELS_PATH = '/notify-channels'
+
+/** 通知模板管理页路由（PL-3「通知模板」能力页；豁免项 ⑤ 的平台内替代入口） */
+export const NOTIFY_TEMPLATES_PATH = '/notify-templates'
+
 /** 说明卡「单块口径」：必写块与豁免块共用形状，避免两处各写一份而漂移 */
 export interface AlertConfigScopeBlock {
   key: string
@@ -259,6 +270,8 @@ export interface AlertConfigScopeBlock {
   desc: string
   /** 平台内替代入口路由；必写块或无替代入口的豁免块为 null（null 时只出文案、不产生链接，避免死链） */
   path: string | null
+  /** 替代入口链接文案（path 非空时使用；避免渲染层写死「静默管理」造成跨块文案错位） */
+  linkText?: string
 }
 
 /** 用户在「告警配置」页**必写的三块**（口径与服务端 amtool 校验一致，不承诺校验器不校验的字段） */
@@ -287,8 +300,8 @@ export const ALERT_CONFIG_REQUIRED_BLOCKS: AlertConfigScopeBlock[] = [
 ]
 
 /**
- * 明确**豁免的两块**：`templates` 由迭代二 PL-3「通知模板」独立承载，当前尚无页面，
- * 故仅出文案、`path` 置 null（迭代一不制造死链），待 PL-3 落地后再补入口。
+ * 明确**豁免的两块**：静默由「静默管理」页承载、模板内容由 PL-3「通知模板」页承载，
+ * 二者均给出平台内替代入口（迭代二 PL-3 落地后回补模板入口，关闭 dev-feedback #14）。
  */
 export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
   {
@@ -297,13 +310,15 @@ export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
     fields: '',
     desc: '平台已实现——静默是 Alertmanager 运行时状态，由「静默管理」页直调 v2 API 即时生效，文件挂载本来就承载不了',
     path: SILENCES_PATH,
+    linkText: '静默管理',
   },
   {
     key: 'templates',
     title: '通知模板内容（templates）',
     fields: '',
-    desc: '由「通知模板」能力独立承载并经平台生成引用，用户不再手写模板文件',
-    path: null,
+    desc: '由「通知模板」页独立承载并经平台生成引用，用户不再手写模板文件',
+    path: NOTIFY_TEMPLATES_PATH,
+    linkText: '通知模板',
   },
 ]
 
@@ -344,3 +359,35 @@ inhibit_rules:
     target_matchers: ['severity="warning"']
     equal: ['network_domain']
 `
+
+// =====================================================================
+// 通知渲染桥（PL-3，2026-09-28）：通知渠道类型 / 通知模板展示名
+// =====================================================================
+
+/** 通知渠道类型展示名（用户语言：飞书 / 钉钉 / 企业微信） */
+export const notifyChannelTypeLabel: Record<NotifyChannelType, string> = {
+  feishu: '飞书',
+  dingtalk: '钉钉',
+  wecom: '企业微信',
+}
+
+export const notifyChannelTypeColor: Record<NotifyChannelType, string> = {
+  feishu: 'blue',
+  dingtalk: 'cyan',
+  wecom: 'green',
+}
+
+/** 通知渠道类型下拉选项（Form Select 用，顺序与展示名一致） */
+export const NOTIFY_CHANNEL_TYPE_OPTIONS: { value: NotifyChannelType; label: string }[] = [
+  { value: 'feishu', label: '飞书' },
+  { value: 'dingtalk', label: '钉钉' },
+  { value: 'wecom', label: '企业微信' },
+]
+
+/** 通知模板状态展示名（先校验、通过才落库留痕，本表恒 applied） */
+export const notifyTemplateStatusLabel: Record<NotifyTemplateStatus, string> = {
+  applied: '已生效',
+}
+
+/** 内置模板提示（内置模板随版本升级、系统统一维护，不可删除） */
+export const NOTIFY_TEMPLATE_BUILTIN_TIP = '平台内置模板随版本升级，系统统一维护，不可删除'

@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-28 17:35 · commit: `28192cc`
+> 生成时间: 2026-09-28 18:12 · commit: `a2f76eb`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -3859,6 +3859,8 @@
 - `const ALERT_HISTORY_STEP_SECONDS`
 - `interface AlertHistoryQuery`
 - `const alertStatusApi`
+- `const notifyChannelsApi`
+- `const notifyTemplatesApi`
 
 ### `ui-custom/web/src/api/ciExporterMappings.ts`
 
@@ -4169,6 +4171,25 @@
 
 - `function HistoryAlertsPage`
 
+### `ui-custom/web/src/pages/alerts/NotifyChannelDrawer.tsx`
+
+- `interface NotifyChannelDrawerProps`
+- `function NotifyChannelDrawer`
+
+### `ui-custom/web/src/pages/alerts/NotifyChannelsPage.tsx`
+
+- `function NotifyChannelsPage`
+
+### `ui-custom/web/src/pages/alerts/NotifyTemplateDrawer.tsx`
+
+- `interface NotifyTemplateInitial`
+- `interface NotifyTemplateDrawerProps`
+- `function NotifyTemplateDrawer`
+
+### `ui-custom/web/src/pages/alerts/NotifyTemplatesPage.tsx`
+
+- `function NotifyTemplatesPage`
+
 ### `ui-custom/web/src/pages/alerts/SilencesPage.tsx`
 
 - `function SilencesPage`
@@ -4201,10 +4222,18 @@
 - `function alertMatchKey`
 - `const alertHistoryStateColor`
 - `const SILENCES_PATH`
+- `const ALERT_CONFIG_PATH`
+- `const NOTIFY_CHANNELS_PATH`
+- `const NOTIFY_TEMPLATES_PATH`
 - `interface AlertConfigScopeBlock`
 - `const ALERT_CONFIG_REQUIRED_BLOCKS`
 - `const ALERT_CONFIG_EXEMPT_BLOCKS`
 - `const ALERTMANAGER_MIN_SKELETON`
+- `const notifyChannelTypeLabel`
+- `const notifyChannelTypeColor`
+- `const NOTIFY_CHANNEL_TYPE_OPTIONS`
+- `const notifyTemplateStatusLabel`
+- `const NOTIFY_TEMPLATE_BUILTIN_TIP`
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
 
@@ -4227,6 +4256,16 @@
 - `function useHistoryAlerts`
 - `function useNetworkDomains`
 - `function defaultTimeRange`
+
+### `ui-custom/web/src/pages/alerts/useNotifyChannels.ts`
+
+- `interface UseNotifyChannelsResult`
+- `function useNotifyChannels`
+
+### `ui-custom/web/src/pages/alerts/useNotifyTemplates.ts`
+
+- `interface UseNotifyTemplatesResult`
+- `function useNotifyTemplates`
 
 ### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
@@ -4744,6 +4783,15 @@
 - `type AlertHistoryState`
 - `interface AlertHistoryItem`
 - `interface AlertHistoryData`
+- `type NotifyChannelType`
+- `interface NotifyChannel`
+- `type NotifyTemplateStatus`
+- `interface NotifyTemplate`
+- `interface CreateNotifyChannelPayload`
+- `interface UpdateNotifyChannelPayload`
+- `interface SubmitNotifyTemplatePayload`
+- `interface NotifyChannelsData`
+- `interface NotifyTemplatesData`
 
 ### `ui-custom/web/src/types/api.ts`
 

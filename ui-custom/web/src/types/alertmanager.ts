@@ -229,3 +229,88 @@ export interface AlertHistoryData {
   /** 实际生效的 query_range 步长（秒）：窗口过宽时服务端会抬高，见决策 90 */
   step?: number
 }
+
+// =====================================================================
+// 通知渲染桥（PL-3，2026-09-28）：通知渠道 + 通知模板
+// 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
+// =====================================================================
+
+/** 通知渠道类型（机器人）：飞书 / 钉钉 / 企业微信 */
+export type NotifyChannelType = 'feishu' | 'dingtalk' | 'wecom'
+
+/**
+ * 通知渠道（机器人 Webhook 目标，提案 §3.3.2）。
+ * AM 侧桥 URL 只引用渠道 ID，目标地址仅平台侧存储、响应严格脱敏。
+ */
+export interface NotifyChannel {
+  /** 数字串 ID（如 `"1"`，即 BaseModel.ID 的十进制字符串）；AM 桥 URL 只引用该 ID */
+  id: string
+  /** 渠道名称（如「SRE 飞书群」） */
+  name: string
+  type: NotifyChannelType
+  /** 已脱敏展示值（`scheme://host/***`）；原值不回显 */
+  webhook_url: string
+  /** secret 永不回显，仅告知是否已设置 */
+  secret_set: boolean
+  enabled: boolean
+  /** RFC3339 */
+  created_at: string
+}
+
+/** 通知模板状态：先校验、通过才落库留痕，本表恒为 applied（复用决策 59/60 纪律） */
+export type NotifyTemplateStatus = 'applied'
+
+/** 通知模板（Alertmanager 标准 Go template 文本，版本化留痕；提案 §3.3.2） */
+export interface NotifyTemplate {
+  id: string
+  name: string
+  /** 适用渠道类型（与渠道类型匹配后才可组合） */
+  channel_type: NotifyChannelType
+  /** Alertmanager 标准 Go template 文本（不是脚本） */
+  content: string
+  /** 平台内置默认模板（随版本升级） */
+  is_builtin: boolean
+  checksum: string
+  status: NotifyTemplateStatus
+  /** RFC3339 */
+  created_at: string
+}
+
+/** 创建通知渠道请求体（name/type/webhook_url 必填；enabled 省略默认 true） */
+export interface CreateNotifyChannelPayload {
+  name: string
+  type: NotifyChannelType
+  webhook_url: string
+  secret?: string
+  enabled?: boolean
+}
+
+/**
+ * 更新通知渠道请求体：**仅传需修改字段**；不传 `webhook_url` / `secret` 即保留原值
+ * （响应已脱敏，编辑表单不得把 `***` 回填提交）。
+ */
+export interface UpdateNotifyChannelPayload {
+  name?: string
+  type?: NotifyChannelType
+  webhook_url?: string
+  secret?: string
+  enabled?: boolean
+}
+
+/** 提交通知模板请求体（均必填；content 为 Alertmanager 标准 Go template） */
+export interface SubmitNotifyTemplatePayload {
+  name: string
+  channel_type: NotifyChannelType
+  content: string
+}
+
+/** GET /notify-channels 响应 data 信封 */
+export interface NotifyChannelsData {
+  items: NotifyChannel[]
+}
+
+/** GET /notify-templates 响应 data 信封（含 total） */
+export interface NotifyTemplatesData {
+  items: NotifyTemplate[]
+  total: number
+}
