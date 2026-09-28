@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-28 17:01 · commit: `165588b`
+> 生成时间: 2026-09-28 17:15 · commit: `7d68665`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -453,6 +453,45 @@
 - `func TestRemountEndpointCreatesNewVersion(t *testing.T)`
 - `func TestRemountEndpointNotFound(t *testing.T)`
 - `func TestRemountEndpointValidationFailsNoPersist(t *testing.T)`
+
+### `platform/alertmanager/notify/channel.go`
+
+- `func ValidateWebhookURL(raw string) error`
+- `type ChannelInput struct`
+- `type UpdateChannelInput struct`
+- `func CreateChannel(db *gorm.DB, in ChannelInput) (*models.NotifyChannel, error)`
+- `func UpdateChannel(db *gorm.DB, id uint, in UpdateChannelInput) (*models.NotifyChannel, error)`
+- `func ListChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
+- `func GetChannel(db *gorm.DB, id uint) (*models.NotifyChannel, error)`
+- `func DeleteChannel(db *gorm.DB, id uint) error`
+- `type ChannelView struct`
+- `func ToChannelView(ch *models.NotifyChannel) ChannelView`
+- `func maskWebhookURL(raw string) string`
+
+### `platform/alertmanager/notify/channel_handler.go`
+
+- `func parseID(c *gin.Context) (uint, error)`
+- `func respondChannelError(c *gin.Context, err error)`
+- `func ListChannelsHandler(db *gorm.DB) gin.HandlerFunc`
+- `func CreateChannelHandler(db *gorm.DB) gin.HandlerFunc`
+- `func UpdateChannelHandler(db *gorm.DB) gin.HandlerFunc`
+- `func DeleteChannelHandler(db *gorm.DB) gin.HandlerFunc`
+
+### `platform/alertmanager/notify/channel_test.go`
+
+- `func newNotifyDB(t *testing.T) *gorm.DB`
+- `func TestCreateChannelPersistsAndValidates(t *testing.T)`
+- `func TestChannelViewMasksCredentials(t *testing.T)`
+- `func TestUpdateChannelPartialAndNotFound(t *testing.T)`
+- `func TestDeleteChannelAndList(t *testing.T)`
+- `func newNotifyRouter(db *gorm.DB) *gin.Engine`
+- `type channelResp struct`
+- `func doJSON(t *testing.T, r *gin.Engine, method, path string, body interface{}) (int, channelResp)`
+- `func TestChannelCRUDHandlers(t *testing.T)`
+
+### `platform/alertmanager/notify/register.go`
+
+- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB)`
 
 ### `platform/alertmanager/register.go`
 
@@ -2695,6 +2734,25 @@
 - `func TestAuthorizedMatcherScopeAllDomainsAlwaysPasses(t *testing.T)`
 - `func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T)`
 - `func TestValidateErrorItemJSON(t *testing.T)`
+
+### `platform/models/alertmanager_notify.go`
+
+- `type NotifyChannelType = string`
+- `func ValidNotifyChannelTypes() []string`
+- `func IsValidNotifyChannelType(t string) bool`
+- `type NotifyChannel struct`
+- `method (NotifyChannel) TableName() string`
+- `type NotifyTemplateStatus = string`
+- `type NotifyTemplate struct`
+- `method (NotifyTemplate) TableName() string`
+
+### `platform/models/alertmanager_notify_test.go`
+
+- `func newNotifyModelDB(t *testing.T) *gorm.DB`
+- `func TestNotifyChannelMigrateAndPersist(t *testing.T)`
+- `func TestNotifyChannelEnabledFalsePersists(t *testing.T)`
+- `func TestNotifyTemplateMigrateAndChecksum(t *testing.T)`
+- `func TestValidNotifyChannelTypes(t *testing.T)`
 
 ### `platform/models/application_dict.go`
 
