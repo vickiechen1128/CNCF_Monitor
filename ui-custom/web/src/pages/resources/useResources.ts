@@ -47,6 +47,8 @@ export interface ResourceListItem {
   health_check_url?: string
   protocol?: string
   endpoint?: string
+  /** {v2.45 决策 105} 可选服务归属（application / generic_target；「服务」列按 service_code 解析 service_name 展示） */
+  service_code?: string
   // generic_target
   target_name?: string
   metrics_path?: string

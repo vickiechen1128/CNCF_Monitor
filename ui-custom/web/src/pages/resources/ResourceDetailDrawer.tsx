@@ -26,12 +26,20 @@ import {
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { isApiError } from '../../api/client'
-import { resourceApi, cloudDictApi } from '../../api/resources'
+import { resourceApi, cloudDictApi, applicationDictApi, platformDictApi, serviceDictApi } from '../../api/resources'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { zoneTypeApi } from '../../api/domain'
 import { EllipsisText } from '../../components/EllipsisText'
 import type { NetworkDomain, ZoneType } from '../../types/domain'
-import type { BusinessDomain, CloudDict, ResourceCategory, ResourceLabelItem } from '../../types/resource'
+import type {
+  ApplicationDict,
+  BusinessDomain,
+  CloudDict,
+  PlatformDict,
+  ResourceCategory,
+  ResourceLabelItem,
+  ServiceDict,
+} from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
 import type { ResourceListItem } from './useResources'
 import { useSkin } from '../../skinContext'
@@ -155,6 +163,11 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   // 决策 101：M06 zone_type 字典（网络分区展示名解析，互联网区 / 政务外网区）
   const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
+  // 决策 105：服务字典（service_code → service_name 展示名解析，仅 application / generic_target 展示）
+  const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
+  // 决策 104：平台字典 + 应用字典（派生「平台」：app_code → 应用父级 platform_code → platform_name）
+  const [applicationDicts, setApplicationDicts] = useState<ApplicationDict[]>([])
+  const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
 
   const { tokens } = useSkin()
   const isApplication = record?.resource_category === 'application'
@@ -190,6 +203,27 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
     if (!code) return '-'
     return zoneTypes.find((z) => z.code === code)?.display_name ?? code
   }
+  /** 服务编码 → service_name（§5.22 / 决策 105，仅 application / generic_target；缺条目回退 service_code） */
+  const resolveServiceName = (code?: string) => {
+    if (!code) return '-'
+    return serviceDicts.find((s) => s.service_code === code)?.service_name ?? code
+  }
+  /** 服务是否停用（决策 105：停用条目以「服务名（已停用）」标识，存量资源保留历史值） */
+  const isServiceDisabled = (code: string) => {
+    const s = serviceDicts.find((d) => d.service_code === code)
+    return !!s && !s.enabled
+  }
+  /**
+   * 平台展示名（决策 104/107）：`platform` 为**派生**标签——经资源 `app_code` →
+   * 应用字典条目父级 `platform_code` → 平台字典 `platform_name` 解析；资源未填 `app_code`
+   * 或应用未挂父级平台时返回 '-'（空值不注入口径）。
+   */
+  const resolvePlatformName = (appCode?: string) => {
+    if (!appCode) return '-'
+    const app = applicationDicts.find((a) => a.app_code === appCode)
+    if (!app?.platform_code) return '-'
+    return platformDicts.find((p) => p.platform_code === app.platform_code)?.platform_name ?? app.platform_code
+  }
 
   /** 打开抽屉时重置状态并抓取标签 + 适用模板（沿用本模块既有 set-state-in-effect 模式） */
   useEffect(() => {
@@ -224,6 +258,20 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       .list()
       .then((res) => setZoneTypes(res.data ?? []))
       .catch(() => setZoneTypes([]))
+    // 决策 105：服务字典（service_code → service_name 展示名解析，仅 application / generic_target 展示）
+    serviceDictApi
+      .list()
+      .then((res) => setServiceDicts(res.data?.list ?? []))
+      .catch(() => setServiceDicts([]))
+    // 决策 104/107：应用字典 + 平台字典（派生「平台」：app_code → 应用父级 platform_code → platform_name）
+    applicationDictApi
+      .list()
+      .then((res) => setApplicationDicts(res.data?.list ?? []))
+      .catch(() => setApplicationDicts([]))
+    platformDictApi
+      .list()
+      .then((res) => setPlatformDicts(res.data?.list ?? []))
+      .catch(() => setPlatformDicts([]))
     // 适用模板：该资源类别默认模板（labelTemplateApi.list({resource_category, is_default}) 取首条，§5.3）
     labelTemplateApi
       .list({ resource_category: record.resource_category, is_default: true, page: 1, page_size: 10 })
@@ -415,6 +463,8 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         },
         { key: 'env', label: '环境', children: record.env || '-' },
         { key: 'app_code', label: '应用', children: record.app_code || '-' },
+        // 决策 104/107：`platform` 为派生标签（app_code → 应用条目父级 platform_code），只读展示，未挂 '-'
+        { key: 'platform', label: '平台', children: resolvePlatformName(record.app_code) },
         // 决策 103 scheme-B：云为五类共享字段且**只读派生**（值 = 所属网域 cloud_code），
         // 详情展示字典 cloud_name（停用标识、缺条目回退编码、空值 '-'）
         {
@@ -475,6 +525,19 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           case 'application':
             return [
               { key: 'service_name', label: '服务名', children: record.service_name || '-' },
+              // 决策 105：可选服务归属（service_code → service_name 展示，停用标识、缺条目回退编码、空 '-'）
+              {
+                key: 'service_code',
+                label: '服务',
+                children: record.service_code ? (
+                  <span>
+                    {resolveServiceName(record.service_code)}
+                    {isServiceDisabled(record.service_code) ? '（已停用）' : ''}
+                  </span>
+                ) : (
+                  '-'
+                ),
+              },
               { key: 'health_check_url', label: '健康检查 URL', children: record.health_check_url || '-' },
               { key: 'protocol', label: '协议', children: record.protocol || '-' },
               { key: 'endpoint', label: '端点', children: record.endpoint || '-' },
@@ -483,6 +546,19 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
           case 'generic_target':
             return [
               { key: 'target_name', label: '目标名称', children: record.target_name || '-' },
+              // 决策 105：可选服务归属（同 application，service_code → service_name 展示）
+              {
+                key: 'service_code',
+                label: '服务',
+                children: record.service_code ? (
+                  <span>
+                    {resolveServiceName(record.service_code)}
+                    {isServiceDisabled(record.service_code) ? '（已停用）' : ''}
+                  </span>
+                ) : (
+                  '-'
+                ),
+              },
               { key: 'exporter_type', label: 'Exporter 类型', children: record.exporter_type || '-' },
               { key: 'instance_ip', label: 'IP 地址', children: record.instance_ip || '-' },
               { key: 'port', label: '端口', children: record.port ?? '-' },

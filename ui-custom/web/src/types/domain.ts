@@ -34,6 +34,11 @@ export interface NetworkDomain {
   name: string
   description: string
   domain_type: DomainType
+  /**
+   * 云归属（M06 §5.2，必填）：`cloud_code` 是云归属的**唯一事实来源**，
+   * 取值须为云字典（M07 §5.20）启用条目；资源的 `cloud` label 经所属网域派生注入。
+   */
+  cloud_code?: string
   zone_type: string
   tenant_id: string
   authorized_tenant_ids: string[]

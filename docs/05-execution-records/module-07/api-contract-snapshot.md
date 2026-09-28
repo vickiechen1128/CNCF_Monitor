@@ -103,6 +103,44 @@
 | PUT | `/application-dict/:app_code` | `{app_name?,description?,enabled?}`（**请求体不接收 app_code**） | 更新后的完整对象 | `bad_request` / `not_found` | §5.19/6.1 |
 
 > **展示名解析**：资源列表/详情「应用」列展示 `app_name`（前端经 `GET /application-dict` 按 `app_code` 解析）；字典缺条回退显示 `app_code`。停用条目 UI 标识「应用名（已停用）」。**{v2.41 决策 97}**：`source` 来源扩展同 §5；Excel 导入「应用声明」sheet 建出条目 `enabled=true`、`source=excel-import`、只增不覆盖。
+>
+> **{v2.45 决策 104/107} 新增可选父级 `platform_code`**：应用字典条目新增**可选** `platform_code`（平台字典主键，见 §5C），表达纵向 `platform(1) → app(N)` 组成分解；**与决策 96 的 biz↔app 横向正交不冲突**（决策 96 只砍「应用挂业务 / 业务挂应用」，不约束应用的上级平台）。POST 请求体新增可选 `platform_code`，PUT 可改 `platform_code`（可挂 / 可摘 / 可换）；`platform_code` 须引用**未停用**的平台字典条目（服务端硬校验）；未挂时应用无平台归属、资源 `platform` label **不注入**。资源的 `platform` label 经 `app_code` → 应用条目父级 `platform_code` **派生**（资源行**无** `platform_code` 字段）。
+
+## 5C. 平台字典 API（v2.45 决策 104/107，新增）
+
+> **定位**：平台字典是 `platform_code → platform` 标签的取值权威，四层骨架 `platform(1) → app(N) → service(M) → instance(K)` 的**顶层**（决策 104）。与业务分组字典（§5）/ 应用字典（§5A）/ 云字典（§5B）同规约：**编码不可变 + 展示名必填 + 停用不删除 + `source` 来源审计**。
+>
+> **命名红线**：顶层定名 **`platform`**（`PlatformDict` / `platform_code` / label `platform`），**放弃 `system`** —— `system` 在 M07 已承载多重语义（`ResourceLabel.source=system`、保护层级「system 层」、`os_dict`），禁止借用作字典名 / 标签名 / 字段名。
+
+| 方法 | 路径 | 请求体 / Query | 响应 data | 业务错误 | PRD 源 |
+|------|------|----------|-----------|----------|--------|
+| GET | `/platform-dict` | — | `{list:[{platform_code,platform_name,description?,enabled}], total}`：`PlatformDictEntry[]` | — | §5.21/§6.1 |
+| POST | `/platform-dict` | `{platform_code,platform_name,description?}`（`platform_code` 编码规范：小写字母/数字/连字符 ≤64，创建后**永不可改**；`source` 服务端设 manual） | 创建后的完整对象 | `bad_request`：编码重复 / 编码不规范 / `platform_name` 缺失 | §5.21/§6.1 |
+| PUT | `/platform-dict/:platform_code` | `{platform_name?,description?,enabled?}`（**请求体不接收 platform_code**） | 更新后的完整对象 | `bad_request` / `not_found` | §5.21/§6.1 |
+
+- **红线**：①`platform_code` 永不可改；②仅 `platform_name` / `description` / `status` 可编辑；③停用不删除（无删除入口）；④**应用侧 `platform_code` 只允许引用未停用条目**（应用登记 / 编辑两处同校验）；⑤**禁止用展示名当编码**（`platform` label 恒取 `platform_code`）。
+- **展示名解析**：应用列表 / 详情的「平台」列展示 `platform_name`（前端经 `GET /platform-dict` 按 `platform_code` 解析）；字典缺条回退显示 `platform_code`；停用条目 UI 标识「平台名（已停用）」。
+- **`source` 来源（决策 97 延伸）**：`manual` / `excel-import`；Excel「平台声明」sheet 建出条目 `enabled=true`、`source=excel-import`、只增不覆盖。
+- **术语可见性（U1）**：`platform` 为**技术术语**，仅出现在折叠区 / 代码注释 / 术语表，**不作 UI 文案**（用户侧语言见 PRD §10 四列对照）。
+
+## 5D. 服务字典 API（v2.45 决策 105/107，新增）
+
+> **定位**：服务字典是 `service_code → svc` 标签的取值权威，四层骨架的**第三层**（一个应用可含多个服务）；**复用应用字典（§5A）同构**。服务与业务域 `biz` **正交**（`service : biz = N:1`，主归属唯一）；服务与应用的关联经**资源行**的 `app_code` + `service_code` 承载（本字典**不设父子字段**）。
+>
+> **命名红线**：服务 label 定名 **`svc`**（值 = `service_code`），**放弃 `service`** —— `service` 与 §5.15 机制 B 归一规则及既有 `service_name` label 撞名；**既有 `service_name` label / 字段保留不动**。
+
+| 方法 | 路径 | 请求体 / Query | 响应 data | 业务错误 | PRD 源 |
+|------|------|----------|-----------|----------|--------|
+| GET | `/service-dict` | — | `{list:[{service_code,service_name,description?,enabled}], total}`：`ServiceDictEntry[]` | — | §5.22/§6.1 |
+| POST | `/service-dict` | `{service_code,service_name,description?}`（`service_code` 编码规范：小写字母/数字/连字符 ≤64，创建后**永不可改**；`source` 服务端设 manual） | 创建后的完整对象 | `bad_request`：编码重复 / 编码不规范 / `service_name` 缺失 | §5.22/§6.1 |
+| PUT | `/service-dict/:service_code` | `{service_name?,description?,enabled?}`（**请求体不接收 service_code**） | 更新后的完整对象 | `bad_request` / `not_found` | §5.22/§6.1 |
+
+- **红线**：①`service_code` 永不可改；②仅 `service_name` / `description` / `status` 可编辑；③停用不删除（无删除入口）；④**资源侧 `service_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**（`svc` label 恒取 `service_code`，禁止以 `service_name` 作标签值或映射来源）。
+- **`service_code` 与资源行 `service_name` 的关系（决策 105）**：资源侧 `service_code` 为**可选字段**（**仅 application / generic_target 适用**，host / database / middleware **不挂**），**留空即纯自由文本、向后兼容**（MVP 存量无需回填）；资源行既有必填 `service_name` **MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`。**软约束**：填 `service_code` 时其 `service_name` 宜与字典展示名一致——**仅软约束、不做强校验**。
+- **展示名解析**：资源列表 / 详情「服务」列展示 `service_name`（前端经 `GET /service-dict` 按 `service_code` 解析）；字典缺条回退显示 `service_code`；停用条目 UI 标识「服务名（已停用）」。
+- **`source` 来源（决策 97 延伸）**：`manual` / `excel-import`；Excel「服务声明」sheet 建出条目 `enabled=true`、`source=excel-import`、只增不覆盖。
+- **术语可见性（U1）**：`svc` 为**技术术语**，仅出现在折叠区 / 代码注释 / 术语表，**不作 UI 文案**。
+- **MVP 不实现**：`service_dependency`（服务依赖边）归 M07 对象层关系、**{v0.3+} 预留**，本轮**不落表、不做界面、不做自动推导**（PRD §5.23 / 决策 106）。
 
 ## 5B. 云字典 API（只读，决策 98 / 102-③ / 103 scheme-B，新增）
 
@@ -285,6 +323,7 @@
 | `zone_type` | 网络分区 | 经所属网域派生（只读），展示分区名（互联网区 / 政务外网区 / 专线区 / DMZ / 公有云 region）；无编辑入口，附「继承所属网域」 |
 | `biz_code` | 业务分组 | 下拉数据来自 `GET /business-domains`；v2.41 决策 93 按类型可空（host/db/mw 可后补，空态 '-'） |
 | `app_code` | 应用 | {v2.41 决策 92} 二元组：选应用字典 `app_code`，回显 `app_name`（字典缺条回退显示 `app_code`）；停用条目「应用名（已停用）」标识；下拉数据来自 `GET /application-dict` |
+| `service_code` | 服务编码 | **{v2.45 决策 105} 可选字段**，**仅 application / generic\_target 显示可填**（host / database / middleware **不挂**，避免服务维度污染）；下拉数据来自 `GET /service-dict`（仅启用项）；**留空即纯自由文本、向后兼容**，空值**不注入** `svc` 标签；填值须引用未停用条目。UI 展示回显 `service_name`（字典缺条回退 `service_code`）。资源行既有必填 `service_name`（应用服务名）**MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`；软约束：填 `service_code` 时 `service_name` 宜与字典展示名一致（**不强校验**） |
 | `app_name` | 应用名（展示名） | {v2.41 决策 92} label 存 `app_code`，`app_name` 仅 UI 展示；改展示名不触发配置重生成 |
 | `env` | 环境 | |
 | `status` | 运行状态 | |

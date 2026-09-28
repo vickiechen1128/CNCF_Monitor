@@ -36,6 +36,9 @@ func openImportTestDB(t *testing.T) *gorm.DB {
 		&models.BusinessDomain{},
 		&models.ApplicationDict{},
 		&models.CloudDict{},
+		// 平台 / 服务字典（决策 104/105：声明 sheet 与资源同库事务内可见）
+		&models.PlatformDict{},
+		&models.ServiceDict{},
 		&models.Host{},
 		&models.Database{},
 		&models.Middleware{},
@@ -59,7 +62,7 @@ func mountImport(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/platform/resources/:type/import", ImportResources(db, newBizStore(t), newAppStore(t)))
+	r.POST("/api/v2/platform/resources/:type/import", ImportResources(db, NewBusinessDomainStore(db), NewApplicationDictStore(db), NewPlatformDictStore(db), NewServiceDictStore(db)))
 	r.GET("/api/v2/platform/imports", ListImports(db))
 	r.GET("/api/v2/platform/imports/:import_id", GetImportRecord(db))
 	return r

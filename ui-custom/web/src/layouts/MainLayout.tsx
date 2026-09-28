@@ -1,17 +1,21 @@
 import { Layout, Menu, Tag, Tooltip, Typography } from 'antd'
 import {
+  ApiOutlined,
   AppstoreOutlined,
   BellOutlined,
   BgColorsOutlined,
   ClockCircleOutlined,
+  CloudOutlined,
   CloudServerOutlined,
   DashboardOutlined,
   DatabaseOutlined,
+  DeploymentUnitOutlined,
   DesktopOutlined,
   FileSearchOutlined,
   FundProjectionScreenOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  PartitionOutlined,
   RadarChartOutlined,
   SendOutlined,
   TagsOutlined,
@@ -113,6 +117,8 @@ const MODULES: ModuleDef[] = [
     subItems: [
       { key: '/admin/tenants', label: '租户管理', icon: <CloudServerOutlined /> },
       { key: '/admin/domains', label: '网域管理', icon: <AppstoreOutlined /> },
+      // 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19）：云归属取值唯一来源，只读不维护
+      { key: '/admin/cloud-dict', label: '云字典', icon: <CloudOutlined /> },
       { key: '/admin/users', label: '用户管理', icon: <DesktopOutlined /> },
       { key: '/admin/login-logs', label: '登录日志', icon: <FileSearchOutlined /> },
       // 外观设置（用户 2026-09-18 补充）：界面皮肤 + 产品名称。
@@ -126,11 +132,17 @@ const MODULES: ModuleDef[] = [
     label: '监控对象管理',
     path: '/resources',
     subItems: [
-      // 原型对齐（Module_07 MainLayout §3.23）：业务分组字典为资源录入/导入的取值权威，
-      // 故「业务管理」前置，位于「资源管理」之上。
-      { key: '/business-domains', label: '业务管理', icon: <AppstoreOutlined /> },
+      // 字典纵向组成链（F-12 修复）：平台 → 应用 → 服务按「归属层级」自上而下排列
+      // （平台承载应用、应用归属平台，服务再归入应用），故三者相邻成组；
+      // 「业务管理」是横切分类维度，单独置后，不再插在链路中间破坏组成关系。
+      // 平台字典维护页（M07 §5.21 / 决策 104）
+      { key: '/platform-dict', label: '平台管理', icon: <DeploymentUnitOutlined /> },
       // 应用字典维护页（M07 §5.19 / 决策 92，与业务管理同构：编码不可变 + 停用不删除）
       { key: '/application-dict', label: '应用管理', icon: <AppstoreOutlined /> },
+      // 服务字典维护页（M07 §5.22 / 决策 105）
+      { key: '/service-dict', label: '服务管理', icon: <ApiOutlined /> },
+      // 业务分组字典为资源录入/导入的取值权威，与上面组成链正交，置为一组末尾
+      { key: '/business-domains', label: '业务管理', icon: <PartitionOutlined /> },
       { key: '/resources', label: '资源管理', icon: <DatabaseOutlined /> },
       { key: '/label-templates', label: '标签模板', icon: <TagsOutlined /> },
     ],
@@ -221,7 +233,7 @@ function findModuleByKey(key: string): ModuleDef {
 /**
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
- * /resources、/label-templates、/business-domains、/application-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
+ * /resources、/label-templates、/business-domains、/application-dict、/platform-dict、/service-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
  * /alert-config、/silences、/alert-status、/alert-history → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
@@ -240,7 +252,9 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/resources') ||
     locationPath.startsWith('/label-templates') ||
     locationPath.startsWith('/business-domains') ||
-    locationPath.startsWith('/application-dict')
+    locationPath.startsWith('/application-dict') ||
+    locationPath.startsWith('/platform-dict') ||
+    locationPath.startsWith('/service-dict')
   )
     return findModuleByKey('monitoring-object')
   if (

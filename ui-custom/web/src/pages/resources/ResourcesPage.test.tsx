@@ -10,6 +10,8 @@ const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 const applicationDictListMock = vi.fn()
 const cloudDictListMock = vi.fn()
+const serviceDictListMock = vi.fn()
+const platformDictListMock = vi.fn()
 const coverageListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -29,6 +31,14 @@ vi.mock('../../api/resources', () => ({
   // 决策 103：云列经 cloudDictApi.list 解析 cloud_name（部署级只读，仅有 list）
   cloudDictApi: {
     list: (...args: unknown[]) => cloudDictListMock(...args),
+  },
+  // 决策 105：服务列经 serviceDictApi.list 解析 service_name
+  serviceDictApi: {
+    list: (...args: unknown[]) => serviceDictListMock(...args),
+  },
+  // 决策 104：平台列经 platformDictApi.list 派生 platform_name
+  platformDictApi: {
+    list: (...args: unknown[]) => platformDictListMock(...args),
   },
 }))
 
@@ -128,6 +138,8 @@ describe('ResourcesPage', () => {
     businessDomainListMock.mockReset()
     applicationDictListMock.mockReset()
     cloudDictListMock.mockReset()
+    serviceDictListMock.mockReset()
+    platformDictListMock.mockReset()
     coverageListMock.mockReset()
     // jsdom 未实现 createObjectURL / revokeObjectURL，桩掉以完成模板下载触发
     URL.createObjectURL = vi.fn(() => 'blob:mock')
@@ -145,6 +157,8 @@ describe('ResourcesPage', () => {
     businessDomainListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     applicationDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     cloudDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    serviceDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    platformDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
     removeMock.mockResolvedValue({ status: 'success', data: { resource_id: 'res-1' } })
     coverageListMock.mockResolvedValue({
       status: 'success',
@@ -348,8 +362,8 @@ describe('ResourcesPage', () => {
     renderPage()
     expect(await screen.findByText('prod-web-01')).toBeInTheDocument()
     expect(screen.getByText('prod-web-02')).toBeInTheDocument()
-    // 每行两处 '-'：采集状态降级 + 云列空值（决策 103 新增共享列）
-    expect(screen.getAllByText('-').length).toBe(4)
+    // 每行三处 '-'：采集状态降级 + 云列空值（决策 103 共享列）+ 平台列空值（决策 104，字典未挂条目）
+    expect(screen.getAllByText('-').length).toBe(6)
     // 不渲染三态文案
     expect(screen.queryByText('采集中')).not.toBeInTheDocument()
     expect(screen.queryByText('未监控')).not.toBeInTheDocument()
@@ -412,7 +426,7 @@ describe('ResourcesPage', () => {
     })
     renderPage()
     await screen.findByRole('tab', { name: '主机' })
-    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+    for (const name of ['主机', '数据库', '中间件', '应用服务', '通用目标']) {
       fireEvent.click(screen.getByRole('tab', { name }))
       await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
       const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
@@ -541,20 +555,21 @@ describe('ResourcesPage', () => {
     expect(within(row).getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
 
-  // 决策 92/96 + F-8-b：五类 Tab 共享「应用名称」列，位于「业务名称」列之后（对齐原型列序）
-  it('决策 92/96 + F-8-b：五类 Tab 均含「应用名称」列且位于「业务名称」之后', async () => {
+  // F-13 列分组（M07 dev-feedback §13）：五类 Tab「应用名称」「业务名称」同属「业务归属」组，
+  // 组内相对序为 平台 → 应用 → [所属服务] → 业务（应用名称在业务名称之前）。
+  it('F-13：五类 Tab「应用名称」「业务名称」同属业务归属组，组内应用名称在业务名称之前', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await screen.findByRole('tab', { name: '主机' })
-    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+    for (const name of ['主机', '数据库', '中间件', '应用服务', '通用目标']) {
       fireEvent.click(screen.getByRole('tab', { name }))
       await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
       const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
-      const appCount = headers.filter((t) => t.trim() === '应用名称').length
-      expect(appCount, `${name} tab：应用名称列应恰好出现一次`).toBe(1)
+      expect(headers.filter((t) => t.trim() === '应用名称').length, `${name} tab：应用名称列应恰好出现一次`).toBe(1)
       const atBiz = headers.findIndex((t) => t.trim() === '业务名称')
       const atApp = headers.findIndex((t) => t.trim() === '应用名称')
-      expect(atApp, `${name} tab：应用名称列应位于业务名称列之后`).toBeGreaterThan(atBiz)
+      // 组内相对序：应用名称应在业务名称之前（不再断言全局绝对列序）
+      expect(atApp, `${name} tab：业务归属组内应用名称应在业务名称之前`).toBeLessThan(atBiz)
     }
   })
 
@@ -563,7 +578,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await screen.findByRole('tab', { name: '主机' })
-    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+    for (const name of ['主机', '数据库', '中间件', '应用服务', '通用目标']) {
       fireEvent.click(screen.getByRole('tab', { name }))
       await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
       const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')
@@ -575,6 +590,73 @@ describe('ResourcesPage', () => {
       const atSource = headers.findIndex((t) => t.trim() === '录入方式')
       expect(atSource, `${name} tab：录入方式应位于采集状态之后`).toBeGreaterThan(atCollect)
     }
+  })
+
+  // F-13 列分组（M07 dev-feedback §13）：antd 列头分组「技术属性 / 位置」+「业务归属」，操作列不归组；
+  // 「云」为经网域派生的位置属性，归技术 / 位置组（不放业务归属组）。
+  it('F-13：五类 Tab 列头呈技术属性/位置 + 业务归属两组，各列归属正确，操作列不归组', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    const { container } = renderPage()
+    await screen.findByRole('tab', { name: '主机' })
+    for (const name of ['主机', '数据库', '中间件', '应用服务', '通用目标']) {
+      fireEvent.click(screen.getByRole('tab', { name }))
+      await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
+      const rows = Array.from(container.querySelectorAll('thead tr'))
+      expect(rows.length, `${name} tab：分组表头应有两行`).toBe(2)
+      const groupRow = Array.from(rows[0].querySelectorAll('th'))
+      const groupTitles = groupRow.map((th) => (th.textContent ?? '').trim())
+      expect(groupTitles[0], `${name} tab：第一组为「技术属性 / 位置」`).toBe('技术属性 / 位置')
+      expect(groupRow[0].getAttribute('scope'), `${name} tab：组列为 colgroup`).toBe('colgroup')
+      expect(groupTitles[1], `${name} tab：第二组为「业务归属」`).toBe('业务归属')
+      expect(groupTitles[2], `${name} tab：操作列不归组`).toBe('操作')
+      const techSpan = groupRow[0].colSpan
+      const bizSpan = groupRow[1].colSpan
+      const leaves = Array.from(rows[1].querySelectorAll('th')).map((th) => (th.textContent ?? '').trim())
+      const techLeaves = leaves.slice(0, techSpan)
+      const bizLeaves = leaves.slice(techSpan, techSpan + bizSpan)
+      // 技术属性 / 位置组：网域 / 运行状态 / 采集状态 / 录入方式 / 云（位置属性）
+      for (const t of ['网域', '运行状态', '采集状态', '录入方式', '云']) {
+        expect(techLeaves.some((x) => x.includes(t)), `${name} tab：${t} 应属技术属性 / 位置组`).toBe(true)
+      }
+      // 业务归属组：平台 / 应用名称 / 业务名称
+      for (const t of ['平台', '应用名称', '业务名称']) {
+        expect(bizLeaves.some((x) => x.includes(t)), `${name} tab：${t} 应属业务归属组`).toBe(true)
+      }
+      // 云为位置属性，不得落入业务归属组；所属服务仅 application / generic_target 且属业务归属组
+      expect(bizLeaves.some((x) => x === '云'), `${name} tab：云不应在业务归属组`).toBe(false)
+      expect(techLeaves.some((x) => x.includes('所属服务')), `${name} tab：所属服务不应在技术组`).toBe(false)
+      if (name === '应用服务' || name === '通用目标') {
+        expect(bizLeaves.some((x) => x.includes('所属服务')), `${name} tab：所属服务应属业务归属组`).toBe(true)
+      } else {
+        expect(leaves.some((x) => x.includes('所属服务')), `${name} tab：不应出现所属服务列`).toBe(false)
+      }
+    }
+  })
+
+  // F-13：分组后不破坏 fixed / scroll —— 主标识列仍 fixed left、操作列仍 fixed right、横向滚动开启。
+  it('F-13：分组后主标识列仍 fixed left、操作列仍 fixed right、scroll.x 生效', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    const { container } = renderPage()
+    await screen.findByText('prod-web-01')
+    const rows = Array.from(container.querySelectorAll('thead tr'))
+    // 表头：技术属性组首个子列（主标识）带 fix-left；操作列（顶层、末尾）带 fix-right
+    const leafHeaders = Array.from(rows[1].querySelectorAll('th'))
+    expect(leafHeaders[0].className).toContain('ant-table-cell-fix-left')
+    const actionHeader = Array.from(rows[0].querySelectorAll('th')).find(
+      (th) => (th.textContent ?? '').trim() === '操作',
+    )
+    expect(actionHeader, '操作列表头应存在').toBeTruthy()
+    expect(actionHeader!.className).toContain('ant-table-cell-fix-right')
+    // 表体：首格 fix-left、末格 fix-right
+    const bodyRow = screen.getByText('prod-web-01').closest('tr') as HTMLElement
+    const cells = Array.from(bodyRow.querySelectorAll('td'))
+    expect(cells[0].className).toContain('ant-table-cell-fix-left')
+    expect(cells[cells.length - 1].className).toContain('ant-table-cell-fix-right')
+    // scroll={{ x: 'max-content' }} → 出现横向滚动容器
+    expect(container.querySelector('.ant-table-content')).toBeTruthy()
   })
 
   // F-8-c：应用名称列头 tooltip
@@ -592,18 +674,60 @@ describe('ResourcesPage', () => {
     expect(await screen.findByText('该资源归属的应用字典条目')).toBeInTheDocument()
   })
 
-  // F-8-c：应用 Tab「服务名」列头 tooltip
-  it('F-8-c：应用 Tab「服务名」列头提示「本应用资源实例的服务标识」', async () => {
+  // F-8-c / F-15：应用服务 Tab「服务名」列头 tooltip（与服务字典归属「所属服务」区分）
+  it('F-15：应用服务 Tab「服务名」列头提示实例名与服务字典归属是两个概念', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await screen.findByText('暂无资源')
-    fireEvent.click(screen.getByRole('tab', { name: '应用' }))
-    await waitFor(() => expect(screen.getByRole('tab', { name: '应用' }).getAttribute('aria-selected')).toBe('true'))
+    fireEvent.click(screen.getByRole('tab', { name: '应用服务' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '应用服务' }).getAttribute('aria-selected')).toBe('true'))
     const svcHeader = await screen.findByRole('columnheader', { name: /服务名/ })
     const badge = svcHeader.querySelector('.anticon-info-circle')
     expect(badge).toBeTruthy()
     fireEvent.mouseEnter(badge!)
-    expect(await screen.findByText('本应用资源实例的服务标识')).toBeInTheDocument()
+    expect(
+      await screen.findByText('本应用服务实例名，参与判重；与服务字典归属（所属服务）是两个概念'),
+    ).toBeInTheDocument()
+  })
+
+  // F-15：应用服务 Tab 标签由「应用」改为「应用服务」（RESOURCE_TYPE_MAP）
+  it('F-15：五类 Tab 中 application 展示名为「应用服务」', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByRole('tab', { name: '应用服务' })
+    expect(screen.getByRole('tab', { name: '应用服务' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '应用' })).toBeNull()
+  })
+
+  // F-15：共享「所属服务」列（决策 105）列头 + tooltip
+  it('F-15：应用服务 Tab「所属服务」列头挂提示（服务字典归属，svc 标签取值）', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
+    renderPage()
+    await screen.findByText('暂无资源')
+    fireEvent.click(screen.getByRole('tab', { name: '应用服务' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: '应用服务' }).getAttribute('aria-selected')).toBe('true'))
+    const header = await screen.findByRole('columnheader', { name: /所属服务/ })
+    const badge = header.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(await screen.findByText('该资源归属的服务字典条目（svc 标签取值）')).toBeInTheDocument()
+  })
+
+  // F-14：云列列头 tooltip（云归属经网域派生、资源侧只读）
+  it('F-14：云列列头提示「云归属经所属网域派生（网域登记时确定），资源侧只读」', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    const cloudHeader = screen.getByRole('columnheader', { name: /^云/ })
+    const badge = cloudHeader.querySelector('.anticon-info-circle')
+    expect(badge).toBeTruthy()
+    fireEvent.mouseEnter(badge!)
+    expect(
+      await screen.findByText('云归属经所属网域派生（网域登记时确定），资源侧只读；此处展示为云名'),
+    ).toBeInTheDocument()
   })
 
   // F-4/F-7：工具栏「下载模板」打开独立模板 Modal——用户语言三问 + 当前业务/应用可选值直显 + 演进提示
@@ -780,7 +904,7 @@ describe('ResourcesPage', () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()
     await screen.findByRole('tab', { name: '主机' })
-    for (const name of ['主机', '数据库', '中间件', '应用', '通用目标']) {
+    for (const name of ['主机', '数据库', '中间件', '应用服务', '通用目标']) {
       fireEvent.click(screen.getByRole('tab', { name }))
       await waitFor(() => expect(screen.getByRole('tab', { name }).getAttribute('aria-selected')).toBe('true'))
       const headers = screen.getAllByRole('columnheader').map((h) => h.textContent ?? '')

@@ -9,16 +9,18 @@ import {
   Form,
   Input,
   Popconfirm,
+  Select,
   Space,
   Switch,
   Table,
+  Tag,
   Typography,
   message,
 } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { applicationDictApi } from '../../api/resources'
-import type { ApplicationDict } from '../../types/resource'
+import { applicationDictApi, platformDictApi } from '../../api/resources'
+import type { ApplicationDict, PlatformDict } from '../../types/resource'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
@@ -37,6 +39,8 @@ export function ApplicationDictPage() {
   const [keyword, setKeyword] = useState('')
   const [drawer, setDrawer] = useState<{ open: boolean; record: ApplicationDict | null }>({ open: false, record: null })
   const [actingCode, setActingCode] = useState<string | null>(null)
+  // 平台字典（决策 104）：仅用于「所属平台」下拉选项与「所属平台」列展示名解析
+  const [platforms, setPlatforms] = useState<PlatformDict[]>([])
 
   const load = useCallback(async () => {
     try {
@@ -47,6 +51,13 @@ export function ApplicationDictPage() {
       setError(e instanceof Error ? e.message : '应用字典加载失败，请稍后重试')
     } finally {
       setLoading(false)
+    }
+    // 平台字典失败不影响应用字典主流程：缺条时列按 platform_code 回退展示
+    try {
+      const pf = await platformDictApi.list()
+      setPlatforms(pf.data?.list ?? [])
+    } catch {
+      setPlatforms([])
     }
   }, [])
 
@@ -103,6 +114,20 @@ export function ApplicationDictPage() {
       // §5.19 / 决策 22 同口径：停用条目以「应用名（已停用）」标识
       render: (v: string, r: ApplicationDict) =>
         r.status === 'enabled' ? <EllipsisText>{v}</EllipsisText> : <EllipsisText>{`${v}（已停用）`}</EllipsisText>,
+    },
+    {
+      // 决策 104 / 107：应用可选父级「所属平台」列——展示平台字典 platform_name，
+      // 缺条回退 platform_code，停用加「（已停用）」，未挂显示 '-'
+      title: '所属平台',
+      dataIndex: 'platform_code',
+      key: 'platform_code',
+      width: 180,
+      render: (value?: string) => {
+        if (!value) return <Text type="secondary">-</Text>
+        const hit = platforms.find((p) => p.platform_code === value)
+        const disabled = hit ? !hit.enabled : false
+        return <Tag color={disabled ? 'default' : 'purple'}>{`${hit?.platform_name ?? value}${disabled ? '（已停用）' : ''}`}</Tag>
+      },
     },
     {
       title: '描述',
@@ -206,6 +231,7 @@ export function ApplicationDictPage() {
         <ApplicationDictDrawer
           open={drawer.open}
           record={drawer.record}
+          platforms={platforms}
           onCancel={() => setDrawer({ open: false, record: null })}
           onSuccess={() => {
             setDrawer({ open: false, record: null })
@@ -221,6 +247,8 @@ interface ApplicationDictDrawerProps {
   open: boolean
   /** 编辑态为行 record；登记态为 null */
   record: ApplicationDict | null
+  /** 平台字典（决策 104）：下拉仅列启用项，编辑态已停用 / 已下线的历史值保留展示 */
+  platforms?: PlatformDict[]
   onCancel: () => void
   onSuccess: () => void
 }
@@ -231,14 +259,35 @@ interface ApplicationDictFormValues {
   description?: string
   /** 表单内用布尔承载启用状态（Switch），提交时转为 status 枚举 */
   enabled?: boolean
+  /** 可选父级平台（契约快照 §5A）：未挂为 null / undefined，可清空 = 摘除 */
+  platform_code?: string | null
 }
 
 /** 应用字典登记 / 受限编辑抽屉（§5.19 红线）：登记含编码规范校验；编辑仅开放 应用名/描述/状态 */
-export function ApplicationDictDrawer({ open, record, onCancel, onSuccess }: ApplicationDictDrawerProps) {
+export function ApplicationDictDrawer({
+  open,
+  record,
+  platforms = [],
+  onCancel,
+  onSuccess,
+}: ApplicationDictDrawerProps) {
   const [form] = Form.useForm<ApplicationDictFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const isEdit = !!record
+
+  // 「所属平台」下拉：仅启用平台可选；编辑态当前值已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
+  const platformOptions = useMemo(() => {
+    const enabledOptions = platforms
+      .filter((p) => p.enabled)
+      .map((p) => ({ value: p.platform_code, label: `${p.platform_name}（${p.platform_code}）` }))
+    const current = record?.platform_code
+    if (current && !platforms.some((p) => p.platform_code === current && p.enabled)) {
+      const hit = platforms.find((p) => p.platform_code === current)
+      return [...enabledOptions, { value: current, label: `${hit?.platform_name ?? current}（已停用）` }]
+    }
+    return enabledOptions
+  }, [platforms, record])
 
   useEffect(() => {
     if (!open) return
@@ -251,6 +300,7 @@ export function ApplicationDictDrawer({ open, record, onCancel, onSuccess }: App
         app_code: record.app_code,
         app_name: record.app_name,
         description: record.description,
+        platform_code: record.platform_code ?? null,
         enabled: record.status === 'enabled',
       })
     } else {
@@ -274,6 +324,8 @@ export function ApplicationDictDrawer({ open, record, onCancel, onSuccess }: App
         await applicationDictApi.update(record.app_code, {
           app_name: values.app_name,
           description: values.description,
+          // 未挂平台显式提交 null，表达「摘除」（避免清空后不提交导致平台残留）
+          platform_code: values.platform_code ?? null,
           status: values.enabled ? 'enabled' : 'disabled',
         })
         message.success('应用信息已更新')
@@ -282,6 +334,7 @@ export function ApplicationDictDrawer({ open, record, onCancel, onSuccess }: App
           app_code: values.app_code!,
           app_name: values.app_name,
           description: values.description,
+          platform_code: values.platform_code ?? undefined,
         })
         message.success('应用已登记')
       }
@@ -349,6 +402,19 @@ export function ApplicationDictDrawer({ open, record, onCancel, onSuccess }: App
           rules={[{ required: true, whitespace: true, message: '请输入应用名' }]}
         >
           <Input placeholder="如 订单服务、支付服务" />
+        </Form.Item>
+        <Form.Item
+          name="platform_code"
+          label="所属平台"
+          extra="选填：应用归属的平台，仅启用平台可选；留空表示未挂平台归属（资源不注入平台标签）"
+        >
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="选填，选择所属平台"
+            options={platformOptions}
+          />
         </Form.Item>
         <Form.Item name="description" label="描述">
           <Input.TextArea rows={3} placeholder="应用字典用途说明（可选）" />

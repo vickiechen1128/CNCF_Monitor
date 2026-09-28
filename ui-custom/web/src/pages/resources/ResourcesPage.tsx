@@ -35,9 +35,23 @@ import {
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { networkDomainApi } from '../../api/domain'
-import { businessDomainApi, resourceApi, applicationDictApi, cloudDictApi } from '../../api/resources'
+import {
+  businessDomainApi,
+  resourceApi,
+  applicationDictApi,
+  cloudDictApi,
+  platformDictApi,
+  serviceDictApi,
+} from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
-import type { ApplicationDict, BusinessDomain, CloudDict, ResourceCategory } from '../../types/resource'
+import type {
+  ApplicationDict,
+  BusinessDomain,
+  CloudDict,
+  PlatformDict,
+  ResourceCategory,
+  ServiceDict,
+} from '../../types/resource'
 import type { CoverageState } from '../../types/query'
 import { MonitorStatusBadge } from '../../components/MonitorStatusBadge'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -83,7 +97,7 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   host: '主机',
   database: '数据库',
   middleware: '中间件',
-  application: '应用',
+  application: '应用服务',
   generic_target: '通用目标',
 }
 
@@ -185,6 +199,10 @@ export function ResourcesPage() {
   const [applicationDomains, setApplicationDomains] = useState<ApplicationDict[]>([])
   // 决策 103：云字典（部署级只读，cloud_code → cloud_name 展示名解析）
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
+  // 决策 105：服务字典（service_code → service_name 展示名解析，仅 application / generic_target 承载）
+  const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
+  // 决策 104：平台字典（派生「平台」列展示名解析：app_code → 应用父级 platform_code → platform_name）
+  const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
   const {
@@ -233,12 +251,16 @@ export function ResourcesPage() {
       businessDomainApi.list(),
       applicationDictApi.list(),
       cloudDictApi.list(),
+      serviceDictApi.list(),
+      platformDictApi.list(),
     ])
-      .then(([nd, bd, ad, cd]) => {
+      .then(([nd, bd, ad, cd, sd, pd]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
         setApplicationDomains(ad.data?.list ?? [])
         setCloudDicts(cd.data?.list ?? [])
+        setServiceDicts(sd.data?.list ?? [])
+        setPlatformDicts(pd.data?.list ?? [])
       })
       .catch(() => {
         // 下拉字典加载失败不阻塞列表展示
@@ -276,6 +298,24 @@ export function ResourcesPage() {
   const isCloudDisabled = (code: string) => {
     const c = cloudDicts.find((d) => d.cloud_code === code)
     return !!c && !c.enabled
+  }
+  /** 服务编码 → service_name（决策 105：服务列展示字典展示名，缺条目回退 service_code） */
+  const resolveServiceName = (code?: string) => {
+    if (!code) return '-'
+    return serviceDicts.find((s) => s.service_code === code)?.service_name ?? code
+  }
+  /** 服务是否停用（决策 105：停用条目以「服务名（已停用）」标识，存量资源保留历史值） */
+  const isServiceDisabled = (code: string) => {
+    const s = serviceDicts.find((d) => d.service_code === code)
+    return !!s && !s.enabled
+  }
+  /**
+   * 派生平台编码（决策 104 / §5.12.1）：资源行**无** platform_code 字段，
+   * 平台经 `app_code` → 应用字典条目父级 `platform_code` 派生；未挂应用 / 应用未挂平台时为 undefined。
+   */
+  const derivePlatformCode = (appCode?: string) => {
+    if (!appCode) return undefined
+    return applicationDomains.find((a) => a.app_code === appCode)?.platform_code
   }
 
   // 资源新增/编辑抽屉（T07-F4）：create 走当前 Tab 类型；edit 携带行 record（resource_category 取行）
@@ -376,7 +416,14 @@ export function ResourcesPage() {
     // 停用条目「云名（已停用）」），样式与解析逻辑对齐既有「应用名称」列。
     // 红线④：cloud_type / carrier 仅为云字典描述属性，**禁止**独立成列或筛选维度。
     const cloudColumn: ColumnsType<ResourceListItem>[number] = {
-      title: '云',
+      title: (
+        <span>
+          云
+          <Tooltip title="云归属经所属网域派生（网域登记时确定），资源侧只读；此处展示为云名">
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
       dataIndex: 'cloud_code',
       key: 'cloud_code',
       width: 150,
@@ -389,6 +436,56 @@ export function ResourcesPage() {
         ) : (
           '-'
         ),
+    }
+    // 决策 105「所属服务」列：仅 application / generic_target 承载 service_code（其余三类不挂服务），
+    // 展示服务字典 service_name（缺条目回退 service_code、停用「服务名（已停用）」、留空 '-'）。
+    // 列头「所属服务」与 application Tab 的「服务名」（实例名）区分：前者是服务字典归属维度。
+    const serviceColumn: ColumnsType<ResourceListItem>[number] = {
+      title: (
+        <span>
+          所属服务
+          <Tooltip title="该资源归属的服务字典条目（svc 标签取值）">
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
+      dataIndex: 'service_code',
+      key: 'service_code',
+      width: 150,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isServiceDisabled(value) ? 'default' : 'purple'}>
+            {resolveServiceName(value)}
+            {isServiceDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : (
+          '-'
+        ),
+    }
+    // 决策 104 / §5.12.1「平台」列：**只读派生**——经 app_code → 应用条目父级 platform_code → platform_name；
+    // 资源行无 platform_code 字段，资源表单/详情均不提供平台填写入口；未挂应用或未挂平台显示 '-'。
+    const platformColumn: ColumnsType<ResourceListItem>[number] = {
+      title: (
+        <span>
+          平台
+          <Tooltip title="经所属应用的「所属平台」派生，资源侧只读（无填写入口）">
+            <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+          </Tooltip>
+        </span>
+      ),
+      key: 'platform_code',
+      width: 150,
+      render: (_: unknown, record: ResourceListItem) => {
+        const code = derivePlatformCode(record.app_code)
+        if (!code) return '-'
+        const p = platformDicts.find((d) => d.platform_code === code)
+        const disabled = p ? !p.enabled : false
+        return (
+          <Tag color={disabled ? 'default' : 'purple'}>
+            {`${p?.platform_name ?? code}${disabled ? '（已停用）' : ''}`}
+          </Tag>
+        )
+      },
     }
     const sourceColumn: ColumnsType<ResourceListItem>[number] = {
       title: '录入方式',
@@ -458,31 +555,50 @@ export function ResourcesPage() {
       },
     }
 
+    // F-13 列分组（M07 dev-feedback §13）：按「技术属性 / 位置」与「业务归属」两组归并，操作列不归组。
+    // 实现方式：antd 列头分组（parent column 的 children）。固定列不参与分组：
+    // - 主标识列（fixed:'left'）作为「技术属性」组首个子列 —— flatten 后仍为第 0 列，
+    //   rc-table 的 stickyOffsets / hasGapFixed 均基于 flattenColumns 计算，分组不改变其结论，sticky 生效；
+    // - 操作列（fixed:'right'）保持顶层、位于末尾 —— flatten 后仍为最后一列，right sticky 生效。
+    // 「云」为经所属网域 cloud_code 派生的位置属性，归入技术 / 位置组（与 F-13 留痕一致，不放业务归属组）。
+    // 空组不渲染：某组 children 为空时不输出该组。
+    const GROUP_TECH = '技术属性 / 位置'
+    const GROUP_BIZ = '业务归属'
+    const groupColumns = (
+      techChildren: ColumnsType<ResourceListItem>,
+      bizChildren: ColumnsType<ResourceListItem>,
+    ): ColumnsType<ResourceListItem> => {
+      const groups: ColumnsType<ResourceListItem> = []
+      if (techChildren.length) groups.push({ key: 'group_tech', title: GROUP_TECH, children: techChildren })
+      if (bizChildren.length) groups.push({ key: 'group_biz', title: GROUP_BIZ, children: bizChildren })
+      return groups
+    }
+
     switch (type) {
-      case 'host':
-        return [
-          {
-            title: (
-              <span>
-                实例名
-                <Tooltip title="主机资源的实例名即主机名">
-                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
-                </Tooltip>
-              </span>
-            ),
-            key: 'name',
-            // 决策 70 / F-38：原副行展示 `hostname`，其值与 `instance_name` 同源
-            // （host.go `Hostname()` 即 `InstanceName`），视觉上重复且无信息增量；
-            // 且本 Tab 已有独立「IP 地址」列 —— 直接删除副行，与 M08「实例名」列逐字对应。
-            // 主标识列固定左侧（tablePresets 规则：主标识列 fixed:'left'），横向滚动不丢失。
-            fixed: 'left',
-            width: 180,
-            render: (_: unknown, record: ResourceListItem) => <EllipsisText strong>{record.instance_name || '-'}</EllipsisText>,
-          },
+      case 'host': {
+        const identifier: ColumnsType<ResourceListItem>[number] = {
+          title: (
+            <span>
+              实例名
+              <Tooltip title="主机资源的实例名即主机名">
+                <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+              </Tooltip>
+            </span>
+          ),
+          key: 'name',
+          // 决策 70 / F-38：原副行展示 `hostname`，其值与 `instance_name` 同源
+          // （host.go `Hostname()` 即 `InstanceName`），视觉上重复且无信息增量；
+          // 且本 Tab 已有独立「IP 地址」列 —— 直接删除副行，与 M08「实例名」列逐字对应。
+          // 主标识列固定左侧（tablePresets 规则：主标识列 fixed:'left'），横向滚动不丢失。
+          fixed: 'left',
+          width: 180,
+          render: (_: unknown, record: ResourceListItem) => <EllipsisText strong>{record.instance_name || '-'}</EllipsisText>,
+        }
+        // F-6：拆分原「应用 / 环境 / 集群」组合列——应用信息由共享 appColumn 承载，
+        // 环境 / 集群独立成列（Tag 色沿用组合列口径 blue / purple），消除 app_code 重复展示
+        const typeColumns: ColumnsType<ResourceListItem> = [
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
-          // F-6：拆分原「应用 / 环境 / 集群」组合列——应用信息由共享 appColumn 承载，
-          // 环境 / 集群独立成列（Tag 色沿用组合列口径 blue / purple），消除 app_code 重复展示
           {
             title: '环境',
             dataIndex: 'env',
@@ -495,20 +611,27 @@ export function ResourcesPage() {
             key: 'cluster',
             render: (v?: string) => (v ? <Tag color="purple">{v}</Tag> : '-'),
           },
-          domainColumn,
-          businessColumn,
-          appColumn,
-          cloudColumn,
-          statusColumn,
-          monitorColumn,
-          sourceColumn,
+        ]
+        return [
+          ...groupColumns(
+            [identifier, ...typeColumns, domainColumn, statusColumn, monitorColumn, sourceColumn, cloudColumn],
+            [platformColumn, appColumn, businessColumn],
+          ),
           actionColumn,
         ]
-      case 'database':
-        return [
-          // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
-          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
-          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', fixed: 'left', width: 180, render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText> },
+      }
+      case 'database': {
+        // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
+        // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
+        const identifier: ColumnsType<ResourceListItem>[number] = {
+          title: <InstanceNameTitle />,
+          dataIndex: 'instance_ip',
+          key: 'instance_name',
+          fixed: 'left',
+          width: 180,
+          render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText>,
+        }
+        const typeColumns: ColumnsType<ResourceListItem> = [
           {
             title: '数据库类型',
             dataIndex: 'database_type',
@@ -518,20 +641,27 @@ export function ResourcesPage() {
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
-          domainColumn,
-          businessColumn,
-          appColumn,
-          cloudColumn,
-          statusColumn,
-          monitorColumn,
-          sourceColumn,
+        ]
+        return [
+          ...groupColumns(
+            [identifier, ...typeColumns, domainColumn, statusColumn, monitorColumn, sourceColumn, cloudColumn],
+            [platformColumn, appColumn, businessColumn],
+          ),
           actionColumn,
         ]
-      case 'middleware':
-        return [
-          // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
-          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
-          { title: <InstanceNameTitle />, dataIndex: 'instance_ip', key: 'instance_name', fixed: 'left', width: 180, render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText> },
+      }
+      case 'middleware': {
+        // 决策 70 / F-38：模型无名称字段，改绑 instance_ip（M07 §5.12 口径）
+        // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长 IP 截断 + 悬浮全文。
+        const identifier: ColumnsType<ResourceListItem>[number] = {
+          title: <InstanceNameTitle />,
+          dataIndex: 'instance_ip',
+          key: 'instance_name',
+          fixed: 'left',
+          width: 180,
+          render: (v?: string) => <EllipsisText>{v || '-'}</EllipsisText>,
+        }
+        const typeColumns: ColumnsType<ResourceListItem> = [
           {
             title: '中间件类型',
             dataIndex: 'middleware_type',
@@ -541,33 +671,33 @@ export function ResourcesPage() {
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
-          domainColumn,
-          businessColumn,
-          appColumn,
-          cloudColumn,
-          statusColumn,
-          monitorColumn,
-          sourceColumn,
+        ]
+        return [
+          ...groupColumns(
+            [identifier, ...typeColumns, domainColumn, statusColumn, monitorColumn, sourceColumn, cloudColumn],
+            [platformColumn, appColumn, businessColumn],
+          ),
           actionColumn,
         ]
-      case 'application':
-        return [
-          {
-            title: (
-              <span>
-                服务名
-                <Tooltip title="本应用资源实例的服务标识">
-                  <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
-                </Tooltip>
-              </span>
-            ),
-            dataIndex: 'service_name',
-            key: 'service_name',
-            // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长服务名截断 + 悬浮全文。
-            fixed: 'left',
-            width: 180,
-            render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
-          },
+      }
+      case 'application': {
+        const identifier: ColumnsType<ResourceListItem>[number] = {
+          title: (
+            <span>
+              服务名
+              <Tooltip title="本应用服务实例名，参与判重；与服务字典归属（所属服务）是两个概念">
+                <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
+              </Tooltip>
+            </span>
+          ),
+          dataIndex: 'service_name',
+          key: 'service_name',
+          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长服务名截断 + 悬浮全文。
+          fixed: 'left',
+          width: 180,
+          render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
+        }
+        const typeColumns: ColumnsType<ResourceListItem> = [
           {
             // 健康检查 URL 为应用实际访问地址（业务健康检查用），不参与指标采集
             title: (
@@ -611,26 +741,27 @@ export function ResourcesPage() {
             key: 'port',
             render: (v?: number) => v ?? '-',
           },
-          domainColumn,
-          businessColumn,
-          appColumn,
-          cloudColumn,
-          statusColumn,
-          monitorColumn,
-          sourceColumn,
+        ]
+        return [
+          ...groupColumns(
+            [identifier, ...typeColumns, domainColumn, statusColumn, monitorColumn, sourceColumn, cloudColumn],
+            // 决策 105：仅 application / generic_target 承载「所属服务」（host / database / middleware 不挂）
+            [platformColumn, appColumn, serviceColumn, businessColumn],
+          ),
           actionColumn,
         ]
-      case 'generic_target':
-        return [
-          {
-            title: '目标名称',
-            dataIndex: 'target_name',
-            key: 'target_name',
-            // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长目标名截断 + 悬浮全文。
-            fixed: 'left',
-            width: 180,
-            render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
-          },
+      }
+      case 'generic_target': {
+        const identifier: ColumnsType<ResourceListItem>[number] = {
+          title: '目标名称',
+          dataIndex: 'target_name',
+          key: 'target_name',
+          // 主标识列固定左侧（tablePresets 规则），横向滚动不丢失；长目标名截断 + 悬浮全文。
+          fixed: 'left',
+          width: 180,
+          render: (v?: string) => <EllipsisText strong>{v || '-'}</EllipsisText>,
+        }
+        const typeColumns: ColumnsType<ResourceListItem> = [
           { title: 'Exporter 类型', dataIndex: 'exporter_type', key: 'exporter_type', render: (v?: string) => v || '-' },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
@@ -650,15 +781,16 @@ export function ResourcesPage() {
                 '-'
               ),
           },
-          domainColumn,
-          businessColumn,
-          appColumn,
-          cloudColumn,
-          statusColumn,
-          monitorColumn,
-          sourceColumn,
+        ]
+        return [
+          ...groupColumns(
+            [identifier, ...typeColumns, domainColumn, statusColumn, monitorColumn, sourceColumn, cloudColumn],
+            // 决策 105：仅 application / generic_target 承载「所属服务」（host / database / middleware 不挂）
+            [platformColumn, appColumn, serviceColumn, businessColumn],
+          ),
           actionColumn,
         ]
+      }
     }
   }
 

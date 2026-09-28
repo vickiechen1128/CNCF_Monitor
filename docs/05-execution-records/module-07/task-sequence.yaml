@@ -1469,7 +1469,7 @@ tasks:
     title: "（决策 103 / M06 决策 78）NetworkDomain 行政字段 `cloud_code`（必填，引用云字典启用条目）+ `zone_type` 必填 + 网域登记校验"
     prd: "Module_06 §5.2（NetworkDomain 行政字段表 cloud_code 必填行 + zone_type 必填）/ §3.2（zone_type 必填 + region 取值）/ §6.1（PUT /api/v2/platform/network-domains/:id 行政字段）/ §9.1；M07 §5.20（云字典启用条目校验）；design-decisions 决策 103 / 78"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "m06-networkdomain-cloud-zone"
     input_files:
       - "platform/models/network_domain.go"
@@ -1500,7 +1500,7 @@ tasks:
     title: "（决策 103）资源侧删除 `cloud_code` 写链路 + Host.CloudCode 降为兼容只读列 + 删除 host 默认模板 cloud→cloud 映射 + 移除 scheme-A 单测"
     prd: "Module_07 §5.2（资源侧不再维护 cloud_code）/ §5.4（区域属性两类切分，云归属改经网域）/ §5.6（Host.cloud_code 降级兼容只读列、不暴露写方法）/ §5.13（主机默认模板删除 `cloud_code → cloud` 行）/ §5.16.1（导入模板去 cloud_code）；design-decisions 决策 103 / 78"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "m07-resource-remove-cloud-write"
     input_files:
       - "platform/config/resource/create.go"
@@ -1544,7 +1544,7 @@ tasks:
     title: "（决策 103）资源列表 / 详情派生 `cloud_code` + `zone_type`（只读，经所属网域，五类均带）"
     prd: "Module_07 §6.1（列表 item 派生 cloud_code + zone_type，五类均返回）/ §5.6（网络分区 + 云均经网域只读派生，不再限定 host）；M06 §5.2（网域 cloud_code / zone_type 为唯一事实来源）；design-decisions 决策 103"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "m07-resource-derived-cloud-zone"
     input_files:
       - "platform/config/resource/list.go"
@@ -1567,7 +1567,7 @@ tasks:
     title: "（决策 103 / 决策 68-§2.5）system 层 target 级注入 `network_domain` / `cloud` / `zone`（取代原 host 模板 cloud 映射）"
     prd: "Module_07 §5.13（位置三标签统一 target 级 system 层注入，非 LabelTemplate、非 external_labels）/ §8.1；M06 §5.2（网域 cloud_code / zone_type 唯一事实来源）；design-decisions 决策 103（取代决策 98 模板映射机制）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "m09-system-layer-location-labels"
     input_files:
       - "platform/configcenter/generator/targets.go"
@@ -1591,7 +1591,7 @@ tasks:
     title: "（决策 103）Excel 导入：五类模板去除 `cloud_code` 列 + host 保留 `zone_env` 兼容列 + 导入去 cloud 校验/归一"
     prd: "Module_07 §5.16.1（五类导入模板列：去 cloud_code；host 保留 zone_env 兼容列）/ §5.6（zone_env 仅兼容导入列）；design-decisions 决策 103 / 78（云经网域派生，历史云值归一改由网域登记层）"
     group: "backend"
-    status: "pending"
+    status: "done"
     commit_group: "m07-excel-remove-cloud"
     input_files:
       - "platform/config/resource/template.go"
@@ -1739,3 +1739,351 @@ tasks:
       - "资源详情新增「网络分区」**只读**项：取列表派生的 `zone_type`，经 M06 `zone_type` 字典解析展示名（互联网区 / 政务外网区），无编辑入口，附说明「继承所属网域」；网域未设分区显示 '-'"
       - "**不出现**「请与网域保持一致」类引导文案（cloud 与 zone 均经网域派生，不存在两处填写，无需一致性引导）"
       - "单测：云名解析三种分支、分区只读渲染、缺值 '-'"
+
+  # =====================================================================
+  # delta_v245 / v246 / v247（2026-09-27 派生，来源 PR #79 design/module-mvp-demo → develop）
+  # 四层实体层级骨架 platform(1)→app(N)→service(M)→instance(K)（决策 104~107）
+  #   + 五类归属三分型（决策 108）+ 四层聚合口径（决策 109）
+  #   + M06 网域云字典优化（决策 103 / M06 决策 78）+ M05 首页按云分布（PRD Module_05 v1.11）
+  # 契约基准：docs/05-execution-records/module-07/api-contract-snapshot.md §5A / §5C / §5D
+  # =====================================================================
+
+  - id: "T07-104-B1"
+    title: "（决策 104）平台字典 PlatformDict：模型 + seed + API（GET/POST/PUT /api/v2/platform/platform-dict）"
+    prd: "Module_07 §5.21 平台字典 / §6.1 接口 / §3.1.4 字典维护区；design-decisions 决策 104 / 107"
+    group: "backend"
+    status: "done"
+    commit_group: "m07-platform-dict"
+    input_files:
+      - "platform/config/resource/application.go"
+      - "platform/models/application_dict.go"
+      - "platform/cmd/metric-center/main.go"
+    output_files:
+      - "platform/models/platform_dict.go"
+      - "platform/config/resource/platform.go"
+      - "platform/config/resource/platform_test.go"
+    depends_on: []
+    verify_commands:
+      - "go test ./platform/config/resource/... ./platform/models/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "`PlatformDict` 落库（GORM + migration）：`platform_code`（主键，**创建后不可变**）、`platform_name`（必填展示名）、`description`、`enabled`、`source`(manual/excel-import)、created_at/updated_at"
+      - "`GET /api/v2/platform/platform-dict` → `{list:[{platform_code,platform_name,description?,enabled}], total}`；`POST` 登记（bad_request：编码重复 / 编码不规范 / `platform_name` 缺失）；`PUT /platform-dict/:platform_code` 受限编辑——**仅 platform_name/description/enabled**，请求体不接收 `platform_code`；不提供删除接口（停用不删除）"
+      - "编码规范校验：小写字母 / 数字 / 连字符，长度 ≤64；`source` 服务端设 manual"
+      - "Store 提供 `Lookup(code)` / `EnabledList()` / `GetEnabledMap()` / `Create` / `UpdateEnabledNameDesc`，供应用侧父级校验消费"
+      - "单测：登记 / 编辑 / 停用、编码重复与不规范拒绝、停用项不进入 EnabledList、编辑接口拒绝改 platform_code"
+      - "**红线**：禁止 `system` 命名（字典名 / 标签名 / 字段名统一用 `platform`，规避 `ResourceLabel.source=system` / 「system 层」/ `os_dict` 撞名）"
+
+  - id: "T07-104-B2"
+    title: "（决策 105）服务字典 ServiceDict：模型 + seed + API（GET/POST/PUT /api/v2/platform/service-dict）"
+    prd: "Module_07 §5.22 服务字典 / §6.1 接口 / §3.1.4；design-decisions 决策 105 / 107"
+    group: "backend"
+    status: "done"
+    commit_group: "m07-service-dict"
+    input_files:
+      - "platform/config/resource/application.go"
+      - "platform/models/application_dict.go"
+      - "platform/cmd/metric-center/main.go"
+    output_files:
+      - "platform/models/service_dict.go"
+      - "platform/config/resource/service.go"
+      - "platform/config/resource/service_test.go"
+    depends_on: []
+    verify_commands:
+      - "go test ./platform/config/resource/... ./platform/models/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "`ServiceDict` 落库（**复用 ApplicationDict 同构**）：`service_code`（主键，不可变）、`service_name`（必填展示名）、`description`、`enabled`、`source`、时间戳"
+      - "`GET /api/v2/platform/service-dict` → `{list:[{service_code,service_name,description?,enabled}], total}`；`POST` 登记；`PUT /service-dict/:service_code` 受限编辑（不接收 service_code）；无删除接口"
+      - "编码规范同 B1；停用不删除；`source` 服务端设 manual"
+      - "本字典**不设父子字段**（服务与应用的关联经资源行 `app_code` + `service_code` 承载）"
+      - "单测：登记 / 编辑 / 停用、编码校验、停用项不可新选"
+      - "**红线**：label 定名 `svc`（放弃 `service`，撞名 §5.15 机制 B 与既有 `service_name`）；**既有 `service_name` label / 字段保留不动**"
+
+  - id: "T07-104-B3"
+    title: "（决策 104 / 107）应用字典新增可选父级 platform_code（模型 + 迁移 + 写接口 + 校验引用未停用平台）"
+    prd: "Module_07 §5.19 应用字典（{v2.45} 纵向升格）/ §6.1；design-decisions 决策 104 / 107"
+    group: "backend"
+    status: "done"
+    commit_group: "m07-app-platform-parent"
+    input_files:
+      - "platform/models/application_dict.go"
+      - "platform/config/resource/application.go"
+    output_files:
+      - "platform/models/application_dict.go"
+      - "platform/config/resource/application.go"
+      - "platform/config/resource/application_test.go"
+    depends_on: ["T07-104-B1"]
+    verify_commands:
+      - "go test ./platform/config/resource/... ./platform/models/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "应用字典条目新增**可选** `platform_code` 字段（GORM 迁移，存量行 NULL 兼容）；表达纵向 `platform(1) → app(N)` 组成分解"
+      - "`POST /application-dict` 请求体接收可选 `platform_code`；`PUT /application-dict/:app_code` 可改 `platform_code`（可挂 / 可摘 / 可换）"
+      - "**硬校验**：`platform_code` 非空时须引用**未停用**的平台字典条目；引用停用条目或不存在的码 → `bad_request`"
+      - "列表 / 详情响应返回 `platform_code`（前端解析 `platform_name` 展示）"
+      - "与决策 96 不冲突：不引入 `biz_code` 父级，biz↔app 横向正交口径不变"
+      - "单测：挂 / 摘 / 换父级、引用停用平台拒绝、引用不存在拒绝、未挂时正常"
+
+  - id: "T07-104-B4"
+    title: "（决策 105 / 107）资源新增可选 service_code 字段（仅 application / generic_target）+ 校验 + 列表/详情返回"
+    prd: "Module_07 §5.2 资源基础结构（service_code 行）/ §5.22 / §5.8；design-decisions 决策 105 / 107"
+    group: "backend"
+    status: "done"
+    commit_group: "m07-resource-service-code"
+    input_files:
+      - "platform/models/resource.go"
+      - "platform/models/application.go"
+      - "platform/models/generic_target.go"
+      - "platform/config/resource/validate.go"
+    output_files:
+      - "platform/models/resource.go"
+      - "platform/models/application.go"
+      - "platform/models/generic_target.go"
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/validate_test.go"
+    depends_on: ["T07-104-B2"]
+    verify_commands:
+      - "go test ./platform/config/resource/... ./platform/models/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "`Resource` 新增**可选** `service_code` 字段（application / generic_target 模型落列；host / database / middleware **不挂**，不做字段、不校验、不返回）"
+      - "校验：填值须引用**未停用**服务字典条目（录入 / 编辑 / Excel 导入三处同校验）；**留空合法**（纯自由文本、向后兼容，存量无需回填）"
+      - "资源行既有必填 `service_name` **不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`；`service_code` 与 `service_name` **仅软约束、不强校验**"
+      - "列表 / 详情响应返回 `service_code`（前端解析 `service_name` 展示）"
+      - "单测：application/generic_target 填值合法、引用停用拒绝、留空合法、host 传 service_code 被忽略（或不接受）"
+
+  - id: "T07-104-B5"
+    title: "（决策 105 / 107）默认标签模板补 service_code → svc 映射 + platform 派生注入（经 app_code → 应用父级 platform_code）"
+    prd: "Module_07 §5.12.1 Resource 字段映射表 / §5.13 默认标签模板 / §5.20（cloud 派生先例）/ §5.21；design-decisions 决策 105 / 107 / 108"
+    group: "backend"
+    status: "done"
+    commit_group: "m07-template-svc-platform"
+    input_files:
+      - "platform/db/seed/label_template.go"
+      - "platform/configcenter/generator/targets.go"
+    output_files:
+      - "platform/db/seed/label_template.go"
+      - "platform/configcenter/generator/targets.go"
+      - "platform/configcenter/generator/targets_test.go"
+    depends_on: ["T07-104-B3", "T07-104-B4"]
+    verify_commands:
+      - "go test ./platform/configcenter/... ./platform/db/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "**默认模板补 svc**：application / generic_target 默认标签模板内置 `service_code → svc` 映射行（resource_field）；host / database / middleware 模板**不加**该行；`service_code` 为空时**不注入** svc"
+      - "**platform 派生**（对齐 cloud 经网域派生先例）：资源 `app_code` → 应用字典条目父级 `platform_code` 解析，注入 `platform` 标签；资源未填 app_code 或应用未挂父级平台时**不注入**（空值不注入）"
+      - "**派生降级口径（决策 108）**：platform 派生只依赖资源自身是否填 app_code——host 未填 app_code 时 platform 缺位属**预期正常态**；database / middleware 正常派生；generic_target 填 app_code 则派生、仅填 biz_code 则缺位"
+      - "`platform` **不在**模板映射表中（派生标签，与 cloud 同处理），不落到 LabelTemplate 默认映射"
+      - "单测：svc 映射注入 / 空值不注入、platform 三种派生分支（有父级 / 无父级 / 无 app_code）"
+
+  - id: "T07-104-B6"
+    title: "（决策 97 / 104 / 105）Excel 导入：应用/其他目标模板加 service_code 列 + 声明 sheet 由两扩为四（业务/应用/平台/服务）+ 幂等事务"
+    prd: "Module_07 §5.16.1 模板规则 / §5.16.2 数据校验（决策 97 延伸）；design-decisions 决策 104 / 105"
+    group: "backend"
+    status: "done"
+    commit_group: "m07-excel-four-declare"
+    input_files:
+      - "platform/config/resource/template.go"
+      - "platform/config/resource/excel.go"
+      - "platform/config/resource/import.go"
+    output_files:
+      - "platform/config/resource/template.go"
+      - "platform/config/resource/excel.go"
+      - "platform/config/resource/import.go"
+      - "platform/config/resource/excel_test.go"
+    depends_on: ["T07-104-B1", "T07-104-B2", "T07-104-B4"]
+    verify_commands:
+      - "go test ./platform/config/resource/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "应用服务导入模板列新增 `service_code`（可选列，排在 `service_name` 之后）；其他监控目标模板同样新增 `service_code` 可选列；host / database / middleware 模板**不加**"
+      - "声明 sheet 由两个（业务 / 应用）扩为**四个**：新增 `平台声明`（列 platform_code / platform_name）、`服务声明`（列 service_code / service_name，说明可选），与既有业务 / 应用声明同构"
+      - "幂等与冲突：资源引用的码已存 → 直接用；不在存量但在声明 → 校验通过则建字典 + 落资源；既不存也不在声明 → 报错归入待登记清单（不静默跳过）；声明码与存量同名冲突 → 硬拒绝（绝不覆盖）；声明内重码 → 硬拒绝"
+      - "事务：声明建字典 + 资源落库**整批原子提交**（任一失败整体回滚），避免孤立字典条目；建出条目 `enabled=true`、`source=excel-import`、只增不覆盖"
+      - "停用：声明不可激活停用条目（沿用决策 92）"
+      - "单测：四 sheet 声明建字典、幂等复用、重码硬拒绝、事务回滚、service_code 空值合法"
+
+  - id: "T07-104-B7"
+    title: "【核验收尾】M06 网域云字典优化（决策 103 / M06 决策 78）：T07-103-* 在 feat/module-07 的落地核验与补齐"
+    prd: "Module_07 §5.20 云字典 / §5.13（cloud 经网域派生）/ M06 §5.2；design-decisions 决策 103；T07-103-B1~B5 卡片"
+    group: "backend"
+    status: "done"
+    commit_group: "m06-cloud-dict-verify"
+    input_files:
+      - "platform/models/network_domain.go"
+      - "platform/configcenter/domain/service.go"
+      - "platform/admin/networkdomain/create.go"
+      - "platform/config/resource/validate.go"
+    output_files:
+      - "（核验后按缺口修补，补 test）"
+    depends_on: []
+    verify_commands:
+      - "go test ./platform/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "核验（PR #79 已随 develop 合并进本分支，需确认实现完整）：①`NetworkDomain.cloud_code` 为**必填**行政字段且引用云字典**启用**条目；②`zone_type` 网域登记**必填**；③资源侧 `cloud_code` **写链路已删除**（`Host.cloud_code` 仅保留兼容只读物理列、不暴露写方法）；④`cloud` / `zone` / `network_domain` 三标签在 **target 级 system 层注入**（`platform/configcenter/generator/targets.go`，与 resource_id 同级）；⑤Excel 模板已去除 `cloud_code` 列、host 保留 `zone_env` 兼容列"
+      - "缺口补齐：按核验结果补实现与单测；已完整则补登记结论 + 回填 T07-103-B1~B5 status 为 done"
+      - "`cloud_type` / `carrier` 仅描述属性，禁止独立成 label / 成列 / 成筛选维度"
+
+  - id: "T07-104-F1"
+    title: "（决策 104）平台字典管理页：列表 / 登记 / 受限编辑 / 停用（对齐原型 PlatformManagementPage）"
+    prd: "Module_07 §3.1.4 字典维护区 / §5.21 / §11 前端交互契约；契约快照 §5C"
+    group: "frontend"
+    status: "done"
+    commit_group: "fe-platform-dict-page"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/PlatformManagementPage.tsx"
+    ui_contract: "列表列：平台编码 / 平台名 / 描述 / 状态 / 操作（编辑 / 停用）；登记表单：编码（创建后不可改醒目提示）/ 名称必填 / 描述可选；停用不删除"
+    nav_contract: "挂在既有「字典维护」区（与业务管理 / 应用管理同级），按原型 MainLayout/App.tsx 的导航项对齐"
+    clipping:
+      - item: "删除入口"
+        reason: "停用不删除（决策：与 biz / app / cloud 字典同规约）"
+    input_files:
+      - "ui-custom/web/src/pages/resources/ApplicationManagementPage.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/PlatformManagementPage.tsx"
+      - "ui-custom/web/src/pages/resources/PlatformManagementPage.test.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    depends_on: ["T07-104-B1"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/PlatformManagementPage.test.tsx"
+    acceptance_criteria:
+      - "页面与原型 `PlatformManagementPage.tsx` 结构一致（列集合 / 表单字段 / 操作项）；API client 走 `GET/POST/PUT /api/v2/platform/platform-dict`"
+      - "编码字段创建后不可改（编辑表单禁用 + 醒目提示）；仅名称 / 描述 / 状态可编辑；**无删除入口**（只有停用）"
+      - "停用条目在列表以「平台名（已停用）」标识，且不可被应用表单「所属平台」下拉选中（仅启用项）"
+      - "单测：列表渲染、登记校验、停用标识、编辑禁用编码"
+
+  - id: "T07-104-F2"
+    title: "（决策 105）服务字典管理页：列表 / 登记 / 受限编辑 / 停用（对齐原型 ServiceManagementPage）"
+    prd: "Module_07 §3.1.4 / §5.22 / §11；契约快照 §5D"
+    group: "frontend"
+    status: "done"
+    commit_group: "fe-service-dict-page"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/ServiceManagementPage.tsx"
+    ui_contract: "列表列：服务编码 / 服务名 / 描述 / 状态 / 操作；登记表单：编码不可改 / 名称必填 / 描述可选；停用不删除"
+    nav_contract: "与平台字典页同级，挂「字典维护」区"
+    clipping:
+      - item: "删除入口、父子层级选择器"
+        reason: "停用不删除；服务字典不设父子字段（服务与应用关联经资源行承载）"
+    input_files:
+      - "ui-custom/web/src/pages/resources/ApplicationManagementPage.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ServiceManagementPage.tsx"
+      - "ui-custom/web/src/pages/resources/ServiceManagementPage.test.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    depends_on: ["T07-104-B2"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ServiceManagementPage.test.tsx"
+    acceptance_criteria:
+      - "页面与原型 `ServiceManagementPage.tsx` 结构一致；API 走 `GET/POST/PUT /api/v2/platform/service-dict`"
+      - "编码不可改、无删除入口、停用标识「服务名（已停用）」；字典下拉仅启用项"
+      - "单测：列表渲染、登记校验、停用标识、编辑禁用编码"
+
+  - id: "T07-104-F3"
+    title: "（决策 104 / 107）应用字典：登记/编辑表单加「所属平台」下拉 + 列表/详情展示「平台」列"
+    prd: "Module_07 §5.19（可选父级 platform_code）/ §5.21 消费链路 / §11；契约快照 §5A（platform_code 段）"
+    group: "frontend"
+    status: "done"
+    commit_group: "fe-app-platform-parent"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/ApplicationManagementPage.tsx"
+    ui_contract: "应用登记/编辑表单新增「所属平台」下拉（可选，数据来自 `GET /platform-dict` 仅启用项，可清空=未挂）；应用列表/详情新增「平台」列（展示 platform_name，缺条目回退 platform_code，停用加「（已停用）」，未挂显示 '-'）"
+    nav_contract: "应用管理页内改动，不改导航"
+    clipping:
+      - item: "平台层级树 / 父子可视化界面"
+        reason: "「平台 → 子系统」分层可视化归 {v0.2}（决策 107），MVP 仅提供下拉"
+    input_files:
+      - "ui-custom/web/src/pages/resources/ApplicationManagementPage.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ApplicationManagementPage.tsx"
+      - "ui-custom/web/src/pages/resources/ApplicationManagementPage.test.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    depends_on: ["T07-104-B3", "T07-104-F1"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ApplicationManagementPage.test.tsx"
+    acceptance_criteria:
+      - "表单「所属平台」下拉：可选、可清空、仅列启用平台条目；提交体含 `platform_code`（可为空）"
+      - "列表 / 详情展示「平台」列，按 `platform_code` 解析 `platform_name`；缺条目回退编码、停用加标识、未挂 '-'"
+      - "与「业务」维度正交：不得因挂平台而引入业务父级选择器（决策 96 / 107）"
+      - "单测：下拉仅启用项、可清空、平台名解析三种分支、未挂 '-'"
+
+  - id: "T07-104-F4"
+    title: "（决策 105 / 107）资源表单/列表/详情：service_code 字段与「服务」列展示 + 派生「平台」展示"
+    prd: "Module_07 §5.2（service_code 仅 application / generic_target）/ §5.12.1（platform 派生）/ §11；契约快照 §5D + 表单字段 service_code 行"
+    group: "frontend"
+    status: "done"
+    commit_group: "fe-resource-service-platform"
+    prototype_pages:
+      - "docs/prototypes/module-07/src/pages/ResourcesPage.tsx"
+    ui_contract: "资源表单：application / generic_target 显示「服务编码」下拉（可选，来自 `GET /service-dict` 启用项，可留空）；host / database / middleware **不显示**该字段。资源列表/详情：新增「服务」列（展示 service_name，缺条目回退 service_code，停用加标识，空 '-'）；「平台」为派生展示（经应用父级解析，不提供填写入口）"
+    nav_contract: "资源页内改动，不改导航"
+    clipping:
+      - item: "资源表单的 platform 填写入口"
+        reason: "platform 为派生标签（经 app_code → 应用父级），资源行无 platform_code 字段（§5.12.1 / §5.21）"
+    input_files:
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.test.tsx"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    depends_on: ["T07-104-B4", "T07-104-B5", "T07-104-F2"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ResourcesPage.test.tsx"
+    acceptance_criteria:
+      - "「服务编码」下拉仅对 application / generic_target 渲染；其余三类不出现该字段；留空合法（不注入 svc）"
+      - "列表 / 详情「服务」列按 `service_code` 解析 `service_name`（缺条目回退编码、停用标识、空 '-'）"
+      - "「平台」为只读派生展示（无编辑入口），未挂平台显示 '-'；不得提供 platform 填写控件"
+      - "既有 `service_name`（应用服务名）字段与判重口径不变"
+      - "单测：字段按类型显隐、服务名解析分支、平台派生 '-'、留空提交不报错"
+
+  - id: "T07-104-F5"
+    title: "【M05 首页】PRD v1.11：新增「按云分布」独立区块 + 大屏下钻层级对齐「网域 → 平台 → 应用 → 服务 → 资源实例」"
+    prd: "Module_05_Custom_UI.md v1.11 §5.1 / §11.4（下钻层级）；原型 docs/prototypes/module-05/README.md v1.11 变更说明"
+    group: "frontend"
+    status: "done"
+    commit_group: "fe-m05-cloud-distribution"
+    prototype_pages:
+      - "docs/prototypes/module-05/src/pages/DashboardPage.tsx"
+      - "docs/prototypes/module-05/src/pages/GrafanaDashboardPage.tsx"
+    ui_contract: "「按云分布」整宽区块位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前；每云一行：云名 / 主机数 / 已采数 / 覆盖率；云名点击跳转资源清单并按云预筛选（/resources?cloud=<cloud_code>）"
+    nav_contract: "首页区块内改动，不改导航"
+    clipping:
+      - item: "告警数字、非主机四类资源的按云聚合"
+        reason: "PRD v1.11：本期仅主机，cloud 经所属网域派生；告警数字仍收口 L0/L1 告警卡"
+    input_files:
+      - "ui-custom/web/src/pages/home/HomePage.tsx"
+      - "ui-custom/web/src/pages/home/HomePage.test.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/home/HomePage.tsx"
+      - "ui-custom/web/src/pages/home/HomePage.test.tsx"
+    depends_on: ["T07-104-B7"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/home/HomePage.test.tsx"
+    acceptance_criteria:
+      - "首页新增「按云分布」独立区块（整宽，位置按 PRD v1.11：L1 采集覆盖区之后、L2 应用明细表之前）；每云一行含云名 / 主机数 / 已采数 / 覆盖率"
+      - "云名可点击 → 跳转 `/resources?cloud=<cloud_code>`（按云预筛选）"
+      - "**本期仅主机**：数据经资源所属网域 `cloud_code` 聚合（网域必填、零空洞）；不含告警数字"
+      - "空态：无主机数据时保留区块位并显示「去导入主机资源 →」引导；移动端 ≤767px 表格横向滚动"
+      - "**下钻层级对齐**：治理标签下钻由「网域 → 业务 → 应用 → 实例」更新为「网域 → 平台 → 应用 → 服务 → 资源实例」，最细层稳定键 `resource_id`"
+      - "单测：区块渲染、云名跳转参数、空态引导、聚合数值自洽"

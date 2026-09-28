@@ -74,8 +74,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			ResourceID:      host.GetResourceID(),
 			NetworkDomainID: host.NetworkDomainID,
 			Address:         instanceAddress(host.PrivateIP, exporterPort),
-			Status:     host.Status,
-			Category:   models.ResourceCategoryHost,
+			Status:          host.Status,
+			Category:        models.ResourceCategoryHost,
+			AppCode:         host.GetAppCode(),
 			Fields: map[string]string{
 				"app_name":         host.AppCode,
 				"biz_code":         host.BizCode,
@@ -93,10 +94,11 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			ResourceID:      database.GetResourceID(),
 			NetworkDomainID: database.NetworkDomainID,
 			Address:         instanceAddress(database.InstanceIP, exporterPortOr(exporterPort, database.Port)),
-			Status:     database.Status,
-			Category:   models.ResourceCategoryDatabase,
+			Status:          database.Status,
+			Category:        models.ResourceCategoryDatabase,
+			AppCode:         database.GetAppCode(),
 			Fields: map[string]string{
-				"app_name":    "",
+				"app_name":    database.GetAppCode(),
 				"biz_code":    database.BizCode,
 				"cluster":     database.GetCluster(),
 				"instance_ip": database.InstanceIP,
@@ -110,8 +112,9 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			ResourceID:      middleware.GetResourceID(),
 			NetworkDomainID: middleware.NetworkDomainID,
 			Address:         instanceAddress(middleware.InstanceIP, exporterPortOr(exporterPort, middleware.Port)),
-			Status:     middleware.Status,
-			Category:   models.ResourceCategoryMiddleware,
+			Status:          middleware.Status,
+			Category:        models.ResourceCategoryMiddleware,
+			AppCode:         middleware.GetAppCode(),
 			Fields: map[string]string{
 				"app_name":    middleware.AppName,
 				"biz_code":    middleware.BizCode,
@@ -127,10 +130,12 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			ResourceID:      application.GetResourceID(),
 			NetworkDomainID: application.NetworkDomainID,
 			Address:         instanceAddress(application.Endpoint, application.Port),
-			Status:     application.Status,
-			Category:   models.ResourceCategoryApplication,
+			Status:          application.Status,
+			Category:        models.ResourceCategoryApplication,
+			AppCode:         application.GetAppCode(),
 			Fields: map[string]string{
 				"app_code":         application.GetAppCode(),
+				"service_code":     application.ServiceCode,
 				"biz_code":         application.BizCode,
 				"cluster":          application.GetCluster(),
 				"service_name":     application.ServiceName,
@@ -145,14 +150,16 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			ResourceID:      generic.GetResourceID(),
 			NetworkDomainID: generic.NetworkDomainID,
 			Address:         instanceAddress(generic.InstanceIP, generic.Port),
-			Status:     generic.Status,
-			Category:   models.ResourceCategoryGenericTarget,
+			Status:          generic.Status,
+			Category:        models.ResourceCategoryGenericTarget,
+			AppCode:         generic.GetAppCode(),
 			Fields: map[string]string{
-				"app_name":    "",
-				"biz_code":    generic.BizCode,
-				"cluster":     generic.GetCluster(),
-				"instance_ip": generic.InstanceIP,
-				"env":         generic.GetEnv(),
+				"app_name":     generic.GetAppCode(),
+				"service_code": generic.ServiceCode,
+				"biz_code":     generic.BizCode,
+				"cluster":      generic.GetCluster(),
+				"instance_ip":  generic.InstanceIP,
+				"env":          generic.GetEnv(),
 			},
 		}, nil
 	}
@@ -187,6 +194,9 @@ func instanceAddress(ip string, port int) string {
 // 决策 47-3：resource_id 是 coverage 三态判定（M02 /health/coverage 按 up 的
 // resource_id 标签回连资源）的稳定身份回连键，作为 system 层标签强制注入——
 // 不依赖 Job 是否挂载标签模板，也不可被模板映射覆盖。
+//
+// 决策 104/105：与本层级同批注入的还有派生标签 `platform`（经 app_code → 应用条目
+// 父级 platform_code）；`svc` 则走 LabelTemplate 默认映射 service_code → svc。
 func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []SkippedInstance, error) {
 	if job.JobType == models.JobTypeBlackbox {
 		groups := make([]TargetGroup, 0, len(job.BlackboxTargets))
@@ -206,8 +216,10 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 	}
 	groups := make([]TargetGroup, 0, len(job.SelectedInstanceIDs))
 	var skipped []SkippedInstance
-	// domainCache 在同一 Job 内复用网域查询结果，避免相同 network_domain_id 重复回查（避免 N+1）。
+	// domainCache / appPlatformCache 在同一 Job 内复用查询结果，避免相同
+	// network_domain_id / app_code 重复回查（避免 N+1）。
 	domainCache := make(map[string]*models.NetworkDomain)
+	appPlatformCache := make(map[string]string)
 	for _, rid := range job.SelectedInstanceIDs {
 		rt, err := resolveResource(db, rid, exporterPort)
 		if err != nil || rt == nil {
@@ -244,6 +256,22 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 		//   - zone          = 网域 zone_type；
 		// 任一值为空则省略对应 key（不写空标签）。
 		systemLabels := map[string]string{"resource_id": rt.ResourceID}
+		// 决策 104/107/108：platform 为派生标签（对齐 cloud 经网域派生先例），由资源
+		// app_code → 应用字典条目父级 platform_code 解析；资源无 app_code（如未挂应用
+		// 的 host、仅填 biz_code 的 generic_target）或应用未挂父级平台时不注入。
+		if rt.AppCode != "" {
+			platformCode, ok := appPlatformCache[rt.AppCode]
+			if !ok {
+				var app models.ApplicationDict
+				if derr := db.Select("platform_code").Where("app_code = ?", rt.AppCode).First(&app).Error; derr == nil {
+					platformCode = app.PlatformCode
+				}
+				appPlatformCache[rt.AppCode] = platformCode
+			}
+			if platformCode != "" {
+				systemLabels["platform"] = platformCode
+			}
+		}
 		if rt.NetworkDomainID != "" {
 			systemLabels["network_domain"] = rt.NetworkDomainID
 			dom, ok := domainCache[rt.NetworkDomainID]

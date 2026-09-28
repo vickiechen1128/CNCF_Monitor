@@ -1,14 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { ApplicationDictPage, ApplicationDictDrawer } from './ApplicationDictPage'
-import type { ApplicationDict } from '../../types/resource'
+import type { ApplicationDict, PlatformDict } from '../../types/resource'
 
 const listMock = vi.fn()
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const platformListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   applicationDictApi: {
@@ -16,12 +17,23 @@ vi.mock('../../api/resources', () => ({
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
   },
+  platformDictApi: {
+    list: (...args: unknown[]) => platformListMock(...args),
+  },
 }))
 
 const apps: ApplicationDict[] = [
-  { app_code: 'order-service', app_name: '订单服务', description: '订单主链路', status: 'enabled' },
+  { app_code: 'order-service', app_name: '订单服务', description: '订单主链路', status: 'enabled', platform_code: 'ecommerce' },
   { app_code: 'pay-service', app_name: '支付服务', description: '支付域', status: 'enabled' },
-  { app_code: 'legacy-portal', app_name: '已下线应用', description: '停用中', status: 'disabled' },
+  { app_code: 'legacy-portal', app_name: '已下线应用', description: '停用中', status: 'disabled', platform_code: 'legacy-pf' },
+  // 字典缺条分支：platform_code 不在平台字典中 → 回退展示编码
+  { app_code: 'ghost-app', app_name: '幽灵应用', description: '缺条回退', status: 'enabled', platform_code: 'ghost-pf' },
+]
+
+/** 平台字典：ecommerce 启用、legacy-pf 停用 */
+const platforms: PlatformDict[] = [
+  { platform_code: 'ecommerce', platform_name: '电商中台', description: '交易主链路', enabled: true },
+  { platform_code: 'legacy-pf', platform_name: '已下线平台', description: '停用中', enabled: false },
 ]
 
 function renderPage() {
@@ -41,6 +53,8 @@ describe('ApplicationDictPage', () => {
     listMock.mockReset()
     createMock.mockReset()
     updateMock.mockReset()
+    platformListMock.mockReset()
+    platformListMock.mockResolvedValue({ status: 'success', data: { list: platforms, total: platforms.length } })
     listMock.mockResolvedValue({ status: 'success', data: { list: apps, total: apps.length } })
     createMock.mockResolvedValue({ status: 'success', data: { app_code: 'gateway-service', app_name: '网关服务', status: 'enabled' } })
     updateMock.mockResolvedValue({ status: 'success', data: { app_code: 'pay-service', app_name: '支付服务', status: 'enabled' } })
@@ -76,6 +90,20 @@ describe('ApplicationDictPage', () => {
     await userEvent.click(within(row).getByRole('button', { name: '停用' }))
     await userEvent.click(await screen.findByText('确认停用'))
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith('order-service', { status: 'disabled' }))
+  })
+
+  it('「所属平台」列：启用展示平台名 / 停用加标识 / 字典缺条回退编码 / 未挂显示 -', async () => {
+    renderPage()
+    await screen.findByText('order-service')
+
+    expect(within(screen.getByText('order-service').closest('tr')!).getByText('电商中台')).toBeInTheDocument()
+    expect(
+      within(screen.getByText('legacy-portal').closest('tr')!).getByText('已下线平台（已停用）'),
+    ).toBeInTheDocument()
+    // 字典缺条：回退显示 platform_code（契约快照 §5A 展示名解析）
+    expect(within(screen.getByText('ghost-app').closest('tr')!).getByText('ghost-pf')).toBeInTheDocument()
+    // 未挂平台：'-'
+    expect(within(screen.getByText('pay-service').closest('tr')!).getByText('-')).toBeInTheDocument()
   })
 })
 
@@ -143,6 +171,7 @@ describe('ApplicationDictDrawer', () => {
       expect(updateMock).toHaveBeenCalledWith('pay-service', {
         app_name: '支付服务(新)',
         description: '支付域',
+        platform_code: null,
         status: 'enabled',
       }),
     )
@@ -150,5 +179,38 @@ describe('ApplicationDictDrawer', () => {
     const [codeArg, bodyArg] = updateMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(codeArg).toBe('pay-service')
     expect(bodyArg).not.toHaveProperty('app_code')
+  })
+
+  it('「所属平台」下拉仅列启用平台条目', async () => {
+    render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
+
+    await userEvent.click(await screen.findByLabelText('所属平台'))
+    // 已选中项与下拉选项同名，用 option 角色区分
+    expect(await screen.findByRole('option', { name: '电商中台（ecommerce）' })).toBeInTheDocument()
+    // 停用平台不出现在下拉（仅启用项可被选用）
+    expect(screen.queryByRole('option', { name: /已下线平台/ })).not.toBeInTheDocument()
+  })
+
+  it('「所属平台」可清空，清空后提交 platform_code=null 表达摘除', async () => {
+    render(<ApplicationDictDrawer open record={apps[0]} platforms={platforms} onCancel={() => {}} onSuccess={() => {}} />)
+
+    // 回显当前所属平台
+    expect(await screen.findByTitle('电商中台（ecommerce）')).toBeInTheDocument()
+    // antd clear 图标由 CSS 控制显隐，jsdom 下用 fireEvent 直接触发（绕过 pointer-events 检查）
+    const clear = document.querySelector('.ant-select-clear') as HTMLElement
+    expect(clear).toBeTruthy()
+    fireEvent.mouseDown(clear)
+    fireEvent.click(clear)
+    await waitFor(() => expect(document.querySelector('.ant-select-selection-item')).toBeNull())
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() =>
+      expect(updateMock).toHaveBeenCalledWith('order-service', {
+        app_name: '订单服务',
+        description: '订单主链路',
+        platform_code: null,
+        status: 'enabled',
+      }),
+    )
   })
 })

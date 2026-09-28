@@ -64,6 +64,9 @@ func AutoMigrate() error {
 		&models.ApplicationDict{},
 		// 云字典（决策 98/102：部署级只读）
 		&models.CloudDict{},
+		// 平台字典 / 服务字典（决策 104/105/107：四层骨架顶层与第三层）
+		&models.PlatformDict{},
+		&models.ServiceDict{},
 		// 用户认证（Module_06 §5.3/§5.4，Module_03 §4.0）
 		&models.User{},
 		&models.Session{},

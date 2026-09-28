@@ -207,6 +207,7 @@ func applyApplicationInput(a *models.Application, in *ResourceInput) {
 	a.Owner = in.Owner
 	a.Status = in.Status
 	a.ServiceName = in.ServiceName
+	a.ServiceCode = in.ServiceCode // 决策 105：可选服务编码（svc label 取值）
 	a.HealthCheckURL = in.HealthCheckURL
 	a.Protocol = in.Protocol
 	a.Endpoint = in.Endpoint
@@ -222,6 +223,7 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 	g.Owner = in.Owner
 	g.Status = in.Status
 	g.TargetName = in.TargetName
+	g.ServiceCode = in.ServiceCode // 决策 105：同 application（两类可挂服务）
 	g.InstanceIP = in.InstanceIP
 	g.Port = in.Port
 	g.MetricsPath = in.MetricsPath
@@ -243,7 +245,7 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 //  5. 成功返回创建后的完整对象（复用 T07-05 buildListItem）。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc {
+func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var in ResourceInput
 		if err := c.ShouldBindJSON(&in); err != nil {
@@ -255,7 +257,7 @@ func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Applic
 			response.BadRequest(c, fmt.Errorf("resource_category 非法：%q，可选 host/database/middleware/application/generic_target", in.ResourceCategory))
 			return
 		}
-		if err := ValidateResourceInput(category, &in, bizStore, appStore, networkDomainExistsFunc(db)); err != nil {
+		if err := ValidateResourceInput(category, &in, bizStore, appStore, svcStore, networkDomainExistsFunc(db)); err != nil {
 			response.BadRequest(c, err)
 			return
 		}

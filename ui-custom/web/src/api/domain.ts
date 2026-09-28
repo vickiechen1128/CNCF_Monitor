@@ -36,16 +36,23 @@ function list<T>(path: string, params?: ListParams): Promise<ApiResponse<Paginat
 export interface NetworkDomainCreateInput {
   name: string
   domain_type: DomainType
-  zone_type?: string
+  /** 云归属（M06 §5.2，必填）：取自云字典启用条目（M07 §5.20），不开放自由文本 */
+  cloud_code: string
+  /** 网络分区（M06 §5.2，必填）：取自区域类型字典启用条目，不开放自由文本 */
+  zone_type: string
   description?: string
   authorized_tenant_ids?: string[]
   ip_cidrs?: string[]
 }
 
-/** 编辑网域（行政信息）输入；不含 tenant_id（登记归属创建后不可变更，Module_06 §6.2） */
+/**
+ * 编辑网域（行政信息）输入；不含 tenant_id（登记归属创建后不可变更，Module_06 §6.2）。
+ * MVP 收口（PM 决策）：`cloud_code` 登记后不可编辑，故编辑入参不承载云归属。
+ */
 export interface NetworkDomainUpdateInput {
   name?: string
   description?: string
+  /** 网络分区（必填维护） */
   zone_type?: string
   authorized_tenant_ids?: string[]
   ip_cidrs?: string[]
