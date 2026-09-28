@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-28 16:40 · commit: `c47c8b8`
+> 生成时间: 2026-09-28 17:01 · commit: `165588b`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -4029,6 +4029,11 @@
 - `const alertHistoryStateLabel`
 - `function alertMatchKey`
 - `const alertHistoryStateColor`
+- `const SILENCES_PATH`
+- `interface AlertConfigScopeBlock`
+- `const ALERT_CONFIG_REQUIRED_BLOCKS`
+- `const ALERT_CONFIG_EXEMPT_BLOCKS`
+- `const ALERTMANAGER_MIN_SKELETON`
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
 

@@ -240,3 +240,107 @@ export const alertHistoryStateColor: Record<AlertHistoryState, string> = {
   firing: 'error',
   resolved: 'success',
 }
+
+// =====================================================================
+// 告警配置口径澄清（PL-2，2026-09-28）：三块必写 + 两块豁免 + 最小骨架
+// =====================================================================
+
+/** 静默管理页路由（豁免项 ④ 的平台内替代入口：静默是运行时状态，不在 alertmanager.yml 里写） */
+export const SILENCES_PATH = '/silences'
+
+/** 说明卡「单块口径」：必写块与豁免块共用形状，避免两处各写一份而漂移 */
+export interface AlertConfigScopeBlock {
+  key: string
+  /** 块名（用户语言） */
+  title: string
+  /** 对应 `alertmanager.yml` 字段（必写块填写；豁免块为空串） */
+  fields: string
+  /** 一句话说明（写什么 / 为什么不用写） */
+  desc: string
+  /** 平台内替代入口路由；必写块或无替代入口的豁免块为 null（null 时只出文案、不产生链接，避免死链） */
+  path: string | null
+}
+
+/** 用户在「告警配置」页**必写的三块**（口径与服务端 amtool 校验一致，不承诺校验器不校验的字段） */
+export const ALERT_CONFIG_REQUIRED_BLOCKS: AlertConfigScopeBlock[] = [
+  {
+    key: 'receivers',
+    title: '接收人 / 渠道',
+    fields: 'receivers',
+    desc: '告警发给哪个端（飞书群机器人、钉钉群、邮件组…）',
+    path: null,
+  },
+  {
+    key: 'route',
+    title: '路由',
+    fields: 'route / routes',
+    desc: '按什么标签分发给谁、怎么分组、多久重复（group_by / group_wait / group_interval / repeat_interval）',
+    path: null,
+  },
+  {
+    key: 'inhibit_rules',
+    title: '收敛（告警抑制）',
+    fields: 'inhibit_rules',
+    desc: '根因告警存在时自动抑制次生告警以降噪；网域离线场景平台已自动生成 EdgeSiteOffline → inhibitable=true，此处按需增补',
+    path: null,
+  },
+]
+
+/**
+ * 明确**豁免的两块**：`templates` 由迭代二 PL-3「通知模板」独立承载，当前尚无页面，
+ * 故仅出文案、`path` 置 null（迭代一不制造死链），待 PL-3 落地后再补入口。
+ */
+export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
+  {
+    key: 'silences',
+    title: '静默（silences）',
+    fields: '',
+    desc: '平台已实现——静默是 Alertmanager 运行时状态，由「静默管理」页直调 v2 API 即时生效，文件挂载本来就承载不了',
+    path: SILENCES_PATH,
+  },
+  {
+    key: 'templates',
+    title: '通知模板内容（templates）',
+    fields: '',
+    desc: '由「通知模板」能力独立承载并经平台生成引用，用户不再手写模板文件',
+    path: null,
+  },
+]
+
+/**
+ * 最小可运行 `alertmanager.yml` 骨架（说明卡展示 + 挂载抽屉「插入骨架示例」共用）。
+ *
+ * 三块必写齐全（receivers / route+routes / inhibit_rules），已用上游 `amtool check-config`
+ * 校验 SUCCESS（语法 + route/receiver 引用闭合 + receiver 字段类型）；`global` 仅最简
+ * `resolve_timeout`（邮件渠道才需 smtp_*，属「按需最简」不列为必写块）。骨架内 webhook 地址
+ * 为占位（含 `token=REPLACE_ME`），实际使用时替换为平台桥地址与令牌，或替换为自建中继地址
+ * （逃生门：平台只校验、不托管）。
+ */
+export const ALERTMANAGER_MIN_SKELETON = `global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  group_by: ['alertname', 'network_domain']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: sre-critical
+
+receivers:
+  - name: default
+    webhook_configs:
+      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=ch-default&token=REPLACE_ME'
+        send_resolved: true
+  - name: sre-critical
+    webhook_configs:
+      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=ch-sre&token=REPLACE_ME'
+        send_resolved: true
+
+inhibit_rules:
+  - source_matchers: ['severity="critical"']
+    target_matchers: ['severity="warning"']
+    equal: ['network_domain']
+`

@@ -101,6 +101,27 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(screen.getByRole('link', { name: '去写规则 →' })).toHaveAttribute('href', '/rules')
   })
 
+  // PL-2：说明卡显式列出三块必写 + 两块豁免，给出最小可运行骨架；豁免项 ④ 引导静默管理，
+  // 豁免项 ⑤（通知模板）只出文案、不制造死链（迭代二 PL-3 落地前无对应路由）。
+  it('PL-2：配置说明卡列出三块必写 + 两块豁免，并展示最小骨架与静默入口', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    renderPage()
+    // 三块必写
+    expect(screen.getByText('本页你需要写这三块：')).toBeInTheDocument()
+    expect(screen.getByText('接收人 / 渠道')).toBeInTheDocument()
+    expect(screen.getByText('路由')).toBeInTheDocument()
+    expect(screen.getByText('收敛（告警抑制）')).toBeInTheDocument()
+    // 两块豁免
+    expect(screen.getByText('这两块不用你写（已豁免）：')).toBeInTheDocument()
+    expect(screen.getByText('静默（silences）')).toBeInTheDocument()
+    expect(screen.getByText('通知模板内容（templates）')).toBeInTheDocument()
+    // 豁免项 ④ 的平台内替代入口指向静默管理页
+    expect(screen.getByRole('link', { name: '静默管理' })).toHaveAttribute('href', '/silences')
+    // 最小可运行骨架已渲染（含三块必写关键字）
+    expect(screen.getByText(/inhibit_rules:/)).toBeInTheDocument()
+    expect(screen.getByText(/resolve_timeout: 5m/)).toBeInTheDocument()
+  })
+
   it('渲染当前生效配置只读视图与版本列表', async () => {
     useAlertConfigMock.mockReturnValue(
       result({ current: { id: 'acv-1', content: 'global:\n  resolve_timeout: 30s', checksum: 'abc', status: 'applied' }, versions: [versionRow()], total: 1 }),
@@ -108,7 +129,8 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     renderPage()
     // 「当前生效配置」结构化 Descriptions 与「配置版本历史」表格行均展示版本 ID acv-1
     expect((await screen.findAllByText('acv-1')).length).toBeGreaterThan(0)
-    expect(screen.getByText(/resolve_timeout/)).toBeInTheDocument()
+    // 当前生效配置的只读 pre 与说明卡的最小骨架均含 resolve_timeout，故用 getAllByText
+    expect(screen.getAllByText(/resolve_timeout/).length).toBeGreaterThan(0)
     expect(screen.getByText('CHG-20260831-001')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重新挂载此版本/ })).toBeInTheDocument()
   })

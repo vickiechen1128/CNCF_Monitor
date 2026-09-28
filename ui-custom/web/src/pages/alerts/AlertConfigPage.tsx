@@ -31,6 +31,9 @@ import { RuleGuideLink } from '../../components/RuleGuideLink'
 import { useAlertConfig } from './useAlertConfig'
 import { AlertConfigDrawer } from './AlertConfigDrawer'
 import {
+  ALERTMANAGER_MIN_SKELETON,
+  ALERT_CONFIG_EXEMPT_BLOCKS,
+  ALERT_CONFIG_REQUIRED_BLOCKS,
   CONFIG_PREVIEW_PATH,
   CURRENT_USER,
   configStatusColor,
@@ -216,6 +219,66 @@ export function AlertConfigPage() {
           <div style={{ marginTop: 8 }}>
             <Text type="secondary">告警规则（什么情况下告警）在「规则编辑」维护，本页只管「告警发给谁、怎么收敛」。 </Text>
             <RuleGuideLink />
+          </div>
+
+          {/* PL-2（2026-09-28）：显式化「在这页要写什么」——三块必写 + 两块豁免，口径与服务端
+              amtool check-config 一致，不承诺校验器不校验的字段。 */}
+          <div style={{ marginTop: 16 }}>
+            <Text strong>本页你需要写这三块：</Text>
+            <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
+              {ALERT_CONFIG_REQUIRED_BLOCKS.map((block) => (
+                <li key={block.key} style={{ marginBottom: 4 }}>
+                  <Text strong>{block.title}</Text>
+                  <Text code style={{ margin: '0 6px' }}>{block.fields}</Text>
+                  <Text type="secondary">{block.desc}</Text>
+                </li>
+              ))}
+            </ol>
+            <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+              global 段按需最简即可（如 resolve_timeout）；仅使用邮件渠道时才需补 smtp_* 配置，不列为必写块。
+            </Text>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <Text strong>这两块不用你写（已豁免）：</Text>
+            <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
+              {ALERT_CONFIG_EXEMPT_BLOCKS.map((block) => (
+                <li key={block.key} style={{ marginBottom: 4 }}>
+                  <Text strong>{block.title}</Text>
+                  <Text type="secondary">
+                    ：{block.desc}
+                    {block.path ? (
+                      <>
+                        ，前往<Link to={block.path}>静默管理</Link>
+                      </>
+                    ) : null}
+                  </Text>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <Space size={8} style={{ marginBottom: 8 }}>
+              <Text strong>最小可运行 alertmanager.yml 骨架</Text>
+              <Tag color="processing">已通过 amtool 校验</Tag>
+            </Space>
+            <pre
+              style={{
+                margin: 0,
+                maxHeight: 320,
+                overflow: 'auto',
+                background: tokens.colorBgBase,
+                padding: 12,
+                borderRadius: 8,
+                fontSize: 12.5,
+              }}
+            >
+              {ALERTMANAGER_MIN_SKELETON}
+            </pre>
+            <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+              点「挂载新配置」后可在抽屉里用「插入骨架示例」一键填入；把占位 webhook 地址与令牌替换为真实值即可提交。
+            </Text>
           </div>
         </Card>
 
