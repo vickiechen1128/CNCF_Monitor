@@ -249,7 +249,7 @@ export function AlertConfigPage() {
                     ：{block.desc}
                     {block.path ? (
                       <>
-                        ，前往<Link to={block.path}>静默管理</Link>
+                        ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
                       </>
                     ) : null}
                   </Text>

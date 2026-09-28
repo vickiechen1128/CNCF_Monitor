@@ -59,6 +59,14 @@ const AlertStatusPage = lazy(() =>
 const HistoryAlertsPage = lazy(() =>
   import('./pages/alerts/HistoryAlertsPage').then((m) => ({ default: m.HistoryAlertsPage })),
 )
+// M08 PL-3 增量：通知渠道管理页（通知渲染桥）
+const NotifyChannelsPage = lazy(() =>
+  import('./pages/alerts/NotifyChannelsPage').then((m) => ({ default: m.NotifyChannelsPage })),
+)
+// M08 PL-3 增量：通知模板管理页（通知渲染桥）
+const NotifyTemplatesPage = lazy(() =>
+  import('./pages/alerts/NotifyTemplatesPage').then((m) => ({ default: m.NotifyTemplatesPage })),
+)
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -118,6 +126,8 @@ function AppRoutes() {
           <Route path="/silences" element={<SilencesPage />} />
           <Route path="/alert-status" element={<AlertStatusPage />} />
           <Route path="/alert-history" element={<HistoryAlertsPage />} />
+          <Route path="/notify-channels" element={<NotifyChannelsPage />} />
+          <Route path="/notify-templates" element={<NotifyTemplatesPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

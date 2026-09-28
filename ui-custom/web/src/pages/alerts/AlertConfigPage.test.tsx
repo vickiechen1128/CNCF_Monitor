@@ -102,7 +102,7 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
   })
 
   // PL-2：说明卡显式列出三块必写 + 两块豁免，给出最小可运行骨架；豁免项 ④ 引导静默管理，
-  // 豁免项 ⑤（通知模板）只出文案、不制造死链（迭代二 PL-3 落地前无对应路由）。
+  // 豁免项 ⑤（通知模板）在 PL-3 模板页就绪后回填入口（T08-F12，关闭 dev-feedback #14）。
   it('PL-2：配置说明卡列出三块必写 + 两块豁免，并展示最小骨架与静默入口', () => {
     useAlertConfigMock.mockReturnValue(result())
     renderPage()
@@ -117,6 +117,8 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(screen.getByText('通知模板内容（templates）')).toBeInTheDocument()
     // 豁免项 ④ 的平台内替代入口指向静默管理页
     expect(screen.getByRole('link', { name: '静默管理' })).toHaveAttribute('href', '/silences')
+    // 豁免项 ⑤ 的平台内替代入口指向通知模板页（PL-3 落地后回填，不再是死链）
+    expect(screen.getByRole('link', { name: '通知模板' })).toHaveAttribute('href', '/notify-templates')
     // 最小可运行骨架已渲染（含三块必写关键字）
     expect(screen.getByText(/inhibit_rules:/)).toBeInTheDocument()
     expect(screen.getByText(/resolve_timeout: 5m/)).toBeInTheDocument()

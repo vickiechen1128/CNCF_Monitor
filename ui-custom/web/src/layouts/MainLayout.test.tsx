@@ -501,6 +501,56 @@ describe('MainLayout', () => {
     expect(screen.getByText('cloud-dict-content')).toBeInTheDocument()
   })
 
+  /**
+   * PL-3 通知渲染桥（T08-F10）：通知渠道为 M08 新增能力页，
+   * 归属「告警收敛与通知管理」一级模块，且在 Sider 二级导航高亮。
+   */
+  it('resolves /notify-channels to 告警收敛与通知管理 and highlights 通知渠道 sub-item', async () => {
+    render(
+      <MemoryRouter initialEntries={['/notify-channels']}>
+        <Routes>
+          <Route path="/notify-channels" element={<MainLayout>notify-channels-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 一级 tab 归「告警收敛与通知管理」并处于 active（否则会落到首页）
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab?.className ?? '').toContain('active')
+    // 二级导航含「通知渠道」且当前路由高亮该项
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('通知渠道'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('notify-channels-content')).toBeInTheDocument()
+  })
+
+  /**
+   * PL-3 通知渲染桥（T08-F12）：通知模板同为 M08 新增能力页，
+   * 归属「告警收敛与通知管理」一级模块，且在 Sider 二级导航高亮。
+   */
+  it('resolves /notify-templates to 告警收敛与通知管理 and highlights 通知模板 sub-item', async () => {
+    render(
+      <MemoryRouter initialEntries={['/notify-templates']}>
+        <Routes>
+          <Route path="/notify-templates" element={<MainLayout>notify-templates-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab?.className ?? '').toContain('active')
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('通知模板'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('notify-templates-content')).toBeInTheDocument()
+  })
+
   it('renders the brand title from the stored product name and mirrors it to the tab title', async () => {
     window.localStorage.setItem(PRODUCT_NAME_STORAGE_KEY, '仪电监控中心')
 
