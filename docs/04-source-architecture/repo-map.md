@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-28 17:15 · commit: `7d68665`
+> 生成时间: 2026-09-28 17:19 · commit: `72afc55`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -424,6 +424,23 @@
 - `func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
 - `func GetVersionByID(db *gorm.DB, id uint) (*models.AlertmanagerConfigVersion, error)`
 
+### `platform/alertmanager/config/template_validate.go`
+
+- `func TemplateFuncs() template.FuncMap`
+- `func templateDefault(def, val interface{}) interface{}`
+- `func templateJSONStr(v interface{}) string`
+- `func ValidateTemplate(content string) error`
+- `func buildTemplateCheckConfig(tplPath string) string`
+
+### `platform/alertmanager/config/template_validate_test.go`
+
+- `func TestValidateTemplateValidPasses(t *testing.T)`
+- `func TestValidateTemplateRejectsEmpty(t *testing.T)`
+- `func TestValidateTemplateRejectsSyntaxError(t *testing.T)`
+- `func TestValidateTemplateAmtoolUnavailable(t *testing.T)`
+- `func TestValidateTemplateAmtoolReportsError(t *testing.T)`
+- `func TestTemplateFuncsJSONStr(t *testing.T)`
+
 ### `platform/alertmanager/config/validate.go`
 
 - `func validateAlertmanagerConfig(content string) error`
@@ -492,6 +509,42 @@
 ### `platform/alertmanager/notify/register.go`
 
 - `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB)`
+
+### `platform/alertmanager/notify/template.go`
+
+- `type builtinTemplate struct`
+- `func builtinTemplates() []builtinTemplate`
+- `func EnsureBuiltinTemplates(db *gorm.DB) error`
+- `type SubmitTemplateInput struct`
+- `func SubmitTemplate(db *gorm.DB, in SubmitTemplateInput) (*models.NotifyTemplate, error)`
+- `func RemountTemplate(db *gorm.DB, id uint, name string) (*models.NotifyTemplate, error)`
+- `func ListTemplates(db *gorm.DB) ([]models.NotifyTemplate, error)`
+- `func GetTemplate(db *gorm.DB, id uint) (*models.NotifyTemplate, error)`
+- `func BuiltinTemplateForType(db *gorm.DB, channelType string) (*models.NotifyTemplate, error)`
+- `func findTemplateByChecksum(db *gorm.DB, channelType, checksum string) (*models.NotifyTemplate, error)`
+- `type TemplateView struct`
+
+### `platform/alertmanager/notify/template_handler.go`
+
+- `func toTemplateView(t *models.NotifyTemplate) TemplateView`
+- `func respondTemplateError(c *gin.Context, err error)`
+- `func ListTemplatesHandler(db *gorm.DB) gin.HandlerFunc`
+- `func SubmitTemplateHandler(db *gorm.DB) gin.HandlerFunc`
+- `func RemountTemplateHandler(db *gorm.DB) gin.HandlerFunc`
+
+### `platform/alertmanager/notify/template_test.go`
+
+- `func stubTemplateValid(t *testing.T)`
+- `func stubTemplateInvalid(t *testing.T)`
+- `func TestSubmitTemplateValidatesAndPersists(t *testing.T)`
+- `func TestSubmitTemplateRejectsValidationFailureNoPersist(t *testing.T)`
+- `func TestSubmitTemplateRejectsBadNameAndType(t *testing.T)`
+- `func TestSubmitTemplateIdempotent(t *testing.T)`
+- `func TestRemountTemplateWritesNewRow(t *testing.T)`
+- `func TestEnsureBuiltinTemplatesIdempotent(t *testing.T)`
+- `func TestBuiltinFeishuTemplateParses(t *testing.T)`
+- `func newTemplateRouter(db *gorm.DB) *gin.Engine`
+- `func TestTemplateHandlersSubmitValidationAndRemount(t *testing.T)`
 
 ### `platform/alertmanager/register.go`
 
