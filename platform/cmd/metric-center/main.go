@@ -34,6 +34,7 @@ import (
 	"github.com/metriccenter/metriccenter/platform/admin/tenant"
 	"github.com/metriccenter/metriccenter/platform/admin/user"
 	"github.com/metriccenter/metriccenter/platform/alertmanager"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
 	"github.com/metriccenter/metriccenter/platform/api/response"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
@@ -58,6 +59,8 @@ var (
 	configDir               = flag.String("config.dir", "./config-output", "local 下发目标：中心 Prometheus 配置目录（写盘 + file_sd targets）")
 	configReloadURL         = flag.String("config.reload-url", "", "中心 Prometheus reload 地址（如 http://localhost:9090/-/reload）；结构文件变更后触发，为空时如实报错而非静默 success")
 	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（静默代理 + AM 配置下发 reload 目标，M08）")
+	notifyBridgeToken       = flag.String("notify.bridge-token", "", "通知渲染桥（POST /api/v1/webhooks/notify）内网调用令牌，可用环境变量 NOTIFY_BRIDGE_TOKEN 覆盖；为空时桥端点一律 401")
+	notifyRenderTimezone    = flag.String("notify.render-timezone", "", "通知渲染显示时区（IANA 名称，如 Asia/Shanghai），可用环境变量 NOTIFY_RENDER_TIMEZONE 覆盖；为空默认东八区固定偏移（不依赖宿主机时区）")
 	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录（决策 60，写 alertmanager.yml）；为空时复用 config.dir")
 	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址（如 http://localhost:9093/-/reload）；为空时默认 alertmanager.url 的 /-/reload")
 	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
@@ -93,6 +96,15 @@ func main() {
 	// Module 11 (T11-08)：边缘离线交付包目录，环境变量优先（非空则覆盖 flag 默认）。
 	if v := os.Getenv("EDGE_PACKAGE_DIR"); v != "" {
 		*edgePackageDir = v
+	}
+
+	// M08 PL-3 通知渲染桥：内网调用令牌 + 渲染时区，环境变量优先（env/env.sh 注入口径，
+	// 令牌随 alertmanager.yml 生成时写入 receiver URL）。
+	if v := os.Getenv("NOTIFY_BRIDGE_TOKEN"); v != "" {
+		*notifyBridgeToken = v
+	}
+	if v := os.Getenv("NOTIFY_RENDER_TIMEZONE"); v != "" {
+		*notifyRenderTimezone = v
 	}
 
 	// 优雅退出：监听 SIGINT/SIGTERM，取消 ctx 以停下变更检测 watcher，并 Shutdown HTTP 服务。
@@ -147,7 +159,10 @@ func main() {
 	// D4：仅维护节点/网域运行态与离线事件钩子，不接 M08 通知。
 	edge.StartOfflineDetector(ctx, db.DB, edge.DefaultOfflineThreshold, edge.DefaultOfflineInterval, nil)
 
-	r, err := setupRouter(promURL, *webStaticDir)
+	r, err := setupRouter(promURL, *webStaticDir, notify.BridgeConfig{
+		Token:    *notifyBridgeToken,
+		Location: loadRenderLocation(*notifyRenderTimezone),
+	})
 	if err != nil {
 		log.Fatalf("failed to setup router: %v", err)
 	}
@@ -170,7 +185,8 @@ func main() {
 }
 
 // setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
-func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
+// bridgeCfg 为 M08 PL-3 通知渲染桥运行配置（内网令牌 + 渲染时区）。
+func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error) {
 	r := gin.Default()
 	// review-fix F7（安全 review LOW，保守处理——不变更 CORS 行为）：
 	// A2 同源部署下 CORS 中间件实际不生效（前后端同域）；保留 cors.Default()（全放开）
@@ -183,6 +199,9 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	// D1：edge 协议 outbound-only（Agent 非平台用户），对全局用户 auth 豁免该前缀，
 	// 改由 edge group 内独立 edge-token 中间件鉴权（见 platform/edge）。
 	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v2/platform/edge/")
+	// M08 PL-3 通知渲染桥（POST /api/v1/webhooks/notify）调用方为中心 Alertmanager，
+	// 非平台用户，故豁免全局用户认证，改由 notify.BridgeHandler 自校验内网调用令牌。
+	auth.PublicPathPrefixes = append(auth.PublicPathPrefixes, "/api/v1/webhooks/")
 
 	// au-02 全局认证中间件（交集：POST /api/v2/platform/auth/login、
 	// /api/v1/health* 与 OPTIONS 预检放行，其余 /api/* 须携带有效 Bearer token）。
@@ -194,6 +213,12 @@ func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error) {
 	registerPrometheusProxyRoutes(apiV1, promURL)
 	// M02 采集状态路由（决策 47）：/api/v1/targets（代理）+ /api/v1/health/coverage（聚合）。
 	query.RegisterRoutes(apiV1, db.DB, promURL)
+	// M08 PL-3 通知渲染桥（设计提案 §3.3.3/§3.3.8）：不挂认证态平台组，按 v1 路径装配，
+	// 由 BridgeHandler 自校验内网调用令牌（上方 PublicPathPrefixes 已豁免全局用户认证）。
+	notify.RegisterBridgeRoutes(apiV1, db.DB, bridgeCfg)
+	if bridgeCfg.Token == "" {
+		log.Printf(">>> WARN: notify bridge token not configured; POST /api/v1/webhooks/notify will reject all calls with 401")
+	}
 
 	apiV2 := r.Group("/api/v2")
 	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
@@ -412,6 +437,21 @@ func parseURL(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("parse url %q: host must not be empty", raw)
 	}
 	return u, nil
+}
+
+// loadRenderLocation 解析通知渲染显示时区：name 为空时用东八区固定偏移（不依赖
+// 宿主机时区/tzdata）；否则尝试 time.LoadLocation，失败时回退东八区并记录，避免
+// 宿主机缺 tzdata 导致启动失败。
+func loadRenderLocation(name string) *time.Location {
+	if name == "" {
+		return notify.DefaultRenderLocation
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		log.Printf(">>> invalid notify.render-timezone %q, fallback to UTC+8: %v", name, err)
+		return notify.DefaultRenderLocation
+	}
+	return loc
 }
 
 // buildReloadFunc 返回供 *DiskApplier 使用的 reload 回调：POST 到中心 Prometheus

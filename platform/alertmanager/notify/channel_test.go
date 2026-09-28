@@ -134,6 +134,7 @@ func newNotifyRouter(db *gorm.DB) *gin.Engine {
 type channelResp struct {
 	Status    string                 `json:"status"`
 	ErrorType string                 `json:"errorType"`
+	Error     string                 `json:"error"`
 	Data      map[string]interface{} `json:"data"`
 }
 

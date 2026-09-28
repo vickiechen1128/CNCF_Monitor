@@ -199,3 +199,43 @@
 - **影响模块**：M08（PL-3 前端落地后需回补豁免项 ⑤ 的入口指向）
 - **发现场景**：T08-F9 实现 PL-2 说明卡豁免块时，按「迭代一不制造死链」纪律显式区分「有页面可链」与「暂无页面」，并对模板项采用只出文案策略
 - **状态**：open（迭代一按「只出文案不链接」落地；**待 PL-3 通知模板页落地后，回补豁免项 ⑤ 的入口链接**，本项方可 closed）
+
+## 15. 通知渠道 WebhookURL / Secret 服务端明文存储 + 响应脱敏（① 空白判定，取舍留痕）
+
+- **类别**：① 空白判定（存储与回显口径，PL-3 迭代二实现期选择）
+- **PRD 章节 / 文件位置**：设计提案 `alert-config-scope-and-notification-bridge.md` §3.3.2 / §3.3.8；落点 `platform/models/alertmanager_notify.go`（NotifyChannel）、`platform/alertmanager/notify/channel.go`（`ToChannelView`/`maskWebhookURL`）
+- **现状 / 根因**：通知渠道需持久化机器人 WebhookURL（含 token）与加签 Secret。设计提案未规定「存储是否加密 / 响应是否回显」。若明文存储且原样回显，会在列表接口泄露凭据；若加密存储，MVP 期缺乏密钥管理基础设施（与决策 60 明文留痕 AA 配置同源约束）。
+- **判定（本迭代二执行口径，已按任务卡指派选择）**：**服务端明文存储、响应严格脱敏**——`WebhookURL`/`Secret` 在库中按原值存储（与决策 60 的 alertmanager.yml 明文留痕一致，不引入密钥管理）；API 响应经 `ToChannelView` 走 `maskWebhookURL` 脱敏为 `scheme://host/***`，**绝不回显 secret**（`secret_set` 只回布尔「是否已设置」）。更新端点采用指针字段语义（仅更新显式提供的字段），前端无需回显原凭据。
+- **影响模块**：M08 PL-3（NotifyChannel CRUD）；后续若引入凭据加密 / KMS，需迁移存储与视图。
+- **发现场景**：T08-09 实现渠道 CRUD 时，凭「最小凭据暴露」原则确定明文存储 + 脱敏回显口径；任务卡要求将该取舍作为 ① 空白登记
+- **状态**：open（MVP 口径已落地；加密存储 / KMS 属后续迭代，届时本项 closed）
+
+## 16. 桥端点内网令牌 / 渲染时区注入依赖 env/env.sh，当前交付包无该文件（① 空白）
+
+- **类别**：① 空白判定（部署交付面）
+- **PRD 章节 / 文件位置**：设计提案 §3.3.6（内网调用令牌）/ §3.3.4（渲染时区）；落点 `platform/cmd/metric-center/main.go`（flag `--notify.bridge-token` / `--notify.render-timezone`）
+- **现状 / 根因**：任务卡要求桥端点内网令牌由交付包 `env/env.sh` 注入（与既有 `DATA_ROOT`/`LOG_ROOT` 同源）。但当前工作区 **`env/` 目录不存在**（`env/env.sh` 尚未创建），无法按其注入。
+- **判定（本迭代二执行口径）**：以 **flag + 环境变量**双通道注入作为兜底——`--notify.bridge-token`（env 覆盖 `NOTIFY_BRIDGE_TOKEN`）、`--notify.render-timezone`（env 覆盖 `NOTIFY_RENDER_TIMEZONE`）；令牌为空时桥端点一律 401（安全默认，不开放匿名转发）。待交付包补齐 `env/env.sh` 后，由其统一导出这两个环境变量即可，无需改代码。
+- **影响模块**：M08 PL-3（桥端点部署面）；M09 / 交付包（`env/env.sh` 补齐）
+- **发现场景**：T08-11 装配桥端点时，按任务卡尝试从 `env/env.sh` 读取令牌，确认该文件不存在
+- **状态**：open（flag+env 兜底已落地；待 `env/env.sh` 补齐后本项 closed）
+
+## 17. PL-3 新增端点未写入 api-contract-snapshot.md / PRD（① 空白，待回写）
+
+- **类别**：① 空白判定（契约文档面）
+- **PRD 章节 / 文件位置**：契约快照 `docs/05-execution-records/module-08/api-contract-snapshot.md`；PRD `docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md`
+- **现状 / 根因**：PL-3 的四个新增端点——`GET/POST/PUT/DELETE /api/v2/platform/alertmanager/notify-channels*`、`GET/POST /api/v2/platform/alertmanager/notify-templates*`、`POST /api/v1/webhooks/notify`——**均未写入 `api-contract-snapshot.md`**，PRD 也未回写。本次以设计提案 §3.3 为契约权威实现。
+- **判定（本迭代二执行口径）**：按提案 §3.3 实现；**待 PL-3 开发收口后由文档方（prototype-designer / Orchestrator）将端点补齐至 `api-contract-snapshot.md` 与 PRD**（含请求/响应字段、错误码、query 定址参数、脱敏口径）。
+- **影响模块**：M08 PL-3；前端对接、security-reviewer 审查均以提案为准
+- **发现场景**：T08-08～T08-11 开发前核对契约快照，确认 PL-3 端点缺失（任务卡已声明「契约快照缺 PL-3 端点，待回写」）
+- **状态**：open（按提案实现，待回写契约快照与 PRD 后 closed）
+
+## 18. 内置飞书卡片模板 JSON 未闭合（② 实现缺陷，T08-11 渲染首暴露并修复）
+
+- **类别**：② 实现缺陷（已修复）
+- **PRD 章节 / 文件位置**：`platform/alertmanager/notify/template.go`（内置飞书卡片模板常量）；发现于 `platform/alertmanager/notify/render_test.go::TestRenderBuiltinFeishuCardTemplate`
+- **现状 / 根因**：T08-10 落地的内置飞书卡片模板中，每条告警的 `"text": { "tag": "lark_md", "content": {{ jsonStr (...) }}` **缺闭合 JSON 对象 `}`**（只闭合了外层 div 数组元素，`]` 提前出现），导致渲染产物为非法 JSON（`invalid character ']' after object key:value pair`）。T08-10 的校验仅覆盖 Go template 语法（`text/template.Parse` + amtool 等价工序），**未覆盖渲染内容是否合法 JSON**，故未被当时测试拦截；T08-11 新增渲染测试首次暴露。
+- **结论 / 修复**：在模板该 action `}}` 后补 JSON 对象闭合 `}`；新增 `TestRenderBuiltinFeishuCardTemplate` 断言渲染结果为合法 JSON + header 红/绿，锁定回归。注：模板内容变更后其 checksum 改变，T08-10 的 seed 用 `findTemplateByChecksum` 幂等，不受影响。
+- **影响模块**：M08 PL-3（内置模板 + 渲染桥）
+- **发现场景**：T08-11 为桥端点编写渲染测试时首跑内置模板用例即失败（2026-09-28）
+- **状态**：closed（模板已修复 + 渲染测试锁定）

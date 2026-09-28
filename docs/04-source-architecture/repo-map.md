@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-28 17:19 · commit: `72afc55`
+> 生成时间: 2026-09-28 17:35 · commit: `28192cc`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -471,6 +471,36 @@
 - `func TestRemountEndpointNotFound(t *testing.T)`
 - `func TestRemountEndpointValidationFailsNoPersist(t *testing.T)`
 
+### `platform/alertmanager/notify/bridge.go`
+
+- `type BridgeConfig struct`
+- `func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc`
+- `func RegisterBridgeRoutes(v1 *gin.RouterGroup, db *gorm.DB, cfg BridgeConfig)`
+- `func bridgeTokenValid(expected, got string) bool`
+- `func parseUintQuery(s string) (uint, error)`
+- `func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel, rawID string) (*models.NotifyTemplate, error)`
+- `func respondBridgeTemplateError(c *gin.Context, err error)`
+
+### `platform/alertmanager/notify/bridge_test.go`
+
+- `type fakeReceiver struct`
+- `method (*fakeReceiver) record(path string, body []byte)`
+- `method (*fakeReceiver) calls() int`
+- `method (*fakeReceiver) lastBody() []byte`
+- `func startFakeReceiver(t *testing.T, f *fakeReceiver) string`
+- `func newBridgeRouter(db *gorm.DB, cfg BridgeConfig) *gin.Engine`
+- `func amBridgePayload(status string) map[string]interface{}`
+- `func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string, enabled bool) *models.NotifyChannel`
+- `func TestBridgeRejectsMissingOrWrongToken(t *testing.T)`
+- `func TestBridgeRejectsArbitraryTargetURL(t *testing.T)`
+- `func TestBridgeChannelNotFound(t *testing.T)`
+- `func TestBridgeChannelDisabled(t *testing.T)`
+- `func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T)`
+- `func TestBridgeUsesExplicitTemplate(t *testing.T)`
+- `func TestBridgeTemplateChannelTypeMismatch(t *testing.T)`
+- `func TestBridgeSendFailureReturnsBadGateway(t *testing.T)`
+- `func TestBridgeSuccessStructuredLog(t *testing.T)`
+
 ### `platform/alertmanager/notify/channel.go`
 
 - `func ValidateWebhookURL(raw string) error`
@@ -506,9 +536,34 @@
 - `func doJSON(t *testing.T, r *gin.Engine, method, path string, body interface{}) (int, channelResp)`
 - `func TestChannelCRUDHandlers(t *testing.T)`
 
+### `platform/alertmanager/notify/client.go`
+
+- `func newOutboundHTTPClient() *http.Client`
+- `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
+
 ### `platform/alertmanager/notify/register.go`
 
 - `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB)`
+
+### `platform/alertmanager/notify/render.go`
+
+- `type amWebhookPayload struct`
+- `type amWebhookAlert struct`
+- `type RenderAlert struct`
+- `type RenderData struct`
+- `func decodeWebhook(raw []byte) (amWebhookPayload, error)`
+- `func buildRenderData(p amWebhookPayload, loc *time.Location) RenderData`
+- `func formatLocal(t time.Time, loc *time.Location) string`
+- `func Render(templateContent string, payload amWebhookPayload, loc *time.Location) ([]byte, error)`
+
+### `platform/alertmanager/notify/render_test.go`
+
+- `func renderFixture(status string) amWebhookPayload`
+- `func TestRenderBuiltinFeishuCardTemplate(t *testing.T)`
+- `func TestRenderLocalizesTimeToRenderZone(t *testing.T)`
+- `func TestRenderRejectsEmptyOutput(t *testing.T)`
+- `func TestDecodeWebhookInvalid(t *testing.T)`
+- `func TestRenderUsesSharedFuncMap(t *testing.T)`
 
 ### `platform/alertmanager/notify/template.go`
 
@@ -681,7 +736,7 @@
 ### `platform/cmd/metric-center/main.go`
 
 - `func main()`
-- `func setupRouter(promURL *url.URL, staticDir string) (*gin.Engine, error)`
+- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error)`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
 - `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error`
@@ -692,6 +747,7 @@
 - `func prometheusProxyHandler(proxy *httputil.ReverseProxy) gin.HandlerFunc`
 - `func newPrometheusProxy(target *url.URL) *httputil.ReverseProxy`
 - `func parseURL(raw string) (*url.URL, error)`
+- `func loadRenderLocation(name string) *time.Location`
 - `func buildReloadFunc(reloadURL string) func() error`
 - `type safeResponseWriter struct`
 - `method (*safeResponseWriter) CloseNotify() <-chan bool`
@@ -741,6 +797,10 @@
 - `func seedIntegrationJob(t *testing.T, dbm *gorm.DB, jobName string, selected []string)`
 - `func TestEndToEndQueryCoverageRoutes(t *testing.T)`
 - `func TestEndToEndAlertStatusSmoke(t *testing.T)`
+- `func TestEndToEndNotifyBridgeSmoke(t *testing.T)`
+- `type bridgeReceiver struct`
+- `method (*bridgeReceiver) append(b []byte)`
+- `method (*bridgeReceiver) snapshot() [][]byte`
 
 ### `platform/cmd/metric-center/module07_integration_test.go`
 

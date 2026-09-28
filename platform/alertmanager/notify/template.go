@@ -48,7 +48,7 @@ const BuiltinFeishuCardTemplate = `{{- $color := "red" -}}
 {{- if $i }},{{ end }}
       {
         "tag": "div",
-        "text": {"tag": "lark_md", "content": {{ jsonStr (printf "**告警名称**: %s\n**实例**: %s\n**网域**: %s\n**级别**: %s\n**摘要**: %s\n**描述**: %s\n**开始时间**: %s\n**恢复时间**: %s" (index $a.Labels "alertname") (index $a.Labels "instance") (index $a.Labels "zone") (index $a.Labels "severity") (index $a.Annotations "summary") (index $a.Annotations "description") $a.StartsAtLocal $a.EndsAtLocal) }}
+        "text": {"tag": "lark_md", "content": {{ jsonStr (printf "**告警名称**: %s\n**实例**: %s\n**网域**: %s\n**级别**: %s\n**摘要**: %s\n**描述**: %s\n**开始时间**: %s\n**恢复时间**: %s" (index $a.Labels "alertname") (index $a.Labels "instance") (index $a.Labels "zone") (index $a.Labels "severity") (index $a.Annotations "summary") (index $a.Annotations "description") $a.StartsAtLocal $a.EndsAtLocal) }} }
       }
 {{- end }}
     ]

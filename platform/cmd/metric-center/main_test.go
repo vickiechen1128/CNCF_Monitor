@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
 	"github.com/metriccenter/metriccenter/platform/alertmanager"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
 	"github.com/metriccenter/metriccenter/platform/config/label"
 	"github.com/metriccenter/metriccenter/platform/config/resource"
 	"github.com/metriccenter/metriccenter/platform/configcenter"
@@ -90,6 +91,9 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.EdgeTargetSnapshot{},
 		// 告警收敛（Module_08）：alertmanager.yml 挂载留痕
 		&models.AlertmanagerConfigVersion{},
+		// 告警收敛（Module_08 PL-3）：通知渠道 / 通知模板（通知渲染桥）
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
 	))
 	require.NoError(t, seed.Run(db))
 	// 决策 92：资源侧 app_code 必须引用未停用的应用字典条目。集成测试库无存量资源
@@ -151,9 +155,15 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	apiV1 := r.Group("/api/v1")
 	query.RegisterRoutes(apiV1, db, promURL)
+	// M08 PL-3 通知渲染桥：与生产 main.go 一致，挂 /api/v1/webhooks/notify（不入平台
+	// 用户认证态，由桥 handler 自校验内网调用令牌）。
+	notify.RegisterBridgeRoutes(apiV1, db, notify.BridgeConfig{Token: integrationBridgeToken})
 
 	return r, db
 }
+
+// integrationBridgeToken 是集成测试用通知渲染桥内网调用令牌。
+const integrationBridgeToken = "integration-bridge-token"
 
 // injectSeededAdmin 以测试中间件把 seed 预置的初始管理员（seed.AdminUsername）解析
 // 进 gin context 的 ContextUserKey，模拟真实 AuthMiddleware 的最小解析语义，使挂接
@@ -1569,4 +1579,89 @@ func TestEndToEndAlertStatusSmoke(t *testing.T) {
 	items = out["data"].(map[string]interface{})["items"].([]interface{})
 	require.Len(t, items, 1)
 	assert.Equal(t, "DiskFull", items[0].(map[string]interface{})["labels"].(map[string]interface{})["alertname"])
+}
+
+// ---------------------------------------------------------------------------
+// Module_08 PL-3（设计提案 alert-config-scope-and-notification-bridge §3.3）通知渲染桥
+// 集成验收：经真实主路由树验证「渠道/模板管理路由 + /api/v1/webhooks/notify 桥端点」
+// 端到端可用——内置模板 seed、令牌门、SSRF 拒绝（不接受请求方传入目标地址）、
+// 渲染后转投平台内已登记的渠道。
+// ---------------------------------------------------------------------------
+
+func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
+	r, _ := buildIntegrationEngine(t)
+	c := &apiClient{t: t, r: r}
+
+	// 0. 内置默认模板已幂等 seed（alertmanager.RegisterRoutes → EnsureBuiltinTemplates）。
+	code, out := c.json("GET", "/api/v2/platform/alertmanager/notify-templates", "")
+	require.Equal(t, http.StatusOK, code, "notify-templates 应可读：%v", out)
+	tplItems := out["data"].(map[string]interface{})["items"].([]interface{})
+	require.NotEmpty(t, tplItems, "内置默认模板应已 seed")
+
+	// 1. 建一个指向「假机器人地址」的通知渠道。
+	rec := &bridgeReceiver{}
+	recv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		b, _ := io.ReadAll(req.Body)
+		rec.append(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(recv.Close)
+
+	code, out = c.json("POST", "/api/v2/platform/alertmanager/notify-channels",
+		mustJSON(t, map[string]interface{}{"name": "SRE 飞书", "type": "feishu", "webhook_url": recv.URL}))
+	require.Equal(t, http.StatusOK, code, "创建渠道应成功：%v", out)
+	chID := out["data"].(map[string]interface{})["id"].(string)
+	require.NotEmpty(t, chID)
+
+	payload := mustJSON(t, map[string]interface{}{
+		"version": "4", "status": "firing", "groupKey": "g1",
+		"alerts": []map[string]interface{}{{
+			"status":      "firing",
+			"labels":      map[string]string{"alertname": "HighCPU", "instance": "10.0.0.1:9100", "zone": "dmz", "severity": "critical"},
+			"annotations": map[string]string{"summary": "cpu high", "description": "cpu > 90%"},
+			"startsAt":    "2026-01-02T03:04:05Z", "endsAt": "2026-01-02T04:04:05Z",
+		}},
+	})
+
+	// 2. 桥端点无令牌 → 401（证明已挂载且令牌门生效）。
+	code, out = c.json("POST", "/api/v1/webhooks/notify?channel="+chID, payload)
+	require.Equal(t, http.StatusUnauthorized, code, "缺令牌应 401：%v", out)
+	assert.Equal(t, "unauthorized", out["errorType"])
+
+	// 3. SSRF：请求方自带目标地址参数 → 拒绝，且不向任何地址出站。
+	code, out = c.json("POST", "/api/v1/webhooks/notify?channel="+chID+"&token="+integrationBridgeToken+
+		"&url=https://evil.example/hook", payload)
+	require.Equal(t, http.StatusBadRequest, code, "携带目标地址参数应 400：%v", out)
+	assert.Equal(t, "bad_request", out["errorType"])
+
+	// 4. 正常：令牌 + 已登记 channel → 渲染并转投假机器人。
+	code, out = c.json("POST", "/api/v1/webhooks/notify?channel="+chID+"&token="+integrationBridgeToken, payload)
+	require.Equal(t, http.StatusOK, code, "桥端点应成功：%v", out)
+	assert.EqualValues(t, 1, out["data"].(map[string]interface{})["success"])
+	require.Len(t, rec.snapshot(), 1, "应向已登记渠道出站一次")
+
+	// 5. 渠道列表可读且响应脱敏。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/notify-channels", "")
+	require.Equal(t, http.StatusOK, code)
+	chRows := out["data"].(map[string]interface{})["items"].([]interface{})
+	require.Len(t, chRows, 1)
+	assert.Contains(t, chRows[0].(map[string]interface{})["webhook_url"].(string), "***")
+}
+
+// bridgeReceiver 记录通知渲染桥出站请求体（并发安全）。
+type bridgeReceiver struct {
+	mu     sync.Mutex
+	bodies [][]byte
+}
+
+func (r *bridgeReceiver) append(b []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.bodies = append(r.bodies, b)
+}
+
+func (r *bridgeReceiver) snapshot() [][]byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([][]byte{}, r.bodies...)
 }
