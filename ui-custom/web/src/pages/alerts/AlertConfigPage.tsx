@@ -231,6 +231,12 @@ export function AlertConfigPage() {
                   <Text strong>{block.title}</Text>
                   <Text code style={{ margin: '0 6px' }}>{block.fields}</Text>
                   <Text type="secondary">{block.desc}</Text>
+                  {/* A 路线（T08-F14）：receivers 块内容来源改为平台生成，给出「通知渠道」页入口 */}
+                  {block.path ? (
+                    <Text type="secondary">
+                      ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
+                    </Text>
+                  ) : null}
                 </li>
               ))}
             </ol>
@@ -277,7 +283,7 @@ export function AlertConfigPage() {
               {ALERTMANAGER_MIN_SKELETON}
             </pre>
             <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-              点「挂载新配置」后可在抽屉里用「插入骨架示例」一键填入；把占位 webhook 地址与令牌替换为真实值即可提交。
+              点「挂载新配置」后可在抽屉里用「插入骨架示例」一键填入；将占位符替换为「通知渠道」页「接收人配置」复制的真实片段即可提交。
             </Text>
           </div>
         </Card>

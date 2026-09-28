@@ -124,6 +124,29 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(screen.getByText(/resolve_timeout: 5m/)).toBeInTheDocument()
   })
 
+  // T08-F14：收敛 PL-2 口径矛盾——「接收人 / 渠道」仍为必写块，但内容改为平台生成，
+  // 该块给出「通知渠道」页入口（此前 path=null，无平台内入口，用户只能手写）。
+  it('T08-F14：接收人 / 渠道必写块给出「通知渠道」入口，指向 /notify-channels', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    renderPage()
+    expect(screen.getByText(/地址与渠道 ID 不要手写/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '通知渠道' })).toHaveAttribute('href', '/notify-channels')
+  })
+
+  // T08-F14 关键缺陷防回归：骨架里 `channel=ch-default` / `channel=ch-sre` 是误导性的假 ID
+  // （真实渠道 ID 是数字串），必须换成醒目占位符并提示「去通知渠道复制、勿手写」。
+  it('T08-F14：骨架不再出现 ch-* 假渠道 ID，改用醒目占位符 + 复制指引', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    renderPage()
+    const pre = screen.getByText(/inhibit_rules:/)
+    const skeleton = pre.textContent ?? ''
+    expect(skeleton).not.toContain('ch-default')
+    expect(skeleton).not.toContain('ch-sre')
+    expect(skeleton).toContain('REPLACE_WITH_CHANNEL_ID')
+    expect(skeleton).toContain('REPLACE_WITH_BRIDGE_TOKEN')
+    expect(skeleton).toContain('接收人配置')
+  })
+
   it('渲染当前生效配置只读视图与版本列表', async () => {
     useAlertConfigMock.mockReturnValue(
       result({ current: { id: 'acv-1', content: 'global:\n  resolve_timeout: 30s', checksum: 'abc', status: 'applied' }, versions: [versionRow()], total: 1 }),

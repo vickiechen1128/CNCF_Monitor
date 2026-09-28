@@ -157,7 +157,7 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
             </Button>
           </div>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            骨架含接收人 / 路由 / 收敛三块必写内容；插入后把占位 webhook 地址与令牌替换为真实值即可。
+            骨架含接收人 / 路由 / 收敛三块必写内容；插入后到「通知渠道」页用「接收人配置」复制片段，替换骨架里的占位符即可。
           </Text>
           <Input.TextArea
             value={content}

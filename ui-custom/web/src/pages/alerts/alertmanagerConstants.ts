@@ -280,8 +280,11 @@ export const ALERT_CONFIG_REQUIRED_BLOCKS: AlertConfigScopeBlock[] = [
     key: 'receivers',
     title: '接收人 / 渠道',
     fields: 'receivers',
-    desc: '告警发给哪个端（飞书群机器人、钉钉群、邮件组…）',
-    path: null,
+    // A 路线（用户 2026-09-28 裁决）：receivers 仍由用户填写（平台暂不代生成），但内容来源
+    // 改为平台生成——地址与渠道 ID 不要手写，去「通知渠道」页复制「接收人配置」片段填入。
+    desc: '告警发给哪个端——地址与渠道 ID 不要手写，在「通知渠道」页登记后复制其「接收人配置」片段填入',
+    path: NOTIFY_CHANNELS_PATH,
+    linkText: '通知渠道',
   },
   {
     key: 'route',
@@ -327,11 +330,16 @@ export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
  *
  * 三块必写齐全（receivers / route+routes / inhibit_rules），已用上游 `amtool check-config`
  * 校验 SUCCESS（语法 + route/receiver 引用闭合 + receiver 字段类型）；`global` 仅最简
- * `resolve_timeout`（邮件渠道才需 smtp_*，属「按需最简」不列为必写块）。骨架内 webhook 地址
- * 为占位（含 `token=REPLACE_ME`），实际使用时替换为平台桥地址与令牌，或替换为自建中继地址
- * （逃生门：平台只校验、不托管）。
+ * `resolve_timeout`（邮件渠道才需 smtp_*，属「按需最简」不列为必写块）。
+ *
+ * receivers 段的 `channel` 与 `token` 是**醒目占位符**（`REPLACE_WITH_*`），不是可用值：
+ * 早前写成 `channel=ch-default` 会让用户误信渠道 ID 是 `ch-*` 形式而照抄失败（真实渠道 ID
+ * 是数字串）。使用时到「通知渠道」页点「接收人配置」复制完整片段替换（A 路线：平台只校验、
+ * 不托管，也不代生成 receivers）。
  */
-export const ALERTMANAGER_MIN_SKELETON = `global:
+export const ALERTMANAGER_MIN_SKELETON = `# 本骨架已通过 amtool 校验。receivers 段渠道 ID 与令牌请勿手写：
+# 到「通知渠道」页点「接收人配置」复制片段替换占位符（渠道 ID 为数字串）。
+global:
   resolve_timeout: 5m
 
 route:
@@ -345,13 +353,14 @@ route:
       receiver: sre-critical
 
 receivers:
+  # channel / token 请到「通知渠道」页的「接收人配置」复制，勿手写
   - name: default
     webhook_configs:
-      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=ch-default&token=REPLACE_ME'
+      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID&token=REPLACE_WITH_BRIDGE_TOKEN'
         send_resolved: true
   - name: sre-critical
     webhook_configs:
-      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=ch-sre&token=REPLACE_ME'
+      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID&token=REPLACE_WITH_BRIDGE_TOKEN'
         send_resolved: true
 
 inhibit_rules:
