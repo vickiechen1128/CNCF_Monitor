@@ -13,7 +13,9 @@ import {
   type NetworkDomainCreateInput,
   type NetworkDomainUpdateInput,
 } from '../../../api/domain'
+import { cloudDictApi } from '../../../api/resources'
 import type { NetworkDomain, Tenant, ZoneType } from '../../../types/domain'
+import type { CloudDict } from '../../../types/resource'
 import { FormSection } from '../../../components/FormSection'
 import { Callout } from '../../../components/Callout'
 import { useSkin } from '../../../skinContext'
@@ -42,6 +44,18 @@ function validateCidrList(_: unknown, value?: string): Promise<void> {
 
 const { Text } = Typography
 
+/** 云归属字段说明（对齐原型 CLOUD_CODE_FIELD_HINT）：权威在网域、资源侧只读派生 */
+const CLOUD_CODE_FIELD_HINT =
+  '取自云字典（部署级只读、仅含启用项），不开放自由文本；云归属是资源「云」标签的唯一来源，资源侧不再单独维护。'
+/** 编辑态云归属只读说明（MVP 收口：登记后不可编辑） */
+const CLOUD_CODE_READONLY_HINT = '网域云归属登记后不可修改；如需跨云请新登记网域'
+/** 网络分区字段说明（对齐原型 ZONE_TYPE_FIELD_HINT，必填口径去除「可留空」表述） */
+const ZONE_TYPE_FIELD_HINT =
+  '给网域贴的分类标签：政务云环境对应安全分区（如互联网区 / 政务外网区 / 专线区 / DMZ），公有云环境对应地域（region）；分区为隔离边界，AZ 不进分区。取值来自部署级字典，不开放自由文本。'
+/** 字典为空 / 加载失败时的兜底提示 */
+const CLOUD_DICT_EMPTY_HINT = '云字典为空或加载失败，请联系平台管理员预置（不开放自由文本）'
+const ZONE_TYPE_DICT_EMPTY_HINT = '网络区域类型字典为空，请联系平台管理员预置（不开放自由文本）'
+
 interface DomainDrawerProps {
   open: boolean
   mode: 'create' | 'edit'
@@ -66,6 +80,8 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
   const [submitting, setSubmitting] = useState(false)
   const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
   const [tenants, setTenants] = useState<Tenant[]>([])
+  // 云归属下拉数据源（云字典只读接口 GET /api/v2/platform/cloud-dict，仅启用项，M06 §5.2 / M07 §5.20）
+  const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
   // 前置自检（登记态）：中心能否直接访问——能 → 硬劝阻；不能 → 展开登记字段
   const watchedCenterDirect = Form.useWatch('center_direct', form) as 'yes' | 'no' | undefined
@@ -90,17 +106,26 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
         ip_cidrs: (editable.ip_cidrs as string[] | undefined)?.join(', ') ?? '',
       })
     }
-    Promise.all([zoneTypeApi.list(), tenantApi.list({ page: 1, page_size: 100 })])
-      .then(([zt, tn]) => {
+    Promise.all([zoneTypeApi.list(), tenantApi.list({ page: 1, page_size: 100 }), cloudDictApi.list()])
+      .then(([zt, tn, cd]) => {
         setZoneTypes(zt.data ?? [])
         setTenants(tn.data?.list ?? [])
+        setCloudDicts(cd.data?.list ?? [])
         setDictError(null)
       })
       .catch((err: Error) => setDictError(err.message))
   }, [open, mode, domain, form])
 
   const enabledZoneTypes = zoneTypes.filter((z) => z.enabled)
+  // 云归属仅展示云字典启用条目（value=cloud_code、label=cloud_name，禁止自由文本）
+  const enabledClouds = cloudDicts.filter((c) => c.enabled)
   const activeTenants = tenants.filter((t) => t.status === 'active')
+
+  /** 云编码 → 云名（缺条目回退编码，供编辑态只读展示） */
+  const cloudNameOf = (code?: string) => {
+    if (!code) return '-'
+    return cloudDicts.find((c) => c.cloud_code === code)?.cloud_name ?? code
+  }
 
   const handleOk = async () => {
     let values: Record<string, unknown>
@@ -119,7 +144,8 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
         const input: NetworkDomainCreateInput = {
           name: String(values.name),
           domain_type: 'edge',
-          zone_type: values.zone_type ? String(values.zone_type) : undefined,
+          cloud_code: String(values.cloud_code),
+          zone_type: String(values.zone_type),
           description: values.description ? String(values.description) : undefined,
           authorized_tenant_ids: (values.authorized_tenant_ids as string[]) || undefined,
           ip_cidrs: ip_cidrs?.length ? ip_cidrs : undefined,
@@ -292,9 +318,69 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
                   </Form.Item>
                 </Col>
               </Row>
+              <Row gutter={16}>
+                <Col span={12}>
+                  {mode === 'edit' ? (
+                    /* MVP 收口（PM 决策）：云归属登记后不可编辑，编辑态只读展示 cloud_name */
+                    <Form.Item label="云归属" extra={CLOUD_CODE_READONLY_HINT}>
+                      <Input disabled value={cloudNameOf(domain?.cloud_code)} style={{ color: '#1D2129' }} />
+                    </Form.Item>
+                  ) : (
+                    <Form.Item
+                      label="云归属"
+                      name="cloud_code"
+                      rules={[{ required: true, message: '请选择云归属' }]}
+                      extra={enabledClouds.length ? CLOUD_CODE_FIELD_HINT : CLOUD_DICT_EMPTY_HINT}
+                    >
+                      <Select
+                        showSearch
+                        optionFilterProp="label"
+                        placeholder="请选择云归属（取自云字典）"
+                        disabled={!enabledClouds.length}
+                      >
+                        {enabledClouds.map((c) => (
+                          <Select.Option key={c.cloud_code} value={c.cloud_code} label={c.cloud_name}>
+                            {c.cloud_name}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  )}
+                </Col>
+              </Row>
             </FormSection>
 
-            <FormSection title="授权与分区" description="网域为部署级资源，可授权多个租户共享使用">
+            {/* 分组微调（dev-feedback #18 方案 A）：网络拓扑归「网络与分区」、授权独立成组、
+                描述单独收尾，纵线 行政归属 → 网络拓扑 → 授权 不再被授权字段拆散 */}
+            <FormSection title="网络与分区" description="网段用于资源导入时按 IP 自动推导网域归属，可留空">
+              <Form.Item label="网络分区" name="zone_type"
+                rules={[{ required: true, message: '请选择网络分区' }]}
+                extra={enabledZoneTypes.length ? ZONE_TYPE_FIELD_HINT : ZONE_TYPE_DICT_EMPTY_HINT}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="请选择网络分区"
+                  disabled={!enabledZoneTypes.length}
+                >
+                  {enabledZoneTypes.map((z) => (
+                    <Select.Option key={z.code} value={z.code} label={z.display_name}>
+                      {z.display_name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item
+                label="网段（CIDR）"
+                name="ip_cidrs"
+                extra="用 CIDR 格式，掩码必填；多个网段用英文逗号分隔。留空时由平台在资源导入时按 IP 自动推导归属"
+                rules={[{ validator: validateCidrList }]}
+              >
+                <Input.TextArea rows={2} placeholder="逗号分隔，掩码必填，如 10.20.0.0/16, 10.30.1.0/24" />
+              </Form.Item>
+            </FormSection>
+
+            <FormSection title="授权" description="网域为部署级资源，可授权多个租户共享使用">
               <Form.Item
                 label="授权租户"
                 name="authorized_tenant_ids"
@@ -314,34 +400,9 @@ export function DomainDrawer({ open, mode, domain, onCancel, onSuccess }: Domain
                   ))}
                 </Select>
               </Form.Item>
-              <Form.Item label="网络分区（可选）" name="zone_type"
-                extra={enabledZoneTypes.length ? undefined : '网络区域类型字典为空，请联系平台管理员预置（不开放自由文本）'}
-              >
-                <Select
-                  allowClear
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="请选择网络分区（可留空表示未设置）"
-                  disabled={!enabledZoneTypes.length}
-                >
-                  {enabledZoneTypes.map((z) => (
-                    <Select.Option key={z.code} value={z.code} label={z.display_name}>
-                      {z.display_name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Form.Item>
             </FormSection>
 
-            <FormSection title="网络与描述" description="网段用于资源导入时按 IP 自动推导网域归属，可留空">
-              <Form.Item
-                label="网段（CIDR）"
-                name="ip_cidrs"
-                extra="用 CIDR 格式，掩码必填；多个网段用英文逗号分隔。留空时由平台在资源导入时按 IP 自动推导归属"
-                rules={[{ validator: validateCidrList }]}
-              >
-                <Input.TextArea rows={2} placeholder="逗号分隔，掩码必填，如 10.20.0.0/16, 10.30.1.0/24" />
-              </Form.Item>
+            <FormSection title="描述">
               <Form.Item label="描述" name="description">
                 <Input.TextArea rows={2} placeholder="描述该网域的用途与网络特征（行政描述，非监控参数）" />
               </Form.Item>

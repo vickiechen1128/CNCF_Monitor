@@ -15,7 +15,13 @@ import {
   message,
 } from 'antd'
 import { networkDomainApi } from '../../api/domain'
-import { applicationDictApi, businessDomainApi, osOptionApi, resourceApi } from '../../api/resources'
+import {
+  applicationDictApi,
+  businessDomainApi,
+  osOptionApi,
+  resourceApi,
+  serviceDictApi,
+} from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type {
   ApplicationDict,
@@ -25,6 +31,7 @@ import type {
   ResourceCreateInput,
   ResourceStatus,
   ResourceUpdateInput,
+  ServiceDict,
 } from '../../types/resource'
 import type { ResourceListItem } from './useResources'
 
@@ -182,6 +189,8 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         health_check_url: values.health_check_url ? String(values.health_check_url) : undefined,
         protocol: values.protocol ? String(values.protocol) : undefined,
         port: Number(values.port),
+        // 决策 105：可选服务归属，留空合法（不注入 svc 标签）
+        service_code: values.service_code ? String(values.service_code) : undefined,
       }
     case 'generic_target':
       return {
@@ -192,6 +201,8 @@ function buildTypeFields(category: ResourceCategory, values: Record<string, unkn
         scheme: values.scheme ? String(values.scheme) : undefined,
         exporter_type: values.exporter_type ? String(values.exporter_type) : undefined,
         custom_labels: parseCustomLabels(values.custom_labels ? String(values.custom_labels) : undefined),
+        // 决策 105：可选服务归属，留空合法（不注入 svc 标签）
+        service_code: values.service_code ? String(values.service_code) : undefined,
       }
   }
 }
@@ -240,6 +251,8 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     scheme: record.scheme,
     exporter_type: record.exporter_type,
     custom_labels: customLabelsToFormString(record.custom_labels),
+    // 决策 105：可选服务归属（仅 application / generic_target）
+    service_code: record.service_code,
   }
 }
 
@@ -308,6 +321,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [businessDomains, setBusinessDomains] = useState<BusinessDomain[]>([])
   // 应用字典（决策 92）：app_code 必填下拉取启用条目；展示名 app_name 由字典解析
   const [applicationDicts, setApplicationDicts] = useState<ApplicationDict[]>([])
+  // 服务字典（决策 105）：service_code 可选下拉取启用条目，仅 application / generic_target 渲染
+  const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
   // 操作系统内置字典（仅 host 表单「操作系统」下拉使用，os_dict.go）
   const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
@@ -317,6 +332,8 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const displayCategory = record?.resource_category ?? category
   const enabledBizDomains = businessDomains.filter((d) => d.enabled)
   const enabledAppDicts = applicationDicts.filter((d) => d.status === 'enabled')
+  // 服务字典（决策 105）：下拉仅列启用条目；service_code 可选，留空不注入 svc 标签
+  const enabledServiceDicts = serviceDicts.filter((d) => d.enabled)
   // §5.2 必填口径：application / database / middleware 必填，host / generic_target 可空
   const appCodeRequired =
     displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
@@ -341,12 +358,14 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       businessDomainApi.list(),
       osOptionApi.list(),
       applicationDictApi.list(),
+      serviceDictApi.list(),
     ])
-      .then(([nd, bd, os, ad]) => {
+      .then(([nd, bd, os, ad, sd]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
         setOsOptions(os.data?.list ?? [])
         setApplicationDicts(ad.data?.list ?? [])
+        setServiceDicts(sd.data?.list ?? [])
         setDictError(null)
       })
       .catch((err: Error) => setDictError(err.message))
@@ -601,6 +620,20 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
             <Form.Item label="服务名" name="service_name" rules={[{ required: true, message: '请输入服务名' }]}>
               <Input placeholder="例如：order-service" maxLength={64} />
             </Form.Item>
+            {/* 决策 105：可选服务归属（仅 application / generic_target 渲染） */}
+            <Form.Item
+              label="服务编码"
+              name="service_code"
+              extra="可选：取服务字典启用条目，留空表示不注入服务标签"
+            >
+              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择服务编码（可选）">
+                {enabledServiceDicts.map((d) => (
+                  <Select.Option key={d.service_code} value={d.service_code} label={`${d.service_name} (${d.service_code})`}>
+                    {d.service_name} ({d.service_code})
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
             <Form.Item
               label="健康检查 URL"
               name="health_check_url"
@@ -686,6 +719,20 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Form.Item>
               </Col>
             </Row>
+            {/* 决策 105：可选服务归属（仅 application / generic_target 渲染） */}
+            <Form.Item
+              label="服务编码"
+              name="service_code"
+              extra="可选：取服务字典启用条目，留空表示不注入服务标签"
+            >
+              <Select showSearch optionFilterProp="label" allowClear placeholder="请选择服务编码（可选）">
+                {enabledServiceDicts.map((d) => (
+                  <Select.Option key={d.service_code} value={d.service_code} label={`${d.service_name} (${d.service_code})`}>
+                    {d.service_name} ({d.service_code})
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
             <Form.Item
               label="自定义标签"
               name="custom_labels"

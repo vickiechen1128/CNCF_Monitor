@@ -101,6 +101,8 @@ export interface Application extends ResourceBaseShape {
   protocol: string
   endpoint: string
   port: number
+  /** {v2.45 决策 105} 可选服务归属（列表/详情「服务」列按 service_code 解析展示） */
+  service_code?: string
 }
 
 export interface GenericTarget extends ResourceBaseShape {
@@ -116,6 +118,8 @@ export interface GenericTarget extends ResourceBaseShape {
   scheme: string
   exporter_type: string
   custom_labels: Record<string, string>
+  /** {v2.45 决策 105} 可选服务归属（同 application，留空不注入 `svc`） */
+  service_code?: string
 }
 
 export type Resource = Host | Database | Middleware | Application | GenericTarget
@@ -166,16 +170,21 @@ export interface MiddlewareResourceFields {
   version?: string
 }
 
-/** 应用服务差异化字段（§5.8） */
+/** 应用服务差异化字段（§5.8 / 决策 105：service_code 可选，`svc` 标签取值来源） */
 export interface ApplicationResourceFields {
   service_name: string
   endpoint: string
   health_check_url?: string
   protocol?: string
   port?: number
+  /**
+   * {v2.45 决策 105} 可选服务归属（`svc` label 取值 = `service_code`）：
+   * 仅 application / generic_target 适用，留空合法（不注入 `svc` 标签）。
+   */
+  service_code?: string
 }
 
-/** 通用指标目标差异化字段（§5.9） */
+/** 通用指标目标差异化字段（§5.9 / 决策 105：service_code 可选） */
 export interface GenericTargetResourceFields {
   target_name: string
   instance_ip: string
@@ -184,6 +193,8 @@ export interface GenericTargetResourceFields {
   scheme?: string
   exporter_type?: string
   custom_labels?: Record<string, string>
+  /** {v2.45 决策 105} 可选服务归属（同 application，留空不注入 `svc`） */
+  service_code?: string
 }
 
 /** 资源创建输入（按 resource_category 判别联合；biz_code 必填，resource_category 创建必传） */
@@ -231,6 +242,40 @@ export interface ApplicationDict {
   app_name: string
   description?: string
   status: 'enabled' | 'disabled'
+  /**
+   * {v2.45 决策 104/107} 可选父级平台（契约快照 §5A / §5C）：应用挂靠的平台字典编码。
+   * 未挂时应用无平台归属，资源 `platform` label **不注入**；与「业务」维度正交（不引入业务父级）。
+   */
+  platform_code?: string
+}
+
+/**
+ * 平台字典条目（§5.21 / 决策 104；契约快照 §5C）：四层实体层级
+ * `platform(1) → app(N) → service(M) → instance(K)` 的顶层。
+ *
+ * `platform_code` 为**不可变**编码（`platform` label 的唯一取值来源），`platform_name` 为必填展示名；
+ * 启用状态按契约快照 §5C 以 `enabled` 布尔承载（停用不删除、无删除入口）。
+ */
+export interface PlatformDict {
+  platform_code: string
+  platform_name: string
+  description?: string
+  enabled: boolean
+}
+
+/**
+ * 服务字典条目（§5.22 / 决策 105；契约快照 §5D）：四层实体层级的第三层
+ * `platform(1) → app(N) → service(M) → instance(K)`，一个应用可含多个服务。
+ *
+ * `service_code` 为**不可变**编码（`svc` label 的唯一取值来源），`service_name` 为必填展示名；
+ * 启用状态按契约快照 §5D 以 `enabled` 布尔承载（停用不删除、无删除入口）。
+ * 字典**不设父子字段**：服务与应用的关联经资源行的 `app_code` + `service_code` 承载。
+ */
+export interface ServiceDict {
+  service_code: string
+  service_name: string
+  description?: string
+  enabled: boolean
 }
 
 /**
