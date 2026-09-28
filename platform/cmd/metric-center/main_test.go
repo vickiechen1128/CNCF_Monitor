@@ -141,7 +141,10 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	// Module 08 收口（T08-05）：告警收敛——alertmanager.yml 挂载/留痕 + 静默代理，
 	// 指向测试内启动的 fake Alertmanager（见 fakeAlertmanager）。
 	amURL := fakeAlertmanager(t).URL
-	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL))
+	require.NoError(t, alertmanager.RegisterRoutes(platform, db, amURL, notify.ReceiverSnippetConfig{
+		BridgeURL:   "http://127.0.0.1:8080",
+		BridgeToken: integrationBridgeToken,
+	}))
 
 	// M02 采集状态路由收口（决策 47 / T02-03）：与生产 main.go（registerPlatformConfigRoutes
 	// 上方的 apiV1 组）保持一致，M02 目标/覆盖端点挂在 /api/v1 组下（仅全局认证、不授权），
@@ -1646,6 +1649,16 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 	chRows := out["data"].(map[string]interface{})["items"].([]interface{})
 	require.Len(t, chRows, 1)
 	assert.Contains(t, chRows[0].(map[string]interface{})["webhook_url"].(string), "***")
+
+	// 6. T08-12 接收人配置片段：admin 生成片段，URL 指向桥且带真实 channel ID + 令牌，
+	// 片段含 send_resolved: true（可直接粘进 alertmanager.yml receivers: 段）。
+	code, out = c.json("GET", "/api/v2/platform/alertmanager/notify-channels/"+chID+"/receiver-snippet", "")
+	require.Equal(t, http.StatusOK, code, "接收人片段应可生成：%v", out)
+	snip := out["data"].(map[string]interface{})
+	assert.Equal(t, true, snip["token_configured"])
+	assert.Contains(t, snip["url"].(string), "channel="+chID)
+	assert.Contains(t, snip["url"].(string), "token="+integrationBridgeToken)
+	assert.Contains(t, snip["snippet"].(string), "send_resolved: true")
 }
 
 // bridgeReceiver 记录通知渲染桥出站请求体（并发安全）。

@@ -25,7 +25,8 @@ func respondChannelError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrChannelNotFound):
 		response.NotFound(c, err.Error())
-	case errors.Is(err, ErrChannelNameRequired), errors.Is(err, ErrChannelTypeInvalid), errors.Is(err, ErrChannelWebhookInvalid):
+	case errors.Is(err, ErrChannelNameRequired), errors.Is(err, ErrChannelTypeInvalid), errors.Is(err, ErrChannelWebhookInvalid),
+		errors.Is(err, ErrReceiverNameInvalid):
 		response.BadRequest(c, err)
 	default:
 		response.InternalServerError(c, err)

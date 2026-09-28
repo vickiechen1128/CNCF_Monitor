@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-28 18:12 · commit: `a2f76eb`
+> 生成时间: 2026-09-28 18:49 · commit: `e6ce66f`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -541,9 +541,36 @@
 - `func newOutboundHTTPClient() *http.Client`
 - `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
 
+### `platform/alertmanager/notify/receiver_snippet.go`
+
+- `type ReceiverSnippetConfig struct`
+- `type ReceiverSnippet struct`
+- `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
+- `func sanitizeReceiverName(raw string) string`
+- `func BuildReceiverSnippet(ch *models.NotifyChannel, nameOverride string, cfg ReceiverSnippetConfig) (ReceiverSnippet, error)`
+- `func buildBridgeURL(baseURL string, channelID uint, token string) string`
+- `func buildReceiverSnippetYAML(name, rawURL string) string`
+- `func ReceiverSnippetHandler(db *gorm.DB, cfg ReceiverSnippetConfig) gin.HandlerFunc`
+
+### `platform/alertmanager/notify/receiver_snippet_test.go`
+
+- `func TestDeriveBridgeBaseURL(t *testing.T)`
+- `func TestSanitizeReceiverName(t *testing.T)`
+- `func TestBuildReceiverSnippetUsesRealChannelID(t *testing.T)`
+- `func TestBuildReceiverSnippetEmptyNameFallsBack(t *testing.T)`
+- `func TestBuildReceiverSnippetNameOverride(t *testing.T)`
+- `func TestBuildReceiverSnippetTokenNotConfigured(t *testing.T)`
+- `func TestReceiverSnippetURLMatchesBridgeParams(t *testing.T)`
+- `func snippetPath(id uint) string`
+- `func newSnippetRouter(t *testing.T, db *gorm.DB, cfg ReceiverSnippetConfig, u *models.User) *gin.Engine`
+- `func TestReceiverSnippetHandlerAuth(t *testing.T)`
+- `func TestReceiverSnippetHandlerErrors(t *testing.T)`
+- `func TestReceiverSnippetAcceptedByAmtool(t *testing.T)`
+- `func locateAmtool(t *testing.T) string`
+
 ### `platform/alertmanager/notify/register.go`
 
-- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB)`
+- `func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB, snippetCfg ReceiverSnippetConfig)`
 
 ### `platform/alertmanager/notify/render.go`
 
@@ -603,7 +630,7 @@
 
 ### `platform/alertmanager/register.go`
 
-- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error`
+- `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notifyCfg notify.ReceiverSnippetConfig) error`
 
 ### `platform/alertmanager/silence/authorize.go`
 
@@ -736,10 +763,10 @@
 ### `platform/cmd/metric-center/main.go`
 
 - `func main()`
-- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error)`
+- `func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig, snippetCfg notify.ReceiverSnippetConfig)…`
 - `func registerHealthRoutes(g *gin.RouterGroup)`
 - `func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL)`
-- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error`
+- `func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetCfg notify.ReceiverSnippetConfig) error`
 - `func registerSPA(r *gin.Engine, dir string) error`
 - `func healthHandler(c *gin.Context)`
 - `func healthDBHandler(c *gin.Context)`

@@ -26,7 +26,8 @@ import (
 // amURL 为中心 Alertmanager HTTP 地址（由 main 装配 --alertmanager.url 注入）：
 // 静默代理与 AM 配置下发 reload 均依赖它。amURL 非法 / 为空时返回错误，调用方
 // （main.setupRouter）据此如实启动失败，避免「静默路由配置缺失却静默可用」。
-func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error {
+// notifyCfg 为 PL-3 接收人配置片段生成所需配置（桥基础地址 + 内网令牌，由 main 推导）。
+func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notifyCfg notify.ReceiverSnippetConfig) error {
 	am := platform.Group("/alertmanager")
 
 	// M08 alertmanager.yml 文件挂载（契约 §3）：留痕版本自身已校验（决策 60 校验失败不落库）。
@@ -72,7 +73,7 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error 
 	am.GET("/alerts", alerts.ListHandler(alerts.NewService(alertsProxy, db)))
 
 	// M08 PL-3 通知渲染桥（设计提案 §3.3.8）：通知渠道 CRUD + 通知模板提交/回滚。
-	// 读端点挂根组（仅全局认证），写端点挂 RequireAdmin（与 config / silences 一致）。
-	notify.RegisterRoutes(am, db)
+	// 读端点挂根组（仅全局认证），写端点与接收人片段生成挂 RequireAdmin（与 config / silences 一致）。
+	notify.RegisterRoutes(am, db, notifyCfg)
 	return nil
 }

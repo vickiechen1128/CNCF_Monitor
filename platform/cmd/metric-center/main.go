@@ -159,9 +159,19 @@ func main() {
 	// D4：仅维护节点/网域运行态与离线事件钩子，不接 M08 通知。
 	edge.StartOfflineDetector(ctx, db.DB, edge.DefaultOfflineThreshold, edge.DefaultOfflineInterval, nil)
 
+	// M08 PL-3 接收人配置片段（T08-12）：桥基础地址由本服务监听地址推导，禁止硬编码；
+	// 令牌与桥端点同源（未配置时片段用占位符并置 token_configured=false）。
+	bridgeBaseURL, err := notify.DeriveBridgeBaseURL(*listenAddr)
+	if err != nil {
+		log.Fatalf("invalid listen-address: %v", err)
+	}
+
 	r, err := setupRouter(promURL, *webStaticDir, notify.BridgeConfig{
 		Token:    *notifyBridgeToken,
 		Location: loadRenderLocation(*notifyRenderTimezone),
+	}, notify.ReceiverSnippetConfig{
+		BridgeURL:   bridgeBaseURL,
+		BridgeToken: *notifyBridgeToken,
 	})
 	if err != nil {
 		log.Fatalf("failed to setup router: %v", err)
@@ -186,7 +196,8 @@ func main() {
 
 // setupRouter 装配控制面路由。staticDir 非空时额外托管前端静态产物（A2 同源部署）。
 // bridgeCfg 为 M08 PL-3 通知渲染桥运行配置（内网令牌 + 渲染时区）。
-func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig) (*gin.Engine, error) {
+// snippetCfg 为 M08 PL-3 接收人配置片段生成配置（桥基础地址 + 内网令牌）。
+func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConfig, snippetCfg notify.ReceiverSnippetConfig) (*gin.Engine, error) {
 	r := gin.Default()
 	// review-fix F7（安全 review LOW，保守处理——不变更 CORS 行为）：
 	// A2 同源部署下 CORS 中间件实际不生效（前后端同域）；保留 cors.Default()（全放开）
@@ -221,7 +232,7 @@ func setupRouter(promURL *url.URL, staticDir string, bridgeCfg notify.BridgeConf
 	}
 
 	apiV2 := r.Group("/api/v2")
-	if err := registerPlatformConfigRoutes(apiV2, promURL); err != nil {
+	if err := registerPlatformConfigRoutes(apiV2, promURL, snippetCfg); err != nil {
 		return nil, err
 	}
 
@@ -250,7 +261,7 @@ func registerPrometheusProxyRoutes(g *gin.RouterGroup, promURL *url.URL) {
 	}
 }
 
-func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
+func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetCfg notify.ReceiverSnippetConfig) error {
 	platform := g.Group("/platform")
 
 	// Module 06 Phase 1: zone-type dictionary + network-domain registry.
@@ -309,7 +320,7 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL) error {
 
 	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
 	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
-	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL); err != nil {
+	if err := alertmanager.RegisterRoutes(platform, db.DB, *alertmanagerURL, snippetCfg); err != nil {
 		return fmt.Errorf("register alertmanager routes: %w", err)
 	}
 
