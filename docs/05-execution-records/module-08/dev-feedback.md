@@ -179,3 +179,23 @@
 - **验证**：`tsc --noEmit` 通过；`eslint` 0 告警；`vitest run src/pages/alerts` 7 文件全过（`HistoryAlertsPage.test.tsx` 新增 1 例断言请求携带 `step`）；`go test ./platform/...` 27 包全通过
 - **发现场景**：用户实测首页当日 / 近 7 天告警恒为 0 后排查同一接口发现（2026-09-18）；本页侧为同根因的必然复现路径（把时间范围拉到 7d）
 - **状态**：closed（代码 + 测试 + 契约快照 §10.4 已落地；步长口径已定为 30s，无遗留待确认项）
+
+## 13. PL-3 通知渲染桥实现前的治理门禁：决策 74 未落档（按用户指示暂缓补录，登记待办）
+
+- **类别**：契约口径确认（治理门禁 / 跨模块契约面）
+- **PRD 章节 / 文件位置**：设计提案 `docs/05-execution-records/module-08/design-proposals/alert-config-scope-and-notification-bridge.md` §6「跨模块登记要求」（拟编号**决策 74：告警配置口径与通知渲染桥**）；落档目标 `docs/05-execution-records/module-08/design-decisions.md`
+- **现状 / 根因**：提案 §6 规定 PL-3（通知渠道 NotifyChannel / 通知模板 NotifyTemplate / 平台内置桥端点 `POST /api/v1/webhooks/notify` / SSRF 与内网令牌防护）属**跨模块契约面**（涉 M09 校验与生成、`alertmanager.yml` 模板引用段、通知标签竞合面），须**先在 `design-decisions.md` 落档决策 74 后，方可进入迭代二的实现与评审**。当前 `design-decisions.md` 最大编号止于决策 71，**决策 74 尚未落档**。
+- **结论（用户 chenrt 2026-09-28 指示）**：**决策 74 本次不补录**。按用户明确要求，PL-3 先进入开发（迭代二），该门禁以本反馈单登记留痕；**待 PL-3 开发完成后，再在 `design/module-mvp-demo` 设计分支统一补录决策 74**（含本提案 §3.3 全部已裁决内容：D-2 内置模板 + 可自定义 Go template、D-3 端点命名维持、D-4 交付节奏）。
+- **影响模块**：M08（PL-3 前后端）、M09（`alertmanager.yml` 生成侧模板引用 / 校验）
+- **发现场景**：Orchestrator 派发 PL-3 开发前核对提案 §6 门禁，发现决策 74 缺失并上报用户拍板
+- **状态**：open（门禁暂缓，登记待办；PL-3 开发完成后须在设计分支补录决策 74，本项方可 closed）
+
+## 14. 迭代一 PL-2「通知模板」豁免项前向引用：文案已出、入口暂无（空白判定，不制造死链）
+
+- **类别**：空白判定 / 决策口径（前向引用）
+- **PRD 章节 / 文件位置**：设计提案 §3.2.2「两块豁免」表第 5 行（通知模板内容 templates，由 PL-3「通知模板」独立承载）；落点 `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（配置说明卡豁免块）、`ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`（`ALERT_CONFIG_EXEMPT_BLOCKS`）
+- **现状 / 根因**：PL-2 验收要求说明卡显式列出「两块豁免」，其中豁免项 ⑤「通知模板内容（templates）」的承载页属**迭代二 PL-3**（NotifyTemplate / NotifyChannel 前端管理页），本迭代一（PL-1 + PL-2，纯前端）**尚无对应路由**。若按其他豁免项（④ 静默 → `/silences`）同形给出入口链接，将产生**指向不存在路由的死链**。
+- **判定（本迭代一执行口径）**：豁免项 ⑤ **只出文案、不产生链接**——`ALERT_CONFIG_EXEMPT_BLOCKS` 中该项 `path` 置 `null`，渲染层据此不渲染 `<Link>`；同时**不新增** NotifyTemplate 相关路由占位页（避免死链与「点了没内容」的更差体验）。豁免项 ④ 静默已有页面，正常给出 `/silences` 入口。
+- **影响模块**：M08（PL-3 前端落地后需回补豁免项 ⑤ 的入口指向）
+- **发现场景**：T08-F9 实现 PL-2 说明卡豁免块时，按「迭代一不制造死链」纪律显式区分「有页面可链」与「暂无页面」，并对模板项采用只出文案策略
+- **状态**：open（迭代一按「只出文案不链接」落地；**待 PL-3 通知模板页落地后，回补豁免项 ⑤ 的入口链接**，本项方可 closed）
