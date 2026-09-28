@@ -31,7 +31,7 @@ func setupTemplateRouter(t *testing.T) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	bizStore := newBizStore(t)
 	r := gin.New()
-	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, newAppStore(t), fakeDomains))
+	r.GET("/api/v2/platform/resources/:type/template", DownloadTemplate(bizStore, newAppStore(t), newSvcStore(t), fakeDomains))
 	return r
 }
 
@@ -64,13 +64,14 @@ func TestTemplateColumnsMatchPRD(t *testing.T) {
 			"network_domain", "middleware_type", "instance_ip", "port", "version",
 			"biz_code", "app_code", "env", "cluster", "owner", "status",
 		},
+		// 决策 105 / §5.16.1：application / generic_target 模板新增可选 service_code 列。
 		models.ResourceCategoryApplication: {
-			"network_domain", "service_name", "biz_code", "health_check_url", "protocol",
+			"network_domain", "service_name", "service_code", "biz_code", "health_check_url", "protocol",
 			"endpoint", "port", "app_code", "env", "cluster", "owner", "status",
 		},
 		models.ResourceCategoryGenericTarget: {
 			"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
-			"exporter_type", "custom_labels", "biz_code", "app_code", "env", "cluster", "owner", "status",
+			"exporter_type", "custom_labels", "service_code", "biz_code", "app_code", "env", "cluster", "owner", "status",
 		},
 	}
 
@@ -186,7 +187,7 @@ func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/api/v2/platform/resources/:type/template",
-		DownloadTemplate(newBizStore(t), NewApplicationDictStore(openEmptyAppDictDB(t)), fakeDomains))
+		DownloadTemplate(newBizStore(t), NewApplicationDictStore(openEmptyAppDictDB(t)), newSvcStore(t), fakeDomains))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/platform/resources/host/template", nil)

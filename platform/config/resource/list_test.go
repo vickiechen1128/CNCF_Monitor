@@ -580,3 +580,50 @@ func TestParseIsMonitored(t *testing.T) {
 		assert.Equal(t, tc.monitored, monitored, "raw=%q", tc.raw)
 	}
 }
+
+// TestResourceListServiceCode 覆盖决策 105 的列表返回口径：service_code 仅在
+// application / generic_target 的列表 item 上返回（其余三类不挂、不返回该键）。
+func TestResourceListServiceCode(t *testing.T) {
+	db := openListTestDB(t)
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "app-1", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "default",
+		BizCode: "payment", AppName: "pay-service", Cluster: "pay", Env: "prod", Status: "online",
+		ServiceName: "pay-service", ServiceCode: "order-api", Endpoint: "10.0.0.20", Port: 8080,
+	}).Error)
+	require.NoError(t, db.Create(&models.GenericTarget{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "gt-1", ResourceCategory: models.ResourceCategoryGenericTarget, NetworkDomainID: "default",
+			BizCode: "infra", Env: "prod", Status: "online", AppName: strPtr("app"),
+		},
+		TargetName: "snmp-01", ServiceCode: "pay-api", InstanceIP: "10.0.0.30", Port: 161,
+	}).Error)
+	require.NoError(t, db.Create(&models.Host{
+		ResourceID: "host-1", ResourceCategory: models.ResourceCategoryHost, NetworkDomainID: "default",
+		BizCode: "infra", AppCode: "app", EnvFlag: "prod", Status: "online", InstanceName: "web-01",
+		PrivateIP: "10.0.0.1", Image: "Linux", ServerID: "host-1",
+	}).Error)
+	r := mountListResources(t, db)
+
+	cases := []struct {
+		category string
+		wantCode string
+		wantKey  bool
+	}{
+		{"application", "order-api", true},
+		{"generic_target", "pay-api", true},
+		{"host", "", false}, // 基础设施不挂服务：契约上不返回该键
+	}
+	for _, tc := range cases {
+		t.Run(tc.category, func(t *testing.T) {
+			_, out := doResourceList(t, r, "?resource_category="+tc.category)
+			require.Len(t, out.Data.List, 1)
+			item := out.Data.List[0]
+			if !tc.wantKey {
+				_, exists := item["service_code"]
+				assert.False(t, exists, "%s 列表 item 不应含 service_code 键（不挂服务）", tc.category)
+				return
+			}
+			assert.Equal(t, tc.wantCode, item["service_code"], "%s 应返回 service_code", tc.category)
+		})
+	}
+}

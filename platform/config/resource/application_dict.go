@@ -15,15 +15,19 @@ import (
 //   - app_code    不可变主键，创建后不可改、停用不删除（PRD 红线）；
 //   - app_name    展示名，可改，仅 UI 展示，修改不触发监控配置重生成/下发；
 //   - description 描述，可改；
-//   - status      启用状态 enabled/disabled；停用不删除，停用条目不可被新资源选用。
+//   - status      启用状态 enabled/disabled；停用不删除，停用条目不可被新资源选用；
+//   - platform_code {v2.45 决策 104/107} **可选父级**（平台字典主键），表达纵向
+//     platform(1) → app(N) 组成分解；未挂时为空串。与决策 96 的 biz↔app 横向正交
+//     不冲突（决策 96 只砍「应用挂业务 / 业务挂应用」，不约束应用的上级平台）。
 //
 // 端点路径建议 GET/POST /api/v2/platform/application-dict（与 business-domains 同构）；
 // 口径：资源侧 app_code 只允许引用未停用条目（录入/编辑/Excel 导入三处同校验）。
 type ApplicationDict struct {
-	AppCode     string `json:"app_code"`
-	AppName     string `json:"app_name"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
+	AppCode      string `json:"app_code"`
+	AppName      string `json:"app_name"`
+	Description  string `json:"description"`
+	Status       string `json:"status"`
+	PlatformCode string `json:"platform_code"`
 }
 
 // ApplicationDictStore 是应用字典的 DB-backed 只读/读写访问门面（决策 92）。
@@ -43,10 +47,11 @@ func NewApplicationDictStore(db *gorm.DB) *ApplicationDictStore {
 // toApplicationDict 将持久化模型转换为 API 传输视图（仅暴露字典字段）。
 func toApplicationDict(m models.ApplicationDict) ApplicationDict {
 	return ApplicationDict{
-		AppCode:     m.AppCode,
-		AppName:     m.AppName,
-		Description: m.Description,
-		Status:      m.Status,
+		AppCode:      m.AppCode,
+		AppName:      m.AppName,
+		Description:  m.Description,
+		Status:       m.Status,
+		PlatformCode: m.PlatformCode,
 	}
 }
 
@@ -134,25 +139,53 @@ func (s *ApplicationDictStore) Update(code string, req UpdateApplicationDictRequ
 	if req.Status != nil {
 		m.Status = *req.Status
 	}
+	// 决策 104/107：platform_code 可挂 / 可摘 / 可换（指针区分「未传」与「显式置空」）。
+	if req.PlatformCode != nil {
+		m.PlatformCode = strings.TrimSpace(*req.PlatformCode)
+	}
 	if err := s.db.Save(&m).Error; err != nil {
 		return ApplicationDict{}, fmt.Errorf("更新应用 %s 失败：%w", code, err)
 	}
 	return toApplicationDict(m), nil
 }
 
-// CreateApplicationDictRequest 是登记应用的请求体（决策 92）：app_code 创建后不可改。
+// CreateApplicationDictRequest 是登记应用的请求体（决策 92 / 104）：app_code 创建后
+// 不可改，platform_code 为可选父级（平台字典主键）。
 type CreateApplicationDictRequest struct {
-	AppCode     string `json:"app_code"`
-	AppName     string `json:"app_name"`
-	Description string `json:"description"`
+	AppCode      string `json:"app_code"`
+	AppName      string `json:"app_name"`
+	Description  string `json:"description"`
+	PlatformCode string `json:"platform_code"`
 }
 
-// UpdateApplicationDictRequest 是受限编辑应用的请求体（决策 92）：仅接受
-// app_name/description/status；不接收 app_code（app_code 创建后不可改）。
+// UpdateApplicationDictRequest 是受限编辑应用的请求体（决策 92 / 104）：仅接受
+// app_name/description/status/platform_code；不接收 app_code（app_code 创建后不可改）。
 type UpdateApplicationDictRequest struct {
-	AppName     *string `json:"app_name"`
-	Description *string `json:"description"`
-	Status      *string `json:"status"`
+	AppName      *string `json:"app_name"`
+	Description  *string `json:"description"`
+	Status       *string `json:"status"`
+	PlatformCode *string `json:"platform_code"`
+}
+
+// validatePlatformCodeRef 校验 platform_code 引用（决策 104 红线④）：非空时须引用
+// **未停用**的平台字典条目；空值（未挂父级）合法。platformStore 为 nil 时跳过
+// （仅供单元测试；生产 handler 始终传入真实 store）。
+func validatePlatformCodeRef(platformStore *PlatformDictStore, code string) error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil // 可选字段：未挂父级平台属正常态
+	}
+	if platformStore == nil {
+		return nil // 测试可传 nil 跳过；生产 handler 始终传入真实 store
+	}
+	enabled, err := platformStore.GetEnabledMap()
+	if err != nil {
+		return fmt.Errorf("平台字典加载失败：%w", err)
+	}
+	if _, ok := enabled[code]; !ok {
+		return fmt.Errorf("平台 %s 未登记或已停用，请在『平台字典』中登记或启用后重试", code)
+	}
+	return nil
 }
 
 // validateCreateApplicationDict 纯函数校验登记请求：编码规范（小写字母/数字/连字符
@@ -188,7 +221,7 @@ func ListApplicationDicts(store *ApplicationDictStore) gin.HandlerFunc {
 // CreateApplicationDict 是 POST /api/v2/platform/application-dict 的登记 handler
 // （决策 92）：body {app_code,app_name,description}；默认 enabled=true；编码不规范/
 // 重名/app_name 为空 → bad_request。
-func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
+func CreateApplicationDict(store *ApplicationDictStore, platformStore *PlatformDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateApplicationDictRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -196,6 +229,11 @@ func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
 			return
 		}
 		if err := validateCreateApplicationDict(&req); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+		// 决策 104 红线④：可选父级 platform_code 须引用未停用平台条目。
+		if err := validatePlatformCodeRef(platformStore, req.PlatformCode); err != nil {
 			response.BadRequest(c, err)
 			return
 		}
@@ -209,10 +247,11 @@ func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
 			return
 		}
 		created, err := store.Create(models.ApplicationDict{
-			AppCode:     req.AppCode,
-			AppName:     req.AppName,
-			Description: req.Description,
-			Status:      models.AppStatusEnabled, // 登记默认启用（决策 92）
+			AppCode:      req.AppCode,
+			AppName:      req.AppName,
+			Description:  req.Description,
+			Status:       models.AppStatusEnabled, // 登记默认启用（决策 92）
+			PlatformCode: strings.TrimSpace(req.PlatformCode),
 		})
 		if err != nil {
 			response.InternalServerError(c, err)
@@ -223,9 +262,9 @@ func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
 }
 
 // UpdateApplicationDict 是 PUT /api/v2/platform/application-dict/:app_code 的受限
-// 编辑 handler（决策 92）：仅 app_name/description/status 可改；无 DELETE 入口
-// （停用不删除）。
-func UpdateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
+// 编辑 handler（决策 92 / 104）：仅 app_name/description/status/platform_code 可改；
+// 无 DELETE 入口（停用不删除）。
+func UpdateApplicationDict(store *ApplicationDictStore, platformStore *PlatformDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		code := strings.TrimSpace(c.Param("app_code"))
 		if code == "" {
@@ -244,6 +283,13 @@ func UpdateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
 		if req.Status != nil && *req.Status != models.AppStatusEnabled && *req.Status != models.AppStatusDisabled {
 			response.BadRequest(c, fmt.Errorf("status 仅允许 enabled/disabled"))
 			return
+		}
+		// 决策 104 红线④：父级 platform_code 可挂 / 可摘 / 可换，但新引用须为未停用条目。
+		if req.PlatformCode != nil {
+			if err := validatePlatformCodeRef(platformStore, *req.PlatformCode); err != nil {
+				response.BadRequest(c, err)
+				return
+			}
 		}
 		_, found, err := store.Lookup(code)
 		if err != nil {

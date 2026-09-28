@@ -224,12 +224,15 @@ func buildListItem(res any, category models.ResourceCategory) map[string]interfa
 		item["version"] = r.Version
 	case *models.Application:
 		item["service_name"] = r.ServiceName
+		// 决策 105：service_code 仅 application / generic_target 返回（其余三类不挂）。
+		item["service_code"] = r.ServiceCode
 		item["health_check_url"] = r.HealthCheckURL
 		item["protocol"] = r.Protocol
 		item["endpoint"] = r.Endpoint
 		item["port"] = r.Port
 	case *models.GenericTarget:
 		item["target_name"] = r.TargetName
+		item["service_code"] = r.ServiceCode
 		item["instance_ip"] = r.InstanceIP
 		item["port"] = r.Port
 		item["metrics_path"] = r.MetricsPath

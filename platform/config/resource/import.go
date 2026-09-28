@@ -49,7 +49,7 @@ const maxImportFileSize = 10 << 20
 //     field, value, reason}]}，create_only 不含 updated 字段。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore) gin.HandlerFunc {
+func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. 资源类型：表单优先，路径 :type 兜底。
 		categoryStr := strings.TrimSpace(c.PostForm("resource_category"))
@@ -102,15 +102,15 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 			return
 		}
 
-		// 4.5 决策 97：解析并校验「业务声明」「应用声明」内联 sheet（校验顺序 ①声明
-		// 自身：编码/必填/重码/同名不一致/停用激活均硬拒绝）；声明自身失败 → bad_request
-		// 整体拒绝，不落任何数据。
+		// 4.5 决策 97 / 104 / 105：解析并校验「业务声明」「应用声明」「平台声明」
+		// 「服务声明」四个内联 sheet（校验顺序 ①声明自身：编码/必填/重码/同名不一致/
+		// 停用激活均硬拒绝）；声明自身失败 → bad_request 整体拒绝，不落任何数据。
 		sheets, err := ParseDeclareSheets(fileBytes)
 		if err != nil {
 			response.BadRequest(c, err)
 			return
 		}
-		if err := validateDeclareSheets(sheets, bizStore, appStore); err != nil {
+		if err := validateDeclareSheets(sheets, bizStore, appStore, platformStore, svcStore); err != nil {
 			response.BadRequest(c, err)
 			return
 		}
@@ -135,7 +135,7 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 			return
 		}
 		// 事务内 store：声明条目在事务内可见，资源行校验的「字典∪声明」可达性天然成立。
-		valid, errs := ValidateRows(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx), networkDomainExistsFunc(tx), nil)
+		valid, errs := ValidateRows(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx), NewServiceDictStore(tx), networkDomainExistsFunc(tx), nil)
 
 		// 6. 逐行执行 create_only/upsert。
 		total := len(rows)
