@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/alerts"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
+	"github.com/metriccenter/metriccenter/platform/alertmanager/notify"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/silence"
 	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"gorm.io/gorm"
@@ -69,5 +70,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string) error 
 		return fmt.Errorf("init alertmanager alerts proxy: %w", err)
 	}
 	am.GET("/alerts", alerts.ListHandler(alerts.NewService(alertsProxy, db)))
+
+	// M08 PL-3 通知渲染桥（设计提案 §3.3.8）：通知渠道 CRUD + 通知模板提交/回滚。
+	// 读端点挂根组（仅全局认证），写端点挂 RequireAdmin（与 config / silences 一致）。
+	notify.RegisterRoutes(am, db)
 	return nil
 }
