@@ -329,6 +329,12 @@ export function RulesPage() {
           style={{ marginBottom: 16 }}
         />
       )}
+      {/* D-1b ⓐ：规则编辑页顶部定位文案——本页同时承载告警规则与记录规则，
+          回答「告警用户找不到规则入口」的心智问题（导航归属不变，方案丙）。 */}
+      <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+        本页同时承载告警规则与记录规则：告警规则决定「什么情况算异常」，触发后由「告警配置」决定发给谁；
+        记录规则把查询结果落成新的时间序列，不参与告警。
+      </Text>
       <FilterBar>
         <FilterItem label="启用状态" width={170}>
           <Select

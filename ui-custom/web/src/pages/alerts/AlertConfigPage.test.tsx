@@ -92,6 +92,15 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(screen.getByText(/当前无生效配置/)).toBeInTheDocument()
   })
 
+  // PL-1（D-1 方案丙）：说明卡澄清本页边界（只管发给谁/怎么收敛），并提供「去写规则」跨模块入口。
+  it('PL-1：配置说明卡含跨模块说明与指向 /rules 的引导链接', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    renderPage()
+    expect(screen.getByText(/告警规则（什么情况下告警）在「规则编辑」维护/)).toBeInTheDocument()
+    expect(screen.getByText(/本页只管「告警发给谁、怎么收敛」/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去写规则 →' })).toHaveAttribute('href', '/rules')
+  })
+
   it('渲染当前生效配置只读视图与版本列表', async () => {
     useAlertConfigMock.mockReturnValue(
       result({ current: { id: 'acv-1', content: 'global:\n  resolve_timeout: 30s', checksum: 'abc', status: 'applied' }, versions: [versionRow()], total: 1 }),

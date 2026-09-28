@@ -154,7 +154,19 @@ const MODULES: ModuleDef[] = [
     subItems: [
       { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
       { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
-      { key: '/rules', label: '规则编辑', icon: <AppstoreOutlined /> },
+      {
+        // D-1b ⓐ（2026-09-28）：名称保持「规则编辑」不变，仅补副标题说明本页同时承载
+        // 告警规则与记录规则——零成本增加信息量，让从告警侧找过来的用户一眼确认入口。
+        // 方案丙：/rules 归属「采集策略」不变，此处不改路由、不改模块归属判定。
+        key: '/rules',
+        label: (
+          <span className="app-sider-label-stacked">
+            规则编辑
+            <span className="app-sider-sub-label">含告警规则、记录规则</span>
+          </span>
+        ),
+        icon: <AppstoreOutlined />,
+      },
       { key: '/metric-library', label: '指标库', icon: <DatabaseOutlined /> },
     ],
   },

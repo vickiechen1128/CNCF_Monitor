@@ -264,4 +264,35 @@ describe('AlertStatusPage（告警状态双视图）', () => {
     await waitFor(() => expect(useAmAlertsMock).toHaveBeenLastCalledWith('gov-01'))
     expect(usePromAlertsMock).toHaveBeenLastCalledWith('gov-01')
   })
+
+  // PL-1（D-1 方案丙）：告警为空最常见的成因是「还没有告警规则」，故在「当前告警」空态补跨模块引导。
+  it('PL-1：当前告警为空时展示「去写规则」引导，点击落点为 /rules', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('tab', { name: /当前告警/ }))
+    const link = await screen.findByRole('link', { name: '去写规则 →' })
+    expect(link).toHaveAttribute('href', '/rules')
+    expect(screen.getByText(/还没有告警规则？/)).toBeInTheDocument()
+  })
+
+  it('PL-1：当前告警接口错误时不展示「去写规则」引导（不把失败伪装成无数据）', async () => {
+    usePromAlertsMock.mockReturnValue(promState({ error: 'Prometheus 不可达' }))
+    renderPage()
+    fireEvent.click(await screen.findByRole('tab', { name: /当前告警/ }))
+    expect(await screen.findByText('告警列表加载失败，请稍后重试')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '去写规则 →' })).toBeNull()
+  })
+
+  it('PL-1：筛选后无匹配时不展示「去写规则」引导（并非没有规则）', async () => {
+    usePromAlertsMock.mockReturnValue(promState({ items: [promRow({ state: 'pending' })] }))
+    renderPage()
+    fireEvent.click(await screen.findByRole('tab', { name: /当前告警/ }))
+    await screen.findByText('HighCPU')
+    // 仅操作「当前告警」面板内的状态筛选（通知状态面板常驻挂载，需按面板定位下拉）
+    const promPane = document.querySelectorAll('.ant-tabs-tabpane')[1] as HTMLElement
+    // 面板内第一个下拉 = 「状态」筛选（第二个为网域）
+    fireEvent.mouseDown(within(promPane).getAllByRole('combobox')[0])
+    fireEvent.click(await screen.findByText('触发中'))
+    await waitFor(() => expect(screen.getByText('无匹配告警')).toBeInTheDocument())
+    expect(screen.queryByRole('link', { name: '去写规则 →' })).toBeNull()
+  })
 })

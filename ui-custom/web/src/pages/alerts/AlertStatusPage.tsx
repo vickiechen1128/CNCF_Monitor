@@ -40,6 +40,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
+import { RuleGuideEmpty } from '../../components/RuleGuideLink'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
@@ -417,6 +418,20 @@ function PromAlertsView({
         columns={columns}
         scroll={TABLE_SCROLL_X}
         pagination={TABLE_PAGINATION}
+        /* PL-1（D-1 方案丙）：当前告警为空且无错误时补「去写规则」引导——告警为空最常见的
+           原因是还没有告警规则；引导指向 M01「规则编辑」/rules（与 M09 空态引导同构，复用共享组件）。
+           错误态不展示引导（不把失败伪装成无数据）；筛选后无匹配也不展示（并非没有规则）。 */
+        locale={{
+          emptyText: state.loading ? (
+            '加载中…'
+          ) : state.error ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />
+          ) : state.items.length === 0 ? (
+            <RuleGuideEmpty description="当前无触发中的告警" />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="无匹配告警" />
+          ),
+        }}
       />
     </>
   )

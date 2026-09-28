@@ -137,6 +137,27 @@ describe('MainLayout', () => {
     expect(screen.getByText('collector-content')).toBeInTheDocument()
   })
 
+  // D-1b ⓐ：规则编辑保持原名称与归属（方案丙），菜单项补副标题「含告警规则、记录规则」。
+  it('D-1b：规则编辑菜单项带副标题「含告警规则、记录规则」，且 /rules 仍归属采集策略', () => {
+    render(
+      <MemoryRouter initialEntries={['/rules']}>
+        <Routes>
+          <Route path="/rules" element={<MainLayout>rules-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 顶部一级 tab：采集策略保持激活（/rules 归属判定不变，导航零变更）
+    expect(screen.getByText('采集策略')).toBeInTheDocument()
+    expect(screen.getByText('rules-content')).toBeInTheDocument()
+    // 菜单项文本 = 主标题 + 副标题
+    const menuTexts = screen
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent ?? '')
+    const rulesIdx = menuTexts.findIndex((t) => t.includes('规则编辑'))
+    expect(rulesIdx).toBeGreaterThanOrEqual(0)
+    expect(menuTexts[rulesIdx]).toContain('含告警规则、记录规则')
+  })
+
   it('navigates to /collectors (首个子项) when top-module 采集策略 clicked', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>

@@ -27,6 +27,7 @@ import { alertmanagerConfigApi, readValidateErrors } from '../../api/alertmanage
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { AlertmanagerConfigVersionListItem, ValidateErrorItem } from '../../types/alertmanager'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
+import { RuleGuideLink } from '../../components/RuleGuideLink'
 import { useAlertConfig } from './useAlertConfig'
 import { AlertConfigDrawer } from './AlertConfigDrawer'
 import {
@@ -210,6 +211,12 @@ export function AlertConfigPage() {
           <Text type="secondary">
             通过文件挂载整份 alertmanager.yml，校验通过后提交配置中心（M09）变更单，确认后统一下发生效
           </Text>
+          {/* PL-1（D-1 方案丙）：本页只管「发给谁、怎么收敛」，告警规则（什么情况算告警）在 M01
+              「规则编辑」维护——跨模块说明 + 联动入口，导航归属不变。 */}
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary">告警规则（什么情况下告警）在「规则编辑」维护，本页只管「告警发给谁、怎么收敛」。 </Text>
+            <RuleGuideLink />
+          </div>
         </Card>
 
         {error && (
