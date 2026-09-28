@@ -18,6 +18,7 @@ import type {
   NotifyTemplatesData,
   PaginatedItems,
   PromAlertsData,
+  ReceiverSnippetData,
   Silence,
   SilenceLabelOptionsData,
   SubmitNotifyTemplatePayload,
@@ -167,7 +168,8 @@ export const alertStatusApi = {
 /**
  * 通知渠道管理 API（PL-3 通知渲染桥，提案 §3.3.8；M08 内容 Owner）。
  * 端点尚未写入 api-contract-snapshot.md，契约权威 = 设计提案 §3.3 + 任务卡 wire 格式，待回写。
- * 凭据口径：webhook_url 响应脱敏、secret 永不回显（secret_set 仅布尔）。
+ * 凭据口径：webhook_url 响应脱敏、secret 永不回显（secret_set 仅布尔）；
+ * 接收人片段（含平台桥令牌）挂 RequireAdmin，非管理员 403。
  */
 export const notifyChannelsApi = {
   /** 渠道列表（登录态） */
@@ -189,6 +191,16 @@ export const notifyChannelsApi = {
   remove(id: string): Promise<ApiResponse<{ id: string }>> {
     return apiClient.delete<{ id: string }>(
       `/api/v2/platform/alertmanager/notify-channels/${encodeURIComponent(id)}`,
+    )
+  },
+  /**
+   * 接收人配置片段（admin，T08-F13）：按渠道生成可直接粘进 alertmanager.yml `receivers:`
+   * 段的 YAML 片段（内嵌真实数字渠道 ID 与桥令牌，目标地址恒由服务端拼装）。
+   * 非管理员调用返回 403；渠道不存在 not_found；id 非法 bad_request。
+   */
+  getReceiverSnippet(id: string): Promise<ApiResponse<ReceiverSnippetData>> {
+    return apiClient.get<ReceiverSnippetData>(
+      `/api/v2/platform/alertmanager/notify-channels/${encodeURIComponent(id)}/receiver-snippet`,
     )
   },
 }

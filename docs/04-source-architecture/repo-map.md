@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-28 18:49 · commit: `e6ce66f`
+> 生成时间: 2026-09-28 18:57 · commit: `4fd8e36`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -4217,6 +4217,11 @@
 
 - `function NotifyTemplatesPage`
 
+### `ui-custom/web/src/pages/alerts/ReceiverSnippetModal.tsx`
+
+- `interface ReceiverSnippetModalProps`
+- `function ReceiverSnippetModal`
+
 ### `ui-custom/web/src/pages/alerts/SilencesPage.tsx`
 
 - `function SilencesPage`
@@ -4818,6 +4823,7 @@
 - `interface UpdateNotifyChannelPayload`
 - `interface SubmitNotifyTemplatePayload`
 - `interface NotifyChannelsData`
+- `interface ReceiverSnippetData`
 - `interface NotifyTemplatesData`
 
 ### `ui-custom/web/src/types/api.ts`

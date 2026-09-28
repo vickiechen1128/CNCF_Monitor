@@ -1,6 +1,7 @@
 /**
  * 通知渠道管理页（PL-3 通知渲染桥，2026-09-28；Module_08 告警收敛与通知管理）。
  * 能力：机器人渠道（飞书 / 钉钉 / 企业微信）列表 / 新增 / 编辑 / 删除；
+ * 生成「接收人配置」片段供用户粘贴到「告警配置」页的 receivers: 段（A 路线，T08-F13）；
  * webhook 地址脱敏展示、签名密钥仅告知是否已设置（secret 永不回显）。
  * 覆盖页面状态：加载 / 空态 / 接口错误 / 权限不足。
  * 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
@@ -20,7 +21,7 @@ import {
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import { EditOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
+import { EditOutlined, DeleteOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
@@ -28,6 +29,7 @@ import { MainLayout } from '../../layouts/MainLayout'
 import type { CreateNotifyChannelPayload, NotifyChannel, UpdateNotifyChannelPayload } from '../../types/alertmanager'
 import { useNotifyChannels } from './useNotifyChannels'
 import { NotifyChannelDrawer } from './NotifyChannelDrawer'
+import { ReceiverSnippetModal } from './ReceiverSnippetModal'
 import { notifyChannelTypeColor, notifyChannelTypeLabel } from './alertmanagerConstants'
 
 const { Text } = Typography
@@ -44,6 +46,9 @@ export function NotifyChannelsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerSeq, setDrawerSeq] = useState(0)
   const [editing, setEditing] = useState<NotifyChannel | null>(null)
+  const [snippetOpen, setSnippetOpen] = useState(false)
+  const [snippetSeq, setSnippetSeq] = useState(0)
+  const [snippetChannel, setSnippetChannel] = useState<NotifyChannel | null>(null)
 
   const openCreate = () => {
     setEditing(null)
@@ -55,6 +60,13 @@ export function NotifyChannelsPage() {
     setEditing(record)
     setDrawerSeq((s) => s + 1)
     setDrawerOpen(true)
+  }
+
+  /** 打开「接收人配置」展示弹窗：每次打开都换 key 重挂，避免上一条渠道的片段残留 */
+  const openSnippet = (record: NotifyChannel) => {
+    setSnippetChannel(record)
+    setSnippetSeq((s) => s + 1)
+    setSnippetOpen(true)
   }
 
   const handleDelete = (record: NotifyChannel) => {
@@ -122,10 +134,13 @@ export function NotifyChannelsPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 130,
+      width: 210,
       fixed: 'right',
       render: (_: unknown, r: NotifyChannel) => (
         <Space size={0}>
+          <Button size="small" type="link" icon={<SnippetsOutlined />} onClick={() => openSnippet(r)}>
+            接收人配置
+          </Button>
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(r)}>
             编辑
           </Button>
@@ -197,6 +212,13 @@ export function NotifyChannelsPage() {
           onUpdate={async (id: string, payload: UpdateNotifyChannelPayload) => {
             await update(id, payload)
           }}
+        />
+
+        <ReceiverSnippetModal
+          key={`snippet-${snippetSeq}`}
+          open={snippetOpen}
+          channel={snippetChannel}
+          onClose={() => setSnippetOpen(false)}
         />
       </ConfigProvider>
     </MainLayout>

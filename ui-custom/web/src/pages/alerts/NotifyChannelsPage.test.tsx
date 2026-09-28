@@ -1,7 +1,8 @@
 /**
- * 通知渠道管理页测试（PL-3 通知渲染桥，T08-F10）。
+ * 通知渠道管理页测试（PL-3 通知渲染桥，T08-F10 / T08-F13）。
  * 覆盖：列表渲染与脱敏展示 / 空态 / 权限不足 / 接口错误 / 新增表单校验 + 提交 payload /
- * 编辑不回填脱敏值且留空不提交 webhook_url / 删除二次确认。
+ * 编辑不回填脱敏值且留空不提交 webhook_url / 删除二次确认 /
+ * 「接收人配置」片段弹窗（展示 / 复制 / 令牌未配置告警 / 403 友好提示 / 加载态）。
  * antd 稳定模式见 src/test/antdTestUtils.tsx（Step 3.6）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -10,6 +11,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
+import { ApiError } from '../../api/client'
 import { NotifyChannelsPage } from './NotifyChannelsPage'
 import type { NotifyChannel } from '../../types/alertmanager'
 
@@ -17,6 +19,18 @@ const useNotifyChannelsMock = vi.fn()
 vi.mock('./useNotifyChannels', () => ({
   useNotifyChannels: (...a: unknown[]) => useNotifyChannelsMock(...a),
 }))
+
+const getReceiverSnippetMock = vi.fn()
+vi.mock('../../api/alertmanager', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/alertmanager')>()
+  return {
+    ...actual,
+    notifyChannelsApi: {
+      ...actual.notifyChannelsApi,
+      getReceiverSnippet: (...a: unknown[]) => getReceiverSnippetMock(...a),
+    },
+  }
+})
 
 const reloadMock = vi.fn()
 const createMock = vi.fn()
@@ -33,6 +47,19 @@ const channelRow = (over: Partial<NotifyChannel> = {}): NotifyChannel => ({
   created_at: '2026-09-28T10:00:00Z',
   ...over,
 })
+
+/** 接收人片段端点响应（T08-F12 wire 格式） */
+function snippetResponse(over: Record<string, unknown> = {}) {
+  const data = {
+    receiver_name: 'sre',
+    url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=tok-abc',
+    snippet:
+      "  - name: sre\n    webhook_configs:\n      - url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=tok-abc'\n        send_resolved: true\n",
+    token_configured: true,
+    ...over,
+  }
+  return { status: 'success', data }
+}
 
 function result(over: Record<string, unknown> = {}) {
   return {
@@ -70,6 +97,8 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     updateMock.mockResolvedValue(channelRow())
     removeMock.mockReset()
     removeMock.mockResolvedValue(undefined)
+    getReceiverSnippetMock.mockReset()
+    getReceiverSnippetMock.mockResolvedValue(snippetResponse())
   })
 
   it('页头渲染渠道名称与新增入口', () => {
@@ -168,6 +197,76 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(conf.okText).toBe('删除')
     await (conf.onOk as () => Promise<void>)()
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('1'))
+  })
+
+  // T08-F13：每行新增「接收人配置」动作——展示平台生成的 receiver 片段，供用户粘到
+  // 「告警配置」页 alertmanager.yml 的 receivers: 段（A 路线：平台不代生成，用户复制填写）。
+  it('接收人配置：弹窗展示接收人名 / 桥接地址 / 片段，复制按钮写入剪贴板', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
+
+    expect(await screen.findByText('sre')).toBeInTheDocument()
+    expect(screen.getByText('桥接地址')).toBeInTheDocument()
+    expect(screen.getAllByText(/channel=1&token=tok-abc/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/send_resolved: true/)).toBeInTheDocument()
+    // 说明该片段要用在哪，并给出「告警配置」页入口
+    expect(screen.getByRole('link', { name: '「告警配置」' })).toHaveAttribute('href', '/alert-config')
+
+    await user.click(screen.getByRole('button', { name: /复制配置片段/ }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(snippetResponse().data.snippet))
+  })
+
+  it('接收人配置：桥令牌未配置时显式告警（片段不可直接使用）', async () => {
+    const user = userEvent.setup()
+    getReceiverSnippetMock.mockResolvedValue(
+      snippetResponse({ token_configured: false, url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=<未配置桥令牌>' }),
+    )
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
+    expect(await screen.findByText('通知暂不可用')).toBeInTheDocument()
+    expect(screen.getByText(/平台尚未配置通知桥令牌，直接使用该片段的通知将无法发出/)).toBeInTheDocument()
+  })
+
+  it('接收人配置：非管理员（403）给出友好中文提示，不暴露技术错误串', async () => {
+    const user = userEvent.setup()
+    getReceiverSnippetMock.mockRejectedValue(
+      new ApiError('forbidden', 403, 'forbidden', { status: 'error', error: 'forbidden', errorType: 'forbidden' }),
+    )
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
+    expect(await screen.findByText('权限不足')).toBeInTheDocument()
+    expect(screen.getByText(/仅管理员可获取/)).toBeInTheDocument()
+    expect(screen.queryByText(/forbidden/)).toBeNull()
+    expect(screen.getByRole('button', { name: /复制配置片段/ })).toBeDisabled()
+  })
+
+  it('接收人配置：打开时为独立加载态，加载完成后展示片段', async () => {
+    const user = userEvent.setup()
+    let resolveSnippet: (v: unknown) => void = () => {}
+    getReceiverSnippetMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSnippet = resolve
+        }),
+    )
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
+    expect(await screen.findByText('加载中…')).toBeInTheDocument()
+
+    resolveSnippet(snippetResponse())
+    await waitFor(() => expect(screen.queryByText('加载中…')).toBeNull())
+    expect(await screen.findByText('sre')).toBeInTheDocument()
   })
 
   it('编辑抽屉关闭后重新打开仍正确回显（forceRender 回归，Step 3.7）', async () => {
