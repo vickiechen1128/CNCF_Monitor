@@ -265,3 +265,129 @@
 - 关键取舍:凭据脱敏(编辑留空不改)、模板 append-only(不提供删除)、checksum 不做列、模板帮助折叠栏化 → 均已登记 dev-feedback(#19 / #20,并 closed #14)
 - 遗留风险:全量 `pnpm test` 存量红(非本模块);PL-3 契约快照 / PRD / 决策 74 待回写
 - 下一步:交 frontend-reviewer + security-reviewer(PL-3 涉凭据脱敏与出站投递)审查 → Orchestrator 合并 `develop`
+
+## 任务 T08-F13:告警配置说明卡「接收人 / 渠道」块闭环(PL-3 接线闭环)
+
+- 角色:frontend-developer
+- 任务 ID:T08-F13(M08 PL-3 通知渲染桥·接线闭环)
+- 分支:`feat/module-08-alert-dispatch`
+- commit:`580d45b`(首轮实现) / `da047b6`(本轮复核,记录补登)
+- 日期:2026-09-28 ~ 2026-09-29
+
+### 输入文档
+
+- 任务卡:Orchestrator 派发卡「实测 wire 契约」§3(A 路线:平台提供只读「接收人配置片段」端点,不改 M09 生成逻辑)
+- 后端已提交端点(只读核对):`platform/alertmanager/notify/receiver_snippet.go` + `receiver_snippet_test.go`(路径 `/api/v2/platform/alertmanager/notify-channels/{id}/receiver-snippet`、`RequireAdmin`、404/400 分支)
+
+### 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`(`ALERT_CONFIG_REQUIRED_BLOCKS` 的 `receivers` 块:`path: null` → `NOTIFY_CHANNELS_PATH`、`linkText: '通知渠道'`、`desc` 改写为「地址与渠道 ID 不要手写,在『通知渠道』页登记后复制其『接收人配置』片段填入」)
+- 修改 `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`(必写块渲染层补 `path` 非空时的链接分支)
+- 修改测试 `ui-custom/web/src/pages/alerts/AlertConfigPage.test.tsx`(新增用例:receivers 块渲染指向 `/notify-channels` 的「通知渠道」链接 + 文案含「地址与渠道 ID 不要手写」)
+
+### 关键实现说明
+
+- **保持「必写」不改口径**:后端未自动生成 `receivers`(B 路线未做),该块**仍为必写**——只把「内容来源」从「用户手写」改为「平台生成片段 + 复制填入」,不挪到豁免块、不写「平台自动注入」(与真实行为一致)
+- 豁免块 `path` / `linkText` 写法照抄既有形态,渲染层复用同一分支,避免两处各写一份
+
+### 验证结果
+
+- `vitest run src/pages/alerts`:10 文件 / 110 用例全通过(F13 相关 2 例含在内)
+- `pnpm lint` / `tsc --noEmit`:0 告警 / 干净
+- dev server:`/alert-config`、`/notify-channels` 均 200;验证后已停服,端口 5173 释放
+
+### 遗留风险 / 待确认
+
+- 无(该块口径与后端真实行为一致;契约快照仍缺 PL-3 端点,见 dev-feedback #17 / #21)
+
+## 任务 T08-F14:通知渠道页「接收人配置」抽屉 + 修骨架假渠道 ID(PL-3 接线闭环)
+
+- 角色:frontend-developer
+- 任务 ID:T08-F14(M08 PL-3 通知渲染桥·接线闭环)
+- 分支:`feat/module-08-alert-dispatch`
+- commit:`2693dcf`(骨架假 ID 修正 + 文案收敛)/ `580d45b`(片段查看首轮)/ **`da047b6`(本轮定稿:Drawer 化 + 安全文案 + 测试补强)**
+- 日期:2026-09-28 ~ 2026-09-29
+
+### 输入文档
+
+- 任务卡:§3 wire 契约(`receiver_name` / `url` / `snippet` / `token_configured`)、§5 T08-F14 逐项要求
+- `web-development` skill「Ant Design 组件测试稳定模式」;`frontend-developer.md` Step 3.6 / Step 3.7
+
+### 改动文件列表
+
+- 新增 `ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx`(展示类抽屉:`forceRender`、无 `destroyOnHidden`;状态矩阵 = 加载 / 加载失败可重试 / 403 权限不足 / 令牌未配置)
+- 删除 `ui-custom/web/src/pages/alerts/ReceiverSnippetModal.tsx`(上一轮为 Modal,与任务卡「打开 Drawer + forceRender」要求不符)
+- 修改 `ui-custom/web/src/pages/alerts/NotifyChannelsPage.tsx`(行操作列「接收人配置」入口接入新抽屉;页头指引文案;操作列宽)
+- 修改 `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`(`ALERTMANAGER_MIN_SKELETON` 两处假 ID `channel=ch-default` / `ch-sre` → `REPLACE_WITH_CHANNEL_ID` / `REPLACE_WITH_BRIDGE_TOKEN`,骨架顶部与 `receivers:` 段加「到『通知渠道』页复制、勿手写」注释)
+- 修改 `ui-custom/web/src/pages/alerts/AlertConfigDrawer.tsx`(骨架按钮提示文案改为指向「通知渠道」页复制)
+- 修改 `ui-custom/web/src/types/alertmanager.ts`(`ReceiverSnippetData`)、`ui-custom/web/src/api/alertmanager.ts`(`notifyChannelsApi.getReceiverSnippet`)
+- 修改测试 `ui-custom/web/src/pages/alerts/NotifyChannelsPage.test.tsx`(片段抽屉:展示+复制+安全文案 / 令牌未配置告警 / 403 友好提示 / **接口错误态 + 重试恢复** / 加载态;多抽屉下关闭按钮定位改按表单所在抽屉)
+- 修改测试 `ui-custom/web/src/pages/alerts/AlertConfigPage.test.tsx`(骨架不含 `ch-default` / `ch-sre` 的防回归断言)
+- 修改 `docs/04-source-architecture/repo-map.md`(文件改名刷新)
+
+### 关键实现说明
+
+- **Drawer + `forceRender`(按任务卡与 Step 3.7)**:抽屉无 Form、无表单回显竞态,但仍按要求固定 `forceRender`、禁用 `destroyOnHidden`;父级以 `key={snippet-${seq}}` 每次打开重挂,保证上一条渠道的地址/片段不残留
+- **安全文案(本轮补)**:片段内嵌平台内网令牌 → 片段下方固定 `Alert warning`「该片段含平台内网凭据,请勿外发」(`token_configured=false` 时同样提示「片段当前不可用(地址里的令牌是占位符)」)
+- **令牌不单列暴露**:令牌由服务端拼进 `url` / `snippet`,前端不拆字段展示;层内文案不出现 `channel` / `token` 字段名
+- **修假 ID(关键缺陷)**:真实渠道 ID 是数字串且展示骨架时未知,骨架改为醒目占位符 `REPLACE_WITH_CHANNEL_ID` / `REPLACE_WITH_BRIDGE_TOKEN` + 注释指引「到『通知渠道』页『接收人配置』复制」,不再出现「看起来像真值、填了必失败」的 `ch-default` / `ch-sre`;`amtool check-config` 对修改后骨架实测 SUCCESS(占位符为合法 URL 字面量)
+- 403 复用 M08 既有权限不足形态(Alert 提示 + 复制按钮禁用),不暴露 `forbidden` 等技术串
+
+### 遇到的问题与解决
+
+- **上一轮实现与任务卡偏差**:首轮把片段查看做成 `Modal`(与任务卡「Drawer + forceRender」不符),且缺「勿外发」安全文案与接口错误态用例 → 本轮统一收敛为 Drawer,补齐文案与用例(见 `da047b6`)
+- **多抽屉下的关闭按钮定位**:两个抽屉均 `forceRender` 常驻 DOM 后,`document.querySelector('.ant-drawer-close')` 命中顺序不再可靠 → 改为 `screen.getByLabelText('渠道名称').closest('.ant-drawer')` 内定位,避免误关片段抽屉
+- **改名引发的 repo-map 门禁**:文件改名后 `make repo-map` 重新生成并通过 pre-commit `check-repo-map`
+- antd 关闭按钮无障碍名随 `ConfigProvider` locale 变化(「关闭」),测试仍以 `.ant-drawer-close` 类选择器定位(沿用既有做法)
+
+### 验证结果
+
+- `vitest run src/pages/alerts`:10 文件 / 110 用例全通过(片段抽屉相关 6 例含在内)
+- `tsc --noEmit` 干净;`eslint . --ext ts,tsx --max-warnings 0`:0 告警
+- dev server:`/notify-channels`、`/alert-config`、`/notify-templates`、`/silences`、`/alert-status`、`/` 全 200;验证后已停服,`pgrep vite` 无残留、5173 已释放
+- **全量 `pnpm test`**:90 文件 / 834 用例中 4 文件 / 57 用例失败,**全部为存量红且与 M08 零关联**(`pages/resources/ResourceFormDrawer` 24、`pages/resources/ResourceDetailDrawer` 24、`src/productNamePreference` 5、`pages/admin/appearance/AppearanceSettingsPage` 4),根因仍为 jsdom `localStorage.clear` + 资源模块 mock 缺 `serviceDictApi`,本次未 import 任何相关文件;M08 全部文件绿
+
+### 遗留风险 / 待确认
+
+- 片段在「令牌未配置」时复制按钮保留可点(附不可用告警),该口径契约未规定,已登记 dev-feedback #22
+- 全量测试存量红(resources / appearance / productName),非本次引入,建议另行派单修复
+
+## 任务 T08-F15:指引一致性收口(PL-3 接线闭环)
+
+- 角色:frontend-developer
+- 任务 ID:T08-F15(M08 PL-3 通知渲染桥·接线闭环)
+- 分支:`feat/module-08-alert-dispatch`
+- commit:`da047b6`(与 T08-F14 同页功能块合并提交:两页指引文案与该页抽屉入口同属「接收人接线闭环」,拆分提交会让页头指引指向未定稿的入口)
+- 日期:2026-09-29
+
+### 改动文件列表
+
+- 修改 `ui-custom/web/src/pages/alerts/NotifyChannelsPage.tsx`(页头定位文案补「本页是告警接收人的来源:在渠道行点『接收人配置』复制片段,粘贴到『告警配置』页的 receivers 段并在 route 中引用即可接入」,并链到 `/alert-config`;操作列宽 210 → 240)
+- 修改测试 `ui-custom/web/src/pages/alerts/NotifyChannelsPage.test.tsx`(新增用例:页头定位文案 + 指向 `/alert-config` 的链接)
+- 追加 `docs/05-execution-records/module-08/dev-feedback.md` #22(① 片段令牌未配置口径与勿外发提示)/ #23(③ 操作列宽)
+
+### 关键实现说明
+
+- **互指闭环(两处口径一致)**:「告警配置」说明卡 receivers 块 → 「在『通知渠道』页登记后复制其『接收人配置』片段填入」+ 入口链接 `/notify-channels`;「通知渠道」页页头 → 「本页是告警接收人的来源…粘贴到『告警配置』页 receivers 段」+ 入口链接 `/alert-config`。两页说法同源,无「各说一套」
+- 渠道页页头原仅有「登记机器人渠道 / 脱敏展示」的功能定位,补一句「本页是告警接收人的来源」明确跨页关系(沿用迭代一 `RulesPage.tsx` 顶部定位文案风格)
+- 操作列第 3 个按钮后固定列宽偏窄会换行撑高行高 → 210 → 240(仍由 `TABLE_SCROLL_X` 兜底横向滚动)
+
+### 验证结果
+
+- `vitest run src/pages/alerts`:10 文件 / 110 用例全通过(含新增页头用例)
+- `tsc --noEmit` 干净;`eslint . --ext ts,tsx --max-warnings 0`:0 告警
+- dev server 路由验证与全量测试结果同 T08-F14 一条(同 commit)
+
+### 遗留风险 / 待确认
+
+- 无
+
+## 本轮(PL-3 接线闭环 T08-F13~F15)收尾
+
+- **输入文档**:Orchestrator 派发卡(实测 wire 契约 §3 + 任务清单 §5)、`web-development` skill、`frontend-developer.md`(Step 3.5 / 3.6 / 3.7)、只读核对后端 `platform/alertmanager/notify/receiver_snippet*.go`
+- **交付**:1 个代码 commit(`da047b6`,T08-F14~F15 同页功能块)+ 1 个文档 commit(执行记录 + dev-feedback #22/#23);另说明首轮实现 commit `580d45b`(T08-F13 片段查看)/ `2693dcf`(T08-F14 骨架假 ID 修正 + 说明卡口径)已在本轮之前提交但**未留执行记录**,本轮复核后补齐记录并定稿
+- **用户可见三层问题闭环**:① 文案矛盾(说明卡 receivers 块给出「通知渠道」入口 + 准确指引)② 假 ID 必失败(骨架改醒目占位符 + 复制路径引导,`ch-default` / `ch-sre` 已消除并有防回归断言)③ 接线未闭环(渠道行「接收人配置」抽屉展示平台生成的片段、接收人名、粘贴步骤,一键复制)
+- **关键取舍**:片段令牌不单列暴露(服务端拼进 url/snippet);令牌未配置时复制按钮保留但显式告警「片段当前不可用」;**片段固定提示「含平台内网凭据,请勿外发」** → 登记 dev-feedback #22
+- **契约一致性**:任务卡 §3 wire 契约(路径 / 鉴权 RequireAdmin / 200 四字段 / 404 / 400 / `&` 转义无需前端处理)与后端实现(只读核对 `receiver_snippet_test.go`)一致,**未发现不符**;契约快照仍缺 PL-3 端点(dev-feedback #17 / #21 已登记,待文档方回写)
+- **遗留风险**:全量 `pnpm test` 存量红 4 文件 / 57 用例(资源模块 / 外观设置 / 产品名偏好),非本次引入
+- **下一步**:交 frontend-reviewer + security-reviewer(本改动含内网凭据展示与出站投递指引)审查 → Orchestrator 合并 `develop`
