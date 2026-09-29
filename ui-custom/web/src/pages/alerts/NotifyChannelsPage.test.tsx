@@ -2,7 +2,7 @@
  * 通知渠道管理页测试（PL-3 通知渲染桥，T08-F10 / T08-F13）。
  * 覆盖：列表渲染与脱敏展示 / 空态 / 权限不足 / 接口错误 / 新增表单校验 + 提交 payload /
  * 编辑不回填脱敏值且留空不提交 webhook_url / 删除二次确认 /
- * 「接收人配置」片段弹窗（展示 / 复制 / 令牌未配置告警 / 403 友好提示 / 加载态）。
+ * 「接收人配置」片段抽屉（展示 / 复制 / 令牌未配置告警 / 403 友好提示 / 接口错误可重试 / 加载态）。
  * antd 稳定模式见 src/test/antdTestUtils.tsx（Step 3.6）。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -109,6 +109,17 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(screen.getByRole('button', { name: /新增渠道/ })).toBeInTheDocument()
   })
 
+  // T08-F15：页头定位文案须说明「本页是接收人来源」，并指向「告警配置」页，避免两页各说一套。
+  it('T08-F15：页头定位文案说明接收人来源并指向 /alert-config', () => {
+    useNotifyChannelsMock.mockReturnValue(result())
+    renderPage()
+    expect(screen.getByText(/本页是告警接收人的来源/)).toBeInTheDocument()
+    // 页头与片段抽屉说明都指向「告警配置」页（forceRender 下抽屉内容常驻，故用 getAll）
+    const configLinks = screen.getAllByRole('link', { name: '「告警配置」' })
+    expect(configLinks.length).toBeGreaterThan(0)
+    expect(configLinks.every((l) => l.getAttribute('href') === '/alert-config')).toBe(true)
+  })
+
   it('渲染渠道列表：类型展示名 + 脱敏 webhook + 加签已设置', async () => {
     useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
     renderPage()
@@ -201,7 +212,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
 
   // T08-F13：每行新增「接收人配置」动作——展示平台生成的 receiver 片段，供用户粘到
   // 「告警配置」页 alertmanager.yml 的 receivers: 段（A 路线：平台不代生成，用户复制填写）。
-  it('接收人配置：弹窗展示接收人名 / 桥接地址 / 片段，复制按钮写入剪贴板', async () => {
+  it('接收人配置：抽屉展示接收人名 / 桥接地址 / 片段，含安全提示与复制写入剪贴板', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
@@ -211,11 +222,16 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
 
     expect(await screen.findByText('sre')).toBeInTheDocument()
+    expect(screen.getByText('接收人名')).toBeInTheDocument()
     expect(screen.getByText('桥接地址')).toBeInTheDocument()
     expect(screen.getAllByText(/channel=1&token=tok-abc/).length).toBeGreaterThan(0)
     expect(screen.getByText(/send_resolved: true/)).toBeInTheDocument()
     // 说明该片段要用在哪，并给出「告警配置」页入口
-    expect(screen.getByRole('link', { name: '「告警配置」' })).toHaveAttribute('href', '/alert-config')
+    const configLinks = screen.getAllByRole('link', { name: '「告警配置」' })
+    expect(configLinks.length).toBeGreaterThan(0)
+    expect(configLinks.every((l) => l.getAttribute('href') === '/alert-config')).toBe(true)
+    // 安全文案：片段内嵌平台内网令牌，须提示勿外发
+    expect(screen.getByText('该片段含平台内网凭据，请勿外发')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /复制配置片段/ }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(snippetResponse().data.snippet))
@@ -231,7 +247,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
 
     await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
     expect(await screen.findByText('通知暂不可用')).toBeInTheDocument()
-    expect(screen.getByText(/平台尚未配置通知桥令牌，直接使用该片段的通知将无法发出/)).toBeInTheDocument()
+    expect(screen.getByText(/平台尚未配置通知桥令牌，该片段当前不可用/)).toBeInTheDocument()
   })
 
   it('接收人配置：非管理员（403）给出友好中文提示，不暴露技术错误串', async () => {
@@ -247,6 +263,23 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(screen.getByText(/仅管理员可获取/)).toBeInTheDocument()
     expect(screen.queryByText(/forbidden/)).toBeNull()
     expect(screen.getByRole('button', { name: /复制配置片段/ })).toBeDisabled()
+  })
+
+  it('接收人配置：接口错误时展示可重试错误条（非 403 走通用错误态）', async () => {
+    const user = userEvent.setup()
+    getReceiverSnippetMock.mockRejectedValueOnce(new ApiError('服务暂时不可用', 500, 'internal'))
+    getReceiverSnippetMock.mockResolvedValue(snippetResponse())
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: /接收人配置/ }))
+    expect(await screen.findByText('接收人配置获取失败')).toBeInTheDocument()
+    expect(screen.queryByText('权限不足')).toBeNull()
+
+    // 重试后成功：错误条消失、片段正常展示
+    await user.click(screen.getByRole('button', { name: /重试/ }))
+    expect(await screen.findByText('sre')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('接收人配置获取失败')).toBeNull())
   })
 
   it('接收人配置：打开时为独立加载态，加载完成后展示片段', async () => {
@@ -277,7 +310,9 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect((screen.getByLabelText('渠道名称') as HTMLInputElement).value).toBe('SRE 飞书群')
 
     // 关闭后再打开：回显不得丢失，且脱敏字段仍不回填
-    fireEvent.click(document.querySelector('.ant-drawer-close') as HTMLElement)
+    // 页面内两个抽屉均 forceRender（常驻 DOM），须按表单所在抽屉定位关闭按钮，避免误关片段抽屉
+    const editDrawer = screen.getByLabelText('渠道名称').closest('.ant-drawer') as HTMLElement
+    fireEvent.click(editDrawer.querySelector('.ant-drawer-close') as HTMLElement)
     await user.click(screen.getByRole('button', { name: /编辑/ }))
     expect((await screen.findByLabelText('渠道名称') as HTMLInputElement).value).toBe('SRE 飞书群')
     expect((screen.getByLabelText('机器人 Webhook') as HTMLInputElement).value).toBe('')

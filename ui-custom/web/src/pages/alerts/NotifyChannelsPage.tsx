@@ -21,6 +21,7 @@ import {
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
+import { Link } from 'react-router-dom'
 import { EditOutlined, DeleteOutlined, PlusOutlined, SnippetsOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -29,8 +30,12 @@ import { MainLayout } from '../../layouts/MainLayout'
 import type { CreateNotifyChannelPayload, NotifyChannel, UpdateNotifyChannelPayload } from '../../types/alertmanager'
 import { useNotifyChannels } from './useNotifyChannels'
 import { NotifyChannelDrawer } from './NotifyChannelDrawer'
-import { ReceiverSnippetModal } from './ReceiverSnippetModal'
-import { notifyChannelTypeColor, notifyChannelTypeLabel } from './alertmanagerConstants'
+import { ReceiverSnippetDrawer } from './ReceiverSnippetDrawer'
+import {
+  ALERT_CONFIG_PATH,
+  notifyChannelTypeColor,
+  notifyChannelTypeLabel,
+} from './alertmanagerConstants'
 
 const { Text } = Typography
 
@@ -62,7 +67,7 @@ export function NotifyChannelsPage() {
     setDrawerOpen(true)
   }
 
-  /** 打开「接收人配置」展示弹窗：每次打开都换 key 重挂，避免上一条渠道的片段残留 */
+  /** 打开「接收人配置」抽屉：每次打开都换 key 重挂，避免上一条渠道的片段残留 */
   const openSnippet = (record: NotifyChannel) => {
     setSnippetChannel(record)
     setSnippetSeq((s) => s + 1)
@@ -134,7 +139,8 @@ export function NotifyChannelsPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 210,
+      // T08-F15：新增「接收人配置」后操作列共 3 个带图标文字按钮，210 会挤压换行撑高行高，放宽到 240
+      width: 240,
       fixed: 'right',
       render: (_: unknown, r: NotifyChannel) => (
         <Space size={0}>
@@ -177,6 +183,12 @@ export function NotifyChannelsPage() {
           <Text type="secondary">
             登记告警送达的机器人渠道（飞书 / 钉钉 / 企业微信）；告警分派只引用渠道 ID，真实地址仅平台侧存储、列表脱敏展示
           </Text>
+          <br />
+          <Text type="secondary">
+            本页是告警接收人的来源：在渠道行点「接收人配置」复制片段，粘贴到
+            <Link to={ALERT_CONFIG_PATH}>「告警配置」</Link>
+            页的 receivers 段并在 route 中引用即可接入。
+          </Text>
         </Card>
 
         {error && (
@@ -214,7 +226,7 @@ export function NotifyChannelsPage() {
           }}
         />
 
-        <ReceiverSnippetModal
+        <ReceiverSnippetDrawer
           key={`snippet-${snippetSeq}`}
           open={snippetOpen}
           channel={snippetChannel}
