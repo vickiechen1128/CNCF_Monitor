@@ -310,17 +310,18 @@ export interface NotifyChannelsData {
 }
 
 /**
- * 接收人配置片段（PL-3 T08-12，A 路线；Module_08 §3.3.5）。
- * 服务端按渠道 ID 拼好**可直接粘进 `alertmanager.yml` `receivers:` 段**的 YAML 片段
- * （内嵌真实数字渠道 ID 与桥令牌）；A 路线下平台不代生成 receivers，用户复制片段填入。
+ * 接收人配置片段（PL-3 T08-12，B 路线；Module_08 §3.3.5）。
+ * 服务端按渠道 ID 拼好可参考的 `alertmanager.yml` `receivers:` YAML 片段（内嵌真实数字渠道 ID；
+ * 桥令牌走 `http_config.authorization` 请求头，不写进 URL query）。B 路线：已启用渠道的接收人由平台
+ * 生成配置时自动写入，本片段仅在用户**手写自定义 receiver** 时作参考。
  * 令牌未配置（`token_configured=false`）时 url / snippet 用占位符，片段不可直接使用。
  */
 export interface ReceiverSnippetData {
   /** 建议的接收人名（由渠道名归一为安全字符集，可直接使用） */
   receiver_name: string
-  /** 桥接地址（含真实数字渠道 ID 与令牌；令牌未配置时为占位符） */
+  /** 桥接地址（含真实数字渠道 ID；桥令牌不入 URL，令牌未配置时为占位符） */
   url: string
-  /** 可直接粘贴进 `receivers:` 段的 YAML 片段 */
+  /** 可参考的 `receivers:` YAML 片段 */
   snippet: string
   /** 桥令牌是否已配置；false 时 UI 必须显式告警（片段无法发出通知） */
   token_configured: boolean

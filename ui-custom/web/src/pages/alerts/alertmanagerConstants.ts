@@ -25,13 +25,58 @@ export const CURRENT_USER = '张伟（运维）'
 /** 跨模块跳转落点：M09「配置变更确认」页（管理域 default 变更单在此确认下发，决策 60） */
 export const CONFIG_PREVIEW_PATH = '/config-preview'
 
-/** 配置版本状态（AlertmanagerConfigVersion.status），本表恒为 applied（决策 60） */
+/**
+ * 配置版本**收录**状态（AlertmanagerConfigVersion.status），本表恒为 applied（决策 60）。
+ *
+ * **不得据此声称「已生效」**（dev-feedback §25）：该状态在 M08 挂载（Submit/Remount）**落库那一刻**
+ * 即置位，而此刻磁盘 `config-output/alertmanager.yml` 尚未更新、Alertmanager 仍加载旧文件；真正
+ * 写盘 + reload 发生在 M09「确认下发」（ConfirmDraft）之后。故此处只表述「已收录」——即已被收录为
+ * M09 生成配置的源数据，不承诺已生效；页面展示一律走 `configStatusView()`（按 `applied_at` 派生）。
+ */
 export const configStatusLabel: Record<AlertmanagerConfigStatus, string> = {
-  applied: '已生效',
+  applied: '已收录',
 }
 
 export const configStatusColor: Record<AlertmanagerConfigStatus, string> = {
-  applied: 'success',
+  applied: 'default',
+}
+
+/**
+ * 配置是否**已真正生效**的**唯一判据**（dev-feedback §25）：
+ * `applied_at` 由 M09 确认下发、写盘成功后才回填（挂载时为空的），是「Alertmanager 已加载本版本」的信号。
+ */
+export function isConfigApplied(appliedAt?: string | null): boolean {
+  return typeof appliedAt === 'string' && appliedAt.trim().length > 0
+}
+
+/** 状态展示：已真正生效 */
+export const CONFIG_STATUS_APPLIED_LABEL = '已生效'
+
+/** 状态展示：已提交收录、但尚未下发写盘（status 已 applied，applied_at 仍为空） */
+export const CONFIG_STATUS_PENDING_LABEL = '已提交，待确认下发'
+
+/** 「待确认下发」指引（用户语言，不含 applied_at / status 等技术字段名；末尾「前往」接跳转入口） */
+export const CONFIG_STATUS_PENDING_TIP =
+  '配置已提交收录，尚未写入 Alertmanager，需确认下发后才会生效。前往'
+
+/** 配置状态派生视图（展示色随状态：已生效=成功绿 / 待确认下发=警示橙） */
+export interface ConfigStatusView {
+  label: string
+  color: string
+  /** 是否已真正生效（applied_at 有值） */
+  applied: boolean
+}
+
+/**
+ * 按 `applied_at` 派生配置状态展示（dev-feedback §25 方案 A 前端侧）：
+ * 有值 → 「已生效」；为空 / 缺失 → 「已提交，待确认下发」。
+ *
+ * 契约未变、wire 字段未变，仅展示口径改由真实生效信号派生，消除「看到 applied 以为已生效」的误判。
+ */
+export function configStatusView(appliedAt?: string | null): ConfigStatusView {
+  return isConfigApplied(appliedAt)
+    ? { label: CONFIG_STATUS_APPLIED_LABEL, color: 'success', applied: true }
+    : { label: CONFIG_STATUS_PENDING_LABEL, color: 'warning', applied: false }
 }
 
 /** 静默状态（Alertmanager 运行时状态，追踪 §6 枚举字典 / §8 UI 展示名） */
@@ -280,9 +325,9 @@ export const ALERT_CONFIG_REQUIRED_BLOCKS: AlertConfigScopeBlock[] = [
     key: 'receivers',
     title: '接收人 / 渠道',
     fields: 'receivers',
-    // A 路线（用户 2026-09-28 裁决）：receivers 仍由用户填写（平台暂不代生成），但内容来源
-    // 改为平台生成——地址与渠道 ID 不要手写，去「通知渠道」页复制「接收人配置」片段填入。
-    desc: '告警发给哪个端——地址与渠道 ID 不要手写，在「通知渠道」页登记后复制其「接收人配置」片段填入',
+    // B 路线（决策 74 定稿）：已启用渠道的接收人由平台在生成配置时自动写入（配置即生效），
+    // 用户一般无需手写 receivers；仅自定义 receiver 才手写，且不得与渠道自动生成的 receiver 名重名。
+    desc: '告警发给哪个端——已启用渠道的接收人由平台在生成配置时自动写入（配置即生效），一般无需手写；仅在需要自定义接收人时才手写，且不得与渠道自动生成的接收人重名',
     path: NOTIFY_CHANNELS_PATH,
     linkText: '通知渠道',
   },
@@ -332,13 +377,12 @@ export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
  * 校验 SUCCESS（语法 + route/receiver 引用闭合 + receiver 字段类型）；`global` 仅最简
  * `resolve_timeout`（邮件渠道才需 smtp_*，属「按需最简」不列为必写块）。
  *
- * receivers 段的 `channel` 与 `token` 是**醒目占位符**（`REPLACE_WITH_*`），不是可用值：
- * 早前写成 `channel=ch-default` 会让用户误信渠道 ID 是 `ch-*` 形式而照抄失败（真实渠道 ID
- * 是数字串）。使用时到「通知渠道」页点「接收人配置」复制完整片段替换（A 路线：平台只校验、
- * 不托管，也不代生成 receivers）。
+ * receivers 段为**手写自定义 receiver 示例**（B 路线：平台会为已启用渠道自动写入接收人，
+ * 手写仅用于自定义场景）：`channel` 是**醒目占位符**（真实渠道 ID 是数字串，勿写成 ch-*）；
+ * 桥令牌**绝不写进 URL query**，改走 `http_config.authorization`（type: Bearer）请求头。
  */
-export const ALERTMANAGER_MIN_SKELETON = `# 本骨架已通过 amtool 校验。receivers 段渠道 ID 与令牌请勿手写：
-# 到「通知渠道」页点「接收人配置」复制片段替换占位符（渠道 ID 为数字串）。
+export const ALERTMANAGER_MIN_SKELETON = `# 本骨架已通过 amtool 校验。已启用渠道的接收人由平台在生成配置时自动写入，一般无需手写。
+# 下方 receivers 为「自定义接收人」手写示例：channel 为数字串占位符；桥令牌走 http_config.authorization 头，勿写进 URL。
 global:
   resolve_timeout: 5m
 
@@ -353,21 +397,57 @@ route:
       receiver: sre-critical
 
 receivers:
-  # channel / token 请到「通知渠道」页的「接收人配置」复制，勿手写
+  # 已启用渠道的接收人由平台自动写入；此处仅在需要自定义 receiver 时手写，
+  # 且不得与渠道自动生成的 receiver 名重名（重名会导致配置校验失败）。
   - name: default
     webhook_configs:
-      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID&token=REPLACE_WITH_BRIDGE_TOKEN'
+      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID'
         send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: REPLACE_WITH_BRIDGE_TOKEN
   - name: sre-critical
     webhook_configs:
-      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID&token=REPLACE_WITH_BRIDGE_TOKEN'
+      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=REPLACE_WITH_CHANNEL_ID'
         send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: REPLACE_WITH_BRIDGE_TOKEN
 
 inhibit_rules:
   - source_matchers: ['severity="critical"']
     target_matchers: ['severity="warning"']
     equal: ['network_domain']
 `
+
+// =====================================================================
+// 派生预览（告警配置页只读区块，B 路线）：平台 UI 控制的渠道 → 派生 receiver
+// =====================================================================
+
+/** 「派生预览」区块标题 */
+export const ALERT_DERIVED_PREVIEW_TITLE = '派生预览：平台将写入的接收人'
+
+/** 「派生预览」区块一句话说明（平台自动物化的心智） */
+export const ALERT_DERIVED_PREVIEW_DESC =
+  '已启用渠道由平台在生成配置时自动写入 alertmanager.yml 的 receivers（配置即生效），下方为派生结果。'
+
+/** 「派生预览」范围声明（手写/上传内容原样透传、平台不解析其语义） */
+export const ALERT_DERIVED_PREVIEW_SCOPE =
+  '本预览仅包含平台 UI 控制部分的派生结果；你手写或上传的其它接收人 / 路由内容原样透传，不在此预览内，平台不解析其语义。'
+
+/** 「派生预览」重名提醒（自动接收人名与手写同名会校验失败） */
+export const ALERT_DERIVED_PREVIEW_RENAME_TIP =
+  '请勿手写与上表同名（含渠道名归一化后同名）的接收人，重名会导致配置校验失败。'
+
+/** 「派生预览」空态引导（无渠道或均未启用时） */
+export const ALERT_DERIVED_PREVIEW_EMPTY =
+  '暂无已启用的通知渠道。请到「通知渠道」页添加并启用渠道，其接收人会自动出现在这里。'
+
+/** 「派生预览」权限不足提示（接收人片段需管理员权限；不影响平台自动写入） */
+export const ALERT_DERIVED_PREVIEW_FORBIDDEN =
+  '当前账号无权查看接收人片段（片段含平台内部凭据，仅管理员可获取）；渠道接收人仍由平台自动写入，不影响生效。'
 
 // =====================================================================
 // 通知渲染桥（PL-3，2026-09-28）：通知渠道类型 / 通知模板展示名

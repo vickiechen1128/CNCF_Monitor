@@ -48,13 +48,13 @@ const channelRow = (over: Partial<NotifyChannel> = {}): NotifyChannel => ({
   ...over,
 })
 
-/** 接收人片段端点响应（T08-F12 wire 格式） */
+/** 接收人片段端点响应（B 路线 wire 格式：桥令牌走 authorization 头，不含 URL query token） */
 function snippetResponse(over: Record<string, unknown> = {}) {
   const data = {
     receiver_name: 'sre',
-    url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=tok-abc',
+    url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1',
     snippet:
-      "  - name: sre\n    webhook_configs:\n      - url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=tok-abc'\n        send_resolved: true\n",
+      "  - name: sre\n    webhook_configs:\n      - url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1'\n        send_resolved: true\n        http_config:\n          authorization:\n            type: Bearer\n            credentials: tok-abc\n",
     token_configured: true,
     ...over,
   }
@@ -109,11 +109,13 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(screen.getByRole('button', { name: /新增渠道/ })).toBeInTheDocument()
   })
 
-  // T08-F15：页头定位文案须说明「本页是接收人来源」，并指向「告警配置」页，避免两页各说一套。
-  it('T08-F15：页头定位文案说明接收人来源并指向 /alert-config', () => {
+  // B 路线（决策 74）：页头定位文案须说明「本页是接收人来源」，并给出「自动写入、配置即生效」心智，
+  // 同时指向「告警配置」页，避免两页各说一套。
+  it('B 路线：页头说明接收人来源、自动写入心智并指向 /alert-config', () => {
     useNotifyChannelsMock.mockReturnValue(result())
     renderPage()
     expect(screen.getByText(/本页是告警接收人的来源/)).toBeInTheDocument()
+    expect(screen.getByText(/已启用的渠道会被平台在下发配置时自动写入/)).toBeInTheDocument()
     // 页头与片段抽屉说明都指向「告警配置」页（forceRender 下抽屉内容常驻，故用 getAll）
     const configLinks = screen.getAllByRole('link', { name: '「告警配置」' })
     expect(configLinks.length).toBeGreaterThan(0)
@@ -210,9 +212,9 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     await waitFor(() => expect(removeMock).toHaveBeenCalledWith('1'))
   })
 
-  // T08-F13：每行新增「接收人配置」动作——展示平台生成的 receiver 片段，供用户粘到
-  // 「告警配置」页 alertmanager.yml 的 receivers: 段（A 路线：平台不代生成，用户复制填写）。
-  it('接收人配置：抽屉展示接收人名 / 桥接地址 / 片段，含安全提示与复制写入剪贴板', async () => {
+  // B 路线（决策 74 / 安全 H-1）：抽屉展示平台派生的接收人片段供「自定义接收人」参考；
+  // 桥令牌走 authorization 请求头，URL 中不得出现 token=。
+  it('接收人配置：抽屉展示接收人名 / 桥接地址 / 片段，令牌走 authorization 头且 URL 不含 token', async () => {
     const user = userEvent.setup()
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
@@ -224,14 +226,19 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(await screen.findByText('sre')).toBeInTheDocument()
     expect(screen.getByText('接收人名')).toBeInTheDocument()
     expect(screen.getByText('桥接地址')).toBeInTheDocument()
-    expect(screen.getAllByText(/channel=1&token=tok-abc/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/webhooks\/notify\?channel=1/).length).toBeGreaterThan(0)
     expect(screen.getByText(/send_resolved: true/)).toBeInTheDocument()
+    // 安全（H-1）：桥令牌不得出现在 URL query，改走 authorization 请求头
+    expect(screen.queryByText(/token=/)).toBeNull()
+    expect(screen.getByText(/authorization:/)).toBeInTheDocument()
     // 说明该片段要用在哪，并给出「告警配置」页入口
     const configLinks = screen.getAllByRole('link', { name: '「告警配置」' })
     expect(configLinks.length).toBeGreaterThan(0)
     expect(configLinks.every((l) => l.getAttribute('href') === '/alert-config')).toBe(true)
-    // 安全文案：片段内嵌平台内网令牌，须提示勿外发
-    expect(screen.getByText('该片段含平台内网凭据，请勿外发')).toBeInTheDocument()
+    // 安全文案（#27）：片段含内网凭据降级为片段标题右侧行内 tag（Tooltip 展开说明），不再整块 Alert
+    expect(screen.getByText('含内网凭据')).toBeInTheDocument()
+    // L3（#26 / #28）：归属边界说明贴在 receiver 片段块上——平台只物化 receivers，route 由用户手写维护
+    expect(screen.getByText(/route 段由你手写维护/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /复制配置片段/ }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(snippetResponse().data.snippet))
@@ -240,7 +247,7 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
   it('接收人配置：桥令牌未配置时显式告警（片段不可直接使用）', async () => {
     const user = userEvent.setup()
     getReceiverSnippetMock.mockResolvedValue(
-      snippetResponse({ token_configured: false, url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=<未配置桥令牌>' }),
+      snippetResponse({ token_configured: false, url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1' }),
     )
     useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
     renderPage()

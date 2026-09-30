@@ -1,7 +1,8 @@
 /**
  * 通知渠道管理页（PL-3 通知渲染桥，2026-09-28；Module_08 告警收敛与通知管理）。
  * 能力：机器人渠道（飞书 / 钉钉 / 企业微信）列表 / 新增 / 编辑 / 删除；
- * 生成「接收人配置」片段供用户粘贴到「告警配置」页的 receivers: 段（A 路线，T08-F13）；
+ * 已启用渠道由平台在下发配置时自动写入 alertmanager.yml 的 receivers（B 路线：配置即生效，
+ * 无需手工复制片段）；「接收人配置」片段仅在用户手写自定义 receiver 时作参考。
  * webhook 地址脱敏展示、签名密钥仅告知是否已设置（secret 永不回显）。
  * 覆盖页面状态：加载 / 空态 / 接口错误 / 权限不足。
  * 契约权威：设计提案 §3.3（PL-3 端点尚未写入 api-contract-snapshot.md，待回写）。
@@ -77,7 +78,7 @@ export function NotifyChannelsPage() {
   const handleDelete = (record: NotifyChannel) => {
     Modal.confirm({
       title: `删除通知渠道「${record.name}」？`,
-      content: '删除后，引用该渠道的告警分派将无法送达；该操作不可恢复。',
+      content: '删除后，引用该渠道的告警分派将无法送达；下一次配置变更会同步移除其接收人；该操作不可恢复。',
       okText: '删除',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -185,9 +186,9 @@ export function NotifyChannelsPage() {
           </Text>
           <br />
           <Text type="secondary">
-            本页是告警接收人的来源：在渠道行点「接收人配置」复制片段，粘贴到
+            本页是告警接收人的来源：已启用的渠道会被平台在下发配置时自动写入
             <Link to={ALERT_CONFIG_PATH}>「告警配置」</Link>
-            页的 receivers 段并在 route 中引用即可接入。
+            所用 alertmanager.yml 的 receivers（配置即生效），无需手工复制片段；停用或删除渠道后，下一次配置变更会同步移除。需要自定义接收人时，可点「接收人配置」查看该渠道的片段作参考。
           </Text>
         </Card>
 
