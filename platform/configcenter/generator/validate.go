@@ -9,13 +9,35 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/metriccenter/metriccenter/platform/strategy/rule/jobref"
 )
 
+// ToolCheckStatus 是外部校验工具（promtool / blackbox_exporter / amtool）执行结果三态。
+// ValidateArtifacts 据此映射校验结果：
+//   - ToolCheckPassed     —— 工具已执行且判定配置合法，继续后续门禁；
+//   - ToolCheckUserConfig —— 工具已执行并判定配置非法（failed + user_config，可回 M01 修复）；
+//   - ToolCheckUnavailable —— 工具**存在但无法执行**（pending + platform_fault，环境未就绪）。
+//
+// 第 3 态为 M09 dev-feedback F-35 建议 a 引入：此前「工具存在但不可执行」（如把 Linux ELF
+// 放到 macOS 上的 `exec format error`）被归成 failed + user_config，会把环境问题误报成用户
+// 配置错误、并误导用户回 M01 改一份本就正确的配置。现与「工具缺失」同口径归 pending +
+// platform_fault，待运维环境就绪后重校即可。
+type ToolCheckStatus int
+
+const (
+	// ToolCheckPassed 全部外部校验通过。
+	ToolCheckPassed ToolCheckStatus = iota
+	// ToolCheckUserConfig 工具已成功启动，并以配置非法为由返回非零退出码。
+	ToolCheckUserConfig
+	// ToolCheckUnavailable 工具存在但无法执行（平台/架构不匹配、无执行权限等）。
+	ToolCheckUnavailable
+)
+
 // ToolLookPath / ToolChecker 可注入，便于测试（含跨包测试，如 configcenter/draft）
-// 模拟外部校验工具（promtool / blackbox_exporter）的可用性与执行结果。
+// 模拟外部校验工具（promtool / blackbox_exporter / amtool）的可用性与执行结果。
 // 测试替换后须用 t.Cleanup 恢复；包级变量非并发安全，勿与 t.Parallel 混用。
 var (
 	ToolLookPath = exec.LookPath
@@ -136,8 +158,8 @@ func validateLabelName(name string) error {
 // enabled + draft_status=ready 的 job_name，跨 local/edge 域，F-14 改动 Y）。
 // generator 包保持无 gorm 依赖（纯产物校验），不做 DB 查询。
 //
-// 归因规则：targets schema / 内容校验失败 → user_config；
-// 外部校验工具不可调用 → platform_fault。
+// 归因规则（决策 42-2 / 45-3）：targets schema / 内容校验失败 → user_config；
+// 外部校验工具**不可调用或存在但不可执行** → platform_fault（pending）。
 func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
 	// 归因索引（C-1/C-2）：FileName 与 TargetsFiles 的 key 同源（normalizeJobFilename），
 	// 按 basename 对齐。归因仅用于增强失败文案，**不参与判定**——判定结果与归因无关，
@@ -179,7 +201,15 @@ func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs [
 			return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil, "amtool 不可调用，待环境就绪后重校"
 		}
 	}
-	if ok, msg := ToolChecker(ca, includeBlackbox); !ok {
+	// F-35 建议 a：工具**存在但不可执行**（`ToolLookPath` 找得到、exec 却失败，典型为
+	// 二进制与当前平台/架构不匹配的 `exec format error`）视同「工具缺失」——属环境未就绪，
+	// 归 pending + platform_fault。归因不得落到 user_config：那会把环境问题误报成用户配置
+	// 错误并引导用户去 M01 改配置（本函数上方三处 ToolLookPath 门禁即为此口径）。
+	switch st, msg := ToolChecker(ca, includeBlackbox); st {
+	case ToolCheckUnavailable:
+		return models.ValidationStatusPending, models.ValidationCausePlatformFault, nil,
+			fmt.Sprintf("外部校验工具无法执行（环境未就绪）：%s；待运维环境就绪后重校", msg)
+	case ToolCheckUserConfig:
 		return models.ValidationStatusFailed, models.ValidationCauseUserConfig,
 			[]models.ValidationDetail{{File: "prometheus.yml", Message: msg, Source: models.ValidationSourceScrapeJob}},
 			fmt.Sprintf("外部校验未通过: %s", msg)
@@ -248,23 +278,37 @@ func emptyTargetsMessage(name string, diag *TargetDiagnostics) string {
 }
 
 // runToolChecks 实际调用 promtool check config 与 blackbox --config.check。
-// 失败返回 (false, 错误摘要)；成功返回 (true, "")。
-func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string) {
+// 返回工具执行结果三态与人类可读摘要（通过时摘要为空）。
+func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (ToolCheckStatus, string) {
 	if err := runPromtoolCheck(ca); err != nil {
-		return false, fmt.Sprintf("promtool check config 失败: %v", err)
+		return toolCheckStatus(err), fmt.Sprintf("promtool check config 失败: %v", err)
 	}
 	if includeBlackbox && ca.BlackboxYML != "" {
 		if err := runBlackboxCheck(ca.BlackboxYML); err != nil {
-			return false, fmt.Sprintf("blackbox --config.check 失败: %v", err)
+			return toolCheckStatus(err), fmt.Sprintf("blackbox --config.check 失败: %v", err)
 		}
 	}
 	// 决策 60：存在 alertmanager.yml 时用 amtool 校验。
 	if ca.AlertmanagerYML != "" {
 		if err := runAmmtoolCheck(ca.AlertmanagerYML); err != nil {
-			return false, fmt.Sprintf("amtool check-config 失败: %v", err)
+			return toolCheckStatus(err), fmt.Sprintf("amtool check-config 失败: %v", err)
 		}
 	}
-	return true, ""
+	return ToolCheckPassed, ""
+}
+
+// toolCheckStatus 把工具调用失败的底层错误归因成校验结果状态：
+// 「工具存在但不可执行」→ ToolCheckUnavailable（platform_fault）；
+// 其余（工具已成功启动、判定配置非法）→ ToolCheckUserConfig。
+//
+// 两个判定条件都保留：前者匹配经 toolCheckError 组装后的错误，后者兜住**未经组装**的
+// 原始错误（校验前置步骤失败，如临时目录不可写时的 EACCES——同属环境故障，非用户配置缺陷）。
+func toolCheckStatus(err error) ToolCheckStatus {
+	var notExec *toolNotExecutableError
+	if errors.As(err, &notExec) || isToolNotExecutable(err) {
+		return ToolCheckUnavailable
+	}
+	return ToolCheckUserConfig
 }
 
 // runPromtoolCheck 将配置产物按真实下发目录结构写入临时目录
@@ -304,9 +348,62 @@ func runPromtoolCheck(ca *ConfigArtifacts) error {
 	cmd := exec.Command("promtool", "check", "config", filepath.Join(dir, "prometheus.yml"))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		return toolCheckError("promtool", string(out), err)
 	}
 	return nil
+}
+
+// toolNotExecutableError 表示外部校验工具**存在但无法执行**（环境未就绪）。
+// 经 toolCheckStatus 提升为 ToolCheckUnavailable → pending + platform_fault
+// （M09 dev-feedback F-35 建议 a）。
+type toolNotExecutableError struct {
+	tool string
+	err  error
+}
+
+func (e *toolNotExecutableError) Error() string {
+	return fmt.Sprintf("无法执行 %s（二进制可能与当前平台/架构不匹配）: %v", e.tool, e.err)
+}
+
+func (e *toolNotExecutableError) Unwrap() error { return e.err }
+
+// isToolNotExecutable 判定工具调用失败是否属于「工具存在但不可执行」（环境未就绪）：
+//   - 二进制与当前平台/架构不匹配 → fork/exec 报 ENOEXEC（`exec format error`）；
+//   - 二进制无执行权限 → EACCES；
+//   - exec 期解析工具失败（LookPath 级）→ *exec.Error / exec.ErrNotFound。
+//
+// 三者都说明外部校验工具在此环境不可用，应归 platform_fault。而工具**已成功启动**、
+// 仅以非零退出码返回（*exec.ExitError，典型为配置非法）不属于此类，仍归 user_config。
+func isToolNotExecutable(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.ENOEXEC) || errors.Is(err, syscall.EACCES) || errors.Is(err, exec.ErrNotFound) {
+		return true
+	}
+	var ee *exec.Error
+	return errors.As(err, &ee)
+}
+
+// toolCheckError 组装外部校验工具（promtool / blackbox_exporter / amtool）失败的错误信息：
+//   - 工具自身 stdout/stderr 非空（如 yaml 语法错、配置项非法）→ 原样采用，这是真正可定位的
+//     用户配置错误，归 user_config；
+//   - 输出为空 → 说明工具**存在但无法执行**（典型：二进制与当前平台/架构不匹配的
+//     `exec format error`，如把 Linux ELF 放到 macOS 上），必须回带底层 exec 错误，
+//     否则会产出「blackbox --config.check 失败: 」这类**空消息**、无法定位；此类归
+//     platform_fault（F-35 建议 a）。
+//
+// 背景（M09 现场）：`upstream/blackbox_exporter/blackbox_exporter` 为部署目标交叉编译的
+// Linux x86-64 ELF，在 macOS 开发机上 `exec.LookPath` 能找到、但执行即 exec format error，
+// 原实现只取 out（空）而丢弃 err，导致校验失败原因不可见。
+func toolCheckError(tool, out string, err error) error {
+	if msg := strings.TrimSpace(out); msg != "" {
+		return fmt.Errorf("%s", msg)
+	}
+	if isToolNotExecutable(err) {
+		return &toolNotExecutableError{tool: tool, err: err}
+	}
+	return fmt.Errorf("无法执行 %s，且无错误输出: %v", tool, err)
 }
 
 func runBlackboxCheck(blackboxYAML string) error {
@@ -323,7 +420,7 @@ func runBlackboxCheck(blackboxYAML string) error {
 	cmd := exec.Command("blackbox_exporter", "--config.check", "--config.file="+f.Name())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		return toolCheckError("blackbox_exporter", string(out), err)
 	}
 	return nil
 }
@@ -344,7 +441,7 @@ func runAmmtoolCheck(alertmanagerYAML string) error {
 	cmd := exec.Command("amtool", "check-config", f.Name())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+		return toolCheckError("amtool", string(out), err)
 	}
 	return nil
 }

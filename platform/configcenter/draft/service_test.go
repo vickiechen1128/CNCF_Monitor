@@ -98,7 +98,9 @@ func stubGeneratorTools(t *testing.T) {
 	oldLook := generator.ToolLookPath
 	oldChecker := generator.ToolChecker
 	generator.ToolLookPath = func(name string) (string, error) { return name, nil }
-	generator.ToolChecker = func(ca *generator.ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	generator.ToolChecker = func(ca *generator.ConfigArtifacts, ib bool) (generator.ToolCheckStatus, string) {
+		return generator.ToolCheckPassed, ""
+	}
 	t.Cleanup(func() { generator.ToolLookPath = oldLook; generator.ToolChecker = oldChecker })
 }
 

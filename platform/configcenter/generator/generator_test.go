@@ -533,7 +533,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 	oldLook := ToolLookPath
 	oldChecker := ToolChecker
 	ToolLookPath = func(string) (string, error) { return "promtool", nil }
-	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (ToolCheckStatus, string) { return ToolCheckPassed, "" }
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
@@ -668,7 +668,7 @@ func stubPassingTools(t *testing.T) {
 	oldLook := ToolLookPath
 	oldChecker := ToolChecker
 	ToolLookPath = func(name string) (string, error) { return name, nil }
-	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (ToolCheckStatus, string) { return ToolCheckPassed, "" }
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 }
 

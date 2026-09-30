@@ -54,8 +54,8 @@ func stubValidationTools(t *testing.T) {
 	oldLook := generator.ToolLookPath
 	oldChecker := generator.ToolChecker
 	generator.ToolLookPath = func(name string) (string, error) { return name, nil }
-	generator.ToolChecker = func(ca *generator.ConfigArtifacts, includeBlackbox bool) (bool, string) {
-		return true, ""
+	generator.ToolChecker = func(ca *generator.ConfigArtifacts, includeBlackbox bool) (generator.ToolCheckStatus, string) {
+		return generator.ToolCheckPassed, ""
 	}
 	t.Cleanup(func() { generator.ToolLookPath = oldLook; generator.ToolChecker = oldChecker })
 }
