@@ -37,7 +37,7 @@ import dayjs from 'dayjs'
 import { apiClient } from '../../api/client'
 import { dashboardApi } from '../../api/dashboard'
 import { useProductName } from '../../skinContext'
-import type { DashboardSummary } from '../../api/dashboard'
+import type { CloudSummary, DashboardSummary } from '../../api/dashboard'
 import { alertStatusApi, ALERT_HISTORY_STEP_SECONDS } from '../../api/alertmanager'
 import type {
   AlertHistoryData,
@@ -56,6 +56,7 @@ import { OnboardingSteps } from './OnboardingSteps'
 import { SurfaceCard } from './SurfaceCard'
 import { ResourceTypeGrid } from './ResourceTypeGrid'
 import { AppDetailTable } from './AppDetailTable'
+import { CloudDistributionPanel } from './CloudDistributionPanel'
 import { ProbePanel } from './ProbePanel'
 import { firingAlerts as pickFiringAlerts } from './resourceTypeMeta'
 import { useNarrowLayout } from './homeResponsive'
@@ -71,6 +72,18 @@ const STATUS_MOCK: Status = {
   version: 'dev-preview',
   mode: 'static-preview',
 }
+
+/**
+ * 「按云分布」静态预览样例（M05 PRD v1.11 / 决策 100）：数值与原型
+ * `docs/prototypes/module-05/src/mocks/module-05.ts` 的 `mockCloudSummaries` 一致
+ * （PUB-TX 腾讯云 30/28/93%、GM-CU 政务云（联通）12/8/67%）。自洽约束：各云
+ * `resource_count` 之和 = L1 主机类总数（42）、`monitored_count` 之和 = 主机类已采数（36）。
+ * 后端 `by_cloud` 聚合就绪后优先后端取值，本样例仅作静态预览 / 缺失回退。
+ */
+const CLOUD_SUMMARY_MOCK: CloudSummary[] = [
+  { cloud_code: 'PUB-TX', cloud_name: '腾讯云', resource_count: 30, monitored_count: 28, coverage_rate: 93 },
+  { cloud_code: 'GM-CU', cloud_name: '政务云（联通）', resource_count: 12, monitored_count: 8, coverage_rate: 67 },
+]
 
 /**
  * 静态预览（无后端）用的聚合样例。数值与原型 `docs/prototypes/module-05/src/mocks/module-05.ts`
@@ -902,6 +915,11 @@ export function HomePage() {
             <ResourceTypeGrid byCategory={dashboard?.by_category ?? []} />
           </div>
         </div>
+
+        {/* 「按云分布」独立区块（M05 PRD v1.11 / 决策 100）：整宽，位于 L1 采集覆盖区之后、
+            L2 应用覆盖明细表之前；本期仅主机（cloud 经所属网域 cloud_code 派生），不含告警数字。
+            后端 by_cloud 就绪时优先取后端，缺失时回落静态样例。 */}
+        <CloudDistributionPanel clouds={dashboard?.by_cloud ?? CLOUD_SUMMARY_MOCK} />
 
         {/* L2 应用覆盖表：按覆盖率升序，未归类行置底。
             锚点 id 供「按应用查看」历史入口（/resources / 旧 L1 链接）就地定位。 */}

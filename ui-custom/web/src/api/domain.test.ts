@@ -101,6 +101,7 @@ describe('domain API', () => {
     const res = await networkDomainApi.create({
       name: '政务网A区',
       domain_type: 'edge',
+      cloud_code: 'PUB-TX',
       zone_type: 'internet',
       authorized_tenant_ids: ['platform_admin'],
     })
@@ -112,6 +113,7 @@ describe('domain API', () => {
     expect(body).toEqual({
       name: '政务网A区',
       domain_type: 'edge',
+      cloud_code: 'PUB-TX',
       zone_type: 'internet',
       authorized_tenant_ids: ['platform_admin'],
     })

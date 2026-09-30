@@ -45,6 +45,10 @@ type ResourceInput struct {
 
 	// application（§5.8）
 	ServiceName string `json:"service_name"`
+	// ServiceCode 是**可选**服务归属编码（决策 105，服务字典主键）：仅 application /
+	// generic_target 适用（host / database / middleware 不挂），留空即纯自由文本、
+	// 向后兼容；填值须引用未停用服务字典条目（三处同校验），空值不注入 svc 标签。
+	ServiceCode string `json:"service_code"`
 	// HealthCheckURL 是**应用实际 URL（业务健康检查地址）**，可选，仅作资源画像与
 	// 标签模板来源（label_template 可映射 health_check_url）；**不参与采集地址拼接**。
 	HealthCheckURL string `json:"health_check_url"`
@@ -67,8 +71,9 @@ type ResourceInput struct {
 // 请求体值与资源当前值相同、且该字典条目已停用时，跳过对应启用态校验（提示并
 // 允许保留历史值）；修改为新值 / 新选用停用条目仍被拒绝。仅更新（PUT）场景注入。
 type KeepDisabledValues struct {
-	BizCode string // 资源当前 biz_code（停用历史值保留）
-	AppCode string // 资源当前 app_code（停用历史值保留）
+	BizCode     string // 资源当前 biz_code（停用历史值保留）
+	AppCode     string // 资源当前 app_code（停用历史值保留）
+	ServiceCode string // 资源当前 service_code（停用历史值保留，§5.16.2 服务存在性）
 }
 
 // ValidateResourceInput 校验资源写请求/导入行输入（纯函数，外部副作用仅来自注入的
@@ -88,25 +93,25 @@ type KeepDisabledValues struct {
 //     调用方决定）。
 //
 // 校验失败返回含字段名的错误，供 handler 包装为 bad_request（§6.6.1）。
-func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool) error {
-	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, nil)
+func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool) error {
+	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, nil)
 }
 
 // ValidateResourceInputForUpdate 与 ValidateResourceInput 同校验，但允许「编辑保留
 // 停用历史值」（决策 92/93）：keep 指向资源当前值，请求体值与其相同时跳过对应
 // 启用态校验（提示并允许保留历史值），修改为新值仍被拒绝。
-func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
-	return validateResourceInput(category, in, bizStore, appStore, networkDomainExists, keep)
+func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, keep)
 }
 
-func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if in == nil {
 		return fmt.Errorf("resource input 不能为空")
 	}
 	if !isValidCategory(category) {
 		return fmt.Errorf("resource_category 非法：%s", category)
 	}
-	if err := validateCommon(in, bizStore, appStore, networkDomainExists, keep); err != nil {
+	if err := validateCommon(in, bizStore, appStore, svcStore, networkDomainExists, keep); err != nil {
 		return err
 	}
 	switch category {
@@ -117,8 +122,14 @@ func validateResourceInput(category models.ResourceCategory, in *ResourceInput, 
 	case models.ResourceCategoryMiddleware:
 		return validateMiddleware(in)
 	case models.ResourceCategoryApplication:
+		if err := validateServiceCodeEnabled(in, svcStore, keep); err != nil {
+			return err
+		}
 		return validateApplication(in)
 	case models.ResourceCategoryGenericTarget:
+		if err := validateServiceCodeEnabled(in, svcStore, keep); err != nil {
+			return err
+		}
 		return validateGenericTarget(in)
 	}
 	return nil
@@ -128,7 +139,7 @@ func validateResourceInput(category models.ResourceCategory, in *ResourceInput, 
 // （若填）须对应启用应用字典条目、env/status 枚举。必填分化不在本函数内——按类型
 // 差异化必填由各 validate* 分派（决策 93/95：application 的 biz 必填在
 // validateApplication、generic_target 二选一在 validateGenericTarget）。
-func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
 	if strings.TrimSpace(in.NetworkDomainID) == "" {
 		return fmt.Errorf("network_domain_id 必填")
 	}
@@ -195,6 +206,32 @@ func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error {
 	}
 	if _, ok := enabledMap[code]; !ok {
 		return fmt.Errorf("应用 %s 未登记或已停用，请在『应用字典』中登记或启用后重试", code)
+	}
+	return nil
+}
+
+// validateServiceCodeEnabled 校验可选字段 service_code（决策 105 红线④）：非空时须
+// 引用**未停用**服务字典条目；留空合法（纯自由文本、向后兼容，svc 标签不注入）。
+// 仅 application / generic_target 适用（host / database / middleware 不挂、不校验）。
+// §5.16.2：编辑保留停用历史值经 keep 豁免（提示并允许保留）。svcStore 为 nil 时跳过
+// （仅供单元测试；生产 handler 始终传入真实 store）。
+func validateServiceCodeEnabled(in *ResourceInput, svcStore *ServiceDictStore, keep *KeepDisabledValues) error {
+	code := strings.TrimSpace(in.ServiceCode)
+	if code == "" {
+		return nil // 可选字段：留空合法
+	}
+	if svcStore == nil {
+		return nil // 测试可传 nil 跳过；生产 handler 始终传入真实 store
+	}
+	if keep != nil && code == keep.ServiceCode {
+		return nil // 编辑保留停用历史服务值
+	}
+	enabled, err := svcStore.GetEnabledMap()
+	if err != nil {
+		return fmt.Errorf("服务字典加载失败：%w", err)
+	}
+	if _, ok := enabled[code]; !ok {
+		return fmt.Errorf("服务 %s 未登记或已停用，请在『服务字典』中登记或启用后重试", code)
 	}
 	return nil
 }

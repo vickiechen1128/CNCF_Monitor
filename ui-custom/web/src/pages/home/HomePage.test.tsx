@@ -483,6 +483,91 @@ describe('HomePage', () => {
     expect(following(alertCard, onboarding)).toBe(true)
   })
 
+  it('renders the 按云分布 block between L1 and L2, with cloud rows and click-through to filtered resources', async () => {
+    setupHomeMock()
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    // 区块标题 + 口径附注（本期仅主机）
+    const panel = screen.getByTestId('cloud-distribution-panel')
+    expect(within(panel).getByText('按云分布')).toBeInTheDocument()
+    expect(within(panel).getByText(/本期仅主机/)).toBeInTheDocument()
+
+    // 云名点击穿资源清单并按云预筛选（静态样例 PUB-TX / GM-CU）
+    expect(within(panel).getByRole('link', { name: /腾讯云/ })).toHaveAttribute(
+      'href',
+      '/resources?cloud=PUB-TX',
+    )
+    expect(within(panel).getByRole('link', { name: /政务云（联通）/ })).toHaveAttribute(
+      'href',
+      '/resources?cloud=GM-CU',
+    )
+
+    // 主机数 / 已采数 / 覆盖率（样例 30/28/93%、12/8/67%）
+    expect(within(panel).getByText('30')).toBeInTheDocument()
+    expect(within(panel).getByText('28')).toBeInTheDocument()
+    expect(within(panel).getByText('93%')).toBeInTheDocument()
+    expect(within(panel).getByText('12')).toBeInTheDocument()
+    expect(within(panel).getByText('67%')).toBeInTheDocument()
+
+    // 位置：整宽区块位于 L1 采集覆盖区之后、L2 应用覆盖明细表之前（M05 v1.11 §5.1）
+    const following = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    const l1 = screen.getByTestId('l1-grid')
+    const l2 = screen.getByTestId('l2-app-table')
+    expect(following(l1, panel)).toBe(true)
+    expect(following(panel, l2)).toBe(true)
+  })
+
+  it('renders the 按云分布 empty state guiding to host import when by_cloud is empty', async () => {
+    setupHomeMock({
+      [DASHBOARD_PATH]: { ...DASHBOARD_OK, data: { ...DASHBOARD_OK.data, by_cloud: [] } },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    const panel = screen.getByTestId('cloud-distribution-panel')
+    expect(within(panel).getByText('暂无主机数据')).toBeInTheDocument()
+    expect(within(panel).getByRole('link', { name: /去导入主机资源/ })).toHaveAttribute('href', '/resources')
+  })
+
+  it('prefers backend by_cloud over the static sample and keeps coverage values consistent', async () => {
+    setupHomeMock({
+      [DASHBOARD_PATH]: {
+        ...DASHBOARD_OK,
+        data: {
+          ...DASHBOARD_OK.data,
+          by_cloud: [
+            { cloud_code: 'PUB-TX', cloud_name: '腾讯云', resource_count: 40, monitored_count: 39, coverage_rate: 98 },
+            { cloud_code: 'IND-TX', cloud_name: '行业云（腾讯）', resource_count: 2, monitored_count: 1, coverage_rate: 50 },
+          ],
+        },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    const panel = screen.getByTestId('cloud-distribution-panel')
+    // 后端数据覆盖静态样例（不出现样例的 GM-CU 12/8/67%）
+    expect(within(panel).getByText('行业云（腾讯）')).toBeInTheDocument()
+    expect(within(panel).getByText('98%')).toBeInTheDocument()
+    expect(within(panel).getByText('50%')).toBeInTheDocument()
+    expect(within(panel).queryByText('政务云（联通）')).not.toBeInTheDocument()
+    expect(within(panel).queryByText('67%')).not.toBeInTheDocument()
+  })
+
   it('renders L1 as a row of 5 category cards, no entry card or alert capsules', async () => {
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 

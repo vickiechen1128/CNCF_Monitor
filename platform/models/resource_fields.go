@@ -62,6 +62,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 	case ResourceCategoryApplication:
 		return map[string]string{
 			"service_name":      "service_name",
+			"service_code":      "service_code", // 决策 105：可选服务编码（svc label 取值）
 			"health_check_url":  "health_check_url",
 			"protocol":          "protocol",
 			"endpoint":          "endpoint",
@@ -79,6 +80,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 	case ResourceCategoryGenericTarget:
 		return map[string]string{
 			"target_name":       "target_name",
+			"service_code":      "service_code", // 决策 105：同 application（两类可挂服务）
 			"instance_ip":       "instance_ip",
 			"port":              "port",
 			"metrics_path":      "metrics_path",
@@ -231,6 +233,8 @@ func getApplicationField(a *Application, field string) (string, bool) {
 		return string(a.SourceType), true
 	case "service_name":
 		return a.ServiceName, true
+	case "service_code":
+		return a.ServiceCode, true
 	case "health_check_url":
 		return a.HealthCheckURL, true
 	case "protocol":
@@ -265,6 +269,8 @@ func getGenericTargetField(g *GenericTarget, field string) (string, bool) {
 		return string(g.SourceType), true
 	case "target_name":
 		return g.TargetName, true
+	case "service_code":
+		return g.ServiceCode, true
 	case "instance_ip":
 		return g.InstanceIP, true
 	case "metrics_path":

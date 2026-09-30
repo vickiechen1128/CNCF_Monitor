@@ -44,3 +44,117 @@
   - T08-F6/F7 前端双视图页可直接对接本批次两接口（契约 §10 字段已按快照实现）。
   - Track B+ 强制 security-reviewer 收尾（决策 56 授权骨架 + 代理 SSRF 面）待挂。
   - 本批次未 commit（任务卡要求），commit hash 待 Orchestrator 收口后回填。
+
+---
+
+## 迭代二 PL-3（通知渲染桥）批次：T08-08 ～ T08-11
+
+> 契约权威：设计提案 `docs/05-execution-records/module-08/design-proposals/alert-config-scope-and-notification-bridge.md` §3.3（PL-3 端点尚未写入 `api-contract-snapshot.md`，PRD 亦未回写，见 dev-feedback #17）。
+> 已裁决口径：D-2 内置默认模板 + 用户可自定义 Go template（非脚本、无沙箱）；D-3 端点命名维持 `POST /api/v1/webhooks/notify`，定址参数走 query（`channel`/`template`/`token`）。
+
+## T08-08：通知渠道 / 通知模板模型与迁移
+
+- **commit**：`4e3d8ca`（feat(module-08): 新增通知渠道/通知模板模型与迁移（T08-08））
+- **新增/修改文件**：
+  - `platform/models/alertmanager_notify.go`（新增）：`NotifyChannel`（Name/Type/WebhookURL/Secret/Enabled，表 `notify_channels`，WebhookURL/Secret 仅平台侧存储）；`NotifyTemplate`（Name/ChannelType/Content/IsBuiltin/Checksum/Status，表 `notify_templates`，版本化留痕）；枚举 `NotifyChannelType`（feishu/dingtalk/wecom）+ `ValidNotifyChannelTypes`/`IsValidNotifyChannelType`；`NotifyTemplateStatus`（恒 `applied`，照抄决策 59/60）。checksum 复用 `AlertmanagerConfigChecksum`（sha256 十六进制小写）。
+  - `platform/models/alertmanager_notify_test.go`（新增）：枚举合法性、TableName、字段缺省等单测。
+  - `platform/db/db.go`（修改）：AutoMigrate 追加 `&models.NotifyChannel{}`、`&models.NotifyTemplate{}`。
+- **验证**：`go test ./platform/models/... ./platform/db/...` ok；`go vet` 通过。
+
+## T08-09：通知渠道 CRUD API（响应脱敏 + webhook_url SSRF 校验）+ 路由注册
+
+- **commit**：`72afc55`（feat(module-08): 通知渠道 CRUD 接口与路由注册（T08-09））
+- **新增/修改文件**：
+  - `platform/alertmanager/notify/channel.go`（新增）：`ValidateWebhookURL`（仅 http/https + host 非空，SSRF 口径与 silence/alerts 代理一致）；`ChannelInput`/`UpdateChannelInput`（更新用指针字段，语义「仅更新显式提供字段」）；`CreateChannel`/`UpdateChannel`/`GetChannel`/`ListChannels`/`DeleteChannel`（软删除）；`ChannelView`+`ToChannelView`+`maskWebhookURL`（响应脱敏为 `scheme://host/***`，绝不回显 secret）。
+  - `platform/alertmanager/notify/channel_handler.go`（新增）:`ListChannelsHandler`/`CreateChannelHandler`/`UpdateChannelHandler`/`DeleteChannelHandler`；`parseID`；`respondChannelError` 统一错误映射（not_found / bad_request / internal）。
+  - `platform/alertmanager/notify/register.go`（新增）：`RegisterRoutes(am, db)` 挂 `/notify-channels*`——列表读端点仅全局认证，创建/更新/删除挂 `auth.RequireAdmin()`。
+  - `platform/alertmanager/register.go`（修改）：末尾调 `notify.RegisterRoutes(am, db)`。
+  - `platform/alertmanager/notify/channel_test.go`（新增）：服务层校验、脱敏视图、CRUD、更新语义、软删除等用例。
+- **验证**：`go test ./platform/alertmanager/...` ok；`go vet` 通过。
+
+## T08-10：通知模板 API（复用 config 校验工序 + 留痕/回滚）+ 内置飞书卡片模板
+
+- **commit**：`28192cc`（feat(module-08): 通知模板提交/回滚接口与内置飞书卡片模板（T08-10））
+- **新增/修改文件**：
+  - `platform/alertmanager/config/template_validate.go`（新增）：`ValidateTemplate` —— 先 `text/template.Parse` 再复用 `runCheckConfig` 的 amtool 等价校验工序（可注入点 `lookPathAmtool`/`runAmtoolCheckCmd`/`devfeedback` 复用，不重造轮子）；`TemplateFuncs()` 导出校验侧与渲染侧共用的函数表（`jsonStr` 等），保证「校验即渲染」。
+  - `platform/alertmanager/config/template_validate_test.go`（新增）。
+  - `platform/alertmanager/notify/template.go`（新增）：`EnsureBuiltinTemplates`（幂等 seed，`findTemplateByChecksum` 去重）；`BuiltinTemplateForType`；`SubmitTemplate`（校验通过才落库，失败只回行级错误、不落库，照抄决策 59/60）；`RemountTemplate`（回滚=重提交历史版本，追加新 applied 记录）；`TemplateView`+`SubmitTemplateInput`；内置飞书卡片模板常量 `BuiltinFeishuCardTemplateName = "飞书卡片-默认"`。
+  - `platform/alertmanager/notify/template_handler.go`（新增）：列表 / 提交 / 回滚 handler。
+  - `platform/alertmanager/notify/register.go`（修改）：追加 `/notify-templates*`，装配时 `EnsureBuiltinTemplates`；写端点挂 `RequireAdmin()`。
+  - `platform/alertmanager/notify/template_test.go`（新增）：内置模板 seed 幂等、校验失败不落库、提交/回滚留痕等。
+- **验证**：`go test ./platform/alertmanager/...` ok；`go vet` 通过。
+
+## T08-11：桥端点 /api/v1/webhooks/notify + 路由注册 + alertmanager.yml 生成侧接线
+
+- **commit**：待提交（task id = T08-11）
+- **新增/修改文件**：
+  - `platform/alertmanager/notify/render.go`（新增）：`Render(templateContent, payload, loc)` —— 解码 Alertmanager 原生 webhook JSON（camelCase：version/groupKey/status/receiver/groupLabels/commonLabels/commonAnnotations/externalURL/alerts[]）为 `amWebhookPayload`，构造 `RenderData`（在 `RenderAlert` 上追加已本地化时间字段 `StartsAtLocal`/`EndsAtLocal`）；复用 `config.TemplateFuncs()` 渲染，渲染结果 TrimSpace 为空返回 `ErrRenderEmpty`（提示若用 `{{ define }}` 需在模板根处 `{{ template "名" . }}`）。默认时区 `DefaultRenderLocation = time.FixedZone("UTC+8", 8h)`，不依赖宿主机时区。
+  - `platform/alertmanager/notify/client.go`（新增）：`outboundHTTPClient`（一处收敛出站 CA 配置，对应脚本 `certifi` 兜底问题）——`x509.SystemCertPool` + 可选 `NOTIFY_BRIDGE_CA_FILE`，克隆 `http.DefaultTransport` 后设 `TLSClientConfig{RootCAs, MinVersion: TLS1.2}`，Timeout 15s；`sendOutbound` POST JSON，非 2xx 返回状态码 + error，响应体 LimitReader 4096 丢弃（不泄露内网细节）。
+  - `platform/alertmanager/notify/bridge.go`（新增）：`BridgeHandler(db, cfg)` 流程——`bridgeTokenValid`（`crypto/subtle` 常量时间比较，未带/错 token → 401）→ 遍历 `forbiddenTargetParams`（url/target/webhook_url/fsurl/to/dst/endpoint 命中 → 400，**SSRF 硬约束**）→ `parseUintQuery(channel)`（非法/非 ID → 400）→ `GetChannel`（不存在 → 404）→ 禁用 → 400 → `resolveBridgeTemplate`（显式模板须与渠道类型一致，否则 400）→ 读体 → `decodeWebhook` → `Render`（空 → 400）→ `sendOutbound`（失败 → 502 BadGateway 令 AM 重试，并记结构化失败日志）→ 200 `{success:1, fail:0, channel, template, alert_count}`。**无状态渲染转发，不落告警业务表**。`RegisterBridgeRoutes(v1, db, cfg)` 挂 `POST /webhooks/notify`。
+  - `platform/alertmanager/notify/template.go`（修改）：**修复 T08-10 内置飞书卡片模板 JSON 缺陷**——line 51 `"text": {` 对象缺闭合 `}`（渲染出非法 JSON，见 dev-feedback #18），在 action `}}` 后补 `}`。
+  - `platform/alertmanager/notify/render_test.go`（新增）：内置模板渲染合法 JSON + header 红/绿、时间本地化（东八区 / UTC）、`{{ define }}` 空产出 → `ErrRenderEmpty`、非法载荷、`TestRenderUsesSharedFuncMap`（jsonStr + toUpper）。
+  - `platform/alertmanager/notify/bridge_test.go`（新增）：`fakeReceiver` 桩；401（缺/错 token）、**`TestBridgeRejectsArbitraryTargetURL`（显式 SSRF 用例：`?url=`/`target`/`webhook_url`/`fsurl`/`to` → 400 且 `rec.calls()==0`；`channel=<地址>` → 400）**、404、禁用 400、成功 200+出站一次（body 合法 JSON + 含 HighCPU + 本地化时间）、显式模板、模板/渠道类型不一致 400、出站失败 502 + 失败日志、成功结构化日志。
+  - `platform/alertmanager/notify/channel_test.go`（修改）：`channelResp` 增加 `Error` 字段供 bridge 测试断言错误文案。
+  - `platform/cmd/metric-center/main.go`（修改）：新增 import `notify`；flag `--notify.bridge-token` / `--notify.render-timezone`（env 覆盖 `NOTIFY_BRIDGE_TOKEN` / `NOTIFY_RENDER_TIMEZONE`）；`setupRouter` 签名增 `bridgeCfg notify.BridgeConfig`；`auth.PublicPathPrefixes` 追加 `/api/v1/webhooks/`（桥端点不挂认证态平台组）；apiV1 组内 `notify.RegisterBridgeRoutes(...)`，token 为空时 WARN；`loadRenderLocation(name)`（空→东八区，`time.LoadLocation` 失败回退并记日志）。
+  - `platform/cmd/metric-center/main_test.go`（修改）：AutoMigrate 增 Notify 模型；engine 内装配桥路由；新增 `TestEndToEndNotifyBridgeSmoke`（内置模板 seed / 渠道创建脱敏 / 401 / SSRF 400 / 成功 200 且出站一次）+ 并发安全 `bridgeReceiver`。
+- **生成侧接线说明（逃生门校验）**：M09 `configcenter/generator/render.go` 对 `alertmanager.yml` 为**透传**（不生成 receivers/webhook_configs）；`alertmanager/config/validate.go` 的 `runCheckConfig` 仅做 YAML/引用闭合校验、**不检查 webhook URL**。故 receiver 的 `webhook_configs.url` 仍可直接填外部地址（提案 §3.3.7 逃生门**天然成立**），**无需改动 validate.go 或生成侧代码**。
+- **验证**：
+  - `go test ./platform/...` 全绿（含 `cmd/metric-center` 新增集成测试 `TestEndToEndNotifyBridgeSmoke`）；`go vet ./platform/...` 通过；`go build ./platform/...` 通过。
+  - 服务启动（`--listen-address :18080` + `NOTIFY_BRIDGE_TOKEN` + `NOTIFY_RENDER_TIMEZONE=Asia/Shanghai`）：`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200；`POST /api/v1/webhooks/notify` 无 token → 401、错 token → 401、`?url=外部地址` → 400、`channel=外部地址` → 400、`channel=9999` → 404；admin 登录后创建渠道响应脱敏为 `http://127.0.0.1:19090/***`；带合法 `channel` + token 转发本地 fake receiver → 200 `{"success":1,"fail":0,"channel":"1","template":"1"}`，receiver 收到合法 JSON 卡片（header `red`、时间已本地化为 `2026-01-02 11:04:05 +08:00`）。验证后已停服释放 18080（临时 DB/日志已清理）。
+- **遗留风险与下一步**：
+  - 契约快照 `api-contract-snapshot.md` 与 PRD 均缺 PL-3 端点（`/notify-channels*`、`/notify-templates*`、`POST /api/v1/webhooks/notify`），**待回写**（dev-feedback #17）。
+  - 取消渠道 WebhookURL/Secret 明文存储 + 响应脱敏的取舍登记见 dev-feedback #15；令牌/时区注入依赖 `env/env.sh`（当前交付包无该文件）见 dev-feedback #16。
+  - Track B+ 强制 security-reviewer 收尾：桥端点 SSRF 面 + 内网令牌鉴权 + 出站 CA 收敛，建议随 T08-11 挂 security-reviewer。
+
+## T08-12：通知渠道生成接收人配置片段端点
+
+- **commit**：`eb8ff3b`（feat(module-08): 通知渠道生成接收人配置片段端点（T08-12））
+- **背景**：PL-3 交付了渠道登记能力，但未把渠道接到 `alertmanager.yml` 的 receivers——用户既不知道为何要写 receiver，也无从知道 `channel` 的真实数字 ID 与桥 `token` 真值（前端骨架误写 `ch-default` 必被 `parseUintQuery` 判非法）。本端点服务端拼好完整可用的 receiver 片段（含真实 ID + 内网令牌）供用户复制粘贴（A 路线：不改 M09 生成逻辑）。
+- **新增/修改文件**：
+  - `platform/alertmanager/notify/receiver_snippet.go`（新增）：`ReceiverSnippetConfig`（BridgeURL + BridgeToken）/ `ReceiverSnippet`（receiver_name / url / snippet / token_configured）；`DeriveBridgeBaseURL(listenAddr)`（由监听地址推导桥基址：空/`0.0.0.0`/`::` 归一为 `127.0.0.1`，缺端口报错）；`sanitizeReceiverName`（转小写、非 `[a-z0-9]`→`-`、压缩连续、去首尾）；`BuildReceiverSnippet`（receiver 名 sanitize + 空名回落 `notify-<id>` + query 覆盖校验；URL 恒带真实数字 channel ID 与令牌，未配置令牌用占位符 `<未配置桥令牌>` 并置 `token_configured=false`；片段为相对 `receivers:` 缩进 2 空格的可粘贴 YAML）；`ReceiverSnippetHandler`（解析 `:id` → GetChannel → 生成，只读无副作用）。
+  - `platform/alertmanager/notify/register.go`（修改）：`RegisterRoutes` 增 `snippetCfg ReceiverSnippetConfig`；admin 组追加 `GET /:id/receiver-snippet`（挂 `auth.RequireAdmin()`）。
+  - `platform/alertmanager/notify/channel_handler.go`（修改）：`respondChannelError` 增 `ErrReceiverNameInvalid` → `bad_request` 映射。
+  - `platform/alertmanager/register.go`（修改）：`RegisterRoutes` 增 `notifyCfg notify.ReceiverSnippetConfig` 参数并下传。
+  - `platform/cmd/metric-center/main.go`（修改）：由 `--listen-address` 经 `notify.DeriveBridgeBaseURL` 推导桥基址（非法即启动失败）；`setupRouter` / `registerPlatformConfigRoutes` 增片段配置透传。
+  - `platform/alertmanager/notify/receiver_snippet_test.go`（新增）：基址推导表驱动、receiver 名 sanitize（含中文名「SRE 飞书群」→`sre`）、空名回落、覆盖校验、令牌未配置占位符、URL↔bridge 参数口径闭环（把生成 URL 的 `channel` 喂回 `parseUintQuery`）、handler 鉴权（无身份/普通用户 403、管理员 200）、404/400、**amtool check-config 实测片段可接受（含令牌与占位符两态）**。
+  - `platform/cmd/metric-center/main_test.go`（修改）：`alertmanager.RegisterRoutes` 调用补片段配置；`TestEndToEndNotifyBridgeSmoke` 增第 6 步断言片段端点返回真实 channel ID + 令牌 + `send_resolved: true`。
+- **契约口径**：`GET /api/v2/platform/alertmanager/notify-channels/{id}/receiver-snippet`，鉴权 `RequireAdmin()`；成功 200 `data={receiver_name,url,snippet,token_configured}`；404 `not_found`（渠道不存在）；400 `bad_request`（ID 非法 / receiver_name 覆盖非法）。令牌封装在片段内、不作为独立字段单独暴露（用户裁决）。
+- **验证结果**：
+  - `go test ./platform/...` 全绿（含 `platform/alertmanager/notify` 新增用例与 `cmd/metric-center` 集成）；`go vet ./platform/...` 干净；`make repo-map` 已刷新、`make check-repo-map` OK。
+  - 服务启动（`:18081` + `NOTIFY_BRIDGE_TOKEN=testbridge-123` + 临时 DB）：`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200；admin 登录创建渠道（脱敏 `https://open.feishu.cn/***`）后 `GET .../notify-channels/1/receiver-snippet` → 200 `receiver_name=sre`、`url=http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1&token=testbridge-123`、`snippet` 含 `send_resolved: true`、`token_configured=true`；`/9999`→404、`/abc`→400、无 token→401、**普通用户 token→403 `forbidden`**。验证后已停服释放 18081（临时 DB 已清理）。
+- **遇到的问题与解决**：
+  - 片段在 AM 侧必须可直接粘贴且 `amtool check-config` 接受：`token_configured=false` 时占位符含尖括号，实测 `amtool check-config` 对该 URL 仍判 SUCCESS，遂保留醒目占位符（未做百分号转义，保证可读）。
+- **遗留**：本端点属 PL-3 契约的新增端点，`api-contract-snapshot.md` / PRD 仍缺 PL-3 全部端点（见 dev-feedback #17，已在本端点追加其后登记）。
+
+## 方案 B 落地（2026-09-29）：M09 自动物化通知 receivers + 安全必修 H-1/M-1/M-2/M-3
+
+- **背景 / 输入**：用户 2026-09-29 书面确认**方案 B**（「我同意这个方案 B，还请继续执行」）——已启用渠道的接收人生效引用由 M09 配置生成器自动物化进管理域 `default` 的 `alertmanager.yml`，替代 A 路线的「人工复制片段」。契约权威：`design-decisions.md` 决策 74 + 「定稿补充：方案 B 落地契约」三条锁定口径（合并策略 / 模板物化 / UI 口径）。同批修复 `security-review-pl3.md` 的 H-1（HIGH 必修）+ M-1/M-2/M-3。
+- **新增/修改文件**：
+  - **安全必修（同批）**：
+    - `platform/alertmanager/notify/channel.go`：新增 `rejectPrivateHost`（默认拒绝私网 / 环回 / link-local / 未指定 / 云元数据 `169.254.169.254`）+ `SetAllowPrivateWebhookTargets` 显式开关（M-2）。
+    - `platform/alertmanager/notify/client.go`：新增 `sanitizeOutboundError`（剥离 `*url.Error` 完整 URL，M-1）；`newOutboundHTTPClient` 设 `CheckRedirect → http.ErrUseLastResponse`（M-3）。
+    - `platform/alertmanager/notify/bridge.go`：鉴权改为请求头 `Authorization: Bearer <token>`（`bearerToken`），URL query 不再承载令牌（H-1）。
+    - `platform/alertmanager/notify/receiver_snippet.go`：`buildBridgeURL` 只带 `channel`；片段改写 `http_config.authorization`（type Bearer + credentials）；`sanitizeReceiverName` 委托 `models.SanitizeReceiverName` 消除漂移。
+    - `platform/models/alertmanager_notify.go`：新增 `SanitizeReceiverName` / `NotifyChannel.ReceiverName()`（receiver 名派生单一实现，M08 片段侧与 M09 物化侧同源）。
+  - **B 路线物化（M09）**：
+    - `platform/configcenter/generator/notify_receivers.go`（**新增**）：`MaterializeNotifyReceivers(baseYAML, NotifyReceiverInput) → (yaml, conflicts, err)`——yaml.Node 往返保留注释 / 手写节点；enabled 渠道按 id 升序追加 receiver；**重名即冲突、整体不写入**；**幂等**（名称 + 桥 URL 均匹配的已物化 receiver 识别为自身产物，不重复追加、不误判重名）；令牌空时不写 `http_config.authorization`（不伪造占位值）。
+    - `platform/configcenter/generator/generator.go`：`ConfigArtifacts` 新增**非产物字段** `NotifyReceiverConflicts`（不参与 Checksum / 不落盘 / 不序列化，仿 `TargetDiagnostics` 范式）。
+    - `platform/configcenter/generator/validate.go`：`ValidateArtifacts` 顶部新增冲突分支 → `failed` + `validation_cause=user_config` + `alertmanager.yml` 行级错误（`{file, line, message}`），置于工具可用性检查之前（不因 amtool 缺失退化为 pending）。
+    - `platform/configcenter/generator/data_source.go`：新增 `LoadEnabledNotifyChannels`（`enabled=true`，id 升序）。
+    - `platform/configcenter/generator/change_detect.go`：`sourceTableScopes` 追加 `NotifyChannel` / `NotifyTemplate`（渠道 / 模板变更触发重算与变更检测）。
+    - `platform/configcenter/draft/service.go`：新增包级 var `NotifyBridgeURL` / `NotifyBridgeToken`（main 注入，可测试注入）；新增 `materializeNotifyReceivers`，在 `buildArtifacts`（生成路径）与重校路径**两处**调用（保证「重新校验」复现同一结论，冲突未消除仍 failed）。
+    - `platform/cmd/metric-center/main.go`：装配注入两变量 + 令牌缺失启动 WARN。
+  - **测试**：`notify_receivers_test.go`（**新增** 6 例：追加 / 令牌空省略 / noop 三态 / 手写重名冲突 / 平台内部重名 / 校验层行级错误）；`draft_test.go` 新增 2 例（物化 + 冲突 & 重校复现）；`bridge_test.go` / `channel_test.go` / `receiver_snippet_test.go` / `main_test.go` 同步 H-1 与 M-2 口径（`doBridgeJSON` 统一带 Bearer、`jsonAuth` helper、私网放行开关）。
+- **契约口径**：写入 `api-contract-snapshot.md` **§11**（新增，全 PL-3 端点 + 字段 + 鉴权 + 错误码 + **§11.6 B 路线物化行为**），版本推进至 `v2026-09-29`；dev-feedback #17 / #21 / #22 转 closed，#24 转 fixed_pending_review。
+- **验证结果**：
+  - `go build ./platform/...` 通过；`go test ./platform/...` 全绿；`go vet ./platform/...` 干净。
+  - `make repo-map` 已刷新、`make check-repo-map` OK。
+  - 服务启动（`:18080` + `--notify.bridge-token=smoke-token` + 临时 DB）：`/api/v1/health` 200；桥端点**无令牌 → 401、错令牌 → 401、正确 Bearer → 404（未知渠道）**，鉴权闭环成立。验证后已停服释放 18080（临时 DB / 日志已清理）。
+- **关键取舍**：
+  1. 物化放在 generator 包纯函数 + `draft.buildArtifacts` 调用（**不改 `Assemble` 签名**），保持既有 25 处调用零改动。
+  2. `NotifyReceiverConflicts` 走**非产物字段**范式，避免污染 Checksum / 落盘。
+  3. 桥令牌空时**不写** `http_config.authorization`（不伪造占位令牌进真实下发配置），由启动 WARN + 桥端 401 暴露。
+- **遗留风险**：
+  - H-1/M-1/M-2/M-3 待 **security-reviewer 复检**后 `#24` 置 closed。
+  - PRD `Module_08_*.md`（design 空间，非开发 Agent 可写）的 PL-3 端点与 B 路线物化行为待 design 侧同步（dev-feedback #13 / #17）。
+  - `design/module-mvp-demo` 分支的 `design-decisions.md` 需同步决策 74 方案 B 补充块。

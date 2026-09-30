@@ -24,7 +24,7 @@ func HeartbeatHandler(svc *HeartbeatService) gin.HandlerFunc {
 			return
 		}
 
-		resp, err := svc.Handle(dom, &req, nowUTC(), requestAuthority(c))
+		resp, err := svc.Handle(dom, &req, nowUTC(), resolveDownloadAuthority(dom, c))
 		if err != nil {
 			response.InternalServerError(c, err)
 			return

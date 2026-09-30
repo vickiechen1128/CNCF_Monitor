@@ -24,7 +24,10 @@ var ValidAppCode = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
 //   - AppName     展示名（app_name），可改，仅 UI 展示，修改不触发监控配置重生成 / 下发；
 //   - Description 描述，可改；
 //   - Status      启用状态（enabled/disabled）；停用不删除，停用条目不可被新资源选用；
-//   - Source      条目来源（决策 97）：manual / excel-import / cmdb {v0.4+}。
+//   - Source      条目来源（决策 97）：manual / excel-import / cmdb {v0.4+}；
+//   - PlatformCode {v2.45 决策 104/107} **可选父级**（平台字典主键 platform_code），
+//     表达纵向 platform(1) → app(N) 组成分解；NULL/空串 = 未挂平台（正常态），
+//     资源 `platform` label 因此不注入。非空时须引用未停用平台条目（服务端硬校验）。
 //
 // 资源表只存 AppCode（Host 物理列 app_code；Middleware/Application/Database/
 // GenericTarget 物理列 app_name），app label 恒取 AppCode；AppName 不落在资源表上。
@@ -37,6 +40,9 @@ type ApplicationDict struct {
 	Description string     `gorm:"size:500" json:"description"`
 	Status      string     `gorm:"size:20;not null;default:enabled" json:"status"`
 	Source      DictSource `gorm:"size:20;not null;default:manual" json:"source"`
+	// PlatformCode 可选父级平台（平台字典 PlatformDict.PlatformCode）。存量行兼容：
+	// 可为 NULL / 空串（未挂平台），不设外键约束（跨字典松耦合，靠服务端硬校验）。
+	PlatformCode string `gorm:"size:64" json:"platform_code"`
 }
 
 // NormalizeAppCode 把任意存量取值归一化为合法 app_code（决策 92 存量迁移）：

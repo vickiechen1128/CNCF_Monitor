@@ -183,22 +183,29 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	}, nil
 }
 
-// writebackAgentPullDeployments 将指定网域 agent_pull 通道下、对应目标版本的
-// pending 下发记录改写为 success。agent_pull 通道 confirm 时只落 pending 占位
-// （deployment.service.dispatchVersion），此处由心跳确认 agent 已与应用此版本后
+// writebackAgentPullDeployments 将指定网域 agent_pull 通道下所有 status=pending 的
+// 下发记录改写为 success。agent_pull 通道 confirm 时只落 pending 占位
+// （deployment.service.dispatchVersion），此处由心跳确认 agent 已与应用最新版本后
 // 补全「成功」状态，使「配置发布与回滚记录」口径与节点配置同步状态一致。
+//
+// 关键修正（2026-09-30 诊断）：原实现仅匹配 config_version_id=latest.ID，导致每次确认
+// 新生成的 pending 在「成为 latest 之前」永久停留「待执行」——旧版本被新版本取代后，
+// 那条指向旧版本的 pending 永远等不到心跳翻写，堆积成孤儿脏数据。agent 拉取的是含全部
+// 历史变更的 latest 配置包，故只要它与最新版本同步，该域所有 pending（无论指向哪个历史
+// 版本）都已逻辑交付，应一并翻 success。
+//
+// 仅作用于 agent_pull 通道：local 通道下发记录不会停留在 pending（dispatchVersion 落盘即
+// 终态），无需处理。version 参数保留以兼容调用点（心跳在 agent 与 latest 同步时调用）。
 func writebackAgentPullDeployments(db *gorm.DB, domainID string, version *models.ConfigVersion, now time.Time) error {
-	// 匹配点：deployment.ConfigVersionID 存 fmt.Sprint(version.ID)（int 主键）。
-	targetID := fmt.Sprint(version.ID)
 	res := db.Model(&models.ConfigDeployment{}).
-		Where("network_domain_id = ? AND config_version_id = ? AND status = ?",
-			domainID, targetID, models.DeploymentStatusPending).
+		Where("network_domain_id = ? AND channel = ? AND status = ?",
+			domainID, models.ChannelTypeAgentPull, models.DeploymentStatusPending).
 		Updates(map[string]interface{}{
 			"status":       models.DeploymentStatusSuccess,
 			"completed_at": now,
 		})
 	if res.Error != nil {
-		return fmt.Errorf("writeback agent_pull deployment to success: %w", res.Error)
+		return fmt.Errorf("writeback agent_pull deployments to success: %w", res.Error)
 	}
 	return nil
 }

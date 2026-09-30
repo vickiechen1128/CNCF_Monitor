@@ -283,3 +283,45 @@
 - **影响范围**：Module_08 PRD v1.16（§5.2、§6.5、§9.1、§9.2、§10）；`api-contract-snapshot.md` §4 / §8；`dev-feedback.md` 第 10 条。
 - **关联决策**：决策 47-3（resource_id 强制注入，实例级静默的钥匙）、决策 55/56（静默授权收敛，不变）、决策 59（静默 API 直调即时生效，不变）、决策 61（v2 API 口径，不变）、决策 70（instance 取值口径与 resource_id 实例名回连，实例选择器同源）、M02 决策 4.4 / M09 决策 19（网域键名双读，未收敛）。
 - **用户确认**：2026-09-11，用户在开发空间 `feat/module-08-alert-dispatch` 书面确认「我同意可以，先把我这个需求落档 M08 的 decision（详细记录可匹配标签的精确口径是四层并集）和 prd，然后开始修改代码」。
+
+---
+
+## 补充对齐：2026-09-29（告警配置口径与通知渲染桥，决策 74）
+
+- **触发**：M08 评审对话中用户提出三问——**Q1**「M01 规则编辑本质是面向告警的规则编辑，为何不放在 M08」；**Q2**「M08『告警配置』（`alertmanager.yml`）抽象出来到底是什么功能」；**Q3**「用户已自建飞书 Python 脚本实现通知，它与 `alertmanager.yml`、M01 规则编辑的关联是什么，应抽象成什么功能」。经设计提案 [alert-config-scope-and-notification-bridge.md](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-worktree/docs/05-execution-records/module-08/design-proposals/alert-config-scope-and-notification-bridge.md) 分析，2026-09-28 用户裁决 D-1/D-2/D-3/D-4；2026-09-29 用户就「通知渠道/模板生效引用由 M09 自动物化 vs 人工复制片段」书面选择**方案 B 并指示继续执行**。本决策为该提案的跨模块契约面落档（提案 §6 要求：先落档决策 74，方可进入实现与评审）。
+- **结论（决策 74）**：
+  1. **告警处理全链路四段定位**：① 采集策略（M01，抓什么）→ ② 规则求值（M01 规则编辑，什么算异常，产出 `rules.yml`）→ ③ 路由收敛（M08，`alertmanager.yml`，发给谁/怎么聚合/怎么降噪）→ ④ **通知渲染（本决策新增，通知长什么样）**。第 4 段是 Alertmanager 的天然空白（AM 只吐通用 JSON，飞书/钉钉/企业微信要各自卡片 JSON），用户自建脚本正是在补这一段。
+  2. **PL-1「规则编辑」归组：导航零变更（方案丙，D-1）**。判据域（M01）与处置域（M08）分界不变；**指标库在 M01「采集策略」下**，整体迁移会切断规则编辑与指标库同域动线，故 `/rules` 路由、页面文件、M01 接口与 `MonitoringRule` 归属**全部零变更**，仅由 M08 工作台新增跨模块联动入口解决「找不到」。命名议题（D-1b）采纳建议 **ⓐ**：保持「规则编辑」，仅补菜单副标题/标签「含告警规则、记录规则」+ 规则编辑页顶部定位文案。
+  3. **PL-2 告警配置口径显式化**：`alertmanager.yml` = 「告警分派与收敛引擎」配置。用户在告警配置页需写**三块**——`receivers`（接收人/渠道）、`route`/`routes`（路由）、`inhibit_rules`（收敛）；**两块明确豁免**——**静默**（AM 运行时 API 状态，平台已实现且 API 直调即时生效、不进变更流水线，决策 61）与**通知模板内容 `templates`**（由 PL-3 通知模板承载并经平台生成引用，用户不手写模板文件）。
+  4. **PL-3 通知渲染桥（新增能力，D-2/D-3）**：
+     - **数据模型**：`NotifyChannel`（渠道：`name`/`type`∈{feishu,dingtalk,wecom}/`webhook_url`/`secret`/`enabled`；**AM 侧只引用 ID、不暴露目标地址**）；`NotifyTemplate`（模板：`name`/`channel_type`/`content`（Alertmanager 标准 **Go template**，非脚本）/`is_builtin`/`checksum`/`status` 恒 `applied`；**版本化留痕、校验失败不落库**，照抄决策 59/60 纪律）。
+     - **平台内置渲染端点** `POST /api/v1/webhooks/notify`（D-3 命名维持，`channel`/`template`/`token` query）：AM 原生 webhook JSON → 按模板渲染 → 组卡片 JSON → POST 到渠道机器人。
+     - **SSRF 硬约束**：端点**只接受平台内已登记的 `channel` ID**，目标地址由服务端从 DB 解析；显式拒绝任何请求方传入的目标地址参数（含用户脚本的 `?fsurl=` 形态）——直接消除用户脚本「任意地址开放中继」隐患（对齐 AGENTS.md §9）。
+     - **鉴权**：**内网调用令牌**（AM 与 metric-center 同机，随 `alertmanager.yml` 生成写入 URL）；未带/不匹配 → 401；常量时间比较；令牌为空时**不开放匿名转发**。
+     - **模板形态（D-2 裁决 ⓑ）**：内置默认飞书卡片模板（零模板接入）+ 用户可自定义 Go template；校验复用 `amtool check-config` 等价工序。
+     - **通用坑收编**：统一渲染时区（默认东八区，可配置）、出站 HTTP 客户端**统一 CA 收敛**、**结构化发送结果日志**（渠道/模板/成功失败/失败原因，可查）、模板可改可留痕可回滚。
+     - **逃生门**：receiver 的 `webhook_configs.url` 仍可直接填外部地址（平台只负责配置与校验，不托管运行、不阻断）。
+  5. **生效路径——方案 B（M09 自动物化，2026-09-29 用户确认）**：通知渠道/模板的**生效引用**由 **M09 配置生成器**在生成管理域（`default`）`alertmanager.yml` 时**自动物化**——`receivers[].webhook_configs.url` = 平台桥地址 + **真实数字 channel ID** + 内网令牌；`templates:` 段引用平台托管模板；产物**纳入联合 checksum**，两个模型**纳入 M09 变更检测源表白名单**（渠道/模板编辑即触发变更检测）。这是把半自动的「人工复制 receiver 片段」收敛为「配置即生效」的自动闭环，**与 M07 `LabelTemplate` / M01 `ScrapeJob` 既有物化范式对齐，不另造特例**。M08 = 内容 Owner、M09 = 管道 Owner（决策 60 分工不变）；仅管理域 `default`，不按网域扇出、不进 `agent_pull` 配置包（决策 54/60 不变）。
+  6. **交付节奏（D-4）**：PL-1 + PL-2 先合并（已落地）；PL-3 独立迭代，Track B+ **强制 security-reviewer**（涉 SSRF、内网令牌、出站请求）。
+- **未决/待回写项**：方案 B 的「平台物化 receivers 与用户手写 `alertmanager.yml` 的**合并/冲突策略**」~~为实现期需定稿的关键点，定稿后以补充块回写本决策~~ **已于 2026-09-29 定稿，见下方「决策 74 定稿补充」**；令牌来源依赖交付包 `env/env.sh`（当前缺，见 dev-feedback #16，仍以 flag + 环境变量兜底，由 M09 生成器注入）。
+- **影响范围**：Module_08 PRD（§1/§3.1/§4.1/§5/§6/§9/§10/§11，回写阶段执行）；`api-contract-snapshot.md`（PL-3 全部端点 + 物化行为）；Module_09 PRD（§3.3 生成侧 receivers 物化与 `templates` 引用）；Module_01 PRD（§11 边界说明一句 + 命名议题结论）；原型 M08。
+- **关联决策**：决策 49（Alertmanager 选型）、决策 59（文件挂载形态）、决策 60（`alertmanager.yml` 纳入 M09 变更确认）、决策 61（静默 v2 API 直调）、决策 54（按域扇出——告警配置为例外）、决策 70/71（实例与静默口径，不受影响）。
+- **用户确认**：2026-09-28 裁决 D-1（方案丙）/ D-2（内置 + 可自定义 Go template）/ D-3（端点命名维持）/ D-4（交付节奏）；2026-09-29 书面确认「我同意这个方案 B，还请继续执行」。
+
+### 决策 74 定稿补充：方案 B 落地契约（2026-09-29）
+
+> 本补充块把第 5 条（方案 B）的落地口径与安全审查结论一次性定稿，作为实现的契约权威；与前文逐条冲突时以本块为准。
+
+1. **receivers 合并 / 冲突策略（定稿）**：M09 生成管理域（`default`）`alertmanager.yml` 时——
+   - **平台按「已启用渠道」自动生成 receivers**：每个 `enabled=true` 的 `NotifyChannel` 生成一个 receiver，`webhook_configs.url` = 平台桥地址 + `channel=<真实数字 ID>`（+ 可选 `template=<数字 ID>`，见第 2 条）；
+   - **保留用户手写 receivers**（PL-2 三块必写 + 提案 §3.3.7 逃生门不变）；
+   - **重名即草稿校验失败**：平台生成的 receiver 名与用户手写 receiver 名冲突时，**阻塞并给出行级错误**，绝不静默覆盖或合并。平台 receiver 名规则（渠道名 sanitize → 空则 `notify-<id>`）**必须与 `notify/receiver_snippet.go` 的 `sanitizeReceiverName` / 回落口径同源**，禁止两处各写一份造成漂移。
+   - **平台物化 receiver 识别依据（L2 止血，2026-09-30 补）**：平台物化的 receiver，识别以「receiver 名 ∈ 本次物化将生成的平台名集合（= 各已启用渠道的 `ch.ReceiverName()`）」为准。同名且 URL 属平台桥地址形态者，视为平台自身产物：URL 相同时跳过（幂等）；URL 不同时**原地更新**该 receiver 的 `url` 与 `http_config.authorization`，并记入变更项（视为「平台 receiver 地址演进」），**不再报重名冲突**。同名但 URL **非**平台桥地址形态（确系用户手写、指向别处）者，仍按 `failed + user_config` 处理（决策 74「绝不静默覆盖/合并」语义不变）。
+2. **模板物化口径（收窄，修正第 5 条原文）**：**只把 template ID 写进 receiver URL 的 query**（`?channel=<id>&template=<id>`）；**不生成 AM `templates:` 段、不写模板文件**。理由：桥端点收到的是 AM 原生 webhook JSON，卡片渲染由**平台侧 `Render`**（`notify/bridge.go` / `notify/render.go`）完成，AM 自身无需模板文件。第 5 条原文「`templates:` 段引用平台托管模板」的表述按本条修正。
+3. **H-1 令牌传输面（security-review 必修，合并前完成）**：桥内网令牌**不得经 URL query 传递**——`gin.Default()` 会把 `RawQuery` 明文写访问日志（`main.go` 全局 Logger），令牌外泄即绕过桥鉴权。
+   - **修法**：令牌改由 **HTTP 请求头**承载。AM 侧 `webhook_configs.http_config.authorization`（`type: Bearer` + `credentials: <token>`）；平台侧 `bridge.go` 从 `Authorization` 头解析 `Bearer <token>`（常量时间比较）；`receiver_snippet.go` 生成的片段/URL **去掉 `token` query**，改为在片段中写 `http_config` 块；M09 物化 receivers 亦写 `http_config.authorization`。
+   - **不采用**「自定义 Logger 剔除 query」作为主修法（可选兜底，不作为方案）。
+4. **告警配置页 UI 口径（用户新增诉求）**：告警配置页做「**UI 控制 → 派生展示 `alertmanager.yml` 预览**」——UI 侧配置（渠道 / 模板 / 路由等）派生并预览将生成的 `alertmanager.yml`；**不降低自由度**（用户仍可直接手写 / 上传整文件），但平台**只保证 UI 控制部分的效果，手写部分不保证**（手写内容原样透传、不解析语义、不参与预览派生）。
+5. **M09 变更检测白名单**：`models.NotifyChannel` / `models.NotifyTemplate` 纳入 `generator.change_detect.sourceTableScopes`，`domainScoped=false`（与 `MonitoringRule` / `LabelTemplate` 同列）——渠道 / 模板编辑即推进会 `SourceDataVersion` 并触发变更检测预筛。
+6. **令牌与桥地址注入**：M09 生成器（`generator.Assemble`）新增桥地址 / 令牌入参，由 `draft.buildArtifacts` 从运行配置注入；令牌来源为交付包 `env/env.sh`（当前缺，见 dev-feedback #16），暂以 flag `--notify.bridge-token` + 环境变量 `NOTIFY_BRIDGE_TOKEN` 兜底。
+7. **安全审查（`security-review-pl3.md`）结论一并纳入**：H-1 按第 3 条必修；M-1（出站传输错误 `err=%v` 含 webhook 明文落日志）/ M-2（`ValidateWebhookURL` 未限私网 / 环回 / `169.254.169.254`）/ M-3（出站客户端跟随重定向）同批修复，登记见 `dev-feedback.md` #24。

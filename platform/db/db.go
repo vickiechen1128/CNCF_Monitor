@@ -64,6 +64,9 @@ func AutoMigrate() error {
 		&models.ApplicationDict{},
 		// 云字典（决策 98/102：部署级只读）
 		&models.CloudDict{},
+		// 平台字典 / 服务字典（决策 104/105/107：四层骨架顶层与第三层）
+		&models.PlatformDict{},
+		&models.ServiceDict{},
 		// 用户认证（Module_06 §5.3/§5.4，Module_03 §4.0）
 		&models.User{},
 		&models.Session{},
@@ -97,6 +100,9 @@ func AutoMigrate() error {
 		&models.EdgeTargetSnapshot{}, // F-11：边缘 vmagent target 抓取快照（随心跳落库）
 		// 告警收敛与通知管理（Module_08，决策 59/60 alertmanager.yml 挂载留痕）
 		&models.AlertmanagerConfigVersion{},
+		// 通知渲染桥（Module_08 PL-3：通知渠道 + 通知模板版本化留痕）
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
 		// 预留
 		&models.BusinessMetric{},
 	)

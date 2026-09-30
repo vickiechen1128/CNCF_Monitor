@@ -285,3 +285,53 @@
 | PRD 版本 | 日期 | 收割范围 | 落点 |
 | --- | --- | --- | --- |
 | v2.48 | 2026-09-28 | F-5 / F-11(a) | F-5：§5.2 `instance_name` 改以 §5.12.1 A 为准（生成 `instance_name` label）+ §5.12.1 通用行补适用范围括注（4 类静态资源，db/mw 取 `InstanceIP`，application 不适用）+ 移除 `hostname` 死键行；F-11(a)：§5.8 application `health_check_url` 恢复可选（仅资源画像/标签来源，不参与采集）、`endpoint`+`port` 为采集地址且必填（`port` 1~65535）、`protocol` 仅资源画像。F-11(b)(c) 归 M09/M01，待对应模块回写 |
+
+---
+
+## 13. 新增登记（2026-09-28，导航与资源列表 UX 梳理期发现）
+
+> 触发：PM UX 梳理——导航层级顺序、「监控对象管理」子项图标、资源列表列组织与命名、云/服务列语义。
+> 以下均为 **③ 实现/优化缺口**（不改 PRD / 原型契约），不涉及 PRD 内部矛盾。
+> 优先级建议：F-15（合规）> F-12（导航层级）> F-13（列分组）> F-14（云列 tooltip）。
+> **云归属 P0（网域登记表单缺字段）登记在 `module-06/dev-feedback.md` #15**（该字段权威在 M06，本条仅登记 M07 侧消费端）。
+
+### F-12. 「监控对象管理」导航子项顺序与四层模型不符 + 四项图标重复（③ 优化）
+
+- **位置**：`ui-custom/web/src/layouts/MainLayout.tsx` L128-140（`monitoring-object` 分组 `subItems`）；契约 M07 PRD §5.21（平台字典）/ §5.22（服务字典）与四层模型 `platform(1) → app(N) → service(M) → instance(K)`；原型 Module_07 MainLayout §3.23。
+- **现状**：
+  1. 子项顺序为「业务 → 应用 → 平台 → 服务」（L131-137），把**纵向组成链**（平台→应用→服务）与**横向归属维度**（业务）混排，且平台被排在应用**之后**，与四层模型自顶向下的层级不符；
+  2. 四项图标**全部为 `AppstoreOutlined`**（L131/133/135/137），业务 / 应用 / 平台 / 服务无法靠图标区分。
+- **建议**：
+  - 顺序：`平台 → 应用 → 服务` 一组（纵向组成链，自顶向下）+ `业务` 单独成组或置后（横向归属维度）；
+  - 图标区分（示意）：平台 `DeploymentUnitOutlined` / `ClusterOutlined`、应用 `AppstoreOutlined`（保留）、服务 `ApiOutlined` / `NodeIndexOutlined`、业务 `PartitionOutlined` / `TagOutlined`。
+- **状态**：open（待 PM 确认方案后落地）
+
+### F-13. 资源列表五类 Tab 列未按「技术属性 / 业务归属」分组（③ 优化）
+
+- **位置**：`ui-custom/web/src/pages/resources/ResourcesPage.tsx` `buildColumns`（host L543-589 / database L590-613 / middleware L614-637 / application L638-710 / generic_target L711-752）；契约 M07 PRD §5.2（区分「技术属性」与「业务属性 / 归属」）。
+- **现状**：五类 Tab 列**扁平混合**，技术属性（实例名 / IP / 端口 / OS / 类型 / 版本）与业务归属（业务 / 应用 / 平台 / 服务）**无分组**；host 列序为 `实例名 → IP 地址 → 操作系统 → 环境 → 集群 → 网域 → 业务名称 → 应用名称 → 平台 → 云 → 运行状态 → 采集状态 → 录入方式 → 操作`，五类列顺序也不统一。
+- **建议**：按「技术属性 / 业务归属」两组归并，用列头分组（`children`）或视觉分组呈现：
+  - **技术属性组**：实例名 / IP、端口、OS / 类型、版本、网域、运行状态、采集状态（回答「怎么采、采到哪」）；
+  - **业务归属组**：平台、应用、服务、业务、云（回答「属于谁、服务谁」）。
+  - 注：「云」属**位置属性**（经所属网域 `cloud_code` 派生），严格说是「技术 / 位置」而非「业务归属」，建议归技术属性组或单列「位置」组。
+- **状态**：open（待 PM 确认后落地）
+
+### F-14. 资源列表「云」列缺 tooltip（③ 优化）
+
+- **位置**：`ResourcesPage.tsx` `cloudColumn` L418-432；契约 M07 §5.20 / 决策 103。
+- **现状**：列头仅「云」二字、**无 tooltip**（对比 `appColumn` L394-401、`platformColumn` L453-459 均已配 `InfoCircleOutlined` + tooltip）；列值实为 `cloud_name`（`resolveCloudName`，缺条目回退 `cloud_code`），用户无法分辨展示的是**云名还是云码**，也不知来源。
+- **建议**：列头补 tooltip，例：「云归属经所属网域派生（网域登记时确定），资源侧只读」，并可注明「展示为云字典中的云名」。
+- **状态**：open（待落地）
+
+### F-15. 「应用」Tab 命名与 PRD 不符 + 「服务名 / 服务」两列歧义（③ 优化 + 合规）
+
+- **位置**：`ResourcesPage.tsx` `RESOURCE_TYPE_MAP`（L96-102，`application: '应用'`）、Tabs `items`（L869-872）、`serviceColumn`（L435-449）、application Tab「服务名」列（L641-655）；契约 M07 PRD §5.1（L315）。
+- **现状**：
+  1. **Tab 命名不合规**：PRD M07 §5.1（L315）规定 `application` 的 UI 展示名为 **「应用服务」**，而生产 `RESOURCE_TYPE_MAP.application` 写死「**应用**」；Tab label 直接取自该 map（L872），与 PRD 不符。
+  2. **两「服务」撞车**：application Tab 同屏并存「**服务名**」（`service_name` = 应用服务**实例名**，自由文本，参与判重键 `网域 + 服务名 + 地址:端口`，L641-655）与「**服务**」（`service_code` = **服务字典**归属，`svc` label 取值，L435-449），字面撞车、语义难分。
+- **建议**：
+  - ① Tab 改名「**应用服务**」（改 `RESOURCE_TYPE_MAP.application`），与 PRD §5.1 对齐；
+  - ②「服务」列改「**所属服务**」（与「所属平台」措辞对齐），并补 tooltip「该资源归属的服务字典条目（`svc` 标签取值）」；
+  - ③「服务名」列 tooltip 补区分句：「本应用服务实例名，参与判重；与服务字典归属（所属服务）是两个概念」；
+  - ④「所属服务」列建议紧邻「服务名」或归入业务归属组，避免语义相关的两列被技术列隔开。
+- **状态**：open（待 PM 确认后落地）

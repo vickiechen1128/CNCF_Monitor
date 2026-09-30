@@ -5,11 +5,17 @@ import DomainsPage from './pages/admin/domains/DomainsPage'
 import UsersPage from './pages/admin/users/UsersPage'
 import TenantsPage from './pages/admin/tenants/TenantsPage'
 import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
+// 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19）
+import CloudDictPage from './pages/admin/clouddict/CloudDictPage'
 // 外观设置页（M06 系统与平台管理 · 皮肤 + 产品名称，用户 2026-09-18 补充）
 import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
 import BusinessDomainPage from './pages/resources/BusinessDomainPage'
 import ApplicationDictPage from './pages/resources/ApplicationDictPage'
+// 平台字典维护页（M07 §5.21 / 决策 104，契约快照 §5C）
+import PlatformManagementPage from './pages/resources/PlatformManagementPage'
+// 服务字典维护页（M07 §5.22 / 决策 105，契约快照 §5D）
+import ServiceManagementPage from './pages/resources/ServiceManagementPage'
 import LabelTemplatesPage from './pages/label-templates/LabelTemplatesPage'
 import ScrapeJobListPage from './pages/strategy/ScrapeJobListPage'
 import CollectorListPage from './pages/strategy/CollectorListPage'
@@ -53,6 +59,14 @@ const AlertStatusPage = lazy(() =>
 const HistoryAlertsPage = lazy(() =>
   import('./pages/alerts/HistoryAlertsPage').then((m) => ({ default: m.HistoryAlertsPage })),
 )
+// M08 PL-3 增量：通知渠道管理页（通知渲染桥）
+const NotifyChannelsPage = lazy(() =>
+  import('./pages/alerts/NotifyChannelsPage').then((m) => ({ default: m.NotifyChannelsPage })),
+)
+// M08 PL-3 增量：通知模板管理页（通知渲染桥）
+const NotifyTemplatesPage = lazy(() =>
+  import('./pages/alerts/NotifyTemplatesPage').then((m) => ({ default: m.NotifyTemplatesPage })),
+)
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -86,12 +100,18 @@ function AppRoutes() {
           <Route path="/admin/users" element={<UsersPage />} />
           <Route path="/admin/tenants" element={<TenantsPage />} />
           <Route path="/admin/login-logs" element={<LoginLogsPage />} />
+          {/* 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19） */}
+          <Route path="/admin/cloud-dict" element={<CloudDictPage />} />
           <Route path="/admin/appearance" element={<AppearanceSettingsPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/label-templates" element={<LabelTemplatesPage />} />
           <Route path="/business-domains" element={<BusinessDomainPage />} />
           {/* 应用字典维护页（M07 §5.19 / 决策 92，与业务管理页同构） */}
           <Route path="/application-dict" element={<ApplicationDictPage />} />
+          {/* 平台字典维护页（M07 §5.21 / 决策 104，与应用字典同构） */}
+          <Route path="/platform-dict" element={<PlatformManagementPage />} />
+          {/* 服务字典维护页（M07 §5.22 / 决策 105，与应用字典同构） */}
+          <Route path="/service-dict" element={<ServiceManagementPage />} />
           <Route path="/scrape-jobs" element={<ScrapeJobListPage />} />
           <Route path="/collectors" element={<CollectorListPage />} />
           <Route path="/rules" element={<RulesPage />} />
@@ -106,6 +126,8 @@ function AppRoutes() {
           <Route path="/silences" element={<SilencesPage />} />
           <Route path="/alert-status" element={<AlertStatusPage />} />
           <Route path="/alert-history" element={<HistoryAlertsPage />} />
+          <Route path="/notify-channels" element={<NotifyChannelsPage />} />
+          <Route path="/notify-templates" element={<NotifyTemplatesPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

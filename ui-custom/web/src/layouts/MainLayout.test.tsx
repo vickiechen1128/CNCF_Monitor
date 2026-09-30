@@ -23,6 +23,21 @@ vi.mock('../api/client', async (importOriginal) => {
   }
 })
 
+// vitest jsdom 环境的 window.localStorage 存储行为不可靠，用内存 Map 替换（与 client.test.ts 一致），
+// 否则 beforeEach 的 localStorage.clear() 因 clear 非函数而全量报错。
+const storageMap = new Map<string, string>()
+const localStorageMock: Storage = {
+  get length() {
+    return storageMap.size
+  },
+  clear: () => storageMap.clear(),
+  getItem: (key) => storageMap.get(key) ?? null,
+  key: (index) => Array.from(storageMap.keys())[index] ?? null,
+  removeItem: (key) => storageMap.delete(key),
+  setItem: (key, value) => storageMap.set(key, String(value)),
+}
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true })
+
 describe('MainLayout', () => {
   setupAntdTest()
 
@@ -120,6 +135,27 @@ describe('MainLayout', () => {
     expect(collectorsIdx).toBeGreaterThan(-1)
     expect(collectorsIdx).toBeLessThan(jobsIdx)
     expect(screen.getByText('collector-content')).toBeInTheDocument()
+  })
+
+  // D-1b ⓐ：规则编辑保持原名称与归属（方案丙），菜单项补副标题「含告警规则、记录规则」。
+  it('D-1b：规则编辑菜单项带副标题「含告警规则、记录规则」，且 /rules 仍归属采集策略', () => {
+    render(
+      <MemoryRouter initialEntries={['/rules']}>
+        <Routes>
+          <Route path="/rules" element={<MainLayout>rules-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 顶部一级 tab：采集策略保持激活（/rules 归属判定不变，导航零变更）
+    expect(screen.getByText('采集策略')).toBeInTheDocument()
+    expect(screen.getByText('rules-content')).toBeInTheDocument()
+    // 菜单项文本 = 主标题 + 副标题
+    const menuTexts = screen
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent ?? '')
+    const rulesIdx = menuTexts.findIndex((t) => t.includes('规则编辑'))
+    expect(rulesIdx).toBeGreaterThanOrEqual(0)
+    expect(menuTexts[rulesIdx]).toContain('含告警规则、记录规则')
   })
 
   it('navigates to /collectors (首个子项) when top-module 采集策略 clicked', async () => {
@@ -370,6 +406,37 @@ describe('MainLayout', () => {
   })
 
   /**
+   * F-12 修复：监控对象管理二级导航中「平台 → 应用 → 服务」按归属层级相邻成组
+   * （平台承载应用、服务归入应用），「业务管理」作为横切分类维度单独置后。
+   */
+  it('orders 监控对象管理 sub-items: 平台 → 应用 → 服务 as a consecutive group, 业务 last (F-12)', async () => {
+    render(
+      <MemoryRouter initialEntries={['/resources']}>
+        <Routes>
+          <Route path="/resources" element={<MainLayout>resources-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    // 顶部一级 tab 用 PRD 模块名「监控对象管理」
+    expect(screen.getByText('监控对象管理')).toBeInTheDocument()
+    // 全部子项都在 Sider 二级导航中
+    const siderTexts = screen
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent ?? '')
+    const platformIdx = siderTexts.findIndex((t) => t.includes('平台管理'))
+    const applicationIdx = siderTexts.findIndex((t) => t.includes('应用管理'))
+    const serviceIdx = siderTexts.findIndex((t) => t.includes('服务管理'))
+    const businessIdx = siderTexts.findIndex((t) => t.includes('业务管理'))
+    expect([platformIdx, applicationIdx, serviceIdx, businessIdx]).not.toContain(-1)
+    // 组成链相邻：平台 → 应用 → 服务 连续排列
+    expect(applicationIdx).toBe(platformIdx + 1)
+    expect(serviceIdx).toBe(applicationIdx + 1)
+    // 「业务管理」不与组成链交错，置后（位于服务之后）
+    expect(businessIdx).toBeGreaterThan(serviceIdx)
+  })
+
+  /**
    * 外观设置（用户 2026-09-18 补充）：皮肤与产品名称的入口落在「系统与平台管理」模块，
    * **不再挂在顶栏**（顶栏只保留角色标签与账号）。
    */
@@ -401,6 +468,87 @@ describe('MainLayout', () => {
 
     // 顶栏不再提供皮肤开关
     expect(screen.queryByTestId('skin-switch')).toBeNull()
+  })
+
+  /**
+   * 云字典（M07 §5.20 / 决策 98/102；dev-feedback #19）：只读展示页入口落在
+   * 「系统与平台管理」模块，靠近「网域管理」（云归属是网域登记取值来源）。
+   */
+  it('exposes 云字典 under 系统与平台管理 and highlights it on /admin/cloud-dict', () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/cloud-dict']}>
+        <Routes>
+          <Route
+            path="/admin/cloud-dict"
+            element={<MainLayout>cloud-dict-content</MainLayout>}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    // 一级 tab 归「系统与平台管理」（resolveActiveModule 按 /admin/ 前缀收口）
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('系统与平台管理'))
+    expect(tab?.className ?? '').toContain('active')
+
+    // 二级导航含「云字典」，且当前路由高亮该项
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('云字典'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('cloud-dict-content')).toBeInTheDocument()
+  })
+
+  /**
+   * PL-3 通知渲染桥（T08-F10）：通知渠道为 M08 新增能力页，
+   * 归属「告警收敛与通知管理」一级模块，且在 Sider 二级导航高亮。
+   */
+  it('resolves /notify-channels to 告警收敛与通知管理 and highlights 通知渠道 sub-item', async () => {
+    render(
+      <MemoryRouter initialEntries={['/notify-channels']}>
+        <Routes>
+          <Route path="/notify-channels" element={<MainLayout>notify-channels-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 一级 tab 归「告警收敛与通知管理」并处于 active（否则会落到首页）
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab?.className ?? '').toContain('active')
+    // 二级导航含「通知渠道」且当前路由高亮该项
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('通知渠道'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('notify-channels-content')).toBeInTheDocument()
+  })
+
+  /**
+   * PL-3 通知渲染桥（T08-F12）：通知模板同为 M08 新增能力页，
+   * 归属「告警收敛与通知管理」一级模块，且在 Sider 二级导航高亮。
+   */
+  it('resolves /notify-templates to 告警收敛与通知管理 and highlights 通知模板 sub-item', async () => {
+    render(
+      <MemoryRouter initialEntries={['/notify-templates']}>
+        <Routes>
+          <Route path="/notify-templates" element={<MainLayout>notify-templates-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab?.className ?? '').toContain('active')
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('通知模板'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('notify-templates-content')).toBeInTheDocument()
   })
 
   it('renders the brand title from the stored product name and mirrors it to the tab title', async () => {

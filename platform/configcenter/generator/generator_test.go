@@ -533,7 +533,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 	oldLook := ToolLookPath
 	oldChecker := ToolChecker
 	ToolLookPath = func(string) (string, error) { return "promtool", nil }
-	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (ToolCheckStatus, string) { return ToolCheckPassed, "" }
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
@@ -567,7 +567,8 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 	// 源数据版本聚合会横跨所有源表，需一次性迁移全量（避免不存在的表导致扫描失败）。
 	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.Host{}, &models.Database{},
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.MonitoringRule{},
-		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{}))
+		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{},
+		&models.NotifyChannel{}, &models.NotifyTemplate{}))
 	require.NoError(t, db.Create(&models.ScrapeJob{JobName: "j", NetworkDomainID: "d", MetricsPath: "/m", Scheme: "http",
 		ResourceType: models.ResourceTypeHost, MonitorType: "host_linux", DraftStatus: "ready",
 		Enabled: true}).Error)
@@ -668,7 +669,7 @@ func stubPassingTools(t *testing.T) {
 	oldLook := ToolLookPath
 	oldChecker := ToolChecker
 	ToolLookPath = func(name string) (string, error) { return name, nil }
-	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (ToolCheckStatus, string) { return ToolCheckPassed, "" }
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 }
 
@@ -835,4 +836,149 @@ func TestAssembleRuleFilesAndAlertingShareCenterSwitch(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, edge.PrometheusYML, "rule_files")
 	assert.NotContains(t, edge.PrometheusYML, "alerting")
+}
+// TestResolveTargetsInjectsServiceCodeLabel（决策 105）：application /
+// generic_target 默认模板内置 `service_code → svc` 映射行，资源 service_code 取值
+// 注入 svc 标签；留空时不注入（空值不注入语义）。
+func TestResolveTargetsInjectsServiceCodeLabel(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Application{}, &models.GenericTarget{}, &models.LabelTemplate{}))
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "app-1", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "d",
+		BizCode: "payment", AppName: "pay", Env: "prod", Status: "online",
+		ServiceName: "pay-service", ServiceCode: "order-api", Endpoint: "10.0.0.20", Port: 8080,
+	}).Error)
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "app-2", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "d",
+		BizCode: "payment", AppName: "pay", Env: "prod", Status: "online",
+		ServiceName: "pay-free", ServiceCode: "", Endpoint: "10.0.0.21", Port: 8080,
+	}).Error)
+	require.NoError(t, db.Create(&models.GenericTarget{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "gt-1", ResourceCategory: models.ResourceCategoryGenericTarget, NetworkDomainID: "d",
+			BizCode: "infra", Env: "prod", Status: "online",
+		},
+		TargetName: "snmp-01", ServiceCode: "pay-api", InstanceIP: "10.0.0.30", Port: 161,
+	}).Error)
+
+	// 默认模板（由 models.DefaultMappingBuilders 产出）application / generic_target 各一份。
+	appTmpl := &models.LabelTemplate{Name: "default-application", ResourceCategory: models.ResourceCategoryApplication,
+		IsDefault: true, Mappings: models.DefaultMappingBuilders(models.ResourceCategoryApplication)}
+	gtTmpl := &models.LabelTemplate{Name: "default-generic_target", ResourceCategory: models.ResourceCategoryGenericTarget,
+		IsDefault: true, Mappings: models.DefaultMappingBuilders(models.ResourceCategoryGenericTarget)}
+	require.NoError(t, db.Create(appTmpl).Error)
+	require.NoError(t, db.Create(gtTmpl).Error)
+
+	t.Run("application svc 注入", func(t *testing.T) {
+		job := models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app-1"}}
+		groups, _, err := ResolveJobTargets(db, job, appTmpl, 0)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, "order-api", groups[0].Labels["svc"], "svc 标签恒取 service_code 编码")
+		assert.Equal(t, "pay", groups[0].Labels["app"], "app 标签不受影响")
+	})
+
+	t.Run("application service_code 空值不注入", func(t *testing.T) {
+		job := models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app-2"}}
+		groups, _, err := ResolveJobTargets(db, job, appTmpl, 0)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		_, exists := groups[0].Labels["svc"]
+		assert.False(t, exists, "service_code 留空时不注入 svc 标签（向后兼容）")
+	})
+
+	t.Run("generic_target svc 注入", func(t *testing.T) {
+		job := models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"gt-1"}}
+		groups, _, err := ResolveJobTargets(db, job, gtTmpl, 0)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, "pay-api", groups[0].Labels["svc"])
+	})
+}
+
+// TestDefaultMappingBuildersSVCOnlyForServiceManagedTypes 固化「svc 映射只加给
+// application / generic_target」口径：host / database / middleware 默认模板不得出现
+// svc 映射行（基础设施非服务，避免服务维度污染，决策 105）。
+func TestDefaultMappingBuildersSVCOnlyForServiceManagedTypes(t *testing.T) {
+	for _, cat := range []models.ResourceCategory{
+		models.ResourceCategoryHost, models.ResourceCategoryDatabase,
+		models.ResourceCategoryMiddleware, models.ResourceCategoryGenericTarget,
+		models.ResourceCategoryApplication,
+	} {
+		mappings := models.DefaultMappingBuilders(cat)
+		var svcMappings, platformMappings []models.LabelMapping
+		for _, m := range mappings {
+			if m.TargetLabel == "svc" || m.SourceField == "service_code" {
+				svcMappings = append(svcMappings, m)
+			}
+			if m.TargetLabel == "platform" || m.SourceField == "platform_code" {
+				platformMappings = append(platformMappings, m)
+			}
+		}
+		switch cat {
+		case models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget:
+			require.Len(t, svcMappings, 1, "%s 默认模板应含 1 条 service_code → svc 映射", cat)
+			assert.Equal(t, "service_code", svcMappings[0].SourceField)
+			assert.Equal(t, "svc", svcMappings[0].TargetLabel)
+			assert.Equal(t, models.LabelSourceTypeResourceField, svcMappings[0].SourceType)
+		default:
+			assert.Empty(t, svcMappings, "%s 默认模板不得含 svc 映射（基础设施不挂服务）", cat)
+		}
+		// platform 为派生标签，恒不在模板映射表中（与 cloud 同处理）。
+		assert.Empty(t, platformMappings, "%s 默认模板不得含 platform 映射（派生标签）", cat)
+	}
+}
+
+// TestResolveTargetsInjectsDerivedPlatformLabel（决策 104/107/108）：platform 是派生
+// 标签，经资源 app_code → 应用字典条目父级 platform_code 注入 target 级 system 层；
+// 资源无 app_code、或应用未挂父级平台时不注入（空值不注入）。
+func TestResolveTargetsInjectsDerivedPlatformLabel(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{}, &models.Application{}, &models.GenericTarget{},
+		&models.ApplicationDict{}, &models.LabelTemplate{},
+	))
+	// 应用字典：app-with-parent 挂在启用平台 cmp 下；app-orphan 未挂父级。
+	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "app-with-parent", AppName: "有父级应用", Status: models.AppStatusEnabled, PlatformCode: "cmp"}).Error)
+	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "app-orphan", AppName: "无父级应用", Status: models.AppStatusEnabled}).Error)
+
+	require.NoError(t, db.Create(&models.Host{
+		ServerID: "host-with-app", ResourceID: "host-with-app", NetworkDomainID: "d",
+		PrivateIP: "10.0.1.1", Status: "online", AppCode: "app-with-parent",
+	}).Error)
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "app-orphan-res", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "d",
+		BizCode: "payment", AppName: "app-orphan", Env: "prod", Status: "online",
+		ServiceName: "svc", Endpoint: "10.0.0.20", Port: 8080,
+	}).Error)
+	require.NoError(t, db.Create(&models.GenericTarget{
+		ResourceBase: models.ResourceBase{
+			ResourceID: "gt-biz-only", ResourceCategory: models.ResourceCategoryGenericTarget, NetworkDomainID: "d",
+			BizCode: "infra", Env: "prod", Status: "online",
+		},
+		TargetName: "gt", InstanceIP: "10.0.0.30", Port: 161,
+	}).Error)
+
+	t.Run("有父级平台则注入 platform", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"host-with-app"}}, nil, 9100)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, "cmp", groups[0].Labels["platform"], "platform 标签恒取 platform_code 派生值")
+	})
+
+	t.Run("应用未挂父级平台则不注入", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app-orphan-res"}}, nil, 0)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		_, exists := groups[0].Labels["platform"]
+		assert.False(t, exists, "应用未挂父级平台时 platform 缺位（预期正常态）")
+	})
+
+	t.Run("generic_target 仅填 biz_code 则不注入（决策 108）", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"gt-biz-only"}}, nil, 0)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		_, exists := groups[0].Labels["platform"]
+		assert.False(t, exists, "无 app_code 时不注入 platform")
+	})
 }

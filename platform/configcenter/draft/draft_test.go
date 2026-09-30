@@ -54,8 +54,8 @@ func stubValidationTools(t *testing.T) {
 	oldLook := generator.ToolLookPath
 	oldChecker := generator.ToolChecker
 	generator.ToolLookPath = func(name string) (string, error) { return name, nil }
-	generator.ToolChecker = func(ca *generator.ConfigArtifacts, includeBlackbox bool) (bool, string) {
-		return true, ""
+	generator.ToolChecker = func(ca *generator.ConfigArtifacts, includeBlackbox bool) (generator.ToolCheckStatus, string) {
+		return generator.ToolCheckPassed, ""
 	}
 	t.Cleanup(func() { generator.ToolLookPath = oldLook; generator.ToolChecker = oldChecker })
 }
@@ -87,6 +87,8 @@ func newMemDB(t *testing.T) *gorm.DB {
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 		&models.AlertmanagerConfigVersion{},
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
 	))
 	return db
 }
@@ -1124,4 +1126,71 @@ const generatorVersionPlaceholder = "0.1.0"
 // todaySuffix 返回当日 YYYYMMDD（与 nextChangeNo 前缀一致，用于构造对照用例）。
 func todaySuffix() string {
 	return time.Now().Format("20060102")
+}
+
+// TestGenerateDraftMaterializesNotifyReceivers 覆盖决策 74 定稿：管理域生成草稿时，
+// M09 把平台已启用通知渠道物化为 alertmanager.yml receivers（url 带真实 channel ID，
+// 令牌走 http_config.authorization，不落 URL query）。
+func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: "default", Name: "管理域", DomainType: models.DomainTypeManagement,
+		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
+		ZoneType: "central", Channel: models.ChannelTypeAgentPull, IsMonitored: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:  "route:\n  receiver: default\nreceivers:\n  - name: default\n    webhook_configs:\n      - url: 'https://example.com/default'\n",
+		Checksum: models.AlertmanagerConfigChecksum("am"),
+		Status:   models.AlertmanagerConfigStatusApplied,
+	}).Error)
+	ch := &models.NotifyChannel{Name: "SRE Critical", Type: models.NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/hook/x", Enabled: true}
+	require.NoError(t, db.Create(ch).Error)
+
+	oldURL, oldToken := NotifyBridgeURL, NotifyBridgeToken
+	NotifyBridgeURL, NotifyBridgeToken = "http://127.0.0.1:8080", "bridge-token"
+	t.Cleanup(func() { NotifyBridgeURL, NotifyBridgeToken = oldURL, oldToken })
+
+	d, err := GenerateDraft(db, "default")
+	require.NoError(t, err)
+	assert.Contains(t, d.AlertmanagerYml, "name: sre-critical", "平台渠道须物化为 receiver")
+	assert.Contains(t, d.AlertmanagerYml, "?channel="+fmt.Sprint(ch.ID), "url 须带真实 channel ID")
+	assert.NotContains(t, d.AlertmanagerYml, "token=", "令牌绝不落 URL query（H-1）")
+	assert.Contains(t, d.AlertmanagerYml, "authorization:", "令牌须走 http_config.authorization")
+	assert.Contains(t, d.AlertmanagerYml, "name: default", "用户手写 receiver 原样保留")
+}
+
+// TestGenerateDraftNotifyReceiverConflictFails 覆盖决策 74 定稿第 1 条：平台 receiver 名
+// 与用户手写 receiver 重名 → 草稿校验 failed + user_config，附 alertmanager.yml 行级错误。
+func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.Create(&models.NetworkDomain{
+		ID: "default", Name: "管理域", DomainType: models.DomainTypeManagement,
+		TenantID: models.PlatformAdminTenantID, Status: models.DomainStatusEnabled,
+		ZoneType: "central", Channel: models.ChannelTypeAgentPull, IsMonitored: true,
+	}).Error)
+	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
+		Content:  "route:\n  receiver: sre\nreceivers:\n  - name: sre\n    webhook_configs:\n      - url: 'https://handwritten.example/hook'\n",
+		Checksum: models.AlertmanagerConfigChecksum("am-conflict"),
+		Status:   models.AlertmanagerConfigStatusApplied,
+	}).Error)
+	require.NoError(t, db.Create(&models.NotifyChannel{Name: "SRE", Type: models.NotifyChannelTypeFeishu, WebhookURL: "https://open.feishu.cn/hook/y", Enabled: true}).Error)
+
+	oldURL, oldToken := NotifyBridgeURL, NotifyBridgeToken
+	NotifyBridgeURL, NotifyBridgeToken = "http://127.0.0.1:8080", "bridge-token"
+	t.Cleanup(func() { NotifyBridgeURL, NotifyBridgeToken = oldURL, oldToken })
+
+	d, err := GenerateDraft(db, "default")
+	require.NoError(t, err)
+	assert.Equal(t, string(models.ValidationStatusFailed), d.ValidationStatus)
+	assert.Equal(t, string(models.ValidationCauseUserConfig), d.ValidationCause)
+	var details []models.ValidationDetail
+	require.NoError(t, json.Unmarshal([]byte(d.ValidationDetails), &details))
+	require.Len(t, details, 1)
+	assert.Equal(t, "alertmanager.yml", details[0].File)
+	assert.Contains(t, details[0].Message, "sre")
+
+	// 重校须复现同一 failed 结论（不得因重校静默放行未消除的冲突）。
+	rd, rerr := RevalidateDraft(db, d.ChangeNo)
+	require.ErrorIs(t, rerr, ErrValidationStillFailed)
+	assert.Equal(t, string(models.ValidationStatusFailed), rd.ValidationStatus)
 }

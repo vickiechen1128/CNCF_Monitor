@@ -36,6 +36,11 @@ type ConfigArtifacts struct {
 	// 无整体序列化 ConfigArtifacts 的路径（仅五个产物字段分别落库/拼接），
 	// 若未来引入整体序列化必须显式加 json:"-"。
 	TargetDiagnostics []TargetDiagnostics
+	// NotifyReceiverConflicts 是平台物化通知 receivers 时的重名冲突归因（决策 74 定稿
+	// 第 1 条：平台自动生成的 receiver 名与用户手写 receiver 重名 → 草稿校验失败、给出行级
+	// 错误，绝不静默覆盖）。**非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化，
+	// 仅用于 ValidateArtifacts 产出 alertmanager.yml 行级错误。
+	NotifyReceiverConflicts []NotifyReceiverConflict
 }
 
 // TargetDiagnostics 是单个 Job 在生成期的目标解析归因（非产物内容）。

@@ -11,8 +11,8 @@ import (
 // M07 Resource / LabelTemplate 只读，M06 NetworkDomain 只读）。
 type Inputs struct {
 	Domain models.NetworkDomain
-	Jobs   []models.ScrapeJob       // enabled + draft_status=ready
-	Rules  []models.MonitoringRule  // enabled + draft_status=ready + scope central/both
+	Jobs   []models.ScrapeJob      // enabled + draft_status=ready
+	Rules  []models.MonitoringRule // enabled + draft_status=ready + scope central/both
 }
 
 // resourceTarget 是单个采集目标（含标签模板展开所需的源字段视图）。
@@ -22,7 +22,10 @@ type resourceTarget struct {
 	Address         string
 	Status          string
 	Category        models.ResourceCategory
-	Fields          map[string]string // LabelTemplate 源字段展开视图
+	// AppCode 是资源的应用编码（决策 92：五类一律经 GetAppCode() 取），为 `platform`
+	// 派生标签的唯一来源（决策 104：经应用条目父级 platform_code 解析）。
+	AppCode string
+	Fields  map[string]string // LabelTemplate 源字段展开视图
 }
 
 // LoadDomain 按 ID 读取网域。
@@ -144,6 +147,18 @@ func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error) {
 		return "", fmt.Errorf("load latest alertmanager config: %w", err)
 	}
 	return cfg.Content, nil
+}
+
+// LoadEnabledNotifyChannels 读取平台已启用的通知渠道（M08 NotifyChannel，enabled=true），
+// 供 M09 物化管理域 alertmanager.yml 的 receivers（决策 74 定稿：配置即生效，与 M07
+// LabelTemplate 物化范式一致）。按 id 升序保证物化顺序稳定（checksum 可复现）。
+func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error) {
+	var channels []models.NotifyChannel
+	err := db.Where("enabled = ?", true).Order("id ASC").Find(&channels).Error
+	if err != nil {
+		return nil, fmt.Errorf("load enabled notify channels: %w", err)
+	}
+	return channels, nil
 }
 
 // ErrNotFound 表示按 ID 未命中某资源（用于区分 not_found 与 internal）。

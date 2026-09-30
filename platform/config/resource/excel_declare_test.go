@@ -66,7 +66,7 @@ func mountImportOnDict(t *testing.T, db *gorm.DB) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/api/v2/platform/resources/:type/import",
-		ImportResources(db, NewBusinessDomainStore(db), NewApplicationDictStore(db)))
+		ImportResources(db, NewBusinessDomainStore(db), NewApplicationDictStore(db), NewPlatformDictStore(db), NewServiceDictStore(db)))
 	return r
 }
 
@@ -171,26 +171,26 @@ func TestValidateDeclareSheets_NewCodesPass(t *testing.T) {
 		Biz: []DeclareEntry{{Code: "new-biz", Name: "新业务"}},
 		App: []DeclareEntry{{Code: "new-app", Name: "新应用"}},
 	}
-	require.NoError(t, validateDeclareSheets(sheets, newBizStore(t), newAppStore(t)))
+	require.NoError(t, validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t)))
 }
 
 func TestValidateDeclareSheets_MissingCodeFails(t *testing.T) {
 	sheets := &DeclareSheets{Biz: []DeclareEntry{{Code: "", Name: "无名"}}}
-	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t))
+	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "biz_code 必填")
 }
 
 func TestValidateDeclareSheets_MissingNameFails(t *testing.T) {
 	sheets := &DeclareSheets{Biz: []DeclareEntry{{Code: "new-biz", Name: ""}}}
-	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t))
+	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "缺少名称")
 }
 
 func TestValidateDeclareSheets_InvalidCodeFails(t *testing.T) {
 	sheets := &DeclareSheets{App: []DeclareEntry{{Code: "Bad_App", Name: "非法编码"}}}
-	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t))
+	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "不符合规范")
 }
@@ -200,7 +200,7 @@ func TestValidateDeclareSheets_DuplicateCodeHardRejected(t *testing.T) {
 		{Code: "new-biz", Name: "新业务"},
 		{Code: "new-biz", Name: "重复业务"},
 	}}
-	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t))
+	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "声明内重码")
 }
@@ -208,15 +208,15 @@ func TestValidateDeclareSheets_DuplicateCodeHardRejected(t *testing.T) {
 func TestValidateDeclareSheets_ExistingSameNameIdempotent(t *testing.T) {
 	// 存量字典 infra 名称一致 → 幂等跳过，不报错。
 	sheets := &DeclareSheets{Biz: []DeclareEntry{{Code: "infra", Name: "公共基础设施"}}}
-	require.NoError(t, validateDeclareSheets(sheets, newBizStore(t), newAppStore(t)))
+	require.NoError(t, validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t)))
 
 	appSheets := &DeclareSheets{App: []DeclareEntry{{Code: "app", Name: "示例应用"}}}
-	require.NoError(t, validateDeclareSheets(appSheets, newBizStore(t), newAppStore(t)))
+	require.NoError(t, validateDeclareSheets(appSheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t)))
 }
 
 func TestValidateDeclareSheets_ExistingDifferentNameHardRejected(t *testing.T) {
 	sheets := &DeclareSheets{Biz: []DeclareEntry{{Code: "infra", Name: "改了个名"}}}
-	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t))
+	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "绝不覆盖")
 }
@@ -224,12 +224,12 @@ func TestValidateDeclareSheets_ExistingDifferentNameHardRejected(t *testing.T) {
 func TestValidateDeclareSheets_DisabledEntryRejected(t *testing.T) {
 	// 存量停用条目不接受声明激活（决策 97）。
 	sheets := &DeclareSheets{Biz: []DeclareEntry{{Code: "legacy", Name: "遗留系统"}}}
-	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t))
+	err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "停用")
 
 	appSheets := &DeclareSheets{App: []DeclareEntry{{Code: "legacy-app", Name: "遗留应用"}}}
-	err = validateDeclareSheets(appSheets, newBizStore(t), newAppStore(t))
+	err = validateDeclareSheets(appSheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "停用")
 }
@@ -452,4 +452,243 @@ func TestImportResource_DeclareSheets_IdempotentReimport(t *testing.T) {
 	var biz models.BusinessDomain
 	require.NoError(t, db.Where("code = ?", "new-biz").First(&biz).Error)
 	assert.Equal(t, "新业务", biz.Name, "重导不覆盖存量字典名")
+}
+
+// ---------------------------------------------------------------------------
+// 决策 104 / 105：声明 sheet 由两扩为四（业务 / 应用 / 平台 / 服务）
+// ---------------------------------------------------------------------------
+
+// buildDeclareXLSX4 构造含资源数据 sheet + 四张声明 sheet 的导入文件（决策 97 /
+// 104 / 105）。声明参数为 nil 表示不创建对应 sheet；声明行格式 [code, name, 说明?]。
+func buildDeclareXLSX4(t *testing.T, category models.ResourceCategory, dataRows [][]string,
+	bizDeclares, appDeclares, platformDeclares, serviceDeclares [][]string) []byte {
+	t.Helper()
+	f := excelize.NewFile()
+	defer f.Close()
+	sheet := f.GetSheetName(0)
+	writeSheetRows(t, f, sheet, TemplateColumns[category], dataRows)
+	declare := func(name string, header []string, rows [][]string) {
+		if rows == nil {
+			return
+		}
+		_, err := f.NewSheet(name)
+		require.NoError(t, err)
+		writeSheetRows(t, f, name, header, rows)
+	}
+	declare(bizDeclareSheet, []string{"biz_code", "biz_name", "说明"}, bizDeclares)
+	declare(appDeclareSheet, []string{"app_code", "app_name", "说明"}, appDeclares)
+	declare(platformDeclareSheet, []string{"platform_code", "platform_name", "说明"}, platformDeclares)
+	declare(serviceDeclareSheet, []string{"service_code", "service_name", "说明"}, serviceDeclares)
+	var buf bytes.Buffer
+	require.NoError(t, f.Write(&buf))
+	return buf.Bytes()
+}
+
+// TestParseDeclareSheets_FourSheets 覆盖四张声明 sheet 的解析（决策 104 / 105）：
+// 缺省 sheet 返回空不报错；存在时按固定列头解析（说明列可选）。
+func TestParseDeclareSheets_FourSheets(t *testing.T) {
+	xlsx := buildDeclareXLSX4(t, models.ResourceCategoryHost,
+		[][]string{hostRow("10.0.0.1", "运行中")},
+		[][]string{{"new-biz", "新业务"}},
+		[][]string{{"new-app", "新应用"}},
+		[][]string{{"cmp", "算力平台", "平台说明"}},
+		[][]string{{"order-api", "订单接口"}},
+	)
+	sheets, err := ParseDeclareSheets(xlsx)
+	require.NoError(t, err)
+	require.Len(t, sheets.Biz, 1)
+	require.Len(t, sheets.App, 1)
+	require.Len(t, sheets.Platform, 1)
+	require.Len(t, sheets.Service, 1)
+	assert.Equal(t, DeclareEntry{Code: "cmp", Name: "算力平台", Description: "平台说明"}, sheets.Platform[0])
+	assert.Equal(t, DeclareEntry{Code: "order-api", Name: "订单接口"}, sheets.Service[0])
+}
+
+// TestParseDeclareSheets_OnlyBizApp 固化向后兼容：仅含两张 sheet 的存量导入文件
+// 解析出的 Platform / Service 为空（不报错）。
+func TestParseDeclareSheets_OnlyBizApp(t *testing.T) {
+	xlsx := buildDeclareXLSX4(t, models.ResourceCategoryHost,
+		[][]string{hostRow("10.0.0.1", "运行中")},
+		[][]string{{"new-biz", "新业务"}}, nil, nil, nil)
+	sheets, err := ParseDeclareSheets(xlsx)
+	require.NoError(t, err)
+	assert.Len(t, sheets.Biz, 1)
+	assert.Empty(t, sheets.App)
+	assert.Empty(t, sheets.Platform)
+	assert.Empty(t, sheets.Service)
+}
+
+// TestValidateDeclareSheets_PlatformServiceRules 覆盖平台 / 服务声明的硬校验：
+// 编码不规范、声明内重码、停用条目不可激活均为硬拒绝。
+func TestValidateDeclareSheets_PlatformServiceRules(t *testing.T) {
+	t.Run("平台 / 服务声明合法通过", func(t *testing.T) {
+		// 全新码（不在 fixtures 中）→ 校验通过（存量同名不一致才会硬拒绝）。
+		sheets := &DeclareSheets{
+			Platform: []DeclareEntry{{Code: "new-platform", Name: "新平台"}},
+			Service:  []DeclareEntry{{Code: "new-api", Name: "新接口"}},
+		}
+		require.NoError(t, validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t)))
+	})
+
+	t.Run("平台编码不规范（大写）硬拒绝", func(t *testing.T) {
+		sheets := &DeclareSheets{Platform: []DeclareEntry{{Code: "BAD", Name: "坏平台"}}}
+		err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "不符合规范")
+	})
+
+	t.Run("服务声明内重码硬拒绝", func(t *testing.T) {
+		sheets := &DeclareSheets{Service: []DeclareEntry{
+			{Code: "dup-api", Name: "服务一"},
+			{Code: "dup-api", Name: "服务二"},
+		}}
+		err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "声明内重码")
+	})
+
+	t.Run("停用条目不接受声明激活", func(t *testing.T) {
+		// legacy-platform / legacy-api 在 fixtures 中为停用条目。
+		sheets := &DeclareSheets{
+			Platform: []DeclareEntry{{Code: "legacy-platform", Name: "遗留平台"}},
+		}
+		err := validateDeclareSheets(sheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "停用")
+
+		svcSheets := &DeclareSheets{Service: []DeclareEntry{{Code: "legacy-api", Name: "遗留接口"}}}
+		err = validateDeclareSheets(svcSheets, newBizStore(t), newAppStore(t), newPlatformStore(t), newSvcStore(t))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "停用")
+	})
+}
+
+// TestApplyDeclaredDicts_CreatesPlatformAndService 覆盖平台 / 服务声明建字典：
+// enabled=true、source=excel-import、只增不覆盖。
+func TestApplyDeclaredDicts_CreatesPlatformAndService(t *testing.T) {
+	db := openImportTestDB(t)
+	sheets := &DeclareSheets{
+		Platform: []DeclareEntry{{Code: "cmp", Name: "算力平台", Description: "平台说明"}},
+		Service:  []DeclareEntry{{Code: "order-api", Name: "订单接口"}},
+	}
+	require.NoError(t, applyDeclaredDicts(db, sheets))
+
+	var p models.PlatformDict
+	require.NoError(t, db.Where("platform_code = ?", "cmp").First(&p).Error)
+	assert.True(t, p.Enabled, "声明建出条目默认启用")
+	assert.Equal(t, models.DictSourceExcelImport, p.Source)
+	assert.Equal(t, "平台说明", p.Description)
+
+	var s models.ServiceDict
+	require.NoError(t, db.Where("service_code = ?", "order-api").First(&s).Error)
+	assert.True(t, s.Enabled)
+	assert.Equal(t, models.DictSourceExcelImport, s.Source)
+	assert.Equal(t, "订单接口", s.ServiceName)
+}
+
+// TestImportResource_DeclareSheets_ServiceCode 覆盖「服务声明」sheet 与资源行
+// service_code 的可达性闭环（决策 105）：application 行引用声明申报的服务编码，
+// 建字典 + 落资源同批原子提交。
+func TestImportResource_DeclareSheets_ServiceCode(t *testing.T) {
+	db := openImportTestDB(t)
+	r := mountImportOnDict(t, db)
+
+	vals := baseValues(models.ResourceCategoryApplication)
+	vals["service_code"] = "order-api"
+	xlsx := buildDeclareXLSX4(t, models.ResourceCategoryApplication,
+		[][]string{makeRow(models.ResourceCategoryApplication, vals)},
+		nil, nil, nil,
+		[][]string{{"order-api", "订单接口"}},
+	)
+	w, out := doImportUpload(t, r, "application", xlsx, map[string]string{
+		"resource_category": "application",
+		"mode":              "create_only",
+	})
+	require.Equal(t, http.StatusOK, w.Code, "导入应成功：%s", out.Error)
+	assert.Equal(t, 1, out.Data.Success)
+	assert.Equal(t, 0, out.Data.Failed)
+
+	var s models.ServiceDict
+	require.NoError(t, db.Where("service_code = ?", "order-api").First(&s).Error)
+	assert.Equal(t, models.DictSourceExcelImport, s.Source, "声明建出服务条目 source=excel-import")
+
+	var app models.Application
+	require.NoError(t, db.Where("service_name = ?", "pay-service").First(&app).Error)
+	assert.Equal(t, "order-api", app.ServiceCode, "资源行落 service_code")
+}
+
+// TestImportResource_ServiceCodeUndeclaredGoesToPendingList 覆盖资源行 service_code
+// 既不在服务字典、也未在「服务声明」sheet 申报时归入「待登记清单」（不静默跳过）。
+func TestImportResource_ServiceCodeUndeclaredGoesToPendingList(t *testing.T) {
+	db := openImportTestDB(t)
+	r := mountImportOnDict(t, db)
+
+	vals := baseValues(models.ResourceCategoryApplication)
+	vals["service_code"] = "ghost-api"
+	xlsx := buildDeclareXLSX4(t, models.ResourceCategoryApplication,
+		[][]string{makeRow(models.ResourceCategoryApplication, vals)},
+		nil, nil, nil, nil)
+
+	w, out := doImportUpload(t, r, "application", xlsx, map[string]string{
+		"resource_category": "application",
+		"mode":              "create_only",
+	})
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 0, out.Data.Success)
+	assert.Equal(t, 1, out.Data.Failed)
+	require.Len(t, out.Data.Errors, 1)
+	assert.Equal(t, "service_code", out.Data.Errors[0].Field)
+	assert.Equal(t, "ghost-api", out.Data.Errors[0].Value)
+	assert.Contains(t, out.Data.Errors[0].Reason, "服务声明", "待登记清单引导『服务声明』sheet")
+}
+
+// TestImportResource_ServiceCodeEmptyAllowed 覆盖 service_code 留空合法（可选列），
+// 不需要任何声明。
+func TestImportResource_ServiceCodeEmptyAllowed(t *testing.T) {
+	db := openImportTestDB(t)
+	r := mountImportOnDict(t, db)
+
+	vals := baseValues(models.ResourceCategoryApplication)
+	vals["service_code"] = ""
+	xlsx := buildDeclareXLSX4(t, models.ResourceCategoryApplication,
+		[][]string{makeRow(models.ResourceCategoryApplication, vals)},
+		nil, nil, nil, nil)
+
+	w, out := doImportUpload(t, r, "application", xlsx, map[string]string{
+		"resource_category": "application",
+		"mode":              "create_only",
+	})
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 1, out.Data.Success)
+	var app models.Application
+	require.NoError(t, db.Where("service_name = ?", "pay-service").First(&app).Error)
+	assert.Equal(t, "", app.ServiceCode)
+}
+
+// TestImportResource_PlatformServiceDeclareAtomic 覆盖整批原子：声明建平台 / 服务
+// 字典后资源写失败 → 整体回滚，不留孤立字典条目。
+func TestImportResource_PlatformServiceDeclareAtomic(t *testing.T) {
+	db := openImportTestDB(t)
+	require.NoError(t, db.Migrator().DropTable(&models.Application{}))
+	r := mountImportOnDict(t, db)
+
+	vals := baseValues(models.ResourceCategoryApplication)
+	vals["service_code"] = "order-api"
+	xlsx := buildDeclareXLSX4(t, models.ResourceCategoryApplication,
+		[][]string{makeRow(models.ResourceCategoryApplication, vals)},
+		nil, nil,
+		[][]string{{"cmp", "算力平台"}},
+		[][]string{{"order-api", "订单接口"}},
+	)
+	w, _ := doImportUpload(t, r, "application", xlsx, map[string]string{
+		"resource_category": "application",
+		"mode":              "create_only",
+	})
+	require.Equal(t, http.StatusInternalServerError, w.Code, "资源写失败应返回 500")
+
+	var pCount, sCount int64
+	require.NoError(t, db.Model(&models.PlatformDict{}).Count(&pCount).Error)
+	require.NoError(t, db.Model(&models.ServiceDict{}).Count(&sCount).Error)
+	assert.Equal(t, int64(0), pCount, "声明建出的平台条目应随事务回滚")
+	assert.Equal(t, int64(0), sCount, "声明建出的服务条目应随事务回滚")
 }

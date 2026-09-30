@@ -16,11 +16,13 @@ import type {
   ImportRecord,
   ImportResult,
   OSOption,
+  PlatformDict,
   Resource,
   ResourceCategory,
   ResourceCreateInput,
   ResourceLabelItem,
   ResourceUpdateInput,
+  ServiceDict,
 } from '../types/resource'
 
 /** 资源列表分页与筛选参数（Module_07 §6.1 / T07-05） */
@@ -213,18 +215,27 @@ export interface ApplicationDictsResponse {
   total: number
 }
 
-/** 应用字典登记输入（§5.19 / 决策 92）：app_code 不可变、app_name 必填 */
+/** 应用字典登记输入（§5.19 / 决策 92）：app_code 不可变、app_name 必填；platform_code 可选（决策 104） */
 export interface ApplicationDictCreateInput {
   app_code: string
   app_name: string
   description?: string
+  /** 可选父级平台（契约快照 §5A）：未挂时省略，须引用未停用平台条目 */
+  platform_code?: string
 }
 
-/** 应用字典受限编辑输入（§5.19 红线：仅 app_name/description/status 可改，不接收 app_code） */
+/**
+ * 应用字典受限编辑输入（§5.19 红线：仅 app_name/description/status 可改，不接收 app_code；
+ * 契约快照 §5A：platform_code 可挂 / 可摘 / 可换）。
+ *
+ * `platform_code: null` 表达**摘除**（应用恢复为无平台归属），`undefined` 表达**不改**；
+ * 提交侧统一显式给出（未挂即 null），避免「清空后不提交 → 平台残留」。
+ */
 export interface ApplicationDictUpdateInput {
   app_name?: string
   description?: string
   status?: 'enabled' | 'disabled'
+  platform_code?: string | null
 }
 
 /** 应用字典（§5.19 决策 92，落 DB；app label 取 app_code，展示取 app_name） */
@@ -239,6 +250,86 @@ export const applicationDictApi = {
   /** 受限编辑应用（PUT :app_code，§5.19）：仅 app_name/description/status；无 DELETE（停用不删除） */
   update(appCode: string, input: ApplicationDictUpdateInput): Promise<ApiResponse<ApplicationDict>> {
     return apiClient.put<ApplicationDict>(`/api/v2/platform/application-dict/${encodeURIComponent(appCode)}`, {
+      body: input,
+    })
+  },
+}
+
+/** 平台字典响应（GET /platform-dict，非分页信封 {list,total}，§5.21 / 契约快照 §5C） */
+export interface PlatformDictsResponse {
+  list: PlatformDict[]
+  total: number
+}
+
+/** 平台字典登记输入（契约快照 §5C）：platform_code 不可变、platform_name 必填 */
+export interface PlatformDictCreateInput {
+  platform_code: string
+  platform_name: string
+  description?: string
+}
+
+/** 平台字典受限编辑输入（契约快照 §5C）：仅 platform_name/description/enabled，不接收 platform_code */
+export interface PlatformDictUpdateInput {
+  platform_name?: string
+  description?: string
+  enabled?: boolean
+}
+
+/**
+ * 平台字典（§5.21 / 决策 104，落 DB；`platform` label 取 `platform_code`，展示取 `platform_name`）。
+ * 无 DELETE（停用不删除）：应用侧「所属平台」下拉只读消费本字典且仅列启用项。
+ */
+export const platformDictApi = {
+  list(): Promise<ApiResponse<PlatformDictsResponse>> {
+    return apiClient.get<PlatformDictsResponse>('/api/v2/platform/platform-dict')
+  },
+  /** 登记平台（POST，契约快照 §5C）：{platform_code,platform_name,description}，默认 enabled */
+  create(input: PlatformDictCreateInput): Promise<ApiResponse<PlatformDict>> {
+    return apiClient.post<PlatformDict>('/api/v2/platform/platform-dict', { body: input })
+  },
+  /** 受限编辑平台（PUT :platform_code，契约快照 §5C）：仅 platform_name/description/enabled */
+  update(platformCode: string, input: PlatformDictUpdateInput): Promise<ApiResponse<PlatformDict>> {
+    return apiClient.put<PlatformDict>(`/api/v2/platform/platform-dict/${encodeURIComponent(platformCode)}`, {
+      body: input,
+    })
+  },
+}
+
+/** 服务字典响应（GET /service-dict，非分页信封 {list,total}，§5.22 / 契约快照 §5D） */
+export interface ServiceDictsResponse {
+  list: ServiceDict[]
+  total: number
+}
+
+/** 服务字典登记输入（契约快照 §5D）：service_code 不可变、service_name 必填 */
+export interface ServiceDictCreateInput {
+  service_code: string
+  service_name: string
+  description?: string
+}
+
+/** 服务字典受限编辑输入（契约快照 §5D）：仅 service_name/description/enabled，不接收 service_code */
+export interface ServiceDictUpdateInput {
+  service_name?: string
+  description?: string
+  enabled?: boolean
+}
+
+/**
+ * 服务字典（§5.22 / 决策 105，落 DB；`svc` label 取 `service_code`，展示取 `service_name`）。
+ * 无 DELETE（停用不删除）：资源侧「服务」下拉只读消费本字典且仅列启用项。
+ */
+export const serviceDictApi = {
+  list(): Promise<ApiResponse<ServiceDictsResponse>> {
+    return apiClient.get<ServiceDictsResponse>('/api/v2/platform/service-dict')
+  },
+  /** 登记服务（POST，契约快照 §5D）：{service_code,service_name,description}，默认 enabled */
+  create(input: ServiceDictCreateInput): Promise<ApiResponse<ServiceDict>> {
+    return apiClient.post<ServiceDict>('/api/v2/platform/service-dict', { body: input })
+  },
+  /** 受限编辑服务（PUT :service_code，契约快照 §5D）：仅 service_name/description/enabled */
+  update(serviceCode: string, input: ServiceDictUpdateInput): Promise<ApiResponse<ServiceDict>> {
+    return apiClient.put<ServiceDict>(`/api/v2/platform/service-dict/${encodeURIComponent(serviceCode)}`, {
       body: input,
     })
   },

@@ -14,10 +14,15 @@ import {
   Typography,
   Upload,
 } from 'antd'
-import { CheckCircleOutlined, InboxOutlined, UploadOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, InboxOutlined, SnippetsOutlined, UploadOutlined } from '@ant-design/icons'
 import { readValidateErrors } from '../../api/alertmanager'
 import type { ValidateErrorItem } from '../../types/alertmanager'
-import { partitionValidateErrors, validateSectionLabel, validateSectionColor } from './alertmanagerConstants'
+import {
+  ALERTMANAGER_MIN_SKELETON,
+  partitionValidateErrors,
+  validateSectionLabel,
+  validateSectionColor,
+} from './alertmanagerConstants'
 
 const { Dragger } = Upload
 const { Text, Title } = Typography
@@ -56,6 +61,14 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
 
   const handleChangeText = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setContent(e.target.value)
+    setError(null)
+    setErrors([])
+    setValidated(false)
+  }
+
+  /** PL-2：一键插入最小可运行骨架（三块必写齐全），并作废上一次校验结论 */
+  const insertSkeleton = () => {
+    setContent(ALERTMANAGER_MIN_SKELETON)
     setError(null)
     setErrors([])
     setValidated(false)
@@ -135,7 +148,17 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
         </Dragger>
 
         <Space direction="vertical" size={4} style={{ width: '100%' }}>
-          <Text strong>配置内容</Text>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <Text strong>配置内容</Text>
+            {/* PL-2：对齐 M01 规则挂载「说明 → 选文件 → 编辑框」读序，在编辑框上方提供骨架插入，
+                一键填入三块必写齐全的最小可运行骨架（已过 amtool check-config），降低从零手写成本。 */}
+            <Button size="small" icon={<SnippetsOutlined />} onClick={insertSkeleton}>
+              插入骨架示例
+            </Button>
+          </div>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            骨架含接收人 / 路由 / 收敛三块必写内容；已启用渠道的接收人由平台自动写入，此处 receivers 仅为自定义场景的手写示例。
+          </Text>
           <Input.TextArea
             value={content}
             onChange={handleChangeText}

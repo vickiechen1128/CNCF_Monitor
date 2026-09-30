@@ -74,6 +74,24 @@ export interface ProbeTargetItem {
 }
 
 /**
+ * 「按云分布」行（M05 PRD v1.11 / 决策 100；对应后端 summary `by_cloud[]`）。
+ * `cloud` 经资源所属网域 `cloud_code` 派生（网域必填、零空洞）；**本期仅主机**，
+ * 其余四类暂不参与按云聚合。字段与后端 summary.go json tag 对齐（snake_case）。
+ */
+export interface CloudSummary {
+  /** 云标识（`cloud_code`，云字典主键，如 `PUB-TX` / `GM-CU`） */
+  cloud_code: string
+  /** 云展示名（云字典解析；缺条目回落 `cloud_code`） */
+  cloud_name: string
+  /** 主机数（该云下主机资源数） */
+  resource_count: number
+  /** 已采数（该云下主机已被采集任务纳管数） */
+  monitored_count: number
+  /** 覆盖率（已采 ÷ 主机数，取整百分比 0-100） */
+  coverage_rate: number
+}
+
+/**
  * Dashboard 聚合概览。
  * 决策 72-3（M05 首页内容重构，design-proposals/homepage-mvp-content-restructure.md §4.2）
  * 新增 monitored_count / scrape_job_count / scrape_job_enabled_count 三个计数字段。
@@ -111,6 +129,12 @@ export interface DashboardSummary {
   probe_target_abnormal_count: number
   /** L3 拨测态势面板明细（决策 93）；空库为空数组非 null */
   probe_targets: ProbeTargetItem[]
+  /**
+   * 「按云分布」区块（M05 PRD v1.11 / 决策 100）：整宽，位于 L1 采集覆盖区之后、
+   * L2 应用覆盖明细表之前；**本期仅主机**，cloud 经所属网域 `cloud_code` 派生。
+   * 兼容尚未实现该聚合的后端：缺失时前端回落静态样例（空数组则渲染空态）。
+   */
+  by_cloud?: CloudSummary[]
 }
 
 export const dashboardApi = {

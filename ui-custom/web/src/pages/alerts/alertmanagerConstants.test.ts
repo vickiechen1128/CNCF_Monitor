@@ -2,6 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   configStatusLabel,
   configStatusColor,
+  configStatusView,
+  isConfigApplied,
+  CONFIG_STATUS_APPLIED_LABEL,
+  CONFIG_STATUS_PENDING_LABEL,
   silenceStatusLabel,
   silenceStatusColor,
   partitionValidateErrors,
@@ -21,9 +25,40 @@ const err = (over: Partial<ValidateErrorItem> = {}): ValidateErrorItem => ({
 
 describe('alertmanagerConstants（M08 枚举/常量/展示名映射）', () => {
   describe('配置版本状态（AlertmanagerConfigVersion.status）', () => {
-    it('applied → 已生效（成功绿），本表恒 applied（决策 60）', () => {
-      expect(configStatusLabel.applied).toBe('已生效')
-      expect(configStatusColor.applied).toBe('success')
+    // dev-feedback §25：status=applied 只表示「已收录为 M09 下发源」，不得表述为「已生效」
+    // （挂载落库那一刻即置位，此时磁盘 alertmanager.yml 尚未更新、AM 仍加载旧文件）。
+    it('applied → 已收录（中性色），本表恒 applied（决策 60），且不含「已应用 / 已生效」误导词', () => {
+      expect(configStatusLabel.applied).toBe('已收录')
+      expect(configStatusColor.applied).toBe('default')
+      expect(configStatusLabel.applied).not.toContain('已应用')
+      expect(configStatusLabel.applied).not.toContain('已生效')
+    })
+  })
+
+  describe('配置状态派生展示（按 applied_at，dev-feedback §25 方案 A）', () => {
+    it('applied_at 有值 → 已生效（成功绿）', () => {
+      expect(isConfigApplied('2026-08-31T10:00:00Z')).toBe(true)
+      expect(configStatusView('2026-08-31T10:00:00Z')).toEqual({
+        label: CONFIG_STATUS_APPLIED_LABEL,
+        color: 'success',
+        applied: true,
+      })
+      expect(CONFIG_STATUS_APPLIED_LABEL).toBe('已生效')
+    })
+
+    it('applied_at 为空 / 缺失 / 空白 → 已提交，待确认下发（警示橙）', () => {
+      for (const empty of [undefined, null, '', '   ']) {
+        expect(isConfigApplied(empty)).toBe(false)
+        expect(configStatusView(empty)).toEqual({
+          label: CONFIG_STATUS_PENDING_LABEL,
+          color: 'warning',
+          applied: false,
+        })
+      }
+      expect(CONFIG_STATUS_PENDING_LABEL).toBe('已提交，待确认下发')
+      // 用户可见状态文案不得出现「已应用 / 已生效」这类会被读作已生效的词
+      expect(CONFIG_STATUS_PENDING_LABEL).not.toContain('已应用')
+      expect(CONFIG_STATUS_PENDING_LABEL).not.toContain('已生效')
     })
   })
 

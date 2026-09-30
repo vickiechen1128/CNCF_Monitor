@@ -32,20 +32,20 @@ func TestValidateResourceInput_Host(t *testing.T) {
 	store := newBizStore(t)
 
 	t.Run("valid host passes", func(t *testing.T) {
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, validHostInput(), store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, validHostInput(), store, nil, nil, alwaysExists))
 	})
 
 	t.Run("app_code and cluster optional for host", func(t *testing.T) {
 		in := validHostInput()
 		in.AppCode = ""
 		in.Cluster = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("missing instance_ip fails", func(t *testing.T) {
 		in := validHostInput()
 		in.InstanceIP = ""
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "instance_ip")
 	})
@@ -53,7 +53,7 @@ func TestValidateResourceInput_Host(t *testing.T) {
 	t.Run("invalid IPv4 fails", func(t *testing.T) {
 		in := validHostInput()
 		in.InstanceIP = "999.999.999.999"
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "instance_ip")
 	})
@@ -62,7 +62,7 @@ func TestValidateResourceInput_Host(t *testing.T) {
 		in := validHostInput()
 		in.InstanceName = ""
 		in.Hostname = ""
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "instance_name")
 	})
@@ -71,13 +71,13 @@ func TestValidateResourceInput_Host(t *testing.T) {
 		in := validHostInput()
 		in.InstanceName = ""
 		in.Hostname = "web-01"
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("invalid env fails", func(t *testing.T) {
 		in := validHostInput()
 		in.Env = "production"
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "env")
 	})
@@ -85,7 +85,7 @@ func TestValidateResourceInput_Host(t *testing.T) {
 	t.Run("chinese status rejected for API write", func(t *testing.T) {
 		in := validHostInput()
 		in.Status = "运行中"
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "status")
 	})
@@ -93,7 +93,7 @@ func TestValidateResourceInput_Host(t *testing.T) {
 	t.Run("invalid status rejected", func(t *testing.T) {
 		in := validHostInput()
 		in.Status = "orphan"
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 	})
 }
@@ -115,13 +115,13 @@ func TestValidateResourceInput_Database(t *testing.T) {
 	}
 
 	t.Run("valid database passes", func(t *testing.T) {
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, valid(), store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, valid(), store, nil, nil, alwaysExists))
 	})
 
 	t.Run("missing database_type fails", func(t *testing.T) {
 		in := valid()
 		in.DatabaseType = ""
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "database_type")
 	})
@@ -129,7 +129,7 @@ func TestValidateResourceInput_Database(t *testing.T) {
 	t.Run("missing app_code fails", func(t *testing.T) {
 		in := valid()
 		in.AppCode = ""
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "app_code")
 	})
@@ -137,7 +137,7 @@ func TestValidateResourceInput_Database(t *testing.T) {
 	t.Run("missing cluster fails", func(t *testing.T) {
 		in := valid()
 		in.Cluster = ""
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "cluster")
 	})
@@ -145,7 +145,7 @@ func TestValidateResourceInput_Database(t *testing.T) {
 	t.Run("missing instance_ip fails", func(t *testing.T) {
 		in := valid()
 		in.InstanceIP = ""
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "instance_ip")
 	})
@@ -153,7 +153,7 @@ func TestValidateResourceInput_Database(t *testing.T) {
 	t.Run("port zero fails (port required)", func(t *testing.T) {
 		in := valid()
 		in.Port = 0
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "port")
 	})
@@ -161,7 +161,7 @@ func TestValidateResourceInput_Database(t *testing.T) {
 	t.Run("port out of range fails", func(t *testing.T) {
 		in := valid()
 		in.Port = 70000
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "port")
 	})
@@ -184,13 +184,13 @@ func TestValidateResourceInput_Middleware(t *testing.T) {
 	}
 
 	t.Run("valid middleware passes", func(t *testing.T) {
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryMiddleware, valid(), store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryMiddleware, valid(), store, nil, nil, alwaysExists))
 	})
 
 	t.Run("missing middleware_type fails", func(t *testing.T) {
 		in := valid()
 		in.MiddlewareType = ""
-		err := ValidateResourceInput(models.ResourceCategoryMiddleware, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryMiddleware, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "middleware_type")
 	})
@@ -198,7 +198,7 @@ func TestValidateResourceInput_Middleware(t *testing.T) {
 	t.Run("missing port fails", func(t *testing.T) {
 		in := valid()
 		in.Port = 0
-		err := ValidateResourceInput(models.ResourceCategoryMiddleware, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryMiddleware, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "port")
 	})
@@ -206,7 +206,7 @@ func TestValidateResourceInput_Middleware(t *testing.T) {
 	t.Run("missing app_code fails", func(t *testing.T) {
 		in := valid()
 		in.AppCode = ""
-		err := ValidateResourceInput(models.ResourceCategoryMiddleware, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryMiddleware, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "app_code")
 	})
@@ -231,19 +231,19 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	}
 
 	t.Run("valid application passes", func(t *testing.T) {
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, valid(), store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, valid(), store, nil, nil, alwaysExists))
 	})
 
 	t.Run("empty health_check_url allowed (可选，仅资源画像与标签来源)", func(t *testing.T) {
 		in := valid()
 		in.HealthCheckURL = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("missing service_name fails", func(t *testing.T) {
 		in := valid()
 		in.ServiceName = ""
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "service_name")
 	})
@@ -251,7 +251,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	t.Run("missing endpoint fails", func(t *testing.T) {
 		in := valid()
 		in.Endpoint = ""
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "endpoint")
 	})
@@ -259,7 +259,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	t.Run("missing 采集端口 port fails", func(t *testing.T) {
 		in := valid()
 		in.Port = 0
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "port")
 	})
@@ -267,7 +267,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	t.Run("port out of range fails", func(t *testing.T) {
 		in := valid()
 		in.Port = 70000
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "port")
 	})
@@ -275,7 +275,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	t.Run("missing app_code fails", func(t *testing.T) {
 		in := valid()
 		in.AppCode = ""
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "app_code")
 	})
@@ -283,7 +283,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	t.Run("invalid protocol fails", func(t *testing.T) {
 		in := valid()
 		in.Protocol = "ftp"
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "protocol")
 	})
@@ -291,7 +291,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	t.Run("invalid health_check_url fails", func(t *testing.T) {
 		in := valid()
 		in.HealthCheckURL = "not-a-url"
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "health_check_url")
 	})
@@ -299,7 +299,7 @@ func TestValidateResourceInput_Application(t *testing.T) {
 	t.Run("health_check_url with unsupported scheme fails", func(t *testing.T) {
 		in := valid()
 		in.HealthCheckURL = "ftp://10.0.0.20/health"
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "health_check_url")
 	})
@@ -322,20 +322,20 @@ func TestValidateResourceInput_GenericTarget(t *testing.T) {
 	}
 
 	t.Run("valid generic passes", func(t *testing.T) {
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, valid(), store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, valid(), store, nil, nil, alwaysExists))
 	})
 
 	t.Run("app_code and cluster optional for generic", func(t *testing.T) {
 		in := valid()
 		in.AppCode = ""
 		in.Cluster = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("missing target_name fails", func(t *testing.T) {
 		in := valid()
 		in.TargetName = ""
-		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "target_name")
 	})
@@ -343,7 +343,7 @@ func TestValidateResourceInput_GenericTarget(t *testing.T) {
 	t.Run("invalid IP fails", func(t *testing.T) {
 		in := valid()
 		in.InstanceIP = "10.0.0"
-		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "instance_ip")
 	})
@@ -351,13 +351,13 @@ func TestValidateResourceInput_GenericTarget(t *testing.T) {
 	t.Run("domain allowed for generic instance_ip", func(t *testing.T) {
 		in := valid()
 		in.InstanceIP = "snmp.example.com"
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("invalid scheme fails", func(t *testing.T) {
 		in := valid()
 		in.Scheme = "tcp"
-		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "scheme")
 	})
@@ -365,7 +365,7 @@ func TestValidateResourceInput_GenericTarget(t *testing.T) {
 	t.Run("port zero ok for generic", func(t *testing.T) {
 		in := valid()
 		in.Port = 0
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, store, nil, nil, alwaysExists))
 	})
 }
 
@@ -373,26 +373,26 @@ func TestValidateResourceInput_Common(t *testing.T) {
 	store := newBizStore(t)
 
 	t.Run("invalid category fails", func(t *testing.T) {
-		err := ValidateResourceInput(models.ResourceCategory("bogus"), validHostInput(), store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategory("bogus"), validHostInput(), store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "resource_category")
 	})
 
 	t.Run("nil input fails", func(t *testing.T) {
-		require.Error(t, ValidateResourceInput(models.ResourceCategoryHost, nil, store, nil, alwaysExists))
+		require.Error(t, ValidateResourceInput(models.ResourceCategoryHost, nil, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("missing network_domain_id fails", func(t *testing.T) {
 		in := validHostInput()
 		in.NetworkDomainID = ""
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "network_domain_id")
 	})
 
 	t.Run("network_domain_id not registered fails", func(t *testing.T) {
 		in := validHostInput()
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, func(string) bool { return false })
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, func(string) bool { return false })
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "网域")
 	})
@@ -401,20 +401,20 @@ func TestValidateResourceInput_Common(t *testing.T) {
 	t.Run("host biz_code optional", func(t *testing.T) {
 		in := validHostInput()
 		in.BizCode = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("disabled or unknown biz_code fails", func(t *testing.T) {
 		in := validHostInput()
 		in.BizCode = "legacy" // sampleYAML 中停用项
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 	})
 
 	t.Run("malformed biz_code fails", func(t *testing.T) {
 		in := validHostInput()
 		in.BizCode = "Bad_Code"
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 	})
 }
@@ -658,23 +658,23 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 	}
 
 	t.Run("database biz_code optional (决策 93)", func(t *testing.T) {
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, dbInput(), bizStore, appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, dbInput(), bizStore, appStore, nil, alwaysExists))
 	})
 	t.Run("middleware biz_code optional (决策 93)", func(t *testing.T) {
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryMiddleware, mwInput(), bizStore, appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryMiddleware, mwInput(), bizStore, appStore, nil, alwaysExists))
 	})
 	t.Run("application biz_code required (决策 93)", func(t *testing.T) {
-		err := ValidateResourceInput(models.ResourceCategoryApplication, appInput(), bizStore, appStore, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, appInput(), bizStore, appStore, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "biz_code")
 	})
 	t.Run("application biz_code non-empty passes", func(t *testing.T) {
 		in := appInput()
 		in.BizCode = "payment"
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, bizStore, appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, bizStore, appStore, nil, alwaysExists))
 	})
 	t.Run("generic both empty fails (决策 95)", func(t *testing.T) {
-		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, genericInput(), bizStore, appStore, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, genericInput(), bizStore, appStore, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "biz_code")
 		assert.Contains(t, err.Error(), "app_code")
@@ -682,12 +682,12 @@ func TestValidateResourceInput_BizTypology(t *testing.T) {
 	t.Run("generic biz only passes", func(t *testing.T) {
 		in := genericInput()
 		in.BizCode = "infra"
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, nil, alwaysExists))
 	})
 	t.Run("generic app only passes", func(t *testing.T) {
 		in := genericInput()
 		in.AppCode = "app"
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, nil, alwaysExists))
 	})
 }
 
@@ -709,11 +709,11 @@ func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
 			Port:            3306,
 		}
 		// 不带 keep 时停用条目仍被拒绝（与创建口径一致）。
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, bizStore, appStore, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, bizStore, appStore, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "应用")
 		// 编辑保留历史值：keep 同名 → 放行。
-		require.NoError(t, ValidateResourceInputForUpdate(models.ResourceCategoryDatabase, in, bizStore, appStore, alwaysExists, &KeepDisabledValues{AppCode: "legacy-app"}))
+		require.NoError(t, ValidateResourceInputForUpdate(models.ResourceCategoryDatabase, in, bizStore, appStore, nil, alwaysExists, &KeepDisabledValues{AppCode: "legacy-app"}))
 	})
 
 	t.Run("disabled app changed to new value rejected", func(t *testing.T) {
@@ -727,16 +727,16 @@ func TestValidateResourceInputForUpdate_KeepsDisabledHistory(t *testing.T) {
 			InstanceIP:      "10.0.0.10",
 			Port:            3306,
 		}
-		err := ValidateResourceInputForUpdate(models.ResourceCategoryDatabase, in, bizStore, appStore, alwaysExists, &KeepDisabledValues{AppCode: "legacy-app"})
+		err := ValidateResourceInputForUpdate(models.ResourceCategoryDatabase, in, bizStore, appStore, nil, alwaysExists, &KeepDisabledValues{AppCode: "legacy-app"})
 		require.NoError(t, err, "改选启用条目不受 keep 影响")
 	})
 
 	t.Run("disabled biz kept as history passes", func(t *testing.T) {
 		in := validHostInput()
 		in.BizCode = "legacy" // 停用业务条目，保留历史值
-		err := ValidateResourceInput(models.ResourceCategoryHost, in, bizStore, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryHost, in, bizStore, nil, nil, alwaysExists)
 		require.Error(t, err)
-		require.NoError(t, ValidateResourceInputForUpdate(models.ResourceCategoryHost, in, bizStore, nil, alwaysExists, &KeepDisabledValues{BizCode: "legacy"}))
+		require.NoError(t, ValidateResourceInputForUpdate(models.ResourceCategoryHost, in, bizStore, nil, nil, alwaysExists, &KeepDisabledValues{BizCode: "legacy"}))
 	})
 }
 
@@ -771,14 +771,14 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 	t.Run("empty health_check_url passes", func(t *testing.T) {
 		in := valid()
 		in.HealthCheckURL = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists))
 	})
 
 	t.Run("invalid health_check_url keeps format error", func(t *testing.T) {
 		for _, raw := range []string{"not-a-url", "ftp://10.10.1.4/health"} {
 			in := valid()
 			in.HealthCheckURL = raw
-			err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+			err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "health_check_url", "非法 URL %q 仍按原格式错误返回", raw)
 		}
@@ -787,7 +787,7 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 	t.Run("empty endpoint fails with address purpose message", func(t *testing.T) {
 		in := valid()
 		in.Endpoint = ""
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "endpoint")
 		assert.Contains(t, err.Error(), "采集地址")
@@ -796,7 +796,7 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 	t.Run("zero port fails (采集端口必填)", func(t *testing.T) {
 		in := valid()
 		in.Port = 0
-		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, store, nil, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "port")
 		assert.Contains(t, err.Error(), "采集端口")
@@ -805,5 +805,140 @@ func TestValidateApplication_AddressSplit(t *testing.T) {
 	t.Run("endpoint 参与唯一键", func(t *testing.T) {
 		in := valid()
 		assert.Equal(t, "application|default|pay-service|10.10.1.4", DedupKey(models.ResourceCategoryApplication, in))
+	})
+}
+
+// ---------------------------------------------------------------------------
+// 决策 105：可选 service_code（仅 application / generic_target）
+// ---------------------------------------------------------------------------
+
+// TestValidateResourceInput_ServiceCode 覆盖可选字段 service_code 的四类场景：
+// application / generic_target 填值合法、引用停用 / 未登记拒绝、留空合法；
+// host / database / middleware 不挂服务（传值也不校验、不落库）。
+func TestValidateResourceInput_ServiceCode(t *testing.T) {
+	bizStore := newBizStore(t)
+	appStore := newAppStore(t)
+	svcStore := newSvcStore(t)
+
+	appIn := func() *ResourceInput {
+		return &ResourceInput{
+			ResourceCategory: string(models.ResourceCategoryApplication),
+			NetworkDomainID:  "default",
+			BizCode:          "payment",
+			AppCode:          "pay-service",
+			Cluster:          "pay",
+			Status:           "online",
+			Env:              "prod",
+			ServiceName:      "pay-service",
+			Endpoint:         "10.0.0.20",
+			Port:             8080,
+		}
+	}
+	genericIn := func() *ResourceInput {
+		return &ResourceInput{
+			ResourceCategory: string(models.ResourceCategoryGenericTarget),
+			NetworkDomainID:  "default",
+			AppCode:          "app",
+			Status:           "online",
+			Env:              "prod",
+			TargetName:       "snmp-switch-01",
+			InstanceIP:       "10.0.0.30",
+			Port:             161,
+		}
+	}
+
+	t.Run("application with enabled service_code passes", func(t *testing.T) {
+		in := appIn()
+		in.ServiceCode = "order-api"
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, bizStore, appStore, svcStore, alwaysExists))
+	})
+
+	t.Run("application empty service_code passes (纯自由文本向后兼容)", func(t *testing.T) {
+		in := appIn()
+		in.ServiceCode = ""
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, bizStore, appStore, svcStore, alwaysExists))
+	})
+
+	t.Run("application disabled service_code rejected", func(t *testing.T) {
+		in := appIn()
+		in.ServiceCode = "legacy-api" // 停用条目（fixtures 里 Enabled=false）
+		err := ValidateResourceInput(models.ResourceCategoryApplication, in, bizStore, appStore, svcStore, alwaysExists)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "legacy-api")
+	})
+
+	t.Run("generic_target with enabled service_code passes", func(t *testing.T) {
+		in := genericIn()
+		in.ServiceCode = "pay-api"
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, svcStore, alwaysExists))
+	})
+
+	t.Run("generic_target unknown service_code rejected", func(t *testing.T) {
+		in := genericIn()
+		in.ServiceCode = "not-registered"
+		err := ValidateResourceInput(models.ResourceCategoryGenericTarget, in, bizStore, appStore, svcStore, alwaysExists)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not-registered")
+	})
+
+	t.Run("host/database/middleware 不挂服务：传 service_code 不校验、不影响通过", func(t *testing.T) {
+		// 三种基础设施类型都不提供 service_code 写通道，即便请求体带入也一律忽略
+		// （models.Host / Database / Middleware 无该字段，校验不对非适用类型生效）。
+		h := validHostInput()
+		h.ServiceCode = "legacy-api" // 即便传值也不校验（host 不挂服务）
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, h, bizStore, appStore, svcStore, alwaysExists))
+
+		dbIn := &ResourceInput{
+			NetworkDomainID: "default", AppCode: "pay-db", Cluster: "pay", Status: "online", Env: "prod",
+			DatabaseType: "mysql", InstanceIP: "10.0.0.10", Port: 3306, ServiceCode: "legacy-api",
+		}
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, dbIn, bizStore, appStore, svcStore, alwaysExists))
+
+		mwIn := &ResourceInput{
+			NetworkDomainID: "default", AppCode: "kafka-app", Cluster: "kafka", Status: "online", Env: "prod",
+			MiddlewareType: "kafka", InstanceIP: "10.0.0.11", Port: 9092, ServiceCode: "legacy-api",
+		}
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryMiddleware, mwIn, bizStore, appStore, svcStore, alwaysExists))
+	})
+
+	t.Run("service_code 与 service_name 仅软约束：不一致也放行", func(t *testing.T) {
+		in := appIn()
+		in.ServiceCode = "order-api" // 与 service_name=pay-service 不一致
+		in.ServiceName = "pay-service"
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryApplication, in, bizStore, appStore, svcStore, alwaysExists))
+	})
+}
+
+// TestValidateResourceInputForUpdate_KeepsDisabledServiceCode 覆盖 §5.16.2：编辑已属
+// 停用服务时允许保留历史值（提示并允许保留），改为其他停用服务仍被拒绝。
+func TestValidateResourceInputForUpdate_KeepsDisabledServiceCode(t *testing.T) {
+	svcStore := newSvcStore(t)
+	base := func() *ResourceInput {
+		return &ResourceInput{
+			ResourceCategory: string(models.ResourceCategoryApplication),
+			NetworkDomainID:  "default",
+			BizCode:          "payment",
+			AppCode:          "pay-service",
+			Cluster:          "pay",
+			Status:           "online",
+			Env:              "prod",
+			ServiceName:      "pay-service",
+			Endpoint:         "10.0.0.20",
+			Port:             8080,
+		}
+	}
+
+	keep := &KeepDisabledValues{ServiceCode: "legacy-api"}
+	t.Run("keep disabled history value passes", func(t *testing.T) {
+		in := base()
+		in.ServiceCode = "legacy-api"
+		require.NoError(t, ValidateResourceInputForUpdate(models.ResourceCategoryApplication, in, newBizStore(t), newAppStore(t), svcStore, alwaysExists, keep))
+	})
+	t.Run("switch to another disabled service rejected", func(t *testing.T) {
+		in := base()
+		in.ServiceCode = "legacy-api"
+		err := ValidateResourceInputForUpdate(models.ResourceCategoryApplication, in, newBizStore(t), newAppStore(t), svcStore, alwaysExists, &KeepDisabledValues{ServiceCode: "other"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "legacy-api")
 	})
 }

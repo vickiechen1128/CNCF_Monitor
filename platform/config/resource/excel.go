@@ -154,6 +154,9 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.Version = val
 		case "service_name":
 			in.ServiceName = val
+		case "service_code":
+			// 决策 105：可选服务编码列（仅 application / generic_target 模板存在）。
+			in.ServiceCode = val
 		case "health_check_url":
 			in.HealthCheckURL = val
 		case "protocol":
@@ -208,13 +211,15 @@ func allEmpty(cells []string) bool {
 //   - status 允许业务语言，经 MapStatus（T07-04）映射为 online/offline/maintenance，
 //     映射失败行返回错误（由调用方计入 failed）；
 //   - biz_code 必填、编码合法且对应启用字典条目，未登记/停用给出 §5.16.1 引导文案；
+//   - 可选 service_code（仅 application / generic_target）：留空不校验，填值须落在
+//     「已启用服务字典 ∪ 本次导入「服务声明」sheet」（决策 105 / 97 延伸）；
 //   - generic_target 的 custom_labels 解析为 key=value;key2=value2 格式的 map；
 //   - 其余字段校验复用 T07-03 ValidateResourceInput（必填/IP/端口范围/URL/
 //     env/protocol/scheme），失败时把错误消息映射回 §5.16.3 的 field/value；
 //   - 校验通过后生成 DedupKey（T07-03）到 row.DedupKey 供 upsert 定位。
 //
 // 失败返回 *ImportRowError（携带完整 row/field/value/reason），成功返回 nil。
-func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
+func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
 	if row == nil {
 		return &ImportRowError{Detail: models.ImportErrorDetail{Field: "resource", Reason: "导入行为空"}}
 	}
@@ -296,6 +301,33 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 		}
 	}
 
+	// 3.6 决策 105：可选服务编码 service_code——仅 application / generic_target 适用，
+	// 留空不校验（纯自由文本、向后兼容）；填值须对应已启用服务字典条目（或本次导入文件
+	// 「服务声明」sheet 申报，决策 97 延伸，口径同 biz_code / app_code）。
+	if category == models.ResourceCategoryApplication || category == models.ResourceCategoryGenericTarget {
+		if strings.TrimSpace(in.ServiceCode) != "" {
+			if !models.ValidServiceCode.MatchString(in.ServiceCode) {
+				return fieldErr(row, "service_code", in.ServiceCode, "service_code 只能包含小写字母、数字和连字符，长度不超过 64")
+			}
+			svcEnabled, err := svcStore.GetEnabledMap()
+			if err != nil {
+				return fieldErr(row, "service_code", in.ServiceCode, fmt.Sprintf("服务字典加载失败：%v", err))
+			}
+			if _, ok := svcEnabled[in.ServiceCode]; !ok {
+				_, found, lerr := svcStore.Lookup(in.ServiceCode)
+				if lerr != nil {
+					return fieldErr(row, "service_code", in.ServiceCode, fmt.Sprintf("查询服务 %s 失败：%v", in.ServiceCode, lerr))
+				}
+				if found {
+					return fieldErr(row, "service_code", in.ServiceCode,
+						fmt.Sprintf("服务 %s 已停用，请在『服务管理』页启用后重新导入", in.ServiceCode))
+				}
+				return fieldErr(row, "service_code", in.ServiceCode,
+					fmt.Sprintf("服务 %s 未登记且未在声明 sheet 声明，请在『服务管理』页登记，或在本文件『服务声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", in.ServiceCode))
+			}
+		}
+	}
+
 	// 4. 非数字 port（ParseExcel 置 -1 哨兵）。
 	if in.Port < 0 {
 		return fieldErr(row, "port", row.PortRaw, "port 必须为 1~65535 的整数")
@@ -315,7 +347,7 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 	// 移至 M06 网域登记层，此处不再处理。
 
 	// 6. 其余字段校验复用 T07-03（必填/IP/端口范围/URL/env/protocol/scheme）。
-	if err := ValidateResourceInput(category, in, bizStore, appStore, networkDomainExists); err != nil {
+	if err := ValidateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists); err != nil {
 		field := fieldFromResourceInputError(err.Error())
 		return fieldErr(row, field, valueFromField(in, field, row.PortRaw), err.Error())
 	}
@@ -369,7 +401,7 @@ var resourceInputFieldPrefixes = []string{
 	"network_domain_id", "biz_code", "env", "status",
 	"instance_ip", "instance_name", "hostname", "os_type",
 	"database_type", "middleware_type", "port", "version",
-	"service_name", "health_check_url", "protocol", "endpoint",
+	"service_name", "service_code", "health_check_url", "protocol", "endpoint",
 	"target_name", "metrics_path", "scheme", "exporter_type",
 	"app_code", "cluster", "resource_category",
 }
@@ -423,6 +455,8 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 		return in.Version
 	case "service_name":
 		return in.ServiceName
+	case "service_code":
+		return in.ServiceCode
 	case "health_check_url":
 		return in.HealthCheckURL
 	case "protocol":
@@ -444,9 +478,9 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 // ValidateRows 逐行执行 ValidateImportRow，返回校验通过的合法行（已含映射后
 // Status 与 DedupKey）与失败明细（§5.16.3 结构，row 从 2 起始）。T07-10 导入
 // 执行在 ParseExcel 之后调用本函数，作为行级校验与错误行收集的统一入口。
-func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
+func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
 	for i := range rows {
-		if err := ValidateImportRow(&rows[i], bizStore, appStore, networkDomainExists, extraRules); err != nil {
+		if err := ValidateImportRow(&rows[i], bizStore, appStore, svcStore, networkDomainExists, extraRules); err != nil {
 			var rerr *ImportRowError
 			if errors.As(err, &rerr) {
 				errs = append(errs, rerr.Detail)

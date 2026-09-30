@@ -66,7 +66,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
 		}
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, nil, alwaysExists))
 	})
 
 	t.Run("disabled app_code fails", func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
 		}
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "legacy-app")
 	})
@@ -100,7 +100,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 			InstanceIP:       "10.0.0.10",
 			Port:             3306,
 		}
-		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, alwaysExists)
+		err := ValidateResourceInput(models.ResourceCategoryDatabase, in, newBizStore(t), appStore, nil, alwaysExists)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not-registered")
 	})
@@ -108,7 +108,7 @@ func TestValidateResourceInput_AppCodeEnabled(t *testing.T) {
 	t.Run("empty app_code allowed for host", func(t *testing.T) {
 		in := validHostInput()
 		in.AppCode = ""
-		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, newBizStore(t), appStore, alwaysExists))
+		require.NoError(t, ValidateResourceInput(models.ResourceCategoryHost, in, newBizStore(t), appStore, nil, alwaysExists))
 	})
 }
 
@@ -122,10 +122,11 @@ func TestApplicationDictEndpoints(t *testing.T) {
 		models.ApplicationDict{AppCode: "legacy-app", AppName: "遗留应用", Status: models.AppStatusDisabled},
 	)
 	store := NewApplicationDictStore(db)
+	platformStore := newPlatformStore(t)
 	r := gin.New()
 	r.GET("/api/v2/platform/application-dict", ListApplicationDicts(store))
-	r.POST("/api/v2/platform/application-dict", CreateApplicationDict(store))
-	r.PUT("/api/v2/platform/application-dict/:app_code", UpdateApplicationDict(store))
+	r.POST("/api/v2/platform/application-dict", CreateApplicationDict(store, platformStore))
+	r.PUT("/api/v2/platform/application-dict/:app_code", UpdateApplicationDict(store, platformStore))
 
 	// 初始列表包含 3 条 fixture。
 	code, out := doJSON(t, r, http.MethodGet, "/api/v2/platform/application-dict", "")
