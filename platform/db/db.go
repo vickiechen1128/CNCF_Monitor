@@ -100,6 +100,9 @@ func AutoMigrate() error {
 		&models.EdgeTargetSnapshot{}, // F-11：边缘 vmagent target 抓取快照（随心跳落库）
 		// 告警收敛与通知管理（Module_08，决策 59/60 alertmanager.yml 挂载留痕）
 		&models.AlertmanagerConfigVersion{},
+		// 通知渲染桥（Module_08 PL-3：通知渠道 + 通知模板版本化留痕）
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
 		// 预留
 		&models.BusinessMetric{},
 	)

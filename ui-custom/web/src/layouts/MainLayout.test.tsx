@@ -137,6 +137,27 @@ describe('MainLayout', () => {
     expect(screen.getByText('collector-content')).toBeInTheDocument()
   })
 
+  // D-1b ⓐ：规则编辑保持原名称与归属（方案丙），菜单项补副标题「含告警规则、记录规则」。
+  it('D-1b：规则编辑菜单项带副标题「含告警规则、记录规则」，且 /rules 仍归属采集策略', () => {
+    render(
+      <MemoryRouter initialEntries={['/rules']}>
+        <Routes>
+          <Route path="/rules" element={<MainLayout>rules-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 顶部一级 tab：采集策略保持激活（/rules 归属判定不变，导航零变更）
+    expect(screen.getByText('采集策略')).toBeInTheDocument()
+    expect(screen.getByText('rules-content')).toBeInTheDocument()
+    // 菜单项文本 = 主标题 + 副标题
+    const menuTexts = screen
+      .getAllByRole('menuitem')
+      .map((el) => el.textContent ?? '')
+    const rulesIdx = menuTexts.findIndex((t) => t.includes('规则编辑'))
+    expect(rulesIdx).toBeGreaterThanOrEqual(0)
+    expect(menuTexts[rulesIdx]).toContain('含告警规则、记录规则')
+  })
+
   it('navigates to /collectors (首个子项) when top-module 采集策略 clicked', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -478,6 +499,56 @@ describe('MainLayout', () => {
     expect(selected).toBeDefined()
     expect(selected?.className ?? '').toContain('ant-menu-item-selected')
     expect(screen.getByText('cloud-dict-content')).toBeInTheDocument()
+  })
+
+  /**
+   * PL-3 通知渲染桥（T08-F10）：通知渠道为 M08 新增能力页，
+   * 归属「告警收敛与通知管理」一级模块，且在 Sider 二级导航高亮。
+   */
+  it('resolves /notify-channels to 告警收敛与通知管理 and highlights 通知渠道 sub-item', async () => {
+    render(
+      <MemoryRouter initialEntries={['/notify-channels']}>
+        <Routes>
+          <Route path="/notify-channels" element={<MainLayout>notify-channels-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    // 一级 tab 归「告警收敛与通知管理」并处于 active（否则会落到首页）
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab?.className ?? '').toContain('active')
+    // 二级导航含「通知渠道」且当前路由高亮该项
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('通知渠道'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('notify-channels-content')).toBeInTheDocument()
+  })
+
+  /**
+   * PL-3 通知渲染桥（T08-F12）：通知模板同为 M08 新增能力页，
+   * 归属「告警收敛与通知管理」一级模块，且在 Sider 二级导航高亮。
+   */
+  it('resolves /notify-templates to 告警收敛与通知管理 and highlights 通知模板 sub-item', async () => {
+    render(
+      <MemoryRouter initialEntries={['/notify-templates']}>
+        <Routes>
+          <Route path="/notify-templates" element={<MainLayout>notify-templates-content</MainLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    const tab = screen
+      .getAllByRole('button')
+      .find((el) => (el.textContent || '').includes('告警收敛与通知管理'))
+    expect(tab?.className ?? '').toContain('active')
+    const selected = screen
+      .getAllByRole('menuitem')
+      .find((el) => (el.textContent || '').includes('通知模板'))
+    expect(selected).toBeDefined()
+    expect(selected?.className ?? '').toContain('ant-menu-item-selected')
+    expect(screen.getByText('notify-templates-content')).toBeInTheDocument()
   })
 
   it('renders the brand title from the stored product name and mirrors it to the tab title', async () => {

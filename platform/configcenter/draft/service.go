@@ -41,6 +41,16 @@ var (
 // 不生成 alerting 段。可注入便于测试。
 var AlertmanagerTarget string
 
+// NotifyBridgeURL / NotifyBridgeToken 是 M08 通知渲染桥的运行配置，由 cmd/metric-center
+// 从监听地址与 --notify.bridge-token 注入（决策 74 定稿：M09 物化平台通知 receivers）。
+// NotifyBridgeURL 为空时不物化（不写悬空 URL）；NotifyBridgeToken 为空时不写
+// http_config.authorization（缺失鉴权由桥端 401 + 启动 WARN 暴露，不伪造占位令牌）。
+// 可注入便于测试。
+var (
+	NotifyBridgeURL   string
+	NotifyBridgeToken string
+)
+
 // GenerateDraft 手动触发生成一条配置草稿（POST /api/v2/platform/config/drafts）。
 //
 // 约束（PRD §3.4 / 决策 42-1）：
@@ -234,7 +244,38 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	// 决策 74 定稿：管理域存在 alertmanager.yml 时把平台启用渠道物化为 receivers
+	//（与 M07 LabelTemplate 同「配置即生效」范式），并把重名冲突写入非产物字段
+	// NotifyReceiverConflicts 供 ValidateArtifacts 转行级错误。须在 Checksum 之前完成。
+	if err := materializeNotifyReceivers(db, artifacts); err != nil {
+		return nil, nil, nil, err
+	}
 	return artifacts, jobs, rules, nil
+}
+
+// materializeNotifyReceivers 在存在 alertmanager.yml 产物时，把平台已启用通知渠道物化为
+// receivers 并合并进产物（决策 74 定稿）。AlertmanagerYML 为空（非管理域 / 无告警配置）
+// 时直接返回。物化幂等：已物化的平台 receiver（名称与桥 URL 均匹配）识别为自身产物、
+// 不重复追加也不误判重名，保证「重新校验」可从草稿产物复现同一结果。
+func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error {
+	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
+		return nil
+	}
+	channels, err := generator.LoadEnabledNotifyChannels(db)
+	if err != nil {
+		return err
+	}
+	materialized, conflicts, err := generator.MaterializeNotifyReceivers(artifacts.AlertmanagerYML, generator.NotifyReceiverInput{
+		BridgeURL:   NotifyBridgeURL,
+		BridgeToken: NotifyBridgeToken,
+		Channels:    channels,
+	})
+	if err != nil {
+		return err
+	}
+	artifacts.AlertmanagerYML = materialized
+	artifacts.NotifyReceiverConflicts = conflicts
+	return nil
 }
 
 // LatestLivePending 返回某网域最新活 pending 草稿（无则 nil）。供 M09 自动变更检测
@@ -859,6 +900,11 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 
 	artifacts, err := artifactsFromDraft(d)
 	if err != nil {
+		return nil, err
+	}
+	// 决策 74 定稿：重校需复现物化结果（含重名冲突）。已物化的平台 receiver 由物化函数
+	// 幂等识别，不误判重名；冲突未消除时仍复现 failed + 行级错误，避免「重校即静默放行」。
+	if err := materializeNotifyReceivers(db, artifacts); err != nil {
 		return nil, err
 	}
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready

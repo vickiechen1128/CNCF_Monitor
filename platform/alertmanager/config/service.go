@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/configcenter/change"
+	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
+	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -42,6 +44,73 @@ var managementDomainID = models.DefaultDomainID
 // 失败不阻断挂载（watcher 下一轮会兜底重试）。默认实现在测试中可注入替换。
 var triggerChangeDetection = func(db *gorm.DB) error {
 	return change.ProcessDomain(db, managementDomainID)
+}
+
+// autoApplyManagementDomain 是「生成/复用管理域 default 的 pending 草稿并确认下发」的
+// 可注入工序（dev-feedback §25 方案 A）。M08 apply 仅收录源数据 + 触发 M09 变更检测时
+// 只会产出一张 pending 草稿、**永不自动确认**，磁盘上的 alertmanager.yml 仍是旧的，AM
+// 实际未加载新配置。此工序在触发检测后自动闭环到 confirm → 落盘 + AM reload，使 M08 一次
+// apply 端到端生效。默认实现在测试中可注入替换（风格同 triggerChangeDetection）。
+var autoApplyManagementDomain = func(db *gorm.DB, by string) error {
+	return applyManagementDomainConfig(db, by)
+}
+
+// applyManagementDomainConfig 对管理域 default 生成/复用一张 pending 草稿并确认下发：
+//
+//   - 已有活 pending：按 watcher.go 的 ShouldSupersedePending 口径判断是否需要重新生成
+//     （supersede=true 时 GenerateDraft 取新单并取代旧单，否则复用既有 live.ChangeNo），
+//     与 30s 轮询 change watcher 的裁决一致，规避「已有活 pending」竞态导致的重复生成；
+//   - 无活 pending：GenerateDraft 生成新单；ErrNoChanges（无实质变更，决策 44-3）视为
+//     无需下发、返回 nil；其他错误返回；
+//   - 最终 ConfirmDraft(changeNo, by) → 走既有 confirm 下发链路（DiskApplier 写
+//     alertmanager.yml + AM reload），由 deployment.writebackAlertmanagerApplied 回填
+//     applied_at/source_change_no。管理域为 local 直发通道（决策 31-M2），自动应用合规。
+//
+// 任一步失败均原样返回错误，由调用方（submitValidated）转成哨兵 errAutoApply 降级——
+// 收录已成功，不下发失败不得让 M08 submit 报错。
+func applyManagementDomainConfig(db *gorm.DB, by string) error {
+	changeNo := ""
+	live, err := draft.LatestLivePending(db, managementDomainID)
+	if err != nil {
+		return err
+	}
+	if live != nil {
+		// 参考 change/watcher.go 的保活/取代口径：产物变化则取新单取代旧单，否则复用旧单。
+		dom, dErr := generator.LoadDomain(db, managementDomainID)
+		if dErr != nil {
+			return dErr
+		}
+		supersede, sErr := draft.ShouldSupersedePending(db, dom, live)
+		if sErr != nil {
+			return sErr
+		}
+		if supersede {
+			d, gErr := draft.GenerateDraft(db, managementDomainID)
+			if gErr != nil {
+				if errors.Is(gErr, draft.ErrNoChanges) {
+					return nil
+				}
+				return gErr
+			}
+			changeNo = d.ChangeNo
+		} else {
+			changeNo = live.ChangeNo
+		}
+	} else {
+		d, gErr := draft.GenerateDraft(db, managementDomainID)
+		if gErr != nil {
+			if errors.Is(gErr, draft.ErrNoChanges) {
+				return nil
+			}
+			return gErr
+		}
+		changeNo = d.ChangeNo
+	}
+	if changeNo == "" {
+		return nil
+	}
+	_, err = draft.ConfirmDraft(db, changeNo, by)
+	return err
 }
 
 // Submit 提交挂载一份 alertmanager.yml：
@@ -103,12 +172,27 @@ func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models
 	if err := triggerChangeDetection(db); err != nil {
 		return v, errChangeTrigger
 	}
+
+	// dev-feedback §25 方案 A：自动闭环——触发检测只产 pending 草稿、永不自动确认，
+	// 磁盘 alertmanager.yml 仍是旧的。此处对管理域 default 生成/复用 pending 草稿并确认
+	// 下发（confirm → DiskApplier 写盘 + AM reload），使 M08 一次 apply 端到端生效。
+	// 失败不阻断挂载（收录已成功），按 errChangeTrigger 同款降级返回哨兵 errAutoApply：
+	// handler 仅记日志，由稳态 watcher / 人工确认兜底。Submit/Remount 均经本工序。
+	if err := autoApplyManagementDomain(db, uploadedBy); err != nil {
+		return v, errAutoApply
+	}
 	return v, nil
 }
 
 // errChangeTrigger 是触发 M09 变更检测失败的哨兵错误：挂载已成功留痕，仅提示
 // 变更检测触发异常（可由稳态 watcher 下一轮兜底），handler 据此记录日志而非报错。
 var errChangeTrigger = errors.New("persist ok but trigger change detection failed (watcher will retry)")
+
+// errAutoApply 是自动闭环（生成/确认管理域 default 草稿并下发）失败的哨兵错误：M08 收录
+// 已成功留痕，仅自动下发异常（草稿生成失败 / 校验未过 / confirm 失败等）。与
+// errChangeTrigger 同款降级语义——handler 记录日志而非报错，由稳态 watcher 下一轮或
+// 人工确认兜底重试（dev-feedback §25 方案 A 幂等/降级口径）。
+var errAutoApply = errors.New("persist ok but auto-apply management domain config failed (watcher or manual confirm will retry)")
 
 // findVersionByChecksum 按校验和查询已留痕版本；无则返回 (nil, nil)。
 func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error) {

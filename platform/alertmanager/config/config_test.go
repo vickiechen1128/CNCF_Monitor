@@ -69,13 +69,20 @@ func stubAmtoolUnavailable(t *testing.T) {
 	})
 }
 
-// stubChangeTrigger 记录触发调用并将触发函数短路，便于断言挂载提交了 M09 变更检测。
+// stubChangeTrigger 记录触发调用并将触发函数短路，便于断言挂载提交了 M09 变更检测；
+// 同时短路自动闭环工序 autoApplyManagementDomain（dev-feedback §25 方案 A），使既有
+// 用例不依赖真实草稿流水线（GenerateDraft / ConfirmDraft 需外部工具 + 大量表迁移）。
 func stubChangeTrigger(t *testing.T) *int32 {
 	t.Helper()
 	orig := triggerChangeDetection
+	origAuto := autoApplyManagementDomain
 	var calls int32
 	triggerChangeDetection = func(db *gorm.DB) error { atomic.AddInt32(&calls, 1); return nil }
-	t.Cleanup(func() { triggerChangeDetection = orig })
+	autoApplyManagementDomain = func(db *gorm.DB, by string) error { return nil }
+	t.Cleanup(func() {
+		triggerChangeDetection = orig
+		autoApplyManagementDomain = origAuto
+	})
 	return &calls
 }
 

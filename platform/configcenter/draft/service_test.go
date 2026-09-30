@@ -40,6 +40,9 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 		&models.ConfigChangeBaseline{},
+		&models.AlertmanagerConfigVersion{},
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
 	))
 	return db
 }
@@ -98,7 +101,9 @@ func stubGeneratorTools(t *testing.T) {
 	oldLook := generator.ToolLookPath
 	oldChecker := generator.ToolChecker
 	generator.ToolLookPath = func(name string) (string, error) { return name, nil }
-	generator.ToolChecker = func(ca *generator.ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	generator.ToolChecker = func(ca *generator.ConfigArtifacts, ib bool) (generator.ToolCheckStatus, string) {
+		return generator.ToolCheckPassed, ""
+	}
 	t.Cleanup(func() { generator.ToolLookPath = oldLook; generator.ToolChecker = oldChecker })
 }
 

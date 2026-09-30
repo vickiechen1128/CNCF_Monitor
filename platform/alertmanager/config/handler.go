@@ -66,7 +66,11 @@ func SubmitHandler(db *gorm.DB) gin.HandlerFunc {
 		// review-fix A：errChangeTrigger 时配置已校验并落库留痕（v 非 nil），仅触发
 		// M09 变更检测失败——须在通用 err 分支之前命中，记录日志并正常返回版本（不报
 		// 500，契约「校验失败不阻断挂载」；稳态 watcher 下一轮会兜底重试检测）。
-		if errors.Is(err, errChangeTrigger) {
+		// dev-feedback §25 方案 A：errAutoApply 收录 + 变更检测均成功，仅自动确认下发
+		// 失败，同款降级——记日志、正常返回版本，由 watcher / 人工确认兜底。
+		if errors.Is(err, errAutoApply) {
+			log.Printf("[alertmanager-config] persist ok but auto-apply management domain failed: %v", err)
+		} else if errors.Is(err, errChangeTrigger) {
 			log.Printf("[alertmanager-config] persist ok but trigger change detect failed: %v", err)
 		} else if err != nil {
 			respondSubmitError(c, err)
@@ -163,7 +167,10 @@ func RemountHandler(db *gorm.DB) gin.HandlerFunc {
 		newV, err := Remount(db, old.Content, req.UploadedBy)
 		// review-fix A：errChangeTrigger 时内容已校验并重新落库留痕（newV 非 nil），
 		// 先于通用 err 分支命中，记录日志正常返回新版本（不报 500）。
-		if errors.Is(err, errChangeTrigger) {
+		// dev-feedback §25 方案 A：errAutoApply 同款降级（收录成功，仅自动下发失败）。
+		if errors.Is(err, errAutoApply) {
+			log.Printf("[alertmanager-config] remount persist ok but auto-apply management domain failed: %v", err)
+		} else if errors.Is(err, errChangeTrigger) {
 			log.Printf("[alertmanager-config] remount persist ok but trigger change detect failed: %v", err)
 		} else if err != nil {
 			respondSubmitError(c, err)

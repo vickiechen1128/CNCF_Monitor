@@ -28,6 +28,7 @@ import { InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
+import { RuleGuideEmpty } from '../../components/RuleGuideLink'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import type { AlertHistoryItem, AlertHistoryState } from '../../types/alertmanager'
@@ -337,7 +338,17 @@ export function HistoryAlertsPage() {
               },
             }}
             locale={{
-              emptyText: loading ? '加载中…' : <Empty description="暂无历史告警" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
+              /* PL-1（D-1 方案丙）：结果为空且无错误时复用共享「去写规则」引导
+                 （与告警状态页同构）；筛选后无匹配不展示引导，错误态不把失败伪装成无数据。 */
+              emptyText: loading ? (
+                '加载中…'
+              ) : error ? (
+                <Empty description="暂无历史告警" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ) : items.length === 0 ? (
+                <RuleGuideEmpty description="暂无历史告警" />
+              ) : (
+                <Empty description="无匹配历史告警" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ),
             }}
           />
         </Card>

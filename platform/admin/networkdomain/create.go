@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,10 @@ type CreateNetworkDomainRequest struct {
 	DomainCode          string            `json:"domain_code"`
 	AuthorizedTenantIDs []string          `json:"authorized_tenant_ids"`
 	IPCIDRs             []string          `json:"ip_cidrs"` // 网段（可选），资源导入时按 IP 自动推导网域归属
+	// CenterEndpoint 中心接入地址（agent 可达）。边缘域（agent_pull 通道）的配置包下载
+	// URL 优先使用该地址（与 agent 侧 CENTER_ENDPOINT 同源，中心地址变更时这是唯一需要
+	// 同步更新的字段）；可选，非空时须为合法 http/https 地址（见 platform/edge/helpers.go）。
+	CenterEndpoint string `json:"center_endpoint"`
 }
 
 // validDomainType reports whether dt is a domain type that may be provisioned
@@ -124,6 +129,12 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			response.BadRequest(c, err)
 			return
 		}
+		// 中心接入地址（可选）：非空时须为合法 http/https，保证能被解析为下载 URL
+		// 的 authority（与 edge.resolveDownloadAuthority 口径一致）。
+		if err := validateCenterEndpoint(req.CenterEndpoint); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
 		if req.DomainCode == models.DefaultDomainID {
 			response.BadRequest(c, fmt.Errorf("domain code %q is reserved", models.DefaultDomainID))
 			return
@@ -182,6 +193,7 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 			TenantID:            tenantID,
 			AuthorizedTenantIDs: auth,
 			IPCIDRs:             req.IPCIDRs,
+			CenterEndpoint:      req.CenterEndpoint, // 边缘域下载 URL 来源（可选）
 			// 通道由域类型派生（F-28 方案 A）：本接口只登记边缘域，故恒为 agent_pull。
 			// 早期版本无条件写 local，会让未纳管边缘域被误判为 local 通道。
 			Channel: models.ChannelForDomainType(req.DomainType),
@@ -207,4 +219,25 @@ func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 		}
 		response.OK(c, domain)
 	}
+}
+
+// validateCenterEndpoint 校验中心接入地址（可选）：非空时必须 scheme ∈ {http,https}
+// 且 host 非空，与 edge.resolveDownloadAuthority 的解析口径一致，保证该字段一旦登记即能
+// 被可靠解析为下载 URL 的 authority（避免 agent 拉包回连失败 / 生成缺 scheme 的相对地址）。
+func validateCenterEndpoint(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("center_endpoint 格式不正确：%q", raw)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("center_endpoint 的 scheme 必须是 http/https，当前：%q", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("center_endpoint 缺少主机：%q", raw)
+	}
+	return nil
 }

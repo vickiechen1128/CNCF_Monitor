@@ -95,6 +95,18 @@ describe('RulesPage', () => {
     expect(await screen.findByText('暂无规则')).toBeInTheDocument()
   })
 
+  // D-1b ⓐ：页面顶部定位文案，说明本页同时承载告警规则与记录规则（告警用户从 M08 联动过来时的心智锚点）。
+  it('D-1b：顶部展示「同时承载告警规则与记录规则」定位文案', async () => {
+    listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
+
+    render(
+      <MemoryRouter>
+        <RulesPage />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText(/本页同时承载告警规则与记录规则/)).toBeInTheDocument()
+  })
+
   it('opening mount drawer renders rule mount', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
 

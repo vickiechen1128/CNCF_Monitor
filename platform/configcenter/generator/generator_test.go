@@ -533,7 +533,7 @@ func TestValidateArtifactsPassed(t *testing.T) {
 	oldLook := ToolLookPath
 	oldChecker := ToolChecker
 	ToolLookPath = func(string) (string, error) { return "promtool", nil }
-	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (ToolCheckStatus, string) { return ToolCheckPassed, "" }
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 
 	ca, _ := Assemble("d", "", "", []JobBuild{{Job: models.ScrapeJob{JobName: "j"}, Targets: []TargetGroup{{Targets: []string{"10.0.1.10"}}}}}, nil, "", "", true)
@@ -567,7 +567,8 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 	// 源数据版本聚合会横跨所有源表，需一次性迁移全量（避免不存在的表导致扫描失败）。
 	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.Host{}, &models.Database{},
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.MonitoringRule{},
-		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{}))
+		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{},
+		&models.NotifyChannel{}, &models.NotifyTemplate{}))
 	require.NoError(t, db.Create(&models.ScrapeJob{JobName: "j", NetworkDomainID: "d", MetricsPath: "/m", Scheme: "http",
 		ResourceType: models.ResourceTypeHost, MonitorType: "host_linux", DraftStatus: "ready",
 		Enabled: true}).Error)
@@ -668,7 +669,7 @@ func stubPassingTools(t *testing.T) {
 	oldLook := ToolLookPath
 	oldChecker := ToolChecker
 	ToolLookPath = func(name string) (string, error) { return name, nil }
-	ToolChecker = func(ca *ConfigArtifacts, ib bool) (bool, string) { return true, "" }
+	ToolChecker = func(ca *ConfigArtifacts, ib bool) (ToolCheckStatus, string) { return ToolCheckPassed, "" }
 	t.Cleanup(func() { ToolLookPath = oldLook; ToolChecker = oldChecker })
 }
 

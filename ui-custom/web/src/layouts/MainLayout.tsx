@@ -12,6 +12,7 @@ import {
   DeploymentUnitOutlined,
   DesktopOutlined,
   FileSearchOutlined,
+  FileTextOutlined,
   FundProjectionScreenOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -154,7 +155,19 @@ const MODULES: ModuleDef[] = [
     subItems: [
       { key: '/collectors', label: '采集器管理', icon: <DatabaseOutlined /> },
       { key: '/scrape-jobs', label: '采集 Job', icon: <ThunderboltOutlined /> },
-      { key: '/rules', label: '规则编辑', icon: <AppstoreOutlined /> },
+      {
+        // D-1b ⓐ（2026-09-28）：名称保持「规则编辑」不变，仅补副标题说明本页同时承载
+        // 告警规则与记录规则——零成本增加信息量，让从告警侧找过来的用户一眼确认入口。
+        // 方案丙：/rules 归属「采集策略」不变，此处不改路由、不改模块归属判定。
+        key: '/rules',
+        label: (
+          <span className="app-sider-label-stacked">
+            规则编辑
+            <span className="app-sider-sub-label">含告警规则、记录规则</span>
+          </span>
+        ),
+        icon: <AppstoreOutlined />,
+      },
       { key: '/metric-library', label: '指标库', icon: <DatabaseOutlined /> },
     ],
   },
@@ -201,6 +214,9 @@ const MODULES: ModuleDef[] = [
       { key: '/silences', label: '静默管理', icon: <BellOutlined /> },
       // M08 v1.13 增量：历史告警独立页（Track B+）
       { key: '/alert-history', label: '历史告警', icon: <ClockCircleOutlined /> },
+      // PL-3 通知渲染桥增量：通知渠道 / 通知模板（M08 新增能力页；「告警配置」保持置底）
+      { key: '/notify-channels', label: '通知渠道', icon: <ApiOutlined /> },
+      { key: '/notify-templates', label: '通知模板', icon: <FileTextOutlined /> },
       { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
     ],
   },
@@ -234,7 +250,7 @@ function findModuleByKey(key: string): ModuleDef {
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
  * /resources、/label-templates、/business-domains、/application-dict、/platform-dict、/service-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
- * /alert-config、/silences、/alert-status、/alert-history → 告警收敛与通知管理；其余 → 首页。
+ * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
   // /admin/* 全部归属「系统与平台管理」（M06）：按前缀收口而非逐个枚举路由，
@@ -268,7 +284,9 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/alert-config') ||
     locationPath.startsWith('/silences') ||
     locationPath.startsWith('/alert-status') ||
-    locationPath.startsWith('/alert-history')
+    locationPath.startsWith('/alert-history') ||
+    locationPath.startsWith('/notify-channels') ||
+    locationPath.startsWith('/notify-templates')
   )
     return findModuleByKey('alert')
   return MODULES[0]

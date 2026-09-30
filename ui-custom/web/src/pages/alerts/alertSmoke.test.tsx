@@ -48,6 +48,11 @@ vi.mock('../../api/domain', () => ({
   },
 }))
 
+// 派生预览数据 Hook：冒烟中固定空态，避免穿透真实 notify-channels API（本文件未 mock 该 API）
+vi.mock('./useDerivedReceivers', () => ({
+  useDerivedReceivers: () => ({ rows: [], loading: false, error: null, permissionDenied: false, reload: vi.fn() }),
+}))
+
 function renderM08(initialPath: string) {
   return render(
     <App>

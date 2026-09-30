@@ -170,6 +170,25 @@ describe('HistoryAlertsPage（历史告警）', () => {
     expect(await screen.findByText('暂无历史告警')).toBeInTheDocument()
   })
 
+  // PL-1（D-1 方案丙）：未产生过历史告警时，多为「还没写告警规则」，故空态补跨模块引导。
+  it('PL-1：空结果额外展示「去写规则」引导，落点为 /rules', async () => {
+    alertStatusApiMock.getAlertHistory.mockResolvedValue({
+      status: 'success',
+      data: { list: [], total: 0, page: 1, page_size: 50 },
+    })
+    renderPage()
+    const link = await screen.findByRole('link', { name: '去写规则 →' })
+    expect(link).toHaveAttribute('href', '/rules')
+    expect(screen.getByText(/还没有告警规则？/)).toBeInTheDocument()
+  })
+
+  it('PL-1：接口错误时不展示「去写规则」引导（不把失败伪装成无数据）', async () => {
+    alertStatusApiMock.getAlertHistory.mockRejectedValue(new Error('boom'))
+    renderPage()
+    expect(await screen.findByText('历史告警加载失败')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '去写规则 →' })).toBeNull()
+  })
+
   it('点击刷新触发重新加载', async () => {
     alertStatusApiMock.getAlertHistory.mockResolvedValue({
       status: 'success',

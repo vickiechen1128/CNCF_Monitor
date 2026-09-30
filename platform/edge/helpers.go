@@ -37,12 +37,40 @@ func latestConfigVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, e
 }
 
 // configDownloadURL 合成配置包拉取绝对地址（PRD §6.2，禁止相对路径）。
-// authority 形如 `https://host:port`（应含 scheme + host，由请求来源推导，
-// 见 requestAuthority）。修正：不再依赖从未赋值的 dom.CenterEndpoint，否则会
-// 拼出缺 host 的相对路径导致边缘 Agent 拉包失败（unsupported protocol scheme ""）。
+// authority 形如 `https://host:port`（必须含 scheme + host），由
+// resolveDownloadAuthority 提供（优先网域登记的 CenterEndpoint，回落入站请求推导）。
 func configDownloadURL(authority, domainID string) string {
 	base := strings.TrimRight(authority, "/")
 	return base + "/api/v2/platform/edge/config?network_domain=" + url.QueryEscape(domainID)
+}
+
+// resolveDownloadAuthority 计算配置包下载地址的 authority（scheme://host[:port]）。
+// 优先使用网域登记的、agent 可达的中心接入地址 CenterEndpoint（与 agent 侧 CENTER_ENDPOINT
+// 同源——中心地址变更时这是唯一需要同步更新的字段）；为空或解析异常时回落 requestAuthority
+// （由入站请求的 X-Forwarded-*/Host 推导，兼容无反代直连场景）。彻底消除「下载地址靠猜入站
+// Host」导致的 agent 拉包静默失败（见 2026-09-30 诊断：此前 MVP 不消费 CenterEndpoint）。
+func resolveDownloadAuthority(dom *models.NetworkDomain, c *gin.Context) string {
+	if ep := strings.TrimSpace(dom.CenterEndpoint); ep != "" {
+		if host := authorityHost(ep); host != "" {
+			return host
+		}
+	}
+	return requestAuthority(c)
+}
+
+// authorityHost 从中心接入地址（可能含路径/查询）中提取 scheme://host[:port]。
+// 非法、缺 scheme/host 时返回空串（交由回落逻辑），避免生成缺 scheme 的相对地址
+// 让 agent 拉包报 `unsupported protocol scheme ""`。
+func authorityHost(ep string) string {
+	ep = strings.TrimSpace(ep)
+	if ep == "" {
+		return ""
+	}
+	u, err := url.Parse(ep)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // requestAuthority 从心跳请求推导中心的对外绝对地址（scheme://host:port），用于

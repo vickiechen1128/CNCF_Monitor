@@ -383,6 +383,13 @@ AM_CLUSTER_PORT=${AM_CLUSTER_PORT:-9094}
 # SQLite DSN：未指定时落数据根（生产 /opt/data/metric-center，解压即用 data/）
 export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-"$DATA_ROOT/metric_center.db"}
 
+# 通知渲染桥（M08 PL-3）：与 env.sh 同源（生产模式 env.sh 已 export，此处仅在未设置时给本地回落值）
+# 桥基础地址本地回落 127.0.0.1（单主机本地开发可用）；生产须由 env.sh 设为中心对外可达地址。
+NOTIFY_BRIDGE_URL=${NOTIFY_BRIDGE_URL:-http://127.0.0.1:${MC_PORT}}
+NOTIFY_BRIDGE_TOKEN=${NOTIFY_BRIDGE_TOKEN:-}
+NOTIFY_RENDER_TIMEZONE=${NOTIFY_RENDER_TIMEZONE:-Asia/Shanghai}
+export NOTIFY_BRIDGE_URL NOTIFY_BRIDGE_TOKEN NOTIFY_RENDER_TIMEZONE
+
 # 从种子配置恢复活配置（DATA_ROOT/config-output 缺失时）——两种模式均生效
 # 种子源目录：解压即用模式为包内 config/；生产 install.sh 入驻后为 conf/（规范名）。
 CONF_DIR="$ROOT/config"
@@ -538,6 +545,14 @@ export MC_PORT=${MC_PORT:-8080}                            # metric-center（UI 
 export AM_CLUSTER_PORT=${AM_CLUSTER_PORT:-9094}            # Alertmanager gossip 集群端口（单机也必须独占）
 # SQLite 数据库 DSN（控制面持久化；默认落数据根）
 export METRIC_CENTER_DB_DSN=${METRIC_CENTER_DB_DSN:-$DATA_ROOT/metric_center.db}
+# 通知渲染桥（M08 PL-3）：基础地址 / 内网令牌 / 渲染时区，与端口/保留策略同源（单一来源）。
+# 注意：桥基础地址 MUST 为中心「对外可达」地址（跨网/边缘域部署关键），严禁 127.0.0.1；
+# 改为 http://<你的服务器域名或IP>:${MC_PORT}，否则接收人片段与 M09 物化的 receiver 将指向不可达地址。
+export NOTIFY_BRIDGE_URL=${NOTIFY_BRIDGE_URL:-http://<你的服务器域名或IP>:${MC_PORT}}
+# 桥内网令牌：留空=桥端点一律 401（安全默认，不开放匿名转发）；向管理员获取后填入。
+export NOTIFY_BRIDGE_TOKEN=${NOTIFY_BRIDGE_TOKEN:-}
+# 通知渲染显示时区（IANA 名称，如 Asia/Shanghai）；为空回落东八区固定偏移。
+export NOTIFY_RENDER_TIMEZONE=${NOTIFY_RENDER_TIMEZONE:-Asia/Shanghai}
 EOF
 
     # 生产安装脚本（必须以 root/sudo 运行；入驻 /opt 三目录，对齐决策 64 与包中心指南 §2.4）
@@ -855,6 +870,18 @@ MC_PORT=18080 PROM_PORT=19090 ./scripts/start.sh
 **安装后调整**：编辑 `/opt/apps/metric-center/env/env.sh` 的 `*_PORT` 行 → `stop.sh` → `start.sh`。
 
 > 五个端口必须互不相同——`install.sh` 会做冲突校验，冲突即中止安装。端口改动后需同步放通防火墙 / 安全组；若改了 `MC_PORT` / `PROM_PORT`，还要更新采集节点侧的 `CENTER_ENDPOINT` 与 remote write 地址（见 edge agent 包 README「端口与网络策略」）。
+
+## 桥地址 / 令牌配置（M08 通知渲染桥）
+
+通知渲染桥（通知渠道 receiver 通过 `POST /api/v1/webhooks/notify` 把告警推给中心）的基础地址、内网令牌与渲染时区由 `env/env.sh` 集中配置——与端口/保留策略同源、单一来源。`make run-metric-center` 与交付包 `start.sh` 均透传这些变量；变量名与 `main.go` 的 env 读取名完全一致（`NOTIFY_BRIDGE_URL` / `NOTIFY_BRIDGE_TOKEN` / `NOTIFY_RENDER_TIMEZONE`）。
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `NOTIFY_BRIDGE_URL` | `http://<服务器域名或IP>:${MC_PORT}` | **必须为中心「对外可达」地址，严禁 `127.0.0.1`**（跨网/边缘域部署关键）。未配置时回落本机回环，仅适合单主机本地开发。 |
+| `NOTIFY_BRIDGE_TOKEN` | （空） | 留空 = 桥端点一律 `401`（安全默认，不开放匿名转发）。生产环境须向管理员获取内网令牌填入，否则 M08 告警通知不可用。 |
+| `NOTIFY_RENDER_TIMEZONE` | `Asia/Shanghai` | 通知渲染显示时区（IANA 名称，如 `Asia/Shanghai`）；为空回落东八区固定偏移。 |
+
+> 关键：若 `NOTIFY_BRIDGE_URL` 指向 `127.0.0.1` 或留空，接收人片段与 M09 物化的 receiver 会指向不可达地址，导致通知投递失败——生产/跨网部署务必改为中心对外可达地址。
 
 ## 访问
 
