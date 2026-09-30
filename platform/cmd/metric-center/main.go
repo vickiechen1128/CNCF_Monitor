@@ -61,6 +61,7 @@ var (
 	alertmanagerURL         = flag.String("alertmanager.url", "http://localhost:9093", "中心 Alertmanager HTTP 地址（静默代理 + AM 配置下发 reload 目标，M08）")
 	notifyBridgeToken       = flag.String("notify.bridge-token", "", "通知渲染桥（POST /api/v1/webhooks/notify）内网调用令牌，可用环境变量 NOTIFY_BRIDGE_TOKEN 覆盖；为空时桥端点一律 401")
 	notifyRenderTimezone    = flag.String("notify.render-timezone", "", "通知渲染显示时区（IANA 名称，如 Asia/Shanghai），可用环境变量 NOTIFY_RENDER_TIMEZONE 覆盖；为空默认东八区固定偏移（不依赖宿主机时区）")
+	notifyBridgeURL         = flag.String("notify.bridge-url", "", "通知渲染桥基础地址覆盖（默认由 --listen-address 推导）；跨网/边缘域部署时显式设为中心桥公网可达地址（如 http://center.example.com:8080），使接收人片段与 M09 物化的 receiver 指向正确跨网地址，可用环境变量 NOTIFY_BRIDGE_URL 覆盖")
 	configAMDir             = flag.String("config.am-dir", "", "local 下发目标：中心 Alertmanager 配置目录（决策 60，写 alertmanager.yml）；为空时复用 config.dir")
 	configAMReloadURL       = flag.String("config.am-reload-url", "", "中心 Alertmanager reload 地址（如 http://localhost:9093/-/reload）；为空时默认 alertmanager.url 的 /-/reload")
 	webStaticDir            = flag.String("web.static-dir", "", "前端静态产物目录（如 web/ui-custom）；非空时由 metric-center 直接托管，UI 与 API 同源单端口（部署拓扑方案 A2），为空则不托管（开发态行为不变）")
@@ -105,6 +106,9 @@ func main() {
 	}
 	if v := os.Getenv("NOTIFY_RENDER_TIMEZONE"); v != "" {
 		*notifyRenderTimezone = v
+	}
+	if v := os.Getenv("NOTIFY_BRIDGE_URL"); v != "" {
+		*notifyBridgeURL = v
 	}
 
 	// 优雅退出：监听 SIGINT/SIGTERM，取消 ctx 以停下变更检测 watcher，并 Shutdown HTTP 服务。
@@ -159,11 +163,34 @@ func main() {
 	// D4：仅维护节点/网域运行态与离线事件钩子，不接 M08 通知。
 	edge.StartOfflineDetector(ctx, db.DB, edge.DefaultOfflineThreshold, edge.DefaultOfflineInterval, nil)
 
-	// M08 PL-3 接收人配置片段（T08-12）：桥基础地址由本服务监听地址推导，禁止硬编码；
+	// M08 PL-3 接收人配置片段（T08-12）：桥基础地址默认由本服务监听地址推导，禁止硬编码；
+	// 跨网/边缘域部署时由 --notify.bridge-url（环境变量 NOTIFY_BRIDGE_URL）显式覆盖为中心
+	// 桥公网可达地址，使 UI 接收人片段与 M09 物化的 receiver 指向正确跨网地址而非 127.0.0.1。
 	// 令牌与桥端点同源（未配置时片段用占位符并置 token_configured=false）。
-	bridgeBaseURL, err := notify.DeriveBridgeBaseURL(*listenAddr)
-	if err != nil {
-		log.Fatalf("invalid listen-address: %v", err)
+	var bridgeBaseURL string
+	if *notifyBridgeURL != "" {
+		bridgeBaseURL = strings.TrimRight(*notifyBridgeURL, "/")
+		log.Printf(">>> notify bridge base url overridden by --notify.bridge-url: %s", bridgeBaseURL)
+	} else {
+		bridgeBaseURL, err = notify.DeriveBridgeBaseURL(*listenAddr)
+		if err != nil {
+			log.Fatalf("invalid listen-address: %v", err)
+		}
+	}
+	// L1（第一步止血）：显式打印生效桥地址，使"回落到 127.0.0.1"可见——
+	// 跨网/边缘域部署 MUST 由 NOTIFY_BRIDGE_URL 指向中心对外可达地址（见 dev-feedback #16/#28）。
+	log.Printf(">>> notify bridge base URL = %s", bridgeBaseURL)
+	if strings.Contains(bridgeBaseURL, "127.0.0.1") {
+		log.Printf("WARN: notify bridge base URL 回落到回环地址 127.0.0.1：跨网/边缘域部署下接收人片段与 M09 物化的通知 receiver 将指向不可达地址；请通过 NOTIFY_BRIDGE_URL（或 --notify.bridge-url）设为中心对外可达地址（如 http://center.example.com:8080）")
+	}
+
+	// 决策 74 定稿：把桥基础地址与令牌注入 M09 草稿服务，使其在物化管理域
+	// alertmanager.yml 时生成平台通知 receivers（配置即生效）。令牌为空时物化不写
+	// http_config.authorization，桥端一律 401 —— 启动 WARN 显式暴露，避免静默失效。
+	draft.NotifyBridgeURL = bridgeBaseURL
+	draft.NotifyBridgeToken = *notifyBridgeToken
+	if *notifyBridgeToken == "" {
+		log.Printf("WARN: --notify.bridge-token 未配置：M09 物化的通知 receiver 将不带鉴权且桥端点一律 401，M08 告警通知不可用")
 	}
 
 	r, err := setupRouter(promURL, *webStaticDir, notify.BridgeConfig{

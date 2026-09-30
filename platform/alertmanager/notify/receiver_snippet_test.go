@@ -2,6 +2,7 @@ package notify
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -65,7 +66,8 @@ func TestSanitizeReceiverName(t *testing.T) {
 }
 
 // TestBuildReceiverSnippetUsesRealChannelID 覆盖正常路径：片段含真实数字 channel ID、
-// send_resolved: true，receiver_name 由渠道名 sanitize（含中文名）。
+// send_resolved: true 与 http_config.authorization（令牌走请求头，H-1），receiver_name
+// 由渠道名 sanitize（含中文名）。
 func TestBuildReceiverSnippetUsesRealChannelID(t *testing.T) {
 	ch := &models.NotifyChannel{
 		BaseModel: models.BaseModel{ID: 7},
@@ -78,11 +80,13 @@ func TestBuildReceiverSnippetUsesRealChannelID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sre", got.ReceiverName)
 	assert.True(t, got.TokenConfigured)
-	assert.Equal(t, "http://127.0.0.1:8080/api/v1/webhooks/notify?channel=7&token=tok-123", got.URL)
+	assert.Equal(t, "http://127.0.0.1:8080/api/v1/webhooks/notify?channel=7", got.URL)
+	assert.NotContains(t, got.URL, "token", "令牌不得出现在 URL query（H-1）")
 	assert.Contains(t, got.Snippet, "  - name: sre\n")
 	assert.Contains(t, got.Snippet, "    webhook_configs:\n")
-	assert.Contains(t, got.Snippet, "      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=7&token=tok-123'\n")
+	assert.Contains(t, got.Snippet, "      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=7'\n")
 	assert.Contains(t, got.Snippet, "        send_resolved: true\n")
+	assert.Contains(t, got.Snippet, "        http_config:\n          authorization:\n            type: Bearer\n            credentials: 'tok-123'\n")
 }
 
 // TestBuildReceiverSnippetEmptyNameFallsBack 覆盖渠道名 sanitize 为空时回落 notify-<id>。
@@ -108,18 +112,20 @@ func TestBuildReceiverSnippetNameOverride(t *testing.T) {
 }
 
 // TestBuildReceiverSnippetTokenNotConfigured 覆盖令牌未配置：返回 token_configured=false，
-// URL / 片段令牌位使用醒目占位符，绝不伪造令牌。
+// 片段 credentials 使用醒目占位符，绝不伪造令牌；URL 不含任何令牌（H-1）。
 func TestBuildReceiverSnippetTokenNotConfigured(t *testing.T) {
 	ch := &models.NotifyChannel{BaseModel: models.BaseModel{ID: 4}, Name: "sre"}
 	got, err := BuildReceiverSnippet(ch, "", ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080"})
 	require.NoError(t, err)
 	assert.False(t, got.TokenConfigured)
-	assert.Contains(t, got.URL, "token="+receiverSnippetTokenPlaceholder)
-	assert.Contains(t, got.Snippet, receiverSnippetTokenPlaceholder)
+	assert.Equal(t, "http://127.0.0.1:8080/api/v1/webhooks/notify?channel=4", got.URL)
+	assert.NotContains(t, got.URL, "token")
+	assert.Contains(t, got.Snippet, "credentials: '"+receiverSnippetTokenPlaceholder+"'")
 }
 
-// TestReceiverSnippetURLMatchesBridgeParams 闭环断言：生成 URL 的参数名 / 语义与
-// bridge.go 的实际解析口径一致（channel 可被 parseUintQuery 解析为真实 ID，token 原样）。
+// TestReceiverSnippetURLMatchesBridgeParams 闭环断言：生成 URL 只带 channel 参数、可被
+// bridge.go 的 parseUintQuery 解析为真实 ID；令牌由 Authorization 头承载（bearerToken
+// 解析口径闭环）。
 func TestReceiverSnippetURLMatchesBridgeParams(t *testing.T) {
 	ch := &models.NotifyChannel{BaseModel: models.BaseModel{ID: 42}, Name: "sre"}
 	got, err := BuildReceiverSnippet(ch, "", ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "tok"})
@@ -132,7 +138,12 @@ func TestReceiverSnippetURLMatchesBridgeParams(t *testing.T) {
 	id, err := parseUintQuery(q.Get("channel"))
 	require.NoError(t, err, "生成的 URL channel 必须能被桥 handler 解析")
 	assert.Equal(t, uint(42), id)
-	assert.Equal(t, "tok", q.Get("token"))
+	assert.Empty(t, q.Get("token"), "令牌不得入 URL query")
+
+	// 令牌经 Authorization 头承载：AM http_config.authorization 发 Bearer <token>。
+	req := httptest.NewRequest(http.MethodPost, got.URL, nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	assert.Equal(t, "tok", bearerToken(req), "Bearer 解析口径须与片段一致")
 }
 
 // --- Handler 层 ---

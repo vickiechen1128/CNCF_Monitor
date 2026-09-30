@@ -567,7 +567,8 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 	// 源数据版本聚合会横跨所有源表，需一次性迁移全量（避免不存在的表导致扫描失败）。
 	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.Host{}, &models.Database{},
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.MonitoringRule{},
-		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{}))
+		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{},
+		&models.NotifyChannel{}, &models.NotifyTemplate{}))
 	require.NoError(t, db.Create(&models.ScrapeJob{JobName: "j", NetworkDomainID: "d", MetricsPath: "/m", Scheme: "http",
 		ResourceType: models.ResourceTypeHost, MonitorType: "host_linux", DraftStatus: "ready",
 		Enabled: true}).Error)

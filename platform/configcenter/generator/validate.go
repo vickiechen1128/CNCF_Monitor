@@ -161,6 +161,23 @@ func validateLabelName(name string) error {
 // 归因规则（决策 42-2 / 45-3）：targets schema / 内容校验失败 → user_config；
 // 外部校验工具**不可调用或存在但不可执行** → platform_fault（pending）。
 func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.ValidationCause, []models.ValidationDetail, string) {
+	// 决策 74 定稿第 1 条：平台物化通知 receiver 与用户手写 receiver 重名 → 行级错误。
+	// 该判定属**确定性用户配置缺陷**，须置于外部工具（amtool）可用性检查之前，
+	// 不得因工具缺失退化为 pending。NotifyReceiverConflicts 为**非产物字段**，
+	// 由 draft.buildArtifacts 在物化时填充（无物化 / 无冲突时为空）。
+	if len(ca.NotifyReceiverConflicts) > 0 {
+		details := make([]models.ValidationDetail, 0, len(ca.NotifyReceiverConflicts))
+		for _, c := range ca.NotifyReceiverConflicts {
+			msg := fmt.Sprintf("通知 receiver 名 %q 与已有 receiver 冲突：平台渠道按名称自动生成该 receiver，请重命名渠道或手写 receiver 以消除重名（平台绝不静默覆盖或合并）", c.Name)
+			if c.Line > 0 {
+				msg = fmt.Sprintf("通知 receiver 名 %q 与第 %d 行手写 receiver 冲突：请重命名渠道或手写 receiver 以消除重名（平台绝不静默覆盖或合并）", c.Name, c.Line)
+			}
+			details = append(details, models.ValidationDetail{File: "alertmanager.yml", Line: c.Line, Message: msg})
+		}
+		return models.ValidationStatusFailed, models.ValidationCauseUserConfig, details,
+			fmt.Sprintf("存在 %d 条通知 receiver 重名冲突：请重命名冲突渠道或删除同名手写 receiver，再重校确认", len(details))
+	}
+
 	// 归因索引（C-1/C-2）：FileName 与 TargetsFiles 的 key 同源（normalizeJobFilename），
 	// 按 basename 对齐。归因仅用于增强失败文案，**不参与判定**——判定结果与归因无关，
 	// 保证无归因路径（如「重新校验」从 DB 重建产物）仍产出完全一致的 failed + user_config。

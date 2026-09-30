@@ -19,7 +19,7 @@ func renderFixture(status string) amWebhookPayload {
 		Alerts: []amWebhookAlert{{
 			Status: status,
 			Labels: map[string]string{
-				"alertname": "HighCPU", "instance": "10.0.0.1:9100", "zone": "dmz", "severity": "critical",
+				"alertname": "HighCPU", "instance": "10.0.0.1:9100", "zone": "INT", "network_domain_id": "dmz", "severity": "critical",
 			},
 			Annotations: map[string]string{"summary": "cpu high", "description": "cpu > 90%"},
 			StartsAt:    time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
@@ -29,7 +29,9 @@ func renderFixture(status string) amWebhookPayload {
 }
 
 // TestRenderBuiltinFeishuCardTemplate 覆盖内置默认飞书卡片模板渲染：产出合法 JSON、
-// status 决定 header 配色（firing→red / resolved→green）、字段对齐用户脚本。
+// status 决定 header 配色（firing→red / resolved→green）与标题（{🔴|🟢} {告警|恢复}: alertname），
+// 字段以用户自建脚本 feishu_alert_notify.py 样式为准（状态/主机/区域/级别/摘要/详情/开始），
+// 并新增「网域」（经 network_domain_id 归一为消费侧 network_domain 后渲染）。
 func TestRenderBuiltinFeishuCardTemplate(t *testing.T) {
 	out, err := Render(BuiltinFeishuCardTemplate, renderFixture("firing"), DefaultRenderLocation)
 	require.NoError(t, err)
@@ -40,24 +42,38 @@ func TestRenderBuiltinFeishuCardTemplate(t *testing.T) {
 		Card    struct {
 			Header struct {
 				Template string `json:"template"`
+				Title    struct {
+					Content string `json:"content"`
+				} `json:"title"`
 			} `json:"header"`
 		} `json:"card"`
 	}
 	require.NoError(t, json.Unmarshal(out, &card))
 	assert.Equal(t, "interactive", card.MsgType)
 	assert.Equal(t, "red", card.Card.Header.Template)
+	// header 回归用户脚本样式：{🔴 告警}: {alertname}。
+	assert.Equal(t, "🔴 告警: HighCPU", card.Card.Header.Title.Content)
 
-	// 字段对齐用户脚本（alertname/instance/zone/severity/summary/description）。
+	// 字段回归用户脚本 + 新增网域。
 	s := string(out)
-	assert.Contains(t, s, "HighCPU")
-	assert.Contains(t, s, "10.0.0.1:9100")
-	assert.Contains(t, s, `cpu \u003e 90%`)
+	assert.Contains(t, s, "**状态**: 告警中")
+	assert.Contains(t, s, "**主机**: 10.0.0.1:9100")
+	assert.Contains(t, s, "**网域**: dmz")
+	assert.Contains(t, s, "**区域**: INT")
+	assert.Contains(t, s, "**级别**: critical")
+	assert.Contains(t, s, "**摘要**: cpu high")
+	assert.Contains(t, s, `**详情**: cpu \u003e 90%`)
+	assert.Contains(t, s, "**开始**: 2026-01-02 11:04:05 +08:00")
 
-	// 恢复态 → header 绿。
+	// 恢复态 → header 绿 + 标题「恢复」+ 状态「已恢复」+ 追加恢复时间。
 	out, err = Render(BuiltinFeishuCardTemplate, renderFixture("resolved"), DefaultRenderLocation)
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(out, &card))
 	assert.Equal(t, "green", card.Card.Header.Template)
+	assert.Equal(t, "🟢 恢复: HighCPU", card.Card.Header.Title.Content)
+	s = string(out)
+	assert.Contains(t, s, "**状态**: 已恢复")
+	assert.Contains(t, s, "**恢复**: 2026-01-02 12:04:05 +08:00")
 }
 
 // TestRenderLocalizesTimeToRenderZone 覆盖时间本地化：模板内 StartsAtLocal / EndsAtLocal
@@ -66,9 +82,14 @@ func TestRenderLocalizesTimeToRenderZone(t *testing.T) {
 	out, err := Render(BuiltinFeishuCardTemplate, renderFixture("firing"), nil) // nil → 东八区
 	require.NoError(t, err)
 	s := string(out)
-	// 03:04:05Z + 8h = 11:04:05+08:00；04:04:05Z + 8h = 12:04:05+08:00。
+	// 03:04:05Z + 8h = 11:04:05+08:00；firing 不展示「恢复」（对齐用户脚本：仅恢复态输出）。
 	assert.Contains(t, s, "2026-01-02 11:04:05 +08:00")
-	assert.Contains(t, s, "2026-01-02 12:04:05 +08:00")
+	assert.NotContains(t, s, "2026-01-02 12:04:05 +08:00")
+
+	// 恢复态展示 EndsAt：04:04:05Z + 8h = 12:04:05+08:00。
+	out, err = Render(BuiltinFeishuCardTemplate, renderFixture("resolved"), nil)
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "2026-01-02 12:04:05 +08:00")
 
 	// 自定义时区（UTC）→ 偏移随渲染时区变化。
 	out, err = Render(BuiltinFeishuCardTemplate, renderFixture("firing"), time.UTC)

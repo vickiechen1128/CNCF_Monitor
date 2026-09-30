@@ -29,26 +29,47 @@ var validateTemplateFn = config.ValidateTemplate
 const BuiltinFeishuCardTemplateName = "飞书卡片-默认"
 
 // BuiltinFeishuCardTemplate 内置默认飞书卡片模板（Alertmanager 标准 Go template，
-// 渲染为飞书 interactive 卡片 JSON）：header 模板色由 status 决定（红=告警 / 绿=恢复），
-// 字段对齐用户自建脚本（alertname / instance / zone / severity / summary / description
-// + 开始与恢复时间）；时间字段已由渲染层本地化（RenderAlert.StartsAtLocal / EndsAtLocal），
-// 不依赖宿主机时区。用户零模板即可接入。
-const BuiltinFeishuCardTemplate = `{{- $color := "red" -}}
-{{- if eq .Status "resolved" -}}{{- $color = "green" -}}{{- end -}}
+// 渲染为飞书 interactive 卡片 JSON）。**以用户自建脚本 feishu_alert_notify.py 的样式为准**
+// （docs/06-mvp-e2e-testing/tests/feishu_alert_notify.py 的 format_alert）：
+//   - header：`{🟢|🔴} {恢复|告警}: {alertname}`，模板色由 status 决定（firing=红 / resolved=绿）；
+//   - 字段：状态 / 主机 / **网域** / 区域 / 级别，再按需追加 摘要 / 详情 / 开始 / 恢复（空则省略）。
+//
+// 「网域」相对用户原脚本为**新增字段**（M08 §10.2 与前端告警列表同口径）：桥层已把写入侧
+// network_domain_id 经 ResolveNetworkDomain 归一为消费侧 network_domain 并回写标签，故此处置前
+// 读 network_domain、再兜底 network_domain_id。时间字段已由渲染层本地化
+// （RenderAlert.StartsAtLocal / EndsAtLocal），不依赖宿主机时区。用户零模板即可接入。
+const BuiltinFeishuCardTemplate = `{{- $resolved := eq .Status "resolved" -}}
+{{- $color := "red" -}}{{- $icon := "🔴" -}}{{- $verb := "告警" -}}
+{{- if $resolved -}}{{- $color = "green" -}}{{- $icon = "🟢" -}}{{- $verb = "恢复" -}}{{- end -}}
+{{- $an := index .CommonLabels "alertname" -}}
+{{- range $i, $a := .Alerts -}}{{- if and (eq $i 0) (not $an) -}}{{- $an = index $a.Labels "alertname" -}}{{- end -}}{{- end -}}
+{{- if not $an }}{{- $an = "-" -}}{{- end -}}
 {
   "msg_type": "interactive",
   "card": {
     "config": {"wide_screen_mode": true},
     "header": {
       "template": {{ jsonStr $color }},
-      "title": {"tag": "plain_text", "content": {{ jsonStr (printf "告警通知 · %s" .Status) }}}
+      "title": {"tag": "plain_text", "content": {{ jsonStr (printf "%s %s: %s" $icon $verb $an) }}}
     },
     "elements": [
 {{- range $i, $a := .Alerts }}
 {{- if $i }},{{ end }}
+{{- $nd := index $a.Labels "network_domain" -}}
+{{- if not $nd }}{{- $nd = index $a.Labels "network_domain_id" -}}{{- end -}}
+{{- if not $nd }}{{- $nd = "-" -}}{{- end -}}
+{{- $zone := index $a.Labels "zone" -}}{{- if not $zone }}{{- $zone = "-" -}}{{- end -}}
+{{- $inst := index $a.Labels "instance" -}}{{- if not $inst }}{{- $inst = "-" -}}{{- end -}}
+{{- $sev := index $a.Labels "severity" -}}{{- if not $sev }}{{- $sev = "-" -}}{{- end -}}
+{{- $st := "告警中" -}}{{- if eq $a.Status "resolved" -}}{{- $st = "已恢复" -}}{{- end -}}
+{{- $content := printf "**状态**: %s\n**主机**: %s\n**网域**: %s\n**区域**: %s\n**级别**: %s" $st $inst $nd $zone $sev -}}
+{{- if index $a.Annotations "summary" }}{{- $content = printf "%s\n**摘要**: %s" $content (index $a.Annotations "summary") -}}{{- end -}}
+{{- if index $a.Annotations "description" }}{{- $content = printf "%s\n**详情**: %s" $content (index $a.Annotations "description") -}}{{- end -}}
+{{- if $a.StartsAtLocal }}{{- $content = printf "%s\n**开始**: %s" $content $a.StartsAtLocal -}}{{- end -}}
+{{- if and $resolved $a.EndsAtLocal }}{{- $content = printf "%s\n**恢复**: %s" $content $a.EndsAtLocal -}}{{- end -}}
       {
         "tag": "div",
-        "text": {"tag": "lark_md", "content": {{ jsonStr (printf "**告警名称**: %s\n**实例**: %s\n**网域**: %s\n**级别**: %s\n**摘要**: %s\n**描述**: %s\n**开始时间**: %s\n**恢复时间**: %s" (index $a.Labels "alertname") (index $a.Labels "instance") (index $a.Labels "zone") (index $a.Labels "severity") (index $a.Annotations "summary") (index $a.Annotations "description") $a.StartsAtLocal $a.EndsAtLocal) }} }
+        "text": {"tag": "lark_md", "content": {{ jsonStr $content }} }
       }
 {{- end }}
     ]
@@ -69,17 +90,30 @@ func builtinTemplates() []builtinTemplate {
 	}
 }
 
-// EnsureBuiltinTemplates 幂等写入平台内置默认模板（is_builtin=true）。
-// 同 channel_type + checksum 已存在则跳过，避免重复留痕。
+// EnsureBuiltinTemplates 幂等写入/演进平台内置默认模板（is_builtin=true）。
+// 同名内置模板已存在时按 content/checksum 原地更新（不新增重复行），使内置模板随
+// 版本迭代收敛；同 channel_type + checksum 已存在则跳过。
 func EnsureBuiltinTemplates(db *gorm.DB) error {
 	for _, bt := range builtinTemplates() {
 		checksum := models.AlertmanagerConfigChecksum(bt.content)
-		existing, err := findTemplateByChecksum(db, string(bt.channelType), checksum)
-		if err != nil {
-			return err
-		}
-		if existing != nil {
+		// 同名内置模板：演进式更新，避免每次改模板都留历史重复行。
+		var existing models.NotifyTemplate
+		qErr := db.Where("channel_type = ? AND is_builtin = ? AND name = ?",
+			string(bt.channelType), true, bt.name).First(&existing).Error
+		if qErr == nil {
+			if existing.Checksum == checksum {
+				continue
+			}
+			existing.Content = bt.content
+			existing.Checksum = checksum
+			existing.Status = models.NotifyTemplateStatusApplied
+			if err := db.Save(&existing).Error; err != nil {
+				return fmt.Errorf("update builtin notify template: %w", err)
+			}
 			continue
+		}
+		if !errors.Is(qErr, gorm.ErrRecordNotFound) {
+			return qErr
 		}
 		tpl := &models.NotifyTemplate{
 			Name:        bt.name,
@@ -116,7 +150,7 @@ func SubmitTemplate(db *gorm.DB, in SubmitTemplateInput) (*models.NotifyTemplate
 		return nil, err
 	}
 	checksum := models.AlertmanagerConfigChecksum(in.Content)
-	existing, err := findTemplateByChecksum(db, in.ChannelType, checksum)
+	existing, err := findTemplateByChecksum(db, in.Name, in.ChannelType, checksum)
 	if err != nil {
 		return nil, err
 	}
@@ -203,10 +237,13 @@ func BuiltinTemplateForType(db *gorm.DB, channelType string) (*models.NotifyTemp
 	return &tpl, nil
 }
 
-// findTemplateByChecksum 按 channel_type + checksum 查询已留痕模板；无则 (nil, nil)。
-func findTemplateByChecksum(db *gorm.DB, channelType, checksum string) (*models.NotifyTemplate, error) {
+// findTemplateByChecksum 按 name + channel_type + checksum 查询已留痕模板；无则 (nil, nil)。
+// 去重键含 name（而非仅 channel_type + checksum）：同名同内容才视为同一份、幂等返回既有行；
+// 改名同内容（如「复制并自定义」克隆内置模板仅改名）一律视为新模板、新建留痕，避免克隆副本被
+// 既有内置模板的内容去重误伤（dev-feedback #29）。同名改内容 → checksum 不同 → 新建一版（append-only）。
+func findTemplateByChecksum(db *gorm.DB, name, channelType, checksum string) (*models.NotifyTemplate, error) {
 	var tpl models.NotifyTemplate
-	err := db.Where("channel_type = ? AND checksum = ?", channelType, checksum).First(&tpl).Error
+	err := db.Where("name = ? AND channel_type = ? AND checksum = ?", name, channelType, checksum).First(&tpl).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

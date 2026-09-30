@@ -78,15 +78,52 @@ func TestSubmitTemplateRejectsBadNameAndType(t *testing.T) {
 	assert.ErrorIs(t, err, ErrTemplateChannelTypeInvalid)
 }
 
-// TestSubmitTemplateIdempotent 覆盖同 content 幂等（同 channel_type + checksum 返回已有）。
+// TestSubmitTemplateIdempotent 覆盖去重语义（dev-feedback #29 修复后）：
+// 同名同内容重复提交 → 幂等返回既有行（不新增）；改名同内容（如克隆内置模板仅改名）→ 新建副本。
 func TestSubmitTemplateIdempotent(t *testing.T) {
 	db := newNotifyDB(t)
 	stubTemplateValid(t)
 	a, err := SubmitTemplate(db, SubmitTemplateInput{Name: "a", ChannelType: "feishu", Content: validTplContent})
 	require.NoError(t, err)
-	b, err := SubmitTemplate(db, SubmitTemplateInput{Name: "b", ChannelType: "feishu", Content: validTplContent})
+
+	// 同名同内容 → 幂等，返回同一行。
+	b, err := SubmitTemplate(db, SubmitTemplateInput{Name: "a", ChannelType: "feishu", Content: validTplContent})
 	require.NoError(t, err)
 	assert.Equal(t, a.ID, b.ID)
+
+	// 改名同内容（克隆场景）→ 视为新模板，新建副本。
+	c, err := SubmitTemplate(db, SubmitTemplateInput{Name: "a（副本）", ChannelType: "feishu", Content: validTplContent})
+	require.NoError(t, err)
+	assert.NotEqual(t, a.ID, c.ID)
+
+	var count int64
+	require.NoError(t, db.Model(&models.NotifyTemplate{}).Count(&count).Error)
+	assert.EqualValues(t, 2, count)
+}
+
+// TestSubmitTemplateCloneBuiltinVerbatimCreatesNewRow 回归 dev-feedback #29：
+// 克隆内置模板、仅改名、内容原样保存，应新建一条「副本」留痕（修复前被内容去重误伤、不新建）。
+func TestSubmitTemplateCloneBuiltinVerbatimCreatesNewRow(t *testing.T) {
+	db := newNotifyDB(t)
+	stubTemplateValid(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+
+	var builtin models.NotifyTemplate
+	require.NoError(t, db.Where("is_builtin = ?", true).First(&builtin).Error)
+
+	cloneName := builtin.Name + "（副本）"
+	tpl, err := SubmitTemplate(db, SubmitTemplateInput{
+		Name:        cloneName,
+		ChannelType: string(builtin.ChannelType),
+		Content:     builtin.Content, // 原样
+	})
+	require.NoError(t, err)
+	assert.Equal(t, cloneName, tpl.Name, "应返回新建的副本模板")
+	assert.NotEqual(t, builtin.ID, tpl.ID, "副本应为独立留痕，不返回内置行")
+
+	var count int64
+	require.NoError(t, db.Model(&models.NotifyTemplate{}).Count(&count).Error)
+	assert.EqualValues(t, 2, count, "克隆原样保存应新建一条独立留痕")
 }
 
 // TestRemountTemplateWritesNewRow 覆盖回滚：总是写入新留痕，内容与渠道类型继承原版本。

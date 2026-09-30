@@ -20,13 +20,51 @@ import (
 var notifyDBCounter int64
 
 // newNotifyDB 打开逐测试独享的内存 SQLite 并迁移 PL-3 通知模型表。
+// 测试桩（httptest）为回环地址，默认放行私网目标以便桥端到端测试；私网拒绝断言在
+// TestValidateWebhookURLRejectsPrivateTargets 中显式关闭后复原。
 func newNotifyDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	prev := allowPrivateWebhookTargets
+	allowPrivateWebhookTargets = true
+	t.Cleanup(func() { allowPrivateWebhookTargets = prev })
 	dsn := fmt.Sprintf("file:notify_%d?mode=memory&cache=shared", atomic.AddInt64(&notifyDBCounter, 1))
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.NotifyChannel{}, &models.NotifyTemplate{}))
 	return db
+}
+
+// TestValidateWebhookURLRejectsPrivateTargets 覆盖 M-2：默认拒绝私网 / 环回 /
+// link-local / 云元数据（169.254.169.254）/ localhost，放行公网地址；显式开关放行私网。
+func TestValidateWebhookURLRejectsPrivateTargets(t *testing.T) {
+	prev := allowPrivateWebhookTargets
+	allowPrivateWebhookTargets = false
+	t.Cleanup(func() { allowPrivateWebhookTargets = prev })
+
+	for _, raw := range []string{
+		"http://127.0.0.1:8080/hook",
+		"http://localhost/hook",
+		"http://10.0.0.5/hook",
+		"http://192.168.1.10/hook",
+		"http://172.16.0.1/hook",
+		"http://169.254.169.254/latest/meta-data/",
+		"http://[::1]/hook",
+		"http://0.0.0.0/hook",
+	} {
+		assert.ErrorIsf(t, ValidateWebhookURL(raw), ErrChannelWebhookInvalid, "raw=%q 应被拒", raw)
+	}
+
+	for _, raw := range []string{
+		"https://open.feishu.cn/open-apis/bot/v2/hook/abc",
+		"https://oapi.dingtalk.com/robot/send?access_token=x",
+		"https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x",
+	} {
+		assert.NoErrorf(t, ValidateWebhookURL(raw), "raw=%q 应放行", raw)
+	}
+
+	// 显式开关放行私网（内网自建机器人 / 测试桩场景）。
+	allowPrivateWebhookTargets = true
+	assert.NoError(t, ValidateWebhookURL("http://127.0.0.1:8080/hook"))
 }
 
 // --- 服务层：创建校验 ---

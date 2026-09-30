@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
@@ -19,6 +21,7 @@ var outboundHTTPClient = newOutboundHTTPClient()
 
 // newOutboundHTTPClient 构造出站客户端：克隆默认 Transport，注入统一 TLS 配置。
 // 额外 CA 通过 NOTIFY_BRIDGE_CA_FILE 指定（PEM bundle），用于系统 CA 缺失的环境。
+// 禁跟随重定向：目标地址来自 DB 已登记渠道，跟随重定向会绕过目标约束（M-3）。
 func newOutboundHTTPClient() *http.Client {
 	pool, err := x509.SystemCertPool()
 	if err != nil || pool == nil {
@@ -31,7 +34,12 @@ func newOutboundHTTPClient() *http.Client {
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-	return &http.Client{Transport: tr, Timeout: 15 * time.Second}
+	return &http.Client{
+		Transport: tr,
+		Timeout:   15 * time.Second,
+		// 不跟随 3xx：渠道机器人地址为最终投递目标，重定向属异常。
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 }
 
 // sendOutbound 向目标机器人地址 POST JSON body，返回 HTTP 状态码。非 2xx 亦返回
@@ -45,7 +53,9 @@ func sendOutbound(ctx context.Context, target string, body []byte) (int, error) 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := outboundHTTPClient.Do(req)
 	if err != nil {
-		return 0, err
+		// M-1：*url.Error 携带完整目标 URL（含机器人 webhook token），原样打日志/回显会
+		// 外泄凭据，故脱敏为「操作 + 主机」后再向上返回。
+		return 0, sanitizeOutboundError(err)
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
@@ -53,4 +63,18 @@ func sendOutbound(ctx context.Context, target string, body []byte) (int, error) 
 		return resp.StatusCode, fmt.Errorf("notify target returned status %d", resp.StatusCode)
 	}
 	return resp.StatusCode, nil
+}
+
+// sanitizeOutboundError 剥离 *url.Error 中可能含凭据的完整目标 URL（M-1）：仅保留
+// 操作名与主机（不含路径 / 查询，故不含 webhook token）。非 *url.Error 原样返回。
+func sanitizeOutboundError(err error) error {
+	var uerr *url.Error
+	if !errors.As(err, &uerr) {
+		return err
+	}
+	host := ""
+	if u, perr := url.Parse(uerr.URL); perr == nil {
+		host = u.Host
+	}
+	return fmt.Errorf("%s %s: %v", uerr.Op, host, uerr.Err)
 }

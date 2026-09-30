@@ -211,6 +211,28 @@ func (c *apiClient) json(method, path, body string) (int, map[string]interface{}
 	return w.Code, out
 }
 
+// jsonAuth 发送带 Authorization: Bearer 令牌的 JSON 请求（M08 PL-3 桥端点 H-1：令牌走
+// 请求头，不落 URL query）。
+func (c *apiClient) jsonAuth(method, path, token, body string) (int, map[string]interface{}) {
+	c.t.Helper()
+	var reader io.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, "http://mc.local"+path, reader)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	w := httptest.NewRecorder()
+	c.r.ServeHTTP(w, req)
+	var out map[string]interface{}
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	return w.Code, out
+}
+
 // multipart 发送 multipart/form-data 请求（Excel 导入等文件上传场景）。
 func (c *apiClient) multipart(path string, fields map[string]string, fileField, fileName string, fileBytes []byte) (int, map[string]interface{}) {
 	c.t.Helper()
@@ -1592,6 +1614,10 @@ func TestEndToEndAlertStatusSmoke(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
+	// 测试桩为回环地址，显式放行私网目标（生产默认拒绝，M-2）。
+	notify.SetAllowPrivateWebhookTargets(true)
+	t.Cleanup(func() { notify.SetAllowPrivateWebhookTargets(false) })
+
 	r, _ := buildIntegrationEngine(t)
 	c := &apiClient{t: t, r: r}
 
@@ -1632,13 +1658,13 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 	assert.Equal(t, "unauthorized", out["errorType"])
 
 	// 3. SSRF：请求方自带目标地址参数 → 拒绝，且不向任何地址出站。
-	code, out = c.json("POST", "/api/v1/webhooks/notify?channel="+chID+"&token="+integrationBridgeToken+
-		"&url=https://evil.example/hook", payload)
+	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?channel="+chID+"&url=https://evil.example/hook",
+		integrationBridgeToken, payload)
 	require.Equal(t, http.StatusBadRequest, code, "携带目标地址参数应 400：%v", out)
 	assert.Equal(t, "bad_request", out["errorType"])
 
-	// 4. 正常：令牌 + 已登记 channel → 渲染并转投假机器人。
-	code, out = c.json("POST", "/api/v1/webhooks/notify?channel="+chID+"&token="+integrationBridgeToken, payload)
+	// 4. 正常：Bearer 令牌 + 已登记 channel → 渲染并转投假机器人。
+	code, out = c.jsonAuth("POST", "/api/v1/webhooks/notify?channel="+chID, integrationBridgeToken, payload)
 	require.Equal(t, http.StatusOK, code, "桥端点应成功：%v", out)
 	assert.EqualValues(t, 1, out["data"].(map[string]interface{})["success"])
 	require.Len(t, rec.snapshot(), 1, "应向已登记渠道出站一次")
@@ -1650,15 +1676,16 @@ func TestEndToEndNotifyBridgeSmoke(t *testing.T) {
 	require.Len(t, chRows, 1)
 	assert.Contains(t, chRows[0].(map[string]interface{})["webhook_url"].(string), "***")
 
-	// 6. T08-12 接收人配置片段：admin 生成片段，URL 指向桥且带真实 channel ID + 令牌，
-	// 片段含 send_resolved: true（可直接粘进 alertmanager.yml receivers: 段）。
+	// 6. T08-12 接收人配置片段：admin 生成片段，URL 指向桥且带真实 channel ID（令牌走
+	// http_config.authorization，不落 URL query，H-1），片段含 send_resolved: true。
 	code, out = c.json("GET", "/api/v2/platform/alertmanager/notify-channels/"+chID+"/receiver-snippet", "")
 	require.Equal(t, http.StatusOK, code, "接收人片段应可生成：%v", out)
 	snip := out["data"].(map[string]interface{})
 	assert.Equal(t, true, snip["token_configured"])
 	assert.Contains(t, snip["url"].(string), "channel="+chID)
-	assert.Contains(t, snip["url"].(string), "token="+integrationBridgeToken)
+	assert.NotContains(t, snip["url"].(string), "token=", "令牌绝不落 URL query（H-1）")
 	assert.Contains(t, snip["snippet"].(string), "send_resolved: true")
+	assert.Contains(t, snip["snippet"].(string), "authorization:")
 }
 
 // bridgeReceiver 记录通知渲染桥出站请求体（并发安全）。

@@ -10,8 +10,10 @@ package notify
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/metriccenter/metriccenter/platform/models"
@@ -25,13 +27,25 @@ var (
 	// ErrChannelTypeInvalid 渠道类型非法。
 	ErrChannelTypeInvalid = errors.New("渠道类型非法（仅支持 feishu / dingtalk / wecom）")
 	// ErrChannelWebhookInvalid 机器人 Webhook 地址非法。
-	ErrChannelWebhookInvalid = errors.New("机器人 Webhook 地址非法（仅允许 http/https 且 host 非空）")
+	ErrChannelWebhookInvalid = errors.New("机器人 Webhook 地址非法（仅允许 http/https、host 非空，且禁止私网 / 环回 / link-local / 云元数据地址）")
 	// ErrChannelNotFound 渠道不存在。
 	ErrChannelNotFound = errors.New("通知渠道不存在")
 )
 
+// allowPrivateWebhookTargets 允许私网 / 环回 / link-local 目标地址（默认 false = 拒绝）。
+//
+// 生产默认拒绝：飞书 / 钉钉 / 企业微信机器人 Webhook 均为公网地址，私网、环回与云元数据
+// 端点（169.254.169.254）应被 SSRF 防护拒绝（security-review-pl3 M-2）。仅在内网自建
+// 机器人或测试桩（httptest 回环地址）场景显式置 true；测试用 newNotifyDB 置 true 并复原。
+var allowPrivateWebhookTargets bool
+
+// SetAllowPrivateWebhookTargets 允许 / 禁止私网 webhook 目标地址（内网自建机器人与
+// 跨包集成测试场景显式开启；生产默认 false 拒绝）。非并发安全，仅供启动期装配 / 测试使用。
+func SetAllowPrivateWebhookTargets(allow bool) { allowPrivateWebhookTargets = allow }
+
 // ValidateWebhookURL 校验出站目标地址：仅允许 http / https scheme 且 host 非空
-// （对齐 AGENTS.md §9 SSRF 防护与 API 标准 URL 校验规则）。
+// （对齐 AGENTS.md §9 SSRF 防护与 API 标准 URL 校验规则）；默认拒绝私网 / 环回 /
+// link-local / 云元数据（169.254.169.254）地址，除非 allowPrivateWebhookTargets（M-2）。
 func ValidateWebhookURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -41,6 +55,31 @@ func ValidateWebhookURL(raw string) error {
 		return ErrChannelWebhookInvalid
 	}
 	if u.Host == "" {
+		return ErrChannelWebhookInvalid
+	}
+	if !allowPrivateWebhookTargets {
+		if err := rejectPrivateHost(u.Hostname()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// rejectPrivateHost 拒绝私网 / 环回 / link-local / 未指定地址与 localhost 主机名。
+// 仅对 IP 字面量与 localhost 生效（不做 DNS 解析，避免校验期外联）；域名形式的 SSRF
+// 需在下发/出站层另行收敛，属后续增量。
+func rejectPrivateHost(host string) error {
+	h := strings.ToLower(strings.TrimSuffix(host, "."))
+	if h == "localhost" {
+		return ErrChannelWebhookInvalid
+	}
+	ip := net.ParseIP(h)
+	if ip == nil {
+		return nil
+	}
+	// 169.254.0.0/16（含云元数据 169.254.169.254）已含于 LinkLocalUnicast。
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 		return ErrChannelWebhookInvalid
 	}
 	return nil

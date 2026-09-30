@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -52,10 +54,14 @@ var bridgeLogf = func(format string, args ...interface{}) { log.Printf(format, a
 // 平台内已登记的渠道。端点不属平台用户认证态（调用方为中心 Alertmanager），
 // 由内网调用令牌鉴权。SSRF 硬约束：目标地址只由服务端从 DB 解析，绝不接受
 // 请求方传入；幂等——无状态渲染转发，不落告警业务表，仅记结构化发送日志。
+//
+// 令牌传输面（H-1）：令牌经 `Authorization: Bearer <token>` 请求头承载，**不经 URL
+// query**——gin 全局 Logger 会把 RawQuery 明文落访问日志，令牌入 query 即等于外泄。
+// AM 侧由 `webhook_configs.http_config.authorization` 注入。
 func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 鉴权：内网调用令牌。未配置 / 缺失 / 不匹配 → 401。
-		if !bridgeTokenValid(cfg.Token, c.Query("token")) {
+		// 鉴权：内网调用令牌（Authorization 头）。未配置 / 缺失 / 不匹配 → 401。
+		if !bridgeTokenValid(cfg.Token, bearerToken(c.Request)) {
 			bridgeLogf("[notify-bridge] reject: unauthorized remote=%s", c.ClientIP())
 			response.Unauthorized(c, ErrBridgeUnauthorized.Error())
 			return
@@ -104,6 +110,15 @@ func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc {
 			response.BadRequest(c, err)
 			return
 		}
+		// 网域归一（M08 §10.2 与前端告警列表口径一致）：把写入侧 network_domain_id
+		// 经 ResolveNetworkDomain 归一为消费侧 network_domain 并回写进标签，使飞书卡片
+		// 「网域」字段显示与前端列表一致（不再读不存在的 zone）。
+		for i := range payload.Alerts {
+			payload.Alerts[i].Labels = models.EnsureNetworkDomain(
+				payload.Alerts[i].Labels,
+				models.ResolveNetworkDomain(payload.Alerts[i].Labels),
+			)
+		}
 		// 渲染（时间按渲染时区本地化）。
 		body, err := Render(tpl.Content, payload, cfg.Location)
 		if err != nil {
@@ -146,6 +161,17 @@ func bridgeTokenValid(expected, got string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(got)) == 1
+}
+
+// bearerToken 从 Authorization 请求头解析 `Bearer <token>`（H-1）。缺失 / 非 Bearer
+// 前缀 / 空令牌均返回空串（由 bridgeTokenValid 判为未授权）。前缀按 RFC 6750 大小写不敏感。
+func bearerToken(r *http.Request) string {
+	const prefix = "Bearer "
+	h := r.Header.Get("Authorization")
+	if len(h) <= len(prefix) || !strings.EqualFold(h[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(h[len(prefix):])
 }
 
 // parseUintQuery 解析查询参数为无符号 ID；非法或 0 返回错误。

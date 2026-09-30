@@ -8,6 +8,34 @@
 // AlertmanagerConfigChecksum（sha256 十六进制小写）。
 package models
 
+import (
+	"regexp"
+	"strconv"
+	"strings"
+)
+
+// receiverNamePattern 匹配非 [a-z0-9] 连续片段，用于归一为单个 '-'。
+var receiverNamePattern = regexp.MustCompile(`[^a-z0-9]+`)
+
+// SanitizeReceiverName 由渠道名 / 接收人名生成合法 AM receiver 名：转小写、非 [a-z0-9]
+// 字符归一为 '-'、压缩连续 '-'、去首尾 '-'；结果可为空（调用方负责回落 notify-<id> 或报错）。
+//
+// 单一实现：notify 包接收人片段（receiver_snippet.go）与 M09 生成器物化 receivers
+// （configcenter/generator）必须同源（决策 74 定稿第 1 条：禁止两处各写一份造成漂移）。
+func SanitizeReceiverName(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	s = receiverNamePattern.ReplaceAllString(s, "-")
+	return strings.Trim(s, "-")
+}
+
+// ReceiverName 返回渠道的建议 AM receiver 名：渠道名 sanitize 后为空回落 notify-<id>。
+func (c NotifyChannel) ReceiverName() string {
+	if n := SanitizeReceiverName(c.Name); n != "" {
+		return n
+	}
+	return "notify-" + strconv.FormatUint(uint64(c.ID), 10)
+}
+
 // NotifyChannelType 表示通知渠道类型（设计提案 §3.3.2：feishu / dingtalk / wecom）。
 type NotifyChannelType string
 

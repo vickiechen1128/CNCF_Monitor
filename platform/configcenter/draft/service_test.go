@@ -40,6 +40,9 @@ func newTestDB(t *testing.T) *gorm.DB {
 		&models.ConfigVersion{},
 		&models.ConfigDeployment{},
 		&models.ConfigChangeBaseline{},
+		&models.AlertmanagerConfigVersion{},
+		&models.NotifyChannel{},
+		&models.NotifyTemplate{},
 	))
 	return db
 }
