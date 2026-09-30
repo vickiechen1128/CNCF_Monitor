@@ -227,6 +227,10 @@ export default function BusinessManagementPage() {
         <ul style={{ paddingLeft: 18, margin: 0 }}>
           <li>{'{v2.23} 决策 48'}：业务分组字典由「配置文件预置只读」提级为「业务管理页维护」（mock 演示落 DB）；`business_domains.yaml` 仅首次启动 seed，`biz_code` 由本页管理。</li>
           <li>红线硬化（决策 48 / 6 / 21 / 22）：`biz_code` 创建后不可改（编码规范：小写字母 / 数字 / 连字符 ≤ 64，表单醒目提示）；编辑仅开放 `biz_name` / `description` / 状态；不提供删除入口（停用不删除）；`infra` 兜底条目禁止停用 / 删除；`biz_name` 修改不触发监控配置重新生成 / 下发。</li>
+          <li>
+            {'{v2.49} 决策 112'}：本页为<Text strong>字典</Text>（编码取值权威），**不是「可删除的对象」**——
+            业务编码即 label 值，删除会断历史时序，故生命周期为「启用 ↔ 停用」；真正可删除的是<Text strong>资源（Resource）</Text>（被采集 Job 引用时阻断）。
+          </li>
           <li>消费链路不变：资源录入 / Excel 导入仍只读消费本字典（`GET /api/v2/platform/business-domains`）；导入遇未登记业务报错引导「前往业务管理登记」。</li>
           <li>空态仅出现在 seed 前或异常场景（正常启动已 seed 导入 `infra` 兜底条目），因此列表通常非空。</li>
           <li>边界：本页为业务字典管理演示；业务编码被资源引用情况下的引用关系清单（谁引用了该业务）不在本页展示，见资源管理页 / Excel 导入校验。</li>

@@ -15,7 +15,7 @@ import {
   Tag,
   Typography,
 } from 'antd'
-import type { TableProps } from 'antd'
+import type { TableProps, FormInstance } from 'antd'
 import { DownOutlined, ExclamationCircleFilled, InfoCircleFilled, PlusOutlined } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
 import { Callout } from '../components/Callout'
@@ -24,7 +24,7 @@ import { TABLE_PAGINATION } from '../components/tablePresets'
 import {
   APP_CODE_RE,
   mockApplicationDict,
-  // {v2.45} 决策 104 / 107：应用可选父级——平台字典只读消费（仅启用条目可选）
+  // {v2.49} 决策 110 / 111：应用↔平台 M:N——平台字典只读消费（多选 + 主平台单选）
   mockPlatformDict,
   resolvePlatformName,
   isPlatformDisabled,
@@ -37,14 +37,16 @@ const { Option } = Select
 interface RegisterForm {
   app_code: string
   app_name: string
-  // {v2.45} 可选父级：应用所属平台（平台字典主键），表达纵向 platform(1) → app(N) 组成分解
-  platform_code?: string
+  // {v2.49} 决策 110 / 111：应用关联的全部平台（多选）+ 主平台（单选，须属于已选集合）
+  platform_codes?: string[]
+  primary_platform_code?: string
   description?: string
 }
 
 interface EditForm {
   app_name: string
-  platform_code?: string
+  platform_codes?: string[]
+  primary_platform_code?: string
   description?: string
   status: AppDictEntry['status']
 }
@@ -69,9 +71,9 @@ export default function ApplicationManagementPage() {
   const [editing, setEditing] = useState<AppDictEntry | null>(null)
   const [editForm] = Form.useForm<EditForm>()
 
-  // {v2.45} 决策 104 / 107：应用可选父级下拉——平台字典启用条目可选（只读消费）；
-  // 编辑存量条目平台已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
-  const platformOptions = () => {
+  // {v2.49} 决策 110 / 111：应用↔平台 M:N——「所属平台」多选下拉（只读消费平台字典启用条目）；
+  // 编辑存量条目时，其原关联平台若已停用 / 已不在字典，保留历史值展示（不可新选，但不清空）。
+  const platformOptions = (selected?: string[]) => {
     const enabledOptions = mockPlatformDict
       .filter((d) => d.status === 'enabled')
       .map((d) => (
@@ -79,16 +81,34 @@ export default function ApplicationManagementPage() {
           {d.platform_name}（{d.platform_code}）
         </Option>
       ))
-    const current = editing?.platform_code
-    if (current && !mockPlatformDict.some((d) => d.platform_code === current && d.status === 'enabled')) {
-      return [
-        ...enabledOptions,
-        <Option key={current} value={current}>
-          {resolvePlatformName(current)}（已停用）
-        </Option>,
-      ]
-    }
-    return enabledOptions
+    const legacy = (selected ?? []).filter(
+      (c) => !!c && !mockPlatformDict.some((d) => d.platform_code === c && d.status === 'enabled'),
+    )
+    return [
+      ...enabledOptions,
+      ...legacy.map((c) => (
+        <Option key={c} value={c}>
+          {resolvePlatformName(c)}（已停用）
+        </Option>
+      )),
+    ]
+  }
+
+  // {v2.49} 决策 111：主平台只能从**已选平台集合**中选（未选平台时主平台置空）
+  const primaryPlatformOptions = (selected?: string[]) =>
+    (selected ?? []).map((c) => (
+      <Option key={c} value={c}>
+        {resolvePlatformName(c)}
+        {isPlatformDisabled(c) ? '（已停用）' : ''}
+      </Option>
+    ))
+
+  const registerPlatforms = Form.useWatch('platform_codes', registerForm) as string[] | undefined
+  const editPlatforms = Form.useWatch('platform_codes', editForm) as string[] | undefined
+  // 主平台必须属于已选集合：平台选择变化后清掉不在集合内的主平台
+  const syncPrimary = (form: FormInstance, codes?: string[]) => {
+    const primary = form.getFieldValue('primary_platform_code') as string | undefined
+    if (primary && !(codes ?? []).includes(primary)) form.setFieldValue('primary_platform_code', undefined)
   }
 
   const openRegister = () => {
@@ -104,10 +124,16 @@ export default function ApplicationManagementPage() {
       registerForm.setFields([{ name: 'app_code', errors: ['该应用编码已存在'] }])
       return
     }
+    const platformCodes = values.platform_codes && values.platform_codes.length > 0 ? values.platform_codes : undefined
     const created: AppDictEntry = {
       app_code: values.app_code.trim(),
       app_name: values.app_name.trim(),
-      platform_code: values.platform_code,
+      platform_codes: platformCodes,
+      // 主平台只能落在已选集合内（服务端唯一性校验演示）
+      primary_platform_code:
+        values.primary_platform_code && platformCodes?.includes(values.primary_platform_code)
+          ? values.primary_platform_code
+          : undefined,
       description: values.description?.trim() || undefined,
       status: 'enabled',
     }
@@ -120,7 +146,8 @@ export default function ApplicationManagementPage() {
     setEditing(record)
     editForm.setFieldsValue({
       app_name: record.app_name,
-      platform_code: record.platform_code,
+      platform_codes: record.platform_codes,
+      primary_platform_code: record.primary_platform_code,
       description: record.description,
       status: record.status,
     })
@@ -130,13 +157,18 @@ export default function ApplicationManagementPage() {
   const submitEdit = async () => {
     if (!editing) return
     const values = await editForm.validateFields()
+    const platformCodes = values.platform_codes && values.platform_codes.length > 0 ? values.platform_codes : undefined
     setRecords((prev) =>
       prev.map((d) =>
         d.app_code === editing.app_code
           ? {
               ...d,
               app_name: values.app_name.trim(),
-              platform_code: values.platform_code,
+              platform_codes: platformCodes,
+              primary_platform_code:
+                values.primary_platform_code && platformCodes?.includes(values.primary_platform_code)
+                  ? values.primary_platform_code
+                  : undefined,
               description: values.description?.trim() || undefined,
               status: values.status,
             }
@@ -186,20 +218,26 @@ export default function ApplicationManagementPage() {
         record.status === 'disabled' ? <Text type="secondary">{v}（已停用）</Text> : v,
     },
     {
-      // {v2.45} 决策 104 / 107：应用可选父级「平台」列——展示平台字典 platform_name，未挂显示 -，停用加标识
+      // {v2.49} 决策 110 / 111：应用↔平台 M:N「所属平台」列——多平台 Tag 列表 + 主平台标记；未挂显示 -；已停用平台加「（已停用）」
       title: '所属平台',
-      dataIndex: 'platform_code',
-      key: 'platform_code',
-      width: 180,
-      render: (value?: string) =>
-        value ? (
-          <Tag color={isPlatformDisabled(value) ? 'default' : 'purple'}>
-            {resolvePlatformName(value)}
-            {isPlatformDisabled(value) ? '（已停用）' : ''}
-          </Tag>
-        ) : (
-          '-'
-        ),
+      dataIndex: 'platform_codes',
+      key: 'platform_codes',
+      width: 220,
+      render: (_: unknown, record: AppDictEntry) => {
+        const codes = record.platform_codes ?? []
+        if (codes.length === 0) return '-'
+        return (
+          <Space size={[4, 4]} wrap>
+            {codes.map((c) => (
+              <Tag key={c} color={isPlatformDisabled(c) ? 'default' : 'purple'}>
+                {resolvePlatformName(c)}
+                {isPlatformDisabled(c) ? '（已停用）' : ''}
+                {c === record.primary_platform_code ? '（主）' : ''}
+              </Tag>
+            ))}
+          </Space>
+        )
+      },
     },
     {
       title: '描述',
@@ -299,14 +337,20 @@ export default function ApplicationManagementPage() {
             目标是存量 `app` 标签不断、时序不裂。
           </li>
           <li>
-            {'{v2.45} 决策 104 / 107'}：新增**可选父级「所属平台」**（`platform_code`，只读消费平台字典，见平台管理页）——
-            应用升格为「可挂父平台的子系统」（`platform(1) → app(N)` 组成分解）；这是应用自身的纵向分解，
-            与决策 96 的 biz↔app 横向正交是两个维度、不冲突；未挂时无平台归属、`platform` label 不注入。
-            {'{v0.2}'} 起补「平台 → 子系统」分层可视化界面，MVP 仅提供本下拉。
+            {'{v2.49} 决策 110 / 111'}：应用↔平台关系由「单值可选父级（`platform_code`）」改为 <Text strong>多对多</Text>
+            （`app_platform_rel(app_code, platform_code, is_primary)`）——一套软件可同时部署在多个平台（如授权平台 + 实验室平台）；
+            应用表单「所属平台」改为<Text strong>多选 + 主平台单选</Text>（同一应用至多一个主平台，主平台只能从已选平台中选、主平台必须属于已选集合）；
+            存量单值 `platform_code` 一次性迁入关联表（转入一行、`is_primary=true`），迁移后应用侧单值字段废弃。
+            这仍是应用自身的纵向分解，与决策 96 的 biz↔app 横向正交是两个维度、不冲突。
+            平台停用不解绑存量关联、仅不可新选；{' {v0.2} '}起补「平台 → 子系统」聚合拓扑视图（只读），MVP 仅提供本关系维护表单。
           </li>
           <li>
-            红线硬化补充：仅 `app_name` / `platform_code` / `description` / 状态 可编辑（`app_code` 仍不可改）；
-            应用侧 `platform_code` 只允许引用未停用平台条目。
+            红线硬化补充：仅 `app_name` / 平台关联（多选 + 主平台）/ `description` / 状态 可编辑（`app_code` 仍不可改）；
+            应用侧平台关联只允许引用未停用平台条目（编辑存量时保留已停用历史关联展示、不可新选）。
+          </li>
+          <li>
+            {'{v2.49} 决策 112'}：本页为<Text strong>字典</Text>（编码取值权威），**不是「可删除的对象」**——
+            应用编码即 label 值，删除会断历史时序，故生命周期为「启用 ↔ 停用」；真正可删除的是<Text strong>资源（Resource）</Text>（被采集 Job 引用时阻断）。
           </li>
           <li>
             边界：本页为应用字典管理演示；「谁引用了该应用」的引用关系清单不在本页展示，见资源管理页 / Excel 导入校验。
@@ -369,14 +413,44 @@ export default function ApplicationManagementPage() {
           <Form.Item label="应用名" name="app_name" rules={[{ required: true, message: '请输入应用名' }]}>
             <Input placeholder="例如 订单服务 / 支付服务" maxLength={64} />
           </Form.Item>
-          {/* {v2.45} 决策 104 / 107：应用可选父级「所属平台」——只读消费平台字典启用条目；留空即无平台归属 */}
+          {/* {v2.49} 决策 110 / 111：应用↔平台 M:N——「所属平台」多选 + 「主平台」单选（主平台须属于已选集合） */}
           <Form.Item
             label="所属平台"
-            name="platform_code"
-            extra="选填：应用所属平台（纵向 platform → app 组成分解）；仅可选启用中的平台，留空则无平台归属、不注入 platform 标签"
+            name="platform_codes"
+            extra="选填：应用关联的平台（可多选，支持一套软件跨多个平台）；仅可选启用中的平台，留空则无平台归属、不注入 platform 标签"
           >
-            <Select placeholder="选填，选择所属平台" showSearch allowClear optionFilterProp="label">
-              {platformOptions()}
+            <Select
+              mode="multiple"
+              placeholder="选填，可多选"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+              onChange={(vals: string[]) => syncPrimary(registerForm, vals)}
+            >
+              {platformOptions(registerPlatforms)}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="主平台"
+            name="primary_platform_code"
+            dependencies={['platform_codes']}
+            rules={[
+              {
+                validator: (_, value) => {
+                  const codes = registerForm.getFieldValue('platform_codes') as string[] | undefined
+                  if (value && !(codes ?? []).includes(value)) return Promise.reject(new Error('主平台必须属于已选平台'))
+                  return Promise.resolve()
+                },
+              },
+            ]}
+            extra="选填：应用主平台（至多一个，用于资源未填平台时的兜底归属）；只能从已选平台中选择"
+          >
+            <Select
+              placeholder="选填，需先选择所属平台"
+              allowClear
+              disabled={!registerPlatforms || registerPlatforms.length === 0}
+            >
+              {primaryPlatformOptions(registerPlatforms)}
             </Select>
           </Form.Item>
           <Form.Item label="描述" name="description">
@@ -414,11 +488,41 @@ export default function ApplicationManagementPage() {
           </Form.Item>
           <Form.Item
             label="所属平台"
-            name="platform_code"
-            extra="选填：应用所属平台；仅可选启用中的平台，留空则无平台归属"
+            name="platform_codes"
+            extra="选填：应用关联的平台（可多选）；仅可选启用中的平台，留空则无平台归属；原关联的已停用平台保留展示、不可新选"
           >
-            <Select placeholder="选填，选择所属平台" showSearch allowClear optionFilterProp="label">
-              {platformOptions()}
+            <Select
+              mode="multiple"
+              placeholder="选填，可多选"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+              onChange={(vals: string[]) => syncPrimary(editForm, vals)}
+            >
+              {platformOptions(editPlatforms)}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="主平台"
+            name="primary_platform_code"
+            dependencies={['platform_codes']}
+            rules={[
+              {
+                validator: (_, value) => {
+                  const codes = editForm.getFieldValue('platform_codes') as string[] | undefined
+                  if (value && !(codes ?? []).includes(value)) return Promise.reject(new Error('主平台必须属于已选平台'))
+                  return Promise.resolve()
+                },
+              },
+            ]}
+            extra="选填：应用主平台（至多一个，用于资源未填平台时的兜底归属）；只能从已选平台中选择"
+          >
+            <Select
+              placeholder="选填，需先选择所属平台"
+              allowClear
+              disabled={!editPlatforms || editPlatforms.length === 0}
+            >
+              {primaryPlatformOptions(editPlatforms)}
             </Select>
           </Form.Item>
           <Form.Item label="描述" name="description">

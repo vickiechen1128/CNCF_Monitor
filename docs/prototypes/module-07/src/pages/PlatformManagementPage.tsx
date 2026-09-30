@@ -12,6 +12,7 @@ import {
   Select,
   Space,
   Table,
+  Tag,
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
@@ -20,7 +21,8 @@ import { MainLayout } from '../layouts/MainLayout'
 import { Callout } from '../components/Callout'
 import { ReviewNote } from '../components/ReviewNote'
 import { TABLE_PAGINATION } from '../components/tablePresets'
-import { PLATFORM_CODE_RE, mockPlatformDict } from '../mocks/module-07'
+// {v2.49} 决策 110 / 111：平台「关联应用」经 app_platform_rel 反向查询
+import { PLATFORM_CODE_RE, mockPlatformDict, getPlatformLinkedApps, resolveAppName } from '../mocks/module-07'
 import type { PlatformDictEntry } from '../mocks/module-07'
 
 const { Title, Text } = Typography
@@ -150,6 +152,26 @@ export default function PlatformManagementPage() {
         record.status === 'disabled' ? <Text type="secondary">{v}（已停用）</Text> : v,
     },
     {
+      // {v2.49} 决策 110 / 111：「关联应用」列——经 app_platform_rel 反向列出挂在本平台下的应用（主平台加「（主）」标识）；空态「暂无关联应用」
+      title: '关联应用',
+      key: 'linked_apps',
+      width: 220,
+      render: (_: unknown, record: PlatformDictEntry) => {
+        const rels = getPlatformLinkedApps(record.platform_code)
+        if (rels.length === 0) return <Text type="secondary">暂无关联应用</Text>
+        return (
+          <Space size={[4, 4]} wrap>
+            {rels.map((rel) => (
+              <Tag key={rel.app_code} color="cyan">
+                {resolveAppName(rel.app_code)}
+                {rel.is_primary ? '（主）' : ''}
+              </Tag>
+            ))}
+          </Space>
+        )
+      },
+    },
+    {
       title: '描述',
       dataIndex: 'description',
       key: 'description',
@@ -218,9 +240,9 @@ export default function PlatformManagementPage() {
         title="平台编码是应用归属平台的权威标识"
         style={{ marginBottom: 16 }}
       >
-        平台编码会随应用归属派生为监控标签、用于按平台维度聚合，<Text strong>创建后不可修改</Text>；
-        停用平台不删除，仅不再可被新增 / 编辑应用条目选用，存量应用保留原归属。
-        平台是「平台 → 应用 → 服务 → 实例」层级的最顶层，应用通过「所属平台」挂靠（可选）。
+        平台编码是资源平台归属的权威取值，<Text strong>创建后不可修改</Text>；
+        停用平台不删除，仅不再可被新增 / 编辑应用与资源选用，<Text strong>已关联的存量应用与资源保留原归属、不自动解绑</Text>。
+        平台是「平台 → 应用 → 服务 → 实例」层级的最顶层，应用通过「所属平台」多对多挂靠（可选，可设主平台）。
       </Callout>
 
       <ReviewNote title="设计说明（面向产品 / 技术评审）" style={{ margin: '0 0 16px' }}>
@@ -245,13 +267,28 @@ export default function PlatformManagementPage() {
             禁止用展示名当编码（`platform` label 恒取 `platform_code`）。
           </li>
           <li>
-            消费链路：应用登记 / 编辑表单只读消费本字典（`GET /api/v2/platform/platform-dict`）且只允许引用未停用条目；
-            应用列表展示字典 `platform_name`，字典缺条目时回退显示编码；资源侧 `platform` label 经 `app_code` →
-            应用条目父级 `platform_code` **派生注入**（资源行不新增字段）。
+            {'{v2.49} 决策 110 / 111'}：应用↔平台由「单值父级」改为 <Text strong>多对多</Text>
+            （`app_platform_rel(app_code, platform_code, is_primary)`）——一个平台可下挂多个应用，一个应用也可同时部署在多个平台；
+            `is_primary` 标记应用主平台（同一应用至多一个），为资源行未显式填 `platform_code` 时提供兜底。
+            本页新增「关联应用」列，经 `app_platform_rel` 反向展示挂在本平台下的应用（主平台加「（主）」标识）。
           </li>
           <li>
-            交付范围（决策 107）：平台字典本体（模型 + 字段口径 + 只读消费接口 + Excel 声明 sheet + 本维护页）随 MVP 交付；
-            **「平台 → 子系统」分层可视化界面归 {'{v0.2}'}**（与应用字典父子分解界面同期），MVP 应用表单仅提供「所属平台」下拉。
+            消费链路：应用登记 / 编辑表单只读消费本字典（`GET /api/v2/platform/platform-dict`）且只允许引用未停用条目；
+            应用列表展示字典 `platform_name`，字典缺条目时回退显示编码；资源侧 `platform` label 取值 = <Text strong>资源行 `platform_code` 一等业务字段</Text>
+            （经标签模板 `platform_code → platform` 映射注入，非派生标签），资源行未显式填写时兜底取所属应用 `is_primary` 主平台。
+          </li>
+          <li>
+            停用 / 解绑处置（决策 111）：<Text strong>停用平台不解绑存量关联、仅不可新选</Text>——存量 `app_platform_rel` / 资源 `platform_code`
+            保留历史值、不自动解绑，应用 / 资源侧以「平台名（已停用）」标识展示；应用解除与某平台关联时，资源 `platform_code` 悬空的仅提示、不强制改写，
+            资源行显式填写的 `platform_code` 不受应用解绑影响（一等字段优先）。
+          </li>
+          <li>
+            交付范围（决策 107 / 110）：平台字典本体（模型 + 字段口径 + 只读消费接口 + Excel 声明 sheet + 本维护页 + <Text strong>关联应用列表 / 关系维护表单</Text>）随 MVP 交付；
+            **「平台 → 子系统」聚合拓扑视图归 {'{v0.2}'}**（与应用字典父子分解视图同期），MVP 仅提供关系维护表单。
+          </li>
+          <li>
+            {'{v2.49} 决策 112'}：本页为<Text strong>字典</Text>（编码取值权威），**不是「可删除的对象」**——
+            平台编码即 label 值，删除会断历史时序，故生命周期为「启用 ↔ 停用」；真正可删除的是<Text strong>资源（Resource）</Text>（被采集 Job 引用时阻断）。
           </li>
         </ul>
       </ReviewNote>

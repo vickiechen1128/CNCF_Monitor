@@ -12,6 +12,7 @@ import {
   Select,
   Space,
   Table,
+  Tag,
   Typography,
 } from 'antd'
 import type { TableProps } from 'antd'
@@ -20,19 +21,35 @@ import { MainLayout } from '../layouts/MainLayout'
 import { Callout } from '../components/Callout'
 import { ReviewNote } from '../components/ReviewNote'
 import { TABLE_PAGINATION } from '../components/tablePresets'
-import { SERVICE_CODE_RE, mockServiceDict } from '../mocks/module-07'
+// {v2.49} 决策 112：服务字典新增关系字段——所属应用（app_code）/ 主业务（biz_code）只读消费应用 / 业务字典
+import {
+  SERVICE_CODE_RE,
+  mockServiceDict,
+  mockApplicationDict,
+  mockBusinessDomains,
+  resolveAppName,
+  isAppDisabled,
+  resolveBizName,
+  isBizDisabled,
+} from '../mocks/module-07'
 import type { ServiceDictEntry } from '../mocks/module-07'
 
 const { Title, Text } = Typography
+const { Option } = Select
 
 interface RegisterForm {
   service_code: string
   service_name: string
+  // {v2.49} 决策 112：关系字段（可空）——所属应用（应用↔服务 1:N）/ 主业务（服务↔业务 N:1）
+  app_code?: string
+  biz_code?: string
   description?: string
 }
 
 interface EditForm {
   service_name: string
+  app_code?: string
+  biz_code?: string
   description?: string
   status: ServiceDictEntry['status']
 }
@@ -73,6 +90,8 @@ export default function ServiceManagementPage() {
     const created: ServiceDictEntry = {
       service_code: values.service_code.trim(),
       service_name: values.service_name.trim(),
+      app_code: values.app_code,
+      biz_code: values.biz_code,
       description: values.description?.trim() || undefined,
       status: 'enabled',
     }
@@ -85,6 +104,8 @@ export default function ServiceManagementPage() {
     setEditing(record)
     editForm.setFieldsValue({
       service_name: record.service_name,
+      app_code: record.app_code,
+      biz_code: record.biz_code,
       description: record.description,
       status: record.status,
     })
@@ -100,6 +121,8 @@ export default function ServiceManagementPage() {
           ? {
               ...d,
               service_name: values.service_name.trim(),
+              app_code: values.app_code,
+              biz_code: values.biz_code,
               description: values.description?.trim() || undefined,
               status: values.status,
             }
@@ -147,6 +170,38 @@ export default function ServiceManagementPage() {
       key: 'service_name',
       render: (v: string, record) =>
         record.status === 'disabled' ? <Text type="secondary">{v}（已停用）</Text> : v,
+    },
+    {
+      // {v2.49} 决策 112：「业务归属」列——展示业务字典 biz_name（可空显示 -，停用加「（已停用）」）
+      title: '业务归属',
+      dataIndex: 'biz_code',
+      key: 'biz_code',
+      width: 160,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isBizDisabled(value) ? 'default' : 'geekblue'}>
+            {resolveBizName(value)}
+            {isBizDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : (
+          '-'
+        ),
+    },
+    {
+      // {v2.49} 决策 112：「所属应用」列——展示应用字典 app_name（可空显示 -，停用加「（已停用）」）
+      title: '所属应用',
+      dataIndex: 'app_code',
+      key: 'app_code',
+      width: 160,
+      render: (value?: string) =>
+        value ? (
+          <Tag color={isAppDisabled(value) ? 'default' : 'cyan'}>
+            {resolveAppName(value)}
+            {isAppDisabled(value) ? '（已停用）' : ''}
+          </Tag>
+        ) : (
+          '-'
+        ),
     },
     {
       title: '描述',
@@ -235,12 +290,22 @@ export default function ServiceManagementPage() {
             字段撞名）；**既有 `service_name` label / 字段保留不动**。
           </li>
           <li>
-            与服务应用关联（决策 105）：服务与应用的关联经**资源行**的 `app_code` + `service_code` 承载
-            （本字典不设父子字段）；服务与业务域 `biz` **正交**（`service : biz = N:1`，主归属唯一）。
+            {'{v2.49} 决策 112 关系显式化（推翻原「本字典不设父子字段」）'}：本字典新增<Text strong>可空关系字段</Text>
+            `app_code`（应用↔服务 1:N）与 `biz_code`（服务↔业务 N:1 主归属）——字典字段是<Text strong>关系权威</Text>，
+            资源行 `app_code` / `service_code` 为实例归属的<Text strong>镜像</Text>（某服务当前无实例时关系不丢）；服务与业务域 `biz` 正交。
+          </li>
+          <li>
+            归属关系 vs 依赖关系：服务↔业务 / 服务↔应用为<Text strong>归属关系</Text>（显式登记、可在本页维护）；
+            区别于服务↔服务的<Text strong>依赖关系（`service_dependency`）</Text>——依赖关系归对象拓扑家族、{' {v0.3+} '}由调用链 / 服务发现推导、
+            不靠静态 label 硬标，故本原型不做依赖界面。
+          </li>
+          <li>
+            {'{v2.49} 决策 112'}：本页为<Text strong>字典</Text>（编码取值权威），**不是「可删除的对象」**——
+            服务编码即 label 值，删除会断历史时序，故生命周期为「启用 ↔ 停用」；真正可删除的是<Text strong>资源（Resource）</Text>（被采集 Job 引用时阻断）。
           </li>
           <li>
             红线硬化：`service_code` 创建后不可改（编码规范：小写字母 / 数字 / 连字符 ≤ 64，表单醒目提示）；
-            编辑仅开放 `service_name` / `description` / 状态；不提供删除入口（停用不删除）；
+            编辑仅开放 `service_name` / `description` / 状态 / `app_code`（所属应用）/ `biz_code`（主业务）；不提供删除入口（停用不删除）；
             禁止用展示名当编码（`svc` label 恒取 `service_code`）。
           </li>
           <li>
@@ -312,6 +377,37 @@ export default function ServiceManagementPage() {
           <Form.Item label="服务名" name="service_name" rules={[{ required: true, message: '请输入服务名' }]}>
             <Input placeholder="例如 教师身份核验接口" maxLength={64} />
           </Form.Item>
+          {/* {v2.49} 决策 112：关系字段（可空）——所属应用（应用↔服务 1:N）/ 主业务（服务↔业务 N:1） */}
+          <Form.Item
+            label="所属应用"
+            name="app_code"
+            extra="选填：本服务所属应用（关系权威，仅可选启用中的应用）；留空则不设应用归属"
+          >
+            <Select placeholder="选填，选择所属应用" showSearch allowClear optionFilterProp="label">
+              {mockApplicationDict
+                .filter((d) => d.status === 'enabled')
+                .map((d) => (
+                  <Option key={d.app_code} value={d.app_code}>
+                    {d.app_name}（{d.app_code}）
+                  </Option>
+                ))}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="主业务"
+            name="biz_code"
+            extra="选填：本服务主归属业务（关系权威，服务可被多业务共享但主归属唯一）；留空则不设业务归属"
+          >
+            <Select placeholder="选填，选择主业务" showSearch allowClear optionFilterProp="label">
+              {mockBusinessDomains
+                .filter((d) => d.status === 'enabled')
+                .map((d) => (
+                  <Option key={d.biz_code} value={d.biz_code}>
+                    {d.biz_name}（{d.biz_code}）
+                  </Option>
+                ))}
+            </Select>
+          </Form.Item>
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={3} placeholder="选填，说明该服务的用途或包含的资源范围" maxLength={200} />
           </Form.Item>
@@ -344,6 +440,49 @@ export default function ServiceManagementPage() {
         <Form form={editForm} layout="vertical" name="edit-service" initialValues={{ status: 'enabled' }}>
           <Form.Item label="服务名" name="service_name" rules={[{ required: true, message: '请输入服务名' }]}>
             <Input maxLength={64} />
+          </Form.Item>
+          {/* {v2.49} 决策 112：编辑关系字段（可空）；原关联已停用条目保留历史值展示、不可新选 */}
+          <Form.Item
+            label="所属应用"
+            name="app_code"
+            extra="选填：本服务所属应用；仅可选启用中的应用，留空则不设应用归属"
+          >
+            <Select placeholder="选填，选择所属应用" showSearch allowClear optionFilterProp="label">
+              {mockApplicationDict
+                .filter((d) => d.status === 'enabled')
+                .map((d) => (
+                  <Option key={d.app_code} value={d.app_code}>
+                    {d.app_name}（{d.app_code}）
+                  </Option>
+                ))}
+              {editing?.app_code &&
+                !mockApplicationDict.some((d) => d.app_code === editing.app_code && d.status === 'enabled') && (
+                  <Option key={editing.app_code} value={editing.app_code}>
+                    {resolveAppName(editing.app_code)}（已停用）
+                  </Option>
+                )}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="主业务"
+            name="biz_code"
+            extra="选填：本服务主归属业务；仅可选启用中的业务，留空则不设业务归属"
+          >
+            <Select placeholder="选填，选择主业务" showSearch allowClear optionFilterProp="label">
+              {mockBusinessDomains
+                .filter((d) => d.status === 'enabled')
+                .map((d) => (
+                  <Option key={d.biz_code} value={d.biz_code}>
+                    {d.biz_name}（{d.biz_code}）
+                  </Option>
+                ))}
+              {editing?.biz_code &&
+                !mockBusinessDomains.some((d) => d.biz_code === editing.biz_code && d.status === 'enabled') && (
+                  <Option key={editing.biz_code} value={editing.biz_code}>
+                    {resolveBizName(editing.biz_code)}（已停用）
+                  </Option>
+                )}
+            </Select>
           </Form.Item>
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={3} maxLength={200} />

@@ -1,10 +1,10 @@
 # Module 01: 监控策略与指标管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v3.49
+> **PRD 版本**: v3.50
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
-> **原型版本**: v3.41（⚠️ 原型待同步 v3.42：新增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd` 三个 monitor_type 枚举与 generic_target 端点子类型判别；已完成规则挂载「检查 → 提交」两段式同步：独立「检查」按钮 + 提交按钮条件出现 + 组名唯一性并入预检 + job 引用分级阻断与逃生门提前。v3.48 为 M07 实体层级骨架同步——业务域语义升级为「服务子图」（决策 106）、术语表补 `svc` / `platform` 标签，属契约级修订、原型无需同步。v3.49 为 application_http 标签模板默认映射旧账订正——`app_name → app` 订正为 `app_code → app`、`business_domain → biz` 订正为 `biz_code → biz`，纯文档修正、原型无需同步）
-> **更新日期**: 2026-09-27
+> **原型版本**: v3.41（⚠️ 原型待同步 v3.42：新增 `k8s_apiserver` / `k8s_kube_state_metrics` / `k8s_etcd` 三个 monitor_type 枚举与 generic_target 端点子类型判别；已完成规则挂载「检查 → 提交」两段式同步：独立「检查」按钮 + 提交按钮条件出现 + 组名唯一性并入预检 + job 引用分级阻断与逃生门提前。v3.48 为 M07 实体层级骨架同步——业务域语义升级为「服务子图」（决策 106）、术语表补 `svc` / `platform` 标签，属契约级修订、原型无需同步。v3.49 为 application_http 标签模板默认映射旧账订正——`app_name → app` 订正为 `app_code → app`、`business_domain → biz` 订正为 `biz_code → biz`，纯文档修正、原型无需同步；v3.50 为 `platform` 注入点同步——吸收 design-proposal `object-relation-topology`（决策 110~112）：`platform` 由「派生标签」订正为「资源行一等业务字段 `platform_code` 经标签模板 `resource_field` 映射注入（留空按所属应用主平台兜底）」，属契约级修订、采集落地走机制 A 标签注入不变、原型无需同步）
+> **更新日期**: 2026-09-28
 > **对应原型**: `docs/prototypes/module-01/`
 
 > **模块类型**: 核心能力模块
@@ -1265,7 +1265,7 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 | `ExporterTemplate.os` / `arch` | 适用平台 / 架构 | 制品维度，**不决定监控对象类型**——发行版 / 架构差异下沉到采集器层；同一采集器多平台按 os/arch 多行登记 |
 | `instance` 标签 | 抓取目标身份（ip:port） | Prometheus 抓取目标身份，端口 / 漂移会导致不稳定；**不作为业务稳定关联键**——业务关联走 `app` / `biz` / 稳定资源身份标签 |
 | `svc`（label） | 仅技术信息 | 服务聚合标签（决策 105，{v3.48} 同步 Module\_07 §5.15 / §5.22）：值 = 资源 `service_code` 不可变编码；`service_code` 为空时不注入；服务与业务域 `biz` 正交（服务回答「是什么」、`biz` 回答「为谁服务」） |
-| `platform`（label） | 仅技术信息 | 平台聚合标签（决策 104，{v3.48} 同步 Module\_07 §5.15 / §5.21）：**派生标签**——值经资源 `app_code` → 应用条目父级 `platform_code` 解析；资源无 `app_code` 或应用无父级平台时不注入 |
+| `platform`（label） | 仅技术信息 | 平台聚合标签（决策 110，{v3.50} 同步 Module\_07 §5.12.1 / §5.13 / §5.24）：**资源行一等业务字段**——值 = 资源行 `platform_code`（登记期显式填写，经标签模板 `resource_field` 映射注入）；资源行留空时经所属应用 `is_primary` 平台兜底，仍未确定则不注入 |
 
 > **提示分区规范**：原型 / 产品页面中的提示按受众分三类，避免相互干扰——
 >
@@ -1367,8 +1367,8 @@ unconfirmed（未登记，默认，不阻断 target 生成） ── 运维可�
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 落点章节 | 产品版本影响 | 状态 |
 |------|------|----------|----------|--------------|--------------|------|
+| v3.50 | 2026-09-28 | 契约 | **M07 `platform` 注入点同步（决策 110~112，吸收 design-proposal `object-relation-topology`）**：§10 术语表 `platform`（label）由「派生标签（值经资源 `app_code` → 应用条目父级 `platform_code` 解析）」订正为「**资源行一等业务字段**（值 = 资源行 `platform_code`，经标签模板 `resource_field` 映射注入；资源行留空时按所属应用 `is_primary` 平台兜底）」；应用↔平台改 M:N（`app_platform_rel` + `is_primary`）。属契约级修订、采集落地走机制 A 标签注入不变、原型无需同步。详版见 Module\_07 PRD v2.49 / design-decisions 决策 110~112 | 10 / Change Log | MVP 生效 | ready |
 | v3.49 | 2026-09-27 | 文档 | **application_http 标签模板默认映射旧账订正**：`app_name → app` 订正为 `app_code → app`、`business_domain → biz` 订正为 `biz_code → biz`（§5.1.9 默认映射句、§5.6 filter 模式字段列表 / 别名派生例）；对齐决策 92（`app_code` 双层编码、label 恒取不可变编码）与 Module\_07 §5.12.1 权威映射（§5.19「禁止用展示名当编码」红线）。纯文档修正、无字段 / 接口 / 原型变更 | 5.1.9 / 5.6 | 文档自身 | ready |
 | v3.48 | 2026-09-27 | 契约 | **M07 实体层级骨架同步（决策 104~106，吸收 design-proposal `service-biz-app-four-layer-hierarchy`）**：①§5.9 业务域语义升级——`business_domain` 细化为「由一组上下游关联的 `service` 构成的服务子图」，与纵向 `platform → app → service → instance` 正交（`service : biz = N:1`），**字段结构 / `biz` label / 必填口径零改动**；②§10 术语表补 `svc`（label，值 = 资源 `service_code`）与 `platform`（派生 label，经资源 `app_code` → 应用条目父级 `platform_code`）两行（仅技术信息）。属契约级修订、采集落地逻辑不变、原型无需同步。详版见 Module\_07 PRD v2.45 / design-decisions | 5.9 / 10 / Change Log | MVP 生效 | ready |
-| v3.47 | 2026-09-17 | 契约 | **补「退纳管网域对存量 Job 的影响」条款（dev-feedback #5 收割 / 决策 82-3）**——M09 退纳管=停止监控（废止 Token/停下发，网域本身不冻结）；退纳管后该域资源退出新 Job 实例候选列表（与禁用对称），但既有 Job 不自动禁用/不自动移除该域实例，Job 编辑选中退纳管资源时前端提示「该网域已退纳管，其资源将不再被采集」；v0.2+ 生效。纯契约补充，原型行为不变。 | 5.4 | v0.2+ 生效 | ready |
 
-> 完整 Change Log 历史（v3.38 及以前）见 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」。
+> 完整 Change Log 历史（v3.47 及以前）见 `docs/05-execution-records/module-01/design-decisions.md`「Change Log（完整历史）」。

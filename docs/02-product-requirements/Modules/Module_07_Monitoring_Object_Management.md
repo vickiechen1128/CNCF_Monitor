@@ -1,9 +1,9 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.48
+> **PRD 版本**: v2.49
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
-> **原型版本**: v2.47（决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明；v2.42 为字段与字典契约增量（云字典 / 主机 cloud_code / 网络分区唯一权威），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.43 为云标识契约增量（`cloud_code` 升格五类共享字段 + host/database/middleware 必填 + 云字典无管理页口径澄清），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.44 为实体模型收敛（cloud/zone 上提网域 + 位置三标签统一 system 层 + zone_type 必填，决策 103 / M06 决策 78），属契约级修订、无新增用户可见字段（云/分区经网域派生只读展示已随本轮同步）；v2.45 为实体层级骨架增量（新增平台层 `platform` / 服务层 `svc` + `PlatformDict` / `ServiceDict`，biz 语义升级为「服务子图」，决策 104~107），属契约级修订、**原型已同步**（新增平台 / 服务字典页、应用字典父级「所属平台」、资源服务归属字段 `service_code`；服务依赖 `service_dependency` 归 {v0.3+} 预留、原型不做依赖界面）；v2.46 为五类资源归属关系分型增量（组成 / 依赖 / 部署三分型 + host 归属键 + `platform` 派生降级口径 + 术语表，吸收 design-proposal `resource-ownership-relation-typing`，决策 108），属契约级修订、原型无需同步；v2.47 为四层聚合口径澄清（`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁用 `sum by (instance)`，决策 109），属契约级口径澄清、原型无需同步；v2.48 为 dev-feedback F-5/F-11 回填（`instance_name` 标签映射矛盾修正 + application 采集地址口径澄清），属契约级修订、原型无需同步）
+> **原型版本**: v2.47（决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明；v2.42 为字段与字典契约增量（云字典 / 主机 cloud_code / 网络分区唯一权威），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.43 为云标识契约增量（`cloud_code` 升格五类共享字段 + host/database/middleware 必填 + 云字典无管理页口径澄清），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.44 为实体模型收敛（cloud/zone 上提网域 + 位置三标签统一 system 层 + zone_type 必填，决策 103 / M06 决策 78），属契约级修订、无新增用户可见字段（云/分区经网域派生只读展示已随本轮同步）；v2.45 为实体层级骨架增量（新增平台层 `platform` / 服务层 `svc` + `PlatformDict` / `ServiceDict`，biz 语义升级为「服务子图」，决策 104~107），属契约级修订、**原型已同步**（新增平台 / 服务字典页、应用字典父级「所属平台」、资源服务归属字段 `service_code`；服务依赖 `service_dependency` 归 {v0.3+} 预留、原型不做依赖界面）；v2.46 为五类资源归属关系分型增量（组成 / 依赖 / 部署三分型 + host 归属键 + `platform` 派生降级口径 + 术语表，吸收 design-proposal `resource-ownership-relation-typing`，决策 108），属契约级修订、原型无需同步；v2.47 为四层聚合口径澄清（`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁用 `sum by (instance)`，决策 109），属契约级口径澄清、原型无需同步；v2.48 为 dev-feedback F-5/F-11 回填（`instance_name` 标签映射矛盾修正 + application 采集地址口径澄清），属契约级修订、原型无需同步；v2.49 为对象关系与拓扑建模增量（吸收 design-proposal `object-relation-topology`：A 层字典关系提前至 MVP——应用↔平台改 M:N（`app_platform_rel`）+ 资源行 `platform_code` 一等字段化 + `platform` 定性纠正 + label 维度分层 + 新增 §5.24，决策 110~112），属契约级修订、**原型需同步**（应用字典页平台多选 + 主平台标记、平台字典页关联应用列表、服务字典页业务 / 应用归属、资源表单平台字段级联、资源列表平台列；聚合拓扑视图归 {v0.2} 原型））
 > **更新日期**: 2026-09-28
 > **对应原型**: `docs/prototypes/module-07/`
 
@@ -172,7 +172,7 @@ Module 07 聚焦**监控对象的生命周期管理**，是 MetricCenter 的**�
 | 适用模板展示 | 资源详情显示「适用模板」（该资源类型默认标签模板名 + 模板 ID），与 system 标签来源标注呼应；来源口径见 5.3 | P0 | MVP |
 | 业务分组字典维护 | 业务管理页维护业务编码 `biz_code`（主键）、展示名 `biz_name`、描述与状态，为资源录入 / Excel 导入提供下拉选项；支持登记、受限编辑（仅 `biz_name` / 描述 / 状态）与停用；字段与红线见 5.18、接口见 6.1 | P0 | MVP |
 | 应用字典维护 | 应用管理页维护应用编码 `app_code`（主键，`app` label 取值来源）、展示名 `app_name`、描述与状态，为资源录入 / Excel 导入提供下拉选项；支持登记、受限编辑（仅 `app_name` / 描述 / 状态）与停用；MVP 首次 seed 由存量应用取值归一化生成；字段与红线见 5.19、接口见 6.1 | P0 | MVP |
-| 平台字典维护 | 平台管理页维护平台编码 `platform_code`（主键，`platform` label 取值来源）、展示名 `platform_name`、描述与状态，为应用条目提供「所属平台」下拉（纵向 `platform(1) → app(N)` 归属）；支持登记、受限编辑（仅 `platform_name` / 描述 / 状态）与停用；字段与红线见 5.21、接口见 6.1 | P0 | MVP |
+| 平台字典维护 | 平台管理页维护平台编码 `platform_code`（主键）、展示名 `platform_name`、描述与状态；既是**资源行 `platform_code` 一等字段的取值权威**（经标签模板映射为 `platform` label），又经 `app_platform_rel` 承载**应用↔平台 M:N 关系**（含主平台 `is_primary`，为未显式填 `platform_code` 的资源行提供兜底）；支持登记、受限编辑（仅 `platform_name` / 描述 / 状态）与停用；字段与红线见 5.21、关系模型见 5.24、接口见 6.1 | P0 | MVP |
 | 服务字典维护 | 服务管理页维护服务编码 `service_code`（主键，`svc` label 取值来源）、展示名 `service_name`（字典展示名）、描述与状态，为资源录入 / Excel 导入提供下拉选项；支持登记、受限编辑（仅展示名 / 描述 / 状态）与停用；字段与红线见 5.22、接口见 6.1；与业务域 `biz` 正交——服务回答「是什么」，业务回答「为谁服务」 | P0 | MVP |
 | 字典 Excel 声明导入 | 资源导入文件内联「业务声明」/「应用声明」/「平台声明」/「服务声明」sheet，随批次原子写入：字典 ∪ 声明幂等、重码 / 停用硬拒绝、source=excel-import、只增不覆盖；规格见 5.16.2（决策 97 / 104 / 105） | P0 | MVP |
 | 外部接入源 | 为 BlueKing CMDB 等外部 Provider 预留统一接口；MVP 通过 Excel / SQLite 导入维护资源；外部 CMDB 同步由 Module\_04 实现 | P0 / P2 | MVP；CMDB 同步 {v0.4+} |
@@ -371,6 +371,7 @@ flowchart TD
 | env                  | string       | ✅  | 环境        | 环境 → 映射为 `env` label；全类型必填（任何资源都有环境归属）                                        |
 | cluster              | string       | ✅* | 集群        | 集群 → 映射为 `cluster` label；**语义钉死为「集群」，不承载子应用维度**（子应用须新增独立字段，禁止复用，见下方红线）；host 场景下 Excel `sub_app_code` 列为空时取 `vpc`（物理列映射见 5.6）；必填规则同 `app_code`（host / generic\_target 可空，空值不注入标签） |
 | service\_code        | string       | ❌  | 服务编码     | 服务归属**不可变编码**（如 teacher-identity-api）；对应服务字典主键（见 5.22）；**`svc` label 的取值来源**（映射见 5.12.1 / 5.15）；**仅 application / generic\_target 适用，host / database / middleware 不挂**（基础设施非服务，避免服务维度污染）；**可选字段**——留空即纯自由文本、向后兼容；填值须引用未停用服务字典条目；空值不注入 `svc` 标签（见 5.15） |
+| platform\_code       | string       | ❌  | 平台编码     | **资源行一等业务字段**（决策 110，修订决策 104）——资源所属平台（平台字典主键，见 5.21）；登记期显式填写、**可空**——留空时经所属应用 `is_primary` 平台**兜底**填充（见 5.19 / 5.24）；经标签模板 `resource_field` 映射为 `platform` label（映射见 5.12.1 / 5.13 / 5.15）；填值须引用未停用平台字典条目；**不参与资源判重键**（平台是归属属性、非身份，见 5.16.2）；空值且应用无主平台时不注入 `platform` 标签 |
 | owner                | string       | ❌  | 负责人       | 负责人；MVP 可由用户填写；{v0.4+} CMDB 接入时优先取自 `cmdb_maintainer`                            |
 | cmdb\_ci\_id         | string       | ❌  | 仅技术信息     | {v0.4+} 对应 BlueKing CMDB 的 CI ID（`bk_inst_id`）                                 |
 | cmdb\_business\_path | string       | ❌  | 仅技术信息     | {v1.0+} 对应 BlueKing CMDB 业务路径，用于 ITSM 服务目录映射                                   |
@@ -387,6 +388,10 @@ flowchart TD
 **`app_code` / `cluster` 必填标注（✅\*）**：按资源类别差异化——application / database / middleware 必填；host 可空；generic\_target 与 `biz_code` **二选一必填**（决策 95，有业务就挂 `biz_code`、有平台就挂 `app_code`，至少填一个避免指标无归属）；空值不注入对应标签（与 5.15 规则 4「`biz` 空值语义」对齐）。资源侧**只存编码 `app_code`**，展示名 `app_name` 由应用字典解析（字典缺条目时回退显示编码），展示名不参与标签取值。
 
 **`service_code` 适用范围与软约束（决策 105 / 107，{v2.45} 服务升格）**：`service_code` 为**可选字段**（表中 ❌），**仅 application / generic\_target 记录**——host / database / middleware **不挂**（基础设施非服务，避免用服务维度污染）；留空即纯自由文本、向后兼容（MVP 存量资源无需回填）。资源行既有 `service_name`（应用服务名，5.8 必填）**MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`；**软约束**：当 `service_code` 填写时，约定 `service_name` 宜与服务字典展示名一致（**软约束、不做强校验**）。
+
+**`platform_code` 一等字段口径（决策 110，修订决策 104）**：`platform_code` 为**资源行一等业务字段**（登记期显式填写、可空），**不是派生标签**——平台归属是登记期第一个确定的业务信息（先定平台，才知道这套软件部署在哪个平台）。`platform` label 取值**由资源行 `platform_code` 唯一确定**（经标签模板 `platform_code → platform` 映射注入，走 target 级映射，见 5.12.1 / 5.13）；**仅当资源行未显式填写**时，才用**所属应用的 `is_primary` 平台兜底**填充（见 5.19），未填且应用无主平台时不注入。原决策 104「`platform` 为纯派生标签、资源侧无 `platform_code` 字段」的定性与决策 108 §5.12.1「派生降级按 `app_code` 必填口径分化」口径**随之修订 / 作废**（supersede 见 5.24）。**技术硬约束**：`platform` label 取值必须在资源行唯一确定、不能在应用层多值（应用可挂多个平台后，原派生链会产生 `sum by (platform)` 歧义，与四层聚合口径冲突）。**资源登记表单级联顺序**：先选平台 → 再选应用（按所选平台过滤）→ 再选服务——平台为一等字段、故作登记第一问。
+
+**`platform_code` 连带项（决策 110）**：①五类资源 Excel 模板新增 `platform_code` 可空列（见 5.16.1），留空时按所属 `app_code` 的 `is_primary` 平台兜底；②`platform_code` **不参与判重键**（见 5.16.2）；③存量资源 `platform_code` 回填自「所属应用的父级平台」（原单值派生链取值），存量应用单值 `platform_code` 一次性迁入 `app_platform_rel`（见 5.19）；④`platform_code` 为**资源字段可读入口**（标签模板 `resource_field` 来源可选、资源列表 / 详情响应暴露）。
 
 **`cloud_code` 承载位置（决策 103 / M06 决策 78，推翻决策 102）**：`cloud_code` **不再作为 Resource 字段**——已上提为 **NetworkDomain 行政字段（M06 §5.2，必填）**，`cloud` label 经所属网域派生、在 **target 级 system 层注入**（见 5.13 / 5.20）。原先「五类资源共享字段 + 按类型分化必填」的口径随之撤销；资源侧仅保留 `Host.cloud_code` **兼容只读物理列**（见 5.6，经 `network_domain_id` 派生展示、不暴露写方法）。云字典（5.20）仍是 `cloud` label 的取值权威，但仅用于网域登记与展示解析，不再由资源侧引用。
 
@@ -712,7 +717,7 @@ status_mapping:
 | 中间件        | `middleware_type`    | `middleware_type`    | 中间件类型                      |
 | 应用服务       | `service_name`       | `service_name`       | 应用服务名                                            |
 | 应用 / 其他监控目标 | `service_code`       | `svc`                | 服务归属；**`svc` label 唯一取值来源（不可变编码，对应服务字典，见 5.22）**；**可选**——留空不注入（见 5.2） |
-| 通用（派生） | `platform_code`（资源 `app_code` → 应用条目父级） | `platform` | 平台层归属标签；值取资源 `app_code` 对应应用条目的父级 `platform_code`（平台字典，见 5.21）；资源无 `app_code` 或应用无父级平台时不注入（空值不注入） |
+| 通用 | `platform_code` | `platform` | 平台层归属标签（决策 110，修订决策 104）；**资源行一等业务字段**——值取资源 `platform_code`（平台字典，见 5.21）；资源行未显式填写时**兜底**取所属应用 `is_primary` 平台（见 5.19 / 5.24）；未填且应用无主平台时不注入（空值不注入） |
 | 通用 {v0.4+} | `cmdb_business_path` | `cmdb_business_path` | CMDB 接入后由 Module\_04 同步                          |
 | 通用 {v0.4+} | `cmdb_module_path`   | `cmdb_module_path`   | CMDB 接入后由 Module\_04 同步                          |
 | 通用 {v0.4+} | `cmdb_maintainer`    | `cmdb_maintainer`    | CMDB 接入后由 Module\_04 同步                          |
@@ -720,9 +725,9 @@ status_mapping:
 
 > **`app_name` 不作为映射来源**：`app_name` 是应用字典的展示名（见 5.19），**不落在 Resource 上、不可选为映射来源字段**——修改展示名不触发监控配置重新生成 / 下发，`app` label 恒取 `app_code`。
 >
-> **`svc` / `platform` 映射口径（决策 104 / 105 / 107，{v2.45}）**：`svc` label 恒取资源 `service_code` 不可变编码（服务字典展示名仅 UI 展示，不参与取值）；`platform` label 为**派生标签**——资源无独立 `platform_code` 字段，值经资源 `app_code` → 应用字典条目的父级 `platform_code` 解析（对齐 `cloud` 经网域派生的先例，见 5.20 / 5.21）；资源未填 `app_code` 或应用未挂父级平台时**不注入** `platform` 标签。
+> **`svc` / `platform` 映射口径（决策 105 / 110，{v2.49} 修订）**：`svc` label 恒取资源 `service_code` 不可变编码（服务字典展示名仅 UI 展示，不参与取值）；`platform` label 取值**由资源行 `platform_code` 一等业务字段唯一确定**（**不是派生标签**，修订决策 104）——经标签模板 `resource_field` 映射（`platform_code → platform`）注入；**仅当资源行未显式填写** `platform_code` 时，才用**所属应用 `is_primary` 平台兜底**（见 5.19 / 5.24）；未填且应用无主平台时**不注入** `platform` 标签。
 >
-> **`platform` 派生降级口径（按 `app_code` 必填口径分化）**：`platform` 派生**只依赖资源自身是否填 `app_code`**，与「资源是否站在四层组成链上」无关——`host`（`app_code` 可空）未填时 `platform` 缺位属**预期正常态**（非数据缺陷）；`database` / `middleware`（`app_code` 必填）**正常派生 `platform`**（仅所挂应用未登记父级平台时缺位）；`generic_target` 视 `app_code` / `biz_code` 二选一（填 `app_code` 则派生、仅填 `biz_code` 则缺位）。未挂应用的 `host` 的平台视角聚合走网域 / 云 / 未归类（orphan）视图兜底。
+> **`platform` 缺位口径（决策 110，作废决策 108 §5.12.1）**：`platform_code` 下沉资源行后，`platform` 取值**不再依赖资源是否填 `app_code`**——资源行一等字段优先；仅**兜底**路径才看 `app_code`（未显式填写时取所属应用的主平台）。原决策 108「按 `app_code` 必填口径分化」的整段表述（`host` 缺位属预期 / `database`·`middleware` 因 `app_code` 必填正常派生 / `generic_target` 视二选一）**随本决策作废**；现口径为：`platform_code` 未填且所属应用无 `is_primary` 平台时缺位，**五类资源统一**。
 >
 > **`tenant_id` → `tenant` 映射**的完整口径（内置默认、命名规约、fail-closed 后果、平台自身指标处理）见 5.11。
 
@@ -779,6 +784,7 @@ status_mapping:
 | composite       | `instance_ip:port` | `instance`      |
 | resource\_field | `resource_id`      | `resource_id`   |
 | resource\_field | `app_code`         | `app`           |
+| resource\_field | `platform_code`    | `platform`      |
 | resource\_field | `env`              | `env`           |
 | resource\_field | `cluster`          | `cluster`       |
 | resource\_field | `biz_code`         | `biz`           |
@@ -795,6 +801,7 @@ status_mapping:
 | composite       | `instance_ip:port` | `instance`        |
 | resource\_field | `resource_id`      | `resource_id`     |
 | resource\_field | `app_code`         | `app`             |
+| resource\_field | `platform_code`    | `platform`        |
 | resource\_field | `env`              | `env`             |
 | resource\_field | `cluster`         | `cluster`         |
 | resource\_field | `biz_code`        | `biz`             |
@@ -807,9 +814,10 @@ status_mapping:
 | composite       | `instance_ip:port` | `instance`        |
 | resource\_field | `resource_id`      | `resource_id`     |
 | resource\_field | `app_code`         | `app`             |
+| resource\_field | `platform_code`    | `platform`        |
 | resource\_field | `env`              | `env`             |
 | resource\_field | `cluster`          | `cluster`         |
-| resource\_field | `biz_code`         | `biz`             |
+| resource\_field | `biz_code`        | `biz`             |
 | resource\_field | `database_type`    | `database_type`   |
 
 **应用服务默认标签模板**
@@ -820,6 +828,7 @@ status_mapping:
 | resource\_field | `service_name`     | `service_name`     |
 | resource\_field | `service_code`     | `svc`              |
 | resource\_field | `app_code`         | `app`              |
+| resource\_field | `platform_code`    | `platform`         |
 | resource\_field | `env`              | `env`              |
 | resource\_field | `cluster`          | `cluster`          |
 | resource\_field | `biz_code`         | `biz`              |
@@ -834,6 +843,7 @@ status_mapping:
 | resource\_field | `target_name`      | `target_name` |
 | resource\_field | `service_code`     | `svc`         |
 | resource\_field | `app_code`         | `app`         |
+| resource\_field | `platform_code`    | `platform`    |
 | resource\_field | `env`              | `env`         |
 | resource\_field | `cluster`          | `cluster`     |
 | resource\_field | `biz_code`         | `biz`         |
@@ -841,7 +851,7 @@ status_mapping:
 
 > **默认模板中的组合字段 = 内置默认**：host / middleware / generic\_target 默认模板中的 `composite → instance` 为内置默认（见 5.12.3）；application 默认模板不含组合字段——`endpoint` 字段自带端口，抓取时自动注入 `instance = endpoint`。
 
-> **`svc` 映射进默认模板（决策 105，{v2.45}）**：application / generic\_target 默认模板内置 `service_code → svc` 映射（host / database / middleware 不挂服务维度、无此映射行）；`svc` 恒取 `service_code` 不可变编码，`service_code` 为空时不注入。**`platform` 不在模板中映射**——作为派生标签经 `app_code` → 应用条目父级 `platform_code` 解析注入（见 5.12.1 / 5.21）。
+> **`svc` / `platform` 映射进默认模板（决策 105 / 110，{v2.49} 修订）**：application / generic\_target 默认模板内置 `service_code → svc` 映射（host / database / middleware 不挂服务维度、无此映射行）；`svc` 恒取 `service_code` 不可变编码，`service_code` 为空时不注入。**`platform` 由默认模板映射注入（决策 110，推翻原「不在模板中映射」口径）**——五类默认模板均新增 `platform_code → platform` 映射行（来源类型 `resource_field`，走 **target 级标签模板映射注入**，见 5.12.1）；资源行 `platform_code` 未显式填写时**兜底**取所属应用 `is_primary` 平台（见 5.19）；未填且应用无主平台时不注入。
 
 ### 5.15 业务指标标签规范
 
@@ -855,7 +865,7 @@ status_mapping:
 | `biz` | 标签模板映射（`biz_code` → `biz`，抓取注入） | ✅ | 指标 ↔ 业务类型（业务域）的关联键；**值取 `biz_code` 不可变编码**（如 payment / data-api）；展示名通过业务分组字典 `biz_name` 解析，修改 `biz_name` 不影响监控配置 |
 | `env` / `cluster` | 标签模板映射 | ❌ 建议 | 环境 / 集群维度，辅助过滤 |
 | `svc` | 标签模板映射（`service_code` → `svc`，抓取注入） | ❌ 建议 | 指标 ↔ **服务**的关联键（决策 105，{v2.45} 新增）；**值 = 服务字典 `service_code` 不可变编码**（见 5.22）；`service_code` 为空时不注入；服务与业务域正交（服务回答「是什么」、`biz` 回答「为谁服务」） |
-| `platform` | 派生注入（资源 `app_code` → 应用条目父级 `platform_code`） | ❌ 建议 | 指标 ↔ **平台**的聚合维度（决策 104，{v2.45} 新增）；**值 = 平台字典 `platform_code` 不可变编码**（见 5.21）；资源无 `app_code` 或应用无父级平台时不注入；用于平台层 `sum by (platform)` 聚合 |
+| `platform` | 标签模板映射（资源行 `platform_code` → `platform`，抓取注入；未填时兜底取所属应用主平台） | ❌ 建议 | 指标 ↔ **平台**的聚合维度（决策 110，修订决策 104）；**值 = 资源行 `platform_code`（平台字典 `platform_code` 不可变编码，见 5.21）**；资源行未显式填写时兜底取所属应用 `is_primary` 平台；未填且应用无主平台时不注入；用于平台层 `sum by (platform)` 聚合 |
 
 **关联机制（机制 A 为主 + 机制 B 兜底）**：
 
@@ -871,7 +881,7 @@ status_mapping:
 3. **业务维度标签不参与资源关联**——`path` / `method` / `status` 等指标自带维度标签仅用于接口级 QPS / 延迟 / 错误率分析，不作为指标 ↔ 资源关联键；
 4. **`biz` 空值与不变性语义**——`biz_code` 为空时不注入 `biz` 标签；**必填口径按类型分化（决策 93）**：host / database / middleware 可空则默认不注入，application 上线后必填、generic\_target 与 `app_code` 二选一必填；**注入 `biz` 标签的值是 `biz_code` 编码（不可变），业务字典的 `biz_name` 仅用于 UI 展示，修改 `biz_name` 不触发配置重新生成或下发**；
 5. **`app` 空值与不变性语义**——`app_code` 为空时不注入 `app` 标签（host 允许为空；generic\_target 与 `biz_code` 二选一必填，见 5.2 / 决策 95）；**注入 `app` 标签的值是 `app_code` 编码（不可变），应用字典的 `app_name` 仅用于 UI 展示，修改 `app_name` 不触发配置重新生成或下发**；字典条目停用后不可被新资源 / 编辑选用，存量资源保留历史值（与 `biz` 同口径，见 5.19）。
-6. **`svc` / `platform` 空值与不变性语义（决策 104 / 105，{v2.45} 新增）**——`service_code` 为空时不注入 `svc` 标签（`service_code` 为可选字段，仅 application / generic\_target 适用，见 5.2 / 5.22）；**注入 `svc` 的值是 `service_code` 编码（不可变），服务字典展示名仅 UI 展示，改动不触发配置重新生成 / 下发**。`platform` 为**派生标签**——资源无 `app_code` 或应用未挂父级平台时不注入（见 5.12.1 / 5.21）。
+6. **`svc` / `platform` 空值与不变性语义（决策 105 / 110，{v2.49} 修订）**——`service_code` 为空时不注入 `svc` 标签（`service_code` 为可选字段，仅 application / generic\_target 适用，见 5.2 / 5.22）；**注入 `svc` 的值是 `service_code` 编码（不可变），服务字典展示名仅 UI 展示，改动不触发配置重新生成 / 下发**。`platform` 取值**由资源行 `platform_code` 一等业务字段唯一确定**（**不是派生标签**，修订决策 104）——经 `platform_code → platform` 标签模板映射注入（见 5.12.1 / 5.13）；资源行未显式填写时兜底取所属应用 `is_primary` 平台（见 5.19）；未填且应用无主平台时不注入。
 
 **版本**：MVP 落地机制 A（现有 5.8 / 5.12 设计已支撑）+ 规范定义；机制 B 的 `metric_relabel_configs` 归一化兜底 MVP 提供；{v0.3+} 动态实例（服务发现）场景沿用本规范（关联键不变）。
 
@@ -881,7 +891,7 @@ status_mapping:
 
 MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 
-**主机导入模板列**：`network_domain` / `instance_name` / `hostname` / `instance_ip` / `os_type` / `biz_code` / `app_code` / `env` / `cluster` / `zone_env` / `owner` / `status`
+**主机导入模板列**：`network_domain` / `instance_name` / `hostname` / `instance_ip` / `os_type` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `zone_env` / `owner` / `status`
 
 其中 `instance_name` 为必填（host 模板必填项，生成 `instance_name` label（与 §5.12.1 A 一致），见 5.2 / 5.12.1）。
 
@@ -890,17 +900,17 @@ MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 
 > **主机 Excel 物理列名与 PRD 语义字段的映射**：主机模板沿用 CMDB 遗留列名——`app_code` 列 = PRD `app_code`（**应用编码**，非展示名），`sub_app_code` 列 = PRD `cluster`（**集群**，非「子应用」）、为空时取 `vpc` 列；其余列与 PRD 字段同名。**展示名 `app_name` 不在 Excel 中填写**，由应用字典按 `app_code` 解析展示（见 5.6 / 5.19）。
 
-**中间件导入模板列**：`network_domain` / `middleware_type` / `instance_ip` / `port` / `version` / `biz_code` / `app_code` / `env` / `cluster` / `owner` / `status`
+**中间件导入模板列**：`network_domain` / `middleware_type` / `instance_ip` / `port` / `version` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
 
-**数据库导入模板列**：`network_domain` / `database_type` / `instance_ip` / `port` / `version` / `biz_code` / `app_code` / `env` / `cluster` / `owner` / `status`
+**数据库导入模板列**：`network_domain` / `database_type` / `instance_ip` / `port` / `version` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
 
-**应用服务导入模板列**：`network_domain` / `service_name` / `service_code` / `biz_code` / `health_check_url` / `protocol` / `endpoint` / `port` / `app_code` / `env` / `cluster` / `owner` / `status`
+**应用服务导入模板列**：`network_domain` / `service_name` / `service_code` / `biz_code` / `health_check_url` / `protocol` / `endpoint` / `port` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
 
 其中 `biz_code`（业务类型）为**必填项**：导入时填写业务编码，映射为 `biz` 标签。
 
 > **同一服务多实例说明**：应用服务按「一行 = 一个可抓取实例」建模（见 5.8 粒度说明）——同一服务部署在 N 台机器 = **N 行**，`service_name` 相同、`endpoint` 不同，导入**允许**该行形态（重复检测按 `service_name + endpoint`，见 5.16.2）；N 行共享同一 `app_code`（**必填**，不再「留空默认取 service_name」）。
 
-**其他监控目标导入模板列**：`network_domain` / `target_name` / `instance_ip` / `port` / `metrics_path` / `scheme` / `exporter_type` / `custom_labels` / `service_code` / `biz_code` / `app_code` / `env` / `cluster` / `owner` / `status`
+**其他监控目标导入模板列**：`network_domain` / `target_name` / `instance_ip` / `port` / `metrics_path` / `scheme` / `exporter_type` / `custom_labels` / `service_code` / `biz_code` / `app_code` / `platform_code` / `env` / `cluster` / `owner` / `status`
 
 其中 `custom_labels` 列支持 `key1=value1;key2=value2` 格式。
 
@@ -916,7 +926,7 @@ MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
   - **事务**：声明建字典 + 资源落库**整批原子提交**——成功则字典与资源同落、任一失败整体回滚（SQLite 本地事务），避免孤立字典条目；
   - **落库语义**：声明建出的字典条目 `status=enabled`、`source=excel-import`，**只增不覆盖**，写入全局字典（web 下拉可用，不依赖资源存活）；
   - **权限**：复用「导入资源」权限位，不额外收紧（MVP 权限较粗）。
-  - `app_code` 用于资源导入的合法值口径同此（见 5.19 应用字典消费链路）；`service_code` 合法值口径同此（引用服务字典或由「服务声明」sheet 申报，见 5.22；**可选列，空即纯自由文本**）；`platform_code` 用于**应用条目父级**登记（非资源行字段，见 5.21）；`app_code` / `biz_code` 的 generic\_target 二选一必填等类型化必填校验见 5.16.2。
+  - `app_code` 用于资源导入的合法值口径同此（见 5.19 应用字典消费链路）；`service_code` 合法值口径同此（引用服务字典或由「服务声明」sheet 申报，见 5.22；**可选列，空即纯自由文本**）；`platform_code` 为**资源行平台字段**（五类模板均含，**可空**；引用平台字典或由「平台声明」sheet 申报，**留空时按所属应用 `is_primary` 平台兜底**，见 5.2 / 5.21 / 5.24）；`app_code` / `biz_code` 的 generic\_target 二选一必填等类型化必填校验见 5.16.2。
 - `network_domain` 列留空时的 IP 推导 {v0.3}、可选 `scrape_port` 列 {v0.2}、CMDB 同步场景的待分类队列 {v0.4+} 见 5.16.4。
 
 #### 5.16.2 数据校验
@@ -932,13 +942,14 @@ MVP 阶段按资源类型提供**固定列模板**，不做动态字段映射。
 | 环境枚举    | `env` 必须是 `dev/test/staging/prod` 之一                            |
 | 业务存在性 | `biz_code` **必填口径按类型分化（决策 93）**：host / database / middleware 可空（为空不校验字典存在性）；application 必填且须对应已**启用**的业务分组字典条目；generic\_target 与 `app_code` **二选一必填**（决策 95）；**停用条目不可被新资源 / 新增 / 编辑选用**（编辑已属停用业务时提示、允许保留历史值）；编码规范：小写字母、数字、连字符，长度 ≤ 64。**{v2.41} 导入增量（决策 97）**：资源引用的 `biz_code` / `app_code` 可落在「已登记字典 ∪ 本次导入文件声明 sheet」，声明 sheet 覆盖存量缺口（见 5.16.1） |
 | 服务存在性（决策 105） | `service_code` 为**可选列**，留空不校验（纯自由文本、向后兼容）；填值时须对应已**启用**的服务字典条目，或落在本次导入文件「服务声明」sheet（口径同业务 / 应用）；编码规范：小写字母、数字、连字符，长度 ≤ 64；**停用条目不可新选，编辑已属停用服务时提示、允许保留历史值**（见 5.22） |
+| 平台存在性（决策 110） | `platform_code` 为**可选列**（五类模板均含），留空不校验、走所属应用 `is_primary` 平台**兜底**；填值时须对应已**启用**的平台字典条目、或落在本次导入文件「平台声明」sheet，且**与所属 `app_code` 的平台集合自洽**（填值须为所属应用关联平台之一，避免资源平台与应用平台矛盾）；编码规范：小写字母、数字、连字符，长度 ≤ 64；**停用条目不可新选，编辑已属停用平台时提示、允许保留历史值**；**`platform_code` 不参与资源判重键**（见 5.2 / 5.21 / 5.24） |
 | 协议枚举    | `protocol` 必须是 `http/https/tcp` 之一                              |
 | 状态枚举    | Excel/CSV 导入时 `status` 列允许业务语言，经 5.5 状态映射字典转为 `online/offline/maintenance`；手动录入 / API 写请求必须直接为 `online/offline/maintenance` 之一 |
 | 重复检测    | 判重键按资源类型明确（均按 `network_domain_id` 收敛：政务云虽规划层保证跨区 IP 不重复，但按网域收敛可兼容其他客户跨区 IP 复用场景，并使"跨区迁移主机"语义正确）——**host = (domain, `instance_ip`)；database / middleware / generic\_target = (domain, `instance_ip`, `port`)；application = (domain, `service_name`, `endpoint`)** |
 | 其他监控目标必填 | 其他监控目标 `instance_ip` 必填且符合 IPv4/域名格式                            |
 | 其他监控目标协议枚举 | 其他监控目标 `scheme` 必须是 `http/https` 之一 |
 | 自定义标签格式 | `custom_labels` 必须符合 `key=value;key2=value2` 格式                 |
-| 声明 sheet 校验（决策 97 / 104 / 105） | {v2.41} 有声明 sheet 时：①`code` / `name` 必填、编码符合 `BIZ_CODE_RE` / `APP_CODE_RE`（`平台声明` / `服务声明` 同规约，{v2.45}）；②声明内重码去重校验；③与存量字典同名但 name 不一致 → 硬拒绝；④停用条目不接受声明激活。**校验顺序**：先声明自身 → 再资源可达性（字典 ∪ 声明）→ 最后整批写。**事务**：声明建字典 + 资源落库原子提交，任一失败整体回滚 |
+| 声明 sheet 校验（决策 97 / 104 / 105 / 110） | {v2.41} 有声明 sheet 时：①`code` / `name` 必填、编码符合 `BIZ_CODE_RE` / `APP_CODE_RE`（`平台声明` / `服务声明` 同规约，{v2.45}）；②声明内重码去重校验；③与存量字典同名但 name 不一致 → 硬拒绝；④停用条目不接受声明激活。**校验顺序**：先声明自身 → 再资源可达性（字典 ∪ 声明）→ 最后整批写。**事务**：声明建字典 + 资源落库原子提交，任一失败整体回滚 |
 
 **导入模式（upsert）**：导入 API 支持 `mode=create_only / upsert`（见 6.1）。`upsert` 模式下按上述**判重键**定位已有资源并**覆盖更新**（状态 / 负责人 / 集群等字段变更可批量收敛，CMDB 导出 → 修改 → 再导入的批量维护动线成立）；`create_only` 下判重命中即失败（计入 failed）。判重键即 upsert 的更新定位键，与 `resource_id`（服务端 uuid）解耦。
 
@@ -1041,28 +1052,28 @@ status: "online"
 | status | enum | ✅ | 状态 | `enabled` / `disabled`；**停用不删除**——停用条目不可被新资源/编辑选用，存量资源保留历史值并以「业务名（已停用）」标识 |
 | created\_at / updated\_at | datetime | ✅ | 仅技术信息 | 创建 / 更新时间 |
 
-**红线（UI/服务端硬化）**：①`biz_code` 永不可改（编辑接口不接收该字段）；②仅 `biz_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**`infra` 兜底条目禁止停用 / 删除**（无业务归属设备的统一挂载点，破除则必填逼出假业务）。
+**红线（UI/服务端硬化）**：①`biz_code` 永不可改（编辑接口不接收该字段）；②仅 `biz_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**`infra` 兜底条目禁止停用 / 删除**（无业务归属设备的统一挂载点，破除则必填逼出假业务）；⑤**字典定位（{v2.49}）**——本字典与平台 / 应用 / 服务四字典同属「编码取值权威」、**不是「可删除的对象」**：编码即 label 值，删除会断历史时序，故生命周期为「启用 ↔ 停用」；真正可删除的是资源（Resource）（被采集 Job 引用时按 6.1 阻断），定位解释见 5.24。
 
 **消费链路不变**：资源录入表单 / Excel 导入校验仍只读消费本字典（`GET /api/v2/platform/business-domains`）；M01 业务指标库 `business_domain` 与本字典对齐（同名同值）。**{v2.41} 导入来源（决策 97）**：Excel 导入文件的「业务声明」sheet 可补充声明新增业务条目，建出条目 `source=excel-import`、`status=enabled`，只增不覆盖（见 5.16.1 / 5.16.2）。
 
 ### 5.19 应用字典（ApplicationDict）
 
-> **定位**：应用字典是 `app_code → app` 标签的**取值权威**——与业务分组字典（5.18）同构，两者粒度不同：`biz` 回答「服务谁」（业务域聚合），`app` 回答「属于哪个应用」（应用实例级聚合）。**业务与应用正交两维（决策 96）**：本字典**不设父级 `biz_code`**、不引入父子层级——二者为 M:N，靠「资源 / 服务实例」中间层各自承载 `biz_code` / `app_code` 表达关联（一个应用服务多个业务、一个业务横跨多个应用）。MVP 起字典**落 platform DB 并提供应用管理页**；与 `biz` 同口径——**编码不可变 + 展示名必填 + 停用不删除**。**{v2.45} 纵向升格（决策 104 / 107）**：本字典新增**可选父级 `platform_code`**，应用升格为「可挂父平台的子系统」（`platform(1) → app(N)` 组成分解）——这是**应用自身的纵向分解**，与决策 96 的 biz↔app 横向正交是**两个维度**，不冲突（决策 96 只砍「应用挂业务、业务挂应用」的父子，未规定应用是否有上级平台）。
+> **定位**：应用字典是 `app_code → app` 标签的**取值权威**——与业务分组字典（5.18）同构，两者粒度不同：`biz` 回答「服务谁」（业务域聚合），`app` 回答「属于哪个应用」（应用实例级聚合）。**业务与应用正交两维（决策 96）**：本字典**不设父级 `biz_code`**、不引入父子层级——二者为 M:N，靠「资源 / 服务实例」中间层各自承载 `biz_code` / `app_code` 表达关联（一个应用服务多个业务、一个业务横跨多个应用）。MVP 起字典**落 platform DB 并提供应用管理页**；与 `biz` 同口径——**编码不可变 + 展示名必填 + 停用不删除**。**{v2.49} 平台关系 M:N（决策 110，修订决策 104 / 107 与顶层 T4 契约）**：应用↔平台由「可选父级 `platform_code`（单值，`platform(1) → app(N)`）」**改为 M:N**——新增 `app_platform_rel` 关联表（`app_code` / `platform_code` / `is_primary`，见 5.24），应用表单平台字段改为**多选 + 主平台单选**；存量单值 `platform_code` 一次性迁入关联表（`is_primary=true`）、迁移后应用侧单值字段废弃。这仍是**应用自身的纵向分解**，与决策 96 的 biz↔app 横向正交是**两个维度**，不冲突（决策 96 只砍「应用挂业务、业务挂应用」的父子，未规定应用是否有上级平台）。
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|----------|------|
 | app\_code | string | ✅ | 应用编码 | 字典主键，**创建后不可变**；编码规范：小写字母、数字、连字符，长度 ≤ 64（服务端校验）；**`app` label 的取值来源**；创建表单醒目提示「编码创建后不可改」 |
 | app\_name | string | ✅ | 应用名 | **必填展示名**，仅 UI 展示；**修改不触发监控配置重新生成 / 下发**（label 存 `app_code`） |
-| platform\_code | string | ❌ | 所属平台 | **可选父级**——应用所属平台（平台字典主键，见 5.21）；表达纵向 `platform(1) → app(N)` 组成分解；**与业务维度正交（决策 96）不冲突**（决策 96 裁定的是 biz↔app 横向正交，「应用挂业务、业务挂应用」两个方向都不引入；本字段是应用自身的纵向上级、非业务父级，决策 104 / 107）；未挂时应用无平台归属、`platform` label 不注入（见 5.12.1） |
+| platform\_code | string | ❌ | 所属平台 | **{v2.49} 已废弃（决策 110，修订决策 104 / 107）**——应用↔平台关系改为 M:N，经 `app_platform_rel` 关联表承载（见 5.24）；存量单值在迁移时一次性转入关联表（转入一行、`is_primary=true`），**迁移后本字段不再维护**（应用表单平台字段改为多选 + 主平台单选） |
 | description | string | ❌ | 描述 | 应用说明 |
 | status | enum | ✅ | 状态 | `enabled` / `disabled`；**停用不删除**——停用条目不可被新资源 / 编辑选用，存量资源保留历史值并以「应用名（已停用）」标识 |
 | created\_at / updated\_at | datetime | ✅ | 仅技术信息 | 创建 / 更新时间 |
 
-**红线（UI / 服务端硬化）**：①`app_code` 永不可改（编辑接口不接收该字段）；②仅 `app_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**资源侧 `app_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**——`app` label 恒取 `app_code`，禁止以 `app_name` 作为标签值或映射来源（与 `biz_code → biz` 同规约）。
+**红线（UI / 服务端硬化）**：①`app_code` 永不可改（编辑接口不接收该字段）；②仅 `app_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**资源侧 `app_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**——`app` label 恒取 `app_code`，禁止以 `app_name` 作为标签值或映射来源（与 `biz_code → biz` 同规约）；⑥**字典定位（{v2.49}）**——与业务 / 平台 / 服务四字典同属「编码取值权威」、**不是「可删除的对象」**（编码即 label 值，删除会断历史时序，生命周期为「启用 ↔ 停用」；真正可删除的是资源 Resource，见 5.24）。
 
-**消费链路**：资源录入表单 / Excel 导入校验只读消费本字典（`GET /api/v2/platform/application-dict`，与 `business-domains` 同构）；应用列表 / 详情的「应用」列展示 `app_name`（字典缺条目时回退显示 `app_code`）；**{v2.45} 应用登记 / 编辑表单新增「所属平台」下拉**（只读消费平台字典，见 5.21，纵向 `platform(1) → app(N)`）；M05 首页 L2 应用明细表的 `app_code` / `app_name` 取本字典与资源聚合（见 Module\_05 §5.1）。**{v2.41} 导入来源（决策 97）**：Excel 导入文件的「应用声明」sheet 可补充声明新增应用条目，建出条目 `source=excel-import`、`status=enabled`，只增不覆盖（见 5.16.1 / 5.16.2）。
+**消费链路**：资源录入表单 / Excel 导入校验只读消费本字典（`GET /api/v2/platform/application-dict`，与 `business-domains` 同构）；应用列表 / 详情的「应用」列展示 `app_name`（字典缺条目时回退显示 `app_code`）；**{v2.49} 应用登记 / 编辑表单平台字段改为「多选 + 主平台单选」**（经 `app_platform_rel` 维护，只读消费平台字典，见 5.21 / 5.24，应用↔平台 M:N）；M05 首页 L2 应用明细表的 `app_code` / `app_name` 取本字典与资源聚合（见 Module\_05 §5.1）。**{v2.41} 导入来源（决策 97）**：Excel 导入文件的「应用声明」sheet 可补充声明新增应用条目，建出条目 `source=excel-import`、`status=enabled`，只增不覆盖（见 5.16.1 / 5.16.2）。
 
-**存量迁移（MVP 上线一次性）**：应用字典首次 seed 时，**以存量资源的应用取值（`Host.app_code` 等物理列，见 5.6）为基准生成条目**——`app_code` = 原值归一化（小写字母 / 数字 / 连字符），`app_name` = 原值。目标是**存量 `app` label 不断、时序不裂**：已合规取值的归一化是恒等变换、`app` label 完全不变；个别含大写 / 空格 / 中文的原值会被归一化，该部分资源的 `app` label 变化一次（随下次配置下发生效），须列入发布说明。
+**存量迁移（MVP 上线一次性）**：应用字典首次 seed 时，**以存量资源的应用取值（`Host.app_code` 等物理列，见 5.6）为基准生成条目**——`app_code` = 原值归一化（小写字母 / 数字 / 连字符），`app_name` = 原值。目标是**存量 `app` label 不断、时序不裂**：已合规取值的归一化是恒等变换、`app` label 完全不变；个别含大写 / 空格 / 中文的原值会被归一化，该部分资源的 `app` label 变化一次（随下次配置下发生效），须列入发布说明。**{v2.49} 平台关系迁移（决策 110）**：存量应用的**单值父级 `platform_code` 一次性转入 `app_platform_rel`**（转入一行、`is_primary=true`），迁移后应用侧单值字段废弃；存量资源 `platform_code` 回填自「所属应用的父级平台」（原单值派生链取值），保证存量 `platform` label 不断、时序不裂（见 5.24）。
 
 ### 5.20 云字典（CloudDict）
 
@@ -1096,47 +1107,53 @@ status: "online"
 
 ### 5.21 平台字典（PlatformDict）
 
-> 决策依据：design-decisions.md 决策 104 / 107
+> 决策依据：design-decisions.md 决策 104 / 107 / 110 / 111
 
 > **定位**：平台字典是 `platform_code → platform` 标签的**取值权威**——与业务分组字典（5.18）、应用字典（5.19）、云字典（5.20）同规约：**编码不可变 + 展示名必填 + 停用不删除 + `source` 来源审计**（决策 97 延伸）。**命名定档（决策 104）**：四层实体的**顶层**定名 **`platform`（平台）**——字典类 `PlatformDict`、编码字段 `platform_code`、label `platform`；**放弃 `system` 命名**——`system` 在 M07 已承载多重既有语义（`ResourceLabel.source=system`、标签保护层级「system 层」、主机操作系统 `os_dict`，见 5.3 / 3.28 / 3.29），复用必撞名（评审 T1）。
 
-> **层级角色**：`platform(1) → app(N) → service(M) → instance(K)` 四层**纵向组成分解**的**顶层**——一个平台可下挂多个应用（子系统），应用经 5.19 的可选父级字段 `platform_code` 挂靠。与 `biz`（业务域，横向归属，回答「为谁服务」）**正交**——决策 96 裁定的 biz↔app 横向正交只约束「应用挂业务 / 业务挂应用」，**不约束应用是否有上级平台**（决策 107）。
+> **层级角色**：`platform(1) → app(N) → service(M) → instance(K)` 四层**纵向组成分解**的**顶层**——一个平台可下挂多个应用（子系统）。**{v2.49} 应用↔平台改 M:N（决策 110 / 111）**：应用与平台由「单值父级」改为**多对多**（`app_platform_rel` 关联表，见 5.24）——一个应用可同时部署在多个平台（如「数据开发利用工具系统」同时在授权数据平台 + 实验室平台），一个平台可下挂多个应用；其中 `is_primary` 标记应用**主平台**（同一 `app_code` 至多一个），为资源 `platform_code` 未显式填写时提供**兜底**取值。与 `biz`（业务域，横向归属，回答「为谁服务」）**正交**——决策 96 裁定的 biz↔app 横向正交只约束「应用挂业务 / 业务挂应用」，**不约束应用是否有上级平台**（决策 107）。
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|----------|------|
-| platform\_code | string | ✅ | 平台编码 | 字典主键，**创建后不可变**；编码规范：小写字母、数字、连字符，长度 ≤ 64（服务端校验）；**`platform` label 的取值来源**（资源侧经应用条目父级派生，见 5.12.1）；创建表单醒目提示「编码创建后不可改」 |
+| platform\_code | string | ✅ | 平台编码 | 字典主键，**创建后不可变**；编码规范：小写字母、数字、连字符，长度 ≤ 64（服务端校验）；**`platform` label 的取值权威**（资源行 `platform_code` 直接引用，见 5.12.1；`app_platform_rel` 关联应用，见 5.24）；创建表单醒目提示「编码创建后不可改」 |
 | platform\_name | string | ✅ | 平台名 | **必填展示名**，仅 UI 展示；**修改不触发监控配置重新生成 / 下发**（label 存 `platform_code`） |
 | description | string | ❌ | 描述 | 平台说明 |
 | status | enum | ✅ | 状态 | `enabled` / `disabled`；**停用不删除**——停用条目不可被新应用条目 / 编辑选用，存量应用保留历史值并以「平台名（已停用）」标识 |
 | created\_at / updated\_at | datetime | ✅ | 仅技术信息 | 创建 / 更新时间 |
 
-**红线（UI / 服务端硬化）**：①`platform_code` 永不可改（编辑接口不接收该字段）；②仅 `platform_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**应用侧 `platform_code` 只允许引用未停用条目**（应用登记 / 编辑两处同校验）；⑤**禁止用展示名当编码**——`platform` label 恒取 `platform_code`，禁止以 `platform_name` 作为标签值或映射来源（与 5.19 / 5.20 同规约）；⑥**与 `system` 命名隔离**——不得借用 `system` 作字典名 / 标签名 / 字段名（既有 `ResourceLabel.source=system`、保护层级「system 层」、`os_dict` 语义各归其位）。
+**红线（UI / 服务端硬化）**：①`platform_code` 永不可改（编辑接口不接收该字段）；②仅 `platform_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**应用侧 `app_platform_rel` / 资源侧 `platform_code` 只允许引用未停用平台条目**（应用关联 / 资源登记 / 编辑 / Excel 导入多处同校验）；⑤**禁止用展示名当编码**——`platform` label 恒取 `platform_code`，禁止以 `platform_name` 作为标签值或映射来源（与 5.19 / 5.20 同规约）；⑥**与 `system` 命名隔离**——不得借用 `system` 作字典名 / 标签名 / 字段名（既有 `ResourceLabel.source=system`、保护层级「system 层」、`os_dict` 语义各归其位）；⑦**字典定位（{v2.49}）**——与业务 / 应用 / 服务四字典同属「编码取值权威」、**不是「可删除的对象」**（生命周期为「启用 ↔ 停用」，真正可删除的是资源 Resource，见 5.24）。
 
-**消费链路**：应用登记表单只读消费本字典（`GET /api/v2/platform/platform-dict`，与 `business-domains` / `application-dict` / `cloud-dict` 同构）；应用列表 / 详情的「平台」列展示 `platform_name`（字典缺条目时回退显示 `platform_code`，停用条目以「平台名（已停用）」标识）；资源侧 `platform` label 经 `app_code` → 应用条目父级 `platform_code` **派生注入**（不在资源行新增字段，见 5.12.1）。**{v2.45} 交付范围（决策 107）**：平台字典本体（模型 + 字段口径 + 只读消费接口 + Excel 声明 sheet + 维护页，见 3.1.4）随 **MVP** 交付；**「平台 → 子系统」分层可视化界面归 {v0.2}**（与应用字典父子分解界面同期），MVP 应用表单仅提供「所属平台」下拉。
+**消费链路**：应用登记 / 编辑表单只读消费本字典（`GET /api/v2/platform/platform-dict`，与 `business-domains` / `application-dict` / `cloud-dict` 同构）；应用列表 / 详情的「平台」列展示 `platform_name`（字典缺条目时回退显示 `platform_code`，停用条目以「平台名（已停用）」标识）；资源侧 `platform` label 取值 = **资源行 `platform_code` 一等业务字段**（经标签模板 `platform_code → platform` 映射注入，见 5.12.1），资源行未显式填写时**兜底**取所属应用 `is_primary` 平台。**{v2.49} 平台字典页新增「关联应用列表」（决策 110 / 111）**：经 `app_platform_rel` 反向展示挂在本平台下的应用（含主平台标记），供平台维护页查看「本平台有哪些应用」。**{v2.45 / v2.49} 交付范围（决策 107 / 110）**：平台字典本体（模型 + 字段口径 + 只读消费接口 + Excel 声明 sheet + 维护页 + **关联应用列表 / 关系维护表单**，见 3.1.4）随 **MVP** 交付；**「平台 → 子系统」聚合拓扑视图归 {v0.2}**（与应用字典父子分解视图同期），MVP 应用表单提供「平台多选 + 主平台单选」。
+
+**平台停用 / 解绑处置（决策 111）**：①**平台停用**——存量关联（`app_platform_rel` / 资源 `platform_code`）**保留历史值、不自动解绑**（沿用字典「停用不删除」语义），应用 / 资源侧以「平台名（已停用）」标识展示，**禁止新引用**；②**解绑**——应用解除与某平台的关联时，**若某资源 `platform_code` 悬空（指向已解绑平台且该资源未显式填）**，登记期**不做强制改写、仅提示**（避免批量误改历史归属）；资源行显式填写的 `platform_code` **不受应用解绑影响**（一等字段优先）。
 
 **Excel 导入来源（决策 97 / 104）**：Excel 导入文件的「平台声明」sheet 可补充声明新增平台条目，建出条目 `source=excel-import`、`status=enabled`，只增不覆盖（见 5.16.1 / 5.16.2）。
 
 ### 5.22 服务字典（ServiceDict）
 
-> 决策依据：design-decisions.md 决策 105 / 107
+> 决策依据：design-decisions.md 决策 105 / 107 / 112
 
 > **定位**：服务字典是 `service_code → svc` 标签的**取值权威**——**复用应用字典（5.19）同构**：**编码不可变 + 展示名必填 + 停用不删除 + `source` 来源审计**。**命名定档（决策 105）**：服务 label 定名 **`svc`**（值 = `service_code`）——字典类 `ServiceDict`、编码字段 `service_code`、label `svc`；**放弃 `service` 命名**——`service` 与 §5.15 机制 B 既有归一规则（业务侧 `service` 标签 → 归一目标）及既有 `service_name` label 撞名（评审 T2）。**既有 `service_name` label / 字段保留不动**。
 
-> **层级角色**：`platform(1) → app(N) → service(M) → instance(K)` 四层纵向组成分解的**第三层**（一个应用可含多个服务）；服务与业务域 `biz` **正交**：`service : biz = N:1`（主归属唯一，沿用 M01「微服务可被多业务共享但主归属一个」）。服务与应用的关联经**资源行**的 `app_code` + `service_code` 承载（本字典不设父子字段）。
+> **层级角色**：`platform(1) → app(N) → service(M) → instance(K)` 四层纵向组成分解的**第三层**（一个应用可含多个服务）；服务与业务域 `biz` **正交**：`service : biz = N:1`（主归属唯一，沿用 M01「微服务可被多业务共享但主归属一个」）。**{v2.49} 关系显式化（决策 112，推翻原「本字典不设父子字段」口径）**：应用↔服务（1:N）与服务↔业务（N:1）的**关系权威由本字典承载**——新增**可空** `app_code`（应用↔服务）与**可空** `biz_code`（服务↔业务主归属）两个关系字段；字典字段是**关系权威**，资源行 `app_code` / `service_code` 是**实例归属的镜像**——跨实例的「应用包含哪些服务」「服务主属哪个业务」可独立维护与查询，某服务当前无实例时关系不丢（详见下「关系权威口径」）。
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|----------|------|
 | service\_code | string | ✅ | 服务编码 | 字典主键，**创建后不可变**；编码规范：小写字母、数字、连字符，长度 ≤ 64（服务端校验）；**`svc` label 的取值来源**；创建表单醒目提示「编码创建后不可改」 |
 | service\_name | string | ✅ | 服务名 | **必填展示名**，仅 UI 展示；**修改不触发监控配置重新生成 / 下发**（label 存 `service_code`）；与资源行 `service_name` 的关系见下「软约束」 |
+| app\_code | string | ❌ | 所属应用 | **{v2.49} 关系字段（决策 112）**——应用↔服务 1:N 的**关系权威**（应用字典主键，见 5.19）；**可空**（服务可暂无明确所属应用、向后兼容）；与资源行 `app_code`（实例归属镜像）的关系见下「关系权威口径」；填值须引用未停用应用字典条目 |
+| biz\_code | string | ❌ | 主业务 | **{v2.49} 关系字段（决策 112）**——服务↔业务 N:1 的**主归属权威**（业务分组字典主键，见 5.18）；**可空**；沿用「服务可被多业务共享但主归属一个」（`service : biz = N:1`）；填值须引用未停用业务字典条目 |
 | description | string | ❌ | 描述 | 服务说明 |
 | status | enum | ✅ | 状态 | `enabled` / `disabled`；**停用不删除**——停用条目不可被新资源 / 编辑选用，存量资源保留历史值并以「服务名（已停用）」标识 |
 | created\_at / updated\_at | datetime | ✅ | 仅技术信息 | 创建 / 更新时间 |
 
-**红线（UI / 服务端硬化）**：①`service_code` 永不可改（编辑接口不接收该字段）；②仅 `service_name` / `description` / `status` 可编辑；③停用不删除（不提供删除入口）；④**资源侧 `service_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**——`svc` label 恒取 `service_code`，禁止以 `service_name` 作为标签值或映射来源（与 5.19 / 5.21 同规约）。
+**红线（UI / 服务端硬化）**：①`service_code` 永不可改（编辑接口不接收该字段）；②仅 `service_name` / `description` / `status` / `app_code` / `biz_code` 可编辑；③停用不删除（不提供删除入口）；④**资源侧 `service_code` 只允许引用未停用条目**（录入 / 编辑 / Excel 导入三处同校验）；⑤**禁止用展示名当编码**——`svc` label 恒取 `service_code`，禁止以 `service_name` 作为标签值或映射来源（与 5.19 / 5.21 同规约）；⑥**字典定位（{v2.49}）**——与业务 / 应用 / 平台四字典同属「编码取值权威」、**不是「可删除的对象」**（生命周期为「启用 ↔ 停用」，真正可删除的是资源 Resource，见 5.24）。
+
+**关系权威口径（决策 112，推翻原「本字典不设父子字段」）**：本字典 `app_code`（应用↔服务 1:N）与 `biz_code`（服务↔业务 N:1）为**关系权威**——跨实例的实体关系（如「该应用包含哪些服务」）**无法从资源行稳定推导**（某服务当前无实例时关系即丢失），故字典层需**显式**关系字段承载、拓扑才可独立维护与查询。资源行 `app_code` / `service_code` 为**实例归属的镜像**（表达「某实例同时填了哪些码」）。二者**数据同源、口径一致**：字典关系字段是权威、资源行是其展开到实例的镜像；MVP 交付字典关系维护表单（无聚合视图，聚合拓扑视图归 {v0.2}，见 5.24）。
 
 **`service_code` 与资源行 `service_name` 的关系（决策 105，评审 T5-②）**：资源侧 `service_code` 为**可选字段**（仅 application / generic\_target 适用，见 5.2 / 5.8），**留空即纯自由文本、向后兼容**（MVP 存量资源无需回填）；资源行既有必填字段 `service_name`（应用服务名，见 5.8）**MVP 不改**，仍参与 application 判重键 `(domain, service_name, endpoint)`（见 5.16.2）。**软约束**：当资源行填写 `service_code` 时，约定其 `service_name` 宜与服务字典展示名一致——**仅软约束、不做强校验**（判重键仍走资源行 `service_name` 自由文本，不切到字典展示名）。
 
-**消费链路**：资源录入表单 / Excel 导入校验只读消费本字典（`GET /api/v2/platform/service-dict`，与 `business-domains` / `application-dict` / `cloud-dict` 同构）；资源列表 / 详情的「服务」列展示 `service_name`（字典缺条目时回退显示 `service_code`，停用条目以「服务名（已停用）」标识）。
+**消费链路**：资源录入表单 / Excel 导入校验只读消费本字典（`GET /api/v2/platform/service-dict`，与 `business-domains` / `application-dict` / `cloud-dict` 同构）；资源列表 / 详情的「服务」列展示 `service_name`（字典缺条目时回退显示 `service_code`，停用条目以「服务名（已停用）」标识）；**{v2.49} 服务字典维护页新增「所属应用 / 主业务」关系维护（决策 112）**——经本字典 `app_code` / `biz_code` 字段显式维护应用↔服务、服务↔业务关系（MVP 交付维护表单，聚合拓扑视图归 {v0.2}）。
 
 **Excel 导入来源（决策 97 / 105）**：Excel 导入文件的「服务声明」sheet 可补充声明新增服务条目，建出条目 `source=excel-import`、`status=enabled`，只增不覆盖（见 5.16.1 / 5.16.2）。
 
@@ -1150,8 +1167,81 @@ status: "online"
 - **交付版本定档（决策 106）**：**MVP 明确不实现**——本轮仅在 PRD **登记模型形态与归属口径**（P2 预留），**不落表、不做界面、不做自动推导**。
 - **模型形态（{v0.3+} 实现）**：关系表 `{ from_service, to_service, type(调用 / 数据 / 事件), weight }`；业务域 = `service` 节点 + `service_dependency` 边的连通子段。
 - **原则**：依赖关系**不靠静态 label 硬标**（必脏）；{v0.3+} 由调用链 / 服务拓扑（trace / 服务发现）自动推导。
+- **{v2.49} 家族归位（决策 112）**：本边归入「**对象拓扑**」家族（与资源实例层边 `deployed_on` / `depends_on` / `calls` 同批，见 5.24）；拓扑边**不进 label**、与归属聚合（label 扁平）双轨并存。
 
 > **术语可见性（U1）**：`platform` / `svc` / `service_dependency` 为**技术术语**，只出现在折叠区 / 代码注释 / §10「仅技术信息」列，**不作为用户界面文案**（用户侧语言见 §10 四列对照）。
+
+### 5.24 对象关系与拓扑建模（决策 110 / 111 / 112）
+
+> 决策依据：design-decisions.md 决策 110 / 111 / 112；来源：design-proposal `object-relation-topology`（{v2.49} 吸收）
+
+**定位**：在「归属聚合（label 扁平）」之外，**并行补齐对象关系与拓扑**——CI 模型之间、应用与平台、服务与业务的关系此前被压成单值外键字段，字典层无关系、无维护入口。本节省略 **A 层字典关系（MVP）** 与 **B 层资源实例关系（{v0.3+}）** 的建模口径。
+
+**双轨定位（总纲）**：
+
+| 维度 | 数据形态 | 消费方 | 用途 | 是否进 label |
+|---|---|---|---|---|
+| **归属聚合**（扁平） | 资源行字段 → label（`platform` / `app` / `biz` / `svc`） | M01 生成 / M02 查询 | 聚合、过滤、看板、告警分组 | ✅ 是 |
+| **对象拓扑**（关系） | 关系边表（`*_rel` / `*_dependency`） | M02 排障 / M08 降噪 | 影响面分析、根因定位、告警压制 | ❌ 否 |
+
+> **原则**：拓扑边**不参与 label 注入**，label **不承载拓扑**；两者**数据同源**（都源自登记数据）、**用途解耦**——既保住 Prometheus 侧扁平聚合的干净，又补齐排障所需的图关系。
+
+**A 层：字典实体层关系（MVP 交付）**：
+
+| 关系 | 基数 | 承载 | 交付版本 |
+|---|---|---|---|
+| 应用 ↔ 平台 | **M:N** | `app_platform_rel(app_code, platform_code, is_primary)` | **MVP** |
+| 应用 ↔ 服务 | 1:N | 服务字典加**可空**父级 `app_code`（见 5.22） | **MVP** |
+| 服务 ↔ 业务 | N:1（主归属唯一） | 服务字典加**可空** `biz_code`（见 5.22） | **MVP** |
+| 服务 ↔ 服务 | N:N | `service_dependency`（§5.23，{v0.3+} 预留） | {v0.3+} |
+
+**`app_platform_rel` 关联表（M:N，决策 111）**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| app\_code | string | ✅ | 应用字典主键（见 5.19） |
+| platform\_code | string | ✅ | 平台字典主键（见 5.21） |
+| is\_primary | bool | ✅ | **主平台标记**——同一 `app_code` **至多一个** `is_primary=true`（服务端唯一性校验，应用表单「主平台」单选）；为资源 `platform_code` 未显式填写时提供**兜底**取值 |
+
+> **为什么把关系落在字典（而非全靠资源行）**：资源行只能表达「某个实例同时填了哪些码」，**跨实例的实体关系（如「该应用包含哪些服务」）无法从资源行稳定推导**——某服务当前无实例时关系即丢失。故字典层需**显式**关系字段 / 关系表，拓扑才可独立维护与查询。
+
+**`platform` 定性（决策 110，修订决策 104）**：`platform` **不是派生标签**，而是**资源行的一等业务字段**——`platform_code` 为 Resource 可空字段（见 5.2），平台归属是**登记期第一个确定的业务信息**。`platform` label 取值由资源行 `platform_code` 唯一确定，经标签模板 `resource_field` 映射（`platform_code → platform`）注入（见 5.12.1 / 5.13）；**派生降为兜底**——仅当资源行未显式填写时，才用所属应用 `is_primary` 平台兜底；未填且应用无主平台时不注入。**登记表单级联顺序**：先选平台 → 再选应用（按所选平台过滤）→ 再选服务。
+
+**A 层连带项（决策 110）**：①五类 Excel 模板新增 `platform_code` 可空列（见 5.16.1）；②`platform_code` **不参与判重键**（见 5.16.2）；③存量资源 `platform_code` 回填自所属应用的父级平台、存量应用单值 `platform_code` 迁入 `app_platform_rel`（见 5.19）；④`platform_code` 为资源字段可读入口（标签模板映射/资源列表详情暴露）；⑤`is_primary` 唯一性约束（同上）；⑥平台停用 / 解绑处置（见 5.21）。
+
+**B 层：资源实例层关系（{v0.3+}）**：五类资源**实例之间**的边，复用五类资源归属三分型（组成 / 依赖 / 部署，见 5.2）落成关系边——`deployed_on`（部署于：application / database / middleware → host）、`depends_on`（依赖：application → database / middleware）、`calls` / `depends_on`（调用：application → application）。这一层对标蓝鲸 CMDB 的「关联关系 / 拓扑」模型，是**排障价值最大**的部分，**{v0.3+}** 与 `service_dependency` 同批落地（含连线拓扑图 / 影响面分析），M02 / M08 消费。
+
+**label 维度分层（决策 112）**：label 按粒度 / 读者 / 用途分三层——
+
+| 层级 | label | 读者 | 用途 |
+|---|---|---|---|
+| **高维（粗粒度）** | `platform` / `biz` | 平台负责人 / 管理层 | 平台整体健康、跨应用汇总（管理视角） |
+| **中维** | `app` / `env` / `cluster` / `network_domain` | 应用负责人 / 运维架构师 | 应用级 / 环境级 / 位置级聚合与过滤 |
+| **低维（细粒度）** | `svc` / `resource_id` | 运维工程师 | 排障下钻、实例定位 |
+
+> **结论（`platform` 非排障主维度）**：`platform` 是**高维 / 粗粒度**维度——**不应作为告警分析 / 看板的默认下钻入口**；运维排障的默认维度是 **`app` / `svc` / `network_domain` / `resource_category`**，`platform` 退为**顶层可选过滤器**。此结论**只登记契约与建议**，M08（告警分析）/ M05（看板）的 {v0.2+} 维度选择详见 `design-decisions.md` 顶层跨模块契约区（不修改 M05 / M08 PRD 正文）。
+
+**字典「不可删」定位解释（决策 112）**：平台 / 应用 / 服务 / 业务是「**字典**」（编码取值权威），**不是「可删除的对象」**——四者编码即 label 值，删除会断历史时序，故生命周期为「启用 ↔ 停用」；真正可删除的是**资源（Resource）**（被采集 Job 引用时按 6.1 阻断）。
+
+**版本落点（切分）**：
+
+| 层 | 内容 | 版本 |
+|---|---|---|
+| **A 层（字典关系）** | `app_platform_rel` M:N + 资源行 `platform_code` 一等字段 + `platform` 标签模板映射注入 + 服务字典 `biz_code` / `app_code` 关系字段 + 四个字典定位解释 + **各字典页关系维护表单** | **MVP** |
+| **聚合视图** | 业务 / 平台详情页**聚合拓扑视图（只读）** | **{v0.2}** |
+| **B 层（资源实例边）** | `deployed_on` / `depends_on` / `calls` + `service_dependency` + **连线拓扑图 / 影响面分析** | **{v0.3+}** |
+
+> **切分规则**：**MVP = 关系维护表单（无聚合视图）**；**聚合拓扑视图留 {v0.2}**；**连线拓扑图 / 影响面分析留 {v0.3+}**。凡涉及「拓扑图」者指 {v0.3+} 连线可视化；凡涉及「聚合视图」者指 {v0.2} 只读汇总页。
+
+**决策 supersede map（推翻 / 修订注记）**：
+
+| 旧决策 / 契约 | 处置 | 说明 |
+|---|---|---|
+| **决策 104**（`platform` 为纯派生标签、资源侧无 `platform_code` 字段） | **定性修订** | `platform_code` 改判为**资源行一等业务字段**（登记期显式填写），派生**降为兜底**；注入机制由「经 `app_code` 派生」改为「标签模板 `resource_field` 映射（`platform_code → platform`）」（决策 110） |
+| **决策 107 + 顶层 T4 契约**（应用单值父级；`app 跨 platform` MVP 维持单父；分层可视化视图归 {v0.2}） | **推翻部分结论** | ①应用↔平台改 **M:N**（`app_platform_rel`）且 **MVP 落地**，**推翻 T4 中「`app 跨 platform` MVP 维持单父」的结论**（`service 跨 app` / `service:biz` 非主归属仍维持 T4 其余口径）；②「平台→子系统分层可视化」中**「关系维护表单」进 MVP**、**「聚合拓扑视图」留 {v0.2}**（决策 111） |
+| **决策 108 §5.12.1**（`platform` 派生降级口径：只依赖资源是否填 `app_code`） | **该段作废** | `platform` 下沉资源行后，取值**不再依赖 `app_code`**；仅**兜底**路径才看 `app_code`（未显式填时取应用主平台）；原「`host` 缺位属预期 / `database`·`middleware` 因 `app_code` 必填正常派生」的分化表述随之作废（见 5.12.1） |
+
+> **与决策 109 的关系**：决策 109 禁止 `sum by (instance)`、确立四层聚合标签 `platform` / `app` / `svc` / `resource_id`——本建模**不改**该聚合口径，只把 `platform` 的**取值来源**从派生改为一等字段，四层聚合写法不变。
 
 ***
 
@@ -1175,12 +1265,16 @@ status: "online"
 | POST | `/api/v2/platform/business-domains` | 登记业务分组：`biz_code`（编码规范：小写字母 / 数字 / 连字符 ≤ 64，创建后不可变）、`biz_name`、`description`；`bad_request`：编码重复 / 编码不规范 |
 | PUT | `/api/v2/platform/business-domains/{biz_code}` | 受限编辑业务分组：**仅 `biz_name` / `description` / `status` 可改**（请求体不接收 `biz_code`）；`bad_request`：`infra` 兜底条目禁止停用；不提供删除入口（停用不删除） |
 | GET | `/api/v2/platform/cloud-dict` | 云字典列表（供资源录入 / Excel 校验下拉与列表展示消费；数据来自 DB，配置文件仅首次启动 seed，**部署级只读、不提供写接口**，见 5.20） |
-| GET | `/api/v2/platform/platform-dict` | 平台字典列表（供应用登记下拉与资源 `platform` label 派生解析消费；数据来自 DB，见 5.21） |
+| GET | `/api/v2/platform/platform-dict` | 平台字典列表（供资源行 `platform_code` 取值下拉、应用↔平台关联（`app_platform_rel`）维护与 `platform` label 兜底解析消费；数据来自 DB，见 5.21 / 5.24） |
 | POST | `/api/v2/platform/platform-dict` | 登记平台：`platform_code`（编码规范：小写字母 / 数字 / 连字符 ≤ 64，创建后不可变）、`platform_name`、`description`；`bad_request`：编码重复 / 编码不规范（见 5.21） |
 | PUT | `/api/v2/platform/platform-dict/{platform_code}` | 受限编辑平台：**仅 `platform_name` / `description` / `status` 可改**（请求体不接收 `platform_code`）；不提供删除入口（停用不删除，见 5.21） |
-| GET | `/api/v2/platform/service-dict` | 服务字典列表（供资源录入 / Excel 校验下拉与列表展示消费；数据来自 DB，见 5.22） |
-| POST | `/api/v2/platform/service-dict` | 登记服务：`service_code`（编码规范：小写字母 / 数字 / 连字符 ≤ 64，创建后不可变）、`service_name`、`description`；`bad_request`：编码重复 / 编码不规范（见 5.22） |
-| PUT | `/api/v2/platform/service-dict/{service_code}` | 受限编辑服务：**仅 `service_name` / `description` / `status` 可改**（请求体不接收 `service_code`）；不提供删除入口（停用不删除，见 5.22） |
+| GET | `/api/v2/platform/app-platform-rel` | 应用↔平台关联列表，Query：`app_code` / `platform_code`；返回含 `is_primary`；供应用登记表单「所属平台（多选）+ 主平台（单选）」维护（见 5.24） |
+| POST | `/api/v2/platform/app-platform-rel` | 新增应用↔平台关联：`app_code`、`platform_code`、`is_primary`（默认 false）；`bad_request`：`app_code` / `platform_code` 不存在或已停用、同一 `app_code` 重复 `is_primary=true`（见 5.24） |
+| PUT | `/api/v2/platform/app-platform-rel/{rel_id}` | 编辑关联（切换 `is_primary`）；服务端校验同一 `app_code` 主平台唯一 |
+| DELETE | `/api/v2/platform/app-platform-rel/{rel_id}` | 解除应用↔平台关联；存量资源 `platform_code` 悬空时**仅提示、不强制改写**（见 5.24） |
+| GET | `/api/v2/platform/service-dict` | 服务字典列表（供资源录入 / Excel 校验下拉与列表展示消费；返回 `app_code` / `biz_code` 关系字段；数据来自 DB，见 5.22） |
+| POST | `/api/v2/platform/service-dict` | 登记服务：`service_code`（编码规范：小写字母 / 数字 / 连字符 ≤ 64，创建后不可变）、`service_name`、`description`、`app_code`（可空，所属应用）、`biz_code`（可空，主业务）；`bad_request`：编码重复 / 编码不规范 / 关系码不存在（见 5.22） |
+| PUT | `/api/v2/platform/service-dict/{service_code}` | 受限编辑服务：**仅 `service_name` / `description` / `status` / `app_code` / `biz_code` 可改**（请求体不接收 `service_code`）；不提供删除入口（停用不删除，见 5.22） |
 
 ### 6.2 资源标签 API（ResourceLabel）
 
@@ -1416,6 +1510,10 @@ stateDiagram-v2
 - [ ] {P0} 标签模板可新增 `biz_code → biz` 映射；所有资源类型默认模板包含 `biz_code → biz` 映射；业务指标经抓取注入带 `app` / `biz` 标签，可按业务类型聚合
 - [ ] {P0} 资源列表「采集状态」列展示三态 badge（采集中 / 已下发未采到 / 未监控），支持按采集状态筛选（`collection_status`）；「已下发未采到」高饱和展示；badge 数据只读消费 M01 选中关系 + M02 健康度 API
 - [ ] {P0} 业务管理页可查看业务分组列表并登记新业务（`biz_code` 编码规范校验 + 醒目提示「编码创建后不可改」）；编辑仅开放 `biz_name` / `description` / 状态；不提供删除入口；`infra` 兜底条目禁止停用
+- [ ] {P0} 平台管理页可维护应用↔平台**多对多关联**（应用登记表单「所属平台」为多选、「主平台」为单选，同一应用至多一个主平台）；平台停用不解绑、存量关联保留历史值
+- [ ] {P0} 资源新增 / 编辑表单平台字段为**一等业务字段**，级联顺序为「先选平台 → 再选应用（按所选平台过滤）→ 再选服务」；平台留空时按所属应用的主平台兜底
+- [ ] {P0} 服务管理页可维护服务↔业务（`biz_code`）、服务↔应用（`app_code`）关系字段
+- [ ] {P0} 资源列表 / 详情可读 `platform_code` 并按平台字典解析为展示名；平台停用条目以「平台名（已停用）」标识
 
 ### 9.2 技术验收（后端/契约可验证）
 
@@ -1435,12 +1533,15 @@ stateDiagram-v2
 - [ ] {P1} 业务存在性校验「`biz_code` 必须对应**启用**条目」；停用条目不可被新增/编辑选用，存量资源保留历史值
 - [ ] {P1} `biz_code` 编码创建后不可变，字典展示名 `biz_name` 修改不触发配置重新生成 / 下发；MVP 单租户下 `tenant_id → tenant` 映射默认模板不注入、注入骨架恒通过；**v0.2 起该映射为五类默认模板内置默认**（`DefaultMappingBuilders` 统一生成、前端默认启用），标签名为 `tenant`（不带 `_id` 后缀），缺失时由 M09 生成期门禁阻断（命名规约见 §5.11）
 - [ ] {P0} 采集状态三态数据链路可验证：`is_monitored` 选中关系由 M01 维护、M07 只读映射；up / down 聚合来自 M02 `/api/v1/health/coverage`（按 `resource_id` 标签回连资源）；资源列表查询走聚合 API 一次性获取，**禁止逐行调用**（TQ-6 N+1 教训）
+- [ ] {P0} 资源行 `platform_code` 为**一等字段**（`string` / 可空 / 不参与判重键）；五类默认标签模板含 `platform_code → platform` 映射，经 target 级标签模板映射注入生成 `platform` label；资源行未显式填时按所属应用 `is_primary` 平台兜底、仍未确定则不注入（决策 110）
+- [ ] {P0} `app_platform_rel` 关联表落 DB（`app_code` / `platform_code` / `is_primary`）；同一 `app_code` 至多一个 `is_primary=true`（服务端唯一性校验）；平台停用不解绑、应用解绑不强制改写存量资源 `platform_code`（决策 111）
+- [ ] {P0} 服务字典可空关系字段 `app_code` / `biz_code` 落 DB、为关系权威；资源行对应字段为实例归属镜像（决策 112）
 
 ***
 
 ## 10. 术语映射（用户词汇表）
 
-> 决策依据：design-decisions.md 决策 16 / 3.43 / 3.45 / 3.46 / D19 / D24 / 104~107
+> 决策依据：design-decisions.md 决策 16 / 3.43 / 3.45 / 3.46 / D19 / D24 / 104~107 / 110~112
 
 > 后端术语 ↔ 用户语言的权威对照（与 5.x 数据模型「UI 展示名」列一致）。用户可见文案、前端页面、接口文档均以本表对齐；「仅技术信息」术语只出现在技术层（折叠区 / 代码注释 / 接口契约），不作为用户界面文案。
 
@@ -1480,10 +1581,13 @@ stateDiagram-v2
 | `service_name`（字典展示名）              | 仅技术信息        | 服务字典展示名（**必填**）；不落在资源上、不参与标签取值，修改不触发监控配置重新生成 / 下发；与资源行 `service_name` 的关系为**软约束**（填写 `service_code` 时宜一致、不强校验）（见 5.22） |
 | 服务管理                              | 仅技术信息        | 服务字典维护页：列表 + 登记 + 受限编辑（仅 `service_name` / `description` / 状态）+ 停用；字典落 DB；`service_code` 创建后不可改、停用不删除（见 5.22） |
 | `svc`（label）                        | 仅技术信息        | 服务聚合标签：值 = 资源 `service_code` 不可变编码；`service_code` 为空时不注入；服务与业务域 `biz` 正交（服务回答「是什么」、`biz` 回答「为谁服务」）（见 5.15 / 5.22） |
-| `platform_code`                       | 仅技术信息        | 平台归属**不可变编码**，对应平台字典主键（见 5.21）；**`platform` label 的派生来源**（经应用条目父级）；应用侧 `platform_code` **可选**，停用条目不可新选 |
-| 平台管理                              | 仅技术信息        | 平台字典维护页：列表 + 登记 + 受限编辑（仅 `platform_name` / `description` / 状态）+ 停用；字典落 DB；`platform_code` 创建后不可改、停用不删除（见 5.21） |
-| `platform`（label）                   | 仅技术信息        | 平台聚合标签：**派生标签**——值经资源 `app_code` → 应用条目父级 `platform_code` 解析（对齐 `cloud` 经网域派生先例）；资源无 `app_code` 或应用无父级平台时不注入（见 5.12.1 / 5.21） |
-| 服务依赖（`service_dependency`）          | 仅技术信息        | 服务间上下游依赖边（调用 / 数据 / 事件）；**归 M07 对象层关系，MVP 不实现**（{v0.3+} P2 预留，登记模型不落表）（见 5.23） |
+| `platform_code`                       | 仅技术信息        | 平台归属**不可变编码**，对应平台字典主键（见 5.21）；**资源行一等业务字段**（决策 110，修订决策 104）——登记期显式填写，经标签模板 `resource_field` 映射为 `platform` label；资源行留空时由所属应用 `is_primary` 平台**兜底**；应用↔平台 M:N 关系见 `app_platform_rel`（见 5.24）；停用条目不可新选 |
+| 平台管理                              | 仅技术信息        | 平台字典维护页：列表 + 登记 + 受限编辑（仅 `platform_name` / `description` / 状态）+ 停用 + 应用↔平台关联维护；字典落 DB；`platform_code` 创建后不可改、停用不删除（见 5.21 / 5.24） |
+| `platform`（label）                   | 仅技术信息        | 平台聚合标签：**非派生标签**，值 = 资源行 `platform_code` 一等业务字段（决策 110，修订决策 104）；资源行留空时经所属应用 `is_primary` 平台兜底填充，仍未确定则不注入；经标签模板 `resource_field` 映射注入（见 5.12.1 / 5.13 / 5.24） |
+| 服务依赖（`service_dependency`）          | 仅技术信息        | 服务间上下游依赖边（调用 / 数据 / 事件）；**归 M07 对象层关系，MVP 不实现**（{v0.3+} P2 预留，登记模型不落表）（见 5.23 / 5.24） |
+| 双轨定位（归属聚合 / 对象拓扑）          | 仅技术信息        | 对象关系两轨：**归属聚合**（资源行字段 → label，扁平、进 label）/ **对象拓扑**（关系边表，不进 label）；数据同源、用途解耦，拓扑边不参与 label 注入（见 5.24） |
+| A 层字典关系 / B 层资源实例关系          | 仅技术信息        | A 层 = 字典实体层关系（应用↔平台 M:N、应用↔服务 1:N、服务↔业务 N:1，MVP 落数据契约 + 关系维护表单）；B 层 = 资源实例层边（部署 `deployed_on` / 依赖 `depends_on` / 调用 `calls`，{v0.3+}）（见 5.24） |
+| `app_platform_rel`                    | 仅技术信息        | 应用↔平台多对多关联表（`app_code` / `platform_code` / `is_primary`）；同一 `app_code` 至多一个 `is_primary=true`，为未显式填 `platform_code` 的资源行提供兜底（见 5.24） |
 | 组成 / 依赖 / 部署（归属关系分型）      | 仅技术信息        | 五类资源归属关系性质的三分型：**组成**（`application` / 业务型 `generic_target`）/ **依赖**（`database` / `middleware`）/ **部署**（`host`）；四层组成链 `platform → app → service → instance` 只对 `application` 承诺完整（见 5.2 / 5.6） |
 | `PROTECTED_PROMETHEUS_LABELS`         | 仅技术信息        | 保护 label（instance / job 等），用户禁止覆盖                                                                                                   |
 | `CMDBProvider`                        | 仅技术信息        | {v0.4+} CMDB 同步接口（Module\_04 实现）                                                                                                      |
@@ -1494,7 +1598,7 @@ stateDiagram-v2
 
 | 客户语言 | 平台概念 | CMDB 对应（蓝鲸） | Prometheus 标签 |
 |---|---|---|---|
-| 「应用」平台（公共数据授权运营平台） | 平台 `platform` | 业务 `bk_biz`（顶层系统） | `platform`（派生） |
+| 「应用」平台（公共数据授权运营平台） | 平台 `platform` | 业务 `bk_biz`（顶层系统） | `platform`（资源行一等字段 / 兜底派生） |
 | 「应用」系统（接口包装系统等） | 应用 `app`（子系统） | 模块 Module | `app` |
 | 「业务」（API，如教师身份核验） | 服务 `service` | 进程 / 服务实例 | `svc` |
 | 资源（隐） | 资源 `instance` | 主机 / 实例 | `resource_id`（稳定身份）/ `instance`（抓取端点） |
@@ -1584,8 +1688,8 @@ stateDiagram-v2
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 落点章节 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------- | --- |
+| v2.49 | 2026-09-28 | 修改 | **吸收 design-proposal `object-relation-topology`（决策 110 / 111 / 112）**：`platform` 定性纠正——非派生标签、资源行一等字段 `platform_code`（修订决策 104、作废决策 108 §5.12.1）；应用↔平台改 M:N（`app_platform_rel` + `is_primary`）；服务字典加关系字段（`app_code` / `biz_code`）+ 双轨定位（归属聚合 / 对象拓扑）；新增 §5.24；原型需同步 | 5.2 / 5.12.1 / 5.13 / 5.15 / 5.16.1 / 5.16.2 / 5.18 / 5.19 / 5.21 / 5.22 / 5.23 / 5.24 / 6 / 9 / 10 / Change Log | MVP 生效 | ready |
 | v2.48 | 2026-09-28 | 修改 | **dev-feedback 回填 F-5/F-11**：F-5 修 `instance_name` 矛盾（§5.2 以 §5.12.1 A 为准、通用行补适用范围、移除 `hostname` 死键）；F-11 采集地址——`health_check_url` 恢复可选（仅资源画像，不参与采集）、`endpoint`+`port` 必填（`port` 1~65535）；契约修订、原型无需同步 | 5.2 / 5.8 / 5.12.1 / Change Log | MVP 生效 | ready |
 | v2.47 | 2026-09-27 | 修改 | 补四层聚合口径（§5.15 权威）：`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁 `sum by (instance)`；§5.13 加指针、§10 消歧（决策 109） | 5.13 / 5.15 / 10 / Change Log | MVP 生效 | ready |
-| v2.46 | 2026-09-27 | 修改 | **吸收 design-proposal `resource-ownership-relation-typing`（决策 108）**：五类资源归属三分型（组成 / 依赖 / 部署）+ host 归属键 + `platform` 派生降级口径，零新增字段 | 5.2 / 5.6 / 5.12.1 / 10 / Change Log | MVP 生效 | ready |
-> 完整 Change Log（v2.44 及以前）见 `docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」。
+> 完整 Change Log（v2.46 及以前）见 `docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」。
 

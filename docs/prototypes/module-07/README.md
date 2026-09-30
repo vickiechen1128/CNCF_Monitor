@@ -1,8 +1,8 @@
 # MetricCenter Module 07 原型
 
-> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.47
+> **验证的 PRD 版本**: [Module_07_Monitoring_Object_Management.md](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md) v2.49
 > **覆盖的产品版本**: MVP / v0.4 / v1.0
-> **原型版本**: v2.47
+> **原型版本**: v2.49
 > **本地启动命令**:
 >
 > ```bash
@@ -12,6 +12,30 @@
 > ```
 >
 > **访问地址**: http://localhost:5174/
+
+## v2.49 变更说明（对象关系与拓扑建模：应用↔平台 M:N + 资源 platform 一等字段 + 服务关系字段，决策 110/111/112，2026-09-28）
+
+同步 PRD v2.49「对象关系与拓扑建模」（新增 §5.24）的**用户可见界面与数据契约**——在归属聚合（label 扁平）之外补齐 A 层字典实体关系（MVP），B 层资源实例边与聚合拓扑视图分别留 {v0.3+} / {v0.2}：
+
+1. **应用↔平台改 M:N（决策 110 / 111）**：`AppDictEntry` 单值 `platform_code` **废弃**，改为 `platform_codes`（关联的全部平台）+ `primary_platform_code`（主平台，至多一个）；新增 `app_platform_rel` 关联表 mock（`AppPlatformRelEntry` + `mockAppPlatformRel`）与 `getAppPlatforms` / `getPrimaryPlatformCode` / `getPlatformLinkedApps` helper。应用管理页「所属平台」列由单值 Tag → **多平台 Tag 列表 + 主平台「（主）」标记**（已停用平台加「（已停用）」）；登记 / 编辑表单由单下拉 → **多选 + 主平台单选**（主平台必须属于已选集合、未选平台时置空；表单联动校验 + onChange 清理越界主平台），已停用平台保留历史值展示、不可新选。
+2. **平台管理页新增「关联应用」列（决策 110 / 111）**：经 `app_platform_rel` 反向列出挂在本平台下的应用（展示 `app_name`，主平台加「（主）」标识），空态「暂无关联应用」；补「停用平台不解绑存量关联、仅不可新选」说明（对齐 §5.21）。表单 / 列维持「登记 + 受限编辑 + 停用不删除」不变。
+3. **资源 `platform_code` 一等字段（决策 110）**：`ResourceBase` 新增可空 `platform_code`；资源登记 / 编辑表单新增「所属平台」（**登记第一问**，级联顺序：平台 → 应用按平台过滤 → 服务），留空提示「按所属应用的主平台自动归属」；资源列表**五类 Tab** 新增「平台」列（未显式填时兜底取应用主平台，停用加「（已停用）」）；详情抽屉补「平台」行；五类 Excel 模板补可空 `platform_code` 列、导入校验补「平台存在性」（与所属应用平台集合自洽）、**不参与判重键**；`resolveResourcePlatformCode` 承载「一等字段优先 + 应用主平台兜底」口径。
+4. **服务字典关系字段（决策 112）**：`ServiceDictEntry` 新增可空 `app_code`（应用↔服务 1:N）/ `biz_code`（服务↔业务 N:1 主归属）——推翻原「本字典不设父子字段」；服务管理页新增「业务归属」「所属应用」列与登记 / 编辑下拉；评审说明补「归属关系（显式登记）区别于 `service_dependency` 依赖关系（{v0.3+} 推导、不靠静态 label）」。
+5. **`platform` 标签模板映射注入（决策 110）**：五类默认标签模板新增 `platform_code → platform` 映射行（`resource_field` 来源，走 target 级映射注入，非 generator 派生）；`RESOURCE_FIELD_OPTIONS` 五类补 `platform_code`（资源字段可读入口）。
+6. **四个字典「字典 ≠ 可删除对象」定位解释（决策 112）**：业务 / 应用 / 平台 / 服务四管理页评审说明各补一句——四者是编码取值权威（label 值），删除断历史时序，生命周期为「启用 ↔ 停用」；真正可删除的是资源（Resource）。
+7. **MainLayout 评审说明**：3.31 更新为 `{v2.49} 决策 110 / 111`（平台层与对象关系），新增 3.33 `{v2.49} 决策 112`（双轨定位 / label 维度分层 / 版本落点）。
+8. **边界（不做）**：业务 / 平台详情页**聚合拓扑视图**（只读）归 {v0.2}；B 层资源实例边（`deployed_on` / `depends_on` / `calls`）与 `service_dependency`、连线拓扑图 / 影响面分析归 {v0.3+}；不新增删除按钮（维持「停用不删除」）。
+9. **mock 与测试**：新增 `{v2.49}` 单测断言（M:N 关系一致性、`is_primary` 唯一性、主平台 ⊆ 已选平台、反向查询、资源 `platform_code` 兜底、服务关系字段、模板列 / 字段选项 / 默认模板映射）；`package.json` 2.47.0 → 2.49.0。
+10. **验证**：`pnpm build`（tsc + vite）/ `pnpm lint`（0 warning）/ `pnpm test`（114 passed）/ `pnpm check:notes`（OK）全过；`pnpm check:prototype` 无文案泄漏（结构提示与 v2.47 基线一致——五类 Tab 列数 >8 的既有提示，无新增）。
+
+## v2.48 变更说明（dev-feedback F-5 / F-11 回填，契约修订、原型无需同步，2026-09-28）
+
+PRD v2.48 为 [dev-feedback 回填](../../02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md)（§5.2 / §5.8 / §5.12.1），均属**契约级修订**：
+
+1. **F-5 修 `instance_name` 矛盾**：§5.2 以 §5.12.1 A 为准、通用行补适用范围、移除 `hostname` 死键。
+2. **F-11 采集地址**：`health_check_url` 恢复可选（仅资源画像、不参与采集）、`endpoint` + `port` 必填（`port` 1~65535）。
+
+> **原型无需同步**：本轮为数据契约修订，不产生用户可见界面变化——`instance_name` / `health_check_url` 现有展示口径不变，`endpoint` + `port` 现有表单已采集；此处仅登记，不改原型。
 
 ## v2.47 缺口收口（资源列表「云」列 + 云 / 网络分区只读派生展示，决策 98/101/103，2026-09-27）
 
@@ -185,9 +209,9 @@ python3 -m http.server 8080
 - `/label-templates`：标签模板（左侧模板列表 + 右侧 mappings 表格，模板级增删改）
 - `/import-history`：导入记录（状态映射说明 + 错误报告详情）
 - `/business-management`：业务管理（业务分组字典列表 + 登记 + 受限编辑 + 停用，红线硬化）
-- `/application-management`：应用管理（应用字典列表 + 登记 + 受限编辑 + 停用；新增可选父级「所属平台」列）
-- `/platform-management`：平台管理（平台字典列表 + 登记 + 受限编辑 + 停用，四层实体顶层）
-- `/service-management`：服务管理（服务字典列表 + 登记 + 受限编辑 + 停用，label 定名 svc）
+- `/application-management`：应用管理（应用字典列表 + 登记 + 受限编辑 + 停用；{v2.49} 应用↔平台 M:N——所属平台多选 + 主平台单选）
+- `/platform-management`：平台管理（平台字典列表 + 登记 + 受限编辑 + 停用，四层实体顶层；{v2.49} 新增「关联应用」列）
+- `/service-management`：服务管理（服务字典列表 + 登记 + 受限编辑 + 停用，label 定名 svc；{v2.49} 新增业务归属 / 所属应用关系字段）
 
 ## 已知限制
 
