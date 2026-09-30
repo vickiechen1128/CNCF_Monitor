@@ -1,9 +1,9 @@
 # 告警路由（route）前台化 — 产品设计草案
 
-> **类型**：设计草案（**feat 分支** · 待产品评审；PRD 冻结期内**仅构思，不回填**——后续 PRD 修改由产品负责人在 design 分支走版本化迭代）
+> **类型**：设计草案（**feat 分支** · 已由 prototype-designer 评审并吸收进 PRD）
 > **模块**：Module_08 告警收敛与通知管理
 > **关联**：dev-feedback M08 **#26**（平台只物化 receivers、route 由用户写——一期临时裁决）、**#28**（【第一步·止血】聚合条目，本草案 = 其中的**第二步**）、**#16 / #16.1**（桥地址零接线 = L1）、M09 **F-36**（物化判据 = L2）；前置提案 `alert-config-scope-and-notification-bridge.md`（PL-3 通知渲染桥）
-> **状态**：草案 v0.1 · 待评审（P1–P4 待产品拍板，P5–P7 已定案）
+> **状态**：**`merged`**（2026-09-30 · prototype-designer 评审「修改后吸收」· 已吸收进 **M08 PRD v1.18**；评审记录见 `docs/05-execution-records/module-08/prototype-designer.md`「评审记录」小节）
 > **一句话**：把「告警怎么发出去」这条链路上**唯一还要手写 YAML 的一步**，变成前台可视化编辑。
 
 ---

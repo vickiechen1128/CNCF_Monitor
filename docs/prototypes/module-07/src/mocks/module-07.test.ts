@@ -40,6 +40,12 @@ import {
   isServiceDisabled,
   PLATFORM_CODE_RE,
   SERVICE_CODE_RE,
+  // {v2.49} 决策 110 / 111 / 112：应用↔平台 M:N（app_platform_rel）+ 资源平台一等字段 + 服务关系字段
+  mockAppPlatformRel,
+  getAppPlatforms,
+  getPrimaryPlatformCode,
+  getPlatformLinkedApps,
+  resolveResourcePlatformCode,
   EXCEL_DECLARATION_SHEETS,
   domainReachabilityText,
   previewDomainByIP,
@@ -820,14 +826,16 @@ describe('{v2.45} 决策 104~107 四层实体骨架：平台字典 / 服务字�
     expect(isServiceDisabled(undefined)).toBe(false)
   })
 
-  it('应用可选父级 platform_code：填值须引用平台字典条目，且存在「未挂平台」的应用（可选分支）', () => {
+  it('应用↔平台关系：mockApplicationDict 的 platform_codes / primary_platform_code 与 app_platform_rel 一致，且存在「未挂平台」应用（可选分支）', () => {
     for (const app of mockApplicationDict) {
-      if (app.platform_code) {
-        expect(mockPlatformDict.map((d) => d.platform_code)).toContain(app.platform_code)
+      expect(getAppPlatforms(app.app_code)).toEqual(app.platform_codes ?? [])
+      expect(getPrimaryPlatformCode(app.app_code)).toBe(app.primary_platform_code)
+      for (const code of app.platform_codes ?? []) {
+        expect(mockPlatformDict.map((d) => d.platform_code)).toContain(code)
       }
     }
-    expect(mockApplicationDict.some((a) => a.platform_code)).toBe(true)
-    expect(mockApplicationDict.some((a) => !a.platform_code)).toBe(true)
+    expect(mockApplicationDict.some((a) => (a.platform_codes ?? []).length > 0)).toBe(true)
+    expect(mockApplicationDict.some((a) => (a.platform_codes ?? []).length === 0)).toBe(true)
   })
 
   it('资源服务归属 service_code 仅 application / generic_target 可挂（host / database / middleware 不挂）', () => {
@@ -937,5 +945,107 @@ describe('{v2.47} 决策 98 / 101 / 103 云字典 / 分区字典与只读派生'
   it('云 / 分区字典均为部署级只读（可用性开关为 true，且不提供管理界面）', () => {
     expect(CLOUD_DICT_ENABLED).toBe(true)
     expect(ZONE_DICT_ENABLED).toBe(true)
+  })
+})
+
+// ========== {v2.49} 决策 110 / 111 / 112：对象关系与拓扑建模（A 层字典关系 + 资源平台一等字段 + 服务关系字段） ==========
+
+describe('{v2.49} 决策 110 / 111 / 112 对象关系与拓扑建模', () => {
+  it('app_platform_rel 主平台唯一：同一 app_code 至多一个 is_primary=true（决策 111）', () => {
+    const primaryCount: Record<string, number> = {}
+    for (const rel of mockAppPlatformRel) {
+      if (rel.is_primary) primaryCount[rel.app_code] = (primaryCount[rel.app_code] ?? 0) + 1
+    }
+    Object.values(primaryCount).forEach((n) => expect(n).toBe(1))
+  })
+
+  it('app_platform_rel 关系码须引用字典条目：app_code 在应用字典、platform_code 在平台字典（决策 111）', () => {
+    const appCodes = mockApplicationDict.map((d) => d.app_code)
+    const platformCodes = mockPlatformDict.map((d) => d.platform_code)
+    for (const rel of mockAppPlatformRel) {
+      expect(appCodes).toContain(rel.app_code)
+      expect(platformCodes).toContain(rel.platform_code)
+    }
+  })
+
+  it('主平台恒属于该应用关联平台集合（is_primary ⊆ platform_codes，决策 111）', () => {
+    for (const app of mockApplicationDict) {
+      if (app.primary_platform_code) {
+        expect(app.platform_codes ?? []).toContain(app.primary_platform_code)
+      }
+    }
+  })
+
+  it('存在应用↔平台多对多示例（一套软件跨多个平台，决策 110）', () => {
+    const multi = mockApplicationDict.filter((a) => (a.platform_codes ?? []).length > 1)
+    expect(multi.length).toBeGreaterThan(0)
+    expect(getAppPlatforms('nginx-gateway').length).toBeGreaterThan(1)
+  })
+
+  it('getPlatformLinkedApps 反向查询：平台下应用可列出，主平台标记与正向一致（决策 111）', () => {
+    const linked = getPlatformLinkedApps('ecommerce')
+    expect(linked.map((r) => r.app_code)).toContain('web-portal')
+    // nginx-gateway 主平台为 infra-middleware、在 ecommerce 下为非主平台
+    expect(linked.find((r) => r.app_code === 'nginx-gateway')?.is_primary).toBe(false)
+    expect(getPrimaryPlatformCode('nginx-gateway')).toBe('infra-middleware')
+    expect(getPlatformLinkedApps('not-a-platform')).toEqual([])
+  })
+
+  it('资源平台一等字段：显式填值的 platform_code 须引用平台字典；application 类资源均带平台归属（决策 110）', () => {
+    const platformCodes = mockPlatformDict.map((d) => d.platform_code)
+    for (const r of mockResources) {
+      if (r.platform_code) expect(platformCodes).toContain(r.platform_code)
+    }
+    const apps = mockResources.filter(isApplicationResource)
+    expect(apps.length).toBeGreaterThan(0)
+    expect(apps.every((r) => !!r.platform_code)).toBe(true)
+  })
+
+  it('resolveResourcePlatformCode：资源行 platform_code 优先；未填时兜底取所属应用主平台；无应用 / 无主平台则 undefined（决策 110）', () => {
+    // 显式填值优先
+    expect(resolveResourcePlatformCode({ platform_code: 'infra-middleware', app_code: 'web-portal' })).toBe(
+      'infra-middleware',
+    )
+    // 未填 → 兜底取应用主平台（host 未填 platform_code，其应用 web-portal 主平台为 ecommerce）
+    const host = mockResources.find((r) => r.resource_id === 'res-host-001')!
+    expect(host.platform_code).toBeUndefined()
+    expect(resolveResourcePlatformCode(host)).toBe('ecommerce')
+    // 无应用 → undefined（设备类资源）；应用无主平台 → undefined
+    expect(resolveResourcePlatformCode({})).toBeUndefined()
+    expect(resolveResourcePlatformCode({ app_code: 'data-pipeline' })).toBeUndefined()
+  })
+
+  it('服务字典关系字段（决策 112）：app_code / biz_code 填值须引用字典条目，且存在可空示例', () => {
+    const appCodes = mockApplicationDict.map((d) => d.app_code)
+    const bizCodes = mockBusinessDomains.map((d) => d.biz_code)
+    for (const s of mockServiceDict) {
+      if (s.app_code) expect(appCodes).toContain(s.app_code)
+      if (s.biz_code) expect(bizCodes).toContain(s.biz_code)
+    }
+    // 可空演示：teacher-identity-api 有应用归属、主业务留空
+    expect(mockServiceDict.some((s) => s.app_code && !s.biz_code)).toBe(true)
+    expect(mockServiceDict.some((s) => s.app_code && s.biz_code)).toBe(true)
+  })
+
+  it('五类 Excel 模板均补 platform_code 可空列（决策 110）', () => {
+    const types: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
+    types.forEach((t) => expect(IMPORT_TEMPLATE_COLUMNS[t]).toContain('platform_code'))
+  })
+
+  it('platform_code 进入五类资源字段选项（标签模板可读入口，决策 110）', () => {
+    const types: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
+    types.forEach((t) => expect(RESOURCE_FIELD_OPTIONS[t]).toContain('platform_code'))
+  })
+
+  it('五类默认标签模板均含 platform_code → platform 映射（决策 110：模板映射注入，非派生）', () => {
+    const defaults = mockLabelTemplates.filter((t) => t.is_default)
+    expect(defaults).toHaveLength(5)
+    defaults.forEach((tpl) => {
+      const m = tpl.mappings.find((x) => x.source_field === 'platform_code')
+      expect(m, `${tpl.name} 缺少 platform_code 映射`).toBeDefined()
+      expect(m?.target_label).toBe('platform')
+      expect(m?.source_type).toBe('resource_field')
+      expect(m?.enabled).toBe(true)
+    })
   })
 })

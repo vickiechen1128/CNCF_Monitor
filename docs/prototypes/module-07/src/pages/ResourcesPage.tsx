@@ -77,6 +77,12 @@ import {
   mockServiceDict,
   resolveServiceName,
   isServiceDisabled,
+  // {v2.49} 决策 110：资源平台归属一等字段——平台字典只读消费 + 应用按平台过滤 + `platform` 兜底解析
+  mockPlatformDict,
+  resolvePlatformName,
+  isPlatformDisabled,
+  getAppPlatforms,
+  resolveResourcePlatformCode,
   resolveCollectionStatus,
   isAppDisabled,
   isBizDisabled,
@@ -293,6 +299,8 @@ export default function ResourcesPage() {
   const watchedDomainId = Form.useWatch('network_domain_id', resourceForm) as string | undefined
   // {v2.35} 决策 84：「其他监控目标」表单首问「登记对象」的当前值（非持久字段，驱动 K8s 集群级 / 标准端点表单分流）
   const watchedDevicePreset = Form.useWatch('device_preset', resourceForm) as string | undefined
+  // {v2.49} 决策 110：平台一等字段——用于「应用」下拉按所选平台过滤（级联顺序：平台 → 应用 → 服务）
+  const watchedPlatformCode = Form.useWatch('platform_code', resourceForm) as string | undefined
 
   // 表单当前类型：编辑取记录类型，新增取入口落到的 activeType
   const formType: ResourceCategory = editingResource?.resource_category ?? activeType
@@ -535,6 +543,8 @@ export default function ResourcesPage() {
       source_type: 'manual' as const,
       // 决策 92：应用归属存不可变编码 app_code（应用字典下拉，展示名由字典解析）
       app_code: values.app_code as string | undefined,
+      // {v2.49} 决策 110：平台归属一等字段（可空；留空由后端按所属应用主平台兜底）
+      platform_code: values.platform_code as string | undefined,
       env: values.env as Env | undefined,
       cluster: values.cluster as string | undefined,
       owner: values.owner as string | undefined,
@@ -622,6 +632,8 @@ export default function ResourcesPage() {
       biz_code: values.biz_code as string | undefined,
       // 决策 92：应用归属存不可变编码 app_code（应用字典下拉，展示名由字典解析）
       app_code: values.app_code as string | undefined,
+      // {v2.49} 决策 110：平台归属一等字段（可空）
+      platform_code: values.platform_code as string | undefined,
       env: values.env as Env | undefined,
       cluster: values.cluster as string | undefined,
       owner: values.owner as string | undefined,
@@ -1039,9 +1051,55 @@ export default function ResourcesPage() {
         : '这个目标的采集端口从哪条链路够得着？平台能直连选「中心直连域」，需经隔离区中转选对应「采集节点域」。'
     return (
     <>
+      {/* {v2.49} 决策 110：平台归属一等字段（登记第一问）——先选平台 → 应用下拉按平台过滤 → 服务可选；留空按所属应用主平台兜底 */}
+      <Row gutter={16}>
+        <Col span={12}>
+          <Form.Item
+            label="所属平台"
+            name="platform_code"
+            extra={
+              watchedPlatformCode
+                ? '资源所属平台（进 platform 标签）；下方「应用」已按该平台过滤'
+                : '选填：平台归属（登记第一问）；留空将按所属应用的主平台自动归属，未确定则不注入 platform 标签'
+            }
+          >
+            <Select
+              placeholder="选填，选择所属平台"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+              onChange={(val?: string) => {
+                // 级联：切换平台后，若当前应用不在该平台下则清空应用，避免应用与平台不自洽
+                const currentApp = resourceForm.getFieldValue('app_code') as string | undefined
+                if (currentApp && val && !getAppPlatforms(currentApp).includes(val)) {
+                  resourceForm.setFieldValue('app_code', undefined)
+                }
+              }}
+            >
+              {mockPlatformDict
+                .filter((d) => d.status === 'enabled')
+                .map((d) => (
+                  <Option key={d.platform_code} value={d.platform_code}>
+                    {d.platform_name}（{d.platform_code}）
+                  </Option>
+                ))}
+              {/* 编辑存量资源：平台已停用 / 已不在字典时保留历史值展示（不可新选，但不清空） */}
+              {editingResource?.platform_code &&
+                !mockPlatformDict.some(
+                  (d) => d.platform_code === editingResource.platform_code && d.status === 'enabled',
+                ) && (
+                  <Option key={editingResource.platform_code} value={editingResource.platform_code}>
+                    {resolvePlatformName(editingResource.platform_code)}（已停用）
+                  </Option>
+                )}
+            </Select>
+          </Form.Item>
+        </Col>
+      </Row>
       <Row gutter={16}>
         <Col span={12}>
           {/* 决策 92：应用归属 = 应用字典下拉，存不可变编码 app_code；停用条目不可新选，存量资源编辑时保留历史值 */}
+          {/* {v2.49} 决策 110：级联过滤——已选平台时仅展示关联该平台的应用 */}
           <Form.Item
             label="应用"
             name="app_code"
@@ -1069,24 +1127,28 @@ export default function ResourcesPage() {
           >
             <Select placeholder="请选择应用" showSearch allowClear optionFilterProp="label">
               {(() => {
-                const enabledOptions = mockApplicationDict
-                  .filter((d) => d.status === 'enabled')
-                  .map((d) => (
-                    <Option key={d.app_code} value={d.app_code}>
-                      {d.app_name}（{d.app_code}）
-                    </Option>
-                  ))
-                // 编辑存量资源：其应用已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
+                const platformFilter = watchedPlatformCode
+                const enabledApps = mockApplicationDict.filter(
+                  (d) =>
+                    d.status === 'enabled' &&
+                    (!platformFilter || getAppPlatforms(d.app_code).includes(platformFilter)),
+                )
                 const current = editingResource?.app_code
-                if (current && !mockApplicationDict.some((d) => d.app_code === current && d.status === 'enabled')) {
-                  return [
-                    ...enabledOptions,
-                    <Option key={current} value={current}>
-                      {resolveAppName(current)}（已停用）
-                    </Option>,
-                  ]
+                const enabledCodes = new Set(enabledApps.map((d) => d.app_code))
+                // 编辑存量资源：其应用不在当前平台过滤结果 / 已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
+                const options = enabledApps.map((d) => ({ code: d.app_code, name: d.app_name, disabled: false }))
+                if (current && !enabledCodes.has(current)) {
+                  options.push({
+                    code: current,
+                    name: resolveAppName(current),
+                    disabled: isAppDisabled(current) || !mockApplicationDict.some((d) => d.app_code === current),
+                  })
                 }
-                return enabledOptions
+                return options.map((d) => (
+                  <Option key={d.code} value={d.code}>
+                    {d.name}（{d.code}）{d.disabled ? '（已停用）' : ''}
+                  </Option>
+                ))
               })()}
             </Select>
           </Form.Item>
@@ -1400,6 +1462,22 @@ export default function ResourcesPage() {
           </Tag>
         ) : '-',
     }
+    // {v2.49} 决策 110：平台列——资源行 platform_code 一等字段（未显式填时兜底取所属应用主平台）；停用加「（已停用）」
+    const platformColumn = {
+      title: '平台',
+      key: 'platform_code',
+      width: 150,
+      render: (_: unknown, record: Resource) => {
+        const code = resolveResourcePlatformCode(record)
+        if (!code) return '-'
+        return (
+          <Tag color={isPlatformDisabled(code) ? 'default' : 'purple'}>
+            {resolvePlatformName(code)}
+            {isPlatformDisabled(code) ? '（已停用）' : ''}
+          </Tag>
+        )
+      },
+    }
     const statusColumn = {
       // {v2.21} 决策 32：「状态」更名「运行状态」；数据来源（CMDB / Excel / 手动）非 M07 自身功能，以列头 hover 隐藏提示标注、不占列宽
       title: (
@@ -1504,8 +1582,9 @@ export default function ResourcesPage() {
 
     switch (type) {
       case 'host': {
-        // {v2.47} 10 列（host 专属含「云」列）：实例名·主机名 / IP 地址 / 网域 / 云 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
+        // {v2.49} 11 列（host 专属含「云」列）：实例名·主机名 / IP 地址 / 网域 / 云 / 归属来源 / 业务 / 应用 / 平台 / 运行状态 / 采集状态 / 操作
         // 「云」列仅 host Tab 默认展示（其余 Tab 不加，遵循列数治理）；云经网域派生、只读
+        // 「平台」列展示资源行平台一等字段（未显式填时兜底取所属应用主平台）
         // 下沉详情：操作系统、系统版本、云 / 网络分区（只读派生）、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('实例名 / 主机名', (record) =>
@@ -1524,6 +1603,7 @@ export default function ResourcesPage() {
           domainSourceColumn,
           businessColumn,
           appColumn,
+          platformColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1532,7 +1612,7 @@ export default function ResourcesPage() {
       }
       case 'database': {
         // {v2.13} 数据库资源列表列（PRD 5.7.1，决策 D19）
-        // 9 列：实例名（含数据库类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
+        // 10 列：实例名（含数据库类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 平台 / 运行状态 / 采集状态 / 操作
         // 下沉详情：端口、版本、连接串、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('实例名', (record) =>
@@ -1548,6 +1628,7 @@ export default function ResourcesPage() {
           domainSourceColumn,
           businessColumn,
           appColumn,
+          platformColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1555,7 +1636,7 @@ export default function ResourcesPage() {
         return cols
       }
       case 'middleware': {
-        // 9 列：实例名（含中间件类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
+        // 10 列：实例名（含中间件类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 平台 / 运行状态 / 采集状态 / 操作
         // 下沉详情：端口、版本、连接串、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('实例名', (record) =>
@@ -1571,6 +1652,7 @@ export default function ResourcesPage() {
           domainSourceColumn,
           businessColumn,
           appColumn,
+          platformColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1578,7 +1660,7 @@ export default function ResourcesPage() {
         return cols
       }
       case 'application': {
-        // 9 列：服务名 / 端点 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
+        // 10 列：服务名 / 端点 / 网域 / 归属来源 / 业务 / 应用 / 平台 / 运行状态 / 采集状态 / 操作
         // 下沉详情：健康检查 URL、协议、端口、应用·环境·集群、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('服务名', (record) =>
@@ -1599,6 +1681,7 @@ export default function ResourcesPage() {
           domainSourceColumn,
           businessColumn,
           appColumn,
+          platformColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1606,7 +1689,7 @@ export default function ResourcesPage() {
         return cols
       }
       case 'generic_target': {
-        // 9 列：目标名称（含端点类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 运行状态 / 采集状态 / 操作
+        // 10 列：目标名称（含端点类型 Tag）/ IP 地址 / 网域 / 归属来源 / 业务 / 应用 / 平台 / 运行状态 / 采集状态 / 操作
         // 下沉详情：端口、采集路径、协议、自定义标签、数据来源、负责人
         const cols: TableProps<Resource>['columns'] = [
           identityColumn('目标名称', (record) =>
@@ -1622,6 +1705,7 @@ export default function ResourcesPage() {
           domainSourceColumn,
           businessColumn,
           appColumn,
+          platformColumn,
           statusColumn,
           monitoredColumn,
           actionColumn,
@@ -1802,6 +1886,14 @@ export default function ResourcesPage() {
             资源列表 <Text strong>host Tab</Text> 默认展示「云」列（展示云字典 <Text code style={{ fontSize: 12 }}>cloud_name</Text>，缺条目回退 <Text code style={{ fontSize: 12 }}>cloud_code</Text>、停用条目标「（已停用）」，样式对齐「应用」列）；
             主机详情抽屉展示「云 / 网络分区（只读，继承所属网域）」两行（经 <Text code style={{ fontSize: 12 }}>network_domain_id</Text> 派生）。
             云字典（5.20）为部署级只读、<Text strong>不提供任何管理界面</Text>；不出现 <Text code style={{ fontSize: 12 }}>cloud_type</Text> / <Text code style={{ fontSize: 12 }}>carrier</Text> 独立列或独立筛选维度。
+          </li>
+          <li>
+            <Text strong>{'{v2.49} 平台归属一等字段与对象关系与拓扑（决策 110 / 111 / 112）'}</Text>：
+            <Text code style={{ fontSize: 12 }}>platform_code</Text> 为<Text strong>资源行一等业务字段</Text>（非派生标签）——登记期显式填写、经标签模板
+            <Text code style={{ fontSize: 12 }}>platform_code → platform</Text> 映射注入；留空时兜底取所属应用 <Text code style={{ fontSize: 12 }}>is_primary</Text> 主平台，未确定则不注入。
+            登记表单<Text strong>级联顺序：平台 → 应用（按所选平台过滤）→ 服务</Text>；列表新增「平台」列（未填兜底展示）；五类 Excel 模板均补可空
+            <Text code style={{ fontSize: 12 }}>platform_code</Text> 列、不参与资源判重键。对象关系分<Text strong>双轨</Text>：归属聚合（label 扁平）/ 对象拓扑（关系边、不进 label）——
+            A 层字典关系（应用↔平台 M:N、服务↔业务 / 应用）随 MVP 落关系维护表单；B 层资源实例边（部署 / 依赖 / 调用）与聚合拓扑视图归 {'{v0.2}/{v0.3+}'}，本原型不实现。
           </li>
         </ul>
       </ReviewNote>
@@ -2015,6 +2107,16 @@ export default function ResourcesPage() {
                       ? `${resolveAppName(selectedResource.app_code)}（已停用）`
                       : resolveAppName(selectedResource.app_code)
                     : '-',
+                },
+                // {v2.49} 决策 110：平台——资源行 platform_code 一等字段（未显式填时兜底取所属应用主平台），停用加「（已停用）」
+                {
+                  key: 'platform_code',
+                  label: '平台',
+                  children: (() => {
+                    const code = resolveResourcePlatformCode(selectedResource)
+                    if (!code) return '-'
+                    return isPlatformDisabled(code) ? `${resolvePlatformName(code)}（已停用）` : resolvePlatformName(code)
+                  })(),
                 },
                 // {v2.45} 决策 105 / 107：服务归属——仅「应用服务 / 其他监控目标」展示字典服务名（主机 / 数据库 / 中间件不挂服务，不展示）
                 ...((['application', 'generic_target'] as ResourceCategory[]).includes(selectedResource.resource_category)
@@ -2358,7 +2460,7 @@ export default function ResourcesPage() {
           custom_labels 列支持 key1=value1;key2=value2 格式；status 支持中文状态值（见导入弹窗状态映射）。
         </Text>
         <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-          模板为后端静态生成 xlsx，内置取值说明 sheet 列出各列合法值；biz_code 必填，仅可填已登记字典条目（含兜底 infra）；app_code 须为应用字典已登记且未停用的条目（设备类资源可空）；service_code 为可选列，填值时须为服务字典已登记且未停用的条目（仅应用 / 其他监控目标适用）。
+          模板为后端静态生成 xlsx，内置取值说明 sheet 列出各列合法值；biz_code 必填，仅可填已登记字典条目（含兜底 infra）；app_code 须为应用字典已登记且未停用的条目（设备类资源可空）；service_code 为可选列，填值时须为服务字典已登记且未停用的条目（仅应用 / 其他监控目标适用）；platform_code 为五类模板均含的可空列，填值时须为平台字典已登记且未停用的条目（且与所属应用平台集合自洽），留空按所属应用主平台兜底、不参与判重。
         </Text>
         {/* {v2.41 / v2.45} 决策 97 / 104 / 105：Excel 批量声明 sheet（四类声明，随模板下发） */}
         <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
@@ -2390,7 +2492,7 @@ export default function ResourcesPage() {
           ))}
         </Space>
         <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
-          导入校验项：必填字段（含 biz_code 必填） · 网域存在性（可留空，留空时按归属解析链推导） · 业务存在性（仅限启用条目，不可自由文本） · 应用存在性（应用字典启用条目；设备类资源可空） · 服务存在性（服务字典启用条目或「服务声明」sheet 申报；可选列、留空不校验，仅应用 / 其他监控目标适用） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
+          导入校验项：必填字段（含 biz_code 必填） · 网域存在性（可留空，留空时按归属解析链推导） · 业务存在性（仅限启用条目，不可自由文本） · 应用存在性（应用字典启用条目；设备类资源可空） · 服务存在性（服务字典启用条目或「服务声明」sheet 申报；可选列、留空不校验，仅应用 / 其他监控目标适用） · 平台存在性（平台字典启用条目或「平台声明」sheet 申报；可空列、留空按所属应用主平台兜底、不参与判重） · IP 格式 · 端口 1~65535 · URL 格式 · env / protocol / scheme / 状态枚举 · 重复检测（instance_ip:port / service_name） · custom_labels 格式 key=value;key2=value2
         </Text>
         <Text style={{ fontSize: 12, color: '#86909C', display: 'block', marginBottom: 12 }}>
           批量声明：导入文件可含 {EXCEL_DECLARATION_SHEETS.map((s) => `「${s.key}」`).join(' / ')} 四类声明 sheet（每类含编码列与展示名列，说明可选）；声明建字典与资源落库整批原子提交，任一失败整体回滚。

@@ -15,6 +15,13 @@
 // {v2.36} 决策 85 入口形态回归：单一「新增资源」按钮、抽屉表单形态跟随当前资源类型 Tab（5 类 1:1）；决策 84 实质不变（K8s 集群仍走表单首问、采集参数仍不出现）
 // {v2.47} 原型缺口收口：资源列表 host Tab 补「云」列 + 主机详情「云 / 网络分区」只读派生展示（决策 98/101/103 / M06 决策 78）
 //   云与网络分区权威值均在网域（M06 §5.2 NetworkDomain.cloud_code / zone_type），资源侧只读派生、无编辑入口；云字典部署级只读、无管理界面
+// {v2.49} 决策 110 / 111 / 112 对象关系与拓扑建模（PRD §5.24 新增章节）：
+//   ① 应用↔平台改 M:N（app_platform_rel + is_primary 主平台唯一），应用侧单值 platform_code 废弃；平台停用不解绑、仅不可新选
+//   ② platform 定性纠正——资源行 platform_code 一等业务字段（经标签模板 platform_code → platform 映射注入），派生降为兜底（取应用主平台）
+//   ③ 服务字典新增可空关系字段 biz_code（服务↔业务 N:1 主归属）/ app_code（应用↔服务 1:N），推翻「本字典不设父子字段」
+//   ④ 五类 Excel 模板补可空 platform_code 列；platform_code 不参与判重键
+//   ⑤ A 层字典关系（MVP 落数据契约 + 关系维护表单）；B 层资源实例边 / 聚合拓扑视图 / 连线拓扑图归 {v0.2}/{v0.3+}
+// {v2.48} dev-feedback F-5 / F-11 回填为契约级修订（§5.2 / §5.8 / §5.12.1），原型无需同步
 // 决策 29：offline 资源下一配置生成周期即从 targets/*.json 移除、不触发采集器 reload（批量下线动线为真，见 STATUS_MAPPING 注释）
 // ============================================================
 
@@ -57,6 +64,11 @@ export interface ResourceBase {
   // **仅 application / generic_target 适用**，host / database / middleware 不挂（基础设施非服务，避免服务维度污染）；
   // **可选字段**——留空即纯自由文本、向后兼容；填值须引用未停用服务字典条目；空值不注入 `svc` 标签。
   service_code?: string
+  // {v2.49 / 决策 110，修订决策 104} 平台归属**一等业务字段**（对应平台字典主键，见 mockPlatformDict）——`platform` label 的唯一取值来源。
+  // **不是派生标签**：登记期显式填写（登记第一问）；经标签模板 `resource_field` 映射 `platform_code → platform` 注入；
+  // **可空**——仅当资源行未显式填写时，才用所属应用的 `is_primary` 主平台兜底（见 mockAppPlatformRel）；未填且应用无主平台时不注入 `platform`。
+  // 注：`platform_code` **不参与资源判重键**（平台是归属属性、非身份）。
+  platform_code?: string
   env?: Env
   cluster?: string
   owner?: string
@@ -552,31 +564,92 @@ export interface AppDictEntry {
   /** 展示名，可改，不影响监控配置；UI 一律展示 app_name */
   app_name: string
   /**
-   * {v2.45} 决策 104 / 107：**可选父级**——应用所属平台（平台字典主键，见 mockPlatformDict）；
-   * 表达纵向 `platform(1) → app(N)` 组成分解；**与业务维度正交（决策 96）不冲突**（决策 96 裁定的是 biz↔app 横向正交，
-   * 本字段是应用自身的纵向上级、非业务父级）；未挂时应用无平台归属、`platform` label 不注入。
+   * {v2.49 / 决策 110 / 111} 应用↔平台**多对多**（`app_platform_rel` 关联表，见 mockAppPlatformRel）：
+   * 该应用关联的**全部**平台（平台字典主键）——一套软件可同时部署在多个平台（如前台与中间件平台）。
+   * 原「单值可选父级 `platform_code`」定性与字段**已废弃**（决策 110，修订决策 104 / 107）；
+   * 单值 `platform_code` 仅作为**存量迁移来源**（一次性转入 `app_platform_rel`、`is_primary=true`）。
    */
-  platform_code?: string
+  platform_codes?: string[]
+  /**
+   * {v2.49 / 决策 111} 应用的**主平台**——同一应用至多一个（服务端唯一性校验，表单「主平台」单选）；
+   * 恒为 `platform_codes` 之一；为资源行 `platform_code` 未显式填写时提供**兜底**取值（见 5.2 / 5.24）。
+   */
+  primary_platform_code?: string
   description?: string
   /** enabled = 启用（可被资源引用）；disabled = 停用（仅可改展示名，不可删除） */
   status: 'enabled' | 'disabled'
 }
 
 export const mockApplicationDict: AppDictEntry[] = [
-  { app_code: 'web-portal', app_name: '电商前台', platform_code: 'ecommerce', description: '面向用户的电商门户前端', status: 'enabled' },
-  { app_code: 'order-service', app_name: '订单服务', platform_code: 'ecommerce', description: '订单创建 / 履约主链路', status: 'enabled' },
-  { app_code: 'pay-service', app_name: '支付服务', platform_code: 'ecommerce', description: '支付与资金链路', status: 'enabled' },
-  { app_code: 'gateway-service', app_name: '网关服务', platform_code: 'ecommerce', description: '统一南北向流量入口', status: 'enabled' },
-  { app_code: 'nginx-gateway', app_name: '网关 Nginx', platform_code: 'infra-middleware', description: 'Nginx 七层转发集群', status: 'enabled' },
-  { app_code: 'cache-service', app_name: '缓存服务', platform_code: 'infra-middleware', description: 'Redis 缓存集群', status: 'enabled' },
-  { app_code: 'message-queue', app_name: '消息队列', platform_code: 'infra-middleware', description: 'Kafka 消息中间件', status: 'enabled' },
-  { app_code: 'order-db', app_name: '订单库', platform_code: 'ecommerce', description: '订单主库（MySQL）', status: 'enabled' },
-  { app_code: 'gov-db', app_name: '政务数据库', platform_code: 'public-data-auth', description: '政务网域达梦数据库', status: 'enabled' },
-  // {v2.45} 未挂平台的子系统（platform_code 留空，演示可选父级为空分支）
-  { app_code: 'data-pipeline', app_name: '数据管道', description: '未挂平台的独立子系统（可选父级演示）', status: 'enabled' },
-  { app_code: 'legacy-portal', app_name: '已下线应用', platform_code: 'legacy-platform', description: '停用中，不可再被资源引用', status: 'disabled' },
+  { app_code: 'web-portal', app_name: '电商前台', platform_codes: ['ecommerce'], primary_platform_code: 'ecommerce', description: '面向用户的电商门户前端', status: 'enabled' },
+  { app_code: 'order-service', app_name: '订单服务', platform_codes: ['ecommerce'], primary_platform_code: 'ecommerce', description: '订单创建 / 履约主链路', status: 'enabled' },
+  { app_code: 'pay-service', app_name: '支付服务', platform_codes: ['ecommerce'], primary_platform_code: 'ecommerce', description: '支付与资金链路', status: 'enabled' },
+  { app_code: 'gateway-service', app_name: '网关服务', platform_codes: ['ecommerce'], primary_platform_code: 'ecommerce', description: '统一南北向流量入口', status: 'enabled' },
+  // {v2.49} 决策 110 / 111 应用↔平台 M:N 演示：网关 Nginx 同时部署在中间件平台与电商平台（主平台 = 中间件平台）
+  { app_code: 'nginx-gateway', app_name: '网关 Nginx', platform_codes: ['infra-middleware', 'ecommerce'], primary_platform_code: 'infra-middleware', description: 'Nginx 七层转发集群（跨平台部署）', status: 'enabled' },
+  { app_code: 'cache-service', app_name: '缓存服务', platform_codes: ['infra-middleware'], primary_platform_code: 'infra-middleware', description: 'Redis 缓存集群', status: 'enabled' },
+  { app_code: 'message-queue', app_name: '消息队列', platform_codes: ['infra-middleware'], primary_platform_code: 'infra-middleware', description: 'Kafka 消息中间件', status: 'enabled' },
+  { app_code: 'order-db', app_name: '订单库', platform_codes: ['ecommerce'], primary_platform_code: 'ecommerce', description: '订单主库（MySQL）', status: 'enabled' },
+  { app_code: 'gov-db', app_name: '政务数据库', platform_codes: ['public-data-auth'], primary_platform_code: 'public-data-auth', description: '政务网域达梦数据库', status: 'enabled' },
+  // {v2.49} 未挂平台的子系统（platform_codes 空、无主平台，演示可选关系为空分支）
+  { app_code: 'data-pipeline', app_name: '数据管道', description: '未挂平台的独立子系统（可选关系演示）', status: 'enabled' },
+  { app_code: 'legacy-portal', app_name: '已下线应用', platform_codes: ['legacy-platform'], primary_platform_code: 'legacy-platform', description: '停用中，不可再被资源引用', status: 'disabled' },
   // 注：设备类资源（网络设备 / 负载均衡）无应用归属，其资源 app_code 留空——见 5.2 必填标注
 ]
+
+// ---------- 应用↔平台关联表（app_platform_rel，PRD 5.24 / 决策 110 / 111） ----------
+/**
+ * {v2.49 / 决策 111} 应用↔平台**多对多**关联表（对齐 PRD §6.1 `/api/v2/platform/app-platform-rel`）：
+ * `is_primary` 标记应用**主平台**——同一 `app_code` 至多一个（服务端唯一性约束）；
+ * 该主平台为资源行 `platform_code` 未显式填写时提供**兜底**取值。
+ * 存量迁移：应用原单值 `platform_code` 一次性转入本表（一行、`is_primary=true`），迁移后应用侧单值字段废弃。
+ */
+export interface AppPlatformRelEntry {
+  app_code: string
+  platform_code: string
+  is_primary: boolean
+}
+
+export const mockAppPlatformRel: AppPlatformRelEntry[] = [
+  { app_code: 'web-portal', platform_code: 'ecommerce', is_primary: true },
+  { app_code: 'order-service', platform_code: 'ecommerce', is_primary: true },
+  { app_code: 'pay-service', platform_code: 'ecommerce', is_primary: true },
+  { app_code: 'gateway-service', platform_code: 'ecommerce', is_primary: true },
+  // M:N 演示：网关 Nginx 跨两平台，主平台为中间件平台
+  { app_code: 'nginx-gateway', platform_code: 'infra-middleware', is_primary: true },
+  { app_code: 'nginx-gateway', platform_code: 'ecommerce', is_primary: false },
+  { app_code: 'cache-service', platform_code: 'infra-middleware', is_primary: true },
+  { app_code: 'message-queue', platform_code: 'infra-middleware', is_primary: true },
+  { app_code: 'order-db', platform_code: 'ecommerce', is_primary: true },
+  { app_code: 'gov-db', platform_code: 'public-data-auth', is_primary: true },
+  { app_code: 'legacy-portal', platform_code: 'legacy-platform', is_primary: true },
+]
+
+/** {v2.49} 应用关联的全部平台（`app_platform_rel` 正向查询）：返回该应用的 platform_code 列表（空数组表示未挂平台） */
+export function getAppPlatforms(appCode?: string): string[] {
+  if (!appCode) return []
+  return mockAppPlatformRel.filter((r) => r.app_code === appCode).map((r) => r.platform_code)
+}
+
+/** {v2.49} 应用主平台（`is_primary` 唯一）：返回平台编码；未挂 / 无主平台返回 undefined */
+export function getPrimaryPlatformCode(appCode?: string): string | undefined {
+  if (!appCode) return undefined
+  return mockAppPlatformRel.find((r) => r.app_code === appCode && r.is_primary)?.platform_code
+}
+
+/** {v2.49} 平台反向查询已关联应用（`app_platform_rel` 反向，供平台管理页「关联应用」列展示） */
+export function getPlatformLinkedApps(platformCode?: string): AppPlatformRelEntry[] {
+  if (!platformCode) return []
+  return mockAppPlatformRel.filter((r) => r.platform_code === platformCode)
+}
+
+/**
+ * {v2.49 / 决策 110} 资源 `platform` 取值解析：资源行 `platform_code` **一等字段优先**；
+ * 未显式填写时兜底取所属应用 `is_primary` 主平台；均无则不注入（返回 undefined）。
+ */
+export function resolveResourcePlatformCode(r: { platform_code?: string; app_code?: string }): string | undefined {
+  return r.platform_code || getPrimaryPlatformCode(r.app_code)
+}
 
 /** 应用字典展示名解析：code → app_name；未登记或空值返回 code 本身或 '-' */
 export function resolveAppName(code?: string): string {
@@ -630,26 +703,33 @@ export function isPlatformDisabled(code?: string): boolean {
 /** 平台编码规范（决策 104，与业务 / 应用编码同规约）：小写字母 / 数字 / 连字符，长度 ≤ 64 */
 export const PLATFORM_CODE_RE = /^[a-z0-9-]{1,64}$/
 
-// ---------- 服务字典（PRD 5.22 / 决策 105 / 107） ----------
+// ---------- 服务字典（PRD 5.22 / 决策 105 / 107 / 112） ----------
 // 与应用字典（5.19）同构：编码不可变 + 展示名必填 + 停用不删除。
 // 层级角色：四层纵向组成分解的**第三层**（一个应用可含多个服务）；服务 label 定名 `svc`（值 = service_code）。
-// 与业务域 `biz` 正交（service : biz = N:1，主归属唯一）。
-// 服务与应用的关联经**资源行**的 app_code + service_code 承载（本字典不设父子字段）。
+// {v2.49 / 决策 112} 关系显式化（推翻原「本字典不设父子字段」口径）：
+//   - `app_code`（应用↔服务 1:N 的关系权威，可空）；
+//   - `biz_code`（服务↔业务 N:1 的主归属权威，可空，服务可被多业务共享但主归属唯一）。
+//   字典关系字段是**关系权威**，资源行 app_code / service_code 是**实例归属的镜像**；二者数据同源、口径一致。
 export interface ServiceDictEntry {
   /** 服务编码，进 svc 标签，创建后不可变 */
   service_code: string
   /** 展示名，可改，不影响监控配置；UI 一律展示 service_name */
   service_name: string
+  /** {v2.49 / 决策 112} 关系字段：所属应用（应用字典主键，可空）——应用↔服务 1:N 关系权威 */
+  app_code?: string
+  /** {v2.49 / 决策 112} 关系字段：主业务（业务分组字典主键，可空）——服务↔业务 N:1 主归属权威 */
+  biz_code?: string
   description?: string
   /** enabled = 启用（可被资源引用）；disabled = 停用（仅可改展示名，不可删除） */
   status: 'enabled' | 'disabled'
 }
 
 export const mockServiceDict: ServiceDictEntry[] = [
-  { service_code: 'order-service-api', service_name: '订单服务接口', description: '订单创建 / 查询主接口', status: 'enabled' },
-  { service_code: 'payment-api', service_name: '支付接口', description: '支付下单 / 回调接口', status: 'enabled' },
-  { service_code: 'teacher-identity-api', service_name: '教师身份核验接口', description: '政务侧教师身份核验 API（示例服务）', status: 'enabled' },
-  { service_code: 'legacy-api', service_name: '已下线接口', description: '停用中，不可再被资源引用', status: 'disabled' },
+  { service_code: 'order-service-api', service_name: '订单服务接口', app_code: 'order-service', biz_code: 'order', description: '订单创建 / 查询主接口', status: 'enabled' },
+  { service_code: 'payment-api', service_name: '支付接口', app_code: 'pay-service', biz_code: 'payment', description: '支付下单 / 回调接口', status: 'enabled' },
+  // {v2.49} 关系字段可空演示：政务侧示例服务暂无明确主业务（biz_code 留空）
+  { service_code: 'teacher-identity-api', service_name: '教师身份核验接口', app_code: 'gov-db', description: '政务侧教师身份核验 API（示例服务，主业务待定）', status: 'enabled' },
+  { service_code: 'legacy-api', service_name: '已下线接口', app_code: 'legacy-portal', biz_code: 'retired-biz', description: '停用中，不可再被资源引用', status: 'disabled' },
 ]
 
 /** 服务字典展示名解析：code → service_name；未登记或空值返回 code 本身或 '-' */
@@ -836,13 +916,14 @@ export const mockStatusMappingConfig: StatusMappingConfig = {
 }
 
 /** 五大类资源固定列导入模板（PRD 5.16.1，含 network_domain / biz_code 列；{v2.17} 全资源类必填 biz_code）
- * {v2.45} 决策 105 / 107：application / generic_target 模板列补 `service_code`（服务归属可选列，留空即纯自由文本）。 */
+ * {v2.45} 决策 105 / 107：application / generic_target 模板列补 `service_code`（服务归属可选列，留空即纯自由文本）。
+ * {v2.49} 决策 110：五类模板均补 `platform_code` 可空列（资源行平台一等字段；留空按所属应用 `is_primary` 主平台兜底）。 */
 export const IMPORT_TEMPLATE_COLUMNS: Record<ResourceCategory, string[]> = {
-  host: ['network_domain', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
-  database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
-  middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
-  application: ['network_domain', 'service_name', 'service_code', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'status'],
-  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'service_code', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'status'],
+  host: ['network_domain', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status'],
+  database: ['network_domain', 'database_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status'],
+  middleware: ['network_domain', 'middleware_type', 'instance_ip', 'port', 'version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status'],
+  application: ['network_domain', 'service_name', 'service_code', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status'],
+  generic_target: ['network_domain', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'service_code', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'status'],
 }
 
 /** {v2.41 / v2.45} 决策 97 / 104 / 105：Excel 批量声明 sheet（四类声明）
@@ -870,13 +951,16 @@ export const EXCEL_DECLARATION_SHEETS: { key: string; code_column: string; name_
  * {v2.31} `tenant_id`：**MVP 单租户不注入**（默认模板不含该映射，注入骨架恒通过）；
  * **v0.2 起为五类默认模板的内置默认映射**（`DefaultMappingBuilders` 统一生成 → target 级 `tenant` 标签），
  * 且前端**默认启用**（用户可关闭，不默认关闭）。理由见 TENANT_MAPPING_NOTES。
+ *
+ * {v2.49 / 决策 110} `platform_code` 为**资源行一等业务字段**（非派生标签）——经标签模板
+ * `resource_field` 映射 `platform_code → platform` 注入，故进入全部五类资源字段选项。
  */
 export const RESOURCE_FIELD_OPTIONS: Record<ResourceCategory, string[]> = {
-  host: ['resource_id', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  database: ['resource_id', 'instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  middleware: ['resource_id', 'instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  application: ['resource_id', 'instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
-  generic_target: ['resource_id', 'instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  host: ['resource_id', 'instance_name', 'hostname', 'instance_ip', 'os_type', 'os_version', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  database: ['resource_id', 'instance_name', 'database_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  middleware: ['resource_id', 'instance_name', 'middleware_type', 'instance_ip', 'port', 'version', 'connection_string', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  application: ['resource_id', 'instance_name', 'service_name', 'biz_code', 'health_check_url', 'protocol', 'endpoint', 'port', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
+  generic_target: ['resource_id', 'instance_name', 'target_name', 'instance_ip', 'port', 'metrics_path', 'scheme', 'exporter_type', 'custom_labels', 'biz_code', 'app_code', 'platform_code', 'env', 'cluster', 'owner', 'network_domain_id', 'tenant_id'],
 }
 
 /** {v2.31} v0.2 内置默认映射前瞻：五类默认模板在 v0.2 开启多租户时统一追加 `tenant_id → tenant`，前端默认启用 */
@@ -1061,6 +1145,8 @@ export const mockResources: Resource[] = [
     version: 'dm8',
     connection_string: 'dm://system:****@192.168.1.41:5236',
     app_code: 'gov-db',
+    // {v2.49} 决策 110：数据库类资源平台归属一等字段（显式填写）
+    platform_code: 'public-data-auth',
     env: 'prod',
     cluster: 'dm-cluster',
     owner: '王五',
@@ -1128,6 +1214,8 @@ export const mockResources: Resource[] = [
     app_code: 'order-service',
     // {v2.45} 决策 105：服务归属可选（仅 application / generic_target 挂），留空即纯自由文本；填值须引用未停用服务条目
     service_code: 'order-service-api',
+    // {v2.49} 决策 110：平台归属一等字段（显式填写，进 platform 标签）
+    platform_code: 'ecommerce',
     env: 'prod',
     cluster: 'k8s-prod',
     owner: '周八',
@@ -1150,6 +1238,8 @@ export const mockResources: Resource[] = [
     port: 9100,
     app_code: 'pay-service',
     service_code: 'payment-api',
+    // {v2.49} 决策 110：平台归属一等字段（显式填写）
+    platform_code: 'ecommerce',
     env: 'staging',
     cluster: 'k8s-staging',
     owner: '吴九',
@@ -1223,6 +1313,8 @@ export const mockResources: Resource[] = [
     app_code: 'order-service',
     // {v2.45} 业务型 generic_target 亦可挂服务（仅 application / generic_target 适用）
     service_code: 'order-service-api',
+    // {v2.49} 决策 110：业务型其他监控目标平台归属一等字段
+    platform_code: 'ecommerce',
     env: 'prod',
     cluster: 'probe-cluster',
     owner: '郑十',
@@ -1279,6 +1371,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       // {v2.25} 稳定身份标签：resource_id 是覆盖率三态聚合与资源回连的唯一稳定键，五类默认模板必含
       { mapping_id: 'mp-host-09', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-host-02', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      // {v2.49} 决策 110：platform 由默认模板映射注入（资源行 platform_code → platform；未填时兜底取应用主平台）
+      { mapping_id: 'mp-host-10', source_field: 'platform_code', source_type: 'resource_field', target_label: 'platform', enabled: true, transform: '' },
       { mapping_id: 'mp-host-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-host-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-host-05', source_field: 'hostname', source_type: 'resource_field', target_label: 'hostname', enabled: true, transform: '' },
@@ -1302,6 +1396,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-db-01', source_field: 'instance_ip:port', source_type: 'composite', target_label: 'instance', enabled: true, transform: '' },
       { mapping_id: 'mp-db-02', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-db-03', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      // {v2.49} 决策 110：platform 由默认模板映射注入
+      { mapping_id: 'mp-db-08', source_field: 'platform_code', source_type: 'resource_field', target_label: 'platform', enabled: true, transform: '' },
       { mapping_id: 'mp-db-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-db-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-db-06', source_field: 'database_type', source_type: 'resource_field', target_label: 'database_type', enabled: true, transform: '' },
@@ -1322,6 +1418,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       // {v2.25} 稳定身份标签：五类默认模板必含 resource_id → resource_id
       { mapping_id: 'mp-mw-def-02', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-02', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      // {v2.49} 决策 110：platform 由默认模板映射注入
+      { mapping_id: 'mp-mw-def-03', source_field: 'platform_code', source_type: 'resource_field', target_label: 'platform', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-mw-05', source_field: 'middleware_type', source_type: 'resource_field', target_label: 'middleware_type', enabled: true, transform: '' },
@@ -1361,6 +1459,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-app-07', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-app-01', source_field: 'service_name', source_type: 'resource_field', target_label: 'service_name', enabled: true, transform: '' },
       { mapping_id: 'mp-app-02', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      // {v2.49} 决策 110：platform 由默认模板映射注入
+      { mapping_id: 'mp-app-08', source_field: 'platform_code', source_type: 'resource_field', target_label: 'platform', enabled: true, transform: '' },
       { mapping_id: 'mp-app-03', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-app-04', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-app-05', source_field: 'health_check_url', source_type: 'resource_field', target_label: 'health_check_url', enabled: true, transform: '' },
@@ -1384,6 +1484,8 @@ export const mockLabelTemplates: LabelTemplate[] = [
       { mapping_id: 'mp-gen-08', source_field: 'resource_id', source_type: 'resource_field', target_label: 'resource_id', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-02', source_field: 'target_name', source_type: 'resource_field', target_label: 'target_name', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-03', source_field: 'app_code', source_type: 'resource_field', target_label: 'app', enabled: true, transform: '' },
+      // {v2.49} 决策 110：platform 由默认模板映射注入
+      { mapping_id: 'mp-gen-09', source_field: 'platform_code', source_type: 'resource_field', target_label: 'platform', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-04', source_field: 'env', source_type: 'resource_field', target_label: 'env', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-05', source_field: 'cluster', source_type: 'resource_field', target_label: 'cluster', enabled: true, transform: '' },
       { mapping_id: 'mp-gen-06', source_field: 'custom_labels.*', source_type: 'resource_field', target_label: 'custom_labels.*', enabled: true, transform: '' },
