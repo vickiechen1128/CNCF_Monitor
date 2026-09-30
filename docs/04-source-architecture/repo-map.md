@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-29 09:24 · commit: `2693dcf`
+> 生成时间: 2026-09-30 12:41 · commit: `bb0d59c`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -52,6 +52,7 @@
 - `func validateNetworkDomainZoneType(db *gorm.DB, zt string) error`
 - `func nameExists(db *gorm.DB, name, excludeID string) (bool, error)`
 - `func CreateNetworkDomain(db *gorm.DB) gin.HandlerFunc`
+- `func validateCenterEndpoint(raw string) error`
 
 ### `platform/admin/networkdomain/create_test.go`
 
@@ -387,6 +388,23 @@
 - `func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) AlertItem`
 - `func normalizeNotifyStatus(st amAlertStatus) string`
 
+### `platform/alertmanager/config/autoapply_test.go`
+
+- `func stubAutoApply(t *testing.T, errVal error) (*int32, *string)`
+- `func TestSubmitTriggersAutoApplyManagementDomain(t *testing.T)`
+- `func TestSubmitDegradesWhenAutoApplyFails(t *testing.T)`
+- `func TestRemountAlsoTriggersAutoApply(t *testing.T)`
+- `func TestSubmitAutoApplyFailureHandlerLogsNot500(t *testing.T)`
+- `func newAutoApplyDB(t *testing.T) *gorm.DB`
+- `func stubGeneratorTools(t *testing.T)`
+- `type deploymentRecorder struct`
+- `method (*deploymentRecorder) Apply(*generator.ConfigArtifacts) error`
+- `func seedAMMgmtDomain(t *testing.T, db *gorm.DB, id string)`
+- `func seedAMHost(t *testing.T, db *gorm.DB, domainID, resourceID string)`
+- `func seedAMJob(t *testing.T, db *gorm.DB, domainID, name string)`
+- `func TestApplyManagementDomainConfigNoChangesReturnsNil(t *testing.T)`
+- `func TestSubmitAutoAppliesManagementDomainEndToEnd(t *testing.T)`
+
 ### `platform/alertmanager/config/config_test.go`
 
 - `func newMemConfigDB(t *testing.T) *gorm.DB`
@@ -417,6 +435,7 @@
 
 - `type ErrValidation struct`
 - `method (*ErrValidation) Error() string`
+- `func applyManagementDomainConfig(db *gorm.DB, by string) error`
 - `func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
@@ -477,6 +496,7 @@
 - `func BridgeHandler(db *gorm.DB, cfg BridgeConfig) gin.HandlerFunc`
 - `func RegisterBridgeRoutes(v1 *gin.RouterGroup, db *gorm.DB, cfg BridgeConfig)`
 - `func bridgeTokenValid(expected, got string) bool`
+- `func bearerToken(r *http.Request) string`
 - `func parseUintQuery(s string) (uint, error)`
 - `func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel, rawID string) (*models.NotifyTemplate, error)`
 - `func respondBridgeTemplateError(c *gin.Context, err error)`
@@ -489,6 +509,7 @@
 - `method (*fakeReceiver) lastBody() []byte`
 - `func startFakeReceiver(t *testing.T, f *fakeReceiver) string`
 - `func newBridgeRouter(db *gorm.DB, cfg BridgeConfig) *gin.Engine`
+- `func doBridgeJSON(t *testing.T, r *gin.Engine, path, token string, body interface{}) (int, channelResp)`
 - `func amBridgePayload(status string) map[string]interface{}`
 - `func mustCreateChannel(t *testing.T, db *gorm.DB, name, chType, url string, enabled bool) *models.NotifyChannel`
 - `func TestBridgeRejectsMissingOrWrongToken(t *testing.T)`
@@ -500,10 +521,14 @@
 - `func TestBridgeTemplateChannelTypeMismatch(t *testing.T)`
 - `func TestBridgeSendFailureReturnsBadGateway(t *testing.T)`
 - `func TestBridgeSuccessStructuredLog(t *testing.T)`
+- `func TestSanitizeOutboundErrorStripsURL(t *testing.T)`
+- `func TestOutboundClientDoesNotFollowRedirects(t *testing.T)`
 
 ### `platform/alertmanager/notify/channel.go`
 
+- `func SetAllowPrivateWebhookTargets(allow bool)`
 - `func ValidateWebhookURL(raw string) error`
+- `func rejectPrivateHost(host string) error`
 - `type ChannelInput struct`
 - `type UpdateChannelInput struct`
 - `func CreateChannel(db *gorm.DB, in ChannelInput) (*models.NotifyChannel, error)`
@@ -527,6 +552,7 @@
 ### `platform/alertmanager/notify/channel_test.go`
 
 - `func newNotifyDB(t *testing.T) *gorm.DB`
+- `func TestValidateWebhookURLRejectsPrivateTargets(t *testing.T)`
 - `func TestCreateChannelPersistsAndValidates(t *testing.T)`
 - `func TestChannelViewMasksCredentials(t *testing.T)`
 - `func TestUpdateChannelPartialAndNotFound(t *testing.T)`
@@ -540,6 +566,7 @@
 
 - `func newOutboundHTTPClient() *http.Client`
 - `func sendOutbound(ctx context.Context, target string, body []byte) (int, error)`
+- `func sanitizeOutboundError(err error) error`
 
 ### `platform/alertmanager/notify/receiver_snippet.go`
 
@@ -548,8 +575,9 @@
 - `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
 - `func sanitizeReceiverName(raw string) string`
 - `func BuildReceiverSnippet(ch *models.NotifyChannel, nameOverride string, cfg ReceiverSnippetConfig) (ReceiverSnippet, error)`
-- `func buildBridgeURL(baseURL string, channelID uint, token string) string`
-- `func buildReceiverSnippetYAML(name, rawURL string) string`
+- `func buildBridgeURL(baseURL string, channelID uint) string`
+- `func buildReceiverSnippetYAML(name, rawURL, credentials string) string`
+- `func escapeSingleQuotes(s string) string`
 - `func ReceiverSnippetHandler(db *gorm.DB, cfg ReceiverSnippetConfig) gin.HandlerFunc`
 
 ### `platform/alertmanager/notify/receiver_snippet_test.go`
@@ -603,7 +631,7 @@
 - `func ListTemplates(db *gorm.DB) ([]models.NotifyTemplate, error)`
 - `func GetTemplate(db *gorm.DB, id uint) (*models.NotifyTemplate, error)`
 - `func BuiltinTemplateForType(db *gorm.DB, channelType string) (*models.NotifyTemplate, error)`
-- `func findTemplateByChecksum(db *gorm.DB, channelType, checksum string) (*models.NotifyTemplate, error)`
+- `func findTemplateByChecksum(db *gorm.DB, name, channelType, checksum string) (*models.NotifyTemplate, error)`
 - `type TemplateView struct`
 
 ### `platform/alertmanager/notify/template_handler.go`
@@ -622,6 +650,7 @@
 - `func TestSubmitTemplateRejectsValidationFailureNoPersist(t *testing.T)`
 - `func TestSubmitTemplateRejectsBadNameAndType(t *testing.T)`
 - `func TestSubmitTemplateIdempotent(t *testing.T)`
+- `func TestSubmitTemplateCloneBuiltinVerbatimCreatesNewRow(t *testing.T)`
 - `func TestRemountTemplateWritesNewRow(t *testing.T)`
 - `func TestEnsureBuiltinTemplatesIdempotent(t *testing.T)`
 - `func TestBuiltinFeishuTemplateParses(t *testing.T)`
@@ -797,6 +826,7 @@
 - `func injectSeededAdmin(db *gorm.DB, g *gin.RouterGroup)`
 - `type apiClient struct`
 - `method (*apiClient) json(method, path, body string) (int, map[string]interface{})`
+- `method (*apiClient) jsonAuth(method, path, token, body string) (int, map[string]interface{})`
 - `method (*apiClient) multipart(path string, fields map[string]string, fileField, fileName string, fileBytes []byte) (int, map[s…`
 - `func mustJSON(t *testing.T, v interface{}) string`
 - `func buildXLSX(t *testing.T, category models.ResourceCategory, rows [][]string) []byte`
@@ -1846,6 +1876,8 @@
 - `func TestDiscardImpactHandler(t *testing.T)`
 - `func TestGenerateDraftCenterOnlyGeneratesRuleFilesAndAlerting(t *testing.T)`
 - `func todaySuffix() string`
+- `func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T)`
+- `func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T)`
 
 ### `platform/configcenter/draft/handler.go`
 
@@ -1864,6 +1896,7 @@
 
 - `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
+- `func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
 - `func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func ShouldSupersedePending(db *gorm.DB, dom *models.NetworkDomain, pending *models.ConfigDraft) (bool, error)`
 - `func latestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
@@ -1926,6 +1959,7 @@
 - `func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error)`
 - `func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error)`
 - `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
+- `func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
 - `type ErrNotFound struct`
 - `method (ErrNotFound) Error() string`
 
@@ -1992,6 +2026,34 @@
 - `func expandLabelTemplate(tmpl *models.LabelTemplate, fields map[string]string, address string) map[string]string`
 - `func mergeIntoLabels(system, templateLabels map[string]string) map[string]string`
 
+### `platform/configcenter/generator/notify_receivers.go`
+
+- `type NotifyReceiverInput struct`
+- `type NotifyReceiverConflict struct`
+- `type genHTTPConfig struct`
+- `type genAuthorization struct`
+- `type genWebhookConfig struct`
+- `type genReceiver struct`
+- `func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string, []NotifyReceiverConflict, error)`
+- `func bridgeReceiverURL(base string, channelID uint) string`
+- `func platformReceiverNode(name, url, token string) (*yaml.Node, error)`
+- `func mappingValueIndex(m *yaml.Node, key string) int`
+- `type existingReceiver struct`
+- `func firstWebhookURL(recv *yaml.Node) string`
+- `func isPlatformBridgeURL(u string) bool`
+
+### `platform/configcenter/generator/notify_receivers_test.go`
+
+- `func chWithID(id uint, name string) models.NotifyChannel`
+- `func TestMaterializeNotifyReceiversAppendsPlatformReceiver(t *testing.T)`
+- `func TestMaterializeNotifyReceiversOmitsHTTPConfigWithoutToken(t *testing.T)`
+- `func TestMaterializeNotifyReceiversNoop(t *testing.T)`
+- `func TestMaterializeNotifyReceiversHandwrittenNameConflict(t *testing.T)`
+- `func TestMaterializeNotifyReceiversInternalDuplicate(t *testing.T)`
+- `func TestValidateArtifactsNotifyReceiverConflict(t *testing.T)`
+- `func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T)`
+- `func TestMaterializeNotifyReceiversHandwrittenSquatStillConflicts(t *testing.T)`
+
 ### `platform/configcenter/generator/render.go`
 
 - `type cfgGlobal struct`
@@ -2028,16 +2090,36 @@
 
 ### `platform/configcenter/generator/validate.go`
 
+- `type ToolCheckStatus = int`
 - `func ValidateTargetGroups(groups []TargetGroup) error`
 - `func validateTargetAddress(addr string) error`
 - `func validTargetHost(host string) bool`
 - `func validateLabelName(name string) error`
 - `func ValidateArtifacts(ca *ConfigArtifacts, includeBlackbox bool, platformJobs []string) (models.ValidationStatus, models.Va…`
 - `func emptyTargetsMessage(name string, diag *TargetDiagnostics) string`
-- `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (bool, string)`
+- `func runToolChecks(ca *ConfigArtifacts, includeBlackbox bool) (ToolCheckStatus, string)`
+- `func toolCheckStatus(err error) ToolCheckStatus`
 - `func runPromtoolCheck(ca *ConfigArtifacts) error`
+- `type toolNotExecutableError struct`
+- `method (*toolNotExecutableError) Error() string`
+- `method (*toolNotExecutableError) Unwrap() error`
+- `func isToolNotExecutable(err error) bool`
+- `func toolCheckError(tool, out string, err error) error`
 - `func runBlackboxCheck(blackboxYAML string) error`
 - `func runAmmtoolCheck(alertmanagerYAML string) error`
+
+### `platform/configcenter/generator/validate_toolcheck_test.go`
+
+- `func TestToolCheckErrorKeepsToolOutput(t *testing.T)`
+- `func TestToolCheckErrorEmptyOutputFallsBackToExecError(t *testing.T)`
+- `func TestToolCheckStatusAttribution(t *testing.T)`
+- `func stubToolChecker(t *testing.T, st ToolCheckStatus, msg string)`
+- `func TestValidateArtifactsPendingWhenToolNotExecutable(t *testing.T)`
+- `func TestValidateArtifactsFailedWhenToolCheckUserConfig(t *testing.T)`
+- `func fakeToolsInPATH(t *testing.T, tools map[string][]byte)`
+- `func TestRunToolChecksClassifiesPlatformMismatchAsUnavailable(t *testing.T)`
+- `func TestRunToolChecksClassifiesBlackboxPlatformMismatchAsUnavailable(t *testing.T)`
+- `func TestRunToolChecksClassifiesConfigErrorAsUserConfig(t *testing.T)`
 
 ### `platform/configcenter/register.go`
 
@@ -2583,6 +2665,7 @@
 - `func TestConfigHandlerServeZipAnd304(t *testing.T)`
 - `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
 - `func TestHeartbeatWritebackAgentPullDeployment(t *testing.T)`
+- `func TestHeartbeatWritebackAgentPullDeploymentFlipsAllPending(t *testing.T)`
 - `func TestHeartbeatRequestDecodesEdgeTargets(t *testing.T)`
 - `func countEdgeTargetSnapshots(t *testing.T, db *gorm.DB, domainID string) int64`
 - `func TestHeartbeatPersistsTargetSnapshots(t *testing.T)`
@@ -2591,6 +2674,8 @@
 - `func TestHeartbeatEmptyTargetsNoDirtyData(t *testing.T)`
 - `func TestHeartbeatTargetPersistenceIndependent(t *testing.T)`
 - `func TestHeartbeatTargetTruncatesAtMax(t *testing.T)`
+- `func TestResolveDownloadAuthorityPrefersCenterEndpoint(t *testing.T)`
+- `func TestResolveDownloadAuthorityEndToEnd(t *testing.T)`
 
 ### `platform/edge/heartbeat_handler.go`
 
@@ -2613,6 +2698,8 @@
 - `func configVersionString(v *models.ConfigVersion) string`
 - `func latestConfigVersion(db *gorm.DB, domainID string) (*models.ConfigVersion, error)`
 - `func configDownloadURL(authority, domainID string) string`
+- `func resolveDownloadAuthority(dom *models.NetworkDomain, c *gin.Context) string`
+- `func authorityHost(ep string) string`
 - `func requestAuthority(c *gin.Context) string`
 - `func nowUTC() time.Time`
 
@@ -2877,6 +2964,8 @@
 
 ### `platform/models/alertmanager_notify.go`
 
+- `func SanitizeReceiverName(raw string) string`
+- `method (NotifyChannel) ReceiverName() string`
 - `type NotifyChannelType = string`
 - `func ValidNotifyChannelTypes() []string`
 - `func IsValidNotifyChannelType(t string) bool`
@@ -4232,6 +4321,12 @@
 - `const CONFIG_PREVIEW_PATH`
 - `const configStatusLabel`
 - `const configStatusColor`
+- `function isConfigApplied`
+- `const CONFIG_STATUS_APPLIED_LABEL`
+- `const CONFIG_STATUS_PENDING_LABEL`
+- `const CONFIG_STATUS_PENDING_TIP`
+- `interface ConfigStatusView`
+- `function configStatusView`
 - `const silenceStatusLabel`
 - `const silenceStatusColor`
 - `type ValidateSection`
@@ -4261,6 +4356,12 @@
 - `const ALERT_CONFIG_REQUIRED_BLOCKS`
 - `const ALERT_CONFIG_EXEMPT_BLOCKS`
 - `const ALERTMANAGER_MIN_SKELETON`
+- `const ALERT_DERIVED_PREVIEW_TITLE`
+- `const ALERT_DERIVED_PREVIEW_DESC`
+- `const ALERT_DERIVED_PREVIEW_SCOPE`
+- `const ALERT_DERIVED_PREVIEW_RENAME_TIP`
+- `const ALERT_DERIVED_PREVIEW_EMPTY`
+- `const ALERT_DERIVED_PREVIEW_FORBIDDEN`
 - `const notifyChannelTypeLabel`
 - `const notifyChannelTypeColor`
 - `const NOTIFY_CHANNEL_TYPE_OPTIONS`
@@ -4279,6 +4380,12 @@
 - `function useAmAlerts`
 - `function usePromAlerts`
 - `function useNetworkDomains`
+
+### `ui-custom/web/src/pages/alerts/useDerivedReceivers.ts`
+
+- `interface DerivedReceiverRow`
+- `interface UseDerivedReceiversResult`
+- `function useDerivedReceivers`
 
 ### `ui-custom/web/src/pages/alerts/useHistoryAlerts.ts`
 

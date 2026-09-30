@@ -13,9 +13,9 @@
 | Phase | Track B 增量（决策 59/60 告警分发 MVP 最小闭环）+ Track B+ 增量（v1.12 告警状态查看提前 MVP，强制 security-reviewer）                                                                                                                                                          |
 | 模块    | module-08-alert-dispatch                                                                                                                                                                                                                                    |
 | 分支    | feat/module-08-alert-dispatch                                                                                                                                                                                                                               |
-| 版本    | v2026-09-18（§10.4 补登 `GET /api/v1/alerts/history` 请求参数与 envelope + 「7d 窗口 × 默认步长」点数上限约束，决策 90）叠加 v2026-09-11b（§4 新增 `GET /silences/label-options` 静默 matcher 标签选项聚合端点 + LabelOptionGroup 响应结构，Matcher 补 AND 语义与正则预检说明，v1.16 决策 71）叠加 v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
-| 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP；2026-09-10 决策 68-1 键名口径收敛）                                                                                                                                                                                                                                |
-| 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61 + 分轨判定记录 2026-09-08；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
+| 版本    | v2026-09-29（**新增 §11**：PL-3 通知渲染桥与渠道 / 模板管理全部端点 + 字段 + 鉴权 + B 路线 M09 物化行为，决策 74 方案 B；H-1 令牌改 `Authorization: Bearer` 请求头、M-2 webhook 私网拒绝）叠加 v2026-09-18（§10.4 补登 `GET /api/v1/alerts/history` 请求参数与 envelope + 「7d 窗口 × 默认步长」点数上限约束，决策 90）叠加 v2026-09-11b（§4 新增 `GET /silences/label-options` 静默 matcher 标签选项聚合端点 + LabelOptionGroup 响应结构，Matcher 补 AND 语义与正则预检说明，v1.16 决策 71）叠加 v2026-09-11（§10.1/§10.2 实例字段扩展，决策 70：新增 `instance_address` / `resource_id` / `resource_name` / `resource_category` / `resource_ip` / `resource_port`，`instance_display` 语义修订为「`resource_name` 非空取之，否则取 `instance_address`」，`labels.instance` 明确为**采集地址**；不删旧字段、向后兼容）叠加 v2026-09-10（§10 网域取值口径修正：`labels.network_domain` 明确为服务端解析 + 回写，F-07；**同日决策 68-1 键名收敛**——`labels.network_domain_id` 定位修订为历史/兼容键、`network_domain` 为唯一标签键；字段名与响应形状不变）                                                                                                                                                                                                                                             |
+| 生成方式  | planner 派生（决策 59/60，承接决策 47；开发期决策 61 修正 silence API 为 v2；v1.12 告警状态查看提前 MVP；2026-09-10 决策 68-1 键名口径收敛；2026-09-29 开发侧补登 PL-3 端点与物化行为，决策 74）                                                                                                                                                                                                                                |
+| 来源    | PRD `Module_08_Alertmanager_Notification_Management.md`（v1.12）§1/§3.1/§5.1/§5.2/§5.4/§6.3/§6.6/§9；PRD `Module_02_Query_Center.md`（v1.12）§3.1/§6.1/§11；PRD `Module_09`（v1.52）§3.4/§5.4/§9.2；`design-decisions.md` 决策 49/55/56/59/60/61/74 + 分轨判定记录 2026-09-08；`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3；`security-review-pl3.md`；`03_API_Standard.md` §7；`05_Code_Implementation_Plan.md` §7.8/§7.9；`task-sequence.yaml` |
 
 ## 1. 通用契约
 
@@ -157,7 +157,9 @@
 
 - `change_status` 回写 M08：M09 confirm→下发 reload 成功 → 最新 `AlertmanagerConfigVersion.applied_at/applied_by` 回填、`status=applied`；M08 页面「当前生效配置」从此版本读取。
 
-- 前端动线：M08 告警配置页挂载成功 → 跨模块跳转 `#/config-preview`（管理域 default 变更单）→ 人工确认 → 下发记录可见 → 回 M08 applied（决策 60）。
+- **M08 apply = 收录 + 自动下发管理域（dev-feedback §25 方案 A）**：挂载校验通过落库（`status=applied` 仅表示「已收录为 M09 源」）后，M08 自动对管理域 `default` 复用/生成 pending 草稿并确认下发（`GenerateDraft`→`ConfirmDraft`→`DiskApplier` 写 `config-output/alertmanager.yml` + AM reload），无需人工确认；**配置是否真实生效以 `applied_at` 为准**（写盘成功后由 `writebackAlertmanagerApplied` 回填）。自动下发失败不阻断收录（降级仅记日志，由 30s watcher / 人工确认兜底）。
+
+- 前端动线：M08 告警配置页挂载成功 → 管理域 `default` 自动确认下发（落盘 + AM reload）→ 回 M08 读 `applied_at` 判定「已生效 / 已提交待确认下发」（决策 60 / §25）。
 
 ## 6. 枚举字典
 
@@ -312,3 +314,89 @@
 > 3. **`step` 的语义是「期望粒度」而非「必须满足上限的取值」** —— 调用方只需表达想要的粒度（前端取 30s，窄窗口保持精度），点数上限由服务端保证；`step` 默认 30s 的入参语义不变（未传时取 30、小于 15 时抬到 15）。
 >
 > **估算精度**：「恢复时间（估算）」= 最后一个 firing 样本时间 + 一个**实际生效 step**；「持续时长」同样以 step 为粒度。**窄窗口（< 约 91.6h）实际生效 step 为 30s**（调用方传入的期望粒度原样保留，默认 24h 窗口不受影响）；宽窗口被抬高（7d → 55s）时估算偏差点上限随之变大——本页已按「估算值」对用户披露（决策 9），`data.step` 供消费方自查。
+
+## 11. PL-3 通知渲染桥与渠道 / 模板管理 API（v2026-09-29 增量，决策 74）
+
+> **本节补登（2026-09-29，决策 74 方案 B）**：PL-3（通知渠道 / 通知模板 / 平台内置渲染桥）此前仅在**设计提案**中定义（`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3），未进任何契约快照（dev-feedback #17 / #21）。本节按已落地的实现与**决策 74 定稿补充**（`design-decisions.md`，2026-09-29）补登全部端点、字段、鉴权与错误码；**权威以本节为准**，提案降为设计背景。
+>
+> **方案 B 口径（决策 74 定稿）**：已启用渠道的接收人生效引用由 **M09 配置生成器自动物化**进管理域（`default`）的 `alertmanager.yml`（配置即生效，与 M07 `LabelTemplate` 同范式）；「接收人配置片段」端点降为用户**手写自定义 receiver** 时的参考。物化行为见 §11.6。
+
+### 11.1 端点总表
+
+| 方法 | 路径 | 请求体 / Query | 响应 data | 鉴权 | 业务错误 |
+| ---- | ---- | -------------- | --------- | ---- | -------- |
+| GET | `/api/v2/platform/alertmanager/notify-channels` | — | `{ items: [ChannelView] }` | 全局认证（读） | — |
+| POST | `/api/v2/platform/alertmanager/notify-channels` | `{ name, type, webhook_url, secret?, enabled? }` | `ChannelView` | `RequireAdmin` | `bad_request`：名称空 / 类型非法 / webhook 非法（含私网、环回、link-local、云元数据地址，见 §11.5） |
+| PUT | `/api/v2/platform/alertmanager/notify-channels/{id}` | 同 POST，字段**指针语义**（仅更新显式提供项；`webhook_url`/`secret` 留空表示不改） | `ChannelView` | `RequireAdmin` | `bad_request`；`not_found` |
+| DELETE | `/api/v2/platform/alertmanager/notify-channels/{id}` | — | `{}` | `RequireAdmin` | `not_found` |
+| GET | `/api/v2/platform/alertmanager/notify-channels/{id}/receiver-snippet` | — | `ReceiverSnippet`（见 §11.4） | `RequireAdmin` | `not_found` |
+| GET | `/api/v2/platform/alertmanager/notify-templates` | — | `{ items: [TemplateView] }` | 全局认证（读） | — |
+| POST | `/api/v2/platform/alertmanager/notify-templates` | `{ name, channel_type, content }` | `TemplateView` | `RequireAdmin` | `bad_request`：Go template 语法校验失败 / 渠道类型非法 |
+| POST | `/api/v2/platform/alertmanager/notify-templates/{id}/remount` | — | `TemplateView`（回滚后的新版本） | `RequireAdmin` | `bad_request`；`not_found` |
+| POST | `/api/v1/webhooks/notify` | Query `channel`（必需，真实数字渠道 ID）；`template`（可选，模板数字 ID）；body = AM 原生 webhook 载荷 | `{ success, fail }` | **内网令牌**（`Authorization: Bearer <token>`，见 §11.2） | `unauthorized`（缺 / 错令牌）；`bad_request`（渠道缺失或禁用 / 携带请求方目标地址参数 / 模板与渠道类型不匹配）；`not_found`（渠道未登记）；`bad_gateway`（出站失败） |
+
+### 11.2 桥端点鉴权（H-1 修订，2026-09-29）
+
+- 调用方为**中心 Alertmanager**，凭据为平台内部通知桥令牌，由 `--notify.bridge-token`（env 覆盖 `NOTIFY_BRIDGE_TOKEN`）注入；**令牌为空时桥端点一律 401**（安全默认，不开放匿名转发）。
+- **令牌经请求头 `Authorization: Bearer <token>` 传递，绝不写入 URL query**（`gin.Default()` 访问日志会明文落盘 RawQuery；此项为 security-reviewer H-1 必修）。AM 侧对应 `webhook_configs.http_config.authorization`（`type: Bearer` + `credentials`），由 M09 物化或用户手写片段产出。
+- 常量时间比较校验令牌；鉴权失败不产生任何出站。
+
+### 11.3 ChannelView / TemplateView
+
+| ChannelView 字段 | 类型 | 说明 |
+| ---------------- | ---- | ---- |
+| `id` | string | 渠道 ID（**数字串**；桥 URL query 与物化 receiver 均引用此值） |
+| `name` | string | 渠道名（用户可见；平台派生 receiver 名由此归一，见 §11.6） |
+| `type` | enum | `feishu` / `dingtalk` / `wecom` |
+| `webhook_url` | string | **脱敏**为 `scheme://host/***`，绝不回显完整地址与 token |
+| `secret_set` | bool | 是否已设置加签密钥（**不回显 secret**） |
+| `enabled` | bool | 是否启用（仅 enabled 渠道参与 M09 物化） |
+| `created_at` | datetime | 创建时间 |
+
+| TemplateView 字段 | 类型 | 说明 |
+| ----------------- | ---- | ---- |
+| `id` / `name` | string | 模板 ID / 名称 |
+| `channel_type` | enum | 适用渠道类型（渲染时须与渠道类型一致，否则桥 400） |
+| `content` | string | Go `text/template` 内容（白名单 FuncMap，含 `jsonStr` 等） |
+| `is_builtin` | bool | 是否内置（内置模板不可删除；模板为 append-only，无删除端点） |
+| `checksum` | string | 内容 sha256（版本留痕；**UI 不展示**） |
+| `status` | enum | 版本状态（`applied` 等） |
+| `created_at` | datetime | 创建时间 |
+
+### 11.4 ReceiverSnippet（手写自定义 receiver 的参考片段）
+
+| 字段 | 类型 | 说明 |
+| ---- | ---- | ---- |
+| `receiver_name` | string | 建议接收人名（渠道名归一为安全字符集；为空回落 `notify-<ID>`） |
+| `url` | string | 桥地址 + 真实数字渠道 ID（`?channel=<id>`；**不含令牌**） |
+| `snippet` | string | 可参考的 `receivers:` YAML 片段，内含 `webhook_configs.url` + `send_resolved` + `http_config.authorization`（`type: Bearer`） |
+| `token_configured` | bool | 桥令牌是否已配置；`false` 时 UI 必须显式告警（片段不可直接使用） |
+
+> 令牌未配置时 credentials 用醒目占位符（`REPLACE_WITH_BRIDGE_TOKEN`），不伪装为可用值。
+
+### 11.5 渠道 webhook 地址校验（M-2 修订）
+
+- 仅允许 `http` / `https` scheme 且 host 非空。
+- **默认拒绝**私网（`10./172.16-31./192.168.`）、环回（`127.0.0.1` / `localhost` / `[::1]`）、link-local、未指定（`0.0.0.0`）、云元数据（`169.254.169.254`）地址——SSRF 防护（AGENTS.md §9）。
+- 内网自建机器人属业务例外，提供**显式允许开关**（进程内 `SetAllowPrivateWebhookTargets`，测试 / 内网部署显式开启）。
+
+### 11.6 B 路线：M09 物化通知 receivers（决策 74 定稿）
+
+管理域（`default`）存在已留痕的 `alertmanager.yml` 时，M09 配置生成（`ConfigDraft` 生成与「重新校验」两条路径）执行：
+
+1. 读**已启用**通知渠道（`enabled=true`，按 id 升序，保证 checksum 可复现）；
+2. 为每个渠道追加一个 receiver：`name` = 渠道名归一（`[^a-z0-9]+`→`-`，空则 `notify-<ID>`），`webhook_configs[].url` = 桥地址 + `?channel=<真实数字ID>`（+ 可选 `&template=<模板ID>`），令牌走 `http_config.authorization`（令牌为空则**不写**该段，绝不伪造占位值）；
+3. **用户手写 receivers 原样保留**；
+4. **重名即失败**（绝不静默覆盖 / 合并）：平台名与手写名冲突、或平台内部两条渠道归一后同名 → 整体不写入，草稿校验置 `failed` / `validation_cause=user_config`，附 `alertmanager.yml` **行级错误**（`{file, line, message}`，同 §3 校验失败返回）；
+5. **幂等与地址演进（L2，决策 74 定稿补充）**：平台槽位以「receiver 名 ∈ 平台 `ReceiverName()` 集合（= 各已启用渠道名归一结果）」判定，不再依赖「名称 + 桥 URL 全等」。同名且 URL 属平台桥地址形态（`/api/v1/webhooks/notify` 路径）者视为平台自身产物：URL 相同 → 跳过（幂等）；URL 不同（桥地址演进，如 host/端口变化）→ **原地更新**该 receiver 的 `url` 与 `http_config.authorization`，**不报重名冲突**，变更由下游 diff 记入 `alertmanager_config` 变更项（保证「重新校验」从草稿产物复现同一结论）。同名但 URL **非**平台桥地址形态（确系用户手写、指向别处）者，仍按第 4 条 `failed + user_config` + 行级错误处理（决策 74「绝不静默覆盖/合并」语义不变）；
+6. 渠道 / 模板变更纳入 M09 源数据版本聚合（`NotifyChannel` / `NotifyTemplate` 进 `sourceTableScopes`），触发重算与变更检测。
+
+> **UI 口径**：告警配置页做「UI 控制 → 派生 alertmanager.yml 预览」（只读）；用户手写 / 上传的整文件原样透传，平台不解析其语义、不参与预览派生。
+
+### 11.7 与既有章节的 diff
+
+- 新增 §11（PL-3 全部端点 + 字段 + 鉴权 + 物化行为）；§1–§10 契约**不变**。
+- §1.3 授权利令补充：PL-3 写端点与接收人片段均挂 `RequireAdmin`，读端点（渠道 / 模板列表）仅全局认证。
+- 追加枚举：`NotifyChannelType` = `feishu` / `dingtalk` / `wecom`；桥端点 `errorType` 追加 `unauthorized` / `bad_gateway` 的实际承载。
+- 来源：`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3；`design-decisions.md` 决策 74 + 定稿补充（2026-09-29）；`security-review-pl3.md`（H-1/M-1/M-2/M-3）；dev-feedback #17 / #21 / #22 / #24。
+- **待设计侧回写**：本节为开发空间契约快照补登；PRD `Module_08_Alertmanager_Notification_Management.md`（`docs/02-product-requirements/`，开发 Agent 不可写）的 §3.3.5 / §5 / §6 需由 design 侧（prototype-designer / Orchestrator）同步 PL-3 端点与 B 路线物化行为。

@@ -2,6 +2,7 @@
 
 > 归属：backend-developer（Agent 可写区 `docs/05-execution-records/module-09/`）
 > 登记原则：① PRD 未规定的空白/细节判决策、③ 原型纯技术优化在此留痕；② PRD 已规定但实现发现矛盾需实现前报告 Orchestrator，禁止事后当既成事实塞入。
+> **权威副本（2026-09-30 约定）**：本文件以 **`feat/*` 开发分支**为唯一权威写入点；`develop` / `design` 分支上的同名副本为**只读镜像**，由 feat 单向同步，**不要在那些副本上新增条目**（否则必然分叉）。
 
 ## 格式约定
 
@@ -482,3 +483,81 @@
 - **处置**：将 7 处写法统一改为 `${var}` 花括号形式——`scripts/package-edge-agent.sh` 2 处（缺二进制、缺必填环境变量），`scripts/package-center.sh` 5 处（端口配置行、写回告警、缺账户告警）。
 - **验证**：修正后重跑抽取生成物，输出经 `python3` UTF-8 解码校验全部合法，变量值完整可见。
 
+
+### F-35：macOS 开发机上 blackbox 校验必然失败 + 失败消息为空 + 归因错判（② 实现缺陷 / 环境与构建，2026-09-30，已全部修复）
+
+- **现象**：M09 变更单 `CHG-20260930-002`（域 `mc-edge-debug`，4 个 Job 变更）校验失败，`validation_details` = `[{"file":"prometheus.yml","message":"blackbox --config.check 失败: "}]` —— **失败原因为空**；用户点「废弃」后再刷新又生成同一张单，形成死循环观感。
+- **根因（两层）**：
+  1. **二进制平台不匹配（环境）**：`upstream/blackbox_exporter/blackbox_exporter` 是**部署目标交叉编译的 Linux x86-64 ELF**（`file` = `ELF 64-bit LSB executable, x86-64`），本机 macOS arm64 执行即 `exec format error`（exit 126）——工具**文件存在但无法执行**。对比 `upstream/prometheus/promtool`、`upstream/alertmanager/amtool` 均为 **Mach-O arm64（原生）**，故仅 blackbox 校验挂。`Makefile` 的 `run-metric-center` 把 `upstream/blackbox_exporter` 注入 PATH，`exec.LookPath` 能找到该文件 → 不走「工具缺失→pending」分支，而是进入执行→失败。
+  2. **失败消息为空（代码缺陷）**：`runBlackboxCheck` / `runPromtoolCheck` / `runAmmtoolCheck` 原实现 `fmt.Errorf("%s", strings.TrimSpace(string(out)))` **只取 out、丢弃 exec 错误**；exec format error 时 out 为空 → 产出空消息，原因不可见。
+- **为何「废弃后又生成」**：该单 4 条变更项均为 `type: update`（修改**已生效** Job：tengxunyun-ceshi-host / test-mysql-01 / test-nginx-01 / test-app-01）。按**决策 43**，废弃**不回滚已生效 Job 的修改**（保留修改值，仅清 pending），源数据仍与上次生效版本不同 → 变更检测下一轮必然重新生成同一张单。属设计行为、非 bug；出路是让该单**校验通过并确认**，而非反复废弃。
+- **处置**：
+  1. **环境（已做）**：`make build-blackbox-exporter`（`Makefile:367` 为**原生**构建，不交叉编译）重建为 Mach-O arm64 → `blackbox_exporter --config.check --config.file=<该单 blackbox.yml>` 返回 **exit=0（"Config file is ok"）**。因校验工具每次现取，**无需重启 metric-center** 即生效（点「重新校验」即可通过）。
+  2. **代码（已修）**：新增 `toolCheckError(tool, out, err)`——工具自身有输出（真配置错）则原样保留；**输出为空时回带底层 exec 错误**（`无法执行 X（二进制可能与当前平台/架构不匹配）: …`）。三个校验函数统一改用；新增 `validate_toolcheck_test.go`（`TestToolCheckErrorKeepsToolOutput` / `TestToolCheckErrorEmptyOutputFallsBackToExecError`）锁定。
+  3. **归因口径（2026-09-30 追加，已落地）**：原实现把「工具存在但不可执行」也归 `failed + user_config`，会把环境问题误报成用户配置错误、并引导用户「前往 M01 修改」一份本就正确的配置。现按建议 a 收敛为 `pending + platform_fault`（与「工具缺失」同口径）：
+     - `validate.go` 新增三态 `ToolCheckStatus`（`ToolCheckPassed` / `ToolCheckUserConfig` / `ToolCheckUnavailable`），`ToolChecker` 签名由 `(bool, string)` 扩为 `(ToolCheckStatus, string)`（涉 5 处测试注入点，已同步）。
+     - 新增 `toolNotExecutableError` 类型 + `isToolNotExecutable(err)` 判定（`errors.Is` 匹配 `syscall.ENOEXEC` / `syscall.EACCES` / `exec.ErrNotFound`，或 `errors.As` 匹配 `*exec.Error`）——即「工具**已成功启动**并以非零码返回配置非法」（`*exec.ExitError`）与「**根本没跑起来**」被明确区分。`ToolChecker` 走 `ToolCheckUnavailable` 时返回 `pending + platform_fault`，消息为「外部校验工具无法执行（环境未就绪）：…；待运维环境就绪后重校」。
+     - **配套行为（无需改前端）**：前端 `ConfigPreviewPage` 的 `canFixUserConfig` 仅认 `user_config` → 「前往修改」入口自动消失，`canRevalidate`（`isPending && !validationPassed`）已覆盖 platform_fault → 展示「重新校验」。`unlockSourceDataOnFailed`（决策 67-1）仅 `user_config` 才解锁源数据，`platform_fault` 保持锁定——与「工具缺失」现状完全一致。
+     - **验证**：`go test ./platform/...` 29 包全过、`go vet` 干净；新增回归 `TestToolCheckStatusAttribution`（表驱动正反例）、`TestValidateArtifactsPendingWhenToolNotExecutable`、`TestValidateArtifactsFailedWhenToolCheckUserConfig`，以及两条**端到端**用例（`TestRunToolChecksClassifiesPlatformMismatchAsUnavailable` 用真 ELF magic 文件复现 `exec format error` → 断言 `ToolCheckUnavailable`；`TestRunToolChecksClassifiesConfigErrorAsUserConfig` 用退出码 1 的脚本 → 断言 `ToolCheckUserConfig`）。
+- **建议（待产品/设计侧拍板）**：
+  a. ~~「工具存在但不可执行」应视同「工具缺失」→ `pending + platform_fault`~~ —— **已落地**（见上「处置 3」）。
+  b. 开发机应统一使用**原生**校验二进制（promtool/amtool 已是原生，唯 blackbox 因打包/交叉编译步骤被覆盖）；或让 `run-metric-center` 之前自动重建 `blackbox_exporter`。**仍 open**。
+- **影响模块**：M09 配置校验（`platform/configcenter/generator/validate.go` + 5 处测试注入点）；构建（`Makefile` / 打包脚本对本地校验二进制的覆盖）。
+- **验证**：`go test ./platform/...` 29 包全过、`go vet` 干净；重建后 blackbox 校验 exit=0；`make check-repo-map` OK。
+- **状态**：空消息缺陷 **closed**；归因口径（建议 a）**closed**（均随 metric-center 重启生效）；建议 b **open**（环境/构建侧，待拍板）。
+
+### F-36：桥基础地址变化使物化幂等识别失效 → 把「平台自身 receiver 的地址演进」误报为「与手写 receiver 重名冲突」（② 实现偏差，2026-09-30，L2 已落 `feat/module-08-alert-dispatch`）
+
+- **现象**：变更单 **`CHG-20260930-001`**（域 `default`，摘要「变更 alertmanager_config 1 项」）校验失败——
+  - `validation_status=failed` / `validation_cause=user_config`；
+  - `validation_details=[{"file":"alertmanager.yml","line":114,"message":"通知 receiver 名 \"notify-1\" 与第 114 行手写 receiver 冲突：请重命名渠道或手写 receiver 以消除重名（平台绝不静默覆盖或合并）"}]`。
+  用户同时困惑：「当前的通知渠道**为什么又用** `http://127.0.0.1:8080/api/v1/webhooks/notify?channel=1` 的地址了，而不是 `metricam.chenrt.dpdns.org`」。
+- **根因（判据缺陷）**：`generator/notify_receivers.go` 把「平台自身产物」的识别条件设为 **receiver 名 + 首个 `webhook_configs[].url` 全等**（`:126` `if ex.url == url { continue }`）。而 `url` 由 `in.BridgeURL` **每次现算**（`:124` `bridgeReceiverURL`），`BridgeURL` 却是**进程级运行参数**（见 M08 dev-feedback **#16 / 16.1**：`Makefile:run-metric-center` 与 `env/env.sh.example` 均零接线）。**桥地址一变 → 同一 receiver 的 url 不再匹配 → 落入 `:129 conflicts`** → 返回未物化原文 + 冲突归因 → `ValidateArtifacts` 的 `NotifyReceiverConflicts` 分支（`generator/validate.go`）转 `failed + user_config`。
+- **证据链（全部代码级）**：
+  1. 渠道 `id=1` 名为 `腾讯云边缘域-飞书`；`models.SanitizeReceiverName`（`platform/models/alertmanager_notify.go:25`）把非 `[a-z0-9]` 字符全归一为 `-` 再 trim → **空** → `ReceiverName()` 回落 **`notify-1`**（`:32`）。这也是报错里出现 `notify-1` 的原因（与我手写与否无关）。
+  2. 草稿产物**第 114 行 = `- name: notify-1`**（yaml Node 行号即 receiver 起始行，与报错行号一致）。该 receiver 的序列化风格（url / credentials 均无引号）与用户手写的 `feishu`（带引号）明显不同 → 可判定它是**平台上次的物化产物**，而非手写。
+  3. 重校的 base 取自**已物化过的草稿产物**（`draft/service.go:956` `AlertmanagerYML: d.AlertmanagerYml`，经 `artifactsFromDraft`）→ 同一张单**必然复现**该判定。
+  4. 地址差异来源：上次进程带 `--notify.bridge-url=http://metricam.chenrt.dpdns.org:8080`（产物内 url 为 dpdns）；本次按文档 `make run-metric-center`（`Makefile:387` 只传 `--config.reload-url`）→ `main.go:175` 走 `notify.DeriveBridgeBaseURL(":8080")`，host 为空/通配回落 `127.0.0.1`（`alertmanager/notify/receiver_snippet.go:56-59`）→ 现算 url 与产物内 url 不等。
+- **结论（用户 2026-09-30 裁决：改判据 + 文案分流；本轮仅留痕，待排期）**：
+  1. **判据**：「平台自身产物」由「name + url 全等」改为「**平台命名空间**」判定——receiver 名 ∈ 本次物化将生成的平台名集合（`ch.ReceiverName()`）即视为平台槽位：
+     - url 相同 → 跳过（保持现行幂等）；
+     - url 不同 → **原地更新该 receiver 的 `url` 与 `http_config.authorization`**，并把地址变更写进变更项（视为「平台 receiver 地址演进」），**不再报冲突**；
+  2. **真重名**：同名 receiver 的 url **不是平台桥地址形态**（确系用户手写、指向别处）→ 保留现行 `failed + user_config` + 行级错误（决策 74 定稿补充第 1 条的「绝不静默覆盖」语义不变）；
+  3. **文案分流**：区分「平台 receiver 地址将更新（无需处理）」与「与手写 receiver 重名（需改名）」，消除本次「把平台自己的产物说成我手写的」这类误导归因；
+  4. **契约面须同步**：决策 74 定稿补充第 1 条「重名即草稿校验失败」需补一句「**同名且 URL 属平台桥地址形态者视为平台产物，按地址演进原地更新，不算重名**」——否则改判据会与现行契约文字冲突（**属跨模块契约修订，须由 M08 设计侧回写后方可实现**）。
+- **影响模块**：M09（`platform/configcenter/generator/notify_receivers.go` 判据与文案；`generator/notify_receivers_test.go` / `generator_test.go` 需补「桥地址变化 → 原地更新而非冲突」用例）；M08（决策 74 定稿补充第 1 条修订 + PRD / 契约快照 §11.6 回填）。
+- **关联**：M08 dev-feedback **#16 / 16.1**（桥地址零接线——本单直接诱因，L1 修好可显著降低触发频率，但**判据缺陷独立存在**，换网域/换地址仍会复现）、**#26**（平台 receiver 无 route 引用，同渠道的另一缺口）、**#28**（【第一步 · 止血】聚合条目：本单 = 其中的 **L2**，须等 M08 设计侧回写决策 74 定稿补充第 1 条后方可进入实现）。
+- **临时绕行（口径已验证）**：带 `--notify.bridge-url=http://metricam.chenrt.dpdns.org:8080`（+ `--notify.bridge-token=…`）重启，使现算地址与历史产物一致 → 幂等识别恢复 → 点「重新校验」即可通过。注意：产物中的 `notify-1` 因无 route 引用本就不投递，真正生效的是手写的 `feishu`（见 M08 #26）。
+- **发现场景**：用户 2026-09-30 报 M09 变更单校验失败并追问桥地址回退，核对 `config_drafts` / 草稿产物 → `generator/notify_receivers.go` → `draft/service.go` → `main.go` + `Makefile` 全链路后定位。
+- **状态**：**landed（2026-09-30，L2 已落）**——`notify_receivers.go` 改「平台命名空间」判据（`platformNames` 集合 + `isPlatformBridgeURL`），地址演进原地更新不报冲突；决策 74 定稿补充第 1 条已回写；`api-contract-snapshot.md` §11.6 item 5 已补；单测 `TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace` / `...HandwrittenSquatStillConflicts` 通过。契约前置已完成。
+
+---
+
+## 2026-09-30（下载 URL 靠猜 Host → 消费 CenterEndpoint 作单一来源）
+
+### F-37：配置包下载 URL 靠猜入站 Host → 消费 CenterEndpoint 作单一来源（② 实现偏差 / ① 空白判定，2026-09-30，已修复）
+
+- **类别**：② 实现偏差修正（下载 URL 生成逻辑）+ ① 空白判定（CenterEndpoint 字段未消费）
+- **PRD 章节 / 文件位置**：Module_09 §6.2（配置包下载地址须绝对地址）；源码 `platform/edge/helpers.go`（`requestAuthority` / 新增 `resolveDownloadAuthority` / `authorityHost`）、`platform/edge/heartbeat_handler.go`、`platform/admin/networkdomain/create.go` / `update.go`、`platform/models/network_domain.go`
+- **现象（用户 2026-09-30 复盘暴露）**：中心直连域（管理节点）的 `CenterEndpoint` 地址换过多次，每次都去腾讯采集节点域更新 agent 配置文件里的 `CENTER_ENDPOINT` 环境变量，却不知道中心下发的 `config_download_url` 有没有同步改——因为 MVP 不消费 `NetworkDomain.CenterEndpoint`，下载 URL 由入站请求 Host / X-Forwarded-* 现场拼，`config_download_url` 与 agent `CENTER_ENDPOINT` 是两套独立来源；中心地址一变即隐性不一致。这正是 mc-edge-debug 自 2026-09-22 起版本冻结、`config_download_url` 可能指向 agent 不可达地址、拉包静默失败且无 apply_error 的病灶（见 F-31 / 本轮诊断）。
+- **根因**：`NetworkDomain.CenterEndpoint` 字段在 MVP 注释声明「不消费」（`network_domain.go`）；`heartbeat_handler.go` 用 `requestAuthority(c)`（X-Forwarded-*/Host 推导）生成下载 URL，agent 侧 `CENTER_ENDPOINT` 与中心下发地址脱钩，无法单一来源同步。
+- **结论 / 处置（2026-09-30 已落地，分支 `feat/module-08-alert-dispatch`，未提交）**：
+  1. **中心消费 CenterEndpoint 生成下载 URL**（反代/Host 推导降为 fallback）：`helpers.go` 新增 `resolveDownloadAuthority(dom, c)`（优先 `dom.CenterEndpoint` → 经 `authorityHost` 提取 `scheme://host`；为空/非法回落 `requestAuthority(c)`）+ `authorityHost`（url.Parse 提取 host，缺 scheme/host 返回空串，避免缺 scheme 相对地址让 agent 报 `unsupported protocol scheme ""`）；`heartbeat_handler.go` 由 `requestAuthority(c)` 改为 `resolveDownloadAuthority(dom, c)`；`configDownloadURL` 注释同步。
+  2. **开放 CenterEndpoint 到网域创建/更新 API（带 http/https 校验）**：`create.go` 的 `CreateNetworkDomainRequest` 加可选 `center_endpoint`，`CreateNetworkDomain` 校验后写入；`update.go` 的 `UpdateNetworkDomainRequest` 加 `*string center_endpoint`，编辑逻辑加同款校验并写 `center_endpoint` 列；包内新增 `validateCenterEndpoint`（scheme∈{http,https}+host 非空，空放行）。`network_domain.go` 字段注释删除「MVP 不消费」，改为「边缘域下载 URL 优先取该字段，与 agent `CENTER_ENDPOINT` 同源；空/非法回落 requestAuthority」。
+  3. **DB 侧单一来源**：须把 `mc-edge-debug` 网域的 `center_endpoint` 写成「当前中心对外可达地址」且与 agent `CENTER_ENDPOINT` 环境变量**同一值**（本次落库 `https://metricback.chenrt.dpdns.org`，见下方「中心地址映射」）；改完后让卡死 agent 重拉一次 → 落版本 34、`writebackAgentPullDeployment` 翻 success、节点转「已同步」。
+- **中心地址映射（2026-09-30 核实，供运维）**：
+
+  | 子域 | 隧道名（UUID） | 本机 origin | 用途 |
+  |------|--------------|------------|------|
+  | `chenrt.dpdns.org` | mytunnel | 9090 | Prometheus（remote_write 接收端） |
+  | `metricback.chenrt.dpdns.org` | center-8080 | 8080 | metric-center 控制面（**边缘域 `center_endpoint` 须填此地址**） |
+  | `metric.chenrt.dpdns.org` | center-5173 | 5173 | 前端控制台 |
+  | `metricam.chenrt.dpdns.org` | center-9093 | 9093 | Alertmanager |
+
+  控制面公网地址无显式端口（隧道终结 TLS 后转发 8080），故 `center_endpoint` = `https://metricback.chenrt.dpdns.org`（不带端口）。
+- **测试**：`edge_test.go` 新增 `TestResolveDownloadAuthorityPrefersCenterEndpoint`（4 子例：合法优先 / 含路径只取 authority / 空回落转发头 / 非法回落请求 Host）+ `TestResolveDownloadAuthorityEndToEnd`（handler 经 center_endpoint 合成下载 URL，反代 Host=localhost 不污染）；原 `TestHeartbeatHandlerConfigDownloadURL`（空 endpoint → 回落转发头）仍通过。
+- **验证**：`go vet ./platform/edge/ ./platform/admin/networkdomain/` 干净；`go test ./platform/edge/ ./platform/admin/networkdomain/` 全过；`go build ./platform/...` OK。
+- **影响模块**：M09 边缘配置中心（下载 URL 生成）+ 网域管理 API（CenterEndpoint 字段）
+- **发现场景**：用户对「改了 agent `CENTER_ENDPOINT` 但不知道中心 `config_download_url` 有没有改」的复盘追问（2026-09-30）
+- **是否需设计侧确认**：否（属 MVP 设计债回收，契约增量见 `api-contract-snapshot.md`，未改既有契约字段语义）
+- **状态**：**已修复（代码未提交）**——`platform/edge/{helpers,heartbeat_handler}.go` / `platform/admin/networkdomain/{create,update}.go` / `platform/models/network_domain.go` / `platform/edge/edge_test.go` 已落；`mc-edge-debug.center_endpoint` 已落库 `https://metricback.chenrt.dpdns.org`。

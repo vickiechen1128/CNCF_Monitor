@@ -391,3 +391,36 @@
 - **契约一致性**:任务卡 §3 wire 契约(路径 / 鉴权 RequireAdmin / 200 四字段 / 404 / 400 / `&` 转义无需前端处理)与后端实现(只读核对 `receiver_snippet_test.go`)一致,**未发现不符**;契约快照仍缺 PL-3 端点(dev-feedback #17 / #21 已登记,待文档方回写)
 - **遗留风险**:全量 `pnpm test` 存量红 4 文件 / 57 用例(资源模块 / 外观设置 / 产品名偏好),非本次引入
 - **下一步**:交 frontend-reviewer + security-reviewer(本改动含内网凭据展示与出站投递指引)审查 → Orchestrator 合并 `develop`
+## 方案 B 前端收敛（2026-09-29）：告警配置页「派生预览」+ 渠道 / 模板页自动下发心智
+
+- **背景 / 输入**：随后端方案 B（决策 74 定稿：M09 自动物化已启用渠道为 receivers）同步前端口径——A 路线「复制片段粘贴到 receivers」的旧心智需收敛为「平台自动写入、配置即生效」；同时按 H-1 令牌改走 `Authorization: Bearer` 请求头修订骨架与片段文案。
+- **新增/修改文件**：
+  - `src/pages/alerts/useDerivedReceivers.ts`（**新增**）：只读派生 Hook——`notifyChannelsApi.list()` 过滤 `enabled` → **顺序**逐渠道取 `getReceiverSnippet` → 产出 `DerivedReceiverRow{channelId, channelName, receiverName, snippet, tokenConfigured}`；403 降级为「无权限」（不阻断整页，渠道接收人仍由平台自动写入）；含 loading / error / reload。
+  - `src/pages/alerts/useDerivedReceivers.test.ts`（**新增** 6 例）。
+  - `src/pages/alerts/AlertConfigPage.tsx`：新增只读「派生预览：平台将写入的接收人」卡片（把「UI 控制 → 派生 alertmanager.yml 预览」具象化），覆盖 loading / empty（引导去「通知渠道」）/ forbidden（403 友好提示 + 重试）/ error（重试）/ 正常行（渠道名 → 派生 receiver 名 + 片段 + 令牌未配置告警）；保留原说明卡 receivers 块与手写/上传原样透传的范围声明。
+  - `src/pages/alerts/alertmanagerConstants.ts`：receivers 块 desc 改为「已启用渠道的接收人由平台在生成配置时自动写入（配置即生效），仅在自定义时才手写且不得重名」；`ALERTMANAGER_MIN_SKELETON` 去掉 URL 里的 `&token=`、改 `http_config.authorization`（type Bearer + credentials 占位符）；新增派生预览文案常量（标题 / 说明 / 范围 / 重名提醒 / 空态 / 403）。
+  - `src/pages/alerts/NotifyChannelsPage.tsx`：页头改为「本页是告警接收人的来源：已启用渠道由平台下发配置时自动写入 … 无需手工复制片段；停用/删除后下一次配置变更会同步移除」；删除确认补「下一次配置变更会同步移除其接收人」。
+  - `src/pages/alerts/ReceiverSnippetDrawer.tsx`：定位为「手写自定义 receiver 时的参考」；令牌未配置说明与「勿外发」提示改为「令牌随 authorization 请求头下发」。
+  - `src/pages/alerts/AlertConfigDrawer.tsx`：骨架插入提示改为「已启用渠道的接收人由平台自动写入，此处 receivers 仅为自定义场景示例」。
+  - `src/types/alertmanager.ts`：`ReceiverSnippetData` 注释改为 B 路线口径（URL 不含令牌）。
+  - 测试同步：`AlertConfigPage.test.tsx`（派生预览 loading / 正常 / 空态 / 403 / 手写范围声明断言）、`NotifyChannelsPage.test.tsx`（页头心智 + 令牌走 authorization 头且 URL 不含 token）、`alertSmoke.test.tsx`。
+- **验证结果**：
+  - `vitest run src/pages/alerts`：**11 文件 / 119 用例全通过**。
+  - `tsc --noEmit` 干净；`eslint . --ext ts,tsx --max-warnings 0`：0 告警。
+  - 全量 `pnpm test` 存量红 4 文件（`ResourceDetailDrawer` / `ResourceFormDrawer` / `ScrapeJobListPage` / `HomePage`）已核实为**存量问题**（`ResourceDetailDrawer` 报 `No "serviceDictApi" export is defined on the "../../api/resources" mock`，属资源模块 mock 缺口），**非本次引入**，与上轮记录一致。
+- **关键取舍 / 口径**：派生预览**只读**、仅覆盖平台 UI 控制部分；用户手写或上传的整文件原样透传，平台不解析其语义、不参与预览派生（与决策 74 定稿第 3 条一致）。
+- **遗留风险**：PRD 与设计分支的 B 路线口径待 design 侧同步（见 dev-feedback #13 / #17）；#24 待 security-reviewer 复检。
+
+## 告警配置页排版优化（2026-09-29，用户反馈「非常凌乱、排版无序、信息杂乱」）
+
+- **根因诊断**：首屏被「说明书」淹没——定位说明 + 三块必写 + 两块豁免 + 320px 骨架 + 派生预览卡全部常驻可见，核心的「当前生效配置」被挤到第三屏；同时四处 YAML 正文各写一套内联样式，视觉不一致。
+- **解法**（依据 `docs/03-engineering-standards/02_Frontend_Standard.md` §8/§9/§10，并复用本模块既有且用户认可过的约定——`AlertStatusPage` 的「默认收起折叠栏」，源自 dev-feedback #9「说明不占常驻空间」）：
+  1. 页头卡瘦身为「页名 + 主操作「挂载新配置」+ 一行定位说明（含 `RuleGuideLink`）」；
+  2. 新增单一 ghost `Collapse`（默认收起，标题「写配置前必读：三块必写 + 两块豁免」）承载三块必写 / 两块豁免 / 最小骨架，文档不再占首屏；
+  3. 错误条（加载失败 / 重新挂载校验失败）统一前移到数据区之前，问题优先可见；
+  4. 「当前生效配置」核心卡前置（原第三屏 → 紧邻错误条）；
+  5. 派生预览改**按状态渐进披露**：有内容 / 无权限 / 出错才占 Card，无已启用渠道时仅留一行提示 + 入口链接，不再用空态大卡片占位；
+  6. 抽出 `yamlBlockStyle` 统一四处 YAML 正文样式（等宽 / 可滚动 / 同圆角同内边距，配色取皮肤 token 支持运行时换肤）。
+- **逻辑零改动**：hooks、`openMount` / `handleSubmit` / `openVersionDetail` / `handleRemount` / `columns` / 两个 Drawer 的 props 与 `permissionDenied` 早返回逐字保留。
+- **测试同步**（`AlertConfigPage.test.tsx`）：按 `AlertStatusPage.test.tsx` 既有模式新增 `expandGuidance()` helper；`PL-2`、`B 路线：接收人 / 渠道必写块`、`B 路线：骨架占位符` 三条改为「先点击展开折叠栏再断言」；新增「折叠栏默认收起、点击后展开」回归用例。
+- **验证结果**：`vitest run src/pages/alerts/AlertConfigPage.test.tsx` **17 / 17 通过**；`vitest run src/pages/alerts` 11 文件 120 用例中 118 通过，2 例失败经复跑核实为**既有加载抖动**（`CreateSilenceDrawer` / `NotifyChannelsPage`，两次运行失败用例不同、与本次改动文件无关）；`tsc --noEmit` 干净、`eslint --max-warnings 0` 0 告警；`make check-repo-map` OK；dev server `/alert-config` 与后端 `/api/v1/health` 均 200。
