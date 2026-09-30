@@ -253,6 +253,8 @@ export interface NotifyChannel {
   /** secret 永不回显，仅告知是否已设置 */
   secret_set: boolean
   enabled: boolean
+  /** 绑定的通知模板 ID（缺省 = 使用平台内置默认模板）；渠道 ↔ 模板一等绑定（dev-feedback #30） */
+  default_template_id?: number
   /** RFC3339 */
   created_at: string
 }
@@ -283,11 +285,14 @@ export interface CreateNotifyChannelPayload {
   webhook_url: string
   secret?: string
   enabled?: boolean
+  /** 绑定的通知模板 ID（可选；不传 = 使用平台内置默认模板） */
+  default_template_id?: number
 }
 
 /**
  * 更新通知渠道请求体：**仅传需修改字段**；不传 `webhook_url` / `secret` 即保留原值
  * （响应已脱敏，编辑表单不得把 `***` 回填提交）。
+ * `default_template_id`：不传 = 保留原绑定；`0` = 解绑（回落内置默认）；>0 = 改为该模板。
  */
 export interface UpdateNotifyChannelPayload {
   name?: string
@@ -295,6 +300,7 @@ export interface UpdateNotifyChannelPayload {
   webhook_url?: string
   secret?: string
   enabled?: boolean
+  default_template_id?: number
 }
 
 /** 提交通知模板请求体（均必填；content 为 Alertmanager 标准 Go template） */

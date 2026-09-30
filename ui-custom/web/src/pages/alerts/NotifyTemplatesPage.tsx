@@ -44,6 +44,7 @@ import { useNotifyTemplates } from './useNotifyTemplates'
 import { NotifyTemplateDrawer, type NotifyTemplateInitial } from './NotifyTemplateDrawer'
 import {
   ALERT_CONFIG_PATH,
+  NOTIFY_CHANNELS_PATH,
   NOTIFY_TEMPLATE_BUILTIN_TIP,
   notifyChannelTypeColor,
   notifyChannelTypeLabel,
@@ -259,7 +260,9 @@ export function NotifyTemplatesPage() {
 
         <Card title="平台内置模板" style={{ marginBottom: 16 }}>
           <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-            平台已内置默认模板，可直接使用，也可复制后自定义。
+            平台已内置默认模板，可直接使用，也可复制后自定义。复制出的模板需在
+            <Link to={NOTIFY_CHANNELS_PATH}>通知渠道</Link>
+            中绑定才会生效，去绑定 →
           </Text>
           {builtins.length > 0 ? (
             <Space direction="vertical" size={12} style={{ width: '100%' }}>

@@ -12,14 +12,17 @@
  */
 import { useEffect, useState } from 'react'
 import { Alert, App, Button, Drawer, Form, Input, Select, Switch, Typography } from 'antd'
+import { Link } from 'react-router-dom'
 import { isApiError } from '../../api/client'
+import { notifyTemplatesApi } from '../../api/alertmanager'
 import type {
   CreateNotifyChannelPayload,
   NotifyChannel,
   NotifyChannelType,
+  NotifyTemplate,
   UpdateNotifyChannelPayload,
 } from '../../types/alertmanager'
-import { NOTIFY_CHANNEL_TYPE_OPTIONS } from './alertmanagerConstants'
+import { NOTIFY_CHANNEL_TYPE_OPTIONS, NOTIFY_TEMPLATES_PATH } from './alertmanagerConstants'
 
 const { Text } = Typography
 
@@ -38,6 +41,8 @@ interface FormValues {
   webhook_url?: string
   secret?: string
   enabled: boolean
+  /** 绑定的通知模板 ID；undefined = 使用平台内置默认模板 */
+  default_template_id?: number
 }
 
 /** webhook 地址合法性：仅接受 http/https，与后端校验口径一致 */
@@ -68,7 +73,35 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
   const [form] = Form.useForm<FormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [templates, setTemplates] = useState<NotifyTemplate[]>([])
   const isEdit = record !== null
+  const channelType = Form.useWatch('type', form)
+
+  // 模板下拉选项：仅当前渠道类型下的模板，内置默认置顶并标注（渠道 ↔ 模板一等绑定，dev-feedback #30）。
+  const templateOptions = templates
+    .filter((t) => t.channel_type === channelType)
+    .sort((a, b) => Number(b.is_builtin) - Number(a.is_builtin))
+    .map((t) => ({
+      value: Number(t.id),
+      label: t.is_builtin ? `${t.name}（平台内置默认）` : t.name,
+    }))
+
+  // 打开抽屉时拉取模板列表（失败不阻断表单：无权限/接口异常时下拉为空，仍可保存渠道）。
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await notifyTemplatesApi.list()
+        if (!cancelled) setTemplates(res.data?.items ?? [])
+      } catch {
+        if (!cancelled) setTemplates([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -83,6 +116,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
         enabled: record.enabled,
         webhook_url: '',
         secret: '',
+        default_template_id: record.default_template_id,
       })
     }
   }, [open, record, form])
@@ -98,6 +132,8 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
         const payload: UpdateNotifyChannelPayload = { name, type: values.type, enabled: values.enabled }
         if (webhookUrl) payload.webhook_url = webhookUrl
         if (secret) payload.secret = secret
+        // 编辑态总是显式提交绑定：选了模板 → 该 ID；未选 → 0（解绑回落内置默认）。
+        payload.default_template_id = values.default_template_id ?? 0
         await onUpdate(record.id, payload)
         message.success('通知渠道已更新')
       } else {
@@ -108,6 +144,7 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
           enabled: values.enabled,
         }
         if (secret) payload.secret = secret
+        if (values.default_template_id) payload.default_template_id = values.default_template_id
         await onCreate(payload)
         message.success('通知渠道已创建')
       }
@@ -161,7 +198,30 @@ export function NotifyChannelDrawer({ open, record, onClose, onCreate, onUpdate 
           label="渠道类型"
           rules={[{ required: true, message: '请选择渠道类型' }]}
         >
-          <Select options={NOTIFY_CHANNEL_TYPE_OPTIONS} placeholder="请选择机器人类型" />
+          <Select
+            options={NOTIFY_CHANNEL_TYPE_OPTIONS}
+            placeholder="请选择机器人类型"
+            onChange={() => form.setFieldValue('default_template_id', undefined)}
+          />
+        </Form.Item>
+
+        <Form.Item
+          name="default_template_id"
+          label="通知模板"
+          extra={
+            <>
+              未选则使用平台内置默认模板；如需个性化卡片，可先到
+              <Link to={NOTIFY_TEMPLATES_PATH}>通知模板</Link>
+              复制内置模板自定义后再回来选择。
+            </>
+          }
+        >
+          <Select
+            allowClear
+            options={templateOptions}
+            placeholder="使用平台内置默认模板"
+            notFoundContent="该渠道类型下暂无模板，可到通知模板页复制内置模板自定义"
+          />
         </Form.Item>
 
         <Form.Item

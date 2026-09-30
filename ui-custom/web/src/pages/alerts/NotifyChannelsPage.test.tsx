@@ -13,7 +13,7 @@ import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
 import { ApiError } from '../../api/client'
 import { NotifyChannelsPage } from './NotifyChannelsPage'
-import type { NotifyChannel } from '../../types/alertmanager'
+import type { NotifyChannel, NotifyTemplate } from '../../types/alertmanager'
 
 const useNotifyChannelsMock = vi.fn()
 vi.mock('./useNotifyChannels', () => ({
@@ -21,6 +21,7 @@ vi.mock('./useNotifyChannels', () => ({
 }))
 
 const getReceiverSnippetMock = vi.fn()
+const listTemplatesMock = vi.fn()
 vi.mock('../../api/alertmanager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../api/alertmanager')>()
   return {
@@ -28,6 +29,10 @@ vi.mock('../../api/alertmanager', async (importOriginal) => {
     notifyChannelsApi: {
       ...actual.notifyChannelsApi,
       getReceiverSnippet: (...a: unknown[]) => getReceiverSnippetMock(...a),
+    },
+    notifyTemplatesApi: {
+      ...actual.notifyTemplatesApi,
+      list: (...a: unknown[]) => listTemplatesMock(...a),
     },
   }
 })
@@ -45,6 +50,19 @@ const channelRow = (over: Partial<NotifyChannel> = {}): NotifyChannel => ({
   secret_set: true,
   enabled: true,
   created_at: '2026-09-28T10:00:00Z',
+  ...over,
+})
+
+/** 通知模板行（渠道抽屉模板下拉数据源） */
+const templateRow = (over: Partial<NotifyTemplate> = {}): NotifyTemplate => ({
+  id: '9',
+  name: '自定义卡片',
+  channel_type: 'feishu',
+  content: '{"msg_type":"text"}',
+  is_builtin: false,
+  checksum: 'ck',
+  status: 'applied',
+  created_at: '2026-09-30T00:00:00Z',
   ...over,
 })
 
@@ -99,6 +117,8 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     removeMock.mockResolvedValue(undefined)
     getReceiverSnippetMock.mockReset()
     getReceiverSnippetMock.mockResolvedValue(snippetResponse())
+    listTemplatesMock.mockReset()
+    listTemplatesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
   })
 
   it('页头渲染渠道名称与新增入口', () => {
@@ -194,9 +214,44 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     await waitFor(() => expect(updateMock).toHaveBeenCalled())
     const [id, payload] = updateMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('1')
-    expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', enabled: true })
+    // 未选模板 → default_template_id: 0（显式解绑，回落内置默认）
+    expect(payload).toEqual({ name: 'SRE 飞书群', type: 'feishu', enabled: true, default_template_id: 0 })
     expect(payload).not.toHaveProperty('webhook_url')
     expect(payload).not.toHaveProperty('secret')
+  })
+
+  // 渠道 ↔ 模板一等绑定（dev-feedback #30）：抽屉可选绑定模板，payload 带 default_template_id；
+  // 并给出「复制内置模板」引流入口（指向 /notify-templates）。
+  it('新增渠道：可选绑定通知模板，payload 带 default_template_id 且提供模板页引流入口', async () => {
+    const user = userEvent.setup()
+    listTemplatesMock.mockResolvedValue({
+      status: 'success',
+      data: { items: [templateRow({ id: '9', name: '自定义卡片' })], total: 1 },
+    })
+    useNotifyChannelsMock.mockReturnValue(result())
+    renderPage()
+    await user.click(screen.getByRole('button', { name: /新增渠道/ }))
+    await user.type(screen.getByLabelText('渠道名称'), '数据库团队群')
+    await user.type(screen.getByLabelText('机器人 Webhook'), 'https://open.feishu.cn/hook/x')
+
+    // 引流入口指向通知模板页
+    const tplLinks = screen.getAllByRole('link', { name: '通知模板' })
+    expect(tplLinks.some((l) => l.getAttribute('href') === '/notify-templates')).toBe(true)
+
+    // 打开模板下拉并选择绑定
+    fireEvent.mouseDown(screen.getByLabelText('通知模板'))
+    await user.click(await screen.findByTitle('自定义卡片'))
+
+    await user.click(screen.getByRole('button', { name: /创建渠道/ }))
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith({
+        name: '数据库团队群',
+        type: 'feishu',
+        webhook_url: 'https://open.feishu.cn/hook/x',
+        enabled: true,
+        default_template_id: 9,
+      }),
+    )
   })
 
   it('删除：二次确认后调用 remove', async () => {
