@@ -1,10 +1,10 @@
 # Module 09: 网域与边缘配置中心
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.1
+> **PRD 版本**: v2.2
 > **产品版本覆盖**: MVP / v0.2 / v1.0
 > **原型版本**: v1.72（PRD v2.0 为「M09 1拆2」瘦身轮——网域纳管 / 采集节点状态 / edge 协议 / EdgeAgent 数据模型 / 相关状态机与验收整体迁出至 [Module_11](Module_11_Edge_Access_and_Agent_Delivery.md)（决策 86），本模块收敛为配置生成与下发中心，配置面规格语义零变更；**M09 与 M11 共用本原型目录**（决策 87，不拆分），原有纳管页 / 节点状态页骨架原位复用，M11 新增页面亦落于此，配置确认页 / 下发记录页原型不变）
-> **更新日期**: 2026-09-25
+> **更新日期**: 2026-09-30
 > **对应原型**: `docs/prototypes/module-09/`
 
 > **模块类型**: 核心能力模块（v0.2+）
@@ -127,6 +127,7 @@ M09 的 Web 门户菜单为单一一级菜单组「配置下发」（配置面�
 | 人话变更摘要  | 每项待确认变更给出摘要，回答「为什么发生变更」，如「新增 1 台服务器（10.0.1.11）加入 node-exporter 采集」；生成机制见 6.5      | P0  | MVP  |
 | 结构化变更清单 | 按「变更类型（新增 / 修改 / 移除）+ 变更对象 + 影响的配置文件 + 人话说明 + 风险等级」拆条                             | P0  | MVP  |
 | 变更对象口径  | 变更对象取**源数据对象**（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板），而非配置文件本身；同时派生「影响的配置文件」列，两列并排呈现 | P0  | MVP  |
+| 注入段变更对象 | 生成器**注入段**（`alerting` 告警投递）发生实质变化时，同样派生变更项（变更对象 =「告警投递」、风险 high、影响文件 `prometheus.yml`），与源数据对象并列展示；避免「仅注入段变化」被空变更抑制而无入口下发（变更对象枚举见 [5.2](#52-配置草稿configdraft)） | P0  | MVP  |
 | 风险等级    | 低风险 = 新增目标；高风险 = 删除目标导致监控断点、告警规则变更导致误报 / 漏报；高风险在列表与详情醒目提示                         | P0  | MVP  |
 | 规则变更提示  | 告警规则变更（新增 / 修改 / 删除）生成 `rules.yml` 差异，属高风险变更，**必须**在变更清单中醒目提示                     | P0  | MVP  |
 
@@ -203,7 +204,7 @@ M09 的 Web 门户菜单为单一一级菜单组「配置下发」（配置面�
 | 校验项       | 中心侧对配置产物做语法与结构校验（Prometheus 主配置、blackbox 模块、targets JSON 等），分层关系见 6.1；具体校验项与工具链见 6.1 | P0  | MVP  |
 | 失败出口      | 校验失败保持 `validation_status=failed`、不进入下发流程；变更单提供「重新校验」（仅重校、不重生成源内容）与「废弃」两个变更单级出口                                                | P0  | MVP  |
 | 三态操作口径    | 仅 `passed` 可确认发布；`failed` 与 `pending` 均不可确认，均提供「重新校验 + 废弃」出口                                                                   | P0  | MVP  |
-| 失败归因      | 持久化 `validation_cause`（`user_config` 可修复 / `platform_fault` 平台故障）与 `validation_details`（文件 / 行号 / 原因结构化定位）；归因判定规则见 6.1         | P0  | MVP  |
+| 失败归因      | 持久化 `validation_cause`（`user_config` 可修复 / `platform_fault` 平台故障）、`validation_details`（文件 / 行号 / 原因结构化定位）与 `validation_message`（具象失败信息，失败响应透传）；归因判定规则见 6.1。**归因口径**：外部校验工具**缺失**或**存在但不可执行**（如二进制与当前平台 / 架构不匹配）**同口径归 `platform_fault`（保持 `pending`）**，不得误判为 `user_config` 而把环境问题当用户配置错、引导用户去改一份本就正确的配置         | P0  | MVP  |
 | 失败单不锁死源数据 | `failed + user_config` 时自动清除 M01 源数据的 `pending` 锁（草稿保留，可重校可废弃）；`platform_fault` 不清锁；清锁不得推进源数据版本                                | P0  | MVP  |
 | 空 targets 拦截（与边缘拒收对称） | targets 文件为空数组（`[]`）判非法，与边缘 Agent `ValidateTargetsJSON` 的 `empty array` 拒收口径对称；命中 → `validation_status=failed` + `cause=user_config` + 资源级 `validation_details`（文件 / Job / 资源定位），确认被阻断，确保缺陷配置到不了边缘、不卡死「同步中」 | P0  | MVP  |
 
@@ -360,17 +361,18 @@ flowchart TD
 | id                  | string   | ✅  | 仅技术信息  | 草稿唯一标识（内部技术键）                                                                                                                                                                                                                                                                     |
 | change\_no          | string   | ✅  | 变更单号   | **变更单号**：用户可读唯一标识（如 `CHG-20260803-003`），类比工单号 / PR 号，用于变更沟通与审计追溯（「回滚变更单 CHG-20260803-003」）；**自动生成**：configgen 在生成草稿时自动分配（用户不可手填），格式 `CHG-{YYYYMMDD}-{当日序列}`（如 `CHG-20260803-003`），全局唯一                                                                                            |
 | network\_domain\_id | string   | ✅  | 网域     | 所属网域 ID                                                                                                                                                                                                                                                                           |
-| source\_version     | string   | ❌  | 仅技术信息  | 基于哪个 ConfigVersion 生成，可为空（首次生成）                                                                                                                                                                                                                                                   |
+| source\_version     | string   | ❌  | 仅技术信息  | 生成草稿时回填**上一已确认 `ConfigVersion` 的 `change_no`**（该网域按 `created_at` 取最近一次 confirm 生成的版本），无历史版本为空；**确认动作不覆盖该字段**（确认不改变基线指向）；前端据此拉基线 version 做 diff（版本查询按此 ref 兼容命中，见 6.2.2）                                                                                                                          |
 | prometheus\_yml     | text     | ✅  | 仅技术信息  | 生成的 prometheus.yml 内容（仅 job 骨架，targets 见 `targets_files`）                                                                                                                                                                                                                         |
 | rules\_yml          | text     | ❌  | 仅技术信息  | 生成的 rules.yml 内容（可选）                                                                                                                                                                                                                                                              |
 | blackbox\_yml       | text     | ❌  | 仅技术信息  | 生成的 blackbox.yml 内容（可选）                                                                                                                                                                                                                                                           |
 | targets\_files      | json     | ❌  | 仅技术信息  | 生成的 targets 内容承载字段：按 job 名组织的 targets 列表（file\_sd 目标文件，如 `{"node-exporter": [{"targets": [...], "labels": {...}}], "blackbox-http": [...]}`；网域无任何目标时为空对象）                                                                                                                         |
 | metadata            | json     | ✅  | 仅技术信息  | 生成时间、生成器版本、`source_data_version`、`trigger_summary`（触发来源 job/rule/表 + 时间）、联合 checksum（sha256(prometheus.yml+rules\_yml+blackbox\_yml+targets 内容)）、来源 job/rule 摘要；被同域更晚 pending 取代时记录 `superseded_by_change_no`（指向新变更单号），新单记录 `supersedes_change_no`（指向被取代旧单）                       |
 | summary             | string   | ✅  | 变更摘要   | **人话变更摘要**：由 configgen 对比当前生效版本与草稿的产物差异生成，面向运维回答「为什么发生了变更」，如「新增 1 台服务器（10.0.1.11）加入 node-exporter 采集」                                                                                                                                                                             |
-| change\_items       | json     | ✅  | 变更清单   | **结构化变更清单**：`[{type: add/modify/remove, target: 源数据对象枚举（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板）, description, risk: low/high, affected_files: 影响的配置文件（prometheus.yml / targets / rules.yml / blackbox.yml）}]`，供「配置变更确认」页结构化展示（变更类型 / 变更对象 / 说明 / 风险等级 / 影响的配置文件）                      |
+| change\_items       | json     | ✅  | 变更清单   | **结构化变更清单**：`[{type: add/modify/remove, target: 变更对象枚举, description, risk: low/high, affected_files: 影响的配置文件（prometheus.yml / targets / rules.yml / blackbox.yml）}]`，供「配置变更确认」页结构化展示（变更类型 / 变更对象 / 说明 / 风险等级 / 影响的配置文件）。`target` 枚举分两类：**源数据对象**（采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板）与**生成器注入段对象**（`prom_alerting`＝告警投递，`alerting` 段实质变化时派生，风险 high） |
 | validation\_status  | enum     | ✅  | 校验     | 下发前校验结果：`passed` / `failed` / `pending`（见 3.2.3）；仅 `passed` 可确认发布                                                                                                                                                                                                                 |
-| validation\_cause   | enum     | ❌  | 校验原因   | 校验失败归因：`user_config`（用户配置问题，可修复，提供「重新校验 + 前往修改」）/ `platform_fault`（平台技术故障，提供手动「重新校验」自愈出口）；MVP 判定：targets schema 类失败归 `user_config`、promtool/blackbox 不可用归 `platform_fault`。**失败单不锁死源数据**：`failed + user_config` 自动清除 M01 源数据 `change_status=pending` 锁（草稿保留）；`platform_fault` 不清锁 |
+| validation\_cause   | enum     | ❌  | 校验原因   | 校验失败归因：`user_config`（用户配置问题，可修复，提供「重新校验 + 前往修改」）/ `platform_fault`（平台技术故障，提供手动「重新校验」自愈出口）；MVP 判定：targets schema 类失败归 `user_config`、promtool/blackbox **不可用（工具缺失或存在但不可执行）**归 `platform_fault`。**失败单不锁死源数据**：`failed + user_config` 自动清除 M01 源数据 `change_status=pending` 锁（草稿保留）；`platform_fault` 不清锁 |
 | validation\_details | json     | ❌  | 校验详情   | 结构化校验失败定位：`[{file, line, message, source}]`，前端行内 Popover 定位并跳转 Module\_01 修改源数据；**`source`** **标识问题来源（`rule`** **/** **`scrape_job`** **/** **`targets`），前端据此分流跳转** **`/rules`** **或** **`/scrape-jobs`**                                                                         |
+| validation\_message | string   | ❌  | 仅技术信息  | 最近一次校验失败的**具象信息**（生成 / 取代 / 重新校验时写入并持久化）；失败响应据此透传具体原因，替代笼统的「draft validation still failed」；与 `validation_details` 互补——`message` 为人可读摘要、`details` 为结构化定位                                                                                                                                  |
 | status              | enum     | ✅  | 状态     | pending / confirmed / discarded；`discarded` 承载四语义——人工废弃（含废弃回写源数据） / 内容无变化自动丢弃 / 校验失败后废弃 / **被同域更晚 pending 取代（superseded）**。**注意**：草稿 `status` 与 `validation_status` 解耦——校验失败**不**改 `status`（仍 `pending`），失败单的「不可确认」由 `validation_status=failed` 表达、「不锁源数据」由自动清锁承担                 |
 | created\_at         | datetime | ✅  | 仅技术信息  | 创建时间                                                                                                                                                                                                                                                                              |
 | updated\_at         | datetime | ✅  | 仅技术信息  | 更新时间                                                                                                                                                                                                                                                                              |
@@ -475,6 +477,11 @@ flowchart TD
 | **中心①内容校验** | `promtool check config` 校验 `prometheus.yml`；存在 `blackbox.yml` 时 blackbox exporter `--config.check` 校验；configgen 侧 targets schema 校验（JSON 结构、`host:port` 地址格式、labels 合法性） | **生成错误**（语法 / 引用 / schema 非法；校验①失败会**阻止确认下发**，失败出口见 [3.2.3](#323-下发前校验与失败出口)） | 配置中心（configgen 生成时 + 下发前） | 前端配置生成/预览页 `validation_status`                                             |
 | **边缘②传输校验** | 拉包后按 `metadata.json` 联合 checksum 做完整性校验；解压后 `targets/*.json` JSON 解析校验（结构、`targets` / `labels` 字段合法性）——Agent 侧行为细则见 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) §6.4 | **传输损坏 / 篡改 / 半写文件**（校验失败保留最后一份有效配置并记录错误，不进入解压 / 应用步骤）                  | Edge Sync Agent（边缘侧）      | M11 采集节点状态页「最近错误」/ `config_sync_status` 异常态（out\_of\_sync / manual\_override） |
 
+**中心内容校验口径补充**
+
+- **labels 合法性**：targets schema 校验的 labels 合法性**仅拦截** `__` 前缀保留标签（如 `__address__`）与 `job` / `scheme` 等平台保留键；**`instance` 为 Prometheus 标准标签、系统默认模板会生成（组合字段 `instance_ip:port → instance` 映射，对齐 Module\_07 §5.12C），须放行**——不得把平台自身默认模板产出的合法 `instance` 标签打回。
+- **校验工具可用性**：`promtool` / blackbox exporter / `amtool` 不可调用时，对应校验项保持 `pending`（未校验）、归 `platform_fault`，MVP 不阻断（用户可「重新校验」自愈）；生产环境须随中心 Prometheus 部署具备 `promtool`（`make run-metric-center` 已在 PATH 注入 `upstream/prometheus` 等工具目录）。工具**存在但不可执行**（如二进制与当前平台 / 架构不匹配）与**工具缺失**同口径处理，见 [3.2.3](#323-下发前校验与失败出口)。
+
 **边缘侧行为要点**
 
 1. **Agent 为「哑校验」**：Edge Sync Agent 只做传输层机械校验（产物包 checksum 完整性 + targets JSON 解析），不做 promtool 级语法校验——后者已在中心侧完成。
@@ -509,7 +516,7 @@ flowchart TD
 | 方法   | 路径                                                          | Query / 请求体                                                          | 响应 data 说明                                                                                                  | 业务错误                                                 |
 | ---- | ----------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | GET  | `/api/v2/platform/config-versions`                          | Query: `network_domain_id`、`change_no?`、`page`、`page_size`           | `{ items: [...], total: N }`                                                                                | —                                                    |
-| GET  | `/api/v2/platform/config-versions/{id}`                     | —                                                                    | 配置版本详情（含完整产物，用于 diff 与下发记录详情「查看版本配置」）；产物含凭据明文，按管理员级权限开放（RequireAdmin）                                       | `not_found`                                          |
+| GET  | `/api/v2/platform/config-versions/{id}`                     | —                                                                    | 配置版本详情（含完整产物，用于 diff 与下发记录详情「查看版本配置」）；产物含凭据明文，按管理员级权限开放（RequireAdmin）。**`{id}` 兼容两种 ref**：纯数字按主键 `id` 命中，否则按 `change_no` 命中（草稿 `source_version` 透传的 change_no 字符串可直接命中，保证版本对比 Diff 可拉到真实基线）                                       | `not_found`                                          |
 | GET  | `/api/v2/platform/deployments`                              | Query: `network_domain_id`、`status?`、`change_no?`、`page`、`page_size` | `{ items: [...], total: N }`，item 字段见 5.6                                                                   | —                                                    |
 | POST | `/api/v2/platform/deployments/{config_version_id}/rollback` | `{ triggered_by: string }`                                           | 新的 `ConfigDeployment`（成功时 `status=rolled_back`，回滚目标版本；失败时 `status=failed` 并记录 `error_message`）；被回滚的历史记录保持不变 | `not_found`；`bad_request`：目标版本不存在或不是同一网域             |
 | POST | `/api/v2/platform/deployments/{deployment_id}/retry`        | `{ triggered_by: string }`                                           | 重新执行该下发（仅 `local` 通道，复用最近一次版本的下发动作），生成新的 `ConfigDeployment`                                                 | `bad_request`：非 `local` 通道 / 原记录非 failed；`not_found` |
@@ -813,6 +820,24 @@ Module\_09 采用\*\*「源数据版本触发预筛 + 生成后 checksum 裁决�
 
 > **原则**：Module\_09 管「内部 Agent 出身标签」，Module\_10 管「外部来源入场标签」。两者都可能在指标上产生 `network_domain` 等标签，但生成时机和 responsibility 不同：Module\_09 通过 Agent 配置注入，Module\_10 通过接入网关/转换器在数据入平台时打标或改写。
 
+#### 7.1.5 与 Module\_08 的边界
+
+| 职责 | Module\_08（告警通知管理） | Module\_09（网域与边缘配置中心） |
+| --- | --- | --- |
+| 告警规则 / 静默 / 通知渠道（`receivers`）/ 路由（`route`）的语义与生成契约 | ✅ 定义 | ❌ 仅按契约物化 |
+| `alertmanager.yml` 内容生成与提交（文件挂载） | ✅ 提交挂载内容 | ✅ 纳入 ConfigDraft / 变更单 / ConfigVersion，与 `prometheus.yml` 同批下发（管理域 scope、不按网域扇出） |
+| `prometheus.yml` 的 `alerting` 投递段注入 | ❌ | ✅（条件注入，见 [6.4.4](#644-alerting-投递接线中心--alertmanager)） |
+| 通知 `receivers` 物化（把渠道写进 `alertmanager.yml`） | ✅ 定义契约 | ✅ 生成器按契约物化（命名空间判据见下） |
+| 变更单 / 下发记录 / 回滚 | ❌ | ✅（`change_status` 回写 M08） |
+
+**通知 `receivers` 双作者与命名空间判据（对齐 M08 PRD v1.18 §4.1.1）**：`alertmanager.yml` 的 `receivers` 存在「平台物化」与「用户手写」两类作者，生成器物化平台渠道时以**平台命名空间**为判据——receiver 名属于本次将生成的平台名集合即视为**平台槽位**：
+
+- 地址与现存一致 → 跳过（幂等，不产生变更项）；
+- 地址不同（如桥基础地址演进）→ **原地更新该 receiver 的 `url` / `authorization` 并派生「平台 receiver 地址演进」变更项，不报重名冲突**；
+- 仅当同名 receiver 的地址**不是平台桥地址形态**（确系用户手写、指向别处）才判 `failed + user_config` + 行级错误（「绝不静默覆盖或合并」语义不变）。
+
+`route` 段的**作者模式与模式开关**归 [Module\_08](Module_08_Alertmanager_Notification_Management.md) §4.1.1（默认用户手写、可切换为平台管理）；平台为托管 receiver 注入的**最小根兜底 `route.receiver` 骨架**由 M09 生成器承担，平台管理模式下的具体分流 `route.routes[]`（带 matchers）由前端表单生成，M09 不覆盖用户手写 `route` 内容。
+
 ***
 
 ### 7.2 技术依赖
@@ -988,6 +1013,10 @@ stateDiagram-v2
 - [ ] {P0} **规则 change\_status 回写**：确认下发成功后 `MonitoringRule.change_status` 回写 `deployed`（与 Job 同口径），废弃场景规则回滚登记待 v0.3
 - [ ] {P0} **回滚** **`rolled_back`** **状态落地**：回滚生成的新 `ConfigDeployment` 成功时 `status=rolled_back`（失败 `failed` 并记原因），被回滚的历史记录状态不变；`rolled_back` 视同 `success` 参与 M01 `change_status` 回写为 `deployed` 与「最近成功版本」判定
 - [ ] {P0} **回滚差异清单推导**：由「回滚目标版本 `change_no` → 变更单 `change_items`」与当前生效版本对比推导，仅展示源数据操作（启停/增删/修改）；推导失败降级为固定提示文案
+- [ ] {P0} **校验工具不可执行与缺失同口径归因**：`promtool` / blackbox 存在但不可执行（如二进制与当前平台 / 架构不匹配）时，草稿保持 `pending`、`validation_cause=platform_fault`，不得误归 `user_config`
+- [ ] {P0} **`validation_message` 失败信息透传**：最近一次校验失败时写入人可读摘要，失败响应据此透传具象失败信息（与结构化 `validation_details` 互补）
+- [ ] {P0} **`source_version` 回填与版本查询双 ref 兼容**：草稿生成时回填上一已确认 `ConfigVersion` 的 `change_no`（确认不覆盖）；`GET /api/v2/platform/config-versions/{id}` 兼容纯数字主键与 `change_no` 两种 ref，保证 diff 拉到真实基线
+- [ ] {P0} **targets labels 校验对 `instance` 放行**：schema 校验仅拦 `__` 前缀保留标签与 `job` / `scheme`，`instance` 放行（系统默认模板会生成，对齐 M07 §5.12C）
 
 ## 10. 术语映射（用户词汇表）
 
@@ -1000,10 +1029,12 @@ stateDiagram-v2
 | `ConfigVersion` / `cv-xxx`                     | 配置版本        | 变更确认后生成的生效配置版本号                                                                                                                                                                                                                                                                                                        |
 | `ConfigDeployment` / `deploy-xxx`              | 发布记录 / 下发记录 | 每次发布或回滚的留痕记录                                                                                                                                                                                                                                                                                                           |
 | `source_change_no`                             | 来源变更单号      | 发布记录追溯到其来源变更单                                                                                                                                                                                                                                                                                                          |
-| `ConfigChangeItem.target`                      | 变更对象        | 源数据对象：采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板                                                                                                                                                                                                                                                                               |
+| `source_version`                               | 仅技术信息       | 草稿的 diff 基线：上一已确认 `ConfigVersion` 的 `change_no`（确认动作不覆盖该字段，无历史版本为空）；前端据此拉基线做变更对比                                                                                                                                                                                                                                 |
+| `ConfigChangeItem.target`                      | 变更对象        | 源数据对象：采集 Job / 采集目标 / 告警规则 / 拨测目标 / 标签模板；生成器注入段对象：告警投递（`prom_alerting`，`alerting` 段实质变化时派生，风险 high）                                                                                                                                                                                                              |
 | `ConfigChangeItem.affected_files`              | 影响的配置文件     | prometheus.yml / targets/\*.json / rules.yml / blackbox.yml                                                                                                                                                                                                                                                            |
 | `ConfigChangeItem.risk`                        | 风险等级        | 低风险（新增目标）/ 高风险（删除目标 / 告警规则变更）                                                                                                                                                                                                                                                                                          |
 | `validation_status`                            | 下发前校验       | 配置内容合法性与目标格式检查结果（通过 / 失败）                                                                                                                                                                                                                                                                                              |
+| `validation_message`                           | 仅技术信息       | 最近一次校验失败的具象信息（人可读摘要，失败响应透传）；与结构化 `validation_details`（文件 / 行号 / 原因）互补                                                                                                                                                                                                                                                         |
 | `config_sync_status`                           | 配置同步        | 边缘 Agent 实际生效版本与中心版本是否一致（语义与流转见 [Module\_11](Module_11_Edge_Access_and_Agent_Delivery.md) §8.1）；五档：`in_sync` / `out_of_sync` / `unknown` / `manual_override` / `no_version`（未下发配置）                                                                                                                                              |
 | `out_of_sync_cause`                            | 未同步成因       | `out_of_sync` 时的引导成因（状态机归 Module\_11）：`pending_draft`（中心存在待确认变更草稿）/ `pull_pending`（Agent 拉包/生效延迟）/ `local_reset`（本地环境/地址变化、checksum 失败保留旧配置等）/ `rollback_diverged`（回滚后待源数据对齐，见 [8.2](#82-configdeployment下发记录状态机)）                                                                                          |
 | `manual_override`                              | 本地手工兜底      | 边缘节点本地手工修改过配置，平台不强制回拉（口径见 [3.4.1](#341-本地手工兜底)；状态展示见 Module\_11）                                                                                                                                                                                                                                                                      |
@@ -1090,7 +1121,7 @@ stateDiagram-v2
 
 | 版本    | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | 影响范围                            | 产品版本影响       | 状态    |
 | ----- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------- | ------------ | ----- |
+| v2.2 | 2026-09-30 | 优化 | **M09 dev-feedback 吸收（本轮 prototype-designer 评审）**——§3.2.3 / §6.1 校验工具「存在但不可执行」与「工具缺失」同口径归 `platform_fault`（保持 `pending`，禁误归 `user_config`）；§5.2 新增 `validation_message`（具象失败信息、失败响应透传）、`source_version` 精化为「上一已确认 `ConfigVersion` 的 `change_no`（确认不覆盖）」；§3.1.1 / §5.2 / §10 变更对象新增「告警投递（`prom_alerting`）」（注入段变化参与变更清单 diff，防空变更抑制死锁）；§6.1 明确 targets labels 校验对 `instance` 放行；新增 §7.1.5「与 Module_08 的边界」（通知 receiver / route 双作者命名空间与桥地址演进口径，对齐 M08 PRD v1.18）；§9.2 补 4 条技术验收 | §3.1.1 / §3.2.3 / §5.2 / §6.1 / §6.2.2 / §7.1.5 / §9.2 / §10 | 文档自身 | ready |
 | v2.1 | 2026-09-25 | 优化 | **PR77 回写（F-28 / F-31）**——§5.1 / §6.4.1 明确 `channel` 由 `domain_type` 派生（未知不回退 local）；§3.2.3 新增空 targets 拦截（与边缘拒收对称）；§3.3.3 新增地址解析不出不得静默放行 | §5.1 / §3.2.3 / §3.3.3 / §6.4.1 | 文档自身 | ready |
 | v2.0 | 2026-09-17 | 优化 | **M09 1拆2 瘦身（决策 86）**——网域纳管 / 采集节点状态 / edge 协议 / EdgeAgent 模型 / 相关状态机与验收迁 Module\_11，本模块收敛为配置生成与下发中心，配置面语义零变更 | 全文（章节重编号） | 文档自身 | ready |
-| v1.79 | 2026-09-16 | 优化 | **§6 归属调整**——地址语义迁 §3.1.5、变更触发链路新建 §4.4、systemd 与多余产物样例迁 DD、确认页形态迁 §11.5（详版见 design-decisions） | §3.1.5 / §4.4 / §6.1 / §6.3 / §6.4 / §6.7 / §6.9 / §11.5 / design-decisions | 文档自身 | ready |
 

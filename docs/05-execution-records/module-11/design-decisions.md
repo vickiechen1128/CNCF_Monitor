@@ -30,6 +30,22 @@
 
 ---
 
+### 决策 101：`center_endpoint` 回归优先消费——单一来源合成配置包下载地址（2026-09-30）
+
+- **问题**：决策 100（2026-09-25）把 `center_endpoint` 降级为 {v0.4+} 预留、`config_download_url` 合成改为「仅按请求来源 authority」。5 天后（2026-09-30）dev-feedback F-37 暴露 **生产病灶**：中心地址经网闸隧道换过多次，`center_endpoint` 每次都在腾讯采集节点域 `mc-edge-debug` 更新 agent 配置里的 `CENTER_ENDPOINT` 环境变量，但中心下发的 `config_download_url` 由请求来源合成、与之脱钩——Agent 拉包静默失败、版本冻结，且无 `apply_error`。根因：**两套独立的地址来源无法保证同步**，任何一方漂移即隐性断链。
+- **决策**：**推翻决策 100 关于 `center_endpoint` 不消费的定论**，回归为——`center_endpoint` 字段与 Agent `CENTER_ENDPOINT` 环境变量**同源**（须填同一值），中心侧合成 `config_download_url` 时**优先取网域 `center_endpoint`**（取其 `scheme://host` authority，含路径只取 authority 部分）；为空 / 非法（缺 scheme / 缺 host）时**回落**请求来源 authority。**单一来源**：中心地址变更只需改 `center_endpoint`（DB 字段 + Agent 环境变量同步更新），无需改代码。
+- **理由**：①F-37 提供了**生产级反例**——决策 100 的「僵尸字段清理」假设 `center_endpoint` 从未被填、也从未被读，但生产网域 `mc-edge-debug.center_endpoint` 已填过、且 agent 环境变量与它同源（用户填的时候自然会两边对齐）；②「请求来源 authority 合成」的本质是**信任入站请求的 Host / X-Forwarded-* 头**，但网闸隧道场景下入站 Host 是隧道端口号、不是 Agent 可达的公网地址；③单一来源是最简单、最不聪明的解决方案——中心侧写一次、Agent 侧写一次、二者必须一致，比「推导」更可预测、更好排查。
+- **决策 100 遗留清理**：决策 100 的 PRD 修订（§5.1 字段标注 / §6.2 合成规则 / §3.1 地址语义 / §6.1 地址约束）**全部推翻**；决策 100 关于 `CENTER_ENDPOINT` 环境变量三必填 + 方案 A 兜底的 PRD 修订（§6.4）**维持有效**（Agent 端地址来源仍由环境变量提供，本次只改中心下发地址的合成来源）。决策 100 的「`center_endpoint` 降级 {v0.4+} 预留」标注**删除**（字段现被 MVP 消费）。
+- **落地（代码 → PRD 同步，F-37 已落代码，本次补 PRD）**：
+  - 代码：`platform/edge/helpers.go`（新增 `resolveDownloadAuthority` / `authorityHost`，优先 `center_endpoint`）、`platform/edge/heartbeat_handler.go`（改调用 `resolveDownloadAuthority`）、`platform/models/network_domain.go`（删除 `center_endpoint` 字段「MVP 不消费」注释）、`platform/admin/networkdomain/{create,update}.go`（开放 `center_endpoint` 到 API + 校验 scheme / host）。
+  - 测试：`edge_test.go` / `TestResolveDownloadAuthorityPrefersCenterEndpoint`（4 子例：合法优先 / 含路径只取 authority / 空回落转发头 / 非法回落请求 Host）。
+  - PRD（M11 v0.7→v0.8）：§5.1 所有者声明 + 字段行 / §3.1 地址语义 / §6.1 地址约束 / §6.2 合成规则（**显式保留两次口径变更的明文记录，供后续评审固化**）/ §9.2 技术验收 / §10 术语表。
+- **与决策 104（M10 / G1）方向不同**：决策 100 / 101 管的是**边缘侧「中心在哪」**的地址传递；决策 1（G1）管的是**中心 Prometheus remote_write 接收端的安全**。二者正交，互不影响。
+- **影响范围**：`platform/models` / `platform/edge` / `platform/admin/networkdomain`（API 开放字段）；M11 PRD v0.8（§3.1 / §5.1 / §6.1 / §6.2 / §9.2 / §10）；**不改 API 契约**（`center_endpoint` 字段语义收敛，是契约修订而非扩展）；**不影响 M09**（M09 只读 `channel`，不消费 `center_endpoint`）；**不影响 M08**（桥地址走独立的 `notify.bridge-url` 参数，与本决策无关）。
+- **新发现（决策 101 附带）**：M09 dev-feedback F-36 暴露的「桥基础地址变化导致 receiver 物化幂等识别失效」与本决策同根——**多个组件各自推导中心地址**，无统一权威。已在 M09 PRD §7.1.5 登记边界，但**桥地址 SSOT 须由 M08 / 全局配置决策层补**，不在本决策范围（已在 prototype-designer.md 标注为「跨模块待决」）。
+
+---
+
 ### Change Log（完整历史）
 
 > 主 PRD `Module_11_Edge_Access_and_Agent_Delivery.md` 的 Change Log 仅保留最近 3 版，更早版本迁至此表。

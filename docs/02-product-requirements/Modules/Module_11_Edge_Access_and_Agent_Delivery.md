@@ -2,13 +2,13 @@
 
 > **PRD 状态**：draft
 >
-> **PRD 版本**：v0.7
+> **PRD 版本**：v0.8
 >
 > **产品版本覆盖**：MVP / v0.2 / v0.3 / v1.0（MVP 子集 = default 网域与 local 通道只读展示；{v0.2} 为核心交付段；{v0.3} = 升级流程增强；v1.0 = mTLS 与证书轮转；{v0.4+} = K8s 采集、同域多节点演化占位）
 >
 > **原型版本**：已同步（随 module-09 原型 v1.73；与 M09 共用 `docs/prototypes/module-09/`，不新建 module-11 目录；原网域纳管页 / 采集节点状态页骨架原位复用，见 [design-decisions.md 决策 87](../../05-execution-records/module-09/design-decisions.md)）
 >
-> **更新日期**：2026-09-25
+> **更新日期**：2026-09-30
 >
 > **模块类型**：核心能力模块（v0.2+）
 >
@@ -101,6 +101,8 @@ M09 原先同时承载「配置生成与下发」（配置面）与「网域纳�
 | 功能项 | 说明 | 优先级 | 交付版本 |
 |--------|------|--------|----------|
 | 网域列表与纳管 | 已纳管网域列表、纳管状态、采集节点在线聚合态；行内主操作按状态推进「去纳管 → 查看安装指引 → 去配置采集」 | P0 | MVP |
+| 网域详情抽屉（采集节点情况） | 「查看详情」抽屉新增独立「采集节点情况」区块（4 行）：采集节点在线（agent_pull 展示 / local 恒 `-`）、采集节点版本、最近心跳（相对时间）、采集节点数量（MVP 无聚合字段，`-` 占位 + 注记「节点列表与计数为采集节点状态页范围」）；仅用网域现有字段，不新增后端聚合 | P1 | {v0.2} |
+| 安装指引双分支 | 安装指引按接入方式分支：**中心直连域**（local）明示「无需部署采集节点、平台直接采集，可跳过」；**采集节点域**（agent_pull）给出 4 步动线（下载安装包 → 解压部署 → 启动 / 守护 → 心跳回连），并标注「Edge Sync Agent 交付物为 {v0.2}，MVP 仅展示接入动线、安装包另待发布」 | P0 | {v0.2} |
 | 网域纳管（登记制） | 从 Module_06 已有网域中选择一个完成纳管：填写监控参数、Token 自动签发；Agent IP / 主机名 / 状态等运行态信息由心跳上报补全 | P0 | {v0.2} |
 | 网域编辑 | 修改监控参数（回传地址 / 描述）与发送队列参数；采集器固定 vmagent 不可改；下发通道只读展示；行政字段由 Module_06 维护 | P1 | {v0.2} |
 | 删除联动级联清退 | 本页无删除入口；M06 删除已纳管网域时级联清退——废止 Token、停止配置下发、节点记录标 `retired`，与 M06 软删在同一次请求内完成，任一环节失败整体回滚 | P0 | {v0.2} |
@@ -111,7 +113,7 @@ M09 原先同时承载「配置生成与下发」（配置面）与「网域纳�
 | 跨模块深链 | M06 网域列表对「已纳管未上线」网域提供「查看安装指引」，深链至本页并定位该网域 | P1 | {v0.2} |
 | 通道与多网域能力 | `channel` 按网域固定（default = local，其他 = agent_pull），不提供切换；单网域只需一台常开机器部署一个采集节点（K8s 集群选 master、VM 选常开虚机）；同域多采集节点为 {v0.4+} 演化 | P0 | MVP / {v0.2} |
 | 发送队列与 Remote Write 参数 | 发送队列参数按网域配置（见 §6.4.1），默认值开箱可用；**采集器落盘持久队列默认启用**，保障网闸断流期间积压不丢、恢复后续传；`remote_write_url` 方向为「采集节点 → 中心」，通常可自动推导 | P0 | {v0.2} |
-| 地址语义与网闸约束 | `remote_write_url`（数据面回传）登记在网域上、方向恒为「采集节点 → 中心」，经配置包下发；Agent 心跳地址由安装时 `CENTER_ENDPOINT` 环境变量提供（`center_endpoint` 字段为 {v0.4+} 网闸映射预留、当前不消费）；转发场景填转发侧可达地址；网闸按「标准 HTTPS 可穿透」设计、待客户环境实测（P2） | P0 | {v0.2} |
+| 地址语义与网闸约束 | `remote_write_url`（数据面回传）登记在网域上、方向恒为「采集节点 → 中心」，经配置包下发；Agent 心跳地址由安装时 `CENTER_ENDPOINT` 环境变量提供；`center_endpoint` 字段与 `CENTER_ENDPOINT` **同源**，优先用于合成配置包下载地址（空 / 非法回落请求来源 authority），中心地址变更只需改此字段；转发场景填转发侧可达地址；网闸按「标准 HTTPS 可穿透」设计、待客户环境实测（P2） | P0 | {v0.2} |
 | 退纳管动作 | 废止 Token → 停止配置下发 → 纳管状态归位 created（保留历史记录）；与 M06 禁用正交、不可互相替代 | P1 | {v0.2} |
 
 ### 3.2 采集节点状态
@@ -223,14 +225,14 @@ flowchart TD
 
 ### 5.1 NetworkDomain（监控纳管字段）
 
-所有者声明：本模块维护 `channel` / `token` / `agent_type` / `remote_write_url` 及运行态字段（`center_endpoint` 为 {v0.4+} 预留、当前不消费）；行政字段（名称、分区、授权租户等）以 Module_06 为 SSOT；Module_09 只读 `channel` 决定产物形态。三家共管口径见 §7.1 模块边界。
+所有者声明：本模块维护 `channel` / `token` / `agent_type` / `remote_write_url` / `center_endpoint` 及运行态字段（`center_endpoint` 优先用于合成配置包下载地址，为空 / 非法回落请求来源 authority）；行政字段（名称、分区、授权租户等）以 Module_06 为 SSOT；Module_09 只读 `channel` 决定产物形态。三家共管口径见 §7.1 模块边界。
 
 | 字段 | 类型 | 必填 | UI 展示名 | 说明 |
 |------|------|------|-----------|------|
 | network_domain_id | string | 是 | 网域 ID | 身份主键；ID 规则由 Module_06 统一定义，本模块只读引用 |
 | channel | enum | 是 | 下发通道 | 按网域固定：default = `local`，其他 = `agent_pull`；不提供切换（混合通道 / 切换为 {v0.4+}）；M11 写入、M09 只读 |
 | agent_type | enum | 条件 | 采集器类型 | agent_pull 时必填；固定 `vmagent`（唯一采集器，纳管时无需选择；网闸断流保障依赖其磁盘持久队列，故不开放其他选型）；local 时为空 |
-| center_endpoint | string | 条件 | 中心接入地址 | {v0.4+} 网闸映射场景预留，MVP/当前实现**不消费**——Agent 心跳地址由安装时环境变量 `CENTER_ENDPOINT` 提供、配置包下载地址由请求来源 authority 合成（见 §6.2），本字段不参与任何运行时链路 |
+| center_endpoint | string | 条件 | 中心接入地址 | 中心对外可达地址（`scheme://host`，可带端口）；**配置包下载地址优先取该字段**（见 §6.2），为空 / 非法回落请求来源 authority；与 Agent 安装时环境变量 `CENTER_ENDPOINT` **同源**（须填同一值，否则中心下发地址与 agent 实际可达地址脱钩）。Agent 心跳地址仍由 `CENTER_ENDPOINT` 环境变量提供。网闸映射场景复用本字段 |
 | remote_write_url | string | 条件 | 回传地址 | agent_pull 时必填（留空自动推导）；数据面地址（指标回传），方向为采集节点→中心，经配置包 `metadata.json` 下发（方案 B）；数据面走不同代理时手动填写 |
 | token | string | 条件 | 认证 Token | agent_pull 时必填，脱敏存储；local 时为空且不展示 |
 | status | enum | 条件 | 运行态 | agent_pull 时必填（系统生成）：normal / partial / offline / unknown，由 offline_detector 定时聚合（扫描 `EdgeAgent.last_heartbeat` 超阈值置 offline，按节点聚合）；local 时为空 |
@@ -294,7 +296,7 @@ flowchart TD
 
 - 边缘侧走向全部为**上行**（采集节点 → 中心），中心不主动入站。
 - 身份 = `NETWORK_DOMAIN_ID` + `TOKEN`，缺任一项返回鉴权失败。
-- Agent 心跳地址 = `CENTER_ENDPOINT` 环境变量（绝对地址）；local 通道不走本协议。
+- Agent 心跳地址 = `CENTER_ENDPOINT` 环境变量（绝对地址）；中心侧下发地址（`config_download_url`）= 网域 `center_endpoint`（优先）→ 回落心跳请求来源 authority（见 §6.2）；二者同源，须填同一中心可达地址。local 通道不走本协议。
 - 中继场景（仅网闸实测不穿透时引入）：管理面必须**应用层反向代理**、数据面必须**存储转发**（带持久化队列），**禁用 L4/TCP 纯端口转发**。
 
 ### 6.2 心跳与配置检查接口
@@ -350,7 +352,7 @@ Content-Type: application/json
 }
 ```
 
-- **`config_download_url` 合成规则**：绝对地址 = 心跳请求来源的对外地址（authority，`X-Forwarded-Proto` / `X-Forwarded-Host` 优先，回落 `Request.Host` + 按 TLS 判定 scheme）+ 固定相对路径 `/api/v2/platform/edge/config?network_domain=<id>`；禁止返回相对路径由 Agent 自行拼接——网闸场景下 Agent 无法推导中心映射地址。**注**：不依赖 `center_endpoint` 字段（该字段为 {v0.4+} 预留，当前不参与合成）。
+- **`config_download_url` 合成规则**：绝对地址 = **网域 `center_endpoint`（优先，取其 `scheme://host` authority）→ 为空 / 非法回落心跳请求来源的对外地址**（authority，`X-Forwarded-Proto` / `X-Forwarded-Host` 优先，回落 `Request.Host` + 按 TLS 判定 scheme）+ 固定相对路径 `/api/v2/platform/edge/config?network_domain=<id>`；禁止返回相对路径由 Agent 自行拼接——网闸场景下 Agent 无法推导中心映射地址。**单一来源**：`center_endpoint` 与 Agent `CENTER_ENDPOINT` 须填同一值，中心地址变更只需改此字段（`center_endpoint` 缺 scheme / host 视为非法并回落，避免产出缺 scheme 的相对地址）。（v0.7 曾收敛为「仅按请求来源 authority 合成、不消费 `center_endpoint`」，本版按 F-37 回归为「优先 `center_endpoint`」。）
 - **配置应用结果可选字段**：心跳请求可携带 `config_apply_error` / `config_apply_failed_version`（成功时为空、`omitempty` 不发送，向后兼容）。Agent 配置应用失败时记录并上送，中心据此将 `out_of_sync_cause` 置 `apply_failed` 并落库失败原因与版本；成功应用后清空。详见 §5.3 / §8.1。
 - **组件 version 上报**：组件级 `version` 为「版本差异与升级提示」功能的数据来源（对照中心发布包版本）。
 - 离线判定阈值：连续 3 个心跳周期（默认 90s）无心跳 → 节点 offline；网域内全部节点离线 → 网域 offline，触发 EdgeSiteOffline 告警（规则归 M08）。
@@ -582,6 +584,8 @@ stateDiagram-v2
 | 版本差异提示与升级指引 | P1 | {v0.2} |
 | 节点状态页「配置同步」展示「同步中」（pull_pending，蓝）与「同步失败」（apply_failed，红，含失败原因与版本） | P0 | {v0.2} |
 | 节点抽屉展示「最后心跳」「最后配置拉取」 | P1 | {v0.2} |
+| 网域详情抽屉含「采集节点情况」区块（在线 / 版本 / 最近心跳 / 数量；local 恒 `-`） | P1 | {v0.2} |
+| 安装指引按接入方式双分支：中心直连域明示「免部署、可跳过」，采集节点域给 4 步动线并标注 Edge Sync Agent 交付物为 {v0.2} | P0 | {v0.2} |
 
 ### 9.2 技术验收
 
@@ -598,6 +602,7 @@ stateDiagram-v2
 | 模拟网络断流后 vmagent 磁盘持久队列积压指标，恢复后自动续传、不丢样本 | P0 | {v0.2} |
 | 规模门槛内 Agent 拉模式自升级：验签失败拒绝安装、启动失败回滚上一版本、升级结果进心跳 | P1 | {v0.3} |
 | local 通道网域在本模块只读展示，不走 edge 协议 | P0 | MVP |
+| `config_download_url` 优先取网域 `center_endpoint`（含路径只取 `scheme://host`），为空 / 非法回落请求来源 authority；与 agent `CENTER_ENDPOINT` 同源，中心地址变更无需改代码 | P0 | {v0.2} |
 
 ---
 
@@ -616,6 +621,7 @@ stateDiagram-v2
 | 人工覆盖 / manual_override | 本地手工配置导致同步档 | M11 |
 | 离线包 | 一体化离线交付包（Agent + 采集器 + 拨测器 + systemd 单元） | M11 |
 | 退纳管 | 停止监控、废止凭据但保留网域 | M11 |
+| 中心接入地址 / `center_endpoint` | 中心对外可达地址（与 Agent 安装时 `CENTER_ENDPOINT` 同源）；优先用于合成配置包下载地址，空 / 非法回落请求来源 authority | M11 |
 | 变更确认 / 下发 / 回滚 | 配置面动作，归 Module_09 | M09 |
 
 ---
@@ -645,7 +651,9 @@ stateDiagram-v2
 
 **纳管取凭据**：点击纳管弹出右侧抽屉，提交后一次性明文展示网域 ID 与 Token，随后脱敏；安装指引 Steps 首步即「复制并保存接入 Token」（明文仅在纳管 / 重置弹窗单次出现，须立即复制保存，等同于该网域「接入密码」）；Token 严格保持仅纳管 / 重置单次展示，**不新增任何可再次获取明文的入口或按钮**（列表凭据列仅脱敏展示、无复制明文），用户遗忘只能「更多 → 重置 Token」重新生成（旧 Token 立即失效、已运行节点须同步换用）。
 
-**安装指引区（含下载入口）**：折叠标题限定为「边缘域接入操作流程（安装指引）」，区外常驻「中心直连域无需部署采集节点」提示（直连域用户无需展开即可确认免操作）；区内以步骤式引导展示部署动线（首步「复制并保存接入 Token」），并保留下载区块作为兜底入口——包清单表格（组件 / 版本 / sha256 / 大小）+ 下载按钮 + 摆渡提示文案「隔离网域不可直连，请介质摆渡」；agent_pull 网域行内「更多 → 下载安装包」为显性主入口。
+**网域详情抽屉（采集节点情况）**：抽屉内含独立「采集节点情况」区块（4 行）——采集节点在线（agent_pull 展示在线态 / local 恒 `-`）、采集节点版本、最近心跳（相对时间）、采集节点数量（MVP 无聚合字段，`-` 占位 + 注记「节点列表与计数为采集节点状态页范围」）；仅消费网域现有字段（`monitored_status` / `last_heartbeat` / `agent_version`），纯前端信息补全。
+
+**安装指引区（含下载入口）**：折叠标题限定为「边缘域接入操作流程（安装指引）」，区外常驻「中心直连域无需部署采集节点」提示（直连域用户无需展开即可确认免操作）；**按接入方式双分支**——中心直连域（local）明示「无需部署代理、平台直接采集，可跳过」；采集节点域（agent_pull）给出 4 步动线（首步「复制并保存接入 Token」→ 下载安装包 → 解压部署 → 启动 / 守护 → 心跳回连），并标注「Edge Sync Agent 交付物为 {v0.2}，MVP 仅展示接入动线，安装包另待发布」；区内保留下载区块作为兜底入口——包清单表格（组件 / 版本 / sha256 / 大小）+ 下载按钮 + 摆渡提示文案「隔离网域不可直连，请介质摆渡」；agent_pull 网域行内「更多 → 下载安装包」为显性主入口。
 
 **数据来源**：网域行政数据由 Module_06 提供；接入参数与包清单由本模块接口提供。
 
@@ -667,6 +675,7 @@ stateDiagram-v2
 
 | 版本 | 日期 | 变更类型 | 变更内容 | 影响范围 | 产品版本影响 | 状态 |
 |------|------|----------|----------|----------|--------------|------|
+| v0.8 | 2026-09-30 | 修订 | 吸收 M09 dev-feedback 补录（F-26 / F-27 / F-37）：① `center_endpoint` 由「{v0.4+} 预留、不消费」**回归为优先消费**——配置包下载地址优先取网域 `center_endpoint`（取 `scheme://host`，空 / 非法回落请求来源 authority），与 Agent `CENTER_ENDPOINT` 同源、中心地址变更只需改此字段（§5.1 / §3.1 / §6.2 / §9.2 / §10）；② 新增「网域详情抽屉（采集节点情况）」区块（4 行，local 恒 `-`，纯前端信息补全）（§3.1 / §11.3 / §9.1）；③ 安装指引按接入方式双分支（中心直连域明示免部署可跳过；采集节点域 4 步动线 + Edge Sync Agent {v0.2} 交付口径）（§3.1 / §11.3 / §9.1） | §3.1 / §5.1 / §6.2 / §9.1 / §9.2 / §10 / §11.3 | {v0.2} 微调 | 设计中 |
 | v0.7 | 2026-09-25 | 修订 | 地址语义收敛（消除 PRD/实现脱节）：① §5.1 `center_endpoint` 由「agent_pull 必填、供合成下载地址」改为 {v0.4+} 网闸映射场景预留、当前不消费；② §6.2 `config_download_url` 合成规则由「center_endpoint + 路径」改为「请求来源 authority + 路径」；③ §6.4 第 1 条补 `CENTER_ENDPOINT` 环境变量（Agent 心跳地址 + 回传地址方案 A 兜底推导），补掉决策 73 遗留的地址传递机制缺口 | §5.1 / §6.2 / §6.4 | 实现对齐（不改契约） | 设计中 |
 | v0.6 | 2026-09-25 | 修订 | 吸收 dev-feedback F-29/F-30：① 下载入口改为 agent_pull 网域行内「更多 → 下载安装包」，中心直连域（local）行不出现下载入口、页面顶部常驻「中心直连域无需部署采集节点」提示置于折叠区外、折叠标题限定为「边缘域接入操作流程（安装指引）」；② 安装指引 Steps 扩为 5 步、首步「复制并保存接入 Token」，Token 严格仅纳管 / 重置单次展示、不新增二次查看明文入口 | §3.1 / §3.3 / §9.1 / §11.3 | {v0.2} 微调 | 设计中 |
 | v0.5 | 2026-09-25 | 修订 | 吸收 dev-feedback F-7/F-15/F-16/F-17/F-21/F-22 与 design-proposal config-sync-stall（Track B，已 merged）：① 网域运行态枚举对齐四档（online→normal，新增 partial），由 offline_detector 聚合（§5.1 / §8.2）；② 边缘进程守护新增父死子亡机制（Linux Pdeathsig + systemd KillMode=control-group 兜底），心跳超时组件状态统一降级「未知」（§6.4.2 / §11.4）；③ 配置同步新增「同步中」（pull_pending，蓝）中间态与「同步失败」（apply_failed，红）终态，心跳契约新增 config_apply_error / config_apply_failed_version 可选字段，pull_pending 仅在节点存活时成立、离线 / 退纳管失效回落未同步（§5.2 / §5.3 / §6.2 / §8.1 / §11.4）；④ last_config_pull 写入口径（版本推进 / 应用失败留痕，同版本不刷新）与抽屉「最后心跳 / 最后配置拉取」展示（§5.2 / §11.4） | §5.1 / §5.2 / §5.3 / §6.2 / §6.4.2 / §8.1 / §8.2 / §9 / §11.4 | {v0.2} 微调 | 设计中 |
