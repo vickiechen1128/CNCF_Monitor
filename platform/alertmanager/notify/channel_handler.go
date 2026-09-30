@@ -26,7 +26,8 @@ func respondChannelError(c *gin.Context, err error) {
 	case errors.Is(err, ErrChannelNotFound):
 		response.NotFound(c, err.Error())
 	case errors.Is(err, ErrChannelNameRequired), errors.Is(err, ErrChannelTypeInvalid), errors.Is(err, ErrChannelWebhookInvalid),
-		errors.Is(err, ErrReceiverNameInvalid):
+		errors.Is(err, ErrReceiverNameInvalid),
+		errors.Is(err, ErrChannelTemplateNotFound), errors.Is(err, ErrChannelTemplateMismatch):
 		response.BadRequest(c, err)
 	default:
 		response.InternalServerError(c, err)
@@ -54,22 +55,24 @@ func ListChannelsHandler(db *gorm.DB) gin.HandlerFunc {
 func CreateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			Name       string `json:"name" binding:"required"`
-			Type       string `json:"type" binding:"required"`
-			WebhookURL string `json:"webhook_url" binding:"required"`
-			Secret     string `json:"secret"`
-			Enabled    *bool  `json:"enabled"`
+			Name              string `json:"name" binding:"required"`
+			Type              string `json:"type" binding:"required"`
+			WebhookURL        string `json:"webhook_url" binding:"required"`
+			Secret            string `json:"secret"`
+			Enabled           *bool  `json:"enabled"`
+			DefaultTemplateID *uint  `json:"default_template_id"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
 			return
 		}
 		ch, err := CreateChannel(db, ChannelInput{
-			Name:       req.Name,
-			Type:       req.Type,
-			WebhookURL: req.WebhookURL,
-			Secret:     req.Secret,
-			Enabled:    req.Enabled,
+			Name:              req.Name,
+			Type:              req.Type,
+			WebhookURL:        req.WebhookURL,
+			Secret:            req.Secret,
+			Enabled:           req.Enabled,
+			DefaultTemplateID: req.DefaultTemplateID,
 		})
 		if err != nil {
 			respondChannelError(c, err)
@@ -88,22 +91,24 @@ func UpdateChannelHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var req struct {
-			Name       *string `json:"name"`
-			Type       *string `json:"type"`
-			WebhookURL *string `json:"webhook_url"`
-			Secret     *string `json:"secret"`
-			Enabled    *bool   `json:"enabled"`
+			Name              *string `json:"name"`
+			Type              *string `json:"type"`
+			WebhookURL        *string `json:"webhook_url"`
+			Secret            *string `json:"secret"`
+			Enabled           *bool   `json:"enabled"`
+			DefaultTemplateID *uint   `json:"default_template_id"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
 			return
 		}
 		ch, err := UpdateChannel(db, id, UpdateChannelInput{
-			Name:       req.Name,
-			Type:       req.Type,
-			WebhookURL: req.WebhookURL,
-			Secret:     req.Secret,
-			Enabled:    req.Enabled,
+			Name:              req.Name,
+			Type:              req.Type,
+			WebhookURL:        req.WebhookURL,
+			Secret:            req.Secret,
+			Enabled:           req.Enabled,
+			DefaultTemplateID: req.DefaultTemplateID,
 		})
 		if err != nil {
 			respondChannelError(c, err)

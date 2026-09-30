@@ -62,7 +62,8 @@ type genReceiver struct {
 
 // MaterializeNotifyReceivers 把平台已启用渠道物化为 alertmanager.yml 的 receivers，与用户
 // 手写 receivers 合并（决策 74 定稿第 1/2/3 条）：
-//   - 每个 enabled 渠道生成一个 receiver：`url` = 桥地址 + `?channel=<真实数字 ID>`，
+//   - 每个 enabled 渠道生成一个 receiver：`url` = 桥地址 + `?channel=<真实数字 ID>`
+//     （渠道绑定了通知模板时再追加 `&template=<真实数字 ID>`），
 //     `http_config.authorization` = `Bearer <令牌>`（H-1：令牌走请求头，不落 URL query）；
 //   - 用户手写 receivers 原样保留（baseYAML 其余内容透传，不解析其它段语义）；
 //   - 平台生成名与手写名（或平台内部两名）冲突 → **不写入任何平台 receiver**、返回冲突归因，
@@ -144,7 +145,7 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 	var updates []platformUpdate
 	for _, ch := range in.Channels {
 		name := ch.ReceiverName()
-		url := bridgeReceiverURL(in.BridgeURL, ch.ID)
+		url := bridgeReceiverURL(in.BridgeURL, ch)
 		ex, ok := existing[name]
 		if !ok {
 			if seen[name] {
@@ -187,7 +188,7 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 		if !platformNames[name] {
 			continue // 非平台槽位（不应发生：name 由渠道 ReceiverName 得出）
 		}
-		url := bridgeReceiverURL(in.BridgeURL, ch.ID)
+		url := bridgeReceiverURL(in.BridgeURL, ch)
 		node, err := platformReceiverNode(name, url, in.BridgeToken)
 		if err != nil {
 			return "", nil, err
@@ -203,10 +204,16 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 }
 
 // bridgeReceiverURL 拼平台物化 receiver 的桥地址：只带 channel 参数（真实数字 ID），
-// 令牌不经 query 传递（H-1）。口径与 notify/receiver_snippet.go buildBridgeURL 一致。
-func bridgeReceiverURL(base string, channelID uint) string {
-	return strings.TrimRight(base, "/") + bridgeEndpointPath +
-		"?channel=" + strconv.FormatUint(uint64(channelID), 10)
+// 令牌不经 query 传递（H-1）；渠道绑定了通知模板时追加 `&template=<真实数字 ID>`
+// （渠道 ↔ 模板一等绑定，dev-feedback #30：绑定是渠道数据属性，随物化持久、不被重算覆写）。
+// 口径与 notify/receiver_snippet.go buildBridgeURL 一致。
+func bridgeReceiverURL(base string, ch models.NotifyChannel) string {
+	u := strings.TrimRight(base, "/") + bridgeEndpointPath +
+		"?channel=" + strconv.FormatUint(uint64(ch.ID), 10)
+	if ch.DefaultTemplateID != nil && *ch.DefaultTemplateID != 0 {
+		u += "&template=" + strconv.FormatUint(uint64(*ch.DefaultTemplateID), 10)
+	}
+	return u
 }
 
 // platformReceiverNode 构造单个平台 receiver 的 yaml.Node（含 http_config.authorization，

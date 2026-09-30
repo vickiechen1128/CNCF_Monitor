@@ -33,7 +33,8 @@ type ReceiverSnippetConfig struct {
 type ReceiverSnippet struct {
 	// ReceiverName 是建议的 AM receiver 名（已 sanitize，可直接使用）。
 	ReceiverName string `json:"receiver_name"`
-	// URL 是桥地址：只带真实数字 channel ID，**不含令牌**（H-1：令牌走 Authorization 头）。
+	// URL 是桥地址：只带真实数字 channel ID（渠道绑定了模板时附 `&template=<ID>`），
+	// **不含令牌**（H-1：令牌走 Authorization 头）。
 	URL string `json:"url"`
 	// Snippet 是可直接粘进 alertmanager.yml receivers: 段的 YAML 片段（含 http_config.authorization）。
 	Snippet string `json:"snippet"`
@@ -84,7 +85,7 @@ func BuildReceiverSnippet(ch *models.NotifyChannel, nameOverride string, cfg Rec
 			return ReceiverSnippet{}, ErrReceiverNameInvalid
 		}
 	}
-	rawURL := buildBridgeURL(cfg.BridgeURL, ch.ID)
+	rawURL := buildBridgeURL(cfg.BridgeURL, ch)
 	credentials := cfg.BridgeToken
 	if credentials == "" {
 		credentials = receiverSnippetTokenPlaceholder
@@ -97,11 +98,17 @@ func BuildReceiverSnippet(ch *models.NotifyChannel, nameOverride string, cfg Rec
 	}, nil
 }
 
-// buildBridgeURL 拼桥地址：只带 channel 参数（真实数字 ID）；令牌不经 query 传递
-// （H-1）。参数名与语义必须与 bridge.go 的 c.Query("channel") 解析口径严格一致。
-func buildBridgeURL(baseURL string, channelID uint) string {
-	return strings.TrimRight(baseURL, "/") + "/api/v1/webhooks/notify?channel=" +
-		strconv.FormatUint(uint64(channelID), 10)
+// buildBridgeURL 拼桥地址：只带 channel 参数（真实数字 ID）；渠道绑定了通知模板时追加
+// `&template=<真实数字 ID>`（渠道 ↔ 模板一等绑定，dev-feedback #30）；令牌不经 query 传递
+// （H-1）。参数名与语义必须与 bridge.go 的 c.Query("channel") / c.Query("template") 解析
+// 口径严格一致，且与 M09 物化（configcenter/generator/notify_receivers.go）同源。
+func buildBridgeURL(baseURL string, ch *models.NotifyChannel) string {
+	u := strings.TrimRight(baseURL, "/") + "/api/v1/webhooks/notify?channel=" +
+		strconv.FormatUint(uint64(ch.ID), 10)
+	if ch.DefaultTemplateID != nil && *ch.DefaultTemplateID != 0 {
+		u += "&template=" + strconv.FormatUint(uint64(*ch.DefaultTemplateID), 10)
+	}
+	return u
 }
 
 // buildReceiverSnippetYAML 生成可粘进 receivers: 段的 YAML 片段（列表项相对 receivers:

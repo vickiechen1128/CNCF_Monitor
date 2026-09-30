@@ -74,6 +74,54 @@ func TestMaterializeNotifyReceiversOmitsHTTPConfigWithoutToken(t *testing.T) {
 	assert.NotContains(t, out, "authorization:")
 }
 
+// TestMaterializeReceiverEmitsTemplateParam 渠道绑定了模板 → receiver URL 追加
+// `&template=<真实数字 ID>`（渠道 ↔ 模板一等绑定，dev-feedback #30 §5.3）；未绑定则只带 channel。
+func TestMaterializeReceiverEmitsTemplateParam(t *testing.T) {
+	bound := uint(42)
+	ch := chWithID(7, "SRE-Critical")
+	ch.DefaultTemplateID = &bound
+	out, conflicts, err := MaterializeNotifyReceivers(baseAMYAML, NotifyReceiverInput{
+		BridgeURL:   "http://127.0.0.1:8080",
+		BridgeToken: "inner-token",
+		Channels:    []models.NotifyChannel{ch},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, conflicts)
+	assert.Contains(t, out, "?channel=7&template=42", "绑定渠道须在 receiver URL 带 template 参数")
+
+	unbound, _, err := MaterializeNotifyReceivers(baseAMYAML, NotifyReceiverInput{
+		BridgeURL: "http://127.0.0.1:8080", BridgeToken: "t",
+		Channels: []models.NotifyChannel{chWithID(8, "ops")},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, unbound, "?channel=8")
+	assert.NotContains(t, unbound, "template=", "未绑定不得写 template 参数（回落内置默认）")
+}
+
+// TestMaterializeReceiverBindingChangeViaAddressEvolution 绑定新增/变化时，平台 receiver
+// 走「地址演进原地更新」：不误报重名、不重复追加、不残留旧地址——绑定随之持久，不被重算覆写。
+func TestMaterializeReceiverBindingChangeViaAddressEvolution(t *testing.T) {
+	out, _, err := MaterializeNotifyReceivers(baseAMYAML, NotifyReceiverInput{
+		BridgeURL: "http://127.0.0.1:8080", BridgeToken: "t",
+		Channels: []models.NotifyChannel{chWithID(7, "SRE-Critical")},
+	})
+	require.NoError(t, err)
+	require.Contains(t, out, "?channel=7")
+
+	bound := uint(42)
+	ch := chWithID(7, "SRE-Critical")
+	ch.DefaultTemplateID = &bound
+	updated, conflicts, err := MaterializeNotifyReceivers(out, NotifyReceiverInput{
+		BridgeURL: "http://127.0.0.1:8080", BridgeToken: "t",
+		Channels: []models.NotifyChannel{ch},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, conflicts, "同一平台 receiver 的地址演进不得误报重名")
+	assert.Contains(t, updated, "?channel=7&template=42")
+	assert.Equal(t, 1, strings.Count(updated, "name: sre-critical"), "原地更新，不重复追加")
+	assert.Equal(t, 1, strings.Count(updated, "channel=7"), "旧地址应被原地更新、不残留")
+}
+
 // TestMaterializeNotifyReceiversNoop 基座为空 / 桥地址为空 / 无渠道时原样返回。
 func TestMaterializeNotifyReceiversNoop(t *testing.T) {
 	for _, tc := range []struct {

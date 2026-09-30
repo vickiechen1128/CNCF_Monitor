@@ -155,6 +155,94 @@ func TestDeleteChannelAndList(t *testing.T) {
 	assert.ErrorIs(t, DeleteChannel(db, c1.ID), ErrChannelNotFound)
 }
 
+// --- 渠道 ↔ 模板一等绑定（dev-feedback #30） ---
+
+// newFeishuTemplate 落一条飞书模板用于绑定测试。
+func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTemplate {
+	t.Helper()
+	tpl := &models.NotifyTemplate{
+		Name:        name,
+		ChannelType: models.NotifyChannelTypeFeishu,
+		Content:     `{"msg_type":"text","text":"x"}`,
+		Checksum:    models.AlertmanagerConfigChecksum(name),
+		Status:      models.NotifyTemplateStatusApplied,
+	}
+	require.NoError(t, db.Create(tpl).Error)
+	return tpl
+}
+
+// TestCreateChannelBindsDefaultTemplate 绑定存在且类型一致的模板 → 落库并在响应视图回显；
+// 未绑定时为 null（回落内置默认），零配置 Happy Path 不变。
+func TestCreateChannelBindsDefaultTemplate(t *testing.T) {
+	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "自定义卡片")
+
+	ch, err := CreateChannel(db, ChannelInput{
+		Name: "SRE", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x",
+		DefaultTemplateID: &tpl.ID,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, ch.DefaultTemplateID)
+	assert.Equal(t, tpl.ID, *ch.DefaultTemplateID)
+	assert.Equal(t, &tpl.ID, ToChannelView(ch).DefaultTemplateID, "响应须回显绑定模板 ID")
+
+	plain, err := CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/y"})
+	require.NoError(t, err)
+	assert.Nil(t, plain.DefaultTemplateID, "默认不绑定（null → 用内置默认模板）")
+}
+
+// TestCreateChannelRejectsInvalidTemplateBinding 绑定不存在 / 类型不符 → 可映射为
+// bad_request 的语义错误（绝不落一条指向错误模板的绑定）。
+func TestCreateChannelRejectsInvalidTemplateBinding(t *testing.T) {
+	db := newNotifyDB(t)
+
+	missing := uint(9999)
+	_, err := CreateChannel(db, ChannelInput{
+		Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x", DefaultTemplateID: &missing,
+	})
+	assert.ErrorIs(t, err, ErrChannelTemplateNotFound)
+
+	wecom := &models.NotifyTemplate{
+		Name: "w", ChannelType: models.NotifyChannelTypeWecom, Content: `{"msgtype":"text"}`,
+		Checksum: models.AlertmanagerConfigChecksum("w"), Status: models.NotifyTemplateStatusApplied,
+	}
+	require.NoError(t, db.Create(wecom).Error)
+	_, err = CreateChannel(db, ChannelInput{
+		Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x", DefaultTemplateID: &wecom.ID,
+	})
+	assert.ErrorIs(t, err, ErrChannelTemplateMismatch)
+}
+
+// TestUpdateChannelRebindAndClear 绑定可切换、可解绑（0 → null 回落内置默认）、
+// 未显式传入则保留原绑定。
+func TestUpdateChannelRebindAndClear(t *testing.T) {
+	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "t1")
+	ch, err := CreateChannel(db, ChannelInput{Name: "n", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x"})
+	require.NoError(t, err)
+
+	// 绑定。
+	updated, err := UpdateChannel(db, ch.ID, UpdateChannelInput{DefaultTemplateID: &tpl.ID})
+	require.NoError(t, err)
+	require.NotNil(t, updated.DefaultTemplateID)
+	assert.Equal(t, tpl.ID, *updated.DefaultTemplateID)
+
+	// 未传绑定 → 保留。
+	renamed := "kept"
+	updated, err = UpdateChannel(db, ch.ID, UpdateChannelInput{Name: &renamed})
+	require.NoError(t, err)
+	require.NotNil(t, updated.DefaultTemplateID, "未显式传绑定应保留原绑定")
+
+	// 传 0 → 解绑并持久化。
+	clear := uint(0)
+	updated, err = UpdateChannel(db, ch.ID, UpdateChannelInput{DefaultTemplateID: &clear})
+	require.NoError(t, err)
+	assert.Nil(t, updated.DefaultTemplateID)
+	reloaded, err := GetChannel(db, ch.ID)
+	require.NoError(t, err)
+	assert.Nil(t, reloaded.DefaultTemplateID, "解绑须落库（回落内置默认）")
+}
+
 // --- Handler 层 ---
 
 func newNotifyRouter(db *gorm.DB) *gin.Engine {
@@ -232,4 +320,26 @@ func TestChannelCRUDHandlers(t *testing.T) {
 	code, out = doJSON(t, r, http.MethodPut, "/api/v2/platform/alertmanager/notify-channels/"+id, map[string]interface{}{"name": "x"})
 	assert.Equal(t, http.StatusNotFound, code)
 	assert.Equal(t, "not_found", out.ErrorType)
+}
+
+// TestChannelHandlerTemplateBinding 覆盖绑定字段的 HTTP round-trip：创建带
+// default_template_id → 响应回显；绑定非法模板 → 400 bad_request（非 500）。
+func TestChannelHandlerTemplateBinding(t *testing.T) {
+	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "h-tpl")
+	r := newNotifyRouter(db)
+
+	code, out := doJSON(t, r, http.MethodPost, "/api/v2/platform/alertmanager/notify-channels", map[string]interface{}{
+		"name": "SRE", "type": "feishu", "webhook_url": "https://open.feishu.cn/hook/xyz",
+		"default_template_id": tpl.ID,
+	})
+	require.Equal(t, http.StatusOK, code)
+	assert.EqualValues(t, tpl.ID, out.Data["default_template_id"])
+
+	code, out = doJSON(t, r, http.MethodPost, "/api/v2/platform/alertmanager/notify-channels", map[string]interface{}{
+		"name": "bad", "type": "feishu", "webhook_url": "https://open.feishu.cn/hook/xyz",
+		"default_template_id": 8888,
+	})
+	assert.Equal(t, http.StatusBadRequest, code)
+	assert.Equal(t, "bad_request", out.ErrorType)
 }

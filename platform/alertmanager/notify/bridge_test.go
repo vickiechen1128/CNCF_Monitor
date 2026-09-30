@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -294,6 +296,130 @@ func TestBridgeTemplateChannelTypeMismatch(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "bad_request", out.ErrorType)
 	assert.Zero(t, rec.calls())
+}
+
+// --- 渠道 ↔ 模板一等绑定（dev-feedback #30 / 设计提案 notify-template-channel-binding.md §5.2） ---
+
+// mustBindChannel 把渠道的 default_template_id 直写为 tplID（绕开 CRUD 校验，用于构造
+// 「绑定失效 / 类型不符」等非常规存量数据）。tplID 传 0 表示解绑。
+func mustBindChannel(t *testing.T, db *gorm.DB, ch *models.NotifyChannel, tplID uint) {
+	t.Helper()
+	require.NoError(t, db.Model(&models.NotifyChannel{}).Where("id = ?", ch.ID).
+		Update("default_template_id", tplID).Error)
+	require.NoError(t, db.First(ch, ch.ID).Error)
+}
+
+// mustCreateFeishuTemplate 落一条飞书自定义模板，内容为可辨识的单行 JSON。
+func mustCreateFeishuTemplate(t *testing.T, db *gorm.DB, name, marker string) *models.NotifyTemplate {
+	t.Helper()
+	tpl := &models.NotifyTemplate{
+		Name:        name,
+		ChannelType: models.NotifyChannelTypeFeishu,
+		Content:     `{"msg_type":"text","text":{{ jsonStr "` + marker + `" }}}`,
+		Checksum:    models.AlertmanagerConfigChecksum(name),
+		Status:      models.NotifyTemplateStatusApplied,
+	}
+	require.NoError(t, db.Create(tpl).Error)
+	return tpl
+}
+
+// bridgeCallOnce 发一次桥调用并返回状态码、响应与出站体。
+func bridgeCallOnce(t *testing.T, db *gorm.DB, rec *fakeReceiver, ch *models.NotifyChannel) (int, channelResp, string) {
+	t.Helper()
+	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	code, out := doBridgeJSON(t, r,
+		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10),
+		bridgeToken, amBridgePayload("firing"))
+	return code, out, string(rec.lastBody())
+}
+
+// captureBridgeLogs 捕获桥日志（断言绑定失效回落 warning）。
+func captureBridgeLogs(t *testing.T) *[]string {
+	t.Helper()
+	var logs []string
+	orig := bridgeLogf
+	bridgeLogf = func(format string, args ...interface{}) { logs = append(logs, fmt.Sprintf(format, args...)) }
+	t.Cleanup(func() { bridgeLogf = orig })
+	return &logs
+}
+
+// TestBridgeUsesChannelBoundTemplate 渠道绑定了自定义模板时，自动链路（URL 不带 template）
+// 也按绑定模板渲染——这是「复制并自定义 → 绑定 → 真正生效」闭环的关键一环。
+func TestBridgeUsesChannelBoundTemplate(t *testing.T) {
+	db := newNotifyDB(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+	rec := &fakeReceiver{}
+	url := startFakeReceiver(t, rec)
+	tpl := mustCreateFeishuTemplate(t, db, "sre-bound", "bound")
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	mustBindChannel(t, db, ch, tpl.ID)
+
+	code, out, body := bridgeCallOnce(t, db, rec, ch)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, strconv.FormatUint(uint64(tpl.ID), 10), out.Data["template"], "须用渠道绑定的模板渲染")
+	assert.JSONEq(t, `{"msg_type":"text","text":"bound"}`, body)
+}
+
+// TestBridgeExplicitTemplateOverridesChannelBinding 显式 `?template=` 优先于渠道绑定。
+func TestBridgeExplicitTemplateOverridesChannelBinding(t *testing.T) {
+	db := newNotifyDB(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+	rec := &fakeReceiver{}
+	url := startFakeReceiver(t, rec)
+	bound := mustCreateFeishuTemplate(t, db, "bound-tpl", "bound")
+	explicit := mustCreateFeishuTemplate(t, db, "explicit-tpl", "explicit")
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	mustBindChannel(t, db, ch, bound.ID)
+
+	r := newBridgeRouter(db, BridgeConfig{Token: bridgeToken})
+	code, _ := doBridgeJSON(t, r,
+		"/api/v1/webhooks/notify?channel="+strconv.FormatUint(uint64(ch.ID), 10)+
+			"&template="+strconv.FormatUint(uint64(explicit.ID), 10),
+		bridgeToken, amBridgePayload("firing"))
+	require.Equal(t, http.StatusOK, code)
+	assert.JSONEq(t, `{"msg_type":"text","text":"explicit"}`, string(rec.lastBody()),
+		"显式 template 参数优先级高于渠道绑定")
+}
+
+// TestBridgeFallsBackToBuiltinWhenBoundTemplateMissing 绑定指向不存在的模板（脏数据）→
+// 记 warning 并回落内置默认，**不返回 4xx**（否则 AM 会无限重试，该渠道告警整体丢失）。
+func TestBridgeFallsBackToBuiltinWhenBoundTemplateMissing(t *testing.T) {
+	db := newNotifyDB(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+	rec := &fakeReceiver{}
+	url := startFakeReceiver(t, rec)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	mustBindChannel(t, db, ch, 999999) // 不存在的模板 ID
+	logs := captureBridgeLogs(t)
+
+	code, _, body := bridgeCallOnce(t, db, rec, ch)
+	require.Equal(t, http.StatusOK, code, "绑定失效不得阻断通知投递")
+	assert.True(t, json.Valid([]byte(body)), "应回落内置模板并产出合法 JSON：%s", body)
+	assert.Contains(t, body, "interactive", "应回落内置飞书卡片模板")
+	assert.Contains(t, strings.Join(*logs, "\n"), "bound template=999999 invalid, fallback to builtin")
+}
+
+// TestBridgeFallsBackToBuiltinWhenBoundTemplateTypeMismatch 绑定模板的渠道类型与渠道不一致
+// （存量脏数据）→ 同样优雅回落内置默认，不阻断、不 400。
+func TestBridgeFallsBackToBuiltinWhenBoundTemplateTypeMismatch(t *testing.T) {
+	db := newNotifyDB(t)
+	require.NoError(t, EnsureBuiltinTemplates(db))
+	rec := &fakeReceiver{}
+	url := startFakeReceiver(t, rec)
+	wecom := &models.NotifyTemplate{
+		Name:        "wecom-tpl",
+		ChannelType: models.NotifyChannelTypeWecom,
+		Content:     `{"msgtype":"text"}`,
+		Checksum:    models.AlertmanagerConfigChecksum("wecom-tpl"),
+		Status:      models.NotifyTemplateStatusApplied,
+	}
+	require.NoError(t, db.Create(wecom).Error)
+	ch := mustCreateChannel(t, db, "SRE", "feishu", url, true)
+	mustBindChannel(t, db, ch, wecom.ID)
+
+	code, _, body := bridgeCallOnce(t, db, rec, ch)
+	require.Equal(t, http.StatusOK, code)
+	assert.Contains(t, body, "interactive", "类型不符的绑定应回落内置默认模板")
 }
 
 // --- 发送失败可观测，不静默丢失 ---

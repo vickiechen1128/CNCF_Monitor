@@ -68,18 +68,23 @@ func IsValidNotifyChannelType(t string) bool {
 // NotifyChannel 是通知渠道（设计提案 §3.3.2）：AM 侧只引用 ID、不暴露目标地址；
 // WebhookURL / Secret 仅在平台侧存储（列表响应按需脱敏，脱敏在 notify 包的视图层完成）。
 //
-//	Name       渠道名称（如「SRE 飞书群」）
-//	Type       渠道类型（feishu / dingtalk / wecom）
-//	WebhookURL 机器人 Webhook 地址（含 token），仅平台侧存储
-//	Secret     加签密钥（选填，启用加签时必填）
-//	Enabled    启用状态
+//	Name             渠道名称（如「SRE 飞书群」）
+//	Type             渠道类型（feishu / dingtalk / wecom）
+//	WebhookURL       机器人 Webhook 地址（含 token），仅平台侧存储
+//	Secret           加签密钥（选填，启用加签时必填）
+//	Enabled          启用状态
+//	DefaultTemplateID 该渠道渲染时使用的通知模板（null = 用内置默认模板，零配置 Happy Path 不变）；
+//	                  非空时须满足 template.channel_type == 本渠道 Type（渠道 CRUD 前置校验，桥亦有兜底）。
+//	                  经 M09 物化写进 receiver URL 的 `&template=<ID>`，是「渠道 ↔ 模板一等绑定」的载体
+//	                  （dev-feedback #30 / 设计提案 notify-template-channel-binding.md §5.1）。
 type NotifyChannel struct {
 	BaseModel
-	Name       string            `gorm:"size:100;not null" json:"name"`
-	Type       NotifyChannelType `gorm:"size:20;not null" json:"type"`
-	WebhookURL string            `gorm:"size:1024;not null" json:"webhook_url"`
-	Secret     string            `gorm:"size:256" json:"secret,omitempty"`
-	Enabled    bool              `gorm:"not null" json:"enabled"`
+	Name              string            `gorm:"size:100;not null" json:"name"`
+	Type              NotifyChannelType `gorm:"size:20;not null" json:"type"`
+	WebhookURL        string            `gorm:"size:1024;not null" json:"webhook_url"`
+	Secret            string            `gorm:"size:256" json:"secret,omitempty"`
+	Enabled           bool              `gorm:"not null" json:"enabled"`
+	DefaultTemplateID *uint             `gorm:"size:20" json:"default_template_id,omitempty"`
 }
 
 // TableName 返回 GORM 表名。

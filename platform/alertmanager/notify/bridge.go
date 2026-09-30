@@ -183,24 +183,37 @@ func parseUintQuery(s string) (uint, error) {
 	return uint(n), nil
 }
 
-// resolveBridgeTemplate 解析渲染模板：显式 template ID（须与渠道类型一致）或该
-// 渠道类型的内置默认模板。
+// resolveBridgeTemplate 解析渲染模板，优先级（设计提案 notify-template-channel-binding.md §5.2）：
+//  1. 显式 `?template=`（须与渠道类型一致，非法/不符仍报错——这是调用方显式指定，不静默降级）；
+//  2. 渠道绑定 `default_template_id`（渠道 ↔ 模板一等绑定，dev-feedback #30）；
+//  3. 该渠道类型的内置默认模板（零配置 Happy Path）。
+//
+// 第 2 级**优雅回落**：绑定模板被删 / 类型不符 / 脏数据时记 warning 并回落内置默认，**不返回错误**
+// ——绑定是「便利覆盖」，其失效不应让该渠道的告警整体投递失败（AM 会无限重试 400）。
 func resolveBridgeTemplate(db *gorm.DB, ch *models.NotifyChannel, rawID string) (*models.NotifyTemplate, error) {
-	if rawID == "" {
-		return BuiltinTemplateForType(db, string(ch.Type))
+	if rawID != "" {
+		tplID, err := parseUintQuery(rawID)
+		if err != nil {
+			return nil, ErrBridgeTemplateInvalid
+		}
+		tpl, err := GetTemplate(db, tplID)
+		if err != nil {
+			return nil, err
+		}
+		if tpl.ChannelType != ch.Type {
+			return nil, ErrBridgeTemplateMismatch
+		}
+		return tpl, nil
 	}
-	tplID, err := parseUintQuery(rawID)
-	if err != nil {
-		return nil, ErrBridgeTemplateInvalid
+	if ch.DefaultTemplateID != nil && *ch.DefaultTemplateID != 0 {
+		tpl, err := GetTemplate(db, *ch.DefaultTemplateID)
+		if err == nil && tpl.ChannelType == ch.Type {
+			return tpl, nil
+		}
+		bridgeLogf("[notify-bridge] channel=%d bound template=%d invalid, fallback to builtin: %v",
+			ch.ID, *ch.DefaultTemplateID, err)
 	}
-	tpl, err := GetTemplate(db, tplID)
-	if err != nil {
-		return nil, err
-	}
-	if tpl.ChannelType != ch.Type {
-		return nil, ErrBridgeTemplateMismatch
-	}
-	return tpl, nil
+	return BuiltinTemplateForType(db, string(ch.Type))
 }
 
 // respondBridgeTemplateError 将模板解析错误映射为统一响应。

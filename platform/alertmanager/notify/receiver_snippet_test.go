@@ -221,6 +221,25 @@ func TestReceiverSnippetHandlerErrors(t *testing.T) {
 	assert.Equal(t, "bad_request", out.ErrorType)
 }
 
+// TestReceiverSnippetIncludesBoundTemplate 渠道绑定了模板 → 片段 url 带 `&template=<ID>`，
+// 与 M09 物化（notify_receivers.go bridgeReceiverURL）同源（dev-feedback #30）。
+func TestReceiverSnippetIncludesBoundTemplate(t *testing.T) {
+	db := newNotifyDB(t)
+	tpl := newFeishuTemplate(t, db, "片段绑定模板")
+	ch, err := CreateChannel(db, ChannelInput{
+		Name: "SRE", Type: "feishu", WebhookURL: "https://open.feishu.cn/hook/x",
+		DefaultTemplateID: &tpl.ID,
+	})
+	require.NoError(t, err)
+
+	snip, err := BuildReceiverSnippet(ch, "", ReceiverSnippetConfig{BridgeURL: "http://127.0.0.1:8080", BridgeToken: "tok"})
+	require.NoError(t, err)
+	want := "?channel=" + strconv.FormatUint(uint64(ch.ID), 10) +
+		"&template=" + strconv.FormatUint(uint64(tpl.ID), 10)
+	assert.Contains(t, snip.URL, want)
+	assert.Contains(t, snip.Snippet, want, "片段 url 须与 M09 物化口径一致")
+}
+
 // TestReceiverSnippetAcceptedByAmtool 用上游 amtool check-config 实测片段可被接受
 // （拼接最小 route: 引用它）。amtool 不可调用时跳过（与设计提案 §3.3.5 校验工序一致）。
 func TestReceiverSnippetAcceptedByAmtool(t *testing.T) {
