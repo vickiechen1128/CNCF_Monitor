@@ -504,7 +504,7 @@ L3（纯文案文档）──┘        │
 - **落地（2026-09-30，已修）**：`platform/alertmanager/notify/template.go` 去重键由 `(channel_type, checksum)` 收窄为 `(name, channel_type, checksum)`——`findTemplateByChecksum` 加 `name` 形参 + WHERE，仅 `SubmitTemplate` 一处调用（grep 确认）；同名同内容仍幂等、改名同内容（克隆）新建、同名改内容新建一版（append-only）。同步更新原 `TestSubmitTemplateIdempotent`（旧断言误锁错误语义）为「同名同内容幂等 / 改名同内容新建」，新增 `TestSubmitTemplateCloneBuiltinVerbatimCreatesNewRow` 直击本缺陷。验证：`go test ./platform/alertmanager/notify/...` 全过、`go vet` 干净、`go test ./platform/alertmanager/...` 全过；改动未提交（WIP）。
 - **状态**：landed（修复已落 `feat/module-08-alert-dispatch`，未提交；回归测试已锁。配套设计缺口见 #30）
 
-## 30. 通知「多模板」能力半截：渠道↔模板无绑定，自定义模板在自动链路里恒哑火（① 空白判定 / 跨模块设计缺口，待设计拍板）
+## 30. 通知「多模板」能力半截：渠道↔模板无绑定，自定义模板在自动链路里恒哑火（① 空白判定 / 跨模块设计缺口，2026-09-30 用户拍板方案 B 并已落地）
 
 - **类别**：① 空白判定（PRD 声明多模板 + 克隆自定义能力，但「渠道选哪个模板」的绑定/路由机制缺失）+ 跨模块契约缺口（M08 模板 ↔ M09 receiver 物化 ↔ 桥渲染）
 - **PRD 章节 / 文件位置**：设计提案 `alert-config-scope-and-notification-bridge.md` §3.3.2（NotifyTemplate 版本化留痕 + 复制内置模板自定义，声明多模板能力）；落点证据：
@@ -531,4 +531,13 @@ L3（纯文案文档）──┘        │
 - **影响模块**：M08（模板页/渠道页/桥）、M09（receiver 物化）、数据模型（`NotifyChannel` 加列 + 迁移）；不动渲染函数与 default 回落语义。
 - **发现场景**：用户 2026-09-30 就 #29 克隆修复追问「多模板是否允许 / 渠道如何 match / 默认与自建是否冲突 / 是否需要引导动线」。
 - **设计草案**：已落 `docs/05-execution-records/module-08/design-proposals/notify-template-channel-binding.md`（方案 B：渠道↔模板一等绑定 + 双向引流动线；含数据模型/桥口径/M09 物化/前端下拉/兼容迁移/契约/验证/回填清单/P1-P3 待决）。推荐 `NotifyChannel.DefaultTemplateID *uint`（null=内置默认）+ 桥读绑定 + M09 输出 `&template=` + 前端渠道表单模板下拉 + 双向引流；绑定失效优雅回落内置默认（不 400）。
-- **状态**：open（设计草案已写 `feat/module-08-alert-dispatch`，待用户拍板后实施；与 #29 配合——#29 修「能建副本」，本项修「副本能被用上」；实施后由测试闭环，本项 closed）
+- **状态**：landed（2026-09-30，用户拍板方案 B 并已实现，配套测试已锁。与 #29 配合——#29 修「能建副本」，本项修「副本能被用上」）
+- **落地（2026-09-30，方案 B 已实现）**：
+  - 模型：`NotifyChannel.DefaultTemplateID *uint`（`json: default_template_id,omitempty`；迁移经 `db.AutoMigrate`，存量 `null` → 回落内置默认，零影响）。
+  - 渠道 CRUD：新增/更新校验「模板存在 + `channel_type` 与渠道一致」（不存在/不符 → `bad_request`）；`ChannelView` 回显 `default_template_id`；更新语义「不传=保留 / `0`=解绑 / `>0`=改绑」。
+  - 桥：`resolveBridgeTemplate` 改为三级优先级（显式 `?template=` > 渠道 `default_template_id` > 内置默认）；绑定失效（被删 / 类型不符 / 脏数据）**优雅回落内置默认并记 warning，不返回 4xx**（否则 AM 无限重试、该渠道告警整体丢失）。
+  - M09：`bridgeReceiverURL` 对已绑定渠道输出 `?channel=<ID>&template=<ID>`；绑定变化经「平台 receiver 地址演进原地更新」承载 → **绑定随物化持久、不被重算覆写**。接收人片段 `buildBridgeURL` 同源（避免参考片段与实际下发口径漂移）。
+  - 前端：渠道抽屉在「渠道类型」与「机器人 Webhook」间加「通知模板」下拉（按渠道类型过滤、内置置顶标注、切换类型重置、可清空解绑）；模板页内置区补「复制出的模板需在通知渠道中绑定才会生效」引流链接（双向引流）。
+  - 契约：`api-contract-snapshot.md` §11.1 / §11.3 / §11.4 / 新增 §11.7 已回写。
+  - 验证：`go test ./platform/...`、`go vet ./platform/...`、`tsc --noEmit`、`vitest run src/pages/alerts`（126 passed）全绿。
+  - 待 design 侧回写：PRD §3.3.2（多模板 + 渠道绑定）/ 原型 M08 渠道抽屉（开发 Agent 不写 PRD）。

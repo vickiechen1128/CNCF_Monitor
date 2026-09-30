@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-30 12:41 · commit: `bb0d59c`
+> 生成时间: 2026-09-30 12:56 · commit: `e39b1b6`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -519,6 +519,14 @@
 - `func TestBridgeRendersAndForwardsToRegisteredChannel(t *testing.T)`
 - `func TestBridgeUsesExplicitTemplate(t *testing.T)`
 - `func TestBridgeTemplateChannelTypeMismatch(t *testing.T)`
+- `func mustBindChannel(t *testing.T, db *gorm.DB, ch *models.NotifyChannel, tplID uint)`
+- `func mustCreateFeishuTemplate(t *testing.T, db *gorm.DB, name, marker string) *models.NotifyTemplate`
+- `func bridgeCallOnce(t *testing.T, db *gorm.DB, rec *fakeReceiver, ch *models.NotifyChannel) (int, channelResp, string)`
+- `func captureBridgeLogs(t *testing.T) *[]string`
+- `func TestBridgeUsesChannelBoundTemplate(t *testing.T)`
+- `func TestBridgeExplicitTemplateOverridesChannelBinding(t *testing.T)`
+- `func TestBridgeFallsBackToBuiltinWhenBoundTemplateMissing(t *testing.T)`
+- `func TestBridgeFallsBackToBuiltinWhenBoundTemplateTypeMismatch(t *testing.T)`
 - `func TestBridgeSendFailureReturnsBadGateway(t *testing.T)`
 - `func TestBridgeSuccessStructuredLog(t *testing.T)`
 - `func TestSanitizeOutboundErrorStripsURL(t *testing.T)`
@@ -531,6 +539,7 @@
 - `func rejectPrivateHost(host string) error`
 - `type ChannelInput struct`
 - `type UpdateChannelInput struct`
+- `func resolveChannelTemplateID(db *gorm.DB, raw *uint, chType models.NotifyChannelType) (*uint, error)`
 - `func CreateChannel(db *gorm.DB, in ChannelInput) (*models.NotifyChannel, error)`
 - `func UpdateChannel(db *gorm.DB, id uint, in UpdateChannelInput) (*models.NotifyChannel, error)`
 - `func ListChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
@@ -557,10 +566,15 @@
 - `func TestChannelViewMasksCredentials(t *testing.T)`
 - `func TestUpdateChannelPartialAndNotFound(t *testing.T)`
 - `func TestDeleteChannelAndList(t *testing.T)`
+- `func newFeishuTemplate(t *testing.T, db *gorm.DB, name string) *models.NotifyTemplate`
+- `func TestCreateChannelBindsDefaultTemplate(t *testing.T)`
+- `func TestCreateChannelRejectsInvalidTemplateBinding(t *testing.T)`
+- `func TestUpdateChannelRebindAndClear(t *testing.T)`
 - `func newNotifyRouter(db *gorm.DB) *gin.Engine`
 - `type channelResp struct`
 - `func doJSON(t *testing.T, r *gin.Engine, method, path string, body interface{}) (int, channelResp)`
 - `func TestChannelCRUDHandlers(t *testing.T)`
+- `func TestChannelHandlerTemplateBinding(t *testing.T)`
 
 ### `platform/alertmanager/notify/client.go`
 
@@ -575,7 +589,7 @@
 - `func DeriveBridgeBaseURL(listenAddr string) (string, error)`
 - `func sanitizeReceiverName(raw string) string`
 - `func BuildReceiverSnippet(ch *models.NotifyChannel, nameOverride string, cfg ReceiverSnippetConfig) (ReceiverSnippet, error)`
-- `func buildBridgeURL(baseURL string, channelID uint) string`
+- `func buildBridgeURL(baseURL string, ch *models.NotifyChannel) string`
 - `func buildReceiverSnippetYAML(name, rawURL, credentials string) string`
 - `func escapeSingleQuotes(s string) string`
 - `func ReceiverSnippetHandler(db *gorm.DB, cfg ReceiverSnippetConfig) gin.HandlerFunc`
@@ -593,6 +607,7 @@
 - `func newSnippetRouter(t *testing.T, db *gorm.DB, cfg ReceiverSnippetConfig, u *models.User) *gin.Engine`
 - `func TestReceiverSnippetHandlerAuth(t *testing.T)`
 - `func TestReceiverSnippetHandlerErrors(t *testing.T)`
+- `func TestReceiverSnippetIncludesBoundTemplate(t *testing.T)`
 - `func TestReceiverSnippetAcceptedByAmtool(t *testing.T)`
 - `func locateAmtool(t *testing.T) string`
 
@@ -2035,7 +2050,7 @@
 - `type genWebhookConfig struct`
 - `type genReceiver struct`
 - `func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string, []NotifyReceiverConflict, error)`
-- `func bridgeReceiverURL(base string, channelID uint) string`
+- `func bridgeReceiverURL(base string, ch models.NotifyChannel) string`
 - `func platformReceiverNode(name, url, token string) (*yaml.Node, error)`
 - `func mappingValueIndex(m *yaml.Node, key string) int`
 - `type existingReceiver struct`
@@ -2047,6 +2062,8 @@
 - `func chWithID(id uint, name string) models.NotifyChannel`
 - `func TestMaterializeNotifyReceiversAppendsPlatformReceiver(t *testing.T)`
 - `func TestMaterializeNotifyReceiversOmitsHTTPConfigWithoutToken(t *testing.T)`
+- `func TestMaterializeReceiverEmitsTemplateParam(t *testing.T)`
+- `func TestMaterializeReceiverBindingChangeViaAddressEvolution(t *testing.T)`
 - `func TestMaterializeNotifyReceiversNoop(t *testing.T)`
 - `func TestMaterializeNotifyReceiversHandwrittenNameConflict(t *testing.T)`
 - `func TestMaterializeNotifyReceiversInternalDuplicate(t *testing.T)`

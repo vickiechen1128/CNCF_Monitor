@@ -3,7 +3,7 @@
 > 类型：feat 分支设计提案（落 `feat/module-08-alert-dispatch`，非 design 分支 PRD 载体）
 > 作者：Orchestrator / chenrt
 > 日期：2026-09-30
-> 状态：**草案（待用户拍板后实施）**
+> 状态：**已实施（2026-09-30 用户拍板方案 B 并落地；实现见 §5，契约回写 `api-contract-snapshot.md` §11.7，回归测试见 §8）**
 > 关联：`dev-feedback.md` **#29**（克隆修复，已 landed）、**#30**（本提案的设计缺口登记）、`alert-route-frontend-editor.md` §4.9（最小运行骨架自动布缆，可组合）
 > 决策归属：M08 设计侧（PRD / 契约快照回写待用户在 design 分支做版本化迭代时单向同步）
 

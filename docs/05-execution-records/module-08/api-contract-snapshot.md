@@ -326,8 +326,8 @@
 | 方法 | 路径 | 请求体 / Query | 响应 data | 鉴权 | 业务错误 |
 | ---- | ---- | -------------- | --------- | ---- | -------- |
 | GET | `/api/v2/platform/alertmanager/notify-channels` | — | `{ items: [ChannelView] }` | 全局认证（读） | — |
-| POST | `/api/v2/platform/alertmanager/notify-channels` | `{ name, type, webhook_url, secret?, enabled? }` | `ChannelView` | `RequireAdmin` | `bad_request`：名称空 / 类型非法 / webhook 非法（含私网、环回、link-local、云元数据地址，见 §11.5） |
-| PUT | `/api/v2/platform/alertmanager/notify-channels/{id}` | 同 POST，字段**指针语义**（仅更新显式提供项；`webhook_url`/`secret` 留空表示不改） | `ChannelView` | `RequireAdmin` | `bad_request`；`not_found` |
+| POST | `/api/v2/platform/alertmanager/notify-channels` | `{ name, type, webhook_url, secret?, enabled?, default_template_id? }` | `ChannelView` | `RequireAdmin` | `bad_request`：名称空 / 类型非法 / webhook 非法（含私网、环回、link-local、云元数据地址，见 §11.5）/ 绑定模板不存在或类型与渠道不一致（见 §11.3、§11.8） |
+| PUT | `/api/v2/platform/alertmanager/notify-channels/{id}` | 同 POST，字段**指针语义**（仅更新显式提供项；`webhook_url`/`secret` 留空表示不改）；`default_template_id` 不传=保留原绑定 / `0`=解绑（回落内置默认）/ `>0`=改绑 | `ChannelView` | `RequireAdmin` | `bad_request`；`not_found` |
 | DELETE | `/api/v2/platform/alertmanager/notify-channels/{id}` | — | `{}` | `RequireAdmin` | `not_found` |
 | GET | `/api/v2/platform/alertmanager/notify-channels/{id}/receiver-snippet` | — | `ReceiverSnippet`（见 §11.4） | `RequireAdmin` | `not_found` |
 | GET | `/api/v2/platform/alertmanager/notify-templates` | — | `{ items: [TemplateView] }` | 全局认证（读） | — |
@@ -351,6 +351,7 @@
 | `webhook_url` | string | **脱敏**为 `scheme://host/***`，绝不回显完整地址与 token |
 | `secret_set` | bool | 是否已设置加签密钥（**不回显 secret**） |
 | `enabled` | bool | 是否启用（仅 enabled 渠道参与 M09 物化） |
+| `default_template_id` | number? | 绑定的通知模板 ID（**缺省/`null` = 用该渠道类型的内置默认模板**）；非空须与渠道类型一致。经 M09 物化写进 receiver URL 的 `&template=<ID>`，是「渠道 ↔ 模板一等绑定」的载体（见 §11.8） |
 | `created_at` | datetime | 创建时间 |
 
 | TemplateView 字段 | 类型 | 说明 |
@@ -368,7 +369,7 @@
 | 字段 | 类型 | 说明 |
 | ---- | ---- | ---- |
 | `receiver_name` | string | 建议接收人名（渠道名归一为安全字符集；为空回落 `notify-<ID>`） |
-| `url` | string | 桥地址 + 真实数字渠道 ID（`?channel=<id>`；**不含令牌**） |
+| `url` | string | 桥地址 + 真实数字渠道 ID（`?channel=<id>`；渠道绑定了模板时附 `&template=<id>`；**不含令牌**） |
 | `snippet` | string | 可参考的 `receivers:` YAML 片段，内含 `webhook_configs.url` + `send_resolved` + `http_config.authorization`（`type: Bearer`） |
 | `token_configured` | bool | 桥令牌是否已配置；`false` 时 UI 必须显式告警（片段不可直接使用） |
 
@@ -393,10 +394,21 @@
 
 > **UI 口径**：告警配置页做「UI 控制 → 派生 alertmanager.yml 预览」（只读）；用户手写 / 上传的整文件原样透传，平台不解析其语义、不参与预览派生。
 
-### 11.7 与既有章节的 diff
+### 11.7 渠道 ↔ 模板一等绑定（dev-feedback #30 增量，2026-09-30）
+
+把桥早已支持的 `?template=` 从「隐藏 query」升级为**渠道属性**，让「复制并自定义模板 → 渠道绑定 → 真正生效」形成闭环：
+
+- **数据**：`NotifyChannel.default_template_id`（`null` / 缺省 = 用内置默认模板，存量零影响；迁移为 SQLite ADD COLUMN nullable，不回填）。渠道 CRUD 前置校验「模板存在 + `channel_type` 与渠道一致」，否则 `bad_request`（见 §11.1）。
+- **桥选模板优先级**：显式 `?template=` > 渠道 `default_template_id` > 该渠道类型的内置默认模板。第 2 级**优雅回落**——绑定指向已删/类型不符/脏数据时记 warning 并回落内置默认，**不返回 4xx**（绑定失效不应让该渠道告警整体投递失败、令 AM 无限重试）。
+- **M09 物化**：`bridgeReceiverURL` 对已绑定渠道输出 `?channel=<ID>&template=<ID>`；绑定变化由 §11.6 第 5 条的「平台 receiver 地址演进原地更新」承载，因此**绑定随物化持久、不被重算覆写**。
+- **接收人片段**：§11.4 的 `url` / `snippet` 与 M09 物化同源，绑定时同样带 `&template=<ID>`（避免「参考片段」与实际下发口径漂移）。
+- **前端**：渠道新增/编辑抽屉在「渠道类型」与「机器人 Webhook」之间提供「通知模板」下拉（仅列该渠道类型的模板，内置置顶标注「平台内置默认」；切换类型重置该下拉）；模板页内置区补「复制出的模板需在通知渠道中绑定才会生效」引流链接（双向引流）。
+- **来源**：设计提案 `design-proposals/notify-template-channel-binding.md`（方案 B）。
+
+### 11.8 与既有章节的 diff
 
 - 新增 §11（PL-3 全部端点 + 字段 + 鉴权 + 物化行为）；§1–§10 契约**不变**。
 - §1.3 授权利令补充：PL-3 写端点与接收人片段均挂 `RequireAdmin`，读端点（渠道 / 模板列表）仅全局认证。
 - 追加枚举：`NotifyChannelType` = `feishu` / `dingtalk` / `wecom`；桥端点 `errorType` 追加 `unauthorized` / `bad_gateway` 的实际承载。
-- 来源：`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3；`design-decisions.md` 决策 74 + 定稿补充（2026-09-29）；`security-review-pl3.md`（H-1/M-1/M-2/M-3）；dev-feedback #17 / #21 / #22 / #24。
+- 来源：`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3；`design-proposals/notify-template-channel-binding.md`（渠道 ↔ 模板一等绑定，§11.7）；`design-decisions.md` 决策 74 + 定稿补充（2026-09-29）；`security-review-pl3.md`（H-1/M-1/M-2/M-3）；dev-feedback #17 / #21 / #22 / #24 / #30。
 - **待设计侧回写**：本节为开发空间契约快照补登；PRD `Module_08_Alertmanager_Notification_Management.md`（`docs/02-product-requirements/`，开发 Agent 不可写）的 §3.3.5 / §5 / §6 需由 design 侧（prototype-designer / Orchestrator）同步 PL-3 端点与 B 路线物化行为。
