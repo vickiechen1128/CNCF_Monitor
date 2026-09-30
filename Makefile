@@ -386,7 +386,11 @@ package-center:
 
 run-metric-center: build-metric-center build-promtool build-amtool
 	@echo ">>> Starting metric-center"
-	@cd "$(PROJECT_ROOT)" && ./platform/cmd/metric-center/metric-center$(EXE) \
+	@cd "$(PROJECT_ROOT)" && \
+		NOTIFY_BRIDGE_URL="$(NOTIFY_BRIDGE_URL)" \
+		NOTIFY_BRIDGE_TOKEN="$(NOTIFY_BRIDGE_TOKEN)" \
+		NOTIFY_RENDER_TIMEZONE="$(NOTIFY_RENDER_TIMEZONE)" \
+		./platform/cmd/metric-center/metric-center$(EXE) \
 		--config.reload-url=http://localhost:9090/-/reload
 
 # M09 local 下发闭环：config.file 必须指向 config-output/prometheus.yml（控制面
