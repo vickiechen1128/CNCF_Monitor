@@ -19,6 +19,9 @@ type UpdateNetworkDomainRequest struct {
 	ZoneType            *string  `json:"zone_type"`
 	AuthorizedTenantIDs []string `json:"authorized_tenant_ids"`
 	IPCIDRs             *[]string `json:"ip_cidrs"`
+	// CenterEndpoint 中心接入地址（可选编辑）。边缘域下载 URL 来源；非空时须为合法
+	// http/https（见 platform/edge/helpers.go::resolveDownloadAuthority）。
+	CenterEndpoint *string `json:"center_endpoint"`
 }
 
 // UpdateNetworkDomain edits editable fields using .Select to limit the columns,
@@ -67,6 +70,16 @@ func UpdateNetworkDomain(db *gorm.DB) gin.HandlerFunc {
 		if req.IPCIDRs != nil {
 			dom.IPCIDRs = *req.IPCIDRs
 			cols = append(cols, "ip_cidrs")
+		}
+		if req.CenterEndpoint != nil {
+			// 中心接入地址（可选）：非空时须为合法 http/https，保证能被解析为
+			// 下载 URL 的 authority（与 edge.resolveDownloadAuthority 口径一致）。
+			if err := validateCenterEndpoint(*req.CenterEndpoint); err != nil {
+				response.BadRequest(c, err)
+				return
+			}
+			dom.CenterEndpoint = *req.CenterEndpoint
+			cols = append(cols, "center_endpoint")
 		}
 
 		// 网域名称唯一性校验：改名时排除自身，同名（大小写不敏感）禁止。

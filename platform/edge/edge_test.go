@@ -613,6 +613,59 @@ func TestHeartbeatWritebackAgentPullDeployment(t *testing.T) {
 	assert.Equal(t, models.DeploymentStatusPending, stillPending.Status, "未同步版本不应被翻写")
 }
 
+// TestHeartbeatWritebackAgentPullDeploymentFlipsAllPending 覆盖 2026-09-30 诊断修复：
+// agent 同步到最新版本时，不仅指向最新版本的 pending 要翻 success，指向已被取代的旧版本
+// 的 pending 也应一并翻 success（agent 拉取的是含全部历史变更的 latest 配置包，旧版本
+// 逻辑上已交付），避免历史 pending 永久堆积为孤儿脏数据。
+func TestHeartbeatWritebackAgentPullDeploymentFlipsAllPending(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "gov-flip", "agent_pull", "tok-flip", "vmagent", "")
+	createdAt := time.Date(2026, 9, 21, 4, 47, 56, 0, time.UTC)
+	v1 := seedConfigVersion(db, dom.ID, "global:\n  scrape_interval: 15s\n  v1: true\n", "", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`}, createdAt)
+	v2Created := createdAt.Add(2 * time.Minute)
+	v2 := seedConfigVersion(db, dom.ID, "global:\n  scrape_interval: 15s\n  v2: true\n", "", "",
+		map[string]string{}, v2Created)
+
+	// 两条 pending：一条指向旧版本 v1，一条指向最新版本 v2（模拟两次确认下发）。
+	depOld := &models.ConfigDeployment{
+		DeploymentID:    "deploy-20260921-100",
+		NetworkDomainID: dom.ID,
+		ConfigVersionID: fmt.Sprint(v1.ID),
+		SourceChangeNo:  "CHG-20260921-100",
+		Channel:         models.ChannelTypeAgentPull,
+		Status:          models.DeploymentStatusPending,
+	}
+	depNew := &models.ConfigDeployment{
+		DeploymentID:    "deploy-20260921-101",
+		NetworkDomainID: dom.ID,
+		ConfigVersionID: fmt.Sprint(v2.ID),
+		SourceChangeNo:  "CHG-20260921-101",
+		Channel:         models.ChannelTypeAgentPull,
+		Status:          models.DeploymentStatusPending,
+	}
+	require.NoError(t, db.Create(depOld).Error)
+	require.NoError(t, db.Create(depNew).Error)
+
+	// agent 上报最新版本 v2 → 与 latest 同步 → 两条 pending 应一并翻 success。
+	r := newEdgeRouter(db)
+	body := fmt.Sprintf(`{"network_domain_id":"%s","agent_type":"vmagent","config_version":"%s"}`,
+		dom.ID, configVersionString(v2))
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/platform/edge/heartbeat", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok-flip")
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var gotOld, gotNew models.ConfigDeployment
+	require.NoError(t, db.Where("deployment_id = ?", depOld.DeploymentID).First(&gotOld).Error)
+	require.NoError(t, db.Where("deployment_id = ?", depNew.DeploymentID).First(&gotNew).Error)
+	assert.Equal(t, models.DeploymentStatusSuccess, gotOld.Status, "旧版本 pending 应随同步一并翻 success")
+	assert.Equal(t, models.DeploymentStatusSuccess, gotNew.Status, "最新版本 pending 应翻 success")
+	assert.NotNil(t, gotOld.CompletedAt)
+	assert.NotNil(t, gotNew.CompletedAt)
+}
+
 // TestHeartbeatRequestDecodesEdgeTargets 校验中心契约可反序列化 agent 上报的
 // targets 快照字段（方案 B，本轮仅透传占位，不落库）。字段名须与 agent 侧
 // contract.EdgeTargetSnapshot 对齐。
@@ -780,4 +833,65 @@ func TestHeartbeatTargetTruncatesAtMax(t *testing.T) {
 	_, err := svc.Handle(dom, req, time.Now(), "http://center:8080")
 	require.NoError(t, err)
 	require.Equal(t, int64(maxSnapshotsPerHeartbeat), countEdgeTargetSnapshots(t, db, dom.ID), "应截断到上限")
+}
+
+// TestResolveDownloadAuthorityPrefersCenterEndpoint 覆盖 2026-09-30 修复：网域登记了
+// CenterEndpoint 时，下载 URL 的 authority 优先取该字段（与 agent CENTER_ENDPOINT 同源），
+// 不再猜入站 Host；为空或非法时回落 requestAuthority（X-Forwarded-*/Host 或请求 Host）。
+func TestResolveDownloadAuthorityPrefersCenterEndpoint(t *testing.T) {
+	// 1) 合法 CenterEndpoint → 直接采用，不受请求头影响。
+	dom := &models.NetworkDomain{CenterEndpoint: "https://center.example.com"}
+	assert.Equal(t, "https://center.example.com", resolveDownloadAuthority(dom, &gin.Context{}))
+
+	// 2) 含路径/查询只取 scheme://host[:port]。
+	domPath := &models.NetworkDomain{CenterEndpoint: "http://center.example.com:8443/path?x=1"}
+	assert.Equal(t, "http://center.example.com:8443", resolveDownloadAuthority(domPath, &gin.Context{}))
+
+	// 3) 为空 → 回落 requestAuthority（用 X-Forwarded 转发头）。
+	domEmpty := &models.NetworkDomain{CenterEndpoint: ""}
+	r1 := gin.New()
+	r1.GET("/x", func(c *gin.Context) { c.String(200, resolveDownloadAuthority(domEmpty, c)) })
+	w1 := httptest.NewRecorder()
+	q1 := httptest.NewRequest(http.MethodGet, "/x", nil)
+	q1.Header.Set("X-Forwarded-Proto", "https")
+	q1.Header.Set("X-Forwarded-Host", "fallback.example.com")
+	r1.ServeHTTP(w1, q1)
+	assert.Equal(t, "https://fallback.example.com", w1.Body.String(), "空 endpoint 应回落转发头")
+
+	// 4) 非法（无 scheme/host）→ 回落请求 Host。
+	domBad := &models.NetworkDomain{CenterEndpoint: "not-a-url"}
+	r2 := gin.New()
+	r2.GET("/x", func(c *gin.Context) { c.String(200, resolveDownloadAuthority(domBad, c)) })
+	w2 := httptest.NewRecorder()
+	q2 := httptest.NewRequest(http.MethodGet, "/x", nil)
+	q2.Host = "10.8.0.5:8080"
+	r2.ServeHTTP(w2, q2)
+	assert.Equal(t, "http://10.8.0.5:8080", w2.Body.String(), "非法 endpoint 应回落请求 Host")
+}
+
+// TestResolveDownloadAuthorityEndToEnd 覆盖端到端：handler 经 resolveDownloadAuthority
+// 合成下载 URL，网域登记的 CenterEndpoint 完整进入响应（替代此前猜 Host 的版本）。
+func TestResolveDownloadAuthorityEndToEnd(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedEdgeDomain(db, "mc-edge-debug", "agent_pull", "tok-debug", "vmagent", "https://center.example.com")
+	r := newEdgeRouter(db)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/platform/edge/heartbeat",
+		strings.NewReader(`{"network_domain_id":"mc-edge-debug","config_version":"20260724-120000","agent_type":"vmagent"}`))
+	req.Header.Set("Authorization", "Bearer tok-debug")
+	// 反代把 Host 改成 localhost，但 center_endpoint 已登记，不应回落。
+	req.Header.Set("X-Forwarded-Proto", "http")
+	req.Header.Set("X-Forwarded-Host", "wrong-tunnel.example.com")
+	req.Host = "localhost:8080"
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var env struct {
+		Data HeartbeatResponse `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, "https://center.example.com/api/v2/platform/edge/config?network_domain=mc-edge-debug",
+		env.Data.ConfigDownloadURL, "应优先用网域登记的 center_endpoint 而非反代 Host")
 }
