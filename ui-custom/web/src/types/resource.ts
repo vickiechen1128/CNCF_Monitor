@@ -30,6 +30,14 @@ export interface ResourceBaseShape {
    * 五类资源均返回（不再仅限 host）；资源侧无写入口。
    */
   zone_type?: string
+  /**
+   * 平台归属（决策 110 / §5.24）：`platform` **不是派生标签而是资源行一等业务字段**——
+   * 平台归属是登记期第一个确定的业务信息，`platform` 标签取值由本字段唯一确定
+   * （经标签模板 `platform_code → platform` 映射注入）；未显式填写时兜底取所属应用主平台
+   * （`app_platform_rel.is_primary`），仍未确定则不注入 `platform`。
+   * 可空（五类通用），与只读派生的 `cloud_code` / `zone_type` 不同——创建 / 更新均可显式填写。
+   */
+  platform_code?: string
   biz_code: string
   env: string
   owner: string
@@ -139,6 +147,8 @@ export interface ResourceCreateBaseShape {
   network_domain_id: string
   biz_code: string
   app_code?: string
+  /** 可选平台归属（决策 110）：资源行一等业务字段，五类通用；留空按所属应用主平台兜底 */
+  platform_code?: string
   // 决策 103 scheme-B：**无 cloud_code 字段**——云由所属网域派生，创建请求不接受该字段。
   env: string
   cluster?: string
@@ -210,6 +220,8 @@ export interface ResourceUpdateBaseShape {
   network_domain_id?: string
   biz_code?: string
   app_code?: string
+  /** 可选平台归属（决策 110）：资源行一等业务字段，五类通用；显式赋值即覆盖兜底取值 */
+  platform_code?: string
   // 决策 103 scheme-B：**无 cloud_code 字段**——云由所属网域派生，更新请求不接受该字段。
   env?: string
   cluster?: string
@@ -245,8 +257,28 @@ export interface ApplicationDict {
   /**
    * {v2.45 决策 104/107} 可选父级平台（契约快照 §5A / §5C）：应用挂靠的平台字典编码。
    * 未挂时应用无平台归属，资源 `platform` label **不注入**；与「业务」维度正交（不引入业务父级）。
+   *
+   * @deprecated {v2.49 决策 111} 应用↔平台改 M:N，关联权威迁至 `app_platform_rel`
+   * （`GET /api/v2/platform/app-platform-rel`）；存量单值已一次性转入该表（`is_primary=true`），
+   * 本字段保留仅为存量读取兼容，**新写入一律走 `appPlatformRelApi`**。
    */
   platform_code?: string
+}
+
+/**
+ * 应用↔平台关联条目（§5.24 / 决策 111）：应用↔平台由「应用单值可选父级」改为 **M:N**
+ * （一套软件可同时在多个平台部署），关联表 `app_platform_rel(app_code, platform_code, is_primary)`。
+ *
+ * - **`is_primary` 唯一性**：同一 `app_code` 至多一个 `is_primary=true`（服务端校验，应用表单「主平台」单选）。
+ * - **兜底用途**：资源行未显式填写 `platform_code` 时，`platform` 标签兜底取该应用的唯一主平台（决策 110）。
+ * - **停用 / 解绑**：平台停用保留历史关联、不自动解绑；解绑时不强制改写存量资源（§5.24）。
+ */
+export interface AppPlatformRel {
+  rel_id: string
+  app_code: string
+  platform_code: string
+  is_primary: boolean
+  created_at?: string
 }
 
 /**
@@ -269,11 +301,19 @@ export interface PlatformDict {
  *
  * `service_code` 为**不可变**编码（`svc` label 的唯一取值来源），`service_name` 为必填展示名；
  * 启用状态按契约快照 §5D 以 `enabled` 布尔承载（停用不删除、无删除入口）。
- * 字典**不设父子字段**：服务与应用的关联经资源行的 `app_code` + `service_code` 承载。
+ *
+ * **{v2.49 决策 112} 关系字段（推翻原「本字典不设父子字段」口径）**：字典承载
+ * 应用↔服务（1:N，`app_code`）与服务↔业务（N:1 主归属，`biz_code`）的**关系权威**——
+ * 跨实例的实体关系无法从资源行稳定推导（某服务当前无实例时关系即丢失）；
+ * 资源行 `app_code` / `service_code` 仅为**实例归属的镜像**。
  */
 export interface ServiceDict {
   service_code: string
   service_name: string
+  /** 所属应用（应用字典主键，可空）——应用↔服务 1:N 的关系权威 */
+  app_code?: string | null
+  /** 主业务（业务分组字典主键，可空）——服务↔业务 N:1 的主归属权威 */
+  biz_code?: string | null
   description?: string
   enabled: boolean
 }

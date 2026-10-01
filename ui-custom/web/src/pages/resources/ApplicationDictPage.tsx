@@ -19,17 +19,55 @@ import {
 } from 'antd'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { applicationDictApi, platformDictApi } from '../../api/resources'
-import type { ApplicationDict, PlatformDict } from '../../types/resource'
+import { appPlatformRelApi, applicationDictApi, platformDictApi } from '../../api/resources'
+import type { AppPlatformRel, ApplicationDict, PlatformDict } from '../../types/resource'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
+import { DictLifecycleNotice } from './DictLifecycleNotice'
 
 const { Text } = Typography
 
 /** 应用编码规范（§5.19 / 决策 92：小写字母 / 数字 / 连字符，≤ 64，创建后不可改） */
 const APP_CODE_PATTERN = /^[a-z0-9-]{1,64}$/
+
+/** 停用后缀（§5.21 / 决策 22 同口径：停用条目以「名（已停用）」标识） */
+const DISABLED_SUFFIX = '（已停用）'
+
+/**
+ * 应用↔平台关联增量同步（决策 111 / §5.24）
+ *
+ * 顺序固定为「解绑 → 新增 → 主平台切换」：先摘除越界关联，再补齐新增关联
+ * （一律以 `is_primary=false` 建立），最后单独切换主平台（服务端保证同一应用主平台唯一）。
+ * **任一请求失败即抛错**，由调用方提示——关系变更不静默丢弃。
+ */
+async function syncAppPlatformRels(
+  appCode: string,
+  nextCodes: string[],
+  primaryCode: string | undefined,
+  original: AppPlatformRel[],
+) {
+  // ① 解绑：本次未保留的关联
+  for (const rel of original.filter((r) => !nextCodes.includes(r.platform_code))) {
+    await appPlatformRelApi.remove(rel.rel_id)
+  }
+  // ② 新增：本次新选的关联（主平台统一在 ③ 切换，避免与存量主平台冲突）
+  const created: AppPlatformRel[] = []
+  for (const code of nextCodes.filter((c) => !original.some((r) => r.platform_code === c))) {
+    const res = await appPlatformRelApi.create({ app_code: appCode, platform_code: code, is_primary: false })
+    if (res.data) created.push(res.data)
+  }
+  const current = [...original.filter((r) => nextCodes.includes(r.platform_code)), ...created]
+  // ③ 主平台切换：置新主 / 摘旧主（服务端 SetPrimary=true 会先清同应用其余主平台）
+  if (primaryCode) {
+    const target = current.find((r) => r.platform_code === primaryCode && !r.is_primary)
+    if (target) await appPlatformRelApi.update(target.rel_id, { is_primary: true })
+  } else {
+    const oldPrimary = current.find((r) => r.is_primary)
+    if (oldPrimary) await appPlatformRelApi.update(oldPrimary.rel_id, { is_primary: false })
+  }
+}
 
 /** 应用字典维护页（Module_07 §5.19 / 决策 92，与业务管理页同构：code 不可变 + 展示名必填 + 停用不删除）。 */
 export function ApplicationDictPage() {
@@ -41,6 +79,8 @@ export function ApplicationDictPage() {
   const [actingCode, setActingCode] = useState<string | null>(null)
   // 平台字典（决策 104）：仅用于「所属平台」下拉选项与「所属平台」列展示名解析
   const [platforms, setPlatforms] = useState<PlatformDict[]>([])
+  // 决策 111：应用↔平台关联（`app_platform_rel`）为平台关系权威，列表「平台」列据此反查
+  const [rels, setRels] = useState<AppPlatformRel[]>([])
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +98,13 @@ export function ApplicationDictPage() {
       setPlatforms(pf.data?.list ?? [])
     } catch {
       setPlatforms([])
+    }
+    // 关联失败同样降级为空集合：列按「无关联」展示 '-'
+    try {
+      const rl = await appPlatformRelApi.list()
+      setRels(rl.data?.list ?? [])
+    } catch {
+      setRels([])
     }
   }, [])
 
@@ -77,6 +124,24 @@ export function ApplicationDictPage() {
         (d.description ?? '').toLowerCase().includes(kw),
     )
   }, [list, keyword])
+
+  /** app_code → 该应用的平台关联集合（决策 111：M:N，按关联建立顺序展示） */
+  const relsByApp = useMemo(() => {
+    const map = new Map<string, AppPlatformRel[]>()
+    for (const rel of rels) {
+      const hit = map.get(rel.app_code)
+      if (hit) hit.push(rel)
+      else map.set(rel.app_code, [rel])
+    }
+    return map
+  }, [rels])
+
+  /** 平台编码 → 展示名（缺条目回退编码，停用加「（已停用）」） */
+  const platformLabel = (code: string) => {
+    const hit = platforms.find((p) => p.platform_code === code)
+    if (!hit) return code
+    return hit.enabled ? hit.platform_name : `${hit.platform_name}${DISABLED_SUFFIX}`
+  }
 
   const toggleStatus = useCallback(
     async (record: ApplicationDict, next: ApplicationDict['status']) => {
@@ -116,17 +181,26 @@ export function ApplicationDictPage() {
         r.status === 'enabled' ? <EllipsisText>{v}</EllipsisText> : <EllipsisText>{`${v}（已停用）`}</EllipsisText>,
     },
     {
-      // 决策 104 / 107：应用可选父级「所属平台」列——展示平台字典 platform_name，
-      // 缺条回退 platform_code，停用加「（已停用）」，未挂显示 '-'
+      // 决策 111：应用↔平台改为 M:N——「平台」列罗列全部关联平台 Tag，
+      // 主平台加「（主）」标记、停用平台加「（已停用）」、无关联显示 '-'
       title: '所属平台',
-      dataIndex: 'platform_code',
-      key: 'platform_code',
-      width: 180,
-      render: (value?: string) => {
-        if (!value) return <Text type="secondary">-</Text>
-        const hit = platforms.find((p) => p.platform_code === value)
-        const disabled = hit ? !hit.enabled : false
-        return <Tag color={disabled ? 'default' : 'purple'}>{`${hit?.platform_name ?? value}${disabled ? '（已停用）' : ''}`}</Tag>
+      key: 'platform_codes',
+      width: 240,
+      render: (_: unknown, r: ApplicationDict) => {
+        const appRels = relsByApp.get(r.app_code) ?? []
+        if (appRels.length === 0) return <Text type="secondary">-</Text>
+        return (
+          <Space size={[4, 4]} wrap>
+            {appRels.map((rel) => {
+              const disabled = platforms.some((p) => p.platform_code === rel.platform_code && !p.enabled)
+              return (
+                <Tag key={rel.rel_id} color={disabled ? 'default' : 'purple'}>
+                  {`${platformLabel(rel.platform_code)}${rel.is_primary ? '（主）' : ''}`}
+                </Tag>
+              )
+            })}
+          </Space>
+        )
       },
     },
     {
@@ -192,6 +266,8 @@ export function ApplicationDictPage() {
           </Space>
         }
       >
+        {/* F7 / 决策 112：字典 ≠ 可删除对象（四字典页共用同一份文案） */}
+        <DictLifecycleNotice />
         {error && (
           <Alert
             type="error"
@@ -259,11 +335,19 @@ interface ApplicationDictFormValues {
   description?: string
   /** 表单内用布尔承载启用状态（Switch），提交时转为 status 枚举 */
   enabled?: boolean
-  /** 可选父级平台（契约快照 §5A）：未挂为 null / undefined，可清空 = 摘除 */
-  platform_code?: string | null
+  /** {v2.49 决策 111} 所属平台（多选）：应用↔平台 M:N 的全部关联平台编码 */
+  platform_codes?: string[]
+  /** {v2.49 决策 111} 主平台（单选）：至多一个，取值必须是「所属平台」已选集合的子集 */
+  primary_platform_code?: string
 }
 
-/** 应用字典登记 / 受限编辑抽屉（§5.19 红线）：登记含编码规范校验；编辑仅开放 应用名/描述/状态 */
+/**
+ * 应用字典登记 / 受限编辑抽屉（§5.19 红线）
+ *
+ * 登记含编码规范校验；编辑仅开放 应用名 / 描述 / 状态 / 平台关联（多选 + 主平台单选）。
+ * **应用字典写链路不再承载 `platform_code`**（决策 111 废弃该单值字段）：
+ * 提交序列为「先 PUT 应用基础字段 → 再对 `app-platform-rel` 做增量 diff」。
+ */
 export function ApplicationDictDrawer({
   open,
   record,
@@ -274,20 +358,41 @@ export function ApplicationDictDrawer({
   const [form] = Form.useForm<ApplicationDictFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  /** 编辑态打开时反查的存量关联（diff 基线；登记态为空数组） */
+  const [originalRels, setOriginalRels] = useState<AppPlatformRel[]>([])
   const isEdit = !!record
+  /** 当前已选平台（多选值），驱动「主平台」下拉子集与停用项回显 */
+  const selectedCodes = Form.useWatch('platform_codes', form) as string[] | undefined
 
-  // 「所属平台」下拉：仅启用平台可选；编辑态当前值已停用 / 已不在字典时保留历史值展示（不可新选，但不清空）
+  /**
+   * 「所属平台」多选下拉：仅启用平台可选；已选中的停用 / 已下线平台保留历史值展示
+   * （不可新选，但不清空）。按 `value` 去重，避免启用项与回显项重复渲染。
+   */
   const platformOptions = useMemo(() => {
-    const enabledOptions = platforms
-      .filter((p) => p.enabled)
-      .map((p) => ({ value: p.platform_code, label: `${p.platform_name}（${p.platform_code}）` }))
-    const current = record?.platform_code
-    if (current && !platforms.some((p) => p.platform_code === current && p.enabled)) {
-      const hit = platforms.find((p) => p.platform_code === current)
-      return [...enabledOptions, { value: current, label: `${hit?.platform_name ?? current}（已停用）` }]
+    const options = new Map<string, { value: string; label: string }>()
+    for (const p of platforms.filter((x) => x.enabled)) {
+      options.set(p.platform_code, { value: p.platform_code, label: `${p.platform_name}（${p.platform_code}）` })
     }
-    return enabledOptions
-  }, [platforms, record])
+    // 历史停用关联回显（决策 111）：已关联但已停用的平台须始终作为可选 / 回显项，
+    // 不依赖当前选中态（Form.useWatch 存在一帧滞后，下拉打开瞬间可能尚未同步）。
+    // 以加载的存量关联 originalRels 为准，保证「已下线平台」在抽屉打开后即可选 / 回显，
+    // 且用户清空选择后仍可重新勾选，不丢失历史关联。
+    for (const rel of originalRels) {
+      if (options.has(rel.platform_code)) continue
+      const hit = platforms.find((p) => p.platform_code === rel.platform_code)
+      options.set(rel.platform_code, {
+        value: rel.platform_code,
+        label: `${hit?.platform_name ?? rel.platform_code}${DISABLED_SUFFIX}`,
+      })
+    }
+    return [...options.values()]
+  }, [platforms, originalRels])
+
+  /** 主平台下拉：选项恒为「所属平台」已选集合的子集（未选平台时无可选项） */
+  const primaryOptions = useMemo(() => {
+    const byValue = new Map(platformOptions.map((o) => [o.value, o.label]))
+    return (selectedCodes ?? []).filter((c) => byValue.has(c)).map((c) => ({ value: c, label: byValue.get(c)! }))
+  }, [platformOptions, selectedCodes])
 
   useEffect(() => {
     if (!open) return
@@ -300,13 +405,36 @@ export function ApplicationDictDrawer({
         app_code: record.app_code,
         app_name: record.app_name,
         description: record.description,
-        platform_code: record.platform_code ?? null,
         enabled: record.status === 'enabled',
       })
     } else {
       form.setFieldsValue({ enabled: true })
     }
+    // 平台关联（决策 111）：编辑态反查存量关联作为 diff 基线，登记态无基线
+    if (!record) {
+      setOriginalRels([])
+      return
+    }
+    appPlatformRelApi
+      .list({ app_code: record.app_code })
+      .then((res) => {
+        const list = res.data?.list ?? []
+        setOriginalRels(list)
+        form.setFieldsValue({
+          platform_codes: list.map((r) => r.platform_code),
+          primary_platform_code: list.find((r) => r.is_primary)?.platform_code,
+        })
+      })
+      .catch(() => setOriginalRels([]))
   }, [open, record, form])
+
+  /** 主平台必须落在已选平台集合内：多选变化后清掉越界取值 */
+  useEffect(() => {
+    const primary = form.getFieldValue('primary_platform_code') as string | undefined
+    if (primary && !(selectedCodes ?? []).includes(primary)) {
+      form.setFieldValue('primary_platform_code', undefined)
+    }
+  }, [selectedCodes, form])
 
   const handleSubmit = async () => {
     let values: ApplicationDictFormValues
@@ -317,25 +445,38 @@ export function ApplicationDictDrawer({
     } catch {
       return
     }
+    const nextCodes = values.platform_codes ?? []
+    // 主平台越界兜底：仅当取值仍在已选集合内时才生效
+    const primaryCode = nextCodes.includes(values.primary_platform_code ?? '')
+      ? values.primary_platform_code
+      : undefined
     setSubmitting(true)
     setSubmitError(null)
     try {
       if (record) {
+        // ① 应用基础字段（决策 111：不再随请求体发送 platform_code）
         await applicationDictApi.update(record.app_code, {
           app_name: values.app_name,
           description: values.description,
-          // 未挂平台显式提交 null，表达「摘除」（避免清空后不提交导致平台残留）
-          platform_code: values.platform_code ?? null,
           status: values.enabled ? 'enabled' : 'disabled',
         })
+        // ② 平台关联增量 diff（新增 POST / 解绑 DELETE / 主平台切换 PUT）
+        await syncAppPlatformRels(record.app_code, nextCodes, primaryCode, originalRels)
         message.success('应用信息已更新')
       } else {
+        const appCode = values.app_code!
         await applicationDictApi.create({
-          app_code: values.app_code!,
+          app_code: appCode,
           app_name: values.app_name,
           description: values.description,
-          platform_code: values.platform_code ?? undefined,
         })
+        for (const code of nextCodes) {
+          await appPlatformRelApi.create({
+            app_code: appCode,
+            platform_code: code,
+            is_primary: code === primaryCode,
+          })
+        }
         message.success('应用已登记')
       }
       onSuccess()
@@ -373,7 +514,7 @@ export function ApplicationDictDrawer({
       <Alert
         type="info"
         showIcon
-        message={isEdit ? '仅可修改应用名、描述与启用状态' : '应用编码创建后不可改'}
+        message={isEdit ? '仅可修改应用名、描述、平台关联与启用状态' : '应用编码创建后不可改'}
         description={
           isEdit
             ? `应用编码「${record?.app_code}」创建后不可修改；应用名仅用于界面展示（监控标签取编码），修改不影响存量资源与监控配置。`
@@ -404,16 +545,39 @@ export function ApplicationDictDrawer({
           <Input placeholder="如 订单服务、支付服务" />
         </Form.Item>
         <Form.Item
-          name="platform_code"
+          name="platform_codes"
           label="所属平台"
-          extra="选填：应用归属的平台，仅启用平台可选；留空表示未挂平台归属（资源不注入平台标签）"
+          extra="选填：应用关联的平台（可多选，支持一套软件跨多个平台部署）；仅启用平台可被新选，已停用的历史关联保留展示"
+        >
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="选填，可多选"
+            options={platformOptions}
+          />
+        </Form.Item>
+        <Form.Item
+          name="primary_platform_code"
+          label="主平台"
+          dependencies={['platform_codes']}
+          rules={[
+            {
+              validator: (_, value?: string) =>
+                value && !(selectedCodes ?? []).includes(value)
+                  ? Promise.reject(new Error('主平台必须属于已选平台'))
+                  : Promise.resolve(),
+            },
+          ]}
+          extra="选填：至多一个，用于资源未显式填写平台时的兜底归属；只能从已选平台中选择"
         >
           <Select
             allowClear
             showSearch
             optionFilterProp="label"
-            placeholder="选填，选择所属平台"
-            options={platformOptions}
+            placeholder="选填，需先选择所属平台"
+            options={primaryOptions}
           />
         </Form.Item>
         <Form.Item name="description" label="描述">

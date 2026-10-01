@@ -1,6 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { ApiError, clearToken, setToken } from './client'
-import { resourceApi, businessDomainApi, cloudDictApi, importApi } from './resources'
+import {
+  resourceApi,
+  businessDomainApi,
+  serviceDictApi,
+  appPlatformRelApi,
+  cloudDictApi,
+  importApi,
+} from './resources'
 
 // vitest jsdom 环境的 window.localStorage 存储行为不可靠，用内存 Map 替换（与 client.test.ts 一致）。
 const storageMap = new Map<string, string>()
@@ -421,6 +428,213 @@ describe('resources API', () => {
     expect(app.zone_type).toBeUndefined()
     expect(host.cloud_code).toBe('PUB-TX')
     expect(host.zone_type).toBe('internet')
+  })
+
+  // ---- 决策 111：应用↔平台关联 app_platform_rel（§5.24 / §6.1）----
+
+  const relFixture = {
+    rel_id: 'rel-1',
+    app_code: 'order-service',
+    platform_code: 'ecommerce',
+    is_primary: true,
+    created_at: '2026-09-28T10:00:00Z',
+  }
+
+  it('appPlatformRelApi.list GETs /app-platform-rel with filters and parses {list,total}', async () => {
+    mockFetch({ status: 'success', data: { list: [relFixture], total: 1 } })
+
+    const res = await appPlatformRelApi.list({ app_code: 'order-service', platform_code: 'ecommerce' })
+
+    const url = lastUrlInstance()
+    expect(url.pathname).toBe('/api/v2/platform/app-platform-rel')
+    expect(lastFetchCall()[1]?.method).toBe('GET')
+    expect(url.searchParams.get('app_code')).toBe('order-service')
+    expect(url.searchParams.get('platform_code')).toBe('ecommerce')
+    // 信封键为 list（非分页接口的 items），total 同级下发
+    expect(res.data.total).toBe(1)
+    expect(Object.keys(res.data).sort()).toEqual(['list', 'total'])
+    expect(res.data.list[0]).toMatchObject({
+      rel_id: 'rel-1',
+      app_code: 'order-service',
+      platform_code: 'ecommerce',
+      is_primary: true,
+    })
+  })
+
+  it('appPlatformRelApi.list drops undefined filters', async () => {
+    mockFetch({ status: 'success', data: { list: [], total: 0 } })
+
+    await appPlatformRelApi.list({ app_code: 'order-service', platform_code: undefined })
+
+    const url = lastUrlInstance()
+    expect(url.searchParams.get('app_code')).toBe('order-service')
+    expect(url.searchParams.has('platform_code')).toBe(false)
+  })
+
+  it('appPlatformRelApi.create POSTs {app_code,platform_code,is_primary}', async () => {
+    mockFetch({ status: 'success', data: { ...relFixture, is_primary: false } })
+
+    const res = await appPlatformRelApi.create({
+      app_code: 'order-service',
+      platform_code: 'public-data-auth',
+    })
+
+    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/app-platform-rel')
+    expect(lastFetchCall()[1]?.method).toBe('POST')
+    // is_primary 省略即不发送，由服务端默认 false
+    expect(lastInitBody()).toEqual({
+      app_code: 'order-service',
+      platform_code: 'public-data-auth',
+    })
+    expect(res.data.rel_id).toBe('rel-1')
+  })
+
+  it('appPlatformRelApi.update PUTs /app-platform-rel/:rel_id with is_primary', async () => {
+    mockFetch({ status: 'success', data: relFixture })
+
+    const res = await appPlatformRelApi.update('rel-1', { is_primary: true })
+
+    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/app-platform-rel/rel-1')
+    expect(lastFetchCall()[1]?.method).toBe('PUT')
+    expect(lastInitBody()).toEqual({ is_primary: true })
+    expect(res.data.is_primary).toBe(true)
+  })
+
+  it('appPlatformRelApi.remove DELETEs /app-platform-rel/:rel_id', async () => {
+    mockFetch({ status: 'success', data: { rel_id: 'rel-1' } })
+
+    const res = await appPlatformRelApi.remove('rel-1')
+
+    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/app-platform-rel/rel-1')
+    expect(lastFetchCall()[1]?.method).toBe('DELETE')
+    expect(res.data.rel_id).toBe('rel-1')
+  })
+
+  // ---- 决策 112：服务字典关系字段（app_code / biz_code）透传 ----
+
+  it('serviceDictApi.create carries app_code / biz_code relation fields', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        service_code: 'order-api',
+        service_name: '订单接口服务',
+        app_code: 'order-service',
+        biz_code: 'payment',
+        enabled: true,
+      },
+    })
+
+    await serviceDictApi.create({
+      service_code: 'order-api',
+      service_name: '订单接口服务',
+      app_code: 'order-service',
+      biz_code: 'payment',
+    })
+
+    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/service-dict')
+    expect(lastInitBody()).toEqual({
+      service_code: 'order-api',
+      service_name: '订单接口服务',
+      app_code: 'order-service',
+      biz_code: 'payment',
+    })
+  })
+
+  it('serviceDictApi.create omits unset relation fields (undefined, not empty string)', async () => {
+    mockFetch({ status: 'success', data: { service_code: 'pay-api', service_name: '支付服务', enabled: true } })
+
+    await serviceDictApi.create({ service_code: 'pay-api', service_name: '支付服务' })
+
+    const body = lastInitBody() as Record<string, unknown>
+    expect(Object.keys(body)).not.toContain('app_code')
+    expect(Object.keys(body)).not.toContain('biz_code')
+    expect(body.app_code).toBeUndefined()
+    expect(body.biz_code).toBeUndefined()
+  })
+
+  it('serviceDictApi.update PUTs relation fields and never service_code', async () => {
+    mockFetch({
+      status: 'success',
+      data: { service_code: 'order-api', service_name: '订单接口服务', app_code: null, biz_code: 'payment', enabled: true },
+    })
+
+    await serviceDictApi.update('order-api', {
+      service_name: '订单接口服务',
+      // null 表达「摘除」所属应用；biz_code 表达主归属
+      app_code: null,
+      biz_code: 'payment',
+      enabled: true,
+    })
+
+    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/service-dict/order-api')
+    expect(lastFetchCall()[1]?.method).toBe('PUT')
+    const body = lastInitBody() as Record<string, unknown>
+    expect(body).toMatchObject({ service_name: '订单接口服务', app_code: null, biz_code: 'payment', enabled: true })
+    expect(body).not.toHaveProperty('service_code')
+  })
+
+  it('serviceDictApi.list parses nullable relation fields', async () => {
+    mockFetch({
+      status: 'success',
+      data: {
+        list: [
+          { service_code: 'order-api', service_name: '订单接口服务', app_code: 'order-service', biz_code: 'payment', enabled: true },
+          { service_code: 'orphan-api', service_name: '游离服务', app_code: null, biz_code: null, enabled: true },
+        ],
+        total: 2,
+      },
+    })
+
+    const res = await serviceDictApi.list()
+
+    expect(lastUrlInstance().pathname).toBe('/api/v2/platform/service-dict')
+    expect(res.data.list[0].app_code).toBe('order-service')
+    expect(res.data.list[1].app_code).toBeNull()
+    expect(res.data.list[1].biz_code).toBeNull()
+  })
+
+  // ---- 决策 110：platform_code 为资源行一等字段（创建 / 更新输入通用）----
+
+  it('resourceApi.create omits unset platform_code (undefined, not empty string)', async () => {
+    mockFetch({ status: 'success', data: { resource_id: 'r-1', resource_category: 'host' } })
+
+    await resourceApi.create({
+      resource_category: 'host',
+      network_domain_id: 'default',
+      biz_code: 'infra',
+      env: 'prod',
+      instance_name: 'web-01',
+      instance_ip: '10.0.0.1',
+    })
+
+    const body = lastInitBody() as Record<string, unknown>
+    expect(Object.keys(body)).not.toContain('platform_code')
+    expect(body.platform_code).toBeUndefined()
+  })
+
+  it('resourceApi.create sends platform_code when provided', async () => {
+    mockFetch({ status: 'success', data: { resource_id: 'r-1', resource_category: 'database' } })
+
+    await resourceApi.create({
+      resource_category: 'database',
+      network_domain_id: 'default',
+      biz_code: 'payment',
+      platform_code: 'ecommerce',
+      env: 'prod',
+      database_type: 'mysql',
+      instance_ip: '10.0.0.2',
+      port: 3306,
+    })
+
+    expect(lastInitBody()).toMatchObject({ platform_code: 'ecommerce' })
+  })
+
+  it('resourceApi.update sends platform_code when provided', async () => {
+    mockFetch({ status: 'success', data: { resource_id: 'r-1', resource_category: 'database' } })
+
+    await resourceApi.update('r-1', { platform_code: 'ecommerce', biz_code: 'payment' })
+
+    expect(lastInitBody()).toEqual({ platform_code: 'ecommerce', biz_code: 'payment' })
   })
 
   it('importApi.list GETs /imports with filter params', async () => {

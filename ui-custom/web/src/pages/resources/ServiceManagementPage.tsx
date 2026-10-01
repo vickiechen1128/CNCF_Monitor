@@ -25,6 +25,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
+import { DictLifecycleNotice } from './DictLifecycleNotice'
 
 const { Text } = Typography
 
@@ -35,8 +36,8 @@ const SERVICE_CODE_PATTERN = /^[a-z0-9-]{1,64}$/
  * 服务字典维护页（Module_07 §5.22 / 决策 105；契约快照 §5D）
  *
  * 与应用字典页同构：编码不可变 + 展示名必填 + 停用不删除（无删除入口）。
- * 服务为四层实体层级的第三层，与应用的关联经**资源行**的 `app_code` + `service_code` 承载，
- * 本字典不设父子字段（不提供任何父子层级选择器）。
+ * 服务为四层实体层级的第三层；{v2.49 决策 112} 应用↔服务 / 服务↔业务的关系权威由字典
+ * `app_code` / `biz_code` 承载（资源行字段仅为实例归属的镜像）。
  */
 export function ServiceManagementPage() {
   const [list, setList] = useState<ServiceDict[]>([])
@@ -181,6 +182,8 @@ export function ServiceManagementPage() {
           </Space>
         }
       >
+        {/* F7 / 决策 112：字典 ≠ 可删除对象（四字典页共用同一份文案） */}
+        <DictLifecycleNotice />
         <div style={{ marginBottom: 16 }}>
           <Callout tone="info" title="服务编码是资源归属服务的权威标识">
             服务编码会随资源标签一起用于按服务维度聚合监控，<Text strong>创建后不可修改</Text>；

@@ -24,6 +24,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
+import { DictLifecycleNotice } from './DictLifecycleNotice'
 
 const { Text } = Typography
 
@@ -179,6 +180,8 @@ export function BusinessDomainPage() {
           </Space>
         }
       >
+        {/* F7 / 决策 112：字典 ≠ 可删除对象（四字典页共用同一份文案） */}
+        <DictLifecycleNotice />
         {error && (
           <Alert
             type="error"

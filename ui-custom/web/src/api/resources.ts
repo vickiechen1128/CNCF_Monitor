@@ -9,6 +9,7 @@
 import { apiClient, ApiError, rawRequest } from './client'
 import type { ApiResponse, ApiStatus, Paginated } from '../types/api'
 import type {
+  AppPlatformRel,
   ApplicationDict,
   BusinessDomain,
   CloudDict,
@@ -301,18 +302,29 @@ export interface ServiceDictsResponse {
   total: number
 }
 
-/** 服务字典登记输入（契约快照 §5D）：service_code 不可变、service_name 必填 */
+/** 服务字典登记输入（契约快照 §5D / 决策 112）：service_code 不可变、service_name 必填；关系字段选填 */
 export interface ServiceDictCreateInput {
   service_code: string
   service_name: string
+  /** 所属应用（应用↔服务 1:N 关系权威）：留空表示暂无明确所属应用 */
+  app_code?: string
+  /** 主业务（服务↔业务 N:1 主归属权威）：留空表示暂无主归属 */
+  biz_code?: string
   description?: string
 }
 
-/** 服务字典受限编辑输入（契约快照 §5D）：仅 service_name/description/enabled，不接收 service_code */
+/**
+ * 服务字典受限编辑输入（契约快照 §5D / 决策 112）：仅 service_name/description/enabled
+ * 与两个关系字段可改，**不接收 service_code**（编码创建后不可变）。
+ *
+ * 关系字段 `null` 表达**摘除**（恢复为无所属应用 / 无主业务），`undefined` 表达**不改**。
+ */
 export interface ServiceDictUpdateInput {
   service_name?: string
   description?: string
   enabled?: boolean
+  app_code?: string | null
+  biz_code?: string | null
 }
 
 /**
@@ -332,6 +344,59 @@ export const serviceDictApi = {
     return apiClient.put<ServiceDict>(`/api/v2/platform/service-dict/${encodeURIComponent(serviceCode)}`, {
       body: input,
     })
+  },
+}
+
+/** 应用↔平台关联列表查询参数（GET /app-platform-rel，§6.1 / 决策 111） */
+export interface AppPlatformRelListParams extends Record<string, string | number | boolean | undefined> {
+  app_code?: string
+  platform_code?: string
+}
+
+/** 应用↔平台关联列表响应（§6.1 / 决策 111）：非分页信封 **{list,total}**（与 items 型分页接口区分） */
+export interface AppPlatformRelsResponse {
+  list: AppPlatformRel[]
+  total: number
+}
+
+/** 新增应用↔平台关联输入（POST /app-platform-rel，§6.1 / 决策 111）：is_primary 默认 false */
+export interface AppPlatformRelCreateInput {
+  app_code: string
+  platform_code: string
+  is_primary?: boolean
+}
+
+/** 编辑应用↔平台关联输入（PUT /app-platform-rel/:rel_id，§6.1 / 决策 111）：仅切换 is_primary */
+export interface AppPlatformRelUpdateInput {
+  is_primary: boolean
+}
+
+/**
+ * 应用↔平台关联（`app_platform_rel`，§5.24 / 决策 111）
+ *
+ * 应用↔平台由「应用单值可选父级」改为 **M:N**（一套软件可同时在多个平台部署），
+ * 关联权威迁至本表；应用字典 `ApplicationDict.platform_code` 随之废弃（仅存量读取兼容）。
+ * `is_primary` 主平台标记同时承担资源 `platform_code` 未显式填写时的**兜底**取值（决策 110）。
+ */
+export const appPlatformRelApi = {
+  list(params?: AppPlatformRelListParams): Promise<ApiResponse<AppPlatformRelsResponse>> {
+    return apiClient.get<AppPlatformRelsResponse>('/api/v2/platform/app-platform-rel', { params })
+  },
+  /** 新增关联（POST）：同一 app_code 重复 is_primary=true 由服务端校验拒绝 */
+  create(input: AppPlatformRelCreateInput): Promise<ApiResponse<AppPlatformRel>> {
+    return apiClient.post<AppPlatformRel>('/api/v2/platform/app-platform-rel', { body: input })
+  },
+  /** 编辑关联（PUT :rel_id）：切换主平台；同一 app_code 主平台唯一由服务端校验 */
+  update(relId: string, input: AppPlatformRelUpdateInput): Promise<ApiResponse<AppPlatformRel>> {
+    return apiClient.put<AppPlatformRel>(`/api/v2/platform/app-platform-rel/${encodeURIComponent(relId)}`, {
+      body: input,
+    })
+  },
+  /** 解除关联（DELETE :rel_id）：存量资源 platform_code 悬空时仅提示、不强制改写 */
+  remove(relId: string): Promise<ApiResponse<{ rel_id: string }>> {
+    return apiClient.delete<{ rel_id: string }>(
+      `/api/v2/platform/app-platform-rel/${encodeURIComponent(relId)}`,
+    )
   },
 }
 
