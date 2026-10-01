@@ -334,6 +334,11 @@
 | POST | `/api/v2/platform/alertmanager/notify-templates` | `{ name, channel_type, content }` | `TemplateView` | `RequireAdmin` | `bad_request`：Go template 语法校验失败 / 渠道类型非法 |
 | POST | `/api/v2/platform/alertmanager/notify-templates/{id}/remount` | — | `TemplateView`（回滚后的新版本） | `RequireAdmin` | `bad_request`；`not_found` |
 | POST | `/api/v1/webhooks/notify` | Query `channel`（必需，真实数字渠道 ID）；`template`（可选，模板数字 ID）；body = AM 原生 webhook 载荷 | `{ success, fail }` | **内网令牌**（`Authorization: Bearer <token>`，见 §11.2） | `unauthorized`（缺 / 错令牌）；`bad_request`（渠道缺失或禁用 / 携带请求方目标地址参数 / 模板与渠道类型不匹配）；`not_found`（渠道未登记）；`bad_gateway`（出站失败） |
+| GET | `/api/v2/platform/alertmanager/route-setting` | — | `RouteSettingView`（见 §11.9） | 全局认证（读） | — |
+| PUT | `/api/v2/platform/alertmanager/route-setting` | `{ default_receiver_channel_id: number\|null }` | `RouteSettingView` | `RequireAdmin` | `bad_request`：目标渠道不存在 / 未启用；`unauthorized`：未认证；`forbidden`：非管理员 |
+| GET | `/api/v2/platform/alertmanager/routes` | — | 成功 `{ mode, items: [RouteNode], dead_receivers: [DeadReceiver] }`；解析失败 **200** `{ mode, parse_error, raw_yaml }`（见 §11.9） | 全局认证（只读、无写能力） | —（解析失败仍 200，非 500） |
+
+> 注：`/route-setting` 与 `/routes` 的字段表、鉴权语义与 `/routes` **数据源口径**见 §11.9；`route` / `receivers` 归属边界表见 §11.10。
 
 ### 11.2 桥端点鉴权（H-1 修订，2026-09-29）
 
@@ -381,9 +386,9 @@
 - **默认拒绝**私网（`10./172.16-31./192.168.`）、环回（`127.0.0.1` / `localhost` / `[::1]`）、link-local、未指定（`0.0.0.0`）、云元数据（`169.254.169.254`）地址——SSRF 防护（AGENTS.md §9）。
 - 内网自建机器人属业务例外，提供**显式允许开关**（进程内 `SetAllowPrivateWebhookTargets`，测试 / 内网部署显式开启）。
 
-### 11.6 B 路线：M09 物化通知 receivers（决策 74 定稿）
+### 11.6 B 路线：M09 物化 receivers + 根 route.receiver 单键（决策 74 定稿 + 决策 113 口径 C）
 
-管理域（`default`）存在已留痕的 `alertmanager.yml` 时，M09 配置生成（`ConfigDraft` 生成与「重新校验」两条路径）执行：
+管理域（`default`）存在已留痕的 `alertmanager.yml` 时，M09 配置生成（`ConfigDraft` 生成与「重新校验」两条路径）执行（第 1–6 条为 receivers 物化；**在其之后、Checksum 之前**执行第 7 条的根兜底单键替换，见 `platform/configcenter/draft/service.go::buildArtifacts`）：
 
 1. 读**已启用**通知渠道（`enabled=true`，按 id 升序，保证 checksum 可复现）；
 2. 为每个渠道追加一个 receiver：`name` = 渠道名归一（`[^a-z0-9]+`→`-`，空则 `notify-<ID>`），`webhook_configs[].url` = 桥地址 + `?channel=<真实数字ID>`（+ 可选 `&template=<模板ID>`），令牌走 `http_config.authorization`（令牌为空则**不写**该段，绝不伪造占位值）；
@@ -391,6 +396,14 @@
 4. **重名即失败**（绝不静默覆盖 / 合并）：平台名与手写名冲突、或平台内部两条渠道归一后同名 → 整体不写入，草稿校验置 `failed` / `validation_cause=user_config`，附 `alertmanager.yml` **行级错误**（`{file, line, message}`，同 §3 校验失败返回）；
 5. **幂等与地址演进（L2，决策 74 定稿补充）**：平台槽位以「receiver 名 ∈ 平台 `ReceiverName()` 集合（= 各已启用渠道名归一结果）」判定，不再依赖「名称 + 桥 URL 全等」。同名且 URL 属平台桥地址形态（`/api/v1/webhooks/notify` 路径）者视为平台自身产物：URL 相同 → 跳过（幂等）；URL 不同（桥地址演进，如 host/端口变化）→ **原地更新**该 receiver 的 `url` 与 `http_config.authorization`，**不报重名冲突**，变更由下游 diff 记入 `alertmanager_config` 变更项（保证「重新校验」从草稿产物复现同一结论）。同名但 URL **非**平台桥地址形态（确系用户手写、指向别处）者，仍按第 4 条 `failed + user_config` + 行级错误处理（决策 74「绝不静默覆盖/合并」语义不变）；
 6. 渠道 / 模板变更纳入 M09 源数据版本聚合（`NotifyChannel` / `NotifyTemplate` 进 `sourceTableScopes`），触发重算与变更检测。
+7. **根兜底单键替换（决策 113 口径 C，T08-09 / T08-10）**：在 receivers 物化**之后**，按管理域单例设定（默认接收人，`AlertmanagerRouteSetting{NetworkDomainID=default, DefaultReceiverChannelID *uint}`，`*nil = 不接管`）执行生成器纯函数 `MaterializeRootRouteReceiver(baseYAML, RootRouteInput{Enabled, DefaultReceiver, PlatformReceiverNames})`（`platform/configcenter/generator/notify_route_skeleton.go`）：
+   - **开关开启**（用户已选定默认接收人）且目标 receiver 名 **∈ 可达集合**（文件既有 `receivers[].name` ∪ 本次平台物化名）→ **原地替换**根 `route.receiver` 这**一个标量键**；
+   - 目标 **不在可达集合** / YAML 非法 / 无 `route` 节点 / 根 route 无 `receiver` 标量 → **跳过 + 诊断**（**不返回 error**、不阻断挂载路径，避免 amtool 校验整单 `failed`）；
+   - 根 route 的 `group_by` / `group_wait` / `group_interval` / `repeat_interval` / `continue` 及**所有 `route.routes[]`** 逐字保留（注释 / 节点顺序 / 样式不变）；
+   - **幂等**：值已等于目标时原样返回，连跑两次输出字节一致（保证 Checksum 可复现）；
+   - **开关关闭**（`DefaultReceiverChannelID=nil`）或目标渠道被禁用 / 删除 → 产物**字节级不变**（护栏③，语义见下方注）。
+
+> **护栏③语义（以决策 114 第 1 条为准）**：关闭接管 = 平台**停止替换**、不主动改写 / 回滚文件；此后若发生**自然重算**（源数据变更触发的生成下发），产物根 `receiver` 会回落为用户手写值——这是「停止替换」的必然结果，而非平台主动删除动作。平台**不引入「最后写入值」的额外持久化状态**（保持实现最简、无新增状态机）。决策 113 原文「不删最后写入的值」易被误读为「永久保留已写入值」，本注为准。
 
 > **UI 口径**：告警配置页做「UI 控制 → 派生 alertmanager.yml 预览」（只读）；用户手写 / 上传的整文件原样透传，平台不解析其语义、不参与预览派生。
 
@@ -411,4 +424,65 @@
 - §1.3 授权利令补充：PL-3 写端点与接收人片段均挂 `RequireAdmin`，读端点（渠道 / 模板列表）仅全局认证。
 - 追加枚举：`NotifyChannelType` = `feishu` / `dingtalk` / `wecom`；桥端点 `errorType` 追加 `unauthorized` / `bad_gateway` 的实际承载。
 - 来源：`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3；`design-proposals/notify-template-channel-binding.md`（渠道 ↔ 模板一等绑定，§11.7）；`design-decisions.md` 决策 74 + 定稿补充（2026-09-29）；`security-review-pl3.md`（H-1/M-1/M-2/M-3）；dev-feedback #17 / #21 / #22 / #24 / #30。
+- **2026-09-30 增量（决策 113 口径 C / 决策 114）**：§11.6 由「M09 物化 receivers」扩为「**+ 根 `route.receiver` 单键**」（新增第 7 条骨架行为 + 护栏③语义注）；§11.1 新增 `GET|PUT /route-setting`、`GET /routes` 两行；新增 **§11.9**（端点字段 + `/routes` 数据源口径）与 **§11.10**（`route` / `receivers` 归属边界表，对齐 PRD §4.1.1 权威规则表）。§1–§10 与 §11.1–§11.7 既有契约**不变**。
 - **待设计侧回写**：本节为开发空间契约快照补登；PRD `Module_08_Alertmanager_Notification_Management.md`（`docs/02-product-requirements/`，开发 Agent 不可写）的 §3.3.5 / §5 / §6 需由 design 侧（prototype-designer / Orchestrator）同步 PL-3 端点与 B 路线物化行为。
+
+### 11.9 路由设定与只读路由视图端点（决策 113 口径 C / 决策 114）
+
+**`GET|PUT /api/v2/platform/alertmanager/route-setting`**（`platform/alertmanager/route/setting_handler.go`；注册 `platform/alertmanager/register.go`）——默认接收人 = 授权平台接管根兜底 `route.receiver` 单键。
+
+`RouteSettingView`（响应 `data`）：
+
+| 字段 | 类型 | 说明 |
+| ---- | ---- | ---- |
+| `enabled` | bool | 平台当前是否**正在接管**根兜底（= `effective_source == explicit`） |
+| `default_receiver_channel_id` | number? | 持久化的设定值（**`null` = 不接管**；显式设定的渠道被停用 / 删除后**原值保留、不回写库**） |
+| `effective_receiver_name` | string | 实际（或建议）写入根 `route.receiver` 的 AM receiver 名（`NotifyChannel.ReceiverName()`，与 §11.6 receivers 物化同源） |
+| `effective_source` | enum | `explicit` / `auto_first_enabled` / `none`（见下） |
+
+- **GET（仅全局认证）**：派生三态——
+  - `explicit`：已显式设定且目标渠道存在且 `enabled=true` → `enabled=true`，平台接管中；
+  - `auto_first_enabled`：**未设定**但存在已启用渠道 → 取已启用渠道按 id 升序第一个作 `effective_receiver_name`，**仅 UI 建议**，`enabled=false`（**产物字节不变**）；
+  - `none`：无生效接收人（显式目标渠道停用 / 删除，或平台无任何已启用渠道）。
+  - **响应不含桥令牌等敏感值**。
+- **PUT（挂 `RequireAdmin`）**：收 `{ default_receiver_channel_id: number | null }`；`null` = 关闭接管（护栏③）；非 `null` 时校验目标渠道存在且已启用，否则 `bad_request`；未认证 `401` / 非 admin `403`。写入后**与挂载同构 autoApply**（触发 M09 管理域变更重算 + 自动确认下发 + AM reload），**响应不含下发状态**（决策 60 冻结：M08 不驱动下发状态）。
+
+**`GET /api/v2/platform/alertmanager/routes`**（`platform/alertmanager/route/handler.go`；仅全局认证、**只读、无写能力**）：
+
+- 成功 → `{ mode, items: [RouteNode], dead_receivers: [DeadReceiver] }`；`mode ∈ { handwritten, platform }`（本期恒 `handwritten`，接入真实模式来源后按实返回）。
+- 解析失败 / 非常规结构 → **200** + `{ mode, parse_error, raw_yaml }`（前端降级为原文只读展示，**绝不 500、不白屏**）。
+- `items` 为**前序扁平数组**，`items[0]` 恒为根路由。
+
+`RouteNode` 字段：
+
+| 字段 | 类型 | 说明 |
+| ---- | ---- | ---- |
+| `id` | string | 根 = `"root"`；子 = `<parent_id>/<同层下标>` |
+| `parent_id` | string | 父节点 ID（根为空串） |
+| `name` | string | 从注释 `# 路由名称: xxx` 还原；无则空串（**不造值**） |
+| `matchers` | [RouteMatcher] | `{ name, value, is_equal, is_regex }`；**兼容新式 `matchers:[{...}]` 与字符串简写 `severity="critical"` 双形态** |
+| `receiver` | string | 该节点 receiver |
+| `group_by` | [string] | 分组键 |
+| `group_wait` / `group_interval` / `repeat_interval` | string | 时间字段 |
+| `continue` | bool | — |
+| `order` | int | 同级 `routes[]` 下标（0-based；根恒 0） |
+| `locked` | bool | 根路由 `true`（不可删、不可移） |
+
+`dead_receivers`：平台命名空间（已启用渠道 `ReceiverName()` 集合）中**不被任何 route 节点 `receiver` 引用**（**含根兜底引用判定**）者；`{ name, url }`，`url` **已脱敏**（保留 `scheme://host`，路径 / 查询以 `/***` 替代）。
+
+> **数据源口径（决策 114 第 3 条，缺陷修复）**：`/routes` 的**数据源为「平台最新产物视图」**，按新鲜度解析——管理域最近一条**未废弃草稿**产物 → 管理域最近一条 `ConfigVersion` 产物 → 两者取新 → 都无时退化为 M08 挂载留痕（`platform/alertmanager/route/handler.go::effectiveAlertmanagerYAML`）。**不是**挂载留痕原文——留痕原文既不含 receivers 物化、也不含根兜底接管结果，会让页面根 `receiver` 与磁盘实际生效配置（`config-output/alertmanager.yml`）不一致，并把**已被根路由引用的平台 receiver 误报为死配置**（与原实现缺陷、与本功能立身点「消解死接收人」直接相冲）。教训：「当前生效」必须锚定 M09 **产物**，而非 M08 **挂载留痕**。
+
+### 11.10 归属边界表（对齐 PRD §4.1.1 权威规则表，决策 113）
+
+> **前置事实**：平台恒只写 `config-output/alertmanager.yml` **一个文件**（`platform/configcenter/deployment/service.go`）；Alertmanager 顶层键仅 `global / route / inhibit_rules / receivers / templates / mute_time_intervals / time_intervals`，**无 `route_files`**（`upstream/alertmanager/config/config.go`）。故 PRD 早期「手写模式经 `route_files` 合并平台片段」表述在现网形态下不可实现，已废；正确落点为「开关开启时原地替换根 `route.receiver` 单键」。
+
+| 段 | 作者 | 平台行为 | 用户行为 | 冲突处理 |
+| ---- | ---- | ---- | ---- | ---- |
+| `global` | 平台 | 生成 | 只读 | 手改被平台下次生成覆盖（仅限平台拥有的键） |
+| `route` | **单一作者**（模式决定） | 平台模式：整棵生成；手写模式：**仅原地替换根 `route.receiver` 单键** | 手写模式：整棵手写；平台模式：只读 | 由模式决定，**不存在同时写** |
+| `receivers` | **双作者**（命名空间区分） | 追加 / 更新**平台槽位** | 手写自有 receiver | 平台槽位：**原地更新**（地址演进不算冲突）；非平台槽位同名 → `failed + user_config` + 行级错误，**绝不覆盖** |
+| `inhibit_rules` | 平台 | 自动生成（网域离线场景） | 可手写追加 | 现状不变 |
+| `templates` / `mute_time_intervals` | 用户 | 不触碰 | 手写 | — |
+
+- **根兜底归属**：具体分流 `route.routes[]` = 用户（平台管理模式 = 前端表单生成；手写模式 = 手写）；**根兜底 `route.receiver`** 在用户选定默认接收人（开关开启）后由平台接管。
+- **显式红线（不可越）**：平台**绝不写 `route.routes[]`**、绝不触碰根 route 的 `group_by` / `group_wait` / `group_interval` / `repeat_interval` / `continue`；**仅替换根 `receiver`**。变更单会明示「根兜底被平台重建」（护栏②，复用 §4.5 既有「route 被外部改动不静默」机制，不新增机制）。

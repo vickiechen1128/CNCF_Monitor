@@ -325,3 +325,47 @@
 5. **M09 变更检测白名单**：`models.NotifyChannel` / `models.NotifyTemplate` 纳入 `generator.change_detect.sourceTableScopes`，`domainScoped=false`（与 `MonitoringRule` / `LabelTemplate` 同列）——渠道 / 模板编辑即推进会 `SourceDataVersion` 并触发变更检测预筛。
 6. **令牌与桥地址注入**：M09 生成器（`generator.Assemble`）新增桥地址 / 令牌入参，由 `draft.buildArtifacts` 从运行配置注入；令牌来源为交付包 `env/env.sh`（当前缺，见 dev-feedback #16），暂以 flag `--notify.bridge-token` + 环境变量 `NOTIFY_BRIDGE_TOKEN` 兜底。
 7. **安全审查（`security-review-pl3.md`）结论一并纳入**：H-1 按第 3 条必修；M-1（出站传输错误 `err=%v` 含 webhook 明文落日志）/ M-2（`ValidateWebhookURL` 未限私网 / 环回 / `169.254.169.254`）/ M-3（出站客户端跟随重定向）同批修复，登记见 `dev-feedback.md` #24。
+
+---
+
+## 补充对齐：2026-09-30（最小运行骨架自动布缆落地口径：否 B、采纳 C，决策 113）
+
+- **触发**：用户就「最小运行骨架自动布缆」的落地形态，对设计草案 [alert-route-frontend-editor.md](file:///Users/chenrt/S-03Python/03%20AIopsAgent-study/CNCF_Monitor-feature/docs/05-execution-records/module-08/design-proposals/alert-route-frontend-editor.md) 与 PRD §4.1.1 提出的三个口径（**A** 仅平台管理模式给骨架 / **B** 在用户 `routes[]` 末端追加平台兜底子路由 / **C** 显式开关下只替换根 `route.receiver`）要求逐条复评。首轮评估曾推荐 A；用户判定 **B 不成立**并要求重评 A/C。复评后**结论反转：采纳 C**（首轮推荐 A 的部分论据一并修正）。
+- **前置技术事实（否决 `route_files` 的依据）**：Alertmanager 0.34 顶层键仅 `global / route / inhibit_rules / receivers / templates / mute_time_intervals / time_intervals`，**不存在 `route_files`**（`upstream/alertmanager/config/config.go`）；进程只接受单个 `--config.file`；平台亦只向 `config-output/alertmanager.yml` 写**一个**文件（`platform/configcenter/deployment/service.go`）。又因 AM 强制要求 `route` 存在、根 route 必须有 `receiver`、根 route 必须**无 matchers**——**任何一份合法配置的根 route 必然已有一个 receiver**。故 PRD §4.9「手写模式经 `route_files` 合并平台片段」**在现网形态下不可实现**（改上游违反目录隔离铁律）；且「手写模式下平台注入根兜底」与「不覆盖用户配置」两条同时成立在语义上自相矛盾。
+- **结论（决策 113）**：
+  1. **否决 B（末端追加兜底子路由）**：B 把平台节点写进**有顺序语义**的 `route.routes[]`，等于在唯一有序的地方引入「两个作者各写半棵树」；且用户某条兄弟子路由 `continue: true` 时，平台兜底会再命中一次 → **同一告警双发**。B 的死穴正是「注入点带顺序语义」。
+  2. **A 不单独决策、降级为「平台管理模式」的固有行为**：平台模式下根 `route.receiver` 指向默认接收人，本就是生成树的必然默认值，**无需单开决策项**（它是 v0.3-b 模式开关落地时的自然结果）。A 的三个问题——①骨架无独立承载物、必须等模式开关先落地，无法独立上线；②默认（手写）模式下**不解决** P0「开箱即响」；③把解法推给「切平台模式」这一重操作（触发导入向导、接管整棵树），杀鸡用牛刀。
+  3. **采纳 C 作为「最小运行骨架自动布缆」的实现形态**：**默认（手写）模式 + 用户显式开关**下，平台**只替换根 `route.receiver` 这一个键**，将其指向「默认接收人」。
+     - **注入点唯一**：只改 `route.receiver` 单键；**绝不触碰**根 route 的 `group_by` / `group_wait` / `group_interval` / `repeat_interval` / `continue`；**绝不写入 `route.routes[]`**。
+     - **无顺序歧义、无双发风险**：根 `receiver` 是 AM 语义下的**纯 fallback**（整棵树未命中时的最后兜底），不参与 `routes[]` 顺序，与 `continue` 无关。
+     - **与 PRD P3「默认接收人」配置项合并为一件事**：用户选定默认接收人 = 授权平台接管根兜底。**不另设孤立开关**（避免两个开关表达同一授权）。
+     - **可独立上线**：不依赖路由规则页（v0.3-a）、不依赖表单（v0.3-b），是唯一能满足 dev-feedback #28「第二步可早于前台化落地」的口径。
+     - **真正满足 P0**：开关开启后未匹配告警落到平台默认接收人，新建渠道开箱即响；用户手写的具体分流原样保留。
+     - **护栏相对最小**：C 是三个口径里唯一同时满足「不破坏 `routes[]` 单一作者 + 无双发风险 + 独立上线 + 解决默认模式真问题」的方案。
+  4. **C 的三条护栏**：
+     - **①二次确认**：开启时明示「根兜底接收人的未匹配告警去向将被改变」（不删数据、可回滚）。
+     - **②变更单明示**：开关开启后用户若手改根 `receiver`，下次生成覆盖时必须在 M09 变更单里写明「根兜底被平台重建」（复用 §4.5 既有的「route 被外部改动不静默」机制，不新增机制）。
+     - **③关闭语义**：关闭 = 平台**停止替换**，最后一次生成的值留在文件里不删除（与模式开关关闭语义同构）。
+  5. **根 route 的 `group_by` / 节奏字段归属：仍归用户手写**（平台越界面最小；根兜底最后才命中，节奏不构成影响）。
+  6. **默认接收人取值**：已启用渠道按 id 升序取第一个（**零新增配置项**，复用 `NotifyChannel.ReceiverName()`，与决策 74 定稿补充第 1 条命名口径同源）；PRD P3 的「用户显式指定默认接收人」作为该配置项 UI 的可选增强，不阻塞骨架首发。
+- **PRD 回写要求（M08 设计侧）**：§4.1.1 / §4.9 的 **`route_files` 物理隔离表述须删除**，改为本决策口径（「可选开关 + 原地替换根 `receiver` 单键」）；§3.1 功能表、§9.1/§9.2 验收项、§10 术语表同步。
+- **影响范围**：Module_08 PRD（§3.1 / §4.1.1 / §4.9 / §9.1 / §9.2 / §10）；`api-contract-snapshot.md`（默认接收人配置项端点，若引入）；实现落点 `platform/configcenter/generator/`（新增根兜底物化）、`platform/configcenter/draft/service.go`（挂载钩子串接）、`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（开关/默认接收人配置项）；开发计划 `docs/05-execution-records/module-08/task-sequence.yaml` 按本决策重排。
+- **关联决策**：决策 74 定稿补充第 1 条（receivers 物化——本决策只补根 `receiver` 单键，receivers 口径完全不变）、决策 60（`alertmanager.yml` 纳入 M09 变更确认，本决策护栏②复用其变更单面）、决策 59（文件挂载形态）、决策 61（静默 API 直调，不受影响）、决策 71（静默标签四层并集，不受影响）；`dev-feedback.md` #26 / #28（口径升级：原「route 物化记 v0.2、不在本期」的口径以本决策为准，改为本期实现且形态收窄为「仅根 `receiver` 单键」）。
+- **用户确认**：2026-09-30，用户在开发空间 `feat/module-08-alert-dispatch` 提出「B 方案平台兜底是不对的，A、C 口径你再评估下」→（复评结论采纳 C）→「请落档决策记录，然后使用 planner 重排开发计划」。
+
+---
+
+## 补充对齐：2026-09-30（端到端联调结论：护栏③口径、渠道变更下发路径、`/routes` 数据源修复，决策 114）
+
+- **触发**：决策 113 落地（批次 A `root-route-cable` + 批次 B `route-readonly`，T08-08 ~ T08-13 / T08-F8 ~ T08-F10）后，在隔离环境（独立 SQLite + `config-output`，Prometheus :9090 + Alertmanager :9093 + metric-center :8080）跑端到端动线验证，暴露三处需拍板或修正的点。用户逐项拍板后落档。
+- **联调基线（已通过的验收事实）**：挂载手写 `alertmanager.yml`（根 `receiver: user-fallback`、`group_by` + 三个时间字段、`routes[]` 含 `# 路由名称: critical-分支` 与 `severity="critical"`）后——①未设定默认接收人时磁盘根 `receiver` 保持手写值不变（存量零影响）；②设定后磁盘根 `receiver` 被原地替换为 `sre`（渠道 `ReceiverName()`），`group_by` / `group_wait` / `group_interval` / `repeat_interval` / `continue` / `routes[]` / 注释**逐字保留**，平台 receiver 物化追加；③产物过 `amtool check-config`（3 receivers）；④渠道禁用后设定原值保留于库、`effective_source=none`，新草稿产物根回落为手写值。
+- **结论（决策 114）**：
+  1. **护栏③「不删最后写入的值」的语义收窄为「平台不主动回滚」**：关闭接管（`PUT .../route-setting` 传 `null`）后，平台**立即停止替换**；此后若发生自然重算（源数据变更触发的生成下发），产物根 `receiver` 会回落为用户手写值——**实测磁盘上平台上次写入的值会被自然重算覆盖**，这是「停止替换」的必然结果，而非平台主动删除动作。用户 2026-09-30 拍板**接受现状**，不引入「最后写入值」的额外持久化状态（保持实现最简、无新增状态机）。
+     - **对决策 113 护栏③措辞的修正**：原表述「关闭 = 停止替换、不删最后写入的值」易被误读为「永久保留已写入值」；权威语义以本条为准——**关闭 = 停止替换；不主动改写/回滚文件；后续重算按正常产物生成**。
+  2. **渠道变更（禁用 / 删除）不下发状态、不自动下发**：`PUT /route-setting` 走「与挂载同构的 autoApply」（决策 113 已拍板 Q4），而 `NotifyChannel` 的禁用 / 删除仅触发 M09 变更检测并生成 **pending 草稿**，**待人工确认后才下发**（不自动确认）。两条路径行为不一致属**有意为之**：M09「生成 → 人工确认 → 下发」是既有权威管道（决策 60 冻结：M08 不驱动下发状态），渠道变更属常规源数据变更，不应获得绕过人工确认的特权。用户 2026-09-30 拍板**保持现状**。
+     - **运维含义**：禁用渠道后，磁盘 `alertmanager.yml` 在人工确认前仍指向该渠道的 receiver；期间死接收人判定以**草稿产物视图**为准（见本条 3）。
+  3. **`GET /api/v2/platform/alertmanager/routes` 的数据源修正为「平台最新产物视图」**（缺陷修复，随本轮 E2E 落档）：原实现读 `config.LatestApplied` 的**挂载留痕原文**，导致设定生效后页面根 `receiver` 仍显示手写值、且把已被根路由引用的平台 receiver（如 `sre`）**误报为死配置**——与本功能的立身点（v0.3-a「消解死接收人」）直接冲突，也与磁盘实际生效配置不一致。修正为按新鲜度解析：管理域最近一条**未废弃草稿**产物 → 管理域最近一条 `ConfigVersion` 产物 → 两者取新 → 都无时退化为挂载留痕。**教训**：「当前生效」在 AM 场景下必须锚定 M09 **产物**（含 receivers 物化与根兜底接管结果），而非 M08 **挂载留痕**；两者不是同一份内容。
+- **影响范围**：`platform/alertmanager/route/handler.go`（数据源修正，已落地含 3 个回归用例）；护栏③与渠道变更路径仅语义澄清，**无代码改动**；`docs/05-execution-records/module-08/api-contract-snapshot.md`（§11.6 需补「根兜底归属」与「页面数据源 = 产物视图」口径）。
+- **关联决策**：决策 113（本决策为其落地后的 E2E 补充；护栏③措辞以本决策第 1 条为准）、决策 60（M08 不驱动下发状态 —— 本决策第 2 条的依据）、决策 74 定稿补充第 1 条（receivers 物化命名口径）、决策 59（文件挂载形态）。
+- **用户确认**：2026-09-30，用户就「/routes 展示与生效不一致」「护栏③语义」「渠道变更是否自动下发」三项分别拍板为「立即修：改读生效产物」「接受现状（已实现）」「保持现状」，随后要求「① 落档 B/C 的语义结论；② 做 T08-D1/D3/D4 文档回写」。
+

@@ -2,7 +2,7 @@
 
 > 依据 `frontend-developer.md` Step 3.5 六项核对，解决「原型视觉 / 列 / 入口与生产实现断层」问题。
 > 本表作为 L3 规划与前端代码 review 的逐项勾验载体，反向从 `docs/prototypes/module-08` 与 `ui-custom/web/src/pages/alerts` 生成。
-> 覆盖范围：前端 T08-F1 \~ T08-F5（告警配置页 / 静默页 / 顶级 tab「告警收敛与通知管理」/ 两条路由 / alertmanager 契约类型与 API client / 决策 55/59/60）；**v1.12 增量追加 T08-F6 / T08-F7**（告警状态页双视图 `/alert-status`，见「八、告警状态页映射（v1.12 MVP 增量）」）。
+> 覆盖范围：前端 T08-F1 \~ T08-F5（告警配置页 / 静默页 / 顶级 tab「告警收敛与通知管理」/ 两条路由 / alertmanager 契约类型与 API client / 决策 55/59/60）；**v1.12 增量追加 T08-F6 / T08-F7**（告警状态页双视图 `/alert-status`，见「八、告警状态页映射（v1.12 MVP 增量）」）；**v0.3-a 增量追加 T08-F8（默认接收人根兜底）/ T08-F10（路由规则页只读路由树）**（决策 113 / 决策 114 / 提案 §3.2，见「二、文件级映射」与「三」§3.3）。
 >
 > 后端契约对账源：`docs/05-execution-records/module-08/api-contract-snapshot.md`（v2026-09-08，含 §10 告警状态查看）与决策 55/56/59/60/61（PRD v1.12）。
 
@@ -11,7 +11,7 @@
 | 决策            | 选择            | 落地说明                                                                                                                                                                                                            |
 | ------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D1 视觉还原       | **a 强制**      | 复用全站火山引擎 Token（原型 `module-08/src/theme.ts` 与 `module-07` 一致）：主色 `#0ECDEB`、头部 `#0B1B2A`、内容背景 `#F7F8FA`。生产 `src/skins.ts` 已全局注入，告警页无独立新 Token。                                                                    |
-| D2 原型定位       | **a 实现基底**    | 复制原型 `ConfigPage`（文件挂载）与 `SilencesPage`（静默极简 UI）的结构 / 列集合，替换 mock 为真实 alertmanager API；其余原型页（告警状态四态 / 通知渠道 / 路由 / 抑制）按决策 55/59 裁剪（见「六、裁剪清单」）。                                                                   |
+| D2 原型定位       | **a 实现基底**    | 复制原型 `ConfigPage`（文件挂载）与 `SilencesPage`（静默极简 UI）的结构 / 列集合，替换 mock 为真实 alertmanager API；其余原型页（告警状态四态 / 通知渠道 / 路由 / 抑制）按决策 55/59 裁剪（见「六、裁剪清单」）；其中**路由规则页已由决策 113/114 修订为「v0.3-a 只读 / v0.3-b 生产基底」**（见「六、裁剪清单」与「三」§3.3）。                                    |
 | D3 顶级 tab 模块名 | **a PRD 模块名** | 顶部一级 tab 用 PRD 模块名「告警收敛与通知管理」（`MainLayout` MODULES `alert`），不用功能页名「告警配置」；功能页名下沉为 Sider 二级「告警配置 / 静默管理」。                                                                                                         |
 | D4 MVP 交付形态   | **b 文件挂载承载**  | 决策 55/59：接收人 / 路由 / 抑制不走字段化表单 UI（归 v0.3/v1.0），统入整份 `alertmanager.yml` 文件挂载 + amtool check-config 校验 + 内容侧留痕；静默走 Alertmanager API 直调（即时生效，不进 M09 变更单）。决策 60：挂载产物作为管理域 scope 配置进入 M09 ConfigDraft 人工确认后下发 reload。 |
 | D5 契约类型与客户端   | **a 独占新建**    | `src/types/alertmanager.ts` 为 M08 前端独占类型出口；`src/api/alertmanager.ts` 封装 配置版本 / 静默 / 校验 相关 API；常量收敛到 `src/pages/alerts/alertmanagerConstants.ts`（silence 状态色、config 状态色、matcher 格式化、跨模块跳转路径）。                    |
@@ -28,7 +28,10 @@
 | `pages/ConfigPage.tsx`                                               | `src/pages/alerts/AlertConfigPage.tsx` + `AlertConfigDrawer.tsx` + `useAlertConfig.ts`                  | **复制 + 拆分 + 替换** | 2 / 3 / 4    | 原型单文件（挂载/校验/版本历史/回滚/跨模块跳转）按 T08-F2 拆为：页面壳 `AlertConfigPage.tsx`（当前生效 + 版本历史 + 详情 Drawer）、`AlertConfigDrawer.tsx`（Upload/粘贴 + amtool 校验 + 提交）、`useAlertConfig.ts`（数据 Hook：current/versions/remount）。**mock 替换为** `alertmanagerConfigApi` 真实调用；校验行为由原型前端正则模拟改为后端校验失败行级错误不落库（决策 59/60）。 |
 | `pages/SilencesPage.tsx`                                             | `src/pages/alerts/SilencesPage.tsx` + `CreateSilenceDrawer.tsx` + `useSilences.ts`                      | **复制 + 拆分 + 替换** | 2 / 3 / 4    | 原型 Modal 新建表单拆为独立 `CreateSilenceDrawer.tsx`（T08-F3）；列出独立 `SilencesPage.tsx` + `useSilences.ts`。**mock 替换为** Alertmanager API 直调（创建/列表/删除即时生效）；新增决策 56 授权提示 + 决策 59「不进 M09 变更单」说明、越权创建被拒展示。`dayjs` 新增依赖（T08-F3）。                                                                      |
 | `pages/AlertStatusPage.tsx`                                          | `src/pages/alerts/AlertStatusPage.tsx` + `useAlertStatus.ts`（**v1.12 提前 MVP，T08-F6**）                                    | **复制 + 拆分 + 替换** | 2 / 3 / 4    | ~~决策 55 归 v0.3~~ 已由 v1.12 修订提前至 MVP：生产落地为**双 Tab**（AM 通知状态 + Prometheus 当前触发告警），mock 替换为真实 API（契约快照 §10）。详见「八、告警状态页映射」。                                                                                                                                                 |
-| `pages/NotifiersPage.tsx` / `RoutesPage.tsx` / `InhibitionsPage.tsx` | —（无）                                                                                                    | **删除（独立页）**      | D4 裁剪        | 通知渠道 / 路由规则 / 告警抑制的字段化编辑 UI 归 v0.3/v1.0，MVP 由整份 `alertmanager.yml` 文件挂载承载（决策 59）。                                                                                                                                                                                                    |
+| `pages/RoutesPage.tsx`                                               | `src/pages/alerts/RoutesPage.tsx` + `useRoutes.ts`                                                      | **复制 + 替换**（**v0.3-a 只读 / v0.3-b 生产基底**） | 2 / 3 / 4    | 处置由原「删除（独立页）」修订（决策 113 / 决策 114 / 提案 §3.2）：v0.3-a 只读路由树已实现（T08-F10），`mockRoutes` 替换为 `GET /api/v2/platform/alertmanager/routes`（数据源 = 平台最新产物视图，决策 114-3）；保留原型的树形缩进 / 继续匹配列，新增根锁定 + 模式徽标 + 常驻顺序说明 + `dead_receivers` 标记与跳转 + 解析失败降级 YAML。表单可写为 v0.3-b 增量。                                                                    |
+| —（**v0.3-b 待实现**）                                                  | `src/pages/alerts/RouteEditorDrawer.tsx`                                                                | **➕生产新增（v0.3-b 待实现，T08-F11）** | 2 / 3        | **尚未实现**：三段式表单（这条规则管什么 / 匹配什么 / 发给谁怎么发），由原型 Modal 转为 Drawer；模式开关（T08-F12）、接收人下拉联动（T08-F13）同批落地。排序列对齐提案 §3.2——**上移 / 下移 + 拖拽**，非原型的 `order` 数字框。                                                                    |
+| `pages/ConfigPage.tsx`（**默认接收人位**，本次回写补齐）                        | `src/pages/alerts/useRouteSetting.ts`                                                                   | **➕生产新增（已实现，T08-F8）** | 4            | 「默认接收人（根兜底）」数据 Hook：`GET\|PUT /api/v2/platform/alertmanager/route-setting` + 已启用渠道下拉源；生效来源三态（`effective_source`）。原型 ConfigPage 原无此位，按本映射回写补齐（见「三」§3.1 #14）。                                                                    |
+| `pages/NotifiersPage.tsx` / `InhibitionsPage.tsx`                    | —（无）                                                                                                    | **删除（独立页）**      | D4 裁剪        | 通知渠道 / 告警抑制的字段化编辑 UI 归 v0.3/v1.0，MVP 由整份 `alertmanager.yml` 文件挂载承载（决策 59）。                                                                                                                                                                                                    |
 | `mocks/module-08.ts`                                                 | `src/api/alertmanager.ts` / `src/types/alertmanager.ts` / `src/pages/alerts/alertmanagerConstants.ts`   | **替换**           | 4 数据契约       | mock 类型（Matcher / Silence / AlertmanagerConfigVersion / ChangeStatus / NotificationStatus 等）落到 `types/alertmanager.ts`；mock 数据替换为真实 API。                                                                                                                                             |
 | `components/StageBadge.tsx`                                          | —（无）                                                                                                    | **删除**           | 实现基底裁剪       | 原型阶段角标，不进入生产。                                                                                                                                                                                                                                                                        |
 | —                                                                    | `src/api/alertmanager.ts`                                                                               | ➕生产新增            | 4            | M08 前端 API 客户端：配置版本（current/versions/remount）、静默（create/list/delete）、校验错误载体（T08-F1/F2）。                                                                                                                                                                                              |
@@ -53,6 +56,8 @@
 | 11 | 挂载抽屉「校验配置（amtool check-config）」    | ✅ 已有                      | 替换 | 原型前端 `checkAlertmanagerYaml` 正则模拟；生产调后端校验，返回行级 `ValidateErrorItem[]`（决策 59 校验失败不落库）。                                                      |
 | 12 | 挂载抽屉「提交并进入变更确认」+ 跳 M09             | ✅ 已有                      | 对齐 | 生产提交成功后 message 引导 `navigate('/config-preview')`（决策 60）。                                                                                  |
 | 13 | 页面顶部「配置变更路径」说明条                    | ⏭️ 简化                     | 替换 | 生产以 `.page-header` 副标题文字（文件挂载→M09 确认→reload）承载，不再铺全宽说明条。                                                                                  |
+| 14 | 无（原型缺位，**本次回写补齐**）                       | ➕生产新增（**已实现，T08-F8**）         | —  | 「默认接收人（根兜底）」：收进「当前生效配置」卡内一行 Select（不新增整卡）+「平台接管中」Tag + 生效来源（`effective_source`）三态展示 + 诚实口径说明（**只替换根 `route.receiver` 单键**，绝不触碰 `routes[]` / 节奏字段 / `continue`）。对应决策 113 口径 C。                  |
+| 15 | 无（原型缺位，**本次回写补齐**）                       | ⏭️ **v0.3-b 待实现（T08-F12）**       | —  | 「模式开关」（route 段作者模式：手写接管 / 平台管理）：与「默认接收人」是**两个独立控件**（Q3 已拍板）；**平台托管模式下布缆开关（默认接收人）转只读展示**。原型本次仅补位置 + 标注 v0.3-b，不预置可用控件（避免造出半成 UI）。                  |
 
 ### 3.2 静默管理页列（原型 `SilencesPage.tsx` vs 生产 `SilencesPage.tsx`）
 
@@ -68,6 +73,29 @@
 | 8  | 新建静默 Modal（matchers JSON / 时间范围 / 创建者 / 备注） | ✅ 已有（`CreateSilenceDrawer`） | 替换 | 生产改为独立 Drawer 表单（匹配条件 + 生效时间 + 备注，发布人沿用当前登录账号），提交→ `useSilences.create` → AM API。 |
 | 9  | —                                           | ➕生产新增                       | —  | 静默状态筛选（全部/生效中/待生效/已过期）+ 关键词筛选（`FilterBar`）。                                       |
 | 10 | —                                           | ➕生产新增                       | —  | 决策 56 授权提示 Alert「静默影响当前授权网域」；越权创建被拒展示服务端错误；覆盖 空态/接口错误/权限不足。                       |
+
+### 3.3 路由规则页（原型 `RoutesPage.tsx` vs 生产 `RoutesPage.tsx`，v0.3-a 只读）
+
+> `RoutesPage` 处置已由「删除（独立页）」修订为「**v0.3-a 只读 / v0.3-b 生产基底**」（决策 113 / 决策 114 / 提案 §3.2）。v0.3-a 只读路由树已实现（T08-F10）；表单可写（`RouteEditorDrawer`）为 v0.3-b 增量。契约：PRD §11.7（列表态）/ §9.1（v0.3-a）；数据源 `GET /api/v2/platform/alertmanager/routes`（**决策 114-3：读「平台最新产物视图」，非 M08 挂载留痕原文**）。
+
+| #  | 原型列 / 区块                                  | 生产现状                     | 处理 | 理由                                                                                                                                             |
+| -- | ----------------------------------------- | ------------------------ | -- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1  | 列「路由名称」（树形缩进 `└─`）                        | ✅ 已有（v0.3-a）             | 对齐 | 生产按 `parent_id` / `order` 建树前序展开，缩进 `depth * 20`；根恒置顶。                                                                                         |
+| 2  | 根路由当普通行（仅 `Tag 根`）                         | ✅ 已有（加强）                 | 替换 | 生产**根锁定**：`LockOutlined` + Tooltip「根路由不可删除、不可移动」+ `Tag 根`；原型根仍是可排序的普通行。                                                                           |
+| 3  | 列「匹配条件」                                   | ✅ 已有                     | 对齐 | 空 matcher 展示「（匹配所有告警，兜底）」，复用静默页 `formatMatchers`。                                                                                                |
+| 4  | 列「接收人」（通知渠道类型 Tag + 名称）                    | ✅ 已有（改）                  | 替换 | 生产只读展示 `route.receiver` 文本（`Text code`），不再反查通知渠道类型；死接收人改由独立卡片 + `dead_receivers[]` 承载。                                                         |
+| 5  | 列「分组键」                                    | ✅ 已有                     | 对齐 | `group_by` 逗号拼接；空值 `-`。                                                                                                                         |
+| 6  | 列「等待 / 间隔 / 重复」                            | ✅ 已有（改名）                 | 对齐 | 生产「发送节奏」`group_wait / group_interval / repeat_interval`。                                                                                     |
+| 7  | 列「继续匹配」                                   | ✅ 已有                     | 对齐 | `continue` → 是 / 否 Tag。                                                                                                                         |
+| 8  | 列「启用」`Switch`（切换即弹「演示」）                    | **裁剪（v0.3-a 只读）**         | 裁剪 | v0.3-a 无任何写入口；`enabled=false` 整条剔除语义归 v0.3-b（T08-F11）。                                                                                          |
+| 9  | 列「操作」（编辑 / 删除 Popconfirm）                  | **裁剪（v0.3-a 只读）**         | 裁剪 | 同上：只读路由树不提供新建 / 编辑 / 删除入口。                                                                                                                     |
+| 10 | 排序：编辑态 `order` **数字输入框**                   | **v0.3-b：上移 / 下移 + 拖拽**  | **替换** | 顺序是本功能第一类语义（提案 §3.2/§3.3），数字框不可接受；**改为「上移 / 下移按钮 + 原生 HTML5 `draggable` 拖拽」（零新增依赖）**——**此交互下限已由用户拍板确认**。v0.3-b（T08-F11）落地；v0.3-a 只读不涉及排序交互。 |
+| 11 | 无                                         | ➕生产新增                    | —  | 常驻说明条「路由顺序 = 生效顺序：先匹配到的先生效」+ 模式徽标（手写接管 / 平台管理，取自 `route.mode`）。                                                                                 |
+| 12 | 无                                         | ➕生产新增                    | —  | 死接收人卡片：平台已生成但无任何路由指向的接收人（`dead_receivers[]`），可跳转「通知渠道」页处理（dev-feedback #26）。                                                                   |
+| 13 | 无                                         | ➕生产新增                    | —  | 解析失败降级：`route` 段不可解析时按原文 YAML 只读展示（`parse_error` + `raw_yaml`），不白屏、不报错页。                                                                        |
+| 14 | 无                                         | ➕生产新增                    | —  | 加载失败态：错误 Alert + 「重新加载」；空态 `Empty`。                                                                                                              |
+
+**排序交互的差异（重点）**：原型 `RoutesPage.tsx` 原先用编辑 Modal 里的「排序（order）」`InputNumber` 数字框；本设计基线把顺序提为第一类语义，改为**上移 / 下移按钮 + 拖拽**（原生 HTML5 `draggable`，**零新增依赖**），`order` 仅作内部辅助、不再暴露为可填数字。生产 v0.3-a 只读不涉及该交互，v0.3-b（`RouteEditorDrawer`）落地时按此实现；**原型已按此口径同步**（见 `docs/prototypes/module-08/src/pages/RoutesPage.tsx`）。
 
 ## 四、导航与 IA 模型
 
@@ -86,15 +114,16 @@
 
 | 目标入口 | 路径              | 生产现状  | 备注              |
 | ---- | --------------- | ----- | --------------- |
-| 告警配置 | `/alert-config` | ✅ 已实现 | Sider 选中态与路由联动。 |
+| 告警配置 | `/alert-config` | ✅ 已实现 | Sider 选中态与路由联动；含「默认接收人（根兜底）」设定（T08-F8）。 |
 | 静默管理 | `/silences`     | ✅ 已实现 | —               |
+| 路由规则 | `/routes`       | ✅ 已实现（v0.3-a，T08-F10） | 只读路由树；表单可写（`RouteEditorDrawer`）为 v0.3-b 待实现。 |
 
 ### 4.3 原型 Sider 中 MVP 未承载的独立入口（决策 55/59 裁剪）
 
 | 原型 Sider 项           | 生产现状  | 备注                                   |
 | -------------------- | ----- | ------------------------------------ |
 | 告警状态（`/alerts`）      | ✅ 已注册为 `/alert-status`（T08-F7） | **已撤销裁剪**：v1.12 提前至 MVP（双视图，见「八」）；生产路由用 `/alert-status` 以避开原型占位语义。 |
-| 路由规则（`/routes`）      | ❌ 未注册 | 字段化 UI 归 v0.3/v1.0，MVP 走文件挂载（决策 59）。 |
+| 路由规则（`/routes`）      | ✅ 已注册为 `/routes`（v0.3-a，T08-F10） | **已修订处置**：由「删除（独立页）」改为「**v0.3-a 只读 / v0.3-b 生产基底**」（决策 113/114）；v0.3-b 表单（`RouteEditorDrawer`）待实现。 |
 | 通知渠道（`/notifiers`）   | ❌ 未注册 | 同上。                                  |
 | 告警抑制（`/inhibitions`） | ❌ 未注册 | 同上。                                  |
 
@@ -118,7 +147,8 @@
 | 原型项                                             | 生产处理        | 理由                                                                  |
 | ----------------------------------------------- | ----------- | ------------------------------------------------------------------- |
 | 告警状态四态页（active/silenced/inhibited/unprocessed）  | ~~裁剪~~ **已撤销：v1.12 提前 MVP 交付（双视图）** | 决策 55 原标注归 v0.3/v1.0；M08/M02 PRD v1.12 提前至 MVP（MVP 试用反馈：前台缺少查看当前告警入口），落地映射见「八」。 |
-| 通知渠道 / 路由规则 / 告警抑制 字段化编辑 UI                     | 裁剪，统入文件挂载   | 决策 55/59：接收人/路由/抑制以整份 `alertmanager.yml` 挂载承载，字段化表单 UI 归 v0.3/v1.0。 |
+| 路由规则字段化编辑 UI                                    | ~~删除（独立页）~~ **修订为「v0.3-a 只读 / v0.3-b 生产基底」** | 决策 113/114：v0.3-a 只读路由树已实现（T08-F10，`/routes` 已注册）；v0.3-b 表单（`RouteEditorDrawer`）待实现，排序列由上移/下移 + 拖拽承载（见「三」§3.3）。 |
+| 通知渠道 / 告警抑制 字段化编辑 UI                            | 裁剪，统入文件挂载   | 决策 55/59：接收人/抑制以整份 `alertmanager.yml` 挂载承载，字段化表单 UI 归 v0.3/v1.0。 |
 | 角色切换（ops/arch Select）+ 网域模式 Switch + 「原型验证版」Tag | 删除          | 原型脚手架，不进入生产（单租户 / M09 处理网域）。                                        |
 | `StageBadge` 阶段角标                               | 删除          | 原型产物。                                                               |
 | `mock/module-08.ts` 全量 mock                     | 替换为真实 API   | MVP 必须对接后端（配置版本 / 静默 / 校验）。                                         |
@@ -132,7 +162,13 @@
 
 - [ ] D3：确认 `MainLayout` 顶部一级 tab 文案为「告警收敛与通知管理」；Sider 二级为「告警配置 / 静默管理」。
 
-- [ ] 路由：确认 `src/App.tsx` 注册 `/alert-config`、`/silences`；未注册 四态/路由/渠道/抑制 相关路由（与裁剪一致）。
+- [ ] 路由：确认 `src/App.tsx` 注册 `/alert-config`、`/silences`、`/alert-status`、`/routes`；未注册 通知渠道/抑制 相关路由（与裁剪一致）。
+
+- [ ] 路由规则（v0.3-a）：`/routes` 归入 alert（`resolveActiveModule`）；根锁定 / 模式徽标 / 常驻顺序说明 / `dead_receivers` 标记与跳转 / 解析失败降级原文 YAML 正常；数据源为平台最新产物视图（决策 114-3）。
+
+- [ ] 路由规则（v0.3-b，待实现）：`RouteEditorDrawer` 表单 + 模式开关（T08-F12）+ 接收人下拉联动（T08-F13）；排序列为上移/下移 + 拖拽（原生 HTML5 `draggable`，零新增依赖）。
+
+- [ ] 默认接收人（T08-F8）：告警配置页「默认接收人（根兜底）」Select + 「平台接管中」Tag + `effective_source` 三态 + 二次确认；与模式开关（T08-F12，v0.3-b）是两个独立控件，平台托管模式下布缆开关转只读展示。
 
 - [ ] 告警配置：当前生效只读预览、版本历史（版本 ID/状态/生效时间/应用人/M09 变更单/校验和/操作）、挂载抽屉（上传/粘贴/行级校验错误/提交 M09 跳转）、重新挂载回滚（Modal 二次确认 + 行级错误列表）正常。
 
@@ -146,7 +182,7 @@
 
 - [ ] 全局：`make test-platform` + 前端 `pnpm test` / `pnpm lint` 通过；后端 run + 前端 dev 200，T08-F1\~F5 主链路走通。
 
-- [ ] TODO：~~四态页~~ / 通知渠道 / 路由 / 抑制字段化 UI 是否在 v0.3/v1.0 回归，届时据此表补列模块与路由。（四态页已于 v1.12 提前 MVP，见「八」；剩余待回归项 = 通知渠道 / 路由 / 抑制字段化 UI）
+- [ ] TODO：~~四态页~~ / 通知渠道 / 路由 / 抑制字段化 UI 是否在 v0.3/v1.0 回归，届时据此表补列模块与路由。（四态页已于 v1.12 提前 MVP，见「八」；路由规则 v0.3-a 已提前落地、v0.3-b 表单待实现，见「三」§3.3；剩余待回归项 = 通知渠道 / 抑制字段化 UI / 路由 v0.3-b 表单）
 
 ## 八、告警状态页映射（v1.12 MVP 增量，T08-F6 / T08-F7）
 
