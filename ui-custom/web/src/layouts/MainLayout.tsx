@@ -1,5 +1,6 @@
 import { Layout, Menu, Tag, Tooltip, Typography } from 'antd'
 import {
+  ApartmentOutlined,
   ApiOutlined,
   AppstoreOutlined,
   BellOutlined,
@@ -217,6 +218,8 @@ const MODULES: ModuleDef[] = [
       // PL-3 通知渲染桥增量：通知渠道 / 通知模板（M08 新增能力页；「告警配置」保持置底）
       { key: '/notify-channels', label: '通知渠道', icon: <ApiOutlined /> },
       { key: '/notify-templates', label: '通知模板', icon: <FileTextOutlined /> },
+      // M08 v0.3-a：「路由规则」只读路由树（T08-F10），与「告警配置」同组（模式开关落在该页）
+      { key: '/routes', label: '路由规则', icon: <ApartmentOutlined /> },
       { key: '/alert-config', label: '告警配置', icon: <FileSearchOutlined /> },
     ],
   },
@@ -250,7 +253,7 @@ function findModuleByKey(key: string): ModuleDef {
  * 依据当前路由推断激活的一级模块。
  * /admin/*（网域、用户、租户、登录日志、外观设置）→ 系统与平台管理；/domain-onboarding、/node-status、/targets、/config-preview、/deployments → 网域与边缘配置中心；
  * /resources、/label-templates、/business-domains、/application-dict、/platform-dict、/service-dict → 监控对象管理；/collectors、/scrape-jobs、/rules、/metric-library → 采集策略；
- * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates → 告警收敛与通知管理；其余 → 首页。
+ * /alert-config、/silences、/alert-status、/alert-history、/notify-channels、/notify-templates、/routes → 告警收敛与通知管理；其余 → 首页。
  */
 function resolveActiveModule(locationPath: string): ModuleDef {
   // /admin/* 全部归属「系统与平台管理」（M06）：按前缀收口而非逐个枚举路由，
@@ -286,7 +289,8 @@ function resolveActiveModule(locationPath: string): ModuleDef {
     locationPath.startsWith('/alert-status') ||
     locationPath.startsWith('/alert-history') ||
     locationPath.startsWith('/notify-channels') ||
-    locationPath.startsWith('/notify-templates')
+    locationPath.startsWith('/notify-templates') ||
+    locationPath.startsWith('/routes')
   )
     return findModuleByKey('alert')
   return MODULES[0]
