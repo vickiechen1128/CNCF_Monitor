@@ -21,6 +21,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"env":               "env_flag",     // Host.GetEnv() = EnvFlag
 			"cluster":           "sub_app_code", // Host.GetCluster() = SubAppCode
 			"app_code":          "app_code",     // Host.GetAppCode() = AppCode
+			"platform_code":     "platform_code",
 			"biz_code":          "biz_code",
 			"network_domain_id": "network_domain_id",
 			"status":            "status",
@@ -31,6 +32,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 		return map[string]string{
 			"instance_ip":       "instance_ip",
 			"app_code":          "app_name",
+			"platform_code":     "platform_code",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -47,6 +49,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 		return map[string]string{
 			"instance_ip":       "instance_ip",
 			"app_code":          "app_name",
+			"platform_code":     "platform_code",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -68,6 +71,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"endpoint":          "endpoint",
 			"port":              "port",
 			"app_code":          "app_name",
+			"platform_code":     "platform_code",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -87,6 +91,7 @@ func LegacyFieldMap(category ResourceCategory) map[string]string {
 			"scheme":            "scheme",
 			"exporter_type":     "exporter_type",
 			"app_code":          "app_name",
+			"platform_code":     "platform_code",
 			"cluster":           "cluster",
 			"env":               "env",
 			"biz_code":          "biz_code",
@@ -129,6 +134,8 @@ func getHostField(h *Host, field string) (string, bool) {
 		return h.BizCode, true
 	case "app_code":
 		return h.GetAppCode(), true // app label 取值（Host 物理列 app_code）
+	case "platform_code":
+		return h.PlatformCode, true
 	case "env":
 		return h.GetEnv(), true // legacy: EnvFlag
 	case "cluster":
@@ -157,6 +164,8 @@ func getDatabaseField(d *Database, field string) (string, bool) {
 		return d.BizCode, true
 	case "app_code":
 		return d.GetAppCode(), true
+	case "platform_code":
+		return d.PlatformCode, true
 	case "cluster":
 		return d.GetCluster(), true
 	case "env":
@@ -189,6 +198,8 @@ func getMiddlewareField(m *Middleware, field string) (string, bool) {
 		return m.BizCode, true
 	case "app_code":
 		return m.GetAppCode(), true
+	case "platform_code":
+		return m.PlatformCode, true
 	case "cluster":
 		return m.GetCluster(), true
 	case "env":
@@ -221,6 +232,8 @@ func getApplicationField(a *Application, field string) (string, bool) {
 		return a.BizCode, true
 	case "app_code":
 		return a.GetAppCode(), true
+	case "platform_code":
+		return a.PlatformCode, true
 	case "cluster":
 		return a.GetCluster(), true
 	case "env":
@@ -257,6 +270,8 @@ func getGenericTargetField(g *GenericTarget, field string) (string, bool) {
 		return g.BizCode, true
 	case "app_code":
 		return g.GetAppCode(), true
+	case "platform_code":
+		return g.PlatformCode, true
 	case "cluster":
 		return g.GetCluster(), true
 	case "env":
