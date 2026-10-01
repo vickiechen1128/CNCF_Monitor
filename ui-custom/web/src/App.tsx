@@ -67,6 +67,10 @@ const NotifyChannelsPage = lazy(() =>
 const NotifyTemplatesPage = lazy(() =>
   import('./pages/alerts/NotifyTemplatesPage').then((m) => ({ default: m.NotifyTemplatesPage })),
 )
+// M08 v0.3-a 增量：路由规则页（只读路由树，T08-F10）
+const RoutesPage = lazy(() =>
+  import('./pages/alerts/RoutesPage').then((m) => ({ default: m.RoutesPage })),
+)
 
 /**
  * 路由守卫：无 Token（未登录 / 会话失效）一律重定向到 /login，
@@ -128,6 +132,7 @@ function AppRoutes() {
           <Route path="/alert-history" element={<HistoryAlertsPage />} />
           <Route path="/notify-channels" element={<NotifyChannelsPage />} />
           <Route path="/notify-templates" element={<NotifyTemplatesPage />} />
+          <Route path="/routes" element={<RoutesPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

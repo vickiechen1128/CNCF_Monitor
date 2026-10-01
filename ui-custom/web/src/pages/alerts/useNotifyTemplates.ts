@@ -20,6 +20,8 @@ export interface UseNotifyTemplatesResult {
   submit: (payload: SubmitNotifyTemplatePayload) => Promise<NotifyTemplate>
   /** 回滚：把该历史版本内容重新提交为新的留痕 */
   remount: (id: string, name: string) => Promise<NotifyTemplate>
+  /** 删除自定义模板（内置模板后端拒绝）；删除后刷新列表 */
+  remove: (id: string) => Promise<void>
 }
 
 export function useNotifyTemplates(): UseNotifyTemplatesResult {
@@ -73,5 +75,10 @@ export function useNotifyTemplates(): UseNotifyTemplatesResult {
     return res.data
   }, [])
 
-  return { templates, total, loading, error, permissionDenied, reload, submit, remount }
+  const remove = useCallback(async (id: string): Promise<void> => {
+    await notifyTemplatesApi.remove(id)
+    setRefresh((r) => r + 1)
+  }, [])
+
+  return { templates, total, loading, error, permissionDenied, reload, submit, remount, remove }
 }

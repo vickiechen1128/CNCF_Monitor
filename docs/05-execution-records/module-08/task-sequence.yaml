@@ -480,3 +480,527 @@ tasks:
       - "告警状态页双视图加载真实 API 走通（M02 /api/v1/alerts + M08 /api/v2/platform/alertmanager/alerts）"
       - "前端 pnpm test（全量）/ pnpm lint / tsc --noEmit 通过；存量页面无回归"
       - "收尾挂 security-reviewer（Track B+ 强制：决策 56 授权骨架 + 代理 SSRF 面核查）；提交前验证清单（04_Testing_Standard.md §4）通过后停服释放端口"
+
+# =====================================================================
+# 二轮增量（决策 113「最小运行骨架自动布缆」口径 C + route 前台化 v0.3-a/b/c）
+# 计划版本：v2026-09-30（承接决策 113；重排自设计提案 alert-route-frontend-editor.md）
+#
+# 【前置事实（决策 113，不可再议）】
+#   1. Alertmanager 0.34 无 `route_files` 顶层键；平台只向 config-output/alertmanager.yml 写一个文件。
+#      故 PRD §4.1.1（决策 113 与提案误引为 §4.9，属提案章节号错位）的 route_files 合并方案不可实现。
+#   2. 口径 B（在用户 route.routes[] 末端追加平台兜底子路由）已否决——会进有顺序语义的数组，
+#      且用户某兄弟子路由 continue:true 时同一告警双发。
+#   3. 口径 A 降级为「平台管理模式」的固有行为（根 receiver 指向默认接收人），不单独做、不单开决策。
+#   4. 口径 C 采纳：默认（手写）模式 + 用户显式开关下，平台只原地替换根 route.receiver 单键。
+#      绝不触碰 group_by / group_wait / group_interval / repeat_interval / continue，绝不写 route.routes[]。
+#   5. 开关与 PRD P3「默认接收人」配置项合并为同一件事（选定默认接收人 = 授权平台接管根兜底）。
+#   6. 默认接收人取值：已启用渠道按 id 升序第一个，复用 NotifyChannel.ReceiverName()。
+#   7. 三条护栏：①开启二次确认；②根兜底被替换时进 M09 变更单明示；③关闭 = 停止替换、不删最后写入的值。
+#   8. 根 route 的 group_by / 节奏字段归属仍归用户手写。
+#
+# 【已拍板（2026-09-30，用户确认；下列结论为任务实现形态的约束）】
+#   Q1 默认接收人持久化形态 = 新增管理域单例表 alertmanager_route_settings
+#      （与 alertmanager.yml 同管理域 default；语义独立、不污染 NotifyChannel 模型）→ 约束 T08-08 / T08-11
+#   Q2 首发支持用户显式指定默认接收人 → 约束 T08-F8（下拉选择项）+ T08-11（PUT 接口）
+#   Q3 「骨架布缆开关」与「模式开关」= 两个独立控件；平台托管模式下布缆开关转只读展示 → 约束 T08-F8 / T08-F12
+#   Q4 改设定后 = 与挂载同构 autoApply（触发重算 + 管理域自动确认下发 + AM reload）→ 约束 T08-11
+#   Q5 PRD §9.1「平台托管的接收人自动获得骨架」= 改为「用户选定默认接收人后获得」→ 约束 T08-D2
+#   Q6 批次 A 与批次 B = 合一个 PR（内部两个 commit_group）→ 约束 T08-D1 / PR 编排
+#   Q7 顺序调整交互下限 = 上移/下移必做 + 拖拽增强（原生 HTML5 draggable，零新增依赖）→ 约束 T08-F11
+#
+# 【批次与 PR 口径】
+#   PR-1 = 批次 A（root-route-cable）+ 批次 B（route-readonly）——可合一个 PR、两个 commit
+#   PR-2 = 批次 C（route-editor）——最高风险（新增写入路径）、最大 diff，必须独立 PR 以便单独回滚
+#   PR-3 = 批次 D（route-linkage）——纯前端体验增强，可随时插队
+#   文档回写：契约快照 + PRD 属 design 侧（开发 Agent 不可写 docs/02-product-requirements/），不与 feat 分支同 PR
+#
+# 【关键路径】T08-08 → T08-09 → T08-10 → T08-11 → T08-F8 → T08-F12 → T08-F13
+#             并行分支：T08-09 → T08-12 → T08-13 → T08-F11 → T08-F12
+# 【必须串行的共享文件（红线）】register.go（T08-11/T08-12）、generator 包（T08-09/T08-13）、
+#   AlertConfigPage.tsx（T08-F8/F9/F12）、RoutesPage.tsx（T08-F10/F11）、api/alertmanager.ts（追加式）
+# =====================================================================
+
+  # ===== 批次 A · 最小运行骨架自动布缆（口径 C，P0「开箱即响」）=====
+
+  - id: "T08-08"
+    title: "models：管理域单例设定 AlertmanagerRouteSetting（默认接收人 = 授权平台接管根兜底）"
+    group: "backend"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "root-route-cable"
+    prd: "Module_08 §4.1.1（最小运行骨架 / 默认接收人来源）；决策 113 第 2/6 条"
+    depends_on: []
+    input_files:
+      - "platform/models/alertmanager_notify.go"            # NotifyChannel.ReceiverName() 命名口径复用
+      - "platform/models/alertmanager_config.go"            # 既有 M08 模型与迁移范式
+      - "platform/configcenter/generator/change_detect.go"   # sourceTableScopes 白名单（域过滤语义需核对）
+    output_files:
+      - "platform/models/alertmanager_route_setting.go"
+      - "platform/models/alertmanager_route_setting_test.go"
+    estimated_files_changed: 2
+    estimated_test_cases: 6
+    shared_files: "是：platform/models/*.go 需与 M08 既有模型迁移同批；change_detect.go 白名单改动需与 T08-10 对齐"
+    verify_commands:
+      - "go test ./platform/models/..."
+      - "go vet ./platform/models/..."
+    acceptance_criteria:
+      - "单例模型唯一（管理域 default scope）：DefaultReceiverChannelID *uint，**null = 不接管**（默认零影响）"
+      - "可用性判定：设定可用 = 渠道存在 && enabled=true；渠道被禁用/删除 → 设定保留，生成时回落为不接管（不回写库、不报错）"
+      - "AutoMigrate 幂等：仅新建本表，不改既有表结构（SQLite 零回填）"
+      - "change_detect 白名单策略已核对：改本表能触发管理域重算，且不对非管理域产生噪声变更"
+      - "渠道建议（推荐口径，人手删除）渠道被删除时仅置设定为空 receiver 判定，不做级联删除"
+
+  - id: "T08-09"
+    title: "generator：根兜底物化纯函数 MaterializeRootRouteReceiver（只替换根 route.receiver 单键）"
+    group: "backend"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "root-route-cable"
+    prd: "Module_08 §4.1.1 / §9.2（最小运行骨架单测）；决策 113 第 4/5 条；决策 74 定稿补充第 1 条（receivers 策略不变）"
+    depends_on: []
+    input_files:
+      - "platform/configcenter/generator/notify_receivers.go"   # yaml.Node 往返范式 / mappingValueIndex / platformNames
+      - "platform/configcenter/generator/generator.go"          # ConfigArtifacts 结构
+    output_files:
+      - "platform/configcenter/generator/notify_route_skeleton.go"
+      - "platform/configcenter/generator/notify_route_skeleton_test.go"
+    estimated_files_changed: 2
+    estimated_test_cases: 12
+    shared_files: "是：platform/configcenter/generator/ 与 T08-13（route 生成器）同包，建议由同一 sub-agent 串行续作"
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+      - "go vet ./platform/configcenter/..."
+    acceptance_criteria:
+      - "签名：MaterializeRootRouteReceiver(baseYAML string, in RootRouteInput) (string, []RootRouteDiagnostic, error)；RootRouteInput{Enabled bool; DefaultReceiver string; PlatformReceiverNames []string}"
+      - "Enabled=false 或 DefaultReceiver 为空 → 原样返回（字节级不变），零副作用"
+      - "Enabled=true → 仅原地替换根 route 的 receiver 标量值；group_by / group_wait / group_interval / repeat_interval / continue / routes 逐字保留"
+      - "绝不新增或修改 route.routes[]；绝不为根 route 增删 matchers（决策 113 第 4 条红线）"
+      - "目标 receiver 不在文件 receivers（含本次物化的平台名集合）中 → 跳过 + 诊断（防止生成 dangling receiver 导致 amtool 校验整单 failed）"
+      - "文件无 route 节点 / YAML 非法 → 跳过 + 诊断，**不返回 error**（不得让挂载路径因骨架而失败）"
+      - "幂等：连跑两次输出字节一致（checksum 可复现）"
+      - "单测覆盖（PRD §9.2）：无 route 时不生成 dangling；用户 routes[] 优先于骨架回落；骨架不写进用户手改的具体分流；开关关闭时产物字节不变"
+
+  - id: "T08-10"
+    title: "draft/service.go：挂载钩子串接（receivers 物化 → 根兜底注入 → checksum）"
+    group: "backend"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "root-route-cable"
+    prd: "Module_08 §4.1.1；决策 113 第 4 条 / 护栏②；决策 60（M08 不驱动下发状态，change_status 以 M09 为准）"
+    depends_on: ["T08-08", "T08-09"]
+    input_files:
+      - "platform/configcenter/draft/service.go"           # buildArtifacts 调用点（materializeNotifyReceivers 之后）
+      - "platform/configcenter/generator/data_source.go"    # LoadLatestAlertmanagerConfigContent / LoadEnabledNotifyChannels
+      - "platform/configcenter/draft/change_items.go"       # 变更项写入范式
+    output_files:
+      - "platform/configcenter/draft/service.go"
+      - "platform/configcenter/generator/data_source.go"
+      - "platform/configcenter/draft/service_route_test.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "是：draft/service.go 为 M08/M09 共享热点文件，须串行修改，禁与其它任务并行"
+    verify_commands:
+      - "go test ./platform/configcenter/..."
+      - "go vet ./platform/configcenter/..."
+    acceptance_criteria:
+      - "新增 materializeRootRouteReceiver(db, artifacts)，**必须排在 materializeNotifyReceivers 之后、Checksum 之前**（receivers 未物化则骨架目标不可校验）；所有 buildArtifacts 调用点均接线（含重校路径）"
+      - "AlertmanagerYML 为空（从未挂载）→ 直接返回；不影响非管理域产物"
+      - "设定未开启 / 渠道不可用 → 产物字节不变（**用既有草稿 checksum 回归证明对存量零影响**）"
+      - "新增 data_source.LoadRouteSetting(db)：读单例，缺失返回零值不报错"
+      - "护栏②：根兜底被替换时写入一条 change_item，供 M09 变更单明示「根兜底被平台重建」（复用既有变更项机制，不新增机制）"
+
+  - id: "T08-11"
+    title: "设定读写 API：GET/PUT /api/v2/platform/alertmanager/route-setting"
+    group: "backend"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "root-route-cable"
+    prd: "Module_08 §11.6 / §9.2；决策 113 第 5 条 + 护栏①②③"
+    depends_on: ["T08-08", "T08-10"]
+    input_files:
+      - "platform/alertmanager/register.go"                 # M08 路由总入口（/alertmanager/config、/silences、/alerts）
+      - "platform/alertmanager/config/service.go"            # triggerChangeDetection / autoApplyManagementDomain 可注入范式
+      - "platform/api/response"
+    output_files:
+      - "platform/alertmanager/route/setting_handler.go"
+      - "platform/alertmanager/route/setting_handler_test.go"
+      - "platform/alertmanager/register.go"
+    estimated_files_changed: 3
+    estimated_test_cases: 10
+    shared_files: "是：register.go 为 M08 路由总入口，T08-12 亦改此文件，必须串行"
+    verify_commands:
+      - "go test ./platform/alertmanager/..."
+      - "go vet ./platform/alertmanager/..."
+    acceptance_criteria:
+      - "GET（全局认证）：{ enabled, default_receiver_channel_id, effective_receiver_name, effective_source: explicit|auto_first_enabled|none }"
+      - "PUT（RequireAdmin）：{ default_receiver_channel_id: number|null }；null = 关闭接管（护栏③）；渠道不存在/未启用 → 400 bad_request"
+      - "写入后行为（Q4 已拍板）：与挂载同构——触发重算 + 管理域自动确认下发 + AM reload，端到端一次生效；响应**不含下发状态**（决策 60 冻结）"
+      - "未认证 → 401；非 admin PUT → 403（复用既有认证中间件与 RequireAdmin）"
+      - "响应不返回桥令牌等敏感值"
+
+  - id: "T08-F8"
+    title: "告警配置页：「默认接收人（根兜底）」选择项 + 二次确认 + 生效态展示"
+    group: "frontend"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "root-route-cable"
+    prd: "Module_08 §11.6（模式开关与默认接收人落点）；决策 113 第 5 条 + 护栏①②"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/pages/AlertConfigPage.tsx（待补默认接收人位）"
+    ui_contract: "Module_08 §11.6"
+    nav_contract: "无新增菜单项"
+    clipping: "收进「当前生效配置」卡内一行 Select，不新增整卡"
+    depends_on: ["T08-11"]
+    input_files:
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.tsx"
+      - "ui-custom/web/src/api/alertmanager.ts"              # notifyChannelsApi.list 复用
+      - "ui-custom/web/src/types/alertmanager.ts"
+    output_files:
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.tsx"
+      - "ui-custom/web/src/pages/alerts/useRouteSetting.ts"
+      - "ui-custom/web/src/pages/alerts/useRouteSetting.test.ts"
+      - "ui-custom/web/src/api/alertmanager.ts"
+      - "ui-custom/web/src/types/alertmanager.ts"
+    estimated_files_changed: 5
+    estimated_test_cases: 7
+    shared_files: "是：AlertConfigPage.tsx 与 T08-F9 / T08-F12 同文件，三轮改动须同一 agent 视角串行"
+    verify_commands:
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/useRouteSetting.test.ts"
+      - "cd ui-custom/web && pnpm lint"
+    acceptance_criteria:
+      - "下拉选项 = 已启用渠道（展示 ReceiverName()），首项为「不接管（保留我手写的 route 兜底）」= null 且默认选中"
+      - "选择某个渠道 → 二次确认（护栏①），文案明示「平台将在每次生成配置时把根 route.receiver 指向它，你手写的 route.routes[] 不受影响」"
+      - "开启后展示派生状态：effective_receiver_name + 来源（显式指定 / 已启用渠道第一个）"
+      - "关闭提示「已停止替换，最后写入的值保留在文件中，可随时手改」（护栏③）"
+
+  - id: "T08-F9"
+    title: "L3 文案收口：由「route 由你手写」改为「开关开启后根兜底由平台接管」"
+    group: "frontend"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "root-route-cable"
+    prd: "Module_08 §4.1.1（#26 过渡裁决说明）；dev-feedback #26 / #28.5；决策 113 第 4/8 条"
+    ui_contract: "Module_08 §4.1.1"
+    nav_contract: "无新增"
+    clipping: "仅在既有左色条小注与派生预览说明内改写文案，**不新增 Alert 块**（延续 dev-feedback #27 口径）"
+    depends_on: ["T08-F8"]
+    input_files:
+      - "ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx"   # L3 文案
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.tsx"          # 派生预览卡 L3 文案
+    output_files:
+      - "ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx"
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.tsx"
+      - "ui-custom/web/src/pages/alerts/alertSmoke.test.tsx"
+    estimated_files_changed: 3
+    estimated_test_cases: 3
+    shared_files: "是：与 T08-F8 同改 AlertConfigPage.tsx，建议同 agent 同批"
+    verify_commands:
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/alertSmoke.test.tsx"
+      - "cd ui-custom/web && pnpm lint"
+    acceptance_criteria:
+      - "文案口径：「平台自动写入 receivers 定义；具体分流 route.routes[] 由你写；根兜底 route.receiver 在你选定默认接收人后由平台接管」"
+      - "不再出现「route 段由你手写维护」这类一期过渡表述"
+      - "抽屉内 Alert 块数量不增加"
+
+  # ===== 批次 B · 乙-a route 只读渲染（零生成逻辑、零开关、零风险）=====
+
+  - id: "T08-12"
+    title: "route 解析纯函数 + 只读端点 GET /api/v2/platform/alertmanager/routes"
+    group: "backend"
+    agent: "backend-developer"
+    status: "done"
+    commit_group: "route-readonly"
+    prd: "Module_08 §9.1（v0.3-a 只读渲染）/ §11.7；提案 alert-route-frontend-editor.md §3.2 / §8.2"
+    depends_on: ["T08-09"]
+    input_files:
+      - "platform/configcenter/generator/notify_receivers.go"   # platformNames 命名空间判据（算 dead_receivers）
+      - "platform/alertmanager/config/service.go"                # LatestApplied(db) 读当前生效配置
+      - "platform/alertmanager/register.go"                      # 路由注册（与 T08-11 串行）
+      - "platform/alertmanager/silence/label_options.go"          # handler/DTO/聚合范式参考
+    output_files:
+      - "platform/alertmanager/route/parse.go"
+      - "platform/alertmanager/route/parse_test.go"
+      - "platform/alertmanager/route/handler.go"
+      - "platform/alertmanager/route/handler_test.go"
+      - "platform/alertmanager/register.go"
+    estimated_files_changed: 5
+    estimated_test_cases: 14
+    shared_files: "是：register.go 与 T08-11 串行；新建 platform/alertmanager/route/ 包，后续 T08-13 复用"
+    verify_commands:
+      - "go test ./platform/alertmanager/route/..."
+      - "go vet ./platform/alertmanager/..."
+    acceptance_criteria:
+      - "ParseRouteTree(baseYAML) 输出：层级（嵌套位置 → parent_id）+ 数组位置（order）+ matchers 归一（新式 matchers:[{name,value,isRegex}] 与字符串简写 severity=\"critical\" 双形态）+ receiver / group_by / 三时间 / continue"
+      - "name 从注释（如 `# 路由名称: xxx`）还原；无注释则回落空，**不造值**"
+      - "根路由单独置顶、标记 locked=true（不可删不可移）"
+      - "响应 { mode: handwritten|platform, items:[RouteNode], dead_receivers:[{name,url}] }；dead_receivers = 平台命名空间内但无任何 route 引用的 receiver（含根兜底）"
+      - "解析失败/非常规结构 → 返回 200 + { parse_error, raw_yaml } 而**非 500**（前端降级为原文只读展示）"
+      - "只读端点仅全局认证、无写能力（鉴权面不扩张）；不返回桥令牌等敏感值"
+
+  - id: "T08-F10"
+    title: "「路由规则」页 v0.3-a：只读路由树 + 顺序说明 + 死接收人标记 + 菜单挂载"
+    group: "frontend"
+    agent: "frontend-developer"
+    status: "done"
+    commit_group: "route-readonly"
+    prd: "Module_08 §9.1（v0.3-a）/ §11.7；提案 §3.2 / §4.5"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/pages/RoutesPage.tsx（启用为生产基底，去 mock）"
+    ui_contract: "Module_08 §11.7（列表态）"
+    nav_contract: "M08 Sider「告警配置」组新增「路由规则」→ /routes；resolveActiveModule 归入 alert 顶级模块"
+    clipping: "树形缩进列内「路由名称」按长文本规范处理省略与 Tooltip"
+    depends_on: ["T08-12"]
+    input_files:
+      - "docs/prototypes/module-08/src/pages/RoutesPage.tsx"   # 原型列表态 IA 已验，复用
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+      - "ui-custom/web/src/App.tsx"
+    output_files:
+      - "ui-custom/web/src/pages/alerts/RoutesPage.tsx"
+      - "ui-custom/web/src/pages/alerts/useRoutes.ts"
+      - "ui-custom/web/src/pages/alerts/RoutesPage.test.tsx"
+      - "ui-custom/web/src/api/alertmanager.ts"
+      - "ui-custom/web/src/types/alertmanager.ts"
+      - "ui-custom/web/src/App.tsx"
+      - "ui-custom/web/src/layouts/MainLayout.tsx"
+    estimated_files_changed: 7
+    estimated_test_cases: 9
+    shared_files: "是：MainLayout.tsx / App.tsx 全站共享，遵循既有懒加载注册范式；RoutesPage.tsx 与 T08-F11 串行"
+    verify_commands:
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/RoutesPage.test.tsx"
+      - "cd ui-custom/web && pnpm lint"
+    acceptance_criteria:
+      - "常驻顶部说明「路由顺序 = 生效顺序：先匹配到的先生效」+ 模式徽标"
+      - "树形缩进展示层级；根路由置顶锁定；列含路由名称 / 匹配条件 / 接收人 / 分组键 / 发送节奏 / 继续匹配"
+      - "dead_receivers 区显性标出「平台已生成但没有任何路由指向」，点击可跳「通知渠道」页（直接消解 dev-feedback #26 的死配置问题）"
+      - "只读态：无新建/编辑/拖拽入口；顶部给「如需编辑请先开启平台管理」引导（指向告警配置页）"
+      - "解析失败时降级为原始 YAML 只读展示 + 提示（不白屏、不报错页）"
+
+  # ===== 批次 C · 乙-b route 表单可写（最高风险，独立 PR）=====
+
+  - id: "T08-13"
+    title: "route 生成器纯函数：编辑态树 → route 段 YAML → 原地替换 + amtool 等价校验"
+    group: "backend"
+    agent: "backend-developer"
+    status: "todo"
+    commit_group: "route-editor"
+    prd: "Module_08 §9.2（route 生成器正确性）；提案 §3.5 / §4.4 / §6（验收 2/3/4/5）"
+    depends_on: ["T08-12", "T08-09"]
+    input_files:
+      - "platform/configcenter/generator/notify_route_skeleton.go"   # T08-09 的 yaml.Node 原地改写范式
+      - "platform/alertmanager/route/parse.go"                        # T08-12 的对称解析器
+      - "platform/alertmanager/config/validate.go"                    # amtool check-config 等价校验复用
+    output_files:
+      - "platform/configcenter/generator/notify_route_generate.go"
+      - "platform/configcenter/generator/notify_route_generate_test.go"
+      - "platform/alertmanager/route/validate.go"
+      - "platform/alertmanager/route/validate_test.go"
+    estimated_files_changed: 4
+    estimated_test_cases: 16
+    shared_files: "是：generator 包与 T08-09 串行；route 包与 T08-12 串行（建议同 sub-agent 续作）"
+    verify_commands:
+      - "go test ./platform/configcenter/generator/... ./platform/alertmanager/route/..."
+      - "go vet ./platform/configcenter/... ./platform/alertmanager/..."
+    acceptance_criteria:
+      - "GenerateRouteSection(tree) → YAML：routes[] 顺序 = 界面顺序；matchers 落新式或字符串简写；continue 仅在 true 时输出；留空 group_by 不输出该键"
+      - "编辑态字段彻底不落盘：无 id / parent_id / order / enabled；name 以注释形式落盘于节点上方；enabled=false 及其子树整条剔除"
+      - "MergeRouteSection(baseYAML, generated) 只替换根 route 节点，其余顶层段（global/receivers/inhibit_rules/templates/mute_time_intervals）逐字保留"
+      - "往返无损：parse(gen(parse(x))) 与 parse(x) 结构等价；且 gen 产物过 amtool check-config 等价校验"
+      - "不可表达结构（未知 matcher 变体 / 非标量 group_by / 平台未建模键）→ 该子树标 raw，生成时原样回写（**绝不静默丢弃**）"
+      - "时长口径：group_interval 不整除 repeat_interval 时**不阻断**（与 AM 行为一致），仅由前端给警告级提示"
+
+  - id: "T08-F11"
+    title: "「路由规则」页 v0.3-b：三段式表单 + 顺序调整 + 从当前配置导入 + 保存走 M09"
+    group: "frontend"
+    agent: "frontend-developer"
+    status: "todo"
+    commit_group: "route-editor"
+    prd: "Module_08 §9.1（v0.3-b）/ §9.2 / §11.7（编辑态）；提案 §3.4 / §3.5 / §6（验收 2/3/4/8/9）"
+    prototype_pages:
+      - "docs/prototypes/module-08/src/pages/RoutesPage.tsx（编辑 Modal → 三段式 Drawer；排序改为上移/下移 + 拖拽）"
+    ui_contract: "Module_08 §11.7（编辑态三段式 + 交互规则）"
+    nav_contract: "复用 /routes，无新增菜单"
+    clipping: "接收人下拉 / 标签名列表长文本省略 + Tooltip"
+    depends_on: ["T08-F10", "T08-13"]
+    input_files:
+      - "ui-custom/web/src/pages/alerts/RoutesPage.tsx"        # v0.3-a 骨架
+      - "ui-custom/web/src/api/alertmanager.ts"                # alertmanagerConfigApi（复用挂载端点）
+      - "ui-custom/web/src/pages/alerts/SilencesPage.tsx"      # 标签联想交互参考
+    output_files:
+      - "ui-custom/web/src/pages/alerts/RoutesPage.tsx"
+      - "ui-custom/web/src/pages/alerts/RouteEditorDrawer.tsx"
+      - "ui-custom/web/src/pages/alerts/useRoutes.ts"
+      - "ui-custom/web/src/pages/alerts/routeTree.ts"
+      - "ui-custom/web/src/pages/alerts/RoutesPage.test.tsx"
+      - "ui-custom/web/src/pages/alerts/RouteEditorDrawer.test.tsx"
+    estimated_files_changed: 6
+    estimated_test_cases: 14
+    shared_files: "是：RoutesPage.tsx / useRoutes.ts 与 T08-F10、T08-F13 同文件，须串行推进"
+    verify_commands:
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/RoutesPage.test.tsx src/pages/alerts/RouteEditorDrawer.test.tsx"
+      - "cd ui-custom/web && pnpm lint"
+    acceptance_criteria:
+      - "保存 = 生成整份 alertmanager.yml → 复用既有 POST /api/v2/platform/alertmanager/config（**零新增端点**）→ 触发 M09 变更单；不即时生效"
+      - "「从当前配置导入」：解析现有 route → 表单初始值（name 经注释还原）；解析失败给「部分导入 / 不可无损导入」提示并允许手动校正"
+      - "顺序用上移/下移表达（必做）；拖拽作为增强（原生 HTML5 draggable，**不新增依赖**，见 Q7）"
+      - "删除带子路由的节点二次确认，明示「将同时删除 N 条子路由」"
+      - "保存前本地预检：接收人悬空（引用未启用/不存在的渠道）→ 红字阻断；时长不整除 → 警告不阻断"
+      - "手写模式下本页整体只读（读取 T08-F12 的模式开关状态）"
+
+  - id: "T08-F12"
+    title: "告警配置页：「路由规则由平台管理」模式开关（二次确认 + 关闭不删内容）"
+    group: "frontend"
+    agent: "frontend-developer"
+    status: "todo"
+    commit_group: "route-editor"
+    prd: "Module_08 §4.1.1（模式开关）/ §11.6；提案 §4.3 / §7.2 P1"
+    ui_contract: "Module_08 §4.1.1 / §11.6"
+    nav_contract: "无新增"
+    clipping: "两个路由相关设置收进同一张「路由设置」卡，避免告警配置页信息架构继续膨胀"
+    depends_on: ["T08-11", "T08-F11"]
+    input_files:
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.tsx"
+      - "ui-custom/web/src/pages/alerts/useRouteSetting.ts"     # T08-F8 扩展为 mode + defaultReceiver
+    output_files:
+      - "ui-custom/web/src/pages/alerts/AlertConfigPage.tsx"
+      - "ui-custom/web/src/pages/alerts/useRouteSetting.ts"
+      - "ui-custom/web/src/pages/alerts/useRouteSetting.test.ts"
+      - "ui-custom/web/src/api/alertmanager.ts"
+    estimated_files_changed: 4
+    estimated_test_cases: 6
+    shared_files: "是：与 T08-F8 / T08-F9 同文件，三轮改动必须在同一 agent 视角下串行"
+    verify_commands:
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/useRouteSetting.test.ts"
+      - "cd ui-custom/web && pnpm lint"
+    acceptance_criteria:
+      - "开启二次确认：「此后路由规则在『路由规则』页用表单管理，原手写 route 可导入，可随时切回」"
+      - "关闭时不删除已生成内容（逃生门永久可用）"
+      - "平台管理模式下「默认接收人」下拉转只读展示（由生成树决定，见 Q3）"
+      - "模式徽标与「路由规则」页徽标同源（同一 useRouteSetting hook）"
+
+  # ===== 批次 D · 乙-c 联动（纯前端体验增强，可随时插队）=====
+
+  - id: "T08-F13"
+    title: "路由表单联动：接收人下拉联动渠道 + 分组键联想 + 时长/continue 解释"
+    group: "frontend"
+    agent: "frontend-developer"
+    status: "todo"
+    commit_group: "route-linkage"
+    prd: "Module_08 §9.1（v0.3）/ §11.7（接收人下拉 / 分组键联想 / 时长校验）；提案 §5 v0.3-c"
+    ui_contract: "Module_08 §11.7"
+    nav_contract: "无"
+    clipping: "标签联想下拉长列表虚拟滚动或限制条数"
+    depends_on: ["T08-F11"]
+    input_files:
+      - "ui-custom/web/src/pages/alerts/RouteEditorDrawer.tsx"
+      - "ui-custom/web/src/api/alertmanager.ts"    # notifyChannelsApi.list + silences label-options 复用
+    output_files:
+      - "ui-custom/web/src/pages/alerts/RouteEditorDrawer.tsx"
+      - "ui-custom/web/src/pages/alerts/RouteEditorDrawer.test.tsx"
+      - "ui-custom/web/src/pages/alerts/routeLabels.ts"
+    estimated_files_changed: 3
+    estimated_test_cases: 8
+    shared_files: "是：RouteEditorDrawer.tsx 与 T08-F11 同文件"
+    verify_commands:
+      - "cd ui-custom/web && pnpm vitest run src/pages/alerts/RouteEditorDrawer.test.tsx"
+      - "cd ui-custom/web && pnpm lint"
+    acceptance_criteria:
+      - "接收人下拉数据源 = 通知渠道（仅 enabled），展示 ReceiverName()；引用悬空 → 红字「未定义」+ 保存阻断"
+      - "分组键 Tags 提供标签名联想，复用 GET /api/v2/platform/alertmanager/silences/label-options（**零后端改动**，决策 71 资产）"
+      - "group_interval 不整除 repeat_interval → 警告级提示（不阻断）；group_interval 兼作通知管道 timeout → 说明性 Tooltip；continue → 解释性 Tooltip"
+      - "死规则检测（条件被上方兄弟完全覆盖）**本期不做**（PRD P7 已定为候选），不可擅自扩范围"
+
+  # ===== 批次 E · 文档回写（owner 不同，不与 feat 分支同 PR）=====
+
+  - id: "T08-D1"
+    title: "契约快照回写：§11.6 扩为 receivers + 根 route.receiver 归属边界 + 新增两个端点"
+    group: "docs"
+    agent: "backend-developer（契约快照由开发空间维护）"
+    status: "done"
+    commit_group: "docs-contract"
+    prd: "决策 113 第 4/5 条 + 护栏①②③"
+    depends_on: ["T08-11", "T08-12"]
+    input_files:
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"
+    output_files:
+      - "docs/05-execution-records/module-08/api-contract-snapshot.md"
+    estimated_files_changed: 1
+    estimated_test_cases: 0
+    verify_commands:
+      - "make check-repo-map"
+    acceptance_criteria:
+      - "§11.6 标题与导语由「B 路线：M09 物化通知 receivers」扩为「B 路线：M09 物化 receivers + 根 route.receiver 单键」"
+      - "§11.6 新增条：骨架行为（开关开启 + 目标 receiver 存在于 receivers → 原地替换根 receiver；否则跳过 + 诊断；group_by/三时间/continue/routes 逐字不动；幂等）"
+      - "§11.1 端点总表新增：GET/PUT /api/v2/platform/alertmanager/route-setting、GET /api/v2/platform/alertmanager/routes（字段表 + 鉴权 + 错误码）"
+      - "新增归属边界表：route 段单一作者 + 模式；根兜底归属；receivers 命名空间双作者——与 PRD §4.1.1 权威规则表逐行对齐"
+      - "显式声明：平台恒只写 config-output/alertmanager.yml 一个文件；**绝不写 route.routes[]**；仅替换根 receiver"
+
+  - id: "T08-D2"
+    title: "PRD 回写：删除 route_files 错误表述 + 补开关语义 + 修 §9.1 自动接管口径"
+    group: "docs"
+    agent: "prototype-designer（开发 Agent 不可写 docs/02-product-requirements/）"
+    status: "todo"
+    commit_group: "docs-prd"
+    prd: "决策 113；PRD §3.1 / §4.1.1 / §9.1 / §9.2 / §10 / Change Log"
+    depends_on: ["T08-D1"]
+    input_files:
+      - "docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md"
+    output_files:
+      - "docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md"
+    estimated_files_changed: 1
+    estimated_test_cases: 0
+    verify_commands:
+      - "grep -n 'route_files' docs/02-product-requirements/Modules/Module_08_*.md   # 期望 0 命中"
+    acceptance_criteria:
+      - "PRD 内 `route_files` 命中数 = 0（当前 1 处：§4.1.1 手写模式行）；改为「开关开启时原地替换根 route.receiver 单键」"
+      - "**决策 113 与提案误引的「PRD §4.9」实为提案自身章节号错位，正确落点是 §4.1.1**（PRD 无 §4.9）"
+      - "§4.1.1 补一段明确「骨架布缆开关（默认接收人）」与「模式开关」的关系（Q3 已拍板：两个独立控件，平台托管模式下布缆开关转只读展示）"
+      - "§3.1 功能表：「路由规则管理」版本列细化为 v0.3-a（只读）/ v0.3-b（表单可写）；新增一行「最小运行骨架自动布缆 {P0}」"
+      - "§9.1 验收「平台托管的接收人**自动**获得骨架」→ 改为「**用户选定默认接收人后**获得」（见 Q5；不改则上线即改写存量根 receiver，与 P1「默认手写、存量零影响」冲突）"
+      - "§9.1 新增 {v0.3-a}「死接收人显性标记」判据；§9.2 新增三条护栏的可验证判据（关闭时字节不变 / 变更单含「根兜底被平台重建」/ 目标不存在时跳过不报错）"
+      - "§10 术语表补「默认接收人 = 授权平台接管根兜底；清空即停止替换、不删最后写入的值」；Change Log 新增 v1.19"
+      - "（可选，登记）§9.1「开箱即响」的隐含前置：平台须已有一份挂载的 alertmanager.yml（否则连 receivers 都不物化）——补前置说明或另立候选，本期不做"
+
+  - id: "T08-D3"
+    title: "dev-feedback 回写：#26 状态收敛、#27 状态纠正为 landed、新增骨架实施条目"
+    group: "docs"
+    agent: "backend-developer / frontend-developer（随对应代码 PR）"
+    status: "done"
+    commit_group: "docs-feedback"
+    prd: "决策 113"
+    depends_on: ["T08-10", "T08-F9"]
+    input_files:
+      - "docs/05-execution-records/module-08/dev-feedback.md"
+    output_files:
+      - "docs/05-execution-records/module-08/dev-feedback.md"
+    estimated_files_changed: 1
+    estimated_test_cases: 0
+    verify_commands: []
+    acceptance_criteria:
+      - "#26 的「⚠️ 口径升级」段由「计划」改为「已落地（T08-09 / T08-10）」"
+      - "#27 状态由 `open` 纠正为 `landed`——已核实 ReceiverSnippetDrawer.tsx 头注释与实现（Alert 块 3 → 0、副标题 / 单行状态条 / 行内 tag 齐备）均按 #27 完成"
+      - "新增条目：最小运行骨架自动布缆（口径 C）实施记录 + 三条护栏落地位置 + `route_files` 已废弃说明"
+      - "#28.5 回填清单注明「L3 文案已随 T08-F9 二次改写为骨架口径」，避免后人按旧文案回归"
+
+  - id: "T08-D4"
+    title: "前端原型映射与原型回写：RoutesPage 处置改为生产基底"
+    group: "docs"
+    agent: "prototype-designer"
+    status: "done"
+    commit_group: "docs-map"
+    prd: "决策 113；提案 §3.2"
+    depends_on: ["T08-F10"]
+    input_files:
+      - "docs/05-execution-records/module-08/frontend-prototype-map.md"
+      - "docs/prototypes/module-08/src/pages/RoutesPage.tsx"
+    output_files:
+      - "docs/05-execution-records/module-08/frontend-prototype-map.md"
+      - "docs/prototypes/module-08/src/pages/RoutesPage.tsx"
+      - "docs/prototypes/module-08/src/pages/ConfigPage.tsx"   # 实际文件名（原型目录无 AlertConfigPage.tsx；T08-D4 落地时已核实）
+    estimated_files_changed: 3
+    estimated_test_cases: 0
+    verify_commands: []
+    acceptance_criteria:
+      - "「裁剪清单」RoutesPage.tsx 处置由「删除（独立页）」改为「v0.3-a 只读 / v0.3-b 生产基底」"
+      - "「文件级映射」新增 RoutesPage / RouteEditorDrawer / useRoutes / useRouteSetting 行"
+      - "「列对照」新增路由规则页小节（排序列由数字框改上移/下移 + 拖拽的差异说明）"
+      - "AlertConfigPage 原型补「默认接收人」与「模式开关」位（对应 T08-F8 / T08-F12）"

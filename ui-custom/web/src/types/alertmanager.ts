@@ -59,11 +59,17 @@ export interface ValidateErrorItem {
   message: string
 }
 
-/** 校验失败响应 data（契约 §3：bad_request，error.data 形如 `{ items, note }`） */
+/** 校验失败响应 data（契约 §3：bad_request，error.data 形如 `{ items, note, cause }`） */
 export interface ValidateErrorData {
   items: ValidateErrorItem[]
   /** 契约 note：校验失败未保存、未生效；修改后请重新挂载 */
   note?: string
+  /**
+   * 校验归因（决策 / dev-feedback 口径）：
+   * - `user_config`：你的配置内容有错，按 `items` 行级提示修改后重新提交；
+   * - `platform_fault`：平台校验服务暂不可用（校验工具缺失 / 不可执行），不是你的问题，稍后重试或联系管理员。
+   */
+  cause?: string
 }
 
 /** 静默 matcher（标签匹配条件，契约 §4 Matcher） */
@@ -337,4 +343,112 @@ export interface ReceiverSnippetData {
 export interface NotifyTemplatesData {
   items: NotifyTemplate[]
   total: number
+}
+
+// =====================================================================
+// 最小运行骨架自动布缆（T08-11 后端 / T08-F8 前端；决策 113 口径 C）
+// 契约权威：platform/alertmanager/route/setting_handler.go（api-contract-snapshot.md 待回写）。
+// =====================================================================
+
+/**
+ * 默认接收人（根兜底）生效来源（决策 113 第 6 条）：
+ * - `explicit`：用户显式指定且目标渠道可用——平台当前**正在接管**根兜底（`enabled=true`）；
+ * - `auto_first_enabled`：未设定但有已启用渠道——仅作 UI 预填建议（`enabled=false`，产物零变化）；
+ * - `none`：显式设定的目标渠道已停用/删除，或无任何已启用渠道。
+ */
+export type RouteReceiverSource = 'explicit' | 'auto_first_enabled' | 'none'
+
+/**
+ * 默认接收人设定（GET/PUT `/route-setting` 响应 data）。
+ * 选定默认接收人 = 授权平台在生成配置时**只替换** alertmanager.yml 根 `route.receiver` 单键；
+ * 响应**不含下发状态**（决策 60 冻结）。
+ */
+export interface RouteSetting {
+  /** 平台当前是否正在接管根兜底（= `effective_source === 'explicit'`） */
+  enabled: boolean
+  /** 持久化设定值（`null` = 不接管；显式设定的渠道停用后原值保留） */
+  default_receiver_channel_id: number | null
+  /** 实际（或建议）写入根 `route.receiver` 的 AM receiver 名；`none` 时为空串 */
+  effective_receiver_name: string
+  effective_source: RouteReceiverSource
+}
+
+/** PUT `/route-setting` 请求体：`null` = 关闭接管（护栏③：停止替换、不删最后写入的值） */
+export interface UpdateRouteSettingPayload {
+  default_receiver_channel_id: number | null
+}
+
+// =====================================================================
+// route 前台化 v0.3-a：只读路由树（T08-12 后端契约 / T08-F10 前端消费）
+// 契约权威：platform/alertmanager/route/handler.go（api-contract-snapshot.md 待回写）。
+// =====================================================================
+
+/**
+ * route 段作者模式（PRD §4.1.1 / 提案 §4.3）：
+ * - `handwritten`（默认）：route 段由用户手写维护，本页只读渲染；
+ * - `platform`：route 段由平台生成（T08-F12 模式开关接入后按实返回）。
+ */
+export type RouteAuthorMode = 'handwritten' | 'platform'
+
+/**
+ * 归一后的单条路由匹配条件（对齐 `RouteMatcher`，字段名 snake_case）。
+ * `is_equal=false` 表示取反（`!=` / `!~`）；`is_regex=true` 为正则匹配（`=~` / `!~`）。
+ */
+export interface RouteMatcher {
+  name: string
+  value: string
+  is_equal: boolean
+  is_regex: boolean
+}
+
+/**
+ * 路由树节点（前序扁平数组的元素，`items[0]` 恒为顶层路由）。
+ * `id` / `parent_id` / `order` 为编辑态内部标识（不落盘，仅供渲染树与定位）；
+ * `locked=true` 对应 Alertmanager 的最外层 `route:` 本体，不可删、不可移。
+ * `matchers` / `group_by` 缺省为空数组（非 null）。
+ */
+export interface RouteNode {
+  /** 稳定路径标识：根为 `"root"`，子为 `"<parent>/<同层下标>"` */
+  id: string
+  /** 父节点 ID（根为空串） */
+  parent_id: string
+  /** 路由名称（注释 `# 路由名称: xxx` 还原；无注释为空串，绝不造值） */
+  name: string
+  matchers: RouteMatcher[]
+  receiver: string
+  group_by: string[]
+  group_wait: string
+  group_interval: string
+  repeat_interval: string
+  continue: boolean
+  /** 同级 `routes[]` 数组位置（0-based；顶层恒 0） */
+  order: number
+  /** 顶层路由标记 */
+  locked: boolean
+}
+
+/**
+ * 孤立接收人：平台命名空间内「已生成但没有任何路由引用」的接收人（提案 §4.9 / dev-feedback #26）。
+ * `url` 已脱敏（保留 `scheme://host`，路径与查询以 `/***` 替代）。
+ */
+export interface DeadReceiver {
+  name: string
+  url: string
+}
+
+/**
+ * GET `/api/v2/platform/alertmanager/routes` 响应 data（只读、无写能力）。
+ * 成功：`{ mode, items, dead_receivers }`；
+ * 解析失败 / 非常规结构降级：`{ mode, parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
+ */
+export interface RouteTreeData {
+  mode: RouteAuthorMode
+  /** 前序扁平节点序列（`items[0]` = 顶层路由）；解析失败时缺省 */
+  items?: RouteNode[]
+  /** 平台已生成但无任何路由引用的接收人；解析失败时缺省 */
+  dead_receivers?: DeadReceiver[]
+  /** 解析失败原因（成功时缺省） */
+  parse_error?: string
+  /** 解析失败时的 alertmanager.yml 原文（降级为只读展示） */
+  raw_yaml?: string
 }

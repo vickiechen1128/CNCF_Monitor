@@ -68,7 +68,11 @@ export function NotifyTemplateDrawer({ open, mode, initial, onClose, onSubmit }:
       onClose()
     } catch (e) {
       const detail = readValidateErrors(e)
-      if (detail?.items?.length) {
+      if (detail?.cause === 'platform_fault') {
+        // 平台校验服务不可用（amtool 缺失 / 不可执行等），非用户配置问题：单列平台错误，不展示行级列表
+        setErrors([])
+        setError('平台校验服务暂不可用（校验工具未就绪），本次未保存、未生效；请稍后重试或联系管理员')
+      } else if (detail?.items?.length) {
         setErrors(detail.items)
         setError(detail.note ? `模板校验失败：${detail.note}` : '模板校验失败，请按下方提示修改后重新提交')
       } else {

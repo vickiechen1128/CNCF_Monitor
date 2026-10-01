@@ -35,14 +35,14 @@ func respondTemplateError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, ErrTemplateNotFound):
 		response.NotFound(c, err.Error())
-	case errors.Is(err, ErrTemplateNameRequired), errors.Is(err, ErrTemplateChannelTypeInvalid):
+	case errors.Is(err, ErrTemplateNameRequired), errors.Is(err, ErrTemplateChannelTypeInvalid), errors.Is(err, ErrTemplateBuiltinNotDeletable):
 		response.BadRequest(c, err)
 	case errors.As(err, &valErr):
 		c.JSON(http.StatusBadRequest, response.Response{
 			Status:    response.StatusError,
 			ErrorType: response.ErrorTypeBadRequest,
 			Error:     "validation failed",
-			Data:      gin.H{"items": valErr.Items, "note": valErr.Note},
+			Data:      gin.H{"items": valErr.Items, "note": valErr.Note, "cause": string(valErr.Cause)},
 		})
 	default:
 		response.InternalServerError(c, err)
@@ -114,5 +114,22 @@ func RemountTemplateHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		response.OK(c, toTemplateView(tpl))
+	}
+}
+
+// DeleteTemplateHandler 处理 DELETE /api/v2/platform/alertmanager/notify-templates/{id}：
+// 删除一条自定义模板留痕版本（内置模板禁止删除）。仅管理员（路由组已挂 RequireAdmin）。
+func DeleteTemplateHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := parseID(c)
+		if err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+		if err := DeleteTemplate(db, id); err != nil {
+			respondTemplateError(c, err)
+			return
+		}
+		response.OK(c, gin.H{"id": strconv.FormatUint(uint64(id), 10)})
 	}
 }

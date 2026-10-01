@@ -6,7 +6,9 @@ import {
   Card,
   Drawer,
   Descriptions,
+  Select,
   Space,
+  Switch,
   Table,
   Tag,
   Tooltip,
@@ -22,9 +24,11 @@ import {
   UploadOutlined,
 } from '@ant-design/icons'
 import { MainLayout } from '../layouts/MainLayout'
+import V03Badge from '../components/StageBadge'
 import {
   currentAlertmanagerYaml,
   mockConfigVersions,
+  mockNotifiers,
   type AlertmanagerConfigVersion,
   type ChangeStatus,
 } from '../mocks/module-08'
@@ -100,6 +104,19 @@ export default function ConfigPage() {
   const [mountContent, setMountContent] = useState('')
   const [mountError, setMountError] = useState<string | null>(null)
   const [mountChecked, setMountChecked] = useState(false)
+
+  // {v0.3} 决策 113 / T08-F8：「默认接收人（根兜底）」骨架布缆开关（演示用本地状态，对应生产 useRouteSetting）。
+  const [defaultReceiverId, setDefaultReceiverId] = useState<string | null>(null)
+  // {v0.3} 决策 113 / T08-F12：「模式开关」为 v0.3-b 待实现，演示期恒为「手写接管」。
+  // Q3 已拍板：模式开关与默认接收人是**两个独立控件**；平台托管模式下布缆开关转只读展示。
+  const routeMode: 'handwritten' | 'platform' = 'handwritten'
+  const defaultReceiverOptions = useMemo(
+    () => [
+      { value: null, label: '不接管（保留我手写的 route 兜底）' },
+      ...mockNotifiers.filter((n) => n.enabled).map((n) => ({ value: n.id, label: n.name })),
+    ],
+    []
+  )
 
   const latest = useMemo(
     () => versions.filter((v) => v.status === 'applied').sort((a, b) => b.applied_at.localeCompare(a.applied_at))[0],
@@ -251,6 +268,64 @@ export default function ConfigPage() {
         <Text strong>配置中心（M09）变更单</Text>（管理域 scope）→ 人工确认后由配置中心写中心
         Alertmanager 配置路径并触发 reload。`rules.yml` 的生成与下发仍由 Module_09 负责，本模块不生成。
       </div>
+
+      {/* {v0.3} 决策 113：route 段接管设定——「默认接收人（根兜底）」+「模式开关」两个独立控件（Q3 已拍板）。
+          默认接收人 = 已实现（T08-F8，口径 C）；模式开关 = v0.3-b 待实现（T08-F12），本次仅补位置。 */}
+      <Card
+        className="page-card"
+        title={
+          <Space size={8}>
+            路由接管设定（route 段）
+            <Tag>v0.3 生产基底</Tag>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {/* 位 1：默认接收人（根兜底）——已实现（T08-F8，决策 113 口径 C） */}
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Space size={8} align="center" wrap>
+              <Text strong>默认接收人（根兜底）</Text>
+              <Select
+                aria-label="默认接收人（根兜底）"
+                value={defaultReceiverId}
+                options={defaultReceiverOptions}
+                style={{ minWidth: 360 }}
+                disabled={routeMode === 'platform'}
+                onChange={(v) => {
+                  setDefaultReceiverId(v as string | null)
+                  message.success(
+                    v
+                      ? '已选定默认接收人：平台将接管根兜底 route.receiver（二次确认后生效）'
+                      : '已停止接管：平台不再替换根兜底 route.receiver'
+                  )
+                }}
+              />
+              {defaultReceiverId && <Tag color="success">平台接管中</Tag>}
+              <Tag color="green">已实现（T08-F8）</Tag>
+            </Space>
+            <Text type="secondary" style={{ display: 'block', paddingLeft: 10, borderLeft: '3px solid #1481FD', lineHeight: 1.6 }}>
+              选定默认接收人 = 授权平台在生成配置时只替换根 <Text code>route.receiver</Text> 这一个键：未匹配任何具体路由的告警兜底发往它；
+              平台不触碰 group_by / group_wait / group_interval / repeat_interval / continue，也不写入{' '}
+              <Text code>route.routes[]</Text>。你手写的具体分流优先于该兜底回落。
+            </Text>
+          </Space>
+
+          {/* 位 2：模式开关（route 段作者模式）——v0.3-b 待实现（T08-F12），非可用控件 */}
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Space size={8} align="center" wrap>
+              <Text strong>路由规则由平台管理</Text>
+              <Switch checked={routeMode === 'platform'} disabled />
+              <V03Badge />
+              <Tag>v0.3-b 待实现（T08-F12）</Tag>
+            </Space>
+            <Text type="secondary">
+              与「默认接收人（根兜底）」是<Text strong>两个独立控件</Text>：本开关决定 route 段由手写接管还是平台管理；
+              平台管理模式下，上方布缆开关（默认接收人）转只读展示并固定接管根兜底。表单可写（<Text code>RouteEditorDrawer</Text>）随本开关同批落地。
+            </Text>
+          </Space>
+        </Space>
+      </Card>
 
       <Card
         className="page-card"

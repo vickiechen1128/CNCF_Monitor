@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { isApiError } from '../../api/client'
 import { notifyChannelsApi } from '../../api/alertmanager'
+import type { NotifyChannelType } from '../../types/alertmanager'
 
 /** 派生预览的一行：一个已启用渠道 → 平台将写入的 receiver */
 export interface DerivedReceiverRow {
@@ -23,6 +24,10 @@ export interface DerivedReceiverRow {
   snippet: string
   /** 桥令牌是否已配置；false 时该片段当前不可用 */
   tokenConfigured: boolean
+  /** 渠道绑定的通知模板 ID（缺省 / 0 = 回落该渠道类型内置默认模板；dev-feedback #32） */
+  defaultTemplateId?: number
+  /** 渠道类型（未绑定模板时用于提示回落哪种内置默认模板） */
+  channelType?: NotifyChannelType
 }
 
 export interface UseDerivedReceiversResult {
@@ -66,6 +71,8 @@ export function useDerivedReceivers(): UseDerivedReceiversResult {
               receiverName: snippetRes.data.receiver_name,
               snippet: snippetRes.data.snippet,
               tokenConfigured: snippetRes.data.token_configured,
+              defaultTemplateId: channel.default_template_id,
+              channelType: channel.type,
             })
           } catch (e) {
             if (isApiError(e) && e.code === 403) {

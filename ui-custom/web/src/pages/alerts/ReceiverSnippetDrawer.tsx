@@ -190,9 +190,9 @@ export function ReceiverSnippetDrawer({ open, channel, onClose }: ReceiverSnippe
             </Descriptions.Item>
           </Descriptions>
 
-          {/* L3（#26 / #28）：归属边界说明贴在 receiver 片段块上——平台只物化 receivers，
-              通知真正生效须用户在 route/routes 里把 receiver 指向它；route 由用户手写维护。
-              非整页级警告，用左色条小注承接「保护对象」的语义。 */}
+          {/* L3（#26 / #28.5，T08-F9）：口径升级——平台自动写入 receivers 定义；具体分流 route.routes[]
+              由用户写；默认兜底接收人（route.receiver）在用户选定默认接收人后由平台接管（决策 113 口径 C）。
+              非整页级警告，用左色条小注承接「保护对象」的语义；不新增 Alert 块（延续 dev-feedback #27）。 */}
           <Text
             type="secondary"
             style={{
@@ -204,8 +204,7 @@ export function ReceiverSnippetDrawer({ open, channel, onClose }: ReceiverSnippe
             }}
           >
             平台自动写入的是 <Text code>receivers</Text> 定义（名为 <Text code>notify-&lt;id&gt;</Text> 或你的渠道名）；
-            要让通知真正生效，请在 Alertmanager 的 <Text code>route</Text>/<Text code>routes</Text> 中把{' '}
-            <Text code>receiver</Text> 指向它。route 段由你手写维护。
+            具体分流 <Text code>route.routes[]</Text> 由你写；默认兜底接收人（<Text code>route.receiver</Text>）在你选定默认接收人后由平台接管。
           </Text>
 
           <Space size={8} style={{ marginBottom: 8 }} align="center">

@@ -10,6 +10,8 @@ import type { AlertmanagerConfigVersionListItem } from '../../types/alertmanager
 const useAlertConfigMock = vi.fn()
 const getVersionMock = vi.fn()
 const useDerivedReceiversMock = vi.fn()
+const useRouteSettingMock = vi.fn()
+const useNotifyTemplatesMock = vi.fn()
 
 vi.mock('./useAlertConfig', () => ({
   useAlertConfig: (...a: unknown[]) => useAlertConfigMock(...a),
@@ -18,6 +20,17 @@ vi.mock('./useAlertConfig', () => ({
 // 派生预览数据 Hook 单独 mock：避免页面渲染时穿透到真实 API（与页面既有 Hook mock 模式一致）
 vi.mock('./useDerivedReceivers', () => ({
   useDerivedReceivers: (...a: unknown[]) => useDerivedReceiversMock(...a),
+}))
+
+// 默认接收人（根兜底）Hook mock（T08-F8）：隔离 route-setting / notify-channels 真实请求
+vi.mock('./useRouteSetting', () => ({
+  useRouteSetting: (...a: unknown[]) => useRouteSettingMock(...a),
+  NONE_RECEIVER_VALUE: -1,
+}))
+
+// 通知模板 Hook mock（dev-feedback #32：派生预览需解析渠道绑定的模板名）：隔离真实列表请求
+vi.mock('./useNotifyTemplates', () => ({
+  useNotifyTemplates: (...a: unknown[]) => useNotifyTemplatesMock(...a),
 }))
 
 vi.mock('../../api/alertmanager', async (importOriginal) => {
@@ -33,6 +46,30 @@ vi.mock('../../api/alertmanager', async (importOriginal) => {
 const reloadMock = vi.fn()
 const submitMock = vi.fn()
 const remountMock = vi.fn()
+const saveRouteSettingMock = vi.fn()
+const reloadRouteSettingMock = vi.fn()
+
+/** 默认接收人（根兜底）Hook 返回（T08-F8）：默认「未设定但有已启用渠道」的自动建议态 */
+function routeSettingResult(over: Record<string, unknown> = {}) {
+  return {
+    setting: {
+      enabled: false,
+      default_receiver_channel_id: null,
+      effective_receiver_name: 'auto-default-recv',
+      effective_source: 'auto_first_enabled',
+    },
+    options: [
+      { value: -1, label: '不接管（保留我手写的兜底配置）' },
+      { value: 1, label: 'SRE 飞书群（接收人 sre-feishu-qun）', receiverName: 'sre-feishu-qun' },
+    ],
+    loading: false,
+    error: null,
+    saving: false,
+    reload: reloadRouteSettingMock,
+    save: saveRouteSettingMock,
+    ...over,
+  }
+}
 
 const versionRow = (over: Partial<AlertmanagerConfigVersionListItem> = {}): AlertmanagerConfigVersionListItem => ({
   id: 'acv-1',
@@ -89,6 +126,24 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
       error: null,
       permissionDenied: false,
       reload: vi.fn(),
+    })
+    // 默认接收人（根兜底）默认：未设定 + 有已启用渠道（自动建议态）
+    useRouteSettingMock.mockReset()
+    useRouteSettingMock.mockReturnValue(routeSettingResult())
+    saveRouteSettingMock.mockReset()
+    saveRouteSettingMock.mockResolvedValue(routeSettingResult().setting)
+    // 通知模板默认：空列表、无权限问题（派生预览默认不绑定，回落内置）
+    useNotifyTemplatesMock.mockReset()
+    useNotifyTemplatesMock.mockReturnValue({
+      templates: [],
+      total: 0,
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+      submit: vi.fn(),
+      remount: vi.fn(),
+      remove: vi.fn(),
     })
   })
 
@@ -187,8 +242,9 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(skeleton).toContain('type: Bearer')
   })
 
-  // B 路线（决策 74 第 3 条）：只读「派生预览」展示平台 UI 控制的已启用渠道将被写进 alertmanager.yml 的 receivers。
-  it('派生预览：只读展示已启用渠道派生的接收人名与 YAML 片段', () => {
+  // B 路线（决策 74 第 3 条）：只读「派生预览」展示平台 UI 控制的已启用渠道将被写进 alertmanager.yml 的 receivers；
+  // dev-feedback #32：每个渠道块额外展示其绑定的通知模板（已绑定显示模板名 / 未绑定回落内置默认模板）。
+  it('派生预览：展示渠道绑定的通知模板（已绑定显示模板名 / 未绑定提示回落内置）', () => {
     useAlertConfigMock.mockReturnValue(result())
     useDerivedReceiversMock.mockReturnValue({
       rows: [
@@ -199,6 +255,18 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
           snippet:
             "  - name: sre-feishu-qun\n    webhook_configs:\n      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=1'\n",
           tokenConfigured: true,
+          defaultTemplateId: 10,
+          channelType: 'feishu',
+        },
+        {
+          channelId: '2',
+          channelName: '运维钉钉群',
+          receiverName: 'ops-dingtalk-qun',
+          snippet:
+            "  - name: ops-dingtalk-qun\n    webhook_configs:\n      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=2'\n",
+          tokenConfigured: true,
+          defaultTemplateId: undefined,
+          channelType: 'dingtalk',
         },
       ],
       loading: false,
@@ -206,16 +274,75 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
       permissionDenied: false,
       reload: vi.fn(),
     })
+    // 模板列表含 id=10 的飞书模板，供派生预览解析模板名
+    useNotifyTemplatesMock.mockReturnValue({
+      templates: [
+        { id: '10', name: '飞书卡片-默认', channel_type: 'feishu', is_builtin: true, status: 'applied', content: '', created_at: '2026-09-28T10:00:00Z' },
+      ],
+      total: 1,
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+      submit: vi.fn(),
+      remount: vi.fn(),
+      remove: vi.fn(),
+    })
     renderPage()
     expect(screen.getByText('派生预览：平台将写入的接收人')).toBeInTheDocument()
     expect(screen.getByText('SRE 飞书群')).toBeInTheDocument()
     expect(screen.getByText('sre-feishu-qun')).toBeInTheDocument()
+    // 已绑定渠道 → 显示绑定模板名（并附模板 id）
+    expect(screen.getByText(/绑定模板：飞书卡片-默认/)).toBeInTheDocument()
+    expect(screen.getByText(/#10/)).toBeInTheDocument()
+    // 未绑定渠道 → 提示回落内置默认模板
+    expect(screen.getByText(/未绑定（回落 钉钉 内置默认模板）/)).toBeInTheDocument()
     // 范围声明：手写/上传内容原样透传、不在此预览内
     expect(screen.getByText(/不在此预览内，平台不解析其语义/)).toBeInTheDocument()
     // 重名提醒
     expect(screen.getByText(/请勿手写与上表同名/)).toBeInTheDocument()
     // 桥令牌未走 URL：展示的派生片段里不得出现 token=
     expect(document.body.textContent ?? '').not.toContain('token=')
+  })
+
+  // dev-feedback #32 降级分支：模板列表无权限时，已绑定渠道仅展示「绑定模板 #<id>」，
+  // 不依赖名称解析、不阻断整页（不出现「绑定模板：」名称形态）。
+  it('派生预览：模板列表无权限时降级为仅显示绑定模板 #<id>，不阻断整页', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [
+        {
+          channelId: '1',
+          channelName: 'SRE 飞书群',
+          receiverName: 'sre-feishu-qun',
+          snippet:
+            "  - name: sre-feishu-qun\n    webhook_configs:\n      - url: 'http://127.0.0.1:8080/api/v1/webhooks/notify?channel=1'\n",
+          tokenConfigured: true,
+          defaultTemplateId: 10,
+          channelType: 'feishu',
+        },
+      ],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
+    useNotifyTemplatesMock.mockReturnValue({
+      templates: [],
+      total: 0,
+      loading: false,
+      error: null,
+      permissionDenied: true,
+      reload: vi.fn(),
+      submit: vi.fn(),
+      remount: vi.fn(),
+      remove: vi.fn(),
+    })
+    renderPage()
+    expect(screen.getByText('派生预览：平台将写入的接收人')).toBeInTheDocument()
+    // 权限不足 → 降级为仅展示模板 ID，不展示名称
+    expect(screen.getByText(/绑定模板 #10/)).toBeInTheDocument()
+    expect(screen.queryByText(/绑定模板：/)).toBeNull()
   })
 
   it('派生预览：无已启用渠道时展示空态引导并指向「通知渠道」页', () => {
@@ -371,5 +498,100 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     const onOk = modal.confirm.mock.calls[0][0].onOk as () => Promise<void>
     await onOk()
     expect(remountMock).toHaveBeenCalledWith('acv-1', expect.any(String))
+  })
+
+  // =====================================================================
+  // T08-F8（决策 113 口径 C）：骨架布缆开关「默认接收人（根兜底）」。
+  // clipping：收进「当前生效配置」卡内一行 Select，不新增整卡；Q3：与后续 T08-F12 模式开关是两个独立控件。
+  // =====================================================================
+  const openReceiverSelect = () =>
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '默认兜底接收人' }))
+  const pickReceiverOption = async (text: string | RegExp) => {
+    const opts = await screen.findAllByText(text)
+    // 下拉项挂在 body 末尾的 portal 中；已选中值也在选择器内展示，故取最后一个（下拉项）
+    fireEvent.click(opts[opts.length - 1])
+  }
+
+  it('默认接收人：未设定时展示自动建议来源，下拉首项为「不接管」，并给出只替换单键的诚实口径', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    renderPage()
+    expect(screen.getByText('默认兜底接收人')).toBeInTheDocument()
+    // 首项「不接管（保留我手写的兜底配置）」= NONE_RECEIVER_VALUE(-1) 且为当前选中值
+    expect(screen.getByText('不接管（保留我手写的兜底配置）')).toBeInTheDocument()
+    // 生效态派生展示：来源 + 建议接收人名（未设定时平台不接管、产物零变化）
+    expect(screen.getByText(/已启用渠道第一个/)).toBeInTheDocument()
+    expect(screen.getByText('auto-default-recv')).toBeInTheDocument()
+    expect(document.body.textContent ?? '').toContain('未设定时平台不接管，配置产物零变化')
+    // 诚实口径：只替换默认兜底接收人（route.receiver）单键，不改动分组 / 发送节奏等其它设置
+    expect(document.body.textContent ?? '').toContain('平台不会改动你的分组')
+    expect(document.body.textContent ?? '').toContain('你已有的具体分流规则不受影响')
+  })
+
+  it('默认接收人：选定渠道触发二次确认（护栏①），文案明示注入点，确认后写入该渠道', async () => {
+    useAlertConfigMock.mockReturnValue(result())
+    const modal = mockAntdModal()
+    renderPage()
+    openReceiverSelect()
+    await pickReceiverOption(/SRE 飞书群（接收人 sre-feishu-qun）/)
+    expect(modal.confirm).toHaveBeenCalled()
+    const cfg = modal.confirm.mock.calls[0][0]
+    expect(String(cfg.title)).toContain('默认兜底接收人')
+    expect(String(cfg.content)).toContain('默认兜底接收人（route.receiver）指向')
+    expect(String(cfg.content)).toContain('route.routes[]')
+    expect(String(cfg.content)).toContain('不受影响')
+    expect(String(cfg.content)).toContain('不触碰 group_by')
+    // 未确认前不写入
+    expect(saveRouteSettingMock).not.toHaveBeenCalled()
+    await (cfg.onOk as () => Promise<void>)()
+    expect(saveRouteSettingMock).toHaveBeenCalledWith(1)
+  })
+
+  it('默认接收人：选「不接管」以 null 关闭接管，并提示已停止替换、最后写入值保留（护栏③）', async () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: true,
+          default_receiver_channel_id: 1,
+          effective_receiver_name: 'sre-feishu-qun',
+          effective_source: 'explicit',
+        },
+      }),
+    )
+    renderPage()
+    openReceiverSelect()
+    await pickReceiverOption('不接管（保留我手写的兜底配置）')
+    await waitFor(() => expect(saveRouteSettingMock).toHaveBeenCalledWith(null))
+    expect(await screen.findByText(/已停止替换默认兜底接收人/)).toBeInTheDocument()
+    expect(await screen.findByText(/最后写入的值保留在文件中/)).toBeInTheDocument()
+  })
+
+  it('默认接收人：保存返回 400（渠道不存在 / 未启用）时提示后端错误文案', async () => {
+    useAlertConfigMock.mockReturnValue(result())
+    saveRouteSettingMock.mockRejectedValue(new ApiError('指定的通知渠道不存在或未启用', 400, 'bad_request'))
+    const modal = mockAntdModal()
+    renderPage()
+    openReceiverSelect()
+    await pickReceiverOption(/SRE 飞书群（接收人 sre-feishu-qun）/)
+    await (modal.confirm.mock.calls[0][0].onOk as () => Promise<void>)()
+    expect(await screen.findByText('指定的通知渠道不存在或未启用')).toBeInTheDocument()
+  })
+
+  it('默认接收人：已生效时展示「平台接管中」与显式指定来源', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: true,
+          default_receiver_channel_id: 1,
+          effective_receiver_name: 'sre-feishu-qun',
+          effective_source: 'explicit',
+        },
+      }),
+    )
+    renderPage()
+    expect(screen.getByText('平台接管中')).toBeInTheDocument()
+    expect(screen.getByText(/显式指定/)).toBeInTheDocument()
+    expect(screen.getByText('sre-feishu-qun')).toBeInTheDocument()
   })
 })
