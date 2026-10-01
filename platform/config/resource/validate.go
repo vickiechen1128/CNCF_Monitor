@@ -25,7 +25,10 @@ type ResourceInput struct {
 	NetworkDomainID  string `json:"network_domain_id"`
 	BizCode          string `json:"biz_code"`
 	AppCode          string `json:"app_code"` // 不可变应用编码（决策 92：资源侧只存 app_code）
-	Cluster          string `json:"cluster"`
+	// PlatformCode 是资源行一等字段（决策 110，修订决策 104）：可空，留空时
+	// platform 标签经所属应用 app_platform_rel 的 is_primary 平台兜底填充。
+	PlatformCode string `json:"platform_code"`
+	Cluster      string `json:"cluster"`
 	Owner            string `json:"owner"`
 	Status           string `json:"status"`
 	Env              string `json:"env"`
@@ -74,6 +77,22 @@ type KeepDisabledValues struct {
 	BizCode     string // 资源当前 biz_code（停用历史值保留）
 	AppCode     string // 资源当前 app_code（停用历史值保留）
 	ServiceCode string // 资源当前 service_code（停用历史值保留，§5.16.2 服务存在性）
+	PlatformCode string // 资源当前 platform_code（停用 / 历史不自洽值保留，决策 110）
+}
+
+// PlatformRefs 承载资源行 platform_code 的校验依赖（决策 110）：PlatformStore
+// 提供平台字典启用条目（取值权威），AppPlatformStore 提供应用↔平台关联集合
+// （自洽校验）。
+//
+// 校验口径：①platform_code 可空，留空不校验（走所属应用主平台兜底）；②填值须
+// 命中平台字典 enabled=true 条目；③app_code 非空且该应用存在关联平台时，
+// platform_code 须属于该应用的关联平台集合，否则 bad_request「平台 xxx 不属于
+// 应用 yyy 的关联平台」；app_code 为空或应用无关联平台时不校验自洽。
+// platform 为 nil（或子 store 为 nil）时跳过平台校验——仅供单元测试，生产
+// handler 始终注入真实 store。
+type PlatformRefs struct {
+	PlatformStore    *PlatformDictStore
+	AppPlatformStore *AppPlatformStore
 }
 
 // ValidateResourceInput 校验资源写请求/导入行输入（纯函数，外部副作用仅来自注入的
@@ -94,24 +113,40 @@ type KeepDisabledValues struct {
 //
 // 校验失败返回含字段名的错误，供 handler 包装为 bad_request（§6.6.1）。
 func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool) error {
-	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, nil)
+	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, nil, nil)
 }
 
 // ValidateResourceInputForUpdate 与 ValidateResourceInput 同校验，但允许「编辑保留
 // 停用历史值」（决策 92/93）：keep 指向资源当前值，请求体值与其相同时跳过对应
 // 启用态校验（提示并允许保留历史值），修改为新值仍被拒绝。
 func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
-	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, keep)
+	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, keep, nil)
 }
 
-func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+// ValidateResourceInputWithPlatform 与 ValidateResourceInput 同校验，并追加资源行
+// platform_code 一等字段校验（决策 110）：platform 为 nil 时跳过平台校验（行为与
+// ValidateResourceInput 完全一致）。生产写链路（POST/PUT/Excel 导入）均注入真实
+// platform/app_platform store；单测可传 nil 跳过。
+func ValidateResourceInputWithPlatform(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, platform *PlatformRefs) error {
+	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, nil, platform)
+}
+
+// ValidateResourceInputWithPlatformForUpdate 是 ValidateResourceInputWithPlatform 的
+// 编辑态版本：keep 提供资源当前 platform_code，请求体值与其相同时允许保留历史值
+// （已停用平台 / 与应用平台集合不自洽的历史值均不阻断）；改为新值 / 新选停用平台
+// 仍被拒绝。
+func ValidateResourceInputWithPlatformForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues, platform *PlatformRefs) error {
+	return validateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists, keep, platform)
+}
+
+func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues, platform *PlatformRefs) error {
 	if in == nil {
 		return fmt.Errorf("resource input 不能为空")
 	}
 	if !isValidCategory(category) {
 		return fmt.Errorf("resource_category 非法：%s", category)
 	}
-	if err := validateCommon(in, bizStore, appStore, svcStore, networkDomainExists, keep); err != nil {
+	if err := validateCommon(in, bizStore, appStore, svcStore, networkDomainExists, keep, platform); err != nil {
 		return err
 	}
 	switch category {
@@ -139,7 +174,8 @@ func validateResourceInput(category models.ResourceCategory, in *ResourceInput, 
 // （若填）须对应启用应用字典条目、env/status 枚举。必填分化不在本函数内——按类型
 // 差异化必填由各 validate* 分派（决策 93/95：application 的 biz 必填在
 // validateApplication、generic_target 二选一在 validateGenericTarget）。
-func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues) error {
+// 决策 110：platform_code 一等字段校验同在此处（validatePlatformCode）。
+func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, keep *KeepDisabledValues, platform *PlatformRefs) error {
 	if strings.TrimSpace(in.NetworkDomainID) == "" {
 		return fmt.Errorf("network_domain_id 必填")
 	}
@@ -171,6 +207,11 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *
 			}
 		}
 	}
+	// 决策 110：platform_code 可空一等字段——留空不校验（走所属应用主平台兜底），
+	// 填值须为启用平台字典条目且与所属 app_code 的平台集合自洽。
+	if err := validatePlatformCode(in, platform, keep); err != nil {
+		return err
+	}
 	if !containsString(models.ValidEnvs, strings.TrimSpace(in.Env)) {
 		return fmt.Errorf("env 必须是 dev/test/staging/prod 之一，当前：%q", in.Env)
 	}
@@ -178,6 +219,53 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *
 		return fmt.Errorf("status 必须是 online/offline/maintenance 之一（API 写请求不接受中文状态），当前：%q", in.Status)
 	}
 	return nil
+}
+
+// validatePlatformCode 校验资源行 platform_code 一等字段（决策 110）：
+//   - 空值：合法，不校验（platform 标签由所属应用 is_primary 平台兜底填充）；
+//   - 编辑保留历史值：请求体值与资源当前值相同时跳过全部平台校验（已停用平台 /
+//     与应用平台集合不自洽的历史值均允许保留）；改为新值 / 新选停用平台仍拒绝；
+//   - 填值：须命中平台字典启用条目（停用条目不可新选）；
+//   - 自洽：app_code 非空且该应用存在关联平台时，填值须落在关联平台集合内，
+//     否则「平台 xxx 不属于应用 yyy 的关联平台」；app_code 为空 / 应用无关联
+//     平台时不校验自洽。
+//
+// refs 为 nil（或子 store 为 nil）时跳过平台校验（仅供单元测试）。
+func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisabledValues) error {
+	code := strings.TrimSpace(in.PlatformCode)
+	if code == "" {
+		return nil // 可空：留空走兜底，不校验
+	}
+	if keep != nil && code == strings.TrimSpace(keep.PlatformCode) {
+		return nil // 编辑保留历史平台值（停用 / 不自洽均放行）
+	}
+	if refs == nil || refs.PlatformStore == nil {
+		return nil
+	}
+	enabled, err := refs.PlatformStore.GetEnabledMap()
+	if err != nil {
+		return fmt.Errorf("平台字典加载失败：%w", err)
+	}
+	if _, ok := enabled[code]; !ok {
+		return fmt.Errorf("平台 %s 未登记或已停用，请在『平台管理』页登记或启用后重试", code)
+	}
+	appCode := strings.TrimSpace(in.AppCode)
+	if appCode == "" || refs.AppPlatformStore == nil {
+		return nil // 无所属应用时不校验自洽
+	}
+	platforms, err := refs.AppPlatformStore.PlatformCodesOf(appCode)
+	if err != nil {
+		return fmt.Errorf("应用 %s 关联平台加载失败：%w", appCode, err)
+	}
+	if len(platforms) == 0 {
+		return nil // 应用无关联平台时不校验自洽
+	}
+	for _, p := range platforms {
+		if p == code {
+			return nil
+		}
+	}
+	return fmt.Errorf("平台 %s 不属于应用 %s 的关联平台", code, appCode)
 }
 
 // validateBizCodeEnabled 校验 biz_code 对应已启用业务字典条目（停用条目不可被新

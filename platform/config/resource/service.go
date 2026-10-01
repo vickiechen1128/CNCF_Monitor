@@ -1,7 +1,7 @@
-// 本文件提供服务字典 ServiceDict 的对外接口（决策 105，契约快照 §5D /
+// 本文件提供服务字典 ServiceDict 的对外接口（决策 105/112，契约快照 §5D /
 // Module_07 §5.22）：只读列表 + 登记 + 受限编辑；编码创建后不可变、展示名必填、
-// 停用不删除（无删除接口）。字典是 `svc` label 的取值权威，供资源行可选字段
-// service_code（仅 application / generic_target）校验消费。
+// 停用不删除（无删除接口）。字典是 `svc` label 的取值权威，并以可空 app_code /
+// biz_code 显式承载应用↔服务、服务↔业务关系。
 package resource
 
 import (
@@ -18,11 +18,15 @@ import (
 //
 //   - service_code 不可变主键，创建后不可改、停用不删除；
 //   - service_name 展示名，必填，可改（改展示名不触发配置重生成，label 取编码）；
+//   - app_code     可空所属应用，是应用↔服务 1:N 的关系权威；
+//   - biz_code     可空主业务，是服务↔业务 N:1 的关系权威；
 //   - description  描述，可改；
 //   - enabled      启用状态；停用条目不可被新资源 / 编辑选用（资源保留历史值）。
 type ServiceDict struct {
 	ServiceCode string `json:"service_code"`
 	ServiceName string `json:"service_name"`
+	AppCode     string `json:"app_code,omitempty"`
+	BizCode     string `json:"biz_code,omitempty"`
 	Description string `json:"description"`
 	Enabled     bool   `json:"enabled"`
 }
@@ -43,6 +47,8 @@ func toServiceDict(m models.ServiceDict) ServiceDict {
 	return ServiceDict{
 		ServiceCode: m.ServiceCode,
 		ServiceName: m.ServiceName,
+		AppCode:     m.AppCode,
+		BizCode:     m.BizCode,
 		Description: m.Description,
 		Enabled:     m.Enabled,
 	}
@@ -116,10 +122,10 @@ func (s *ServiceDictStore) Create(m models.ServiceDict) (ServiceDict, error) {
 	return toServiceDict(m), nil
 }
 
-// UpdateEnabledNameDesc 受限编辑服务条目（PRD §5.22 红线②）：仅 service_name /
-// description / enabled 可改；service_code 不可改由 handler 请求体约束（不接收
-// service_code）。无 DELETE 入口（停用不删除）。
-func (s *ServiceDictStore) UpdateEnabledNameDesc(code string, req UpdateServiceDictRequest) (ServiceDict, error) {
+// Update 受限编辑服务条目（PRD §5.22 红线②）：仅 service_name / description /
+// enabled / app_code / biz_code 可改；service_code 不可改由 handler 请求体约束。
+// 无 DELETE 入口（停用不删除）。
+func (s *ServiceDictStore) Update(code string, req UpdateServiceDictRequest) (ServiceDict, error) {
 	var m models.ServiceDict
 	if err := s.db.Where("service_code = ?", code).First(&m).Error; err != nil {
 		return ServiceDict{}, fmt.Errorf("查询服务 %s：%w", code, err)
@@ -133,23 +139,34 @@ func (s *ServiceDictStore) UpdateEnabledNameDesc(code string, req UpdateServiceD
 	if req.Enabled != nil {
 		m.Enabled = *req.Enabled
 	}
+	if req.AppCode != nil {
+		m.AppCode = strings.TrimSpace(*req.AppCode)
+	}
+	if req.BizCode != nil {
+		m.BizCode = strings.TrimSpace(*req.BizCode)
+	}
 	if err := s.db.Save(&m).Error; err != nil {
 		return ServiceDict{}, fmt.Errorf("更新服务 %s 失败：%w", code, err)
 	}
 	return toServiceDict(m), nil
 }
 
-// CreateServiceDictRequest 是登记服务的请求体（决策 105）：service_code 创建后不可改。
+// CreateServiceDictRequest 是登记服务的请求体（决策 105/112）：service_code 创建后不可改，
+// app_code / biz_code 为可空关系字段。
 type CreateServiceDictRequest struct {
 	ServiceCode string `json:"service_code"`
 	ServiceName string `json:"service_name"`
+	AppCode     string `json:"app_code,omitempty"`
+	BizCode     string `json:"biz_code,omitempty"`
 	Description string `json:"description"`
 }
 
 // UpdateServiceDictRequest 是受限编辑服务的请求体：仅接受 service_name /
-// description / enabled；不接收 service_code（创建后永不可改）。
+// description / enabled / app_code / biz_code；不接收 service_code（创建后永不可改）。
 type UpdateServiceDictRequest struct {
 	ServiceName *string `json:"service_name"`
+	AppCode     *string `json:"app_code,omitempty"`
+	BizCode     *string `json:"biz_code,omitempty"`
 	Description *string `json:"description"`
 	Enabled     *bool   `json:"enabled"`
 }
@@ -159,11 +176,37 @@ type UpdateServiceDictRequest struct {
 func validateCreateServiceDict(req *CreateServiceDictRequest) error {
 	req.ServiceCode = strings.TrimSpace(req.ServiceCode)
 	req.ServiceName = strings.TrimSpace(req.ServiceName)
+	req.AppCode = strings.TrimSpace(req.AppCode)
+	req.BizCode = strings.TrimSpace(req.BizCode)
 	if !models.ValidServiceCode.MatchString(req.ServiceCode) {
 		return fmt.Errorf("服务编码仅允许小写字母、数字和连字符，长度不超过 64")
 	}
 	if req.ServiceName == "" {
 		return fmt.Errorf("service_name 必填")
+	}
+	return nil
+}
+
+func validateServiceRelationRefs(appStore *ApplicationDictStore, bizStore *BusinessDomainStore, appCode, bizCode string) error {
+	appCode = strings.TrimSpace(appCode)
+	bizCode = strings.TrimSpace(bizCode)
+	if appCode != "" {
+		app, found, err := appStore.Lookup(appCode)
+		if err != nil {
+			return fmt.Errorf("应用字典加载失败：%w", err)
+		}
+		if !found || app.Status != models.AppStatusEnabled {
+			return fmt.Errorf("应用 %s 未登记或已停用，请到『应用字典』登记或启用后重试", appCode)
+		}
+	}
+	if bizCode != "" {
+		biz, found, err := bizStore.Lookup(bizCode)
+		if err != nil {
+			return fmt.Errorf("业务字典加载失败：%w", err)
+		}
+		if !found || !biz.Enabled {
+			return fmt.Errorf("业务 %s 未登记或已停用，请到『业务字典』登记或启用后重试", bizCode)
+		}
 	}
 	return nil
 }
@@ -186,9 +229,9 @@ func ListServiceDicts(store *ServiceDictStore) gin.HandlerFunc {
 }
 
 // CreateServiceDict 是 POST /api/v2/platform/service-dict 的登记 handler：
-// body {service_code,service_name,description?}；默认 enabled=true；编码不规范 /
-// 重码 / service_name 为空 → bad_request。
-func CreateServiceDict(store *ServiceDictStore) gin.HandlerFunc {
+// body {service_code,service_name,description?,app_code?,biz_code?}；默认 enabled=true；
+// 编码不规范 / 重码 / service_name 为空 / 关系码不可用 → bad_request。
+func CreateServiceDict(store *ServiceDictStore, appStore *ApplicationDictStore, bizStore *BusinessDomainStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateServiceDictRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -196,6 +239,10 @@ func CreateServiceDict(store *ServiceDictStore) gin.HandlerFunc {
 			return
 		}
 		if err := validateCreateServiceDict(&req); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
+		if err := validateServiceRelationRefs(appStore, bizStore, req.AppCode, req.BizCode); err != nil {
 			response.BadRequest(c, err)
 			return
 		}
@@ -211,6 +258,8 @@ func CreateServiceDict(store *ServiceDictStore) gin.HandlerFunc {
 		created, err := store.Create(models.ServiceDict{
 			ServiceCode: req.ServiceCode,
 			ServiceName: req.ServiceName,
+			AppCode:     req.AppCode,
+			BizCode:     req.BizCode,
 			Description: req.Description,
 			Enabled:     true,                    // 登记默认启用（决策 105）
 			Source:      models.DictSourceManual, // 来源服务端设定（决策 97 延伸）
@@ -224,8 +273,8 @@ func CreateServiceDict(store *ServiceDictStore) gin.HandlerFunc {
 }
 
 // UpdateServiceDict 是 PUT /api/v2/platform/service-dict/:service_code 的受限编辑
-// handler：仅 service_name/description/enabled 可改；无 DELETE 入口。
-func UpdateServiceDict(store *ServiceDictStore) gin.HandlerFunc {
+// handler：仅 service_name/description/enabled/app_code/biz_code 可改；无 DELETE 入口。
+func UpdateServiceDict(store *ServiceDictStore, appStore *ApplicationDictStore, bizStore *BusinessDomainStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		code := strings.TrimSpace(c.Param("service_code"))
 		if code == "" {
@@ -241,6 +290,19 @@ func UpdateServiceDict(store *ServiceDictStore) gin.HandlerFunc {
 			response.BadRequest(c, fmt.Errorf("service_name 不能为空"))
 			return
 		}
+		var appCode, bizCode string
+		if req.AppCode != nil {
+			*req.AppCode = strings.TrimSpace(*req.AppCode)
+			appCode = *req.AppCode
+		}
+		if req.BizCode != nil {
+			*req.BizCode = strings.TrimSpace(*req.BizCode)
+			bizCode = *req.BizCode
+		}
+		if err := validateServiceRelationRefs(appStore, bizStore, appCode, bizCode); err != nil {
+			response.BadRequest(c, err)
+			return
+		}
 		_, found, err := store.Lookup(code)
 		if err != nil {
 			response.InternalServerError(c, err)
@@ -250,7 +312,7 @@ func UpdateServiceDict(store *ServiceDictStore) gin.HandlerFunc {
 			response.NotFound(c, fmt.Sprintf("服务 %s 不存在", code))
 			return
 		}
-		updated, err := store.UpdateEnabledNameDesc(code, req)
+		updated, err := store.Update(code, req)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return

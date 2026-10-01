@@ -15,8 +15,9 @@ import (
 )
 
 // sharedFields 是五类资源列表 item 的共享字段（Module_07 §5.2），即契约段
-// {resource_id, network_domain_id, biz_code, app_code, env, cluster, owner,
-// status, source_type}。字段值经 T07-03 GetResourceField 读取，host 的 legacy
+// {resource_id, network_domain_id, biz_code, app_code, platform_code, env,
+// cluster, owner, status, source_type}。platform_code 为资源行一等字段（决策 110
+// 连带项④：资源列表 / 详情暴露）。字段值经 T07-03 GetResourceField 读取，host 的 legacy
 // 映射（app_code→AppCode、env→EnvFlag、cluster→SubAppCode 等）已在 helper 内处理
 // （决策 92：资源侧只存 app_code，app_name 为应用字典展示名，不落在资源表上）。
 //
@@ -28,6 +29,7 @@ var sharedFields = []string{
 	"network_domain_id",
 	"biz_code",
 	"app_code",
+	"platform_code",
 	"env",
 	"cluster",
 	"owner",
