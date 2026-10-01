@@ -568,7 +568,7 @@ func TestSourceDataVersionAndNeedsRegeneration(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.ScrapeJob{}, &models.Host{}, &models.Database{},
 		&models.Middleware{}, &models.Application{}, &models.GenericTarget{}, &models.MonitoringRule{},
 		&models.LabelTemplate{}, &models.CITypeExporterMapping{}, &models.ExporterInstallationConfirmation{},
-		&models.NotifyChannel{}, &models.NotifyTemplate{}))
+		&models.NotifyChannel{}, &models.NotifyTemplate{}, &models.AlertmanagerRouteSetting{}))
 	require.NoError(t, db.Create(&models.ScrapeJob{JobName: "j", NetworkDomainID: "d", MetricsPath: "/m", Scheme: "http",
 		ResourceType: models.ResourceTypeHost, MonitorType: "host_linux", DraftStatus: "ready",
 		Enabled: true}).Error)

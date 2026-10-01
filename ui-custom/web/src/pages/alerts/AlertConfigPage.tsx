@@ -12,7 +12,7 @@
  *   2) 「写配置前必读」折叠栏（默认收起）：三块必写 / 两块豁免 / 最小骨架示例；
  *   3) 当前生效配置（核心，前置）；4) 派生预览（按状态渐进披露）；5) 配置版本历史。
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Alert,
@@ -22,9 +22,10 @@ import {
   Collapse,
   ConfigProvider,
   Descriptions,
+  Divider,
   Drawer,
   Empty,
-  Modal,
+  Select,
   Space,
   Table,
   Tag,
@@ -35,7 +36,7 @@ import { EyeOutlined, HistoryOutlined, InfoCircleOutlined, UploadOutlined } from
 import type { ColumnsType } from 'antd/es/table'
 import { alertmanagerConfigApi, readValidateErrors } from '../../api/alertmanager'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
-import type { AlertmanagerConfigVersionListItem, ValidateErrorItem } from '../../types/alertmanager'
+import type { AlertmanagerConfigVersionListItem, RouteReceiverSource, ValidateErrorItem } from '../../types/alertmanager'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { RuleGuideLink } from '../../components/RuleGuideLink'
 import { useAlertConfig } from './useAlertConfig'
@@ -55,13 +56,23 @@ import {
   CURRENT_USER,
   NOTIFY_CHANNELS_PATH,
   configStatusView,
+  notifyChannelTypeLabel,
 } from './alertmanagerConstants'
-import { useDerivedReceivers } from './useDerivedReceivers'
+import { useDerivedReceivers, type DerivedReceiverRow } from './useDerivedReceivers'
+import { useNotifyTemplates } from './useNotifyTemplates'
+import { useRouteSetting, NONE_RECEIVER_VALUE } from './useRouteSetting'
 import { shortChecksum } from '../../utils/shortChecksum'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
+
+/** 默认接收人（根兜底）生效来源展示名（决策 113 第 6 条三态） */
+const ROUTE_SOURCE_LABEL: Record<RouteReceiverSource, string> = {
+  explicit: '显式指定',
+  auto_first_enabled: '已启用渠道第一个',
+  none: '无生效默认接收人',
+}
 
 /** 配置状态展示所需的字段子集（当前生效 / 版本列表 / 版本详情三处同构） */
 type ConfigStatusSource = Pick<AlertmanagerConfigVersionListItem, 'applied_at' | 'source_change_no'>
@@ -69,7 +80,7 @@ type ConfigStatusSource = Pick<AlertmanagerConfigVersionListItem, 'applied_at' |
 export function AlertConfigPage() {
   const { tokens } = useSkin()
   const navigate = useNavigate()
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const { current, versions, total, loading, error, permissionDenied, reload, page, onPageSizeChange, submit, remount } =
     useAlertConfig()
   const {
@@ -79,6 +90,51 @@ export function AlertConfigPage() {
     permissionDenied: derivedForbidden,
     reload: reloadDerived,
   } = useDerivedReceivers()
+  // dev-feedback #32：派生预览需展示每渠道绑定的通知模板，消除「模板没被纳入派生」的错觉。
+  // 模板列表含内置模板，用于把 row.defaultTemplateId 解析为模板名；无权限时降级为仅显示模板 ID。
+  const { templates, permissionDenied: tplForbidden } = useNotifyTemplates()
+  const templateNameById = useMemo(
+    () => new Map(templates.map((t) => [t.id, t.name] as const)),
+    [templates],
+  )
+
+  /**
+   * 派生预览每个渠道块下方展示「绑定模板」信息（dev-feedback #32）：
+   * - 已绑定且能解析出模板名 → 绑定模板：<模板名>（附 id 作 code）；
+   * - 已绑定但模板列表无权限（tplForbidden）→ 降级为「绑定模板 #<id>」，不依赖名称解析、不阻断整页；
+   * - 已绑定但本地列表未命中（数据异常）→ 同样仅展示「绑定模板 #<id>」；
+   * - 未绑定（缺省 / 0）→「未绑定（回落 <渠道类型中文名> 内置默认模板）」。
+   */
+  const renderTemplateBind = (row: DerivedReceiverRow) => {
+    const bound = row.defaultTemplateId != null && row.defaultTemplateId !== 0
+    if (!bound) {
+      const typeLabel = row.channelType ? notifyChannelTypeLabel[row.channelType] : '该渠道'
+      return <Text type="secondary">未绑定（回落 {typeLabel} 内置默认模板）</Text>
+    }
+    if (tplForbidden) {
+      return <Text type="secondary">绑定模板 #{row.defaultTemplateId}</Text>
+    }
+    const name = templateNameById.get(String(row.defaultTemplateId))
+    if (name) {
+      return (
+        <Text type="secondary">
+          绑定模板：{name}
+          <Text code style={{ marginLeft: 4 }}>#{row.defaultTemplateId}</Text>
+        </Text>
+      )
+    }
+    return <Text type="secondary">绑定模板 #{row.defaultTemplateId}</Text>
+  }
+  // 默认接收人（根兜底）设定：骨架布缆开关（T08-F8，决策 113 口径 C）
+  const {
+    setting: routeSetting,
+    options: routeOptions,
+    loading: routeLoading,
+    error: routeError,
+    saving: routeSaving,
+    reload: reloadRouteSetting,
+    save: saveRouteSetting,
+  } = useRouteSetting()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerOpenSeq, setDrawerOpenSeq] = useState(0)
@@ -116,6 +172,41 @@ export function AlertConfigPage() {
     reload()
   }
 
+  /**
+   * 默认接收人（根兜底）变更（T08-F8，决策 113 口径 C）。
+   * 护栏①：选定某个渠道 = 授权平台接管根兜底，必须先经二次确认，文案明示注入点（只替换根 receiver 单键）。
+   * 护栏③：选「不接管」= 停止替换、不删最后写入的值——无阻断交互，保存后明示结果。
+   */
+  const handleDefaultReceiverChange = (value: number) => {
+    const saved = routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE
+    if (value === saved) return
+    if (value === NONE_RECEIVER_VALUE) {
+      void saveRouteSetting(null)
+        .then(() => message.success('已停止替换默认兜底接收人（route.receiver）；最后写入的值保留在文件中，可随时手改'))
+        .catch((e) => message.error(e instanceof Error ? e.message : '保存失败，请稍后重试'))
+      return
+    }
+    const target = routeOptions.find((o) => o.value === value)
+    const targetName = target?.receiverName ?? target?.label ?? String(value)
+    modal.confirm({
+      title: '确认由平台接管默认兜底接收人（route.receiver）？',
+      content:
+        `平台将在每次生成配置时把 alertmanager.yml 的默认兜底接收人（route.receiver）指向「${targetName}」；` +
+        '你手写的具体分流 route.routes[] 不受影响（它优先于该兜底回落）。' +
+        '平台只替换这一个键：不触碰 group_by / group_wait / group_interval / repeat_interval / continue，也不写入 route.routes[]。',
+      okText: '确认接管',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await saveRouteSetting(value)
+          message.success('已选定默认接收人：平台将接管默认兜底接收人（route.receiver）')
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '保存失败，请稍后重试')
+        }
+      },
+    })
+  }
+
   const openVersionDetail = async (record: AlertmanagerConfigVersionListItem) => {
     setDetail(record)
     setDetailLoading(true)
@@ -131,7 +222,7 @@ export function AlertConfigPage() {
   }
 
   const handleRemount = (record: AlertmanagerConfigVersionListItem) => {
-    Modal.confirm({
+    modal.confirm({
       title: `重新挂载本版本（${record.id}）？`,
       content: '将把该历史版本内容再次提交挂载（重新执行 amtool 校验）并进入 M09 变更确认，人工确认后下发生效。',
       okText: '重新挂载',
@@ -145,7 +236,11 @@ export function AlertConfigPage() {
           reload()
         } catch (e) {
           const detail = readValidateErrors(e)
-          if (detail?.items) {
+          if (detail?.cause === 'platform_fault') {
+            // 平台校验服务不可用（amtool 缺失 / 不可执行等），非配置问题：单列平台错误，不展示行级列表
+            setRemountErrors(null)
+            message.error('平台校验服务暂不可用（校验工具未就绪），本次未保存、未生效；请稍后重试或联系管理员')
+          } else if (detail?.items) {
             setRemountErrors(detail.items)
             message.error('重新挂载校验失败，请在下方错误列表中定位修改后重试')
           } else {
@@ -330,7 +425,7 @@ export function AlertConfigPage() {
                       ))}
                     </ol>
                     <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                      global 段按需最简即可（如 resolve_timeout）；仅使用邮件渠道时才需补 smtp_* 配置，不列为必写块。
+                      global 段保持最简即可（多数情况只保留 resolve_timeout 一项）；只有使用邮件渠道时才需额外配置，不列为必写块。
                     </Text>
                   </div>
 
@@ -356,7 +451,7 @@ export function AlertConfigPage() {
                   <div>
                     <Space size={8} style={{ marginBottom: 8 }}>
                       <Text strong>最小可运行 alertmanager.yml 骨架</Text>
-                      <Tag color="processing">已通过 amtool 校验</Tag>
+                      <Tag color="processing">已通过配置校验</Tag>
                     </Space>
                     <pre style={{ ...yamlBlockStyle, maxHeight: 320 }}>{ALERTMANAGER_MIN_SKELETON}</pre>
                     <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
@@ -419,6 +514,55 @@ export function AlertConfigPage() {
           }
           style={{ marginBottom: 16 }}
         >
+          {/* 默认接收人（根兜底）——骨架布缆开关（T08-F8，决策 113 口径 C）。
+              clipping：收进本卡内一行 Select，不新增整卡。
+              Q3：本控件与「模式开关」（T08-F12）是两个独立控件，勿与本控件耦合；
+              模式开关后续作为独立一行追加于本块之下，此处不预置占位控件（避免造出半成 UI）。 */}
+          <Space direction="vertical" size={6} style={{ width: '100%', marginBottom: 12 }}>
+            <Space size={8} align="center" wrap>
+              <Text strong>默认兜底接收人</Text>
+              <Select<number>
+                aria-label="默认兜底接收人"
+                value={routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE}
+                options={routeOptions}
+                loading={routeLoading}
+                disabled={routeLoading || routeSaving}
+                style={{ minWidth: 360 }}
+                onChange={handleDefaultReceiverChange}
+              />
+              {routeSetting?.enabled && <Tag color="success">平台接管中</Tag>}
+            </Space>
+            {routeError ? (
+              <Text type="danger">
+                默认接收人设定加载失败：{routeError}{' '}
+                <Button size="small" type="link" onClick={reloadRouteSetting}>
+                  重试
+                </Button>
+              </Text>
+            ) : routeSetting ? (
+              routeSetting.effective_source === 'none' ? (
+                <Text type="secondary">
+                  当前无生效默认接收人（无已启用渠道，或选定渠道已停用 / 被删除）——平台不接管默认兜底接收人，配置产物不变。
+                </Text>
+              ) : (
+                <Text type="secondary">
+                  默认兜底接收人（<Text code>route.receiver</Text>）{routeSetting.enabled ? '当前为' : '建议为'}{' '}
+                  <Text code>{routeSetting.effective_receiver_name}</Text>（来源：
+                  {ROUTE_SOURCE_LABEL[routeSetting.effective_source]}）
+                  {routeSetting.enabled ? '。' : '；未设定时平台不接管，配置产物零变化。'}
+                </Text>
+              )
+            ) : null}
+            {/* 诚实口径（决策 113 第 3/4 条）：只替换根 receiver 单键，绝不触碰节奏字段 / continue / routes[]；
+                避免制造「全自动」错觉。 */}
+            <Text
+              type="secondary"
+              style={{ display: 'block', paddingLeft: 10, borderLeft: `3px solid ${tokens.colorInfo}`, lineHeight: 1.6 }}
+            >
+              选定默认兜底接收人后，平台只在生成配置时把「没匹配到任何具体规则的告警」统一发往它；你已有的具体分流规则不受影响、且优先于它。平台不会改动你的分组、发送节奏等其它设置。
+            </Text>
+          </Space>
+          <Divider style={{ margin: '0 0 12px' }} />
           {loading ? (
             <div style={{ textAlign: 'center', padding: 40 }}>
               <Text type="secondary">加载中…</Text>
@@ -487,11 +631,12 @@ export function AlertConfigPage() {
             <Space direction="vertical" size={4}>
               <Text type="secondary">{ALERT_DERIVED_PREVIEW_DESC}</Text>
               <Text type="secondary">{ALERT_DERIVED_PREVIEW_SCOPE}</Text>
-              {/* L3（#26 / #28）：平台只物化 receivers，通知真正生效还须用户在 route/routes 把
-                  receiver 指向它；route 段由用户手写维护，避免「建了渠道就自动通知」的误判。 */}
+              {/* L3（#26 / #28.5，T08-F9）：口径升级——平台自动写入 receivers 定义；具体分流
+                  route.routes[] 由用户写；根兜底 route.receiver 在用户选定默认接收人后由平台接管
+                  （决策 113 口径 C）。不再表述「route 段由你手写维护」，避免误导「建了渠道就自动通知」。 */}
               <Text type="secondary" style={{ display: 'block', paddingLeft: 10, borderLeft: `3px solid ${tokens.colorInfo}`, lineHeight: 1.6 }}>
-                平台只自动写入 <Text code>receivers</Text> 定义；要让通知真正发出，还需你在 alertmanager.yml 的{' '}
-                <Text code>route</Text>/<Text code>routes</Text> 里把 <Text code>receiver</Text> 指向它（route 段由你手写维护）。
+                平台自动写入 <Text code>receivers</Text> 定义；具体分流 <Text code>route.routes[]</Text> 由你写；
+                默认兜底接收人（<Text code>route.receiver</Text>）在你选定默认接收人后由平台接管。
               </Text>
             </Space>
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -503,6 +648,7 @@ export function AlertConfigPage() {
                     <Text code>{row.receiverName}</Text>
                     {!row.tokenConfigured && <Tag color="warning">桥令牌未配置，暂不可用</Tag>}
                   </Space>
+                  <div style={{ marginTop: 4 }}>{renderTemplateBind(row)}</div>
                   <pre style={{ ...yamlBlockStyle, marginTop: 8, maxHeight: 200, fontSize: 12.5 }}>{row.snippet}</pre>
                 </div>
               ))}

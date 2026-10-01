@@ -25,6 +25,10 @@ var sourceTableScopes = []struct {
 	// receivers 与桥渲染，纳入源数据版本聚合（渠道/模板变更须触发重算与变更检测）。
 	{&models.NotifyChannel{}, false},
 	{&models.NotifyTemplate{}, false},
+	// 决策 113：M08「最小运行骨架自动布缆」的管理域单例设定（默认接收人）纳入源数据版本
+	// 聚合——改本表须能触发管理域（default）重算。domainScoped=true 按网域过滤：仅管理域
+	// 版本感知其变化，不对非管理域产生噪声变更（与 alertmanager.yml 恒属 default 一致）。
+	{&models.AlertmanagerRouteSetting{}, true},
 	// review-fix F3：ExporterInstallationConfirmation 移出源数据版本聚合。决策 47-1 已使其
 	// 降级为「可选登记、非生成闸门」——ResolveJobTargets 不读取它，target 内容不受确认
 	// 记录影响；登记/删除确认记录不再推高 SourceDataVersion、也不触发无谓变更检测预筛，

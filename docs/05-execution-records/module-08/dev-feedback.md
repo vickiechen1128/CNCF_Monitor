@@ -382,10 +382,11 @@
   2. 文档：M08 PRD（PL-2 三块必写 + PL-3 物化）与 `api-contract-snapshot.md` §11.6 明确 receivers 与 route 的归属边界；
   3. 原型 M08 同步该文案。
 - **备选（记 v0.2，不在本期）**：平台连 `route` 一起物化（真正端到端自动生效）——须先定义「平台 route 与用户手写 route / routes 的合并与冲突策略」，复杂度高，需再过一轮设计提案。
+- **⚠️ 口径升级（2026-09-30，以决策 113 为准）：原登记为「计划」，现状态更新为「已落地（T08-09 / T08-10）」**——该「备选」已被**收窄后提前至本期并落地**，不再做「平台连整棵 `route` 一起物化」，改为 **决策 113 口径 C**：默认（手写）模式 + 用户显式开关（与 PRD P3「默认接收人」合并为同一件事）下，平台**只原地替换根 `route.receiver` 单键**（生成器 `platform/configcenter/generator/notify_route_skeleton.go::MaterializeRootRouteReceiver`，接线 `platform/configcenter/draft/service.go::materializeRootRouteReceiver`，端点 `GET|PUT /api/v2/platform/alertmanager/route-setting`），**绝不写 `route.routes[]`**。故本条「route 由用户写」的表述修订为「**具体分流 `routes[]` 由用户写；根兜底 `receiver` 在开关开启时由平台接管**」。落地细节、三条护栏位置与决策 114 补充见 `## 31.`。
 - **影响模块**：M08（决策 74 定稿补充第 1 条注释 + PRD §3.3/§4 + 契约快照 §11.6 + 前端抽屉文案 + 原型）；M09（`notify_receivers.go` 维持「只物化 receivers」不变）。
 - **发现场景**：用户 2026-09-30 报 receiver 重名冲突，对照线上 `route` 段（4 处 `receiver: 'feishu'`）与草稿产物 `receivers` 段（`feishu` + `notify-1`）时发现平台 receiver 无引用。
 - **状态的聚合登记**：本项 = **`## 28.`【第一步 · 止血】的 L3**（零代码文案/文档收敛；与 `## 27.` 的抽屉信息架构重排**同批落地**，见 #28.5）。route 物化的备选方案见第二步设计草案 `module-08/design-proposals/alert-route-frontend-editor.md`。
-- **状态**：**landed（2026-09-30，L3 已落）**——ReceiverSnippetDrawer/AlertConfigPage 已补「平台只写 receivers、route 由你手写」文案；PRD §3.3/§4 与 `api-contract-snapshot.md` §11.6 已明 receivers/route 归属边界；原型 M08 文案同步。route 物化仍记 v0.2（第二步/三步），不在本期。
+- **状态**：**landed（2026-09-30，L3 已落）**——ReceiverSnippetDrawer/AlertConfigPage 已补 L3 文案（文案已随 T08-F9 二次改写为骨架口径，见 #28.5）；PRD §3.3/§4 与 `api-contract-snapshot.md` §11.6 / §11.10 已明 receivers/route 归属边界；原型 M08 文案同步。**根兜底单键接管**已随决策 113 口径 C 落地（见 `## 31.`）；**整棵 `route` / `routes[]` 物化**仍记 v0.3+（第二步/第三步），不在本期。
 
 ## 27. 「接收人配置片段」抽屉告警块堆叠（最多 5 个 `<Alert>`，令牌未配置时 3 块常驻）+ 非阻断提示误用阻断态视觉（③ 技术优化 / 信息架构，2026-09-30 用户提出，范围裁决「只改该抽屉」）
 
@@ -408,7 +409,7 @@
   | 常驻 Alert 数 | **3 → 0** |
 - **影响模块**：M08 前端（`ReceiverSnippetDrawer.tsx`；`alertSmoke.test.tsx` / 该抽屉相关断言需同步）；后端零改动；原型 M08 对应抽屉同步。
 - **发现场景**：用户 2026-09-30 现场反馈（伴随 F-36 报障一并提出）。
-- **状态**：open（待排期；用户本轮选择「只落记录、暂不改代码」）
+- **状态**：**landed（2026-09-30）**——`ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx` 头注释（`:14-16`）与实现已按本项落地：**常驻 `Alert` 数 3 → 0**（原 info「这段配置要用在哪」→ 抽屉副标题 `drawerDescription`（`:86-92`，渲染 `:116`）；原 warning「通知暂不可用」→ **单行状态条**「色点 + 文本」（`:154-180`）；原 warning「含内网凭据」→ 片段标题右侧**行内 `Tag` + `Tooltip`**（`:213-215`））；抽屉内仅保留**阻断态、且互斥**的两块 `Alert`——权限不足（403，`:119-126`）与取数失败（`:128-140`）。
 
 ## 28. 【第一步 · 止血】通知链路上「平台自动填的」与「你手写的」分账（L1 + L2 + L3 打包落地，**不改产品形态**）
 
@@ -417,7 +418,7 @@
 - **三步路线（用户 2026-09-30 定调，供对齐边界）**：
   1. **第一步 · 止血（本条）**：把「平台自动填的」和「你手写的」划清，补上 L1 / L2 / L3。**不改任何产品形态**——不加 UI 入口、不改数据模型、不改 API 签名。
   2. **第二步 · route 前台化**：把 route 的可视化编辑做成前台能力（设计草案另落 `module-08/design-proposals/alert-route-frontend-editor.md`）。
-  3. **第三步 · v0.3+**：平台连 `route` 一起物化，真正端到端自动生效（须先定义平台 route 与手写 route 的合并/冲突策略；本提案只登记，不展开）。
+  3. **第三步 · v0.3+**：平台连 `route` 一起物化，真正端到端自动生效（须先定义平台 route 与手写 route 的合并/冲突策略；本提案只登记，不展开）。**⚠️ 2026-09-30 修订**：该步已**部分提前**——「**根兜底 `route.receiver` 单键**」按**决策 113 口径 C** 提前至本期（默认手写模式 + 显式开关，只替换根 `receiver`，不写 `routes[]`）；「整棵 `route` / `routes[]` 物化」仍留在本步 v0.3+。
 
 ### 28.1 为什么叫「分账」
 
@@ -471,7 +472,7 @@ L3（纯文案文档）──┘        │
 
 - **M08（本条 / L1 / L3）**：
   - 代码：`Makefile`（`run-metric-center` 透传 `NOTIFY_*`）、`scripts/package-center.sh`（`env.sh.example` + `start.sh` + bundle README）、`platform/cmd/metric-center/main.go`（启动日志显式打印生效桥地址，**无逻辑改动**）。
-  - 前端（L3）：`ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx`、`AlertConfigPage.tsx` 文案；（L3 文案落地时**与 `## 27.` 的抽屉信息架构重排一并做**，避免二次改同一抽屉）。
+  - 前端（L3）：`ui-custom/web/src/pages/alerts/ReceiverSnippetDrawer.tsx`、`AlertConfigPage.tsx` 文案；（L3 文案落地时**与 `## 27.` 的抽屉信息架构重排一并做**，避免二次改同一抽屉）。**注意：L3 文案已随 T08-F9 二次改写为骨架口径**——现文案为「具体分流 `route.routes[]` 由你写；根兜底 `route.receiver` 在你选定默认接收人后由平台接管」，**非**旧「平台只负责 `receivers`、`route` 由用户写」文案；后人核对/回归请按现文案（`alertSmoke.test.tsx` 已锁该断言），勿按旧文案回归。
   - 原型：`docs/prototypes/module-08/`（L3 文案；`RoutesPage.tsx` 归属说明留给第二步草案）。
 - **M09（L2）**：`platform/configcenter/generator/notify_receivers.go` + `notify_receivers_test.go` / `generator_test.go`（补「地址演进 → 原地更新」与「真重名 → 仍冲突」两组用例）。
 - **契约 / 文档面**：决策 74 定稿补充第 1 条（L2 前置）、PRD §3.3/§4 + §11.6（L3）、`api-contract-snapshot.md` §11.6（L3）。
@@ -541,3 +542,39 @@ L3（纯文案文档）──┘        │
   - 契约：`api-contract-snapshot.md` §11.1 / §11.3 / §11.4 / 新增 §11.7 已回写。
   - 验证：`go test ./platform/...`、`go vet ./platform/...`、`tsc --noEmit`、`vitest run src/pages/alerts`（126 passed）全绿。
   - 待 design 侧回写：PRD §3.3.2（多模板 + 渠道绑定）/ 原型 M08 渠道抽屉（开发 Agent 不写 PRD）。
+
+## 31. 最小运行骨架自动布缆（决策 113 口径 C）落地：根兜底 `route.receiver` 单键接管 + 三条护栏（② 契约缺口落地 / ① 空白判定，2026-09-30，已落地）
+
+- **类别**：② 契约缺口落地（`route` 段单一作者的「根兜底」部分；原 #26「一期 route 由用户写」的过渡裁决已被决策 113 取代）+ ① 空白判定（护栏③语义）
+- **PRD 章节 / 文件位置**：决策 113（口径 C）+ 决策 114（护栏③语义 / `/routes` 数据源修正）；PRD `Module_08_*.md` §4.1.1；契约快照 `docs/05-execution-records/module-08/api-contract-snapshot.md` §11.6 / §11.9 / §11.10
+- **落地内容（口径 C：默认手写模式 + 用户显式开关，只原地替换根 `route.receiver` 单键）**：
+  - **模型**：`platform/models/alertmanager_route_setting.go` — `AlertmanagerRouteSetting{NetworkDomainID, DefaultReceiverChannelID *uint}`（表 `alertmanager_route_settings`，管理域 `default` 单例）；`*nil = 不接管`；纯函数 `EffectiveDefaultReceiver(channels) (string, bool)`（目标渠道不存在 / 未启用 → `false`，设定原值保留、不回写库）。
+  - **生成器**：`platform/configcenter/generator/notify_route_skeleton.go` — `MaterializeRootRouteReceiver(baseYAML, RootRouteInput{Enabled, DefaultReceiver, PlatformReceiverNames})`：仅原地替换根 `route.receiver` 单键；目标不在可达集合 / YAML 非法 / 无 `route` 节点 / 根 route 无 `receiver` 标量 → **跳过 + 诊断，不返回 error**；幂等。
+  - **接线**：`platform/configcenter/draft/service.go` — receivers 物化（`materializeNotifyReceivers`）→ **根兜底注入**（`materializeRootRouteReceiver`）→ Checksum 的顺序；`buildArtifacts` 与重校（`artifactsFromDraft`）两条路径均执行。
+  - **端点**：`GET|PUT /api/v2/platform/alertmanager/route-setting`（`platform/alertmanager/route/setting_handler.go`；注册 `platform/alertmanager/register.go`）；`GET /api/v2/platform/alertmanager/routes`（`platform/alertmanager/route/handler.go`，仅全局认证、只读）。
+- **三条护栏落地位置**：
+  | 护栏 | 语义 | 落地位置 |
+  | ---- | ---- | ---- |
+  | ① 二次确认 | 选定默认接收人 = 授权平台接管根兜底，须二次确认并明示注入点（只替换根 `receiver` 单键） | 前端 `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx::handleDefaultReceiverChange`（`:144-172`，`Modal.confirm` `:155-171`；控件 `:477-525`） |
+  | ② 变更单明示 | 开关开启后用户手改根 `receiver`，下次生成覆盖时在变更单写明「根兜底被平台重建」 | `platform/configcenter/draft/service.go::appendRootRouteRebuiltItem`（`:348-362`，`Description: "根兜底被平台重建（route.receiver 已按默认接收人替换）"`） |
+  | ③ 关闭语义 | 关闭 = 平台停止替换，不主动改写 / 回滚文件（语义以**决策 114 第 1 条**为准） | `platform/alertmanager/route/setting_handler.go::PutRouteSetting`（`nil` = 关闭接管）；`models.EffectiveDefaultReceiver` / `draft.materializeRootRouteReceiver`（渠道停用 → 产物字节级不变） |
+- **`route_files` 已废弃说明**：Alertmanager 顶层键无 `route_files`（`upstream/alertmanager/config/config.go`），且进程只接受单个 `--config.file`、平台只写 `config-output/alertmanager.yml` **一个**文件（`platform/configcenter/deployment/service.go`）——PRD 早期「手写模式经 `route_files` 合并平台片段」表述**在现网形态下不可实现、已废**；正确口径为「开关开启时原地替换根 `route.receiver` 单键」。PRD 侧 §4.1.1 的 `route_files` 残留由 T08-D2 回写清除（本项不写 `docs/02-product-requirements/`）。
+- **决策 114 的护栏③语义澄清**：原护栏③「关闭 = 停止替换、不删最后写入的值」易被误读为「永久保留已写入值」；**权威语义 =「关闭 = 停止替换；不主动改写 / 回滚文件；后续自然重算按正常产物生成」**（实测磁盘上平台上次写入的值会被自然重算覆盖，这是「停止替换」的必然结果，非平台主动删除）。不引入「最后写入值」的额外持久化状态。
+- **决策 114 的 `/routes` 数据源修正**：原实现读 `config.LatestApplied` 的**挂载留痕原文** → 修正为「**平台最新产物视图**」（管理域最近一条未废弃草稿产物 → 最近一条 `ConfigVersion` 产物 → 取新 → 都无时退化留痕），修复「设定生效后页面根 `receiver` 仍显示手写值 + 把已被根路由引用的平台 receiver 误报为死配置」（与 v0.3-a「消解死接收人」立身点相冲）。**教训**：AM 场景「当前生效」必须锚定 M09 **产物**，而非 M08 **挂载留痕**。
+- **验证**：`go test ./platform/...` 全通过、`go vet ./platform/...` 干净；`vitest run src/pages/alerts` 全绿（`AlertConfigPage.test.tsx` 覆盖护栏①二次确认 / 护栏③关闭 / 400 兜底；`alertSmoke.test.tsx` 覆盖控件就位与 L3 文案）。
+- **影响模块**：M08（模型 / 生成器 / 草稿接线 / 端点 / 告警配置页 / 接收人片段抽屉）、M09（`alertmanager.yml` 生成，`notify_receivers.go` 维持「只物化 receivers」不变）。
+- **发现场景**：用户就「最小运行骨架自动布缆」的落地形态（A/B/C 三口径）要求复评后采纳 C（决策 113）；端到端联调（独立 SQLite + `config-output` + Prometheus/Alertmanager/metric-center）暴露护栏③措辞与 `/routes` 数据源两处问题后由用户逐项拍板（决策 114）。
+- **状态**：**landed（2026-09-30）**——代码 + 测试 + 契约快照 §11.6 / §11.9 / §11.10 已落；未提交。
+
+## 32. 派生预览（告警配置页）未展示"渠道↔模板"绑定，造成"模板没被纳入"错觉（① 空白判定 / UX 信息缺口，open）
+
+- **类别**：① 空白判定（派生预览作用域未覆盖与 receivers 强相关的模板绑定）+ ③ 技术优化（UX 信息架构）
+- **PRD 章节 / 文件位置**：派生预览卡片 `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（`:560-631`）；数据 Hook `ui-custom/web/src/pages/alerts/useDerivedReceivers.ts`；后端 `platform/alertmanager/notify/receiver_snippet.go`（`:105-112` 把 `&template=<ID>` 编进 receiver URL）；渠道↔模板一等绑定见 #30；现状分层口径见 `docs/05-execution-records/module-08/design-decisions.md` 及 2026-10-01 设计澄清。
+- **现状 / 根因**：派生预览只渲染「平台将写入 `alertmanager.yml` 的 `receivers` + 默认 `route.receiver`」，逐渠道展示 receiver 名 + YAML 片段，**未展示该渠道绑定的通知模板**。但渠道↔模板是一等绑定（#30 已落地）：后端 `BuildReceiverSnippet`→`buildBridgeURL`（`receiver_snippet.go:105-112`）在渠道 `DefaultTemplateID != nil && != 0` 时把 `&template=<ID>` 编进 receiver 的 webhook URL，桥（`notify/bridge.go:97` `resolveBridgeTemplate`）据此渲染；且前端 `NotifyChannel.default_template_id`（`types/alertmanager.ts:263`）**已由 `notifyChannelsApi.list()` 透传**。即「平台为这条渠道派生的 receiver 绑定了哪个模板」数据完全在前端可取，却未在派生预览呈现 —— 用户在 2026-10-01 走查后追问，明确产生"模板没被纳入派生"的错觉。
+- **结论 / 建议**：派生预览每个渠道派生块，除 receiver 名外，**解析并展示"绑定模板：X（模板名）"**；未绑定（`default_template_id` 缺省 / 0）时显式提示"未绑定（回落该渠道类型内置默认模板）"。**前端零后端改动即可实现**：
+  - `useDerivedReceivers.ts`：`DerivedReceiverRow` 增加 `defaultTemplateId?: number` 与 `channelType?: NotifyChannelType`，取自 `notifyChannelsApi.list()` 已返回的 `channel.default_template_id` / `channel.type`；
+  - `AlertConfigPage.tsx`：引入 `useNotifyTemplates` 构建 id→name 映射（含内置模板），在派生预览卡片 `derivedRows.map` 处渲染"绑定模板：X"；未绑定时用 `notifyChannelTypeLabel[channelType]` 提示内置默认；`useNotifyTemplates` 的 `permissionDenied` 态降级为仅显示模板 ID，不阻断整页。
+  - 文案/样式对齐现有派生预览（`Typography.Text` `type="secondary"`，中文）。
+- **影响模块**：前端（告警配置页 · 派生预览卡片）
+- **发现场景**：2026-10-01 用户就"路由规则 / 派生预览"设计追问（"派生功能为什么只提示路由情况，不说明通知渠道模版的情况"）；经代码核实事属 UX 信息缺口——模板本就不进 `alertmanager.yml`（由桥渲染，属分层设计非后端遗漏），但绑定关系埋在 receiver URL 的 `&template=<ID>` 参数里未展开，派生预览只讲了 receivers/route 的"有/无"而没讲"绑定了哪个模板"。
+- **状态**：**open**——待 agent 开发（前端增强，已定位、路径明确；后端无需改动）。

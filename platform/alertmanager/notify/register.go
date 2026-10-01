@@ -37,4 +37,5 @@ func RegisterRoutes(am *gin.RouterGroup, db *gorm.DB, snippetCfg ReceiverSnippet
 	adminTpl.Use(auth.RequireAdmin())
 	adminTpl.POST("", SubmitTemplateHandler(db))
 	adminTpl.POST("/:id/remount", RemountTemplateHandler(db))
+	adminTpl.DELETE("/:id", DeleteTemplateHandler(db))
 }

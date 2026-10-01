@@ -95,6 +95,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		// 告警收敛（Module_08 PL-3）：通知渠道 / 通知模板（通知渲染桥）
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
+		// 最小运行骨架自动布缆（Module_08 决策 113）：管理域单例根兜底接管设定
+		&models.AlertmanagerRouteSetting{},
 	))
 	require.NoError(t, seed.Run(db))
 	// 决策 92：资源侧 app_code 必须引用未停用的应用字典条目。集成测试库无存量资源

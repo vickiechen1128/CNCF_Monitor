@@ -49,12 +49,14 @@ var linePattern = regexp.MustCompile(`:\s*(\d+)\s*:|\bline\s+(\d+)\b|\((\d+)\)`)
 func validateAlertmanagerConfig(content string) error {
 	items, checkErr := runCheckConfig(content)
 	if checkErr != nil {
-		// amtool 不可调用：可观测校验失败（不落库）+ dev-feedback 登记。
+		// amtool 不可调用（缺失或在 PATH 但不可执行 / 崩溃）：属平台技术故障，归 platform_fault，
+		// 不落库 + dev-feedback 登记；前端据此展示「平台校验服务暂不可用」而非「你的配置错误」。
 		devfeedback(checkErr.Error())
-		return &ErrValidation{Items: items, Note: validateNote}
+		return &ErrValidation{Items: items, Note: validateNote, Cause: models.ValidationCausePlatformFault}
 	}
 	if len(items) > 0 {
-		return &ErrValidation{Items: items, Note: validateNote}
+		// 行级错误：amtool 已执行并判定配置非法，属用户配置问题，归 user_config。
+		return &ErrValidation{Items: items, Note: validateNote, Cause: models.ValidationCauseUserConfig}
 	}
 	return nil
 }

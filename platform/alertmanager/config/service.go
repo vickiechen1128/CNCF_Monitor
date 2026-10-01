@@ -20,10 +20,13 @@ import (
 var ErrEmptyContent = errors.New("alertmanager.yml content is required")
 
 // ErrValidation 表示校验失败（行级错误集合）。校验失败不落库、不进 M09 流水线
-// （决策 60），由 handler 映射为 bad_request，data 形如 { items, note }（契约 §3）。
+// （决策 60），由 handler 映射为 bad_request，data 形如 { items, note, cause }（契约 §3）。
+// Cause 归因（决策 45-3 复用）：user_config=用户配置问题（可改）；
+// platform_fault=平台校验工具未就绪（如 amtool 缺失 / 崩溃，用户不可修、待运维就绪后重校）。
 type ErrValidation struct {
 	Items []models.ValidateErrorItem
 	Note  string
+	Cause models.ValidationCause
 }
 
 // Error 返回首条行级错误，便于日志与通用错误透传；无错误项时返回通用文案。
@@ -53,6 +56,21 @@ var triggerChangeDetection = func(db *gorm.DB) error {
 // apply 端到端生效。默认实现在测试中可注入替换（风格同 triggerChangeDetection）。
 var autoApplyManagementDomain = func(db *gorm.DB, by string) error {
 	return applyManagementDomainConfig(db, by)
+}
+
+// TriggerChangeDetection 是对私有 triggerChangeDetection 的导出包装（T08-11 路由设定写
+// 路径复用）：暴露「触发管理域 default 变更检测」工序，供同 M08 的 route 包（设定读写 API
+// 写后与挂载同构闭环）调用，避免把私有变量直接暴露为跨包依赖。默认实现在测试中可注入替换
+// （经 config 包测试覆盖；route 包测试以自己的可注入包装指向本函数）。
+func TriggerChangeDetection(db *gorm.DB) error {
+	return triggerChangeDetection(db)
+}
+
+// AutoApplyManagementDomain 是对私有 autoApplyManagementDomain 的导出包装（T08-11 路由
+// 设定写路径复用）：暴露「生成/复用管理域 default pending 草稿并自动确认下发 + AM reload」
+// 工序，使设定写入一次端到端生效（Q4 与挂载同构）。失败仅记录，由稳态 watcher 兜底。
+func AutoApplyManagementDomain(db *gorm.DB, by string) error {
+	return autoApplyManagementDomain(db, by)
 }
 
 // applyManagementDomainConfig 对管理域 default 生成/复用一张 pending 草稿并确认下发：

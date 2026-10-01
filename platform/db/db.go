@@ -104,6 +104,8 @@ func AutoMigrate() error {
 		// 通知渲染桥（Module_08 PL-3：通知渠道 + 通知模板版本化留痕）
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
+		// 最小运行骨架自动布缆（Module_08 决策 113：管理域单例根兜底接管设定）
+		&models.AlertmanagerRouteSetting{},
 		// 预留
 		&models.BusinessMetric{},
 	)

@@ -18,7 +18,6 @@ import {
   ConfigProvider,
   Drawer,
   Empty,
-  Modal,
   Space,
   Table,
   Tag,
@@ -28,6 +27,7 @@ import {
 import config from 'antd/locale/zh_CN'
 import {
   CopyOutlined,
+  DeleteOutlined,
   EyeOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
@@ -62,8 +62,8 @@ const EMPTY_INITIAL: NotifyTemplateInitial = { name: '', channelType: 'feishu', 
 
 export function NotifyTemplatesPage() {
   const { tokens } = useSkin()
-  const { message } = App.useApp()
-  const { templates, loading, error, permissionDenied, reload, submit, remount } = useNotifyTemplates()
+  const { message, modal } = App.useApp()
+  const { templates, loading, error, permissionDenied, reload, submit, remount, remove } = useNotifyTemplates()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerSeq, setDrawerSeq] = useState(0)
@@ -90,7 +90,7 @@ export function NotifyTemplatesPage() {
   }
 
   const handleRemount = (record: NotifyTemplate) => {
-    Modal.confirm({
+    modal.confirm({
       title: `回滚到「${record.name}」这个版本？`,
       content: '将把该版本内容重新提交为一次新的留痕；校验通过后生效，原有记录保持不变。',
       okText: '回滚',
@@ -103,6 +103,27 @@ export function NotifyTemplatesPage() {
           reload()
         } finally {
           setRemounting(false)
+        }
+      },
+    })
+  }
+
+  /** 删除自定义模板（内置模板后端拒绝，前端不渲染入口）；删除仅移除编辑入口，不影响已下发通知 */
+  const handleDelete = (record: NotifyTemplate) => {
+    modal.confirm({
+      title: `删除自定义模板「${record.name}」？`,
+      content:
+        '删除后不可恢复；已删除模板不影响已经下发的通知（模板为历史留痕，删除只移除这里的编辑入口）。',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      async onOk() {
+        try {
+          await remove(record.id)
+          message.success('已删除自定义模板')
+          reload()
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '删除失败，请稍后重试')
         }
       },
     })
@@ -159,7 +180,7 @@ export function NotifyTemplatesPage() {
     {
       title: '操作',
       key: 'actions',
-      width: 180,
+      width: 230,
       fixed: 'right',
       render: (_: unknown, r: NotifyTemplate) => (
         <Space size={0}>
@@ -175,6 +196,17 @@ export function NotifyTemplatesPage() {
           >
             重新挂载
           </Button>
+          {!r.is_builtin && (
+            <Button
+              size="small"
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(r)}
+            >
+              删除
+            </Button>
+          )}
         </Space>
       ),
     },

@@ -6,7 +6,6 @@ import {
   Checkbox,
   Form,
   Input,
-  InputNumber,
   Modal,
   Popconfirm,
   Select,
@@ -18,7 +17,15 @@ import {
   Typography,
   message,
 } from 'antd'
-import { DeleteOutlined, EditOutlined, MinusCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  LockOutlined,
+  MinusCircleOutlined,
+  PlusOutlined,
+} from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { MainLayout } from '../layouts/MainLayout'
 import V03Badge from '../components/StageBadge'
@@ -53,11 +60,31 @@ function formatMatchers(matchers: Matcher[]): string {
   return matchers.map((m) => `${m.name}${m.isRegex ? '=~' : '='}"${m.value}"`).join(' 且 ')
 }
 
+/** route 段作者模式（决策 113）：手写接管 / 平台管理——顶部徽标展示 */
+type RouteAuthorMode = 'handwritten' | 'platform'
+
+const ROUTE_MODE_LABEL: Record<RouteAuthorMode, string> = {
+  handwritten: '手写接管',
+  platform: '平台管理',
+}
+
+const ROUTE_MODE_COLOR: Record<RouteAuthorMode, string> = {
+  handwritten: 'default',
+  platform: 'processing',
+}
+
+/** 常驻顺序说明（提案 §3.2/§3.3：顺序 = 生效顺序，是本功能第一类语义） */
+const ROUTE_ORDER_TIP = '路由顺序 = 生效顺序：先匹配到的先生效'
+
 export default function RoutesPage() {
   const [routes, setRoutes] = useState<Route[]>(mockRoutes)
   const [editing, setEditing] = useState<Route | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
   const [form] = Form.useForm()
+
+  // {v0.3} 决策 113：模式开关（T08-F12）为 v0.3-b 待实现，演示期恒为「手写接管」。
+  const mode: RouteAuthorMode = 'handwritten'
 
   const notifierMap = useMemo(() => Object.fromEntries(mockNotifiers.map((n) => [n.id, n])), [])
   const notifierOptions = useMemo(
@@ -73,7 +100,7 @@ export default function RoutesPage() {
     [routes, editing]
   )
 
-  /** 按 order 排序、按层级缩进的路由树列表 */
+  /** 按 order 排序、按层级缩进的路由树列表（根恒置顶） */
   const treeRoutes = useMemo(() => {
     const sorted = [...routes].sort((a, b) => a.order - b.order)
     const root = sorted.filter((r) => r.parent_id === null)
@@ -82,6 +109,40 @@ export default function RoutesPage() {
       list.flatMap((r) => [r, ...walk(children(r.id), depth + 1)])
     return walk(root, 0)
   }, [routes])
+
+  /** 同一父路由下的兄弟（按 order 升序）——顺序调整的作用域 */
+  const siblingsOf = (parentId: string | null) =>
+    routes.filter((r) => r.parent_id === parentId).sort((a, b) => a.order - b.order)
+
+  /**
+   * 兄弟内重排：把 fromId 移到 toId 的位置，再按数组位置重排 order。
+   * {v0.3} 提案 §3.2/§3.3：顺序靠**数组位置**承载（AM 的 routes[] 顺序即优先级），
+   * order 仅作内部辅助，不再暴露为可填数字框——改用上移/下移 + 拖拽（原生 HTML5 draggable，零新增依赖）。
+   */
+  function reorder(parentId: string | null, fromId: string, toId: string) {
+    if (fromId === toId) return
+    setRoutes((prev) => {
+      const sibs = prev.filter((r) => r.parent_id === parentId).sort((a, b) => a.order - b.order)
+      const fromIdx = sibs.findIndex((r) => r.id === fromId)
+      const toIdx = sibs.findIndex((r) => r.id === toId)
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev
+      const reordered = [...sibs]
+      const [moved] = reordered.splice(fromIdx, 1)
+      reordered.splice(toIdx, 0, moved)
+      const orderMap = new Map(reordered.map((r, i) => [r.id, i]))
+      return prev.map((r) => (orderMap.has(r.id) ? { ...r, order: orderMap.get(r.id)! } : r))
+    })
+  }
+
+  /** 上移 / 下移一格（根路由锁定，不参与） */
+  function moveRoute(record: Route, dir: -1 | 1) {
+    if (record.parent_id === null) return
+    const sibs = siblingsOf(record.parent_id)
+    const idx = sibs.findIndex((r) => r.id === record.id)
+    const target = sibs[idx + dir]
+    if (!target) return
+    reorder(record.parent_id, record.id, target.id)
+  }
 
   const columns = [
     {
@@ -147,6 +208,49 @@ export default function RoutesPage() {
         cont ? <Tag color="processing">是</Tag> : <Tag>否</Tag>,
     },
     {
+      title: '排序',
+      key: 'order',
+      width: 96,
+      render: (_: unknown, record: Route) => {
+        // 根路由锁定：对应 AM 的 route: 本体，不可删除、不可移动
+        if (record.parent_id === null) {
+          return (
+            <Tooltip title="根路由（对应 Alertmanager 的 route: 本体），不可删除、不可移动">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <LockOutlined /> 锁定
+              </Text>
+            </Tooltip>
+          )
+        }
+        const sibs = siblingsOf(record.parent_id)
+        const idx = sibs.findIndex((r) => r.id === record.id)
+        return (
+          <Space size={0}>
+            <Tooltip title="上移（提高优先级）">
+              <Button
+                type="text"
+                size="small"
+                aria-label="上移"
+                icon={<ArrowUpOutlined />}
+                disabled={idx <= 0}
+                onClick={() => moveRoute(record, -1)}
+              />
+            </Tooltip>
+            <Tooltip title="下移（降低优先级）">
+              <Button
+                type="text"
+                size="small"
+                aria-label="下移"
+                icon={<ArrowDownOutlined />}
+                disabled={idx < 0 || idx >= sibs.length - 1}
+                onClick={() => moveRoute(record, 1)}
+              />
+            </Tooltip>
+          </Space>
+        )
+      },
+    },
+    {
       title: '启用',
       dataIndex: 'enabled',
       key: 'enabled',
@@ -207,7 +311,6 @@ export default function RoutesPage() {
       repeat_interval: '4h',
       continue: true,
       enabled: true,
-      order: routes.length,
     })
     setIsModalOpen(true)
   }
@@ -217,13 +320,19 @@ export default function RoutesPage() {
     message.success('路由规则已删除（演示）；正式生效以「配置管理」挂载 + 配置中心确认为准')
   }
 
+  /** 新建时 order 由「同父兄弟数量」派生（顺序靠数组位置，不再手填数字） */
+  function nextOrder(parentId: string | null) {
+    return routes.filter((r) => r.parent_id === parentId).length
+  }
+
   function handleOk() {
     form
       .validateFields()
       .then((values) => {
+        const parentId = (values.parent_id as string) ?? null
         const base = {
           name: values.name as string,
-          parent_id: (values.parent_id as string) ?? null,
+          parent_id: parentId,
           matchers: (values.matchers ?? []) as Matcher[],
           receiver_id: values.receiver_id as string,
           group_by: (values.group_by ?? []) as string[],
@@ -231,7 +340,7 @@ export default function RoutesPage() {
           group_interval: (values.group_interval as string) || '5m',
           repeat_interval: (values.repeat_interval as string) || '4h',
           continue: values.continue as boolean,
-          order: (values.order as number) ?? 0,
+          order: editing ? editing.order : nextOrder(parentId),
           enabled: values.enabled as boolean,
         }
         if (editing) {
@@ -264,13 +373,20 @@ export default function RoutesPage() {
         </Text>
       </div>
 
-      {/* [DEV] v1.7 决策 59/60：路由增删改表单为 v0.3 演示形态——MVP 以「配置管理」页文件挂载 + 配置中心（M09）变更确认为准，不直接 reload */}
+      {/* {v0.3} 决策 113：route 段「单一作者 + 模式开关」。
+          本页为 v0.3 生产基底——v0.3-a 只读路由树 + v0.3-b 表单编辑（模式开关 T08-F12 待实现）；
+          MVP 仍以「配置管理」页文件挂载 + 配置中心（M09）变更确认为准，不直接 reload。 */}
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="路由规则对应 Alertmanager route 配置"
-        description="路由规则的增删改用通用表单演示（面向后续版本的能力）；当前版本的接收人、路由、抑制统一以「配置管理」页文件挂载方式管理：整份提交 alertmanager.yml，经配置中心变更单人工确认后下发生效，不边改边生效。告警规则的内容创作（表达式 / 触发条件 / 标签）在「监控策略」维护。"
+        message={
+          <Space size={8} wrap>
+            <Text strong>{ROUTE_ORDER_TIP}</Text>
+            <Tag color={ROUTE_MODE_COLOR[mode]}>{ROUTE_MODE_LABEL[mode]}</Tag>
+          </Space>
+        }
+        description="路由规则对应 Alertmanager route 配置：整份 alertmanager.yml 经「配置管理」页文件挂载，进入配置中心（M09）变更单人工确认后下发生效，不边改边生效。告警规则的内容创作（表达式 / 触发条件 / 标签）在「监控策略」维护。"
       />
 
       <Card className="page-card">
@@ -280,7 +396,7 @@ export default function RoutesPage() {
               新建路由规则
             </Button>
             <V03Badge />
-            <Tooltip title="当前为路由树展示：根路由匹配所有告警，子路由按标签条件逐级匹配（支持 continue 继续匹配）">
+            <Tooltip title="顺序即优先级：可点选行内上移 / 下移，或直接拖拽行调整同级顺序（根路由锁定不可移动）">
               <Text type="secondary" style={{ fontSize: 13 }}>
                 共 {routes.length} 条路由规则
               </Text>
@@ -292,6 +408,28 @@ export default function RoutesPage() {
             columns={columns}
             pagination={false}
             size="middle"
+            onRow={(record) => {
+              const draggable = record.parent_id !== null
+              return {
+                draggable,
+                style: draggingId === record.id ? { background: '#E6FAFD' } : undefined,
+                onDragStart: () => draggable && setDraggingId(record.id),
+                onDragOver: (e) => {
+                  if (draggable) e.preventDefault()
+                },
+                onDrop: (e) => {
+                  e.preventDefault()
+                  if (draggingId && draggingId !== record.id) {
+                    const dragged = routes.find((r) => r.id === draggingId)
+                    if (dragged && dragged.parent_id === record.parent_id) {
+                      reorder(record.parent_id, draggingId, record.id)
+                    }
+                  }
+                  setDraggingId(null)
+                },
+                onDragEnd: () => setDraggingId(null),
+              }
+            }}
           />
         </Space>
       </Card>
@@ -404,10 +542,8 @@ export default function RoutesPage() {
               <Input placeholder="如 4h" />
             </Form.Item>
           </Space>
+          {/* 顺序不再由数字框填写：新建时按同父兄弟数量自动排到末尾，之后在列表中上移/下移或拖拽（提案 §3.2/§3.3） */}
           <Space size="large" style={{ display: 'flex' }}>
-            <Form.Item name="order" label="排序（order）" style={{ flex: 1 }}>
-              <InputNumber min={0} style={{ width: '100%' }} />
-            </Form.Item>
             <Form.Item
               name="continue"
               label="继续匹配（continue）"

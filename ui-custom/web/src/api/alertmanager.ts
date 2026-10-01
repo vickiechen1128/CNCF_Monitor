@@ -19,10 +19,13 @@ import type {
   PaginatedItems,
   PromAlertsData,
   ReceiverSnippetData,
+  RouteSetting,
+  RouteTreeData,
   Silence,
   SilenceLabelOptionsData,
   SubmitNotifyTemplatePayload,
   UpdateNotifyChannelPayload,
+  UpdateRouteSettingPayload,
   ValidateErrorData,
 } from '../types/alertmanager'
 
@@ -206,6 +209,25 @@ export const notifyChannelsApi = {
 }
 
 /**
+ * 默认接收人（根兜底）设定 API（T08-11，决策 113 口径 C）。
+ *
+ * 选定默认接收人 = 授权平台在生成配置时**只替换** alertmanager.yml 根 `route.receiver` 单键
+ * （不触碰 group_by / 三个时间字段 / continue，不写 route.routes[]）；`null` = 关闭接管（护栏③：
+ * 停止替换、不删最后写入的值）。写端点需管理员权限（非 admin 403），渠道不存在/未启用 → 400
+ * bad_request；响应**不含下发状态**（决策 60 冻结）。
+ */
+export const routeSettingApi = {
+  /** 读取设定并派生生效态视图（登录态） */
+  get(): Promise<ApiResponse<RouteSetting>> {
+    return apiClient.get<RouteSetting>('/api/v2/platform/alertmanager/route-setting')
+  },
+  /** 写入设定（admin）：写入后与挂载同构触发重算 + 自动下发；响应返回最新生效视图 */
+  update(payload: UpdateRouteSettingPayload): Promise<ApiResponse<RouteSetting>> {
+    return apiClient.put<RouteSetting>('/api/v2/platform/alertmanager/route-setting', { body: payload })
+  },
+}
+
+/**
  * 通知模板管理 API（PL-3 通知渲染桥，提案 §3.3.2/§3.3.8；M08 内容 Owner）。
  * 端点尚未写入 api-contract-snapshot.md，契约权威 = 设计提案 §3.3 + 任务卡 wire 格式，待回写。
  * 模板内容为 Alertmanager 标准 Go template（不是脚本）；校验在服务端做，校验失败不落库。
@@ -225,5 +247,25 @@ export const notifyTemplatesApi = {
       `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}/remount`,
       { body: { name } },
     )
+  },
+  /** 删除自定义模板（admin）：内置模板不可删除；不存在 not_found */
+  remove(id: string): Promise<ApiResponse<{ id: string }>> {
+    return apiClient.delete<{ id: string }>(
+      `/api/v2/platform/alertmanager/notify-templates/${encodeURIComponent(id)}`,
+    )
+  },
+}
+
+/**
+ * 路由规则（route 前台化）只读视图 API（T08-12 / T08-F10，v0.3-a）。
+ *
+ * 仅全局认证、只读、无写能力；响应成功为 `{ mode, items, dead_receivers }`，
+ * 解析失败降级为 `{ mode, parse_error, raw_yaml }`（非 500、不白屏）。
+ * 契约权威：platform/alertmanager/route/handler.go（api-contract-snapshot.md 待回写）。
+ */
+export const alertmanagerRoutesApi = {
+  /** 只读路由树视图（当前生效 alertmanager.yml 的 route 段解析结果） */
+  getRoutes(): Promise<ApiResponse<RouteTreeData>> {
+    return apiClient.get<RouteTreeData>('/api/v2/platform/alertmanager/routes')
   },
 }
