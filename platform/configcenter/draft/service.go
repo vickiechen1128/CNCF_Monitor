@@ -108,7 +108,7 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return nil, err
 	}
 
-	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
+	items := appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts)
 	checksum := artifacts.Checksum()
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
@@ -250,6 +250,10 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	if err := materializeNotifyReceivers(db, artifacts); err != nil {
 		return nil, nil, nil, err
 	}
+	// 决策 113（最小运行骨架自动布缆，口径 C）：**必须排在 receivers 物化之后**（平台
+	// receiver 未物化则根兜底目标不可校验）、Checksum 之前（替换结果须参与联合 checksum）。
+	// 异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
+	materializeRootRouteReceiver(db, artifacts)
 	return artifacts, jobs, rules, nil
 }
 
@@ -276,6 +280,90 @@ func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifact
 	artifacts.AlertmanagerYML = materialized
 	artifacts.NotifyReceiverConflicts = conflicts
 	return nil
+}
+
+// materializeRootRouteReceiver 按管理域单例设定（默认接收人）原地替换 alertmanager.yml
+// 根兜底 route.receiver 单键（决策 113，口径 C）：
+//
+//   - AlertmanagerYML 为空（从未挂载 / 非管理域）→ 直接返回（不影响其它产物）；
+//   - 设定未开启（DefaultReceiverChannelID=nil）或目标渠道不可用（被禁用 / 删除）→ 直接
+//     返回，产物字节级不变（护栏③：关闭 = 停止替换，不删最后写入的值）；
+//   - 设定生效 → 调用 generator.MaterializeRootRouteReceiver（receivers 已物化 ⇒ 平台
+//     receiver 名可达），并在**实际发生替换**时置 artifacts.RootRouteRebuilt，供
+//     buildChangeItems 追加「根兜底被平台重建」变更项（护栏②）。
+//
+// 无返回值：本工序的一切异常（YAML 非法 / 无 route / 目标 receiver 不可达 / DB 读取失败）
+// 一律降级为「跳过 + 诊断」（写入非产物字段 RootRouteDiagnostics），**绝不返回 error**——
+// 不得让挂载路径因骨架而失败（决策 113 前置事实）。
+func materializeRootRouteReceiver(db *gorm.DB, artifacts *generator.ConfigArtifacts) {
+	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
+		return
+	}
+	setting, err := generator.LoadRouteSetting(db)
+	if err != nil {
+		artifacts.RootRouteDiagnostics = []generator.RootRouteDiagnostic{{
+			Code:    generator.RootRouteSkipLoadSettingFailed,
+			Message: fmt.Sprintf("读取默认接收人设定失败，跳过根兜底物化: %v", err),
+		}}
+		return
+	}
+	if setting.DefaultReceiverChannelID == nil {
+		return // 未开启接管：产物字节级不变。
+	}
+	channels, err := generator.LoadEnabledNotifyChannels(db)
+	if err != nil {
+		artifacts.RootRouteDiagnostics = []generator.RootRouteDiagnostic{{
+			Code:    generator.RootRouteSkipLoadChannelsFailed,
+			Message: fmt.Sprintf("读取已启用通知渠道失败，跳过根兜底物化: %v", err),
+		}}
+		return
+	}
+	// 渠道不存在 / 未启用 → 设定保留但本次不接管（T08-08 EffectiveDefaultReceiver 纯函数口径）。
+	receiver, ok := setting.EffectiveDefaultReceiver(channels)
+	if !ok {
+		return
+	}
+	platformNames := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		platformNames = append(platformNames, ch.ReceiverName())
+	}
+
+	out, diags, err := generator.MaterializeRootRouteReceiver(artifacts.AlertmanagerYML, generator.RootRouteInput{
+		Enabled:               true,
+		DefaultReceiver:       receiver,
+		PlatformReceiverNames: platformNames,
+	})
+	if err != nil {
+		// 序列化失败等不可预期异常：保留原产物并记录诊断，不阻断挂载路径。
+		artifacts.RootRouteDiagnostics = diags
+		return
+	}
+	if out != artifacts.AlertmanagerYML {
+		artifacts.RootRouteRebuilt = true
+	}
+	artifacts.AlertmanagerYML = out
+	artifacts.RootRouteDiagnostics = diags
+}
+
+// appendRootRouteRebuiltItem 在 artifacts 标记「本次实际替换了根兜底 receiver」时追加一条
+// 显式变更项（决策 113 护栏②：复用既有变更项机制，不新增机制），供 M09 变更单明示
+//「根兜底被平台重建」——否则用户手改根 receiver 被平台覆盖只在 alertmanager.yml 整体
+// diff 中被淹没，用户看不到「我的根兜底被改了」。追加后重排 ID，保证 ci-N 连续。
+func appendRootRouteRebuiltItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChangeItem {
+	if artifacts == nil || !artifacts.RootRouteRebuilt {
+		return items
+	}
+	items = append(items, models.ConfigChangeItem{
+		Type:          string(models.ChangeItemTypeUpdate),
+		Target:        string(models.ChangeItemTargetAlertmanagerCfg),
+		Description:   "根兜底被平台重建（route.receiver 已按默认接收人替换）",
+		AffectedFiles: []string{string(models.AffectedFileAlertmanager)},
+		Risk:          string(models.RiskHigh),
+	})
+	for i := range items {
+		items[i].ID = fmt.Sprintf("ci-%d", i+1)
+	}
+	return items
 }
 
 // LatestLivePending 返回某网域最新活 pending 草稿（无则 nil）。供 M09 自动变更检测
@@ -351,7 +439,7 @@ func reconcileWithExistingPending(
 		return nil, err
 	}
 
-	items := buildChangeItems(jobs, rules, artifacts, baseVersion)
+	items := appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts)
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
@@ -907,6 +995,9 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	if err := materializeNotifyReceivers(db, artifacts); err != nil {
 		return nil, err
 	}
+	// 决策 113：重校路径同样复现根兜底物化（receivers 之后、校验之前），与 buildArtifacts
+	// 接线一致——否则重校会回退根兜底，与初次生成的产物不一致。
+	materializeRootRouteReceiver(db, artifacts)
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
