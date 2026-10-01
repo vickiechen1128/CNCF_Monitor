@@ -129,6 +129,7 @@ func newAutoApplyDB(t *testing.T) *gorm.DB {
 		&models.AlertmanagerConfigVersion{},
 		&models.NotifyChannel{},
 		&models.NotifyTemplate{},
+		&models.AlertmanagerRouteSetting{},
 		&models.EdgeAgent{},
 	))
 	return db

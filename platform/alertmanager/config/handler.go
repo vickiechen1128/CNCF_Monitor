@@ -187,13 +187,13 @@ func respondSubmitError(c *gin.Context, err error) {
 	case errors.Is(err, ErrEmptyContent):
 		response.BadRequest(c, err)
 	case errors.As(err, &valErr):
-		// 校验失败：bad_request，data 为 { items, note }，不进落库/流水线。
-		// （契约 §85：errType bad_request，data 带行级错误集合）。
+		// 校验失败：bad_request，data 为 { items, note, cause }，不进落库/流水线。
+		// （契约 §3：errType bad_request，data 带行级错误集合；cause 区分 user_config / platform_fault）。
 		c.JSON(http.StatusBadRequest, response.Response{
 			Status:    response.StatusError,
 			ErrorType: response.ErrorTypeBadRequest,
 			Error:     "validation failed",
-			Data:      gin.H{"items": valErr.Items, "note": valErr.Note},
+			Data:      gin.H{"items": valErr.Items, "note": valErr.Note, "cause": string(valErr.Cause)},
 		})
 	default:
 		response.InternalServerError(c, err)

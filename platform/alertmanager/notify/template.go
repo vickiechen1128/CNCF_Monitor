@@ -19,6 +19,8 @@ var (
 	ErrTemplateNotFound = errors.New("通知模板不存在")
 	// ErrTemplateBuiltinMissing 该渠道类型暂无内置默认模板（且未显式指定模板）。
 	ErrTemplateBuiltinMissing = errors.New("该渠道类型暂无内置默认模板，请显式指定模板")
+	// ErrTemplateBuiltinNotDeletable 内置模板随版本升级、系统统一维护，禁止删除。
+	ErrTemplateBuiltinNotDeletable = errors.New("内置模板不可删除")
 )
 
 // validateTemplateFn 是模板校验入口：默认复用 config 的 amtool check-config 等价工序
@@ -223,7 +225,24 @@ func GetTemplate(db *gorm.DB, id uint) (*models.NotifyTemplate, error) {
 	return &tpl, nil
 }
 
-// BuiltinTemplateForType 返回该渠道类型最近一条内置默认模板；无则 ErrTemplateBuiltinMissing。
+// DeleteTemplate 删除一条自定义模板留痕版本（仅自定义，内置模板禁止删除）。
+// 不存在返回 ErrTemplateNotFound；内置返回 ErrTemplateBuiltinNotDeletable。
+// 删除是物理删除（模板为不可变留痕版本，无关联下发态依赖；桥层按 id 解析，删除后该 id 不再被引用）。
+func DeleteTemplate(db *gorm.DB, id uint) error {
+	tpl, err := GetTemplate(db, id)
+	if err != nil {
+		return err
+	}
+	if tpl.IsBuiltin {
+		return ErrTemplateBuiltinNotDeletable
+	}
+	if err := db.Delete(&models.NotifyTemplate{}, id).Error; err != nil {
+		return fmt.Errorf("delete notify template: %w", err)
+	}
+	return nil
+}
+
+// BuiltinTemplateForType 返回该渠道类型最近一条内置默认模板；无则 ErrTemplateBuiltinMissing.
 func BuiltinTemplateForType(db *gorm.DB, channelType string) (*models.NotifyTemplate, error) {
 	var tpl models.NotifyTemplate
 	err := db.Where("channel_type = ? AND is_builtin = ?", channelType, true).
