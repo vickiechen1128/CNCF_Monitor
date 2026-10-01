@@ -49,7 +49,7 @@ const maxImportFileSize = 10 << 20
 //     field, value, reason}]}，create_only 不含 updated 字段。
 //
 // 本文件只实现 handler，不注册路由（路由收口见 T07-18）。
-func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore) gin.HandlerFunc {
+func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore, appPlatformStore *AppPlatformStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 1. 资源类型：表单优先，路径 :type 兜底。
 		categoryStr := strings.TrimSpace(c.PostForm("resource_category"))
@@ -135,7 +135,11 @@ func ImportResources(db *gorm.DB, bizStore *BusinessDomainStore, appStore *Appli
 			return
 		}
 		// 事务内 store：声明条目在事务内可见，资源行校验的「字典∪声明」可达性天然成立。
-		valid, errs := ValidateRows(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx), NewServiceDictStore(tx), networkDomainExistsFunc(tx), nil)
+		// 决策 110：事务内 store 令「声明 sheet ∪ 字典」在事务内可见，platform_code
+		// 的平台启用态与「所属应用平台集合」自洽校验同口径生效。
+		valid, errs := ValidateRowsWithPlatform(rows, NewBusinessDomainStore(tx), NewApplicationDictStore(tx),
+			NewServiceDictStore(tx), networkDomainExistsFunc(tx), nil,
+			&PlatformRefs{PlatformStore: NewPlatformDictStore(tx), AppPlatformStore: NewAppPlatformStore(tx)})
 
 		// 6. 逐行执行 create_only/upsert。
 		total := len(rows)

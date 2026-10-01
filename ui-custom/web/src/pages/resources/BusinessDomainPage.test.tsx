@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest } from '../../test/antdTestUtils'
 import { BusinessDomainPage, BusinessDomainDrawer } from './BusinessDomainPage'
+import { DICT_LIFECYCLE_NOTICE } from './DictLifecycleNotice'
 import type { BusinessDomain } from '../../types/resource'
 
 const listMock = vi.fn()
@@ -65,6 +66,17 @@ describe('BusinessDomainPage', () => {
     expect(await screen.findByLabelText('业务编码')).toBeInTheDocument()
     expect(screen.getByText('编码创建后不可改')).toBeInTheDocument()
     expect(createMock).not.toHaveBeenCalled()
+  })
+
+  // F7 / 决策 112：字典 ≠ 可删除对象——顶部定位说明 + 无删除入口（停用不删除红线）
+  it('渲染「字典 ≠ 可删除对象」定位说明，且不提供删除入口', async () => {
+    renderPage()
+    await screen.findByText('infra')
+
+    expect(screen.getByText(DICT_LIFECYCLE_NOTICE)).toBeInTheDocument()
+    // 说明只讲清生命周期：启用 ↔ 停用，页面无任何删除操作
+    expect(screen.queryByRole('button', { name: /删除/ })).toBeNull()
+    expect(within(screen.getByText('payment').closest('tr')!).getByRole('button', { name: '停用' })).toBeInTheDocument()
   })
 
   it('infra 兜底条目「停用」按钮禁用，并带不可停用提示', async () => {

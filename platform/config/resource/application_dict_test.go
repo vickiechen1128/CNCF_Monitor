@@ -122,11 +122,10 @@ func TestApplicationDictEndpoints(t *testing.T) {
 		models.ApplicationDict{AppCode: "legacy-app", AppName: "遗留应用", Status: models.AppStatusDisabled},
 	)
 	store := NewApplicationDictStore(db)
-	platformStore := newPlatformStore(t)
 	r := gin.New()
 	r.GET("/api/v2/platform/application-dict", ListApplicationDicts(store))
-	r.POST("/api/v2/platform/application-dict", CreateApplicationDict(store, platformStore))
-	r.PUT("/api/v2/platform/application-dict/:app_code", UpdateApplicationDict(store, platformStore))
+	r.POST("/api/v2/platform/application-dict", CreateApplicationDict(store))
+	r.PUT("/api/v2/platform/application-dict/:app_code", UpdateApplicationDict(store))
 
 	// 初始列表包含 3 条 fixture。
 	code, out := doJSON(t, r, http.MethodGet, "/api/v2/platform/application-dict", "")

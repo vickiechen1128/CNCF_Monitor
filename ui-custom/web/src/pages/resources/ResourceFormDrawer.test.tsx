@@ -11,6 +11,8 @@ const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
 const applicationDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
 const cloudDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
+// 决策 105：表单「服务编码」下拉经服务字典启用项解析（仅 application / generic_target 渲染）
+const serviceDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
 const osOptionListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -27,6 +29,10 @@ vi.mock('../../api/resources', () => ({
   // 决策 92：表单「应用」字段改为应用字典启用条目下拉
   applicationDictApi: {
     list: (...a: unknown[]) => applicationDictListMock(...a),
+  },
+  // 决策 105：表单「服务编码」下拉（仅 application / generic_target）
+  serviceDictApi: {
+    list: (...a: unknown[]) => serviceDictListMock(...a),
   },
   // 云字典 mock：决策 103 scheme-B 后资源表单不再消费云字典（无「云」录入项），
   // 此处保留仅为字典类 mock 的兼容性，不被本文件用例断言。

@@ -52,6 +52,7 @@ type Middleware struct {
 	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	CloudCode        string           `gorm:"size:50" json:"cloud_code"`
+	PlatformCode     string           `gorm:"size:64" json:"platform_code"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
 	SourceType       SourceType       `gorm:"size:20;not null" json:"source_type"`
 	TenantID         string           `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
@@ -79,6 +80,7 @@ type Application struct {
 	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	CloudCode        string           `gorm:"size:50" json:"cloud_code"`
+	PlatformCode     string           `gorm:"size:64" json:"platform_code"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
 	SourceType       SourceType       `gorm:"size:20;not null" json:"source_type"`
 	TenantID         string           `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin

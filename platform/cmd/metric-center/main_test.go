@@ -58,9 +58,10 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.BusinessDomain{},
 		&models.ApplicationDict{},
 		&models.CloudDict{},
-		// 平台 / 服务字典（决策 104/105）
+		// 平台 / 服务字典与应用↔平台关系（决策 104/105/110~112）
 		&models.PlatformDict{},
 		&models.ServiceDict{},
+		&models.AppPlatformRel{},
 		// 用户认证（Module_06 §5.3，tu-01；seed.Run 会写入初始管理员 admin）
 		&models.User{},
 		// 五类资源（M07）
@@ -131,7 +132,8 @@ func buildIntegrationEngine(t *testing.T) (*gin.Engine, *gorm.DB) {
 	// 平台字典 / 服务字典 store（决策 104/105）：与应用字典同构，随 DB 建表即用。
 	platformStore := resource.NewPlatformDictStore(db)
 	svcStore := resource.NewServiceDictStore(db)
-	resource.RegisterRoutes(platform, db, bizStore, appStore, cloudStore, platformStore, svcStore)
+	appPlatformStore := resource.NewAppPlatformStore(db)
+	resource.RegisterRoutes(platform, db, bizStore, appStore, cloudStore, platformStore, svcStore, appPlatformStore)
 	label.RegisterRoutes(platform, db)
 
 	// Module 01 收口（T01-09）：监控策略全部路由。
@@ -915,15 +917,15 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	code, _ = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", customID), `{"resource_category":"host"}`)
 	assert.Equal(t, http.StatusBadRequest, code)
 
-	// 5. 克隆默认模板：新名派生、is_default=false、mappings 全量复制（application 默认 8 条，
-	// 含 resource_id 与决策 105 新增的 service_code → svc）。
+	// 5. 克隆默认模板：新名派生、is_default=false、mappings 全量复制（application 默认 9 条，
+	// 含 resource_id、决策 105 新增的 service_code → svc 与决策 110 新增的 platform_code → platform）。
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID)+"/clone", "")
 	require.Equal(t, http.StatusOK, code)
 	clone := out["data"].(map[string]interface{})
 	cloneID := clone["id"].(float64)
 	assert.Equal(t, "default-application 副本", clone["name"])
 	assert.Equal(t, false, clone["is_default"])
-	assert.Len(t, clone["mappings"].([]interface{}), 8)
+	assert.Len(t, clone["mappings"].([]interface{}), 9)
 
 	// 6. 默认模板禁止删除 → 400。
 	code, _ = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID), "")
@@ -938,20 +940,20 @@ func TestEndToEndLabelTemplates(t *testing.T) {
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings",
 		mustJSON(t, map[string]interface{}{"source_type": "composite", "source_field": "instance_ip:port"}))
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 9, "新增 composite→instance 映射")
+	assert.Len(t, out["data"].([]interface{}), 10, "新增 composite→instance 映射")
 
 	code, out = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings",
 		mustJSON(t, map[string]interface{}{"source_type": "resource_field", "source_field": "owner", "target_label": "owner"}))
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 10)
+	assert.Len(t, out["data"].([]interface{}), 11)
 
 	// 8. 更新 / 删除 mapping。
-	code, out = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/9", `{"source_field":"instance_ip:port"}`)
+	code, out = c.json("PUT", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/10", `{"source_field":"instance_ip:port"}`)
 	require.Equal(t, http.StatusOK, code)
-	assert.Len(t, out["data"].([]interface{}), 10)
-	code, out = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/10", "")
+	assert.Len(t, out["data"].([]interface{}), 11)
+	code, out = c.json("DELETE", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", cloneID)+"/mappings/11", "")
 	require.Equal(t, http.StatusOK, code)
-	assert.Equal(t, float64(10), out["data"].(map[string]interface{})["mapping_id"])
+	assert.Equal(t, float64(11), out["data"].(map[string]interface{})["mapping_id"])
 
 	// 9. 默认模板 mappings 只读 → 400。
 	code, _ = c.json("POST", "/api/v2/platform/label-templates/"+fmt.Sprintf("%.0f", defaultAppID)+"/mappings",

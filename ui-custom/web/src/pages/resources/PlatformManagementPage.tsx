@@ -25,6 +25,7 @@ import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
+import { DictLifecycleNotice } from './DictLifecycleNotice'
 
 const { Text } = Typography
 
@@ -181,6 +182,8 @@ export function PlatformManagementPage() {
           </Space>
         }
       >
+        {/* F7 / 决策 112：字典 ≠ 可删除对象（四字典页共用同一份文案） */}
+        <DictLifecycleNotice />
         <div style={{ marginBottom: 16 }}>
           <Callout tone="info" title="平台编码是应用归属平台的权威标识">
             平台编码随应用归属派生为监控标签、用于按平台维度聚合，<Text strong>创建后不可修改</Text>；

@@ -44,7 +44,7 @@ func mountDelete(t *testing.T, db *gorm.DB) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	r.POST("/api/v2/platform/resources", CreateResource(db, newBizStore(t), newAppStore(t), newSvcStore(t)))
+	r.POST("/api/v2/platform/resources", CreateResource(db, newBizStore(t), newAppStore(t), newSvcStore(t), newPlatformStore(t), newAppPlatformStore(t)))
 	r.DELETE("/api/v2/platform/resources/:resource_id", DeleteResource(db))
 	return r
 }

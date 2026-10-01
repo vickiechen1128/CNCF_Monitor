@@ -36,15 +36,15 @@ type LabelTemplate struct {
 // DefaultMappingBuilders returns the default field→label mappings for a given
 // resource category, aligned with Module_07 §5.13.
 //
-// 派生标签口径：`platform` 不在本映射表中（经资源 app_code → 应用条目父级
-// platform_code 由 target 级 system 层派生，与 `cloud` 经网域派生同处理）；
-// `svc` 经 service_code 映射，仅 application / generic_target 拥有该映射行。
+// `platform` 是资源行一等字段，经 platform_code → platform 映射注入；`svc` 经
+// service_code 映射，仅 application / generic_target 拥有该映射行。
 func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 	if category == ResourceCategoryApplication {
 		// application default template has no composite→instance mapping; endpoint
 		// carries its own port (Module_07 §5.13).
 		return []LabelMapping{
 			{SourceField: "resource_id", SourceType: LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
+			{SourceField: "platform_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "platform", Enabled: true},
 			{SourceField: "service_name", SourceType: LabelSourceTypeResourceField, TargetLabel: "service_name", Enabled: true},
 			// 决策 105：service_code → svc（可选字段，留空不注入；既有 service_name 映射不动）。
 			{SourceField: "service_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "svc", Enabled: true},
@@ -61,6 +61,7 @@ func DefaultMappingBuilders(category ResourceCategory) []LabelMapping {
 	mappings := []LabelMapping{
 		{SourceField: "instance_ip:port", SourceType: LabelSourceTypeComposite, TargetLabel: "instance", Enabled: true},
 		{SourceField: "resource_id", SourceType: LabelSourceTypeResourceField, TargetLabel: "resource_id", Enabled: true},
+		{SourceField: "platform_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "platform", Enabled: true},
 		{SourceField: "app_code", SourceType: LabelSourceTypeResourceField, TargetLabel: "app", Enabled: true},
 		{SourceField: "env", SourceType: LabelSourceTypeResourceField, TargetLabel: "env", Enabled: true},
 		{SourceField: "cluster", SourceType: LabelSourceTypeResourceField, TargetLabel: "cluster", Enabled: true},

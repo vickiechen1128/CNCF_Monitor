@@ -45,6 +45,10 @@ func Run(db *gorm.DB) error {
 	if err := ApplicationDict(db); err != nil {
 		return fmt.Errorf("seed application dict: %w", err)
 	}
+	// 一次性迁移：遗留单值 PlatformCode → M:N AppPlatformRel（决策 111）
+	if err := runAppPlatformBackfill(db); err != nil {
+		return fmt.Errorf("backfill app-platform: %w", err)
+	}
 	return nil
 }
 

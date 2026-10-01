@@ -6,6 +6,7 @@ import { Button } from 'antd'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
 import { ServiceManagementPage, ServiceDictDrawer } from './ServiceManagementPage'
+import { DICT_LIFECYCLE_NOTICE } from './DictLifecycleNotice'
 import type { ServiceDict } from '../../types/resource'
 
 const listMock = vi.fn()
@@ -98,6 +99,18 @@ describe('ServiceManagementPage', () => {
     expect(await screen.findByText('服务编码创建后不可修改')).toBeInTheDocument()
     expect(await screen.findByLabelText('服务编码')).toBeEnabled()
     expect(createMock).not.toHaveBeenCalled()
+  })
+
+  // F7 / 决策 112：字典 ≠ 可删除对象——顶部定位说明 + 无删除入口（停用不删除红线）
+  it('渲染「字典 ≠ 可删除对象」定位说明，且不提供删除入口', async () => {
+    renderPage()
+    await screen.findByText('order-api')
+
+    expect(screen.getByText(DICT_LIFECYCLE_NOTICE)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /删除/ })).toBeNull()
+    const row = screen.getByText('order-api').closest('tr')!
+    expect(within(row).getByRole('button', { name: /编\s*辑/ })).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /删除/ })).toBeNull()
   })
 
   it('「更多」菜单停用经确认弹层提交 enabled=false（停用不删除）', async () => {

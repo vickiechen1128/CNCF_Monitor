@@ -15,6 +15,10 @@ const removeLabelMock = vi.fn()
 const listTemplateMock = vi.fn()
 const cloudDictListMock = vi.fn()
 const zoneTypeListMock = vi.fn()
+// 决策 105 / 104：详情「服务」「平台」展示经服务 / 应用 / 平台字典解析展示名
+const serviceDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
+const applicationDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
+const platformDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
 
 vi.mock('../../api/resources', () => ({
   resourceApi: {
@@ -26,6 +30,17 @@ vi.mock('../../api/resources', () => ({
   // 决策 103：详情「云」展示经云字典解析 cloud_name（部署级只读，仅 list）
   cloudDictApi: {
     list: (...args: unknown[]) => cloudDictListMock(...args),
+  },
+  // 决策 105：详情「服务」展示经服务字典解析 service_name（仅 application / generic_target）
+  serviceDictApi: {
+    list: (...args: unknown[]) => serviceDictListMock(...args),
+  },
+  // 决策 104：详情「平台」展示经应用字典 + 平台字典解析
+  applicationDictApi: {
+    list: (...args: unknown[]) => applicationDictListMock(...args),
+  },
+  platformDictApi: {
+    list: (...args: unknown[]) => platformDictListMock(...args),
   },
 }))
 

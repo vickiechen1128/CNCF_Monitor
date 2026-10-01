@@ -30,25 +30,25 @@ const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadshe
 var TemplateColumns = map[models.ResourceCategory][]string{
 	models.ResourceCategoryHost: {
 		"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
-		"biz_code", "app_code", "env", "cluster", "zone_env", "owner", "status",
+		"biz_code", "app_code", "platform_code", "env", "cluster", "zone_env", "owner", "status",
 	},
 	models.ResourceCategoryDatabase: {
 		"network_domain", "database_type", "instance_ip", "port", "version",
-		"biz_code", "app_code", "env", "cluster", "owner", "status",
+		"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 	},
 	models.ResourceCategoryMiddleware: {
 		"network_domain", "middleware_type", "instance_ip", "port", "version",
-		"biz_code", "app_code", "env", "cluster", "owner", "status",
+		"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 	},
 	models.ResourceCategoryApplication: {
 		// 决策 105：service_code 为可选列，排在 service_name 之后（§5.16.1）。
 		"network_domain", "service_name", "service_code", "biz_code", "health_check_url", "protocol",
-		"endpoint", "port", "app_code", "env", "cluster", "owner", "status",
+		"endpoint", "port", "app_code", "platform_code", "env", "cluster", "owner", "status",
 	},
 	models.ResourceCategoryGenericTarget: {
 		// 决策 105：service_code 为可选列（§5.16.1 其他监控目标列序）。
 		"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
-		"exporter_type", "custom_labels", "service_code", "biz_code", "app_code", "env", "cluster", "owner", "status",
+		"exporter_type", "custom_labels", "service_code", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
 	},
 }
 
@@ -71,7 +71,7 @@ type DomainOption struct {
 // 依赖通过函数注入以保持可测试性：bizStore 提供业务字典启用项（T07-02），appStore 提供
 // 应用字典启用项（决策 92/96，F-7 ①：取值说明实时注入 app_code 可取值），listDomains
 // 由调用方提供 M06 网域清单查询（T07-18 路由注册时注入 db 查询）。
-func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
+func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore, listDomains func() ([]DomainOption, error)) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		typeName := c.Param("type")
 		category := models.ResourceCategory(typeName)
@@ -81,7 +81,7 @@ func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictSt
 			return
 		}
 
-		valueRows, err := buildValueSheet(bizStore, appStore, svcStore, listDomains)
+		valueRows, err := buildValueSheet(bizStore, appStore, platformStore, svcStore, listDomains)
 		if err != nil {
 			response.InternalServerError(c, fmt.Errorf("生成「取值说明」失败：%w", err))
 			return
@@ -104,7 +104,7 @@ func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictSt
 // 不进入，PRD §3.1）、app_code（应用字典启用项，决策 92/96，F-7 ①：与 biz_code
 // 同构 `code（名称）`，空字典输出占位）、env 枚举、status 中文取值（§5.5.1 默认
 // 映射）、custom_labels 格式说明。
-func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
+func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcStore *ServiceDictStore, listDomains func() ([]DomainOption, error)) ([][]string, error) {
 	rows := [][]string{
 		{"取值字段", "合法值 / 格式说明"},
 	}
@@ -161,6 +161,24 @@ func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictSto
 		appDesc = append(appDesc, "暂无已登记应用")
 	}
 	rows = append(rows, []string{"app_code", strings.Join(appDesc, "；")})
+
+	// platform_code：平台字典启用项（决策 110，可空列——留空时按所属应用主平台兜底；
+	// 填值须为启用条目且与所属 app_code 的平台集合自洽，停用项不进入）。
+	platformDesc := []string{"可空列，留空按所属应用主平台兜底"}
+	if platformStore != nil {
+		pfList, err := platformStore.EnabledList()
+		if err != nil {
+			return nil, fmt.Errorf("读取平台字典失败：%w", err)
+		}
+		items := make([]string, 0, len(pfList))
+		for _, p := range pfList {
+			items = append(items, fmt.Sprintf("%s（%s）", p.PlatformCode, p.PlatformName))
+		}
+		if len(items) > 0 {
+			platformDesc = append(platformDesc, "；"+strings.Join(items, "；"))
+		}
+	}
+	rows = append(rows, []string{"platform_code", strings.Join(platformDesc, "")})
 
 	// service_code：服务字典启用项（决策 105，可选列的合法取值；与 app_code 同构
 	// `code（名称）`，停用项不进入）。

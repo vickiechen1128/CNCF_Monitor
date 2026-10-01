@@ -16,9 +16,8 @@ import (
 //   - app_name    展示名，可改，仅 UI 展示，修改不触发监控配置重生成/下发；
 //   - description 描述，可改；
 //   - status      启用状态 enabled/disabled；停用不删除，停用条目不可被新资源选用；
-//   - platform_code {v2.45 决策 104/107} **可选父级**（平台字典主键），表达纵向
-//     platform(1) → app(N) 组成分解；未挂时为空串。与决策 96 的 biz↔app 横向正交
-//     不冲突（决策 96 只砍「应用挂业务 / 业务挂应用」，不约束应用的上级平台）。
+//   - platform_code {v2.49} 已废弃，仅为一次性迁移保留在 DTO；写接口忽略该字段，
+//     应用↔平台关系由 app_platform_rel API 维护。
 //
 // 端点路径建议 GET/POST /api/v2/platform/application-dict（与 business-domains 同构）；
 // 口径：资源侧 app_code 只允许引用未停用条目（录入/编辑/Excel 导入三处同校验）。
@@ -27,7 +26,7 @@ type ApplicationDict struct {
 	AppName      string `json:"app_name"`
 	Description  string `json:"description"`
 	Status       string `json:"status"`
-	PlatformCode string `json:"platform_code"`
+	PlatformCode string `json:"platform_code"` // Deprecated: 仅供 v2.49 一次性迁移读取。
 }
 
 // ApplicationDictStore 是应用字典的 DB-backed 只读/读写访问门面（决策 92）。
@@ -123,8 +122,8 @@ func (s *ApplicationDictStore) Create(m models.ApplicationDict) (ApplicationDict
 	return toApplicationDict(m), nil
 }
 
-// Update 受限编辑应用字典（决策 92）：仅名称/描述/状态可改；app_code 不可改由
-// handler 请求体约束（不接收 app_code）。无 DELETE 入口（停用不删除）。
+// Update 受限编辑应用字典（决策 92/110）：仅名称/描述/状态可改；app_code 与已废弃的
+// platform_code 均不由本写链路接收。无 DELETE 入口（停用不删除）。
 func (s *ApplicationDictStore) Update(code string, req UpdateApplicationDictRequest) (ApplicationDict, error) {
 	var m models.ApplicationDict
 	if err := s.db.Where("app_code = ?", code).First(&m).Error; err != nil {
@@ -139,32 +138,26 @@ func (s *ApplicationDictStore) Update(code string, req UpdateApplicationDictRequ
 	if req.Status != nil {
 		m.Status = *req.Status
 	}
-	// 决策 104/107：platform_code 可挂 / 可摘 / 可换（指针区分「未传」与「显式置空」）。
-	if req.PlatformCode != nil {
-		m.PlatformCode = strings.TrimSpace(*req.PlatformCode)
-	}
 	if err := s.db.Save(&m).Error; err != nil {
 		return ApplicationDict{}, fmt.Errorf("更新应用 %s 失败：%w", code, err)
 	}
 	return toApplicationDict(m), nil
 }
 
-// CreateApplicationDictRequest 是登记应用的请求体（决策 92 / 104）：app_code 创建后
-// 不可改，platform_code 为可选父级（平台字典主键）。
+// CreateApplicationDictRequest 是登记应用的请求体（决策 92/110）：app_code 创建后
+// 不可改；platform_code 已从写链路移除。
 type CreateApplicationDictRequest struct {
-	AppCode      string `json:"app_code"`
-	AppName      string `json:"app_name"`
-	Description  string `json:"description"`
-	PlatformCode string `json:"platform_code"`
+	AppCode     string `json:"app_code"`
+	AppName     string `json:"app_name"`
+	Description string `json:"description"`
 }
 
-// UpdateApplicationDictRequest 是受限编辑应用的请求体（决策 92 / 104）：仅接受
-// app_name/description/status/platform_code；不接收 app_code（app_code 创建后不可改）。
+// UpdateApplicationDictRequest 是受限编辑应用的请求体（决策 92/110）：仅接受
+// app_name/description/status；不接收 app_code 或已废弃的 platform_code。
 type UpdateApplicationDictRequest struct {
-	AppName      *string `json:"app_name"`
-	Description  *string `json:"description"`
-	Status       *string `json:"status"`
-	PlatformCode *string `json:"platform_code"`
+	AppName     *string `json:"app_name"`
+	Description *string `json:"description"`
+	Status      *string `json:"status"`
 }
 
 // validatePlatformCodeRef 校验 platform_code 引用（决策 104 红线④）：非空时须引用
@@ -221,7 +214,7 @@ func ListApplicationDicts(store *ApplicationDictStore) gin.HandlerFunc {
 // CreateApplicationDict 是 POST /api/v2/platform/application-dict 的登记 handler
 // （决策 92）：body {app_code,app_name,description}；默认 enabled=true；编码不规范/
 // 重名/app_name 为空 → bad_request。
-func CreateApplicationDict(store *ApplicationDictStore, platformStore *PlatformDictStore) gin.HandlerFunc {
+func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateApplicationDictRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -229,11 +222,6 @@ func CreateApplicationDict(store *ApplicationDictStore, platformStore *PlatformD
 			return
 		}
 		if err := validateCreateApplicationDict(&req); err != nil {
-			response.BadRequest(c, err)
-			return
-		}
-		// 决策 104 红线④：可选父级 platform_code 须引用未停用平台条目。
-		if err := validatePlatformCodeRef(platformStore, req.PlatformCode); err != nil {
 			response.BadRequest(c, err)
 			return
 		}
@@ -247,11 +235,10 @@ func CreateApplicationDict(store *ApplicationDictStore, platformStore *PlatformD
 			return
 		}
 		created, err := store.Create(models.ApplicationDict{
-			AppCode:      req.AppCode,
-			AppName:      req.AppName,
-			Description:  req.Description,
-			Status:       models.AppStatusEnabled, // 登记默认启用（决策 92）
-			PlatformCode: strings.TrimSpace(req.PlatformCode),
+			AppCode:     req.AppCode,
+			AppName:     req.AppName,
+			Description: req.Description,
+			Status:      models.AppStatusEnabled, // 登记默认启用（决策 92）
 		})
 		if err != nil {
 			response.InternalServerError(c, err)
@@ -264,7 +251,7 @@ func CreateApplicationDict(store *ApplicationDictStore, platformStore *PlatformD
 // UpdateApplicationDict 是 PUT /api/v2/platform/application-dict/:app_code 的受限
 // 编辑 handler（决策 92 / 104）：仅 app_name/description/status/platform_code 可改；
 // 无 DELETE 入口（停用不删除）。
-func UpdateApplicationDict(store *ApplicationDictStore, platformStore *PlatformDictStore) gin.HandlerFunc {
+func UpdateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		code := strings.TrimSpace(c.Param("app_code"))
 		if code == "" {
@@ -283,13 +270,6 @@ func UpdateApplicationDict(store *ApplicationDictStore, platformStore *PlatformD
 		if req.Status != nil && *req.Status != models.AppStatusEnabled && *req.Status != models.AppStatusDisabled {
 			response.BadRequest(c, fmt.Errorf("status 仅允许 enabled/disabled"))
 			return
-		}
-		// 决策 104 红线④：父级 platform_code 可挂 / 可摘 / 可换，但新引用须为未停用条目。
-		if req.PlatformCode != nil {
-			if err := validatePlatformCodeRef(platformStore, *req.PlatformCode); err != nil {
-				response.BadRequest(c, err)
-				return
-			}
 		}
 		_, found, err := store.Lookup(code)
 		if err != nil {

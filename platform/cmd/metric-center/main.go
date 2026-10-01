@@ -323,7 +323,8 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 	cloudStore := resource.NewCloudDictStore(db.DB)
 	platformStore := resource.NewPlatformDictStore(db.DB)
 	svcStore := resource.NewServiceDictStore(db.DB)
-	resource.RegisterRoutes(platform, db.DB, businessStore, appStore, cloudStore, platformStore, svcStore)
+	appPlatformStore := resource.NewAppPlatformStore(db.DB)
+	resource.RegisterRoutes(platform, db.DB, businessStore, appStore, cloudStore, platformStore, svcStore, appPlatformStore)
 	label.RegisterRoutes(platform, db.DB)
 
 	// Module 01 (T01-09 收口): 监控策略——采集器模板 + 默认采集配置 + 采集 Job

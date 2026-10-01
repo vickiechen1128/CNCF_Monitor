@@ -19,6 +19,7 @@ type ResourceBase struct {
 	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	CloudCode        string           `gorm:"size:50" json:"cloud_code"`
+	PlatformCode     string           `gorm:"size:64" json:"platform_code"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"` // 业务归属编码，必填（MVP）
 	// AppName 物理列名沿用历史名（决策 92：物理列名不改名）；其语义已切换为不可变应用
 	// 编码 app_code——资源侧只存编码，app label 恒取此值。展示名由应用字典承载。

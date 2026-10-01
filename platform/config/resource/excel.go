@@ -136,6 +136,9 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.BizCode = val
 		case "app_code":
 			in.AppCode = val
+		case "platform_code":
+			// 决策 110：可空列，留空按所属应用主平台兜底（不在此处回填）。
+			in.PlatformCode = val
 		case "env":
 			in.Env = val
 		case "cluster":
@@ -220,6 +223,14 @@ func allEmpty(cells []string) bool {
 //
 // 失败返回 *ImportRowError（携带完整 row/field/value/reason），成功返回 nil。
 func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule) error {
+	return ValidateImportRowWithPlatform(row, bizStore, appStore, svcStore, networkDomainExists, extraRules, nil)
+}
+
+// ValidateImportRowWithPlatform 与 ValidateImportRow 同校验，并追加资源行
+// platform_code 一等字段校验（决策 110 / §5.16.2）：platform 为 nil 时行为与
+// ValidateImportRow 完全一致（跳过平台校验）。校验失败落**行级错误**
+// （field=platform_code），只阻断当前行、不影响其余行导入。
+func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule, platform *PlatformRefs) error {
 	if row == nil {
 		return &ImportRowError{Detail: models.ImportErrorDetail{Field: "resource", Reason: "导入行为空"}}
 	}
@@ -328,6 +339,13 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 		}
 	}
 
+	// 3.7 决策 110：可选列 platform_code——留空不校验（走所属应用主平台兜底）；
+	//     填值须为启用平台字典条目且与所属 app_code 的平台集合自洽。失败落行级
+	//     错误（field=platform_code），不阻断其余行。
+	if err := validatePlatformCode(in, platform, nil); err != nil {
+		return fieldErr(row, "platform_code", in.PlatformCode, err.Error())
+	}
+
 	// 4. 非数字 port（ParseExcel 置 -1 哨兵）。
 	if in.Port < 0 {
 		return fieldErr(row, "port", row.PortRaw, "port 必须为 1~65535 的整数")
@@ -347,7 +365,7 @@ func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *
 	// 移至 M06 网域登记层，此处不再处理。
 
 	// 6. 其余字段校验复用 T07-03（必填/IP/端口范围/URL/env/protocol/scheme）。
-	if err := ValidateResourceInput(category, in, bizStore, appStore, svcStore, networkDomainExists); err != nil {
+	if err := ValidateResourceInputWithPlatform(category, in, bizStore, appStore, svcStore, networkDomainExists, platform); err != nil {
 		field := fieldFromResourceInputError(err.Error())
 		return fieldErr(row, field, valueFromField(in, field, row.PortRaw), err.Error())
 	}
@@ -403,7 +421,7 @@ var resourceInputFieldPrefixes = []string{
 	"database_type", "middleware_type", "port", "version",
 	"service_name", "service_code", "health_check_url", "protocol", "endpoint",
 	"target_name", "metrics_path", "scheme", "exporter_type",
-	"app_code", "cluster", "resource_category",
+	"app_code", "platform_code", "cluster", "resource_category",
 }
 
 // fieldFromResourceInputError 从 ValidateResourceInput 的错误消息中提取字段名。
@@ -426,6 +444,8 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 		return in.BizCode
 	case "app_code":
 		return in.AppCode
+	case "platform_code":
+		return in.PlatformCode
 	case "cluster":
 		return in.Cluster
 	case "owner":
@@ -479,8 +499,15 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 // Status 与 DedupKey）与失败明细（§5.16.3 结构，row 从 2 起始）。T07-10 导入
 // 执行在 ParseExcel 之后调用本函数，作为行级校验与错误行收集的统一入口。
 func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule) (valid []ImportRow, errs []models.ImportErrorDetail) {
+	return ValidateRowsWithPlatform(rows, bizStore, appStore, svcStore, networkDomainExists, extraRules, nil)
+}
+
+// ValidateRowsWithPlatform 与 ValidateRows 同口径，逐行调用
+// ValidateImportRowWithPlatform（决策 110：platform 非 nil 时校验 platform_code）。
+// Excel 导入执行层（import.go）经本入口注入平台字典与应用↔平台关联 store。
+func ValidateRowsWithPlatform(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, networkDomainExists func(string) bool, extraRules []Rule, platform *PlatformRefs) (valid []ImportRow, errs []models.ImportErrorDetail) {
 	for i := range rows {
-		if err := ValidateImportRow(&rows[i], bizStore, appStore, svcStore, networkDomainExists, extraRules); err != nil {
+		if err := ValidateImportRowWithPlatform(&rows[i], bizStore, appStore, svcStore, networkDomainExists, extraRules, platform); err != nil {
 			var rerr *ImportRowError
 			if errors.As(err, &rerr) {
 				errs = append(errs, rerr.Detail)

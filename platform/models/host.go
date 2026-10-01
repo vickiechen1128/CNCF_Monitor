@@ -14,6 +14,7 @@ type Host struct {
 	ResourceCategory ResourceCategory `gorm:"size:30;not null" json:"resource_category"`
 	NetworkDomainID  string           `gorm:"size:64;not null;index" json:"network_domain_id"`
 	BizCode          string           `gorm:"size:64;not null" json:"biz_code"`
+	PlatformCode     string           `gorm:"size:64" json:"platform_code"`
 	CloudCode        string           `gorm:"size:50" json:"cloud_code"`
 	// AppCode 是不可变的应用编码（app_code，决策 92）：资源侧只存编码，app label 恒取
 	// 此值；展示名由应用字典 AppName 承载，改展示名不触发配置重生成/下发。
