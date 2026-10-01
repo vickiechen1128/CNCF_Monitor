@@ -630,14 +630,14 @@ func TestLoadLatestAlertmanagerConfigContent(t *testing.T) {
 
 	// 存在已留痕（applied）版本 → 返回最新一条 content（决策 60 / T09-60-1）。
 	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
-		Content:        "route:\n  receiver: first\n",
-		Checksum:       models.AlertmanagerConfigChecksum("route:\n  receiver: first\n"),
-		Status:         models.AlertmanagerConfigStatusApplied,
+		Content:  "route:\n  receiver: first\n",
+		Checksum: models.AlertmanagerConfigChecksum("route:\n  receiver: first\n"),
+		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
 	require.NoError(t, db.Create(&models.AlertmanagerConfigVersion{
-		Content:        "route:\n  receiver: latest\n",
-		Checksum:       models.AlertmanagerConfigChecksum("route:\n  receiver: latest\n"),
-		Status:         models.AlertmanagerConfigStatusApplied,
+		Content:  "route:\n  receiver: latest\n",
+		Checksum: models.AlertmanagerConfigChecksum("route:\n  receiver: latest\n"),
+		Status:   models.AlertmanagerConfigStatusApplied,
 	}).Error)
 
 	got2, err := LoadLatestAlertmanagerConfigContent(db)
@@ -837,6 +837,7 @@ func TestAssembleRuleFilesAndAlertingShareCenterSwitch(t *testing.T) {
 	assert.NotContains(t, edge.PrometheusYML, "rule_files")
 	assert.NotContains(t, edge.PrometheusYML, "alerting")
 }
+
 // TestResolveTargetsInjectsServiceCodeLabel（决策 105）：application /
 // generic_target 默认模板内置 `service_code → svc` 映射行，资源 service_code 取值
 // 注入 svc 标签；留空时不注入（空值不注入语义）。
@@ -924,8 +925,10 @@ func TestDefaultMappingBuildersSVCOnlyForServiceManagedTypes(t *testing.T) {
 		default:
 			assert.Empty(t, svcMappings, "%s 默认模板不得含 svc 映射（基础设施不挂服务）", cat)
 		}
-		// platform 为派生标签，恒不在模板映射表中（与 cloud 同处理）。
-		assert.Empty(t, platformMappings, "%s 默认模板不得含 platform 映射（派生标签）", cat)
+		require.Len(t, platformMappings, 1, "%s 默认模板应含 1 条 platform_code → platform 映射", cat)
+		assert.Equal(t, "platform_code", platformMappings[0].SourceField)
+		assert.Equal(t, "platform", platformMappings[0].TargetLabel)
+		assert.Equal(t, models.LabelSourceTypeResourceField, platformMappings[0].SourceType)
 	}
 }
 
