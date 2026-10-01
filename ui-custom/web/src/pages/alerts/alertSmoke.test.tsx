@@ -48,10 +48,35 @@ vi.mock('../../api/domain', () => ({
   },
 }))
 
-// 派生预览数据 Hook：冒烟中固定空态，避免穿透真实 notify-channels API（本文件未 mock 该 API）
+// 派生预览数据 Hook：冒烟中默认空态，避免穿透真实 notify-channels API（本文件未 mock 该 API）；
+// 具体用例可覆盖返回值（如校验 L3 文案）。
+const useDerivedReceiversMock = vi.fn()
 vi.mock('./useDerivedReceivers', () => ({
-  useDerivedReceivers: () => ({ rows: [], loading: false, error: null, permissionDenied: false, reload: vi.fn() }),
+  useDerivedReceivers: () => useDerivedReceiversMock(),
 }))
+
+// 默认接收人（根兜底）Hook（T08-F8）：同上隔离真实 route-setting / notify-channels 请求
+const useRouteSettingMock = vi.fn()
+vi.mock('./useRouteSetting', () => ({
+  useRouteSetting: () => useRouteSettingMock(),
+  NONE_RECEIVER_VALUE: -1,
+}))
+
+function derivedEmpty() {
+  return { rows: [], loading: false, error: null, permissionDenied: false, reload: vi.fn() }
+}
+
+function routeSettingEmpty() {
+  return {
+    setting: null,
+    options: [{ value: -1, label: '不接管（保留我手写的兜底配置）' }],
+    loading: false,
+    error: null,
+    saving: false,
+    reload: vi.fn(),
+    save: vi.fn(),
+  }
+}
 
 function renderM08(initialPath: string) {
   return render(
@@ -85,6 +110,10 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     getPromAlertsMock.mockResolvedValue({ status: 'success', data: { alerts: [] } })
     getAmAlertsMock.mockResolvedValue({ status: 'success', data: { items: [] } })
     listDomainsMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    useDerivedReceiversMock.mockReset()
+    useDerivedReceiversMock.mockReturnValue(derivedEmpty())
+    useRouteSettingMock.mockReset()
+    useRouteSettingMock.mockReturnValue(routeSettingEmpty())
   })
 
   it('主链路前端可走通：/alert-config 加载告警配置页，顶级 tab + 两二级子项就位', async () => {
@@ -142,5 +171,40 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     renderM08('/alert-config')
     expect(await screen.findByText('配置信息加载失败，请稍后重试')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /重新加载/ })).toBeInTheDocument()
+  })
+
+  // T08-F8：骨架布缆开关「默认接收人（根兜底）」在主链路页内就位（clipping：收进当前生效配置卡，不新增整卡）。
+  it('T08-F8：告警配置页「默认接收人（根兜底）」控件就位', async () => {
+    renderM08('/alert-config')
+    expect(await screen.findByText('默认兜底接收人')).toBeInTheDocument()
+    // 首项「不接管」= null 且为默认选中值
+    expect(screen.getByText('不接管（保留我手写的兜底配置）')).toBeInTheDocument()
+  })
+
+  // T08-F9（#26 / #28.5）：L3 文案收口——不再表述「route 段由你手写维护」。
+  it('T08-F9：派生预览 L3 文案改为「根兜底在你选定默认接收人后由平台接管」', async () => {
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [
+        {
+          channelId: '1',
+          channelName: 'SRE 飞书群',
+          receiverName: 'sre-feishu-qun',
+          snippet: "  - name: sre-feishu-qun\n",
+          tokenConfigured: true,
+        },
+      ],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
+    renderM08('/alert-config')
+    expect(await screen.findByText('派生预览：平台将写入的接收人')).toBeInTheDocument()
+    // 新口径三段式文案
+    expect(screen.getByText(/平台自动写入/)).toBeInTheDocument()
+    expect(screen.getByText(/在你选定默认接收人后由平台接管/)).toBeInTheDocument()
+    // 旧的一期过渡表述已消除
+    expect(document.body.textContent ?? '').not.toContain('route 段由你手写维护')
+    expect(document.body.textContent ?? '').not.toContain('route 段由用户手写维护')
   })
 })

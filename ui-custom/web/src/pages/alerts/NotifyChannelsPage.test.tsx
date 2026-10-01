@@ -292,8 +292,10 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(configLinks.every((l) => l.getAttribute('href') === '/alert-config')).toBe(true)
     // 安全文案（#27）：片段含内网凭据降级为片段标题右侧行内 tag（Tooltip 展开说明），不再整块 Alert
     expect(screen.getByText('含内网凭据')).toBeInTheDocument()
-    // L3（#26 / #28）：归属边界说明贴在 receiver 片段块上——平台只物化 receivers，route 由用户手写维护
-    expect(screen.getByText(/route 段由你手写维护/)).toBeInTheDocument()
+    // L3（#26 / #28.5，T08-F9）：归属边界说明贴在 receiver 片段块上——平台自动写入 receivers 定义；
+    // 具体分流 route.routes[] 由用户写；根兜底 route.receiver 在用户选定默认接收人后由平台接管。
+    expect(screen.getByText(/在你选定默认接收人后由平台接管/)).toBeInTheDocument()
+    expect(document.body.textContent ?? '').not.toContain('route 段由你手写维护')
 
     await user.click(screen.getByRole('button', { name: /复制配置片段/ }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(snippetResponse().data.snippet))

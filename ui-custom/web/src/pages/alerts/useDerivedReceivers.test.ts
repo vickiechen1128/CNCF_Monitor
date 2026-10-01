@@ -117,4 +117,26 @@ describe('useDerivedReceivers（派生预览数据）', () => {
     await waitFor(() => expect(result.current.rows.length).toBe(1))
     expect(result.current.rows[0].tokenConfigured).toBe(false)
   })
+
+  it('渠道的模板绑定字段透传进 row（绑定 / 未绑定 / 缺省）', async () => {
+    listMock.mockResolvedValue(
+      channels([
+        channel({ id: '1', default_template_id: 7 }),
+        channel({ id: '2', default_template_id: 0 }),
+        channel({ id: '3' }),
+      ]),
+    )
+    snippetMock.mockImplementation((id: string) => Promise.resolve(snippet(`recv-${id}`)))
+
+    const { result } = renderHook(() => useDerivedReceivers())
+    await waitFor(() => expect(result.current.rows.length).toBe(3))
+
+    const rows = result.current.rows
+    expect(rows[0].defaultTemplateId).toBe(7)
+    expect(rows[0].channelType).toBe('feishu')
+    expect(rows[1].defaultTemplateId).toBe(0)
+    expect(rows[1].channelType).toBe('feishu')
+    expect(rows[2].defaultTemplateId).toBeUndefined()
+    expect(rows[2].channelType).toBe('feishu')
+  })
 })

@@ -1,6 +1,6 @@
 import { cleanup } from '@testing-library/react';
 import { vi, type Mock, beforeEach, afterEach } from 'vitest';
-import { Modal } from 'antd';
+import { App, Modal } from 'antd';
 import type { ModalFuncProps } from 'antd/es/modal/interface';
 
 /**
@@ -114,6 +114,15 @@ export function mockAntdModal(): MockedModal {
   vi.spyOn(Modal, 'success').mockImplementation(createMockImpl(modal.success));
   vi.spyOn(Modal, 'error').mockImplementation(createMockImpl(modal.error));
   vi.spyOn(Modal, 'warning').mockImplementation(createMockImpl(modal.warning));
+
+  // 页面已迁移到 App.useApp().modal.confirm（消费 App 上下文，不经静态 Modal.confirm）：
+  // 一并 mock App.useApp，使 modal.confirm 命中同一 spy，覆盖 AlertConfigPage / NotifyTemplatesPage 等。
+  // 仅替换 modal 为 spy，保留真实的 message / notification（否则 message.error 等不再渲染到 DOM，破坏文案断言）。
+  const realUseApp = App.useApp;
+  vi.spyOn(App, 'useApp').mockImplementation(() => {
+    const real = realUseApp();
+    return { ...real, modal };
+  });
 
   return modal;
 }

@@ -22,6 +22,7 @@ vi.mock('./useNotifyTemplates', () => ({
 const reloadMock = vi.fn()
 const submitMock = vi.fn()
 const remountMock = vi.fn()
+const removeMock = vi.fn()
 
 const builtinRow: NotifyTemplate = {
   id: '1',
@@ -55,6 +56,7 @@ function result(over: Record<string, unknown> = {}) {
     reload: reloadMock,
     submit: submitMock,
     remount: remountMock,
+    remove: removeMock,
     ...over,
   }
 }
@@ -79,6 +81,8 @@ describe('NotifyTemplatesPage（通知模板管理）', () => {
     submitMock.mockResolvedValue(builtinRow)
     remountMock.mockReset()
     remountMock.mockResolvedValue(customRow)
+    removeMock.mockReset()
+    removeMock.mockResolvedValue(undefined)
   })
 
   it('页头渲染模板名称与提交入口', () => {
@@ -111,8 +115,21 @@ describe('NotifyTemplatesPage（通知模板管理）', () => {
     const matches = await screen.findAllByText('飞书卡片-默认')
     const row = matches.map((el) => el.closest('tr')).find(Boolean) as HTMLElement
     expect(within(row).getByText('内置')).toBeInTheDocument()
-    // 平台模板为版本留痕、后端未提供删除端点 → 前端不提供任何删除操作
-    expect(screen.queryByRole('button', { name: /删除/ })).toBeNull()
+    // 平台模板为版本留痕、后端未提供删除端点 → 该内置行不提供删除操作（删除入口仅对自定义模板出现）
+    expect(within(row).queryByRole('button', { name: /删除/ })).toBeNull()
+  })
+
+  it('自定义模板可删除：操作列出现「删除」按钮，二次确认后调用 remove', async () => {
+    useNotifyTemplatesMock.mockReturnValue(result({ templates: [customRow], total: 1 }))
+    const modal = mockAntdModal()
+    renderPage()
+    // 自定义行提供删除入口（antd 图标 span 会贡献 aria-label，故用正则匹配）
+    const delBtn = screen.getByRole('button', { name: /删除/ })
+    await userEvent.click(delBtn)
+    // 二次确认
+    expect(modal.confirm).toHaveBeenCalled()
+    await (modal.confirm.mock.calls[0][0].onOk as () => Promise<void>)()
+    expect(removeMock).toHaveBeenCalledWith('2')
   })
 
   it('权限不足：显示权限不足空态', () => {
