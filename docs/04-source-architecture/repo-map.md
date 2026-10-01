@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-09-30 12:56 · commit: `e39b1b6`
+> 生成时间: 2026-10-01 23:01 · commit: `e4161b6`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1060,6 +1060,34 @@
 - `func openRollbackTestDB(t *testing.T) *gorm.DB`
 - `func TestCreateLabelTemplateRollbackOnSnapshotFailure(t *testing.T)`
 
+### `platform/config/resource/app_platform_rel.go`
+
+- `type AppPlatformRel struct`
+- `type AppPlatformStore struct`
+- `func NewAppPlatformStore(db *gorm.DB) *AppPlatformStore`
+- `func toAppPlatformRel(m models.AppPlatformRel) AppPlatformRel`
+- `method (*AppPlatformStore) List(appCode, platformCode string) ([]AppPlatformRel, error)`
+- `method (*AppPlatformStore) PlatformCodesOf(appCode string) ([]string, error)`
+- `method (*AppPlatformStore) PrimaryPlatformOf(appCode string) (string, bool, error)`
+- `method (*AppPlatformStore) Create(rel models.AppPlatformRel) (AppPlatformRel, error)`
+- `method (*AppPlatformStore) SetPrimary(relID uint, isPrimary bool) (AppPlatformRel, error)`
+- `method (*AppPlatformStore) Delete(relID uint) error`
+- `type CreateAppPlatformRelRequest struct`
+- `type UpdateAppPlatformRelRequest struct`
+- `func validateAppPlatformRefs(appStore *ApplicationDictStore, platformStore *PlatformDictStore, appCode, platformCode string)…`
+- `func parseAppPlatformRelID(c *gin.Context) (uint, bool)`
+- `func ListAppPlatformRels(store *AppPlatformStore) gin.HandlerFunc`
+- `func CreateAppPlatformRel(store *AppPlatformStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore) gin.Han…`
+- `func UpdateAppPlatformRel(store *AppPlatformStore) gin.HandlerFunc`
+- `func DeleteAppPlatformRel(store *AppPlatformStore) gin.HandlerFunc`
+
+### `platform/config/resource/app_platform_rel_test.go`
+
+- `func openAppPlatformRelTestDB(t *testing.T) *gorm.DB`
+- `func newAppPlatformStore(t *testing.T) *AppPlatformStore`
+- `func TestAppPlatformRelEndpoints(t *testing.T)`
+- `func TestAppPlatformStorePrimaryPlatformOf(t *testing.T)`
+
 ### `platform/config/resource/application_dict.go`
 
 - `type ApplicationDict struct`
@@ -1077,8 +1105,8 @@
 - `func validatePlatformCodeRef(platformStore *PlatformDictStore, code string) error`
 - `func validateCreateApplicationDict(req *CreateApplicationDictRequest) error`
 - `func ListApplicationDicts(store *ApplicationDictStore) gin.HandlerFunc`
-- `func CreateApplicationDict(store *ApplicationDictStore, platformStore *PlatformDictStore) gin.HandlerFunc`
-- `func UpdateApplicationDict(store *ApplicationDictStore, platformStore *PlatformDictStore) gin.HandlerFunc`
+- `func CreateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
+- `func UpdateApplicationDict(store *ApplicationDictStore) gin.HandlerFunc`
 
 ### `platform/config/resource/application_dict_test.go`
 
@@ -1091,7 +1119,7 @@
 ### `platform/config/resource/application_test.go`
 
 - `func openAppPlatformTestDB(t *testing.T, platforms []models.PlatformDict, apps []models.ApplicationDict) *gorm.DB`
-- `func TestApplicationDictPlatformParent(t *testing.T)`
+- `func TestApplicationDictPlatformCodeWriteIgnored(t *testing.T)`
 
 ### `platform/config/resource/business.go`
 
@@ -1171,7 +1199,7 @@
 - `func applyMiddlewareInput(m *models.Middleware, in *ResourceInput)`
 - `func applyApplicationInput(a *models.Application, in *ResourceInput)`
 - `func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput)`
-- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore) …`
+- `func CreateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, …`
 
 ### `platform/config/resource/create_update_test.go`
 
@@ -1231,11 +1259,13 @@
 - `func parsePort(raw string) (int, string)`
 - `func allEmpty(cells []string) bool`
 - `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictS…`
+- `func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *…`
 - `func fieldErr(row *ImportRow, field, value, reason string) error`
 - `func parseCustomLabels(raw string) (map[string]string, error)`
 - `func fieldFromResourceInputError(msg string) string`
 - `func valueFromField(in *ResourceInput, field, portRaw string) string`
 - `func ValidateRows(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStor…`
+- `func ValidateRowsWithPlatform(rows []ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *Ser…`
 
 ### `platform/config/resource/excel_declare.go`
 
@@ -1536,13 +1566,14 @@
 - `method (*ServiceDictStore) EnabledList() ([]ServiceDict, error)`
 - `method (*ServiceDictStore) GetEnabledMap() (map[string]ServiceDict, error)`
 - `method (*ServiceDictStore) Create(m models.ServiceDict) (ServiceDict, error)`
-- `method (*ServiceDictStore) UpdateEnabledNameDesc(code string, req UpdateServiceDictRequest) (ServiceDict, error)`
+- `method (*ServiceDictStore) Update(code string, req UpdateServiceDictRequest) (ServiceDict, error)`
 - `type CreateServiceDictRequest struct`
 - `type UpdateServiceDictRequest struct`
 - `func validateCreateServiceDict(req *CreateServiceDictRequest) error`
+- `func validateServiceRelationRefs(appStore *ApplicationDictStore, bizStore *BusinessDomainStore, appCode, bizCode string) err…`
 - `func ListServiceDicts(store *ServiceDictStore) gin.HandlerFunc`
-- `func CreateServiceDict(store *ServiceDictStore) gin.HandlerFunc`
-- `func UpdateServiceDict(store *ServiceDictStore) gin.HandlerFunc`
+- `func CreateServiceDict(store *ServiceDictStore, appStore *ApplicationDictStore, bizStore *BusinessDomainStore) gin.HandlerFu…`
+- `func UpdateServiceDict(store *ServiceDictStore, appStore *ApplicationDictStore, bizStore *BusinessDomainStore) gin.HandlerFu…`
 
 ### `platform/config/resource/service_test.go`
 
@@ -1550,7 +1581,7 @@
 - `func newSvcStore(t *testing.T) *ServiceDictStore`
 - `func TestServiceDictEndpoints(t *testing.T)`
 - `func TestServiceDictStoreEnabledSemantics(t *testing.T)`
-- `func TestServiceDictHasNoParentField(t *testing.T)`
+- `func TestServiceDictHasNullableRelationFields(t *testing.T)`
 
 ### `platform/config/resource/status_mapping.go`
 
@@ -1576,8 +1607,8 @@
 ### `platform/config/resource/template.go`
 
 - `type DomainOption struct`
-- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, listDomains…`
-- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, listDomains …`
+- `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcSt…`
+- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcSto…`
 - `func statusValueDescription() string`
 - `func buildTemplateXLSX(columns []string, valueRows [][]string) ([]byte, error)`
 
@@ -1599,16 +1630,20 @@
 - `func findResourceByID(db *gorm.DB, resourceID string) (category models.ResourceCategory, model any, found bool, err error)`
 - `func sourceTypeOf(model any) models.SourceType`
 - `func updatableColumns(category models.ResourceCategory) []string`
-- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore) …`
+- `func UpdateResource(db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictStore, …`
 
 ### `platform/config/resource/validate.go`
 
 - `type ResourceInput struct`
 - `type KeepDisabledValues struct`
+- `type PlatformRefs struct`
 - `func ValidateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
 - `func ValidateResourceInputForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appS…`
+- `func ValidateResourceInputWithPlatform(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, a…`
+- `func ValidateResourceInputWithPlatformForUpdate(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomai…`
 - `func validateResourceInput(category models.ResourceCategory, in *ResourceInput, bizStore *BusinessDomainStore, appStore *App…`
 - `func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictS…`
+- `func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisabledValues) error`
 - `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
 - `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
 - `func validateServiceCodeEnabled(in *ResourceInput, svcStore *ServiceDictStore, keep *KeepDisabledValues) error`
@@ -2224,6 +2259,18 @@
 - `func TestRunAdminKeepsModifiedPassword(t *testing.T)`
 - `func TestRunAdminPasswordFromEnv(t *testing.T)`
 - `func TestAdminUser_ProductionRequiresEnvPassword(t *testing.T)`
+
+### `platform/db/seed/app_platform_rel.go`
+
+- `func runAppPlatformBackfill(db *gorm.DB) error`
+
+### `platform/db/seed/app_platform_rel_test.go`
+
+- `func relOf(t *testing.T, db *gorm.DB, appCode, platformCode string) models.AppPlatformRel`
+- `func primaryOf(t *testing.T, db *gorm.DB, appCode string) string`
+- `func TestRunAppPlatformBackfillMigratesLegacyCode(t *testing.T)`
+- `func TestRunAppPlatformBackfillIdempotent(t *testing.T)`
+- `func TestRunAppPlatformBackfillSkipsExistingPrimary(t *testing.T)`
 
 ### `platform/db/seed/application_dict.go`
 
@@ -2999,6 +3046,17 @@
 - `func TestNotifyChannelEnabledFalsePersists(t *testing.T)`
 - `func TestNotifyTemplateMigrateAndChecksum(t *testing.T)`
 - `func TestValidNotifyChannelTypes(t *testing.T)`
+
+### `platform/models/app_platform_rel.go`
+
+- `type AppPlatformRel struct`
+- `func ValidateAppPlatformPrimaryUnique(tx *gorm.DB, appCode string, excludeRelID uint) error`
+
+### `platform/models/app_platform_rel_test.go`
+
+- `func TestAppPlatformRelManyToManyAndUniquePair(t *testing.T)`
+- `func TestValidateAppPlatformPrimaryUnique(t *testing.T)`
+- `func TestResourcePlatformCodeFieldMappings(t *testing.T)`
 
 ### `platform/models/application_dict.go`
 
@@ -4125,6 +4183,11 @@
 - `interface ServiceDictCreateInput`
 - `interface ServiceDictUpdateInput`
 - `const serviceDictApi`
+- `interface AppPlatformRelListParams`
+- `interface AppPlatformRelsResponse`
+- `interface AppPlatformRelCreateInput`
+- `interface AppPlatformRelUpdateInput`
+- `const appPlatformRelApi`
 - `interface CloudDictsResponse`
 - `const cloudDictApi`
 - `const osOptionApi`
@@ -4697,6 +4760,11 @@
 - `function BusinessDomainPage`
 - `function BusinessDomainDrawer`
 
+### `ui-custom/web/src/pages/resources/DictLifecycleNotice.tsx`
+
+- `const DICT_LIFECYCLE_NOTICE`
+- `function DictLifecycleNotice`
+
 ### `ui-custom/web/src/pages/resources/ImportModal.tsx`
 
 - `function ImportModal`
@@ -5084,6 +5152,7 @@
 - `type ResourceUpdateInput`
 - `interface BusinessDomain`
 - `interface ApplicationDict`
+- `interface AppPlatformRel`
 - `interface PlatformDict`
 - `interface ServiceDict`
 - `interface CloudDict`
