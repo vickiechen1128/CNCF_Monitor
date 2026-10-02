@@ -259,6 +259,9 @@ export interface NotifyChannel {
   /** secret 永不回显，仅告知是否已设置 */
   secret_set: boolean
   enabled: boolean
+  /** 渠道物化的 AM receiver 名（由渠道名归一 / 回落 notify-<id>，与 M09 生成器同源，决策 74）；非敏感字段，列表即回显。
+   * 供前端批量派生「已知接收人」清单，避免逐渠道调用 admin-only 的 receiver-snippet 接口（H1）。 */
+  receiver_name?: string
   /** 绑定的通知模板 ID（缺省 = 使用平台内置默认模板）；渠道 ↔ 模板一等绑定（dev-feedback #30） */
   default_template_id?: number
   /** RFC3339 */
@@ -368,6 +371,8 @@ export interface RouteSetting {
   enabled: boolean
   /** 持久化设定值（`null` = 不接管；显式设定的渠道停用后原值保留） */
   default_receiver_channel_id: number | null
+  /** route 段作者模式（T08-F12 模式开关）：handwritten / managed */
+  mode: RouteMode
   /** 实际（或建议）写入根 `route.receiver` 的 AM receiver 名；`none` 时为空串 */
   effective_receiver_name: string
   effective_source: RouteReceiverSource
@@ -376,6 +381,8 @@ export interface RouteSetting {
 /** PUT `/route-setting` 请求体：`null` = 关闭接管（护栏③：停止替换、不删最后写入的值） */
 export interface UpdateRouteSettingPayload {
   default_receiver_channel_id: number | null
+  /** route 段作者模式（T08-F12）；空串 / 缺省由后端归一为 handwritten */
+  mode?: RouteMode
 }
 
 // =====================================================================
@@ -384,11 +391,11 @@ export interface UpdateRouteSettingPayload {
 // =====================================================================
 
 /**
- * route 段作者模式（PRD §4.1.1 / 提案 §4.3）：
+ * route 段作者模式（PRD §4.1.1 / 提案 §4.3；后端 `RouteMode`）：
  * - `handwritten`（默认）：route 段由用户手写维护，本页只读渲染；
- * - `platform`：route 段由平台生成（T08-F12 模式开关接入后按实返回）。
+ * - `managed`：route 段由平台生成并接管（T08-F12 模式开关），平台拥有 root 兜底等 segment。
  */
-export type RouteAuthorMode = 'handwritten' | 'platform'
+export type RouteMode = 'handwritten' | 'managed'
 
 /**
  * 归一后的单条路由匹配条件（对齐 `RouteMatcher`，字段名 snake_case）。
@@ -442,7 +449,7 @@ export interface DeadReceiver {
  * 解析失败 / 非常规结构降级：`{ mode, parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
  */
 export interface RouteTreeData {
-  mode: RouteAuthorMode
+  mode: RouteMode
   /** 前序扁平节点序列（`items[0]` = 顶层路由）；解析失败时缺省 */
   items?: RouteNode[]
   /** 平台已生成但无任何路由引用的接收人；解析失败时缺省 */

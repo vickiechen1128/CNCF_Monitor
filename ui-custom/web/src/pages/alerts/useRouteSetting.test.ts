@@ -172,6 +172,21 @@ describe('useRouteSetting（默认接收人 / 根兜底）', () => {
     await waitFor(() => expect(result.current.setting?.default_receiver_channel_id).toBe(5))
   })
 
+  it('T08-F12：保存时透传 mode（handwritten/managed），后端持久化后回读', async () => {
+    getMock.mockResolvedValue(setting())
+    listMock.mockResolvedValue(channels([channel({ id: '5', name: 'SRE' })]))
+    snippetMock.mockResolvedValue(snippet('sre'))
+    updateMock.mockResolvedValue(setting({ mode: 'managed', effective_source: 'none', effective_receiver_name: '' }))
+
+    const { result } = renderHook(() => useRouteSetting())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const updated = await result.current.save(5, 'managed')
+    expect(updateMock).toHaveBeenCalledWith({ default_receiver_channel_id: 5, mode: 'managed' })
+    expect(updated.mode).toBe('managed')
+    await waitFor(() => expect(result.current.setting?.mode).toBe('managed'))
+  })
+
   it('保存失败（400 渠道不存在 / 未启用）向上抛出并透传错误消息，由调用方提示', async () => {
     getMock.mockResolvedValue(setting())
     listMock.mockResolvedValue(channels([channel({ id: '9', name: 'X' })]))
