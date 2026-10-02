@@ -109,3 +109,53 @@
 - `feat(module-07): biz_code 必填按类型分化 + generic 二选一 + 编辑保留停用历史值（T07-93-B1）`
 - `feat(module-07): Excel 声明 sheet 解析 + 事务原子建字典落资源（T07-97-B1）`
 - `feat(module-07): application-dict 闭环 + Excel 声明导入闭环集成测试（T07-97-B2）`
+---
+
+## T07-105：默认标签模板 platform / svc 映射幂等回填（止血，commit 26b39a4）
+
+- 分支：`feat/module-07-resource-management`
+- 关联决策：`docs/05-execution-records/module-07/design-decisions.md` 决策 115（止血）/ 决策 105（svc 仅 application / generic_target）/ 决策 110（platform 经 resource_field 注入）；后续项：决策 116（类别专属行评估，T07-106）、决策 117（模板版本化重建根治，T07-107）
+- PRD 依据：Module_07 §5.12.1 / §5.13（`platform_code→platform` 五类、`service_code→svc` 仅 application / generic_target）——**PRD 零改动**，本任务属实现对齐契约。
+
+### 变更文件
+
+| 文件 | 说明 |
+|------|------|
+| `platform/db/seed/label_template.go` | 新增 `ensurePlatformMapping` / `ensureSVCMapping` / 通用原语 `ensureLabelMapping`，并在 `runLabelTemplates` 循环内调用 |
+| `platform/db/seed/label_template_test.go` | 新增：存量库（旧版模板）路径防回归测试 4 例 |
+| `docs/04-source-architecture/repo-map.md` | `make repo-map` 重新生成（新增 Go 文件触发，pre-commit 门禁要求） |
+
+### 关键实现说明
+
+1. **根因**：`runLabelTemplates` 用 `firstOrCreate`（GORM `FirstOrCreate`）**只创建不更新**，故 `DefaultMappingBuilders` 新增的映射行对**存量库静默失效**；默认模板只读、用户无法经 UI 补映射。既有先例 `ensureResourceIDMapping` 证明该模式已知，本次（决策 110 platform / 决策 105 svc）漏配。
+2. **实现**：抽取 `ensureLabelMapping(db, name, mapping)`——按 `TargetLabel` 判存 → 缺失则 **append 到映射末尾**（不重写切片，保留既有顺序与内容）→ `Save`；已存在直接返回 ⇒ 幂等。新增行 `Enabled: true`、`SourceType: resource_field`。
+3. **调用口径**：`ensurePlatformMapping` 对**五类**全覆盖；`ensureSVCMapping` **仅** `application` / `generic_target`（决策 105：host / database / middleware 属基础设施不挂服务维度）。
+4. **决策 115 通用规约**：任何新增 / 变更默认模板映射必须同步写幂等回填函数；仅改 `DefaultMappingBuilders` 视为**未完成落地**（本实现把「判存 + append」下沉为共享原语，后续新增映射一行调用即可，降低漏补概率——根治仍看决策 117）。
+
+### 测试（TDD：先 RED 后 GREEN）
+
+- **RED 确认**：先写 `label_template_test.go`，函数未定义导致 build FAIL；补空实现桩后 3 个用例在**行为层**失败（`TestRunLabelTemplatesBackfillsPlatformAndSVC` / `TestRunLabelTemplatesBackfillIdempotent` / `TestEnsurePlatformMappingAndSVCMappingAppendOnce`），证明测试真正覆盖存量库缺口。
+- **夹具**：`legacyLabelMappingSet` 复刻 2026-10-03 前实际库里的旧映射集（仅 `instance`(composite) / `resource_id` / `app` / `env` / `cluster` / `biz`，application 另含 `service_name` / `health_check_url`），`seedLegacyLabelTemplates` 预置 5 条 `default-*` 模拟存量库。
+- **断言**：① 五类均含唯一 `platform`；② `application` / `generic_target` 含唯一 `svc`；③ `host` / `database` / `middleware` **不含 `svc`**；④ 追加语义——旧映射切片原样保留在前、新映射追加在后且 `Enabled=true`；⑤ 幂等——`runLabelTemplates` 连跑两次 + 完整 `Run(db)` 后各目标标签计数仍为 1、模板总数仍为 5；⑥ `platform_code` / `service_code` 源字段与 `resource_field` 源类型契约。
+
+### 遇到的问题与解决方案
+
+- **问题**：现有单测只覆盖 `DefaultMappingBuilders` 函数级，**测不到存量库路径**，故 `platform` / `svc` 缺失长期静默。
+- **解决**：按决策 115 要求把「预置旧版模板 → 跑种子」作为测试夹具范式写入 `label_template_test.go`，后续默认模板映射变更可复用同夹具补断言。
+- **问题**：回填若重写整个 `Mappings` 会丢掉既有内容。
+- **解决**：统一走「按 `target_label` 判存 + append」，与 `ensureResourceIDMapping`（prepend）语义一致但保持追加，便于测试断言顺序。
+- **未发现 PRD 矛盾**：PRD §5.12.1 / §5.13 与实现口径一致，②类红线未触发，无需上报。
+
+### 验证结果
+
+- `go test ./platform/... -count=1`：**全绿**（31 个包 ok，含 `platform/db/seed` 3.6s）。
+- `go vet ./platform/...`：无输出（通过）。
+- `bash scripts/check-repo-map.sh`：**OK: repo-map 与当前业务代码一致**（commit 前已 `make repo-map`，pre-commit 门禁通过）。
+- **服务启动**：`GOPROXY=off go run ./platform/cmd/metric-center/main.go` 正常启动；`curl /api/v1/health` → 200，`/api/v1/health/db` → `{"status":"success","data":{"db_status":"connected","status":"ok",...}}`，`/api/v1/status` → 200；验证后已停服、8080 端口释放。
+- **实机数据核对**（启动即触发种子回填）：`metric_center.db` 的 `label_templates` 现为——`default-host` / `default-database` / `default-middleware`：`has_platform=1, has_svc=0`；`default-application` / `default-generic_target`：`has_platform=1, has_svc=1`。与决策 105 / 115 口径一致。
+
+### 遗留风险与下一步
+
+- **存量 Job 需重新生成采集配置**方可生效（标签在生成 `prometheus.yml` 时注入）——发布说明需携带该提示；存量环境（含 Ubuntu 部署环境）需逐一核查，「新库正常、存量库异常」属静默故障。
+- T07-106（决策 116）：类别专属行（`hostname` / `instance_name` / `os_type` / `middleware_type` / `database_type` / `target_name`）评估，若采纳须**同时**改 `DefaultMappingBuilders` + 补回填。
+- T07-107（决策 117）：默认模板版本化重建机制（根治，排期 {v0.2}），届时可用其取代逐条 ensure 函数。
