@@ -111,7 +111,7 @@
 - `feat(module-07): application-dict 闭环 + Excel 声明导入闭环集成测试（T07-97-B2）`
 ---
 
-## T07-105：默认标签模板 platform / svc 映射幂等回填（止血，commit 26b39a4）
+## T07-105：默认标签模板 platform / svc 映射幂等回填（止血，commit ccd43b9）
 
 - 分支：`feat/module-07-resource-management`
 - 关联决策：`docs/05-execution-records/module-07/design-decisions.md` 决策 115（止血）/ 决策 105（svc 仅 application / generic_target）/ 决策 110（platform 经 resource_field 注入）；后续项：决策 116（类别专属行评估，T07-106）、决策 117（模板版本化重建根治，T07-107）
