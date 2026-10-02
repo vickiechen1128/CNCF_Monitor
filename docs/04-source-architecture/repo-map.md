@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-01 23:10 · commit: `30ab05e`
+> 生成时间: 2026-10-02 23:34 · commit: `1f37db9`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -680,6 +680,19 @@
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notifyCfg notify.ReceiverSnippetConfig) error`
 
+### `platform/alertmanager/route/convert.go`
+
+- `func boolPtr(b bool) *bool`
+- `func ToEditNodes(nodes []RouteNode) []generator.RouteEditNode`
+- `func ToRouteNodes(nodes []generator.RouteEditNode) []RouteNode`
+
+### `platform/alertmanager/route/convert_test.go`
+
+- `func TestToEditNodes_FromParse(t *testing.T)`
+- `func TestToRouteNodes_RoundTrip(t *testing.T)`
+- `func TestToEditNodes_PreservesUnmodeledKeys(t *testing.T)`
+- `func toEditMatchers(in []RouteMatcher) []generator.RouteEditMatcher`
+
 ### `platform/alertmanager/route/handler.go`
 
 - `type DeadReceiver struct`
@@ -688,6 +701,8 @@
 - `func deadReceivers(db *gorm.DB, nodes []RouteNode) ([]DeadReceiver, error)`
 - `func maskReceiverURL(raw string) string`
 - `func ListRoutesHandler(db *gorm.DB) gin.HandlerFunc`
+- `func EffectiveAlertmanagerYAML(db *gorm.DB) (gin.H, error)`
+- `func EffectiveAlertmanagerYAMLHandler(db *gorm.DB) gin.HandlerFunc`
 
 ### `platform/alertmanager/route/handler_test.go`
 
@@ -699,6 +714,8 @@
 - `func decodeRoutes(t *testing.T, w *httptest.ResponseRecorder) routesData`
 - `func TestListRoutesHandler_OK(t *testing.T)`
 - `func TestListRoutesHandler_RootFallbackCountsAsReference(t *testing.T)`
+- `func TestListRoutesHandler_ReturnsStoredMode(t *testing.T)`
+- `func TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView(t *testing.T)`
 - `func TestListRoutesHandler_NoConfig(t *testing.T)`
 - `func TestListRoutes_PrefersGeneratedArtifactOverMountTrace(t *testing.T)`
 - `func TestListRoutes_PrefersNewerDraftOverVersion(t *testing.T)`
@@ -714,6 +731,7 @@
 - `func ParseRouteTree(baseYAML string) ([]RouteNode, error)`
 - `func appendRoute(out *[]RouteNode, n *yaml.Node, parentID, id string, order int, locked bool) error`
 - `func parseRouteNode(n *yaml.Node, parentID, id string, order int, locked bool) (*RouteNode, error)`
+- `func captureUnmodeledKeys(n *yaml.Node) (string, error)`
 - `func routeChildren(n *yaml.Node) ([]*yaml.Node, error)`
 - `func parseMatchers(n *yaml.Node) ([]RouteMatcher, error)`
 - `func parseMatcherItem(item *yaml.Node) (RouteMatcher, error)`
@@ -741,8 +759,8 @@
 
 - `type RouteSettingView struct`
 - `func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error)`
-- `func PutRouteSetting(db *gorm.DB, channelID *uint) error`
-- `func saveRouteSetting(db *gorm.DB, channelID *uint) error`
+- `func PutRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error`
+- `func saveRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error`
 - `func GetRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
 - `func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc`
 
@@ -764,14 +782,47 @@
 - `func TestGetRouteSetting_NoneWhenTargetChannelDisabled(t *testing.T)`
 - `func TestPutRouteSetting_PersistsValidChannel(t *testing.T)`
 - `func TestPutRouteSetting_NullClosesTakeover(t *testing.T)`
+- `func TestPutRouteSetting_PersistsMode(t *testing.T)`
+- `func TestPutRouteSetting_RejectsInvalidMode(t *testing.T)`
 - `func TestPutRouteSetting_RejectsMissingChannel(t *testing.T)`
 - `func TestPutRouteSetting_RejectsDisabledChannel(t *testing.T)`
 - `func TestGetRouteSettingHandler_OK(t *testing.T)`
 - `func TestPutRouteSettingHandler_ValidChannelInvokesPipeline(t *testing.T)`
 - `func TestPutRouteSettingHandler_NullClosesTakeover(t *testing.T)`
+- `func TestPutRouteSettingHandler_PersistsMode(t *testing.T)`
+- `func TestPutRouteSettingHandler_RejectsInvalidMode(t *testing.T)`
 - `func TestPutRouteSettingHandler_BadRequestWhenChannelUnavailable(t *testing.T)`
 - `func TestRouteSetting_AdminGate(t *testing.T)`
 - `func TestPutRouteSettingHandler_MalformedBody(t *testing.T)`
+
+### `platform/alertmanager/route/validate.go`
+
+- `type RouteIssue struct`
+- `func HasBlockingIssue(issues []RouteIssue) bool`
+- `func ValidateRouteTree(nodes []generator.RouteEditNode) []RouteIssue`
+- `func validateRouteEditNodeFields(n *generator.RouteEditNode) []RouteIssue`
+- `func durationIssue(n *generator.RouteEditNode, field, value string) RouteIssue`
+- `func parseRouteDurationIfSet(raw string) (int64, bool)`
+- `func ParseRouteDuration(raw string) (int64, bool)`
+
+### `platform/alertmanager/route/validate_test.go`
+
+- `func TestValidateRouteTree_HealthyTreeNoIssues(t *testing.T)`
+- `func TestValidateRouteTree_RootReceiverRequired(t *testing.T)`
+- `func TestValidateRouteTree_RootMatchersForbidden(t *testing.T)`
+- `func TestValidateRouteTree_MatcherIssues(t *testing.T)`
+- `func TestValidateRouteTree_InvalidDurationIsError(t *testing.T)`
+- `func TestValidateRouteTree_RepeatIntervalNotMultipleIsWarningOnly(t *testing.T)`
+- `func TestValidateRouteTree_EmptyTreeNoIssues(t *testing.T)`
+- `func TestParseRouteDuration(t *testing.T)`
+- `func TestGenerateRouteSection_RoundTripParseGenParse(t *testing.T)`
+- `func TestGenerateRouteSection_RoundTripPreservesInterfaceOrder(t *testing.T)`
+- `func TestMergeRouteSection_KeepsUserSectionsFromRoundTrip(t *testing.T)`
+- `func TestParseRoute_PreservesUnmodeledRouteKeys(t *testing.T)`
+- `func TestValidateRouteTree_SkipsDisabledSubtree(t *testing.T)`
+- `func TestValidateRouteTree_EditNodeThenGenerateAmtoolOK(t *testing.T)`
+- `func TestValidateRouteTree_EditNodeEmptyNameMatcherBlocked(t *testing.T)`
+- `func issueCodes(issues []RouteIssue) []string`
 
 ### `platform/alertmanager/silence/authorize.go`
 
@@ -2045,6 +2096,8 @@
 - `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
 - `func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
 - `func materializeRootRouteReceiver(db *gorm.DB, artifacts *generator.ConfigArtifacts)`
+- `func seedManagedRoutePreset(db *gorm.DB, artifacts *generator.ConfigArtifacts)`
+- `func appendRoutePresetSeededItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChang…`
 - `func appendRootRouteRebuiltItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChange…`
 - `func LatestLivePending(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func ShouldSupersedePending(db *gorm.DB, dom *models.NetworkDomain, pending *models.ConfigDraft) (bool, error)`
@@ -2071,6 +2124,24 @@
 - `func scrapeJobNamesFromPrometheusYml(yml string) (map[string]bool, error)`
 - `func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func artifactsFromDraft(d *models.ConfigDraft) (*generator.ConfigArtifacts, error)`
+
+### `platform/configcenter/draft/service_route_preset_test.go`
+
+- `type presetRouteView struct`
+- `type presetAMView struct`
+- `func parsePresetAM(t *testing.T, yml string) presetAMView`
+- `func stubNotifyBridge(t *testing.T)`
+- `func seedManagedRouteSetting(t *testing.T, db *gorm.DB, mode models.RouteMode, channelID *uint)`
+- `func TestSeedManagedRoutePreset_ManagedModeInjectsPreset(t *testing.T)`
+- `func TestSeedManagedRoutePreset_HandwrittenModeNoOp(t *testing.T)`
+- `func TestSeedManagedRoutePreset_ExistingRoutesNoClobber(t *testing.T)`
+- `func TestSeedManagedRoutePreset_ChangeItemEmitted(t *testing.T)`
+- `func TestGenerateDraft_HandwrittenNoPresetChangeItem(t *testing.T)`
+- `func TestRevalidateDraft_ReproducesPreset(t *testing.T)`
+- `func TestSeedManagedRoutePreset_IdempotentAcrossBuilds(t *testing.T)`
+- `func TestSeedManagedRoutePreset_RepeatedOnSeededRouteIsNoOp(t *testing.T)`
+- `func TestSeedManagedRoutePreset_NoRouteDegradesWithoutError(t *testing.T)`
+- `func TestSeedManagedRoutePreset_NoAlertmanagerYMLNoOp(t *testing.T)`
 
 ### `platform/configcenter/draft/service_route_test.go`
 
@@ -2215,6 +2286,92 @@
 - `func TestValidateArtifactsNotifyReceiverConflict(t *testing.T)`
 - `func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T)`
 - `func TestMaterializeNotifyReceiversHandwrittenSquatStillConflicts(t *testing.T)`
+
+### `platform/configcenter/generator/notify_route_generate.go`
+
+- `type RouteEditMatcher struct`
+- `type RouteEditNode struct`
+- `func NodeEnabled(n RouteEditNode) bool`
+- `func GenerateRouteSection(tree []RouteEditNode) (string, error)`
+- `func MergeRouteSection(baseYAML, generated string) (string, error)`
+- `func ValidateRouteSectionWithAmtool(routeYAML string) error`
+- `type routeEditTreeIndex struct`
+- `func indexRouteEditTree(tree []RouteEditNode) (*routeEditTreeIndex, error)`
+- `func reachableCount(idx *routeEditTreeIndex) int`
+- `func buildRouteNode(idx *routeEditTreeIndex, i int, visiting map[string]bool) (*yaml.Node, error)`
+- `func appendRawExtra(m *yaml.Node, raw string) error`
+- `func buildChildRoutes(idx *routeEditTreeIndex, parentID string, visiting map[string]bool) (*yaml.Node, error)`
+- `func rawRouteNode(raw string) (*yaml.Node, error)`
+- `func matcherShorthand(m RouteEditMatcher) string`
+- `func appendMapping(m *yaml.Node, key string, value *yaml.Node)`
+- `func appendMappingIfSet(m *yaml.Node, key, value string)`
+- `func routeSectionNode(generated string) (*yaml.Node, error)`
+- `func routeSectionReceiverNames(routeYAML string) ([]string, error)`
+
+### `platform/configcenter/generator/notify_route_generate_test.go`
+
+- `func ptrBool(b bool) *bool`
+- `func sampleRouteEditTree() []RouteEditNode`
+- `func TestGenerateRouteSection_ShapeAndInterfaceOrder(t *testing.T)`
+- `func TestGenerateRouteSection_MatcherShorthandForms(t *testing.T)`
+- `func TestGenerateRouteSection_ContinueOnlyWhenTrue(t *testing.T)`
+- `func TestGenerateRouteSection_GroupByOmittedWhenEmpty(t *testing.T)`
+- `func TestGenerateRouteSection_EditStateFieldsNeverPersisted(t *testing.T)`
+- `func TestGenerateRouteSection_DisabledNodeDropsWholeSubtree(t *testing.T)`
+- `func TestGenerateRouteSection_NilEnabledTreatedAsEnabled(t *testing.T)`
+- `func TestGenerateRouteSection_RawSubtreeWrittenBackVerbatim(t *testing.T)`
+- `func TestGenerateRouteSection_RejectsMalformedEditTree(t *testing.T)`
+- `func TestMergeRouteSection_OnlyRouteNodeReplaced(t *testing.T)`
+- `func TestMergeRouteSection_AppendsRouteWhenMissing(t *testing.T)`
+- `func TestMergeRouteSection_RejectsInvalidInput(t *testing.T)`
+- `func TestValidateRouteSectionWithAmtool_SubmitsCheckableDocument(t *testing.T)`
+- `func TestValidateRouteSectionWithAmtool_RealBinaryIfAvailable(t *testing.T)`
+- `func stubChecker(t *testing.T, fn func(content string) error)`
+- `func locateAmtool(t *testing.T) string`
+- `func runAmtoolCheckConfig(t *testing.T, amtool, content string) error`
+- `type amtoolFailure struct`
+- `method (*amtoolFailure) Error() string`
+- `func collectYAMLKeys(t *testing.T, content string) []string`
+
+### `platform/configcenter/generator/notify_route_preset.go`
+
+- `type RoutePresetInput struct`
+- `type RoutePresetDiagnostic struct`
+- `func SeedManagedRoutePreset(baseYAML string, in RoutePresetInput) (string, []RoutePresetDiagnostic, error)`
+- `func routeHasUserEdits(route *yaml.Node) (string, bool)`
+- `func nonEmptySequenceKey(m *yaml.Node, key string) (int, bool)`
+- `func declaredReceiverNames(root *yaml.Node) []string`
+- `func resolvePresetReceiver(root, route *yaml.Node, declared []string, defaultReceiver string) string`
+- `func secondaryPresetReceiver(primary string, declared []string, platformNames []string) string`
+- `func routePresetTree(receiver, teamReceiver string) []RouteEditNode`
+- `func invalidPresetReference(n *yaml.Node, known map[string]bool) string`
+- `func splitMatcherShorthand(s string) (name, value string, ok bool)`
+- `func appendPresetInhibitRule(root *yaml.Node)`
+- `func presetMatcherSequence(shorthand string) *yaml.Node`
+
+### `platform/configcenter/generator/notify_route_preset_test.go`
+
+- `func managedPresetInput() RoutePresetInput`
+- `func TestSeedManagedRoutePreset_ManagedInjectsCompleteExample(t *testing.T)`
+- `func TestSeedManagedRoutePreset_NoDanglingReceiver(t *testing.T)`
+- `func TestSeedManagedRoutePreset_SecondaryReceiverPrefersPlatformSlot(t *testing.T)`
+- `func TestSeedManagedRoutePreset_HandwrittenModeByteIdentical(t *testing.T)`
+- `func TestSeedManagedRoutePreset_NoClobberWhenRouteHasChildren(t *testing.T)`
+- `func TestSeedManagedRoutePreset_NoClobberOnRootMatchersOrContinue(t *testing.T)`
+- `func TestSeedManagedRoutePreset_EmptySequencesAreNotUserEdits(t *testing.T)`
+- `func TestSeedManagedRoutePreset_Idempotent(t *testing.T)`
+- `func TestSeedManagedRoutePreset_KeepsExistingInhibitRules(t *testing.T)`
+- `func TestSeedManagedRoutePreset_SkipsDegradesWithoutError(t *testing.T)`
+- `func TestSeedManagedRoutePreset_DeclaredReceiverNames(t *testing.T)`
+- `func TestSeedManagedRoutePreset_AmtoolValid(t *testing.T)`
+- `func TestSeedManagedRoutePreset_MatchersAreAMStringShorthand(t *testing.T)`
+- `type presetRouteView struct`
+- `func parsePresetRoot(t *testing.T, yml string) presetRouteView`
+- `func mustParseRoot(t *testing.T, yml string) *yaml.Node`
+- `func referencedReceiverNames(t *testing.T, yml string) []string`
+- `func collectMatcherSequences(t *testing.T, yml string) [][]*yaml.Node`
+- `func TestSeedManagedRoutePreset_EmptyBaseIsNoOp(t *testing.T)`
+- `func TestSeedManagedRoutePreset_DiagnosticMessagesAreActionable(t *testing.T)`
 
 ### `platform/configcenter/generator/notify_route_skeleton.go`
 
@@ -3183,6 +3340,7 @@
 
 ### `platform/models/alertmanager_route_setting.go`
 
+- `type RouteMode = string`
 - `type AlertmanagerRouteSetting struct`
 - `method (AlertmanagerRouteSetting) TableName() string`
 - `method (AlertmanagerRouteSetting) EffectiveDefaultReceiver(channels []NotifyChannel) (string, bool)`
@@ -4193,6 +4351,7 @@
 - `function readValidateErrors`
 - `interface AlertmanagerListParams`
 - `interface SubmitAlertmanagerConfigInput`
+- `interface EffectiveAlertmanagerYaml`
 - `interface RemountConfigInput`
 - `const alertmanagerConfigApi`
 - `const alertmanagerSilenceApi`
@@ -4390,6 +4549,13 @@
 
 - `function MonitorStatusBadge`
 
+### `ui-custom/web/src/components/PageIntro.tsx`
+
+- `const PAGE_INTRO_GUIDE_TITLE`
+- `const PAGE_INTRO_GUIDE_HINT`
+- `interface PageIntroProps`
+- `function PageIntro`
+
 ### `ui-custom/web/src/components/RuleGuideLink.tsx`
 
 - `const RULES_PATH`
@@ -4543,6 +4709,12 @@
 - `interface ReceiverSnippetDrawerProps`
 - `function ReceiverSnippetDrawer`
 
+### `ui-custom/web/src/pages/alerts/RouteEditorDrawer.tsx`
+
+- `interface RouteEditorParentOption`
+- `interface RouteEditorDrawerProps`
+- `function RouteEditorDrawer`
+
 ### `ui-custom/web/src/pages/alerts/RoutesPage.tsx`
 
 - `function RoutesPage`
@@ -4591,18 +4763,70 @@
 - `interface AlertConfigScopeBlock`
 - `const ALERT_CONFIG_REQUIRED_BLOCKS`
 - `const ALERT_CONFIG_EXEMPT_BLOCKS`
+- `const ALERT_POLICY_CARD_TITLE`
+- `const ALERT_POLICY_FALLBACK_LABEL`
+- `const ALERT_POLICY_ROUTE_MODE_LABEL`
+- `const ALERT_POLICY_MODE_HANDWRITTEN`
+- `const ALERT_POLICY_MODE_MANAGED`
+- `const ALERT_GUIDE_CARD_TITLE`
+- `const ALERT_GUIDE_INHIBIT_COMING`
+- `const ALERT_ADVANCED_CARD_TITLE`
+- `const ALERT_ADVANCED_IMPORT_LABEL`
+- `const ALERT_ADVANCED_GUIDE_TITLE`
+- `const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO`
+- `const ALERT_ADVANCED_GUIDE_MANAGED`
 - `const ALERTMANAGER_MIN_SKELETON`
-- `const ALERT_DERIVED_PREVIEW_TITLE`
-- `const ALERT_DERIVED_PREVIEW_DESC`
-- `const ALERT_DERIVED_PREVIEW_SCOPE`
-- `const ALERT_DERIVED_PREVIEW_RENAME_TIP`
-- `const ALERT_DERIVED_PREVIEW_EMPTY`
-- `const ALERT_DERIVED_PREVIEW_FORBIDDEN`
+- `const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE`
+- `const CHANNEL_DERIVED_RECEIVER_EMPTY`
+- `const CHANNEL_DERIVED_RECEIVER_FORBIDDEN`
+- `const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING`
+- `const CHANNEL_DERIVED_RECEIVER_RENAME_TIP`
+- `const CHANNEL_TEMPLATE_BIND_NONE_PREFIX`
 - `const notifyChannelTypeLabel`
 - `const notifyChannelTypeColor`
 - `const NOTIFY_CHANNEL_TYPE_OPTIONS`
 - `const notifyTemplateStatusLabel`
 - `const NOTIFY_TEMPLATE_BUILTIN_TIP`
+
+### `ui-custom/web/src/pages/alerts/routeLabels.ts`
+
+- `const ROUTE_LABEL_OPTION_LIMIT`
+- `interface RouteLabelOption`
+- `function flattenRouteLabelOptions`
+- `function filterRouteLabelOptions`
+- `function isRouteLabelClipped`
+- `function toRouteLabelSelectOptions`
+- `function useRouteLabelOptions`
+
+### `ui-custom/web/src/pages/alerts/routeTree.ts`
+
+- `const ROUTE_ROOT_ID`
+- `const ROUTE_NAME_COMMENT_PREFIX`
+- `interface RouteEditMatcher`
+- `interface RouteEditNode`
+- `type RouteIssueLevel`
+- `const ROUTE_ISSUE_CODES`
+- `interface RouteIssue`
+- `function parseRouteDuration`
+- `function validateRouteTree`
+- `function validateRouteNodeFields`
+- `function validateRouteReceivers`
+- `function hasBlockingIssue`
+- `function fromRouteNodes`
+- `function emptyRouteTree`
+- `function blankRouteNode`
+- `function nextRouteId`
+- `function flattenRouteTree`
+- `function countDescendants`
+- `function collectSubtreeIds`
+- `function removeSubtree`
+- `function reorderSibling`
+- `function moveSibling`
+- `function upsertNode`
+- `function canBeParent`
+- `function matcherShorthand`
+- `function generateRouteSection`
+- `function mergeRouteSection`
 
 ### `ui-custom/web/src/pages/alerts/useAlertConfig.ts`
 
@@ -4653,9 +4877,16 @@
 ### `ui-custom/web/src/pages/alerts/useRoutes.ts`
 
 - `interface RouteRow`
+- `function buildTreeRows`
 - `interface UseRoutesResult`
 - `function buildRouteRows`
+- `function buildEditRows`
 - `function useRoutes`
+- `type RouteImportState`
+- `interface UseRouteEditorOptions`
+- `interface UseRouteEditorResult`
+- `function useRouteEditor`
+- `function isRouteEditable`
 
 ### `ui-custom/web/src/pages/alerts/useSilences.ts`
 
@@ -5191,7 +5422,7 @@
 - `type RouteReceiverSource`
 - `interface RouteSetting`
 - `interface UpdateRouteSettingPayload`
-- `type RouteAuthorMode`
+- `type RouteMode`
 - `interface RouteMatcher`
 - `interface RouteNode`
 - `interface DeadReceiver`
