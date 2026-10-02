@@ -30,15 +30,13 @@ const { Text, Title } = Typography
 interface AlertConfigDrawerProps {
   open: boolean
   onClose: () => void
-  /** 预填内容（重新挂载历史版本时填入） */
+  /** 预填内容（留空则由用户上传/粘贴） */
   initialContent?: string
-  /** 挂载名称提示（重新挂载时显示版本名） */
-  mountName?: string
   /** 提交已校验通过的内容；失败抛出 ApiError 携带行级 detail */
   onSubmit: (content: string) => Promise<void>
 }
 
-export function AlertConfigDrawer({ open, onClose, initialContent = '', mountName = '', onSubmit }: AlertConfigDrawerProps) {
+export function AlertConfigDrawer({ open, onClose, initialContent = '', onSubmit }: AlertConfigDrawerProps) {
   // 由父级通过 key 触发重挂载以重置：每次打开都以 initialContent 作为初始内容。
   const [content, setContent] = useState(initialContent)
   const [error, setError] = useState<string | null>(null)
@@ -113,28 +111,6 @@ export function AlertConfigDrawer({ open, onClose, initialContent = '', mountNam
       destroyOnHidden
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        {mountName.startsWith('remount-') && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 8,
-              alignItems: 'flex-start',
-              padding: '8px 12px',
-              background: 'rgba(22,119,255,0.06)',
-              border: '1px solid rgba(22,119,255,0.35)',
-              borderRadius: 8,
-              fontSize: 13,
-            }}
-          >
-            <div>
-              <Text strong>{`正在重新挂载历史版本 ${mountName.replace('remount-', '')} 的内容`}</Text>
-              <div style={{ marginTop: 2, color: 'rgba(0,0,0,0.65)' }}>
-                历史版本回滚即重新挂载该版本内容：可在此基础上修改，校验通过后重新提交变更单，确认后下发生效。
-              </div>
-            </div>
-          </div>
-        )}
-
         <Dragger
           accept=".yml,.yaml"
           showUploadList={false}
