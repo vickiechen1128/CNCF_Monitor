@@ -2433,6 +2433,7 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 > **`service_code` 与 `service_name` 关系（评审 T5-②）**：资源侧 `service_code` **可选**、留空即纯自由文本、向后兼容；资源行既有必填 `service_name` **MVP 不改**、仍参与 application 判重键 `(domain, service_name, endpoint)`；填写 `service_code` 时 `service_name` 宜与字典展示名一致（**软约束、不强校验**）。
 > **适用范围（评审 T5-⑥）**：`service_code` **仅 application / generic\_target** 记录；host / database / middleware **不挂**（基础设施非服务）。
 > **投放**：§5.2 字段 + 适用范围、§5.8 粒度说明、§5.12.1 `service_code → svc`、§5.13 默认模板（application / generic\_target）、§5.15 关联键表 + 机制 B、§5.16.1 / §5.16.2（「服务声明」sheet 由决策 97 通道延伸）、§5.22 服务字典、§3.1.4、§6.1、§10。
+> **⚠️ 实现缺口补记（2026-10-03，决策 115）**：`svc` 映射行在 `DefaultMappingBuilders` **已实现**，但存量库默认模板**未回填**（与决策 110 同源缺口），实测 application / generic\_target 的 `default-*` 缺 `svc`。已由**决策 115** 补 `ensureSVCMapping`。本决策其余内容（命名 `svc`、适用范围仅 application / generic\_target、`service_name` 保留）**维持有效**。
 
 ---
 
@@ -2495,6 +2496,7 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 > **作废**：决策 108 §5.12.1「`platform` 派生降级口径」条**作废**（见决策 108 内修订注记）。
 > **投放**：Module_07 PRD v2.49 §5.2（字段行 + 说明段）/ §5.12.1（映射表 + 缺位口径）/ §5.13（五类默认模板 + `platform_code → platform`）/ §5.15（关联键表 + 规则 6）/ §5.16.1 / §5.16.2（导入列 + 平台存在性校验）/ §5.21 / §5.24 / §6.1 / §9 / §10 / Change Log；Module_01 PRD v3.50（§5.1.9 标签注入 / §10 术语 `platform`）。
 > **影响**：`platform` 注入点由「应用父级派生」改为「资源行字段映射」，属**跨模块契约级**变更（M01 标签注入 / M09 target 生成）——见顶层契约区 **T6**。
+> **⚠️ 实现缺口补记（2026-10-03，决策 115）**：本决策「五类默认模板新增 `platform_code → platform` 行」在 `DefaultMappingBuilders` 侧**已实现**，但**种子未对存量库回填**（`firstOrCreate` 只创建不更新），实测库内 5 条 `default-*` 仍缺 `platform` ⇒ `sum by (platform)` 无数据。已由**决策 115** 补 `ensurePlatformMapping` 并确立「映射变更必须配套幂等回填」规约。本决策其余内容（定性纠正、一等字段、兜底口径）**维持有效**。
 
 ---
 
@@ -2524,6 +2526,50 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 
 ---
 
+<a id="sec-决策115-默认标签模板回填"></a>
+## 决策 115：默认标签模板映射变更必须配套幂等种子回填 + 立即补 `platform` / `svc`（2026-10-03）
+
+> **来源**：2026-10-03 缺陷诊断（四层改造后五类默认标签模板未含 `platform` / `svc`）；用户已确认路径「**A 止血 → 评估 B → C 根治排期**」。
+> **背景（证据索引）**：① 实测 `metric_center.db` 的 `label_templates`——5 条 `default-*` 仅含 `instance`(composite) / `resource_id` / `app` / `env` / `cluster` / `biz`（application 另含 `service_name` / `health_check_url`），**`platform_code→platform` 五类全缺、`service_code→svc` 在 application / generic_target 缺**；② `platform/models/label_template.go:41-82`（`DefaultMappingBuilders`）**已正确产出** platform（五类）与 svc（application / generic_target）；③ `platform/db/seed/label_template.go:14` 用 `firstOrCreate`（= `platform/db/seed/seed.go:57` GORM `FirstOrCreate`）**只创建、不更新**；④ 默认模板不可删（`platform/config/label/template_crud.go:248`）、新建恒 `IsDefault=false`（`:143`）。
+> **根因**：决策 105 / 110 只改了 `DefaultMappingBuilders`，**未配套「存量库回填函数」**；而默认模板是**种子一次写入、事后不可变**结构 ⇒ 新映射只对新库生效，存量库**静默缺标签**。唯一先例 `ensureResourceIDMapping`（2026-09-02 补 `resource_id`）证明该模式已知，**本次漏配**。
+> **选项**：
+> | 方案 | 做法 | 存量库生效 | 风险 |
+> |------|------|-----------|------|
+> | A | 补 `ensurePlatformMapping` + `ensureSVCMapping`（按 `target_label` 判存 → append → Save） | ✅ | 低 |
+> | B | A + 补类别专属行对齐 PRD §5.13 | ✅ | 低-中 |
+> | C | 默认模板加 `version`，版本低于当前即整体重建 mappings | ✅ | 中 |
+> | D | 改 target 级强制注入（决策 103 scheme-B 那一路） | ✅ | 中 |
+> **推荐（用户已确认）**：**先 A 止血**；**B 转评估**（决策 116）；**C 作根治单独排期**（决策 117）。**不采纳 D**——与决策 110「`platform` 走标签模板 `resource_field` 映射注入」口径冲突，且会使模板页与实际注入标签不一致。
+> **结论（决策 115）**：① **通用规约**——**任何新增 / 变更默认标签模板映射，必须同时写一个幂等回填函数**（按 `target_label` 判存后 append + Save，模式见 `ensureResourceIDMapping`）；仅改 `DefaultMappingBuilders` **只对新库生效**，视为**未完成落地**；② **本轮立即执行**：补 `ensurePlatformMapping`（五类）+ `ensureSVCMapping`（application / generic_target），在 `runLabelTemplates` 循环内调用；③ **补防回归测试**：夹具预置「旧版 `default-*` 模板」后跑种子，断言 `platform` / `svc` 已入库（现有单测只测 `DefaultMappingBuilders` 函数级，**测不到存量库路径**）。
+> **PRD 改动**：**零改动**——PRD §5.12.1 / §5.13 已规定 `platform_code→platform`（五类）与 `service_code→svc`（application / generic_target），本决策属**实现对齐契约**，非契约变更。
+> **投放（代码落点）**：`platform/db/seed/label_template.go`（新增两个 ensure 函数 + 调用）、`platform/db/seed/label_template_test.go`（新增存量库回填测试）；任务 **T07-105**。
+> **验证口径**：`go test ./platform/db/... -count=1`；启动后 5 条 `default-*` 均含 `platform`，application / generic_target 含 `svc`；**存量 Job 需重新生成配置**（标签在生成 `prometheus.yml` 时注入）方可生效。
+> **影响**：修复后 `sum by (platform)` / `sum by (svc)` 四层聚合（决策 109）恢复可用；**存量环境（含 Ubuntu 部署环境）需逐一核查**——「新库正常、存量库异常」属**静默故障**，不报错。
+> **✅ 已落地（2026-10-03，T07-105，commit `ccd43b9`）**：`ensurePlatformMapping` / `ensureSVCMapping`（+ 通用原语 `ensureLabelMapping`）已实现，并在 `runLabelTemplates` 循环内调用；新增存量库路径防回归测试（夹具预置旧版 `default-*`、断言五类含 `platform` 且 svc 仅落 application / generic_target、二次运行不重复）。实测 `metric_center.db`：五类 `default-*` 均已含 `platform`，application / generic_target 含 `svc`。**遗留**：存量 Job 需**重新生成采集配置**方生效，须进发布说明并逐一核查存量环境。
+
+---
+
+<a id="sec-决策116-类别专属行对齐评估"></a>
+## 决策 116：五类默认模板类别专属行对齐 PRD §5.13（评估项，2026-10-03）
+
+> **来源**：同批诊断发现的**次级缺口**（与四层改造无因果关系）。
+> **背景**：即便**全新库**，`DefaultMappingBuilders`（`platform/models/label_template.go:61-69`）共享切片仅 `instance` / `resource_id` / `platform` / `app` / `env` / `cluster` / `biz`，缺 PRD §5.13 的类别专属行——host：`hostname` / `instance_name` / `os_type`；middleware：`middleware_type`；database：`database_type`；generic_target：`target_name`。
+> **结论（决策 116）**：**转评估项，本轮不执行**。评估要点：① 确认这些标签是否另有运行时注入路径（`platform/query/targets.go:139,302` 已注入 `instance_name`，其余在 `configcenter` 未发现注入点）；② 若确为遗漏，按**决策 115 规约同时**补 `DefaultMappingBuilders` + 幂等回填（不可只改函数）；③ 评估**基数影响**——`os_type` / `*_type` 低基数可接受；`instance_name` 高基数，且 §5.13 已注「`instance` 仅作抓取身份、不作稳定关联键」，需一并复核是否值得进 label。
+> **状态**：**评估中（不阻断 MVP）**；任务 **T07-106**。
+
+---
+
+<a id="sec-决策117-默认模板版本化重建"></a>
+## 决策 117：默认标签模板版本化重建机制（根治项，排期 {v0.2}，2026-10-03）
+
+> **来源**：同批诊断；用户确认为**根治项**、单独排期。
+> **背景**：决策 115 的「通用规约」仍依赖**人记得补 ensure 函数**——每新增一个映射就新增一个函数，是同类缺陷的**复发通道**（`resource_id` 已漏过一次、`platform` / `svc` 再漏一次）。
+> **结论（决策 117）**：**根治方案 = 默认模板版本化重建**，排期 **{v0.2}**，本轮不执行。机制要点：① `LabelTemplate` 增 `template_version`（默认模板专用，用户模板不受影响）；② 由 `DefaultMappingBuilders` 的规范映射集计算版本 / checksum；③ 种子启动时比对：**默认模板版本低于当前即整体覆盖** `mappings`（默认模板不可编辑 ⇒ 可安全覆盖）；④ **取代逐条 ensure 函数**，从机制上消除「漏补」。
+> **落地前置**：需先确认「存量默认模板上是否存在手工改动」（当前不可编辑 ⇒ 可安全覆盖），以及存量 Job 重新生成配置的**触发方式**（标签生效依赖配置重生成）。
+> **关联**：决策 115（规约，{v0.2} 之前靠它兜底）、决策 116（评估项，若采纳则按新机制落地）。任务 **T07-107**。
+
+---
+
 <a id="sec-跨模块契约登记顶层契约区"></a>
 ## 跨模块契约登记（顶层契约区）
 
@@ -2533,7 +2579,7 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 |------|--------|--------|-----------|----------|
 | **T4** | 2026-09-27 | **四层骨架 1:N 边界**：`service` 跨 `app`（一个服务横跨多个应用）、`app` 跨 `platform`（一个应用横跨多个平台）在单父 1:N 下装不下；且 `service:biz` 主归属唯一时「非主归属」如何表达未定义 | M01（标签注入）/ M09（target 生成）/ M02（查询聚合是否感知 `svc` / `platform`）/ M05（应用明细表是否回显服务 / 平台维度） | **已定处置（2026-09-27，M07 侧）：MVP 维持单父约束、不引入多值字段；1:N 边界降级为 {v0.2+} 评估项，启动时再与 M01 / M09 对齐。** 判定依据：① `service_code` 为**可选字段**且 MVP 无「一个服务横跨多应用」的强诉求（design-proposal `resource-ownership-relation-typing` §3.2 定「立项归属 N:1、申请时定死」，与决策 92「`app_code` 单值不可变编码」一致）；② `app → platform` 与 `service → app` 同为单父，无多父强诉求。**{v0.2+} 候选方案（若届时出现跨应用服务）**：新增**中间关联表**（如 `app_service_relation`，`service_code ↔ app_code` 多值）或 **`service` 字典加可重复引用**——此为评估项，**候选方案与「`service:biz` 非主归属表达」均待 {v0.2+} 启动时与 M01（多值 label 注入）/ M09（target 生成）对齐后再定**，MVP 不做。**（2026-09-28 更新：其中「`app` 跨 `platform`」一项**已被决策 111 推翻**——应用↔平台改 M:N（`app_platform_rel`）、**MVP 落地**；「`service` 跨 `app`」与「`service:biz` 非主归属表达」**仍维持 {v0.2+} 评估**）** |
 | **T5** | 2026-09-27 | **M05 首页「按云分布」聚合（`by_cloud`）跨模块数据链路**：M05 首页新增按云分布区块，聚合字段 `by_cloud[]`（`cloud_code` / `cloud_name` / `resource_count` / `monitored_count` / `coverage_rate`），本期仅 host；需 M06 提供 `cloud_code` 权威（网域 `cloud_code` 必填）、M02 覆盖率聚合链路支持按云分组 | M06（云 `cloud_code` 网域必填权威）/ M02（按云聚合链路）/ M09（网域配置下发） | **已结案（2026-09-27）**：① **M05 侧**——`cloud` 经网域 `cloud_code` 派生、必填零空洞（M06 §5.2 / M07 决策 103），`by_cloud` 与既有 `by_app` / `by_category` 并列、向后兼容，本期仅 host（host 归属主键走部署维度，决策 108）；已落 M05 PRD v1.10 / v1.11。② **M06 侧——已落地**：网域 `cloud_code` 权威与配套收口（登记 / 编辑字段、列表筛选、表单下拉、可编辑口径）落 M06 PRD **v2.18**（决策 84），`cloud_code` 必填、零空洞成立。③ **M02 侧——判定「无需变更」**：`by_cloud` 的三个字段（资源数 / 已采数 / 覆盖率）均由 **platform 后端（metric-center）在 `dashboard/summary` 内经 DB 关联聚合**（Resource 表 × 网域 `cloud_code`），与既有 `by_category` / `by_app` **同构**；**不涉及 Prometheus、不涉及 M02 的 `/api/v1/health/coverage`**（后者按 `up` 指标聚合、回答「已监控且 up / down」，与 dashboard 的「是否被 Job 覆盖」是**两个语义**，不可混用）。故「M02 按云聚合链路」**不成立、无需任何 M02 改动**。④ **M09**：`cloud_code` 变更触发采集配置重新生成 / 下发（见 M06 决策 84），已在其配置生成链路内，无需单列。**本行自此结案，MVP 内不再作为悬挂项。** |
-| **T6** | 2026-09-28 | **`platform` label 注入点变更 + 应用↔平台 M:N 的跨模块承接**：决策 110 将 `platform` 注入由「应用父级派生」改为「资源行 `platform_code` 一等字段经标签模板 `resource_field` 映射注入（派生降为兜底）」；决策 111 将应用↔平台改 M:N（`app_platform_rel` + `is_primary`）。需 M01 改标签注入契约、M09 生成 target 时按新映射出 `platform` | M01（标签注入契约 / §5.1.9）/ M09（target 生成）/ M07（`Resource.platform_code` + `app_platform_rel`）/ M02（查询是否需感知兜底语义） | **已定处置（2026-09-28，M07 侧已落 PRD v2.49）**：① **M07 侧落地**——`platform_code` 资源行一等字段 + 五类默认模板 `platform_code → platform` 映射 + `platform` 缺位口径（未填且应用无主平台则不注入）；② **M01 侧同步**——Module_01 PRD **v3.50**（§5.1.9 标签注入 / §10 术语 `platform` 改为「资源行一等字段」口径）；③ **M09 侧**按 §5.12.1 / §5.13 映射生成 target、无需新增机制（沿用 target 级标签模板映射注入）；④ **M02 侧**兜底语义为注入侧职责、查询侧无需变更（`platform` 取值仍来自 label）。 |
+| **T6** | 2026-09-28 | **`platform` label 注入点变更 + 应用↔平台 M:N 的跨模块承接**：决策 110 将 `platform` 注入由「应用父级派生」改为「资源行 `platform_code` 一等字段经标签模板 `resource_field` 映射注入（派生降为兜底）」；决策 111 将应用↔平台改 M:N（`app_platform_rel` + `is_primary`）。需 M01 改标签注入契约、M09 生成 target 时按新映射出 `platform` | M01（标签注入契约 / §5.1.9）/ M09（target 生成）/ M07（`Resource.platform_code` + `app_platform_rel`）/ M02（查询是否需感知兜底语义） | **已定处置（2026-09-28，M07 侧已落 PRD v2.49）**：① **M07 侧落地**——`platform_code` 资源行一等字段 + 五类默认模板 `platform_code → platform` 映射 + `platform` 缺位口径（未填且应用无主平台则不注入）；② **M01 侧同步**——Module_01 PRD **v3.50**（§5.1.9 标签注入 / §10 术语 `platform` 改为「资源行一等字段」口径）；③ **M09 侧**按 §5.12.1 / §5.13 映射生成 target、无需新增机制（沿用 target 级标签模板映射注入）；④ **M02 侧**兜底语义为注入侧职责、查询侧无需变更（`platform` 取值仍来自 label）。**（2026-10-03 补：M07 侧五类默认模板的 `platform_code→platform` / `service_code→svc` 映射行，须经种子幂等回填方对存量库生效——实测此前只对新库生效、存量库静默缺标签，已由决策 115 补齐；M09 生成 target 依赖模板映射行，故本行为跨模块可见。）** |
 | **T7** | 2026-09-28 | **M08（告警分析）/ M05（看板）默认下钻维度建议**：label 维度分层（决策 112）——`platform` 为高维 / 粗粒度，不应作告警分析 / 看板默认下钻入口；运维排障默认维度应为 `app` / `svc` / `network_domain` / `resource_category`，`platform` 退为可选顶层过滤器 | M08（告警分组 / 降噪 / 分析视图默认维度）/ M05（看板下钻入口默认维度） | **建议登记（2026-09-28，{v0.2+}）**：M07 侧仅登记建议、不单模块定论；M08 / M05 在 {v0.2+} 设计时采纳「默认中 / 低维起步、`platform` 为可选顶层」口径。依据见 design-proposal `object-relation-topology` §3.6。**本行不阻断 MVP**。 |
 | 决策 94（既有） | 2026-09-19 | `app_code` 单值装不下「database / middleware 多应用归属（1:N）」 | M01 / M09（见决策 94） | 见决策 94（v0.2+ 另议） |
 

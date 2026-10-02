@@ -2087,3 +2087,63 @@ tasks:
       - "空态：无主机数据时保留区块位并显示「去导入主机资源 →」引导；移动端 ≤767px 表格横向滚动"
       - "**下钻层级对齐**：治理标签下钻由「网域 → 业务 → 应用 → 实例」更新为「网域 → 平台 → 应用 → 服务 → 资源实例」，最细层稳定键 `resource_id`"
       - "单测：区块渲染、云名跳转参数、空态引导、聚合数值自洽"
+
+  - id: "T07-105"
+    title: "（决策 115）默认标签模板 platform / svc 映射幂等回填（止血）+ 存量库防回归测试"
+    prd: "Module_07 §5.12.1 / §5.13（platform_code→platform 五类、service_code→svc 仅 application / generic_target）；design-decisions 决策 115"
+    group: "backend"
+    status: "done"
+    commit_group: "m07-label-template-backfill"
+    input_files:
+      - "platform/db/seed/label_template.go"
+      - "platform/models/label_template.go"
+    output_files:
+      - "platform/db/seed/label_template.go"
+      - "platform/db/seed/label_template_test.go"
+    depends_on: []
+    verify_commands:
+      - "go test ./platform/db/... -count=1"
+      - "go vet ./platform/..."
+      - "make repo-map && bash scripts/check-repo-map.sh"
+    acceptance_criteria:
+      - "新增 `ensurePlatformMapping`（五类全覆盖）与 `ensureSVCMapping`（仅 application / generic_target），在 `runLabelTemplates` 循环内调用；**幂等**——按 `target_label` 判存，已有则跳过（模式照 `ensureResourceIDMapping`）"
+      - "**防回归测试**：夹具预置「旧版 default-* 模板（缺 platform / svc）」后跑种子，断言五类均含 `platform`、application / generic_target 含 `svc`（现有单测只测 `DefaultMappingBuilders` 函数级，测不到存量库路径）"
+      - "**规约**：任何新增 / 变更默认模板映射必须同步写幂等回填函数；仅改 `DefaultMappingBuilders` 视为**未完成落地**"
+      - "存量 Job 需**重新生成采集配置**方生效（标签在生成 prometheus.yml 时注入）——写入执行记录与发布说明"
+
+  - id: "T07-106"
+    title: "（决策 116）五类默认模板类别专属行对齐 PRD §5.13 —— 评估项，本轮不执行"
+    prd: "Module_07 §5.13 五类默认标签模板表；design-decisions 决策 116"
+    group: "backend"
+    status: "evaluating"
+    commit_group: "m07-label-template-category-rows"
+    input_files:
+      - "platform/models/label_template.go"
+      - "platform/query/targets.go"
+    output_files: []
+    depends_on: ["T07-105"]
+    verify_commands: []
+    acceptance_criteria:
+      - "评估结论：确认 host（hostname / instance_name / os_type）、middleware（middleware_type）、database（database_type）、generic_target（target_name）是否另有运行时注入路径（`platform/query/targets.go` 已注入 instance_name，其余未发现）"
+      - "若确为遗漏 → 按**决策 115 规约同时**补 `DefaultMappingBuilders` + 幂等回填（**不可只改函数**）"
+      - "评估基数影响：`os_type` / `*_type` 低基数可接受；`instance_name` 高基数，且与 §5.13「instance 仅作抓取身份、不作稳定关联键」需一并复核是否值得进 label"
+      - "**状态：评估中，不阻断 MVP**"
+
+  - id: "T07-107"
+    title: "（决策 117）默认标签模板版本化重建机制（根治，排期 {v0.2}）"
+    prd: "design-decisions 决策 117"
+    group: "backend"
+    status: "planned"
+    commit_group: "m07-label-template-versioning"
+    input_files:
+      - "platform/models/label_template.go"
+      - "platform/db/seed/label_template.go"
+    output_files: []
+    depends_on: ["T07-105"]
+    verify_commands: []
+    acceptance_criteria:
+      - "`LabelTemplate` 增 `template_version`（默认模板专用，用户模板不受影响）；由 `DefaultMappingBuilders` 规范映射集计算版本 / checksum"
+      - "种子启动比对：默认模板版本低于当前即**整体覆盖** mappings（默认模板不可编辑 ⇒ 可安全覆盖）"
+      - "**取代逐条 ensure 函数**，从机制上消除「每新增映射都要靠人记得补一个 ensure」的复发通道"
+      - "前置确认：存量默认模板是否存在手工改动；存量 Job 重新生成配置的触发方式"
+      - "**排期 {v0.2}，本轮不执行**"
