@@ -70,6 +70,24 @@ type RouteNode struct {
 	Continue       bool           `json:"continue"`
 	Order          int            `json:"order"`
 	Locked         bool           `json:"locked"`
+	// Raw 是不可被本模型表达的「route 级未建模键」（如旧式 match / match_re /
+	// 路由级 mute_time_intervals 等）的原样 YAML 片段（键:值 行）。解析时捕获、生成时原样
+	// 回写，确保手写配置经 import→编辑→save 往返**无损**（T08-12：用户配置绝不被丢弃）。
+	// 为空表示本节点无未建模键。
+	Raw string `json:"raw"`
+}
+
+// modeledRouteKeys 是 RouteNode 已建模的 route 映射键集合；其余键视为未建模，捕获进 Raw。
+// `routes` 在此集合内（虽是子路由、由递归处理，但不算未建模键）；`name` 不是键（由注释还原）。
+var modeledRouteKeys = map[string]bool{
+	"receiver":       true,
+	"group_by":       true,
+	"group_wait":     true,
+	"group_interval": true,
+	"repeat_interval": true,
+	"continue":       true,
+	"matchers":       true,
+	"routes":         true,
 }
 
 // routeNameCommentPrefix 是 route 名称注释前缀（PRD §5.2 注 1：`# 路由名称: xxx`，落盘于节点上方）。
@@ -141,6 +159,10 @@ func parseRouteNode(n *yaml.Node, parentID, id string, order int, locked bool) (
 	if err != nil {
 		return nil, err
 	}
+	raw, err := captureUnmodeledKeys(n)
+	if err != nil {
+		return nil, err
+	}
 	return &RouteNode{
 		ID:             id,
 		ParentID:       parentID,
@@ -154,7 +176,37 @@ func parseRouteNode(n *yaml.Node, parentID, id string, order int, locked bool) (
 		Continue:       boolOrDefault(mappingValue(n, "continue"), false),
 		Order:          order,
 		Locked:         locked,
+		Raw:            raw,
 	}, nil
+}
+
+// captureUnmodeledKeys 收集 route 映射节点中「未被本模型表达」的键（如旧式 match /
+// match_re / 路由级 mute_time_intervals），序列化为原样 YAML 片段；无未建模键返回空串。
+// 绝不静默丢弃——调用方（生成器）会原样回写，保证往返无损。
+func captureUnmodeledKeys(n *yaml.Node) (string, error) {
+	n = deref(n)
+	if n == nil || n.Kind != yaml.MappingNode {
+		return "", nil
+	}
+	extra := &yaml.Node{Kind: yaml.MappingNode}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k := deref(n.Content[i])
+		if k == nil || k.Kind != yaml.ScalarNode {
+			continue
+		}
+		if modeledRouteKeys[k.Value] {
+			continue
+		}
+		extra.Content = append(extra.Content, deref(n.Content[i]), deref(n.Content[i+1]))
+	}
+	if len(extra.Content) == 0 {
+		return "", nil
+	}
+	out, err := yaml.Marshal(extra)
+	if err != nil {
+		return "", fmt.Errorf("序列化未建模键失败: %w", err)
+	}
+	return string(out), nil
 }
 
 // routeChildren 取 route 节点的子路由（routes[]），每个元素必须是映射（否则非常规结构 → error）。
