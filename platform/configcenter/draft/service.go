@@ -108,7 +108,8 @@ func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error) {
 		return nil, err
 	}
 
-	items := appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts)
+	items := appendRoutePresetSeededItem(
+		appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts), artifacts)
 	checksum := artifacts.Checksum()
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
@@ -254,6 +255,14 @@ func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigAr
 	// receiver 未物化则根兜底目标不可校验）、Checksum 之前（替换结果须参与联合 checksum）。
 	// 异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
 	materializeRootRouteReceiver(db, artifacts)
+	// dev-feedback #33（骨架 → 完整预置示例）：**排在 receivers 物化之后、根兜底注入之前**——
+	//   - 必须在 receivers 之后：种子的子路由 receiver 只能引用**文件中真实已声明**的名字，
+	//     平台 receiver 未物化则示例只能引用用户自有 receiver（甚至无可引用 ⇒ 跳过）；
+	//   - 必须在根兜底之前：根兜底负责把种子里根 route 的 receiver 收敛为「用户选定的默认
+	//     接收人」（决策 113 口径 C）。若反过来，根兜底刚写好的 receiver 会被种子整体替换掉，
+	//     决策 113 的接管语义被静默回退。
+	// 同样必须在 Checksum 之前（注入结果须参与联合 checksum）。异常一律降级为跳过 + 诊断。
+	seedManagedRoutePreset(db, artifacts)
 	return artifacts, jobs, rules, nil
 }
 
@@ -343,6 +352,96 @@ func materializeRootRouteReceiver(db *gorm.DB, artifacts *generator.ConfigArtifa
 	}
 	artifacts.AlertmanagerYML = out
 	artifacts.RootRouteDiagnostics = diags
+}
+
+// seedManagedRoutePreset 在**平台管理模式**下为「尚无具体分流」的 alertmanager.yml 注入一份
+// 完整预置示例（根 route + 3 条带 matchers 的示例分流 + 1 条 inhibit 示例），补齐
+// dev-feedback #33 的「标准 alertmanager 配置文件模板库」缺口（决策 113 只落地了根兜底单键骨架）。
+//
+// 与 materializeRootRouteReceiver 的分工（互不越界）：
+//   - 骨架（决策 113）：只原地替换根 route.receiver 单键，管「兜底是谁」；
+//   - 预置（本函数）：管「完整示例长什么样」，只在**托管模式** + **无既有分流**时注入一次。
+//
+// 门禁（全部在 generator 侧，本函数只负责取数与接线）：
+//   - AlertmanagerYML 为空 / 模式非 managed（含零值 handwritten）→ 字节级不变，零副作用；
+//   - route 已有子路由 / 根 matchers / continue=true → 不 clobber，跳过 + 诊断；
+//   - 解析异常 / 无可引用 receiver → 跳过 + 诊断。
+//
+// 无返回值：本工序的一切异常一律降级为「跳过 + 诊断」（写入非产物字段 RoutePresetDiagnostics），
+// **绝不返回 error**——不得让挂载路径因预置示例而失败（与骨架同口径）。
+func seedManagedRoutePreset(db *gorm.DB, artifacts *generator.ConfigArtifacts) {
+	if strings.TrimSpace(artifacts.AlertmanagerYML) == "" {
+		return
+	}
+	setting, err := generator.LoadRouteSetting(db)
+	if err != nil {
+		artifacts.RoutePresetDiagnostics = []generator.RoutePresetDiagnostic{{
+			Code:    generator.PresetSkipLoadSettingFailed,
+			Message: fmt.Sprintf("读取 route 段模式设定失败，跳过预置示例注入: %v", err),
+		}}
+		return
+	}
+	// 手写模式（含存量零值，LoadRouteSetting 已归一）= 永久逃生舱：平台零写入。
+	if setting.Mode != models.RouteModeManaged {
+		return
+	}
+	channels, err := generator.LoadEnabledNotifyChannels(db)
+	if err != nil {
+		artifacts.RoutePresetDiagnostics = []generator.RoutePresetDiagnostic{{
+			Code:    generator.PresetSkipLoadChannelsFailed,
+			Message: fmt.Sprintf("读取已启用通知渠道失败，跳过预置示例注入: %v", err),
+		}}
+		return
+	}
+	platformNames := make([]string, 0, len(channels))
+	for _, ch := range channels {
+		platformNames = append(platformNames, ch.ReceiverName())
+	}
+	// 示例根路由的兜底 receiver 优先取用户选定的默认接收人；未开启接管时回落为
+	// 「已启用渠道第一个」（与 GET /route-setting 的 auto_first_enabled 建议同源），
+	// 再由种子自身回落到「根 route 既有 receiver / 文件 receivers 首个声明」。
+	defaultReceiver := ""
+	if r, ok := setting.EffectiveDefaultReceiver(channels); ok {
+		defaultReceiver = r
+	} else if len(channels) > 0 {
+		defaultReceiver = channels[0].ReceiverName()
+	}
+
+	out, diags, err := generator.SeedManagedRoutePreset(artifacts.AlertmanagerYML, generator.RoutePresetInput{
+		Mode:                  setting.Mode,
+		DefaultReceiver:       defaultReceiver,
+		PlatformReceiverNames: platformNames,
+	})
+	if err != nil {
+		// 序列化失败等不可预期异常：保留原产物并记录诊断，不阻断挂载路径。
+		artifacts.RoutePresetDiagnostics = diags
+		return
+	}
+	if out != artifacts.AlertmanagerYML {
+		artifacts.RoutePresetSeeded = true
+	}
+	artifacts.AlertmanagerYML = out
+	artifacts.RoutePresetDiagnostics = diags
+}
+
+// appendRoutePresetSeededItem 在 artifacts 标记「本次实际注入了预置示例」时追加一条显式变更项，
+// 供 M09 变更单明示「预置示例已注入」——否则用户只看到 alertmanager.yml 整体 diff 里凭空多出
+// 一整棵路由树，不知道是平台注入的示例、也不知道可直接改可删。追加后重排 ID，保证 ci-N 连续。
+func appendRoutePresetSeededItem(items []models.ConfigChangeItem, artifacts *generator.ConfigArtifacts) []models.ConfigChangeItem {
+	if artifacts == nil || !artifacts.RoutePresetSeeded {
+		return items
+	}
+	items = append(items, models.ConfigChangeItem{
+		Type:          string(models.ChangeItemTypeAdd),
+		Target:        string(models.ChangeItemTargetAlertmanagerCfg),
+		Description:   "预置路由示例已注入（平台管理模式派生基线：根路由 + 3 条示例分流 + 1 条抑制示例，可改可删）",
+		AffectedFiles: []string{string(models.AffectedFileAlertmanager)},
+		Risk:          string(models.RiskHigh),
+	})
+	for i := range items {
+		items[i].ID = fmt.Sprintf("ci-%d", i+1)
+	}
+	return items
 }
 
 // appendRootRouteRebuiltItem 在 artifacts 标记「本次实际替换了根兜底 receiver」时追加一条
@@ -439,7 +538,8 @@ func reconcileWithExistingPending(
 		return nil, err
 	}
 
-	items := appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts)
+	items := appendRoutePresetSeededItem(
+		appendRootRouteRebuiltItem(buildChangeItems(jobs, rules, artifacts, baseVersion), artifacts), artifacts)
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
@@ -998,6 +1098,9 @@ func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error) 
 	// 决策 113：重校路径同样复现根兜底物化（receivers 之后、校验之前），与 buildArtifacts
 	// 接线一致——否则重校会回退根兜底，与初次生成的产物不一致。
 	materializeRootRouteReceiver(db, artifacts)
+	// dev-feedback #33：重校路径同样复现预置示例注入（根兜底之后，与 buildArtifacts 一致），
+	// 否则重校会回退预置示例、与初次生成的产物不一致。
+	seedManagedRoutePreset(db, artifacts)
 	// F-14 改动 Y：发布期 jobref 校验输入集 = central 全域并集（全库 enabled+ready
 	// job_name，跨 local/edge 域），与中心求值器全局求值语义自洽；不再按本域产物判定。
 	validation, cause, details, vMsg := generator.ValidateArtifacts(artifacts, artifacts.BlackboxYML != "", rule.EffectiveJobNames(db, models.ScopeTypeCentral, ""))
