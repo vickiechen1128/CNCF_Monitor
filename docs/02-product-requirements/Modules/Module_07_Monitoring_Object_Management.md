@@ -1316,7 +1316,7 @@ status: "online"
 
 - Module\_01 与 Module\_09 **仅通过上述 GET 接口只读消费** Resource、ResourceLabel、LabelTemplate 数据，不经过本模块写接口；
 - **采集状态三态来源**：M07 资源列表「采集状态」badge 数据 = M01 维护的选中关系（`is_monitored`）+ M02 采集健康度 / 覆盖率 API（up 聚合，按 `resource_id` 回连）；M07 对两者均为**只读消费、不直连时序数据**，列表级查询走 M02 聚合 API（禁止逐行查询，TQ-6）；
-- **被引用 Job 查询**：标签模板页「被引用采集 Job N 个」数据由 Module\_01 的只读接口提供（`GET /api/v2/platform/scrape-jobs?label_template_id={template_id}`），M07 不直接暴露此聚合接口，以避免被动数据提供方反向依赖策略模块；
+- **被引用 Job 查询**：标签模板页「被引用采集 Job N 个」数据来源为 `ScrapeJob.label_template_id`（M01 拥有）。`ScrapeJob` 与 `CIExporterMapping` 两张表的**数据所有权归 M01**，M07 仅**只读消费**其引用关系用于删除前校验（见 6.6.3.1），**不新增任何写路径**、不修改这两张表的任何数据；该只读消费收敛在单一窄接口内，便于架构演进时替换实现；
 - 本模块不提供 `prometheus.yml` 生成 / 下发类接口（职责在 Module\_09）。
 
 ### 6.6 接口请求响应与错误码契约
@@ -1373,10 +1373,10 @@ status: "online"
 
 **1. 引用面（两处，均需拦截）**
 
-| 引用方 | 引用字段 | 归属模块 | 反查接口 |
+| 引用方 | 引用字段 | 归属模块 | M01 对外只读反查接口（M07 内部以窄接口隔离方式只读消费，不发起 HTTP 调用） |
 |--------|---------|---------|---------|
-| 采集 Job | `ScrapeJob.label_template_id` | Module\_01 | `GET /api/v2/platform/scrape-jobs?label_template_id={template_id}`（已实现，未过滤 `enabled`、未过滤软删） |
-| CI 类型映射表 | `CIExporterMapping.label_template_id` | Module\_01 | `{v0.3+}` 新增 `GET /api/v2/platform/ci-exporter-mappings?label_template_id={template_id}` |
+| 采集 Job | `ScrapeJob.label_template_id` | Module\_01 | M01 对外只读反查 `GET /api/v2/platform/scrape-jobs?label_template_id={template_id}`（M07 内部**不调用**，仅作 M01 侧契约基准；软删由 GORM 自动过滤、不按 `enabled` 过滤） |
+| CI 类型映射表 | `CIExporterMapping.label_template_id` | Module\_01 | M01 对外只读反查 `{v0.3+}` 新增 `GET /api/v2/platform/ci-exporter-mappings?label_template_id={template_id}`（M07 内部**不调用**；语义与 Job 侧对称） |
 
 > **PRD 漏写订正**：原 §6.6.3 只写了采集 Job 一个引用方，遗漏 `CIExporterMapping.label_template_id`（`platform/models/ci_exporter_mapping.go`）。本节补齐，避免实现时只查一张表就放行。
 
@@ -1406,7 +1406,11 @@ status: "online"
 
 **5. 职责边界不变（§6.5）**
 
-引用清单的**数据源仍是 M01 只读接口**，M07 只做编排与错误码映射，**不反向查询** `ScrapeJob` / `CIExporterMapping` 任何一张表。`GET /label-templates/{template_id}/references` 是 M07 对两个只读结果的**聚合编排**，不是新的跨模块数据所有权。若 M01 未提供 CI 侧反查接口，则 CI 引用**只读不判**（`data.refs` 中以 `source: ci_mapping, checked: false` 显式标注），**不得默认放行**。
+`ScrapeJob` / `CIExporterMapping` 两张表的**数据所有权仍归 M01**，M07 以**窄接口隔离**方式只读消费其引用关系，用于删除前校验与引用清单聚合：**不新增任何写路径**、不修改这两张表的任何数据、不将其纳入 M07 的数据契约。`GET /label-templates/{template_id}/references` 是 M07 对两侧引用关系的**聚合编排**，不是新的跨模块数据所有权。
+
+引用判定的实现口径（两侧一致）：软删行（`deleted_at` 非空）不计入引用；采集 Job **不按 `enabled` 过滤**（停用同样计入）；CI 类型映射**不按 `is_default` / `is_builtin` 过滤**（内置与每类型默认映射同样是有效引用方）。
+
+**保守拒绝原则**：引用校验失败（数据源不可用 / 查询出错）时**必须拒绝删除并如实报错**，绝不可把「查不到引用」当成「没有引用」而放行——放行即制造静默漂移。同理，若某一侧引用面尚不可查，该来源须以 `checked: false` 显式标注，**不得因它而放行删除**。
 
 > **收敛条件**：`LoadTemplateForJob` 的静默回落是否改为硬失败，属 M01 生成器行为，本模块不单方面变更；本节仅保证**删除路径**不制造静默漂移。
 

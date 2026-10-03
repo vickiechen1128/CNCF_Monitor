@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-03 15:33 · commit: `8e627c2`
+> 生成时间: 2026-10-03 19:50 · commit: `4fa01a6`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1108,6 +1108,17 @@
 - `func TestDeleteLabelMappingDefaultTemplateForbidden(t *testing.T)`
 - `func TestValidateMappingsEnhanced(t *testing.T)`
 
+### `platform/config/label/references.go`
+
+- `type TemplateReference struct`
+- `type TemplateReferenceSource interface`
+- `type TemplateReferenceSourceFunc`
+- `method (TemplateReferenceSourceFunc) ListReferences(labelTemplateID uint) ([]TemplateReference, error)`
+- `type gormTemplateReferenceSource struct`
+- `func NewTemplateReferenceSource(db *gorm.DB) TemplateReferenceSource`
+- `method (*gormTemplateReferenceSource) ListReferences(labelTemplateID uint) ([]TemplateReference, error)`
+- `func ListTemplateReferences(db *gorm.DB, src TemplateReferenceSource) gin.HandlerFunc`
+
 ### `platform/config/label/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
@@ -1126,7 +1137,8 @@
 - `func templateExistsByNameCategory(db *gorm.DB, name string, cat models.ResourceCategory) (bool, error)`
 - `func CreateLabelTemplate(db *gorm.DB) gin.HandlerFunc`
 - `func UpdateLabelTemplate(db *gorm.DB) gin.HandlerFunc`
-- `func DeleteLabelTemplate(db *gorm.DB) gin.HandlerFunc`
+- `func DeleteLabelTemplate(db *gorm.DB, src TemplateReferenceSource) gin.HandlerFunc`
+- `func referencedDeleteMessage(refs []TemplateReference) string`
 - `func parseTemplateID(c *gin.Context) (uint, bool)`
 - `func appendTemplateSnapshot(db *gorm.DB, templateID uint, changes []models.MappingChange) error`
 - `func newMappingChanges(mappings []models.LabelMapping) []models.MappingChange`
@@ -1140,6 +1152,12 @@
 - `func decodeTemplate(t *testing.T, w *httptest.ResponseRecorder) (int, models.LabelTemplate)`
 - `func decodeTemplateID(t *testing.T, w *httptest.ResponseRecorder) (int, uint)`
 - `func decodeErr(t *testing.T, w *httptest.ResponseRecorder) (int, response.Response)`
+- `func decodeForbidden(t *testing.T, w *httptest.ResponseRecorder) (int, response.Response, referencedData)`
+- `type referencedData struct`
+- `func decodeRefs(t *testing.T, w *httptest.ResponseRecorder) (int, referencedData)`
+- `func seedReferencingJob(t *testing.T, db *gorm.DB, labelTemplateID uint, name string, enabled bool) *models.ScrapeJob`
+- `func seedReferencingMapping(t *testing.T, db *gorm.DB, labelTemplateID uint, monitorType string) *models.CITypeExporterMappi…`
+- `func newReferencedTemplate(t *testing.T, r *gin.Engine, name string) models.LabelTemplate`
 - `func countSnapshots(t *testing.T, db *gorm.DB, templateID uint) int64`
 - `func lastSnapshot(t *testing.T, db *gorm.DB, templateID uint) models.LabelTemplateSnapshot`
 - `func TestCreateLabelTemplateSuccess(t *testing.T)`
@@ -1156,6 +1174,17 @@
 - `func TestCloneLabelTemplateNotFound(t *testing.T)`
 - `func openRollbackTestDB(t *testing.T) *gorm.DB`
 - `func TestCreateLabelTemplateRollbackOnSnapshotFailure(t *testing.T)`
+- `func TestDeleteLabelTemplateForbiddenByScrapeJob(t *testing.T)`
+- `func TestDeleteLabelTemplateForbiddenByDisabledScrapeJob(t *testing.T)`
+- `func TestDeleteLabelTemplateForbiddenByCIMapping(t *testing.T)`
+- `func TestDeleteLabelTemplateForbiddenMergesBothSources(t *testing.T)`
+- `func TestDeleteLabelTemplateSoftDeletedRefsDoNotBlock(t *testing.T)`
+- `func TestDeleteLabelTemplateDefaultTemplateChecksBeforeReferences(t *testing.T)`
+- `func TestDeleteLabelTemplateConservativeOnSourceFailure(t *testing.T)`
+- `func TestDeleteLabelTemplateNilSourceFailsClosed(t *testing.T)`
+- `func TestListTemplateReferencesAggregation(t *testing.T)`
+- `func TestListTemplateReferencesEmptyAndNotFound(t *testing.T)`
+- `func TestListTemplateReferencesExcludesSoftDeleted(t *testing.T)`
 
 ### `platform/config/resource/app_platform_rel.go`
 
@@ -3864,6 +3893,12 @@
 - `func seedLabelTemplate(t *testing.T, db *gorm.DB, name, category string) uint`
 - `func TestListCITypeExporterMappingsEmpty(t *testing.T)`
 - `func TestListCITypeExporterMappingsFiltersAndFlags(t *testing.T)`
+- `func seedMappingWithLabelTemplate(t *testing.T, db *gorm.DB, monitorType, exporterName, labelTemplateID string, isDefault, i…`
+- `func reverseLookup(t *testing.T, r *gin.Engine, labelTemplateID string) (int, []models.CITypeExporterMapping, int64)`
+- `func TestListCITypeExporterMappingsByLabelTemplate(t *testing.T)`
+- `func TestListCITypeExporterMappingsByLabelTemplateSoftDeleted(t *testing.T)`
+- `func TestListCITypeExporterMappingsByLabelTemplateDisabledJobStillCounts(t *testing.T)`
+- `func TestListCITypeExporterMappingsReverseLookupKeepsListMode(t *testing.T)`
 - `func TestCreateCITypeExporterMappingOK(t *testing.T)`
 - `func TestCreateCITypeExporterMappingValidation(t *testing.T)`
 - `func TestCreateDuplicateDefaultRejected(t *testing.T)`
@@ -3888,6 +3923,7 @@
 
 - `type mappingListItem struct`
 - `func ListCITypeExporterMappings(db *gorm.DB) gin.HandlerFunc`
+- `func listMappingsByLabelTemplate(c *gin.Context, db *gorm.DB, labelTemplateID string)`
 - `func mappingReferenced(db *gorm.DB, m models.CITypeExporterMapping) bool`
 - `func findExporterTemplate(db *gorm.DB, id string) (*models.ExporterTemplate, error)`
 
