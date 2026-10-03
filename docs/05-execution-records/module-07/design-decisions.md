@@ -1033,6 +1033,9 @@ system 标签（由标签模板自动生成）：
 > v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载逐版完整变更详情（业务沟通决策记录）。2026-08-18 结构改造后，PRD 仅保留最近 3 版，v2.7 ~ v2.12 已补迁入本表；2026-08-19 v2.19 落版后再补迁 v2.15 / v2.16；2026-09-10 v2.31 落版后再补迁 v2.28；2026-09-14 v2.32 落版后再补迁 v2.29；2026-09-15 v2.34 落版后补迁 v2.30 / v2.31（自 PRD Change Log 轮转迁入，v2.33 轮空时未迁出的两版一并补齐）。 v2.35 于 2026-09-18 v2.38 落版后自 PRD Change Log 轮转迁入本表。v2.37 于 2026-09-19 v2.40 落版后自 PRD Change Log 轮转迁入本表。v2.38 于 2026-09-19 v2.41 落版后自 PRD Change Log 轮转迁入本表。v2.39 于 2026-09-25 v2.42 落版后自 PRD Change Log 轮转迁入本表。v2.40 于 2026-09-25 v2.43 落版后自 PRD Change Log 轮转迁入本表。v2.43 于 2026-09-27 v2.46 落版后自 PRD Change Log 轮转迁入本表。v2.44 于 2026-09-27 v2.47 落版后自 PRD Change Log 轮转迁入本表。v2.45 于 2026-09-28 v2.48 落版后自 PRD Change Log 轮转迁入本表。v2.46 于 2026-09-28 v2.49 落版后自 PRD Change Log 轮转迁入本表
 | 版本    | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 影响范围                                                   | 产品版本影响                   | 状态    |
 | ----- | ---------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------ | ----- |
+| v2.49 | 2026-09-28 | 修改 | **吸收 design-proposal `object-relation-topology`（决策 110 / 111 / 112）**：`platform` 定性纠正——非派生标签、资源行一等字段 `platform_code`（修订决策 104、作废决策 108 §5.12.1）；应用↔平台改 M:N（`app_platform_rel` + `is_primary`）；服务字典加关系字段（`app_code` / `biz_code`）+ 双轨定位（归属聚合 / 对象拓扑）；新增 §5.24；原型需同步。PRD 落点：§5.2 / §5.12.1 / §5.13 / §5.15 / §5.16.1 / §5.16.2 / §5.18 / §5.19 / §5.21 / §5.22 / §5.23 / §5.24 / §6 / §9 / §10 |
+| v2.48 | 2026-09-28 | 修改 | **dev-feedback 回填 F-5 / F-11**：F-5 修 `instance_name` 矛盾（§5.2 以 §5.12.1 A 为准、通用行补适用范围、移除 `hostname` 死键）；F-11 采集地址——`health_check_url` 恢复可选（仅资源画像，不参与采集）、`endpoint` + `port` 必填（`port` 1~65535）；契约修订、原型无需同步。PRD 落点：§5.2 / §5.8 / §5.12.1 |
+| v2.47 | 2026-09-27 | 修改 | 补四层聚合口径（§5.15 权威）：`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁 `sum by (instance)`；§5.13 加指针、§10 消歧（决策 109）。PRD 落点：§5.13 / §5.15 / §10 |
 | v2.45 | 2026-09-27 | 修改 | **实体层级骨架增量（决策 104~107，吸收 design-proposal `service-biz-app-four-layer-hierarchy`）**：①顶层定名 `platform`（平台，放弃 `system`——撞名 `ResourceLabel.source=system` / 「system 层」/ `os_dict`，决策 104）；②服务标签定名 `svc`（新建 `ServiceDict`、放弃 `service`——撞名 §5.15 机制 B 归一规则与既有 `service_name`，决策 105）；③`biz` 语义升级为「一组上下游关联 `service` 构成的服务子图」（字段结构 / label / 必填口径零改动，决策 106）；④四层骨架 `platform(1) → app(N) → service(M) → instance(K)` 吸收进 PRD + T4 1:N 边界契约登记（决策 107）。新增 §5.21 平台字典（PlatformDict）/ §5.22 服务字典（ServiceDict）/ §5.23 服务依赖（`service_dependency`，归 M07 对象层、**MVP 不落表**，{v0.3+} P2 预留）；§5.19 应用字典新增**可选父级** `platform_code`；§5.2 新增**可选** `service_code` 字段（仅 application / generic\_target 适用）；§5.8 粒度说明重写；§5.12.1 映射表 / §5.13 默认模板补 `svc`（`platform` 为派生标签不在模板映射）；§5.15 关联键表新增 `svc` / `platform` + 机制 B 修订（业务侧 `service` 标签归一目标由 `app` 改 `svc`，`biz→app` 不变）；§5.16.1 / §5.16.2 声明 sheet 由两扩为四（增「平台声明」/「服务声明」）；§3.1.4 字典维护区；§6.1 平台 / 服务字典接口；§10 术语行 + 四列对照。详版见 design-decisions | 3.1.4 / 5.2 / 5.8 / 5.12.1 / 5.13 / 5.15 / 5.16.1 / 5.16.2 / 5.18 / 5.19 / 5.21 / 5.22 / 5.23 / 6.1 / 10 / Change Log | MVP 生效（`PlatformDict` / `ServiceDict` 字典本体；「平台 → 子系统」分层可视化界面归 {v0.2}；`service_dependency` 归 {v0.3+}） | ready |
 | v2.46 | 2026-09-27 | 修改 | **吸收 design-proposal `resource-ownership-relation-typing`（决策 108）**：五类资源归属三分型（**组成** application / 业务型 generic\_target、**依赖** database / middleware、**部署** host）+ host 归属键（身份键 `(instance_ip, network_domain_id)`、归属主键走部署维度）+ `platform` 派生降级口径（只依赖是否填 `app_code`）；零新增字段 / 零改必填 / 零改表结构。§5.2 补「五类资源归属关系分型」+「资源归属键口径」两段、§5.6 补主机归属键、§5.12.1 改派生降级口径、§10 补三分型术语行。详版见本文件决策 108（2026-09-28 v2.49 落版后自 PRD Change Log 轮转迁入） | 5.2 / 5.6 / 5.12.1 / 10 / Change Log | MVP 生效 | ready |
 | v2.44 | 2026-09-26 | 修改 | **实体模型收敛（决策 103 / M06 决策 78，推翻决策 102）**：`cloud_code` 由 Resource 五类共享字段**上提为 NetworkDomain 行政字段（M06 §5.2，必填）**，资源侧删除、改经网域派生；位置三标签（network_domain / cloud / zone）统一 target 级 system 层注入；主机默认模板删 `cloud_code → cloud` 映射行（决策 98 模板机制被取代）；§5.2 删 Resource `cloud_code` 字段行、§5.4 位置属性单一事实来源重写、§5.6 删 Host `cloud_code` 字段行、§5.16.1 五类导入模板列删 `cloud_code`、§5.20 承载位置改 M06 §5.2、§6.1 列表改派生、§9.1 验收改网域必填、§11.2 云/分区展示规则同步。详版见 design-decisions（2026-09-27 v2.47 落版后自 PRD Change Log 轮转迁入） | 5.2 / 5.4 / 5.6 / 5.13 / 5.16.1 / 5.20 / 6.1 / 9.1 / 11.2 / Change Log | MVP 生效 | ready |
@@ -2655,3 +2658,115 @@ for k, v := range user { if _, protected := system[k]; !protected { out[k] = v }
 > **T6 续办补记（2026-10-03，决策 118）**：双 Reviewer 审查发现 **T6 ③「M09 侧按映射生成 target、无需新增机制」这一处置结论在代码层未兑现**——`ResolveJobTargets` 仍按决策 104 / 107 / 108 旧语义从废弃 `ApplicationDict.PlatformCode` 派生 system 层 `platform`，因 `mergeLabels` 的 system 保护语义**压过**决策 110 规定的模板映射，且 `app_platform_rel.is_primary` 兜底零生产调用。**处置结论修订**：M09 侧**并非「无需新增机制」，而是必须做一处收敛**——停注 system 层 `platform` + 把主平台兜底前移到模板展开前的字段视图物化（决策 118-2）。因 `platform/configcenter/generator` 虽属 M09 资产、但行为由 M07 决策 110 / 118 直接约束，本轮由 **M07 侧一并修复**（T07-108），M09 侧无需独立排期。M01（§5.1.9 标签注入契约）与 M02（查询侧）**无需变更**，T6 行的 ①②④ 结论维持有效。
 
 > **决策 118 后续补记（2026-10-03，门禁 CI 落点 + G-M1 降级处置）**：118-5 落地后发现「测试文件类型门禁」**只挂在开发者本机**——`scripts/git-hooks/pre-commit` 仅含 `check-repo-map` 与 `check-prd-hygiene` 两条分支，且全仓仅 2 个 workflow（`check-repo-map.yml` / `deploy-prototype.yml`）均与前端无关。**该门禁当时只在「人主动敲 `pnpm test`」时存在**，同事 zhangwq 提交时不跑前端测试即可让类型缺口进 develop。**三项补齐（已完成）**：① **新增 `.github/workflows/check-frontend.yml`**——PR / push 到 `develop` 且 paths 命中 `ui-custom/web/**` 时跑 `typecheck:test` + `build`；**刻意不含全量 vitest**（916 用例耗时数分钟，antd / jsdom 波动易假红，噪音大于收益），最终防线以 CI 为准；② **修正 `02_Frontend_Standard.md` §11 措辞**——原文「tsc 仅检查业务代码、跳过测试文件」易被读成测试文件不受任何类型检查，现明确「测试类型由 `tsconfig.test.json` 独立检查 + `pnpm test` 前置 + CI 强制」，并补「禁止用运行时对象字面量伪证字段已接通」（原 `resources.test.ts` 即因此掩盖过 `platform_code` 缺口），同时补齐 `tsconfig.test.json` 配置样例与三层门禁层级表；③ **G-M1 风险降级**——穷举 `PlatformRefs{}` 全部生产构造点（`create.go:266` / `update.go:153` / `import.go:142`）**均完整注入两个 store**，故非 fail-closed **当前不存在漏注入、非活跃 bug**，属「设计取舍 + 未来第 4 条写路径的隐患」。**处置采「加 warn 日志」而非改 fail-closed**：`validatePlatformCode` 两处静默放行分支各打一条 `[resource-validate]` 告警（`PlatformStore == nil` 与 `AppPlatformStore == nil`），**控制流不变**（零行为变更、零测试影响，已实证两个分支均输出告警且全量 `go test ./platform/... -count=1` FAIL=0），把无痕失效转为可疑信号；不采 fail-closed（会打断既有 15 个子例的放行基线），不采 lint 白名单（Go 生态缺轻量工具，接入成本高于收益）。
+
+## 决策 119：标签模板删除的引用保护（`forbidden` 语义补齐）
+
+> 提出背景：用户提问「默认模板无法删除，那新增的模板被用户绑定了实例，为保证采集配置正常运行，是否这类新模板也禁止删除？」——**结论：应当禁止，且这已是 PRD 既有契约（Module_07 §6.6.3 明文规定 `forbidden`：被 Module_01 引用时禁止删除），不是新增需求。当前代码未实现，属实现缺口。**
+
+### 119-1 根因：删除校验被 TODO 显式跳过
+
+`platform/config/label/template_crud.go:253-255` 自带 TODO：
+
+```go
+// TODO(M01): ScrapeJob 引用校验，403 data 返回引用 Job 名单
+// {job_name, network_domain_id, enabled}（Module_07 §6.6.3）。M01 未实现，
+// 本阶段直接放行（不得反向查询 ScrapeJob，§6.5）。
+```
+
+`DeleteLabelTemplate` 仅拦截 `tmpl.IsDefault`（默认模板），**自定义模板无论是否被引用一律放行软删**。
+
+### 119-2 实际危害：不是"采集配置跑不起来"，而是"静默换掉标签集"
+
+模板软删后，生成链路 `LoadTemplateForJob`（`generator/data_source.go:96-107`）在
+`ErrRecordNotFound` 时**回落该资源类别的默认模板**（`is_default=true`），
+生成**继续成功、不报错、不告警**。真实危害是：
+
+1. 自定义模板的定制映射（如 `svc` 规则、额外业务 label）**消失**；
+2. 回落后的默认模板标签集与删除前**不同** ⇒ 同一批指标前后 label 空间不一致；
+3. 基于原 label 的**告警规则 / 看板查询静默失效**（历史序列仍在，新序列 label 变了）；
+4. 因为不报错，**运维无感知**，直到告警不触发才发现。
+
+这比"配置生成失败"更危险——失败会立刻暴露，静默漂移会潜伏。
+
+### 119-3 引用面不止 ScrapeJob一处（PRD 只写了一处，需补）
+
+PRD §6.6.3 只写「被 Module_01 引用时禁止删除」，但代码里模板引用方有**两处**：
+
+| 引用方 | 字段 | 模型位置 | PRD 是否提及 |
+| --- | --- | --- | --- |
+| `ScrapeJob` | `LabelTemplateID string` | `models/scrape_job.go:81` | ✅ §6.6.3 已写 |
+| `CIExporterMapping` | `LabelTemplateID string` | `models/ci_exporter_mapping.go:17` | ❌ **PRD 漏写** |
+
+`CIExporterMapping`（M01 CI 类型映射表）同样可挂模板，删除同样会导致回落。
+**故引用校验必须覆盖两张表，否则修了 ScrapeJob 仍留 CI 侧缺口。**
+
+### 119-4 结论与落地要点（2026-10-03 已拍板）
+
+**结论：被引用的自定义模板禁止删除（403 `forbidden`），与默认模板同属"不可删"族，
+但错误码不同（默认模板 = `bad_request` 语义错——它不是权限问题；被引用 = `forbidden`）。**
+
+**已拍板（2026-10-03，用户裁定「停用 Job 引用也禁删」）**，PRD 已同步至v2.50。落地要点：
+
+1. **查询面**：同库查两张表（`ScrapeJob.label_template_id`、
+   `CIExporterMapping.label_template_id`）的引用；`ScrapeJob` 需过滤软删（`BaseModel` 含
+   `CIExporterMapping` 同样需过滤软删。**停用（`enabled=false`）引用同样计入**
+   （已拍板，见 119-5；软删记录不计入）。
+2. **返回体**：按 PRD 契约返回引用 Job 名单 `{job_name, network_domain_id, enabled}`，
+   便于前端直接展示"被哪些 Job 使用"。CI 侧引用建议一并返回 `monitor_type`。
+3. **错误码**：用 `response.Forbidden`（`api/response/response.go:127` 已就绪）。
+4. **解耦动作（用户想删时的出路）**：403 提示应引导「先改绑再删」——
+   PRD 已有 `GET /label-templates/{id}/resources` 与 Job 侧 `label_template_id` 可更新，
+   构成完整"解绑→删除"闭环，无需新增 API。
+5. **测试**：现有 `template_crud_test.go` 有 3 个删除用例
+   （`TestDeleteLabelTemplateSuccess` / `DefaultForbidden` / `NotFound`），
+   需补「被 ScrapeJob 引用」「被 CIExporterMapping 引用」「软删 Job 不计入」
+   「两表同时引用」4 个子例。
+
+### 119-5 两个子问题的裁定（2026-10-03 已定）
+
+**1. 禁删范围 = 含停用 Job 引用（已拍板）**
+
+用户裁定：**停用 Job 引用同样禁删**。三条支撑理由：
+
+- 停用 Job 是**可随时原地复用的资产**，`enabled` 是开关不是生命周期状态；若仅按
+  `enabled=true` 判定，删除模板后"恢复启用"这一步会在无感知的情况下换掉 label 集。
+- 停用 Job 的 target 配置**仍留在 `config-output/prometheus.yml` 中未回收**，模板删除后
+  重新启用即产生与预期不符的配置漂移。
+- 停用的语义是"暂不采集"，不是"已废弃"；真要废弃应走 Job 删除，删除后引用自然解除。
+
+判定口径最终为：**`deleted_at` 为空即计入引用（含 `enabled=false`）**；
+`deleted_at` 非空的软删记录不构成引用、不阻塞删除。
+
+**2. PRD 补 `CIExporterMapping` 引用 = 已补（本次闭环）**
+
+已在 Module_07 v2.50 中一并落地：
+
+- §6.6.3 DELETE 行补「引用面含 Module_01 采集 Job 与 CI 类型映射表，停用引用同样计入」；
+- 新增 §6.6.3.1「模板删除的引用保护（决策 119）」小节，含引用面表格、禁删判定规则、
+  错误码语义区分、解绑闭环、职责边界五部分；
+- 新增 `GET /api/v2/platform/label-templates/{template_id}/references` 聚合接口契约。
+
+**`CIExporterMapping.label_template_id` 的权威归属仍归Module_01**（与既有 §6.5
+只读消费契约一致）：M07 只做聚合编排与错误码映射，**不反向查询**两张表中的任何一张；
+M01 未提供 CI 侧反查接口时，CI 引用以 `checked: false` 显式标注、**不得默认放行**。
+（此项需在 M01 侧排期新增 `GET /ci-exporter-mappings?label_template_id=`，见 119-7。）
+
+### 119-7 代码排期拆解（本轮未执行）
+
+按 §6.5 边界约束，跨模块校验必须拆为两项，不能由 M07 单侧直查完成：
+
+| 项 | 归属 | 内容 | 阻塞关系 |
+| --- | --- | --- | --- |
+| A | Module_01 | 新增 CI 侧反查 `GET /ci-exporter-mappings?label_template_id=`；确认既有 `GET /scrape-jobs?label_template_id=` 的 `enabled` / 软删语义符合 §6.6.3.1 | 无，可先做 |
+| B | Module_07 | `DeleteLabelTemplate` 增加引用校验（调M01 只读接口，`forbidden` + `refs` 回传）；新增 `/references` 聚合接口；403 提示引导「先改绑再删」 | 依赖 A 才能实现 CI 侧判定；可先落 ScrapeJob 单表分支，CI 分支以 `checked:false` 灰度 |
+
+建议 **A、B 同期排期**（B 的 CI 分支以开关灰度），避免"只查一张表就放行"的半成品上线。
+
+### 119-6 与既有决策的关系
+
+- 决策 117（模板版本化重建，{v0.2}）已指出模板变更需重建 target；
+  **本决策是"软删也走重建"的前置保护**——在版本化落地前，先用禁删守住不丢配置。
+- 决策 115（映射变更须配套幂等种子回填）同类思路：变更前先保证存量一致。
+- 决策 118 建立的通用规约「同一 label 不得由两层同时产出」与此一致：
+  **静默回落本质上就是"注入源被悄悄换掉"**，与 118 同族，属"静默失效必须显式化"。
+

@@ -1,10 +1,10 @@
 # Module 07: 监控对象管理
 
 > **PRD 状态**: `ready`（可开发版本）
-> **PRD 版本**: v2.49
+> **PRD 版本**: v2.50
 > **产品版本覆盖**: MVP / v0.2 / v0.3 / v0.4 / v1.0
-> **原型版本**: v2.47（决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明；v2.42 为字段与字典契约增量（云字典 / 主机 cloud_code / 网络分区唯一权威），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.43 为云标识契约增量（`cloud_code` 升格五类共享字段 + host/database/middleware 必填 + 云字典无管理页口径澄清），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.44 为实体模型收敛（cloud/zone 上提网域 + 位置三标签统一 system 层 + zone_type 必填，决策 103 / M06 决策 78），属契约级修订、无新增用户可见字段（云/分区经网域派生只读展示已随本轮同步）；v2.45 为实体层级骨架增量（新增平台层 `platform` / 服务层 `svc` + `PlatformDict` / `ServiceDict`，biz 语义升级为「服务子图」，决策 104~107），属契约级修订、**原型已同步**（新增平台 / 服务字典页、应用字典父级「所属平台」、资源服务归属字段 `service_code`；服务依赖 `service_dependency` 归 {v0.3+} 预留、原型不做依赖界面）；v2.46 为五类资源归属关系分型增量（组成 / 依赖 / 部署三分型 + host 归属键 + `platform` 派生降级口径 + 术语表，吸收 design-proposal `resource-ownership-relation-typing`，决策 108），属契约级修订、原型无需同步；v2.47 为四层聚合口径澄清（`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁用 `sum by (instance)`，决策 109），属契约级口径澄清、原型无需同步；v2.48 为 dev-feedback F-5/F-11 回填（`instance_name` 标签映射矛盾修正 + application 采集地址口径澄清），属契约级修订、原型无需同步；v2.49 为对象关系与拓扑建模增量（吸收 design-proposal `object-relation-topology`：A 层字典关系提前至 MVP——应用↔平台改 M:N（`app_platform_rel`）+ 资源行 `platform_code` 一等字段化 + `platform` 定性纠正 + label 维度分层 + 新增 §5.24，决策 110~112），属契约级修订、**原型需同步**（应用字典页平台多选 + 主平台标记、平台字典页关联应用列表、服务字典页业务 / 应用归属、资源表单平台字段级联、资源列表平台列；聚合拓扑视图归 {v0.2} 原型））
-> **更新日期**: 2026-09-28
+> **原型版本**: v2.47（决策 93/94/95/96 原型已同步：列表各 Tab 补「应用」列 + 业务字段必填分化；PRD v2.41 为导入链路增强——Excel 批量声明新字典（决策 97），模板新增业务/应用声明 sheet，属导入契约、**原型表单交互不变、无需立即同步**；v2.40 起认知对齐见 `docs/prototypes/module-07/README.md` v2.40 变更说明；v2.42 为字段与字典契约增量（云字典 / 主机 cloud_code / 网络分区唯一权威），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.43 为云标识契约增量（`cloud_code` 升格五类共享字段 + host/database/middleware 必填 + 云字典无管理页口径澄清），原型已同步（云/分区经网域派生只读展示；云字典无管理页）；v2.44 为实体模型收敛（cloud/zone 上提网域 + 位置三标签统一 system 层 + zone_type 必填，决策 103 / M06 决策 78），属契约级修订、无新增用户可见字段（云/分区经网域派生只读展示已随本轮同步）；v2.45 为实体层级骨架增量（新增平台层 `platform` / 服务层 `svc` + `PlatformDict` / `ServiceDict`，biz 语义升级为「服务子图」，决策 104~107），属契约级修订、**原型已同步**（新增平台 / 服务字典页、应用字典父级「所属平台」、资源服务归属字段 `service_code`；服务依赖 `service_dependency` 归 {v0.3+} 预留、原型不做依赖界面）；v2.46 为五类资源归属关系分型增量（组成 / 依赖 / 部署三分型 + host 归属键 + `platform` 派生降级口径 + 术语表，吸收 design-proposal `resource-ownership-relation-typing`，决策 108），属契约级修订、原型无需同步；v2.47 为四层聚合口径澄清（`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁用 `sum by (instance)`，决策 109），属契约级口径澄清、原型无需同步；v2.48 为 dev-feedback F-5/F-11 回填（`instance_name` 标签映射矛盾修正 + application 采集地址口径澄清），属契约级修订、原型无需同步；v2.49 为对象关系与拓扑建模增量（吸收 design-proposal `object-relation-topology`：A 层字典关系提前至 MVP——应用↔平台改 M:N（`app_platform_rel`）+ 资源行 `platform_code` 一等字段化 + `platform` 定性纠正 + label 维度分层 + 新增 §5.24，决策 110~112），属契约级修订、**原型需同步**（应用字典页平台多选 + 主平台标记、平台字典页关联应用列表、服务字典页业务 / 应用归属、资源表单平台字段级联、资源列表平台列；聚合拓扑视图归 {v0.2} 原型））；v2.50 为标签模板删除的引用保护（决策 119：引用面补齐 CI 类型映射表、停用 Job 引用同样禁删、软删记录不计入、新增 `GET /label-templates/{template_id}/references` 聚合接口、删除被引用模板返回 `forbidden` 并回传引用清单），属错误码与约束契约修订、原型删除按钮的 403 提示文案需同步（列表与详情两处），删除交互形态不变）
+> **更新日期**: 2026-10-03
 > **对应原型**: `docs/prototypes/module-07/`
 
 > **模块类型**: MVP 核心能力模块
@@ -1197,11 +1197,11 @@ status: "online"
 
 **`app_platform_rel` 关联表（M:N，决策 111）**：
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| app\_code | string | ✅ | 应用字典主键（见 5.19） |
-| platform\_code | string | ✅ | 平台字典主键（见 5.21） |
-| is\_primary | bool | ✅ | **主平台标记**——同一 `app_code` **至多一个** `is_primary=true`（服务端唯一性校验，应用表单「主平台」单选）；为资源 `platform_code` 未显式填写时提供**兜底**取值 |
+| 字段 | 类型 | 必填 | UI 展示名 | 说明 |
+|---|---|---| ---|---|
+| app\_code | string | ✅ | —（关联键，不单独展示） | 应用字典主键（见 5.19） |
+| platform\_code | string | ✅ | —（关联键，不单独展示） | 平台字典主键（见 5.21） |
+| is\_primary | bool | ✅ | 「（主）」标记 | **主平台标记**——同一 `app_code` **至多一个** `is_primary=true`（服务端唯一性校验，应用表单「主平台」单选）；为资源 `platform_code` 未显式填写时提供兜底 |
 
 > **为什么把关系落在字典（而非全靠资源行）**：资源行只能表达「某个实例同时填了哪些码」，**跨实例的实体关系（如「该应用包含哪些服务」）无法从资源行稳定推导**——某服务当前无实例时关系即丢失。故字典层需**显式**关系字段 / 关系表，拓扑才可独立维护与查询。
 
@@ -1357,12 +1357,58 @@ status: "online"
 | GET | `/api/v2/platform/label-templates` | Query: `resource_category`、`is_default`、`keyword`、`page`、`page_size` | `{ items: [...], total: N }`，item 含完整 mappings | — |
 | POST | `/api/v2/platform/label-templates` | `{ name, resource_category, description?, mappings?: [...] }` | 创建的模板（`is_default=false`），**`description` 必须落库** | `bad_request`：同名同资源类型 / 非法 mapping |
 | PUT | `/api/v2/platform/label-templates/{template_id}` | `{ name?, description?, resource_category? }`（resource_category 创建后不可改） | 更新后的模板，**`description` 变更必须落库** | `not_found`；`bad_request` |
-| DELETE | `/api/v2/platform/label-templates/{template_id}` | — | `{ template_id }` | `bad_request`：默认模板禁止删除；`forbidden`：被 Module\_01 引用时禁止删除 |
+| DELETE | `/api/v2/platform/label-templates/{template_id}` | — | `{ template_id }` | `bad_request`：默认模板禁止删除；**`forbidden`：被引用时禁止删除（决策 119；引用面含 Module\_01 采集 Job 与 CI 类型映射表，停用引用同样计入；`data.refs` 回传引用清单）** |
 | POST | `/api/v2/platform/label-templates/{template_id}/clone` | `{ name? }` | 克隆后的新模板 | `not_found` |
 | GET | `/api/v2/platform/label-templates/{template_id}/resources` | — | `{ items: [...], total: N }`：按模板 resource_category 匹配的资源列表 | `not_found` |
+| GET | `/api/v2/platform/label-templates/{template_id}/references` | — | `{ refs: [{ source, id, name, network_domain_id?, monitor_type?, enabled? }], total: N }`：引用该模板的采集 Job 与 CI 类型映射清单（决策 119 新增） | `not_found` |
 | POST | `/api/v2/platform/label-templates/{template_id}/mappings` | `{ target_label, source_type, source_field, transform_rule? }` | 新增后的 mappings 列表 | `bad_request`：保护 label / 同模板 target_label 重复 |
 | PUT | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | `{ target_label?, source_type?, source_field?, transform_rule? }` | 更新后的 mappings 列表 | `not_found`；`bad_request` |
 | DELETE | `/api/v2/platform/label-templates/{template_id}/mappings/{mapping_id}` | — | `{ mapping_id }` | `not_found` |
+
+#### 6.6.3.1 模板删除的引用保护
+
+> **决策依据**：决策 119（2026-10-03 拍板「停用 Job 引用也禁删」；完整推导见 `docs/05-execution-records/module-07/design-decisions.md` 决策 119）。
+
+标签模板一旦被采集配置引用，删除会让**已下发的采集配置静默改写**：`LoadTemplateForJob` 在模板查不到时会**回落到该资源类别的默认模板**（`platform/configcenter/generator/data_source.go`），生成**继续成功、不报错、不告警**。此时 target 上的 label 集被悄悄换掉，告警匹配、看板分组随之失效——这比「生成直接失败」更危险，因为失败会暴露，静默回落不会。因此删除必须做引用保护。
+
+**1. 引用面（两处，均需拦截）**
+
+| 引用方 | 引用字段 | 归属模块 | 反查接口 |
+|--------|---------|---------|---------|
+| 采集 Job | `ScrapeJob.label_template_id` | Module\_01 | `GET /api/v2/platform/scrape-jobs?label_template_id={template_id}`（已实现，未过滤 `enabled`、未过滤软删） |
+| CI 类型映射表 | `CIExporterMapping.label_template_id` | Module\_01 | `{v0.3+}` 新增 `GET /api/v2/platform/ci-exporter-mappings?label_template_id={template_id}` |
+
+> **PRD 漏写订正**：原 §6.6.3 只写了采集 Job 一个引用方，遗漏 `CIExporterMapping.label_template_id`（`platform/models/ci_exporter_mapping.go`）。本节补齐，避免实现时只查一张表就放行。
+
+**2. 禁删判定规则**
+
+- **停用引用同样禁删**（2026-10-03 拍板）：`ScrapeJob.enabled=false` 的 Job **仍计入引用**。理由有三——① 停用 Job 是可随时原地复用的资产，删除模板会让「恢复启用」这一步在无感知的情况下换掉 label 集；② 停用 Job 的 target 配置仍留在 `config-output/prometheus.yml` 中未回收，模板删除后重新启用即产生与预期不符的配置漂移；③ 停用的语义是「暂不采集」，不是「已废弃」，若要废弃应走 Job 删除而非模板删除。
+- **软删记录不计入引用**：`deleted_at` 非空的 Job / 映射行视为已废弃，不构成引用，不阻塞模板删除。
+- **两表需同时判定**：任一表存在非软删引用即拒绝；`data.refs` 需回传**合并后的完整清单**（含来源标识 `source`），便于用户定位要解绑哪些对象。
+- **默认模板仍走 `bad_request`**：默认模板的禁删是模板自身属性约束，与外部引用无关，两者语义分离。
+
+**3. 错误码语义区分**
+
+| 场景 | 错误码 | data 回传 |
+|------|--------|-----------|
+| 删除默认模板（`is_default=true`） | `bad_request` | `{ reason: "default_template" }` |
+| 存在非软删引用 | `forbidden` | `{ reason: "referenced", refs: [...], total: N }` |
+| 模板不存在 | `not_found` | — |
+
+**4. 解绑 → 删除闭环无需新增写接口**
+
+用户被 403 拦截后的出路是**先改绑再删**，两条路径均已存在，本决策**不新增任何写接口**：
+
+1. 采集 Job 改绑：Job 编辑表单的标签模板选择器 → 触发 M01 侧 `PUT /api/v2/platform/scrape-jobs/{job_id}` 更新 `label_template_id` → 需重新生成 / 确认下发采集配置（与 §6.5 采集状态三态的「变更未确认下发」口径一致）；
+2. Job 废弃：删除该 Job（而非仅停用），引用即解除。
+
+因此 403 提示文案须明确引导「先改绑或删除引用方，再删除模板」，而非仅给出错误码。
+
+**5. 职责边界不变（§6.5）**
+
+引用清单的**数据源仍是 M01 只读接口**，M07 只做编排与错误码映射，**不反向查询** `ScrapeJob` / `CIExporterMapping` 任何一张表。`GET /label-templates/{template_id}/references` 是 M07 对两个只读结果的**聚合编排**，不是新的跨模块数据所有权。若 M01 未提供 CI 侧反查接口，则 CI 引用**只读不判**（`data.refs` 中以 `source: ci_mapping, checked: false` 显式标注），**不得默认放行**。
+
+> **收敛条件**：`LoadTemplateForJob` 的静默回落是否改为硬失败，属 M01 生成器行为，本模块不单方面变更；本节仅保证**删除路径**不制造静默漂移。
 
 ### 6.7 CMDB Provider 扩展接口
 
@@ -1688,8 +1734,8 @@ stateDiagram-v2
 
 | 版本   | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                 | 落点章节 | 产品版本影响            | 状态  |
 | ---- | ---------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------- | --- |
-| v2.49 | 2026-09-28 | 修改 | **吸收 design-proposal `object-relation-topology`（决策 110 / 111 / 112）**：`platform` 定性纠正——非派生标签、资源行一等字段 `platform_code`（修订决策 104、作废决策 108 §5.12.1）；应用↔平台改 M:N（`app_platform_rel` + `is_primary`）；服务字典加关系字段（`app_code` / `biz_code`）+ 双轨定位（归属聚合 / 对象拓扑）；新增 §5.24；原型需同步 | 5.2 / 5.12.1 / 5.13 / 5.15 / 5.16.1 / 5.16.2 / 5.18 / 5.19 / 5.21 / 5.22 / 5.23 / 5.24 / 6 / 9 / 10 / Change Log | MVP 生效 | ready |
+| v2.50 | 2026-10-03 | 修改 | **标签模板删除的引用保护（决策 119）**：引用面补齐 CI 类型映射表、停用引用同样禁删、软删记录不计入；新增 `GET /label-templates/{template_id}/references` 聚合接口；删除被引用模板返 `forbidden` 并回传引用清单 | 6.6.3 / 6.6.3.1 / Change Log | MVP 生效 | ready |
+| v2.49 | 2026-09-28 | 修改 | **吸收 design-proposal `object-relation-topology`（决策 110~112）**：`platform` 纠正为非派生标签、资源行一等字段 `platform_code`；应用↔平台改 M:N（`app_platform_rel`）；服务字典加 `app_code` / `biz_code` + 双轨定位；新增 §5.24；原型需同步 | 5.2 / 5.12.1 / 5.13 / 5.15 / 5.18 / 5.19 / 5.21 / 5.22 / 5.24 / 6 / 9 / 10 / Change Log | MVP 生效 | ready |
 | v2.48 | 2026-09-28 | 修改 | **dev-feedback 回填 F-5/F-11**：F-5 修 `instance_name` 矛盾（§5.2 以 §5.12.1 A 为准、通用行补适用范围、移除 `hostname` 死键）；F-11 采集地址——`health_check_url` 恢复可选（仅资源画像，不参与采集）、`endpoint`+`port` 必填（`port` 1~65535）；契约修订、原型无需同步 | 5.2 / 5.8 / 5.12.1 / Change Log | MVP 生效 | ready |
-| v2.47 | 2026-09-27 | 修改 | 补四层聚合口径（§5.15 权威）：`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁 `sum by (instance)`；§5.13 加指针、§10 消歧（决策 109） | 5.13 / 5.15 / 10 / Change Log | MVP 生效 | ready |
-> 完整 Change Log（v2.46 及以前）见 `docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」。
+> 完整 Change Log（v2.47 及以前）见 `docs/05-execution-records/module-07/design-decisions.md`「Change Log（完整历史）」。
 
