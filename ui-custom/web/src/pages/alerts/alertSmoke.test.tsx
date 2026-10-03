@@ -116,11 +116,14 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     useRouteSettingMock.mockReturnValue(routeSettingEmpty())
   })
 
+  // 2026-10-02 #38/#39：页头不再挂「挂载新配置」主按钮，导入入口降级进默认收起的高级区；
+  // 空态也改为「界面配置 + 高级区导入」两条路并给。
   it('主链路前端可走通：/alert-config 加载告警配置页，顶级 tab + 两二级子项就位', async () => {
     renderM08('/alert-config')
-    // Load 态结束后渲染当前生效空态 + 挂载入口
-    expect(await screen.findByText('当前无生效配置，点击「挂载新配置」上传或粘贴 alertmanager.yml')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /挂载新配置/ })).toBeInTheDocument()
+    // Load 态结束后渲染当前生效空态（引导优先走界面配置，其次才是高级区导入）
+    expect(await screen.findByText(/当前无生效配置/)).toBeInTheDocument()
+    expect(screen.getByText(/「通知渠道」「路由规则」/)).toBeInTheDocument()
+    expect(screen.getByTestId('alert-config-intro')).toBeInTheDocument()
     // 顶级 tab 用 PRD 模块名（出现于顶部一级 tab 与二级菜单组）
     expect(screen.getAllByText('告警收敛与通知管理').length).toBeGreaterThan(0)
     // 二级导航展示「告警配置 / 静默管理 / 告警状态」
@@ -140,7 +143,7 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     renderM08('/silences')
     expect((await screen.findAllByText('静默管理')).length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('menuitem', { name: /告警配置/ }))
-    expect(await screen.findByText('当前无生效配置，点击「挂载新配置」上传或粘贴 alertmanager.yml')).toBeInTheDocument()
+    expect(await screen.findByText(/当前无生效配置/)).toBeInTheDocument()
   })
 
   it('告警状态链路前端可走通：/alert-status 加载双视图页，Sider 三子项就位且当前项高亮', async () => {
@@ -173,37 +176,29 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
     expect(screen.getByRole('button', { name: /重新加载/ })).toBeInTheDocument()
   })
 
-  // T08-F8：骨架布缆开关「默认接收人（根兜底）」在主链路页内就位（clipping：收进当前生效配置卡，不新增整卡）。
-  it('T08-F8：告警配置页「默认接收人（根兜底）」控件就位', async () => {
+  // T08-F8：骨架布缆开关就在策略卡首屏。2026-10-02 #38 术语去技术化：
+  // 「默认接收人（根兜底）」→ 「未匹配规则的告警发给谁」（§7.5 对照表）。
+  it('T08-F8：告警配置页策略卡「未匹配规则的告警发给谁」控件就位', async () => {
     renderM08('/alert-config')
-    expect(await screen.findByText('默认兜底接收人')).toBeInTheDocument()
+    expect(await screen.findByRole('combobox', { name: '未匹配规则的告警发给谁' })).toBeInTheDocument()
+    expect(screen.getByTestId('alert-policy-card')).toBeInTheDocument()
     // 首项「不接管」= null 且为默认选中值
     expect(screen.getByText('不接管（保留我手写的兜底配置）')).toBeInTheDocument()
+    // 旧术语不再出现在用户视图
+    expect(document.body.textContent ?? '').not.toContain('默认兜底接收人')
   })
 
-  // T08-F9（#26 / #28.5）：L3 文案收口——不再表述「route 段由你手写维护」。
-  it('T08-F9：派生预览 L3 文案改为「根兜底在你选定默认接收人后由平台接管」', async () => {
-    useDerivedReceiversMock.mockReturnValue({
-      rows: [
-        {
-          channelId: '1',
-          channelName: 'SRE 飞书群',
-          receiverName: 'sre-feishu-qun',
-          snippet: "  - name: sre-feishu-qun\n",
-          tokenConfigured: true,
-        },
-      ],
-      loading: false,
-      error: null,
-      permissionDenied: false,
-      reload: vi.fn(),
-    })
+  // T08-F9（#26 / #28.5）收口：旧过渡表述「route 段由你手写维护」在全站消除。
+  // 2026-10-02 #39：承载 L3 口径的「平台自动写入 receivers 定义；默认兜底在你选定后由平台接管」
+  // 现挂在本页**行内「接收人配置」抽屉**（`ReceiverSnippetDrawer`）上，断言详见 `NotifyChannelsPage.test.tsx`
+  // 「接收人配置：抽屉展示接收人名 / 桥接地址 / 片段…」用例；此处只守派生预览迁移后的无残留。
+  it('T08-F9（#39）：派生预览已迁至「通知渠道」页，本页无旧宣传残留', async () => {
     renderM08('/alert-config')
-    expect(await screen.findByText('派生预览：平台将写入的接收人')).toBeInTheDocument()
-    // 新口径三段式文案
-    expect(screen.getByText(/平台自动写入/)).toBeInTheDocument()
-    expect(screen.getByText(/在你选定默认接收人后由平台接管/)).toBeInTheDocument()
-    // 旧的一期过渡表述已消除
+    expect(await screen.findByTestId('alert-config-intro')).toBeInTheDocument()
+    // 旧的派生预览面板标题与「枚举式」表述均已消失
+    expect(document.body.textContent ?? '').not.toContain('派生预览：平台将写入的接收人')
+    expect(document.body.textContent ?? '').not.toContain('平台自动生成的接收人')
+    // 旧的一期过渡表述在全站消除
     expect(document.body.textContent ?? '').not.toContain('route 段由你手写维护')
     expect(document.body.textContent ?? '').not.toContain('route 段由用户手写维护')
   })

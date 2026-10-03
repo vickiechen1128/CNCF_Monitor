@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -29,6 +30,7 @@ func newRoutesDB(t *testing.T) *gorm.DB {
 		&models.NotifyChannel{},
 		&models.ConfigDraft{},
 		&models.ConfigVersion{},
+		&models.AlertmanagerRouteSetting{},
 	))
 	return db
 }
@@ -102,7 +104,7 @@ route:
 	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
 	data := decodeRoutes(t, w)
 
-	assert.Equal(t, ModeHandwritten, data.Mode, "T08-F12 前恒为手写模式")
+	assert.Equal(t, ModeHandwritten, data.Mode, "未持久化模式设定时归一为 handwritten")
 	require.Len(t, data.Items, 2)
 	assert.True(t, data.Items[0].Locked)
 	assert.Equal(t, "根兜底", data.Items[0].Name)
@@ -126,6 +128,63 @@ func TestListRoutesHandler_RootFallbackCountsAsReference(t *testing.T) {
 
 	require.Len(t, data.DeadReceivers, 1)
 	assert.Equal(t, "alpha", data.DeadReceivers[0].Name, "根兜底引用的 beta 不算死接收人")
+}
+
+// TestListRoutesHandler_ReturnsStoredMode 覆盖 T08-F12：GET /routes 的 mode 取自
+// AlertmanagerRouteSetting 持久化值，而非硬编码。持久化 managed 时须返回 managed。
+func TestListRoutesHandler_ReturnsStoredMode(t *testing.T) {
+	db := newRoutesDB(t)
+	seedWebhookChannel(t, db, "alpha", "https://open.feishu.cn/hook/A")
+	seedAppliedConfig(t, db, "route:\n  receiver: alpha\n")
+
+	require.NoError(t, db.Create(&models.AlertmanagerRouteSetting{
+		NetworkDomainID:          models.DefaultDomainID,
+		DefaultReceiverChannelID: nil,
+		Mode:                     models.RouteModeManaged,
+	}).Error)
+
+	w := doJSON(t, newRoutesRouter(db), http.MethodGet, "/alertmanager/routes", "")
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	data := decodeRoutes(t, w)
+	assert.Equal(t, string(models.RouteModeManaged), data.Mode, "mode 须反映持久化值")
+}
+
+// TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView 覆盖 C1：GET /config/product 返回
+// 「当前生效产品视图」alertmanager.yml（草稿/版本优先于挂载留痕），含平台物化 receivers；
+// 前端以此作为 route 保存合并基，仅覆盖 route 段、保留 receivers。
+func TestEffectiveAlertmanagerYAMLHandler_ReturnsEffectiveView(t *testing.T) {
+	db := newRoutesDB(t)
+	seedWebhookChannel(t, db, "SRE 飞书群", "https://open.feishu.cn/hook/SECRET")
+
+	// 挂载留痕（用户手写）：根兜底 user-fallback。
+	seedAppliedConfig(t, db, "route:\n  receiver: user-fallback\nreceivers:\n  - name: user-fallback\n")
+	// 平台生成产物（产品视图）：根兜底已被接管为 sre，并物化 sre。
+	require.NoError(t, db.Create(&models.ConfigVersion{
+		NetworkDomainID: models.DefaultDomainID,
+		DraftID:         "d-1",
+		ChangeNo:        "CHG-TEST-C1",
+		AlertmanagerYml: "route:\n    receiver: sre\nreceivers:\n    - name: user-fallback\n    - name: sre\n",
+	}).Error)
+
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set(auth.ContextUserKey, adminUser()) })
+	g := r.Group("/alertmanager/config")
+	g.GET("/product", EffectiveAlertmanagerYAMLHandler(db))
+
+	w := doJSON(t, r, http.MethodGet, "/alertmanager/config/product", "")
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+
+	var env struct {
+		Status string `json:"status"`
+		Data   struct {
+			YAML string `json:"yaml"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	require.Equal(t, response.StatusSuccess, env.Status)
+	assert.Contains(t, env.Data.YAML, "receiver: sre", "须返回产品视图（平台接管后的根兜底），而非挂载留痕")
+	assert.Contains(t, env.Data.YAML, "- name: sre", "须包含平台物化的 receivers")
 }
 
 // TestListRoutesHandler_NoConfig：无生效配置 → 空 items，全部平台接收人视为无引用。

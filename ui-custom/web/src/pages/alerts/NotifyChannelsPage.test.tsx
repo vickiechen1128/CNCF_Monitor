@@ -20,6 +20,11 @@ vi.mock('./useNotifyChannels', () => ({
   useNotifyChannels: (...a: unknown[]) => useNotifyChannelsMock(...a),
 }))
 
+const useDerivedReceiversMock = vi.fn()
+vi.mock('./useDerivedReceivers', () => ({
+  useDerivedReceivers: (...a: unknown[]) => useDerivedReceiversMock(...a),
+}))
+
 const getReceiverSnippetMock = vi.fn()
 const listTemplatesMock = vi.fn()
 vi.mock('../../api/alertmanager', async (importOriginal) => {
@@ -119,6 +124,15 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     getReceiverSnippetMock.mockResolvedValue(snippetResponse())
     listTemplatesMock.mockReset()
     listTemplatesMock.mockResolvedValue({ status: 'success', data: { items: [], total: 0 } })
+    // 派生接收人默认空态（无已启用渠道 / 未取到片段）；具体断言在各自用例内覆盖返回值
+    useDerivedReceiversMock.mockReset()
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
   })
 
   it('页头渲染渠道名称与新增入口', () => {
@@ -129,17 +143,35 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     expect(screen.getByRole('button', { name: /新增渠道/ })).toBeInTheDocument()
   })
 
-  // B 路线（决策 74）：页头定位文案须说明「本页是接收人来源」，并给出「自动写入、配置即生效」心智，
+  // B 路线（决策 74）：需说明「本页是接收人来源」，并给出「自动写入、配置即生效」心智，
   // 同时指向「告警配置」页，避免两页各说一套。
-  it('B 路线：页头说明接收人来源、自动写入心智并指向 /alert-config', () => {
+  // 2026-10-02 四页说明区统一：说明收进「这个页面管什么」折叠区（默认收起），需先展开。
+  it('B 路线：说明区讲清接收人来源、自动写入心智并指向 /alert-config', () => {
     useNotifyChannelsMock.mockReturnValue(result())
     renderPage()
+    fireEvent.click(screen.getByTestId('notify-channels-intro-guide-label'))
     expect(screen.getByText(/本页是告警接收人的来源/)).toBeInTheDocument()
-    expect(screen.getByText(/已启用的渠道会被平台在下发配置时自动写入/)).toBeInTheDocument()
-    // 页头与片段抽屉说明都指向「告警配置」页（forceRender 下抽屉内容常驻，故用 getAll）
+    expect(screen.getByText(/会被平台在下发配置时自动写入/)).toBeInTheDocument()
+    // 说明区与片段抽屉都指向「告警配置」页（forceRender 下抽屉内容常驻，故用 getAll）
     const configLinks = screen.getAllByRole('link', { name: '「告警配置」' })
     expect(configLinks.length).toBeGreaterThan(0)
     expect(configLinks.every((l) => l.getAttribute('href') === '/alert-config')).toBe(true)
+  })
+
+  // 2026-10-02 四页说明区统一（components/PageIntro.tsx）：页头=标题+一行副标+主按钮，
+  // 机制说明收进默认收起的「这个页面管什么」折叠区。
+  it('PageIntro：页头副标一行定位 + 主按钮，机制说明默认收起', () => {
+    useNotifyChannelsMock.mockReturnValue(result())
+    renderPage()
+    expect(screen.getByTestId('notify-channels-intro')).toBeInTheDocument()
+    expect(screen.getByTestId('notify-channels-intro-subtitle').textContent ?? '').toContain(
+      '登记告警送达的机器人渠道',
+    )
+    // 主按钮仍在页头右侧操作位
+    expect(screen.getByRole('button', { name: /新增渠道/ })).toBeInTheDocument()
+    // 说明区默认收起：要点不在 DOM
+    expect(screen.getByTestId('notify-channels-intro-guide-label')).toBeInTheDocument()
+    expect(screen.queryByTestId('notify-channels-intro-guide-points')).toBeNull()
   })
 
   it('渲染渠道列表：类型展示名 + 脱敏 webhook + 加签已设置', async () => {
@@ -380,5 +412,111 @@ describe('NotifyChannelsPage（通知渠道管理）', () => {
     await user.click(screen.getByRole('button', { name: /编辑/ }))
     expect((await screen.findByLabelText('渠道名称') as HTMLInputElement).value).toBe('SRE 飞书群')
     expect((screen.getByLabelText('机器人 Webhook') as HTMLInputElement).value).toBe('')
+  })
+
+  // =====================================================================
+  // 2026-10-02 用户意见：「平台自动生成的接收人」由告警配置页高级区迁入本页表格，
+  // 落为「平台接收人」列——它是**渠道的产物**，只在渠道上下文里有意义；原先放在告警配置页
+  // 既割裂又与本页行内「接收人配置」抽屉形成「同源能力两份」。
+  // 列内只给结论（接收人名 / 模板绑定 / 可用性）；片段 YAML 与复制仍由抽屉承载（单一来源）。
+  // =====================================================================
+  const derivedRow = (over: Record<string, unknown> = {}) => ({
+    channelId: '1',
+    channelName: 'SRE 飞书群',
+    receiverName: 'sre-feishu-qun',
+    snippet: "  - name: sre-feishu-qun\n    webhook_configs:\n      - url: 'http://127.0.0.1:18081/api/v1/webhooks/notify?channel=1'\n",
+    tokenConfigured: true,
+    defaultTemplateId: 10,
+    channelType: 'feishu',
+    ...over,
+  })
+
+  it('平台接收人列：展示平台为已启用渠道生成的接收人名与模板绑定', async () => {
+    useNotifyChannelsMock.mockReturnValue(
+      result({ channels: [channelRow(), channelRow({ id: '2', name: '运维钉钉群', type: 'dingtalk' })] }),
+    )
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [
+        derivedRow(),
+        derivedRow({ channelId: '2', channelName: '运维钉钉群', receiverName: 'ops-dingtalk-qun', defaultTemplateId: undefined, channelType: 'dingtalk' }),
+      ],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
+    listTemplatesMock.mockResolvedValue({
+      status: 'success',
+      data: { items: [templateRow({ id: '10', name: '飞书卡片-默认', channel_type: 'feishu' })], total: 1 },
+    })
+    renderPage()
+    // 列标题与页头说明各出现一次（页头说明里以「见「平台接收人」列」形式指引）
+    expect(screen.getAllByText('平台接收人').length).toBeGreaterThanOrEqual(1)
+    expect(await screen.findByText('sre-feishu-qun')).toBeInTheDocument()
+    // 已绑定 → 解析出模板名（dev-feedback #32口径随区块迁入）
+    expect(screen.getByText('模板：飞书卡片-默认')).toBeInTheDocument()
+    // 未绑定 → 提示回落该渠道类型的内置默认模板
+    expect(screen.getByText('回落钉钉 内置默认模板')).toBeInTheDocument()
+    // 片段 YAML 不在列内重复（单一来源：行内「接收人配置」抽屉）
+    expect(document.body.textContent ?? '').not.toContain('webhook_configs')
+    // 重名提醒收进统一的说明区（不再悬在表格下方，避免与说明重复）
+    fireEvent.click(screen.getByTestId('notify-channels-intro-guide-label'))
+    expect(screen.getByText(/请勿手写与自动生成同名/)).toBeInTheDocument()
+  })
+
+  it('平台接收人列：停用渠道显示「停用后不再生成」（不参与派生）', async () => {
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow({ enabled: false })] }))
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
+    renderPage()
+    expect(await screen.findByText('停用后不再生成')).toBeInTheDocument()
+  })
+
+  it('平台接收人列：桥令牌未配置时标「暂不可用」', async () => {
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [derivedRow({ tokenConfigured: false })],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
+    renderPage()
+    expect(await screen.findByText('sre-feishu-qun')).toBeInTheDocument()
+    expect(screen.getByText('暂不可用')).toBeInTheDocument()
+  })
+
+  it('平台接收人列：模板列表无权限时降级为「模板 #<id>」，不阻断整列', async () => {
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [derivedRow()],
+      loading: false,
+      error: null,
+      permissionDenied: false,
+      reload: vi.fn(),
+    })
+    listTemplatesMock.mockRejectedValue(new ApiError('forbidden', 403, 'forbidden'))
+    renderPage()
+    expect(await screen.findByText('模板 #10')).toBeInTheDocument()
+    expect(screen.queryByText(/模板：/)).toBeNull()
+  })
+
+  it('平台接收人列：片段接口 403 时降级为「需管理员权限查看」，不误报空态', async () => {
+    useNotifyChannelsMock.mockReturnValue(result({ channels: [channelRow()] }))
+    useDerivedReceiversMock.mockReturnValue({
+      rows: [],
+      loading: false,
+      error: null,
+      permissionDenied: true,
+      reload: vi.fn(),
+    })
+    renderPage()
+    expect(await screen.findByText('需管理员权限查看')).toBeInTheDocument()
+    expect(screen.queryByText('暂不可见')).toBeNull()
   })
 })

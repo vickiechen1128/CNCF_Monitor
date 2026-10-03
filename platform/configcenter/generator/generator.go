@@ -49,6 +49,13 @@ type ConfigArtifacts struct {
 	// RootRouteDiagnostics 是根兜底物化的跳过 / 异常归因（**非产物字段**：不参与 Checksum()、
 	// 不落盘、不 JSON 序列化）。异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
 	RootRouteDiagnostics []RootRouteDiagnostic
+	// RoutePresetSeeded 标记本次生成是否**实际注入**了托管模式预置示例（M08 dev-feedback #33
+	// 「骨架 → 完整预置示例」缺口）。**非产物字段**：不参与 Checksum()、不落盘、不 JSON 序列化，
+	// 仅供 draft 追加一条显式变更项（复用既有变更项机制，不新增机制）。
+	RoutePresetSeeded bool
+	// RoutePresetDiagnostics 是预置示例注入的跳过 / 异常归因（**非产物字段**：不参与 Checksum()、
+	// 不落盘、不 JSON 序列化）。异常一律降级为「跳过 + 诊断」，不阻断挂载路径。
+	RoutePresetDiagnostics []RoutePresetDiagnostic
 }
 
 // TargetDiagnostics 是单个 Job 在生成期的目标解析归因（非产物内容）。

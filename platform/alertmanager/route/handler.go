@@ -45,20 +45,32 @@ type DeadReceiver struct {
 // alertmanager.yml）一致——留痕原文既不含 receivers 物化、也不含根兜底接管结果，会把已被
 // 根路由引用的平台 receiver 误报成死配置。
 //
-// mode 本期恒为 ModeHandwritten（手写模式，T08-F12 接入真实模式来源前不预置假开关）。
+// mode 取自 AlertmanagerRouteSetting 持久化值（T08-F12 模式开关）：handwritten / managed；
+// 存量未设定行归一为 handwritten，零影响。
 func ListRoutes(db *gorm.DB) (gin.H, error) {
 	baseYAML, err := effectiveAlertmanagerYAML(db)
 	if err != nil {
 		return nil, err
 	}
 
+	// 读取 route 段作者模式（T08-F12）：取自 AlertmanagerRouteSetting 持久化值，
+	// 不再硬编码 ModeHandwritten。存量零值行由 LoadRouteSetting 归一为 handwritten。
+	setting, err := generator.LoadRouteSetting(db)
+	if err != nil {
+		return nil, err
+	}
+	mode := string(setting.Mode)
+	if mode == "" {
+		mode = ModeHandwritten
+	}
+
 	nodes, err := ParseRouteTree(baseYAML)
 	if err != nil {
-		return gin.H{
-			"mode":        ModeHandwritten,
-			"parse_error": err.Error(),
-			"raw_yaml":    baseYAML,
-		}, nil
+	return gin.H{
+		"mode":        mode,
+		"parse_error": err.Error(),
+		"raw_yaml":    baseYAML,
+	}, nil
 	}
 
 	dead, err := deadReceivers(db, nodes)
@@ -66,7 +78,7 @@ func ListRoutes(db *gorm.DB) (gin.H, error) {
 		return nil, err
 	}
 	return gin.H{
-		"mode":           ModeHandwritten,
+		"mode":           mode,
 		"items":          nodes,
 		"dead_receivers": dead,
 	}, nil
@@ -161,6 +173,38 @@ func ListRoutesHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		data, err := ListRoutes(db)
+		if err != nil {
+			response.InternalServerError(c, err)
+			return
+		}
+		response.OK(c, data)
+	}
+}
+
+// EffectiveAlertmanagerYAML 返回「当前生效产品视图」alertmanager.yml 原文（C1：route 保存
+// 合并基）。与 ListRoutes 同源（effectiveAlertmanagerYAML：草稿/版本优先、回落挂载留痕），
+// 已是磁盘/config-output 即将生效的内容，含平台物化 receivers。响应 { yaml }。
+//
+// 前端保存 route 段时以此作为合并基：仅覆盖 route 段、保留 receivers 等平台物化内容，
+// 避免回滚平台生成的接收人（useRoutes.ts 原以挂载留痕 /config/current 为基，会丢 receivers）。
+func EffectiveAlertmanagerYAML(db *gorm.DB) (gin.H, error) {
+	yamlStr, err := effectiveAlertmanagerYAML(db)
+	if err != nil {
+		return nil, err
+	}
+	return gin.H{"yaml": yamlStr}, nil
+}
+
+// EffectiveAlertmanagerYAMLHandler 处理 GET /api/v2/platform/alertmanager/config/product
+// （RequireAdmin，与 /config/current 同级——内容含 receivers 出站凭据，须管理门）。返回
+// { yaml: "<生效产品视图 alertmanager.yml>" }。
+func EffectiveAlertmanagerYAMLHandler(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if db == nil {
+			response.InternalServerError(c, fmt.Errorf("effective config requires database connection"))
+			return
+		}
+		data, err := EffectiveAlertmanagerYAML(db)
 		if err != nil {
 			response.InternalServerError(c, err)
 			return

@@ -8,6 +8,18 @@
 //   docs/05-execution-records/module-08/design-decisions.md 决策 113。
 package models
 
+// RouteMode 是 alertmanager.yml route 段的作者模式（提案 §4.3 / §4.5；T08-F12 模式开关）：
+//   - RouteModeHandwritten：手写模式（默认）——route 段由用户手写维护，平台只读渲染；
+//   - RouteModeManaged：平台管理模式——route 段由平台生成（关闭手写模式）。
+//
+// 存量零值行（Mode=""）读取时归一为 RouteModeHandwritten（向后兼容、零影响）。
+type RouteMode string
+
+const (
+	RouteModeHandwritten RouteMode = "handwritten"
+	RouteModeManaged     RouteMode = "managed"
+)
+
 // AlertmanagerRouteSetting 是管理域（default）单例设定：默认接收人 = 授权平台接管根兜底。
 //
 //   - NetworkDomainID：归属管理域（决策 60：alertmanager.yml 恒属 default，不按网域扇出）；
@@ -15,13 +27,16 @@ package models
 //   - DefaultReceiverChannelID：目标通知渠道 ID；**nil = 不接管**（默认零值、存量零影响）。
 //     非 nil 时平台生成配置按 NotifyChannel.ReceiverName() 取 AM receiver 名，原地替换根
 //     route.receiver 单键。
+//   - Mode：route 段作者模式（T08-F12 模式开关）。零值（存量行）归一为 handwritten；
+//     由 LoadRouteSetting 在读取时回填，保证 GET /routes 返回真实持久化模式而非硬编码。
 //
 // 可用性判定不落库：目标渠道被禁用 / 删除时设定原值保留（不回写库、不报错），生成时经
 // EffectiveDefaultReceiver 回落为不接管（决策 113 护栏③：关闭 = 停止替换、不删最后写入的值）。
 type AlertmanagerRouteSetting struct {
 	BaseModel
-	NetworkDomainID          string `gorm:"size:64;not null;uniqueIndex" json:"network_domain_id"`
-	DefaultReceiverChannelID *uint  `gorm:"index" json:"default_receiver_channel_id,omitempty"`
+	NetworkDomainID          string   `gorm:"size:64;not null;uniqueIndex" json:"network_domain_id"`
+	DefaultReceiverChannelID *uint    `gorm:"index" json:"default_receiver_channel_id,omitempty"`
+	Mode                     RouteMode `gorm:"size:16;not null;default:handwritten" json:"mode"`
 }
 
 // TableName 返回 GORM 表名。

@@ -44,6 +44,9 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, amURL string, notify
 	adminCfg.GET("/current", config.CurrentHandler(db))
 	adminCfg.GET("/versions/:id", config.GetVersionHandler(db))
 	adminCfg.POST("/versions/:id/remount", config.RemountHandler(db))
+	// C1：route 保存合并基 = 当前生效产品视图 alertmanager.yml（含平台物化 receivers），
+	// 供前端仅覆盖 route 段、保留平台 receivers（RequireAdmin，内容含出站凭据，与 /current 同级）。
+	adminCfg.GET("/product", route.EffectiveAlertmanagerYAMLHandler(db))
 
 	// M08 静默管理（契约 §4），代理 Alertmanager 原生 API；写路径带授权收敛。
 	proxy, err := silence.NewProxy(amURL)

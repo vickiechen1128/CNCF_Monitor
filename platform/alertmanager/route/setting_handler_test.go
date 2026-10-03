@@ -197,14 +197,15 @@ func TestPutRouteSetting_PersistsValidChannel(t *testing.T) {
 	ch1 := seedChannel(t, db, "one", true)
 	ch2 := seedChannel(t, db, "two", true)
 
-	require.NoError(t, PutRouteSetting(db, &ch1.ID))
+	require.NoError(t, PutRouteSetting(db, &ch1.ID, models.RouteModeHandwritten))
 	s := loadSettingRaw(t, db)
 	require.NotNil(t, s)
 	require.NotNil(t, s.DefaultReceiverChannelID)
 	assert.Equal(t, ch1.ID, *s.DefaultReceiverChannelID)
+	assert.Equal(t, models.RouteModeHandwritten, s.Mode)
 
 	// 再次写入另一渠道：单例更新，不产生第二行。
-	require.NoError(t, PutRouteSetting(db, &ch2.ID))
+	require.NoError(t, PutRouteSetting(db, &ch2.ID, models.RouteModeHandwritten))
 	var count int64
 	require.NoError(t, db.Model(&models.AlertmanagerRouteSetting{}).Count(&count).Error)
 	assert.Equal(t, int64(1), count)
@@ -218,16 +219,44 @@ func TestPutRouteSetting_NullClosesTakeover(t *testing.T) {
 	ch := seedChannel(t, db, "one", true)
 	seedSetting(t, db, &ch.ID)
 
-	require.NoError(t, PutRouteSetting(db, nil))
+	require.NoError(t, PutRouteSetting(db, nil, models.RouteModeHandwritten))
 	s := loadSettingRaw(t, db)
 	require.NotNil(t, s, "护栏③：关闭接管保留设定行，仅置空 receiver 判定")
 	assert.Nil(t, s.DefaultReceiverChannelID)
+	assert.Equal(t, models.RouteModeHandwritten, s.Mode)
+}
+
+// TestPutRouteSetting_PersistsMode 覆盖 T08-F12：PUT 传入 managed 模式须随设定持久化，
+// GET 视图（GetRouteSetting）据此反映真实模式。
+func TestPutRouteSetting_PersistsMode(t *testing.T) {
+	db := newRouteDB(t)
+	ch := seedChannel(t, db, "one", true)
+
+	require.NoError(t, PutRouteSetting(db, &ch.ID, models.RouteModeManaged))
+	s := loadSettingRaw(t, db)
+	require.NotNil(t, s)
+	require.NotNil(t, s.DefaultReceiverChannelID)
+	assert.Equal(t, models.RouteModeManaged, s.Mode, "模式须随设定持久化")
+
+	view, err := GetRouteSetting(db)
+	require.NoError(t, err)
+	assert.Equal(t, models.RouteModeManaged, view.Mode)
+}
+
+// TestPutRouteSetting_RejectsInvalidMode 覆盖 T08-F12：非法模式（非 handwritten/managed）
+// 在服务层即拒绝，不写入设定。
+func TestPutRouteSetting_RejectsInvalidMode(t *testing.T) {
+	db := newRouteDB(t)
+	ch := seedChannel(t, db, "one", true)
+	err := PutRouteSetting(db, &ch.ID, models.RouteMode("bogus"))
+	assert.ErrorIs(t, err, ErrRouteSettingModeInvalid)
+	assert.Nil(t, loadSettingRaw(t, db), "非法模式不得写入设定")
 }
 
 func TestPutRouteSetting_RejectsMissingChannel(t *testing.T) {
 	db := newRouteDB(t)
 	missing := uint(999)
-	err := PutRouteSetting(db, &missing)
+	err := PutRouteSetting(db, &missing, models.RouteModeHandwritten)
 	assert.ErrorIs(t, err, ErrRouteSettingChannelUnavailable)
 	assert.Nil(t, loadSettingRaw(t, db), "校验失败不得写入设定")
 }
@@ -235,7 +264,7 @@ func TestPutRouteSetting_RejectsMissingChannel(t *testing.T) {
 func TestPutRouteSetting_RejectsDisabledChannel(t *testing.T) {
 	db := newRouteDB(t)
 	ch := seedChannel(t, db, "off", false)
-	err := PutRouteSetting(db, &ch.ID)
+	err := PutRouteSetting(db, &ch.ID, models.RouteModeHandwritten)
 	assert.ErrorIs(t, err, ErrRouteSettingChannelUnavailable)
 	assert.Nil(t, loadSettingRaw(t, db))
 }
@@ -253,6 +282,7 @@ func TestGetRouteSettingHandler_OK(t *testing.T) {
 	assert.True(t, view.Enabled)
 	assert.Equal(t, RouteReceiverSourceExplicit, view.EffectiveSource)
 	assert.Equal(t, "primary", view.EffectiveReceiverName)
+	assert.Equal(t, models.RouteModeHandwritten, view.Mode, "未显式设定模式时归一为 handwritten")
 	// 响应不返回桥令牌等敏感值：仅契约字段。
 	assert.NotContains(t, w.Body.String(), "token")
 	assert.NotContains(t, w.Body.String(), "webhook")
@@ -301,6 +331,43 @@ func TestPutRouteSettingHandler_NullClosesTakeover(t *testing.T) {
 	s := loadSettingRaw(t, db)
 	require.NotNil(t, s)
 	assert.Nil(t, s.DefaultReceiverChannelID)
+}
+
+// TestPutRouteSettingHandler_PersistsMode 覆盖 T08-F12：PUT /route-setting 传入 managed
+// 模式须持久化，响应视图与设定行均反映之，并触发闭环下发。
+func TestPutRouteSettingHandler_PersistsMode(t *testing.T) {
+	db := newRouteDB(t)
+	ch := seedChannel(t, db, "primary", true)
+	rec := stubPipeline(t)
+
+	w := doJSON(t, newRouteRouter(db, adminUser()), http.MethodPut, "/alertmanager/route-setting",
+		fmt.Sprintf(`{"default_receiver_channel_id":%d,"mode":"managed"}`, ch.ID))
+	require.Equal(t, http.StatusOK, w.Code, "body: %s", w.Body.String())
+	view := decodeView(t, w)
+	assert.Equal(t, models.RouteModeManaged, view.Mode)
+
+	s := loadSettingRaw(t, db)
+	require.NotNil(t, s)
+	assert.Equal(t, models.RouteModeManaged, s.Mode)
+	assert.Equal(t, 1, rec.autoApplyCalls)
+}
+
+// TestPutRouteSettingHandler_RejectsInvalidMode 覆盖 T08-F12：传入非法模式 → 400，不触发下发。
+func TestPutRouteSettingHandler_RejectsInvalidMode(t *testing.T) {
+	db := newRouteDB(t)
+	rec := stubPipeline(t)
+
+	w := doJSON(t, newRouteRouter(db, adminUser()), http.MethodPut, "/alertmanager/route-setting",
+		`{"mode":"bogus"}`)
+	require.Equal(t, http.StatusBadRequest, w.Code, "body: %s", w.Body.String())
+	var env struct {
+		Status    string `json:"status"`
+		ErrorType string `json:"errorType"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
+	assert.Equal(t, response.StatusError, env.Status)
+	assert.Equal(t, response.ErrorTypeBadRequest, env.ErrorType)
+	assert.Equal(t, 0, rec.autoApplyCalls, "非法模式不得触发闭环下发")
 }
 
 func TestPutRouteSettingHandler_BadRequestWhenChannelUnavailable(t *testing.T) {

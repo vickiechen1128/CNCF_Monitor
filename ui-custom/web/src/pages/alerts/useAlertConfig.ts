@@ -1,8 +1,12 @@
 /**
  * Module_08 告警配置页数据 Hook（「文件挂载」决策 59/60）。
  * 权威契约：docs/05-execution-records/module-08/api-contract-snapshot.md（§3）。
- * 消费 GET /config/current、GET /config/versions；submit / remount 直接走契约 API。
+ * 消费 GET /config/current、GET /config/versions；submit 直接走契约 API。
  * 覆盖：加载 / 空态 / 接口错误 / 权限不足；提交挂载后刷新当前生效与版本列表。
+ *
+ * 2026-10-02：移除了 remount（历史版本重新提交）——用户在告警配置页去掉了「重新挂载此版本」入口，
+ * 后端 `POST /config/versions/{id}/remount` 端点与 api 契约镜像均保留（见 api/alertmanager.ts 标注），
+ * 恢复路径 = 「查看版本内容 → 改 → 导入整份配置文件」，无需专用端点。
  */
 import { useCallback, useEffect, useState } from 'react'
 import { isApiError } from '../../api/client'
@@ -27,8 +31,6 @@ export interface UseAlertConfigResult {
   reload: () => void
   /** 提交挂载：校验失败时抛出，由调用方按行级错误展示；成功后触发刷新 */
   submit: (content: string, uploaded_by?: string) => Promise<AlertmanagerConfigVersion>
-  /** 重新挂载历史版本（P0 回滚）：再次走校验 + M09 变更单 */
-  remount: (id: string, uploaded_by?: string) => Promise<AlertmanagerConfigVersion>
 }
 
 const EMPTY_PAGE: PaginatedItems<AlertmanagerConfigVersionListItem> = { items: [], total: 0 }
@@ -83,12 +85,6 @@ export function useAlertConfig(): UseAlertConfigResult {
     return res.data
   }, [])
 
-  const remount = useCallback(async (id: string, uploaded_by?: string): Promise<AlertmanagerConfigVersion> => {
-    const res = await alertmanagerConfigApi.remount(id, uploaded_by ? { uploaded_by } : {})
-    setRefresh((r) => r + 1)
-    return res.data
-  }, [])
-
   const onPageSizeChange = useCallback((p: number, pz: number) => {
     setPage(p)
     setPageSize(pz)
@@ -107,6 +103,5 @@ export function useAlertConfig(): UseAlertConfigResult {
     permissionDenied,
     reload,
     submit,
-    remount,
   }
 }

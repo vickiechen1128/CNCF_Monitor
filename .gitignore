@@ -8,6 +8,9 @@
 
 # 构建产物
 platform/cmd/metric-center/metric-center
+# `make build-metric-center` 的实际输出落在仓库根（约 37MB 的 Go 二进制），上面那条路径不覆盖，
+# 故单独锚定根级忽略，避免被 `git add -A` 误提交进版本库。
+/metric-center
 upstream/prometheus/prometheus
 upstream/prometheus/promtool
 upstream/node_exporter/node_exporter

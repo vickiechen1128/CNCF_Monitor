@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { notifyChannelsApi, routeSettingApi } from '../../api/alertmanager'
-import type { RouteSetting } from '../../types/alertmanager'
+import type { RouteMode, RouteSetting, UpdateRouteSettingPayload } from '../../types/alertmanager'
 
 /** 「不接管」选项哨兵值（渠道 ID 恒为正，−1 不会与真实 ID 冲突；向 antd Select 传 number 避免空值告警） */
 export const NONE_RECEIVER_VALUE = -1
@@ -36,8 +36,8 @@ export interface UseRouteSettingResult {
   /** 保存中（Select 禁用防重复提交） */
   saving: boolean
   reload: () => void
-  /** 保存默认接收人；`null` = 关闭接管（护栏③）。失败抛出（由调用方提示） */
-  save: (channelId: number | null) => Promise<RouteSetting>
+  /** 保存默认接收人；`null` = 关闭接管（护栏③）。可选 `mode` 透传路由规则作者模式（T08-F12）。失败抛出（由调用方提示） */
+  save: (channelId: number | null, mode?: RouteMode) => Promise<RouteSetting>
 }
 
 /** 首项文案：不接管 = 保留用户手写的兜底配置（value=NONE_RECEIVER_VALUE） */
@@ -98,10 +98,14 @@ export function useRouteSetting(): UseRouteSettingResult {
     }
   }, [refresh])
 
-  const save = useCallback(async (channelId: number | null): Promise<RouteSetting> => {
+  const save = useCallback(async (channelId: number | null, mode?: RouteMode): Promise<RouteSetting> => {
     setSaving(true)
     try {
-      const res = await routeSettingApi.update({ default_receiver_channel_id: channelId })
+      // T08-F12：PUT /route-setting 同时持久化默认接收人与 route 段作者模式（mode）。
+      // mode 仅在显式传入时写入（切换模式时传；仅改默认接收人时不改模式，保持后端原值）。
+      const payload: UpdateRouteSettingPayload = { default_receiver_channel_id: channelId }
+      if (mode) payload.mode = mode
+      const res = await routeSettingApi.update(payload)
       setSetting(res.data)
       return res.data
     } finally {
