@@ -42,6 +42,9 @@ const (
 // ErrRouteSettingChannelUnavailable 指定的通知渠道不存在或未启用（PUT → 400 bad_request）。
 var ErrRouteSettingChannelUnavailable = errors.New("指定的通知渠道不存在或未启用")
 
+// ErrRouteSettingModeInvalid 指定的 route 段作者模式非法（非 handwritten / managed）。
+var ErrRouteSettingModeInvalid = errors.New("route 段作者模式非法（须为 handwritten 或 managed）")
+
 // 可注入工序（测试可替换），默认指向 config 包既有实现的导出包装——与挂载同构闭环。
 var (
 	triggerChangeDetection    = config.TriggerChangeDetection
@@ -52,13 +55,15 @@ var (
 //
 //   - Enabled：平台当前是否正在接管根兜底（即 EffectiveSource == explicit）；
 //   - DefaultReceiverChannelID：持久化的设定值（nil = 不接管；显式设定的渠道停用后原值保留）；
+//   - Mode：route 段作者模式（T08-F12 模式开关）：handwritten / managed；
 //   - EffectiveReceiverName：实际（或建议）写入根 route.receiver 的 AM receiver 名；
 //   - EffectiveSource：explicit / auto_first_enabled / none（见上方常量）。
 type RouteSettingView struct {
-	Enabled                  bool  `json:"enabled"`
-	DefaultReceiverChannelID *uint `json:"default_receiver_channel_id"`
-	EffectiveReceiverName    string `json:"effective_receiver_name"`
-	EffectiveSource          string `json:"effective_source"`
+	Enabled                  bool               `json:"enabled"`
+	DefaultReceiverChannelID *uint              `json:"default_receiver_channel_id"`
+	Mode                     models.RouteMode   `json:"mode"`
+	EffectiveReceiverName    string             `json:"effective_receiver_name"`
+	EffectiveSource          string             `json:"effective_source"`
 }
 
 // GetRouteSetting 读取默认接收人设定并派生生效态视图。
@@ -68,6 +73,7 @@ type RouteSettingView struct {
 //     不可用 → none + enabled=false（不为此另选其它渠道，保留用户显式意图原值）；
 //   - 未设定：存在已启用渠道 → auto_first_enabled（仅建议，enabled=false）；
 //     无已启用渠道 → none。
+// Mode 取自持久化设定（T08-F12），存量零值归一为 handwritten。
 func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error) {
 	setting, err := generator.LoadRouteSetting(db)
 	if err != nil {
@@ -78,7 +84,12 @@ func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error) {
 		return nil, err
 	}
 
-	view := &RouteSettingView{DefaultReceiverChannelID: setting.DefaultReceiverChannelID}
+	mode := setting.Mode
+	if mode == "" {
+		mode = models.RouteModeHandwritten
+	}
+
+	view := &RouteSettingView{DefaultReceiverChannelID: setting.DefaultReceiverChannelID, Mode: mode}
 	if setting.DefaultReceiverChannelID != nil {
 		if name, ok := setting.EffectiveDefaultReceiver(channels); ok {
 			view.Enabled = true
@@ -99,9 +110,17 @@ func GetRouteSetting(db *gorm.DB) (*RouteSettingView, error) {
 	return view, nil
 }
 
-// PutRouteSetting 写入默认接收人设定：channelID 为 nil = 关闭接管（护栏③）；
-// 非 nil 时校验目标渠道存在且已启用，否则返回 ErrRouteSettingChannelUnavailable。
-func PutRouteSetting(db *gorm.DB, channelID *uint) error {
+// PutRouteSetting 写入默认接收人设定与 route 段作者模式（T08-F12）：
+//   - channelID 为 nil = 关闭接管（护栏③）；非 nil 时校验目标渠道存在且已启用；
+//   - mode 为 route 段作者模式：空串归一为 handwritten；非 handwritten/managed 视为非法。
+// 任一校验失败返回对应错误，不写入。
+func PutRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error {
+	if mode == "" {
+		mode = models.RouteModeHandwritten
+	}
+	if mode != models.RouteModeHandwritten && mode != models.RouteModeManaged {
+		return ErrRouteSettingModeInvalid
+	}
 	if channelID != nil {
 		channels, err := generator.LoadEnabledNotifyChannels(db)
 		if err != nil {
@@ -118,17 +137,18 @@ func PutRouteSetting(db *gorm.DB, channelID *uint) error {
 			return ErrRouteSettingChannelUnavailable
 		}
 	}
-	return saveRouteSetting(db, channelID)
+	return saveRouteSetting(db, channelID, mode)
 }
 
-// saveRouteSetting 按管理域单例（default）写入或更新设定行。
-func saveRouteSetting(db *gorm.DB, channelID *uint) error {
+// saveRouteSetting 按管理域单例（default）写入或更新设定行（含模式）。
+func saveRouteSetting(db *gorm.DB, channelID *uint, mode models.RouteMode) error {
 	var s models.AlertmanagerRouteSetting
 	err := db.Where("network_domain_id = ?", models.DefaultDomainID).First(&s).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		if err := db.Create(&models.AlertmanagerRouteSetting{
 			NetworkDomainID:          models.DefaultDomainID,
 			DefaultReceiverChannelID: channelID,
+			Mode:                     mode,
 		}).Error; err != nil {
 			return fmt.Errorf("create alertmanager route setting: %w", err)
 		}
@@ -138,6 +158,7 @@ func saveRouteSetting(db *gorm.DB, channelID *uint) error {
 		return fmt.Errorf("load alertmanager route setting: %w", err)
 	}
 	s.DefaultReceiverChannelID = channelID
+	s.Mode = mode
 	if err := db.Save(&s).Error; err != nil {
 		return fmt.Errorf("update alertmanager route setting: %w", err)
 	}
@@ -166,15 +187,16 @@ func GetRouteSettingHandler(db *gorm.DB) gin.HandlerFunc {
 func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			DefaultReceiverChannelID *uint `json:"default_receiver_channel_id"`
+			DefaultReceiverChannelID *uint              `json:"default_receiver_channel_id"`
+			Mode                      models.RouteMode  `json:"mode"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			response.BadRequest(c, fmt.Errorf("解析请求体失败: %w", err))
 			return
 		}
 
-		if err := PutRouteSetting(db, req.DefaultReceiverChannelID); err != nil {
-			if errors.Is(err, ErrRouteSettingChannelUnavailable) {
+		if err := PutRouteSetting(db, req.DefaultReceiverChannelID, req.Mode); err != nil {
+			if errors.Is(err, ErrRouteSettingChannelUnavailable) || errors.Is(err, ErrRouteSettingModeInvalid) {
 				response.BadRequest(c, err)
 				return
 			}

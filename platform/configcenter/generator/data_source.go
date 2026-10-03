@@ -170,10 +170,15 @@ func LoadRouteSetting(db *gorm.DB) (*models.AlertmanagerRouteSetting, error) {
 	var s models.AlertmanagerRouteSetting
 	err := db.Where("network_domain_id = ?", models.DefaultDomainID).First(&s).Error
 	if err == gorm.ErrRecordNotFound {
-		return &models.AlertmanagerRouteSetting{NetworkDomainID: models.DefaultDomainID}, nil
+		return &models.AlertmanagerRouteSetting{NetworkDomainID: models.DefaultDomainID, Mode: models.RouteModeHandwritten}, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load alertmanager route setting: %w", err)
+	}
+	// 存量零值行（Mode=""）归一为 handwritten，保证 GET /routes 返回真实持久化模式，
+	// 而非硬编码（T08-F12 后向兼容，零影响）。
+	if s.Mode == "" {
+		s.Mode = models.RouteModeHandwritten
 	}
 	return &s, nil
 }

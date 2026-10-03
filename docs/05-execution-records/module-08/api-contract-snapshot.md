@@ -68,6 +68,13 @@
 | GET  | `/api/v2/platform/alertmanager/config/versions/{id}`         | —                                                                 | `AlertmanagerConfigVersion` 完整（含 `content` 只读视图）                             | `not_found`                                                      | §6.6        |
 | POST | `/api/v2/platform/alertmanager/config/versions/{id}/remount` | body `{ uploaded_by?: string }`                                   | 重新挂载后的最新版本（再次走校验 + M09 变更单，P0 回滚动线）                                          | `bad_request`：校验失败；`not_found`                                   | §9.1 P0     |
 
+> **⚠️ `.../{id}/remount` 已无前端调用方（2026-10-02，dev-feedback #39）**：告警配置页按用户意见移除了「重新挂载此版本」入口——
+> 重新提交历史配置改走「`GET .../versions/{id}` 看内容 → 改 → `POST /config` 导入」，与本表第 1 行同一条调用链，
+> 专用端点属过度设计。后端实现**保留不动、不下线**（用户 2026-10-02 拍板：契约 §3 保留至 v0.3 再决定）；
+> 前端 `api/alertmanager.ts` 的 `alertmanagerConfigApi.remount` 作为**契约镜像**保留并标 `@deprecated`。
+> ⚠️ **勿与 `POST /api/v2/platform/alertmanager/notify-templates/{id}/remount`（§11.1）混淆**：后者是**通知模板版本回滚**，
+> 语义完全不同、**仍在用**，不得一并下线。
+
 ### AlertmanagerConfigVersion（当前生效 / 详情）
 
 | 字段                 | 类型       | 说明                                      |
@@ -405,7 +412,17 @@
 
 > **护栏③语义（以决策 114 第 1 条为准）**：关闭接管 = 平台**停止替换**、不主动改写 / 回滚文件；此后若发生**自然重算**（源数据变更触发的生成下发），产物根 `receiver` 会回落为用户手写值——这是「停止替换」的必然结果，而非平台主动删除动作。平台**不引入「最后写入值」的额外持久化状态**（保持实现最简、无新增状态机）。决策 113 原文「不删最后写入的值」易被误读为「永久保留已写入值」，本注为准。
 
-> **UI 口径**：告警配置页做「UI 控制 → 派生 alertmanager.yml 预览」（只读）；用户手写 / 上传的整文件原样透传，平台不解析其语义、不参与预览派生。
+> **⚠️ 关键非直觉事实：根兜底接管「不判 `mode`」（2026-10-02 显式补登，dev-feedback #38 / 提案 §6.3）**
+> 第 7 条的门禁**只判 `Enabled && DefaultReceiver != ""`，与路由模式 `mode` 无关**——代码级依据：
+> `platform/configcenter/generator/notify_route_skeleton.go::MaterializeRootRouteReceiver`（`if !in.Enabled || in.DefaultReceiver == ""` 即返回，函数签名内**无 `mode` 入参**）；
+> `platform/configcenter/draft/service.go`（`buildArtifacts` 调用点不判 mode）；`platform/models/alertmanager_route_setting.go::EffectiveDefaultReceiver` 同样不判 mode。
+> ⇒ **即使 `mode=handwritten`（路由规则由用户手写维护），只要开关开启，平台仍会替换根 `route.receiver` 这一个键。**
+> 「手写模式」不等于「平台零写入」——它只保证平台不写 `route.routes[]`（§11.10 显式红线），**不**豁免根兜底单键。
+> 对照：完整预置种子 `SeedManagedRoutePreset`（dev-feedback #33）**有** managed 门禁（`platform/configcenter/draft/service.go`），两者不可类比。
+> **消费侧要求**：任何 UI / 文档表述不得据此声称「手写模式下平台不接管」；告警配置页 `policySummary` 与 §6.3 回归用例即为此护栏。
+> **若将来给该函数补 `mode` 门禁**，属契约变更：须同步 §11.10 归属边界表、告警配置页状态句口径与 `AlertConfigPage.test.tsx` 的「§6.3」用例。
+
+> **UI 口径（2026-10-02 更新，dev-feedback #39）**：「平台自动生成的接收人」只读预览已**由告警配置页迁至「通知渠道」页**（作为渠道表格「平台接收人」列，列内只给结论；片段 YAML 与复制仍由该页行内「接收人配置」抽屉承载，单一来源）。告警配置页不再展示派生产物预览，仅保留前往渠道页的链接。
 
 ### 11.7 渠道 ↔ 模板一等绑定（dev-feedback #30 增量，2026-09-30）
 
@@ -425,6 +442,11 @@
 - 追加枚举：`NotifyChannelType` = `feishu` / `dingtalk` / `wecom`；桥端点 `errorType` 追加 `unauthorized` / `bad_gateway` 的实际承载。
 - 来源：`design-proposals/alert-config-scope-and-notification-bridge.md` §3.3；`design-proposals/notify-template-channel-binding.md`（渠道 ↔ 模板一等绑定，§11.7）；`design-decisions.md` 决策 74 + 定稿补充（2026-09-29）；`security-review-pl3.md`（H-1/M-1/M-2/M-3）；dev-feedback #17 / #21 / #22 / #24 / #30。
 - **2026-09-30 增量（决策 113 口径 C / 决策 114）**：§11.6 由「M09 物化 receivers」扩为「**+ 根 `route.receiver` 单键**」（新增第 7 条骨架行为 + 护栏③语义注）；§11.1 新增 `GET|PUT /route-setting`、`GET /routes` 两行；新增 **§11.9**（端点字段 + `/routes` 数据源口径）与 **§11.10**（`route` / `receivers` 归属边界表，对齐 PRD §4.1.1 权威规则表）。§1–§10 与 §11.1–§11.7 既有契约**不变**。
+- **2026-10-02 增量（dev-feedback #38 / #39，补登，无端点变更）**：
+  - §11.6 补「**关键非直觉事实：根兜底接管不判 `mode`**」显式声明（含三处代码级依据 + 消费侧要求 + 「将来补门禁视同契约变更」的提示），补齐提案 §11.1 挂账项；§11.10 归属边界表补同口径交叉引用，消除「手写模式 = 平台零写入」的误读空间。
+  - §3 标注 `POST .../config/versions/{id}/remount` **已无前端调用方**（保留不下线，v0.3 再决定），并显式区分 §11.1 的模板 remount（语义不同、仍在用）。
+  - §11.6 UI 口径更新：派生产物预览由告警配置页迁至通知渠道页。
+  - **端点 / 字段 / 鉴权全部零变更**，纯口径补登。
 - **待设计侧回写**：本节为开发空间契约快照补登；PRD `Module_08_Alertmanager_Notification_Management.md`（`docs/02-product-requirements/`，开发 Agent 不可写）的 §3.3.5 / §5 / §6 需由 design 侧（prototype-designer / Orchestrator）同步 PL-3 端点与 B 路线物化行为。
 
 ### 11.9 路由设定与只读路由视图端点（决策 113 口径 C / 决策 114）
@@ -485,4 +507,6 @@
 | `templates` / `mute_time_intervals` | 用户 | 不触碰 | 手写 | — |
 
 - **根兜底归属**：具体分流 `route.routes[]` = 用户（平台管理模式 = 前端表单生成；手写模式 = 手写）；**根兜底 `route.receiver`** 在用户选定默认接收人（开关开启）后由平台接管。
+  - ⚠️ **该接管不判 `mode`**（显式声明见 §11.6 护栏③之后的「关键非直觉事实」注）：**手写模式下开关开启，平台同样替换根 `route.receiver`**。
+    本表 `route` 行「手写模式：仅原地替换根 `route.receiver` 单键」即此意——手写模式**保留**这一项替换，**不是**「平台完全不写 route」。
 - **显式红线（不可越）**：平台**绝不写 `route.routes[]`**、绝不触碰根 route 的 `group_by` / `group_wait` / `group_interval` / `repeat_interval` / `continue`；**仅替换根 `receiver`**。变更单会明示「根兜底被平台重建」（护栏②，复用 §4.5 既有「route 被外部改动不静默」机制，不新增机制）。

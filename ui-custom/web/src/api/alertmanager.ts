@@ -54,6 +54,12 @@ export interface SubmitAlertmanagerConfigInput {
   uploaded_by?: string
 }
 
+/** 当前生效「产品视图」alertmanager.yml 原文（C1：route 保存合并基）响应 data */
+export interface EffectiveAlertmanagerYaml {
+  /** 含平台物化 receivers 的生效产品视图 alertmanager.yml */
+  yaml: string
+}
+
 /** 重新挂载历史版本请求体（契约 §3 POST .../versions/{id}/remount） */
 export interface RemountConfigInput {
   uploaded_by?: string
@@ -69,6 +75,15 @@ export const alertmanagerConfigApi = {
   getCurrent(): Promise<ApiResponse<AlertmanagerConfigVersion>> {
     return apiClient.get<AlertmanagerConfigVersion>('/api/v2/platform/alertmanager/config/current')
   },
+  /**
+   * 当前生效「产品视图」alertmanager.yml 原文（C1：route 保存合并基）。
+   * 与 `GET /routes` 同源（草稿/版本优先、回落挂载留痕），已含平台物化 receivers；
+   * 因含出站凭据等同级敏感内容，挂 RequireAdmin（与 /config/current 同级）。
+   * 响应 `{ yaml: "<生效产品视图 alertmanager.yml>" }`。
+   */
+  getProduct(): Promise<ApiResponse<EffectiveAlertmanagerYaml>> {
+    return apiClient.get<EffectiveAlertmanagerYaml>('/api/v2/platform/alertmanager/config/product')
+  },
   /** 历史版本列表（不含 content，省流量） */
   getVersions(params?: AlertmanagerListParams): Promise<ApiResponse<PaginatedItems<AlertmanagerConfigVersionListItem>>> {
     return apiClient.get<PaginatedItems<AlertmanagerConfigVersionListItem>>(
@@ -82,7 +97,14 @@ export const alertmanagerConfigApi = {
       `/api/v2/platform/alertmanager/config/versions/${encodeURIComponent(id)}`,
     )
   },
-  /** 重新挂载历史版本（P0 回滚）：再次走校验 + M09 变更单 */
+  /**
+   * 重新挂载历史版本（P0 回滚）：再次走校验 + M09 变更单。
+   *
+   * @deprecated 2026-10-02 起前端**无调用方**——告警配置页已按用户意见移除「重新挂载此版本」入口
+   * （重新提交历史配置改走「查看版本内容 → 改 → 导入整份配置文件」）。
+   * 端点本身后端仍在（契约 §3 保留，未删），故此处镜像暂留以保持契约可追溯；
+   * 注意与 `notifyTemplatesApi.remount`（通知模板版本回滚，**仍在用**）语义区分，勿混。
+   */
   remount(id: string, input: RemountConfigInput = {}): Promise<ApiResponse<AlertmanagerConfigVersion>> {
     return apiClient.post<AlertmanagerConfigVersion>(
       `/api/v2/platform/alertmanager/config/versions/${encodeURIComponent(id)}/remount`,

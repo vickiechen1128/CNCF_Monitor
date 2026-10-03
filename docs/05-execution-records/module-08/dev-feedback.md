@@ -578,3 +578,116 @@ L3（纯文案文档）──┘        │
 - **影响模块**：前端（告警配置页 · 派生预览卡片）
 - **发现场景**：2026-10-01 用户就"路由规则 / 派生预览"设计追问（"派生功能为什么只提示路由情况，不说明通知渠道模版的情况"）；经代码核实事属 UX 信息缺口——模板本就不进 `alertmanager.yml`（由桥渲染，属分层设计非后端遗漏），但绑定关系埋在 receiver URL 的 `&template=<ID>` 参数里未展开，派生预览只讲了 receivers/route 的"有/无"而没讲"绑定了哪个模板"。
 - **状态**：**open**——待 agent 开发（前端增强，已定位、路径明确；后端无需改动）。
+
+## 33. 三层配置模型缺口：最小运行骨架 → 含分流的完整预置示例（① 空白判定 / 预置种子，open，与 T08-F12 模式开关同排期）
+
+- **类别**：① 空白判定（最小运行骨架 ≠ 完整预置示例；平台缺"标准模板库"种子配置，对应 2026-10-02 用户三层配置模型第 ① 层）+ ③ 技术优化（可选：注入时机/种子结构）
+- **PRD 章节 / 文件位置**：决策 113（口径 C，最小运行骨架）/ #31（根兜底单键接管）；PRD §4.1.1（段级所有权）、§11.6（逃生舱）、§11.7（模板不进文件）；T08-F12（`route-setting` 无 `mode` 字段、`GET /routes` 恒返回 `ModeHandwritten`，模式开关无持久化通道）；设计提案 `docs/05-execution-records/module-08/design-proposals/alert-config-three-layer-model.md`（2026-10-02 落 feat 工作树，PRD 冻结期只构思）。
+- **现状 / 根因**：用户 2026-10-02 就「告警配置页」提出三层配置模型（① 预设标准 alertmanager 配置文件模板库 / ② 平台派生配置 / ③ 高级用户自己挂载）。经核对已决策 PRD 基线：第 ③ 层 = §11.6 逃生舱（已存在）；第 ② 层 = §4.1.1 托管模式 `receivers` 双作者 + `route` 模式开关（已基本存在，缺模式开关持久化）；**第 ① 层 = 缺口**——#31 / 决策 113 仅落地「最小运行骨架自动布缆」（原地替换根 `route.receiver` 单键），平台**没有任何**含 matchers / 分流示例 / receivers 示例 / inhibit 示例的「完整预置 alertmanager.yml 片段」。即用户提案的"标准模板库"在现网形态下只有"骨架"口径，无"完整示例"交付物。
+- **结论 / 建议**：把第 ① 层落地为「**托管模式预置种子（preset seed）**」——一份含分流示例的完整 `alertmanager.yml` 片段，在全新/空配置域由平台注入托管模式产物；语义与 #31 根兜底单键接管互补（骨架管"兜底 receiver"，种子管"完整示例"）。**该缺口必须与 T08-F12 模式开关同排期**：当前 `GET /routes` 恒返回 `ModeHandwritten`、模型无 `mode` 字段，模式开关无持久化通道——这是"骨架 vs 预置 vs 手写"三态无法落地的根因；预置种子依赖模式开关区分"托管基线"与"手写接管"。详见设计提案 §3/§9.1（方案 A：预置种子 + 模式级失活，拒绝逐实体禁用）。**提案已于同日 17:34 合并「议题二：告警配置页信息架构」（§1.2/§6/§7），本条对应提案的议题一，页面 IA 侧见 #38。**
+- **影响模块**：M08（托管模式产物/种子配置/模式开关/告警配置页/路由页）、M09（`alertmanager.yml` 生成，维持只物化 receivers 不变）、端点 `route-setting` / `routes`（模式开关字段）。
+- **发现场景**：2026-10-02 用户就"告警配置页"提三层配置模型 + SSOT/禁用疑问；分析（`alert-config-three-layer-model.md`）确认 ① 缺完整预置示例、与 T08-F12 模式开关同排期；"禁用"诉求被既有段级模式开关吸收，无需逐实体禁用。
+- **状态**：**landed（2026-10-02，未提交）**——T08-F12 模式开关先落地后本项已解阻。新增 `generator.SeedManagedRoutePreset`（`notify_route_preset.go`，`RoutePresetInput{Mode,DefaultReceiver,PlatformReceiverNames}`）+ 接线 `buildArtifacts`/`artifactsFromDraft`/`RevalidateDraft`（顺序 receivers → 根兜底 #31 → 预置种子，置于根兜底之后以免整段替换丢弃决策 113 接管值）+ 变更单「预置示例已注入」。仅 managed 模式生效（handwritten 字节级不变，守 §11.6 逃生门）；不覆盖已有 route（`routes:` 非空 / 根 `matchers:` 非空 / `continue:true` 视为用户意图，空 `routes:[]` 不算）；接收人仅取文件 `receivers:` 已声明名（不信平台名，避免桥地址未配时产出 amtool 拒绝配置）。`go test ./platform/...`+`go vet` 全绿；前端零改动（`GET /routes` 读生效产物，种子路由经 `# 路由名称:` 注释在路由页可见/可编辑）。
+
+## 34. 后端路由解析/校验链修复（golang-reviewer 审查 blocking/HIGH 打包，fix 轮 open）
+
+- **类别**：② 实现偏差（B1 跨 T08-12 边界）/ ③ 技术优化（H1/H2/H3）
+- **PRD 章节 / 文件位置**：`platform/alertmanager/route/parse.go`（B1 `RouteNode` 解析）、`platform/configcenter/generator/notify_route_generate.go`（H1 `RouteEditNode`，:61）、`platform/alertmanager/route/validate.go`（H2 `ValidateRouteTree`，:83）、`platform/alertmanager/route/validate_test.go:270`（`toEditNodes` 仅测试）、路由保存链/产物生成。
+- **现状 / 根因（golang-reviewer 2026-10-01 REQUEST_CHANGES）**：
+  - **B1**：`parse.go` 解析 route 段时**静默丢弃未建模键**（`match:`、route 级 `mute_time_intervals:`）→ 用户手写配置经「导入→保存」会**丢失配置**，跨 T08-12 边界（用户配置不可丢）。
+  - **H1**：生产代码**缺 `RouteNode→RouteEditNode` 转换器**，仅 `validate_test.go:270 toEditNodes` 在测试里存在；保存链/产物生成若直接用测试转换器或类型不匹配会出错。
+  - **H2**：`ValidateRouteTree(nodes []RouteNode)` 入参为 `[]RouteNode`，但保存链持有 `[]RouteEditNode` → 校验与保存类型错位，会产出 amtool 拒绝的 `="x"` 字面量。
+  - **H3**：`RouteEditNode.Enabled` 用 `bool` 零值（`false`）携带语义，零值歧义（"未设"与"关"不可分）。
+- **结论 / 建议**：B1 改为 **fail-closed**（未知键报错或原样保留到原始通道，不静默丢弃）；H1 在 `notify_route_generate.go` 落地生产级 `ToEditNodes`/`ToRouteNodes` 转换器并单测；H2 统一 `ValidateRouteTree` 入参与保存链类型（改签 `[]RouteEditNode` 或显式转换）；H3 `Enabled` 改 `*bool` 或明确零值语义并在转换处处理。四者打包后端 fix 轮。
+- **影响模块**：M08（路由解析/校验/生成）
+- **发现场景**：golang-reviewer 审查 T08-13 产物（4 新文件）返回 REQUEST_CHANGES，blocking=B1、HIGH=H1/H2/H3。
+- **状态**：**landed（fix 轮，2026-10-02，未提交）**——B1（parse.go 无损保留未建模键）/ H1（生产 RouteNode↔RouteEditNode 转换器 `route/convert.go`）/ H2（`ValidateRouteTree` 改签 `[]RouteEditNode`）/ H3（`Enabled *bool`）已落地；`go test ./platform/...` + `go vet` 全绿。
+
+## 35. 前端路由编辑/保存修复（frontend-reviewer 审查 blocking/HIGH 打包，fix 轮 open，依赖 #34 + T08-F12）
+
+- **类别**：② 实现偏差（C1 跨模块）/ ③ 技术优化（H1/H2/H3/H4）
+- **PRD 章节 / 文件位置**：`ui-custom/web/src/pages/alerts/useRoutes.ts`（C1 `:189` save 基源 / H1 `:212` knownReceivers）、`RoutesPage.tsx`（H2 列表「未定义」红字 / C1 基源）、`RouteEditorDrawer.tsx`（H3 根 receiver 必填 / H4 部分导入护栏）、`routeTree.ts`（knownReceivers 校验）、`notifyChannelsApi.getReceiverSnippet`（admin-only N+1）。
+- **现状 / 根因（frontend-reviewer 2026-10-01 REQUEST_CHANGES）**：
+  - **C1**：`useRoutes.ts:189` 保存链 `generateRouteSection(tree)` → `GET /config/current`（**挂载留痕原文**）作基座，而列表读 `effectiveAlertmanagerYAML`（**平台产物视图**）→ 合并会把平台已物化的 `receivers` **回滚**掉（需后端增量提供产物视图基座）。
+  - **H1**：`knownReceivers` 经 `getReceiverSnippet(channel.id)` **逐渠道 N+1**、且接口 **admin-only** → 非管理员取不到、`F13` 验收①失败。
+  - **H2**：`RoutesPage` 列表对"引用了未定义 receiver"**缺红色「未定义」提示**。
+  - **H3**：`RouteEditorDrawer` **根 route 的 receiver 必填未校验**（可提交空 receiver）。
+  - **H4**：部分导入保存**无护栏**，会直接覆盖原 route（应提示/确认）。
+- **结论 / 建议**：C1 改基源为后端产物视图基座（#34 后端增量配套）；H1 改取**非管理员可用**的 receivers 清单（批量端点或放宽权限，避免 N+1）；H2 列表补红字；H3 抽屉校验根 receiver 必填；H4 部分导入保存前加确认/差异展示护栏。五者打包前端 fix 轮，依赖 #34 与 T08-F12。
+- **影响模块**：前端（路由页/抽屉/useRoutes/routeTree）
+- **发现场景**：frontend-reviewer 审查 F11/F13 产物返回 REQUEST_CHANGES，blocking=C1、HIGH=H1/H2/H3/H4。
+- **状态**：**landed（fix 轮，2026-10-02，未提交）**——C1/H1/H2/H3/H4 已落地（`useRoutes.ts` save 基源改走 admin `getProduct`、knownReceivers 改 `notifyChannelsApi.list()`、H2 红字、H3 根 receiver 必填、H4 部分导入护栏）；`tsc --noEmit` 0 错、`vitest run src/pages/alerts` 全绿。
+- **安全收敛（C1 关键修正）**：fix 轮初版把含凭据的 `effective_alertmanager_yaml` 透传进**非 admin** `GET /routes`，被既有安全门 `TestListRoutesHandler_NoSensitiveValues`（禁止桥令牌/出站密钥出现在非 admin 响应）拦截——已改为**合并基只从 admin `GET /config/product`（及回落同样 admin 的 `/config/current`）获取**，非 admin `GET /routes` 不再透传凭据；保存提交 `POST /config` 本就 RequireAdmin，故保存链路整体 admin 一致（非 admin 仅查看/编辑、不能提交），零凭据泄漏。
+
+## 36. T08-F12 模式开关持久化（后端 mode 字段 + GET /routes + 前端控件，fix 轮 open，与 #33 绑定）
+
+- **类别**：② 契约缺口落地（route 段模式开关无持久化通道）
+- **PRD 章节 / 文件位置**：`platform/models/alertmanager_route_setting.go:21-24`（仅 `{NetworkDomainID, DefaultReceiverChannelID}`，无 `Mode`）；`platform/alertmanager/route/handler.go:48,58,69`（`GET /routes` 恒硬编码 `mode: ModeHandwritten`）；`platform/alertmanager/route/parse.go:32-35`（注释明示 T08-F12 未实现、本期恒手写）；`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx` / `RoutesPage.tsx`（前端模式开关控件缺失）。
+- **现状 / 根因**：`AlertmanagerRouteSetting` 模型**无 `Mode` 字段**，`GET /api/v2/platform/alertmanager/routes` **恒返回 `ModeHandwritten`**（不读存储）。→ 模式开关**无持久化通道**：用户在 UI 切 managed/handwritten 无法落库、下次读取又被重置为手写；F11/F13 的可写 UI 在真实环境**不可达**（测试绿 ≠ 功能可用），与 dev-feedback #33「骨架/预置/手写三态」落地直接挂钩。
+- **结论 / 建议**：`AlertmanagerRouteSetting` 加 `Mode RouteMode`（`gorm` 列，默认 `handwritten`，经 `AutoMigrate` 迁移，存量零影响）；`GET /routes` 据存储返回 `mode`（非硬编码）；`route-setting` `PUT` 同时写 `mode`；前端 `AlertConfigPage`/`RoutesPage` 加模式开关控件（managed↔handwritten），切手写即整段让出（守卫③不删内容，§11.6）。与 #33 同批设计/同批排期。
+- **影响模块**：M08（模型/端点/告警配置页/路由页）
+- **发现场景**：golang/frontend reviewer 共同 blocker；dev-feedback #33 已登记「模式开关缺失是三态落地根因」。
+- **状态**：**landed（fix轮，2026-10-02，未提交）**——后端 `AlertmanagerRouteSetting` 加 `Mode RouteMode`（`handwritten`/`managed`，AutoMigrate，存量零影响）、`GET /routes` 据存储返回、route-setting PUT 写 mode；前端 `useRouteSetting.ts` + `AlertConfigPage.tsx` 模式开关控件（managed↔handwritten，切手写不删内容 §11.6）。详见 #34/#35 落地记录。
+
+## 37. 抑制规则无独立 UI（三块必写中唯一未 UI 化项，open）
+
+- **类别**：① 空白判定（能力缺口）
+- **PRD 章节 / 文件位置**：PRD §4.1.1（`inhibit_rules` = 平台生成 + 用户可追加）、§11.7；`ui-custom/web/src/pages/alerts/alertmanagerConstants.ts:341-347`（`ALERT_CONFIG_REQUIRED_BLOCKS` 第 3 项「收敛（告警抑制）」`path: null` = 无平台内替代入口）；`ui-custom/web/src/types/alertmanager.ts:180,186,200`（`NotifyStatus` 四态含 `inhibited`，仅通知状态非配置能力）；`MainLayout.tsx:208-224`（M08 菜单 7 项无抑制规则入口）；`platform/configcenter/generator/notify_route_preset.go:41`（`inhibitRulesSectionKey`，预置种子内置 1 条 inhibit 示例，仅 managed 模式注入）。
+- **现状 / 根因**：全仓核对 `ui-custom/web/src/` 下 `inhibit` 仅命中**通知状态枚举**（`inhibited` 语义），**无任何抑制规则配置页/接口**。→「三块必写」中 `receivers`（→ 通知渠道页）、`route`（→ 路由规则页）均已 UI 化，**仅 `inhibit_rules` 仍只能手写文件**。而 `alert-config-scope-and-notification-bridge.md` §3.2.2 把「收敛」列为必写块、§3.2.4 预言三块 UI 化后挂载页退化——**该块是「三块 UI 化」唯一未兑现项**，也是「写配置前必读」折叠区**不能整体删除**的唯一理由（否则手写用户失去唯一仍需手写的说明）。
+- **结论 / 建议**：本期**只标注不实现**——① 告警配置页动线卡中「抑制规则」项显式标「即将支持」，不静默消失（避免用户以为配完了）；②「写配置前必读」改为**按模式条件化**：managed 只讲「抑制规则由平台自动维护（预置示例已内置 1 条），自定义需在高级区编辑」，handwritten 才展开完整「三块必写 + 两块豁免」；③ 抑制规则 UI 化（表单：根因/次生匹配条件 + 目标接收人，含平台自动生成规则的可视化与覆盖）排 **v0.3-c**，与「continue 可视化」「免打扰时段」同批（见 `alert-route-frontend-editor.md` §5 分期）。**不得**因本项缺失而动 P7 段级所有权（`inhibit_rules` 仍为平台 + 用户可追加）。
+- **影响模块**：M08（告警配置页动线卡/ 折叠区策略 / 新增抑制规则页）；M09（`alertmanager.yml` `inhibit_rules` 段生成维持现状不变）
+- **发现场景**：2026-10-02 用户就告警配置页信息架构提出「信息杂乱无章、没有逻辑性」，核对提案 §3.2.4 预言的三块 UI 化进度时发现本项未兑现，为该轮唯一能力缺口。
+- **状态**：**open**——2026-10-02 用户拍板：本期**只标注不实现**，v0.3-c 排期。UI 侧标注已随 #38 落地：动线卡内以 `Tag color="warning"`「即将支持」显式呈现（**不静默消失**，否则用户以为配完了）；高级区「手写配置说明」在 managed 模式下只讲本缺口、handwritten 模式才展开完整三块必写。能力本体（抑制规则 UI）仍待 v0.3-c。
+
+## 38. 告警配置页信息架构重构 + 术语去技术化（landed 2026-10-02）
+
+- **类别**：① 空白判定（页面 IA 与能力分层倒挂）
+- **PRD 章节 / 文件位置**：`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx:398-417`（页头主按钮=「挂载新配置」`type="primary"`）、`:421-497`（「写配置前必读：三块必写 + 两块豁免」折叠栏）、`:538-646`（「当前生效配置」卡内嵌两个策略控件 `:553-585` + 完整 YAML 常驻展开 `:641`）、`:672-720`（派生预览）、`:722-744`（版本历史）；`alertmanagerConstants.ts:323-371`（必写/豁免块定义，字段名与用户语言并列）、`:430-450`（派生预览文案）；`MainLayout.tsx:219-223`（M08 菜单顺序）。
+- **现状 / 根因**（三条，逐条有代码级依据）：
+  1. **主操作与能力分层倒置**——三层模型里「挂载整份文件」是第三层（逃生舱），却是页头唯一主按钮；而第一层（预置种子，#33 已落地）在页面上完全不可见，用户打开只看到「请上传文件」。
+  2. **策略控件被埋进版本元数据卡，且两个控件语义关系未显式化**——`AlertConfigPage.tsx:553-585` 把「默认兜底接收人」（Select）与「路由规则作者模式」（Switch）平铺为并列项，但模型上二者**非平级**：`notify_route_skeleton.go:79` 门禁只判 `in.Enabled && DefaultReceiver != ""`、**不判 mode**；`draft/service.go:319-321` 与 `EffectiveDefaultReceiver`（`alertmanager_route_setting.go:54-64`）同样不判 mode。⇒ **手写模式下平台仍会替换根 `route.receiver` 单键**（决策 113口径 C 的设计意图），UI 唯一提示仅 `:565` 一个「平台接管中」Tag。Switch 的「开/关」亦无法表达「两种模式二选一」。
+  3. **术语全实现视角 + YAML 全文散落四处**——折叠栏骨架 / 完整配置 / 派生预览片段 / 插入示例，用户无法判断哪一处才是「现在生效的那份」。
+- **结论 / 建议**：重构为四卡——① **策略卡**（提级为页面级，**不改 `MainLayout` 全局设置**：`route-setting` 是管理域单例、中心 AM 全局唯一，挂全局会误以为影响多实例/多网域）；「未匹配规则的告警发给谁」+「路由规则由 我手写 | 平台管理」Segmented，并以**一行状态句**显式化三者关系。② **动线卡**（通知渠道/路由规则/通知模板 + 抑制规则标「即将支持」=#37）。③ **现状卡**（瘦身，完整 YAML 默认折叠）。④ **高级区**（默认收起，含原「挂载新配置」+ 说明 + 派生预览 + 版本历史）。**页头不再挂 `type="primary"` 按钮**。「写配置前必读」**按模式条件化**（managed 讲抑制规则、handwritten 才展开完整三块必写，见 #37）。术语替换表见提案 §7.5。**明确不改**：C1 保存语义（admin-only，改它牵动 M09 变更单权限模型，属独立议题）。
+- **影响模块**：M08（`AlertConfigPage.tsx` / `alertmanagerConstants.ts` / `AlertConfigPage.test.tsx`；`useRouteSetting.ts` 零改动——`NONE_RECEIVER_VALUE` 语义不变，仅页面侧换控件；`MainLayout.tsx` 零改动）；M09（零改动）
+- **发现场景**：2026-10-02 用户就 `/alert-config` 页提出「是否可降级挂载新配置、优先引导 UI 控制」「三个子功能信息杂乱无章」「两个按钮为何不是全局按钮、是否提级」「UI 术语过于技术化」，四项一并登记；已与 #33（三层配置模型）合并落 `design-proposals/alert-config-three-layer-model.md`（§1.3 说明两议题的关联性）。
+- **状态**：**landed（2026-10-02）**——用户当日拍板 6/6 全采纳（提案 §12），IA 先行落地，**零后端改动**：
+  - 四卡结构（策略卡 / 动线卡 / 瘦身现状卡 / 高级区）已落地；**页头不再挂 `type="primary"` 按钮**，「导入整份配置文件」降级进默认收起的高级区（**永久保留**，PRD §11.6 逃生舱不删）。
+  - 模式控件 Switch → **Segmented**（`我手写 | 平台管理`），表达二选一模式。
+  - 术语去技术化按 §7.5 对照表全部替换；块名改用 Alertmanager 官方中文名。
+  - 策略卡新增 `policySummary` **状态句**，显式化「手写模式下平台仍接管兜底接收人单键」这一非直觉事实（本条根因 2 的直接对策）。
+  - 手写说明按模式条件化（managed 只讲抑制规则缺口 = #37 缺口显式化；handwritten 展开完整三块必写 + 两块豁免 + 最小骨架）。
+  - 动线卡对抑制规则打 `即将支持` Tag，**不静默消失**。
+  - 明确未改：C1 保存语义（admin-only，属独立议题）；`MainLayout` 全局设置（方案 B 已否决）。
+  - 额外修两处实现缺陷：① 嵌套 `Collapse` 点击冒泡导致点开内层后高级区整体收起（修法：在内层 Collapse **之外**加 `stopPropagation` 包裹层，**不可**挂在内层 label 上）；② 「配置版本历史」被误放进「平台自动生成的接收人」折叠面板内，已提回为高级区直接子项。
+  - 回归：`AlertConfigPage.test.tsx` **33/33 通过**（`vitest --maxWorkers=1`），`tsc --noEmit` 通过；文案断言逐条对齐而非删除，定位统一改用 `data-testid`（清单见提案 §12.2）。
+  - 遗留：`api-contract-snapshot.md` 待补「手写模式仍接管根兜底单键」显式声明（提案 §11.1）。
+
+## 39. 告警三页后续三点意见：版本历史提级 + 删配置重挂载 + 派生预览归位 + 说明区统一（landed 2026-10-02）
+
+- **类别**：③ 技术优化 / 信息架构
+- **PRD 章节 / 文件位置**：`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（高级区 `:719-941` 内嵌「平台自动生成的接收人」与「配置版本历史」；版本表操作列 `:474-484` 的「重新挂载此版本」）；`NotifyChannelsPage.tsx:175-193`（说明塞在卡片正文里）；`RoutesPage.tsx:436-475`（`page-header` div + 常驻 info Alert）；`NotifyTemplatesPage.tsx:229-276`（问句式折叠标题 + 卡片）；`alertmanagerConstants.ts:330-378`（必写/豁免块 desc）、`:420-426`（手写说明引导句）、`:486-506`（派生预览文案）。
+- **现状 / 根因**（用户原话三点 → 三条根因，逐条有代码级依据）：
+  1. **「配置版本历史」被塞进「高级」折叠区，但它与「高级」无关**——内容侧留痕是**全局只读能力**（每个导入过的版本都应可见），而高级区是「手写逃生舱」（三层模型第③ 层，PRD §11.6）。放进折叠区等于把全局能力藏在高级用户专属入口里。
+  2. **「重新挂载此版本」是过度设计，且与通知模板页同名能力语义冲突**——配置侧 remount 只是「把历史版本内容再提交一次」，与首屏「导入整份配置文件」走同一条调用链（`submit`），恢复路径完全可用「查看内容 → 改 → 导入」替代；为此却多维护一条专用端点 + 二次确认 Modal + 行级错误区。更糟的是它与 `NotifyTemplatesPage.tsx:191-198` 的「重新挂载」（**模板版本回滚**，语义不同、有独立价值）同名，两个页面同一个词两个意思。
+  3. **「平台自动生成的接收人」放错页 + 与渠道页 `ReceiverSnippetDrawer` 同源能力两份**——它是**渠道的产物**（每个已启用渠道派生一个 receiver），只在渠道上下文里读得懂；放在告警配置页高级区既割裂，又与 `NotifyChannelsPage` 行内「接收人配置」抽屉展示同一个 `getReceiverSnippet` 结果。且其三段文案（`DESC` / `SCOPE` / 左蓝线三句）说的都是同一件事。
+  4. **四页说明区四种形态、同一事实多处表述**——告警配置把说明塞进页头卡 / 路由规则用常驻 info Alert（且标题是「对应 Alertmanager 的 route: 本体」这类技术表述）/ 通知渠道塞在卡片正文 / 通知模板用「「通知模板」是什么？」（问句式标题）。同一事实常有 2~3 处表述：如「已启用渠道的接收人由平台自动写入」在手写说明引导句、必写块 desc、骨架注释、抽屉说明里各出现一次。
+- **结论 / 建议**（用户通过 AskUserQuestion 拍板，三项全采纳推荐项）：
+  1. 「配置版本历史」移出高级区 → 页面级常驻卡，位置在现状卡之后、高级区之前；同步删除「重新挂载此版本」操作列（保留版本详情抽屉）。
+  2. 「平台自动生成的接收人」迁出告警配置页 → 「通知渠道」页表格新增「平台接收人」列：列内只给结论（接收人名 + 模板绑定 + 可用性），片段 YAML 与复制仍由该页行内「接收人配置」抽屉承载（**单一来源**）。告警配置页只留手写说明里的通往链接。
+  3. 新增共享组件 `src/components/PageIntro.tsx`，四页统一为「**页头（标题 + 一行副标 + 右侧操作位）+ 可折叠说明区（默认收起，标题「这个页面管什么」）+ 主内容**」。
+  4. 手写说明按「**每个事实只在一处说**」去重：策略卡 / `policySummary` 已说过的不复述；「已启用渠道由平台自动写入」只在手写说明引导句说一次。
+- **影响模块**：M08 前端（`AlertConfigPage.tsx` / `NotifyChannelsPage.tsx` / `RoutesPage.tsx` / `NotifyTemplatesPage.tsx` / `AlertConfigDrawer.tsx` / `useAlertConfig.ts` / `alertmanagerConstants.ts` / 四个测试文件 / 新增 `components/PageIntro.tsx`）；**后端零改动**
+- **发现场景**：2026-10-02 用户在 #38 落地后继续走查 `/alert-config`、`/notify-channels`、`/routes`、`/notify-templates` 四页，就「版本历史位置」「重新挂载去留」「平台自动生成的接收人放在高级区很奇怪」「三页说明如何让用户更好理解、排版统一」提出意见。
+- **状态**：**landed（2026-10-02）**：
+  - 版本历史提级为常驻卡（`data-testid="alert-versions-card"`，测试用 DOM 顺序断言「现状卡 → 版本历史卡 → 高级区」）；「重新挂载此版本」连同 `handleRemount` / `remounting` / `remountErrors` / remount 行级错误区一并删除。
+  - `useAlertConfig` 移除 `remount` 暴露（无调用方）；`api/alertmanager.ts` 的 `alertmanagerConfigApi.remount` 保留为**契约镜像**并标 `@deprecated`（后端端点仍在，未删），注释显式区分 `notifyTemplatesApi.remount`（模板回滚，**仍在用**）。
+  - `AlertConfigDrawer` 的 `mountName.startsWith('remount-')` 死分支与 `mountName` prop 一并删除（唯一调用方 `openMount()` 不传参，该分支永不可达）。
+  - 派生预览迁入通知渠道页「平台接收人」列：`ALERT_DERIVED_PREVIEW_*` 常量改写为 `CHANNEL_DERIVED_RECEIVER_*`（标题去技术化：「平台自动生成的接收人」→「平台接收人」）；403 降级为单元格内「需管理员权限查看」+ Tooltip，停用渠道显示「停用后不再生成」，令牌未配置标「暂不可用」。
+  - 新增 `components/PageIntro.tsx` 并落地四页；`testId` 约定 `<page>-intro` / `-intro-subtitle` / `-intro-guide-label` / `-intro-guide-points`。
+  - 手写说明去重：`ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO` 改为「已启用渠道的接收人由平台自动写入，通常不用手写。整份配置里，你只需关注这三块：」；`ALERT_ADVANCED_GUIDE_MANAGED` 去掉与策略卡重复的「路由规则由平台管理」与自指的「才使用下方的手写说明」；接收人 / 抑制两块 desc 精简。
+  - 术语去技术化：`ROUTE_ROOT_LOCK_TIP` 去掉「route: 本体」。
+  - 回归：`AlertConfigPage` 32 + `NotifyChannelsPage` 22 + `RoutesPage` 25 + `NotifyTemplatesPage` 10 全绿；`tsc --noEmit` 通过；eslint 仅剩 1 个**既有** warning（RoutesPage `knownReceiverSet` 依赖，非本轮改动）。
+- **遗留（2026-10-02 用户已拍板，非待决）**：
+  1. `POST /config/versions/{id}/remount` 后端端点**保留、不下线**，待 **v0.3** 再决定。契约 §3 已标注「已无前端调用方」并显式区分 §11.1 的模板 remount（语义不同、仍在用）。
+  2. 四页各保留一处**随状态变化的**常驻 `Alert`（如路由规则页的「顺序即优先级 + 模式徽标」），按 `PageIntro` 契约第三条硬约束**有意不并入**说明区（只有随状态变化的信息才允许常驻）。
+

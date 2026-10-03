@@ -14,7 +14,6 @@ import {
   App,
   Button,
   Card,
-  Collapse,
   ConfigProvider,
   Drawer,
   Empty,
@@ -30,12 +29,12 @@ import {
   DeleteOutlined,
   EyeOutlined,
   HistoryOutlined,
-  InfoCircleOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import type { ColumnsType } from 'antd/es/table'
 import { EllipsisText } from '../../components/EllipsisText'
+import { PageIntro } from '../../components/PageIntro'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
@@ -225,55 +224,32 @@ export function NotifyTemplatesPage() {
   return (
     <MainLayout>
       <ConfigProvider locale={config}>
-        {/* 用户帮助：模板心智（Go template 不是脚本）+ 平台内置能力 + 逃生门，折叠栏承载 */}
-        <Collapse
-          ghost
-          size="small"
-          style={{ marginBottom: 16 }}
-          items={[
-            {
-              key: 'template-guide',
-              label: (
-                <Space size={8}>
-                  <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
-                  <Text strong>「通知模板」是什么？（从自建脚本迁移过来怎么理解）</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    点击展开说明
-                  </Text>
-                </Space>
-              ),
-              children: (
-                <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.9 }}>
-                  <li>
-                    模板就是 <Text strong>Alertmanager 标准 Go template</Text> 文本，
-                    <Text strong>不是脚本</Text>：平台不执行任意代码，只按模板把告警渲染成对应渠道的卡片。
-                  </li>
-                  <li>时区、证书、发送失败的可观测由平台统一处理，你不用自己写时间转换或证书兜底。</li>
-                  <li>想改通知样式（标题 / 字段 / 颜色）改模板即可，不用改代码；改动会留痕、可回滚。</li>
-                  <li>
-                    平台已内置默认模板，零模板即可接入；如需投递到自有中继服务，可在
-                    <Link to={ALERT_CONFIG_PATH}>告警配置</Link>
-                    的接收人地址中直接填写外部地址，平台只做配置与校验、不托管运行。
-                  </li>
-                </ul>
-              ),
-            },
-          ]}
-        />
-
-        <Card
+        {/* 页头 + 说明区（四页统一，见 components/PageIntro.tsx）。
+            原先用「「通知模板」是什么？（从自建脚本迁移过来怎么理解）」这种问句式折叠标题，
+            与其他三页形态不一致；现统一为「页头副标 + 「这个页面管什么」说明区」。 */}
+        <PageIntro
+          testId="notify-templates-intro"
           title="通知模板"
+          subtitle="模板决定告警通知长什么样；平台按模板把告警渲染为各渠道机器人卡片并投递"
           extra={
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
               提交自定义模板
             </Button>
           }
-          style={{ marginBottom: 16 }}
-        >
-          <Text type="secondary">
-            模板决定告警通知长什么样；平台按模板把告警渲染为各渠道机器人卡片并投递。
-          </Text>
-        </Card>
+          points={[
+            <>
+              模板就是 <Text strong>Alertmanager 标准 Go template</Text> 文本，
+              <Text strong>不是脚本</Text>：平台不执行任意代码，只按模板把告警渲染成对应渠道的卡片。
+            </>,
+            '时区、证书、发送失败的可观测由平台统一处理，你不用自己写时间转换或证书兜底。',
+            '想改通知样式（标题 / 字段 / 颜色）改模板即可，不用改代码；每次提交都会留痕，历史版本可回滚。',
+            '平台已内置默认模板，零模板即可接入；模板要在「通知渠道」里绑定才会生效（绑定动作在该页）。',
+            <>
+              如需投递到自有中继服务，可在<Link to={ALERT_CONFIG_PATH}>告警配置</Link>
+              的接收人地址中直接填写外部地址，平台只做配置与校验、不托管运行。
+            </>,
+          ]}
+        />
 
         {error && (
           <Alert

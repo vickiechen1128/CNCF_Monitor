@@ -319,42 +319,50 @@ export interface AlertConfigScopeBlock {
   linkText?: string
 }
 
-/** 用户在「告警配置」页**必写的三块**（口径与服务端 amtool 校验一致，不承诺校验器不校验的字段） */
+/**
+ * 用户在**手写整份 alertmanager.yml 时**需要写的三块
+ * （口径与服务端 amtool 校验一致，不承诺校验器不校验的字段）。
+ *
+ * 术语口径（设计提案 alert-config-three-layer-model.md §7.5，2026-10-02 IA 重构）：
+ *   - 块名用 Alertmanager 官方中文名（「告警抑制」），不造「收敛（告警抑制）」这类复合词；
+ *   - `fields` 字段名**只在本高级区出现**，动线卡 / 策略卡等用户视图一律不出现。
+ */
 export const ALERT_CONFIG_REQUIRED_BLOCKS: AlertConfigScopeBlock[] = [
   {
     key: 'receivers',
-    title: '接收人 / 渠道',
+    title: '接收人',
     fields: 'receivers',
-    // B 路线（决策 74 定稿）：已启用渠道的接收人由平台在生成配置时自动写入（配置即生效），
-    // 用户一般无需手写 receivers；仅自定义 receiver 才手写，且不得与渠道自动生成的 receiver 名重名。
-    desc: '告警发给哪个端——已启用渠道的接收人由平台在生成配置时自动写入（配置即生效），一般无需手写；仅在需要自定义接收人时才手写，且不得与渠道自动生成的接收人重名',
+    // 「已启用渠道由平台自动写入」的口径只在引导句（ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO）说一次，
+    // 此处只说「你手写时要注意什么」——避免同一事实两处表述。
+    desc: '仅在需要自定义接收人时才手写；不得与渠道自动生成的接收人重名（重名会导致配置校验失败）',
     path: NOTIFY_CHANNELS_PATH,
     linkText: '通知渠道',
   },
   {
     key: 'route',
-    title: '路由',
+    title: '路由规则',
     fields: 'route / routes',
     desc: '按什么标签分发给谁、怎么分组、多久重复（group_by / group_wait / group_interval / repeat_interval）',
     path: null,
   },
   {
     key: 'inhibit_rules',
-    title: '收敛（告警抑制）',
+    title: '告警抑制',
     fields: 'inhibit_rules',
-    desc: '存在根因告警时，自动抑制它引发的次生告警以降噪；边缘站点离线等场景平台已自动生成对应的抑制规则，你按需补充即可',
+    // 「平台已为边缘站点离线等场景自动生成」只在托管模式引导句里说一次，此处不重复。
+    desc: '存在根因告警时，自动抑制它引发的次生告警以降噪；平台已生成的规则按需补充即可',
     path: null,
   },
 ]
 
 /**
- * 明确**豁免的两块**：静默由「静默管理」页承载、模板内容由 PL-3「通知模板」页承载，
+ * 明确**豁免的两块**：静默由「静默管理」页承载、模板内容由PL-3「通知模板」页承载，
  * 二者均给出平台内替代入口（迭代二 PL-3 落地后回补模板入口，关闭 dev-feedback #14）。
  */
 export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
   {
     key: 'silences',
-    title: '静默（silences）',
+    title: '静默',
     fields: '',
     desc: '静默是 Alertmanager 的运行时状态，由「静默管理」页即时控制生效，不需要写进配置文件',
     path: SILENCES_PATH,
@@ -362,13 +370,73 @@ export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
   },
   {
     key: 'templates',
-    title: '通知模板内容（templates）',
+    title: '通知模板内容',
     fields: '',
     desc: '通知模板由「通知模板」页独立管理，平台自动引用，你不用手写模板文件',
     path: NOTIFY_TEMPLATES_PATH,
     linkText: '通知模板',
   },
 ]
+
+// =====================================================================
+// 告警配置页信息架构（设计提案 alert-config-three-layer-model.md §7.3 方案 A，2026-10-02 用户拍板）
+//
+// 页面职责由「文件挂载中心」改为「策略 + 动线 + 现状 + 高级」四段：
+//   ① 策略卡（提级为首屏第一卡）：未匹配规则的告警发给谁 + 路由规则由谁维护（二选一模式）；
+//   ② 动线卡：回答「我该去哪配」；
+//   ③ 现状卡（瘦身）：一行状态摘要，完整 YAML 默认折叠；
+//   ④ 高级区（默认收起）：导入整份配置文件 / 派生预览 / 版本历史。
+// 页头不再挂 type="primary" 主按钮——「导入整份配置文件」是三层模型里的第③ 层（逃生舱），
+// 不应是页面的主操作（PRD §11.6：手写= 永久逃生舱，降级不删除）。
+// =====================================================================
+
+/** 策略卡标题 */
+export const ALERT_POLICY_CARD_TITLE = '路由与收敛策略'
+
+/** 策略卡控件：未匹配任何规则的告警发给谁（原「默认兜底接收人」，去「兜底/接收人」双术语） */
+export const ALERT_POLICY_FALLBACK_LABEL = '未匹配规则的告警发给谁'
+
+/** 策略卡控件：路由规则由谁维护（原「路由规则作者模式」，「作者模式」为实现视角术语） */
+export const ALERT_POLICY_ROUTE_MODE_LABEL = '路由规则由谁维护'
+
+/** 模式二选一选项（用户语言；刻意不用「接管」——接管暗示冲突，实为二选一） */
+export const ALERT_POLICY_MODE_HANDWRITTEN = '我手写'
+export const ALERT_POLICY_MODE_MANAGED = '平台管理'
+
+/** 动线卡标题 */
+export const ALERT_GUIDE_CARD_TITLE = '我要做的事'
+
+/** 动线项：抑制规则尚未 UI 化（dev-feedback #37）——本期只标注不实现，不静默消失 */
+export const ALERT_GUIDE_INHIBIT_COMING = '即将支持'
+
+/** 高级区标题（默认收起） */
+export const ALERT_ADVANCED_CARD_TITLE = '高级：导入整份配置文件'
+
+/** 高级区入口按钮（原页头主按钮「挂载新配置」；「挂载」是 K8s 术语，产品侧无对应心智） */
+export const ALERT_ADVANCED_IMPORT_LABEL = '导入整份配置文件'
+
+/** 高级区折叠面板：手写配置说明（原「写配置前必读：三块必写 + 两块豁免」，按 mode 条件化） */
+export const ALERT_ADVANCED_GUIDE_TITLE = '手写配置说明'
+
+/**
+ * 手写配置说明的引导句（**按 mode 条件化**）。
+ *
+ * 2026-10-02 用户意见「文字重复性很高」后的去重原则：**每个事实只在一处说**——
+ *   - 「路由规则由谁维护」已在策略卡 + `policySummary` 说过 → 本区不再复述；
+ *   - 「已启用渠道的接收人由平台自动写入」是三块必写里唯一需要额外解释的一条 → 只在此处说一次；
+ *   - 抑制规则的「平台已自动生成边缘站点离线等场景」只在托管模式引导句里说一次。
+ * 本区只回答一个问题：**我手写时要写哪几块、每块管什么、哪些不用写。**
+ */
+export const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO =
+  '已启用渠道的接收人由平台自动写入，通常不用手写。整份配置里，你只需关注这三块（字段名仅在此处出现）：'
+
+/**
+ * 托管模式下的引导句：此时三块必写里的route + inhibit_rules 由平台生成，
+ * 唯一还需手写的是**自定义告警抑制规则**（dev-feedback #37：抑制规则尚未 UI 化）。
+ * 不复述「路由规则由平台管理」（策略卡已说），不自指「才使用下方的手写说明」（本区就是它）。
+ */
+export const ALERT_ADVANCED_GUIDE_MANAGED =
+  '路由分流与告警抑制规则已由平台自动生成，通常无需手写配置。抑制规则暂未提供界面入口，仅当需要自定义时可参考下面三块。'
 
 /**
  * 最小可运行 `alertmanager.yml` 骨架（说明卡展示 + 挂载抽屉「插入骨架示例」共用）。
@@ -423,31 +491,35 @@ inhibit_rules:
 `
 
 // =====================================================================
-// 派生预览（告警配置页只读区块，B 路线）：平台 UI 控制的渠道 → 派生 receiver
+// 平台为渠道生成的接收人（通知渠道页「平台接收人」列，B 路线 / 决策 74）
+//
+// 2026-10-02 用户意见：原先以只读面板形式挂在**告警配置页**高级区，语义割裂（它是渠道的产物，
+// 与告警策略/路由无关），且与通知渠道页行内「接收人配置」抽屉形成「同源能力两份」。
+// 现改为通知渠道页表格的一列：列内只给结论（接收人名 / 模板绑定 / 可用性），
+// 片段 YAML 与复制仍由行内抽屉承载（单一来源）。
+// 术语口径（提案 §7.5）：「派生」是技术词，用户视图一律说「平台接收人」。
 // =====================================================================
 
-/** 「派生预览」区块标题 */
-export const ALERT_DERIVED_PREVIEW_TITLE = '派生预览：平台将写入的接收人'
+/** 通知渠道表格「平台接收人」列标题（用户视图：不出现「派生」） */
+export const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE = '平台接收人'
 
-/** 「派生预览」区块一句话说明（平台自动物化的心智） */
-export const ALERT_DERIVED_PREVIEW_DESC =
-  '已启用渠道由平台在生成配置时自动写入 alertmanager.yml 的 receivers（配置即生效），下方为派生结果。'
+/** 列内取不到派生行时的兜底（渠道已启用但片段接口未返回，异常态） */
+export const CHANNEL_DERIVED_RECEIVER_EMPTY = '暂不可见'
 
-/** 「派生预览」范围声明（手写/上传内容原样透传、平台不解析其语义） */
-export const ALERT_DERIVED_PREVIEW_SCOPE =
-  '本预览仅包含平台 UI 控制部分的派生结果；你手写或上传的其它接收人 / 路由内容原样透传，不在此预览内，平台不解析其语义。'
+/** 列内权限不足（片段含平台内部凭据，仅管理员可获取；渠道接收人仍由平台自动写入） */
+export const CHANNEL_DERIVED_RECEIVER_FORBIDDEN =
+  '接收人片段含平台内部凭据，仅管理员可查看；渠道接收人仍由平台自动写入，不影响生效。'
 
-/** 「派生预览」重名提醒（自动接收人名与手写同名会校验失败） */
-export const ALERT_DERIVED_PREVIEW_RENAME_TIP =
-  '请勿手写与上表同名（含渠道名归一化后同名）的接收人，重名会导致配置校验失败。'
+/** 桥令牌未配置 → 该接收人当前不可用（Tooltip 展开说明） */
+export const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING =
+  '平台尚未配置通知桥令牌，该接收人当前不可用，请联系管理员配置后生效。'
 
-/** 「派生预览」空态引导（无渠道或均未启用时） */
-export const ALERT_DERIVED_PREVIEW_EMPTY =
-  '暂无已启用的通知渠道。请到「通知渠道」页添加并启用渠道，其接收人会自动出现在这里。'
+/** 重名提醒（自动接收人名与手写同名会校验失败）；贴在该列下方 */
+export const CHANNEL_DERIVED_RECEIVER_RENAME_TIP =
+  '请勿在「告警配置」里手写与上表同名（含渠道名归一化后同名）的接收人，重名会导致配置校验失败。'
 
-/** 「派生预览」权限不足提示（接收人片段需管理员权限；不影响平台自动写入） */
-export const ALERT_DERIVED_PREVIEW_FORBIDDEN =
-  '当前账号无权查看接收人片段（片段含平台内部凭据，仅管理员可获取）；渠道接收人仍由平台自动写入，不影响生效。'
+/** 模板未绑定时的前缀（后接渠道类型中文名，如「回落飞书内置默认模板」） */
+export const CHANNEL_TEMPLATE_BIND_NONE_PREFIX = '回落'
 
 // =====================================================================
 // 通知渲染桥（PL-3，2026-09-28）：通知渠道类型 / 通知模板展示名

@@ -258,8 +258,13 @@ type ChannelView struct {
 	SecretSet  bool   `json:"secret_set"`
 	Enabled    bool   `json:"enabled"`
 	// DefaultTemplateID 绑定的通知模板 ID（null/缺省 = 用内置默认模板）；非敏感字段，直接回显。
-	DefaultTemplateID *uint  `json:"default_template_id,omitempty"`
-	CreatedAt         string `json:"created_at"`
+	DefaultTemplateID *uint `json:"default_template_id,omitempty"`
+	// ReceiverName 是渠道在 alertmanager.yml `receivers:` 段中物化的接收人名（由渠道名归一或
+	// 回落 notify-<id>，与 M09 生成器同源，决策 74）；非敏感字段，直接回显。供前端「黑名单校验
+	// 接收人是否悬空」等场景批量派生已知接收人清单，避免逐渠道调用 admin-only 的 receiver-snippet
+	// 接口（T08-F13 验收 #1：非管理员也能获得可用接收人清单）。
+	ReceiverName string `json:"receiver_name"`
+	CreatedAt   string `json:"created_at"`
 }
 
 // ToChannelView 将渠道转换为脱敏响应视图。
@@ -272,6 +277,7 @@ func ToChannelView(ch *models.NotifyChannel) ChannelView {
 		SecretSet:         ch.Secret != "",
 		Enabled:           ch.Enabled,
 		DefaultTemplateID: ch.DefaultTemplateID,
+		ReceiverName:      ch.ReceiverName(),
 		CreatedAt:         ch.CreatedAt.Format(time.RFC3339),
 	}
 }
