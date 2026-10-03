@@ -201,7 +201,7 @@ export function ResourcesPage() {
   const [cloudDicts, setCloudDicts] = useState<CloudDict[]>([])
   // 决策 105：服务字典（service_code → service_name 展示名解析，仅 application / generic_target 承载）
   const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
-  // 决策 104：平台字典（派生「平台」列展示名解析：app_code → 应用父级 platform_code → platform_name）
+  // {v2026-09-28 决策 110} 平台字典（资源行 `platform_code` 一等字段的展示名解析：platform_code → platform_name）
   const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // 决策 47-3：资源列表「采集状态」三态 badge 数据源（M02 coverage 聚合，Map by resource_id）
@@ -310,12 +310,22 @@ export function ResourcesPage() {
     return !!s && !s.enabled
   }
   /**
-   * 派生平台编码（决策 104 / §5.12.1）：资源行**无** platform_code 字段，
-   * 平台经 `app_code` → 应用字典条目父级 `platform_code` 派生；未挂应用 / 应用未挂平台时为 undefined。
+   * 平台展示名（{v2026-09-28 决策 110} / 契约快照 §11）：**资源行 `platform_code` 一等字段**为唯一权威，
+   * 经 `GET /platform-dict` 解析 `platform_name`；字典缺条目回退显示 `platform_code`，
+   * 停用条目标识「平台名（已停用）」（存量资源保留历史值）。留空显示 '-'。
+   *
+   * ⚠️ 停用**已废弃**的 `app_code → ApplicationDict.platform_code` 派生（决策 111 M:N 后恒为「-」，
+   * 使 M:N 关系 UI 成「写入后不可见」的死功能）；资源行留空时的应用主平台兜底属**标签层**语义，
+   * 不回写本字段，故此处不做兜底展示。
    */
-  const derivePlatformCode = (appCode?: string) => {
-    if (!appCode) return undefined
-    return applicationDomains.find((a) => a.app_code === appCode)?.platform_code
+  const resolvePlatformName = (code?: string) => {
+    if (!code) return '-'
+    return platformDicts.find((d) => d.platform_code === code)?.platform_name ?? code
+  }
+  /** 平台是否停用（停用条目以「平台名（已停用）」标识，存量资源保留历史值） */
+  const isPlatformDisabled = (code: string) => {
+    const p = platformDicts.find((d) => d.platform_code === code)
+    return !!p && !p.enabled
   }
 
   // 资源新增/编辑抽屉（T07-F4）：create 走当前 Tab 类型；edit 携带行 record（resource_category 取行）
@@ -462,13 +472,14 @@ export function ResourcesPage() {
           '-'
         ),
     }
-    // 决策 104 / §5.12.1「平台」列：**只读派生**——经 app_code → 应用条目父级 platform_code → platform_name；
-    // 资源行无 platform_code 字段，资源表单/详情均不提供平台填写入口；未挂应用或未挂平台显示 '-'。
+    // {v2026-09-28 决策 110}「平台」列：**读资源行 `platform_code` 一等字段**（登记期显式填写、可空），
+    // 展示名经 GET /platform-dict 解析 platform_name（缺条目回退 platform_code、停用加「（已停用）」、留空 '-'）。
+    // 不再经 app_code → 应用父级 platform_code 派生（决策 111 M:N 后该派生恒为「-」）。
     const platformColumn: ColumnsType<ResourceListItem>[number] = {
       title: (
         <span>
           平台
-          <Tooltip title="经所属应用的「所属平台」派生，资源侧只读（无填写入口）">
+          <Tooltip title="资源登记时填写的平台归属；留空时按所属应用的主平台兜底">
             <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
           </Tooltip>
         </span>
@@ -476,13 +487,12 @@ export function ResourcesPage() {
       key: 'platform_code',
       width: 150,
       render: (_: unknown, record: ResourceListItem) => {
-        const code = derivePlatformCode(record.app_code)
+        const code = record.platform_code
         if (!code) return '-'
-        const p = platformDicts.find((d) => d.platform_code === code)
-        const disabled = p ? !p.enabled : false
+        const disabled = isPlatformDisabled(code)
         return (
           <Tag color={disabled ? 'default' : 'purple'}>
-            {`${p?.platform_name ?? code}${disabled ? '（已停用）' : ''}`}
+            {`${resolvePlatformName(code)}${disabled ? '（已停用）' : ''}`}
           </Tag>
         )
       },

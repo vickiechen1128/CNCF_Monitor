@@ -216,27 +216,28 @@ export interface ApplicationDictsResponse {
   total: number
 }
 
-/** 应用字典登记输入（§5.19 / 决策 92）：app_code 不可变、app_name 必填；platform_code 可选（决策 104） */
+/**
+ * 应用字典登记输入（§5.19 / 决策 92）：app_code 不可变、app_name 必填。
+ *
+ * {v2026-10-03 决策 118-3} **不含 `platform_code`**——应用↔平台已改 M:N（决策 111），
+ * 后端写链路忽略该字段，保留声明即误导源。平台关系一律走 `appPlatformRelApi`。
+ */
 export interface ApplicationDictCreateInput {
   app_code: string
   app_name: string
   description?: string
-  /** 可选父级平台（契约快照 §5A）：未挂时省略，须引用未停用平台条目 */
-  platform_code?: string
 }
 
 /**
- * 应用字典受限编辑输入（§5.19 红线：仅 app_name/description/status 可改，不接收 app_code；
- * 契约快照 §5A：platform_code 可挂 / 可摘 / 可换）。
+ * 应用字典受限编辑输入（§5.19 红线：仅 app_name/description/status 可改，不接收 app_code）。
  *
- * `platform_code: null` 表达**摘除**（应用恢复为无平台归属），`undefined` 表达**不改**；
- * 提交侧统一显式给出（未挂即 null），避免「清空后不提交 → 平台残留」。
+ * {v2026-10-03 决策 118-3} **不含 `platform_code`**（原 `string | null` 声明已移除）：
+ * 后端 `Update` 只接受 app_name / description / status，M:N 关系经 `appPlatformRelApi` 维护。
  */
 export interface ApplicationDictUpdateInput {
   app_name?: string
   description?: string
   status?: 'enabled' | 'disabled'
-  platform_code?: string | null
 }
 
 /** 应用字典（§5.19 决策 92，落 DB；app label 取 app_code，展示取 app_name） */

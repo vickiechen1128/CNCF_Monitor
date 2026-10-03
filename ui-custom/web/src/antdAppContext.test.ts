@@ -15,15 +15,13 @@
  *
  * 页面级测试均显式包裹 <App>（如 CreateSilenceDrawer.test.tsx），拦不住这个逃逸，
  * 故对入口与 Provider 源码做静态断言。
+ *
+ * 源码文本经 vite 的 `?raw` 导入取得：web/ 未安装 @types/node（生产是纯浏览器包），
+ * 用 node:fs 读盘会因缺 Node 内置模块类型而无法通过 `typecheck:test` 门禁。
  */
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-
-// jsdom 环境 import.meta.url 非 file 协议，用 cwd（= web/ 根）定位
-const read = (relPath: string) => readFileSync(resolve(process.cwd(), relPath), 'utf-8')
-const mainSrc = read('src/main.tsx')
-const providerSrc = read('src/SkinProvider.tsx')
+import mainSrc from './main.tsx?raw'
+import providerSrc from './SkinProvider.tsx?raw'
 
 describe('antd App 上下文挂载（入口守卫）', () => {
   it('main.tsx 必须把路由组件 <App /> 包在 SkinProvider 内', () => {

@@ -15,10 +15,12 @@ const removeLabelMock = vi.fn()
 const listTemplateMock = vi.fn()
 const cloudDictListMock = vi.fn()
 const zoneTypeListMock = vi.fn()
-// 决策 105 / 104：详情「服务」「平台」展示经服务 / 应用 / 平台字典解析展示名
-const serviceDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
-const applicationDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
-const platformDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
+// 决策 105 / 110：详情「服务」「平台」展示经服务 / 平台字典解析展示名
+// mock 一律声明为无参 vi.fn()，默认返回值在 beforeEach 里 mockResolvedValue 给出——
+// 若用 `vi.fn(() => Promise.resolve(...))` 声明，TS 会把 mock 推断成零参函数，
+// 既 spread 不进 `(...args) => mock(...args)` 的代理，也把 resolved value 锁成 never。
+const serviceDictListMock = vi.fn()
+const platformDictListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   resourceApi: {
@@ -35,10 +37,8 @@ vi.mock('../../api/resources', () => ({
   serviceDictApi: {
     list: (...args: unknown[]) => serviceDictListMock(...args),
   },
-  // 决策 104：详情「平台」展示经应用字典 + 平台字典解析
-  applicationDictApi: {
-    list: (...args: unknown[]) => applicationDictListMock(...args),
-  },
+  // 决策 110：详情「平台」读资源行 platform_code 一等字段，经平台字典解析展示名。
+  // 不再消费应用字典（其单值 platform_code 已废弃，决策 111 M:N / 118-3）。
   platformDictApi: {
     list: (...args: unknown[]) => platformDictListMock(...args),
   },
@@ -218,6 +218,11 @@ describe('ResourceDetailDrawer', () => {
         { id: 2, code: 'extranet', display_name: '政务外网区', description: '', enabled: true, created_at: '', updated_at: '' },
       ],
     })
+    // 决策 105 / 110：服务 / 平台字典默认空列表，用例内按需覆盖
+    serviceDictListMock.mockReset()
+    serviceDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    platformDictListMock.mockReset()
+    platformDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
   })
 
   it('renders base info with domain / business / status / source', async () => {
@@ -239,6 +244,47 @@ describe('ResourceDetailDrawer', () => {
     rec.biz_code = 'legacy'
     renderDrawer({ record: rec })
     expect(screen.getByText('停用业务（已停用）')).toBeInTheDocument()
+  })
+
+  // ---- 决策 110 / 118-4：详情「平台」取资源行 platform_code 一等字段为权威来源 ----
+
+  it('决策 110：详情「平台」渲染资源行 platform_code 对应的 platform_name', async () => {
+    platformDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ platform_code: 'ecommerce', platform_name: '电商平台', enabled: true }], total: 1 },
+    })
+    const rec = hostRecord()
+    rec.platform_code = 'ecommerce'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('电商平台')).toBeInTheDocument()
+  })
+
+  it('决策 110：停用平台以「平台名（已停用）」标识', async () => {
+    platformDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ platform_code: 'legacy-pf', platform_name: '旧平台', enabled: false }], total: 1 },
+    })
+    const rec = hostRecord()
+    rec.platform_code = 'legacy-pf'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('旧平台（已停用）')).toBeInTheDocument()
+  })
+
+  it('决策 110：平台字典缺条目时回退显示 platform_code', async () => {
+    const rec = hostRecord()
+    rec.platform_code = 'unknown-pf'
+    renderDrawer({ record: rec })
+    expect(await screen.findByText('unknown-pf')).toBeInTheDocument()
+  })
+
+  it('决策 110：资源行未填 platform_code 时「平台」展示 "-"（标签层兜底不回写字段）', async () => {
+    platformDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ platform_code: 'ecommerce', platform_name: '电商平台', enabled: true }], total: 1 },
+    })
+    renderDrawer({ record: hostRecord() })
+    await screen.findByText('prod-web-01')
+    expect(screen.queryByText('电商平台')).toBeNull()
   })
 
   it('shows applicable default template with name + id and navigates on click', async () => {

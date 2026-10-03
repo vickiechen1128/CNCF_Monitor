@@ -900,6 +900,85 @@ describe('ResourcesPage', () => {
     expect(within(row).getAllByText('-').length).toBeGreaterThanOrEqual(1)
   })
 
+  // ---- 决策 110 / 118-4：平台列取资源行 platform_code 一等字段为权威来源 ----
+
+  it('决策 110：平台列渲染资源行 platform_code 对应的 platform_name', async () => {
+    platformDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ platform_code: 'ecommerce', platform_name: '电商平台', enabled: true }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01', { platform_code: 'ecommerce' })],
+        total: 1,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    expect(await screen.findByText('电商平台')).toBeInTheDocument()
+  })
+
+  it('决策 118-4：平台列不再经已废弃的 ApplicationDict.platform_code 派生（应用挂了废弃字段也显示 "-"）', async () => {
+    // 应用字典条目上的单值 platform_code 已废弃（决策 111 M:N / 118-3），
+    // 若仍走 app_code → 应用父级派生，本例会错误渲染出平台名
+    applicationDictListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { app_code: 'order', app_name: '订单应用', status: 'enabled', platform_code: 'ecommerce' },
+        ],
+        total: 1,
+      },
+    })
+    platformDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ platform_code: 'ecommerce', platform_name: '电商平台', enabled: true }], total: 1 },
+    })
+    // 资源行未填 platform_code（留空走应用主平台兜底）
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [hostItem('res-1', 'prod-web-01')], total: 1, page: 1, page_size: 50 },
+    })
+    renderPage()
+    await screen.findByText('prod-web-01')
+    expect(screen.queryByText('电商平台')).toBeNull()
+  })
+
+  it('决策 110：平台字典缺条目时回退显示 platform_code', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01', { platform_code: 'unknown-pf' })],
+        total: 1,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    const row = (await screen.findByText('prod-web-01')).closest('tr') as HTMLElement
+    expect(within(row).getAllByText('unknown-pf').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('决策 110：停用平台以「平台名（已停用）」标识', async () => {
+    platformDictListMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [{ platform_code: 'legacy-pf', platform_name: '旧平台', enabled: false }], total: 1 },
+    })
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [hostItem('res-1', 'prod-web-01', { platform_code: 'legacy-pf' })],
+        total: 1,
+        page: 1,
+        page_size: 50,
+      },
+    })
+    renderPage()
+    expect(await screen.findByText('旧平台（已停用）')).toBeInTheDocument()
+  })
+
   it('决策 103 + 红线④：五类 Tab 均含「云」列且不得出现 cloud_type / carrier 独立列', async () => {
     listMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 50 } })
     renderPage()

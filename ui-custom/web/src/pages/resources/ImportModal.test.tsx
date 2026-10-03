@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { message } from 'antd'
+import { mockAntdMessage, type MockedMessage } from '../../test/antdTestUtils'
 import { ImportModal } from './ImportModal'
 import type { ImportResult, ResourceCategory } from '../../types/resource'
 
@@ -49,6 +49,8 @@ function importResult(over: Partial<ImportResult> = {}): ImportResult {
 }
 
 describe('ImportModal', () => {
+  let msg: MockedMessage
+
   beforeEach(() => {
     templateMock.mockReset()
     importExcelMock.mockReset()
@@ -58,9 +60,7 @@ describe('ImportModal', () => {
     URL.createObjectURL = vi.fn(() => 'blob:mock')
     URL.revokeObjectURL = vi.fn()
     // 静默 antd 静态 message，避免测试输出噪音与 act 告警
-    vi.spyOn(message, 'success').mockImplementation(() => undefined)
-    vi.spyOn(message, 'warning').mockImplementation(() => undefined)
-    vi.spyOn(message, 'error').mockImplementation(() => undefined)
+    msg = mockAntdMessage()
   })
 
   it('F-8-a：次级文字链接直触发下载当前资源类型模板', async () => {
@@ -112,7 +112,7 @@ describe('ImportModal', () => {
   it('warns and skips submit when no file selected', async () => {
     renderModal()
     fireEvent.click(screen.getByRole('button', { name: /开始导入/ }))
-    await waitFor(() => expect(message.warning).toHaveBeenCalledWith('请先选择要导入的 Excel 文件'))
+    await waitFor(() => expect(msg.warning).toHaveBeenCalledWith('请先选择要导入的 Excel 文件'))
     expect(importExcelMock).not.toHaveBeenCalled()
   })
 

@@ -26,13 +26,12 @@ import {
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { isApiError } from '../../api/client'
-import { resourceApi, cloudDictApi, applicationDictApi, platformDictApi, serviceDictApi } from '../../api/resources'
+import { resourceApi, cloudDictApi, platformDictApi, serviceDictApi } from '../../api/resources'
 import { labelTemplateApi } from '../../api/labelTemplates'
 import { zoneTypeApi } from '../../api/domain'
 import { EllipsisText } from '../../components/EllipsisText'
 import type { NetworkDomain, ZoneType } from '../../types/domain'
 import type {
-  ApplicationDict,
   BusinessDomain,
   CloudDict,
   PlatformDict,
@@ -165,8 +164,7 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
   const [zoneTypes, setZoneTypes] = useState<ZoneType[]>([])
   // 决策 105：服务字典（service_code → service_name 展示名解析，仅 application / generic_target 展示）
   const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
-  // 决策 104：平台字典 + 应用字典（派生「平台」：app_code → 应用父级 platform_code → platform_name）
-  const [applicationDicts, setApplicationDicts] = useState<ApplicationDict[]>([])
+  // {v2026-09-28 决策 110} 平台字典（资源行 `platform_code` 一等字段的展示名解析：platform_code → platform_name）
   const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
 
   const { tokens } = useSkin()
@@ -214,15 +212,22 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
     return !!s && !s.enabled
   }
   /**
-   * 平台展示名（决策 104/107）：`platform` 为**派生**标签——经资源 `app_code` →
-   * 应用字典条目父级 `platform_code` → 平台字典 `platform_name` 解析；资源未填 `app_code`
-   * 或应用未挂父级平台时返回 '-'（空值不注入口径）。
+   * 平台展示名（{v2026-09-28 决策 110} / 契约快照 §11）：**资源行 `platform_code` 一等字段**为唯一权威，
+   * 经 `GET /platform-dict` 解析 `platform_name`；字典缺条目回退显示 `platform_code`，
+   * 停用条目标识「平台名（已停用）」（存量资源保留历史值）。留空显示 '-'。
+   *
+   * ⚠️ 停用**已废弃**的 `app_code → ApplicationDict.platform_code` 派生（决策 111 M:N 后恒为「-」，
+   * 使 M:N 关系 UI 成「写入后不可见」的死功能）；资源行留空时的应用主平台兜底属**标签层**语义，
+   * 不回写本字段，故此处不做兜底展示。
    */
-  const resolvePlatformName = (appCode?: string) => {
-    if (!appCode) return '-'
-    const app = applicationDicts.find((a) => a.app_code === appCode)
-    if (!app?.platform_code) return '-'
-    return platformDicts.find((p) => p.platform_code === app.platform_code)?.platform_name ?? app.platform_code
+  const resolvePlatformName = (code?: string) => {
+    if (!code) return '-'
+    return platformDicts.find((p) => p.platform_code === code)?.platform_name ?? code
+  }
+  /** 平台是否停用（停用条目以「平台名（已停用）」标识，存量资源保留历史值） */
+  const isPlatformDisabled = (code: string) => {
+    const p = platformDicts.find((d) => d.platform_code === code)
+    return !!p && !p.enabled
   }
 
   /** 打开抽屉时重置状态并抓取标签 + 适用模板（沿用本模块既有 set-state-in-effect 模式） */
@@ -263,11 +268,8 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       .list()
       .then((res) => setServiceDicts(res.data?.list ?? []))
       .catch(() => setServiceDicts([]))
-    // 决策 104/107：应用字典 + 平台字典（派生「平台」：app_code → 应用父级 platform_code → platform_name）
-    applicationDictApi
-      .list()
-      .then((res) => setApplicationDicts(res.data?.list ?? []))
-      .catch(() => setApplicationDicts([]))
+    // {v2026-09-28 决策 110}：平台字典（读资源行 platform_code 解析 platform_name）；
+    // 不再拉取应用字典——「平台」列不再经已废弃的 ApplicationDict.platform_code 派生（决策 118-3）
     platformDictApi
       .list()
       .then((res) => setPlatformDicts(res.data?.list ?? []))
@@ -463,8 +465,20 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
         },
         { key: 'env', label: '环境', children: record.env || '-' },
         { key: 'app_code', label: '应用', children: record.app_code || '-' },
-        // 决策 104/107：`platform` 为派生标签（app_code → 应用条目父级 platform_code），只读展示，未挂 '-'
-        { key: 'platform', label: '平台', children: resolvePlatformName(record.app_code) },
+        // {v2026-09-28 决策 110}「平台」为资源行**一等字段**：读 `platform_code` 并经平台字典解析
+        // platform_name（停用加「（已停用）」、缺条目回退编码、留空 '-'）；不再经应用父级派生
+        {
+          key: 'platform',
+          label: '平台',
+          children: record.platform_code ? (
+            <span>
+              {resolvePlatformName(record.platform_code)}
+              {isPlatformDisabled(record.platform_code) ? '（已停用）' : ''}
+            </span>
+          ) : (
+            '-'
+          ),
+        },
         // 决策 103 scheme-B：云为五类共享字段且**只读派生**（值 = 所属网域 cloud_code），
         // 详情展示字典 cloud_name（停用标识、缺条目回退编码、空值 '-'）
         {

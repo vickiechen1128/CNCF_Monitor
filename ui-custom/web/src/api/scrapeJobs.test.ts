@@ -134,12 +134,24 @@ describe('scrapeJobs API', () => {
   it('update PUTs /:id', async () => {
     mockFetch({ status: 'success', data: { id: 1, job_name: 'prod-mysql-01' } })
 
-    await scrapeJobApi.update(1, { job_name: 'prod-mysql-01', scrape_interval: '30s' })
+    // update 与 create 共用 ScrapeJobInput：network_domain_id / job_type 为必填，
+    // 两个生产调用点（ScrapeJobListPage 启停、FormDrawer 编辑）均回传，故此处一并带上。
+    await scrapeJobApi.update(1, {
+      job_name: 'prod-mysql-01',
+      job_type: 'standard',
+      network_domain_id: 'mc-a',
+      scrape_interval: '30s',
+    })
 
     const url = lastUrlInstance()
     expect(url.pathname).toBe('/api/v2/platform/scrape-jobs/1')
     expect(lastFetchCall()[1]?.method).toBe('PUT')
-    expect(lastInitBody()).toEqual({ job_name: 'prod-mysql-01', scrape_interval: '30s' })
+    expect(lastInitBody()).toEqual({
+      job_name: 'prod-mysql-01',
+      job_type: 'standard',
+      network_domain_id: 'mc-a',
+      scrape_interval: '30s',
+    })
   })
 
   it('remove DELETEs /:id', async () => {

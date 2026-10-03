@@ -16,6 +16,14 @@ export interface ResourceListItem {
   network_domain_id: string
   biz_code?: string
   app_code?: string
+  /**
+   * {v2026-09-28 决策 110} 平台归属：**资源行一等业务字段**（非派生），五类均返回。
+   * 后端 `GET /resources` 的 `sharedFields` 已含该字段并透传，空值返回空串。
+   * 列表 / 详情「平台」列以此为**唯一权威来源**，经 `GET /platform-dict` 解析 `platform_name`
+   * （缺条目回退 `platform_code`、停用标识「平台名（已停用）」）。
+   * 资源行留空时，`platform` 标签由所属应用主平台兜底（标签层兜底不回写本字段）。
+   */
+  platform_code?: string
   env?: string
   cluster?: string
   owner?: string

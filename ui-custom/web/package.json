@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "test": "vitest run"
+    "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
+    "test": "pnpm run typecheck:test && vitest run"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
