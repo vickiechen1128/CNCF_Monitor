@@ -2147,3 +2147,82 @@ tasks:
       - "**取代逐条 ensure 函数**，从机制上消除「每新增映射都要靠人记得补一个 ensure」的复发通道"
       - "前置确认：存量默认模板是否存在手工改动；存量 Job 重新生成配置的触发方式"
       - "**排期 {v0.2}，本轮不执行**"
+
+  - id: "T07-108"
+    title: "（决策 118）generator 停注 system 层 platform + 主平台兜底前移物化 + 冲突用例"
+    prd: "Module_07 §5.2 / §5.12.1 / §5.13 / §5.15（platform 由资源行 platform_code 经模板映射注入、未填兜底应用 is_primary）；design-decisions 决策 118-1 / 118-2 / 118-5"
+    group: "backend"
+    status: "in_progress"
+    commit_group: "m07-platform-injection-point"
+    input_files:
+      - "platform/configcenter/generator/targets.go"
+      - "platform/configcenter/generator/labels.go"
+      - "platform/configcenter/generator/generator_test.go"
+      - "platform/models/app_platform_rel.go"
+    output_files:
+      - "platform/configcenter/generator/targets.go"
+      - "platform/configcenter/generator/generator_test.go"
+    depends_on: ["T07-105"]
+    verify_commands:
+      - "go test ./platform/configcenter/... -count=1"
+      - "go test ./platform/... -count=1"
+      - "go vet ./platform/..."
+      - "make repo-map && bash scripts/check-repo-map.sh"
+    acceptance_criteria:
+      - "**停注 system 层 platform**：删除 `ResolveJobTargets` 中读 `ApplicationDict.PlatformCode` 注入 `systemLabels[\"platform\"]` 的分支（targets.go:262-275）及其 `appPlatformCache`；`systemLabels` 仅保留 `resource_id` / `network_domain` / `cloud` / `zone`。决策 104 / 107 / 108 的旧派生实现就此废止"
+      - "**兜底前移物化（不新增注入点）**：在 `expandLabelTemplate` **之前**，若 `rt.Fields[\"platform_code\"]` 为空且所属应用存在 `is_primary=true` 平台，将其写入本次展开所用的字段视图；由模板 `resource_field` 映射自然出 `platform`。可查 `models.AppPlatformRel`（generator 已直查 models，不新增 import 依赖）；同一 app_code 结果**按 Job 内缓存**避免 N+1（沿用 domainCache 模式）"
+      - "**空值不注入**：资源留空且应用无主平台时，`expandLabelTemplate` 的 `v != \"\"` 判空跳过 → 不注入 `platform`（§5.2 口径）"
+      - "**冲突用例（强制门禁）**：现有 `TestResolveTargetsInjectsDerivedPlatformLabel` 三个子用例全传 `tmpl = nil`（generator_test.go:966/973/981）导致冲突组合从未被测；须补**传真实模板 + 资源 `platform_code` ≠ 应用 `is_primary` 平台**的用例，断言最终 `platform` 取**资源行值**；并补「资源留空 + 有主平台 → 取主平台」「两者皆空 → 不注入」两例"
+      - "**通用规约（写入代码注释）**：同一 label 不得同时由 system 层与模板层产出——因 `mergeLabels` 的 system 保护语义，模板层取值会被静默覆盖"
+      - "存量 `targets/*.json` / `prometheus.yml` **不自动回溯**，须重新生成方生效——写入执行记录与发布说明（与决策 115 存量核查合并）"
+
+  - id: "T07-109"
+    title: "（决策 118）validatePlatformCode / ValidateResourceInputWithPlatform 决策 110 硬校验单测"
+    prd: "Module_07 §5.2（platform_code 填值须引用未停用平台且与所属应用关联平台集合自洽）；design-decisions 决策 118-5"
+    group: "backend"
+    status: "in_progress"
+    commit_group: "m07-platform-injection-point"
+    input_files:
+      - "platform/config/resource/validate.go"
+    output_files:
+      - "platform/config/resource/validate_test.go"
+    depends_on: []
+    verify_commands:
+      - "go test ./platform/config/... -count=1"
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "补 `ValidateResourceInputWithPlatform{,ForUpdate}` 正反用例：自洽通过 / `platform_code` 不在该应用关联平台集合 → bad_request / 引用停用平台 → bad_request / 应用无关联平台时跳过自洽 / 编辑保留历史不自洽值（`KeepDisabledValues`）"
+      - "覆盖 `refs == nil` 或 `PlatformStore == nil` 时的**放行**行为（决策 118 遗留 MEDIUM：非 fail-closed 须在注释中标红「禁止半初始化 PlatformRefs」，避免后续新增写路径漏注入时被静默跳过）"
+      - "**规约**：决策 110 / 118 承载的硬校验不变量必须有直接单测——`validate_test.go` 当前只覆盖旧 `ValidateResourceInput`，属回归缺口"
+
+  - id: "T07-110"
+    title: "（决策 118）前端 platform_code 写链路贯通 + 平台列取权威来源 + 测试类型检查脚本"
+    prd: "Module_07 §5.2 / §5.13 / §5.15（platform_code 登记期显式填写、UI 展示名「平台归属」、表单级联先选平台）；§11 UI 展示名映射；design-decisions 决策 118-4 / 118-5"
+    group: "frontend"
+    status: "in_progress"
+    commit_group: "m07-platform-frontend"
+    input_files:
+      - "ui-custom/web/src/types/resource.ts"
+      - "ui-custom/web/src/api/resources.ts"
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx"
+    output_files:
+      - "ui-custom/web/src/types/resource.ts"
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourcesPage.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx"
+      - "ui-custom/web/tsconfig.test.json"
+      - "ui-custom/web/package.json"
+    depends_on: ["T07-108"]
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm test"
+      - "cd ui-custom/web && pnpm build"
+    acceptance_criteria:
+      - "**写类型补齐**：`ResourceCreateBaseShape` / `ResourceUpdateBaseShape`（types/resource.ts:145-157 / 219-230）增 `platform_code?: string | null`；`ResourceListItem` 同步（useResources.ts:13-58）"
+      - "**移除误导类型**：`ApplicationDictCreateInput.platform_code?` / `ApplicationDictUpdateInput.platform_code?`（api/resources.ts:220-240）删除——后端写链路已忽略该字段（决策 111 + 118-3）；响应类型可保留只读兼容"
+      - "**表单补齐**：`ResourceFormDrawer` 增「平台归属」可选下拉（数据源 `GET /platform-dict` 仅启用项），按决策 110 ④ 级联顺序**先选平台 → 再选应用（按所选平台过滤）→ 再选服务**"
+      - "**平台列取权威来源**：资源列表 / 详情「平台」列停用**已废弃**的 `ApplicationDict.platform_code` 派生（ResourcesPage.tsx:316-319 / ResourceDetailDrawer.tsx:221-226），改用**列表已透传的 `item.platform_code`**（后端 `sharedFields` 已含该字段，**无需后端改动**）+ `platform_name` 展示名解析（字典缺条回退 `platform_code`、停用标识「平台名（已停用）」）"
+      - "**测试类型检查（不改生产构建）**：`tsconfig.json` 排除 `*.test.ts(x)` 是有意设计（02_Frontend_Standard §206-226），**不得修改**；改为新增 `tsconfig.test.json`（仅 include 测试文件）+ `package.json` 独立 `typecheck:test` 脚本，并接入 `pnpm test` 前置或 lint"
+      - "UI 文案用 PRD「平台归属」展示名，**禁止**把 snake_case 字段名或技术术语直接当文案（决策 118-4）"
