@@ -267,3 +267,32 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 4. 禁止使用 flat config 的 `excludes` 键（当前 `@eslint/config-array` 版本不支持，会报 `Unexpected key "excludes"`）。
 
 > ⚠️ 注意：`excludes` 与 `project: null` 二选一时用后者；若升级 ESLint 后 `excludes` 可用，仍以 `project: null` 方案为准保持行为稳定。
+
+## 12. 测试内存护栏（跨模块强制）
+
+`jsdom` + `antd v5` 的组合单文件内存开销远高于直觉。**8 GB 机型实测**：
+
+| 指标 | 实测值 |
+| --- | --- |
+| 单个测试文件峰值 RSS | 680~770 MB（`HomePage.test.tsx` 76K → 684 MB；`ResourcesPage.test.tsx` 48K → 772 MB） |
+| 全量 94 文件按默认并发（8 核 → 8 worker） | 瞬时需求可超 8 GB 物理内存 → swap 风暴 |
+| 换页计数 | `Pageins` 达 9213 万次、swap 占用 4.0 / 5.4 GB |
+| 表现 | **测试「卡住不动」**（非变慢）；严重时进程被 macOS `SIGKILL`，退出码 **137** |
+
+`vitest.config.ts` 已内置护栏（v1.35 起，跨模块强制）：
+
+1. **`minWorkers: 1` + `maxWorkers: 2` 必须成对设置**。vitest 2.x 的 `minWorkers` 默认等于 CPU 核数，**只设 `maxWorkers` 会直接报错**：
+   `RangeError: options.minThreads and options.maxThreads must not conflict`。
+2. **`pool: 'forks'` + `poolOptions.forks.execArgv: ['--max-old-space-size=1024']`**：限制每个 fork 子进程的 V8 堆上限，让 V8 更早触发 GC 而不是无限膨胀。实测单文件峰值 **684 MB → 396 MB（-42%）**，且 GC 更及时反而更快（29s → 9.7s，单文件带 typecheck 口径）。
+3. **用 `poolOptions.execArgv` 而非 `NODE_OPTIONS` 环境变量**：后者在 Windows 下需额外引入 `cross-env` 才能生效，而本项目支持 Win 平台（`setup-windows.sh` / `SETUP_WINDOWS.md`）。
+4. **不牺牲正确性换内存**：`isolate` 保持默认 `true`（测试文件间环境隔离），不开启单文件复用环境；`testTimeout: 15000` 保持不变（护栏解决的是内存，不是超时）。
+
+**诊断口诀**：`pnpm test` 卡住不动时，先看退出码——**137 = 被系统 SIGKILL（内存）**，不是测试本身有问题。再看 `sysctl vm.swapusage` 与 `memory_pressure | grep free percentage`；注意 `memory_pressure` 的"free percentage"在 swap 已耗尽时**仍可能报 40%+**，不能只看它。
+
+临时需要全速验证可 CLI 覆盖（会失去内存护栏，8 GB 机型慎用）：
+
+```bash
+pnpm vitest run --minWorkers=8 --maxWorkers=8
+```
+
+> 补充：`/usr/bin/time -l` 的 `maximum resident set size` 是测单文件内存峰值的有效手段；但**不要用它跑全量**（`-l` 本身在长任务上会额外占用内存，且读数含 time 进程自身开销）。
