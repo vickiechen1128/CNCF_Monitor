@@ -220,10 +220,44 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 }
 ```
 
-- **生产构建**：`tsc` 仅检查业务代码，测试文件不参与类型检查；
+- **生产构建**：`tsc` 仅检查业务代码，测试文件不参与**生产构建**的类型检查；
+- **测试类型检查（独立配置，强制）**：测试文件**并非不受任何类型检查**，而是由 `tsconfig.test.json` 单独检查。`pnpm run typecheck:test` 为该配置的入口，且已前置串联进 `pnpm test`；CI 由 `.github/workflows/check-frontend.yml` 在 PR / push 到 `develop` 时强制执行。**禁止**用运行时对象字面量绕过类型层「伪证」某个字段已接通——这类伪证会在 `tsc` 报出 excess property 时现形（原 `resources.test.ts` 即因此掩盖过 `platform_code` 类型缺口）；
 - **测试运行**：走 `vitest run`，不依赖 tsconfig 的 include，不受排除影响；
 - **禁止**为了绕过构建而给测试加入 `@ts-ignore` / 任意 `any`，也不允许删除测试文件；
 - 新增测试文件请沿用 `*.test.ts(x)` 命名，确保被统一排除规则覆盖。
+
+`ui-custom/web/tsconfig.test.json`（测试文件专用，v1.34 起，跨模块强制）：
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "src/vite-env.d.ts",
+    "src/setupTests.ts",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
+  ],
+  "exclude": []
+}
+```
+
+- `exclude: []` 必须显式清空——父配置的 `exclude` 会被继承（其中排除 `*.test.ts(x)`，与本配置意图冲突）；
+- `types` 引入 Vitest 全局 API，避免污染业务代码类型；
+- `src/vite-env.d.ts` 必须显式纳入：它提供 `import.meta.env`（`vite/client`），生产构建靠 `include: ["src"]` 隐式带入，本配置 include 收窄后需显式列出；
+- **此配置不改变生产构建口径**：`tsconfig.json` 与 `pnpm build` 的 `tsc` 均不因此改动。
+
+**门禁层级（三层，缺一不可）**：
+
+| 层 | 载体 | 覆盖 |
+| --- | --- | --- |
+| 本地单测 | `pnpm test`（= `typecheck:test` + `vitest run`） | 全量类型 + 单测 |
+| 本地构建 | `pnpm build` | 生产 tsc + vite 打包 |
+| 远端 CI | `.github/workflows/check-frontend.yml` | `typecheck:test` + `build`（刻意不含全量 vitest，见 workflow 内注释） |
+
+`scripts/git-hooks/pre-commit` **不**包含前端类型门禁：单次 tsc 约 20~40 秒，与既有的秒级 `check-repo-map` 体验差异过大，且只护本地、不构成最终防线。最终防线以 CI 为准。
 
 **ESLint 配套（v1.33 起，跨模块强制）**：`eslint.config.js` 必须与 tsconfig 排除口径一致，否则类型感知 lint 会对被排除的测试文件报 `The file was not found in any of the provided project(s)`。规则：
 
