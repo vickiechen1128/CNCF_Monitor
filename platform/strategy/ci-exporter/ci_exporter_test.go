@@ -137,6 +137,140 @@ func TestListCITypeExporterMappingsFiltersAndFlags(t *testing.T) {
 	assert.True(t, out.Data.List[0].IsDefault)
 }
 
+// seedMappingWithLabelTemplate 落一条引用指定标签模板的 CI 类型映射行。
+// exporterName 独立传入（ExporterTemplate.name 唯一，同一 monitor_type 可落多条映射）。
+func seedMappingWithLabelTemplate(t *testing.T, db *gorm.DB, monitorType, exporterName, labelTemplateID string, isDefault, isBuiltin bool) *models.CITypeExporterMapping {
+	t.Helper()
+	m := &models.CITypeExporterMapping{
+		MonitorType: monitorType, ExporterTemplateID: seedExporterWithID(t, db, exporterName),
+		IsDefault: isDefault, MetricsPath: "/metrics", Scheme: "http",
+		ScrapeInterval: "15s", ScrapeTimeout: "10s", LabelTemplateID: labelTemplateID, IsBuiltin: isBuiltin,
+	}
+	require.NoError(t, db.Create(m).Error)
+	return m
+}
+
+// reverseLookup 按 label_template_id 反查 CI 类型映射行，断言 HTTP 码与 total。
+func reverseLookup(t *testing.T, r *gin.Engine, labelTemplateID string) (int, []models.CITypeExporterMapping, int64) {
+	t.Helper()
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/ci-exporter-mappings?label_template_id="+labelTemplateID, "")
+	var out struct {
+		Data struct {
+			List  []models.CITypeExporterMapping `json:"list"`
+			Total int64                          `json:"total"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	return w.Code, out.Data.List, out.Data.Total
+}
+
+// TestListCITypeExporterMappingsByLabelTemplate 覆盖 M01 侧 CI 类型映射表的标签模板
+// 反查（PRD §6.6.3.1 决策 119）：供 M07 模板删除引用保护只读消费，不跨模块直查表。
+func TestListCITypeExporterMappingsByLabelTemplate(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	ltID := seedLabelTemplate(t, db, "shared-tpl", "database")
+	ltIDStr := strconv.FormatUint(uint64(ltID), 10)
+
+	// 两条引用该模板：一条每类型默认、一条内置（均须计入引用）。
+	seedMappingWithLabelTemplate(t, db, "mysql", "mysql-exporter", ltIDStr, true, false)
+	seedMappingWithLabelTemplate(t, db, "redis", "redis-exporter", ltIDStr, false, true)
+	// 引用另一模板，不应被反查命中。
+	otherID := strconv.FormatUint(uint64(seedLabelTemplate(t, db, "other-tpl", "database")), 10)
+	seedMappingWithLabelTemplate(t, db, "mysql", "mysqld-exporter", otherID, false, false)
+
+	code, list, total := reverseLookup(t, r, ltIDStr)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, int64(2), total, "引用该模板的映射行全部计入，含 is_default / is_builtin")
+	require.Len(t, list, 2)
+	for _, m := range list {
+		assert.Equal(t, ltIDStr, m.LabelTemplateID, "仅返回引用该模板的行")
+	}
+
+	// 无引用 → 200 + total=0 + 空 list（非 404）。
+	emptyID := strconv.FormatUint(uint64(seedLabelTemplate(t, db, "unused-tpl", "database")), 10)
+	code, list, total = reverseLookup(t, r, emptyID)
+	assert.Equal(t, http.StatusOK, code)
+	assert.Equal(t, int64(0), total)
+	assert.Empty(t, list, "无引用返回空 list 而非 null")
+
+	// 标签模板不存在 → not_found。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/ci-exporter-mappings?label_template_id=999999", "")
+	assert.Equal(t, http.StatusNotFound, w.Code, "模板不存在返 not_found")
+	assert.Contains(t, w.Body.String(), "not_found")
+}
+
+// TestListCITypeExporterMappingsByLabelTemplateSoftDeleted 锁定「软删记录不计入
+// 引用」口径（PRD §6.6.3.1）：软删行由 GORM 自动过滤，不计入 total。
+func TestListCITypeExporterMappingsByLabelTemplateSoftDeleted(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	ltID := strconv.FormatUint(uint64(seedLabelTemplate(t, db, "tpl", "database")), 10)
+
+	alive := seedMappingWithLabelTemplate(t, db, "mysql", "mysql-exporter", ltID, false, false)
+	removed := seedMappingWithLabelTemplate(t, db, "redis", "redis-exporter", ltID, false, false)
+	require.NoError(t, db.Delete(removed).Error) // 软删
+
+	code, list, total := reverseLookup(t, r, ltID)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, int64(1), total, "软删映射行不计入引用")
+	require.Len(t, list, 1)
+	assert.Equal(t, alive.MonitorType, list[0].MonitorType)
+}
+
+// TestListCITypeExporterMappingsByLabelTemplateDisabledJobStillCounts 锁定决策 119
+// 的核心口径「停用引用同样计入」：enabled=false 的采集 Job 仍绑定该模板时，
+// CI 侧反查照常返回该映射行（引用存在 → M07 禁删模板）。
+//
+// 注：CITypeExporterMapping 本身无 enabled 字段（停用语义属 ScrapeJob），
+// 故此处以「引用方的 Job 处于停用态」构造场景，断言反查不因 Job 停用而漏计。
+func TestListCITypeExporterMappingsByLabelTemplateDisabledJobStillCounts(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	ltID := strconv.FormatUint(uint64(seedLabelTemplate(t, db, "tpl", "database")), 10)
+	m := seedMappingWithLabelTemplate(t, db, "mysql", "mysql-exporter", ltID, false, false)
+
+	require.NoError(t, db.Create(&models.ScrapeJob{
+		JobName: "mysql-stopped", JobType: models.JobTypeStandard, ResourceType: models.ResourceTypeDatabase,
+		MonitorType: "mysql", ExporterTemplateID: m.ExporterTemplateID, NetworkDomainID: "default",
+		InstanceSelectionMode: models.InstanceSelectionManual, ScrapeInterval: "15s", ScrapeTimeout: "10s",
+		MetricsPath: "/metrics", Scheme: "http", AuthType: models.AuthTypeNone, DraftStatus: "ready",
+		ChangeStatus: models.ChangeStatusNone, LabelTemplateID: ltID, Enabled: false, // 停用
+	}).Error)
+
+	code, list, total := reverseLookup(t, r, ltID)
+	require.Equal(t, http.StatusOK, code)
+	assert.Equal(t, int64(1), total, "停用 Job 引用不导致反查漏计")
+	require.Len(t, list, 1)
+	assert.Equal(t, m.MonitorType, list[0].MonitorType)
+}
+
+// TestListCITypeExporterMappingsReverseLookupKeepsListMode 反查为新增模式，
+// 不得破坏既有列表调用的分页与筛选行为。
+func TestListCITypeExporterMappingsReverseLookupKeepsListMode(t *testing.T) {
+	db := openTestDB(t)
+	r := mountRoutes(t, db)
+	ltID := strconv.FormatUint(uint64(seedLabelTemplate(t, db, "tpl", "database")), 10)
+	seedMappingWithLabelTemplate(t, db, "mysql", "mysql-exporter", ltID, false, false)
+
+	// 不带 label_template_id → 仍走既有分页列表形态。
+	w := perform(t, r, http.MethodGet, "/api/v2/platform/ci-exporter-mappings?page=1&page_size=10", "")
+	require.Equal(t, http.StatusOK, w.Code)
+	var out struct {
+		Data struct {
+			List     []mappingListItem `json:"list"`
+			Total    int64             `json:"total"`
+			Page     int               `json:"page"`
+			PageSize int               `json:"page_size"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &out))
+	assert.Equal(t, 10, out.Data.PageSize, "分页参数仍生效")
+	assert.Equal(t, 1, out.Data.Page)
+	require.Len(t, out.Data.List, 1)
+	assert.True(t, out.Data.List[0].HasLabelTemplate, "列表模式仍返回 has_label_template 派生字段")
+}
+
 func TestCreateCITypeExporterMappingOK(t *testing.T) {
 	db := openTestDB(t)
 	r := mountRoutes(t, db)
