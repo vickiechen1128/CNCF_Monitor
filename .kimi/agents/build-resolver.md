@@ -115,7 +115,8 @@ make build-prometheus
 
 ```bash
 cd ui-custom/web
-pnpm test
+pnpm run typecheck:test
+pnpm vitest run --changed ../origin/develop   # 变更范围回归；全量 pnpm test 仅在构建失败需排除测试因素时才跑（约 17 min）
 pnpm lint
 pnpm build
 ```

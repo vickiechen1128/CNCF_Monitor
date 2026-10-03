@@ -22,12 +22,11 @@
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| v1.37 | 2026-10-03 | **新增「测试时长与范围控制」章节（v1.37 新增，强制）**：8 GB 机型全量 `pnpm test` 实测**约 17 min**（94 文件 / 915 用例），而测试执行本身仅 2.8 min（16%），慢在「文件数 × 模块转换开销」⇒**减少被测文件数是唯一有效手段，调高并发无效**（4 worker / `pool=threads` 实测均被 SIGKILL，exit 137）。Phase 收尾默认由 `pnpm test` 改为 `pnpm vitest run --changed <base>`（+ 必做 `typecheck:test` / `pnpm lint`），全量仅在用户明确要求、合并前把关、或改动跨 ≥3 顶层目录/触及 `src/api/`·`src/types/`·`src/test/` 共享层时执行。禁止为提速调高 `maxWorkers`、关 `isolate`、删测试或用 `--bail`。新增 3 条 Anti-Rationalization 条目。触发背景：早期规范称全量「100 秒+」，量级已失效导致开发期无谓等待。详见 `02_Frontend_Standard.md` §12。 |
 | v1.36 | 2026-09-27 | **新增迭代定位规则**：Track B/增量开发定位改走 `repo-map.md`（`make repo-map` 自动生成，随代码实时准确）+ 定点 `grep`，不再依赖 task-sequence 的 `input_files`/`output_files` 逐条回填，避免蓝图字段漂移失真；见「编码规范」新增条目。 |
 | v1.35 | 2026-08-26 | **新增 Form 抽屉/弹窗强制 forceRender 规则**：所有包含 Form 且通过 `useEffect(open)` 执行 `setFieldsValue` 回显/预填的 Drawer/Modal，必须设置 `forceRender`，**禁止使用 `destroyOnHidden` / `destroyOnClose`**（销毁重建会放大惰性挂载竞态）。触发背景：#19 发现规则、采集 Job、资源（M07）、映射、网域等 6+ 处抽屉/弹窗因 antd 首次打开惰性挂载导致编辑回显首次为空、二次才出现，需系统性规范避免回归；详见新增 Step 3.7 与回归测试要求。 |
-| v1.33 | 2026-08-22 | **契约快照权威化 + antd 测试稳定模式前置**：①「契约优先」升级，以 `api-contract-snapshot.md` 为第一权威，PRD/API 标准为补充，禁止反向读取 `platform/models/*.go`；② Step 1 将 `web-development` skill 列为必读，并强调其「Ant Design 组件测试稳定模式」章节；③ 新增 Step 3.6「应用 antd 测试稳定模式」；④ 任务卡输入清单必填 `api-contract-snapshot.md`；⑤ 单任务验证命令改为 `pnpm vitest run <文件>`，全量 `pnpm test` 仅在 Phase 收尾/合并前执行。触发背景：M07 前端任务因契约来源分散、antd jsdom 测试基建未沉淀，导致从下午执行到 23 点，消耗大量 token。 |
-| v1.32 | 2026-08-22 | **新增 PRD / 原型细节问题反馈义务**：三类问题处置（①PRD 空白→可直接定但需写反馈单留痕；②矛盾→实现前报告 Orchestrator 走 CR，禁止事后当既成事实；③原型技术优化→写反馈单留痕）。反馈单写入 `docs/05-execution-records/module-XX/dev-feedback.md`，随 feat 合并、PR 描述链接。触发背景：模块并行开发中契约保护与细节反馈需解耦。 |
-| v1.31 | 2026-08-22 | **新增 2 项核对 + 顶部导航规范**：① Step 3.5 新增第 7 项「导航与模块名核对」——顶部一级 tab / banner 入口文案必须用 **PRD 模块名**（M06=「系统与平台管理」），禁止功能页名 / 随手起名充当一级模块，首页为第一个 tab；② 新增第 8 项「共享组件复用核对」——筛选区 / 表格 / 长文本复用原型 `FilterBar` / `tablePresets` / `EllipsisText`，禁止散点 `<Space wrap>` 堆叠 / 逐行写 ellipsis。触发背景：Module_06 顶部 tab 误用二级功能名「网域管理」充当一级模块，需改回 PRD 模块名；筛选区仍散点手写。 |
-| v1.30 | 2026-08-21 | **原型定位升级 + 六项核对**：① 原型由「参考」升级为「实现基底」（复制 + 裁剪：copy 页面结构 / 列集合 / 视觉 Token → 删 mock 换真实 API → 去 ReviewNotes → 按 MVP 裁剪）；② Step 3.5 新增第 5 项「视觉还原核对」（`ui-custom/web` 必须复用原型 theme/ConfigProvider，禁沿用 antd 默认色）、第 6 项「列/区块完整性核对」（列集合 = 原型 ∩ MVP，删列须标注理由，DTO 已返回而未渲染必须补）；③ 新增模块映射表 `docs/05-execution-records/module-XX/frontend-prototype-map.md` 作为逐项勾验载体。触发背景：Module_06 存在视觉主题未移植、原型「监控纳管」「创建时间」两列遗漏、banner 无模块入口 3 项缺口。 |
+
+> v1.33 及更早版本条目已移出本表（去历史化约定），如需追溯见 git log。
 
 ---
 
@@ -137,7 +136,7 @@ git branch --show-current # 必须是 feat/module-XX
 1. 在测试文件顶部导入并使用 `src/test/antdTestUtils.tsx` 中的 `setupAntdTest()` 与 `mockAntdModal()`；
 2. 优先使用 `await screen.findBy*` / `await waitFor` 处理异步渲染，禁止依赖同步 `screen.getBy*` 断言 antd 下拉/抽屉/弹窗；
 3. 对 `Modal.confirm`/`Modal.info` 等静态方法使用 `mockAntdModal()` spy，断言用户点击结果；
-4. 全量回归命令使用 `pnpm test` 只在 Phase 收尾/合并前执行；单任务验证使用 `pnpm vitest run <具体测试文件>`。
+4. 全量回归命令使用 `pnpm test` 只在 Phase 收尾/合并前执行；单任务验证使用 `pnpm vitest run <具体测试文件>`。**全量耗时预算见下方「测试时长与范围控制（v1.36 新增，强制）」**——`pnpm test` 在 8 GB 机型实测需 **约 17 分钟**（94 文件 / 915 用例），不是早期估算的「100 秒+」。
 
 ### Step 3.7: Form 抽屉/弹窗强制 forceRender（v1.35 新增，强制）
 
@@ -271,12 +270,76 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/
 
 ---
 
+## 测试时长与范围控制（v1.37 新增，强制）
+
+> 触发背景：8 GB 机型上全量 `pnpm test` 实测需**约 17 分钟**（94 文件 / 915 用例，exit 0），
+> 而 agent 规范此前只写「全量 100 秒+」，量级判断已失效，导致开发期频繁无谓等待。
+> 护栏见 `02_Frontend_Standard.md` §12 与 `vitest.config.ts` 注释。
+
+### 耗时构成（实测，帮助判断预期）
+
+| 项 | 耗时 | 说明 |
+| --- | --- | --- |
+| 测试执行本身（全部 93 文件累计） | **约 2.8 min** | 仅占墙钟 16% |
+| 其余约 14 min | 模块转换 / worker 启动等固定开销 | 2 worker 下按文件数重复摊 |
+| `ResourcesPage.test.tsx` 单文件 | 34.5 s | 最长，约占总量 20% |
+
+**结论**：慢的主因是**文件数 × 转换开销**，不是测试逻辑本身。因此**减少被测文件数是唯一有效手段**；调高并发无效（8 GB 机型实测 4 worker 或 `pool=threads` 均被系统 SIGKILL，退出码 137）。
+
+### 分级执行策略
+
+| 场景 | 命令 | 预算 |
+| --- | --- | --- |
+| 开发中单文件验证 | `pnpm vitest run <目标测试文件>` | 10~40 s |
+| 开发中目录级验证 | `pnpm vitest run src/pages/<模块目录>` | 1~2 min |
+| 跨模块收尾（默认上限） | `pnpm vitest run` + `--changed <base>`（见下） | 2~5 min |
+| **全量 `pnpm test`** | 仅用户明确要求、或合并前最终把关 | **约 17 min** |
+
+### 默认禁止无条件跑全量
+
+`pnpm test`（全量）**不是** agent 的默认收尾动作。Phase 收尾时默认改用**变更范围回归**：
+
+```bash
+cd ui-custom/web
+# 1. 必做（秒级）：测试文件类型门禁
+pnpm run typecheck:test
+
+# 2. 变更范围回归：只跑本次改动触及的测试文件
+pnpm vitest run --changed ../origin/develop
+
+# 3. lint
+pnpm lint
+```
+
+`--changed <base>` 由 vitest 依据 git diff 筛选出受影响的测试文件（含依赖图传导），是**增量验证**的标准手段。若 `--changed` 结果为空（纯文档改动等），跳过即可并在记录中说明。
+
+**允许跑全量的唯一情形**（三者之一，且需在执行记录中说明理由）：
+1. 用户明确要求；
+2. 合并 / 发 PR 前的最终把关；
+3. 改动跨越 ≥3 个顶层目录、或触及 `src/api/`、`src/types/`、`src/test/` 等共享层（此时变更范围回归的传导不可信）。
+
+### 禁止的"提速"手法
+
+- ❌ **禁止**为提速而调高 `maxWorkers` 或改 `pool`：8 GB 机型 4 worker 实测被 SIGKILL（exit 137），护栏参数是实测上限。
+- ❌ **禁止**为提速删减测试用例或加 `.skip`。
+- ❌ **禁止**用 `--bail` 单跑首个失败即停（会让 flaky 掩盖后续真实失败）。
+- ❌ **禁止**把 `isolate` 关掉换内存（牺牲测试文件间隔离，交叉污染）。
+
+### 等待纪律
+
+跑测试时用后台执行 + 轮询日志，**不要用长 `sleep` 阻塞**（沙箱或系统内存压力下长 sleep 自身可能被 SIGKILL，exit 137，易被误判为测试失败）。单次同步等待不超过 60 s，超时即转后台。
+
+---
+
 ## 常见借口与反驳（Anti-Rationalization）
 
 | 借口 | 反驳 |
 |------|------|
 | "这个组件很简单，不用写测试" | 简单组件也会因 props 变化而崩溃。必须覆盖 |
 | "先写页面再补类型" | 类型先于实现，否则后端字段对齐无法保证 |
+| "跑全量 pnpm test 更放心，只多花十几分钟" | 全量实测 17 min 而测试执行仅 2.8 min，90% 时间花在重复的模块转换上。默认用 `pnpm vitest run --changed ../origin/develop`；只有合并前把关或用户明确要求才跑全量 |
+| "我调大 maxWorkers 加速，反正只是跑测试" | 8 GB 机型 4 worker / `pool=threads` 实测均被系统 SIGKILL（exit 137）。护栏参数是实测上限，调高只会换回 OOM |
+| "全量跑得慢，是不是测试有问题" | 慢在文件数 × 转换开销，非测试逻辑。减少被测文件数是唯一有效手段 |
 | "pnpm lint 报错我可以加 eslint-disable" | 除非标准明确允许，否则禁用 lint 规则需经 Orchestrator 同意 |
 | "这个 Skill 的内容我已经知道" | 知道 ≠ 执行。必须读取并按 Skill 执行 |
 | "dev server 启动慢，curl 跳过" | 页面能启动是提交通行证之一 |

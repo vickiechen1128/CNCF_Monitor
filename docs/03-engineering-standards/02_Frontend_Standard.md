@@ -296,3 +296,19 @@ pnpm vitest run --minWorkers=8 --maxWorkers=8
 ```
 
 > 补充：`/usr/bin/time -l` 的 `maximum resident set size` 是测单文件内存峰值的有效手段；但**不要用它跑全量**（`-l` 本身在长任务上会额外占用内存，且读数含 time 进程自身开销）。
+
+### §12 补充：增量验证（`--changed`）实测行为
+
+`pnpm vitest run --changed <base>` 由 vitest 依据 git diff 筛选受影响的测试文件（含依赖图传导），是**缩短反馈周期**的标准手段。实测（8 GB 机型）：
+
+| base | 命中情况 | 表现 |
+| --- | --- | --- |
+| `--changed ../origin/develop`（工作区已全部提交） | 0 个文件 | exit 0，秒退。**不是 bug**——diff 为空故无命中 |
+| `--changed HEAD~1`（该 commit 仅改 Go / 文档 / workflow） | 0 个文件 | exit 0，秒退。同上 |
+| `--changed HEAD~5`（命中 C3 的 20 个前端文件） | 20 个文件 | 因含 `ResourcesPage.test.tsx`（34.5 s）而内存吃紧，**在系统 swap 已耗尽时被 SIGKILL（exit 137）** |
+
+**要点**：
+1. `--changed` 结果为空时**不要当成失败**——先看 `git diff --name-only <base>` 确认该范围内确无测试文件。
+2. `--changed` 命中面**不含"改动文件对应的测试文件"以外的内容**，但**包含依赖传导**（改了 `src/api/resources.ts` 会带出 `resources.test.ts`）。
+3. 基路径需为仓库内可解析的 ref。`ui-custom/web/` 不是仓库根，用 `../origin/develop` 或 `HEAD~N` 均可。
+4. **exit 137 一律按内存问题处理**，不要重试到通过为止（见上文诊断口诀）。
