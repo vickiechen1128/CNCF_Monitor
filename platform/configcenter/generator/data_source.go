@@ -22,10 +22,11 @@ type resourceTarget struct {
 	Address         string
 	Status          string
 	Category        models.ResourceCategory
-	// AppCode 是资源的应用编码（决策 92：五类一律经 GetAppCode() 取），为 `platform`
-	// 派生标签的唯一来源（决策 104：经应用条目父级 platform_code 解析）。
+	// AppCode 是资源的应用编码（决策 92：五类一律经 GetAppCode() 取）。决策 118-2
+	// 起它**仅**用于资源行 `platform_code` 留空时的应用主平台兜底
+	// （materializePrimaryPlatform），不再作为 system 层 `platform` 派生来源。
 	AppCode string
-	Fields  map[string]string // LabelTemplate 源字段展开视图
+	Fields  map[string]string // LabelTemplate 源字段展开视图（须含 platform_code，决策 118-2）
 }
 
 // LoadDomain 按 ID 读取网域。

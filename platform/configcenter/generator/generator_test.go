@@ -932,28 +932,65 @@ func TestDefaultMappingBuildersSVCOnlyForServiceManagedTypes(t *testing.T) {
 	}
 }
 
-// TestResolveTargetsInjectsDerivedPlatformLabel（决策 104/107/108）：platform 是派生
-// 标签，经资源 app_code → 应用字典条目父级 platform_code 注入 target 级 system 层；
-// 资源无 app_code、或应用未挂父级平台时不注入（空值不注入）。
+// TestResolveTargetsInjectsDerivedPlatformLabel（决策 118-2 / 118-5）固化 `platform`
+// 标签的**唯一权威 = target 级标签模板映射层**（`platform_code → platform` 的
+// resource_field 映射），并作为「模板 vs system 同键冲突」组合的强制门禁：
+//
+//  1. **冲突用例（决策 118-5 强制）**：传**真实模板** + 资源行 platform_code ≠ 应用
+//     is_primary 平台 ⇒ 断言最终 `platform` 取**资源行值**。此前 3 个子用例全传
+//     tmpl=nil（expandLabelTemplate 早退返回空）且夹具资源与 app 同值，该组合从未被测过。
+//  2. 资源留空 + 应用有 is_primary 平台 ⇒ 取主平台值（决策 110 ③ 兜底）。
+//  3. 资源留空 + 应用无主平台 ⇒ 不注入 platform（PRD §5.2 空值不注入）。
+//  4. system 层**不得**再注入 platform：tmpl=nil 时即便应用挂了主平台也不注入
+//     （决策 118-2「system 层禁止再注入 platform」）。
+//
+// 迁移说明：原三个子用例（应用未挂平台不注入 / 无 app_code 不注入）的有效断言保留，
+// 但**必须改为传真实模板**，否则它们测不到模板路径（原写法恒早退）。
 func TestResolveTargetsInjectsDerivedPlatformLabel(t *testing.T) {
 	db := newMemDB(t)
 	require.NoError(t, db.AutoMigrate(
 		&models.Host{}, &models.Application{}, &models.GenericTarget{},
-		&models.ApplicationDict{}, &models.LabelTemplate{},
+		&models.ApplicationDict{}, &models.LabelTemplate{}, &models.AppPlatformRel{},
 	))
-	// 应用字典：app-with-parent 挂在启用平台 cmp 下；app-orphan 未挂父级。
-	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "app-with-parent", AppName: "有父级应用", Status: models.AppStatusEnabled, PlatformCode: "cmp"}).Error)
-	require.NoError(t, db.Create(&models.ApplicationDict{AppCode: "app-orphan", AppName: "无父级应用", Status: models.AppStatusEnabled}).Error)
-
-	require.NoError(t, db.Create(&models.Host{
-		ServerID: "host-with-app", ResourceID: "host-with-app", NetworkDomainID: "d",
-		PrivateIP: "10.0.1.1", Status: "online", AppCode: "app-with-parent",
+	// 应用↔平台关联（决策 111 M:N）：
+	//   - app-with-primary 挂 is_primary=true 的 cmp-primary（兜底取值来源）；
+	//   - app-rel-no-primary 只挂非主平台关联（无主平台 ⇒ 兜底不生效）；
+	//   - app-orphan 无任何关联。
+	require.NoError(t, db.Create(&[]models.AppPlatformRel{
+		{AppCode: "app-with-primary", PlatformCode: "cmp-primary", IsPrimary: true},
+		{AppCode: "app-with-primary", PlatformCode: "cmp-secondary", IsPrimary: false},
+		{AppCode: "app-rel-no-primary", PlatformCode: "cmp-secondary", IsPrimary: false},
 	}).Error)
+	require.NoError(t, db.Create(&[]models.ApplicationDict{
+		{AppCode: "app-with-primary", AppName: "有主平台应用", Status: models.AppStatusEnabled},
+		{AppCode: "app-rel-no-primary", AppName: "仅非主平台应用", Status: models.AppStatusEnabled},
+		{AppCode: "app-orphan", AppName: "无关联应用", Status: models.AppStatusEnabled},
+	}).Error)
+
+	// 冲突用例夹具：资源行显式填 res-platform，与所属应用 is_primary 平台
+	// cmp-primary **不同值**——旧夹具两者同值，即便打通也测不出优先级反转。
+	require.NoError(t, db.Create(&models.Host{
+		ServerID: "host-res-platform", ResourceID: "host-res-platform", NetworkDomainID: "d",
+		PrivateIP: "10.0.1.1", Status: "online", AppCode: "app-with-primary",
+		PlatformCode: "res-platform",
+	}).Error)
+	// 资源留空 + 应用有 is_primary 平台 ⇒ 走兜底。
+	require.NoError(t, db.Create(&models.Host{
+		ServerID: "host-blank-platform", ResourceID: "host-blank-platform", NetworkDomainID: "d",
+		PrivateIP: "10.0.1.2", Status: "online", AppCode: "app-with-primary",
+	}).Error)
+	// 资源留空 + 应用仅挂非主平台关联 ⇒ 兜底不生效、不注入。
+	require.NoError(t, db.Create(&models.Host{
+		ServerID: "host-no-primary", ResourceID: "host-no-primary", NetworkDomainID: "d",
+		PrivateIP: "10.0.1.3", Status: "online", AppCode: "app-rel-no-primary",
+	}).Error)
+	// 资源留空 + 应用无任何关联 ⇒ 不注入。
 	require.NoError(t, db.Create(&models.Application{
 		ResourceID: "app-orphan-res", ResourceCategory: models.ResourceCategoryApplication, NetworkDomainID: "d",
 		BizCode: "payment", AppName: "app-orphan", Env: "prod", Status: "online",
 		ServiceName: "svc", Endpoint: "10.0.0.20", Port: 8080,
 	}).Error)
+	// generic_target 仅填 biz_code、无 app_code ⇒ 无所属应用，既不走资源值也无兜底。
 	require.NoError(t, db.Create(&models.GenericTarget{
 		ResourceBase: models.ResourceBase{
 			ResourceID: "gt-biz-only", ResourceCategory: models.ResourceCategoryGenericTarget, NetworkDomainID: "d",
@@ -962,26 +999,64 @@ func TestResolveTargetsInjectsDerivedPlatformLabel(t *testing.T) {
 		TargetName: "gt", InstanceIP: "10.0.0.30", Port: 161,
 	}).Error)
 
-	t.Run("有父级平台则注入 platform", func(t *testing.T) {
-		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"host-with-app"}}, nil, 9100)
+	// 真实模板：直接用 models.DefaultMappingBuilders 产出的默认映射集
+	// （含启用的 platform_code → platform resource_field 行，决策 110 ②）。
+	hostTmpl := &models.LabelTemplate{Name: "default-host", ResourceCategory: models.ResourceCategoryHost,
+		IsDefault: true, Mappings: models.DefaultMappingBuilders(models.ResourceCategoryHost)}
+	appTmpl := &models.LabelTemplate{Name: "default-application", ResourceCategory: models.ResourceCategoryApplication,
+		IsDefault: true, Mappings: models.DefaultMappingBuilders(models.ResourceCategoryApplication)}
+	gtTmpl := &models.LabelTemplate{Name: "default-generic_target", ResourceCategory: models.ResourceCategoryGenericTarget,
+		IsDefault: true, Mappings: models.DefaultMappingBuilders(models.ResourceCategoryGenericTarget)}
+	require.NoError(t, db.Create(hostTmpl).Error)
+	require.NoError(t, db.Create(appTmpl).Error)
+	require.NoError(t, db.Create(gtTmpl).Error)
+
+	t.Run("资源 platform_code ≠ 应用主平台 ⇒ 取资源行值（冲突门禁）", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"host-res-platform"}}, hostTmpl, 9100)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
-		assert.Equal(t, "cmp", groups[0].Labels["platform"], "platform 标签恒取 platform_code 派生值")
+		assert.Equal(t, "res-platform", groups[0].Labels["platform"],
+			"资源行 platform_code 优先于应用 is_primary 平台（决策 110 ① > ③）")
 	})
 
-	t.Run("应用未挂父级平台则不注入", func(t *testing.T) {
-		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app-orphan-res"}}, nil, 0)
+	t.Run("资源留空 + 应用有 is_primary 平台 ⇒ 取主平台值", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"host-blank-platform"}}, hostTmpl, 9100)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		assert.Equal(t, "cmp-primary", groups[0].Labels["platform"],
+			"资源留空时兜底取所属应用 is_primary 平台（决策 110 ③）")
+	})
+
+	t.Run("资源留空 + 应用仅非主平台关联 ⇒ 不注入", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"host-no-primary"}}, hostTmpl, 9100)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
 		_, exists := groups[0].Labels["platform"]
-		assert.False(t, exists, "应用未挂父级平台时 platform 缺位（预期正常态）")
+		assert.False(t, exists, "应用无 is_primary 平台时兜底不生效、platform 缺位（预期正常态）")
 	})
 
-	t.Run("generic_target 仅填 biz_code 则不注入（决策 108）", func(t *testing.T) {
-		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"gt-biz-only"}}, nil, 0)
+	t.Run("应用无任何平台关联则不注入", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"app-orphan-res"}}, appTmpl, 0)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		_, exists := groups[0].Labels["platform"]
+		assert.False(t, exists, "应用未挂平台时 platform 缺位（预期正常态）")
+	})
+
+	t.Run("generic_target 仅填 biz_code 则不注入（无 app_code）", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"gt-biz-only"}}, gtTmpl, 0)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
 		_, exists := groups[0].Labels["platform"]
 		assert.False(t, exists, "无 app_code 时不注入 platform")
+	})
+
+	t.Run("system 层停注 platform：tmpl=nil 时即便应用有主平台也不注入", func(t *testing.T) {
+		groups, _, err := ResolveJobTargets(db, models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{"host-blank-platform"}}, nil, 9100)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		_, exists := groups[0].Labels["platform"]
+		assert.False(t, exists,
+			"决策 118-2：platform 产出方唯一 = 模板层，system 层不得注入（无模板即无 platform）")
 	})
 }

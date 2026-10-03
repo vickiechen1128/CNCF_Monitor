@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-03 00:13 · commit: `f0fc24d`
+> 生成时间: 2026-10-03 15:33 · commit: `8e627c2`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1782,6 +1782,12 @@
 - `func TestValidateApplication_AddressSplit(t *testing.T)`
 - `func TestValidateResourceInput_ServiceCode(t *testing.T)`
 - `func TestValidateResourceInputForUpdate_KeepsDisabledServiceCode(t *testing.T)`
+- `func platformTestRefs(t *testing.T) *PlatformRefs`
+- `func platformTestAppStore(t *testing.T) *ApplicationDictStore`
+- `func platformTestInput(appCode, platformCode string) *ResourceInput`
+- `func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T)`
+- `func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *testing.T)`
+- `func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T)`
 
 ### `platform/configcenter/change/watcher.go`
 
@@ -2270,6 +2276,7 @@
 - `func exporterPortOr(exporterPort, fallback int) int`
 - `func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourceTarget, error)`
 - `func instanceAddress(ip string, port int) string`
+- `func materializePrimaryPlatform(db *gorm.DB, rt *resourceTarget, cache map[string]string) map[string]string`
 - `func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []Sk…`
 - `func MarshalTargetGroups(groups []TargetGroup) (string, error)`
 - `func EnsureTargetsFilename(name string) error`
@@ -5153,6 +5160,8 @@
 - `function setupAntdTest`
 - `interface MockedModal`
 - `function mockAntdModal`
+- `interface MockedMessage`
+- `function mockAntdMessage`
 - `function selectAntdOption`
 
 ### `ui-custom/web/src/types/admin.ts`
