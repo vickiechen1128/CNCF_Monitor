@@ -31,6 +31,16 @@ export interface ResourceListParams extends Record<string, string | number | boo
   resource_category?: ResourceCategory
   network_domain_id?: string
   keyword?: string
+  /** 业务归属编码等值筛选（§6.1 / §11.1） */
+  biz_code?: string
+  /** 运行状态等值筛选（§6.1 / §11.1） */
+  status?: string
+  /** 平台归属编码等值筛选（决策 110；五类均支持） */
+  platform_code?: string
+  /** 应用归属编码等值筛选（决策 92；五类均支持） */
+  app_code?: string
+  /** 服务归属编码等值筛选（决策 105；**仅 application / generic_target 生效**，其余三类后端忽略） */
+  service_code?: string
   /** 未监控筛选（字段由 M01 维护、M07 只读映射透传，§6.1 / 决策 31-M1） */
   is_monitored?: boolean
   page?: number
