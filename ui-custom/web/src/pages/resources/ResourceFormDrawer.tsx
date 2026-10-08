@@ -57,8 +57,8 @@ const RESOURCE_CATEGORY_MAP: Record<ResourceCategory, string> = {
   host: '主机',
   database: '数据库',
   middleware: '中间件',
-  application: '应用',
-  generic_target: '通用目标',
+  application: '应用服务',
+  generic_target: '其他监控目标',
 }
 
 /** 数据来源展示名（§5.2；cmdb 为 v0.4+ 预留） */
@@ -84,7 +84,7 @@ const DATABASE_TYPE_OPTIONS = ['mysql', 'redis', 'postgresql', 'oracle', 'dm8', 
 /** 中间件类型下拉（§5.7 middleware_type；mysql/redis 已移入 database_type） */
 const MIDDLEWARE_TYPE_OPTIONS = ['kafka', 'elasticsearch', 'nginx', 'zookeeper', 'rabbitmq', 'rocketmq']
 
-/** 通用目标采集协议（§5.9 scheme，默认 http） */
+/** 其他监控目标采集协议（§5.9 scheme，默认 http） */
 const SCHEME_OPTIONS = ['http', 'https']
 
 /** 操作系统家族展示名（os_dict.go：linux / windows） */
@@ -293,7 +293,7 @@ const portRules = [
   { type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' },
 ]
 
-/** 可选端口校验（应用/通用目标，port 非必填） */
+/** 可选端口校验（应用服务/其他监控目标，port 非必填） */
 const optionalPortRules = [{ type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' }]
 
 /**
@@ -407,7 +407,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     setSubmitError(null)
     if (mode === 'create') {
       form.resetFields()
-      // 仅预填 scheme:http（通用目标采集协议默认）；status 为 PRD 必填项，刻意不预填，强制用户显式选择
+      // 仅预填 scheme:http（其他监控目标采集协议默认）；status 为 PRD 必填项，刻意不预填，强制用户显式选择
       form.setFieldsValue({ scheme: 'http' })
     } else if (record) {
       form.resetFields()

@@ -22,20 +22,12 @@ import type { LabelTemplate, Mapping } from '../../types/label'
 import type { ResourceCategory } from '../../types/resource'
 import TemplateDetailTabs from './TemplateDetailTabs'
 import TemplateList from './TemplateList'
+import { RESOURCE_TYPE_MAP } from './labelTemplateConstants'
 
 const { Text } = Typography
 
 /** 五类资源类别（Module_07 §5.1 / 决策 D19） */
 const RESOURCE_TYPES: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
-
-/** 资源类别展示名（对齐原型 RESOURCE_TYPE_MAP） */
-const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
-  host: '主机',
-  database: '数据库',
-  middleware: '中间件',
-  application: '应用',
-  generic_target: '通用目标',
-}
 
 /**
  * 标签模板管理页（Module_07 §3.2/§11.1，L3 任务 T07-F7）。

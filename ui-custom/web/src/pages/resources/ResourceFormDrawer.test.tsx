@@ -648,7 +648,7 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'generic_target' })
     // 采集路径默认预填 /metrics；协议默认 http
     expect((screen.getByPlaceholderText('/metrics') as HTMLInputElement).value).toBe('/metrics')
-    // 填必填共享字段 + 通用目标必填项后提交
+    // 填必填共享字段 + 其他监控目标必填项后提交
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
     openSelect('请选择业务')

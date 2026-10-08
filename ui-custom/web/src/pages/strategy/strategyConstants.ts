@@ -26,8 +26,8 @@ export const CATEGORY_MAP: Record<ResourceCategory, string> = {
   host: '主机',
   database: '数据库',
   middleware: '中间件',
-  application: '应用',
-  generic_target: '通用目标',
+  application: '应用服务',
+  generic_target: '其他监控目标',
 }
 
 /** 资源类别 → 细粒度 monitor_type 级联（§9 MONITOR_TYPE_DERIVATION_MAP） */
