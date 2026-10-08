@@ -370,7 +370,7 @@ Phase 0（基础设施） → Phase 1（M06 网域登记） → Phase 2（M07 �
   - `status`：初始为 `pending`，完成后由 Orchestrator 更新为 `done`
   - `commit_group`：建议的提交分组名，同组相邻任务可合并为一个 commit
   - `prd`：该任务对应的 PRD 章节号，用于产品侧反向追溯
-- **前端验证命令粒度**：前端任务的 `verify_commands` 必须指向单文件/单目录测试（如 `pnpm vitest run src/pages/resources/__tests__/ResourceFormDrawer.test.tsx`），全量 `pnpm test` 仅在 Phase 收尾和合并前执行
+- **前端验证命令粒度**：前端任务的 `verify_commands` 必须指向单文件/单目录测试（如 `pnpm vitest run src/pages/resources/__tests__/ResourceFormDrawer.test.tsx`），**跨模块收尾用变更范围回归**（`pnpm run typecheck:test` + `pnpm vitest run --changed ../origin/develop` + `pnpm lint`）；全量 `pnpm test` **仅在**用户明确要求、合并前把关、或改动跨 ≥3 顶层目录/触及 `src/api/`·`src/types/`·`src/test/` 共享层时写入，且须在任务卡中说明理由。**禁止**把 `--changed` 写成全量等价物后仍叠加全量命令（会双跑）。理由与耗时实测见 frontend-developer「测试时长与范围控制」与 `02_Frontend_Standard.md` §12。
 
 ---
 

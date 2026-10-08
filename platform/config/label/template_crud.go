@@ -5,6 +5,7 @@ package label
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -226,9 +227,19 @@ func UpdateLabelTemplate(db *gorm.DB) gin.HandlerFunc {
 }
 
 // DeleteLabelTemplate 是 DELETE /api/v2/platform/label-templates/:template_id 的
-// handler：is_default=true 模板拒绝删除（bad_request「默认模板禁止删除」）；软删并
-// 落快照（记录被移除映射 OldValue）。成功返回 `{template_id}`。
-func DeleteLabelTemplate(db *gorm.DB) gin.HandlerFunc {
+// handler，校验分两级且语义分离（Module_07 §6.6.3.1）：
+//
+//  1. is_default=true 模板拒绝删除 → bad_request「默认模板禁止删除」。这是模板
+//     **自身属性**约束，与外部引用无关，故**先于**引用校验执行；
+//  2. 存在非软删引用（采集 Job 或 CI 类型映射，含停用引用）→ forbidden「被引用
+//     禁止删除」，data 回传 {reason: "referenced", refs, total}。
+//
+// 两级都通过后软删并落快照（记录被移除映射 OldValue）。成功返回 `{template_id}`。
+//
+// src 为引用清单数据源（TemplateReferenceSource），必须由装配层注入
+// NewTemplateReferenceSource(db)；**未注入（nil）时保守拒绝而非跳过校验**——
+// 静默跳过引用校验等于放任静默漂移，与本决策的初衷相反。
+func DeleteLabelTemplate(db *gorm.DB, src TemplateReferenceSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseTemplateID(c)
 		if !ok {
@@ -250,9 +261,49 @@ func DeleteLabelTemplate(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// TODO(M01): ScrapeJob 引用校验，403 data 返回引用 Job 名单
-		// {job_name, network_domain_id, enabled}（Module_07 §6.6.3）。M01 未实现，
-		// 本阶段直接放行（不得反向查询 ScrapeJob，§6.5）。
+		// 引用保护（Module_07 §6.6.3.1）：模板一旦被采集配置引用就删除，生成链路
+		// LoadTemplateForJob 会在模板查不到时**静默回落**该类别的默认模板
+		// （configcenter/generator/data_source.go），生成继续成功、不报错、不告警，
+		// target 上的 label 集被悄悄换掉，告警匹配与看板分组随之失效——比直接生成
+		// 失败更危险，因此必须在删除前拦住。
+		//
+		// 数据源为 M01 拥有的两张表的只读查询（references.go 窄接口隔离），M07 不
+		// 新增任何写路径。停用（enabled=false）引用同样计入：停用 Job 可随时原地
+		// 复用且其 target 配置仍留在已下发的 prometheus.yml 中未回收，删模板会让
+		// 「恢复启用」在无感知的情况下换掉标签集；软删行不计入（由 GORM 自动过滤）。
+		if src == nil {
+			// 未装配引用数据源属装配错误，同样保守拒绝：不得因「查不到引用源」而
+			// 放行删除。
+			response.InternalServerError(c, fmt.Errorf(
+				"标签模板 %d 的引用校验数据源未装配，已拒绝删除", id))
+			return
+		}
+		refs, err := src.ListReferences(id)
+		if err != nil {
+			// 查不到引用 ≠ 没有引用。此处必须保守拒绝（internal_server_error），
+			// 绝不能把查询失败当成「无引用」而放行删除——那正是本决策要防的静默
+			// 漂移。宁可拦住一次合法删除，也不冒配置静默改写的风险。
+			response.InternalServerError(c, fmt.Errorf(
+				"校验标签模板 %d 的引用方失败，为避免静默改写采集配置已拒绝删除，请稍后重试: %w", id, err))
+			return
+		}
+		if len(refs) > 0 {
+			// 解绑 → 删除闭环无需新增写接口（§6.6.3.1 第 4 点）：改绑走 M01 的
+			// PUT /scrape-jobs/{job_id} 更新 label_template_id，废弃则删除该 Job，
+			// 两条路径均已存在，故此处只给出明确出路而不代为改绑。
+			//
+			// forbidden 需同时满足两件事，故不走 response.Forbidden：
+			//  1. 统一信封 {status, errorType, error}（PRD §6.6 通用格式）；
+			//  2. 额外回传结构化 data {reason, refs, total}（§6.6.3.1 第 3 点），
+			//     供前端定位要解绑哪些对象——单靠 error 文案无法驱动交互。
+			c.JSON(http.StatusForbidden, response.Response{
+				Status:    response.StatusError,
+				ErrorType: response.ErrorTypeForbidden,
+				Error:     referencedDeleteMessage(refs),
+				Data:      gin.H{"reason": "referenced", "refs": refs, "total": len(refs)},
+			})
+			return
+		}
 
 		removed := removedMappingChanges(tmpl.Mappings)
 		// 模板删除与快照写入置于同一事务（dev-feedback L-1）：快照失败回滚软删，
@@ -271,6 +322,43 @@ func DeleteLabelTemplate(db *gorm.DB) gin.HandlerFunc {
 		}
 		response.OK(c, gin.H{"template_id": id})
 	}
+}
+
+// referencedDeleteMessage 生成「被引用禁删」的 403 提示文案（Module_07 §6.6.3.1
+// 第 4 点：文案须明确引导「先改绑或删除引用方，再删除模板」，而非仅给出错误码）。
+//
+// 文案同时区分两类引用方：采集 Job 改绑 = 编辑 Job 的标签模板选择器；CI 类型映射
+// 改绑 = 编辑该 monitor_type 映射的标签模板。停用（enabled=false）的 Job 也计入
+// 引用，故额外提示「停用中」，避免用户误以为停用即可绕过。
+func referencedDeleteMessage(refs []TemplateReference) string {
+	var jobs, mappings, disabled int
+	for _, r := range refs {
+		switch r.Source {
+		case RefSourceScrapeJob:
+			jobs++
+			if r.Enabled != nil && !*r.Enabled {
+				disabled++
+			}
+		case RefSourceCIMapping:
+			mappings++
+		}
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "标签模板被 %d 个采集配置引用，禁止删除。请先改绑或删除引用方，再删除本模板：", len(refs))
+	if jobs > 0 {
+		fmt.Fprintf(&b, "采集 Job %d 个（改绑请编辑该 Job 的标签模板选择器，或直接删除该 Job）", jobs)
+		if disabled > 0 {
+			fmt.Fprintf(&b, "，其中 %d 个处于停用状态——停用不解除引用，仍需改绑或删除", disabled)
+		}
+		b.WriteString("；")
+	}
+	if mappings > 0 {
+		fmt.Fprintf(&b, "CI 类型映射 %d 个（改绑请编辑对应映射的标签模板，或删除该映射）", mappings)
+		b.WriteString("；")
+	}
+	b.WriteString("解绑后需重新生成并确认下发采集配置。")
+	return b.String()
 }
 
 // parseTemplateID 解析路径参数 template_id 为正整数；非法/缺省返回 false。

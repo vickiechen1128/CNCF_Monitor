@@ -15,8 +15,8 @@ export const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   host: '主机',
   database: '数据库',
   middleware: '中间件',
-  application: '应用',
-  generic_target: '通用目标',
+  application: '应用服务',
+  generic_target: '其他监控目标',
 }
 
 /**

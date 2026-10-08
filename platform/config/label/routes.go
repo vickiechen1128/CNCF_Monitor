@@ -18,15 +18,22 @@ import (
 //   - POST                /label-templates/:template_id/clone（克隆）
 //   - POST/PUT/DELETE     /label-templates/:template_id/mappings[/:mapping_id]
 //   - GET                 /label-templates/:template_id/resources（关联实例）
+//   - GET                 /label-templates/:template_id/references（引用清单：聚合
+//     M01 拥有的采集 Job 与 CI 类型映射两张表的只读查询，供删除前引用保护，
+//     Module_07 §6.6.3.1）
 //
 // 同一路径层级统一使用 :template_id / :mapping_id 参数名，满足 Gin 通配符约束。
 func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
+	// 引用清单数据源：M07 读取 M01 拥有两张表的唯一收敛点（references.go），
+	// DELETE 的引用保护与 GET /references 复用同一实例，口径不会分叉。
+	refSource := NewTemplateReferenceSource(db)
+
 	labelTemplates := platform.Group("/label-templates")
 	{
 		labelTemplates.GET("", ListLabelTemplates(db))
 		labelTemplates.POST("", CreateLabelTemplate(db))
 		labelTemplates.PUT("/:template_id", UpdateLabelTemplate(db))
-		labelTemplates.DELETE("/:template_id", DeleteLabelTemplate(db))
+		labelTemplates.DELETE("/:template_id", DeleteLabelTemplate(db, refSource))
 		labelTemplates.POST("/:template_id/clone", CloneLabelTemplate(db))
 
 		mappings := labelTemplates.Group("/:template_id/mappings")
@@ -37,5 +44,6 @@ func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB) {
 		}
 
 		labelTemplates.GET("/:template_id/resources", ListTemplateResources(db))
+		labelTemplates.GET("/:template_id/references", ListTemplateReferences(db, refSource))
 	}
 }

@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { message } from 'antd'
 import { TemplateDownloadModal } from './TemplateDownloadModal'
 import { triggerBlobDownload } from '../../utils/triggerBlobDownload'
-import { setupAntdTest } from '../../test/antdTestUtils'
+import { setupAntdTest, mockAntdMessage } from '../../test/antdTestUtils'
 import type { ApplicationDict, BusinessDomain, ResourceCategory } from '../../types/resource'
 
 const templateMock = vi.fn()
@@ -58,8 +57,7 @@ describe('TemplateDownloadModal', () => {
     URL.createObjectURL = vi.fn(() => 'blob:mock')
     URL.revokeObjectURL = vi.fn()
     // 静默 antd 静态 message，避免测试输出噪音与 act 告警
-    vi.spyOn(message, 'success').mockImplementation(() => undefined)
-    vi.spyOn(message, 'error').mockImplementation(() => undefined)
+    mockAntdMessage()
   })
 
   it('renders user-language three questions and no design black-speak (F-7-③)', () => {

@@ -1,0 +1,15 @@
+{
+  // 测试文件专用类型检查配置（决策 118-5 / 02_Frontend_Standard.md §11）。
+  // 生产构建 tsconfig.json 有意 exclude *.test.ts(x)，本配置只把测试文件纳回类型检查，
+  // **不改生产构建口径**（tsconfig.json 与 `pnpm build` 的 tsc 均不动）。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // 测试用 vitest 全局 API（describe/it/expect/vi）；生产构建不引入，避免污染业务代码类型。
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  // src/vite-env.d.ts 必须显式纳入：它提供 `import.meta.env`（vite/client），
+  // 生产构建靠 `include: ["src"]` 隐式带入，本配置 include 收窄后需显式列出。
+  "include": ["src/vite-env.d.ts", "src/setupTests.ts", "src/**/*.test.ts", "src/**/*.test.tsx"],
+  // 显式清空 exclude：父配置的 exclude 会被继承（其中排除 *.test.ts(x)，与本配置意图冲突）。
+  "exclude": []
+}

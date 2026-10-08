@@ -26,10 +26,22 @@ type mappingListItem struct {
 
 // ListCITypeExporterMappings 返回分页、可筛选的默认采集配置列表。
 //
-// Query: monitor_type / is_default / page / page_size（默认 20，上限 100）。
-// 响应 data：`{list, total, page, page_size}`。软删不进入列表，空结果返回空 list。
+// Query: monitor_type / is_default / label_template_id / page / page_size
+// （默认 20，上限 100）。响应 data：`{list, total, page, page_size}`。软删不进入
+// 列表，空结果返回空 list。
+//
+// label_template_id 为反查模式（label_template_id 必填），语义与
+// GET /scrape-jobs?label_template_id= 对称：供 Module_07 标签模板删除的引用保护
+// 聚合只读反查（PRD §6.6.3.1 决策 119）。响应体退化为 `{list, total}`（不分页），
+// 详见 listMappingsByLabelTemplate。
 func ListCITypeExporterMappings(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// label_template_id 反查模式：返回引用该标签模板的 CI 类型映射行。
+		if ltID := c.Query("label_template_id"); ltID != "" {
+			listMappingsByLabelTemplate(c, db, ltID)
+			return
+		}
+
 		p := common.ParsePageParams(c.Request.URL.Query())
 
 		q := db.Model(&models.CITypeExporterMapping{})
@@ -78,6 +90,38 @@ func ListCITypeExporterMappings(db *gorm.DB) gin.HandlerFunc {
 			"page_size": p.PageSize,
 		})
 	}
+}
+
+// listMappingsByLabelTemplate 返回引用指定标签模板的 CI 类型映射行列表
+// （label_template_id 必填反查）。模板不存在返回 not_found
+//（api-contract-snapshot §5，与 scrapejob.listJobsByLabelTemplate 同约定）。
+//
+// 引用口径（PRD §6.6.3.1 决策 119）：
+//   - 软删行（deleted_at 非空）不计入引用，由 GORM 软删自动过滤，不手动加条件；
+//   - 不按 is_default / is_builtin 过滤——内置与每类型默认映射同样是有效引用方，
+//     过滤掉会让「模板无人引用」的结论失真。
+//
+// 刻意与 Job 侧对称：不加任何额外过滤条件，也不分页（引用清单需完整回传）。
+func listMappingsByLabelTemplate(c *gin.Context, db *gorm.DB, labelTemplateID string) {
+	var lt models.LabelTemplate
+	if err := db.First(&lt, "id = ?", labelTemplateID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.NotFound(c, fmt.Sprintf("label template %s not found", labelTemplateID))
+			return
+		}
+		response.InternalServerError(c, fmt.Errorf("get label template %s: %w", labelTemplateID, err))
+		return
+	}
+
+	var mappings []models.CITypeExporterMapping
+	if err := db.Where("label_template_id = ?", labelTemplateID).
+		Order("created_at desc").Find(&mappings).Error; err != nil {
+		response.InternalServerError(c, fmt.Errorf("list ci-exporter mappings by label template: %w", err))
+		return
+	}
+	list := make([]models.CITypeExporterMapping, 0, len(mappings))
+	list = append(list, mappings...)
+	response.OK(c, gin.H{"list": list, "total": int64(len(mappings))})
 }
 
 // mappingReferenced 报告映射 m 是否被任一活跃 ScrapeJob 引用（同 monitor_type +

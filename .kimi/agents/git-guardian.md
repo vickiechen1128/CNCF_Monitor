@@ -123,14 +123,20 @@ pnpm dev
 curl -sf http://localhost:5173/
 ```
 
-**Phase 收尾 / 合并前**：
+**Phase 收尾 / 合并前**（默认用变更范围回归，**不要**无条件跑全量）：
 
 ```bash
-pnpm test
+cd ui-custom/web
+pnpm run typecheck:test            # 测试文件类型门禁（秒级，必做）
+pnpm vitest run --changed ../origin/develop   # 变更范围回归
+pnpm lint
 pnpm build
 ```
 
-> 增量 commit 不得以「全量 test 还没跑」为借口跳过单文件 vitest；Phase 收尾/合并前不得以「单文件通过」为由跳过全量 test + build。
+> **全量 `pnpm test` 的适用条件**（三者之一，且须在记录中说明理由）：① 用户明确要求；② 合并 / 发 PR 前的最终把关；③ 改动跨 ≥3 个顶层目录，或触及 `src/api/`、`src/types/`、`src/test/` 等共享层（此时 `--changed` 的依赖传导不可信）。
+> 8 GB 机型全量实测**约 17 分钟**（测试执行仅 2.8 min，84% 花在按文件重复的模块转换），而 4 worker / `pool=threads` 实测均被 SIGKILL（exit 137）——**`maxWorkers: 2` 是实测上限，不得为提速调高**。详见 `02_Frontend_Standard.md` §12 与 frontend-developer「测试时长与范围控制」。
+
+> 增量 commit 不得以「回归还没跑」为借口跳过单文件 vitest；Phase 收尾/合并前不得以「单文件通过」为由跳过变更范围回归 + build。`--changed` 结果为空**不是失败**（diff 确无测试文件时属正常），但需 `git diff --name-only <base>` 佐证。
 
 ### 原型代码变更（`docs/prototypes/*/`）
 
@@ -204,7 +210,8 @@ pnpm lint
   - `go test ./platform/...` ✅
   - `go vet ./platform/...` ✅
   - `pnpm lint` ✅
-  - `pnpm test` ✅
+  - `pnpm run typecheck:test` ✅
+  - `pnpm vitest run --changed ../origin/develop` ✅（变更范围回归；全量仅合并前把关时补充）
   - 服务启动关键接口 200 ✅
 
 可以执行提交：
@@ -233,7 +240,7 @@ git commit -m "feat(module-07): 资源管理 CRUD 接口（T07-05~07）
 修复步骤：
 1. 将文档/Agent 修改保留在 `design/module-mvp-demo` 分支（由 chenrt/项目负责人维护）或转移到对应负责人的分支；
 2. 重写 commit message，例如 `feat(module-07): 修复资源列表查询参数`；
-3. 运行 `cd ui-custom/web && pnpm lint && pnpm test` 并返回结果。
+3. 运行 `cd ui-custom/web && pnpm run typecheck:test && pnpm vitest run --changed ../origin/develop && pnpm lint` 并返回结果（全量 `pnpm test` 仅在合并前把关或改动跨 ≥3 顶层目录 / 触及共享层时才需要）。
 ```
 
 ## 与 GitHub Actions 的关系

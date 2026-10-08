@@ -147,8 +147,11 @@ export interface ResourceCreateBaseShape {
   network_domain_id: string
   biz_code: string
   app_code?: string
-  /** 可选平台归属（决策 110）：资源行一等业务字段，五类通用；留空按所属应用主平台兜底 */
-  platform_code?: string
+  /**
+   * {v2026-09-28 决策 110} 平台归属（UI 展示名「平台归属」）：**资源行一等业务字段**、可空。
+   * 登记期显式填写；`null` / `undefined` 均表达「留空」，`platform` 标签兜底取所属应用主平台。
+   */
+  platform_code?: string | null
   // 决策 103 scheme-B：**无 cloud_code 字段**——云由所属网域派生，创建请求不接受该字段。
   env: string
   cluster?: string
@@ -220,8 +223,11 @@ export interface ResourceUpdateBaseShape {
   network_domain_id?: string
   biz_code?: string
   app_code?: string
-  /** 可选平台归属（决策 110）：资源行一等业务字段，五类通用；显式赋值即覆盖兜底取值 */
-  platform_code?: string
+  /**
+   * {v2026-09-28 决策 110} 平台归属（UI 展示名「平台归属」）：**资源行一等业务字段**、可空。
+   * 显式赋值即覆盖兜底取值；`null` 表达「清空平台归属」（编辑态取消选择），`undefined` 表达「不改」。
+   */
+  platform_code?: string | null
   // 决策 103 scheme-B：**无 cloud_code 字段**——云由所属网域派生，更新请求不接受该字段。
   env?: string
   cluster?: string
@@ -255,12 +261,13 @@ export interface ApplicationDict {
   description?: string
   status: 'enabled' | 'disabled'
   /**
-   * {v2.45 决策 104/107} 可选父级平台（契约快照 §5A / §5C）：应用挂靠的平台字典编码。
-   * 未挂时应用无平台归属，资源 `platform` label **不注入**；与「业务」维度正交（不引入业务父级）。
-   *
    * @deprecated {v2.49 决策 111} 应用↔平台改 M:N，关联权威迁至 `app_platform_rel`
-   * （`GET /api/v2/platform/app-platform-rel`）；存量单值已一次性转入该表（`is_primary=true`），
-   * 本字段保留仅为存量读取兼容，**新写入一律走 `appPlatformRelApi`**。
+   * （`GET /api/v2/platform/app-platform-rel`）；存量单值已一次性转入该表（`is_primary=true`）。
+   *
+   * {v2026-10-03 决策 118-3} 写链路（`ApplicationDictCreateInput` / `ApplicationDictUpdateInput`）
+   * 与 generator 读取侧**均已退役**，本字段**全仓生产消费者归零**，仅保留只读响应兼容。
+   * **禁止**再据本字段派生资源「平台」列——资源 `platform_code` 是一等字段（决策 110），
+   * 资源视图的平台归属一律读 `ResourceListItem.platform_code`。
    */
   platform_code?: string
 }

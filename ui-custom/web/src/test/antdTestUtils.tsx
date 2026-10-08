@@ -1,7 +1,8 @@
 import { cleanup } from '@testing-library/react';
 import { vi, type Mock, beforeEach, afterEach } from 'vitest';
-import { App, Modal } from 'antd';
+import { App, Modal, message } from 'antd';
 import type { ModalFuncProps } from 'antd/es/modal/interface';
+import type { MessageType } from 'antd/es/message/interface';
 
 /**
  * Ant Design 组件在 jsdom 环境下的测试稳定模式。
@@ -125,6 +126,46 @@ export function mockAntdModal(): MockedModal {
   });
 
   return modal;
+}
+
+export interface MockedMessage {
+  success: Mock;
+  error: Mock;
+  warning: Mock;
+  info: Mock;
+  loading: Mock;
+}
+
+/**
+ * 静默 antd 静态 message，避免测试输出噪音与 act 告警。
+ *
+ * antd 的 `message.*` 返回 `MessageType`（可调用的 `PromiseLike<boolean>`），
+ * 因此 noop 实现必须返回**真实的 MessageType 形状**，不能返回 `undefined`
+ * （否则与 antd 声明的 `TypeOpen` 不兼容，测试文件会报 TS2322 / TS2345）。
+ *
+ * 返回可断言的 mock 集合，供 `expect(message.success).toHaveBeenCalledWith(...)` 使用。
+ */
+export function mockAntdMessage(): MockedMessage {
+  const noopMessageType: MessageType = Object.assign(() => {}, {
+    then: () => noopMessageType,
+  }) as unknown as MessageType;
+  const open = () => noopMessageType;
+
+  const mocked: MockedMessage = {
+    success: vi.fn(open),
+    error: vi.fn(open),
+    warning: vi.fn(open),
+    info: vi.fn(open),
+    loading: vi.fn(open),
+  };
+
+  vi.spyOn(message, 'success').mockImplementation(mocked.success);
+  vi.spyOn(message, 'error').mockImplementation(mocked.error);
+  vi.spyOn(message, 'warning').mockImplementation(mocked.warning);
+  vi.spyOn(message, 'info').mockImplementation(mocked.info);
+  vi.spyOn(message, 'loading').mockImplementation(mocked.loading);
+
+  return mocked;
 }
 
 /**

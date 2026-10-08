@@ -18,8 +18,8 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { DownOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import { serviceDictApi } from '../../api/resources'
-import type { ServiceDict } from '../../types/resource'
+import { serviceDictApi, applicationDictApi } from '../../api/resources'
+import type { ApplicationDict, ServiceDict } from '../../types/resource'
 import { Callout } from '../../components/Callout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { EllipsisText } from '../../components/EllipsisText'
@@ -32,12 +32,19 @@ const { Text } = Typography
 /** 服务编码规范（§5.22 / 契约快照 §5D：小写字母 / 数字 / 连字符，≤ 64，创建后不可改） */
 const SERVICE_CODE_PATTERN = /^[a-z0-9-]{1,64}$/
 
+/** 停用后缀（§5.21 / 决策 22 同口径：停用条目以「名（已停用）」标识） */
+const DISABLED_SUFFIX = '（已停用）'
+
 /**
  * 服务字典维护页（Module_07 §5.22 / 决策 105；契约快照 §5D）
  *
  * 与应用字典页同构：编码不可变 + 展示名必填 + 停用不删除（无删除入口）。
- * 服务为四层实体层级的第三层；{v2.49 决策 112} 应用↔服务 / 服务↔业务的关系权威由字典
- * `app_code` / `biz_code` 承载（资源行字段仅为实例归属的镜像）。
+ * 服务为四层实体层级的第三层；{v2.49 决策 112} 应用↔服务的关系权威由字典 `app_code`
+ * 承载（资源行字段仅为实例归属的镜像）。
+ *
+ * {v2026-10-03 F-19}「所属应用」（`app_code`）本轮落地；**「主业务」（`biz_code`）经PM
+ * 裁定为过度设计、本轮不做**——全仓消费方核查显示服务字典 `biz_code` 只写不读（标签生成
+ * 取资源行 `biz_code`，配置生成与仪表盘聚合同理），故前端不暴露任何入口。
  */
 export function ServiceManagementPage() {
   const [list, setList] = useState<ServiceDict[]>([])
@@ -46,6 +53,8 @@ export function ServiceManagementPage() {
   const [keyword, setKeyword] = useState('')
   const [drawer, setDrawer] = useState<{ open: boolean; record: ServiceDict | null }>({ open: false, record: null })
   const [actingCode, setActingCode] = useState<string | null>(null)
+  // F-19：应用字典（决策 92）——「所属应用」下拉数据源与列表列的 `app_code → app_name` 解析
+  const [applications, setApplications] = useState<ApplicationDict[]>([])
 
   const load = useCallback(async () => {
     try {
@@ -56,6 +65,13 @@ export function ServiceManagementPage() {
       setError(e instanceof Error ? e.message : '服务字典加载失败，请稍后重试')
     } finally {
       setLoading(false)
+    }
+    // 应用字典失败不影响服务字典主流程：缺条时列按 app_code 回退展示、下拉为空
+    try {
+      const ar = await applicationDictApi.list()
+      setApplications(ar.data?.list ?? [])
+    } catch {
+      setApplications([])
     }
   }, [])
 
@@ -108,6 +124,14 @@ export function ServiceManagementPage() {
   const openCreate = () => setDrawer({ open: true, record: null })
   const openEdit = (record: ServiceDict) => setDrawer({ open: true, record })
 
+  /** app_code → 所属应用展示名（缺条目回退编码，停用加「（已停用）」；未挂应用显示 '-'） */
+  const appLabel = (code?: string | null) => {
+    if (!code) return null
+    const hit = applications.find((a) => a.app_code === code)
+    if (!hit) return code
+    return hit.status === 'enabled' ? hit.app_name : `${hit.app_name}${DISABLED_SUFFIX}`
+  }
+
   const columns: ColumnsType<ServiceDict> = [
     {
       title: '服务编码',
@@ -124,7 +148,19 @@ export function ServiceManagementPage() {
       width: 200,
       // §5.22 / 决策 22 同口径：停用条目以「服务名（已停用）」标识
       render: (v: string, r: ServiceDict) =>
-        r.enabled ? <EllipsisText>{v}</EllipsisText> : <EllipsisText>{`${v}（已停用）`}</EllipsisText>,
+        r.enabled ? <EllipsisText>{v}</EllipsisText> : <EllipsisText>{`${v}${DISABLED_SUFFIX}`}</EllipsisText>,
+    },
+    {
+      // F-19（决策 112）：应用↔服务 1:N 的关系权威为服务字典 `app_code`；
+      // 展示应用名，字典缺条目回退 app_code，应用已停用加「（已停用）」
+      title: '所属应用',
+      dataIndex: 'app_code',
+      key: 'app_code',
+      width: 200,
+      render: (v?: string | null) => {
+        const label = appLabel(v)
+        return label ? <EllipsisText>{label}</EllipsisText> : <Text type="secondary">-</Text>
+      },
     },
     {
       title: '描述',
@@ -189,6 +225,7 @@ export function ServiceManagementPage() {
             服务编码会随资源标签一起用于按服务维度聚合监控，<Text strong>创建后不可修改</Text>；
             停用服务不删除，仅不再可被新增 / 编辑资源选用，存量资源保留原归属。
             服务归属为可选字段，仅「应用服务」与「其他监控目标」可挂（主机 / 数据库 / 中间件不挂，基础设施非服务）。
+            「所属应用」是应用↔服务关系的权威来源，资源表单的服务下拉按它过滤。
           </Callout>
         </div>
         {error && (
@@ -230,6 +267,7 @@ export function ServiceManagementPage() {
         <ServiceDictDrawer
           open={drawer.open}
           record={drawer.record}
+          applications={applications}
           onCancel={() => setDrawer({ open: false, record: null })}
           onSuccess={() => {
             setDrawer({ open: false, record: null })
@@ -245,6 +283,8 @@ interface ServiceDictDrawerProps {
   open: boolean
   /** 编辑态为行 record；登记态为 null */
   record: ServiceDict | null
+  /** F-19：应用字典（决策 92）——下拉仅列启用项，编辑态已停用的历史归属保留展示 */
+  applications?: ApplicationDict[]
   onCancel: () => void
   onSuccess: () => void
 }
@@ -255,18 +295,44 @@ interface ServiceDictFormValues {
   description?: string
   /** 表单内用布尔承载启用状态，提交即为契约的 `enabled` */
   enabled?: boolean
+  /** F-19：所属应用（应用↔服务 1:N 关系权威），留空表示暂无明确所属应用 */
+  app_code?: string
 }
 
 /**
  * 服务字典登记 / 受限编辑抽屉（§5.22 红线 / 契约快照 §5D）
  *
- * 登记含编码规范校验；编辑仅开放 服务名 / 描述 / 启用状态，`service_code` 只读展示且不随请求体。
+ * 登记含编码规范校验；编辑仅开放 服务名 / 描述 / 启用状态 / 所属应用，`service_code` 只读展示
+ * 且不随请求体。
+ * {v2026-10-03 F-19}「主业务」（`biz_code`）经 PM 裁定为过度设计、本轮不做，前端不暴露入口。
  */
-export function ServiceDictDrawer({ open, record, onCancel, onSuccess }: ServiceDictDrawerProps) {
+export function ServiceDictDrawer({ open, record, applications = [], onCancel, onSuccess }: ServiceDictDrawerProps) {
   const [form] = Form.useForm<ServiceDictFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const isEdit = !!record
+
+  /**
+   * 「所属应用」下拉：仅启用应用可选；编辑态已停用的历史归属保留为回显项
+   * （不可新选，但不清空——与 ApplicationDictDrawer 的停用平台回显同口径）。
+   * 以 `value` 去重，避免启用项与回显项重复渲染。
+   */
+  const appOptions = useMemo(() => {
+    const options = new Map<string, { value: string; label: string }>()
+    for (const a of applications.filter((x) => x.status === 'enabled')) {
+      options.set(a.app_code, { value: a.app_code, label: `${a.app_name}（${a.app_code}）` })
+    }
+    // 历史归属回显：已挂但已停用的应用须始终作为回显项，避免编辑时被静默清空
+    const current = record?.app_code
+    if (current && !options.has(current)) {
+      const hit = applications.find((a) => a.app_code === current)
+      options.set(current, {
+        value: current,
+        label: `${hit?.app_name ?? current}${DISABLED_SUFFIX}`,
+      })
+    }
+    return [...options.values()]
+  }, [applications, record])
 
   useEffect(() => {
     if (!open) return
@@ -279,6 +345,8 @@ export function ServiceDictDrawer({ open, record, onCancel, onSuccess }: Service
         service_name: record.service_name,
         description: record.description,
         enabled: record.enabled,
+        // F-19：回显所属应用（无归属留空，下拉呈未选态）
+        app_code: record.app_code ?? undefined,
       })
     } else {
       form.setFieldsValue({ enabled: true })
@@ -302,6 +370,9 @@ export function ServiceDictDrawer({ open, record, onCancel, onSuccess }: Service
           service_name: values.service_name,
           description: values.description,
           enabled: !!values.enabled,
+          // F-19：契约以 `null` 表达「摘除所属应用」、`undefined` 表达「不改」。
+          // 抽屉恒有取值（未选即 undefined → 提交 null 摘除），符合「用户清空即解绑」直觉。
+          app_code: values.app_code ?? null,
         })
         message.success('服务信息已更新')
       } else {
@@ -309,6 +380,8 @@ export function ServiceDictDrawer({ open, record, onCancel, onSuccess }: Service
           service_code: values.service_code!,
           service_name: values.service_name,
           description: values.description,
+          // 未选所属应用时留空 undefined，由api 层省略该键（不回传空串）
+          app_code: values.app_code,
         })
         message.success(`服务「${values.service_name}」已登记`)
       }
@@ -347,7 +420,7 @@ export function ServiceDictDrawer({ open, record, onCancel, onSuccess }: Service
       <Alert
         type={isEdit ? 'info' : 'warning'}
         showIcon
-        message={isEdit ? '仅可修改服务名、描述与启用状态' : '服务编码创建后不可修改'}
+        message={isEdit ? '仅可修改服务名、所属应用、描述与启用状态' : '服务编码创建后不可修改'}
         description={
           isEdit
             ? `服务编码「${record?.service_code}」创建后不可修改；服务名仅用于界面展示（监控标签取编码），修改不影响存量资源与监控配置。`
@@ -376,6 +449,19 @@ export function ServiceDictDrawer({ open, record, onCancel, onSuccess }: Service
           rules={[{ required: true, whitespace: true, message: '请输入服务名' }]}
         >
           <Input placeholder="例如 订单接口服务" maxLength={64} />
+        </Form.Item>
+        <Form.Item
+          name="app_code"
+          label="所属应用"
+          extra="选填：该服务归属的应用字典条目（应用↔服务 1:N）；仅启用应用可被新选，已停用的历史归属保留展示"
+        >
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="选填，选择所属应用"
+            options={appOptions}
+          />
         </Form.Item>
         <Form.Item name="description" label="描述">
           <Input.TextArea rows={3} placeholder="选填，说明该服务的用途或所属应用范围" maxLength={200} />

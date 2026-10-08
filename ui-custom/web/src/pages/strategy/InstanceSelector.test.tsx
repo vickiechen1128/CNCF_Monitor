@@ -73,7 +73,8 @@ describe('InstanceSelector', () => {
 
   it('shows prompt when monitor_type or domain missing', () => {
     candidatesMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0, page: 1, page_size: 20 } })
-    render(<InstanceSelector monitorType="" as unknown as never networkDomainId="" selectedIds={[]} onChange={() => {}} />)
+    // monitorType / networkDomainId 均为可选 prop，缺省即表达「未选」
+    render(<InstanceSelector selectedIds={[]} onChange={() => {}} />)
     expect(screen.getByText('请先选择监控对象类型与网域后加载候选实例')).toBeInTheDocument()
   })
 })

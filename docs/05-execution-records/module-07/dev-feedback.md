@@ -309,12 +309,25 @@
 ### F-13. 资源列表五类 Tab 列未按「技术属性 / 业务归属」分组（③ 优化）
 
 - **位置**：`ui-custom/web/src/pages/resources/ResourcesPage.tsx` `buildColumns`（host L543-589 / database L590-613 / middleware L614-637 / application L638-710 / generic_target L711-752）；契约 M07 PRD §5.2（区分「技术属性」与「业务属性 / 归属」）。
-- **现状**：五类 Tab 列**扁平混合**，技术属性（实例名 / IP / 端口 / OS / 类型 / 版本）与业务归属（业务 / 应用 / 平台 / 服务）**无分组**；host 列序为 `实例名 → IP 地址 → 操作系统 → 环境 → 集群 → 网域 → 业务名称 → 应用名称 → 平台 → 云 → 运行状态 → 采集状态 → 录入方式 → 操作`，五类列顺序也不统一。
-- **建议**：按「技术属性 / 业务归属」两组归并，用列头分组（`children`）或视觉分组呈现：
+- **原始现状**：五类 Tab 列**扁平混合**，技术属性（实例名 / IP / 端口 / OS / 类型 / 版本）与业务归属（业务 / 应用 / 平台 / 服务）**无分组**；host 列序为 `实例名 → IP 地址 → 操作系统 → 环境 → 集群 → 网域 → 业务名称 → 应用名称 → 平台 → 云 → 运行状态 → 采集状态 → 录入方式 → 操作`，五类列顺序也不统一。
+- **原建议**：按「技术属性 / 业务归属」两组归并，用列头分组（`children`）或视觉分组呈现：
   - **技术属性组**：实例名 / IP、端口、OS / 类型、版本、网域、运行状态、采集状态（回答「怎么采、采到哪」）；
   - **业务归属组**：平台、应用、服务、业务、云（回答「属于谁、服务谁」）。
   - 注：「云」属**位置属性**（经所属网域 `cloud_code` 派生），严格说是「技术 / 位置」而非「业务归属」，建议归技术属性组或单列「位置」组。
-- **状态**：open（待 PM 确认后落地）
+- **状态**：~~open~~ → **2026-10-03 PM 裁定：列头分组方案撤销，改列显隐配置**。
+  - 该方案已随 commit `1ebdee8` 提前落地（`GROUP_TECH = '技术属性 / 位置'` / `GROUP_BIZ = '业务归属'`，五类 Tab 全部经 `groupColumns()` 包父列），**属落地先于确认的流程偏差**，现予纠正。
+  - **撤销理由**：①antd 父列分组把表头变成两行，**一列都没减**，与 `tablePresets.ts`「列数 ≤ 8，超出字段下沉详情 Drawer」既定规范正面冲突——分组是纯成本；②`scroll.x = 'max-content'` 下横向滚动时组标题与其下属列不在同一视口，分组语义归零；③组名「技术属性 / 位置」把位置属性（网域 / 云）与技术属性（IP / 端口 / OS）塞进同一标签，语义含混。
+  - **替代方案**：改为**列显隐配置**（工具栏「列设置」勾选显示 / 隐藏列），已由用户拍板提前落地，见 **F-17**。
+  - **测试连带影响（实施前必读）**：撤销分组会撞 **3 个 F-13 专属用例**，它们断言的正是「两级表头 / `scope=colgroup` / 组标题文本 / 组内列序」，撤组后必然变红，须一并处理：
+    - `ResourcesPage.test.tsx` L558-575「F-13：五类 Tab『应用名称』『业务名称』同属业务归属组，组内应用名称在业务名称之前」——该用例的**业务意图（业务归属列的相对顺序）本身仍成立**，应改写为「不依赖分组、直接断言列序」而非删除；
+    - L595-634「F-13：五类 Tab 列头呈技术属性/位置 + 业务归属两组，各列归属正确，操作列不归组」——断言 `scope=colgroup` 与组标题，**随分组撤销而失效**，应删除（其覆盖的 sticky 意图由下一条承接）；
+    - L636+「F-13：分组后主标识列仍 fixed left、操作列仍 fixed right、scroll.x 生效」——**sticky 意图仍成立**，应保留并去掉「分组后」措辞。
+  - 处置原则：撤组属**行为变更**，测试须同步重写，**不得为了让测试变绿而回填分组**。
+  - **2026-10-03 已落地**：`ResourcesPage.tsx` 的 `GROUP_TECH` / `GROUP_BIZ` / `groupColumns()` 及 5 处 `...groupColumns(...)` 包裹全部移除，列改平铺；3 个用例按上述方案处置完毕 —— L558 改写为「不依赖分组、直接断言列序」、L595 分组形态用例删除、L636 sticky 用例保留并去掉「分组后」措辞。`grep技术属性` / `scope=colgroup` 在测试中零残留。
+  - **2026-10-03 附带记录（非越界，勿误判）**：同轮 `ResourceDetailDrawer.tsx` 另含 125+ / 53- 的**UI 改造**（来源 `Tag` 扁平化 `bordered={false}`、字号 / 行高 / 内边距重设、来源说明改12px 单行省略截断、标签区加 `maxHeight:320 + overflowY:auto` 滚动容器），**不属 F-16 / F-13 / F-19 四项裁定范围，而是 PM 在另一会话中独立提出的需求**，经本次改动一并落在本分支。
+    - **误判与更正**：复核时曾因该块不含在四项裁定内、且其注释含「保证文本仍可被 getByText 命中」字样，被判为「为让测试通过而改产品 UI」的越界改造并 `git checkout` 回退；**PM 已指出该判断有误——这是另一会话的需求，非越界**。已从 `/tmp/rd_before.tsx` 完整恢复（125+ / 53- 全量还原），并删除本条原「已回退」的错误留痕。
+    - **纪律修正**：判断「越界改造」的判据应是**改动是否有人提出过的正当需求**，而非**改动量是否超出本轮任务清单**。工作区可能并存多会话的未提交改动，回退前**必须先向 PM 确认来源**，不得仅凭「不在本轮裁定内」即回退。
+    - 该块与本轮 F-16 的 map 改名共存于同一文件，后续 commit 分组时按各自来源分别归档（map 改名归 F-16；UI 改造归 **F-20**「资源详情抽屉标签行过臃肿」，已于 2026-10-04 补登，详见 §14 F-20）。
 
 ### F-14. 资源列表「云」列缺 tooltip（③ 优化）
 
@@ -335,3 +348,204 @@
   - ③「服务名」列 tooltip 补区分句：「本应用服务实例名，参与判重；与服务字典归属（所属服务）是两个概念」；
   - ④「所属服务」列建议紧邻「服务名」或归入业务归属组，避免语义相关的两列被技术列隔开。
 - **状态**：open（待 PM 确认后落地）
+  - **2026-10-03 部分已修**：`application: '应用服务'` 与「所属服务」列改名 + tooltip 已随 `ab1e836` 落地；**`generic_target` 展示名仍为「通用目标」，与 PRD §5.1 L316「其他监控目标」不符**，转 **F-16** 跟踪。
+
+---
+
+## 14. 新增登记（2026-10-03，PM 四层动线与宽表体感复核）
+
+> 触发：PM 对 M07 生产前端提出四点意见——①`generic_target` 命名以 PRD 为准；②资源列表宽表体感，列显隐非 MVP 功能、可提前做；③服务字典「所属应用 / 主业务」关系维护中，**主业务为过度设计**；④资源管理支持按四层筛选。
+> 核查范围：`ui-custom/web/src/pages/resources/`（四字典页 + `ResourcesPage`）、`platform/config/resource/query.go`、`platform/models/`（`resource_base.go` / `service_dict.go`）、PRD §3.1.3 / §5.1 / §5.19–5.24 / §11.2。
+> 优先级：**F-16（合规）> F-18（动线）> F-17（宽表体感）> F-19（关系维护）**。
+
+### F-16. `generic_target` 展示名与 PRD §5.1 不符（③ 合规）
+
+- **位置**：**生产代码共 6 处**同构展示名 map 副本（初稿只记了 2 处，实施前复核补全，见下表）；契约 PRD §5.1 L316「`generic_target` → **其他监控目标**」、§11.2「『其他监控目标』的 UI 展示名统一为『其他监控目标』」。
+
+  | # | 文件 | map 变量名（行号） | 当前 `generic_target` | 当前 `application` |
+  | --- | --- | --- | --- | --- |
+  | 1 | `ResourcesPage.tsx` | `RESOURCE_TYPE_MAP`（L96） | 通用目标 | **应用服务**✅ |
+  | 2 | `ResourceFormDrawer.tsx` | `RESOURCE_CATEGORY_MAP`（L56） | 通用目标 | 应用 ❌ |
+  | 3 | `ResourceDetailDrawer.tsx` | `RESOURCE_CATEGORY_MAP`（L64） | 通用目标 | 应用 ❌ |
+  | 4 | `ImportModal.tsx` | `RESOURCE_TYPE_MAP`（L29） | 通用目标 | 应用 ❌ |
+  | 5 | `ImportRecordsPanel.tsx` | `RESOURCE_TYPE_MAP`（L36） | 通用目标 | 应用 ❌ |
+  | 6 | `TemplateDownloadModal.tsx` | `RESOURCE_TYPE_MAP`（L11） | 通用目标 | 应用 ❌ |
+
+- **现状**：6处map 均写「通用目标」。这些 map 是各类Tab / 弹窗 / 抽屉标题与label 的唯一来源，故**列表 Tab、资源表单、详情抽屉、导入弹窗、导入记录面板、模板下载弹窗六处UI 全部显示「通用目标」**，与 PRD 双重口径不符（§5.1 枚举表 + §11.2 全局行为规则均写「其他监控目标」）。
+- **建议**：
+  1. 6 处 map 的 `generic_target` 统一改为「**其他监控目标**」；
+  2. **顺带补齐 `application`**：只有 `ResourcesPage.tsx` 一处已是 PRD 要求的「应用服务」，其余 5 处仍是「应用」——F-015①的 Tab 改名**只改了 6 处中的 1 处**，导致资源列表 Tab 显示「应用服务」而表单 / 详情 / 导入 / 模板弹窗显示「应用」，**同一资源类型两种叫法**。本轮一并对齐为「应用服务」（PM 已定口径为 PRD 的「应用服务」，见 F-15①）；
+  3. 长期建议：6 份同构副本应收敛到单一模块（如 `resourceLabels.ts`）导出，本次至少在 dev-feedback 留痕，避免后续再漏改。
+- **测试影响（实施前必读）**：`ResourcesPage.test.tsx` 有 **7 处**硬编码 `'通用目标'`（L429/564/581/601/628/986，另 L651 在 `ResourceFormDrawer.test.tsx` 为注释文本），改map 后这些Tab 点击断言会**全部变红**，必须同步替换为「其他监控目标」；`application` 相关断言同理。
+- **裁定**：**PM 已拍板以 PRD 为准**，属必改项。
+- **状态**：~~open~~ → **2026-10-03 已落地（resources/ 内 6 处）+ 2026-10-04 全量闭环（目录外 4 处）**。
+- **2026-10-04 PM 裁定：跨模块一次性统一，10 处全改**（原挂「跨模块一致性缺口待决策」，PM 选定「一次性统一」而非「挂各模块待排期」）。目录外 4 处已改：`LabelTemplatesPage.tsx:37`、`labelTemplateConstants.ts:19`（export 共享常量，M01）、`strategyConstants.ts:30`（`CATEGORY_MAP`，export 共享常量，M09）、`CreateSilenceDrawer.tsx:136`（`CI_TYPE_OPTIONS`，M08）——四项均为 `generic_target → 其他监控目标`、`application → 应用服务`。
+  - **连带测试修正**：`ScrapeJobFormDrawer.test.tsx:230` 的 `selectCategoryAndType('应用', 'HTTP 应用')` 按展示名选类别，随改名失效，已改 `'应用服务'`（该文件仅此一处用到 application 展示名，其余为主机 / 数据库）。
+  - **验证**：`grep 通用目标` 全仓（含测试）**零残留**；10 处展示名 map 全部一致；`label-templates` + `strategy` + `alerts` 三模块 **370/370 通过**（含修正后 ScrapeJobFormDrawer 16/16）；`tsc --noEmit` exit 0；`eslint src` 0 error（1 warning 为 `alerts/RoutesPage.tsx:415` **既有告警**，与本轮无关）。
+  - **完成判据已达成**：含 `labelTemplateConstants.ts` / `strategyConstants.ts` 两个 export 共享常量在内的 10 处全部对齐，**F-16 现为全量闭环**。
+- **⚠️ 未消除的结构性问题（不阻塞，但建議后续收敛）**：10 处中 6 处在 `pages/resources/`、2 处在 `pages/label-templates/`（且 `LabelTemplatesPage.tsx` 与 `labelTemplateConstants.ts` 内容重复）、1 处 `strategyConstants.ts`、1 处 `CreateSilenceDrawer.tsx` 手抄数组——**同构展示名 map 共 5 组重复定义**。本次按 PM 裁定点对点改齐，但**未做收敛重构**（会跨 M01 / M07 / M09 三个模块改动 import 路径，超出本轮范围）。若后续再新增资源类型或改名，仍需改 5 处；建议单开一轮收敛为单一共享常量模块（如 `src/constants/resourceLabels.ts`），届时 F-16 方可视为根治。
+- **⚠️ 实施中新发现：`resources/` 目录外另有 4 处同类展示名，本轮未改（跨模块，非 M07 职责）**：
+  | # | 文件 | map 变量名（行号） | 当前值 | 归属模块 |
+  | --- | --- | --- | --- | --- |
+  | 7 | `pages/label-templates/LabelTemplatesPage.tsx` | `RESOURCE_TYPE_MAP`（L32） | 通用目标 / 应用 | M01 |
+  | 8 | `pages/label-templates/labelTemplateConstants.ts` | `RESOURCE_TYPE_MAP`（L14，**已export**） | 通用目标 / 应用 | M01 |
+  | 9 | `pages/strategy/strategyConstants.ts` | `CATEGORY_MAP`（L25，**已 export**） | 通用目标 / 应用 | M09 |
+  | 10 | `pages/alerts/CreateSilenceDrawer.tsx` | L136 静默目标选项数组 | 通用目标 | M08 |
+  - **影响面比 `resources/` 内更大**：`labelTemplateConstants.ts` 与 `strategyConstants.ts` 是**被跨文件 import 的共享常量**（`strategyConstants.ts` 亦含 `MONITOR_TYPE_DERIVATION_MAP` 等），标签模板页与策略管理页的类型下拉、静默创建抽屉的监控目标下拉**都显示「通用目标」**；且 `strategyConstants.ts` 的 `CATEGORY_MAP` 与 `labelTemplateConstants.ts` 的 `RESOURCE_TYPE_MAP` 本身也是**重复定义**。
+  - **本轮未改的理由**：三个文件分属 M01 / M09 / M08 模块职责范围，M07 单方面改动会跨模块污染他线PRD 与执行记录；且 M09 策略侧 `CATEGORY_MAP` 可能被 M09 的 PRD 独立约定过口径。
+  - **2026-10-04 PM 裁定：跨模块一次性统一，4 处全改**——PM 选定「一次性统一」而非「挂各模块待排期清单」。已改毕，全仓 `grep 通用目标` 零残留；连带修正 `ScrapeJobFormDrawer.test.tsx:230` 的类别文本断言。详见上方 F-16 状态。**F-16 现为全量闭环。**
+- **F-16 全量闭环的完成判据**：上述 4 处中至少 2 处（含 `labelTemplateConstants.ts` / `strategyConstants.ts` 这类共享常量）完成对齐后，F-16 方可标为全量闭环。
+
+### F-17. 资源列表宽表体感：列头分组撤销后改列显隐配置（③ 优化，PRD 原定 P1 / 用户同意提前）
+
+- **背景**：PRD §3.1.3 L161 已登记「列显隐配置｜工具栏『列设置』勾选显示 / 隐藏列｜**P1｜后续版本**」——即该功能**契约上存在但明确排在 MVP 之后**。用户实操后反馈宽表影响观感，同意**提前落地**。
+- **问题定性**：当前五类 Tab 列数为 host 14 / database 14 / middleware 14 / application 15 / generic_target 17（含操作列），**全部远超 `tablePresets.ts`「列数 ≤ 8，超出字段下沉详情 Drawer」**。原 F-13 的列头分组既未减列又多占一行表头（详见 F-13 撤销理由），撤除后**必须给出替代出口**，否则宽表体感问题原样留存。
+- **建议**：
+  - 工具栏增设「**列设置**」下拉（`Dropdown` + `Checkbox.Group`），按当前 Tab 列出该类型全部数据列（操作列与主标识列**不可关闭**），勾选结果按 `resource_category` 分别持久化；
+  - **偏好持久化**：`localStorage` 记住用户上次勾选（PM 明确要求，避免每日重复配置）；键名按类型分区，切换 Tab 时各自恢复；
+  - **默认列集合收敛**为 P0 高频列（主标识 + 状态 + 采集状态 + 业务归属 + 操作），其余转「可选」；
+  - 恢复「按 F-13 原建议的语义分组」**作为勾选时的分组小标题**（下拉内分组展示，不占表头）——保留 F-13 想解决的「哪些列是业务归属」认知问题，同时不产生表头成本；
+  - 契约处理：PRD §3.1.3 该行优先级由 `P1 / 后续版本` 改为 `P0 / MVP`（提前落地须落档，避免实现与契约再度背离）。
+- **风险与约束**：
+  - 属**提前交付 MVP 外功能**，须在 §3.1.3 留痕「用户体感驱动提前」，不得静默插入；
+  - 偏好为**纯前端视图态**，不改变数据与默认列语义（沿用 PRD 原表述），不上传后端；
+  - 需注意 `TABLE_SCROLL_X = { x: 'max-content' }` 下用户隐藏列后表宽重算，**主标识 `fixed:'left'` 与操作 `fixed:'right'` 的 sticky 结论不应回归**（F-13 实现注释已验证分组不破坏 sticky，抽除父列同理，但需实测）。
+- **状态**：~~open（2026-10-04 PM 裁定暂缓）~~ → **2026-10-07 PM 决定本轮实施**
+  - **2026-10-04 曾暂缓**：理由为撤组后宽表体感本轮可接受。**2026-10-07 复评后推翻暂缓、决定实施**，理由是F-18 落地后剩余的宽表问题只剩本条可解，且实施成本经核查为**低风险纯前端改造**（评估结论见下）。
+  - **⚠️ 遗留风险（暂缓期间持续存在，实施后消解）**：五类 Tab 列数 host 14 / database 14 / middleware 14 / application 15 / generic_target 17（含操作列），**全部远超 `tablePresets.ts`「列数 ≤ 8，超出字段下沉详情 Drawer」规范**；撤组后用户**没有任何收敛宽表的手段**（无列显隐、无分组、无字段下沉），横向滚动是唯一出路。
+  - **契约已就绪**：PRD §3.1.3 已于 v2.51 改为 `P0｜MVP` 并留痕「用户体感驱动提前」，实现时无须再动契约。
+  - **实施可行性核查（2026-10-07，结论：难度不大）**：
+    | 关键条件 | 核查结果 |
+    | --- | --- |
+    | 列定义结构 | 每类均为 `[identifier, ...typeColumns, 共享列 ×7, actionColumn]` 的**数组拼接**，非嵌套分组 → 过滤即 `columns.filter()` |
+    | 列 key 可作持久化标识 | 10 个共享列 key **全唯一**（`status` / `source_type` / `service_code` / `platform_code` / `network_domain_id` / `monitor_state` / `cloud_code` / `biz_code` / `app_code` / `actions`），**无需补 `meta` 字段** |
+    | 工具栏入口 | FilterBar 为独立区块，插入「列设置」`Dropdown` 无结构冲突 |
+    | 后端改动 | **零** —— 纯客户端视图态，不上传后端 |
+    | 规范依据 | `tablePresets.ts` 原文即「列数 ≤ 8，超出字段下沉详情 Drawer」，列显隐是**规范本身的要求** |
+  - **PM 裁定的默认列集（P0 高频列，全部 ≤ 8 且含完整运维必需信息）**：
+    | Tab | 默认保留 |进入「列设置」下拉 |
+    | --- | --- | --- |
+    | host | 实例名 + 操作系统 + 网域 + 运行状态 + 采集状态 + 操作（**6**） | IP 地址、环境、集群、云、平台、应用、业务、录入方式（8） |
+    | database | 实例名 + **数据库类型** + 网域 + 运行状态 + 采集状态 + 操作（**6**） | IP 地址、端口、版本、云、平台、应用、业务、录入方式（8） |
+    | middleware | 实例名 + **中间件类型** + 网域 + 运行状态 + 采集状态 + 操作（**6**） | IP 地址、端口、版本、云、平台、应用、业务、录入方式（8） |
+    | application | 服务名 + 网域 + 运行状态 + 采集状态 + 所属服务 + 操作（**6**） | 健康检查 URL、协议、端点、端口、平台、应用、业务、录入方式（8） |
+    | generic_target | 目标名称 + 网域 + 运行状态 + 采集状态 + 所属服务 + 操作（**6**） | Exporter 类型、IP 地址、端口、采集路径、协议、自定义标签、云、平台、应用、业务、录入方式（11） |
+    - **⚠️ 本条表格已按代码事实修正**：原裁定写「host / database / middleware：实例名 + 操作系统 + …」，但 **database / middleware 模型无 `os_type` 列**（`buildColumns` 该两类只有 `database_type` / `middleware_type`；`SUBTYPE_FIELD` 亦印证 host=`os_type`、database=`database_type`、middleware=`middleware_type`）。**该位由各自类型专属列承担**——否则这两类默认列集只剩 5 列且丢失「这是个什么库 / 什么中间件」的首要判别信息。实施方已按此落地并留痕。
+  - **✅ 2026-10-07 已落地**（`ResourcesPage.tsx` + 新增 `resourceColumnPrefs.ts` + `ResourcesPage.test.tsx`）：
+    - **入口**：FilterBar 末位（与8 个筛选器同区，未塞表格浮层），`Dropdown` + `Checkbox.Group`，按钮文案 `列设置（已选/总数）`（如 `列设置（6/14）`）让用户感知偏好生效；`buildColumns` 结果经 `.filter()` 得到 `visibleColumns`。
+    - **持久化**：键 `mc_res_list_cols_<resource_category>`（如 `mc_res_list_cols_host`），值为列 `key` 数组 JSON，**按 `resource_category` 分区**。三重兜底**全部静默不抛错**：① `localStorage` 访问本身抛错（隐私模式 / SSR）→ 默认列集仅内存态；② `JSON.parse` 失败 / 非数组 / 含非字符串 / 空数组 → 默认列集；③ 含已不存在的 key → **整体**回退默认列集（不做部分保留，半残偏好更难解释）。另加 `orderColumnKeys` 强制并入固定列，脏偏好也无法把主标识 / 操作挤出表头。
+    - **不可关闭列**：主标识（`fixed:'left'`）+ 操作（`fixed:'right'`）**双重保障**——勾选项 `disabled` + 渲染前与可见集合取并集。
+    - **下拉内分组小标题**（不占表头，沿用 F-13 撤销前口径）：**固定列**（主标识 + 操作）/ **技术属性·位置**（类型专属列 → 网域 → 运行状态 → 采集状态 → 录入方式 → 云）/ **业务归属**（平台 → 应用名称 → 所属服务 → 业务名称）。
+    - **列标识**：直接用列 `key`，**未新增 `meta` 字段**（实施前已复核 10 个共享列 key 全唯一）。
+  - **sticky 实测结论（已验证，不回退）**：`scroll.x='max-content'` 下隐藏列后 sticky **不回归**。验证方式为**破坏验证**——临时删除 host 主标识列的 `fixed:'left'`，跑 `-t "fixed left"` 确认用例变红（`expected 'ant-table-cell' to contain 'ant-table-cell-fix-left'`）后恢复。另做三组破坏验证确认新用例非空跑：移除固定列 `disabled` → 「不可取消勾选」红；分区键退化为固定 `host` → 「分区落库」红；移除脏数据回退保护 → 「脏数据回退」红。sticky 断言已写入测试（隐藏「网域」后复验首列 fix-left、末列 fix-right）。
+  - **测试**：改写 **20 条**（原 61 条中因抽列变红）+ 新增 **10 条** F-17 专项，61 → **71 条**。关键手法：新增 `showColumnsByLabels` / `hideColumnsByLabels` 助手——验证特定列渲染时**先经 UI 勾选**再断言，**未回填任何列进默认集**（守住红线）；`beforeEach` 清理 5 个分区键避免跨用例污染。
+  - **验证总表**：`vitest run src/pages/resources` **205/205（11 文件）**；`tsc --noEmit` exit 0；`eslint src/pages/resources` 0 error 0 warning。无「既有失败」需区分。
+  - **✅ 附加：下拉底部「恢复默认列」（2026-10-08 补做）**：
+    - **动因**：用户把列取消到极简后，若无此入口只能手动逐个勾回 P0 高频列（host / generic_target 各需勾 5 次），属可避免的重复操作。PRD §3.1.3 未要求，故最初未擅自加；PM 复核后要求补。
+    - **实现**：`resourceColumnPrefs.ts` 增 `resetVisibleColumnKeys(category)`（**写入默认列集**而非 `removeItem` 清空——两者对 `loadVisibleColumnKeys` 结果等价，但写入后存储态与内存态始终一致，便于排查「用户是否重置过」，且复用 `orderColumnKeys` 归一化，默认集若含已下线列也能被正确过滤）；`isDefaultVisibleColumnKeys(category, keys)` 供禁用态判断。
+    - **UI**：`Checkbox.Group` 下方 `Divider` 分隔 + `Button type="link"`（图标 `ReloadOutlined`，文案「恢复默认列」），**已是默认列集时 `disabled`**（避免无意义点击）。
+    - **作用域**：仅作用于**当前 Tab**（按 `resource_category` 分区，与偏好存储口径一致），不会误伤其他 Tab 的偏好。
+    - **测试**：新增 2 条（「一键回到默认集并落库」：先勾掉 4 列至极简 `['实例名','操作']` → 点击恢复 → 断言列序与落库值；「禁用态与 Tab 独立性」：初始禁用 → 改动解禁 → 切 database 仍禁用 → 切回 host 仍为非默认）。`ResourcesPage.test.tsx` 71 → **73 条**。
+    - **验证**：`vitest run src/pages/resources` **207/207（11 文件）**；`tsc --noEmit` exit 0；`eslint src/pages/resources` 0 error 0 warning。
+
+### F-18. 资源列表缺平台 / 应用 / 服务三维筛选，四层模型只管录入不管查询（③ 动线）
+
+- **位置**：前端 `ResourcesPage.tsx` FilterBar（约 L820-905，现有 5 项：网域 / 业务 / 运行状态 / 采集状态 / 搜索）、`useResources.ts:73-79`（`ResourceFilters`）；后端 `platform/config/resource/query.go:37-47`（`ListFilter`）与 `:72-96`（`BuildListQuery`）；契约 PRD §6.1 资源列表 API、§11.1 页面状态矩阵。
+- **现状**：四层模型（决策 110/ 111 / 112）在**录入侧完整**（资源表单已有「平台 → 应用 → 服务」三级级联，`ResourceFormDrawer.tsx:355-401`），但**查询侧完全缺位**：
+  | 维度 | 录入 | 列表列展示 | 列表筛选 | 后端 `ListFilter` |
+  | --- | --- | --- | --- | --- |
+  | 平台 `platform_code` | ✅ 级联首项 | ✅ 有列 | ❌ | ❌ |
+  | 应用 `app_code` | ✅ 级联第二项 | ✅ 有列 | ❌ | ❌ |
+  | 服务 `service_code` | ✅ 级联第三项 | ✅ 有列（仅 application / generic_target） | ❌ | ❌ |
+  | 业务 `biz_code` | ✅ | ✅ 有列 | ✅ 有 | ✅ 有 |
+  | 网域 `network_domain_id` | ✅ | ✅ 有列 | ✅ 有 | ✅ 有 |
+  - 即：**用户建好平台 / 应用后，在资源列表无法按其筛选**，只能逐页翻或用关键字模糊搜；「该平台下有哪些实例」这一最自然的问句无法自助回答。
+  - 附带问题：`biz_code` / `status` 筛选当前是**前端过滤**（`useResources.ts:223-231` 注释明说「后端不支持该两筛选」），只对当页生效、总数不随筛选变化，属既有裁剪；新增三维筛选时应**一并下沉到后端**，否则筛选与分页总数不一致会加深误导。
+- **建议**：
+  - 后端 `ListFilter` 增`PlatformCode` / `AppCode` / `ServiceCode` 三字段，`BuildListQuery` 按类型追加等值条件（`service_code` 仅 application / generic_target 两类有该列，需按类型条件化，避免给 host / database / middleware 拼不存在的列导致 SQL 报错）；
+  - 五类资源表**均已有** `platform_code` 与 `app_code` 列（`resource_base.go:22` + `AppName` 语义列、`host.go:17/21`、`resource.go:55/61/83/89`），无需schema 变更；`service_code` 仅 `application`（`resource.go:99`）/ `generic_target`（`generic_target.go:11`）持有；
+  - 前端 FilterBar 增三个下拉，**按 Tab 条件化**：`service_code` 筛选仅在 application / generic_target 两类出现（与列口径一致）；`app_code` 下拉按所选 `platform_code` 级联过滤（复用 `app_platform_rel`，与表单级联同源）；
+  - 顺带把 `biz_code` / `status` 从前端过滤下沉到后端，消除分页总数不一致。
+  - 契约处理：PRD §6.1 资源列表查询参数表 + §11.1 「数据超量」行（现文只列关键字 / 网域 / 业务 / 状态）需同步补三维筛选。
+- **状态**：open → **2026-10-04 排入本轮实施**（契约层已先行落档，见下）
+  - **2026-10-03 契约层已先行落档**（PRD v2.51）：§6.1 查询参数表补`platform_code` / `app_code` / `service_code` 及条件化规则，并新增「列表筛选参数口径」段（四维对照表 +「筛选须下沉后端」条+ 条件化条）；§11.1「数据超量」行同步；§9.1 / §9.2 补验收项并标注「契约先落」。
+  - **2026-10-04 PM 裁定实施范围：本轮 = 三维筛选 + `biz_code` / `status` 下沉后端一起做**（五字段一次到位）。理由：契约 §6.1 L1289 已写明「本版仅落参数契约，实现与该裁剪修复由后续轮次排期」，本轮既排实现，则缺陷修复同批落地；且分页总数不一致是用户可直接观察到的错误，`FilterBar` 上「业务」「运行状态」两个筛选器摆在那里却只对当页生效，不能长期挂着。
+  - **范围锁定**（PM 已确认，按此实施）：
+    | 字段 | 性质 | 后端 | 前端 |
+    | --- | --- | --- | --- |
+    | `platform_code` | 新增 | `ListFilter` + `BuildListQuery` 等值条件 | FilterBar 首级下拉 |
+    | `app_code` | 新增 | 同上 | 下拉**按所选 platform_code 级联**（复用 `app_platform_rel`，与表单同源） |
+    | `service_code` | 新增 | 同上，**按 category 条件化** | 下拉**仅 application / generic_target 出现** |
+    | `biz_code` | **缺陷修复** | 由前端过滤改为后端等值条件 | **删除 `useResources.ts:223-231` 的前端过滤逻辑** |
+    | `status` | **缺陷修复** | 同上 | 同上 |
+  - **✅ 2026-10-07 已落地**（后端 `platform/config/resource/query.go` + 前端 `ResourcesPage.tsx` / `useResources.ts` / `api/resources.ts`）
+  - **⚠️ 本条两处原始记载不准确，实施时以代码为准修正如下**（记此以免后续再次误判）：
+    1. **`biz_code` / `status` 的后端能力本就存在，不是缺失**。`ListFilter.BizCode` / `Status` 与 `BuildListQuery` 的等值条件**早已就绪**（K-1 闭环时已加，注释与 `TestListResourcesBizCodeStatusFilter` 均可证），§4 也有「biz_code / status 筛选已闭环」的记载。**真实缺陷只在前端**——`load()` 从未把这两个 filter 放进请求参数，同时又在 `filteredList` 里当页过滤，**属后端能力空转**，而非「后端不支持」。故本轮后端**未重复实现**已有能力，只补三维；PRD §6.1 关于这两项的既有表述**无需改动**。
+    2. **`app_code` 的物理列名按类别不同**，dev-feedback原记载只提示了 `service_code` 需条件化，**漏了这一点且影响面更大**：
+       | 类别 | 物理列名 | 依据 |
+       | --- | --- | --- |
+       | host | **`app_code`** | `host.go` `AppCode`（决策92 后的新列） |
+       | database / middleware / application / generic_target | **`app_name`** | `ResourceBase.AppName`（决策 92「物理列名不改名」，语义已切换为 app_code 编码） |
+       - 若图省事直接写 `db.Where("app_code = ?")`，**host 正常而其余四类全部 SQL 报错**（4/5 类失效，比 `service_code` 的 3/5 更糟）。已抽 `appCodeColumn(category)` 按类别返回列名。
+  - **实施要点**：
+    - 后端：`ListFilter` 新增 `PlatformCode` / `AppCode` / `ServiceCode` 三字段（`ParseListFilter` 同步解析）；`BuildListQuery` 追加三段等值条件，`app_code` 走 `appCodeColumn(category)`、`service_code` 带 `&& hasServiceCode(category)` 守卫。
+    - **反向验证**：实施中临时去掉 `&& hasServiceCode(category)`，host/database/middleware 三类立即复现 `no such column: service_code`（`list.go:114 count host resources`），随后恢复——证明新增回归用例确实咬住了该缺陷。
+    - 前端：FilterBar 增平台 / 应用 / 服务三下拉（插在「网域」后、「业务」前），回退占位符 `全部平台` / `全部应用` / `全部服务`；`app_code` 下拉**按所选 `platform_code` 级联**（新增 `appPlatformRels` state + `appPlatformRelApi.list()`，与资源表单三级级联同源），**切换平台时清空 `app_code`**避免跨平台残留。
+    - **衍生边界（PM 范围表未明说，按「按 Tab 条件化」原则一并处理）**：切到host / database / middleware 三类时**主动清空 `service_code`**——否则会带着一个下拉不可见的生效筛选器静默过滤行，用户无从感知也无法清除。
+    - `useResources.ts` 的 `filteredList` memo 及其「后端不支持该两筛选」注释**整块删除**，`UseResourcesResult.filteredList` 字段一并移除；`ResourcesPage` 的 `coveredList` 改为基于 `data.list`（仅叠加 coverage 三态，属 M02 口径）。全仓 `grep filteredList` / 「后端不支持该两筛选」**零残留**。
+  - **测试**：
+    - 后端 4 个新用例，含 `TestListResourcesServiceCodeIgnoredOnNonServiceCategories`（逐类别 host/database/middleware 断言 200 + 条件被忽略）与 `TestHasServiceCodeAndAppCodeColumn`（把两个 schema 事实锁死，迁移破坏会先于运行时报错）；`go test ./platform/config/resource/...` **185 passed / 0 failed**。
+    - 前端 10 个新用例，含「『服务』筛选器仅在应用服务/其他监控目标 Tab 出现」逐 Tab 遍历断言；`vitest run src/pages/resources` **195 passed / 11 files**、`src/api/resources.test.ts` 33 passed。
+    - **行为变更的测试处置**：原 `filters rows by business client-side` 断言的正是前端过滤特征，随缺陷修复失效，已改写为两条「请求参数下发」断言并注明原特征已移除——**未为了让测试变绿把前端过滤加回来**。
+  - **验证总表**：`go build ./platform/...` exit 0；`go test ./platform/config/resource/...` 185/185；`vitest run src/pages/resources` 195/195；`tsc --noEmit` exit 0；`eslint src/pages/resources` 0 error 0 warning。
+  - **未做（有意留出裁定范围）**：`app_platform_rel` 每页多一次请求（MVP 分页从简下无影响，后续关系表变大可考虑惰性拉取或后端提供级联选项接口）；`is_monitored` 仍透传（M01 未实现时不生效）。
+  - **2026-10-08 审查后处置（三项遗留）**：
+    1. **`api-contract-snapshot.md` 已重新派生**（golang-reviewer 发现其滞后：只含 v2026-09-28 的**录入侧**增量，资源列表段缺本轮查询侧五参数，而前端以它为**第一权威**、漏字段会直接导致前端漏传参）。已在 §3 `GET /resources` 行补 `biz_code` / `status` / `platform_code` / `app_code` / `service_code`，并新增「四维筛选的类别条件化」说明表（含 `app_code` 物理列名按类别不同、`service_code` 仅两类生效、**其余三类静默忽略而非报错**），同时更新元信息的版本 / 生成方式 / 来源。**契约快照无生成脚本**（手工派生 + `scripts/review-precheck.sh` 校验），故本次为手工增量重派生。
+    2. **Go侧 `appCodeColumn` 兜底方向已统一**（golang-reviewer LOW-1）：原 `if host / else` 会让**未知 / 新增类别静默落到 `app_name`**；已改为穷举 `switch` + `default` 返回 `""`，`BuildListQuery` 加 `col != ""` 守卫——降级方向与 `hasServiceCode` 一致（不加条件而非猜列）。**新增 `TestColumnSchemaHelpersCoverAllCategories`** 用 `ValidResourceCategories()` 做**枚举完整性断言**（原测试逐个硬断言，新增枚举不会失败）；另断言未知类别两函数均不给出有效列名 / 真值。破坏验证已做：从 switch 删掉 `application`/`generic_target` → 用例红并提示「未覆盖权威枚举 "generic_target"」，恢复后全绿。
+    3. **`monitorState`（采集状态）前端过滤已**「**显式化**」**而非消除**（见下方遗留风险）**。
+       - **为何不能下沉**：`monitor_state` 是 **M02 `GET /api/v1/health/coverage` 的派生字段**（= M01 选中关系 × Prometheus up 聚合），**M07 五类资源表无该列**（grep 确认：`platform/` 下无 `monitor_state` 列定义，仅在 coverage handler / 测试中出现）。要下沉需**跨 M01/M02/M07 三模块**（要么在 M07 表冗余落库、要么让 M02 提供可分页的服务端筛选接口），**超出 F-18 范围与本轮能力边界**。
+       - **注意**：给 coverage API 传 `state` 参数（`CoverageHandler` 确实支持 `c.Query("state")`）**解决不了总数问题**——coverage 是**全量按 `resource_category` 返回**（前端 `page_size: 1000`），与 M07 列表的分页是**两套独立分页**，M02 无法回答「第 N 页中符合采集状态的行数」。
+       - **本轮处置：消除静默误导**。此前该限制完全静默，用户会误以为看到的是全量筛选结果；现于选中「采集状态」时展示 `Alert`（type=info）明确提示「仅过滤当前页；分页总数仍为未按此条件过滤的总数」，并说明其余五维均已服务端过滤。测试 `F-18：选中采集状态时提示其为前端过滤` 覆盖（未选时不提示 / 选中后提示）。
+       - **口径纠正（勿误读）**：F-18 修复的是 **5 个筛选维度中的 2 个**（`biz_code` / `status`）+ 新增 3 个（`platform_code` / `app_code` / `service_code`）共**五维走后端**；**「分页总数不一致」未被F-18 彻底消除**，`collection_status` 是唯一剩余的前端过滤维度。彻底消除的前置条件是 M02 提供可分页的服务端筛选接口或 M07 冗余落库状态列，**须单独立项跨模块评估**。
+
+### F-19. 服务字典「所属应用 / 主业务」关系维护：主业务为过度设计，只做「所属应用」（④ 需设计确认）
+
+- **位置**：`ServiceManagementPage.tsx` 表单仅 4 项（`service_code` / `service_name` / `description` / `enabled`，约 L358-398），**无 `app_code`、无 `biz_code`**；后端 `platform/config/resource/service.go:142-146`（Update 支持写入两字段）、`:190-212`（`validateServiceRelationRefs` 校验应用 / 业务引用有效性）、`platform/models/service_dict.go`（`AppCode` / `BizCode` 字段齐备）；契约 PRD §5.22 L1144-1145、§5.24 L1194-1195。
+- **现状（契约 vs 实现）**：PRD §5.22 与 §5.24 明确「服务字典维护页新增『所属应用 / 主业务』关系维护（决策 112）」且版本落点表列为 **MVP**；后端已完全就绪，**前端零实现**——四个字典页中只有应用页（`ApplicationDictPage`）真正落了关系维护。属**契约已定、实现缺位**。
+- **PM 裁定（拆分）**：
+  - ✅ **「所属应用」（`app_code`）保留并落地**——应用↔服务 1:N 关系紧密，是服务字典不可缺的关系权威；
+  - ❌ **「主业务」（`biz_code`）判定为过度设计，本轮不做**——服务与业务在当前场景**没有真实关联**，理由见下。
+- **「主业务」判定为过度设计的依据（消费方核查）**：全仓grep `.BizCode` 的读取点，服务字典 `ServiceDict.BizCode` 的命中**仅在服务字典自身的 CRUD 与校验路径**（`service.go` 的 to / Create / Update / `validateServiceRelationRefs`），**无任何业务消费方**：
+  - 标签生成（`config/label/generator*.go`）不读服务字典 `biz_code`——`svc` label 恒取 `service_code`，业务 label 走**资源行** `biz_code`；
+  - 配置生成（`configcenter/generator/targets.go`）注入 `biz_code` 时取的是**资源行** `h.BizCode` / `d.BizCode` / `a.BizCode` / `g.BizCode`，非服务字典；
+  - 仪表盘聚合（`dashboard/summary.go`）按**资源行** `biz_code` 归因，`ServiceDict.BizCode` 零参与；
+  - 前端 `ResourceFormDrawer` 的服务下拉过滤只用 `app_code`（`enabledServiceDicts`，L392-401），**不用 `biz_code`**。
+  - 结论：服务字典 `biz_code` 是一个**只写不读**的字段——写它需要用户在两个页面维护同一份业务归属（服务字典 + 资源行 / 表单），却没有任何功能消费，属于**制造维护负担而不产生价值**，符合「过度设计」判据。
+- **建议**：
+  - 本轮只做「所属应用」：服务管理页表单增「所属应用」下拉（数据源= 应用字典启用条目，参照 `ApplicationDictPage` 的多选平台实现），列表增「所属应用」列（展示 `app_name`，缺条目回退 `app_code`，停用加「（已停用）」）；
+  - 「主业务」**从 MVP 范围移出**，PRD §5.22 L1145 / §5.24 L1195 的「服务↔业务 N:1 主归属」由「MVP 交付维护表单」降级为 `{v0.3+}`（与 B 层对象拓扑同批）或标注「暂不落地，待出现真实消费方（如按业务域聚合服务 / 服务域视图）后再评估」，避免契约长期挂着无实现的空头条目；
+  - **后端不动**：`ServiceDict.BizCode` 字段与 CRUD 支持保留（不改 schema、不删接口，避免已落库数据与API 契约破坏），仅**前端不暴露入口**；待重新评估时该字段可直接启用。
+- **待设计侧确认**：PRD 上述降级涉及 §5.22 / §5.24 正文与版本落点表，须由设计侧回改（PM 已裁定方向，文档改动待执行）。
+- **状态**：~~open~~ → **2026-10-03 前端已落地**：`ServiceManagementPage.tsx` 新增 `applications` state（应用字典失败不阻塞主流程，缺条目按 `app_code` 回退）、「所属应用」下拉（仅启用应用可选、编辑态已停用历史归属保留为回显项并标「（已停用）」）、列表「所属应用」列（`app_name` → 回退 `app_code` → 未挂显示 `-`）；提交契约区分 `null`（摘除）/ `undefined`（不改）。**`biz_code` 前端零入口**（无字段、无列、无下拉）。后端 `ServiceDict.BizCode` 字段与 CRUD **未动**。
+  - **测试**：`ServiceManagementPage.test.tsx` 补 5 个F-19 用例（回显 / 摘除提交 null / 未改动时原样提交 / 停用应用回显 / 列表列解析），16/16 通过。
+  - **PRD 侧已同步**（v2.51）：§5.22 六处 + §5.24 四处 + 验收项 / 术语表 + 术语「服务↔业务」降级为 `{v0.3+}`，并写明「后端字段与 CRUD 保留不动，仅前端不暴露入口」。
+  - **遗留**：见下方「待设计侧确认」—— PRD 改写由设计侧 agent 于同轮完成（v2.51），此项可视为已闭环。
+
+### F-20. 资源详情抽屉标签行过臃肿：三行卡片改单行紧凑（③ 优化，**2026-10-03 已落地**）
+
+- **来源**：PM 在**另一会话**独立提出（非本次四项裁定范围），用户原话反馈「资源详情抽屉的标签样式太高、太臃肿」。该需求此前**只记在会话记忆、从未登记 dev-feedback**，实施轮才被发现与本轮 F-16 的 map 改名落在同一文件（`ResourceDetailDrawer.tsx`），故于 2026-10-04 补登为 F-20，以便 commit 分组时按来源分别归档。
+- **位置**：`ui-custom/web/src/pages/resources/ResourceDetailDrawer.tsx` 的 `renderLabelRow` / `renderSourceTag` / `renderAnnotation`（**逻辑零改动，纯样式与布局**）。
+- **现状（改进前）**：标签行为**三行灰底卡片**（第一行 key + 来源 Tag + 锁 + 文字按钮 / 第二行来源说明 / 第三行 value），含 `8px` padding + **`#FAFAFA` 硬编码背景**（不随皮肤切换），**≈96px / 条**。标签条数多时抽屉内纵向占位过大，需频繁滚动。
+- **改造要点**：
+  - 三行 → **单行 flex**：`key = value` + 来源说明 + 右侧（Tag / 锁 / 图标按钮），`padding: 6px 10px`；
+  - 去 `#FAFAFA` 硬编码色，改透明底 + `borderBottom: 1px solid tokens.colorBorderSecondary`——**顺带修掉硬编码色不随皮肤切换的既有问题**；
+  - 来源 Tag 改 `bordered={false}` + 12px / 18px 行高（去实心块观感）；
+  - 来源说明改 12px 次要色 + 单行 ellipsis，**仍保留在 DOM 中**（不可只塞进 Tooltip title，见下）；
+  - 编辑 / 删除改 **icon-only 按钮**，必须显式 `aria-label`（antd 图标的 aria-label 会混入 accessible name，否则 `getByRole('button', { name: /编\s*辑/ })` 匹配失败——见 skill `antd-icon-accessible-name-testing`）；
+  - 锁图标仅 `isApplication && !canEdit` 显示；编辑态整行替换为 `Space.Compact`，不叠加新行；
+  - 列表容器 `size={4}` + `maxHeight: 320` / `overflowY: auto`。
+  - **效果**：≈96px → **≈37px / 条**（降幅约 62%）。
+- **硬约束（改动时不可违反）**：来源说明文字「系统 / 用户 / CMDB · v0.4+ 预留」「手动添加」「来自 X · Y」及各按钮名，均为测试用 `getByText` / `getByRole` 断言的**既有契约**——产物只能改样式，**不得删除或改写文本**。（可复用经验：改 UI 密度前先 grep 测试里的 `getByText` / `getByRole` 断言，先确定哪些文本是契约。）
+- **状态**：~~open~~ → **2026-10-03 已落地**，`ResourceDetailDrawer.test.tsx` 28/28、`ResourcesPage.test.tsx` 50/50 通过，eslint 该文件无告警，**测试文件未改**（契约文本均未变动）。
+- **⚠️ 误判与恢复记录**：2026-10-03 复核时曾因该块不在四项裁定内、且注释含「保证文本仍可被 getByText 命中」字样，被误判为「为让测试通过而改产品 UI」的越界改造并 `git checkout` 回退；**PM 已指出该判断有误**——它是 F-20 这个正当需求的实现。已全量恢复（125+ / 53- 完整还原），并改写 F-13 下的错误留痕为「非越界，勿误判」。
+  - **纪律**：判断「越界」的判据应是**改动是否有人提出过的正当需求**，而非**改动量是否超出本轮任务清单**；本工作区常并存多会话未提交改动，回退前**必须先向 PM 确认来源**。

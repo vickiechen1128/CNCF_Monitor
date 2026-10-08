@@ -227,7 +227,7 @@ describe('ScrapeJobFormDrawer', () => {
   it('requires metrics_path and shows guidance for application_http', async () => {
     renderDrawer()
     await userEvent.type(screen.getByPlaceholderText('例如：prod-mysql-01'), 'app-job')
-    await selectCategoryAndType('应用', 'HTTP 应用')
+    await selectCategoryAndType('应用服务', 'HTTP 应用')
 
     // 引导文案 + 应用口径 placeholder
     expect(await screen.findByText(/应用采集地址来自资源台账/)).toBeInTheDocument()

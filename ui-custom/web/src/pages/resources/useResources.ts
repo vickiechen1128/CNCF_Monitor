@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { isApiError } from '../../api/client'
 import { resourceApi } from '../../api/resources'
 import type { ResourceListParams } from '../../api/resources'
@@ -16,6 +16,14 @@ export interface ResourceListItem {
   network_domain_id: string
   biz_code?: string
   app_code?: string
+  /**
+   * {v2026-09-28 决策 110} 平台归属：**资源行一等业务字段**（非派生），五类均返回。
+   * 后端 `GET /resources` 的 `sharedFields` 已含该字段并透传，空值返回空串。
+   * 列表 / 详情「平台」列以此为**唯一权威来源**，经 `GET /platform-dict` 解析 `platform_name`
+   * （缺条目回退 `platform_code`、停用标识「平台名（已停用）」）。
+   * 资源行留空时，`platform` 标签由所属应用主平台兜底（标签层兜底不回写本字段）。
+   */
+  platform_code?: string
   env?: string
   cluster?: string
   owner?: string
@@ -59,13 +67,21 @@ export interface ResourceListItem {
 
 /**
  * 资源列表筛选参数。
- * 网域 / 关键字 / 未监控走后端（T07-05 支持 network_domain_id / keyword / is_monitored）；
- * 业务 / 运行状态后端列表接口未提供，前端在当前页数据上过滤（MVP 分页从简，见 filteredList 注释）。
+ *
+ * 全部筛选（网域 / 业务 / 运行状态 / 平台 / 应用 / 服务 / 关键字）均**走后端**列表接口，
+ * 不在当前页数据上做前端过滤——否则筛选只对当页生效、与分页总数不一致（PRD §11.1）。
+ * F-18 起 biz_code / status 由前端过滤下沉为后端等值条件（K-1 闭环）。
  */
 export interface ResourceFilters {
   network_domain_id?: string
   biz_code?: string
   status?: string
+  /** 平台归属编码（决策 110），五类均支持 */
+  platform_code?: string
+  /** 应用归属编码（决策 92），五类均支持；下拉按所选 platform_code 级联 */
+  app_code?: string
+  /** 服务归属编码（决策 105），**仅 application / generic_target 两类支持** */
+  service_code?: string
   is_monitored?: boolean
   keyword?: string
 }
@@ -113,10 +129,8 @@ export interface UseResourcesResult {
   /** 当前资源类型 Tab（五类之一），切换后带 resource_category 重新请求列表 */
   category: ResourceCategory
   setCategory: (c: ResourceCategory) => void
-  /** 后端分页数据（total 为服务端全量总数） */
+  /** 后端分页数据（total 为服务端按全部筛选条件统计的总数） */
   data: Paginated<ResourceListItem>
-  /** 当前页经 biz_code / status 前端过滤后的行（后端不支持该两筛选） */
-  filteredList: ResourceListItem[]
   loading: boolean
   error: string | null
   permissionDenied: boolean
@@ -155,6 +169,16 @@ export function useResources(initialCategory: ResourceCategory = 'host'): UseRes
         page_size: pageSize,
         network_domain_id: filters.network_domain_id,
         keyword: filters.keyword,
+        // F-18：业务 / 运行状态由前端过滤下沉为后端等值条件（PRD §11.1），
+        // 使筛选作用于全量数据且分页总数与筛选一致。
+        biz_code: filters.biz_code,
+        status: filters.status,
+        // F-18：四层模型查询侧（决策 110/111/112）——平台 → 应用 → 服务三维筛选。
+        platform_code: filters.platform_code,
+        app_code: filters.app_code,
+        // service_code 后端按 category 条件化（仅 application / generic_target 有该列）；
+        // 其余三类即便传了该参数也会被后端忽略，不会 SQL 报错。
+        service_code: filters.service_code,
         // 未监控筛选：M01 维护、M07 只读透传（决策 31-M1），M01 未实现时后端不生效
         is_monitored: filters.is_monitored,
       }
@@ -212,23 +236,10 @@ export function useResources(initialCategory: ResourceCategory = 'host'): UseRes
     setLoading(true)
   }, [])
 
-  // 业务 / 运行状态后端列表接口未提供筛选（T07-05 仅支持 network_domain_id / keyword /
-  // is_monitored），前端在当前页数据上过滤。MVP 分页从简（默认 50/页、优先搜索/筛选，
-  // PRD §11.2），数据量小场景下该近似可接受；total 仍为服务端全量总数。
-  const filteredList = useMemo(() => {
-    const { biz_code, status } = filters
-    return data.list.filter((item) => {
-      if (biz_code && item.biz_code !== biz_code) return false
-      if (status && item.status !== status) return false
-      return true
-    })
-  }, [data.list, filters])
-
   return {
     category,
     setCategory,
     data,
-    filteredList,
     loading,
     error,
     permissionDenied,

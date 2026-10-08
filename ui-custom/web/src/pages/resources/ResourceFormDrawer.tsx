@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   AutoComplete,
@@ -17,16 +17,20 @@ import {
 import { networkDomainApi } from '../../api/domain'
 import {
   applicationDictApi,
+  appPlatformRelApi,
   businessDomainApi,
   osOptionApi,
+  platformDictApi,
   resourceApi,
   serviceDictApi,
 } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type {
+  AppPlatformRel,
   ApplicationDict,
   BusinessDomain,
   OSOption,
+  PlatformDict,
   ResourceCategory,
   ResourceCreateInput,
   ResourceStatus,
@@ -53,8 +57,8 @@ const RESOURCE_CATEGORY_MAP: Record<ResourceCategory, string> = {
   host: '主机',
   database: '数据库',
   middleware: '中间件',
-  application: '应用',
-  generic_target: '通用目标',
+  application: '应用服务',
+  generic_target: '其他监控目标',
 }
 
 /** 数据来源展示名（§5.2；cmdb 为 v0.4+ 预留） */
@@ -80,7 +84,7 @@ const DATABASE_TYPE_OPTIONS = ['mysql', 'redis', 'postgresql', 'oracle', 'dm8', 
 /** 中间件类型下拉（§5.7 middleware_type；mysql/redis 已移入 database_type） */
 const MIDDLEWARE_TYPE_OPTIONS = ['kafka', 'elasticsearch', 'nginx', 'zookeeper', 'rabbitmq', 'rocketmq']
 
-/** 通用目标采集协议（§5.9 scheme，默认 http） */
+/** 其他监控目标采集协议（§5.9 scheme，默认 http） */
 const SCHEME_OPTIONS = ['http', 'https']
 
 /** 操作系统家族展示名（os_dict.go：linux / windows） */
@@ -131,6 +135,9 @@ function buildCreateInput(category: ResourceCategory, values: Record<string, unk
     network_domain_id: String(values.network_domain_id),
     biz_code: String(values.biz_code),
     app_code: values.app_code ? String(values.app_code) : undefined,
+    // {v2026-09-28 决策 110} 平台归属（资源行一等字段）：留空则不下发该键（undefined），
+    // 由服务端按所属应用主平台兜底；不传空串，避免被当作显式取值。
+    platform_code: values.platform_code ? String(values.platform_code) : undefined,
     // 决策 103 scheme-B：cloud_code 不再随资源写请求体——云由所属网域派生（只读），
     // 表单无「云」录入项，服务端亦不接受该字段。
     env: String(values.env),
@@ -147,6 +154,9 @@ function buildUpdateInput(category: ResourceCategory, values: Record<string, unk
     network_domain_id: String(values.network_domain_id),
     biz_code: String(values.biz_code),
     app_code: values.app_code ? String(values.app_code) : undefined,
+    // {v2026-09-28 决策 110} 平台归属：编辑态**显式给出**——选中传编码、
+    // 清空传 null（表达「取消平台归属」），undefined 会导致「清空后不提交 → 平台残留」。
+    platform_code: values.platform_code ? String(values.platform_code) : null,
     // 决策 103 scheme-B：同新增，cloud_code 不经编辑请求体（云随所属网域派生）
     env: String(values.env),
     cluster: values.cluster ? String(values.cluster) : undefined,
@@ -230,6 +240,8 @@ function recordToFormValues(record: ResourceListItem): Record<string, unknown> {
     network_domain_id: record.network_domain_id,
     biz_code: record.biz_code,
     app_code: record.app_code,
+    // {v2026-09-28 决策 110} 平台归属回显：资源行一等字段；空串归一为 undefined 交由 Select 走未选态
+    platform_code: record.platform_code || undefined,
     env: record.env,
     cluster: record.cluster,
     owner: record.owner,
@@ -281,7 +293,7 @@ const portRules = [
   { type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' },
 ]
 
-/** 可选端口校验（应用/通用目标，port 非必填） */
+/** 可选端口校验（应用服务/其他监控目标，port 非必填） */
 const optionalPortRules = [{ type: 'number' as const, min: 1, max: 65535, message: '端口范围为 1-65535' }]
 
 /**
@@ -323,6 +335,11 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   const [applicationDicts, setApplicationDicts] = useState<ApplicationDict[]>([])
   // 服务字典（决策 105）：service_code 可选下拉取启用条目，仅 application / generic_target 渲染
   const [serviceDicts, setServiceDicts] = useState<ServiceDict[]>([])
+  // {v2026-09-28 决策 110} 平台字典：「平台归属」可选下拉取启用条目（资源行一等字段）
+  const [platformDicts, setPlatformDicts] = useState<PlatformDict[]>([])
+  // 决策 111：应用↔平台 M:N 关联（app_platform_rel）——应用下拉按所选平台过滤的数据源。
+  // 应用字典条目上的 platform_code 已废弃（决策 118-3），平台→应用的归属只能经本关联表反查。
+  const [appPlatformRels, setAppPlatformRels] = useState<AppPlatformRel[]>([])
   // 操作系统内置字典（仅 host 表单「操作系统」下拉使用，os_dict.go）
   const [osOptions, setOsOptions] = useState<OSOption[]>([])
   const [dictError, setDictError] = useState<string | null>(null)
@@ -331,12 +348,57 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   /** 编辑态以行 resource_category 为准，新增态取传入 Tab 类型 */
   const displayCategory = record?.resource_category ?? category
   const enabledBizDomains = businessDomains.filter((d) => d.enabled)
-  const enabledAppDicts = applicationDicts.filter((d) => d.status === 'enabled')
-  // 服务字典（决策 105）：下拉仅列启用条目；service_code 可选，留空不注入 svc 标签
-  const enabledServiceDicts = serviceDicts.filter((d) => d.enabled)
+  // {v2026-09-28 决策 110} 平台字典：下拉仅列启用条目（停用平台禁止新引用，§5C 红线④）
+  const enabledPlatformDicts = platformDicts.filter((d) => d.enabled)
   // §5.2 必填口径：application / database / middleware 必填，host / generic_target 可空
   const appCodeRequired =
     displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
+
+  /**
+   * {v2026-09-28 决策 110 ④} 表单级联：**先选平台 → 再选应用（按所选平台过滤）→ 再选服务**。
+   *
+   * 平台→应用的过滤依据**只能**是 `app_platform_rel`（决策 111 M:N）：应用字典条目上的
+   * 单值 `platform_code` 已废弃（决策 118-3 全仓生产消费者归零），不可用于派生。
+   * 未选平台时不做过滤（保持全量启用应用可选，避免「先选平台」成为硬前置）。
+   */
+  const selectedPlatformCode = Form.useWatch('platform_code', form) as string | undefined
+  const selectedAppCode = Form.useWatch('app_code', form) as string | undefined
+
+  /** 关联到所选平台的应用编码集合（未选平台时为 null，表示「不按平台过滤」） */
+  const appCodesOnSelectedPlatform = useMemo(() => {
+    if (!selectedPlatformCode) return null
+    return new Set(
+      appPlatformRels.filter((r) => r.platform_code === selectedPlatformCode).map((r) => r.app_code),
+    )
+  }, [appPlatformRels, selectedPlatformCode])
+
+  /** 应用下拉选项：启用条目 ∩ 所选平台关联集合（决策 110 ④ 级联过滤） */
+  const appDictOptions = useMemo(
+    () =>
+      applicationDicts.filter((d) => {
+        if (d.status !== 'enabled') return false
+        if (!appCodesOnSelectedPlatform) return true
+        return appCodesOnSelectedPlatform.has(d.app_code)
+      }),
+    [applicationDicts, appCodesOnSelectedPlatform],
+  )
+  // 应用下拉实际渲染时用（已按平台过滤）；未选平台时退化为全部启用应用
+  const enabledAppDicts = appDictOptions
+
+  /**
+   * 服务下拉选项（决策 110 ④「再选服务」）：`ServiceDict.app_code` 是应用↔服务 1:N 的
+   * 关系权威（决策 112），故按**所选应用**过滤；未选应用时不按应用过滤。
+   */
+  const enabledServiceDicts = useMemo(
+    () =>
+      serviceDicts.filter((d) => {
+        if (!d.enabled) return false
+        if (!selectedAppCode) return true
+        // 字典未声明所属应用（游离服务）不参与过滤，避免关系缺失即无法选择
+        return !d.app_code || d.app_code === selectedAppCode
+      }),
+    [serviceDicts, selectedAppCode],
+  )
 
   useEffect(() => {
     if (!open) return
@@ -345,7 +407,7 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     setSubmitError(null)
     if (mode === 'create') {
       form.resetFields()
-      // 仅预填 scheme:http（通用目标采集协议默认）；status 为 PRD 必填项，刻意不预填，强制用户显式选择
+      // 仅预填 scheme:http（其他监控目标采集协议默认）；status 为 PRD 必填项，刻意不预填，强制用户显式选择
       form.setFieldsValue({ scheme: 'http' })
     } else if (record) {
       form.resetFields()
@@ -353,22 +415,31 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
     }
     // 网域 / 业务字典 + 操作系统字典下拉（M06 网域清单 / §3.1 业务字典 / os_dict.go）
     // 决策 103 scheme-B：不再拉取云字典——表单无「云」录入项，云由所属网域派生。
+    // {v2026-09-28 决策 110}：增拉平台字典（「平台归属」下拉）。
     Promise.all([
       networkDomainApi.list({ page: 1, page_size: 100 }),
       businessDomainApi.list(),
       osOptionApi.list(),
       applicationDictApi.list(),
       serviceDictApi.list(),
+      platformDictApi.list(),
     ])
-      .then(([nd, bd, os, ad, sd]) => {
+      .then(([nd, bd, os, ad, sd, pd]) => {
         setNetworkDomains(nd.data?.list ?? [])
         setBusinessDomains(bd.data?.list ?? [])
         setOsOptions(os.data?.list ?? [])
         setApplicationDicts(ad.data?.list ?? [])
         setServiceDicts(sd.data?.list ?? [])
+        setPlatformDicts(pd.data?.list ?? [])
         setDictError(null)
       })
       .catch((err: Error) => setDictError(err.message))
+    // 决策 110 ④ 级联：应用↔平台 M:N 关联（app_platform_rel），用于按所选平台过滤应用下拉。
+    // 该数据仅影响级联过滤的收敛度，**加载失败静默降级**为「不按平台过滤」，不阻塞表单填写。
+    appPlatformRelApi
+      .list()
+      .then((res) => setAppPlatformRels(res.data?.list ?? []))
+      .catch(() => setAppPlatformRels([]))
   }, [open, mode, record, form])
 
   const handleSubmit = async () => {
@@ -396,6 +467,24 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       setSubmitError(err instanceof Error ? err.message : '提交失败，请稍后重试')
       setSubmitting(false)
     }
+  }
+
+  /**
+   * {v2026-10-03 决策 110 ④} 级联收敛：切换 / 清空「平台归属」后，若已选应用不再属于
+   * 新平台（或未选平台时为全量可用），则一并清空应用与服务选择——否则会残留
+   * 「应用不属于所选平台」的组合，提交时被服务端自洽性校验拒绝。
+   */
+  const handlePlatformChange = () => {
+    // setFieldsValue 不触发 onChange 递归；用 setTimeout 推至本轮渲染后读取最新 watch 值
+    setTimeout(() => {
+      const platform = form.getFieldValue('platform_code') as string | undefined
+      const appCode = form.getFieldValue('app_code') as string | undefined
+      if (!platform || !appCode) return
+      const stillValid = appPlatformRels.some((r) => r.platform_code === platform && r.app_code === appCode)
+      if (!stillValid) {
+        form.setFieldsValue({ app_code: undefined, service_code: undefined })
+      }
+    })
   }
 
   /** 五类资源共享字段（§5.2 公共字段） */
@@ -454,12 +543,41 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
           </Form.Item>
         </Col>
       </Row>
+      {/* {v2026-09-28 决策 110 ④} 级联首项：平台归属（资源行一等字段，可选）。
+          排在「应用」之前——平台归属是登记期第一个确定的业务信息；选中后应用下拉按平台过滤。 */}
+      <Row gutter={16}>
+        <Col span={12}>
+          <Form.Item
+            label="平台归属"
+            name="platform_code"
+            extra="可选：取平台字典启用条目；留空则按所属应用的主平台兜底"
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              allowClear
+              placeholder="请选择平台归属（可选）"
+              onChange={handlePlatformChange}
+            >
+              {enabledPlatformDicts.map((d) => (
+                <Select.Option key={d.platform_code} value={d.platform_code} label={`${d.platform_name} (${d.platform_code})`}>
+                  {d.platform_name} ({d.platform_code})
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Col>
+      </Row>
       <Row gutter={16}>
         <Col span={12}>
           <Form.Item
             label="应用"
             name="app_code"
-            extra="取应用字典启用条目；`app` 标签取编码，展示名由字典解析"
+            extra={
+              selectedPlatformCode
+                ? '仅列出关联到所选平台的应用；`app` 标签取编码，展示名由字典解析'
+                : '取应用字典启用条目；`app` 标签取编码，展示名由字典解析'
+            }
             rules={appCodeRequired ? [{ required: true, message: '请选择应用' }] : []}
           >
             <Select showSearch optionFilterProp="label" placeholder={appCodeRequired ? '请选择应用' : '请选择应用（可选）'} allowClear>

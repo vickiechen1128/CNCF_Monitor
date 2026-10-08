@@ -942,3 +942,199 @@ func TestValidateResourceInputForUpdate_KeepsDisabledServiceCode(t *testing.T) {
 		assert.Contains(t, err.Error(), "legacy-api")
 	})
 }
+
+// ---- 决策 110 硬校验单测（决策 118-5 强制门禁）----
+//
+// 此前 validatePlatformCode / ValidateResourceInputWithPlatform{,ForUpdate} 承载
+// 「命中启用平台 + 与所属应用关联平台集合自洽 + 编辑保留历史值」全部硬不变量，但
+// 全仓无任何测试直接调用（validate_test.go 只覆盖旧 ValidateResourceInput）⇒ 回归缺口。
+// 本组用例把三条不变量逐条钉住，并显式覆盖「refs 半初始化 ⇒ 放行」的非 fail-closed 行为。
+//
+// 夹具复用 app_platform_rel_test.go 的 newAppPlatformStore（in-memory sqlite +
+// logger.Discard）：启用平台 platform-a / platform-b / platform-c，停用平台
+// old-platform；启用应用 app-a / app-b。本组按需自行挂 app_platform_rel 关联。
+
+// platformTestRefs 注入平台字典 + 应用↔平台关联两个 store（决策 110 生产写链路同构）。
+// 三个 store 共用同一夹具 DB，保证「应用字典启用态」与「应用↔平台关联集合」同源
+// （openAppPlatformRelTestDB 已落启用应用 app-a / app-b、启用平台 platform-a~c、
+// 停用平台 old-platform）。
+func platformTestRefs(t *testing.T) *PlatformRefs {
+	t.Helper()
+	db := openAppPlatformRelTestDB(t)
+	return &PlatformRefs{
+		PlatformStore:    NewPlatformDictStore(db),
+		AppPlatformStore: NewAppPlatformStore(db),
+	}
+}
+
+// platformTestAppStore 返回与 platformTestRefs 同夹具的应用字典 store（app-a / app-b
+// 为启用条目），避免 app_code 启用态校验先于 platform 校验失败、掩盖被测分支。
+func platformTestAppStore(t *testing.T) *ApplicationDictStore {
+	t.Helper()
+	return NewApplicationDictStore(openAppPlatformRelTestDB(t))
+}
+
+// platformTestInput 构造通过其余校验的 database 输入，仅供 platform_code 分支测试。
+func platformTestInput(appCode, platformCode string) *ResourceInput {
+	return &ResourceInput{
+		NetworkDomainID: "default",
+		BizCode:         "payment",
+		AppCode:         appCode,
+		PlatformCode:    platformCode,
+		Cluster:         "pay",
+		Status:          "online",
+		Env:             "prod",
+		DatabaseType:    "mysql",
+		InstanceIP:      "10.0.0.10",
+		Port:            3306,
+	}
+}
+
+// TestValidateResourceInputWithPlatform_SelfConsistency 覆盖决策 110 ②：填值须命中
+// 启用平台字典条目，且须落在所属应用的关联平台集合内（自洽）；两条不变量各自正反覆盖。
+func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T) {
+	refs := platformTestRefs(t)
+	// app-a 关联 platform-a（含主平台）；app-b 不挂任何平台。
+	_, err := refs.AppPlatformStore.Create(models.AppPlatformRel{AppCode: "app-a", PlatformCode: "platform-a", IsPrimary: true})
+	require.NoError(t, err)
+
+	t.Run("自洽：启用平台且属于应用关联集合 ⇒ 通过", func(t *testing.T) {
+		in := platformTestInput("app-a", "platform-a")
+		require.NoError(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs))
+	})
+
+	t.Run("不在应用关联平台集合 ⇒ bad_request", func(t *testing.T) {
+		in := platformTestInput("app-a", "platform-b") // 启用但未关联 app-a
+		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "不属于应用")
+		assert.Contains(t, err.Error(), "app-a")
+	})
+
+	t.Run("引用停用平台 ⇒ bad_request", func(t *testing.T) {
+		in := platformTestInput("app-a", "old-platform") // 已登记但 enabled=false
+		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "未登记或已停用")
+	})
+
+	t.Run("未登记平台 ⇒ bad_request", func(t *testing.T) {
+		in := platformTestInput("app-a", "no-such-platform")
+		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "未登记或已停用")
+	})
+
+	t.Run("platform_code 留空 ⇒ 不校验（走应用主平台兜底）", func(t *testing.T) {
+		in := platformTestInput("app-a", "")
+		require.NoError(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs))
+	})
+
+	t.Run("应用无关联平台 ⇒ 跳过自洽（仅校验启用态）", func(t *testing.T) {
+		in := platformTestInput("app-b", "platform-a") // app-b 无任何关联
+		require.NoError(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs),
+			"应用无关联平台集合时不应做自洽比较（决策 110 自洽口径）")
+	})
+
+	t.Run("app_code 为空 ⇒ 跳过自洽（host 允许 app_code 留空）", func(t *testing.T) {
+		// host 的 app_code 可空（§10A），是「无所属应用」的唯一合法载体；
+		// database/middleware/application 的 app_code 必填，不适用于本分支。
+		in := validHostInput()
+		in.PlatformCode = "platform-a" // 启用平台，但无所属应用可比对
+		require.NoError(t, ValidateResourceInputWithPlatform(models.ResourceCategoryHost, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs))
+	})
+}
+
+// TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory 覆盖决策 110 /
+// 92 编辑保留历史值口径：请求体 platform_code 与资源当前值相同时，跳过全部平台校验
+// （停用平台 / 与应用平台集合不自洽的历史值均放行）；改为新值仍按创建口径拒绝。
+func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *testing.T) {
+	refs := platformTestRefs(t)
+	_, err := refs.AppPlatformStore.Create(models.AppPlatformRel{AppCode: "app-a", PlatformCode: "platform-a", IsPrimary: true})
+	require.NoError(t, err)
+
+	t.Run("保留停用平台历史值 ⇒ 放行", func(t *testing.T) {
+		in := platformTestInput("app-a", "old-platform")
+		require.NoError(t, ValidateResourceInputWithPlatformForUpdate(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, &KeepDisabledValues{PlatformCode: "old-platform"}, refs))
+	})
+
+	t.Run("保留与当前应用不关联的历史值 ⇒ 放行（解绑不强制改写）", func(t *testing.T) {
+		in := platformTestInput("app-a", "platform-c") // 启用但未关联 app-a
+		require.NoError(t, ValidateResourceInputWithPlatformForUpdate(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, &KeepDisabledValues{PlatformCode: "platform-c"}, refs),
+			"决策 111：应用解绑平台后，资源行既有 platform_code 不受解绑影响")
+	})
+
+	t.Run("改为新的不自洽值 ⇒ 仍拒绝", func(t *testing.T) {
+		in := platformTestInput("app-a", "platform-c")
+		err := ValidateResourceInputWithPlatformForUpdate(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, &KeepDisabledValues{PlatformCode: "old-platform"}, refs)
+		require.Error(t, err, "keep 仅豁免同名历史值，改为新值仍须过自洽校验")
+		assert.Contains(t, err.Error(), "不属于应用")
+	})
+
+	t.Run("改为新的停用平台 ⇒ 仍拒绝", func(t *testing.T) {
+		in := platformTestInput("app-a", "old-platform")
+		err := ValidateResourceInputWithPlatformForUpdate(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, &KeepDisabledValues{PlatformCode: "platform-a"}, refs)
+		require.Error(t, err, "停用条目不可新选，keep 不豁免不同值")
+		assert.Contains(t, err.Error(), "未登记或已停用")
+	})
+}
+
+// TestValidatePlatformCode_HalfInitializedRefsPasses 固化「refs 半初始化 ⇒ 放行」的
+// **非 fail-closed** 行为（决策 118 遗留 MEDIUM-1）。
+//
+// ⚠️ 此处放行是**已知风险面**，不是推荐口径：validatePlatformCode 在 refs==nil 或
+// 任一子 store 为 nil 时直接 return nil，platform_code 的存在性 / 自洽校验被**静默跳过**。
+// 因此**禁止半初始化 `PlatformRefs`**——新增任何资源写路径（POST / PUT / Excel 导入）
+// 时必须同时注入 `PlatformStore` 与 `AppPlatformStore`，否则该路径的决策 110 硬校验
+// 形同虚设且无任何报错。此断言的作用是把该风险显式钉在测试里，供后续新增写路径时
+// 由评审对照；一旦生产链路改为 fail-closed，本用例应随之反转。
+func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T) {
+	t.Run("refs == nil ⇒ 放行（仅供单测跳过）", func(t *testing.T) {
+		in := platformTestInput("app-a", "platform-totally-unknown")
+		require.NoError(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, nil),
+			"refs 为 nil 时跳过平台校验，行为与旧 ValidateResourceInput 一致")
+	})
+
+	t.Run("PlatformStore == nil ⇒ 放行", func(t *testing.T) {
+		refs := &PlatformRefs{AppPlatformStore: NewAppPlatformStore(openAppPlatformRelTestDB(t))}
+		in := platformTestInput("app-a", "platform-totally-unknown")
+		require.NoError(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs))
+	})
+
+	t.Run("AppPlatformStore == nil ⇒ 跳过自洽（启用态仍校验）", func(t *testing.T) {
+		refs := &PlatformRefs{PlatformStore: NewPlatformDictStore(openAppPlatformRelTestDB(t))}
+		// 自洽被跳过 ⇒ 即便不属于任何应用关联集合也放行。
+		in := platformTestInput("app-a", "platform-a")
+		require.NoError(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs))
+		// 但启用态校验仍生效：停用平台依旧被拒。
+		inDisabled := platformTestInput("app-a", "old-platform")
+		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, inDisabled,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "未登记或已停用")
+	})
+
+	t.Run("不带 keep 的创建态不受 keep 豁免影响", func(t *testing.T) {
+		refs := platformTestRefs(t)
+		_, err := refs.AppPlatformStore.Create(models.AppPlatformRel{AppCode: "app-a", PlatformCode: "platform-a", IsPrimary: true})
+		require.NoError(t, err)
+		in := platformTestInput("app-a", "platform-b")
+		require.Error(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs),
+			"创建态（keep=nil）不做任何豁免")
+	})
+}

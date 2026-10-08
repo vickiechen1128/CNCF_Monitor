@@ -542,7 +542,9 @@ docs/02-product-requirements/Modules/Module_XX_*.md
 | "PRD 还没 ready，但可以先开发" | Track A 禁止。Track B/B+ 允许以 dev-ready 轻量规格直派开发，但前提是：分轨判定已留痕、验收清单已前置、用户已书面确认、豁免记录已落档 |
 | "Plan 版本和 PRD 版本差一点没关系" | 版本不对齐意味着 Plan 已经过时，必须重新派生 |
 | "开发中改 PRD 不用走 CR" | 除非影响极小且只记录到 design-decisions.md，否则必须走 CR |
-| "前端任务用全量 pnpm test 验收更方便" | 全量测试 100 秒+，会放大 flaky 和反馈延迟。开发期必须用单文件测试，全量只在 Phase 收尾/合并前执行 |
+| "前端任务用全量 pnpm test 验收更方便" | 全量实测**约 17 分钟**（8 GB 机型，94 文件 / 915 用例；其中测试执行仅 2.8 min，84% 花在按文件重复的模块转换上），会大幅拉长反馈延迟。默认用 `pnpm vitest run --changed <base>` 做变更范围回归 + `typecheck:test` + `pnpm lint`；全量只在用户明确要求、合并前把关、或改动跨 ≥3 顶层目录/触及 `src/api/`·`src/types/`·`src/test/` 共享层时执行。详见 frontend-developer「测试时长与范围控制」与 `02_Frontend_Standard.md` §12 |
+| "多开几个 worker 就能把全量测试跑快" | 8 GB 机型实测 4 worker、`pool=threads` 均被系统 SIGKILL（exit 137）。慢在文件数 × 转换开销，**减少被测文件数才是唯一有效手段**；`vitest.config.ts` 的 `maxWorkers: 2` 是实测上限，不得为提速调高 |
+| "全量跑得慢，是不是测试本身有问题" | 测试执行仅占 16%，与测试逻辑无关。优先改用 `--changed` 缩小范围，而非排查用例 |
 
 ---
 

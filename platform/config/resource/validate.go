@@ -2,6 +2,7 @@ package resource
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"strings"
@@ -230,7 +231,9 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *
 //     否则「平台 xxx 不属于应用 yyy 的关联平台」；app_code 为空 / 应用无关联
 //     平台时不校验自洽。
 //
-// refs 为 nil（或子 store 为 nil）时跳过平台校验（仅供单元测试）。
+// refs 为 nil（或子 store 为 nil）时跳过平台校验并打 warn 日志（仅供单元测试
+// 便捷调用；生产写路径必须注入完整 PlatformRefs，见 create.go / update.go /
+// import.go 三处构造点）。
 func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisabledValues) error {
 	code := strings.TrimSpace(in.PlatformCode)
 	if code == "" {
@@ -240,6 +243,12 @@ func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisab
 		return nil // 编辑保留历史平台值（停用 / 不自洽均放行）
 	}
 	if refs == nil || refs.PlatformStore == nil {
+		// 非 fail-closed 是有意取舍（refs 为 nil 仅供单元测试），但静默放行会让
+		// 「新增写路径漏注入 PlatformRefs」演变为无痕的平台校验失效。故打显式
+		// 告警日志：控制流不变（零行为变更、零测试影响），但把静默失效转为
+		// 可疑信号。生产三处构造点（create.go / update.go / import.go）均已完整
+		// 注入两个 store，出现此日志即代表新增写路径遗漏。
+		log.Printf("[resource-validate] platform_code=%q 校验被跳过：PlatformRefs 或 PlatformStore 为 nil（写路径未注入平台 store？）", code)
 		return nil
 	}
 	enabled, err := refs.PlatformStore.GetEnabledMap()
@@ -250,8 +259,13 @@ func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisab
 		return fmt.Errorf("平台 %s 未登记或已停用，请在『平台管理』页登记或启用后重试", code)
 	}
 	appCode := strings.TrimSpace(in.AppCode)
-	if appCode == "" || refs.AppPlatformStore == nil {
+	if appCode == "" {
 		return nil // 无所属应用时不校验自洽
+	}
+	if refs.AppPlatformStore == nil {
+		// 同上：自洽校验静默失效的可疑信号，不改控制流。
+		log.Printf("[resource-validate] platform_code=%q 与 app_code=%q 的自洽校验被跳过：AppPlatformStore 为 nil（写路径未注入应用平台关联 store？）", code, appCode)
+		return nil
 	}
 	platforms, err := refs.AppPlatformStore.PlatformCodesOf(appCode)
 	if err != nil {

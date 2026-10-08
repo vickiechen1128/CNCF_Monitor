@@ -19,7 +19,8 @@ vi.mock('./EdgeAgentDrawer', () => ({
 }))
 
 const navigateMock = vi.fn()
-const searchParamsMock = vi.fn<[], URLSearchParams>()
+// vitest 2.x 的 vi.fn 只接受**一个**类型参数（函数签名本身），不是 v1 的 <TArgs, TReturn>
+const searchParamsMock = vi.fn<() => URLSearchParams>()
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>()
   return {
@@ -30,6 +31,8 @@ vi.mock('react-router-dom', async (importOriginal) => {
     useSearchParams: () => [searchParamsMock(), vi.fn()],
   }
 })
+
+type AgentRowOver = Partial<AgentView>
 
 function mockSearchParams(sp: URLSearchParams) {
   searchParamsMock.mockReturnValue(sp)

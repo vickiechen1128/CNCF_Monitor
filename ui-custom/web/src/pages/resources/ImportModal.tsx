@@ -30,8 +30,8 @@ const RESOURCE_TYPE_MAP: Record<ResourceCategory, string> = {
   host: '主机',
   database: '数据库',
   middleware: '中间件',
-  application: '应用',
-  generic_target: '通用目标',
+  application: '应用服务',
+  generic_target: '其他监控目标',
 }
 
 /** 导入模式说明（§6.1 / §5.16.2，create_only 默认；upsert 按判重键覆盖更新）。文案经 F-9 用户评审改为场景化人话，标签与后端 mode 枚举对应，默认 create_only */

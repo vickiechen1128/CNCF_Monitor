@@ -41,6 +41,20 @@ type ListFilter struct {
 	BizCode string
 	// Status 按运行状态精确筛选（枚举 online/offline/maintenance，PRD §11.1）。
 	Status string
+	// PlatformCode 按平台归属编码精确筛选（决策 110 / F-18）。
+	// 五类资源表均含该列（resource_base.go / host.go / resource.go），无需条件化。
+	PlatformCode string
+	// AppCode 按应用归属编码精确筛选（决策 92 / F-18）。
+	// ⚠️ 物理列名**按类别不同**：host 为 app_code（host.go AppCode），
+	// database / middleware / application / generic_target 为 app_name
+	// （历史列名，语义已切换为 app_code 编码，见 resource_base.go AppName 注释）。
+	// 故列名选择必须按 category 分支，见 BuildListQuery 的 appCodeColumn。
+	AppCode string
+	// ServiceCode 按服务归属编码精确筛选（决策 105 / F-18）。
+	// ⚠️ 仅 application（resource.go ServiceCode）/ generic_target（generic_target.go
+	// ServiceCode）两类持有该列；host / database / middleware **无该列**，
+	// 必须按 category 条件化追加条件，否则拼该列会直接 SQL 报错。
+	ServiceCode string
 	// IsMonitored 由 M01 维护、M07 只读映射；M01 未实现时透传不生效（见 T07-05）。
 	IsMonitored string
 	PageParams
@@ -54,8 +68,53 @@ func ParseListFilter(values url.Values) ListFilter {
 		Keyword:         values.Get("keyword"),
 		BizCode:         values.Get("biz_code"),
 		Status:          values.Get("status"),
+		PlatformCode:    values.Get("platform_code"),
+		AppCode:         values.Get("app_code"),
+		ServiceCode:     values.Get("service_code"),
 		IsMonitored:     values.Get("is_monitored"),
 		PageParams:      ParsePageParams(values),
+	}
+}
+
+// appCodeColumn 返回该类别下承载 app_code 语义的**物理列名**。
+//
+// 决策 92 只统一了语义（资源侧只存 app_code 编码），未统一物理列名：
+//   - host：AppCode → 列 app_code（host.go）
+//   - database / middleware / application / generic_target：AppName → 列 app_name
+//     （resource_base.go / resource.go，历史列名沿用不改名）
+//
+// 五类均存在该列，仅列名不同，故按 category 返回而非条件化掉。
+//
+// **穷举 switch 而非 `if host / else`**（golang-reviewer LOW-1）：原实现的 else 兜底会把
+// 未知/新增类别静默落到 `app_name`。若将来新增第 6 类且其 app_code 语义列名为
+// `app_code`（如沿用 host 布局），则不报错、但筛选恒空或错筛——属最难排查的一类
+// latent bug。改为穷举后，新增枚举会落入 `default` 返回 ""，配合 BuildListQuery 的
+// `col != ""` 守卫表现为「不加该条件」，方向与 hasServiceCode 一致且安全。
+//
+// ⚠️ **新增 ResourceCategory 枚举时必须同步本 switch**（`TestAppCodeColumnCoversAllCategories`
+// 已用 `ValidResourceCategories()` 做完整性断言，漏改会测试失败）。
+func appCodeColumn(category models.ResourceCategory) string {
+	switch category {
+	case models.ResourceCategoryHost:
+		return "app_code"
+	case models.ResourceCategoryDatabase, models.ResourceCategoryMiddleware,
+		models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget:
+		return "app_name"
+	default:
+		// 未知类别：不返回任何列名，由调用方跳过该条件（不静默猜列）
+		return ""
+	}
+}
+
+// hasServiceCode 报告该类别是否持有 service_code 列（决策 105）。
+// 仅 application / generic_target 两类可挂服务字典归属；
+// host / database / middleware 无该列，拼条件会直接 SQL 报错（F-18 核心坑点）。
+func hasServiceCode(category models.ResourceCategory) bool {
+	switch category {
+	case models.ResourceCategoryApplication, models.ResourceCategoryGenericTarget:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -63,6 +122,9 @@ func ParseListFilter(values url.Values) ListFilter {
 //
 //   - network_domain_id 等值筛选；
 //   - biz_code / status 等值筛选（五类资源表均含 biz_code / status 列）；
+//   - platform_code 等值筛选（五类资源表均含该列，决策 110）；
+//   - app_code 等值筛选（按 category 取物理列名 app_code / app_name，决策 92）；
+//   - service_code 等值筛选（**仅 application / generic_target 追加**，决策 105）；
 //   - keyword 对「名称 + IP」做模糊匹配（LIKE），列按类型选取：
 //     host=(instance_name, private_ip)、database/middleware=instance_ip、
 //     application=(service_name, endpoint)、generic_target=(target_name, instance_ip)；
@@ -78,6 +140,21 @@ func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter)
 	}
 	if f.Status != "" {
 		db = db.Where("status = ?", f.Status)
+	}
+	// 决策 110：平台归属为资源行一等字段，五类表均有 platform_code 列。
+	if f.PlatformCode != "" {
+		db = db.Where("platform_code = ?", f.PlatformCode)
+	}
+	// 决策 92：app_code 语义统一但物理列名按类别不同（host=app_code，其余=app_name）。
+	// col 为 "" 表示类别未知（appCodeColumn default 分支）→ 不拼条件，
+	// 避免用猜测列名拼出恒空/错筛的查询（golang-reviewer LOW-1）。
+	if col := appCodeColumn(category); f.AppCode != "" && col != "" {
+		db = db.Where(col+" = ?", f.AppCode)
+	}
+	// 决策 105：service_code 仅 application / generic_target 持有该列，
+	// 其余三类必须跳过，否则引用不存在列 → SQL 报错（F-18 回归防护点）。
+	if f.ServiceCode != "" && hasServiceCode(category) {
+		db = db.Where("service_code = ?", f.ServiceCode)
 	}
 	if f.Keyword != "" {
 		like := "%" + f.Keyword + "%"

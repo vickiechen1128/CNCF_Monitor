@@ -1030,9 +1030,12 @@ system 标签（由标签模板自动生成）：
 <a id="sec-change-log完整历史"></a>
 ## Change Log（完整历史）
 
-> v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载逐版完整变更详情（业务沟通决策记录）。2026-08-18 结构改造后，PRD 仅保留最近 3 版，v2.7 ~ v2.12 已补迁入本表；2026-08-19 v2.19 落版后再补迁 v2.15 / v2.16；2026-09-10 v2.31 落版后再补迁 v2.28；2026-09-14 v2.32 落版后再补迁 v2.29；2026-09-15 v2.34 落版后补迁 v2.30 / v2.31（自 PRD Change Log 轮转迁入，v2.33 轮空时未迁出的两版一并补齐）。 v2.35 于 2026-09-18 v2.38 落版后自 PRD Change Log 轮转迁入本表。v2.37 于 2026-09-19 v2.40 落版后自 PRD Change Log 轮转迁入本表。v2.38 于 2026-09-19 v2.41 落版后自 PRD Change Log 轮转迁入本表。v2.39 于 2026-09-25 v2.42 落版后自 PRD Change Log 轮转迁入本表。v2.40 于 2026-09-25 v2.43 落版后自 PRD Change Log 轮转迁入本表。v2.43 于 2026-09-27 v2.46 落版后自 PRD Change Log 轮转迁入本表。v2.44 于 2026-09-27 v2.47 落版后自 PRD Change Log 轮转迁入本表。v2.45 于 2026-09-28 v2.48 落版后自 PRD Change Log 轮转迁入本表。v2.46 于 2026-09-28 v2.49 落版后自 PRD Change Log 轮转迁入本表
+> v1.6 起主 PRD Change Log 精简为最近 3 版一句话摘要；本小节承载逐版完整变更详情（业务沟通决策记录）。2026-08-18 结构改造后，PRD 仅保留最近 3 版，v2.7 ~ v2.12 已补迁入本表；2026-08-19 v2.19 落版后再补迁 v2.15 / v2.16；2026-09-10 v2.31 落版后再补迁 v2.28；2026-09-14 v2.32 落版后再补迁 v2.29；2026-09-15 v2.34 落版后补迁 v2.30 / v2.31（自 PRD Change Log 轮转迁入，v2.33 轮空时未迁出的两版一并补齐）。 v2.35 于 2026-09-18 v2.38 落版后自 PRD Change Log 轮转迁入本表。v2.37 于 2026-09-19 v2.40 落版后自 PRD Change Log 轮转迁入本表。v2.38 于 2026-09-19 v2.41 落版后自 PRD Change Log 轮转迁入本表。v2.39 于 2026-09-25 v2.42 落版后自 PRD Change Log 轮转迁入本表。v2.40 于 2026-09-25 v2.43 落版后自 PRD Change Log 轮转迁入本表。v2.43 于 2026-09-27 v2.46 落版后自 PRD Change Log 轮转迁入本表。v2.44 于 2026-09-27 v2.47 落版后自 PRD Change Log 轮转迁入本表。v2.45 于 2026-09-28 v2.48 落版后自 PRD Change Log 轮转迁入本表。v2.46 于 2026-09-28 v2.49 落版后自 PRD Change Log 轮转迁入本表。v2.47 于 2026-10-03 v2.51 落版后自 PRD Change Log 轮转迁出（该行本表此前已存，v2.51 落版时 PRD 只保留 v2.51 / v2.50 / v2.49 最近 3 版，未重复新增行）
 | 版本    | 日期         | 变更类型 | 变更内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 影响范围                                                   | 产品版本影响                   | 状态    |
 | ----- | ---------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | ------------------------ | ----- |
+| v2.49 | 2026-09-28 | 修改 | **吸收 design-proposal `object-relation-topology`（决策 110 / 111 / 112）**：`platform` 定性纠正——非派生标签、资源行一等字段 `platform_code`（修订决策 104、作废决策 108 §5.12.1）；应用↔平台改 M:N（`app_platform_rel` + `is_primary`）；服务字典加关系字段（`app_code` / `biz_code`）+ 双轨定位（归属聚合 / 对象拓扑）；新增 §5.24；原型需同步。PRD 落点：§5.2 / §5.12.1 / §5.13 / §5.15 / §5.16.1 / §5.16.2 / §5.18 / §5.19 / §5.21 / §5.22 / §5.23 / §5.24 / §6 / §9 / §10 |
+| v2.48 | 2026-09-28 | 修改 | **dev-feedback 回填 F-5 / F-11**：F-5 修 `instance_name` 矛盾（§5.2 以 §5.12.1 A 为准、通用行补适用范围、移除 `hostname` 死键）；F-11 采集地址——`health_check_url` 恢复可选（仅资源画像，不参与采集）、`endpoint` + `port` 必填（`port` 1~65535）；契约修订、原型无需同步。PRD 落点：§5.2 / §5.8 / §5.12.1 |
+| v2.47 | 2026-09-27 | 修改 | 补四层聚合口径（§5.15 权威）：`sum by (platform)` / `(app)` / `(svc)` / `(resource_id)`，禁 `sum by (instance)`；§5.13 加指针、§10 消歧（决策 109）。PRD 落点：§5.13 / §5.15 / §10 |
 | v2.45 | 2026-09-27 | 修改 | **实体层级骨架增量（决策 104~107，吸收 design-proposal `service-biz-app-four-layer-hierarchy`）**：①顶层定名 `platform`（平台，放弃 `system`——撞名 `ResourceLabel.source=system` / 「system 层」/ `os_dict`，决策 104）；②服务标签定名 `svc`（新建 `ServiceDict`、放弃 `service`——撞名 §5.15 机制 B 归一规则与既有 `service_name`，决策 105）；③`biz` 语义升级为「一组上下游关联 `service` 构成的服务子图」（字段结构 / label / 必填口径零改动，决策 106）；④四层骨架 `platform(1) → app(N) → service(M) → instance(K)` 吸收进 PRD + T4 1:N 边界契约登记（决策 107）。新增 §5.21 平台字典（PlatformDict）/ §5.22 服务字典（ServiceDict）/ §5.23 服务依赖（`service_dependency`，归 M07 对象层、**MVP 不落表**，{v0.3+} P2 预留）；§5.19 应用字典新增**可选父级** `platform_code`；§5.2 新增**可选** `service_code` 字段（仅 application / generic\_target 适用）；§5.8 粒度说明重写；§5.12.1 映射表 / §5.13 默认模板补 `svc`（`platform` 为派生标签不在模板映射）；§5.15 关联键表新增 `svc` / `platform` + 机制 B 修订（业务侧 `service` 标签归一目标由 `app` 改 `svc`，`biz→app` 不变）；§5.16.1 / §5.16.2 声明 sheet 由两扩为四（增「平台声明」/「服务声明」）；§3.1.4 字典维护区；§6.1 平台 / 服务字典接口；§10 术语行 + 四列对照。详版见 design-decisions | 3.1.4 / 5.2 / 5.8 / 5.12.1 / 5.13 / 5.15 / 5.16.1 / 5.16.2 / 5.18 / 5.19 / 5.21 / 5.22 / 5.23 / 6.1 / 10 / Change Log | MVP 生效（`PlatformDict` / `ServiceDict` 字典本体；「平台 → 子系统」分层可视化界面归 {v0.2}；`service_dependency` 归 {v0.3+}） | ready |
 | v2.46 | 2026-09-27 | 修改 | **吸收 design-proposal `resource-ownership-relation-typing`（决策 108）**：五类资源归属三分型（**组成** application / 业务型 generic\_target、**依赖** database / middleware、**部署** host）+ host 归属键（身份键 `(instance_ip, network_domain_id)`、归属主键走部署维度）+ `platform` 派生降级口径（只依赖是否填 `app_code`）；零新增字段 / 零改必填 / 零改表结构。§5.2 补「五类资源归属关系分型」+「资源归属键口径」两段、§5.6 补主机归属键、§5.12.1 改派生降级口径、§10 补三分型术语行。详版见本文件决策 108（2026-09-28 v2.49 落版后自 PRD Change Log 轮转迁入） | 5.2 / 5.6 / 5.12.1 / 10 / Change Log | MVP 生效 | ready |
 | v2.44 | 2026-09-26 | 修改 | **实体模型收敛（决策 103 / M06 决策 78，推翻决策 102）**：`cloud_code` 由 Resource 五类共享字段**上提为 NetworkDomain 行政字段（M06 §5.2，必填）**，资源侧删除、改经网域派生；位置三标签（network_domain / cloud / zone）统一 target 级 system 层注入；主机默认模板删 `cloud_code → cloud` 映射行（决策 98 模板机制被取代）；§5.2 删 Resource `cloud_code` 字段行、§5.4 位置属性单一事实来源重写、§5.6 删 Host `cloud_code` 字段行、§5.16.1 五类导入模板列删 `cloud_code`、§5.20 承载位置改 M06 §5.2、§6.1 列表改派生、§9.1 验收改网域必填、§11.2 云/分区展示规则同步。详版见 design-decisions（2026-09-27 v2.47 落版后自 PRD Change Log 轮转迁入） | 5.2 / 5.4 / 5.6 / 5.13 / 5.16.1 / 5.20 / 6.1 / 9.1 / 11.2 / Change Log | MVP 生效 | ready |
@@ -2433,6 +2436,7 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 > **`service_code` 与 `service_name` 关系（评审 T5-②）**：资源侧 `service_code` **可选**、留空即纯自由文本、向后兼容；资源行既有必填 `service_name` **MVP 不改**、仍参与 application 判重键 `(domain, service_name, endpoint)`；填写 `service_code` 时 `service_name` 宜与字典展示名一致（**软约束、不强校验**）。
 > **适用范围（评审 T5-⑥）**：`service_code` **仅 application / generic\_target** 记录；host / database / middleware **不挂**（基础设施非服务）。
 > **投放**：§5.2 字段 + 适用范围、§5.8 粒度说明、§5.12.1 `service_code → svc`、§5.13 默认模板（application / generic\_target）、§5.15 关联键表 + 机制 B、§5.16.1 / §5.16.2（「服务声明」sheet 由决策 97 通道延伸）、§5.22 服务字典、§3.1.4、§6.1、§10。
+> **⚠️ 实现缺口补记（2026-10-03，决策 115）**：`svc` 映射行在 `DefaultMappingBuilders` **已实现**，但存量库默认模板**未回填**（与决策 110 同源缺口），实测 application / generic\_target 的 `default-*` 缺 `svc`。已由**决策 115** 补 `ensureSVCMapping`。本决策其余内容（命名 `svc`、适用范围仅 application / generic\_target、`service_name` 保留）**维持有效**。
 
 ---
 
@@ -2495,6 +2499,8 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 > **作废**：决策 108 §5.12.1「`platform` 派生降级口径」条**作废**（见决策 108 内修订注记）。
 > **投放**：Module_07 PRD v2.49 §5.2（字段行 + 说明段）/ §5.12.1（映射表 + 缺位口径）/ §5.13（五类默认模板 + `platform_code → platform`）/ §5.15（关联键表 + 规则 6）/ §5.16.1 / §5.16.2（导入列 + 平台存在性校验）/ §5.21 / §5.24 / §6.1 / §9 / §10 / Change Log；Module_01 PRD v3.50（§5.1.9 标签注入 / §10 术语 `platform`）。
 > **影响**：`platform` 注入点由「应用父级派生」改为「资源行字段映射」，属**跨模块契约级**变更（M01 标签注入 / M09 target 生成）——见顶层契约区 **T6**。
+> **⚠️ 实现缺口补记（2026-10-03，决策 115）**：本决策「五类默认模板新增 `platform_code → platform` 行」在 `DefaultMappingBuilders` 侧**已实现**，但**种子未对存量库回填**（`firstOrCreate` 只创建不更新），实测库内 5 条 `default-*` 仍缺 `platform` ⇒ `sum by (platform)` 无数据。已由**决策 115** 补 `ensurePlatformMapping` 并确立「映射变更必须配套幂等回填」规约。本决策其余内容（定性纠正、一等字段、兜底口径）**维持有效**。
+> **⚠️ 实现缺口补记二（2026-10-03，决策 118）**：决策 115 补的映射行**在主路径上被静默覆盖**——`mergeLabels` 的 system 保护语义使 `ResolveJobTargets` 从**已废弃** `ApplicationDict.PlatformCode` 注入的 system 层 `platform` 压过模板映射，且 `PrimaryPlatformOf` 零生产调用致「应用主平台兜底」完全未生效。根因是本决策 ②「不走配置生成器 system 层派生」**只写在契约、代码未跟随**。已由**决策 118** 把 `platform` 注入点唯一权威钉死为模板层（system 层停注 + 兜底前移物化）并补冲突测试门禁。本决策 ①③④（资源行可空一等字段 / 派生降为兜底 / 登记表单先选平台）**全部维持有效且已由 118 确认落地口径**。
 
 ---
 
@@ -2506,6 +2512,7 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 > **`is_primary` 唯一性约束**：同一 `app_code` **至多一个 `is_primary=true`**（服务端唯一性校验、应用表单「主平台」单选）；`platform` label 兜底恒取该唯一主平台。
 > **平台停用 / 解绑处置**：① **平台停用**——存量关联**保留历史值、不自动解绑**（沿用字典「停用不删除」），应用 / 资源侧以「平台名（已停用）」标识、禁止新引用；② **解绑**——应用解除与某平台关联时，若某资源 `platform_code` 悬空且该资源未显式填，登记期**不强制改写、仅提示**；资源行显式填的 `platform_code` **不受解绑影响**（一等字段优先）。
 > **存量迁移**：存量应用的单值 `platform_code` **一次性转入 `app_platform_rel`（一行、`is_primary=true`）**，迁移后应用侧 `platform_code` 字段**废弃**（§5.19）。
+> **✅ 退役进度确认（2026-10-03，决策 118）**：本决策「迁移后应用侧字段废弃」此前**只完成写链路退役**（`Update` 不接收 + `TestApplicationDictPlatformCodeWriteIgnored` 覆盖），**读取侧仍被 `ResolveJobTargets` 消费**（按废弃单值派生 `platform`，与决策 110 冲突）。**决策 118 起 generator 停止读取 ⇒ 该字段全仓生产消费者归零**，物理列保留至 {v0.2} 随决策 117 统一评估清理。本决策的 `is_primary` 唯一性约束、停用 / 解绑处置、存量迁移规则**全部维持有效**。
 > **投放**：Module_07 PRD v2.49 §5.19（定位改 M:N、字段废弃、迁移）/ §5.21（层级角色改 M:N + 停用 / 解绑处置）/ §5.24（关联表定义）/ §6.1（`app-platform-rel` 接口）/ §9 / §10 / Change Log。
 > **影响**：M01 标签注入的 `platform` 兜底来源随之改变——与决策 110 同属 **T6** 契约（M01 / M09）。
 
@@ -2524,6 +2531,116 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 
 ---
 
+<a id="sec-决策115-默认标签模板回填"></a>
+## 决策 115：默认标签模板映射变更必须配套幂等种子回填 + 立即补 `platform` / `svc`（2026-10-03）
+
+> **来源**：2026-10-03 缺陷诊断（四层改造后五类默认标签模板未含 `platform` / `svc`）；用户已确认路径「**A 止血 → 评估 B → C 根治排期**」。
+> **背景（证据索引）**：① 实测 `metric_center.db` 的 `label_templates`——5 条 `default-*` 仅含 `instance`(composite) / `resource_id` / `app` / `env` / `cluster` / `biz`（application 另含 `service_name` / `health_check_url`），**`platform_code→platform` 五类全缺、`service_code→svc` 在 application / generic_target 缺**；② `platform/models/label_template.go:41-82`（`DefaultMappingBuilders`）**已正确产出** platform（五类）与 svc（application / generic_target）；③ `platform/db/seed/label_template.go:14` 用 `firstOrCreate`（= `platform/db/seed/seed.go:57` GORM `FirstOrCreate`）**只创建、不更新**；④ 默认模板不可删（`platform/config/label/template_crud.go:248`）、新建恒 `IsDefault=false`（`:143`）。
+> **根因**：决策 105 / 110 只改了 `DefaultMappingBuilders`，**未配套「存量库回填函数」**；而默认模板是**种子一次写入、事后不可变**结构 ⇒ 新映射只对新库生效，存量库**静默缺标签**。唯一先例 `ensureResourceIDMapping`（2026-09-02 补 `resource_id`）证明该模式已知，**本次漏配**。
+> **选项**：
+> | 方案 | 做法 | 存量库生效 | 风险 |
+> |------|------|-----------|------|
+> | A | 补 `ensurePlatformMapping` + `ensureSVCMapping`（按 `target_label` 判存 → append → Save） | ✅ | 低 |
+> | B | A + 补类别专属行对齐 PRD §5.13 | ✅ | 低-中 |
+> | C | 默认模板加 `version`，版本低于当前即整体重建 mappings | ✅ | 中 |
+> | D | 改 target 级强制注入（决策 103 scheme-B 那一路） | ✅ | 中 |
+> **推荐（用户已确认）**：**先 A 止血**；**B 转评估**（决策 116）；**C 作根治单独排期**（决策 117）。**不采纳 D**——与决策 110「`platform` 走标签模板 `resource_field` 映射注入」口径冲突，且会使模板页与实际注入标签不一致。
+> **结论（决策 115）**：① **通用规约**——**任何新增 / 变更默认标签模板映射，必须同时写一个幂等回填函数**（按 `target_label` 判存后 append + Save，模式见 `ensureResourceIDMapping`）；仅改 `DefaultMappingBuilders` **只对新库生效**，视为**未完成落地**；② **本轮立即执行**：补 `ensurePlatformMapping`（五类）+ `ensureSVCMapping`（application / generic_target），在 `runLabelTemplates` 循环内调用；③ **补防回归测试**：夹具预置「旧版 `default-*` 模板」后跑种子，断言 `platform` / `svc` 已入库（现有单测只测 `DefaultMappingBuilders` 函数级，**测不到存量库路径**）。
+> **PRD 改动**：**零改动**——PRD §5.12.1 / §5.13 已规定 `platform_code→platform`（五类）与 `service_code→svc`（application / generic_target），本决策属**实现对齐契约**，非契约变更。
+> **投放（代码落点）**：`platform/db/seed/label_template.go`（新增两个 ensure 函数 + 调用）、`platform/db/seed/label_template_test.go`（新增存量库回填测试）；任务 **T07-105**。
+> **验证口径**：`go test ./platform/db/... -count=1`；启动后 5 条 `default-*` 均含 `platform`，application / generic_target 含 `svc`；**存量 Job 需重新生成配置**（标签在生成 `prometheus.yml` 时注入）方可生效。
+> **影响**：修复后 `sum by (platform)` / `sum by (svc)` 四层聚合（决策 109）恢复可用；**存量环境（含 Ubuntu 部署环境）需逐一核查**——「新库正常、存量库异常」属**静默故障**，不报错。
+> **✅ 已落地（2026-10-03，T07-105，commit `ccd43b9`）**：`ensurePlatformMapping` / `ensureSVCMapping`（+ 通用原语 `ensureLabelMapping`）已实现，并在 `runLabelTemplates` 循环内调用；新增存量库路径防回归测试（夹具预置旧版 `default-*`、断言五类含 `platform` 且 svc 仅落 application / generic_target、二次运行不重复）。实测 `metric_center.db`：五类 `default-*` 均已含 `platform`，application / generic_target 含 `svc`。**遗留**：存量 Job 需**重新生成采集配置**方生效，须进发布说明并逐一核查存量环境。
+> **⚠️ 止血范围修正（2026-10-03，决策 118）**：本决策确立的「映射变更必须配套幂等种子回填」规约**维持有效、继续作为 {v0.2} 之前的兜底**；但需澄清其**能力边界**——回填只保证「模板里存在该映射行」，**不保证该行能生效**。`platform` 的映射行此前被 system 层同名标签静默覆盖（见决策 118-1 真值表），使本轮止血仅在「应用无废弃 `platform_code`」这一路径上有效。**补充规约**：映射回填后须验证**注入点无同名 system 层标签竞争**（generator 侧冲突用例为门禁，决策 118-5）。
+
+---
+
+<a id="sec-决策116-类别专属行对齐评估"></a>
+## 决策 116：五类默认模板类别专属行对齐 PRD §5.13（评估项，2026-10-03）
+
+> **来源**：同批诊断发现的**次级缺口**（与四层改造无因果关系）。
+> **背景**：即便**全新库**，`DefaultMappingBuilders`（`platform/models/label_template.go:61-69`）共享切片仅 `instance` / `resource_id` / `platform` / `app` / `env` / `cluster` / `biz`，缺 PRD §5.13 的类别专属行——host：`hostname` / `instance_name` / `os_type`；middleware：`middleware_type`；database：`database_type`；generic_target：`target_name`。
+> **结论（决策 116）**：**转评估项，本轮不执行**。评估要点：① 确认这些标签是否另有运行时注入路径（`platform/query/targets.go:139,302` 已注入 `instance_name`，其余在 `configcenter` 未发现注入点）；② 若确为遗漏，按**决策 115 规约同时**补 `DefaultMappingBuilders` + 幂等回填（不可只改函数）；③ 评估**基数影响**——`os_type` / `*_type` 低基数可接受；`instance_name` 高基数，且 §5.13 已注「`instance` 仅作抓取身份、不作稳定关联键」，需一并复核是否值得进 label。
+> **状态**：**评估中（不阻断 MVP）**；任务 **T07-106**。
+
+---
+
+<a id="sec-决策117-默认模板版本化重建"></a>
+## 决策 117：默认标签模板版本化重建机制（根治项，排期 {v0.2}，2026-10-03）
+
+> **来源**：同批诊断；用户确认为**根治项**、单独排期。
+> **背景**：决策 115 的「通用规约」仍依赖**人记得补 ensure 函数**——每新增一个映射就新增一个函数，是同类缺陷的**复发通道**（`resource_id` 已漏过一次、`platform` / `svc` 再漏一次）。
+> **结论（决策 117）**：**根治方案 = 默认模板版本化重建**，排期 **{v0.2}**，本轮不执行。机制要点：① `LabelTemplate` 增 `template_version`（默认模板专用，用户模板不受影响）；② 由 `DefaultMappingBuilders` 的规范映射集计算版本 / checksum；③ 种子启动时比对：**默认模板版本低于当前即整体覆盖** `mappings`（默认模板不可编辑 ⇒ 可安全覆盖）；④ **取代逐条 ensure 函数**，从机制上消除「漏补」。
+> **落地前置**：需先确认「存量默认模板上是否存在手工改动」（当前不可编辑 ⇒ 可安全覆盖），以及存量 Job 重新生成配置的**触发方式**（标签生效依赖配置重生成）。
+> **关联**：决策 115（规约，{v0.2} 之前靠它兜底）、决策 116（评估项，若采纳则按新机制落地）。任务 **T07-107**。
+
+---
+
+<a id="sec-决策118-platform注入点唯一权威"></a>
+## 决策 118：`platform` 注入点唯一权威归一（模板层）+ 废弃字段退役与测试门禁（2026-10-03）
+
+> **来源**：`golang-reviewer` / `frontend-reviewer` 对 `f34895f..HEAD`（M07 资源管理全量 + T07-105）的双审查。两位 Reviewer 独立收敛到同一根因：**决策 110 的契约正确、实现未跟随**，导致决策 115 的止血在主路径失效。
+> **性质**：**代码符合性决策（PRD 零改动）**——PRD v2.49 §5.2（L374）/ §5.12.1（L728）/ §5.13（L854）/ §5.15（L868）**已明确规定**「`platform` 由资源行 `platform_code` 一等字段经标签模板 `resource_field` 映射注入、未填时兜底取应用 `is_primary` 平台」；本决策**不新增契约**，只把已定契约的**注入点唯一权威**钉死，并补齐实现与门禁。
+
+### 118-1 根因：system 层覆盖导致 T07-105 止血在主路径失效
+
+`mergeLabels`（`platform/configcenter/generator/labels.go:11-25`）的合并规则是 **system 标签受保护、user（模板）不可覆盖**：
+
+```go
+for k, v := range user { if _, protected := system[k]; !protected { out[k] = v } }
+```
+
+而 `ResolveJobTargets`（`platform/configcenter/generator/targets.go:262-275`）至今仍按**已废弃**的决策 104 / 107 / 108 旧语义，从 `ApplicationDict.PlatformCode`（决策 111 已定为**废弃只读**字段）注入 system 层 `platform`。两者叠加导致运行时真值表：
+
+| 场景 | system 层 | 模板映射 | 最终 `platform` | 判定 |
+|---|---|---|---|---|
+| 资源填 `platform_code` **且**应用有废弃字段 | 废弃字段值 | **被覆盖** | 废弃字段值 | ❌ 用户填的值被静默丢弃 |
+| 资源填 `platform_code`、应用废弃字段为空 | 不注入 | 模板值 | 模板值 | ✅ 唯一走通路径 |
+| 资源留空、应用有废弃字段 | 废弃字段值 | 无 | 废弃字段值 | ⚠️ 碰巧对，来源错误 |
+| 资源留空、走主平台兜底 | 不注入（`PrimaryPlatformOf` **零生产调用**） | 无 | **缺失** | ❌ 决策 110 兜底完全未生效 |
+
+⇒ **决策 115 的 `ensurePlatformMapping` 只补了「模板里有没有这行映射」，没解决「这行映射能否生效」**。止血在「应用无废弃字段」时才有效，属**静默失效**（不报错、`sum by (platform)` 仍空或串值）。
+
+### 118-2 结论：`platform` 注入点唯一权威 = target 级标签模板映射层
+
+- **`platform` 产出方唯一 = 模板层**（`expandLabelTemplate` 的 `platform_code → platform` `resource_field` 映射），即决策 110 ②「不走配置生成器 system 层派生」的**排他性确认**。
+- **system 层禁止再注入 `platform`**——废止决策 104 / 107 / 108 的「经应用父级 `platform_code` 派生」实现（该实现本已被决策 110 修订、决策 108 §5.12.1 作废，代码未跟随）。`systemLabels` 保留 `resource_id` / `network_domain` / `cloud` / `zone`（决策 47-3 / 103，**不受本决策影响**）。
+- **兜底物化规则（消除覆盖、不新增注入点）**：在 `expandLabelTemplate` **之前**，若资源行 `platform_code` 为空、且所属应用存在 `is_primary` 平台，则将其**写入本次展开所用的字段视图**（`rt.Fields["platform_code"]`）。由此——资源已填 → 模板出资源值；资源留空 + 有主平台 → 模板出主平台值；两者皆无 → `expandLabelTemplate` 的 `v != ""` 判空跳过、**不注入**（§5.2「空值且应用无主平台时不注入」天然满足）。**不新增 label、不新增机制**，仅前移一步取值。
+- **通用规约（防复发，纳入工程基线）**：**同一 label 不得同时由 system 层与模板层产出**。若二者都写，则因 `mergeLabels` 的 system 保护语义，模板层取值被静默覆盖——此类冲突**必须由代码评审拦截**，不得依赖「恰好取值一致」。新增 system 层标签时须先确认无同名模板映射，反之亦然。
+
+### 118-3 废弃字段退役与收敛
+
+- `ApplicationDict.PlatformCode`（模型已注「Deprecated，仅供一次性迁移读取」）：写链路**已于决策 111 停止维护**（`Update` 仅接受 `app_name` / `description` / `status`，有 `TestApplicationDictPlatformCodeWriteIgnored` 覆盖）；**本决策起 generator 停止读取**，该字段**全仓生产消费者归零**。
+- **字段物理列保留不删**（停用不删除惯例 + 决策 117 的 {v0.2} 版本化重建窗口需比对存量），**退役登记**：`{v0.2}` 随决策 117 机制统一评估清理。
+- 前端 `ApplicationDictCreateInput.platform_code?` / `ApplicationDictUpdateInput.platform_code?` 类型声明**移除**（后端写链路已忽略该字段，保留即误导源）；响应类型可保留只读兼容。
+
+### 118-4 前端链路缺口（资源行一等字段未贯通）
+
+审查确认两处 HIGH，**后端 `GET /resources` 无需改动**——`sharedFields`（`platform/config/resource/list.go:27-38`）已含 `platform_code`、`buildListItem`（L200-208）经 `GetResourceField` 已透传：
+
+- **写链路缺口**：`ResourceCreateBaseShape` / `ResourceUpdateBaseShape`（`ui-custom/web/src/types/resource.ts:145-157` / `219-230`）缺 `platform_code`，`ResourceFormDrawer` 无该表单项 ⇒ 资源行一等字段**在 UI 上无法录入**，「资源行 > 主平台兜底」优先级链第一级被人为掐断。
+- **读链路缺口**：资源列表 / 详情「平台」列从**已废弃**的 `ApplicationDict.platform_code` 派生（`ResourcesPage.tsx:316-319` / `ResourceDetailDrawer.tsx:221-226`）⇒ 用户在应用管理页建立的 `app_platform_rel` 关系在资源视图**恒显示「-」**，M:N 关系 UI 成「写入后不可见」的死功能。
+- **表单级联顺序**：按决策 110 ④「**先选平台 → 再选应用（按所选平台过滤）→ 再选服务**」补齐 `platform_code` 可选下拉（数据源 `GET /platform-dict` 仅启用项，UI 展示名「平台归属」）。
+
+### 118-5 测试门禁（缺口根因，禁止再复发）
+
+- **generator 冲突用例（强制）**：`TestResolveTargetsInjectsDerivedPlatformLabel` 现有 3 个子用例**全部传 `tmpl = nil`**（`generator_test.go:966 / 973 / 981`），而 `expandLabelTemplate` 对 `tmpl == nil` 直接早退返回空 ⇒ 「模板与 system 同键冲突」这一组合**从未被测过**；且夹具造的是资源与 app **同值**，即便打通也测不出优先级反转。**须补**：传**真实模板** + 「资源 `platform_code` ≠ 应用 `is_primary` 平台」用例，断言最终 `platform` 取**资源行值**。
+- **`validatePlatformCode` 单测（强制）**：决策 110 硬校验（`platform/config/resource/validate.go:234-269`）与 `ValidateResourceInputWithPlatform{,ForUpdate}` 承载「命中启用平台 + 与所属应用关联集合自洽 + 编辑保留历史值」全部不变量，但**全仓无任何测试直接调用**（`validate_test.go` 仍只覆盖旧 `ValidateResourceInput`）⇒ 补正反用例。
+- **测试类型检查（新增脚本，不动生产构建）**：`ui-custom/web/tsconfig.json` 的 `exclude` 排除 `*.test.ts(x)` 是**有意设计**（`docs/03-engineering-standards/02_Frontend_Standard.md:206-226`——生产构建不应纳入 Vitest 类型冲突），**本决策不改该口径**。缺口在「测试文件里的类型错误无人拦截」：`resources.test.ts` 曾以运行时对象字面量携带 `platform_code` 断言「已接通」，而入参类型不含该字段，**测试运行通过、类型不通过**。**须新增独立 `typecheck:test` 脚本 + `tsconfig.test.json`**（仅 `include` 测试文件）并接入 `pnpm test` 前置或 lint，**不改 `pnpm build` 的 `tsc`**。
+
+### 118-6 落点与影响
+
+| 项 | 内容 |
+|---|---|
+| **PRD** | **零改动**——v2.49 §5.2 / §5.12.1 / §5.13 / §5.15 已规定本决策要落地的行为，本决策只做实现符合性 |
+| **变更文件（后端）** | `platform/configcenter/generator/targets.go`（停止 system 注入 `platform` + 兜底前移物化）/ `platform/configcenter/generator/generator_test.go`（冲突用例） |
+| **变更文件（前端）** | `ui-custom/web/src/types/resource.ts`（写类型 + 移除废弃输入字段）/ `src/pages/resources/ResourceFormDrawer.tsx`（平台下拉 + 级联）/ `src/pages/resources/ResourcesPage.tsx` + `ResourceDetailDrawer.tsx`（平台列取权威来源）/ `src/pages/resources/ApplicationDictPage.tsx`（提交不含废弃字段）/ `tsconfig.test.json` + `package.json`（新脚本） |
+| **跨模块** | **T6 续办**：M09 target 生成本轮由 M07 侧一并修复（`configcenter/generator` 虽属 M09 资产，但行为由 M07 决策 110 / 118 直接约束）；M01 侧标签注入契约**无需再改**（§5.1.9 已按决策 110 更新） |
+| **存量影响** | 已生成 `targets/*.json` / `prometheus.yml` **须重新生成**方生效（system 层改动不回溯历史文件）——与决策 115 的存量核查**合并为同一条发布说明** |
+| **关联** | 决策 110（① 补实现缺口注记）/ 111（废弃字段消费者归零）/ 115（止血范围修正）/ 117（{v0.2} 退役评估窗口）；T6 契约行补记 |
+
+---
+
 <a id="sec-跨模块契约登记顶层契约区"></a>
 ## 跨模块契约登记（顶层契约区）
 
@@ -2533,8 +2650,123 @@ MVP 仅 `snmp` 可建 Job 走通完整映射；三个 k8s 监控对象类型 {v0
 |------|--------|--------|-----------|----------|
 | **T4** | 2026-09-27 | **四层骨架 1:N 边界**：`service` 跨 `app`（一个服务横跨多个应用）、`app` 跨 `platform`（一个应用横跨多个平台）在单父 1:N 下装不下；且 `service:biz` 主归属唯一时「非主归属」如何表达未定义 | M01（标签注入）/ M09（target 生成）/ M02（查询聚合是否感知 `svc` / `platform`）/ M05（应用明细表是否回显服务 / 平台维度） | **已定处置（2026-09-27，M07 侧）：MVP 维持单父约束、不引入多值字段；1:N 边界降级为 {v0.2+} 评估项，启动时再与 M01 / M09 对齐。** 判定依据：① `service_code` 为**可选字段**且 MVP 无「一个服务横跨多应用」的强诉求（design-proposal `resource-ownership-relation-typing` §3.2 定「立项归属 N:1、申请时定死」，与决策 92「`app_code` 单值不可变编码」一致）；② `app → platform` 与 `service → app` 同为单父，无多父强诉求。**{v0.2+} 候选方案（若届时出现跨应用服务）**：新增**中间关联表**（如 `app_service_relation`，`service_code ↔ app_code` 多值）或 **`service` 字典加可重复引用**——此为评估项，**候选方案与「`service:biz` 非主归属表达」均待 {v0.2+} 启动时与 M01（多值 label 注入）/ M09（target 生成）对齐后再定**，MVP 不做。**（2026-09-28 更新：其中「`app` 跨 `platform`」一项**已被决策 111 推翻**——应用↔平台改 M:N（`app_platform_rel`）、**MVP 落地**；「`service` 跨 `app`」与「`service:biz` 非主归属表达」**仍维持 {v0.2+} 评估**）** |
 | **T5** | 2026-09-27 | **M05 首页「按云分布」聚合（`by_cloud`）跨模块数据链路**：M05 首页新增按云分布区块，聚合字段 `by_cloud[]`（`cloud_code` / `cloud_name` / `resource_count` / `monitored_count` / `coverage_rate`），本期仅 host；需 M06 提供 `cloud_code` 权威（网域 `cloud_code` 必填）、M02 覆盖率聚合链路支持按云分组 | M06（云 `cloud_code` 网域必填权威）/ M02（按云聚合链路）/ M09（网域配置下发） | **已结案（2026-09-27）**：① **M05 侧**——`cloud` 经网域 `cloud_code` 派生、必填零空洞（M06 §5.2 / M07 决策 103），`by_cloud` 与既有 `by_app` / `by_category` 并列、向后兼容，本期仅 host（host 归属主键走部署维度，决策 108）；已落 M05 PRD v1.10 / v1.11。② **M06 侧——已落地**：网域 `cloud_code` 权威与配套收口（登记 / 编辑字段、列表筛选、表单下拉、可编辑口径）落 M06 PRD **v2.18**（决策 84），`cloud_code` 必填、零空洞成立。③ **M02 侧——判定「无需变更」**：`by_cloud` 的三个字段（资源数 / 已采数 / 覆盖率）均由 **platform 后端（metric-center）在 `dashboard/summary` 内经 DB 关联聚合**（Resource 表 × 网域 `cloud_code`），与既有 `by_category` / `by_app` **同构**；**不涉及 Prometheus、不涉及 M02 的 `/api/v1/health/coverage`**（后者按 `up` 指标聚合、回答「已监控且 up / down」，与 dashboard 的「是否被 Job 覆盖」是**两个语义**，不可混用）。故「M02 按云聚合链路」**不成立、无需任何 M02 改动**。④ **M09**：`cloud_code` 变更触发采集配置重新生成 / 下发（见 M06 决策 84），已在其配置生成链路内，无需单列。**本行自此结案，MVP 内不再作为悬挂项。** |
-| **T6** | 2026-09-28 | **`platform` label 注入点变更 + 应用↔平台 M:N 的跨模块承接**：决策 110 将 `platform` 注入由「应用父级派生」改为「资源行 `platform_code` 一等字段经标签模板 `resource_field` 映射注入（派生降为兜底）」；决策 111 将应用↔平台改 M:N（`app_platform_rel` + `is_primary`）。需 M01 改标签注入契约、M09 生成 target 时按新映射出 `platform` | M01（标签注入契约 / §5.1.9）/ M09（target 生成）/ M07（`Resource.platform_code` + `app_platform_rel`）/ M02（查询是否需感知兜底语义） | **已定处置（2026-09-28，M07 侧已落 PRD v2.49）**：① **M07 侧落地**——`platform_code` 资源行一等字段 + 五类默认模板 `platform_code → platform` 映射 + `platform` 缺位口径（未填且应用无主平台则不注入）；② **M01 侧同步**——Module_01 PRD **v3.50**（§5.1.9 标签注入 / §10 术语 `platform` 改为「资源行一等字段」口径）；③ **M09 侧**按 §5.12.1 / §5.13 映射生成 target、无需新增机制（沿用 target 级标签模板映射注入）；④ **M02 侧**兜底语义为注入侧职责、查询侧无需变更（`platform` 取值仍来自 label）。 |
-| **T7** | 2026-09-28 | **M08（告警分析）/ M05（看板）默认下钻维度建议**：label 维度分层（决策 112）——`platform` 为高维 / 粗粒度，不应作告警分析 / 看板默认下钻入口；运维排障默认维度应为 `app` / `svc` / `network_domain` / `resource_category`，`platform` 退为可选顶层过滤器 | M08（告警分组 / 降噪 / 分析视图默认维度）/ M05（看板下钻入口默认维度） | **建议登记（2026-09-28，{v0.2+}）**：M07 侧仅登记建议、不单模块定论；M08 / M05 在 {v0.2+} 设计时采纳「默认中 / 低维起步、`platform` 为可选顶层」口径。依据见 design-proposal `object-relation-topology` §3.6。**本行不阻断 MVP**。 |
+| **T6** | 2026-09-28 | **`platform` label 注入点变更 + 应用↔平台 M:N 的跨模块承接**：决策 110 将 `platform` 注入由「应用父级派生」改为「资源行 `platform_code` 一等字段经标签模板 `resource_field` 映射注入（派生降为兜底）」；决策 111 将应用↔平台改 M:N（`app_platform_rel` + `is_primary`）。需 M01 改标签注入契约、M09 生成 target 时按新映射出 `platform` | M01（标签注入契约 / §5.1.9）/ M09（target 生成）/ M07（`Resource.platform_code` + `app_platform_rel`）/ M02（查询是否需感知兜底语义） | **已定处置（2026-09-28，M07 侧已落 PRD v2.49）**：① **M07 侧落地**——`platform_code` 资源行一等字段 + 五类默认模板 `platform_code → platform` 映射 + `platform` 缺位口径（未填且应用无主平台则不注入）；② **M01 侧同步**——Module_01 PRD **v3.50**（§5.1.9 标签注入 / §10 术语 `platform` 改为「资源行一等字段」口径）；③ **M09 侧**按 §5.12.1 / §5.13 映射生成 target、无需新增机制（沿用 target 级标签模板映射注入）；④ **M02 侧**兜底语义为注入侧职责、查询侧无需变更（`platform` 取值仍来自 label）。**（2026-10-03 补：M07 侧五类默认模板的 `platform_code→platform` / `service_code→svc` 映射行，须经种子幂等回填方对存量库生效——实测此前只对新库生效、存量库静默缺标签，已由决策 115 补齐；M09 生成 target 依赖模板映射行，故本行为跨模块可见。）** || **T7** | 2026-09-28 | **M08（告警分析）/ M05（看板）默认下钻维度建议**：label 维度分层（决策 112）——`platform` 为高维 / 粗粒度，不应作告警分析 / 看板默认下钻入口；运维排障默认维度应为 `app` / `svc` / `network_domain` / `resource_category`，`platform` 退为可选顶层过滤器 | M08（告警分组 / 降噪 / 分析视图默认维度）/ M05（看板下钻入口默认维度） | **建议登记（2026-09-28，{v0.2+}）**：M07 侧仅登记建议、不单模块定论；M08 / M05 在 {v0.2+} 设计时采纳「默认中 / 低维起步、`platform` 为可选顶层」口径。依据见 design-proposal `object-relation-topology` §3.6。**本行不阻断 MVP**。 |
 | 决策 94（既有） | 2026-09-19 | `app_code` 单值装不下「database / middleware 多应用归属（1:N）」 | M01 / M09（见决策 94） | 见决策 94（v0.2+ 另议） |
 
 > **登记原则**：新增 label（`svc` / `platform`）走 §5.15 机制 A 注入 + §5.12.1 映射 + M09 target 生成，属跨模块契约；任一新增 M07 标签 / 父级字段须在本区登记待确认项，避免单模块拍板造成跨模块不一致。（2026-09-28 补：决策 110~112 的 `platform` 注入点变更 / 应用↔平台 M:N 与 label 维度分层建议已登记为 **T6 / T7**。）
+
+> **T6 续办补记（2026-10-03，决策 118）**：双 Reviewer 审查发现 **T6 ③「M09 侧按映射生成 target、无需新增机制」这一处置结论在代码层未兑现**——`ResolveJobTargets` 仍按决策 104 / 107 / 108 旧语义从废弃 `ApplicationDict.PlatformCode` 派生 system 层 `platform`，因 `mergeLabels` 的 system 保护语义**压过**决策 110 规定的模板映射，且 `app_platform_rel.is_primary` 兜底零生产调用。**处置结论修订**：M09 侧**并非「无需新增机制」，而是必须做一处收敛**——停注 system 层 `platform` + 把主平台兜底前移到模板展开前的字段视图物化（决策 118-2）。因 `platform/configcenter/generator` 虽属 M09 资产、但行为由 M07 决策 110 / 118 直接约束，本轮由 **M07 侧一并修复**（T07-108），M09 侧无需独立排期。M01（§5.1.9 标签注入契约）与 M02（查询侧）**无需变更**，T6 行的 ①②④ 结论维持有效。
+
+> **决策 118 后续补记（2026-10-03，门禁 CI 落点 + G-M1 降级处置）**：118-5 落地后发现「测试文件类型门禁」**只挂在开发者本机**——`scripts/git-hooks/pre-commit` 仅含 `check-repo-map` 与 `check-prd-hygiene` 两条分支，且全仓仅 2 个 workflow（`check-repo-map.yml` / `deploy-prototype.yml`）均与前端无关。**该门禁当时只在「人主动敲 `pnpm test`」时存在**，同事 zhangwq 提交时不跑前端测试即可让类型缺口进 develop。**三项补齐（已完成）**：① **新增 `.github/workflows/check-frontend.yml`**——PR / push 到 `develop` 且 paths 命中 `ui-custom/web/**` 时跑 `typecheck:test` + `build`；**刻意不含全量 vitest**（916 用例耗时数分钟，antd / jsdom 波动易假红，噪音大于收益），最终防线以 CI 为准；② **修正 `02_Frontend_Standard.md` §11 措辞**——原文「tsc 仅检查业务代码、跳过测试文件」易被读成测试文件不受任何类型检查，现明确「测试类型由 `tsconfig.test.json` 独立检查 + `pnpm test` 前置 + CI 强制」，并补「禁止用运行时对象字面量伪证字段已接通」（原 `resources.test.ts` 即因此掩盖过 `platform_code` 缺口），同时补齐 `tsconfig.test.json` 配置样例与三层门禁层级表；③ **G-M1 风险降级**——穷举 `PlatformRefs{}` 全部生产构造点（`create.go:266` / `update.go:153` / `import.go:142`）**均完整注入两个 store**，故非 fail-closed **当前不存在漏注入、非活跃 bug**，属「设计取舍 + 未来第 4 条写路径的隐患」。**处置采「加 warn 日志」而非改 fail-closed**：`validatePlatformCode` 两处静默放行分支各打一条 `[resource-validate]` 告警（`PlatformStore == nil` 与 `AppPlatformStore == nil`），**控制流不变**（零行为变更、零测试影响，已实证两个分支均输出告警且全量 `go test ./platform/... -count=1` FAIL=0），把无痕失效转为可疑信号；不采 fail-closed（会打断既有 15 个子例的放行基线），不采 lint 白名单（Go 生态缺轻量工具，接入成本高于收益）。
+
+## 决策 119：标签模板删除的引用保护（`forbidden` 语义补齐）
+
+> 提出背景：用户提问「默认模板无法删除，那新增的模板被用户绑定了实例，为保证采集配置正常运行，是否这类新模板也禁止删除？」——**结论：应当禁止，且这已是 PRD 既有契约（Module_07 §6.6.3 明文规定 `forbidden`：被 Module_01 引用时禁止删除），不是新增需求。当前代码未实现，属实现缺口。**
+
+### 119-1 根因：删除校验被 TODO 显式跳过
+
+`platform/config/label/template_crud.go:253-255` 自带 TODO：
+
+```go
+// TODO(M01): ScrapeJob 引用校验，403 data 返回引用 Job 名单
+// {job_name, network_domain_id, enabled}（Module_07 §6.6.3）。M01 未实现，
+// 本阶段直接放行（不得反向查询 ScrapeJob，§6.5）。
+```
+
+`DeleteLabelTemplate` 仅拦截 `tmpl.IsDefault`（默认模板），**自定义模板无论是否被引用一律放行软删**。
+
+### 119-2 实际危害：不是"采集配置跑不起来"，而是"静默换掉标签集"
+
+模板软删后，生成链路 `LoadTemplateForJob`（`generator/data_source.go:96-107`）在
+`ErrRecordNotFound` 时**回落该资源类别的默认模板**（`is_default=true`），
+生成**继续成功、不报错、不告警**。真实危害是：
+
+1. 自定义模板的定制映射（如 `svc` 规则、额外业务 label）**消失**；
+2. 回落后的默认模板标签集与删除前**不同** ⇒ 同一批指标前后 label 空间不一致；
+3. 基于原 label 的**告警规则 / 看板查询静默失效**（历史序列仍在，新序列 label 变了）；
+4. 因为不报错，**运维无感知**，直到告警不触发才发现。
+
+这比"配置生成失败"更危险——失败会立刻暴露，静默漂移会潜伏。
+
+### 119-3 引用面不止 ScrapeJob一处（PRD 只写了一处，需补）
+
+PRD §6.6.3 只写「被 Module_01 引用时禁止删除」，但代码里模板引用方有**两处**：
+
+| 引用方 | 字段 | 模型位置 | PRD 是否提及 |
+| --- | --- | --- | --- |
+| `ScrapeJob` | `LabelTemplateID string` | `models/scrape_job.go:81` | ✅ §6.6.3 已写 |
+| `CIExporterMapping` | `LabelTemplateID string` | `models/ci_exporter_mapping.go:17` | ❌ **PRD 漏写** |
+
+`CIExporterMapping`（M01 CI 类型映射表）同样可挂模板，删除同样会导致回落。
+**故引用校验必须覆盖两张表，否则修了 ScrapeJob 仍留 CI 侧缺口。**
+
+### 119-4 结论与落地要点（2026-10-03 已拍板）
+
+**结论：被引用的自定义模板禁止删除（403 `forbidden`），与默认模板同属"不可删"族，
+但错误码不同（默认模板 = `bad_request` 语义错——它不是权限问题；被引用 = `forbidden`）。**
+
+**已拍板（2026-10-03，用户裁定「停用 Job 引用也禁删」）**，PRD 已同步至v2.50。落地要点：
+
+1. **查询面**：同库查两张表（`ScrapeJob.label_template_id`、
+   `CIExporterMapping.label_template_id`）的引用；`ScrapeJob` 需过滤软删（`BaseModel` 含
+   `CIExporterMapping` 同样需过滤软删。**停用（`enabled=false`）引用同样计入**
+   （已拍板，见 119-5；软删记录不计入）。
+2. **返回体**：按 PRD 契约返回引用 Job 名单 `{job_name, network_domain_id, enabled}`，
+   便于前端直接展示"被哪些 Job 使用"。CI 侧引用建议一并返回 `monitor_type`。
+3. **错误码**：用 `response.Forbidden`（`api/response/response.go:127` 已就绪）。
+4. **解耦动作（用户想删时的出路）**：403 提示应引导「先改绑再删」——
+   PRD 已有 `GET /label-templates/{id}/resources` 与 Job 侧 `label_template_id` 可更新，
+   构成完整"解绑→删除"闭环，无需新增 API。
+5. **测试**：现有 `template_crud_test.go` 有 3 个删除用例
+   （`TestDeleteLabelTemplateSuccess` / `DefaultForbidden` / `NotFound`），
+   需补「被 ScrapeJob 引用」「被 CIExporterMapping 引用」「软删 Job 不计入」
+   「两表同时引用」4 个子例。
+
+### 119-5 两个子问题的裁定（2026-10-03 已定）
+
+**1. 禁删范围 = 含停用 Job 引用（已拍板）**
+
+用户裁定：**停用 Job 引用同样禁删**。三条支撑理由：
+
+- 停用 Job 是**可随时原地复用的资产**，`enabled` 是开关不是生命周期状态；若仅按
+  `enabled=true` 判定，删除模板后"恢复启用"这一步会在无感知的情况下换掉 label 集。
+- 停用 Job 的 target 配置**仍留在 `config-output/prometheus.yml` 中未回收**，模板删除后
+  重新启用即产生与预期不符的配置漂移。
+- 停用的语义是"暂不采集"，不是"已废弃"；真要废弃应走 Job 删除，删除后引用自然解除。
+
+判定口径最终为：**`deleted_at` 为空即计入引用（含 `enabled=false`）**；
+`deleted_at` 非空的软删记录不构成引用、不阻塞删除。
+
+**2. PRD 补 `CIExporterMapping` 引用 = 已补（本次闭环）**
+
+已在 Module_07 v2.50 中一并落地：
+
+- §6.6.3 DELETE 行补「引用面含 Module_01 采集 Job 与 CI 类型映射表，停用引用同样计入」；
+- 新增 §6.6.3.1「模板删除的引用保护（决策 119）」小节，含引用面表格、禁删判定规则、
+  错误码语义区分、解绑闭环、职责边界五部分；
+- 新增 `GET /api/v2/platform/label-templates/{template_id}/references` 聚合接口契约。
+
+**`CIExporterMapping.label_template_id` 的权威归属仍归Module_01**（与既有 §6.5
+只读消费契约一致）：M07 只做聚合编排与错误码映射，**不反向查询**两张表中的任何一张；
+M01 未提供 CI 侧反查接口时，CI 引用以 `checked: false` 显式标注、**不得默认放行**。
+（此项需在 M01 侧排期新增 `GET /ci-exporter-mappings?label_template_id=`，见 119-7。）
+
+### 119-7 代码排期拆解（本轮未执行）
+
+按 §6.5 边界约束，跨模块校验必须拆为两项，不能由 M07 单侧直查完成：
+
+| 项 | 归属 | 内容 | 阻塞关系 |
+| --- | --- | --- | --- |
+| A | Module_01 | 新增 CI 侧反查 `GET /ci-exporter-mappings?label_template_id=`；确认既有 `GET /scrape-jobs?label_template_id=` 的 `enabled` / 软删语义符合 §6.6.3.1 | 无，可先做 |
+| B | Module_07 | `DeleteLabelTemplate` 增加引用校验（调M01 只读接口，`forbidden` + `refs` 回传）；新增 `/references` 聚合接口；403 提示引导「先改绑再删」 | 依赖 A 才能实现 CI 侧判定；可先落 ScrapeJob 单表分支，CI 分支以 `checked:false` 灰度 |
+
+建议 **A、B 同期排期**（B 的 CI 分支以开关灰度），避免"只查一张表就放行"的半成品上线。
+
+### 119-6 与既有决策的关系
+
+- 决策 117（模板版本化重建，{v0.2}）已指出模板变更需重建 target；
+  **本决策是"软删也走重建"的前置保护**——在版本化落地前，先用禁删守住不丢配置。
+- 决策 115（映射变更须配套幂等种子回填）同类思路：变更前先保证存量一致。
+- 决策 118 建立的通用规约「同一 label 不得由两层同时产出」与此一致：
+  **静默回落本质上就是"注入源被悄悄换掉"**，与 118 同族，属"静默失效必须显式化"。
+

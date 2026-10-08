@@ -13,9 +13,9 @@
 | Phase | Phase 2 |
 | 模块 | module-07-resource-management |
 | 分支 | feat/module-07-resource-management |
-| 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v2.30）；**v2026-09-19 增量（v2.41，决策 92~97）**：追加应用字典管理 API、资源必填分化口径、Excel 声明导入契约，见 §5A / §10A / §13；**v2026-09-25 增量（v2.42 / v2.43，决策 98 / 101 / 102；v2026-09-27 增量 决策 98/102-③、103 scheme-B）**：云字典只读 API（§5B）、`cloud_code` 升格 NetworkDomain 行政字段与资源派生字段（§10B）、资源列表派生只读 `cloud_code`/`zone_type` 与 `cloud`/`zone`/`network_domain` 三标签派生口径（§3 注 / §10C / §11）、`cloud_type`/`carrier` 描述性元数据边界（前端红-line ④，§9）、Excel `cloud_code` 列移除与历史值归一（§10B.3）；**v2026-09-28 增量（v2.49，决策 110/111/112）**：`platform_code` 升为资源行一等字段（§10.1/§10.2/§11）、应用↔平台改为 M:N 关系并新增 §5E `app-platform-rel` API、种子回填 legacy `ApplicationDict.PlatformCode`（§5E 注） |
-| 生成方式 | v2026-08-23 由已落地后端路由 + 前端类型反向回填；**v2026-09-05 重派生**覆盖决策 47-3 `collection_status` 三态筛选（PRD v2.22~v2.25 口径收敛）与 v0.2 `Resource.scrape_port`（v2.26 范围收敛落版）；**v2026-09-19 增量**由 PRD v2.40→v2.41 + design-decisions.md 决策 92~97 派生 |
-| 来源 | PRD `Module_07_Monitoring_Object_Management.md` v2.30 §3/§5/§6/§8/§9/§11；`03_API_Standard.md` §7；`task-sequence.yaml`；`platform/config/{resource,label}/routes.go`；design-decisions.md 决策 92~97（v2.41）；`platform/config/resource/cloud_dict.go` + `platform/models/cloud_dict.go`（`CloudDict`/`CloudType`/`CloudCarrier`）、决策 98/102-③/103 scheme-B（v2026-09-27 增量） |
+| 版本 | v2026-09-05（第 2 版：契约增量重派生，对齐 PRD v2.30）；**v2026-09-19 增量（v2.41，决策 92~97）**：追加应用字典管理 API、资源必填分化口径、Excel 声明导入契约，见 §5A / §10A / §13；**v2026-09-25 增量（v2.42 / v2.43，决策 98 / 101 / 102；v2026-09-27 增量 决策 98/102-③、103 scheme-B）**：云字典只读 API（§5B）、`cloud_code` 升格 NetworkDomain 行政字段与资源派生字段（§10B）、资源列表派生只读 `cloud_code`/`zone_type` 与 `cloud`/`zone`/`network_domain` 三标签派生口径（§3 注 / §10C / §11）、`cloud_type`/`carrier` 描述性元数据边界（前端红-line ④，§9）、Excel `cloud_code` 列移除与历史值归一（§10B.3）；**v2026-09-28 增量（v2.49，决策 110/111/112）**：`platform_code` 升为资源行一等字段（§10.1/§10.2/§11）、应用↔平台改为 M:N 关系并新增 §5E `app-platform-rel` API、种子回填 legacy `ApplicationDict.PlatformCode`（§5E 注）；**v2026-10-08 增量（v2.51，F-18查询侧补齐）**：`GET /resources` 补`biz_code` / `status` / `platform_code` / `app_code` / `service_code` 五个等值筛选参数，并补「四维筛选的类别条件化」说明表（`app_code`物理列名按类别不同、`service_code` 仅两类生效），见 §3 及其后注 |
+| 生成方式 | v2026-08-23 由已落地后端路由 + 前端类型反向回填；**v2026-09-05 重派生**覆盖决策 47-3 `collection_status` 三态筛选（PRD v2.22~v2.25 口径收敛）与 v0.2 `Resource.scrape_port`（v2.26 范围收敛落版）；**v2026-09-19 增量**由 PRD v2.40→v2.41 + design-decisions.md 决策 92~97 派生；**v2026-10-08 增量**由 PRD v2.51 §6.1 + `platform/config/resource/query.go`（`ListFilter` / `ParseListFilter` / `BuildListQuery`）派生，并经 golang-reviewer 核对（含破坏验证：`service_code` 去条件化后 host/db/mw三类复现 `no such column`） |
+| 来源 | PRD `Module_07_Monitoring_Object_Management.md` v2.51 §3/§5/§6/§8/§9/§11；`03_API_Standard.md` §7；`task-sequence.yaml`；`platform/config/{resource,label}/routes.go`、`platform/config/resource/query.go`；design-decisions.md 决策 92~97（v2.41）、110/111/112（v2.49）；`platform/config/resource/cloud_dict.go` + `platform/models/cloud_dict.go`（`CloudDict`/`CloudType`/`CloudCarrier`）、决策 98/102-③/103 scheme-B（v2026-09-27 增量）；dev-feedback F-18（v2.51 查询侧） |
 
 ## 1. 通用契约
 
@@ -58,12 +58,23 @@
 
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
-| GET | `/resources` | `resource_category`（必填）、`network_domain_id`、`keyword`（名称+IP 模糊）、`collection_status`（决策 47-3 三态筛选：`up`=采集中 / `down`=已下发未采到 / `unmonitored`=未监控）、`is_monitored`（透传预留，M01 未实现时不生效）、`page`、`page_size` | `{list,total,page,page_size}`，item = §5.2 字段 + 派生采集状态（见下注） | `bad_request`：resource_category 缺失/非法 | §6.1/6.6.1 |
+| GET | `/resources` | `resource_category`（必填）、`network_domain_id`、`keyword`（名称+IP模糊）、`collection_status`（决策 47-3 三态筛选：`up`=采集中 / `down`=已下发未采到 / `unmonitored`=未监控）、`biz_code`（业务等值）、`status`（运行状态等值：`online`/`offline`/`maintenance`）、**`platform_code`**（**v2.51 增量** F-18 平台等值）、**`app_code`**（**v2.51 增量** F-18 应用等值；⚠️ 物理列名按类别不同——host 为 `app_code`、其余四类为 `app_name`，实现见 `query.go` `appCodeColumn(category)`）、**`service_code`**（**v2.51 增量** F-18 服务等值；**仅 `application` / `generic_target` 两类生效**，其余三类忽略该参数而非报错，见下方注）、`is_monitored`（透传预留，M01 未实现时不生效）、`page`、`page_size` | `{list,total,page,page_size}`，item = §5.2 字段 + 派生采集状态（见下注） | `bad_request`：resource_category 缺失/非法 | §6.1/6.6.1 |
 | POST | `/resources` | `ResourceCreateInput`（见 §10） | 创建后的完整对象 | `bad_request`：必填缺失 / `network_domain_id` 不存在（M06 行政记录） | §6.6.1 |
 | PUT | `/resources/:resource_id` | `ResourceUpdateInput`（resource_category/source_type 创建后不可改，不随请求体） | 更新后的完整对象 | `not_found`；`bad_request` | §6.6.1 |
 | DELETE | `/resources/:resource_id` | — | `{ resource_id }` | `not_found`；`forbidden`：被 Module_01 的 ScrapeJob 引用时禁止删除（报错 data 返回引用 Job 名单） | §6.1/6.6.1 |
 | GET | `/resources/:resource_category/template` | — | Excel 模板下载（含「取值说明」sheet：M06 网域清单） | `not_found`：未知资源类型 | §6.1 |
 | POST | `/resources/:resource_category/import` | multipart：`file` + `resource_category` + `mode` | `ImportResult`（`{total,success,updated?,failed,errors[]}`，errors item = `{row,field,value?,reason}`） | `bad_request`：文件格式/必填列缺失/非法 mode | §5.16/6.6.1 |
+
+> **{v2.51F-18} 四维筛选的类别条件化（前端必读）**：上表新增的 `platform_code` / `app_code` / `service_code` 与既有 `biz_code` / `status` **一律为后端等值筛选**（前端**不得**再做前端过滤，否则分页总数与筛选结果不一致）。其中 **两类列名/列存在性按资源类别分型**，实现方必须按 `category` 条件化追加条件，**不可无条件拼列**：
+>
+> | 参数 | 生效范围 | 分型原因 |
+> |---|---|---|
+> | `platform_code` | **五类全生效** | 五类资源表均含 `platform_code` 列 |
+> | `app_code` | **五类全生效**，但**物理列名不同** | host 为 `app_code`；database / middleware / application / generic_target 为 `app_name`（决策92「物理列名不改名」，语义已切换为 app_code 编码）→ 实现须走 `appCodeColumn(category)` |
+> | `service_code` | **仅 `application` / `generic_target`** | 决策 105：仅这两类可挂服务字典归属；host / database / middleware **不持有该列**。**这三类收到该参数时静默忽略**（不报错、不过滤），前端据此决定仅在两个 Tab 显示该筛选器 |
+> | `biz_code` / `status` | **五类全生效** | 五类表均含 `biz_code` / `status` 列 |
+>
+> 前端「采集状态（`collection_status`）」是**唯一例外**：其数据源为 M02 coverage 聚合 API，**后端资源列表不提供对应筛选列**，该筛选仍在前端按当页过滤（属已知裁剪，见 dev-feedback F-18 遗留风险），故采集状态筛选下分页总数仍与筛选结果不一致。
 
 > **{v2.41 决策 97} Excel 内联声明 sheet（新增）**：资源导入文件 `file` 可包含 `业务声明`（列 `biz_code|biz_name|说明?`）与 `应用声明`（列 `app_code|app_name|说明?`）两个内联 sheet，用于一次导入携带全新业务/应用。校验顺序：①声明自身（编码 BIZ_CODE_RE/APP_CODE_RE、声明内重码去重、与存量同名且 name 不一致则**硬拒绝绝不覆盖**、不可激活停用条目）→②资源可达性（字典 ∪ 声明）→③整体写。声明建出字典条目 `status=enabled`、`source=excel-import`、只增不覆盖（web 下拉可用、不依赖资源存活）；与资源同批**原子提交、任一失败整体回滚**（SQLite 事务）。权重复用「导入资源」权限位，不额外收紧。资源引用的码既不存也非声明 → 报错归入「待登记清单」兜底、不静默跳过。
 

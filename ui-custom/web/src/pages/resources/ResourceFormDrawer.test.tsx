@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { ResourceFormDrawer } from './ResourceFormDrawer'
-import type { ResourceCategory } from '../../types/resource'
+import type {
+  AppPlatformRel,
+  ApplicationDict,
+  CloudDict,
+  PlatformDict,
+  ResourceCategory,
+} from '../../types/resource'
 import type { NetworkDomain } from '../../types/domain'
 import type { ResourceListItem } from './useResources'
 
@@ -9,10 +15,17 @@ const createMock = vi.fn()
 const updateMock = vi.fn()
 const networkDomainListMock = vi.fn()
 const businessDomainListMock = vi.fn()
-const applicationDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
-const cloudDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
+// 字典类 mock 一律声明为无参 vi.fn()，默认返回值在 beforeEach 里 mockResolvedValue 给出——
+// 若用 `vi.fn(() => Promise.resolve(...))` 声明，TS 会把 mock 推断成零参函数，
+// 既 spread 不进 `(...a) => mock(...a)` 的代理，也把 resolved value 锁成 never。
+const applicationDictListMock = vi.fn()
+const cloudDictListMock = vi.fn()
 // 决策 105：表单「服务编码」下拉经服务字典启用项解析（仅 application / generic_target 渲染）
-const serviceDictListMock = vi.fn(() => Promise.resolve({ code: 0, message: 'ok', data: { list: [] } }))
+const serviceDictListMock = vi.fn()
+// 决策 110：「平台归属」下拉经平台字典启用项解析（资源行一等字段）
+const platformDictListMock = vi.fn()
+// 决策 111：应用↔平台 M:N 关联（app_platform_rel），应用下拉按所选平台过滤的数据源
+const appPlatformRelListMock = vi.fn()
 const osOptionListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
@@ -38,6 +51,14 @@ vi.mock('../../api/resources', () => ({
   // 此处保留仅为字典类 mock 的兼容性，不被本文件用例断言。
   cloudDictApi: {
     list: (...a: unknown[]) => cloudDictListMock(...a),
+  },
+  // 决策 110：「平台归属」下拉（仅启用条目）
+  platformDictApi: {
+    list: (...a: unknown[]) => platformDictListMock(...a),
+  },
+  // 决策 111：应用↔平台 M:N 关联，支撑「先选平台 → 应用按平台过滤」级联
+  appPlatformRelApi: {
+    list: (...a: unknown[]) => appPlatformRelListMock(...a),
   },
 }))
 
@@ -72,8 +93,32 @@ const businessDomains = [
   { code: 'legacy', name: '停用业务', description: '', enabled: false },
 ]
 
+/**
+ * 平台字典（§5.21 / 决策 110：「平台归属」下拉仅列启用条目，停用平台禁止新引用）
+ */
+const platformDicts: PlatformDict[] = [
+  { platform_code: 'ecommerce', platform_name: '电商平台', enabled: true },
+  { platform_code: 'legacy-pf', platform_name: '旧平台', enabled: false },
+]
+
+/**
+ * 应用字典（决策 92 / 110）：条目上的单值 `platform_code` 已废弃（决策 111 M:N），
+ * 「平台归属」不在此处填写。
+ */
+const applicationDicts: ApplicationDict[] = [
+  { app_code: 'order', app_name: '订单应用', status: 'enabled' },
+  { app_code: 'billing', app_name: '计费应用', status: 'enabled' },
+  { app_code: 'legacy-app', app_name: '停用应用', status: 'disabled' },
+]
+
+/** 应用↔平台关联（决策 111）：order 挂电商平台（主），billing 挂另一平台 */
+const appPlatformRels: AppPlatformRel[] = [
+  { rel_id: 'r-1', app_code: 'order', platform_code: 'ecommerce', is_primary: true, created_at: '' },
+  { rel_id: 'r-2', app_code: 'billing', platform_code: 'finance', is_primary: true, created_at: '' },
+]
+
 /** 云字典（§5.20 / 决策 98：部署级只读；表单已不再消费，保留供字典 mock 兼容） */
-const cloudDicts = [
+const cloudDicts: CloudDict[] = [
   { cloud_code: 'PUB-TX', cloud_name: '腾讯云', cloud_type: 'PUB', carrier: 'TX', enabled: true },
   { cloud_code: 'OLD-TX', cloud_name: '已下线云', cloud_type: 'PUB', carrier: 'TX', enabled: false },
 ]
@@ -85,6 +130,8 @@ function hostRecord(): ResourceListItem {
     network_domain_id: 'mc-a',
     biz_code: 'infra',
     app_code: 'order',
+    // 决策 110：平台归属为资源行一等字段，编辑态应回显
+    platform_code: 'ecommerce',
     env: 'prod',
     cluster: 'c1',
     owner: 'chenrt',
@@ -120,6 +167,38 @@ function openSelect(placeholder: string) {
   fireEvent.mouseDown(screen.getByText(placeholder))
 }
 
+/**
+ * 打开**已选中值**为 selectedText 的 Select（切换场景用）。
+ * 已选中的 Select 不再显示 placeholder，且其回显项与 dropdown option 同名，
+ * 故按 .ant-select 根节点定位唯一容器，避免 findByText 命中多个。
+ */
+function openSelectBySelectedText(selectedText: string) {
+  const root = Array.from(document.querySelectorAll<HTMLElement>('.ant-select')).find((el) =>
+    (el.querySelector('.ant-select-selection-item')?.textContent ?? '') === selectedText,
+  )
+  if (!root) throw new Error(`未找到已选值为「${selectedText}」的 Select`)
+  fireEvent.mouseDown(root)
+}
+
+/**
+ * 等待抽屉打开时并发的字典请求（网域 / 业务 / 操作系统 / 应用 / 服务 / 平台 + app_platform_rel）到位。
+ * 字典未 resolve 时下拉内无 option，故所有下拉交互前必须先 await 本函数。
+ *
+ * 不依赖任何 UI 状态（新增态看 placeholder、编辑态看回显值，都不稳），
+ * 改为断言 mock 已被调用后用 act 冲刷 promise 链与 setState 渲染。
+ */
+async function waitForDicts() {
+  await waitFor(() => {
+    expect(networkDomainListMock).toHaveBeenCalled()
+    expect(businessDomainListMock).toHaveBeenCalled()
+    expect(platformDictListMock).toHaveBeenCalled()
+    expect(appPlatformRelListMock).toHaveBeenCalled()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
+}
+
 /** 填必填共享字段 + host 差异化字段（网域/业务/环境/运行状态/实例名/IP/操作系统，§5.6 os_type 必填） */
 async function fillHostRequiredFields() {
   openSelect('请选择网域')
@@ -150,6 +229,15 @@ function getOsInput(): HTMLInputElement {
   return input
 }
 
+/**
+ * 读取所有 antd Select 的已选值展示文本。
+ * antd 5 的已选项渲染为 `.ant-select-selection-item`（不带 title 属性，title 仅在
+ * option 未命中 label 时用 value 兜底），故回显断言统一走这里而非 getByTitle。
+ */
+function selectedItemTexts(): string[] {
+  return Array.from(document.querySelectorAll('.ant-select-selection-item')).map((el) => el.textContent ?? '')
+}
+
 describe('ResourceFormDrawer', () => {
   beforeEach(() => {
     createMock.mockReset()
@@ -158,6 +246,8 @@ describe('ResourceFormDrawer', () => {
     businessDomainListMock.mockReset()
     osOptionListMock.mockReset()
     cloudDictListMock.mockReset()
+    platformDictListMock.mockReset()
+    appPlatformRelListMock.mockReset()
     cancelMock.mockReset()
     successMock.mockReset()
     networkDomainListMock.mockResolvedValue({
@@ -179,6 +269,125 @@ describe('ResourceFormDrawer', () => {
       },
     })
     cloudDictListMock.mockResolvedValue({ status: 'success', data: { list: cloudDicts, total: 2 } })
+    applicationDictListMock.mockResolvedValue({ status: 'success', data: { list: applicationDicts, total: 3 } })
+    serviceDictListMock.mockReset()
+    serviceDictListMock.mockResolvedValue({ status: 'success', data: { list: [], total: 0 } })
+    platformDictListMock.mockResolvedValue({ status: 'success', data: { list: platformDicts, total: 2 } })
+    appPlatformRelListMock.mockResolvedValue({ status: 'success', data: { list: appPlatformRels, total: 2 } })
+  })
+
+  // ---- 决策 110 / 118-4：平台归属录入 + 「平台 → 应用 → 服务」级联 ----
+
+  it('决策 110：「平台归属」下拉取平台字典启用条目（停用平台不供新引用）', async () => {
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    openSelect('请选择平台归属（可选）')
+    expect(await screen.findByText('电商平台 (ecommerce)')).toBeInTheDocument()
+    // 停用平台不出现在可选下拉中
+    expect(screen.queryByText('旧平台 (legacy-pf)')).toBeNull()
+  })
+
+  it('决策 110：编辑态回显资源行 platform_code，提交时原样带回', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    const rec = hostRecord()
+    renderDrawer({ mode: 'edit', category: 'host', record: rec })
+    // hostRecord().platform_code = 'ecommerce' → 选择器回显平台展示名
+    await waitFor(() => expect(selectedItemTexts()).toContain('电商平台 (ecommerce)'))
+    // 其余共享字段编辑态已由 record 回显，仅补录 host 差异化必填项
+    fireEvent.change(screen.getByPlaceholderText('例如：prod-web-01'), { target: { value: 'prod-web-01' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.11'), { target: { value: '10.0.1.11' } })
+    fireEvent.change(getOsInput(), { target: { value: 'Ubuntu' } })
+    // 编辑态主按钮文案为「保存」（新增态为「提交」）
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][1]).toMatchObject({ platform_code: 'ecommerce' })
+  })
+
+  it('决策 110：登记时选中平台归属即写入 create 请求体', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    openSelect('请选择平台归属（可选）')
+    fireEvent.click(await screen.findByText('电商平台 (ecommerce)'))
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ platform_code: 'ecommerce' })
+  })
+
+  it('决策 110：平台归属留空时不下发 platform_code（向后兼容纯自由文本路径）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0].platform_code).toBeUndefined()
+  })
+
+  it('决策 110 ④：选中平台后应用下拉仅列出该平台关联的应用（决策 111 M:N）', async () => {
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    openSelect('请选择平台归属（可选）')
+    fireEvent.click(await screen.findByText('电商平台 (ecommerce)'))
+    // 级联提示随平台切换
+    expect(await screen.findByText('仅列出关联到所选平台的应用；`app` 标签取编码，展示名由字典解析')).toBeInTheDocument()
+    openSelect('请选择应用（可选）')
+    // order 关联 ecommerce → 保留
+    expect(await screen.findByText('订单应用 (order)')).toBeInTheDocument()
+    // billing 关联 finance，不在 ecommerce → 被过滤
+    expect(screen.queryByText('计费应用 (billing)')).toBeNull()
+    // 停用应用恒不列出
+    expect(screen.queryByText('停用应用 (legacy-app)')).toBeNull()
+  })
+
+  it('决策 110 ④：切换平台后已选应用不再归属新平台则一并清空（避免提交被自洽性校验拒绝）', async () => {
+    platformDictListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { platform_code: 'ecommerce', platform_name: '电商平台', enabled: true },
+          { platform_code: 'finance', platform_name: '财务平台', enabled: true },
+          { platform_code: 'legacy-pf', platform_name: '旧平台', enabled: false },
+        ],
+        total: 3,
+      },
+    })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    // 先选电商平台 + 订单应用
+    openSelect('请选择平台归属（可选）')
+    fireEvent.click(await screen.findByText('电商平台 (ecommerce)'))
+    openSelect('请选择应用（可选）')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    await waitFor(() => expect(selectedItemTexts()).toContain('订单应用 (order)'))
+    // 切换到财务平台：订单应用不归属 finance → 应用选择被清空
+    openSelectBySelectedText('电商平台 (ecommerce)')
+    fireEvent.click(await screen.findByText('财务平台 (finance)'))
+    await waitFor(() => expect(selectedItemTexts()).not.toContain('订单应用 (order)'))
+  })
+
+  it('决策 112：服务编码下拉随所选应用过滤（应用↔服务 1:N 关系权威）', async () => {
+    serviceDictListMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { service_code: 'order-svc', service_name: '订单服务', app_code: 'order', enabled: true },
+          { service_code: 'billing-svc', service_name: '计费服务', app_code: 'billing', enabled: true },
+          { service_code: 'shared-svc', service_name: '公共组件', app_code: null, enabled: true },
+        ],
+        total: 3,
+      },
+    })
+    renderDrawer({ category: 'application' })
+    await waitForDicts()
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    openSelect('请选择服务编码（可选）')
+    expect(await screen.findByText('订单服务 (order-svc)')).toBeInTheDocument()
+    expect(screen.queryByText('计费服务 (billing-svc)')).toBeNull()
+    // 无所属应用的游离服务不参与过滤，始终可选
+    expect(screen.getByText('公共组件 (shared-svc)')).toBeInTheDocument()
   })
 
   it('submits create with shared + host fields and calls onSuccess/onCancel', async () => {
@@ -345,9 +554,8 @@ describe('ResourceFormDrawer', () => {
     createMock.mockResolvedValue({ status: 'success', data: {} })
     // 应用类别 app_code 必填，需字典启用条目（§5.2）
     applicationDictListMock.mockResolvedValue({
-      code: 0,
-      message: 'ok',
-      data: { list: [{ app_code: 'order', app_name: '订单服务', status: 'enabled' }] },
+      status: 'success',
+      data: { list: [{ app_code: 'order', app_name: '订单服务', status: 'enabled' }], total: 1 },
     })
     renderDrawer({ category: 'application' })
     openSelect('请选择网域')
@@ -440,7 +648,7 @@ describe('ResourceFormDrawer', () => {
     renderDrawer({ category: 'generic_target' })
     // 采集路径默认预填 /metrics；协议默认 http
     expect((screen.getByPlaceholderText('/metrics') as HTMLInputElement).value).toBe('/metrics')
-    // 填必填共享字段 + 通用目标必填项后提交
+    // 填必填共享字段 + 其他监控目标必填项后提交
     openSelect('请选择网域')
     fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
     openSelect('请选择业务')

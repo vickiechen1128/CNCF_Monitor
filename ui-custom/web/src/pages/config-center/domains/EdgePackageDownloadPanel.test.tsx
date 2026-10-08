@@ -1,10 +1,9 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { message } from 'antd'
 import { EdgePackageDownloadPanel } from './EdgePackageDownloadPanel'
 import { triggerBlobDownload } from '../../../utils/triggerBlobDownload'
-import { setupAntdTest } from '../../../test/antdTestUtils'
+import { setupAntdTest, mockAntdMessage, type MockedMessage } from '../../../test/antdTestUtils'
 import type { EdgePackage } from '../../../types/config-center'
 
 const listMock = vi.fn()
@@ -42,14 +41,15 @@ function renderPanel(active?: boolean) {
 describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
   setupAntdTest()
 
+  let msg: MockedMessage
+
   beforeEach(() => {
     listMock.mockReset()
     downloadMock.mockReset()
     vi.mocked(triggerBlobDownload).mockReset()
     URL.createObjectURL = vi.fn(() => 'blob:mock')
     URL.revokeObjectURL = vi.fn()
-    vi.spyOn(message, 'success').mockImplementation(() => undefined)
-    vi.spyOn(message, 'error').mockImplementation(() => undefined)
+    msg = mockAntdMessage()
   })
 
   it('渲染版本清单：版本 / 大小 MB / sha256 省略 + 组件版本', async () => {
@@ -130,7 +130,7 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
       expect.any(Blob),
       'edge-sync-agent-v1.2.0-linux-amd64.tar.gz',
     )
-    expect(message.success).toHaveBeenCalledWith('安装包 v1.2.0 下载已开始')
+    expect(msg.success).toHaveBeenCalledWith('安装包 v1.2.0 下载已开始')
   })
 
   it('后端返回 file 字段时，以真实 tar.gz 文件名下载', async () => {
@@ -150,6 +150,6 @@ describe('EdgePackageDownloadPanel（T11-22 离线包下载区）', () => {
     renderPanel()
 
     fireEvent.click(await screen.findByRole('button', { name: /下载安装包/ }))
-    await waitFor(() => expect(message.error).toHaveBeenCalledWith('下载失败'))
+    await waitFor(() => expect(msg.error).toHaveBeenCalledWith('下载失败'))
   })
 })

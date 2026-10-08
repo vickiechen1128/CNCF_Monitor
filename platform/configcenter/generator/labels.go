@@ -7,6 +7,12 @@ import "github.com/metriccenter/metriccenter/platform/models"
 // 规则（PRD §3.3.1 / §3.3 标签注入）：
 //   - system 标签受保护，User/CMDB 均不可覆盖（原型语义「system 不可被覆盖」）；
 //   - 其余标签优先级 cmdb > user > system（cmdb 为 v0.4+ 预留，MVP 仅 user/sys 两层）。
+//
+// ⚠️ 由此推出的调用方规约（决策 118-2，**必须由代码评审拦截**）：**同一 label 不得
+// 同时由 system 层与模板层产出**。system 已写该键时，模板层取值会被**静默覆盖**且
+// 不报错、不告警——决策 115 补的 `platform_code → platform` 默认模板映射即因此在主
+// 路径完全失效（`sum by (platform)` 恒空）。新增 system 层标签前须先确认无同名模板
+// 映射，反之亦然；不得依赖「两者恰好取值一致」。
 func mergeLabels(system, user, cmdb map[string]string) map[string]string {
 	out := make(map[string]string, len(system)+len(user)+len(cmdb))
 	for k, v := range system {

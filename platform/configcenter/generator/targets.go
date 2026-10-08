@@ -55,6 +55,11 @@ func exporterPortOr(exporterPort, fallback int) int {
 // resolveResource 按 resource_id 在五类资源表中解析目标实例
 // （address / 标签模板字段视图 / status / category）。
 //
+// 字段视图与 platform_code（决策 118-2）：五类字段视图**均须携带 `platform_code`**——
+// 它是 `platform` 标签的唯一模板来源字段（`platform_code → platform` 的 resource_field
+// 映射，决策 110 ②）。决策 118 归一前本视图不含该键，导致模板映射恒 `v != ""` 判空
+// 跳过、`platform` 只能由 system 层派生——即「兜底前移物化」不生效的直接原因。
+//
 // 多态探测说明（L3 / TQ 取舍）：resource_id 当前未冗余 category 字段，故按
 // host→database→middleware→application→generic_target 顺序探测，命中即返回。
 // 单资源最多 4 次 ErrRecordNotFound 探测，属既有模式、非本次回归。网域 N+1 已
@@ -85,6 +90,7 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 				"service_name":     host.InstanceName,
 				"health_check_url": "",
 				"env":              host.GetEnv(),
+				"platform_code":    host.PlatformCode,
 			},
 		}, nil
 	}
@@ -98,11 +104,12 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Category:        models.ResourceCategoryDatabase,
 			AppCode:         database.GetAppCode(),
 			Fields: map[string]string{
-				"app_name":    database.GetAppCode(),
-				"biz_code":    database.BizCode,
-				"cluster":     database.GetCluster(),
-				"instance_ip": database.InstanceIP,
-				"env":         database.GetEnv(),
+				"app_name":      database.GetAppCode(),
+				"biz_code":      database.BizCode,
+				"cluster":       database.GetCluster(),
+				"instance_ip":   database.InstanceIP,
+				"env":           database.GetEnv(),
+				"platform_code": database.PlatformCode,
 			},
 		}, nil
 	}
@@ -116,11 +123,12 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Category:        models.ResourceCategoryMiddleware,
 			AppCode:         middleware.GetAppCode(),
 			Fields: map[string]string{
-				"app_name":    middleware.AppName,
-				"biz_code":    middleware.BizCode,
-				"cluster":     middleware.GetCluster(),
-				"instance_ip": middleware.InstanceIP,
-				"env":         middleware.GetEnv(),
+				"app_name":      middleware.AppName,
+				"biz_code":      middleware.BizCode,
+				"cluster":       middleware.GetCluster(),
+				"instance_ip":   middleware.InstanceIP,
+				"env":           middleware.GetEnv(),
+				"platform_code": middleware.PlatformCode,
 			},
 		}, nil
 	}
@@ -141,6 +149,7 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 				"service_name":     application.ServiceName,
 				"health_check_url": application.HealthCheckURL,
 				"env":              application.GetEnv(),
+				"platform_code":    application.PlatformCode,
 			},
 		}, nil
 	}
@@ -154,12 +163,13 @@ func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourc
 			Category:        models.ResourceCategoryGenericTarget,
 			AppCode:         generic.GetAppCode(),
 			Fields: map[string]string{
-				"app_name":     generic.GetAppCode(),
-				"service_code": generic.ServiceCode,
-				"biz_code":     generic.BizCode,
-				"cluster":      generic.GetCluster(),
-				"instance_ip":  generic.InstanceIP,
-				"env":          generic.GetEnv(),
+				"app_name":      generic.GetAppCode(),
+				"service_code":  generic.ServiceCode,
+				"biz_code":      generic.BizCode,
+				"cluster":       generic.GetCluster(),
+				"instance_ip":   generic.InstanceIP,
+				"env":           generic.GetEnv(),
+				"platform_code": generic.PlatformCode,
 			},
 		}, nil
 	}
@@ -172,6 +182,41 @@ func instanceAddress(ip string, port int) string {
 		return ip
 	}
 	return fmt.Sprintf("%s:%d", ip, port)
+}
+
+// materializePrimaryPlatform 实现决策 110 ③「应用主平台兜底」，且**不新增注入点**：
+// 资源行 `platform_code` 已填时原样返回（资源行一等字段优先）；留空且所属应用存在
+// `is_primary=true` 的关联平台时，把该平台编码**写入本次模板展开所用的字段视图**
+// `rt.Fields["platform_code"]`，随后由模板既有 `platform_code → platform` 的
+// resource_field 映射自然产出 `platform` 标签。
+//
+// 两条不写入兜底（PRD §5.2 / 决策 118-2）：
+//   - 资源无 app_code（如未挂应用的 host、仅填 biz_code 的 generic_target）→ 不查询、不写入；
+//   - 应用无 is_primary 平台（含无任何关联、或仅非主平台关联）→ 不写入，
+//     由 expandLabelTemplate 的 `v != ""` 判空跳过、**不注入** platform。
+//
+// cache 按 app_code 缓存主平台查询结果（同一 Job 内多个资源共享同一 app_code 时避免
+// N+1，模式同 domainCache）；空串亦入缓存以缓存「无主平台」这一结果。
+//
+// 直查 models.AppPlatformRel（generator 已直查 models），不 import config/resource ——
+// 避免 configcenter → config 的依赖倒置。
+func materializePrimaryPlatform(db *gorm.DB, rt *resourceTarget, cache map[string]string) map[string]string {
+	if rt.Fields["platform_code"] != "" || rt.AppCode == "" {
+		return rt.Fields
+	}
+	primary, cached := cache[rt.AppCode]
+	if !cached {
+		var rel models.AppPlatformRel
+		if err := db.Where("app_code = ? AND is_primary = ?", rt.AppCode, true).
+			Order("id ASC").First(&rel).Error; err == nil {
+			primary = rel.PlatformCode
+		}
+		cache[rt.AppCode] = primary
+	}
+	if primary != "" {
+		rt.Fields["platform_code"] = primary
+	}
+	return rt.Fields
 }
 
 // ResolveJobTargets 解析单个 Job 的文件发现目标组列表，并返回未进入产物 targets
@@ -195,8 +240,12 @@ func instanceAddress(ip string, port int) string {
 // resource_id 标签回连资源）的稳定身份回连键，作为 system 层标签强制注入——
 // 不依赖 Job 是否挂载标签模板，也不可被模板映射覆盖。
 //
-// 决策 104/105：与本层级同批注入的还有派生标签 `platform`（经 app_code → 应用条目
-// 父级 platform_code）；`svc` 则走 LabelTemplate 默认映射 service_code → svc。
+// 决策 110 / 118：`platform` 与 `svc` **均走标签模板层**——`platform` 由资源行
+// `platform_code` 经 `platform_code → platform` 的 resource_field 映射注入（资源留空
+// 时由 materializePrimaryPlatform 兜底物化应用 is_primary 平台），`svc` 由
+// `service_code → svc` 映射注入。**system 层不注入这两个标签**（决策 118-2：注入点
+// 唯一权威 = 模板层；决策 104 / 107 / 108 的「经应用父级 platform_code 在 system 层
+// 派生」实现已废止，`ApplicationDict.PlatformCode` 生产消费者归零）。
 func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemplate, exporterPort int) ([]TargetGroup, []SkippedInstance, error) {
 	if job.JobType == models.JobTypeBlackbox {
 		groups := make([]TargetGroup, 0, len(job.BlackboxTargets))
@@ -216,10 +265,10 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 	}
 	groups := make([]TargetGroup, 0, len(job.SelectedInstanceIDs))
 	var skipped []SkippedInstance
-	// domainCache / appPlatformCache 在同一 Job 内复用查询结果，避免相同
+	// domainCache / primaryPlatformCache 在同一 Job 内复用查询结果，避免相同
 	// network_domain_id / app_code 重复回查（避免 N+1）。
 	domainCache := make(map[string]*models.NetworkDomain)
-	appPlatformCache := make(map[string]string)
+	primaryPlatformCache := make(map[string]string)
 	for _, rid := range job.SelectedInstanceIDs {
 		rt, err := resolveResource(db, rid, exporterPort)
 		if err != nil || rt == nil {
@@ -248,30 +297,20 @@ func ResolveJobTargets(db *gorm.DB, job models.ScrapeJob, tmpl *models.LabelTemp
 			})
 			continue
 		}
-		templateLabels := expandLabelTemplate(tmpl, rt.Fields, rt.Address)
+		templateLabels := expandLabelTemplate(tmpl, materializePrimaryPlatform(db, rt, primaryPlatformCache), rt.Address)
 		// 决策 103 scheme-B：cloud / zone / network_domain 三标签在 TARGET-LEVEL SYSTEM
 		// 层强制注入（不可被 LabelTemplate 覆盖，亦不经 external_labels）：
 		//   - network_domain = 资源所属网域 id；
 		//   - cloud         = 网域 cloud_code（引用启用云字典条目）；
 		//   - zone          = 网域 zone_type；
 		// 任一值为空则省略对应 key（不写空标签）。
+		//
+		// ⚠️ 通用规约（决策 118-2，防复发）：**同一 label 不得同时由 system 层与模板层
+		// 产出**。mergeLabels 的 system 保护语义（labels.go）会让「system 已写该键」
+		// 时模板层取值被**静默覆盖**且不报错——决策 115 的 ensurePlatformMapping 止血
+		// 正是因此在主路径失效。故 `platform` 已从 system 层移除，改由模板层唯一产出。
+		// 新增 system 层标签前须先确认无同名模板映射，反之亦然。
 		systemLabels := map[string]string{"resource_id": rt.ResourceID}
-		// 决策 104/107/108：platform 为派生标签（对齐 cloud 经网域派生先例），由资源
-		// app_code → 应用字典条目父级 platform_code 解析；资源无 app_code（如未挂应用
-		// 的 host、仅填 biz_code 的 generic_target）或应用未挂父级平台时不注入。
-		if rt.AppCode != "" {
-			platformCode, ok := appPlatformCache[rt.AppCode]
-			if !ok {
-				var app models.ApplicationDict
-				if derr := db.Select("platform_code").Where("app_code = ?", rt.AppCode).First(&app).Error; derr == nil {
-					platformCode = app.PlatformCode
-				}
-				appPlatformCache[rt.AppCode] = platformCode
-			}
-			if platformCode != "" {
-				systemLabels["platform"] = platformCode
-			}
-		}
 		if rt.NetworkDomainID != "" {
 			systemLabels["network_domain"] = rt.NetworkDomainID
 			dom, ok := domainCache[rt.NetworkDomainID]

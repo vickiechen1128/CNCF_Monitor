@@ -1,0 +1,67 @@
+name: Check Frontend
+
+# 前端门禁（决策 118-5 的 CI 落点）：跑两件事——
+#   1. typecheck:test —— 测试文件专用类型检查（tsconfig.test.json）。
+#      生产 tsconfig.json 有意 exclude *.test.ts(x)（见
+#      docs/03-engineering-standards/02_Frontend_Standard.md §11），
+#      因此测试文件的类型问题不受生产 tsc 覆盖，必须单独检查。
+#      缺此步时，resources.test.ts 曾用运行时对象字面量「伪证」
+#      platform_code 已接通，类型缺口被完全掩盖。
+#   2. build —— 生产构建口径（tsc && vite build）不变。
+#
+# 刻意不跑全量 vitest：916 用例在 CI 上耗时数分钟，且 antd / jsdom
+# 偶发波动易造成假红，噪音大于收益。单测请在本地跑 `pnpm test`
+# （已串联 typecheck:test）。
+#
+# 本地等效命令：cd ui-custom/web && pnpm run typecheck:test && pnpm run build
+
+on:
+  pull_request:
+    paths:
+      - 'ui-custom/web/**'
+      - '.github/workflows/check-frontend.yml'
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'ui-custom/web/**'
+      - '.github/workflows/check-frontend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui-custom/web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # 与 Makefile install-pnpm（`npm install -g pnpm@9`）保持一致；
+          # lockfileVersion 9.0 亦对应 pnpm 9。
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # 与 Makefile NODE_VERSION 保持一致
+          node-version: '22.14.0'
+          cache: pnpm
+          cache-dependency-path: ui-custom/web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck test files
+        run: pnpm run typecheck:test
+
+      - name: Build (production tsc + vite)
+        run: pnpm run build

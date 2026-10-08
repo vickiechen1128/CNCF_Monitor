@@ -1,17 +1,18 @@
 import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Button } from 'antd'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
 import { ServiceManagementPage, ServiceDictDrawer } from './ServiceManagementPage'
 import { DICT_LIFECYCLE_NOTICE } from './DictLifecycleNotice'
-import type { ServiceDict } from '../../types/resource'
+import type { ApplicationDict, ServiceDict } from '../../types/resource'
 
 const listMock = vi.fn()
 const createMock = vi.fn()
 const updateMock = vi.fn()
+const appListMock = vi.fn()
 
 vi.mock('../../api/resources', () => ({
   serviceDictApi: {
@@ -19,12 +20,22 @@ vi.mock('../../api/resources', () => ({
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
   },
+  applicationDictApi: {
+    list: (...args: unknown[]) => appListMock(...args),
+  },
 }))
 
 const services: ServiceDict[] = [
-  { service_code: 'order-api', service_name: '订单接口服务', description: '交易主链路', enabled: true },
-  { service_code: 'pay-callback', service_name: '支付回调服务', description: '支付域', enabled: true },
-  { service_code: 'legacy-api', service_name: '已下线服务', description: '停用中', enabled: false },
+  { service_code: 'order-api', service_name: '订单接口服务', description: '交易主链路', app_code: 'order-service', enabled: true },
+  { service_code: 'pay-callback', service_name: '支付回调服务', description: '支付域', app_code: 'pay-service', enabled: true },
+  { service_code: 'legacy-api', service_name: '已下线服务', description: '停用中', app_code: null, enabled: false },
+]
+
+/** F-19：应用字典夹具——含启用项、停用项，以及一条服务已挂但字典中不存在的孤儿引用 */
+const applications: ApplicationDict[] = [
+  { app_code: 'order-service', app_name: '订单服务', status: 'enabled' },
+  { app_code: 'pay-service', app_name: '支付服务', status: 'enabled' },
+  { app_code: 'legacy-service', app_name: '下线服务', status: 'disabled' },
 ]
 
 function renderPage() {
@@ -37,7 +48,7 @@ function renderPage() {
   )
 }
 
-/** 关闭 → 打开切换的回显回归夹具（forceRender 常驻 Form） */
+/** 关闭 → 打开切换的回显回归夹具（forceRender 常驻Form） */
 function ToggleHarness() {
   const [record, setRecord] = useState<ServiceDict | null>(null)
   const [open, setOpen] = useState(false)
@@ -59,7 +70,13 @@ function ToggleHarness() {
       >
         关闭
       </Button>
-      <ServiceDictDrawer open={open} record={record} onCancel={() => {}} onSuccess={() => {}} />
+      <ServiceDictDrawer
+        open={open}
+        record={record}
+        applications={applications}
+        onCancel={() => {}}
+        onSuccess={() => {}}
+      />
     </>
   )
 }
@@ -71,7 +88,9 @@ describe('ServiceManagementPage', () => {
     listMock.mockReset()
     createMock.mockReset()
     updateMock.mockReset()
+    appListMock.mockReset()
     listMock.mockResolvedValue({ status: 'success', data: { list: services, total: services.length } })
+    appListMock.mockResolvedValue({ status: 'success', data: { list: applications, total: applications.length } })
     createMock.mockResolvedValue({
       status: 'success',
       data: { service_code: 'checkout-api', service_name: '结算接口服务', enabled: true },
@@ -128,6 +147,64 @@ describe('ServiceManagementPage', () => {
 
     await waitFor(() => expect(updateMock).toHaveBeenCalledWith('order-api', { enabled: false }))
   })
+
+  // F-19：列表「所属应用」列——展示 app_name，缺条目回退 app_code，未挂应用显示 '-'
+  it('F-19：列表「所属应用」列展示应用名，未挂应用显示 "-"', async () => {
+    renderPage()
+    expect(await screen.findByText('order-api')).toBeInTheDocument()
+
+    const orderRow = screen.getByText('order-api').closest('tr')!
+    expect(within(orderRow).getByText('订单服务')).toBeInTheDocument()
+    const legacyRow = screen.getByText('legacy-api').closest('tr')!
+    expect(within(legacyRow).queryByText('订单服务')).toBeNull()
+    // 无所属应用（app_code=null）→ '-'
+    expect(within(legacyRow).getAllByText('-').length).toBeGreaterThanOrEqual(1)
+  })
+
+  // F-19：应用字典缺条目时回退展示 app_code；应用已停用加「（已停用）」
+  it('F-19：所属应用缺字典条目回退 app_code，应用停用加「（已停用）」', async () => {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [
+          { service_code: 'orphan-api', service_name: '孤儿服务', app_code: 'not-in-dict', enabled: true },
+          { service_code: 'legacy-bind', service_name: '挂停用应用', app_code: 'legacy-service', enabled: true },
+        ],
+        total: 2,
+      },
+    })
+    renderPage()
+    expect(await screen.findByText('orphan-api')).toBeInTheDocument()
+
+    // 字典中无 not-in-dict → 回退展示编码本身
+    expect(within(screen.getByText('orphan-api').closest('tr')!).getByText('not-in-dict')).toBeInTheDocument()
+    // 已停用应用 → 「应用名（已停用）」
+    expect(screen.getByText('下线服务（已停用）')).toBeInTheDocument()
+  })
+
+  // F-19：应用字典加载失败时降级——服务列表仍可用，所属应用按 app_code 回退
+  it('F-19：应用字典加载失败不影响服务列表，所属应用回退 app_code', async () => {
+    appListMock.mockRejectedValue(new Error('应用字典加载失败'))
+    renderPage()
+    expect(await screen.findByText('order-api')).toBeInTheDocument()
+
+    // 字典为空 → 回退展示 app_code，不报错、不空表
+    expect(within(screen.getByText('order-api').closest('tr')!).getByText('order-service')).toBeInTheDocument()
+    expect(screen.queryByText('服务字典加载失败，请稍后重试')).toBeNull()
+  })
+
+  // F-19：PM 裁定「主业务」（biz_code）本轮不做——前端不暴露任何入口
+  it('F-19：前端不暴露「主业务」入口（PM 裁定 biz_code 本轮不做）', async () => {
+    renderPage()
+    await screen.findByText('order-api')
+
+    // 列表无「主业务」列
+    expect(screen.queryByRole('columnheader', { name: /主业务/ })).toBeNull()
+    // 抽屉表单无「主业务」字段
+    await userEvent.click(screen.getByRole('button', { name: /登记服务/ }))
+    expect(await screen.findByLabelText('服务编码')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/主业务/)).toBeNull()
+  })
 })
 
 describe('ServiceDictDrawer', () => {
@@ -137,6 +214,7 @@ describe('ServiceDictDrawer', () => {
     listMock.mockReset()
     createMock.mockReset()
     updateMock.mockReset()
+    appListMock.mockReset()
     createMock.mockResolvedValue({
       status: 'success',
       data: { service_code: 'checkout-api', service_name: '结算接口服务', enabled: true },
@@ -159,7 +237,7 @@ describe('ServiceDictDrawer', () => {
   })
 
   it('登记合法编码调用 create 提交 {service_code,service_name,description}', async () => {
-    render(<ServiceDictDrawer open record={null} onCancel={() => {}} onSuccess={() => {}} />)
+    render(<ServiceDictDrawer open record={null} applications={applications} onCancel={() => {}} onSuccess={() => {}} />)
 
     await userEvent.type(screen.getByLabelText('服务编码'), 'checkout-api')
     await userEvent.type(screen.getByLabelText('服务名'), '结算接口服务')
@@ -170,12 +248,102 @@ describe('ServiceDictDrawer', () => {
         service_code: 'checkout-api',
         service_name: '结算接口服务',
         description: undefined,
+        // F-19：未选所属应用 → undefined（由 api 层省略该键，不回传空串）
+        app_code: undefined,
       }),
     )
   })
 
+  // F-19：登记时选中「所属应用」→ create 携带 app_code
+  it('F-19：登记时选择所属应用，create 提交 app_code', async () => {
+    render(<ServiceDictDrawer open record={null} applications={applications} onCancel={() => {}} onSuccess={() => {}} />)
+
+    await userEvent.type(screen.getByLabelText('服务编码'), 'checkout-api')
+    await userEvent.type(screen.getByLabelText('服务名'), '结算接口服务')
+    // 打开「所属应用」下拉并选中启用项
+    await userEvent.click(screen.getByLabelText('所属应用'))
+    await userEvent.click(await screen.findByText('订单服务（order-service）'))
+    await userEvent.click(screen.getByRole('button', { name: /登\s*记/ }))
+
+    await waitFor(() =>
+      expect(createMock).toHaveBeenCalledWith({
+        service_code: 'checkout-api',
+        service_name: '结算接口服务',
+        description: undefined,
+        app_code: 'order-service',
+      }),
+    )
+  })
+
+  // F-19：下拉仅列启用应用；已停用应用不被新选（编辑态历史归属仍回显）
+  it('F-19：「所属应用」下拉仅列启用应用，停用应用不出现在登记态选项中', async () => {
+    render(<ServiceDictDrawer open record={null} applications={applications} onCancel={() => {}} onSuccess={() => {}} />)
+
+    await userEvent.click(screen.getByLabelText('所属应用'))
+    expect(await screen.findByText('订单服务（order-service）')).toBeInTheDocument()
+    expect(screen.getByText('支付服务（pay-service）')).toBeInTheDocument()
+    // 停用应用不在新建选项中
+    expect(screen.queryByText(/下线服务/)).toBeNull()
+  })
+
+  // F-19：编辑态回显已停用应用的归属（不清空、不静默丢失）
+  it('F-19：编辑态回显已停用应用的归属并标「（已停用）」，提交原值不丢失', async () => {
+    const record: ServiceDict = {
+      service_code: 'legacy-bind',
+      service_name: '挂停用应用',
+      description: '',
+      app_code: 'legacy-service',
+      enabled: true,
+    }
+    render(<ServiceDictDrawer open record={record} applications={applications} onCancel={() => {}} onSuccess={() => {}} />)
+
+    // 历史归属作为回显项可见
+    expect(await screen.findByText('下线服务（已停用）')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    const body = (updateMock.mock.calls[0] as [string, Record<string, unknown>])[1]
+    expect(body.app_code).toBe('legacy-service')
+  })
+
+  // F-19：清空「所属应用」→ 提交 null 表达「摘除」（契约 null=摘除 / undefined=不改）
+  it('F-19：清空所属应用提交 app_code=null 表达摘除', async () => {
+    render(
+      <ServiceDictDrawer
+        open
+        record={services[0]}
+        applications={applications}
+        onCancel={() => {}}
+        onSuccess={() => {}}
+      />,
+    )
+
+    // 编辑态回显原归属 order-service
+    expect(await screen.findByText('订单服务（order-service）')).toBeInTheDocument()
+    // antd clear 图标由 CSS 控制显隐，jsdom 下用 fireEvent 直接触发（与 ApplicationDictPage 同口径）
+    // 注意：表单内有两个 Select（「所属应用」+ 编辑态的「状态」），必须按 label 精确定位到
+    // 「所属应用」那一项，否则全局 querySelector 会命中「状态」的「启用」项导致误判。
+    const appSelect = screen.getByLabelText('所属应用').closest('.ant-select') as HTMLElement
+    const clear = appSelect.querySelector('.ant-select-clear') as HTMLElement
+    expect(clear).toBeTruthy()
+    fireEvent.mouseDown(clear)
+    fireEvent.click(clear)
+    await waitFor(() =>
+      expect(appSelect.querySelector('.ant-select-selection-item')).toBeNull(),
+    )
+    // 摘除后应回到未选态（placeholder 可见），且不影响下方「状态」项
+    expect(screen.getByText('选填，选择所属应用')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    const body = (updateMock.mock.calls[0] as [string, Record<string, unknown>])[1]
+    expect(body.app_code).toBeNull()
+  })
+
   it('受限编辑：编码禁用，仅提交 service_name/description/enabled（不携带 service_code）', async () => {
-    render(<ServiceDictDrawer open record={services[1]} onCancel={() => {}} onSuccess={() => {}} />)
+    render(
+      <ServiceDictDrawer open record={services[1]} applications={applications} onCancel={() => {}} onSuccess={() => {}} />,
+    )
 
     const codeInput = await screen.findByLabelText('服务编码')
     expect(codeInput).toBeDisabled()
@@ -193,6 +361,8 @@ describe('ServiceDictDrawer', () => {
         service_name: '支付回调服务(新)',
         description: '支付域',
         enabled: true,
+        // F-19：未改动所属应用时原样提交 pay-service
+        app_code: 'pay-service',
       }),
     )
     const [codeArg, bodyArg] = updateMock.mock.calls[0] as [string, Record<string, unknown>]

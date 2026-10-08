@@ -132,8 +132,8 @@ const CI_TYPE_OPTIONS: { value: ResourceCategory; label: string }[] = [
   { value: 'host', label: '主机' },
   { value: 'database', label: '数据库' },
   { value: 'middleware', label: '中间件' },
-  { value: 'application', label: '应用' },
-  { value: 'generic_target', label: '通用目标' },
+  { value: 'application', label: '应用服务' },
+  { value: 'generic_target', label: '其他监控目标' },
 ]
 
 type CiType = ResourceCategory

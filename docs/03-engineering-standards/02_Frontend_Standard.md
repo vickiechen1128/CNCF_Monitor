@@ -220,10 +220,44 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 }
 ```
 
-- **生产构建**：`tsc` 仅检查业务代码，测试文件不参与类型检查；
+- **生产构建**：`tsc` 仅检查业务代码，测试文件不参与**生产构建**的类型检查；
+- **测试类型检查（独立配置，强制）**：测试文件**并非不受任何类型检查**，而是由 `tsconfig.test.json` 单独检查。`pnpm run typecheck:test` 为该配置的入口，且已前置串联进 `pnpm test`；CI 由 `.github/workflows/check-frontend.yml` 在 PR / push 到 `develop` 时强制执行。**禁止**用运行时对象字面量绕过类型层「伪证」某个字段已接通——这类伪证会在 `tsc` 报出 excess property 时现形（原 `resources.test.ts` 即因此掩盖过 `platform_code` 类型缺口）；
 - **测试运行**：走 `vitest run`，不依赖 tsconfig 的 include，不受排除影响；
 - **禁止**为了绕过构建而给测试加入 `@ts-ignore` / 任意 `any`，也不允许删除测试文件；
 - 新增测试文件请沿用 `*.test.ts(x)` 命名，确保被统一排除规则覆盖。
+
+`ui-custom/web/tsconfig.test.json`（测试文件专用，v1.34 起，跨模块强制）：
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "src/vite-env.d.ts",
+    "src/setupTests.ts",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
+  ],
+  "exclude": []
+}
+```
+
+- `exclude: []` 必须显式清空——父配置的 `exclude` 会被继承（其中排除 `*.test.ts(x)`，与本配置意图冲突）；
+- `types` 引入 Vitest 全局 API，避免污染业务代码类型；
+- `src/vite-env.d.ts` 必须显式纳入：它提供 `import.meta.env`（`vite/client`），生产构建靠 `include: ["src"]` 隐式带入，本配置 include 收窄后需显式列出；
+- **此配置不改变生产构建口径**：`tsconfig.json` 与 `pnpm build` 的 `tsc` 均不因此改动。
+
+**门禁层级（三层，缺一不可）**：
+
+| 层 | 载体 | 覆盖 |
+| --- | --- | --- |
+| 本地单测 | `pnpm test`（= `typecheck:test` + `vitest run`） | 全量类型 + 单测 |
+| 本地构建 | `pnpm build` | 生产 tsc + vite 打包 |
+| 远端 CI | `.github/workflows/check-frontend.yml` | `typecheck:test` + `build`（刻意不含全量 vitest，见 workflow 内注释） |
+
+`scripts/git-hooks/pre-commit` **不**包含前端类型门禁：单次 tsc 约 20~40 秒，与既有的秒级 `check-repo-map` 体验差异过大，且只护本地、不构成最终防线。最终防线以 CI 为准。
 
 **ESLint 配套（v1.33 起，跨模块强制）**：`eslint.config.js` 必须与 tsconfig 排除口径一致，否则类型感知 lint 会对被排除的测试文件报 `The file was not found in any of the provided project(s)`。规则：
 
@@ -233,3 +267,48 @@ GitHub Actions 中使用 `pnpm install --frozen-lockfile`，不能执行交互�
 4. 禁止使用 flat config 的 `excludes` 键（当前 `@eslint/config-array` 版本不支持，会报 `Unexpected key "excludes"`）。
 
 > ⚠️ 注意：`excludes` 与 `project: null` 二选一时用后者；若升级 ESLint 后 `excludes` 可用，仍以 `project: null` 方案为准保持行为稳定。
+
+## 12. 测试内存护栏（跨模块强制）
+
+`jsdom` + `antd v5` 的组合单文件内存开销远高于直觉。**8 GB 机型实测**：
+
+| 指标 | 实测值 |
+| --- | --- |
+| 单个测试文件峰值 RSS | 680~770 MB（`HomePage.test.tsx` 76K → 684 MB；`ResourcesPage.test.tsx` 48K → 772 MB） |
+| 全量 94 文件按默认并发（8 核 → 8 worker） | 瞬时需求可超 8 GB 物理内存 → swap 风暴 |
+| 换页计数 | `Pageins` 达 9213 万次、swap 占用 4.0 / 5.4 GB |
+| 表现 | **测试「卡住不动」**（非变慢）；严重时进程被 macOS `SIGKILL`，退出码 **137** |
+
+`vitest.config.ts` 已内置护栏（v1.35 起，跨模块强制）：
+
+1. **`minWorkers: 1` + `maxWorkers: 2` 必须成对设置**。vitest 2.x 的 `minWorkers` 默认等于 CPU 核数，**只设 `maxWorkers` 会直接报错**：
+   `RangeError: options.minThreads and options.maxThreads must not conflict`。
+2. **`pool: 'forks'` + `poolOptions.forks.execArgv: ['--max-old-space-size=1024']`**：限制每个 fork 子进程的 V8 堆上限，让 V8 更早触发 GC 而不是无限膨胀。实测单文件峰值 **684 MB → 396 MB（-42%）**，且 GC 更及时反而更快（29s → 9.7s，单文件带 typecheck 口径）。
+3. **用 `poolOptions.execArgv` 而非 `NODE_OPTIONS` 环境变量**：后者在 Windows 下需额外引入 `cross-env` 才能生效，而本项目支持 Win 平台（`setup-windows.sh` / `SETUP_WINDOWS.md`）。
+4. **不牺牲正确性换内存**：`isolate` 保持默认 `true`（测试文件间环境隔离），不开启单文件复用环境；`testTimeout: 15000` 保持不变（护栏解决的是内存，不是超时）。
+
+**诊断口诀**：`pnpm test` 卡住不动时，先看退出码——**137 = 被系统 SIGKILL（内存）**，不是测试本身有问题。再看 `sysctl vm.swapusage` 与 `memory_pressure | grep free percentage`；注意 `memory_pressure` 的"free percentage"在 swap 已耗尽时**仍可能报 40%+**，不能只看它。
+
+临时需要全速验证可 CLI 覆盖（会失去内存护栏，8 GB 机型慎用）：
+
+```bash
+pnpm vitest run --minWorkers=8 --maxWorkers=8
+```
+
+> 补充：`/usr/bin/time -l` 的 `maximum resident set size` 是测单文件内存峰值的有效手段；但**不要用它跑全量**（`-l` 本身在长任务上会额外占用内存，且读数含 time 进程自身开销）。
+
+### §12 补充：增量验证（`--changed`）实测行为
+
+`pnpm vitest run --changed <base>` 由 vitest 依据 git diff 筛选受影响的测试文件（含依赖图传导），是**缩短反馈周期**的标准手段。实测（8 GB 机型）：
+
+| base | 命中情况 | 表现 |
+| --- | --- | --- |
+| `--changed ../origin/develop`（工作区已全部提交） | 0 个文件 | exit 0，秒退。**不是 bug**——diff 为空故无命中 |
+| `--changed HEAD~1`（该 commit 仅改 Go / 文档 / workflow） | 0 个文件 | exit 0，秒退。同上 |
+| `--changed HEAD~5`（命中 C3 的 20 个前端文件） | 20 个文件 | 因含 `ResourcesPage.test.tsx`（34.5 s）而内存吃紧，**在系统 swap 已耗尽时被 SIGKILL（exit 137）** |
+
+**要点**：
+1. `--changed` 结果为空时**不要当成失败**——先看 `git diff --name-only <base>` 确认该范围内确无测试文件。
+2. `--changed` 命中面**不含"改动文件对应的测试文件"以外的内容**，但**包含依赖传导**（改了 `src/api/resources.ts` 会带出 `resources.test.ts`）。
+3. 基路径需为仓库内可解析的 ref。`ui-custom/web/` 不是仓库根，用 `../origin/develop` 或 `HEAD~N` 均可。
+4. **exit 137 一律按内存问题处理**，不要重试到通过为止（见上文诊断口诀）。

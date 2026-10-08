@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import { message } from 'antd'
-import { setupAntdTest } from '../../../test/antdTestUtils'
+import { setupAntdTest, mockAntdMessage, type MockedMessage } from '../../../test/antdTestUtils'
 import { EdgeAgentDrawer } from './EdgeAgentDrawer'
 import type { AgentView } from '../../../types/edge'
 
@@ -46,12 +45,13 @@ const mockOnClose = vi.fn()
 describe('EdgeAgentDrawer（节点详情抽屉）', () => {
   setupAntdTest()
 
+  let msg: MockedMessage
+
   beforeEach(() => {
     navigateMock.mockReset()
     mockOnClose.mockReset()
     listPackagesMock.mockReset()
-    vi.spyOn(message, 'success').mockImplementation(() => undefined)
-    vi.spyOn(message, 'error').mockImplementation(() => undefined)
+    msg = mockAntdMessage()
   })
 
   it('渲染节点概览 + 组件清单（类型/状态/版本/配置版本）', async () => {
@@ -132,7 +132,7 @@ describe('EdgeAgentDrawer（节点详情抽屉）', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: /重新同步/ }))
-    expect(message.success).toHaveBeenCalled()
+    expect(msg.success).toHaveBeenCalled()
     expect(navigateMock).not.toHaveBeenCalled()
   })
 
