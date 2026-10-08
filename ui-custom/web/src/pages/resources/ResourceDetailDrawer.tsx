@@ -65,8 +65,8 @@ const RESOURCE_CATEGORY_MAP: Record<ResourceCategory, string> = {
   host: '主机',
   database: '数据库',
   middleware: '中间件',
-  application: '应用',
-  generic_target: '通用目标',
+  application: '应用服务',
+  generic_target: '其他监控目标',
 }
 
 /** 运行状态展示名（§5.2 / 决策 32，UI 展示名「运行状态」） */
@@ -588,23 +588,47 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       })()
     : []
 
+  // 紧凑单行标签行：来源 Tag 极简化（去实心块），保证文本仍可被 getByText 命中
+  const minimalTagStyle = { marginInlineEnd: 0, fontSize: 12, lineHeight: '18px', padding: '0 6px', borderRadius: 3 }
+
   /** 标签来源 Tag（cmdb 以「v0.4+ 预留」占位，§3.3 统一口径） */
   const renderSourceTag = (label: ResourceLabelItem) => {
-    if (label.source === 'cmdb') return <Tag>CMDB · v0.4+ 预留</Tag>
-    if (label.source === 'user') return <Tag color="cyan">用户</Tag>
-    return <Tag>系统</Tag>
+    if (label.source === 'cmdb')
+      return (
+        <Tag bordered={false} style={minimalTagStyle}>
+          CMDB · v0.4+ 预留
+        </Tag>
+      )
+    if (label.source === 'user')
+      return (
+        <Tag bordered={false} color="cyan" style={minimalTagStyle}>
+          用户
+        </Tag>
+      )
+    return (
+      <Tag bordered={false} style={minimalTagStyle}>
+        系统
+      </Tag>
+    )
   }
+
+  /** 来源说明统一为 12px 次要文字 + 单行省略（紧凑行内渲染，仍保留在 DOM 中） */
+  const annotationStyle = {
+    fontSize: 12,
+    color: tokens.colorTextTertiary,
+    flex: '0 1 auto',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  } as const
 
   /** 标签来源标注（§5.3 联动呈现：system → 模板·source_map；user → 手动添加；cmdb → 预留说明） */
   const renderAnnotation = (label: ResourceLabelItem) => {
     if (label.source === 'system') {
-      if (!template) return <Text type="secondary" style={{ fontSize: 12 }}>来自标签模板</Text>
+      if (!template) return <Text style={annotationStyle}>来自标签模板</Text>
       return (
-        <Text
-          type="secondary"
-          style={{ fontSize: 12, cursor: 'pointer' }}
-          onClick={() => navigate('/label-templates')}
-        >
+        <Text style={{ ...annotationStyle, cursor: 'pointer' }} onClick={() => navigate('/label-templates')}>
           <Tooltip title="前往标签模板管理">
             {label.source_map ? `来自 ${template.name} · ${label.source_map}` : `来自 ${template.name}`}
           </Tooltip>
@@ -612,58 +636,105 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
       )
     }
     if (label.source === 'user') {
-      return <Text type="secondary" style={{ fontSize: 12 }}>手动添加</Text>
+      return <Text style={annotationStyle}>手动添加</Text>
     }
-    return <Text type="secondary" style={{ fontSize: 12 }}>CMDB 同步（v0.4+ 接入后生效，MVP 仅占位展示）</Text>
+    return <Text style={annotationStyle}>CMDB 同步（v0.4+ 接入后生效，MVP 仅占位展示）</Text>
   }
 
-  /** 单条标签行：system/cmdb 与静态资源的 user 标签只读；application 的 user 标签可编辑/删除 */
+  /** 单条标签行（紧凑单行）：system/cmdb 与静态资源的 user 标签只读；application 的 user 标签可编辑/删除 */
   const renderLabelRow = (label: ResourceLabelItem) => {
     const canEdit = isApplication && label.source === 'user'
     const isEditing = editingId === label.id
     return (
       <div
         key={label.id}
-        style={{ borderLeft: `4px solid ${labelSourceBorder(tokens)[label.source]}`, background: '#FAFAFA', padding: '8px 12px', borderRadius: 4 }}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          flexWrap: 'nowrap',
+          gap: 8,
+          borderLeft: `4px solid ${labelSourceBorder(tokens)[label.source]}`,
+          borderBottom: `1px solid ${tokens.colorBorderSecondary}`,
+          padding: '6px 10px',
+          borderRadius: 4,
+        }}
       >
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
-          <Space size={8} wrap>
-            <Text strong>{label.key}</Text>
-            {renderSourceTag(label)}
-            {!canEdit && <LockOutlined style={{ color: '#86909C', fontSize: 12 }} />}
-          </Space>
-          {canEdit && !isEditing && (
-            <Space size={4}>
-              <Button type="text" size="small" icon={<EditOutlined />} disabled={submitting} onClick={() => handleEditValue(label)}>
-                编辑
-              </Button>
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} disabled={submitting} onClick={() => handleDeleteLabel(label)}>
-                删除
-              </Button>
-            </Space>
-          )}
-        </div>
-        <div style={{ marginTop: 4 }}>{renderAnnotation(label)}</div>
-        <div style={{ marginTop: 4 }}>
-          {canEdit && isEditing ? (
-            <Space.Compact block>
-              <Input
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onPressEnter={() => handleSaveEdit(label)}
-                placeholder="标签值"
+        {canEdit && isEditing ? (
+          <Space.Compact block>
+            <Input
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onPressEnter={() => handleSaveEdit(label)}
+              placeholder="标签值"
+            />
+            <Tooltip title="保存">
+              <Button
+                type="primary"
+                size="small"
+                aria-label="保存"
+                icon={<SaveOutlined />}
+                loading={submitting}
+                onClick={() => handleSaveEdit(label)}
               />
-              <Button type="primary" icon={<SaveOutlined />} loading={submitting} onClick={() => handleSaveEdit(label)}>
-                保存
-              </Button>
-              <Button icon={<CloseOutlined />} disabled={submitting} onClick={() => setEditingId(null)}>
-                取消
-              </Button>
-            </Space.Compact>
-          ) : (
-            <EllipsisText maxWidth={520}>{label.value || '-'}</EllipsisText>
-          )}
-        </div>
+            </Tooltip>
+            <Tooltip title="取消">
+              <Button
+                size="small"
+                aria-label="取消"
+                icon={<CloseOutlined />}
+                disabled={submitting}
+                onClick={() => setEditingId(null)}
+              />
+            </Tooltip>
+          </Space.Compact>
+        ) : (
+          <>
+            <Text strong style={{ flex: '0 0 auto' }}>
+              {label.key}
+            </Text>
+            <Text type="secondary" style={{ flex: '0 0 auto', fontSize: 12 }}>
+              =
+            </Text>
+            <span style={{ flex: '0 1 auto', minWidth: 0, overflow: 'hidden' }}>
+              <EllipsisText maxWidth={260}>{label.value || '-'}</EllipsisText>
+            </span>
+            {renderAnnotation(label)}
+            <span style={{ marginLeft: 'auto', flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+              {renderSourceTag(label)}
+              {isApplication && !canEdit && (
+                <Tooltip title="只读">
+                  <LockOutlined style={{ color: tokens.colorTextTertiary, fontSize: 12 }} />
+                </Tooltip>
+              )}
+              {canEdit && (
+                <>
+                  {/* icon-only 按钮必须显式 aria-label：antd 图标的 aria-label 会混入 accessible name */}
+                  <Tooltip title="编辑">
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="编辑"
+                      icon={<EditOutlined />}
+                      disabled={submitting}
+                      onClick={() => handleEditValue(label)}
+                    />
+                  </Tooltip>
+                  <Tooltip title="删除">
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      aria-label="删除"
+                      icon={<DeleteOutlined />}
+                      disabled={submitting}
+                      onClick={() => handleDeleteLabel(label)}
+                    />
+                  </Tooltip>
+                </>
+              )}
+            </span>
+          </>
+        )}
       </div>
     )
   }
@@ -749,7 +820,8 @@ export function ResourceDetailDrawer({ open, record, networkDomains, businessDom
                   </Text>
                 </Empty>
               ) : (
-                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                // 紧凑列表：行间距 4，超过一屏时容器内部滚动，避免抽屉被撑长
+                <Space direction="vertical" size={4} style={{ width: '100%', maxHeight: 320, overflowY: 'auto' }}>
                   {labels.map((label) => renderLabelRow(label))}
                 </Space>
               )}
