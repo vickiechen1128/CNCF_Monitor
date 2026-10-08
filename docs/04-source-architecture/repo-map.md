@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-03 20:33 · commit: `3011bcb`
+> 生成时间: 2026-10-08 13:25 · commit: `7478df9`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1678,6 +1678,13 @@
 - `func TestListResourcesIsMonitoredPassthrough(t *testing.T)`
 - `func TestParseIsMonitored(t *testing.T)`
 - `func TestResourceListServiceCode(t *testing.T)`
+- `func seedHostListPlatformApp(t *testing.T, db *gorm.DB, id, name, ip, platform, appCode, status string)`
+- `func seedAppWithFourDims(t *testing.T, db *gorm.DB, id, service, platform, appCode, svcCode, bizCode, status string)`
+- `func TestListResourcesPlatformAppServiceFilter(t *testing.T)`
+- `func TestListResourcesServiceCodeIgnoredOnNonServiceCategories(t *testing.T)`
+- `func TestParseListFilterFourDimensionFields(t *testing.T)`
+- `func TestHasServiceCodeAndAppCodeColumn(t *testing.T)`
+- `func TestColumnSchemaHelpersCoverAllCategories(t *testing.T)`
 
 ### `platform/config/resource/monitored.go`
 
@@ -1723,6 +1730,8 @@
 - `func ParsePageParams(values url.Values) PageParams`
 - `type ListFilter struct`
 - `func ParseListFilter(values url.Values) ListFilter`
+- `func appCodeColumn(category models.ResourceCategory) string`
+- `func hasServiceCode(category models.ResourceCategory) bool`
 - `func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter) *gorm.DB`
 - `func parseIntDefault(raw string, def, min int) int`
 
@@ -5261,6 +5270,21 @@
 ### `ui-custom/web/src/pages/resources/TemplateDownloadModal.tsx`
 
 - `function TemplateDownloadModal`
+
+### `ui-custom/web/src/pages/resources/resourceColumnPrefs.ts`
+
+- `type ResourceColumnGroup`
+- `const COLUMN_GROUP_ORDER`
+- `interface ResourceColumnMeta`
+- `const RESOURCE_COLUMN_META`
+- `const FIXED_COLUMN_KEYS`
+- `const DEFAULT_VISIBLE_COLUMN_KEYS`
+- `function columnPrefStorageKey`
+- `function orderColumnKeys`
+- `function loadVisibleColumnKeys`
+- `function saveVisibleColumnKeys`
+- `function resetVisibleColumnKeys`
+- `function isDefaultVisibleColumnKeys`
 
 ### `ui-custom/web/src/pages/resources/useResourceCoverage.ts`
 
