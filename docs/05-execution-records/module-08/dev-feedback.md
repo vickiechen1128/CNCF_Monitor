@@ -370,7 +370,7 @@
   - 测试：新增 `config/service_test.go` 断言「submit 后 AM 磁盘文件被更新 + applied_at 回填」；`deployment_test.go` 已覆盖 `DiskApplier` 写 AM 分支（`TestDiskApplierWritesAlertmanagerReloadsSeparately`），可复用。
 - **影响模块**：M08（配置提交/状态展示）、M09（`alertmanager.yml` 生成与确认下发，local 通道）、前端告警配置页；不动写盘路径与 reload 机制。
 - **发现场景**：用户追问「M08 apply 不写回 AM 实际加载的 alertmanager.yml 具体是什么问题」，核对 `alertmanager/config/service.go` → `configcenter/change/watcher.go` → `configcenter/draft/service.go` → `configcenter/deployment/service.go` 全链路后定位（2026-09-29）。
-- **状态**：open（方案 A 已确认、待实现；实现期为 feat 收尾后的独立修复，不在当前冻结期 PRD 改动范围内。落地后由 `writebackAlertmanagerApplied` 的 `applied_at` 回填路径验证闭环，本项 closed）
+- **状态**：~~open（方案 A 已确认、待实现）~~ → **2026-10-09 部分回退**：方案 A 的「自动闭环」子项已实现并上线，但当日经用户裁决**关闭自动确认**（见 #43）：告警配置提交不再自动 `ConfirmDraft`，改由 M09 人工确认。#25 中「状态去误导」子项（前端改读 `applied_at`）**仍然有效并保留**；「自动闭环」子项作废。
 
 ## 26. 平台物化的通知 receiver **没有任何 route 引用** → 死配置，且成为 F-36 误报的触发物（② 实现偏差 / 跨模块契约缺口，2026-09-30 用户裁决「明确 route 由用户写」）
 
@@ -691,3 +691,141 @@ L3（纯文案文档）──┘        │
   1. `POST /config/versions/{id}/remount` 后端端点**保留、不下线**，待 **v0.3** 再决定。契约 §3 已标注「已无前端调用方」并显式区分 §11.1 的模板 remount（语义不同、仍在用）。
   2. 四页各保留一处**随状态变化的**常驻 `Alert`（如路由规则页的「顺序即优先级 + 模式徽标」），按 `PageIntro` 契约第三条硬约束**有意不并入**说明区（只有随状态变化的信息才允许常驻）。
 
+## 40. 路由规则页实测阻断三连：「新建按钮恒灰」+「手写 receiver 误判悬空」+「我手写」歧义（landed 2026-10-08）
+
+- **类别**：② 实现缺陷（阻断级，两条）+ ① 空白判定 / UX 信息缺口（一条）
+- **PRD 章节 / 文件位置**：`ui-custom/web/src/pages/alerts/RoutesPage.tsx`（操作区 `:558-590`、说明区 `:440-479`、只读/可编辑分支 `description`）；`useRoutes.ts`（`useRouteEditor` 首屏导入门控、`knownReceivers` 派生、编辑态初始化）；`routeTree.ts:240-258`（`validateRouteReceivers` 悬空判据）；`AlertConfigPage.tsx:277-294`（`policySummary`）、`:254-287`（模式切换二次确认）、策略卡模式控件区；`alertmanagerConstants.ts:398-424`（模式选项文案）；`platform/alertmanager/route/handler.go`（`ListRoutes` / `deadReceivers`）、新增 `platform/alertmanager/route/declared_receivers.go`。
+- **现状 / 根因**（2026-10-08 用户实测三点 → 三条独立根因，均有代码级依据）：
+
+  1. **「新建路由规则」按钮首屏恒灰**——`RoutesPage.tsx:562` 与「保存并提交变更」均为 `disabled={!editing}`，而 `editing = editor.importState !== 'empty'`（`useRoutes.ts:159`）。`importState` 此前恒从 `'empty'` 起步 ⇒ 两个主按钮**首屏必然灰**。用户必须先点「从当前配置导入」才进入编辑态，而该按钮在首屏语境下更像「可选的导入动作」而非「开始编辑的前置步骤」。⚠ 附带的同源缺陷：该按钮会**静默丢弃**用户已有编辑（无二次确认），构成第二条数据丢失路径。
+  2. **导入后报 5 项「接收人 feishu 未定义」，页面进入死锁**——`useRouteEditor` 的 `knownReceivers` 此前**只取平台物化名**（已启用渠道 `ReceiverName()` 集合）。实测本机生效配置（`config_drafts` id=103）的 `receivers:` 段同时声明了**手写** `feishu`（指向用户自建通知脚本 `metricam.chenrt.dpdns.org:8080`）与平台物化 `notify-1`（渠道名「腾讯云边缘域-飞书」全中文 → `SanitizeReceiverName` 归一为空 → 回落 `notify-<id>`）；而根路由 + 4 条子路由**全部引用 `feishu`** → 5 个节点全命中 `routeTree.ts:240-258` 的 `receiver_dangling`（error 级）⇒ 保存被预检阻断；新建按钮又依赖编辑态 ⇒ **既不能新建也不能保存**，页面完全不可用。**根因是口径漂移**：生成侧 `generator/notify_route_skeleton.go::RootRouteInput` 早已定义「可达 receiver 集合 = 文件 `receivers` ∪ `PlatformReceiverNames`」，前端是这套口径的**唯一例外**。
+  3. **「我手写」模式选项造成歧义**——旧措辞「我手写 / 平台管理」中，「我手写」天然承诺"由我在页面里手写"，而实际含义是"平台别生成 route 段、我自己去告警配置页高级区手写 YAML"，该层含义**只写在二次确认弹窗里**。用户选「我手写」后发现路由规则页变只读，判为功能故障。另：策略卡 `policySummary` 一行塞了三段话（可达 60+ 字），用户反馈"信息量过大、非常费力"。
+- **结论 / 建议**（用户同意按 P0 → P1 顺序修复，方案 A「改名 + 明说页面可编辑性」拍板）：
+  1. **P0 首屏自动导入**——只读树加载完成（`useRoutes().ready = !loading`，失败也算终态否则网络错误时永不进编辑态）且**解析成功** → `useRouteEditor` 自动导入。`autoImportedRef` 幂等锁保证只触发一次、不冲掉用户正在进行的编辑；**解析失败刻意不自动导入**（降级事实须让用户知晓，静默塞空白树会让降级不可见）。按钮文案随之按态切换：未进入编辑态 = 「从当前配置导入」+ 下方说明如何进入；已导入 = 「重新载入」+ `confirmReload` 二次确认（丢弃未保存编辑属破坏性操作）。
+  2. **P0 统一可达集合口径**——后端 `GET /routes` 新增 `declared_receivers`（从生效 YAML `receivers:` 段解析，**含手写**；实现 `ParseDeclaredReceivers`，吞错降级为空、绝不返回 error、不牵连主响应；非敏感故维持「仅全局认证」鉴权级别）。前端 `knownReceivers = declared_receivers ∪ 平台物化名`（平台物化名**必须**并入：渠道已启用但配置尚未重新生成时名字还没落盘）。⚠ **`dead_receivers` 口径故意不同、勿合并**：它是平台命名空间**子集**（平台物化却无人指向），**不含**手写 receiver——用户手写 receiver 的存废归用户，平台无权判其为死配置（#26 边界）。两者皆空时前端**不判悬空**（不阻断）。
+  3. **P1 模式改名 + 策略卡瘦身**——选项「我手写 / 平台管理」→「**我来编辑 / 平台生成**」（底层枚举 `handwritten` / `managed` **不变**，仅用户可见词变）。措辞锚定"**谁来产出**"这一可见结果，与页面可编辑性一一对应，控件含义由新增的 `ALERT_POLICY_MODE_TIP` 常驻提示行承载（按 PageIntro 契约第三条：随状态变化的信息才允许常驻，不收进默认收起说明区）。二次确认弹窗改为**明说页面可编辑性**（"路由规则页变为只读视图" / "你在路由规则页直接增删改"），不再只讲产物归属。`policySummary` 压缩：只给结论、**不复述控件字面含义**（遵循「每个事实只在一处说」）。
+- **影响模块**：M08（`GET /routes` 响应契约 / 路由页 / 告警配置页 / 模式文案）
+- **回填清单**：
+  - `platform/alertmanager/route/handler.go`：`ListRoutes` 增 `declared_receivers`（成功与降级两个分支都带）；`deadReceivers` 补口径分工注释。**前端实测名**：`RoutesPage.tsx:161-196`。
+  - `platform/alertmanager/route/declared_receivers.go`（新增）+ `declared_receivers_test.go`（新增，9 子用例：手写与平台物化共存 / 去重 / 缺 name / 元素非映射 / 无 receivers 段 / receivers 非列表 / YAML 非法 / 顶层非映射 / 空输入）。
+  - `ui-custom/web/src/types/alertmanager.ts`：`RouteTreeData` 增 `declared_receivers?: string[]` + 两字段口径分工注释。**前端实测名**：`types/alertmanager.ts:446-470`。
+  - `ui-custom/web/src/pages/alerts/useRoutes.ts`：`useRoutes` 增 `ready`；`UseRouteEditorOptions` 增 `ready` / `declaredReceivers` / `confirmReload`；`doImport` 抽出 + `autoImportedRef` 自动导入门控；`importFromCurrent` 加二次确认；`reset` 复位幂等锁；`knownReceivers` 改并集。**前端实测名**：`useRoutes.ts:146-175`（options）、`:222-296`（取数与并集）、`:298-370`（导入门控）、`:94-140`（`ready`）。
+  - `ui-custom/web/src/pages/alerts/RoutesPage.tsx`：`confirmReload` 二次确认；接 `ready` / `declaredReceivers`；按钮文案按态切换 + 底部说明按态切换；模式徽标与说明区文案对齐新词；文件头注记两处修订。**前端实测名**：`RoutesPage.tsx:135-197`。
+  - `ui-custom/web/src/pages/alerts/alertmanagerConstants.ts`：模式选项改名 + 新增 `ALERT_POLICY_MODE_TIP`。
+  - `ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`：`policySummary` 压缩；模式控件下新增 `policy-mode-tip` 行；二次确认文案改为明说可编辑性（且**不得**出现「route 段」等实现术语——见下方测试护栏）。
+  - 契约：`api-contract-snapshot.md` §11.9 补 `declared_receivers` 字段定义、`declared` vs `dead` 口径对照表、mode 用户可见词 ≠ 枚举值说明、首屏自动导入护栏。
+- **测试护栏**（新增 6 + 5 + 2 例）：
+  - `useRoutes.test.ts`「接收人可达集合口径」3 例：手写 `feishu` 不再判悬空且**能真正保存**（submit 被调用）/ 真正悬空（`ghost`）**仍**阻断（校验不被放宽成摆设）/ 平台已启用但未落盘也算可达。
+  - `useRoutes.test.ts`「首屏自动导入」5 例：`ready=true` 自动进 `imported` / `ready=false` 不导入 / **解析失败不自动导入** / **只触发一次**（`sourceItems` 后续变化不冲掉用户编辑）/ 重新载有二确认（取消保留、确认丢弃）。
+  - `RoutesPage.test.tsx`「接线」4 例：`ready` 与 `declaredReceivers` 透传、`ready=false` 不触发、解析失败传 `parseError`；另修正「未导入时按钮禁用」用例的语义（首屏自动导入后，未导入只在解析失败降级时出现）。
+  - `AlertConfigPage.test.tsx` 模式改名相关断言全量同步（`modeSegment` 标签字面量、`policy-summary` 断言、弹窗标题断言）；新增 2 例：`policy-mode-tip` 随 mode 切换措辞、二次确认明说可编辑性。
+  - ⚠ **术语护栏首次实战生效**：`AlertConfigPage.test.tsx` 既有用例断言弹窗 `content` **不得含「route 段」**，在我首版弹窗文案里写了「你手写整份 YAML」+「route 段」被该护栏拦下 → 说明这层护栏在文案迭代中**确实有效**，已改为「手写整份配置」。**后续改此文案须保留该断言。**
+- **⚠ 未解决 / 后续**：
+  - **「产物归属」与「页面可编辑性」仍是同一根轴**（`isRouteEditable(mode)`）。本次仅把话说清楚（改名 + 明说后果），**未解开耦合**——真解开需回到提案 §4.3「route 段单一作者」裁决，属 v0.3 议题。
+  - `alertSmoke.test.tsx` 存量 4 条陈旧断言（「挂载新配置」「默认兜底接收人」「派生预览：平台将写入的接收人」自 #38 起已陈旧）**本轮未修**，与本次改动无关但会持续污染全量回归判读。
+  - 「三块必写」中的 `inhibit_rules` 仍无 UI（#37，v0.3-c）。
+- **状态**：**landed（2026-10-08，未提交）**——`go vet ./platform/alertmanager/...` exit 0；`go test ./platform/configcenter/... ./platform/models/... ./platform/alertmanager/...` 11 包全部 ok；`go build ./platform/...` 通过；`tsc --noEmit` exit 0；`vitest run src/pages/alerts`（`--maxWorkers=2 --minWorkers=1`，325s）**15 文件 236 例全过**（改动前为 221 例，本次净增 15 例；仅 antd `act(...)` 警告，非失败）。
+## 41. 桥令牌无默认值导致通知全链路哑火 + 策略卡「界面不清晰」瘦身（landed 2026-10-08）
+
+- **类别**：① 空白判定 / 契约缺口（阻断级，用户环境实测）+ ③ 信息架构瘦身
+- **PRD 章节 / 文件位置**：`Makefile:31-46`（新增三个 `?=` 默认值）、`platform/cmd/metric-center/main.go:62,104`（`NOTIFY_BRIDGE_TOKEN` 读取）；`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（策略卡结构、`policySummary`、新增 `fallbackConclusion`）、`alertmanagerConstants.ts:537-548`（令牌缺失提示）、`RoutesPage.tsx`（接收人卡文案）。
+- **现状 / 根因**（用户 2026-10-08 第二轮反馈三个现象 → 三个独立根因）：
+
+  1. **通知渠道页对已启用渠道一律标「暂不可用」**——`NOTIFY_BRIDGE_TOKEN` 在 `Makefile` 里**只有引用、没有默认值**，`make` 展开即空串 → `main.go:104` 的 `os.Getenv` 覆盖不生效 → `TokenConfigured = (BridgeToken != "")` 为 false（`notify/receiver_snippet.go:97`）→ 桥端点「一律 401」（`notify/bridge.go:38-39,63-64`）。**现象被分散在两个页面且互相看不出来由**：路由页报「孤立接收人」、渠道页报「暂不可用」，而两者其实是**两根正交的轴**（路由指向轴 vs 可用性轴）。同理 `NOTIFY_BRIDGE_URL` 空还会让平台**完全不物化** notify receivers（`generator/notify_receivers.go` 判 `BridgeURL == ""` 跳过）。
+  2. **「有接收人没有路由指向它」文案主语错位**——旧文案「孤立接收人（平台已生成但没有任何路由指向）」主语是「平台」，用户实测读成「平台内置了路由规则却没指向它」。实际是**用户的路由全指向了别的接收人**（本例为手写 `feishu`），平台那条通道空着。旧文案还只说「去通知渠道页处理」，而那只是两种消解方式之一（想用这个接收人得新建/编辑路由）。
+  3. **策略卡「界面不清晰」**（用户原话）——表面是信息量，实为**一处自相矛盾 + 三处冗余**：
+     - **矛盾（最严重）**：`auto_first_enabled` 按契约 §11.9 语义是「**仅作 UI 预填建议、平台不接管、产物字节不变**」，但旧 `policySummary` 一律渲染成「发往 X」。实测卡内：下拉框显示「不接管」、状态句说「发往 notify-1」→ 用户当场判为界面不可信。**属文案与契约不符，非设计如此**。
+     - **冗余**：「未匹配规则的告警发给谁」这一个事实被说了 **4 遍**（顶部状态句 / 控件下状态行 / 底部蓝线 80+ 字长段 / 控件本身），卡高 305px。
+- **结论 / 建议**（用户拍板：两条一起做 + Makefile 加默认值 + 改 info 那条路由）：
+  1. **Makefile 补默认值**（用 `?=`，环境变量与 `make VAR=x` 均可覆盖）：`NOTIFY_BRIDGE_URL=http://127.0.0.1:8080`、`NOTIFY_BRIDGE_TOKEN=local-dev-bridge-token`、`NOTIFY_RENDER_TIMEZONE=Asia/Shanghai`。生产必须显式注入强随机令牌，默认值仅供本地开发。**实测**：重启后 `token_configured=true`；桥自检 `POST /api/v1/webhooks/notify?channel=1` 正确令牌 200 且飞书实发 1 条（`success=1`，自动挂 template=1），错误令牌 401。
+  2. **接收人卡文案改写**：标题「有接收人没有路由指向它」；正文讲清「平台为渠道生成了接收人，但路由一条都没指向它 → **该渠道收不到告警**」，并显式补一句「若你看到路由都指向另一个手写的接收人，那说明告警正走你自己的通道」；**补两种消解方式**（① 想用它 → 新建/编辑路由把接收人选成它；② 暂不用 → 去渠道页停用/删除）。渠道页令牌缺失提示改为**只讲可用性轴、不提路由**（两轴解耦）。
+  3. **策略卡瘦身到两行**（每行 = 控件 + 一句结论）：
+     - 顶部状态句 → **视觉隐藏**（screen-reader only，仍留卡内 DOM）：它是两个开关的「关系」而非「当前状态」，常驻会与控件各自结论争抢注意力；读屏与测试仍可拿到（`policy-summary` testId 保留）。
+     - 控件下状态行 → **并入控件行右侧** `fallback-conclusion` Tag（控件值与结论并排可对照）。
+     - 底部蓝线诚实口径长段 → **移入 `PageIntro.points`**（默认收起）。
+     - `policySummary` 按三态分别给结论并**严格区分「已生效」与「建议值」**：`none`→不接管 / `auto_first_enabled`→**「未指定…未接管，X 只是建议值，选定后才会生效」**（不再说「发往」）/ `explicit+enabled`→才说「发往 X」。新增 `fallbackConclusion`（`on`/`off`/`none` 三态 Tag）。
+- **影响模块**：M08（Makefile 启动配置 / 路由页 / 告警配置页 / 通知渠道页）；数据侧改了本机 `config_drafts` id=103
+- **回填清单**：
+  - `Makefile:31-46`：三个 `?=` 默认值 + 长注释（说明为何需要默认值、为何 `?=`、生产须覆盖）。
+  - `alertmanagerConstants.ts:537-548`：`CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING` 重写（讲可用性轴、不提路由、注明与「孤立接收人」正交）。
+  - `RoutesPage.tsx`：接收人卡标题/正文重写 + 消解方式两条（含 `dead-receiver-channels-link` testId 替代原 `dead-receiver-<name>`）。
+  - `AlertConfigPage.tsx`：策略卡结构重写（`Space` → `div` 包裹使结论 Tag 与控件同行）；新增 `fallbackConclusion`；`policySummary` 三态口径 + 视觉隐藏 span；`PageIntro.points` 增至 5 条（收进诚实口径 + 「两个开关独立」提示）。
+  - 数据：本机 `config_drafts` id=103 的 `severity="info"` 子路由 `receiver: 'feishu'` → `notify-1`（**经平台正规端点 `POST /api/v2/platform/alertmanager/config` 提交，生成 version 10，未直接改库**；`amtool check-config` SUCCESS 2 receivers 引用闭合）。改前已备份 `/tmp/m08-backup/{metric_center.db.bak,draft103.yml,draft103.new.yml}`。
+- **测试护栏**（新增 3 例 + 改 4 例）：
+  - 新增「未接管时不得把建议值渲染成生效值（不得出现『发往』）」——锁死 §11.9 契约不符不会复发；
+  - 新增「已接管（explicit + enabled）时才可说『发往』」；
+  - 新增「策略卡瘦身：不再有独立状态行与蓝线长段常驻」；
+  - 改 4 例旧断言（`平台接管中` Tag → `fallback-conclusion`；`已启用渠道的第一个` → `建议值`；`当前为…（来源：…）` 状态行已并入；`孤立接收人（…）` 标题已改写）。
+  - ⚠️ **jsdom 陷阱（新踩）**：判「元素是否视觉隐藏」**不可用 `getBoundingClientRect()`**——jsdom 下所有元素 rect 恒 0×0，会把每个叶子节点都判成隐藏（`visibleText` 变空串）。改用 inline style 判定（`position:absolute` + `overflow:hidden` + 1px），已封装为测试辅助 `isVisuallyHidden`。**凡引入 screen-reader only 元素，"卡内不含 X"类断言必须走这个辅助**（隐藏元素仍在 `card.textContent` 里）。
+- **⚠ 未解决 / 后续**：
+  - **配置改动尚未真正下发**：`POST /config` 生成 version 10，但 `source_change_no` 为空 → 需到「配置变更确认」页确认变更单后，才会写盘 `config-output/alertmanager.yml` 并 reload AM。**在此之前 AM 仍加载旧文件**（info 仍走手写 `feishu`）。
+  - **生产令牌强度**：`local-dev-bridge-token` 仅本地开发用；生产部署必须显式注入强随机值（`package-center.sh` / 部署文档已走环境变量路径）。
+  - **「产物归属」与「页面可编辑性」仍耦合在 `isRouteEditable(mode)` 一根轴**（见 #40），本轮仍未解开。
+- **状态**：**landed（2026-10-08，未提交）**——`make -n run-metric-center` 验证默认值与环境变量覆盖均正确；`tsc --noEmit` exit 0；`AlertConfigPage.test.tsx` + `RoutesPage.test.tsx` **66 例全过**；策略卡截图复核：卡内 4 段文字 → **2 行**，自相矛盾消除。
+## 42. 兜底控件「用户不知道这就是兜底策略」+ 渠道命名误导（landed 2026-10-08）
+
+- **类别**：③ 信息架构 / 用户认知断层（用户实测截图指认）+ ① 数据命名误导
+- **PRD 章节 / 文件位置**：`ui-custom/web/src/pages/alerts/AlertConfigPage.tsx`（`fallbackConclusion`、`handleDefaultReceiverChange` 确认弹窗）、`useRouteSetting.ts`（`RouteSettingOption`、选项构造、`ROUTE_SETTING_NONE_LABEL`）、`alertmanagerConstants.ts:396-399`（控件 label）；数据侧 `notify_channels` id=1 的 `name`。
+- **现状 / 根因**（用户 2026-10-08 第三轮反馈，附截图红框两处：「用户角度，如何知道腾讯云边缘域就是平台兜底的策略」）：
+
+  1. **认知断层（UI 侧，主因）**——控件行是两个**并列且无连接**的独立元素：左边下拉框显示渠道名、右边结论 Tag 显示内部接收人名，界面上**没有任何一处明说「二者是同一个」**，用户被迫做一道连线题。更糟的是结论里复述了内部标识（`notify-1`），既无信息量又像技术串。**上一轮只修了「自相矛盾」，没修「两个元素对不上」。**
+  2. **命名误导（数据侧，用户截图里点名的「腾讯云边缘域」）**——查库确认：`notify_channels` 仅 1 条，名为「腾讯云边缘域-飞书」，`webhook_url` 是 `open.feishu.cn/.../bot/v2/hook/...`，即**一张飞书机器人卡片**；`network_domains` 表里的「腾讯云调试边缘域」与它**无任何关联**（渠道表无网域字段，`ReceiverName()` 只看渠道名本身）。⇒ 「边缘域」三字纯属起名误导，看着像一个网域、而非一张飞书卡片，用户自然困惑它跟「全局兜底」有什么关系。**答案：没关系。**
+- **结论 / 建议**（用户拍板渠道名 = `运维告警飞书群`，「继续」）：
+  1. **数据侧改名**（经平台正规端点 `PUT /api/v2/platform/alertmanager/notify-channels/1`，未直接改库）。**改名安全性已验证**：`SanitizeReceiverName("运维告警飞书群")` = `""`（纯中文归一为空）→ 回落 `notify-<id>` = **`notify-1` 不变** ⇒ 配置零影响、无需重新下发。实测 `receiver_name` 改名后仍为 `notify-1`，`declared`/`dead` 与 5 条路由引用全部无变化。
+  2. **UI 侧消除连线题**（三处协同，缺一不可）：
+     - 结论 Tag **只说状态、用「你选中的渠道」回指控件**，不复述渠道名 / 接收人名；
+     - 下拉框选项**只展示渠道名**，去掉「（接收人 X）」后缀 → 并**顺带摘除逐渠道调 admin-only `getReceiverSnippet` 的 N+1**（该请求失去唯一消费方）；
+     - 控件 label 补「渠道」二字：「未匹配规则的告警发给谁」→「**没匹配到具体规则的告警，发给哪个渠道**」（控件词与选项内容用同一名词）。
+  3. **顺带去术语**：`ROUTE_SETTING_NONE_LABEL` 「不接管（保留**我手写**的**兜底**配置）」→「不接管（保留配置文件里已有的值）」。前者同时踩了两个已记录的坑：**「我手写」是模式选项歧义的同源词**（承诺"我来写"却不说在哪写）、**「兜底」是实现视角术语**（提案 §7.5 要求用户视图不用）。
+- **影响模块**：M08（告警配置页 / 兜底设定 Hook / 通知渠道数据）
+- **回填清单**：
+  - 数据：`notify_channels` id=1 `name`: `腾讯云边缘域-飞书` → `运维告警飞书群`（receiver_name 不变）。
+  - `AlertConfigPage.tsx`：`fallbackConclusion` 改为「已接管：这类告警发往你选中的渠道」/「未接管（已启用渠道里的第一个是建议值，选定后生效）」；`handleDefaultReceiverChange` 确认弹窗标题「确认由平台指定未匹配规则的告警接收人」→「确认由平台接管这类告警？」且**展示渠道名**（原取 `option.receiverName`，字段已摘除）；`PageIntro.points` 去「兜底」措辞。
+  - `useRouteSetting.ts`：`RouteSettingOption` **删除 `receiverName` 字段**；选项改 `map` 一行构造（**摘除 N+1 的 `getReceiverSnippet` 循环**）；`ROUTE_SETTING_NONE_LABEL` 去「我手写 / 兜底」。
+  - `alertmanagerConstants.ts`：`ALERT_POLICY_FALLBACK_LABEL` 补「渠道」。
+  - 测试：label 改名波及 14 处定位（`AlertConfigPage.test.tsx` 11 + `alertSmoke.test.tsx` 3）+ 首项文案 6 处，机械替换同步；`useRouteSetting.test.ts` 2 条 options 断言重写（字段已不存在）。
+- **测试护栏**（新增 1 例 + 改 3 例）：
+  - 新增「结论 Tag 只说状态、不复述渠道名」——锁死 `conclusion` 含「你选中的渠道」且**不含** `notify-1`。若将来有人"为更明确"把名称加回，本例失败。
+  - 改 `useRouteSetting.test.ts`「选项只展示渠道名」并加 `expect(snippetMock).not.toHaveBeenCalled()`（N+1 摘除的旁证）。
+  - ⚠️ **403 降级用例语义已变**：原「片段接口 403 → 降级为渠道名」失去被测对象（片段接口已不调用），改为「渠道列表 403 → 整体错误态」。改写时**发现既有行为与我的初版假设不符**：`list` 与 `get` 在同一 `Promise.all` 里，list 失败 → 整体 reject → **`setting` 被清空**（"设定已取到却因列表失败被丢弃"）。**本轮如实断言现状、未改行为**，记为独立可改进点。
+- **⚠ 未解决 / 后续**：
+  - **「设定已取到却因渠道列表失败而被整体丢弃」**：`useRouteSetting` 的 `Promise.all` 无独立降级。建议 `allSettled` 化（列表失败仅让选项退化为「不接管」，设定照常可读）——本轮未做，属独立议题。
+  - **渠道改名只在数据层，代码无感知**：若将来有别处硬编码「腾讯云边缘域」需一并核对（全仓 grep 无残留）。
+  - **`alertSmoke.test.tsx` 存量 4 条陈旧断言**（自 #38 起）仍未修。
+- **状态**：**landed（2026-10-08，未提交）**——`tsc --noEmit` exit 0；`vitest run src/pages/alerts` **15 文件 240 例全过**（上一轮 239，净增 1）；真浏览器走查（真后端 + Vite + puppeteer）确认：结论 = 「已接管：这类告警发往你选中的渠道」、下拉选项 = `['不接管（保留配置文件里已有的值）', '运维告警飞书群']`（**无内部标识**）、选中项 = `运维告警飞书群`，三者一致。
+
+## 43. 路由规则提交后M09「配置变更确认」查不到该单：#25 自动闭环把pending 单自动确认掉了（② 实现偏差 / 跨模块职责倒置，2026-10-09 用户裁决立场 1 关闭自动闭环）
+
+- **类别**：② 实现偏差（跨模块状态/动作断点；且M09 人工闸门被绕过）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §5.1（文件挂载契约）/ §9.2；dev-feedback #25（本次为其「自动闭环」子项的回退）；源码见下逐项
+- **发现场景**：用户在「路由规则」页调整子路由上下顺序并保存，前端提示「**已提交，待变更单确认下发**……进入变更单人工确认后下发生效（不即时生效）」，但前往 M09「配置变更确认」页**找不到这条记录**（2026-10-09）。
+- **现状 / 根因**（DB 实证，非推测）：
+  - 该次提交**确实生成了变更单** `CHG-20261009-006`（`network_domain_id=default`，09:43:22），但 `status=confirmed`——**不是 `pending`**。M09 列表默认按 `status=pending` 过滤，故查不到。
+  - 全表状态分布：`confirmed` 69 / `discarded` 43 / `pending`仅 1 条（且那条属 `mc-edge-debug` 域的采集 Job 变更，与告警路由无关）。
+  - 该版本 `applied_at=2026-10-09 09:43:22` 已回填、磁盘 `config-output/alertmanager.yml` 同期被改写 → **配置其实已自动写盘 + reload 生效了**，无需人工确认。
+  - 根因：`#25 方案 A` 在 `submitValidated`（`platform/alertmanager/config/service.go`）末尾调`autoApplyManagementDomain`，该工序 `GenerateDraft` 后**直接 `ConfirmDraft`**，把刚生成的 pending 单瞬间确认掉。于是：前端文案要用户去 M09 确认 → M09 却已被系统自己确认 → 用户误判「功能故障/记录丢失」。
+  -附带发现：M09 变更检测（`change.ProcessDomain`）其实**不会**为alertmanager 变更生成草稿——`generator.SourceDataVersion` 的 `sourceTableScopes` 聚合表**不含 `AlertmanagerConfigVersion`**，提交新配置不推进源数据版本，该步直接跳过。真正生成并确认草稿的是 `autoApplyManagementDomain` 直连路径。
+- **结论 / 推荐修复（立场 1：保留人工闸门，用户 2026-10-09 拍板）**：告警路由结构调整与默认兜底接收人变更**均属高危**（改错即「该响的不响」或「未匹配规则的告警发错地方」，系统自身也把alertmanager_config 变更标`risk: high`），不应未经用户复核即自动上线；且M09「配置变更确认」的存在意义正是拦住这类改动。**关闭自动确认**，提交只负责「收录为 M09 源 + 产 pending 草稿」，生效一律由用户在 M09 人工 `ConfirmDraft`。
+  - 附带一致性：`route/setting_handler.go`（默认兜底接收人PUT）原也调同一 `AutoApplyManagementDomain`，一并移除——否则留下「路由要确认、兜底接收人却自动生效」的新不一致。
+  - 保留项：`triggerChangeDetection` 仍触发（产出 pending 草稿）；同域 pending 保活/取代口径（决策 42-1 / 44-2）不变；`errAutoApply` 哨兵与 handler 降级分支保留作防御（当前不可达）。
+- **影响模块**：M08（配置提交/兜底设定写路径）、M09（`alertmanager.yml` 变更单由人工确认下发）、前端路由页/告警配置页文案。
+- **回填清单**：
+  - 后端：`platform/alertmanager/config/service.go`（`submitValidated` 移除 `autoApplyManagementDomain` 调用；删除随之失去引用的 `autoApplyManagementDomain` seam / `applyManagementDomainConfig` / `AutoApplyManagementDomain` 导出包装，并清理 `draft`/`generator` 两个不再使用的 import）；`platform/alertmanager/route/setting_handler.go`（`PutRouteSettingHandler` 移除自动确认、清理 `auth` import 与 `autoApplyManagementDomain` seam，seam 仅留 `triggerChangeDetection`）。
+  - 前端：`RoutesPage.tsx`（保存结果 message 改「已提交，等待你在「配置变更确认」中确认下发」+ description 内嵌 `<Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>`；编辑态辅助文案改「需在「配置变更确认」中人工确认后才会写入并 reload」）；`useRoutes.ts`（`saveResult.message` 同步修订，去「不即时生效」歧义表述、明确「不会自动生效—���请前往 M09 人工确认」）。
+  - 测试：`platform/alertmanager/config/autoapply_test.go` **整份删除**（6 例全测已移除的自动确认，保留会永远断言「已自动确认」）；`config_test.go` `stubChangeTrigger` 去掉对已删 seam 的短路；`platform/alertmanager/route/setting_handler_test.go`（`pipelineRecorder` 去掉 `autoApplyCalls`/`autoApplyBy` 字段与 seam 替换；4 处断言改为 `triggerCalls`）。
+  - 契约：`api-contract-snapshot.md` §5.1 三处（端点表 `source_change_no` 补「pending 待人工确认」/ 原「M08 apply = 收录 + 自动下发管理域」段改写为「收录 + 产 pending 变更单」并附修订原因 / §11.6 route-setting 的「与挂载同构 autoApply」改为「不再自动确认下发」）；本条目 #25 状态行标注「自动闭环子项作废、状态去误导子项保留」。
+- **测试护栏**：
+  - `RoutesPage.test.tsx`「保存结果」用例重写并**新增 M09 跳转入口断言**（`within(result).getByRole('link', { name: '前往「配置变更确认」' })` + `toHaveAttribute('href', '/config-preview')`）——锁死「成功提示必须给出可点的 M09 入口」，否则将来易再次出现「提示要去确认却无路可走」。
+  - `setting_handler_test.go` 断言「写入成功 → `triggerCalls=1`」，且**不再**断言自动确认发生。
+- **⚠ 未解决 / 后续**：
+  - **旧文案残留**：`AlertConfigDrawer.tsx:197` 仍写「提交后……在「配置变更确认」中人工确认后才正式生效」——该文案本就与「自动闭环」时期一致，关闭自动闭环后**恰好变为正确**，无需改动；但 `AlertConfigPage` 的「已提交，待确认下发」等派生口径依赖 `applied_at`，需在真机复核一次（关闭自动闭环后，提交后 `applied_at` 恒为空 → 该状态将持续显示，属预期）。
+  - **真机端到端复核未做**：本轮为代码 + 单测层验证（后端两包 + 前端 5 个相关文件全绿）；未重启后端在真浏览器走「保存 → M09 出现 pending 单 → 确认 → 写盘 reload」完整动线。
+  - `alertSmoke.test.tsx` 存量 4 条陈旧断言（自 #38 起）仍未修。
+- **⚠️ 追加（2026-10-09 11:2x，同日修复自身的断链）**：本条目落地后**实测又暴露一个更严重的断链**——修复前的自查只到「单测通过」，未做真机端到端。
+  - **现象**：用户重启后端、重新调整路由顺序，M09 配置变更确认页**依旧找不到记录**，且此时 `pending` 总数为 **0**（不是状态过滤问题，而是**根本没生成变更单**）。
+  - **根因（我的修复疏漏）**：上一轮把 `autoApplyManagementDomain` **整体删除**，但它内部同时承担了两个职责——① 自动 `ConfirmDraft`（要删的）② `GenerateDraft` 产 pending 草稿（**要留的**）。我只删了整个函数，②无人接手；而 `triggerChangeDetection` → `change.ProcessDomain` 因`sourceTableScopes` **不含 `AlertmanagerConfigVersion`** 恒判定「源数据无变化」直接跳过，**永远不会**为告警配置变更产草稿→ 提交链路变成「落库版本 → 触发检测（空转）→ 结束」，既不产草稿也不生效。注释甚至写着「产出 pending 草稿」而代码没做，**注释与实现脱节**。
+  - **修复**：新增 `ensurePendingDraft`（`service.go`；var 包裹 + `generateOrReusePendingDraft` 实现，便于测试注入），在 `submitValidated` 中 `triggerChangeDetection` 之后显式调用——**只产/复用 pending 草稿，绝不 ConfirmDraft**；`ErrNoChanges` 视为合法（幂等重复提交）不报错，其余错误降级记日志不阻断挂载。同时导出 `EnsurePendingDraft` 包装供 `route/setting_handler.go` 复用（兜底接收人路径同样断链，一并补上）。
+  - **端到端实测（真机，非单测）**：重启后端 → `POST /config` 提交改过路由的配置 → 库中立即出现 `CHG-20261009-007`（`status=pending`、`validation=passed`）、`AlertmanagerConfigVersion.applied_at` 为**空**（未生效，符合立场 1）→ 调 `POST /config-drafts/CHG-20261009-007/confirm` → 草稿转 `confirmed`、`applied_at` 回填、磁盘 `config-output/alertmanager.yml` 同期改写。**两段式（提交→产pending→人工确认→写盘reload）完整成立**。
+  - **新增回归护栏** `platform/alertmanager/config/pendingdraft_test.go`（5 例）：提交须「触发变更检测 + 产pending 草稿」各 1 次（防断链重现）、产草稿失败/`ErrNoChanges` 均不阻断提交、`ensurePendingDraft` 无 live pending 时确实进入 `GenerateDraft` 分支。
+  - **教训**：**单测全绿 ≠ 功能可用**。上一轮自查停在「go test 通过 + 文案已改」，未跑真机；而「删除一个函数」比「修改一行」风险大得多——它可能同时承担多个职责。移除既有函数前必须先确认它的**全部调用点与职责**（本例中 `GenerateDraft` 是隐式职责，只看提交路径察觉不到）。凡关闭既有机制，必须端到端验证「替代职责是否有人接手」。
+- **状态**：**landed（2026-10-09，未提交）**——`go vet` 干净；`go build ./platform/...` exit 0；`go test ./platform/alertmanager/... ./platform/configcenter/...` **10 包全过**；前端 `tsc --noEmit` exit 0；告警模块 5 文件 101 例全过（RoutesPage 29 / useRoutes 16 / useRouteSetting 8 / RouteEditorDrawer 33 / alertmanagerConstants 15），另AlertConfigPage 38 + ConfigPreviewPage 18 + AlertConfigDrawer 2 亦全过；**真机端到端已验证两段式成立**（见上）。

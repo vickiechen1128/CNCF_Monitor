@@ -62,7 +62,7 @@
 
 | 方法   | 路径                                                           | Query / 请求体                                                       | 响应 data                                                                      | 业务错误                                                             | PRD 源       |
 | ---- | ------------------------------------------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------- |
-| POST | `/api/v2/platform/alertmanager/config`                       | body `{ content: '<alertmanager.yml 全文>', uploaded_by?: string }` | 校验通过：写入的 `AlertmanagerConfigVersion`；M09 侧管理域变更单号 `source_change_no`（若本轮已生成） | `bad_request`：`amtool check-config` 校验失败（返回行级错误集合，**不落库、不进流水线**） | §5.1 / §9.2 |
+| POST | `/api/v2/platform/alertmanager/config`                       | body `{ content: '<alertmanager.yml 全文>', uploaded_by?: string }` | 校验通过：写入的 `AlertmanagerConfigVersion`；M09 侧管理域变更单号 `source_change_no`（若本轮已生成，**状态为 pending、待人工确认**） | `bad_request`：`amtool check-config` 校验失败（返回行级错误集合，**不落库、不进流水线**） | §5.1 / §9.2 |
 | GET  | `/api/v2/platform/alertmanager/config/current`               | —                                                                 | 当前生效 `AlertmanagerConfigVersion`（最近一条 applied；无则 `{ content: '' }`）          | —                                                                | §6.6        |
 | GET  | `/api/v2/platform/alertmanager/config/versions`              | Query: `page`、`page_size`                                         | `{ items: [AlertmanagerConfigVersionListItem], total }`                      | —                                                                | §6.6        |
 | GET  | `/api/v2/platform/alertmanager/config/versions/{id}`         | —                                                                 | `AlertmanagerConfigVersion` 完整（含 `content` 只读视图）                             | `not_found`                                                      | §6.6        |
@@ -164,9 +164,11 @@
 
 - `change_status` 回写 M08：M09 confirm→下发 reload 成功 → 最新 `AlertmanagerConfigVersion.applied_at/applied_by` 回填、`status=applied`；M08 页面「当前生效配置」从此版本读取。
 
-- **M08 apply = 收录 + 自动下发管理域（dev-feedback §25 方案 A）**：挂载校验通过落库（`status=applied` 仅表示「已收录为 M09 源」）后，M08 自动对管理域 `default` 复用/生成 pending 草稿并确认下发（`GenerateDraft`→`ConfirmDraft`→`DiskApplier` 写 `config-output/alertmanager.yml` + AM reload），无需人工确认；**配置是否真实生效以 `applied_at` 为准**（写盘成功后由 `writebackAlertmanagerApplied` 回填）。自动下发失败不阻断收录（降级仅记日志，由 30s watcher / 人工确认兜底）。
+- **M08 apply = 收录 + 产 pending 变更单（2026-10-09 修订，原为「收录 + 自动下发管理域」）**：挂载校验通过落库（`status=applied` 仅表示「已收录为 M09 源」）后，M08 触发 M09 管理域 `default` 变更检测，产出（或复用/取代）一张 **pending** 变更单；**不再自动确认下发**。变更单须由用户在 M09「配置变更确认」页人工 `ConfirmDraft` 后，才走 `DiskApplier` 写 `config-output/alertmanager.yml` + AM reload。**配置是否真实生效以 `applied_at` 为准**（写盘成功后由 `writebackAlertmanagerApplied` 回填）。
 
-- 前端动线：M08 告警配置页挂载成功 → 管理域 `default` 自动确认下发（落盘 + AM reload）→ 回 M08 读 `applied_at` 判定「已生效 / 已提交待确认下发」（决策 60 / §25）。
+  > **修订原因（本条为口径变更，非措辞调整）**：原 dev-feedback §25 方案 A 在此实现「提交即自动 `ConfirmDraft`」，导致 ①高危变更（路由结构调整 / 默认兜底接收人）未经用户复核即自动上线；②与前端「待变更单确认下发」文案自相矛盾——文案要求用户去 M09 确认，但该单已被系统自行确认，M09「待确认」视图里查不到，用户误判为功能故障。2026-10-09 用户裁决立场 1（保留人工闸门）后关闭自动闭环。同域多单取代口径（决策 42-1 / 44-2）不变。
+
+- 前端动线：M08 告警配置页 / 路由规则页提交成功 → 生成 M09 `default` pending 变更单（**不即时生效**）→ 用户前往 M09「配置变更确认」人工确认 → 落盘 + AM reload → 回 M08 读 `applied_at` 判定「已生效」（`applied_at` 为空即仍待确认）。
 
 ## 6. 枚举字典
 
@@ -467,13 +469,15 @@
   - `auto_first_enabled`：**未设定**但存在已启用渠道 → 取已启用渠道按 id 升序第一个作 `effective_receiver_name`，**仅 UI 建议**，`enabled=false`（**产物字节不变**）；
   - `none`：无生效接收人（显式目标渠道停用 / 删除，或平台无任何已启用渠道）。
   - **响应不含桥令牌等敏感值**。
-- **PUT（挂 `RequireAdmin`）**：收 `{ default_receiver_channel_id: number | null }`；`null` = 关闭接管（护栏③）；非 `null` 时校验目标渠道存在且已启用，否则 `bad_request`；未认证 `401` / 非 admin `403`。写入后**与挂载同构 autoApply**（触发 M09 管理域变更重算 + 自动确认下发 + AM reload），**响应不含下发状态**（决策 60 冻结：M08 不驱动下发状态）。
+- **PUT（挂 `RequireAdmin`）**：收 `{ default_receiver_channel_id: number | null }`；`null` = 关闭接管（护栏③）；非 `null` 时校验目标渠道存在且已启用，否则 `bad_request`；未认证 `401` / 非 admin `403`。写入后**与挂载同构**（触发 M09 管理域变更重算 → 产出 pending 变更单）；**2026-10-09 起不再自动确认下发**（与路由结构调整同一口径，改兜底接收人属高危变更，须经 M09 人工确认），**响应不含下发状态**（决策 60 冻结：M08 不驱动下发状态）。
 
 **`GET /api/v2/platform/alertmanager/routes`**（`platform/alertmanager/route/handler.go`；仅全局认证、**只读、无写能力**）：
 
-- 成功 → `{ mode, items: [RouteNode], dead_receivers: [DeadReceiver] }`；`mode ∈ { handwritten, platform }`（本期恒 `handwritten`，接入真实模式来源后按实返回）。
-- 解析失败 / 非常规结构 → **200** + `{ mode, parse_error, raw_yaml }`（前端降级为原文只读展示，**绝不 500、不白屏**）。
+- 成功 → `{ mode, items: [RouteNode], dead_receivers: [DeadReceiver], declared_receivers: [string] }`；`mode ∈ { handwritten, managed }`（取自 `AlertmanagerRouteSetting.mode` 持久化值，存量未设定行归一为 `handwritten`）。
+- 解析失败 / 非常规结构 → **200** + `{ mode, parse_error, raw_yaml, declared_receivers }`（前端降级为原文只读展示，**绝不 500、不白屏**）。`declared_receivers` 与 route 解析**相互独立**，故降级分支同样携带。
 - `items` 为**前序扁平数组**，`items[0]` 恒为根路由。
+
+> **`mode` 的用户可见词 ≠ 枚举值**（2026-10-08 修订，枚举值不变，仅 UI 措辞变）：`handwritten` 在界面上呈现为**「我来编辑」**（路由规则页可写，用户在页面逐条增删改）；`managed` 呈现为**「平台生成」**（路由规则页只读，整份配置由用户在告警配置页高级区手写）。旧措辞「我手写 / 平台管理」被实测判为歧义——「我手写」天然承诺"我在页面里写"，而其实际含义是"平台别生成路由段、我自己去高级区手写 YAML"，该层含义只写在二次确认弹窗里，用户选后见页面变只读即判为功能故障。契约的 `mode` 语义（单一作者：route 段要么平台生成、要么用户手写，二者互斥）**未变**。
 
 `RouteNode` 字段：
 
@@ -490,9 +494,24 @@
 | `order` | int | 同级 `routes[]` 下标（0-based；根恒 0） |
 | `locked` | bool | 根路由 `true`（不可删、不可移） |
 
-`dead_receivers`：平台命名空间（已启用渠道 `ReceiverName()` 集合）中**不被任何 route 节点 `receiver` 引用**（**含根兜底引用判定**）者；`{ name, url }`，`url` **已脱敏**（保留 `scheme://host`，路径 / 查询以 `/***` 替代）。
+`declared_receivers`：**生效配置 `receivers:` 段已声明的接收人名全集**（按声明顺序、去重；解析实现 `platform/alertmanager/route/declared_receivers.go::ParseDeclaredReceivers`）。含**用户手写** receiver。非敏感：只回显 AM 里本就公开的标识符，**不含 webhook URL / 桥令牌**，故与本端点「仅全局认证」的鉴权级别相符。
+
+> **关键非直觉事实：`declared_receivers` 与 `dead_receivers` 口径故意不同，勿混淆、勿合并**（2026-10-08 缺陷修复）：
+>
+> | 字段 | 集合 | 用途 | 是否含手写 receiver |
+> | ---- | ---- | ---- | ---- |
+> | `declared_receivers` | 文件 `receivers:` 段声明名**全集** | 判「路由引用的接收人是否**悬空**」 | **含** |
+> | `dead_receivers` | 平台命名空间（已启用渠道 `ReceiverName()`）**子集** | 提示「渠道开了却无任何规则指向它」 | **不含** |
+>
+> - 修复前，前端保存前预检的 `knownReceivers` **只取平台物化名**，把用户手写在 `receivers:` 段里的 receiver 判为悬空。实测：生效配置中手写 `feishu`（指向用户自建通知脚本地址）与平台物化 `notify-1` 共存，而根路由 + 4 条子路由**全部引用 `feishu`** → 5 个节点全命中 `receiver_dangling`，页面进入「不能新建也不能保存」的死锁（保存被预检阻断，而新建按钮又依赖编辑态）。
+> - 修复后前端 `knownReceivers` = `declared_receivers` ∪ 平台物化名，与 §11.6 生成侧早已存在的「**可达 receiver 集合 = 文件 `receivers` ∪ `PlatformReceiverNames`**」（`generator/notify_route_skeleton.go::RootRouteInput` 注释）**完全对齐**——此前前端是该口径的唯一例外，属口径漂移。
+> - **平台物化名必须并入**：渠道已启用但配置尚未重新生成时，名字此刻还没落盘，否则会误判悬空。
+> - `dead_receivers` **不**纳入 `declared` 集合：用户手写 receiver 的存废归用户，平台无权判其为死配置（dev-feedback #26 边界）。
+> - 任一来源取数失败即降级为空；两者皆空时前端**不判悬空**（不阻断）。
 
 > **数据源口径（决策 114 第 3 条，缺陷修复）**：`/routes` 的**数据源为「平台最新产物视图」**，按新鲜度解析——管理域最近一条**未废弃草稿**产物 → 管理域最近一条 `ConfigVersion` 产物 → 两者取新 → 都无时退化为 M08 挂载留痕（`platform/alertmanager/route/handler.go::effectiveAlertmanagerYAML`）。**不是**挂载留痕原文——留痕原文既不含 receivers 物化、也不含根兜底接管结果，会让页面根 `receiver` 与磁盘实际生效配置（`config-output/alertmanager.yml`）不一致，并把**已被根路由引用的平台 receiver 误报为死配置**（与原实现缺陷、与本功能立身点「消解死接收人」直接相冲）。教训：「当前生效」必须锚定 M09 **产物**，而非 M08 **挂载留痕**。
+
+> **前端编辑态：首屏自动导入（2026-10-08 缺陷修复）**——`RoutesPage` 的「新建路由规则」/「保存并提交变更」按钮均为 `disabled={!editing}`（`editing = importState !== 'empty'`）。此前 `importState` 恒从 `'empty'` 起步 ⇒ 两个主按钮**首屏恒灰**，用户必须先点「从当前配置导入」才进入编辑态，而该按钮在首屏语境下更像「可选的导入动作」而非「开始编辑的前置步骤」，于是「新建按钮永远是灰的」成为实测阻断缺陷。现改为：只读树加载完成（`useRoutes().ready`）且**解析成功** → `useRouteEditor` 自动导入（`autoImportedRef` 幂等锁，只触发一次，不冲掉用户正在进行的编辑）。**解析失败时刻意不自动导入**——降级为「部分导入 + 手动校正」是用户需知晓的事实，静默塞一棵空白树会让降级不可见。用户后续点同一按钮 = 显式「重新载入」，且经 `confirmReload` 二次确认（丢弃未保存编辑属破坏性操作，不做静默覆盖）。
 
 ### 11.10 归属边界表（对齐 PRD §4.1.1 权威规则表，决策 113）
 
