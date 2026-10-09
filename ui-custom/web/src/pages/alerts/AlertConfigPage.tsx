@@ -81,6 +81,7 @@ import {
   ALERT_POLICY_FALLBACK_LABEL,
   ALERT_POLICY_MODE_HANDWRITTEN,
   ALERT_POLICY_MODE_MANAGED,
+  ALERT_POLICY_MODE_TIP,
   ALERT_POLICY_ROUTE_MODE_LABEL,
   CONFIG_PREVIEW_PATH,
   CONFIG_STATUS_PENDING_TIP,
@@ -166,7 +167,7 @@ export function AlertConfigPage() {
   const { tokens } = useSkin()
   const navigate = useNavigate()
   const { message, modal } = App.useApp()
-  const { current, versions, total, loading, error, permissionDenied, reload, page, onPageSizeChange, submit } =
+  const { current, versions, total, loading, error, permissionDenied, reload, page, pageSize, onPageSizeChange, submit } =
     useAlertConfig()
   // 默认接收人（根兜底）设定：骨架布缆开关（T08-F8，决策 113 口径 C）
   const {
@@ -224,20 +225,22 @@ export function AlertConfigPage() {
         .catch((e) => message.error(e instanceof Error ? e.message : '保存失败，请稍后重试'))
       return
     }
-    const target = routeOptions.find((o) => o.value === value)
-    const targetName = target?.receiverName ?? target?.label ?? String(value)
+    // 确认弹窗与结论 Tag 同理（2026-10-08）：**展示渠道名**，不展示平台内部接收人名
+    // （`notify-1` 对用户判断"选了哪个渠道"无帮助，反而像技术串）。receiverName 字段
+    // 已随 N+1 取数一并从 RouteSettingOption 摘除。
+    const targetName = routeOptions.find((o) => o.value === value)?.label ?? String(value)
     modal.confirm({
-      title: '确认由平台指定未匹配规则的告警接收人？',
+      title: '确认由平台接管这类告警？',
       content:
         `平台将在每次生成配置时，把「没有匹配到任何具体规则的告警」统一发往「${targetName}」；` +
-        '你写的具体分流规则不受影响（它们优先于这个兜底）。' +
+        '你写的具体分流规则不受影响（它们优先于这一项）。' +
         '平台只替换这一个值：不触碰 group_by / group_wait / group_interval / repeat_interval / continue，也不写入具体分流规则。',
       okText: '确认指定',
       cancelText: '取消',
       onOk: async () => {
         try {
           await saveRouteSetting(value)
-          message.success(`已选定：未匹配规则的告警发往「${targetName}」`)
+          message.success(`已选定：这类告警发往「${targetName}」`)
         } catch (e) {
           message.error(e instanceof Error ? e.message : '保存失败，请稍后重试')
         }
@@ -246,26 +249,35 @@ export function AlertConfigPage() {
   }
 
   /**
-   * 路由规则由谁维护（T08-F12）：handwritten（我手写）/ managed（平台管理）。
+   * 路由规则由谁维护（T08-F12）：handwritten（我来编辑）/ managed（平台生成）。
    * 护栏 §11.6：切到 handwritten 不会删除已生成的路由内容，仅改变后续生成归属（平台不再覆盖）；
-   * 切到 managed 则平台接管，你在「路由规则」页可视化编辑。
+   * 切到 managed 则平台接管，路由规则页变为只读视图。
    * 切换即二次确认，文案明示两种模式的产物归属差异；保存时把 mode 一并写入 route-setting。
+   *
+   * 二次确认文案口径（2026-10-08）：**明说页面可编辑性**，不只说产物归属。
+   * 旧文案只讲"平台停止生成 / 平台接管"，用户无法据此判断路由规则页还能不能编辑，
+   * 于是选了「我来编辑」发现页面变只读时判为故障。现在两个分支都直接给出
+   * 「路由规则页可编辑 / 只读」这一可验证后果。
    */
   const handleRouteModeChange = (mode: RouteMode) => {
     const currentId = routeSetting?.default_receiver_channel_id ?? null
     const toManaged = mode === 'managed'
     modal.confirm({
-      title: toManaged ? '切换为「平台管理」路由规则？' : '切换为「我手写」路由规则？',
+      title: toManaged ? `切换为「${ALERT_POLICY_MODE_MANAGED}」？` : `切换为「${ALERT_POLICY_MODE_HANDWRITTEN}」？`,
       content: toManaged
-        ? '平台将接管路由规则（含兜底接收人在内的整棵路由树），你在「路由规则」页可可视化编辑并保存；此后手写改动会被平台生成内容覆盖。'
-        : '切换为我手写后，平台停止生成路由规则、完全交由你手写维护。注意：切换不会删除已生成的路由内容，仅改变后续生成归属。',
+        ? '切换后，路由规则由平台产出：路由规则页变为只读视图，你可在告警配置页「高级：导入整份配置文件」里手写整份配置。' +
+          '此后你在配置文件里手写的分流规则会被平台生成内容覆盖。'
+        : '切换后，你在**路由规则页**直接增删改路由、保存提交变更。' +
+          '注意：切换不会删除已生成的路由内容，只改变后续产出归属；平台仍会接管「未匹配任何规则的告警发给谁」这一个值。',
       okText: '确认切换',
       cancelText: '取消',
       onOk: async () => {
         try {
           await saveRouteSetting(currentId, mode)
           message.success(
-            toManaged ? '已切换为「平台管理」：平台接管路由规则' : '已切换为「我手写」：路由规则交由你手写维护（已生成内容保留）',
+            toManaged
+              ? `已切换为「${ALERT_POLICY_MODE_MANAGED}」：路由规则页转为只读`
+              : `已切换为「${ALERT_POLICY_MODE_HANDWRITTEN}」：可在路由规则页直接编辑（已生成内容保留）`,
           )
         } catch (e) {
           message.error(e instanceof Error ? e.message : '保存失败，请稍后重试')
@@ -275,24 +287,60 @@ export function AlertConfigPage() {
   }
 
   /**
-   * 策略卡状态句（提案 §6.3）：把三个控件的语义关系压成一句话，避免用户读Tag 自己拼——
-   *   路由规则由谁维护（手写 / 平台管理）+ 未匹配规则的告警发给谁（是否平台接管）。
-   * 该句刻意点明「手写模式下平台仍会接管兜底接收人单键」这一非直觉事实
-   * （根兜底接管不判 mode，见 notify_route_skeleton.go 门禁）。
+   * 策略卡状态句（提案 §6.3）：**只给结论，不复述控件字面含义**。
+   *
+   * ⚠ 2026-10-08 契约不符修复（用户实测「界面不清晰」的根因之一）：原实现对三种
+   * `effective_source` 一视同仁地把 `effective_receiver_name` 渲染成「发往 X」，
+   * 但按契约 §11.9，`auto_first_enabled` 的语义是「**仅作 UI 预填建议、平台不接管、
+   * 产物字节不变**」——把建议值说成生效值，等于让用户以为已经在接管。
+   * 实测后果：下拉框显示「不接管」、状态句却说「发往 notify-1」，**同一张卡自相矛盾**。
+   *
+   * 现按三态分别给结论，措辞严格对齐契约：
+   *   - none                → 没有任何指定（连建议都没有）
+   *   - auto_first_enabled  → 「平台未接管」+ 建议值仅供选择（**不说"发往"**）
+   *   - explicit + enabled  → 「已接管」，此时才可以说「发往」
    */
   const policySummary = useMemo(() => {
     const managed = routeSetting?.mode === 'managed'
-    const routePart = managed ? '路由规则由平台管理' : '路由规则由你手写维护'
-    if (!routeSetting) return `${routePart}；正在读取默认接收人设定…`
+    const routePart = managed ? '路由规则由平台生成' : '路由规则由你来编辑'
+    if (!routeSetting) return `${routePart}；正在读取设定…`
     if (routeSetting.effective_source === 'none') {
-      return `${routePart}；未匹配任何规则的告警暂未指定接收人（平台不接管兜底）。`
+      return `${routePart}；未匹配任何规则的告警暂未指定接收人，平台不接管。`
     }
     const receiver = routeSetting.effective_receiver_name
+    if (!routeSetting.enabled) {
+      // 建议值 ≠ 生效值：明确说"未接管"，并把建议标成建议。
+      return `${routePart}；未匹配任何规则的告警**未指定**接收人，平台未接管。${receiver} 只是建议值，选定后才会生效。`
+    }
     const source = ROUTE_SOURCE_LABEL[routeSetting.effective_source]
-    const takeover = routeSetting.enabled ? '平台已接管' : '平台尚未接管，建议指定'
-    return `${routePart}；未匹配任何规则的告警发往 ${receiver}（${source}，${takeover}）。`
+    return `${routePart}；未匹配任何规则的告警发往 ${receiver}（${source}，平台已接管）。`
   }, [routeSetting])
 
+  /**
+   * 兜底接收人控件行的状态结论（并入控件行，替代原先独立的第三段说明）。
+   *
+   * ⚠️ **不得在此复述渠道名**（2026-10-08 用户实测「用户角度不知道怎么知道这就是兜底策略」）：
+   * 结论与下拉框是**并列的两个独立元素**，若结论里再写一遍渠道名，界面上没有任何一处
+   * 明说"二者是同一个"，用户被迫做一道连线题（更糟的是渠道名可能像「腾讯云边缘域-飞书」
+   * 那样带无关字样，看着像一个网域而非一张飞书卡片）。
+   * 故结论**只说状态**、用「你选中的渠道」回指控件，把对应关系说清而不重复内容。
+   *
+   * 同理严格区分「已生效」与「建议」：`enabled=true` 才称"已接管"，
+   * 否则说"未接管"并把 effective_receiver_name 标为建议值（§11.9 契约）。
+   */
+  const fallbackConclusion = useMemo(() => {
+    if (!routeSetting) return null
+    if (routeSetting.effective_source === 'none') {
+      return { tone: 'none' as const, text: '当前无可用渠道，平台不接管' }
+    }
+    if (routeSetting.enabled) {
+      return { tone: 'on' as const, text: '已接管：这类告警发往你选中的渠道' }
+    }
+    return {
+      tone: 'off' as const,
+      text: `未接管${routeSetting.effective_receiver_name ? `（已启用渠道里的第一个是建议值，选定后生效）` : ''}`,
+    }
+  }, [routeSetting])
   /**
    * 是否为「平台管理」模式（提案 §7.4）：决定高级区「手写配置说明」的内容——
    * managed 只讲「抑制规则是三块必写中唯一未 UI 化项」；handwritten 才展开完整三块必写 + 两块豁免。
@@ -428,12 +476,18 @@ export function AlertConfigPage() {
           // 刻意不写「已启用渠道的接收人由平台自动写入」——同一事实在手写说明引导句里已说，
           // 且动线卡已给出「通知渠道」入口；此处复述即噪音（2026-10-02 去重原则：每个事实只在一处说）。
           points={[
-            '本页管两件事：未匹配任何规则的告警发给谁，以及路由规则由你手写还是由平台管理。',
+            '本页管两件事：未匹配任何规则的告警发给谁，以及路由规则由你来编辑还是由平台生成。',
             <>
               告警规则（什么情况下算告警）在「规则编辑」维护，本页只管「告警发给谁、怎么收敛」。{' '}
               <RuleGuideLink />
             </>,
             '所有改动都不会即时生效：提交后进入配置中心（M09）变更单，人工确认后统一下发。',
+            // ↓ 2026-10-08 策略卡瘦身：以下两条从策略卡正文移入此处（默认收起）。
+            // 原先它们与控件同屏常驻，导致「未匹配规则的告警发给谁」这一个事实被说 4 遍
+            // （顶部状态句 / 控件下状态行 / 蓝线长段 / 控件本身），用户反馈"信息量过大、非常费力"。
+            // 按「每个事实只在一处说」：控件含义留控件旁，机制解释归说明区。
+            '选定渠道后，平台只在生成配置时把「没匹配到任何具体规则的告警」统一发往它；你已有的具体分流规则不受影响、且优先于它。平台不会改动你的分组、发送节奏等其它设置。',
+            '注意：「这类告警发给哪个渠道」和「路由规则由谁维护」是两个独立开关——即使路由由你手写，平台仍会接管这一项。',
           ]}
         />
 
@@ -449,83 +503,108 @@ export function AlertConfigPage() {
           />
         )}
 
-        {/* ① 策略卡（提案 §7.3，提级为首屏第一卡）：两个治理策略控件脱离「版本元数据」卡，
-            独占一张卡；顶部一行状态句把两者语义关系压成一句话（§6.3：手写模式下平台仍接管兜底单键）。 */}
+        {/* ① 策略卡（提案 §7.3，提级为首屏第一卡）：两个治理策略控件脱离「版本元数据」卡，独占一张卡。
+
+            2026-10-08 瘦身：卡内**只有两行**（兜底接收人 / 路由规则由谁维护），每行 = 控件 + 一句结论。
+            原先的顶部状态句、控件下状态行、底部蓝线长段**三处冗余**已移除：
+              - 顶部状态句 → 删除（其「建议值当生效值」的错误已由 `policySummary` 修正，结论并入控件行）；
+              - 控件下状态行 → 并入控件行右侧 `fallback-conclusion` Tag（控件值与结论并排可对照）；
+              - 底部蓝线长段（诚实口径） → 移入 `PageIntro.points`（默认收起）。
+            「每个事实只在一处说」：控件含义留控件旁，机制解释归说明区。 */}
         <Card
           title={ALERT_POLICY_CARD_TITLE}
           style={{ marginBottom: 16 }}
           data-testid="alert-policy-card"
         >
-          <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Text
-              type="secondary"
-              style={{ display: 'block', paddingLeft: 10, borderLeft: `3px solid ${tokens.colorInfo}`, lineHeight: 1.6 }}
-              data-testid="policy-summary"
-            >
-              {policySummary}
-            </Text>
-
-            {/* 控件一：未匹配规则的告警发给谁（原「默认兜底接收人」，去技术化术语） */}
-            <Space size={8} align="center" wrap>
-              <Text strong>{ALERT_POLICY_FALLBACK_LABEL}</Text>
-              <Select<number>
-                aria-label={ALERT_POLICY_FALLBACK_LABEL}
-                value={routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE}
-                options={routeOptions}
-                loading={routeLoading}
-                disabled={routeLoading || routeSaving}
-                style={{ minWidth: 360 }}
-                onChange={handleDefaultReceiverChange}
-              />
-              {routeSetting?.enabled ? <Tag color="success">平台接管中</Tag> : null}
-            </Space>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {/* 控件一：未匹配规则的告警发给谁（原「默认兜底接收人」，去技术化术语）。
+                状态结论**并入本行右侧**（原为独立第三段说明，2026-10-08 瘦身）：
+                同一事实只在一处说，且控件值与结论并排可对照——避免出现
+                「下拉框显示不接管、别处却说发往 X」的自相矛盾观感。 */}
+            <div>
+              <Space size={8} align="center" wrap>
+                <Text strong>{ALERT_POLICY_FALLBACK_LABEL}</Text>
+                <Select<number>
+                  aria-label={ALERT_POLICY_FALLBACK_LABEL}
+                  value={routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE}
+                  options={routeOptions}
+                  loading={routeLoading}
+                  disabled={routeLoading || routeSaving}
+                  style={{ minWidth: 320 }}
+                  onChange={handleDefaultReceiverChange}
+                />
+                {fallbackConclusion && (
+                  <Tag
+                    color={fallbackConclusion.tone === 'on' ? 'success' : 'default'}
+                    data-testid="fallback-conclusion"
+                  >
+                    {fallbackConclusion.text}
+                  </Tag>
+                )}
+              </Space>
+            </div>
 
             {/* 控件二：路由规则由谁维护（原「路由规则作者模式」）。用 Segmented 表达「二选一模式」而非
-                Switch 的「开/关」——Switch 语义上无法表达两种模式的互斥选择（用户 2026-10-02 拍板）。 */}
-            <Space size={8} align="center" wrap>
-              <Text strong>{ALERT_POLICY_ROUTE_MODE_LABEL}</Text>
-              <Segmented
-                aria-label={ALERT_POLICY_ROUTE_MODE_LABEL}
-                value={routeSetting?.mode === 'managed' ? 'managed' : 'handwritten'}
-                disabled={routeLoading || routeSaving}
-                options={[
-                  { label: ALERT_POLICY_MODE_HANDWRITTEN, value: 'handwritten' },
-                  { label: ALERT_POLICY_MODE_MANAGED, value: 'managed' },
-                ]}
-                onChange={(value) => handleRouteModeChange(value as RouteMode)}
-              />
-            </Space>
+                Switch 的「开/关」——Switch 语义上无法表达两种模式的互斥选择（用户 2026-10-02 拍板）。
+
+                控件含义**只在此处说一次**（模式提示行）：Segmented 只有两个短词，承载不了
+                「选了之后路由规则页会怎样」——而这正是 2026-10-08 实测中被误解的点
+                （旧文案「我手写」被理解成"我在页面里手写"，实际选了之后页面变只读）。 */}
+            <div>
+              <Space size={8} align="center" wrap>
+                <Text strong>{ALERT_POLICY_ROUTE_MODE_LABEL}</Text>
+                <Segmented
+                  aria-label={ALERT_POLICY_ROUTE_MODE_LABEL}
+                  value={routeSetting?.mode === 'managed' ? 'managed' : 'handwritten'}
+                  disabled={routeLoading || routeSaving}
+                  options={[
+                    { label: ALERT_POLICY_MODE_HANDWRITTEN, value: 'handwritten' },
+                    { label: ALERT_POLICY_MODE_MANAGED, value: 'managed' },
+                  ]}
+                  onChange={(value) => handleRouteModeChange(value as RouteMode)}
+                />
+              </Space>
+              <Text
+                type="secondary"
+                style={{ display: 'block', marginTop: 4, fontSize: 12 }}
+                data-testid="policy-mode-tip"
+              >
+                {routeSetting?.mode === 'managed'
+                  ? ALERT_POLICY_MODE_TIP[ALERT_POLICY_MODE_MANAGED]
+                  : ALERT_POLICY_MODE_TIP[ALERT_POLICY_MODE_HANDWRITTEN]}
+              </Text>
+            </div>
 
             {routeError ? (
               <Text type="danger">
-                默认接收人设定加载失败：{routeError}{' '}
+                设定加载失败：{routeError}{' '}
                 <Button size="small" type="link" onClick={reloadRouteSetting}>
                   重试
                 </Button>
               </Text>
-            ) : routeSetting ? (
-              routeSetting.effective_source === 'none' ? (
-                <Text type="secondary">
-                  当前无生效默认接收人（无已启用渠道，或选定渠道已停用 / 被删除）——平台不接管兜底接收人，配置产物不变。
-                </Text>
-              ) : (
-                <Text type="secondary">
-                  {ALERT_POLICY_FALLBACK_LABEL}当前为
-                  <Text strong>{routeSetting.effective_receiver_name}</Text>
-                  （来源：{ROUTE_SOURCE_LABEL[routeSetting.effective_source]}）
-                  {routeSetting.enabled ? '。' : '；未指定时平台不接管，配置产物零变化。'}
-                </Text>
-              )
             ) : null}
 
-            {/* 诚实口径（决策 113 第 3/4 条）：平台只替换兜底接收人这一个值，绝不触碰节奏字段 / continue /
-                具体分流规则；避免制造「全自动」错觉。 */}
-            <Text
-              type="secondary"
-              style={{ display: 'block', paddingLeft: 10, borderLeft: `3px solid ${tokens.colorInfo}`, lineHeight: 1.6 }}
+            {/* 两个开关的**关系**结论（§6.3：手写模式下平台仍接管兜底单键）——
+                2026-10-08 起**视觉隐藏**：该关系属"读卡要懂的关系"，不是"当前状态"，
+                同屏常驻会与两个控件各自的结论争抢注意力（实测"信息量过大"的主因之一）。
+                改为 screen-reader only：读屏用户与自动化测试仍能拿到这段关键事实，
+                视觉用户则由 PageIntro.points 第 5 条承载同一信息（默认收起）。 */}
+            <span
+              data-testid="policy-summary"
+              style={{
+                position: 'absolute',
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                overflow: 'hidden',
+                clip: 'rect(0, 0, 0, 0)',
+                whiteSpace: 'nowrap',
+                border: 0,
+              }}
             >
-              指定之后，平台只在生成配置时把「没匹配到任何具体规则的告警」统一发往它；你已有的具体分流规则不受影响、且优先于它。平台不会改动你的分组、发送节奏等其它设置。
-            </Text>
+              {policySummary}
+            </span>
           </Space>
         </Card>
 
@@ -636,6 +715,12 @@ export function AlertConfigPage() {
             pagination={{
               ...TABLE_PAGINATION,
               current: page,
+              // ⚠️ 必须把 hook 的 pageSize 回传给受控分页对象：
+              // TABLE_PAGINATION.pageSize 写死为 20，若不覆盖，受控分页的 pageSize 永远是 20，
+              // 用户选「10 条/页」会被 antd 还原回 20（选择不生效），表现为「点 10 没反应、反复转圈」。
+              // 与 NetworkDomainsPage 的成熟写法保持一致（分页对象同时受控 current 与 pageSize）。
+              pageSize,
+              pageSizeOptions: ['10', '20', '50', '100'],
               total,
               onChange: (p, pz) => onPageSizeChange(p, pz),
             }}

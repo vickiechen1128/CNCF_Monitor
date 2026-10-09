@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-08 13:25 · commit: `7478df9`
+> 生成时间: 2026-10-09 11:28 · commit: `596f7d0`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -388,23 +388,6 @@
 - `func toAlertItem(am amAlert, identities map[string]query.ResourceIdentity) AlertItem`
 - `func normalizeNotifyStatus(st amAlertStatus) string`
 
-### `platform/alertmanager/config/autoapply_test.go`
-
-- `func stubAutoApply(t *testing.T, errVal error) (*int32, *string)`
-- `func TestSubmitTriggersAutoApplyManagementDomain(t *testing.T)`
-- `func TestSubmitDegradesWhenAutoApplyFails(t *testing.T)`
-- `func TestRemountAlsoTriggersAutoApply(t *testing.T)`
-- `func TestSubmitAutoApplyFailureHandlerLogsNot500(t *testing.T)`
-- `func newAutoApplyDB(t *testing.T) *gorm.DB`
-- `func stubGeneratorTools(t *testing.T)`
-- `type deploymentRecorder struct`
-- `method (*deploymentRecorder) Apply(*generator.ConfigArtifacts) error`
-- `func seedAMMgmtDomain(t *testing.T, db *gorm.DB, id string)`
-- `func seedAMHost(t *testing.T, db *gorm.DB, domainID, resourceID string)`
-- `func seedAMJob(t *testing.T, db *gorm.DB, domainID, name string)`
-- `func TestApplyManagementDomainConfigNoChangesReturnsNil(t *testing.T)`
-- `func TestSubmitAutoAppliesManagementDomainEndToEnd(t *testing.T)`
-
 ### `platform/alertmanager/config/config_test.go`
 
 - `func newMemConfigDB(t *testing.T) *gorm.DB`
@@ -431,13 +414,23 @@
 - `func RemountHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondSubmitError(c *gin.Context, err error)`
 
+### `platform/alertmanager/config/pendingdraft_test.go`
+
+- `func stubEnsurePendingDraft(t *testing.T) *int32`
+- `func stubEnsurePendingDraftErr(t *testing.T, err error)`
+- `func TestSubmitTriggersChangeDetectionAndPendingDraft(t *testing.T)`
+- `func TestSubmitDoesNotAutoConfirmDraft(t *testing.T)`
+- `func TestSubmitPendingDraftErrNoChangesNotBlockSubmit(t *testing.T)`
+- `func TestSubmitPendingDraftErrOtherNotBlockSubmit(t *testing.T)`
+- `func TestEnsurePendingDraftGeneratesWhenNoLivePending(t *testing.T)`
+
 ### `platform/alertmanager/config/service.go`
 
 - `type ErrValidation struct`
 - `method (*ErrValidation) Error() string`
 - `func TriggerChangeDetection(db *gorm.DB) error`
-- `func AutoApplyManagementDomain(db *gorm.DB, by string) error`
-- `func applyManagementDomainConfig(db *gorm.DB, by string) error`
+- `func EnsurePendingDraft(db *gorm.DB) error`
+- `func generateOrReusePendingDraft(db *gorm.DB) error`
 - `func Submit(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func Remount(db *gorm.DB, content, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
 - `func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models.AlertmanagerConfigVersion, error)`
@@ -692,6 +685,14 @@
 - `func TestToRouteNodes_RoundTrip(t *testing.T)`
 - `func TestToEditNodes_PreservesUnmodeledKeys(t *testing.T)`
 - `func toEditMatchers(in []RouteMatcher) []generator.RouteEditMatcher`
+
+### `platform/alertmanager/route/declared_receivers.go`
+
+- `func ParseDeclaredReceivers(baseYAML string) []string`
+
+### `platform/alertmanager/route/declared_receivers_test.go`
+
+- `func TestParseDeclaredReceivers(t *testing.T)`
 
 ### `platform/alertmanager/route/handler.go`
 
@@ -4834,6 +4835,7 @@
 - `const ALERT_POLICY_ROUTE_MODE_LABEL`
 - `const ALERT_POLICY_MODE_HANDWRITTEN`
 - `const ALERT_POLICY_MODE_MANAGED`
+- `const ALERT_POLICY_MODE_TIP`
 - `const ALERT_GUIDE_CARD_TITLE`
 - `const ALERT_GUIDE_INHIBIT_COMING`
 - `const ALERT_ADVANCED_CARD_TITLE`

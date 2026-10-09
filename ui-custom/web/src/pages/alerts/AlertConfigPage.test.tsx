@@ -50,7 +50,7 @@ function routeSettingResult(over: Record<string, unknown> = {}) {
       effective_source: 'auto_first_enabled',
     },
     options: [
-      { value: -1, label: '不接管（保留我手写的兜底配置）' },
+      { value: -1, label: '不接管（保留配置文件里已有的值）' },
       { value: 1, label: 'SRE 飞书群（接收人 sre-feishu-qun）', receiverName: 'sre-feishu-qun' },
     ],
     loading: false,
@@ -83,8 +83,28 @@ function result(over: Record<string, unknown> = {}) {
     permissionDenied: false,
     reload: reloadMock,
     submit: submitMock,
+    // 与 UseAlertConfigResult 契约一致：分页受控值需回传（2026-10-09 修复后组件消费该字段）
+    page: 1,
+    pageSize: 20,
     ...over,
   }
+}
+
+/**
+ * 判断元素是否被 CSS 视觉隐藏（screen-reader only）。
+ *
+ * 2026-10-08：策略卡的「两个开关关系」结论改为视觉隐藏后，仍**留在卡内 DOM** 里
+ * （读屏与自动化测试需要它）。于是「卡内文本不含 X」这类断言不能再对
+ * `card.textContent` 成立——必须先排除视觉隐藏节点，否则会把"移入隐藏句"误判为"仍在可见区"。
+ *
+ * ⚠ 判据只用 **inline style**，不用 `getBoundingClientRect()`：jsdom 下所有元素的
+ * rect 恒为 0×0，用 rect 判定会把**每一个**叶子节点都误判为隐藏（visibleText 变空串）。
+ * 组件的隐藏实现是 inline style（`clip` + `overflow:hidden` + 1px 尺寸），据此判定可靠。
+ */
+function isVisuallyHidden(el: HTMLElement): boolean {
+  const s = el.style
+  if (!s.overflow || s.overflow !== 'hidden') return false
+  return s.position === 'absolute' && (s.width === '1px' || s.clip !== 'auto')
 }
 
 function renderPage() {
@@ -238,12 +258,15 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(card).toBeInTheDocument()
     expect(screen.getByText('路由与收敛策略')).toBeInTheDocument()
     // 控件一（去技术化：不再叫「默认兜底接收人」）
-    expect(screen.getByText('未匹配规则的告警发给谁')).toBeInTheDocument()
+    expect(screen.getByText('没匹配到具体规则的告警，发给哪个渠道')).toBeInTheDocument()
     // 控件二（去技术化：不再叫「路由规则作者模式」）
     expect(screen.getByText('路由规则由谁维护')).toBeInTheDocument()
     // 状态句：一次说清「谁维护路由」+「未匹配告警发给谁」
-    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('路由规则由你手写维护')
-    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('未匹配任何规则的告警发往')
+    // 2026-10-08 瘦身：状态句改为**视觉隐藏**（两个开关的「关系」属读卡要懂的关系，
+    //   不是「当前状态」，同屏常驻会与控件各自结论争抢注意力——用户实测判为信息量过大）。
+    //   读屏与测试仍可拿到；当前状态的结论改由控件行的 fallback-conclusion Tag 承载。
+    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('路由规则由你来编辑')
+    expect(screen.getByTestId('fallback-conclusion')).toBeInTheDocument()
     // 旧术语不得残留在用户视图
     const text = document.body.textContent ?? ''
     expect(text).not.toContain('默认兜底接收人')
@@ -500,40 +523,48 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
   })
 
   // =====================================================================
-  // T08-F8（决策 113 口径 C）：骨架布缆开关「未匹配规则的告警发给谁」（原「默认接收人（根兜底）」）。
+  // T08-F8（决策 113 口径 C）：骨架布缆开关「没匹配到具体规则的告警，发给哪个渠道」（原「默认接收人（根兜底）」）。
   // 2026-10-02 IA 重构：控件由「当前生效配置」卡内提级到首屏「策略卡」，术语去技术化
   // （提案 §7.5）；Q3：与「路由规则由谁维护」（T08-F12 模式控件）是两个独立控件——
   // 后者是 mode 字段，前者是 enabled + default_receiver_channel_id，二者互不门禁（提案 §6.3）。
   // =====================================================================
   const openReceiverSelect = () =>
-    fireEvent.mouseDown(screen.getByRole('combobox', { name: '未匹配规则的告警发给谁' }))
+    fireEvent.mouseDown(screen.getByRole('combobox', { name: '没匹配到具体规则的告警，发给哪个渠道' }))
   const pickReceiverOption = async (text: string | RegExp) => {
     const opts = await screen.findAllByText(text)
     // 下拉项挂在 body 末尾的 portal 中；已选中值也在选择器内展示，故取最后一个（下拉项）
     fireEvent.click(opts[opts.length - 1])
   }
 
-  it('未匹配规则的告警发给谁：未设定时展示自动建议来源，下拉首项为「不接管」，并给出只替换单值的诚实口径', () => {
+  it('没匹配到具体规则的告警，发给哪个渠道：未设定时展示自动建议来源，下拉首项为「不接管」，并给出只替换单值的诚实口径', () => {
     useAlertConfigMock.mockReturnValue(result())
     renderPage()
     // 控件已提级到策略卡，标签去技术化（不再是「默认兜底接收人」）
     expect(screen.getByTestId('alert-policy-card')).toContainElement(
-      screen.getByRole('combobox', { name: '未匹配规则的告警发给谁' }),
+      screen.getByRole('combobox', { name: '没匹配到具体规则的告警，发给哪个渠道' }),
     )
-    // 首项「不接管（保留我手写的兜底配置）」= NONE_RECEIVER_VALUE(-1) 且为当前选中值
-    expect(screen.getByText('不接管（保留我手写的兜底配置）')).toBeInTheDocument()
-    // 生效态派生展示：来源 + 建议接收人名（未设定时平台不接管、产物零变化）
-    // 注：来源名同时出现在状态句与生效态说明里，故用卡片级 textContent 断言，避免 getByText 命中多处
+    // 首项「不接管（保留配置文件里已有的值）」= NONE_RECEIVER_VALUE(-1) 且为当前选中值
+    expect(screen.getByText('不接管（保留配置文件里已有的值）')).toBeInTheDocument()
+    // 2026-10-08 契约修复：未设定时（effective_source=auto_first_enabled）平台**不接管**，
+    //   effective_receiver_name 仅为 UI 预填建议（契约 §11.9：仅作建议、产物字节不变）。
+    //   旧实现把它渲染成「发往 X」，与下拉框显示的「不接管」自相矛盾——用户实测判为界面不可信。
+    const conclusion = screen.getByTestId('fallback-conclusion').textContent ?? ''
+    expect(conclusion).toContain('未接管')
+    expect(conclusion).toContain('建议值')
+    expect(conclusion).not.toContain('发往')
+    // 2026-10-08：不再展示平台内部 receiver 名（`auto-default-recv`）——
+    //   它对"我选了哪个渠道"无帮助。改为说明建议值来自哪一类渠道。
+    expect(conclusion).not.toContain('auto-default-recv')
+    expect(conclusion).toContain('已启用渠道')
+    // 诚实口径（只替换兜底接收人单值、不改分组/节奏、不写具体分流规则）2026-10-08
+    //   已从策略卡正文移入 PageIntro.points（默认收起）：同一事实说 4 遍是「信息量过大」主因。
     const cardText = screen.getByTestId('alert-policy-card').textContent ?? ''
-    expect(cardText).toContain('已启用渠道的第一个')
-    expect(screen.getByText('auto-default-recv')).toBeInTheDocument()
-    expect(cardText).toContain('未指定时平台不接管，配置产物零变化')
-    // 诚实口径：只替换兜底接收人这一个值，不改分组 / 发送节奏，也不写具体分流规则
-    expect(cardText).toContain('平台不会改动你的分组')
-    expect(cardText).toContain('你已有的具体分流规则不受影响')
+    expect(cardText).not.toContain('平台不会改动你的分组')
+    fireEvent.click(screen.getByTestId('alert-config-intro-guide-label'))
+    expect(screen.getByTestId('alert-config-intro-guide-points').textContent ?? '').toContain('平台不会改动你的分组')
   })
 
-  it('未匹配规则的告警发给谁：选定渠道触发二次确认（护栏①），文案不含实现字段名，确认后写入该渠道', async () => {
+  it('没匹配到具体规则的告警，发给哪个渠道：选定渠道触发二次确认（护栏①），文案不含实现字段名，确认后写入该渠道', async () => {
     useAlertConfigMock.mockReturnValue(result())
     const modal = mockAntdModal()
     renderPage()
@@ -541,7 +572,8 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     await pickReceiverOption(/SRE 飞书群（接收人 sre-feishu-qun）/)
     expect(modal.confirm).toHaveBeenCalled()
     const cfg = modal.confirm.mock.calls[0][0]
-    expect(String(cfg.title)).toContain('确认由平台指定未匹配规则的告警接收人')
+    // 2026-10-08：标题去「接收人」术语（去技术化，提案 §7.5），改说「接管这类告警」
+    expect(String(cfg.title)).toContain('确认由平台接管这类告警')
     // 术语去技术化护栏：确认弹窗不得暴露 route 段字段名
     expect(String(cfg.content)).not.toContain('route.receiver')
     expect(String(cfg.content)).not.toContain('route.routes[]')
@@ -554,7 +586,7 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(saveRouteSettingMock).toHaveBeenCalledWith(1)
   })
 
-  it('未匹配规则的告警发给谁：选「不接管」以 null 关闭接管，并提示已停止替换、最后写入值保留（护栏③）', async () => {
+  it('没匹配到具体规则的告警，发给哪个渠道：选「不接管」以 null 关闭接管，并提示已停止替换、最后写入值保留（护栏③）', async () => {
     useAlertConfigMock.mockReturnValue(result())
     useRouteSettingMock.mockReturnValue(
       routeSettingResult({
@@ -568,13 +600,13 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     )
     renderPage()
     openReceiverSelect()
-    await pickReceiverOption('不接管（保留我手写的兜底配置）')
+    await pickReceiverOption('不接管（保留配置文件里已有的值）')
     await waitFor(() => expect(saveRouteSettingMock).toHaveBeenCalledWith(null))
     expect(await screen.findByText(/已停止由平台指定默认接收人/)).toBeInTheDocument()
     expect(await screen.findByText(/最后写入的值保留在配置文件中/)).toBeInTheDocument()
   })
 
-  it('未匹配规则的告警发给谁：保存返回 400（渠道不存在 / 未启用）时提示后端错误文案', async () => {
+  it('没匹配到具体规则的告警，发给哪个渠道：保存返回 400（渠道不存在 / 未启用）时提示后端错误文案', async () => {
     useAlertConfigMock.mockReturnValue(result())
     saveRouteSettingMock.mockRejectedValue(new ApiError('指定的通知渠道不存在或未启用', 400, 'bad_request'))
     const modal = mockAntdModal()
@@ -585,7 +617,7 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(await screen.findByText('指定的通知渠道不存在或未启用')).toBeInTheDocument()
   })
 
-  it('未匹配规则的告警发给谁：已生效时展示「平台接管中」与「你指定的」来源', () => {
+  it('没匹配到具体规则的告警，发给哪个渠道：已生效时展示「平台接管中」与「你指定的」来源', () => {
     useAlertConfigMock.mockReturnValue(result())
     useRouteSettingMock.mockReturnValue(
       routeSettingResult({
@@ -598,31 +630,52 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
       }),
     )
     renderPage()
-    expect(screen.getByText('平台接管中')).toBeInTheDocument()
-    const cardText = screen.getByTestId('alert-policy-card').textContent ?? ''
-    expect(cardText).toContain('你指定的')
-    expect(screen.getByText('sre-feishu-qun')).toBeInTheDocument()
-    // 状态句同时点明「谁维护路由」与「未匹配告警发给谁」（提案 §6.3）
-    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('平台已接管')
+    // 2026-10-08：Tag 改为携带结论（已接管 + 发往哪个），不再只是「平台接管中」四字
+    const conclusion = screen.getByTestId('fallback-conclusion').textContent ?? ''
+    expect(conclusion).toContain('已接管')
+    // 2026-10-08：结论 Tag **不再复述渠道名 / 接收人名**，只用「你选中的渠道」回指控件——
+    //   结论与下拉框是并列元素，复述会让用户做一道连线题（实测「不知道怎么知道这就是兜底」）。
+    expect(conclusion).toContain('你选中的渠道')
+    expect(conclusion).not.toContain('sre-feishu-qun')
+    // 来源标签（「你指定的」/「已启用渠道的第一个」）属"派生态"、随模式而变，故**不常驻可见区**，
+    //   改由 screen-reader 隐藏的关系句承载（每个事实只在一处说）。
+    //   注意：隐藏句仍在卡内 DOM 中，故不能对整卡 textContent 断言"不含"，
+    //   要断言的是「可见文本里不出现来源标签」——用计算样式排除隐藏元素。
+    const visibleText = Array.from(
+      screen.getByTestId('alert-policy-card').querySelectorAll<HTMLElement>('*'),
+    )
+      .filter((e) => e.children.length === 0 && !isVisuallyHidden(e))
+      .map((e) => e.textContent ?? '')
+      .join('')
+    expect(visibleText).not.toContain('你指定的')
+    expect(visibleText).toContain('已接管')
+    // 状态句同时点明「谁维护路由」与「未匹配告警发给谁」（提案 §6.3；2026-10-08 起视觉隐藏）
+    const summary = screen.getByTestId('policy-summary').textContent ?? ''
+    expect(summary).toContain('平台已接管')
+    expect(summary).toContain('你指定的')
   })
 
   // =====================================================================
-  // T08-F12（「路由规则由谁维护」）：handwritten（我手写）/ managed（平台管理）。
-  // 与「未匹配规则的告警发给谁」是两个独立控件（见 Q3 注释）——根兜底接管不判 mode
+  // T08-F12（「路由规则由谁维护」）：handwritten（我来编辑）/ managed（平台生成）。
+  // 2026-10-08：用户可见词由「我手写 / 平台管理」改为「我来编辑 / 平台生成」——
+  //   旧词「我手写」被实测判为歧义：它天然承诺由我在页面里手写，而实际含义是
+  //   「平台别生成路由段、我自己去高级区手写 YAML」，该层含义只写在二次确认弹窗里。
+  //   用户选「我手写」后发现路由规则页变只读，判为功能故障。底层枚举值不变。
+  // 与「没匹配到具体规则的告警，发给哪个渠道」是两个独立控件（见 Q3 注释）——根兜底接管不判 mode
   // （提案 §6.3 代码级依据：notify_route_skeleton.go::MaterializeRootRouteReceiver 门禁
   //   只判 enabled + default_receiver_channel_id，不判 mode），故状态句必须显式点明这层关系。
   // 2026-10-02：控件由 Switch 改 Segmented，表达「二选一模式」而非「开/关」（用户拍板）。
   // 切换即二次确认，并按护栏 §11.6 明示差异，保存时把 mode 一并写入 route-setting。
   // =====================================================================
-  const modeSegment = (label: '我手写' | '平台管理') =>
+  const modeSegment = (label: '我来编辑' | '平台生成') =>
     screen.getByRole('radio', { name: label })
-  const clickModeSegment = (label: '我手写' | '平台管理') => {
+  const clickModeSegment = (label: '我来编辑' | '平台生成') => {
     fireEvent.click(modeSegment(label))
   }
 
-  it('T08-F12：「路由规则由谁维护」以 Segmented 二选一呈现，手写→平台管理 触发二次确认并透传 mode=managed', async () => {
+  it('T08-F12：「路由规则由谁维护」以 Segmented 二选一呈现，我来编辑→平台生成 触发二次确认并透传 mode=managed', async () => {
     useAlertConfigMock.mockReturnValue(result())
-    // 初始为我手写（mode=handwritten）
+    // 初始为「我来编辑」（mode=handwritten）
     useRouteSettingMock.mockReturnValue(
       routeSettingResult({
         setting: {
@@ -638,15 +691,15 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     renderPage()
     // 二选一语义：两个 radio 而非一个开关
     expect(screen.getByLabelText('路由规则由谁维护')).toBeInTheDocument()
-    expect(modeSegment('我手写')).toBeChecked()
-    expect(modeSegment('平台管理')).not.toBeChecked()
-    // 初始态状态句点明「由你手写维护」
-    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('路由规则由你手写维护')
+    expect(modeSegment('我来编辑')).toBeChecked()
+    expect(modeSegment('平台生成')).not.toBeChecked()
+    // 初始态状态句点明「由你来编辑」
+    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('路由规则由你来编辑')
     // 切到「平台管理」(managed) → 二次确认
-    clickModeSegment('平台管理')
+    clickModeSegment('平台生成')
     expect(modal.confirm).toHaveBeenCalled()
     const cfg = modal.confirm.mock.calls[0][0]
-    expect(String(cfg.title)).toContain('切换为「平台管理」路由规则')
+    expect(String(cfg.title)).toContain('切换为「平台生成」')
     // 术语去技术化护栏：确认弹窗不得暴露「route 段」这类实现术语
     expect(String(cfg.title)).not.toContain('route 段')
     expect(String(cfg.content)).not.toContain('route 段')
@@ -657,7 +710,7 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     expect(saveRouteSettingMock).toHaveBeenCalledWith(null, 'managed')
   })
 
-  it('T08-F12：平台管理→我手写 同样二次确认并透传 mode=handwritten（保留当前兜底接收人 channelId）', async () => {
+  it('T08-F12：平台生成→我来编辑 同样二次确认并透传 mode=handwritten（保留当前兜底接收人 channelId）', async () => {
     useAlertConfigMock.mockReturnValue(result())
     useRouteSettingMock.mockReturnValue(
       routeSettingResult({
@@ -672,23 +725,23 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     )
     const modal = mockAntdModal()
     renderPage()
-    // 初始态：平台管理（mode=managed）
-    expect(modeSegment('平台管理')).toBeChecked()
-    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('路由规则由平台管理')
-    clickModeSegment('我手写')
+    // 初始态：平台生成（mode=managed）
+    expect(modeSegment('平台生成')).toBeChecked()
+    expect(screen.getByTestId('policy-summary').textContent ?? '').toContain('路由规则由平台生成')
+    clickModeSegment('我来编辑')
     expect(modal.confirm).toHaveBeenCalled()
     const cfg = modal.confirm.mock.calls[0][0]
-    expect(String(cfg.title)).toContain('切换为「我手写」路由规则')
-    // 护栏§11.6：切到我手写明示「不删除已生成的路由内容」
+    expect(String(cfg.title)).toContain('切换为「我来编辑」')
+    // 护栏§11.6：切到「我来编辑」明示「不删除已生成的路由内容」
     expect(String(cfg.content)).toContain('已生成')
     await (cfg.onOk as () => Promise<void>)()
     // channelId 保留当前选定值(3)，连同 mode='handwritten' 写入
     expect(saveRouteSettingMock).toHaveBeenCalledWith(3, 'handwritten')
   })
 
-  // 提案 §6.3 的非直觉事实必须有回归护栏：手写模式下平台**仍**接管根兜底接收人单键。
+  // 提案 §6.3 的非直觉事实必须有回归护栏：「我来编辑」模式下平台**仍**接管根兜底接收人单键。
   // 若未来有人给 MaterializeRootRouteReceiver 补上 mode 门禁，本用例会失败并提示同步更新状态句口径。
-  it('提案 §6.3：我手写模式下平台仍接管兜底接收人，状态句不得谎报「平台不接管」', () => {
+  it('提案 §6.3：「我来编辑」模式下平台仍接管兜底接收人，状态句不得谎报「平台不接管」', () => {
     useAlertConfigMock.mockReturnValue(result())
     useRouteSettingMock.mockReturnValue(
       routeSettingResult({
@@ -703,8 +756,202 @@ describe('AlertConfigPage（告警配置文件挂载）', () => {
     )
     renderPage()
     const summary = screen.getByTestId('policy-summary').textContent ?? ''
-    expect(summary).toContain('路由规则由你手写维护')
+    expect(summary).toContain('路由规则由你来编辑')
     expect(summary).toContain('未匹配任何规则的告警发往 sre-feishu-qun')
     expect(summary).toContain('平台已接管')
+  })
+
+  // 2026-10-08：Segmented 只有两个短词，承载不了「选了之后路由规则页会怎样」——
+  // 而这正是实测中被误解的点（选「我手写」→ 页面变只读 → 判为故障）。故控件下方
+  // 必须常驻一行后果说明，且**随 mode 切换**（按 PageIntro 契约第三条：随状态变化的信息
+  // 才允许常驻，不能收进默认收起的说明区）。
+  it('2026-10-08：模式控件下方常驻一行后果说明，且随 mode 切换措辞', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: true,
+          default_receiver_channel_id: 1,
+          effective_receiver_name: 'sre-feishu-qun',
+          effective_source: 'explicit',
+          mode: 'handwritten',
+        },
+      }),
+    )
+    const { unmount } = renderPage()
+    // 「我来编辑」→ 明确说页面可编辑
+    expect(screen.getByTestId('policy-mode-tip').textContent ?? '').toContain('直接增删改路由')
+    unmount()
+
+    // 切到「平台生成」→ 明确说页面只读，且指向高级区手写入口
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: true,
+          default_receiver_channel_id: 1,
+          effective_receiver_name: 'sre-feishu-qun',
+          effective_source: 'explicit',
+          mode: 'managed',
+        },
+      }),
+    )
+    renderPage()
+    expect(screen.getByTestId('policy-mode-tip').textContent ?? '').toContain('只读视图')
+  })
+
+  // 2026-10-08：二次确认弹窗必须**明说页面可编辑性**，而不只讲产物归属——旧文案只说"平台停止生成 /
+  // 平台接管"，用户无法据此判断路由页还能不能编辑。
+  it('2026-10-08：模式切换二次确认明说页面可编辑性后果', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: false,
+          default_receiver_channel_id: null,
+          effective_receiver_name: 'auto-default-recv',
+          effective_source: 'auto_first_enabled',
+          mode: 'handwritten',
+        },
+      }),
+    )
+    const modal = mockAntdModal()
+    const { unmount } = renderPage()
+
+    // 切到「平台生成」→ 弹窗须说「只读」
+    clickModeSegment('平台生成')
+    const cfgManaged = modal.confirm.mock.calls[0][0]
+    expect(String(cfgManaged.content)).toContain('只读')
+    unmount()
+
+    // 切到「我来编辑」→ 弹窗须说页面可编辑 + 保留已生成内容
+    // （unmount 后重新 render，避免两次 render 叠加导致 getByRole 命中多个同名 radio）
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: false,
+          default_receiver_channel_id: 3,
+          effective_receiver_name: 'sre-qun',
+          effective_source: 'explicit',
+          mode: 'managed',
+        },
+      }),
+    )
+    renderPage()
+    clickModeSegment('我来编辑')
+    const cfgHandwritten = modal.confirm.mock.calls[1][0]
+    expect(String(cfgHandwritten.content)).toContain('路由规则页')
+    expect(String(cfgHandwritten.content)).toContain('已生成')
+  })
+
+  /**
+   * 2026-10-08 策略卡瘦身后的护栏（用户实测"界面不清晰"的核心是**自相矛盾**）：
+   * `auto_first_enabled` 按契约 §11.9 只是「UI 预填建议、平台不接管、产物字节不变」，
+   * 但旧实现把 effective_receiver_name 一律渲染成「发往 X」——用户看到下拉框是「不接管」、
+   * 状态句却说「发往 notify-1」，当场判为界面不可信。
+   *
+   * 本用例锁死「未接管时不得出现『发往』」，且建议值必须被标为建议。
+   * 若将来有人把结论 Tag 改回无条件显示"发往"，本用例会失败。
+   */
+  it('2026-10-08：未接管时不得把建议值渲染成生效值（不得出现「发往」）', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: false, // 未接管
+          default_receiver_channel_id: null,
+          effective_receiver_name: 'notify-1', // 仅为建议值
+          effective_source: 'auto_first_enabled',
+          mode: 'handwritten',
+        },
+      }),
+    )
+    renderPage()
+    // 控件行结论：说「未接管」+ 标出建议值
+    const conclusion = screen.getByTestId('fallback-conclusion').textContent ?? ''
+    expect(conclusion).toContain('未接管')
+    expect(conclusion).toContain('建议值')
+    expect(conclusion).not.toContain('发往')
+    // 视觉隐藏的关系句同样不得把建议说成生效
+    const summary = screen.getByTestId('policy-summary').textContent ?? ''
+    expect(summary).toContain('未指定')
+    expect(summary).not.toContain('发往')
+  })
+
+  it('2026-10-08：已接管（explicit + enabled）时才可说「发往」', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: true,
+          default_receiver_channel_id: 1,
+          effective_receiver_name: 'sre-feishu-qun',
+          effective_source: 'explicit',
+          mode: 'handwritten',
+        },
+      }),
+    )
+    renderPage()
+    const conclusion = screen.getByTestId('fallback-conclusion').textContent ?? ''
+    expect(conclusion).toContain('已接管')
+    expect(conclusion).toContain('发往')
+  })
+
+  // 瘦身护栏：策略卡内**不得**再出现「同一个事实说 4 遍」的三处冗余载体。
+  it('2026-10-08：策略卡瘦身——不再有独立状态行与蓝线长段常驻', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: true,
+          default_receiver_channel_id: 1,
+          effective_receiver_name: 'sre-feishu-qun',
+          effective_source: 'explicit',
+          mode: 'handwritten',
+        },
+      }),
+    )
+    renderPage()
+    const card = screen.getByTestId('alert-policy-card')
+    const text = card.textContent ?? ''
+    // 「当前为…（来源：…）」这一独立状态行已并入 Tag，卡内不应再有
+    expect(text).not.toContain('当前为')
+    // 诚实口径长段已移入 PageIntro.points（默认收起），卡内不应常驻
+    expect(text).not.toContain('平台不会改动你的分组')
+    // 保留：两个控件 + 各自结论
+    expect(text).toContain('没匹配到具体规则的告警，发给哪个渠道')
+    expect(text).toContain('路由规则由谁维护')
+  })
+
+  /**
+   * 2026-10-08 认知断层护栏（用户实测原话：「用户角度，如何知道腾讯云边缘域就是平台兜底的策略」）。
+   *
+   * 结论 Tag 与下拉框是**并列的两个独立元素**。若结论里再写一遍渠道名/接收人名，
+   * 界面上没有任何一处明说"二者是同一个"，用户只能靠猜；更糟的是渠道名可能像
+   * 「腾讯云边缘域-飞书」那样带无关字样（与网域系统毫无关系，纯属起名误导），
+   * 于是"这个渠道"看着像一个网域、而非一张飞书卡片。
+   *
+   * 本用例锁死：**结论只说状态、用「你选中的渠道」回指控件**，不复述任何具体名称。
+   * 若将来有人"为了更明确"把渠道名/接收人名加回结论 Tag，本用例会失败。
+   */
+  it('2026-10-08：结论 Tag 只说状态、不复述渠道名（消除左右对应关系歧义）', () => {
+    useAlertConfigMock.mockReturnValue(result())
+    useRouteSettingMock.mockReturnValue(
+      routeSettingResult({
+        setting: {
+          enabled: true,
+          default_receiver_channel_id: 1,
+          effective_receiver_name: 'notify-1',
+          effective_source: 'explicit',
+          mode: 'handwritten',
+        },
+      }),
+    )
+    renderPage()
+    const conclusion = screen.getByTestId('fallback-conclusion').textContent ?? ''
+    expect(conclusion).toContain('已接管')
+    // 用「你选中的渠道」回指控件，明确左右是同一个
+    expect(conclusion).toContain('你选中的渠道')
+    // 不得复述平台内部接收人标识
+    expect(conclusion).not.toContain('notify-1')
   })
 })
