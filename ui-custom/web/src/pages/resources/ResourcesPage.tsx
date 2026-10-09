@@ -25,6 +25,7 @@ import {
   Typography,
   Divider,
   message,
+  theme,
 } from 'antd'
 import {
   DeleteOutlined,
@@ -289,6 +290,11 @@ export function ResourcesPage() {
    * 属赌 antd 内部实现；显式受控后行为确定，连勾多列不会被迫反复展开。
    */
   const [columnSettingsOpen, setColumnSettingsOpen] = useState(false)
+
+  // 列设置浮层的视觉 token：popupRender 自定义内容没有 `.ant-dropdown-menu`，
+  // 而 antd 5 的白底/圆角/阴影都定义在 Menu 上 → 不补背景浮层就是透明的，
+  // 表格内容会直接透出来（用户可见缺陷）。走 theme token 以兼容皮肤/暗色。
+  const { token } = theme.useToken()
 
   useEffect(() => {
     Promise.all([
@@ -1144,7 +1150,17 @@ export function ResourcesPage() {
                   popupRender={() => (
                     // 阻断冒泡，避免点击 Checkbox / 按钮触发浮层关闭
                     <div
-                      style={{ padding: 8, minWidth: 200, maxHeight: 420, overflowY: 'auto' }}
+                      style={{
+                        padding: 8,
+                        minWidth: 200,
+                        maxHeight: 420,
+                        overflowY: 'auto',
+                        // antd 5 背景色挂在 .ant-dropdown-menu 上，popupRender 自定义
+                        // 内容必须自带白底/圆角/阴影，否则浮层透明遮不住下方表格
+                        background: token.colorBgElevated,
+                        borderRadius: token.borderRadiusLG,
+                        boxShadow: token.boxShadowSecondary,
+                      }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <Checkbox.Group
