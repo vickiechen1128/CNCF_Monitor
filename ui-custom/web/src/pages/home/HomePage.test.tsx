@@ -409,7 +409,7 @@ describe('HomePage', () => {
     })
     expect(within(screen.getByTestId('metric-resource_count')).getByText('128')).toBeInTheDocument()
     expect(within(screen.getByTestId('metric-monitored_count')).getByText('96')).toBeInTheDocument()
-    // 整体覆盖率 = 已纳入监控 96 ÷ 资源总数 128 = 75%
+    // 纳管覆盖率 = 已下发监控 96 ÷ 资源总数 128 = 75%
     expect(within(screen.getByTestId('metric-coverage')).getByText('75%')).toBeInTheDocument()
     // 第 4 卡：/api/v1/alerts 的 firing 条数（样例中 3 条，pending 不计）
     // 排版定版：标签「告警」+ 副行「当前未恢复」（口径写在副行，不与「当日 / 近 7 天」混淆）
@@ -440,9 +440,9 @@ describe('HomePage', () => {
     }
     expect(within(screen.getByTestId('metric-resource_count')).getByText('资源总数')).toBeInTheDocument()
     expect(
-      within(screen.getByTestId('metric-monitored_count')).getByText('已纳入监控'),
+      within(screen.getByTestId('metric-monitored_count')).getByText('已下发监控'),
     ).toBeInTheDocument()
-    expect(within(screen.getByTestId('metric-coverage')).getByText('整体覆盖率')).toBeInTheDocument()
+    expect(within(screen.getByTestId('metric-coverage')).getByText('纳管覆盖率')).toBeInTheDocument()
     expect(within(screen.getByTestId('metric-probe')).getByText('拨测')).toBeInTheDocument()
 
     // 旧版式的两处已按决策 91 移除
@@ -839,7 +839,7 @@ describe('HomePage', () => {
       'href',
       '/resources?import=1',
     )
-    // 无资源时整体覆盖率显示 '-'，不渲染 0%
+    // 无资源时纳管覆盖率显示 '-'，不渲染 0%
     expect(within(screen.getByTestId('metric-coverage')).getByText('-')).toBeInTheDocument()
     // 五类卡仍按 0 值渲染（缺则补 0 值条目）
     expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
@@ -926,7 +926,9 @@ describe('HomePage', () => {
     fireEvent.mouseEnter(screen.getByTestId('metric-tip-monitored_count'))
     await waitFor(() => {
       expect(
-        screen.getByText('至少被一个已启用的采集任务覆盖到的资源数；其余为尚未纳管的资源。'),
+        screen.getByText(
+          '至少被一个已启用的采集任务【下发覆盖】到的资源数（含尚未采到的）；其余为尚未下发监控任务的资源。本卡统计下发口径，不代表已采到数据。',
+        ),
       ).toBeInTheDocument()
     })
   })
@@ -1444,7 +1446,7 @@ describe('HomePage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByText('整体覆盖率')).toBeInTheDocument()
+      expect(screen.getByText('纳管覆盖率')).toBeInTheDocument()
     })
 
     // 区块标题：全局态势（L0 四卡的分区标题，与 L1「按资源类型」同级）
@@ -1457,7 +1459,7 @@ describe('HomePage', () => {
 
     // 副行：资源总数「五类台账合计」；已纳入监控「未纳管 32」（= 128 − 96）
     expect(within(screen.getByTestId('metric-resource_count')).getByText('五类台账合计')).toBeInTheDocument()
-    expect(within(screen.getByTestId('metric-monitored_count')).getByText('未纳管 32')).toBeInTheDocument()
+    expect(within(screen.getByTestId('metric-monitored_count')).getByText('未下发 32')).toBeInTheDocument()
   })
 
   it('renders L1 category badges as single characters', async () => {

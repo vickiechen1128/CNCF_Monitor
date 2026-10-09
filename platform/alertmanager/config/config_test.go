@@ -69,19 +69,16 @@ func stubAmtoolUnavailable(t *testing.T) {
 	})
 }
 
-// stubChangeTrigger 记录触发调用并将触发函数短路，便于断言挂载提交了 M09 变更检测；
-// 同时短路自动闭环工序 autoApplyManagementDomain（dev-feedback §25 方案 A），使既有
-// 用例不依赖真实草稿流水线（GenerateDraft / ConfirmDraft 需外部工具 + 大量表迁移）。
+// stubChangeTrigger 记录触发调用并将触发函数短路，便于断言挂载提交了 M09 变更检测。
+// 2026-10-09（立场 1，关闭自动闭环）：原自动闭环工序 autoApplyManagementDomain 已移除，
+// 故此处不再需要短路它——提交链路本就不再自动确认下发（只产 pending 草稿）。
 func stubChangeTrigger(t *testing.T) *int32 {
 	t.Helper()
 	orig := triggerChangeDetection
-	origAuto := autoApplyManagementDomain
 	var calls int32
 	triggerChangeDetection = func(db *gorm.DB) error { atomic.AddInt32(&calls, 1); return nil }
-	autoApplyManagementDomain = func(db *gorm.DB, by string) error { return nil }
 	t.Cleanup(func() {
 		triggerChangeDetection = orig
-		autoApplyManagementDomain = origAuto
 	})
 	return &calls
 }

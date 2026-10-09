@@ -171,6 +171,171 @@ describe('useRouteEditor — H1 非 admin knownReceivers', () => {
   })
 })
 
+/**
+ * 2026-10-08 实测阻断回归：knownReceivers 此前只取「平台物化名」，把用户手写在
+ * receivers: 段里的 receiver 判为悬空。实测生效配置里手写 `feishu` 与平台 `notify-1`
+ * 共存，而根路由 + 4 条子路由全部引用 `feishu` → 5 个节点全命中 receiver_dangling，
+ * 页面既不能保存也不能新建（死锁）。修复后 knownReceivers = 文件声明名 ∪ 平台物化名。
+ */
+describe('useRouteEditor — 接收人可达集合口径（2026-10-08 阻断修复）', () => {
+  it('手写 receiver 出现在 declared_receivers 中时不再被判悬空（实测 feishu 场景）', async () => {
+    // 平台物化名：渠道名全中文 → sanitize 为空 → 回落 notify-1
+    listMock.mockResolvedValue(channels([channel({ id: '1', name: '腾讯云边缘域-飞书', enabled: true, receiver_name: 'notify-1' })]))
+    const sourceItems = [
+      readNode({ id: 'root', parent_id: '', receiver: 'feishu', locked: true }),
+      ...['0', '1', '2', '3'].map((i) =>
+        readNode({ id: `root/${i}`, parent_id: 'root', order: Number(i), receiver: 'feishu' }),
+      ),
+    ]
+    const { result } = renderHook(() =>
+      useRouteEditor({ sourceItems, declaredReceivers: ['feishu', 'notify-1'] }),
+    )
+
+    act(() => {
+      result.current.importFromCurrent()
+    })
+    await waitFor(() => expect(result.current.tree.length).toBe(5))
+
+    await waitFor(() => expect(result.current.knownReceivers).toEqual(expect.arrayContaining(['feishu', 'notify-1'])))
+    // 核心断言：引用手写 feishu 的 5 个节点全部不判悬空 → 无阻断项
+    expect(result.current.blocking).toHaveLength(0)
+
+    const ok = await act(async () => result.current.save())
+    expect(ok).toBe(true)
+    expect(submitMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('未在文件 receivers: 段声明、也不在平台物化名中的引用仍判悬空（校验不被放宽成摆设）', async () => {
+    listMock.mockResolvedValue(channels([channel({ id: '1', name: 'A', enabled: true, receiver_name: 'notify-1' })]))
+    const sourceItems = [readNode({ id: 'root', parent_id: '', receiver: 'ghost', locked: true })]
+    const { result } = renderHook(() =>
+      useRouteEditor({ sourceItems, declaredReceivers: ['notify-1'] }),
+    )
+
+    act(() => {
+      result.current.importFromCurrent()
+    })
+    await waitFor(() => expect(result.current.blocking.length).toBeGreaterThan(0))
+    expect(result.current.blocking[0].code).toBe('receiver_dangling')
+
+    const ok = await act(async () => result.current.save())
+    expect(ok).toBe(false)
+    expect(submitMock).not.toHaveBeenCalled()
+  })
+
+  it('平台已启用但配置尚未重新生成（物化名不在文件中）也算可达，不误判悬空', async () => {
+    listMock.mockResolvedValue(channels([channel({ id: '1', name: 'A', enabled: true, receiver_name: 'notify-9' })]))
+    const sourceItems = [readNode({ id: 'root', parent_id: '', receiver: 'notify-9', locked: true })]
+    const { result } = renderHook(() => useRouteEditor({ sourceItems, declaredReceivers: [] }))
+
+    act(() => {
+      result.current.importFromCurrent()
+    })
+    await waitFor(() => expect(result.current.knownReceivers).toEqual(['notify-9']))
+    expect(result.current.blocking).toHaveLength(0)
+  })
+})
+
+/**
+ * 2026-10-08 实测阻断回归：页面「新建路由规则」/「保存并提交变更」都是
+ * `disabled={!editing}`，而 importState 此前恒从 'empty' 起步 ⇒ 两个主按钮首屏恒灰。
+ * 修复为：只读树加载完成（ready）且解析成功 → 自动导入，首屏即可编辑。
+ */
+describe('useRouteEditor — 首屏自动导入（2026-10-08 按钮恒灰修复）', () => {
+  const sourceItems = [
+    readNode({ id: 'root', parent_id: '', receiver: 'default', locked: true }),
+    readNode({ id: 'root/0', parent_id: 'root', order: 0, receiver: 'recv-a' }),
+  ]
+
+  it('ready=true 且解析成功 → 自动进入 imported 编辑态（无需用户先点导入）', async () => {
+    const { result } = renderHook(() => useRouteEditor({ sourceItems, ready: true }))
+
+    await waitFor(() => expect(result.current.importState).toBe('imported'))
+    expect(result.current.tree.length).toBe(2)
+  })
+
+  it('ready=false → 不自动导入，保持 empty（避免先闪一棵空白树）', async () => {
+    const { result } = renderHook(() => useRouteEditor({ sourceItems, ready: false }))
+
+    await waitFor(() => expect(result.current.importState).toBe('empty'))
+    expect(result.current.tree).toHaveLength(0)
+  })
+
+  it('ready=true 但解析失败 → 不自动导入（降级事实须让用户知晓，由显式点击走部分导入）', async () => {
+    const { result } = renderHook(() =>
+      useRouteEditor({ ready: true, parseError: 'routes 不是列表，无法解析子路由' }),
+    )
+
+    await waitFor(() => expect(result.current.importState).toBe('empty'))
+    expect(result.current.tree).toHaveLength(0)
+  })
+
+  it('自动导入只发生一次：sourceItems 后续变化不重置用户正在进行的编辑', async () => {
+    const { result, rerender } = renderHook(
+      ({ items }: { items: RouteNode[] }) => useRouteEditor({ sourceItems: items, ready: true }),
+      { initialProps: { items: sourceItems } },
+    )
+    await waitFor(() => expect(result.current.importState).toBe('imported'))
+
+    // 用户新增一条（模拟正在编辑）
+    act(() => {
+      result.current.upsert({ ...blankRouteNode('root/0', 'root'), receiver: 'recv-a' })
+    })
+    expect(result.current.tree.length).toBe(2)
+
+    // 只读树随后变化（如 reload）→ 不得把用户的编辑冲掉
+    const changed = [...sourceItems, readNode({ id: 'root/1', parent_id: 'root', order: 1, receiver: 'recv-b' })]
+    rerender({ items: changed })
+    await waitFor(() => expect(result.current.tree.length).toBe(2))
+  })
+
+  it('重新载入（有未保存编辑）先经二次确认；取消则保留编辑，确认则丢弃并重载', async () => {
+    const confirmReload = vi.fn().mockResolvedValue(false)
+    const { result } = renderHook(() =>
+      useRouteEditor({ sourceItems, ready: true, confirmReload }),
+    )
+    await waitFor(() => expect(result.current.importState).toBe('imported'))
+
+    act(() => {
+      result.current.upsert({ ...blankRouteNode('root/0', 'root'), receiver: 'edited-by-user' })
+    })
+    expect(result.current.tree.length).toBe(2)
+
+    // 取消：编辑保留
+    act(() => {
+      result.current.importFromCurrent()
+    })
+    await waitFor(() => expect(confirmReload).toHaveBeenCalledTimes(1))
+    expect(result.current.tree.length).toBe(2)
+    expect(result.current.tree.some((n) => n.receiver === 'edited-by-user')).toBe(true)
+
+    // 确认：丢弃用户编辑，恢复为只读树内容
+    confirmReload.mockResolvedValue(true)
+    act(() => {
+      result.current.importFromCurrent()
+    })
+    await waitFor(() => expect(result.current.tree.some((n) => n.receiver === 'edited-by-user')).toBe(false))
+    expect(result.current.tree.length).toBe(2)
+  })
+
+  it('reset（放弃编辑）后可再次自动导入，不退回「按钮恒灰」', async () => {
+    const { result } = renderHook(() => useRouteEditor({ sourceItems, ready: true }))
+    await waitFor(() => expect(result.current.importState).toBe('imported'))
+
+    act(() => {
+      result.current.reset()
+    })
+    expect(result.current.importState).toBe('empty')
+
+    // 重新触发自动导入门控（模拟 reload 后 ready 再次为 true 的等价路径）
+    await waitFor(() => expect(result.current.importState).toBe('empty'))
+    act(() => {
+      result.current.importFromCurrent()
+    })
+    await waitFor(() => expect(result.current.importState).toBe('imported'))
+  })
+})
+
 describe('useRouteEditor — H4 部分导入保存护栏', () => {
   it('部分导入：保存前弹二次确认，取消则中止保存（submit 不调用、返回 false）', async () => {
     const confirm = vi.fn().mockResolvedValue(false)

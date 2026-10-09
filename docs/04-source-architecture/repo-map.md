@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-09 11:28 · commit: `596f7d0`
+> 生成时间: 2026-10-09 17:54 · commit: `4c484c2`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2793,6 +2793,21 @@
 - `func TestResolveRemoteWriteURL(t *testing.T)`
 - `func TestMetadataRemoteWriteURL(t *testing.T)`
 
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote.go`
+
+- `type vmRemoteWriteStats struct`
+- `func fetchVMAgentRemoteWriteStats(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...a…`
+- `func parsePromGauge(body, metric string) (float64, bool)`
+- `func cutMetricLine(line, metric string) (string, bool)`
+- `func parsePromValue(rest string) (float64, bool)`
+
+### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote_test.go`
+
+- `func TestParsePromGauge(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStats(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStatsNoFailure(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStatsDegrades(t *testing.T)`
+
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets.go`
 
 - `type vmTargetResp struct`
@@ -3069,6 +3084,7 @@
 - `func TestHeartbeatApplyFailedOlderVersionStaysPullPending(t *testing.T)`
 - `func TestHeartbeatRecordsLastConfigPullOnVersionAdvance(t *testing.T)`
 - `func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T)`
+- `func TestHeartbeatPersistsRemoteWriteLastError(t *testing.T)`
 - `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
 - `func TestHeartbeatHandlerConfigDownloadURL(t *testing.T)`
 - `func TestRequestAuthorityFallsBackToRequestHost(t *testing.T)`

@@ -7,6 +7,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/metriccenter/metriccenter/platform/configcenter/change"
@@ -49,51 +50,43 @@ var triggerChangeDetection = func(db *gorm.DB) error {
 	return change.ProcessDomain(db, managementDomainID)
 }
 
-// autoApplyManagementDomain 是「生成/复用管理域 default 的 pending 草稿并确认下发」的
-// 可注入工序（dev-feedback §25 方案 A）。M08 apply 仅收录源数据 + 触发 M09 变更检测时
-// 只会产出一张 pending 草稿、**永不自动确认**，磁盘上的 alertmanager.yml 仍是旧的，AM
-// 实际未加载新配置。此工序在触发检测后自动闭环到 confirm → 落盘 + AM reload，使 M08 一次
-// apply 端到端生效。默认实现在测试中可注入替换（风格同 triggerChangeDetection）。
-var autoApplyManagementDomain = func(db *gorm.DB, by string) error {
-	return applyManagementDomainConfig(db, by)
-}
-
 // TriggerChangeDetection 是对私有 triggerChangeDetection 的导出包装（T08-11 路由设定写
 // 路径复用）：暴露「触发管理域 default 变更检测」工序，供同 M08 的 route 包（设定读写 API
-// 写后与挂载同构闭环）调用，避免把私有变量直接暴露为跨包依赖。默认实现在测试中可注入替换
+// 写后与挂载同构）调用，避免把私有变量直接暴露为跨包依赖。默认实现在测试中可注入替换
 // （经 config 包测试覆盖；route 包测试以自己的可注入包装指向本函数）。
 func TriggerChangeDetection(db *gorm.DB) error {
 	return triggerChangeDetection(db)
 }
 
-// AutoApplyManagementDomain 是对私有 autoApplyManagementDomain 的导出包装（T08-11 路由
-// 设定写路径复用）：暴露「生成/复用管理域 default pending 草稿并自动确认下发 + AM reload」
-// 工序，使设定写入一次端到端生效（Q4 与挂载同构）。失败仅记录，由稳态 watcher 兜底。
-func AutoApplyManagementDomain(db *gorm.DB, by string) error {
-	return autoApplyManagementDomain(db, by)
+// EnsurePendingDraft 是对私有 ensurePendingDraft 的导出包装（T08-11 路由设定写路径复用）：
+// 暴露「确保管理域 default 有活pending 变更单（生成/复用/取代）、但不确认下发」工序，
+// 供 route 包在兜底接收人写路径后调用，避免另起一套（口径同挂载路径，见 ensurePendingDraft
+// 注释中「为什么必须显式生成」）。
+func EnsurePendingDraft(db *gorm.DB) error {
+	return ensurePendingDraft(db)
 }
 
-// applyManagementDomainConfig 对管理域 default 生成/复用一张 pending 草稿并确认下发：
+// ensurePendingDraft 确保管理域 default 有一张活pending 变更单（无则生成、产物已变则取代旧单），
+// **但不确认下发**——生效一律由用户在 M09「配置变更确认」页人工 ConfirmDraft。
 //
-//   - 已有活 pending：按 watcher.go 的 ShouldSupersedePending 口径判断是否需要重新生成
-//     （supersede=true 时 GenerateDraft 取新单并取代旧单，否则复用既有 live.ChangeNo），
-//     与 30s 轮询 change watcher 的裁决一致，规避「已有活 pending」竞态导致的重复生成；
-//   - 无活 pending：GenerateDraft 生成新单；ErrNoChanges（无实质变更，决策 44-3）视为
-//     无需下发、返回 nil；其他错误返回；
-//   - 最终 ConfirmDraft(changeNo, by) → 走既有 confirm 下发链路（DiskApplier 写
-//     alertmanager.yml + AM reload），由 deployment.writebackAlertmanagerApplied 回填
-//     applied_at/source_change_no。管理域为 local 直发通道（决策 31-M2），自动应用合规。
+// 为什么必须显式生成（2026-10-09 实测修复）：变更检测链路change.ProcessDomain 依赖
+// generator.SourceDataVersion 的版本推进，而 sourceTableScopes **不含
+// AlertmanagerConfigVersion**（提交告警配置不会推进源数据版本）→ ProcessDomain 视
+// "源数据无变化"直接跳过、**永远不会为告警配置变更产出草稿**。上一轮移除自动确认闭环时
+// 连带删掉了原有的自动闭环入口，其内部 GenerateDraft 的"产草稿"职责无人接手，导致
+// 「提交后 M09 连 pending 单都没有」。故此处显式补GenerateDraft，保住「提交 → 产 pending
+// 草稿 → 人工确认 → 写盘reload」的两段式。
 //
-// 任一步失败均原样返回错误，由调用方（submitValidated）转成哨兵 errAutoApply 降级——
-// 收录已成功，不下发失败不得让 M08 submit 报错。
-func applyManagementDomainConfig(db *gorm.DB, by string) error {
-	changeNo := ""
+// 同域 pending 保活/取代口径与 watcher 一致（决策 42-1 / 44-2）：已有活 pending 时比较
+// 当前产物 checksum（ShouldSupersedePending），不同则生成新单取代旧单，相同则复用旧单。
+var ensurePendingDraft = generateOrReusePendingDraft
+
+func generateOrReusePendingDraft(db *gorm.DB) error {
 	live, err := draft.LatestLivePending(db, managementDomainID)
 	if err != nil {
 		return err
 	}
 	if live != nil {
-		// 参考 change/watcher.go 的保活/取代口径：产物变化则取新单取代旧单，否则复用旧单。
 		dom, dErr := generator.LoadDomain(db, managementDomainID)
 		if dErr != nil {
 			return dErr
@@ -103,32 +96,13 @@ func applyManagementDomainConfig(db *gorm.DB, by string) error {
 			return sErr
 		}
 		if supersede {
-			d, gErr := draft.GenerateDraft(db, managementDomainID)
-			if gErr != nil {
-				if errors.Is(gErr, draft.ErrNoChanges) {
-					return nil
-				}
-				return gErr
-			}
-			changeNo = d.ChangeNo
-		} else {
-			changeNo = live.ChangeNo
-		}
-	} else {
-		d, gErr := draft.GenerateDraft(db, managementDomainID)
-		if gErr != nil {
-			if errors.Is(gErr, draft.ErrNoChanges) {
-				return nil
-			}
+			_, gErr := draft.GenerateDraft(db, managementDomainID)
 			return gErr
 		}
-		changeNo = d.ChangeNo
+		return nil // 产物无变化，复用既有 live pending
 	}
-	if changeNo == "" {
-		return nil
-	}
-	_, err = draft.ConfirmDraft(db, changeNo, by)
-	return err
+	_, gErr := draft.GenerateDraft(db, managementDomainID)
+	return gErr
 }
 
 // Submit 提交挂载一份 alertmanager.yml：
@@ -191,13 +165,23 @@ func submitValidated(db *gorm.DB, content, checksum, uploadedBy string) (*models
 		return v, errChangeTrigger
 	}
 
-	// dev-feedback §25 方案 A：自动闭环——触发检测只产 pending 草稿、永不自动确认，
-	// 磁盘 alertmanager.yml 仍是旧的。此处对管理域 default 生成/复用 pending 草稿并确认
-	// 下发（confirm → DiskApplier 写盘 + AM reload），使 M08 一次 apply 端到端生效。
-	// 失败不阻断挂载（收录已成功），按 errChangeTrigger 同款降级返回哨兵 errAutoApply：
-	// handler 仅记日志，由稳态 watcher / 人工确认兜底。Submit/Remount 均经本工序。
-	if err := autoApplyManagementDomain(db, uploadedBy); err != nil {
-		return v, errAutoApply
+	// 2026-10-09 用户裁决（立场 1，关闭自动闭环）：**不再自动确认草稿**。
+	// 原 dev-feedback §25 方案 A 在此处调 autoApplyManagementDomain 自动 GenerateDraft +
+	// ConfirmDraft，使「提交」直接写盘 + AM reload 生效；实测导致路由结构调整在用户
+	// 未复核的情况下自动上线（高危：改错即告警丢失/风暴），且与前端「待变更单确认下发」
+	// 的文案自相矛盾——文案要用户去 M09 确认，M09 却已被系统自己确认掉、待确认视图里
+	// 根本查不到该单。
+	//
+	// 现改为两段式：提交只负责「收录为 M09 源数据 + **产出 pending 草稿**」，生效一律由
+	// 用户在 M09「配置变更确认」页人工确认（ConfirmDraft → 写盘 + AM reload）。
+	// 必须显式调 ensurePendingDraft 而非只靠 triggerChangeDetection —— 后者因
+	// sourceTableScopes 不含 AlertmanagerConfigVersion 而永远不会为此变更产草稿（详见
+	// ensurePendingDraft 注释）。草稿保活/取代口径不变（决策 42-1 / 44-2）。
+	//
+	// ErrNoChanges（产物与上一生效版本无实质差异，如幂等重复提交）不是失败：沿用既有
+	// pending 状态即可，不报错、不阻断挂载。
+	if err := ensurePendingDraft(db); err != nil && !errors.Is(err, draft.ErrNoChanges) {
+		log.Printf("[alertmanager-config] persist ok but generate pending draft failed: %v", err)
 	}
 	return v, nil
 }
@@ -210,6 +194,10 @@ var errChangeTrigger = errors.New("persist ok but trigger change detection faile
 // 已成功留痕，仅自动下发异常（草稿生成失败 / 校验未过 / confirm 失败等）。与
 // errChangeTrigger 同款降级语义——handler 记录日志而非报错，由稳态 watcher 下一轮或
 // 人工确认兜底重试（dev-feedback §25 方案 A 幂等/降级口径）。
+//
+// 2026-10-09（立场 1，关闭自动闭环）：submitValidated 已不再返回本哨兵（自动确认已移除），
+// 此处保留定义与 handler 降级分支作为防御——若将来重新引入自动确认路径，handler 已能
+// 正确降级而非误报 500。
 var errAutoApply = errors.New("persist ok but auto-apply management domain config failed (watcher or manual confirm will retry)")
 
 // findVersionByChecksum 按校验和查询已留痕版本；无则返回 (nil, nil)。

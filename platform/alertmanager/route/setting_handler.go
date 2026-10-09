@@ -20,8 +20,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/metriccenter/metriccenter/platform/alertmanager/config"
 	"github.com/metriccenter/metriccenter/platform/api/response"
+	"github.com/metriccenter/metriccenter/platform/configcenter/draft"
 	"github.com/metriccenter/metriccenter/platform/configcenter/generator"
-	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"gorm.io/gorm"
 )
@@ -45,10 +45,12 @@ var ErrRouteSettingChannelUnavailable = errors.New("指定的通知渠道不存�
 // ErrRouteSettingModeInvalid 指定的 route 段作者模式非法（非 handwritten / managed）。
 var ErrRouteSettingModeInvalid = errors.New("route 段作者模式非法（须为 handwritten 或 managed）")
 
-// 可注入工序（测试可替换），默认指向 config 包既有实现的导出包装——与挂载同构闭环。
+// 可注入工序（测试可替换），默认指向 config 包既有实现的导出包装——与挂载同构。
+// 2026-10-09：保留 triggerChangeDetection + ensurePendingDraft；原 autoApplyManagementDomain
+// seam 随「关闭自动确认」一并移除（生效改由 M09 人工确认）。
 var (
-	triggerChangeDetection    = config.TriggerChangeDetection
-	autoApplyManagementDomain = config.AutoApplyManagementDomain
+	triggerChangeDetection = config.TriggerChangeDetection
+	ensurePendingDraft     = config.EnsurePendingDraft
 )
 
 // RouteSettingView 是 GET /route-setting 的响应视图（响应不返回桥令牌等敏感值）。
@@ -204,12 +206,18 @@ func PutRouteSettingHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 与挂载同构闭环：触发变更检测 → 自动确认下发（AM reload）。失败仅记日志、不报错。
+		// 与挂载同构：触发变更检测 + 确保产出一张 pending 变更单，生效由 M09「配置变更确认」人工确认。
+		// 2026-10-09 用户裁决（立场 1，关闭自动闭环）：移除此处 autoApplyManagementDomain——
+		// 改兜底接收人属高危变更（改错即「未匹配规则的告警」发错地方），须经人工复核，
+		// 与路由结构调整（POST /config）保持同一口径，避免「路由要确认、兜底却自动生效」。
+		// ensurePendingDraft：变更检测不会为告警配置变更产草稿（sourceTableScopes 不含
+		// AlertmanagerConfigVersion），故须显式补产，详见 config.ensurePendingDraft 注释。
+		// 失败仅记日志、不报错（收录已成功，由人工确认兜底）。
 		if err := triggerChangeDetection(db); err != nil {
 			log.Printf("[alertmanager-route] trigger change detect failed: %v", err)
 		}
-		if err := autoApplyManagementDomain(db, auth.CurrentUsername(c)); err != nil {
-			log.Printf("[alertmanager-route] auto-apply management domain failed: %v", err)
+		if err := ensurePendingDraft(db); err != nil && !errors.Is(err, draft.ErrNoChanges) {
+			log.Printf("[alertmanager-route] ensure pending draft failed: %v", err)
 		}
 
 		view, err := GetRouteSetting(db)

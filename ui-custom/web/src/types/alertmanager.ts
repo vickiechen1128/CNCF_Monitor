@@ -445,8 +445,15 @@ export interface DeadReceiver {
 
 /**
  * GET `/api/v2/platform/alertmanager/routes` 响应 data（只读、无写能力）。
- * 成功：`{ mode, items, dead_receivers }`；
+ * 成功：`{ mode, items, dead_receivers, declared_receivers }`；
  * 解析失败 / 非常规结构降级：`{ mode, parse_error, raw_yaml }`（此时无 `items`，非 500、不白屏）。
+ *
+ * ⚠ `declared_receivers` 与 `dead_receivers` 口径**故意不同**（后端 route/handler.go 有同款注释）：
+ *   - `declared_receivers` = 生效 YAML `receivers:` 段已声明的**全集**（含用户手写），
+ *     供前端判「路由引用的接收人是否悬空」。手写 receiver 必须在其中，否则合法配置被误判
+ *     为「未定义」而阻断保存（2026-10-08 实测：手写 `feishu` + 平台 `notify-1` 共存时，
+ *     引用 `feishu` 的 5 个节点全被误报，页面进入不能新建也不能保存的死锁）。
+ *   - `dead_receivers` = 平台物化了但无任何路由指向（**平台命名空间子集**），不含手写。
  */
 export interface RouteTreeData {
   mode: RouteMode
@@ -454,6 +461,8 @@ export interface RouteTreeData {
   items?: RouteNode[]
   /** 平台已生成但无任何路由引用的接收人；解析失败时缺省 */
   dead_receivers?: DeadReceiver[]
+  /** 生效配置 `receivers:` 段已声明的接收人名（全集，含手写）；解析失败时仍可能存在 */
+  declared_receivers?: string[]
   /** 解析失败原因（成功时缺省） */
   parse_error?: string
   /** 解析失败时的 alertmanager.yml 原文（降级为只读展示） */

@@ -572,7 +572,7 @@ interface MetricItem {
   tip?: string
   /** 副行说明（11px 灰字） */
   sub?: string
-  /** 传入时以**进度条**替代副行文字（目前仅「整体覆盖率」） */
+  /** 传入时以**进度条**替代副行文字（目前仅「纳管覆盖率」） */
   progress?: number
   /** 告警卡：浅红底 + 浅红边，与三张资产卡视觉分离 */
   danger?: boolean
@@ -585,8 +585,8 @@ interface MetricItem {
  * 标签 12px 在上 → 30px/800 数字 → 11px 副行说明，**卡内不放图标容器**——
  * 数字已经是卡内唯一视觉主体，图标只会与它争视觉权重、让扫读变慢。
  *
- * - 「整体覆盖率」用**进度条**替代副行文字：百分数需要一段横向长度才有「进度感」，
- *   口径文字（「已纳入监控 ÷ 资源总数」）收进 ⓘ，不重复占版面；
+ * - 「纳管覆盖率」用**进度条**替代副行文字：百分数需要一段横向长度才有「进度感」，
+ *   口径文字（「已下发 ÷ 资源总数」，且明确「不代表已采到」）收进 ⓘ，不重复占版面；
  * - 第 4 卡（告警）用浅红底 + 浅红边：它表达的是「异常数」而不是「资产数」，
  *   与前 3 张分开，扫读时才不会被当成第四种资产。
  * - 卡高由内容决定，不锁死视口相关高度。
@@ -644,7 +644,7 @@ function MetricCard({ item }: { item: MetricItem }) {
           aria-valuenow={percent}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`整体覆盖率 ${percent}%`}
+          aria-label={`纳管覆盖率 ${percent}%`}
           style={{
             marginTop: 12,
             height: 6,
@@ -761,8 +761,8 @@ export function HomePage() {
     typeof value === 'number' && !Number.isNaN(value) ? value : undefined
   const metricValue = (value?: number): ReactNode => metricNumber(value) ?? '-'
 
-  // 整体覆盖率：已纳入监控 ÷ 资源总数，取整百分数；任一字段缺失或资源数为 0 时显示 '-'
-  // （不渲染 0% / NaN%），前端派生无需新字段（口径按 PRD §「L0 关键指标卡口径」）
+  // 纳管覆盖率：已下发（被启用的采集任务覆盖）÷ 资源总数，取整百分数；任一字段缺失或资源数为 0 时显示 '-'
+  // （不渲染 0% / NaN%），前端派生无需新字段（口径按 PRD §「L0关键指标卡口径」）。
   const resourceTotal = metricNumber(dashboard?.resource_count)
   const monitoredTotal = metricNumber(dashboard?.monitored_count)
   // 覆盖率数值（进度条用；无数据时 undefined → 卡片显示 '-'，进度条按 0 渲染）
@@ -792,20 +792,20 @@ export function HomePage() {
     },
     {
       key: 'monitored_count',
-      label: '已纳入监控',
+      label: '已下发监控',
       value: metricValue(dashboard?.monitored_count),
       // 副行给「未纳管 N」——比重复口径文字更有信息量（口径收进 ⓘ）
       sub:
         resourceTotal !== undefined && monitoredTotal !== undefined
-          ? `未纳管 ${Math.max(0, resourceTotal - monitoredTotal)}`
+          ? `未下发 ${Math.max(0, resourceTotal - monitoredTotal)}`
           : undefined,
-      tip: '至少被一个已启用的采集任务覆盖到的资源数；其余为尚未纳管的资源。',
+      tip: '至少被一个已启用的采集任务【下发覆盖】到的资源数（含尚未采到的）；其余为尚未下发监控任务的资源。本卡统计下发口径，不代表已采到数据。',
     },
     {
       key: 'coverage',
-      label: '整体覆盖率',
+      label: '纳管覆盖率',
       value: coverage,
-      tip: '已纳入监控资源数 ÷ 资源总数，反映当前纳管进度；拨测目标不参与计算。',
+      tip: '已下发（被启用的采集任务覆盖）的资源数 ÷ 资源总数，反映【纳管/下发进度】，不代表数据已采到。实际采集健康见「资源管理中心」采集状态。拨测目标不参与计算。',
       valueColor: token.colorPrimary,
       progress: coveragePercent ?? 0,
     },

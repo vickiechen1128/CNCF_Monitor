@@ -62,24 +62,20 @@ func loadSettingRaw(t *testing.T, db *gorm.DB) *models.AlertmanagerRouteSetting 
 	return &s
 }
 
-// pipelineRecorder 记录写入后闭环工序的调用（trigger + autoApply），断言 Q4 与挂载同构。
+// pipelineRecorder 记录写入后闭环工序的调用（仅 trigger）。
+// 2026-10-09（立场 1，关闭自动闭环）：原 autoApply seam 已随自动确认移除，
+// 故此处只保留 triggerChangeDetection 的记录；「生效须经 M09 人工确认」由
+// config 包测试覆盖，本包只保证「写入成功即触发变更检测产出 pending 草稿」。
 type pipelineRecorder struct {
-	triggerCalls   int
-	autoApplyCalls int
-	autoApplyBy    string
+	triggerCalls int
 }
 
 func stubPipeline(t *testing.T) *pipelineRecorder {
 	t.Helper()
 	rec := &pipelineRecorder{}
-	oldT, oldA := triggerChangeDetection, autoApplyManagementDomain
+	oldT := triggerChangeDetection
 	triggerChangeDetection = func(db *gorm.DB) error { rec.triggerCalls++; return nil }
-	autoApplyManagementDomain = func(db *gorm.DB, by string) error {
-		rec.autoApplyCalls++
-		rec.autoApplyBy = by
-		return nil
-	}
-	t.Cleanup(func() { triggerChangeDetection = oldT; autoApplyManagementDomain = oldA })
+	t.Cleanup(func() { triggerChangeDetection = oldT })
 	return rec
 }
 
@@ -302,10 +298,9 @@ func TestPutRouteSettingHandler_ValidChannelInvokesPipeline(t *testing.T) {
 	assert.Equal(t, RouteReceiverSourceExplicit, view.EffectiveSource)
 	assert.Equal(t, "primary", view.EffectiveReceiverName)
 
-	// Q4：与挂载同构闭环被触发，操作者取自认证上下文。
+	// 2026-10-09（立场 1）：写入成功即触发变更检测产出 pending 草稿；
+	// 但**不再自动确认下发**——生效一律由 M09「配置变更确认」人工确认。
 	assert.Equal(t, 1, rec.triggerCalls)
-	assert.Equal(t, 1, rec.autoApplyCalls)
-	assert.Equal(t, "admin", rec.autoApplyBy)
 
 	s := loadSettingRaw(t, db)
 	require.NotNil(t, s)
@@ -326,7 +321,8 @@ func TestPutRouteSettingHandler_NullClosesTakeover(t *testing.T) {
 	view := decodeView(t, w)
 	assert.False(t, view.Enabled, "关闭接管 → 平台停止替换")
 	assert.Nil(t, view.DefaultReceiverChannelID)
-	assert.Equal(t, 1, rec.autoApplyCalls)
+	// 2026-10-09（立场 1）：关闭接管同样只触发变更检测产出 pending 草稿，不自动确认。
+	assert.Equal(t, 1, rec.triggerCalls)
 
 	s := loadSettingRaw(t, db)
 	require.NotNil(t, s)
@@ -334,7 +330,7 @@ func TestPutRouteSettingHandler_NullClosesTakeover(t *testing.T) {
 }
 
 // TestPutRouteSettingHandler_PersistsMode 覆盖 T08-F12：PUT /route-setting 传入 managed
-// 模式须持久化，响应视图与设定行均反映之，并触发闭环下发。
+// 模式须持久化，响应视图与设定行均反映之，并触发变更检测产出 pending 草稿。
 func TestPutRouteSettingHandler_PersistsMode(t *testing.T) {
 	db := newRouteDB(t)
 	ch := seedChannel(t, db, "primary", true)
@@ -349,7 +345,8 @@ func TestPutRouteSettingHandler_PersistsMode(t *testing.T) {
 	s := loadSettingRaw(t, db)
 	require.NotNil(t, s)
 	assert.Equal(t, models.RouteModeManaged, s.Mode)
-	assert.Equal(t, 1, rec.autoApplyCalls)
+	// 2026-10-09（立场 1）：不再自动确认下发，改由 M09 人工确认。
+	assert.Equal(t, 1, rec.triggerCalls)
 }
 
 // TestPutRouteSettingHandler_RejectsInvalidMode 覆盖 T08-F12：传入非法模式 → 400，不触发下发。
@@ -367,7 +364,8 @@ func TestPutRouteSettingHandler_RejectsInvalidMode(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &env))
 	assert.Equal(t, response.StatusError, env.Status)
 	assert.Equal(t, response.ErrorTypeBadRequest, env.ErrorType)
-	assert.Equal(t, 0, rec.autoApplyCalls, "非法模式不得触发闭环下发")
+	// 2026-10-09（立场 1）：自动确认已移除，此处只断言变更检测未被非法输入触发。
+	assert.Equal(t, 0, rec.triggerCalls, "非法模式不得触发变更检测")
 }
 
 func TestPutRouteSettingHandler_BadRequestWhenChannelUnavailable(t *testing.T) {

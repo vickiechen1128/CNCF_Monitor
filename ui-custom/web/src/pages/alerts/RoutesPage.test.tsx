@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { App } from 'antd'
 import { setupAntdTest, mockAntdModal } from '../../test/antdTestUtils'
@@ -91,6 +91,7 @@ function result(over: Partial<{
   rows: ReturnType<typeof buildRouteRows>
   loading: boolean
   error: string | null
+  ready: boolean
   reload: () => void
 }> = {}) {
   const data = over.data ?? { mode: 'handwritten', items: [rootNode], dead_receivers: [] }
@@ -100,6 +101,9 @@ function result(over: Partial<{
     rows: over.rows ?? (data?.items ? buildRouteRows(data.items) : []),
     loading: over.loading ?? false,
     error: over.error ?? null,
+    // 真实 Hook = !loading。默认 true：绝大多数用例关心的是「已加载完成」这一常态，
+    // loading 专项用例显式覆盖。页面把它传给 useRouteEditor 作首屏自动导入门控。
+    ready: over.ready ?? ((over.loading ?? false) === false),
     reload: over.reload ?? vi.fn(),
   }
 }
@@ -157,12 +161,11 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
   // 契约①：常驻状态区「路由顺序 = 生效顺序：先匹配到的先生效」+ 模式徽标（按 mode 渲染）
   // 2026-10-02 四页说明区统一：页头改用 PageIntro（标题 + 一行副标 + 折叠说明区）；
   // 「顺序即优先级 + 模式徽标」随 mode 变化，属状态信息，仍留在页头下方常驻（不进折叠区）。
-  it('常驻状态区含「路由顺序 = 生效顺序」与手写模式徽标，并给出去「告警配置」的只读引导', () => {
+  it('常驻状态区含「路由顺序 = 生效顺序」与模式徽标；只读时给出去「告警配置」的切换引导', () => {
     useRoutesMock.mockReturnValue(result())
     renderPage()
     expect(screen.getByText('路由顺序 = 生效顺序：先匹配到的先生效')).toBeInTheDocument()
-    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('手写接管')
-    expect(screen.getByText(/本页为只读展示：不提供新建 \/ 编辑 \/ 拖拽入口/)).toBeInTheDocument()
+    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('我来编辑')
     expect(screen.getByRole('link', { name: '前往告警配置' })).toHaveAttribute('href', '/alert-config')
   })
 
@@ -174,21 +177,22 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
     // 说明区默认收起：要点不在 DOM
     expect(screen.getByTestId('routes-intro-guide-label')).toBeInTheDocument()
     expect(screen.queryByTestId('routes-intro-guide-points')).toBeNull()
-    // 展开后含「当前由你手写维护 → 本页只读」的模式说明
+    // 展开后含「平台生成 → 本页只读」的模式说明（handwritten 即可编辑，故此处断言另一分支的
+    // 引导文案由 mode 决定，而非固定文案）
     fireEvent.click(screen.getByTestId('routes-intro-guide-label'))
     const points = screen.getByTestId('routes-intro-guide-points')
-    expect(points.textContent ?? '').toContain('当前由你手写维护')
+    expect(points.textContent ?? '').toContain('我来编辑')
   })
 
-  it('平台管理模式：模式徽标渲染为「平台管理」', () => {
+  it('平台生成模式：模式徽标渲染为「平台生成」', () => {
     useRoutesMock.mockReturnValue(result({ data: { mode: 'managed', items: [rootNode], dead_receivers: [] } }))
     renderPage()
-    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('平台管理')
-    // 平台模式下说明区给出「可新建 / 编辑 / 拖拽」而非手写只读引导
+    expect(screen.getByTestId('route-mode-badge')).toHaveTextContent('平台生成')
+    // 平台生成模式：说明区给出「只读视图 + 去高级区手写」而非可编辑引导
     fireEvent.click(screen.getByTestId('routes-intro-guide-label'))
     const points = screen.getByTestId('routes-intro-guide-points')
-    expect(points.textContent ?? '').toContain('当前由平台管理')
-    expect(points.textContent ?? '').not.toContain('当前由你手写维护')
+    expect(points.textContent ?? '').toContain('平台生成')
+    expect(points.textContent ?? '').toContain('只读视图')
   })
 
   // 契约②：树形缩进展示层级（按 parent_id / order 建树）；根路由置顶锁定
@@ -242,7 +246,11 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
   })
 
   // 契约③：dead_receivers 显性标出「平台已生成但没有任何路由指向」，点击跳「通知渠道」页
-  it('孤立接收人区：显性标出无路由指向的接收人，点击跳「通知渠道」页', () => {
+  // 2026-10-08 文案修订 + 消解路径补全：旧标题「孤立接收人（平台已生成但没有任何路由指向）」
+  // 主语是「平台」，易被读成「平台内置了路由规则却没指向它」；而真实情况是**用户的路由全指向了
+  // 别的接收人**（本例中多为手写 `feishu`），平台那条通道空着。同时旧文案只说"去通知渠道页处理"，
+  // 而"去渠道页停用渠道"只是两种消解方式之一 —— 用户若想用这个接收人，得新建/编辑一条路由。
+  it('有接收人没有路由指向它：说明真实原因并给出两种消解方式', () => {
     useRoutesMock.mockReturnValue(
       result({
         data: {
@@ -253,10 +261,15 @@ describe('RoutesPage（路由规则 v0.3-a 只读路由树）', () => {
       }),
     )
     renderPage()
-    expect(screen.getByText(/孤立接收人（平台已生成但没有任何路由指向）/)).toBeInTheDocument()
-    expect(screen.getByText(/告警永远不会发往它们/)).toBeInTheDocument()
-    const link = screen.getByTestId('dead-receiver-alpha')
+    // 标题与正文讲清「该渠道收不到告警」，而非「平台没指向它」
+    expect(screen.getByText(/有接收人没有路由指向它/)).toBeInTheDocument()
+    expect(screen.getByText(/所属的渠道收不到告警/)).toBeInTheDocument()
+    // 消解方式①：想用它 → 新建/编辑路由时把接收人选成它
+    expect(screen.getByText(/新建或编辑一条规则/)).toBeInTheDocument()
+    // 消解方式②：暂不用 → 去渠道页停用/删除
+    const link = screen.getByTestId('dead-receiver-channels-link')
     expect(link).toHaveAttribute('href', '/notify-channels')
+    expect(screen.getByText(/停用或删除对应渠道/)).toBeInTheDocument()
     expect(screen.getByText(/https:\/\/open\.feishu\.cn/)).toBeInTheDocument()
   })
 
@@ -465,29 +478,36 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
     expect(remove).toHaveBeenCalledWith('root/1')
   })
 
-  // 验收 1：保存 = 生成整份配置 → 复用既有挂载端点 → M09 变更单（不即时生效）
-  it('保存：点击「保存并提交变更」触发保存链路，并明示不即时生效', async () => {
+  // 验收 1：保存 = 生成整份配置 → 复用既有挂载端点 → 产 M09 pending 变更单（需人工确认才生效）
+  // 2026-10-09（立场 1，关闭自动闭环）：文案口径随之修订——提交**不再**自动生效，
+  // 必须由用户在 M09「配置变更确认」人工确认。
+  it('保存：点击「保存并提交变更」触发保存链路，并明示需在「配置变更确认」人工确认', async () => {
     const save = vi.fn(async () => true)
     useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported', save }))
     renderPage()
-    expect(screen.getByText(/进入变更单人工确认后下发生效，不即时生效/)).toBeInTheDocument()
+    expect(screen.getByText(/需在「配置变更确认」中人工确认后才会写入并 reload/)).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('route-save-btn'))
     await waitFor(() => expect(save).toHaveBeenCalled())
   })
 
-  it('保存结果：成功后展示「已提交，待变更单确认下发」', () => {
+  it('保存结果：成功后明示等待人工确认，并给出「配置变更确认」跳转入口', () => {
     useRouteEditorMock.mockReturnValue(
       editorResult({
         tree: editTree,
         importState: 'imported',
         saveResult: {
           ok: true,
-          message: '已生成整份 alertmanager.yml 并提交挂载，进入变更单人工确认后下发生效（不即时生效）。',
+          message: '已生成整份 alertmanager.yml 并提交挂载。改动不会自动生效——请前往「配置变更确认」人工确认，确认后才会写入并 reload Alertmanager。',
         },
       }),
     )
     renderPage()
-    expect(screen.getByTestId('route-save-result')).toHaveTextContent('已提交，待变更单确认下发')
+    const result = screen.getByTestId('route-save-result')
+    expect(result).toHaveTextContent('已提交，等待你在「配置变更确认」中确认下发')
+    // 护栏：成功后的唯一下一步是去 M09 确认，必须有可点入口（否则用户无路可走，
+    // 会重现「提示要去确认、却找不到入口」的断链）。
+    const link = within(result).getByRole('link', { name: '前往「配置变更确认」' })
+    expect(link).toHaveAttribute('href', '/config-preview')
   })
 
   // 验收 5：接收人悬空 → 红字阻断
@@ -555,11 +575,78 @@ describe('RoutesPage v0.3-b 编辑态（T08-F11）', () => {
   })
 
   // 未导入时：新建 / 保存禁用（先导入或新建才有可保存的树）
-  it('未导入时：新建与保存禁用，仅「从当前配置导入」可用', () => {
+  //
+  // 2026-10-08 语义变更：编辑态改为**首屏自动导入**（只读树加载完成即灌入），故正常路径下
+  // 页面加载完就已经是 imported 态、按钮可点；「未导入」只在**解析失败降级**时出现
+  // （自动导入对 parse_error 场景刻意不生效，见 useRouteEditor 的 autoImportedRef 注释）。
+  it('未导入态（解析失败降级）：新建与保存禁用，导入按钮可用并说明如何进入编辑', () => {
     useRouteEditorMock.mockReturnValue(editorResult())
     renderPage()
     expect(screen.getByTestId('route-new-btn')).toBeDisabled()
     expect(screen.getByTestId('route-save-btn')).toBeDisabled()
     expect(screen.getByTestId('route-import-btn')).toBeEnabled()
+    // 按钮文案：未进入编辑态时说「从当前配置导入」，并解释它能干什么
+    expect(screen.getByTestId('route-import-btn').textContent ?? '').toContain('从当前配置导入')
+  })
+
+  it('已导入态：新建与保存可点，导入按钮改称「重新载入」', () => {
+    useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
+    renderPage()
+    expect(screen.getByTestId('route-new-btn')).toBeEnabled()
+    expect(screen.getByTestId('route-save-btn')).toBeEnabled()
+    expect(screen.getByTestId('route-import-btn').textContent ?? '').toContain('重新载入')
+  })
+
+  /**
+   * 2026-10-08 两个阻断修复的**接线护栏**（页面层）：
+   *   - `ready`（只读树加载完成）必须传给 useRouteEditor —— 否则首屏自动导入不触发，
+   *     「新建 / 保存」按钮会退回恒灰的老症状；
+   *   - `declaredReceivers`（文件 receivers: 段已声明名，含手写）必须传下去 ——
+   *     否则 knownReceivers 只有平台物化名，手写 receiver 被判悬空、预检整片阻断。
+   * 这两条只靠 useRouteEditor 的 Hook 单测覆盖不到（mock 掉了 Hook），故在页面层断言。
+   */
+  it('接线：ready 与 declaredReceivers 透传给 useRouteEditor', () => {
+    useRoutesMock.mockReturnValue(
+      result({
+        data: {
+          mode: 'handwritten',
+          items: [rootNode, childA],
+          dead_receivers: [],
+          declared_receivers: ['feishu', 'notify-1'],
+        },
+      }),
+    )
+    useRouteEditorMock.mockReturnValue(editorResult({ tree: editTree, importState: 'imported' }))
+    renderPage()
+
+    const opts = useRouteEditorMock.mock.calls[0][0] as Record<string, unknown>
+    expect(opts.ready).toBe(true)
+    expect(opts.declaredReceivers).toEqual(['feishu', 'notify-1'])
+    // 源数据与解析状态同样透传（自动导入依赖二者）
+    expect(opts.sourceItems).toHaveLength(2)
+  })
+
+  it('接线：加载中（ready=false）不得触发自动导入', () => {
+    useRoutesMock.mockReturnValue(result({ loading: true, ready: false }))
+    useRouteEditorMock.mockReturnValue(editorResult())
+    renderPage()
+    const opts = useRouteEditorMock.mock.calls[0][0] as Record<string, unknown>
+    expect(opts.ready).toBe(false)
+  })
+
+  it('接线：解析失败时把 parseError 传下去（自动导入据此不触发）', () => {
+    useRoutesMock.mockReturnValue(
+      result({
+        data: {
+          mode: 'handwritten',
+          parse_error: 'route.routes 不是列表，无法解析子路由',
+          raw_yaml: 'route:\n  receiver: default\n',
+        },
+      }),
+    )
+    useRouteEditorMock.mockReturnValue(editorResult())
+    renderPage()
+    const opts = useRouteEditorMock.mock.calls[0][0] as Record<string, unknown>
+    expect(opts.parseError).toContain('不是列表')
   })
 })

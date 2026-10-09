@@ -37,7 +37,7 @@ type DeadReceiver struct {
 
 // ListRoutes 组装只读路由视图：
 //
-//   - 成功：{ mode, items, dead_receivers }；
+//   - 成功：{ mode, items, dead_receivers, declared_receivers }；
 //   - 解析失败 / 非常规结构：{ mode, parse_error, raw_yaml }（降级为原文只读展示，非 500）。
 //
 // 数据源为「平台最新产物视图」而非挂载留痕原文（见 effectiveAlertmanagerYAML）：只有读产物
@@ -64,13 +64,18 @@ func ListRoutes(db *gorm.DB) (gin.H, error) {
 		mode = ModeHandwritten
 	}
 
+	// 「文件 receivers: 段已声明的接收人名」与 route 解析相互独立：即便 route 段解析失败进入
+	// 降级分支，本字段仍然有效（前端据此判定引用是否悬空），故先于 ParseRouteTree 计算。
+	declared := ParseDeclaredReceivers(baseYAML)
+
 	nodes, err := ParseRouteTree(baseYAML)
 	if err != nil {
-	return gin.H{
-		"mode":        mode,
-		"parse_error": err.Error(),
-		"raw_yaml":    baseYAML,
-	}, nil
+		return gin.H{
+			"mode":               mode,
+			"parse_error":        err.Error(),
+			"raw_yaml":           baseYAML,
+			"declared_receivers": declared,
+		}, nil
 	}
 
 	dead, err := deadReceivers(db, nodes)
@@ -78,9 +83,10 @@ func ListRoutes(db *gorm.DB) (gin.H, error) {
 		return nil, err
 	}
 	return gin.H{
-		"mode":           mode,
-		"items":          nodes,
-		"dead_receivers": dead,
+		"mode":               mode,
+		"items":              nodes,
+		"dead_receivers":     dead,
+		"declared_receivers": declared,
 	}, nil
 }
 
@@ -133,6 +139,13 @@ func effectiveAlertmanagerYAML(db *gorm.DB) (string, error) {
 // deadReceivers 计算死接收人：平台命名空间（已启用渠道 ReceiverName() 集合，判据与
 // generator/notify_receivers.go 的 platformNames 同源）中不被任何 route 节点 receiver 引用者
 // （引用判定含根兜底 route.receiver）。按 id 升序稳定输出。
+//
+// ⚠ 与 declared_receivers 的分工（勿混淆，两者口径**故意不同**）：
+//   - declared_receivers = 文件里声明了哪些名字（**全集**，含用户手写）→ 用于「引用是否悬空」
+//     判定，手写 receiver 必须在其中，否则合法配置被误判为未定义（2026-10-08 实测阻断）。
+//   - dead_receivers = 平台物化了但无人指向（**平台命名空间子集**）→ 用于提示「渠道开了却
+//     没有任何规则会用它」。用户手写 receiver 的存废归用户，平台无权判其为死配置
+//     （dev-feedback #26 的边界），故此处**不**纳入 declared 集合。
 func deadReceivers(db *gorm.DB, nodes []RouteNode) ([]DeadReceiver, error) {
 	channels, err := generator.LoadEnabledNotifyChannels(db)
 	if err != nil {

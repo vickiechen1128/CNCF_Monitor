@@ -393,15 +393,45 @@ export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
 /** 策略卡标题 */
 export const ALERT_POLICY_CARD_TITLE = '路由与收敛策略'
 
-/** 策略卡控件：未匹配任何规则的告警发给谁（原「默认兜底接收人」，去「兜底/接收人」双术语） */
-export const ALERT_POLICY_FALLBACK_LABEL = '未匹配规则的告警发给谁'
+/**
+ * 策略卡控件：未匹配任何规则的告警发给谁（原「默认兜底接收人」，去「兜底/接收人」双术语）。
+ *
+ * 2026-10-08 微调：补上「渠道」二字。原措辞里没有「渠道」，而下拉框里显示的恰恰是
+ * **渠道名**（如「运维告警飞书群」）—— 用户实测反馈看不出「下拉框选中的」与「兜底策略」
+ * 是同一个东西。控件词与选项内容用同一名词（渠道），对应关系不必靠猜。
+ */
+export const ALERT_POLICY_FALLBACK_LABEL = '没匹配到具体规则的告警，发给哪个渠道'
 
 /** 策略卡控件：路由规则由谁维护（原「路由规则作者模式」，「作者模式」为实现视角术语） */
 export const ALERT_POLICY_ROUTE_MODE_LABEL = '路由规则由谁维护'
 
-/** 模式二选一选项（用户语言；刻意不用「接管」——接管暗示冲突，实为二选一） */
-export const ALERT_POLICY_MODE_HANDWRITTEN = '我手写'
-export const ALERT_POLICY_MODE_MANAGED = '平台管理'
+/**
+ * 模式二选一选项（用户语言；刻意不用「接管」——接管暗示冲突，实为二选一）。
+ *
+ * ⚠ 命名口径（2026-10-08 用户实测反馈后修订）：原「我手写 / 平台管理」被实测判为歧义——
+ * 「我手写」天然承诺"我来写"，用户理所当然认为**路由规则页可以直接编辑**，而实际含义是
+ * "平台别生成 route 段，我自己去告警配置页的高级区手写 YAML"，该层含义只写在二次确认弹窗里。
+ * 结果：用户选「我手写」后发现路由页变只读，判为功能故障。
+ *
+ * 修订：把两个选项都锚定到**「谁来产出」**这一可见结果上，措辞与页面可编辑性一一对应：
+ *   - 「我来编辑」→ 页面可编辑（用户在路由规则页逐条增删改）；
+ *   - 「平台生成」→ 页面只读（路由由平台产出，用户去高级区写整份 YAML）。
+ * 底层枚举值仍为 handwritten / managed（契约不变，仅用户可见措辞变）。
+ */
+export const ALERT_POLICY_MODE_HANDWRITTEN = '我来编辑'
+export const ALERT_POLICY_MODE_MANAGED = '平台生成'
+
+/**
+ * 模式控件下方的常驻提示（一行，控件含义只在此处说一次）。
+ *
+ * 必要性：Segmented 只有两个短词，无法承载"选了之后页面会怎样"；而这恰恰是实测中
+ * 被误解的点。二选一控件 + 一行后果说明，是让控件自解释的最小组合。
+ * 按 PageIntro 契约第三条硬约束：这是**随状态变化**的信息（换 mode 就变），故常驻而非收进说明区。
+ */
+export const ALERT_POLICY_MODE_TIP: Record<string, string> = {
+  [ALERT_POLICY_MODE_HANDWRITTEN]: '我来逐条编辑：在「路由规则」页直接增删改路由。',
+  [ALERT_POLICY_MODE_MANAGED]: '平台来产出：路由规则页为只读视图，整份配置去「高级：导入整份配置文件」手写。',
+}
 
 /** 动线卡标题 */
 export const ALERT_GUIDE_CARD_TITLE = '我要做的事'
@@ -510,9 +540,17 @@ export const CHANNEL_DERIVED_RECEIVER_EMPTY = '暂不可见'
 export const CHANNEL_DERIVED_RECEIVER_FORBIDDEN =
   '接收人片段含平台内部凭据，仅管理员可查看；渠道接收人仍由平台自动写入，不影响生效。'
 
-/** 桥令牌未配置 → 该接收人当前不可用（Tooltip 展开说明） */
+/**
+ * 桥令牌未配置 → 该接收人当前不可用（Tooltip 展开说明）。
+ *
+ * ⚠ 与「孤立接收人」是**两件正交的事**，文案必须能各自说清（2026-10-08 用户实测困惑）：
+ *   - 本项 = **可用性轴**：通知转发出去会不会被桥拒绝（令牌配没配）。属运维配置，路由怎么写都无关；
+ *   - 路由页的「有接收人没有路由指向它」= **路由指向轴**：有没有规则指向这个接收人。
+ * 两者同屏出现时，用户容易误以为「平台内置了路由规则但没接上」或「路由没配所以渠道不可用」，
+ * 实际各自独立。故此处**不提路由**，路由侧不提令牌。
+ */
 export const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING =
-  '平台尚未配置通知桥令牌，该接收人当前不可用，请联系管理员配置后生效。'
+  '通知转发所需的内部令牌尚未配置，该接收人当前收不到告警。这是通知通道的配置问题，与路由规则怎么写无关；请由管理员配置令牌后生效。'
 
 /** 重名提醒（自动接收人名与手写同名会校验失败）；贴在该列下方 */
 export const CHANNEL_DERIVED_RECEIVER_RENAME_TIP =

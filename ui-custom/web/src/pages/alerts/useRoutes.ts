@@ -13,7 +13,7 @@
  *
  * 归属边界：不解析 YAML（前端零 yaml 依赖）；生成 / 合并的语义镜像后端 Go 侧（见 `routeTree.ts` 头注）。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { alertmanagerConfigApi, alertmanagerRoutesApi, notifyChannelsApi } from '../../api/alertmanager'
 import { CURRENT_USER } from './alertmanagerConstants'
 import type { RouteMode, RouteNode, RouteTreeData } from '../../types/alertmanager'
@@ -72,6 +72,12 @@ export interface UseRoutesResult {
   rows: RouteRow[]
   loading: boolean
   error: string | null
+  /**
+   * 加载是否已到终态（成功或降级皆为 true）。
+   * 供 `useRouteEditor` 的首屏自动导入门控——在 loading 期间不得导入（此刻既无只读树
+   * 也无从判断是否解析失败），否则会先闪一棵空白树再被真实数据替换。
+   */
+  ready: boolean
   reload: () => void
 }
 
@@ -126,7 +132,8 @@ export function useRoutes(): UseRoutesResult {
   }, [refresh])
 
   const rows = useMemo(() => (data?.items ? buildRouteRows(data.items) : []), [data])
-  return { data, rows, loading, error, reload }
+  // 失败也算终态：否则网络错误时页面会永远停在「未就绪」，编辑区永不出现。
+  return { data, rows, loading, error, ready: !loading, reload }
 }
 
 // =====================================================================
@@ -144,8 +151,33 @@ export type RouteImportState = 'empty' | 'imported' | 'partial'
 export interface UseRouteEditorOptions {
   /** 只读视图解析出的路由节点（解析失败时缺省） */
   sourceItems?: RouteNode[]
-  /** 后端解析失败原因（存在即不可无损导入） */
+  /**
+   * 只读视图解析失败原因（存在即不可无损导入）。
+   * 同时充当「首屏自动导入」的触发条件：解析失败时**不**自动导入，交由用户显式点
+   * 「从当前配置导入」走「部分导入 + 手动校正」通道（自动塞一棵空白树会掩盖降级事实）。
+   */
   parseError?: string
+  /**
+   * 只读视图是否已加载完成（含成功与降级两种终态）。
+   *
+   * 首屏自动导入的门控（2026-10-08）：此前 `importState` 恒从 'empty' 起步，而页面
+   * 「新建路由规则」「保存并提交变更」按钮都是 `disabled={!editing}`（editing =
+   * importState !== 'empty'）→ 首屏两个主按钮恒灰，用户必须先点「从当前配置导入」
+   * 才能开始编辑，而该按钮的语义（「从零开始的空白起点」）与它的实际门槛不匹配，
+   * 造成「新建按钮永远是灰的」观感。后端首屏已返回完整只读树，数据已在手，
+   * 故改为**加载完成即自动导入**；用户后续点同一按钮 = 显式「重新载入」（二次确认）。
+   */
+  ready?: boolean
+  /**
+   * 生效配置 `receivers:` 段已声明的接收人名（GET /routes 的 `declared_receivers`，
+   * **含用户手写**）。与下方平台物化名共同构成「合法接收人」判据。
+   *
+   * ⚠ 缺此字段会让手写 receiver 被误判悬空（2026-10-08 实测阻断）：此前 knownReceivers
+   * 只取平台物化名，而生效配置里手写的 `feishu` 被 5 个路由节点引用 → 全被判「未定义」
+   * → 既不能保存也不能新建。口径须与 generator/notify_route_skeleton.go 的
+   * 「可达 receiver 集合 = 文件 receivers ∪ PlatformReceiverNames」一致。
+   */
+  declaredReceivers?: string[]
   /** 解析失败时的 alertmanager.yml 原文（供手动校正时对照） */
   rawYAML?: string
   /** 保存成功后回调（页面用于刷新只读视图 / 提示） */
@@ -155,6 +187,11 @@ export interface UseRouteEditorOptions {
    * 返回 true 才真正保存；false 中止保存。不传则默认直接保存（页面层应注入基于 antd Modal 的实现）。
    */
   confirmPartialImport?: () => Promise<boolean>
+  /**
+   * 「重新载入」二次确认回调：会丢弃当前未保存的编辑，返回 true 才继续。
+   * 不传则默认直接重新载入（不推荐）。
+   */
+  confirmReload?: () => Promise<boolean>
 }
 
 export interface UseRouteEditorResult {
@@ -176,7 +213,11 @@ export interface UseRouteEditorResult {
   saving: boolean
   /** 保存结果提示（成功 / 失败），未保存为 null */
   saveResult: { ok: boolean; message: string } | null
-  /** 从当前配置导入（解析失败时降级为空白起点 + 提示） */
+  /**
+   * 从当前配置导入 / 重新载入。
+   * 首屏由 ready + sourceItems 自动触发一次（见下方 useEffect），此后仅由用户点击触发；
+   * 已有编辑时先经 `confirmReload` 二次确认（丢弃编辑属破坏性操作，不做静默覆盖）。
+   */
   importFromCurrent: () => void
   move: (id: string, dir: -1 | 1) => void
   reorder: (fromId: string, toId: string) => void
@@ -195,19 +236,48 @@ export interface UseRouteEditorResult {
  * `mergeRouteSection` → `POST /config`（服务端 amtool 校验 + 落库 + 触发 M09 变更单）。
  */
 export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEditorResult {
-  const { sourceItems, parseError, rawYAML = '', onSaved, confirmPartialImport } = options
+  const {
+    sourceItems,
+    parseError,
+    rawYAML = '',
+    ready = false,
+    onSaved,
+    confirmPartialImport,
+    confirmReload,
+  } = options
   const [tree, setTree] = useState<RouteEditNode[]>([])
   const [importState, setImportState] = useState<RouteImportState>('empty')
   const [importNotice, setImportNotice] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [saveResult, setSaveResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [knownReceivers, setKnownReceivers] = useState<string[]>([])
 
-  // 可用接收人（knownReceivers）= 已启用渠道的派生接收人名（H1 验收 #1：非管理员也能获得）。
-  // 改用「批量、非 admin」的 `notifyChannelsApi.list()`：其响应已含各渠道物化的 AM receiver 名
-  // （`receiver_name`，与 M09 生成器同源、非敏感），一次请求即可拿到全部已知接收人清单，
-  // 不再逐渠道调用 admin-only 的 `getReceiverSnippet`（N+1、非管理员取不到 → 接收人校验失效）。
-  // 取数失败 / 无权限时降级为空集合（**不阻断**，仅表示无法判定悬空）。
+  /** 文件 receivers: 段已声明的接收人名（GET /routes 的 declared_receivers；含用户手写） */
+  const declaredReceivers = useMemo(
+    () => (options.declaredReceivers ?? []).map((n) => (n ?? '').trim()).filter((n) => n !== ''),
+    [options.declaredReceivers],
+  )
+
+  // 可用接收人（knownReceivers）= **文件 receivers: 段已声明名 ∪ 平台物化名**。
+  //
+  // ⚠ 口径修复（2026-10-08 实测阻断）：此前只取「已启用渠道派生名」，导致用户手写在
+  // receivers: 段里的 receiver 被判悬空。实测生效配置中手写 `feishu` 与平台 `notify-1`
+  // 共存，而根路由 + 4 条子路由全部引用 `feishu` → 5 个节点全命中 `receiver_dangling`，
+  // 页面既不能保存也不能新建（死锁）。
+  //
+  // 两个来源各司其职：
+  //   - `declared_receivers`（GET /routes，带外/带内的文件声明全集）——「合法接收人」判据；
+  //   - 已启用渠道派生名 —— 平台将要物化的名字，文件里此刻可能还没写（生成时才落盘），
+  //     故必须并入，否则「渠道已开但配置尚未重新生成」会被误判悬空。
+  // 二者的并集与生成侧口径一致（generator/notify_route_skeleton.go 的「可达 receiver 集合
+  // = 文件 receivers ∪ PlatformReceiverNames」），此前前端是这套口径的唯一例外（属漂移）。
+  //
+  // 任一来源取数失败即降级为「该来源为空」；两者都空时集合 size 为 0，
+  // validateRouteReceivers 直接返回 []（不判悬空），不会误阻断。
+  const [platformReceivers, setPlatformReceivers] = useState<string[]>([])
+
+  // 批量、非 admin 的 `notifyChannelsApi.list()`：响应已含各渠道物化的 AM receiver 名
+  // （`receiver_name`，与 M09 生成器同源、非敏感），一次请求即可拿到全部平台物化名，
+  // 不逐渠道调用 admin-only 的 `getReceiverSnippet`（N+1、非管理员取不到 → 校验失效）。
   useEffect(() => {
     let cancelled = false
     const run = async () => {
@@ -216,9 +286,9 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
         const names = (res.data?.items ?? [])
           .filter((c) => c.enabled && c.receiver_name)
           .map((c) => c.receiver_name as string)
-        if (!cancelled) setKnownReceivers(names)
+        if (!cancelled) setPlatformReceivers(names)
       } catch {
-        if (!cancelled) setKnownReceivers([])
+        if (!cancelled) setPlatformReceivers([])
       }
     }
     void run()
@@ -227,7 +297,15 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
     }
   }, [])
 
-  const importFromCurrent = useCallback(() => {
+  const knownReceivers = useMemo(() => {
+    const out = new Set<string>()
+    for (const n of declaredReceivers) if (n) out.add(n)
+    for (const n of platformReceivers) if (n) out.add(n)
+    return Array.from(out)
+  }, [declaredReceivers, platformReceivers])
+
+  /** 实际执行导入（不含二次确认；自动导入与用户点击共用，保证两条路径语义完全一致） */
+  const doImport = useCallback(() => {
     setSaveResult(null)
     if ((parseError ?? '').trim()) {
       // 后端 T08-12 对不可表达结构 return error（无 raw 标注通道）→ 不可无损导入：
@@ -249,6 +327,50 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
     setImportState('imported')
     setImportNotice(`已从当前配置导入 ${sourceItems.length} 个路由节点（名称经注释还原），请确认后再保存。`)
   }, [parseError, sourceItems])
+
+  /**
+   * 首屏自动导入：只读视图加载完成（ready）且**解析成功**时，把只读树灌进编辑态。
+   *
+   * 为什么必须有（2026-10-08）：页面「新建路由规则」/「保存并提交变更」都是
+   * `disabled={!editing}`，editing 依赖 importState !== 'empty'。此前 importState 恒从
+   * 'empty' 起步 ⇒ 两个主按钮首屏恒灰 ⇒ 用户必须先点「从当前配置导入」才能动手，
+   * 而那按钮在首屏语境下更像「可选的导入动作」而非「开始编辑的前置步骤」，
+   * 于是「新建按钮永远是灰的」成为实测阻断缺陷。
+   *
+   * 两条护栏：
+   *   1. **仅在 ready 之后触发一次**（用 autoImportedRef 幂等锁），避免 reload 后反复重置
+   *      用户正在进行的编辑；
+   *   2. **解析失败不自动导入**——降级为「部分导入 + 手动校正」是用户需要知晓的事实，
+   *      静默塞一棵空白树会让降级不可见；此时由用户显式点击触发，路径与语义都更清楚。
+   */
+  const autoImportedRef = useRef(false)
+  useEffect(() => {
+    if (!ready || autoImportedRef.current) return
+    if ((parseError ?? '').trim()) return
+    autoImportedRef.current = true
+    doImport()
+  }, [ready, parseError, doImport])
+
+  /** 用户显式点击：已有未保存编辑时先二次确认（丢弃编辑是破坏性操作） */
+  const importFromCurrent = useCallback(() => {
+    const hasUnsavedEdits = tree.length > 0
+    if (!hasUnsavedEdits) {
+      doImport()
+      return
+    }
+    const run = () => {
+      // 重新载入后把幂等锁重新置位：reload() 会带回新数据，届时应再自动同步一次。
+      autoImportedRef.current = true
+      doImport()
+    }
+    if (!confirmReload) {
+      run()
+      return
+    }
+    void confirmReload().then((ok) => {
+      if (ok) run()
+    })
+  }, [tree.length, confirmReload, doImport])
 
   const move = useCallback((id: string, dir: -1 | 1) => {
     setTree((prev) => moveSibling(prev, id, dir))
@@ -275,6 +397,10 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
     setImportState('empty')
     setImportNotice(null)
     setSaveResult(null)
+    // 「放弃编辑」后需要能重新进入编辑态：置回 false 让首屏自动导入的条件重新可满足，
+    // 否则 reset 之后页面会退回到「按钮恒灰」的老症状（若期间只读树有新数据的话，
+    // 下一次 reload 就能自动再同步；无新数据时用户仍可点「重新载入」显式进入）。
+    autoImportedRef.current = false
   }, [])
 
   const issues = useMemo(() => {
@@ -339,7 +465,8 @@ export function useRouteEditor(options: UseRouteEditorOptions = {}): UseRouteEdi
       await alertmanagerConfigApi.submit({ content: merged, uploaded_by: CURRENT_USER })
       setSaveResult({
         ok: true,
-        message: '已生成整份 alertmanager.yml 并提交挂载，进入变更单人工确认后下发生效（不即时生效）。',
+        message:
+          '已生成整份 alertmanager.yml 并提交挂载。改动不会自动生效——请前往「配置变更确认」人工确认，确认后才会写入并 reload Alertmanager。',
       })
       onSaved?.()
       return true

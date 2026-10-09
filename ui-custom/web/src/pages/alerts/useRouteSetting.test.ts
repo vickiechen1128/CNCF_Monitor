@@ -1,7 +1,7 @@
 /**
  * 「默认接收人（根兜底）」数据 Hook 测试（T08-F8，决策 113 口径 C）。
  * 覆盖：默认未设定 → 自动建议（auto_first_enabled） / 生效态（explicit） / 下拉选项（含首项「不接管」，
- * 仅已启用渠道，展示平台派生接收人名，片段无权限时降级为渠道名） / 保存（null=关闭接管、渠道 id） /
+ * 仅已启用渠道，**只展示渠道名**——2026-10-08 起不再拼「（接收人 X)」） / 保存（null=关闭接管、渠道 id） /
  * 400 错误透传 / 加载失败错误态。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -96,14 +96,15 @@ describe('useRouteSetting（默认接收人 / 根兜底）', () => {
     expect(result.current.setting?.enabled).toBe(false)
     // 首项恒为「不接管」= NONE_RECEIVER_VALUE 哨兵（-1，避免 antd Select 空值告警）
     expect(result.current.options[0]).toEqual({ value: NONE_RECEIVER_VALUE, label: ROUTE_SETTING_NONE_LABEL })
-    // 仅已启用渠道进入选项，且展示平台派生接收人名
+    // 仅已启用渠道进入选项
     expect(result.current.options).toHaveLength(2)
-    expect(result.current.options[1]).toEqual({
-      value: 1,
-      label: 'SRE 飞书群（接收人 sre-feishu-qun）',
-      receiverName: 'sre-feishu-qun',
-    })
+    // 2026-10-08：选项**只展示渠道名**。receiver 名是平台内部标识（`sre-feishu-qun`），
+    //   对「我选了哪个渠道」无帮助，混进选项像技术串；实测用户正是因此看不出下拉框与
+    //   兜底策略是同一个东西。
+    expect(result.current.options[1]).toEqual({ value: 1, label: 'SRE 飞书群' })
     expect(result.current.error).toBeNull()
+    // 展示去掉内部标识后，逐渠道调 admin-only 的片段接口已无消费方 → N+1 一并摘除
+    expect(snippetMock).not.toHaveBeenCalled()
   })
 
   it('已设定默认接收人且渠道可用：派生为 explicit（平台接管中）', async () => {
@@ -126,16 +127,22 @@ describe('useRouteSetting（默认接收人 / 根兜底）', () => {
     expect(result.current.setting?.effective_receiver_name).toBe('sre-qun')
   })
 
-  it('接收人片段无权限（403）时降级为只展示渠道名，不阻断设定读取', async () => {
+  it('渠道列表取数失败：整体降级为错误态（设定与选项一并不可用）', async () => {
+    // 2026-10-08：原用例覆盖「片段接口 403 → 降级为渠道名」。选项改为只展示渠道名后
+    //   片段接口已不再被调用（连同 N+1 一并摘除），故降级面改为「渠道列表取数失败」。
+    // 记录**既有行为**：list 与 get 在同一个 Promise.all 里，list 失败 → 整体 reject →
+    //   setting 被清空、error 透传。（「设定已取到却因列表失败被丢弃」是可改进点，
+    //   但那是独立议题，本轮不改动行为，只如实断言现状。）
     getMock.mockResolvedValue(setting({ effective_source: 'auto_first_enabled', effective_receiver_name: 'x' }))
-    listMock.mockResolvedValue(channels([channel({ id: '3', name: '运维群' })]))
-    snippetMock.mockRejectedValue(new ApiError('forbidden', 403, 'forbidden'))
+    listMock.mockRejectedValue(new ApiError('forbidden', 403, 'forbidden'))
 
     const { result } = renderHook(() => useRouteSetting())
     await waitFor(() => expect(result.current.loading).toBe(false))
 
-    expect(result.current.options[1]).toEqual({ value: 3, label: '运维群', receiverName: undefined })
-    expect(result.current.error).toBeNull()
+    expect(result.current.setting).toBeNull()
+    expect(result.current.error).toBe('forbidden')
+    // 片段接口确实未被调用（N+1 已摘除的旁证）
+    expect(snippetMock).not.toHaveBeenCalled()
   })
 
   it('关闭接管：save(null) 以 default_receiver_channel_id=null 写入（护栏③），并更新生效态', async () => {

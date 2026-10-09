@@ -66,8 +66,8 @@ func SubmitHandler(db *gorm.DB) gin.HandlerFunc {
 		// review-fix A：errChangeTrigger 时配置已校验并落库留痕（v 非 nil），仅触发
 		// M09 变更检测失败——须在通用 err 分支之前命中，记录日志并正常返回版本（不报
 		// 500，契约「校验失败不阻断挂载」；稳态 watcher 下一轮会兜底重试检测）。
-		// dev-feedback §25 方案 A：errAutoApply 收录 + 变更检测均成功，仅自动确认下发
-		// 失败，同款降级——记日志、正常返回版本，由 watcher / 人工确认兜底。
+		// 2026-10-09（立场 1）：自动确认闭环已移除，submitValidated 不再返回 errAutoApply
+		// ——该分支保留作防御（若将来重新引入自动确认路径，此处已能正确降级不误报 500）。
 		if errors.Is(err, errAutoApply) {
 			log.Printf("[alertmanager-config] persist ok but auto-apply management domain failed: %v", err)
 		} else if errors.Is(err, errChangeTrigger) {

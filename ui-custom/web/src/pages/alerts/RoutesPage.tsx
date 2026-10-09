@@ -5,15 +5,23 @@
  * 数据：`GET /api/v2/platform/alertmanager/routes`（T08-12，仅全局认证、只读无写能力）。
  *
  * 模式定位（PRD §11.7 / 提案 §4.3「单一作者 + 模式开关」）：
- * - **手写模式**：本页**整体只读**（无新建 / 编辑 / 删除 / 拖拽入口），只把文件里的 route 渲染成树帮用户看懂；
- * - **平台管理模式**：可写（新建 / 编辑 / 删除 / 上移下移 / 拖拽 / 从当前配置导入），
- *   保存 = 生成整份 alertmanager.yml → 复用既有 `POST /api/v2/platform/alertmanager/config`
- *   （**零新增端点**）→ 触发 M09 变更单，**不即时生效**。
+ * - **我来编辑**（handwritten，用户可见词）：本页可写——新建 / 编辑 / 删除 / 上移下移 / 拖拽 /
+ *   保存并提交变更，保存 = 生成整份 alertmanager.yml → 复用既有 `POST /api/v2/platform/alertmanager/config`
+ *   （**零新增端点**）→ 触发 M09 变更单，**不即时生效**；
+ * - **平台生成**（managed，用户可见词）：本页整体只读（无新建 / 编辑 / 拖拽入口），
+ *   只把文件里的 route 渲染成树帮用户看懂；整份配置由用户在告警配置页高级区手写。
  *
- * 解析失败时降级为原文只读展示（不白屏、不报错页）；平台模式下另给「部分导入 + 手动校正」通道。
+ * ⚠ 2026-10-08 修订：模式选项旧称「我手写 / 平台管理」，实测被判歧义——「我手写」天然
+ * 承诺"我在页面里写"，而实际含义是"平台别生成、我去高级区手写 YAML"，该层含义只写在
+ * 二次确认弹窗里。用户选「我手写」后发现本页变只读，判为功能故障。措辞已与告警配置页
+ * 对齐为「我来编辑 / 平台生成」，并在本页说明区与二次确认中**明说页面可编辑性**。
+ * 底层枚举值（handwritten / managed）与门禁（isRouteEditable）不变。
  *
- * ⚠ 模式开关 UI 由 T08-F12 落地；本轮沿用 `GET /routes` 返回的 `mode`（与 T08-F10 同源），
- * `useRouteSetting` 尚无 mode 字段（见汇报「需澄清点」）。
+ * 解析失败时降级为原文只读展示（不白屏、不报错页）；平台生成模式下另给「部分导入 + 手动校正」通道。
+ *
+ * ⚠ 2026-10-08 修订：编辑态改为**首屏自动导入**（只读树加载完成即灌入），修掉
+ * 「新建路由规则 / 保存并提交变更 按钮恒灰」的阻断缺陷——此前须先点「从当前配置导入」
+ * 才进入编辑态，而该按钮在首屏更像可选动作而非前置步骤。
  */
 import { useCallback, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -42,7 +50,7 @@ import {
 import { EllipsisText } from '../../components/EllipsisText'
 import { PageIntro } from '../../components/PageIntro'
 import { MainLayout } from '../../layouts/MainLayout'
-import { ALERT_CONFIG_PATH, NOTIFY_CHANNELS_PATH, formatMatchers } from './alertmanagerConstants'
+import { ALERT_CONFIG_PATH, CONFIG_PREVIEW_PATH, NOTIFY_CHANNELS_PATH, formatMatchers } from './alertmanagerConstants'
 import { isRouteEditable, useRouteEditor, useRoutes } from './useRoutes'
 import {
   blankRouteNode,
@@ -60,16 +68,23 @@ const { Text } = Typography
 /** 常驻顶部说明：顺序即优先级（PRD §11.7） */
 const ROUTE_ORDER_TIP = '路由顺序 = 生效顺序：先匹配到的先生效'
 
-/** 模式徽标文案（T08-F12：手写接管 / 平台管理） */
+/**
+ * 模式徽标文案（T08-F12）。
+ *
+ * ⚠ 措辞与告警配置页的 Segmented 选项**必须一致**（同一个 mode 的两种表述）：
+ * 「我来编辑」= 本页可编辑；「平台生成」= 本页只读。2026-10-08 修订前此处用
+ * 「手写接管 / 平台管理」，与配置页选项「我手写 / 平台管理」对不上，且「接管」暗示
+ * 冲突（实为二选一），故一并对齐为同一套词。
+ */
 const ROUTE_MODE_LABEL: Record<RouteMode, string> = {
-  handwritten: '手写接管',
-  managed: '平台管理',
+  handwritten: '我来编辑',
+  managed: '平台生成',
 }
 
-/** 模式徽标配色：手写=中性，平台=处理中（蓝） */
+/** 模式徽标配色：可编辑=处理中（蓝）；只读=中性 */
 const ROUTE_MODE_COLOR: Record<RouteMode, string> = {
-  handwritten: 'default',
-  managed: 'processing',
+  handwritten: 'processing',
+  managed: 'default',
 }
 
 /** 顶层路由锁定说明（Tooltip）。去技术化：不说「route: 本体」，用户语言只说「顶层路由」。 */
@@ -119,13 +134,34 @@ const YAML_BLOCK_STYLE = {
 } as const
 
 export function RoutesPage() {
-  const { data, rows, loading, error, reload } = useRoutes()
+  const { data, rows, loading, error, ready, reload } = useRoutes()
   const { modal } = App.useApp()
   const mode: RouteMode = data?.mode ?? 'handwritten'
   const parseError = (data?.parse_error ?? '').trim()
   const degraded = parseError.length > 0
   const deadReceivers: DeadReceiver[] = data?.dead_receivers ?? []
   const editable = isRouteEditable(mode)
+
+  /**
+   * 「重新载入」二次确认：丢弃当前未保存的编辑属破坏性操作，不做静默覆盖。
+   * 首屏已进入编辑态（自动导入），故此按钮几乎总是「有未保存改动」的状态，
+   * 缺了确认就是一次无声的编辑丢失。
+   */
+  const confirmReload = useCallback(
+    () =>
+      new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: '重新载入当前配置？',
+          content: '将丢弃你尚未保存的路由改动，并恢复为当前生效配置的路由内容。',
+          okText: '确认重新载入',
+          okButtonProps: { danger: true },
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      }),
+    [modal],
+  )
 
   /**
    * 部分导入（importState === 'partial'）保存护栏（H4）：覆盖式合入会改写原 route 段，
@@ -153,8 +189,12 @@ export function RoutesPage() {
     sourceItems: data?.items,
     parseError,
     rawYAML: data?.raw_yaml ?? '',
+    // 首屏只读树加载完成即自动进入编辑态（2026-10-08）：修掉「新建/保存按钮恒灰」阻断。
+    ready,
+    declaredReceivers: data?.declared_receivers,
     onSaved: reload,
     confirmPartialImport,
+    confirmReload,
   })
   const editing = editor.importState !== 'empty'
   /** 解析失败时先只给原文；平台模式下导入（部分导入）后仍需渲染编辑树供手动校正 */
@@ -445,8 +485,8 @@ export function RoutesPage() {
           '路由顺序 = 生效顺序：先匹配到的先生效，所以同层级的顺序决定谁先被检查。',
           '一条规则包含：匹配条件（发什么）、接收人（发给谁）、分组与节奏（怎么攒批、多久重发）。',
           mode === 'handwritten'
-            ? '当前由你手写维护，本页为只读展示；如需可视化编辑，请先在「告警配置」页把「路由规则由谁维护」切到「平台管理」。'
-            : '当前由平台管理，可新建 / 编辑 / 拖拽调整顺序；保存后进入变更单，人工确认后下发生效，不即时生效。',
+            ? '当前为「我来编辑」：本页可直接增删改路由，保存后进入变更单。若本页为只读，请到「告警配置」页把「路由规则由谁维护」切到「我来编辑」。'
+            : '当前为「平台生成」：本页是只读视图，路由由平台产出；整份配置请到「告警配置」页的「高级：导入整份配置文件」手写。',
           '顶层路由是所有告警的总入口，不可删除、不可移动；它同时承载「未匹配任何规则的告警发给谁」。',
         ]}
       />
@@ -467,12 +507,13 @@ export function RoutesPage() {
         description={
           mode === 'handwritten' ? (
             <Text>
-              本页为只读展示：不提供新建 / 编辑 / 拖拽入口。
-              <Link to={ALERT_CONFIG_PATH}>前往告警配置</Link> 可切换为「平台管理」。
+              本页可直接新建 / 编辑 / 拖拽调整顺序。
+              <Link to={ALERT_CONFIG_PATH}>前往告警配置</Link> 可切换为「平台生成」。
             </Text>
           ) : (
             <Text>
-              选中行用上移 / 下移（或直接拖拽行）调整同级顺序，顶层路由锁定不可移动。
+              当前「平台生成」：本页为只读视图，不提供新建 / 编辑 / 拖拽入口。
+              切换为「我来编辑」后即可在此页直接改路由。
             </Text>
           )
         }
@@ -523,32 +564,46 @@ export function RoutesPage() {
           </Card>
           )}
 
-          {/* 孤立接收人：平台已生成但没有任何路由指向（dev-feedback #26），显性标出并可跳转处理 */}
+          {/* 孤立接收人（dev-feedback #26；2026-10-08 文案修订）：平台物化了接收人却无路由指向。
+              原文案「平台已生成但没有任何路由指向」主语是「平台」，易被读成「平台内置了路由规则
+              却没指向它」——实际是**用户的路由全指向了别的接收人**（多为手写），平台那条通道空着。
+              新文案讲清这个区别，并明示「怎么消解」，避免用户无处下手。 */}
           {!degraded && deadReceivers.length > 0 && (
             <Card
               title={
                 <Space size={8}>
                   <WarningOutlined />
-                  孤立接收人（平台已生成但没有任何路由指向）
+                  有接收人没有路由指向它
                   <Tag color="warning">{deadReceivers.length}</Tag>
                 </Space>
               }
               style={{ marginBottom: 16 }}
             >
               <Text type="secondary">
-                以下接收人由平台自动生成，但当前路由树里没有任何一条路由指向它们——告警永远不会发往它们。
-                请点击前往「通知渠道」页处理。
+                平台已为下列接收人生成了配置，但当前路由里没有任何一条规则指向它们——
+                也就是说，<Text strong>这些接收人所属的渠道收不到告警</Text>。
+                （若你看到路由都指向另一个手写的接收人，那说明告警正走你自己的通道，平台这条是备用的。）
               </Text>
               <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
                 {deadReceivers.map((d) => (
                   <li key={d.name} style={{ marginBottom: 4 }}>
-                    <Link to={NOTIFY_CHANNELS_PATH} data-testid={`dead-receiver-${d.name}`}>
-                      <Text code>{d.name}</Text>
-                    </Link>
+                    <Text code>{d.name}</Text>
                     <Text type="secondary"> — {d.url}</Text>
                   </li>
                 ))}
               </ul>
+              <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+                <Text strong>两种处理方式</Text>：
+                <br />
+                ① 想用它发告警 → 在上方新建或编辑一条规则，把「接收人」选成它，然后保存提交变更。
+                <br />
+                ② 暂不用它 →
+                <Link to={NOTIFY_CHANNELS_PATH} data-testid="dead-receiver-channels-link">
+                  {' '}
+                  前往「通知渠道」页
+                </Link>
+                停用或删除对应渠道，平台就不会再生成这个接收人。
+              </Text>
             </Card>
           )}
 
@@ -565,7 +620,7 @@ export function RoutesPage() {
                   新建路由规则
                 </Button>
                 <Button onClick={editor.importFromCurrent} data-testid="route-import-btn">
-                  从当前配置导入
+                  {editing ? '重新载入' : '从当前配置导入'}
                 </Button>
                 <Button
                   type="primary"
@@ -583,7 +638,11 @@ export function RoutesPage() {
                 )}
               </Space>
               <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-                保存会生成整份 alertmanager.yml 并提交挂载，进入变更单人工确认后下发生效，不即时生效。
+                {editing
+                  ? '保存会生成整份 alertmanager.yml 并提交挂载；改动不会立即生效，需在「配置变更确认」中人工确认后才会写入并 reload。'
+                  : degraded
+                    ? '当前配置无法完整解析，尚未进入编辑态。点「从当前配置导入」可按空白根路由开始手动补齐。'
+                    : '正在加载当前路由配置，加载完成后即可直接编辑。'}
               </Text>
             </Card>
           )}
@@ -607,8 +666,18 @@ export function RoutesPage() {
               showIcon
               style={{ marginBottom: 16 }}
               data-testid="route-save-result"
-              message={editor.saveResult.ok ? '已提交，待变更单确认下发' : '保存未通过'}
-              description={editor.saveResult.message}
+              message={editor.saveResult.ok ? '已提交，等待你在「配置变更确认」中确认下发' : '保存未通过'}
+              description={
+                editor.saveResult.ok ? (
+                  <Space direction="vertical" size={4}>
+                    <span>{editor.saveResult.message}</span>
+                    {/* 成功后的唯一下一步就是去 M09 确认（提交只产 pending 草稿，不即时生效）。 */}
+                    <Link to={CONFIG_PREVIEW_PATH}>前往「配置变更确认」</Link>
+                  </Space>
+                ) : (
+                  editor.saveResult.message
+                )
+              }
             />
           )}
 

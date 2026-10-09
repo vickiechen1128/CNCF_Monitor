@@ -69,7 +69,7 @@ function derivedEmpty() {
 function routeSettingEmpty() {
   return {
     setting: null,
-    options: [{ value: -1, label: '不接管（保留我手写的兜底配置）' }],
+    options: [{ value: -1, label: '不接管（保留配置文件里已有的值）' }],
     loading: false,
     error: null,
     saving: false,
@@ -177,13 +177,13 @@ describe('M08 alert 端到端冒烟（告警配置 ⇄ 静默管理 导航联动
   })
 
   // T08-F8：骨架布缆开关就在策略卡首屏。2026-10-02 #38 术语去技术化：
-  // 「默认接收人（根兜底）」→ 「未匹配规则的告警发给谁」（§7.5 对照表）。
-  it('T08-F8：告警配置页策略卡「未匹配规则的告警发给谁」控件就位', async () => {
+  // 「默认接收人（根兜底）」→ 「没匹配到具体规则的告警，发给哪个渠道」（§7.5 对照表）。
+  it('T08-F8：告警配置页策略卡「没匹配到具体规则的告警，发给哪个渠道」控件就位', async () => {
     renderM08('/alert-config')
-    expect(await screen.findByRole('combobox', { name: '未匹配规则的告警发给谁' })).toBeInTheDocument()
+    expect(await screen.findByRole('combobox', { name: '没匹配到具体规则的告警，发给哪个渠道' })).toBeInTheDocument()
     expect(screen.getByTestId('alert-policy-card')).toBeInTheDocument()
     // 首项「不接管」= null 且为默认选中值
-    expect(screen.getByText('不接管（保留我手写的兜底配置）')).toBeInTheDocument()
+    expect(screen.getByText('不接管（保留配置文件里已有的值）')).toBeInTheDocument()
     // 旧术语不再出现在用户视图
     expect(document.body.textContent ?? '').not.toContain('默认兜底接收人')
   })
