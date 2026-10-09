@@ -27,6 +27,10 @@ type RuntimeSnapshot struct {
 	// 最近一次配置应用失败原因与失败版本（D-1）；应用成功时为空（心跳 omitempty 不产出键）。
 	ConfigApplyError         string
 	ConfigApplyFailedVersion string
+	// RemoteWriteLastError 是本机 vmagent remote_write 最近失败原因摘要（F-17 补齐）。
+	// 无失败时为空（心跳 omitempty 不产出键）。中心据此可观测边缘上报是否失败——
+	// 此前该字段契约单向定义、恒空，边缘 up 未落中心时中心侧零线索。
+	RemoteWriteLastError string
 }
 
 // RuntimeProvider 提供当前运行态快照。
@@ -129,6 +133,7 @@ func (p *Puller) buildHeartbeat() contract.HeartbeatRequest {
 		Targets:                  rs.Targets,
 		ConfigApplyError:         rs.ConfigApplyError,
 		ConfigApplyFailedVersion: rs.ConfigApplyFailedVersion,
+		RemoteWriteLastError:     rs.RemoteWriteLastError,
 	}
 }
 

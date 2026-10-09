@@ -294,6 +294,50 @@ func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T) {
 	assert.True(t, t1.Equal(*agent.LastConfigPull), "同一失败版本重复上报不刷新")
 }
 
+// TestHeartbeatPersistsRemoteWriteLastError 覆盖 F-17「契约单向定义」缺口的中心侧：
+// Agent 上报的 remote_write_last_error 必须落库 edge_heartbeats（否则边缘 remote_write
+// 失败时中心侧完全无感——本次实测边缘 up 长期未落中心，中心零失败线索，只能外部探测）。
+// 空值（成功态）亦落库为空串，不影响其他字段。
+func TestHeartbeatPersistsRemoteWriteLastError(t *testing.T) {
+	db := newEdgeTestDB(t)
+	dom := seedEdgeDomain(db, "nd-rw-err", "agent_pull", "tok-rw", "vmagent", "http://center:8080")
+	seedConfigVersion(db, dom.ID,
+		"global:\n  scrape_interval: 15s\n", "groups: []\n", "",
+		map[string]string{"node.json": `[{"targets":["10.0.1.10:9100"]}]`},
+		time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC))
+
+	svc := NewHeartbeatService(db)
+	const rwErr = "remote_write_failed: vmagent_remotewrite_errors_total=3 vmagent_remotewrite_push_failures_total=2 （vmagent /metrics）"
+
+	// 失败态：上报的失败原因应镜像落库到edge_heartbeats。
+	_, err := svc.Handle(dom, &HeartbeatRequest{
+		NetworkDomainID:      dom.ID,
+		AgentType:            models.AgentTypeVMAgent,
+		ConfigVersion:        "20261009-100000",
+		RemoteWriteLastError: rwErr,
+	}, time.Date(2026, 10, 9, 10, 5, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+
+	var hb models.EdgeHeartbeat
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).
+		Order("id DESC").First(&hb).Error) // 按自增 id 取最新一条，避免时间戳并列导致取错
+	assert.Equal(t, rwErr, hb.RemoteWriteLastError, "remote_write 失败原因应落库")
+
+	// 成功态（空值）：不得污染上一条记录，且新记录该字段为空。
+	_, err = svc.Handle(dom, &HeartbeatRequest{
+		NetworkDomainID: dom.ID,
+		AgentType:       models.AgentTypeVMAgent,
+		ConfigVersion:   "20261009-100000",
+	}, time.Date(2026, 10, 9, 10, 6, 0, 0, time.UTC), "http://center:8080")
+	require.NoError(t, err)
+	// 用全新变量承载（复用已带主键的 hb 会让 GORM 追加 WHERE id=… 而查不到新记录）
+	var hb2 models.EdgeHeartbeat
+	require.NoError(t, db.Where("network_domain_id = ?", dom.ID).
+		Order("id DESC").First(&hb2).Error)
+	assert.Empty(t, hb2.RemoteWriteLastError, "成功态应为空")
+	assert.Greater(t, hb2.ID, hb.ID, "确认取到的确实是更新的一条心跳记录")
+}
+
 func TestHeartbeatService_NoConfigVersion(t *testing.T) {
 	db := newEdgeTestDB(t)
 	dom := seedEdgeDomain(db, "nd-empty", "agent_pull", "tok-xyz", "", "http://center:8080")

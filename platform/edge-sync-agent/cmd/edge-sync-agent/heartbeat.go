@@ -60,8 +60,10 @@ type runtimeProvider struct {
 	targetBaseURL string
 }
 
-// Snapshot 返回一次心跳所需的运行态快照。WAL 积压量当前无实时采集器读数，取 0；
-// remote_write 队列并发分片数按网域默认常量上报（PRD §6.4.1）。
+// Snapshot 返回一次心跳所需的运行态快照。QueueBacklogBytes 取自本机 vmagent
+// /metrics 的vmagent_remotewrite_pending_data_bytes（待发送积压字节数，2026-10-09
+// 接入；此前恒 0，导致节点状态页「回传积压」永远为空、用户无法区分「程序坏了」
+// 与「积压自愈中」）。remote_write_queue 并发分片数按网域默认常量上报（PRD §6.4.1）。
 func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 	version := ""
 	applyState := deployer.ApplyState{}
@@ -84,10 +86,18 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 	if r.targetBaseURL != "" {
 		targets = fetchVMAgentTargets(context.Background(), newVMTargetsClient(), r.targetBaseURL, r.warnf)
 	}
+	// F-17 补齐：读取本机vmagent /metrics，一次请求同时取remote_write 失败原因与
+	// **待发送积压字节数**（用户诉求 2026-10-09：界面「已下发未采到」时需让用户
+	// 区分「程序坏了」与「只是积压自愈中」）。采集失败降级（积压 0 + 无错误摘要），
+	// 绝不把「采集不到」误报成「正常」，亦不阻断心跳。
+	rwStats := vmRemoteWriteStats{}
+	if r.targetBaseURL != "" {
+		rwStats = fetchVMAgentRemoteWriteStats(context.Background(), newVMTargetsClient(), r.targetBaseURL, r.warnf)
+	}
 	return puller.RuntimeSnapshot{
 		AgentVersion:             r.cfg.Version,
 		ConfigVersion:            version,
-		QueueBacklogBytes:        0,
+		QueueBacklogBytes:        rwStats.PendingBytes,
 		RemoteWriteQueueSize:     rwQueue,
 		Hostname:                 r.hostname,
 		Ip:                       r.ip,
@@ -95,6 +105,7 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 		Targets:                  targets,
 		ConfigApplyError:         applyState.Error,
 		ConfigApplyFailedVersion: applyState.Version,
+		RemoteWriteLastError:     rwStats.LastError,
 	}
 }
 

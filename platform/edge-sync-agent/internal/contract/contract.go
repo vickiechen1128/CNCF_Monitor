@@ -63,6 +63,20 @@ type HeartbeatRequest struct {
 	// （omitempty 不产出键），保证向后兼容。
 	ConfigApplyError         string `json:"config_apply_error,omitempty"`          // 最近一次配置应用失败原因（成功时为空）
 	ConfigApplyFailedVersion string `json:"config_apply_failed_version,omitempty"` // 应用失败的配置版本
+
+	// RemoteWriteLastError 是本机 vmagent remote_write 最近一次失败原因（读 vmagent
+	// /metrics 的 vmagent_remotewrite_errors_total / push_failures_total /
+	// retries_count_total 推导；无失败时为空，omitempty 不产出键）。
+	//
+	// F-17 登记的「契约单向定义」缺口修复：中心 HeartbeatRequest 早已定义
+	// remote_write_last_error 并落库 edge_heartbeats，但 Agent 侧此前从未定义/发送，
+	// 导致该字段恒空——边缘 remote_write 失败时中心侧完全无感，只能靠外部探测猜测
+	// （本次实测即如此：边缘 up 长期未落中心，中心无任何失败线索）。接通后，remote_write
+	// 失败原因可随心跳直达中心，节点状态页/心跳记录可展示，F-17 的可观测性缺口闭合。
+	//
+	// 取值是**摘要**而非全量日志：仅在有失败时非空，形如
+	// "remote_write_failed: vmagent_remotewrite_errors_total=3 …（vmagent /metrics）"。
+	RemoteWriteLastError string `json:"remote_write_last_error,omitempty"`
 }
 
 // HeartbeatResponse 是心跳接口的响应体（PRD §6.2）。
