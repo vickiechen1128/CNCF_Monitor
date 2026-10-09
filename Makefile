@@ -9,6 +9,18 @@ PNPM_DIR := $(TOOLS_DIR)/pnpm
 GCC_DIR := $(TOOLS_DIR)/gcc
 PROMU_DIR := $(TOOLS_DIR)/promu
 
+# 中心 Prometheus TSDB 保留策略（开发态）。
+#
+# 时间 + 容量**双重兜底**，任一触发即淘汰最旧块：
+#   - 容量 2GB：贴合本机开发实际（用户定期清理 / 磁盘吃紧），**刻意不与生产一致**——
+#     生产打包件默认 10GB（scripts/package-center.sh:376PROM_RETENTION_SIZE），
+#     开发机无需承载长期排障历史，2GB 足够看住"最近几小时到几天"的联调窗口；
+#     超出即自动滚动淘汰，不等手工清理。
+#   - 时间 15d：兜住"低频抓取下 2GB 很久也填不满"的极端情况，防无限增长。
+# 需临时加大：`make run-prometheus PROM_RETENTION_TIME=30d PROM_RETENTION_SIZE=10GB`。
+PROM_RETENTION_TIME ?= 15d
+PROM_RETENTION_SIZE ?= 2GB
+
 # MinGW-w64 (WinLibs 便携版，仅 Windows 需要；macOS/Linux 使用系统 C 编译器)
 GCC_VERSION := 16.2.0
 GCC_URL :=
@@ -18,6 +30,24 @@ NODE_VERSION := 22.14.0
 
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
+
+# M08 通知渲染桥（PL-3）运行配置：默认走本机 8080，令牌给一个**本地开发默认值**。
+#
+# ⚠ 为什么要默认值（2026-10-08）：三个变量原先没有任何默认值，`make` 展开即空串 →
+#   - URL 空 → 平台**不物化** notify receivers（generate 侧判 BridgeURL == "" 直接跳过）；
+#   - 令牌空 → 桥端点「一律 401」（bridge.go：Token 为空表示未启用），于是通知渠道页
+#     对已启用渠道一律标「暂不可用」（receiver_snippet.go 的 token_configured=false）。
+#   即「渠道配好了、路由也指向它了，但一条也发不出去」，且现象被分散在两个页面、
+#   互相看不出来由（用户 2026-10-08 实测：路由页报「孤立接收人」、渠道页报「暂不可用」，
+#   两处都看不出真正原因是令牌没配）。
+#
+# 全部用 `?=`：**环境变量可覆盖**默认值，且 `make VAR=x` 亦生效。
+# 生产部署必须显式注入强随机令牌（package-center.sh / 部署文档已走环境变量路径），
+# 此处默认值仅供本地开发，切勿用于生产。
+NOTIFY_BRIDGE_URL ?= http://127.0.0.1:8080
+NOTIFY_BRIDGE_TOKEN ?= local-dev-bridge-token
+# 渲染时区：空 → 平台回落 UTC（告警卡片时间会显示 UTC 而非本地时）。
+NOTIFY_RENDER_TIMEZONE ?= Asia/Shanghai
 
 # 默认（类 Unix：macOS / Linux）
 GO_BIN := $(GO_DIR)/bin/go
@@ -410,8 +440,19 @@ run-prometheus: build-prometheus
 	# 非嵌入模式从 CWD 读取 Web UI，须在 upstream/prometheus 下启动才能加载
 	# mantine-ui 静态资源；config.file 为绝对路径，file_sd 相对路径按其所在
 	# directory（config-output）解析，均不受 CWD 影响。
+	#
+	# ⚠️ TSDB 必须显式给**绝对路径**且**放在子模块之外**（$(PROJECT_ROOT)/data/prometheus）：
+	#   - 不设 --storage.tsdb.path 时 Prometheus 用默认相对路径 `data/`，会按 CWD 解析到
+	#     upstream/prometheus/data/ —— 即**写在 git 子模块目录内**。清理上游目录 /
+	#     子模块重置 / 换机都会连带丢掉全部历史（2026-10-09 实测：数据停在 9/30、
+	#     maxTime 不前进，边缘 up 一条没落库，排查绕大弯）。
+	#   - 与生产打包件对齐（scripts/package-center.sh:429 亦用绝对路径 $DATA_ROOT/prometheus）。
+	@mkdir -p "$(PROJECT_ROOT)/data/prometheus"
 	@cd "$(PROJECT_ROOT)/upstream/prometheus" && ./prometheus$(EXE) \
 		--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
+		--storage.tsdb.path="$(PROJECT_ROOT)/data/prometheus" \
+		--storage.tsdb.retention.time="$(PROM_RETENTION_TIME)" \
+		--storage.tsdb.retention.size="$(PROM_RETENTION_SIZE)" \
 		--web.enable-lifecycle \
 		--web.enable-remote-write-receiver \
 		--web.listen-address=127.0.0.1:9090
