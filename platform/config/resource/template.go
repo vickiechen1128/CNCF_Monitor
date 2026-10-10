@@ -27,28 +27,37 @@ const xlsxContentType = "application/vnd.openxmlformats-officedocument.spreadshe
 // 统一由所属网域派生）；决策 101：host 另保留 `zone_env` **兼容导入列**（承接历史
 // Excel，不进标签、不作分区权威）——列位置严格按 §5.16.1 主机模板列序排在 `cluster`
 // 之后、`owner` 之前。
+//
+// 决策 D-7（P1）：五类列头**末尾**统一追加可选 `scrape_port` 列（实例级采集端口
+// 覆盖，0=未指定）——一律追加末尾、不插中间，防列序依赖断裂；旧模板（无该列）导入
+// 由 validateHeader 容缺，按 0 处理（见 excel.go）。
 var TemplateColumns = map[models.ResourceCategory][]string{
 	models.ResourceCategoryHost: {
 		"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
 		"biz_code", "app_code", "platform_code", "env", "cluster", "zone_env", "owner", "status",
+		"scrape_port",
 	},
 	models.ResourceCategoryDatabase: {
 		"network_domain", "database_type", "instance_ip", "port", "version",
 		"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+		"scrape_port",
 	},
 	models.ResourceCategoryMiddleware: {
 		"network_domain", "middleware_type", "instance_ip", "port", "version",
 		"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+		"scrape_port",
 	},
 	models.ResourceCategoryApplication: {
 		// 决策 105：service_code 为可选列，排在 service_name 之后（§5.16.1）。
 		"network_domain", "service_name", "service_code", "biz_code", "health_check_url", "protocol",
 		"endpoint", "port", "app_code", "platform_code", "env", "cluster", "owner", "status",
+		"scrape_port",
 	},
 	models.ResourceCategoryGenericTarget: {
 		// 决策 105：service_code 为可选列（§5.16.1 其他监控目标列序）。
 		"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
 		"exporter_type", "custom_labels", "service_code", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+		"scrape_port",
 	},
 }
 

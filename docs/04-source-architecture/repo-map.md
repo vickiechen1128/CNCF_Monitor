@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-10 15:47 · commit: `a2b5f95`
+> 生成时间: 2026-10-10 16:16 · commit: `308d789`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -194,6 +194,14 @@
 - `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
 - `func TestListZoneTypesEmpty(t *testing.T)`
 
+### `platform/admin/storagelog/diskusage_unix.go`
+
+- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
+
+### `platform/admin/storagelog/diskusage_windows.go`
+
+- `func diskUsage(dirPath string) (total, used, free uint64, err error)`
+
 ### `platform/admin/storagelog/handler.go`
 
 - `type Options struct`
@@ -211,6 +219,24 @@
 - `method (*Handler) diskEntries(tsdbPath string, rtOK bool) []diskInfo`
 - `func newDiskInfo(label, dirPath string) diskInfo`
 
+### `platform/admin/storagelog/handler_test.go`
+
+- `func newTestRouter(t *testing.T, envFile string, promURL *url.URL) *gin.Engine`
+- `func mockPromFlags(t *testing.T, retentionTime, retentionSize, tsdbPath string) *httptest.Server`
+- `func mustParseURL(t *testing.T, raw string) *url.URL`
+- `func perform(t *testing.T, r *gin.Engine, method, path, body string) *httptest.ResponseRecorder`
+- `func decodeOK(t *testing.T, w *httptest.ResponseRecorder) *overviewResponse`
+- `func decodeError(t *testing.T, w *httptest.ResponseRecorder) (errorType, errMsg string)`
+- `func TestGetOverview_RuntimeDefaultWhenEnvMissing(t *testing.T)`
+- `func TestGetOverview_PendingRestartOnRealDiff(t *testing.T)`
+- `func TestGetOverview_NoFalsePendingOnUnitDifference(t *testing.T)`
+- `func TestGetOverview_DegradesWhenPrometheusDown(t *testing.T)`
+- `func TestGetOverview_LogRootDiskRow(t *testing.T)`
+- `func TestUpdateRetention_InvalidInputs(t *testing.T)`
+- `func TestUpdateRetention_WritesEnvAndReportsPending(t *testing.T)`
+- `func TestUpdateRetention_SameAsRuntimeNoPending(t *testing.T)`
+- `func TestUpdateRetention_OverviewAlwaysPresent(t *testing.T)`
+
 ### `platform/admin/storagelog/retention.go`
 
 - `type RetentionValues struct`
@@ -223,6 +249,22 @@
 - `func bytesEqual(a, b string) bool`
 - `func readRetentionPolicy(path string) (vals RetentionValues, found bool, err error)`
 - `func writeRetentionPolicy(path string, vals RetentionValues) error`
+
+### `platform/admin/storagelog/retention_test.go`
+
+- `func TestValidateRetentionTime(t *testing.T)`
+- `func TestValidateRetentionSize(t *testing.T)`
+- `func TestValuesEqual_Normalized(t *testing.T)`
+- `func TestValuesEqual_ParseFailureFallsBackToString(t *testing.T)`
+- `func TestReadWriteRetentionPolicy(t *testing.T)`
+- `func TestReadRetentionPolicy_SkipsComments(t *testing.T)`
+- `func TestDiskUsage(t *testing.T)`
+- `func TestDetectLogRotation_SummaryAlwaysPresent(t *testing.T)`
+
+### `platform/admin/storagelog/system.go`
+
+- `func detectLogRotation() logRotationInfo`
+- `func readConf(path string) (content string, ok bool)`
 
 ### `platform/admin/tenant/handler.go`
 
@@ -1553,6 +1595,9 @@
 - `func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T)`
 - `func TestApplyCells_ScrapePort(t *testing.T)`
 - `func TestValidateImportRow_ScrapePort(t *testing.T)`
+- `func withoutScrapePort(cols []string) []string`
+- `func TestExcelLegacyTemplateWithoutScrapePortStillImports(t *testing.T)`
+- `func TestExcelTemplateWithScrapePortColumnWritesValue(t *testing.T)`
 
 ### `platform/config/resource/import.go`
 
@@ -4776,6 +4821,10 @@
 - `interface PreviewTargetsResult`
 - `const scrapeJobApi`
 
+### `ui-custom/web/src/api/storage.ts`
+
+- `const storageLogApi`
+
 ### `ui-custom/web/src/api/targets.ts`
 
 - `interface TargetsListParams`
@@ -4885,6 +4934,10 @@
 - `interface LoginLogFilters`
 - `interface UseLoginLogsResult`
 - `function useLoginLogs`
+
+### `ui-custom/web/src/pages/admin/storagelog/StorageLogPage.tsx`
+
+- `function StorageLogPage`
 
 ### `ui-custom/web/src/pages/admin/tenants/TenantDetailDrawer.tsx`
 
@@ -5860,6 +5913,15 @@
 - `interface ImportResult`
 - `type ImportMode`
 - `interface ImportRecord`
+
+### `ui-custom/web/src/types/storage.ts`
+
+- `interface RetentionValues`
+- `interface RetentionState`
+- `interface DiskInfo`
+- `interface LogRotationInfo`
+- `interface StorageLogOverview`
+- `interface RetentionInput`
 
 ### `ui-custom/web/src/types/strategy.ts`
 

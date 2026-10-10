@@ -47,7 +47,8 @@ func (e *ImportRowError) Error() string {
 
 // ParseExcel 解析上传的 Excel 字节（.xlsx）：读取 sheet1 首行表头并与该类型固定
 // 列模板（TemplateColumns，§5.16.1）逐列比对，列缺失/列名不符/多余列均返回错误
-// （handler 包装为 bad_request，不支持动态列）；随后按表头把每行映射为 ImportRow
+// （handler 包装为 bad_request，不支持动态列；唯一例外：末列 scrape_port 允许缺省，
+// 旧模板兼容、缺列按 0 处理——决策 D-7 P1）；随后按表头把每行映射为 ImportRow
 // （原始文本，含 Row 行号）。不执行行级校验——调用方需对每行调用
 // ValidateImportRow。未知资源类型返回错误。
 func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow, error) {
@@ -95,9 +96,14 @@ func ParseExcel(fileBytes []byte, category models.ResourceCategory) ([]ImportRow
 }
 
 // validateHeader 校验表头与固定列模板完全一致（§5.16.1 不支持动态列）。
+// 决策 D-7 P1：末列 `scrape_port` 允许整体缺省（旧模板无该列，导入按 0=未指定
+// 处理）；其余列仍逐列严格比对，列序依赖不放松。
 func validateHeader(header, expected []string) error {
 	if len(header) == 0 {
 		return fmt.Errorf("Excel 缺少表头行")
+	}
+	if len(header) == len(expected)-1 && expected[len(expected)-1] == "scrape_port" {
+		expected = expected[:len(expected)-1] // 旧模板缺 scrape_port 末列，按可缺省处理
 	}
 	for i, want := range expected {
 		if i >= len(header) {

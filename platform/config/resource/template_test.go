@@ -49,30 +49,37 @@ func allCategories() []models.ResourceCategory {
 	return models.ValidResourceCategories()
 }
 
-// TestTemplateColumnsMatchPRD 断言五类模板列头与 Module_07 §5.16.1 严格一致。
+// TestTemplateColumnsMatchPRD 断言五类模板列头与 Module_07 §5.16.1 严格一致
+// （决策 D-7 P1：五类末尾统一追加可选 scrape_port 列，一律末尾追加不插中间；
+// PRD §5.16.1 回填归设计侧，开发不改 PRD）。
 func TestTemplateColumnsMatchPRD(t *testing.T) {
 	expected := map[models.ResourceCategory][]string{
 		models.ResourceCategoryHost: {
 			"network_domain", "instance_name", "hostname", "instance_ip", "os_type",
 			"biz_code", "app_code", "platform_code", "env", "cluster", "zone_env", "owner", "status",
+			"scrape_port",
 		},
 		models.ResourceCategoryDatabase: {
 			"network_domain", "database_type", "instance_ip", "port", "version",
 			"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+			"scrape_port",
 		},
 		models.ResourceCategoryMiddleware: {
 			"network_domain", "middleware_type", "instance_ip", "port", "version",
 			"biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+			"scrape_port",
 		},
 		// 决策 105 / §5.16.1：application / generic_target 模板新增可选 service_code 列；
 	// 决策 110：五类模板均在 app_code 之后新增可空 platform_code 列。
 		models.ResourceCategoryApplication: {
 			"network_domain", "service_name", "service_code", "biz_code", "health_check_url", "protocol",
 			"endpoint", "port", "app_code", "platform_code", "env", "cluster", "owner", "status",
+			"scrape_port",
 		},
 		models.ResourceCategoryGenericTarget: {
 			"network_domain", "target_name", "instance_ip", "port", "metrics_path", "scheme",
 			"exporter_type", "custom_labels", "service_code", "biz_code", "app_code", "platform_code", "env", "cluster", "owner", "status",
+			"scrape_port",
 		},
 	}
 
