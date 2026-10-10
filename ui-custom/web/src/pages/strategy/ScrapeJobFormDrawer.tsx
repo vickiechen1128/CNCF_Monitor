@@ -24,7 +24,7 @@ import { labelTemplateApi } from '../../api/labelTemplates'
 import { scrapeJobApi, type ScrapeJobInput } from '../../api/scrapeJobs'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
 import type { NetworkDomain } from '../../types/domain'
-import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, CITypeExporterMapping, ExporterTemplate, MonitorType } from '../../types/strategy'
+import type { AuthType, BlackboxTarget, BlackboxTargetProtocol, CITypeExporterMapping, ExporterTemplate, JobType, MonitorType } from '../../types/strategy'
 import type { ScrapeJob } from '../../types/strategy'
 import type { ResourceCategory } from '../../types/resource'
 import type { LabelTemplateListItem } from '../../types/label'
@@ -84,7 +84,11 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
   const [mappingDefaults, setMappingDefaults] = useState<CITypeExporterMapping | null>(null)
 
   const isEdit = !!record
-  const jobType = Form.useWatch('job_type', form) ?? 'standard'
+  // 任务类型分支状态：编辑态由 record.job_type 直接决定（确定性，不依赖
+  // Form.useWatch 在 setFieldsValue 后的异步翻转——该异步翻转在真实浏览器中
+  // 偶发不触发，导致拨测 Job 编辑时仍停留在「采集」分支、已填的拨测信息不回显）。
+  // 新增态初值 standard，由下方 Radio onChange 切换。
+  const [jobType, setJobType] = useState<JobType>(record?.job_type ?? 'standard')
   const monitorType = Form.useWatch('monitor_type', form) as MonitorType | undefined
   // O2/T01-F15：登记采集器发起上下文 = 当前已选监控对象类型（预填 supported_monitor_types）；useMemo 稳定引用
   const registerInitialTypes = useMemo<MonitorType[] | undefined>(
@@ -119,6 +123,8 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
     // 异步请求回调内 setState；沿用本模块既有 set-state-in-effect 模式
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSubmitError(null)
+    // 编辑态分支由 record 决定（确定性），避免依赖 useWatch 异步翻转导致回显失败
+    setJobType(record ? (record.job_type as JobType) : 'standard')
     networkDomainApi
       .list({ page: 1, page_size: 100 })
       .then((res) => setDomains((res.data?.list ?? []).filter((d) => d.is_monitored && d.status === 'enabled')))
@@ -362,7 +368,7 @@ export function ScrapeJobFormDrawer({ open, record, onCancel, onSuccess }: Scrap
           </Col>
           <Col span={10}>
             <Form.Item label="任务类型" name="job_type" rules={[{ required: true }]}>
-              <Radio.Group buttonStyle="solid">
+              <Radio.Group buttonStyle="solid" onChange={(e) => setJobType(e.target.value as JobType)}>
                 <Radio.Button value="standard">采集</Radio.Button>
                 <Radio.Button value="blackbox">拨测</Radio.Button>
               </Radio.Group>

@@ -83,7 +83,7 @@ blackbox：job_type=blackbox 时 monitor_type/exporter_template_id 置空；blac
 | 方法 | 路径 | Query / 请求体 | 响应 data | 业务错误 | PRD 源 |
 |------|------|----------------|-----------|----------|--------|
 | GET | `/scrape-jobs/instance-candidates` | `monitor_type`(必填)、`network_domain_id`(必填)、`keyword`、`page`、`page_size` | `{list,...}`；item=InstanceCandidate{resource_id, instance_name, instance_ip, status, disabled}（status=offline 时 disabled=true 置灰） | — | §5.4/决策29 |
-| GET | `/scrape-jobs/:id/instances` | — | `{items,total}`：已选实例 + 安装状态（unconfirmed/confirmed） | `not_found` | §6.2.5 |
+| GET | `/scrape-jobs/:id/instances` | — | `{items,total,missing_count}`：已选实例 + 安装状态（unconfirmed/confirmed）；`total` = 有效实例数（`items.length`，后端已过滤软删/失效引用），`missing_count` = 选中集引用、但资源已被软删/不存在的失效引用数（F-39：分母与分子同源，缺失引用不虚高分母） | `not_found` | §6.2.5 |
 | POST | `/scrape-jobs/:id/instances/:resource_id/confirm` | `{confirmed_by(必填), actual_port?, notes?}` | 确认记录 | `bad_request`：资源不在选中集/非同域；`not_found` | §6.2.5 |
 | DELETE | `/scrape-jobs/:id/instances/:resource_id/confirm` | — | `{resource_id, job_id}` | `not_found` | §6.2.5 |
 | POST | `/scrape-jobs/:id/preview-targets` | — | 解析后的目标清单（standard→实例地址；blackbox→targets） | `not_found` | L2 接口预览 |

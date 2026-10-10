@@ -28,12 +28,16 @@ export interface JobScrapeStatusView {
   down: number
   pending: number
   total: number
+  /** 选中集引用、但资源已被软删/不存在的失效引用数（F-38/F-39：分母 total 不含此项） */
+  missingCount: number
   /** 是否已完成抓取（列表骨架未就绪时不渲染半态计数） */
   loaded: boolean
 }
 
-/** 对单个 Job 的已选实例做采集状态聚合（复用 upStatus 决策 47-2 推导） */
-function aggregateView(deployed: boolean, items: ScrapeJobInstanceItem[], upItems: PromVectorItem[]): JobScrapeStatusView {
+/** 对单个 Job 的已选实例做采集状态聚合（复用 upStatus 决策 47-2 推导）
+ * `missingCount` 来自 ListJobInstances 的 `missing_count`：选中集引用、但资源已软删/失效的引用数，
+ * 不参与分子分母，仅作为「另有 n 台实例资源已被删除」提示来源（F-38/F-39）。 */
+function aggregateView(deployed: boolean, items: ScrapeJobInstanceItem[], upItems: PromVectorItem[], missingCount = 0): JobScrapeStatusView {
   let online = 0
   let down = 0
   let pending = 0
@@ -44,7 +48,7 @@ function aggregateView(deployed: boolean, items: ScrapeJobInstanceItem[], upItem
     else pending += 1
   }
   const state: JobScrapeAggState = online > 0 ? 'collecting' : down > 0 ? 'down' : 'pending'
-  return { state, online, down, pending, total: items.length, loaded: true }
+  return { state, online, down, pending, total: items.length, missingCount, loaded: true }
 }
 
 /**
@@ -66,7 +70,7 @@ function aggregateProbeView(
     else pending += 1
   }
   const state: JobScrapeAggState = pass > 0 ? 'collecting' : fail > 0 ? 'down' : 'pending'
-  return { state, online: pass, down: fail, pending, total: targets.length, loaded: true }
+  return { state, online: pass, down: fail, pending, total: targets.length, missingCount: 0, loaded: true }
 }
 
 /**
@@ -108,8 +112,11 @@ export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record
         return [job.id, aggregateProbeView(deployed, targets, probeItems)]
       }
       let items: ScrapeJobInstanceItem[] = []
+      let missingCount = 0
       try {
-        items = (await scrapeJobApi.instances(job.id)).data?.items ?? []
+        const inst = await scrapeJobApi.instances(job.id)
+        items = inst.data?.items ?? []
+        missingCount = inst.data?.missing_count ?? 0
       } catch {
         // 实例拉取失败时保持空实例列表
       }
@@ -122,7 +129,7 @@ export function useJobScrapeStatus(jobs: ScrapeJob[], refreshMs = 20000): Record
           upItems = []
         }
       }
-      return [job.id, aggregateView(deployed, items, upItems)]
+      return [job.id, aggregateView(deployed, items, upItems, missingCount)]
     })
     // 全部 Job 聚合完成后一次性回写，避免逐条 setState 抖动
     void Promise.all(entries).then((results) => {

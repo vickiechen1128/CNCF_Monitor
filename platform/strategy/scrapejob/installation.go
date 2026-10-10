@@ -63,7 +63,11 @@ func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found
 }
 
 // ListJobInstances 是 GET /api/v2/platform/scrape-jobs/:id/instances 的 handler：
-// 返回该 Job 已选实例 + 安装状态。Job 未命中 not_found（api-contract-snapshot §6）。
+// 返回该 Job **仍存在资源**的已选实例 + 安装状态。Job 未命中 not_found
+// （api-contract-snapshot §6）。
+// 响应 data = {items, total, missing_count}：items 仅含资源未被软删的实例
+// （total = len(items)）；missing_count = 仍在 selected_instance_ids 但资源已不存在的
+// 失效引用数，供前端提示「Job 里有 n 台机器已被删除」，不混入 items 避免空行污染列表。
 func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, ok := parseJobID(c)
@@ -92,16 +96,28 @@ func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 			statusByResource[cnf.ResourceID] = string(cnf.Status)
 		}
 
+		// 遍历已选集构造实例列表：区分「资源仍存在」与「引用已失效」两种情况。
+		// 资源软删（M07 DELETE /resources/:id 置 DeletedAt）后 selected_instance_ids
+		// 无人回收（回收是另一条独立任务），若把查不到的 resource_id 也当正常实例返回，
+		// 会得到 instance_name/instance_ip 皆空的空白行；且 items.length 会与
+		// 前端 up 指标聚合出的 online 分子不同源（详情页「在线 x / 总数 y」分母虚高、
+		// 恒不收敛）。故此处过滤掉失效引用，仅计入 missing_count 对外暴露，
+		// 避免用户对「Job 少了几台」无知（M01 F-39）。total = len(items) 为有效实例数。
 		items := make([]jobInstanceItem, 0, len(job.SelectedInstanceIDs))
+		missing := 0
 		for _, rid := range job.SelectedInstanceIDs {
+			name, ip, found := resolveResourceMeta(db, rid)
+			if !found {
+				missing++
+				continue
+			}
 			st, ok := statusByResource[rid]
 			if !ok {
 				st = string(models.InstallationStatusUnconfirmed)
 			}
-			name, ip, _ := resolveResourceMeta(db, rid)
 			items = append(items, jobInstanceItem{ResourceID: rid, InstanceName: name, InstanceIP: ip, Status: st})
 		}
-		response.OK(c, gin.H{"items": items, "total": len(items)})
+		response.OK(c, gin.H{"items": items, "total": len(items), "missing_count": missing})
 	}
 }
 

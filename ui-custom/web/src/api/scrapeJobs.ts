@@ -78,10 +78,13 @@ export interface InstanceCandidateListParams extends Record<string, string | num
   page_size?: number
 }
 
-/** 已选实例 + 安装状态列表响应（GET /scrape-jobs/:id/instances，子资源 `items` 信封，§6.2.5） */
+/** 已选实例 + 安装状态列表响应（GET /scrape-jobs/:id/instances，子资源 `items` 信封，§6.2.5）
+ * `total` = 有效实例数（`items.length`，不含已软删/失效引用）；
+ * `missing_count` = 选中集引用、但资源已被软删/不存在的失效引用数（F-38/F-39 暴露口径）。 */
 export interface ScrapeJobInstancesResponse {
   items: ScrapeJobInstanceItem[]
   total: number
+  missing_count?: number
 }
 
 /** Exporter 安装确认输入（§6.2.5 / §8④：confirmed_by 固定 platform_admin） */

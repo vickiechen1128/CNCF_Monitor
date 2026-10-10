@@ -837,3 +837,45 @@
 - **发现场景**：M08 实例列对齐实施期逐 Tab 核对 M01 资源列表。
 - **状态**：closed（前端 + 后端已落地；第 3 项的键序修订为 M08 v1.15 三期增量的前置依赖）
 
+
+---
+
+## 2026-10-10（删除资源后 Job 列表「在线 29 / 总数 32」：分子分母不同源）
+
+### F-39：Job「实例采集状态」分母取原始选中数组、未剔除已删资源 → 分子分母不同源（② 实现偏差，2026-10-10）
+
+- **类别**：② 实现偏差（前端分母口径与分子不同源 + 后端选中关系未回收）
+- **PRD 章节 / 文件位置**：Module_01 §5.4（采集 Job 列表 / 实例采集状态列）；源码
+  `ui-custom/web/src/pages/strategy/ScrapeJobListPage.tsx:318`（分母）、
+  `ui-custom/web/src/pages/strategy/useScrapeJobStatus.ts:66-77`（分子）、
+  `platform/strategy/scrapejob/installation.go:95-103`（Job 实例列表遍历原始数组）
+- **现象（用户 2026-10-10 实测）**：软删 3 台主机后，采集 Job 列表 `tengxunyun-ceshi-host` 行显示
+  **「在线 29 / 总数 32」** 且为红色异常 Tag；点进详情可见 **3 条无实例名/IP 的空行**。用户判断「会造成数据指标统计偏差」——**成立**。
+- **根因（分子分母不同源）**：
+  - **分母**（`ScrapeJobListPage.tsx:318`）：`total = r.selected_instance_ids.length` = **32**，
+    取的是 `ScrapeJob.SelectedInstanceIDs` **原始 JSON 数组长度**——该数组在 M07 软删资源时**无人回收**，
+    仍含 3 个已失效 `resource_id`。
+  - **分子**（`useScrapeJobStatus.ts:66-77`）：`online` 由 M02 `up{job="<job_name>"}` 聚合得出 = **29**
+    （已删资源不可能有 up 样本）。
+  - → 同一 Tag 内**分子来自 Prometheus 实际采集、分母来自 DB 历史意图**，两者不同源，
+    删除资源后分母永不收敛，**偏差恒存在**（本次 3 台）。
+- **生成侧并非元凶（澄清）**：`generator/targets.go:272-281` 的 `resolveResource` 查不到即 skip，
+  已下发产物 `tengxunyun-ceshi-host.json` 实为 **29 targets**（草稿 #117 confirmed，deployment #76 success）——
+  **采集面是对的**，问题纯在 DB 选中关系残留 + 前端口径。
+- **修复方向（本轮派发，三处同源收敛）**：
+  1. **后端回收选中关系**：M07 删除资源时，从所有引用该 `resource_id` 的 `ScrapeJob.SelectedInstanceIDs` 中剔除
+     （`platform/config/resource/delete.go` 当前只清 `ResourceLabel`，对 ScrapeJob 无反向操作——
+     注意 `delete.go:29-32` 有 `TODO(M01): ScrapeJob 引用校验` 预留契约，本次须一并厘清：
+     是「删除时静默剔除」还是「删除时 403 拦截+ 列出引用 Job」，**属契约决策，见下**）。
+  2. **后端实例列表过滤**：`installation.go:95-103` 遍历时跳过查不到的 `resource_id`，
+     或显式标记 `resource_missing` 状态而非留空白行（避免"无名实例"）。
+  3. **前端分母口径**：分母改用「可解析的选中实例数」而非原始数组长度，使分子分母同源。
+- **影响模块**：M01（Job 列表 / 实例列表 / 前端状态列）；M07（删除资源写点）；M09（回收动作会改动
+  `ScrapeJob.updated_at` → 触发源数据版本推进 → 关联 M09 F-38）。
+- **关联**：M09 dev-feedback **F-38**（软删不推进源数据版本 → 变更检测失明，本条的后端回收修完后
+  会**顺带**推进 `ScrapeJob.updated_at`，是 F-38 根因的一部分）；M07 `api-contract-snapshot.md` §6.6.1
+  「删除被引用资源时 403 + 引用 Job 名单」的**预留契约**（`delete.go` 至今 `TODO(M01)` 未实现）。
+- **发现场景**：用户 2026-10-10 删除 3 台主机后追问「29/32 是否有偏差」，核对 DB 四表 + 前端渲染代码后定位。
+- **是否需设计侧确认**：**是**——「删除被 Job 引用的资源」是静默剔除还是 403 拦截，属 PRD §6.6.1 已写但未实现的
+  契约分支，须设计侧拍板后实现（静默剔除体验顺但可能让用户不知 Job 少了几台；403 拦截更安全但会打断删除动线）。
+- **状态**：**open**——前端口径 + 后端实例列表过滤已派发修复；删除写点的**契约分支待设计侧拍板**。

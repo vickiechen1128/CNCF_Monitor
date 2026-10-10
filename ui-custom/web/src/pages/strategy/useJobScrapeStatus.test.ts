@@ -91,6 +91,18 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
     expect(result.current[1]).toMatchObject({ state: 'collecting', online: 2, down: 0, pending: 0, total: 2 })
   })
 
+  it('已下发：响应 missing_count 透传到视图（资源软删后失效引用不计入分母，F-38/F-39）', async () => {
+    instancesMock.mockResolvedValue({
+      status: 'success',
+      data: { items: [instance('srv-1'), instance('srv-2')], total: 2, missing_count: 3 },
+    })
+    queryMock.mockResolvedValue(vector([up({ resource_id: 'srv-1' }), up({ resource_id: 'srv-2' })]))
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
+    // total=2 仅含有效实例（分母同源）；missingCount=3 为已软删/失效引用，供 Tooltip 提示
+    expect(result.current[1]).toMatchObject({ state: 'collecting', online: 2, total: 2, missingCount: 3 })
+  })
+
   it('已下发：无 online 但有 down 聚合为已下发未采到', async () => {
     instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('srv-1'), instance('srv-2')], total: 2 } })
     queryMock.mockResolvedValue(vector([up({ resource_id: 'srv-1' }, '0'), up({ resource_id: 'srv-2' }, '0')]))

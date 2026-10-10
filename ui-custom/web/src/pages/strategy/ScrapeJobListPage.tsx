@@ -311,17 +311,33 @@ function JobsTab() {
       render: (_: unknown, r: ScrapeJob) => {
         // 拨测 Job（F-12）按拨测目标聚合；标准 Job 按已选实例聚合。无目标/无实例时显示 '-'
         const isBlackbox = r.job_type === 'blackbox'
-        const total = isBlackbox ? (r.blackbox_targets?.length ?? 0) : r.selected_instance_ids.length
-        if (total === 0) return <Text type="secondary">-</Text>
+        // 已选集/拨测目标集本身为空时可直接判定无聚合对象（此时有效实例数必为 0，
+        // 与 v.total 无口径分歧），短路显示 '-' 避免无谓的 Spin 骨架。
+        const noAggregateTarget = isBlackbox ? (r.blackbox_targets?.length ?? 0) === 0 : r.selected_instance_ids.length === 0
+        if (noAggregateTarget) return <Text type="secondary">-</Text>
         const v = scrapeStatusByJob[r.id]
         if (!v) return <Spin size="small" />
+        // 分母与分子同源：一律取 useJobScrapeStatus 聚合出的 v.total（源自
+        // ListJobInstances 返回的有效实例集 / blackbox_targets），不再直接用
+        // selected_instance_ids.length。后者是 DB 里的历史「选择意图」数组，资源被软删后
+        // 无人回收，会与分子（up 指标实际采集、已删资源不可能有样本）不同源，
+        // 表现为「在线 29 / 总数 32」且分母永不收敛。
+        // 全部实例均已失效时 v.total=0 → 同样显示 '-'。
+        const total = v.total
+        if (total === 0) return <Text type="secondary">-</Text>
         const anomaly = v.down > 0 || v.pending > 0
         const onClick = () => setViewing(r)
         const text = isBlackbox ? `通过 ${v.online} / 总数 ${total}` : `在线 ${v.online} / 总数 ${total}`
+        // 已软删/失效的实例资源不计入分母（v.total 已排除），单独在 Tooltip 提示，
+        // 避免用户对「在线 x / 总数 y」少了几台毫无感知（M01 F-39 / M09 F-38）。
+        const missingNote =
+          !isBlackbox && v.missingCount > 0
+            ? `；另有 ${v.missingCount} 台实例资源已被删除（不计入分母）`
+            : ''
         const anomalyTip = isBlackbox
           ? '有拨测目标没通过，点一下查看是哪些目标'
-          : '有实例没采到数据，点一下查看是哪些实例、失败原因'
-        const normalTip = isBlackbox ? '点击查看各拨测目标的探测情况' : '点击查看各实例的采集情况'
+          : '有实例没采到数据，点一下查看是哪些实例、失败原因' + missingNote
+        const normalTip = isBlackbox ? '点击查看各拨测目标的探测情况' : '点击查看各实例的采集情况' + missingNote
         return anomaly ? (
           <Tooltip title={anomalyTip}>
             <Tag
