@@ -2,6 +2,7 @@ package generator
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -321,6 +322,40 @@ func TestLoadExporterPortPriority(t *testing.T) {
 		port, err := LoadExporterPort(db, models.ScrapeJob{})
 		require.NoError(t, err)
 		assert.Equal(t, 0, port)
+	})
+}
+
+// TestLoadExporterPortIsDefaultFilter 缺陷 D2（提案 resource-scrape-port-chain §7）：
+// LoadExporterPort 此前仅按 monitor_type 取行（Order is_default desc），is_default=false
+// 的映射行也会被选中参与端口解析；须与 strategy/scrapejob resolveJobScrapeParams 的
+// `monitor_type = ? AND is_default = true` 口径严格一致——非默认行不算命中。
+func TestLoadExporterPortIsDefaultFilter(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(&models.CITypeExporterMapping{}, &models.ExporterTemplate{}))
+
+	tmpl := &models.ExporterTemplate{Name: "d2-node-exporter", DefaultPort: 9100}
+	require.NoError(t, db.Create(tmpl).Error)
+	tmplID := strconv.FormatUint(uint64(tmpl.ID), 10)
+
+	t.Run("仅非默认映射时跳过映射层回落模板", func(t *testing.T) {
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{MonitorType: "d2_only_false", IsDefault: false, DefaultPort: 9999}).Error)
+		port, err := LoadExporterPort(db, models.ScrapeJob{MonitorType: "d2_only_false", ExporterTemplateID: tmplID})
+		require.NoError(t, err)
+		assert.Equal(t, 9100, port, "is_default=false 的映射不得参与端口解析，应回落采集器模板")
+	})
+
+	t.Run("仅非默认映射且无模板时返回 0", func(t *testing.T) {
+		port, err := LoadExporterPort(db, models.ScrapeJob{MonitorType: "d2_only_false"})
+		require.NoError(t, err)
+		assert.Equal(t, 0, port, "非默认映射不算命中，映射/模板皆缺返回 0")
+	})
+
+	t.Run("混合行只取 is_default=true", func(t *testing.T) {
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{MonitorType: "d2_mixed", IsDefault: false, DefaultPort: 9999}).Error)
+		require.NoError(t, db.Create(&models.CITypeExporterMapping{MonitorType: "d2_mixed", IsDefault: true, DefaultPort: 9100}).Error)
+		port, err := LoadExporterPort(db, models.ScrapeJob{MonitorType: "d2_mixed"})
+		require.NoError(t, err)
+		assert.Equal(t, 9100, port, "false=9999 / true=9100 混合行必须取默认行")
 	})
 }
 

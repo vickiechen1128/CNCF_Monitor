@@ -112,10 +112,14 @@ func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplat
 //  1. CITypeExporterMapping（按 monitor_type 的默认映射 default_port，映射表单可编辑）；
 //  2. 回落 ExporterTemplate（按 exporter_template_id 的 default_port）；
 //  3. 二者皆缺返回 0（host 不拼端口保持裸 IP；database/middleware 回落业务端口）。
+//
+// 缺陷 D2 修复（提案 resource-scrape-port-chain §7）：映射层严格限定 is_default=true，
+// 与 strategy/scrapejob resolveJobScrapeParams 的 `monitor_type = ? AND is_default = true`
+// 口径一致——同数据集两函数选中同一 mapping 行，is_default=false 的行不算命中。
 func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error) {
 	if job.MonitorType != "" {
 		var mapping models.CITypeExporterMapping
-		err := db.Where("monitor_type = ?", job.MonitorType).Order("is_default desc, created_at asc").First(&mapping).Error
+		err := db.Where("monitor_type = ? AND is_default = ?", job.MonitorType, true).First(&mapping).Error
 		if err == nil && mapping.DefaultPort > 0 {
 			return mapping.DefaultPort, nil
 		} else if err != nil && err != gorm.ErrRecordNotFound {
