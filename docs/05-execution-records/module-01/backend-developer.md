@@ -16,6 +16,7 @@
 | 7 | T01-P1：五类资源加 scrape_port + 录入链路 | scrape-port | `9d1c29e` | done |
 | 8 | T01-P2：LoadExporterPort 补 is_default=true 过滤（缺陷 D2） | scrape-port-chain | `b8fc824` | done |
 | 9 | T01-P3：新建共享叶子包 portchain + generator 四级链接入 | scrape-port-chain | `53128d8` | done |
+| 10 | T01-P7：下载模板五类列头末尾追加 scrape_port | scrape-port-chain | `498e026` | done |
 
 分支：`feat/module-01-strategy`（基自 develop）。
 
@@ -261,3 +262,32 @@
 - `go vet ./platform/...` exit 0；`gofmt -l` 改动文件无漂移。
 - 提交门禁：`go test ./platform/...` 全量无回归；`make repo-map` 已重新生成。
 - 服务启动验证：`make build-metric-center` 重建 → 启动 → `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 停止服务、8080 端口释放。
+
+## 2026-10-10（T01-P7：Excel 下载模板五类列头末尾追加 scrape_port）
+
+> 任务卡：`task-sequence.yaml` L1084-1108（T01-P7）；设计权威：提案 `resource-scrape-port-chain.md` §8 回填清单 #3/#5；PRD 依据：M07 PRD §5.16.1 :930（scrape_port 列已登记，**PRD 回填归设计侧，本任务不改 PRD**）。commit：`498e026`
+
+### 修改文件
+- `platform/config/resource/template.go`：`TemplateColumns` 五类列头**末尾**统一追加 `"scrape_port"`（一律末尾追加、不插中间，防列序依赖断裂）；注释补决策 D-7 P1 说明。
+- `platform/config/resource/template_test.go`：`TestTemplateColumnsMatchPRD` 期望值硬编码同步为五类末尾含 `scrape_port`（该测试与 M07 PRD §5.16.1 :930 严格对齐）。
+- `platform/config/resource/excel_test.go`：
+  - 新增 `TestExcelLegacyTemplateWithoutScrapePortStillImports`：五类旧列头（无 scrape_port 列）xlsx 解析 + 行级校验均成功，缺列按 0（未指定）处理；
+  - 新增 `TestExcelTemplateWithScrapePortColumnWritesValue`：五类新模板填 `19100` → `Input.ScrapePort=19100` 且校验通过；留空单元格 → 0；非数字 `abc` → -1 哨兵被行级拒绝（field=scrape_port、value=-1）；
+  - `TestParseExcel_HeaderErrors` 的 missing column 子用例改为缺末两列（status + scrape_port），保留「列头缺失」错误分支覆盖（scrape_port 单独缺省已合法）。
+- `platform/config/resource/excel.go`：**任务卡文件边界外的最小必要改动**——`validateHeader` 增加旧模板容缺（见下「问题与偏差」）；同步更新 `ParseExcel` 注释。
+
+### 关键实现决策
+- 容缺只放行「整体缺末列 scrape_port」一种形态：判定条件 `len(header)==len(expected)-1 && expected 末列为 scrape_port`；中间列缺失、列名不符、多余列仍全部报错，固定列模板约束不放松。
+- 容缺实现用 `expected = expected[:len(expected)-1]` 重切片，不修改 `TemplateColumns` 底层数组。
+- `applyCells` 按表头遍历（T01-P1 已就绪），缺列时 `ScrapePort` 保持零值 0，导入侧零改动。
+
+### 验证
+- `go test ./platform/config/resource/...` ✅（新增 2 个回归测试 + 全部既有用例全绿）
+- `go vet ./platform/config/...` ✅；`go vet ./platform/...` ✅
+- `go test ./platform/...` 全量 ✅（exit 0，无其他包回归）
+- 服务启动验证：本分支代码编译二进制以 `--listen-address :18080` + 临时 DSN 启动（8080 被他人实例占用，未动其进程），`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200（`/api/v2/platform/resources/host/template` 未带登录态返回 401，为 au-02 全局认证预期行为）→ 已停止服务、18080 端口释放。
+- pre-commit repo-map 门禁 ✅（`make repo-map` 刷新符号地图并随 feat 提交）。
+
+### 问题与偏差
+- **文件边界偏差（已随汇报显式说明）**：任务卡文件边界仅列 `template.go` / `template_test.go` / `excel_test.go`（excel.go 标注「只读核对」），但验收项「旧模板（无 scrape_port 列）导入仍成功」在 `excel.go` `validateHeader` 的严格逐列比对下**不可达**（旧模板表头比模板短一列，必报「列头缺失」）。故对 `excel.go` 做了 6 行最小容缺改动（`validateHeader` 头部 + 注释）；未触碰 `platform/strategy/`、`platform/configcenter/`。
+- M07 PRD §5.16.1 :930 模板列尚无 scrape_port 回填（{v0.2} 标注）——按红线由设计侧执行，开发不改 PRD。
