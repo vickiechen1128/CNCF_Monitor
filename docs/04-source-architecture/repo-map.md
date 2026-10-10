@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-10 12:08 · commit: `640b3c9`
+> 生成时间: 2026-10-10 15:33 · commit: `f58cdf5`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -193,6 +193,19 @@
 
 - `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
 - `func TestListZoneTypesEmpty(t *testing.T)`
+
+### `platform/admin/storagelog/retention.go`
+
+- `type RetentionValues struct`
+- `func ValidateRetentionTime(s string) error`
+- `func ValidateRetentionSize(s string) error`
+- `func parsePromDuration(s string) (time.Duration, error)`
+- `func parsePromBytes(s string) (int64, error)`
+- `func valuesEqual(a, b RetentionValues) bool`
+- `func durationEqual(a, b string) bool`
+- `func bytesEqual(a, b string) bool`
+- `func readRetentionPolicy(path string) (vals RetentionValues, found bool, err error)`
+- `func writeRetentionPolicy(path string, vals RetentionValues) error`
 
 ### `platform/admin/tenant/handler.go`
 
@@ -1521,6 +1534,8 @@
 - `func TestValidateRows_CollectsErrorsWithRowNumbers(t *testing.T)`
 - `func TestValidateRows_UnregisteredDomainCollected(t *testing.T)`
 - `func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T)`
+- `func TestApplyCells_ScrapePort(t *testing.T)`
+- `func TestValidateImportRow_ScrapePort(t *testing.T)`
 
 ### `platform/config/resource/import.go`
 
@@ -1736,6 +1751,23 @@
 - `func BuildListQuery(db *gorm.DB, category models.ResourceCategory, f ListFilter) *gorm.DB`
 - `func parseIntDefault(raw string, def, min int) int`
 
+### `platform/config/resource/references.go`
+
+- `type ResourceReferenceJob struct`
+- `func ListResourceReferences(db *gorm.DB) gin.HandlerFunc`
+- `func containsInstance(ids []string, target string) bool`
+
+### `platform/config/resource/references_test.go`
+
+- `func openReferencesTestDB(t *testing.T) *gorm.DB`
+- `func refJob(jobName, domain string, ids []string, enabled bool) models.ScrapeJob`
+- `func mountReferences(t *testing.T, db *gorm.DB) *gin.Engine`
+- `type refResponse struct`
+- `func doReferences(t *testing.T, r *gin.Engine, resourceID string) (*httptest.ResponseRecorder, refResponse)`
+- `func TestListResourceReferences_Referenced(t *testing.T)`
+- `func TestListResourceReferences_NoReference(t *testing.T)`
+- `func TestListResourceReferences_NotFound(t *testing.T)`
+
 ### `platform/config/resource/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, c…`
@@ -1834,6 +1866,7 @@
 - `func validateBizCodeEnabled(code string, bizStore *BusinessDomainStore) error`
 - `func validateAppCodeEnabled(code string, appStore *ApplicationDictStore) error`
 - `func validateServiceCodeEnabled(in *ResourceInput, svcStore *ServiceDictStore, keep *KeepDisabledValues) error`
+- `func validateScrapePort(in *ResourceInput) error`
 - `func validateHost(in *ResourceInput) error`
 - `func validateDatabase(in *ResourceInput) error`
 - `func validateMiddleware(in *ResourceInput) error`
@@ -1878,6 +1911,11 @@
 - `func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T)`
 - `func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *testing.T)`
 - `func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T)`
+- `func scrapePortInput(category models.ResourceCategory) *ResourceInput`
+- `func TestValidateResourceInput_ScrapePort(t *testing.T)`
+- `func TestScrapePortAutoMigrateAddsColumn(t *testing.T)`
+- `func TestGetResourceField_ScrapePort(t *testing.T)`
+- `func TestScrapePort_CreateUpdateListChannels(t *testing.T)`
 
 ### `platform/configcenter/change/watcher.go`
 
@@ -2291,7 +2329,10 @@
 - `func TestResolveTargetsUnconfirmedIncluded(t *testing.T)`
 - `func TestResolveTargetsInjectsResourceID(t *testing.T)`
 - `func TestResolveTargetsExporterPort(t *testing.T)`
+- `func TestExporterPortOrEquivalenceToPortchain(t *testing.T)`
+- `func TestResolveTargetsScrapePortChain(t *testing.T)`
 - `func TestLoadExporterPortPriority(t *testing.T)`
+- `func TestLoadExporterPortIsDefaultFilter(t *testing.T)`
 - `func TestMergeLabelsPriority(t *testing.T)`
 - `func TestValidateTargetGroups(t *testing.T)`
 - `func TestValidateTargetGroupsRejectsEmpty(t *testing.T)`
@@ -2508,7 +2549,6 @@
 
 - `type SkippedInstance struct`
 - `func addressEmptyDetail(category string) string`
-- `func exporterPortOr(exporterPort, fallback int) int`
 - `func resolveResource(db *gorm.DB, resourceID string, exporterPort int) (*resourceTarget, error)`
 - `func instanceAddress(ip string, port int) string`
 - `func materializePrimaryPlatform(db *gorm.DB, rt *resourceTarget, cache map[string]string) map[string]string`
@@ -2548,6 +2588,17 @@
 - `func TestRunToolChecksClassifiesPlatformMismatchAsUnavailable(t *testing.T)`
 - `func TestRunToolChecksClassifiesBlackboxPlatformMismatchAsUnavailable(t *testing.T)`
 - `func TestRunToolChecksClassifiesConfigErrorAsUserConfig(t *testing.T)`
+
+### `platform/configcenter/portchain/portchain.go`
+
+- `func Resolve(scrapePort, mappingPort, templatePort, businessPort int) (port int, source string)`
+
+### `platform/configcenter/portchain/portchain_test.go`
+
+- `func TestResolveFourLevelPermutations(t *testing.T)`
+- `func TestResolveAllZeroUnresolved(t *testing.T)`
+- `func TestResolveZeroTierFallsThrough(t *testing.T)`
+- `func TestResolveHostNoBusinessTier(t *testing.T)`
 
 ### `platform/configcenter/register.go`
 
@@ -2782,6 +2833,7 @@
 - `method (stubProbe) Start(*supervisor.Component) error`
 - `method (stubProbe) Stop(*supervisor.Component) error`
 - `func TestRuntimeProviderSnapshotCarriesTargets(t *testing.T)`
+- `func TestRuntimeProviderSnapshotCarriesRemoteWriteStats(t *testing.T)`
 - `func TestRuntimeProviderSnapshotTargetsDegrade(t *testing.T)`
 - `func TestEnvOr(t *testing.T)`
 - `func TestVersionFlagString(t *testing.T)`
@@ -2845,8 +2897,10 @@
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote.go`
 
 - `type vmRemoteWriteStats struct`
+- `method (vmRemoteWriteStats) BacklogBytes() int64`
 - `func fetchVMAgentRemoteWriteStats(ctx context.Context, cli *http.Client, baseURL string, warnf func(format string, args ...a…`
 - `func parsePromGauge(body, metric string) (float64, bool)`
+- `func parsePromSum(body, metric string) float64`
 - `func cutMetricLine(line, metric string) (string, bool)`
 - `func parsePromValue(rest string) (float64, bool)`
 
@@ -2856,6 +2910,9 @@
 - `func TestFetchVMAgentRemoteWriteStats(t *testing.T)`
 - `func TestFetchVMAgentRemoteWriteStatsNoFailure(t *testing.T)`
 - `func TestFetchVMAgentRemoteWriteStatsDegrades(t *testing.T)`
+- `func TestParsePromSum(t *testing.T)`
+- `func TestBacklogBytes(t *testing.T)`
+- `func TestFetchVMAgentRemoteWriteStatsPersistentQueue(t *testing.T)`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/vmtargets.go`
 
@@ -2924,6 +2981,7 @@
 ### `platform/edge-sync-agent/internal/contract/contract_test.go`
 
 - `func TestHeartbeatRequestJSONRoundTrip(t *testing.T)`
+- `func TestHeartbeatRequestJSONCarriesRemoteWriteStats(t *testing.T)`
 - `func TestHeartbeatResponseJSON(t *testing.T)`
 - `func TestMetadataJSONAlignsCenter(t *testing.T)`
 - `func TestPathConstants(t *testing.T)`
@@ -3134,6 +3192,7 @@
 - `func TestHeartbeatRecordsLastConfigPullOnVersionAdvance(t *testing.T)`
 - `func TestHeartbeatRecordsLastConfigPullOnApplyFailed(t *testing.T)`
 - `func TestHeartbeatPersistsRemoteWriteLastError(t *testing.T)`
+- `func TestHeartbeatPersistsRemoteWriteDropAndRetryStats(t *testing.T)`
 - `func TestHeartbeatService_NoConfigVersion(t *testing.T)`
 - `func TestHeartbeatHandlerConfigDownloadURL(t *testing.T)`
 - `func TestRequestAuthorityFallsBackToRequestHost(t *testing.T)`
@@ -3185,11 +3244,11 @@
 
 ### `platform/edge/management_handler.go`
 
-- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string)`
+- `func RegisterManagementRoutes(platform *gin.RouterGroup, db *gorm.DB, dir string, lagQuerier SampleLagQuerier)`
 - `func RetireDomainHandler(db *gorm.DB) gin.HandlerFunc`
 - `func respondRetireError(c *gin.Context, err error)`
-- `func ListAgentsHandler(db *gorm.DB) gin.HandlerFunc`
-- `func GetAgentHandler(db *gorm.DB) gin.HandlerFunc`
+- `func ListAgentsHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc`
+- `func GetAgentHandler(db *gorm.DB, lagQuerier SampleLagQuerier) gin.HandlerFunc`
 - `func respondAgentError(c *gin.Context, err error)`
 - `func ListPackagesHandler(dir string) gin.HandlerFunc`
 - `func DownloadLatestPackageHandler(dir string) gin.HandlerFunc`
@@ -3208,6 +3267,7 @@
 - `func ListAgents(db *gorm.DB, now time.Time, threshold time.Duration) (*EdgeAgentsResponse, error)`
 - `func GetAgent(db *gorm.DB, id uint, now time.Time, threshold time.Duration) (*AgentView, error)`
 - `func normThreshold(t time.Duration) time.Duration`
+- `func fillSampleLags(views []AgentView, q SampleLagQuerier)`
 
 ### `platform/edge/management_test.go`
 
@@ -3276,6 +3336,27 @@
 ### `platform/edge/register.go`
 
 - `func RegisterRoutes(group *gin.RouterGroup, db *gorm.DB)`
+
+### `platform/edge/remote_write_lag.go`
+
+- `type SampleLagQuerier interface`
+- `type PromSampleLagQuerier struct`
+- `func NewPromSampleLagQuerier(base *url.URL, client *http.Client) *PromSampleLagQuerier`
+- `type promQueryResponse struct`
+- `method (*PromSampleLagQuerier) QueryDomainLags(ctx context.Context) (map[string]int64, error)`
+- `method (*PromSampleLagQuerier) fetch(ctx context.Context) (map[string]int64, error)`
+- `func toSeconds(v interface{}) (int64, bool)`
+
+### `platform/edge/remote_write_lag_test.go`
+
+- `func TestPromSampleLagQuerierParsesVector(t *testing.T)`
+- `func TestPromSampleLagQuerierTTLCache(t *testing.T)`
+- `func TestPromSampleLagQuerierUpstreamFailure(t *testing.T)`
+- `func TestPromSampleLagQuerierNegativeLagClampedToZero(t *testing.T)`
+- `type stubLagQuerier struct`
+- `method (stubLagQuerier) QueryDomainLags(context.Context) (map[string]int64, error)`
+- `func TestFillSampleLags(t *testing.T)`
+- `func mustParseURL(t *testing.T, raw string) *url.URL`
 
 ### `platform/edge/zipper.go`
 
@@ -4635,6 +4716,8 @@
 
 - `interface ResourceListParams`
 - `interface ResourceLabelsResponse`
+- `interface ResourceReferenceJob`
+- `interface ResourceReferenceResponse`
 - `interface ResourceLabelCreateInput`
 - `interface ResourceLabelUpdateInput`
 - `interface BusinessDomainsResponse`
@@ -5160,6 +5243,11 @@
 - `const componentStatusColor`
 - `const HIGH_RISK_COMPONENT_STATUS`
 - `function formatBacklogBytes`
+- `const SAMPLE_LAG_WARN_SECONDS`
+- `const SAMPLE_LAG_DANGER_SECONDS`
+- `const SAMPLE_LAG_TOOLTIP`
+- `function formatSampleLag`
+- `function sampleLagSeverity`
 - `function compareVersions`
 - `function latestPackageVersion`
 
@@ -5475,6 +5563,7 @@
 - `const AUTH_TYPE_MAP`
 - `const SCRAPE_STATUS_META`
 - `const DOWN_TOOLTIP`
+- `const STALE_TOOLTIP`
 - `const COLLECTION_STATUS_TOOLTIP`
 - `const EFFECTIVE_STATUS_TOOLTIP`
 - `const CHANGE_PROGRESS_TOOLTIP`
@@ -5483,6 +5572,7 @@
 
 - `function hostOf`
 - `function upQueryForJob`
+- `function lastUpQueryForJob`
 - `function statusFromUp`
 - `function probeQueryForJob`
 - `function probeStatusOfTarget`
@@ -5497,6 +5587,7 @@
 
 - `type JobInstanceScrapeStatus`
 - `interface JobScrapeStatusSummary`
+- `function queryVector`
 - `function useScrapeJobStatus`
 
 ### `ui-custom/web/src/pages/strategy/useScrapeJobs.ts`
