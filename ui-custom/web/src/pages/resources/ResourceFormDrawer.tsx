@@ -723,8 +723,17 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
                 </Form.Item>
               </Col>
               <Col span={12}>
+                {/* 端口是中间件实例身份的一部分（与 instance_ip 共同构成采集目标 `ip:port`），
+                    data-testid 供测试精确定位——label 文案「端口」在 host 表单不渲染，
+                    但跨类别断言时按testid 定位更稳（antd label 会被 requiredMark 注入额外文本）。 */}
                 <Form.Item label="端口" name="port" rules={portRules}>
-                  <InputNumber style={{ width: '100%' }} min={1} max={65535} placeholder="例如：9092" />
+                  <InputNumber
+                    style={{ width: '100%' }}
+                    min={1}
+                    max={65535}
+                    placeholder="例如：9092"
+                    data-testid="middleware-port-input"
+                  />
                 </Form.Item>
               </Col>
             </Row>

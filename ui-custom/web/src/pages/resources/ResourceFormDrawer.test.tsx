@@ -216,6 +216,27 @@ async function fillHostRequiredFields() {
 }
 
 /**
+ * 填中间件必填字段（网域 / 业务 / 环境 / 运行状态 / 应用 / 中间件类型 / IP）。
+ * §5.2：middleware 的 app_code 必填，故与host 一致需选应用。
+ * 端口由各用例单独填写（边界/正常值差异）。
+ */
+async function fillMiddlewareRequiredFields() {
+  openSelect('请选择网域')
+  fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+  openSelect('请选择业务')
+  fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+  openSelect('请选择环境')
+  fireEvent.click(await screen.findByText('prod'))
+  openSelect('请选择运行状态')
+  fireEvent.click(await screen.findByText('在线'))
+  openSelect('请选择应用')
+  fireEvent.click(await screen.findByText('订单应用 (order)'))
+  openSelect('请选择中间件类型')
+  fireEvent.click(await screen.findByText('nginx'))
+  fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.31'), { target: { value: '10.0.1.31' } })
+}
+
+/**
  * 操作系统字段为 antd AutoComplete（内部渲染成 Select combobox 模式）：
  * placeholder 渲染为 div.ant-select-selection-placeholder 文本，输入框不带
  * placeholder 属性，故不能按 getByPlaceholderText 定位；AutoComplete 根节点
@@ -518,6 +539,101 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByText('中间件类型')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('例如：9092')).toBeInTheDocument()
     expect(screen.queryByText('数据库类型')).toBeNull()
+  })
+
+  // ---- 中间件「端口」字段（实例身份的一部分，与 instance_ip 共同构成采集目标 `ip:port`）----
+
+  it('中间件表单渲染「端口」字段且限定 1-65535',async () => {
+    renderDrawer({ category: 'middleware' })
+    const portInput = screen.getByTestId('middleware-port-input')
+    expect(portInput).toBeInTheDocument()
+    expect(portInput).toHaveAttribute('placeholder', '例如：9092')
+    // InputNumber 不把 min/max 渲染成 HTML 属性，而是经 spinbutton 语义暴露为
+    // aria-valuemin/aria-valuemax（antd5 实测），故按aria 断言范围约束。
+    expect(portInput).toHaveAttribute('aria-valuemin', '1')
+    expect(portInput).toHaveAttribute('aria-valuemax', '65535')
+  })
+
+  it('中间件端口为空时必填校验拦截提交', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    // 端口必填（§5.16：database / middleware / application 的采集端口一律必填）
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    expect(await screen.findByText('请输入端口', { selector: '.ant-form-item-explain-error' })).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('中间件端口越界时钳制到边界而非报错', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFields()
+    // 上界：输入 70000，InputNumber 在失焦时钳制到 max=65535（antd5 实测行为），
+    // 因此不会触发 rules 的越界文案——边界由控件层收敛，rules 只兜控件未覆盖的路径。
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '70000' } })
+    fireEvent.blur(screen.getByTestId('middleware-port-input'))
+    await waitFor(() => expect(screen.getByTestId('middleware-port-input')).toHaveValue('65535'))
+
+    // 下界：输入 0 同样被钳制到 min=1，不会产生 0 或负端口
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '0' } })
+    fireEvent.blur(screen.getByTestId('middleware-port-input'))
+    await waitFor(() => expect(screen.getByTestId('middleware-port-input')).toHaveValue('1'))
+
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    // 落库端口恒为合法值，杜绝 port=0 进入采集目标拼接
+    expect(createMock.mock.calls[0][0]).toMatchObject({ port: 1 })
+  })
+
+  it('中间件提交时携带端口值（与 IP 共同构成采集目标 ip:port）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFields()
+    // nginx 业务端口 80（此前误录 6379 导致采集 up=0）
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '80' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({
+      resource_category: 'middleware',
+      middleware_type: 'nginx',
+      instance_ip: '10.0.1.31',
+      port: 80,
+    })
+    expect(successMock).toHaveBeenCalled()
+    expect(cancelMock).toHaveBeenCalled()
+  })
+
+  it('中间件编辑态回显端口并随保存带回', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({
+      mode: 'edit',
+      category: 'middleware',
+      record: {
+        ...hostRecord(),
+        resource_id: 'mc-mw-1',
+        resource_category: 'middleware',
+        middleware_type: 'nginx',
+        instance_name: undefined,
+        hostname: undefined,
+        os_type: undefined,
+        instance_ip: '172.16.1.2',
+        port: 80,
+      } as ResourceListItem,
+    })
+    // 编辑回显：端口输入框带出资源行既有值
+    await waitFor(() => expect(screen.getByTestId('middleware-port-input')).toHaveValue('80'))
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    const payload = updateMock.mock.calls[0][1] as Record<string, unknown>
+    expect(payload).toMatchObject({
+      middleware_type: 'nginx',
+      instance_ip: '172.16.1.2',
+      port: 80,
+    })
+    // §6.1：编辑请求体不带 resource_category（不可改字段不随请求体下发）
+    expect(payload.resource_category).toBeUndefined()
   })
 
   it('renders application and generic target differentiated fields', async () => {
