@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-10 16:16 · commit: `308d789`
+> 生成时间: 2026-10-10 16:23 · commit: `d1353c9`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2661,6 +2661,7 @@
 - `func TestResolveAllZeroUnresolved(t *testing.T)`
 - `func TestResolveZeroTierFallsThrough(t *testing.T)`
 - `func TestResolveHostNoBusinessTier(t *testing.T)`
+- `func TestResolveHostCallFormNeverBusiness(t *testing.T)`
 
 ### `platform/configcenter/register.go`
 
@@ -4536,6 +4537,13 @@
 - `func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc`
 - `func CancelInstallation(db *gorm.DB) gin.HandlerFunc`
 
+### `platform/strategy/scrapejob/installation_test.go`
+
+- `func TestListInstancesPortSourceInstanceAndMapping(t *testing.T)`
+- `func TestListInstancesPortSourceTemplate(t *testing.T)`
+- `func TestListInstancesPortSourceUnresolvedHostNeverBusiness(t *testing.T)`
+- `func TestListInstancesPortSourceBusinessMiddlewareNotBlocked(t *testing.T)`
+
 ### `platform/strategy/scrapejob/list.go`
 
 - `func ListScrapeJobs(db *gorm.DB) gin.HandlerFunc`
@@ -4547,6 +4555,26 @@
 - `func PreviewTargets(db *gorm.DB) gin.HandlerFunc`
 - `func applicationTargetAddress(a *models.Application) string`
 - `func resolveInstanceAddress(db *gorm.DB, resourceID string) string`
+- `func resolveInstanceScrapePort(db *gorm.DB, job *models.ScrapeJob, resourceID string) (int, string)`
+- `func mappingDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
+- `func templateDefaultPort(db *gorm.DB, job *models.ScrapeJob) int`
+
+### `platform/strategy/scrapejob/preview_test.go`
+
+- `type previewEnvelope struct`
+- `func postPreviewTargets(t *testing.T, r *gin.Engine, jobID string) (previewEnvelope, int)`
+- `func seedStandardJob(t *testing.T, db *gorm.DB, name string, resourceType models.ResourceType, monitorType, exporterTemplate…`
+- `func jobIDString(job *models.ScrapeJob) string`
+- `func seedDefaultHostMapping(t *testing.T, db *gorm.DB, monitorType string, defaultPort int)`
+- `func seedPortExporter(t *testing.T, db *gorm.DB, name string, defaultPort int) string`
+- `func setHostScrapePort(t *testing.T, db *gorm.DB, resourceID string, port int)`
+- `func TestPreviewTargetsPortSourceInstanceAndMapping(t *testing.T)`
+- `func TestPreviewTargetsPortJSONContractKeys(t *testing.T)`
+- `func TestPreviewTargetsPortSourceTemplate(t *testing.T)`
+- `func TestPreviewTargetsPortSourceUnresolved(t *testing.T)`
+- `func TestPreviewTargetsPortSourceBusinessNotBlocked(t *testing.T)`
+- `func TestPreviewTargetsApplicationPortBypassesChain(t *testing.T)`
+- `func TestPreviewTargetsBlackboxNoPortChain(t *testing.T)`
 
 ### `platform/strategy/scrapejob/routes.go`
 

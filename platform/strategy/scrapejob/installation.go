@@ -21,6 +21,11 @@ type jobInstanceItem struct {
 	InstanceIP   string `json:"instance_ip"`
 	// 未找到该实例的确认记录时 status 为 unconfirmed（默认）。
 	Status string `json:"status"`
+	// Port/PortSource 是生效端口与来源（提案 resource-scrape-port-chain §5.3
+	// 抽屉只读回显），经 resolveInstanceScrapePort → portchain.Resolve 与
+	// preview-targets 同源；枚举 instance/mapping/template/business/unresolved。
+	Port       int    `json:"port"`
+	PortSource string `json:"port_source"`
 }
 
 // resolveResourceMeta 按 resource_id 跨五类资源表定位实例展示名与 IP。口径对齐
@@ -115,7 +120,11 @@ func ListJobInstances(db *gorm.DB) gin.HandlerFunc {
 			if !ok {
 				st = string(models.InstallationStatusUnconfirmed)
 			}
-			items = append(items, jobInstanceItem{ResourceID: rid, InstanceName: name, InstanceIP: ip, Status: st})
+			port, source := resolveInstanceScrapePort(db, &job, rid)
+			items = append(items, jobInstanceItem{
+				ResourceID: rid, InstanceName: name, InstanceIP: ip, Status: st,
+				Port: port, PortSource: source,
+			})
 		}
 		response.OK(c, gin.H{"items": items, "total": len(items), "missing_count": missing})
 	}
