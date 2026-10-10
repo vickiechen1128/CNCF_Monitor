@@ -23,13 +23,14 @@ vi.mock('../../api/query', () => ({
 }))
 
 // 抽屉内「查看全部监控目标状态」用 useNavigate 跳转 /targets，需在 Router 上下文中渲染。
-// 包裹模式对齐 ResourceDetailDrawer.test：MemoryRouter + Routes 供 /targets 跳转断言。
+// 包裹模式对齐 ResourceDetailDrawer.test：MemoryRouter + Routes 供 /targets 与「前往 M07 修改」（/resources）跳转断言。
 function renderDrawer(element: React.ReactNode) {
   return render(
     <MemoryRouter initialEntries={['/scrape-jobs']}>
       <Routes>
         <Route path="/scrape-jobs" element={element} />
         <Route path="/targets" element={<div>targets-page</div>} />
+        <Route path="/resources" element={<div>resources-page</div>} />
       </Routes>
     </MemoryRouter>,
   )
@@ -246,5 +247,68 @@ describe('ScrapeJobDetailDrawer（T01-47-B4 Job 详情对齐原型）', () => {
     // 引导跳转「监控目标状态」页（/targets）
     fireEvent.click(screen.getByRole('button', { name: '查看全部监控目标状态' }))
     expect(screen.getByText('targets-page')).toBeInTheDocument()
+  })
+
+  // {T01-P6} 生效端口回显：实例行内四种来源标注 + instance 无警示/引导 + unresolved 展示 '-'
+  // + port_source 为空（旧数据/blackbox 项）不渲染 + 不一致引导跳 /resources
+  it('实例行内展示生效端口与四种来源标注（T01-P6）', async () => {
+    instancesMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        items: [
+          { ...instance('a'), port: 9100, port_source: 'instance' },
+          { ...instance('b'), port: 9104, port_source: 'template' },
+          { ...instance('c'), port: 8080, port_source: 'business' },
+          { ...instance('d'), port: 0, port_source: 'unresolved' },
+          instance('e'),
+        ],
+        total: 5,
+      },
+    })
+    targetsListMock.mockResolvedValue({
+      status: 'success',
+      data: { activeTargets: [], droppedTargets: [], targetsByJob: {} },
+    })
+
+    renderDrawer(
+      <ScrapeJobDetailDrawer
+        open
+        job={job({ selected_instance_ids: ['a', 'b', 'c', 'd', 'e'] })}
+        onClose={() => {}}
+        getDefaultMapping={() => undefined}
+      />,
+    )
+
+    expect(await screen.findByText('已选实例（5）')).toBeInTheDocument()
+    const rowA = screen.getByText('srv-a').closest('.ant-list-item') as HTMLElement
+    const rowB = screen.getByText('srv-b').closest('.ant-list-item') as HTMLElement
+    const rowC = screen.getByText('srv-c').closest('.ant-list-item') as HTMLElement
+    const rowD = screen.getByText('srv-d').closest('.ant-list-item') as HTMLElement
+    const rowE = screen.getByText('srv-e').closest('.ant-list-item') as HTMLElement
+
+    // instance：有端口与标注，无警示、无引导
+    expect(within(rowA).getByText('9100')).toBeInTheDocument()
+    expect(within(rowA).getByText('实例覆盖')).toBeInTheDocument()
+    expect(within(rowA).queryByText(/⚠️/)).toBeNull()
+    expect(within(rowA).queryByText('前往 M07 修改')).toBeNull()
+
+    // template：有标注 + 不一致引导
+    expect(within(rowB).getByText('9104')).toBeInTheDocument()
+    expect(within(rowB).getByText('采集器默认')).toBeInTheDocument()
+    expect(within(rowB).getByText('前往 M07 修改')).toBeInTheDocument()
+
+    // business：⚠️ 警示标注（详情无保存按钮，不阻断体现在可正常关闭抽屉）
+    expect(within(rowC).getByText(/业务端口兜底/)).toBeInTheDocument()
+
+    // unresolved：端口展示 '-' 而非 0（§9 失败态口径）
+    expect(within(rowD).getByText('-')).toBeInTheDocument()
+    expect(within(rowD).queryByText('0')).toBeNull()
+
+    // port_source 为空（blackbox 项 / 旧数据）：不渲染来源标注
+    expect(within(rowE).queryByText('生效端口')).toBeNull()
+
+    // 不一致引导跳转 /resources（M07 资源页）
+    fireEvent.click(within(rowB).getByText('前往 M07 修改'))
+    expect(await screen.findByText('resources-page')).toBeInTheDocument()
   })
 })

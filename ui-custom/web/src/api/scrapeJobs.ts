@@ -96,7 +96,17 @@ export interface ConfirmInstanceInput {
 
 /** preview-targets 目标清单（standard→实例地址；blackbox→targets，§6） */
 export interface PreviewTargetsResult {
-  targets: { address: string; protocol?: string }[]
+  targets: {
+    address: string
+    protocol?: string
+    /** {T01-P6} standard 目标生效端口（blackbox 恒 0，不进端口解析链，D3 矩阵） */
+    port?: number
+    /**
+     * {T01-P6} 生效端口来源（与 GET /instances items 同源，api-contract-snapshot §6）：
+     * instance / mapping / template / business / unresolved；blackbox 为空串。
+     */
+    port_source?: string
+  }[]
 }
 
 /** 采集 Job 管理（CRUD + 实例候选 + 安装确认 + preview，§5/§6） */
