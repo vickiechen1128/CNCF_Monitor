@@ -53,6 +53,19 @@ export interface ResourceLabelsResponse {
   total: number
 }
 
+/** 引用该资源的采集 Job 视图（GET /resources/:resource_id/referenced-by，B 方案知情确认，dev-feedback §15 F-21） */
+export interface ResourceReferenceJob {
+  job_name: string
+  network_domain_id: string
+  enabled: boolean
+}
+
+/** 资源被采集 Job 引用查询响应（GET /resources/:resource_id/referenced-by，§6.6.1） */
+export interface ResourceReferenceResponse {
+  jobs: ResourceReferenceJob[]
+  total: number
+}
+
 /** 新增 user 来源标签输入（§6.2） */
 export interface ResourceLabelCreateInput {
   key: string
@@ -150,6 +163,13 @@ export const resourceApi = {
   remove(resourceId: string): Promise<ApiResponse<{ resource_id: string }>> {
     return apiClient.delete<{ resource_id: string }>(
       `/api/v2/platform/resources/${encodeURIComponent(resourceId)}`,
+    )
+  },
+  /** 查询引用该资源的采集 Job 名单（GET /resources/:resource_id/referenced-by，§6.6.1 引用名单口径；
+   *  B 方案知情确认：删除二次确认弹窗据此回显引用数 + 「查看引用 Job」跳转，dev-feedback §15 F-21） */
+  referencedBy(resourceId: string): Promise<ApiResponse<ResourceReferenceResponse>> {
+    return apiClient.get<ResourceReferenceResponse>(
+      `/api/v2/platform/resources/${encodeURIComponent(resourceId)}/referenced-by`,
     )
   },
   /** 下载 xlsx 模板（含取值说明 sheet），返回 Blob 供前端触发下载 */

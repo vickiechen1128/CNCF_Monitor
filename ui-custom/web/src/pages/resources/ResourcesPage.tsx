@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import config from 'antd/locale/zh_CN'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { MainLayout } from '../../layouts/MainLayout'
 import { FilterBar, FilterItem } from '../../components/FilterBar'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import {
   Alert,
+  App,
   Badge,
   Button,
   Card,
@@ -15,7 +16,6 @@ import {
   Empty,
   Input,
   Modal,
-  Popconfirm,
   Select,
   Space,
   Table,
@@ -31,6 +31,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
+  ExclamationCircleOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
   PlusOutlined,
@@ -49,6 +50,7 @@ import {
   platformDictApi,
   serviceDictApi,
 } from '../../api/resources'
+import type { ResourceReferenceJob, ResourceReferenceResponse } from '../../api/resources'
 import type { NetworkDomain } from '../../types/domain'
 import type {
   AppPlatformRel,
@@ -102,6 +104,51 @@ function InstanceNameTitle() {
         <InfoCircleOutlined style={{ marginLeft: 4, color: 'rgba(0,0,0,0.35)', fontSize: 12 }} />
       </Tooltip>
     </span>
+  )
+}
+
+/**
+ * 删除资源二次确认内容（B 方案知情确认，dev-feedback §15 F-21）：回显引用该资源的采集 Job
+ * 数与名单，并提供「查看引用 Job」跳转（/scrape-jobs）。无引用时仅提示不可恢复。
+ */
+function DeleteResourceConfirm({
+  displayName,
+  total,
+  jobs,
+  onViewReferences,
+}: {
+  displayName: string
+  total: number
+  jobs: ResourceReferenceJob[]
+  onViewReferences: () => void
+}) {
+  if (total === 0) {
+    return <p>确认删除资源「{displayName}」？删除后不可恢复。</p>
+  }
+  return (
+    <div>
+      <Alert
+        type="warning"
+        showIcon
+        message={`该资源正被 ${total} 个采集 Job 引用，删除后这些 Job 将停止采集该实例`}
+        style={{ marginBottom: 12 }}
+      />
+      <div style={{ marginBottom: 8 }}>引用该资源的采集 Job：</div>
+      <ul style={{ margin: 0, paddingLeft: 20 }}>
+        {jobs.map((j) => (
+          <li key={j.job_name}>
+            {j.job_name}
+            {!j.enabled && <span style={{ color: 'rgba(0,0,0,0.45)' }}>（已停用）</span>}
+            <span style={{ color: 'rgba(0,0,0,0.45)' }}> · 网域 {j.network_domain_id}</span>
+          </li>
+        ))}
+      </ul>
+      <div style={{ marginTop: 12 }}>
+        <Button type="link" size="small" onClick={onViewReferences}>
+          查看引用 Job
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -177,7 +224,8 @@ function resourceDisplayName(record: ResourceListItem): string {
  * 网域/平台/应用/服务/业务/运行状态/采集状态（未监控）/关键字筛选（全部走后端，PRD §11.1；
  * F-18 补平台→应用→服务三维，服务筛选仅 application / generic_target 出现）、分页（默认 50）、
  * 加载骨架屏 / 空态「暂无资源」+引导 / 接口错误 Alert+重新加载 / 权限不足空态。
- * 操作：删除（Popconfirm 二次确认，调 DELETE /resources/:resource_id）。
+ * 操作：删除（先调 GET /resources/:resource_id/referenced-by 预检引用关系，再 modal.confirm（App.useApp）
+ * 二次确认；B 方案知情确认，dev-feedback §15 F-21，调 DELETE /resources/:resource_id）。
  * 其余入口（新增/编辑抽屉 T07-F4、下载模板/Excel 导入 T07-F5、详情抽屉 T07-F6）
  * 本任务仅占位，接入见对应任务。
  */
@@ -192,6 +240,10 @@ export function ResourcesPage() {
    * 同步 setState（react-hooks/set-state-in-effect）。
    */
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
+  // B 方案知情确认（dev-feedback §15 F-21）：删除二次确认弹窗经 App.useApp().modal.confirm
+  // 消费 App 上下文（渲染在 React 树内，随 RTL cleanup 卸载，避免静态 Modal.confirm 泄漏到 document.body）。
+  const { modal } = App.useApp()
   const deepLinkCategory = searchParams.get('resource_category') as ResourceCategory | null
   const deepLinkSubtype = searchParams.get('subtype')
   const deepLinkAppCode = searchParams.get('app_code')
@@ -455,11 +507,42 @@ export function ResourcesPage() {
       message.success('资源已删除')
       reload()
     } catch (err) {
-      // TODO(M01)：被 ScrapeJob 引用时后端返回 403 + 引用 Job 名单，提供「查看引用 Job」跳转（§6.6.1）
+      // B 方案（dev-feedback §15 F-21）：删除静默放行，不再返回 403；引用信息在确认弹窗预检回显。
       message.error(err instanceof Error ? err.message : '删除失败，请稍后重试')
     } finally {
       setDeletingId(null)
     }
+  }
+
+  // B 方案知情确认（dev-feedback §15 F-21）：点击「删除」先调 referencedBy 预检引用关系，
+  // 再弹二次确认；弹窗回显「该资源正被 N 个采集 Job 引用」+ 引用名单 + 「查看引用 Job」跳转
+  // （/scrape-jobs）。无引用时仅提示不可恢复。引用查询失败不阻断删除，仅不展示引用提示。
+  const handleDeleteClick = async (record: ResourceListItem) => {
+    let ref: ResourceReferenceResponse | null
+    try {
+      const res = await resourceApi.referencedBy(record.resource_id)
+      ref = res.data ?? null
+    } catch {
+      ref = null
+    }
+    const total = ref?.total ?? 0
+    const jobs = ref?.jobs ?? []
+    modal.confirm({
+      title: '删除资源',
+      icon: <ExclamationCircleOutlined />,
+      okText: '确认删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => handleDelete(record),
+      content: (
+        <DeleteResourceConfirm
+          displayName={resourceDisplayName(record)}
+          total={total}
+          jobs={jobs}
+          onViewReferences={() => navigate('/scrape-jobs')}
+        />
+      ),
+    })
   }
 
   // 列集合对齐原型：共享列（云 / 网域 / 业务名称 / 应用名称 / 运行状态 / 采集状态 / 录入方式 / 操作）+ 各类型差异化列。
@@ -622,17 +705,16 @@ export function ResourcesPage() {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEditDrawer(record)}>
             编辑
           </Button>
-          <Popconfirm
-            title="删除资源"
-            description={`确认删除资源「${resourceDisplayName(record)}」？删除后不可恢复。`}
-            okText="确认删除"
-            okButtonProps={{ danger: true }}
-            onConfirm={() => handleDelete(record)}
+          <Button
+            type="link"
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            loading={deletingId === record.resource_id}
+            onClick={() => handleDeleteClick(record)}
           >
-            <Button type="link" size="small" danger loading={deletingId === record.resource_id} icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
+            删除
+          </Button>
         </Space>
       ),
     }
@@ -689,6 +771,8 @@ export function ResourcesPage() {
         // 环境 / 集群独立成列（Tag 色沿用组合列口径 blue / purple），消除 app_code 重复展示
         const typeColumns: ColumnsType<ResourceListItem> = [
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
+          // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
+          { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
           { title: '操作系统', dataIndex: 'os_type', key: 'os_type', render: (v?: string) => v || '-' },
           {
             title: '环境',
@@ -737,6 +821,8 @@ export function ResourcesPage() {
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
+          // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
+          { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
         ]
         return [
@@ -773,6 +859,8 @@ export function ResourcesPage() {
           },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
+          // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
+          { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
           { title: '版本', dataIndex: 'version', key: 'version', render: (v?: string) => v || '-' },
         ]
         return [
@@ -850,6 +938,8 @@ export function ResourcesPage() {
             key: 'port',
             render: (v?: number) => v ?? '-',
           },
+          // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
+          { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
         ]
         return [
           identifier,
@@ -881,6 +971,8 @@ export function ResourcesPage() {
           { title: 'Exporter 类型', dataIndex: 'exporter_type', key: 'exporter_type', render: (v?: string) => v || '-' },
           { title: 'IP 地址', dataIndex: 'instance_ip', key: 'instance_ip', render: (v?: string) => v || '-' },
           { title: '端口', dataIndex: 'port', key: 'port', render: (v?: number) => v ?? '-' },
+          // {T01-P5} 实例级采集端口覆盖：0/缺省 = 未指定，展示 '-'（不展示 0，提案 §9）
+          { title: '采集端口', dataIndex: 'scrape_port', key: 'scrape_port', render: (v?: number) => (v ? v : '-') },
           { title: '采集路径', dataIndex: 'metrics_path', key: 'metrics_path', render: (v?: string) => v || '/metrics' },
           { title: '协议', dataIndex: 'scheme', key: 'scheme', render: (v?: string) => v || 'http' },
           {
