@@ -292,7 +292,15 @@ function JobsTab() {
       dataIndex: 'selected_instance_ids',
       key: 'selected_instance_ids',
       width: 100,
-      render: (v?: string[]) => v?.length ?? 0,
+      // 分母与「实例采集状态」列同源（见其列注释）：一律取 useJobScrapeStatus 聚合出的
+      // v.total（= ListJobInstances 返回的有效实例集，资源软删后已收敛为 29），不再直接用
+      // selected_instance_ids.length（DB 历史选择意图数组，软删后无人回收，会恒显 32 不收敛）。
+      // 加载中复用右侧同列的 Spin 占位。
+      render: (_: unknown, r: ScrapeJob) => {
+        const v = scrapeStatusByJob[r.id]
+        if (!v) return <Spin size="small" />
+        return v.total
+      },
     },
     {
       // 决策 47-2：实例采集状态列对齐原型（F-12：拨测 Job 按 probe_success 聚合「通过 x / 总数 y」）。
@@ -326,6 +334,9 @@ function JobsTab() {
         const total = v.total
         if (total === 0) return <Text type="secondary">-</Text>
         const anomaly = v.down > 0 || v.pending > 0
+        // F-40：回传延迟中（stale）≠ 采集故障——样本在途，橙色警示而非红色 anomaly，
+        // 且不遮蔽 down/pending（同时存在时仍红）。stale-only 指仅剩延迟实例（在线 0）。
+        const staleOnly = !anomaly && v.stale > 0 && v.online === 0
         const onClick = () => setViewing(r)
         const text = isBlackbox ? `通过 ${v.online} / 总数 ${total}` : `在线 ${v.online} / 总数 ${total}`
         // 已软删/失效的实例资源不计入分母（v.total 已排除），单独在 Tooltip 提示，
@@ -337,7 +348,51 @@ function JobsTab() {
         const anomalyTip = isBlackbox
           ? '有拨测目标没通过，点一下查看是哪些目标'
           : '有实例没采到数据，点一下查看是哪些实例、失败原因' + missingNote
+        const staleTip = isBlackbox
+          ? '有拨测结果尚未送达中心，点一下查看详情'
+          : '有实例数据尚未送达中心（回传延迟），点一下查看各实例状态' + missingNote
         const normalTip = isBlackbox ? '点击查看各拨测目标的探测情况' : '点击查看各实例的采集情况' + missingNote
+        // F-40 醒目化（计数分段）：stale 不再只靠 hover/详情抽屉才可见——
+        //   · stale-only：整格橙色 Tag 直接点名「回传延迟中 n / 总数 y」（替代原哑文本「在线 0 / 总数 y」）；
+        //   · 混合态（有在线也有延迟）：主 Tag 旁追加橙色「延迟 n」小 Tag，延迟数一目了然；
+        //   · anomaly 与 stale 并存：主 Tag 仍红（真实故障重于延迟），旁追加橙色小 Tag。
+        // 拨测聚合不产出 stale（probe_success 口径），stale 分支仅标准 Job 可达。
+        if (staleOnly) {
+          return (
+            <Tooltip title={staleTip}>
+              <Tag
+                color={tokens.colorWarning}
+                style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
+                onClick={onClick}
+              >
+                {`回传延迟中 ${v.stale} / 总数 ${total}`}
+              </Tag>
+            </Tooltip>
+          )
+        }
+        if (v.stale > 0) {
+          const mixedTip = anomaly ? `${anomalyTip}；另有 ${v.stale} 台样本回传延迟中` : staleTip
+          return (
+            <Tooltip title={mixedTip}>
+              <Space size={4}>
+                <Tag
+                  color={anomaly ? tokens.colorError : 'green'}
+                  style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: anomaly ? 500 : undefined }}
+                  onClick={onClick}
+                >
+                  {text}
+                </Tag>
+                <Tag
+                  color={tokens.colorWarning}
+                  style={{ marginInlineEnd: 0, cursor: 'pointer', fontWeight: 500 }}
+                  onClick={onClick}
+                >
+                  {`延迟 ${v.stale}`}
+                </Tag>
+              </Space>
+            </Tooltip>
+          )
+        }
         return anomaly ? (
           <Tooltip title={anomalyTip}>
             <Tag

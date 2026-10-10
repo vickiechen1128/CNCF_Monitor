@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-10 15:33 · commit: `f58cdf5`
+> 生成时间: 2026-10-10 15:47 · commit: `a2b5f95`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -193,6 +193,23 @@
 
 - `func TestListZoneTypesReturnsEnabledOnly(t *testing.T)`
 - `func TestListZoneTypesEmpty(t *testing.T)`
+
+### `platform/admin/storagelog/handler.go`
+
+- `type Options struct`
+- `func RegisterRoutes(admin *gin.RouterGroup, opts Options)`
+- `type Handler struct`
+- `type retentionState struct`
+- `type diskInfo struct`
+- `type logRotationInfo struct`
+- `type overviewResponse struct`
+- `type updateRetentionRequest struct`
+- `method (*Handler) GetOverview(c *gin.Context)`
+- `method (*Handler) UpdateRetention(c *gin.Context)`
+- `method (*Handler) overview(ctx context.Context) (*overviewResponse, error)`
+- `method (*Handler) fetchRuntimeFlags(ctx context.Context) (vals RetentionValues, tsdbPath string, ok bool)`
+- `method (*Handler) diskEntries(tsdbPath string, rtOK bool) []diskInfo`
+- `func newDiskInfo(label, dirPath string) diskInfo`
 
 ### `platform/admin/storagelog/retention.go`
 

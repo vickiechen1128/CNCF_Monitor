@@ -404,6 +404,60 @@ describe('ScrapeJobListPage', () => {
     }
   }
 
+  // F-40 双查询路由：瞬时 up 查询与 timestamp(last_over_time(...)) 查询分别返回不同向量
+  function mockTwoQuery(upResult: PromVectorItem[], lastResult: PromVectorItem[]) {
+    queryMock.mockImplementation((args: { query?: string }) =>
+      args?.query?.startsWith('timestamp(last_over_time(') ? vector(lastResult) : vector(upResult),
+    )
+  }
+
+  // F-40 醒目化三支：stale-only / 混合态（绿+橙小标）/ anomaly 与 stale 并存（红+橙小标）
+  function deploySingleJob() {
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: { list: [job(1, { change_status: 'deployed', enabled: true, selected_instance_ids: ['a', 'b'] })], total: 1, page: 1, page_size: 20 },
+    })
+    instancesMock.mockResolvedValue({ status: 'success', data: { items: [jobInstance('a'), jobInstance('b')], total: 2 } })
+  }
+
+  it('实例采集状态列 stale-only：橙色 Tag 直接点名「回传延迟中 n / 总数 y」（F-40）', async () => {
+    deploySingleJob()
+    // 瞬时 up 全空（超 5min lookback），但 1h 内有历史样本 → 全部实例 stale
+    mockTwoQuery([], [jobTarget('a', 'up'), jobTarget('b', 'up')])
+
+    renderPage()
+
+    const tag = await screen.findByText('回传延迟中 2 / 总数 2')
+    // tokens.colorWarning #FA8C16 → rgb(250, 140, 22)
+    expect(tag.closest('.ant-tag')?.getAttribute('style')).toContain('rgb(250, 140, 22)')
+    fireEvent.click(tag)
+    expect(await screen.findByTestId('job-detail-drawer')).toBeInTheDocument()
+  })
+
+  it('实例采集状态列混合态：绿色主 Tag 旁追加橙色「延迟 n」小标（F-40 计数分段）', async () => {
+    deploySingleJob()
+    // a 在线（瞬时 up 命中），b 瞬时无样本但 1h 内有 → 在线 1 + 延迟 1
+    mockTwoQuery([jobTarget('a', 'up')], [jobTarget('a', 'up'), jobTarget('b', 'up')])
+
+    renderPage()
+
+    expect(await screen.findByText('在线 1 / 总数 2')).toBeInTheDocument()
+    expect(screen.getByText('延迟 1')).toBeInTheDocument()
+  })
+
+  it('实例采集状态列 anomaly 与 stale 并存：红色主 Tag 优先，旁追加橙色「延迟 n」小标（F-40）', async () => {
+    deploySingleJob()
+    // a 瞬时 up=0（真实抓取失败 → down），b 瞬时无样本但 1h 内有（回传延迟 → stale）
+    mockTwoQuery([jobTarget('a', 'down')], [jobTarget('a', 'up'), jobTarget('b', 'up')])
+
+    renderPage()
+
+    expect(await screen.findByText('在线 0 / 总数 2')).toBeInTheDocument()
+    expect(screen.getByText('延迟 1')).toBeInTheDocument()
+    // 主 Tag 仍为红色（真实故障重于延迟），红色断言沿用 #FF4C3A → rgb(255, 76, 58)
+    expect(screen.getByText('在线 0 / 总数 2').closest('.ant-tag')?.getAttribute('style')).toContain('rgb(255, 76, 58)')
+  })
+
   it('实例采集状态列 green Tag（在线 x / 总数 y），点击打开 Job 详情（B3/B4）', async () => {
     listMock.mockResolvedValue({
       status: 'success',
@@ -602,6 +656,35 @@ describe('ScrapeJobListPage', () => {
     expect(within(row).queryByText(/在线 \d+ \/ 总数 \d+/)).not.toBeInTheDocument()
     // 实例采集状态列渲染 '-'
     expect(within(row).getAllByText('-').length).toBeGreaterThanOrEqual(1)
+  })
+
+  // 回归保护（用户 bug）：已选实例含被软删资源时，「已选实例」列应显示有效实例数（29），
+  // 而非 selected_instance_ids 原始选中长度（32）。与「实例采集状态」列分母同源（useJobScrapeStatus.total）。
+  it('已选实例列：含被软删资源时显示有效实例数 29 而非原始选中数 32', async () => {
+    const selected = Array.from({ length: 32 }, (_, i) => `r-${i}`)
+    listMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        list: [job(1, { change_status: 'deployed', enabled: true, selected_instance_ids: selected })],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      },
+    })
+    // 32 个选中里 3 个已被软删：有效 29 + missing 3
+    const items = Array.from({ length: 29 }, (_, i) => jobInstance(`r-${i}`))
+    instancesMock.mockResolvedValue({
+      status: 'success',
+      data: { items, total: 29, missing_count: 3 },
+    })
+    queryMock.mockResolvedValue(vector(selected.slice(0, 29).map((id) => jobTarget(id, 'up'))))
+
+    renderPage()
+
+    const row = (await screen.findByText('job-1')).closest('tr') as HTMLElement
+    // 有效实例数 29 应出现在「已选实例」列（且该列不再显示原始选中 32）
+    expect(await within(row).findByText('29')).toBeInTheDocument()
+    expect(within(row).queryByText('32')).not.toBeInTheDocument()
   })
 
   // 全部实例有效时口径不变（回归保护）：分母仍等于已选实例数。
