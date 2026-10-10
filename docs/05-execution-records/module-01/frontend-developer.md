@@ -117,3 +117,21 @@
 
 ### 验证
 - `pnpm vitest run`（useJobScrapeStatus / ScrapeJobListPage / ExporterInstallationPanel）通过；`pnpm lint` 通过。
+
+## 2026-10-10（T01-P5：资源表单采集端口（选填）+ 列偏好 scrape_port）
+
+### 背景
+- 提案 resource-scrape-port-chain 落地前端录入动线：host / database / middleware 三类资源需支持实例级采集端口覆盖（scrape_port，选填，0=未指定由四级解析链回落）；五类列表追加「采集端口」列供列显隐配置。application / generic_target 不展示本项（D3a/D3b：其 port 即采集端口本身/端点属性，零改动）。契约快照 module-01 尚无 scrape_port 正式字段条目，字段口径以提案 §5.1/§5.2/§5.3/§9 + M07 PRD §5.2 为准（契约快照待 T01-P8 回写）。
+
+### 实现
+- `src/pages/resources/ResourceFormDrawer.tsx`：新增共享 `scrapePortField`（label「采集端口（选填）」、`rules=optionalPortRules` 留空合法/1-65535、`data-testid="scrape-port-input"`），host/database/middleware 三分支各插入一行；InputNumber **刻意不设 min/max**——失焦钳制会把 70000 静默改 65535 无从报错，放开控件层边界由 rules 在提交时以「端口范围为 1-65535」阻断；`buildTypeFields` 三分支 `scrape_port: values.scrape_port ? Number(...) : 0`（留空提交 0= 与 NULL 等价，编辑清空以 0 回退解析链）；`recordToFormValues` 回显 `record.scrape_port || undefined`（0→空态，与留空提交对称）。
+- `src/pages/resources/resourceColumnPrefs.ts`：五类 META 各追加 `{key:'scrape_port', label:'采集端口', group:'技术属性 / 位置'}`（host 在 IP 后、db/mw/app 在端口后、gt 在端口后·采集路径前）；`DEFAULT_VISIBLE_COLUMN_KEYS` 与 `FIXED_COLUMN_KEYS` 不变（新列不进默认可见集）。
+- `src/types/resource.ts` / `src/pages/resources/useResources.ts`：Create/Update/ListItem 增 `scrape_port?: number`（0/缺省=未指定）。
+- M-1 护栏联动：`ResourcesPage.tsx` buildColumns 五类各加「采集端口」列（0/缺省 render '-'），`ResourcesPage.test.tsx` F17_ALL_COLUMNS 与列设置计数 15/15/15/16/18 同步——**该两文件改动已被并行会话提交 a2b5f95 一并带走**（HEAD 已含，工作区与 HEAD 一致，本任务未重复提交）。
+
+### 新增/修改测试
+- `ResourceFormDrawer.test.tsx`：新增 10 例——三类渲染采集端口轮转断言、application/generic_target 不渲染（app「端口（采集端口）」与 gt「端口」仍在）、host/database/middleware 填 9100 payload 携带 scrape_port:9100、留空提交 payload 为 0、70000 阻断报错且不调 create、编辑回显 9100 随保存带回、record 0 回显空态且保存提交 0、关闭→打开切换回显（forceRender 回归）。database 用例中 antd 下拉会在虚拟列表外渲染无点击处理的 aria 镜像 option（role=option、无 class）与真实 option 文案重复，改用 `selector: '.ant-select-item-option-content'` 限定真实 option。
+- `resourceColumnPrefs.test.ts`（新增）：五类 META 含 scrape_port/label/group 断言、列 key 类内唯一、DEFAULT/FIXED 字面量防回归（默认集不含 scrape_port）、15/15/15/16/18 数量基线、orderColumnKeys 归一。
+
+### 验证
+- `pnpm vitest run`（ResourceFormDrawer + resourceColumnPrefs + ResourcesPage）130/130 通过；`pnpm typecheck:test` resources 目录 0 错误（9 个存量错误全在 pages/alerts，改动前已存在）；`npx eslint src/pages/resources` 0 问题（全量 `pnpm lint` 仅存量 alerts 2 项，与本任务无关）；`make check-repo-map` 通过；dev server 启动 `curl -w '%{http_code}'` 返回 200 后已停止释放端口。
