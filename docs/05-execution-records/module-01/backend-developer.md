@@ -14,6 +14,7 @@
 | 5 | T01-08：技术指标库 API | metric-library | `d9b2a618` | done |
 | 6 | T01-09：路由收口 + main.go 接入 + 集成验收 | routes-integration | `61ed552f` | done |
 | 7 | T01-P1：五类资源加 scrape_port + 录入链路 | scrape-port | `9d1c29e` | done |
+| 8 | T01-P2：LoadExporterPort 补 is_default=true 过滤（缺陷 D2） | scrape-port-chain | `b8fc824` | done |
 
 分支：`feat/module-01-strategy`（基自 develop）。
 
@@ -183,3 +184,25 @@
 - `go vet ./platform/...` 通过（exit 0）。
 - 服务启动验证：`make build-metric-center` 重建 → 重启 → `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 验证后停止服务、8080 端口已释放。
 - `make check-repo-map` 通过（repo-map 未纳入本 commit：工作区含他人未提交代码的符号条目，留待其代码提交时一并入库）。
+
+## 2026-10-10（T01-P2：缺陷 D2 修复 — LoadExporterPort 补 is_default=true 过滤）
+
+> 任务卡：`task-sequence.yaml` L935（T01-P2）；设计权威：提案 `resource-scrape-port-chain.md` §7 D2。commit：`b8fc824`。
+
+### 实现
+- `platform/configcenter/generator/data_source.go` LoadExporterPort 映射层查询：
+  - 改动前：`Where("monitor_type = ?").Order("is_default desc, created_at asc").First(...)` —— 无严格过滤，is_default=false 行也可能被选中；
+  - 改动后：`Where("monitor_type = ? AND is_default = ?", job.MonitorType, true).First(...)`，与 `platform/strategy/scrapejob/validate.go` resolveJobScrapeParams（L197）口径完全一致——同数据集两函数选中同一 mapping 行；函数注释补 D2 口径说明。
+
+### 新增测试（TDD：先 RED 后 GREEN）
+- `generator_test.go` 新增 `TestLoadExporterPortIsDefaultFilter`（3 子用例）：
+  - 仅非默认映射（9999）→ 回落采集器模板（9100）：**改动前 FAIL（取 9999）→ 改动后 PASS**；
+  - 仅非默认映射且无模板 → 返回 0：**改动前 FAIL（取 9999）→ 改动后 PASS**；
+  - 混合行 false=9999 / true=9100 → 9100：改动前即 PASS（如实记录：任务卡称「改动前 bug 取 9999」，实测旧代码 `ORDER BY is_default desc` 在 SQLite 0/1 存储下已使 true 行优先，该场景非 RED 点；本任务的真实 RED 点为「仅非默认行」场景，混合行用例作回归守护保留）。
+- 测试数据用唯一 monitor_type（d2_only_false / d2_mixed）与捕获的模板自增 ID，规避 `file::memory:?cache=shared` 共享内存库的跨用例数据串扰。
+- 既有 `TestLoadExporterPortPriority`（MVP 内置映射各 1 行 is_default=1 场景）保持全绿。
+
+### 验证
+- `go test ./platform/configcenter/generator/...` 全绿；`go vet ./platform/configcenter/...` 通过。
+- 提交门禁：`go test ./platform/...` 30 包全 ok；`go vet ./platform/...` exit 0；`make check-repo-map` 通过。
+- 服务启动验证：重建 → 启动 → `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 停止服务、8080 端口释放。
