@@ -135,3 +135,26 @@
 
 ### 验证
 - `pnpm vitest run`（ResourceFormDrawer + resourceColumnPrefs + ResourcesPage）130/130 通过；`pnpm typecheck:test` resources 目录 0 错误（9 个存量错误全在 pages/alerts，改动前已存在）；`npx eslint src/pages/resources` 0 问题（全量 `pnpm lint` 仅存量 alerts 2 项，与本任务无关）；`make check-repo-map` 通过；dev server 启动 `curl -w '%{http_code}'` 返回 200 后已停止释放端口。
+
+## 2026-10-10（T01-P6：采集 Job 抽屉生效端口只读回显 + 四种来源标注）
+
+### 背景
+- 消费 T01-P4 后端契约（commit 98e7c3f）：`POST /preview-targets` 的 `targets[]` 与 `GET /instances` 的 `items[]` 均新增 `port` / `port_source`（枚举 instance / mapping / template / business / unresolved；blackbox 项 `port=0`、`port_source=""`）。前端在采集 Job 编辑/详情抽屉的实例区做只读回显：四种来源中文标注 + business「业务端口兜底 ⚠️」警示（不阻断）+ unresolved 展示 `-` + 与实例登记不一致时「前往 M07 修改」引导。字段口径以提案 resource-scrape-port-chain §5.3/§9 + 任务卡内嵌后端契约为准（契约快照待 T01-P8 回写）。
+
+### 实现
+- `src/types/strategy.ts`：`ScrapeJobInstanceItem` 追加 `port?` / `port_source?`（instances item 类型真实定义处，`api/scrapeJobs.ts` 仅引用）；`src/api/scrapeJobs.ts`：`PreviewTargetsResult.targets[]` 同步追加两可选字段。
+- `ScrapeJobFormDrawer.tsx`：模块级 `PORT_SOURCE_META`（instance=实例覆盖绿 / mapping=类型默认蓝 / template=采集器默认青 / business=业务端口兜底橙）、`BUSINESS_PORT_TOOLTIP`、`PortEcho` 只读回显单元；新增 `portEchoItems` state，编辑态 + standard 时 effect 拉取 `scrapeJobApi.instances(record.id)`（失败静默，回显为增强信息不阻断主流程），「选择实例」Card 后渲染「生效端口回显」Card（List 行 = 实例名/IP + PortEcho）。不一致口径：`port_source !== 'instance'`（含 mapping/template/business/unresolved）→ 渲染「前往 M07 修改」Link 跳 `/resources`；`port_source` 为空（blackbox/旧数据）→ PortEcho 返回 null；business Tag 挂 Tooltip 警示纯前端提示，保存/提交按钮不受影响（D-4）。
+- `ScrapeJobDetailDrawer.tsx`：同名同口径 `PORT_SOURCE_META` / `BUSINESS_PORT_TOOLTIP` / `PortEcho`，追加于「已选实例」行内左侧 Space（实例名/IP 之后）；详情无保存按钮，引导同样跳 `/resources`。
+
+### 新增/修改测试
+- `ScrapeJobFormDrawer.test.tsx`：mock 补 `instances`（beforeEach 默认空 items，防编辑态 fetch 抛错）、Router 补 `/resources` Route；新增 4 例——四来源标注渲染 + 引导计数 3 + instance 行无 ⚠️、business Tooltip 精确文案 hover 断言 + 保存按钮可用且 update 被调（不阻断）、unresolved 端口 `-`（断言无 `0`）+ 点击引导跳 resources-page、blackbox 编辑态不调 instances 且不渲染回显 Card。
+- `ScrapeJobDetailDrawer.test.tsx`：Router 补 `/resources` Route；新增 1 例——5 实例行级断言（instance 端口+标注+无警示无引导 / template 标注+引导 / business ⚠️ / unresolved `-` 非 0 / 空 `port_source` 不渲染「生效端口」）+ 引导跳转。
+
+### T01-P7 前端同步（前提失效，无代码改动）
+- 任务卡要求对 `src/` 下 `IMPORT_TEMPLATE_COLUMNS` 五类数组末尾各加 `scrape_port`（13/12/12/14/16 → +1），但该常量已在 F-7-③ 改版中整体删除（`TemplateDownloadModal.tsx:21` 注释「IMPORT_TEMPLATE_COLUMNS 已删除」，模板列头改由后端 `resourceApi.template(category)` 生成）；五类「采集端口」列能力已由 T01-P5 的 `resourceColumnPrefs.ts` 承载且其测试断言五类各恰含一个 scrape_port。前端无可改动项，故无 T01-P7 commit。
+
+### 验证
+- `pnpm vitest run src/pages/strategy/ScrapeJobFormDrawer.test.tsx src/pages/strategy/ScrapeJobDetailDrawer.test.tsx` 27/27 通过（含存量 22 例回归）。
+- `npx eslint`（本任务 6 个改动文件，--max-warnings 0）0 问题；全量 `pnpm lint` 仅存量 `pages/alerts` 1 error + 1 warning（改动前已存在，与本任务无关）。
+- `make check-repo-map` 通过（pre-commit 门禁同过）；dev server（`pnpm dev --port 5199`）`curl` 返回 200 后已停止释放端口。
+- commit：`f60bdc0`（T01-P6 主任务）+ 本执行记录 commit；T01-P7 前端无改动故无 commit。
