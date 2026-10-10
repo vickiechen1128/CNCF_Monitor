@@ -157,6 +157,13 @@ export interface ResourceCreateBaseShape {
   cluster?: string
   owner?: string
   status?: ResourceStatus
+  /**
+   * {T01-P5} 实例级采集端口覆盖（UI 展示名「采集端口」）：可选，`0` / 缺省均视为
+   * 「未指定」，由采集端口解析链（类型映射 → 采集器模板 → 业务端口）向下回落
+   * （提案 resource-scrape-port-chain §5.1）。仅 host / database / middleware 表单录入；
+   * application / generic_target 的 port 即采集端口本身，不展示本字段（D3a/D3b）。
+   */
+  scrape_port?: number
 }
 
 /** 主机差异化字段（§5.6） */
@@ -233,6 +240,8 @@ export interface ResourceUpdateBaseShape {
   cluster?: string
   owner?: string
   status?: ResourceStatus
+  /** {T01-P5} 实例级采集端口覆盖：`0` 表达「清空回退解析链」，与缺省（不改）区分，语义同创建侧 */
+  scrape_port?: number
 }
 
 /** 资源更新输入（各类型差异化字段均可选，按类型部分更新） */

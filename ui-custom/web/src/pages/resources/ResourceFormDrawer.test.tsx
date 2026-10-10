@@ -875,4 +875,157 @@ describe('ResourceFormDrawer', () => {
     expect(screen.getByDisplayValue('prod-web-01.volc')).toBeInTheDocument()
     expect(screen.getByDisplayValue('10.0.1.11')).toBeInTheDocument()
   })
+
+  // ==== {T01-P5} 实例级采集端口 scrape_port（提案 resource-scrape-port-chain §5.3）====
+
+  it('{T01-P5} host / database / middleware 三类表单渲染「采集端口（选填）」', async () => {
+    for (const category of ['host', 'database', 'middleware'] as const) {
+      const { unmount } = renderDrawer({ category })
+      // label 与输入框均存在，且共享同一 name（scrape_port）挂载在对应表单树下
+      expect(screen.getByText('采集端口（选填）'), `${category} 应渲染采集端口 label`).toBeInTheDocument()
+      expect(screen.getByTestId('scrape-port-input'), `${category} 应渲染采集端口输入框`).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('{T01-P5} application / generic_target 不渲染采集端口项（D3a/D3b 守护）', async () => {
+    const appRender = renderDrawer({ category: 'application' })
+    expect(screen.queryByTestId('scrape-port-input')).toBeNull()
+    expect(screen.queryByText('采集端口（选填）')).toBeNull()
+    // application 自有必填「端口（采集端口）」是采集目标本身，保持不动
+    expect(screen.getByText('端口（采集端口）')).toBeInTheDocument()
+    appRender.unmount()
+
+    renderDrawer({ category: 'generic_target' })
+    expect(screen.queryByTestId('scrape-port-input')).toBeNull()
+    expect(screen.queryByText('采集端口（选填）')).toBeNull()
+    // generic_target 自有「端口」（端点属性）保持不动
+    expect(screen.getByText('端口')).toBeInTheDocument()
+  })
+
+  it('{T01-P5} host 登记填采集端口 9100 → payload 携带 scrape_port: 9100', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '9100' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ scrape_port: 9100 })
+  })
+
+  it('{T01-P5} database 登记填采集端口 9100 → payload 携带 scrape_port: 9100', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'database' })
+    await waitForDicts()
+    openSelect('请选择网域')
+    fireEvent.click(await screen.findByText('政务网A区 (mc-a)'))
+    openSelect('请选择业务')
+    fireEvent.click(await screen.findByText('公共基础设施 (infra)'))
+    openSelect('请选择环境')
+    fireEvent.click(await screen.findByText('prod'))
+    openSelect('请选择运行状态')
+    fireEvent.click(await screen.findByText('在线'))
+    // database 的 app_code / database_type 必填（§5.2 / §5.7.1）
+    openSelect('请选择应用')
+    fireEvent.click(await screen.findByText('订单应用 (order)'))
+    openSelect('请选择数据库类型')
+    // antd 下拉会在虚拟列表外渲染一个无点击处理的 aria 镜像 option（role=option、id *_list_0、
+    // 无 class），与真实 option 文案重复；用 selector 限定到真实 option content（其父节点挂 onClick）
+    fireEvent.click(await screen.findByText('mysql', { selector: '.ant-select-item-option-content' }))
+    await waitFor(() => expect(selectedItemTexts()).toContain('mysql'))
+    fireEvent.change(screen.getByPlaceholderText('例如：10.0.1.21'), { target: { value: '10.0.1.21' } })
+    fireEvent.change(screen.getByPlaceholderText('例如：3306'), { target: { value: '3306' } })
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '9100' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ scrape_port: 9100 })
+  })
+
+  it('{T01-P5} middleware 登记填采集端口 9100 → payload 携带 scrape_port: 9100', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'middleware' })
+    await waitForDicts()
+    await fillMiddlewareRequiredFields()
+    fireEvent.change(screen.getByTestId('middleware-port-input'), { target: { value: '80' } })
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '9100' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0]).toMatchObject({ scrape_port: 9100, port: 80 })
+  })
+
+  it('{T01-P5} 采集端口留空提交 → payload 为 0（= 未指定，与 NULL 等价）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    // 不填采集端口直接提交：留空合法，落 0（解析链按未指定回落）
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    await waitFor(() => expect(createMock).toHaveBeenCalled())
+    expect(createMock.mock.calls[0][0].scrape_port).toBe(0)
+  })
+
+  it('{T01-P5} 采集端口 70000 超界被阻断并报错（不钳制、不提交）', async () => {
+    createMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ category: 'host' })
+    await waitForDicts()
+    await fillHostRequiredFields()
+    // 输入 70000 后直接提交（不触发失焦）：InputNumber 未设 min/max，不做静默钳制，
+    // 由 rules 在提交时以「端口范围为 1-65535」阻断。
+    fireEvent.change(screen.getByTestId('scrape-port-input'), { target: { value: '70000' } })
+    fireEvent.click(screen.getByRole('button', { name: /提\s*交/ }))
+    expect(
+      await screen.findByText('端口范围为 1-65535', { selector: '.ant-form-item-explain-error' }),
+    ).toBeInTheDocument()
+    expect(createMock).not.toHaveBeenCalled()
+  })
+
+  it('{T01-P5} 编辑态回显 scrape_port 并随保存带回', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ mode: 'edit', category: 'host', record: { ...hostRecord(), scrape_port: 9100 } })
+    // 回显：0 之外的既有值直接带出
+    await waitFor(() => expect(screen.getByTestId('scrape-port-input')).toHaveValue('9100'))
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][1]).toMatchObject({ scrape_port: 9100 })
+  })
+
+  it('{T01-P5} 后端 0 = 未指定：编辑回显为空态，保存仍提交 0', async () => {
+    updateMock.mockResolvedValue({ status: 'success', data: {} })
+    renderDrawer({ mode: 'edit', category: 'host', record: { ...hostRecord(), scrape_port: 0 } })
+    // 以实例名回显完成作为「编辑态字段已装载」的信号
+    expect(await screen.findByDisplayValue('prod-web-01')).toBeInTheDocument()
+    // 0 归一为空态（与「留空提交 0」对称）
+    expect(screen.getByTestId('scrape-port-input')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }))
+    await waitFor(() => expect(updateMock).toHaveBeenCalled())
+    expect(updateMock.mock.calls[0][1]).toMatchObject({ scrape_port: 0 })
+  })
+
+  it('{T01-P5} 关闭→打开切换后 scrape_port 正确回显（forceRender 回归）', async () => {
+    const record = { ...hostRecord(), scrape_port: 9100 }
+    const { rerender } = render(
+      <ResourceFormDrawer
+        open={false}
+        mode="edit"
+        category="host"
+        record={record}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    rerender(
+      <ResourceFormDrawer
+        open
+        mode="edit"
+        category="host"
+        record={record}
+        onCancel={cancelMock}
+        onSuccess={successMock}
+      />,
+    )
+    // forceRender 保证字段注册先于 setFieldsValue：关闭→打开即回显而非空值
+    expect(await screen.findByDisplayValue('9100')).toBeInTheDocument()
+    expect(screen.getByTestId('scrape-port-input')).toHaveValue('9100')
+  })
 })
