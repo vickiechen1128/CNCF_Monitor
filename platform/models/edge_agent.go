@@ -57,6 +57,7 @@ type EdgeAgent struct {
 	CollectorStatus          string          `gorm:"size:30" json:"collector_status,omitempty"`
 	CollectorVersion         string          `gorm:"size:50" json:"collector_version,omitempty"`
 	QueueBacklogBytes        int64           `gorm:"column:queue_backlog_bytes" json:"queue_backlog_bytes,omitempty"`
+	RemoteWriteLastError     string          `gorm:"type:text" json:"remote_write_last_error,omitempty"`
 	RemoteWriteURL           string          `gorm:"size:500" json:"remote_write_url,omitempty"`
 	Components               []EdgeComponent `gorm:"serializer:json" json:"components,omitempty"` // 组件清单（JSON 载体）
 	LastError                string          `gorm:"type:text" json:"last_error,omitempty"`

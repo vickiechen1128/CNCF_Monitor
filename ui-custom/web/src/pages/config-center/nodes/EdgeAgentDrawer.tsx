@@ -234,6 +234,9 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
           </Descriptions.Item>
         )}
         <Descriptions.Item label="回传积压">{formatBacklogBytes(agent.queue_backlog_bytes)}</Descriptions.Item>
+        <Descriptions.Item label="回传错误">
+          {agent.remote_write_last_error ? <Text type="danger">{agent.remote_write_last_error}</Text> : '-'}
+        </Descriptions.Item>
         <Descriptions.Item label="最后心跳">
           {agent.last_heartbeat ? formatRelativeTime(agent.last_heartbeat) : '-'}
         </Descriptions.Item>

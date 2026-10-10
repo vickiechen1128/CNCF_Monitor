@@ -90,6 +90,7 @@ type AgentView struct {
 	ConfigApplyError         string                 `json:"config_apply_error,omitempty"`
 	ConfigApplyFailedVersion string                 `json:"config_apply_failed_version,omitempty"`
 	QueueBacklogBytes        int64                  `json:"queue_backlog_bytes,omitempty"`
+	RemoteWriteLastError     string                 `json:"remote_write_last_error,omitempty"`
 	CollectorStatus          string                 `json:"collector_status,omitempty"`
 	CollectorVersion         string                 `json:"collector_version,omitempty"`
 	LastError                string                 `json:"last_error,omitempty"`
@@ -114,6 +115,7 @@ func agentView(a *models.EdgeAgent, now time.Time, threshold time.Duration) Agen
 		ConfigApplyError:         a.ConfigApplyError,
 		ConfigApplyFailedVersion: a.ConfigApplyFailedVersion,
 		QueueBacklogBytes:        a.QueueBacklogBytes,
+		RemoteWriteLastError:     a.RemoteWriteLastError,
 		CollectorStatus:          a.CollectorStatus,
 		CollectorVersion:         a.CollectorVersion,
 		LastError:                a.LastError,

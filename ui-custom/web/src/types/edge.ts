@@ -69,6 +69,8 @@ export interface AgentView {
   config_apply_failed_version?: string
   /** 回传积压：vmagent 磁盘持久发送队列积压字节数（展示名「回传积压」，非「WAL 积压」） */
   queue_backlog_bytes?: number
+  /** 回传错误：vmagent remote_write 最近一次失败摘要（非空即代表回传通道异常，可区分「程序坏了」与「仅积压排队」） */
+  remote_write_last_error?: string
   collector_status?: string
   collector_version?: string
   last_error?: string

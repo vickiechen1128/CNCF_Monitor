@@ -85,6 +85,7 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	agent.Ip = req.Ip
 	agent.Components = req.Components
 	agent.QueueBacklogBytes = req.QueueBacklogBytes
+	agent.RemoteWriteLastError = req.RemoteWriteLastError
 	agent.ConfigVersion = req.ConfigVersion
 	agent.Status = "online"
 	if err := s.db.Save(agent).Error; err != nil {
