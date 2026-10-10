@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/metriccenter/metriccenter/platform/configcenter/portchain"
 	"github.com/metriccenter/metriccenter/platform/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -298,6 +299,126 @@ func TestResolveTargetsExporterPort(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "10.0.1.4:8080", groups[0].Targets[0])
 		assert.Equal(t, "10.0.1.5:161", groups[1].Targets[0])
+	})
+}
+
+// TestExporterPortOrEquivalenceToPortchain 显式证明决策 D-1 的等价性：改动前
+// exporterPortOr(exporterPort, businessPort)（db/mw 分支唯一端口语义）与接入后
+// portchain.Resolve(0, exporterPort, 0, businessPort) 的端口值逐例相等——
+// scrape_port 留空时生成地址零回归（提案 §9 回归断言）。参照实现留在测试内，
+// 生产代码中的 exporterPortOr 已删除（D-1 方案 a，不留死代码）。
+func TestExporterPortOrEquivalenceToPortchain(t *testing.T) {
+	legacy := func(exporterPort, fallback int) int {
+		if exporterPort > 0 {
+			return exporterPort
+		}
+		return fallback
+	}
+	cases := []struct{ exporter, business int }{
+		{9104, 3306}, // 映射/模板命中，业务兜底不生效（现网常态）
+		{0, 3306},    // 策略层缺省 → 业务兜底（6379/3306 型事故链路）
+		{0, 0},       // 全缺 → 0（裸 IP 失败态）
+		{9104, 0},    // 策略层命中且无业务端口
+		{9104, 6379}, // 两层都有值，业务端口永不越级
+	}
+	for _, c := range cases {
+		got, _ := portchain.Resolve(0, c.exporter, 0, c.business)
+		assert.Equal(t, legacy(c.exporter, c.business), got,
+			"等价性: legacy exporterPortOr(exporter=%d, business=%d)", c.exporter, c.business)
+	}
+}
+
+// TestResolveTargetsScrapePortChain 四级解析链接入回归（T01-P3，提案 §5.1/§9）：
+// db/mw 不填 scrape_port 时生成地址与改动前逐字节一致；填了实例覆盖优先；host 无
+// 业务 port 兜底（到模板层为止，全缺=裸 IP）；0 与 NULL 等价；app/gt 分支零改动
+// （D3a/D3b 守护）——target 字符串逐字节断言。
+func TestResolveTargetsScrapePortChain(t *testing.T) {
+	db := newMemDB(t)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{}, &models.Database{}, &models.Middleware{},
+		&models.Application{}, &models.GenericTarget{},
+	))
+
+	// db0：不带 scrape_port 字段（default 0 = 未指定）
+	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-db0", NetworkDomainID: "d", Status: "online",
+	}, InstanceIP: "10.0.2.1", Port: 3306}).Error)
+	// db1：显式实例覆盖 19100
+	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-db1", NetworkDomainID: "d", Status: "online", ScrapePort: 19100,
+	}, InstanceIP: "10.0.2.2", Port: 3306}).Error)
+	// db-null：手工置 NULL，验证 0/NULL 等价
+	require.NoError(t, db.Create(&models.Database{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-db-null", NetworkDomainID: "d", Status: "online",
+	}, InstanceIP: "10.0.2.3", Port: 3306}).Error)
+	require.NoError(t, db.Exec("UPDATE databases SET scrape_port = NULL WHERE resource_id = ?", "chain-db-null").Error)
+	// mw0：不填 scrape_port
+	require.NoError(t, db.Create(&models.Middleware{
+		ResourceID: "chain-mw0", NetworkDomainID: "d", Status: "online",
+		InstanceIP: "10.0.2.4", Port: 6379,
+	}).Error)
+	// host0 不填 / host1 填 19100（server_id 唯一索引，须区分）
+	require.NoError(t, db.Create(&models.Host{
+		ResourceID: "chain-h0", NetworkDomainID: "d", Status: "online", PrivateIP: "10.0.2.5",
+		ServerID: "chain-srv-h0",
+	}).Error)
+	require.NoError(t, db.Create(&models.Host{
+		ResourceID: "chain-h1", NetworkDomainID: "d", Status: "online", PrivateIP: "10.0.2.6", ScrapePort: 19100,
+		ServerID: "chain-srv-h1",
+	}).Error)
+	// app/gt：守护对象（端口语义不进链）
+	require.NoError(t, db.Create(&models.Application{
+		ResourceID: "chain-app", NetworkDomainID: "d", Status: "online", Endpoint: "10.0.2.7", Port: 8080,
+	}).Error)
+	require.NoError(t, db.Create(&models.GenericTarget{ResourceBase: models.ResourceBase{
+		ResourceID: "chain-gt", NetworkDomainID: "d", Status: "online",
+	}, InstanceIP: "10.0.2.8", Port: 161}).Error)
+
+	target := func(t *testing.T, rid string, exporterPort int) string {
+		t.Helper()
+		groups, _, err := ResolveJobTargets(db,
+			models.ScrapeJob{JobName: "j", SelectedInstanceIDs: []string{rid}}, nil, exporterPort)
+		require.NoError(t, err)
+		require.Len(t, groups, 1)
+		require.Len(t, groups[0].Targets, 1)
+		return groups[0].Targets[0]
+	}
+
+	t.Run("db 不填 scrape_port：策略层命中，与改动前逐字节一致", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.1:9104", target(t, "chain-db0", 9104))
+	})
+	t.Run("db 不填 scrape_port 且策略层缺省：业务端口兜底（等价 exporterPortOr(0,3306)）", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.1:3306", target(t, "chain-db0", 0))
+	})
+	t.Run("db 填 scrape_port：实例覆盖优先于映射/业务", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.2:19100", target(t, "chain-db1", 9104))
+		assert.Equal(t, "10.0.2.2:19100", target(t, "chain-db1", 0))
+	})
+	t.Run("0 与 NULL 等价：NULL 行与 0 行解析端口逐字节相同", func(t *testing.T) {
+		portOf := func(addr string) string {
+			if i := strings.LastIndex(addr, ":"); i >= 0 {
+				return addr[i:]
+			}
+			return addr
+		}
+		// db0（0）与 db-null（NULL）仅 IP 不同，端口解析结果须完全一致
+		assert.Equal(t, portOf(target(t, "chain-db0", 9104)), portOf(target(t, "chain-db-null", 9104)))
+		assert.Equal(t, portOf(target(t, "chain-db0", 0)), portOf(target(t, "chain-db-null", 0)))
+		assert.Equal(t, "10.0.2.3:9104", target(t, "chain-db-null", 9104))
+		assert.Equal(t, "10.0.2.3:3306", target(t, "chain-db-null", 0))
+	})
+	t.Run("mw 同口径：留空=策略层/业务兜底，填了=实例覆盖", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.4:9121", target(t, "chain-mw0", 9121))
+		assert.Equal(t, "10.0.2.4:6379", target(t, "chain-mw0", 0))
+	})
+	t.Run("host 无业务 port 兜底：留空且策略层缺省=裸 IP（unresolved 不展示 0）", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.5", target(t, "chain-h0", 0))
+		assert.Equal(t, "10.0.2.5:9100", target(t, "chain-h0", 9100))
+		assert.Equal(t, "10.0.2.6:19100", target(t, "chain-h1", 9100), "host 实例覆盖优先")
+	})
+	t.Run("app/gt 分支零改动：exporterPort 存在也不进链（D3a/D3b 守护）", func(t *testing.T) {
+		assert.Equal(t, "10.0.2.7:8080", target(t, "chain-app", 9100))
+		assert.Equal(t, "10.0.2.8:161", target(t, "chain-gt", 9100))
 	})
 }
 
