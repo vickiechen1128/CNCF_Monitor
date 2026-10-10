@@ -61,7 +61,8 @@
 | GET | `/resources` | `resource_category`（必填）、`network_domain_id`、`keyword`（名称+IP模糊）、`collection_status`（决策 47-3 三态筛选：`up`=采集中 / `down`=已下发未采到 / `unmonitored`=未监控）、`biz_code`（业务等值）、`status`（运行状态等值：`online`/`offline`/`maintenance`）、**`platform_code`**（**v2.51 增量** F-18 平台等值）、**`app_code`**（**v2.51 增量** F-18 应用等值；⚠️ 物理列名按类别不同——host 为 `app_code`、其余四类为 `app_name`，实现见 `query.go` `appCodeColumn(category)`）、**`service_code`**（**v2.51 增量** F-18 服务等值；**仅 `application` / `generic_target` 两类生效**，其余三类忽略该参数而非报错，见下方注）、`is_monitored`（透传预留，M01 未实现时不生效）、`page`、`page_size` | `{list,total,page,page_size}`，item = §5.2 字段 + 派生采集状态（见下注） | `bad_request`：resource_category 缺失/非法 | §6.1/6.6.1 |
 | POST | `/resources` | `ResourceCreateInput`（见 §10） | 创建后的完整对象 | `bad_request`：必填缺失 / `network_domain_id` 不存在（M06 行政记录） | §6.6.1 |
 | PUT | `/resources/:resource_id` | `ResourceUpdateInput`（resource_category/source_type 创建后不可改，不随请求体） | 更新后的完整对象 | `not_found`；`bad_request` | §6.6.1 |
-| DELETE | `/resources/:resource_id` | — | `{ resource_id }` | `not_found`；`forbidden`：被 Module_01 的 ScrapeJob 引用时禁止删除（报错 data 返回引用 Job 名单） | §6.1/6.6.1 |
+| DELETE | `/resources/:resource_id` | — | `{ resource_id }` | `not_found`；**B 方案静默放行**（软删可恢复），不再 403 拦截；引用信息改由 `GET /resources/:resource_id/referenced-by` 在删除二次确认弹窗预检回显（见下） | §6.1/6.6.1 |
+| GET | `/resources/:resource_id/referenced-by` | — | `{jobs:[{job_name,network_domain_id,enabled}],total}`；列出**引用该资源**的采集 Job（§6.6.1 引用 Job 名单口径；停用 Job 同样计入引用、软删 Job 不计） | `not_found` | §6.6.1 |
 | GET | `/resources/:resource_category/template` | — | Excel 模板下载（含「取值说明」sheet：M06 网域清单） | `not_found`：未知资源类型 | §6.1 |
 | POST | `/resources/:resource_category/import` | multipart：`file` + `resource_category` + `mode` | `ImportResult`（`{total,success,updated?,failed,errors[]}`，errors item = `{row,field,value?,reason}`） | `bad_request`：文件格式/必填列缺失/非法 mode | §5.16/6.6.1 |
 

@@ -549,3 +549,31 @@
 - **状态**：~~open~~ → **2026-10-03 已落地**，`ResourceDetailDrawer.test.tsx` 28/28、`ResourcesPage.test.tsx` 50/50 通过，eslint 该文件无告警，**测试文件未改**（契约文本均未变动）。
 - **⚠️ 误判与恢复记录**：2026-10-03 复核时曾因该块不在四项裁定内、且注释含「保证文本仍可被 getByText 命中」字样，被误判为「为让测试通过而改产品 UI」的越界改造并 `git checkout` 回退；**PM 已指出该判断有误**——它是 F-20 这个正当需求的实现。已全量恢复（125+ / 53- 完整还原），并改写 F-13 下的错误留痕为「非越界，勿误判」。
   - **纪律**：判断「越界」的判据应是**改动是否有人提出过的正当需求**，而非**改动量是否超出本轮任务清单**；本工作区常并存多会话未提交改动，回退前**必须先向 PM 确认来源**。
+
+---
+
+## 15. 新增登记（2026-10-09，资源删除「引用保护」B 方案决策）
+
+### F-21. 资源删除：从 PRD §6.6.1 的 403 拦截改为「静默放行 + 知情确认」（② 决策已拍板，待 PRD 回写）
+
+- **类别**：② 实现/产品已决策（**B 方案**）；PRD §6.6.1 文字与代码现状冲突，待产品侧收割回写。
+- **背景 / 触发**：M07 资源软删（DELETE `/resources/:resource_id`）修复变更检测失明期间，复盘「被采集 Job 引用的资源能否删除」——
+  - **现状冲突**：`delete.go` 的 `TODO(M01)`（L29-32、L43-45）写明「被 ScrapeJob 引用时 **403** data 返回引用 Job 名单」，但 **M01 从未实现该 403 拦截**，代码实际**静默放行**（直接软删、不反向查 ScrapeJob）；而 PRD §6.6.1（L1353）与 M07 契约快照 §3 DELETE 行仍写 `forbidden`：被引用时禁止删除 + 回传引用名单 + 「查看引用 Job」跳转。属「代码与契约文字冲突」类问题（同构已在前序轮次修过的模式）。
+  - **同类口径割裂**：生成侧 `generator/targets.go:282` 已实现 `if rt.Status=="offline"` → 静默排除 target（`SkipReasonOffline`），即「资源下线」已是**静默自愈**；而「资源删除」在 PRD 文字上仍是 403 拦截，两者自相矛盾。
+- **三方案对比（Orchestrator 提供）**：
+  | 方案 | 行为 | 评价 |
+  | --- | --- | --- |
+  | A：按 PRD 落地 403 | 删除被引用资源 → 403 拦截，data 回传引用 Job 名单，前端「查看引用 Job」跳转 | 制造「孤儿陷阱」：删除是高频管理动作、引用关系常滞后；硬拦阻断合法清理/重排，且与 offline 静默口径割裂 |
+  | **B（采用）：静默放行 + 知情确认** | 删除仍成功（软删）；删除二次确认弹窗**回显**「该资源正被 N 个采集 Job 引用，删除后这些 Job 将停止采集该实例」+「查看引用 Job」跳转（由只读反查接口支撑） | 与 offline 一致（同属「这台不再采集」意图，静默自愈 + 知情）；软删可恢复，误删有退路 |
+  | C：纯静默不提示 | 删除成功，无任何引用提示 | 背离 PRD「告知」初衷，用户无感知地让 Job 失去实例 |
+- **一致性原则（B 方案根基）**：`delete`（软删，可恢复）与 `offline`（status 置 offline）都表达「这台资源不再被采集」的意图，应统一为「**静默自愈 + 知情确认**」：
+  - 生成侧 `targets.go:282` 已对 offline 静默排除 target；
+  - 删除侧改为：删除成功（软删），但前端确认弹窗经只读接口预检引用关系并回显，让用户知情。
+  - **推论**：后续若「资源状态从运行中改为未上线/已下线」（`status` 枚举仅 `online/offline/maintenance`，无独立「未上线」，通常归 `offline`），逻辑与 offline 同构——同为「不再采集」意图，也应静默、不做 403 拦截。
+- **⚠️ 边界提醒（务必保留）**：若未来改为**硬 purge**（`db.Unscoped().Delete`，真删而非软删），则「删了就找不回」成立、403 论据重立，B 方案须回退为 403 或增加二次硬性确认。当前实现为软删（BaseModel.DeletedAt 置位），B 方案论据成立。
+- **落地动作（本轮已做）**：
+  - 后端（`platform/`，依 backend-developer.md）：新增只读反查接口 `GET /api/v2/platform/resources/:resource_id/referenced-by` → `{jobs:[{job_name,network_domain_id,enabled}],total}`（查 `scrape_jobs.selected_instance_ids` 含该 resource_id 且未软删的 Job；停用 Job 同样计入引用、软删 Job 不计——与 M07 标签模板引用保护 §6.6.3.1 同口径）；`delete.go` 的 `TODO(M01)` 注释改写为 B 方案静默放行口径（不再 403）；M07 契约快照 §3 同步：DELETE 行去掉 `forbidden`、新增 GET `referenced-by` 行。
+  - 前端（`ui-custom/web/`，依 frontend-developer.md）：`resourceApi` 新增 `referencedBy(id)`；资源列表删除由 `Popconfirm` 改为「先调 `referencedBy` 预检 → 二次确认弹窗回显引用数 + 引用 Job 名单 + 『查看引用 Job』跳转（`/scrape-jobs`）」。
+  - **PRD §6.6.1（L1353）文字修订由产品侧收割**：`forbidden` → 「允许删除；删除二次确认弹窗回显引用该资源的采集 Job 数（含『查看引用 Job』跳转）后放行」，与 offline 静默口径对齐。本分支不修改 PRD（红线）。
+- **影响模块**：backend `platform/config/resource`、frontend `ui-custom/web/src/pages/resources`、契约 `module-07/api-contract-snapshot.md`；PRD §6.6.1 待用户统一修改。
+- **状态**：后端 + 前端已落地 + 单测通过；PRD 文字待用户回写。
