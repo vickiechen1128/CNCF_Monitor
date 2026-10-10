@@ -15,6 +15,7 @@
 | 6 | T01-09：路由收口 + main.go 接入 + 集成验收 | routes-integration | `61ed552f` | done |
 | 7 | T01-P1：五类资源加 scrape_port + 录入链路 | scrape-port | `9d1c29e` | done |
 | 8 | T01-P2：LoadExporterPort 补 is_default=true 过滤（缺陷 D2） | scrape-port-chain | `b8fc824` | done |
+| 9 | T01-P3：新建共享叶子包 portchain + generator 四级链接入 | scrape-port-chain | `53128d8` | done |
 
 分支：`feat/module-01-strategy`（基自 develop）。
 
@@ -206,3 +207,57 @@
 - `go test ./platform/configcenter/generator/...` 全绿；`go vet ./platform/configcenter/...` 通过。
 - 提交门禁：`go test ./platform/...` 30 包全 ok；`go vet ./platform/...` exit 0；`make check-repo-map` 通过。
 - 服务启动验证：重建 → 启动 → `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 停止服务、8080 端口释放。
+
+## 2026-10-10（T01-P3：新建共享叶子包 portchain + generator 四级链接入）
+
+> 任务卡：`task-sequence.yaml` L960-989（T01-P3）；设计权威：提案 `resource-scrape-port-chain.md` §5.1（四级链）/ §7（D-1/D-2/D-3）/ §9（验收）。决策 D-2=B：抽共享纯函数包，generator 与 strategy/scrapejob 共用。commit：`53128d8`。
+
+### 实现
+- **新建 `platform/configcenter/portchain/portchain.go`**（叶子包，不 import strategy/*、generator 等上层包）：
+  - 函数签名（T01-P4 消费契约）：`func Resolve(scrapePort, mappingPort, templatePort, businessPort int) (port int, source string)`
+  - source 枚举常量：`SourceInstance="instance"` / `SourceMapping="mapping"` / `SourceTemplate="template"` / `SourceBusiness="business"` / `SourceUnresolved="unresolved"`
+  - 取值口径：`>0` 为有效、按序取第一个，全 0 返回 `(0, SourceUnresolved)`；0 与 NULL 等价由调用方读取资源行时自然成立。
+  - 四参签名建模依据：`LoadExporterPort`（data_source.go）返回值已合并 mapping/template 两层（命中映射返回映射端口、否则回落模板端口），**无法区分来源**——故 generator 侧调用形态为 `Resolve(scrapePort, exporterPort, 0, businessPort)`（templatePort 恒 0，数值语义与 M→T 段等价，generator 只消费 port 不消费 source）；T01-P4 scrapejob 侧可分别加载两层以精确回显来源。
+- **`platform/configcenter/generator/targets.go` 三分支接入**：
+  - host 分支：`port, _ := portchain.Resolve(host.ScrapePort, exporterPort, 0, 0)` —— 第 4 参恒 0，**永不产生 business 来源**（host 无业务端口概念，四级链止于模板层）；
+  - database 分支：`portchain.Resolve(database.ScrapePort, exporterPort, 0, database.Port)`；
+  - middleware 分支：`portchain.Resolve(middleware.ScrapePort, exporterPort, 0, middleware.Port)`；
+  - **application / generic_target 分支零改动**（D3a/D3b 守护，仍直接用资源自身 endpoint/port）；blackbox 短路（ResolveJobTargets 开头）不动。
+- **删除 `exporterPortOr`（决策 D-1 方案 a，不留死代码）**：grep 确认仅 targets.go 两处调用方，全部替换后删除函数本体；等价参照实现移入测试 `TestExporterPortOrEquivalenceToPortchain`。
+
+### 新增测试（TDD：先 RED 后 GREEN）
+- **`portchain/portchain_test.go` 四级全排列 7 组**（提案 §9 I/M-T/B 组合）：
+
+  | # | 用例 | (scrape, mapping, template, business) | 期望 (port, source) |
+  |---|------|----------------------------------------|---------------------|
+  | 1 | 仅实例覆盖（I only） | (19100, 0, 0, 0) | (19100, instance) |
+  | 2 | 仅类型默认（M only） | (0, 9100, 0, 0) | (9100, mapping) |
+  | 3 | 仅采集器默认（T only） | (0, 0, 9104, 0) | (9104, template) |
+  | 4 | 仅业务兜底（B only） | (0, 0, 0, 3306) | (3306, business) |
+  | 5 | I 压制 M/T/B | (19100, 9100, 9104, 3306) | (19100, instance) |
+  | 6 | M 压制 T/B | (0, 9100, 9104, 3306) | (9100, mapping) |
+  | 7 | T 压制 B | (0, 0, 9104, 3306) | (9104, template) |
+
+  另 3 个独立测试：`TestResolveAllZeroUnresolved`（(0,0,0,0)→(0, unresolved)，不展示 0）、`TestResolveZeroTierFallsThrough`（0 档回落；负值不作有效端口 `(0,-1,9104,3306)→(9104, template)`）、`TestResolveHostNoBusinessTier`（host 调用形态第 4 参恒 0）。
+- **`generator/generator_test.go` 两处新增**：
+  - `TestExporterPortOrEquivalenceToPortchain`：测试内保留 legacy 参照 `exporterPortOr`，5 组输入（9104/3306、0/3306、0/0、9104/0、9104/6379）断言与 `portchain.Resolve(0, exporter, 0, business)` 逐例相等——D-1 等价性显式证明（scrape_port 留空 = 零回归）；
+  - `TestResolveTargetsScrapePortChain`：内存库建 chain-db0（不带字段）/ chain-db1（ScrapePort 19100）/ chain-db-null（`UPDATE databases SET scrape_port = NULL`）/ chain-mw0 / chain-h0 / chain-h1 / chain-app / chain-gt，经 `ResolveJobTargets` 逐字节断言 target 字符串，8 子用例：
+    1. db 不填 scrape_port → 策略层命中 `10.0.2.1:9104`（与改动前逐字节一致）；
+    2. db 不填且策略层缺省 → 业务兜底 `10.0.2.1:3306`（等价 legacy `exporterPortOr(0,3306)`）；
+    3. db 填 19100 → 实例覆盖优先 `10.0.2.2:19100`（exporterPort 有值也压制）；
+    4. **0 与 NULL 等价**：NULL 行与 0 行端口解析结果相同（`10.0.2.3:9104` / `10.0.2.3:3306`，GORM 扫 NULL 到 `default:0` int 字段正常归 0，实测无扫描错误）；
+    5. mw 同口径 `:9121` / `:6379`；
+    6. host 无 B 级：留空且策略层缺省=裸 IP `10.0.2.5`（unresolved 不展示 0）、`10.0.2.5:9100`、host 实例覆盖 `10.0.2.6:19100`；
+    7. app/gt 零改动守护 `10.0.2.7:8080` / `10.0.2.8:161`（exporterPort 存在也不进链）。
+- RED 过程中发现并修复：chain-h0/chain-h1 触发 `hosts.server_id` 唯一索引冲突（Host 不内嵌 ResourceBase、server_id uniqueIndex），补唯一 ServerID；0/NULL 等价断言最初整串比较因两行 IP 不同失败，改为端口段比较。
+- 既有 `TestResolveTargetsExporterPort`（若存在）/ `TestLoadExporterPortPriority` / app·gt 相关既有断言保持全绿。
+
+### change_detect.go 核对结论（D-6 复核，无改动）
+- 本任务不改任何源表 schema、不改行数据（仅改生成侧消费逻辑），`SourceDataVersion` = 各源表 `MAX(updated_at), MAX(db.deleted_at)` 聚合口径与 T01-P1 核查一致，`sourceTableScopes` 已覆盖；**无哈希口径需补充，change_detect.go 零改动**，结论沿用 T01-P1 的 D-6 记录。
+- 注：接入后 generator 消费 scrape_port 会改变产物内容——这是**正常的功能变更**，将由变更检测的 updated_at 推进自然触发草稿，非本任务验收范围。
+
+### 验证
+- `go test ./platform/configcenter/...` 全绿（portchain 4 测试 + generator 新增 2 测试 + 既有全过）。
+- `go vet ./platform/...` exit 0；`gofmt -l` 改动文件无漂移。
+- 提交门禁：`go test ./platform/...` 全量无回归；`make repo-map` 已重新生成。
+- 服务启动验证：`make build-metric-center` 重建 → 启动 → `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 停止服务、8080 端口释放。
