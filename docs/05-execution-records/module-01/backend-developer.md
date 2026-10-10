@@ -17,6 +17,8 @@
 | 8 | T01-P2：LoadExporterPort 补 is_default=true 过滤（缺陷 D2） | scrape-port-chain | `b8fc824` | done |
 | 9 | T01-P3：新建共享叶子包 portchain + generator 四级链接入 | scrape-port-chain | `53128d8` | done |
 | 10 | T01-P7：下载模板五类列头末尾追加 scrape_port | scrape-port-chain | `498e026` | done |
+| 11 | T01-P4：preview-targets 与 instances 回显生效端口+来源 | scrape-port-chain | `98e7c3f` | done |
+| 12 | T01-P8：契约快照与提案回填 + 全量收尾验证 | scrape-port-chain | `6d9b8d3` | done |
 
 分支：`feat/module-01-strategy`（基自 develop）。
 
@@ -342,3 +344,37 @@
 - `go vet ./platform/...` ✅ exit 0；`gofmt -w` 仅补我方两文件行尾换行（包内其余文件 gofmt 漂移为存量问题、非本任务改动范围，未触碰）。
 - 服务启动验证：8080 被他人 metric-center 实例占用（未动其进程），以 `--listen-address :18080` + 临时 DSN 启动本分支新构建二进制，`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 已停止、18080 释放、临时文件清理。
 - pre-commit repo-map 门禁 ✅（`make check-repo-map` OK）。
+
+## 2026-10-10（T01-P8：契约快照与提案回填 + 全量收尾验证）
+
+> 任务卡：`task-sequence.yaml` T01-P8；T01-P1~P7 全部完成后的收尾任务。回填 commit：`6d9b8d3`（本节执行记录随后单独提交）。红线：不改 `docs/02-product-requirements/`（PRD 修订归设计侧）。
+
+### 三份文档回填
+
+1. **`api-contract-snapshot.md`（前端契约第一权威）v2026-10-10 增量**
+   - §0：生成方式行追加增量说明；「本期范围外」中 `Resource.scrape_port` 从 v0.2 待办改为「已提前于 v0.1 落地（T01-P1）」。
+   - §6：`GET /scrape-jobs/:id/instances` 与 `POST /scrape-jobs/:id/preview-targets` 两行响应契约扩展；新增「生效端口与来源回显（T01-P4）」引用块——`port`(int，0=未解析展示 `-`)/`port_source`(string) 两字段、四级链判定口径（template 层仅按 `job.exporter_template_id`、保证回显=下发）、`business` 仅 db/mw（host 第 4 参恒 0）、app/gt 旁路归一 `instance`、D-4 后端不阻断、blackbox `port=0`/空串、scrapejob 只 import portchain 无第二套实现。
+   - §9 枚举字典：新增 `port_source` 行（instance/mapping/template/business/unresolved 五值语义）。
+   - §10 字段必填口径：新增五类资源 `scrape_port`（int、0=未指定、1~65535 校验、create/update(updatableColumns)/list/Excel 四通道 + 下载模板列）。
+   - §11 UI 展示名映射：新增 `scrape_port`、`port`/`port_source` 两行。
+2. **提案 `resource-scrape-port-chain.md` §8 回填清单**
+   - #5 ✅ 已完成（M01 快照增量 + 实现 commit `9d1c29e`/`98e7c3f`/`f60bdc0`/`498e026`）；#7 ✅ 已完成（dev-feedback F-40）。
+   - #6 ⏭️ 跳过：`module-09/api-contract-snapshot.md` 经 grep（端口/四级/解析链/default_port）确认无任何端口表述、无补写落点，四级链权威表述落提案 §5.1 + M01 快照 §6。
+   - #1/#2/#3/#4/#8 → 统一标注「设计侧待办（prototype-designer）」，开发侧不碰 PRD。
+   - 新增 **D-6 结论**小节：`SourceDataVersion` 为 `MAX(updated_at)/MAX(deleted_at)` 聚合、无行哈希（`change_detect.go:47/63/67`）；加列不推进版本、升级首启无变更单噪声（`ConfigChangeBaseline` DB 派生基线）；白名单与 6 处测试 helper 零改动（T01-P1/P3 实测）。
+   - 头部状态同步：「已评审 → 实现已完成」。
+3. **`dev-feedback.md` 登记 F-40**：6379 事故与端口字段认知混淆（① 类认知空白 + ② 类兜底不可见），按现有条目格式（类别/PRD 章节/现状/建议与补偿控制/影响模块/关联/发现场景/状态），补偿控制 closed、PRD 表述修订标注设计侧待办。
+
+### 四项门禁（逐项实测）
+
+| 门禁 | 结果 |
+|------|------|
+| `make check-repo-map` | ✅ `OK: repo-map 与当前业务代码一致`（无刷新、无需随本批提交 repo-map） |
+| `make test-platform` | ✅ 全绿（含 scrapejob / portchain / generator / config/resource 等，exit 0） |
+| `go vet ./platform/...` | ✅ 无任何输出（项目级 `.tools/go` 1.26.1） |
+| `cd ui-custom/web && pnpm lint` | ⚠️ 1 error + 1 warning，**均为存量**：`pages/alerts/useRoutes.ts`（react-hooks/set-state-in-effect）与 `RoutesPage.tsx`，由 M08 提交 `5d03db9`/`fdbc913`/`86331a0` 引入；本批 T01 七个 feat commit（P1~P7）对 `pages/alerts/` 触碰数为 0（`git show --stat` 逐一核对），按任务卡界定为存量不修 |
+
+### 遗留（设计侧待办，开发侧不接手）
+
+- 提案 §8 #1/#2/#3（M01/M07 PRD 端口层级与字段分工表述）、#4/#8（D3b 修 PRD 对齐实现 + 端口承载分口径矩阵落 PRD 文字）→ prototype-designer 在 `design/module-mvp-demo` 执行。
+- `pages/alerts/` lint 存量（M08 范围）。
