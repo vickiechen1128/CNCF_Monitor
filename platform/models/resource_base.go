@@ -31,6 +31,10 @@ type ResourceBase struct {
 	TenantID   string     `gorm:"size:64" json:"tenant_id,omitempty"` // 预留；MVP 固定 platform_admin
 	Status     string     `gorm:"size:20;not null" json:"status"`
 	SourceType SourceType `gorm:"size:20;not null" json:"source_type"`
+	// ScrapePort 是实例级采集端口覆盖（M07 PRD §5.2 可选字段，提案
+	// resource-scrape-port-chain §5.2）：0=未指定，留空时由 M09 四级端口解析链
+	// 回落（映射 → 模板 → 业务 port）。
+	ScrapePort int `gorm:"default:0" json:"scrape_port"`
 }
 
 // GetResourceID returns the resource id.

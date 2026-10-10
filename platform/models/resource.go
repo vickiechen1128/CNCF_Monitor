@@ -68,6 +68,9 @@ type Middleware struct {
 	Port             int    `json:"port"`
 	Version          string `gorm:"size:50" json:"version"`
 	ConnectionString string `gorm:"size:500" json:"connection_string"`
+	// ScrapePort 是实例级采集端口覆盖（M07 PRD §5.2 可选字段）：0=未指定，
+	// 留空时由 M09 四级端口解析链回落（映射 → 模板 → 业务 port）。
+	ScrapePort int `gorm:"default:0" json:"scrape_port"`
 }
 
 // Application represents an application service resource that can be probed
@@ -101,6 +104,9 @@ type Application struct {
 	Protocol       string `gorm:"size:20;not null" json:"protocol"`
 	Endpoint       string `gorm:"size:500" json:"endpoint"`
 	Port           int    `json:"port"`
+	// ScrapePort 是实例级采集端口覆盖（M07 PRD §5.2 可选字段，五类模型统一
+	// 加列；application 解析分支行为不变，见提案拍板 Q2/D3a）。
+	ScrapePort int `gorm:"default:0" json:"scrape_port"`
 }
 
 // GetResourceID returns the resource id.

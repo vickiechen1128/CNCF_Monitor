@@ -69,6 +69,11 @@ type ResourceInput struct {
 	Scheme       string            `json:"scheme"`
 	ExporterType string            `json:"exporter_type"`
 	CustomLabels map[string]string `json:"custom_labels"`
+
+	// ScrapePort 是实例级采集端口覆盖（M07 PRD §5.2 可选 int，五类通用）：
+	// 0=未指定（缺省），留空时由 M09 四级端口解析链回落（scrape_port → 映射 →
+	// 模板 → 业务 port，提案 resource-scrape-port-chain §5.1）。
+	ScrapePort int `json:"scrape_port"`
 }
 
 // KeepDisabledValues 承载「编辑保留停用历史值」的放行集合（决策 92/93 红线）：
@@ -338,8 +343,21 @@ func validateServiceCodeEnabled(in *ResourceInput, svcStore *ServiceDictStore, k
 	return nil
 }
 
+// validateScrapePort 校验实例级采集端口覆盖 scrape_port（可选，五类同口径）：
+// 0（未指定）合法，填值须在 1~65535；错误消息以 scrape_port 开头，供 excel.go
+// 的 resourceInputFieldPrefixes 前缀映射回 §5.16.3 的 field。
+func validateScrapePort(in *ResourceInput) error {
+	if in.ScrapePort != 0 && (in.ScrapePort < 1 || in.ScrapePort > 65535) {
+		return fmt.Errorf("scrape_port 必须为 0（未指定）或 1~65535，当前：%d", in.ScrapePort)
+	}
+	return nil
+}
+
 // validateHost 校验 host 资源必填字段（决策 93：host 的 biz_code 可空后补）。
 func validateHost(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	if strings.TrimSpace(in.InstanceIP) == "" {
 		return fmt.Errorf("instance_ip 必填")
 	}
@@ -360,6 +378,9 @@ func validateHost(in *ResourceInput) error {
 }
 
 func validateDatabase(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	if strings.TrimSpace(in.DatabaseType) == "" {
 		return fmt.Errorf("database_type 必填")
 	}
@@ -373,6 +394,9 @@ func validateDatabase(in *ResourceInput) error {
 }
 
 func validateMiddleware(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	if strings.TrimSpace(in.MiddlewareType) == "" {
 		return fmt.Errorf("middleware_type 必填")
 	}
@@ -401,6 +425,9 @@ func validateIPPortResource(in *ResourceInput) error {
 }
 
 func validateApplication(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	// 决策 93：application 应用服务上线后 biz_code 必填（对应启用条目由
 	// validateCommon 校验，host/db/middleware 不受此约束）。
 	if strings.TrimSpace(in.BizCode) == "" {
@@ -441,6 +468,9 @@ func validateApplication(in *ResourceInput) error {
 }
 
 func validateGenericTarget(in *ResourceInput) error {
+	if err := validateScrapePort(in); err != nil {
+		return err
+	}
 	// 决策 95：app_code 与 biz_code 二选一必填（两者皆空 bad_request，避免指标
 	// 无归属）；非空侧的存在性/启用态校验已由 validateCommon 完成。
 	if strings.TrimSpace(in.AppCode) == "" && strings.TrimSpace(in.BizCode) == "" {

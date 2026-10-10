@@ -169,6 +169,7 @@ func applyHostInput(h *models.Host, in *ResourceInput) {
 	// os_type 经内置 OS 字典归一化为规范名（models.NormalizeOSType），
 	// 保证采集 Job host_linux/host_windows 候选按家族稳定命中（os_dict.go）。
 	h.Image = models.NormalizeOSType(in.OSType)
+	h.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
 }
 
 func applyDatabaseInput(d *models.Database, in *ResourceInput) {
@@ -184,6 +185,7 @@ func applyDatabaseInput(d *models.Database, in *ResourceInput) {
 	d.InstanceIP = in.InstanceIP
 	d.Port = in.Port
 	d.Version = in.Version
+	d.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
 }
 
 func applyMiddlewareInput(m *models.Middleware, in *ResourceInput) {
@@ -199,6 +201,7 @@ func applyMiddlewareInput(m *models.Middleware, in *ResourceInput) {
 	m.InstanceIP = in.InstanceIP
 	m.Port = in.Port
 	m.Version = in.Version
+	m.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
 }
 
 func applyApplicationInput(a *models.Application, in *ResourceInput) {
@@ -216,6 +219,7 @@ func applyApplicationInput(a *models.Application, in *ResourceInput) {
 	a.Protocol = in.Protocol
 	a.Endpoint = in.Endpoint
 	a.Port = in.Port
+	a.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
 }
 
 func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
@@ -235,6 +239,7 @@ func applyGenericTargetInput(g *models.GenericTarget, in *ResourceInput) {
 	g.Scheme = in.Scheme
 	g.ExporterType = in.ExporterType
 	g.CustomLabels = in.CustomLabels
+	g.ScrapePort = in.ScrapePort // 实例级采集端口覆盖（0=未指定）
 }
 
 // CreateResource 是 POST /api/v2/platform/resources 的创建 handler。

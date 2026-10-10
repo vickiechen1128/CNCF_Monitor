@@ -1,6 +1,9 @@
 package resource
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
@@ -1137,4 +1140,196 @@ func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T) {
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs),
 			"创建态（keep=nil）不做任何豁免")
 	})
+}
+
+// ---------------------------------------------------------------------------
+// T01-P1：实例级采集端口 scrape_port（提案 resource-scrape-port-chain §5.2/§5.3，
+// M07 PRD §5.2 字段表：可选 int，0=未指定）
+// ---------------------------------------------------------------------------
+
+// scrapePortInput 构造某类型可通过校验的输入（scrape_port 留 0，由用例覆盖）。
+func scrapePortInput(category models.ResourceCategory) *ResourceInput {
+	switch category {
+	case models.ResourceCategoryHost:
+		return validHostInput()
+	case models.ResourceCategoryDatabase:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-db", Cluster: "pay",
+			Status: "online", Env: "prod", DatabaseType: "mysql", InstanceIP: "10.0.0.10", Port: 3306,
+		}
+	case models.ResourceCategoryMiddleware:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-mq", Cluster: "pay",
+			Status: "online", Env: "prod", MiddlewareType: "kafka", InstanceIP: "10.0.0.11", Port: 9092,
+		}
+	case models.ResourceCategoryApplication:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "payment", AppCode: "pay-service", Cluster: "pay",
+			Status: "online", Env: "prod", ServiceName: "pay-service",
+			HealthCheckURL: "http://10.0.0.20:8080/health", Protocol: "http",
+			Endpoint: "10.0.0.20", Port: 8080,
+		}
+	case models.ResourceCategoryGenericTarget:
+		return &ResourceInput{
+			NetworkDomainID: "default", BizCode: "infra", Status: "online", Env: "prod",
+			TargetName: "snmp-switch-01", InstanceIP: "10.0.0.30", Port: 161,
+			Scheme: "http", MetricsPath: "/metrics",
+		}
+	}
+	return nil
+}
+
+// TestValidateResourceInput_ScrapePort 覆盖 validateScrapePort 口径（提案 §5.3 /
+// 任务卡验收）：0（未指定）与正常端口合法；65536/-1 越界返回 bad_request 且错误
+// 消息以 scrape_port 开头（供 excel.go 前缀映射回 §5.16.3 field），五类同口径。
+func TestValidateResourceInput_ScrapePort(t *testing.T) {
+	store := newBizStore(t)
+
+	for _, category := range allCategories() {
+		t.Run(string(category), func(t *testing.T) {
+			t.Run("scrape_port 0（未指定）合法", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = 0
+				require.NoError(t, ValidateResourceInput(category, in, store, nil, nil, alwaysExists))
+			})
+			t.Run("scrape_port 正常端口合法", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = 9100
+				require.NoError(t, ValidateResourceInput(category, in, store, nil, nil, alwaysExists))
+			})
+			t.Run("scrape_port 65536 越界拒绝", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = 65536
+				err := ValidateResourceInput(category, in, store, nil, nil, alwaysExists)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "scrape_port")
+			})
+			t.Run("scrape_port -1 拒绝", func(t *testing.T) {
+				in := scrapePortInput(category)
+				in.ScrapePort = -1
+				err := ValidateResourceInput(category, in, store, nil, nil, alwaysExists)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "scrape_port")
+			})
+		})
+	}
+}
+
+// TestScrapePortAutoMigrateAddsColumn 验收「只加列不加新表」：五类资源模型
+// AutoMigrate 后均含 scrape_port 列（存量库经 AutoMigrate 自动 ALTER ADD COLUMN
+// default:0，无需手写迁移，db.go AutoMigrate 清单 / change_detect 白名单零改动）。
+func TestScrapePortAutoMigrateAddsColumn(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.Host{},
+		&models.Database{},
+		&models.Middleware{},
+		&models.Application{},
+		&models.GenericTarget{},
+	))
+	for _, m := range []any{
+		&models.Host{}, &models.Database{}, &models.Middleware{},
+		&models.Application{}, &models.GenericTarget{},
+	} {
+		require.True(t, db.Migrator().HasColumn(m, "scrape_port"), "%T 应含 scrape_port 列", m)
+	}
+}
+
+// TestGetResourceField_ScrapePort 断言五类模型的字段映射（LegacyFieldMap +
+// GetResourceField）均支持 scrape_port——标签模板源字段与更新链路 current 值读取
+// 依赖该映射（T01-P1 output：models/resource_fields.go）。
+func TestGetResourceField_ScrapePort(t *testing.T) {
+	modelsByCategory := map[models.ResourceCategory]any{
+		models.ResourceCategoryHost:          &models.Host{},
+		models.ResourceCategoryDatabase:      &models.Database{},
+		models.ResourceCategoryMiddleware:    &models.Middleware{},
+		models.ResourceCategoryApplication:   &models.Application{},
+		models.ResourceCategoryGenericTarget: &models.GenericTarget{},
+	}
+	for category, model := range modelsByCategory {
+		m := LegacyFieldMap(category)
+		require.Contains(t, m, "scrape_port", "%s LegacyFieldMap 应含 scrape_port", category)
+		assert.Equal(t, "scrape_port", m["scrape_port"])
+
+		v, ok := GetResourceField(model, "scrape_port")
+		require.True(t, ok, "%s 应可读取 scrape_port", category)
+		assert.Equal(t, "0", v, "缺省 0=未指定")
+	}
+}
+
+// TestScrapePort_CreateUpdateListChannels 覆盖 create/update/list 三通道读写
+// scrape_port（Excel 导入通道见 excel_test.go）与 0/NULL 等价：
+//   - 创建写入 9100 → 响应带出；
+//   - 列表读出 9100；
+//   - 更新带值可写入；
+//   - PUT 不带 scrape_port 字段与显式带 0 结果等价（Go 零值 0 = 未指定），
+//     且不误清其他列（instance_name / env 等仍按请求体落库）。
+func TestScrapePort_CreateUpdateListChannels(t *testing.T) {
+	db := openCreateUpdateTestDB(t)
+	r := mountCreateUpdate(t, db)
+	r.GET("/api/v2/platform/resources", ListResources(db))
+
+	// 1. 创建通道：写入 scrape_port=9100，创建响应带出。
+	createBody := hostBody()
+	createBody["scrape_port"] = 9100
+	w, out := doCreate(t, r, createBody)
+	require.Equal(t, http.StatusOK, w.Code, out.Error)
+	require.Equal(t, "success", out.Status)
+	assert.Equal(t, float64(9100), out.Data["scrape_port"], "创建响应应带出 scrape_port")
+	idA, _ := out.Data["resource_id"].(string)
+	require.NotEmpty(t, idA)
+	assert.Equal(t, 9100, loadHostByResourceID(t, db, idA).ScrapePort)
+
+	// 2. 列表通道：GET 列表读出 scrape_port。
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/platform/resources?resource_category=host", nil)
+	wList := httptest.NewRecorder()
+	r.ServeHTTP(wList, req)
+	require.Equal(t, http.StatusOK, wList.Code)
+	var listOut struct {
+		Status string `json:"status"`
+		Data   struct {
+			List []map[string]interface{} `json:"list"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(wList.Body.Bytes(), &listOut))
+	require.Len(t, listOut.Data.List, 1)
+	assert.Equal(t, float64(9100), listOut.Data.List[0]["scrape_port"], "列表应读出 scrape_port")
+
+	// 3. 更新通道：带值改写 19100。
+	updVal := hostBody()
+	updVal["scrape_port"] = 19100
+	wUpd, outUpd := doUpdate(t, r, idA, updVal)
+	require.Equal(t, http.StatusOK, wUpd.Code, outUpd.Error)
+	assert.Equal(t, float64(19100), outUpd.Data["scrape_port"])
+	assert.Equal(t, 19100, loadHostByResourceID(t, db, idA).ScrapePort)
+
+	// 4. 0/NULL 等价：资源 B（PUT 不带字段）与资源 C（PUT 显式 0）结果一致，
+	//    且其他列不被误清。
+	_, outB := doCreate(t, r, hostBody())
+	idB, _ := outB.Data["resource_id"].(string)
+	wB, updB := doUpdate(t, r, idB, hostBody()) // 不含 scrape_port 键
+	require.Equal(t, http.StatusOK, wB.Code, updB.Error)
+	assert.Equal(t, float64(0), updB.Data["scrape_port"], "不带字段 ⇒ 0（未指定）")
+
+	_, outC := doCreate(t, r, hostBody())
+	idC, _ := outC.Data["resource_id"].(string)
+	zeroBody := hostBody()
+	zeroBody["scrape_port"] = 0
+	wC, outC2 := doUpdate(t, r, idC, zeroBody)
+	require.Equal(t, http.StatusOK, wC.Code, outC2.Error)
+	assert.Equal(t, float64(0), outC2.Data["scrape_port"], "显式 0 ⇒ 0（未指定）")
+
+	hB := loadHostByResourceID(t, db, idB)
+	hC := loadHostByResourceID(t, db, idC)
+	assert.Equal(t, hB.ScrapePort, hC.ScrapePort, "不带字段与带 0 结果等价")
+	assert.Equal(t, 0, hB.ScrapePort)
+	assert.Equal(t, 0, hC.ScrapePort)
+	// 不误清其他列（PUT 全量替换语义下请求体字段仍落库）。
+	assert.Equal(t, "web-01", hB.InstanceName)
+	assert.Equal(t, "web-01", hC.InstanceName)
+	assert.Equal(t, "prod", hB.EnvFlag)
+	assert.Equal(t, "prod", hC.EnvFlag)
+	assert.Equal(t, "Linux", hB.Image)
+	assert.Equal(t, "Linux", hC.Image)
 }

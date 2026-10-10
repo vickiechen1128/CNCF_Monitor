@@ -153,6 +153,10 @@ func applyCells(row *ImportRow, header, cells []string) {
 			in.MiddlewareType = val
 		case "port":
 			in.Port, row.PortRaw = parsePort(val)
+		case "scrape_port":
+			// 实例级采集端口覆盖（可选列，决策 D-7 随模型进 P0）：复用 parsePort，
+			// 空 → 0（未指定）、非数字 → -1 哨兵（ValidateImportRow 报行级错误）。
+			in.ScrapePort, _ = parsePort(val)
 		case "version":
 			in.Version = val
 		case "service_name":
@@ -422,6 +426,7 @@ var resourceInputFieldPrefixes = []string{
 	"service_name", "service_code", "health_check_url", "protocol", "endpoint",
 	"target_name", "metrics_path", "scheme", "exporter_type",
 	"app_code", "platform_code", "cluster", "resource_category",
+	"scrape_port",
 }
 
 // fieldFromResourceInputError 从 ValidateResourceInput 的错误消息中提取字段名。
@@ -471,6 +476,8 @@ func valueFromField(in *ResourceInput, field, portRaw string) string {
 			return portRaw
 		}
 		return strconv.Itoa(in.Port)
+	case "scrape_port":
+		return strconv.Itoa(in.ScrapePort)
 	case "version":
 		return in.Version
 	case "service_name":

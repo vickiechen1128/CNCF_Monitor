@@ -607,3 +607,71 @@ func TestValidateImportRow_GeneratesDedupKeyForAllCategories(t *testing.T) {
 		assert.Equal(t, tc.want, row.DedupKey, "资源类型 %s 判重键", tc.cat)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// T01-P1：scrape_port Excel 导入侧（决策 D-7：导入解析与字段映射随模型进 P0；
+// 模板列 TemplateColumns 由 T01-P7 处理，故此处直调 applyCells / 构造 ImportRow，
+// 不走 ParseExcel 固定列头校验）
+// ---------------------------------------------------------------------------
+
+// TestApplyCells_ScrapePort 覆盖 applyCells 的 scrape_port 解析：数值 → int、
+// 空 → 0（未指定）、非数字 → -1 哨兵（交由 ValidateImportRow 报行级错误）。
+func TestApplyCells_ScrapePort(t *testing.T) {
+	cases := []struct {
+		name string
+		cell string
+		want int
+	}{
+		{"数值解析", "9100", 9100},
+		{"空值→0（未指定）", "", 0},
+		{"非数字→-1 哨兵", "abc", -1},
+		{"显式 0", "0", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			row := ImportRow{Row: 2, Category: models.ResourceCategoryHost}
+			applyCells(&row, []string{"scrape_port"}, []string{tc.cell})
+			assert.Equal(t, tc.want, row.Input.ScrapePort)
+		})
+	}
+}
+
+// TestValidateImportRow_ScrapePort 覆盖导入行校验把越界 scrape_port 映射回
+// §5.16.3 结构（field=scrape_port、value=原文），并守护 0（未指定）合法。
+func TestValidateImportRow_ScrapePort(t *testing.T) {
+	store := newBizStore(t)
+	ok := existsDomains("default")
+	parseHost := func(t *testing.T) ImportRow {
+		t.Helper()
+		return mustParse(t, models.ResourceCategoryHost,
+			[][]string{makeRow(models.ResourceCategoryHost, baseValues(models.ResourceCategoryHost))})[0]
+	}
+
+	t.Run("scrape_port 0（未指定）通过", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = 0
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil))
+	})
+
+	t.Run("scrape_port 65536 越界映射 field/value", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = 65536
+		err := ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil)
+		rerr := assertRowError(t, err, 2, "scrape_port", "65536")
+		assert.Contains(t, rerr.Detail.Reason, "scrape_port")
+	})
+
+	t.Run("scrape_port -1（非数字哨兵）被拒绝", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = -1
+		err := ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil)
+		rerr := assertRowError(t, err, 2, "scrape_port", "-1")
+		assert.Contains(t, rerr.Detail.Reason, "scrape_port")
+	})
+
+	t.Run("scrape_port 正常值通过", func(t *testing.T) {
+		row := parseHost(t)
+		row.Input.ScrapePort = 19100
+		require.NoError(t, ValidateImportRow(&row, store, newAppStore(t), nil, ok, nil))
+	})
+}
