@@ -291,3 +291,54 @@
 ### 问题与偏差
 - **文件边界偏差（已随汇报显式说明）**：任务卡文件边界仅列 `template.go` / `template_test.go` / `excel_test.go`（excel.go 标注「只读核对」），但验收项「旧模板（无 scrape_port 列）导入仍成功」在 `excel.go` `validateHeader` 的严格逐列比对下**不可达**（旧模板表头比模板短一列，必报「列头缺失」）。故对 `excel.go` 做了 6 行最小容缺改动（`validateHeader` 头部 + 注释）；未触碰 `platform/strategy/`、`platform/configcenter/`。
 - M07 PRD §5.16.1 :930 模板列尚无 scrape_port 回填（{v0.2} 标注）——按红线由设计侧执行，开发不改 PRD。
+
+## 2026-10-10（T01-P4：preview-targets 与 instances 回显生效端口+来源）
+
+> 任务卡：`task-sequence.yaml` L991-1017（T01-P4）；设计权威：提案 `resource-scrape-port-chain.md` §5.3（M01 抽屉只读回显 + 四种来源）/ §9（业务端口兜底警示不阻断）/ §7（D-4）；决策 D-2=B 核心验收：scrapejob 只调 portchain、无第二套解析。commit：`98e7c3f`
+
+### 修改文件
+- `platform/strategy/scrapejob/preview.go`：
+  - `previewTarget` 追加 `Port int` / `PortSource string` 两字段（json tag：`port` / `port_source`；standard 分支填充；blackbox 分支保持零值 port=0 / port_source=""，D3 矩阵 blackbox 短路不进链）；
+  - 新增共享函数 `resolveInstanceScrapePort(db, job, resourceID) (int, string)`——按实例资源行探测取 `scrape_port`（探测顺序与 `resolveInstanceAddress` 一致，保证地址与端口同表），再**分别加载**映射层与模板层作为独立入参交 `portchain.Resolve` 判定；
+  - 新增两个分层加载函数：`mappingDefaultPort`（`monitor_type = ? AND is_default = true` 的 `default_port`，与 `resolveJobScrapeParams`/`LoadExporterPort` 同口径）、`templateDefaultPort`（`job.ExporterTemplateID` 的 `default_port`，**刻意不含**「映射引用的采集器回落」——与 generator `LoadExporterPort` 逐字对齐，保证回显端口与下发 target 端口一致）。
+- `platform/strategy/scrapejob/installation.go`：`jobInstanceItem` 追加同名两字段；`ListJobInstances` 循环内调 `resolveInstanceScrapePort` 填充（`resolveResourceMeta` 保持只管 name/ip，端口解析统一走共享函数，避免双实现）。
+- `platform/strategy/scrapejob/preview_test.go`（新建）/ `installation_test.go`（新建）：11 个新用例。
+- `platform/configcenter/portchain/portchain_test.go`：补 `TestResolveHostCallFormNeverBusiness`（host 调用形态 I/M/T 8 组合穷举，第 4 参恒 0，逐组合断言期望值 + 显式 NotEqual(business) 双保险）。
+- `docs/04-source-architecture/repo-map.md`：`make repo-map` 刷新（差异仅含本任务新增符号，随 feat 提交过 pre-commit 门禁）。
+
+### 响应字段契约（供前端 T01-P6/T01-P8 快照回写）
+- **POST `/api/v2/platform/scrape-jobs/:id/preview-targets`** → `data.targets[]` 每项：既有 `resource_id`/`address`/`protocol` + 新增 `port`（int，数值）、`port_source`（string）。standard 必带两键（有 `TestPreviewTargetsPortJSONContractKeys` 键存在性断言）；blackbox 项 `port=0`、`port_source=""`（不适用，无端口解析概念）。
+- **GET `/api/v2/platform/scrape-jobs/:id/instances`** → `data.items[]` 每项：既有 `resource_id`/`instance_name`/`instance_ip`/`status` + 新增 `port`（int）、`port_source`（string），语义与 preview 完全同源。
+- `port_source` 枚举（= `portchain.Source*`）：`instance`（实例覆盖 scrape_port）/ `mapping`（类型默认）/ `template`（采集器默认）/ `business`（业务端口兜底，仅 db/mw，前端须展示 ⚠️ 警示）/ `unresolved`（四级全缺，port=0，前端展示 `-` 不展示 0）。
+- 例外口径：application / generic_target 端口为资源自身属性（D3a/D3b）不进采集器链——`port` 取资源行 `port` 直用，`port_source` 归一为 `instance`（资源行 port=0 时为 `unresolved`）。
+- D-4：`port_source=business` 时后端仍返回 HTTP 200 + `status=success`、无 `errorType`/`error`，警示纯前端职责。
+
+### 实现决策
+- **Q1 硬约束落地**：host 分支 `Resolve(host.ScrapePort, mapping, template, 0)` 第 4 参恒 0；仅 database/middleware 传业务 `port` 第 4 参。应用/泛端点走 `Resolve(资源行 port, 0, 0, 0)` 旁路。
+- **探测顺序对齐**：`resolveInstanceScrapePort` 按 host→database→middleware→application→generic_target 探测（与 `resolveInstanceAddress` 一致），杜绝脏数据（同一 resource_id 落两表）时地址与端口取自不同表。
+- **资源未命中**（preview 不过滤失效引用）按全 0 归一 → `(0, unresolved)`；instances 侧失效引用已被 `missing_count` 过滤，不会走到此分支。
+- **无第二套解析验收**：grep 证实 scrapejob 生产代码仅 `preview.go` 4 处 `portchain.Resolve` 调用 + 2 处分层数据加载，无任何本地优先级比较逻辑；`installation.go` 经共享函数间接受益（包内单实现）。
+
+### 新增测试（TDD：先 RED 后 GREEN）
+- RED：`preview_test.go` / `installation_test.go` 引用尚不存在的 `Port`/`PortSource` 字段编译失败（预期）；portchain 新穷举用例即时通过（纯函数补测）。
+- GREEN 后 11 用例全过：
+  | 用例 | 断言 |
+  |------|------|
+  | `TestPreviewTargetsPortSourceInstanceAndMapping` | 同 Job 两实例分别 instance(19100)/mapping(9100) |
+  | `TestPreviewTargetsPortJSONContractKeys` | raw JSON 必带 `port`/`port_source` 键 |
+  | `TestPreviewTargetsPortSourceTemplate` | 无映射 monitor_type 回落模板 9182 → template |
+  | `TestPreviewTargetsPortSourceUnresolved` | 四级全缺 → (0, unresolved)、地址裸 IP、NotEqual(business) |
+  | `TestPreviewTargetsPortSourceBusinessNotBlocked` | db 业务兜底 3306 → business + HTTP 200/success/无 errorType（D-4） |
+  | `TestPreviewTargetsApplicationPortBypassesChain` | 映射存在（9999）仍取资源 port 8081 → instance（D3a 旁路） |
+  | `TestPreviewTargetsBlackboxNoPortChain` | blackbox 项 port=0、port_source="" |
+  | `TestListInstancesPortSourceInstanceAndMapping` | instances 同源断言 instance/mapping |
+  | `TestListInstancesPortSourceTemplate` | template 来源 |
+  | `TestListInstancesPortSourceUnresolvedHostNeverBusiness` | host unresolved + NotEqual(business)（Q1） |
+  | `TestListInstancesPortSourceBusinessMiddlewareNotBlocked` | mw 业务兜底 6379 → business + HTTP 200/success（D-4 + Q1 mw 半边） |
+- 另 portchain `TestResolveHostCallFormNeverBusiness` 8 组合（含 I/M/T 单级、I 压 M、I 压 T、M 压 T、I 压 M+T）全绿。
+
+### 验证
+- `go test ./platform/strategy/scrapejob/... ./platform/configcenter/portchain/...` ✅；`go test -count=1` 全量 `./platform/...` ✅（无其他包回归）。
+- `go vet ./platform/...` ✅ exit 0；`gofmt -w` 仅补我方两文件行尾换行（包内其余文件 gofmt 漂移为存量问题、非本任务改动范围，未触碰）。
+- 服务启动验证：8080 被他人 metric-center 实例占用（未动其进程），以 `--listen-address :18080` + 临时 DSN 启动本分支新构建二进制，`/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 已停止、18080 释放、临时文件清理。
+- pre-commit repo-map 门禁 ✅（`make check-repo-map` OK）。
