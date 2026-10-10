@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-09 17:54 · commit: `4c484c2`
+> 生成时间: 2026-10-10 12:08 · commit: `640b3c9`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2066,12 +2066,35 @@
 - `func diffPromAlertingItems(artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.ConfigChangeItem`
 - `func buildInitialChangeItems(jobs []models.ScrapeJob, rules []models.MonitoringRule) []models.ConfigChangeItem`
 - `func diffJobItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Config…`
+- `type targetSnapshotEntry struct`
+- `func diffTargetItems(jobs []models.ScrapeJob, artifacts *generator.ConfigArtifacts, base *models.ConfigVersion) []models.Con…`
+- `func targetItemsFor(verb, jobName string, addrs []string, entries []targetSnapshotEntry, artifacts *generator.ConfigArtifact…`
+- `func skipReasonText(reason string) string`
+- `func diffTargetEntries(base, cur []targetSnapshotEntry) (added, removed, changed []string)`
+- `func parseTargetSnapshot(content string) ([]targetSnapshotEntry, error)`
 - `func diffRuleItems(newRulesYML, baseRulesYML string) []models.ConfigChangeItem`
 - `func jobAffectedFiles(isBlackbox bool) []string`
 - `func snapshotScrapeConfigs(promYML string) map[string]string`
 - `func snapshotRuleGroups(rulesYML string) (map[string]string, error)`
 - `func normalizeYAML(v interface{}) string`
 - `func sortedKeys(m map[string]string) []string`
+
+### `platform/configcenter/draft/change_items_target_test.go`
+
+- `func seedHostWithIP(t *testing.T, db *gorm.DB, domainID, resourceID, ip string)`
+- `func seedJobWithInstances(t *testing.T, db *gorm.DB, domainID, name string, instanceIDs []string) *models.ScrapeJob`
+- `func confirmBaseline(t *testing.T, db *gorm.DB, domainID string)`
+- `func itemsOf(t *testing.T, d *models.ConfigDraft) []models.ConfigChangeItem`
+- `func itemsByTarget(items []models.ConfigChangeItem, target string) []models.ConfigChangeItem`
+- `func TestTargetLevelItemsOnHostSoftDelete(t *testing.T)`
+- `func TestTargetLevelItemsOnHostAdd(t *testing.T)`
+- `func TestTargetLevelItemsAbsentWhenNothingChanged(t *testing.T)`
+- `func TestTargetLevelItemsSkipIPChangeAsUpdate(t *testing.T)`
+- `func TestTargetLevelItemsNotDoubleCountNewJob(t *testing.T)`
+- `func TestTargetLevelItemsNotDoubleCountRemovedJob(t *testing.T)`
+- `func TestExistingJobLevelItemsUnaffected(t *testing.T)`
+- `func TestTargetLevelItemsTolerateBrokenBaseSnapshot(t *testing.T)`
+- `func TestBuildSummaryTargetLabel(t *testing.T)`
 
 ### `platform/configcenter/draft/draft_test.go`
 
@@ -2220,6 +2243,7 @@
 
 ### `platform/configcenter/generator/change_detect.go`
 
+- `type sourceVersionRow struct`
 - `func SourceDataVersion(db *gorm.DB, domainID string) (string, error)`
 - `func NeedsRegeneration(prevSourceVersion, newSourceVersion string) bool`
 
@@ -2279,6 +2303,18 @@
 - `func TestValidateArtifactsPassed(t *testing.T)`
 - `func TestValidateArtifactsFailedSchema(t *testing.T)`
 - `func TestSourceDataVersionAndNeedsRegeneration(t *testing.T)`
+- `func newSourceVersionDB(t *testing.T) *gorm.DB`
+- `func seedVersionHost(t *testing.T, db *gorm.DB, domainID, serverID, resourceID string) *models.Host`
+- `func softDeleteHost(t *testing.T, db *gorm.DB, h *models.Host)`
+- `func hostMaxUpdatedAt(t *testing.T, db *gorm.DB, domainID string) *string`
+- `func hostMaxDeletedAt(t *testing.T, db *gorm.DB, domainID string) *string`
+- `func TestSourceDataVersionStableWithoutChange(t *testing.T)`
+- `func TestSourceDataVersionAdvancesOnSoftDelete(t *testing.T)`
+- `func TestSourceDataVersionAdvancesOnDeletedAtOnly(t *testing.T)`
+- `func TestSourceDataVersionPureNullDeletedAt(t *testing.T)`
+- `func TestSourceDataVersionEmptyDB(t *testing.T)`
+- `func TestSourceDataVersionDomainScopedDeleteIsolation(t *testing.T)`
+- `func TestSourceDataVersionRouteSettingDomainScoped(t *testing.T)`
 - `func TestExpandLabelTemplateComposite(t *testing.T)`
 - `func TestMarshalTargetGroupsJSON(t *testing.T)`
 - `func TestAssembleAlertmanagerYML(t *testing.T)`
@@ -2316,6 +2352,7 @@
 - `func mappingValueIndex(m *yaml.Node, key string) int`
 - `type existingReceiver struct`
 - `func firstWebhookURL(recv *yaml.Node) string`
+- `func receiverNameOnly(recv *yaml.Node) bool`
 - `func isPlatformBridgeURL(u string) bool`
 
 ### `platform/configcenter/generator/notify_receivers_test.go`
@@ -2331,6 +2368,8 @@
 - `func TestValidateArtifactsNotifyReceiverConflict(t *testing.T)`
 - `func TestMaterializeNotifyReceiversBridgeURLChangeUpdatesInPlace(t *testing.T)`
 - `func TestMaterializeNotifyReceiversHandwrittenSquatStillConflicts(t *testing.T)`
+- `func TestMaterializeNotifyReceiversNameOnlyShellFillsInPlace(t *testing.T)`
+- `func TestMaterializeNotifyReceiversNonWebhookHandwrittenStillConflicts(t *testing.T)`
 
 ### `platform/configcenter/generator/notify_route_generate.go`
 
@@ -2680,6 +2719,16 @@
 - `type builtinMetricSeed struct`
 - `func BuiltinMetricLibrary() []builtinMetricSeed`
 - `func runMetricLibrary(db *gorm.DB) error`
+
+### `platform/db/seed/scrape_path.go`
+
+- `func runScrapeJobMetricsPathBackfill(db *gorm.DB) error`
+
+### `platform/db/seed/scrape_path_test.go`
+
+- `func metricsPathOf(t *testing.T, db *gorm.DB, id uint) string`
+- `func TestRunScrapeJobMetricsPathBackfillTrimsDirtyPath(t *testing.T)`
+- `func TestRunScrapeJobMetricsPathBackfillHandlesPureWhitespace(t *testing.T)`
 
 ### `platform/db/seed/seed.go`
 
@@ -4162,6 +4211,14 @@
 - `func TestUpdateExporterTemplateDownloadURLValidation(t *testing.T)`
 - `func TestDeleteExporterTemplateInternalOK(t *testing.T)`
 - `func TestDeleteExporterTemplateBuiltinAndReferencedForbidden(t *testing.T)`
+- `func TestCreateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T)`
+- `func TestCreateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T)`
+- `func TestCreateExporterTemplateAllowsAllValidSupportedMonitorTypes(t *testing.T)`
+- `func TestCreateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T)`
+- `func TestUpdateExporterTemplateRejectsInvalidSupportedMonitorType(t *testing.T)`
+- `func TestUpdateExporterTemplateAllowsEmptySupportedMonitorTypes(t *testing.T)`
+- `func TestUpdateExporterTemplateDedupsSupportedMonitorTypes(t *testing.T)`
+- `func quotedJoin(items []string) string`
 
 ### `platform/strategy/exporter-template/list.go`
 
@@ -4180,6 +4237,7 @@
 ### `platform/strategy/exporter-template/validate.go`
 
 - `func validateHTTPURL(field, raw string) error`
+- `func normalizeSupportedMonitorTypes(types []string) ([]string, error)`
 
 ### `platform/strategy/metric-library/create.go`
 
@@ -4360,6 +4418,7 @@
 - `func seedEnabledDomain(t *testing.T, db *gorm.DB, id string)`
 - `func seedFrozenDomain(t *testing.T, db *gorm.DB, id string)`
 - `func seedExporter(t *testing.T, db *gorm.DB, name string) string`
+- `func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types []string) string`
 - `func seedHost(t *testing.T, db *gorm.DB, resourceID, domainID, ip, status string)`
 - `func seedDatabase(t *testing.T, db *gorm.DB, resourceID, domainID, ip, dbType, status string)`
 - `func TestCreateScrapeJobStandardInheritsDefaults(t *testing.T)`
@@ -4382,7 +4441,22 @@
 - `func TestConfirmAndCancelInstallation(t *testing.T)`
 - `func TestConfirmInstallationNotInSetRejected(t *testing.T)`
 - `func TestListInstancesShowsUnconfirmedWithoutGate(t *testing.T)`
+- `type instancesEnvelope struct`
+- `func listInstances(t *testing.T, r *gin.Engine, jobID string) instancesEnvelope`
+- `func newInstanceListJob(t *testing.T, db *gorm.DB, selected []string) *models.ScrapeJob`
+- `func TestListInstancesSkipsSoftDeletedResources(t *testing.T)`
+- `func TestListInstancesKeepsValidInstancesWhenOthersDeleted(t *testing.T)`
+- `func TestListInstancesAllSelectedDeleted(t *testing.T)`
+- `func TestListInstancesMissingCountZeroWhenAllValid(t *testing.T)`
 - `func TestPreviewTargetsStandardAndBlackbox(t *testing.T)`
+- `func TestScrapeJobMetricsPathTrimmedOnSave(t *testing.T)`
+- `func TestCreateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T)`
+- `func TestCreateScrapeJobApplicationHTTPAllowsEmptyExporter(t *testing.T)`
+- `func TestCreateScrapeJobRejectsTemplateMonitorTypeMismatch(t *testing.T)`
+- `func TestCreateScrapeJobAcceptsMatchingTemplateAndInheritedMapping(t *testing.T)`
+- `func TestCreateScrapeJobNginxAllowedAfterCollectorRegistered(t *testing.T)`
+- `func TestUpdateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T)`
+- `func TestBatchSubmitReadyRejectsMonitorTypeWithoutCollector(t *testing.T)`
 
 ### `platform/strategy/scrapejob/selection.go`
 
@@ -4409,6 +4483,10 @@
 - `func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error`
 - `func resourceInDomain(db *gorm.DB, resourceID, domainID string) (bool, error)`
 - `func resolveJobScrapeParams(db *gorm.DB, job *models.ScrapeJob)`
+- `func normalizeScrapePath(job *models.ScrapeJob)`
+- `func validateExporterForMonitorType(db *gorm.DB, job *models.ScrapeJob) error`
+- `func exporterTemplateSupportsType(tmpl *models.ExporterTemplate, monitorType string) bool`
+- `func supportedMonitorTypesByCollector(db *gorm.DB) ([]string, error)`
 - `func exporterExists(db *gorm.DB, exporterTemplateID string) error`
 
 ## ui-custom/web/src/（React 前端）

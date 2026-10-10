@@ -66,6 +66,8 @@ type genReceiver struct {
 //     （渠道绑定了通知模板时再追加 `&template=<真实数字 ID>`），
 //     `http_config.authorization` = `Bearer <令牌>`（H-1：令牌走请求头，不落 URL query）；
 //   - 用户手写 receivers 原样保留（baseYAML 其余内容透传，不解析其它段语义）；
+//   - 平台槽位残壳（同名 receiver 仅含 name 键、无任何通知配置，如残缺测试基座残留）
+//     不判冲突，按平台槽位原地补齐 webhook_configs（2026-10-10 回归修复）；
 //   - 平台生成名与手写名（或平台内部两名）冲突 → **不写入任何平台 receiver**、返回冲突归因，
 //     由校验层（ValidateArtifacts）转为行级错误阻塞确认，绝不静默覆盖或半合并。
 //
@@ -161,6 +163,14 @@ func MaterializeNotifyReceivers(baseYAML string, in NotifyReceiverInput) (string
 		}
 		if isPlatformBridgeURL(ex.url) {
 			// 平台自身产物地址演进 → 原地更新，不冲突
+			updates = append(updates, platformUpdate{node: ex.node, name: name, url: url, token: in.BridgeToken})
+			continue
+		}
+		if ex.url == "" && receiverNameOnly(ex.node) {
+			// 平台槽位残壳：receiver 仅有 name 键、无任何 webhook/告警配置（如外部测试
+			// 提交残留的 name-only 基座）。空 URL 无法辨识桥形态，但「除 name 外无任何键」
+			// 说明它不可能是用户手写的有效 receiver（手写至少带通知配置），按平台槽位
+			// 原地补齐 webhook_configs，不判重名冲突。
 			updates = append(updates, platformUpdate{node: ex.node, name: name, url: url, token: in.BridgeToken})
 			continue
 		}
@@ -274,6 +284,25 @@ func firstWebhookURL(recv *yaml.Node) string {
 		}
 	}
 	return ""
+}
+
+// receiverNameOnly 判定 receiver 映射是否仅含 name 一个键（name-only 残壳）。
+// 用于区分「平台槽位被残缺基座清空」与「用户手写 receiver」——手写 receiver
+// 至少带一种通知配置（webhook/email/slack 等），不会只有 name。
+func receiverNameOnly(recv *yaml.Node) bool {
+	if recv == nil || recv.Kind != yaml.MappingNode {
+		return false
+	}
+	only := true
+	hasName := false
+	for i := 0; i+1 < len(recv.Content); i += 2 {
+		if recv.Content[i].Value == "name" {
+			hasName = true
+			continue
+		}
+		only = false
+	}
+	return hasName && only
 }
 
 // isPlatformBridgeURL 判定 url 是否属平台通知桥地址形态：路径恒为 bridgeEndpointPath
