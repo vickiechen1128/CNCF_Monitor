@@ -719,6 +719,10 @@ func summaryTarget(target string) (label, unit string) {
 		return "采集 Job", "个"
 	case string(models.ChangeItemTargetMonitoringRule):
 		return "告警规则", "条"
+	case string(models.ChangeItemTargetTargetInstance):
+		// target 级变更项按 Job 聚合（一条 = 一个 Job 的一次 target 增删），
+		// 故量词用「个」，与「采集 Job N 个」保持同一口径。
+		return "采集目标", "个"
 	default:
 		return target, "项"
 	}

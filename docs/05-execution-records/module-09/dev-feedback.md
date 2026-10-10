@@ -561,3 +561,49 @@
 - **发现场景**：用户对「改了 agent `CENTER_ENDPOINT` 但不知道中心 `config_download_url` 有没有改」的复盘追问（2026-09-30）
 - **是否需设计侧确认**：否（属 MVP 设计债回收，契约增量见 `api-contract-snapshot.md`，未改既有契约字段语义）
 - **状态**：**已修复（代码未提交）**——`platform/edge/{helpers,heartbeat_handler}.go` / `platform/admin/networkdomain/{create,update}.go` / `platform/models/network_domain.go` / `platform/edge/edge_test.go` 已落；`mc-edge-debug.center_endpoint` 已落库 `https://metricback.chenrt.dpdns.org`。
+
+---
+
+## 2026-10-10（删除资源后变更检测失明：软删不推进源数据版本 → 无待确认提醒）
+
+### F-38：资源软删不推进源数据版本 → 自动变更检测完全失明，用户零提醒（① 契约空白 + ② 实现偏差，2026-10-10，用户已拍板处置方向）
+
+- **类别**：① 契约空白（`SourceDataVersion` 聚合口径未覆盖 `deleted_at`）+ ② 实现偏差（软删路径与版本触发预筛的前提不一致）
+- **PRD 章节 / 文件位置**：Module_09 §3.3.3（自动变更检测 30s 轮询 / 版本触发预筛）；源码 `platform/configcenter/generator/change_detect.go:44-60`（`SourceDataVersion`）、`platform/configcenter/change/watcher.go:120-210`（`ProcessDomainWithIntervals`）、`platform/config/resource/delete.go:66`（软删写点）
+- **现象（用户 2026-10-10 实测）**：M07 前台软删 3 台主机（`mc-edge-debug` 域，`deleted_at=2026-10-10 10:07:53~57`），
+  「一键删除无阻断」，但——① M09「配置变更确认」**不产任何 pending 草稿**、无待确认提醒；② M01 Job 列表显示
+  **「在线 29 / 总数 32」**，用户怀疑指标统计偏差。
+- **根因（代码级）**：`SourceDataVersion`（`change_detect.go:44-60`）逐表聚合 `MAX(updated_at)` 作「源数据版本」，
+  再由 `NeedsRegeneration`（`:64-68`）与基线 `config_change_baselines.source_version` 比对决定是否重算。
+  而 GORM 软删（`config/resource/delete.go:66` 的 `db.Delete(model)`）**只写 `deleted_at`，不动 `updated_at`**。
+  → **删除动作对版本预筛 100% 不可见**，`NeedsRegeneration` 恒返回 false，watcher 每轮都走「源数据未变化」退避分支。
+  实测铁证：`mc-edge-debug` 域 hosts 表 `max(updated_at)=2026-09-22 17:26:11`，而 `max(deleted_at)=2026-10-10 10:07:57`——
+  源数据版本停在 9/22，删除动作从未进入版本流。
+- **连带澄清（避免误判归因）**：该域基线 `source_version=2026-10-10 10:35:00` 实际来自 `scrape_jobs.test-app-01`
+  的 `updated_at`（另一条链路的编辑），**与删主机无关**；基线 `detect_status=skipped_pending` 是被 pending 草稿 #119
+  卡住（决策 44-2 保活），**也不是**主机删除导致。三者时间上邻近但无因果，排查时勿合并归因。
+- **附带确认（非缺陷，澄清用户认知）**：用户「已生成的 job 中找不到这 3 台机器」**恰恰是生成侧正确工作的表现**——
+  `generator/targets.go:272-281` 的 `resolveResource` 查不到资源即 skip（`SkipReasonResourceNotFound`），
+  已确认草稿 #117（10:15 confirmed，早于本次诊断）的 `tengxunyun-ceshi-host.json` 实为 **29 targets**（已剔除 3 台），
+  deployment #76 下发 success。即**采集面产物是对的**，用户看到的偏差另有其源（见关联条目）。
+- **用户已拍板的处置方向（2026-10-10，分层处置）**：
+  1. **采集面 targets 收缩 → 自动写盘（采集面自愈）**。理由：收缩是「减法」、可加回，风险量级明显低于告警误改；
+     且 `targets/*.json` 是 file_sd，**写盘后**边缘 vmagent / 中心 Prometheus 自动热加载、**不需 reload**
+     （`deployment/service.go:392-418` 原子写 + rename）——即「热更新即可」的正确表述是
+     **「只要产物写盘就无需 reload」**，而「谁触发写盘」是独立决策。
+  2. **告警 / 规则变更 → 继续走人工闸门**。与 2026-09-10 立场1（关闭 #25 自动闭环，`alertmanager.yml` 生效=人工确认）
+     **不冲突**——那条只约束 `alertmanager.yml` / `rules.yml`，本条只约束采集面 `targets/*.json` 收缩。
+  3. **确定性缺陷先行修复**（本轮派发）：软删纳入源数据版本聚合（根因）、删除时回收 Job 选中关系、
+     Job 列表分母口径、变更清单补 target 级收缩项。
+- **影响模块**：M09（`change_detect.go` 版本聚合口径 + 变更清单派生粒度 + 写盘触发策略）；M07（删除资源写点）；
+  M01（Job 列表 / 详情分母口径）。**跨模块契约面**：`api-contract-snapshot.md` 须补「软删事件计入源数据版本」一句，
+  否则改聚合口径与既有契约文字「各源表 `max(updated_at)`」冲突。
+- **关联**：M01 dev-feedback「Job 列表『在线 x / 总数 y』分子分母不同源」条（前端分母口径）；
+  M09 **F-31**（空 targets 静默产出 → 边缘拒收卡死，同属「skip 诊断未上报」家族，本条是它的**可见性反面**——
+  F-31 是「跳过了但没说」，本条是「该收缩但整条链路没启动」）。
+- **发现场景**：用户 2026-10-10 删除 3 台主机后追问「Job 中找不到、无需确认提醒、29/32 是否有偏差」，
+  核对 `metric_center.db`（hosts / scrape_jobs / config_drafts / config_change_baselines 四表交叉）+
+  `change_detect.go` / `watcher.go` / `targets.go` / `delete.go` 全链路后定位。
+- **是否需设计侧确认**：**是**——分层处置（targets 收缩自动写盘 vs 告警人工闸门）属产品决策，已由用户 2026-10-10 拍板；
+  契约快照 §3.3.3 的「软删计入版本」增量须回写后方可实现。
+- **状态**：**open**——确定性缺陷修复已派发（本轮）；分层写盘策略待实现（依赖设计侧回写契约增量）。
