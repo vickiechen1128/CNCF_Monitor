@@ -13,6 +13,7 @@
 | 4 | T01-07：MonitoringRule CRUD + validate-yaml | rule | `9eacde1f` | done |
 | 5 | T01-08：技术指标库 API | metric-library | `d9b2a618` | done |
 | 6 | T01-09：路由收口 + main.go 接入 + 集成验收 | routes-integration | `61ed552f` | done |
+| 7 | T01-P1：五类资源加 scrape_port + 录入链路 | scrape-port | `9d1c29e` | done |
 
 分支：`feat/module-01-strategy`（基自 develop）。
 
@@ -141,3 +142,44 @@
 ### 契约同步
 - `api-contract-snapshot.md` §5 关键字段、§10 字段必填口径（映射/Job 参数改「可留空=继承」）；`dev-feedback.md` F-28 登记；M09 生成器渲染补齐同步登记 `integration/v0.1/issues.md`。
 - 提示：后端改动需 `make run-metric-center` 重启后前端实测生效。
+
+## 2026-10-10（T01-P1：五类资源模型加 scrape_port + 录入四通道）
+
+> 任务卡：`task-sequence.yaml` L897（T01-P1）；设计权威：提案 `resource-scrape-port-chain.md` §5.2（决策 D-7 导入侧进 P0）；字段权威：M07 PRD §5.2。
+> 分支：`feat/module-08-alert-dispatch`（用户指示不换分支）。commit：`9d1c29e`。
+
+### 实现
+- 模型加列（`gorm:"default:0" json:"scrape_port"`，0=未指定）：
+  - `platform/models/resource_base.go` ResourceBase 加一处（覆盖 Database + GenericTarget）；
+  - `platform/models/host.go` Host、`platform/models/resource.go` Middleware / Application 各自显式加（Host 不内嵌 ResourceBase）。
+- 录入链路（`platform/config/resource/`）：
+  - `validate.go`：ResourceInput 加 `ScrapePort int`；新增 `validateScrapePort`（0 合法，填值须 1~65535，越界报 `scrape_port 必须为 0（未指定）或 1~65535`，错误前缀可被 fieldFromResourceInputError 映射）；五类 validateXxx 函数体开头统一调用；
+  - `create.go`：applyHostInput 等五个 applyXxxInput 各加赋值；
+  - `update.go`：五类 updatableColumns 追加 `"scrape_port"`；
+  - `list.go`：buildListItem 五类 case 输出 `item["scrape_port"]`（0 值照常返回，int 口径与 port 对齐）。
+- 字段映射：`platform/models/resource_fields.go` LegacyFieldMap 五类 map 加 `"scrape_port"`，getHostField 等五个 GetResourceField case 返回 `strconv.Itoa`。
+- Excel 导入（决策 D-7 进 P0）：`excel.go` applyCells 加 `case "scrape_port"` 复用 `parsePort`（空→0、非数字→-1 哨兵供行级报错）；`resourceInputFieldPrefixes` 追加；`valueFromField` 补 scrape_port 回显（§5.16.3 错误 value 完整性）。TemplateColumns 模板列属 P1（T01-P7），本任务不碰 template.go。
+
+### 新增测试（TDD：先 RED 后 GREEN）
+- `validate_test.go`：
+  - `TestValidateResourceInput_ScrapePort`：遍历五类各 4 子用例（0 合法 / 9100 合法 / 65536 拒 / -1 拒且错误含 scrape_port），共 20 子用例；
+  - `TestScrapePortAutoMigrateAddsColumn`：内存 DSN `file::memory:?cache=shared` AutoMigrate 五模型，逐个 `Migrator().HasColumn` 断言；
+  - `TestGetResourceField_ScrapePort`：五类 LegacyFieldMap 含 scrape_port、GetResourceField 返回 ("0", true)；
+  - `TestScrapePort_CreateUpdateListChannels`：创建写 9100 → 响应/落库断言 → 列表读出 → PUT 改 19100 → **0/NULL 等价**（PUT 不带键与显式 0 结果均为 0，且不误清 instance_name/env_flag/image）。
+- `excel_test.go`：`TestApplyCells_ScrapePort`（9100/""→0/"abc"→-1/"0"→0）、`TestValidateImportRow_ScrapePort`（0/19100 通过、65536 与 -1 报行级错误含 field+value）。因模板列（D-7 P1）尚未扩列，Excel 测试直调 applyCells / 构造 ImportRow，不走 ParseExcel 严格表头校验。
+- RED 过程中发现并修复：重复声明 `allCategories` 与 template_test.go 冲突，改为复用既有 helper。
+
+### D-6 核查结论（change_detect 对新增 default:0 列的行为）
+- `configcenter/generator/change_detect.go` 无行级哈希：`SourceDataVersion`（L63）= 各源表 `MAX(updated_at), MAX(deleted_at)` 聚合（L67），`sourceTableScopes`（L17-21）已覆盖五类资源模型。
+- GORM AutoMigrate `ALTER TABLE ADD COLUMN scrape_port INTEGER DEFAULT 0` 只改 schema、不触碰任何行的 `updated_at` → 源版本不推进 → `NeedsRegeneration=false`。
+- `configchange/watcher` 首启无基线时仅初始化基线不生成草稿（watcher.go L115/L131-132）；P1 阶段生成器不消费 scrape_port，产物 sha256 不变。
+- **结论：升级首启不产生变更单噪声。** 实测佐证：重启 metric-center（AutoMigrate 已给存量库五表加列成功，`PRAGMA table_info` 均见 `scrape_port INTEGER DEFAULT 0`），change-detect 启动后无新草稿（最新草稿 CHG-20261010-008 创建于 14:20，重启 14:50 后无新增）。
+
+### 已知 PRD 标注滞后（非 ②类矛盾，不阻断）
+- M07 PRD :1633/:1539/:930 的 scrape_port 仍带 `{v0.2}` 标注，与本任务 P0 实现字面不一致；提案 §8 回填清单 item 3 已登记「去掉 {v0.2} 标注，已评审，实现时回写」，由 prototype-designer 执行，实现侧禁止改 PRD。
+
+### 验证
+- `go test ./platform/models/... ./platform/config/...` 全绿（models / config/label / config/resource）。
+- `go vet ./platform/...` 通过（exit 0）。
+- 服务启动验证：`make build-metric-center` 重建 → 重启 → `/api/v1/health`、`/api/v1/health/db`、`/api/v1/status` 均 200 → 验证后停止服务、8080 端口已释放。
+- `make check-repo-map` 通过（repo-map 未纳入本 commit：工作区含他人未提交代码的符号条目，留待其代码提交时一并入库）。
