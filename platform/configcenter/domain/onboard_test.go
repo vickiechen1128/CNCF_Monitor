@@ -136,6 +136,61 @@ func TestMonitorDomainNotFound(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
+// ---- F-42：回传参数 max_disk_usage_per_url ----
+
+func TestValidateMaxDiskUsage(t *testing.T) {
+	valid := []string{"", "2GB", "512MB", "50gb", "1.5GiB", "1073741824", " 2GB "}
+	for _, v := range valid {
+		assert.NoError(t, validateMaxDiskUsage(v), "合法值 %q", v)
+	}
+	invalid := []string{"abc", "-2GB", "0GB", "2 TB x", "GB", "2PB"}
+	for _, v := range invalid {
+		assert.ErrorIs(t, validateMaxDiskUsage(v), ErrInvalidMaxDiskUsage, "非法值 %q", v)
+	}
+}
+
+func TestMonitorDomainEdgeAcceptsMaxDiskUsage(t *testing.T) {
+	db := openTestDB(t)
+	seedDomain(t, db, "edge-md1", models.DomainTypeEdge, false)
+
+	out, err := MonitorDomain(db, "edge-md1", MonitorParams{MaxDiskUsagePerURL: "50GB"})
+	require.NoError(t, err)
+	assert.Equal(t, "50GB", out.Domain.MaxDiskUsagePerURL)
+
+	// 管理域：强制清空回传参数（local 无 vmagent）。
+	seedDomain(t, db, "mgmt-md", models.DomainTypeManagement, false)
+	outM, err := MonitorDomain(db, "mgmt-md", MonitorParams{MaxDiskUsagePerURL: "50GB"})
+	require.NoError(t, err)
+	assert.Empty(t, outM.Domain.MaxDiskUsagePerURL)
+}
+
+func TestMonitorDomainRejectsInvalidMaxDiskUsage(t *testing.T) {
+	db := openTestDB(t)
+	seedDomain(t, db, "edge-md2", models.DomainTypeEdge, false)
+	_, err := MonitorDomain(db, "edge-md2", MonitorParams{MaxDiskUsagePerURL: "not-a-size"})
+	assert.ErrorIs(t, err, ErrInvalidMaxDiskUsage)
+}
+
+func TestUpdateDomainMonitoringMaxDiskUsage(t *testing.T) {
+	db := openTestDB(t)
+	dom := seedDomain(t, db, "edge-md4", models.DomainTypeEdge, true)
+	require.NoError(t, db.Model(dom).Update("channel", "agent_pull").Error)
+
+	// 空值 = 不修改。
+	updated, err := UpdateDomainMonitoring(db, "edge-md4", UpdateParams{Description: "仅改描述"})
+	require.NoError(t, err)
+	assert.Empty(t, updated.MaxDiskUsagePerURL, "空入参不写库")
+
+	// 非空 = 更新。
+	updated, err = UpdateDomainMonitoring(db, "edge-md4", UpdateParams{MaxDiskUsagePerURL: "2GiB"})
+	require.NoError(t, err)
+	assert.Equal(t, "2GiB", updated.MaxDiskUsagePerURL)
+
+	// 非法格式阻断。
+	_, err = UpdateDomainMonitoring(db, "edge-md4", UpdateParams{MaxDiskUsagePerURL: "abc"})
+	assert.ErrorIs(t, err, ErrInvalidMaxDiskUsage)
+}
+
 func TestResetDomainTokenEdgePush(t *testing.T) {
 	db := openTestDB(t)
 	dom := seedDomain(t, db, "edge-r1", models.DomainTypeEdge, false)

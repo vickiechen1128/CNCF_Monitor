@@ -28,6 +28,16 @@ type HeartbeatRequest struct {
 	// （omitempty），中心同步清空落库文本。
 	ConfigApplyError         string `json:"config_apply_error,omitempty"`
 	ConfigApplyFailedVersion string `json:"config_apply_failed_version,omitempty"`
+	// RemoteWriteDroppedTotal / RemoteWriteRetriesTotal 是 Agent 上报的 vmagent
+	// remote_write 累计丢块+丢包总数 / 累计重试次数（F-39）。零值/缺失表示无丢失或
+	// Agent 版本较旧，向后兼容。
+	RemoteWriteDroppedTotal int64 `json:"remote_write_dropped_total,omitempty"`
+	RemoteWriteRetriesTotal int64 `json:"remote_write_retries_total,omitempty"`
+	// MetadataRemoteWriteURL / MetadataMaxDiskUsagePerURL 是 Agent 上报的当前生效
+	// 配置目录 metadata.json 回传参数指纹（F-42）。与网域当前配置比对，不一致时
+	// 响应 params_changed=true 强制拉包。空 = 未拉过包或 Agent 版本较旧，向后兼容。
+	MetadataRemoteWriteURL     string `json:"metadata_remote_write_url,omitempty"`
+	MetadataMaxDiskUsagePerURL string `json:"metadata_max_disk_usage_per_url,omitempty"`
 	// Targets 是边缘 vmagent 本地 target 抓取快照（方案 B，随心跳上报），字段与
 	// agent 侧 contract.EdgeTargetSnapshot 对齐。本轮仅透传占位，不做持久化。
 	Targets []EdgeTargetSnapshot `json:"targets,omitempty"`
@@ -51,6 +61,15 @@ type HeartbeatResponse struct {
 	ConfigChanged     bool   `json:"config_changed"`
 	ConfigVersion     string `json:"config_version"`
 	ConfigDownloadURL string `json:"config_download_url"`
+	// ParamsChanged 表示网域回传参数（remote_write_url / max_disk_usage_per_url）
+	// 与 Agent 上报的 metadata 指纹不一致（F-42）。新 Agent 见 true 时即使
+	// config_changed=false 也强制拉包落盘新参数；老 Agent 忽略该未知字段，
+	// 混合版本部署不会产生每 30s 循环拉包。
+	ParamsChanged bool `json:"params_changed"`
+	// VMAgentRestartSeq 是该节点当前的 vmagent 滚动重启幂等指令位（F-42 seq 简化
+	// 机制）：管理端点推进后随心跳响应透传，Agent 本地持久化已执行 seq、发现更大
+	// 值时幂等执行滚动重启。0 表示从未触发。
+	VMAgentRestartSeq int64 `json:"vm_agent_restart_seq,omitempty"`
 }
 
 // HeartbeatService 处理边缘 Agent 心跳上报：自动注册缺失实例、以中心接收时间更新
@@ -86,25 +105,35 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 	agent.Components = req.Components
 	agent.QueueBacklogBytes = req.QueueBacklogBytes
 	agent.RemoteWriteLastError = req.RemoteWriteLastError
+	agent.RemoteWriteDroppedTotal = req.RemoteWriteDroppedTotal
+	agent.RemoteWriteRetriesTotal = req.RemoteWriteRetriesTotal
+	// F-42：镜像 Agent 上报的 metadata 回传参数指纹（供节点详情展示「当前生效参数」；
+	// Save 为全量保存，随运行态一并落库）。
+	agent.MetadataRemoteWriteURL = req.MetadataRemoteWriteURL
+	agent.MetadataMaxDiskUsagePerURL = req.MetadataMaxDiskUsagePerURL
 	agent.ConfigVersion = req.ConfigVersion
 	agent.Status = "online"
-	if err := s.db.Save(agent).Error; err != nil {
+	// F-42：心跳全量 Save 前剔除重启指令位三字段——seq 只由管理端点推进，心跳以
+	// findOrRegisterAgent 读出的快照回写会覆盖并发窗口内管理端点的 +1（竞态丢失）。
+	if err := s.db.Omit("VMAgentRestartSeq", "RestartRequestedBy", "RestartRequestedAt").Save(agent).Error; err != nil {
 		return nil, fmt.Errorf("save edge agent runtime state: %w", err)
 	}
 
 	// 观测留痕：写入 edge_heartbeats（§5.3）。
 	hb := &models.EdgeHeartbeat{
-		NetworkDomainID:      req.NetworkDomainID,
-		AgentType:            req.AgentType,
-		Version:              req.Version,
-		ConfigVersion:        req.ConfigVersion,
-		QueueBacklogBytes:    req.QueueBacklogBytes,
-		RemoteWriteQueueSize: req.RemoteWriteQueueSize,
-		RemoteWriteLastError: req.RemoteWriteLastError,
-		Hostname:             req.Hostname,
-		Ip:                   req.Ip,
-		Components:           req.Components,
-		Timestamp:            now,
+		NetworkDomainID:         req.NetworkDomainID,
+		AgentType:               req.AgentType,
+		Version:                 req.Version,
+		ConfigVersion:           req.ConfigVersion,
+		QueueBacklogBytes:       req.QueueBacklogBytes,
+		RemoteWriteQueueSize:    req.RemoteWriteQueueSize,
+		RemoteWriteLastError:    req.RemoteWriteLastError,
+		RemoteWriteDroppedTotal: req.RemoteWriteDroppedTotal,
+		RemoteWriteRetriesTotal: req.RemoteWriteRetriesTotal,
+		Hostname:                req.Hostname,
+		Ip:                      req.Ip,
+		Components:              req.Components,
+		Timestamp:               now,
 	}
 	if err := s.db.Create(hb).Error; err != nil {
 		return nil, fmt.Errorf("record edge heartbeat: %w", err)
@@ -126,6 +155,14 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 		latestStr = configVersionString(latest)
 	}
 	changed := req.ConfigVersion != latestStr
+
+	// F-42 参数传播判定：Agent 上报的 metadata 回传参数指纹与网域当前配置比对，
+	// 不一致时返回 params_changed=true 强制拉包（网域参数变更不改配置版本号，
+	// 仅靠 config_changed 无法驱动 Agent 更新参数）。指纹为空（未拉过包 / 老
+	// Agent）视为不一致：dom 参数全空时二者天然一致（false），有配置时 true——
+	// 老 Agent 忽略该响应字段无副作用，新 Agent 首轮拉包落盘后自然收敛。
+	paramsChanged := req.MetadataRemoteWriteURL != dom.RemoteWriteURL ||
+		req.MetadataMaxDiskUsagePerURL != dom.MaxDiskUsagePerURL
 
 	// 同步 config_sync_status / out_of_sync_cause（§8.1）。三态判定（M11 设计提案 D-2）：
 	//   - 版本一致（应用成功）→ in_sync，清空成因与陈旧应用错误文本；
@@ -177,10 +214,20 @@ func (s *HeartbeatService) Handle(dom *models.NetworkDomain, req *HeartbeatReque
 		}
 	}
 
+	// F-42：响应前重读重启指令位最新值——心跳处理期间管理端点可能并发推进 seq
+	//（agent 行内存快照是处理开始时读的），透传最新值避免指令延迟一轮才达。
+	var restartSeq int64
+	if err := s.db.Model(&models.EdgeAgent{}).Select("vm_agent_restart_seq").
+		Where("id = ?", agent.ID).Scan(&restartSeq).Error; err != nil {
+		return nil, fmt.Errorf("load vm_agent_restart_seq: %w", err)
+	}
+
 	return &HeartbeatResponse{
 		ConfigChanged:     changed,
 		ConfigVersion:     latestStr,
 		ConfigDownloadURL: configDownloadURL(authority, dom.ID),
+		ParamsChanged:     paramsChanged,
+		VMAgentRestartSeq: restartSeq,
 	}, nil
 }
 

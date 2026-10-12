@@ -81,6 +81,7 @@ func respondDomainError(c *gin.Context, err error) {
 	case errors.Is(err, ErrAlreadyMonitored),
 		errors.Is(err, ErrNotMonitored),
 		errors.Is(err, ErrInvalidAgentType),
+		errors.Is(err, ErrInvalidMaxDiskUsage),
 		errors.Is(err, ErrResetNotAgentPull),
 		errors.Is(err, ErrResetRequiresMonitored):
 		response.BadRequest(c, err)

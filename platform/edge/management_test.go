@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/metriccenter/metriccenter/platform/gateway/auth"
 	"github.com/metriccenter/metriccenter/platform/models"
 )
 
@@ -58,8 +59,94 @@ func newManagementRouter(db *gorm.DB) *gin.Engine {
 func newManagementRouterWithDir(db *gorm.DB, packageDir string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	RegisterManagementRoutes(r.Group("/api/v2/platform"), db, packageDir)
+	RegisterManagementRoutes(r.Group("/api/v2/platform"), db, packageDir, nil)
 	return r
+}
+
+// adminInjector 以测试中间件形式把已认证管理员注入 gin context（等价于 AuthMiddleware
+// 的 ContextUserKey 注入，模式对齐 configcenter/deployment 测试）。F-42 重启端点挂了
+// auth.RequireAdmin()，缺此注入时写端点回 403。
+func adminInjector() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Set(auth.ContextUserKey, &models.User{
+			Username: "ops-admin",
+			Role:     models.UserRoleAdmin,
+			Status:   models.UserStatusActive,
+		})
+		c.Next()
+	}
+}
+
+// ---- F-42 人工滚动重启 vmagent（seq 简化机制） ----
+
+func TestRequestVMAgentRestart(t *testing.T) {
+	db := newEdgeTestDB(t)
+	agent := seedAgent(t, db, "nd-restart", "online", tPtr(time.Now()), nil)
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+
+	// 首次触发：seq 0→1，留痕触发人与时间。
+	got, err := RequestVMAgentRestart(db, agent.ID, "ops-admin", now)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), got.VMAgentRestartSeq)
+	assert.Equal(t, "ops-admin", got.RestartRequestedBy)
+	require.NotNil(t, got.RestartRequestedAt)
+	assert.True(t, got.RestartRequestedAt.Equal(now), "restart_requested_at 应为传入时间")
+
+	// 再次触发：seq 可递增（幂等指令位语义，Agent 按 > 本地已执行值判定）。
+	got2, err := RequestVMAgentRestart(db, agent.ID, "ops-admin-2", now.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), got2.VMAgentRestartSeq)
+	assert.Equal(t, "ops-admin-2", got2.RestartRequestedBy)
+
+	// 非 online 节点拒绝（offline / retired）。
+	offline := seedAgent(t, db, "nd-restart-off", "offline", nil, nil)
+	_, err = RequestVMAgentRestart(db, offline.ID, "ops-admin", now)
+	require.ErrorIs(t, err, ErrRestartNotOnline)
+
+	retired := seedAgent(t, db, "nd-restart-retired", "retired", nil, nil)
+	_, err = RequestVMAgentRestart(db, retired.ID, "ops-admin", now)
+	require.ErrorIs(t, err, ErrRestartNotOnline)
+
+	// 不存在节点。
+	_, err = RequestVMAgentRestart(db, 99999, "ops-admin", now)
+	require.ErrorIs(t, err, ErrRestartNotFound)
+}
+
+func TestRestartAgentEndpoint(t *testing.T) {
+	db := newEdgeTestDB(t)
+	agent := seedAgent(t, db, "nd-restart-http", "online", tPtr(time.Now()), nil)
+
+	// 无用户注入 → RequireAdmin 403（写端点最小授权门）。
+	r := newManagementRouter(db)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/restart", agent.ID), nil))
+	require.Equal(t, http.StatusForbidden, w.Code)
+
+	// admin 注入 → 200，seq+1 且留痕透出；不存在 id → 404。
+	r2 := gin.New()
+	r2.Use(adminInjector())
+	RegisterManagementRoutes(r2.Group("/api/v2/platform"), db, "", nil)
+
+	w2 := httptest.NewRecorder()
+	r2.ServeHTTP(w2, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/restart", agent.ID), nil))
+	require.Equal(t, http.StatusOK, w2.Code)
+	var view AgentView
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &struct {
+		Data *AgentView `json:"data"`
+	}{Data: &view}))
+	assert.Equal(t, int64(1), view.VMAgentRestartSeq)
+	assert.Equal(t, "ops-admin", view.RestartRequestedBy)
+	require.NotNil(t, view.RestartRequestedAt)
+
+	w3 := httptest.NewRecorder()
+	r2.ServeHTTP(w3, httptest.NewRequest(http.MethodPut, "/api/v2/platform/edge-agents/99999/restart", nil))
+	require.Equal(t, http.StatusNotFound, w3.Code)
+
+	// 离线节点 → 400。
+	offline := seedAgent(t, db, "nd-restart-http-off", "offline", nil, nil)
+	w4 := httptest.NewRecorder()
+	r2.ServeHTTP(w4, httptest.NewRequest(http.MethodPut, fmt.Sprintf("/api/v2/platform/edge-agents/%d/restart", offline.ID), nil))
+	require.Equal(t, http.StatusBadRequest, w4.Code)
 }
 
 // ---- T11-06 退纳管级联清退（决策 D3） ----
@@ -683,4 +770,139 @@ func TestListPackagesInvalidManifestReturns500(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v2/platform/edge-packages", nil))
 	assert.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+}
+
+// ---- F-40 延展①③ 积压数据龄 / 通道异常态 ----
+
+// seedHeartbeat 插入一条 edge_heartbeats 观测留痕（倒序取样依赖 timestamp 字段）。
+func seedHeartbeat(t *testing.T, db *gorm.DB, domainID string, ts time.Time, backlog int64, lastErr string, retries int64) {
+	t.Helper()
+	require.NoError(t, db.Create(&models.EdgeHeartbeat{
+		NetworkDomainID:         domainID,
+		AgentType:               models.AgentTypeVMAgent,
+		QueueBacklogBytes:       backlog,
+		RemoteWriteLastError:    lastErr,
+		RemoteWriteRetriesTotal: retries,
+		Timestamp:               ts,
+	}).Error)
+}
+
+// 积压持续上涨 + 错误持续（≥2 条心跳报错）→ 数据龄/增速可算且判通道异常。
+func TestBacklogInsightGrowsAgeAndFlagsPersistentError(t *testing.T) {
+	now := detectNow
+	hbs := []models.EdgeHeartbeat{
+		{QueueBacklogBytes: 1800, RemoteWriteLastError: "remote write 503", RemoteWriteRetriesTotal: 10, Timestamp: now},
+		{QueueBacklogBytes: 1200, RemoteWriteLastError: "remote write 503", RemoteWriteRetriesTotal: 5, Timestamp: now.Add(-30 * time.Second)},
+	}
+	age, growth, channel := backlogInsight(hbs)
+	require.NotNil(t, growth)
+	assert.Equal(t, int64(20), *growth, "增速 = 600B / 30s")
+	require.NotNil(t, age)
+	assert.Equal(t, int64(90), *age, "数据龄 = 1800B / 20B/s")
+	assert.Equal(t, ChannelStatusAbnormal, channel, "积压上涨且错误持续 → 通道异常")
+}
+
+// 积压在消化（负增长）→ 数据龄无义（nil），不判异常。
+func TestBacklogInsightDrainingHasNoAge(t *testing.T) {
+	hbs := []models.EdgeHeartbeat{
+		{QueueBacklogBytes: 900, Timestamp: detectNow},
+		{QueueBacklogBytes: 1500, Timestamp: detectNow.Add(-30 * time.Second)},
+	}
+	age, growth, channel := backlogInsight(hbs)
+	require.NotNil(t, growth)
+	assert.Equal(t, int64(-20), *growth)
+	assert.Nil(t, age, "积压在消化时数据龄无义")
+	assert.Empty(t, channel)
+}
+
+// 单条心跳无法差分 → 增速与数据龄均缺省。
+func TestBacklogInsightSingleSampleStaysNil(t *testing.T) {
+	age, growth, channel := backlogInsight([]models.EdgeHeartbeat{
+		{QueueBacklogBytes: 4096, RemoteWriteLastError: "boom", Timestamp: detectNow},
+	})
+	assert.Nil(t, age)
+	assert.Nil(t, growth)
+	assert.Empty(t, channel, "无差分依据时不判异常")
+}
+
+// 最新心跳报错但此前无错误、retries 未增长 → 瞬时错误不触发异常（「持续」要件）。
+func TestBacklogInsightTransientErrorNotFlagged(t *testing.T) {
+	hbs := []models.EdgeHeartbeat{
+		{QueueBacklogBytes: 1800, RemoteWriteLastError: "boom", RemoteWriteRetriesTotal: 5, Timestamp: detectNow},
+		{QueueBacklogBytes: 1200, RemoteWriteRetriesTotal: 5, Timestamp: detectNow.Add(-30 * time.Second)},
+	}
+	_, growth, channel := backlogInsight(hbs)
+	require.NotNil(t, growth)
+	assert.Greater(t, *growth, int64(0))
+	assert.Empty(t, channel, "单次瞬时错误且 retries 未增长 → 不判异常")
+}
+
+// 积压上涨 + 最新报错，虽仅 1 条报错但 retries 在窗口内增长 → 仍判异常（F-39 联动）。
+func TestBacklogInsightRetriesGrowthFlagsAbnormal(t *testing.T) {
+	hbs := []models.EdgeHeartbeat{
+		{QueueBacklogBytes: 1800, RemoteWriteLastError: "boom", RemoteWriteRetriesTotal: 12, Timestamp: detectNow},
+		{QueueBacklogBytes: 1200, RemoteWriteRetriesTotal: 5, Timestamp: detectNow.Add(-30 * time.Second)},
+	}
+	_, _, channel := backlogInsight(hbs)
+	assert.Equal(t, ChannelStatusAbnormal, channel)
+}
+
+// fillBacklogInsights 走真实 DB：窗口内心跳 → 写入派生字段；窗口外（过期）→ 保持缺省。
+func TestFillBacklogInsightsFromHeartbeats(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-bk", "tk", "vmagent", "")
+	seedAgent(t, db, "edge-bk", "online", tPtr(detectNow), nil)
+	seedHeartbeat(t, db, "edge-bk", detectNow.Add(-30*time.Second), 1200, "remote write 503", 5)
+	seedHeartbeat(t, db, "edge-bk", detectNow, 1800, "remote write 503", 10)
+
+	resp, err := ListAgents(db, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	require.Len(t, resp.Agents, 1)
+	v := &resp.Agents[0]
+	v.ChannelStatus = "" // 防回归：fill 前应为缺省
+
+	fillBacklogInsights(db, resp.Agents, detectNow)
+	require.NotNil(t, v.BacklogAgeSeconds)
+	assert.Equal(t, int64(90), *v.BacklogAgeSeconds)
+	require.NotNil(t, v.BacklogGrowthBytesPerSec)
+	assert.Equal(t, int64(20), *v.BacklogGrowthBytesPerSec)
+	assert.Equal(t, ChannelStatusAbnormal, v.ChannelStatus)
+
+	// 同域的另一视图（详情复用同一 fill）拿到相同派生值且指针不共享。
+	clone := []AgentView{*v, {NetworkDomainID: "edge-bk"}}
+	fillBacklogInsights(db, clone, detectNow)
+	require.NotNil(t, clone[1].BacklogAgeSeconds)
+	*clone[1].BacklogAgeSeconds = 1
+	assert.Equal(t, int64(90), *clone[0].BacklogAgeSeconds, "同域视图指针不得共享")
+}
+
+// 30min 窗口外无心跳（节点过期）→ 不做陈旧推算，字段保持缺省。
+func TestFillBacklogInsightsStaleHeartbeatsStayNil(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-stale-bk", "tk", "vmagent", "")
+	seedAgent(t, db, "edge-stale-bk", "online", tPtr(detectNow.Add(-2*time.Hour)), nil)
+	seedHeartbeat(t, db, "edge-stale-bk", detectNow.Add(-2*time.Hour), 1200, "", 0)
+	seedHeartbeat(t, db, "edge-stale-bk", detectNow.Add(-2*time.Hour+30*time.Second), 1800, "boom", 3)
+
+	resp, err := ListAgents(db, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	require.Len(t, resp.Agents, 1)
+	fillBacklogInsights(db, resp.Agents, detectNow)
+	assert.Nil(t, resp.Agents[0].BacklogAgeSeconds)
+	assert.Nil(t, resp.Agents[0].BacklogGrowthBytesPerSec)
+	assert.Empty(t, resp.Agents[0].ChannelStatus)
+}
+
+// 无心跳记录 → 字段缺省（不阻塞列表）。
+func TestFillBacklogInsightsNoHeartbeats(t *testing.T) {
+	db := newEdgeTestDB(t)
+	seedMonitoredEdgeDomain(t, db, "edge-nobk", "tk", "vmagent", "")
+	seedAgent(t, db, "edge-nobk", "online", tPtr(detectNow), nil)
+
+	resp, err := ListAgents(db, detectNow, DefaultOfflineThreshold)
+	require.NoError(t, err)
+	fillBacklogInsights(db, resp.Agents, detectNow)
+	assert.Nil(t, resp.Agents[0].BacklogAgeSeconds)
+	assert.Nil(t, resp.Agents[0].BacklogGrowthBytesPerSec)
+	assert.Empty(t, resp.Agents[0].ChannelStatus)
 }
