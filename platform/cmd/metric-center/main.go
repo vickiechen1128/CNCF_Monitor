@@ -31,6 +31,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/metriccenter/metriccenter/platform/admin/networkdomain"
+	"github.com/metriccenter/metriccenter/platform/admin/storagelog"
 	"github.com/metriccenter/metriccenter/platform/admin/tenant"
 	"github.com/metriccenter/metriccenter/platform/admin/user"
 	"github.com/metriccenter/metriccenter/platform/alertmanager"
@@ -344,7 +345,7 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 	// Module 11 (T11-06/07/08 收口): 管理面接口（退纳管 / edge-agents / edge-packages）。
 	// 与 edge 协议组（/edge/*）分离：本组不走 edge-token 中间件，回归全局用户认证（au-02，D1）。
 	// T11-08：edge-packages 读 *edgePackageDir 下的 release_meta.json 并流式下发真实 tar.gz。
-	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir)
+	edge.RegisterManagementRoutes(platform, db.DB, *edgePackageDir, edge.NewPromSampleLagQuerier(promURL, nil))
 
 	// Module 08（T08-05 收口）：告警收敛与通知管理——alertmanager.yml 文件挂载与版本
 	// 留痕 + Alertmanager 原生静默管理代理，统一挂载到 /api/v2/platform/alertmanager/*。
@@ -358,6 +359,14 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 		db.DB,
 		dashboard.WithProbeQuerier(dashboard.NewPromProbeQuerier(promURL, nil)),
 	))
+
+	// Module 06 (F-41): 存储与日志管理——TSDB 保留策略读写（写 config.dir 下
+	// prom-retention.env，重启 Prometheus 生效）+ 磁盘占用 / 日志轮转只读展示。
+	// 越权重启 Prometheus 刻意不做（决策 64 职责分离）。挂 admin 组（RequireAdmin）。
+	storagelog.RegisterRoutes(admin, storagelog.Options{
+		EnvFile: filepath.Join(*configDir, "prom-retention.env"),
+		PromURL: promURL,
+	})
 	return nil
 }
 

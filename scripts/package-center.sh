@@ -374,6 +374,13 @@ mkdir -p "$DATA_ROOT/config-output" "$DATA_ROOT/run" "$LOG_ROOT"
 # 保留策略默认值（env.sh 未定义时使用）
 PROM_RETENTION_TIME=${PROM_RETENTION_TIME:-15d}
 PROM_RETENTION_SIZE=${PROM_RETENTION_SIZE:-10GB}
+# M06 F-41：「存储与日志管理」页写入的保留策略（$DATA_ROOT/config-output/prom-retention.env，
+# 与 metric-center --config.dir 同目录）。优先级高于 env.sh/env 默认——页面保存代表最新
+# 变更意图，本脚本下次执行（即运维重启）后生效。
+if [ -f "$DATA_ROOT/config-output/prom-retention.env" ]; then
+    . "$DATA_ROOT/config-output/prom-retention.env"
+    echo ">>> TSDB retention from prom-retention.env: time=$PROM_RETENTION_TIME size=$PROM_RETENTION_SIZE"
+fi
 # 组件端口默认值（env.sh 未定义时使用）
 PROM_PORT=${PROM_PORT:-9090}
 AM_PORT=${AM_PORT:-9093}
@@ -429,6 +436,7 @@ nohup "$ROOT/bin/prometheus" \
     --storage.tsdb.path="$DATA_ROOT/prometheus" \
     --storage.tsdb.retention.time="$PROM_RETENTION_TIME" \
     --storage.tsdb.retention.size="$PROM_RETENTION_SIZE" \
+    --enable-feature=promql-experimental-functions \
     --web.enable-lifecycle \
     --web.listen-address=":${PROM_PORT}" \
     > "$LOG_ROOT/prometheus.log" 2>&1 &

@@ -9,6 +9,8 @@ import LoginLogsPage from './pages/admin/login-logs/LoginLogsPage'
 import CloudDictPage from './pages/admin/clouddict/CloudDictPage'
 // 外观设置页（M06 系统与平台管理 · 皮肤 + 产品名称，用户 2026-09-18 补充）
 import AppearanceSettingsPage from './pages/admin/appearance/AppearanceSettingsPage'
+// 存储与日志管理页（M06 F-41：TSDB 保留策略 + 磁盘/日志轮转展示）
+import StorageLogPage from './pages/admin/storagelog/StorageLogPage'
 import ResourcesPage from './pages/resources/ResourcesPage'
 import BusinessDomainPage from './pages/resources/BusinessDomainPage'
 import ApplicationDictPage from './pages/resources/ApplicationDictPage'
@@ -107,6 +109,8 @@ function AppRoutes() {
           {/* 云字典只读展示页（M07 §5.20 / 决策 98/102；dev-feedback #19） */}
           <Route path="/admin/cloud-dict" element={<CloudDictPage />} />
           <Route path="/admin/appearance" element={<AppearanceSettingsPage />} />
+          {/* 存储与日志管理页（M06 F-41）：TSDB 保留策略 + 磁盘/日志轮转只读展示 */}
+          <Route path="/admin/storage-logs" element={<StorageLogPage />} />
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/label-templates" element={<LabelTemplatesPage />} />
           <Route path="/business-domains" element={<BusinessDomainPage />} />

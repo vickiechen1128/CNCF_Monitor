@@ -15,6 +15,7 @@ import {
   FileSearchOutlined,
   FileTextOutlined,
   FundProjectionScreenOutlined,
+  HddOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PartitionOutlined,
@@ -127,6 +128,9 @@ const MODULES: ModuleDef[] = [
       // 落在「系统与平台管理」而非顶栏——观感配置是低频设置项，不该占用高频操作区，
       // 与租户 / 用户 / 登录日志等平台级设置同属一处。
       { key: '/admin/appearance', label: '外观设置', icon: <BgColorsOutlined /> },
+      // 存储与日志管理（M06 F-41）：TSDB 保留策略（写 env，重启生效）+ 磁盘占用 /
+      // 日志轮转只读展示——同属平台级低频设置，置于「系统与平台管理」末尾。
+      { key: '/admin/storage-logs', label: '存储与日志管理', icon: <HddOutlined /> },
     ],
   },
   {

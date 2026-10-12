@@ -429,6 +429,8 @@ run-metric-center: build-metric-center build-promtool build-amtool
 # G1（设计提案 §7-G1）：--web.enable-remote-write-receiver 开启中心 Prometheus 的
 # remote_write 接收端，作为边缘 vmagent 指标上报入口，对接 edge-sync-agent
 # probe.go 默认上报地址 http://127.0.0.1:9090/api/v1/write（自 Prometheus 2.40 起可用）。
+# 回传延迟 p95 口径：--enable-feature=promql-experimental-functions 启用
+# ts_of_last_over_time（F-40 延展 SampleLagQueryExpr 依赖；未开时延迟查询降级为无数据）。
 run-prometheus: build-prometheus
 	@echo ">>> Starting Prometheus"
 	@mkdir -p "$(PROJECT_ROOT)/config-output"
@@ -448,14 +450,26 @@ run-prometheus: build-prometheus
 	#     maxTime 不前进，边缘 up 一条没落库，排查绕大弯）。
 	#   - 与生产打包件对齐（scripts/package-center.sh:429 亦用绝对路径 $DATA_ROOT/prometheus）。
 	@mkdir -p "$(PROJECT_ROOT)/data/prometheus"
-	@cd "$(PROJECT_ROOT)/upstream/prometheus" && ./prometheus$(EXE) \
-		--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
-		--storage.tsdb.path="$(PROJECT_ROOT)/data/prometheus" \
-		--storage.tsdb.retention.time="$(PROM_RETENTION_TIME)" \
-		--storage.tsdb.retention.size="$(PROM_RETENTION_SIZE)" \
-		--web.enable-lifecycle \
-		--web.enable-remote-write-receiver \
-		--web.listen-address=127.0.0.1:9090
+	# M06 F-41：读取「存储与日志管理」页写入的保留策略 env 文件（config-output/prom-retention.env，
+	# 页面保存 → 重启 Prometheus 生效）。优先级：命令行/环境变量显式覆盖 > env 文件 > 上方 ?= 默认。
+	@RET_ENV="$(PROJECT_ROOT)/config-output/prom-retention.env"; \
+		RET_TIME="$(PROM_RETENTION_TIME)"; \
+		RET_SIZE="$(PROM_RETENTION_SIZE)"; \
+		if [ -f "$$RET_ENV" ]; then \
+			. "$$RET_ENV"; \
+			if [ "$(origin PROM_RETENTION_TIME)" = "file" ]; then RET_TIME="$${PROM_RETENTION_TIME:-$$RET_TIME}"; fi; \
+			if [ "$(origin PROM_RETENTION_SIZE)" = "file" ]; then RET_SIZE="$${PROM_RETENTION_SIZE:-$$RET_SIZE}"; fi; \
+			echo ">>> TSDB retention from prom-retention.env: time=$$RET_TIME size=$$RET_SIZE"; \
+		fi; \
+		cd "$(PROJECT_ROOT)/upstream/prometheus" && ./prometheus$(EXE) \
+			--config.file="$(PROJECT_ROOT)/config-output/prometheus.yml" \
+			--storage.tsdb.path="$(PROJECT_ROOT)/data/prometheus" \
+			--storage.tsdb.retention.time="$$RET_TIME" \
+			--storage.tsdb.retention.size="$$RET_SIZE" \
+			--enable-feature=promql-experimental-functions \
+			--web.enable-lifecycle \
+			--web.enable-remote-write-receiver \
+			--web.listen-address=127.0.0.1:9090
 # 注：--web.listen-address 收束至 127.0.0.1 —— remote_write receiver (--web.enable-remote-write-receiver)
 # 无内置写认证，仅暴露给本机 metric-center 查询代理与受控边缘写方；对外暴露由 G2 nginx（IP 白名单 +
 # TLS 终结 + per-domain Token）在生产部署承接。见 design-decisions 决策 1。
