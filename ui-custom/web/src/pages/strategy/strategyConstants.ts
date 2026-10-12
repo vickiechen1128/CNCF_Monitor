@@ -96,20 +96,27 @@ export const AUTH_TYPE_MAP: Record<string, string> = {
   bearer: 'Bearer Token',
 }
 
-/** 实例「采集状态」展示（决策 47-2：采集正常 / 已下发未采到 / 待采集） */
-export const SCRAPE_STATUS_META: Record<JobInstanceScrapeStatus, { label: string; badge: 'success' | 'error' | 'default' }> = {
+/** 实例「采集状态」展示（决策 47-2：采集正常 / 已下发未采到 / 待采集；F-40 增回传延迟中） */
+export const SCRAPE_STATUS_META: Record<JobInstanceScrapeStatus, { label: string; badge: 'success' | 'error' | 'warning' | 'default' }> = {
   // 与 M07 MonitorStatusBadge 的「采集中」统一口径（LOW-3），同指绿色采集正常态
   collecting: { label: '采集中', badge: 'success' },
   down: { label: '已下发未采到', badge: 'error' },
+  // F-40 回传延迟中：样本在途非丢失，warning 橙色提示查回传通道而非采集器
+  stale: { label: '回传延迟中', badge: 'warning' },
   pending: { label: '待采集', badge: 'default' },
 }
 
 /** 已下发未采到（down）的行内引导文案（决策 47-2） */
 export const DOWN_TOOLTIP = '配置已下发但未采集到数据，请检查采集器安装与网络连通'
 
-/** 列表「实例采集状态」列头角标（Job 列表专用，F-36 后简洁口径） */
+/** 回传延迟中（stale）的行内引导文案（F-40）：样本 5 分钟内未到中心、但 1 小时内出现过，
+ * 数据大概率积压在边缘回传链路上，去「网域与边缘配置中心 → 采集节点状态」看回传积压。 */
+export const STALE_TOOLTIP =
+  '实例数据在采集端正常抓取，但尚未送达中心（回传通道积压或延迟）。请到「网域与边缘配置中心 → 采集节点状态」查看节点回传积压，无需排查采集器'
+
+/** 列表「实例采集状态」列头角标（Job 列表专用，F-36/F-40 三态口径） */
 export const COLLECTION_STATUS_TOOLTIP =
-  '正常采到数据的实例数 / 你勾选且仍存在的实例总数（拨测 Job 为通过数 / 拨测目标总数）。已软删的实例资源不计入分母，会在每行单独提示「另有 n 台已被删除」。有实例或目标没通过时整格变红，点开可看原因；约 20 秒自动刷新'
+  '正常采到数据的实例数 / 你勾选且仍存在的实例总数（拨测 Job 为通过数 / 拨测目标总数）。已软删的实例资源不计入分母，会在每行单独提示「另有 n 台已被删除」。三种异常各有标识：有实例没采到数据时整格变红（配置/网络问题）；有实例数据在途未达中心时显示橙色「回传延迟中」或「延迟 n」小标（回传通道积压，去「网域与边缘配置中心 → 采集节点状态」看回传积压，无需排查采集器）；点开可看各实例原因；约 20 秒自动刷新'
 
 /** 列表「生效状态」列头角标（Job 列表 / 规则列表共用，F-37 后简洁口径） */
 export const EFFECTIVE_STATUS_TOOLTIP =

@@ -4,7 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons'
 import { scrapeJobApi } from '../../api/scrapeJobs'
 import type { InstallationStatus, ScrapeJobInstanceItem } from '../../types/strategy'
 import { useScrapeJobStatus } from './useScrapeJobStatus'
-import { DOWN_TOOLTIP, SCRAPE_STATUS_META } from './strategyConstants'
+import { DOWN_TOOLTIP, STALE_TOOLTIP, SCRAPE_STATUS_META } from './strategyConstants'
 
 const { Text } = Typography
 
@@ -117,6 +117,10 @@ export function ExporterInstallationPanel({ jobId, jobName, deployed }: Exporter
             <Text strong>实例总数 {summary.total}</Text>
             <Badge status="success" text={<Text type="secondary">在线 {summary.online}</Text>} />
             {statusLoading && <Spin size="small" />}
+            {/* F-40：回传延迟中（在途非丢失），仅非 0 时展示避免常态噪声 */}
+            {summary.stale > 0 && (
+              <Badge status="warning" text={<Text type="secondary">回传延迟中 {summary.stale}</Text>} />
+            )}
             <Text type="secondary">待采集 {summary.pending}</Text>
           </Space>
           <Space direction="vertical" style={{ width: '100%' }} size={8}>
@@ -126,6 +130,10 @@ export function ExporterInstallationPanel({ jobId, jobName, deployed }: Exporter
               const statusNode =
                 scrape.badge === 'error' ? (
                   <Tooltip title={DOWN_TOOLTIP}>
+                    <Badge status={scrape.badge} text={scrape.label} />
+                  </Tooltip>
+                ) : scrape.badge === 'warning' ? (
+                  <Tooltip title={STALE_TOOLTIP}>
                     <Badge status={scrape.badge} text={scrape.label} />
                   </Tooltip>
                 ) : (

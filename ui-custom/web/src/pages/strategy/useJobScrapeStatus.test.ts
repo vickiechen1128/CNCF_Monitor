@@ -111,6 +111,20 @@ describe('useJobScrapeStatus（Job 维度采集状态聚合，F-10：up 指标�
     expect(result.current[1]).toMatchObject({ state: 'down', online: 0, down: 2, pending: 0 })
   })
 
+  it('F-40：无 online/down 但有 stale 聚合为回传延迟中（up 瞬时空、1h 内有样本）', async () => {
+    instancesMock.mockResolvedValue({ status: 'success', data: { items: [instance('srv-1'), instance('srv-2')], total: 2 } })
+    // up（瞬时）为空；last_over_time 命中 srv-1 → stale=1，srv-2 1h 内也无样本 → pending=1
+    queryMock.mockImplementation(({ query }: { query: string }) => {
+      if (query.startsWith('timestamp(last_over_time(')) {
+        return Promise.resolve(vector([up({ resource_id: 'srv-1' })]))
+      }
+      return Promise.resolve(vector([]))
+    })
+    const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))
+    await waitFor(() => expect(result.current[1]?.loaded).toBe(true))
+    expect(result.current[1]).toMatchObject({ state: 'stale', online: 0, down: 0, stale: 1, pending: 1, total: 2 })
+  })
+
   it('实例拉取失败时降级为无已选实例（待采集，total=0）', async () => {
     instancesMock.mockRejectedValue(new Error('boom'))
     const { result } = renderHook(() => useJobScrapeStatus([job({ id: 1 })]))

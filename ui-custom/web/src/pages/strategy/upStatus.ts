@@ -11,7 +11,14 @@
  * 对 local 与边缘（remote_write 上来 `up`）两通道均成立：
  *  - 查到 `up` 样本且值 = "1" → collecting（采集中）
  *  - 查到 `up` 样本且值 = "0" → down（已下发未采到）
- *  - 无该实例的 `up` 样本 → pending（not monitored / 未采到）
+ *  - 无该实例的 `up` 样本，但 `timestamp(last_over_time(up[1h]))` 命中 → stale（回传延迟中，F-40）
+ *  - 1h 内也无样本 → pending（not monitored / 未采到）
+ *
+ * F-40（回传延迟三态，2026-10-10）：瞬时查询 `up` 只认 5 分钟 lookback 窗口内的样本；
+ * 边缘回传通道积压时（实测 530MB ≈ 2.8h），样本只是「迟到」并非「丢失」，按 pending
+ * 「待采集」误导排查方向（把回传问题当采集问题查）。引入第二个查询
+ * `timestamp(last_over_time(up{job}[1h]))` 取每序列 1h 内最近一次样本时间：5min 内无样本、
+ * 1h 内有 → stale「回传延迟中」（warning），提示用户去节点状态页看「回传积压」而非查采集器。
  *
  * 实例↔序列匹配：优先 `resource_id` 标签回连，缺失时回落主机（host vs instance_ip）匹配。
  *
@@ -40,13 +47,33 @@ export function upQueryForJob(jobName: string): string {
   return `up{job="${escapePromQLValue(jobName)}"}`
 }
 
-/** 从一给定 job 的 up 样本向量推导单个实例的采集状态 */
-export function statusFromUp(upItems: PromVectorItem[], it: ScrapeJobInstanceItem): JobInstanceScrapeStatus {
+/**
+ * 构造按 job 过滤的「最近一次 up 样本时间」表达式（F-40 回传延迟判定）：
+ * `timestamp(last_over_time(up{job="<job_name>"}[1h]))`。
+ * 返回向量的 value[1] 是各序列 1h 内最近一次样本的 Unix 时间戳（秒），
+ * 仅用于「序列是否存在过」的判定，时间值由前端结合服务端时间估算延迟。
+ */
+export function lastUpQueryForJob(jobName: string): string {
+  return `timestamp(last_over_time(up{job="${escapePromQLValue(jobName)}"}[1h]))`
+}
+
+/** 从一给定 job 的 up 样本向量推导单个实例的采集状态（F-40 扩展三态）。
+ * lastItems 为 `lastUpQueryForJob` 的结果（可选）：5min 窗口无样本、但 1h 内出现过
+ * → 'stale'（回传延迟中）；1h 内也没有 → 'pending'。 */
+export function statusFromUp(
+  upItems: PromVectorItem[],
+  it: ScrapeJobInstanceItem,
+  lastItems?: PromVectorItem[],
+): JobInstanceScrapeStatus {
   // 优先 resource_id 标签回连；无 resource_id 样本回落主机匹配（与决策 47-2 实例↔target 口径一致）
-  const byRes = upItems.find((x) => x.metric.resource_id && x.metric.resource_id === it.resource_id)
-  const series = byRes ?? upItems.find((x) => !x.metric.resource_id && hostOf(x.metric.instance) === it.instance_ip)
-  if (!series) return 'pending'
-  return series.value?.[1] === '1' ? 'collecting' : 'down'
+  const match = (items: PromVectorItem[]) => {
+    const byRes = items.find((x) => x.metric.resource_id && x.metric.resource_id === it.resource_id)
+    return byRes ?? items.find((x) => !x.metric.resource_id && hostOf(x.metric.instance) === it.instance_ip)
+  }
+  const series = match(upItems)
+  if (series) return series.value?.[1] === '1' ? 'collecting' : 'down'
+  if (lastItems && match(lastItems)) return 'stale'
+  return 'pending'
 }
 
 /** 构造按 job 过滤的拨测结果表达式：`probe_success{job="<job_name>"}` */
