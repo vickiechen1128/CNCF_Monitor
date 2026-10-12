@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-10 16:23 · commit: `d1353c9`
+> 生成时间: 2026-10-12 09:56 · commit: `d5ea2e5`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -2138,6 +2138,10 @@
 - `func TestMonitorDomainRejectsAlreadyMonitored(t *testing.T)`
 - `func TestMonitorDomainRejectsInvalidAgentType(t *testing.T)`
 - `func TestMonitorDomainNotFound(t *testing.T)`
+- `func TestValidateMaxDiskUsage(t *testing.T)`
+- `func TestMonitorDomainEdgeAcceptsMaxDiskUsage(t *testing.T)`
+- `func TestMonitorDomainRejectsInvalidMaxDiskUsage(t *testing.T)`
+- `func TestUpdateDomainMonitoringMaxDiskUsage(t *testing.T)`
 - `func TestResetDomainTokenEdgePush(t *testing.T)`
 - `func TestResetDomainTokenRejectsLocal(t *testing.T)`
 - `func TestResetDomainTokenRejectsNotMonitored(t *testing.T)`
@@ -2157,6 +2161,7 @@
 - `func UpdateDomainMonitoring(db *gorm.DB, id string, p UpdateParams) (*models.NetworkDomain, error)`
 - `func ResetDomainToken(db *gorm.DB, id string) (TokenResult, error)`
 - `func newToken() (string, error)`
+- `func validateMaxDiskUsage(v string) error`
 
 ### `platform/configcenter/draft/change_items.go`
 
@@ -2937,12 +2942,16 @@
 - `method (*ProcProbe) Stop(c *supervisor.Component) error`
 - `method (*ProcProbe) Signal(typ string, sig syscall.Signal) error`
 - `method (*ProcProbe) Reload(typ string) error`
+- `method (*ProcProbe) RestartCollector() error`
 - `method (*ProcProbe) StopAll()`
 - `func httpGetOK(ctx context.Context, cli *http.Client, url string) error`
 - `func httpPostOK(ctx context.Context, cli *http.Client, url string) error`
 - `func tcpProbe(ctx context.Context, addr string) error`
 - `func envOr(key, def string) string`
 - `func metadataRemoteWriteURL(versionDir string) string`
+- `func metadataMaxDiskUsage(versionDir string) string`
+- `func readVersionMetadata(versionDir string) contract.Metadata`
+- `func resolveMaxDiskUsagePerURL(metadataVal string) string`
 - `func resolveRemoteWriteURL(metadataURL, centerEndpoint string) string`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/probe_test.go`
@@ -2956,6 +2965,9 @@
 - `func TestProcProbeReloadNotRunning(t *testing.T)`
 - `func TestResolveRemoteWriteURL(t *testing.T)`
 - `func TestMetadataRemoteWriteURL(t *testing.T)`
+- `func TestResolveMaxDiskUsagePerURL(t *testing.T)`
+- `func TestMetadataMaxDiskUsage(t *testing.T)`
+- `func TestCollectorArgsCarryMaxDiskUsage(t *testing.T)`
 
 ### `platform/edge-sync-agent/cmd/edge-sync-agent/vmremote.go`
 
@@ -3064,8 +3076,10 @@
 - `method (*Deployer) DomainDir() string`
 - `method (*Deployer) VersionDir(version string) string`
 - `method (*Deployer) CurrentVersion() string`
+- `method (*Deployer) CurrentMetadata() contract.Metadata`
 - `method (*Deployer) CurrentDir() string`
 - `method (*Deployer) setCurrentLink(version string)`
+- `method (*Deployer) currentMetadata() contract.Metadata`
 - `method (*Deployer) Restore() error`
 - `method (*Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Metadata) error`
 - `method (*Deployer) ApplyState() ApplyState`
@@ -3097,6 +3111,10 @@
 - `func TestApplyMetadataRemoteWriteURLPersisted(t *testing.T)`
 - `func TestApplyFailureStatePersistedAndRestored(t *testing.T)`
 - `func TestApplyFailureStateWithoutCurrentLink(t *testing.T)`
+- `func readDiskMetadata(t *testing.T, d *Deployer, version string) contract.Metadata`
+- `func TestApplySameVersionParamsChangedReapply(t *testing.T)`
+- `func TestApplySameVersionParamsUnchangedSkips(t *testing.T)`
+- `func TestApplySameVersionRemoteWriteURLChangedReapply(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/deployer/extract.go`
 
@@ -3152,6 +3170,10 @@
 - `method (staticRuntime) Snapshot() RuntimeSnapshot`
 - `method (*Puller) Run(ctx context.Context)`
 - `method (*Puller) RunOnce(ctx context.Context) error`
+- `type restartState struct`
+- `method (*Puller) handleRestartCommand(resp *contract.HeartbeatResponse) error`
+- `method (*Puller) setExecutedRestartSeq(seq int64)`
+- `method (*Puller) loadRestartState()`
 - `method (*Puller) buildHeartbeat() contract.HeartbeatRequest`
 - `method (*Puller) pullAndVerify(ctx context.Context, url string) error`
 - `method (*Puller) handleAuth(ctx context.Context) bool`
@@ -3173,10 +3195,15 @@
 - `type testServer struct`
 - `func newTestServer(hb contract.HeartbeatResponse, zipBody []byte) *testServer`
 - `func newPuller(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider) *Puller`
+- `func newPullerWithRestart(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onRestart func() error, s…`
 - `func TestRunOnceValidConfigDeploysAndRetains(t *testing.T)`
 - `func TestRunOnceChecksumMismatchRetainsLastValid(t *testing.T)`
 - `func TestVerifyChecksumValidAndMismatch(t *testing.T)`
+- `func TestBuildHeartbeatCarriesMetadataParams(t *testing.T)`
+- `func TestRunOnceParamsChangedForcesPull(t *testing.T)`
 - `func TestRunOnceNetworkErrorRetainsAndRecovers(t *testing.T)`
+- `func TestRunOnceRestartSeqTriggersCallbackAndPersists(t *testing.T)`
+- `func TestRunOnceRestartSeqFailureRetries(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/supervisor/supervisor.go`
 
@@ -3190,6 +3217,7 @@
 - `method (*Supervisor) Reconcile(want []contract.Component)`
 - `method (*Supervisor) getOrCreate(typ string) *Component`
 - `method (*Supervisor) Get(typ string) *Component`
+- `method (*Supervisor) Reset(typ string)`
 - `method (*Supervisor) SetInject(clock func() time.Time, sleep func(ctx context.Context, d time.Duration))`
 - `method (*Supervisor) Snapshot() []contract.Component`
 - `method (*Supervisor) Run(ctx context.Context)`
@@ -3215,6 +3243,7 @@
 - `func TestBackoffAndBreakerEntersCrashLoop(t *testing.T)`
 - `func TestOrchestrationBlackboxBeforeCollector(t *testing.T)`
 - `func TestSnapshotReportsContractView(t *testing.T)`
+- `func TestResetClearsCrashLoopAndRetainsGuard(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/token/token.go`
 
@@ -3264,6 +3293,7 @@
 - `func TestBuildConfigZipStructureAndChecksumRecomputable(t *testing.T)`
 - `func TestBuildConfigZipOptionalEntries(t *testing.T)`
 - `func TestBuildConfigZipRemoteWriteURL(t *testing.T)`
+- `func TestBuildConfigZipMaxDiskUsagePerURL(t *testing.T)`
 - `func TestConfigHandlerServeZipAnd304(t *testing.T)`
 - `func TestConfigHandlerNoVersionNotFound(t *testing.T)`
 - `func TestHeartbeatWritebackAgentPullDeployment(t *testing.T)`
@@ -3278,6 +3308,8 @@
 - `func TestHeartbeatTargetTruncatesAtMax(t *testing.T)`
 - `func TestResolveDownloadAuthorityPrefersCenterEndpoint(t *testing.T)`
 - `func TestResolveDownloadAuthorityEndToEnd(t *testing.T)`
+- `func TestHeartbeatParamsChangedFingerprint(t *testing.T)`
+- `func TestHeartbeatCarriesRestartSeq(t *testing.T)`
 
 ### `platform/edge/heartbeat_handler.go`
 
@@ -3331,6 +3363,8 @@
 - `func GetAgent(db *gorm.DB, id uint, now time.Time, threshold time.Duration) (*AgentView, error)`
 - `func normThreshold(t time.Duration) time.Duration`
 - `func fillSampleLags(views []AgentView, q SampleLagQuerier)`
+- `func fillBacklogInsights(db *gorm.DB, views []AgentView, now time.Time)`
+- `func backlogInsight(hbs []models.EdgeHeartbeat) (age, growth *int64, channel string)`
 
 ### `platform/edge/management_test.go`
 
@@ -3339,6 +3373,9 @@
 - `func seedAgent(t *testing.T, db *gorm.DB, domainID, status string, lastHB *time.Time, comps []models.EdgeComponent) *models.…`
 - `func newManagementRouter(db *gorm.DB) *gin.Engine`
 - `func newManagementRouterWithDir(db *gorm.DB, packageDir string) *gin.Engine`
+- `func adminInjector() gin.HandlerFunc`
+- `func TestRequestVMAgentRestart(t *testing.T)`
+- `func TestRestartAgentEndpoint(t *testing.T)`
 - `func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T)`
 - `func TestRetireDomainRejectsManagementAndRetiredAndNotMonitoredAndMissing(t *testing.T)`
 - `func TestRetireDomainHandlerHTTP(t *testing.T)`
@@ -3366,6 +3403,15 @@
 - `func TestListPackagesEmptyWhenNoManifest(t *testing.T)`
 - `func TestListPackagesUnavailableArtifactVariants(t *testing.T)`
 - `func TestListPackagesInvalidManifestReturns500(t *testing.T)`
+- `func seedHeartbeat(t *testing.T, db *gorm.DB, domainID string, ts time.Time, backlog int64, lastErr string, retries int64)`
+- `func TestBacklogInsightGrowsAgeAndFlagsPersistentError(t *testing.T)`
+- `func TestBacklogInsightDrainingHasNoAge(t *testing.T)`
+- `func TestBacklogInsightSingleSampleStaysNil(t *testing.T)`
+- `func TestBacklogInsightTransientErrorNotFlagged(t *testing.T)`
+- `func TestBacklogInsightRetriesGrowthFlagsAbnormal(t *testing.T)`
+- `func TestFillBacklogInsightsFromHeartbeats(t *testing.T)`
+- `func TestFillBacklogInsightsStaleHeartbeatsStayNil(t *testing.T)`
+- `func TestFillBacklogInsightsNoHeartbeats(t *testing.T)`
 
 ### `platform/edge/middleware.go`
 
@@ -3421,11 +3467,17 @@
 - `func TestFillSampleLags(t *testing.T)`
 - `func mustParseURL(t *testing.T, raw string) *url.URL`
 
+### `platform/edge/restart_handler.go`
+
+- `func RequestVMAgentRestart(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
+- `func RestartAgentHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondRestartError(c *gin.Context, err error)`
+
 ### `platform/edge/zipper.go`
 
 - `type metadata struct`
 - `type targetsCarrier`
-- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL string) ([]byte, string, error)`
+- `func BuildConfigZip(v *models.ConfigVersion, agentType models.AgentType, remoteWriteURL, maxDiskUsagePerURL string) ([]byte,…`
 - `func packageChecksum(promYML, rulesYML, blackboxYML string, targets targetsCarrier) string`
 
 ### `platform/examples/simple-agent/main.go`
@@ -5346,6 +5398,12 @@
 - `const SAMPLE_LAG_TOOLTIP`
 - `function formatSampleLag`
 - `function sampleLagSeverity`
+- `const BACKLOG_AGE_TOOLTIP`
+- `function formatBacklogAge`
+- `function formatBacklogGrowth`
+- `function channelStatusLabel`
+- `function channelStatusBadge`
+- `const CHANNEL_STATUS_TOOLTIP`
 - `function compareVersions`
 - `function latestPackageVersion`
 
