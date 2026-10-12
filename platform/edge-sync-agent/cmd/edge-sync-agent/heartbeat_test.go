@@ -224,6 +224,34 @@ func TestRuntimeProviderSnapshotCarriesTargets(t *testing.T) {
 	}
 }
 
+// TestRuntimeProviderSnapshotCarriesRemoteWriteStats 覆盖 F-39 心跳装配路径：
+// runtimeProvider.Snapshot 从本机 vmagent /metrics 解析持久队列积压与丢块/重试计数，
+// QueueBacklogBytes 取 max(内存缓冲, 磁盘持久队列)，丢块/重试随快照透传给心跳。
+func TestRuntimeProviderSnapshotCarriesRemoteWriteStats(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte(metricsPersistentQueueBacklog))
+	}))
+	defer srv.Close()
+
+	stub := &stubProbe{}
+	sv := supervisor.NewSupervisor(supervisor.DefaultParams(), stub, logger.New(nil))
+	cfg := config.Defaults()
+	cfg.Version = "v0.2.0"
+
+	rt := &runtimeProvider{cfg: cfg, sv: sv, hostname: "node-f39", ip: "10.0.0.39", targetBaseURL: srv.URL}
+	snap := rt.Snapshot()
+	// 持久队列 555000000 > 内存缓冲 1024 → 积压读数取持久队列（F-39 核心修正）。
+	if snap.QueueBacklogBytes != 555000000 {
+		t.Fatalf("queue_backlog = %d want 555000000", snap.QueueBacklogBytes)
+	}
+	if snap.RemoteWriteDroppedTotal != 9 {
+		t.Fatalf("dropped_total = %d want 9", snap.RemoteWriteDroppedTotal)
+	}
+	if snap.RemoteWriteRetriesTotal != 20 {
+		t.Fatalf("retries_total = %d want 20", snap.RemoteWriteRetriesTotal)
+	}
+}
+
 // TestRuntimeProviderSnapshotTargetsDegrade 采集失败（本机 vmagent 接口不可达）时，
 // Targets 降级为空且健康组件字段仍保留（采集失败不阻断心跳）。
 func TestRuntimeProviderSnapshotTargetsDegrade(t *testing.T) {

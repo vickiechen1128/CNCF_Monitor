@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -207,5 +208,88 @@ func TestMetadataRemoteWriteURL(t *testing.T) {
 	}
 	if got := metadataRemoteWriteURL(filepath.Dir(bad)); got != "" {
 		t.Fatalf("invalid json url = %q", got)
+	}
+}
+
+// TestResolveMaxDiskUsagePerURL 覆盖 F-42 三档解析优先级：
+// metadata 下发 > EDGE_REMOTE_WRITE_MAX_DISK_USAGE env > 硬兜底 2GB（永不无界）。
+func TestResolveMaxDiskUsagePerURL(t *testing.T) {
+	t.Run("metadata wins", func(t *testing.T) {
+		t.Setenv("EDGE_REMOTE_WRITE_MAX_DISK_USAGE", "1GB")
+		if got := resolveMaxDiskUsagePerURL("50GB"); got != "50GB" {
+			t.Fatalf("metadata val = %q", got)
+		}
+	})
+
+	t.Run("env second", func(t *testing.T) {
+		t.Setenv("EDGE_REMOTE_WRITE_MAX_DISK_USAGE", "50GB")
+		if got := resolveMaxDiskUsagePerURL(""); got != "50GB" {
+			t.Fatalf("env val = %q", got)
+		}
+	})
+
+	t.Run("hard fallback", func(t *testing.T) {
+		t.Setenv("EDGE_REMOTE_WRITE_MAX_DISK_USAGE", "")
+		if got := resolveMaxDiskUsagePerURL(""); got != defaultMaxDiskUsagePerURL {
+			t.Fatalf("fallback val = %q want %q", got, defaultMaxDiskUsagePerURL)
+		}
+	})
+}
+
+// TestMetadataMaxDiskUsage 校验从生效配置目录 metadata.json 读取 max_disk_usage_per_url
+// （F-42），缺失文件 / 字段为空 / 目录为空时返回空串。
+func TestMetadataMaxDiskUsage(t *testing.T) {
+	if got := metadataMaxDiskUsage(""); got != "" {
+		t.Fatalf("empty versionDir = %q", got)
+	}
+
+	dir := t.TempDir()
+	if got := metadataMaxDiskUsage(dir); got != "" {
+		t.Fatalf("missing metadata = %q", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, contract.ZipEntryMetadata),
+		[]byte(`{"config_version":"v1","max_disk_usage_per_url":"50GB"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := metadataMaxDiskUsage(dir); got != "50GB" {
+		t.Fatalf("metadata val = %q", got)
+	}
+}
+
+// TestCollectorArgsCarryMaxDiskUsage 断言 collector 启动参数包含
+// -remoteWrite.maxDiskUsagePerURL 且优先取 metadata 下发值（F-42）。
+func TestCollectorArgsCarryMaxDiskUsage(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, contract.ZipEntryMetadata),
+		[]byte(`{"config_version":"v1","max_disk_usage_per_url":"50GB"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := NewProcProbe(func() string { return dir }, "", io.Discard)
+	args := p.specs[contract.ComponentTypeCollector].args(dir)
+	found := false
+	for _, a := range args {
+		if a == "-remoteWrite.maxDiskUsagePerURL=50GB" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("args missing metadata maxDiskUsagePerURL flag: %v", args)
+	}
+
+	// 无 metadata → 硬兜底。
+	empty := t.TempDir()
+	p2 := NewProcProbe(func() string { return empty }, "", io.Discard)
+	t.Setenv("EDGE_REMOTE_WRITE_MAX_DISK_USAGE", "")
+	args2 := p2.specs[contract.ComponentTypeCollector].args(empty)
+	want := "-remoteWrite.maxDiskUsagePerURL=" + defaultMaxDiskUsagePerURL
+	ok := false
+	for _, a := range args2 {
+		if a == want {
+			ok = true
+		}
+	}
+	if !ok {
+		t.Fatalf("args missing fallback maxDiskUsagePerURL flag (want %q): %v", want, args2)
 	}
 }

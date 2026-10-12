@@ -36,6 +36,28 @@ vmagent_remotewrite_retries_count_total 0
 vmagent_remotewrite_pending_data_bytes{path="/opt/data/vmagent-cache/persistent-queue/1_ABC",url="1:secret-url"} 2048
 `
 
+// metricsPersistentQueueBacklog 模拟 F-39 关键场景：回传通道慢，数据全积压在**磁盘持久
+// 队列**、内存缓冲近 0——2026-09-30 实测 530MB 积压时 pending_data_bytes 已近 0，仅凭
+// 内存缓冲会把大积压误报成正常。含丢块/丢包/重试 counter（多分片，验证求和口径）。
+const metricsPersistentQueueBacklog = `# TYPE vmagent_remotewrite_errors_total counter
+vmagent_remotewrite_errors_total 0
+# TYPE vmagent_remotewrite_push_failures_total counter
+vmagent_remotewrite_push_failures_total 0
+# TYPE vmagent_remotewrite_retries_count_total counter
+vmagent_remotewrite_retries_count_total{path="/pq/1_ABC"} 12
+vmagent_remotewrite_retries_count_total{path="/pq/2_DEF"} 8
+# TYPE vmagent_remotewrite_pending_data_bytes gauge
+vmagent_remotewrite_pending_data_bytes{path="/pq/1_ABC",url="u"} 1024
+# TYPE vm_persistentqueue_bytes_pending gauge
+vm_persistentqueue_bytes_pending{path="/pq/1_ABC"} 555000000
+vm_persistentqueue_bytes_pending{path="/pq/2_DEF"} 111
+# TYPE vm_persistentqueue_blocks_dropped_total counter
+vm_persistentqueue_blocks_dropped_total{path="/pq/1_ABC"} 3
+vm_persistentqueue_blocks_dropped_total{path="/pq/2_DEF"} 4
+# TYPE vmagent_remotewrite_packets_dropped_total counter
+vmagent_remotewrite_packets_dropped_total 2
+`
+
 // TestParsePromGauge 覆盖带 label 与不带 label 两种形态，并校验多分片取最大值
 // （而非累加——各队列分片独立存储，累加会重复计数）。
 func TestParsePromGauge(t *testing.T) {
@@ -142,5 +164,78 @@ func TestFetchVMAgentRemoteWriteStatsDegrades(t *testing.T) {
 	}
 	if got.PendingBytes != 0 || got.LastError != "" {
 		t.Fatalf("degraded stats should be zero/empty, got %d/%q", got.PendingBytes, got.LastError)
+	}
+}
+
+// TestParsePromSum 覆盖 F-39 counter 求和口径：跨分片**累加**（与 parsePromGauge 的
+// max 口径相反——counter 各分片各自累计、互不重叠，求和即全局总量）。缺失时返回 0
+// 而非 found=false（counter 缺失 = 从未发生过）。
+func TestParsePromSum(t *testing.T) {
+	body := `# TYPE vm_persistentqueue_blocks_dropped_total counter
+vm_persistentqueue_blocks_dropped_total{path="/pq/1_ABC"} 3
+vm_persistentqueue_blocks_dropped_total{path="/pq/2_DEF"} 4
+# TYPE vmagent_remotewrite_packets_dropped_total counter
+vmagent_remotewrite_packets_dropped_total 2
+`
+	if v := parsePromSum(body, metricPQBlocksDropped); v != 7 {
+		t.Fatalf("blocks dropped sum = %g want 7", v)
+	}
+	if v := parsePromSum(body, metricRWPacketDropped); v != 2 {
+		t.Fatalf("packets dropped sum = %g want 2", v)
+	}
+	// 缺失指标：返回 0（从未发生过），不报错
+	if v := parsePromSum(body, "not_exist_metric"); v != 0 {
+		t.Fatalf("missing metric sum = %g want 0", v)
+	}
+}
+
+// TestBacklogBytes 覆盖积压取数口径：max(内存缓冲, 磁盘持久队列)。
+func TestBacklogBytes(t *testing.T) {
+	// 磁盘队列积压 >> 内存缓冲（F-39 实测场景）
+	pq := vmRemoteWriteStats{PendingBytes: 1024, PersistentQueueBytes: 555000000}
+	if got := pq.BacklogBytes(); got != 555000000 {
+		t.Fatalf("BacklogBytes = %d want 555000000 (persistent queue dominates)", got)
+	}
+	// 内存缓冲 >> 磁盘队列（通道刚恢复、正在补发的过渡态）
+	mem := vmRemoteWriteStats{PendingBytes: 43915725039, PersistentQueueBytes: 111}
+	if got := mem.BacklogBytes(); got != 43915725039 {
+		t.Fatalf("BacklogBytes = %d want 43915725039 (memory dominates)", got)
+	}
+	// 两者皆空 → 0
+	if got := (vmRemoteWriteStats{}).BacklogBytes(); got != 0 {
+		t.Fatalf("BacklogBytes = %d want 0", got)
+	}
+}
+
+// TestFetchVMAgentRemoteWriteStatsPersistentQueue F-39 核心回归：数据积压在磁盘持久
+// 队列、内存缓冲近 0 时，积压读数必须反映持久队列（此前仅看 pending_data_bytes 会把
+// 530MB 大积压误报成「正常」）；丢块+丢包求和、重试求和同步透出。
+func TestFetchVMAgentRemoteWriteStatsPersistentQueue(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(metricsPersistentQueueBacklog))
+	}))
+	defer srv.Close()
+
+	got := fetchVMAgentRemoteWriteStats(context.Background(), srv.Client(), srv.URL, nil)
+	if !got.OK {
+		t.Fatal("expected OK=true")
+	}
+	if got.PersistentQueueBytes != 555000000 {
+		t.Fatalf("PersistentQueueBytes = %d want 555000000 (max across shards)", got.PersistentQueueBytes)
+	}
+	if got.BacklogBytes() != 555000000 {
+		t.Fatalf("BacklogBytes = %d want 555000000", got.BacklogBytes())
+	}
+	// 丢块 3+4=7 + 丢包 2 = 9（跨分片求和，非 max）
+	if got.DroppedTotal != 9 {
+		t.Fatalf("DroppedTotal = %d want 9 (sum of blocks 7 + packets 2)", got.DroppedTotal)
+	}
+	// 重试 12+8=20（跨分片求和）
+	if got.RetriesTotal != 20 {
+		t.Fatalf("RetriesTotal = %d want 20", got.RetriesTotal)
+	}
+	// 无错误/推送失败 → LastError 为空（丢块/重试是独立信号，不混入失败摘要）
+	if got.LastError != "" {
+		t.Fatalf("expected empty LastError, got %q", got.LastError)
 	}
 }

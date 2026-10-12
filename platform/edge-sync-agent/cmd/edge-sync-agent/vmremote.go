@@ -39,26 +39,59 @@ const vmMetricsPath = "/metrics"
 const (
 	metricRWErrors    = "vmagent_remotewrite_errors_total"
 	metricRWPushFails = "vmagent_remotewrite_push_failures_total"
-	metricRWRetries   = "vmagent_remotewrite_retries_count_total"
 )
 
-// metricRWPendingBytes 是 vmagent 磁盘持久队列中**待发送**的字节数（gauge，带
-// {path=..., url=...} label，多队列分片）。它是「回传积压」的唯一真值来源：
-// 用户可见的 40.9GB 积压即此值。
+// metricRWPendingBytes 是 vmagent **内存缓冲区**中待发送的字节数（gauge，带
+// {path=..., url=...} label，多队列分片）。
 //
 // 用途（用户诉求 2026-10-09）：界面上「已下发未采到」时，用户需要区分
 // **「程序/配置坏了」**与**「只是数据在排队、正在补发」**——后者是自愈中，
 // 不该被当成故障排查。故把该值随心跳上报，让节点状态页直接显示积压量。
 const metricRWPendingBytes = "vmagent_remotewrite_pending_data_bytes"
 
+// F-39（2026-10-10）补充持久队列指标：remote_write 慢时数据主要积压在**磁盘持久
+// 队列**（-remoteWrite.tmpDataPath），内存缓冲反而清空——2026-09-30 实测积压 530MB
+// 时 `vmagent_remotewrite_pending_data_bytes` 已近 0，仅凭它会把大积压误报成正常。
+//   - vm_persistentqueue_bytes_pending{path=...,name=...}    持久队列待发送字节（核心信号）
+//   - vm_persistentqueue_blocks_dropped_total{path=...,name=...} 磁盘满/超限丢块（非零即数据丢失）
+//   - vmagent_remotewrite_packets_dropped_total              发送侧丢包（非零即数据丢失）
+//
+// 重试计数 vmagent_remotewrite_retries_count_total 此前仅拼进失败摘要，现单独透出数值
+// 供中心侧按增速判「链路不稳」。
+const (
+	metricPQPendingBytes   = "vm_persistentqueue_bytes_pending"
+	metricPQBlocksDropped  = "vm_persistentqueue_blocks_dropped_total"
+	metricRWPacketDropped  = "vmagent_remotewrite_packets_dropped_total"
+	metricRWRetriesCounter = "vmagent_remotewrite_retries_count_total"
+)
+
 // vmRemoteWriteStats 是一次 /metrics 采集得到的 remote_write 运行态摘要。
 type vmRemoteWriteStats struct {
 	// LastError 为失败原因摘要；无失败时为空串（心跳 omitempty 不产出键）。
 	LastError string
-	// PendingBytes 为待发送积压字节数；指标缺失时为 0。
+	// PendingBytes 为内存缓冲区待发送字节数；指标缺失时为 0。
 	PendingBytes int64
-	// OK 表示本次采集是否成功（false 时两项均不可信，调用方应降级）。
+	// PersistentQueueBytes 为磁盘持久队列待发送字节数（F-39，回传积压核心信号）；
+	// 指标缺失时为 0。
+	PersistentQueueBytes int64
+	// DroppedTotal 为累计丢块+丢包总数（F-39，vm_persistentqueue_blocks_dropped_total
+	// + vmagent_remotewrite_packets_dropped_total 跨分片求和）；非零即发生过数据丢失。
+	DroppedTotal int64
+	// RetriesTotal 为累计发送重试次数（F-39，跨分片求和）；增速高即链路不稳信号。
+	RetriesTotal int64
+	// OK 表示本次采集是否成功（false 时其余字段均不可信，调用方应降级）。
 	OK bool
+}
+
+// BacklogBytes 返回回传积压读数：取内存缓冲与磁盘持久队列两者**较大值**。
+// 两者是发送链路上前后两个独立缓冲区（不重复计数），网络慢时数据先涨内存、
+// 刷盘后转持久队列——max 给出「当前还有多少数据没送出去」的稳定下界，
+// 覆盖「内存有货」与「盘上有货」两种积压形态。
+func (s vmRemoteWriteStats) BacklogBytes() int64 {
+	if s.PersistentQueueBytes > s.PendingBytes {
+		return s.PersistentQueueBytes
+	}
+	return s.PendingBytes
 }
 
 // fetchVMAgentRemoteWriteStats 抓取并解析本机 vmagent /metrics，**一次请求**同时得出
@@ -99,27 +132,38 @@ func fetchVMAgentRemoteWriteStats(ctx context.Context, cli *http.Client, baseURL
 	// 积压：带label 的分片行（多队列），取**最大值**而非累加——各队列分片独立存储，
 	// 累加会重复计数，max 给出真实积压量下界。
 	pending, pendingFound := parsePromGauge(text, metricRWPendingBytes)
+	pqPending, pqFound := parsePromGauge(text, metricPQPendingBytes)
 
 	errTotal, errFound := parsePromGauge(text, metricRWErrors)
 	pushFails, pushFound := parsePromGauge(text, metricRWPushFails)
-	retries, _ := parsePromGauge(text, metricRWRetries)
+	// 丢块/丢包/重试是**累计事实**（counter，跨分片求和=全局总量）；与积压（gauge，
+	// 分片互斥取 max）口径不同，勿混用。
+	blocksDropped := parsePromSum(text, metricPQBlocksDropped)
+	packetsDropped := parsePromSum(text, metricRWPacketDropped)
+	retries := parsePromSum(text, metricRWRetriesCounter)
 
-	// 三个失败信号与积压信号**全部缺失**（老版本 vmagent / 指标路径变更）→ 本次
+	// 失败信号与积压信号**全部缺失**（老版本 vmagent / 指标路径变更）→ 本次
 	// 采集无法判定任何运行态，置 OK=false，**绝不能把「采集不到」默认为「无积压且
 	// 正常」**（用户诉求：界面须能区分「程序坏了」与「只是积压自愈中」，若此处谎报
 	// 正常，界面会误导排查方向）。
-	if !errFound && !pushFound && !pendingFound {
+	if !errFound && !pushFound && !pendingFound && !pqFound {
 		warn("vmagent remote_write: 未找到任何 remote_write 指标（vmagent 版本不匹配？）")
 		return vmRemoteWriteStats{}
 	}
 
-	stats := vmRemoteWriteStats{PendingBytes: int64(pending), OK: true}
+	stats := vmRemoteWriteStats{
+		PendingBytes:         int64(pending),
+		PersistentQueueBytes: int64(pqPending),
+		DroppedTotal:         int64(blocksDropped + packetsDropped),
+		RetriesTotal:         int64(retries),
+		OK:                   true,
+	}
 
 	// 失败信号缺失时只影响错误摘要，不影响积压上报（两者相互独立）。
 	if errFound || pushFound {
 		if errTotal > 0 || pushFails > 0 {
 			stats.LastError = fmt.Sprintf("remote_write_failed: %s=%g %s=%g %s=%g（vmagent /metrics）",
-				metricRWErrors, errTotal, metricRWPushFails, pushFails, metricRWRetries, retries)
+				metricRWErrors, errTotal, metricRWPushFails, pushFails, metricRWRetriesCounter, retries)
 		}
 	}
 	return stats
@@ -155,6 +199,30 @@ func parsePromGauge(body, metric string) (float64, bool) {
 		}
 	}
 	return max, found
+}
+
+// parsePromSum 解析 Prometheus counter 的**跨分片求和**，同时支持无 label 与带 label
+// 两种形态。丢块/丢包/重试等 counter 是累计事实：各分片各自累计、互不重叠，求和即
+// 全局总量（与 parsePromGauge 的 max 口径不同——积压 gauge 的分片是独立缓冲，勿混用）。
+// 指标不存在返回 0（counter 缺失视为「从未发生过」，与累计事实语义一致）。
+func parsePromSum(body, metric string) float64 {
+	sum := 0.0
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		rest, ok := cutMetricLine(line, metric)
+		if !ok {
+			continue
+		}
+		v, ok := parsePromValue(rest)
+		if !ok {
+			continue
+		}
+		sum += v
+	}
+	return sum
 }
 
 // cutMetricLine 从一行指标文本中切出「指标名之后」的部分。同时接受 `name value` 与

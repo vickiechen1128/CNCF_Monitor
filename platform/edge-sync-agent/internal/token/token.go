@@ -25,13 +25,13 @@ func (s *Store) Refresh(t string) { s.token = t }
 
 // Throttle 是 401 退避 / 降频状态机。
 type Throttle struct {
-	consecutive        int
-	failStart          time.Time
-	clock              func() time.Time
-	min                time.Duration
-	max                time.Duration
-	downgradeAfter     time.Duration
-	downgradeInterval  time.Duration
+	consecutive       int
+	failStart         time.Time
+	clock             func() time.Time
+	min               time.Duration
+	max               time.Duration
+	downgradeAfter    time.Duration
+	downgradeInterval time.Duration
 }
 
 // NewThrottle 构造状态机。min/max 为指数退避区间；downgradeAfter 为持续 401 触发降频
@@ -41,11 +41,11 @@ func NewThrottle(min, max, downgradeAfter, downgradeInterval time.Duration, cloc
 		clock = time.Now
 	}
 	return &Throttle{
-		clock:              clock,
-		min:                min,
-		max:                max,
-		downgradeAfter:     downgradeAfter,
-		downgradeInterval:  downgradeInterval,
+		clock:             clock,
+		min:               min,
+		max:               max,
+		downgradeAfter:    downgradeAfter,
+		downgradeInterval: downgradeInterval,
 	}
 }
 

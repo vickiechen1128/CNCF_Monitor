@@ -70,6 +70,7 @@ export NETWORK_DOMAIN_ID=xxx TOKEN=xxx CENTER_ENDPOINT=https://<center>:8080
 | `EDGE_PROM_HEALTH_URL` | `http://127.0.0.1:8429/health` | vmagent 健康探活（**改 `EDGE_COLLECTOR_ADDR` 时必须同步改**） |
 | `EDGE_BLACKBOX_ADDR` | `127.0.0.1:9115` | blackbox_exporter 监听与 TCP 探活地址（改端口见下节） |
 | `EDGE_REMOTE_WRITE_URL` | 空 | vmagent `-remoteWrite.url`；空时按「配置包 metadata > 本变量 > `CENTER_ENDPOINT` + `/api/v1/write` > 环回兜底」解析，正常无需手工填 |
+| `EDGE_REMOTE_WRITE_MAX_DISK_USAGE` | `2GB` | vmagent `-remoteWrite.maxDiskUsagePerURL`（持久队列磁盘上限，防打爆磁盘）；按「配置包 metadata（中心网域级配置）> 本变量 > 2GB 兜底」解析。**生产建议 50GB**（可先在中心网域配置下发，无需逐节点设置） |
 
 ## 端口与网络策略
 
@@ -100,7 +101,10 @@ export NETWORK_DOMAIN_ID=xxx TOKEN=xxx CENTER_ENDPOINT=https://<center>:8080
 
 - 健康检查双判定：进程存活 + HTTP/TCP 探活，默认 10s 间隔。
 - 指数退避重启 5s→60s；滚动窗口 10min 内重启 ≥5 次 → 组件置 `crash_loop`，需人工介入
-  （重启 Agent / 重装）后自动恢复（PRD §6.4.2）。
+  （中心「采集节点状态」页对该节点下发「重启采集进程」指令，或重启 Agent）后自动恢复（PRD §6.4.2）。
+- 人工重启指令（中心下发）：中心管理员在采集节点列表发起后，Agent 在约 30s 内随下次心跳收到
+  指令序号，幂等滚动重启 vmagent 采集子进程（仅采集进程，Agent 本体与持久队列不受影响，
+  队列数据不丢；已执行序号持久化于配置根目录 `restart-state.json`，Agent 重启后不重复执行）。
 - 启动顺序：blackbox_exporter 先于 collector；配置包含 `blackbox.yml` 时启用拨测器守护。
 
 ## 日志

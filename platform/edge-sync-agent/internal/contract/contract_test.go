@@ -48,6 +48,49 @@ func TestHeartbeatRequestJSONRoundTrip(t *testing.T) {
 	}
 }
 
+// TestHeartbeatRequestJSONCarriesRemoteWriteStats 校验 F-39 新增的回传队列指标字段：
+// remote_write_dropped_total / remote_write_retries_total 字段名与中心契约同名同义，
+// 零值 omitempty 不产出键（老 Agent / 无丢失时向后兼容）。
+func TestHeartbeatRequestJSONCarriesRemoteWriteStats(t *testing.T) {
+	req := HeartbeatRequest{
+		NetworkDomainID:         "gov-cloud-a",
+		AgentType:               "vmagent",
+		RemoteWriteDroppedTotal: 9,
+		RemoteWriteRetriesTotal: 20,
+	}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	if m["remote_write_dropped_total"] != float64(9) {
+		t.Fatalf("remote_write_dropped_total = %v", m["remote_write_dropped_total"])
+	}
+	if m["remote_write_retries_total"] != float64(20) {
+		t.Fatalf("remote_write_retries_total = %v", m["remote_write_retries_total"])
+	}
+	// round-trip
+	var back HeartbeatRequest
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.RemoteWriteDroppedTotal != 9 || back.RemoteWriteRetriesTotal != 20 {
+		t.Fatalf("round-trip mismatch: %+v", back)
+	}
+	// 零值 omitempty：无丢失/老 Agent 不产出这两个键。
+	empty := HeartbeatRequest{NetworkDomainID: "gov-cloud-a", AgentType: "vmagent"}
+	be, err := json.Marshal(empty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(be), "remote_write_dropped_total") || strings.Contains(string(be), "remote_write_retries_total") {
+		t.Fatalf("zero stats should be omitted: %s", be)
+	}
+}
+
 func TestHeartbeatResponseJSON(t *testing.T) {
 	var resp HeartbeatResponse
 	err := json.Unmarshal([]byte(`{

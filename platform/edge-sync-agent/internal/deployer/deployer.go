@@ -92,6 +92,11 @@ func (d *Deployer) VersionDir(version string) string {
 // CurrentVersion 返回当前生效配置版本（未应用过为空）。
 func (d *Deployer) CurrentVersion() string { return d.currentVersion }
 
+// CurrentMetadata 返回当前生效版本目录落盘的 metadata.json（F-42：随心跳上报中心，
+// 作为网域回传参数 remote_write_url / max_disk_usage_per_url 的比对指纹；未应用过或
+// 读取失败返回零值）。
+func (d *Deployer) CurrentMetadata() contract.Metadata { return d.currentMetadata() }
+
 // CurrentDir 返回本网域当前生效配置目录，即符号链接 <root>/config-<id>/current
 // （恒指向最新已生效版本目录）。进程统一以 current 为基准启动并 reload，使后续
 // 下发的新版本能被 SIGHUP / /-/reload 重载到运行态（H-2 修复：避免 reload 旧版本
@@ -107,6 +112,25 @@ func (d *Deployer) setCurrentLink(version string) {
 	if err := os.Symlink(version, current); err != nil {
 		d.logger.Warnf("deployer: set current link to %s failed: %v", version, err)
 	}
+}
+
+// currentMetadata 读取当前生效版本目录的 metadata.json（F-42 幂等比较基准：
+// 网域回传参数 remote_write_url / max_disk_usage_per_url 变更时版本号不变，需对比
+// 已落盘参数判断是否重应用）。文件缺失 / 解析失败返回零值——此时按「参数不一致」
+// 处理走重应用流程，安全且幂等。
+func (d *Deployer) currentMetadata() contract.Metadata {
+	if d.currentVersion == "" {
+		return contract.Metadata{}
+	}
+	b, err := os.ReadFile(filepath.Join(d.VersionDir(d.currentVersion), contract.ZipEntryMetadata))
+	if err != nil {
+		return contract.Metadata{}
+	}
+	var m contract.Metadata
+	if err := json.Unmarshal(b, &m); err != nil {
+		return contract.Metadata{}
+	}
+	return m
 }
 
 // Restore 从磁盘恢复上次生效配置版本（崩溃恢复 / 重启复用，PRD §6.4 条目 6）：
@@ -152,13 +176,20 @@ func (d *Deployer) Restore() error {
 // → 按需 reload。任一失败保留上一份可运行配置（旧版本目录不被触碰/删除，回滚保底）。
 // 同时维护「最近一次应用结果」状态（失败记录版本 + 原因并落盘，成功清空），供心跳上报。
 func (d *Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Metadata) error {
-	// 幂等：同 config_version 不重复落盘/切换/reload（puller 已按 config_changed
-	// 避免调用，此处再防御）。
+	// 幂等：同 config_version 且 metadata 回传参数未变化时不重复落盘/切换/reload
+	//（puller 已按 config_changed 避免调用，此处再防御）。
+	// F-42：网域回传参数（remote_write_url / max_disk_usage_per_url）变更会在版本号
+	// 不变的情况下产生新 metadata.json（中心按 params_changed 强制拉包），此时需继续
+	// 应用流程以落盘新参数并触发滚动重启，故仅参数一致时才 skip。
 	if meta != nil && meta.ConfigVersion != "" && meta.ConfigVersion == d.currentVersion {
-		d.logger.Infof("deployer: config_version %s already applied, skip", meta.ConfigVersion)
-		// 该版本已在生效，视为应用成功：清空历史失败记录，避免陈旧告警。
-		d.clearApplyState()
-		return nil
+		if cur := d.currentMetadata(); cur.RemoteWriteURL == meta.RemoteWriteURL &&
+			cur.MaxDiskUsagePerURL == meta.MaxDiskUsagePerURL {
+			d.logger.Infof("deployer: config_version %s already applied, skip", meta.ConfigVersion)
+			// 该版本已在生效，视为应用成功：清空历史失败记录，避免陈旧告警。
+			d.clearApplyState()
+			return nil
+		}
+		d.logger.Infof("deployer: config_version %s metadata params changed, reapply", meta.ConfigVersion)
 	}
 
 	version := ""
@@ -191,11 +222,32 @@ func (d *Deployer) Apply(ctx context.Context, zipBytes []byte, meta *contract.Me
 	versionDir := d.VersionDir(version)
 
 	// 原子切换：staging 整体 rename 为版本目录（同文件系统 rename 原子）。
+	// F-42 同版本重应用时目标目录已存在（rename 不允许非空目录覆盖），先把旧目录
+	// 挪到 .prev 暂存：staging rename 失败则还原 .prev（旧配置无损回退），成功后
+	// 清理 .prev。current 软链按路径指向，swap 后自动指向新内容，无需调整。
+	prevDir := versionDir + ".prev"
+	hadOld := false
+	if _, err := os.Lstat(versionDir); err == nil {
+		hadOld = true
+		_ = os.RemoveAll(prevDir)
+		if err := os.Rename(versionDir, prevDir); err != nil {
+			_ = os.RemoveAll(staging)
+			err = fmt.Errorf("deployer: stash old version dir: %w", err)
+			d.recordApplyFailure(version, err)
+			return err
+		}
+	}
 	if err := os.Rename(staging, versionDir); err != nil {
+		if hadOld {
+			_ = os.Rename(prevDir, versionDir) // 还原旧目录，保底旧配置可用
+		}
 		_ = os.RemoveAll(staging)
 		err = fmt.Errorf("deployer: atomic switch: %w", err)
 		d.recordApplyFailure(version, err)
 		return err
+	}
+	if hadOld {
+		_ = os.RemoveAll(prevDir)
 	}
 	d.currentVersion = version
 	d.setCurrentLink(version)

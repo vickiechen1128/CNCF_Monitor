@@ -61,9 +61,10 @@ type runtimeProvider struct {
 }
 
 // Snapshot 返回一次心跳所需的运行态快照。QueueBacklogBytes 取自本机 vmagent
-// /metrics 的vmagent_remotewrite_pending_data_bytes（待发送积压字节数，2026-10-09
-// 接入；此前恒 0，导致节点状态页「回传积压」永远为空、用户无法区分「程序坏了」
-// 与「积压自愈中」）。remote_write_queue 并发分片数按网域默认常量上报（PRD §6.4.1）。
+// /metrics 的回传积压（F-39：max 内存缓冲 vmagent_remotewrite_pending_data_bytes /
+// 磁盘持久队列 vm_persistentqueue_bytes_pending；2026-10-09 接入，此前恒 0，导致
+// 节点状态页「回传积压」永远为空、用户无法区分「程序坏了」与「积压自愈中」）。
+// remote_write_queue 并发分片数按网域默认常量上报（PRD §6.4.1）。
 func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 	version := ""
 	applyState := deployer.ApplyState{}
@@ -90,22 +91,38 @@ func (r *runtimeProvider) Snapshot() puller.RuntimeSnapshot {
 	// **待发送积压字节数**（用户诉求 2026-10-09：界面「已下发未采到」时需让用户
 	// 区分「程序坏了」与「只是积压自愈中」）。采集失败降级（积压 0 + 无错误摘要），
 	// 绝不把「采集不到」误报成「正常」，亦不阻断心跳。
+	// F-39（2026-10-10）：积压改用 BacklogBytes()（max 内存缓冲 / 磁盘持久队列），
+	// 并透传累计丢块+丢包、累计重试——2026-09-30 实测 530MB 积压全在持久队列、
+	// 内存缓冲近 0，仅凭 PendingBytes 会把大积压误报成正常。
 	rwStats := vmRemoteWriteStats{}
 	if r.targetBaseURL != "" {
 		rwStats = fetchVMAgentRemoteWriteStats(context.Background(), newVMTargetsClient(), r.targetBaseURL, r.warnf)
 	}
+	// F-42：读取当前生效配置目录 metadata.json 的回传参数指纹随心跳上报，供中心
+	// 比对网域参数（remote_write_url / max_disk_usage_per_url）变更后强制拉包。
+	// 未应用过配置 / deployer 未装配时为空。
+	var metaRWURL, metaMaxDisk string
+	if r.deployer != nil {
+		cm := r.deployer.CurrentMetadata()
+		metaRWURL = cm.RemoteWriteURL
+		metaMaxDisk = cm.MaxDiskUsagePerURL
+	}
 	return puller.RuntimeSnapshot{
-		AgentVersion:             r.cfg.Version,
-		ConfigVersion:            version,
-		QueueBacklogBytes:        rwStats.PendingBytes,
-		RemoteWriteQueueSize:     rwQueue,
-		Hostname:                 r.hostname,
-		Ip:                       r.ip,
-		Components:               comps,
-		Targets:                  targets,
-		ConfigApplyError:         applyState.Error,
-		ConfigApplyFailedVersion: applyState.Version,
-		RemoteWriteLastError:     rwStats.LastError,
+		AgentVersion:               r.cfg.Version,
+		ConfigVersion:              version,
+		QueueBacklogBytes:          rwStats.BacklogBytes(),
+		RemoteWriteQueueSize:       rwQueue,
+		Hostname:                   r.hostname,
+		Ip:                         r.ip,
+		Components:                 comps,
+		Targets:                    targets,
+		ConfigApplyError:           applyState.Error,
+		ConfigApplyFailedVersion:   applyState.Version,
+		RemoteWriteLastError:       rwStats.LastError,
+		RemoteWriteDroppedTotal:    rwStats.DroppedTotal,
+		RemoteWriteRetriesTotal:    rwStats.RetriesTotal,
+		MetadataRemoteWriteURL:     metaRWURL,
+		MetadataMaxDiskUsagePerURL: metaMaxDisk,
 	}
 }
 
