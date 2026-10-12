@@ -15,12 +15,12 @@ const (
 // the canonical Resource.status enumeration, aligned with Module_07 §5.5.3.
 type ResourceStatusMapping struct {
 	BaseModel
-	SourceStatus     string           `gorm:"size:100;not null;index" json:"source_status"`
-	TargetStatus     ResourceStatus   `gorm:"size:20;not null" json:"target_status"`
+	SourceStatus     string            `gorm:"size:100;not null;index" json:"source_status"`
+	TargetStatus     ResourceStatus    `gorm:"size:20;not null" json:"target_status"`
 	ResourceCategory *ResourceCategory `gorm:"size:30" json:"resource_category,omitempty"` // nil = 通用
-	Priority         int              `json:"priority"`                                    // 数值大的优先
-	IsBuiltin        bool             `json:"is_builtin"`
-	Enabled          bool             `json:"enabled"`
+	Priority         int               `json:"priority"`                                   // 数值大的优先
+	IsBuiltin        bool              `json:"is_builtin"`
+	Enabled          bool              `json:"enabled"`
 }
 
 // DefaultStatusMappings returns the built-in default mappings from

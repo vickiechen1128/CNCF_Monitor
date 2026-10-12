@@ -6,11 +6,11 @@ package models
 type Database struct {
 	BaseModel
 	ResourceBase
-	DatabaseType     string `gorm:"size:50" json:"database_type"` // mysql/redis/postgresql/oracle/dm8/sqlserver/mongodb
-	InstanceIP       string `gorm:"size:50;not null" json:"instance_ip"`
-	Port             int    `json:"port"`
-	Version          string `gorm:"size:50" json:"version"`
-	ConnectionString string `gorm:"size:500" json:"connection_string"`
+	DatabaseType     string       `gorm:"size:50" json:"database_type"` // mysql/redis/postgresql/oracle/dm8/sqlserver/mongodb
+	InstanceIP       string       `gorm:"size:50;not null" json:"instance_ip"`
+	Port             int          `json:"port"`
+	Version          string       `gorm:"size:50" json:"version"`
+	ConnectionString string       `gorm:"size:500" json:"connection_string"`
 	ResourceType     ResourceType `gorm:"size:20;not null" json:"resource_type"` // 过渡字段：固定 = resource_category
 }
 

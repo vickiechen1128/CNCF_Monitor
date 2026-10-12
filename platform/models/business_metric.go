@@ -14,9 +14,9 @@ type BusinessMetricStatus string
 
 // Business metric status constants.
 const (
-	BusinessMetricStatusPending       BusinessMetricStatus = "pending"
-	BusinessMetricStatusInstrumented  BusinessMetricStatus = "instrumented"
-	BusinessMetricStatusOnline        BusinessMetricStatus = "online"
+	BusinessMetricStatusPending      BusinessMetricStatus = "pending"
+	BusinessMetricStatusInstrumented BusinessMetricStatus = "instrumented"
+	BusinessMetricStatusOnline       BusinessMetricStatus = "online"
 )
 
 // BusinessMetric is a P2-reserved semantic contract for business metrics,

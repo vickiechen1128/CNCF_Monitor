@@ -47,17 +47,21 @@ type EdgeComponent struct {
 // 仅作观测留痕；中心以接收时间写 EdgeAgent.last_heartbeat，本表 timestamp 仅供参考。
 type EdgeHeartbeat struct {
 	BaseModel
-	NetworkDomainID      string          `gorm:"size:64;not null;index" json:"network_domain_id"`
-	AgentType            AgentType       `gorm:"size:30;not null" json:"agent_type"` // 同网域登记值
-	Version              string          `gorm:"size:50" json:"version,omitempty"`
-	ConfigVersion        string          `gorm:"size:64" json:"config_version,omitempty"`                         // 中心据此判定 config_changed
-	QueueBacklogBytes    int64           `gorm:"column:queue_backlog_bytes" json:"queue_backlog_bytes,omitempty"` // 磁盘持久发送队列积压字节数（决策 C5：采集器统一为 vmagent）
-	RemoteWriteQueueSize int             `json:"remote_write_queue_size,omitempty"`
-	RemoteWriteLastError string          `gorm:"type:text" json:"remote_write_last_error,omitempty"`
-	Hostname             string          `gorm:"size:200" json:"hostname,omitempty"`
-	Ip                   string          `gorm:"size:64" json:"ip,omitempty"`
-	Components           []EdgeComponent `gorm:"serializer:json" json:"components,omitempty"`
-	Timestamp            time.Time       `json:"timestamp"` // 上报时间，仅作参考
+	NetworkDomainID      string    `gorm:"size:64;not null;index" json:"network_domain_id"`
+	AgentType            AgentType `gorm:"size:30;not null" json:"agent_type"` // 同网域登记值
+	Version              string    `gorm:"size:50" json:"version,omitempty"`
+	ConfigVersion        string    `gorm:"size:64" json:"config_version,omitempty"`                         // 中心据此判定 config_changed
+	QueueBacklogBytes    int64     `gorm:"column:queue_backlog_bytes" json:"queue_backlog_bytes,omitempty"` // 磁盘持久发送队列积压字节数（决策 C5：采集器统一为 vmagent）
+	RemoteWriteQueueSize int       `json:"remote_write_queue_size,omitempty"`
+	// RemoteWriteDroppedTotal / RemoteWriteRetriesTotal 是 vmagent remote_write 累计
+	// 丢块+丢包总数 / 累计重试次数（F-39，随心跳留痕，供按相邻心跳增速判链路不稳）。
+	RemoteWriteDroppedTotal int64           `json:"remote_write_dropped_total,omitempty"`
+	RemoteWriteRetriesTotal int64           `json:"remote_write_retries_total,omitempty"`
+	RemoteWriteLastError    string          `gorm:"type:text" json:"remote_write_last_error,omitempty"`
+	Hostname                string          `gorm:"size:200" json:"hostname,omitempty"`
+	Ip                      string          `gorm:"size:64" json:"ip,omitempty"`
+	Components              []EdgeComponent `gorm:"serializer:json" json:"components,omitempty"`
+	Timestamp               time.Time       `json:"timestamp"` // 上报时间，仅作参考
 }
 
 // TableName returns the GORM table name.

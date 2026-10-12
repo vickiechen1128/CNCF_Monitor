@@ -4,8 +4,10 @@
 // SilenceMatcher 静默 matcher DTO / AuthorizedMatcherScope 授权网域集合校验载体 /
 // ValidateErrorItem 挂载校验行级错误）。
 // 参见 docs/02-product-requirements/Modules/Module_08_Alertmanager_Notification_Management.md
-//   §6.6（AlertmanagerConfigVersion）/ §5.2（静默）/ §9.2（验收）；
-//   docs/05-execution-records/module-08/api-contract-snapshot.md §3/§4。
+//
+//	§6.6（AlertmanagerConfigVersion）/ §5.2（静默）/ §9.2（验收）；
+//	docs/05-execution-records/module-08/api-contract-snapshot.md §3/§4。
+//
 // 决策 59/60：校验失败不落库，本表恒为 applied，不存在 failed / error_msg。
 package models
 

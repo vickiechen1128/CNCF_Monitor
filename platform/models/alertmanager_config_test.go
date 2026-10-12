@@ -81,8 +81,8 @@ func TestAlertmanagerConfigVersionAutoMigrate(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&AlertmanagerConfigVersion{}))
 
 	v := &AlertmanagerConfigVersion{
-		Content:  "route:\n  receiver: default\n",
-		Checksum: AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
+		Content:   "route:\n  receiver: default\n",
+		Checksum:  AlertmanagerConfigChecksum("route:\n  receiver: default\n"),
 		AppliedBy: "chenrt",
 		Status:    AlertmanagerConfigStatusApplied,
 	}
@@ -132,7 +132,7 @@ func TestAuthorizedMatcherScopeRestrictsNetworkDomain(t *testing.T) {
 	scope := &AuthorizedMatcherScope{AllDomains: false, Domains: []string{"finance", "ops"}}
 	// 越权 matcher 被判定。
 	violations := scope.Violations([]SilenceMatcher{
-		{Name: "network_domain", Value: "hr"},     // 不在授权集合 → 越权
+		{Name: "network_domain", Value: "hr"},      // 不在授权集合 → 越权
 		{Name: "severity", Value: "critical"},      // 非网域标签 → 不判
 		{Name: "network_domain", Value: "finance"}, // 命中 → 合规
 	})

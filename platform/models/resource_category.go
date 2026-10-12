@@ -10,7 +10,7 @@ type ResourceCategory string
 // Resource category constants (五大类权威枚举).
 const (
 	ResourceCategoryHost          ResourceCategory = "host"
-	ResourceCategoryDatabase      ResourceCategory = "database"       // 数据库产品线独立成类
+	ResourceCategoryDatabase      ResourceCategory = "database" // 数据库产品线独立成类
 	ResourceCategoryMiddleware    ResourceCategory = "middleware"
 	ResourceCategoryApplication   ResourceCategory = "application"
 	ResourceCategoryGenericTarget ResourceCategory = "generic_target"
