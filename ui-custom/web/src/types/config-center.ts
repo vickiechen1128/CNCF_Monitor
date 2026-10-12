@@ -43,6 +43,8 @@ export interface NetworkDomain {
   center_endpoint?: string
   /** agent_pull 必填；local 空 */
   remote_write_url?: string
+  /** vmagent 持久队列磁盘上限（F-42，网域级回传参数）；空 = 未配置，agent 按 env > 硬兜底解析 */
+  max_disk_usage_per_url?: string
   description?: string
   /** 完全脱敏；明文仅 reset-token 单次返回 */
   token?: string
@@ -65,6 +67,8 @@ export type RegistrationStatus = 'monitored' | 'created'
 export interface MonitorDomainInput {
   agent_type?: AgentType
   remote_write_url?: string
+  /** vmagent 持久队列磁盘上限（F-42，网域级回传参数） */
+  max_disk_usage_per_url?: string
   description?: string
   is_monitored?: boolean
 }

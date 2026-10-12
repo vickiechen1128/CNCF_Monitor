@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import {
+  channelStatusBadge,
+  channelStatusLabel,
   compareVersions,
   configSyncDisplayBadgeStatus,
   configSyncDisplayLabel,
+  formatBacklogAge,
   formatBacklogBytes,
+  formatBacklogGrowth,
   isConfigSyncApplyFailed,
   isConfigSyncInProgress,
   latestPackageVersion,
@@ -19,6 +23,34 @@ describe('edgeConstants 纯函数', () => {
     expect(formatBacklogBytes(2 * 1024 * 1024 * 1024)).toBe('2.0 GB')
     expect(formatBacklogBytes(undefined)).toBe('-')
     expect(formatBacklogBytes(-1)).toBe('-')
+  })
+
+  it('formatBacklogAge 积压数据龄格式化（F-40 延展①）：分钟/小时/占位', () => {
+    expect(formatBacklogAge(90 * 60)).toBe('1 小时 30 分钟')
+    expect(formatBacklogAge(2 * 3600)).toBe('2 小时')
+    expect(formatBacklogAge(45)).toBe('<1 分钟')
+    expect(formatBacklogAge(5 * 60)).toBe('5 分钟')
+    expect(formatBacklogAge(undefined)).toBe('-')
+    expect(formatBacklogAge(null)).toBe('-')
+    expect(formatBacklogAge(-1)).toBe('-')
+    expect(formatBacklogAge(Number.NaN)).toBe('-')
+  })
+
+  it('formatBacklogGrowth 积压增速格式化：带符号速率，0/缺省占位，负值=消化中', () => {
+    expect(formatBacklogGrowth(2048)).toBe('+2.0 KB/s')
+    expect(formatBacklogGrowth(0)).toBe('-')
+    expect(formatBacklogGrowth(-100)).toBe('-100 B/s')
+    expect(formatBacklogGrowth(undefined)).toBe('-')
+    expect(formatBacklogGrowth(null)).toBe('-')
+  })
+
+  it('channelStatusLabel/Badge：abnormal →「通道异常」+ error，其余不渲染（F-40 延展③）', () => {
+    expect(channelStatusLabel('abnormal')).toBe('通道异常')
+    expect(channelStatusBadge('abnormal')).toBe('error')
+    expect(channelStatusLabel(undefined)).toBeNull()
+    expect(channelStatusBadge(undefined)).toBeNull()
+    expect(channelStatusLabel('')).toBeNull()
+    expect(channelStatusBadge('normal')).toBeNull()
   })
 
   it('compareVersions 语义化版本比较（去 v 前缀按段位）', () => {

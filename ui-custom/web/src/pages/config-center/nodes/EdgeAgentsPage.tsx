@@ -7,7 +7,10 @@ import {
   Button,
   Card,
   ConfigProvider,
+  Dropdown,
   Empty,
+  message,
+  Modal,
   Select,
   Space,
   Table,
@@ -16,26 +19,37 @@ import {
   Typography,
 } from 'antd'
 import config from 'antd/locale/zh_CN'
-import { CloudServerOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CloudServerOutlined, DownOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { MainLayout } from '../../../layouts/MainLayout'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../../components/tablePresets'
 import { FilterBar, FilterItem } from '../../../components/FilterBar'
 import { EllipsisText } from '../../../components/EllipsisText'
+import { getStoredUser } from '../../../api/client'
+import { edgeAgentsApi } from '../../../api/edgeAgents'
 import { formatRelativeTime } from '../configCenterConstants'
 import type { AgentView, ConfigSyncStatus } from '../../../types/edge'
 import { useEdgeAgents } from './useEdgeAgents'
 import { EdgeAgentDrawer } from './EdgeAgentDrawer'
 import {
+  BACKLOG_AGE_TOOLTIP,
+  CHANNEL_STATUS_TOOLTIP,
   agentStatusBadgeStatus,
   agentStatusLabel,
+  channelStatusBadge,
+  channelStatusLabel,
   componentStatusColor,
   componentStatusLabel,
   configSyncDisplayBadgeStatus,
   configSyncDisplayLabel,
   configSyncStatusLabel,
+  formatBacklogAge,
   formatBacklogBytes,
+  formatBacklogGrowth,
+  formatSampleLag,
   outOfSyncCauseAction,
+  SAMPLE_LAG_TOOLTIP,
+  sampleLagSeverity,
 } from './edgeConstants'
 
 const { Text } = Typography
@@ -90,9 +104,44 @@ export function EdgeAgentsPage() {
 
   const domainOptions = domains.map((d) => ({ value: d.id, label: `${d.name}（${d.id}）` }))
 
+  // F-42：人工重启采集进程仅管理员可见/可操作（后端 RequireAdmin 兜底），非 admin 隐藏入口。
+  const isAdmin = getStoredUser()?.role === 'admin'
+
   const openDetail = (record: AgentView) => {
     setDetailAgent(record)
     setDetailOpen(true)
+  }
+
+  /** 重启入口仅在线节点可用；offline/unknown（心跳超时按离线口径展示）/retired 一律禁用 */
+  const restartable = (record: AgentView) => record.status === 'online'
+
+  /** F-42 人工重启采集进程：登记 seq 指令（约 30s 内随下次心跳下发执行，幂等滚动重启） */
+  const confirmRestart = (record: AgentView) => {
+    Modal.confirm({
+      title: '重启采集进程',
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>确定要重启节点「{record.hostname}」的采集进程（vmagent）吗？</p>
+          <ul style={{ paddingLeft: 20, margin: 0 }}>
+            <li>仅滚动重启 vmagent 采集子进程，采集节点本体与持久队列不受影响，队列数据不丢；</li>
+            <li>指令约 30s 内随节点下次心跳下发执行（幂等，重复心跳不会重复重启）；</li>
+            <li>重启期间该节点采集短暂中断，随后自动恢复。</li>
+          </ul>
+        </div>
+      ),
+      okText: '确认重启',
+      okType: 'primary',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await edgeAgentsApi.restart(record.id)
+          message.success(`节点「${record.hostname}」重启指令已登记，约 30s 内随下次心跳执行`)
+          reload()
+        } catch (err) {
+          message.error(err instanceof Error ? err.message : '重启指令登记失败，请稍后重试')
+        }
+      },
+    })
   }
 
   const updateFilter = (key: keyof typeof filters, value: string | undefined) => {
@@ -187,8 +236,68 @@ export function EdgeAgentsPage() {
       title: '回传积压',
       dataIndex: 'queue_backlog_bytes',
       key: 'queue_backlog_bytes',
+      width: 130,
+      render: (v?: number, record?: AgentView) => {
+        const label = channelStatusLabel(record?.channel_status)
+        const badge = channelStatusBadge(record?.channel_status)
+        return (
+          <Space size={6}>
+            <span>{formatBacklogBytes(v)}</span>
+            {label && badge && (
+              <Tooltip title={CHANNEL_STATUS_TOOLTIP}>
+                <Badge status={badge} text={label} />
+              </Tooltip>
+            )}
+          </Space>
+        )
+      },
+    },
+    {
+      // F-40 延展①：积压数据龄 = 当前积压 ÷ 近期增速（相邻心跳差分），量化「积压还要多久才能被消费完」。
+      title: (
+        <Tooltip title={BACKLOG_AGE_TOOLTIP}>
+          <Space size={4}>
+            积压数据龄
+            <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      dataIndex: 'backlog_age_seconds',
+      key: 'backlog_age_seconds',
+      width: 120,
+      render: (age?: number | null, record?: AgentView) => {
+        const text = formatBacklogAge(age)
+        if (text === '-') return <Text type="secondary">-</Text>
+        const growth = formatBacklogGrowth(record?.backlog_growth_bytes_per_sec)
+        return (
+          <Tooltip title={`近期积压增速：${growth}${typeof age === 'number' ? `，按此速率约 ${text} 攒满当前积压` : ''}`}>
+            <span>{text}</span>
+          </Tooltip>
+        )
+      },
+    },
+    {
+      // F-40 延展：中心视角网域样本距今的 p95 分位（端到端回传延迟，保守口径反映大部分样本滞后），
+      // 与回传积压/积压数据龄列交叉定位回传通道问题。
+      title: (
+        <Tooltip title={SAMPLE_LAG_TOOLTIP}>
+          <Space size={4}>
+            回传延迟
+            <QuestionCircleOutlined style={{ color: 'rgba(0,0,0,0.45)' }} />
+          </Space>
+        </Tooltip>
+      ),
+      dataIndex: 'remote_write_lag_seconds',
+      key: 'remote_write_lag_seconds',
       width: 110,
-      render: (v?: number) => formatBacklogBytes(v),
+      render: (v?: number | null) => {
+        const text = formatSampleLag(v)
+        if (text === '-') return <Text type="secondary">-</Text>
+        const severity = sampleLagSeverity(v)
+        if (severity === 'danger') return <Text type="danger">{text}</Text>
+        if (severity === 'warning') return <Text type="warning">{text}</Text>
+        return text
+      },
     },
     {
       title: '最后心跳',
@@ -200,10 +309,40 @@ export function EdgeAgentsPage() {
     {
       title: '操作',
       key: 'action',
-      width: 90,
+      width: 130,
       fixed: 'right',
       render: (_: unknown, record: AgentView) => (
-        <Button type="link" size="small" onClick={() => openDetail(record)}>查看</Button>
+        <Space size={0}>
+          <Button type="link" size="small" onClick={() => openDetail(record)}>查看</Button>
+          {isAdmin && (
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: 'restart',
+                    disabled: !restartable(record),
+                    // 离线/退役节点禁用并说明原因（F-42：节点离线时禁用重启入口）
+                    label: restartable(record) ? (
+                      '重启采集进程'
+                    ) : (
+                      <Tooltip title={record.status === 'retired' ? '节点已退役，无法下发重启指令' : '节点离线，无法下发重启指令'}>
+                        <span>重启采集进程</span>
+                      </Tooltip>
+                    ),
+                  },
+                ],
+                onClick: ({ key }) => {
+                  if (key === 'restart' && restartable(record)) confirmRestart(record)
+                },
+              }}
+              trigger={['click']}
+            >
+              <Button type="link" size="small">
+                <Space size={2}>更多<DownOutlined style={{ fontSize: 10 }} /></Space>
+              </Button>
+            </Dropdown>
+          )}
+        </Space>
       ),
     },
   ]

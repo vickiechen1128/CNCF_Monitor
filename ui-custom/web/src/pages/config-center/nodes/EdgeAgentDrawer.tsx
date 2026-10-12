@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Badge, Button, Descriptions, Drawer, Table, Tag, Typography, message } from 'antd'
+import { Alert, Badge, Button, Descriptions, Drawer, Space, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { AgentView, EdgeComponent } from '../../../types/edge'
 import type { EdgePackage } from '../../../types/config-center'
@@ -11,16 +11,22 @@ import {
   HIGH_RISK_COMPONENT_STATUS,
   agentStatusBadgeStatus,
   agentStatusLabel,
+  channelStatusBadge,
+  channelStatusLabel,
   compareVersions,
   componentStatusColor,
   componentStatusLabel,
   componentTypeLabel,
   configSyncDisplayBadgeStatus,
   configSyncDisplayLabel,
+  formatBacklogAge,
   formatBacklogBytes,
+  formatBacklogGrowth,
+  formatSampleLag,
   isConfigSyncApplyFailed,
   outOfSyncCauseAction,
   outOfSyncCauseHint,
+  sampleLagSeverity,
 } from './edgeConstants'
 
 const { Text } = Typography
@@ -233,10 +239,96 @@ export function EdgeAgentDrawer({ open, agent, onClose }: EdgeAgentDrawerProps) 
             </Button>
           </Descriptions.Item>
         )}
-        <Descriptions.Item label="回传积压">{formatBacklogBytes(agent.queue_backlog_bytes)}</Descriptions.Item>
+        <Descriptions.Item label="回传积压">
+          <Space size={6}>
+            <span>{formatBacklogBytes(agent.queue_backlog_bytes)}</span>
+            {channelStatusLabel(agent.channel_status) && channelStatusBadge(agent.channel_status) && (
+              <Badge
+                status={channelStatusBadge(agent.channel_status)!}
+                text={channelStatusLabel(agent.channel_status)}
+              />
+            )}
+          </Space>
+        </Descriptions.Item>
+        {/* F-40 延展①：积压数据龄 = 当前积压 ÷ 近期增速（相邻心跳差分）；同时展示增速（心跳中的积压增长趋势） */}
+        <Descriptions.Item label="积压数据龄">
+          {(() => {
+            const text = formatBacklogAge(agent.backlog_age_seconds)
+            if (text === '-') return <Text type="secondary">无数据（30 分钟内心跳不足、积压未上涨或心跳过期）</Text>
+            const growth = formatBacklogGrowth(agent.backlog_growth_bytes_per_sec)
+            return (
+              <Text>
+                {text}
+                <Text type="secondary" style={{ fontSize: 12, marginInlineStart: 8 }}>
+                  近期增速 {growth}，按此速率攒满当前积压所需时长
+                </Text>
+              </Text>
+            )
+          })()}
+        </Descriptions.Item>
+        {/* F-40 延展：中心视角该网域样本距今的 p95 分位（端到端回传延迟，保守口径），与回传积压交叉定位 */}
+        <Descriptions.Item label="回传延迟">
+          {(() => {
+            const text = formatSampleLag(agent.remote_write_lag_seconds)
+            if (text === '-') return <Text type="secondary">无数据（24h 内无样本或中心 Prom 不可用）</Text>
+            const severity = sampleLagSeverity(agent.remote_write_lag_seconds)
+            if (severity === 'danger') return <Text type="danger">{text}</Text>
+            if (severity === 'warning') return <Text type="warning">{text}</Text>
+            return text
+          })()}
+        </Descriptions.Item>
+        {/* F-39：累计丢块/丢包与累计重试。丢块非零即发生过数据丢失（红色醒目）；重试仅在不为 0 时展示，
+            避免常态 0 行噪声。累计值不随离线清零，离线后仍可据此排障。 */}
+        <Descriptions.Item label="累计丢块/丢包">
+          {agent.remote_write_dropped_total ? (
+            <Text type="danger">
+              {agent.remote_write_dropped_total}
+              <Text type="secondary" style={{ fontSize: 12, marginInlineStart: 8 }}>
+                非零表示回传链路曾丢弃数据（磁盘队列满或发送超限）
+              </Text>
+            </Text>
+          ) : (
+            '-'
+          )}
+        </Descriptions.Item>
+        {agent.remote_write_retries_total ? (
+          <Descriptions.Item label="累计发送重试">
+            <Text type="warning">{agent.remote_write_retries_total}</Text>
+            <Text type="secondary" style={{ fontSize: 12, marginInlineStart: 8 }}>
+              重试持续增长说明回传通道不稳（带宽不足/网络抖动）
+            </Text>
+          </Descriptions.Item>
+        ) : null}
         <Descriptions.Item label="回传错误">
           {agent.remote_write_last_error ? <Text type="danger">{agent.remote_write_last_error}</Text> : '-'}
         </Descriptions.Item>
+        {/* F-42：当前生效回传参数（节点配置包 metadata.json 落盘值，随心跳上报落库）。
+            空 = 尚未随配置包下发生效，agent 按 env > 内置兜底（2GB）解析。 */}
+        <Descriptions.Item label="生效回传地址">
+          {agent.metadata_remote_write_url ? (
+            <Text code style={{ fontSize: 12, wordBreak: 'break-all' }}>{agent.metadata_remote_write_url}</Text>
+          ) : (
+            <Text type="secondary">未下发（agent 按 env / center_endpoint 推导）</Text>
+          )}
+        </Descriptions.Item>
+        <Descriptions.Item label="生效积压磁盘上限">
+          {agent.metadata_max_disk_usage_per_url ? (
+            <Text code style={{ fontSize: 12 }}>{agent.metadata_max_disk_usage_per_url}</Text>
+          ) : (
+            <Text type="secondary">未下发（agent 内置兜底 2GB）</Text>
+          )}
+        </Descriptions.Item>
+        {/* F-42：最近一次人工重启采集进程留痕（无记录不展示，避免噪声行） */}
+        {(agent.restart_requested_by || agent.restart_requested_at) && (
+          <Descriptions.Item label="最近人工重启">
+            {agent.restart_requested_at ? formatLocalTime(agent.restart_requested_at) : '-'}
+            {agent.restart_requested_by && (
+              <Text type="secondary" style={{ fontSize: 12, marginInlineStart: 8 }}>
+                由 {agent.restart_requested_by} 发起
+              </Text>
+            )}
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="最后心跳">
           {agent.last_heartbeat ? formatRelativeTime(agent.last_heartbeat) : '-'}
         </Descriptions.Item>

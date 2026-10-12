@@ -42,13 +42,30 @@ describe('OnboardDomainDrawer（网域纳管抽屉）', () => {
     // ① 说明文本默认不在 DOM 中（不再以字段下方小字形式常显）
     expect(screen.queryByText(DOMAIN_FIELD_TIP.remoteWriteUrl)).toBeNull()
 
-    // ② 五个字段均带问号悬浮入口
+    // ② 六个字段均带问号悬浮入口（F-42 新增「回传积压磁盘上限」）
     const icons = document.querySelectorAll('.anticon-question-circle')
-    expect(icons.length).toBe(5)
+    expect(icons.length).toBe(6)
 
-    // ③ 悬浮「指标回传地址」的问号（顺序：目标网域 / 接入方式 / 采集器类型 / 回传地址 / 描述）
+    // ③ 悬浮「指标回传地址」的问号（顺序：目标网域 / 接入方式 / 采集器类型 / 回传地址 / 积压上限 / 描述）
     fireEvent.mouseEnter(icons[3])
     expect(await screen.findByText(DOMAIN_FIELD_TIP.remoteWriteUrl)).toBeInTheDocument()
+  })
+
+  it('F-42：agent_pull 域展示「回传积压磁盘上限」字段并随提交透传；local 域不展示', async () => {
+    const { onSubmit } = renderDrawer()
+    expect(screen.getByText('回传积压磁盘上限')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText(/留空按采集节点默认兜底/), { target: { value: '50GB' } })
+    fireEvent.click(screen.getByRole('button', { name: /确认纳管/ }))
+    await screen.findByRole('button', { name: /确认纳管/ })
+    // 提交为异步，等待 onSubmit 收到 max_disk_usage_per_url=50GB
+    await vi.waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ max_disk_usage_per_url: '50GB' }))
+    })
+
+    // local 域：无该字段（中心直连不生成回传参数）
+    renderDrawer({ ...baseDomain, id: 'default', name: 'default', domain_type: 'management', channel: 'local' })
+    expect(screen.queryByText('回传积压磁盘上限')).toBeNull()
   })
 
   it('用户术语：标签为「指标回传地址」，接入方式 Tag 为「采集节点域」，不复现「Remote Write URL / 边缘域」', () => {
