@@ -884,3 +884,255 @@ tasks:
       - "已确认下发但仍 down 的实例行 Tooltip/文案『配置已下发但未采集到数据，请检查采集器安装与网络连通』（引导采集器状态）"
       - "M01 不直连 Prometheus，不回持久化采集状态（展示口径）；重复打开抽屉重新拉取 M02 targets"
       - "单文件 vitest + eslint 全绿"
+
+  # ---------------------------------------------------------------------------
+  # 实例级采集端口四级解析链（提案 resource-scrape-port-chain，2026-10-10 已评审）
+  #   权威输入: docs/05-execution-records/module-01/design-proposals/resource-scrape-port-chain.md
+  #   拍板 Q1: 保留业务 port 四级兜底（scrape_port → 映射 → 模板 → 业务 port），来源标注第 4 种「业务端口兜底 ⚠️」不阻断
+  #   拍板 Q2: D3 拆分 D3a(application 不动)/D3b(generic_target 修 PRD 不改代码)；五类模型都加字段但 app/gt 解析分支不动、前端不展示其表单项
+  #   拍板 Q3: 网域级覆盖 CITypeExporterMappingOverride 维持 v0.2，本期不做
+  #   决策 D-2=B: 生效端口+来源解析抽共享包 platform/configcenter/portchain（纯函数），generator 与 scrapejob 共用，防 D2 类口径漂移
+  #   决策 D-7: Excel 导入侧（applyCells/resourceInputFieldPrefixes）随模型字段进 P0；下载模板列 TemplateColumns 放 P1（改 TestTemplateColumnsMatchPRD 期望值，须与 PRD §5.16.1 同步）
+  # ---------------------------------------------------------------------------
+  - task_id: "T01-P1"
+    name: "五类资源模型加 ScrapePort + 录入链路（DTO/校验/写入/可更新列/列表输出/标签字段映射/Excel 导入解析）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §5.2/§5.3/§8（M07 PRD §5.2 scrape_port 字段、:930 Excel 列为字段权威）"
+    depends_on: []
+    estimated_files_changed: 10
+    estimated_test_cases: 16
+    shared_files: "是（platform/models/ 与 platform/config/resource/，后续任务只读消费）"
+    input_files:
+      - "platform/models/resource_base.go"        # ResourceBase 加 ScrapePort（Database + GenericTarget 一次覆盖）
+      - "platform/models/host.go"                 # Host 不内嵌 ResourceBase，显式加
+      - "platform/models/resource.go"             # Middleware + Application 各自显式加
+      - "platform/config/resource/validate.go"
+      - "platform/config/resource/update.go"      # updatableColumns 五类追加 scrape_port
+      - "platform/config/resource/excel.go"       # D-7：导入侧与模型同批进 P0
+    output_files:
+      - "platform/models/resource_base.go"        # ScrapePort int `json:"scrape_port" gorm:"default:0"`
+      - "platform/models/host.go"
+      - "platform/models/resource.go"
+      - "platform/config/resource/validate.go"    # ResourceInput.ScrapePort + validateScrapePort(0 或 1~65535) + 五类 validateXxx 调用
+      - "platform/config/resource/create.go"      # 五个 applyXxxInput 追加赋值
+      - "platform/config/resource/update.go"
+      - "platform/config/resource/list.go"        # buildListItem 五类追加 scrape_port 输出（0 值口径与现有 port 对齐）
+      - "platform/models/resource_fields.go"      # LegacyFieldMap + GetResourceField 追加 scrape_port
+      - "platform/config/resource/excel.go"       # applyCells case "scrape_port"（复用 parsePort，空→0）+ resourceInputFieldPrefixes 追加
+      - "platform/config/resource/validate_test.go" / "excel_test.go"
+    verify_commands:
+      - "go test ./platform/models/... ./platform/config/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "五类模型均有 ScrapePort int（0=未指定），AutoMigrate 自动加列；TestScrapePortAutoMigrateAddsColumn 内存库逐类断言 HasColumn"
+      - "create/update/list/Excel 导入四通道均可写读 scrape_port；PATCH 不带字段与带 0 结果等价（0/NULL 等价用例守护，不误清其他列）"
+      - "validateScrapePort：0/空合法，65536/-1 bad_request"
+      - "只加列不加新表：db.go AutoMigrate 清单、change_detect sourceTableScopes 白名单、6 处测试 DB helper 均无需改动（加列自动生效），用 AutoMigrate 用例兜底"
+      - "D-6 核查：确认 change_detect 行哈希对新增 default:0 列的行为，评估升级首启是否产生一轮变更单噪声（结论记入提案）"
+
+  - task_id: "T01-P2"
+    name: "缺陷 D2 修复：LoadExporterPort 补 is_default=true 过滤（与 resolveJobScrapeParams 口径对齐）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §7 D2（data_source.go:115 ↔ validate.go:197 口径不一致）"
+    depends_on: []
+    estimated_files_changed: 2
+    estimated_test_cases: 4
+    shared_files: "否"
+    input_files:
+      - "platform/configcenter/generator/data_source.go"   # LoadExporterPort L115
+      - "platform/strategy/scrapejob/validate.go"          # resolveJobScrapeParams L197（口径基准，只读）
+    output_files:
+      - "platform/configcenter/generator/data_source.go"   # Where 追加 AND is_default = true
+      - "platform/configcenter/generator/generator_test.go"
+    verify_commands:
+      - "go test ./platform/configcenter/generator/..."
+      - "go vet ./platform/configcenter/..."
+    acceptance_criteria:
+      - "同 monitor_type 存在 is_default=false（9999）与 true（9100）两行时返回 9100（改动前 bug 取 9999）"
+      - "无 is_default 行时回落模板级端口（现网行为不回退）"
+      - "与 resolveJobScrapeParams 口径一致性：同数据集两函数选中同一 mapping 行"
+      - "MVP 内置 6 条映射（各 1 行 is_default=1）下全部既有用例保持通过"
+
+  - task_id: "T01-P3"
+    name: "共享包 portchain 四级链纯函数 + generator resolveResource 接入（D-2=B 落地，含 firstNonZero 与 exporterPortOr 处置）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §5.1（四级链权威定义）/§5.2（各资源类型落点）/§9 验收"
+    depends_on: ["T01-P1", "T01-P2"]
+    estimated_files_changed: 5
+    estimated_test_cases: 14
+    shared_files: "是（platform/configcenter/portchain 新包为共享叶子包，generator 与后续 T01-P4 只读消费）"
+    input_files:
+      - "platform/models/resource_base.go"
+      - "platform/configcenter/generator/targets.go"        # resolveResource L75 / exporterPortOr L48 / instanceAddress L180
+      - "platform/configcenter/generator/data_source.go"    # LoadExporterPort（T01-P2 产物）
+    output_files:
+      - "platform/configcenter/portchain/portchain.go"       # 新包：纯函数解析四级链，输入资源行+exporterPort，输出 (port int, source string)；source 枚举 instance/mapping/template/business/unresolved
+      - "platform/configcenter/portchain/portchain_test.go"
+      - "platform/configcenter/generator/targets.go"         # host: firstNonZero(scrapePort, exporterPort)；db/mw: firstNonZero(scrapePort, exporterPort, port)；app/gt 分支不动；exporterPortOr 无调用方则删除（D-1 方案 a）
+      - "platform/configcenter/generator/generator_test.go"  # 全排列 + 回归断言
+      - "platform/configcenter/generator/change_detect.go"   # 仅核对哈希口径（D-6 结论回填）
+    verify_commands:
+      - "go test ./platform/configcenter/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "四级全排列 7 组用例（逐字节断言 target 字符串）：I/M-T/B 组合见提案 §9；host 无 B 级、全 0 时裸 IP（unresolved 失败态，不展示 0）"
+      - "0 与 NULL 等价：显式 NULL 行与 0 行解析结果逐字节相同"
+      - "回归断言：db/mw 不填 scrape_port 时生成地址与改动前完全一致（exporterPortOr 与 firstNonZero(0, exporterPort, port) 等价性显式证明）；既有 TestResolveTargetsExporterPort 保持全绿即现网基线"
+      - "application/generic_target 分支零 diff（D3a/D3b 守护）；blackbox 短路分支不受影响"
+      - "portchain 为叶子包（不 import strategy/*），generator 与 scrapejob 对它的依赖无环"
+      - "exporterPortOr 若已无调用方则删除，不留死代码"
+
+  - task_id: "T01-P4"
+    name: "生效端口+来源回显：preview-targets 与 instances 响应扩展 port/port_source（消费 portchain）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §5.3（M01 抽屉只读回显 + 四种来源）/§9（来源含业务端口兜底警示，不阻断）"
+    depends_on: ["T01-P3"]
+    estimated_files_changed: 4
+    estimated_test_cases: 10
+    shared_files: "否（scrapejob 包内；只读消费 portchain）"
+    input_files:
+      - "platform/configcenter/portchain/portchain.go"
+      - "platform/strategy/scrapejob/preview.go"     # previewTarget 追加 Port/PortSource
+      - "platform/strategy/scrapejob/installation.go" # jobInstanceItem 追加 Port/PortSource（resolveResourceMeta 扩展）
+    output_files:
+      - "platform/strategy/scrapejob/preview.go"
+      - "platform/strategy/scrapejob/installation.go"
+      - "platform/strategy/scrapejob/preview_test.go" / "installation_test.go"
+      - "platform/configcenter/portchain/portchain_test.go"   # 补 host 永不 business 用例
+    verify_commands:
+      - "go test ./platform/strategy/scrapejob/..."
+      - "go vet ./platform/..."
+    acceptance_criteria:
+      - "preview-targets 与 instances 两处按实例返回 {port, port_source}，来源枚举 instance/mapping/template/business/unresolved"
+      - "business 仅 db/mw 可产生，host 永不产生 business（Q1 硬约束用例）"
+      - "business 来源后端不返回 error/warning 阻断（D-4：仅前端展示警示），用例断言 HTTP 200/通过"
+      - "解析逻辑不复制：scrapejob 只调 portchain，无第二套实现（D-2=B 核心验收）"
+
+  - task_id: "T01-P5"
+    name: "前端 M07 资源表单加「采集端口（选填）」三类表单 + 列表列偏好"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §5.3（录入动线）/§9；api-contract-snapshot（契约第一权威）"
+    prototype_pages: "pages/resources/ResourceFormDrawer.tsx（db/mw/host 表单区）"
+    ui_contract: "host/database/middleware 三类表单新增「采集端口（选填）」Form.Item（optionalPortRules，留空合法）；payload scrape_port 数值化；编辑回填对称；application/generic_target 不展示该表单项（D3a/D3b 守护，防误填暗示）"
+    nav_contract: "不涉导航"
+    depends_on: ["T01-P1"]
+    estimated_files_changed: 4
+    estimated_test_cases: 12
+    shared_files: "否"
+    input_files:
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/resourceColumnPrefs.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    output_files:
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.tsx"
+      - "ui-custom/web/src/pages/resources/ResourceFormDrawer.test.tsx"
+      - "ui-custom/web/src/pages/resources/resourceColumnPrefs.ts"
+      - "ui-custom/web/src/types/resource.ts"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/resources/ResourceFormDrawer.test.tsx"
+    acceptance_criteria:
+      - "host/database/middleware 三类表单渲染 scrape_port（可留空提交）；填 9100 后 payload 含 scrape_port: 9100；70000 阻断报错"
+      - "application/generic_target 表单不出现采集端口项"
+      - "resourceColumnPrefs：五类列 meta 追加 scrape_port（照抄 port 形态）；DEFAULT_VISIBLE_COLUMN_KEYS 与 FIXED_COLUMN_KEYS 不变（默认列集防回归用例）"
+      - "单文件 vitest + eslint 全绿"
+
+  - task_id: "T01-P6"
+    name: "前端 M01 Job 侧生效端口只读回显 + 四种来源标注 +「业务端口兜底 ⚠️」不阻断警示"
+    agent: "frontend-developer"
+    status: "pending"
+    commit_group: "fe-scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §5.3（M01 抽屉只读回显）/§9/§11；api-contract-snapshot（M01）"
+    prototype_pages: "pages/ScrapeJobsPage.tsx JobFormDrawer / JobDetailDrawer 实例回显区"
+    ui_contract: "实例区展示生效端口+来源；port_source=business 显示「业务端口兜底 ⚠️」Tag + Tooltip「采集端口未配置，当前以业务端口兜底，请确认 exporter 是否监听该端口」（不阻断任何操作）；unresolved 地址展示 '-'（非 0）；不一致时提供跳回 M07 修改引导"
+    nav_contract: "不涉导航（Job 抽屉/详情内增强）"
+    depends_on: ["T01-P4", "T01-P5"]
+    estimated_files_changed: 5
+    estimated_test_cases: 12
+    shared_files: "是（ScrapeJobFormDrawer.tsx 与 ScrapeJobDetailDrawer.tsx 既有文件内追加）"
+    input_files:
+      - "ui-custom/web/src/api/scrapeJobs.ts"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobDetailDrawer.tsx"
+      - "platform/strategy/scrapejob/preview.go"    # 契约回写依据（只读）
+    output_files:
+      - "ui-custom/web/src/api/scrapeJobs.ts"       # PreviewTargetsResult/instances item 追加 port/port_source
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobDetailDrawer.tsx"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobFormDrawer.test.tsx"
+      - "ui-custom/web/src/pages/strategy/ScrapeJobDetailDrawer.test.tsx"
+    verify_commands:
+      - "cd ui-custom/web && pnpm lint"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/ScrapeJobFormDrawer.test.tsx"
+      - "cd ui-custom/web && pnpm vitest run src/pages/strategy/ScrapeJobDetailDrawer.test.tsx"
+    acceptance_criteria:
+      - "四种来源正确渲染；business 显示 ⚠️ 警示与 Tooltip 文案，保存/确认按钮不受影响（不阻断断言）"
+      - "unresolved 展示 '-'；instance 来源无警示"
+      - "不一致时提供「前往 M07 修改」引导入口"
+      - "单文件 vitest + eslint 全绿"
+
+  - task_id: "T01-P7"
+    name: "（P1）Excel 下载模板列追加 scrape_port（TemplateColumns + TestTemplateColumnsMatchPRD 同步）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §8 #3/#5（M07 PRD §5.16.1 :930 已登记 scrape_port 列）"
+    depends_on: ["T01-P1"]
+    estimated_files_changed: 3
+    estimated_test_cases: 4
+    shared_files: "否"
+    input_files:
+      - "platform/config/resource/template.go"      # TemplateColumns（L30）
+      - "platform/config/resource/template_test.go" # TestTemplateColumnsMatchPRD（L53，期望值硬编码须同步）
+      - "platform/config/resource/excel.go"         # T01-P1 已就绪（只读核对）
+    output_files:
+      - "platform/config/resource/template.go"      # 五类列头末尾追加 scrape_port（不插中间，防列序依赖断裂）
+      - "platform/config/resource/template_test.go" # 期望值同步为末尾含 scrape_port
+      - "platform/config/resource/excel_test.go"    # 兼容性回归
+    verify_commands:
+      - "go test ./platform/config/resource/..."
+      - "go vet ./platform/config/..."
+    acceptance_criteria:
+      - "五类下载模板列头末尾含 scrape_port，TestTemplateColumnsMatchPRD 期望值同步（该测试与 PRD §5.16.1 严格对齐，PRD 回填由设计侧执行）"
+      - "旧模板（无 scrape_port 列）导入仍成功，缺列按 0 处理（TestExcelLegacyTemplateWithoutScrapePortStillImports）"
+      - "新模板含列导入写入正确值；列一律追加末尾不插入中间"
+
+  - task_id: "T01-P8"
+    name: "契约快照与提案回填 + 全量收尾验证（check-repo-map / test-platform / vet）"
+    agent: "backend-developer"
+    status: "pending"
+    commit_group: "scrape-port-chain"
+    prd: "提案 resource-scrape-port-chain §8 回填清单 #5/#6/#7（#4 PRD 修订归设计侧 prototype-designer，本任务不碰 docs/02-product-requirements/）"
+    depends_on: ["T01-P4", "T01-P6", "T01-P7"]
+    estimated_files_changed: 3
+    estimated_test_cases: 0
+    shared_files: "是（api-contract-snapshot.md 唯一写者）"
+    input_files:
+      - "docs/05-execution-records/module-01/api-contract-snapshot.md"
+      - "docs/05-execution-records/module-01/dev-feedback.md"
+      - "docs/05-execution-records/module-01/design-proposals/resource-scrape-port-chain.md"
+    output_files:
+      - "docs/05-execution-records/module-01/api-contract-snapshot.md"   # 资源 DTO + scrape_port；Job 响应 + port/port_source（4 种枚举）
+      - "docs/05-execution-records/module-01/design-proposals/resource-scrape-port-chain.md"  # 回填清单状态更新
+      - "docs/05-execution-records/module-01/dev-feedback.md"           # #7 登记 6379 事故与端口字段认知混淆反馈
+    verify_commands:
+      - "make check-repo-map"
+      - "make test-platform"
+      - "go vet ./platform/..."
+      - "cd ui-custom/web && pnpm lint"
+    acceptance_criteria:
+      - "api-contract-snapshot 回写 scrape_port 与 port/port_source 契约（前端契约第一权威）"
+      - "M09 契约快照落四级链权威表述（提案 #6）"
+      - "提案回填清单状态更新；dev-feedback 登记事故反馈（#7）"
+      - "make check-repo-map / make test-platform / go vet / pnpm lint 全绿"
+      - "PRD 修订项（#1~#4/#8）标注为设计侧待办，开发 Agent 不改 docs/02-product-requirements/"
