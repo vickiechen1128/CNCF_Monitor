@@ -142,16 +142,28 @@ func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error) {
 // AlertmanagerConfigVersion.content（决策 60 / T09-60-1，M08 源数据只读）。
 // 无告警配置留痕返回空字符串（不产生空 alertmanager.yml 产物）。
 func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error) {
+	cfg, err := LoadLatestAlertmanagerConfigVersion(db)
+	if err != nil || cfg == nil {
+		return "", err
+	}
+	return cfg.Content, nil
+}
+
+// LoadLatestAlertmanagerConfigVersion 读取最新一条已留痕（status=applied）的
+// AlertmanagerConfigVersion 整行（content + ID）；无留痕返回 (nil, nil)。
+// 供 buildArtifacts 同时取得产物内容与来源版本 ID（dev-feedback #44：回填/废弃联动的
+// 精确匹配依据），避免两次查询在并发挂载下取到不同版本。
+func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfigVersion, error) {
 	var cfg models.AlertmanagerConfigVersion
 	err := db.Where("status = ?", models.AlertmanagerConfigStatusApplied).
 		Order("created_at DESC, id DESC").First(&cfg).Error
 	if err == gorm.ErrRecordNotFound {
-		return "", nil
+		return nil, nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("load latest alertmanager config: %w", err)
+		return nil, fmt.Errorf("load latest alertmanager config: %w", err)
 	}
-	return cfg.Content, nil
+	return &cfg, nil
 }
 
 // LoadEnabledNotifyChannels 读取平台已启用的通知渠道（M08 NotifyChannel，enabled=true），

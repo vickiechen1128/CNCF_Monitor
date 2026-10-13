@@ -8,7 +8,8 @@
 //	§6.6（AlertmanagerConfigVersion）/ §5.2（静默）/ §9.2（验收）；
 //	docs/05-execution-records/module-08/api-contract-snapshot.md §3/§4。
 //
-// 决策 59/60：校验失败不落库，本表恒为 applied，不存在 failed / error_msg。
+//	决策 59/60：校验失败不落库；状态取值 applied / discarded（2026-10-13 废弃联动修订，
+//	见 AlertmanagerConfigStatus 注释与 dev-feedback #44）。
 package models
 
 import (
@@ -19,12 +20,22 @@ import (
 	"time"
 )
 
-// AlertmanagerConfigStatus 表示留痕版本的状态（决策 60：校验失败不落库，恒 applied）。
+// AlertmanagerConfigStatus 表示留痕版本的状态。
+//
+// 历史口径（决策 60）：校验失败不落库，本表恒为 applied——挂载落库那一刻即置位，
+// 表示「已收录为 M09 下发源」，不承诺已生效（生效信号是 applied_at）。
+//
+// 2026-10-13 修订（废弃联动，见 dev-feedback #44）：新增 discarded 终态。M09 变更单
+// 被废弃（用户废弃 / 被更新单取代）时，已无活 pending 单可确认的留痕一律标记
+// discarded——否则 applied_at 永为空、M08 版本历史永久显示「已提交，待确认下发」
+// （用户实测 id=18 遗留问题）。applied（applied_at 空）= 待确认下发；
+// applied（applied_at 有值）= 已生效；discarded = 已废弃（不随任何在途单下发）。
 type AlertmanagerConfigStatus string
 
-// Alertmanager config version status 常量（唯一取值 applied）。
+// Alertmanager config version status 常量。
 const (
-	AlertmanagerConfigStatusApplied AlertmanagerConfigStatus = "applied"
+	AlertmanagerConfigStatusApplied   AlertmanagerConfigStatus = "applied"
+	AlertmanagerConfigStatusDiscarded AlertmanagerConfigStatus = "discarded"
 )
 
 // AlertmanagerConfigVersion 是 alertmanager.yml 挂载留痕版本（决策 59 内容留痕）。
@@ -34,7 +45,7 @@ const (
 //	Checksum      Content 的 sha256（十六进制小写）
 //	AppliedAt     M09 下发 reload 成功时间（回写后才回填；挂载时为空）
 //	AppliedBy     应用/挂载人（挂载时为上传者；M09 下发回写时以回写为准）
-//	Status        恒 applied（校验失败不落库，决策 60）
+//	Status        applied（待确认下发 / 已生效）或 discarded（已废弃，无活单可确认）
 //	SourceChangeNo 关联 M09 管理域（default）变更单号（决策 60，管道侧确认后回填）
 //	CreatedAt     挂载留痕时间（BaseModel）
 type AlertmanagerConfigVersion struct {

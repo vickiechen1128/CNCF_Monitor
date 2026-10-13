@@ -40,6 +40,13 @@ type ConfigDraft struct {
 	ValidationDetails string      `gorm:"type:text" json:"validation_details,omitempty"` // JSON 载体：[]ValidationDetail 结构化定位
 	ConfirmedBy       string      `gorm:"size:100" json:"confirmed_by,omitempty"`
 	ConfirmedAt       *time.Time  `json:"confirmed_at,omitempty"`
+	// AlertmanagerSourceVersionID 记录本单 alertmanager.yml 产物来源的 M08 留痕版本 ID
+	// （生成时最新一条 applied 的 AlertmanagerConfigVersion；无则为 0）。2026-10-13
+	// 废弃联动修复（dev-feedback #44）：M09 确认下发后按此 ID **精确**回填 applied_at /
+	// source_change_no，取代原先「取最新一条 applied 留痕」的口径——后者在「挂载新版本
+	// 后确认旧单」场景会把未随本单下发的新版本错标为已生效。存量单为 0，回填时回落
+	// 旧口径（仅补未生效的最新留痕，不覆盖已生效版本）。
+	AlertmanagerSourceVersionID uint `gorm:"column:alertmanager_source_version_id" json:"alertmanager_source_version_id,omitempty"`
 }
 
 // TableName returns the GORM table name.
@@ -94,30 +101,34 @@ func (d ConfigDraft) MarshalJSON() ([]byte, error) {
 		ValidationDetails *json.RawMessage `json:"validation_details,omitempty"`
 		ConfirmedBy       string           `json:"confirmed_by,omitempty"`
 		ConfirmedAt       *time.Time       `json:"confirmed_at,omitempty"`
+		// AlertmanagerSourceVersionID 为内部追溯字段（排障/审计用），前端不消费；
+		// 0 值省略（存量单无此记录）。
+		AlertmanagerSourceVersionID uint `json:"alertmanager_source_version_id,omitempty"`
 	}
 	return json.Marshal(draftView{
-		ID:                d.ID,
-		CreatedAt:         d.CreatedAt,
-		UpdatedAt:         d.UpdatedAt,
-		DeletedAt:         timeOfNullable(d.DeletedAt),
-		NetworkDomainID:   d.NetworkDomainID,
-		ChangeNo:          d.ChangeNo,
-		SourceVersion:     d.SourceVersion,
-		PrometheusYml:     d.PrometheusYml,
-		RulesYml:          d.RulesYml,
-		BlackboxYml:       d.BlackboxYml,
-		AlertmanagerYml:   d.AlertmanagerYml,
-		TargetsFiles:      jsonCarrier(d.TargetsFiles),
-		Metadata:          jsonCarrier(d.Metadata),
-		Summary:           d.Summary,
-		ChangeItems:       jsonCarrier(d.ChangeItems),
-		Status:            d.Status,
-		ValidationStatus:  d.ValidationStatus,
-		ValidationMessage: d.ValidationMessage,
-		ValidationCause:   d.ValidationCause,
-		ValidationDetails: jsonCarrier(d.ValidationDetails),
-		ConfirmedBy:       d.ConfirmedBy,
-		ConfirmedAt:       d.ConfirmedAt,
+		ID:                          d.ID,
+		CreatedAt:                   d.CreatedAt,
+		UpdatedAt:                   d.UpdatedAt,
+		DeletedAt:                   timeOfNullable(d.DeletedAt),
+		NetworkDomainID:             d.NetworkDomainID,
+		ChangeNo:                    d.ChangeNo,
+		SourceVersion:               d.SourceVersion,
+		PrometheusYml:               d.PrometheusYml,
+		RulesYml:                    d.RulesYml,
+		BlackboxYml:                 d.BlackboxYml,
+		AlertmanagerYml:             d.AlertmanagerYml,
+		TargetsFiles:                jsonCarrier(d.TargetsFiles),
+		Metadata:                    jsonCarrier(d.Metadata),
+		Summary:                     d.Summary,
+		ChangeItems:                 jsonCarrier(d.ChangeItems),
+		Status:                      d.Status,
+		ValidationStatus:            d.ValidationStatus,
+		ValidationMessage:           d.ValidationMessage,
+		ValidationCause:             d.ValidationCause,
+		ValidationDetails:           jsonCarrier(d.ValidationDetails),
+		ConfirmedBy:                 d.ConfirmedBy,
+		ConfirmedAt:                 d.ConfirmedAt,
+		AlertmanagerSourceVersionID: d.AlertmanagerSourceVersionID,
 	})
 }
 

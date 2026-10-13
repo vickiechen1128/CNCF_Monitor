@@ -829,3 +829,30 @@ L3（纯文案文档）──┘        │
   - **新增回归护栏** `platform/alertmanager/config/pendingdraft_test.go`（5 例）：提交须「触发变更检测 + 产pending 草稿」各 1 次（防断链重现）、产草稿失败/`ErrNoChanges` 均不阻断提交、`ensurePendingDraft` 无 live pending 时确实进入 `GenerateDraft` 分支。
   - **教训**：**单测全绿 ≠ 功能可用**。上一轮自查停在「go test 通过 + 文案已改」，未跑真机；而「删除一个函数」比「修改一行」风险大得多——它可能同时承担多个职责。移除既有函数前必须先确认它的**全部调用点与职责**（本例中 `GenerateDraft` 是隐式职责，只看提交路径察觉不到）。凡关闭既有机制，必须端到端验证「替代职责是否有人接手」。
 - **状态**：**landed（2026-10-09，未提交）**——`go vet` 干净；`go build ./platform/...` exit 0；`go test ./platform/alertmanager/... ./platform/configcenter/...` **10 包全过**；前端 `tsc --noEmit` exit 0；告警模块 5 文件 101 例全过（RoutesPage 29 / useRoutes 16 / useRouteSetting 8 / RouteEditorDrawer 33 / alertmanagerConstants 15），另AlertConfigPage 38 + ConfigPreviewPage 18 + AlertConfigDrawer 2 亦全过；**真机端到端已验证两段式成立**（见上）。
+
+## 44. M09「告警配置」遗留版本 id=18 显示「已提交，待确认下发」但 M09 查不到变更记录：变更单已被废弃，而废弃链路不处理告警配置留痕（① 数据形态误判 / ② 实现偏差，2026-10-13 修复）
+
+- **类别**：① 数据形态误判（用户初见判为脏数据）+ ② 实现偏差（跨模块状态断点：M09 废弃不联动 M08 留痕）
+- **PRD 章节 / 文件位置**：`Module_08_Alertmanager_Notification_Management.md` §5.1 / §6.6；源码见回填清单
+- **发现场景**：用户在 M08 告警配置页版本历史看到 id=18 状态为「已提交，待确认下发」，但前往 M09「配置变更确认」页**查不到对应变更记录**，疑为脏数据或代码 BUG（2026-10-13）。
+- **现状 / 根因**（DB 实证，非推测）：
+  - **不是脏数据，变更记录存在**：`config_drafts` id=134 = `CHG-20261013-002`，11:18:42.971 创建（与版本 18 的 11:18:42.694 同秒，即 `submitValidated → ensurePendingDraft` 同步生成），`validation_status=passed`、变更项「变更告警收敛配置 alertmanager.yml」（high）；但 **17 秒后（11:18:59.055）被用户在 M09 点「废弃」→ `status=discarded`**。M09 列表默认按 `status=pending` 过滤（`useConfigDrafts.ts`），废弃单只在切「已废弃 / 全部」筛选时可见——故「查不到」。id=17 同形态（CHG-20261013-001，10:54 被弃）。
+  - **是代码问题（设计缺口）**：`DiscardDraft` 只按决策 43 分类回写 M01 源数据（ScrapeJob 三类 + MonitoringRule 清锁），**完全不处理 `alertmanager_config_versions`**；而 `applied_at` 仅由 `writebackAlertmanagerApplied`（`deployment/callback.go`）在确认下发成功后回填 → 单一经废弃，留痕 `status=applied, applied_at=NULL` 永真，前端按 `applied_at` 派生恒显示「已提交，待确认下发」。
+  - **无自动恢复路径**：① watcher 的 `sourceTableScopes`（`generator/change_detect.go`）不含 `AlertmanagerConfigVersion` → `ProcessDomain` 恒判「源数据无变化」跳过，**永远不会**为告警配置变更重新产草稿（#43 已记载）；② 幂等 `Submit` 对同 checksum 直接返回旧版本（`config/service.go`），**不走** `ensurePendingDraft` → 重新提交同样内容也不产新单。→ 留痕成为孤儿，唯一恢复是重新导入/Remount（产新版本 + 新单）或改策略/资源触发产草稿（#44 修复后，重新导入同样内容即可走通该路径）。
+  - **历史同模式共 4 条**：id=8（09-29，修复前时代无单）、id=15（10-09，CHG-20261009-009 次日被弃）、id=17、id=18（本次）。
+  - **附带缺陷（本次一并修）**：`writebackAlertmanagerApplied` 回填「最新一条 applied 留痕」而非随单下发版本——reuse 路径（同产物骑窗版本复用旧单）下来源版本反而遗留「已提交，待确认下发」；且会覆盖已生效版本的 `applied_at` 时间戳。
+- **结论 / 修复（三项，B 选项「废弃后自动补产草稿」不做——违背用户废弃意图，恢复走显式路径）**：
+  - **A 废弃联动（修）**：`DiscardDraft` 事务内（管理域 default scope）把「已无活单可确认」的留痕（`status=applied AND applied_at IS NULL AND source_change_no 为空`）标记 `discarded` 终态；取代路径（`reconcileWithExistingPending`）同规则并**保护新单来源版本**。`DiscardDraft` 增补 per-domain 锁（与 `GenerateDraft` 共用）消除竞态。存量 4 条孤儿由数据清理 SQL 一次性标记。另修恢复路径两处（同属 #44）：`findVersionByChecksum` 幂等查询仅认 `status=applied`——被废弃留痕不再满足幂等，「重新导入同样内容」可产新版本 + 新单（最自然的恢复动作，修复前会被静默吞掉）；`LatestApplied` 排除 discarded——已废弃留痕的内容不在磁盘上，不得作为「当前生效」呈现。
+  - **C 精确回填（修）**：`ConfigDraft` 新增 `alertmanager_source_version_id`（生成时与产物内容同一次加载，`ConfigArtifacts.AlertmanagerSourceVersionID` 非产物字段承载）；确认下发后按它精确回填来源版本，并一并标记「创建时间不早于来源版本、仍待确认」的骑窗兄弟版本（其产物与本单 checksum 相同、内容同样随本单下发；`status=applied` 条件避免 resurrect discarded）。存量单回落旧口径但仅补未生效留痕。
+  - **D 废弃告知（修）**：M09 废弃二次确认弹窗（`DiscardImpactSummary`）在含 `alertmanager` 受影响文件时追加终态与恢复路径说明。
+- **影响模块**：M08（版本历史状态派生 / 留痕终态）、M09（变更单废弃联动 / 详情新增内部追溯字段）、前端两页。
+- **回填清单**：
+  - 后端：`platform/models/alertmanager_config.go`（status 枚举扩 `discarded` + 注释修订）；`platform/models/config.go`（`ConfigDraft.AlertmanagerSourceVersionID` 字段 + MarshalJSON 透传）；`platform/configcenter/generator/generator.go`（`ConfigArtifacts.AlertmanagerSourceVersionID` 非产物字段）；`platform/configcenter/generator/data_source.go`（新增 `LoadLatestAlertmanagerConfigVersion`，原 Content 加载改为委托）；`platform/configcenter/draft/service.go`（`buildArtifacts` 填充来源 ID；`GenerateDraft`/`reconcileWithExistingPending` 回填；新增 `discardOrphanAlertmanagerVersions` / `protectedVersionIDsFromLivePending`；`DiscardDraft` 加域锁 + 废弃联动；supersede 事务保护新单来源）；`platform/configcenter/deployment/callback.go`（`writebackAlertmanagerApplied` 拆为精确路径 + 存量回落，新增 `draftAlertmanagerSourceID` / `writebackAlertmanagerSource` / `applyAlertmanagerWriteback`）。
+  - 前端：`ui-custom/web/src/types/alertmanager.ts`（`AlertmanagerConfigStatus` 扩 `discarded`）；`alertmanagerConstants.ts`（`configStatusLabel/Color` 扩 discarded；`CONFIG_STATUS_DISCARDED_LABEL/TIP`；`configStatusView(appliedAt, status?)` 第二参 + `ConfigStatusView.discarded`）；`AlertConfigPage.tsx`（`renderConfigStatus` 传 status；discarded 只呈终态 + 恢复指引，**不给确认入口**——无在途单可确认，不造死链）；`ConfigPreviewPage.tsx`（`DiscardImpactSummary` 增 `hasAlertmanager`，废弃弹窗传 `affectedFileSet(detail).has('alertmanager')`）。
+  - 契约：module-08 `api-contract-snapshot.md` §3 字段表 / §5 回写口径 / §6 枚举 / §8 展示名；module-09 `api-contract-snapshot.md` §4 ConfigDraftDetail 增 `alertmanager_source_version_id`（内部追溯字段，前端不消费）。
+  - 数据：一次性清理 SQL 标记存量 4 条孤儿（id 8/15/17/18）`status=discarded`（执行前已确认 default 域无活 pending 单）。
+- **测试护栏**：
+  - 后端新增 `platform/configcenter/draft/service_alertmanager_discard_test.go`（7 例）：废弃标记孤儿留痕（id=18 回归）/ 已生效留痕不受影响 / 非管理域不触碰 / 双活单竞态保护另一张活单来源 / 取代路径保护新单来源 / GenerateDraft 回填来源 ID / 无留痕时来源为 0。
+  - 后端新增 `platform/configcenter/deployment/callback_alertmanager_test.go`（5 例）：reuse 路径来源 + 骑窗版本均标记（旧口径下来源反而遗留——防回归）/ discarded 兄弟不被 resurrect / 存量回落不覆盖已生效时间戳 / discarded 来源被确认后自愈 applied。
+  - 前端：`alertmanagerConstants.test.ts` 扩 discarded 派生 3 例（终态优先于 applied_at / status 缺省回落旧口径）；`AlertConfigPage.test.tsx` 新增「discarded → 已废弃 + 恢复指引，且无待确认提示/确认入口」；`ConfigPreviewPage.test.tsx` 新增含/不含告警配置的废弃影响正反 2 例。
+- **状态**：**landed（2026-10-13，未提交）**——`go build ./platform/...` exit 0；`go test ./platform/configcenter/... ./platform/models/... ./platform/alertmanager/...` **13 包全过**（新增 12 例）；前端 `alertmanagerConstants` 18 + `AlertConfigPage` 39 + `ConfigPreviewPage` 20 全过（另：`tsc -p tsconfig.test.json` 存量 9 错均在未触碰文件，属 HEAD/WIP 遗留，与本次无关）；`make repo-map` 已刷新且 `make check-repo-map` 通过。⚠️ 真机端到端（重启后端 AutoMigrate 加列 → 挂载 → 废弃 → 版本历史显示「已废弃」）待用户重启后复核。

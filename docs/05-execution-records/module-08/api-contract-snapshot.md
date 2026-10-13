@@ -84,7 +84,7 @@
 | `checksum`         | string   | 配置内容 sha256                             |
 | `applied_at`       | datetime | 写入并 reload 成功时间（M09 下发回写后才回填）           |
 | `applied_by`       | string   | 应用人（M09 下发回写）                           |
-| `status`           | enum     | 本表恒为 `applied`（校验失败不落库，决策 60）           |
+| `status`           | enum     | `applied`（已收录为 M09 下发源；`applied_at` 空 = 待确认下发，有值 = 已生效）或 `discarded`（已废弃终态，2026-10-13 dev-feedback #44 废弃联动：变更单被废弃/被取代后，已无活 pending 单可确认的留痕由后端标记，前端展示「已废弃」并给恢复指引，不再显示「已提交，待确认下发」） |
 | `created_at`       | datetime | 挂载留痕时间                                  |
 | `source_change_no` | string   | 关联 M09 变更单号（决策 60，管道侧确认后可见）             |
 
@@ -162,7 +162,7 @@
 
 - `ConfigDraftDetail` 增可选 `alertmanager_yml` 字段（内容预览 Tab）。
 
-- `change_status` 回写 M08：M09 confirm→下发 reload 成功 → 最新 `AlertmanagerConfigVersion.applied_at/applied_by` 回填、`status=applied`；M08 页面「当前生效配置」从此版本读取。
+- `change_status` 回写 M08：M09 confirm→下发 reload 成功 → **本单来源** `AlertmanagerConfigVersion.applied_at/applied_by/source_change_no` 回填（2026-10-13 dev-feedback #44 修订：原为「最新一条 applied 留痕」无条件回填，在 reuse 路径（同产物骑窗版本复用旧单）下来源版本反而遗留「已提交，待确认下发」；现按草稿登记的 `alertmanager_source_version_id` 精确回填来源版本，并一并标记创建时间不早于来源的待确认骑窗版本——它们产物与本单 checksum 相同、内容同样随本单下发；存量单回落旧口径但仅补未生效留痕，不覆盖已生效版本时间戳）；M08 页面「当前生效配置」从此版本读取。
 
 - **M08 apply = 收录 + 产 pending 变更单（2026-10-09 修订，原为「收录 + 自动下发管理域」）**：挂载校验通过落库（`status=applied` 仅表示「已收录为 M09 源」）后，M08 触发 M09 管理域 `default` 变更检测，产出（或复用/取代）一张 **pending** 变更单；**不再自动确认下发**。变更单须由用户在 M09「配置变更确认」页人工 `ConfirmDraft` 后，才走 `DiskApplier` 写 `config-output/alertmanager.yml` + AM reload。**配置是否真实生效以 `applied_at` 为准**（写盘成功后由 `writebackAlertmanagerApplied` 回填）。
 
@@ -174,7 +174,7 @@
 
 | 枚举                              | 取值                               | 说明                                           |
 | ------------------------------- | -------------------------------- | -------------------------------------------- |
-| 版本 `status`                     | `applied`                        | AlertmanagerConfigVersion 恒 applied（校验失败不落库） |
+| 版本 `status`                     | `applied` / `discarded`          | applied：已收录（`applied_at` 空 = 待确认下发 / 有值 = 已生效）；discarded：已废弃终态（#44 废弃联动） |
 | 静默 `status`                     | `active` / `pending` / `expired` | Alertmanager 运行时状态                           |
 | Matcher `is_equal` / `is_regex` | bool                             | 决定匹配语义                                       |
 | 变更对象 `target`（M09 侧）            | `...` / `alertmanager_config`    | M09 变更单新增「告警配置」目标                            |
@@ -192,7 +192,7 @@
 
 | 接口字段                                   | UI 展示名 | 备注                                     |
 | -------------------------------------- | ------ | -------------------------------------- |
-| `AlertmanagerConfigVersion.status`     | 状态     | 已生效                                    |
+| `AlertmanagerConfigVersion.status`     | 状态     | 派生展示（dev-feedback §25 + #44）：`discarded`=已废弃；`applied` 且 `applied_at` 有值=已生效；`applied` 且为空=已提交，待确认下发 |
 | `AlertmanagerConfigVersion.applied_at` | 生效时间   | <br />                                 |
 | `config/current` 空                     | 当前生效配置 | 无版本时显空态引导挂载                            |
 | 校验错误 `line`                            | 行号     | 行级定位高亮                                 |

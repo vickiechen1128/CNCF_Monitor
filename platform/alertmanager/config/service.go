@@ -201,9 +201,12 @@ var errChangeTrigger = errors.New("persist ok but trigger change detection faile
 var errAutoApply = errors.New("persist ok but auto-apply management domain config failed (watcher or manual confirm will retry)")
 
 // findVersionByChecksum 按校验和查询已留痕版本；无则返回 (nil, nil)。
+// 仅认 status=applied 的留痕（dev-feedback #44）：discarded 是废弃终态（其变更单已废弃、
+// 无活单可确认），**不满足幂等语义**——否则用户重新导入同样内容会被幂等分支静默返回
+// 已废弃版本、既不产新版本也不产新变更单，恢复路径（重新挂载/重新导入）被吞掉。
 func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerConfigVersion, error) {
 	var v models.AlertmanagerConfigVersion
-	err := db.Where("checksum = ?", checksum).First(&v).Error
+	err := db.Where("checksum = ? AND status = ?", checksum, models.AlertmanagerConfigStatusApplied).First(&v).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
 	}
@@ -215,9 +218,12 @@ func findVersionByChecksum(db *gorm.DB, checksum string) (*models.AlertmanagerCo
 
 // LatestApplied 返回最近一条 applied 留痕版本（当前生效配置）；无则 (nil, nil)。
 // 供「当前生效只读视图」与版本历史排序复用（T08-03）。
+// dev-feedback #44：排除 discarded 终态——已废弃留痕的内容不在磁盘上，不得作为
+// 「当前生效」呈现（其恢复路径是重新挂载/重新导入，见 findVersionByChecksum）。
 func LatestApplied(db *gorm.DB) (*models.AlertmanagerConfigVersion, error) {
 	var v models.AlertmanagerConfigVersion
-	err := db.Order("created_at DESC, id DESC").First(&v).Error
+	err := db.Where("status = ?", models.AlertmanagerConfigStatusApplied).
+		Order("created_at DESC, id DESC").First(&v).Error
 	if err == gorm.ErrRecordNotFound {
 		return nil, nil
 	}

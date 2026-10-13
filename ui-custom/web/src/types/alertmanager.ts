@@ -10,8 +10,13 @@ export interface PaginatedItems<T> {
   total: number
 }
 
-/** 配置版本状态：校验失败不落库（决策 60），本表恒为 applied */
-export type AlertmanagerConfigStatus = 'applied'
+/**
+ * 配置版本状态（2026-10-13 dev-feedback #44 废弃联动修订）：
+ *   - applied：已收录为 M09 下发源（applied_at 为空 = 待确认下发；有值 = 已生效）；
+ *   - discarded：已废弃终态——变更单被废弃（用户废弃 / 被更新单取代）后，已无活
+ *     pending 单可确认的留痕一律标记此态，不再显示「已提交，待确认下发」。
+ */
+export type AlertmanagerConfigStatus = 'applied' | 'discarded'
 
 /** 静默状态（Alertmanager 运行时状态） */
 export type SilenceStatus = 'active' | 'pending' | 'expired'
@@ -30,7 +35,7 @@ export interface AlertmanagerConfigVersion {
   applied_at?: string
   /** 应用人（M09 下发回写） */
   applied_by?: string
-  /** 本表恒为 applied（校验失败不落库，决策 60） */
+  /** applied（待确认下发 / 已生效）或 discarded（已废弃，dev-feedback #44） */
   status: AlertmanagerConfigStatus
   /** 挂载留痕时间 */
   created_at?: string

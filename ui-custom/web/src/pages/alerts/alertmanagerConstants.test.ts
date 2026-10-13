@@ -5,6 +5,7 @@ import {
   configStatusView,
   isConfigApplied,
   CONFIG_STATUS_APPLIED_LABEL,
+  CONFIG_STATUS_DISCARDED_LABEL,
   CONFIG_STATUS_PENDING_LABEL,
   silenceStatusLabel,
   silenceStatusColor,
@@ -27,21 +28,31 @@ describe('alertmanagerConstants（M08 枚举/常量/展示名映射）', () => {
   describe('配置版本状态（AlertmanagerConfigVersion.status）', () => {
     // dev-feedback §25：status=applied 只表示「已收录为 M09 下发源」，不得表述为「已生效」
     // （挂载落库那一刻即置位，此时磁盘 alertmanager.yml 尚未更新、AM 仍加载旧文件）。
-    it('applied → 已收录（中性色），本表恒 applied（决策 60），且不含「已应用 / 已生效」误导词', () => {
+    it('applied → 已收录（中性色），且不含「已应用 / 已生效」误导词', () => {
       expect(configStatusLabel.applied).toBe('已收录')
       expect(configStatusColor.applied).toBe('default')
       expect(configStatusLabel.applied).not.toContain('已应用')
       expect(configStatusLabel.applied).not.toContain('已生效')
     })
+
+    // dev-feedback #44（2026-10-13 废弃联动）：status 由「恒 applied」扩为两态。
+    it('discarded → 已废弃（中性色；后端废弃联动标记的终态）', () => {
+      expect(configStatusLabel.discarded).toBe('已废弃')
+      expect(configStatusColor.discarded).toBe('default')
+      // 废弃态不得含「已生效 / 待确认」这类会被读作在途的词
+      expect(configStatusLabel.discarded).not.toContain('已生效')
+      expect(configStatusLabel.discarded).not.toContain('待确认')
+    })
   })
 
-  describe('配置状态派生展示（按 applied_at，dev-feedback §25 方案 A）', () => {
+  describe('配置状态派生展示（status + applied_at，dev-feedback §25 方案 A + #44）', () => {
     it('applied_at 有值 → 已生效（成功绿）', () => {
       expect(isConfigApplied('2026-08-31T10:00:00Z')).toBe(true)
-      expect(configStatusView('2026-08-31T10:00:00Z')).toEqual({
+      expect(configStatusView('2026-08-31T10:00:00Z', 'applied')).toEqual({
         label: CONFIG_STATUS_APPLIED_LABEL,
         color: 'success',
         applied: true,
+        discarded: false,
       })
       expect(CONFIG_STATUS_APPLIED_LABEL).toBe('已生效')
     })
@@ -49,16 +60,41 @@ describe('alertmanagerConstants（M08 枚举/常量/展示名映射）', () => {
     it('applied_at 为空 / 缺失 / 空白 → 已提交，待确认下发（警示橙）', () => {
       for (const empty of [undefined, null, '', '   ']) {
         expect(isConfigApplied(empty)).toBe(false)
-        expect(configStatusView(empty)).toEqual({
+        expect(configStatusView(empty, 'applied')).toEqual({
           label: CONFIG_STATUS_PENDING_LABEL,
           color: 'warning',
           applied: false,
+          discarded: false,
         })
       }
       expect(CONFIG_STATUS_PENDING_LABEL).toBe('已提交，待确认下发')
       // 用户可见状态文案不得出现「已应用 / 已生效」这类会被读作已生效的词
       expect(CONFIG_STATUS_PENDING_LABEL).not.toContain('已应用')
       expect(CONFIG_STATUS_PENDING_LABEL).not.toContain('已生效')
+    })
+
+    // dev-feedback #44：status=discarded 优先于 applied_at 派生——单子已废弃即终态，
+    // 不再提示「前往确认」（无在途单可确认）；修复前此类留痕 applied_at 永为空，
+    // 会永久显示「已提交，待确认下发」（用户实测 id=18 遗留问题）。
+    it('status=discarded → 已废弃终态（优先于 applied_at；不再显示待确认）', () => {
+      expect(configStatusView(undefined, 'discarded')).toEqual({
+        label: CONFIG_STATUS_DISCARDED_LABEL,
+        color: 'default',
+        applied: false,
+        discarded: true,
+      })
+      expect(configStatusView('2026-08-31T10:00:00Z', 'discarded').discarded).toBe(true)
+      expect(CONFIG_STATUS_DISCARDED_LABEL).toBe('已废弃')
+    })
+
+    // status 缺省（老调用方 / 缓存数据）按 applied 处理，行为与 #44 修订前一致。
+    it('status 缺省 → 回落 applied 口径（兼容既有调用方）', () => {
+      expect(configStatusView(undefined)).toEqual({
+        label: CONFIG_STATUS_PENDING_LABEL,
+        color: 'warning',
+        applied: false,
+        discarded: false,
+      })
     })
   })
 
