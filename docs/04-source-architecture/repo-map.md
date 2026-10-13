@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-13 19:14 · commit: `4bb2626`
+> 生成时间: 2026-10-13 20:46 · commit: `487546d`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -1510,6 +1510,7 @@
 - `func applyCells(row *ImportRow, header, cells []string)`
 - `func parsePort(raw string) (int, string)`
 - `func allEmpty(cells []string) bool`
+- `func isTemplateExampleRow(category models.ResourceCategory, cells []string) bool`
 - `func ValidateImportRow(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *ServiceDictS…`
 - `func ValidateImportRowWithPlatform(row *ImportRow, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, svcStore *…`
 - `func fieldErr(row *ImportRow, field, value, reason string) error`
@@ -1890,23 +1891,41 @@
 ### `platform/config/resource/template.go`
 
 - `type DomainOption struct`
+- `type templateColumnDoc struct`
 - `func DownloadTemplate(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcSt…`
-- `func buildValueSheet(bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platformStore *PlatformDictStore, svcSto…`
+- `func buildValueSheet(category models.ResourceCategory, bizStore *BusinessDomainStore, appStore *ApplicationDictStore, platfo…`
+- `func templateColumnRequiredLabel(category models.ResourceCategory, col string) string`
+- `func templateExampleRow(category models.ResourceCategory) []string`
 - `func statusValueDescription() string`
-- `func buildTemplateXLSX(columns []string, valueRows [][]string) ([]byte, error)`
+- `func buildTemplateXLSX(category models.ResourceCategory, valueRows [][]string) ([]byte, error)`
 
 ### `platform/config/resource/template_test.go`
 
 - `func fakeDomains() ([]DomainOption, error)`
 - `func setupTemplateRouter(t *testing.T) *gin.Engine`
 - `func openEmptyAppDictDB(t *testing.T) *gorm.DB`
+- `func openEmptyDictDB(t *testing.T) *gorm.DB`
 - `func allCategories() []models.ResourceCategory`
+- `func flattenRows(rows [][]string) string`
+- `func downloadTemplate(t *testing.T, category models.ResourceCategory) (sheet1, valueSheet [][]string)`
+- `func valueSheetColumnRows(valueSheet [][]string) [][]string`
 - `func TestTemplateColumnsMatchPRD(t *testing.T)`
 - `func TestDownloadTemplateHeaders(t *testing.T)`
 - `func TestDownloadTemplateSheet1Columns(t *testing.T)`
 - `func TestDownloadTemplateValueSheet(t *testing.T)`
+- `func TestDownloadTemplateValueSheet_CustomLabelsOnlyForGenericTarget(t *testing.T)`
 - `func TestDownloadTemplateValueSheet_EmptyAppDict(t *testing.T)`
 - `func TestDownloadTemplateUnknownTypeNotFound(t *testing.T)`
+- `func TestTemplateColumnDocsCoverAllColumns(t *testing.T)`
+- `func TestDownloadTemplateValueSheetColumnsPerCategory(t *testing.T)`
+- `func TestDownloadTemplateValueSheetHasChineseLabel(t *testing.T)`
+- `func TestDownloadTemplateValueSheetRequiredLabel(t *testing.T)`
+- `func TestDownloadTemplateValueSheetNoteRow(t *testing.T)`
+- `func TestDownloadTemplateExampleRow(t *testing.T)`
+- `func TestDownloadTemplateExampleRowStyle(t *testing.T)`
+- `func TestParseExcelSkipsTemplateExampleRow(t *testing.T)`
+- `func TestDownloadedTemplateParsesToZeroRows(t *testing.T)`
+- `func TestBuildValueSheetEmptyDictsNoPanic(t *testing.T)`
 
 ### `platform/config/resource/update.go`
 
@@ -1975,6 +1994,7 @@
 - `func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T)`
 - `func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *testing.T)`
 - `func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T)`
+- `func TestValidatePlatformCode_GuidanceByRegistrationState(t *testing.T)`
 - `func scrapePortInput(category models.ResourceCategory) *ResourceInput`
 - `func TestValidateResourceInput_ScrapePort(t *testing.T)`
 - `func TestScrapePortAutoMigrateAddsColumn(t *testing.T)`

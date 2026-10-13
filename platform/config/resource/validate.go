@@ -231,7 +231,9 @@ func validateCommon(in *ResourceInput, bizStore *BusinessDomainStore, appStore *
 //   - 空值：合法，不校验（platform 标签由所属应用 is_primary 平台兜底填充）；
 //   - 编辑保留历史值：请求体值与资源当前值相同时跳过全部平台校验（已停用平台 /
 //     与应用平台集合不自洽的历史值均允许保留）；改为新值 / 新选停用平台仍拒绝；
-//   - 填值：须命中平台字典启用条目（停用条目不可新选）；
+//   - 填值：须命中平台字典启用条目；未命中时用 Lookup 区分「已停用」（引导『平台
+//     管理』页启用）与「未登记」（引导登记，或在本文件『平台声明』sheet 声明后
+//     重新导入），与 biz_code / app_code / service_code 的引导口径保持一致；
 //   - 自洽：app_code 非空且该应用存在关联平台时，填值须落在关联平台集合内，
 //     否则「平台 xxx 不属于应用 yyy 的关联平台」；app_code 为空 / 应用无关联
 //     平台时不校验自洽。
@@ -261,7 +263,23 @@ func validatePlatformCode(in *ResourceInput, refs *PlatformRefs, keep *KeepDisab
 		return fmt.Errorf("平台字典加载失败：%w", err)
 	}
 	if _, ok := enabled[code]; !ok {
-		return fmt.Errorf("平台 %s 未登记或已停用，请在『平台管理』页登记或启用后重试", code)
+		// 与 excel.go 的 biz_code / app_code / service_code 同构：用 Lookup 区分
+		// 「已停用」与「未登记」两种情形——条目存在但停用引导「启用」，条目不存在
+		// 才引导「登记」。前端 isPendingRegistrationReason 仅匹配含「未登记」的文案，
+		// 停用态不被误标为待登记高亮。
+		//
+		// 未登记文案同时给出两条路径：去『平台管理』页登记，或在本文件『平台声明』
+		// sheet 补充后重新导入（该 sheet 由 excel_declare.go 的 platformDeclareSheet
+		// 解析、经 import.go 的 applyDeclaredDicts 与资源落库同事务原子提交），与
+		// biz / app / service 三处保持一致的能力口径。
+		_, found, lerr := refs.PlatformStore.Lookup(code)
+		if lerr != nil {
+			return fmt.Errorf("查询平台 %s 失败：%w", code, lerr)
+		}
+		if found {
+			return fmt.Errorf("平台 %s 已停用，请在『平台管理』页启用后重新导入", code)
+		}
+		return fmt.Errorf("平台 %s 未登记且未在声明 sheet 声明，请在『平台管理』页登记，或在本文件『平台声明』sheet 补充后重新导入。若你使用的是旧模板，可能缺少最新字典值，请重新下载模板后填写", code)
 	}
 	appCode := strings.TrimSpace(in.AppCode)
 	if appCode == "" {

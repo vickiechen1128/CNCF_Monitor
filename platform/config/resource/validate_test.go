@@ -1016,20 +1016,28 @@ func TestValidateResourceInputWithPlatform_SelfConsistency(t *testing.T) {
 		assert.Contains(t, err.Error(), "app-a")
 	})
 
-	t.Run("引用停用平台 ⇒ bad_request", func(t *testing.T) {
+	t.Run("引用停用平台 ⇒ bad_request（引导启用，不误报未登记）", func(t *testing.T) {
 		in := platformTestInput("app-a", "old-platform") // 已登记但 enabled=false
 		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。现 platform_code 已用 Lookup 区分
+		// 「已停用」与「未登记」，此处收敛为停用专属文案，且不含「未登记」字样。
+		assert.Contains(t, err.Error(), "已停用")
+		assert.Contains(t, err.Error(), "启用")
+		assert.NotContains(t, err.Error(), "未登记")
 	})
 
-	t.Run("未登记平台 ⇒ bad_request", func(t *testing.T) {
+	t.Run("未登记平台 ⇒ bad_request（同时给出登记页与平台声明 sheet 双路径）", func(t *testing.T) {
 		in := platformTestInput("app-a", "no-such-platform")
 		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。现未登记文案须与 biz/app/service
+		// 同构给出双路径：去『平台管理』页登记，或在本文件『平台声明』sheet 声明。
+		assert.Contains(t, err.Error(), "未登记")
+		assert.Contains(t, err.Error(), "平台管理")
+		assert.Contains(t, err.Error(), "平台声明")
 	})
 
 	t.Run("platform_code 留空 ⇒ 不校验（走应用主平台兜底）", func(t *testing.T) {
@@ -1084,12 +1092,15 @@ func TestValidateResourceInputWithPlatformForUpdate_KeepsDisabledHistory(t *test
 		assert.Contains(t, err.Error(), "不属于应用")
 	})
 
-	t.Run("改为新的停用平台 ⇒ 仍拒绝", func(t *testing.T) {
+	t.Run("改为新的停用平台 ⇒ 仍拒绝（引导启用）", func(t *testing.T) {
 		in := platformTestInput("app-a", "old-platform")
 		err := ValidateResourceInputWithPlatformForUpdate(models.ResourceCategoryDatabase, in,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, &KeepDisabledValues{PlatformCode: "platform-a"}, refs)
 		require.Error(t, err, "停用条目不可新选，keep 不豁免不同值")
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。此场景为已登记但停用，收敛为
+		// 停用专属文案。
+		assert.Contains(t, err.Error(), "已停用")
+		assert.Contains(t, err.Error(), "启用")
 	})
 }
 
@@ -1128,7 +1139,9 @@ func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T) {
 		err := ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, inDisabled,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "未登记或已停用")
+		// 原特征：断言合并文案「未登记或已停用」。此场景为已登记但停用，收敛为
+		// 停用专属文案。
+		assert.Contains(t, err.Error(), "已停用")
 	})
 
 	t.Run("不带 keep 的创建态不受 keep 豁免影响", func(t *testing.T) {
@@ -1139,6 +1152,66 @@ func TestValidatePlatformCode_HalfInitializedRefsPasses(t *testing.T) {
 		require.Error(t, ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase, in,
 			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs),
 			"创建态（keep=nil）不做任何豁免")
+	})
+}
+
+// TestValidatePlatformCode_GuidanceByRegistrationState 覆盖 platform_code 字典可达性
+// 失败时的**引导文案**按登记状态分流（原实现把「未登记」与「已停用」合并为一句，
+// 既是文案与能力不一致——文案未提后端事实上支持的「平台声明」sheet 通道——也会让
+// 前端 isPendingRegistrationReason（仅匹配含「未登记」的文案）把停用态误高亮为
+// 待登记）：
+//   - 未登记 → 同时给出『平台管理』页登记路径与本文件『平台声明』sheet 声明路径；
+//   - 已停用 → 只引导「启用」，且不含「未登记」字样；
+//   - 已启用 → 通过；
+//   - 已启用但不属于该 app_code 关联平台 → 仍走「不属于关联平台」文案（回归护栏：
+//     自洽校验失败不得被误判为未登记）。
+func TestValidatePlatformCode_GuidanceByRegistrationState(t *testing.T) {
+	newRefs := func(t *testing.T) *PlatformRefs {
+		t.Helper()
+		refs := platformTestRefs(t)
+		_, err := refs.AppPlatformStore.Create(models.AppPlatformRel{AppCode: "app-a", PlatformCode: "platform-a", IsPrimary: true})
+		require.NoError(t, err)
+		return refs
+	}
+	validate := func(t *testing.T, refs *PlatformRefs, appCode, platformCode string) error {
+		t.Helper()
+		return ValidateResourceInputWithPlatform(models.ResourceCategoryDatabase,
+			platformTestInput(appCode, platformCode),
+			newBizStore(t), platformTestAppStore(t), nil, alwaysExists, refs)
+	}
+
+	t.Run("未登记 ⇒ 双路径引导（平台管理页 / 平台声明 sheet）", func(t *testing.T) {
+		err := validate(t, newRefs(t), "app-a", "no-such-platform")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 no-such-platform 未登记")
+		assert.Contains(t, err.Error(), "『平台管理』页登记")
+		assert.Contains(t, err.Error(), "『平台声明』sheet 补充后重新导入")
+		// 保留旧模板提示（字典值以最新模板为准）。
+		assert.Contains(t, err.Error(), "重新下载模板")
+		// 停用引导不应出现在未登记分支。
+		assert.NotContains(t, err.Error(), "已停用")
+	})
+
+	t.Run("已停用 ⇒ 引导启用，且不含未登记字样", func(t *testing.T) {
+		err := validate(t, newRefs(t), "app-a", "old-platform")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 old-platform 已停用")
+		assert.Contains(t, err.Error(), "『平台管理』页启用后重新导入")
+		// 前端 isPendingRegistrationReason 依「未登记」判定待登记，停用态不得命中。
+		assert.NotContains(t, err.Error(), "未登记")
+		assert.NotContains(t, err.Error(), "平台声明")
+	})
+
+	t.Run("已启用且属于应用关联平台 ⇒ 通过", func(t *testing.T) {
+		require.NoError(t, validate(t, newRefs(t), "app-a", "platform-a"))
+	})
+
+	t.Run("已启用但不属于关联平台 ⇒ 仍走自洽文案（回归护栏）", func(t *testing.T) {
+		err := validate(t, newRefs(t), "app-a", "platform-b")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "平台 platform-b 不属于应用 app-a 的关联平台")
+		assert.NotContains(t, err.Error(), "未登记")
+		assert.NotContains(t, err.Error(), "已停用")
 	})
 }
 
