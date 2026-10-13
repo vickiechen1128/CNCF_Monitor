@@ -42,7 +42,18 @@ export interface UseRouteSettingResult {
   /** 保存中（Select 禁用防重复提交） */
   saving: boolean
   reload: () => void
-  /** 保存默认接收人；`null` = 关闭接管（护栏③）。可选 `mode` 透传路由规则作者模式（T08-F12）。失败抛出（由调用方提示） */
+  /**
+   * 保存兜底渠道与（可选）路由模式——**单次 PUT 同时携带两项**。
+   *
+   * `channelId`：`null` = 不接管（护栏③：停止替换、不删最后写入的值）。
+   * `mode`：仅在显式传入时写入（只改兜底时不带 mode，保持后端原值）。
+   *
+   * ⚠ 决策三（提案 alert-config-policy-split-migration.md §3.3）：切到「我来编辑」时
+   * 自动把兜底置为「不接管」，这属于**伴随声明**，必须合并进同一次 `PUT route-setting`
+   * （调用方传 `save(null, 'handwritten')`）。若拆成两次请求，会产生用户未主动发起的
+   * 独立变更单，违反决策 42-1（抑制空变更单）与「每条变更项须自解释」。
+   * 失败抛出（由调用方提示）。
+   */
   save: (channelId: number | null, mode?: RouteMode) => Promise<RouteSetting>
 }
 
@@ -108,8 +119,8 @@ export function useRouteSetting(): UseRouteSettingResult {
   const save = useCallback(async (channelId: number | null, mode?: RouteMode): Promise<RouteSetting> => {
     setSaving(true)
     try {
-      // T08-F12：PUT /route-setting 同时持久化默认接收人与 route 段作者模式（mode）。
-      // mode 仅在显式传入时写入（切换模式时传；仅改默认接收人时不改模式，保持后端原值）。
+      // 单次 PUT 同时持久化兜底渠道与 route 段作者模式（T08-F12；决策三要求合并提交）。
+      // mode 仅在显式传入时写入（切换模式时传；仅改兜底渠道时不改模式，保持后端原值）。
       const payload: UpdateRouteSettingPayload = { default_receiver_channel_id: channelId }
       if (mode) payload.mode = mode
       const res = await routeSettingApi.update(payload)

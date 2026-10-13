@@ -13,6 +13,7 @@ import type {
   NotifyStatus,
   NotifyTemplateStatus,
   PromAlertState,
+  RouteMode,
   SilenceMatcher,
   SilenceStatus,
   ValidateErrorItem,
@@ -26,19 +27,25 @@ export const CURRENT_USER = '张伟（运维）'
 export const CONFIG_PREVIEW_PATH = '/config-preview'
 
 /**
- * 配置版本**收录**状态（AlertmanagerConfigVersion.status），本表恒为 applied（决策 60）。
+ * 配置版本**收录**状态（AlertmanagerConfigVersion.status）。
  *
- * **不得据此声称「已生效」**（dev-feedback §25）：该状态在 M08 挂载（Submit/Remount）**落库那一刻**
- * 即置位，而此刻磁盘 `config-output/alertmanager.yml` 尚未更新、Alertmanager 仍加载旧文件；真正
- * 写盘 + reload 发生在 M09「确认下发」（ConfirmDraft）之后。故此处只表述「已收录」——即已被收录为
- * M09 生成配置的源数据，不承诺已生效；页面展示一律走 `configStatusView()`（按 `applied_at` 派生）。
+ * 2026-10-13（dev-feedback #44 废弃联动）：由「恒 applied」扩为两态——
+ *   - applied：已收录为 M09 下发源。**不得据此声称「已生效」**（dev-feedback §25）：该状态在
+ *     M08 挂载（Submit/Remount）**落库那一刻**即置位，而此刻磁盘 `config-output/alertmanager.yml`
+ *     尚未更新、Alertmanager 仍加载旧文件；真正写盘 + reload 发生在 M09「确认下发」
+ *     （ConfirmDraft）之后。applied 内部再按 `applied_at` 派生两种展示（见 configStatusView）。
+ *   - discarded：已废弃终态——变更单被废弃（用户废弃 / 被更新单取代）后，已无活 pending 单
+ *     可确认的留痕由后端联动标记；修复前此类留痕 applied_at 永为空，会永久显示
+ *     「已提交，待确认下发」（用户实测 id=18 遗留问题）。
  */
 export const configStatusLabel: Record<AlertmanagerConfigStatus, string> = {
   applied: '已收录',
+  discarded: '已废弃',
 }
 
 export const configStatusColor: Record<AlertmanagerConfigStatus, string> = {
   applied: 'default',
+  discarded: 'default',
 }
 
 /**
@@ -52,31 +59,52 @@ export function isConfigApplied(appliedAt?: string | null): boolean {
 /** 状态展示：已真正生效 */
 export const CONFIG_STATUS_APPLIED_LABEL = '已生效'
 
-/** 状态展示：已提交收录、但尚未下发写盘（status 已 applied，applied_at 仍为空） */
+/** 状态展示：已提交收录、但尚未下发写盘（status=applied，applied_at 仍为空） */
 export const CONFIG_STATUS_PENDING_LABEL = '已提交，待确认下发'
+
+/**
+ * 状态展示：已废弃终态（status=discarded，dev-feedback #44）——变更单被废弃后由后端
+ * 联动标记，无活单可确认；恢复需重新挂载（Remount）或修改策略/资源重新触发产草稿。
+ */
+export const CONFIG_STATUS_DISCARDED_LABEL = '已废弃'
 
 /** 「待确认下发」指引（用户语言，不含 applied_at / status 等技术字段名；末尾「前往」接跳转入口） */
 export const CONFIG_STATUS_PENDING_TIP =
   '配置已提交收录，尚未写入 Alertmanager，需确认下发后才会生效。前往'
 
-/** 配置状态派生视图（展示色随状态：已生效=成功绿 / 待确认下发=警示橙） */
+/** 「已废弃」说明（为何废弃、如何恢复；用户语言，不含技术字段名） */
+export const CONFIG_STATUS_DISCARDED_TIP =
+  '对应变更单已废弃，本版本不会下发。如需生效请重新挂载，或修改策略/资源后重新生成变更单。'
+
+/** 配置状态派生视图（展示色随状态：已生效=成功绿 / 待确认下发=警示橙 / 已废弃=中性灰） */
 export interface ConfigStatusView {
   label: string
   color: string
   /** 是否已真正生效（applied_at 有值） */
   applied: boolean
+  /** 是否已废弃终态（status=discarded） */
+  discarded: boolean
 }
 
 /**
- * 按 `applied_at` 派生配置状态展示（dev-feedback §25 方案 A 前端侧）：
- * 有值 → 「已生效」；为空 / 缺失 → 「已提交，待确认下发」。
+ * 按 `status` + `applied_at` 派生配置状态展示（dev-feedback §25 方案 A 前端侧 +
+ * #44 废弃联动）：
+ *   - status=discarded → 「已废弃」（终态，不再提示去确认——已无在途单可确认）；
+ *   - applied_at 有值 → 「已生效」；
+ *   - 其余（status=applied 且 applied_at 为空）→ 「已提交，待确认下发」。
  *
- * 契约未变、wire 字段未变，仅展示口径改由真实生效信号派生，消除「看到 applied 以为已生效」的误判。
+ * 契约未变、wire 字段未变（status / applied_at 均既有字段），仅展示口径补入废弃态，
+ * 消除「看到 applied 以为已生效」与「单子已废弃却永远显示待确认」两类误判。
+ *
+ * status 缺省（老调用方 / 缓存数据）时按 applied 处理，行为与修订前一致。
  */
-export function configStatusView(appliedAt?: string | null): ConfigStatusView {
+export function configStatusView(appliedAt?: string | null, status?: AlertmanagerConfigStatus): ConfigStatusView {
+  if (status === 'discarded') {
+    return { label: CONFIG_STATUS_DISCARDED_LABEL, color: 'default', applied: false, discarded: true }
+  }
   return isConfigApplied(appliedAt)
-    ? { label: CONFIG_STATUS_APPLIED_LABEL, color: 'success', applied: true }
-    : { label: CONFIG_STATUS_PENDING_LABEL, color: 'warning', applied: false }
+    ? { label: CONFIG_STATUS_APPLIED_LABEL, color: 'success', applied: true, discarded: false }
+    : { label: CONFIG_STATUS_PENDING_LABEL, color: 'warning', applied: false, discarded: false }
 }
 
 /** 静默状态（Alertmanager 运行时状态，追踪 §6 枚举字典 / §8 UI 展示名） */
@@ -379,47 +407,52 @@ export const ALERT_CONFIG_EXEMPT_BLOCKS: AlertConfigScopeBlock[] = [
 ]
 
 // =====================================================================
-// 告警配置页信息架构（设计提案 alert-config-three-layer-model.md §7.3 方案 A，2026-10-02 用户拍板）
+// 路由设置（设计提案 alert-config-policy-split-migration.md §2.1 / §2.2，2026-10-13）
 //
-// 页面职责由「文件挂载中心」改为「策略 + 动线 + 现状 + 高级」四段：
-//   ① 策略卡（提级为首屏第一卡）：未匹配规则的告警发给谁 + 路由规则由谁维护（二选一模式）；
-//   ② 动线卡：回答「我该去哪配」；
-//   ③ 现状卡（瘦身）：一行状态摘要，完整 YAML 默认折叠；
-//   ④ 高级区（默认收起）：导入整份配置文件 / 派生预览 / 版本历史。
-// 页头不再挂 type="primary" 主按钮——「导入整份配置文件」是三层模型里的第③ 层（逃生舱），
-// 不应是页面的主操作（PRD §11.6：手写= 永久逃生舱，降级不删除）。
+// 原「路由与收敛策略」卡位于**告警配置页**，与其页面职责（查看当前生效配置 + 版本历史 +
+// 导入整份配置文件）不符，且兜底控件与顶层路由接收人分处两页，用户改一处、另一处静默
+// 覆盖。现整体迁至**路由规则页常驻卡**：谁产出路由规则 + 没匹配到规则的告警发给谁，
+// 两个控件同屏同区，避免「两入口必须同步」的隐性约束。
+//
+// ⚠ 文案方向防呆（提案 §4.3，最高优先级踩坑点）：
+// 下面每条模式文案的**可编辑性结论必须与 `useRoutes.ts` 的门禁 `isRouteEditable` 一致**——
+//   `isRouteEditable(mode) { return mode === 'managed' }`
+// 即：**managed = 路由规则页可写；handwritten = 路由规则页只读**。
+// commit 86331a0 曾把两个分支的文案方向整体写反（门禁未动），后按门禁 + PRD §11.7 修正。
+// 改写本节文案时请逐条对齐门禁核对，禁止凭语感书写。
 // =====================================================================
 
-/** 策略卡标题 */
-export const ALERT_POLICY_CARD_TITLE = '路由与收敛策略'
+/** 路由设置常驻卡标题 */
+export const ROUTE_SETTING_CARD_TITLE = '路由设置'
+
+/** 控件 A：路由规则由谁维护（原「路由规则作者模式」，「作者模式」为实现视角术语） */
+export const ROUTE_SETTING_MODE_LABEL = '路由规则由谁维护'
 
 /**
- * 策略卡控件：未匹配任何规则的告警发给谁（原「默认兜底接收人」，去「兜底/接收人」双术语）。
+ * 控件 B：没匹配到具体规则的告警发给谁（原「默认兜底接收人」，去「兜底/接收人」双术语）。
  *
  * 2026-10-08 微调：补上「渠道」二字。原措辞里没有「渠道」，而下拉框里显示的恰恰是
  * **渠道名**（如「运维告警飞书群」）—— 用户实测反馈看不出「下拉框选中的」与「兜底策略」
  * 是同一个东西。控件词与选项内容用同一名词（渠道），对应关系不必靠猜。
  */
-export const ALERT_POLICY_FALLBACK_LABEL = '没匹配到具体规则的告警，发给哪个渠道'
-
-/** 策略卡控件：路由规则由谁维护（原「路由规则作者模式」，「作者模式」为实现视角术语） */
-export const ALERT_POLICY_ROUTE_MODE_LABEL = '路由规则由谁维护'
+export const ROUTE_SETTING_FALLBACK_LABEL = '没匹配到具体规则的告警，发给哪个渠道'
 
 /**
  * 模式二选一选项（用户语言；刻意不用「接管」——接管暗示冲突，实为二选一）。
  *
  * ⚠ 命名口径（2026-10-08 用户实测反馈后修订）：原「我手写 / 平台管理」被实测判为歧义——
  * 「我手写」天然承诺"我来写"，用户理所当然认为**路由规则页可以直接编辑**，而实际含义是
- * "平台别生成 route 段，我自己去告警配置页的高级区手写 YAML"，该层含义只写在二次确认弹窗里。
+ * "平台别生成 route 段，我自己去告警配置页手写 YAML"，该层含义只写在二次确认弹窗里。
  * 结果：用户选「我手写」后发现路由页变只读，判为功能故障。
  *
- * 修订：把两个选项都锚定到**「谁来产出」**这一可见结果上，措辞与页面可编辑性一一对应：
- *   - 「我来编辑」→ 页面可编辑（用户在路由规则页逐条增删改）；
- *   - 「平台生成」→ 页面只读（路由由平台产出，用户去高级区写整份 YAML）。
+ * 修订：把两个选项都锚定到**「谁来产出」**这一可见结果上，并在常驻提示与二次确认里
+ * 明说页面可编辑性——方向以门禁 `isRouteEditable`（mode==='managed' 可写）为准，勿按字面反推：
+ *   - 「平台生成」→ 路由规则页可编辑（你在页面逐条增删改，平台据此生成整份配置）；
+ *   - 「我来编辑」→ 路由规则页只读（整份配置去「告警配置」页的「导入整份配置文件」手写）。
  * 底层枚举值仍为 handwritten / managed（契约不变，仅用户可见措辞变）。
  */
-export const ALERT_POLICY_MODE_HANDWRITTEN = '我来编辑'
-export const ALERT_POLICY_MODE_MANAGED = '平台生成'
+export const ROUTE_MODE_HANDWRITTEN = '我来编辑'
+export const ROUTE_MODE_MANAGED = '平台生成'
 
 /**
  * 模式控件下方的常驻提示（一行，控件含义只在此处说一次）。
@@ -428,31 +461,55 @@ export const ALERT_POLICY_MODE_MANAGED = '平台生成'
  * 被误解的点。二选一控件 + 一行后果说明，是让控件自解释的最小组合。
  * 按 PageIntro 契约第三条硬约束：这是**随状态变化**的信息（换 mode 就变），故常驻而非收进说明区。
  */
-export const ALERT_POLICY_MODE_TIP: Record<string, string> = {
-  [ALERT_POLICY_MODE_HANDWRITTEN]: '我来逐条编辑：在「路由规则」页直接增删改路由。',
-  [ALERT_POLICY_MODE_MANAGED]: '平台来产出：路由规则页为只读视图，整份配置去「高级：导入整份配置文件」手写。',
+export const ROUTE_MODE_TIP: Record<RouteMode, string> = {
+  managed: '平台来产出：你在本页直接增删改路由，平台据此生成整份配置。',
+  handwritten: '我来编辑：本页为只读视图，整份配置去「告警配置」页的「导入整份配置文件」手写。',
 }
 
-/** 动线卡标题 */
-export const ALERT_GUIDE_CARD_TITLE = '我要做的事'
+/**
+ * 「手写整份文件 ≠ 交出兜底」的常驻说明（提案 §3.5 决策五，**原文落位，不得改写或删减**）。
+ *
+ * 根因：后端 `materializeRootRouteReceiver` 不判 mode（决策 113 口径 C），手写模式下平台
+ * 仍会用兜底控件选定的渠道替换顶层路由的接收人。不明写就会被理解成「切到手写 = 交出全部
+ * 控制权」，而实际上只有这一项仍由平台决定。
+ */
+export const ROUTE_SETTING_MODE_INDEPENDENCE_TIP =
+  '即使你选择自己手写整份配置，只要这里选定了渠道，平台仍会用它替换顶层路由的接收人。想完全自己控制，请选『不接管』。'
 
-/** 动线项：抑制规则尚未 UI 化（dev-feedback #37）——本期只标注不实现，不静默消失 */
-export const ALERT_GUIDE_INHIBIT_COMING = '即将支持'
+/** 顶层路由行内的兜底结论 Tag（声明该行接收人由上方「路由设置」决定，本页不可直接改） */
+export const ROUTE_ROOT_FALLBACK_TAG = '兜底接收人由上方「路由设置」决定'
 
-/** 高级区标题（默认收起） */
-export const ALERT_ADVANCED_CARD_TITLE = '高级：导入整份配置文件'
+/** 顶层路由「接收人」只读时的说明文案（抽屉内；对应决策一 / 验收 A6） */
+export const ROUTE_ROOT_RECEIVER_READONLY_TIP =
+  '顶层路由的接收人由上方「路由设置」里的「没匹配到具体规则的告警，发给哪个渠道」决定，此处不可直接修改。'
 
-/** 高级区入口按钮（原页头主按钮「挂载新配置」；「挂载」是 K8s 术语，产品侧无对应心智） */
-export const ALERT_ADVANCED_IMPORT_LABEL = '导入整份配置文件'
+// =====================================================================
+// 告警配置页信息架构（设计提案 alert-config-policy-split-migration.md §2.2 收敛后结构）
+//
+// 页面职责收敛为三件事：① 当前生效（只读 YAML）；② 版本历史（内容侧留痕）；
+// ③ 导入整份配置文件（三层模型第③ 层，永久逃生舱，PRD §11.6）。
+// 原「策略卡」与「动线卡」已按 §2.2 迁出/删除：前者整块迁至路由规则页（见上节），
+// 后者回答的「我该去哪配」在页面收敛后已无对象（三卡里不再有跨页动线）。
+//
+// ⚠ 决策 113 / §7.6 C3：手写逃生门**任何模式下都必须可达**——若收进默认收起的折叠区，
+// 在「平台生成」这一主路径下就等于被降级隐藏。故「导入整份配置文件」提为**常驻独立卡**，
+// 页头仍不挂 type="primary" 主按钮（它不是页面的主操作）。
+// =====================================================================
 
-/** 高级区折叠面板：手写配置说明（原「写配置前必读：三块必写 + 两块豁免」，按 mode 条件化） */
+/** 常驻卡③标题（引导问句：把「要不要手写整份文件」的判断显性化） */
+export const ALERT_IMPORT_CARD_TITLE = '希望直接编辑整份 alertmanager.yml？'
+
+/** 导入入口按钮（原页头主按钮「挂载新配置」；「挂载」是 K8s 术语，产品侧无对应心智） */
+export const ALERT_IMPORT_LABEL = '导入整份配置文件'
+
+/** 折叠面板：手写配置说明（原「写配置前必读：三块必写 + 两块豁免」，按 mode 条件化） */
 export const ALERT_ADVANCED_GUIDE_TITLE = '手写配置说明'
 
 /**
  * 手写配置说明的引导句（**按 mode 条件化**）。
  *
  * 2026-10-02 用户意见「文字重复性很高」后的去重原则：**每个事实只在一处说**——
- *   - 「路由规则由谁维护」已在策略卡 + `policySummary` 说过 → 本区不再复述；
+ *   - 「路由规则由谁维护」已在路由规则页的路由设置卡说过 → 本区不再复述；
  *   - 「已启用渠道的接收人由平台自动写入」是三块必写里唯一需要额外解释的一条 → 只在此处说一次；
  *   - 抑制规则的「平台已自动生成边缘站点离线等场景」只在托管模式引导句里说一次。
  * 本区只回答一个问题：**我手写时要写哪几块、每块管什么、哪些不用写。**
@@ -463,7 +520,7 @@ export const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO =
 /**
  * 托管模式下的引导句：此时三块必写里的route + inhibit_rules 由平台生成，
  * 唯一还需手写的是**自定义告警抑制规则**（dev-feedback #37：抑制规则尚未 UI 化）。
- * 不复述「路由规则由平台管理」（策略卡已说），不自指「才使用下方的手写说明」（本区就是它）。
+ * 不复述「路由规则由平台管理」（路由设置卡已说），不自指「才使用下方的手写说明」（本区就是它）。
  */
 export const ALERT_ADVANCED_GUIDE_MANAGED =
   '路由分流与告警抑制规则已由平台自动生成，通常无需手写配置。抑制规则暂未提供界面入口，仅当需要自定义时可参考下面三块。'
@@ -532,6 +589,29 @@ inhibit_rules:
 
 /** 通知渠道表格「平台接收人」列标题（用户视图：不出现「派生」） */
 export const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE = '平台接收人'
+
+// ---------------------------------------------------------------------
+// 通知渠道表格「兜底渠道」列（提案 alert-config-policy-split-migration.md §2.1 / §4.2）
+//
+// 「哪个渠道是兜底渠道」此前只能在路由规则页的下拉框里反推，看渠道列表时无从判断。
+// 新增一列就地标识；列位置紧邻「平台接收人」之前（便于左右对照）。
+// 判定用 `setting.default_receiver_channel_id === channel.id`，**不用名称反查**
+// （渠道名清洗后生成的 receiver 名与渠道名并非一一对应，按名字比对会误判）。
+// ---------------------------------------------------------------------
+
+/** 「兜底渠道」列标题 */
+export const CHANNEL_FALLBACK_COLUMN_TITLE = '兜底渠道'
+
+/** 已显式选定该渠道为兜底（`effective_source === 'explicit'`）时的 Tag 文案 */
+export const CHANNEL_FALLBACK_TAG = '兜底'
+
+/**
+ * 尚未选定、但存在可作建议值的渠道（`effective_source === 'auto_first_enabled'`）时的 Tag 文案。
+ *
+ * 刻意与 `CHANNEL_FALLBACK_TAG` 区分：按 §11.9 契约，建议值**仅作 UI 预填、平台并未接管、
+ * 产物字节不变**，说成「兜底」等于让用户以为已经在接管。
+ */
+export const CHANNEL_FALLBACK_SUGGESTED_TAG = '建议兜底'
 
 /** 列内取不到派生行时的兜底（渠道已启用但片段接口未返回，异常态） */
 export const CHANNEL_DERIVED_RECEIVER_EMPTY = '暂不可见'

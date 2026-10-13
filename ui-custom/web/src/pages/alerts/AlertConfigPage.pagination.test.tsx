@@ -107,7 +107,7 @@ describe('AlertConfigPage 分页：每页条数 20→10 应真正生效', () => 
     // 请求确实以 page_size=10 发出（且不应死循环：仅首屏 + 本次变更两次）
     await waitFor(() => {
       const calls = getVersionsMock.mock.calls
-      expect(calls.at(-1)).toEqual([{ page: 1, page_size: 10 }])
+      expect(calls[calls.length - 1]).toEqual([{ page: 1, page_size: 10 }])
     })
     expect(getVersionsMock.mock.calls.length).toBeLessThanOrEqual(3)
 

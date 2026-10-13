@@ -159,6 +159,10 @@ describe('useRouteEditor — H1 非 admin knownReceivers', () => {
     const { result } = renderHook(() => useRouteEditor({}))
 
     await waitFor(() => expect(result.current.knownReceivers).toEqual(['recv-a', 'recv-c']))
+    // 同一次请求顺带建「receiver → 渠道名」映射（供 UI 把 notify-N 显示成渠道名）
+    await waitFor(() =>
+      expect(result.current.receiverChannelNames).toEqual({ 'recv-a': 'A', 'recv-c': 'C' }),
+    )
     // 批量、单次请求，而非逐渠道 N+1
     expect(listMock).toHaveBeenCalledTimes(1)
   })
@@ -168,6 +172,7 @@ describe('useRouteEditor — H1 非 admin knownReceivers', () => {
     const { result } = renderHook(() => useRouteEditor({}))
 
     await waitFor(() => expect(result.current.knownReceivers).toEqual([]))
+    expect(result.current.receiverChannelNames).toEqual({})
   })
 })
 
@@ -339,7 +344,7 @@ describe('useRouteEditor — 首屏自动导入（2026-10-08 按钮恒灰修复�
 describe('useRouteEditor — H4 部分导入保存护栏', () => {
   it('部分导入：保存前弹二次确认，取消则中止保存（submit 不调用、返回 false）', async () => {
     const confirm = vi.fn().mockResolvedValue(false)
-    const { result } = renderHook(() => useRouteEditor({ effectiveYaml: '', confirmPartialImport: confirm }))
+    const { result } = renderHook(() => useRouteEditor({ confirmPartialImport: confirm }))
 
     act(() => {
       result.current.importFromCurrent()
@@ -361,7 +366,7 @@ describe('useRouteEditor — H4 部分导入保存护栏', () => {
 
   it('部分导入：用户确认后真正提交（submit 调用、返回 true）', async () => {
     const confirm = vi.fn().mockResolvedValue(true)
-    const { result } = renderHook(() => useRouteEditor({ effectiveYaml: '', confirmPartialImport: confirm }))
+    const { result } = renderHook(() => useRouteEditor({ confirmPartialImport: confirm }))
 
     act(() => {
       result.current.importFromCurrent()
@@ -383,9 +388,9 @@ describe('useRouteEditor — H4 部分导入保存护栏', () => {
   it('完整导入（imported）：保存不弹 H4 二次确认，直接提交', async () => {
     const confirm = vi.fn().mockResolvedValue(true)
     const sourceItems = [readNode({ id: 'root', parent_id: '', receiver: 'default', locked: true })]
-    const { result } = renderHook(() =>
-      useRouteEditor({ sourceItems, effectiveYaml: EFFECTIVE_YAML, confirmPartialImport: confirm }),
-    )
+    // 保存链路的合并基由 save() 内部 `GET /config/current` 取（见 useRoutes.ts L476-482），
+    // 不再从 options 注入 effectiveYaml；beforeEach 已 mock getCurrent 返回 EFFECTIVE_YAML。
+    const { result } = renderHook(() => useRouteEditor({ sourceItems, confirmPartialImport: confirm }))
 
     act(() => {
       result.current.importFromCurrent()

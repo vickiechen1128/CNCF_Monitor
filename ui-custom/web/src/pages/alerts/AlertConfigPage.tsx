@@ -1,12 +1,21 @@
 /**
  * 告警配置页（决策 59/60 + 设计提案 alert-config-three-layer-model.md §7.3 方案 A）。
  *
- * 页面职责（2026-10-02用户拍板，IA 重构）：由「文件挂载中心」改为「策略 + 动线 + 现状 + 高级」四段——
- *   ① 策略卡（提级为首屏第一卡）：未匹配规则的告警发给谁 + 路由规则由谁维护（二选一模式控件）；
- *   ② 动线卡：回答「我该去哪配」（通知渠道 / 路由规则 / 通知模板 + 抑制规则标「即将支持」）；
- *   ③ 现状卡（瘦身）：一行状态摘要，完整 YAML 默认折叠；
- *   ④ 配置版本历史（常驻）：内容侧留痕，与告警策略无关，故不进高级区；
- *   ⑤ 高级区（默认收起）：导入整份配置文件 / 手写配置说明。
+ * 页面职责（2026-10-13 收敛，提案 alert-config-policy-split-migration.md §2.2）：
+ * 由「策略 + 动线 + 现状 + 历史 + 高级」五段收敛为三件事——
+ *   ① 当前生效（只读 YAML）；
+ *   ② 配置版本历史（内容侧留痕，常驻）；
+ *   ③ 导入整份配置文件（**常驻独立卡**，三层模型第③ 层永久逃生舱，PRD §11.6 / 决策 113）。
+ *
+ * 2026-10-13 迁移（提案 §2.1 / §2.2）：原「路由与收敛策略」卡（未匹配规则的告警发给谁 +
+ * 路由规则由谁维护）与「动线卡」已**整块迁出**——
+ *   - 两个策略控件 → 「路由规则」页常驻「路由设置」卡（与顶层路由同屏）；
+ *   - 「哪个渠道是兜底」→ 「通知渠道」页新增「兜底渠道」列。
+ * 迁出理由：策略控件与本页职责（查看当前生效 + 版本历史 + 导入）不符，且兜底控件与顶层路由
+ * 分处两页——用户改一处、另一处会被后端 `materializeRootRouteReceiver` 静默覆盖（该函数不判 mode）。
+ * 「导入整份配置文件」由高级 Collapse **提为常驻卡**（A11）：决策 113 / §7.6 C3 要求手写逃生门
+ * 任何模式下都可达，收进默认收起的折叠区等于在主路径下被降级隐藏。
+ * 随之删除：原 PageIntro 第 5 条「两开关独立性」说明（已随决策五原句落位到路由规则页兜底控件旁）。
  *
  * 2026-10-02 用户意见（已落地）：
  *   - 「配置版本历史」是全局留痕能力，从高级区提出为常驻卡（现状卡之后、高级区之前）；
@@ -28,7 +37,7 @@
  * 术语口径（提案 §7.5）：用户视图一律不出「派生 / 兜底 / 作者模式 / 收敛（复合词）」与
  * `route`/`receivers` 等字段名；字段名只在高级区的手写说明与 YAML 里出现。
  */
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Alert,
@@ -40,8 +49,6 @@ import {
   Descriptions,
   Drawer,
   Empty,
-  Segmented,
-  Select,
   Space,
   Table,
   Tag,
@@ -49,10 +56,7 @@ import {
 } from 'antd'
 import config from 'antd/locale/zh_CN'
 import {
-  ApiOutlined,
-  ApartmentOutlined,
   EyeOutlined,
-  FileTextOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
   UploadOutlined,
@@ -60,7 +64,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { alertmanagerConfigApi } from '../../api/alertmanager'
 import { triggerConfigDrafts } from '../config-center/preview/triggerConfigDraft'
-import type { AlertmanagerConfigVersionListItem, RouteMode, RouteReceiverSource } from '../../types/alertmanager'
+import type { AlertmanagerConfigVersionListItem } from '../../types/alertmanager'
 import { TABLE_PAGINATION, TABLE_SCROLL_X } from '../../components/tablePresets'
 import { PageIntro } from '../../components/PageIntro'
 import { RuleGuideLink } from '../../components/RuleGuideLink'
@@ -71,114 +75,35 @@ import {
   ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO,
   ALERT_ADVANCED_GUIDE_MANAGED,
   ALERT_ADVANCED_GUIDE_TITLE,
-  ALERT_ADVANCED_IMPORT_LABEL,
-  ALERT_ADVANCED_CARD_TITLE,
+  ALERT_IMPORT_CARD_TITLE,
+  ALERT_IMPORT_LABEL,
   ALERT_CONFIG_EXEMPT_BLOCKS,
   ALERT_CONFIG_REQUIRED_BLOCKS,
-  ALERT_GUIDE_CARD_TITLE,
-  ALERT_GUIDE_INHIBIT_COMING,
-  ALERT_POLICY_CARD_TITLE,
-  ALERT_POLICY_FALLBACK_LABEL,
-  ALERT_POLICY_MODE_HANDWRITTEN,
-  ALERT_POLICY_MODE_MANAGED,
-  ALERT_POLICY_MODE_TIP,
-  ALERT_POLICY_ROUTE_MODE_LABEL,
   CONFIG_PREVIEW_PATH,
+  CONFIG_STATUS_DISCARDED_TIP,
   CONFIG_STATUS_PENDING_TIP,
   CURRENT_USER,
-  NOTIFY_CHANNELS_PATH,
-  NOTIFY_TEMPLATES_PATH,
   configStatusView,
 } from './alertmanagerConstants'
-import { useRouteSetting, NONE_RECEIVER_VALUE } from './useRouteSetting'
+import { useRouteSetting } from './useRouteSetting'
 import { shortChecksum } from '../../utils/shortChecksum'
 import { MainLayout } from '../../layouts/MainLayout'
 import { useSkin } from '../../skinContext'
 
 const { Text } = Typography
 
-/** 默认接收人（根兜底）生效来源展示名（决策 113 第 6 条三态；用户视图，故不含 receiver 名等实现细节） */
-const ROUTE_SOURCE_LABEL: Record<RouteReceiverSource, string> = {
-  explicit: '你指定的',
-  auto_first_enabled: '已启用渠道的第一个',
-  none: '暂无',
-}
-
-/** 配置状态展示所需的字段子集（当前生效 / 版本列表 / 版本详情三处同构） */
-type ConfigStatusSource = Pick<AlertmanagerConfigVersionListItem, 'applied_at' | 'source_change_no'>
-
-/**
- * 嵌套 Collapse 的**包裹层**必须阻止点击冒泡（2026-10-02）。
- * antd Collapse 的 header 是 role="button" 的容器，点击其内部任意子元素都会冒泡到 header；
- * 高级区（外层）内嵌了「手写配置说明 / 平台自动生成的接收人」两个内层折叠项，
- * 若不阻止冒泡，点内层标题会同时触发外层 header → 整个高级区被收起，
- * 表现为「点开内层后内容立刻消失」。
- *
- * 注意：stopPropagation 必须挂在**内层 Collapse 之外**的包裹元素上，不能挂在内层 label 上——
- * 后者会连内层 Collapse 自己的 header 事件一起拦掉，导致内层永远展不开。
- */
-function stopHeaderClick(e: React.MouseEvent) {
-  e.stopPropagation()
-}
-
-/**
- * 动线卡单行（提案 §7.3 ②）：图标 + 标题 + 一句「回答什么问题」+ 跳转。
- * clickable 元素视觉上明确可点击（整行 hover 变色 + 箭头），避免被误读成静态标签。
- */
-function GuideLink({
-  to,
-  icon,
-  title,
-  desc,
-  testId,
-}: {
-  to: string
-  icon: React.ReactNode
-  title: string
-  desc: string
-  testId: string
-}) {
-  return (
-    <Link
-      to={to}
-      data-testid={testId}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        flexWrap: 'wrap',
-        padding: '6px 8px',
-        borderRadius: 6,
-      }}
-    >
-      <span style={{ color: 'var(--color-primary)' }}>{icon}</span>
-      <Text strong>{title}</Text>
-      <Text type="secondary" style={{ fontSize: 12 }}>
-        {desc}
-      </Text>
-      <Text type="secondary" style={{ fontSize: 12, marginLeft: 'auto' }}>
-        去配置 →
-      </Text>
-    </Link>
-  )
-}
+/** 配置状态展示所需的字段子集（当前生效 / 版本列表 / 版本详情三处同构；#44 起含 status 废弃态判定） */
+type ConfigStatusSource = Pick<AlertmanagerConfigVersionListItem, 'applied_at' | 'source_change_no' | 'status'>
 
 export function AlertConfigPage() {
   const { tokens } = useSkin()
   const navigate = useNavigate()
-  const { message, modal } = App.useApp()
+  const { message } = App.useApp()
   const { current, versions, total, loading, error, permissionDenied, reload, page, pageSize, onPageSizeChange, submit } =
     useAlertConfig()
-  // 默认接收人（根兜底）设定：骨架布缆开关（T08-F8，决策 113 口径 C）
-  const {
-    setting: routeSetting,
-    options: routeOptions,
-    loading: routeLoading,
-    error: routeError,
-    saving: routeSaving,
-    reload: reloadRouteSetting,
-    save: saveRouteSetting,
-  } = useRouteSetting()
+  // 迁移后本页**不再有任何策略控件**（兜底渠道 / 路由维护模式已迁至「路由规则」页），
+  // 因此只读 mode 一个字段：用于「手写配置说明」按模式条件化引导（提案 §7.4 口径保留）。
+  const { setting: routeSetting } = useRouteSetting()
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [drawerOpenSeq, setDrawerOpenSeq] = useState(0)
@@ -212,136 +137,6 @@ export function AlertConfigPage() {
   }
 
   /**
-   * 未匹配规则的告警发给谁（原「默认兜底接收人」，T08-F8 / 决策 113 口径 C骨架布缆开关）。
-   * 护栏①：选定某个渠道 = 授权平台接管兜底，必须先经二次确认，文案明示注入点（只替换根receiver 单键）。
-   * 护栏③：选「不接管」= 停止替换、不删最后写入的值——无阻断交互，保存后明示结果。
-   */
-  const handleDefaultReceiverChange = (value: number) => {
-    const saved = routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE
-    if (value === saved) return
-    if (value === NONE_RECEIVER_VALUE) {
-      void saveRouteSetting(null)
-        .then(() => message.success('已停止由平台指定默认接收人；最后写入的值保留在配置文件中，可随时手改'))
-        .catch((e) => message.error(e instanceof Error ? e.message : '保存失败，请稍后重试'))
-      return
-    }
-    // 确认弹窗与结论 Tag 同理（2026-10-08）：**展示渠道名**，不展示平台内部接收人名
-    // （`notify-1` 对用户判断"选了哪个渠道"无帮助，反而像技术串）。receiverName 字段
-    // 已随 N+1 取数一并从 RouteSettingOption 摘除。
-    const targetName = routeOptions.find((o) => o.value === value)?.label ?? String(value)
-    modal.confirm({
-      title: '确认由平台接管这类告警？',
-      content:
-        `平台将在每次生成配置时，把「没有匹配到任何具体规则的告警」统一发往「${targetName}」；` +
-        '你写的具体分流规则不受影响（它们优先于这一项）。' +
-        '平台只替换这一个值：不触碰 group_by / group_wait / group_interval / repeat_interval / continue，也不写入具体分流规则。',
-      okText: '确认指定',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await saveRouteSetting(value)
-          message.success(`已选定：这类告警发往「${targetName}」`)
-        } catch (e) {
-          message.error(e instanceof Error ? e.message : '保存失败，请稍后重试')
-        }
-      },
-    })
-  }
-
-  /**
-   * 路由规则由谁维护（T08-F12）：handwritten（我来编辑）/ managed（平台生成）。
-   * 护栏 §11.6：切到 handwritten 不会删除已生成的路由内容，仅改变后续生成归属（平台不再覆盖）；
-   * 切到 managed 则平台接管，路由规则页变为只读视图。
-   * 切换即二次确认，文案明示两种模式的产物归属差异；保存时把 mode 一并写入 route-setting。
-   *
-   * 二次确认文案口径（2026-10-08）：**明说页面可编辑性**，不只说产物归属。
-   * 旧文案只讲"平台停止生成 / 平台接管"，用户无法据此判断路由规则页还能不能编辑，
-   * 于是选了「我来编辑」发现页面变只读时判为故障。现在两个分支都直接给出
-   * 「路由规则页可编辑 / 只读」这一可验证后果。
-   */
-  const handleRouteModeChange = (mode: RouteMode) => {
-    const currentId = routeSetting?.default_receiver_channel_id ?? null
-    const toManaged = mode === 'managed'
-    modal.confirm({
-      title: toManaged ? `切换为「${ALERT_POLICY_MODE_MANAGED}」？` : `切换为「${ALERT_POLICY_MODE_HANDWRITTEN}」？`,
-      content: toManaged
-        ? '切换后，路由规则由平台产出：路由规则页变为只读视图，你可在告警配置页「高级：导入整份配置文件」里手写整份配置。' +
-          '此后你在配置文件里手写的分流规则会被平台生成内容覆盖。'
-        : '切换后，你在**路由规则页**直接增删改路由、保存提交变更。' +
-          '注意：切换不会删除已生成的路由内容，只改变后续产出归属；平台仍会接管「未匹配任何规则的告警发给谁」这一个值。',
-      okText: '确认切换',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          await saveRouteSetting(currentId, mode)
-          message.success(
-            toManaged
-              ? `已切换为「${ALERT_POLICY_MODE_MANAGED}」：路由规则页转为只读`
-              : `已切换为「${ALERT_POLICY_MODE_HANDWRITTEN}」：可在路由规则页直接编辑（已生成内容保留）`,
-          )
-        } catch (e) {
-          message.error(e instanceof Error ? e.message : '保存失败，请稍后重试')
-        }
-      },
-    })
-  }
-
-  /**
-   * 策略卡状态句（提案 §6.3）：**只给结论，不复述控件字面含义**。
-   *
-   * ⚠ 2026-10-08 契约不符修复（用户实测「界面不清晰」的根因之一）：原实现对三种
-   * `effective_source` 一视同仁地把 `effective_receiver_name` 渲染成「发往 X」，
-   * 但按契约 §11.9，`auto_first_enabled` 的语义是「**仅作 UI 预填建议、平台不接管、
-   * 产物字节不变**」——把建议值说成生效值，等于让用户以为已经在接管。
-   * 实测后果：下拉框显示「不接管」、状态句却说「发往 notify-1」，**同一张卡自相矛盾**。
-   *
-   * 现按三态分别给结论，措辞严格对齐契约：
-   *   - none                → 没有任何指定（连建议都没有）
-   *   - auto_first_enabled  → 「平台未接管」+ 建议值仅供选择（**不说"发往"**）
-   *   - explicit + enabled  → 「已接管」，此时才可以说「发往」
-   */
-  const policySummary = useMemo(() => {
-    const managed = routeSetting?.mode === 'managed'
-    const routePart = managed ? '路由规则由平台生成' : '路由规则由你来编辑'
-    if (!routeSetting) return `${routePart}；正在读取设定…`
-    if (routeSetting.effective_source === 'none') {
-      return `${routePart}；未匹配任何规则的告警暂未指定接收人，平台不接管。`
-    }
-    const receiver = routeSetting.effective_receiver_name
-    if (!routeSetting.enabled) {
-      // 建议值 ≠ 生效值：明确说"未接管"，并把建议标成建议。
-      return `${routePart}；未匹配任何规则的告警**未指定**接收人，平台未接管。${receiver} 只是建议值，选定后才会生效。`
-    }
-    const source = ROUTE_SOURCE_LABEL[routeSetting.effective_source]
-    return `${routePart}；未匹配任何规则的告警发往 ${receiver}（${source}，平台已接管）。`
-  }, [routeSetting])
-
-  /**
-   * 兜底接收人控件行的状态结论（并入控件行，替代原先独立的第三段说明）。
-   *
-   * ⚠️ **不得在此复述渠道名**（2026-10-08 用户实测「用户角度不知道怎么知道这就是兜底策略」）：
-   * 结论与下拉框是**并列的两个独立元素**，若结论里再写一遍渠道名，界面上没有任何一处
-   * 明说"二者是同一个"，用户被迫做一道连线题（更糟的是渠道名可能像「腾讯云边缘域-飞书」
-   * 那样带无关字样，看着像一个网域而非一张飞书卡片）。
-   * 故结论**只说状态**、用「你选中的渠道」回指控件，把对应关系说清而不重复内容。
-   *
-   * 同理严格区分「已生效」与「建议」：`enabled=true` 才称"已接管"，
-   * 否则说"未接管"并把 effective_receiver_name 标为建议值（§11.9 契约）。
-   */
-  const fallbackConclusion = useMemo(() => {
-    if (!routeSetting) return null
-    if (routeSetting.effective_source === 'none') {
-      return { tone: 'none' as const, text: '当前无可用渠道，平台不接管' }
-    }
-    if (routeSetting.enabled) {
-      return { tone: 'on' as const, text: '已接管：这类告警发往你选中的渠道' }
-    }
-    return {
-      tone: 'off' as const,
-      text: `未接管${routeSetting.effective_receiver_name ? `（已启用渠道里的第一个是建议值，选定后生效）` : ''}`,
-    }
-  }, [routeSetting])
-  /**
    * 是否为「平台管理」模式（提案 §7.4）：决定高级区「手写配置说明」的内容——
    * managed 只讲「抑制规则是三块必写中唯一未 UI 化项」；handwritten 才展开完整三块必写 + 两块豁免。
    */
@@ -362,13 +157,24 @@ export function AlertConfigPage() {
   }
 
   /**
-   * 配置状态展示（dev-feedback §25 方案 A）：按 `applied_at` 派生，**不直读 `status`**。
-   * `status=applied` 只表示「已收录为 M09 下发源」（挂载落库那一刻即置位，此时 AM 仍加载旧文件），
-   * 唯一真实生效信号是 M09 确认下发写盘成功后回填的 `applied_at`；为空即「已提交，待确认下发」，
-   * 并附配置变更确认入口（有变更单号则深链到该单，否则落到列表页——不造死链）。
+   * 配置状态展示（dev-feedback §25 方案 A + #44 废弃联动）：按 `status` + `applied_at` 派生，
+   * **不直读 status 声称生效**。status=applied 只表示「已收录为 M09 下发源」（挂载落库那一刻
+   * 即置位，此时 AM 仍加载旧文件），唯一真实生效信号是 M09 确认下发写盘成功后回填的
+   * `applied_at`；status=discarded 为废弃终态（后端废弃联动标记），此时已无在途单可确认，
+   * 只呈现终态与恢复指引，**不再给「前往确认」入口**（不造死链）。
    */
   const renderConfigStatus = (v: ConfigStatusSource) => {
-    const view = configStatusView(v.applied_at)
+    const view = configStatusView(v.applied_at, v.status)
+    if (view.discarded) {
+      return (
+        <Space direction="vertical" size={2}>
+          <Tag color={view.color}>{view.label}</Tag>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {CONFIG_STATUS_DISCARDED_TIP}
+          </Text>
+        </Space>
+      )
+    }
     if (view.applied) {
       return <Tag color={view.color}>{view.label}</Tag>
     }
@@ -468,26 +274,23 @@ export function AlertConfigPage() {
       <ConfigProvider locale={config}>
         {/* 页头 + 说明区（四页统一，见 components/PageIntro.tsx）。
             **页头不挂主按钮**——「导入整份配置文件」是三层模型第③ 层（永久逃生舱，PRD §11.6），
-            降级为默认收起的高级区入口（提案 §7.3 方案 A）。`extra` 留空即为此故。*/}
+            但已从高级折叠区提为下方**常驻独立卡**（提案 §2.2 卡③），`extra` 留空即为此故。
+
+            2026-10-13 迁移：副标与三条要点重写为「查看当前生效的配置与历史版本」。
+            原副标「设置『告警发给谁、按什么条件分』」与前两条要点描述的正是迁走的两个策略控件，
+            继续保留会让用户在本页找已不存在的控件；原第 5 条「两开关独立性」已随决策五
+            原句落位到「路由规则」页兜底控件旁（见 ROUTE_SETTING_MODE_INDEPENDENCE_TIP）。*/}
         <PageIntro
           testId="alert-config-intro"
           title="告警配置"
-          subtitle="设置「告警发给谁、按什么条件分」；改动经配置中心（M09）变更单，确认后统一下发生效"
-          // 刻意不写「已启用渠道的接收人由平台自动写入」——同一事实在手写说明引导句里已说，
-          // 且动线卡已给出「通知渠道」入口；此处复述即噪音（2026-10-02 去重原则：每个事实只在一处说）。
+          subtitle="查看当前生效的告警配置与历史版本；改动经配置中心（M09）变更单，确认后统一下发生效"
           points={[
-            '本页管两件事：未匹配任何规则的告警发给谁，以及路由规则由你来编辑还是由平台生成。',
+            '本页是只读视图：看当前生效的是哪一版配置，以及历史上过哪些版本（可查看内容留痕）。',
             <>
-              告警规则（什么情况下算告警）在「规则编辑」维护，本页只管「告警发给谁、怎么收敛」。{' '}
-              <RuleGuideLink />
+              告警规则（什么情况下算告警）在「规则编辑」维护；谁收到告警（通知渠道）、按什么条件分发（路由规则）
+              都在各自页面维护，本页不再承载策略配置。 <RuleGuideLink />
             </>,
             '所有改动都不会即时生效：提交后进入配置中心（M09）变更单，人工确认后统一下发。',
-            // ↓ 2026-10-08 策略卡瘦身：以下两条从策略卡正文移入此处（默认收起）。
-            // 原先它们与控件同屏常驻，导致「未匹配规则的告警发给谁」这一个事实被说 4 遍
-            // （顶部状态句 / 控件下状态行 / 蓝线长段 / 控件本身），用户反馈"信息量过大、非常费力"。
-            // 按「每个事实只在一处说」：控件含义留控件旁，机制解释归说明区。
-            '选定渠道后，平台只在生成配置时把「没匹配到任何具体规则的告警」统一发往它；你已有的具体分流规则不受影响、且优先于它。平台不会改动你的分组、发送节奏等其它设置。',
-            '注意：「这类告警发给哪个渠道」和「路由规则由谁维护」是两个独立开关——即使路由由你手写，平台仍会接管这一项。',
           ]}
         />
 
@@ -503,133 +306,7 @@ export function AlertConfigPage() {
           />
         )}
 
-        {/* ① 策略卡（提案 §7.3，提级为首屏第一卡）：两个治理策略控件脱离「版本元数据」卡，独占一张卡。
-
-            2026-10-08 瘦身：卡内**只有两行**（兜底接收人 / 路由规则由谁维护），每行 = 控件 + 一句结论。
-            原先的顶部状态句、控件下状态行、底部蓝线长段**三处冗余**已移除：
-              - 顶部状态句 → 删除（其「建议值当生效值」的错误已由 `policySummary` 修正，结论并入控件行）；
-              - 控件下状态行 → 并入控件行右侧 `fallback-conclusion` Tag（控件值与结论并排可对照）；
-              - 底部蓝线长段（诚实口径） → 移入 `PageIntro.points`（默认收起）。
-            「每个事实只在一处说」：控件含义留控件旁，机制解释归说明区。 */}
-        <Card
-          title={ALERT_POLICY_CARD_TITLE}
-          style={{ marginBottom: 16 }}
-          data-testid="alert-policy-card"
-        >
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {/* 控件一：未匹配规则的告警发给谁（原「默认兜底接收人」，去技术化术语）。
-                状态结论**并入本行右侧**（原为独立第三段说明，2026-10-08 瘦身）：
-                同一事实只在一处说，且控件值与结论并排可对照——避免出现
-                「下拉框显示不接管、别处却说发往 X」的自相矛盾观感。 */}
-            <div>
-              <Space size={8} align="center" wrap>
-                <Text strong>{ALERT_POLICY_FALLBACK_LABEL}</Text>
-                <Select<number>
-                  aria-label={ALERT_POLICY_FALLBACK_LABEL}
-                  value={routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE}
-                  options={routeOptions}
-                  loading={routeLoading}
-                  disabled={routeLoading || routeSaving}
-                  style={{ minWidth: 320 }}
-                  onChange={handleDefaultReceiverChange}
-                />
-                {fallbackConclusion && (
-                  <Tag
-                    color={fallbackConclusion.tone === 'on' ? 'success' : 'default'}
-                    data-testid="fallback-conclusion"
-                  >
-                    {fallbackConclusion.text}
-                  </Tag>
-                )}
-              </Space>
-            </div>
-
-            {/* 控件二：路由规则由谁维护（原「路由规则作者模式」）。用 Segmented 表达「二选一模式」而非
-                Switch 的「开/关」——Switch 语义上无法表达两种模式的互斥选择（用户 2026-10-02 拍板）。
-
-                控件含义**只在此处说一次**（模式提示行）：Segmented 只有两个短词，承载不了
-                「选了之后路由规则页会怎样」——而这正是 2026-10-08 实测中被误解的点
-                （旧文案「我手写」被理解成"我在页面里手写"，实际选了之后页面变只读）。 */}
-            <div>
-              <Space size={8} align="center" wrap>
-                <Text strong>{ALERT_POLICY_ROUTE_MODE_LABEL}</Text>
-                <Segmented
-                  aria-label={ALERT_POLICY_ROUTE_MODE_LABEL}
-                  value={routeSetting?.mode === 'managed' ? 'managed' : 'handwritten'}
-                  disabled={routeLoading || routeSaving}
-                  options={[
-                    { label: ALERT_POLICY_MODE_HANDWRITTEN, value: 'handwritten' },
-                    { label: ALERT_POLICY_MODE_MANAGED, value: 'managed' },
-                  ]}
-                  onChange={(value) => handleRouteModeChange(value as RouteMode)}
-                />
-              </Space>
-              <Text
-                type="secondary"
-                style={{ display: 'block', marginTop: 4, fontSize: 12 }}
-                data-testid="policy-mode-tip"
-              >
-                {routeSetting?.mode === 'managed'
-                  ? ALERT_POLICY_MODE_TIP[ALERT_POLICY_MODE_MANAGED]
-                  : ALERT_POLICY_MODE_TIP[ALERT_POLICY_MODE_HANDWRITTEN]}
-              </Text>
-            </div>
-
-            {routeError ? (
-              <Text type="danger">
-                设定加载失败：{routeError}{' '}
-                <Button size="small" type="link" onClick={reloadRouteSetting}>
-                  重试
-                </Button>
-              </Text>
-            ) : null}
-
-            {/* 两个开关的**关系**结论（§6.3：手写模式下平台仍接管兜底单键）——
-                2026-10-08 起**视觉隐藏**：该关系属"读卡要懂的关系"，不是"当前状态"，
-                同屏常驻会与两个控件各自的结论争抢注意力（实测"信息量过大"的主因之一）。
-                改为 screen-reader only：读屏用户与自动化测试仍能拿到这段关键事实，
-                视觉用户则由 PageIntro.points 第 5 条承载同一信息（默认收起）。 */}
-            <span
-              data-testid="policy-summary"
-              style={{
-                position: 'absolute',
-                width: 1,
-                height: 1,
-                padding: 0,
-                margin: -1,
-                overflow: 'hidden',
-                clip: 'rect(0, 0, 0, 0)',
-                whiteSpace: 'nowrap',
-                border: 0,
-              }}
-            >
-              {policySummary}
-            </span>
-          </Space>
-        </Card>
-
-        {/* ② 动线卡（提案 §7.3）：回答「我该去哪配」。原页面无任何跨页动线，用户只能靠左侧菜单猜。
-            抑制规则为「三块必写」中唯一未 UI 化项（dev-feedback #37），本期只标注不实现、
-            **不静默消失**（否则用户以为配完了）。 */}
-        <Card
-          title={ALERT_GUIDE_CARD_TITLE}
-          style={{ marginBottom: 16 }}
-          data-testid="alert-guide-card"
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <GuideLink to={NOTIFY_CHANNELS_PATH} icon={<ApiOutlined />} title="通知渠道" desc="谁收到告警" testId="guide-channels" />
-            <GuideLink to="/routes" icon={<ApartmentOutlined />} title="路由规则" desc="按什么条件分发" testId="guide-routes" />
-            <GuideLink to={NOTIFY_TEMPLATES_PATH} icon={<FileTextOutlined />} title="通知模板" desc="通知长什么样" testId="guide-templates" />
-            {/* 缺口显式化：抑制规则无独立 UI（#37），不静默消失 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} data-testid="guide-inhibit">
-              <Text strong style={{ color: 'var(--color-text-tertiary)' }}>告警抑制</Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>根因告警发生时自动抑制次生告警</Text>
-              <Tag color="warning">{ALERT_GUIDE_INHIBIT_COMING}</Tag>
-            </div>
-          </div>
-        </Card>
-
-        {/* ③ 现状卡（提案 §7.3 瘦身）：只讲「现在生效的是什么」——一行状态摘要 + 版本元数据；
+        {/* ① 现状卡（2026-10-13 迁移后为首屏第一卡，提案 §2.2 卡①）：只讲「现在生效的是什么」——一行状态摘要 + 版本元数据；
             完整 YAML 降为默认折叠（原为 maxHeight 420 常驻展开，是首屏YAML 散落的源头之一）。 */}
         <Card
           title="当前生效"
@@ -687,7 +364,7 @@ export function AlertConfigPage() {
               />
             </>
           ) : (
-            <Empty description="当前无生效配置。可在下方「高级」区导入整份配置文件，或先用「通知渠道」「路由规则」在界面上配置。" />
+            <Empty description="当前无生效配置。可在下方「希望直接编辑整份 alertmanager.yml？」卡导入整份配置文件，或先用「通知渠道」「路由规则」在界面上配置。" />
           )}
         </Card>
 
@@ -727,123 +404,104 @@ export function AlertConfigPage() {
           />
         </Card>
 
-        {/* ⑤ 高级区（提案 §7.3，默认收起）：整份文件导入 + 手写配置说明。
-            整份文件导入是三层模型第③ 层（永久逃生舱，PRD §11.6）——**降级不删除**。
-            2026-10-02 用户意见：「平台自动生成的接收人」已迁至「通知渠道」页（作为渠道表格的
-            「平台接收人」列，明细/复制走该页行内「接收人配置」抽屉）——它是渠道的产物、只在
-            渠道上下文里有意义，故不再以只读面板形式重复出现在本页高级区。 */}
+        {/* ④ 导入整份配置文件（2026-10-13 迁移：提为**常驻卡**，提案 §2.2 卡③）。
+            三层模型第③ 层（永久逃生舱，PRD §11.6 / 决策 113）——降级不删除，但**不能降级到默认收起的
+            折叠区**：收进高级区等于在主路径下被隐藏，与「任何模式下逃生门都可达」的承诺相悖（验收 A11）。
+            故从高级 Collapse 提出，与「当前生效」「版本历史」并列常驻。 */}
+        <Card
+          title={ALERT_IMPORT_CARD_TITLE}
+          style={{ marginBottom: 16 }}
+          data-testid="alert-import-card"
+        >
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              上传或粘贴完整 alertmanager.yml，覆盖当前配置；校验通过后进入变更确认
+            </Text>
+            <div>
+              <Button icon={<UploadOutlined />} onClick={() => openMount()} data-testid="import-config-button">
+                {ALERT_IMPORT_LABEL}
+              </Button>
+            </div>
+          </Space>
+        </Card>
+
+        {/* ⑤ 手写配置说明（默认收起）：手写逃生门的使用说明。
+            抑制规则是「三块必写」中唯一未 UI 化项（dev-feedback #37），故不得整体删除本区。
+            2026-10-13 迁移：导入入口提为常驻卡后，本区只剩这一个折叠项，故**展平为单层**
+            （原为「高级区 → 手写说明」两层嵌套；嵌套已无必要，`stopHeaderClick` 随之移除）。 */}
         <Collapse
           size="small"
           style={{ marginBottom: 16 }}
           data-testid="alert-advanced-collapse"
           items={[
             {
-              key: 'advanced',
+              key: 'guide',
               label: (
                 <Space size={8} wrap data-testid="advanced-collapse-label">
-                  <UploadOutlined style={{ color: tokens.colorInfo }} />
-                  <Text strong>{ALERT_ADVANCED_CARD_TITLE}</Text>
+                  <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
+                  <Text>{ALERT_ADVANCED_GUIDE_TITLE}</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    高级用户用：直接上传或粘贴完整 alertmanager.yml
+                    导入整份 alertmanager.yml 时，必写 / 不用你写的内容说明
                   </Text>
                 </Space>
               ),
               children: (
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  {/* 导入入口：原页头主按钮「挂载新配置」在此降级为普通按钮（不再是页面主操作）。
-                      不再叠一层「导入整份配置文件」粗体标题——外层折叠标题已含同一句，重复即噪音。 */}
-                  <div>
-                    <Space size={8} wrap style={{ marginBottom: 8 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        上传或粘贴完整 alertmanager.yml，覆盖当前配置；校验通过后进入变更确认
-                      </Text>
-                    </Space>
-                    <Button icon={<UploadOutlined />} onClick={() => openMount()} data-testid="import-config-button">
-                      {ALERT_ADVANCED_IMPORT_LABEL}
-                    </Button>
-                  </div>
-
-                  {/* 手写配置说明（按 mode 条件化，提案 §7.4）：managed 只讲抑制规则缺口，
-                      handwritten 才展开完整「三块必写 + 两块豁免 + 最小骨架」。
-                      抑制规则是三块必写中唯一未 UI 化项（dev-feedback #37），故不得整体删除本区。
-                      2026-10-02：内层label 必须 stopPropagation —— 否则点击会冒泡到外层高级区
-                      Collapse 的 header，把整个高级区收起（嵌套 Collapse 的经典坑）。 */}
-                  <div onClick={stopHeaderClick}>
-                    <Collapse
-                      ghost
-                      size="small"
-                      items={[
-                      {
-                        key: 'guide',
-                        label: (
-                          <Space size={8} data-testid="guide-collapse-label">
-                            <InfoCircleOutlined style={{ color: tokens.colorInfo }} />
-                            <Text>{ALERT_ADVANCED_GUIDE_TITLE}</Text>
-                          </Space>
-                        ),
-                        children: (
-                          <div
-                            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
-                            data-testid="handwritten-guide-content"
-                          >
-                            {isManagedMode ? (
-                              <Text type="secondary">{ALERT_ADVANCED_GUIDE_MANAGED}</Text>
-                            ) : (
-                              <>
-                                <Text>{ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO}</Text>
-                                <div>
-                                  <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                                    {ALERT_CONFIG_REQUIRED_BLOCKS.map((block) => (
-                                      <li key={block.key} style={{ marginBottom: 4 }}>
-                                        <Text strong>{block.title}</Text>
-                                        <Text code style={{ margin: '0 6px' }}>{block.fields}</Text>
-                                        <Text type="secondary">{block.desc}</Text>
-                                        {block.path ? (
-                                          <Text type="secondary">
-                                            ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
-                                          </Text>
-                                        ) : null}
-                                      </li>
-                                    ))}
-                                  </ol>
-                                </div>
-                                <div>
-                                  <Text strong>这两块不用你写：</Text>
-                                  <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                                    {ALERT_CONFIG_EXEMPT_BLOCKS.map((block) => (
-                                      <li key={block.key} style={{ marginBottom: 4 }}>
-                                        <Text strong>{block.title}</Text>
-                                        <Text type="secondary">
-                                          ：{block.desc}
-                                          {block.path ? (
-                                            <>
-                                              ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
-                                            </>
-                                          ) : null}
-                                        </Text>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
-                                <div>
-                                  <Space size={8} style={{ marginBottom: 8 }}>
-                                    <Text strong>最小可运行 alertmanager.yml 骨架</Text>
-                                    <Tag color="processing">已通过配置校验</Tag>
-                                  </Space>
-                                  <pre style={{ ...yamlBlockStyle, maxHeight: 320 }}>{ALERTMANAGER_MIN_SKELETON}</pre>
-                                  <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
-                                    点上方「{ALERT_ADVANCED_IMPORT_LABEL}」后，可在抽屉里用「插入骨架示例」一键填入这份骨架。
-                                  </Text>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ),
-                      },
-                    ]}
-                    />
-                  </div>
-                </Space>
+                <div
+                  style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+                  data-testid="handwritten-guide-content"
+                >
+                  {isManagedMode ? (
+                    <Text type="secondary">{ALERT_ADVANCED_GUIDE_MANAGED}</Text>
+                  ) : (
+                    <>
+                      <Text>{ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO}</Text>
+                      <div>
+                        <ol style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
+                          {ALERT_CONFIG_REQUIRED_BLOCKS.map((block) => (
+                            <li key={block.key} style={{ marginBottom: 4 }}>
+                              <Text strong>{block.title}</Text>
+                              <Text code style={{ margin: '0 6px' }}>{block.fields}</Text>
+                              <Text type="secondary">{block.desc}</Text>
+                              {block.path ? (
+                                <Text type="secondary">
+                                  ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
+                                </Text>
+                              ) : null}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                      <div>
+                        <Text strong>这两块不用你写：</Text>
+                        <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
+                          {ALERT_CONFIG_EXEMPT_BLOCKS.map((block) => (
+                            <li key={block.key} style={{ marginBottom: 4 }}>
+                              <Text strong>{block.title}</Text>
+                              <Text type="secondary">
+                                ：{block.desc}
+                                {block.path ? (
+                                  <>
+                                    ，前往<Link to={block.path}>{block.linkText ?? '详情'}</Link>
+                                  </>
+                                ) : null}
+                              </Text>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <Space size={8} style={{ marginBottom: 8 }}>
+                          <Text strong>最小可运行 alertmanager.yml 骨架</Text>
+                          <Tag color="processing">已通过配置校验</Tag>
+                        </Space>
+                        <pre style={{ ...yamlBlockStyle, maxHeight: 320 }}>{ALERTMANAGER_MIN_SKELETON}</pre>
+                        <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                          点上方「{ALERT_IMPORT_LABEL}」后，可在抽屉里用「插入骨架示例」一键填入这份骨架。
+                        </Text>
+                      </div>
+                    </>
+                  )}
+                </div>
               ),
             },
           ]}

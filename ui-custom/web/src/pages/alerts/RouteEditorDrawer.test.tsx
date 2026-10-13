@@ -59,7 +59,7 @@ const sampleNode = editNode({
 })
 
 const renderDrawer = (over: Partial<Parameters<typeof RouteEditorDrawer>[0]> = {}) => {
-  const onSubmit = over.onSubmit ?? vi.fn()
+  const onSubmit = (over.onSubmit ?? vi.fn()) as ReturnType<typeof vi.fn>
   const utils = render(
     <RouteEditorDrawer
       open
@@ -225,6 +225,33 @@ describe('RouteEditorDrawer（路由规则三段式表单 v0.3-b）', () => {
     renderDrawer({ node: blankRouteNode('root', '') })
     expect(await screen.findByText('编辑路由规则')).toBeInTheDocument()
     expect(screen.getByText(/顶层路由，不可删除、不可移动/)).toBeInTheDocument()
+  })
+
+  // T08-SPLIT-01 决策一（提案 §3.1 方案 A，验收 A6）：平台生成模式下顶层路由 receiver **只读**——
+  // 兜底控件（「路由设置」里的「没匹配到具体规则的告警，发给哪个渠道」）是唯一可改入口。
+  // 后端 materializeRootRouteReceiver 每次生成都会覆盖根 receiver，此处改了也会被静默改回去。
+  it('决策一（A6）：顶层路由的接收人只读，下拉禁用并指向唯一可改入口', async () => {
+    renderDrawer({
+      node: editNode({ id: 'root', parent_id: '', name: '顶层路由（兜底）', receiver: 'notify-1' }),
+      knownReceivers: ['notify-1', 'notify-2'],
+    })
+    expect(await screen.findByText('③ 发给谁、怎么发')).toBeInTheDocument()
+    // 接收人下拉禁用（不可就地改兜底）
+    expect(screen.getByLabelText('接收人').closest('.ant-select')).toHaveClass('ant-select-disabled')
+    // 说明指向唯一可改入口，避免用户在此反复试
+    const tip = screen.getByTestId('route-editor-receiver-readonly-tip')
+    expect(tip).toHaveTextContent('由上方「路由设置」里的「没匹配到具体规则的告警，发给哪个渠道」决定')
+    expect(tip).toHaveTextContent('此处不可直接修改')
+    // 只读说明优先于悬空红字：即使根 receiver 未在已启用清单里，也只提示去路由设置改
+    expect(screen.queryByTestId('route-editor-receiver-dangling')).toBeNull()
+  })
+
+  // 子路由的接收人仍可编辑：只读只针对顶层路由，不得连坐
+  it('决策一（A6）作用域：子路由接收人下拉仍可编辑，说明文案回落到常规提示', async () => {
+    renderDrawer()
+    expect(await screen.findByText('③ 发给谁、怎么发')).toBeInTheDocument()
+    expect(screen.getByLabelText('接收人').closest('.ant-select')).not.toHaveClass('ant-select-disabled')
+    expect(screen.queryByTestId('route-editor-receiver-readonly-tip')).toBeNull()
   })
 })
 
@@ -541,6 +568,22 @@ describe('RouteEditorDrawer v0.3-c 联动（T08-F13）', () => {
     expect(screen.getByTestId('route-editor-save')).toBeEnabled()
     fireEvent.click(screen.getByTestId('route-editor-save'))
     await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+  })
+
+  // 接收人命名可读性：平台物化 receiver 显示「渠道名（notify-N）」，手写 receiver 标注来源
+  it('接收人下拉：平台 receiver 显示渠道名，手写 receiver 标注「手写」', async () => {
+    renderDrawer({
+      knownReceivers: ['notify-1', 'feishu', 'default'],
+      receiverOptions: ['notify-1', 'feishu', 'default'],
+      receiverChannelNames: { 'notify-1': '运维告警飞书群' },
+    })
+    expect(await screen.findByText('③ 发给谁、怎么发')).toBeInTheDocument()
+    openSelect('接收人')
+    // 平台物化的 notify-1 → 「运维告警飞书群（notify-1）」
+    await waitFor(() => expect(optionTitles()).toContain('运维告警飞书群（notify-1）'))
+    // 已知集合内却查不到渠道映射的 receiver → 标注「手写」来源（feishu / default 均属文件声明）
+    expect(optionTitles()).toContain('feishu（手写）')
+    expect(optionTitles()).toContain('default（手写）')
   })
 
   // 验收 2：分组键 Tags 联想（复用 label-options，零后端改动）

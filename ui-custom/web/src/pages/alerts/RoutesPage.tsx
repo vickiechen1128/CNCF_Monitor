@@ -4,12 +4,25 @@
  * 契约：Module_08 §11.7（列表态 / 编辑态）/ §9.1（v0.3-a / v0.3-b）；task-sequence T08-F10 / T08-F11。
  * 数据：`GET /api/v2/platform/alertmanager/routes`（T08-12，仅全局认证、只读无写能力）。
  *
- * 模式定位（PRD §11.7 / 提案 §4.3「单一作者 + 模式开关」）：
- * - **我来编辑**（handwritten，用户可见词）：本页可写——新建 / 编辑 / 删除 / 上移下移 / 拖拽 /
+ * 模式定位（PRD §11.7 L750-752 / 提案 §4.3「单一作者 + 模式开关」；门禁 `isRouteEditable`）：
+ * - **平台生成**（managed，用户可见词）：本页可写——新建 / 编辑 / 删除 / 上移下移 / 拖拽 /
  *   保存并提交变更，保存 = 生成整份 alertmanager.yml → 复用既有 `POST /api/v2/platform/alertmanager/config`
  *   （**零新增端点**）→ 触发 M09 变更单，**不即时生效**；
- * - **平台生成**（managed，用户可见词）：本页整体只读（无新建 / 编辑 / 拖拽入口），
- *   只把文件里的 route 渲染成树帮用户看懂；整份配置由用户在告警配置页高级区手写。
+ * - **我来编辑**（handwritten，用户可见词）：本页整体只读（无新建 / 编辑 / 拖拽入口），
+ *   整份 route 由用户在告警配置页手写，本页只把文件里的 route 渲染成树帮用户看懂。
+ *
+ * 2026-10-13（提案 alert-config-policy-split-migration.md）：**路由设置常驻卡**迁入本页
+ * （原在告警配置页「路由与收敛策略」卡）。两个控件与顶层路由同屏，避免用户改一处、
+ * 另一处被后端 `materializeRootRouteReceiver` 静默覆盖：
+ *   - 控件 A「路由规则由谁维护」= 本页 mode（Segmented，保留二次确认）；
+ *   - 控件 B「没匹配到具体规则的告警，发给哪个渠道」= 顶层路由的兜底接收人（Select）。
+ * 模式切「我来编辑」时兜底**自动置「不接管」**（决策二），并与模式合并进**同一次 PUT**
+ * （决策三）；切回「平台生成」不自动接管（决策四）。
+ *
+ * ⚠ 2026-10-13 修正：本头注释与页面文案曾把两个模式的**页面可编辑性写反**（写成
+ * handwritten=可写 / managed=只读），与门禁 `isRouteEditable`（managed 可写）、PRD §11.7
+ * 及生产行为均矛盾——根因是 commit 86331a0 标签重命名时文案方向整体写反、门禁未动。
+ * 后续改动请以门禁为准：**managed=本页可写，handwritten=本页只读**。
  *
  * ⚠ 2026-10-08 修订：模式选项旧称「我手写 / 平台管理」，实测被判歧义——「我手写」天然
  * 承诺"我在页面里写"，而实际含义是"平台别生成、我去高级区手写 YAML"，该层含义只写在
@@ -31,6 +44,8 @@ import {
   Button,
   Card,
   Empty,
+  Segmented,
+  Select,
   Space,
   Table,
   Tag,
@@ -50,8 +65,21 @@ import {
 import { EllipsisText } from '../../components/EllipsisText'
 import { PageIntro } from '../../components/PageIntro'
 import { MainLayout } from '../../layouts/MainLayout'
-import { ALERT_CONFIG_PATH, CONFIG_PREVIEW_PATH, NOTIFY_CHANNELS_PATH, formatMatchers } from './alertmanagerConstants'
+import {
+  CONFIG_PREVIEW_PATH,
+  NOTIFY_CHANNELS_PATH,
+  ROUTE_MODE_HANDWRITTEN,
+  ROUTE_MODE_MANAGED,
+  ROUTE_MODE_TIP,
+  ROUTE_ROOT_FALLBACK_TAG,
+  ROUTE_SETTING_CARD_TITLE,
+  ROUTE_SETTING_FALLBACK_LABEL,
+  ROUTE_SETTING_MODE_INDEPENDENCE_TIP,
+  ROUTE_SETTING_MODE_LABEL,
+  formatMatchers,
+} from './alertmanagerConstants'
 import { isRouteEditable, useRouteEditor, useRoutes } from './useRoutes'
+import { NONE_RECEIVER_VALUE, useRouteSetting } from './useRouteSetting'
 import {
   blankRouteNode,
   canBeParent,
@@ -71,20 +99,20 @@ const ROUTE_ORDER_TIP = '路由顺序 = 生效顺序：先匹配到的先生效'
 /**
  * 模式徽标文案（T08-F12）。
  *
- * ⚠ 措辞与告警配置页的 Segmented 选项**必须一致**（同一个 mode 的两种表述）：
- * 「我来编辑」= 本页可编辑；「平台生成」= 本页只读。2026-10-08 修订前此处用
- * 「手写接管 / 平台管理」，与配置页选项「我手写 / 平台管理」对不上，且「接管」暗示
- * 冲突（实为二选一），故一并对齐为同一套词。
+ * ⚠ 措辞与下方 Segmented 选项**必须一致**（同一个 mode 的两种表述，故共用同一套常量）：
+ * 「平台生成」= 平台产出路由、本页可编辑；「我来编辑」= 用户自己手写整份配置、本页只读。
+ * 2026-10-08 修订前此处用「手写接管 / 平台管理」，与配置页选项「我手写 / 平台管理」对不上，
+ * 且「接管」暗示冲突（实为二选一），故一并对齐为同一套词。
  */
 const ROUTE_MODE_LABEL: Record<RouteMode, string> = {
-  handwritten: '我来编辑',
-  managed: '平台生成',
+  handwritten: ROUTE_MODE_HANDWRITTEN,
+  managed: ROUTE_MODE_MANAGED,
 }
 
-/** 模式徽标配色：可编辑=处理中（蓝）；只读=中性 */
+/** 模式徽标配色：可编辑（managed）=处理中（蓝）；只读（handwritten）=中性（2026-10-13 随方向修正对调） */
 const ROUTE_MODE_COLOR: Record<RouteMode, string> = {
-  handwritten: 'processing',
-  managed: 'default',
+  handwritten: 'default',
+  managed: 'processing',
 }
 
 /** 顶层路由锁定说明（Tooltip）。去技术化：不说「route: 本体」，用户语言只说「顶层路由」。 */
@@ -135,12 +163,153 @@ const YAML_BLOCK_STYLE = {
 
 export function RoutesPage() {
   const { data, rows, loading, error, ready, reload } = useRoutes()
-  const { modal } = App.useApp()
-  const mode: RouteMode = data?.mode ?? 'handwritten'
+  const { modal, message } = App.useApp()
+  // 路由设置（兜底渠道 + 模式）：原挂告警配置页，2026-10-13 按提案迁入本页常驻卡。
+  const {
+    setting: routeSetting,
+    options: routeOptions,
+    loading: routeLoading,
+    error: routeError,
+    saving: routeSaving,
+    reload: reloadRouteSetting,
+    save: saveRouteSetting,
+  } = useRouteSetting()
+  // 模式以 `useRouteSetting` 为准（保存后即刻生效，无需等只读树重新拉取）；
+  // 该接口未回前退回只读树携带的 mode —— 两个来源同源于后端 route-setting。
+  const mode: RouteMode = routeSetting?.mode ?? data?.mode ?? 'handwritten'
   const parseError = (data?.parse_error ?? '').trim()
   const degraded = parseError.length > 0
   const deadReceivers: DeadReceiver[] = data?.dead_receivers ?? []
   const editable = isRouteEditable(mode)
+
+  /**
+   * 没匹配到具体规则的告警发给谁（T08-F8 / 决策 113 口径 C）。
+   * 护栏①：选定某个渠道 = 授权平台接管兜底，必须先经二次确认，文案明示注入点（只替换根 receiver 单键）。
+   * 护栏③：选「不接管」= 停止替换、不删最后写入的值——无阻断交互，保存后明示结果。
+   */
+  const handleFallbackChange = (value: number) => {
+    const saved = routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE
+    if (value === saved) return
+    if (value === NONE_RECEIVER_VALUE) {
+      void saveRouteSetting(null)
+        .then(() => message.success('已停止由平台指定这条兜底接收人；最后写入的值保留在配置文件中，可随时手改'))
+        .catch((e) => message.error(e instanceof Error ? e.message : '保存失败，请稍后重试'))
+      return
+    }
+    // 确认弹窗与结论 Tag 同理（2026-10-08）：**展示渠道名**，不展示平台内部接收人名
+    // （`notify-1` 对用户判断"选了哪个渠道"无帮助，反而像技术串）。
+    const targetName = routeOptions.find((o) => o.value === value)?.label ?? String(value)
+    modal.confirm({
+      title: '确认由平台接管这类告警？',
+      content:
+        `平台将在每次生成配置时，把「没有匹配到任何具体规则的告警」统一发往「${targetName}」；` +
+        '你写的具体分流规则不受影响（它们优先于这一项）。' +
+        '平台只替换这一个值：不触碰 group_by / group_wait / group_interval / repeat_interval / continue，也不写入具体分流规则。',
+      okText: '确认指定',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await saveRouteSetting(value)
+          message.success(`已选定：这类告警发往「${targetName}」`)
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '保存失败，请稍后重试')
+        }
+      },
+    })
+  }
+
+  /**
+   * 路由规则由谁维护（T08-F12）：handwritten（我来编辑）/ managed（平台生成）。
+   * 护栏 §11.6：切到 handwritten 不会删除已生成的路由内容，仅改变后续生成归属（平台不再覆盖）。
+   * 二次确认文案**明说页面可编辑性**，方向以门禁 `isRouteEditable` 为准：managed 可写、handwritten 只读。
+   *
+   * ⚠ 决策二 + 决策三（2026-10-13）：切到「我来编辑」时兜底**自动置「不接管」**
+   * （后端 `materializeRootRouteReceiver` 不判 mode，手写模式下平台仍会替换根接收人），
+   * 且该伴随声明必须与模式**合并进同一次 `PUT route-setting`** —— 拆成两次请求会产生
+   * 用户未主动发起的独立变更单，违反决策 42-1。切回「平台生成」**不自动接管**（决策四）。
+   */
+  const handleModeChange = (next: RouteMode) => {
+    if (next === mode) return
+    const toManaged = next === 'managed'
+    const currentChannelId = routeSetting?.default_receiver_channel_id ?? null
+    const currentChannelName = currentChannelId
+      ? (routeOptions.find((o) => o.value === currentChannelId)?.label ?? String(currentChannelId))
+      : null
+    // 决策二：仅在切到手写且当前确有接管渠道时才伴随置「不接管」；
+    // 已是「不接管」时不再重复声明，避免变更单出现无意义的同值项。
+    const releaseFallback = !toManaged && currentChannelId !== null
+    modal.confirm({
+      title: toManaged ? `切换为「${ROUTE_MODE_MANAGED}」？` : `切换为「${ROUTE_MODE_HANDWRITTEN}」？`,
+      content: toManaged
+        ? '切换后，路由规则由平台产出：你可在「路由规则」页直接增删改路由、保存提交变更，平台按页面改动生成整份配置。' +
+          '注意：此后你在配置文件里手写的分流规则会被平台生成内容覆盖。'
+        : '切换后，路由规则页变为只读视图，你在告警配置页的「导入整份配置文件」里手写整份配置。' +
+          `注意：切换不会删除已生成的路由内容，只改变后续产出归属。${
+            releaseFallback
+              ? `平台将不再接管顶层路由的兜底接收人（当前：${currentChannelName} → 不接管），你的整份配置会被原样保留。`
+              : '平台当前未接管顶层路由的兜底接收人，保持不变。'
+          }`,
+      okText: '确认切换',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          // 决策三：合并为**同一次** PUT（mode + default_receiver_channel_id），不发第二个请求。
+          await saveRouteSetting(releaseFallback ? null : currentChannelId, next)
+          message.success(
+            toManaged
+              ? `已切换为「${ROUTE_MODE_MANAGED}」：可在路由规则页直接编辑`
+              : `已切换为「${ROUTE_MODE_HANDWRITTEN}」：本页转为只读（已生成内容保留）`,
+          )
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '保存失败，请稍后重试')
+        }
+      },
+    })
+  }
+
+  /**
+   * 兜底控件行的状态结论（并入控件行）。
+   *
+   * ⚠️ **不得在此复述渠道名**（2026-10-08 用户实测）：结论与下拉框是**并列的两个独立元素**，
+   * 若结论里再写一遍渠道名，界面上没有任何一处明说"二者是同一个"，用户被迫做连线题。
+   * 故结论**只说状态**、用「你选中的渠道」回指控件。
+   *
+   * 同理严格区分「已生效」与「建议」：`enabled=true` 才称"已接管"，否则说"未接管"并把
+   * `effective_receiver_name` 标为建议值（§11.9 契约）。
+   */
+  const fallbackConclusion = useMemo(() => {
+    if (!routeSetting) return null
+    if (routeSetting.effective_source === 'none') {
+      return { tone: 'none' as const, text: '当前无可用渠道，平台不接管' }
+    }
+    if (routeSetting.enabled) {
+      return { tone: 'on' as const, text: '已接管：这类告警发往你选中的渠道' }
+    }
+    return {
+      tone: 'off' as const,
+      text: `未接管${routeSetting.effective_receiver_name ? '（已启用渠道里的第一个是建议值，选定后生效）' : ''}`,
+    }
+  }, [routeSetting])
+
+  /**
+   * 两个开关的**关系**结论（原告警配置页 `policySummary`）。
+   * 视觉隐藏：关系属"读卡要懂的关系"而非"当前状态"，与两个控件各自的结论争抢注意力。
+   * 改为 screen-reader only，读屏用户与自动化测试仍能拿到这段关键事实。
+   */
+  const settingSummary = useMemo(() => {
+    const managed = mode === 'managed'
+    const routePart = managed ? '路由规则由平台生成' : '路由规则由你来编辑'
+    if (!routeSetting) return `${routePart}；正在读取设定…`
+    if (routeSetting.effective_source === 'none') {
+      return `${routePart}；未匹配任何规则的告警暂未指定接收人，平台不接管。`
+    }
+    const receiver = routeSetting.effective_receiver_name
+    if (!routeSetting.enabled) {
+      return `${routePart}；未匹配任何规则的告警**未指定**接收人，平台未接管。${receiver} 只是建议值，选定后才会生效。`
+    }
+    const source = routeSetting.effective_source === 'explicit' ? '你指定的' : '已启用渠道的第一个'
+    return `${routePart}；未匹配任何规则的告警发往 ${receiver}（${source}，平台已接管）。`
+  }, [mode, routeSetting])
 
   /**
    * 「重新载入」二次确认：丢弃当前未保存的编辑属破坏性操作，不做静默覆盖。
@@ -202,6 +371,8 @@ export function RoutesPage() {
 
   /** 已知接收人集合（H1/H2 共用）：已启用渠道物化的 AM receiver 名，用于悬空校验与「未定义」渲染 */
   const knownReceiverSet = useMemo(() => new Set(editor.knownReceivers), [editor.knownReceivers])
+  /** 平台物化 receiver → 渠道中文名：列表 / 抽屉把 `notify-N` 显示成用户认识的渠道名 */
+  const receiverChannelNames = editor.receiverChannelNames
 
   const [editingNode, setEditingNode] = useState<RouteEditNode | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -307,6 +478,13 @@ export function RoutesPage() {
               {routeDisplayName(row.name, row.locked)}
             </EllipsisText>
             {row.locked && <Tag color="blue">顶层</Tag>}
+            {/* 顶层路由的接收人由上方「路由设置」决定（决策一 / §4.2），本页不可直接改。
+                行内明写，避免用户盯着这一行反复找「接收人」下拉。 */}
+            {row.locked && editable && (
+              <Tag color="default" data-testid="route-root-fallback-tag">
+                {ROUTE_ROOT_FALLBACK_TAG}
+              </Tag>
+            )}
           </span>
         ),
       },
@@ -335,10 +513,42 @@ export function RoutesPage() {
               </Tooltip>
             )
           }
+          // 平台物化的 receiver（notify-N）→ 显示成用户认识的渠道名 + 括号内配置名，
+          // 解决「渠道叫『运维告警飞书群』、路由里却是 notify-1」的看不懂问题：
+          // 渠道名含中文时无法直接作 AM receiver 名，平台按规则清洗后回落 `notify-N`。
+          const channelName = receiverChannelNames[row.receiver]
+          if (channelName) {
+            return (
+              <Tooltip
+                title={`来自平台通知渠道「${channelName}」：渠道名无法直接作配置名，平台自动生成接收人「${row.receiver}」`}
+              >
+                <span data-testid="route-receiver-channel">
+                  {channelName}（{row.receiver}）
+                </span>
+              </Tooltip>
+            )
+          }
+          // 文件里手写声明、但不对应任何平台渠道的 receiver（如预置的 `feishu`）：
+          // 按「已知接收人」正常展示（保存死锁修复口径），但标注来源避免与渠道 receiver 混淆。
+          // 映射整体为空（渠道接口取数失败）时无法区分来源 → 不标注，避免把渠道 receiver 误标成手写。
+          if (Object.keys(receiverChannelNames).length === 0) {
+            return (
+              <EllipsisText code maxWidth={180}>
+                {row.receiver}
+              </EllipsisText>
+            )
+          }
           return (
-            <EllipsisText code maxWidth={180}>
-              {row.receiver}
-            </EllipsisText>
+            <Tooltip title={`配置文件中手写的接收人「${row.receiver}」，不对应平台通知渠道`}>
+              <span>
+                <EllipsisText code maxWidth={180}>
+                  {row.receiver}
+                </EllipsisText>
+                <Text type="secondary" style={{ marginLeft: 4, fontSize: 12 }}>
+                  手写
+                </Text>
+              </span>
+            </Tooltip>
           )
         },
       },
@@ -452,7 +662,7 @@ export function RoutesPage() {
         ),
       },
     ]
-  }, [editable, editing, editor, openEditor, confirmDelete])
+  }, [editable, editing, editor, knownReceiverSet, receiverChannelNames, openEditor, confirmDelete])
 
   /** 父路由下拉：排除自身与其后代（避免成环） */
   const parentOptions = useMemo(() => {
@@ -476,20 +686,120 @@ export function RoutesPage() {
     <MainLayout>
       {/* 页头 + 说明区（四页统一，见 components/PageIntro.tsx）。
           「顺序即优先级」与模式徽标是**随状态变化**的信息（换mode 就变），故留在页头下方常驻；
-          「这页管什么 / 怎么编辑」这类说明收进默认收起的说明区，不占首屏。 */}
+          说明区只放不随状态变化的机制说明（2026-10-13 去重：模式引导只留在常驻区，不再重复）。 */}
       <PageIntro
         testId="routes-intro"
         title="路由规则"
-        subtitle="决定「哪条告警发给谁」：按标签匹配 → 落到某个接收人"
+        // 2026-10-13（提案 §2.2）：副标改为同时兜住本页两件事——谁产出路由规则 + 没匹配到规则的告警发给谁
+        // （原副标只讲「按标签匹配」，读不出上方那张「路由设置」卡也归本页管）。
+        subtitle="维护告警路由：谁产出路由规则、没匹配到规则的告警发给谁"
         points={[
-          '路由顺序 = 生效顺序：先匹配到的先生效，所以同层级的顺序决定谁先被检查。',
+          // 2026-10-13 去重：只留**不随状态变化**的机制说明。「顺序即生效顺序」与模式引导
+          // 已由下方常驻状态区承载（PRD §11.7 要求常驻），此前在说明区重复一遍且方向写反。
           '一条规则包含：匹配条件（发什么）、接收人（发给谁）、分组与节奏（怎么攒批、多久重发）。',
-          mode === 'handwritten'
-            ? '当前为「我来编辑」：本页可直接增删改路由，保存后进入变更单。若本页为只读，请到「告警配置」页把「路由规则由谁维护」切到「我来编辑」。'
-            : '当前为「平台生成」：本页是只读视图，路由由平台产出；整份配置请到「告警配置」页的「高级：导入整份配置文件」手写。',
           '顶层路由是所有告警的总入口，不可删除、不可移动；它同时承载「未匹配任何规则的告警发给谁」。',
         ]}
       />
+
+      {/* 路由设置常驻卡（2026-10-13，提案 alert-config-policy-split-migration.md §2.1）：
+          原「路由与收敛策略」卡在告警配置页，与该页职责（当前生效 + 版本历史 + 导入）不符，
+          且兜底控件与顶层路由分处两页——改一处、另一处被后端 `materializeRootRouteReceiver`
+          静默覆盖（该函数不判 mode）。现两控件与顶层路由同屏同区，从根上消掉「两入口需手动同步」。 */}
+      <Card
+        title={ROUTE_SETTING_CARD_TITLE}
+        style={{ marginBottom: 16 }}
+        data-testid="route-setting-card"
+      >
+        <Space direction="vertical" size={12} style={{ width: '100%' }}>
+          {/* 控件 B：没匹配到具体规则的告警发给谁（含「不接管」= 平台不替换顶层路由接收人）。
+              与控件 A 同卡，避免用户在两页之间来回找这一个开关。 */}
+          <div>
+            <Space size={8} align="center" wrap>
+              <Text strong>{ROUTE_SETTING_FALLBACK_LABEL}</Text>
+              <Select<number>
+                aria-label={ROUTE_SETTING_FALLBACK_LABEL}
+                value={routeSetting?.default_receiver_channel_id ?? NONE_RECEIVER_VALUE}
+                options={routeOptions}
+                loading={routeLoading}
+                disabled={routeLoading || routeSaving}
+                style={{ minWidth: 320 }}
+                onChange={handleFallbackChange}
+              />
+              {fallbackConclusion && (
+                <Tag
+                  color={fallbackConclusion.tone === 'on' ? 'success' : 'default'}
+                  data-testid="fallback-conclusion"
+                >
+                  {fallbackConclusion.text}
+                </Tag>
+              )}
+            </Space>
+            {/* 决策五原句常驻落位：手写整份文件 ≠ 交出兜底。不明写会被理解成
+                「切到手写 = 交出全部控制权」，而只有这一项仍由平台决定。 */}
+            <Text
+              type="secondary"
+              style={{ display: 'block', marginTop: 4, fontSize: 12 }}
+              data-testid="route-setting-independence-tip"
+            >
+              {ROUTE_SETTING_MODE_INDEPENDENCE_TIP}
+            </Text>
+          </div>
+
+          {/* 控件 A：路由规则由谁维护（Segmented 表达二选一模式，非 Switch 的开/关）。
+              置于控件 B 之下，让"读卡顺序 = 因果顺序"：先看清兜底归谁，再决定谁来写路由。 */}
+          <div>
+            <Space size={8} align="center" wrap>
+              <Text strong>{ROUTE_SETTING_MODE_LABEL}</Text>
+              <Segmented
+                aria-label={ROUTE_SETTING_MODE_LABEL}
+                value={mode === 'managed' ? 'managed' : 'handwritten'}
+                disabled={routeLoading || routeSaving}
+                options={[
+                  { label: ROUTE_MODE_HANDWRITTEN, value: 'handwritten' },
+                  { label: ROUTE_MODE_MANAGED, value: 'managed' },
+                ]}
+                onChange={(value) => handleModeChange(value as RouteMode)}
+              />
+            </Space>
+            <Text
+              type="secondary"
+              style={{ display: 'block', marginTop: 4, fontSize: 12 }}
+              data-testid="route-setting-mode-tip"
+            >
+              {ROUTE_MODE_TIP[mode]}
+            </Text>
+          </div>
+
+          {routeError ? (
+            <Text type="danger">
+              设定加载失败：{routeError}{' '}
+              <Button size="small" type="link" onClick={reloadRouteSetting}>
+                重试
+              </Button>
+            </Text>
+          ) : null}
+
+          {/* 两个开关的**关系**结论（§6.3：手写模式下平台仍接管兜底单键）。
+              视觉隐藏：属"读卡要懂的关系"而非"当前状态"，与两个控件各自的结论争抢注意力
+              （2026-10-08 实测"信息量过大"的主因之一）。screen-reader only，读屏与测试仍可拿到。 */}
+          <span
+            data-testid="route-setting-summary"
+            style={{
+              position: 'absolute',
+              width: 1,
+              height: 1,
+              padding: 0,
+              margin: -1,
+              overflow: 'hidden',
+              clip: 'rect(0, 0, 0, 0)',
+              whiteSpace: 'nowrap',
+              border: 0,
+            }}
+          >
+            {settingSummary}
+          </span>
+        </Space>
+      </Card>
 
       {/* 常驻状态区：顺序即优先级 + 模式徽标（按 mode 渲染） */}
       <Alert
@@ -505,15 +815,19 @@ export function RoutesPage() {
           </Space>
         }
         description={
+          // 2026-10-13 方向修正：此前两分支与门禁 `isRouteEditable`（managed=可写，PRD §11.7
+          // L752「平台管理模式可写、手写模式只读」）写反，导致按钮明明可点却提示「本页为只读」。
+          // A5：反向链接（原「前往告警配置」）已删除——模式开关已迁至上方常驻「路由设置」卡，
+          // 让用户为改一个开关跨页跳转是纯粹的绕路；改为就地指引（指向本卡控件 A）。
           mode === 'handwritten' ? (
             <Text>
-              本页可直接新建 / 编辑 / 拖拽调整顺序。
-              <Link to={ALERT_CONFIG_PATH}>前往告警配置</Link> 可切换为「平台生成」。
+              本页为只读展示，不提供新建 / 编辑 / 拖拽入口；在上方
+              <Text strong>「路由设置」</Text>
+              里把「路由规则由谁维护」切换为「{ROUTE_MODE_MANAGED}」，即可在此页直接编辑。
             </Text>
           ) : (
             <Text>
-              当前「平台生成」：本页为只读视图，不提供新建 / 编辑 / 拖拽入口。
-              切换为「我来编辑」后即可在此页直接改路由。
+              本页可直接新建 / 编辑 / 拖拽调整顺序，改动经「保存并提交变更」进入「配置变更确认」，不即时生效。
             </Text>
           )
         }
@@ -637,6 +951,19 @@ export function RoutesPage() {
                   </Button>
                 )}
               </Space>
+              {/* 2026-10-13 布局优化：导入成功提示从卡片外的整条绿色 Alert 收进操作区内
+                  （紧挨其指引的「保存并提交变更」按钮）。整条大绿条会把保存按钮挤出首要视线，
+                  且 message 与 description 重复「已从当前配置导入」。partial（warning）信息量大，
+                  仍保留下方独立 Alert。 */}
+              {editor.importState === 'imported' && editor.importNotice && (
+                <Text
+                  type="success"
+                  style={{ display: 'block', marginTop: 8, fontSize: 12 }}
+                  data-testid="route-import-notice"
+                >
+                  {editor.importNotice}
+                </Text>
+              )}
               <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
                 {editing
                   ? '保存会生成整份 alertmanager.yml 并提交挂载；改动不会立即生效，需在「配置变更确认」中人工确认后才会写入并 reload。'
@@ -647,14 +974,14 @@ export function RoutesPage() {
             </Card>
           )}
 
-          {/* 导入提示（完整导入 / 不可无损导入） */}
-          {editable && editor.importNotice && (
+          {/* 部分导入提示（不可无损导入，需手动校正）——完整导入的成功提示已收进上方操作区 */}
+          {editable && editor.importState === 'partial' && editor.importNotice && (
             <Alert
-              type={editor.importState === 'partial' ? 'warning' : 'success'}
+              type="warning"
               showIcon
               style={{ marginBottom: 16 }}
               data-testid="route-import-notice"
-              message={editor.importState === 'partial' ? '部分导入：不可无损导入，请手动校正' : '已从当前配置导入'}
+              message="部分导入：不可无损导入，请手动校正"
               description={editor.importNotice}
             />
           )}
@@ -769,6 +1096,7 @@ export function RoutesPage() {
           parentOptions={parentOptions}
           receiverOptions={receiverOptions}
           knownReceivers={editor.knownReceivers}
+          receiverChannelNames={receiverChannelNames}
           issues={editor.issues}
           onClose={() => setDrawerOpen(false)}
           onSubmit={handleSubmit}

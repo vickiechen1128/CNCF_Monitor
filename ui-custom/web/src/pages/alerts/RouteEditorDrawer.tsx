@@ -50,6 +50,7 @@ import {
   toRouteLabelSelectOptions,
   useRouteLabelOptions,
 } from './routeLabels'
+import { ROUTE_ROOT_RECEIVER_READONLY_TIP } from './alertmanagerConstants'
 
 const { Text } = Typography
 
@@ -65,7 +66,7 @@ const GROUP_BY_TIP = '留空 = 不分组（同批告警合并为一条通知）�
 
 /** 接收人说明（PRD §11.7：下拉数据源 = 已启用通知渠道） */
 const RECEIVER_TIP =
-  '下拉只列已启用通知渠道的接收人（ReceiverName()）；引用已停用 / 已删除渠道的接收人会判为悬空并阻断保存'
+  '下拉只列已启用通知渠道的接收人：选项显示为「渠道名（配置名）」，配置名是渠道名自动转换生成（渠道名含中文时无法直接作配置名）；引用已停用 / 已删除渠道的接收人会判为悬空并阻断保存'
 
 /** 接收人悬空红字（PRD §11.7：引用悬空 → 红字「未定义」） */
 const RECEIVER_DANGLING_TIP = '未定义：该接收人不在已启用通知渠道清单内（渠道已停用或已删除），请改选后再保存'
@@ -103,6 +104,11 @@ export interface RouteEditorDrawerProps {
    * 取不到清单（非管理员）时传空数组 → **不判定、不阻断**（沿用 validateRouteReceivers 口径）。
    */
   knownReceivers?: string[]
+  /**
+   * 平台物化 receiver 名 → 渠道中文名（如 `notify-1` → `运维告警飞书群`）。
+   * 供下拉 label 把 `notify-N` 显示成用户认识的渠道名；不在映射内的（如手写 `feishu`）按原样展示。
+   */
+  receiverChannelNames?: Record<string, string>
   /** 全树预检结论（抽屉按 node_id 过滤本节点相关结论展示） */
   issues: RouteIssue[]
   onClose: () => void
@@ -154,6 +160,7 @@ export function RouteEditorDrawer({
   parentOptions,
   receiverOptions,
   knownReceivers,
+  receiverChannelNames,
   issues,
   onClose,
   onSubmit,
@@ -236,20 +243,34 @@ export function RouteEditorDrawer({
     return Array.from(names)
       .filter((n) => n.trim().length > 0)
       .sort()
-      .map((n) => ({
-        value: n,
-        // 悬空项红字标注（清单取不到时不标注，避免误判）
-        label:
-          canJudgeReceiver && !enabledReceiverSet.has(n) ? (
-            <Space size={4}>
-              {n}
-              <Text type="danger">未定义</Text>
-            </Space>
-          ) : (
-            n
-          ),
-      }))
-  }, [receiverOptions, enabledReceiverNames, enabledReceiverSet, canJudgeReceiver, node])
+      .map((n) => {
+        // 悬空项红字标注（清单取不到时不标注，避免误判）——优先级最高
+        if (canJudgeReceiver && !enabledReceiverSet.has(n)) {
+          return {
+            value: n,
+            label: (
+              <Space size={4}>
+                {n}
+                <Text type="danger">未定义</Text>
+              </Space>
+            ),
+          }
+        }
+        // 平台物化的 receiver：显示成「渠道名（notify-N）」，让下拉选项与通知渠道页对得上
+        const channelName = receiverChannelNames?.[n]
+        if (channelName) {
+          return { value: n, label: `${channelName}（${n}）` }
+        }
+        // 文件里手写声明、不对应平台渠道的 receiver（如预置 feishu）：标注来源。
+        // 判据 = 可判定悬空 且 在已知集合内（declared ∪ platform）却查不到渠道映射；
+        // 映射整体为空（取数失败 / 未传）时无法区分来源 → 不标注，避免误标。
+        const hasChannelMap = Object.keys(receiverChannelNames ?? {}).length > 0
+        if (canJudgeReceiver && hasChannelMap && enabledReceiverSet.has(n)) {
+          return { value: n, label: `${n}（手写）` }
+        }
+        return { value: n, label: n }
+      })
+  }, [receiverOptions, enabledReceiverNames, enabledReceiverSet, canJudgeReceiver, node, receiverChannelNames])
 
   // 分组键联想：复用静默页 label-options（决策 71）；取数失败静默降级为空（可手写输入）
   const labelOptions = useRouteLabelOptions(open)
@@ -305,7 +326,14 @@ export function RouteEditorDrawer({
         保存后不会立即生效：会生成整份 alertmanager.yml 并提交挂载，进入变更单人工确认后才写盘 reload。
       </Text>
 
-      <Form form={form} layout="vertical" onFinish={handleFinish} preserve={false}>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={handleFinish}
+        // 不要用 preserve={false}：StrictMode 开发态 StrictEffects 会模拟「卸载→重挂」，
+        // 卸载阶段把 preserve=false 的字段值从 store 删除，导致回显写入的 matchers 被清成 [{}]；
+        // 本表单字段全部常驻（Drawer forceRender + 无条件渲染），无残留风险，删行由 Form.List.remove 自行裁剪数组。
+      >
         {/* ① 这条规则管什么 */}
         <Text strong>① 这条规则管什么</Text>
         <Form.Item
@@ -391,7 +419,16 @@ export function RouteEditorDrawer({
           name="receiver"
           label="接收人"
           extra={
-            receiverDangling ? (
+            isRoot ? (
+              // 决策一（提案 §3.1 方案 A，验收 A6）：顶层路由的接收人**只读**。
+              // 本抽屉只在「平台生成」模式挂载（手写模式整页只读），故 `isRoot` 即等价于
+              // 「平台生成模式下的顶层路由」。理由：兜底控件是唯一可改入口，前端不必再造
+              // 「两入口必须同步」的约束——后端 `materializeRootRouteReceiver` 每次生成配置时
+              // 都会用兜底控件的取值覆盖根 receiver，此处改了也会被静默改回去。
+              <Text type="secondary" data-testid="route-editor-receiver-readonly-tip">
+                {ROUTE_ROOT_RECEIVER_READONLY_TIP}
+              </Text>
+            ) : receiverDangling ? (
               <Text type="danger" data-testid="route-editor-receiver-dangling">
                 {RECEIVER_DANGLING_TIP}
               </Text>
@@ -406,6 +443,7 @@ export function RouteEditorDrawer({
             allowClear
             showSearch
             optionFilterProp="value"
+            disabled={isRoot}
           />
         </Form.Item>
         <Form.Item

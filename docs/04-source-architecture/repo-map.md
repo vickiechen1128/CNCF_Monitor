@@ -1,7 +1,7 @@
 # MetricCenter Repo Map（业务代码符号地图）
 
 > 由 `make repo-map`（`scripts/repo-map`）自动生成，**请勿手改**。
-> 生成时间: 2026-10-12 09:56 · commit: `d5ea2e5`
+> 生成时间: 2026-10-13 19:14 · commit: `4bb2626`
 > 覆盖范围: `platform/`（Go）与 `ui-custom/web/src/`（TS/TSX）；`upstream/` 上游子模块刻意不索引（只读且体量巨大），其架构结论见本目录其他文档。
 > 用法: 先用本文件按「符号名 → 文件路径」定位，再 `Read` 目标文件；查不到再降级为 Grep 全文搜索。
 
@@ -472,6 +472,8 @@
 - `func TestSubmitRejectsEmptyContent(t *testing.T)`
 - `func TestSubmitAmtoolUnavailableValidationFails(t *testing.T)`
 - `func TestSubmitIdempotentOnSameChecksum(t *testing.T)`
+- `func TestSubmitAfterDiscardedVersionCreatesNewVersion(t *testing.T)`
+- `func TestLatestAppliedSkipsDiscarded(t *testing.T)`
 - `func TestLatestAppliedAndGetVersionByID(t *testing.T)`
 - `func TestErrValidationError(t *testing.T)`
 
@@ -2014,6 +2016,19 @@
 - `func writebackRuleChangeStatus(db *gorm.DB) error`
 - `func writebackChangeStatuses(db *gorm.DB, domainID string) error`
 - `func writebackAlertmanagerApplied(db *gorm.DB, version *models.ConfigVersion, at time.Time) error`
+- `func draftAlertmanagerSourceID(db *gorm.DB, version *models.ConfigVersion) uint`
+- `func writebackAlertmanagerSource(db *gorm.DB, version *models.ConfigVersion, sourceID uint, at time.Time) error`
+- `func applyAlertmanagerWriteback(db *gorm.DB, cfg *models.AlertmanagerConfigVersion, changeNo string, at time.Time) error`
+
+### `platform/configcenter/deployment/callback_alertmanager_test.go`
+
+- `func TestDispatchAlertmanagerWritebackPreciseSource(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackMarksSiblings(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackSkipsDiscardedSibling(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackLegacyFallback(t *testing.T)`
+- `func TestDispatchAlertmanagerWritebackSelfHealsDiscardedSource(t *testing.T)`
+- `func seedAMVersionPending(t *testing.T, db *gorm.DB, content string) *models.AlertmanagerConfigVersion`
+- `func seedAMSourceDraft(t *testing.T, db *gorm.DB, domainID, changeNo string, sourceAMVersionID uint) *models.ConfigDraft`
 
 ### `platform/configcenter/deployment/deployment_test.go`
 
@@ -2249,6 +2264,8 @@
 - `func todaySuffix() string`
 - `func TestGenerateDraftMaterializesNotifyReceivers(t *testing.T)`
 - `func TestGenerateDraftNotifyReceiverConflictFails(t *testing.T)`
+- `func TestGenerateDraftDiscardsOrphanPendings(t *testing.T)`
+- `func TestGenerateDraftConcurrentSameDomain(t *testing.T)`
 
 ### `platform/configcenter/draft/handler.go`
 
@@ -2265,6 +2282,7 @@
 
 ### `platform/configcenter/draft/service.go`
 
+- `func lockDomain(domainID string) func()`
 - `func GenerateDraft(db *gorm.DB, domainID string) (*models.ConfigDraft, error)`
 - `func buildArtifacts(db *gorm.DB, dom *models.NetworkDomain) (*generator.ConfigArtifacts, []models.ScrapeJob, []models.Monito…`
 - `func materializeNotifyReceivers(db *gorm.DB, artifacts *generator.ConfigArtifacts) error`
@@ -2289,6 +2307,8 @@
 - `func GetDraftDetail(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func ConfirmDraft(db *gorm.DB, changeNo, confirmedBy string) (*models.ConfigVersion, error)`
 - `type DiscardImpact struct`
+- `func discardOrphanAlertmanagerVersions(tx *gorm.DB, protectedIDs []uint) error`
+- `func protectedVersionIDsFromLivePending(tx *gorm.DB, domainID, excludeChangeNo string) ([]uint, error)`
 - `func unlockSourceDataOnFailed(tx *gorm.DB, d *models.ConfigDraft) error`
 - `func DiscardDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, *DiscardImpact, error)`
 - `func GetDiscardImpact(db *gorm.DB, changeNo string) (*DiscardImpact, error)`
@@ -2297,6 +2317,17 @@
 - `func scrapeJobNamesFromPrometheusYml(yml string) (map[string]bool, error)`
 - `func RevalidateDraft(db *gorm.DB, changeNo string) (*models.ConfigDraft, error)`
 - `func artifactsFromDraft(d *models.ConfigDraft) (*generator.ConfigArtifacts, error)`
+
+### `platform/configcenter/draft/service_alertmanager_discard_test.go`
+
+- `func TestDiscardDraftMarksOrphanAlertmanagerVersions(t *testing.T)`
+- `func TestDiscardDraftKeepsAppliedAlertmanagerVersion(t *testing.T)`
+- `func TestDiscardDraftNonDefaultDomainKeepsAlertmanagerVersions(t *testing.T)`
+- `func TestDiscardDraftProtectsOtherLivePendingSource(t *testing.T)`
+- `func TestSupersedePendingProtectsNewDraftSource(t *testing.T)`
+- `func TestGenerateDraftBackfillsAlertmanagerSourceVersionID(t *testing.T)`
+- `func TestGenerateDraftNoAlertmanagerSourceWhenNoVersion(t *testing.T)`
+- `func seedAMVersion(t *testing.T, db *gorm.DB, content string, applied bool) *models.AlertmanagerConfigVersion`
 
 ### `platform/configcenter/draft/service_route_preset_test.go`
 
@@ -2363,6 +2394,7 @@
 - `func LoadTemplateForJob(db *gorm.DB, job models.ScrapeJob) (*models.LabelTemplate, error)`
 - `func LoadExporterPort(db *gorm.DB, job models.ScrapeJob) (int, error)`
 - `func LoadLatestAlertmanagerConfigContent(db *gorm.DB) (string, error)`
+- `func LoadLatestAlertmanagerConfigVersion(db *gorm.DB) (*models.AlertmanagerConfigVersion, error)`
 - `func LoadEnabledNotifyChannels(db *gorm.DB) ([]models.NotifyChannel, error)`
 - `func LoadRouteSetting(db *gorm.DB) (*models.AlertmanagerRouteSetting, error)`
 - `type ErrNotFound struct`
@@ -2672,6 +2704,29 @@
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
 
+### `platform/dashboard/collection_health.go`
+
+- `type CollectionHealth struct`
+- `type UpHealthIndex struct`
+- `type UpHealthQuerier interface`
+- `type PromUpHealthQuerier struct`
+- `func NewPromUpHealthQuerier(baseURL *url.URL, client *http.Client) *PromUpHealthQuerier`
+- `method (*PromUpHealthQuerier) UpHealth(ctx context.Context) (*UpHealthIndex, error)`
+- `method (*PromUpHealthQuerier) queryResourceIDs(ctx context.Context, expr string) (map[string]bool, map[string]bool, error)`
+- `func classifyCollectionHealth(dispatched []string, idx *UpHealthIndex) *CollectionHealth`
+
+### `platform/dashboard/collection_health_test.go`
+
+- `type fakeUpHealthQuerier struct`
+- `method (*fakeUpHealthQuerier) UpHealth(context.Context) (*UpHealthIndex, error)`
+- `func TestClassifyCollectionHealthFourStates(t *testing.T)`
+- `func TestClassifyCollectionHealthNilIndex(t *testing.T)`
+- `func TestSummaryCollectionHealth(t *testing.T)`
+- `func TestSummaryCollectionHealthDegradesOnError(t *testing.T)`
+- `func TestSummaryCollectionHealthOmittedWhenNotInjected(t *testing.T)`
+- `func TestPromUpHealthQuerierUpHealth(t *testing.T)`
+- `func TestPromUpHealthQuerierNilBase(t *testing.T)`
+
 ### `platform/dashboard/probe.go`
 
 - `type ProbeSample struct`
@@ -2699,6 +2754,7 @@
 - `type buildOptions struct`
 - `type Option`
 - `func WithProbeQuerier(q ProbeQuerier) Option`
+- `func WithUpHealthQuerier(q UpHealthQuerier) Option`
 - `func Build(db *gorm.DB, opts ...Option) (*Summary, error)`
 - `type categoryAgg struct`
 - `type subAgg struct`
@@ -2943,6 +2999,7 @@
 - `method (*ProcProbe) Signal(typ string, sig syscall.Signal) error`
 - `method (*ProcProbe) Reload(typ string) error`
 - `method (*ProcProbe) RestartCollector() error`
+- `method (*ProcProbe) FlushBacklog() error`
 - `method (*ProcProbe) StopAll()`
 - `func httpGetOK(ctx context.Context, cli *http.Client, url string) error`
 - `func httpPostOK(ctx context.Context, cli *http.Client, url string) error`
@@ -3171,8 +3228,11 @@
 - `method (*Puller) Run(ctx context.Context)`
 - `method (*Puller) RunOnce(ctx context.Context) error`
 - `type restartState struct`
+- `method (*Puller) handleFlushCommand(resp *contract.HeartbeatResponse) error`
 - `method (*Puller) handleRestartCommand(resp *contract.HeartbeatResponse) error`
 - `method (*Puller) setExecutedRestartSeq(seq int64)`
+- `method (*Puller) setExecutedFlushSeq(seq int64)`
+- `method (*Puller) persistRestartState()`
 - `method (*Puller) loadRestartState()`
 - `method (*Puller) buildHeartbeat() contract.HeartbeatRequest`
 - `method (*Puller) pullAndVerify(ctx context.Context, url string) error`
@@ -3204,6 +3264,10 @@
 - `func TestRunOnceNetworkErrorRetainsAndRecovers(t *testing.T)`
 - `func TestRunOnceRestartSeqTriggersCallbackAndPersists(t *testing.T)`
 - `func TestRunOnceRestartSeqFailureRetries(t *testing.T)`
+- `func newPullerWithFlush(cfg *config.Config, ts *testServer, deploy Deployer, rt RuntimeProvider, onFlush func() error, state…`
+- `func TestRunOnceFlushSeqTriggersCallbackAndPersists(t *testing.T)`
+- `func TestRunOnceFlushSeqFailureRetries(t *testing.T)`
+- `func TestNoFlushCallbackStillAdvancesSeq(t *testing.T)`
 
 ### `platform/edge-sync-agent/internal/supervisor/supervisor.go`
 
@@ -3311,6 +3375,12 @@
 - `func TestHeartbeatParamsChangedFingerprint(t *testing.T)`
 - `func TestHeartbeatCarriesRestartSeq(t *testing.T)`
 
+### `platform/edge/flush_handler.go`
+
+- `func RequestFlushBacklog(db *gorm.DB, id uint, requestedBy string, now time.Time) (*models.EdgeAgent, error)`
+- `func FlushBacklogHandler(db *gorm.DB) gin.HandlerFunc`
+- `func respondFlushError(c *gin.Context, err error)`
+
 ### `platform/edge/heartbeat_handler.go`
 
 - `func HeartbeatHandler(svc *HeartbeatService) gin.HandlerFunc`
@@ -3376,6 +3446,9 @@
 - `func adminInjector() gin.HandlerFunc`
 - `func TestRequestVMAgentRestart(t *testing.T)`
 - `func TestRestartAgentEndpoint(t *testing.T)`
+- `func TestRequestFlushBacklog(t *testing.T)`
+- `func TestRequestSeqCommandsOnNullColumns(t *testing.T)`
+- `func TestFlushBacklogEndpoint(t *testing.T)`
 - `func TestRetireDomainCascadeClearsTokenAndRetiresAgents(t *testing.T)`
 - `func TestRetireDomainRejectsManagementAndRetiredAndNotMonitoredAndMissing(t *testing.T)`
 - `func TestRetireDomainHandlerHTTP(t *testing.T)`
@@ -4061,6 +4134,7 @@
 - `type ChangeStatus = string`
 - `type MappingOverride struct`
 - `type InstanceSelectionMode = string`
+- `func ValidPromDuration(s string) bool`
 - `type ScrapeJob struct`
 
 ### `platform/models/service_dict.go`
@@ -4103,6 +4177,27 @@
 - `type ZoneTypeCode = string`
 - `type ZoneType struct`
 
+### `platform/query/alert_annotation.go`
+
+- `type annotationTemplateData struct`
+- `func RenderAnnotation(src string, labels map[string]string, value string) (string, error)`
+- `func annotationFuncMap(labels map[string]string, value float64) template.FuncMap`
+- `func toFloat(v interface{}) (float64, bool)`
+- `func humanizeNumber(v interface{}, base float64, suffixes []string) string`
+- `func humanizeDurationValue(v interface{}) string`
+- `func humanizePercentageValue(v interface{}) string`
+- `func humanizeTimestampValue(v interface{}) string`
+- `func titleCase(s string) string`
+
+### `platform/query/alert_annotation_test.go`
+
+- `func TestRenderAnnotationLabels(t *testing.T)`
+- `func TestRenderAnnotationNoLeakOnMissingLabel(t *testing.T)`
+- `func TestRenderAnnotationFailure(t *testing.T)`
+- `func TestRenderAnnotationEmptyTemplate(t *testing.T)`
+- `func TestRenderHistorySummaryDegradesToEmpty(t *testing.T)`
+- `func TestRenderHistorySummaryInjectsNetworkDomain(t *testing.T)`
+
 ### `platform/query/alerts.go`
 
 - `type promAlert struct`
@@ -4121,11 +4216,12 @@
 - `func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]Aler…`
 - `type promMatrixSample struct`
 - `func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL, q alertHistoryQuery) ([]promMatrixSample, …`
-- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string, identities map[string]Re…`
-- `func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[s…`
+- `func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryTemplates map[string]string, identities map[str…`
+- `func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryTemplates…`
+- `func renderHistorySummary(tmpl string, labels map[string]string, domain string) string`
 - `func historyInstanceMatch(it AlertHistoryItem, keyword string) bool`
 - `type rulesAPIResponse struct`
-- `func fetchRulesAnnotations(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
+- `func fetchRuleSummaryTemplates(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error)`
 - `func paginateHistory(items []AlertHistoryItem, page, pageSize int) ([]AlertHistoryItem, int)`
 
 ### `platform/query/alerts_history_test.go`
@@ -4148,6 +4244,8 @@
 - `func newHistoryIdentityRouter(t *testing.T, db *gorm.DB) *gin.Engine`
 - `func TestAlertHistoryInstanceFieldsWriteBack(t *testing.T)`
 - `func TestAlertHistoryFilterByInstanceName(t *testing.T)`
+- `func TestAlertHistoryRendersSummaryTemplate(t *testing.T)`
+- `func TestAlertHistoryUnrenderableTemplateDegradesToEmpty(t *testing.T)`
 - `func TestNormalizeHistoryStep(t *testing.T)`
 - `func newHistoryStepCaptureRouter(t *testing.T) (*gin.Engine, *string)`
 - `func historyWindowQuery(window time.Duration, extra url.Values) string`
@@ -4248,6 +4346,33 @@
 ### `platform/query/routes.go`
 
 - `func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL)`
+- `func RegisterRuleInspectRoutes(platform *gin.RouterGroup, promURL *url.URL)`
+
+### `platform/query/rule_labels.go`
+
+- `type InspectRuleLabelsRequest struct`
+- `type InspectRuleLabel struct`
+- `type InspectRuleResult struct`
+- `func InspectRuleLabelsHandler(promURL *url.URL, client *http.Client) gin.HandlerFunc`
+- `type inspectRuleYAML struct`
+- `func inspectRuleContent(ctx context.Context, client *http.Client, promURL *url.URL, content string) []InspectRuleResult`
+- `func inspectSingleRule( ctx context.Context, client *http.Client, promURL *url.URL, group, alert, record, expr string, annot…`
+- `type inspectSeries struct`
+- `func queryInstantSeries(ctx context.Context, client *http.Client, promURL *url.URL, expr string) ([]inspectSeries, error)`
+- `func sampleValueString(v []interface{}) string`
+- `func summarizeSeriesLabels(series []inspectSeries) []InspectRuleLabel`
+
+### `platform/query/rule_labels_test.go`
+
+- `func newInspectRouter(t *testing.T, upstream http.Handler) *gin.Engine`
+- `func doInspect(t *testing.T, r *gin.Engine, ruleContent string) []InspectRuleResult`
+- `func inspectSeriesFixture() map[string]interface{}`
+- `func TestInspectRuleLabelsForBlackbox(t *testing.T)`
+- `func TestInspectRuleLabelsNoSeries(t *testing.T)`
+- `func TestInspectRuleLabelsInvalidExpr(t *testing.T)`
+- `func TestInspectRuleLabelsPreviewRenderFailure(t *testing.T)`
+- `func TestInspectRuleLabelsSkipsNonAlertEntries(t *testing.T)`
+- `func TestInspectRuleLabelsInvalidYAML(t *testing.T)`
 
 ### `platform/query/targets.go`
 
@@ -4335,6 +4460,7 @@
 - `func TestDeleteCITypeExporterMapping(t *testing.T)`
 - `func seedExporterWithTypes(t *testing.T, db *gorm.DB, name string, types ...string) string`
 - `func TestMappingExporterSupportTypeGuard(t *testing.T)`
+- `func TestUpdateCITypeExporterMappingDurationValidation(t *testing.T)`
 
 ### `platform/strategy/ci-exporter/create.go`
 
@@ -4524,6 +4650,23 @@
 - `func TestUpdateMonitoringRuleGroupNameConflict(t *testing.T)`
 - `func TestUpdateDeletePendingRuleRejected(t *testing.T)`
 
+### `platform/strategy/rule/promtool_check.go`
+
+- `type promQLCheckStatus = string`
+- `type promQLCheckResult struct`
+- `func checkPromQLSyntax(content string) promQLCheckResult`
+- `func isToolNotExecutable(err error) bool`
+- `func promQLCheckMessage(r promQLCheckResult) string`
+
+### `platform/strategy/rule/promtool_check_test.go`
+
+- `func stubPromtool(t *testing.T, script string)`
+- `func TestCheckPromQLSyntaxPassed(t *testing.T)`
+- `func TestCheckPromQLSyntaxFailedIsHardFailure(t *testing.T)`
+- `func TestCheckPromQLSyntaxUnavailableWhenToolMissing(t *testing.T)`
+- `func TestCheckPromQLSyntaxUnavailableWhenNotExecutable(t *testing.T)`
+- `func TestValidateRuleYAMLHandlerPromQLGate(t *testing.T)`
+
 ### `platform/strategy/rule/routes.go`
 
 - `func RegisterRoutes(platform *gin.RouterGroup, db *gorm.DB)`
@@ -4584,6 +4727,7 @@
 
 - `type jobInstanceItem struct`
 - `func resolveResourceMeta(db *gorm.DB, resourceID string) (name, ip string, found bool)`
+- `func lookupResourceMeta(db *gorm.DB, resourceID string, unscoped bool) (name, ip, domainID string, found bool)`
 - `func ListJobInstances(db *gorm.DB) gin.HandlerFunc`
 - `type confirmRequest struct`
 - `func ConfirmInstallation(db *gorm.DB) gin.HandlerFunc`
@@ -4680,6 +4824,10 @@
 - `func TestCreateScrapeJobNginxAllowedAfterCollectorRegistered(t *testing.T)`
 - `func TestUpdateScrapeJobRejectsMonitorTypeWithoutCollector(t *testing.T)`
 - `func TestBatchSubmitReadyRejectsMonitorTypeWithoutCollector(t *testing.T)`
+- `func TestUpdateScrapeJobReclaimsSoftDeletedInstanceRefs(t *testing.T)`
+- `func TestCreateScrapeJobCrossDomainRejectionShowsInstanceName(t *testing.T)`
+- `func TestConfirmInstallationDeletedInstanceReportsDeleted(t *testing.T)`
+- `func TestCreateScrapeJobDurationValidation(t *testing.T)`
 
 ### `platform/strategy/scrapejob/selection.go`
 
@@ -4702,8 +4850,10 @@
 ### `platform/strategy/scrapejob/validate.go`
 
 - `func validateJobRequest(db *gorm.DB, job *models.ScrapeJob) error`
+- `func reclaimMissingInstanceIDs(db *gorm.DB, job *models.ScrapeJob)`
 - `func validateNetworkDomain(db *gorm.DB, domainID string) error`
 - `func validateSelectedInstancesDomain(db *gorm.DB, job *models.ScrapeJob) error`
+- `func describeInstanceRejection(db *gorm.DB, resourceID, domainID string) string`
 - `func resourceInDomain(db *gorm.DB, resourceID, domainID string) (bool, error)`
 - `func resolveJobScrapeParams(db *gorm.DB, job *models.ScrapeJob)`
 - `func normalizeScrapePath(job *models.ScrapeJob)`
@@ -4789,6 +4939,7 @@
 - `interface AppSummary`
 - `interface ProbeTargetItem`
 - `interface CloudSummary`
+- `interface CollectionHealth`
 - `interface DashboardSummary`
 - `const dashboardApi`
 
@@ -4844,7 +4995,11 @@
 
 - `interface MonitoringRuleListParams`
 - `interface MonitoringRuleInput`
+- `type PromQLCheckStatus`
+- `interface PromQLCheckResult`
 - `interface YamlValidationResult`
+- `interface RuleLabelInfo`
+- `interface RuleInspectResult`
 - `type JobRefSeverity`
 - `interface JobRefIssue`
 - `const monitoringRuleApi`
@@ -5126,7 +5281,9 @@
 - `function isConfigApplied`
 - `const CONFIG_STATUS_APPLIED_LABEL`
 - `const CONFIG_STATUS_PENDING_LABEL`
+- `const CONFIG_STATUS_DISCARDED_LABEL`
 - `const CONFIG_STATUS_PENDING_TIP`
+- `const CONFIG_STATUS_DISCARDED_TIP`
 - `interface ConfigStatusView`
 - `function configStatusView`
 - `const silenceStatusLabel`
@@ -5157,21 +5314,25 @@
 - `interface AlertConfigScopeBlock`
 - `const ALERT_CONFIG_REQUIRED_BLOCKS`
 - `const ALERT_CONFIG_EXEMPT_BLOCKS`
-- `const ALERT_POLICY_CARD_TITLE`
-- `const ALERT_POLICY_FALLBACK_LABEL`
-- `const ALERT_POLICY_ROUTE_MODE_LABEL`
-- `const ALERT_POLICY_MODE_HANDWRITTEN`
-- `const ALERT_POLICY_MODE_MANAGED`
-- `const ALERT_POLICY_MODE_TIP`
-- `const ALERT_GUIDE_CARD_TITLE`
-- `const ALERT_GUIDE_INHIBIT_COMING`
-- `const ALERT_ADVANCED_CARD_TITLE`
-- `const ALERT_ADVANCED_IMPORT_LABEL`
+- `const ROUTE_SETTING_CARD_TITLE`
+- `const ROUTE_SETTING_MODE_LABEL`
+- `const ROUTE_SETTING_FALLBACK_LABEL`
+- `const ROUTE_MODE_HANDWRITTEN`
+- `const ROUTE_MODE_MANAGED`
+- `const ROUTE_MODE_TIP`
+- `const ROUTE_SETTING_MODE_INDEPENDENCE_TIP`
+- `const ROUTE_ROOT_FALLBACK_TAG`
+- `const ROUTE_ROOT_RECEIVER_READONLY_TIP`
+- `const ALERT_IMPORT_CARD_TITLE`
+- `const ALERT_IMPORT_LABEL`
 - `const ALERT_ADVANCED_GUIDE_TITLE`
 - `const ALERT_ADVANCED_GUIDE_HANDWRITTEN_INTRO`
 - `const ALERT_ADVANCED_GUIDE_MANAGED`
 - `const ALERTMANAGER_MIN_SKELETON`
 - `const CHANNEL_DERIVED_RECEIVER_COLUMN_TITLE`
+- `const CHANNEL_FALLBACK_COLUMN_TITLE`
+- `const CHANNEL_FALLBACK_TAG`
+- `const CHANNEL_FALLBACK_SUGGESTED_TAG`
 - `const CHANNEL_DERIVED_RECEIVER_EMPTY`
 - `const CHANNEL_DERIVED_RECEIVER_FORBIDDEN`
 - `const CHANNEL_DERIVED_RECEIVER_TOKEN_MISSING`
@@ -5466,6 +5627,10 @@
 ### `ui-custom/web/src/pages/home/CloudDistributionPanel.tsx`
 
 - `function CloudDistributionPanel`
+
+### `ui-custom/web/src/pages/home/CollectionHealthPanel.tsx`
+
+- `function CollectionHealthPanel`
 
 ### `ui-custom/web/src/pages/home/HomePage.tsx`
 

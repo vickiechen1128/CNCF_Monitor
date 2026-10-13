@@ -62,6 +62,9 @@ function setting(over: Partial<RouteSetting> = {}): ApiResponse<RouteSetting> {
     data: {
       enabled: false,
       default_receiver_channel_id: null,
+      // `mode` 是 RouteSetting 的必填字段（后端总返回）；fixture 必须给默认值，
+      // 否则 `Partial<RouteSetting>` 展开后 mode 仍是 `RouteMode | undefined`，无法赋给 RouteSetting。
+      mode: 'handwritten',
       effective_receiver_name: '',
       effective_source: 'none',
       ...over,
@@ -192,6 +195,45 @@ describe('useRouteSetting（默认接收人 / 根兜底）', () => {
     expect(updateMock).toHaveBeenCalledWith({ default_receiver_channel_id: 5, mode: 'managed' })
     expect(updated.mode).toBe('managed')
     await waitFor(() => expect(result.current.setting?.mode).toBe('managed'))
+  })
+
+  it('决策三：切「我来编辑」时兜底自动置不接管，save(null, "handwritten") **单次 PUT 合并提交**', async () => {
+    // 切手写伴随「兜底 → 不接管」是一次**语义完整的声明**，必须合并为一次 PUT：
+    // 拆成两次请求会产生用户未主动发起的独立变更单（违反决策 42-1 抑制空变更单）。
+    getMock.mockResolvedValue(
+      setting({ enabled: true, default_receiver_channel_id: 5, mode: 'managed', effective_source: 'explicit', effective_receiver_name: 'sre' }),
+    )
+    listMock.mockResolvedValue(channels([channel({ id: '5', name: 'SRE' })]))
+    snippetMock.mockResolvedValue(snippet('sre'))
+    updateMock.mockResolvedValue(setting({ mode: 'handwritten', effective_source: 'none', effective_receiver_name: '' }))
+
+    const { result } = renderHook(() => useRouteSetting())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const updated = await result.current.save(null, 'handwritten')
+    expect(updateMock).toHaveBeenCalledTimes(1)
+    expect(updateMock).toHaveBeenCalledWith({ default_receiver_channel_id: null, mode: 'handwritten' })
+    expect(updated.mode).toBe('handwritten')
+    await waitFor(() => expect(result.current.setting?.default_receiver_channel_id).toBeNull())
+  })
+
+  it('决策四：切回「平台生成」不自动接管，save(null) 单次 PUT 且不带 mode 之外的副作用', async () => {
+    getMock.mockResolvedValue(
+      setting({ enabled: false, default_receiver_channel_id: null, mode: 'handwritten', effective_source: 'none' }),
+    )
+    listMock.mockResolvedValue(channels([channel({ id: '5', name: 'SRE' })]))
+    snippetMock.mockResolvedValue(snippet('sre'))
+    updateMock.mockResolvedValue(setting({ mode: 'managed', default_receiver_channel_id: null, effective_source: 'none' }))
+
+    const { result } = renderHook(() => useRouteSetting())
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    await result.current.save(null, 'managed')
+    expect(updateMock).toHaveBeenCalledTimes(1)
+    expect(updateMock).toHaveBeenCalledWith({ default_receiver_channel_id: null, mode: 'managed' })
+    // 决策四：切回平台生成**不自动接管** —— default_receiver_channel_id 仍为 null
+    await waitFor(() => expect(result.current.setting?.mode).toBe('managed'))
+    expect(result.current.setting?.default_receiver_channel_id).toBeNull()
   })
 
   it('保存失败（400 渠道不存在 / 未启用）向上抛出并透传错误消息，由调用方提示', async () => {
