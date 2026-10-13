@@ -82,14 +82,16 @@ type alertHistoryQuery struct {
 }
 
 // AlertsHistoryHandler 是 GET /api/v1/alerts/history 的 handler。
-//   1. 解析并校验查询参数（默认 24h、最大 7d、step 默认 30s/最小 15s、page_size 上限 200）；
-//      并按窗口兜底抬高过密的 step，保证单序列点数不超上游上限（决策 90）；
-//   2. 调用 Prometheus query_range 查询 ALERTS{alertstate="firing"}；
-//   3. 按 alertname + instance + 其余 labels 分组，连续 firing 样本合成触发区间；
-//   4. 中断超过 2×step 视为区间结束；查询窗口末尾仍有样本则 state=firing；
-//   5. 从 Prometheus /api/v1/rules 获取告警注解 summary 回填；
-//   6. 按告警标签 resource_id 批量回连 M01 五类资源表，回填实例名字段（v1.15 决策 70）；
-//   7. 本地过滤 network_domain/alertname/instance/state，内存分页后返回。
+//  1. 解析并校验查询参数（默认 24h、最大 7d、step 默认 30s/最小 15s、page_size 上限 200）；
+//     并按窗口兜底抬高过密的 step，保证单序列点数不超上游上限（决策 90）；
+//  2. 调用 Prometheus query_range 查询 ALERTS{alertstate="firing"}；
+//  3. 按 alertname + instance + 其余 labels 分组，连续 firing 样本合成触发区间；
+//  4. 中断超过 2×step 视为区间结束；查询窗口末尾仍有样本则 state=firing；
+//  5. 从 Prometheus /api/v1/rules 取告警注解 **summary 模板**，按该序列 labels 渲染后回填
+//     （2026-10-13：原实现直接回填模板原文，导致摘要泄露 `{{ $labels.xxx }}`，见
+//     alert_annotation.go 包注释）；
+//  6. 按告警标签 resource_id 批量回连 M01 五类资源表，回填实例名字段（v1.15 决策 70）；
+//  7. 本地过滤 network_domain/alertname/instance/state，内存分页后返回。
 //
 // 响应 envelope：{status, data:{list:[...], total, page, page_size, step}}，
 // 空结果 list=[] 非 null；`step` 为**实际生效**的步长（可能被第 1 步抬高）。
@@ -234,10 +236,10 @@ func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, pr
 		return nil, err
 	}
 
-	summaryMap, err := fetchRulesAnnotations(ctx, client, promURL)
+	summaryTemplates, err := fetchRuleSummaryTemplates(ctx, client, promURL)
 	if err != nil {
-		// summary 获取失败降级为空，不阻塞历史列表。
-		summaryMap = map[string]string{}
+		// 模板获取失败降级为空，不阻塞历史列表（摘要为空 = 前端显示 '-'）。
+		summaryTemplates = map[string]string{}
 	}
 
 	// 决策 70：一次性收集 resource_id 批量回连 M01（每类资源表一条 IN 查询，禁 N+1）。
@@ -248,7 +250,7 @@ func fetchAlertHistory(ctx context.Context, db *gorm.DB, client *http.Client, pr
 	}
 	identities := ResolveResourceIdentitiesSafe(db, ids)
 
-	items := rebuildIntervals(matrix, q, summaryMap, identities)
+	items := rebuildIntervals(matrix, q, summaryTemplates, identities)
 
 	// 本地过滤（MVP 单租户语义；未来可改为 PromQL matcher 注入）。
 	filtered := make([]AlertHistoryItem, 0, len(items))
@@ -329,7 +331,9 @@ func queryRangeAlerts(ctx context.Context, client *http.Client, promURL *url.URL
 }
 
 // rebuildIntervals 将 matrix 样本按 series 重建为触发/恢复区间。
-func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap map[string]string, identities map[string]ResourceIdentity) []AlertHistoryItem {
+// summaryTemplates 是 alertname → summary **模板**（未渲染），在 buildHistoryItem 内
+// 按各序列 labels 渲染（2026-10-13，见 alert_annotation.go）。
+func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryTemplates map[string]string, identities map[string]ResourceIdentity) []AlertHistoryItem {
 	gapThreshold := int64(2 * q.Step.Seconds())
 	endUnix := q.End.Unix()
 
@@ -358,7 +362,7 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 				continue
 			}
 			if int64(ts)-intervalEnd > gapThreshold {
-				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryMap, identities))
+				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryTemplates, identities))
 				intervalStart = int64(ts)
 				intervalEnd = int64(ts)
 			} else {
@@ -366,7 +370,7 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 			}
 			// 最后一条样本结束后闭合区间。
 			if i == len(series.Values)-1 {
-				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryMap, identities))
+				items = append(items, buildHistoryItem(labels, intervalStart, intervalEnd, endUnix, q.Step, summaryTemplates, identities))
 			}
 		}
 	}
@@ -374,7 +378,7 @@ func rebuildIntervals(matrix []promMatrixSample, q alertHistoryQuery, summaryMap
 }
 
 // buildHistoryItem 将单个触发区间转换为 AlertHistoryItem。
-func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryMap map[string]string, identities map[string]ResourceIdentity) AlertHistoryItem {
+func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix int64, step time.Duration, summaryTemplates map[string]string, identities map[string]ResourceIdentity) AlertHistoryItem {
 	domain := models.ResolveNetworkDomain(labels)
 	alertname := labels["alertname"]
 	instance := labels["instance"]
@@ -395,10 +399,12 @@ func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix
 		resolvedAt = &rt
 	}
 
-	summary := summaryMap[alertname]
-	if summary == "" {
-		summary = labels["summary"]
-	}
+	// 摘要渲染（2026-10-13）：summaryTemplates 里是**未渲染模板**，须按本序列 labels 渲染。
+	// 渲染失败 / 无模板 → 空摘要（前端显示 '-'），**严禁回退模板原文**（缺陷本身）。
+	// 渲染标签 = 序列标签 + 平台归一的网域键（见 renderHistorySummary 说明），
+	// 使模板里的 {{ $labels.network_domain }} / {{ $labels.network_domain_id }}
+	// 与发往 AM 的渲染结果保持一致，而不是恒空。
+	summary := renderHistorySummary(summaryTemplates[alertname], labels, domain)
 
 	return AlertHistoryItem{
 		Alertname:       alertname,
@@ -412,6 +418,45 @@ func buildHistoryItem(labels map[string]string, startUnix, endUnix, queryEndUnix
 		Value:           "1",
 		InstanceFields:  InstanceFieldsOf(labels, identities),
 	}
+}
+
+// renderHistorySummary 用该告警序列的标签渲染 summary 模板，返回可读摘要。
+//
+// 网域键补齐：中心求值的告警，其 **本地 ALERTS 序列不含 external_labels**
+// （external_labels 只在 remote write / federation / 发往 AM 时由 relabelAlerts 附加），
+// 于是用户在模板里写 {{ $labels.network_domain }} / {{ $labels.network_domain_id }}
+// 时，历史摘要会渲染成空，而 AM 侧同一告警却有值——同一模板两个页面两种结果。
+// 这里按序列标签 → 平台归一值补齐两个键（序列自带则以序列为准），抹平该差异。
+//
+// 失败语义（关键）：无模板 / 模板非法 / 执行失败一律返回空串，调用方写进响应后
+// 前端显示 `-`。**不得**回退模板原文——历史告警长期显示 `{{ $labels.xxx }}` 正是本函数
+// 修复的缺陷（见 alert_annotation.go 包注释）。空串与「规则确实没写 summary」不可区分，
+// 这是有意的：两者都不该编造出内容。
+//
+// value 传 "1"：ALERTS{alertstate="firing"} 样本值恒为 1，与 Prometheus 渲染告警注解时
+// `$value` 的取值一致。
+func renderHistorySummary(tmpl string, labels map[string]string, domain string) string {
+	if strings.TrimSpace(tmpl) == "" {
+		return ""
+	}
+	renderLabels := make(map[string]string, len(labels)+1)
+	for k, v := range labels {
+		renderLabels[k] = v
+	}
+	if domain != "" {
+		// 不覆盖序列里已有的同键值（边缘回传的 ALERTS 序列自带 network_domain_id，以序列为准）。
+		if _, ok := renderLabels["network_domain"]; !ok {
+			renderLabels["network_domain"] = domain
+		}
+		if _, ok := renderLabels["network_domain_id"]; !ok {
+			renderLabels["network_domain_id"] = domain
+		}
+	}
+	out, err := RenderAnnotation(tmpl, renderLabels, "1")
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // historyInstanceMatch 判定历史告警是否命中「实例」筛选（v1.15 决策 70）：
@@ -437,9 +482,14 @@ type rulesAPIResponse struct {
 	} `json:"data"`
 }
 
-// fetchRulesAnnotations 从 Prometheus /api/v1/rules 获取 alertname → summary 映射，
-// 用于回填历史告警摘要（ALERTS 序列本身不含 annotations）。
-func fetchRulesAnnotations(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error) {
+// fetchRuleSummaryTemplates 从 Prometheus /api/v1/rules 获取 alertname → summary
+// **模板**映射（ALERTS 序列本身不含 annotations，这是唯一可得的注解来源）。
+//
+// ⚠️ 返回的是**未渲染模板**：该 API 返回规则文件里的注解原文，Prometheus 只在告警实际
+// 触发 / 推送时才渲染。因此调用方必须经 RenderAnnotation 按序列 labels 渲染后再回填，
+// 绝不能把返回值直接当摘要（2026-10-13 修复的正是「直接回填导致摘要泄露
+// `{{ $labels.instance }}`」这一缺陷）。
+func fetchRuleSummaryTemplates(ctx context.Context, client *http.Client, promURL *url.URL) (map[string]string, error) {
 	u := *promURL
 	u.Path = strings.TrimSuffix(u.Path, "/") + "/api/v1/rules"
 
