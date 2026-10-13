@@ -119,6 +119,11 @@ type Summary struct {
 	ProbeTargetCount           int               `json:"probe_target_count"`           // 拨测目标数（blackbox）
 	ProbeTargetAbnormalCount   int               `json:"probe_target_abnormal_count"`  // 拨测异常目标数
 	ProbeTargets               []ProbeTargetItem `json:"probe_targets"`                // 拨测目标明细（异常排前由前端按 status 排序，后端不排序）
+
+	// —— 反馈 10（路线 B）：工程师视角采集健康聚合段 ——
+	// 分母 = 已下发资源数（= MonitoredCount），不含未下发；拨测目标不参与。
+	// 查询失败 / 未注入 querier 时为 nil（字段省略），前端按「不可用」呈现，绝不误报 0。
+	CollectionHealth *CollectionHealth `json:"collection_health,omitempty"`
 }
 
 // CategorySummary 单个资源类型（L1 卡）的聚合。不含告警字段——首页未恢复数字由
@@ -149,7 +154,8 @@ type AppSummary struct {
 
 // buildOptions Build 的可选依赖（F-13：拨测结果查询器）。
 type buildOptions struct {
-	probeQuerier ProbeQuerier
+	probeQuerier    ProbeQuerier
+	upHealthQuerier UpHealthQuerier
 }
 
 // Option 是 Build 的可选依赖注入项。
@@ -159,6 +165,12 @@ type Option func(*buildOptions)
 // 保持「未知」（与历史行为一致，向后兼容）。
 func WithProbeQuerier(q ProbeQuerier) Option {
 	return func(o *buildOptions) { o.probeQuerier = q }
+}
+
+// WithUpHealthQuerier 注入采集健康 up 样本查询器（反馈 10，路线 B）。不注入 / 查询失败时
+// CollectionHealth 留空（nil），前端按「不可用」呈现。
+func WithUpHealthQuerier(q UpHealthQuerier) Option {
+	return func(o *buildOptions) { o.upHealthQuerier = q }
 }
 
 // Build 聚合各模块已有数据生成首页统计概览。
@@ -217,9 +229,20 @@ func Build(db *gorm.DB, opts ...Option) (*Summary, error) {
 	//    口径见 docs/05-execution-records/module-05/design-proposals/
 	//    homepage-mvp-content-restructure.md §3.5；与 platform/query/coverage.go 的
 	//    「未监控」补集同源，故 monitored_count ≤ resource_count。
+	dispatchedIDs := make([]string, 0, len(selected))
 	for id := range selected {
 		if resourceIDs[id] {
 			s.MonitoredCount++
+			dispatchedIDs = append(dispatchedIDs, id)
+		}
+	}
+
+	// 2.1 采集健康四态（反馈 10，路线 B）：对已下发资源（= monitored_count 集合）按 up
+	//     样本分类（口径见 collection_health.go）。查询失败 / 未注入 querier 时降级留空，
+	//     不误报 0（决策 68-2）。
+	if cfg.upHealthQuerier != nil {
+		if idx, err := cfg.upHealthQuerier.UpHealth(context.Background()); err == nil {
+			s.CollectionHealth = classifyCollectionHealth(dispatchedIDs, idx)
 		}
 	}
 

@@ -3,7 +3,8 @@
  *
  * 页面结构（自上而下）：页头行（引导语 + 系统状态）→ **L0 全局态势区**（5 张 KPI 卡，
  * 含「拨测」）→ **L1 采集覆盖区**（5 张资源类型卡一行，子类封顶 3 + 更多）→ **L2 应用覆盖表**
- * （覆盖率升序，未归类行置底）→ **L3 拨测态势面板** → **L4 告警状态卡 + L5 使用指引
+ * （纳管率升序，未归类行置底）→ 「按云分布」整宽区块 → **L3 拨测态势面板** → **「采集健康」
+ * 独立面板**（反馈 10 路线 B，工程师视角，固定位于**告警状态之前**）→ **L4 告警状态卡 + L5 使用指引
  * （同排等高：左告警 1.6 : 右指引 1）**。
  *
  * 与 v1.7 的差异（决策 93）：L0 由 4 卡扩为 5 卡（新增「拨测」）；删「按应用查看」入口卡与
@@ -58,6 +59,7 @@ import { ResourceTypeGrid } from './ResourceTypeGrid'
 import { AppDetailTable } from './AppDetailTable'
 import { CloudDistributionPanel } from './CloudDistributionPanel'
 import { ProbePanel } from './ProbePanel'
+import { CollectionHealthPanel } from './CollectionHealthPanel'
 import { firingAlerts as pickFiringAlerts } from './resourceTypeMeta'
 import { useNarrowLayout } from './homeResponsive'
 
@@ -173,6 +175,16 @@ const DASHBOARD_MOCK: DashboardSummary = {
     { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
     { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
   ],
+  // 「采集健康」静态预览样例（反馈 10 路线 B）。分母 `dispatched_count` 恒等于
+  // `monitored_count`=96（已下发资源数），四态计数之和 = 96；后端查询失败 / 未实现时字段缺失，
+  // 面板渲染「不可用」（本样例仅用于静态预览 / 缺失回退，不改变口径）。
+  collection_health: {
+    dispatched_count: 96,
+    collecting_count: 88,
+    stale_count: 4,
+    down_count: 2,
+    pending_count: 2,
+  },
 }
 
 const ALERT_MOCK: AlertCounts = {
@@ -934,6 +946,12 @@ export function HomePage() {
         {/* L3 拨测态势面板：整宽卡（决策 93）。数据源为 dashboard.probe_targets[]（受控注入，
             空库/字段缺失时空数组 → ProbePanel 显示空态 + 去配置深链）。 */ }
         <ProbePanel probeTargets={dashboard?.probe_targets ?? []} />
+
+        {/* 「采集健康」独立面板（反馈 10 路线 B）：工程师视角「已下发的这批数据采到了吗」，
+            与领导视角的 L0「纳管覆盖率」（下发进度）分开展示。位置固定在**告警状态之前**
+            （即「采集覆盖」区之后，不与领导视角指标相邻）；数据源 = dashboard.collection_health
+            （后端一次聚合四态，前端零逻辑；缺失时面板显示「不可用」，绝不误报 0）。 */ }
+        <CollectionHealthPanel health={dashboard?.collection_health} />
 
         {/* L4 告警状态卡 + L5 使用指引：同排等高（左告警 flex:1.6 : 右指引 flex:1，决策 93）；
             窄屏（≤767px）改为纵向堆叠（告警卡在上、使用指引在下），两卡各自整宽。

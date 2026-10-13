@@ -304,6 +304,92 @@
 
 ---
 
+## 反馈 10：首页新增「工程师视角 · 采集健康」面板，与「纳管覆盖率」分开展示
+
+> **反馈日期**: 2026-10-13　**反馈来源**: 产品负责人（用户）
+> **触发原文**：「想在首页数据指标上，新增一个给工程师看的采集状态是否正常的统计面板，便于和领导看的『纳管覆盖率』（已下发（被启用的采集任务覆盖）的资源数 ÷ 资源总数，反映【纳管/下发进度】，不代表数据已采到。实际采集健康见「资源管理中心」采集状态。拨测目标不参与计算。）分开展示」
+> **归类**: **① PRD 空白**（PRD 未定义工程师视角的采集健康面板）——不触发 CR，按 Agent 契约在本文件留痕。
+> **本轮处理原则**: 仅登记与可行性分析，**不动代码**。
+
+### 10.1 需求背景：两个口径当前只由一个数字承载
+
+| 视角 | 关心的问题 | 现有承载 |
+|---|---|---|
+| 领导 / 治理 | 纳管（下发）进度到哪了 | L0「纳管覆盖率」= 已下发 ÷ 资源总数（进度条卡） |
+| 工程师 / 值班 | 数据到底采到了吗、哪些没在采 | **首页无承载** —— 仅 L0 卡 tip 文字指向「资源管理中心」采集状态 |
+
+「纳管覆盖率」口径已由产品明确（即 L0 卡 tip 原文）：*已下发（被启用的采集任务覆盖）的资源数 ÷ 资源总数，反映【纳管/下发进度】，不代表数据已采到*。本反馈诉求是**在不改变该卡语义的前提下**，为工程师补一个「实际采集是否正常」的独立面板。
+
+### 10.2 现状核实（实证，非推测）
+
+1. **聚合接口无任何「采到」口径字段**：`GET /api/v2/platform/dashboard/summary` 的 `monitored_count` 定义即「被至少一个已启用（ready + enabled）标准 Job 覆盖的资源数（去重）」（`platform/dashboard/summary.go:107`、`ui-custom/web/src/api/dashboard.ts:106`）——**纯下发口径**；`by_category` / `by_app` / `by_cloud` 的 `monitored_count` 同源，接口上不存在 `collected_*` / `health_*` 一类字段。
+2. **首页「已采数」文案实为下发口径（既有歧义，与本诉求同源）**：`ui-custom/web/src/pages/home/HomePage.tsx:80` 注释自证「`monitored_count` 之和 = 主机类**已采数**（36）」；L1 类型卡 / L2 应用覆盖表 / 按云分布 的「已采 / 覆盖率」均取自该字段。即首页目前**所有**「采」字文案都不含「真的采到」含义。
+3. **真实采集健康的判定口径已有现成实现，可直接复用**：
+   - M01 采集 Job 列表：`ui-custom/web/src/pages/strategy/useJobScrapeStatus.ts`（20s 自动刷新）消费 M02 `/api/v1/query` 的 `up{job=...}`（5min 实时态）与 `last_over_time(up[1h])`，产出四态 **采集中 / 已下发未采到(down) / 回传延迟中(stale, F-40) / 待采集(pending)**；拨测 Job 走 `probe_success` 三态。
+   - M07「资源管理中心」采集状态：资源维度同口径展示（即 L0 tip 的指向目标）。
+   - **结论**：口径无需重新发明，问题只在「谁来聚合、在哪展示」。
+
+### 10.3 实现路线（两选一，待产品 / 规划定）
+
+| 路线 | 做法 | 代价 | 结论 |
+|---|---|---|---|
+| **A 前端聚合**（零后端改动） | 首页新增面板，前端遍历已下发 Job → 逐 job 拉实例 + Prom `up`/`last_over_time` 聚合四态 | 首页首屏新增 `2~3 × Job 数` 次请求（`useJobScrapeStatus` 现有实现即每 job 2~3 次查询）；Job 上百即不可用；与采集 Job 列表逻辑重复 | ⚠️ 仅适合「Job 数量个位数」的演示 / 试点 |
+| **B 后端聚合新字段**（推荐） | `dashboard/summary` 新增 `collection_health` 段（如 `collected_count` / `stale_count` / `down_count` / `pending_count`），后端一次聚合 | 需 M05 × M02/M01 跨模块契约；需 PRD 定义口径与分母 | ✅ 与「纳管覆盖率」同为聚合卡，前端零逻辑，成本可控 |
+
+> 若走 B：分母口径需产品拍板 —— 建议**与纳管覆盖率同分母（资源数）**，否则两卡不可比；但「一个资源可被多个 Job 覆盖」的去重规则须先定义（可复用 `monitored_count` 的「资源去重、按样本判定」思路）。
+
+### 10.4 必须澄清的口径与文案（否则新面板会制造新歧义）
+
+1. **命名**：「纳管覆盖率」保留（下发口径）；工程师面板建议命名 **「采集健康」**（或「实际采集中」），**禁用「覆盖率」字样** —— 同词不同义正是本次歧义源头。
+2. **既有「已采」文案**：L1/L2/按云的「已采 / 覆盖率」建议正名为「**已下发 / 纳管率**」，或至少在各自 tip 显式注明「本值为下发口径，非采集结果」，与 L0 口径说明对齐。
+3. **采样窗口**：沿用 F-40 已定口径（5min = 采集中；1h 内有样本 = 回传延迟中；无样本 = 待采集），不新造窗口。
+4. **拨测目标不参与**（沿用既有口径）；`stale`（回传延迟中）建议在工程师面板**保留为独立一态**，避免把「回传延迟」误报为「采集中」或「未采集」。
+5. **与 M07 的关系**：M07 已承载同口径明细。首页新面板定位应为**汇总入口 + 深链 M07**，避免两处各自演进。
+
+### 10.5 处理结论（2026-10-13 产品确认）
+
+| 项 | 结论 |
+|---|---|
+| ① 是否纳入首页 scope | ✅ **纳入**（本轮，M05 首页） |
+| ② 实现路线 | ✅ **路线 B**：复用 M02 后端聚合——`dashboard/summary` 新增采集健康聚合段，前端零聚合逻辑（不采用路线 A 的逐 Job 拉取） |
+| ③ 面板形态 | ✅ **独立「采集健康」面板**（不采用 L0 追加第 6 张卡）。**位置固定在「告警状态」区块之前**（即位于「采集覆盖」区之后，不与领导视角指标相邻）。分布条**不含「未下发」**：未下发资源的进度交回「纳管覆盖率」，面板只表达已下发资源内部的采集健康度。内容 = 四态计数 + 分布条 + 「查看资源明细 →」深链 M07。样式稿已完成评审（纯结构示意，非最终配色） |
+| ④ 命名与正名口径 | ✅ **按 §10.4 更新**（见下方「口径定义」） |
+| ⑤ 移动端（手机竖屏） | ✅ **本轮一并修复**：① 新增「采集健康」面板须按竖屏形态落地（标题行 / 分布条 / 图例折行）；② **现有「按云分布」「应用分布」两块未适配手机竖屏**（历史缺口），本次一并修复 |
+
+**口径定义（随 ④ 生效）**：
+
+- **纳管（下发）口径**：`monitored_count` = 被 `ready + enabled` 采集 Job 覆盖的资源数（去重）。前端**一律**称「**已下发**」/「**纳管率**」——首页 L1 类型卡、L2 应用覆盖表、按云分布三处原「已采 / 覆盖率」字样按此正名；L0 卡名「纳管覆盖率」保留（产品口径不变）。
+- **采集健康口径**：沿用 F-40 既有判定，**不新造窗口**——5min 内有 `up` 样本 = **采集中**；1h 内有历史样本但 5min 无 = **回传延迟中（stale，独立一态，不并入其他态）**；无任何样本 = **待采集**；已下发且 `up=0` = **已下发未采到（down）**。拨测目标不参与。
+- **采集健康分母**：**已下发资源数**（即 `monitored_count`），**不含「未下发」**——两卡分母口径不同、职责不重叠：未下发进度归「纳管覆盖率」，面板只回答「已下发的这批数据采到了吗」。
+
+**待办（按序）**：
+
+1. ~~样式稿评审~~ → ✅ 已完成，形态定稿（独立面板，位置见图 ③）。
+2. ~~后端~~ → ✅ 已完成（2026-10-13）：`dashboard/summary` 新增 `collection_health` 聚合段，契约已同步 `module-05/api-contract-snapshot.md` §1.1。见下方「落地记录」。
+3. ~~前端~~ → ✅ 已完成（2026-10-13）：① 「采集健康」面板实现（位置 = 告警状态之前；采集健康判定**按路线 B 调整为前端零聚合**——仅渲染后端 `collection_health`，**不再复用 `upStatus.ts`**，口径收口在后端 `collection_health.go`，见下方「落地记录」说明）；② §10.4 文案正名（L1/L2/按云「已采→已下发」「覆盖率→纳管率」「未采→未下发」）；③ 移动端竖屏适配 —— 新面板 + 现有「按云分布」「应用分布」两块（⑤）。三项一次性落地。
+4. **PRD 回填**：`Module_05_Custom_UI.md` §3.1 / §6（遵循 PRD 冻结门禁，由 prototype-designer 执行）。
+
+---
+
+### 落地记录（2026-10-13，反馈 10 路线 B）
+
+| 项 | 落点 | 说明 |
+|---|---|---|
+| 后端聚合 | `platform/dashboard/collection_health.go`（新增）、`summary.go`（新增 `collection_health` 字段 + `WithUpHealthQuerier`）、`cmd/metric-center/main.go`（注入 `PromUpHealthQuerier`） | 四态聚合：`dispatched_count` / `collecting_count` / `stale_count` / `down_count` / `pending_count`；查询 `up` 与 `last_over_time(up[1h])`，按 `resource_id` 标签匹配已下发资源集合（与 M02 `/api/v1/health/coverage` 一致）；不变量 `dispatched === collecting + stale + down + pending`；分母 `dispatched_count` 恒等于 `monitored_count`（不含未下发）。窗口沿用 F-40（5min 实时 / 1h 判 stale），`stale` 独立一态，拨测目标不参与 |
+| 后端降级 | `platform/dashboard/collection_health.go` | querier 未注入或 `up` / `last_over_time` 查询失败时 `collection_health` 字段缺失（`nil`）→ 前端按「不可用」呈现，**绝不回退成 0**（决策 68-2） |
+| 后端测试 | `platform/dashboard/collection_health_test.go`（新增） | 四态分类 / 降级 / 查询器单测；`go test ./platform/dashboard/...` ok、`go vet` 通过 |
+| 契约快照 | `module-05/api-contract-snapshot.md` §1.1 | `DashboardSummary` 增 `collection_health?: CollectionHealth`；新增 `interface CollectionHealth`；补「新增字段口径与边界（反馈 10 路线 B）」、更新「使用方式」、「文案口径（反馈 10 §10.4 正名）」 |
+| 前端类型 | `ui-custom/web/src/api/dashboard.ts` | 新增导出 `CollectionHealth` 接口；`DashboardSummary` 增 `collection_health?` |
+| 前端面板 | `ui-custom/web/src/pages/home/CollectionHealthPanel.tsx`（新增） | 独立 `SurfaceCard title="采集健康"`；extra = 「查看资源明细 →」深链 `/resources`；四态分布条 + 图例 + 口径脚注；`dispatched_count=0` 空态深链 `/scrape-jobs`；`collection_health` 缺失时「采集健康数据暂不可用」（不显示 0）；窄屏图例折行 |
+| 前端接线 | `ui-custom/web/src/pages/home/HomePage.tsx` | 面板插入于「采集覆盖」区之后、「告警状态」区块之前（`ProbePanel` 之后、`home-l45-row` 之前）；`DASHBOARD_MOCK` 增自洽 `collection_health`（96/88/4/2/2，和 = `monitored_count`） |
+| 文案正名 | `ResourceTypeGrid.tsx` / `AppDetailTable.tsx` / `CloudDistributionPanel.tsx` | L1 类型卡 / L2 应用覆盖表 / 按云分布三处「已采→已下发」「覆盖率→纳管率」，「未采→未下发」；L0 卡名「纳管覆盖率」保留 |
+| 竖屏适配 | 同上三处 + `CollectionHealthPanel.tsx` | 新增 `useNarrowLayout()`（≤767px）窄屏分支：「按云分布」「应用覆盖」由 antd Table 改为竖排卡片列表（不横向滚动），宽屏表格分支逐字不变；新面板图例折行 |
+| 前端测试 | `ui-custom/web/src/pages/home/HomePage.test.tsx` | 断言正名 + 新增 4 用例：面板四态渲染且位于告警状态之前（位置断言）、`collection_health` 缺失的不可用态（绝不显示 0）、`dispatched_count=0` 空态引导、手机视口下「按云分布」「应用覆盖」折成竖排卡片（`cloud-cards` / `l2-app-cards`） |
+
+**与待办 3 的差异说明**：待办 3 原写「采集健康判定复用 `upStatus.ts` 现有函数」，与 ② 路线 B（前端零聚合）冲突。本轮按产品明确选择的**路线 B** 落地——前端仅渲染后端 `collection_health`，判定口径收口在后端 `collection_health.go`，前端不同步维护第二套判定逻辑（口径单一来源）。
+
+---
+
 ## 文档回填留痕（2026-09-14，决策 72-3 首页内容重构）
 
 > 本节对应 `design-proposals/homepage-mvp-content-restructure.md` §7 第 4 项（dev-feedback clipping 留痕），随 PRD v1.5 回填一并登记。**两条均为产品口径裁剪，非实现缺失**。

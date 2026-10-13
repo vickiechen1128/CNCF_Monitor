@@ -33,6 +33,16 @@ interface DashboardSummary {
   unclassified_monitored_count: number    // 上项中已被采集任务覆盖的资源数
   probe_target_count: number              // job_type=blackbox 采集 Job 的拨测目标总数（不计入 resource_count）
   probe_target_abnormal_count: number     // 当前探测失败的拨测目标数
+  // —— 反馈 10 新增（路线 B，供首页「采集健康」面板使用）——
+  collection_health?: CollectionHealth    // 已下发资源的采集健康四态聚合；后端查询失败 / 未实现时字段缺失（前端按「不可用」呈现，绝不误报 0）
+}
+
+interface CollectionHealth {
+  dispatched_count: number               // 分母 = 已下发资源数（=== monitored_count）；不含「未下发」，未下发进度归 L0「纳管覆盖率」
+  collecting_count: number               // 采集中：5min 内有 up==1 样本
+  stale_count: number                    // 回传延迟中（F-40 独立一态）：5min 内无样本、1h 内有历史样本
+  down_count: number                     // 已下发未采到：5min 内有 up==0 样本
+  pending_count: number                  // 待采集：1h 内亦无任何样本
 }
 
 interface CategorySummary {
@@ -77,7 +87,13 @@ interface RecentDeployment {
   - `by_app`：与 `unclassified_*` 之和等于 `resource_count`；`app_code` 为不可变简称、`app_name` 为必填展示名。
   - `probe_target_*`：来源为 `job_type=blackbox` 的采集 Job 拨测目标，**不计入** `resource_count`，也不参与覆盖率。
   - 失败 / 字段缺失时前端按源降级显示 `-`（禁止 `NaN%`），**不与「恒 0」混淆**（决策 68-2 口径）。
-- **使用方式**: `HomePage` 通过 `dashboardApi.getSummary()` 获取数据，渲染 L0 四张 KPI 卡、L1 资源类型区与 L2 应用明细表（v1.7 版式，见 `frontend-prototype-map.md` §5.5 W-1~W-5）。
+- **新增字段口径与边界**（反馈 10 路线 B，2026-10-13；后端 `platform/dashboard/collection_health.go` + `summary.go`）:
+  - `collection_health`：**可选字段**——后端 `WithUpHealthQuerier` 未注入（如中心 Prom 未配置）或 `up` / `last_over_time(up[1h])` 查询失败时，字段缺失（`nil`/`undefined`），前端渲染「采集健康数据暂不可用」，**绝不回退成 0**（决策 68-2）。
+  - 分母 `dispatched_count`：恒等于 `monitored_count`（已下发资源数，按 `resource_id` 去重），**不含「未下发」**；不变量 `dispatched_count === collecting_count + stale_count + down_count + pending_count`。
+  - 四态判定沿用 F-40（与 M07 采集状态、M01 `useJobScrapeStatus` 同口径）；`stale`（回传延迟中）**独立一态**，不并入其他态；拨测目标不参与。
+  - 聚合口径按 `up` 序列的 `resource_id` 标签匹配已下发资源集合（与 M02 `/api/v1/health/coverage` 一致）；无 `resource_id` 标签的 series 不计入。
+- **使用方式**: `HomePage` 通过 `dashboardApi.getSummary()` 获取数据，渲染 L0 五张 KPI 卡（含「拨测」）、L1 资源类型区、L2 应用明细表与「采集健康」面板（反馈 10，固定位于「告警状态」区块之前；v1.7 版式见 `frontend-prototype-map.md` §5.5 W-1~W-5）。
+- **文案口径（反馈 10 §10.4 正名）**: `monitored_count` 为**下发口径**——首页 L1 类型卡 / L2 应用覆盖表 / 按云分布三处原「已采 / 覆盖率」字样统一正名为「**已下发 / 纳管率**」；L0 卡名「纳管覆盖率」保留。新面板名「采集健康」**禁用「覆盖率」字样**（避免与下发口径同词不同义）。
 
 ---
 

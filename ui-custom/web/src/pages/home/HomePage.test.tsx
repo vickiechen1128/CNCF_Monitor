@@ -180,6 +180,14 @@ const DASHBOARD_OK = {
       { url: 'tcp://mysql.pay.example.cn:3306', status: 'up', network_domain_id: 'mc-prod-intranet', network_domain_name: '生产内网域', last_probe_at: '2026-09-19T09:37:00+08:00' },
       { url: 'https://gateway.example.cn/v1/ping', status: 'up', network_domain_id: 'mc-edge-debug', network_domain_name: '腾讯云调试域', last_probe_at: '2026-09-19T09:36:00+08:00' },
     ],
+    // 采集健康四态（反馈 10）：分母 = monitored_count = 96，四态之和 = 96
+    collection_health: {
+      dispatched_count: 96,
+      collecting_count: 88,
+      stale_count: 4,
+      down_count: 2,
+      pending_count: 2,
+    },
   },
 }
 
@@ -568,6 +576,103 @@ describe('HomePage', () => {
     expect(within(panel).queryByText('67%')).not.toBeInTheDocument()
   })
 
+  it('renders the 采集健康 panel (four states) before the alert status card', async () => {
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    const panel = screen.getByTestId('collection-health-panel')
+    expect(within(panel).getByText('采集健康')).toBeInTheDocument()
+
+    // 四态计数（分母 = 已下发资源数 96，不含「未下发」）
+    expect(screen.getByTestId('ch-legend-collecting_count')).toHaveTextContent('采集中')
+    expect(screen.getByTestId('ch-legend-collecting_count')).toHaveTextContent('88')
+    expect(screen.getByTestId('ch-legend-stale_count')).toHaveTextContent('回传延迟中')
+    expect(screen.getByTestId('ch-legend-stale_count')).toHaveTextContent('4')
+    expect(screen.getByTestId('ch-legend-down_count')).toHaveTextContent('2')
+    expect(screen.getByTestId('ch-legend-pending_count')).toHaveTextContent('2')
+
+    // 分布条 + 深链 M07 资源明细
+    expect(screen.getByTestId('ch-bar')).toBeInTheDocument()
+    expect(within(panel).getByTestId('ch-detail-link')).toHaveAttribute('href', '/resources')
+
+    // 位置：固定在「告警状态」区块之前（拨测面板之后 → 采集健康 → L4/L5 行）
+    const following = (a: HTMLElement, b: HTMLElement) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(following(screen.getByTestId('probe-panel'), panel)).toBe(true)
+    expect(following(panel, screen.getByTestId('home-l45-row'))).toBe(true)
+  })
+
+  it('renders the 采集健康 unavailable state (never a false 0) when collection_health is absent', async () => {
+    const dataWithoutHealth: Record<string, unknown> = { ...DASHBOARD_OK.data }
+    delete dataWithoutHealth.collection_health
+    setupHomeMock({ [DASHBOARD_PATH]: { ...DASHBOARD_OK, data: dataWithoutHealth } })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-health-panel')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('ch-unavailable')).toBeInTheDocument()
+    // 字段缺失时不渲染分布条，避免把「不可用」误报成 0
+    expect(screen.queryByTestId('ch-bar')).not.toBeInTheDocument()
+  })
+
+  it('renders the 采集健康 empty guide when dispatched_count is 0', async () => {
+    setupHomeMock({
+      [DASHBOARD_PATH]: {
+        ...DASHBOARD_OK,
+        data: {
+          ...DASHBOARD_OK.data,
+          collection_health: {
+            dispatched_count: 0,
+            collecting_count: 0,
+            stale_count: 0,
+            down_count: 0,
+            pending_count: 0,
+          },
+        },
+      },
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-health-panel')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('ch-empty-link')).toHaveAttribute('href', '/scrape-jobs')
+    expect(screen.queryByTestId('ch-bar')).not.toBeInTheDocument()
+  })
+
+  it('renders 按云分布 and 应用覆盖 as stacked cards on the mobile viewport', async () => {
+    stubNarrowViewport()
+    setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText(PAGE_INTRO)).toBeInTheDocument()
+    })
+
+    // 按云分布：窄屏改为卡片列表（不渲染表格），云名与数值仍在
+    const cloudPanel = screen.getByTestId('cloud-distribution-panel')
+    expect(within(cloudPanel).getByTestId('cloud-cards')).toBeInTheDocument()
+    expect(within(cloudPanel).queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('腾讯云')
+    expect(screen.getByTestId('cloud-card-PUB-TX')).toHaveTextContent('主机 30 · 已下发 28')
+
+    // 应用覆盖：窄屏改为竖排卡片（不渲染表格），含「实例 · 已下发」与业务域
+    const appTable = screen.getByTestId('l2-app-table')
+    expect(within(appTable).getByTestId('l2-app-cards')).toBeInTheDocument()
+    expect(within(appTable).queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByTestId('l2-app-row-user')).toHaveTextContent('用户中心')
+    expect(screen.getByTestId('l2-app-row-user')).toHaveTextContent('实例 24 · 已下发 16')
+  })
+
   it('renders L1 as a row of 5 category cards, no entry card or alert capsules', async () => {
     setupHomeMock({ [PROM_ALERTS_PATH]: PROM_ALERTS_OK })
 
@@ -583,13 +688,13 @@ describe('HomePage', () => {
     }
     expect(screen.queryByTestId('l1-app-entry')).not.toBeInTheDocument()
 
-    // 已采数 / 总数 + 量词（视觉定版）：主机写「台」，其余类型不写量词
-    expect(within(screen.getByTestId('l1-card-host')).getByText('/ 42 台已采')).toBeInTheDocument()
-    expect(within(screen.getByTestId('l1-card-database')).getByText('/ 26 已采')).toBeInTheDocument()
+    // 已下发数 / 总数 + 量词（视觉定版）：主机写「台」，其余类型不写量词
+    expect(within(screen.getByTestId('l1-card-host')).getByText('/ 42 台已下发')).toBeInTheDocument()
+    expect(within(screen.getByTestId('l1-card-database')).getByText('/ 26 已下发')).toBeInTheDocument()
     expect(screen.getByTestId('l1-monitored-host')).toHaveTextContent('36')
-    // 覆盖率 36/42 = 86%；未采 6
-    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('覆盖率 86%')
-    expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('未采 6')
+    // 纳管率 36/42 = 86%；未下发 6
+    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('纳管率 86%')
+    expect(screen.getByTestId('l1-uncovered-host')).toHaveTextContent('未下发 6')
 
     // 决策 93：告警胶囊已删，L1 各卡不渲染「未恢复」数字
     expect(screen.queryByTestId('l1-alert-capsule-host')).not.toBeInTheDocument()
@@ -843,7 +948,7 @@ describe('HomePage', () => {
     expect(within(screen.getByTestId('metric-coverage')).getByText('-')).toBeInTheDocument()
     // 五类卡仍按 0 值渲染（缺则补 0 值条目）
     expect(screen.getByTestId('l1-card-host')).toBeInTheDocument()
-    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('覆盖率 -')
+    expect(screen.getByTestId('l1-coverage-host')).toHaveTextContent('纳管率 -')
   })
 
   it('renders the 查看全部 deep link on the alert card', async () => {
