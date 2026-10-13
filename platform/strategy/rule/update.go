@@ -134,12 +134,18 @@ func ruleIDFromContext(raw string) uint {
 }
 
 // ValidateRuleYAML 是 POST /api/v2/platform/monitoring-rules/:id/validate-yaml 的
-// handler：body {rule_content}，返回 `{valid, error?, job_ref?}`（不做持久化）。
+// handler：body {rule_content}，返回 `{valid, error?, job_ref?, promql_check?}`
+// （不做持久化）。
 //
 // `valid` 语义（决策 69-1 修订）：表示**预检是否可提交**，`valid=false` 时 `error` 给出
-// 原因，属**不可覆盖的硬失败**，共两类：
+// 原因，属**不可覆盖的硬失败**，共三类：
 //  1. YAML 语法 / groups 结构非法；
-//  2. 组名全局唯一性冲突（与提交侧同实现、同输入集，见 validateGroupNamesForCheck）。
+//  2. 组名全局唯一性冲突（与提交侧同实现、同输入集，见 validateGroupNamesForCheck）；
+//  3. PromQL 语义非法（2026-10-13 新增，promtool check rules，见 promtool_check.go）。
+//
+// `promql_check` 单独回显语义校验三态：`unavailable`（promtool 缺失/不可执行）时
+// **不改写 valid**，只作提示——编辑期是辅助反馈，工具缺失不应阻断用户编辑；
+// 发布期仍由 M09 按 platform_fault 拦截。
 //
 // `job_ref` 的 error / warning 级 job 引用问题**不改写 `valid`**——它是另一根可经
 // 「逃生门」（ack_job_ref_errors）覆盖的轴（决策 66 / 67-2）。响应形状向后兼容。
@@ -160,10 +166,17 @@ func ValidateRuleYAML(db *gorm.DB) gin.HandlerFunc {
 			response.OK(c, gin.H{"valid": false, "error": err.Error(), "job_ref": []jobref.Issue{}})
 			return
 		}
+		// 2026-10-13：PromQL 语义校验（promtool check rules）。仅 failed 改写 valid；
+		// unavailable 只提示（工具缺失不该让用户无法编辑）。
+		promql := checkPromQLSyntax(req.RuleContent)
+		if msg := promQLCheckMessage(promql); msg != "" {
+			response.OK(c, gin.H{"valid": false, "error": msg, "job_ref": []jobref.Issue{}, "promql_check": promql})
+			return
+		}
 		issues := ValidateRuleJobRefs(db, req.RuleContent)
 		if issues == nil {
 			issues = []jobref.Issue{}
 		}
-		response.OK(c, gin.H{"valid": true, "job_ref": issues})
+		response.OK(c, gin.H{"valid": true, "job_ref": issues, "promql_check": promql})
 	}
 }

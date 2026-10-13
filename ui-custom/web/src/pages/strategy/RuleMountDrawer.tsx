@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
-import { Alert, Button, Checkbox, Drawer, Form, Input, Select, Space, Typography, Upload, message } from 'antd'
+import { useCallback, useEffect, useState } from 'react'
+import { Alert, Button, Checkbox, Drawer, Form, Input, Select, Space, Spin, Tag, Typography, Upload, message } from 'antd'
 import { CheckCircleOutlined, InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { monitoringRuleApi } from '../../api/monitoringRules'
-import type { JobRefIssue } from '../../api/monitoringRules'
+import type { JobRefIssue, PromQLCheckResult, RuleInspectResult } from '../../api/monitoringRules'
 import { isApiError } from '../../api/client'
 import type { ResourceCategory } from '../../types/resource'
 import type { MonitorType, MonitoringRule } from '../../types/strategy'
@@ -12,6 +12,7 @@ import { validateYamlClient } from './rulesYaml'
 import { triggerConfigDraftsForAllDomains } from '../config-center/preview/triggerConfigDraft'
 
 const { TextArea } = Input
+const { Text, Paragraph } = Typography
 
 interface RuleMountDrawerProps {
   open: boolean
@@ -36,14 +37,20 @@ type CheckState = 'idle' | 'checking' | 'passed' | 'failed'
 
 /**
  * 一次「检查」的完整结论（决策 69-1）：
- * `valid=false` 为**不可覆盖的硬失败**（YAML 语法 / groups 结构 / 组名全局唯一性冲突）；
+ * `valid=false` 为**不可覆盖的硬失败**（YAML 语法 / groups 结构 / 组名全局唯一性冲突 /
+ * 2026-10-13 新增的 PromQL 语义非法）；
  * `jobRefIssues` 中 `severity=error` 为**可经逃生门覆盖**的阻断（不改写 valid）。
  */
 interface CheckOutcome {
   valid: boolean
   error?: string
   jobRefIssues: JobRefIssue[]
+  /** promtool 语义校验三态结论；unavailable 时仅提示、不阻断 */
+  promqlCheck?: PromQLCheckResult | null
 }
+
+/** 标签探查状态机（2026-10-13）：idle 未探查 / loading 探查中 / done 完成 / failed 探查失败 */
+type InspectState = 'idle' | 'loading' | 'done' | 'failed'
 
 /** 由监控对象类型反推资源类别（编辑回显级联选择器用） */
 function categoryOfType(t?: string): ResourceCategory | undefined {
@@ -64,6 +71,140 @@ function categoryOfType(t?: string): ResourceCategory | undefined {
  * - 编辑模式：回显已有规则，提交走 update（不携带 enabled，启停由列表操作独立负责）；
  * - 保存成功后同步触发全部已纳管网域的变更单生成（规则为全局 scope），提示变更单号并可点击跳转。
  */
+/**
+ * 可用标签清单 + 注解预览面板（2026-10-13）。
+ *
+ * 解决拨测告警暴露的编辑期反馈缺失：用户写 `{{ $labels.instance }}` 时无从得知
+ * 「这条 expr 能取到哪些标签键」「它会渲染成什么」，只能靠猜——猜错就以为取不到值。
+ * 面板只陈述事实（真实匹配序列的标签 + 用真实标签渲染的注解），不替用户改写模板。
+ */
+function RuleInspectPanel({
+  state,
+  rules,
+  error,
+}: {
+  state: InspectState
+  rules: RuleInspectResult[]
+  error: string | null
+}) {
+  if (state === 'idle') return null
+
+  if (state === 'loading') {
+    return (
+      <div style={{ marginTop: 16, fontSize: 13, color: 'rgba(0,0,0,0.45)' }}>
+        <Spin size="small" style={{ marginRight: 8 }} />
+        正在查询该表达式当前可用的标签…
+      </div>
+    )
+  }
+
+  if (state === 'failed') {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginTop: 16 }}
+        message="标签清单暂不可用"
+        description={error || '查询标签失败，不影响规则检查结论与保存'}
+      />
+    )
+  }
+
+  if (rules.length === 0) {
+    return (
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginTop: 16 }}
+        message="没有可探查的规则"
+        description="规则文件中没有带 expr 的告警 / 记录规则"
+      />
+    )
+  }
+
+  return (
+    <div
+      data-testid="rule-inspect-panel"
+      style={{
+        marginTop: 16,
+        border: '1px solid rgba(0,0,0,0.08)',
+        borderRadius: 6,
+        padding: 12,
+      }}
+    >
+      <Text strong style={{ fontSize: 13 }}>
+        可用标签与注解预览
+      </Text>
+      <Paragraph type="secondary" style={{ fontSize: 12, margin: '4px 0 10px' }}>
+        以下标签来自该表达式当前真实匹配到的序列，可直接用于 {'{{ $labels.键名 }}'}；
+        预览用其中一条序列的真实取值渲染你的注解模板。
+      </Paragraph>
+      {rules.map((r, idx) => (
+        <div
+          key={`${r.group}|${r.rule}|${idx}`}
+          style={{ borderTop: idx === 0 ? 'none' : '1px dashed rgba(0,0,0,0.08)', paddingTop: idx === 0 ? 0 : 10, marginTop: 10 }}
+        >
+          <Space size={6} wrap>
+            <Text strong style={{ fontSize: 13 }}>
+              {r.rule || '(未命名)'}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {r.group}
+              {r.kind === 'record' ? ' · 记录规则' : ''}
+            </Text>
+          </Space>
+          {r.expr && (
+            <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'rgba(0,0,0,0.55)', marginTop: 2 }}>
+              {r.expr}
+            </div>
+          )}
+          {r.error && (
+            <div style={{ color: '#cf1322', fontSize: 12, marginTop: 4 }}>查询失败：{r.error}</div>
+          )}
+          {!r.error && r.note && (
+            <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12, marginTop: 4 }}>{r.note}</div>
+          )}
+          {!r.error && r.labels.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <Text type="secondary" style={{ fontSize: 12, marginRight: 6 }}>
+                可用标签（{r.labels.length}）：
+              </Text>
+              <Space size={[4, 4]} wrap>
+                {r.labels.map((l) => (
+                  <Tag
+                    key={l.key}
+                    style={{ marginInlineEnd: 0, fontFamily: 'monospace', fontSize: 11 }}
+                    title={l.values.join('、')}
+                  >
+                    {l.key}={l.values[0] ?? '-'}
+                    {l.values.length > 1 ? ` 等 ${l.values.length} 个取值` : ''}
+                  </Tag>
+                ))}
+              </Space>
+            </div>
+          )}
+          {!r.error && r.summary_template && (
+            <div style={{ marginTop: 6, fontSize: 12 }}>
+              <Text type="secondary">注解模板：</Text>
+              <span style={{ fontFamily: 'monospace' }}>{r.summary_template}</span>
+              {r.summary_error ? (
+                <div style={{ color: '#cf1322', marginTop: 2 }}>模板无法渲染：{r.summary_error}</div>
+              ) : (
+                r.summary_preview && (
+                  <div style={{ marginTop: 2 }}>
+                    <Text type="secondary">渲染结果：</Text>
+                    <Text strong>{r.summary_preview}</Text>
+                  </div>
+                )
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: RuleMountDrawerProps) {
   const navigate = useNavigate()
   const [form] = Form.useForm<MountFormValues>()
@@ -78,6 +219,11 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
   // 决策 69-2：独立「检查」的结论（驱动提交按钮是否出现）
   const [checkState, setCheckState] = useState<CheckState>('idle')
   const [checkOutcome, setCheckOutcome] = useState<CheckOutcome | null>(null)
+  // 2026-10-13：检查通过后自动探查「可用标签清单 + 注解预览」。
+  // 探查失败不影响检查结论（它只是辅助反馈），仅本区降级展示。
+  const [inspectState, setInspectState] = useState<InspectState>('idle')
+  const [inspectRules, setInspectRules] = useState<RuleInspectResult[]>([])
+  const [inspectError, setInspectError] = useState<string | null>(null)
   const isEdit = Boolean(editingRule)
   const jobRefIssues = checkOutcome?.jobRefIssues ?? []
   // error 级（存活类缺 job）为阻断项；warning 级仅提示
@@ -103,7 +249,35 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
     setSaveDone(false)
     setAckJobRefErrors(false)
     setJobRefGateMessage(null)
+    // 探查结论随规则内容一起作废：内容改了，标签与预览都不再对应。
+    setInspectState('idle')
+    setInspectRules([])
+    setInspectError(null)
   }
+
+  /**
+   * 探查规则表达式的可用标签与注解预览（2026-10-13）。
+   *
+   * 失败一律降级为提示（不抛出、不影响检查结论）：后端未提供该接口、或中心 Prometheus
+   * 不可达时，用户仍应能正常编辑与保存。
+   */
+  const runInspect = useCallback(async (ruleContent: string) => {
+    // 兼容旧后端：接口未挂载时静默跳过，不让抽屉报错。
+    if (typeof monitoringRuleApi.inspectRuleLabels !== 'function') {
+      setInspectState('idle')
+      return
+    }
+    setInspectState('loading')
+    setInspectError(null)
+    try {
+      const res = await monitoringRuleApi.inspectRuleLabels(ruleContent)
+      setInspectRules(res.data?.rules ?? [])
+      setInspectState('done')
+    } catch (e) {
+      setInspectError(e instanceof Error ? e.message : '标签探查失败，请稍后重试')
+      setInspectState('failed')
+    }
+  }, [])
 
   // 资源类别 → 监控对象类型两级级联（对齐 MappingDrawer/ScrapeJobFormDrawer F1-8）：
   // 已选类别时类型候选按类别收敛；未选类别时平铺全部类型（monitor_type 可空，类别仅作辅助）。
@@ -153,6 +327,7 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
         valid: res.data.valid,
         error: res.data.error,
         jobRefIssues: res.data.job_ref ?? [],
+        promqlCheck: res.data.promql_check ?? null,
       }
     } catch (err) {
       console.warn('[RuleMountDrawer] 后端 validate-yaml 校验不可用，回落本地 YAML 校验：', err)
@@ -161,6 +336,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
     }
     setCheckOutcome(outcome)
     setCheckState(outcome.valid ? 'passed' : 'failed')
+    // 检查通过后顺带探查标签与注解预览（2026-10-13）：不阻塞检查结论，失败仅本区降级。
+    if (outcome.valid) void runInspect(values.rule_content)
   }
 
   const handleSubmit = async () => {
@@ -371,7 +548,16 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           showIcon
           message="检查通过"
           style={{ marginTop: 16 }}
-          description="服务端已校验 YAML 语法、组名全局唯一性与规则 job 引用；提交时服务端仍会复核。"
+          description={
+            <Space direction="vertical" size={2}>
+              <span>服务端已校验 YAML 语法、组名全局唯一性、PromQL 语义与规则 job 引用；提交时服务端仍会复核。</span>
+              {checkOutcome?.promqlCheck?.status === 'unavailable' && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {checkOutcome.promqlCheck.message || '未执行 PromQL 语义校验'}
+                </Text>
+              )}
+            </Space>
+          }
         />
       )}
       {showJobRefPanel && (
@@ -443,6 +629,8 @@ export function RuleMountDrawer({ open, onCancel, onSuccess, editingRule }: Rule
           }
         />
       )}
+      {/* 标签清单与注解预览：仅在「检查」通过后出现（辅助反馈，不参与门禁） */}
+      <RuleInspectPanel state={inspectState} rules={inspectRules} error={inspectError} />
       {submitError && (
         <Alert
           type="error"

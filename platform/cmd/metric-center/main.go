@@ -332,6 +332,11 @@ func registerPlatformConfigRoutes(g *gin.RouterGroup, promURL *url.URL, snippetC
 	// （实例候选/安装确认/预览）+ 规则挂载 + 技术指标库，均在 /api/v2/platform/* 下。
 	strategy.RegisterRoutes(platform, db.DB)
 
+	// M01 规则编辑期只读探查（2026-10-13）：规则表达式可用标签清单 + 注解预览。
+	// 实现与 M02 查询代理同源（需实查中心 Prometheus），故注册在 query 包；
+	// 路径独立于 /monitoring-rules* 以避开 Gin 同层通配冲突（见 RegisterRuleInspectRoutes 注释）。
+	query.RegisterRuleInspectRoutes(platform, promURL)
+
 	// Module 09 (T09-07 收口): 网域与边缘配置中心——网域监控纳管、配置草稿、
 	// 配置版本与下发记录（含 retry/rollback），统一挂载到 /api/v2/platform/*。
 	// 旧 /api/v2/platform/config/preview|apply 占位在此收敛（实现在 configcenter/draft、deployment）。

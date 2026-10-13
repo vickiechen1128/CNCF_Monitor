@@ -10,6 +10,7 @@ import { ApiError } from '../../api/client'
 const createMock = vi.fn()
 const updateMock = vi.fn()
 const validateYamlMock = vi.fn()
+const inspectRuleLabelsMock = vi.fn()
 const triggerAllMock = vi.fn()
 
 vi.mock('../../api/monitoringRules', () => ({
@@ -17,6 +18,7 @@ vi.mock('../../api/monitoringRules', () => ({
     create: (...args: unknown[]) => createMock(...args),
     update: (...args: unknown[]) => updateMock(...args),
     validateYaml: (...args: unknown[]) => validateYamlMock(...args),
+    inspectRuleLabels: (...args: unknown[]) => inspectRuleLabelsMock(...args),
   },
 }))
 
@@ -29,7 +31,11 @@ beforeEach(() => {
   createMock.mockReset()
   updateMock.mockReset()
   validateYamlMock.mockReset()
+  inspectRuleLabelsMock.mockReset()
   triggerAllMock.mockReset()
+  // 标签探查默认返回一个「无规则」结果：多数用例只关心检查/提交门禁，
+  // 需要断言探查内容的用例各自覆盖（见 describe('规则可用标签清单与注解预览')）。
+  inspectRuleLabelsMock.mockResolvedValue({ status: 'success', data: { rules: [] } })
 })
 
 describe('validateYamlClient', () => {
@@ -439,5 +445,125 @@ describe('RuleMountDrawer', () => {
     expect((screen.getByTestId('rule-content') as HTMLTextAreaElement).value).toBe(
       'groups:\n  - name: g\n    rules:\n      - alert: A',
     )
+  })
+})
+
+
+// describe('规则可用标签清单与注解预览', ...) —— 2026-10-13 新增能力。
+// 背景：拨测告警暴露的编辑期反馈缺失——用户写 {{ $labels.instance }} 时无从得知
+// 该 expr 能取到哪些标签、模板会渲染成什么，猜错就以为「取不到实例 IP」。
+describe('规则可用标签清单与注解预览', () => {
+  setupAntdTest()
+
+  const CHECK = '检查'
+  const RULE_YAML = `groups:
+  - name: edge_blackbox_alerts
+    rules:
+      - alert: BlackboxProbeFailed
+        expr: probe_success{job="bx-nginx-02"} == 0
+        annotations:
+          summary: '业务拨测失败：{{ $labels.instance }}'
+`
+
+  function renderDrawer() {
+    render(
+      <MemoryRouter>
+        <RuleMountDrawer open onCancel={() => {}} onSuccess={() => {}} />
+      </MemoryRouter>,
+    )
+  }
+
+  /** 填入规则内容并点「检查」（与既有用例一致：getByText + fireEvent.click） */
+  async function check() {
+    fireEvent.change(screen.getByTestId('rule-content'), { target: { value: RULE_YAML } })
+    fireEvent.click(screen.getByText(CHECK))
+  }
+
+  beforeEach(() => {
+    validateYamlMock.mockResolvedValue({ status: 'success', data: { valid: true, job_ref: [] } })
+  })
+
+  it('展示真实匹配序列的可用标签与注解渲染结果', async () => {
+    inspectRuleLabelsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        rules: [
+          {
+            group: 'edge_blackbox_alerts',
+            rule: 'BlackboxProbeFailed',
+            kind: 'alert',
+            expr: 'probe_success{job="bx-nginx-02"} == 0',
+            series_count: 2,
+            labels: [
+              { key: 'instance', values: ['10.10.1.4', '172.16.1.2'] },
+              { key: 'job', values: ['bx-nginx-02'] },
+            ],
+            summary_template: '业务拨测失败：{{ $labels.instance }}',
+            summary_preview: '业务拨测失败：10.10.1.4',
+          },
+        ],
+      },
+    })
+    renderDrawer()
+    await check()
+
+    await waitFor(() => expect(screen.getByTestId('rule-inspect-panel')).toBeInTheDocument())
+    expect(inspectRuleLabelsMock).toHaveBeenCalledWith(RULE_YAML)
+    // 可用标签键来自真实序列
+    expect(screen.getByText(/instance=10.10.1.4/)).toBeInTheDocument()
+    expect(screen.getByText(/job=bx-nginx-02/)).toBeInTheDocument()
+    // 注解模板与渲染结果同时可见（这是本次缺陷在编辑期的对应面）
+    expect(screen.getByText('业务拨测失败：{{ $labels.instance }}')).toBeInTheDocument()
+    expect(screen.getByText('业务拨测失败：10.10.1.4')).toBeInTheDocument()
+  })
+
+  it('探查失败降级为提示，不影响检查通过与提交按钮出现', async () => {
+    inspectRuleLabelsMock.mockRejectedValue(new ApiError('boom', 500, 'internal', '标签探查失败'))
+    renderDrawer()
+    await check()
+
+    await waitFor(() => expect(screen.getByText('标签清单暂不可用')).toBeInTheDocument())
+    expect(screen.getByText('提交并进入变更确认')).toBeInTheDocument()
+  })
+
+  it('无匹配序列时明确告知，不编造标签清单', async () => {
+    inspectRuleLabelsMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        rules: [
+          {
+            group: 'g',
+            rule: 'BlackboxProbeFailed',
+            kind: 'alert',
+            expr: 'probe_success{job="nope"} == 0',
+            series_count: 0,
+            labels: [],
+            note: '该表达式当前没有匹配到序列（指标可能尚未产生样本），标签清单暂不可用',
+            summary_template: '业务拨测失败：{{ $labels.instance }}',
+          },
+        ],
+      },
+    })
+    renderDrawer()
+    await check()
+
+    await waitFor(() => expect(screen.getByTestId('rule-inspect-panel')).toBeInTheDocument())
+    expect(screen.getByText(/没有匹配到序列/)).toBeInTheDocument()
+  })
+
+  it('promtool 不可用时给出提示但不阻断提交', async () => {
+    validateYamlMock.mockResolvedValue({
+      status: 'success',
+      data: {
+        valid: true,
+        job_ref: [],
+        promql_check: { status: 'unavailable', message: '未找到 promtool，已跳过 PromQL 语义校验' },
+      },
+    })
+    renderDrawer()
+    await check()
+
+    await waitFor(() => expect(screen.getByText(/未找到 promtool/)).toBeInTheDocument())
+    expect(screen.getByText('提交并进入变更确认')).toBeInTheDocument()
   })
 })

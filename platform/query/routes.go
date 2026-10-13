@@ -27,3 +27,17 @@ func RegisterRoutes(g *gin.RouterGroup, db *gorm.DB, promURL *url.URL) {
 	g.GET("/alerts", AlertsHandler(db, promURL, client))
 	g.GET("/alerts/history", AlertsHistoryHandler(db, promURL, client))
 }
+
+// RegisterRuleInspectRoutes 挂载规则编辑期的**只读探查**接口到平台组
+// （POST /api/v2/platform/monitoring-rule-labels，2026-10-13）。
+//
+// 与 M01 规则 CRUD（platform/strategy/rule，注册在 /monitoring-rules*）分开放置，原因有二：
+//   - 实现依赖中心 Prometheus 查询代理能力（labels / 注解预览都要实查真实序列），
+//     与本包同源，避免把 promURL 依赖穿透到 strategy 包；
+//   - 路径**不能**是 /monitoring-rules/inspect-labels——同层已有 /monitoring-rules/:id
+//     通配路由，Gin 不允许静态段与通配段并存于同一层级（同类规避见 resource/routes.go
+//     的 /os-options 注释）。
+func RegisterRuleInspectRoutes(platform *gin.RouterGroup, promURL *url.URL) {
+	client := &http.Client{Timeout: PrometheusTargetsTimeout}
+	platform.POST("/monitoring-rule-labels", InspectRuleLabelsHandler(promURL, client))
+}
