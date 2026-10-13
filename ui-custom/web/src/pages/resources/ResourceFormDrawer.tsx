@@ -361,6 +361,11 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
   // §5.2 必填口径：application / database / middleware 必填，host / generic_target 可空
   const appCodeRequired =
     displayCategory === 'application' || displayCategory === 'database' || displayCategory === 'middleware'
+  // 决策 F（§5.2）：cluster 必填规则同 app_code —— application / database / middleware 必填，
+  // host / generic_target 放开为可空（SNMP 交换机等设备类无集群归属，强制必填会逼填假数据污染
+  // cluster 标签；空值不注入标签，见 5.15 规则 4）。与后端 validate.go 的三处 cluster 必填校验同口径，
+  // 否则用户在必填类提交空 cluster 会撞后端 400 且前端无任何提示（静默失败）。
+  const clusterRequired = appCodeRequired
 
   /**
    * {v2026-09-28 决策 110 ④} 表单级联：**先选平台 → 再选应用（按所选平台过滤）→ 再选服务**。
@@ -600,8 +605,14 @@ export function ResourceFormDrawer({ open, mode, category, record, onCancel, onS
       </Row>
       <Row gutter={16}>
         <Col span={12}>
-          <Form.Item label="集群" name="cluster">
-            <Input placeholder="集群名（可选）" maxLength={64} />
+          <Form.Item
+            label="集群"
+            name="cluster"
+            rules={clusterRequired ? [{ required: true, message: '请填写集群' }] : []}
+          >
+            {/* 决策 F（§5.2）：placeholder 与必填口径同步分化——可空类才标「可选」，
+                必填类标「可选」会与 rules 自相矛盾 */}
+            <Input placeholder={clusterRequired ? '请填写集群' : '集群名（可选）'} maxLength={64} />
           </Form.Item>
         </Col>
         {/* 决策 103 scheme-B：表单不再提供「云」录入项——

@@ -84,13 +84,11 @@ describe('TemplateDownloadModal', () => {
   })
 
   it('differentiates required-field guidance per category (F-22)', () => {
-    // host：业务与应用均可留空，且给出 zone_env 兼容列不作分区依据的说明
+    // host：业务与应用均可留空
     const host = renderModal({ category: 'host' })
     expect(host.getByText(/所属业务（biz_code，导入后再补）/)).toBeInTheDocument()
     expect(host.getByText(/所属应用（app_code）/)).toBeInTheDocument()
-    expect(
-      host.getByText(/「可用区」列（zone_env）仅为兼容旧模板保留，平台不按它分区，分区依据是所属网域/),
-    ).toBeInTheDocument()
+    expect(host.getByText(/可留空：主机别名（hostname，与主机名二选一填一个即可）、所属集群（cluster）、负责人（owner）/)).toBeInTheDocument()
     // 原泛化文案（五类共用）已移除
     expect(host.queryByText('所属业务（必填）、所属应用（可选）')).toBeNull()
     host.unmount()
@@ -117,6 +115,21 @@ describe('TemplateDownloadModal', () => {
     const genericTarget = renderModal({ category: 'generic_target' })
     expect(genericTarget.getByText(/^必填二选一：所属业务（biz_code）与所属应用（app_code）两个里至少填一个，两个都留空会导入失败$/)).toBeInTheDocument()
     genericTarget.unmount()
+  })
+
+  // 回归护栏：主机历史「可用区」列（zone_env）已由 chenrt 裁定废弃并从后端模板移除
+  // （commit a260a39：TemplateColumns[host] 14→13 列），前端提示不得再介绍它——
+  // 继续介绍会误导用户去找一个不存在的列。分区权威值是所属网域，由网域提示承担。
+  it('不再出现已废弃的 zone_env / 可用区字样（F-22 清理护栏，五类逐一校验）', () => {
+    const categories: ResourceCategory[] = ['host', 'database', 'middleware', 'application', 'generic_target']
+    categories.forEach((category) => {
+      const view = renderModal({ category })
+      // antd Modal 渲染在 document.body 的 portal 中，故取 body 文本而非 view.container
+      const text = document.body.textContent ?? ''
+      expect(text).not.toMatch(/zone_env/)
+      expect(text).not.toMatch(/可用区/)
+      view.unmount()
+    })
   })
 
   it('differentiates business/application column scope per category (F-22)', () => {

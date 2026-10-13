@@ -57,7 +57,6 @@ export interface Host extends ResourceBaseShape {
   instance_name: string
   cluster: string
   region: string
-  zone_env: 'INT' | 'GOV'
   instance_spec: string
   vcpu: number
   memory_gb: number

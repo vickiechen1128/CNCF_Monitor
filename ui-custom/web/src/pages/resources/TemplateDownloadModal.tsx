@@ -33,7 +33,6 @@ const FILLING_TIPS: Record<ResourceCategory, string[]> = {
     '必填：主机名（instance_name）、IP 地址（instance_ip，填 IPv4）、操作系统（os_type）',
     '可留空：所属业务（biz_code，导入后再补）、所属应用（app_code）、所属平台（platform_code，留空按所属应用的默认平台归属）',
     '可留空：主机别名（hostname，与主机名二选一填一个即可）、所属集群（cluster）、负责人（owner）',
-    '主机模板里的「可用区」列（zone_env）仅为兼容旧模板保留，平台不按它分区，分区依据是所属网域',
   ],
   database: [
     '必填：数据库类型（database_type）、IP 地址（instance_ip，填 IPv4）、端口（port）',
@@ -105,7 +104,9 @@ interface TemplateDownloadModalProps {
  *
  * F-22：填写要点（FILLING_TIPS）与业务/应用取值范围（DICT_SCOPE_HINTS）均按 category 分化，
  * 与后端真实必填口径逐条对齐；网域提示同时说明「表单必填 / 导入留空归入 default / default
- * 未登记则导入失败」三件事；主机模板的 zone_env 兼容列标明不作分区依据。
+ * 未登记则导入失败」三件事。
+ * 主机历史「可用区」列已由 chenrt 裁定废弃并从模板移除，故此处不再作任何介绍——
+ * 继续描述会误导用户去找一个不存在的列；分区依据只看所属网域（上方网域提示已说明）。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md §5.16/§6.1
  */
 export function TemplateDownloadModal({
