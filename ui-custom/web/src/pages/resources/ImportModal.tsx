@@ -49,12 +49,37 @@ interface ImportModalProps {
   onSuccess?: () => void
 }
 
+/** 存在「未登记 / 已停用」字典可达性判定的字段（业务/应用/服务/平台/网域五维度） */
+const PENDING_REGISTRATION_FIELDS = new Set([
+  'biz_code',
+  'app_code',
+  'service_code',
+  'platform_code',
+  'network_domain_id',
+])
+
 /**
- * 待登记清单判定（决策 97）：业务/应用未登记且未在声明 sheet 申报时，后端 reason 含
- * 「未登记」且指向业务/应用（网域未登记文案不含业务/应用字样，不命中），错误行渲染可执行指引。
+ * 待登记清单判定（决策 97）：字典维度值未在平台侧登记、且未在文件声明 sheet 申报时，
+ * 错误行渲染 warning 高亮 + 可执行指引（去平台侧登记，或在声明 sheet 补充后重新导入）。
+ *
+ * 判定按「错误字段 + reason 语义」两段：
+ * - 首选 field：后端五处未登记文案分别落在 network_domain_id / biz_code / app_code /
+ *   service_code / platform_code 五个字段上（models.ImportErrorDetail.Field），
+ *   命中字段即认为该行属于待登记清单；
+ * - field 为空/缺失时回退 reason 语义（整批拒绝类错误无字段），避免漏判。
+ *
+ * 排除项（保持与后端文案分流一致）：
+ * - 「已停用」语义是「去管理页启用」而非「去登记」，不命中；
+ * - platform_code 与所属应用的自洽校验（「不属于应用 X 的关联平台」）不命中。
+ * 两者后端文案均不含「未登记」，由首个条件天然排除，此处显式短路只是加固不变量。
  */
-function isPendingRegistrationReason(reason?: string): boolean {
-  return !!reason && reason.includes('未登记') && /业务|应用/.test(reason)
+function isPendingRegistrationError(error?: { field?: string; reason?: string }): boolean {
+  const reason = error?.reason ?? ''
+  if (!reason.includes('未登记')) return false
+  if (reason.includes('已停用')) return false
+  const field = error?.field?.trim()
+  if (field) return PENDING_REGISTRATION_FIELDS.has(field)
+  return /业务|应用|服务|平台|网域/.test(reason)
 }
 
 /**
@@ -62,7 +87,7 @@ function isPendingRegistrationReason(reason?: string): boolean {
  * - 文件上传 + 导入模式选择（默认 create_only）+ 提交 loading 防重复；
  * - 上传区下方提供次级「下载当前资源类型模板」文字链接，直接触发下载（复用 handleDownloadTemplate）；
  * - 导入结果展示 total/success/updated/failed 统计 + 错误行 Table（行号/字段/值/原因，§5.16.3）；
- * - 错误文案透传后端引导；reason 命中待登记清单（业务/应用未登记且未声明）时高亮可执行指引。
+ * - 错误文案透传后端引导；命中待登记清单（业务/应用/服务/平台/网域未登记且未声明）时高亮可执行指引。
  * 参见 docs/02-product-requirements/Modules/Module_07_Monitoring_Object_Management.md
  */
 export function ImportModal({ open, category, onCancel, onSuccess }: ImportModalProps) {
@@ -135,11 +160,12 @@ export function ImportModal({ open, category, onCancel, onSuccess }: ImportModal
       title: '原因',
       dataIndex: 'reason',
       key: 'reason',
-      render: (v?: string) => {
+      render: (v: string | undefined, record: ImportError) => {
         if (!v) return '-'
-        // 命中待登记清单（业务/应用未登记且未声明，决策 97）：warning 高亮 + 图标，
-        // 可执行指引在后端 reason 文案内（「请到『业务管理』/『应用管理』页登记，或在文件声明 sheet 补充后重新导入」），前后端一致
-        if (isPendingRegistrationReason(v)) {
+        // 命中待登记清单（业务/应用/服务/平台/网域未登记且未声明，决策 97）：warning 高亮 + 图标，
+        // 可执行指引在后端 reason 文案内（「请到『业务管理』/『应用管理』/『服务管理』/『平台管理』页登记，
+        // 或在文件声明 sheet 补充后重新导入」），前后端一致
+        if (isPendingRegistrationError(record)) {
           return (
             <Space size={4}>
               <WarningOutlined style={{ color: tokens.colorWarning }} />

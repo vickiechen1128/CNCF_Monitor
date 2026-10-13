@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { mockAntdMessage, type MockedMessage } from '../../test/antdTestUtils'
 import { ImportModal } from './ImportModal'
-import type { ImportResult, ResourceCategory } from '../../types/resource'
+import type { ImportError, ImportResult, ResourceCategory } from '../../types/resource'
 
 const templateMock = vi.fn()
 const importExcelMock = vi.fn()
@@ -202,6 +202,175 @@ describe('ImportModal', () => {
     ).toBeInTheDocument()
     // @ant-design/icons 渲染 role=img aria-label=warning；两行均命中待登记清单
     expect(screen.getAllByRole('img', { name: 'warning' }).length).toBeGreaterThanOrEqual(2)
+  })
+
+  // 待登记清单五维度覆盖（业务/应用/服务/平台/网域）与排除项护栏。
+  // 判定依据是错误字段 field + reason 语义（不再靠 reason 里是否含「业务/应用」二字），
+  // 因此服务/平台/网域三类未登记同样命中 warning 高亮与可执行指引。
+  const PENDING_HIT_CASES: { name: string; error: ImportError }[] = [
+    {
+      name: '业务未登记',
+      error: {
+        row: 2,
+        resource_category: 'host',
+        field: 'biz_code',
+        value: 'legacy',
+        reason: '业务 legacy 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入',
+      },
+    },
+    {
+      name: '应用未登记',
+      error: {
+        row: 3,
+        resource_category: 'application',
+        field: 'app_code',
+        value: 'ghost-app',
+        reason: '应用 ghost-app 未登记且未在声明 sheet 声明，请在『应用管理』页登记，或在本文件『应用声明』sheet 补充后重新导入',
+      },
+    },
+    {
+      name: '服务未登记',
+      error: {
+        row: 4,
+        resource_category: 'application',
+        field: 'service_code',
+        value: 'ghost-svc',
+        reason: '服务 ghost-svc 未登记且未在声明 sheet 声明，请在『服务管理』页登记，或在本文件『服务声明』sheet 补充后重新导入',
+      },
+    },
+    {
+      name: '平台未登记',
+      error: {
+        row: 5,
+        resource_category: 'application',
+        field: 'platform_code',
+        value: 'no-such-platform',
+        reason: '平台 no-such-platform 未登记且未在声明 sheet 声明，请在『平台管理』页登记，或在本文件『平台声明』sheet 补充后重新导入',
+      },
+    },
+    {
+      name: '网域未登记',
+      error: {
+        row: 6,
+        resource_category: 'host',
+        field: 'network_domain_id',
+        value: 'ghost',
+        reason: '网域 ghost 未登记，请先到『系统设置 → 网域管理』登记后重新导入',
+      },
+    },
+  ]
+
+  const PENDING_MISS_CASES: { name: string; error: ImportError }[] = [
+    {
+      name: '应用已停用（引导启用，非待登记）',
+      error: {
+        row: 7,
+        resource_category: 'application',
+        field: 'app_code',
+        value: 'old-app',
+        reason: '应用 old-app 已停用，请在『应用管理』页启用后重新导入',
+      },
+    },
+    {
+      name: '平台已停用（引导启用，非待登记）',
+      error: {
+        row: 8,
+        resource_category: 'application',
+        field: 'platform_code',
+        value: 'old-platform',
+        reason: '平台 old-platform 已停用，请在『平台管理』页启用后重新导入',
+      },
+    },
+    {
+      name: '服务已停用（引导启用，非待登记）',
+      error: {
+        row: 9,
+        resource_category: 'application',
+        field: 'service_code',
+        value: 'old-svc',
+        reason: '服务 old-svc 已停用，请在『服务管理』页启用后重新导入',
+      },
+    },
+    {
+      name: '平台自洽校验失败（非待登记）',
+      error: {
+        row: 10,
+        resource_category: 'application',
+        field: 'platform_code',
+        value: 'platform-b',
+        reason: '平台 platform-b 不属于应用 app-a 的关联平台',
+      },
+    },
+    {
+      name: '普通字段错误（非待登记）',
+      error: {
+        row: 11,
+        resource_category: 'host',
+        field: 'instance_ip',
+        value: '999.1.1.1',
+        reason: 'IP 非法',
+      },
+    },
+  ]
+
+  /** 提交一次导入并返回结果态 DOM，errors 为本次导入的错误行 */
+  async function submitWithErrors(errors: ImportError[]) {
+    importExcelMock.mockResolvedValue({
+      status: 'success',
+      data: importResult({ total: errors.length, success: 0, updated: 0, failed: errors.length, errors }),
+    })
+    renderModal()
+    selectFile()
+    await screen.findByText('hosts.xlsx')
+    fireEvent.click(screen.getByRole('button', { name: /开始导入/ }))
+    await screen.findByText('导入完成')
+  }
+
+  it.each(PENDING_HIT_CASES)('待登记清单高亮：$name', async ({ error }) => {
+    await submitWithErrors([error])
+    expect(screen.getByText(error.reason)).toBeInTheDocument()
+    // 命中待登记清单：warning 图标 + warning 高亮（可执行指引）
+    expect(screen.getAllByRole('img', { name: 'warning' }).length).toBe(1)
+  })
+
+  it.each(PENDING_MISS_CASES)('非待登记（普通错误行）：$name', async ({ error }) => {
+    await submitWithErrors([error])
+    expect(screen.getByText(error.reason)).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'warning' })).toBeNull()
+  })
+
+  it('field 缺失/为空时回退 reason 语义兜底判定', async () => {
+    // field 为空串（后端整批拒绝类错误可能无字段）→ 仍需按 reason 语义命中
+    await submitWithErrors([
+      {
+        row: 2,
+        resource_category: 'host',
+        field: '',
+        value: 'legacy',
+        reason: '业务 legacy 未登记且未在声明 sheet 声明，请在『业务管理』页登记，或在本文件『业务声明』sheet 补充后重新导入',
+      },
+    ])
+    expect(screen.getAllByRole('img', { name: 'warning' }).length).toBe(1)
+  })
+
+  it('field 缺失且 reason 为已停用 / 平台自洽文案时不命中（兜底路径同样守排除项）', async () => {
+    await submitWithErrors([
+      {
+        row: 2,
+        resource_category: 'application',
+        field: '',
+        value: 'old-app',
+        reason: '应用 old-app 已停用，请在『应用管理』页启用后重新导入',
+      },
+      {
+        row: 3,
+        resource_category: 'application',
+        field: '',
+        value: 'platform-b',
+        reason: '平台 platform-b 不属于应用 app-a 的关联平台',
+      },
+    ])
+    expect(screen.queryByRole('img', { name: 'warning' })).toBeNull()
   })
 
   it('shows submit error Alert with backend guidance text', async () => {
